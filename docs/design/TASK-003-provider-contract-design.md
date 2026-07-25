@@ -95,12 +95,22 @@ tests/test_manual_provider.py                 # 四阶段行为/文件系统禁�
 
 ```python
 JsonInputValue: TypeAlias = (
-    None | bool | int | float | str
-    | list["JsonInputValue"] | dict[str, "JsonInputValue"]
+    None
+    | bool
+    | int
+    | float
+    | str
+    | list["JsonInputValue"]
+    | dict[str, "JsonInputValue"]
 )
 FrozenJsonValue: TypeAlias = (
-    None | bool | int | float | str
-    | tuple["FrozenJsonValue", ...] | Mapping[str, "FrozenJsonValue"]
+    None
+    | bool
+    | int
+    | float
+    | str
+    | tuple["FrozenJsonValue", ...]
+    | Mapping[str, "FrozenJsonValue"]
 )
 ```
 
@@ -244,12 +254,13 @@ Mapping → 新 dict；tuple → 新 list；标量原样复制。得到普通 di
 
 ```python
 class ArtifactOrigin(str, Enum):
-    USER = "user"          # 用户人工产生
+    USER = "user"  # 用户人工产生
     PROVIDER = "provider"  # Provider 自动产生
+
 
 class ArtifactLocation(str, Enum):
     EXTERNAL = "external"  # 外部系统或外部工具中的引用
-    STAGING = "staging"    # 调用方分配的 staging 位置
+    STAGING = "staging"  # 调用方分配的 staging 位置
 ```
 
 来源与位置是不同概念，两维正交，不压成同一维度的互斥值。
@@ -499,8 +510,7 @@ class VideoProvider(ABC):
         request: ProviderRequest,
         *,
         observed_at: datetime,
-    ) -> ProviderResult:
-        ...
+    ) -> ProviderResult: ...
 
     @abstractmethod
     def submit(
@@ -509,8 +519,7 @@ class VideoProvider(ABC):
         prepared: ProviderResult,
         *,
         observed_at: datetime,
-    ) -> ProviderResult:
-        ...
+    ) -> ProviderResult: ...
 
     @abstractmethod
     def poll(
@@ -520,8 +529,7 @@ class VideoProvider(ABC):
         *,
         observed_at: datetime,
         reported_artifact: ArtifactReference | None = None,
-    ) -> ProviderResult:
-        ...
+    ) -> ProviderResult: ...
 
     @abstractmethod
     def collect(
@@ -532,8 +540,7 @@ class VideoProvider(ABC):
         artifact: ArtifactReference | None = None,
         observed_at: datetime,
         completed_at: datetime | None = None,
-    ) -> ProviderResult:
-        ...
+    ) -> ProviderResult: ...
 ```
 
 ### 9.2 显式状态快照传递与 `_validate_alignment`
