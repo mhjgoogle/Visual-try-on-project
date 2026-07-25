@@ -16,7 +16,9 @@
 
 - 创建 venv、`pyproject.toml`、`src/` 包结构、测试框架、格式化与静态检查配置；
 - 实现核心数据模型：Project、Character、Scene、Shot、GenerationTask、VideoAsset，
-  以及结构化文件（JSON/YAML）的读写与校验；
+  以及 JSON 结构化文件的读写与校验（确定性输出、反序列化与验证）；
+  **只实现 JSON**：YAML 不属于阶段 1，是否支持留到未来有明确使用场景时
+  单独决定，不为 YAML 引入依赖；
 - 为 Provider 提供其将依赖的基础数据模型与通用标识；
   **本阶段不定义 VideoProvider 接口**（接口在阶段 2 确定）；
 - 确定项目数据目录结构并记录 ADR。
