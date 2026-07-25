@@ -31,9 +31,10 @@ Codex 第一轮预实施审查结论为**有条件通过**，其审查问题已�
 （正式设计文档门槛、ArtifactReference 两维语义、七状态矩阵、异常与 FAILED
 结果分工、Provider 参数不可变与 JSON-compatible 约束、四阶段文件系统禁令
 测试）。Codex 第二轮窄范围复审提出的唯一剩余问题——`observed_at` 与
-`completed_at` 的语义和时序关系——已在本次修订中补充（见"ProviderResult
-要求"的时间字段语义）。本任务规格仍需最终窄范围复审通过后才能提交为
-规格基线。
+`completed_at` 的语义和时序关系——已补充（见"ProviderResult 要求"的
+时间字段语义）。本任务规格已通过最终窄范围复审并提交为规格基线
+（`0e581d1`）；正式设计文档已通过 Codex 预实施审查并提交
+（`cc9ae6a`），编码门槛已开启（见"编码门槛"与"预实施审查记录"）。
 
 本任务工作分支：`feat/task-003-video-provider`。
 
@@ -46,16 +47,14 @@ ManualVideoProvider，使用户可以获得明确的视频生成操作说明，�
 
 ## 编码门槛
 
-以下门槛必须**按顺序全部满足**后才能开始编码；在此之前本任务保持
-planned，不得先编码后补设计文档：
+以下门槛必须**按顺序全部满足**后才能开始编码，现已全部满足：
 
 1. architecture.md §4 完成同步修订（已完成）；
-2. TASK-003 任务规格通过审查（第一轮有条件通过、第二轮复审问题已在本版
-   补充，仍需最终窄范围复审通过）；
+2. TASK-003 任务规格通过审查（已通过）；
 3. 创建正式设计文档 `docs/design/TASK-003-provider-contract-design.md`
-   （内容要求见"预实施设计文档要求"；本轮不创建）；
-4. 该设计文档通过 Codex 预实施审查；
-5. 以上全部完成后方可开始编码。
+   （已创建，内容要求见"预实施设计文档要求"）；
+4. 该设计文档通过 Codex 预实施审查（已通过，批准基线 `cc9ae6a`）；
+5. 编码门槛已开启，实施可以开始。
 
 ## 范围内
 
@@ -684,15 +683,27 @@ Codex（独立审查，不直接修改实施文件，审查意见记录到本文
   参数 JSON-compatible 与不可变约束、四阶段文件系统禁令测试、验收标准
   明确为 14 条；
 - 第二轮窄范围复审：唯一剩余问题为 `observed_at` 与 `completed_at` 的
-  语义和时序关系，已在本次修订中补充（时间字段语义、状态矩阵补充
-  不变量、设计文档要求与测试要求同步更新）；
-- 下一步：最终窄范围复审通过后提交规格基线；随后创建
-  `docs/design/TASK-003-provider-contract-design.md` 并提交 Codex
-  预实施审查（见"编码门槛"）。
+  语义和时序关系，已补充（时间字段语义、状态矩阵补充不变量、设计文档
+  要求与测试要求同步更新）并通过最终窄范围复审，规格已提交为基线
+  （`0e581d1`）；
+- 设计文档审查：`docs/design/TASK-003-provider-contract-design.md`
+  第一轮不通过（2 个阻塞、5 个重要问题），r2 修订逐项关闭后通过
+  Codex 预实施审查；
+- architecture responsibility boundary synchronized
+- task specification review: passed
+- provider contract design review: passed
+- approved design document:
+  docs/design/TASK-003-provider-contract-design.md
+- approved design commit: `cc9ae6a`
+- implementation agent: Claude Code
+- review agent: Codex
+- coding gate: open
+- no implementation code exists yet
 
 ## 当前状态
 
-planned（设计文档通过 Codex 预实施审查前不得开始编码，见"编码门槛"）
+approved — ready for implementation（编码门槛已全部满足，见"编码门槛"
+与"预实施审查记录"；尚无任何实施代码）
 
 ## 尚待后续任务决定的事项
 

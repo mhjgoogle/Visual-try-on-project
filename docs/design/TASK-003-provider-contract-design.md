@@ -1,14 +1,25 @@
 # TASK-003 设计文档：VideoProvider 契约与 ManualVideoProvider
 
-- Status: awaiting Codex pre-implementation review
+- Status: approved — ready for implementation
 - Revision: r2（逐项关闭 Codex 第一轮设计审查的 2 个阻塞与 5 个重要问题）
 - Task: [TASK-003](../tasks/TASK-003-video-provider-contract-and-manual-provider.md)
 - Baseline: branch `feat/task-003-video-provider`, HEAD `0e581d1`
   （architecture.md §4 已同步"Provider 不扫描目录"边界）
 
+审查记录：
+
+- review agent: Codex
+- review result: passed
+- design revision: r2
+- approved design baseline:
+  `cc9ae6a docs: approve TASK-003 provider contract design`
+- implementation may begin
+- implementation agent: Claude Code
+- final implementation review agent: Codex
+
 本文档是 TASK-003 编码门槛第 3 项要求的正式预实施设计记录。持久性设计
-决定以本文档为准；PR 描述只作补充，不构成正式设计记录。本文档通过
-Codex 预实施审查前不得开始编码。
+决定以本文档为准；PR 描述只作补充，不构成正式设计记录。本文档已通过
+Codex 预实施审查，实施可以开始。
 
 ## 1. 接口形式：abc.ABC
 
