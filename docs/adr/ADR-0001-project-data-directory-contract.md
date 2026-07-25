@@ -1,7 +1,9 @@
 # ADR-0001: Project Data Directory Contract
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-07-26
+- Accepted: 2026-07-26 after Step G independent review and TASK-002 final
+  acceptance checks passed.
 
 ## Context
 

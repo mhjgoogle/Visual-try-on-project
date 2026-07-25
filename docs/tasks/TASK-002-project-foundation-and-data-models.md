@@ -414,9 +414,74 @@ Claude Code（独立审查，不直接修改实施文件，审查意见记录到
 - implementation agent: Codex
 - review agent: Claude Code
 
+## 实施记录
+
+- implementation agent: Codex
+- review agent: Claude Code
+- Python minimum version: 3.10
+- distribution name: `ai-video-workflow`
+- import package: `ai_video_workflow`
+- data model approach: 标准库 `dataclasses`，模型间仅通过稳定 ID 引用
+- build backend: `setuptools.build_meta`
+- quality tools: Ruff and pytest
+- deterministic JSON contract: UTF-8、`ensure_ascii=False`、键排序、两空格缩进、
+  禁止非有限浮点，末尾恰好一个换行；UTC datetime 固定六位微秒和 `+00:00`
+- atomic persistence strategy: 同目录临时文件写入、flush 与 fsync；默认通过
+  POSIX hard link 原子 no-replace 发布，显式覆盖通过 `os.replace` 原子替换；
+  临时文件清理为不掩盖主要结果的 best-effort
+- ProjectData validation boundary: 单项目内存快照；检查各实体类型 ID 唯一性、
+  项目归属、跨模型引用和 Task–Asset `shot_id` 一致性；显式路径加载，不扫描、
+  不写入、不承担 Orchestrator 职责
+- ADR-0001 and example project location:
+  `docs/adr/ADR-0001-project-data-directory-contract.md`（Accepted）与
+  `examples/projects/minimal/`
+- actual final test count: 414 passed；示例项目专项 48 passed
+- final acceptance result: passed（Python 3.10.12 全新临时 venv 中 editable install、
+  仓库外 import、pip check、Ruff format、Ruff lint 和完整测试全部通过）
+- scope boundary: 未实现 Provider、ProviderResult、Orchestrator、API、FFmpeg、
+  digest、缓存、自动断点续跑、数据库、Web UI、Docker、QCD 写入或 YAML
+- review status: awaiting Claude Code independent final review
+
+### 实施提交
+
+- `7ffeff6 chore: establish Python project foundation`
+- `1ad19de feat: add core validation and error types`
+- `e6249c3 feat: add core project data models`
+- `19cc1e1 feat: add step manifest data model`
+- `4fcf1b6 feat: add deterministic JSON persistence`
+- `aefa58a feat: add project-level reference validation`
+- `0923947 docs: define project data directory contract`
+
+### 最终验收结果
+
+1. passed — WSL2 Ubuntu 的全新 Python 3.10 venv 可完成 editable install，并可从
+   仓库外导入当前仓库 `src/ai_video_workflow`。
+2. passed — README 的 Ruff format、Ruff lint 和 pytest 命令可直接执行。
+3. passed — 六个核心模型与 StepManifest 的 dict、JSON 字符串及文件往返测试通过。
+4. passed — JSON、缺失字段、字段类型、局部不变量和跨模型引用错误类别可区分。
+5. passed — 默认文件发布使用 no-replace 语义，已有文件保持不变。
+6. passed — 写入、fsync、link 和 replace 失败路径不会发布半成品正式文件。
+7. passed — StepManifest 包含 architecture.md §8 的全部字段及最低不变量。
+8. passed — GenerationTask 不包含 QCD 事件、历史或汇总字段。
+9. passed — 最小示例项目可显式加载并通过全部项目级引用验证。
+10. passed — ADR-0001 只定义长期项目数据目录契约。
+11. passed — 未实现 VideoProvider、Orchestrator、API 或 FFmpeg。
+12. passed — 全量 414 项测试通过。
+13. passed — 从规格基线审计的改动均在 TASK-002 预计影响范围内。
+
+## 最终审查记录
+
+- final reviewer: Claude Code
+- final review result: passed
+- blocking findings: 0
+- important findings: 0
+- final acceptance tests: 414 passed
+- ADR-0001 status: Accepted
+- completed after independent final review
+
 ## 当前状态
 
-approved — ready for implementation
+completed
 
 ## 尚待阶段 2 决定的事项
 
