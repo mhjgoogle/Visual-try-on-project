@@ -1,0 +1,15 @@
+{
+  "character_ids": [
+    "character-001"
+  ],
+  "created_at": "2026-07-26T00:00:00.000000+00:00",
+  "description": "A medium view as Ari pauses on the platform.",
+  "duration_seconds": 3.5,
+  "frame_rate": 24.0,
+  "height": 1080,
+  "prompt": "Medium shot of Ari pausing on an empty station platform.",
+  "scene_id": "scene-001",
+  "sequence": 2,
+  "shot_id": "shot-002",
+  "width": 1920
+}

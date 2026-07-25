@@ -1,0 +1,15 @@
+{
+  "character_ids": [
+    "character-001"
+  ],
+  "created_at": "2026-07-26T00:00:00.000000+00:00",
+  "description": "Locally valid shot with a missing project-level scene reference.",
+  "duration_seconds": 2.0,
+  "frame_rate": 24.0,
+  "height": 1080,
+  "prompt": "A locally valid test shot.",
+  "scene_id": "missing-scene",
+  "sequence": 99,
+  "shot_id": "invalid-shot-missing-scene",
+  "width": 1920
+}
