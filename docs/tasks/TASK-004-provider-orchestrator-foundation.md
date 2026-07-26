@@ -599,7 +599,8 @@ closed：
     （Revision r6）
   - specification approval: satisfied
   - CANCELLED design prerequisite: satisfied
-  - CANCELLED code implementation: not started
+  - CANCELLED code implementation: **completed in Step M**
+    （committed `8d691ba`；历史：r6 设计批准时为 not started）
   - ADR-0001 prerequisite approval: satisfied
   - ADR-0001 actual synchronization: **satisfied**
   - ADR-0001 narrow review（Codex）: **passed**（ADR blockers: 0；
@@ -633,15 +634,52 @@ fingerprint / freeze utilities：completed**：
     `tests/test_orchestration_canonical.py`
   - full regression（提交轮实际执行）: **899 passed**
 
+**实施顺序阻塞记录（2026-07-26）**：
+
+- Step B 实施启动时发现：已批准 r6 设计缺少 Step B–G 的正式
+  implementation allocation（§21 只有按文件的 ownership plan；
+  §22 的 131 项测试无 Step 字母归属；任务卡只记录 M→A→B→C→D→
+  E→F→G 顺序）；
+- 未保留任何 Python 试验代码；工作区已恢复干净
+  （HEAD `884081c`，full pytest 899 passed）；
+- 澄清为 docs-only：设计文档新增 §24（Step B–G 正式名称、文件
+  分配、§22 测试编号 1–131 完整映射、文件归属矩阵、模块依赖
+  顺序），不改变 r6 已批准技术合同，不新增/删除/弱化验收标准；
+- coding gate 整体保持 open；
+- Step B 的实施许可在 §24 澄清通过 Codex 独立设计复审、作为
+  独立 docs-only 提交完成、工作区恢复干净并发出新的 Step B
+  checkpoint 之前**暂停**。
+
+**sequencing clarification 复审记录（第三次，passed）**：
+
+- sequencing clarification review: **passed**（第一、二次复审
+  为有条件通过，三个重要问题——当前状态与历史快照冲突、
+  Step M pytest case 数、gate/whitespace/checkpoint 纪律——
+  已逐项关闭）
+- blockers: 0；important findings: 0；suggestions: 0
+- sequencing clarification: **satisfied**
+- sequencing clarification docs-only commit: **current commit**
+  （本提交即该独立 docs-only 提交）
+- global coding gate: open
+- Step B implementation: not started（本轮不开始 Step B；不得
+  在本提交轮创建 Python 文件）
+- Step B next condition: clean worktree after this commit plus
+  a new explicit checkpoint（global gate open 不代表可绕过
+  checkpoint）
+- TASK-004 尚未完成。
+
 **实施顺序状态**：
 
-1. Step M — **completed**（committed；independently reviewed）；
-2. Step A — **completed**（independently reviewed and approved）；
-3. Step B — not started；**next permitted step**（必须在新的
-   checkpoint 中开始，本提交不包含 Step B）；
-4. Step C — not started；5. Step D — not started；
-6. Step E — not started；7. Step F — not started；
-8. Step G — not started。
+| Step | 正式名称（§24） | 状态 | 允许开始条件 |
+| --- | --- | --- | --- |
+| M | GenerationTaskStatus.CANCELLED model evolution | completed | —（已提交并通过独立审查） |
+| A | orchestration errors / enums / canonical JSON / fingerprint / freeze utilities | completed | —（已提交并通过独立审查） |
+| B | durable record 数据合同与严格恢复解析 | **sequencing clarified；not started；next permitted step after commit** | 本 docs-only 提交完成、工作区干净并发出新的明确 Step B checkpoint |
+| C | instruction 逐字节渲染器 | not started | Step B 完成、审查通过并提交 |
+| D | 纯 planning core | not started | Step C 完成、审查通过并提交 |
+| E | `_LayoutResolver` 路径派生与安全校验 | not started | Step D 完成、审查通过并提交 |
+| F | `_FileOrchestrationExecutor`（WAL/CAS/恢复执行） | not started | Step E 完成、审查通过并提交 |
+| G | 公开 orchestrator facade 与端到端集成 | not started | Step F 完成、审查通过并提交 |
 
 TASK-004 尚未完成；不声称全部 acceptance criteria 已实现；不声称
 131 项计划测试已全部实现。
@@ -656,8 +694,8 @@ TASK-004 尚未完成；不声称全部 acceptance criteria 已实现；不声�
 
 ## 当前状态
 
-implementation in progress — Step M and Step A completed — Step B
-pending
+implementation in progress — sequencing clarified — Step B
+pending new checkpoint
 
 ## 尚待后续任务决定的事项
 

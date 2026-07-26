@@ -1,9 +1,53 @@
 # TASK-004 设计文档：Provider Orchestrator 契约与基础编排
 
-- Status: approved — implementation in progress; Step M and Step A
-  completed; Step B pending
+- Status: approved — implementation sequencing clarified;
+  Step B pending new checkpoint
 - Revision: r6（自包含版本；关闭 r5 复审的 3 个阻塞与 1 个重要
-  问题；不依赖任何历史草案或聊天记录）
+  问题；不依赖任何历史草案或聊天记录）+ 实施顺序补充（§24，
+  docs-only，Codex 第三次复审通过）
+
+**审批记录（Codex sequencing clarification review, 第三次）**：
+
+- independent review: **passed**
+- original important findings（三项全部关闭）：
+  - current state vs historical snapshot conflict: **closed**
+  - Step M pytest case count: **closed**
+  - gate/whitespace/checkpoint discipline: **closed**
+- blockers: 0；important findings: 0；suggestions: 0
+- clarification docs: approved for independent docs-only commit
+- technical allocation: unchanged from reviewed §24（A=5、B=44、
+  C=3、D=14、E=11、F=20、G=34，合计 131；文件矩阵、模块归属、
+  依赖顺序、public/internal 边界、durable recovery 语义均无
+  变化）
+- global coding gate: open
+- Step B local gate: may open **only after** this docs-only
+  commit completes, the worktree is clean, and a new explicit
+  Step B checkpoint is issued
+- 本提交只批准实施分配——不表示 Step B 已开始、不表示 Step B
+  代码已实现、不表示 TASK-004 已完成、不表示全部 131 个设计
+  测试项已实现；no Step B Python changes retained。
+
+**实施顺序阻塞与补充范围（docs-only clarification）**：
+
+- 阻塞事实：r6 批准正文只包含按文件划分的 ownership plan
+  （§21）与 131 项测试计划（§22），未正式定义 Step B–G 的名称、
+  文件分配与测试编号归属；Step B 实施因此停止，未保留任何
+  Python 试验代码，工作区已恢复干净（HEAD `884081c`，
+  899 passed）。
+- 本补充只做"实施分步归属澄清"（§24）：一次性正式定义
+  Step B–G 的名称、目标、文件范围、测试归属与进入/完成条件；
+  **不改变** r6 已批准的公开 API、数据模型、enum、错误体系、
+  13×7 生命周期矩阵、GenerationTask/StepManifest 矩阵、sticky
+  merge、操作身份、NO_OP、Provider 调用协议、统一 record
+  envelope、pending 两 variant、WAL/CAS/恢复、路径安全、
+  instruction 逐字节契约、固定资产边界与 131 项测试的测试语义；
+  不新增、删除或弱化验收标准。
+- 复审范围：只复审新增的 §24 implementation allocation（含
+  §21 的指向性说明），不重新开放全部技术设计。
+- coding gate 整体保持 open；但 Step B 的局部进入门槛在本补充
+  通过 Codex 复审**并作为独立 docs-only 提交完成、工作区恢复
+  干净、新的 Step B checkpoint 明确发出**之前暂不满足，禁止
+  Step B 实施。
 
 **审批记录（Codex formal design review, r6）**：
 
@@ -44,52 +88,76 @@
     套件随全量执行）；full pytest **899 passed**；Ruff
     format/lint passed；whitespace passed
   - Step A status: satisfied
-- **next permitted step: Step B**（not started）；Step C–G:
-  not started；coding gate: open
-- Step M 的 15 个与 Step A 的 124 个新增测试已实现并包含在当前
-  899 项中；r6 的 131 项未来实施测试计划尚未全部实现；Step M/A
-  完成不代表 TASK-004 完成；本轮提交不包含任何 Step B 代码。
-- 说明：coding gate open 只表示允许按批准顺序开始实现——不表示
-  任何代码已实现、不表示任何 acceptance criterion 已由代码满足、
-  不表示 131 项计划测试已实现或通过；当前实际回归基线仍为
-  **757 tests passed**。角色边界：Claude Code 按批准的 r6 设计与
-  §22 分步实施，不得替代 Codex 声称独立审查通过；Codex 在每个
+- next step: Step B（**sequencing clarified; not started;
+  pending new checkpoint**——以本 docs-only 提交完成、工作区
+  干净并发出新的 Step B checkpoint 为启动前提）；Step C–G: not
+  started；coding gate: open（全局）
+- Step M 的 18 个与 Step A 的 124 个新增 pytest case 已实现并
+  包含在当前 899 项中；r6 的 131 项分步实施测试计划尚未全部
+  实现；Step M/A 完成不代表 TASK-004 完成；本轮提交不包含任何
+  Step B 代码。
+- 当前事实（统一口径）：r6 technical design **approved**；
+  implementation sequencing clarification（§24）**approved —
+  第三次 Codex 复审通过**（此前两轮为历史记录：第一次/第二次
+  复审各有条件通过，三个重要问题已逐项关闭）；Step M / Step A
+  **completed, independently reviewed, committed**（当前仓库含
+  Step M 与 Step A 实现代码；CANCELLED code implementation 已
+  在 Step M 完成）；Step B **sequencing clarified; not
+  started; pending new checkpoint**（no Step B Python changes
+  retained）；Step C–G not started；global coding gate
+  **open**；Step B local gate：以本 docs-only 提交完成、工作区
+  干净并发出新的 Step B checkpoint 为开启前提；当前实际回归
+  基线 **899 passed**。coding gate open 不表示 §22 的 131 项计划
+  测试已全部实现或任何 acceptance criterion 已由完整实现满足
+  （B–G 未实施）。角色边界：Claude Code 按批准的 r6 设计与
+  §24 分步实施，不得替代 Codex 声称独立审查通过；Codex 在每个
   批准步骤后独立审查，不直接修改实现文件；每个 Step 必须在前一
   步完成、测试通过并按计划审查后再开始。
-- 批准时 QA 结果（当前仓库实际执行）：Ruff format 38 files
-  already formatted；Ruff lint passed；full pytest **757
-  passed**；whitespace passed
-- 说明：本文档 §22 的 131 项是**未来实施的测试计划**；批准时
-  实际执行的是当前仓库已有的 757 项测试，不声称 131 项计划测试
-  已经实现。
+- **r6 formal-design approval snapshot（历史快照，仅记录批准
+  当时的事实，不代表当前状态）**：
+  - coding gate was closed at that checkpoint；
+  - CANCELLED code had not yet been implemented；
+  - repository regression was **757 passed**（QA：Ruff format
+    38 files already formatted；Ruff lint passed；whitespace
+    passed）；
+  - no TASK-004 implementation step had started。
+- 说明：本文档 §22 的 131 项是**分步实施的测试计划**；r6 批准
+  当时实际执行的是仓库当时已有的 757 项测试（历史快照）；当前
+  已实现其中 Step A 归属的 10–14 共 5 项（见 §24.3），其余为
+  planned，不声称已实现。
 - Task: [TASK-004](../tasks/TASK-004-provider-orchestrator-foundation.md)
 - Specification baseline:
   `47aeafc docs: approve TASK-004 orchestrator specification`
 - TASK-003 completed baseline:
   `01ac984 docs: complete TASK-003 implementation`
-- coding gate: closed
+- coding gate: **open**（全局）；Step B local gate:
+  **suspended**（r6 批准时 gate 为 closed——见上方历史快照）
 - 目标运行环境：WSL2 Ubuntu / Linux（POSIX `os.replace`；不测试
   Windows path 或 replace 语义）
 
 **前置项状态**：
 
 1. GenerationTaskStatus.CANCELLED design prerequisite approval:
-   **satisfied**（代码变更只在 coding gate 打开后按 Step M
+   **satisfied**（代码变更已在 coding gate 打开后按 Step M
    实施）；
-2. CANCELLED code implementation: not implemented（gate 前
-   禁止）；
+2. CANCELLED code implementation: **completed in Step M**
+   （committed `8d691ba`；independently reviewed；历史：r6 批准
+   时尚未实施，gate 前禁止）；
 3. ADR-0001 prerequisite approval: **satisfied**；
 4. ADR-0001 actual documentation synchronization: **satisfied**
-   （经 Codex 窄范围复审通过；仍不实施 CANCELLED、不开始任何
-   Python Step）；
+   （经 Codex 窄范围复审通过。历史快照——"仍不实施
+   CANCELLED、不开始任何 Python Step"是 ADR 窄范围复审当时的
+   历史状态，不代表当前状态；该禁令已随 coding gate 打开与
+   Step M/A 完成而失效）；
 5. architecture synchronization: **not required**（executor 内部
    化方案已通过最终设计审查，见 §2）；
 6. formal design review（r6）: **passed**；
 7. implementation agent assignment: **satisfied — Claude Code**
    （independent review agent: Codex）；
-8. coding gate: **open**——Step M 与 Step A completed
-   （independently reviewed and approved）；next permitted step:
-   Step B；Step C–G not started。
+8. coding gate: **open**（全局）——Step M 与 Step A completed
+   （independently reviewed and approved）；Step B: sequencing
+   clarified（第三次复审通过）；not started；pending new
+   checkpoint；Step C–G not started。
 
 ## 1. 总览
 
@@ -1157,6 +1225,10 @@ validation.py、顶层 errors.py、providers 包五文件、
 project_data.py、README、pyproject.toml；architecture.md 不修改
 的条件 = 内部化 executor 通过最终审查。
 
+**分步实施归属由 §24 正式定义**（本节只固定按文件划分的
+ownership；每个 Step 允许创建/修改哪些文件、对应哪些 §22 测试
+编号，以 §24 为准）。
+
 ## 22. 测试计划（完整、自包含、连续编号）
 
 契约与模型：
@@ -1351,7 +1423,8 @@ instruction 契约：
      handoff）；
 116. resume 全 13 状态返回；
 117. 无 VideoAsset/FFmpeg/QCD；
-118. full regression（757 基线 + 新增）；Ruff format/lint；git
+118. full regression（r6 批准时基线 757——历史快照；当前基线
+     899——随各 Step 递增 + 新增）；Ruff format/lint；git
      diff 文件范围审计；
 
 r6 新增（关闭 r5 复审发现）：
@@ -1400,4 +1473,801 @@ r6 新增（关闭 r5 复审发现）：
 | 19 无越界 | §1、§3 | 117 |
 | 20 质量门槛 | §22（**含 r6 全部故障路径测试**） | 118–131 |
 
-**不声称任何 AC 已由代码满足**（尚无实现代码）。
+**不声称任何 AC 已由完整实现满足**（当前仓库含 Step M 与
+Step A 实现代码；编排主体 Step B–G 未实施；r6 批准当时尚无任何
+实现代码——历史快照）。
+
+## 24. 实施步骤分配（Step M、Step A–G 正式定义）
+
+本节是 docs-only implementation sequencing clarification：为
+§21 的按文件 ownership plan 补充**按 Step 的正式归属**。本节不
+改变任何已批准技术合同；文件职责、schema、矩阵与测试语义一律
+以 §1–§23 原文为准。
+
+### 24.0 已完成步骤（记录，不重开）
+
+- **Step M — GenerationTaskStatus.CANCELLED model evolution**：
+  completed（生产：`src/ai_video_workflow/models.py`；测试：
+  `tests/test_models.py`、`tests/test_serialization.py`；已提交
+  `8d691ba`；独立审查通过）。Step M 的 18 个 pytest case 属于
+  模型/序列化层，不占用 §22 的 1–131 编号。
+- **Step A — orchestration errors / enums / canonical JSON /
+  fingerprint / freeze utilities**：completed（生产：
+  `orchestration/__init__.py`、`errors.py`、`models.py`、
+  `canonical.py`；测试：`tests/test_orchestration_models.py`、
+  `tests/test_orchestration_canonical.py`；已提交 `884081c`；
+  独立审查通过）。§22 编号 10–14 由 Step A 完成（标记
+  completed）。
+
+**计数单位说明**："§22 测试项"与"pytest case 数"不是相同计数
+单位：一个 §22 设计测试项通常展开为多个参数化 pytest case
+（Step A 的 124 个 case 覆盖 §22 的 10–14 共 5 项，并为后续
+步骤提供 canonical/freeze/fingerprint 工具层断言基础）。§22 某
+编号标记为某 Step 的归属，含义是：该项的全部设计断言在该 Step
+的测试中最终完备；前序步骤可先行覆盖其子断言，不改变归属。
+
+**Test-count chronology（固定记录）**：
+
+- formal-design approval baseline: **757 pytest cases**；
+- after Step M: **775 pytest cases**（Step M added
+  **18 pytest cases**）；
+- after Step A / current repository baseline:
+  **899 pytest cases**（Step A added 124 pytest cases）。
+
+§22 的 131 项是设计级测试条目（design-level test
+requirements），与 pytest 运行器收集执行的 case 不是同一计数
+单位；不得由 `775 − 757 = 18` 推断 Step M 对应 18 个 §22 测试
+编号（Step M 的 case 不占用 1–131 编号）；不声称 131 项设计
+测试已经全部实现。
+
+### 24.1 未实施文件 ownership 分析
+
+| 文件 | 已批准职责（§21） | 依赖（模块级） | 被依赖 | 纯数据/schema | 纯 planning | 文件系统 I/O | Provider 调用 | public facade |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `orchestration/_models.py` | `_PendingProviderCall`、`_PendingApply`、`_ExecutablePlan`、`_StableStateSnapshot`、envelope 构造 | errors、enums、canonical、核心 validation | recovery、planning、executor、orchestrator | 是 | 否 | 无 | 无 | 否 |
+| `orchestration/recovery.py` | envelope/variant strict parser、跨字段一致性、self-fingerprint verification、model_from_dict adapter、phase recovery | _models、canonical、errors、enums、核心 models/serialization、providers models | executor、orchestrator、（models.py 公开摘要经函数级导入） | 解析为主 | 否 | 无（分类纯函数） | 无 | 否 |
+| `orchestration/instructions.py` | exact bytes renderer（§19） | canonical、errors、providers models | planning（§16.2 第 7 步）、executor（写入字节由 plan 携带） | 是（纯字节） | 否 | 无 | 无 | 否 |
+| `orchestration/planning.py` | 无环 plan 计算、after payload 构造、矩阵/映射/sticky/时间判定 | _models、canonical、instructions、errors、enums、核心 models、providers models | orchestrator | 否 | 是 | 无 | 无 | 否 |
+| `orchestration/layout.py` | per-component symlink resolution、nonexistent suffix handling、整目录级 state-directory rejection | errors（+ pathlib/os lstat） | executor、orchestrator | 否 | 否 | 仅 lstat/受控 resolve（§8.3；不 open、不扫描） | 无 | 否 |
+| `orchestration/executor.py` | phase writes、CAS、approved parent creation、empty directory residue、`_atomic_write_bytes`、partial recovery | _models、recovery、layout、canonical、persistence、errors、enums | orchestrator | 否 | 否 | 是（唯一写入者，四个派生路径） | 无 | 否 |
+| `orchestration/orchestrator.py` | 公开操作身份与七个动作入口 | planning、executor、layout、recovery、models（公开摘要）、_models、providers base | 外部调用方 | 否 | 否 | 经 executor | 是（唯一调用点） | 是 |
+| `orchestration/models.py`（追加公开摘要） | 公开摘要模型（OrchestrationContext / OrchestrationOutcome / OrchestrationPlan / ResumeAssessment / OrchestrationRecord）与既有 Enum | enums（自身）、errors、canonical、核心 models、providers models；updated_task/updated_manifest 属性经**函数级导入** recovery adapter | orchestrator、外部调用方 | 是 | 否 | 无 | 无 | 是（公开类型） |
+| `orchestration/canonical.py`（追加） | snapshot wrapper 工具（§16.6）、stable 自指纹计算（§13.1）、plan preimage（§16.3、PLAN_PREIMAGE_SCHEMA_VERSION） | 既有 Step A 依赖不变 | _models、recovery、planning、executor | 是 | 否 | 无 | 无 | 否 |
+| `orchestration/__init__.py`（最终导出） | §4.1 最终公开导出集合 | models、errors | 外部调用方 | — | — | 无 | 无 | 是 |
+
+未实施测试文件：`tests/test_orchestration_planning.py`、
+`tests/test_orchestration_layout.py`、
+`tests/test_orchestration_executor.py`、`tests/test_orchestrator.py`
+（§21 清单固定，不新增测试文件；`tests/test_orchestration_models.py`
+与 `tests/test_orchestration_canonical.py` 按 §24.2 允许扩展）。
+
+### 24.2 Step B–G 正式定义
+
+分步原则（全部满足）：依赖单向；每步可独立测试；每步文件范围
+唯一；同一生产文件只归属一个首次实施 Step，后续回改仅在本节
+明文允许的符号范围内；纯模型/schema（B）早于 planning（D）；
+instruction 渲染（C）早于 planning（§16.2 第 7 步依赖渲染）与
+写入集成（F）；layout/path safety（E）早于文件执行（F）；
+planning（D）早于 executor（F）；public facade（G）最后；
+Provider 副作用调用与 durable recovery 协议各自完整落在单一
+Step（调用协议整体在 G、恢复分类+执行整体在 F），不拆成不可
+测试的半实现；步骤体量不均是技术边界的结果，不做均分。
+
+**checkpoint 纪律（适用于全部 Step B–G）**：下一 Step 必须在
+**新的独立 checkpoint** 中明确启动，不得在当前 Step 的提交轮
+直接继续；各 Step 的"前置条件"中"已提交"一律指该 Step 的独立
+提交已完成且工作区干净。
+
+**统一完成清单（适用于全部 Step B–G；各步"完成条件"一律指
+本清单 1–12 全部满足）**：
+
+1. 本步"必须实现"内容全部完成；
+2. 本步聚焦测试通过（按本步"聚焦测试命令"）；
+3. related regression 通过：全部前序 Step 的测试文件（含
+   Step M 的 `tests/test_models.py`、`tests/test_serialization.py`
+   与 Step A 起的各 orchestration 测试文件）随全量执行复验，
+   无回归；
+4. 先执行 `ruff format <本步全部允许生产与测试文件>`，随后
+   `.venv/bin/python -m ruff format --check .` 通过；
+5. `.venv/bin/python -m ruff check .` 通过；
+6. full pytest 通过（不低于进入本步时的基线，并包含本步新增
+   pytest case）；
+7. `git diff --check` 通过（无 whitespace 错误）；
+8. 执行字面命令 `git status --short`，核验变更仅限本步允许
+   文件（范围检查）；
+9. Codex 独立审查通过，且审查结果为 **blockers = 0、
+   important findings = 0**；
+10. 状态文档（设计文档、任务卡）在提交轮准确同步本步状态，
+    不得声称未完成的内容；
+11. 本步作为独立提交完成；
+12. 提交后再次执行字面命令 `git status --short`，确认工作区
+    干净。
+
+#### Step B — durable record 数据合同与严格恢复解析
+
+##### 目标
+
+实现 record 层全部纯数据合同与严格解析能力：三个内部持久化
+模型、统一 envelope 构造、八种 snapshot wrapper 工具、stable
+自指纹计算与复验、strict recovery parser 与模型 restore
+adapter。全部为零 I/O、零时钟、零 Provider 的纯数据/解析层。
+
+##### 前置条件
+
+Step B 只有在以下条件**全部满足**后才能开始：
+
+1. Step M 已完成；
+2. Step M 已通过 Codex 独立审查；
+3. Step M 已独立提交；
+4. Step A 已完成；
+5. Step A 已通过 Codex 独立审查；
+6. Step A 已独立提交；
+7. §24 sequencing clarification 草案已完成；
+8. sequencing clarification 已通过 Codex 独立复审；
+9. sequencing clarification 的 docs-only 变更已独立提交；
+10. clarification 提交后工作区干净；
+11. 新的独立 Step B checkpoint 已明确发出。
+
+gate 状态区分（不得混同）：
+
+- global coding gate: **open**；
+- Step B local gate: **suspended until clarification review
+  passes and the docs-only clarification commit is completed**。
+
+**不得**把以下任一状态解释为 Step B 已获准开始：
+clarification 草案完成；clarification 复审正在进行；
+clarification 复审通过但尚未提交；global coding gate 已开启；
+Codex 允许提交 clarification 文档。
+
+固定规则：
+
+```text
+Step B may start only after the sequencing clarification has:
+
+1. passed independent Codex review;
+2. been committed as an independent docs-only commit;
+3. left the worktree clean; and
+4. been followed by a new explicit Step B checkpoint.
+```
+
+##### 允许生产文件
+
+- create：`src/ai_video_workflow/orchestration/_models.py`
+- create：`src/ai_video_workflow/orchestration/recovery.py`
+- modify：`src/ai_video_workflow/orchestration/canonical.py`
+  （仅追加：§16.6 snapshot wrapper 工具、§13.1 stable 自指纹
+  计算辅助、ABSENT 相关常量所需的规范化支持；不改动 Step A 已
+  审查通过的既有符号语义）
+
+##### 允许测试文件
+
+- modify：`tests/test_orchestration_models.py`
+- modify：`tests/test_orchestration_canonical.py`
+
+##### 必须实现
+
+- `_models.py`：`_StableStateSnapshot`（§13.1 字段、自指纹
+  构造时派生）、`_PendingProviderCall`（§11.2）、
+  `_PendingApply`（§11.3）、envelope 构造（§13.0 顶层结构与
+  phase × stable/pending 不变量）、record/pending schema
+  常量（`record_schema.kind/version`、两个 variant 的
+  schema_version 与 discriminator、ABSENT marker）；§11.6 两种
+  planned stable 指纹的构造侧不变量；§11.7 全部跨字段一致性
+  （构造侧）。
+- `canonical.py` 追加：§16.6 wrapper（八种 kind、
+  snapshot_version=1、unknown kind/version 拒绝）、stable 自
+  指纹计算（对除自身外全部 stable 字段的 canonical JSON）。
+- `recovery.py`：§20 strict parser（envelope、两 variant、
+  §11.7 解析侧强制、§13.0 phase 不变量、§13.2 自指纹先行
+  复验）、§16.4 restore adapter（`_restore_generation_task`、
+  `_restore_step_manifest`、provider 模型经公开构造函数重建、
+  重算指纹比对）；错误包装规则（InvalidRecoveryRecordError 保留
+  cause；自指纹失败 CorruptStableRecordError）。
+
+##### 明确禁止
+
+`_ExecutablePlan`（Step D）；§14 phase recovery 分类与 §13.5
+痕迹集合判定（Step F）；恢复执行/补写（Step F）；任何文件系统
+I/O（含 record 读写）；Provider 调用；lifecycle/准入判定
+（§17.2）；plan 计算与 plan preimage（Step D）；instruction
+渲染（Step C）；路径派生（Step E）；公开导出变更（Step G）。
+
+##### Public/internal 边界
+
+- 新增 public symbols：无。
+- internal symbols：本步全部符号（`_StableStateSnapshot`、
+  `_PendingProviderCall`、`_PendingApply`、envelope 构造、
+  wrapper 工具、parser、adapter、常量）均不导出。
+- `orchestration/__init__.py`：不允许修改；测试锁定导出集合与
+  Step A 一致（22 个名称）。
+
+##### §22 测试归属
+
+21、22、23、24、28、30、31、32、33、34、35、36、37、38、39、
+40、41、42、43、44、45、46、47、48、49、50、51、52、53、54、
+55、68、69、70、72、76、119、120、121、122、123、124、125、
+126（共 44 项；envelope round-trip「全相位」在纯数据层以
+dict↔模型双向断言实现，不涉及文件）。
+
+##### 聚焦测试命令
+
+`.venv/bin/python -m pytest tests/test_orchestration_models.py
+tests/test_orchestration_canonical.py`
+
+##### 完成条件
+
+按 §24.2 统一完成清单（1–12）全部满足；本步进入时基线为
+899 pytest cases。
+
+##### 下一步进入条件
+
+仅在 Step B 完成条件全部满足并独立提交后，且**在新的独立
+checkpoint 中明确启动**，才允许进入 Step C；不得在 Step B 的
+提交轮直接继续。
+
+#### Step C — instruction 逐字节渲染器
+
+##### 目标
+
+实现 §19 instruction Markdown 契约的确定性渲染：给定显式输入
+（含已计算的 plan_id）输出精确 UTF-8 字节。纯函数、零 I/O。
+
+##### 前置条件
+
+Step B 已完成、通过 Codex 独立审查并独立提交；提交后工作区
+干净；Step C 的新独立 checkpoint 已明确发出。
+
+##### 允许生产文件
+
+- create：`src/ai_video_workflow/orchestration/instructions.py`
+
+##### 允许测试文件
+
+- modify：`tests/test_orchestration_canonical.py`
+
+##### 必须实现
+
+§19 模板逐字节渲染（UTF-8、无 BOM、LF、末尾恰好一个换行；
+字段顺序固定；缺失可选值呈现 `none`；prompt 独立纯文本节；
+steps 编号；suggested_parameters 使用 canonical JSON fenced
+block）。渲染器接受显式参数，不读取任何状态。
+
+##### 明确禁止
+
+instruction 文件写入与覆盖规则（Step F）；plan_id 计算
+（Step D——渲染器只接受已计算的 plan_id 字符串）；路径派生
+（Step E）；任何 I/O。
+
+##### Public/internal 边界
+
+- 新增 public symbols：无；渲染函数 internal。
+- `orchestration/__init__.py`：不允许修改。
+
+##### §22 测试归属
+
+111、112、113（共 3 项；114 的覆盖/冲突规则属 Step F）。
+
+##### 聚焦测试命令
+
+`.venv/bin/python -m pytest tests/test_orchestration_canonical.py`
+
+##### 完成条件
+
+按 §24.2 统一完成清单（1–12）全部满足。
+
+##### 下一步进入条件
+
+仅在 Step C 完成条件全部满足并独立提交后，且在新的独立
+checkpoint 中明确启动，才允许进入 Step D；不得在 Step C 的
+提交轮直接继续。
+
+#### Step D — 纯 planning core
+
+##### 目标
+
+实现 `_OrchestrationPlanner`：零 I/O、零时钟的状态变更决策核心
+——§16.2 无环九步 plan 计算、§16.3 plan preimage、
+`_ExecutablePlan`、§17.3/§17.4/§17.5 矩阵的 after payload
+构造、§13.3 sticky merge、§18 时间权威、§7.1/§13.4 身份与
+request 一致性判定。
+
+##### 前置条件
+
+Step C 已完成、通过 Codex 独立审查并独立提交；提交后工作区
+干净；Step D 的新独立 checkpoint 已明确发出。
+
+##### 允许生产文件
+
+- create：`src/ai_video_workflow/orchestration/planning.py`
+- modify：`src/ai_video_workflow/orchestration/_models.py`
+  （仅追加 `_ExecutablePlan` 及其不变量；不改动 Step B 已审查
+  符号语义）
+- modify：`src/ai_video_workflow/orchestration/canonical.py`
+  （仅追加 §16.3 plan preimage 构造与
+  `PLAN_PREIMAGE_SCHEMA_VERSION`；不改动既有符号语义）
+
+##### 允许测试文件
+
+- create：`tests/test_orchestration_planning.py`
+
+##### 必须实现
+
+`_OrchestrationPlanner`（纯函数式决策）；§16.2 固定九步顺序
+（渲染调用 Step C 渲染器）；§16.3 preimage（字段集精确、
+version 严格 int 1、bool 拒绝、unknown 拒绝、明确排除项）；
+`_ExecutablePlan`；§17.3 Provider 返回状态校验；§17.4/§17.5
+after payload 逐格规则（含 cancelled 列）；§13.3 sticky merge
+逐格；§18 older/equal/newer 判定与状态秩；§7.1 provider_id
+对齐与首次 task.provider_id=None 前置；§13.4 request 指纹比较
+（ConflictingRequestError）；§7.2 操作身份五元组与
+action_input_fingerprint 计算；STABLE 状态行的 legal_actions /
+preferred_next_action 计算。
+
+##### 明确禁止
+
+record 文件读写、CAS、WAL 相位推进（Step F）；路径派生
+（Step E）；Provider 调用与七动作入口（Step G）；phase 状态行
+（9–13）的准入执行（REDRIVE/REPAIR 的执行属 F/G；planner 只
+提供决策数据）；公开摘要模型与导出（Step G）。
+
+##### Public/internal 边界
+
+- 新增 public symbols：无；`_OrchestrationPlanner`、
+  `_ExecutablePlan`、preimage 工具均 internal。
+- `orchestration/__init__.py`：不允许修改。
+
+##### §22 测试归属
+
+15、16、17、18、19、20、85、88、89、90、91、92、93、94
+（共 14 项）。
+
+##### 聚焦测试命令
+
+`.venv/bin/python -m pytest tests/test_orchestration_planning.py`
+
+##### 完成条件
+
+按 §24.2 统一完成清单（1–12）全部满足。
+
+##### 下一步进入条件
+
+仅在 Step D 完成条件全部满足并独立提交后，且在新的独立
+checkpoint 中明确启动，才允许进入 Step E；不得在 Step D 的
+提交轮直接继续。
+
+#### Step E — `_LayoutResolver` 路径派生与安全校验
+
+##### 目标
+
+实现 §8.1 四路径派生、§8.3 逐组件 symlink 受控 resolve、
+nonexistent suffix 处理与整目录级 state-directory 拒绝。只做
+派生与校验（lstat/受控 resolve），不执行写入类 I/O。
+
+##### 前置条件
+
+Step D 已完成、通过 Codex 独立审查并独立提交；提交后工作区
+干净；Step E 的新独立 checkpoint 已明确发出。
+
+##### 允许生产文件
+
+- create：`src/ai_video_workflow/orchestration/layout.py`
+
+##### 允许测试文件
+
+- create：`tests/test_orchestration_layout.py`（本步测试按
+  §8.3 需要使用 tmp_path 构造真实目录/symlink——这是设计明确
+  要求的 lstat/resolve 校验，属批准的文件系统访问）
+
+##### 必须实现
+
+§8.1 派生表与路径安全（root 绝对化/规范化、四目标互异、
+文件名与 task_id 匹配、containment、`..`/绝对子路径拒绝、
+symlink 出 root 拒绝）；§8.3 逐组件规则 1–12（含整目录保护
+四类、symlink alias 拒绝、不存在 suffix 基于已解析真实父路径、
+保守拒绝、non-local 不判断）。
+
+##### 明确禁止
+
+目录创建（Step F §8.2）；文件读写（Step F）；record/instruction
+落盘；Provider 调用；媒体探测/扫描（永久禁止）。
+
+##### Public/internal 边界
+
+- 新增 public symbols：无；`_LayoutResolver` internal。
+- `orchestration/__init__.py`：不允许修改。
+
+##### §22 测试归属
+
+95、96、97、98、99、100、101、102、103、104、105（共 11 项）。
+
+##### 聚焦测试命令
+
+`.venv/bin/python -m pytest tests/test_orchestration_layout.py`
+
+##### 完成条件
+
+按 §24.2 统一完成清单（1–12）全部满足。
+
+##### 下一步进入条件
+
+仅在 Step E 完成条件全部满足并独立提交后，且在新的独立
+checkpoint 中明确启动，才允许进入 Step F；不得在 Step E 的
+提交轮直接继续。
+
+#### Step F — `_FileOrchestrationExecutor`（WAL/CAS/恢复执行）
+
+##### 目标
+
+实现唯一状态写入者：§11.4 多文件 CAS 与原子写入、§11.5 相位
+推进落盘、§13.0.2 首次 record 创建、§14 恢复分类与补写执行、
+§8.2 批准目录创建、§13.5 痕迹集合判定、§19 覆盖规则执行。
+
+##### 前置条件
+
+Step E 已完成、通过 Codex 独立审查并独立提交；提交后工作区
+干净；Step F 的新独立 checkpoint 已明确发出。
+
+##### 允许生产文件
+
+- create：`src/ai_video_workflow/orchestration/executor.py`
+- modify：`src/ai_video_workflow/orchestration/recovery.py`
+  （仅追加：§14 恢复矩阵的 phase recovery 分类函数与 §13.5
+  编排痕迹集合分类函数——均为纯分类，I/O 观察由 executor 提供；
+  不改动 Step B 已审查的 parser/adapter 语义）
+
+##### 允许测试文件
+
+- create：`tests/test_orchestration_executor.py`
+
+##### 必须实现
+
+`_atomic_write_bytes`（临时文件→flush→fsync→`os.replace`）；
+task/manifest 复用 `write_model_json(..., overwrite=True)`；
+§11.4 CAS（含首次 ABSENT 分支）与写入顺序 1–7；§11.5 八行相位
+转换的原子落盘内容；§13.0.2 首次 prepare record 原子创建与首次
+partial apply 补写全分支、首个 STABLE version=1 提交；后续
+pending 保留 previous stable；§14 P3–P9/S0/S1/E1 分类与
+SAFE_AUTO_RETRY 补写执行；§13.5 record 丢失痕迹判定（分类）；
+§8.2 批准父目录创建、空目录残留语义、创建失败
+PersistenceExecutionError；§9 task/manifest 存在性与
+MissingProjectStateError；§19 instruction 覆盖规则执行；I/O
+白名单闭合于四个派生路径。
+
+##### 明确禁止
+
+Provider 调用（executor 永不接触 VideoProvider——调用顺序保证
+在 Step G 集成）；七动作入口/操作身份入口判定（Step G）；自动
+resubmit（永久禁止）；扫描/媒体访问（永久禁止）；公开导出变更
+（Step G）。
+
+##### Public/internal 边界
+
+- 新增 public symbols：无；`_FileOrchestrationExecutor` 与全部
+  写入工具 internal。
+- `orchestration/__init__.py`：不允许修改。
+
+##### §22 测试归属
+
+25、26、27、29、56、64、65、66、67、71、73、77、86、106、
+107、108、109、110、114、128（共 20 项）。
+
+##### 聚焦测试命令
+
+`.venv/bin/python -m pytest tests/test_orchestration_executor.py`
+
+##### 完成条件
+
+按 §24.2 统一完成清单（1–12）全部满足。
+
+##### 下一步进入条件
+
+仅在 Step F 完成条件全部满足并独立提交后，且在新的独立
+checkpoint 中明确启动，才允许进入 Step G；不得在 Step F 的
+提交轮直接继续。
+
+#### Step G — 公开 orchestrator facade 与端到端集成
+
+##### 目标
+
+实现 `ProviderOrchestrator` 七动作入口与公开摘要模型，完成
+§4.1 最终公开导出，将 planner/executor/layout/recovery 组装为
+端到端行为（含 Provider 调用顺序保证、操作身份/NO_OP、resume
+全 13 状态、record 丢失动作级行为、91 格准入矩阵）。
+
+##### 前置条件
+
+Step F 已完成、通过 Codex 独立审查并独立提交；提交后工作区
+干净；Step G 的新独立 checkpoint 已明确发出。
+
+##### 允许生产文件
+
+- create：`src/ai_video_workflow/orchestration/orchestrator.py`
+- modify：`src/ai_video_workflow/orchestration/models.py`
+  （仅追加公开摘要模型：`OrchestrationContext`、
+  `OrchestrationOutcome`、`OrchestrationPlan`、
+  `ResumeAssessment`、`OrchestrationRecord`；不改动 Step A 已
+  审查的四个 Enum）
+- modify：`src/ai_video_workflow/orchestration/__init__.py`
+  （更新为 §4.1 最终公开导出集合）
+
+##### 允许测试文件
+
+- create：`tests/test_orchestrator.py`
+
+##### 必须实现
+
+§4.2 全部签名；§6.1 入口验证；§6.2 输出模型与 NO_OP 不变量；
+§10.2 公开 plan（深度冻结摘要、`__hash__ = None`、
+updated_task/updated_manifest 经 §16.4 adapter 重建——模块级
+不导入 recovery，属性体内函数级导入为唯一批准的延迟导入点）；
+§7.2 操作身份全规则；§11.5/§12 调用顺序（INTENT→
+MAY_HAVE_STARTED 落盘成功后才调用 Provider；绝不自动
+resubmit）；§17.2 91 格准入（含 REDRIVE/REPAIR/E-unknown/
+E-recovery 端到端）；§13.5 动作级 record 丢失行为与 127/129–131
+首次痕迹场景；resume 全 13 状态 Assessment；§4.1 导出集合测试
+锁定；固定资产边界 tripwire。
+
+##### 明确禁止
+
+VideoAsset/正式资产/FFmpeg/QCD（永久边界）；扩大顶层
+`ai_video_workflow` 包 API（设计未要求）；修改 providers 包
+既有 15 个公开导出。
+
+##### Public/internal 边界
+
+- 新增 public symbols：`ProviderOrchestrator`、
+  `OrchestrationContext`、`OrchestrationOutcome`、
+  `OrchestrationPlan`、`ResumeAssessment`、
+  `OrchestrationRecord`（加入 `orchestration/__init__.py`，与
+  既有 4 Enum + 18 错误名合并为 §4.1 最终集合）。
+- internal 保持：全部 `_` 前缀类型与工具。
+
+##### §22 测试归属
+
+1、2、3、4、5、6、7、8、9、57、58、59、60、61、62、63、74、
+75、78、79、80、81、82、83、84、87、115、116、117、118、127、
+129、130、131（共 34 项）。
+
+##### 聚焦测试命令
+
+`.venv/bin/python -m pytest tests/test_orchestrator.py`
+
+##### 完成条件
+
+按 §24.2 统一完成清单（1–12）全部满足；另加：TASK-004 全部
+131 项测试归属闭合核对、§23 验收标准映射复核。
+
+##### 下一步进入条件
+
+Step G 为最后实施步骤。**Step G 通过独立审查并提交不等于
+TASK-004 完成**。TASK-004 最终验收轮必须在 Step G 独立提交、
+工作区干净后，在**新的独立 checkpoint** 中启动，且不引入新
+实现；只有以下最终验收清单全部满足并独立裁决后，才允许宣告
+TASK-004 completed：
+
+1. 任务卡 20 条验收标准逐条实现核验（对照 §23 映射，逐条给出
+   实现与测试证据）；
+2. §22 全部 131 项设计测试逐项覆盖核验（对照 §24.3 映射，
+   1–131 全部标记 completed，无遗漏）；
+3. 先执行 `ruff format`（全部 TASK-004 文件），随后
+   `.venv/bin/python -m ruff format --check .` 与
+   `.venv/bin/python -m ruff check .` 通过；
+4. full pytest 通过；`git diff --check` 无 whitespace 错误；
+   执行字面命令 `git status --short` 核验范围与工作区状态；
+5. §4.1 公开 API 导出集合与固定边界（§1/§3：无 VideoAsset、
+   无正式资产转换、无 FFmpeg/ffprobe、无 QCD、不扫描媒体
+   目录）复核；
+6. Codex 最终独立审查通过（blockers = 0、important
+   findings = 0）；
+7. 最终状态文档（设计文档、任务卡状态区）作为独立提交完成，
+   提交后工作区干净；
+8. 独立完成裁决：由用户在最终审查通过后明确宣告；实施 Agent
+   不得自行声称 TASK-004 completed。
+
+### 24.3 §22 测试编号 → Step 完整映射（1–131）
+
+Step A 行标记 completed；其余 planned。测试主题为 §22 原文的
+压缩指称，语义以 §22 原文为准。
+
+| 编号 | 测试主题 | Step | 测试文件 |
+| --- | --- | --- | --- |
+| 1 | 公开 API 签名逐参数 | G | test_orchestrator |
+| 2 | 公开导出集合精确（§4.1 最终集合） | G | test_orchestrator |
+| 3 | 公开 plan 不暴露模型实例 | G | test_orchestrator |
+| 4 | updated_task/manifest 每次新实例 | G | test_orchestrator |
+| 5 | 公开 snapshot 防御复制 | G | test_orchestrator |
+| 6 | 新增模型 frozen/slots/`__hash__` 契约（全量收口） | G | test_orchestrator |
+| 7 | 嵌套可变输入 defensive copy / MappingProxyType（全量收口） | G | test_orchestrator |
+| 8 | NO_OP 不变量 | G | test_orchestrator |
+| 9 | 无隐藏时间/无隐藏状态 | G | test_orchestrator |
+| 10 | canonical JSON 确定性 | A（completed） | test_orchestration_canonical |
+| 11 | NFC 顶层 key collision 拒绝 | A（completed） | test_orchestration_canonical |
+| 12 | NFC 嵌套 key collision 拒绝 | A（completed） | test_orchestration_canonical |
+| 13 | 无 collision Unicode 稳定排序 | A（completed） | test_orchestration_canonical |
+| 14 | allow_nan/NaN/`-0.0`/bool 严格 | A（completed） | test_orchestration_canonical |
+| 15 | §16.5 各指纹输入与确定性 | D | test_orchestration_planning |
+| 16 | request 重建指纹一致 / ConflictingRequestError 四触发 | D | test_orchestration_planning |
+| 17 | plan_id 无环计算 | D | test_orchestration_planning |
+| 18 | instruction 含 plan_id 后 fingerprint 稳定 | D | test_orchestration_planning |
+| 19 | planned stable fingerprint 不参与 plan_id | D | test_orchestration_planning |
+| 20 | plan preimage version 固定 1 / bool / unknown 拒绝 | D | test_orchestration_planning |
+| 21 | envelope kind/version round-trip（全相位） | B | test_orchestration_models |
+| 22 | envelope unknown/missing key 拒绝 | B | test_orchestration_models |
+| 23 | envelope unknown kind/version 拒绝 | B | test_orchestration_models |
+| 24 | phase × stable/pending 不一致拒绝 | B | test_orchestration_models |
+| 25 | 首次 prepare record 原子创建 | F | test_orchestration_executor |
+| 26 | 首次 partial apply 恢复分支 | F | test_orchestration_executor |
+| 27 | 首次 successful commit version=1 | F | test_orchestration_executor |
+| 28 | ABSENT 与整数 0 不混用 | B | test_orchestration_models |
+| 29 | 后续 pending record 保留 previous stable | F | test_orchestration_executor |
+| 30 | 相位 × pending 类型强制 | B | test_orchestration_models |
+| 31 | `_PendingProviderCall` strict round-trip | B | test_orchestration_models |
+| 32 | `_PendingApply` strict round-trip | B | test_orchestration_models |
+| 33 | pre-call 禁止 plan_id/result/after | B | test_orchestration_models |
+| 34 | post-result 要求 plan_id/after | B | test_orchestration_models |
+| 35 | unknown version/variant 拒绝 | B | test_orchestration_models |
+| 36 | call phase/boolean mismatch 拒绝 | B | test_orchestration_models |
+| 37 | duplicated observed_at mismatch 拒绝 | B | test_orchestration_models |
+| 38 | duplicated completed_at mismatch 拒绝 | B | test_orchestration_models |
+| 39 | duplicated artifact mismatch 拒绝 | B | test_orchestration_models |
+| 40 | result fingerprint mismatch 拒绝 | B | test_orchestration_models |
+| 41 | task fingerprint mismatch 拒绝 | B | test_orchestration_models |
+| 42 | manifest fingerprint mismatch 拒绝 | B | test_orchestration_models |
+| 43 | instruction fingerprint mismatch 拒绝 | B | test_orchestration_models |
+| 44 | planned stable committed fingerprint mismatch 拒绝 | B | test_orchestration_models |
+| 45 | planned stable operation identity mismatch 拒绝 | B | test_orchestration_models |
+| 46 | planned stable snapshot 不变量 | B | test_orchestration_models |
+| 47 | 八种 wrapper kind round-trip | B | test_orchestration_canonical |
+| 48 | nested snapshot unknown version 拒绝 | B | test_orchestration_canonical |
+| 49 | nested snapshot wrong kind 拒绝 | B | test_orchestration_canonical |
+| 50 | restore 后重算 fingerprint 一致（各 kind） | B | test_orchestration_models |
+| 51 | task after payload 重建+类型+指纹复验 | B | test_orchestration_models |
+| 52 | manifest after payload 同上 | B | test_orchestration_models |
+| 53 | instruction 文本重编码逐字节等于 expected | B | test_orchestration_models |
+| 54 | after snapshot 与持久化指纹不一致拒绝 | B | test_orchestration_models |
+| 55 | model_to_dict/model_from_dict adapter 双向 | B | test_orchestration_models |
+| 56 | §11.5 相位转换表逐行原子落盘 | F | test_orchestration_executor |
+| 57 | submit：INTENT→MAY_HAVE_STARTED→才调用 | G | test_orchestrator |
+| 58 | MAY_HAVE_STARTED 未实际调用的保守恢复 | G | test_orchestrator |
+| 59 | submit 未知结果绝不 resubmit | G | test_orchestrator |
+| 60 | collect MAY_HAVE_STARTED → manual | G | test_orchestrator |
+| 61 | INTENT 的 REDRIVE / IdempotencyConflictError | G | test_orchestrator |
+| 62 | direct-to-APPLYING 路径 | G | test_orchestrator |
+| 63 | 直接路径落盘前崩溃 → 安全重调 | G | test_orchestrator |
+| 64 | 多文件 before fingerprint 逐项（含 ABSENT） | F | test_orchestration_executor |
+| 65 | 部分写入补写全分支（后续操作组） | F | test_orchestration_executor |
+| 66 | confirmed_writes/phase 未更新 → 指纹判定 | F | test_orchestration_executor |
+| 67 | 既非 before 也非 after → PartialCommitConflictError | F | test_orchestration_executor |
+| 68 | stable 自指纹正确路径（读取协议顺序） | B | test_orchestration_models |
+| 69 | stable 内容篡改 → CorruptStableRecordError | B | test_orchestration_models |
+| 70 | 自指纹字段篡改 → 同上 | B | test_orchestration_models |
+| 71 | 自指纹正确但 committed task 指纹不一致 | F | test_orchestration_executor |
+| 72 | schema 合法但自指纹错误 | B | test_orchestration_models |
+| 73 | committed manifest/instruction 指纹校验 | F | test_orchestration_executor |
+| 74 | record 丢失 + 痕迹 → MissingRecoveryRecordError | G | test_orchestrator |
+| 75 | record 丢失 + 无痕迹 → 正常 PREPARE | G | test_orchestrator |
+| 76 | strict record wrong Enum/datetime 拒绝 | B | test_orchestration_models |
+| 77 | partial commit recovery 端到端 | F | test_orchestration_executor |
+| 78 | response-loss 同 identity → NO_OP | G | test_orchestrator |
+| 79 | response-loss 异 operation_id 不重复 submit | G | test_orchestrator |
+| 80 | 同 operation_id 异输入 → IdempotencyConflictError | G | test_orchestrator |
+| 81 | poll 新 operation_id 新 observation | G | test_orchestrator |
+| 82 | repeated prepare NO_OP | G | test_orchestrator |
+| 83 | equal terminal replay NO_OP | G | test_orchestrator |
+| 84 | succeeded 后 collect NO_OP/冲突 | G | test_orchestrator |
+| 85 | older/equal/newer observed_at 三分支 | D | test_orchestration_planning |
+| 86 | baseline mismatch | F | test_orchestration_executor |
+| 87 | §17.2 准入表 91 格参数化 | G | test_orchestrator |
+| 88 | §17.3 返回状态表全覆盖 | D | test_orchestration_planning |
+| 89 | §17.4 GenerationTask 矩阵逐格 | D | test_orchestration_planning |
+| 90 | §17.5 StepManifest 矩阵逐格 | D | test_orchestration_planning |
+| 91 | §13.3 sticky merge 矩阵逐格 | D | test_orchestration_planning |
+| 92 | cancelled：completed_at required / error_summary forbidden | D | test_orchestration_planning |
+| 93 | waiting legal_actions 多值 | D | test_orchestration_planning |
+| 94 | 首次 provider_id=None 合法 / 四方一致拒绝 | D | test_orchestration_planning |
+| 95 | 四派生路径互异且匹配 task_id | E | test_orchestration_layout |
+| 96 | `..`/绝对子路径逃逸拒绝 | E | test_orchestration_layout |
+| 97 | symlink 出 root 拒绝（前后复核） | E | test_orchestration_layout |
+| 98 | parent symlink + nonexistent suffix | E | test_orchestration_layout |
+| 99 | artifact 指向当前 task 文件拒绝 | E | test_orchestration_layout |
+| 100 | artifact 指向同目录其他 task 文件拒绝 | E | test_orchestration_layout |
+| 101 | generation-tasks 子目录/整目录拒绝 | E | test_orchestration_layout |
+| 102 | 三个状态目录各自拒绝 | E | test_orchestration_layout |
+| 103 | symlink alias 指向禁止目录拒绝 | E | test_orchestration_layout |
+| 104 | 已存在父组件无法安全解析 → 保守拒绝 | E | test_orchestration_layout |
+| 105 | non-local 不执行本地目录判断 | E | test_orchestration_layout |
+| 106 | approved parent 安全创建 / 非批准不创建 | F | test_orchestration_executor |
+| 107 | 空批准目录安全残留 | F | test_orchestration_executor |
+| 108 | 目录创建失败 → PersistenceExecutionError | F | test_orchestration_executor |
+| 109 | task/manifest 缺失 → MissingProjectStateError | F | test_orchestration_executor |
+| 110 | tripwire 禁令与白名单 I/O 区分 | F | test_orchestration_executor |
+| 111 | exact Markdown 字节 | C | test_orchestration_canonical |
+| 112 | 末尾恰好一个换行 | C | test_orchestration_canonical |
+| 113 | canonical JSON fenced block 插入序无关 | C | test_orchestration_canonical |
+| 114 | instruction 冲突覆盖拒绝 | F | test_orchestration_executor |
+| 115 | Manual Provider 全生命周期端到端 | G | test_orchestrator |
+| 116 | resume 全 13 状态返回 | G | test_orchestrator |
+| 117 | 无 VideoAsset/FFmpeg/QCD | G | test_orchestrator |
+| 118 | full regression + Ruff + 范围审计 | G | test_orchestrator |
+| 119 | Provider-call 三相位 stable=null 拒绝 | B | test_orchestration_models |
+| 120 | APPLYING stable=null 仅首次合法 | B | test_orchestration_models |
+| 121 | 两种 planned stable 指纹独立计算复验 | B | test_orchestration_models |
+| 122 | wrapper 指纹 mismatch 拒绝 | B | test_orchestration_models |
+| 123 | 内嵌自指纹 mismatch 拒绝 | B | test_orchestration_models |
+| 124 | action_input wrapper round-trip | B | test_orchestration_canonical |
+| 125 | action_input unknown version 拒绝 | B | test_orchestration_canonical |
+| 126 | action_input wrong kind 拒绝 | B | test_orchestration_canonical |
+| 127 | 无 record 且 provider_id 非 None → 痕迹处理 | G | test_orchestrator |
+| 128 | 痕迹集合逐项判定 | F | test_orchestration_executor |
+| 129 | 首次 task 已写后 record 丢失 | G | test_orchestrator |
+| 130 | 首次 task+manifest 已写后 record 丢失 | G | test_orchestrator |
+| 131 | 首次 instruction 已写后 record 丢失 | G | test_orchestrator |
+
+归属核对：A=5（10–14，completed）；B=44；C=3；D=14；E=11；
+F=20；G=34；合计 5+44+3+14+11+20+34=131；无重复、无遗漏。
+不声称 planned 项已实现。
+
+### 24.4 文件归属矩阵
+
+标记：create=本步创建；modify=本步允许修改（限定符号见
+§24.2）；test=本步允许新增测试；forbidden=本步禁止触碰；
+—=与该步无关（同 forbidden，列示以便审计）。状态文档
+（设计文档、任务卡）只在每步完成轮更新状态，不属于实现主体。
+
+| 文件 | M | A | B | C | D | E | F | G |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `src/ai_video_workflow/models.py` | modify | forbidden | forbidden | forbidden | forbidden | forbidden | forbidden | forbidden |
+| `orchestration/__init__.py` | — | create | forbidden | forbidden | forbidden | forbidden | forbidden | modify |
+| `orchestration/errors.py` | — | create | forbidden | forbidden | forbidden | forbidden | forbidden | forbidden |
+| `orchestration/models.py` | — | create | forbidden | forbidden | forbidden | forbidden | forbidden | modify |
+| `orchestration/canonical.py` | — | create | modify | forbidden | modify | forbidden | forbidden | forbidden |
+| `orchestration/_models.py` | — | — | create | forbidden | modify | forbidden | forbidden | forbidden |
+| `orchestration/recovery.py` | — | — | create | forbidden | forbidden | forbidden | modify | forbidden |
+| `orchestration/instructions.py` | — | — | — | create | forbidden | forbidden | forbidden | forbidden |
+| `orchestration/planning.py` | — | — | — | — | create | forbidden | forbidden | forbidden |
+| `orchestration/layout.py` | — | — | — | — | — | create | forbidden | forbidden |
+| `orchestration/executor.py` | — | — | — | — | — | — | create | forbidden |
+| `orchestration/orchestrator.py` | — | — | — | — | — | — | — | create |
+| `tests/test_models.py` | test | forbidden | forbidden | forbidden | forbidden | forbidden | forbidden | forbidden |
+| `tests/test_serialization.py` | test | forbidden | forbidden | forbidden | forbidden | forbidden | forbidden | forbidden |
+| `tests/test_orchestration_models.py` | — | create | test | forbidden | forbidden | forbidden | forbidden | forbidden |
+| `tests/test_orchestration_canonical.py` | — | create | test | test | forbidden | forbidden | forbidden | forbidden |
+| `tests/test_orchestration_planning.py` | — | — | — | — | create | forbidden | forbidden | forbidden |
+| `tests/test_orchestration_layout.py` | — | — | — | — | — | create | forbidden | forbidden |
+| `tests/test_orchestration_executor.py` | — | — | — | — | — | — | create | forbidden |
+| `tests/test_orchestrator.py` | — | — | — | — | — | — | — | create |
+| 设计文档 / 任务卡（状态更新） | 提交轮 | 提交轮 | 提交轮 | 提交轮 | 提交轮 | 提交轮 | 提交轮 | 提交轮 |
+
+§21 "不修改"清单（persistence/serialization/manifest/
+validation/顶层 errors/providers 五文件/project_data/README/
+pyproject.toml）对 B–G 全部 Step 均为 forbidden。
+
+### 24.5 模块依赖顺序与循环检查
+
+依赖方向（→ 表示"被依赖"，全部单向）：
+
+```
+core（errors/validation/models/serialization/persistence/providers）
+  → orchestration.errors → orchestration.models（Enum）
+  → orchestration.canonical
+  → orchestration._models（B）
+  → orchestration.recovery（B；F 限定追加）
+  → orchestration.instructions（C，仅依赖 canonical/errors/providers）
+  → orchestration.planning（D，依赖 _models/canonical/instructions）
+  → orchestration.layout（E，仅依赖 errors）
+  → orchestration.executor（F，依赖 _models/recovery/layout/
+    canonical/persistence）
+  → orchestration.models 公开摘要（G）
+  → orchestration.orchestrator（G，依赖以上全部）
+```
+
+约束：Step A 基础工具（errors/models/canonical）不得导入
+B–G 模块；core 包不得反向导入 orchestration；layout 不依赖任何
+orchestration 数据模型；executor 不导入 planning（只接受
+`_ExecutablePlan` 实例）；instructions 不导入 _models/recovery。
+唯一潜在环：`orchestration/models.py`（公开摘要）↔
+`orchestration/recovery.py`（recovery 模块级导入 Enum；公开
+摘要的 updated_task/updated_manifest 需要 §16.4 adapter）——
+解决方案已固定：公开摘要模块级**不导入** recovery，两个属性体
+内使用函数级导入（本设计唯一批准的延迟导入点，Step G 有 import
+无环测试锁定）。其余依赖图为 DAG，无循环。
