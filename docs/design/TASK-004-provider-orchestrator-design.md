@@ -130,8 +130,8 @@
     whitespace passed
   - Step C status: completed, independently reviewed,
     committed by this commit
-- **Step D — 纯 planning core: completed — committed by this
-  commit（审查历史如下，如实记录）**：
+- **Step D — 纯 planning core: completed, independently
+  reviewed, committed, and finally confirmed**：
   - implementation agent: Claude Code；independent review
     agent: Codex
   - implementation: completed（生产文件：
@@ -141,30 +141,64 @@
     另经一次性窄范围授权更新
     tests/test_orchestration_models.py 中一个过期 temporal
     guard）
-  - 第一轮独立审查：不通过（4 阻塞 2 重要——instruction 承诺
-    指纹丢失、首次 PREPARE 痕迹检查缺失、终态 manifest 阻断
-    等价 replay、handoff 缺跨字段约束、时间分裂、replay 绕过
-    instruction sticky——已逐项修复并补负例）
-  - 第二轮独立审查：有条件通过（blockers 0 / important 1 /
-    suggestions 0；唯一 important = `instruction_before_text`
-    输入未获设计批准）
-  - instruction carry-over 契约：经两轮 docs-only 修订正式化
-    （第一次修订的窄范围复审不通过——读取者控制流与写入语义
-    两处边界矛盾——已由第二次修订按 §3 executor 独占 I/O 与
-    §19 既有覆盖分支消解）；代码已按最终契约对齐（含 stable
-    下 before == committed 全等校验、ABSENT 情形与全部补充
-    负例）
-  - 提交裁决：**按用户指示提交**；carry-over 契约第二次修订与
-    最终代码对齐的 Codex 复核可后续进行，本记录不声称该复核
-    已通过
+  - implementation commit:
+    `172ae2b feat: add pure orchestration planner`
+  - **final post-commit conformance review: passed**（final
+    commit conforms to approved design: yes；Step D final
+    completion: confirmed；blockers 0 / important 0 /
+    suggestions 1）
+  - **historical review record（历史审查记录，已被 final
+    post-commit review passed 取代，不是当前 gate 状态）**：
+    - 第一轮独立审查：不通过（4 阻塞 2 重要——instruction
+      承诺指纹丢失、首次 PREPARE 痕迹检查缺失、终态 manifest
+      阻断等价 replay、handoff 缺跨字段约束、时间分裂、replay
+      绕过 instruction sticky——已逐项修复并补负例）
+    - 第二轮独立审查：有条件通过（blockers 0 / important 1 /
+      suggestions 0；唯一 important = `instruction_before_text`
+      输入未获设计批准）
+    - instruction carry-over 契约：经两轮 docs-only 修订正式化
+      （第一次修订的窄范围复审不通过——读取者控制流与写入
+      语义两处边界矛盾——已由第二次修订按 §3 executor 独占
+      I/O 与 §19 既有覆盖分支消解）；代码已按最终契约对齐
+    - 该"最终 post-commit review pending"的历史状态已由本次
+      final post-commit review passed 取代。
+  - suggestion（唯一，非阻塞）：Step E 允许开始条件未显式包含
+    "Step D final post-commit review 必须先通过"——已由本次
+    docs-only 状态同步在 §24.2 Step E 前置条件与任务卡 Step E
+    行显式补齐（gate 完全自包含）。
+  - final review 确认的核心结论：
+    - instruction carry-over contract: design, implementation,
+      and tests aligned；
+    - ABSENT: explicit comparison value, not a skip-check
+      sentinel；
+    - committed instruction fingerprint: must equal
+      caller-provided observed-before fingerprint for every
+      existing stable state；
+    - committed non-ABSENT: requires corresponding text/bytes
+      and matching fingerprint；
+    - committed ABSENT: requires text/bytes to be absent；
+    - first PREPARE: rejects existing instruction trace；
+    - NO_OP and terminal replay paths: cannot bypass carry-over
+      input validation；
+    - Step D: performs pure input-fact validation only；
+    - Step F: owns actual filesystem reading, before-fingerprint
+      observation, CAS, and writing；
+    - Step G: owns wiring and may not bypass Step D/F contracts。
+  - 独立重放确认：8 个最小反例全部得到预期结果；carry-over
+    新增 5 个测试有效；所有负例使用正式 planning 入口；NO_OP
+    绕过风险已锁定；无 filesystem/Provider/network/time/UUID
+    副作用。
   - §22 设计测试条目：Step D 归属的 14 项已客观覆盖（含审查
     指出的全部缺失负例）
   - tests：Step D focused pytest **159 passed**；full pytest
-    **1348 passed**；Ruff format/lint passed；whitespace passed
-  - Step D status: completed, committed by this commit
-- next permitted step: **Step E**（not started；只能在本提交
-  完成、工作区干净后经新的独立 checkpoint 启动）；Step F–G:
-  not started；coding gate: open（全局）
+    **1348 passed**；Step D pytest increase **159**；Ruff
+    format/lint passed；whitespace passed
+  - Step D status: **completed, independently reviewed,
+    committed, and finally confirmed**
+- next permitted step: **Step E**（not started；Step E local
+  gate 在本次状态同步 checkpoint 中保持关闭——完整开始条件见
+  §24.2 Step E 前置条件）；Step F–G: not started；global
+  coding gate: open（全局）
 - Step M 的 18 个、Step A 的 124 个、Step B 的 244 个、
   Step C 的 46 个与 Step D 的 159 个新增 pytest case 已实现并
   包含在当前 1348 项中；r6 的 131 项分步实施测试计划尚未全部
@@ -176,13 +210,14 @@
   第三次 Codex 复审通过**（此前两轮为历史记录：第一次/第二次
   复审各有条件通过，三个重要问题已逐项关闭）；Step M / Step A
   / Step B / Step C **completed, independently reviewed,
-  committed**；Step D **completed, committed**（审查历史与
-  提交裁决见上方 Step D 记录——第二轮有条件通过后经两轮
-  docs-only 契约修订与代码对齐，按用户指示提交）；当前仓库含
-  五个 Step 的实现代码；CANCELLED code implementation 已在
-  Step M 完成；Step E **not started; pending new checkpoint**
-  （必须在新的独立 checkpoint 中启动）；Step F–G not
-  started；global coding gate **open**；当前实际回归基线
+  committed**；Step D **completed, independently reviewed,
+  committed, and finally confirmed**（final post-commit
+  conformance review passed；审查历史见上方 Step D 记录，已被
+  final review 取代，不是当前 gate 状态）；当前仓库含五个 Step
+  的实现代码；CANCELLED code implementation 已在 Step M 完成；
+  Step E **not started; pending new checkpoint**（Step E local
+  gate 关闭；完整开始条件见 §24.2 Step E 前置条件）；Step F–G
+  not started；global coding gate **open**；当前实际回归基线
   **1348 passed**。coding gate open 不表示 §22 的 131 项计划
   测试已全部实现或任何 acceptance criterion 已由完整实现满足
   （E–G 未实施）。角色边界：Claude Code 按批准的 r6 设计与
@@ -207,8 +242,9 @@
 - TASK-003 completed baseline:
   `01ac984 docs: complete TASK-003 implementation`
 - coding gate: **open**（全局；r6 批准时为 closed——见上方历史
-  快照）；Step E 局部门槛：待本提交完成、工作区干净并发出新的
-  Step E checkpoint
+  快照）；Step E local gate: **closed**（在本次状态同步
+  checkpoint 中保持关闭；完整开始条件见 §24.2 Step E 前置
+  条件——含 Step D final post-commit review passed）
 - 目标运行环境：WSL2 Ubuntu / Linux（POSIX `os.replace`；不测试
   Windows path 或 replace 语义）
 
@@ -233,9 +269,10 @@
    （independent review agent: Codex）；
 8. coding gate: **open**（全局）——Step M、Step A、Step B 与
    Step C completed（independently reviewed and approved）；
-   Step D completed（committed；审查历史见 Step D 记录）；
-   Step E: not started；pending new checkpoint；Step F–G not
-   started。
+   Step D completed（committed `172ae2b`；final post-commit
+   conformance review passed；finally confirmed）；Step E: not
+   started；Step E local gate closed（pending new checkpoint）；
+   Step F–G not started。
 
 ## 1. 总览
 
@@ -1593,11 +1630,12 @@ Step A 实现代码；编排主体 Step B–G 未实施；r6 批准当时尚无�
   `orchestration/planning.py`、`_models.py`（追加
   `_ExecutablePlan`）、`canonical.py`（追加 §16.3 preimage）；
   测试：`tests/test_orchestration_planning.py` + 一次性授权的
-  temporal guard 更新；第一轮审查不通过的 4 阻塞 2 重要已
-  逐项修复；第二轮有条件通过的 instruction carry-over 输入
-  经两轮 docs-only 修订正式化并完成代码对齐；按用户裁决
-  提交）。§22 中 Step D 归属的 14 项（15–20、85、88–94）由
-  Step D 完成（标记 completed）。
+  temporal guard 更新；已提交 `172ae2b`；第一轮审查不通过的
+  4 阻塞 2 重要已逐项修复；第二轮有条件通过的 instruction
+  carry-over 输入经两轮 docs-only 修订正式化并完成代码对齐；
+  **final post-commit conformance review passed，finally
+  confirmed**）。§22 中 Step D 归属的 14 项（15–20、85、
+  88–94）由 Step D 完成（标记 completed）。
 
 **计数单位说明**："§22 测试项"与"pytest case 数"不是相同计数
 单位：一个 §22 设计测试项通常展开为多个参数化 pytest case
@@ -1917,8 +1955,8 @@ preferred_next_action 计算。
 
 **instruction carry-over 输入契约（docs-only 修订；第一次窄
 范围复审不通过的两处边界矛盾——读取者控制流、写入语义——已由
-第二次修订消解；随 Step D 按用户裁决提交，后续 Codex 复核可
-另行进行）**：
+第二次修订消解；design、implementation、tests 三方对齐已由
+Step D final post-commit conformance review 确认通过）**：
 
 planner 正式入口 `_OrchestrationPlanner.plan()` 的 before 输入
 除三个文件指纹外，还包含 instruction 文件当前文本：
@@ -2043,8 +2081,19 @@ nonexistent suffix 处理与整目录级 state-directory 拒绝。只做
 
 ##### 前置条件
 
-Step D 已完成、通过 Codex 独立审查并独立提交；提交后工作区
-干净；Step E 的新独立 checkpoint 已明确发出。
+Step E 只有在以下条件**全部满足**后才能开始（完全自包含）：
+
+1. Step D implementation commit 已完成（`172ae2b`）；
+2. Step D **final post-commit conformance review 已通过**；
+3. Step D 已确认最终完成（finally confirmed）；
+4. Step D final review 后的 docs-only 状态同步提交已完成；
+5. 提交后工作区干净；
+6. 用户发出新的明确 Step E checkpoint。
+
+gate 语义（不得混同）：global coding gate open ≠ Step E local
+gate open；"Step E 是 next permitted step" ≠ Step E 已获实施
+许可；状态同步提交本身不开始 Step E；Step E local gate 只在
+新的明确 Step E checkpoint 中开启。
 
 ##### 允许生产文件
 

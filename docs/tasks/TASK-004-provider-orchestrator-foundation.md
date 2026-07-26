@@ -709,23 +709,27 @@ fingerprint / freeze utilities：completed**：
 - cumulative implemented §22 entries: **52 / 131**（A 5 +
   B 44 + C 3）
 
-**Step D — 纯 planning core：completed（committed；审查历史
-如实记录）**：
+**Step D — 纯 planning core：completed, independently reviewed,
+committed, and finally confirmed**：
 
 - implementation: completed（Claude Code；independent review
   agent: Codex）
-- 第一轮独立审查：不通过（4 阻塞 2 重要——instruction 承诺
-  指纹丢失、首次 PREPARE 痕迹检查缺失、终态 manifest 阻断等价
-  replay、handoff 缺跨字段约束、时间分裂、replay 绕过
-  instruction sticky——已逐项修复并补负例）
-- 第二轮独立审查：有条件通过（blockers 0 / important 1——
-  `instruction_before_text` 输入未获设计批准）
-- instruction carry-over 契约：经两轮 docs-only 修订正式化
-  （第一次修订窄范围复审不通过的两处边界矛盾已由第二次修订
-  消解），代码按最终契约对齐（含 stable 下 before ==
-  committed 全等校验与 ABSENT 情形负例）
-- 提交裁决：按用户指示提交；最终修订与代码对齐的 Codex 复核
-  可后续进行，本记录不声称该复核已通过
+- commit: `172ae2b feat: add pure orchestration planner`
+- **final post-commit review: passed**（final design
+  conformance: confirmed；blockers 0 / important 0 /
+  suggestions 1）
+- suggestion（唯一，非阻塞）: Step E 允许开始条件未显式包含
+  "Step D final post-commit review 必须先通过"——已由本次
+  docs-only 状态同步显式补齐，使 Step E start gate 完全
+  自包含
+- **historical review record（历史，已被 final post-commit
+  review passed 取代，不是当前 gate 状态）**：第一轮不通过
+  （4 阻塞 2 重要，已逐项修复并补负例）；第二轮有条件通过
+  （blockers 0 / important 1——`instruction_before_text` 输入
+  未获设计批准）；instruction carry-over 契约经两轮 docs-only
+  修订正式化（第一次修订窄范围复审不通过的两处边界矛盾已由
+  第二次修订消解），代码按最终契约对齐（含 stable 下
+  before == committed 全等校验与 ABSENT 情形负例）
 - production files: `orchestration/planning.py`（新建）、
   `orchestration/_models.py`（追加 `_ExecutablePlan`）、
   `orchestration/canonical.py`（追加 §16.3 preimage）
@@ -736,7 +740,7 @@ fingerprint / freeze utilities：completed**：
 - focused pytest: **159 passed**；full regression:
   **1348 passed**
 - Step D pytest case increase: 159（初次 139 + 审查修复 15 +
-  carry-over 收口 5）
+  carry-over 收口 5；与 14 个 §22 设计条目不是同一计数单位）
 - cumulative implemented §22 entries: **66 / 131**（A 5 +
   B 44 + C 3 + D 14）
 
@@ -748,8 +752,8 @@ fingerprint / freeze utilities：completed**：
 | A | orchestration errors / enums / canonical JSON / fingerprint / freeze utilities | completed | —（已提交并通过独立审查） |
 | B | durable record 数据合同与严格恢复解析 | completed（`261ebbd`；已通过独立审查） | —（已完成） |
 | C | instruction 逐字节渲染器 | completed（`71c77f5`；已通过独立审查） | —（已完成） |
-| D | 纯 planning core | **completed**（本提交即其独立提交；审查历史见上方记录） | —（已完成） |
-| E | `_LayoutResolver` 路径派生与安全校验 | not started；**next permitted step** | 本提交完成、工作区干净并发出新的明确 Step E checkpoint |
+| D | 纯 planning core | completed（`172ae2b`；final post-commit review passed；finally confirmed） | —（已完成） |
+| E | `_LayoutResolver` 路径派生与安全校验 | not started；**next permitted step** | ①Step D commit 完成；②**Step D final post-commit review 已通过**；③Step D 最终完成确认；④本次 docs-only 状态同步提交完成；⑤提交后工作区干净；⑥用户发出新的明确 Step E checkpoint（全部满足） |
 | F | `_FileOrchestrationExecutor`（WAL/CAS/恢复执行） | not started | Step E 完成、审查通过并提交 |
 | G | 公开 orchestrator facade 与端到端集成 | not started | Step F 完成、审查通过并提交 |
 
