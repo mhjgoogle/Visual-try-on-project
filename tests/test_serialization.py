@@ -400,3 +400,110 @@ def test_serialization_does_not_modify_model_or_metadata() -> None:
     assert manifest.output_metadata["a"] is shared
     assert manifest.output_metadata["b"] is shared
     assert metadata == before
+
+
+def _cancelled_task(**overrides: object) -> GenerationTask:
+    kwargs: dict[str, object] = {
+        "task_id": "task-002",
+        "shot_id": "shot-001",
+        "status": GenerationTaskStatus.CANCELLED,
+        "created_at": UTC_NOW,
+        "updated_at": UTC_LATER,
+        "completed_at": UTC_LATER,
+        "provider_id": "manual",
+        "external_task_ref": "remote/job-001",
+        "current_artifact_ref": "staging/shot-001.mp4",
+    }
+    kwargs.update(overrides)
+    return GenerationTask(**kwargs)  # type: ignore[arg-type]
+
+
+def test_cancelled_task_encodes_expected_fields() -> None:
+    encoded = model_to_dict(_cancelled_task())
+    assert encoded["status"] == "cancelled"
+    assert encoded["completed_at"] == UTC_LATER.isoformat(timespec="microseconds")
+    assert encoded["error_summary"] is None
+    assert encoded["external_task_ref"] == "remote/job-001"
+    assert encoded["current_artifact_ref"] == "staging/shot-001.mp4"
+
+
+def test_cancelled_task_round_trips_through_dict_and_json() -> None:
+    task = _cancelled_task()
+    assert model_from_dict(model_to_dict(task), GenerationTask) == task
+    assert model_from_json(model_to_json(task), GenerationTask) == task
+
+
+def test_cancelled_task_restores_through_existing_parse_path() -> None:
+    # The registry is unchanged: the new status value is handled by the
+    # existing GenerationTask parse path alone.
+    decoded = model_from_dict(model_to_dict(_cancelled_task()), GenerationTask)
+    assert decoded.status is GenerationTaskStatus.CANCELLED
+
+
+def test_cancelled_json_without_completed_at_is_rejected() -> None:
+    encoded = model_to_dict(_cancelled_task())
+    encoded["completed_at"] = None
+    with pytest.raises(InvariantViolationError, match="completed_at"):
+        model_from_dict(encoded, GenerationTask)
+
+
+def test_cancelled_json_with_error_summary_is_rejected() -> None:
+    encoded = model_to_dict(_cancelled_task())
+    encoded["error_summary"] = "Cancelled by user."
+    with pytest.raises(InvariantViolationError, match="error_summary"):
+        model_from_dict(encoded, GenerationTask)
+
+
+@pytest.mark.parametrize(
+    ("status", "expected_value", "completed_at", "error_summary"),
+    [
+        (GenerationTaskStatus.PENDING, "pending", None, None),
+        (GenerationTaskStatus.IN_PROGRESS, "in_progress", None, None),
+        (GenerationTaskStatus.DONE, "done", UTC_LATER, None),
+        (
+            GenerationTaskStatus.FAILED,
+            "failed",
+            UTC_LATER,
+            "Generation failed.",
+        ),
+    ],
+)
+def test_legacy_statuses_round_trip_without_migration(
+    status: GenerationTaskStatus,
+    expected_value: str,
+    completed_at: datetime | None,
+    error_summary: str | None,
+) -> None:
+    # Existing persisted data never contains "cancelled"; each of the four
+    # legacy status values must keep its string value, encode its
+    # status-specific fields, and parse exactly as before with no migration.
+    task = GenerationTask(
+        task_id="task-003",
+        shot_id="shot-001",
+        status=status,
+        created_at=UTC_NOW,
+        updated_at=UTC_LATER,
+        completed_at=completed_at,
+        error_summary=error_summary,
+    )
+
+    encoded = model_to_dict(task)
+    assert encoded["status"] == expected_value
+    assert encoded["completed_at"] == (
+        None
+        if completed_at is None
+        else completed_at.isoformat(timespec="microseconds")
+    )
+    assert encoded["error_summary"] == error_summary
+
+    decoded = model_from_dict(encoded, GenerationTask)
+    assert decoded == task
+    assert decoded.status is status
+    assert decoded.completed_at == completed_at
+    assert decoded.error_summary == error_summary
+
+    json_decoded = model_from_json(model_to_json(task), GenerationTask)
+    assert json_decoded == task
+    assert json_decoded.status is status
+    assert json_decoded.completed_at == completed_at
+    assert json_decoded.error_summary == error_summary

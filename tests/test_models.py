@@ -270,9 +270,18 @@ def test_generation_task_status_is_local_and_provider_agnostic() -> None:
         "in_progress",
         "done",
         "failed",
+        "cancelled",
     }
     assert "waiting_for_user" not in GenerationTaskStatus._value2member_map_
     assert "asset_available" not in GenerationTaskStatus._value2member_map_
+
+
+def test_generation_task_status_keeps_existing_members_and_adds_cancelled() -> None:
+    assert GenerationTaskStatus.PENDING.value == "pending"
+    assert GenerationTaskStatus.IN_PROGRESS.value == "in_progress"
+    assert GenerationTaskStatus.DONE.value == "done"
+    assert GenerationTaskStatus.FAILED.value == "failed"
+    assert GenerationTaskStatus.CANCELLED.value == "cancelled"
 
 
 def test_generation_task_public_fields_exclude_history_qcd_and_asset_id() -> None:
@@ -320,6 +329,7 @@ def test_video_asset_does_not_require_the_media_file_to_exist() -> None:
         (GenerationTaskStatus.IN_PROGRESS, None, None),
         (GenerationTaskStatus.DONE, UTC_LATER, None),
         (GenerationTaskStatus.FAILED, UTC_LATER, "Generation failed."),
+        (GenerationTaskStatus.CANCELLED, UTC_LATER, None),
     ],
 )
 def test_generation_task_accepts_consistent_status_fields(
@@ -342,10 +352,14 @@ def test_generation_task_accepts_consistent_status_fields(
     [
         (GenerationTaskStatus.PENDING, UTC_LATER, None),
         (GenerationTaskStatus.IN_PROGRESS, UTC_LATER, None),
+        (GenerationTaskStatus.PENDING, None, "Unexpected error."),
+        (GenerationTaskStatus.IN_PROGRESS, None, "Unexpected error."),
         (GenerationTaskStatus.DONE, None, None),
         (GenerationTaskStatus.DONE, UTC_LATER, "Unexpected error."),
         (GenerationTaskStatus.FAILED, None, "Generation failed."),
         (GenerationTaskStatus.FAILED, UTC_LATER, None),
+        (GenerationTaskStatus.CANCELLED, None, None),
+        (GenerationTaskStatus.CANCELLED, UTC_LATER, "Cancelled by user."),
     ],
 )
 def test_generation_task_rejects_inconsistent_status_fields(
@@ -359,6 +373,37 @@ def test_generation_task_rejects_inconsistent_status_fields(
             completed_at=completed_at,
             error_summary=error_summary,
         )
+
+
+def test_cancelled_task_keeps_external_task_ref() -> None:
+    task = replace(
+        make_task(
+            status=GenerationTaskStatus.CANCELLED,
+            completed_at=UTC_LATER,
+        ),
+        external_task_ref="remote/job-001",
+    )
+    assert task.external_task_ref == "remote/job-001"
+
+
+def test_cancelled_task_keeps_current_artifact_ref() -> None:
+    task = make_task(
+        status=GenerationTaskStatus.CANCELLED,
+        completed_at=UTC_LATER,
+    )
+    assert task.current_artifact_ref == "staging/shot-001.mp4"
+
+
+def test_cancelled_task_keeps_both_references_together() -> None:
+    task = replace(
+        make_task(
+            status=GenerationTaskStatus.CANCELLED,
+            completed_at=UTC_LATER,
+        ),
+        external_task_ref="remote/job-001",
+    )
+    assert task.external_task_ref == "remote/job-001"
+    assert task.current_artifact_ref == "staging/shot-001.mp4"
 
 
 def test_generation_task_rejects_invalid_time_order() -> None:

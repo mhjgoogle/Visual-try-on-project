@@ -608,14 +608,26 @@ closed：
   - implementation agent assignment: **satisfied — Claude Code**
   - independent review agent: **Codex**
   - coding gate: **open**
-  - implementation status: **not started**
-  - next permitted step: **Step M — GenerationTaskStatus.CANCELLED
-    model evolution**
 
-**实施顺序与纪律**（依据批准设计 §22）：
+**Step M — GenerationTaskStatus.CANCELLED model evolution：
+completed**：
 
-1. Step M；2. Step A；3. Step B；4. Step C；5. Step D；
-6. Step E；7. Step F；8. Step G。
+  - independent review: **passed**（第一轮有条件通过——唯一重要
+    问题为 legacy 序列化兼容测试只覆盖 PENDING，已参数化修复为
+    四个旧状态双路径覆盖；第二轮通过）
+  - blockers: 0；important findings: 0；suggestions: 0
+  - production files: `src/ai_video_workflow/models.py`
+  - test files: `tests/test_models.py`、`tests/test_serialization.py`
+  - full regression: **775 passed**
+
+**实施顺序状态**：
+
+1. Step M — **completed**；
+2. Step A — not started；**next permitted step**（必须在新的独立
+   checkpoint 中开始，本提交不包含 Step A）；
+3. Step B — not started；4. Step C — not started；
+5. Step D — not started；6. Step E — not started；
+7. Step F — not started；8. Step G — not started。
 
 - 只能从 Step M 开始，不得跳过 Step M；
 - 不得并行开始 A–G；
@@ -627,7 +639,7 @@ closed：
 
 ## 当前状态
 
-ready for implementation — coding gate open — Step M pending
+implementation in progress — Step M completed — Step A pending
 
 ## 尚待后续任务决定的事项
 

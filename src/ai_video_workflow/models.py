@@ -19,6 +19,7 @@ class GenerationTaskStatus(str, Enum):
     IN_PROGRESS = "in_progress"
     DONE = "done"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,6 +165,7 @@ class GenerationTask:
         terminal = {
             GenerationTaskStatus.DONE,
             GenerationTaskStatus.FAILED,
+            GenerationTaskStatus.CANCELLED,
         }
         if self.status in terminal and self.completed_at is None:
             raise InvariantViolationError(
