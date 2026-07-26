@@ -1585,8 +1585,11 @@ class TestRestoreAdapters:
 
 
 class TestStepBBoundaries:
-    def test_executable_plan_is_not_implemented_in_step_b(self) -> None:
-        assert not hasattr(internal_models, "_ExecutablePlan")
+    def test_executable_plan_is_internal_after_step_d(self) -> None:
+        assert hasattr(internal_models, "_ExecutablePlan")
+        assert internal_models._ExecutablePlan.__name__.startswith("_")
+        assert "_ExecutablePlan" not in orchestration_package.__all__
+        assert not hasattr(orchestration_package, "_ExecutablePlan")
 
     def test_step_b_symbols_are_not_exported(self) -> None:
         for name in (

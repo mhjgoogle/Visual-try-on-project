@@ -321,3 +321,100 @@ def _stable_self_fingerprint(payload: Mapping[str, object]) -> str:
         if key != _STABLE_SELF_FINGERPRINT_FIELD
     }
     return _fingerprint(reduced)
+
+
+PLAN_PREIMAGE_SCHEMA_VERSION = 1
+
+_PLAN_PREIMAGE_KEYS = frozenset(
+    {
+        "plan_preimage_schema_version",
+        "operation_id",
+        "action",
+        "baseline_version",
+        "request_fingerprint",
+        "result_fingerprint",
+        "task_before_fingerprint",
+        "task_after_fingerprint",
+        "manifest_before_fingerprint",
+        "manifest_after_fingerprint",
+        "instruction_before_fingerprint",
+        "observed_at",
+        "completed_at",
+        "artifact_input_fingerprint",
+    }
+)
+
+
+def _make_plan_preimage(
+    *,
+    operation_id: str,
+    action: str,
+    baseline_version: int,
+    request_fingerprint: str,
+    result_fingerprint: str,
+    task_before_fingerprint: str,
+    task_after_fingerprint: str,
+    manifest_before_fingerprint: str,
+    manifest_after_fingerprint: str,
+    instruction_before_fingerprint: str,
+    observed_at: str,
+    completed_at: str | None,
+    artifact_input_fingerprint: str,
+    plan_preimage_schema_version: int = PLAN_PREIMAGE_SCHEMA_VERSION,
+) -> Mapping[str, object]:
+    """Return the frozen, exact plan_id core preimage mapping.
+
+    The preimage never contains the plan_id itself, instruction
+    after bytes or fingerprint, or any planned stable state
+    fingerprint.
+    """
+    _validate_plan_preimage_version(plan_preimage_schema_version)
+    return _freeze_mapping(
+        {
+            "plan_preimage_schema_version": plan_preimage_schema_version,
+            "operation_id": operation_id,
+            "action": action,
+            "baseline_version": baseline_version,
+            "request_fingerprint": request_fingerprint,
+            "result_fingerprint": result_fingerprint,
+            "task_before_fingerprint": task_before_fingerprint,
+            "task_after_fingerprint": task_after_fingerprint,
+            "manifest_before_fingerprint": manifest_before_fingerprint,
+            "manifest_after_fingerprint": manifest_after_fingerprint,
+            "instruction_before_fingerprint": instruction_before_fingerprint,
+            "observed_at": observed_at,
+            "completed_at": completed_at,
+            "artifact_input_fingerprint": artifact_input_fingerprint,
+        }
+    )
+
+
+def _compute_plan_id(preimage: Mapping[str, object]) -> str:
+    """Return the deterministic plan_id over one exact core preimage."""
+    if not isinstance(preimage, Mapping):
+        raise FieldTypeError(
+            f"preimage: expected mapping, got {type(preimage).__name__}"
+        )
+    keys = set(preimage.keys())
+    if keys != _PLAN_PREIMAGE_KEYS:
+        missing = sorted(_PLAN_PREIMAGE_KEYS - keys)
+        unknown = sorted(keys - _PLAN_PREIMAGE_KEYS)
+        detail = missing[0] if missing else unknown[0]
+        raise InvariantViolationError(
+            f"preimage: keys must match the plan preimage exactly "
+            f"(offending key {detail!r})"
+        )
+    _validate_plan_preimage_version(preimage["plan_preimage_schema_version"])
+    return _fingerprint(preimage)
+
+
+def _validate_plan_preimage_version(value: object) -> None:
+    if type(value) is not int:
+        raise FieldTypeError(
+            "plan_preimage_schema_version: expected a strict int, "
+            f"got {type(value).__name__}"
+        )
+    if value != PLAN_PREIMAGE_SCHEMA_VERSION:
+        raise InvariantViolationError(
+            f"plan_preimage_schema_version: unsupported version {value}"
+        )

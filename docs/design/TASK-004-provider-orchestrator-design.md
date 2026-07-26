@@ -1,7 +1,7 @@
 # TASK-004 设计文档：Provider Orchestrator 契约与基础编排
 
 - Status: approved — implementation in progress; Steps M, A, B,
-  and C completed; Step D pending new checkpoint
+  C, and D completed; Step E pending new checkpoint
 - Revision: r6（自包含版本；关闭 r5 复审的 3 个阻塞与 1 个重要
   问题；不依赖任何历史草案或聊天记录）+ 实施顺序补充（§24，
   docs-only，Codex 第三次复审通过）
@@ -130,30 +130,65 @@
     whitespace passed
   - Step C status: completed, independently reviewed,
     committed by this commit
-- next permitted step: **Step D**（not started；只能在本提交
-  完成、工作区干净后经新的独立 checkpoint 启动）；Step E–G:
+- **Step D — 纯 planning core: completed — committed by this
+  commit（审查历史如下，如实记录）**：
+  - implementation agent: Claude Code；independent review
+    agent: Codex
+  - implementation: completed（生产文件：
+    orchestration/planning.py（新建）、_models.py（追加
+    `_ExecutablePlan`）、canonical.py（追加 §16.3 preimage）；
+    测试文件：tests/test_orchestration_planning.py（新建）；
+    另经一次性窄范围授权更新
+    tests/test_orchestration_models.py 中一个过期 temporal
+    guard）
+  - 第一轮独立审查：不通过（4 阻塞 2 重要——instruction 承诺
+    指纹丢失、首次 PREPARE 痕迹检查缺失、终态 manifest 阻断
+    等价 replay、handoff 缺跨字段约束、时间分裂、replay 绕过
+    instruction sticky——已逐项修复并补负例）
+  - 第二轮独立审查：有条件通过（blockers 0 / important 1 /
+    suggestions 0；唯一 important = `instruction_before_text`
+    输入未获设计批准）
+  - instruction carry-over 契约：经两轮 docs-only 修订正式化
+    （第一次修订的窄范围复审不通过——读取者控制流与写入语义
+    两处边界矛盾——已由第二次修订按 §3 executor 独占 I/O 与
+    §19 既有覆盖分支消解）；代码已按最终契约对齐（含 stable
+    下 before == committed 全等校验、ABSENT 情形与全部补充
+    负例）
+  - 提交裁决：**按用户指示提交**；carry-over 契约第二次修订与
+    最终代码对齐的 Codex 复核可后续进行，本记录不声称该复核
+    已通过
+  - §22 设计测试条目：Step D 归属的 14 项已客观覆盖（含审查
+    指出的全部缺失负例）
+  - tests：Step D focused pytest **159 passed**；full pytest
+    **1348 passed**；Ruff format/lint passed；whitespace passed
+  - Step D status: completed, committed by this commit
+- next permitted step: **Step E**（not started；只能在本提交
+  完成、工作区干净后经新的独立 checkpoint 启动）；Step F–G:
   not started；coding gate: open（全局）
-- Step M 的 18 个、Step A 的 124 个、Step B 的 244 个与
-  Step C 的 46 个新增 pytest case 已实现并包含在当前 1189 项
-  中；r6 的 131 项分步实施测试计划尚未全部实现（当前已完成
-  52/131：Step A 5 项 + Step B 44 项 + Step C 3 项，见
-  §24.3）；Step M/A/B/C 完成不代表 TASK-004 完成；本提交不包含
-  任何 Step D 代码。
+- Step M 的 18 个、Step A 的 124 个、Step B 的 244 个、
+  Step C 的 46 个与 Step D 的 159 个新增 pytest case 已实现并
+  包含在当前 1348 项中；r6 的 131 项分步实施测试计划尚未全部
+  实现（当前已完成 66/131：Step A 5 项 + Step B 44 项 +
+  Step C 3 项 + Step D 14 项，见 §24.3）；Step M/A/B/C/D 完成
+  不代表 TASK-004 完成；本提交不包含任何 Step E 代码。
 - 当前事实（统一口径）：r6 technical design **approved**；
   implementation sequencing clarification（§24）**approved —
   第三次 Codex 复审通过**（此前两轮为历史记录：第一次/第二次
   复审各有条件通过，三个重要问题已逐项关闭）；Step M / Step A
   / Step B / Step C **completed, independently reviewed,
-  committed**（当前仓库含四个 Step 的实现代码；CANCELLED code
-  implementation 已在 Step M 完成）；Step D **not started;
-  pending new checkpoint**（必须在新的独立 checkpoint 中
-  启动）；Step E–G not started；global coding gate **open**；
-  当前实际回归基线 **1189 passed**。coding gate open 不表示
-  §22 的 131 项计划测试已全部实现或任何 acceptance criterion
-  已由完整实现满足（D–G 未实施）。角色边界：Claude Code 按批准
-  的 r6 设计与 §24 分步实施，不得替代 Codex 声称独立审查通过；
-  Codex 在每个批准步骤后独立审查，不直接修改实现文件；每个
-  Step 必须在前一步完成、测试通过并按计划审查后再开始。
+  committed**；Step D **completed, committed**（审查历史与
+  提交裁决见上方 Step D 记录——第二轮有条件通过后经两轮
+  docs-only 契约修订与代码对齐，按用户指示提交）；当前仓库含
+  五个 Step 的实现代码；CANCELLED code implementation 已在
+  Step M 完成；Step E **not started; pending new checkpoint**
+  （必须在新的独立 checkpoint 中启动）；Step F–G not
+  started；global coding gate **open**；当前实际回归基线
+  **1348 passed**。coding gate open 不表示 §22 的 131 项计划
+  测试已全部实现或任何 acceptance criterion 已由完整实现满足
+  （E–G 未实施）。角色边界：Claude Code 按批准的 r6 设计与
+  §24 分步实施，不得替代 Codex 声称独立审查通过；Codex 在每个
+  批准步骤后独立审查，不直接修改实现文件；每个 Step 必须在前一
+  步完成、测试通过并按计划审查后再开始。
 - **r6 formal-design approval snapshot（历史快照，仅记录批准
   当时的事实，不代表当前状态）**：
   - coding gate was closed at that checkpoint；
@@ -172,8 +207,8 @@
 - TASK-003 completed baseline:
   `01ac984 docs: complete TASK-003 implementation`
 - coding gate: **open**（全局；r6 批准时为 closed——见上方历史
-  快照）；Step D 局部门槛：待本提交完成、工作区干净并发出新的
-  Step D checkpoint
+  快照）；Step E 局部门槛：待本提交完成、工作区干净并发出新的
+  Step E checkpoint
 - 目标运行环境：WSL2 Ubuntu / Linux（POSIX `os.replace`；不测试
   Windows path 或 replace 语义）
 
@@ -198,7 +233,8 @@
    （independent review agent: Codex）；
 8. coding gate: **open**（全局）——Step M、Step A、Step B 与
    Step C completed（independently reviewed and approved）；
-   Step D: not started；pending new checkpoint；Step E–G not
+   Step D completed（committed；审查历史见 Step D 记录）；
+   Step E: not started；pending new checkpoint；Step F–G not
    started。
 
 ## 1. 总览
@@ -1550,9 +1586,18 @@ Step A 实现代码；编排主体 Step B–G 未实施；r6 批准当时尚无�
   119–126）由 Step B 完成（标记 completed）。
 - **Step C — instruction 逐字节渲染器**：completed（生产：
   `orchestration/instructions.py`；测试：
-  `tests/test_orchestration_canonical.py`；独立审查通过——
-  第一轮两个重要问题已修复关闭）。§22 编号 111–113 由 Step C
-  完成（标记 completed）。
+  `tests/test_orchestration_canonical.py`；已提交 `71c77f5`；
+  独立审查通过——第一轮两个重要问题已修复关闭）。§22 编号
+  111–113 由 Step C 完成（标记 completed）。
+- **Step D — 纯 planning core**：completed（生产：
+  `orchestration/planning.py`、`_models.py`（追加
+  `_ExecutablePlan`）、`canonical.py`（追加 §16.3 preimage）；
+  测试：`tests/test_orchestration_planning.py` + 一次性授权的
+  temporal guard 更新；第一轮审查不通过的 4 阻塞 2 重要已
+  逐项修复；第二轮有条件通过的 instruction carry-over 输入
+  经两轮 docs-only 修订正式化并完成代码对齐；按用户裁决
+  提交）。§22 中 Step D 归属的 14 项（15–20、85、88–94）由
+  Step D 完成（标记 completed）。
 
 **计数单位说明**："§22 测试项"与"pytest case 数"不是相同计数
 单位：一个 §22 设计测试项通常展开为多个参数化 pytest case
@@ -1570,18 +1615,22 @@ Step A 实现代码；编排主体 Step B–G 未实施；r6 批准当时尚无�
   cases）；
 - after Step B: **1143 pytest cases**（Step B added
   **244 pytest cases**，其中最后一次审查缺口修复增加 56 个）；
-- after Step C / current repository baseline:
-  **1189 pytest cases**（Step C added **46 pytest cases**：
-  初次实现 35 个 + 独立审查缺口修复 11 个）。
+- after Step C: **1189 pytest cases**（Step C added
+  **46 pytest cases**：初次实现 35 个 + 独立审查缺口修复
+  11 个）；
+- after Step D / current repository baseline:
+  **1348 pytest cases**（Step D added **159 pytest cases**：
+  初次实现 139 个 + 第一轮审查修复 15 个 + carry-over 契约
+  收口 5 个）。
 
 §22 的 131 项是设计级测试条目（design-level test
 requirements），与 pytest 运行器收集执行的 case 不是同一计数
 单位；不得由 `775 − 757 = 18` 推断 Step M 对应 18 个 §22 测试
-编号（Step M 的 case 不占用 1–131 编号）；Step B 的 244 个与
-Step C 的 46 个新增 pytest case 与各自归属的 44 项/3 项 §22
-设计条目也不是同一计数单位；不声称 131 项设计测试已经全部实现
-（当前完成 52/131：Step A 5 项 + Step B 44 项 + Step C
-3 项）。
+编号（Step M 的 case 不占用 1–131 编号）；Step B 的 244 个、
+Step C 的 46 个与 Step D 的 159 个新增 pytest case 与各自归属
+的 44 项/3 项/14 项 §22 设计条目也不是同一计数单位；不声称
+131 项设计测试已经全部实现（当前完成 66/131：Step A 5 项 +
+Step B 44 项 + Step C 3 项 + Step D 14 项）。
 
 ### 24.1 未实施文件 ownership 分析
 
@@ -1866,6 +1915,92 @@ after payload 逐格规则（含 cancelled 列）；§13.3 sticky merge
 action_input_fingerprint 计算；STABLE 状态行的 legal_actions /
 preferred_next_action 计算。
 
+**instruction carry-over 输入契约（docs-only 修订；第一次窄
+范围复审不通过的两处边界矛盾——读取者控制流、写入语义——已由
+第二次修订消解；随 Step D 按用户裁决提交，后续 Codex 复核可
+另行进行）**：
+
+planner 正式入口 `_OrchestrationPlanner.plan()` 的 before 输入
+除三个文件指纹外，还包含 instruction 文件当前文本：
+
+```python
+instruction_before_text: str | None = None
+```
+
+- **来源与唯一控制流**：状态文件读取属 executor 独占 I/O
+  （§3）。唯一批准的控制流为：**executor 是唯一读取者**——在
+  同一次状态读取中读取 instruction 文件字节、计算
+  `instruction_before_fingerprint` 并解码文本；**orchestrator
+  是唯一 planner 调用方**——把 executor 返回的三个 before
+  指纹与 instruction 文本作为纯值原样传入
+  `_OrchestrationPlanner.plan()`；**planner 是纯消费者**——
+  只验证与使用这些显式输入，保持零 I/O，绝不自行读取文件。
+  读取结果只以普通值（str/hex64/ABSENT）跨越 executor →
+  orchestrator → planner 边界，不传递文件句柄或路径。职责与
+  测试归属：executor 的读取/指纹/文本提供接口归 Step F（在
+  `tests/test_orchestration_executor.py` 测试）；接线归 Step G
+  （在 `tests/test_orchestrator.py` 测试）；planner 侧输入验证
+  归 Step D（本节补充测试）。
+- **stable 一致性（强制）**：任何已有 stable 下，
+  `instruction_before_fingerprint` 必须等于
+  `stable.committed_instruction_fingerprint`——**包括二者同为
+  ABSENT 的情形**。stable 承诺为 ABSENT 而调用方声称
+  instruction 文件存在（before fingerprint 非 ABSENT），或
+  反向不一致，均为 InvalidOrchestrationInputError；不得把实际
+  instruction 文件与 stable 状态脱钩。
+- **committed 非 ABSENT 时**：`instruction_before_text` 必须
+  提供、必须为 `str`，且其 UTF-8 字节的 SHA-256 必须等于
+  `instruction_before_fingerprint`。
+- **committed 为 ABSENT 时**：`instruction_before_text` 必须为
+  `None`；提供文本即拒绝。
+- **首次 PREPARE（stable 为 null）**：
+  `instruction_before_fingerprint` 必须为 ABSENT **且**
+  `instruction_before_text` 必须为 `None`（§13.0.2 无痕迹
+  前置的组成部分）。
+- **不进入 preimage**：该文本不进入 §16.3 plan preimage；其
+  精确字节已由纳入 preimage 的
+  `instruction_before_fingerprint` 完全约束，plan_id 语义
+  不变。
+- **after-state 一致性与写入语义**：非 PREPARE 操作的
+  `_PendingApply.instruction_after_text /
+  instruction_after_fingerprint` 与 planned stable 的
+  `committed_instruction_fingerprint` 必须等于该已验证的携带
+  内容（text 原样、fingerprint == before == committed，即
+  **before == after**）——同时满足 §11.3 的 text/fp 配对
+  不变量与 §11.6 的 committed == after 不变量；PREPARE 仍按
+  §16.2 第 7–8 步渲染新文本。§11.4 写入顺序的第 5 步
+  （instruction）**保持不变**，其执行严格遵循 §19 既有覆盖
+  规则：carry-over 情形下现有文件字节 == after 字节，命中
+  "== after → NO_OP" 分支——executor 校验相等后**跳过替换
+  写**，并可将 `instruction` 计入 `confirmed_writes`（提示
+  性；权威判定仍按 §14 P8 以实际文件指纹为准）；文件缺失时
+  命中"不存在 → 写入"分支，用携带字节补写（即 §14 P4–P7 的
+  恢复补写语义）；既非 before 也非 after →
+  PartialCommitConflictError（§14 P9）。
+  `_ExecutablePlan.instruction_after_bytes` 的语义 = 预期
+  after 字节（carry-over 时与当前文件字节相同），供 executor
+  做 §19 比较与恢复补写；pending/plan 携带待验证字节与
+  "本操作不产生新内容"并不矛盾——字节是恢复自包含性
+  （§11.3）的要求，不是重写指令。executor 侧的 == after 跳
+  过、缺失补写与冲突分支测试归 Step F（随 §22 第 114 项与
+  恢复分支测试实施）。
+
+Step D 补充测试要求（不改变 §22 的 1–131 编号与主题）：
+
+1. 后续操作保持 committed instruction fingerprint（非
+   ABSENT 值原样保留，pending after 对与 planned stable 一致）；
+2. committed 非 ABSENT 而 text 缺失 → 拒绝；
+3. `instruction_before_fingerprint != committed` → 拒绝；
+4. text 的 UTF-8 SHA-256 与 before fingerprint 不一致 → 拒绝；
+5. **stable committed 为 ABSENT 而调用方声称 instruction 文件
+   存在（before fingerprint 非 ABSENT）→ 拒绝**；
+6. committed 为 ABSENT 而提供 text → 拒绝；
+7. 首次 PREPARE：before fingerprint 非 ABSENT 或 text 非
+   None → 拒绝；
+8. plan preimage 键集不含任何 instruction 文本字段；plan_id
+   在给定 before fingerprint 下仅由 §16.3 preimage 决定（文本
+   由指纹约束，不一致的文本在进入 plan 计算前即被拒绝）。
+
 ##### 明确禁止
 
 record 文件读写、CAS、WAL 相位推进（Step F）；路径派生
@@ -1993,8 +2128,11 @@ pending 保留 previous stable；§14 P3–P9/S0/S1/E1 分类与
 SAFE_AUTO_RETRY 补写执行；§13.5 record 丢失痕迹判定（分类）；
 §8.2 批准父目录创建、空目录残留语义、创建失败
 PersistenceExecutionError；§9 task/manifest 存在性与
-MissingProjectStateError；§19 instruction 覆盖规则执行；I/O
-白名单闭合于四个派生路径。
+MissingProjectStateError；§19 instruction 覆盖规则执行（含
+carry-over 情形的 == after 跳过、缺失补写与冲突分支，见 §24.2
+Step D 的 instruction carry-over 契约）；状态文件读取与 before
+指纹/instruction 文本的提供接口（planner 输入的唯一来源，
+executor 独占 I/O）；I/O 白名单闭合于四个派生路径。
 
 ##### 明确禁止
 
@@ -2067,8 +2205,10 @@ updated_task/updated_manifest 经 §16.4 adapter 重建——模块级
 MAY_HAVE_STARTED 落盘成功后才调用 Provider；绝不自动
 resubmit）；§17.2 91 格准入（含 REDRIVE/REPAIR/E-unknown/
 E-recovery 端到端）；§13.5 动作级 record 丢失行为与 127/129–131
-首次痕迹场景；resume 全 13 状态 Assessment；§4.1 导出集合测试
-锁定；固定资产边界 tripwire。
+首次痕迹场景；resume 全 13 状态 Assessment；planner 调用接线
+（把 executor 提供的 before 指纹与 instruction 文本作为纯值
+传入 `plan()`，见 §24.2 Step D 的 instruction carry-over
+契约）；§4.1 导出集合测试锁定；固定资产边界 tripwire。
 
 ##### 明确禁止
 
@@ -2129,9 +2269,10 @@ TASK-004 completed：
 
 ### 24.3 §22 测试编号 → Step 完整映射（1–131）
 
-Step A 行标记 completed；Step B 归属的 44 项与 Step C 归属的
-3 项（111–113）已分别由 Step B/C 完成（见 §24.0 记录，表内行
-标注保持原分配不变）；其余 planned。测试主题为 §22 原文的
+Step A 行标记 completed；Step B 归属的 44 项、Step C 归属的
+3 项（111–113）与 Step D 归属的 14 项已分别由 Step B/C/D 完成
+（见 §24.0 记录，表内行标注保持原分配不变）；其余 planned。
+测试主题为 §22 原文的
 压缩指称，语义以 §22 原文为准。
 
 | 编号 | 测试主题 | Step | 测试文件 |

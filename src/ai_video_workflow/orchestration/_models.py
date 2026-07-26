@@ -1244,3 +1244,136 @@ def _require_duplicated_action_input_facts(
         raise InvariantViolationError(
             f"{field_name}: artifact must equal the artifact_input field"
         )
+
+
+@dataclass(frozen=True, slots=True)
+class _ExecutablePlan:
+    """Internal executable plan handed from the planner to the executor.
+
+    Pure data only: the plan carries the durable pending apply
+    payload, the exact instruction bytes to write (or None when this
+    operation does not touch the instruction file), and the explicit
+    artifact handoff wrapper. It executes nothing, owns no Provider
+    instance, and holds no filesystem handle.
+    """
+
+    plan_id: str
+    operation_id: str
+    action: OrchestrationAction
+    task_id: str
+    shot_id: str
+    provider_id: str
+    baseline_version: int
+    pending_apply: _PendingApply
+    instruction_after_bytes: bytes | None
+    artifact_handoff: Mapping[str, object] | None
+
+    __hash__ = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.pending_apply, _PendingApply):
+            raise FieldTypeError(
+                "pending_apply: expected _PendingApply, "
+                f"got {type(self.pending_apply).__name__}"
+            )
+        _validate_hex64(self.plan_id, field_name="plan_id")
+        if self.plan_id != self.pending_apply.plan_id:
+            raise InvariantViolationError(
+                "plan_id: must equal the pending apply plan_id"
+            )
+        validate_stable_id(self.operation_id, field_name="operation_id")
+        if self.operation_id != self.pending_apply.operation_id:
+            raise InvariantViolationError(
+                "operation_id: must equal the pending apply operation_id"
+            )
+        _validate_action(self.action, field_name="action")
+        if self.action is not self.pending_apply.action:
+            raise InvariantViolationError("action: must equal the pending apply action")
+        _validate_strict_int(
+            self.baseline_version,
+            field_name="baseline_version",
+        )
+        if self.baseline_version != self.pending_apply.baseline_version:
+            raise InvariantViolationError(
+                "baseline_version: must equal the pending apply baseline"
+            )
+        validate_stable_id(self.task_id, field_name="task_id")
+        validate_stable_id(self.shot_id, field_name="shot_id")
+        validate_stable_id(self.provider_id, field_name="provider_id")
+        task_payload = self.pending_apply.task_after_snapshot["payload"]
+        if self.task_id != task_payload["task_id"]:
+            raise InvariantViolationError(
+                "task_id: must equal the pending task_after task_id"
+            )
+        if self.shot_id != task_payload["shot_id"]:
+            raise InvariantViolationError(
+                "shot_id: must equal the pending task_after shot_id"
+            )
+        request_payload = self.pending_apply.request_snapshot["payload"]
+        if self.provider_id != request_payload["provider_id"]:
+            raise InvariantViolationError(
+                "provider_id: must equal the pending request provider_id"
+            )
+        if self.instruction_after_bytes is None:
+            if self.pending_apply.instruction_after_fingerprint != ABSENT:
+                raise InvariantViolationError(
+                    "instruction_after_bytes: required when the pending "
+                    "apply carries an instruction after state"
+                )
+        else:
+            if type(self.instruction_after_bytes) is not bytes:
+                raise FieldTypeError(
+                    "instruction_after_bytes: expected bytes, got "
+                    f"{type(self.instruction_after_bytes).__name__}"
+                )
+            if self.pending_apply.instruction_after_text is None:
+                raise InvariantViolationError(
+                    "instruction_after_bytes: the pending apply carries "
+                    "no instruction after text"
+                )
+            expected_bytes = self.pending_apply.instruction_after_text.encode("utf-8")
+            if self.instruction_after_bytes != expected_bytes:
+                raise InvariantViolationError(
+                    "instruction_after_bytes: must equal the UTF-8 bytes "
+                    "of the pending instruction after text"
+                )
+            if (
+                _sha256_hex(self.instruction_after_bytes)
+                != self.pending_apply.instruction_after_fingerprint
+            ):
+                raise InvariantViolationError(
+                    "instruction_after_bytes: fingerprint does not match "
+                    "the pending instruction after fingerprint"
+                )
+        result_payload = self.pending_apply.result_snapshot["payload"]
+        is_collect_success = (
+            self.action is OrchestrationAction.COLLECT
+            and result_payload["status"] == "succeeded"
+        )
+        if self.artifact_handoff is None:
+            if is_collect_success:
+                raise InvariantViolationError(
+                    "artifact_handoff: required for a successful collect plan"
+                )
+        else:
+            if not is_collect_success:
+                raise InvariantViolationError(
+                    "artifact_handoff: only a successful collect plan may "
+                    "carry an artifact handoff"
+                )
+            object.__setattr__(
+                self,
+                "artifact_handoff",
+                _validate_snapshot_wrapper(
+                    self.artifact_handoff,
+                    expected_kind="artifact_reference",
+                    field_name="artifact_handoff",
+                ),
+            )
+            result_artifact = result_payload["artifact"]
+            if not isinstance(result_artifact, Mapping) or _thaw_mapping(
+                self.artifact_handoff["payload"]
+            ) != _thaw_mapping(result_artifact):
+                raise InvariantViolationError(
+                    "artifact_handoff: must equal the pending result artifact"
+                )
