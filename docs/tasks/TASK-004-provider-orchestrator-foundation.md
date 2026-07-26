@@ -690,15 +690,34 @@ fingerprint / freeze utilities：completed**：
 - focused pytest: **368 passed**；related regression:
   **611 passed**；full regression: **1143 passed**
 
+**Step C — instruction 逐字节渲染器：completed**：
+
+- implementation: completed（Claude Code；independent review
+  agent: Codex）
+- independent review: **passed**（blockers: 0；important
+  findings: 0；suggestions: 0；第一轮有条件通过的两个重要
+  问题——renderer 过度拒绝合法文本、fence 注入测试未用真正
+  三反引号载荷——已修复关闭）
+- production file:
+  `src/ai_video_workflow/orchestration/instructions.py`
+- test file: `tests/test_orchestration_canonical.py`
+- §22 entries: 111–113 covered
+- focused pytest: **169 passed**；related regression:
+  **631 passed**；full regression: **1189 passed**
+- Step C pytest case increase: 46（初次实现 35 + 审查缺口修复
+  11；与 3 个 §22 设计条目不是同一计数单位）
+- cumulative implemented §22 entries: **52 / 131**（A 5 +
+  B 44 + C 3）
+
 **实施顺序状态**：
 
 | Step | 正式名称（§24） | 状态 | 允许开始条件 |
 | --- | --- | --- | --- |
 | M | GenerationTaskStatus.CANCELLED model evolution | completed | —（已提交并通过独立审查） |
 | A | orchestration errors / enums / canonical JSON / fingerprint / freeze utilities | completed | —（已提交并通过独立审查） |
-| B | durable record 数据合同与严格恢复解析 | **completed**（independently reviewed；本提交即其独立提交） | —（已完成） |
-| C | instruction 逐字节渲染器 | not started；**next permitted step** | 本提交完成、工作区干净并发出新的明确 Step C checkpoint |
-| D | 纯 planning core | not started | Step C 完成、审查通过并提交 |
+| B | durable record 数据合同与严格恢复解析 | completed（`261ebbd`；已通过独立审查） | —（已完成） |
+| C | instruction 逐字节渲染器 | **completed**（independently reviewed；本提交即其独立提交） | —（已完成） |
+| D | 纯 planning core | not started；**next permitted step** | 本提交完成、工作区干净并发出新的明确 Step D checkpoint |
 | E | `_LayoutResolver` 路径派生与安全校验 | not started | Step D 完成、审查通过并提交 |
 | F | `_FileOrchestrationExecutor`（WAL/CAS/恢复执行） | not started | Step E 完成、审查通过并提交 |
 | G | 公开 orchestrator facade 与端到端集成 | not started | Step F 完成、审查通过并提交 |
@@ -716,8 +735,8 @@ TASK-004 尚未完成；不声称全部 acceptance criteria 已实现；不声�
 
 ## 当前状态
 
-implementation in progress — Steps M, A, and B completed —
-Step C pending new checkpoint
+implementation in progress — Steps M, A, B, and C completed —
+Step D pending new checkpoint
 
 ## 尚待后续任务决定的事项
 

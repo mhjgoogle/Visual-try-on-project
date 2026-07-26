@@ -733,3 +733,323 @@ class TestSnapshotWrapperJsonOnlyBoundary:
             field_name="wrapper",
         )
         assert validated == wrapper
+
+
+# --- Step C additions: deterministic instruction rendering -------------------
+
+import ai_video_workflow.orchestration as orchestration_package_c  # noqa: E402
+from ai_video_workflow.orchestration.instructions import (  # noqa: E402
+    INSTRUCTION_SCHEMA_VERSION,
+    _render_instruction_bytes,
+)
+from ai_video_workflow.providers.models import (  # noqa: E402
+    ProviderInstruction,
+)
+
+PLAN_ID_C = "ab" * 32
+REQUEST_FP_C = "cd" * 32
+
+
+def make_instruction(**overrides) -> ProviderInstruction:
+    base = dict(
+        provider_id="manual",
+        task_id="task-1",
+        shot_id="shot-1",
+        prompt="a cat",
+        expected_duration_seconds=4.0,
+        expected_width=1280,
+        expected_height=720,
+        expected_frame_rate=24.0,
+        staging_ref="staging/task-1",
+        steps=("open tool", "generate"),
+        suggested_parameters={"style": "anime"},
+    )
+    base.update(overrides)
+    return ProviderInstruction(**base)
+
+
+def render(instruction: ProviderInstruction | None = None, **overrides) -> bytes:
+    if instruction is None:
+        instruction = make_instruction()
+    kwargs = dict(
+        operation_id="op-1",
+        plan_id=PLAN_ID_C,
+        request_fingerprint=REQUEST_FP_C,
+    )
+    kwargs.update(overrides)
+    return _render_instruction_bytes(instruction, **kwargs)
+
+
+# Golden bytes written out literally; never regenerated with the
+# renderer under test.
+GOLDEN_INSTRUCTION_TEXT = (
+    "# Manual Video Generation Task\n"
+    "\n"
+    "- schema_version: 1\n"
+    "- task_id: task-1\n"
+    "- shot_id: shot-1\n"
+    "- provider_id: manual\n"
+    "- operation_id: op-1\n"
+    "- plan_id: " + PLAN_ID_C + "\n"
+    "- request_fingerprint: " + REQUEST_FP_C + "\n"
+    "\n"
+    "## Prompt\n"
+    "\n"
+    "a cat\n"
+    "\n"
+    "## Expected Output\n"
+    "\n"
+    "- duration_seconds: 4.0\n"
+    "- width: 1280\n"
+    "- height: 720\n"
+    "- frame_rate: 24.0\n"
+    "- staging_ref: staging/task-1\n"
+    "\n"
+    "## Steps\n"
+    "\n"
+    "1. open tool\n"
+    "2. generate\n"
+    "\n"
+    "## Suggested Parameters\n"
+    "\n"
+    "```json\n"
+    '{"style":"anime"}\n'
+    "```\n"
+)
+
+
+class TestInstructionRendererGoldenBytes:
+    def test_schema_version_constant_is_one(self) -> None:
+        assert INSTRUCTION_SCHEMA_VERSION == 1
+
+    def test_golden_bytes_exact(self) -> None:
+        assert render() == GOLDEN_INSTRUCTION_TEXT.encode("utf-8")
+
+    def test_output_is_utf8_without_bom(self) -> None:
+        rendered = render()
+        assert isinstance(rendered, bytes)
+        assert not rendered.startswith(b"\xef\xbb\xbf")
+        rendered.decode("utf-8")
+
+    def test_lf_only_line_endings(self) -> None:
+        rendered = render()
+        assert b"\r" not in rendered
+
+    def test_ends_with_exactly_one_newline(self) -> None:
+        rendered = render()
+        assert rendered.endswith(b"\n")
+        assert not rendered.endswith(b"\n\n")
+
+    def test_no_trailing_whitespace_on_any_line(self) -> None:
+        for line in render().decode("utf-8").split("\n"):
+            assert line == line.rstrip()
+
+    def test_fixed_section_order(self) -> None:
+        text = render().decode("utf-8")
+        positions = [
+            text.index("# Manual Video Generation Task"),
+            text.index("## Prompt"),
+            text.index("## Expected Output"),
+            text.index("## Steps"),
+            text.index("## Suggested Parameters"),
+        ]
+        assert positions == sorted(positions)
+
+    def test_repeated_render_is_byte_stable(self) -> None:
+        assert render() == render()
+
+    def test_equivalent_instruction_instances_render_identically(
+        self,
+    ) -> None:
+        first = render(make_instruction())
+        second = render(make_instruction())
+        assert first == second
+
+    def test_multiline_prompt_renders_verbatim(self) -> None:
+        instruction = make_instruction(prompt="line one\n\nline two")
+        text = render(instruction).decode("utf-8")
+        assert "## Prompt\n\nline one\n\nline two\n\n## Expected" in text
+
+    def test_unicode_prompt_is_rendered_verbatim_without_nfc(self) -> None:
+        decomposed_prompt = "cafe\u0301 scene"
+        rendered = render(make_instruction(prompt=decomposed_prompt))
+        assert "cafe\u0301 scene".encode("utf-8") in rendered
+        assert "caf\u00e9 scene".encode("utf-8") not in rendered
+
+    def test_empty_parameters_render_as_empty_object(self) -> None:
+        instruction = make_instruction(suggested_parameters={})
+        text = render(instruction).decode("utf-8")
+        assert text.endswith("```json\n{}\n```\n")
+
+
+class TestInstructionParameterBlock:
+    def test_insertion_order_does_not_change_bytes(self) -> None:
+        forward = make_instruction(
+            suggested_parameters={"alpha": 1, "beta": {"x": 1, "y": 2}}
+        )
+        backward = make_instruction(
+            suggested_parameters={"beta": {"y": 2, "x": 1}, "alpha": 1}
+        )
+        assert render(forward) == render(backward)
+
+    def test_parameter_block_uses_canonical_json(self) -> None:
+        instruction = make_instruction(suggested_parameters={"b": [1, 2], "a": "中文"})
+        text = render(instruction).decode("utf-8")
+        assert '```json\n{"a":"中文","b":[1,2]}\n```\n' in text
+
+    def test_nfc_equivalent_parameter_values_render_identically(
+        self,
+    ) -> None:
+        composed = make_instruction(suggested_parameters={"key": "caf\u00e9"})
+        decomposed = make_instruction(suggested_parameters={"key": "cafe\u0301"})
+        assert "caf\u00e9" != "cafe\u0301"
+        assert render(composed) == render(decomposed)
+
+    def test_normalized_parameter_key_collision_is_rejected(self) -> None:
+        instruction = make_instruction(
+            suggested_parameters={"caf\u00e9": 1, "cafe\u0301": 2}
+        )
+        with pytest.raises(CanonicalizationError):
+            render(instruction)
+
+    def test_json_content_stays_inside_the_fenced_block(self) -> None:
+        instruction = make_instruction(
+            suggested_parameters={"note": "line\nbreak`and`fence"}
+        )
+        text = render(instruction).decode("utf-8")
+        block_start = text.index("```json\n")
+        block_body = text[block_start + len("```json\n") :]
+        json_line, remainder = block_body.split("\n", 1)
+        assert remainder == "```\n"
+        assert "\\n" in json_line
+
+    @pytest.mark.parametrize(
+        "hostile_value",
+        [
+            "```",
+            "```json",
+            "before\n```\nafter",
+            "carriage\rreturn",
+            "</script>",
+            "<!-- comment -->",
+            "反引号```内容",
+            "café with ``` fence",
+        ],
+        ids=[
+            "bare-fence",
+            "fence-with-language",
+            "fence-on-own-line",
+            "carriage-return",
+            "html-like",
+            "html-comment",
+            "non-ascii-fence",
+            "nfd-with-fence",
+        ],
+    )
+    def test_fence_boundary_survives_hostile_parameter_values(
+        self,
+        hostile_value: str,
+    ) -> None:
+        instruction = make_instruction(suggested_parameters={"note": hostile_value})
+        rendered = render(instruction)
+        assert b"\r" not in rendered
+        text = rendered.decode("utf-8")
+        lines = text.split("\n")
+        fence_indexes = [
+            index for index, line in enumerate(lines) if line.startswith("```")
+        ]
+        assert len(fence_indexes) == 2
+        opening, closing = fence_indexes
+        assert lines[opening] == "```json"
+        assert lines[closing] == "```"
+        assert closing == opening + 2
+        json_line = lines[opening + 1]
+        assert json_line.startswith('{"note":')
+        assert lines[closing + 1] == ""
+        assert closing + 2 == len(lines)
+
+
+class TestInstructionRendererInputContract:
+    def test_non_instruction_input_is_rejected(self) -> None:
+        with pytest.raises(FieldTypeError):
+            _render_instruction_bytes(
+                {"task_id": "task-1"},
+                operation_id="op-1",
+                plan_id=PLAN_ID_C,
+                request_fingerprint=REQUEST_FP_C,
+            )
+
+    @pytest.mark.parametrize("operation_id", [1, None, "", "  "])
+    def test_invalid_operation_id_is_rejected(
+        self,
+        operation_id: object,
+    ) -> None:
+        with pytest.raises((FieldTypeError, InvariantViolationError)):
+            render(operation_id=operation_id)
+
+    @pytest.mark.parametrize(
+        "plan_id",
+        [1, None, "xyz", "AB" * 32, "ab" * 31],
+    )
+    def test_invalid_plan_id_is_rejected(self, plan_id: object) -> None:
+        with pytest.raises((FieldTypeError, InvariantViolationError)):
+            render(plan_id=plan_id)
+
+    @pytest.mark.parametrize("fingerprint", [1, "not-hex"])
+    def test_invalid_request_fingerprint_is_rejected(
+        self,
+        fingerprint: object,
+    ) -> None:
+        with pytest.raises((FieldTypeError, InvariantViolationError)):
+            render(request_fingerprint=fingerprint)
+
+    def test_prompt_with_carriage_return_is_rejected(self) -> None:
+        instruction = make_instruction(prompt="line one\r\nline two")
+        with pytest.raises(InvariantViolationError):
+            render(instruction)
+
+    def test_step_with_carriage_return_is_rejected(self) -> None:
+        instruction = make_instruction(steps=("open tool", "two\rlines"))
+        with pytest.raises(InvariantViolationError):
+            render(instruction)
+
+    def test_prompt_internal_trailing_whitespace_is_preserved(self) -> None:
+        instruction = make_instruction(prompt="line one \nline two")
+        text = render(instruction).decode("utf-8")
+        assert "## Prompt\n\nline one \nline two\n\n## Expected" in text
+
+    def test_prompt_internal_tab_whitespace_is_preserved(self) -> None:
+        instruction = make_instruction(prompt="line one\t\nline two")
+        text = render(instruction).decode("utf-8")
+        assert "\nline one\t\nline two\n" in text
+
+    def test_multiline_step_is_rendered_verbatim_after_its_number(
+        self,
+    ) -> None:
+        instruction = make_instruction(steps=("open tool", "two\nlines"))
+        text = render(instruction).decode("utf-8")
+        assert "## Steps\n\n1. open tool\n2. two\nlines\n\n## Suggested" in (text)
+
+    def test_step_internal_trailing_whitespace_is_preserved(self) -> None:
+        instruction = make_instruction(steps=("first line \nsecond line",))
+        text = render(instruction).decode("utf-8")
+        assert "## Steps\n\n1. first line \nsecond line\n\n## Suggested" in (text)
+
+    def test_rendering_does_not_mutate_the_instruction(self) -> None:
+        instruction = make_instruction()
+        before = instruction.to_json_dict()
+        render(instruction)
+        assert instruction.to_json_dict() == before
+
+    def test_failed_render_preserves_the_instruction(self) -> None:
+        instruction = make_instruction(
+            suggested_parameters={"caf\u00e9": 1, "cafe\u0301": 2}
+        )
+        before = instruction.to_json_dict()
+        with pytest.raises(CanonicalizationError):
+            render(instruction)
+        assert instruction.to_json_dict() == before
+
+    def test_renderer_is_not_publicly_exported(self) -> None:
+        assert "_render_instruction_bytes" not in (orchestration_package_c.__all__)
+        assert "INSTRUCTION_SCHEMA_VERSION" not in (orchestration_package_c.__all__)
