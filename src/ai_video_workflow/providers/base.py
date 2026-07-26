@@ -25,6 +25,8 @@ class VideoProvider(ABC):
     state, never touch the filesystem, and never read the current clock.
     """
 
+    __slots__ = ()
+
     @property
     @abstractmethod
     def provider_id(self) -> str:

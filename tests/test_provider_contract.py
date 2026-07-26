@@ -25,6 +25,7 @@ EXPECTED_EXPORTS = {
     "ArtifactReference",
     "InvalidProviderRequestError",
     "InvalidProviderStateError",
+    "ManualVideoProvider",
     "MissingArtifactReferenceError",
     "ProviderCostObservation",
     "ProviderError",
@@ -197,6 +198,9 @@ class TestAbstractContract:
     def test_validate_alignment_is_not_abstract(self) -> None:
         assert "_validate_alignment" not in VideoProvider.__abstractmethods__
         assert callable(VideoProvider._validate_alignment)
+
+    def test_video_provider_declares_empty_slots(self) -> None:
+        assert VideoProvider.__slots__ == ()
 
 
 POSITIONAL = inspect.Parameter.POSITIONAL_OR_KEYWORD
@@ -493,9 +497,18 @@ class TestPublicExports:
         for name in providers_package.__all__:
             assert hasattr(providers_package, name)
 
-    def test_manual_video_provider_is_not_exported(self) -> None:
-        assert "ManualVideoProvider" not in providers_package.__all__
-        assert not hasattr(providers_package, "ManualVideoProvider")
+    def test_manual_video_provider_is_exported(self) -> None:
+        assert "ManualVideoProvider" in providers_package.__all__
+        assert hasattr(providers_package, "ManualVideoProvider")
+
+    def test_manual_video_provider_is_the_manual_module_class(self) -> None:
+        from ai_video_workflow.providers.manual import ManualVideoProvider
+
+        assert providers_package.ManualVideoProvider is ManualVideoProvider
+
+    def test_step_a_exports_are_still_present(self) -> None:
+        for name in EXPECTED_EXPORTS - {"ManualVideoProvider", "VideoProvider"}:
+            assert hasattr(providers_package, name)
 
 
 class TestArtifactReferenceAnnotationImport:

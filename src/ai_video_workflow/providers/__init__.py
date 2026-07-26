@@ -8,6 +8,7 @@ from ai_video_workflow.providers.errors import (
     ProviderError,
     ProviderOperationError,
 )
+from ai_video_workflow.providers.manual import ManualVideoProvider
 from ai_video_workflow.providers.models import (
     ArtifactLocation,
     ArtifactOrigin,
@@ -25,6 +26,7 @@ __all__ = [
     "ArtifactReference",
     "InvalidProviderRequestError",
     "InvalidProviderStateError",
+    "ManualVideoProvider",
     "MissingArtifactReferenceError",
     "ProviderCostObservation",
     "ProviderError",
