@@ -700,10 +700,206 @@ Codex（独立审查，不直接修改实施文件，审查意见记录到本文
 - coding gate: open
 - no implementation code exists yet
 
+## 实施验收证据
+
+以下逐条对应"验收标准"的 14 条原文（原文未改写、未重排），
+verification 均为 HEAD `92aff00` 实际执行的客观结果。
+
+1. **接口文档与类型契约、与设计文档一致**
+   - conclusion: satisfied
+   - implementation evidence: `providers/base.py` 的 `VideoProvider`
+     ABC（五个抽象成员、契约 docstring、批准签名）
+   - test evidence: `test_provider_contract.py`（`__abstractmethods__`
+     精确集合、四方法 `inspect.signature` + `get_type_hints` 逐参数
+     锁定）
+   - verification: contract 72 passed；签名与设计文档 §9 逐字一致
+2. **Manual 完整人工生成生命周期**
+   - conclusion: satisfied
+   - implementation evidence: `providers/manual.py` 的
+     prepare → submit → poll → collect 全实现
+   - test evidence: `test_manual_provider.py` 四阶段行为、分支与
+     状态迁移测试
+   - verification: manual 82 passed，含全生命周期贯穿测试
+3. **七状态独立类型 + 矩阵与时间不变量 + requires_user_action 派生**
+   - conclusion: satisfied
+   - implementation evidence: `providers/models.py` 的
+     `ProviderStatus`（独立 str Enum、`is_terminal` /
+     `requires_user_action` 派生属性）、`ProviderResult`
+     `_validate_status_matrix` 与时间不变量
+   - test evidence: `test_provider_models.py` 七状态矩阵全组合
+     参数化、时间十项、派生属性逐状态断言、三枚举类型分离
+   - verification: models 189 passed
+4. **无正式 VideoAsset/资产 ID；D4 两维引用；external_task_ref 与
+   artifact 分离**
+   - conclusion: satisfied
+   - implementation evidence: `ProviderResult` 13 字段（无资产
+     字段）；`ArtifactReference`（reference + origin × location）
+     单一 artifact 字段
+   - test evidence: models 的 ArtifactReference 与字段测试；manual
+     的 canonical identity 测试
+   - verification: 静态依赖检查确认 providers 包无 VideoAsset 引用
+     （仅 docstring 边界说明）
+5. **Provider 不修改 GenerationTask**
+   - conclusion: satisfied
+   - implementation evidence: providers 包不导入 GenerationTask，
+     无任何业务模型写路径
+   - test evidence: manual 模块命名空间测试、输入不可变快照测试
+   - verification: grep 边界检查通过（无运行时引用）
+6. **Provider 不写正式项目状态**
+   - conclusion: satisfied
+   - implementation evidence: 无 persistence/manifest/QCD 导入；
+     prepare 只返回结构化 instruction，不写说明文件
+   - test evidence: 文件系统禁令测试 + 模块命名空间测试
+   - verification: grep 与探针确认无写路径
+7. **不调 API/浏览器；四阶段文件系统禁令（monkeypatch）**
+   - conclusion: satisfied
+   - implementation evidence: `manual.py` 纯内存实现，无 os/pathlib/
+     glob/subprocess/网络导入
+   - test evidence: `test_manual_provider.py` 四阶段各自局部
+     `monkeypatch.context` 禁令测试（10 个文件系统目标一经调用即
+     失败），非源码字符串搜索
+   - verification: 四项禁令测试全部通过
+8. **人工操作说明可由调用方读取和展示**
+   - conclusion: satisfied
+   - implementation evidence: `ProviderInstruction`（含 prompt、
+     期望输出规格、staging_ref、steps、suggested_parameters）+
+     `to_json_dict()`
+   - test evidence: prepare 的 instruction 字段完整性、稳定性与
+     to_json_dict 测试
+   - verification: 同一 request 两次 prepare 产生相等 instruction
+9. **产物引用只能显式传入；缺失抛类型化异常；D5 分工**
+   - conclusion: satisfied
+   - implementation evidence: poll 的 `reported_artifact` 与 collect
+     的 `artifact` 参数；`MissingArtifactReferenceError` 实际触发
+     路径；等待/取消不经异常表达
+   - test evidence: collect 缺引用、poll/collect 不一致引用、异常与
+     状态分工测试；`test_provider_contract.py` 的异常继承树测试
+     （`92aff00`）已锁定——ProviderError 直接继承
+     AiVideoWorkflowError；InvalidProviderRequestError、
+     InvalidProviderStateError、MissingArtifactReferenceError、
+     ProviderOperationError 分别直接继承 ProviderError；四个具体
+     异常彼此不可互相替代；具体异常实例同时可由 ProviderError 和
+     AiVideoWorkflowError 捕获
+   - verification: manual 82 passed；contract 72 passed（含 26 项
+     异常树断言），MissingArtifactReferenceError 有真实触发测试
+10. **参数 JSON-compatible 与不可变（含构造后修改测试）**
+    - conclusion: satisfied
+    - implementation evidence: `models.py` 的 JsonInputValue /
+      FrozenJsonValue、递归防御性复制冻结（MappingProxyType +
+      tuple）、只读 property、`__hash__ = None`、thaw
+    - test evidence: models 的禁止类型清单、防御性复制、只读性、
+      相等性、hash 抛 TypeError、to_json_dict 隔离测试
+    - verification: models 189 passed
+11. **观测值边界符合 D2**
+    - conclusion: satisfied
+    - implementation evidence: `ProviderCostObservation`（严格
+      float、有限、≥0、unit 文本不变量）；`elapsed_seconds` 有限
+      非负；Manual 四类观测字段恒为 None
+    - test evidence: models 的 bool/int 陷阱与非法值测试；manual 的
+      字段传播表与快照限制测试
+    - verification: Manual 全生命周期结果观测字段均为 None（有
+      逐字段断言）
+12. **不实现 Orchestrator、媒体校验、FFmpeg 或 QCD**
+    - conclusion: satisfied
+    - implementation evidence: providers 包仅含契约、模型、错误与
+      Manual 实现
+    - test evidence: 模块命名空间测试、文件系统禁令测试
+    - verification: grep 确认无 ffmpeg/ffprobe/Orchestrator/QCD
+      运行时引用
+13. **全部新增与现有测试通过、格式化与静态检查全绿**
+    - conclusion: satisfied
+    - implementation evidence: —
+    - test evidence: 全量测试套件
+    - verification: HEAD `92aff00` 实际执行——models 189 /
+      contract 72 / manual 82 targeted，full **757 passed**；
+      `ruff format --check .` 36 files already formatted；
+      `ruff check .` All checks passed
+14. **未修改 TASK-003 范围外文件**
+    - conclusion: satisfied
+    - implementation evidence: —
+    - test evidence: —
+    - verification: `git diff --name-status 0591330..HEAD` 共 11 个
+      文件，全部属于 TASK-003 授权范围（architecture.md §4 同步、
+      两份 TASK-003 文档、providers 包五文件、三个测试文件）；
+      `git diff --check 0591330..HEAD` 无空白错误
+
+## 最终实施交接记录
+
+- Implementation agent: Claude Code
+- Final implementation review agent: Codex
+- Specification baseline:
+  `0e581d1 docs: define TASK-003 provider contract scope`
+- Approved design baseline:
+  `cc9ae6a docs: approve TASK-003 provider contract design`
+- Ready-for-implementation baseline:
+  `f9952e2 docs: mark TASK-003 ready for implementation`
+- Implementation commits:
+  - `f131c52 feat: add provider data models`
+  - `ba2fb3c feat: add video provider contract`
+  - `6353679 feat: add manual video provider`
+- Test hardening commit:
+  - `5ee584e test: strengthen manual provider lifecycle coverage`
+- Final review test fix:
+  - `92aff00 test: lock provider error hierarchy`
+- Non-functional formatting commit:
+  - `93332dd docs: format TASK-003 design examples`
+- Implemented source files:
+  - `src/ai_video_workflow/providers/__init__.py`
+  - `src/ai_video_workflow/providers/errors.py`
+  - `src/ai_video_workflow/providers/models.py`
+  - `src/ai_video_workflow/providers/base.py`
+  - `src/ai_video_workflow/providers/manual.py`
+- Implemented test files:
+  - `tests/test_provider_models.py`
+  - `tests/test_provider_contract.py`
+  - `tests/test_manual_provider.py`
+- Quality evidence（HEAD `92aff00` 实际执行）:
+  - Ruff format: `ruff format --check .` → 36 files already formatted
+  - Ruff lint: `ruff check .` → All checks passed
+  - provider models targeted pytest: 189 passed
+  - provider contract targeted pytest: 72 passed
+  - manual provider targeted pytest: 82 passed
+  - full pytest: **757 passed**
+  - 公共 API 只读探针: `__all__` 精确 15 个名称、全部可导入、
+    ManualVideoProvider 是 VideoProvider 子类、provider_id ==
+    "manual"、实例无 `__dict__`、`__abstractmethods__` 精确五成员
+    ——全部通过
+  - 静态依赖边界检查: grep 全清单仅命中 base.py/manual.py 两处
+    docstring 边界说明，无运行时依赖
+  - git diff --check（0591330..HEAD 与工作区）: 无空白错误
+- Review handoff:
+  - implementation complete
+  - previous final review result: conditionally passed
+  - remaining important issue: provider error hierarchy regression
+    coverage
+  - resolution: fixed by `92aff00 test: lock provider error hierarchy`
+  - current unresolved known implementation issues: none
+  - final Codex re-review: passed
+  - TASK-003 completed after independent Codex final review
+
+## 最终审查记录
+
+- Final implementation review agent: Codex
+- Final review result: passed
+- Final review baseline:
+  `92aff00 test: lock provider error hierarchy`
+- Final review evidence:
+  - blockers: 0
+  - important findings: 0
+  - suggestions: 0
+  - all 14 acceptance criteria independently verified as satisfied
+  - Ruff format passed
+  - Ruff lint passed
+  - provider models targeted: 189 passed
+  - provider contract targeted: 72 passed
+  - manual provider targeted: 82 passed
+  - full suite: 757 passed
+  - git diff --check passed
+  - branch scope audit passed
+
 ## 当前状态
 
-approved — ready for implementation（编码门槛已全部满足，见"编码门槛"
-与"预实施审查记录"；尚无任何实施代码）
+completed
 
 ## 尚待后续任务决定的事项
 
