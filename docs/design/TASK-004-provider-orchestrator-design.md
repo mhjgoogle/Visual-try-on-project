@@ -1,7 +1,10 @@
 # TASK-004 设计文档：Provider Orchestrator 契约与基础编排
 
-- Status: approved — implementation in progress; Steps M, A, B,
-  C, and D completed; Step E pending new checkpoint
+- Status: approved — implementation in progress; Steps M–D
+  completed and finally confirmed; Step E implementation
+  committed by this commit — temporary independent review
+  passed, Codex final review pending; Step F pending new
+  checkpoint
 - Revision: r6（自包含版本；关闭 r5 复审的 3 个阻塞与 1 个重要
   问题；不依赖任何历史草案或聊天记录）+ 实施顺序补充（§24，
   docs-only，Codex 第三次复审通过）
@@ -195,35 +198,72 @@
     format/lint passed；whitespace passed
   - Step D status: **completed, independently reviewed,
     committed, and finally confirmed**
-- next permitted step: **Step E**（not started；Step E local
-  gate 在本次状态同步 checkpoint 中保持关闭——完整开始条件见
-  §24.2 Step E 前置条件）；Step F–G: not started；global
-  coding gate: open（全局）
+- **Step E — `_LayoutResolver` 路径派生与安全校验:
+  committed by this commit — temporary independent review
+  passed; Codex final review pending**：
+  - implementation agent: Claude Code
+  - implementation: completed（生产文件：
+    orchestration/layout.py（新建）；测试文件：
+    tests/test_orchestration_layout.py（新建）；本提交同时含
+    §8.1 接口入档、§8.3 合同澄清与本状态同步）
+  - temporary independent review: **passed**（temporary
+    reviewer: **Claude Fable 5**，非 Codex）；blockers 0 /
+    important 0
+  - **Codex final review: pending**；**Step E final high-risk
+    gate: not yet closed**（Step E 属路径安全高风险步骤，其
+    最终 acceptance 仍待 Codex final review；Codex 额度恢复后
+    须对 Step E commit 做最终路径安全复核）
+  - 审查历史（如实记录）：第一轮临时审查不通过（1 阻塞
+    2 重要——symlink + `..` 绕过整目录保护、symlink 自环
+    RuntimeError 逃出错误树、"逃出允许根"两种解释）；修复轮
+    临时复审有条件通过（阻塞 0 / 重要 0 / 遗留 docs-sync
+    条件 2）——两处正确性缺陷已修复并补负例，"逃出允许根"
+    按保护优先读法定案并经本提交 §8.3 合同澄清消除字面分歧、
+    `_LayoutResolver` 方法级接口经本提交 §8.1 入档
+  - §22 设计测试条目：Step E 归属的 11 项（95–105）已实现并
+    通过临时审查；因属高风险步骤，最终 acceptance 仍待 Codex
+    final review
+  - tests：Step E focused pytest **75 passed**；full pytest
+    **1423 passed**；Ruff format/lint passed；whitespace passed
+    （初次实现 68 个 + 修复轮 7 个 pytest case；上一轮汇报的
+    68/1416 为修复前基线，已由 75/1423 取代）
+  - Step E status: **committed by this commit; temporary review
+    passed; Codex final review pending**
+- **immediate next action: Codex 额度恢复后对 Step E commit
+  做最终路径安全复核**（Step E final high-risk gate 关闭中）。
+  Step F: **not started；Step F local gate: closed**——即使
+  Step E 提交成功也不得开始 Step F；Step G: not started；
+  global coding gate: open（全局）
 - Step M 的 18 个、Step A 的 124 个、Step B 的 244 个、
-  Step C 的 46 个与 Step D 的 159 个新增 pytest case 已实现并
-  包含在当前 1348 项中；r6 的 131 项分步实施测试计划尚未全部
-  实现（当前已完成 66/131：Step A 5 项 + Step B 44 项 +
-  Step C 3 项 + Step D 14 项，见 §24.3）；Step M/A/B/C/D 完成
-  不代表 TASK-004 完成；本提交不包含任何 Step E 代码。
+  Step C 的 46 个、Step D 的 159 个与 Step E 的 75 个新增
+  pytest case 已实现并包含在当前 1423 项中；r6 的 131 项分步
+  实施测试计划尚未全部实现（**当前已实现 77/131**：Step A
+  5 项 + Step B 44 项 + Step C 3 项 + Step D 14 项 + Step E
+  11 项，见 §24.3）；Step E 的 11 项已实现并通过临时审查，但
+  **77/131 不表示全部已最终验收**——Step E 属路径安全高风险
+  步骤，其最终 acceptance 仍待 Codex final review；Step
+  M/A/B/C/D/E 完成不代表 TASK-004 完成；本提交不包含任何
+  Step F 代码。
 - 当前事实（统一口径）：r6 technical design **approved**；
   implementation sequencing clarification（§24）**approved —
-  第三次 Codex 复审通过**（此前两轮为历史记录：第一次/第二次
-  复审各有条件通过，三个重要问题已逐项关闭）；Step M / Step A
-  / Step B / Step C **completed, independently reviewed,
-  committed**；Step D **completed, independently reviewed,
-  committed, and finally confirmed**（final post-commit
-  conformance review passed；审查历史见上方 Step D 记录，已被
-  final review 取代，不是当前 gate 状态）；当前仓库含五个 Step
-  的实现代码；CANCELLED code implementation 已在 Step M 完成；
-  Step E **not started; pending new checkpoint**（Step E local
-  gate 关闭；完整开始条件见 §24.2 Step E 前置条件）；Step F–G
-  not started；global coding gate **open**；当前实际回归基线
-  **1348 passed**。coding gate open 不表示 §22 的 131 项计划
+  第三次 Codex 复审通过**；Step M / Step A / Step B / Step C
+  **completed, independently reviewed, committed**；Step D
+  **completed, independently reviewed, committed, and finally
+  confirmed**；Step E **committed by this commit; temporary
+  independent review passed（temporary reviewer: Claude
+  Fable 5）; Codex final review pending; final high-risk gate
+  not yet closed**；当前仓库含六个 Step 的实现代码；CANCELLED
+  code implementation 已在 Step M 完成；**immediate next
+  action: Codex 对 Step E commit 做最终路径安全复核**；Step F
+  **not started; Step F local gate closed**；Step G not
+  started；global coding gate **open**；当前实际回归基线
+  **1423 passed**。coding gate open 不表示 §22 的 131 项计划
   测试已全部实现或任何 acceptance criterion 已由完整实现满足
-  （E–G 未实施）。角色边界：Claude Code 按批准的 r6 设计与
-  §24 分步实施，不得替代 Codex 声称独立审查通过；Codex 在每个
-  批准步骤后独立审查，不直接修改实现文件；每个 Step 必须在前一
-  步完成、测试通过并按计划审查后再开始。
+  （F–G 未实施，Step E 最终 acceptance 待定）。角色边界：
+  Claude Code 按批准的 r6 设计与 §24 分步实施，不得替代 Codex
+  声称独立审查通过；本轮 Step E 的临时独立审查由 Claude Fable
+  5 执行，不得表述为 Codex 审查通过；每个 Step 必须在前一步
+  完成、测试通过并按计划审查后再开始。
 - **r6 formal-design approval snapshot（历史快照，仅记录批准
   当时的事实，不代表当前状态）**：
   - coding gate was closed at that checkpoint；
@@ -242,9 +282,11 @@
 - TASK-003 completed baseline:
   `01ac984 docs: complete TASK-003 implementation`
 - coding gate: **open**（全局；r6 批准时为 closed——见上方历史
-  快照）；Step E local gate: **closed**（在本次状态同步
-  checkpoint 中保持关闭；完整开始条件见 §24.2 Step E 前置
-  条件——含 Step D final post-commit review passed）
+  快照）；Step E: committed by this commit；temporary review
+  passed；**Codex final review pending**（high-risk gate 未
+  最终关闭）；**Step F local gate: closed**（即使 Step E 提交
+  成功也不得开始 Step F；immediate next action = Codex 对
+  Step E commit 的最终路径安全复核）
 - 目标运行环境：WSL2 Ubuntu / Linux（POSIX `os.replace`；不测试
   Windows path 或 replace 语义）
 
@@ -270,9 +312,11 @@
 8. coding gate: **open**（全局）——Step M、Step A、Step B 与
    Step C completed（independently reviewed and approved）；
    Step D completed（committed `172ae2b`；final post-commit
-   conformance review passed；finally confirmed）；Step E: not
-   started；Step E local gate closed（pending new checkpoint）；
-   Step F–G not started。
+   conformance review passed；finally confirmed）；Step E
+   committed by this commit（temporary independent review by
+   Claude Fable 5 passed；**Codex final review pending**；high
+   -risk gate 未最终关闭）；Step F: not started；**Step F
+   local gate closed**；Step G not started。
 
 ## 1. 总览
 
@@ -530,6 +574,43 @@ InvalidOrchestrationInputError。
 PersistenceExecutionError；instruction 路径不得与任何 artifact
 比较路径等价；executor 写入集合闭合于四个派生路径。
 
+**`_LayoutResolver` 内部接口（Step E 实现，精确签名）**：
+
+```python
+class _LayoutResolver:
+    def __init__(self, project_root: str | Path) -> None: ...
+    @property
+    def project_root(self) -> Path: ...
+    def resolve_state_layout(self, task_id: str) -> _StateLayout: ...
+    def resolve_local_artifact_comparison(
+        self,
+        reference: str,
+        *,
+        is_local: bool,
+    ) -> Path | None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class _StateLayout:
+    project_root: Path
+    task_id: str
+    task_path: Path
+    manifest_path: Path
+    record_path: Path
+    instruction_path: Path
+```
+
+- `resolve_state_layout` 返回四个 root 内派生目标（§8.1 表 +
+  路径安全 + symlink 出 root 拒绝）；
+- `resolve_local_artifact_comparison` 返回本地 artifact 的安全
+  比较路径（§8.3，可位于 root 外），`is_local=False` 返回
+  `None`；
+- `_LayoutResolver` 与 `_StateLayout` 均为 **internal**：不进入
+  orchestration package 的正式 `__all__`；Step E 不导入
+  orchestration durable/planning 数据模型（仅
+  `orchestration.errors` + 核心 `errors`/`validation` + stdlib
+  `os`/`stat`/`pathlib`）；不执行任何 filesystem mutation。
+
 ### 8.2 目录创建与空目录残留
 
 resolver 不执行 I/O；executor 首次写入前创建批准父目录（仅
@@ -543,17 +624,37 @@ PersistenceExecutionError；不创建 artifact/media 目录；不扫描。
 
 ### 8.3 本地 artifact 路径比较（逐组件 + 整目录保护）
 
-只针对明确表示本地文件系统位置的 ArtifactReference。原值不变；
-comparison path 只用于冲突判断。
+**两类路径的正式区分（合同澄清）**：`_LayoutResolver` 处理两类
+性质不同的路径，边界合同不同：
 
-逐组件规则：1. 从显式 project_root（相对）或绝对根开始；2. 对
-每个已存在组件 lstat；3. 遇 symlink 受控 resolve；4. 每次
-resolve 后重新检查（逃出允许根 / 等价于四类状态目标 / 落入禁止
-目录）；5. 第一个不存在组件之后以已解析真实父路径为基准做 POSIX
-lexical normalization；6. 已存在父组件无法安全解析 → 保守拒绝；
-7. **整目录保护**：comparison path 等于或位于以下目录之下均
-拒绝——`records/generation-tasks/`（**整个目录**，不限于当前
-task 文件）、`manifests/`、`records/orchestration/`、
+1. **orchestration state paths**（task、manifest、orchestration
+   record、instruction 四目标，§8.1）：**必须**派生在
+   project_root **内**，满足 lexical/resolved containment 与
+   symlink 安全合同；任一目标的既有 symlink 组件解析后逃出 root
+   → `PersistenceExecutionError`。
+2. **local artifact comparison path**（本节）：该路径**允许位于
+   project_root 之外**。project_root 外部本身**不是**拒绝理由；
+   **唯一**拒绝理由是解析后的目标等于或位于四个受保护
+   orchestration state 目录之内（含经 symlink alias、existing
+   ancestor、nonexistent suffix 绕过的等价路径）。
+
+只针对明确表示本地文件系统位置的 ArtifactReference（是否为本地
+由调用方判定并以布尔传入；non-local 不进行本地路径比较）。
+原值不变；comparison path 只用于冲突判断。
+
+逐组件规则：1. 从显式 project_root（相对）或绝对根开始，遍历前
+**不做整体词法折叠**（保留 `..`/`.` 作为组件，逐个处理）；2. 对
+每个已存在组件 lstat；3. 遇 symlink 受控 resolve（先解析 symlink
+到真实目标，其后的 `..` 才在真实目标上生效——不得先词法折叠
+`symlink/..`）；`.` 跳过、`..` 取已解析真实父路径；4. 每次 resolve
+后按本节唯一拒绝理由重新检查（等价于四类状态目标 / 落入禁止
+目录；**解析后位于 root 外不构成拒绝**）；5. 第一个不存在组件
+之后以已解析真实父路径为基准做 POSIX lexical normalization；
+6. 已存在父组件无法安全解析（OSError/权限/symlink 自环等）→
+保守拒绝（`PersistenceExecutionError`，保留 cause）；7. **整目录
+保护**：comparison path 等于或位于以下目录之下均拒绝——
+`records/generation-tasks/`（**整个目录**，不限于当前 task
+文件）、`manifests/`、`records/orchestration/`、
 `tasks/instructions/`；不限于当前 task_id/manifest/record/
 instruction；symlink resolve 后再次执行目录级拒绝；不存在
 suffix 也基于已解析真实父路径判断；8. 只允许 lstat/resolve 路径
@@ -561,6 +662,12 @@ suffix 也基于已解析真实父路径判断；8. 只允许 lstat/resolve 路�
 
 lstat 组件检查不属于媒体内容探测；non-local ArtifactReference
 不执行本地目录判断。
+
+**Step E/F 职责与 TOCTOU 边界**：Step E（`_LayoutResolver`）
+只进行路径派生和 metadata 安全校验（lstat/受控 resolve），
+**不执行任何 filesystem mutation**；执行期读取、before
+fingerprint 计算、CAS 与写入仍属 Step F。Step E 只提供设计
+批准的组件级检查保证，**不声称消除执行时的全部 TOCTOU 竞争**。
 
 ## 9. task/manifest 文件初始存在性
 
@@ -1636,6 +1743,18 @@ Step A 实现代码；编排主体 Step B–G 未实施；r6 批准当时尚无�
   **final post-commit conformance review passed，finally
   confirmed**）。§22 中 Step D 归属的 14 项（15–20、85、
   88–94）由 Step D 完成（标记 completed）。
+- **Step E — `_LayoutResolver` 路径派生与安全校验**：
+  committed by this commit（生产：`orchestration/layout.py`
+  （新建）；测试：`tests/test_orchestration_layout.py`（新建）；
+  本提交同时含 §8.1 接口入档与 §8.3 合同澄清）。第一轮临时
+  审查（Claude Fable 5，非 Codex）1 阻塞 2 重要（symlink + `..`
+  绕过整目录保护、symlink 自环 RuntimeError 逃逸、"逃出允许根"
+  两读法）；修复轮临时复审有条件通过（阻塞 0 / 重要 0），两处
+  正确性缺陷已修复并补负例，"逃出允许根"按保护优先读法经 §8.3
+  合同澄清定案。§22 中 Step E 归属的 11 项（95–105）已实现并
+  通过临时审查（标记 completed），但因属路径安全高风险步骤，
+  **最终 acceptance 仍待 Codex final review**（high-risk gate
+  未最终关闭）。
 
 **计数单位说明**："§22 测试项"与"pytest case 数"不是相同计数
 单位：一个 §22 设计测试项通常展开为多个参数化 pytest case
@@ -1656,19 +1775,25 @@ Step A 实现代码；编排主体 Step B–G 未实施；r6 批准当时尚无�
 - after Step C: **1189 pytest cases**（Step C added
   **46 pytest cases**：初次实现 35 个 + 独立审查缺口修复
   11 个）；
-- after Step D / current repository baseline:
-  **1348 pytest cases**（Step D added **159 pytest cases**：
-  初次实现 139 个 + 第一轮审查修复 15 个 + carry-over 契约
-  收口 5 个）。
+- after Step D: **1348 pytest cases**（Step D added
+  **159 pytest cases**：初次实现 139 个 + 第一轮审查修复
+  15 个 + carry-over 契约收口 5 个）；
+- after Step E / current repository baseline:
+  **1423 pytest cases**（Step E added **75 pytest cases**：
+  初次实现 68 个 + 临时审查修复轮 7 个；上一轮汇报的 68/1416
+  为修复前基线，已由 75/1423 取代）。
 
 §22 的 131 项是设计级测试条目（design-level test
 requirements），与 pytest 运行器收集执行的 case 不是同一计数
 单位；不得由 `775 − 757 = 18` 推断 Step M 对应 18 个 §22 测试
 编号（Step M 的 case 不占用 1–131 编号）；Step B 的 244 个、
-Step C 的 46 个与 Step D 的 159 个新增 pytest case 与各自归属
-的 44 项/3 项/14 项 §22 设计条目也不是同一计数单位；不声称
-131 项设计测试已经全部实现（当前完成 66/131：Step A 5 项 +
-Step B 44 项 + Step C 3 项 + Step D 14 项）。
+Step C 的 46 个、Step D 的 159 个与 Step E 的 75 个新增 pytest
+case 与各自归属的 44 项/3 项/14 项/11 项 §22 设计条目也不是
+同一计数单位；不声称 131 项设计测试已经全部**最终验收**
+（**当前已实现 77/131**：Step A 5 项 + Step B 44 项 + Step C
+3 项 + Step D 14 项 + Step E 11 项；其中 Step E 的 11 项已
+实现并通过临时审查，最终 acceptance 仍待 Codex final
+review）。
 
 ### 24.1 未实施文件 ownership 分析
 
@@ -2139,7 +2264,11 @@ symlink 出 root 拒绝）；§8.3 逐组件规则 1–12（含整目录保护
 
 仅在 Step E 完成条件全部满足并独立提交后，且在新的独立
 checkpoint 中明确启动，才允许进入 Step F；不得在 Step E 的
-提交轮直接继续。
+提交轮直接继续。**Step E 属路径安全高风险步骤**：本轮临时
+独立审查（Claude Fable 5，非 Codex）通过并提交后，其最终
+acceptance 仍待 **Codex final review**；Step E commit 后的
+immediate next action 是 Codex 对该 commit 做最终路径安全
+复核，Step F local gate 在此期间保持关闭。
 
 #### Step F — `_FileOrchestrationExecutor`（WAL/CAS/恢复执行）
 
@@ -2319,10 +2448,11 @@ TASK-004 completed：
 ### 24.3 §22 测试编号 → Step 完整映射（1–131）
 
 Step A 行标记 completed；Step B 归属的 44 项、Step C 归属的
-3 项（111–113）与 Step D 归属的 14 项已分别由 Step B/C/D 完成
-（见 §24.0 记录，表内行标注保持原分配不变）；其余 planned。
-测试主题为 §22 原文的
-压缩指称，语义以 §22 原文为准。
+3 项（111–113）、Step D 归属的 14 项与 Step E 归属的 11 项
+（95–105）已分别由 Step B/C/D/E 完成（见 §24.0 记录，表内行
+标注保持原分配不变；Step E 的 11 项已实现并通过临时审查，
+最终 acceptance 仍待 Codex final review）；其余 planned。
+测试主题为 §22 原文的压缩指称，语义以 §22 原文为准。
 
 | 编号 | 测试主题 | Step | 测试文件 |
 | --- | --- | --- | --- |

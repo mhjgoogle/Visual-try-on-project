@@ -744,6 +744,36 @@ committed, and finally confirmed**：
 - cumulative implemented §22 entries: **66 / 131**（A 5 +
   B 44 + C 3 + D 14）
 
+**Step E — `_LayoutResolver` 路径派生与安全校验：
+committed by this commit；temporary review passed；Codex
+final review pending**：
+
+- implementation: completed（Claude Code）
+- temporary independent review: **passed**（temporary
+  reviewer: **Claude Fable 5**，非 Codex）；blockers 0 /
+  important 0
+- **Codex final review: pending**；**Step E final high-risk
+  gate: not yet closed**（路径安全高风险步骤，最终 acceptance
+  待 Codex final review）
+- 审查历史：第一轮临时审查 1 阻塞 2 重要（symlink + `..` 绕过
+  整目录保护、symlink 自环 RuntimeError 逃逸、"逃出允许根"
+  两读法）；修复轮临时复审有条件通过——两处正确性缺陷已修复
+  并补负例，"逃出允许根"按保护优先读法经 §8.3 合同澄清定案
+- production file: `orchestration/layout.py`（新建）
+- test file: `tests/test_orchestration_layout.py`（新建）
+- 本提交同时含 §8.1 `_LayoutResolver` 接口入档、§8.3 合同
+  澄清与状态同步
+- §22 entries: Step E 归属的 11 项（95–105）已实现并通过
+  临时审查；最终 acceptance 待 Codex final review
+- focused pytest: **75 passed**；full regression:
+  **1423 passed**
+- Step E pytest case increase: 75（初次 68 + 修复轮 7；上一轮
+  汇报的 68/1416 为修复前基线，已由 75/1423 取代；与 11 个
+  §22 设计条目不是同一计数单位）
+- cumulative implemented §22 entries: **77 / 131**（A 5 +
+  B 44 + C 3 + D 14 + E 11；其中 Step E 11 项已实现并通过
+  临时审查，77/131 不表示全部已最终验收）
+
 **实施顺序状态**：
 
 | Step | 正式名称（§24） | 状态 | 允许开始条件 |
@@ -753,8 +783,8 @@ committed, and finally confirmed**：
 | B | durable record 数据合同与严格恢复解析 | completed（`261ebbd`；已通过独立审查） | —（已完成） |
 | C | instruction 逐字节渲染器 | completed（`71c77f5`；已通过独立审查） | —（已完成） |
 | D | 纯 planning core | completed（`172ae2b`；final post-commit review passed；finally confirmed） | —（已完成） |
-| E | `_LayoutResolver` 路径派生与安全校验 | not started；**next permitted step** | ①Step D commit 完成；②**Step D final post-commit review 已通过**；③Step D 最终完成确认；④本次 docs-only 状态同步提交完成；⑤提交后工作区干净；⑥用户发出新的明确 Step E checkpoint（全部满足） |
-| F | `_FileOrchestrationExecutor`（WAL/CAS/恢复执行） | not started | Step E 完成、审查通过并提交 |
+| E | `_LayoutResolver` 路径派生与安全校验 | **committed by this commit；temporary review passed；Codex final review pending** | —（实现已提交；最终 acceptance 待 Codex final review） |
+| F | `_FileOrchestrationExecutor`（WAL/CAS/恢复执行） | not started；**Step F local gate closed** | 即使 Step E 提交成功也不得开始；immediate next action = Codex 对 Step E commit 的最终路径安全复核 |
 | G | 公开 orchestrator facade 与端到端集成 | not started | Step F 完成、审查通过并提交 |
 
 TASK-004 尚未完成；不声称全部 acceptance criteria 已实现；不声称
@@ -770,8 +800,10 @@ TASK-004 尚未完成；不声称全部 acceptance criteria 已实现；不声�
 
 ## 当前状态
 
-implementation in progress — Steps M, A, B, C, and D completed —
-Step E pending new checkpoint
+implementation in progress — Steps M–D completed and finally
+confirmed — Step E committed by this commit (temporary review
+passed; Codex final review pending; high-risk gate not yet
+closed) — Step F not started (local gate closed)
 
 ## 尚待后续任务决定的事项
 
