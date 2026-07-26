@@ -1,7 +1,7 @@
 # TASK-004 设计文档：Provider Orchestrator 契约与基础编排
 
 - Status: approved — formal design review passed; ADR-0001
-  synchronization pending; coding gate closed
+  synchronized; coding gate closed
 - Revision: r6（自包含版本；关闭 r5 复审的 3 个阻塞与 1 个重要
   问题；不依赖任何历史草案或聊天记录）
 
@@ -10,10 +10,12 @@
 - Codex formal design review: **passed**
 - blockers: 0；important findings: 0；suggestions: 0
 - design body approved
+- Codex ADR-0001 narrow review: **passed**（ADR blockers: 0；
+  important findings: 0；suggestions: 0）
+- ADR-0001 actual synchronization: **satisfied**
 - architecture.md change: not required
 - GenerationTaskStatus.CANCELLED design prerequisite: satisfied
-- ADR-0001 actual synchronization: pending（本批准提交之后方可
-  开始）
+- CANCELLED code implementation: not started
 - implementation agent: pending
 - coding gate: closed
 - Python implementation: prohibited
@@ -39,10 +41,10 @@
    实施）；
 2. CANCELLED code implementation: not implemented（gate 前
    禁止）；
-3. ADR-0001 prerequisite approval: **satisfied in principle**；
-4. ADR-0001 actual documentation synchronization: **pending**
-   （r6 已通过复审并提交后方可开始；仍不实施 CANCELLED、不开始
-   任何 Python Step）；
+3. ADR-0001 prerequisite approval: **satisfied**；
+4. ADR-0001 actual documentation synchronization: **satisfied**
+   （经 Codex 窄范围复审通过；仍不实施 CANCELLED、不开始任何
+   Python Step）；
 5. architecture synchronization: **not required**（executor 内部
    化方案已通过最终设计审查，见 §2）；
 6. formal design review（r6）: **passed**；

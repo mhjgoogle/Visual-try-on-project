@@ -600,8 +600,10 @@ closed：
   - specification approval: satisfied
   - CANCELLED design prerequisite: satisfied
   - CANCELLED code implementation: not started
-  - ADR-0001 prerequisite approval: satisfied in principle
-  - ADR-0001 actual synchronization: pending
+  - ADR-0001 prerequisite approval: satisfied
+  - ADR-0001 actual synchronization: **satisfied**
+  - ADR-0001 narrow review（Codex）: **passed**（ADR blockers: 0；
+    ADR important findings: 0；suggestions: 0）
   - architecture synchronization: not required
   - implementation agent assignment: pending
   - coding gate: **closed**
@@ -609,7 +611,8 @@ closed：
 
 ## 当前状态
 
-formal design approved — ADR-0001 synchronization pending
+formal design approved — ADR-0001 synchronized — implementation
+agent pending — coding gate closed
 
 ## 尚待后续任务决定的事项
 

@@ -4,6 +4,10 @@
 - Date: 2026-07-26
 - Accepted: 2026-07-26 after Step G independent review and TASK-002 final
   acceptance checks passed.
+- Amended: 2026-07-26 — TASK-004 orchestration record and manual
+  instruction document contract, per the approved TASK-004 design
+  (Revision r6). This amendment extends the layout; it does not change
+  any decision unrelated to TASK-004.
 
 ## Context
 
@@ -48,12 +52,17 @@ Loading remains explicit: callers provide every model file path to
       <task-id>.json
     video-assets/
       <asset-id>.json
+    orchestration/
+      <task-id>.json
   inputs/
   staging/
   assets/
     media/
   manifests/
     <step-instance>.json
+  tasks/
+    instructions/
+      <task-id>.md
   qcd/
     events/
   outputs/
@@ -73,6 +82,8 @@ placeholder directories.
 | `records/shots/` | Shot records, one model instance per JSON file. |
 | `records/generation-tasks/` | Current GenerationTask records; not QCD history. |
 | `records/video-assets/` | VideoAsset metadata for validated, formally registered media. |
+| `records/orchestration/` | One authoritative orchestration record per task: current orchestration state, durable intent / write-ahead-log data, and the recovery protocol. Not QCD history, not an audit event stream, not a provider registry, not media asset records. |
+| `tasks/instructions/` | Manual task instruction documents rendered by the Orchestrator's internal executor from provider-returned instruction data. Not video artifacts, not VideoAsset records, not formal asset registration, not provider state records, not QCD reports. |
 | `inputs/` | Original user or external-system inputs. These are not generated formal assets. |
 | `staging/` | Temporary or unregistered media produced or transferred before validation and formal import. |
 | `assets/media/` | Validated, formally registered media referenced by VideoAsset records. |
@@ -84,6 +95,158 @@ placeholder directories.
 Formal media belongs under `assets/media/` only after future validation and
 registration behavior completes. A final file under `outputs/` is a delivery
 result, not a replacement for VideoAsset metadata or formal source media.
+
+## Orchestration Record Contract (TASK-004)
+
+`records/orchestration/<task-id>.json` holds at most **one current
+orchestration record per task**. It is the authoritative record of the
+current orchestration state and of the recovery protocol. Records are
+never discovered by directory scanning: callers provide an explicit
+project data root and task_id, and the exact path is derived from them.
+The file name is derived from the normalized, validated task_id.
+Arbitrary caller-supplied paths must not override this layout rule.
+
+Every orchestration record — stable or in progress — uses one uniform
+top-level envelope containing `record_schema`, `phase`, `stable`, and
+`pending`:
+
+- in the STABLE phase the record holds the last committed stable state
+  and no pending operation;
+- in non-STABLE phases the record keeps the last committed stable
+  state (or `stable = null` for the very first operation only) together
+  with the current durable pending operation;
+- the conceptual baseline version of the first operation is `0`; the
+  first successfully committed stable state has version `1`;
+- `stable = null` is only permitted while no stable state has ever been
+  committed for the task;
+- later pending operations must coexist with the previous stable state;
+  a pending operation never replaces the stable state.
+
+This one file carries the pre-call durable intent, the
+provider-result-unknown state, the post-result executable apply
+payload, partial-commit recovery data, committed file fingerprints,
+the stable record self-fingerprint, and the response-loss idempotency
+identity. The detailed schema is defined by the approved TASK-004
+design document (Revision r6), which is the authority for record
+contents; this ADR fixes only the layout responsibility.
+
+TASK-004 does not create a separate journal location. Durable intent
+and write-ahead-log data are merged into
+`records/orchestration/<task-id>.json`. No
+`records/orchestration/journal/`, `logs/`, `history/`, `events/`, or
+any other unapproved recovery directory is added.
+
+Record write and replacement rules:
+
+- orchestration records are written exclusively by the Orchestrator's
+  internal executor; external application services must not write them;
+- every record write uses a same-directory temporary file and atomic
+  replacement: write the complete bytes, flush, fsync, `os.replace`,
+  and clean up the temporary file on failure;
+- writing the STABLE record last acts as a commit marker, but recovery
+  also relies on the durable pending payload and on per-file
+  fingerprints — never on write order alone;
+- empty approved directories may safely remain after a partial
+  directory-creation failure: they are not orchestration state, do not
+  imply a committed durable intent, require no rollback deletion, and
+  may be reused after containment and symlink checks are re-run;
+- half-written records or leftover temporary files are not permitted.
+
+## Manual Instruction Document Contract (TASK-004)
+
+`tasks/instructions/<task-id>.md` holds the manual task instruction
+document for one task. It is not a video artifact, not a VideoAsset,
+not formal asset registration, not a provider state record, and not a
+QCD report. The Provider returns structured ProviderInstruction data;
+the Orchestrator's internal executor renders and writes the document
+using the approved deterministic template. Providers never write the
+instruction file themselves. The path is derived from the project data
+root and task_id; directory scanning and writes to arbitrary external
+paths are forbidden.
+
+Layout-level overwrite constraints:
+
+- file absent: creation is allowed;
+- current bytes equal the planned after bytes: idempotent replay;
+- current bytes equal the validated before bytes: atomic replacement
+  with the after bytes is allowed;
+- current bytes equal neither before nor after: reject and enter
+  recovery conflict handling;
+- a changed request never unconditionally overwrites an existing
+  document; only a validated same-operation/same-plan deterministic
+  same-bytes replay may overwrite;
+- the mere existence of a file name never authorizes an overwrite.
+
+The exact byte contract (UTF-8, no BOM, LF line endings, exactly one
+trailing newline, the fixed template, and the canonical JSON parameter
+block) is defined by the approved TASK-004 design document.
+
+## Generation Manifest And Task File Preconditions (TASK-004)
+
+Generation StepManifest records use the file name
+`manifests/generation-<task-id>.json`. Preconditions:
+
+- the generation StepManifest must already exist before a task enters
+  TASK-004 orchestration; TASK-004 never silently creates it during the
+  first prepare;
+- the caller passes the target StepManifest explicitly; the target is
+  determined jointly by the passed object, the derived canonical path,
+  and the before fingerprint;
+- `step_name == "generation:<task-id>"` is a semantic check only, not
+  a globally unique lookup key; ProjectData may contain duplicate
+  step_name values; scanning the manifests collection for "the first
+  object with a matching name" is forbidden;
+- a missing file, or a snapshot that does not match the file
+  fingerprint, is rejected.
+
+GenerationTask records keep the existing approved path
+`records/generation-tasks/<task-id>.json`. The GenerationTask file must
+already exist before entering TASK-004 orchestration; TASK-004 never
+silently creates it from an in-memory object; the passed snapshot must
+match the file fingerprint; a missing file is rejected. The
+StepManifest model itself is unchanged by this amendment.
+
+## Directory Creation And Path Safety (TASK-004)
+
+The Orchestrator's internal executor may create, on demand, only the
+approved parent directories: `records/orchestration/`,
+`tasks/instructions/`, and the manifest parent `manifests/` (directory
+creation on demand is consistent with the existing rule that
+directories may be absent until they contain data). Creation rules:
+`mkdir(parents=True, exist_ok=True)` honoring the process umask; never
+chmod an existing directory; re-check project-root containment and
+parent/target symlinks both before and after creation; never create
+artifact or media directories; never scan directory contents.
+
+State-directory safety boundary: a local artifact comparison path must
+not equal, or fall under, any of `records/generation-tasks/`,
+`manifests/`, `records/orchestration/`, or `tasks/instructions/`. This
+applies to the current task file, other task files, subdirectories,
+relative/absolute equivalent paths, symlink-resolved paths, and the
+lexically normalized suffix after the first nonexistent component.
+Only component-level lstat/resolve is permitted for this safety
+comparison; opening or reading media content, FFmpeg/ffprobe, media
+probing, artifact auto-discovery, and directory scanning are all
+forbidden.
+
+Path and environment boundaries: the project data root must be
+provided explicitly; all state paths must lie inside the project root;
+paths must be normalized; `..` escapes are forbidden; absolute
+sub-paths must not replace the project root; symlinks must not redirect
+a target outside the root; the state target paths must be mutually
+distinct; target file names must match the task_id / manifest
+identity. The supported and tested environment is WSL2 Ubuntu / Linux;
+Windows path and replace semantics are out of scope.
+
+## Fixed Asset Boundary (TASK-004)
+
+This amendment introduces none of the following: VideoAsset creation,
+conversion of an ArtifactReference into a VideoAsset, formal asset
+registration, formal asset paths, asset versioning, overwrite version
+policy, artifact file reading, FFmpeg, QCD, provider registries, cloud
+APIs, or browser automation. TASK-004 stores only the explicit
+ArtifactReference handoff; formal asset handling belongs to later
+tasks.
 
 ## Paths And Overwrite Principles
 
@@ -126,3 +289,32 @@ does not design them in advance.
 - Some directories will not appear in a repository example until real content
   exists. In particular, the minimal example references formal media and output
   paths but intentionally does not include fabricated media files.
+
+TASK-004 amendment consequences:
+
+- Recovery records and manual instruction documents have canonical
+  locations; write-ahead-log data and stable state share one record
+  file, so no new journal directory is needed.
+- State write paths are controlled by the Orchestrator's internal
+  layout resolver, enabling deterministic recovery and conflict
+  rejection while keeping the Orchestrator the sole writer of business
+  state.
+- Costs and limits: multi-file project state still requires the
+  durable pending payload and compare-and-set fingerprints; a lost
+  orchestration record with existing orchestration traces cannot be
+  rebuilt automatically; an unknown provider-call result may require
+  manual reconciliation; only WSL2/Linux path semantics are supported;
+  the existence of a directory does not imply orchestration has
+  started.
+
+## References (TASK-004 amendment)
+
+- `docs/design/TASK-004-provider-orchestrator-design.md`
+  (approved Revision r6 — authority for record schema, WAL phases,
+  fingerprints, and the instruction byte contract)
+- `docs/tasks/TASK-004-provider-orchestrator-foundation.md`
+- `docs/architecture.md` §3 (Workflow Orchestrator as the sole writer
+  of business state)
+- `src/ai_video_workflow/persistence.py` (existing atomic
+  temporary-file + fsync + replace publication strategy that record
+  writes mirror)
