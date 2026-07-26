@@ -1,7 +1,7 @@
 # TASK-004 设计文档：Provider Orchestrator 契约与基础编排
 
-- Status: approved — implementation sequencing clarified;
-  Step B pending new checkpoint
+- Status: approved — implementation in progress; Steps M, A, and
+  B completed; Step C pending new checkpoint
 - Revision: r6（自包含版本；关闭 r5 复审的 3 个阻塞与 1 个重要
   问题；不依赖任何历史草案或聊天记录）+ 实施顺序补充（§24，
   docs-only，Codex 第三次复审通过）
@@ -88,31 +88,48 @@
     套件随全量执行）；full pytest **899 passed**；Ruff
     format/lint passed；whitespace passed
   - Step A status: satisfied
-- next step: Step B（**sequencing clarified; not started;
-  pending new checkpoint**——以本 docs-only 提交完成、工作区
-  干净并发出新的 Step B checkpoint 为启动前提）；Step C–G: not
-  started；coding gate: open（全局）
-- Step M 的 18 个与 Step A 的 124 个新增 pytest case 已实现并
-  包含在当前 899 项中；r6 的 131 项分步实施测试计划尚未全部
-  实现；Step M/A 完成不代表 TASK-004 完成；本轮提交不包含任何
-  Step B 代码。
+- **Step B — durable record 数据合同与严格恢复解析: completed
+  — independently reviewed and approved**：
+  - implementation agent: Claude Code；independent review
+    agent: Codex
+  - implementation: completed（生产文件：orchestration/
+    canonical.py（追加）、_models.py、recovery.py；测试文件：
+    tests/test_orchestration_models.py、
+    tests/test_orchestration_canonical.py）
+  - independent review: **passed**（blockers 0 / important 0 /
+    suggestions 0；第一轮不通过的三阻塞一重要——stable=null 未
+    限定首次 prepare 动作、strict parser 接受语义无效日历时间、
+    wrapper 未强制 nested JSON-only、stable schema version 未
+    显式恢复——已逐项修复并关闭）
+  - §22 设计测试条目：Step B 归属的 44 项已客观覆盖
+  - tests：Step B focused pytest **368 passed**；Step A/M
+    related regression **611 passed**；full pytest
+    **1143 passed**；Ruff format 46 files already formatted；
+    Ruff lint passed；whitespace passed
+  - Step B status: satisfied
+- next permitted step: **Step C**（not started；只能经新的独立
+  checkpoint 启动）；Step D–G: not started；coding gate: open
+  （全局）
+- Step M 的 18 个、Step A 的 124 个与 Step B 的 244 个新增
+  pytest case 已实现并包含在当前 1143 项中；r6 的 131 项分步
+  实施测试计划尚未全部实现（当前已完成 Step A 的 5 项 + Step B
+  的 44 项，见 §24.3）；Step M/A/B 完成不代表 TASK-004 完成；
+  本提交不包含任何 Step C 代码。
 - 当前事实（统一口径）：r6 technical design **approved**；
   implementation sequencing clarification（§24）**approved —
   第三次 Codex 复审通过**（此前两轮为历史记录：第一次/第二次
   复审各有条件通过，三个重要问题已逐项关闭）；Step M / Step A
-  **completed, independently reviewed, committed**（当前仓库含
-  Step M 与 Step A 实现代码；CANCELLED code implementation 已
-  在 Step M 完成）；Step B **sequencing clarified; not
-  started; pending new checkpoint**（no Step B Python changes
-  retained）；Step C–G not started；global coding gate
-  **open**；Step B local gate：以本 docs-only 提交完成、工作区
-  干净并发出新的 Step B checkpoint 为开启前提；当前实际回归
-  基线 **899 passed**。coding gate open 不表示 §22 的 131 项计划
-  测试已全部实现或任何 acceptance criterion 已由完整实现满足
-  （B–G 未实施）。角色边界：Claude Code 按批准的 r6 设计与
-  §24 分步实施，不得替代 Codex 声称独立审查通过；Codex 在每个
-  批准步骤后独立审查，不直接修改实现文件；每个 Step 必须在前一
-  步完成、测试通过并按计划审查后再开始。
+  / Step B **completed, independently reviewed, committed**
+  （当前仓库含三个 Step 的实现代码；CANCELLED code
+  implementation 已在 Step M 完成）；Step C **not started;
+  pending new checkpoint**（必须在新的独立 checkpoint 中
+  启动）；Step D–G not started；global coding gate **open**；
+  当前实际回归基线 **1143 passed**。coding gate open 不表示
+  §22 的 131 项计划测试已全部实现或任何 acceptance criterion
+  已由完整实现满足（C–G 未实施）。角色边界：Claude Code 按批准
+  的 r6 设计与 §24 分步实施，不得替代 Codex 声称独立审查通过；
+  Codex 在每个批准步骤后独立审查，不直接修改实现文件；每个
+  Step 必须在前一步完成、测试通过并按计划审查后再开始。
 - **r6 formal-design approval snapshot（历史快照，仅记录批准
   当时的事实，不代表当前状态）**：
   - coding gate was closed at that checkpoint；
@@ -130,8 +147,9 @@
   `47aeafc docs: approve TASK-004 orchestrator specification`
 - TASK-003 completed baseline:
   `01ac984 docs: complete TASK-003 implementation`
-- coding gate: **open**（全局）；Step B local gate:
-  **suspended**（r6 批准时 gate 为 closed——见上方历史快照）
+- coding gate: **open**（全局；r6 批准时为 closed——见上方历史
+  快照）；Step C 局部门槛：待本提交完成、工作区干净并发出新的
+  Step C checkpoint
 - 目标运行环境：WSL2 Ubuntu / Linux（POSIX `os.replace`；不测试
   Windows path 或 replace 语义）
 
@@ -154,10 +172,9 @@
 6. formal design review（r6）: **passed**；
 7. implementation agent assignment: **satisfied — Claude Code**
    （independent review agent: Codex）；
-8. coding gate: **open**（全局）——Step M 与 Step A completed
-   （independently reviewed and approved）；Step B: sequencing
-   clarified（第三次复审通过）；not started；pending new
-   checkpoint；Step C–G not started。
+8. coding gate: **open**（全局）——Step M、Step A 与 Step B
+   completed（independently reviewed and approved）；Step C:
+   not started；pending new checkpoint；Step D–G not started。
 
 ## 1. 总览
 
@@ -1498,6 +1515,14 @@ Step A 实现代码；编排主体 Step B–G 未实施；r6 批准当时尚无�
   `tests/test_orchestration_canonical.py`；已提交 `884081c`；
   独立审查通过）。§22 编号 10–14 由 Step A 完成（标记
   completed）。
+- **Step B — durable record 数据合同与严格恢复解析**：
+  completed（生产：`orchestration/canonical.py`（追加）、
+  `orchestration/_models.py`、`orchestration/recovery.py`；
+  测试：`tests/test_orchestration_models.py`、
+  `tests/test_orchestration_canonical.py`；独立审查通过——第一
+  轮三阻塞一重要已逐项修复关闭）。§22 中 Step B 归属的 44 项
+  （21–24、28、30–55、68–70、72、76、119–126）由 Step B 完成
+  （标记 completed）。
 
 **计数单位说明**："§22 测试项"与"pytest case 数"不是相同计数
 单位：一个 §22 设计测试项通常展开为多个参数化 pytest case
@@ -1511,14 +1536,19 @@ Step A 实现代码；编排主体 Step B–G 未实施；r6 批准当时尚无�
 - formal-design approval baseline: **757 pytest cases**；
 - after Step M: **775 pytest cases**（Step M added
   **18 pytest cases**）；
-- after Step A / current repository baseline:
-  **899 pytest cases**（Step A added 124 pytest cases）。
+- after Step A: **899 pytest cases**（Step A added 124 pytest
+  cases）；
+- after Step B / current repository baseline:
+  **1143 pytest cases**（Step B added **244 pytest cases**，
+  其中最后一次审查缺口修复增加 56 个）。
 
 §22 的 131 项是设计级测试条目（design-level test
 requirements），与 pytest 运行器收集执行的 case 不是同一计数
 单位；不得由 `775 − 757 = 18` 推断 Step M 对应 18 个 §22 测试
-编号（Step M 的 case 不占用 1–131 编号）；不声称 131 项设计
-测试已经全部实现。
+编号（Step M 的 case 不占用 1–131 编号）；Step B 的 244 个新增
+pytest case 与其归属的 44 个 §22 设计条目也不是同一计数单位；
+不声称 131 项设计测试已经全部实现（当前完成 Step A 5 项 +
+Step B 44 项，合计 49 项）。
 
 ### 24.1 未实施文件 ownership 分析
 
@@ -2066,7 +2096,9 @@ TASK-004 completed：
 
 ### 24.3 §22 测试编号 → Step 完整映射（1–131）
 
-Step A 行标记 completed；其余 planned。测试主题为 §22 原文的
+Step A 行标记 completed；Step B 归属的 44 项已由 Step B 完成
+（见 §24.0 记录，表内行标注保持原分配不变）；其余 planned。
+测试主题为 §22 原文的
 压缩指称，语义以 §22 原文为准。
 
 | 编号 | 测试主题 | Step | 测试文件 |

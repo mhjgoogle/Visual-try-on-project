@@ -650,7 +650,10 @@ fingerprint / freeze utilities：completed**：
   独立 docs-only 提交完成、工作区恢复干净并发出新的 Step B
   checkpoint 之前**暂停**。
 
-**sequencing clarification 复审记录（第三次，passed）**：
+**sequencing clarification 复审记录（第三次，passed；历史
+记录——记录 clarification 提交轮 `5f8faf8` 当时的状态，其中
+"Step B implementation: not started" 等条目不代表当前状态，
+当前状态见下方 Step B 完成记录）**：
 
 - sequencing clarification review: **passed**（第一、二次复审
   为有条件通过，三个重要问题——当前状态与历史快照冲突、
@@ -658,8 +661,8 @@ fingerprint / freeze utilities：completed**：
   已逐项关闭）
 - blockers: 0；important findings: 0；suggestions: 0
 - sequencing clarification: **satisfied**
-- sequencing clarification docs-only commit: **current commit**
-  （本提交即该独立 docs-only 提交）
+- sequencing clarification docs-only commit: `5f8faf8`
+  （docs: clarify TASK-004 implementation sequencing）
 - global coding gate: open
 - Step B implementation: not started（本轮不开始 Step B；不得
   在本提交轮创建 Python 文件）
@@ -668,14 +671,33 @@ fingerprint / freeze utilities：completed**：
   checkpoint）
 - TASK-004 尚未完成。
 
+**Step B — durable record 数据合同与严格恢复解析：completed**：
+
+- implementation: completed（Claude Code；independent review
+  agent: Codex）
+- independent review: **passed**（blockers: 0；important
+  findings: 0；suggestions: 0；第一轮不通过的三阻塞一重要——
+  stable=null 未限定首次 prepare 动作、strict parser 接受语义
+  无效日历时间、wrapper 未强制 nested JSON-only、stable schema
+  version 未显式恢复——已逐项修复关闭）
+- production files:
+  `src/ai_video_workflow/orchestration/canonical.py`（追加）、
+  `src/ai_video_workflow/orchestration/_models.py`、
+  `src/ai_video_workflow/orchestration/recovery.py`
+- test files: `tests/test_orchestration_canonical.py`、
+  `tests/test_orchestration_models.py`
+- §22 design entries: Step B 归属的 44 项已客观覆盖
+- focused pytest: **368 passed**；related regression:
+  **611 passed**；full regression: **1143 passed**
+
 **实施顺序状态**：
 
 | Step | 正式名称（§24） | 状态 | 允许开始条件 |
 | --- | --- | --- | --- |
 | M | GenerationTaskStatus.CANCELLED model evolution | completed | —（已提交并通过独立审查） |
 | A | orchestration errors / enums / canonical JSON / fingerprint / freeze utilities | completed | —（已提交并通过独立审查） |
-| B | durable record 数据合同与严格恢复解析 | **sequencing clarified；not started；next permitted step after commit** | 本 docs-only 提交完成、工作区干净并发出新的明确 Step B checkpoint |
-| C | instruction 逐字节渲染器 | not started | Step B 完成、审查通过并提交 |
+| B | durable record 数据合同与严格恢复解析 | **completed**（independently reviewed；本提交即其独立提交） | —（已完成） |
+| C | instruction 逐字节渲染器 | not started；**next permitted step** | 本提交完成、工作区干净并发出新的明确 Step C checkpoint |
 | D | 纯 planning core | not started | Step C 完成、审查通过并提交 |
 | E | `_LayoutResolver` 路径派生与安全校验 | not started | Step D 完成、审查通过并提交 |
 | F | `_FileOrchestrationExecutor`（WAL/CAS/恢复执行） | not started | Step E 完成、审查通过并提交 |
@@ -694,8 +716,8 @@ TASK-004 尚未完成；不声称全部 acceptance criteria 已实现；不声�
 
 ## 当前状态
 
-implementation in progress — sequencing clarified — Step B
-pending new checkpoint
+implementation in progress — Steps M, A, and B completed —
+Step C pending new checkpoint
 
 ## 尚待后续任务决定的事项
 

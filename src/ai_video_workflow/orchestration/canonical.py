@@ -24,8 +24,9 @@ from enum import Enum
 from hashlib import sha256
 from types import MappingProxyType
 
-from ai_video_workflow.errors import FieldTypeError
+from ai_video_workflow.errors import FieldTypeError, InvariantViolationError
 from ai_video_workflow.orchestration.errors import CanonicalizationError
+from ai_video_workflow.validation import validate_json_compatible
 
 
 def _canonical_json_bytes(value: object) -> bytes:
@@ -183,3 +184,140 @@ def _thaw_value(value: object) -> object:
 def _thaw_mapping(value: Mapping[str, object]) -> dict[str, object]:
     """Return a plain dict deep copy of one frozen mapping."""
     return {key: _thaw_value(item) for key, item in value.items()}
+
+
+SNAPSHOT_WRAPPER_VERSION = 1
+
+_SNAPSHOT_KINDS = frozenset(
+    {
+        "provider_request",
+        "provider_result",
+        "provider_instruction",
+        "artifact_reference",
+        "generation_task",
+        "step_manifest",
+        "orchestration_stable_state",
+        "action_input",
+    }
+)
+
+_SNAPSHOT_WRAPPER_KEYS = frozenset({"snapshot_kind", "snapshot_version", "payload"})
+
+_STABLE_SELF_FINGERPRINT_FIELD = "stable_record_fingerprint"
+
+
+def _make_snapshot_wrapper(
+    kind: str,
+    payload: Mapping[str, object],
+) -> Mapping[str, object]:
+    """Return a frozen, versioned snapshot wrapper around one payload."""
+    if type(kind) is not str:
+        raise FieldTypeError(
+            f"snapshot_kind: expected string, got {type(kind).__name__}"
+        )
+    if kind not in _SNAPSHOT_KINDS:
+        raise InvariantViolationError(f"snapshot_kind: unknown snapshot kind {kind!r}")
+    if not isinstance(payload, Mapping):
+        raise FieldTypeError(f"payload: expected mapping, got {type(payload).__name__}")
+    plain_payload = _require_json_only_payload(payload, field_name="payload")
+    return _freeze_mapping(
+        {
+            "snapshot_kind": kind,
+            "snapshot_version": SNAPSHOT_WRAPPER_VERSION,
+            "payload": plain_payload,
+        }
+    )
+
+
+def _validate_snapshot_wrapper(
+    value: object,
+    *,
+    expected_kind: str,
+    field_name: str,
+) -> Mapping[str, object]:
+    """Validate one snapshot wrapper strictly and return a frozen copy."""
+    if expected_kind not in _SNAPSHOT_KINDS:
+        raise InvariantViolationError(
+            f"{field_name}: unknown expected snapshot kind {expected_kind!r}"
+        )
+    if not isinstance(value, Mapping):
+        raise FieldTypeError(
+            f"{field_name}: expected snapshot wrapper mapping, "
+            f"got {type(value).__name__}"
+        )
+    keys = set(value.keys())
+    if keys != _SNAPSHOT_WRAPPER_KEYS:
+        raise InvariantViolationError(
+            f"{field_name}: wrapper must contain exactly snapshot_kind, "
+            "snapshot_version, and payload"
+        )
+    kind = value["snapshot_kind"]
+    if type(kind) is not str:
+        raise FieldTypeError(
+            f"{field_name}: snapshot_kind must be a string, got {type(kind).__name__}"
+        )
+    if kind not in _SNAPSHOT_KINDS:
+        raise InvariantViolationError(f"{field_name}: unknown snapshot kind {kind!r}")
+    if kind != expected_kind:
+        raise InvariantViolationError(
+            f"{field_name}: expected snapshot kind {expected_kind!r}, got {kind!r}"
+        )
+    version = value["snapshot_version"]
+    if type(version) is not int:
+        raise FieldTypeError(
+            f"{field_name}: snapshot_version must be a strict int, "
+            f"got {type(version).__name__}"
+        )
+    if version != SNAPSHOT_WRAPPER_VERSION:
+        raise InvariantViolationError(
+            f"{field_name}: unsupported snapshot version {version}"
+        )
+    payload = value["payload"]
+    if not isinstance(payload, Mapping):
+        raise FieldTypeError(
+            f"{field_name}: wrapper payload must be a mapping, "
+            f"got {type(payload).__name__}"
+        )
+    plain_payload = _require_json_only_payload(
+        payload,
+        field_name=f"{field_name}.payload",
+    )
+    return _freeze_mapping(
+        {
+            "snapshot_kind": kind,
+            "snapshot_version": version,
+            "payload": plain_payload,
+        }
+    )
+
+
+def _require_json_only_payload(
+    payload: Mapping[str, object],
+    *,
+    field_name: str,
+) -> dict[str, object]:
+    """Return a plain-dict copy of one strictly JSON-only payload.
+
+    The canonicalization pass rejects cycles, sets, non-string keys,
+    non-finite floats, and NFC key collisions before any thaw; the
+    JSON-compatibility pass then rejects every remaining non-JSON
+    value (such as datetime or Enum objects) on the plain copy.
+    """
+    _canonical_json_bytes(payload)
+    plain_payload = _thaw_mapping(payload)
+    validate_json_compatible(plain_payload, path=field_name)
+    return plain_payload
+
+
+def _stable_self_fingerprint(payload: Mapping[str, object]) -> str:
+    """Return the stable self fingerprint over all fields except itself."""
+    if not isinstance(payload, Mapping):
+        raise FieldTypeError(
+            f"stable payload: expected mapping, got {type(payload).__name__}"
+        )
+    reduced = {
+        key: value
+        for key, value in payload.items()
+        if key != _STABLE_SELF_FINGERPRINT_FIELD
+    }
+    return _fingerprint(reduced)

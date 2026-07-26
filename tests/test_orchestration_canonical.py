@@ -331,3 +331,405 @@ class TestResponsibilityBoundaries:
         self,
     ) -> None:
         assert _fingerprint({"a": 1}) == _fingerprint(MappingProxyType({"a": 1}))
+
+
+# --- Step B additions: snapshot wrapper tools and stable self fingerprint ---
+
+from ai_video_workflow.errors import InvariantViolationError  # noqa: E402
+from ai_video_workflow.orchestration.canonical import (  # noqa: E402
+    SNAPSHOT_WRAPPER_VERSION,
+    _make_snapshot_wrapper,
+    _stable_self_fingerprint,
+    _validate_snapshot_wrapper,
+)
+
+ALL_SNAPSHOT_KINDS = (
+    "provider_request",
+    "provider_result",
+    "provider_instruction",
+    "artifact_reference",
+    "generation_task",
+    "step_manifest",
+    "orchestration_stable_state",
+    "action_input",
+)
+
+# Independently computed with hashlib over the exact canonical bytes;
+# never regenerated with the function under test.
+VECTOR_ACTION_INPUT_WRAPPER = (
+    "5666f2a52c05722460c397ebf0a7481badd24ffd60e0dbab3a4648a1a0a38a68"
+)
+VECTOR_ARTIFACT_WRAPPER = (
+    "f1d143f334a5fb641a79ebd2172e99562b0c602956213791c3ea9b284e060438"
+)
+VECTOR_STABLE_SELF = "dadf4fcf1393b8ff018dc792470477c8ab2ab20276f874de89cb28bad2841a65"
+
+ACTION_INPUT_PAYLOAD = {
+    "observed_at": "2026-07-26T10:00:00.000000+00:00",
+    "artifact": None,
+    "completed_at": None,
+    "result_fingerprint": None,
+}
+
+ARTIFACT_PAYLOAD = {
+    "reference": "staging/task-1/clip.mp4",
+    "origin": "user",
+    "location": "staging",
+}
+
+
+class TestSnapshotWrapperTools:
+    @pytest.mark.parametrize("kind", ALL_SNAPSHOT_KINDS)
+    def test_make_wrapper_shape_for_each_kind(self, kind: str) -> None:
+        wrapper = _make_snapshot_wrapper(kind, {"value": 1})
+        assert set(wrapper.keys()) == {
+            "snapshot_kind",
+            "snapshot_version",
+            "payload",
+        }
+        assert wrapper["snapshot_kind"] == kind
+        assert wrapper["snapshot_version"] == SNAPSHOT_WRAPPER_VERSION
+        assert wrapper["snapshot_version"] == 1
+        assert wrapper["payload"] == {"value": 1}
+
+    def test_make_wrapper_rejects_unknown_kind(self) -> None:
+        with pytest.raises(InvariantViolationError):
+            _make_snapshot_wrapper("mystery", {})
+
+    def test_make_wrapper_rejects_non_string_kind(self) -> None:
+        with pytest.raises(FieldTypeError):
+            _make_snapshot_wrapper(1, {})
+
+    def test_make_wrapper_rejects_non_mapping_payload(self) -> None:
+        with pytest.raises(FieldTypeError):
+            _make_snapshot_wrapper("action_input", [1, 2])
+
+    @pytest.mark.parametrize("kind", ALL_SNAPSHOT_KINDS)
+    def test_validate_round_trips_each_kind(self, kind: str) -> None:
+        wrapper = _make_snapshot_wrapper(kind, {"value": 1})
+        validated = _validate_snapshot_wrapper(
+            wrapper,
+            expected_kind=kind,
+            field_name="wrapper",
+        )
+        assert validated == wrapper
+        assert _fingerprint(validated) == _fingerprint(wrapper)
+
+    def test_validate_accepts_plain_dict_wrapper(self) -> None:
+        wrapper = {
+            "snapshot_kind": "action_input",
+            "snapshot_version": 1,
+            "payload": dict(ACTION_INPUT_PAYLOAD),
+        }
+        validated = _validate_snapshot_wrapper(
+            wrapper,
+            expected_kind="action_input",
+            field_name="wrapper",
+        )
+        assert validated["payload"] == ACTION_INPUT_PAYLOAD
+
+    @pytest.mark.parametrize("version", [0, 2, -1, 999])
+    def test_unknown_snapshot_version_is_rejected(self, version: int) -> None:
+        wrapper = {
+            "snapshot_kind": "action_input",
+            "snapshot_version": version,
+            "payload": dict(ACTION_INPUT_PAYLOAD),
+        }
+        with pytest.raises(InvariantViolationError):
+            _validate_snapshot_wrapper(
+                wrapper,
+                expected_kind="action_input",
+                field_name="wrapper",
+            )
+
+    @pytest.mark.parametrize("version", [True, False, "1", 1.0, None])
+    def test_non_strict_int_snapshot_version_is_rejected(
+        self,
+        version: object,
+    ) -> None:
+        wrapper = {
+            "snapshot_kind": "action_input",
+            "snapshot_version": version,
+            "payload": dict(ACTION_INPUT_PAYLOAD),
+        }
+        with pytest.raises(FieldTypeError):
+            _validate_snapshot_wrapper(
+                wrapper,
+                expected_kind="action_input",
+                field_name="wrapper",
+            )
+
+    def test_wrong_kind_is_rejected(self) -> None:
+        wrapper = _make_snapshot_wrapper("provider_request", {"value": 1})
+        with pytest.raises(InvariantViolationError):
+            _validate_snapshot_wrapper(
+                wrapper,
+                expected_kind="provider_result",
+                field_name="wrapper",
+            )
+
+    def test_unknown_kind_is_rejected(self) -> None:
+        wrapper = {
+            "snapshot_kind": "mystery",
+            "snapshot_version": 1,
+            "payload": {},
+        }
+        with pytest.raises(InvariantViolationError):
+            _validate_snapshot_wrapper(
+                wrapper,
+                expected_kind="action_input",
+                field_name="wrapper",
+            )
+
+    def test_unknown_expected_kind_is_rejected(self) -> None:
+        wrapper = _make_snapshot_wrapper("action_input", {})
+        with pytest.raises(InvariantViolationError):
+            _validate_snapshot_wrapper(
+                wrapper,
+                expected_kind="mystery",
+                field_name="wrapper",
+            )
+
+    def test_missing_wrapper_key_is_rejected(self) -> None:
+        wrapper = {"snapshot_kind": "action_input", "snapshot_version": 1}
+        with pytest.raises(InvariantViolationError):
+            _validate_snapshot_wrapper(
+                wrapper,
+                expected_kind="action_input",
+                field_name="wrapper",
+            )
+
+    def test_unknown_wrapper_key_is_rejected(self) -> None:
+        wrapper = {
+            "snapshot_kind": "action_input",
+            "snapshot_version": 1,
+            "payload": {},
+            "extra": True,
+        }
+        with pytest.raises(InvariantViolationError):
+            _validate_snapshot_wrapper(
+                wrapper,
+                expected_kind="action_input",
+                field_name="wrapper",
+            )
+
+    def test_non_mapping_wrapper_and_payload_are_rejected(self) -> None:
+        with pytest.raises(FieldTypeError):
+            _validate_snapshot_wrapper(
+                "wrapper",
+                expected_kind="action_input",
+                field_name="wrapper",
+            )
+        with pytest.raises(FieldTypeError):
+            _validate_snapshot_wrapper(
+                {
+                    "snapshot_kind": "action_input",
+                    "snapshot_version": 1,
+                    "payload": [1],
+                },
+                expected_kind="action_input",
+                field_name="wrapper",
+            )
+
+    def test_wrapper_is_deep_frozen(self) -> None:
+        wrapper = _make_snapshot_wrapper("action_input", {"nested": {"a": 1}})
+        with pytest.raises(TypeError):
+            wrapper["payload"] = {}
+        with pytest.raises(TypeError):
+            wrapper["payload"]["nested"]["a"] = 2
+
+    def test_wrapper_is_isolated_from_original_payload(self) -> None:
+        payload = {"nested": {"a": 1}}
+        wrapper = _make_snapshot_wrapper("action_input", payload)
+        payload["nested"]["a"] = 999
+        payload["added"] = True
+        assert wrapper["payload"] == {"nested": {"a": 1}}
+
+    def test_fixed_vector_action_input_wrapper(self) -> None:
+        wrapper = _make_snapshot_wrapper(
+            "action_input",
+            dict(ACTION_INPUT_PAYLOAD),
+        )
+        assert _fingerprint(wrapper) == VECTOR_ACTION_INPUT_WRAPPER
+
+    def test_fixed_vector_artifact_reference_wrapper(self) -> None:
+        wrapper = _make_snapshot_wrapper(
+            "artifact_reference",
+            dict(ARTIFACT_PAYLOAD),
+        )
+        assert _fingerprint(wrapper) == VECTOR_ARTIFACT_WRAPPER
+
+    def test_wrapper_fingerprint_ignores_payload_insertion_order(
+        self,
+    ) -> None:
+        forward = _make_snapshot_wrapper(
+            "action_input",
+            dict(ACTION_INPUT_PAYLOAD),
+        )
+        reversed_payload = dict(reversed(list(ACTION_INPUT_PAYLOAD.items())))
+        backward = _make_snapshot_wrapper("action_input", reversed_payload)
+        assert _fingerprint(forward) == _fingerprint(backward)
+        assert _fingerprint(forward) == VECTOR_ACTION_INPUT_WRAPPER
+
+    def test_wrapper_fingerprint_covers_kind_and_version(self) -> None:
+        action_input = _make_snapshot_wrapper("action_input", {"a": 1})
+        request = _make_snapshot_wrapper("provider_request", {"a": 1})
+        assert _fingerprint(action_input) != _fingerprint(request)
+        assert _fingerprint(action_input) != _fingerprint({"a": 1})
+
+
+class TestStableSelfFingerprint:
+    def test_fixed_vector_excludes_self_field(self) -> None:
+        payload = {
+            "alpha": 1,
+            "beta": "中文",
+            "stable_record_fingerprint": "ignored",
+        }
+        assert _stable_self_fingerprint(payload) == VECTOR_STABLE_SELF
+
+    def test_result_is_independent_of_self_field_value(self) -> None:
+        with_field = {"alpha": 1, "stable_record_fingerprint": "x"}
+        without_field = {"alpha": 1}
+        assert _stable_self_fingerprint(with_field) == (
+            _stable_self_fingerprint(without_field)
+        )
+
+    def test_insertion_order_independence(self) -> None:
+        forward = {"a": 1, "b": 2, "stable_record_fingerprint": "x"}
+        backward = {"stable_record_fingerprint": "x", "b": 2, "a": 1}
+        assert _stable_self_fingerprint(forward) == (_stable_self_fingerprint(backward))
+
+    def test_nfc_equivalent_values_produce_the_same_fingerprint(
+        self,
+    ) -> None:
+        composed = {"key": "caf\u00e9"}
+        decomposed = {"key": "cafe\u0301"}
+        assert composed["key"] != decomposed["key"]
+        assert _stable_self_fingerprint(composed) == (
+            _stable_self_fingerprint(decomposed)
+        )
+
+    def test_content_changes_change_the_fingerprint(self) -> None:
+        assert _stable_self_fingerprint({"a": 1}) != (
+            _stable_self_fingerprint({"a": 2})
+        )
+
+    def test_non_mapping_input_is_rejected(self) -> None:
+        with pytest.raises(FieldTypeError):
+            _stable_self_fingerprint([1, 2])
+
+    def test_does_not_mutate_input(self) -> None:
+        payload = {"a": 1, "stable_record_fingerprint": "x"}
+        snapshot = copy.deepcopy(payload)
+        _stable_self_fingerprint(payload)
+        assert payload == snapshot
+
+
+class TestSnapshotWrapperJsonOnlyBoundary:
+    @pytest.mark.parametrize("bad_value", [{1, 2}, frozenset({1, 2})])
+    def test_nested_set_values_are_rejected(self, bad_value: object) -> None:
+        with pytest.raises(CanonicalizationError):
+            _make_snapshot_wrapper("action_input", {"bad": bad_value})
+        wrapper = {
+            "snapshot_kind": "action_input",
+            "snapshot_version": 1,
+            "payload": {"bad": bad_value},
+        }
+        with pytest.raises(CanonicalizationError):
+            _validate_snapshot_wrapper(
+                wrapper,
+                expected_kind="action_input",
+                field_name="wrapper",
+            )
+
+    def test_cyclic_payload_is_rejected(self) -> None:
+        payload: dict = {"outer": {}}
+        payload["outer"]["loop"] = payload
+        with pytest.raises(CanonicalizationError):
+            _make_snapshot_wrapper("action_input", payload)
+        wrapper = {
+            "snapshot_kind": "action_input",
+            "snapshot_version": 1,
+            "payload": payload,
+        }
+        with pytest.raises(CanonicalizationError):
+            _validate_snapshot_wrapper(
+                wrapper,
+                expected_kind="action_input",
+                field_name="wrapper",
+            )
+
+    @pytest.mark.parametrize(
+        "bad_float",
+        [float("nan"), float("inf"), float("-inf")],
+    )
+    def test_non_finite_floats_are_rejected(self, bad_float: float) -> None:
+        with pytest.raises(CanonicalizationError):
+            _make_snapshot_wrapper("action_input", {"bad": bad_float})
+        wrapper = {
+            "snapshot_kind": "action_input",
+            "snapshot_version": 1,
+            "payload": {"bad": bad_float},
+        }
+        with pytest.raises(CanonicalizationError):
+            _validate_snapshot_wrapper(
+                wrapper,
+                expected_kind="action_input",
+                field_name="wrapper",
+            )
+
+    def test_nfc_normalized_key_collision_is_rejected(self) -> None:
+        colliding = {"caf\u00e9": 1, "cafe\u0301": 2}
+        assert len(colliding) == 2
+        with pytest.raises(CanonicalizationError):
+            _make_snapshot_wrapper("action_input", colliding)
+        wrapper = {
+            "snapshot_kind": "action_input",
+            "snapshot_version": 1,
+            "payload": colliding,
+        }
+        with pytest.raises(CanonicalizationError):
+            _validate_snapshot_wrapper(
+                wrapper,
+                expected_kind="action_input",
+                field_name="wrapper",
+            )
+
+    @pytest.mark.parametrize(
+        "bad_value",
+        [UTC_AT, ProviderStatus.SUCCEEDED, Path("clip.mp4"), b"bytes"],
+    )
+    def test_non_json_objects_are_rejected(self, bad_value: object) -> None:
+        with pytest.raises((FieldTypeError, CanonicalizationError)):
+            _make_snapshot_wrapper("action_input", {"bad": bad_value})
+        wrapper = {
+            "snapshot_kind": "action_input",
+            "snapshot_version": 1,
+            "payload": {"bad": bad_value},
+        }
+        with pytest.raises((FieldTypeError, CanonicalizationError)):
+            _validate_snapshot_wrapper(
+                wrapper,
+                expected_kind="action_input",
+                field_name="wrapper",
+            )
+
+    def test_non_string_payload_keys_are_rejected(self) -> None:
+        with pytest.raises(CanonicalizationError):
+            _make_snapshot_wrapper("action_input", {1: "x"})
+
+    def test_valid_json_payload_still_round_trips(self) -> None:
+        payload = {
+            "text": "中文",
+            "number": 1.5,
+            "flag": True,
+            "nothing": None,
+            "nested": {"items": [1, "two", None]},
+        }
+        wrapper = _make_snapshot_wrapper("action_input", payload)
+        validated = _validate_snapshot_wrapper(
+            wrapper,
+            expected_kind="action_input",
+            field_name="wrapper",
+        )
+        assert validated == wrapper
