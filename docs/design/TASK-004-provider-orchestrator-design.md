@@ -1,7 +1,7 @@
 # TASK-004 设计文档：Provider Orchestrator 契约与基础编排
 
-- Status: approved — formal design review passed; ADR-0001
-  synchronized; coding gate closed
+- Status: approved — implementation agent assigned; coding gate
+  open; implementation not started
 - Revision: r6（自包含版本；关闭 r5 复审的 3 个阻塞与 1 个重要
   问题；不依赖任何历史草案或聊天记录）
 
@@ -12,13 +12,21 @@
 - design body approved
 - Codex ADR-0001 narrow review: **passed**（ADR blockers: 0；
   important findings: 0；suggestions: 0）
-- ADR-0001 actual synchronization: **satisfied**
-- architecture.md change: not required
+- ADR-0001 synchronization: satisfied
+- architecture synchronization: not required
 - GenerationTaskStatus.CANCELLED design prerequisite: satisfied
-- CANCELLED code implementation: not started
-- implementation agent: pending
-- coding gate: closed
-- Python implementation: prohibited
+- **implementation agent: Claude Code**
+- **independent review agent: Codex**
+- **coding gate: open**
+- **implementation status: not started**
+- **next permitted step: Step M only**
+- 说明：coding gate open 只表示允许按批准顺序开始实现——不表示
+  任何代码已实现、不表示任何 acceptance criterion 已由代码满足、
+  不表示 131 项计划测试已实现或通过；当前实际回归基线仍为
+  **757 tests passed**。角色边界：Claude Code 按批准的 r6 设计与
+  §22 分步实施，不得替代 Codex 声称独立审查通过；Codex 在每个
+  批准步骤后独立审查，不直接修改实现文件；每个 Step 必须在前一
+  步完成、测试通过并按计划审查后再开始。
 - 批准时 QA 结果（当前仓库实际执行）：Ruff format 38 files
   already formatted；Ruff lint passed；full pytest **757
   passed**；whitespace passed
@@ -48,8 +56,10 @@
 5. architecture synchronization: **not required**（executor 内部
    化方案已通过最终设计审查，见 §2）；
 6. formal design review（r6）: **passed**；
-7. implementation agent: **pending**；
-8. coding gate: **closed**——Python implementation prohibited。
+7. implementation agent assignment: **satisfied — Claude Code**
+   （independent review agent: Codex）；
+8. coding gate: **open**——implementation not started；next
+   permitted step: Step M only。
 
 ## 1. 总览
 

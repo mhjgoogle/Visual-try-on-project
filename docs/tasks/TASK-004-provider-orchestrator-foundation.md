@@ -605,14 +605,29 @@ closed：
   - ADR-0001 narrow review（Codex）: **passed**（ADR blockers: 0；
     ADR important findings: 0；suggestions: 0）
   - architecture synchronization: not required
-  - implementation agent assignment: pending
-  - coding gate: **closed**
-  - Python implementation: prohibited
+  - implementation agent assignment: **satisfied — Claude Code**
+  - independent review agent: **Codex**
+  - coding gate: **open**
+  - implementation status: **not started**
+  - next permitted step: **Step M — GenerationTaskStatus.CANCELLED
+    model evolution**
+
+**实施顺序与纪律**（依据批准设计 §22）：
+
+1. Step M；2. Step A；3. Step B；4. Step C；5. Step D；
+6. Step E；7. Step F；8. Step G。
+
+- 只能从 Step M 开始，不得跳过 Step M；
+- 不得并行开始 A–G；
+- 每一步必须遵循设计中的允许文件范围；
+- 每一步完成后运行规定测试并交 Codex 独立审查；
+- 未通过当前 Step 审查不得进入下一 Step；
+- Claude Code 按批准 r6 设计分步实施，不得替代 Codex 声称独立
+  审查通过；Codex 不直接修改实现文件。
 
 ## 当前状态
 
-formal design approved — ADR-0001 synchronized — implementation
-agent pending — coding gate closed
+ready for implementation — coding gate open — Step M pending
 
 ## 尚待后续任务决定的事项
 
