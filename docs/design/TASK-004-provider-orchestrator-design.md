@@ -1,10 +1,7 @@
 # TASK-004 设计文档：Provider Orchestrator 契约与基础编排
 
-- Status: approved — implementation in progress; Steps M–D
-  completed and finally confirmed; Step E implementation
-  committed by this commit — temporary independent review
-  passed, Codex final review pending; Step F pending new
-  checkpoint
+- Status: approved — implementation in progress; Steps M–E
+  completed and finally confirmed; Step F pending new checkpoint
 - Revision: r6（自包含版本；关闭 r5 复审的 3 个阻塞与 1 个重要
   问题；不依赖任何历史草案或聊天记录）+ 实施顺序补充（§24，
   docs-only，Codex 第三次复审通过）
@@ -198,72 +195,92 @@
     format/lint passed；whitespace passed
   - Step D status: **completed, independently reviewed,
     committed, and finally confirmed**
-- **Step E — `_LayoutResolver` 路径派生与安全校验:
-  committed by this commit — temporary independent review
-  passed; Codex final review pending**：
+- **Step E — `_LayoutResolver` 路径派生与安全校验: completed,
+  independently reviewed, committed, and finally confirmed**：
   - implementation agent: Claude Code
   - implementation: completed（生产文件：
     orchestration/layout.py（新建）；测试文件：
-    tests/test_orchestration_layout.py（新建）；本提交同时含
-    §8.1 接口入档、§8.3 合同澄清与本状态同步）
+    tests/test_orchestration_layout.py（新建）；§8.1 接口入档、
+    §8.3 合同澄清与状态同步随提交完成）
+  - implementation commit:
+    `db5e178 feat: add safe orchestration layout resolver`
   - temporary independent review: **passed**（temporary
-    reviewer: **Claude Fable 5**，非 Codex）；blockers 0 /
-    important 0
-  - **Codex final review: pending**；**Step E final high-risk
-    gate: not yet closed**（Step E 属路径安全高风险步骤，其
-    最终 acceptance 仍待 Codex final review；Codex 额度恢复后
-    须对 Step E commit 做最终路径安全复核）
-  - 审查历史（如实记录）：第一轮临时审查不通过（1 阻塞
-    2 重要——symlink + `..` 绕过整目录保护、symlink 自环
-    RuntimeError 逃出错误树、"逃出允许根"两种解释）；修复轮
-    临时复审有条件通过（阻塞 0 / 重要 0 / 遗留 docs-sync
-    条件 2）——两处正确性缺陷已修复并补负例，"逃出允许根"
-    按保护优先读法定案并经本提交 §8.3 合同澄清消除字面分歧、
-    `_LayoutResolver` 方法级接口经本提交 §8.1 入档
-  - §22 设计测试条目：Step E 归属的 11 项（95–105）已实现并
-    通过临时审查；因属高风险步骤，最终 acceptance 仍待 Codex
-    final review
-  - tests：Step E focused pytest **75 passed**；full pytest
-    **1423 passed**；Ruff format/lint passed；whitespace passed
-    （初次实现 68 个 + 修复轮 7 个 pytest case；上一轮汇报的
-    68/1416 为修复前基线，已由 75/1423 取代）
-  - Step E status: **committed by this commit; temporary review
-    passed; Codex final review pending**
-- **immediate next action: Codex 额度恢复后对 Step E commit
-  做最终路径安全复核**（Step E final high-risk gate 关闭中）。
-  Step F: **not started；Step F local gate: closed**——即使
-  Step E 提交成功也不得开始 Step F；Step G: not started；
+    reviewer: Claude Fable 5，非 Codex；blockers 0 /
+    important 0）
+  - **final Codex path-security review: passed**（reviewer:
+    Codex；blockers 0 / important 0 / suggestions 1
+    non-blocking）
+  - **Step E final high-risk gate: closed**；**Step E final
+    completion: confirmed**
+  - final 路径安全结论（Codex 复审确认）：
+    - 四个 state targets 必须留在 project_root 内；
+    - state target 的 root 外 symlink 逃逸被拒绝；
+    - local artifact comparison path 可以位于 project_root 外；
+    - local artifact 不得等于或位于四个受保护状态目录中；
+    - 直接路径、symlink alias、existing ancestor、nonexistent
+      suffix 与 `symlink/..` 等价绕过均被拒绝；
+    - dangling link、loop、权限失败与不安全解析均保守拒绝；
+    - non-local artifact 不执行本地 metadata 比较；
+    - Step E 无 filesystem mutation、Provider 调用或 public
+      API 扩展；
+    - Step F 仍负责执行期读取、before fingerprint、CAS 与写入；
+    - Step E 不声称消除全部 TOCTOU。
+  - 唯一建议（non-blocking）：`layout.py` 中关于未来 docs-sync
+    的过期注释；severity = suggestion；behavior impact = none；
+    security impact = none；current disposition = **deferred
+    cleanup**（理由：保持最终复审过的 `db5e178` 代码内容不变；
+    不作为 blocker/important/Step F 前置条件）
+  - **历史审查记录（已被 final Codex review passed 取代，不是
+    当前 gate 状态）**：第一轮临时审查不通过（1 阻塞 2 重要——
+    symlink + `..` 绕过整目录保护、symlink 自环 RuntimeError
+    逃出错误树、"逃出允许根"两种解释）；修复轮临时复审有条件
+    通过（两处正确性缺陷已修复并补负例，"逃出允许根"按保护
+    优先读法经 §8.3 合同澄清定案，`_LayoutResolver` 接口经
+    §8.1 入档）；"Codex final review pending / high-risk gate
+    not yet closed"的历史状态已由本轮 final Codex review passed
+    取代。
+  - §22 设计测试条目：Step E 归属的 11 项（95–105）已客观覆盖
+    并最终确认。
+  - tests：Step E focused pytest **75 passed**；related
+    regression **574 passed**；full pytest **1423 passed**；
+    Ruff format 51 files already formatted；Ruff lint passed；
+    whitespace passed
+  - Step E status: **completed, independently reviewed,
+    committed (`db5e178`), and finally confirmed**
+- next permitted step: **Step F**（not started；**Step F local
+  gate: closed**——完整开始条件见 §24.2 Step F 前置条件；
+  Step F 是 next step 不等于已获实施许可，只有新的明确 Step F
+  checkpoint 才能打开 Step F local gate）；Step G: not started；
   global coding gate: open（全局）
 - Step M 的 18 个、Step A 的 124 个、Step B 的 244 个、
   Step C 的 46 个、Step D 的 159 个与 Step E 的 75 个新增
   pytest case 已实现并包含在当前 1423 项中；r6 的 131 项分步
-  实施测试计划尚未全部实现（**当前已实现 77/131**：Step A
-  5 项 + Step B 44 项 + Step C 3 项 + Step D 14 项 + Step E
-  11 项，见 §24.3）；Step E 的 11 项已实现并通过临时审查，但
-  **77/131 不表示全部已最终验收**——Step E 属路径安全高风险
-  步骤，其最终 acceptance 仍待 Codex final review；Step
-  M/A/B/C/D/E 完成不代表 TASK-004 完成；本提交不包含任何
-  Step F 代码。
+  实施测试计划尚未全部实现（**当前已完成并最终确认 77/131**：
+  Step A 5 项 + Step B 44 项 + Step C 3 项 + Step D 14 项 +
+  Step E 11 项，见 §24.3）；77/131 现为已完成并最终确认的
+  累计数量（Step E 的 11 项经 Codex final path-security review
+  确认）；Step M/A/B/C/D/E 完成不代表 TASK-004 完成；本状态
+  同步不包含任何 Step F 代码。
 - 当前事实（统一口径）：r6 technical design **approved**；
   implementation sequencing clarification（§24）**approved —
   第三次 Codex 复审通过**；Step M / Step A / Step B / Step C
-  **completed, independently reviewed, committed**；Step D
-  **completed, independently reviewed, committed, and finally
-  confirmed**；Step E **committed by this commit; temporary
-  independent review passed（temporary reviewer: Claude
-  Fable 5）; Codex final review pending; final high-risk gate
-  not yet closed**；当前仓库含六个 Step 的实现代码；CANCELLED
-  code implementation 已在 Step M 完成；**immediate next
-  action: Codex 对 Step E commit 做最终路径安全复核**；Step F
-  **not started; Step F local gate closed**；Step G not
-  started；global coding gate **open**；当前实际回归基线
-  **1423 passed**。coding gate open 不表示 §22 的 131 项计划
-  测试已全部实现或任何 acceptance criterion 已由完整实现满足
-  （F–G 未实施，Step E 最终 acceptance 待定）。角色边界：
-  Claude Code 按批准的 r6 设计与 §24 分步实施，不得替代 Codex
-  声称独立审查通过；本轮 Step E 的临时独立审查由 Claude Fable
-  5 执行，不得表述为 Codex 审查通过；每个 Step 必须在前一步
-  完成、测试通过并按计划审查后再开始。
+  **completed, independently reviewed, committed**；Step D /
+  Step E **completed, independently reviewed, committed, and
+  finally confirmed**（Step E 经 temporary review by Claude
+  Fable 5 与 **final Codex path-security review** 双重通过，
+  final high-risk gate **closed**）；当前仓库含六个 Step 的
+  实现代码；CANCELLED code implementation 已在 Step M 完成；
+  Step F **not started; Step F local gate closed**（完整开始
+  条件见 §24.2 Step F 前置条件——须新的明确 Step F
+  checkpoint）；Step G not started；global coding gate
+  **open**；当前实际回归基线 **1423 passed**。coding gate
+  open 不表示 §22 的 131 项计划测试已全部实现或任何 acceptance
+  criterion 已由完整实现满足（F–G 未实施）。角色边界：Claude
+  Code 按批准的 r6 设计与 §24 分步实施，不得替代 Codex 声称
+  独立审查通过；Step E 的临时独立审查由 Claude Fable 5 执行，
+  最终 acceptance 由 Codex final path-security review 给出，
+  二者已如实区分记录；每个 Step 必须在前一步完成、测试通过并
+  按计划审查后再开始。
 - **r6 formal-design approval snapshot（历史快照，仅记录批准
   当时的事实，不代表当前状态）**：
   - coding gate was closed at that checkpoint；
@@ -282,11 +299,12 @@
 - TASK-003 completed baseline:
   `01ac984 docs: complete TASK-003 implementation`
 - coding gate: **open**（全局；r6 批准时为 closed——见上方历史
-  快照）；Step E: committed by this commit；temporary review
-  passed；**Codex final review pending**（high-risk gate 未
-  最终关闭）；**Step F local gate: closed**（即使 Step E 提交
-  成功也不得开始 Step F；immediate next action = Codex 对
-  Step E commit 的最终路径安全复核）
+  快照）；Step E: completed（committed `db5e178`；temporary
+  review by Claude Fable 5 passed + **final Codex path-security
+  review passed**；high-risk gate **closed**；finally
+  confirmed）；**Step F local gate: closed**（Step F 是 next
+  step 不等于已获实施许可，只有新的明确 Step F checkpoint 才能
+  打开 Step F local gate）
 - 目标运行环境：WSL2 Ubuntu / Linux（POSIX `os.replace`；不测试
   Windows path 或 replace 语义）
 
@@ -313,10 +331,11 @@
    Step C completed（independently reviewed and approved）；
    Step D completed（committed `172ae2b`；final post-commit
    conformance review passed；finally confirmed）；Step E
-   committed by this commit（temporary independent review by
-   Claude Fable 5 passed；**Codex final review pending**；high
-   -risk gate 未最终关闭）；Step F: not started；**Step F
-   local gate closed**；Step G not started。
+   completed（committed `db5e178`；temporary review by Claude
+   Fable 5 passed + **final Codex path-security review
+   passed**；high-risk gate **closed**；finally confirmed）；
+   Step F: not started；**Step F local gate closed**；Step G
+   not started。
 
 ## 1. 总览
 
@@ -1744,17 +1763,17 @@ Step A 实现代码；编排主体 Step B–G 未实施；r6 批准当时尚无�
   confirmed**）。§22 中 Step D 归属的 14 项（15–20、85、
   88–94）由 Step D 完成（标记 completed）。
 - **Step E — `_LayoutResolver` 路径派生与安全校验**：
-  committed by this commit（生产：`orchestration/layout.py`
-  （新建）；测试：`tests/test_orchestration_layout.py`（新建）；
-  本提交同时含 §8.1 接口入档与 §8.3 合同澄清）。第一轮临时
+  completed（生产：`orchestration/layout.py`（新建）；测试：
+  `tests/test_orchestration_layout.py`（新建）；已提交
+  `db5e178`，同含 §8.1 接口入档与 §8.3 合同澄清）。第一轮临时
   审查（Claude Fable 5，非 Codex）1 阻塞 2 重要（symlink + `..`
   绕过整目录保护、symlink 自环 RuntimeError 逃逸、"逃出允许根"
-  两读法）；修复轮临时复审有条件通过（阻塞 0 / 重要 0），两处
-  正确性缺陷已修复并补负例，"逃出允许根"按保护优先读法经 §8.3
-  合同澄清定案。§22 中 Step E 归属的 11 项（95–105）已实现并
-  通过临时审查（标记 completed），但因属路径安全高风险步骤，
-  **最终 acceptance 仍待 Codex final review**（high-risk gate
-  未最终关闭）。
+  两读法）已逐项修复并补负例；**final Codex path-security
+  review passed**（blockers 0 / important 0 / suggestions 1
+  non-blocking——`layout.py` 过期 docs-sync 注释，deferred
+  cleanup），**high-risk gate closed，finally confirmed**。
+  §22 中 Step E 归属的 11 项（95–105）已客观覆盖并最终确认
+  （标记 completed）。
 
 **计数单位说明**："§22 测试项"与"pytest case 数"不是相同计数
 单位：一个 §22 设计测试项通常展开为多个参数化 pytest case
@@ -1789,11 +1808,12 @@ requirements），与 pytest 运行器收集执行的 case 不是同一计数
 编号（Step M 的 case 不占用 1–131 编号）；Step B 的 244 个、
 Step C 的 46 个、Step D 的 159 个与 Step E 的 75 个新增 pytest
 case 与各自归属的 44 项/3 项/14 项/11 项 §22 设计条目也不是
-同一计数单位；不声称 131 项设计测试已经全部**最终验收**
-（**当前已实现 77/131**：Step A 5 项 + Step B 44 项 + Step C
-3 项 + Step D 14 项 + Step E 11 项；其中 Step E 的 11 项已
-实现并通过临时审查，最终 acceptance 仍待 Codex final
-review）。
+同一计数单位；不声称 131 项设计测试已经全部实现
+（**当前已完成并最终确认 77/131**：Step A 5 项 + Step B
+44 项 + Step C 3 项 + Step D 14 项 + Step E 11 项；Step E 的
+11 项经 temporary review 与 final Codex path-security review
+双重通过并最终确认；77/131 为已完成并最终确认的累计数量，
+TASK-004 尚未完成）。
 
 ### 24.1 未实施文件 ownership 分析
 
@@ -2264,11 +2284,11 @@ symlink 出 root 拒绝）；§8.3 逐组件规则 1–12（含整目录保护
 
 仅在 Step E 完成条件全部满足并独立提交后，且在新的独立
 checkpoint 中明确启动，才允许进入 Step F；不得在 Step E 的
-提交轮直接继续。**Step E 属路径安全高风险步骤**：本轮临时
-独立审查（Claude Fable 5，非 Codex）通过并提交后，其最终
-acceptance 仍待 **Codex final review**；Step E commit 后的
-immediate next action 是 Codex 对该 commit 做最终路径安全
-复核，Step F local gate 在此期间保持关闭。
+提交轮直接继续。**Step E 属路径安全高风险步骤**，其实现提交
+（`db5e178`）已由临时独立审查（Claude Fable 5）与 **final
+Codex path-security review** 双重通过、high-risk gate
+**closed**、最终确认；Step F 的完整开始条件见下方 Step F
+前置条件。
 
 #### Step F — `_FileOrchestrationExecutor`（WAL/CAS/恢复执行）
 
@@ -2280,8 +2300,20 @@ immediate next action 是 Codex 对该 commit 做最终路径安全
 
 ##### 前置条件
 
-Step E 已完成、通过 Codex 独立审查并独立提交；提交后工作区
-干净；Step F 的新独立 checkpoint 已明确发出。
+Step F 只有在以下条件**全部满足**后才能开始（完全自包含）：
+
+1. Step E implementation commit 已完成（`db5e178`）；
+2. Step E **Codex final path-security review 已通过**；
+3. Step E **final high-risk gate 已关闭**；
+4. Step E 已确认最终完成（finally confirmed）；
+5. Step E final review 后的 docs-only 状态同步提交已完成；
+6. 提交后工作区干净；
+7. 用户发出新的明确 Step F checkpoint。
+
+gate 语义（不得混同）：global coding gate open ≠ Step F local
+gate open；"Step F 是 next permitted step" ≠ Step F 已获实施
+许可；状态同步提交本身不开始 Step F；Step F local gate 只在
+新的明确 Step F checkpoint 中开启。
 
 ##### 允许生产文件
 
@@ -2450,8 +2482,8 @@ TASK-004 completed：
 Step A 行标记 completed；Step B 归属的 44 项、Step C 归属的
 3 项（111–113）、Step D 归属的 14 项与 Step E 归属的 11 项
 （95–105）已分别由 Step B/C/D/E 完成（见 §24.0 记录，表内行
-标注保持原分配不变；Step E 的 11 项已实现并通过临时审查，
-最终 acceptance 仍待 Codex final review）；其余 planned。
+标注保持原分配不变；Step E 的 11 项经临时审查与 final Codex
+path-security review 双重通过并最终确认）；其余 planned。
 测试主题为 §22 原文的压缩指称，语义以 §22 原文为准。
 
 | 编号 | 测试主题 | Step | 测试文件 |
