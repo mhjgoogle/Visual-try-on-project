@@ -5,11 +5,19 @@ from typing import get_type_hints
 import pytest
 
 import ai_video_workflow.providers as providers_package
-from ai_video_workflow.errors import FieldTypeError, InvariantViolationError
+from ai_video_workflow.errors import (
+    AiVideoWorkflowError,
+    FieldTypeError,
+    InvariantViolationError,
+)
 from ai_video_workflow.providers import (
     ArtifactReference,
     InvalidProviderRequestError,
+    InvalidProviderStateError,
+    MissingArtifactReferenceError,
+    ProviderError,
     ProviderInstruction,
+    ProviderOperationError,
     ProviderRequest,
     ProviderResult,
     ProviderStatus,
@@ -484,6 +492,65 @@ class TestDefensiveInstructionAlignment:
             provider.check_alignment(make_request(), result)
         assert result.instruction is instruction
         assert result.instruction.provider_id == "other-provider"
+
+
+CONCRETE_PROVIDER_ERRORS = (
+    InvalidProviderRequestError,
+    InvalidProviderStateError,
+    MissingArtifactReferenceError,
+    ProviderOperationError,
+)
+
+
+class TestProviderErrorTree:
+    def test_provider_error_directly_inherits_project_root(self) -> None:
+        assert ProviderError.__bases__ == (AiVideoWorkflowError,)
+        assert issubclass(ProviderError, AiVideoWorkflowError)
+        assert issubclass(ProviderError, Exception)
+
+    @pytest.mark.parametrize("error_type", CONCRETE_PROVIDER_ERRORS)
+    def test_concrete_errors_directly_inherit_provider_error(
+        self,
+        error_type: type,
+    ) -> None:
+        assert error_type.__bases__ == (ProviderError,)
+        assert issubclass(error_type, ProviderError)
+        assert issubclass(error_type, AiVideoWorkflowError)
+        assert issubclass(error_type, Exception)
+
+    def test_five_error_classes_are_distinct_objects(self) -> None:
+        classes = {ProviderError, *CONCRETE_PROVIDER_ERRORS}
+        assert len(classes) == 5
+
+    @pytest.mark.parametrize("first", CONCRETE_PROVIDER_ERRORS)
+    @pytest.mark.parametrize("second", CONCRETE_PROVIDER_ERRORS)
+    def test_concrete_errors_are_not_interchangeable(
+        self,
+        first: type,
+        second: type,
+    ) -> None:
+        if first is second:
+            assert issubclass(first, second)
+        else:
+            assert not issubclass(first, second)
+            assert not issubclass(second, first)
+
+    @pytest.mark.parametrize("error_type", CONCRETE_PROVIDER_ERRORS)
+    def test_instances_are_distinguishable_and_root_catchable(
+        self,
+        error_type: type,
+    ) -> None:
+        instance = error_type("provider boundary failure")
+        assert isinstance(instance, error_type)
+        assert isinstance(instance, ProviderError)
+        assert isinstance(instance, AiVideoWorkflowError)
+        for other_type in CONCRETE_PROVIDER_ERRORS:
+            if other_type is not error_type:
+                assert not isinstance(instance, other_type)
+        with pytest.raises(AiVideoWorkflowError):
+            raise error_type("caught by the common project root")
+        with pytest.raises(ProviderError):
+            raise error_type("caught by the provider root")
 
 
 class TestPublicExports:
