@@ -129,9 +129,9 @@ GenerationTask / StepManifest 的更新职责，为第一阶段最小闭环的
 ## 输出
 
 - 本任务卡（修订规格）；
-- 规格复审通过后：正式设计文档
-  `docs/design/TASK-004-orchestrator-design.md`（候选名，本轮不
-  创建）；
+- 正式设计文档
+  `docs/design/TASK-004-provider-orchestrator-design.md`
+  （Revision r6，已通过 Codex 正式设计复审）；
 - 设计审查通过后：Orchestrator 实现与测试（本轮不创建任何 Python
   文件；最终文件结构由设计文档确定）。
 
@@ -542,8 +542,8 @@ closed：
 
 以下为**候选**，不视为已批准的固定设计，最终结构由设计文档确定：
 
-- 新增（规格复审通过后）：
-  `docs/design/TASK-004-orchestrator-design.md`
+- 已新增（规格复审通过后，Revision r6 已获批准）：
+  `docs/design/TASK-004-provider-orchestrator-design.md`
 - 新增（设计通过后）：`src/ai_video_workflow/orchestration/` 下的
   模块与 `tests/` 下的对应测试（具体拆分由设计文档提出）
 - 修改（实施阶段）：本任务卡（状态更新、实施记录、验收证据）
@@ -589,12 +589,27 @@ closed：
 - implementation review agent: Codex
 - TASK-003 completed baseline:
   `01ac984 docs: complete TASK-003 implementation`
-- coding gate: closed（formal design may begin；implementation may
-  not begin；no TASK-004 implementation code exists）
+- 正式设计审查（Codex，Revision r6）：
+  - formal design review: **passed**（此前 r1–r5 五轮修订：r1 五
+    阻塞四重要、r2 二阻塞三重要、r3 三阻塞四重要一建议、r4 一
+    阻塞三重要、r5 三阻塞一重要，全部逐项关闭）
+  - design blockers: 0；important findings: 0；suggestions: 0
+  - approved design document:
+    `docs/design/TASK-004-provider-orchestrator-design.md`
+    （Revision r6）
+  - specification approval: satisfied
+  - CANCELLED design prerequisite: satisfied
+  - CANCELLED code implementation: not started
+  - ADR-0001 prerequisite approval: satisfied in principle
+  - ADR-0001 actual synchronization: pending
+  - architecture synchronization: not required
+  - implementation agent assignment: pending
+  - coding gate: **closed**
+  - Python implementation: prohibited
 
 ## 当前状态
 
-specification approved — ready for formal design
+formal design approved — ADR-0001 synchronization pending
 
 ## 尚待后续任务决定的事项
 
