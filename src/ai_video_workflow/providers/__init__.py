@@ -1,5 +1,6 @@
 """Public exports for the video provider contract."""
 
+from ai_video_workflow.providers.base import VideoProvider
 from ai_video_workflow.providers.errors import (
     InvalidProviderRequestError,
     InvalidProviderStateError,
@@ -32,4 +33,5 @@ __all__ = [
     "ProviderRequest",
     "ProviderResult",
     "ProviderStatus",
+    "VideoProvider",
 ]
