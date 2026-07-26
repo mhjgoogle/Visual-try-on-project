@@ -19,9 +19,18 @@ from ai_video_workflow.providers import (
     VideoProvider,
 )
 
+# Distinct aware-UTC timestamps per lifecycle call so a test fails if an
+# implementation wrongly inherits the previous result's observed_at
+# instead of using the explicitly passed one.
 OBSERVED_AT = datetime(2026, 7, 26, 12, 0, 0, tzinfo=timezone.utc)
-EARLIER = OBSERVED_AT - timedelta(seconds=30)
-LATER = OBSERVED_AT + timedelta(seconds=30)
+PREPARED_AT = OBSERVED_AT
+SUBMITTED_AT = OBSERVED_AT + timedelta(minutes=1)
+WAITING_POLLED_AT = OBSERVED_AT + timedelta(minutes=2)
+AVAILABLE_POLLED_AT = OBSERVED_AT + timedelta(minutes=3)
+REPOLLED_AT = OBSERVED_AT + timedelta(minutes=4)
+COLLECTED_AT = OBSERVED_AT + timedelta(minutes=5)
+EARLIER = COLLECTED_AT - timedelta(seconds=30)
+LATER = COLLECTED_AT + timedelta(seconds=30)
 NAIVE_AT = datetime(2026, 7, 26, 12, 0, 0)
 TOKYO_AT = datetime(2026, 7, 26, 21, 0, 0, tzinfo=timezone(timedelta(hours=9)))
 
@@ -31,6 +40,23 @@ MANUAL_STATUSES = {
     ProviderStatus.ARTIFACT_AVAILABLE,
     ProviderStatus.SUCCEEDED,
 }
+
+SUBMIT_FORBIDDEN_STATUSES = (
+    ProviderStatus.WAITING_FOR_USER,
+    ProviderStatus.PROCESSING,
+    ProviderStatus.ARTIFACT_AVAILABLE,
+    ProviderStatus.SUCCEEDED,
+    ProviderStatus.FAILED,
+    ProviderStatus.CANCELLED,
+)
+
+PROGRESS_FORBIDDEN_STATUSES = (
+    ProviderStatus.NOT_SUBMITTED,
+    ProviderStatus.PROCESSING,
+    ProviderStatus.SUCCEEDED,
+    ProviderStatus.FAILED,
+    ProviderStatus.CANCELLED,
+)
 
 IMPOSSIBLE_FIELD_VALUES = {
     "external_task_ref": "remote/job-1",
@@ -81,6 +107,7 @@ def make_artifact(**overrides) -> ArtifactReference:
 
 
 def make_snapshot(status: ProviderStatus, **overrides) -> ProviderResult:
+    """Build a matrix-valid ProviderResult snapshot for any status."""
     kwargs = {
         "provider_id": "manual",
         "task_id": "task-001",
@@ -99,8 +126,8 @@ def make_snapshot(status: ProviderStatus, **overrides) -> ProviderResult:
 
 
 def make_waiting(provider: ManualVideoProvider, request: ProviderRequest):
-    prepared = provider.prepare(request, observed_at=OBSERVED_AT)
-    return provider.submit(request, prepared, observed_at=OBSERVED_AT)
+    prepared = provider.prepare(request, observed_at=PREPARED_AT)
+    return provider.submit(request, prepared, observed_at=SUBMITTED_AT)
 
 
 def make_available(provider, request, artifact):
@@ -108,7 +135,7 @@ def make_available(provider, request, artifact):
     return provider.poll(
         request,
         waiting,
-        observed_at=OBSERVED_AT,
+        observed_at=AVAILABLE_POLLED_AT,
         reported_artifact=artifact,
     )
 
@@ -124,6 +151,7 @@ def assert_propagation(
     request: ProviderRequest,
     *,
     status: ProviderStatus,
+    observed_at: datetime,
     artifact: ArtifactReference | None = None,
     expect_instruction: bool = False,
     completed_at: datetime | None = None,
@@ -133,7 +161,7 @@ def assert_propagation(
     assert result.task_id == request.task_id
     assert result.shot_id == request.shot_id
     assert result.status is status
-    assert result.observed_at == OBSERVED_AT
+    assert result.observed_at == observed_at
     assert result.external_task_ref is None
     assert result.artifact is artifact
     assert (result.instruction is not None) is expect_instruction
@@ -206,11 +234,12 @@ class TestPrepare:
     def test_valid_path(self) -> None:
         provider = ManualVideoProvider()
         request = make_request()
-        result = provider.prepare(request, observed_at=OBSERVED_AT)
+        result = provider.prepare(request, observed_at=PREPARED_AT)
         assert_propagation(
             result,
             request,
             status=ProviderStatus.NOT_SUBMITTED,
+            observed_at=PREPARED_AT,
             expect_instruction=True,
         )
 
@@ -218,21 +247,21 @@ class TestPrepare:
         with pytest.raises(FieldTypeError):
             ManualVideoProvider().prepare(
                 {"provider_id": "manual"},
-                observed_at=OBSERVED_AT,
+                observed_at=PREPARED_AT,
             )
 
     def test_provider_id_mismatch(self) -> None:
         with pytest.raises(InvalidProviderRequestError):
             ManualVideoProvider().prepare(
                 make_request(provider_id="cloud"),
-                observed_at=OBSERVED_AT,
+                observed_at=PREPARED_AT,
             )
 
     def test_missing_staging_ref(self) -> None:
         with pytest.raises(InvalidProviderRequestError):
             ManualVideoProvider().prepare(
                 make_request(staging_ref=None),
-                observed_at=OBSERVED_AT,
+                observed_at=PREPARED_AT,
             )
 
     def test_instruction_fields_are_complete(self) -> None:
@@ -241,7 +270,7 @@ class TestPrepare:
             ManualVideoProvider()
             .prepare(
                 request,
-                observed_at=OBSERVED_AT,
+                observed_at=PREPARED_AT,
             )
             .instruction
         )
@@ -257,8 +286,8 @@ class TestPrepare:
 
     def test_steps_are_stable_and_non_empty(self) -> None:
         provider = ManualVideoProvider()
-        first = provider.prepare(make_request(), observed_at=OBSERVED_AT)
-        second = provider.prepare(make_request(), observed_at=OBSERVED_AT)
+        first = provider.prepare(make_request(), observed_at=PREPARED_AT)
+        second = provider.prepare(make_request(), observed_at=PREPARED_AT)
         steps = first.instruction.steps
         assert type(steps) is tuple
         assert len(steps) > 0
@@ -273,7 +302,7 @@ class TestPrepare:
             ManualVideoProvider()
             .prepare(
                 request,
-                observed_at=OBSERVED_AT,
+                observed_at=PREPARED_AT,
             )
             .instruction
         )
@@ -286,14 +315,14 @@ class TestPrepare:
 
     def test_same_request_yields_equal_instruction(self) -> None:
         provider = ManualVideoProvider()
-        first = provider.prepare(make_request(), observed_at=OBSERVED_AT)
-        second = provider.prepare(make_request(), observed_at=OBSERVED_AT)
+        first = provider.prepare(make_request(), observed_at=PREPARED_AT)
+        second = provider.prepare(make_request(), observed_at=PREPARED_AT)
         assert first.instruction == second.instruction
 
     def test_request_is_not_modified(self) -> None:
         request = make_request()
         snapshot = request.to_json_dict()
-        ManualVideoProvider().prepare(request, observed_at=OBSERVED_AT)
+        ManualVideoProvider().prepare(request, observed_at=PREPARED_AT)
         assert request.to_json_dict() == snapshot
 
 
@@ -301,21 +330,28 @@ class TestSubmit:
     def test_valid_path(self) -> None:
         provider = ManualVideoProvider()
         request = make_request()
-        prepared = provider.prepare(request, observed_at=OBSERVED_AT)
-        result = provider.submit(request, prepared, observed_at=OBSERVED_AT)
+        prepared = provider.prepare(request, observed_at=PREPARED_AT)
+        result = provider.submit(request, prepared, observed_at=SUBMITTED_AT)
         assert_propagation(
             result,
             request,
             status=ProviderStatus.WAITING_FOR_USER,
+            observed_at=SUBMITTED_AT,
         )
         assert result.requires_user_action is True
 
-    def test_wrong_precondition_status(self) -> None:
+    @pytest.mark.parametrize("status", SUBMIT_FORBIDDEN_STATUSES)
+    def test_all_forbidden_precondition_statuses(
+        self,
+        status: ProviderStatus,
+    ) -> None:
         provider = ManualVideoProvider()
         request = make_request()
-        waiting = make_waiting(provider, request)
+        current = make_snapshot(status)
+        snapshot = current.to_json_dict()
         with pytest.raises(InvalidProviderStateError):
-            provider.submit(request, waiting, observed_at=OBSERVED_AT)
+            provider.submit(request, current, observed_at=SUBMITTED_AT)
+        assert current.to_json_dict() == snapshot
 
     def test_missing_instruction(self) -> None:
         provider = ManualVideoProvider()
@@ -324,18 +360,18 @@ class TestSubmit:
             provider.submit(
                 make_request(),
                 bare_prepared,
-                observed_at=OBSERVED_AT,
+                observed_at=SUBMITTED_AT,
             )
 
     def test_identity_mismatch(self) -> None:
         provider = ManualVideoProvider()
         request = make_request()
-        prepared = provider.prepare(request, observed_at=OBSERVED_AT)
+        prepared = provider.prepare(request, observed_at=PREPARED_AT)
         with pytest.raises(InvalidProviderRequestError):
             provider.submit(
                 make_request(task_id="task-999"),
                 prepared,
-                observed_at=OBSERVED_AT,
+                observed_at=SUBMITTED_AT,
             )
 
     @pytest.mark.parametrize(
@@ -347,7 +383,7 @@ class TestSubmit:
         request = make_request()
         instruction = provider.prepare(
             request,
-            observed_at=OBSERVED_AT,
+            observed_at=PREPARED_AT,
         ).instruction
         tainted = make_snapshot(
             ProviderStatus.NOT_SUBMITTED,
@@ -355,15 +391,42 @@ class TestSubmit:
             **{field_name: impossible_field_value(field_name)},
         )
         with pytest.raises(InvalidProviderRequestError):
-            provider.submit(request, tainted, observed_at=OBSERVED_AT)
+            provider.submit(request, tainted, observed_at=SUBMITTED_AT)
+
+    def test_rejects_corrupted_external_task_ref_snapshot(self) -> None:
+        """Reject, never silently clean, a corrupted prepared snapshot.
+
+        A normal NOT_SUBMITTED ProviderResult forbids external_task_ref,
+        so this test corrupts a fully valid prepared snapshot with
+        object.__setattr__ ONLY to simulate corrupted, non-standard, or
+        future-deserialization input; production code must never modify
+        frozen models this way. It verifies the manual boundary rejects
+        the damaged snapshot instead of silently cleaning or repairing
+        it.
+        """
+        provider = ManualVideoProvider()
+        request = make_request()
+        prepared = provider.prepare(request, observed_at=PREPARED_AT)
+        instruction = prepared.instruction
+        object.__setattr__(
+            prepared,
+            "external_task_ref",
+            "external-task-corrupted",
+        )
+        snapshot = prepared.to_json_dict()
+        with pytest.raises(InvalidProviderRequestError):
+            provider.submit(request, prepared, observed_at=SUBMITTED_AT)
+        assert prepared.external_task_ref == "external-task-corrupted"
+        assert prepared.instruction is instruction
+        assert prepared.to_json_dict() == snapshot
 
     def test_prepared_is_not_modified(self) -> None:
         provider = ManualVideoProvider()
         request = make_request()
-        prepared = provider.prepare(request, observed_at=OBSERVED_AT)
+        prepared = provider.prepare(request, observed_at=PREPARED_AT)
         instruction = prepared.instruction
         snapshot = prepared.to_json_dict()
-        provider.submit(request, prepared, observed_at=OBSERVED_AT)
+        provider.submit(request, prepared, observed_at=SUBMITTED_AT)
         assert prepared.to_json_dict() == snapshot
         assert prepared.instruction is instruction
 
@@ -373,11 +436,12 @@ class TestPoll:
         provider = ManualVideoProvider()
         request = make_request()
         waiting = make_waiting(provider, request)
-        result = provider.poll(request, waiting, observed_at=OBSERVED_AT)
+        result = provider.poll(request, waiting, observed_at=WAITING_POLLED_AT)
         assert_propagation(
             result,
             request,
             status=ProviderStatus.WAITING_FOR_USER,
+            observed_at=WAITING_POLLED_AT,
         )
 
     def test_waiting_with_reported_artifact(self) -> None:
@@ -388,22 +452,30 @@ class TestPoll:
         result = provider.poll(
             request,
             waiting,
-            observed_at=OBSERVED_AT,
+            observed_at=WAITING_POLLED_AT,
             reported_artifact=reported,
         )
         assert_propagation(
             result,
             request,
             status=ProviderStatus.ARTIFACT_AVAILABLE,
+            observed_at=WAITING_POLLED_AT,
             artifact=reported,
         )
+        assert result.artifact is reported
 
     def test_available_without_reported_is_idempotent(self) -> None:
         provider = ManualVideoProvider()
         request = make_request()
         available = make_available(provider, request, make_artifact())
-        result = provider.poll(request, available, observed_at=OBSERVED_AT)
-        assert result.status is ProviderStatus.ARTIFACT_AVAILABLE
+        result = provider.poll(request, available, observed_at=REPOLLED_AT)
+        assert_propagation(
+            result,
+            request,
+            status=ProviderStatus.ARTIFACT_AVAILABLE,
+            observed_at=REPOLLED_AT,
+            artifact=available.artifact,
+        )
         assert result.artifact is available.artifact
 
     def test_available_with_equal_reported_keeps_canonical(self) -> None:
@@ -415,8 +487,15 @@ class TestPoll:
         result = provider.poll(
             request,
             available,
-            observed_at=OBSERVED_AT,
+            observed_at=REPOLLED_AT,
             reported_artifact=equal_but_distinct,
+        )
+        assert_propagation(
+            result,
+            request,
+            status=ProviderStatus.ARTIFACT_AVAILABLE,
+            observed_at=REPOLLED_AT,
+            artifact=available.artifact,
         )
         assert result.artifact is available.artifact
         assert result.artifact is not equal_but_distinct
@@ -429,23 +508,22 @@ class TestPoll:
             provider.poll(
                 request,
                 available,
-                observed_at=OBSERVED_AT,
+                observed_at=REPOLLED_AT,
                 reported_artifact=make_artifact(reference="staging/other.mp4"),
             )
 
-    @pytest.mark.parametrize(
-        "status",
-        [ProviderStatus.NOT_SUBMITTED, ProviderStatus.SUCCEEDED],
-    )
-    def test_invalid_precondition_status(self, status: ProviderStatus) -> None:
+    @pytest.mark.parametrize("status", PROGRESS_FORBIDDEN_STATUSES)
+    def test_all_forbidden_precondition_statuses(
+        self,
+        status: ProviderStatus,
+    ) -> None:
         provider = ManualVideoProvider()
         request = make_request()
+        current = make_snapshot(status)
+        snapshot = current.to_json_dict()
         with pytest.raises(InvalidProviderStateError):
-            provider.poll(
-                request,
-                make_snapshot(status),
-                observed_at=OBSERVED_AT,
-            )
+            provider.poll(request, current, observed_at=WAITING_POLLED_AT)
+        assert current.to_json_dict() == snapshot
 
     def test_reported_artifact_type_error(self) -> None:
         provider = ManualVideoProvider()
@@ -455,7 +533,7 @@ class TestPoll:
             provider.poll(
                 request,
                 waiting,
-                observed_at=OBSERVED_AT,
+                observed_at=WAITING_POLLED_AT,
                 reported_artifact="staging/a.mp4",
             )
 
@@ -467,7 +545,7 @@ class TestPoll:
             provider.poll(
                 make_request(shot_id="shot-999"),
                 waiting,
-                observed_at=OBSERVED_AT,
+                observed_at=WAITING_POLLED_AT,
             )
 
     @pytest.mark.parametrize(
@@ -482,14 +560,14 @@ class TestPoll:
             **{field_name: impossible_field_value(field_name)},
         )
         with pytest.raises(InvalidProviderRequestError):
-            provider.poll(request, tainted, observed_at=OBSERVED_AT)
+            provider.poll(request, tainted, observed_at=WAITING_POLLED_AT)
 
     def test_current_is_not_modified(self) -> None:
         provider = ManualVideoProvider()
         request = make_request()
         waiting = make_waiting(provider, request)
         snapshot = waiting.to_json_dict()
-        provider.poll(request, waiting, observed_at=OBSERVED_AT)
+        provider.poll(request, waiting, observed_at=WAITING_POLLED_AT)
         assert waiting.to_json_dict() == snapshot
 
 
@@ -503,29 +581,38 @@ class TestCollect:
             request,
             waiting,
             artifact=explicit,
-            observed_at=OBSERVED_AT,
+            observed_at=COLLECTED_AT,
         )
         assert_propagation(
             result,
             request,
             status=ProviderStatus.SUCCEEDED,
+            observed_at=COLLECTED_AT,
             artifact=explicit,
-            completed_at=OBSERVED_AT,
+            completed_at=COLLECTED_AT,
         )
+        assert result.artifact is explicit
 
     def test_waiting_without_artifact(self) -> None:
         provider = ManualVideoProvider()
         request = make_request()
         waiting = make_waiting(provider, request)
         with pytest.raises(MissingArtifactReferenceError):
-            provider.collect(request, waiting, observed_at=OBSERVED_AT)
+            provider.collect(request, waiting, observed_at=COLLECTED_AT)
 
     def test_available_without_explicit_artifact(self) -> None:
         provider = ManualVideoProvider()
         request = make_request()
         available = make_available(provider, request, make_artifact())
-        result = provider.collect(request, available, observed_at=OBSERVED_AT)
-        assert result.status is ProviderStatus.SUCCEEDED
+        result = provider.collect(request, available, observed_at=COLLECTED_AT)
+        assert_propagation(
+            result,
+            request,
+            status=ProviderStatus.SUCCEEDED,
+            observed_at=COLLECTED_AT,
+            artifact=available.artifact,
+            completed_at=COLLECTED_AT,
+        )
         assert result.artifact is available.artifact
 
     def test_available_with_equal_artifact_keeps_canonical(self) -> None:
@@ -537,7 +624,15 @@ class TestCollect:
             request,
             available,
             artifact=equal_but_distinct,
-            observed_at=OBSERVED_AT,
+            observed_at=COLLECTED_AT,
+        )
+        assert_propagation(
+            result,
+            request,
+            status=ProviderStatus.SUCCEEDED,
+            observed_at=COLLECTED_AT,
+            artifact=available.artifact,
+            completed_at=COLLECTED_AT,
         )
         assert result.artifact is available.artifact
         assert result.artifact is not equal_but_distinct
@@ -551,23 +646,26 @@ class TestCollect:
                 request,
                 available,
                 artifact=make_artifact(reference="staging/other.mp4"),
-                observed_at=OBSERVED_AT,
+                observed_at=COLLECTED_AT,
             )
 
-    @pytest.mark.parametrize(
-        "status",
-        [ProviderStatus.NOT_SUBMITTED, ProviderStatus.SUCCEEDED],
-    )
-    def test_invalid_precondition_status(self, status: ProviderStatus) -> None:
+    @pytest.mark.parametrize("status", PROGRESS_FORBIDDEN_STATUSES)
+    def test_all_forbidden_precondition_statuses(
+        self,
+        status: ProviderStatus,
+    ) -> None:
         provider = ManualVideoProvider()
         request = make_request()
+        current = make_snapshot(status)
+        snapshot = current.to_json_dict()
         with pytest.raises(InvalidProviderStateError):
             provider.collect(
                 request,
-                make_snapshot(status),
+                current,
                 artifact=make_artifact(),
-                observed_at=OBSERVED_AT,
+                observed_at=COLLECTED_AT,
             )
+        assert current.to_json_dict() == snapshot
 
     def test_artifact_type_error(self) -> None:
         provider = ManualVideoProvider()
@@ -578,7 +676,7 @@ class TestCollect:
                 request,
                 waiting,
                 artifact="staging/a.mp4",
-                observed_at=OBSERVED_AT,
+                observed_at=COLLECTED_AT,
             )
 
     def test_identity_mismatch(self) -> None:
@@ -590,7 +688,7 @@ class TestCollect:
                 make_request(provider_id="manual", task_id="task-999"),
                 waiting,
                 artifact=make_artifact(),
-                observed_at=OBSERVED_AT,
+                observed_at=COLLECTED_AT,
             )
 
     @pytest.mark.parametrize(
@@ -609,33 +707,49 @@ class TestCollect:
                 request,
                 tainted,
                 artifact=make_artifact(),
-                observed_at=OBSERVED_AT,
+                observed_at=COLLECTED_AT,
             )
 
     def test_explicit_completed_at_is_used_verbatim(self) -> None:
         provider = ManualVideoProvider()
         request = make_request()
         waiting = make_waiting(provider, request)
+        explicit = make_artifact()
         result = provider.collect(
             request,
             waiting,
-            artifact=make_artifact(),
-            observed_at=OBSERVED_AT,
+            artifact=explicit,
+            observed_at=COLLECTED_AT,
             completed_at=EARLIER,
         )
-        assert result.completed_at == EARLIER
+        assert_propagation(
+            result,
+            request,
+            status=ProviderStatus.SUCCEEDED,
+            observed_at=COLLECTED_AT,
+            artifact=explicit,
+            completed_at=EARLIER,
+        )
 
     def test_default_completed_at_is_observed_at(self) -> None:
         provider = ManualVideoProvider()
         request = make_request()
         waiting = make_waiting(provider, request)
+        explicit = make_artifact()
         result = provider.collect(
             request,
             waiting,
-            artifact=make_artifact(),
-            observed_at=OBSERVED_AT,
+            artifact=explicit,
+            observed_at=COLLECTED_AT,
         )
-        assert result.completed_at == OBSERVED_AT
+        assert_propagation(
+            result,
+            request,
+            status=ProviderStatus.SUCCEEDED,
+            observed_at=COLLECTED_AT,
+            artifact=explicit,
+            completed_at=COLLECTED_AT,
+        )
 
     def test_completed_at_equal_to_observed_is_valid(self) -> None:
         provider = ManualVideoProvider()
@@ -645,10 +759,10 @@ class TestCollect:
             request,
             waiting,
             artifact=make_artifact(),
-            observed_at=OBSERVED_AT,
-            completed_at=OBSERVED_AT,
+            observed_at=COLLECTED_AT,
+            completed_at=COLLECTED_AT,
         )
-        assert result.completed_at == OBSERVED_AT
+        assert result.completed_at == COLLECTED_AT
 
     @pytest.mark.parametrize(
         "completed_at",
@@ -663,7 +777,7 @@ class TestCollect:
                 request,
                 waiting,
                 artifact=make_artifact(),
-                observed_at=OBSERVED_AT,
+                observed_at=COLLECTED_AT,
                 completed_at=completed_at,
             )
 
@@ -672,7 +786,7 @@ class TestCollect:
         request = make_request()
         available = make_available(provider, request, make_artifact())
         snapshot = available.to_json_dict()
-        provider.collect(request, available, observed_at=OBSERVED_AT)
+        provider.collect(request, available, observed_at=COLLECTED_AT)
         assert available.to_json_dict() == snapshot
 
 
@@ -680,16 +794,24 @@ class TestLifecycleBoundaries:
     def test_manual_only_produces_four_statuses(self) -> None:
         provider = ManualVideoProvider()
         request = make_request()
-        prepared = provider.prepare(request, observed_at=OBSERVED_AT)
-        waiting = provider.submit(request, prepared, observed_at=OBSERVED_AT)
-        still_waiting = provider.poll(request, waiting, observed_at=OBSERVED_AT)
+        prepared = provider.prepare(request, observed_at=PREPARED_AT)
+        waiting = provider.submit(request, prepared, observed_at=SUBMITTED_AT)
+        still_waiting = provider.poll(
+            request,
+            waiting,
+            observed_at=WAITING_POLLED_AT,
+        )
         available = provider.poll(
             request,
             waiting,
-            observed_at=OBSERVED_AT,
+            observed_at=AVAILABLE_POLLED_AT,
             reported_artifact=make_artifact(),
         )
-        collected = provider.collect(request, available, observed_at=OBSERVED_AT)
+        collected = provider.collect(
+            request,
+            available,
+            observed_at=COLLECTED_AT,
+        )
         produced = {
             prepared.status,
             waiting.status,
@@ -699,18 +821,43 @@ class TestLifecycleBoundaries:
         }
         assert produced == MANUAL_STATUSES
 
-    def test_all_results_follow_field_limits(self) -> None:
+    def test_lifecycle_results_use_call_specific_observed_at(self) -> None:
         provider = ManualVideoProvider()
         request = make_request()
-        prepared = provider.prepare(request, observed_at=OBSERVED_AT)
-        waiting = provider.submit(request, prepared, observed_at=OBSERVED_AT)
+        prepared = provider.prepare(request, observed_at=PREPARED_AT)
+        waiting = provider.submit(request, prepared, observed_at=SUBMITTED_AT)
         available = provider.poll(
             request,
             waiting,
-            observed_at=OBSERVED_AT,
+            observed_at=AVAILABLE_POLLED_AT,
             reported_artifact=make_artifact(),
         )
-        collected = provider.collect(request, available, observed_at=OBSERVED_AT)
+        collected = provider.collect(
+            request,
+            available,
+            observed_at=COLLECTED_AT,
+        )
+        assert prepared.observed_at == PREPARED_AT
+        assert waiting.observed_at == SUBMITTED_AT
+        assert available.observed_at == AVAILABLE_POLLED_AT
+        assert collected.observed_at == COLLECTED_AT
+
+    def test_all_results_follow_field_limits(self) -> None:
+        provider = ManualVideoProvider()
+        request = make_request()
+        prepared = provider.prepare(request, observed_at=PREPARED_AT)
+        waiting = provider.submit(request, prepared, observed_at=SUBMITTED_AT)
+        available = provider.poll(
+            request,
+            waiting,
+            observed_at=AVAILABLE_POLLED_AT,
+            reported_artifact=make_artifact(),
+        )
+        collected = provider.collect(
+            request,
+            available,
+            observed_at=COLLECTED_AT,
+        )
         for result in (prepared, waiting, available, collected):
             assert result.external_task_ref is None
             assert result.message is None
@@ -745,16 +892,16 @@ class TestFilesystemProhibition:
         request = make_request()
         with monkeypatch.context() as scoped:
             _arm_filesystem_tripwires(scoped)
-            result = provider.prepare(request, observed_at=OBSERVED_AT)
+            result = provider.prepare(request, observed_at=PREPARED_AT)
         assert result.status is ProviderStatus.NOT_SUBMITTED
 
     def test_submit_never_touches_filesystem(self, monkeypatch) -> None:
         provider = ManualVideoProvider()
         request = make_request()
-        prepared = provider.prepare(request, observed_at=OBSERVED_AT)
+        prepared = provider.prepare(request, observed_at=PREPARED_AT)
         with monkeypatch.context() as scoped:
             _arm_filesystem_tripwires(scoped)
-            result = provider.submit(request, prepared, observed_at=OBSERVED_AT)
+            result = provider.submit(request, prepared, observed_at=SUBMITTED_AT)
         assert result.status is ProviderStatus.WAITING_FOR_USER
 
     def test_poll_never_touches_filesystem(self, monkeypatch) -> None:
@@ -763,7 +910,11 @@ class TestFilesystemProhibition:
         waiting = make_waiting(provider, request)
         with monkeypatch.context() as scoped:
             _arm_filesystem_tripwires(scoped)
-            result = provider.poll(request, waiting, observed_at=OBSERVED_AT)
+            result = provider.poll(
+                request,
+                waiting,
+                observed_at=WAITING_POLLED_AT,
+            )
         assert result.status is ProviderStatus.WAITING_FOR_USER
 
     def test_collect_never_touches_filesystem(self, monkeypatch) -> None:
@@ -772,7 +923,11 @@ class TestFilesystemProhibition:
         available = make_available(provider, request, make_artifact())
         with monkeypatch.context() as scoped:
             _arm_filesystem_tripwires(scoped)
-            result = provider.collect(request, available, observed_at=OBSERVED_AT)
+            result = provider.collect(
+                request,
+                available,
+                observed_at=COLLECTED_AT,
+            )
         assert result.status is ProviderStatus.SUCCEEDED
 
 
