@@ -1,7 +1,7 @@
 # TASK-004 设计文档：Provider Orchestrator 契约与基础编排
 
-- Status: approved — implementation in progress; Step M completed;
-  Step A pending
+- Status: approved — implementation in progress; Step M and Step A
+  completed; Step B pending
 - Revision: r6（自包含版本；关闭 r5 复审的 3 个阻塞与 1 个重要
   问题；不依赖任何历史草案或聊天记录）
 
@@ -30,11 +30,25 @@
   - tests: serialization pytest 56 passed；focused pytest 196
     passed；full pytest **775 passed**
   - Step M status: satisfied
-- **next permitted step: Step A**（not started）；Step B–G:
-  not started
-- Step M 的 15 个新增测试已实现并包含在当前 775 项中；r6 的
-  131 项未来实施测试计划尚未全部实现；Step M 完成不代表
-  TASK-004 完成；本轮提交不包含任何 Step A 代码。
+- **Step A — orchestration errors / enums / canonical JSON /
+  fingerprint / freeze utilities: completed — independently
+  reviewed and approved**：
+  - implementation: completed（生产文件：orchestration/
+    __init__.py、errors.py、models.py、canonical.py；测试文件：
+    tests/test_orchestration_models.py、
+    tests/test_orchestration_canonical.py）
+  - independent review: **passed**（blockers 0 / important 0 /
+    suggestions 0）
+  - tests（提交轮实际重新执行）：Step A focused pytest 124
+    passed；related regression（providers/models/serialization
+    套件随全量执行）；full pytest **899 passed**；Ruff
+    format/lint passed；whitespace passed
+  - Step A status: satisfied
+- **next permitted step: Step B**（not started）；Step C–G:
+  not started；coding gate: open
+- Step M 的 15 个与 Step A 的 124 个新增测试已实现并包含在当前
+  899 项中；r6 的 131 项未来实施测试计划尚未全部实现；Step M/A
+  完成不代表 TASK-004 完成；本轮提交不包含任何 Step B 代码。
 - 说明：coding gate open 只表示允许按批准顺序开始实现——不表示
   任何代码已实现、不表示任何 acceptance criterion 已由代码满足、
   不表示 131 项计划测试已实现或通过；当前实际回归基线仍为
@@ -73,9 +87,9 @@
 6. formal design review（r6）: **passed**；
 7. implementation agent assignment: **satisfied — Claude Code**
    （independent review agent: Codex）；
-8. coding gate: **open**——Step M completed（independently
-   reviewed and approved）；next permitted step: Step A；
-   Step B–G not started。
+8. coding gate: **open**——Step M 与 Step A completed
+   （independently reviewed and approved）；next permitted step:
+   Step B；Step C–G not started。
 
 ## 1. 总览
 

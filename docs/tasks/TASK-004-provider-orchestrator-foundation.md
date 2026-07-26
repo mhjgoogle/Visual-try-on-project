@@ -620,14 +620,31 @@ completed**：
   - test files: `tests/test_models.py`、`tests/test_serialization.py`
   - full regression: **775 passed**
 
+**Step A — orchestration errors / enums / canonical JSON /
+fingerprint / freeze utilities：completed**：
+
+  - implementation: completed
+  - independent review: **passed**（blockers: 0；important
+    findings: 0；suggestions: 0）
+  - production files:
+    `src/ai_video_workflow/orchestration/__init__.py`、
+    `errors.py`、`models.py`、`canonical.py`
+  - test files: `tests/test_orchestration_models.py`、
+    `tests/test_orchestration_canonical.py`
+  - full regression（提交轮实际执行）: **899 passed**
+
 **实施顺序状态**：
 
-1. Step M — **completed**；
-2. Step A — not started；**next permitted step**（必须在新的独立
-   checkpoint 中开始，本提交不包含 Step A）；
-3. Step B — not started；4. Step C — not started；
-5. Step D — not started；6. Step E — not started；
-7. Step F — not started；8. Step G — not started。
+1. Step M — **completed**（committed；independently reviewed）；
+2. Step A — **completed**（independently reviewed and approved）；
+3. Step B — not started；**next permitted step**（必须在新的
+   checkpoint 中开始，本提交不包含 Step B）；
+4. Step C — not started；5. Step D — not started；
+6. Step E — not started；7. Step F — not started；
+8. Step G — not started。
+
+TASK-004 尚未完成；不声称全部 acceptance criteria 已实现；不声称
+131 项计划测试已全部实现。
 
 - 只能从 Step M 开始，不得跳过 Step M；
 - 不得并行开始 A–G；
@@ -639,7 +656,8 @@ completed**：
 
 ## 当前状态
 
-implementation in progress — Step M completed — Step A pending
+implementation in progress — Step M and Step A completed — Step B
+pending
 
 ## 尚待后续任务决定的事项
 
