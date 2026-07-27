@@ -827,13 +827,17 @@ confirmed**：
   TASK-004 尚未完成）
 
 **Step G — 公开 orchestrator facade 与端到端集成：implementation
-candidate complete；temporary independent review not started**：
+committed；temporary independent review passed；Codex final review
+pending**：
 
 - Step G contract extraction: **completed**（依据仓库
   §4 / §6 / §7 / §8 / §10 / §11.5 / §12 / §13 / §14 / §16.4 /
   §17 / §22 / §24 机械提取，未依赖聊天记录）
-- **Step G implementation candidate: complete**
-- **temporary independent review: not started**
+- **Step G implementation: committed**（commit
+  `accd743 feat: add provider orchestrator facade`）
+- **temporary independent review: passed**（temporary reviewer:
+  **Claude Fable 5**，非 Codex；blockers 0 / important 0 /
+  non-blocking observations 2）
 - **contract blocker: ResumeAssessment.phase mismatch resolved by
   this amendment**（§6.2 原写作 `RecordPhase`，§17.2 定义了 clean
   `∅` resume 行；本修订将其定案为 `RecordPhase | None`：`phase=None`
@@ -878,14 +882,30 @@ candidate complete；temporary independent review not started**：
   Fable 5 临时独立审查，TASK-004 最终 gate 仍待 Codex final
   review）
 - **TASK-004 final gate: open**
-- **candidate §22 coverage: 131 / 131**（候选，未最终确认）
-- **finally confirmed §22 coverage: still 97 / 131**（Step G 的
-  34 项在 Step G 最终审查通过前不计入最终确认累计）
-- **Step G temporary review: still pending re-review**（Blocker 1 与
-  Important 1 已在授权窄范围内修复；Important 2/3 与 Suggestion 1 已按
-  本轮授权处理；待新一轮 Fable 5 只读复审）
-- **Step G: not approved, not committed**；Step G local gate 仍关闭；
-  不宣告 Step G 或 TASK-004 完成
+- **Step G §22 candidate entries: 34**；**candidate cumulative:
+  131 / 131**（仅 implementation candidate coverage，未经 Codex
+  final review 不表述为 finally confirmed）；**finally confirmed
+  cumulative: still 97 / 131**（Step G 的 34 项在 Codex final
+  review 通过前不计入最终确认累计）；122 个 focused pytest case 与
+  34 个 §22 条目不是同一计数单位
+- tests：Step G focused pytest **122 passed**；full pytest
+  **1626 passed**；Ruff format 55 files already formatted；Ruff
+  lint All checks passed；whitespace passed
+- **两个非阻塞观察（Codex final review attention items，不作为
+  blocker/important、不要求改代码）**：
+  1. `ResumeAssessment` 当前可哈希（只含 scalar/enum/tuple；符合
+     §6.2/§10.1；behavior/gate impact none；retain as implemented）；
+  2. first-prepare APPLIED 的公开 `OrchestrationRecord.provider_id`
+     为 `None`（§6.3 身份取自被观测 pre-call task，首次 PREPARE 的
+     observed task.provider_id 必须为 None；仅影响 public snapshot
+     身份呈现，durable/Provider 执行无影响；retain as implemented，
+     请 Codex final review 显式确认——不改写为已确认缺陷、不改合同）
+- **Step G: implementation committed (`accd743`); temporary
+  independent review passed; Codex final review pending; Step G
+  final acceptance not yet confirmed**
+- **TASK-004 final gate: open**；**TASK-004 completion: not
+  declared**（未经 Codex final review 与用户最终裁决，不宣告
+  Step G finally confirmed 或 TASK-004 completed）
 
 **实施顺序状态**：
 
@@ -898,7 +918,7 @@ candidate complete；temporary independent review not started**：
 | D | 纯 planning core | completed（`172ae2b`；final post-commit review passed；finally confirmed） | —（已完成） |
 | E | `_LayoutResolver` 路径派生与安全校验 | **completed（`db5e178`；final Codex path-security review passed；high-risk gate closed；finally confirmed）** | —（已完成） |
 | F | `_FileOrchestrationExecutor`（WAL/CAS/恢复执行） | **completed（`ef038ba`；Codex final review passed；blockers 0 / important 0 / suggestions 0；high-risk gate closed；finally confirmed）** | —（已完成） |
-| G | 公开 orchestrator facade 与端到端集成 | **implementation candidate complete；temporary independent review not started；not approved/committed；Step G local gate remains closed** | 未提交；候选实现 6 文件（production 3：`orchestrator.py`/`models.py`/`__init__.py`；tests 3：`test_orchestrator.py` + 两个过期守卫维护例外）；待临时独立审查与 Codex final review；TASK-004 未完成 |
+| G | 公开 orchestrator facade 与端到端集成 | **implementation committed（`accd743`）；temporary independent review passed（Claude Fable 5；0/0，2 non-blocking observations）；Codex final review pending；Step G final acceptance not yet confirmed** | 已提交 6 文件（production 3：`orchestrator.py`/`models.py`/`__init__.py`；tests 3：`test_orchestrator.py` + 两个维护例外）；待 Codex final review 与 TASK-004 overall final acceptance；TASK-004 未完成 |
 
 TASK-004 尚未完成；不声称全部 acceptance criteria 已实现；不声称
 131 项计划测试已全部实现。
@@ -913,11 +933,11 @@ TASK-004 尚未完成；不声称全部 acceptance criteria 已实现；不声�
 
 ## 当前状态
 
-implementation in progress — Steps M–F completed and finally
-confirmed — Step G implementation candidate complete; temporary
-independent review not started; not approved, not committed; Step G
-local gate remains closed pending independent review and Codex final
-review (TASK-004 not complete)
+implementation complete through Step G — Steps M–F completed and
+finally confirmed; Step G implementation committed (`accd743`) and
+temporary independent review (Claude Fable 5) passed (0/0, 2
+non-blocking observations); Codex final review pending; TASK-004
+final gate open; TASK-004 completion not declared
 
 ## 尚待后续任务决定的事项
 

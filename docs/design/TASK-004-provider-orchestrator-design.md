@@ -1,7 +1,9 @@
 # TASK-004 设计文档：Provider Orchestrator 契约与基础编排
 
-- Status: approved — implementation in progress; Steps M–F
-  completed and finally confirmed; Step G pending new checkpoint
+- Status: approved — implementation complete through Step G;
+  Step G temporary independent review (Claude Fable 5) passed;
+  Codex final review pending; TASK-004 final gate open (not
+  declared complete)
 - Revision: r6（自包含版本；关闭 r5 复审的 3 个阻塞与 1 个重要
   问题；不依赖任何历史草案或聊天记录）+ 实施顺序补充（§24，
   docs-only，Codex 第三次复审通过）
@@ -301,11 +303,59 @@
     Ruff lint passed；whitespace passed
   - Step F status: **completed, independently reviewed,
     committed (`ef038ba`), and finally confirmed**
-- next permitted step: **Step G**（not started；**Step G local
-  gate: closed**——完整开始条件见 §24.2 Step G 前置条件；
-  Step G 是 next step 不等于已获实施许可，只有新的明确 Step G
-  checkpoint 才能打开 Step G local gate）；global coding gate:
-  open（全局）
+- **Step G — 公开 orchestrator facade 与端到端集成: implementation
+  completed；temporary independent review passed；Codex final
+  review pending**：
+  - implementation agent: Claude Code
+  - implementation: completed（生产文件：新建
+    orchestration/orchestrator.py、追加 orchestration/models.py
+    与 orchestration/__init__.py；测试文件：新建
+    tests/test_orchestrator.py；一次性测试维护例外
+    tests/test_orchestration_models.py 与
+    tests/test_orchestration_layout.py，见 §24.2 Step G）
+  - implementation commit:
+    `accd743 feat: add provider orchestrator facade`
+  - **temporary independent review: passed**（temporary
+    reviewer: **Claude Fable 5**，非 Codex；blockers 0 /
+    important 0 / non-blocking observations 2）
+  - **Codex final review: pending**（Codex 配额受限；TASK-004
+    最终 gate 仍待 Codex final review）
+  - **Step G final acceptance: not yet confirmed**；**TASK-004
+    final gate: open**；**TASK-004 completion: not declared**
+  - temporary 审查已确认：最终 orchestration public export 恰好
+    28；五个 public models 符合字段与不可变合同；OrchestrationRecord
+    固定 11 字段；`ResumeAssessment.phase = None` 仅对应 clean `∅`；
+    malformed/corrupt → RECOVERY_REQUIRED + MANUAL_RECONCILIATION；
+    missing-record-with-trace → RECOVERY_REQUIRED +
+    MANUAL_RECONCILIATION；APPLYING 直接发现 P9/S1/R3 →
+    RECOVERY_REQUIRED + CONFLICT；已落盘 RECOVERY_REQUIRED 再次
+    resume → MANUAL_RECONCILIATION；Provider 调用顺序与 WAL 顺序
+    合规；Step G 不直接执行 filesystem I/O；executor 仍不调用
+    Provider；NO_OP/replay/resume 的 Provider 调用次数合规；两个
+    test-maintenance exceptions 在批准范围内
+  - 两个非阻塞观察（记录为 Codex final review attention items，
+    不作为 blocker/important、不要求改代码）：
+    1. `ResumeAssessment` 当前可哈希（只含 scalar/enum/tuple；符合
+       §6.2/§10.1；behavior/gate impact none；retain as
+       implemented）；
+    2. first-prepare APPLIED 的公开 `OrchestrationRecord.provider_id`
+       为 `None`（§6.3 身份字段取自被观测 pre-call task，首次
+       PREPARE 的 observed task.provider_id 必须为 None；仅影响
+       public snapshot 身份呈现，durable/Provider 执行无影响；retain
+       as implemented，请 Codex final review 显式确认）
+  - tests：Step G focused pytest **122 passed**；full pytest
+    **1626 passed**；Ruff format 55 files already formatted；
+    Ruff lint All checks passed；whitespace passed
+  - §22：Step G implemented entries **34**；candidate cumulative
+    implemented coverage **131/131**（仅 implementation candidate
+    coverage，未经 Codex final review 不表述为 finally confirmed）；
+    finally confirmed cumulative 仍为 **97/131**
+  - Step G status: **implementation committed (`accd743`);
+    temporary independent review passed; Codex final review
+    pending; not finally confirmed**
+- next permitted step: **Codex final review of Step G**（配额恢复
+  后对 `accd743` 进行 final review，随后 TASK-004 overall final
+  acceptance）；global coding gate: open（全局）
 - Step M 的 18 个、Step A 的 124 个、Step B 的 244 个、
   Step C 的 46 个、Step D 的 159 个、Step E 的 75 个与 Step F 的
   81 个新增 pytest case 已实现并包含在当前 1504 项中；r6 的
