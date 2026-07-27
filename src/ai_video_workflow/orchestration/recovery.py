@@ -24,7 +24,7 @@ from ai_video_workflow.errors import (
     InvariantViolationError,
 )
 from ai_video_workflow.manifest import StepManifest
-from ai_video_workflow.models import GenerationTask
+from ai_video_workflow.models import GenerationTask, GenerationTaskStatus
 from ai_video_workflow.orchestration._models import (
     RECORD_SCHEMA_KIND,
     RECORD_SCHEMA_VERSION,
@@ -37,6 +37,7 @@ from ai_video_workflow.orchestration._models import (
 from ai_video_workflow.orchestration.canonical import (
     _fingerprint,
     _make_snapshot_wrapper,
+    _sha256_hex,
     _stable_self_fingerprint,
     _thaw_mapping,
     _validate_snapshot_wrapper,
@@ -44,6 +45,8 @@ from ai_video_workflow.orchestration.canonical import (
 from ai_video_workflow.orchestration.errors import (
     CorruptStableRecordError,
     InvalidRecoveryRecordError,
+    PartialCommitConflictError,
+    UnknownProviderSideEffectError,
 )
 from ai_video_workflow.orchestration.models import (
     OrchestrationAction,
@@ -60,7 +63,11 @@ from ai_video_workflow.providers.models import (
     ProviderResult,
     ProviderStatus,
 )
-from ai_video_workflow.serialization import model_from_dict, model_to_dict
+from ai_video_workflow.serialization import (
+    model_from_dict,
+    model_to_dict,
+    model_to_json,
+)
 
 _ENVELOPE_KEYS = frozenset({"record_schema", "phase", "stable", "pending"})
 _RECORD_SCHEMA_KEYS = frozenset({"kind", "version"})
@@ -1080,3 +1087,132 @@ def _parse_optional_utc_datetime(
     if value is None:
         return None
     return _parse_utc_datetime(value, name=name)
+
+
+# --- Step F: phase-recovery and orchestration-trace classification -----------
+#
+# These are pure classifiers: the executor supplies the observed file
+# fingerprints and the parsed record; the classifiers never read the
+# filesystem, call a Provider, or mutate state. Recovery execution
+# (the re-drive writes) lives in the executor.
+
+_ORCHESTRATION_METADATA_KEY = "orchestration"
+
+_CALL_UNKNOWN_PHASES = frozenset(
+    {
+        RecordPhase.PROVIDER_CALL_MAY_HAVE_STARTED,
+        RecordPhase.PROVIDER_RESULT_UNKNOWN,
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _PhaseRecoveryClassification:
+    """Pure §14 recovery classification for one durable record."""
+
+    disposition: RecoveryDisposition
+    error: Exception | None
+
+
+def _classify_orchestration_traces(
+    *,
+    task: GenerationTask,
+    manifest: object,
+    instruction_exists: bool,
+) -> bool:
+    """Return True when any §13.5 orchestration trace is present.
+
+    A missing record with any trace is an authoritative-loss situation
+    (the caller raises MissingRecoveryRecordError); with no trace it is
+    a normal initial state that proceeds to a first prepare.
+    """
+    if type(task) is not GenerationTask:
+        raise FieldTypeError(
+            f"task: expected GenerationTask, got {type(task).__name__}"
+        )
+    if task.provider_id is not None:
+        return True
+    if task.status is not GenerationTaskStatus.PENDING:
+        return True
+    if (
+        task.current_artifact_ref is not None
+        or task.external_task_ref is not None
+        or task.completed_at is not None
+    ):
+        return True
+    metadata = getattr(manifest, "output_metadata", {})
+    if _ORCHESTRATION_METADATA_KEY in metadata:
+        return True
+    if instruction_exists:
+        return True
+    return False
+
+
+def _classify_phase_recovery(
+    parsed: _ParsedRecord,
+    *,
+    task_fingerprint: str,
+    manifest_fingerprint: str,
+    instruction_fingerprint: str,
+) -> _PhaseRecoveryClassification:
+    """Classify one parsed record per §14 (pure; no I/O, no Provider)."""
+    phase = parsed.phase
+    if phase is RecordPhase.STABLE:
+        return _PhaseRecoveryClassification(RecoveryDisposition.NONE, None)
+    if phase is RecordPhase.PROVIDER_CALL_INTENT:
+        return _PhaseRecoveryClassification(RecoveryDisposition.SAFE_AUTO_RETRY, None)
+    if phase in _CALL_UNKNOWN_PHASES:
+        return _PhaseRecoveryClassification(
+            RecoveryDisposition.MANUAL_RECONCILIATION,
+            UnknownProviderSideEffectError(
+                "recovery: provider call outcome is unknown; automatic "
+                "recovery must not resubmit"
+            ),
+        )
+    if phase is RecordPhase.RECOVERY_REQUIRED:
+        return _PhaseRecoveryClassification(
+            RecoveryDisposition.MANUAL_RECONCILIATION,
+            PartialCommitConflictError(
+                "recovery: record is already in a manual reconciliation state"
+            ),
+        )
+    # APPLYING
+    pending = parsed.pending
+    if not isinstance(pending, _PendingApply):
+        return _PhaseRecoveryClassification(
+            RecoveryDisposition.CONFLICT,
+            PartialCommitConflictError(
+                "recovery: applying phase without a pending apply"
+            ),
+        )
+    after_task_fp = _sha256_hex(
+        model_to_json(_restore_generation_task(pending.task_after_snapshot)).encode(
+            "utf-8"
+        )
+    )
+    after_manifest_fp = _sha256_hex(
+        model_to_json(_restore_step_manifest(pending.manifest_after_snapshot)).encode(
+            "utf-8"
+        )
+    )
+    after_instruction_fp = pending.instruction_after_fingerprint
+    before = pending.before_fingerprints
+    checks = (
+        (task_fingerprint, before["task"], after_task_fp),
+        (manifest_fingerprint, before["manifest"], after_manifest_fp),
+        (
+            instruction_fingerprint,
+            before["instruction"],
+            after_instruction_fp,
+        ),
+    )
+    for current, before_fp, after_fp in checks:
+        if current == after_fp or current == before_fp:
+            continue
+        return _PhaseRecoveryClassification(
+            RecoveryDisposition.CONFLICT,
+            PartialCommitConflictError(
+                "recovery: a state file is neither the before nor the after state"
+            ),
+        )
+    return _PhaseRecoveryClassification(RecoveryDisposition.SAFE_AUTO_RETRY, None)
