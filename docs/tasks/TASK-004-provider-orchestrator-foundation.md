@@ -878,9 +878,33 @@ pending**：
   `tests/test_orchestrator.py`、维护例外 `test_orchestration_models.py`
   与 `test_orchestration_layout.py`）
 - **Step G production 文件仍只有 §24 原定四文件**
-- **Codex final review: pending**（Codex 配额受限；可先由 Claude
-  Fable 5 临时独立审查，TASK-004 最终 gate 仍待 Codex final
-  review）
+- **Codex final review of `accd743`: NOT-PASS（3 blockers + 1
+  important）— 已修复并独立复审通过**：
+  - blocker 1：pre-call 校验发生在 Provider 调用之后 → 修复为在任何
+    Provider 调用前执行四路身份 + instruction carry-over
+    （`_require_entry_preconditions`）与 terminal-manifest 守卫
+    （`_require_updatable_manifest`），直接路径与 intent 路径均前置；
+  - blocker 2：`resume()` 绕过校验 → 修复为 resume 亦执行
+    snapshot/request/identity 与 S1 committed-state 漂移检查，漂移
+    返回 CONFLICT 评估；
+  - blocker 3：91 格准入矩阵不完整、`_land_call_phase` 恒落单一相位
+    → 修复为真正 13×7=91 参数化，`_land_call_phase` 走
+    INTENT→MAY_HAVE_STARTED→RESULT_UNKNOWN 并断言落定相位；
+  - important：facade 七签名精确性无测试 → 新增签名锁定测试；
+  - 另加 terminal-manifest 守卫 anti-fake 测试；
+  - 修复提交：`5b100c7 fix: harden orchestrator admission and resume
+    validation`（仅 `orchestrator.py` + `test_orchestrator.py`，不扩大
+    §22 条目、不改 §4.1 导出集合 28、不改 provider 包）；REPAIR⑥
+    语义澄清提交：`dc91f85 docs: clarify APPLYING repair retry
+    semantics`。
+- **Codex-findings 修复 + REPAIR⑥ 的临时独立复审（Claude Fable 5，
+  第二轮，10 checkpoints）：PASS（blockers 0 / important 0）**——I-1
+  （docs §22 交叉引用误标 128/84）已在复审中修正为条目 87 并二次核验；
+  2 项非阻塞建议（S-1 resume disposition 列自锁、S-2 replay 单元格
+  逐态断言）按范围纪律显式暂不实施、无净覆盖损失。
+- **Codex final review（修复后 `5b100c7`）: pending**（Codex 配额
+  受限；已由 Claude Fable 5 临时独立审查覆盖；TASK-004 最终 gate 仍
+  待 Codex final review）
 - **TASK-004 final gate: open**
 - **Step G §22 candidate entries: 34**；**candidate cumulative:
   131 / 131**（仅 implementation candidate coverage，未经 Codex
@@ -888,9 +912,12 @@ pending**：
   cumulative: still 97 / 131**（Step G 的 34 项在 Codex final
   review 通过前不计入最终确认累计）；122 个 focused pytest case 与
   34 个 §22 条目不是同一计数单位
-- tests：Step G focused pytest **122 passed**；full pytest
-  **1626 passed**；Ruff format 55 files already formatted；Ruff
-  lint All checks passed；whitespace passed
+- tests（修复后 `5b100c7` 现状）：`test_orchestrator.py` **163
+  passed**（含 91 格矩阵参数化、TestPreCallValidation、
+  TestResumeValidation、TestApplyingRepairRetry 两项）；full pytest
+  **1667 passed**；`ruff format --check` 55 files already formatted；
+  `ruff check` All checks passed；`git diff --check` 无 whitespace
+  错误
 - **两个非阻塞观察（Codex final review attention items，不作为
   blocker/important、不要求改代码）**：
   1. `ResumeAssessment` 当前可哈希（只含 scalar/enum/tuple；符合
@@ -915,9 +942,11 @@ pending**：
   测试）证明，属 §22 条目 **87**（§17.2 准入表 91 格，含
   APPLYING × 非 resume 的 REPAIR⑥ 单元格；Step G / `test_orchestrator`）
   的行为细化，不计为额外 §22 条目。
-- **Step G: implementation committed (`accd743`); temporary
-  independent review passed; Codex final review pending; Step G
-  final acceptance not yet confirmed**
+- **Step G: implementation committed (`accd743`); Codex final review
+  returned findings; hardening fix committed (`5b100c7`) + REPAIR⑥
+  docs (`dc91f85`); temporary independent review passed twice (Claude
+  Fable 5); Codex final review of the fix still pending; Step G final
+  acceptance not yet confirmed**
 - **TASK-004 final gate: open**；**TASK-004 completion: not
   declared**（未经 Codex final review 与用户最终裁决，不宣告
   Step G finally confirmed 或 TASK-004 completed）
@@ -933,7 +962,7 @@ pending**：
 | D | 纯 planning core | completed（`172ae2b`；final post-commit review passed；finally confirmed） | —（已完成） |
 | E | `_LayoutResolver` 路径派生与安全校验 | **completed（`db5e178`；final Codex path-security review passed；high-risk gate closed；finally confirmed）** | —（已完成） |
 | F | `_FileOrchestrationExecutor`（WAL/CAS/恢复执行） | **completed（`ef038ba`；Codex final review passed；blockers 0 / important 0 / suggestions 0；high-risk gate closed；finally confirmed）** | —（已完成） |
-| G | 公开 orchestrator facade 与端到端集成 | **implementation committed（`accd743`）；temporary independent review passed（Claude Fable 5；0/0，2 non-blocking observations）；Codex final review pending；Step G final acceptance not yet confirmed** | 已提交 6 文件（production 3：`orchestrator.py`/`models.py`/`__init__.py`；tests 3：`test_orchestrator.py` + 两个维护例外）；待 Codex final review 与 TASK-004 overall final acceptance；TASK-004 未完成 |
+| G | 公开 orchestrator facade 与端到端集成 | **implementation committed（`accd743`）；Codex final review 返回 3 blockers + 1 important，已修复（`5b100c7 fix: harden orchestrator admission and resume validation`）+ REPAIR⑥ 语义澄清（`dc91f85 docs: clarify APPLYING repair retry semantics`）；Claude Fable 5 两轮临时独立审查 PASS（0/0）；修复后的 Codex final review 仍 pending；Step G final acceptance not yet confirmed** | full pytest 1667 passed；`test_orchestrator.py` 163 passed；待修复后 Codex final review 与 TASK-004 overall final acceptance；TASK-004 未完成 |
 
 TASK-004 尚未完成；不声称全部 acceptance criteria 已实现；不声称
 131 项计划测试已全部实现。
@@ -949,10 +978,14 @@ TASK-004 尚未完成；不声称全部 acceptance criteria 已实现；不声�
 ## 当前状态
 
 implementation complete through Step G — Steps M–F completed and
-finally confirmed; Step G implementation committed (`accd743`) and
-temporary independent review (Claude Fable 5) passed (0/0, 2
-non-blocking observations); Codex final review pending; TASK-004
-final gate open; TASK-004 completion not declared
+finally confirmed; Step G implementation committed (`accd743`); Codex
+final review returned 3 blockers + 1 important, resolved by the
+hardening fix (`5b100c7`) and the REPAIR⑥ repair-then-revalidate docs
+clarification (`dc91f85`); Claude Fable 5 temporary independent review
+passed twice (0/0; 2 non-gating suggestions deferred); full pytest
+1667 passed; the Codex final review of the fix is still pending;
+TASK-004 final gate open; Step G final acceptance not yet confirmed;
+TASK-004 completion not declared
 
 ## 尚待后续任务决定的事项
 
