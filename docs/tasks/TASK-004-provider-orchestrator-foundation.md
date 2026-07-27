@@ -780,6 +780,52 @@ independently reviewed, committed, and finally confirmed**：
   B 44 + C 3 + D 14 + E 11；已完成并最终确认的累计数量，
   TASK-004 尚未完成）
 
+**Step F — `_FileOrchestrationExecutor`（WAL/CAS/恢复执行）：
+completed, independently reviewed, committed, and finally
+confirmed**：
+
+- implementation: completed（Claude Code）
+- commit: `ef038ba feat: add orchestration file executor`
+- production files: `orchestration/executor.py`（新建）、
+  `orchestration/recovery.py`（仅追加 §14 phase-recovery 与
+  §13.5 trace 分类，未改动 Step B parser/adapter 语义）
+- test file: `tests/test_orchestration_executor.py`（新建）
+- **Codex final review: passed**（reviewer: Codex；blockers 0 /
+  important 0 / suggestions 0）
+- **Step F high-risk gate: closed**；**Step F final completion:
+  confirmed**
+- 五个原阻塞最终关闭：①durable-intent CAS / identity / replay：
+  closed；②read-time strict durable-record parsing：closed；
+  ③clean STABLE committed-state S1：closed；④unified read/write
+  symlink and per-component containment：closed；⑤durable phase
+  landing and RECOVERY_REQUIRED coverage：closed。
+- 最终窄范围重要问题：Provider-call 完整内容 CAS closed；
+  read-time per-component containment closed；cached layout 后
+  parent 被替换成 symlink 时 `_read_state_file` 保守拒绝；旧
+  leaf-only 行为可错误读取 root 外 task 的缺口已由真实回归测试
+  锁定并修复（test setup 顺序：先取得合法 `_StateLayout`，
+  再替换 parent symlink，再使用缓存 layout 调用正式读取路径）。
+- Provider 边界：Step F executor 永不调用 Provider（Provider
+  调用与整体接线属 Step G）；outcome unknown 不自动重试
+  Provider；recovery fingerprint-authoritative，confirmed_writes
+  仅为 advisory hint；Step F 不实现 Step G facade。
+- **historical review record（已被 Codex final review passed
+  取代，不是当前 gate 状态）**：第一轮复审不通过（5 阻塞）；
+  修复轮关闭 5 阻塞后仍有 3 阻塞 + 1 重要；再修复关闭全部阻塞
+  后剩 1 重要（read-path 回归测试未锁定修复）；最终窄范围复审
+  在 test setup 顺序修正并经独立验证后 passed
+- §22 entries: Step F 归属的 20 项（25、26、27、29、56、64、
+  65、66、67、71、73、77、86、106、107、108、109、110、114、
+  128）已客观覆盖并最终确认
+- focused pytest: **81 passed**；full regression:
+  **1504 passed**；Ruff format 53 files already formatted；
+  Ruff lint All checks passed；whitespace passed
+- Step F pytest case count: 81（与 20 个 §22 设计条目不是同一
+  计数单位）
+- cumulative implemented §22 entries: **97 / 131**（A 5 +
+  B 44 + C 3 + D 14 + E 11 + F 20；已完成并最终确认的累计数量，
+  TASK-004 尚未完成）
+
 **实施顺序状态**：
 
 | Step | 正式名称（§24） | 状态 | 允许开始条件 |
@@ -790,8 +836,8 @@ independently reviewed, committed, and finally confirmed**：
 | C | instruction 逐字节渲染器 | completed（`71c77f5`；已通过独立审查） | —（已完成） |
 | D | 纯 planning core | completed（`172ae2b`；final post-commit review passed；finally confirmed） | —（已完成） |
 | E | `_LayoutResolver` 路径派生与安全校验 | **completed（`db5e178`；final Codex path-security review passed；high-risk gate closed；finally confirmed）** | —（已完成） |
-| F | `_FileOrchestrationExecutor`（WAL/CAS/恢复执行） | not started；**next permitted step**；**Step F local gate closed** | ①Step E commit 完成；②**Step E Codex final review 已通过**；③Step E high-risk gate 已关闭；④Step E 最终完成确认；⑤本次 docs-only 状态同步提交完成；⑥提交后工作区干净；⑦用户发出新的明确 Step F checkpoint（全部满足） |
-| G | 公开 orchestrator facade 与端到端集成 | not started | Step F 完成、审查通过并提交 |
+| F | `_FileOrchestrationExecutor`（WAL/CAS/恢复执行） | **completed（`ef038ba`；Codex final review passed；blockers 0 / important 0 / suggestions 0；high-risk gate closed；finally confirmed）** | —（已完成） |
+| G | 公开 orchestrator facade 与端到端集成 | not started；**next permitted step**；**Step G local gate closed** | ①Step F implementation commit 完成（`ef038ba`）；②**Step F Codex final review 已通过**（0/0/0）；③五个原阻塞与最终窄范围重要问题均已关闭；④Step F high-risk gate 已关闭；⑤Step F 最终完成确认；⑥本次 docs-only 最终状态同步提交完成；⑦提交后工作区干净；⑧用户发出新的明确 Step G checkpoint（全部满足） |
 
 TASK-004 尚未完成；不声称全部 acceptance criteria 已实现；不声称
 131 项计划测试已全部实现。
@@ -806,8 +852,8 @@ TASK-004 尚未完成；不声称全部 acceptance criteria 已实现；不声�
 
 ## 当前状态
 
-implementation in progress — Steps M–E completed and finally
-confirmed — Step F not started (local gate closed; pending new
+implementation in progress — Steps M–F completed and finally
+confirmed — Step G not started (local gate closed; pending new
 explicit checkpoint)
 
 ## 尚待后续任务决定的事项

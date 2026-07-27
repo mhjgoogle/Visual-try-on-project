@@ -1,7 +1,7 @@
 # TASK-004 设计文档：Provider Orchestrator 契约与基础编排
 
-- Status: approved — implementation in progress; Steps M–E
-  completed and finally confirmed; Step F pending new checkpoint
+- Status: approved — implementation in progress; Steps M–F
+  completed and finally confirmed; Step G pending new checkpoint
 - Revision: r6（自包含版本；关闭 r5 复审的 3 个阻塞与 1 个重要
   问题；不依赖任何历史草案或聊天记录）+ 实施顺序补充（§24，
   docs-only，Codex 第三次复审通过）
@@ -247,33 +247,89 @@
     whitespace passed
   - Step E status: **completed, independently reviewed,
     committed (`db5e178`), and finally confirmed**
-- next permitted step: **Step F**（not started；**Step F local
-  gate: closed**——完整开始条件见 §24.2 Step F 前置条件；
-  Step F 是 next step 不等于已获实施许可，只有新的明确 Step F
-  checkpoint 才能打开 Step F local gate）；Step G: not started；
-  global coding gate: open（全局）
+- **Step F — `_FileOrchestrationExecutor`（WAL/CAS/恢复执行）:
+  completed, independently reviewed, committed, and finally
+  confirmed**：
+  - implementation agent: Claude Code
+  - implementation: completed（生产文件：
+    orchestration/executor.py（新建）、orchestration/recovery.py
+    （仅追加 §14 phase-recovery 与 §13.5 trace 分类，未改动
+    Step B parser/adapter 语义）；测试文件：
+    tests/test_orchestration_executor.py（新建））
+  - implementation commit:
+    `ef038ba feat: add orchestration file executor`
+  - **Codex final review: passed**（reviewer: Codex；blockers 0 /
+    important 0 / suggestions 0）
+  - **Step F final high-risk gate: closed**；**Step F final
+    completion: confirmed**
+  - 五个原阻塞最终关闭：
+    1. durable-intent CAS / identity / replay: **closed**；
+    2. read-time strict durable-record parsing: **closed**；
+    3. clean STABLE committed-state S1: **closed**；
+    4. unified read/write symlink and per-component containment:
+       **closed**；
+    5. durable phase landing and RECOVERY_REQUIRED coverage:
+       **closed**。
+  - 最终窄范围复审确认：
+    - Provider-call 完整内容 CAS: **closed**（`_call_content_key`
+      对完整 pending payload 计算指纹，仅排除正式相位转换允许改变
+      的 `call_phase` / `call_may_have_started`）；
+    - read-time per-component containment: **closed**（四个初始
+      state read 与 apply 期 task/manifest/instruction read 均经
+      executor 的 `_read_state_file`，先 per-component
+      `_assert_contained` 再 final-leaf symlink 检查）；
+    - cached layout 后 parent 被替换成 symlink：`_read_state_file`
+      保守拒绝；旧 leaf-only 行为可错误读取 root 外 task 的缺口
+      已由真实回归测试锁定并修复（test setup 顺序：先取得合法
+      `_StateLayout`，再替换 parent symlink，再使用缓存 layout
+      调用正式读取路径）。
+  - final 结论（Codex 复审确认）：
+    - Provider boundary: Step F executor 永不调用 Provider（调用
+      顺序与整体接线属 Step G）；
+    - outcome unknown: 不自动重试 Provider；
+    - recovery: fingerprint-authoritative，confirmed_writes 仅为
+      advisory hint（§11.5 row 6），不参与恢复判定（§14 P8）；
+    - Step F 不实现 Step G facade。
+  - 复用 `_LayoutResolver._resolve_for_safety` 未要求修改
+    `layout.py`，符合 Step F 文件范围（仅新建 executor.py、
+    仅追加 recovery.py、新建测试文件）。
+  - §22 设计测试条目：Step F 归属的 20 项（25、26、27、29、56、
+    64、65、66、67、71、73、77、86、106、107、108、109、110、
+    114、128）已客观覆盖并最终确认。
+  - tests：Step F focused pytest **81 passed**；full pytest
+    **1504 passed**；Ruff format 53 files already formatted；
+    Ruff lint passed；whitespace passed
+  - Step F status: **completed, independently reviewed,
+    committed (`ef038ba`), and finally confirmed**
+- next permitted step: **Step G**（not started；**Step G local
+  gate: closed**——完整开始条件见 §24.2 Step G 前置条件；
+  Step G 是 next step 不等于已获实施许可，只有新的明确 Step G
+  checkpoint 才能打开 Step G local gate）；global coding gate:
+  open（全局）
 - Step M 的 18 个、Step A 的 124 个、Step B 的 244 个、
-  Step C 的 46 个、Step D 的 159 个与 Step E 的 75 个新增
-  pytest case 已实现并包含在当前 1423 项中；r6 的 131 项分步
-  实施测试计划尚未全部实现（**当前已完成并最终确认 77/131**：
-  Step A 5 项 + Step B 44 项 + Step C 3 项 + Step D 14 项 +
-  Step E 11 项，见 §24.3）；77/131 现为已完成并最终确认的
-  累计数量（Step E 的 11 项经 Codex final path-security review
-  确认）；Step M/A/B/C/D/E 完成不代表 TASK-004 完成；本状态
-  同步不包含任何 Step F 代码。
+  Step C 的 46 个、Step D 的 159 个、Step E 的 75 个与 Step F 的
+  81 个新增 pytest case 已实现并包含在当前 1504 项中；r6 的
+  131 项分步实施测试计划尚未全部实现（**当前已完成并最终确认
+  97/131**：Step A 5 项 + Step B 44 项 + Step C 3 项 + Step D
+  14 项 + Step E 11 项 + Step F 20 项，见 §24.3）；97/131 现为
+  已完成并最终确认的累计数量（Step F 的 20 项经 Codex final
+  review 确认）；81 个 Step F pytest case 与 20 个 §22 设计条目
+  不是同一计数单位；Step M/A/B/C/D/E/F 完成不代表 TASK-004
+  完成。
 - 当前事实（统一口径）：r6 technical design **approved**；
   implementation sequencing clarification（§24）**approved —
   第三次 Codex 复审通过**；Step M / Step A / Step B / Step C
   **completed, independently reviewed, committed**；Step D /
-  Step E **completed, independently reviewed, committed, and
-  finally confirmed**（Step E 经 temporary review by Claude
-  Fable 5 与 **final Codex path-security review** 双重通过，
-  final high-risk gate **closed**）；当前仓库含六个 Step 的
-  实现代码；CANCELLED code implementation 已在 Step M 完成；
-  Step F **not started; Step F local gate closed**（完整开始
-  条件见 §24.2 Step F 前置条件——须新的明确 Step F
-  checkpoint）；Step G not started；global coding gate
-  **open**；当前实际回归基线 **1423 passed**。coding gate
+  Step E / Step F **completed, independently reviewed,
+  committed, and finally confirmed**（Step E 经 temporary review
+  by Claude Fable 5 与 **final Codex path-security review** 双重
+  通过；Step F 经 **Codex final review** 通过——五个原阻塞与
+  最终窄范围重要问题全部关闭；两者 final high-risk gate
+  **closed**）；当前仓库含七个 Step 的实现代码；CANCELLED code
+  implementation 已在 Step M 完成；Step G **not started;
+  Step G local gate closed**（完整开始条件见 §24.2 Step G
+  前置条件——须新的明确 Step G checkpoint）；global coding gate
+  **open**；当前实际回归基线 **1504 passed**。coding gate
   open 不表示 §22 的 131 项计划测试已全部实现或任何 acceptance
   criterion 已由完整实现满足（F–G 未实施）。角色边界：Claude
   Code 按批准的 r6 设计与 §24 分步实施，不得替代 Codex 声称
@@ -299,12 +355,11 @@
 - TASK-003 completed baseline:
   `01ac984 docs: complete TASK-003 implementation`
 - coding gate: **open**（全局；r6 批准时为 closed——见上方历史
-  快照）；Step E: completed（committed `db5e178`；temporary
-  review by Claude Fable 5 passed + **final Codex path-security
-  review passed**；high-risk gate **closed**；finally
-  confirmed）；**Step F local gate: closed**（Step F 是 next
-  step 不等于已获实施许可，只有新的明确 Step F checkpoint 才能
-  打开 Step F local gate）
+  快照）；Step F: completed（committed `ef038ba`；**Codex final
+  review passed**；blockers 0 / important 0 / suggestions 0；
+  high-risk gate **closed**；finally confirmed）；**Step G local
+  gate: closed**（Step G 是 next step 不等于已获实施许可，只有
+  新的明确 Step G checkpoint 才能打开 Step G local gate）
 - 目标运行环境：WSL2 Ubuntu / Linux（POSIX `os.replace`；不测试
   Windows path 或 replace 语义）
 
@@ -334,8 +389,10 @@
    completed（committed `db5e178`；temporary review by Claude
    Fable 5 passed + **final Codex path-security review
    passed**；high-risk gate **closed**；finally confirmed）；
-   Step F: not started；**Step F local gate closed**；Step G
-   not started。
+   Step F completed（committed `ef038ba`；**Codex final review
+   passed**；blockers 0 / important 0 / suggestions 0；high-risk
+   gate **closed**；finally confirmed）；Step G: not started；
+   **Step G local gate closed**。
 
 ## 1. 总览
 
@@ -2387,8 +2444,22 @@ checkpoint 中明确启动，才允许进入 Step G；不得在 Step F 的
 
 ##### 前置条件
 
-Step F 已完成、通过 Codex 独立审查并独立提交；提交后工作区
-干净；Step G 的新独立 checkpoint 已明确发出。
+Step G 只有在以下条件**全部满足**后才能开始（完全自包含）：
+
+1. Step F implementation commit 已完成（`ef038ba`）；
+2. Step F **Codex final review 已通过**（blockers 0 /
+   important 0 / suggestions 0）；
+3. 五个原阻塞与最终窄范围重要问题均已关闭；
+4. Step F **final high-risk gate 已关闭**；
+5. Step F 最终完成已确认（finally confirmed）；
+6. Step F final review 后的 docs-only 最终状态同步提交已完成；
+7. 提交后工作区干净；
+8. 用户发出新的明确 Step G checkpoint。
+
+gate 语义（不得混同）：global coding gate open ≠ Step G local
+gate open；"Step G 是 next permitted step" ≠ Step G 已获实施
+许可；状态同步提交本身不开始 Step G；Step G local gate 只在
+新的明确 Step G checkpoint 中开启（当前保持 closed）。
 
 ##### 允许生产文件
 
