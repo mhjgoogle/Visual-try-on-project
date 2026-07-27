@@ -959,6 +959,13 @@ fingerprint 计算、CAS 与写入仍属 Step F。Step E 只提供设计
 缺失 → MissingProjectStateError；ABSENT marker 仅限 record 与
 instruction；executor 不静默创建 task/manifest。
 
+**REPAIR⑥ repair-then-revalidate 的 stale 检测依赖本节**：APPLYING
+入口先就地完成本地恢复（§17.2 REPAIR⑥），随后对新 STABLE 用调用方
+**原始** context 重跑本节字节指纹校验。若恢复把业务文件快进到 after
+态，原始快照与磁盘不再一致 → 抛既有 `InvalidOrchestrationInputError`
+（不新增错误类型），当次不调用 Provider；调用方须重新读盘、构造
+fresh context 后重试。orchestrator 不在内部替换调用方 context。
+
 ## 10. 深度不可变模型
 
 ### 10.1 统一冻结策略
@@ -1564,7 +1571,7 @@ CALL 相位不合并。
 | PROVIDER_CALL_INTENT | REDRIVE⑤ 或 E-state | REDRIVE⑤ 或 E-state | E-state | E-state | REDRIVE⑤ 或 E-state | E-state | A: legal=(pending.action,), pref=pending.action, disposition=SAFE_AUTO_RETRY |
 | PROVIDER_CALL_MAY_HAVE_STARTED | E-unknown | E-unknown | E-unknown | E-unknown | E-unknown | E-unknown | A: manual, legal=(), disposition=MANUAL_RECONCILIATION |
 | PROVIDER_RESULT_UNKNOWN | E-unknown | E-unknown | E-unknown | E-unknown | E-unknown | E-unknown | A: manual, legal=(), disposition=MANUAL_RECONCILIATION |
-| APPLYING | REPAIR⑥ | REPAIR⑥ | REPAIR⑥ | REPAIR⑥ | REPAIR⑥ | REPAIR⑥ | A: disposition=SAFE_AUTO_RETRY（补写后返回 STABLE 评估） |
+| APPLYING | REPAIR⑥ | REPAIR⑥ | REPAIR⑥ | REPAIR⑥ | REPAIR⑥ | REPAIR⑥ | A: disposition=SAFE_AUTO_RETRY（补写后返回 STABLE 评估；非 resume 动作按 REPAIR⑥ repair-then-revalidate 处理） |
 | RECOVERY_REQUIRED | E-recovery | E-recovery | E-recovery | E-recovery | E-recovery | E-recovery | A: manual, legal=(), phase=RECOVERY_REQUIRED, **disposition = MANUAL_RECONCILIATION**（已落盘 RECOVERY_REQUIRED 不持久化原始 §14 成因，resume 不重推导——见 §14 定案） |
 
 单元格定义：
@@ -1590,10 +1597,28 @@ CALL 相位不合并。
 - **REDRIVE⑤**：仅当动作 == pending.action 且 identity 完全
   一致 → 重入；不一致 → IdempotencyConflictError；其他动作 →
   E-state；
-- **REPAIR⑥**：入口先按 §14 P3–P8 自动补写至 STABLE（首次
+- **REPAIR⑥（repair-then-revalidate，最终语义）**：入口先按
+  §14 P3–P8 就地完成本地恢复，将 record 补写至 STABLE（首次
   stable=null 时补写生成首个 version=1 STABLE；后续替换既有
-  stable），随后按新 STABLE 状态重新评估该动作；遇 P9 →
-  PartialCommitConflictError；
+  stable），**该恢复是持久写入，一旦成功即不回滚**；随后**用调用
+  方原始的 `OrchestrationContext` 对新 STABLE 重新执行完整准入**
+  （§9 字节指纹校验 + §7 身份 + §17.2 路由），而**不是**无条件
+  repair-then-continue：
+  1. `repair_stale` 为批准行为，仅在 record.phase == APPLYING 时触发；
+  2. 若本地恢复把业务 task/manifest 快进到 after 态，调用方原始
+     快照与磁盘不再一致 → §9 校验抛既有
+     `InvalidOrchestrationInputError`（**不新增错误类型**）；此时
+     当次动作**不调用 Provider（调用次数 0）**、不落新的 call /
+     apply intent；重试须由调用方**重新读盘、构造 fresh
+     `OrchestrationContext`** 后发起（**调用方职责**）；
+  3. 若本地恢复仅改动 record、业务 task/manifest 已处于 after 态
+     且调用方 context 仍与磁盘一致，则该动作在**同一次调用内**按新
+     STABLE 继续走合同规定的 CALL / NOOP / replay 路径；
+  4. orchestrator **绝不**在内部静默重建或替换调用方
+     `OrchestrationContext`，也**不**在当次执行 TASK-005 式自动
+     retry；revalidate 至多重放一次本地恢复，不形成 stale/retry
+     无限循环；
+  5. 遇 P9（外部漂移/篡改）→ `PartialCommitConflictError`；
 - **A**：resume 返回 ResumeAssessment；仅 **clean `∅`（无 record、
   无编排痕迹、无 malformed/corrupt/filesystem/recovery conflict）**
   返回 `phase = None`（`ResumeAssessment.phase: RecordPhase | None`，
@@ -2771,6 +2796,42 @@ missing-with-trace、malformed/corrupt、已落盘 RECOVERY_REQUIRED 一律
 的后续 resume** 统一为 `MANUAL_RECONCILIATION`——durable
 RECOVERY_REQUIRED 不持久化原始 §14 成因，resume 不重推导。不新增
 `RecordPhase` 成员；不改变 §4.1 导出数量（28）。
+
+##### REPAIR⑥ repair-then-revalidate 合同（§9/§17.2 定案引用）
+
+Step G 对 APPLYING record 上的**非 resume 动作**采用 §17.2 REPAIR⑥
+最终语义 **repair-then-revalidate**（不得实现为无条件
+repair-then-continue，不得在内部静默重建或替换调用方
+`OrchestrationContext`）：
+
+1. `repair_stale` 为批准行为：入口先按 §14 P3–P8 就地完成本地恢复，
+   将 record 补写至 STABLE，**该持久写入一旦成功即不回滚**；
+2. 随后用调用方**原始** context 对新 STABLE 重跑完整准入（§9 字节
+   指纹 + §7 身份 + §17.2 路由）；
+3. 若恢复把业务 task/manifest 快进到 after 态、原始快照与磁盘不再
+   一致 → 抛**既有** `InvalidOrchestrationInputError`（**不新增错误
+   类型**）；当次动作 **Provider 调用次数为 0**、不落新的 call /
+   apply intent；重试须由调用方重新读盘、构造 fresh context 后发起
+   （**调用方职责**）；
+4. 若恢复仅改动 record、业务文件已处于 after 态且调用方 context 仍
+   与磁盘一致 → 该动作在**同一次调用内**继续走合同 CALL / NOOP /
+   replay 路径；
+5. 当次执行**不做** TASK-005 式自动 retry；revalidate 至多重放一次
+   本地恢复，不形成 stale/retry 无限循环。
+
+**测试新增（批准）**：`tests/test_orchestrator.py::TestApplyingRepairRetry`
+两项两阶段测试锁定上述合同——
+`test_repair_completes_locally_stale_caller_retries_with_fresh_context`
+证明「本地恢复完成 → 原始 stale context 被拒（`InvalidOrchestrationInputError`、
+Provider=0、record 已进入 STABLE、无新 intent）→ 调用方 fresh context
+重试正常前进」；`test_repair_continues_when_only_record_changed` 证明第
+4 条「仅 record 改动时同调用内继续」。二者属 §22 条目 **87**
+（§17.2 准入表 91 格，含 APPLYING × 非 resume 的 REPAIR⑥ 单元格；
+Step G / `test_orchestrator`）在 facade 层对 §14 P3–P8 本地恢复
+合同 repair-then-revalidate 表现的行为细化，**不计为额外 §22 条目**，
+不修改 Step A–F 技术合同。**本次 Step G 未因 REPAIR⑥ 改动
+`orchestrator.py`**：新增测试证明现实现已符合 repair-then-revalidate
+合同。
 
 ##### 必须实现
 

@@ -900,6 +900,21 @@ pending**：
      observed task.provider_id 必须为 None；仅影响 public snapshot
      身份呈现，durable/Provider 执行无影响；retain as implemented，
      请 Codex final review 显式确认——不改写为已确认缺陷、不改合同）
+- **REPAIR⑥ APPLYING repair retry 语义定案：repair-then-revalidate**
+  （用户批准）——APPLYING record 上的非 resume 动作先就地完成本地
+  恢复（record→STABLE，持久写入不回滚），随后用调用方**原始**
+  context 对新 STABLE 重跑完整准入（§9 字节指纹 + §7 身份 +
+  §17.2 路由）；若恢复把业务文件快进到 after 态导致原始快照与磁盘
+  不一致 → 抛既有 `InvalidOrchestrationInputError`（不新增错误类型），
+  当次 Provider 调用为 0、不落新 intent，重试须由调用方以 fresh
+  context 发起；若恢复仅改 record 且 context 仍与磁盘一致则同调用内
+  继续；不做 TASK-005 式自动 retry，不静默替换调用方 context——见
+  设计文档 §9 / §17.2 REPAIR⑥ / §24 Step G。**本次未因 REPAIR⑥ 改动
+  `orchestrator.py`**：现实现已符合该合同，由新增测试
+  `tests/test_orchestrator.py::TestApplyingRepairRetry`（两项两阶段
+  测试）证明，属 §22 条目 **87**（§17.2 准入表 91 格，含
+  APPLYING × 非 resume 的 REPAIR⑥ 单元格；Step G / `test_orchestrator`）
+  的行为细化，不计为额外 §22 条目。
 - **Step G: implementation committed (`accd743`); temporary
   independent review passed; Codex final review pending; Step G
   final acceptance not yet confirmed**
