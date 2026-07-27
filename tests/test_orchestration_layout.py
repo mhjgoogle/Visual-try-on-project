@@ -600,28 +600,90 @@ class TestBoundariesAndExports:
         assert not hasattr(layout_module, "_OrchestrationPlanner")
 
     def test_layout_does_not_import_orchestration_data_models(self) -> None:
-        # Run in a clean interpreter so importing layout in isolation
-        # does not pull in orchestration data models, without disturbing
-        # this test session's already-imported modules.
-        import subprocess
-        import sys
+        # Lock layout's dependency boundary: layout.py must not depend on the
+        # forbidden orchestration data/planning/recovery/execution modules by
+        # ANY mechanism — static Import / ImportFrom, __import__, or
+        # importlib.import_module (including aliased forms), anywhere in the
+        # module (module level, function bodies, class bodies). A dynamic
+        # import whose target cannot be proven a safe static string is
+        # conservatively rejected. (Since Step G the package __init__ eagerly
+        # loads the public facade — and therefore planning/recovery/etc. — so
+        # a package-import side-effect check no longer isolates layout; this
+        # module-source AST check verifies the same layering guarantee.)
+        import ast
+        import pathlib
 
-        script = (
-            "import ai_video_workflow.orchestration.layout\n"
-            "import sys\n"
-            "loaded = {n for n in sys.modules "
-            "if n.startswith('ai_video_workflow.orchestration')}\n"
-            "forbidden = {\n"
-            "    'ai_video_workflow.orchestration._models',\n"
-            "    'ai_video_workflow.orchestration.recovery',\n"
-            "    'ai_video_workflow.orchestration.planning',\n"
-            "    'ai_video_workflow.orchestration.instructions',\n"
-            "}\n"
-            "assert not (loaded & forbidden), loaded & forbidden\n"
+        forbidden_leaves = {
+            "_models",
+            "recovery",
+            "planning",
+            "instructions",
+            "executor",
+            "orchestrator",
+        }
+
+        def _leaf_forbidden(name: str | None) -> bool:
+            # for relative imports the module carries no package prefix, so
+            # a bare leaf ("recovery", "_models", …) is checked directly
+            return bool(name) and name.split(".")[-1] in forbidden_leaves
+
+        def _is_forbidden(module: str | None) -> bool:
+            if not module:
+                return False
+            parts = module.split(".")
+            return "orchestration" in parts and parts[-1] in forbidden_leaves
+
+        tree = ast.parse(
+            pathlib.Path(layout_module.__file__).read_text(encoding="utf-8")
         )
-        result = subprocess.run(
-            [sys.executable, "-c", script],
-            capture_output=True,
-            text=True,
-        )
-        assert result.returncode == 0, result.stderr
+
+        import_module_names: set[str] = set()  # names bound to import_module
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    assert not _is_forbidden(alias.name), alias.name
+            elif isinstance(node, ast.ImportFrom):
+                if node.level >= 1:
+                    # relative import from within the orchestration package:
+                    # `from . import recovery` / `from .recovery import _x`
+                    assert not _leaf_forbidden(node.module), node.module
+                    for alias in node.names:
+                        assert not _leaf_forbidden(alias.name), alias.name
+                else:
+                    assert not _is_forbidden(node.module), node.module
+                    for alias in node.names:
+                        full = (
+                            f"{node.module}.{alias.name}" if node.module else alias.name
+                        )
+                        assert not _is_forbidden(full), full
+                if node.module == "importlib":
+                    for alias in node.names:
+                        if alias.name == "import_module":
+                            import_module_names.add(alias.asname or "import_module")
+
+        # every dynamic import must target a statically-provable safe string
+        def _reject_dynamic(call: ast.Call) -> None:
+            assert call.args, "dynamic import with no static module argument"
+            first = call.args[0]
+            assert isinstance(first, ast.Constant) and isinstance(first.value, str), (
+                "dynamic import with a non-static module argument (cannot prove "
+                "it does not load a forbidden module)"
+            )
+            # a dynamic-import target is forbidden if its leaf name matches —
+            # this catches absolute ("...orchestration.recovery"), relative
+            # (".recovery", "....recovery"), and bare ("recovery") forms, since
+            # relative dotted strings never carry the "orchestration" segment
+            assert not _leaf_forbidden(first.value), first.value
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if isinstance(func, ast.Name) and (
+                func.id == "__import__" or func.id in import_module_names
+            ):
+                _reject_dynamic(node)
+            elif isinstance(func, ast.Attribute) and func.attr == "import_module":
+                # importlib.import_module(...) or any <alias>.import_module(...)
+                _reject_dynamic(node)

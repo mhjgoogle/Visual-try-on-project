@@ -115,13 +115,19 @@ EXPECTED_EXPORTS = {
     "MissingProjectStateError",
     "MissingRecoveryRecordError",
     "OrchestrationAction",
+    "OrchestrationContext",
     "OrchestrationError",
+    "OrchestrationOutcome",
+    "OrchestrationPlan",
+    "OrchestrationRecord",
     "OutcomeKind",
     "PartialCommitConflictError",
     "PersistenceExecutionError",
     "PersistencePlanningError",
+    "ProviderOrchestrator",
     "RecordPhase",
     "RecoveryDisposition",
+    "ResumeAssessment",
     "StaleResultError",
     "UnknownProviderSideEffectError",
 }
@@ -259,7 +265,9 @@ class TestPublicExports:
         ):
             assert name not in orchestration_package.__all__
 
-    def test_later_step_types_are_not_exported_yet(self) -> None:
+    def test_step_g_public_types_are_exported(self) -> None:
+        # Step G finalizes the §4.1 public export set: these six symbols
+        # are now exported (previously guarded as pre-Step-G "not yet").
         for name in (
             "ProviderOrchestrator",
             "OrchestrationContext",
@@ -268,8 +276,8 @@ class TestPublicExports:
             "OrchestrationRecord",
             "ResumeAssessment",
         ):
-            assert name not in orchestration_package.__all__
-            assert not hasattr(orchestration_package, name)
+            assert name in orchestration_package.__all__
+            assert hasattr(orchestration_package, name)
 
 
 # --- Step B fixtures: deterministic record-layer test data -----------------
@@ -1603,7 +1611,7 @@ class TestStepBBoundaries:
         ):
             assert name not in orchestration_package.__all__
 
-    def test_package_exports_are_unchanged_since_step_a(self) -> None:
+    def test_package_exports_match_step_g_final_set(self) -> None:
         assert set(orchestration_package.__all__) == EXPECTED_EXPORTS
 
     def test_parsed_record_and_models_are_pure_data(self) -> None:

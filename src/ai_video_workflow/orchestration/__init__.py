@@ -1,9 +1,11 @@
 """Public exports for the provider orchestration boundary.
 
-Only the names approved as public by the TASK-004 design are exported.
-Canonicalization, fingerprint, and freeze utilities stay internal.
-Later implementation steps extend this surface with the remaining
-approved public types.
+Only the names approved as public by the TASK-004 §4.1 final export
+set are exported: the `ProviderOrchestrator` facade, the public
+summary models, the four orchestration enums, and the orchestration
+error family. Planner, executor, layout resolver, durable record
+models, canonicalization, fingerprint, and freeze utilities stay
+internal.
 """
 
 from ai_video_workflow.orchestration.errors import (
@@ -28,10 +30,16 @@ from ai_video_workflow.orchestration.errors import (
 )
 from ai_video_workflow.orchestration.models import (
     OrchestrationAction,
+    OrchestrationContext,
+    OrchestrationOutcome,
+    OrchestrationPlan,
+    OrchestrationRecord,
     OutcomeKind,
     RecordPhase,
     RecoveryDisposition,
+    ResumeAssessment,
 )
+from ai_video_workflow.orchestration.orchestrator import ProviderOrchestrator
 
 __all__ = [
     "BaselineMismatchError",
@@ -47,13 +55,19 @@ __all__ = [
     "MissingProjectStateError",
     "MissingRecoveryRecordError",
     "OrchestrationAction",
+    "OrchestrationContext",
     "OrchestrationError",
+    "OrchestrationOutcome",
+    "OrchestrationPlan",
+    "OrchestrationRecord",
     "OutcomeKind",
     "PartialCommitConflictError",
     "PersistenceExecutionError",
     "PersistencePlanningError",
+    "ProviderOrchestrator",
     "RecordPhase",
     "RecoveryDisposition",
+    "ResumeAssessment",
     "StaleResultError",
     "UnknownProviderSideEffectError",
 ]
