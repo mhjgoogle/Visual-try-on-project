@@ -17,7 +17,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from ai_video_workflow.manifest import ManifestStatus
 from ai_video_workflow.orchestration._models import (
+    ABSENT,
     _ExecutablePlan,
     _PendingApply,
     _PendingProviderCall,
@@ -34,7 +36,10 @@ from ai_video_workflow.orchestration.errors import (
     PartialCommitConflictError,
     UnknownProviderSideEffectError,
 )
-from ai_video_workflow.orchestration.executor import _FileOrchestrationExecutor
+from ai_video_workflow.orchestration.executor import (
+    _FileOrchestrationExecutor,
+    _snapshot_file_fingerprint,
+)
 from ai_video_workflow.orchestration.models import (
     OrchestrationAction,
     OrchestrationContext,
@@ -238,6 +243,14 @@ class ProviderOrchestrator:
                 disposition=RecoveryDisposition.MANUAL_RECONCILIATION,
             )
         record = observation.record
+        # §6.1/§9: a stale/drifted/tampered context must be rejected, not
+        # reported as a resumable state. §13.4 request drift and §7.1 identity
+        # mismatch are invalid context (raise), not assessments.
+        self._require_snapshot_matches_disk(context, observation)
+        stable = None if record is None else record.stable
+        if stable is not None:
+            self._planner.check_request_consistency(context.request, stable)
+            self._require_resume_identity(context, observation, stable)
         if record is None:
             if _classify_orchestration_traces(
                 task=observation.task,
@@ -255,6 +268,23 @@ class ProviderOrchestrator:
                 )
             return self._empty_assessment(context)
         if record.phase is RecordPhase.STABLE:
+            # §14 S1: the durable record is STABLE and its self-fingerprint
+            # verifies, but the committed task/manifest/instruction files
+            # drifted externally -> a CONFLICT manual reconciliation state
+            # (the record phase stays STABLE per §6.2 invariant 3).
+            if not self._committed_state_matches(record.stable, observation):
+                return ResumeAssessment(
+                    task_id=context.task.task_id,
+                    shot_id=context.task.shot_id,
+                    provider_id=context.request.provider_id,
+                    phase=RecordPhase.STABLE,
+                    last_completed_action=record.stable.last_completed_action,
+                    legal_actions=(),
+                    preferred_next_action=None,
+                    is_terminal=False,
+                    requires_manual_reconciliation=True,
+                    disposition=RecoveryDisposition.CONFLICT,
+                )
             return self._stable_assessment(
                 context, record.stable, RecoveryDisposition.NONE
             )
@@ -363,6 +393,11 @@ class ProviderOrchestrator:
         request_fingerprint = self._planner.check_request_consistency(
             context.request, stable
         )
+        # §6.1/§7.1 full entry validation MUST precede any Provider call:
+        # four-way identity alignment and the instruction carry-over are
+        # verified here, before routing/admission, so an invalid context can
+        # never reach the Provider.
+        self._require_entry_preconditions(context, observation, stable)
         status = None if stable is None else _provider_status(stable)
 
         # §7.2 committed-operation replay precedes admission so a
@@ -451,6 +486,8 @@ class ProviderOrchestrator:
         completed_at_input,
         request_fingerprint,
     ) -> OrchestrationOutcome:
+        # a terminal manifest cannot be updated (§17.5); reject before the call
+        _require_updatable_manifest(observation)
         result = self._invoke_provider(
             context, stable, action, observed_at, artifact_input, completed_at_input
         )
@@ -485,6 +522,9 @@ class ProviderOrchestrator:
         completed_at_input,
         request_fingerprint,
     ) -> OrchestrationOutcome:
+        # a terminal manifest cannot be updated (§17.5); reject before the
+        # pre-call WAL writes and the Provider call
+        _require_updatable_manifest(observation)
         task_id = context.task.task_id
         intent = self._build_call(
             action,
@@ -644,6 +684,9 @@ class ProviderOrchestrator:
                 "operation: a different identity cannot redrive the pending call intent"
             )
         observation = executor.read_project_state(context.task.task_id)
+        self._require_snapshot_matches_disk(context, observation)
+        # full entry validation must precede the redriven Provider call
+        self._require_entry_preconditions(context, observation, stable)
         return self._call_intent(
             context,
             executor,
@@ -1044,8 +1087,102 @@ class ProviderOrchestrator:
                 "context.manifest: does not match the on-disk manifest file (§9)"
             )
 
+    def _require_entry_preconditions(self, context, observation, stable) -> None:
+        """§6.1/§7.1 result-independent entry validation.
+
+        Verifies the four-way identity alignment (task/request/stable
+        provider_id and stable task/shot alignment) and the instruction
+        carry-over fingerprint. Must be invoked before any Provider call so
+        an invalid context never triggers a Provider side effect; the
+        planner re-checks these (with the result) during apply.
+        """
+        task = observation.task
+        request = context.request
+        if stable is None:
+            if task.provider_id is not None:
+                raise InvalidOrchestrationInputError(
+                    "task.provider_id: must be None before the first prepare"
+                )
+            if observation.instruction_fingerprint != ABSENT:
+                raise InvalidOrchestrationInputError(
+                    "instruction: the first prepare requires a missing instruction file"
+                )
+            return
+        if task.provider_id != request.provider_id:
+            raise InvalidOrchestrationInputError(
+                "task.provider_id: must equal request.provider_id"
+            )
+        if (
+            stable.task_id != task.task_id
+            or stable.shot_id != task.shot_id
+            or stable.provider_id != request.provider_id
+        ):
+            raise InvalidOrchestrationInputError(
+                "stable: task_id, shot_id, and provider_id must match the "
+                "request and task identity"
+            )
+        if (
+            observation.instruction_fingerprint
+            != stable.committed_instruction_fingerprint
+        ):
+            raise InvalidOrchestrationInputError(
+                "instruction: the before fingerprint must equal the committed "
+                "instruction fingerprint (carry-over)"
+            )
+
+    def _require_resume_identity(self, context, observation, stable) -> None:
+        """§7.1 four-way identity for resume (raise on invalid context).
+
+        Unlike the action path, an instruction/committed-file drift is not
+        raised here; it is reported as a §14 S1 CONFLICT assessment (a
+        resume returns an assessment for recoverable states, §15).
+        """
+        task = observation.task
+        request = context.request
+        if task.provider_id != request.provider_id:
+            raise InvalidOrchestrationInputError(
+                "task.provider_id: must equal request.provider_id"
+            )
+        if (
+            stable.task_id != task.task_id
+            or stable.shot_id != task.shot_id
+            or stable.provider_id != request.provider_id
+        ):
+            raise InvalidOrchestrationInputError(
+                "stable: task_id, shot_id, and provider_id must match the "
+                "request and task identity"
+            )
+
+    def _committed_state_matches(self, stable, observation) -> bool:
+        """Return whether the committed file fingerprints match disk (§13.2 S1).
+
+        Reuses the executor's snapshot-fingerprint definition (wrapper
+        fingerprints for task/manifest, raw-byte fingerprint for the
+        instruction) so the S1 judgement is single-sourced.
+        """
+        if stable.committed_task_fingerprint != _snapshot_file_fingerprint(
+            observation.task, "generation_task"
+        ):
+            return False
+        if stable.committed_manifest_fingerprint != _snapshot_file_fingerprint(
+            observation.manifest, "step_manifest"
+        ):
+            return False
+        return (
+            stable.committed_instruction_fingerprint
+            == observation.instruction_fingerprint
+        )
+
     def _new_executor(self, context) -> _FileOrchestrationExecutor:
         return _FileOrchestrationExecutor(context.project_root)
+
+
+def _require_updatable_manifest(observation) -> None:
+    """Reject a terminal manifest before a Provider-calling apply (§17.5)."""
+    if observation.manifest.status is not ManifestStatus.PENDING:
+        raise InvalidOrchestrationStateError(
+            "manifest.status: a terminal manifest cannot be updated"
+        )
 
 
 def _route(status: ProviderStatus | None, action: OrchestrationAction) -> str:
