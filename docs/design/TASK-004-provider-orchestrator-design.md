@@ -590,7 +590,7 @@ class ResumeAssessment:
     task_id: str
     shot_id: str
     provider_id: str
-    phase: RecordPhase
+    phase: RecordPhase | None
     last_completed_action: OrchestrationAction | None
     legal_actions: tuple[OrchestrationAction, ...]
     preferred_next_action: OrchestrationAction | None
@@ -600,6 +600,46 @@ class ResumeAssessment:
 ```
 
 legal_actions 按 Enum 定义序确定性排列；preferred 仅为建议。
+
+**`ResumeAssessment.phase` 合同（唯一定案，含 Optional 语义）**：
+`phase` 的类型是 `RecordPhase | None`。精确不变量：
+
+1. `phase is None` **当且仅当**处于 clean `∅` 状态——即 durable
+   record 不存在、没有任何 orchestration trace（§13.5 痕迹集合全部
+   不命中），且不存在 malformed / corrupt / filesystem / recovery
+   conflict 的情形；该态进入正常 PREPARE，不是错误、不是人工态；
+2. `phase = None` **只**对应上述 clean `∅`（§17.2 `∅` resume 路由），
+   不对应任何其他情形；特别地，missing-record-with-trace、
+   malformed / corrupt、recovery conflict、Provider outcome unknown、
+   已落盘 RECOVERY_REQUIRED **均不属于** clean `∅`，不返回
+   `phase=None`；
+3. record 存在并通过 §13 strict 解析时，`phase` **必须**是六个具体
+   `RecordPhase` 之一（非 `None`），等于 record 的 envelope phase；
+4. **不新增** `NO_RECORD` 或任何其他 `RecordPhase` 成员（§11.1 的
+   六个成员保持不变）；
+5. JSON 序列化时 `phase=None` 输出 JSON `null`（enum 输出 `.value`）；
+6. malformed record、missing record with orchestration trace、
+   recovery conflict、已落盘 RECOVERY_REQUIRED **不得**折叠成
+   `phase=None`：一律返回 `phase = RecordPhase.RECOVERY_REQUIRED` +
+   `requires_manual_reconciliation = True`；`disposition` 按 **§14
+   `resume()` disposition 定案**取值——resume 当次直接观察到的
+   P9/S1/R3 → `CONFLICT`；malformed/corrupt（E1/S0）、
+   missing-with-trace（R1）、已落盘 RECOVERY_REQUIRED →
+   `MANUAL_RECONCILIATION`（后者不重推导原始成因）；**filesystem /
+   I/O 错误不产生 assessment——它作为 §15 persistence 错误
+   （`PersistenceExecutionError` / `MissingProjectStateError`）原样
+   传播**（因此它也不是 clean `∅`，见不变量 1）；
+7. `phase=None` **不**表示读取失败、未知 phase 或人工协调状态——它
+   唯一表示 clean `∅` 状态；人工协调态一律以
+   `phase = RecordPhase.RECOVERY_REQUIRED` 表达；
+8. 该修订不改变 §4.1 public API 导出数量（仍为 **28**）。
+
+**修订原因（记录）**：§6.2 原字段写作 `phase: RecordPhase`，而
+§17.2 同时定义了无 durable record 的 `∅` resume 行（该行必然产生一
+个没有具体 phase 的评估）。在**不修改 `RecordPhase` enum**（不引入
+伪 `NO_RECORD` 成员）的前提下，将 `phase` 收敛为 `RecordPhase | None`
+是最小且唯一自洽的修正：它精确表达 ∅ 初始态，不与任何错误/未知/
+人工态混淆。
 
 ### 6.3 公开 OrchestrationRecord（只读摘要快照）
 
@@ -1265,6 +1305,31 @@ MissingRecoveryRecordError。**无痕迹（上述全部不命中）= 正常
 | R3 | request fingerprint 不一致 | 请求漂移 | ConflictingRequestError | CONFLICT |
 | R4 | 响应丢失后同 identity 重放 | 已提交 | NO_OP | NONE |
 
+**`resume()` 的 `disposition` 与 §14 成因的关系（定案）**：上表的
+disposition 列描述**当前这次 recovery/resume 直接观察到**的成因。
+`ResumeAssessment.disposition` 据此产生：
+
+- resume 处理 `APPLYING` 时**当次直接**发现 P9 / S1 / R3
+  （`PartialCommitConflictError` 等）→ `disposition = CONFLICT`
+  （当次直接观察到的冲突）；executor 已同步落盘 RECOVERY_REQUIRED；
+- malformed / corrupt durable record（E1 / S0）→
+  `disposition = MANUAL_RECONCILIATION`（**不是** CONFLICT——CONFLICT
+  仅属 P9 / S1 / R3 外部漂移/篡改）；
+- missing durable record with orchestration traces（R1）→
+  `disposition = MANUAL_RECONCILIATION`；
+- **调用 resume 时 durable record 已经是 `RECOVERY_REQUIRED`**（此前
+  某轮已落盘）→ `disposition = MANUAL_RECONCILIATION`（**统一值**）。
+  理由：durable RECOVERY_REQUIRED envelope **不持久化**原始 §14
+  成因（executor 落盘时原样保留 pending，不写入成因），resume
+  **不重新推断、不伪造、不通过重新检查 filesystem 声称**历史成因；
+  RECOVERY_REQUIRED 表示必须由调用方人工协调的 durable 状态，其
+  统一公开视图为 MANUAL_RECONCILIATION。
+
+因此：同一冲突首次被直接观察（APPLYING→P9）时的
+`disposition = CONFLICT`；其落盘为 RECOVERY_REQUIRED 后，后续 resume
+一律返回 `disposition = MANUAL_RECONCILIATION`。这不是矛盾，而是
+"当次直接观察" 与 "已固化的 durable 人工态" 的确定区分。
+
 ## 15. 错误体系
 
 ```
@@ -1450,7 +1515,7 @@ CALL 相位不合并。
 | PROVIDER_CALL_MAY_HAVE_STARTED | E-unknown | E-unknown | E-unknown | E-unknown | E-unknown | E-unknown | A: manual, legal=(), disposition=MANUAL_RECONCILIATION |
 | PROVIDER_RESULT_UNKNOWN | E-unknown | E-unknown | E-unknown | E-unknown | E-unknown | E-unknown | A: manual, legal=(), disposition=MANUAL_RECONCILIATION |
 | APPLYING | REPAIR⑥ | REPAIR⑥ | REPAIR⑥ | REPAIR⑥ | REPAIR⑥ | REPAIR⑥ | A: disposition=SAFE_AUTO_RETRY（补写后返回 STABLE 评估） |
-| RECOVERY_REQUIRED | E-recovery | E-recovery | E-recovery | E-recovery | E-recovery | E-recovery | A: manual, legal=(), disposition 按 §14 成因 |
+| RECOVERY_REQUIRED | E-recovery | E-recovery | E-recovery | E-recovery | E-recovery | E-recovery | A: manual, legal=(), phase=RECOVERY_REQUIRED, **disposition = MANUAL_RECONCILIATION**（已落盘 RECOVERY_REQUIRED 不持久化原始 §14 成因，resume 不重推导——见 §14 定案） |
 
 单元格定义：
 
@@ -1479,7 +1544,19 @@ CALL 相位不合并。
   stable=null 时补写生成首个 version=1 STABLE；后续替换既有
   stable），随后按新 STABLE 状态重新评估该动作；遇 P9 →
   PartialCommitConflictError；
-- **A**：resume 返回 ResumeAssessment；
+- **A**：resume 返回 ResumeAssessment；仅 **clean `∅`（无 record、
+  无编排痕迹、无 malformed/corrupt/filesystem/recovery conflict）**
+  返回 `phase = None`（`ResumeAssessment.phase: RecordPhase | None`，
+  §6.2 合同）；record 存在的相位行返回该 record 的具体
+  `RecordPhase`；**record 丢失但有编排痕迹（§13.5）、malformed /
+  corrupt、以及已落盘 RECOVERY_REQUIRED** 的评估返回
+  `phase = RecordPhase.RECOVERY_REQUIRED` +
+  `requires_manual_reconciliation = True`，**不**折叠为 `phase=None`；
+  `disposition` 按 **§14 `resume()` disposition 定案**：当次直接
+  观察到的 APPLYING→P9/S1/R3 为 `CONFLICT`，其余人工态
+  （malformed/corrupt、missing-with-trace、已落盘 RECOVERY_REQUIRED）
+  为 `MANUAL_RECONCILIATION`（已落盘 RECOVERY_REQUIRED 不重推导原始
+  成因）；不新增 `RecordPhase` 成员；
 - ② 幂等确认，newer observed_at 合法刷新。
 
 ### 17.3 动作 × Provider 合法返回状态（依据 TASK-003 实际契约）
@@ -2593,6 +2670,57 @@ gate open；"Step G 是 next permitted step" ≠ Step G 已获实施
 ##### 允许测试文件
 
 - create：`tests/test_orchestrator.py`
+
+##### 一次性测试维护例外（过期守卫更新，非 production ownership 扩大）
+
+除上述正式四文件（create `orchestrator.py`、`test_orchestrator.py`；
+modify `models.py`、`__init__.py`）外，Step G 一次性允许修改以下两
+个**测试**文件，**仅**用于更新因 §4.1 最终 `__init__` 公开导出而失
+效的过期测试守卫。这不扩大 Step G 的 production ownership（Step G
+production 文件仍只有本节原定四文件中的三个：`orchestrator.py`
+新建、`models.py` 与 `__init__.py` 追加；第四个原定文件
+`test_orchestrator.py` 属正式测试），不修改 Step A–F 任何技术合同，
+且**不计为额外 §22 条目**。
+
+1. `tests/test_orchestration_models.py`（仅允许）：
+   - 将最终 orchestration export 集合从 22 更新为 28（§4.1 最终集合）；
+   - 将两个明确标识为 "later step types are not exported yet" 与
+     "exports unchanged since Step A" 的过期 temporal guard，更新为
+     Step G 最终 export-lock（断言 6 个新公开符号已导出、总数 28）；
+   - **不**修改其他模型、不变量、fixture 或参数化测试。
+
+2. `tests/test_orchestration_layout.py`（仅允许）：
+   - 替换因 orchestration package `__init__` 最终公开 facade（eager
+     import `orchestrator`，进而加载 planning/recovery/instructions）
+     后失效的 package-import 隔离测试；
+   - 新测试继续锁定同一生产合同：`layout.py` 自身不得依赖被禁止的
+     orchestration data/planning/recovery/execution 模块
+     （`_models`、`recovery`、`planning`、`instructions`）；
+   - 使用 AST 检查 `layout.py` 的全部 `Import` 与 `ImportFrom` 节点
+     （含函数内部节点），并拒绝通过 `__import__` /
+     `importlib.import_module` 动态加载原测试禁止的模块；
+   - **不**改变 layout 的路径安全合同，**不**修改 `layout.py`。
+
+明确：两项均为过期测试守卫维护；不扩大 Step G production ownership；
+不修改 Step A–F 技术合同；不计入 §22 条目；Step G 正式 production
+文件仍只有本节原定四文件。
+
+##### `ResumeAssessment.phase` / `disposition` 合同（§6.2/§14/§17.2 定案引用）
+
+Step G 的 `resume()` 依据 §6.2 最终合同返回
+`ResumeAssessment.phase: RecordPhase | None`：`phase=None` **当且仅当
+clean `∅` 状态**——durable record 不存在、无任何 orchestration
+trace、且无 malformed/corrupt/filesystem/recovery conflict；record
+存在时 `phase` 必为具体 `RecordPhase`；
+missing-with-trace、malformed/corrupt、已落盘 RECOVERY_REQUIRED 一律
+返回 `phase = RecordPhase.RECOVERY_REQUIRED`（不折叠为 `None`）。
+
+`disposition` 按 **§14 `resume()` disposition 定案**：resume 当次
+直接观察到的 APPLYING→P9/S1/R3 为 `CONFLICT`；malformed/corrupt
+（E1/S0）、missing-with-trace（R1）、以及**已落盘 RECOVERY_REQUIRED
+的后续 resume** 统一为 `MANUAL_RECONCILIATION`——durable
+RECOVERY_REQUIRED 不持久化原始 §14 成因，resume 不重推导。不新增
+`RecordPhase` 成员；不改变 §4.1 导出数量（28）。
 
 ##### 必须实现
 

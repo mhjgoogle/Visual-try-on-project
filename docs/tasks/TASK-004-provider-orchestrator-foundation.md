@@ -826,27 +826,66 @@ confirmed**：
   B 44 + C 3 + D 14 + E 11 + F 20；已完成并最终确认的累计数量，
   TASK-004 尚未完成）
 
-**Step G — 公开 orchestrator facade 与端到端集成：contract
-extraction completed；implementation not started**：
+**Step G — 公开 orchestrator facade 与端到端集成：implementation
+candidate complete；temporary independent review not started**：
 
 - Step G contract extraction: **completed**（依据仓库
   §4 / §6 / §7 / §8 / §10 / §11.5 / §12 / §13 / §14 / §16.4 /
   §17 / §22 / §24 机械提取，未依赖聊天记录）
-- implementation: **not started**
-- **public `OrchestrationRecord` 字段合同缺口：已由本 docs-only
-  修订解决**（设计文档新增 §6.3，锁定 11 个精确字段、类型与
-  顺序、exists/phase 不变量、STABLE / pending call / APPLYING /
-  RECOVERY_REQUIRED 分相位不变量、stable/pending 来源优先级、
-  `to_json_dict` 固定 11 键、enum 用 value、不公开
-  fingerprint/confirmed_writes/完整 Provider payload、
-  legal_actions/preferred 归 planner/plan/resume 视图、
-  frozen/slots/unhashable/deeply defensive；最终 orchestration
-  `__all__` 仍为 28）
-- **Step G local gate: 保持关闭**（本 docs-only 修订不开始
-  Step G；只有在本修订独立提交、工作区干净后，由用户发出新的
-  明确 Step G checkpoint，才允许恢复实施）
-- 恢复实施允许条件：①本 docs-only 修订提交完成；②提交后工作区
-  干净；③用户发出新的明确 Step G checkpoint
+- **Step G implementation candidate: complete**
+- **temporary independent review: not started**
+- **contract blocker: ResumeAssessment.phase mismatch resolved by
+  this amendment**（§6.2 原写作 `RecordPhase`，§17.2 定义了 clean
+  `∅` resume 行；本修订将其定案为 `RecordPhase | None`：`phase=None`
+  **当且仅当 durable record 不存在、无任何 orchestration trace、且无
+  malformed/corrupt/filesystem/recovery conflict 的 clean `∅` 状态**，
+  record 存在时必为具体 `RecordPhase`，
+  malformed/missing-with-trace/RECOVERY_REQUIRED 不折叠为 None，不
+  新增 `RecordPhase` 成员，导出数量仍为 28——见设计文档
+  §6.2/§14/§17.2/§24 Step G）
+- **Important 2: resolved by design-authority decision B**——已落盘
+  RECOVERY_REQUIRED 的后续 resume 公开 disposition 统一为
+  `MANUAL_RECONCILIATION`；原始 §14 cause **not durably persisted
+  and not re-derived**；resume 当次直接观察到的 APPLYING→P9/S1/R3 仍
+  为 `CONFLICT`；malformed/corrupt（E1/S0）与 missing-with-trace（R1）
+  为 `MANUAL_RECONCILIATION`（production 已符合，本项仅 docs 定案，
+  未再改 production——见设计文档 §14/§17.2 row 12）
+- **Important 3: resolved by complete AST dynamic-import guard**——
+  `tests/test_orchestration_layout.py` 的 AST 守卫增强为遍历全部
+  节点并检测 `ast.Import` / `ast.ImportFrom` / `__import__` /
+  `importlib.import_module`（含别名）；非静态字符串参数保守拒绝；
+  禁止模块集合覆盖 `_models`/`recovery`/`planning`/`instructions`/
+  `executor`/`orchestrator`；不改 layout.py、不改路径安全语义
+- **Suggestion 1: resolved by clean-∅ wording correction**——设计文档
+  与任务卡的 `phase=None` 定义统一为"无 record 且无痕迹且无
+  malformed/corrupt/conflict 的 clean `∅`"
+- **public `OrchestrationRecord` 字段合同缺口**：已由前一轮
+  docs-only 修订解决（设计文档 §6.3）
+- **approved test maintenance exceptions（过期守卫更新，非
+  production ownership 扩大）**：`tests/test_orchestration_models.py`
+  （export 集合 22→28、两个过期 temporal guard 更新为 Step G
+  export-lock）与 `tests/test_orchestration_layout.py`（package-import
+  隔离测试替换为锁定同一生产合同的 AST import 检查）——见设计文档
+  §24 Step G 一次性测试维护例外；不计入 §22 条目；不修改 Step A–F
+  技术合同
+- **Step G 最终送审实现文件集合：6 个**（production：新建
+  `orchestration/orchestrator.py`、追加 `orchestration/models.py`
+  与 `orchestration/__init__.py`；tests：新建
+  `tests/test_orchestrator.py`、维护例外 `test_orchestration_models.py`
+  与 `test_orchestration_layout.py`）
+- **Step G production 文件仍只有 §24 原定四文件**
+- **Codex final review: pending**（Codex 配额受限；可先由 Claude
+  Fable 5 临时独立审查，TASK-004 最终 gate 仍待 Codex final
+  review）
+- **TASK-004 final gate: open**
+- **candidate §22 coverage: 131 / 131**（候选，未最终确认）
+- **finally confirmed §22 coverage: still 97 / 131**（Step G 的
+  34 项在 Step G 最终审查通过前不计入最终确认累计）
+- **Step G temporary review: still pending re-review**（Blocker 1 与
+  Important 1 已在授权窄范围内修复；Important 2/3 与 Suggestion 1 已按
+  本轮授权处理；待新一轮 Fable 5 只读复审）
+- **Step G: not approved, not committed**；Step G local gate 仍关闭；
+  不宣告 Step G 或 TASK-004 完成
 
 **实施顺序状态**：
 
@@ -859,7 +898,7 @@ extraction completed；implementation not started**：
 | D | 纯 planning core | completed（`172ae2b`；final post-commit review passed；finally confirmed） | —（已完成） |
 | E | `_LayoutResolver` 路径派生与安全校验 | **completed（`db5e178`；final Codex path-security review passed；high-risk gate closed；finally confirmed）** | —（已完成） |
 | F | `_FileOrchestrationExecutor`（WAL/CAS/恢复执行） | **completed（`ef038ba`；Codex final review passed；blockers 0 / important 0 / suggestions 0；high-risk gate closed；finally confirmed）** | —（已完成） |
-| G | 公开 orchestrator facade 与端到端集成 | not started；**next permitted step**；**Step G local gate closed** | ①Step F implementation commit 完成（`ef038ba`）；②**Step F Codex final review 已通过**（0/0/0）；③五个原阻塞与最终窄范围重要问题均已关闭；④Step F high-risk gate 已关闭；⑤Step F 最终完成确认；⑥本次 docs-only 最终状态同步提交完成；⑦提交后工作区干净；⑧用户发出新的明确 Step G checkpoint（全部满足） |
+| G | 公开 orchestrator facade 与端到端集成 | **implementation candidate complete；temporary independent review not started；not approved/committed；Step G local gate remains closed** | 未提交；候选实现 6 文件（production 3：`orchestrator.py`/`models.py`/`__init__.py`；tests 3：`test_orchestrator.py` + 两个过期守卫维护例外）；待临时独立审查与 Codex final review；TASK-004 未完成 |
 
 TASK-004 尚未完成；不声称全部 acceptance criteria 已实现；不声称
 131 项计划测试已全部实现。
@@ -875,8 +914,10 @@ TASK-004 尚未完成；不声称全部 acceptance criteria 已实现；不声�
 ## 当前状态
 
 implementation in progress — Steps M–F completed and finally
-confirmed — Step G not started (local gate closed; pending new
-explicit checkpoint)
+confirmed — Step G implementation candidate complete; temporary
+independent review not started; not approved, not committed; Step G
+local gate remains closed pending independent review and Codex final
+review (TASK-004 not complete)
 
 ## 尚待后续任务决定的事项
 
