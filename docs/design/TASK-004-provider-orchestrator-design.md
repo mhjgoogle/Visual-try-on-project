@@ -601,6 +601,124 @@ class ResumeAssessment:
 
 legal_actions 按 Enum 定义序确定性排列；preferred 仅为建议。
 
+### 6.3 公开 OrchestrationRecord（只读摘要快照）
+
+`OrchestrationRecord` 是 §13.0 durable envelope 的**公开只读摘要
+快照**：它是调用方友好的观测视图，**不是** durable envelope，
+**不得**用于持久化、CAS 或恢复（durable 事实来源始终是
+`records/orchestration/<task-id>.json` 的 §13.0 envelope，由
+executor 独占读写）。它每次由 orchestrator 从当前可信状态投影
+生成，携带零可变引用。
+
+**精确字段、类型与顺序（合同锁定，不得增删或改序）**：
+
+```python
+@dataclass(frozen=True, slots=True)
+class OrchestrationRecord:
+    exists: bool
+    phase: RecordPhase | None
+    task_id: str
+    shot_id: str | None
+    provider_id: str | None
+    stable_version: int | None
+    last_completed_action: OrchestrationAction | None
+    provider_status: ProviderStatus | None
+    pending_operation_id: str | None
+    pending_action: OrchestrationAction | None
+    pending_plan_id: str | None
+
+    __hash__ = None
+
+    def to_json_dict(self) -> dict[str, object]: ...
+```
+
+**身份字段来源（所有相位统一，与 exists / phase 无关）**：三个
+身份字段 `task_id` / `shot_id` / `provider_id` **一律**取自被观测
+task（`OrchestrationContext.task`，即 executor 从磁盘读取并与
+context 一致的 task），在所有相位（包括 `exists is False` 的 ∅
+初始态、首次 prepare 的 `stable=null` 分支、以及任何已提交
+STABLE / pending / APPLYING / RECOVERY_REQUIRED 相位）保持同一
+来源，不从 stable snapshot、pending 或 request 回填。`task_id`
+始终存在；`provider_id` 在首次 prepare 提交前为 `None`（§7.1：
+首次前置条件 `task.provider_id` 必须为 None），提交后与
+`request.provider_id` / `stable.provider_id` 对齐一致（§7.1 四方
+一致），故按被观测 task 取值与按 stable 取值在已提交相位必然
+相等；`shot_id` 取被观测 task 的 `shot_id`。
+
+**exists / phase 不变量**：
+
+- `exists is False` **当且仅当** task 无 orchestration record（§13.5
+  的 ∅ 无痕迹初始态）；此时 `phase is None`，且 `stable_version`、
+  `last_completed_action`、`provider_status`、三个 `pending_*`
+  字段一律为 `None`（三个身份字段仍按上文"身份字段来源"取自
+  被观测 task）；
+- `exists is True` **当且仅当** record 文件存在并通过 §13 strict
+  解析；此时 `phase` 为六个 `RecordPhase` 之一（非 `None`）。
+
+**分相位字段不变量（stable 字段与 pending 字段的来源优先级）**：
+
+- **STABLE**（`phase == RecordPhase.STABLE`）：`stable_version` =
+  `stable.version`；`last_completed_action` =
+  `stable.last_completed_action`；`provider_status` =
+  `stable.last_result_snapshot.payload.status` 对应的
+  `ProviderStatus`；三个 `pending_*` 字段一律 `None`（STABLE 无
+  pending）；
+- **pending provider call**（`phase` ∈ {PROVIDER_CALL_INTENT,
+  PROVIDER_CALL_MAY_HAVE_STARTED, PROVIDER_RESULT_UNKNOWN}）：
+  `stable_version` / `last_completed_action` / `provider_status`
+  取所携带既有 stable 的对应值（三相位一律要求 stable，§13.0）；
+  `pending_operation_id` = `pending.operation_id`；`pending_action`
+  = `pending.action`；`pending_plan_id` = `None`（provider-call
+  variant 无 plan_id）；
+- **APPLYING**（`phase == RecordPhase.APPLYING`）：stable 字段取既有
+  stable 的对应值，若为首次 prepare 的 `stable=null` 分支则三个
+  stable 字段均为 `None`；`pending_operation_id` =
+  `pending.operation_id`；`pending_action` = `pending.action`；
+  `pending_plan_id` = `pending.plan_id`（apply variant 有 plan_id）；
+- **RECOVERY_REQUIRED**（`phase == RecordPhase.RECOVERY_REQUIRED`）：
+  stable 字段取所保留 stable 的对应值（`stable=null` 分支则为
+  `None`）；`pending_*` 字段按所保留 pending 的 variant 投影
+  （provider-call variant → `pending_plan_id is None`；apply
+  variant → `pending_plan_id = pending.plan_id`；无 pending → 三个
+  `pending_*` 均为 `None`）。
+
+**来源优先级总则**：stable 字段一律来自 envelope 的 stable
+snapshot（§13.1），pending 字段一律来自 envelope 的 pending
+（§11.2 / §11.3）；二者是并列的事实来源，投影时不合并、不互相
+回填。
+
+**`to_json_dict` 契约**：固定输出恰好 **11 个键**（与上述 11 个
+字段一一对应，键名等于字段名）；所有 enum 输出其 `.value`
+字符串（`phase` / `last_completed_action` / `provider_status` /
+`pending_action`）；`None` 原样输出为 JSON `null`；不含任何其他
+键。
+
+**边界（明确不公开）**：`OrchestrationRecord` **不**公开任何
+fingerprint（stable 自指纹、committed/ before fingerprints、
+request/result/instruction fingerprint 等）、`confirmed_writes`、
+完整 Provider payload（request / result / instruction / artifact
+snapshot）、planned stable wrapper 或任何 durable internal 结构。
+`legal_actions` 与 `preferred_next_action` 属于 planner / 公开
+plan / resume 的导航视图（§6.2 `OrchestrationOutcome`、
+`ResumeAssessment`、§10.2 `OrchestrationPlan`），**不属于**
+`OrchestrationRecord`，不在其字段内重复。
+
+**不可变性**：`OrchestrationRecord` 为 `frozen=True, slots=True`、
+`__hash__ = None`（unhashable），深度防御复制、不保存调用方或
+durable 层的可变引用（§10.1 统一冻结策略）。
+
+**导出计数不变**：`OrchestrationRecord` 已在 §4.1 公开清单内，本
+补充只定义其字段合同，不改变最终 orchestration `__all__` 数量
+（仍为 **28**：18 错误名 + 4 Enum + `ProviderOrchestrator` +
+`OrchestrationContext` / `OrchestrationOutcome` /
+`OrchestrationPlan` / `ResumeAssessment` / `OrchestrationRecord`
+共 6 个新增公开符号）。
+
+**§22 条目 2 / 5 / 6 的可测试合同**：本合同为条目 2（公开导出
+集合精确）、条目 5（公开 snapshot 防御复制）、条目 6（新增模型
+frozen / slots / `__hash__ = None` 契约全量收口）提供
+`OrchestrationRecord` 的唯一可测试字段与不变量基准。
+
 ## 7. 身份规则
 
 ### 7.1 provider_id 对齐

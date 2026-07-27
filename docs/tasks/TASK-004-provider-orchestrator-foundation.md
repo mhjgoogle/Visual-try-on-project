@@ -826,6 +826,28 @@ confirmed**：
   B 44 + C 3 + D 14 + E 11 + F 20；已完成并最终确认的累计数量，
   TASK-004 尚未完成）
 
+**Step G — 公开 orchestrator facade 与端到端集成：contract
+extraction completed；implementation not started**：
+
+- Step G contract extraction: **completed**（依据仓库
+  §4 / §6 / §7 / §8 / §10 / §11.5 / §12 / §13 / §14 / §16.4 /
+  §17 / §22 / §24 机械提取，未依赖聊天记录）
+- implementation: **not started**
+- **public `OrchestrationRecord` 字段合同缺口：已由本 docs-only
+  修订解决**（设计文档新增 §6.3，锁定 11 个精确字段、类型与
+  顺序、exists/phase 不变量、STABLE / pending call / APPLYING /
+  RECOVERY_REQUIRED 分相位不变量、stable/pending 来源优先级、
+  `to_json_dict` 固定 11 键、enum 用 value、不公开
+  fingerprint/confirmed_writes/完整 Provider payload、
+  legal_actions/preferred 归 planner/plan/resume 视图、
+  frozen/slots/unhashable/deeply defensive；最终 orchestration
+  `__all__` 仍为 28）
+- **Step G local gate: 保持关闭**（本 docs-only 修订不开始
+  Step G；只有在本修订独立提交、工作区干净后，由用户发出新的
+  明确 Step G checkpoint，才允许恢复实施）
+- 恢复实施允许条件：①本 docs-only 修订提交完成；②提交后工作区
+  干净；③用户发出新的明确 Step G checkpoint
+
 **实施顺序状态**：
 
 | Step | 正式名称（§24） | 状态 | 允许开始条件 |
