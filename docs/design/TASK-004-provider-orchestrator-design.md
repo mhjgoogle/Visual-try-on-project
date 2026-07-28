@@ -1,12 +1,12 @@
 # TASK-004 设计文档：Provider Orchestrator 契约与基础编排
 
-- Status: approved — implementation complete through Step G;
-  Codex final review of Step G returned 3 blockers + 1 important,
-  resolved by the hardening fix (`5b100c7`) and the REPAIR⑥
-  repair-then-revalidate docs clarification (`dc91f85`); Step G
-  temporary independent review (Claude Fable 5) passed twice; Codex
-  final review of the fix pending; TASK-004 final gate open (Step G
-  final acceptance and TASK-004 completion not declared)
+- Status: completed — implementation complete through Step G; Codex
+  final independent review passed (0 blockers / 0 important); Step G
+  §22 34/34 and TASK-004 §22 131/131 finally confirmed; public
+  orchestration exports 28; TASK-004 final gate closed and TASK-004
+  completion declared (2026-07-29). M1 (TASK-005 → TASK-006 →
+  TASK-007) authorized; the approved technical contract below is
+  unchanged by this status update.
 - Revision: r6（自包含版本；关闭 r5 复审的 3 个阻塞与 1 个重要
   问题；不依赖任何历史草案或聊天记录）+ 实施顺序补充（§24，
   docs-only，Codex 第三次复审通过）

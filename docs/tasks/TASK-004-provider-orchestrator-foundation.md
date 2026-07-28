@@ -1006,22 +1006,35 @@ expectation tables. The mapping of the 7-blocker + 1-important round is
 in the report §12. Code files: `orchestration/orchestrator.py`,
 `tests/test_orchestrator.py`.
 
+## TASK-004 最终验收（2026-07-29，Codex final independent review passed）
+
+Codex final independent review 通过：blockers 0 / important 0。
+Step G 及 TASK-004 整体最终验收确认：
+
+- Step M / A / B / C / D / E / F / G 全部完成并最终确认；
+- Step G Codex final review: **passed**（final independent review）；
+- blockers / important: **0 / 0**；
+- Step G finally confirmed §22: **34 / 34**；
+- TASK-004 finally confirmed cumulative §22: **131 / 131**；
+- public orchestration exports: **28**；
+- `ProviderOrchestrator` facade 完成；WAL/CAS/recovery/Provider-call
+  ordering 完成；完整 §13.2 S1 committed-state validation 完成；
+  13×7=91 admission matrix 完成；resume 全 13 状态合同完成；
+- TASK-004 **不**承担 bootstrap、asset registration、composition 或
+  CLI（归 M1 的 TASK-005/006/007）；
+- final QA（本轮实际）: full pytest **1699 passed**；`ruff format
+  --check` 66 files already formatted；`ruff check` All checks passed；
+  `git diff --check` clean；worktree clean；
+- **TASK-004 final gate: closed**；**TASK-004 completion: declared**；
+- M1 contracts: approved；next milestone: TASK-005 → TASK-006 →
+  TASK-007 batch implementation。
+
 ## 当前状态
 
-implementation complete through Step G — Steps M–F completed and
-finally confirmed; Step G implementation committed (`accd743`); Codex
-final review returned 3 blockers + 1 important, resolved by the
-hardening fix (`5b100c7`) and the REPAIR⑥ repair-then-revalidate docs
-clarification (`dc91f85`); a further combined re-review fix round
-(2026-07-28) centralized the committed-state S1 verifier on the
-executor and fixed the resume validation order (report §11); a final
-combined-review round then fixed the exact S1 ordering (S1 before
-instruction carry-over), ran S1 before the unknown-side-effect error
-and for a RECOVERY_REQUIRED resume, tightened §22 62/63/87/116 to exact
-tables, and closed the M1 lifecycle / bootstrap-redo /
-CompositionPublishIntent contracts (report §12); the Codex final
-combined review is still pending; TASK-004 final gate open; Step G final
-acceptance not yet confirmed; TASK-004 completion not declared
+completed — Step G finally confirmed by Codex final independent review
+(0 blockers / 0 important); TASK-004 §22 131/131 finally confirmed;
+final gate closed; TASK-004 completion declared; M1
+(TASK-005 → TASK-006 → TASK-007) authorized
 
 ## 尚待后续任务决定的事项
 
