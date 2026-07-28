@@ -36,7 +36,6 @@ from ai_video_workflow.orchestration import (
     RecordPhase,
     RecoveryDisposition,
     ResumeAssessment,
-    StaleResultError,
     UnknownProviderSideEffectError,
 )
 from ai_video_workflow.orchestration.executor import _FileOrchestrationExecutor
@@ -815,19 +814,25 @@ class TestDurableCallOrdering:
         assert after["stable"]["payload"]["version"] == baseline_version + 1
 
     def test_direct_path_to_applying_boundary(self, project, monkeypatch) -> None:
-        # entry 62: a direct-path call (poll on a WAITING_FOR_USER baseline)
-        # returns a Provider result, the planner produces an executable plan,
-        # the durable APPLYING intent lands, and then a crash is injected
-        # BEFORE the business files are written. The record is genuinely
-        # APPLYING, the Provider was called exactly once, and a subsequent
-        # resume performs only the LOCAL fingerprint-authoritative recovery —
-        # it never calls the Provider again.
+        # entry 62 (crash point C): a direct-path call (poll on a
+        # WAITING_FOR_USER baseline) returns a Provider result, the planner
+        # produces an executable plan, the durable APPLYING intent lands, and a
+        # crash is injected BEFORE the business files are written. The record is
+        # genuinely APPLYING, the Provider was called exactly once, and a
+        # subsequent resume performs only the LOCAL fingerprint-authoritative
+        # recovery (Provider not re-called), landing the exact planned STABLE.
+        from ai_video_workflow.orchestration.recovery import (
+            _restore_generation_task,
+            _restore_step_manifest,
+        )
+
         # a genuine manual submit yields a WAITING_FOR_USER stable with no
         # external_task_ref, so the subsequent manual poll is valid.
         _prepare(project)
         ProviderOrchestrator(ManualVideoProvider()).submit(
             _ctx(project), operation_id="op-s", observed_at=_t(11)
         )
+        assert _record_json(project)["phase"] == "stable"  # initial phase
         spy = _RecordingProvider()
 
         def _boom_apply_all(self, *a, **k):
@@ -838,8 +843,19 @@ class TestDurableCallOrdering:
             ProviderOrchestrator(spy).poll(
                 _ctx(project), operation_id="op-poll", observed_at=_t(12)
             )
-        assert spy.count("poll") == 1
+        assert spy.count("poll") == 1  # Provider called exactly once
+        # the durable APPLYING intent is landed; capture the planned after-state
+        pending = (
+            _FileOrchestrationExecutor(project)
+            .read_project_state("task-1")
+            .record.pending
+        )
+        expected_task = _restore_generation_task(pending.task_after_snapshot)
+        expected_manifest = _restore_step_manifest(pending.manifest_after_snapshot)
+        expected_instruction_fp = pending.instruction_after_fingerprint
+        expected_version = pending.baseline_version + 1
         assert _record_json(project)["phase"] == "applying"
+
         # local recovery re-drives APPLYING -> STABLE and calls no Provider
         monkeypatch.undo()
         resume_spy = _RecordingProvider()
@@ -847,32 +863,62 @@ class TestDurableCallOrdering:
         assert a.phase is RecordPhase.STABLE
         assert a.disposition is RecoveryDisposition.SAFE_AUTO_RETRY
         assert resume_spy.total == 0
-        assert _record_json(project)["phase"] == "stable"
+
+        # field-level: the recovered files equal the executable plan's
+        # after-state, the record is the exact planned STABLE, and the
+        # committed fingerprints match the actual files (verify does not raise).
+        executor = _FileOrchestrationExecutor(project)
+        obs = executor.read_project_state("task-1")
+        assert obs.record.phase is RecordPhase.STABLE
+        assert obs.record.stable.version == expected_version
+        assert obs.task == expected_task
+        assert obs.manifest == expected_manifest
+        assert obs.instruction_fingerprint == expected_instruction_fp
+        executor.verify_committed_state(obs.record.stable, obs)
 
     def test_direct_path_crash_before_provider_is_safe_to_retry(
         self, project
-    ) -> None:  # entry 63 (crash point 1: before the Provider call)
+    ) -> None:  # entry 63 (crash point A: a real pre-call validation failure)
+        # A genuine pre-call validation failure (a stale caller context whose
+        # snapshot no longer matches disk) — NOT a Provider spy exception —
+        # rejects before the Provider call. Disk still equals the committed
+        # baseline, so re-reading a fresh context is a safe retry.
+        _prepare(project)  # v1 not_submitted
+        stale_context = _ctx(project)  # captures the v1 task snapshot
+        ProviderOrchestrator(ManualVideoProvider()).submit(
+            _ctx(project), operation_id="op-s", observed_at=_t(11)
+        )  # v2 waiting; the on-disk task advances past the stale snapshot
+        before = _record_json(project)
+        assert before["phase"] == "stable"  # initial phase
         spy = _RecordingProvider()
-        spy.raises["prepare"] = ProviderOperationError("transient")
-        orch = ProviderOrchestrator(spy)
-        with pytest.raises(ProviderOperationError):
-            orch.prepare(_ctx(project), operation_id="op-1", observed_at=_t(9))
-        # ∅ direct path: no record was ever created, so a clean retry succeeds
-        assert not (project / "records/orchestration/task-1.json").exists()
-        ok = ProviderOrchestrator(ManualVideoProvider()).prepare(
-            _ctx(project), operation_id="op-1", observed_at=_t(9)
+        with pytest.raises(InvalidOrchestrationInputError):
+            ProviderOrchestrator(spy).poll(
+                stale_context, operation_id="op-poll", observed_at=_t(12)
+            )
+        assert spy.total == 0  # Provider not called
+        assert _record_json(project) == before  # final phase == initial; no WAL
+        # resume of the clean committed state (fresh context) is a normal NONE
+        assess = ProviderOrchestrator(_RecordingProvider()).resume(_ctx(project))
+        assert assess.phase is RecordPhase.STABLE
+        assert assess.disposition is RecoveryDisposition.NONE
+        # repeated invocation with a corrected (fresh) context is safe
+        ok = ProviderOrchestrator(ManualVideoProvider()).poll(
+            _ctx(project), operation_id="op-poll-2", observed_at=_t(13)
         )
         assert ok.kind is OutcomeKind.APPLIED
 
     def test_direct_path_crash_after_provider_before_apply_intent_is_safe(
         self, project, monkeypatch
-    ) -> None:  # entry 63 (crash point 2: after the Provider, before apply)
+    ) -> None:  # entry 63 (crash point B: after the Provider, before apply)
         # manual-pollable WAITING_FOR_USER stable (no external_task_ref)
         _prepare(project)
         ProviderOrchestrator(ManualVideoProvider()).submit(
             _ctx(project), operation_id="op-s", observed_at=_t(11)
         )
         before = _record_json(project)
+        assert before["phase"] == "stable"  # initial phase
+        task_before = (project / "records/generation-tasks/task-1.json").read_bytes()
+        manifest_before = (project / "manifests/generation-task-1.json").read_bytes()
         spy = _RecordingProvider()
 
         def _boom_write_apply_intent(self, *a, **k):
@@ -885,11 +931,22 @@ class TestDurableCallOrdering:
             ProviderOrchestrator(spy).poll(
                 _ctx(project), operation_id="op-poll", observed_at=_t(12)
             )
-        # the Provider was called once, but no durable state changed at all,
-        # so the record is byte-identical and a clean retry is safe
+        # Provider called once; no durable state changed at all (record and
+        # business files byte-identical) -> final phase == initial
         assert spy.count("poll") == 1
         assert _record_json(project) == before
+        assert (
+            project / "records/generation-tasks/task-1.json"
+        ).read_bytes() == task_before
+        assert (
+            project / "manifests/generation-task-1.json"
+        ).read_bytes() == manifest_before
         monkeypatch.undo()
+        # resume finds a clean STABLE (no WAL was landed) -> NONE
+        assess = ProviderOrchestrator(_RecordingProvider()).resume(_ctx(project))
+        assert assess.phase is RecordPhase.STABLE
+        assert assess.disposition is RecoveryDisposition.NONE
+        # repeated invocation is safe (a fresh direct poll applies)
         ok = ProviderOrchestrator(ManualVideoProvider()).poll(
             _ctx(project), operation_id="op-poll-2", observed_at=_t(13)
         )
@@ -1312,6 +1369,68 @@ def _business_snapshot(root):
     }
 
 
+def _state_dir_snapshot(root):
+    """Snapshot the four durable state files (record + business) as bytes."""
+    rels = ("records/orchestration/task-1.json", *_MATRIX_BUSINESS_FILES)
+    return {
+        rel: (root / rel).read_bytes() if (root / rel).exists() else None
+        for rel in rels
+    }
+
+
+def _cell_expectation(state, action, category):
+    """Return the single exact expectation for one §17.2 admission cell.
+
+    Tuple: (exception_class_or_None, outcome_kind_or_"assessment"_or_None,
+    provider_call_count, final_durable_phase, business_files_mutate). There
+    is exactly one expected result per cell — no tolerant alternatives.
+    """
+    initial_phase = _EXPECTED_INITIAL_PHASE[state]
+    if category == "e_state":
+        return (InvalidOrchestrationStateError, None, 0, initial_phase, False)
+    if category == "e_unknown":
+        return (UnknownProviderSideEffectError, None, 0, initial_phase, False)
+    if category == "idem_conflict":
+        return (IdempotencyConflictError, None, 0, initial_phase, False)
+    if category == "noop":
+        return (None, OutcomeKind.NO_OP, 0, initial_phase, False)
+    if category == "assessment":
+        # resume: APPLYING auto-repairs to STABLE (record + business mutate);
+        # every other state is a report-only assessment (no mutation).
+        if state is RecordPhase.APPLYING:
+            return (None, "assessment", 0, "stable", True)
+        return (None, "assessment", 0, initial_phase, False)
+    if category == "repair_stale":
+        # APPLYING + non-resume: local recovery lands STABLE (business mutates)
+        # then the now-stale original context is rejected (§17.2 REPAIR + §9).
+        return (InvalidOrchestrationInputError, None, 0, "stable", True)
+    if category == "e_recovery":
+        # RECOVERY_REQUIRED (P9 origin) + non-resume: recover re-classifies the
+        # P9 and re-lands RECOVERY_REQUIRED, raising PartialCommitConflictError;
+        # the business files (in the drifted third state) are not applied.
+        return (PartialCommitConflictError, None, 0, "recovery_required", False)
+    if category == "call":
+        if (state, action) in _INTENT_CALL_CELLS:
+            # pre-call WAL path: the tripwire crash lands RESULT_UNKNOWN
+            return (
+                UnknownProviderSideEffectError,
+                None,
+                1,
+                "provider_result_unknown",
+                False,
+            )
+        # direct path: the tripwire raises before any write
+        return (_ReachedProvider, None, 1, initial_phase, False)
+    if category == "replay":
+        if state in _NON_TERMINAL_STABLE:
+            return (None, OutcomeKind.APPLIED, 0, "stable", True)
+        # terminal (succeeded / failed / cancelled): the matrix replays a
+        # SUCCEEDED@t15 result that differs from the seeded committed result,
+        # so it is a conflicting terminal replay (§17.2④), never a match.
+        return (ConflictingProviderResultError, None, 0, "stable", False)
+    raise AssertionError(f"unclassified cell category: {category}")
+
+
 class TestAdmissionMatrix:
     """§22 87: full §17.2 admission matrix, 13 states x 7 actions = 91.
 
@@ -1336,90 +1455,31 @@ class TestAdmissionMatrix:
         tripwire = _TripwireProvider()
         orch = ProviderOrchestrator(tripwire)
 
+        # exactly one expectation per cell (no tolerant alternatives):
+        exc, kind, calls, final_phase, business_mutates = _cell_expectation(
+            state, action, category
+        )
+
         # (initial) the setup landed the durable phase/state this cell claims
-        initial_phase = _record_phase_or_none(root)
-        assert initial_phase == _EXPECTED_INITIAL_PHASE[state]
+        assert _record_phase_or_none(root) == _EXPECTED_INITIAL_PHASE[state]
         before_business = _business_snapshot(root)
 
-        if category == "call":
-            # routing reaches the provider (direct path raises _ReachedProvider;
-            # the intent path converts it to UnknownProviderSideEffectError)
-            with pytest.raises((_ReachedProvider, UnknownProviderSideEffectError)):
+        # (public entry + exact outcome / exception)
+        if exc is not None:
+            with pytest.raises(exc):
                 _matrix_invoke(orch, root, action)
-            assert len(tripwire.calls) == 1
-        elif category == "e_state":
-            with pytest.raises(InvalidOrchestrationStateError):
-                _matrix_invoke(orch, root, action)
-            assert len(tripwire.calls) == 0
-        elif category == "noop":
-            out = _matrix_invoke(orch, root, action)
-            assert out.kind is OutcomeKind.NO_OP
-            assert len(tripwire.calls) == 0
-        elif category == "replay":
-            # replay never calls the Provider; on a terminal state a
-            # non-matching replay is a ConflictingProviderResultError (§17.2④),
-            # on a non-terminal state it applies. Either way: zero calls.
-            try:
-                _matrix_invoke(orch, root, action)
-            except (
-                ConflictingProviderResultError,
-                StaleResultError,
-            ):
-                pass
-            assert len(tripwire.calls) == 0
-        elif category == "e_unknown":
-            with pytest.raises(UnknownProviderSideEffectError):
-                _matrix_invoke(orch, root, action)
-            assert len(tripwire.calls) == 0
-        elif category == "idem_conflict":
-            with pytest.raises(IdempotencyConflictError):
-                _matrix_invoke(orch, root, action)
-            assert len(tripwire.calls) == 0
-        elif category == "repair_stale":
-            # an action on APPLYING first auto-repairs to STABLE, then rejects
-            # the now-stale caller context (§17.2 REPAIR + §9); the provider is
-            # never called and the durable record has advanced to STABLE.
-            with pytest.raises(InvalidOrchestrationInputError):
-                _matrix_invoke(orch, root, action)
-            assert len(tripwire.calls) == 0
-            assert _record_json(root)["phase"] == "stable"
-        elif category == "e_recovery":
-            with pytest.raises(
-                (PartialCommitConflictError, InvalidOrchestrationStateError)
-            ):
-                _matrix_invoke(orch, root, action)
-            assert len(tripwire.calls) == 0
-        else:  # assessment (resume over every one of the 13 states)
-            a = _matrix_invoke(orch, root, action)
-            assert isinstance(a, ResumeAssessment)
-            assert len(tripwire.calls) == 0
-
-        # (final durable phase) computed from the cell's category + state
-        final_phase = _record_phase_or_none(root)
-        if category == "call" and (state, action) in _INTENT_CALL_CELLS:
-            assert final_phase == "provider_result_unknown"
-        elif category == "repair_stale":
-            assert final_phase == "stable"
-        elif category == "assessment" and state is RecordPhase.APPLYING:
-            assert final_phase == "stable"
+        elif kind == "assessment":
+            assert isinstance(_matrix_invoke(orch, root, action), ResumeAssessment)
         else:
-            assert final_phase == initial_phase
+            assert _matrix_invoke(orch, root, action).kind is kind
 
-        # (filesystem mutation) the business state files change ONLY when an
-        # apply commits: a replay onto a non-terminal STABLE state, an APPLYING
-        # auto-repair (resume), or a repair_stale re-drive. Under the tripwire
-        # Provider no "call" cell ever commits business files. e_recovery is
-        # excluded (a second recover over RECOVERY_REQUIRED is left unspecified
-        # here).
-        if category != "e_recovery":
-            after_business = _business_snapshot(root)
-            business_changed = after_business != before_business
-            expected_business_change = (
-                (category == "replay" and state in _NON_TERMINAL_STABLE)
-                or category == "repair_stale"
-                or (category == "assessment" and state is RecordPhase.APPLYING)
-            )
-            assert business_changed is expected_business_change
+        # (exact Provider call count)
+        assert len(tripwire.calls) == calls
+        # (exact final durable phase)
+        assert _record_phase_or_none(root) == final_phase
+        # (exact filesystem mutation of the business state files) — asserted for
+        # every cell, e_recovery included
+        assert (_business_snapshot(root) != before_business) is business_mutates
 
     def test_matrix_locks_all_91_cells(self) -> None:
         assert len(_MATRIX_STATES) == 13
@@ -1648,9 +1708,11 @@ class TestEndToEndAndResume:
         assert _record_json(project)["phase"] == "recovery_required"
 
         # Phase 2: a subsequent resume over the ALREADY-landed
-        # RECOVERY_REQUIRED reports the uniform MANUAL_RECONCILIATION — the
-        # original §14 cause is not persisted and is not re-derived
-        # (design-authority decision B). Zero Provider calls, zero mutation.
+        # RECOVERY_REQUIRED does NOT skip S1 (§1). The committed files are
+        # still drifted (the "ghost" task was never restored), so S1 fails and
+        # the assessment is CONFLICT — a current observation of drift, not a
+        # re-derivation of the original §14 cause. Report-only: zero Provider
+        # calls, zero durable mutation.
         record_bytes = (project / "records/orchestration/task-1.json").read_bytes()
         task_bytes = (project / "records/generation-tasks/task-1.json").read_bytes()
         manifest_bytes = (project / "manifests/generation-task-1.json").read_bytes()
@@ -1659,7 +1721,7 @@ class TestEndToEndAndResume:
         b = ProviderOrchestrator(spy).resume(_ctx(project))
         assert b.phase is RecordPhase.RECOVERY_REQUIRED
         assert b.requires_manual_reconciliation is True
-        assert b.disposition is RecoveryDisposition.MANUAL_RECONCILIATION
+        assert b.disposition is RecoveryDisposition.CONFLICT
         assert spy.total == 0
         assert (
             project / "records/orchestration/task-1.json"
@@ -1671,6 +1733,30 @@ class TestEndToEndAndResume:
             project / "manifests/generation-task-1.json"
         ).read_bytes() == manifest_bytes
         assert (project / "tasks/instructions/task-1.md").read_bytes() == instr_bytes
+
+    def test_resume_recovery_required_matching_committed_is_manual(
+        self, project
+    ) -> None:  # 116 RECOVERY_REQUIRED with clean committed files
+        # A RECOVERY_REQUIRED landed from an unknown-side-effect provider call
+        # (MAY_HAVE_STARTED) leaves the committed files intact. §1 still runs
+        # S1 first; S1 passes, so the assessment is the uniform
+        # MANUAL_RECONCILIATION. Zero Provider calls, zero mutation; a repeated
+        # resume is identical.
+        _land_call_phase(project, RecordPhase.PROVIDER_CALL_MAY_HAVE_STARTED)
+        with pytest.raises(UnknownProviderSideEffectError):
+            _FileOrchestrationExecutor(project).recover("task-1")
+        assert _record_json(project)["phase"] == "recovery_required"
+        before = _record_json(project)
+        spy = _RecordingProvider()
+        a = ProviderOrchestrator(spy).resume(_ctx(project))
+        assert a.phase is RecordPhase.RECOVERY_REQUIRED
+        assert a.disposition is RecoveryDisposition.MANUAL_RECONCILIATION
+        assert a.requires_manual_reconciliation is True
+        assert spy.total == 0
+        assert _record_json(project) == before
+        b = ProviderOrchestrator(_RecordingProvider()).resume(_ctx(project))
+        assert b.disposition is RecoveryDisposition.MANUAL_RECONCILIATION
+        assert _record_json(project) == before
 
     def test_resume_missing_record_with_trace_is_manual(self, project) -> None:  # 116
         _prepare(project)
@@ -1694,6 +1780,194 @@ class TestEndToEndAndResume:
         spy = _RecordingProvider()
         ProviderOrchestrator(spy).resume(_ctx(project))
         assert spy.total == 0
+
+
+# ===========================================================================
+# §22 116: exact resume assessment table for every formal state
+# ===========================================================================
+
+_A = OrchestrationAction
+_RP = RecordPhase
+_RD = RecoveryDisposition
+
+
+def _setup_resume_state(project, name) -> None:
+    if name == "empty":
+        return
+    stable_states = {
+        "stable_not_submitted": ProviderStatus.NOT_SUBMITTED,
+        "stable_waiting": ProviderStatus.WAITING_FOR_USER,
+        "stable_processing": ProviderStatus.PROCESSING,
+        "stable_artifact_available": ProviderStatus.ARTIFACT_AVAILABLE,
+        "stable_succeeded": ProviderStatus.SUCCEEDED,
+        "stable_failed": ProviderStatus.FAILED,
+        "stable_cancelled": ProviderStatus.CANCELLED,
+    }
+    if name in stable_states:
+        _seed_status(project, stable_states[name])
+        return
+    if name == "intent":
+        _land_call_phase(project, _RP.PROVIDER_CALL_INTENT)
+        return
+    if name == "may_have_started":
+        _land_call_phase(project, _RP.PROVIDER_CALL_MAY_HAVE_STARTED)
+        return
+    if name == "result_unknown":
+        _land_call_phase(project, _RP.PROVIDER_RESULT_UNKNOWN)
+        return
+    if name == "recovery_required_matching":
+        _land_call_phase(project, _RP.PROVIDER_CALL_MAY_HAVE_STARTED)
+        with pytest.raises(UnknownProviderSideEffectError):
+            _FileOrchestrationExecutor(project).recover("task-1")
+        return
+    if name == "malformed":
+        _seed_status(project, ProviderStatus.WAITING_FOR_USER)
+        (project / "records/orchestration/task-1.json").write_bytes(b'{"bad": 1}')
+        return
+    if name == "missing_with_trace":
+        _prepare(project)
+        (project / "records/orchestration/task-1.json").unlink()
+        return
+    raise AssertionError(name)
+
+
+# name -> (phase, disposition, legal_actions, preferred, requires_manual, terminal)
+_RESUME_TABLE = {
+    "empty": (None, _RD.NONE, (_A.PREPARE,), _A.PREPARE, False, False),
+    "stable_not_submitted": (
+        _RP.STABLE,
+        _RD.NONE,
+        (_A.SUBMIT,),
+        _A.SUBMIT,
+        False,
+        False,
+    ),
+    "stable_waiting": (
+        _RP.STABLE,
+        _RD.NONE,
+        (_A.POLL, _A.REPORT_ARTIFACT, _A.COLLECT),
+        _A.POLL,
+        False,
+        False,
+    ),
+    "stable_processing": (
+        _RP.STABLE,
+        _RD.NONE,
+        (_A.POLL, _A.REPORT_ARTIFACT),
+        _A.POLL,
+        False,
+        False,
+    ),
+    "stable_artifact_available": (
+        _RP.STABLE,
+        _RD.NONE,
+        (_A.POLL, _A.REPORT_ARTIFACT, _A.COLLECT),
+        _A.COLLECT,
+        False,
+        False,
+    ),
+    "stable_succeeded": (_RP.STABLE, _RD.NONE, (), None, False, True),
+    "stable_failed": (_RP.STABLE, _RD.NONE, (), None, False, True),
+    "stable_cancelled": (_RP.STABLE, _RD.NONE, (), None, False, True),
+    "intent": (
+        _RP.PROVIDER_CALL_INTENT,
+        _RD.SAFE_AUTO_RETRY,
+        (_A.COLLECT,),
+        _A.COLLECT,
+        False,
+        False,
+    ),
+    "may_have_started": (
+        _RP.PROVIDER_CALL_MAY_HAVE_STARTED,
+        _RD.MANUAL_RECONCILIATION,
+        (),
+        None,
+        True,
+        False,
+    ),
+    "result_unknown": (
+        _RP.PROVIDER_RESULT_UNKNOWN,
+        _RD.MANUAL_RECONCILIATION,
+        (),
+        None,
+        True,
+        False,
+    ),
+    "recovery_required_matching": (
+        _RP.RECOVERY_REQUIRED,
+        _RD.MANUAL_RECONCILIATION,
+        (),
+        None,
+        True,
+        False,
+    ),
+    "malformed": (
+        _RP.RECOVERY_REQUIRED,
+        _RD.MANUAL_RECONCILIATION,
+        (),
+        None,
+        True,
+        False,
+    ),
+    "missing_with_trace": (
+        _RP.RECOVERY_REQUIRED,
+        _RD.MANUAL_RECONCILIATION,
+        (),
+        None,
+        True,
+        False,
+    ),
+}
+
+
+class TestResumeExactTable:
+    """§22 116: one exact assessment per formal resumable state.
+
+    Every report-only state (every state except APPLYING, whose resume
+    auto-repairs and is locked separately) is asserted through the public
+    resume() on the full field set — phase, disposition, legal_actions,
+    preferred_next_action, requires_manual_reconciliation, is_terminal —
+    plus zero Provider calls, no durable mutation, and a byte-identical
+    repeated resume. ResumeAssessment carries no message field; the CLI
+    diagnostic is derived from exactly these fields.
+    """
+
+    @pytest.mark.parametrize("name", list(_RESUME_TABLE))
+    def test_resume_state(self, project, name) -> None:
+        _setup_resume_state(project, name)
+        phase, disp, legal, preferred, manual, terminal = _RESUME_TABLE[name]
+        before = _state_dir_snapshot(project)
+
+        spy = _RecordingProvider()
+        a = ProviderOrchestrator(spy).resume(_ctx(project))
+        assert a.phase is phase
+        assert a.disposition is disp
+        assert a.legal_actions == legal
+        assert a.preferred_next_action is preferred
+        assert a.requires_manual_reconciliation is manual
+        assert a.is_terminal is terminal
+        assert spy.total == 0
+        # report-only: zero durable mutation
+        assert _state_dir_snapshot(project) == before
+        # repeated resume is byte-identical in state and returns the same fields
+        b = ProviderOrchestrator(_RecordingProvider()).resume(_ctx(project))
+        assert (
+            b.phase is phase
+            and b.disposition is disp
+            and b.legal_actions == legal
+            and b.preferred_next_action is preferred
+            and b.requires_manual_reconciliation is manual
+            and b.is_terminal is terminal
+        )
+        assert _state_dir_snapshot(project) == before
+
+    def test_resume_table_covers_every_formal_state(self) -> None:
+        # empty (1) + 7 STABLE provider statuses (8) + INTENT (9) +
+        # MAY_HAVE_STARTED (10) + RESULT_UNKNOWN (11) + RECOVERY_REQUIRED (12)
+        # + malformed (13) + missing-with-trace (14) = 14 report-only rows.
+        # APPLYING is locked separately in test_resume_applying_auto_repairs
+        # (it mutates via auto-repair, so it is not a report-only row here).
+        assert len(_RESUME_TABLE) == 14
 
 
 # ===========================================================================
@@ -1878,14 +2152,17 @@ class TestPreCallValidation:
             )
         assert spy.total == 0
 
-    def test_instruction_carry_over_drift_rejected_before_call(self, project) -> None:
+    def test_instruction_bytes_drift_is_s1_conflict_before_call(self, project) -> None:
+        # §1: the S1 committed-state verifier runs BEFORE the instruction
+        # carry-over check, so an externally drifted instruction file is a
+        # PartialCommitConflictError (not an InvalidOrchestrationInputError),
+        # with zero Provider calls and no WAL write.
         _seed_status(project, ProviderStatus.WAITING_FOR_USER)
-        # the committed instruction file drifted externally
         (project / "tasks/instructions/task-1.md").write_bytes(
             b"# externally replaced instruction\n"
         )
         spy = _RecordingProvider()
-        with pytest.raises(InvalidOrchestrationInputError):
+        with pytest.raises(PartialCommitConflictError):
             ProviderOrchestrator(spy).collect(
                 _ctx(project),
                 operation_id="op-a",
@@ -1893,6 +2170,7 @@ class TestPreCallValidation:
                 artifact=ARTIFACT,
             )
         assert spy.total == 0
+        assert _record_json(project)["phase"] == "stable"
 
     def test_invalid_context_reaches_provider_zero_times_for_intent_path(
         self, project

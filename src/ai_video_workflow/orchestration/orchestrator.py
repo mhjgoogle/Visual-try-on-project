@@ -277,9 +277,21 @@ class ProviderOrchestrator:
         # that is neither before nor after is §14 P9 -> CONFLICT.
         if phase is RecordPhase.APPLYING:
             return self._resume_applying(context, executor)
-        # An already-landed RECOVERY_REQUIRED is a durable manual state; §14
-        # keeps it MANUAL_RECONCILIATION and never re-derives the original
-        # cause, so no S1 re-check is performed here.
+        # (6) No stable-bearing phase bypasses S1 — STABLE, INTENT,
+        # MAY_HAVE_STARTED, RESULT_UNKNOWN, and an already-landed
+        # RECOVERY_REQUIRED all run the §13.2 S1 verifier first (only when a
+        # committed stable snapshot is present). External committed-file drift
+        # is a CONFLICT (report only; the record phase is preserved per §6.2
+        # invariant 3; no durable mutation) and takes precedence over the
+        # phase's clean disposition.
+        if record.stable is not None and not executor.committed_state_matches(
+            record.stable, observation
+        ):
+            return self._s1_conflict_assessment(context, phase, record.stable)
+        # (7) clean committed state: phase-specific classification.
+        # An already-landed RECOVERY_REQUIRED that still matches its committed
+        # baseline is the uniform MANUAL_RECONCILIATION (§14 does not re-derive
+        # the original cause); a drifted one was already returned as CONFLICT.
         if phase is RecordPhase.RECOVERY_REQUIRED:
             return self._manual_assessment(
                 context,
@@ -291,13 +303,6 @@ class ProviderOrchestrator:
                     else record.stable.last_completed_action
                 ),
             )
-        # (6) STABLE / INTENT / MAY_HAVE_STARTED / RESULT_UNKNOWN all carry a
-        # committed stable baseline: no resume may bypass S1. External drift of
-        # the committed files is a §14 S1 CONFLICT (report only; the record
-        # phase is preserved per §6.2 invariant 3; no durable mutation).
-        if not executor.committed_state_matches(record.stable, observation):
-            return self._s1_conflict_assessment(context, phase, record.stable)
-        # (7) clean committed state: phase-specific classification.
         if phase is RecordPhase.STABLE:
             return self._stable_assessment(
                 context, record.stable, RecoveryDisposition.NONE
@@ -390,23 +395,20 @@ class ProviderOrchestrator:
                 "orchestration traces exist"
             )
 
+        # Fixed stable-bearing order (§1): (4) request + identity, (5) the
+        # single executor-owned §13.2 S1 committed-state verifier, (6)
+        # instruction carry-over — in that order. S1 precedes the instruction
+        # carry-over so an instruction-bytes drift is a
+        # PartialCommitConflictError (not an InvalidOrchestrationInputError),
+        # and precedes routing / replay / any Provider call or WAL write. It
+        # runs only when a committed stable baseline exists.
         request_fingerprint = self._planner.check_request_consistency(
             context.request, stable
         )
-        # §6.1/§7.1 full entry validation MUST precede any Provider call:
-        # four-way identity alignment and the instruction carry-over are
-        # verified here, before routing/admission, so an invalid context can
-        # never reach the Provider.
-        self._require_entry_preconditions(context, observation, stable)
-        # §13.2 S1: whenever a committed stable baseline exists, verify the
-        # committed task/manifest/instruction fingerprints against disk
-        # through the executor's single committed-state verifier BEFORE the
-        # Provider call, the INTENT / MAY_HAVE_STARTED writes, the apply
-        # intent, and the replay / NO-OP admission below. External drift
-        # raises PartialCommitConflictError with zero Provider calls and zero
-        # durable writes.
+        self._require_identity_preconditions(context, observation, stable)
         if stable is not None:
             executor.verify_committed_state(stable, observation)
+        self._require_instruction_preconditions(context, observation, stable)
         status = None if stable is None else _provider_status(stable)
 
         # §7.2 committed-operation replay precedes admission so a
@@ -659,6 +661,23 @@ class ProviderOrchestrator:
         artifact_input,
         completed_at_input,
     ) -> OrchestrationOutcome:
+        # Every provider-call phase carries a committed stable snapshot, so
+        # the fixed stable-bearing order (§1) applies here too: a fresh
+        # snapshot-vs-disk (2), request + identity (4), and the single §13.2
+        # S1 committed-state verifier (5) all run BEFORE any phase-specific
+        # routing — including the MAY_HAVE_STARTED / RESULT_UNKNOWN
+        # unknown-side-effect error and the INTENT redrive. A committed drift
+        # is therefore a PartialCommitConflictError with zero Provider calls,
+        # never masked by the unknown-side-effect error.
+        stable = record.stable
+        observation = executor.read_project_state(context.task.task_id)
+        self._require_snapshot_matches_disk(context, observation)
+        request_fingerprint = self._planner.check_request_consistency(
+            context.request, stable
+        )
+        self._require_identity_preconditions(context, observation, stable)
+        executor.verify_committed_state(stable, observation)
+
         if record.phase in (
             RecordPhase.PROVIDER_CALL_MAY_HAVE_STARTED,
             RecordPhase.PROVIDER_RESULT_UNKNOWN,
@@ -674,10 +693,6 @@ class ProviderOrchestrator:
                 f"action: {action.value} is illegal while a "
                 f"{pending.action.value} call intent is pending"
             )
-        stable = record.stable
-        request_fingerprint = self._planner.check_request_consistency(
-            context.request, stable
-        )
         _snapshot, action_input_fingerprint = self._planner.action_input_fingerprint(
             observed_at=observed_at,
             artifact=artifact_input,
@@ -692,13 +707,8 @@ class ProviderOrchestrator:
             raise IdempotencyConflictError(
                 "operation: a different identity cannot redrive the pending call intent"
             )
-        observation = executor.read_project_state(context.task.task_id)
-        self._require_snapshot_matches_disk(context, observation)
-        # full entry validation + §13.2 S1 committed-state verification must
-        # precede the redriven Provider call and the INTENT / MAY_HAVE_STARTED
-        # writes; committed-state drift raises with zero Provider calls
-        self._require_entry_preconditions(context, observation, stable)
-        executor.verify_committed_state(stable, observation)
+        # step 6 instruction carry-over before the redriven Provider call
+        self._require_instruction_preconditions(context, observation, stable)
         return self._call_intent(
             context,
             executor,
@@ -1099,14 +1109,15 @@ class ProviderOrchestrator:
                 "context.manifest: does not match the on-disk manifest file (§9)"
             )
 
-    def _require_entry_preconditions(self, context, observation, stable) -> None:
-        """§6.1/§7.1 result-independent entry validation.
+    def _require_identity_preconditions(self, context, observation, stable) -> None:
+        """§7.1 identity alignment — step 4, BEFORE the §13.2 S1 verifier.
 
         Verifies the four-way identity alignment (task/request/stable
-        provider_id and stable task/shot alignment) and the instruction
-        carry-over fingerprint. Must be invoked before any Provider call so
-        an invalid context never triggers a Provider side effect; the
-        planner re-checks these (with the result) during apply.
+        provider_id and stable task/shot alignment) only. For the first
+        prepare (no committed stable) the sole identity precondition is
+        that ``task.provider_id`` is still None. Runs before S1 so a genuine
+        identity mismatch is reported as InvalidOrchestrationInputError,
+        while a committed-file drift is reported by S1 (§13.2) afterwards.
         """
         task = observation.task
         request = context.request
@@ -1114,10 +1125,6 @@ class ProviderOrchestrator:
             if task.provider_id is not None:
                 raise InvalidOrchestrationInputError(
                     "task.provider_id: must be None before the first prepare"
-                )
-            if observation.instruction_fingerprint != ABSENT:
-                raise InvalidOrchestrationInputError(
-                    "instruction: the first prepare requires a missing instruction file"
                 )
             return
         if task.provider_id != request.provider_id:
@@ -1133,6 +1140,25 @@ class ProviderOrchestrator:
                 "stable: task_id, shot_id, and provider_id must match the "
                 "request and task identity"
             )
+
+    def _require_instruction_preconditions(self, context, observation, stable) -> None:
+        """§6 instruction carry-over — step 6, AFTER the §13.2 S1 verifier.
+
+        For the first prepare (no committed stable) the instruction file
+        must be absent. For a subsequent action the disk instruction
+        fingerprint must equal the committed carry-over fingerprint; the
+        S1 verifier already enforces exactly this for a committed baseline,
+        so an instruction-bytes drift surfaces as a
+        PartialCommitConflictError (not an InvalidOrchestrationInputError).
+        This check remains as defense in depth and to reject an instruction
+        that appears with no committed baseline.
+        """
+        if stable is None:
+            if observation.instruction_fingerprint != ABSENT:
+                raise InvalidOrchestrationInputError(
+                    "instruction: the first prepare requires a missing instruction file"
+                )
+            return
         if (
             observation.instruction_fingerprint
             != stable.committed_instruction_fingerprint
