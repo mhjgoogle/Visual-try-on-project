@@ -263,7 +263,94 @@ milestone 审查）**。
    qcd/digests 是 006/007 的硬前置）；
 7. M1 回归门槛是否足以替代逐 Step 审查（§3、§9.7 回退条款）。
 
-## 11. 状态
+## 11. Step G 与 M1 合同修复轮（2026-07-28，本轮收口）
 
-Remaining roadmap design complete —
-single Codex architecture review pending
+一次合并修复轮，关闭当前 Codex 对 TASK-004 Step G 与 M1 合同的全部
+blocker/important。代码改动仅限 `orchestration/executor.py`、
+`orchestration/orchestrator.py` 及其测试；其余为合同文档同步。
+
+**Step G 编排代码（executor/orchestrator + tests）**：
+
+- **集中化 committed-state S1 verifier**：`executor.verify_committed_state`
+  （raise）与 `executor.committed_state_matches`（bool）是唯一的三
+  指纹（committed task wrapper / manifest wrapper / instruction
+  bytes）比较入口，复用 Step F 的安全读取、containment 与指纹语义；
+  orchestrator 删除其重复的 `_committed_state_matches` 与
+  `_snapshot_file_fingerprint` 导入。所有 action 路径在 **Provider
+  调用、INTENT 写入、MAY_HAVE_STARTED 写入、apply intent 写入之前**
+  完成 S1（仅当 durable record 含 stable snapshot 时）——覆盖 direct
+  PREPARE/POLL/REPORT_ARTIFACT、SUBMIT/COLLECT、INTENT same-identity
+  redrive、replay/no-op admission；漂移抛既有 `PartialCommitConflictError`，
+  Provider 调用 0、无新 WAL、不修复 drift。
+- **resume 校验顺序定案（7 步）**：① 静态 context ② caller
+  snapshot-vs-disk（stale 优先于 malformed-record，经新增
+  `executor.read_business_state` 在 record 解析前判定）③ strict record
+  parse ④ request consistency ⑤ identity ⑥ stable-bearing S1 ⑦
+  phase-specific classification；stable-bearing INTENT/MAY/UNKNOWN 均
+  不绕过 S1（漂移→CONFLICT，report-only，不 durable mutation）；
+  APPLYING 走 fingerprint-authoritative recover（P9→CONFLICT）；已落盘
+  RECOVERY_REQUIRED 统一 MANUAL_RECONCILIATION；transient I/O 原样
+  传播；resume 永不调用 Provider。
+- **§22 62/63/87/116 强化**：direct→APPLYING 边界（apply intent 落
+  盘后崩溃、Provider 一次、resume 仅本地恢复不重呼 Provider）；三个
+  direct 崩溃点（Provider 前 / Provider 后 apply-intent 前 / apply
+  intent 后部分提交）；13×7=91 格每格断言初始相位 + 公开入口 +
+  精确结果/异常类别 + Provider 调用数 + 最终 durable 相位 +
+  filesystem mutation；13 状态 resume 逐项锁定 phase/disposition/
+  legal_actions/preferred/requires_manual/Provider 0/durable mutation/
+  重复 resume。terminal-manifest guard 因 S1 前置成为纵深防御，改由
+  直接单元测试覆盖。
+
+**M1 合同文档（TASK-005/006/007、ADR-0001、总报告）**：
+
+- **WorkflowDriver 输入合同（§4）**：显式依赖 `provider_id / provider
+  / request_factory / inspector / composer / project_root / clock`；
+  `ProviderRequestFactory` 为 TASK-007 拥有的正式 Protocol，用现有公开
+  `Project/Shot/GenerationTask` 类型、无平行 DTO、纯函数（不读文件/不
+  扫描/不碰 executor/不用 cwd/env/registry/不改输入）；初始
+  `GenerationTask.provider_id` 恒 None，配置 provider_id 只用于选择/
+  request 构造/config digest，durable binding 由首次成功 PREPARE 形成。
+- **CLI 生命周期（§5）**：`init-tasks/prepare/submit/report-artifact/
+  collect/validate/compose/status/create-redo-task/run`；`run` 固定
+  顺序 bootstrap→prepare→submit→report-artifact→collect→validate→
+  compose，Manual 下必须显式 artifact，不得从 NOT_SUBMITTED 直接
+  report-artifact；mandatory fake E2E 与 optional real smoke 均走完整
+  生命周期。
+- **bootstrap 与 redo（§6）**：确定性 task identity；同身份 task 已存在
+  （任一态）不自动新建；校验 companion 文件并补齐缺失；不等价→冲突；
+  new attempt 仅经 `create-redo-task`（`redo_of_task_id` + 新 task_id +
+  新 manifest + 新 operation identity），绝不基于「无未完成 task」自动
+  redo。
+- **status 范围（§7）**：只输出 `ResumeAssessment`（phase/disposition/
+  legal_actions/preferred_next_action/requires_manual_reconciliation +
+  一行诊断）；删除「展示资产/合成状态」承诺；不扫描、不读 private
+  executor、不新增 record accessor、不推断资产/合成状态。
+- **output_paths 全量（§8）**：TASK-005 output_paths = JSON 报告 +
+  Markdown 报告 + 正式媒体 + VideoAsset 记录；TASK-006 = 合成媒体 +
+  JSON 报告 + Markdown 报告；architecture §8 skip/no-op 逐一验证
+  output_paths 全部文件。
+- **多文件部分提交恢复（§9）**：十条规则（版本由 digest 决定、同
+  operation 续用同版本、已发布匹配即复用、补齐缺失 QCD/manifest、确定
+  event_id 允许等价重复、manifest 幂等、内容不匹配→conflict 不跳版、
+  新版本仅限新 digest/profile/显式 redo、清理失败不回滚、no-replace
+  始终有效）统一写入 ADR-0001 第二次增补、TASK-005、TASK-006、
+  TASK-007/本报告。
+
+**6 blockers + 3 important 映射（本轮关闭）**：
+
+| # | 类别 | 关闭方式 |
+| --- | --- | --- |
+| B1 | Step G 集中 committed-state S1 verifier | executor 单一 verifier + 全 action 路径前置 S1；orchestrator 去重（代码 + 测试） |
+| B2 | Step G resume 校验顺序 | 7 步定案 + read_business_state 分离 + 全 stable-bearing 相位 S1（代码 + 测试） |
+| B3 | §22 62/63 direct-path APPLYING 边界与崩溃点 | 强化 entry 62/63（代码测试） |
+| B4 | §22 87 13×7 六元组断言 | 91 格强化断言（测试） |
+| B5 | §22 116 全 13 状态 resume 锁定 | 逐状态 resume 断言 + MAY/UNKNOWN 补齐（测试） |
+| B6 | M1 多文件部分提交恢复未定义 | §9 十条规则统一入 ADR-0001/TASK-005/006/007/报告（文档） |
+| I1 | WorkflowDriver 输入合同 / ProviderRequestFactory | §4 定案（TASK-007 + 报告） |
+| I2 | CLI 生命周期与 run/redo | §5/§6 定案（TASK-007） |
+| I3 | status 范围（ResumeAssessment-only） | §7 定案（TASK-007 + 报告） |
+
+## 12. 状态
+
+Step G and M1 contract fixes committed —
+single Codex combined re-review pending

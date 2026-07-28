@@ -316,8 +316,11 @@ def config_digest(value: JsonCompatibleValue) -> str: ...
   "m1-validation-config-v1", "policy": <ValidationPolicy 全字段>})`
   ——schema 常量的唯一 owner 为本任务 `assets/policy.py`，其他
   组件不得自行拼写；
-  `output_paths` = 报告 JSON 路径 + 正式媒体路径 + VideoAsset 记录
-  路径；跳过条件遵循 architecture.md §8 五条件。
+  **`output_paths` 必须列出该步骤的全部 durable 输出**（§8）：
+  ① versioned 校验 JSON 报告；② 确定性 Markdown 校验报告；
+  ③ 正式媒体路径（通过校验时）；④ VideoAsset 记录路径（通过校验
+  时）。architecture.md §8 的 skip/no-op **必须逐一验证 output_paths
+  中的每个文件**存在且有效，不得只验证媒体或只验证 JSON。
 - **校验报告**：`reports/validation/<task-id>_v<version>.json`
   （事实来源，确定性 JSON）+ 同名 `.md`（确定性渲染）；防覆盖。
 - **QCD 事件**：`qcd/events/log.jsonl`，append-only，一行一事件，
@@ -342,15 +345,35 @@ def config_digest(value: JsonCompatibleValue) -> str: ...
   登记 + 正式媒体 + QCD 事件全部成功后**可**清理（COMPLETED 之后
   的可选收尾）；清理失败不回滚登记、只作 warning/diagnostic；
   绝不删除项目根外的用户源文件。
-- 幂等重跑：manifest COMPLETED 且 digest 匹配且输出全部存在且
-  VideoAsset 可加载 → 整步 no-op（不重复登记、不重复导入）；QCD
-  事件可能重复，由 event_id 去重语义兜底。
-- 输入变化（staged 文件内容变化 → input_digest 不匹配）：不复用
-  旧结果，登记为新 version（旧版本保留），绝不静默覆盖。
+- **多文件部分提交恢复（§9 十条规则，与 ADR-0001 第二次增补、
+  TASK-006、TASK-007/总报告统一）**：
+  1. 逻辑 version 由 operation / input digest 决定（不由文件是否
+     存在决定）；
+  2. 同一 operation / input 的重跑**继续使用同一目标 version**，不
+     另起新版本；
+  3. 已发布文件存在且其 fingerprint / 报告身份符合预期 → **复用，
+     不重写**；
+  4. 部分文件已发布、QCD/manifest 尚未提交 → 继续**补齐缺失的
+     QCD/manifest**，不重做已完成部分；
+  5. QCD 使用确定性 event_id，允许等价重复行（消费方去重）；
+  6. manifest 写入幂等（同 digest + 全部 output_paths 有效 →
+     no-op）；
+  7. 已存在文件内容与预期**不匹配** → 返回正式 conflict
+     （`AssetConflictError`），**不覆盖、不跳到新 version**；
+  8. 新 version **只**用于：新 input digest（staged 文件内容变化）
+     或显式 redo（`create-redo-task`）；
+  9. 清理失败（staged 收尾）**不回滚** durable success，只作
+     warning/diagnostic；
+  10. no-replace 发布始终有效（默认拒绝静默覆盖）。
+- 幂等重跑判定（architecture §8 五条件）：manifest COMPLETED 且两个
+  digest 匹配且 **output_paths 中的每个文件**（JSON 报告、Markdown
+  报告、正式媒体、VideoAsset 记录）都存在且 step-specific 有效
+  （VideoAsset 可加载、报告可解析）→ 整步 no-op。
 - 半成品防护：媒体导入与全部 JSON 写入复用 TASK-002 原子发布
   （临时文件 + fsync + no-replace link）；崩溃不留半成品正式文件。
-- 校验失败不回写 GenerationTask（任务在编排层已 done；重做 = 经
-  TASK-007 bootstrap 为同一 Shot 创建新 GenerationTask）。
+- 校验失败不回写 GenerationTask（任务在编排层已 done；新尝试 = 经
+  TASK-007 `create-redo-task` 为同一 Shot 显式创建新
+  GenerationTask，bootstrap 不自动 redo）。
 
 ## Security boundaries
 

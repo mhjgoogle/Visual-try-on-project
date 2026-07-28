@@ -975,15 +975,36 @@ TASK-004 尚未完成；不声称全部 acceptance criteria 已实现；不声�
 - Claude Code 按批准 r6 设计分步实施，不得替代 Codex 声称独立
   审查通过；Codex 不直接修改实现文件。
 
+**Step G combined re-review fix round (2026-07-28)**: a further
+combined fix round closed the current Codex Step G / M1 findings. The
+committed-state S1 check (§13.2) is now a single executor-owned verifier
+(`verify_committed_state` / `committed_state_matches`) run on every
+action path before any Provider call or durable WAL write when a stable
+baseline exists; the orchestrator no longer maintains a duplicate
+three-fingerprint comparison. `resume()` follows a fixed 7-step order
+(static context → caller snapshot-vs-disk → strict record parse →
+request consistency → identity → stable-bearing S1 → phase
+classification), with a stale context taking priority over a malformed
+record and no stable-bearing phase bypassing S1. These are
+implementation refinements consistent with the approved r6 contract
+(§13.2 S1, §14 recovery matrix, §17.2 admission); the authoritative
+summary and the 6-blocker + 3-important mapping are in
+[remaining-roadmap-design-report](../design/remaining-roadmap-design-report.md)
+§11. §22 entries 62/63/87/116 were strengthened accordingly. Files:
+`orchestration/executor.py`, `orchestration/orchestrator.py`,
+`tests/test_orchestrator.py`.
+
 ## 当前状态
 
 implementation complete through Step G — Steps M–F completed and
 finally confirmed; Step G implementation committed (`accd743`); Codex
 final review returned 3 blockers + 1 important, resolved by the
 hardening fix (`5b100c7`) and the REPAIR⑥ repair-then-revalidate docs
-clarification (`dc91f85`); Claude Fable 5 temporary independent review
-passed twice (0/0; 2 non-gating suggestions deferred); full pytest
-1667 passed; the Codex final review of the fix is still pending;
+clarification (`dc91f85`); a further combined re-review fix round
+(2026-07-28) centralized the committed-state S1 verifier on the
+executor, fixed the resume validation order, and strengthened §22
+62/63/87/116 (see report §11); Claude Fable 5 temporary independent
+review passed; the Codex combined re-review of the fix is still pending;
 TASK-004 final gate open; Step G final acceptance not yet confirmed;
 TASK-004 completion not declared
 

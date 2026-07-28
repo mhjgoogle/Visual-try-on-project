@@ -315,6 +315,41 @@ After a successful validation and formal import of a staged file:
   registration; it is reported as a warning/diagnostic only;
 - cleanup never touches anything outside `staging/`.
 
+## Multi-file Partial-Commit Recovery (Second Amendment)
+
+M1 steps that write several durable files (TASK-005 validation +
+VideoAsset registration; TASK-006 composition; the TASK-007 driver and
+TASK-009 reporting that consume them) follow one uniform partial-commit
+recovery contract so an interrupted step re-runs deterministically:
+
+1. the logical output **version is decided by the operation / input
+   digest**, not by which files happen to exist on disk;
+2. a re-run of the **same operation / input continues to target the
+   same version** — it never starts a new version;
+3. a file that is already published and whose fingerprint / report
+   identity matches the expected value is **reused, not rewritten**;
+4. when some files are published but the QCD event / StepManifest is
+   not yet committed, the re-run **completes the missing QCD / manifest
+   only**, without redoing the finished work;
+5. QCD events use deterministic `event_id`s, so an equivalent duplicate
+   line is permitted and de-duplicated by the reader (ADR-0003);
+6. StepManifest writes are idempotent (matching digests + every
+   `output_paths` file valid → a no-op);
+7. an already-existing file whose content does **not** match the
+   expected value is a formal conflict: the step **refuses to overwrite
+   and does not jump to a new version**;
+8. a **new version** is produced only for a new input digest, a new
+   composition profile, or an explicit redo (`create-redo-task`);
+9. a cleanup failure never rolls back a durable success;
+10. no-replace publication (default refusal of silent overwrite)
+    remains in force throughout.
+
+`StepManifest.output_paths` for such a step must enumerate **every**
+durable output of that step (e.g. the versioned JSON report, the
+deterministic Markdown report, the formal media, and the registered
+record), and the architecture §8 skip/no-op check must verify **each**
+listed file — never only the media or only the JSON.
+
 ## Paths And Overwrite Principles
 
 - Contract paths are relative to the project data root and use POSIX separators.

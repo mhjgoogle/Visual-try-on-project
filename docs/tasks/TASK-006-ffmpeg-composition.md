@@ -160,8 +160,11 @@ class CompositionToolError(CompositionError): ...  # ffmpeg 失败
   file_sha256) 列表)`；`relevant_config_digest =
   config_digest({"schema": "m1-composition-config-v1", "profile":
   <CompositionProfile 全字段>})`——schema 常量的唯一 owner 为本
-  任务 `composition/profile.py`；`output_paths` = 最终 MP4 + 报告
-  JSON；
+  任务 `composition/profile.py`；**`output_paths` 必须列出全部
+  durable 输出**（§8）：① 合成媒体 `outputs/final_v<N>.mp4`；
+  ② versioned 合成 JSON 报告；③ 确定性 Markdown 合成报告。
+  architecture §8 的 skip/no-op **必须逐一验证 output_paths 中的每个
+  文件**，不得只验证媒体或只验证 JSON；
 - **QCD 事件**：`composition_completed`——payload 字段集、
   event_id 派生、单位与 None 语义以 **ADR-0003 §4.7/§5 为准**
   （output_path/output_version/output_sha256/output_duration_ms/
@@ -181,11 +184,29 @@ class CompositionToolError(CompositionError): ...  # ffmpeg 失败
      `output_sha256` **一致**（必检——仅路径存在不足以跳过）；
   5. 合成报告 JSON 可加载且版本一致。
   可选注入 `MediaInspector` 对最终文件 probe 属额外诊断，不参与
-  跳过判定。输入集合或 profile 变化 → 合成新版本 v(N+1)，旧版本
-  保留；
+  跳过判定。
+- **多文件部分提交恢复（§9 十条规则，与 ADR-0001 第二次增补、
+  TASK-005、TASK-007/总报告统一）**：
+  1. 逻辑 version 由 operation / input digest（有序 asset id+version
+     +sha256）与 profile digest 决定；
+  2. 同一 input/profile 的重跑继续使用同一目标 version；
+  3. 已发布的最终 MP4 存在且其 `file_sha256` 与合成报告
+     `output_sha256` 一致 → 复用，不重合成；
+  4. 最终 MP4 已发布但 QCD 事件 / manifest 尚未提交 → 补齐缺失的
+     QCD/manifest，不重合成；
+  5. QCD 使用确定性 event_id（`composition_completed:<project>:v<N>`），
+     允许等价重复行；
+  6. manifest 写入幂等；
+  7. 已存在同版本输出内容与预期不匹配 → 正式 conflict，不覆盖、不
+     跳到新 version；
+  8. 新 version（v(N+1)）**只**用于：新 input digest（资产集合/版本
+     变化）、新 CompositionProfile、或显式 redo；
+  9. 中间文件清理失败不回滚 durable success；
+  10. no-replace 发布始终有效。
 - 转码/concat 中途失败：manifest FAILED（error_summary 含 ffmpeg
-  stderr 摘要），中间文件保留供检查，重跑从头执行该版本（中间文件
-  可安全重建，不做部分转码复用——v1 简化，记录为已知成本）；
+  stderr 摘要），中间文件保留供检查，重跑从头重建该版本的中间文件
+  （不做部分转码复用——v1 简化，记录为已知成本；已发布的最终 MP4
+  按规则 3 复用）；
 - ffmpeg 不可用：`MediaToolNotAvailableError` 语义对齐 ADR-0002。
 
 ## Security boundaries

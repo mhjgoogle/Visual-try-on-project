@@ -31,12 +31,25 @@ Generation Task Bootstrap, Workflow Driver, and Minimal CLI
 
 1. `app` 包（应用层，architecture Workflow Orchestrator 角色的
    调用方侧）：
-   - **bootstrap**：从显式加载的 `ProjectData` 为每个无未完成
-     任务的 Shot 创建 `GenerationTask`（PENDING、provider_id=None）
-     与 generation StepManifest（满足 TASK-004 进入前置条件），
-     原子落盘、防覆盖、幂等重跑（已有未完成任务的 Shot 跳过）；
-     支持为指定 Shot 显式创建重做任务（新 task_id，同 shot_id）；
-     发射 `task_created`；
+   - **bootstrap（确定性 task identity，定案）**：从显式加载的
+     `ProjectData` 为每个 Shot 按**确定性 task identity**
+     （`task-<shot-id>-1`，见 Data contracts）创建
+     `GenerationTask`（PENDING、provider_id=None）与 generation
+     StepManifest（满足 TASK-004 进入前置条件），原子落盘、发射
+     `task_created`。幂等/冲突规则：
+     - **若该确定性身份的 task 已存在（无论 PENDING / DONE /
+       FAILED / CANCELLED），一律不自动再创建另一个 task**——不得
+       以「没有未完成 task」为由自动新建；
+     - 已存在时校验其 companion 文件（manifest、必要时 instruction
+       骨架）与预期**等价**并只补齐缺失文件（partial-crash 重跑
+       幂等）；
+     - 已存在文件与预期**不等价** → 返回类型化冲突
+       （`TaskAlreadyExistsError`），不覆盖非等价状态；
+   - **redo（仅显式）**：为某 Shot 发起新尝试**只能**经
+     `create-redo-task`，显式记录 `redo_of_task_id`、分配新
+     `task_id`（`task-<shot-id>-<n+1>`）、新 generation StepManifest、
+     新 operation identity；bootstrap **绝不**基于「无未完成 task」
+     自动创建 redo；
    - **driver**：包装 `ProviderOrchestrator` 的调用方职责——
      系统时钟读取（应用层是唯一允许读时钟处）、operation_id 生成
      （uuid4，记录在输出中）、`OrchestrationContext` 组装（从磁盘
@@ -50,13 +63,23 @@ Generation Task Bootstrap, Workflow Driver, and Minimal CLI
      显式路径做存在性检查（lstat，无扫描、无 glob），构造
      `ArtifactReference(user, staging)` 交给
      `report_artifact`/`collect`；
-2. `cli.py`：argparse console script `ai-video-workflow`，
-   子命令：`init-tasks`、`status`、`show-instruction`、
-   `record-attempt`、`report-artifact`、`collect`、`validate`、
-   `rate`、`compose`；`--project-root` 显式必填；退出码 0/非 0
-   区分成功与类型化失败；错误信息人类可读；
+2. `cli.py`：argparse console script `ai-video-workflow`，生命周期
+   子命令（定案）：`init-tasks`、`prepare`、`submit`、
+   `report-artifact`、`collect`、`validate`、`compose`、`status`、
+   `create-redo-task`、`run`；辅助子命令 `show-instruction`、
+   `record-attempt`、`rate`（映射 driver 的说明展示 /
+   `record_attempt` / `record_rating`）；`--project-root` 显式必填；
+   退出码 0/非 0 区分成功与类型化失败；错误信息人类可读；
+   - **`run`（一条命令闭环）** 的固定顺序：
+     `bootstrap → prepare → submit → report-artifact → collect →
+     validate → compose`；ManualVideoProvider 下 `run` **必须接收
+     显式 artifact 参数**（`--staged-path`），因为手工模式无法自动
+     发现产物；**不得**从 `NOT_SUBMITTED` 直接 `report-artifact`
+     （必须先 `submit` 进入 `waiting_for_user`），顺序由 `run`
+     强制；任一步类型化失败 → 停止并以非零退出码报告，已完成的
+     前序步骤保持其幂等落盘（重跑 `run` 从断点续跑）；
 3. 端到端最小闭环集成测试（示例项目 + 假 inspector/composer）；
-4. README 增补最小闭环操作流程（可复制命令序列）。
+4. README 增补最小闭环操作流程（可复制命令序列，含 `run`）。
 
 ## 范围外
 
@@ -72,7 +95,9 @@ Generation Task Bootstrap, Workflow Driver, and Minimal CLI
 新增（本任务独占写入）：
 
 - `src/ai_video_workflow/app/__init__.py`、`bootstrap.py`、
-  `driver.py`、`clock.py`、`ids.py`、`contracts.py`
+  `driver.py`、`requests.py`（`ProviderRequestFactory` Protocol +
+  `DefaultProviderRequestFactory`，TASK-007 唯一 owner）、
+  `clock.py`、`ids.py`、`contracts.py`
   （`STAGING_CONTRACT_VERSION` 等稳定合同常量的唯一 owner）
 - `src/ai_video_workflow/cli.py`
 - `pyproject.toml`（仅新增 `[project.scripts]` 入口——冻结文件的
@@ -122,13 +147,52 @@ class DriverOutcome:
     staged_path: str | None  # 7. report_artifact/collect 的声明路径回显，否则 None
 
 
+class ProviderRequestFactory(Protocol):
+    """Formal request-construction port; TASK-007 is its sole owner.
+
+    Builds a ProviderRequest from explicitly passed public models. It
+    MUST NOT read files, scan directories, touch the executor, or read
+    cwd / environment / any global registry; it MUST NOT mutate its
+    inputs; it returns a formal ProviderRequest built from the current
+    public Project / Shot / GenerationTask types (no parallel Project
+    DTO is introduced).
+    """
+
+    def build(
+        self,
+        *,
+        project: Project,
+        shot: Shot,
+        task: GenerationTask,
+        provider_id: str,
+    ) -> ProviderRequest: ...
+
+
+class DefaultProviderRequestFactory:
+    """The M1 default `ProviderRequestFactory` (structural conformance).
+
+    Maps Shot.prompt / duration / width / height / frame_rate into the
+    ProviderRequest, derives staging_ref from the staging contract, and
+    leaves provider_parameters empty. Pure and side-effect-free.
+    """
+
+
 class WorkflowDriver:
     def __init__(
         self,
-        orchestrator: ProviderOrchestrator,
+        *,
+        provider_id: str,
+        provider: VideoProvider,
+        request_factory: ProviderRequestFactory,
         project_root: Path,
+        inspector: MediaInspector,
+        composer: VideoComposer,
         clock: Callable[[], datetime] = utc_now,
     ): ...
+    # The driver constructs `ProviderOrchestrator(provider)` internally; the
+    # explicit provider_id / request_factory / inspector / composer are the
+    # approved dependencies for request construction, validation, and
+    # composition. No dependency is discovered from cwd / env / a registry.
     def prepare(self, task_id: str) -> DriverOutcome: ...
     def submit(self, task_id: str) -> DriverOutcome: ...
     def poll(self, task_id: str) -> DriverOutcome: ...
@@ -226,15 +290,16 @@ CLI 子命令与上述 API 一一对应；`validate`/`compose` 子命令直接
   派生、单位与 None 语义以 **ADR-0003 §4.1–§4.3/§4.5/§5 为准**；
   `task_status_changed` 仅在 APPLIED 且状态实际变化时发射（NO_OP
   不发事件）；评分事件可随时补记，不绑定任务状态；
-- **状态呈现（定案）**：`status` 子命令**只使用公开
-  `ResumeAssessment`**（经 `WorkflowDriver.status` → 内部调用
-  `orchestrator.resume`）+ 显式加载的 ProjectData 只读派生。展示
-  字段：`phase`、`disposition`、`legal_actions`、
-  `preferred_next_action`、`requires_manual_reconciliation`，外加
-  资产登记与合成状态（来自 ProjectData/报告，只读）。**不**读取
-  private executor、**不**新增 OrchestrationRecord public
-  accessor / durable-record read API / internal model export，
-  也不宣称展示完整 durable record；只读派生，不落盘。
+- **状态呈现（定案，ResumeAssessment-only）**：`status` 子命令
+  **只输出公开 `ResumeAssessment`**（经 `WorkflowDriver.status` →
+  内部调用 `orchestrator.resume`）。展示字段严格限于：`phase`、
+  `disposition`、`legal_actions`、`preferred_next_action`、
+  `requires_manual_reconciliation`，以及一行人类可读
+  message/diagnostic。**明确删除「展示资产登记 / 合成状态」的
+  承诺**：`status` **不**推断或展示 VideoAsset / composition 状态，
+  **不**扫描目录，**不**读取 private executor，**不**新增
+  OrchestrationRecord public accessor / durable-record read API /
+  internal model export。只读派生，不落盘。
 
 ## Failure / recovery semantics
 
@@ -261,18 +326,33 @@ CLI 子命令与上述 API 一一对应；`validate`/`compose` 子命令直接
 
 ## Focused tests
 
-1. bootstrap：创建/跳过/重做任务、task_id 派生、幂等、防覆盖、
+1. bootstrap：确定性 task identity 创建、`task_id` 派生、
    `task_created` 事件、manifest 满足 TASK-004 进入前置条件（用
-   真实 orchestrator prepare 验证可进入）；**部分创建后崩溃**：
-   为部分 Shot 创建 task/manifest 后中断 → 重跑验证已有文件与
-   预期内容等价并只补齐缺失文件；已有文件与预期**不等价**时拒绝
-   （类型化错误），不覆盖非等价已有状态；
-2. driver：上下文组装、operation_id 传递、状态变化 →
-   `task_status_changed` 映射（含 NO_OP 不发事件）、
-   record_attempt/record_rating 事件、StagedFileMissingError、
+   真实 orchestrator prepare 验证可进入）；**确定性身份幂等**：
+   已存在同身份 task（PENDING / DONE / FAILED / CANCELLED 各态）时
+   不再自动创建第二个 task；**部分创建后崩溃**：为部分 Shot 创建
+   task/manifest 后中断 → 重跑验证已有文件与预期等价并只补齐缺失
+   文件；已有文件与预期**不等价** → `TaskAlreadyExistsError`，不
+   覆盖；
+2. redo：`create-redo-task` 分配新 `task_id`（`-<n+1>`）、记录
+   `redo_of_task_id`、新 manifest、新 operation identity；验证
+   bootstrap **不**基于「无未完成 task」自动 redo；
+3. driver：显式依赖构造（provider_id / provider / request_factory
+   / inspector / composer / project_root / clock，无 cwd/env/
+   registry 发现）；`ProviderRequestFactory.build` 纯函数（不读文件
+   /不扫描/不碰 executor/不改输入/返回正式 ProviderRequest，输入用
+   真实 Project/Shot/GenerationTask 类型）；上下文组装、operation_id
+   传递、状态变化 → `task_status_changed` 映射（含 NO_OP 不发
+   事件）、record_attempt/record_rating 事件、StagedFileMissingError、
    staging containment；
-3. CLI：每个子命令的参数解析、退出码、错误呈现（driver 打桩）；
-4. 时钟/uuid 边界：核心模块无 `datetime.now` 调用（复用既有守卫
+4. `status` ResumeAssessment-only：只暴露 5 个评估字段 + 一行
+   诊断；**不**读 executor、**不**扫描、**不**推断资产/合成状态、
+   **不**新增 record accessor（守卫测试）；
+5. CLI：每个子命令的参数解析、退出码、错误呈现（driver 打桩）；
+   `run` 生命周期顺序（bootstrap→prepare→submit→report-artifact→
+   collect→validate→compose）；Manual 下 `run` 缺 `--staged-path`
+   报错；不得从 NOT_SUBMITTED 直接 report-artifact；
+6. 时钟/uuid 边界：核心模块无 `datetime.now` 调用（复用既有守卫
    测试模式）。
 
 ## Integration tests
@@ -283,12 +363,15 @@ provider/持久化）：
 
 1. 示例项目复制到 tmp → `init-tasks` → 说明文档生成、task_created
    落盘；
-2. 放置 fixture 文件 → `report-artifact` → `collect` →
-   artifact_handoff；
+2. 完整生命周期 `prepare → submit → report-artifact（显式路径）→
+   collect`（放置 fixture 文件后）→ artifact_handoff；
 3. `validate` → VideoAsset v1 + 报告 + 事件；
 4. `compose` → final_v1.mp4 + 报告 + 事件；
-5. 全流程任意步骤后中断重跑 → 幂等；
-6. 事件日志包含全部七类中本流程应出现的事件且 event_id 可去重。
+5. `run` 一条命令走完整生命周期（bootstrap→prepare→submit→
+   report-artifact→collect→validate→compose，Manual 下带
+   `--staged-path`），产物与逐步执行等价；
+6. 全流程任意步骤后中断重跑（含 `run` 重跑）→ 幂等；
+7. 事件日志包含全部七类中本流程应出现的事件且 event_id 可去重。
 
 **Optional real CLI smoke test（本任务拥有，ADR-0002 第 4 条）**：
 `tests/test_minimal_loop.py` 内独立测试——真实
@@ -302,15 +385,25 @@ CI 不要求安装真实 FFmpeg；真实工具手工执行流程保留在 README
 
 ## 验收标准
 
-1. product_spec 成功标准 1–5 全部由集成测试客观验证（标准 5 的
-   venv 约束由 CI 命令与 README 验证）；
-2. bootstrap 创建的 task/manifest 满足 TASK-004 全部进入前置
+1. product_spec 成功标准 1–5 全部由集成测试客观验证（含 `run`
+   一条命令闭环；标准 5 的 venv 约束由 CI 命令与 README 验证）；
+2. bootstrap 用确定性 task identity；同身份 task 已存在（任一态）
+   不自动新建；new attempt 仅经 `create-redo-task`（记录
+   `redo_of_task_id` + 新身份），有测试；
+3. bootstrap 创建的 task/manifest 满足 TASK-004 全部进入前置
    条件，有测试；
-3. 阶段 2 三类 QCD 事件采集落盘，有测试；
-4. CLI 九个子命令可执行、退出码正确、错误人类可读；
-5. 无目录扫描式产物发现（守卫测试）；
-6. 未越界（未修改冻结合同；pyproject 仅新增 scripts 入口）；
-7. 全部测试通过、Ruff format/lint 全绿、`git diff` 范围检查通过。
+4. 阶段 2 三类 QCD 事件采集落盘，有测试；
+5. `WorkflowDriver` 经显式依赖（provider_id/provider/
+   request_factory/inspector/composer）构造，`ProviderRequestFactory`
+   为 TASK-007 拥有的正式 Protocol、纯函数、用现有公开模型类型、无
+   平行 DTO，有测试；
+6. CLI 生命周期子命令（含 `run` 固定顺序、`create-redo-task`）可
+   执行、退出码正确、错误人类可读；Manual 下 `run` 需显式 artifact；
+7. `status` 只输出 `ResumeAssessment`，不推断资产/合成状态、不扫描、
+   不读 executor、不新增 record accessor（守卫测试）；
+8. 无目录扫描式产物发现（守卫测试）；
+9. 未越界（未修改冻结合同；pyproject 仅新增 scripts 入口）；
+10. 全部测试通过、Ruff format/lint 全绿、`git diff` 范围检查通过。
 
 ## 实施 Agent / 审查 Agent
 
