@@ -11,6 +11,9 @@ requires-python = ">=3.10"
 license = { file = "LICENSE" }
 dependencies = []
 
+[project.scripts]
+ai-video-workflow = "ai_video_workflow.cli:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",

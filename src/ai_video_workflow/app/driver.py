@@ -25,10 +25,19 @@ from ai_video_workflow.app.ids import (
     new_rating_id,
 )
 from ai_video_workflow.app.requests import ProviderRequestFactory
-from ai_video_workflow.assets.step import record_manual_quality_rating
+from ai_video_workflow.assets.policy import ValidationPolicy
+from ai_video_workflow.assets.step import (
+    ValidationStepOutcome,
+    record_manual_quality_rating,
+    run_validation_step,
+)
+from ai_video_workflow.composition.step import (
+    CompositionStepOutcome,
+    run_composition_step,
+)
 from ai_video_workflow.errors import AiVideoWorkflowError
 from ai_video_workflow.manifest import StepManifest
-from ai_video_workflow.models import GenerationTask, Project, Shot
+from ai_video_workflow.models import GenerationTask, Project, Scene, Shot
 from ai_video_workflow.orchestration import (
     OrchestrationAction,
     OrchestrationContext,
@@ -128,6 +137,34 @@ class WorkflowDriver:
         # status is a read-only ResumeAssessment view only (no asset or
         # composition inference, no private executor access).
         return self.resume(task_id)
+
+    # --- validation / composition steps (use the injected inspector/composer) ---
+
+    def validate(
+        self, task_id: str, *, policy: ValidationPolicy | None = None
+    ) -> ValidationStepOutcome:
+        task = self._load_task(task_id)
+        shot = self._load_shot(task.shot_id)
+        scene = self._load_scene(shot.scene_id)
+        return run_validation_step(
+            project_root=self._project_root,
+            shot=shot,
+            scene=scene,
+            task=task,
+            artifact=self._artifact(staging_ref_for(task_id)),
+            inspector=self._inspector,
+            policy=policy or ValidationPolicy(),
+            observed_at=self._clock(),
+        )
+
+    def compose(self, data, *, profile=None) -> CompositionStepOutcome:
+        return run_composition_step(
+            project_root=self._project_root,
+            data=data,
+            composer=self._composer,
+            profile=profile,
+            observed_at=self._clock(),
+        )
 
     # --- QCD recording entries ---
 
@@ -294,6 +331,11 @@ class WorkflowDriver:
     def _load_shot(self, shot_id: str) -> Shot:
         return read_model_json(
             self._project_root / "records" / "shots" / f"{shot_id}.json", Shot
+        )
+
+    def _load_scene(self, scene_id: str) -> Scene:
+        return read_model_json(
+            self._project_root / "records" / "scenes" / f"{scene_id}.json", Scene
         )
 
     def _load_project(self) -> Project:
