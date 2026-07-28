@@ -1,8 +1,11 @@
 # TASK-007：任务生成 Bootstrap、工作流驱动与最小 CLI（阶段 2 收尾 + 最小闭环接线）
 
-> **状态：规划定稿（PLANNED）——batch milestone mode 第一阶段产物，
-> 待整体 Codex 设计审查。** 完成本任务即达成第一阶段最小闭环
+> **状态：已实现（IMPLEMENTED）——batch milestone mode 第一阶段产物，
+> 待整体仓库 Codex 审查。** 完成本任务即达成第一阶段最小闭环
 > （product_spec 成功标准 1–5 全部可一条命令验证）。
+> bootstrap / 请求工厂 / WorkflowDriver / CLI 已落地，
+> 强制 fake 端到端与可选真实 ffmpeg/ffprobe smoke 测试就绪
+> （见 `tests/test_minimal_loop.py`），使用说明见 `README.md`。
 
 ## 正式名称
 

@@ -16,3 +16,53 @@ python -m ruff format --check .
 python -m ruff check .
 python -m pytest
 ```
+
+## Minimal Loop (M1)
+
+The first-phase minimal loop takes a project's story/shot records to a
+composed MP4 without any paid API. FFmpeg and ffprobe are system-level
+runtime dependencies for the real media steps (`apt install ffmpeg`);
+the test suite runs against fakes and does not require them.
+
+Given a project data root that already contains `project.json` and the
+`records/` (scenes, shots) inputs, the lifecycle is:
+
+```bash
+ROOT=projects/my-project
+
+# 1. create a GenerationTask + generation manifest per shot
+ai-video-workflow --project-root "$ROOT" init-tasks
+
+# 2. per task: render the manual instruction, mark it submitted
+ai-video-workflow --project-root "$ROOT" prepare  task-shot-1-1
+ai-video-workflow --project-root "$ROOT" submit   task-shot-1-1
+ai-video-workflow --project-root "$ROOT" show-instruction task-shot-1-1
+
+# 3. generate the video in your web tool and place it at the staging path
+#    printed in the instruction: staging/shots/<task-id>.mp4
+ai-video-workflow --project-root "$ROOT" report-artifact task-shot-1-1
+ai-video-workflow --project-root "$ROOT" collect         task-shot-1-1
+
+# 4. validate + register the asset, then compose the final MP4
+ai-video-workflow --project-root "$ROOT" validate task-shot-1-1
+ai-video-workflow --project-root "$ROOT" compose
+
+# inspect status or the generated instruction at any time
+ai-video-workflow --project-root "$ROOT" status task-shot-1-1
+```
+
+`run` executes the same order end to end once every shot's staged media
+is in place:
+
+```bash
+ai-video-workflow --project-root "$ROOT" run
+```
+
+Every step is independently runnable and resumable; re-running is a
+no-op when nothing changed and never silently overwrites. A new attempt
+for a shot is explicit:
+
+```bash
+ai-video-workflow --project-root "$ROOT" create-redo-task shot-1
+```
+

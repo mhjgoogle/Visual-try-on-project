@@ -254,11 +254,15 @@ def _cmd_run(args) -> None:
     )
     task_ids = sorted(set(boot.created) | set(boot.skipped))
     for task_id in task_ids:
-        driver.prepare(task_id)
-        driver.submit(task_id)
-        staged = args.staged_path or staging_ref_for(task_id)
-        driver.report_artifact(task_id, staged)  # verifies the staged file
-        driver.collect(task_id)
+        # resume-aware: a task already collected (terminal) skips the
+        # generation lifecycle; validate/compose are idempotent, so a full
+        # re-run of `run` is a no-op rather than an illegal re-prepare.
+        if not driver.status(task_id).is_terminal:
+            driver.prepare(task_id)
+            driver.submit(task_id)
+            staged = args.staged_path or staging_ref_for(task_id)
+            driver.report_artifact(task_id, staged)  # verifies the staged file
+            driver.collect(task_id)
         driver.validate(task_id)
     # reload so the just-registered assets are visible to composition
     composed = driver.compose(_load_project_data(args.project_root))
