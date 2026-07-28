@@ -203,16 +203,30 @@ batch 模式实施。M3 不计入本次审查的实施承诺。
 005 → 006 → 007 →（M1 milestone 审查）→ 008 ∥ 009 →（M2
 milestone 审查）**。
 
-预计 commits（粒度对齐既有惯例：一功能一提交 + 文档同步）：
+**M1 commit 粒度（2026-07-28 gate 收口定案，替代早先 18–21 微步骤
+计划）**：每个 commit 语义完整（可独立测试、可独立回退），目标
+如下，允许因真实语义边界上下浮动 1 个：
 
-| Task | 预计 commits | 内容 |
+| Task | commits | 内容（语义完整切分） |
 | --- | --- | --- |
-| 005 | 7–8 | ADR 定稿与 ADR-0001 增补 / digests / qcd 模块 / inspection / 校验规则 / 登记+导入 / step+报告 / 文档状态 |
-| 006 | 5–6 | profile+plan / composer+ffmpeg / step+报告+事件 / 集成测试 / 文档 |
-| 007 | 6–7 | bootstrap / driver / clock+ids / cli / minimal-loop 集成 / README+pyproject / 文档 |
+| 005 | 5 | ① digests + qcd 模块（含 payload 构造器与日志读写） ② inspection（ABC + ffprobe 实现） ③ 校验规则引擎 + ValidationCheck/报告 ④ 登记 + 导入 + 清理 ⑤ validation step + 集成测试 + 文档状态 |
+| 006 | 4 | ① profile + 计划器 ② composer ABC + ffmpeg 实现 ③ composition step + 报告 + 事件 + 幂等 ④ 集成测试 + 文档状态 |
+| 007 | 5 | ① contracts + clock + ids + bootstrap ② driver ③ cli + pyproject scripts ④ minimal-loop 集成（含 optional real smoke） ⑤ README + 文档状态 |
+| 合计 M1 | 14（±1/Task） | |
 | 008 | 5–6 | （M2，含模型增补独立审批提交） |
 | 009 | 4–5 | （M2） |
-| 合计 M1 | ≈ 18–21 | |
+
+**M1 测试策略定案**：
+
+- **Mandatory CI（默认回归门槛）**：fake `MediaInspector`、fake
+  `VideoComposer`、fake/manual Provider、fake-based 一条命令 CLI
+  端到端（`tests/test_minimal_loop.py`）、crash/retry/幂等测试、
+  CLI 退出码测试；CI 不要求安装真实 FFmpeg/ffprobe；
+- **Optional real CLI smoke（非门槛）**：TASK-007 拥有——
+  `pytest.mark.skipif`（工具不可用跳过）+ 显式环境开关
+  `AI_VIDEO_WORKFLOW_REAL_TOOLS=1` + 最小受控媒体 fixture，仅验证
+  完整命令序列可真实跑通，不做脆弱的编码字节等价断言
+  （ADR-0002 第 4 条）；真实工具手工执行流程保留在 README。
 
 ## 9. 风险与未决问题
 

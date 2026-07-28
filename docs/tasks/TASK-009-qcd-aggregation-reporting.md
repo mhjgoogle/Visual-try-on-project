@@ -24,13 +24,21 @@ GenerationTask / Shot / Project 三个粒度计算质量、成本、交付周期
 ## 范围内
 
 1. `qcd/aggregation.py`：事件流读取（strict 解析 + event_id
-   去重）→ 三粒度指标：
-   - Delivery：task_created → asset_imported /
-     composition_completed 的时长；
-   - Quality：人工评分（最新/均值）、重做次数（同 Shot 任务数）、
-     校验失败率；
-   - Cost：人工尝试次数（`manual_attempt_recorded` 计数；货币
-     成本字段预留为空，付费 Provider 接入后填充）；
+   去重，torn-final-line 语义遵循 ADR-0003 §7）→ 三粒度指标。
+   **输入合同 = ADR-0003 §4 的七类 payload schema 与「TASK-009
+   aggregation 使用方式」节**（本任务不得要求写入方提供 schema
+   之外的字段，也不得修改事件 schema）：
+   - Delivery：`task_created.occurred_at` → 同 task 的
+     `asset_imported.occurred_at` 时长；
+     `composition_completed.occurred_at` 为项目级成片时点；
+   - Quality：人工评分（`score`/`scale`，最新值按 occurred_at +
+     event_id 全序，均值按去重后事件集）、重做次数（同 Shot 的
+     `task_created` 计数与 `origin="redo"`）、校验失败率
+     （`validation_completed.passed`/`checks_failed`）；
+   - Cost：人工尝试次数与 `elapsed_ms` 合计
+     （`manual_attempt_recorded`）；`cost_minor_units`/`currency`
+     合计（M1 人工模式通常为 null，付费 Provider 接入后填充；
+     不同货币不得跨币种相加，按 currency 分组）；
 2. `qcd/reporting.py`：`reports/qcd/summary_v<N>.{json,md}`，
    版本化、防覆盖、确定性输出；
 3. 事件↔业务记录对账检查（发现事件缺失/孤儿事件时在报告中列出，
@@ -59,12 +67,19 @@ GenerationTask / Shot / Project 三个粒度计算质量、成本、交付周期
 
 ```python
 def aggregate_events(
-    events: tuple[QcdEvent, ...], data: ProjectData,
+    events: tuple[QcdEvent, ...],
+    data: ProjectData,
 ) -> QcdSummary: ...
+
+
 # QcdSummary: per_task / per_shot / per_project 三层冻结结构
 
+
 def run_qcd_report_step(
-    *, project_root: Path, data: ProjectData, observed_at: datetime,
+    *,
+    project_root: Path,
+    data: ProjectData,
+    observed_at: datetime,
 ) -> QcdReportOutcome: ...
 ```
 

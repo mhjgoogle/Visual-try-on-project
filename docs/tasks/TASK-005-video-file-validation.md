@@ -140,6 +140,7 @@ class MediaInspector(ABC):
     @abstractmethod
     def probe(self, path: Path) -> MediaProbeResult: ...
 
+
 @dataclass(frozen=True, slots=True)
 class MediaProbeResult:
     container_format: str
@@ -148,11 +149,21 @@ class MediaProbeResult:
     height: int
     frame_rate: float
 
+
 class FfprobeMediaInspector(MediaInspector): ...
+
+
 class MediaInspectionError(AiVideoWorkflowError): ...
+
+
 class MediaToolNotAvailableError(MediaInspectionError): ...
+
+
 class UndecodableMediaError(MediaInspectionError): ...
+
+
 class MediaProbeParseError(MediaInspectionError): ...
+
 
 # ai_video_workflow.assets
 @dataclass(frozen=True, slots=True)
@@ -162,40 +173,91 @@ class ValidationPolicy:
     frame_rate_tolerance: float = 0.5
     require_exact_resolution: bool = True
 
+
+class ValidationCheckType(str, Enum):
+    # 固定枚举与固定声明顺序（报告中的检查顺序 = 本顺序）
+    FILE_EXISTS = "file_exists"  # 存在且为常规文件
+    PATH_ALLOWED = "path_allowed"  # containment + symlink 策略
+    FILE_READABLE = "file_readable"
+    FILE_NON_EMPTY = "file_non_empty"
+    SHA256_COMPUTED = "sha256_computed"
+    METADATA_PARSED = "metadata_parsed"  # inspector probe 成功
+    CONTAINER_ACCEPTED = "container_accepted"
+    DURATION_WITHIN_TOLERANCE = "duration_within_tolerance"
+    RESOLUTION_MATCHES = "resolution_matches"
+    FRAME_RATE_WITHIN_TOLERANCE = "frame_rate_within_tolerance"
+
+
+class ValidationCheckStatus(str, Enum):
+    PASSED = "passed"
+    FAILED = "failed"
+    SKIPPED = "skipped"  # 仅当前序检查 FAILED 导致未执行
+
+
+@dataclass(frozen=True, slots=True)
+class ValidationCheck:
+    check_type: ValidationCheckType
+    status: ValidationCheckStatus
+    observed: str | None  # 观察值的确定性字符串表示；未观测为 None
+    expected: str | None  # 约束的确定性字符串表示
+    error_code: str | None  # 稳定机器可读失败码；非 FAILED 时为 None
+    message: str | None  # 人类可读说明，仅展示用
+
+
 @dataclass(frozen=True, slots=True)
 class ValidationReport:  # 逐规则类型化结果
     task_id: str
     shot_id: str
-    checked_path: str          # 项目根相对 POSIX 路径
+    checked_path: str  # 项目根相对 POSIX 路径
     passed: bool
     checks: tuple[ValidationCheck, ...]
     probe: MediaProbeResult | None
     policy_digest: str
-    observed_at: datetime      # 调用方显式传入
+    observed_at: datetime  # 调用方显式传入
+
 
 def validate_artifact(
-    *, project_root: Path, shot: Shot, task: GenerationTask,
-    artifact: ArtifactReference, inspector: MediaInspector,
-    policy: ValidationPolicy, observed_at: datetime,
+    *,
+    project_root: Path,
+    shot: Shot,
+    task: GenerationTask,
+    artifact: ArtifactReference,
+    inspector: MediaInspector,
+    policy: ValidationPolicy,
+    observed_at: datetime,
 ) -> ValidationReport: ...
 
+
 def run_validation_step(
-    *, project_root: Path, shot: Shot, scene: Scene,
-    task: GenerationTask, artifact: ArtifactReference,
-    inspector: MediaInspector, policy: ValidationPolicy,
+    *,
+    project_root: Path,
+    shot: Shot,
+    scene: Scene,
+    task: GenerationTask,
+    artifact: ArtifactReference,
+    inspector: MediaInspector,
+    policy: ValidationPolicy,
     observed_at: datetime,
 ) -> ValidationStepOutcome: ...
+
+
 # ValidationStepOutcome: report、registered_asset(VideoAsset|None)、
 # manifest(StepManifest)、emitted_event_ids、skipped(bool)
 
+
 class AssetRegistrationError(AiVideoWorkflowError): ...
+
+
 class ValidationFailedError(AssetRegistrationError): ...
+
+
 class AssetConflictError(AssetRegistrationError): ...
+
 
 # ai_video_workflow.qcd
 @dataclass(frozen=True, slots=True)
 class QcdEvent:
-    event_id: str        # 确定性派生，见 ADR-0003
+    event_id: str  # 确定性派生，见 ADR-0003
     event_type: QcdEventType
     occurred_at: datetime
     project_id: str
@@ -203,19 +265,38 @@ class QcdEvent:
     task_id: str | None
     payload: Mapping[str, JsonCompatibleValue]
 
+
 class QcdEventType(str, Enum): ...  # 七种事件类型
+
 
 def append_event(project_root: Path, event: QcdEvent) -> None: ...
 def read_events(project_root: Path) -> tuple[QcdEvent, ...]: ...
+
 
 # ai_video_workflow.digests
 def file_sha256(path: Path) -> str: ...
 def config_digest(value: JsonCompatibleValue) -> str: ...
 ```
 
-精确签名细节（字段全集、检查类型枚举）在实施第一个 commit 前以
-docstring 固化；本卡列出的名称、参数形态与语义是合同，实施不得
-偏离。
+本卡列出的名称、参数形态、字段集与语义**即为合同**，实施不得
+偏离，也不得在首个代码 commit 时再临时发明字段。
+
+**ValidationCheck durable schema 补充合同**：
+
+- `ValidationCheck` / `ValidationReport` 为 `frozen=True,
+  slots=True` 冻结数据结构；
+- 报告 JSON 携带 `report_schema_version: 1`，键集固定（所列键
+  全部出现，可空为显式 `null`）；
+- 报告中 `checks` 的顺序固定为 `ValidationCheckType` 的声明
+  顺序；未执行的检查以 `SKIPPED` 占位，不省略；
+- `passed == true` 当且仅当全部检查为 `PASSED`（任一 `FAILED`
+  即 `false`；`SKIPPED` 仅可作为 `FAILED` 的后果出现）；
+- `error_code` 为稳定机器可读码：每个 check_type 的失败码等于
+  其枚举值（如 `"duration_within_tolerance"`）；业务判断只允许
+  依赖 `check_type`/`status`/`error_code`，**禁止依赖人类可读
+  `message` 文本**（不做本地化承诺）；
+- `observed`/`expected` 为确定性字符串表示（同输入逐字节一致），
+  数值按固定小数位格式化。
 
 ## Data contracts
 
@@ -231,15 +312,22 @@ docstring 固化；本卡列出的名称、参数形态与语义是合同，实�
 - **StepManifest**：`manifests/validation-<task-id>.json`；
   `step_name = "validation:<task-id>"`；
   `input_digest = file_sha256(staged file)`；
-  `relevant_config_digest = config_digest(policy)`；
+  `relevant_config_digest = config_digest({"schema":
+  "m1-validation-config-v1", "policy": <ValidationPolicy 全字段>})`
+  ——schema 常量的唯一 owner 为本任务 `assets/policy.py`，其他
+  组件不得自行拼写；
   `output_paths` = 报告 JSON 路径 + 正式媒体路径 + VideoAsset 记录
   路径；跳过条件遵循 architecture.md §8 五条件。
 - **校验报告**：`reports/validation/<task-id>_v<version>.json`
   （事实来源，确定性 JSON）+ 同名 `.md`（确定性渲染）；防覆盖。
 - **QCD 事件**：`qcd/events/log.jsonl`，append-only，一行一事件，
-  UTF-8；`event_id` 确定性派生（如
-  `validation_completed:<task-id>:v<version>`）；重复 append 允许
-  存在，消费方按 event_id 去重（ADR-0003）。
+  UTF-8；本任务发射的 `asset_imported`、`validation_completed`、
+  `manual_quality_rating_recorded` 三类事件的 **payload 字段集、
+  event_id 派生、None 语义与单位以 ADR-0003 §4/§5 为准**（本卡
+  不复制 schema，实施不得偏离）；`elapsed_ms` 由调用方显式传入
+  （核心库不读时钟）；重复 append 允许存在，消费方按 event_id
+  去重；写入器的 torn-tail 防护与 strict 读取语义遵循
+  ADR-0003 §7。
 - **失败的校验**：产出 `passed=false` 报告 + FAILED manifest
   （error_summary 非空）+ `validation_completed` 事件
   （payload.passed=false）；不创建 VideoAsset、不导入媒体。
@@ -249,6 +337,11 @@ docstring 固化；本卡列出的名称、参数形态与语义是合同，实�
 - 落盘顺序：报告 → 媒体导入 → VideoAsset 记录 → QCD 事件 →
   manifest COMPLETED（commit 标记）。任一步失败：manifest 不进入
   COMPLETED，重跑走幂等路径。
+- staged 文件去留（ADR-0001 第二次增补合同）：登记成功**不**立即
+  删除调用方原始源文件；项目管理的 staging 副本仅在 VideoAsset
+  登记 + 正式媒体 + QCD 事件全部成功后**可**清理（COMPLETED 之后
+  的可选收尾）；清理失败不回滚登记、只作 warning/diagnostic；
+  绝不删除项目根外的用户源文件。
 - 幂等重跑：manifest COMPLETED 且 digest 匹配且输出全部存在且
   VideoAsset 可加载 → 整步 no-op（不重复登记、不重复导入）；QCD
   事件可能重复，由 event_id 去重语义兜底。

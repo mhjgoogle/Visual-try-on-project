@@ -75,15 +75,24 @@ Shot.sequence 顺序合成为可播放的最终 MP4，输出到 `outputs/`，带
 # ai_video_workflow.composition
 @dataclass(frozen=True, slots=True)
 class CompositionProfile:
+    # 无默认值字段在前（dataclass 字段顺序约束）
+    width: int
+    height: int
+    frame_rate: float
     video_codec: str = "libx264"
     pixel_format: str = "yuv420p"
-    width: int; height: int; frame_rate: float
     audio_codec: str | None = "aac"
+
 
 @dataclass(frozen=True, slots=True)
 class CompositionPlanEntry:
-    scene_id: str; shot_id: str; asset_id: str
-    asset_path: str; asset_version: int; input_digest: str
+    scene_id: str
+    shot_id: str
+    asset_id: str
+    asset_path: str
+    asset_version: int
+    input_digest: str
+
 
 @dataclass(frozen=True, slots=True)
 class CompositionPlan:
@@ -91,32 +100,50 @@ class CompositionPlan:
     entries: tuple[CompositionPlanEntry, ...]
     profile: CompositionProfile
 
+
 def build_composition_plan(
-    *, data: ProjectData, profile: CompositionProfile | None = None,
+    *,
+    data: ProjectData,
+    profile: CompositionProfile | None = None,
 ) -> CompositionPlan: ...
+
 
 class VideoComposer(ABC):
     @abstractmethod
-    def normalize(self, source: Path, target: Path,
-                  profile: CompositionProfile) -> None: ...
+    def normalize(
+        self, source: Path, target: Path, profile: CompositionProfile
+    ) -> None: ...
     @abstractmethod
-    def concatenate(self, sources: tuple[Path, ...],
-                    target: Path) -> None: ...
+    def concatenate(self, sources: tuple[Path, ...], target: Path) -> None: ...
+
 
 class FfmpegVideoComposer(VideoComposer): ...
 
+
 def run_composition_step(
-    *, project_root: Path, data: ProjectData,
-    composer: VideoComposer, profile: CompositionProfile | None,
+    *,
+    project_root: Path,
+    data: ProjectData,
+    composer: VideoComposer,
+    profile: CompositionProfile | None,
     observed_at: datetime,
 ) -> CompositionStepOutcome: ...
+
+
 # CompositionStepOutcome: output_path、version、manifest、report、
 # emitted_event_ids、skipped(bool)
 
+
 class CompositionError(AiVideoWorkflowError): ...
-class MissingShotAssetError(CompositionError): ...      # 列出全部缺口
+
+
+class MissingShotAssetError(CompositionError): ...  # 列出全部缺口
+
+
 class InconsistentShotSpecError(CompositionError): ...  # 列出差异
-class CompositionToolError(CompositionError): ...       # ffmpeg 失败
+
+
+class CompositionToolError(CompositionError): ...  # ffmpeg 失败
 ```
 
 ## Data contracts
@@ -131,19 +158,31 @@ class CompositionToolError(CompositionError): ...       # ffmpeg 失败
 - **StepManifest**：`manifests/composition-<project-id>.json`；
   `input_digest = config_digest(有序 asset (id, version,
   file_sha256) 列表)`；`relevant_config_digest =
-  config_digest(profile)`；`output_paths` = 最终 MP4 + 报告 JSON；
-- **QCD 事件**：`composition_completed`，`event_id =
-  "composition_completed:<project-id>:v<N>"`，payload 含输出路径、
-  条目数、profile digest。
+  config_digest({"schema": "m1-composition-config-v1", "profile":
+  <CompositionProfile 全字段>})`——schema 常量的唯一 owner 为本
+  任务 `composition/profile.py`；`output_paths` = 最终 MP4 + 报告
+  JSON；
+- **QCD 事件**：`composition_completed`——payload 字段集、
+  event_id 派生、单位与 None 语义以 **ADR-0003 §4.7/§5 为准**
+  （output_path/output_version/output_sha256/output_duration_ms/
+  input_asset_ids/entry_count/profile_digest/elapsed_ms；
+  `elapsed_ms` 由调用方显式传入）；合成报告须记录
+  `output_sha256`（同时是幂等 NO_OP 判定输入）。
 
 ## Failure / recovery semantics
 
 - 落盘顺序：中间转码 → concat 到临时文件 → 原子发布最终 MP4 →
   报告 → QCD 事件 → manifest COMPLETED；
-- 幂等重跑：manifest COMPLETED + digest 匹配 + 输出存在 + 输出
-  经 step-specific 校验（可选注入 `MediaInspector` probe 最终
-  文件）→ no-op；输入集合或 profile 变化 → 合成新版本 v(N+1)，
-  旧版本保留；
+- 幂等重跑（NO_OP 精确条件，全部满足才跳过）：
+  1. manifest COMPLETED；
+  2. `input_digest` 与 `relevant_config_digest` 均匹配；
+  3. `output_paths` 中全部文件存在且为常规文件；
+  4. 最终 MP4 重新计算的 `file_sha256` 与合成报告记录的
+     `output_sha256` **一致**（必检——仅路径存在不足以跳过）；
+  5. 合成报告 JSON 可加载且版本一致。
+  可选注入 `MediaInspector` 对最终文件 probe 属额外诊断，不参与
+  跳过判定。输入集合或 profile 变化 → 合成新版本 v(N+1)，旧版本
+  保留；
 - 转码/concat 中途失败：manifest FAILED（error_summary 含 ffmpeg
   stderr 摘要），中间文件保留供检查，重跑从头执行该版本（中间文件
   可安全重建，不做部分转码复用——v1 简化，记录为已知成本）；

@@ -72,7 +72,8 @@ Generation Task Bootstrap, Workflow Driver, and Minimal CLI
 新增（本任务独占写入）：
 
 - `src/ai_video_workflow/app/__init__.py`、`bootstrap.py`、
-  `driver.py`、`clock.py`、`ids.py`
+  `driver.py`、`clock.py`、`ids.py`、`contracts.py`
+  （`STAGING_CONTRACT_VERSION` 等稳定合同常量的唯一 owner）
 - `src/ai_video_workflow/cli.py`
 - `pyproject.toml`（仅新增 `[project.scripts]` 入口——冻结文件的
   一次性授权修改，范围仅此一行）
@@ -87,37 +88,92 @@ Generation Task Bootstrap, Workflow Driver, and Minimal CLI
 ```python
 # ai_video_workflow.app
 def bootstrap_generation_tasks(
-    *, project_root: Path, data: ProjectData, provider_id: str,
+    *,
+    project_root: Path,
+    data: ProjectData,
+    provider_id: str,
     now: datetime,
 ) -> BootstrapOutcome: ...
+
+
 # BootstrapOutcome: created(tuple[task_id,...])、skipped、
 # emitted_event_ids
 
+
 def create_redo_task(
-    *, project_root: Path, data: ProjectData, shot_id: str,
-    provider_id: str, now: datetime,
+    *,
+    project_root: Path,
+    data: ProjectData,
+    shot_id: str,
+    provider_id: str,
+    now: datetime,
 ) -> BootstrapOutcome: ...
 
+
+@dataclass(frozen=True, slots=True)
+class DriverOutcome:
+    # 精确字段与顺序（本卡即合同，实施不得增删改序）：
+    task_id: str  # 1. 目标任务
+    action: OrchestrationAction  # 2. prepare/submit/poll/report_artifact/collect
+    operation_id: str  # 3. driver 生成的 uuid4 操作身份
+    outcome: OrchestrationOutcome  # 4. 公开编排结果原样嵌入
+    emitted_event_ids: tuple[str, ...]  # 5. 本次发射的 QCD event_id（可为空）
+    instruction_path: str | None  # 6. prepare 后说明文档路径，否则 None
+    staged_path: str | None  # 7. report_artifact/collect 的声明路径回显，否则 None
+
+
 class WorkflowDriver:
-    def __init__(self, orchestrator: ProviderOrchestrator,
-                 project_root: Path,
-                 clock: Callable[[], datetime] = utc_now): ...
+    def __init__(
+        self,
+        orchestrator: ProviderOrchestrator,
+        project_root: Path,
+        clock: Callable[[], datetime] = utc_now,
+    ): ...
     def prepare(self, task_id: str) -> DriverOutcome: ...
     def submit(self, task_id: str) -> DriverOutcome: ...
     def poll(self, task_id: str) -> DriverOutcome: ...
-    def report_artifact(self, task_id: str,
-                        staged_path: str) -> DriverOutcome: ...
+    def report_artifact(self, task_id: str, staged_path: str) -> DriverOutcome: ...
     def collect(self, task_id: str) -> DriverOutcome: ...
     def resume(self, task_id: str) -> ResumeAssessment: ...
-    def record_attempt(self, task_id: str,
-                       note: str | None) -> str: ...   # event_id
-    def record_rating(self, *, shot_id: str, task_id: str | None,
-                      score: int, note: str | None) -> str: ...
+    def status(self, task_id: str) -> ResumeAssessment: ...  # 只读，见下
+    def record_attempt(self, task_id: str, note: str | None) -> str: ...  # event_id
+    def record_rating(
+        self, *, shot_id: str, task_id: str | None, score: int, note: str | None
+    ) -> str: ...
+
 
 class BootstrapError(AiVideoWorkflowError): ...
+
+
 class TaskAlreadyExistsError(BootstrapError): ...
+
+
 class StagedFileMissingError(AiVideoWorkflowError): ...
 ```
+
+**DriverOutcome 合同**（从 WorkflowDriver 六方法与既有
+BootstrapOutcome / ValidationStepOutcome / CompositionStepOutcome /
+OrchestrationOutcome / ResumeAssessment 机械确定）：
+
+- `frozen=True, slots=True`；深度冻结（`emitted_event_ids` 为
+  tuple，嵌套 `OrchestrationOutcome` 自身已深度冻结）；与 TASK-004
+  §6.2 公开模型相同的「深度冻结、不保证可哈希」合同（嵌套 mapping
+  快照使 hash 不可用，不得依赖）；
+- 每种方法的字段出现规则：`prepare` → `instruction_path` 非
+  None、`staged_path` 为 None；`report_artifact`/`collect` →
+  `staged_path` 非 None（collect 未显式声明路径时为 None）、
+  `instruction_path` 为 None；`submit`/`poll` → 两者均 None；
+- task/manifest 身份与更新后快照经 `outcome.plan` /
+  `outcome.record` 提供，**不**重复嵌入；QCD 身份经
+  `emitted_event_ids`（NO_OP 不发事件 → 空 tuple）；
+- 成功 = `outcome.kind is APPLIED`；no-op = `NO_OP` +
+  `outcome.no_op_reason`；manual/conflict/校验失败一律为**类型化
+  异常**（不进入 DriverOutcome），CLI 把异常映射为非零退出码；
+- `resume`/`status` 不返回 DriverOutcome（原样返回公开
+  `ResumeAssessment`）；`record_attempt`/`record_rating` 返回
+  event_id 字符串；
+- DriverOutcome 不落盘、不序列化为 durable JSON（非持久模型；CLI
+  只做人类可读渲染）；不暴露 executor 或任何内部 durable model。
 
 CLI 子命令与上述 API 一一对应；`validate`/`compose` 子命令直接
 接线 TASK-005/006 的 step API（真实 `FfprobeMediaInspector` /
@@ -128,20 +184,57 @@ CLI 子命令与上述 API 一一对应；`validate`/`compose` 子命令直接
 - **task_id 派生**：`task-<shot-id>-<n>`（同一 Shot 第 n 次任务，
   n 从 1 递增；确定性、可排序、满足 stable ID 规则）；
 - **generation StepManifest**：`manifests/generation-<task-id>.json`、
-  `step_name = "generation:<task-id>"`、PENDING、
-  `input_digest = config_digest(shot 生成输入投影)`、
-  `relevant_config_digest = config_digest(provider_id + staging 合同
-  版本)`（TASK-004 进入前置条件所需的既存文件由此满足）；
+  `step_name = "generation:<task-id>"`、PENDING（TASK-004 进入
+  前置条件所需的既存文件由此满足）。两个 digest 的**精确输入**
+  （canonical JSON + SHA-256，经 TASK-005 `config_digest`）：
+  - `input_digest = config_digest({...})`，投影字段集**完整列举**
+    如下（全部来自既有模型，只含改变生成语义的输入）：
+    - `"schema": "m1-generation-input-v1"`（常量）；
+    - `"shot_id": shot.shot_id`；
+    - `"scene_id": shot.scene_id`；
+    - `"character_ids": list(shot.character_ids)`（模型内既有
+      顺序）；
+    - `"prompt": shot.prompt`；
+    - `"description": shot.description`；
+    - `"duration_seconds": shot.duration_seconds`；
+    - `"width": shot.width`；
+    - `"height": shot.height`；
+    - `"frame_rate": shot.frame_rate`。
+    **显式排除**：当前时间、created_at、scene/shot sequence（只
+    影响合成顺序不影响单镜头生成）、绝对 project root、临时/输出
+    路径、mutable 任务状态、运行期重试计数；
+  - `relevant_config_digest = config_digest({"schema":
+    "m1-generation-config-v1", "provider_id": <选定 provider_id>,
+    "staging_contract": STAGING_CONTRACT_VERSION})`；
+    `STAGING_CONTRACT_VERSION = "m1-staging-v1"` 为固定常量，
+    **唯一 owner 为本任务新增模块 `app/contracts.py`**，任何步骤
+    不得自行拼写该字符串；
 - **ProviderRequest 组装**：prompt/duration/width/height/frame_rate
   取自 Shot；staging_ref 按合同派生；provider_parameters 留空；
-- **QCD 事件**：`task_created:<task-id>`、
-  `task_status_changed:<task-id>:<operation_id>`、
-  `manual_attempt_recorded:<task-id>:<uuid>`、
-  `manual_quality_rating_recorded:<shot-id>:<uuid>`（评分事件可
-  随时补记，不绑定任务状态）；
-- **状态呈现**：`status` 子命令输出每 Shot 的任务链、编排 record
-  摘要（`OrchestrationRecord`）、资产登记与合成状态——只读派生，
-  不落盘。
+- **bootstrap `provider_id` 落点（定案）**：
+  - 用于选择/绑定 Provider 与 ProviderRequest 组装；
+  - 纳入 `relevant_config_digest`（见上）；
+  - **不写入初始 GenerationTask.provider_id**——初始任务必须为
+    `provider_id=None`（TASK-004 首次 prepare 前置条件）；
+  - provider binding 由首次成功 PREPARE 按 TASK-004 合同落入
+    后续状态；bootstrap 不提前伪造 prepared/provider 状态；
+  - provider_id 保存在 CLI/driver 的调用配置中，不新增 durable
+    配置文件；
+- **QCD 事件**：本任务发射 `task_created`、`task_status_changed`、
+  `manual_attempt_recorded`（评分事件 CLI 入口写
+  `manual_quality_rating_recorded`）——payload 字段集、event_id
+  派生、单位与 None 语义以 **ADR-0003 §4.1–§4.3/§4.5/§5 为准**；
+  `task_status_changed` 仅在 APPLIED 且状态实际变化时发射（NO_OP
+  不发事件）；评分事件可随时补记，不绑定任务状态；
+- **状态呈现（定案）**：`status` 子命令**只使用公开
+  `ResumeAssessment`**（经 `WorkflowDriver.status` → 内部调用
+  `orchestrator.resume`）+ 显式加载的 ProjectData 只读派生。展示
+  字段：`phase`、`disposition`、`legal_actions`、
+  `preferred_next_action`、`requires_manual_reconciliation`，外加
+  资产登记与合成状态（来自 ProjectData/报告，只读）。**不**读取
+  private executor、**不**新增 OrchestrationRecord public
+  accessor / durable-record read API / internal model export，
+  也不宣称展示完整 durable record；只读派生，不落盘。
 
 ## Failure / recovery semantics
 
@@ -170,7 +263,10 @@ CLI 子命令与上述 API 一一对应；`validate`/`compose` 子命令直接
 
 1. bootstrap：创建/跳过/重做任务、task_id 派生、幂等、防覆盖、
    `task_created` 事件、manifest 满足 TASK-004 进入前置条件（用
-   真实 orchestrator prepare 验证可进入）；
+   真实 orchestrator prepare 验证可进入）；**部分创建后崩溃**：
+   为部分 Shot 创建 task/manifest 后中断 → 重跑验证已有文件与
+   预期内容等价并只补齐缺失文件；已有文件与预期**不等价**时拒绝
+   （类型化错误），不覆盖非等价已有状态；
 2. driver：上下文组装、operation_id 传递、状态变化 →
    `task_status_changed` 映射（含 NO_OP 不发事件）、
    record_attempt/record_rating 事件、StagedFileMissingError、
@@ -193,6 +289,16 @@ provider/持久化）：
 4. `compose` → final_v1.mp4 + 报告 + 事件；
 5. 全流程任意步骤后中断重跑 → 幂等；
 6. 事件日志包含全部七类中本流程应出现的事件且 event_id 可去重。
+
+**Optional real CLI smoke test（本任务拥有，ADR-0002 第 4 条）**：
+`tests/test_minimal_loop.py` 内独立测试——真实
+`FfprobeMediaInspector` + `FfmpegVideoComposer` 走完整一条命令
+序列（init-tasks → report-artifact → collect → validate →
+compose），使用最小受控媒体 fixture，仅验证完整命令可跑通与产物
+存在，不做脆弱的编码字节等价断言；`pytest.mark.skipif`
+（ffmpeg/ffprobe 不可用即跳过）+ 显式环境开关
+`AI_VIDEO_WORKFLOW_REAL_TOOLS=1`；**不属于默认 CI 回归门槛**，
+CI 不要求安装真实 FFmpeg；真实工具手工执行流程保留在 README。
 
 ## 验收标准
 

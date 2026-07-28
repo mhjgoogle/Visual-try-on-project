@@ -8,6 +8,11 @@
   instruction document contract, per the approved TASK-004 design
   (Revision r6). This amendment extends the layout; it does not change
   any decision unrelated to TASK-004.
+- Amended (second): 2026-07-28 — M1 staging naming, `reports/`
+  directories, formal media and final output naming, and the staged
+  file retention/cleanup rule, per the finalized TASK-005/006/007
+  contracts. This amendment extends the layout; it does not change any
+  earlier decision.
 
 ## Context
 
@@ -56,16 +61,33 @@ Loading remains explicit: callers provide every model file path to
       <task-id>.json
   inputs/
   staging/
+    shots/
+      <task-id>.mp4
+    composition/
+      v<N>/
   assets/
     media/
+      s<scene-seq>_sh<shot-seq>_v<version>.mp4
   manifests/
     <step-instance>.json
   tasks/
     instructions/
       <task-id>.md
+  reports/
+    validation/
+      <task-id>_v<version>.json
+      <task-id>_v<version>.md
+    composition/
+      final_v<N>.json
+      final_v<N>.md
+    qcd/
+      summary_v<N>.json
+      summary_v<N>.md
   qcd/
     events/
+      log.jsonl
   outputs/
+    final_v<N>.mp4
 ```
 
 The directory names are stable parts of the long-lived project data contract.
@@ -88,7 +110,8 @@ placeholder directories.
 | `staging/` | Temporary or unregistered media produced or transferred before validation and formal import. |
 | `assets/media/` | Validated, formally registered media referenced by VideoAsset records. |
 | `manifests/` | StepManifest records describing individual recoverable step results. |
-| `qcd/events/` | Future append-only raw QCD event records. Aggregates are not authoritative here. |
+| `reports/` | Versioned validation, composition, and QCD reports (JSON fact source + deterministic Markdown rendering). Derived documents, never a second source of business truth. |
+| `qcd/events/` | Append-only raw QCD event log (`log.jsonl`, format per ADR-0003). Aggregates are not authoritative here. |
 | `outputs/` | Final deliverables. These files are not the formal source of reusable asset truth. |
 
 `staging/` content never becomes a formal asset merely by existing there.
@@ -247,6 +270,50 @@ policy, artifact file reading, FFmpeg, QCD, provider registries, cloud
 APIs, or browser automation. TASK-004 stores only the explicit
 ArtifactReference handoff; formal asset handling belongs to later
 tasks.
+
+## M1 Naming Contracts (Second Amendment)
+
+These names are stable parts of the project data contract. All are
+project-root-relative POSIX paths.
+
+- **Staging placement contract**: the manual artifact for one
+  GenerationTask is placed at exactly `staging/shots/<task-id>.mp4`.
+  The TASK-007 bootstrap allocates this reference (it becomes
+  `ProviderRequest.staging_ref` and appears in the instruction
+  document); the TASK-005 validation step consumes it. A user retry of
+  the same task replaces the file content at the same path; content
+  change is detected by digest and produces a new registered asset
+  version — never a silent overwrite of registered state.
+- **Composition intermediates**: `staging/composition/v<N>/` holds the
+  normalized per-shot intermediates for final output version `<N>`
+  (TASK-006). They are unregistered temporary media, ignored by Git,
+  and may be rebuilt from registered assets at any time.
+- **Formal media naming**:
+  `assets/media/s<scene-seq:02d>_sh<shot-seq:03d>_v<version>.mp4`,
+  version starting at 1 per shot; existing files are never replaced
+  (no-replace publication).
+- **Reports**: `reports/validation/<task-id>_v<version>.{json,md}`
+  (TASK-005), `reports/composition/final_v<N>.{json,md}` (TASK-006),
+  `reports/qcd/summary_v<N>.{json,md}` (TASK-009). JSON is the fact
+  source; Markdown is a deterministic rendering. Versioned,
+  never overwritten.
+- **Final deliverables**: `outputs/final_v<N>.mp4`, `<N>` starting
+  at 1, never overwritten.
+
+## Staged File Retention And Cleanup (Second Amendment)
+
+After a successful validation and formal import of a staged file:
+
+- the caller's original source file is **never deleted immediately**
+  on successful registration; user source files outside the project
+  root are never deleted at all;
+- the project-managed staging copy (`staging/shots/<task-id>.mp4`)
+  **may** be cleaned up only after the durable asset registration
+  (VideoAsset record + formal media file) **and** the corresponding
+  QCD event write have all succeeded;
+- a cleanup failure never rolls back the already-successful
+  registration; it is reported as a warning/diagnostic only;
+- cleanup never touches anything outside `staging/`.
 
 ## Paths And Overwrite Principles
 

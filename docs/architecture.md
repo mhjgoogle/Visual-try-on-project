@@ -93,13 +93,22 @@ Provider 的每一步都**只返回结构化结果**（概念上为 ProviderResu
 
 **Workflow Orchestrator（工作流编排器）负责**：
 
-- 分配 staging 路径；
+Workflow Orchestrator 是**应用层角色**，由一组步骤组件构成（任务
+bootstrap 与 driver、ProviderOrchestrator、校验步骤、合成步骤）。
+每类业务文件仍各有唯一写入组件，职责分配不变：
+
+- 分配 staging 路径（bootstrap，TASK-007）；
 - 应用覆盖与版本策略（见 §9）；
-- 校验 Provider 返回的媒体；
-- 将通过校验的媒体导入/移动到正式资产目录；
-- 持久化 GenerationTask（唯一写入者）；
-- 登记 VideoAsset（唯一写入者）；
-- 写入 step manifest 与 QCD 原始事件。
+- 校验 Provider 返回的媒体（校验步骤，TASK-005）；
+- 将通过校验的媒体导入/移动到正式资产目录（校验步骤，TASK-005）；
+- 持久化 GenerationTask：**创建**由任务 bootstrap 负责
+  （TASK-007），创建后的全部**状态更新**由 ProviderOrchestrator
+  的内部 executor 负责（TASK-004）——同一文件在生命周期的不同
+  阶段各有唯一写入组件，二者不重叠；generation StepManifest 同理
+  （bootstrap 创建，编排器更新）；
+- 登记 VideoAsset（校验步骤为唯一写入者，TASK-005）；
+- 写入各步骤 manifest 与 QCD 原始事件（各步骤组件写自己的
+  manifest；QCD 事件按 ADR-0003 的 per-type writer 归属）。
 
 其他约束：
 
@@ -198,6 +207,10 @@ Provider 在整个生命周期中不修改 GenerationTask、不创建或登记 V
 - 已存在时的默认行为是**拒绝并报告**，绝不静默覆盖；
 - 需要重做时使用版本号递增的新文件名（v1 → v2），旧版本保留；
 - 显式的 `--force` 类选项必须由用户明确传入才允许覆盖，且覆盖行为要写入日志。
+  **M1 范围决定（owner：TASK-007 CLI）**：M1 **不提供** `--force`
+  覆盖既有 durable 输出的选项；冲突时一律返回类型化错误，或按
+  合同生成版本递增的新路径。`--force` 记录为未实施的后续范围，
+  未来引入时由 CLI 所在任务实现并补日志要求。
 
 ## 10. QCD 数据记录边界
 
