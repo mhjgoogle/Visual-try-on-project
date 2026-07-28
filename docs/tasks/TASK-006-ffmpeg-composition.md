@@ -308,5 +308,9 @@ TASK-006 的**固定落盘顺序（10 步）**：
 
 ## 当前状态
 
-Remaining roadmap design complete —
-single Codex architecture review pending
+implemented (M1 batch, branch `feat/m1-minimal-loop`) — profile/plan,
+VideoComposer + ffmpeg adapter, project-level CompositionPublishIntent,
+and the resumable composition step (10-step order + recovery matrix
+A–F) delivered across 4 commits; focused + core regression green.
+Milestone-1 regression gate runs after TASK-007 (whole-repository Codex
+review pending).
