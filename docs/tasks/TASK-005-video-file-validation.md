@@ -442,5 +442,9 @@ def config_digest(value: JsonCompatibleValue) -> str: ...
 
 ## 当前状态
 
-Remaining roadmap design complete —
-single Codex architecture review pending
+implemented (M1 batch, branch `feat/m1-minimal-loop`) — inspection +
+assets + qcd + digests delivered across 5 commits; validation step is
+independently runnable and resumable; QCD event-log foundation covers
+all seven types (this task emits three); focused + core regression
+green. Milestone-1 regression gate is run after TASK-006/007
+(whole-repository Codex review pending).
