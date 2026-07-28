@@ -38,7 +38,6 @@ from ai_video_workflow.orchestration.errors import (
 )
 from ai_video_workflow.orchestration.executor import (
     _FileOrchestrationExecutor,
-    _snapshot_file_fingerprint,
 )
 from ai_video_workflow.orchestration.models import (
     OrchestrationAction,
@@ -220,34 +219,39 @@ class ProviderOrchestrator:
     def resume(self, context: OrchestrationContext) -> ResumeAssessment:
         """Assess one task's resumable state; controlled auto-repair only.
 
-        Reads durable state through the executor, auto-repairs an
-        interrupted APPLYING to STABLE (§17.2 REPAIR), and returns an
-        assessment for every durable phase. It never calls the Provider,
-        never resubmits, and never repairs a malformed or manual record.
+        Fixed ordering: (1) static context validation; (2) caller
+        snapshot-vs-disk staleness — raises, and takes priority over a
+        malformed record; (3) strict durable-record parse; (4) request
+        consistency; (5) task/shot/provider identity; (6) stable-bearing
+        committed-state S1; (7) phase-specific classification. It never
+        calls the Provider and never resubmits; only an interrupted
+        APPLYING is auto-repaired to STABLE (§17.2 REPAIR / §14 P3-P8),
+        and a malformed/manual record is never repaired.
         """
         self._require_context(context)
         executor = self._new_executor(context)
+        # (2) snapshot-vs-disk is checked BEFORE the strict record parse so a
+        # stale/drifted caller context is rejected (raise) with priority over
+        # a malformed record. read_business_state omits the record parse; a
+        # transient filesystem / missing-required error propagates unchanged.
+        business = executor.read_business_state(context.task.task_id)
+        self._require_snapshot_matches_disk(context, business)
+        # (3) strict record parse. A malformed / corrupt durable record
+        # (§14 E1/S0) with a current context is a manual-reconciliation state,
+        # marked RECOVERY_REQUIRED (never the clean-∅ None), MANUAL — not
+        # CONFLICT (CONFLICT is reserved for external drift P9/S1/R3).
         try:
             observation = executor.read_project_state(context.task.task_id)
         except InvalidRecoveryRecordError:
-            # malformed / corrupt durable record: a manual-reconciliation
-            # state, marked with RECOVERY_REQUIRED (never the clean-∅ None).
-            # §14 E1 (schema invalid) and S0 (corrupt stable self-fp,
-            # CorruptStableRecordError) are both MANUAL_RECONCILIATION — not
-            # CONFLICT, which is reserved for external drift/tamper
-            # (P9/S1/R3). The record is not repaired and no
-            # Provider/filesystem action is taken.
             return self._manual_assessment(
                 context,
                 phase=RecordPhase.RECOVERY_REQUIRED,
                 disposition=RecoveryDisposition.MANUAL_RECONCILIATION,
             )
         record = observation.record
-        # §6.1/§9: a stale/drifted/tampered context must be rejected, not
-        # reported as a resumable state. §13.4 request drift and §7.1 identity
-        # mismatch are invalid context (raise), not assessments.
-        self._require_snapshot_matches_disk(context, observation)
         stable = None if record is None else record.stable
+        # (4) request drift and (5) identity mismatch on a stable-bearing
+        # record are invalid context (raise), not assessments.
         if stable is not None:
             self._planner.check_request_consistency(context.request, stable)
             self._require_resume_identity(context, observation, stable)
@@ -257,43 +261,53 @@ class ProviderOrchestrator:
                 manifest=observation.manifest,
                 instruction_exists=observation.instruction_text is not None,
             ):
-                # record lost but orchestration traces exist (§13.5): a
+                # record lost but orchestration traces exist (§13.5 / R1): a
                 # manual-reconciliation state marked RECOVERY_REQUIRED; no
-                # record is created, traces are not cleared, and it is never
-                # collapsed to the clean-∅ None.
+                # record is created, traces are not cleared, never collapsed
+                # to the clean-∅ None.
                 return self._manual_assessment(
                     context,
                     phase=RecordPhase.RECOVERY_REQUIRED,
                     disposition=RecoveryDisposition.MANUAL_RECONCILIATION,
                 )
             return self._empty_assessment(context)
-        if record.phase is RecordPhase.STABLE:
-            # §14 S1: the durable record is STABLE and its self-fingerprint
-            # verifies, but the committed task/manifest/instruction files
-            # drifted externally -> a CONFLICT manual reconciliation state
-            # (the record phase stays STABLE per §6.2 invariant 3).
-            if not self._committed_state_matches(record.stable, observation):
-                return ResumeAssessment(
-                    task_id=context.task.task_id,
-                    shot_id=context.task.shot_id,
-                    provider_id=context.request.provider_id,
-                    phase=RecordPhase.STABLE,
-                    last_completed_action=record.stable.last_completed_action,
-                    legal_actions=(),
-                    preferred_next_action=None,
-                    is_terminal=False,
-                    requires_manual_reconciliation=True,
-                    disposition=RecoveryDisposition.CONFLICT,
-                )
+        phase = record.phase
+        # APPLYING is judged by the fingerprint-authoritative recovery, not the
+        # strict before-state S1 (an apply legitimately advances files); a file
+        # that is neither before nor after is §14 P9 -> CONFLICT.
+        if phase is RecordPhase.APPLYING:
+            return self._resume_applying(context, executor)
+        # An already-landed RECOVERY_REQUIRED is a durable manual state; §14
+        # keeps it MANUAL_RECONCILIATION and never re-derives the original
+        # cause, so no S1 re-check is performed here.
+        if phase is RecordPhase.RECOVERY_REQUIRED:
+            return self._manual_assessment(
+                context,
+                phase=RecordPhase.RECOVERY_REQUIRED,
+                disposition=RecoveryDisposition.MANUAL_RECONCILIATION,
+                last_completed_action=(
+                    None
+                    if record.stable is None
+                    else record.stable.last_completed_action
+                ),
+            )
+        # (6) STABLE / INTENT / MAY_HAVE_STARTED / RESULT_UNKNOWN all carry a
+        # committed stable baseline: no resume may bypass S1. External drift of
+        # the committed files is a §14 S1 CONFLICT (report only; the record
+        # phase is preserved per §6.2 invariant 3; no durable mutation).
+        if not executor.committed_state_matches(record.stable, observation):
+            return self._s1_conflict_assessment(context, phase, record.stable)
+        # (7) clean committed state: phase-specific classification.
+        if phase is RecordPhase.STABLE:
             return self._stable_assessment(
                 context, record.stable, RecoveryDisposition.NONE
             )
-        if record.phase is RecordPhase.PROVIDER_CALL_INTENT:
+        if phase is RecordPhase.PROVIDER_CALL_INTENT:
             return ResumeAssessment(
                 task_id=context.task.task_id,
                 shot_id=context.task.shot_id,
                 provider_id=context.request.provider_id,
-                phase=record.phase,
+                phase=phase,
                 last_completed_action=record.stable.last_completed_action,
                 legal_actions=(record.pending.action,),
                 preferred_next_action=record.pending.action,
@@ -301,26 +315,12 @@ class ProviderOrchestrator:
                 requires_manual_reconciliation=False,
                 disposition=RecoveryDisposition.SAFE_AUTO_RETRY,
             )
-        if record.phase in (
-            RecordPhase.PROVIDER_CALL_MAY_HAVE_STARTED,
-            RecordPhase.PROVIDER_RESULT_UNKNOWN,
-        ):
-            return self._manual_assessment(
-                context,
-                phase=record.phase,
-                disposition=RecoveryDisposition.MANUAL_RECONCILIATION,
-                last_completed_action=record.stable.last_completed_action,
-            )
-        if record.phase is RecordPhase.APPLYING:
-            return self._resume_applying(context, executor)
-        # RECOVERY_REQUIRED
+        # PROVIDER_CALL_MAY_HAVE_STARTED / PROVIDER_RESULT_UNKNOWN
         return self._manual_assessment(
             context,
-            phase=record.phase,
+            phase=phase,
             disposition=RecoveryDisposition.MANUAL_RECONCILIATION,
-            last_completed_action=(
-                None if record.stable is None else record.stable.last_completed_action
-            ),
+            last_completed_action=record.stable.last_completed_action,
         )
 
     # --- core action pipeline ---
@@ -398,6 +398,15 @@ class ProviderOrchestrator:
         # verified here, before routing/admission, so an invalid context can
         # never reach the Provider.
         self._require_entry_preconditions(context, observation, stable)
+        # §13.2 S1: whenever a committed stable baseline exists, verify the
+        # committed task/manifest/instruction fingerprints against disk
+        # through the executor's single committed-state verifier BEFORE the
+        # Provider call, the INTENT / MAY_HAVE_STARTED writes, the apply
+        # intent, and the replay / NO-OP admission below. External drift
+        # raises PartialCommitConflictError with zero Provider calls and zero
+        # durable writes.
+        if stable is not None:
+            executor.verify_committed_state(stable, observation)
         status = None if stable is None else _provider_status(stable)
 
         # §7.2 committed-operation replay precedes admission so a
@@ -685,8 +694,11 @@ class ProviderOrchestrator:
             )
         observation = executor.read_project_state(context.task.task_id)
         self._require_snapshot_matches_disk(context, observation)
-        # full entry validation must precede the redriven Provider call
+        # full entry validation + §13.2 S1 committed-state verification must
+        # precede the redriven Provider call and the INTENT / MAY_HAVE_STARTED
+        # writes; committed-state drift raises with zero Provider calls
         self._require_entry_preconditions(context, observation, stable)
+        executor.verify_committed_state(stable, observation)
         return self._call_intent(
             context,
             executor,
@@ -1153,24 +1165,26 @@ class ProviderOrchestrator:
                 "request and task identity"
             )
 
-    def _committed_state_matches(self, stable, observation) -> bool:
-        """Return whether the committed file fingerprints match disk (§13.2 S1).
+    def _s1_conflict_assessment(
+        self, context, phase: RecordPhase, stable: _StableStateSnapshot
+    ) -> ResumeAssessment:
+        """§14 S1 external-drift CONFLICT assessment (report only).
 
-        Reuses the executor's snapshot-fingerprint definition (wrapper
-        fingerprints for task/manifest, raw-byte fingerprint for the
-        instruction) so the S1 judgement is single-sourced.
+        The committed task/manifest/instruction files drifted from the
+        stable baseline. The record phase is preserved (§6.2 invariant 3);
+        no durable mutation and no Provider call occur.
         """
-        if stable.committed_task_fingerprint != _snapshot_file_fingerprint(
-            observation.task, "generation_task"
-        ):
-            return False
-        if stable.committed_manifest_fingerprint != _snapshot_file_fingerprint(
-            observation.manifest, "step_manifest"
-        ):
-            return False
-        return (
-            stable.committed_instruction_fingerprint
-            == observation.instruction_fingerprint
+        return ResumeAssessment(
+            task_id=context.task.task_id,
+            shot_id=context.task.shot_id,
+            provider_id=context.request.provider_id,
+            phase=phase,
+            last_completed_action=stable.last_completed_action,
+            legal_actions=(),
+            preferred_next_action=None,
+            is_terminal=False,
+            requires_manual_reconciliation=True,
+            disposition=RecoveryDisposition.CONFLICT,
         )
 
     def _new_executor(self, context) -> _FileOrchestrationExecutor:

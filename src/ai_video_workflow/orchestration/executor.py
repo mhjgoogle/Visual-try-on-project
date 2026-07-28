@@ -96,6 +96,26 @@ _CALL_PHASE_ORDER = {
 
 
 @dataclass(frozen=True, slots=True)
+class _BusinessStateObservation:
+    """Task/manifest/instruction state without the durable record parse.
+
+    Provides the caller-context snapshot-vs-disk fingerprints for the
+    resume ordering, where a stale caller context must be judged before
+    the strict record parse (so a malformed record is never reported as
+    a manual assessment while the context is actually stale).
+    """
+
+    task_id: str
+    layout: _StateLayout
+    task: GenerationTask
+    manifest: StepManifest
+    task_fingerprint: str
+    manifest_fingerprint: str
+    instruction_text: str | None
+    instruction_fingerprint: str
+
+
+@dataclass(frozen=True, slots=True)
 class _ProjectStateObservation:
     """Observed, strictly validated on-disk state for one task."""
 
@@ -138,16 +158,15 @@ class _FileOrchestrationExecutor:
 
     # --- reading / provision interface (§9, §13.2, §24.2 carry-over) ---
 
-    def read_project_state(self, task_id: str) -> _ProjectStateObservation:
-        """Read, symlink-check, and strictly validate the task's state.
+    def read_business_state(self, task_id: str) -> _BusinessStateObservation:
+        """Read and strictly validate task/manifest/instruction only.
 
-        task/manifest are required and rebuilt through the strict model
-        parser; instruction is optional (ABSENT otherwise); the record
-        is parsed through the Step B strict recovery parser, so a
-        malformed envelope, non-UTF-8 record bytes, or a corrupt stable
-        self-fingerprint all surface here as the mapped recovery error
-        (§14 E1/S0). This is the sole source of the planner's
-        before-fingerprints and instruction text.
+        The durable record is deliberately NOT parsed here so the resume
+        path can reject a stale caller context (snapshot-vs-disk) with
+        priority over a malformed record. task/manifest are required and
+        rebuilt through the strict model parser; instruction is optional
+        (ABSENT otherwise). A missing required file or transient I/O error
+        surfaces as the mapped project-state error, unchanged.
         """
         layout = self._resolver.resolve_state_layout(task_id)
         task_bytes = self._read_state_file(layout.task_path, "task", required=True)
@@ -165,13 +184,7 @@ class _FileOrchestrationExecutor:
         else:
             instruction_text = _decode_utf8(instruction_bytes, "instruction")
             instruction_fingerprint = _sha256_hex(instruction_bytes)
-        record_bytes = self._read_state_file(
-            layout.record_path, "record", required=False
-        )
-        record = None
-        if record_bytes is not None:
-            record = _parse_record_envelope(_load_record_json(record_bytes))
-        return _ProjectStateObservation(
+        return _BusinessStateObservation(
             task_id=layout.task_id,
             layout=layout,
             task=task,
@@ -180,6 +193,36 @@ class _FileOrchestrationExecutor:
             manifest_fingerprint=_sha256_hex(manifest_bytes),
             instruction_text=instruction_text,
             instruction_fingerprint=instruction_fingerprint,
+        )
+
+    def read_project_state(self, task_id: str) -> _ProjectStateObservation:
+        """Read, symlink-check, and strictly validate the task's state.
+
+        task/manifest are required and rebuilt through the strict model
+        parser; instruction is optional (ABSENT otherwise); the record
+        is parsed through the Step B strict recovery parser, so a
+        malformed envelope, non-UTF-8 record bytes, or a corrupt stable
+        self-fingerprint all surface here as the mapped recovery error
+        (§14 E1/S0). This is the sole source of the planner's
+        before-fingerprints and instruction text.
+        """
+        business = self.read_business_state(task_id)
+        layout = business.layout
+        record_bytes = self._read_state_file(
+            layout.record_path, "record", required=False
+        )
+        record = None
+        if record_bytes is not None:
+            record = _parse_record_envelope(_load_record_json(record_bytes))
+        return _ProjectStateObservation(
+            task_id=business.task_id,
+            layout=layout,
+            task=business.task,
+            manifest=business.manifest,
+            task_fingerprint=business.task_fingerprint,
+            manifest_fingerprint=business.manifest_fingerprint,
+            instruction_text=business.instruction_text,
+            instruction_fingerprint=business.instruction_fingerprint,
             record=record,
         )
 
@@ -653,6 +696,39 @@ class _FileOrchestrationExecutor:
                 "baseline: committed instruction fingerprint does not match "
                 "the instruction file"
             )
+
+    def verify_committed_state(
+        self,
+        stable: _StableStateSnapshot,
+        observation: _ProjectStateObservation,
+    ) -> None:
+        """Public §13.2 S1 committed-state verifier (raises on drift).
+
+        The single committed-state verifier the orchestrator action paths
+        invoke before any Provider call, INTENT / MAY_HAVE_STARTED write,
+        or apply-intent write whenever a committed stable baseline exists.
+        Read-only: it mutates nothing and calls no Provider. External
+        drift of the committed task/manifest/instruction files raises
+        PartialCommitConflictError.
+        """
+        self._verify_committed_file_fingerprints(stable, observation)
+
+    def committed_state_matches(
+        self,
+        stable: _StableStateSnapshot,
+        observation: _ProjectStateObservation,
+    ) -> bool:
+        """Boolean §13.2 S1 committed-state check for resume.
+
+        Single-sources the same fingerprint comparison as
+        `verify_committed_state`, reported as a boolean so the resume path
+        can return a CONFLICT assessment instead of raising.
+        """
+        try:
+            self._verify_committed_file_fingerprints(stable, observation)
+        except PartialCommitConflictError:
+            return False
+        return True
 
     def _verify_before_fingerprints(
         self,
