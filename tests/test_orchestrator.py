@@ -784,6 +784,35 @@ class TestDurableCallOrdering:
                 artifact=ARTIFACT,
             )
 
+    def test_same_identity_intent_redrive_executes_to_applied(self, project) -> None:
+        # entry 61 positive branch: a retry after a crash between the durable
+        # INTENT write and the Provider call, with the SAME operation_id, the
+        # SAME action, and the SAME full call inputs, re-enters through
+        # _route_call_phase, re-validates admission, calls the Provider
+        # exactly once, advances the WAL, and commits APPLIED/STABLE.
+        _land_call_phase(project, RecordPhase.PROVIDER_CALL_INTENT)
+        record = _record_json(project)
+        assert record["phase"] == "provider_call_intent"
+        assert record["pending"]["operation_id"] == "op-call"
+        assert record["pending"]["action"] == "collect"
+        baseline_version = record["stable"]["payload"]["version"]
+
+        # phase 2: redrive with the identical identity via the public facade
+        spy = _RecordingProvider()
+        out = ProviderOrchestrator(spy).collect(
+            _ctx(project), operation_id="op-call", observed_at=_t(12), artifact=ARTIFACT
+        )
+        assert spy.total == 1  # exactly one Provider call, no conflict raised
+        assert spy.count("collect") == 1
+        assert out.kind is OutcomeKind.APPLIED
+        assert out.provider_result.status is ProviderStatus.SUCCEEDED
+        assert out.artifact_handoff.reference == ARTIFACT.reference
+        assert out.record.last_completed_action is OrchestrationAction.COLLECT
+        after = _record_json(project)
+        assert after["phase"] == "stable"
+        assert after["pending"] is None
+        assert after["stable"]["payload"]["version"] == baseline_version + 1
+
     def test_direct_path_to_applying(self, project) -> None:  # entry 62
         out = _prepare(project)
         assert out.kind is OutcomeKind.APPLIED
