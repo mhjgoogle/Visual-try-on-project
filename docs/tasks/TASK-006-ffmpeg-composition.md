@@ -62,10 +62,16 @@ Shot.sequence 顺序合成为可播放的最终 MP4，输出到 `outputs/`，带
 新增（本任务独占写入）：
 
 - `src/ai_video_workflow/composition/__init__.py`、`profile.py`、
-  `plan.py`、`composer.py`、`ffmpeg.py`、`step.py`、`errors.py`
+  `plan.py`、`composer.py`、`ffmpeg.py`、`step.py`、`intent.py`
+  （CompositionPublishIntent 数据结构 + canonical/原子写 + 恢复判定）、
+  `errors.py`
+- 该步骤独占写入 `records/step-intents/composition/<task-id>/`
+  （CompositionPublishIntent；与 TASK-004 `records/orchestration/` 的
+  WAL 相互独立，互不写入）
 - `tests/test_composition_plan.py`、
   `tests/test_composition_ffmpeg.py`、
-  `tests/test_composition_step.py`
+  `tests/test_composition_step.py`、
+  `tests/test_composition_intent.py`
 
 只读：TASK-002/003/004/005 全部交付物。
 
@@ -172,10 +178,47 @@ class CompositionToolError(CompositionError): ...  # ffmpeg 失败
   `elapsed_ms` 由调用方显式传入）；合成报告须记录
   `output_sha256`（同时是幂等 NO_OP 判定输入）。
 
+## CompositionPublishIntent 与固定落盘顺序
+
+合成写入多个 durable 文件，故先写一份 **CompositionPublishIntent**
+（durable intent，schema/路径/规则见 ADR-0001「CompositionPublishIntent」
+节：`records/step-intents/composition/<task_id>/<logical_version>.json`，
+固定字段 schema_version/operation_id/task_id/shot_id/logical_version/
+input_digest/profile_digest/media_path/json_report_path/
+markdown_report_path；canonical JSON + 原子写；same-identity replay
+幂等；same-path 不同 identity/digest → conflict；不含当前时间；不属于
+最终 output_paths；不由 Provider 写；不改 TASK-004 WAL）。
+
+TASK-006 的**固定落盘顺序（10 步）**：
+
+1. 确定 logical version 与全部目标路径（media / json / markdown）；
+2. 写 CompositionPublishIntent；
+3. compose 到 same-directory 临时 media；
+4. inspect / hash 临时 media；
+5. 原子 no-replace 发布最终 MP4；
+6. 基于**最终 MP4 的实际 hash/metadata** 写 JSON report；
+7. 写确定性 Markdown report；
+8. append 确定性 QCD 事件；
+9. commit StepManifest；
+10. best-effort 删除 intent。
+
+**intent-based 恢复矩阵（A–F）**：
+
+- **A. matching intent + 最终 MP4 存在 + report 缺失**：inspect/hash
+  最终 MP4 → 生成缺失的 JSON/Markdown → 继续 QCD/manifest；**不重
+  compose、不选新版本**；
+- **B. matching intent + 最终 MP4 不存在**：可重新 compose 到**同一**
+  logical version；**不自动递增版本**；
+- **C. 最终 MP4 存在但无 matching intent 且 manifest 未完成**：
+  conflict——不采用、不覆盖、不生成新版本；
+- **D. intent 的 identity/digest/path 不匹配**：conflict；
+- **E. manifest 已完成但 intent 残留**：最终 outputs 验证通过后
+  best-effort 清理 intent；清理失败仅 diagnostic；
+- **F. report 存在但 media 缺失**：conflict——report 不作为完成证据。
+
 ## Failure / recovery semantics
 
-- 落盘顺序：中间转码 → concat 到临时文件 → 原子发布最终 MP4 →
-  报告 → QCD 事件 → manifest COMPLETED；
+- 落盘顺序遵循上「10 步」；
 - 幂等重跑（NO_OP 精确条件，全部满足才跳过）：
   1. manifest COMPLETED；
   2. `input_digest` 与 `relevant_config_digest` 均匹配；

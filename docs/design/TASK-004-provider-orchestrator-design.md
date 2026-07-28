@@ -1378,17 +1378,22 @@ disposition 列描述**当前这次 recovery/resume 直接观察到**的成因�
 - missing durable record with orchestration traces（R1）→
   `disposition = MANUAL_RECONCILIATION`；
 - **调用 resume 时 durable record 已经是 `RECOVERY_REQUIRED`**（此前
-  某轮已落盘）→ `disposition = MANUAL_RECONCILIATION`（**统一值**）。
-  理由：durable RECOVERY_REQUIRED envelope **不持久化**原始 §14
-  成因（executor 落盘时原样保留 pending，不写入成因），resume
-  **不重新推断、不伪造、不通过重新检查 filesystem 声称**历史成因；
-  RECOVERY_REQUIRED 表示必须由调用方人工协调的 durable 状态，其
-  统一公开视图为 MANUAL_RECONCILIATION。
+  某轮已落盘）→ resume **不跳过 §13.2 S1**（合并修复轮定案）：先对其
+  保留的 stable 基线（若有）执行 S1 committed-state verifier。
+  - 若 committed 文件**当前仍匹配**（S1 通过）→
+    `disposition = MANUAL_RECONCILIATION`（**统一值**）；durable
+    RECOVERY_REQUIRED envelope **不持久化**原始 §14 成因，resume
+    **不重新推断、不伪造、不重推导**历史成因；
+  - 若 committed 文件**当次仍漂移**（S1 失败，如 P9 起源的
+    RECOVERY_REQUIRED 其业务文件仍处于第三态）→
+    `disposition = CONFLICT`（当次直接观察到的 committed drift，
+    非历史成因重推导；report-only，phase 保持 RECOVERY_REQUIRED，
+    无 durable mutation）。
 
-因此：同一冲突首次被直接观察（APPLYING→P9）时的
-`disposition = CONFLICT`；其落盘为 RECOVERY_REQUIRED 后，后续 resume
-一律返回 `disposition = MANUAL_RECONCILIATION`。这不是矛盾，而是
-"当次直接观察" 与 "已固化的 durable 人工态" 的确定区分。
+因此：一个 RECOVERY_REQUIRED 的后续 resume disposition 取决于**当次**
+S1 观察——committed 仍漂移 → CONFLICT，committed 已一致 → 统一
+MANUAL_RECONCILIATION。这与"不重推导历史成因"不矛盾：S1 是对当前
+磁盘状态的直接观察，不是对历史 §14 成因的重推导。
 
 ## 15. 错误体系
 
@@ -1575,7 +1580,7 @@ CALL 相位不合并。
 | PROVIDER_CALL_MAY_HAVE_STARTED | E-unknown | E-unknown | E-unknown | E-unknown | E-unknown | E-unknown | A: manual, legal=(), disposition=MANUAL_RECONCILIATION |
 | PROVIDER_RESULT_UNKNOWN | E-unknown | E-unknown | E-unknown | E-unknown | E-unknown | E-unknown | A: manual, legal=(), disposition=MANUAL_RECONCILIATION |
 | APPLYING | REPAIR⑥ | REPAIR⑥ | REPAIR⑥ | REPAIR⑥ | REPAIR⑥ | REPAIR⑥ | A: disposition=SAFE_AUTO_RETRY（补写后返回 STABLE 评估；非 resume 动作按 REPAIR⑥ repair-then-revalidate 处理） |
-| RECOVERY_REQUIRED | E-recovery | E-recovery | E-recovery | E-recovery | E-recovery | E-recovery | A: manual, legal=(), phase=RECOVERY_REQUIRED, **disposition = MANUAL_RECONCILIATION**（已落盘 RECOVERY_REQUIRED 不持久化原始 §14 成因，resume 不重推导——见 §14 定案） |
+| RECOVERY_REQUIRED | E-recovery | E-recovery | E-recovery | E-recovery | E-recovery | E-recovery | A: legal=(), phase=RECOVERY_REQUIRED；resume **先执行 §13.2 S1**（不跳过）：committed 仍漂移→**CONFLICT**，committed 一致→**MANUAL_RECONCILIATION**（不重推导历史 §14 成因——见 §14 定案） |
 
 单元格定义：
 
@@ -1631,10 +1636,11 @@ CALL 相位不合并。
   `phase = RecordPhase.RECOVERY_REQUIRED` +
   `requires_manual_reconciliation = True`，**不**折叠为 `phase=None`；
   `disposition` 按 **§14 `resume()` disposition 定案**：当次直接
-  观察到的 APPLYING→P9/S1/R3 为 `CONFLICT`，其余人工态
-  （malformed/corrupt、missing-with-trace、已落盘 RECOVERY_REQUIRED）
-  为 `MANUAL_RECONCILIATION`（已落盘 RECOVERY_REQUIRED 不重推导原始
-  成因）；不新增 `RecordPhase` 成员；
+  观察到的 committed drift（APPLYING→P9、任一 stable-bearing 相位的
+  S1、R3）为 `CONFLICT`；malformed/corrupt、missing-with-trace 为
+  `MANUAL_RECONCILIATION`；已落盘 RECOVERY_REQUIRED **先执行 S1**——
+  committed 仍漂移→`CONFLICT`，committed 一致→`MANUAL_RECONCILIATION`
+  （不重推导历史成因）；不新增 `RecordPhase` 成员；
 - ② 幂等确认，newer observed_at 合法刷新。
 
 ### 17.3 动作 × Provider 合法返回状态（依据 TASK-003 实际契约）
@@ -2794,10 +2800,12 @@ missing-with-trace、malformed/corrupt、已落盘 RECOVERY_REQUIRED 一律
 返回 `phase = RecordPhase.RECOVERY_REQUIRED`（不折叠为 `None`）。
 
 `disposition` 按 **§14 `resume()` disposition 定案**：resume 当次
-直接观察到的 APPLYING→P9/S1/R3 为 `CONFLICT`；malformed/corrupt
-（E1/S0）、missing-with-trace（R1）、以及**已落盘 RECOVERY_REQUIRED
-的后续 resume** 统一为 `MANUAL_RECONCILIATION`——durable
-RECOVERY_REQUIRED 不持久化原始 §14 成因，resume 不重推导。不新增
+直接观察到的 committed drift（APPLYING→P9、stable-bearing S1、R3）为
+`CONFLICT`；malformed/corrupt（E1/S0）、missing-with-trace（R1）为
+`MANUAL_RECONCILIATION`；**已落盘 RECOVERY_REQUIRED 的后续 resume
+先执行 §13.2 S1**——committed 仍漂移→`CONFLICT`，committed 一致→
+`MANUAL_RECONCILIATION`（durable RECOVERY_REQUIRED 不持久化原始 §14
+成因，S1 是对当前磁盘的直接观察而非历史成因重推导）。不新增
 `RecordPhase` 成员；不改变 §4.1 导出数量（28）。
 
 ##### REPAIR⑥ repair-then-revalidate 合同（§9/§17.2 定案引用）

@@ -67,7 +67,11 @@ envelope 不足以让 TASK-005/006/007 的写入方与 TASK-009 的消费方
    | `configured_provider_id` | str | 是 | bootstrap 调用配置选定的 Provider；**不**写入初始 GenerationTask.provider_id（其必须为 None） |
    | `origin` | str | 是 | `"bootstrap"` \| `"redo"`（创建来源） |
    | `redo_of_task_id` | str \| null | 键必在 | redo 时为同 Shot 前序 task_id，否则 null |
-   | `staging_ref` | str | 是 | `staging/shots/<task-id>.mp4`（ADR-0001 第二次增补合同） |
+
+   注：`task_created` **不含** `staging_ref`。bootstrap 只创建
+   task/manifest，不写 staging_ref；staging 路径为
+   `staging/shots/<task-id>.mp4` 的固定合同（ADR-0001 第二次增补），
+   由 `ProviderRequestFactory` 在 prepare 时派生，不属于本事件。
 
    ### 4.2 `task_status_changed`（writer: TASK-007 driver）
 

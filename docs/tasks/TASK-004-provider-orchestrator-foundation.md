@@ -994,6 +994,18 @@ summary and the 6-blocker + 3-important mapping are in
 `orchestration/executor.py`, `orchestration/orchestrator.py`,
 `tests/test_orchestrator.py`.
 
+**Step G final combined-review fix round (2026-07-28, second)**: a
+further round fixed the exact S1 ordering (identity → S1 → instruction
+carry-over → manifest → routing → Provider/WAL, so an instruction-bytes
+drift is a PartialCommitConflictError), ran S1 before the
+unknown-side-effect error for MAY_HAVE_STARTED / RESULT_UNKNOWN action
+cells, and ran S1 for an already-landed RECOVERY_REQUIRED resume
+(committed drift → CONFLICT, clean → MANUAL_RECONCILIATION; §14 note
+updated). §22 62/63/87/116 were tightened to exact per-cell / per-state
+expectation tables. The mapping of the 7-blocker + 1-important round is
+in the report §12. Code files: `orchestration/orchestrator.py`,
+`tests/test_orchestrator.py`.
+
 ## 当前状态
 
 implementation complete through Step G — Steps M–F completed and
@@ -1002,11 +1014,14 @@ final review returned 3 blockers + 1 important, resolved by the
 hardening fix (`5b100c7`) and the REPAIR⑥ repair-then-revalidate docs
 clarification (`dc91f85`); a further combined re-review fix round
 (2026-07-28) centralized the committed-state S1 verifier on the
-executor, fixed the resume validation order, and strengthened §22
-62/63/87/116 (see report §11); Claude Fable 5 temporary independent
-review passed; the Codex combined re-review of the fix is still pending;
-TASK-004 final gate open; Step G final acceptance not yet confirmed;
-TASK-004 completion not declared
+executor and fixed the resume validation order (report §11); a final
+combined-review round then fixed the exact S1 ordering (S1 before
+instruction carry-over), ran S1 before the unknown-side-effect error
+and for a RECOVERY_REQUIRED resume, tightened §22 62/63/87/116 to exact
+tables, and closed the M1 lifecycle / bootstrap-redo /
+CompositionPublishIntent contracts (report §12); the Codex final
+combined review is still pending; TASK-004 final gate open; Step G final
+acceptance not yet confirmed; TASK-004 completion not declared
 
 ## 尚待后续任务决定的事项
 

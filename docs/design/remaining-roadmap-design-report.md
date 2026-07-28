@@ -170,8 +170,9 @@ batch 模式实施。M3 不计入本次审查的实施承诺。
 2. **职责重复**：媒体校验只在 005；版本/覆盖策略在 005（资产）与
    006（输出）各管自己的目录，规则同源（arch §9），无重叠写入。
 3. **未定义合同（已在本轮补定义）**：
-   - staging 命名 `staging/shots/<task-id>.mp4`（bootstrap 分配，
-     校验消费）——须写入 ADR-0001 第二次增补；
+   - staging 命名 `staging/shots/<task-id>.mp4`（固定合同，由
+     `ProviderRequestFactory` 在 prepare 时派生，校验消费；非由
+     bootstrap 预写）——写入 ADR-0001 第二次增补；
    - `reports/` 目录（validation/composition/qcd 三子目录）——
      ADR-0001 第二次增补；
    - 正式媒体命名 `assets/media/s<scene>_sh<shot>_v<N>.mp4`——
@@ -316,11 +317,14 @@ blocker/important。代码改动仅限 `orchestration/executor.py`、
   compose，Manual 下必须显式 artifact，不得从 NOT_SUBMITTED 直接
   report-artifact；mandatory fake E2E 与 optional real smoke 均走完整
   生命周期。
-- **bootstrap 与 redo（§6）**：确定性 task identity；同身份 task 已存在
-  （任一态）不自动新建；校验 companion 文件并补齐缺失；不等价→冲突；
-  new attempt 仅经 `create-redo-task`（`redo_of_task_id` + 新 task_id +
-  新 manifest + 新 operation identity），绝不基于「无未完成 task」自动
-  redo。
+- **bootstrap 与 redo（§6/§7）**：确定性 task identity；同身份 task 已
+  存在（任一态）不自动新建；校验 companion 文件并补齐缺失；不等价→
+  冲突。bootstrap **只创建 task/manifest**——不生成 instruction、不构造
+  ProviderRequest、不写 staging_ref、不预写 provider binding。new attempt
+  仅经 `create-redo-task`（`redo_of_task_id` + 新 task_id + 新 manifest）；
+  `create-redo-task` **不创建、也不返回 operation_id**（后续 prepare/
+  submit 各自接收调用方提供的 operation_id）；绝不基于「无未完成 task」
+  自动 redo。
 - **status 范围（§7）**：只输出 `ResumeAssessment`（phase/disposition/
   legal_actions/preferred_next_action/requires_manual_reconciliation +
   一行诊断）；删除「展示资产/合成状态」承诺；不扫描、不读 private
@@ -350,7 +354,70 @@ blocker/important。代码改动仅限 `orchestration/executor.py`、
 | I2 | CLI 生命周期与 run/redo | §5/§6 定案（TASK-007） |
 | I3 | status 范围（ResumeAssessment-only） | §7 定案（TASK-007 + 报告） |
 
-## 12. 状态
+## 12. Step G 与 M1 最终收口轮（2026-07-28，第二次合并修复）
 
-Step G and M1 contract fixes committed —
-single Codex combined re-review pending
+关闭 Codex 后续复审的 7 blockers + 1 important。代码仅动
+`orchestration/orchestrator.py`（+ `tests/test_orchestrator.py`）；其余为
+合同文档同步。
+
+**Step G S1 最终顺序（代码）**：所有 stable-bearing record 的处理顺序
+固定为 (1) context 静态 → (2) snapshot-vs-disk → (3) strict record
+parse → (4) request/identity → (5) `executor.verify_committed_state`
+(S1) → (6) instruction carry-over/manifest/action preconditions → (7)
+phase routing → (8) Provider/WAL。关键：**S1（5）先于 instruction
+carry-over（6）**，故 instruction durable bytes 漂移由集中 S1 verifier
+报 `PartialCommitConflictError`（非 `InvalidOrchestrationInputError`）；
+`_require_entry_preconditions` 拆为 `_require_identity_preconditions`
+（4）与 `_require_instruction_preconditions`（6）。MAY_HAVE_STARTED /
+RESULT_UNKNOWN 的 action 路径**先执行 S1** 再返回 unknown-side-effect
+错误；resume 的 RECOVERY_REQUIRED **先执行 S1**（committed 漂移→
+CONFLICT，committed 一致→MANUAL_RECONCILIATION）——不再跳过 S1。任意
+S1 失败：Provider calls=0、不写 INTENT/MAY/APPLYING、不改
+task/manifest/instruction、不自动修复。
+
+**§22 精确化（测试）**：entry 62 逐字段断言恢复后 task/manifest 等于
+plan after-snapshot、instruction 指纹等于 committed、record 为精确
+STABLE、committed 指纹与文件一致；entry 63 三个崩溃点（**真实 pre-call
+验证失败**，非 Provider spy / Provider 后 apply-intent 前 / apply-intent
+后部分提交）各自断言 initial/final phase、Provider 数、fs mutation、
+异常/结果、resume disposition、重复调用；entry 87 建立**唯一精确期望
+表**（91 格单一 exception 或 outcome kind、精确 Provider 数、精确最终
+相位、精确 fs mutation，含 replay 逐态与 e_recovery mutation）；
+entry 116 建立全 13 report-only 状态的 exact 表 + 重复 resume 一致。
+
+**M1 合同文档**：
+- bootstrap **只创建 task/manifest**——不生成 instruction、不构造
+  ProviderRequest、不写 staging_ref、不预写 provider binding；
+  instruction 由 `prepare` 经 orchestrator 生成，staging_ref 由
+  `ProviderRequestFactory` 在 prepare 派生（ADR-0003 §4.1 移除
+  task_created 的 staging_ref 字段）；
+- `create-redo-task` 持久化新 task_id + redo_of_task_id + 新 manifest，
+  **不创建、也不返回 operation_id**（prepare/submit 各自接收调用方
+  提供的 operation_id）；
+- CLI 完整生命周期 init-tasks→prepare→submit→report-artifact→collect→
+  validate→compose（`run` 同序）；init-tasks 只 bootstrap；optional real
+  smoke 也走 prepare/submit，不跳过；
+- **CompositionPublishIntent**（ADR-0001 + TASK-006）：durable intent
+  `records/step-intents/composition/<task_id>/<logical_version>.json`
+  （10 字段、canonical/原子写、same-identity replay 幂等、same-path
+  不同 identity/digest→conflict、compose/publish 前写、不入 output_paths、
+  不含时间、不覆盖异内容、不由 Provider 写、不改 TASK-004 WAL）；
+  TASK-006 固定 10 步落盘顺序 + intent-based 恢复矩阵 A–F。
+
+**7 blockers + 1 important 映射（本轮关闭）**：
+
+| # | 类别 | 关闭方式 |
+| --- | --- | --- |
+| B1 | S1 最终顺序（S1 先于 instruction carry-over/manifest/routing/Provider/WAL） | `_run` 重排 + 拆分 identity/instruction preconditions（代码 + 测试） |
+| B2 | MAY_HAVE_STARTED/RESULT_UNKNOWN action 路径先执行 S1 | `_route_call_phase` 顶部统一 S1（代码 + 测试） |
+| B3 | resume RECOVERY_REQUIRED 不跳过 S1（drift→CONFLICT，clean→MANUAL） | resume 分类重排 + 两个 RECOVERY_REQUIRED 测试（代码 + 测试 + §14 文档） |
+| B4 | §22 62 direct→APPLYING 逐字段后态断言 | entry 62 field-level（测试） |
+| B5 | §22 63 三崩溃点（真实 pre-call 失败）全断言 | entry 63 三 case（测试） |
+| B6 | §22 87 唯一精确期望表 | `_cell_expectation` 单一预期表（测试） |
+| B7 | §22 116 全状态 exact 表 + 重复 resume | `TestResumeExactTable`（测试） |
+| I1 | M1 生命周期 / bootstrap-redo / CompositionPublishIntent 合同 | §6–§8（TASK-005/006/007、ADR-0001、ADR-0003、报告） |
+
+## 13. 状态
+
+All Step G and M1 review findings addressed —
+single Codex final combined review pending

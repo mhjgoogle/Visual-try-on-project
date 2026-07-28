@@ -59,6 +59,10 @@ Loading remains explicit: callers provide every model file path to
       <asset-id>.json
     orchestration/
       <task-id>.json
+    step-intents/
+      composition/
+        <task-id>/
+          <logical-version>.json
   inputs/
   staging/
     shots/
@@ -349,6 +353,51 @@ durable output of that step (e.g. the versioned JSON report, the
 deterministic Markdown report, the formal media, and the registered
 record), and the architecture §8 skip/no-op check must verify **each**
 listed file — never only the media or only the JSON.
+
+## CompositionPublishIntent (Second Amendment, TASK-006)
+
+TASK-006 composition publishes several durable files (the final MP4,
+the JSON report, the Markdown report) and appends a QCD event. To make
+that multi-file publish deterministically recoverable, it writes a
+durable **CompositionPublishIntent** BEFORE composing or publishing the
+final MP4.
+
+Path: `records/step-intents/composition/<task_id>/<logical_version>.json`.
+
+Fixed fields (canonical JSON; keys sorted; UTF-8, no BOM):
+
+- `schema_version: 1`
+- `operation_id: str`
+- `task_id: str`
+- `shot_id: str`
+- `logical_version: int`
+- `input_digest: str`
+- `profile_digest: str`
+- `media_path: str`
+- `json_report_path: str`
+- `markdown_report_path: str`
+
+Rules:
+
+- written with canonical JSON and the atomic same-directory temp →
+  fsync → `os.replace` strategy;
+- a same-identity replay (same `operation_id` + same digests + same
+  target paths) is idempotent;
+- a same-path write with a different identity/digest is a conflict;
+- it is written durably **before** composing or publishing the final
+  MP4;
+- it is **not** part of the step's final `output_paths`;
+- it contains **no** wall-clock time;
+- it never overwrites a different-content intent;
+- it is written exclusively by the composition step, never by a
+  Provider, and it does **not** modify the TASK-004 orchestration WAL
+  (a separate, independent durable record family).
+
+The TASK-006 composition ordering and the intent-based recovery matrix
+(rules A–F) are defined in
+[TASK-006](../tasks/TASK-006-ffmpeg-composition.md). TASK-005's
+validation recovery is source-SHA / input-digest based and does **not**
+depend on any composition intent.
 
 ## Paths And Overwrite Principles
 

@@ -25,7 +25,8 @@ Generation Task Bootstrap, Workflow Driver, and Minimal CLI
 - TASK-006（合成步骤 API）——仅 `compose` 子命令接线依赖；
   bootstrap/driver 部分可与 TASK-006 并行实施；
 - ADR-0001 第二次增补（staging 命名 `staging/shots/<task-id>.mp4`
-  由本任务的 bootstrap 分配）。
+  为固定合同，由 `ProviderRequestFactory` 在 prepare 时按合同派生——
+  不由 bootstrap 预写）。
 
 ## 范围内
 
@@ -36,29 +37,37 @@ Generation Task Bootstrap, Workflow Driver, and Minimal CLI
      （`task-<shot-id>-1`，见 Data contracts）创建
      `GenerationTask`（PENDING、provider_id=None）与 generation
      StepManifest（满足 TASK-004 进入前置条件），原子落盘、发射
-     `task_created`。幂等/冲突规则：
+     `task_created`。bootstrap **只创建 task 与 manifest**——
+     **不生成 instruction、不构造 ProviderRequest、不写 staging_ref、
+     不预先写 provider binding**（这些都属于 prepare 时机，见下）。
+     幂等/冲突规则：
      - **若该确定性身份的 task 已存在（无论 PENDING / DONE /
        FAILED / CANCELLED），一律不自动再创建另一个 task**——不得
        以「没有未完成 task」为由自动新建；
-     - 已存在时校验其 companion 文件（manifest、必要时 instruction
-       骨架）与预期**等价**并只补齐缺失文件（partial-crash 重跑
-       幂等）；
+     - 已存在时校验其 companion 文件（generation manifest）与预期
+       **等价**并只补齐缺失文件（partial-crash 重跑幂等）；bootstrap
+       从不创建 instruction，故 companion 校验不含 instruction；
      - 已存在文件与预期**不等价** → 返回类型化冲突
        （`TaskAlreadyExistsError`），不覆盖非等价状态；
    - **redo（仅显式）**：为某 Shot 发起新尝试**只能**经
-     `create-redo-task`，显式记录 `redo_of_task_id`、分配新
-     `task_id`（`task-<shot-id>-<n+1>`）、新 generation StepManifest、
-     新 operation identity；bootstrap **绝不**基于「无未完成 task」
-     自动创建 redo；
+     `create-redo-task`：持久化新 `task_id`（`task-<shot-id>-<n+1>`）、
+     记录 `redo_of_task_id`、创建新 generation StepManifest。
+     `create-redo-task` **不创建、也不返回 orchestration
+     operation_id**——后续每次 `prepare`/`submit` 各自接收调用方
+     提供的 operation_id（driver 生成）。bootstrap **绝不**基于
+     「无未完成 task」自动创建 redo；
    - **driver**：包装 `ProviderOrchestrator` 的调用方职责——
      系统时钟读取（应用层是唯一允许读时钟处）、operation_id 生成
-     （uuid4，记录在输出中）、`OrchestrationContext` 组装（从磁盘
-     显式加载 task/manifest/record）、把 APPLIED outcome 的
+     （uuid4，记录在输出中）、经 `ProviderRequestFactory` 在
+     **prepare/submit 时机**构造 `ProviderRequest`（staging_ref 由
+     factory 按 `staging/shots/<task-id>.mp4` 合同派生——不由
+     bootstrap 预写）、`OrchestrationContext` 组装（从磁盘显式加载
+     task/manifest/record）、把 APPLIED outcome 的
      updated_task/updated_manifest 状态变化映射为
      `task_status_changed` 事件、`manual_attempt_recorded` 记录
      入口、人工评分（`manual_quality_rating_recorded`）记录入口；
-   - **staging 分配**：`staging/shots/<task-id>.mp4`（合同固定，
-     bootstrap 写入 ProviderRequest.staging_ref 与说明文档）；
+     **instruction 由 `prepare` 经 `ProviderOrchestrator` 生成并落盘**
+     （TASK-004 内部 executor 渲染），bootstrap 不生成；
    - **产物确认**：用户以显式路径声明文件已放置；driver 仅对该
      显式路径做存在性检查（lstat，无扫描、无 glob），构造
      `ArtifactReference(user, staging)` 交给
@@ -273,8 +282,11 @@ CLI 子命令与上述 API 一一对应；`validate`/`compose` 子命令直接
     `STAGING_CONTRACT_VERSION = "m1-staging-v1"` 为固定常量，
     **唯一 owner 为本任务新增模块 `app/contracts.py`**，任何步骤
     不得自行拼写该字符串；
-- **ProviderRequest 组装**：prompt/duration/width/height/frame_rate
-  取自 Shot；staging_ref 按合同派生；provider_parameters 留空；
+- **ProviderRequest 组装（prepare 时机，`ProviderRequestFactory`）**：
+  prompt/duration/width/height/frame_rate 取自 Shot；staging_ref 按
+  `staging/shots/<task-id>.mp4` 合同派生；provider_parameters 留空。
+  **bootstrap 不构造 ProviderRequest、不写 staging_ref**——请求在每次
+  prepare/submit 由 driver 经 factory 现场构造；
 - **bootstrap `provider_id` 落点（定案）**：
   - 用于选择/绑定 Provider 与 ProviderRequest 组装；
   - 纳入 `relevant_config_digest`（见上）；
@@ -303,8 +315,10 @@ CLI 子命令与上述 API 一一对应；`validate`/`compose` 子命令直接
 
 ## Failure / recovery semantics
 
-- bootstrap 幂等：目标 task/manifest 文件已存在 → 跳过该 Shot
-  （不静默覆盖）；部分创建后崩溃 → 重跑补齐缺失文件；
+- bootstrap 幂等：确定性身份的 task/manifest 已存在 → 校验其与预期
+  等价并只补齐缺失文件（不静默覆盖、不新建第二个 task）；部分创建后
+  崩溃 → 重跑补齐缺失文件；已存在文件与预期不等价 →
+  `TaskAlreadyExistsError`；
 - driver 每次调用均从磁盘重新加载上下文（无内存会话状态）；
   编排层的 NO_OP/冲突/恢复语义原样透传并以人类可读方式呈现；
   `resume` 暴露 `RecoveryDisposition`，MANUAL_RECONCILIATION 时
@@ -335,8 +349,10 @@ CLI 子命令与上述 API 一一对应；`validate`/`compose` 子命令直接
    文件；已有文件与预期**不等价** → `TaskAlreadyExistsError`，不
    覆盖；
 2. redo：`create-redo-task` 分配新 `task_id`（`-<n+1>`）、记录
-   `redo_of_task_id`、新 manifest、新 operation identity；验证
-   bootstrap **不**基于「无未完成 task」自动 redo；
+   `redo_of_task_id`、新 manifest；验证 `create-redo-task` **不创建、
+   也不返回 operation_id**（后续 prepare/submit 各自接收调用方提供的
+   operation_id）；验证 bootstrap **不**基于「无未完成 task」自动
+   redo；
 3. driver：显式依赖构造（provider_id / provider / request_factory
    / inspector / composer / project_root / clock，无 cwd/env/
    registry 发现）；`ProviderRequestFactory.build` 纯函数（不读文件
@@ -361,10 +377,12 @@ CLI 子命令与上述 API 一一对应；`validate`/`compose` 子命令直接
 inspector/composer + fixture 文件，真实 orchestrator/manual
 provider/持久化）：
 
-1. 示例项目复制到 tmp → `init-tasks` → 说明文档生成、task_created
-   落盘；
-2. 完整生命周期 `prepare → submit → report-artifact（显式路径）→
-   collect`（放置 fixture 文件后）→ artifact_handoff；
+1. 示例项目复制到 tmp → `init-tasks` → **只**创建 task/manifest 并
+   落盘 `task_created`（**不**生成 instruction、**不**构造
+   ProviderRequest、**不**写 staging_ref）；
+2. 完整生命周期 `prepare`（经 orchestrator 生成 instruction 落盘）
+   → `submit` → `report-artifact`（显式路径，放置 fixture 文件后）
+   → `collect` → artifact_handoff；
 3. `validate` → VideoAsset v1 + 报告 + 事件；
 4. `compose` → final_v1.mp4 + 报告 + 事件；
 5. `run` 一条命令走完整生命周期（bootstrap→prepare→submit→
@@ -375,10 +393,11 @@ provider/持久化）：
 
 **Optional real CLI smoke test（本任务拥有，ADR-0002 第 4 条）**：
 `tests/test_minimal_loop.py` 内独立测试——真实
-`FfprobeMediaInspector` + `FfmpegVideoComposer` 走完整一条命令
-序列（init-tasks → report-artifact → collect → validate →
-compose），使用最小受控媒体 fixture，仅验证完整命令可跑通与产物
-存在，不做脆弱的编码字节等价断言；`pytest.mark.skipif`
+`FfprobeMediaInspector` + `FfmpegVideoComposer` 走**完整生命周期
+一条命令序列**（init-tasks → prepare → submit → report-artifact →
+collect → validate → compose；不得跳过 prepare/submit），使用最小
+受控媒体 fixture，仅验证完整命令可跑通与产物存在，不做脆弱的
+编码字节等价断言；`pytest.mark.skipif`
 （ffmpeg/ffprobe 不可用即跳过）+ 显式环境开关
 `AI_VIDEO_WORKFLOW_REAL_TOOLS=1`；**不属于默认 CI 回归门槛**，
 CI 不要求安装真实 FFmpeg；真实工具手工执行流程保留在 README。

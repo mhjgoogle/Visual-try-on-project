@@ -66,9 +66,10 @@ Foundation
    `ProviderOrchestrator`；以 StepManifest（`validation:<task-id>`）
    实现断点续跑，并首次定义 `input_digest` /
    `relevant_config_digest` 的计算算法（SHA-256，见 data contracts）。
-5. **目录与命名**：用户产物位置 = 任务说明中的 staging_ref（合同
-   `staging/shots/<task-id>.mp4`，由 TASK-007 bootstrap 分配、
-   ADR-0001 增补固定）；正式媒体
+5. **目录与命名**：用户产物位置 = 任务说明中的 staging_ref（固定
+   合同 `staging/shots/<task-id>.mp4`，由 TASK-007 的
+   `ProviderRequestFactory` 在 prepare 时派生、ADR-0001 增补固定；
+   非由 bootstrap 预写）；正式媒体
    `assets/media/s<scene-seq>_sh<shot-seq>_v<version>.mp4`；校验
    报告 `reports/validation/<task-id>_v<version>.{json,md}`。
 6. **报告格式**：JSON 为事实来源 + 确定性渲染的 Markdown 人类可读
