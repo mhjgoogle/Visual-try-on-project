@@ -61,7 +61,7 @@ Loading remains explicit: callers provide every model file path to
       <task-id>.json
     step-intents/
       composition/
-        <task-id>/
+        <project-id>/
           <logical-version>.json
   inputs/
   staging/
@@ -362,14 +362,20 @@ that multi-file publish deterministically recoverable, it writes a
 durable **CompositionPublishIntent** BEFORE composing or publishing the
 final MP4.
 
-Path: `records/step-intents/composition/<task_id>/<logical_version>.json`.
+Composition is **project-level** (one `outputs/final_v<N>.mp4` covers
+all shots), so the intent is keyed by the **project**, never by a task
+or shot. Its identity is fully determined by
+`(project_id, logical_version, input_digest, profile_digest)` plus the
+target paths — the project-level `run_composition_step(project_root,
+data, composer, profile, observed_at)` supplies all of these from
+`ProjectData` and needs no `task_id` / `shot_id` / `operation_id`.
+
+Path: `records/step-intents/composition/<project_id>/<logical_version>.json`.
 
 Fixed fields (canonical JSON; keys sorted; UTF-8, no BOM):
 
 - `schema_version: 1`
-- `operation_id: str`
-- `task_id: str`
-- `shot_id: str`
+- `project_id: str`
 - `logical_version: int`
 - `input_digest: str`
 - `profile_digest: str`
@@ -381,13 +387,17 @@ Rules:
 
 - written with canonical JSON and the atomic same-directory temp →
   fsync → `os.replace` strategy;
-- a same-identity replay (same `operation_id` + same digests + same
-  target paths) is idempotent;
-- a same-path write with a different identity/digest is a conflict;
+- the intent identity is
+  `(project_id, logical_version, input_digest, profile_digest)` + target
+  paths; a same-identity replay is idempotent;
+- a same-path (same `project_id` + `logical_version`) write with a
+  different `input_digest` / `profile_digest` / target paths is a
+  conflict;
 - it is written durably **before** composing or publishing the final
   MP4;
 - it is **not** part of the step's final `output_paths`;
-- it contains **no** wall-clock time;
+- it contains **no** wall-clock time and **no** task/shot/operation
+  identity (composition is project-level);
 - it never overwrites a different-content intent;
 - it is written exclusively by the composition step, never by a
   Provider, and it does **not** modify the TASK-004 orchestration WAL

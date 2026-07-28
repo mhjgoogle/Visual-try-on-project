@@ -80,9 +80,10 @@ TASK-002 ── TASK-003 ── TASK-004 (Step G 待 Codex final review)
 
 1. full pytest 全绿（含既有 1667 项 + 新增）；
 2. `ruff format --check` / `ruff check` 全绿；
-3. `tests/test_minimal_loop.py` 端到端集成测试通过（示例项目 →
-   init-tasks → 放置 fixture → report/collect → validate →
-   compose → final MP4 + 完整事件流）；
+3. `tests/test_minimal_loop.py` 端到端集成测试通过（完整生命周期：
+   示例项目 → init-tasks → prepare → submit → 放置 fixture →
+   report-artifact → collect → validate → compose → final MP4 +
+   完整事件流）；
 4. product_spec 成功标准 1–5 逐条有客观测试证据（见 §6 验收
    矩阵）；
 5. 一次 milestone 级独立审查（Codex）：范围 = M1 全部 diff，
@@ -397,12 +398,18 @@ entry 116 建立全 13 report-only 状态的 exact 表 + 重复 resume 一致。
 - CLI 完整生命周期 init-tasks→prepare→submit→report-artifact→collect→
   validate→compose（`run` 同序）；init-tasks 只 bootstrap；optional real
   smoke 也走 prepare/submit，不跳过；
-- **CompositionPublishIntent**（ADR-0001 + TASK-006）：durable intent
-  `records/step-intents/composition/<task_id>/<logical_version>.json`
-  （10 字段、canonical/原子写、same-identity replay 幂等、same-path
-  不同 identity/digest→conflict、compose/publish 前写、不入 output_paths、
-  不含时间、不覆盖异内容、不由 Provider 写、不改 TASK-004 WAL）；
-  TASK-006 固定 10 步落盘顺序 + intent-based 恢复矩阵 A–F。
+- **CompositionPublishIntent（project-level）**（ADR-0001 + TASK-006）：
+  durable intent
+  `records/step-intents/composition/<project_id>/<logical_version>.json`
+  （8 字段：schema_version/project_id/logical_version/input_digest/
+  profile_digest/media_path/json_report_path/markdown_report_path——
+  **不含 task_id/shot_id/operation_id**，与 project-level
+  `run_composition_step` 公开签名对齐；identity=(project_id,
+  logical_version, input_digest, profile_digest)+路径；canonical/原子写、
+  same-identity replay 幂等、same-path 不同 digest/路径→conflict、
+  compose/publish 前写、不入 output_paths、不含时间、不覆盖异内容、不由
+  Provider 写、不改 TASK-004 WAL）；TASK-006 固定 10 步落盘顺序 +
+  intent-based 恢复矩阵 A–F。
 
 **7 blockers + 1 important 映射（本轮关闭）**：
 
@@ -416,6 +423,21 @@ entry 116 建立全 13 report-only 状态的 exact 表 + 重复 resume 一致。
 | B6 | §22 87 唯一精确期望表 | `_cell_expectation` 单一预期表（测试） |
 | B7 | §22 116 全状态 exact 表 + 重复 resume | `TestResumeExactTable`（测试） |
 | I1 | M1 生命周期 / bootstrap-redo / CompositionPublishIntent 合同 | §6–§8（TASK-005/006/007、ADR-0001、ADR-0003、报告） |
+
+### 12.1 Codex 复审 5 blockers + 1 important 回应（2026-07-29）
+
+上一轮 Codex final review 判定 B4/B6/B7 部分关闭、B5/I1 未关闭、B1–B3
+关闭。本次逐项收口（测试仅动 `tests/test_orchestrator.py`，其余为
+合同文档）：
+
+| # | Codex 发现 | 本次关闭方式 |
+| --- | --- | --- |
+| B4 | entry 62 未比较 instruction bytes / 完整 planned stable | 断言恢复后 instruction bytes==committed carry-over、`_record_json[stable]` 整体等于 planned stable wrapper（含 last_completed_action / authoritative artifact / 全指纹）；改为真实部分写入（task 已写、manifest 未写） |
+| B5 | entry 63 case C 非真实部分写入；A/B/C resume 未锁定 | case C 注入 `_apply_manifest` 故障（task=after、manifest=before、confirmed=["task"]）；新增独立 partial-commit 测试；A/B/C resume 均锁定 phase/disposition/legal_actions/preferred/manual/terminal + 重复调用 |
+| B6 | entry 87 mutation 只比业务文件，不含 record | `_cell_expectation` 改为 `state_mutates`（record + 3 业务文件整体），call_intent 期望 record 变更=True；91 格全绿 |
+| B7 | entry 116 APPLYING 只查 phase/disposition | `test_resume_applying_auto_repairs` 锁定全字段 + Provider=0 + durable mutation + 重复 resume（STABLE/NONE、无二次 mutation） |
+| I1a | 总报告仍有旧 `init-tasks→report/collect` 链 | §3 回归门槛改为完整生命周期链 |
+| I1b | CompositionPublishIntent 的 task_id/shot_id/operation_id 与 project-level API 不可对齐 | 改为 **project-level**：路径 `<project_id>/<logical_version>`、8 字段去 task/shot/operation、identity=(project_id, logical_version, input_digest, profile_digest)+路径；对齐 `run_composition_step`（ADR-0001 + TASK-006 + 报告） |
 
 ## 13. 状态
 

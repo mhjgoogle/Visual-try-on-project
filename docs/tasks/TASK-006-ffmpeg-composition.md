@@ -65,9 +65,9 @@ Shot.sequence 顺序合成为可播放的最终 MP4，输出到 `outputs/`，带
   `plan.py`、`composer.py`、`ffmpeg.py`、`step.py`、`intent.py`
   （CompositionPublishIntent 数据结构 + canonical/原子写 + 恢复判定）、
   `errors.py`
-- 该步骤独占写入 `records/step-intents/composition/<task-id>/`
-  （CompositionPublishIntent；与 TASK-004 `records/orchestration/` 的
-  WAL 相互独立，互不写入）
+- 该步骤独占写入 `records/step-intents/composition/<project-id>/`
+  （project-level CompositionPublishIntent；与 TASK-004
+  `records/orchestration/` 的 WAL 相互独立，互不写入）
 - `tests/test_composition_plan.py`、
   `tests/test_composition_ffmpeg.py`、
   `tests/test_composition_step.py`、
@@ -182,12 +182,21 @@ class CompositionToolError(CompositionError): ...  # ffmpeg 失败
 
 合成写入多个 durable 文件，故先写一份 **CompositionPublishIntent**
 （durable intent，schema/路径/规则见 ADR-0001「CompositionPublishIntent」
-节：`records/step-intents/composition/<task_id>/<logical_version>.json`，
-固定字段 schema_version/operation_id/task_id/shot_id/logical_version/
-input_digest/profile_digest/media_path/json_report_path/
-markdown_report_path；canonical JSON + 原子写；same-identity replay
-幂等；same-path 不同 identity/digest → conflict；不含当前时间；不属于
-最终 output_paths；不由 Provider 写；不改 TASK-004 WAL）。
+节）。合成是 **project-level**（一个 `outputs/final_v<N>.mp4` 覆盖全部
+镜头），故 intent 按**项目**分键，**不含** task_id/shot_id/operation_id：
+- 路径 `records/step-intents/composition/<project_id>/<logical_version>.json`；
+- 固定字段 `schema_version(1) / project_id / logical_version /
+  input_digest / profile_digest / media_path / json_report_path /
+  markdown_report_path`；
+- identity = `(project_id, logical_version, input_digest, profile_digest)`
+  + 目标路径；同 identity replay 幂等；同 path（project_id+version）不同
+  digest/路径 → conflict；
+- canonical JSON + 原子写；不含当前时间与任何 task/shot/operation 身份；
+  不属于最终 output_paths；不由 Provider 写；不改 TASK-004 WAL。
+- 三字段（project_id/logical_version/digests）全部来自
+  `run_composition_step(project_root, data, composer, profile,
+  observed_at)` 的 `ProjectData`，公开签名无需 task/shot/operation
+  输入。
 
 TASK-006 的**固定落盘顺序（10 步）**：
 
