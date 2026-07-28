@@ -5,6 +5,38 @@
 
 阶段 0–4 构成第一阶段最小闭环（不接入付费 API）。
 
+## 批量里程碑模式（batch milestone mode，2026-07-28 起）
+
+自 TASK-005 起，项目切换为批量里程碑模式（用户决策）：
+
+- 剩余任务的规划与设计一次性完成，经**一次整体 Codex 架构审查**
+  后连续实施，不再逐 Step 等待外部审查；
+- 实施后的独立审查合并到 **milestone 回归门槛**（见
+  [remaining-roadmap-design-report](design/remaining-roadmap-design-report.md)）；
+- 实施者/审查者分离原则（AGENTS.md 14/15）不变，只改变审查粒度。
+
+## 阶段 → 任务映射（当前）
+
+| 阶段 | 任务卡 | 状态 |
+| --- | --- | --- |
+| 0 | TASK-001 | completed |
+| 1 | TASK-002 | completed |
+| 2（Provider 契约） | TASK-003 | completed |
+| 2（Orchestrator） | TASK-004 | Step G 待 Codex 最终审查 |
+| 2（QCD 事件采集） | TASK-007（基础设施在 TASK-005） | planned（M1） |
+| 3 | TASK-005 | planned（M1） |
+| 4 | TASK-006 + TASK-007（CLI 接线与端到端闭环） | planned（M1） |
+| 5 | TASK-008 | planned（M2，含产品级未决问题） |
+| 6 | TASK-009 | planned（M2） |
+| 7 | TASK-010 | outline（M3，待用户裁决厂商/预算） |
+| 8 | TASK-011 | outline（M3，待用户裁决模型/硬件） |
+| 9 | TASK-012 | outline（M3） |
+
+注：implementation_plan 阶段 2 原列出的 QCD 原始事件采集
+（`task_created`、`task_status_changed`、`manual_attempt_recorded`）
+在 TASK-003/004 中被显式排除，现归属：事件日志基础设施 →
+TASK-005；三类事件的实际发射点（bootstrap/driver）→ TASK-007。
+
 ## 阶段 0：项目规则和架构（当前阶段）
 
 - 建立 AGENTS.md、CLAUDE.md、产品规格、架构文档、实施规划、任务卡规范
