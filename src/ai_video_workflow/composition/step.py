@@ -19,9 +19,13 @@ completes the reports without re-composing (A); a matching intent + no
 MP4 re-composes the same version (B); an MP4 with no matching intent is
 a conflict (C); an intent whose identity/digest/path differs is a
 conflict (D); a stale intent after a completed manifest is cleaned up
-best-effort (E); a report present but the media missing is a conflict
-(F). The CompositionPublishIntent is an independent journal and never
-touches the TASK-004 WAL.
+best-effort, including on the no-op path (E); a report present but the
+media missing is a conflict (F). Report/QCD/manifest all use one
+per-operation time: if the JSON report already exists (partial commit),
+its ``observed_at`` is reused so re-rendered bytes are byte-identical
+(ADR-0005). A composer/ffmpeg failure records a FAILED manifest before
+propagating. The CompositionPublishIntent is an independent journal and
+never touches the TASK-004 WAL.
 """
 
 from __future__ import annotations
@@ -56,6 +60,7 @@ from ai_video_workflow.persistence import read_model_json, write_model_json
 from ai_video_workflow.project_data import ProjectData
 from ai_video_workflow.qcd.events import build_composition_completed_event
 from ai_video_workflow.qcd.log import append_event
+from ai_video_workflow.security import resolve_within_root
 from ai_video_workflow.validation import validate_utc_datetime
 
 COMPOSITION_REPORT_SCHEMA_VERSION = 1
@@ -73,7 +78,9 @@ class CompositionStepOutcome:
 
 
 def composition_manifest_path(project_root: Path, project_id: str) -> Path:
-    return project_root / "manifests" / f"composition-{project_id}.json"
+    return resolve_within_root(
+        project_root, Path("manifests") / f"composition-{project_id}.json"
+    )
 
 
 def run_composition_step(
@@ -91,7 +98,8 @@ def run_composition_step(
     plan = build_composition_plan(data=data, profile=profile)
     project_id = plan.project_id
     config_digest_value = profile_digest(plan.profile)
-    input_digest = _input_digest(project_root, plan)
+    input_entries = _input_entries(project_root, plan)
+    input_digest = config_digest({"schema": _INPUT_SCHEMA, "assets": input_entries})
 
     existing = _read_manifest(project_root, project_id)
     version = _select_version(existing, input_digest, config_digest_value)
@@ -99,7 +107,7 @@ def run_composition_step(
     media_rel = f"outputs/final_v{version}.mp4"
     json_rel = f"reports/composition/final_v{version}.json"
     md_rel = f"reports/composition/final_v{version}.md"
-    media_path = project_root / media_rel
+    media_path = resolve_within_root(project_root, media_rel)
 
     if _is_noop(
         project_root,
@@ -108,18 +116,20 @@ def run_composition_step(
         config_digest_value,
         (media_rel, json_rel, md_rel),
     ):
+        # E: a completed manifest leaves no live intent behind.
+        _remove_intent(project_root, project_id, version)
         return CompositionStepOutcome(
             output_path=media_rel,
             version=version,
             manifest=existing,
-            report=_load_json(project_root / json_rel),
+            report=_load_json(resolve_within_root(project_root, json_rel)),
             emitted_event_ids=(),
             skipped=True,
         )
 
     existing_intent = read_intent(project_root, project_id, version)
     media_exists = media_path.exists()
-    json_exists = (project_root / json_rel).exists()
+    json_exists = resolve_within_root(project_root, json_rel).exists()
 
     # F: a report is present but the media is missing -> conflict
     if json_exists and not media_exists:
@@ -143,22 +153,43 @@ def run_composition_step(
     )
     write_intent(project_root, intent)  # D: differing identity -> conflict
 
-    if media_exists:
-        output_sha = file_sha256(media_path)  # A/B reuse of the published MP4
-    else:
-        output_sha = _compose(project_root, plan, version, composer, media_path)
+    # one time value for the whole operation: reuse the existing report's
+    # observed_at on a partial-commit replay so re-rendered bytes match.
+    effective_at = _existing_report_time(project_root, json_rel) or observed_at
+
+    try:
+        if media_exists:
+            output_sha = file_sha256(media_path)  # A/B reuse of the published MP4
+        else:
+            output_sha = _compose(project_root, plan, version, composer, media_path)
+    except CompositionError as exc:
+        _write_failed_manifest(
+            project_root,
+            project_id=project_id,
+            input_digest=input_digest,
+            config_digest_value=config_digest_value,
+            version=version,
+            created_at=effective_at,
+            error_summary=str(exc),
+        )
+        raise
 
     report = _build_report(
         project_id=project_id,
         plan=plan,
+        input_entries=input_entries,
         version=version,
         media_rel=media_rel,
         output_sha=output_sha,
         config_digest_value=config_digest_value,
-        observed_at=observed_at,
+        observed_at=effective_at,
     )
-    _publish_bytes(project_root / json_rel, _report_json_bytes(report))
-    _publish_bytes(project_root / md_rel, _report_markdown_bytes(report))
+    _publish_bytes(
+        resolve_within_root(project_root, json_rel), _report_json_bytes(report)
+    )
+    _publish_bytes(
+        resolve_within_root(project_root, md_rel), _report_markdown_bytes(report)
+    )
 
     event = build_composition_completed_event(
         project_id=project_id,
@@ -167,7 +198,7 @@ def run_composition_step(
         output_sha256=output_sha,
         input_asset_ids=tuple(entry.asset_id for entry in plan.entries),
         profile_digest=config_digest_value,
-        occurred_at=observed_at,
+        occurred_at=effective_at,
         output_duration_ms=None,
     )
     append_event(project_root, event)
@@ -177,24 +208,21 @@ def run_composition_step(
         input_digest=input_digest,
         relevant_config_digest=config_digest_value,
         status=ManifestStatus.COMPLETED,
-        created_at=observed_at,
+        created_at=effective_at,
         output_paths=(media_rel, json_rel, md_rel),
         output_metadata={
             "output_version": version,
             "output_sha256": output_sha,
             "entry_count": len(plan.entries),
         },
-        completed_at=observed_at,
+        completed_at=effective_at,
     )
     manifest_path = composition_manifest_path(project_root, project_id)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     write_model_json(manifest_path, manifest, overwrite=True)
 
     # E: best-effort cleanup of the now-committed intent
-    try:
-        intent_path(project_root, project_id, version).unlink()
-    except OSError:
-        pass
+    _remove_intent(project_root, project_id, version)
 
     return CompositionStepOutcome(
         output_path=media_rel,
@@ -207,9 +235,17 @@ def run_composition_step(
 
 
 def _input_digest(project_root: Path, plan: CompositionPlan) -> str:
-    entries = []
+    return config_digest(
+        {"schema": _INPUT_SCHEMA, "assets": _input_entries(project_root, plan)}
+    )
+
+
+def _input_entries(
+    project_root: Path, plan: CompositionPlan
+) -> list[dict[str, object]]:
+    entries: list[dict[str, object]] = []
     for entry in plan.entries:
-        media = project_root / entry.asset_path
+        media = resolve_within_root(project_root, entry.asset_path)
         try:
             sha = file_sha256(media)
         except Exception as exc:  # noqa: BLE001 — a missing asset media file
@@ -223,7 +259,7 @@ def _input_digest(project_root: Path, plan: CompositionPlan) -> str:
                 "file_sha256": sha,
             }
         )
-    return config_digest({"schema": _INPUT_SCHEMA, "assets": entries})
+    return entries
 
 
 def _read_manifest(project_root: Path, project_id: str) -> StepManifest | None:
@@ -248,6 +284,8 @@ def _select_version(
         existing.input_digest == input_digest
         and existing.relevant_config_digest == config_digest_value
     )
+    # a completed OR failed manifest for the same inputs retries the same
+    # version; a genuine input change advances to the next version.
     return prev_version if same and prev_version else (prev_version + 1)
 
 
@@ -265,19 +303,43 @@ def _is_noop(
     if existing.relevant_config_digest != config_digest_value:
         return False
     for rel in output_rels:
-        if not (project_root / rel).exists():
+        if not resolve_within_root(project_root, rel).exists():
             return False
     media_rel, json_rel, _md_rel = output_rels
     recorded = existing.output_metadata.get("output_sha256")
     if not isinstance(recorded, str):
         return False
-    if file_sha256(project_root / media_rel) != recorded:
+    if file_sha256(resolve_within_root(project_root, media_rel)) != recorded:
         return False
+    # the JSON report must parse and match this project/version/output hash
     try:
-        _load_json(project_root / json_rel)
+        report = _load_json(resolve_within_root(project_root, json_rel))
     except Exception:  # noqa: BLE001 — an unreadable report is not a no-op
         return False
+    version = existing.output_metadata.get("output_version")
+    if report.get("report_schema_version") != COMPOSITION_REPORT_SCHEMA_VERSION:
+        return False
+    if report.get("output_version") != version:
+        return False
+    if report.get("output_sha256") != recorded:
+        return False
     return True
+
+
+def _existing_report_time(project_root: Path, json_rel: str) -> datetime | None:
+    try:
+        report = _load_json(resolve_within_root(project_root, json_rel))
+    except Exception:  # noqa: BLE001 — no readable prior report
+        return None
+    value = report.get("observed_at")
+    if not isinstance(value, str):
+        return None
+    try:
+        return validate_utc_datetime(
+            datetime.fromisoformat(value), field_name="observed_at"
+        )
+    except Exception:  # noqa: BLE001 — an unparsable time is treated as absent
+        return None
 
 
 def _compose(
@@ -287,11 +349,13 @@ def _compose(
     composer: VideoComposer,
     media_path: Path,
 ) -> str:
-    staging_dir = project_root / "staging" / "composition" / f"v{version}"
+    staging_dir = resolve_within_root(
+        project_root, Path("staging") / "composition" / f"v{version}"
+    )
     staging_dir.mkdir(parents=True, exist_ok=True)
     normalized: list[Path] = []
     for index, entry in enumerate(plan.entries):
-        source = project_root / entry.asset_path
+        source = resolve_within_root(project_root, entry.asset_path)
         target = staging_dir / f"{index:03d}_{entry.shot_id}.mp4"
         composer.normalize(source, target, plan.profile)
         normalized.append(target)
@@ -304,16 +368,51 @@ def _compose(
     return file_sha256(media_path)
 
 
+def _write_failed_manifest(
+    project_root: Path,
+    *,
+    project_id: str,
+    input_digest: str,
+    config_digest_value: str,
+    version: int,
+    created_at: datetime,
+    error_summary: str,
+) -> None:
+    manifest = StepManifest(
+        step_name=f"composition:{project_id}",
+        input_digest=input_digest,
+        relevant_config_digest=config_digest_value,
+        status=ManifestStatus.FAILED,
+        created_at=created_at,
+        output_paths=(),
+        output_metadata={"output_version": version},
+        completed_at=created_at,
+        error_summary=error_summary[:500],
+    )
+    manifest_path = composition_manifest_path(project_root, project_id)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    write_model_json(manifest_path, manifest, overwrite=True)
+
+
+def _remove_intent(project_root: Path, project_id: str, version: int) -> None:
+    try:
+        intent_path(project_root, project_id, version).unlink()
+    except OSError:
+        pass
+
+
 def _build_report(
     *,
     project_id: str,
     plan: CompositionPlan,
+    input_entries: list[dict[str, object]],
     version: int,
     media_rel: str,
     output_sha: str,
     config_digest_value: str,
     observed_at: datetime,
 ) -> dict[str, object]:
+    sha_by_asset = {e["asset_id"]: e["file_sha256"] for e in input_entries}
     return {
         "report_schema_version": COMPOSITION_REPORT_SCHEMA_VERSION,
         "project_id": project_id,
@@ -330,6 +429,7 @@ def _build_report(
                 "asset_id": entry.asset_id,
                 "asset_version": entry.asset_version,
                 "asset_path": entry.asset_path,
+                "file_sha256": sha_by_asset.get(entry.asset_id),
             }
             for entry in plan.entries
         ],
@@ -359,13 +459,14 @@ def _report_markdown_bytes(report: dict[str, object]) -> bytes:
         "",
         "## Inputs (ordered)",
         "",
-        "| # | scene | shot | asset | version |",
-        "| --- | --- | --- | --- | --- |",
+        "| # | scene | shot | asset | version | file_sha256 |",
+        "| --- | --- | --- | --- | --- | --- |",
     ]
     for index, entry in enumerate(report["entries"]):  # type: ignore[arg-type]
         lines.append(
             f"| {index} | {entry['scene_id']} | {entry['shot_id']} "
-            f"| {entry['asset_id']} | {entry['asset_version']} |"
+            f"| {entry['asset_id']} | {entry['asset_version']} "
+            f"| {entry['file_sha256']} |"
         )
     lines.append("")
     return ("\n".join(lines) + "\n").encode("utf-8")

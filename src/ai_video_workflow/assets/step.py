@@ -1,19 +1,25 @@
 """The validation step: validate, register, report, emit QCD, and commit.
 
 ``run_validation_step`` is the independently runnable, resumable step
-that ties the pieces together. It selects the logical version from the
-staged content digest, validates the artifact, publishes the JSON +
-Markdown reports, imports the media and registers the VideoAsset on a
-pass, emits the QCD events, and commits the StepManifest last. Re-runs
-are idempotent: an already-COMPLETED manifest whose input/config digests
-match and whose every output_path is present and valid is a no-op; a
-partial commit is completed in place (reuse-if-equal, conflict on
-differing content); a changed staged digest registers a new version and
-retains the old one (TASK-005 / ADR-0001 §9).
+that ties the pieces together. It selects the logical version, validates
+the artifact, publishes the JSON + Markdown reports, imports the media
+and registers the VideoAsset on a pass, emits the QCD events, and
+commits the StepManifest last.
+
+Version is keyed to the **shot**, not to the task in isolation: the
+media/asset version is the shot's next unused version, and identical
+staged content already published for the shot reuses that version — so
+a redo task with genuinely new content registers a new version instead
+of colliding on the original (TASK-013 / ADR-0001 §9). Re-runs are
+byte-stable: a completed manifest whose input/config digests match, whose
+outputs all exist, whose report identity and media SHA verify is a no-op;
+a partial commit is completed in place by reusing the already-written
+report's ``observed_at`` (ADR-0005) so re-rendered bytes are identical.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -22,11 +28,16 @@ from ai_video_workflow.assets.policy import ValidationPolicy, policy_digest
 from ai_video_workflow.assets.registration import (
     asset_record_relative_path,
     import_media,
+    media_relative_path,
     publish_bytes,
     register_video_asset,
 )
 from ai_video_workflow.assets.reports import report_json_bytes, report_markdown_bytes
-from ai_video_workflow.assets.validation import ValidationReport, validate_artifact
+from ai_video_workflow.assets.validation import (
+    REPORT_SCHEMA_VERSION,
+    ValidationReport,
+    validate_artifact,
+)
 from ai_video_workflow.digests import file_sha256
 from ai_video_workflow.errors import DataFileError, FieldTypeError
 from ai_video_workflow.manifest import ManifestStatus, StepManifest
@@ -39,6 +50,7 @@ from ai_video_workflow.qcd.events import (
     build_validation_completed_event,
 )
 from ai_video_workflow.qcd.log import append_event
+from ai_video_workflow.security import resolve_within_root
 from ai_video_workflow.validation import validate_utc_datetime
 
 _ABSENT_STAGED_SHA = "0" * 64
@@ -54,7 +66,9 @@ class ValidationStepOutcome:
 
 
 def validation_manifest_path(project_root: Path, task: GenerationTask) -> Path:
-    return project_root / "manifests" / f"validation-{task.task_id}.json"
+    return resolve_within_root(
+        project_root, Path("manifests") / f"validation-{task.task_id}.json"
+    )
 
 
 def report_relative_paths(task: GenerationTask, version: int) -> tuple[str, str]:
@@ -80,12 +94,17 @@ def run_validation_step(
         raise FieldTypeError("shot/scene/task identity mismatch")
     validate_utc_datetime(observed_at, field_name="observed_at")
 
-    staged_path = project_root / artifact.reference
+    staged_path = resolve_within_root(project_root, artifact.reference)
     input_sha = _staged_sha(staged_path)
     config_digest = policy_digest(policy)
 
     existing = _read_manifest(project_root, task)
-    version = _select_version(existing, input_sha)
+    version = _select_version(project_root, existing, scene, shot, input_sha)
+
+    report_json_rel, report_md_rel = report_relative_paths(task, version)
+    # one time value per logical operation: reuse the already-written
+    # report's observed_at on a partial-commit replay (ADR-0005).
+    effective_at = _existing_report_time(project_root, report_json_rel) or observed_at
 
     report = validate_artifact(
         project_root=project_root,
@@ -94,10 +113,10 @@ def run_validation_step(
         artifact=artifact,
         inspector=inspector,
         policy=policy,
-        observed_at=observed_at,
+        observed_at=effective_at,
     )
 
-    if _is_noop(project_root, existing, input_sha, config_digest):
+    if _is_noop(project_root, existing, input_sha, config_digest, report_json_rel):
         asset = _load_asset_if_any(project_root, existing)
         return ValidationStepOutcome(
             report=report,
@@ -107,12 +126,16 @@ def run_validation_step(
             skipped=True,
         )
 
-    report_json_rel, report_md_rel = report_relative_paths(task, version)
-    publish_bytes(project_root / report_json_rel, report_json_bytes(report))
-    publish_bytes(project_root / report_md_rel, report_markdown_bytes(report))
+    publish_bytes(
+        resolve_within_root(project_root, report_json_rel), report_json_bytes(report)
+    )
+    publish_bytes(
+        resolve_within_root(project_root, report_md_rel), report_markdown_bytes(report)
+    )
 
     emitted: list[str] = []
     registered_asset: VideoAsset | None = None
+    media_sha: str | None = None
     project_id = scene.project_id
 
     if report.passed:
@@ -131,7 +154,7 @@ def run_validation_step(
             version=version,
             media_relative=media_rel,
             probe=report.probe,
-            validated_at=observed_at,
+            validated_at=effective_at,
         )
         duration_ms = int(round(report.probe.duration_seconds * 1000))
         emitted.append(
@@ -148,7 +171,7 @@ def run_validation_step(
                     version=version,
                     duration_ms=duration_ms,
                     source_attempt_id=None,
-                    occurred_at=observed_at,
+                    occurred_at=effective_at,
                 ),
             )
         )
@@ -178,7 +201,7 @@ def run_validation_step(
                 asset_id=(
                     None if registered_asset is None else registered_asset.asset_id
                 ),
-                occurred_at=observed_at,
+                occurred_at=effective_at,
             ),
         )
     )
@@ -193,7 +216,8 @@ def run_validation_step(
         output_paths=output_paths,
         registered_asset=registered_asset,
         report_json_rel=report_json_rel,
-        observed_at=observed_at,
+        media_sha=media_sha,
+        observed_at=effective_at,
     )
     manifest_path = validation_manifest_path(project_root, task)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -259,12 +283,41 @@ def _manifest_version(manifest: StepManifest) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
-def _select_version(existing: StepManifest | None, input_sha: str) -> int:
-    if existing is None:
-        return 1
-    if existing.input_digest == input_sha:
-        return _manifest_version(existing) or 1
-    return (_manifest_version(existing) or 0) + 1
+def _select_version(
+    project_root: Path,
+    existing: StepManifest | None,
+    scene: Scene,
+    shot: Shot,
+    input_sha: str,
+) -> int:
+    """Select the shot's logical version for this staged content.
+
+    1. a replay of *this task* with the same staged content reuses the
+       version its manifest already recorded;
+    2. otherwise, if the shot already has published media with the same
+       SHA-256, that version is reused (idempotent cross-task import);
+    3. otherwise the next unused shot version is allocated.
+
+    Version discovery probes explicit per-version media paths only — no
+    directory scan.
+    """
+    if existing is not None and existing.input_digest == input_sha:
+        recorded = _manifest_version(existing)
+        if recorded:
+            return recorded
+    version = 1
+    while True:
+        media_path = resolve_within_root(
+            project_root, media_relative_path(scene, shot, version)
+        )
+        if not media_path.exists():
+            return version
+        try:
+            if file_sha256(media_path) == input_sha:
+                return version
+        except DataFileError:
+            return version
+        version += 1
 
 
 def _is_noop(
@@ -272,6 +325,7 @@ def _is_noop(
     existing: StepManifest | None,
     input_sha: str,
     config_digest: str,
+    report_json_rel: str,
 ) -> bool:
     if existing is None or existing.status is not ManifestStatus.COMPLETED:
         return False
@@ -280,13 +334,55 @@ def _is_noop(
     if existing.relevant_config_digest != config_digest:
         return False
     for rel in existing.output_paths:
-        if not (project_root / rel).exists():
+        if not resolve_within_root(project_root, rel).exists():
             return False
-    asset = _load_asset_if_any(project_root, existing)
+    # the JSON report must parse and match this task/pass identity
     passed = bool(existing.output_metadata.get("passed"))
-    if passed and asset is None:
+    try:
+        report = json.loads(
+            resolve_within_root(project_root, report_json_rel).read_text("utf-8")
+        )
+    except Exception:  # noqa: BLE001 — an unreadable report is not a no-op
         return False
+    if report.get("report_schema_version") != REPORT_SCHEMA_VERSION:
+        return False
+    if report.get("passed") != passed:
+        return False
+    # a passing report must retain its asset and undrifted media
+    asset = _load_asset_if_any(project_root, existing)
+    if passed:
+        if asset is None:
+            return False
+        recorded_media = existing.output_metadata.get("media_sha256")
+        if not isinstance(recorded_media, str):
+            return False
+        media_path = resolve_within_root(project_root, str(asset.path))
+        if not media_path.exists():
+            return False
+        try:
+            if file_sha256(media_path) != recorded_media:
+                return False
+        except DataFileError:
+            return False
     return True
+
+
+def _existing_report_time(project_root: Path, report_json_rel: str) -> datetime | None:
+    try:
+        report = json.loads(
+            resolve_within_root(project_root, report_json_rel).read_text("utf-8")
+        )
+    except Exception:  # noqa: BLE001 — no readable prior report
+        return None
+    value = report.get("observed_at")
+    if not isinstance(value, str):
+        return None
+    try:
+        return validate_utc_datetime(
+            datetime.fromisoformat(value), field_name="observed_at"
+        )
+    except Exception:  # noqa: BLE001 — an unparsable time is treated as absent
+        return None
 
 
 def _load_asset_if_any(
@@ -297,7 +393,7 @@ def _load_asset_if_any(
     asset_id = existing.output_metadata.get("asset_id")
     if not isinstance(asset_id, str) or not asset_id:
         return None
-    path = project_root / asset_record_relative_path(asset_id)
+    path = resolve_within_root(project_root, asset_record_relative_path(asset_id))
     if not path.exists():
         return None
     return read_model_json(path, VideoAsset)
@@ -319,6 +415,7 @@ def _build_manifest(
     output_paths: tuple[str, ...],
     registered_asset: VideoAsset | None,
     report_json_rel: str,
+    media_sha: str | None,
     observed_at: datetime,
 ) -> StepManifest:
     metadata: dict[str, object] = {
@@ -326,6 +423,7 @@ def _build_manifest(
         "passed": passed,
         "asset_id": None if registered_asset is None else registered_asset.asset_id,
         "report_json": report_json_rel,
+        "media_sha256": media_sha,
     }
     if passed:
         return StepManifest(

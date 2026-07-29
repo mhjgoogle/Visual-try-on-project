@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from ai_video_workflow.assets.policy import ValidationPolicy
 from ai_video_workflow.assets.step import (
     record_manual_quality_rating,
@@ -204,6 +206,91 @@ def test_missing_staged_file_fails_cleanly(tmp_path) -> None:
     assert outcome.registered_asset is None
     manifest = read_model_json(validation_manifest_path(tmp_path, task), StepManifest)
     assert manifest.status is ManifestStatus.FAILED
+
+
+def test_partial_report_recovery_at_later_time(tmp_path) -> None:
+    # crash after the JSON report but before the Markdown/manifest; re-run
+    # one hour later. The report's observed_at must be reused so bytes match
+    # (ADR-0005) instead of raising a conflict.
+    from datetime import timedelta
+
+    task = _task()
+    _stage(tmp_path, task)
+    _run(tmp_path, probe=_good_probe(), task=task)
+    (tmp_path / "reports/validation/task-shot-1-1_v1.md").unlink()
+    validation_manifest_path(tmp_path, task).unlink()
+    later = run_validation_step(
+        project_root=tmp_path,
+        shot=_shot(),
+        scene=_scene(),
+        task=task,
+        artifact=_artifact(task),
+        inspector=FakeMediaInspector(result=_good_probe()),
+        policy=ValidationPolicy(),
+        observed_at=T0 + timedelta(hours=1),
+    )
+    assert later.skipped is False
+    assert (tmp_path / "reports/validation/task-shot-1-1_v1.md").exists()
+    manifest = read_model_json(validation_manifest_path(tmp_path, task), StepManifest)
+    assert manifest.status is ManifestStatus.COMPLETED
+
+
+def test_redo_task_new_content_gets_next_shot_version(tmp_path) -> None:
+    # the original task registers shot version 1; a redo task with new
+    # content for the same shot must become version 2, not collide on v1.
+    task1 = _task()
+    _stage(tmp_path, task1, data=b"original-content")
+    _run(tmp_path, probe=_good_probe(), task=task1)
+
+    task2 = GenerationTask(
+        task_id="task-shot-1-2",
+        shot_id="shot-1",
+        status=GenerationTaskStatus.DONE,
+        created_at=T0,
+        updated_at=T0,
+        completed_at=T0,
+        provider_id="manual",
+    )
+    _stage(tmp_path, task2, data=b"redo-different-content")
+    redo = _run(tmp_path, probe=_good_probe(), task=task2)
+    assert redo.skipped is False
+    assert redo.registered_asset.version == 2
+    assert redo.registered_asset.asset_id == "asset-task-shot-1-2-v2"
+    assert (tmp_path / "assets/media/s01_sh003_v1.mp4").exists()
+    assert (tmp_path / "assets/media/s01_sh003_v2.mp4").exists()
+
+
+def test_redo_task_identical_content_reuses_shot_version(tmp_path) -> None:
+    # a redo task whose content is byte-identical to the shot's existing
+    # asset reuses that version (idempotent cross-task import).
+    task1 = _task()
+    _stage(tmp_path, task1, data=b"same-bytes")
+    _run(tmp_path, probe=_good_probe(), task=task1)
+
+    task2 = GenerationTask(
+        task_id="task-shot-1-2",
+        shot_id="shot-1",
+        status=GenerationTaskStatus.DONE,
+        created_at=T0,
+        updated_at=T0,
+        completed_at=T0,
+        provider_id="manual",
+    )
+    _stage(tmp_path, task2, data=b"same-bytes")
+    redo = _run(tmp_path, probe=_good_probe(), task=task2)
+    assert redo.registered_asset.version == 1  # reused shot version
+
+
+def test_media_drift_is_not_silent_noop(tmp_path) -> None:
+    from ai_video_workflow.assets.registration import AssetConflictError
+
+    task = _task()
+    _stage(tmp_path, task)
+    _run(tmp_path, probe=_good_probe(), task=task)
+    # the published media drifts on disk while the manifest still claims done
+    (tmp_path / "assets/media/s01_sh003_v1.mp4").write_bytes(b"corrupted-drift")
+    with pytest.raises(AssetConflictError):
+        _run(tmp_path, probe=_good_probe(), task=task)
 
 
 def test_record_manual_quality_rating(tmp_path) -> None:

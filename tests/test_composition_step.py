@@ -214,6 +214,97 @@ def test_new_version_on_asset_change(tmp_path) -> None:
     assert (tmp_path / "outputs/final_v2.mp4").exists()
 
 
+def test_recovery_partial_report_completes_at_later_time(tmp_path) -> None:
+    # crash between the JSON and Markdown report writes; re-run one hour
+    # later. The JSON report's observed_at must be reused so the bytes
+    # match (ADR-0005) rather than raising a spurious conflict.
+    from datetime import timedelta
+
+    data = _build(tmp_path)
+    _run(tmp_path, data)
+    (tmp_path / "reports/composition/final_v1.md").unlink()
+    composition_manifest_path(tmp_path, "proj-1").unlink()
+    from ai_video_workflow.composition.intent import (
+        CompositionPublishIntent,
+        write_intent,
+    )
+    from ai_video_workflow.composition.plan import build_composition_plan
+    from ai_video_workflow.composition.profile import profile_digest
+    from ai_video_workflow.composition.step import _input_digest
+
+    plan = build_composition_plan(data=data)
+    write_intent(
+        tmp_path,
+        CompositionPublishIntent(
+            project_id="proj-1",
+            logical_version=1,
+            input_digest=_input_digest(tmp_path, plan),
+            profile_digest=profile_digest(plan.profile),
+            media_path="outputs/final_v1.mp4",
+            json_report_path="reports/composition/final_v1.json",
+            markdown_report_path="reports/composition/final_v1.md",
+        ),
+    )
+    later = run_composition_step(
+        project_root=tmp_path,
+        data=data,
+        composer=FakeVideoComposer(),
+        profile=None,
+        observed_at=T0 + timedelta(hours=1),
+    )
+    assert later.skipped is False
+    assert (tmp_path / "reports/composition/final_v1.md").exists()
+
+
+def test_recovery_e_noop_removes_stale_intent(tmp_path) -> None:
+    data = _build(tmp_path)
+    _run(tmp_path, data)
+    # a stale intent reappears after the completed manifest
+    from ai_video_workflow.composition.intent import (
+        CompositionPublishIntent,
+        write_intent,
+    )
+    from ai_video_workflow.composition.plan import build_composition_plan
+    from ai_video_workflow.composition.profile import profile_digest
+    from ai_video_workflow.composition.step import _input_digest
+
+    plan = build_composition_plan(data=data)
+    write_intent(
+        tmp_path,
+        CompositionPublishIntent(
+            project_id="proj-1",
+            logical_version=1,
+            input_digest=_input_digest(tmp_path, plan),
+            profile_digest=profile_digest(plan.profile),
+            media_path="outputs/final_v1.mp4",
+            json_report_path="reports/composition/final_v1.json",
+            markdown_report_path="reports/composition/final_v1.md",
+        ),
+    )
+    assert intent_path(tmp_path, "proj-1", 1).exists()
+    second = _run(tmp_path, data)
+    assert second.skipped is True
+    assert not intent_path(tmp_path, "proj-1", 1).exists()  # E cleanup on no-op
+
+
+def test_failed_compose_records_failed_manifest(tmp_path) -> None:
+    from ai_video_workflow.composition.errors import CompositionToolError
+
+    data = _build(tmp_path)
+
+    class _FailingComposer(FakeVideoComposer):
+        def normalize(self, source, target, profile):
+            raise CompositionToolError("ffmpeg boom")
+
+    with pytest.raises(CompositionToolError):
+        _run(tmp_path, data, composer=_FailingComposer())
+    manifest = read_model_json(
+        composition_manifest_path(tmp_path, "proj-1"), StepManifest
+    )
+    assert manifest.status is ManifestStatus.FAILED
+    assert not (tmp_path / "outputs/final_v1.mp4").exists()
+
+
 def test_intent_written_before_media(tmp_path) -> None:
     data = _build(tmp_path)
 
