@@ -117,6 +117,14 @@ def create_redo_task(
         raise BootstrapError(
             f"redo: no existing task for shot {shot_id}; bootstrap first"
         )
+    # retry identity: if the shot's current top attempt is still PENDING
+    # (an unused attempt), a repeated redo reuses it rather than stacking
+    # another empty attempt (v2 -> v3 -> ...).
+    top_task = _find_task(data, previous_task_id)
+    if top_task is not None and top_task.status is GenerationTaskStatus.PENDING:
+        return BootstrapOutcome(
+            created=(), skipped=(previous_task_id,), emitted_event_ids=()
+        )
     new_task_id = f"task-{shot_id}-{highest + 1}"
     event_id = _ensure_task(
         project_root=project_root,
@@ -151,10 +159,13 @@ def _ensure_task(
     """Create (or complete) the task + manifest; return the emitted event id.
 
     Returns None when a fully-bootstrapped equivalent task already exists
-    (a no-op skip).
+    (a no-op skip). A companion manifest is never overwritten: an existing
+    one must be identity-equivalent (step_name + approved input/config
+    digests + PENDING status) or it is a conflict.
     """
     task_path = task_record_path(project_root, task_id)
     manifest_path = generation_manifest_path(project_root, task_id)
+    expected_manifest = _build_generation_manifest(task_id, shot, provider_id, now)
 
     if task_path.exists():
         existing = read_model_json(task_path, GenerationTask)
@@ -164,13 +175,13 @@ def _ensure_task(
             )
         if manifest_path.exists():
             existing_manifest = read_model_json(manifest_path, StepManifest)
-            if existing_manifest.step_name != f"generation:{task_id}":
+            if not _manifest_equivalent(existing_manifest, expected_manifest):
                 raise TaskAlreadyExistsError(
                     f"bootstrap: existing manifest is not equivalent: {manifest_path}"
                 )
             return None  # fully bootstrapped -> skip
         # partial crash: task exists, manifest missing -> complete it
-        _write_manifest(manifest_path, task_id, shot, provider_id, now)
+        _ensure_manifest(manifest_path, expected_manifest)
         return _emit_created(
             project_root,
             project_id,
@@ -191,7 +202,7 @@ def _ensure_task(
     )
     task_path.parent.mkdir(parents=True, exist_ok=True)
     write_model_json(task_path, task, overwrite=False)
-    _write_manifest(manifest_path, task_id, shot, provider_id, now)
+    _ensure_manifest(manifest_path, expected_manifest)
     return _emit_created(
         project_root,
         project_id,
@@ -204,22 +215,45 @@ def _ensure_task(
     )
 
 
-def _write_manifest(
-    manifest_path: Path,
+def _build_generation_manifest(
     task_id: str,
     shot: Shot,
     provider_id: str,
     now: datetime,
-) -> None:
-    manifest = StepManifest(
+) -> StepManifest:
+    return StepManifest(
         step_name=f"generation:{task_id}",
         input_digest=generation_input_digest(shot),
         relevant_config_digest=generation_config_digest(provider_id),
         status=ManifestStatus.PENDING,
         created_at=now,
     )
+
+
+def _manifest_equivalent(existing: StepManifest, expected: StepManifest) -> bool:
+    return (
+        existing.step_name == expected.step_name
+        and existing.input_digest == expected.input_digest
+        and existing.relevant_config_digest == expected.relevant_config_digest
+        and existing.status is ManifestStatus.PENDING
+    )
+
+
+def _ensure_manifest(manifest_path: Path, expected: StepManifest) -> None:
+    """Write the companion manifest with CAS/no-replace semantics.
+
+    An existing manifest must be identity-equivalent; a non-equivalent one
+    is a conflict, never a silent overwrite (AGENTS.md §13).
+    """
+    if manifest_path.exists():
+        existing = read_model_json(manifest_path, StepManifest)
+        if not _manifest_equivalent(existing, expected):
+            raise TaskAlreadyExistsError(
+                f"bootstrap: existing manifest is not equivalent: {manifest_path}"
+            )
+        return
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    write_model_json(manifest_path, manifest, overwrite=True)
+    write_model_json(manifest_path, expected, overwrite=False)
 
 
 def _emit_created(
@@ -250,6 +284,13 @@ def _find_shot(data: ProjectData, shot_id: str) -> Shot:
         if shot.shot_id == shot_id:
             return shot
     raise BootstrapError(f"redo: unknown shot {shot_id}")
+
+
+def _find_task(data: ProjectData, task_id: str) -> GenerationTask | None:
+    for task in data.generation_tasks:
+        if task.task_id == task_id:
+            return task
+    return None
 
 
 def _highest_attempt(data: ProjectData, shot_id: str) -> tuple[int, str | None]:

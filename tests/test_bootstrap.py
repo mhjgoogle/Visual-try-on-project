@@ -14,7 +14,11 @@ from ai_video_workflow.app.bootstrap import (
     generation_manifest_path,
     task_record_path,
 )
-from ai_video_workflow.app.contracts import staging_ref_for
+from ai_video_workflow.app.contracts import (
+    generation_config_digest,
+    generation_input_digest,
+    staging_ref_for,
+)
 from ai_video_workflow.manifest import ManifestStatus, StepManifest
 from ai_video_workflow.models import (
     GenerationTask,
@@ -168,20 +172,56 @@ def test_bootstrap_skips_completed_task(tmp_path) -> None:
     generation_manifest_path(tmp_path, "task-shot-1-1").parent.mkdir(
         parents=True, exist_ok=True
     )
+    data = _data()
+    shot = next(s for s in data.shots if s.shot_id == "shot-1")
     write_model_json(
         generation_manifest_path(tmp_path, "task-shot-1-1"),
         StepManifest(
             step_name="generation:task-shot-1-1",
-            input_digest="d",
-            relevant_config_digest="c",
+            input_digest=generation_input_digest(shot),
+            relevant_config_digest=generation_config_digest("manual"),
             status=ManifestStatus.PENDING,
             created_at=T0,
         ),
     )
     outcome = bootstrap_generation_tasks(
-        project_root=tmp_path, data=_data(), provider_id="manual", now=T0
+        project_root=tmp_path, data=data, provider_id="manual", now=T0
     )
     assert "task-shot-1-1" in outcome.skipped  # not recreated
+
+
+def test_bootstrap_conflict_on_non_equivalent_manifest(tmp_path) -> None:
+    # a companion manifest whose approved digests disagree is a conflict,
+    # never a silent overwrite (TASK-013 blocker 7).
+    data = _data()
+    task_path = task_record_path(tmp_path, "task-shot-1-1")
+    task_path.parent.mkdir(parents=True, exist_ok=True)
+    write_model_json(
+        task_path,
+        GenerationTask(
+            task_id="task-shot-1-1",
+            shot_id="shot-1",
+            status=GenerationTaskStatus.PENDING,
+            created_at=T0,
+            updated_at=T0,
+        ),
+    )
+    manifest_path = generation_manifest_path(tmp_path, "task-shot-1-1")
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    write_model_json(
+        manifest_path,
+        StepManifest(
+            step_name="generation:task-shot-1-1",
+            input_digest="STALE-DIGEST",  # drifted from the shot's real input
+            relevant_config_digest=generation_config_digest("manual"),
+            status=ManifestStatus.PENDING,
+            created_at=T0,
+        ),
+    )
+    with pytest.raises(TaskAlreadyExistsError):
+        bootstrap_generation_tasks(
+            project_root=tmp_path, data=data, provider_id="manual", now=T0
+        )
 
 
 def _done_task(task_id: str, shot_id: str) -> GenerationTask:
@@ -213,6 +253,43 @@ def test_create_redo_task(tmp_path) -> None:
     assert events[0].event_type.value == "task_created"
     assert events[0].payload["origin"] == "redo"
     assert events[0].payload["redo_of_task_id"] == "task-shot-1-1"
+
+
+def test_repeated_redo_is_idempotent_while_top_unused(tmp_path) -> None:
+    # the first redo creates task-shot-1-2 (PENDING); a second redo before
+    # that attempt is used must NOT stack a task-shot-1-3.
+    data = _data(tasks=(_done_task("task-shot-1-1", "shot-1"),))
+    first = create_redo_task(
+        project_root=tmp_path,
+        data=data,
+        shot_id="shot-1",
+        provider_id="manual",
+        now=T1,
+    )
+    assert first.created == ("task-shot-1-2",)
+    # reload with the new PENDING attempt visible
+    data2 = _data(
+        tasks=(
+            _done_task("task-shot-1-1", "shot-1"),
+            GenerationTask(
+                task_id="task-shot-1-2",
+                shot_id="shot-1",
+                status=GenerationTaskStatus.PENDING,
+                created_at=T1,
+                updated_at=T1,
+            ),
+        )
+    )
+    second = create_redo_task(
+        project_root=tmp_path,
+        data=data2,
+        shot_id="shot-1",
+        provider_id="manual",
+        now=T1,
+    )
+    assert second.created == ()
+    assert second.skipped == ("task-shot-1-2",)
+    assert not task_record_path(tmp_path, "task-shot-1-3").exists()
 
 
 def test_redo_without_prior_raises(tmp_path) -> None:
