@@ -23,6 +23,21 @@ _DEFAULT_TIMEOUT_SECONDS = 600.0
 _STDERR_LIMIT = 2000
 
 
+def _concat_quote(source: Path) -> str:
+    """Render one concat-demuxer entry path safely (ADR-0004 §5).
+
+    The concat list is parsed line by line with single-quoted paths, so a
+    ``'`` in the path must be escaped as ``'\\''`` and a newline (which
+    would break the line-based format) is refused outright.
+    """
+    text = source.resolve().as_posix()
+    if "\n" in text or "\r" in text:
+        raise CompositionToolError(
+            f"composition: media path contains a newline: {source!r}"
+        )
+    return text.replace("'", "'\\''")
+
+
 class FfmpegVideoComposer(VideoComposer):
     """Normalize/concatenate with ffmpeg (deterministic argv, no shell)."""
 
@@ -52,7 +67,7 @@ class FfmpegVideoComposer(VideoComposer):
         try:
             with os.fdopen(list_fd, "w", encoding="utf-8") as stream:
                 for source in sources:
-                    stream.write(f"file '{source.resolve().as_posix()}'\n")
+                    stream.write(f"file '{_concat_quote(source)}'\n")
             self._run(self._concat_argv(list_path, target), target)
         finally:
             try:

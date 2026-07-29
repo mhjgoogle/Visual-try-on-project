@@ -58,6 +58,7 @@ from ai_video_workflow.qcd.events import (
     build_task_status_changed_event,
 )
 from ai_video_workflow.qcd.log import append_event
+from ai_video_workflow.security import PathEscapeError, resolve_within_root
 
 
 class StagedFileMissingError(AiVideoWorkflowError):
@@ -315,8 +316,16 @@ class WorkflowDriver:
         )
 
     def _require_staged(self, staged_path: str) -> None:
-        # explicit lstat only (no scan, no glob); reject a symlink target
-        path = self._project_root / staged_path
+        # explicit lstat only (no scan, no glob); the ADR-0004 resolver
+        # rejects absolute/'..'/symlinked-component staging paths, then we
+        # require a plain regular file at the contained location.
+        try:
+            path = resolve_within_root(self._project_root, staged_path)
+        except PathEscapeError as exc:
+            raise StagedFileMissingError(
+                f"staged artifact path is not contained in the project root: "
+                f"{staged_path}"
+            ) from exc
         if not path.is_file() or path.is_symlink():
             raise StagedFileMissingError(
                 f"staged artifact is missing or not a regular file: {staged_path}"

@@ -27,6 +27,7 @@ from ai_video_workflow.errors import (
     InvariantViolationError,
     JsonDataError,
 )
+from ai_video_workflow.security import resolve_within_root
 from ai_video_workflow.validation import validate_stable_id
 
 INTENT_SCHEMA_VERSION = 1
@@ -88,13 +89,13 @@ class CompositionPublishIntent:
 
 
 def intent_path(project_root: Path, project_id: str, logical_version: int) -> Path:
-    return (
-        project_root
-        / "records"
+    return resolve_within_root(
+        project_root,
+        Path("records")
         / "step-intents"
         / "composition"
         / project_id
-        / f"{logical_version}.json"
+        / f"{logical_version}.json",
     )
 
 

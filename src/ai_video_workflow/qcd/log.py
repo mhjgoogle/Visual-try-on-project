@@ -22,6 +22,7 @@ from ai_video_workflow.qcd.events import (
     QcdEvent,
     QcdEventType,
 )
+from ai_video_workflow.security import resolve_within_root
 from ai_video_workflow.validation import validate_utc_datetime
 
 _LOG_RELATIVE = ("qcd", "events", "log.jsonl")
@@ -49,8 +50,13 @@ class CorruptEventLogError(QcdLogError):
 
 
 def log_path(project_root: Path) -> Path:
-    """Return the append-only event log path for a project root."""
-    return project_root.joinpath(*_LOG_RELATIVE)
+    """Return the append-only event log path for a project root.
+
+    The path is admitted through the ADR-0004 containment resolver: a
+    symlinked ``qcd/`` or ``qcd/events/`` component (which would write the
+    log outside the project root) is refused.
+    """
+    return resolve_within_root(project_root, Path(*_LOG_RELATIVE))
 
 
 def append_event(project_root: Path, event: QcdEvent) -> None:

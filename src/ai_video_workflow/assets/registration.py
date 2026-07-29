@@ -19,6 +19,7 @@ from pathlib import Path
 from ai_video_workflow.errors import AiVideoWorkflowError
 from ai_video_workflow.inspection.base import MediaProbeResult
 from ai_video_workflow.models import GenerationTask, Scene, Shot, VideoAsset
+from ai_video_workflow.security import resolve_within_root
 from ai_video_workflow.serialization import model_to_json
 
 
@@ -89,7 +90,7 @@ def import_media(
             f"unable to read staged media: {staged_path}"
         ) from exc
     rel = media_relative_path(scene, shot, version)
-    publish_bytes(project_root / rel, data)
+    publish_bytes(resolve_within_root(project_root, rel), data)
     return rel, hashlib.sha256(data).hexdigest(), len(data)
 
 
@@ -118,7 +119,10 @@ def register_video_asset(
         validated_at=validated_at,
     )
     rel = asset_record_relative_path(asset.asset_id)
-    publish_bytes(project_root / rel, model_to_json(asset).encode("utf-8"))
+    publish_bytes(
+        resolve_within_root(project_root, rel),
+        model_to_json(asset).encode("utf-8"),
+    )
     return asset, rel
 
 
