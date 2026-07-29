@@ -117,11 +117,16 @@ def create_redo_task(
         raise BootstrapError(
             f"redo: no existing task for shot {shot_id}; bootstrap first"
         )
-    # retry identity: if the shot's current top attempt is still PENDING
-    # (an unused attempt), a repeated redo reuses it rather than stacking
-    # another empty attempt (v2 -> v3 -> ...).
+    # retry identity: if the shot's current top attempt is itself an unused
+    # (PENDING) *redo* attempt, a repeated redo reuses it rather than
+    # stacking another empty attempt (v2 -> v3 -> ...). The first redo of
+    # the original bootstrap attempt (number 1) is always allowed.
     top_task = _find_task(data, previous_task_id)
-    if top_task is not None and top_task.status is GenerationTaskStatus.PENDING:
+    if (
+        highest > 1
+        and top_task is not None
+        and top_task.status is GenerationTaskStatus.PENDING
+    ):
         return BootstrapOutcome(
             created=(), skipped=(previous_task_id,), emitted_event_ids=()
         )

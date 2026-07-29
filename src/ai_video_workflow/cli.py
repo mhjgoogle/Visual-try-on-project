@@ -24,11 +24,13 @@ from pathlib import Path
 from ai_video_workflow.app.bootstrap import (
     bootstrap_generation_tasks,
     create_redo_task,
+    task_record_path,
 )
 from ai_video_workflow.app.clock import utc_now
 from ai_video_workflow.app.contracts import staging_ref_for
 from ai_video_workflow.app.driver import WorkflowDriver
 from ai_video_workflow.app.requests import DefaultProviderRequestFactory
+from ai_video_workflow.assets.registration import ValidationFailedError
 from ai_video_workflow.composition.ffmpeg import FfmpegVideoComposer
 from ai_video_workflow.errors import AiVideoWorkflowError
 from ai_video_workflow.inspection.ffprobe import FfprobeMediaInspector
@@ -36,14 +38,23 @@ from ai_video_workflow.manifest import StepManifest
 from ai_video_workflow.models import (
     Character,
     GenerationTask,
+    GenerationTaskStatus,
     Project,
     Scene,
     Shot,
     VideoAsset,
 )
+from ai_video_workflow.orchestration import OrchestrationAction
 from ai_video_workflow.persistence import read_model_json
 from ai_video_workflow.project_data import ProjectData
 from ai_video_workflow.providers import ManualVideoProvider
+
+_RUN_LIFECYCLE = (
+    OrchestrationAction.PREPARE,
+    OrchestrationAction.SUBMIT,
+    OrchestrationAction.REPORT_ARTIFACT,
+    OrchestrationAction.COLLECT,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -89,7 +100,10 @@ def _build_parser() -> argparse.ArgumentParser:
     _add("status", _cmd_status, task=True)
     _add("show-instruction", _cmd_show_instruction, task=True)
     _add("create-redo-task", _cmd_create_redo, shot=True)
-    _add("run", _cmd_run, staged=True)
+    # `run` drives every shot through its own contract staging path; a
+    # single --staged-path cannot address multiple shots, so it is not
+    # offered here (use per-step report-artifact for a custom path).
+    _add("run", _cmd_run)
 
     def _attempt_args(sp):
         sp.add_argument("--note", default=None)
@@ -185,6 +199,8 @@ def _cmd_validate(args) -> None:
     print(f"validation passed: {outcome.report.passed}")
     if outcome.registered_asset is not None:
         print(f"registered asset: {outcome.registered_asset.asset_id}")
+    if not outcome.report.passed:
+        raise ValidationFailedError(f"validation did not pass for {args.task_id}")
 
 
 def _cmd_compose(args) -> None:
@@ -254,19 +270,52 @@ def _cmd_run(args) -> None:
     )
     task_ids = sorted(set(boot.created) | set(boot.skipped))
     for task_id in task_ids:
-        # resume-aware: a task already collected (terminal) skips the
-        # generation lifecycle; validate/compose are idempotent, so a full
-        # re-run of `run` is a no-op rather than an illegal re-prepare.
-        if not driver.status(task_id).is_terminal:
-            driver.prepare(task_id)
-            driver.submit(task_id)
-            staged = args.staged_path or staging_ref_for(task_id)
-            driver.report_artifact(task_id, staged)  # verifies the staged file
-            driver.collect(task_id)
-        driver.validate(task_id)
+        _drive_generation(driver, task_id)
+        _require_done(args.project_root, task_id)
+        outcome = driver.validate(task_id)
+        if not outcome.report.passed:
+            raise ValidationFailedError(f"validation did not pass for {task_id}")
     # reload so the just-registered assets are visible to composition
     composed = driver.compose(_load_project_data(args.project_root))
     print(f"run complete: {composed.output_path} (version {composed.version})")
+
+
+def _drive_generation(driver: WorkflowDriver, task_id: str) -> None:
+    """Drive one task's generation lifecycle, resuming from any point.
+
+    Each fixed lifecycle action runs only when the orchestrator reports it
+    legal now (already-completed actions are simply not legal, so a resumed
+    task advances without an illegal re-prepare). A task that is already
+    terminal stops the drive; ``run`` always uses the contract staging path.
+    """
+    staged = staging_ref_for(task_id)
+    for action in _RUN_LIFECYCLE:
+        assessment = driver.status(task_id)
+        if assessment.is_terminal:
+            return
+        if action not in assessment.legal_actions:
+            continue
+        if action is OrchestrationAction.PREPARE:
+            driver.prepare(task_id)
+        elif action is OrchestrationAction.SUBMIT:
+            driver.submit(task_id)
+        elif action is OrchestrationAction.REPORT_ARTIFACT:
+            driver.report_artifact(task_id, staged)  # verifies the staged file
+        else:  # COLLECT
+            driver.collect(task_id)
+
+
+def _require_done(project_root: Path, task_id: str) -> None:
+    """Reject a non-DONE terminal task before validate/compose.
+
+    A FAILED or CANCELLED task must not be silently treated as a successful
+    input to validation/composition.
+    """
+    task = read_model_json(task_record_path(project_root, task_id), GenerationTask)
+    if task.status is not GenerationTaskStatus.DONE:
+        raise AiVideoWorkflowError(
+            f"task {task_id} is {task.status.value}, not done; cannot continue run"
+        )
 
 
 def _render_driver(outcome) -> None:

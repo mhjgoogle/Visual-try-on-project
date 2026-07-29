@@ -140,6 +140,31 @@ def test_minimal_loop_step_by_step(tmp_path, monkeypatch) -> None:
     assert (root / "outputs" / "final_v1.mp4").exists()
 
 
+def test_minimal_loop_redo_then_validate_and_compose(tmp_path, monkeypatch) -> None:
+    # a redo attempt with new content for a shot must register as a new
+    # version and re-compose cleanly (TASK-013 blocker 3 / shot versioning).
+    root = tmp_path / "project"
+    _seed_project(root, shots=1)
+    _use_fakes(monkeypatch)
+    _stage_all(root, shots=1)
+    assert _run(root, "run") == 0
+    assert (root / "records" / "video-assets" / "asset-task-shot-1-1-v1.json").exists()
+
+    # create a redo attempt, stage different content for it, and drive it
+    assert _run(root, "create-redo-task", "shot-1") == 0
+    redo_staged = root / staging_ref_for("task-shot-1-2")
+    redo_staged.parent.mkdir(parents=True, exist_ok=True)
+    redo_staged.write_bytes(b"redo-different-content")
+    assert _run(root, "prepare", "task-shot-1-2") == 0
+    assert _run(root, "submit", "task-shot-1-2") == 0
+    assert _run(root, "report-artifact", "task-shot-1-2") == 0
+    assert _run(root, "collect", "task-shot-1-2") == 0
+    assert _run(root, "validate", "task-shot-1-2") == 0
+    # the redo registered version 2 for the shot, not a collision on v1
+    assert (root / "records" / "video-assets" / "asset-task-shot-1-2-v2.json").exists()
+    assert (root / "assets" / "media" / "s01_sh001_v2.mp4").exists()
+
+
 _REAL_TOOLS = (
     os.environ.get("AI_VIDEO_WORKFLOW_REAL_TOOLS") == "1"
     and shutil.which("ffmpeg") is not None
