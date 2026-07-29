@@ -114,6 +114,18 @@ def _run(project_root, data, composer=None, inspector=None):
     )
 
 
+def test_internal_journal_not_in_public_exports() -> None:
+    import ai_video_workflow.composition as composition
+
+    for name in (
+        "CompositionPublishIntent",
+        "write_intent",
+        "read_intent",
+        "intent_path",
+    ):
+        assert name not in composition.__all__
+
+
 def test_success_end_to_end(tmp_path) -> None:
     data = _build(tmp_path)
     outcome = _run(tmp_path, data)

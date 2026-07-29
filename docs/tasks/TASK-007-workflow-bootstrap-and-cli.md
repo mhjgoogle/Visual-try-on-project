@@ -373,8 +373,14 @@ CLI 子命令与上述 API 一一对应；`validate`/`compose` 子命令直接
    **不**新增 record accessor（守卫测试）；
 5. CLI：每个子命令的参数解析、退出码、错误呈现（driver 打桩）；
    `run` 生命周期顺序（bootstrap→prepare→submit→report-artifact→
-   collect→validate→compose）；Manual 下 `run` 缺 `--staged-path`
-   报错；不得从 NOT_SUBMITTED 直接 report-artifact；
+   collect→validate→compose）；`run` 断点续跑（按 legal_actions
+   门控，submit 后中断可续）、终态 FAILED/CANCELLED 前置拒绝、
+   单独 `validate` 未通过退出 1；不得从 NOT_SUBMITTED 直接
+   report-artifact；
+   > **合同修订（TASK-013）**：`run` **不**接受 `--staged-path`——
+   > 单一路径无法表达多镜头，`run` 一律使用每个 task 的合同 staging
+   > 路径（`staging/shots/<task-id>.mp4`）；需要自定义路径时用逐步
+   > `report-artifact --staged-path`。
 6. 时钟/uuid 边界：核心模块无 `datetime.now` 调用（复用既有守卫
    测试模式）。
 
@@ -393,8 +399,8 @@ provider/持久化）：
 3. `validate` → VideoAsset v1 + 报告 + 事件；
 4. `compose` → final_v1.mp4 + 报告 + 事件；
 5. `run` 一条命令走完整生命周期（bootstrap→prepare→submit→
-   report-artifact→collect→validate→compose，Manual 下带
-   `--staged-path`），产物与逐步执行等价；
+   report-artifact→collect→validate→compose，各镜头使用合同 staging
+   路径、无 `--staged-path`），产物与逐步执行等价；
 6. 全流程任意步骤后中断重跑（含 `run` 重跑）→ 幂等；
 7. 事件日志包含全部七类中本流程应出现的事件且 event_id 可去重。
 

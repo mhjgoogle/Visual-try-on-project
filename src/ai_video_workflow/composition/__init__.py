@@ -2,8 +2,10 @@
 
 ``run_composition_step`` is the resumable, project-level entry point;
 ``build_composition_plan`` derives the ordered shot sequence;
-``VideoComposer`` / ``FfmpegVideoComposer`` are the media boundary; and
-``CompositionPublishIntent`` is the independent durable publish journal.
+``VideoComposer`` / ``FfmpegVideoComposer`` are the media boundary. The
+CompositionPublishIntent journal is an internal recovery detail and is
+deliberately not re-exported here; import it from
+``ai_video_workflow.composition.intent`` if a test needs it.
 """
 
 from ai_video_workflow.composition.composer import VideoComposer
@@ -15,12 +17,6 @@ from ai_video_workflow.composition.errors import (
     MissingShotAssetError,
 )
 from ai_video_workflow.composition.ffmpeg import FfmpegVideoComposer
-from ai_video_workflow.composition.intent import (
-    CompositionPublishIntent,
-    intent_path,
-    read_intent,
-    write_intent,
-)
 from ai_video_workflow.composition.plan import (
     CompositionPlan,
     CompositionPlanEntry,
@@ -44,7 +40,6 @@ __all__ = [
     "CompositionPlan",
     "CompositionPlanEntry",
     "CompositionProfile",
-    "CompositionPublishIntent",
     "CompositionStepOutcome",
     "CompositionToolError",
     "FfmpegVideoComposer",
@@ -53,9 +48,6 @@ __all__ = [
     "VideoComposer",
     "build_composition_plan",
     "composition_manifest_path",
-    "intent_path",
     "profile_digest",
-    "read_intent",
     "run_composition_step",
-    "write_intent",
 ]
