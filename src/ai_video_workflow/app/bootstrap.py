@@ -29,6 +29,7 @@ from ai_video_workflow.persistence import read_model_json, write_model_json
 from ai_video_workflow.project_data import ProjectData
 from ai_video_workflow.qcd.events import build_task_created_event
 from ai_video_workflow.qcd.log import append_event
+from ai_video_workflow.security import resolve_within_root
 from ai_video_workflow.validation import validate_utc_datetime
 
 
@@ -52,11 +53,15 @@ def initial_task_id(shot_id: str) -> str:
 
 
 def task_record_path(project_root: Path, task_id: str) -> Path:
-    return project_root / "records" / "generation-tasks" / f"{task_id}.json"
+    return resolve_within_root(
+        project_root, Path("records") / "generation-tasks" / f"{task_id}.json"
+    )
 
 
 def generation_manifest_path(project_root: Path, task_id: str) -> Path:
-    return project_root / "manifests" / f"generation-{task_id}.json"
+    return resolve_within_root(
+        project_root, Path("manifests") / f"generation-{task_id}.json"
+    )
 
 
 def bootstrap_generation_tasks(

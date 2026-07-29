@@ -48,6 +48,7 @@ from ai_video_workflow.orchestration import OrchestrationAction
 from ai_video_workflow.persistence import read_model_json
 from ai_video_workflow.project_data import ProjectData
 from ai_video_workflow.providers import ManualVideoProvider
+from ai_video_workflow.security import resolve_within_root
 
 _RUN_LIFECYCLE = (
     OrchestrationAction.PREPARE,
@@ -139,25 +140,33 @@ def _load_project_data(project_root: Path) -> ProjectData:
     provider-style artifact discovery): it reads only the approved record
     directories and constructs the validated snapshot.
     """
-    project = read_model_json(project_root / "project.json", Project)
+    project = read_model_json(
+        resolve_within_root(project_root, "project.json"), Project
+    )
     return ProjectData(
         project=project,
-        characters=_load_dir(project_root / "records" / "characters", Character),
-        scenes=_load_dir(project_root / "records" / "scenes", Scene),
-        shots=_load_dir(project_root / "records" / "shots", Shot),
+        characters=_load_dir(project_root, "records/characters", Character),
+        scenes=_load_dir(project_root, "records/scenes", Scene),
+        shots=_load_dir(project_root, "records/shots", Shot),
         generation_tasks=_load_dir(
-            project_root / "records" / "generation-tasks", GenerationTask
+            project_root, "records/generation-tasks", GenerationTask
         ),
-        video_assets=_load_dir(project_root / "records" / "video-assets", VideoAsset),
-        manifests=_load_dir(project_root / "manifests", StepManifest),
+        video_assets=_load_dir(project_root, "records/video-assets", VideoAsset),
+        manifests=_load_dir(project_root, "manifests", StepManifest),
     )
 
 
-def _load_dir(directory: Path, model_type) -> tuple:
+def _load_dir(project_root: Path, relative: str, model_type) -> tuple:
+    # the directory itself is admitted through the ADR-0004 resolver so a
+    # symlinked record directory cannot redirect reads outside the root.
+    directory = resolve_within_root(project_root, relative)
     if not directory.is_dir():
         return ()
     return tuple(
-        read_model_json(path, model_type) for path in sorted(directory.glob("*.json"))
+        read_model_json(
+            resolve_within_root(project_root, f"{relative}/{path.name}"), model_type
+        )
+        for path in sorted(directory.glob("*.json"))
     )
 
 
@@ -229,7 +238,9 @@ def _cmd_status(args) -> None:
 
 
 def _cmd_show_instruction(args) -> None:
-    path = args.project_root / "tasks" / "instructions" / f"{args.task_id}.md"
+    path = resolve_within_root(
+        args.project_root, Path("tasks") / "instructions" / f"{args.task_id}.md"
+    )
     if not path.is_file():
         raise AiVideoWorkflowError(f"no instruction document for {args.task_id}")
     print(path.read_text(encoding="utf-8"))

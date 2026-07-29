@@ -77,6 +77,45 @@ def test_log_path_is_contained(tmp_path) -> None:
     assert log_path(tmp_path) == tmp_path / "qcd" / "events" / "log.jsonl"
 
 
+def test_bootstrap_refuses_symlinked_records_dir(tmp_path) -> None:
+    # a project subdirectory that bootstrap writes into is a symlink to an
+    # external directory; bootstrap must refuse rather than write outside.
+    from ai_video_workflow.app.bootstrap import bootstrap_generation_tasks
+    from ai_video_workflow.models import Project, Scene, Shot
+    from ai_video_workflow.project_data import ProjectData
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    root = tmp_path / "project"
+    (root / "records").mkdir(parents=True)
+    (root / "records" / "generation-tasks").symlink_to(
+        outside, target_is_directory=True
+    )
+    data = ProjectData(
+        project=Project("proj-1", "Demo", T0),
+        scenes=(Scene("scene-1", "proj-1", 1, "S1", "d", T0),),
+        shots=(
+            Shot(
+                shot_id="shot-1",
+                scene_id="scene-1",
+                sequence=1,
+                description="d",
+                prompt="p",
+                duration_seconds=4.0,
+                width=1280,
+                height=720,
+                frame_rate=24.0,
+                created_at=T0,
+            ),
+        ),
+    )
+    with pytest.raises(PathEscapeError):
+        bootstrap_generation_tasks(
+            project_root=root, data=data, provider_id="manual", now=T0
+        )
+    assert not any(outside.iterdir())  # nothing written outside the root
+
+
 def test_concat_quote_escapes_single_quote(tmp_path) -> None:
     tricky = tmp_path / "a'b.mp4"
     assert _concat_quote(tricky).endswith("a'\\''b.mp4")

@@ -333,25 +333,38 @@ class WorkflowDriver:
 
     def _load_task(self, task_id: str) -> GenerationTask:
         return read_model_json(
-            self._project_root / "records" / "generation-tasks" / f"{task_id}.json",
+            resolve_within_root(
+                self._project_root,
+                Path("records") / "generation-tasks" / f"{task_id}.json",
+            ),
             GenerationTask,
         )
 
     def _load_shot(self, shot_id: str) -> Shot:
         return read_model_json(
-            self._project_root / "records" / "shots" / f"{shot_id}.json", Shot
+            resolve_within_root(
+                self._project_root, Path("records") / "shots" / f"{shot_id}.json"
+            ),
+            Shot,
         )
 
     def _load_scene(self, scene_id: str) -> Scene:
         return read_model_json(
-            self._project_root / "records" / "scenes" / f"{scene_id}.json", Scene
+            resolve_within_root(
+                self._project_root, Path("records") / "scenes" / f"{scene_id}.json"
+            ),
+            Scene,
         )
 
     def _load_project(self) -> Project:
-        return read_model_json(self._project_root / "project.json", Project)
+        return read_model_json(
+            resolve_within_root(self._project_root, "project.json"), Project
+        )
 
     def _load_manifest(self, task_id: str) -> StepManifest:
         return read_model_json(
-            self._project_root / "manifests" / f"generation-{task_id}.json",
+            resolve_within_root(
+                self._project_root, Path("manifests") / f"generation-{task_id}.json"
+            ),
             StepManifest,
         )
