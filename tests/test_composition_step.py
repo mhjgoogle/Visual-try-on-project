@@ -13,6 +13,7 @@ from ai_video_workflow.composition.step import (
     composition_manifest_path,
     run_composition_step,
 )
+from ai_video_workflow.inspection.base import MediaProbeResult
 from ai_video_workflow.manifest import ManifestStatus, StepManifest
 from ai_video_workflow.models import (
     GenerationTask,
@@ -25,9 +26,13 @@ from ai_video_workflow.models import (
 from ai_video_workflow.persistence import read_model_json
 from ai_video_workflow.project_data import ProjectData
 from ai_video_workflow.qcd.log import read_events
-from tests.media_fakes import FakeVideoComposer
+from tests.media_fakes import FakeMediaInspector, FakeVideoComposer
 
 T0 = datetime(2026, 7, 29, 8, 0, 0, tzinfo=timezone.utc)
+
+
+def _ok_inspector() -> FakeMediaInspector:
+    return FakeMediaInspector(result=MediaProbeResult("mp4", 8.0, 1280, 720, 24.0))
 
 
 def _build(project_root: Path, *, shots=2) -> ProjectData:
@@ -98,11 +103,12 @@ def _build(project_root: Path, *, shots=2) -> ProjectData:
     )
 
 
-def _run(project_root, data, composer=None):
+def _run(project_root, data, composer=None, inspector=None):
     return run_composition_step(
         project_root=project_root,
         data=data,
         composer=composer or FakeVideoComposer(),
+        inspector=inspector or _ok_inspector(),
         profile=None,
         observed_at=T0,
     )
@@ -178,6 +184,7 @@ def test_recovery_a_missing_report_completes_without_recompose(tmp_path) -> None
         project_root=tmp_path,
         data=data,
         composer=composer,
+        inspector=_ok_inspector(),
         profile=None,
         observed_at=T0,
     )
@@ -249,11 +256,55 @@ def test_recovery_partial_report_completes_at_later_time(tmp_path) -> None:
         project_root=tmp_path,
         data=data,
         composer=FakeVideoComposer(),
+        inspector=_ok_inspector(),
         profile=None,
         observed_at=T0 + timedelta(hours=1),
     )
     assert later.skipped is False
     assert (tmp_path / "reports/composition/final_v1.md").exists()
+
+
+def test_undecodable_final_media_records_failed_manifest(tmp_path) -> None:
+    from ai_video_workflow.composition.errors import CompositionToolError
+    from ai_video_workflow.inspection.errors import UndecodableMediaError
+
+    data = _build(tmp_path)
+
+    class _BadInspector(FakeMediaInspector):
+        def probe(self, path):
+            raise UndecodableMediaError("no decodable stream")
+
+    with pytest.raises(CompositionToolError):
+        _run(tmp_path, data, inspector=_BadInspector())
+    manifest = read_model_json(
+        composition_manifest_path(tmp_path, "proj-1"), StepManifest
+    )
+    assert manifest.status is ManifestStatus.FAILED
+
+
+def test_input_change_during_compose_is_rejected(tmp_path) -> None:
+    from ai_video_workflow.composition.errors import CompositionError
+
+    data = _build(tmp_path)
+
+    class _MutatingComposer(FakeVideoComposer):
+        def __init__(self, root):
+            super().__init__()
+            self._root = root
+            self._mutated = False
+
+        def normalize(self, source, target, profile):
+            # mutate a source input after its digest was taken
+            if not self._mutated:
+                (self._root / "assets/media/s01_sh001_v1.mp4").write_bytes(
+                    b"changed-under-us"
+                )
+                self._mutated = True
+            super().normalize(source, target, profile)
+
+    with pytest.raises(CompositionError):
+        _run(tmp_path, data, composer=_MutatingComposer(tmp_path))
+    assert not (tmp_path / "outputs/final_v1.mp4").exists()
 
 
 def test_recovery_e_noop_removes_stale_intent(tmp_path) -> None:

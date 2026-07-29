@@ -41,6 +41,7 @@ from ai_video_workflow.composition.composer import VideoComposer
 from ai_video_workflow.composition.errors import (
     CompositionConflictError,
     CompositionError,
+    CompositionToolError,
 )
 from ai_video_workflow.composition.intent import (
     CompositionPublishIntent,
@@ -55,6 +56,8 @@ from ai_video_workflow.composition.plan import (
 from ai_video_workflow.composition.profile import CompositionProfile, profile_digest
 from ai_video_workflow.digests import config_digest, file_sha256
 from ai_video_workflow.errors import FieldTypeError
+from ai_video_workflow.inspection.base import MediaInspector
+from ai_video_workflow.inspection.errors import MediaInspectionError
 from ai_video_workflow.manifest import ManifestStatus, StepManifest
 from ai_video_workflow.persistence import read_model_json, write_model_json
 from ai_video_workflow.project_data import ProjectData
@@ -88,11 +91,14 @@ def run_composition_step(
     project_root: Path,
     data: ProjectData,
     composer: VideoComposer,
+    inspector: MediaInspector,
     profile: CompositionProfile | None,
     observed_at: datetime,
 ) -> CompositionStepOutcome:
     if not isinstance(composer, VideoComposer):
         raise FieldTypeError("composer: expected a VideoComposer")
+    if not isinstance(inspector, MediaInspector):
+        raise FieldTypeError("inspector: expected a MediaInspector")
     validate_utc_datetime(observed_at, field_name="observed_at")
 
     plan = build_composition_plan(data=data, profile=profile)
@@ -166,7 +172,12 @@ def run_composition_step(
         if media_exists:
             output_sha = file_sha256(media_path)  # A/B reuse of the published MP4
         else:
-            output_sha = _compose(project_root, plan, version, composer, media_path)
+            output_sha = _compose(
+                project_root, plan, version, composer, media_path, input_digest
+            )
+        # inspect the published media before committing: an undecodable or
+        # empty final MP4 must fail, never reach a COMPLETED manifest.
+        output_duration_ms = _inspect_final(inspector, media_path)
     except CompositionError as exc:
         _write_failed_manifest(
             project_root,
@@ -186,6 +197,7 @@ def run_composition_step(
         version=version,
         media_rel=media_rel,
         output_sha=output_sha,
+        output_duration_ms=output_duration_ms,
         config_digest_value=config_digest_value,
         observed_at=effective_at,
     )
@@ -204,7 +216,7 @@ def run_composition_step(
         input_asset_ids=tuple(entry.asset_id for entry in plan.entries),
         profile_digest=config_digest_value,
         occurred_at=effective_at,
-        output_duration_ms=None,
+        output_duration_ms=output_duration_ms,
     )
     append_event(project_root, event)
 
@@ -218,6 +230,7 @@ def run_composition_step(
         output_metadata={
             "output_version": version,
             "output_sha256": output_sha,
+            "output_duration_ms": output_duration_ms,
             "entry_count": len(plan.entries),
         },
         completed_at=effective_at,
@@ -328,6 +341,9 @@ def _is_noop(
     observed = _existing_report_time(project_root, json_rel)
     if observed is None:
         return False
+    recorded_duration = existing.output_metadata.get("output_duration_ms")
+    if not (recorded_duration is None or isinstance(recorded_duration, int)):
+        return False
     rebuilt = _build_report(
         project_id=plan.project_id,
         plan=plan,
@@ -335,6 +351,7 @@ def _is_noop(
         version=version,
         media_rel=media_rel,
         output_sha=recorded,
+        output_duration_ms=recorded_duration,
         config_digest_value=config_digest_value,
         observed_at=observed,
     )
@@ -372,6 +389,7 @@ def _compose(
     version: int,
     composer: VideoComposer,
     media_path: Path,
+    input_digest: str,
 ) -> str:
     staging_dir = resolve_within_root(
         project_root, Path("staging") / "composition" / f"v{version}"
@@ -387,9 +405,33 @@ def _compose(
     if temp_final.exists():
         temp_final.unlink()
     composer.concatenate(tuple(normalized), temp_final)
+    # re-check the source inputs did not change under us between the initial
+    # digest and the compose; publishing a stale-digest output is refused.
+    post_digest = config_digest(
+        {"schema": _INPUT_SCHEMA, "assets": _input_entries(project_root, plan)}
+    )
+    if post_digest != input_digest:
+        raise CompositionError(
+            "composition: source inputs changed during compose; refusing to publish"
+        )
     media_path.parent.mkdir(parents=True, exist_ok=True)
     _publish_bytes(media_path, temp_final.read_bytes())
     return file_sha256(media_path)
+
+
+def _inspect_final(inspector: MediaInspector, media_path: Path) -> int | None:
+    """Probe the published final media; return its duration in ms or None.
+
+    A probe failure (undecodable/empty output) is a composition tool error
+    so the caller records a FAILED manifest instead of a COMPLETED one.
+    """
+    try:
+        probe = inspector.probe(media_path)
+    except MediaInspectionError as exc:
+        raise CompositionToolError(
+            f"composition: final media failed inspection: {media_path}"
+        ) from exc
+    return int(round(probe.duration_seconds * 1000))
 
 
 def _write_failed_manifest(
@@ -433,6 +475,7 @@ def _build_report(
     version: int,
     media_rel: str,
     output_sha: str,
+    output_duration_ms: int | None,
     config_digest_value: str,
     observed_at: datetime,
 ) -> dict[str, object]:
@@ -443,6 +486,7 @@ def _build_report(
         "output_path": media_rel,
         "output_version": version,
         "output_sha256": output_sha,
+        "output_duration_ms": output_duration_ms,
         "profile_digest": config_digest_value,
         "profile": plan.profile.to_config_value()["profile"],
         "observed_at": observed_at.isoformat(timespec="microseconds"),

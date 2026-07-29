@@ -163,6 +163,7 @@ class WorkflowDriver:
             project_root=self._project_root,
             data=data,
             composer=self._composer,
+            inspector=self._inspector,
             profile=profile,
             observed_at=self._clock(),
         )
