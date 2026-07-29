@@ -1,8 +1,12 @@
 # TASK-006：FFmpeg 按镜头顺序合成（阶段 4）
 
-> **状态：规划定稿（PLANNED）——batch milestone mode 第一阶段产物，
-> 待整体 Codex 设计审查。** 完成本任务即达成第一阶段最小闭环的
-> 合成环节（product_spec 成功标准 3）。
+> **状态：已实现（IMPLEMENTED），并已随 [TASK-013](TASK-013-m1-findings-closure.md)
+> 收口——batch milestone mode 第一阶段产物，待整体仓库 Codex 审查。**
+> 完成本任务即达成第一阶段最小闭环的合成环节（product_spec 成功标准 3）。
+> 整体审查提出的 path containment、恢复时间/报告身份（含 recovery E、
+> FAILED manifest、concat 转义、每输入 file digest）等 blocker 已在
+> TASK-013 修复（见 [ADR-0004](../adr/ADR-0004-project-root-containment-and-symlink-policy.md)、
+> [ADR-0005](../adr/ADR-0005-recovery-time-and-report-identity.md)）。
 
 ## 正式名称
 

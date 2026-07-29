@@ -1,9 +1,12 @@
 # TASK-005：视频文件校验、VideoAsset 登记与 QCD 事件日志基础（阶段 3）
 
-> **状态：规划定稿（PLANNED）——batch milestone mode 第一阶段产物，
-> 待整体 Codex 设计审查。** 本卡由原 DRAFT 定稿：原「待定案设计
-> 问题」1–6 已按 batch milestone mode 授权逐条定案（见「设计定案」）。
-> 编码在整体设计审查通过前不得开始。
+> **状态：已实现（IMPLEMENTED），并已随 [TASK-013](TASK-013-m1-findings-closure.md)
+> 收口——batch milestone mode 第一阶段产物，待整体仓库 Codex 审查。**
+> 本卡由原 DRAFT 定稿：原「待定案设计问题」1–6 已按 batch milestone
+> mode 授权逐条定案（见「设计定案」）。整体审查提出的 path
+> containment（[ADR-0004](../adr/ADR-0004-project-root-containment-and-symlink-policy.md)）、
+> 恢复时间/报告身份（[ADR-0005](../adr/ADR-0005-recovery-time-and-report-identity.md)）、
+> per-shot 资产版本、QCD 读取去重与值域校验等 blocker 已在 TASK-013 修复。
 
 ## 背景
 

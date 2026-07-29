@@ -65,4 +65,3 @@ for a shot is explicit:
 ```bash
 ai-video-workflow --project-root "$ROOT" create-redo-task shot-1
 ```
-

@@ -1,11 +1,15 @@
 # TASK-007：任务生成 Bootstrap、工作流驱动与最小 CLI（阶段 2 收尾 + 最小闭环接线）
 
-> **状态：已实现（IMPLEMENTED）——batch milestone mode 第一阶段产物，
-> 待整体仓库 Codex 审查。** 完成本任务即达成第一阶段最小闭环
+> **状态：已实现（IMPLEMENTED），并已随 [TASK-013](TASK-013-m1-findings-closure.md)
+> 收口——batch milestone mode 第一阶段产物，待整体仓库 Codex 审查。**
+> 完成本任务即达成第一阶段最小闭环
 > （product_spec 成功标准 1–5 全部可一条命令验证）。
 > bootstrap / 请求工厂 / WorkflowDriver / CLI 已落地，
 > 强制 fake 端到端与可选真实 ffmpeg/ffprobe smoke 测试就绪
 > （见 `tests/test_minimal_loop.py`），使用说明见 `README.md`。
+> 整体审查提出的 `run` 断点续跑、FAILED/CANCELLED 拒绝、`validate`
+> 失败退出码、`--staged-path` 合同、bootstrap manifest CAS、redo 重试
+> 幂等、staged 路径 containment 等 blocker/important 已在 TASK-013 修复。
 
 ## 正式名称
 
