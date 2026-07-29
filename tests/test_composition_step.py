@@ -287,6 +287,25 @@ def test_recovery_e_noop_removes_stale_intent(tmp_path) -> None:
     assert not intent_path(tmp_path, "proj-1", 1).exists()  # E cleanup on no-op
 
 
+def test_tampered_report_is_not_noop(tmp_path) -> None:
+    data = _build(tmp_path)
+    _run(tmp_path, data)
+    # tamper the completed JSON report identity and the Markdown content
+    json_path = tmp_path / "reports/composition/final_v1.json"
+    json_path.write_text(
+        json_path.read_text("utf-8").replace("proj-1", "proj-OTHER"),
+        encoding="utf-8",
+    )
+    (tmp_path / "reports/composition/final_v1.md").write_text(
+        "tampered", encoding="utf-8"
+    )
+    # not a silent no-op: the completed media now has no live intent, so
+    # the tampered state is rejected as a conflict (recovery C) rather than
+    # returning skipped with a forged report.
+    with pytest.raises(CompositionConflictError):
+        _run(tmp_path, data)
+
+
 def test_failed_compose_records_failed_manifest(tmp_path) -> None:
     from ai_video_workflow.composition.errors import CompositionToolError
 

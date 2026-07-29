@@ -34,7 +34,6 @@ from ai_video_workflow.assets.registration import (
 )
 from ai_video_workflow.assets.reports import report_json_bytes, report_markdown_bytes
 from ai_video_workflow.assets.validation import (
-    REPORT_SCHEMA_VERSION,
     ValidationReport,
     validate_artifact,
 )
@@ -115,8 +114,19 @@ def run_validation_step(
         policy=policy,
         observed_at=effective_at,
     )
+    json_bytes = report_json_bytes(report)
+    md_bytes = report_markdown_bytes(report)
 
-    if _is_noop(project_root, existing, input_sha, config_digest, report_json_rel):
+    if _is_noop(
+        project_root,
+        existing,
+        input_sha,
+        config_digest,
+        report_json_rel,
+        report_md_rel,
+        json_bytes,
+        md_bytes,
+    ):
         asset = _load_asset_if_any(project_root, existing)
         return ValidationStepOutcome(
             report=report,
@@ -126,12 +136,8 @@ def run_validation_step(
             skipped=True,
         )
 
-    publish_bytes(
-        resolve_within_root(project_root, report_json_rel), report_json_bytes(report)
-    )
-    publish_bytes(
-        resolve_within_root(project_root, report_md_rel), report_markdown_bytes(report)
-    )
+    publish_bytes(resolve_within_root(project_root, report_json_rel), json_bytes)
+    publish_bytes(resolve_within_root(project_root, report_md_rel), md_bytes)
 
     emitted: list[str] = []
     registered_asset: VideoAsset | None = None
@@ -326,6 +332,9 @@ def _is_noop(
     input_sha: str,
     config_digest: str,
     report_json_rel: str,
+    report_md_rel: str,
+    json_bytes: bytes,
+    md_bytes: bytes,
 ) -> bool:
     if existing is None or existing.status is not ManifestStatus.COMPLETED:
         return False
@@ -336,19 +345,22 @@ def _is_noop(
     for rel in existing.output_paths:
         if not resolve_within_root(project_root, rel).exists():
             return False
-    # the JSON report must parse and match this task/pass identity
-    passed = bool(existing.output_metadata.get("passed"))
+    # the on-disk reports must byte-match the freshly rendered reports:
+    # this verifies the full report identity (task/shot/path/policy/checks)
+    # and the deterministic Markdown, not just the schema version. Any
+    # tampered or drifted report is therefore not a no-op.
     try:
-        report = json.loads(
-            resolve_within_root(project_root, report_json_rel).read_text("utf-8")
-        )
-    except Exception:  # noqa: BLE001 — an unreadable report is not a no-op
-        return False
-    if report.get("report_schema_version") != REPORT_SCHEMA_VERSION:
-        return False
-    if report.get("passed") != passed:
+        if (
+            resolve_within_root(project_root, report_json_rel).read_bytes()
+            != json_bytes
+        ):
+            return False
+        if resolve_within_root(project_root, report_md_rel).read_bytes() != md_bytes:
+            return False
+    except OSError:
         return False
     # a passing report must retain its asset and undrifted media
+    passed = bool(existing.output_metadata.get("passed"))
     asset = _load_asset_if_any(project_root, existing)
     if passed:
         if asset is None:

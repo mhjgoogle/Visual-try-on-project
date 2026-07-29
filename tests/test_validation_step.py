@@ -281,6 +281,23 @@ def test_redo_task_identical_content_reuses_shot_version(tmp_path) -> None:
     assert redo.registered_asset.version == 1  # reused shot version
 
 
+def test_tampered_report_identity_is_not_noop(tmp_path) -> None:
+    from ai_video_workflow.assets.registration import AssetConflictError
+
+    task = _task()
+    _stage(tmp_path, task)
+    _run(tmp_path, probe=_good_probe(), task=task)
+    # tamper the on-disk JSON report identity (task_id -> a different task)
+    report_path = tmp_path / "reports/validation/task-shot-1-1_v1.json"
+    report_path.write_text(
+        report_path.read_text("utf-8").replace("task-shot-1-1", "task-OTHER-9"),
+        encoding="utf-8",
+    )
+    # the tampered report is not a silent no-op: it is rejected as a conflict
+    with pytest.raises(AssetConflictError):
+        _run(tmp_path, probe=_good_probe(), task=task)
+
+
 def test_media_drift_is_not_silent_noop(tmp_path) -> None:
     from ai_video_workflow.assets.registration import AssetConflictError
 

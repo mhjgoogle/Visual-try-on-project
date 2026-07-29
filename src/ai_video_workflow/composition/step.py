@@ -114,7 +114,12 @@ def run_composition_step(
         existing,
         input_digest,
         config_digest_value,
-        (media_rel, json_rel, md_rel),
+        plan=plan,
+        input_entries=input_entries,
+        version=version,
+        media_rel=media_rel,
+        json_rel=json_rel,
+        md_rel=md_rel,
     ):
         # E: a completed manifest leaves no live intent behind.
         _remove_intent(project_root, project_id, version)
@@ -294,7 +299,13 @@ def _is_noop(
     existing: StepManifest | None,
     input_digest: str,
     config_digest_value: str,
-    output_rels: tuple[str, ...],
+    *,
+    plan: CompositionPlan,
+    input_entries: list[dict[str, object]],
+    version: int,
+    media_rel: str,
+    json_rel: str,
+    md_rel: str,
 ) -> bool:
     if existing is None or existing.status is not ManifestStatus.COMPLETED:
         return False
@@ -302,26 +313,39 @@ def _is_noop(
         return False
     if existing.relevant_config_digest != config_digest_value:
         return False
-    for rel in output_rels:
+    for rel in (media_rel, json_rel, md_rel):
         if not resolve_within_root(project_root, rel).exists():
             return False
-    media_rel, json_rel, _md_rel = output_rels
     recorded = existing.output_metadata.get("output_sha256")
     if not isinstance(recorded, str):
         return False
     if file_sha256(resolve_within_root(project_root, media_rel)) != recorded:
         return False
-    # the JSON report must parse and match this project/version/output hash
+    # the on-disk reports must byte-match the report rebuilt from the plan
+    # + recorded output hash + the report's own observed_at. This verifies
+    # the full report identity (project/output_path/profile/entries) and
+    # the deterministic Markdown, so a tampered report is not a no-op.
+    observed = _existing_report_time(project_root, json_rel)
+    if observed is None:
+        return False
+    rebuilt = _build_report(
+        project_id=plan.project_id,
+        plan=plan,
+        input_entries=input_entries,
+        version=version,
+        media_rel=media_rel,
+        output_sha=recorded,
+        config_digest_value=config_digest_value,
+        observed_at=observed,
+    )
     try:
-        report = _load_json(resolve_within_root(project_root, json_rel))
-    except Exception:  # noqa: BLE001 — an unreadable report is not a no-op
-        return False
-    version = existing.output_metadata.get("output_version")
-    if report.get("report_schema_version") != COMPOSITION_REPORT_SCHEMA_VERSION:
-        return False
-    if report.get("output_version") != version:
-        return False
-    if report.get("output_sha256") != recorded:
+        json_path = resolve_within_root(project_root, json_rel)
+        md_path = resolve_within_root(project_root, md_rel)
+        if json_path.read_bytes() != _report_json_bytes(rebuilt):
+            return False
+        if md_path.read_bytes() != _report_markdown_bytes(rebuilt):
+            return False
+    except OSError:
         return False
     return True
 
