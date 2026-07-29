@@ -141,6 +141,64 @@ def test_asset_imported_rejects_nonpositive_version() -> None:
         )
 
 
+def test_status_changed_accepts_replay_result_action() -> None:
+    event = build_task_status_changed_event(
+        project_id="proj-1",
+        shot_id="shot-1",
+        task_id="task-1",
+        previous_status="in_progress",
+        new_status="done",
+        orchestration_action="replay_result",
+        operation_id="op-a",
+        occurred_at=T0,
+    )
+    assert event.payload["orchestration_action"] == "replay_result"
+
+
+def test_direct_qcd_event_rejects_mismatched_event_id() -> None:
+    # the value-domain + event_id derivation is enforced in QcdEvent itself,
+    # so a hand-built (or deserialized) event with a forged id is rejected.
+    with pytest.raises(InvariantViolationError):
+        QcdEvent(
+            event_id="task_created:WRONG",
+            event_type=QcdEventType.TASK_CREATED,
+            occurred_at=T0,
+            project_id="proj-1",
+            shot_id="shot-1",
+            task_id="task-1",
+            payload={
+                "initial_status": "pending",
+                "task_kind": "generation",
+                "configured_provider_id": "manual",
+                "origin": "bootstrap",
+                "redo_of_task_id": None,
+            },
+        )
+
+
+def test_direct_qcd_event_rejects_bad_sha_in_payload() -> None:
+    with pytest.raises(InvariantViolationError):
+        QcdEvent(
+            event_id="asset_imported:proj-1:shot-1:task-1:asset-1:NOTHEX",
+            event_type=QcdEventType.ASSET_IMPORTED,
+            occurred_at=T0,
+            project_id="proj-1",
+            shot_id="shot-1",
+            task_id="task-1",
+            payload={
+                "asset_id": "asset-1",
+                "asset_kind": "video",
+                "sha256": "NOTHEX",
+                "size_bytes": 1,
+                "duration_ms": None,
+                "source_task_id": "task-1",
+                "source_attempt_id": None,
+                "path": "assets/media/x.mp4",
+                "version": 1,
+            },
+        )
+
+
 def test_composition_rejects_bad_output_sha() -> None:
     with pytest.raises(InvariantViolationError):
         build_composition_completed_event(

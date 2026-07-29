@@ -86,6 +86,39 @@ def test_duplicate_event_ids_deduplicated_first_wins(tmp_path) -> None:
     assert events[0].event_id == "validation_completed:task-1:v1"
 
 
+def test_read_rejects_tampered_line_with_bad_domain(tmp_path) -> None:
+    # a hand-written log line with an out-of-domain payload value is a
+    # corrupt line on strict read (value domains enforced in QcdEvent).
+    import json
+
+    envelope = {
+        "schema_version": 1,
+        "event_id": "asset_imported:proj-1:shot-1:task-1:asset-1:NOTHEX",
+        "event_type": "asset_imported",
+        "occurred_at": "2026-07-29T08:00:00.000000+00:00",
+        "project_id": "proj-1",
+        "shot_id": "shot-1",
+        "task_id": "task-1",
+        "payload": {
+            "asset_id": "asset-1",
+            "asset_kind": "video",
+            "sha256": "NOTHEX",
+            "size_bytes": 1,
+            "duration_ms": None,
+            "source_task_id": "task-1",
+            "source_attempt_id": None,
+            "path": "assets/media/x.mp4",
+            "version": 1,
+        },
+    }
+    log_path(tmp_path).parent.mkdir(parents=True, exist_ok=True)
+    log_path(tmp_path).write_text(
+        json.dumps(envelope, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    with pytest.raises(CorruptEventLogError):
+        read_events(tmp_path)
+
+
 def test_torn_final_line_is_ignored(tmp_path) -> None:
     append_event(tmp_path, _task_created("task-a"))
     # simulate a crash mid-append: a fragment with no trailing newline

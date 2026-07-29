@@ -40,7 +40,7 @@ _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 # the orchestration actions that may drive a status change.
 _TASK_STATUSES = frozenset({"pending", "in_progress", "done", "failed", "cancelled"})
 _ORCHESTRATION_ACTIONS = frozenset(
-    {"prepare", "submit", "poll", "report_artifact", "collect"}
+    {"prepare", "submit", "poll", "report_artifact", "collect", "replay_result"}
 )
 
 
@@ -174,6 +174,19 @@ class QcdEvent:
                 f"payload: {self.event_type.value} has unexpected keys "
                 f"{sorted(actual_keys - expected_keys)}"
             )
+        # per-type value domains + event_id derivation are enforced here so
+        # that both the typed constructors and log deserialization (a plain
+        # QcdEvent(...)) reject bad SHA/int/status/path and a mismatched
+        # event_id, not only the builders (ADR-0003).
+        _validate_payload_domains(self.event_type, self.payload)
+        expected_id = _expected_event_id(
+            self.event_type, self.project_id, self.shot_id, self.task_id, self.payload
+        )
+        if self.event_id != expected_id:
+            raise InvariantViolationError(
+                f"event_id: {self.event_id!r} does not match the derived id "
+                f"{expected_id!r} for {self.event_type.value}"
+            )
 
     def to_envelope(self) -> dict[str, JsonCompatibleValue]:
         """Return the JSON-compatible envelope dict (ADR-0003 §3)."""
@@ -236,6 +249,101 @@ def _validate_duration_ms(value: object, field: str) -> None:
     if value is None:
         return
     _validate_non_negative_int(value, field)
+
+
+def _validate_rel_path(value: object, field: str) -> None:
+    if not isinstance(value, str) or not value:
+        raise InvariantViolationError(f"{field}: expected a non-empty path")
+    if value.startswith("/") or ".." in value.split("/"):
+        raise InvariantViolationError(
+            f"{field}: expected a relative path without '..' components"
+        )
+
+
+def _validate_bool(value: object, field: str) -> None:
+    if not isinstance(value, bool):
+        raise InvariantViolationError(f"{field}: expected a bool")
+
+
+def _validate_payload_domains(event_type: QcdEventType, payload: Mapping) -> None:
+    """Enforce per-type value domains on a key-validated payload."""
+    if event_type is QcdEventType.TASK_CREATED:
+        if payload["initial_status"] not in _TASK_STATUSES:
+            raise InvariantViolationError("initial_status: unknown value")
+        if payload["origin"] not in ("bootstrap", "redo"):
+            raise InvariantViolationError("origin: expected 'bootstrap' or 'redo'")
+    elif event_type is QcdEventType.TASK_STATUS_CHANGED:
+        if payload["previous_status"] not in _TASK_STATUSES:
+            raise InvariantViolationError("previous_status: unknown value")
+        if payload["new_status"] not in _TASK_STATUSES:
+            raise InvariantViolationError("new_status: unknown value")
+        if payload["orchestration_action"] not in _ORCHESTRATION_ACTIONS:
+            raise InvariantViolationError("orchestration_action: unknown value")
+        validate_stable_id(payload["operation_id"], field_name="operation_id")
+    elif event_type is QcdEventType.MANUAL_ATTEMPT_RECORDED:
+        validate_stable_id(payload["attempt_id"], field_name="attempt_id")
+        if payload["outcome"] not in ("produced_candidate", "discarded", "unknown"):
+            raise InvariantViolationError("outcome: unknown value")
+        _validate_elapsed_ms(payload["elapsed_ms"])
+        _validate_money(payload["cost_minor_units"], payload["currency"])
+    elif event_type is QcdEventType.ASSET_IMPORTED:
+        validate_stable_id(payload["asset_id"], field_name="asset_id")
+        _validate_sha256(payload["sha256"], "sha256")
+        _validate_positive_int(payload["size_bytes"], "size_bytes")
+        _validate_positive_int(payload["version"], "version")
+        _validate_duration_ms(payload["duration_ms"], "duration_ms")
+        _validate_rel_path(payload["path"], "path")
+    elif event_type is QcdEventType.VALIDATION_COMPLETED:
+        _validate_bool(payload["passed"], "passed")
+        _validate_sha256(payload["input_sha256"], "input_sha256")
+        _validate_positive_int(payload["report_version"], "report_version")
+        _validate_non_negative_int(payload["checks_total"], "checks_total")
+        _validate_non_negative_int(payload["checks_failed"], "checks_failed")
+        _validate_elapsed_ms(payload["elapsed_ms"])
+        _validate_rel_path(payload["report_path"], "report_path")
+    elif event_type is QcdEventType.COMPOSITION_COMPLETED:
+        _validate_sha256(payload["output_sha256"], "output_sha256")
+        _validate_positive_int(payload["output_version"], "output_version")
+        _validate_duration_ms(payload["output_duration_ms"], "output_duration_ms")
+        _validate_non_negative_int(payload["entry_count"], "entry_count")
+        _validate_rel_path(payload["output_path"], "output_path")
+        _validate_elapsed_ms(payload["elapsed_ms"])
+        ids = payload["input_asset_ids"]
+        if not isinstance(ids, list):
+            raise InvariantViolationError("input_asset_ids: expected a list")
+        for asset_id in ids:
+            validate_stable_id(asset_id, field_name="input_asset_ids[]")
+    elif event_type is QcdEventType.MANUAL_QUALITY_RATING_RECORDED:
+        validate_stable_id(payload["rating_id"], field_name="rating_id")
+        score = payload["score"]
+        if isinstance(score, bool) or not isinstance(score, int) or not 1 <= score <= 5:
+            raise InvariantViolationError("score: expected an int in [1, 5]")
+
+
+def _expected_event_id(
+    event_type: QcdEventType,
+    project_id: str,
+    shot_id: str | None,
+    task_id: str | None,
+    payload: Mapping,
+) -> str:
+    """Re-derive the deterministic event_id from the envelope + payload."""
+    if event_type is QcdEventType.TASK_CREATED:
+        return f"task_created:{task_id}"
+    if event_type is QcdEventType.TASK_STATUS_CHANGED:
+        return f"task_status_changed:{task_id}:{payload['operation_id']}"
+    if event_type is QcdEventType.MANUAL_ATTEMPT_RECORDED:
+        return f"manual_attempt_recorded:{task_id}:{payload['attempt_id']}"
+    if event_type is QcdEventType.ASSET_IMPORTED:
+        return (
+            f"asset_imported:{project_id}:{shot_id}:{task_id}"
+            f":{payload['asset_id']}:{payload['sha256']}"
+        )
+    if event_type is QcdEventType.VALIDATION_COMPLETED:
+        return f"validation_completed:{task_id}:v{payload['report_version']}"
+    if event_type is QcdEventType.COMPOSITION_COMPLETED:
+        return f"composition_completed:{project_id}:v{payload['output_version']}"
+    return f"manual_quality_rating_recorded:{shot_id}:{payload['rating_id']}"
 
 
 # --- typed constructors (fix the payload key set + derive event_id) -------
