@@ -5,8 +5,9 @@ to the project data root. Writes are strictly append-only (``O_APPEND``
 + flush + fsync); a torn final line blocks further appends. The reader
 strictly parses every complete line, tolerates exactly one torn final
 fragment, and never rewrites, patches, or truncates the log. Duplicate
-``event_id`` lines are preserved verbatim — de-duplication is a
-consumer responsibility (ADR-0003 §5).
+``event_id`` lines may exist on disk (replay); the reader de-duplicates
+first-wins so every consumer sees each event once, in first-seen order
+(ADR-0003 §5: "读取方必须去重（保留首行）").
 """
 
 from __future__ import annotations
@@ -89,12 +90,14 @@ def append_event(project_root: Path, event: QcdEvent) -> None:
 
 
 def read_events(project_root: Path) -> tuple[QcdEvent, ...]:
-    """Strictly read every complete event line in order.
+    """Strictly read every complete event line, de-duplicated first-wins.
 
     A missing log is an empty tuple. A corrupt middle line raises
     ``CorruptEventLogError`` with its 1-based line number. A single torn
     final fragment (no trailing newline) is ignored, and nothing else.
-    Duplicates are preserved.
+    Every complete line is parsed (so a corrupt duplicate still raises),
+    but only the first event per ``event_id`` is returned, in first-seen
+    order (ADR-0003 §5).
     """
     path = log_path(project_root)
     try:
@@ -114,8 +117,13 @@ def read_events(project_root: Path) -> tuple[QcdEvent, ...]:
     # any non-empty final segment is the tolerated torn tail and is dropped.
     trailing = segments.pop()
     events: list[QcdEvent] = []
+    seen: set[str] = set()
     for index, segment in enumerate(segments, start=1):
-        events.append(_parse_line(segment, index))
+        event = _parse_line(segment, index)
+        if event.event_id in seen:
+            continue
+        seen.add(event.event_id)
+        events.append(event)
     del trailing
     return tuple(events)
 

@@ -62,7 +62,7 @@ def test_each_line_ends_with_newline(tmp_path) -> None:
     assert b"\n" in raw and raw.count(b"\n") == 1
 
 
-def test_duplicate_event_ids_preserved(tmp_path) -> None:
+def test_duplicate_event_ids_deduplicated_first_wins(tmp_path) -> None:
     event = build_validation_completed_event(
         project_id="proj-1",
         shot_id="shot-1",
@@ -78,14 +78,12 @@ def test_duplicate_event_ids_preserved(tmp_path) -> None:
     )
     append_event(tmp_path, event)
     append_event(tmp_path, event)  # replay: deterministic id, duplicate line
+    # both lines are on disk...
+    assert log_path(tmp_path).read_bytes().count(b"\n") == 2
+    # ...but the reader de-duplicates first-wins (ADR-0003 §5)
     events = read_events(tmp_path)
-    assert len(events) == 2
-    assert events[0].event_id == events[1].event_id
-    # consumer-side de-duplication (first wins), per ADR-0003 §5
-    seen: dict[str, object] = {}
-    for e in events:
-        seen.setdefault(e.event_id, e)
-    assert len(seen) == 1
+    assert len(events) == 1
+    assert events[0].event_id == "validation_completed:task-1:v1"
 
 
 def test_torn_final_line_is_ignored(tmp_path) -> None:

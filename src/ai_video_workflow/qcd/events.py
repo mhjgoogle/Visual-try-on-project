@@ -13,6 +13,7 @@ authority rule carried into M1.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -32,6 +33,15 @@ from ai_video_workflow.validation import (
 
 QCD_LOG_SCHEMA_VERSION = 1
 RATING_SCALE = "m1-rating-1to5-v1"
+
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+# Fixed value domains (ADR-0003): the GenerationTask lifecycle statuses and
+# the orchestration actions that may drive a status change.
+_TASK_STATUSES = frozenset({"pending", "in_progress", "done", "failed", "cancelled"})
+_ORCHESTRATION_ACTIONS = frozenset(
+    {"prepare", "submit", "poll", "report_artifact", "collect"}
+)
 
 
 class QcdEventType(str, Enum):
@@ -205,6 +215,29 @@ def _validate_elapsed_ms(value: int | None) -> None:
         raise InvariantViolationError("elapsed_ms: expected a non-negative int or null")
 
 
+def _validate_sha256(value: object, field: str) -> None:
+    if not isinstance(value, str) or _SHA256_RE.match(value) is None:
+        raise InvariantViolationError(
+            f"{field}: expected a lowercase hex SHA-256 digest"
+        )
+
+
+def _validate_positive_int(value: object, field: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise InvariantViolationError(f"{field}: expected a positive int")
+
+
+def _validate_non_negative_int(value: object, field: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise InvariantViolationError(f"{field}: expected a non-negative int")
+
+
+def _validate_duration_ms(value: object, field: str) -> None:
+    if value is None:
+        return
+    _validate_non_negative_int(value, field)
+
+
 # --- typed constructors (fix the payload key set + derive event_id) -------
 
 
@@ -252,6 +285,14 @@ def build_task_status_changed_event(
 ) -> QcdEvent:
     validate_stable_id(task_id, field_name="task_id")
     validate_stable_id(operation_id, field_name="operation_id")
+    if previous_status not in _TASK_STATUSES:
+        raise InvariantViolationError(f"previous_status: unknown {previous_status!r}")
+    if new_status not in _TASK_STATUSES:
+        raise InvariantViolationError(f"new_status: unknown {new_status!r}")
+    if orchestration_action not in _ORCHESTRATION_ACTIONS:
+        raise InvariantViolationError(
+            f"orchestration_action: unknown {orchestration_action!r}"
+        )
     return QcdEvent(
         event_id=f"task_status_changed:{task_id}:{operation_id}",
         event_type=QcdEventType.TASK_STATUS_CHANGED,
@@ -330,6 +371,10 @@ def build_asset_imported_event(
     validate_stable_id(task_id, field_name="task_id")
     validate_stable_id(shot_id, field_name="shot_id")
     validate_stable_id(asset_id, field_name="asset_id")
+    _validate_sha256(sha256, "sha256")
+    _validate_positive_int(size_bytes, "size_bytes")
+    _validate_positive_int(version, "version")
+    _validate_duration_ms(duration_ms, "duration_ms")
     return QcdEvent(
         event_id=(
             f"asset_imported:{project_id}:{shot_id}:{task_id}:{asset_id}:{sha256}"
@@ -370,6 +415,10 @@ def build_validation_completed_event(
 ) -> QcdEvent:
     validate_stable_id(task_id, field_name="task_id")
     _validate_elapsed_ms(elapsed_ms)
+    _validate_sha256(input_sha256, "input_sha256")
+    _validate_positive_int(report_version, "report_version")
+    _validate_non_negative_int(checks_total, "checks_total")
+    _validate_non_negative_int(checks_failed, "checks_failed")
     return QcdEvent(
         event_id=f"validation_completed:{task_id}:v{report_version}",
         event_type=QcdEventType.VALIDATION_COMPLETED,
@@ -403,6 +452,11 @@ def build_composition_completed_event(
     elapsed_ms: int | None = None,
 ) -> QcdEvent:
     _validate_elapsed_ms(elapsed_ms)
+    _validate_sha256(output_sha256, "output_sha256")
+    _validate_positive_int(output_version, "output_version")
+    _validate_duration_ms(output_duration_ms, "output_duration_ms")
+    for asset_id in input_asset_ids:
+        validate_stable_id(asset_id, field_name="input_asset_ids[]")
     return QcdEvent(
         event_id=f"composition_completed:{project_id}:v{output_version}",
         event_type=QcdEventType.COMPOSITION_COMPLETED,

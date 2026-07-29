@@ -79,6 +79,82 @@ def test_task_status_changed_event_id() -> None:
     assert event.payload["reason"] == "provider_transition"
 
 
+def test_status_changed_rejects_unknown_status() -> None:
+    with pytest.raises(InvariantViolationError):
+        build_task_status_changed_event(
+            project_id="proj-1",
+            shot_id="shot-1",
+            task_id="task-1",
+            previous_status="pending",
+            new_status="bogus",
+            orchestration_action="submit",
+            operation_id="op-a",
+            occurred_at=T0,
+        )
+
+
+def test_status_changed_rejects_unknown_action() -> None:
+    with pytest.raises(InvariantViolationError):
+        build_task_status_changed_event(
+            project_id="proj-1",
+            shot_id="shot-1",
+            task_id="task-1",
+            previous_status="pending",
+            new_status="in_progress",
+            orchestration_action="teleport",
+            operation_id="op-a",
+            occurred_at=T0,
+        )
+
+
+def test_asset_imported_rejects_bad_sha256() -> None:
+    with pytest.raises(InvariantViolationError):
+        build_asset_imported_event(
+            project_id="proj-1",
+            shot_id="shot-1",
+            task_id="task-1",
+            asset_id="asset-1",
+            sha256="NOT-HEX",
+            size_bytes=1,
+            path="assets/media/x.mp4",
+            version=1,
+            duration_ms=None,
+            source_attempt_id=None,
+            occurred_at=T0,
+        )
+
+
+def test_asset_imported_rejects_nonpositive_version() -> None:
+    with pytest.raises(InvariantViolationError):
+        build_asset_imported_event(
+            project_id="proj-1",
+            shot_id="shot-1",
+            task_id="task-1",
+            asset_id="asset-1",
+            sha256="a" * 64,
+            size_bytes=1,
+            path="assets/media/x.mp4",
+            version=0,
+            duration_ms=None,
+            source_attempt_id=None,
+            occurred_at=T0,
+        )
+
+
+def test_composition_rejects_bad_output_sha() -> None:
+    with pytest.raises(InvariantViolationError):
+        build_composition_completed_event(
+            project_id="proj-1",
+            output_path="outputs/final_v1.mp4",
+            output_version=1,
+            output_sha256="zz",
+            input_asset_ids=("asset-1",),
+            profile_digest="d",
+            occurred_at=T0,
+            output_duration_ms=None,
+        )
+
+
 def test_manual_attempt_money_pairing() -> None:
     event = build_manual_attempt_recorded_event(
         project_id="proj-1",
