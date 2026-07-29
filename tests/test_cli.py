@@ -162,9 +162,7 @@ def test_validate_failure_exits_1(project, capsys) -> None:
 
 def test_require_done_rejects_failed_task(project) -> None:
     # a FAILED/CANCELLED terminal task must not be treated as done
-    task_record_path(project, "task-shot-9-1").parent.mkdir(
-        parents=True, exist_ok=True
-    )
+    task_record_path(project, "task-shot-9-1").parent.mkdir(parents=True, exist_ok=True)
     write_model_json(
         task_record_path(project, "task-shot-9-1"),
         GenerationTask(
