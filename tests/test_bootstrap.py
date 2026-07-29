@@ -292,6 +292,43 @@ def test_repeated_redo_is_idempotent_while_top_unused(tmp_path) -> None:
     assert not task_record_path(tmp_path, "task-shot-1-3").exists()
 
 
+def test_redo_repairs_crashed_pending_attempt(tmp_path) -> None:
+    # v1 done; first redo creates v2 (task + manifest + QCD)
+    data = _data(tasks=(_done_task("task-shot-1-1", "shot-1"),))
+    create_redo_task(
+        project_root=tmp_path,
+        data=data,
+        shot_id="shot-1",
+        provider_id="manual",
+        now=T1,
+    )
+    # simulate a crash after the v2 task write but before its manifest
+    generation_manifest_path(tmp_path, "task-shot-1-2").unlink()
+    data2 = _data(
+        tasks=(
+            _done_task("task-shot-1-1", "shot-1"),
+            GenerationTask(
+                task_id="task-shot-1-2",
+                shot_id="shot-1",
+                status=GenerationTaskStatus.PENDING,
+                created_at=T1,
+                updated_at=T1,
+            ),
+        )
+    )
+    repaired = create_redo_task(
+        project_root=tmp_path,
+        data=data2,
+        shot_id="shot-1",
+        provider_id="manual",
+        now=T1,
+    )
+    # the missing manifest is restored and no v3 is stacked
+    assert repaired.created == ("task-shot-1-2",)
+    assert generation_manifest_path(tmp_path, "task-shot-1-2").exists()
+    assert not task_record_path(tmp_path, "task-shot-1-3").exists()
+
+
 def test_redo_without_prior_raises(tmp_path) -> None:
     with pytest.raises(BootstrapError):
         create_redo_task(

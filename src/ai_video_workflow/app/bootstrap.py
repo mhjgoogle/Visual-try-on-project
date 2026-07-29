@@ -125,15 +125,31 @@ def create_redo_task(
     # retry identity: if the shot's current top attempt is itself an unused
     # (PENDING) *redo* attempt, a repeated redo reuses it rather than
     # stacking another empty attempt (v2 -> v3 -> ...). The first redo of
-    # the original bootstrap attempt (number 1) is always allowed.
+    # the original bootstrap attempt (number 1) is always allowed. Reuse
+    # runs through _ensure_task so a crash that left the attempt without its
+    # companion manifest / task_created event is repaired, not skipped.
     top_task = _find_task(data, previous_task_id)
     if (
         highest > 1
         and top_task is not None
         and top_task.status is GenerationTaskStatus.PENDING
     ):
+        event_id = _ensure_task(
+            project_root=project_root,
+            shot=shot,
+            task_id=previous_task_id,
+            provider_id=provider_id,
+            origin="redo",
+            redo_of_task_id=f"task-{shot_id}-{highest - 1}",
+            project_id=data.project.project_id,
+            now=now,
+        )
+        if event_id is None:
+            return BootstrapOutcome(
+                created=(), skipped=(previous_task_id,), emitted_event_ids=()
+            )
         return BootstrapOutcome(
-            created=(), skipped=(previous_task_id,), emitted_event_ids=()
+            created=(previous_task_id,), skipped=(), emitted_event_ids=(event_id,)
         )
     new_task_id = f"task-{shot_id}-{highest + 1}"
     event_id = _ensure_task(
