@@ -67,6 +67,29 @@ M1 batch 实施（TASK-005/006/007）通过了各自的聚焦测试（1839 passe
 - README 尾部空行修复；TASK-005/006/007 状态同步为「已随 TASK-013
   收口」。
 
+## 复审收口（第二轮 Codex）
+
+第一轮修复后复审又提出 3 blocker + 5 important，均已在本卡内继续收口：
+
+- **containment 未覆盖 bootstrap/driver/CLI**：这些层的 task/manifest/
+  记录读写与 instruction 路径全部改经 `resolve_within_root`；补 bootstrap
+  symlinked-records 外写反例。
+- **validation/composition no-op 身份不足**：no-op 改为对磁盘 JSON+Markdown
+  报告做逐字节比对（等价于全 identity + 确定性 Markdown 校验），篡改/漂移
+  报告一律 conflict 而非 skip；补双侧篡改反例。
+- **composition 未 inspect/未复核输入**：`run_composition_step` 现要求
+  `MediaInspector`，发布后 inspect final media（不可解码 → FAILED manifest、
+  同时回填 `output_duration_ms`），并在发布前复核输入摘要；补不可解码与
+  输入漂移反例。
+- **QCD 值域仅在 builder**：值域 + 相对路径 + 确定性 event_id 派生下沉到
+  `QcdEvent.__post_init__`，直接构造与日志反序列化同样强校验；补回 ADR-0003
+  的 `replay_result` action；补反序列化拒绝反例。
+- **redo 崩溃恢复**：PENDING 顶层重试改经 `_ensure_task` 补齐缺失 manifest/QCD，
+  不再跳过留下不可运行的 v2；补崩溃修复反例。
+- **composition internal journal 公共导出 / TASK-007 `--staged-path` 合同**：
+  journal 从 package `__all__` 移除；TASK-007 卡同步 `run` 无 `--staged-path`
+  的最终合同。
+
 ## 验收
 
 - 每个 blocker 与上述 important 都有对应反例测试（复现→修复→绿）。
