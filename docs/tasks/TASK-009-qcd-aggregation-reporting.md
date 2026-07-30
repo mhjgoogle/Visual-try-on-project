@@ -110,5 +110,10 @@ Milestone 2 回归门槛。
 
 ## 当前状态
 
-Remaining roadmap design complete —
-single Codex architecture review pending
+implemented (M2 batch, branch `feat/m1-minimal-loop`) — focused design
+([TASK-009-qcd-aggregation-design](../design/TASK-009-qcd-aggregation-design.md)),
+`qcd/aggregation.py` (pure `aggregate_events` → `QcdSummary`) +
+`qcd/reporting.py` (versioned, byte-stable `run_qcd_report_step`) +
+`qcd-report` CLI subcommand, delivered across 2 commits; 13 focused
+tests; full pytest 1896 passed / 2 skipped, ruff + git diff --check
+clean. M2 milestone review pending (runs with TASK-008).
