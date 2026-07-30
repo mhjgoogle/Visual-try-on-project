@@ -445,9 +445,10 @@ def config_digest(value: JsonCompatibleValue) -> str: ...
 
 ## 当前状态
 
-implemented (M1 batch, branch `feat/m1-minimal-loop`) — inspection +
-assets + qcd + digests delivered across 5 commits; validation step is
-independently runnable and resumable; QCD event-log foundation covers
-all seven types (this task emits three); focused + core regression
-green. Milestone-1 regression gate is run after TASK-006/007
-(whole-repository Codex review pending).
+implemented and accepted (M1 batch, branch `feat/m1-minimal-loop`) —
+inspection + assets + qcd + digests delivered across 5 commits;
+validation step is independently runnable and resumable; QCD event-log
+foundation covers all seven types (this task emits three). **M1
+milestone review passed (2026-07-30, independent adversarial review;
+TASK-005 acceptance YES, 0 blockers / 0 important) — see
+[M1-milestone-review](../design/M1-milestone-review.md).**

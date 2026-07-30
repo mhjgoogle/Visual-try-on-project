@@ -313,9 +313,11 @@ TASK-006 的**固定落盘顺序（10 步）**：
 
 ## 当前状态
 
-implemented (M1 batch, branch `feat/m1-minimal-loop`) — profile/plan,
-VideoComposer + ffmpeg adapter, project-level CompositionPublishIntent,
-and the resumable composition step (10-step order + recovery matrix
-A–F) delivered across 4 commits; focused + core regression green.
-Milestone-1 regression gate runs after TASK-007 (whole-repository Codex
-review pending).
+implemented and accepted (M1 batch, branch `feat/m1-minimal-loop`) —
+profile/plan, VideoComposer + ffmpeg adapter, project-level
+CompositionPublishIntent, and the resumable composition step (10-step
+order + recovery matrix A–F) delivered across 4 commits, plus the
+inspect-before-publish + no-op time cross-check hardening. **M1
+milestone review passed (2026-07-30, independent adversarial review;
+TASK-006 acceptance YES, 0 blockers / 0 important) — see
+[M1-milestone-review](../design/M1-milestone-review.md).**

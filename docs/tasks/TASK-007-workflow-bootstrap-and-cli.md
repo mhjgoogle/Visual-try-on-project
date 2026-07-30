@@ -445,5 +445,10 @@ CI 不要求安装真实 FFmpeg；真实工具手工执行流程保留在 README
 
 ## 当前状态
 
-Remaining roadmap design complete —
-single Codex architecture review pending
+implemented and accepted (M1 batch, branch `feat/m1-minimal-loop`) —
+bootstrap + ProviderRequestFactory + WorkflowDriver + minimal CLI +
+one-command minimal-loop E2E delivered; product_spec success criteria
+1–5 have objective test evidence. **M1 milestone review passed
+(2026-07-30, independent adversarial review; TASK-007 acceptance YES,
+0 blockers / 0 important) — see
+[M1-milestone-review](../design/M1-milestone-review.md).**
