@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 import pytest
@@ -170,6 +171,34 @@ def test_unsupported_schema_version_is_corrupt(tmp_path) -> None:
         '"configured_provider_id": "manual", "origin": "bootstrap", '
         '"redo_of_task_id": null}}\n',
         encoding="utf-8",
+    )
+    with pytest.raises(CorruptEventLogError):
+        read_events(tmp_path)
+
+
+def test_unhashable_payload_value_is_corrupt_not_typeerror(tmp_path) -> None:
+    # a strict read of an untrusted line with an unhashable/wrong-typed fixed
+    # field maps uniformly to CorruptEventLogError, never a bare TypeError
+    # (ADR-0003 §7).
+    envelope = {
+        "schema_version": 1,
+        "event_id": "task_created:task-a",
+        "event_type": "task_created",
+        "occurred_at": "2026-07-29T08:00:00.000000+00:00",
+        "project_id": "proj-1",
+        "shot_id": "shot-1",
+        "task_id": "task-a",
+        "payload": {
+            "initial_status": [],  # unhashable, wrong type, wrong value
+            "task_kind": "generation",
+            "configured_provider_id": "manual",
+            "origin": "bootstrap",
+            "redo_of_task_id": None,
+        },
+    }
+    log_path(tmp_path).parent.mkdir(parents=True, exist_ok=True)
+    log_path(tmp_path).write_text(
+        json.dumps(envelope, sort_keys=True) + "\n", encoding="utf-8"
     )
     with pytest.raises(CorruptEventLogError):
         read_events(tmp_path)

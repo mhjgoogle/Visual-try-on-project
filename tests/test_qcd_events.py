@@ -420,3 +420,101 @@ def test_envelope_round_trip_keys() -> None:
     assert envelope["schema_version"] == 1
     assert envelope["event_type"] == "task_created"
     assert envelope["occurred_at"] == "2026-07-29T08:00:00.000000+00:00"
+
+
+def _reconstruct(event: QcdEvent, **payload_changes) -> QcdEvent:
+    payload = dict(event.payload)
+    payload.update(payload_changes)
+    return QcdEvent(
+        event_id=event.event_id,
+        event_type=event.event_type,
+        occurred_at=event.occurred_at,
+        project_id=event.project_id,
+        shot_id=event.shot_id,
+        task_id=event.task_id,
+        payload=payload,
+    )
+
+
+def test_qcdevent_enforces_fixed_value_domains() -> None:
+    # a directly-constructed / deserialized QcdEvent (not only the typed
+    # builders) must reject the ADR-0003 fixed values and the entry_count
+    # cross-field invariant.
+    tc = build_task_created_event(
+        project_id="proj-1",
+        shot_id="shot-1",
+        task_id="task-shot-1-1",
+        configured_provider_id="manual",
+        origin="bootstrap",
+        redo_of_task_id=None,
+        occurred_at=T0,
+    )
+    for change in ({"initial_status": "done"}, {"task_kind": "evil"}):
+        with pytest.raises(InvariantViolationError):
+            _reconstruct(tc, **change)
+
+    tsc = build_task_status_changed_event(
+        project_id="proj-1",
+        shot_id="shot-1",
+        task_id="task-shot-1-1",
+        previous_status="pending",
+        new_status="in_progress",
+        orchestration_action="submit",
+        operation_id="op-1",
+        occurred_at=T0,
+    )
+    with pytest.raises(InvariantViolationError):
+        _reconstruct(tsc, reason="whatever")
+
+    ma = build_manual_attempt_recorded_event(
+        project_id="proj-1",
+        shot_id="shot-1",
+        task_id="task-shot-1-1",
+        attempt_id="att-1",
+        provider_id="manual",
+        outcome="produced_candidate",
+        occurred_at=T0,
+    )
+    with pytest.raises(InvariantViolationError):
+        _reconstruct(ma, action="hack")
+
+    ai = build_asset_imported_event(
+        project_id="proj-1",
+        shot_id="shot-1",
+        task_id="task-shot-1-1",
+        asset_id="asset-task-shot-1-1-v1",
+        sha256="a" * 64,
+        size_bytes=10,
+        path="assets/media/x.mp4",
+        version=1,
+        duration_ms=4000,
+        source_attempt_id=None,
+        occurred_at=T0,
+    )
+    with pytest.raises(InvariantViolationError):
+        _reconstruct(ai, asset_kind="audio")
+
+    rating = build_manual_quality_rating_event(
+        project_id="proj-1",
+        shot_id="shot-1",
+        task_id="task-shot-1-1",
+        rating_id="rate-1",
+        score=4,
+        asset_id=None,
+        occurred_at=T0,
+    )
+    with pytest.raises(InvariantViolationError):
+        _reconstruct(rating, scale="other")
+
+    comp = build_composition_completed_event(
+        project_id="proj-1",
+        output_path="outputs/final_v1.mp4",
+        output_version=1,
+        output_sha256="b" * 64,
+        input_asset_ids=("asset-a", "asset-b"),
+        profile_digest="d",
+        occurred_at=T0,
+        output_duration_ms=8000,
+    )
+    with pytest.raises(InvariantViolationError):
+        _reconstruct(comp, entry_count=3)

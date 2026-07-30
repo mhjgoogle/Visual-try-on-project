@@ -183,7 +183,10 @@ def _parse_line(segment: str, line_number: int) -> QcdEvent:
             task_id=obj["task_id"],
             payload=payload,
         )
-    except AiVideoWorkflowError as exc:
+    except (AiVideoWorkflowError, TypeError, ValueError, KeyError) as exc:
+        # Any structural error from an untrusted log line — a typed invariant,
+        # a missing key, or a raw type/value error — is a corrupt line, mapped
+        # uniformly so a strict read never leaks a bare TypeError (ADR-0003 §7).
         raise CorruptEventLogError(f"QCD event log line {line_number}: {exc}") from exc
 
 

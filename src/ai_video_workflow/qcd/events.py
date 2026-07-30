@@ -265,33 +265,74 @@ def _validate_bool(value: object, field: str) -> None:
         raise InvariantViolationError(f"{field}: expected a bool")
 
 
+def _require_fixed(value: object, expected: str, field: str) -> None:
+    """Enforce an ADR-0003 single fixed value (type-safe, never a TypeError)."""
+    if value != expected:
+        raise InvariantViolationError(f"{field}: expected {expected!r}")
+
+
+def _require_enum(value: object, domain: frozenset[str], field: str) -> None:
+    """Enforce membership in a fixed domain without an unhashable TypeError."""
+    if not isinstance(value, str) or value not in domain:
+        raise InvariantViolationError(f"{field}: unknown value")
+
+
+def _require_opt_stable_id(value: object, field: str) -> None:
+    if value is None:
+        return
+    validate_stable_id(value, field_name=field)
+
+
 def _validate_payload_domains(event_type: QcdEventType, payload: Mapping) -> None:
-    """Enforce per-type value domains on a key-validated payload."""
+    """Enforce per-type value domains on a key-validated payload.
+
+    Every check is type-safe: a non-string value never reaches a set
+    membership test, so a malformed log line raises InvariantViolationError
+    (an AiVideoWorkflowError the reader maps to CorruptEventLogError) rather
+    than leaking a bare TypeError.
+    """
     if event_type is QcdEventType.TASK_CREATED:
-        if payload["initial_status"] not in _TASK_STATUSES:
-            raise InvariantViolationError("initial_status: unknown value")
-        if payload["origin"] not in ("bootstrap", "redo"):
-            raise InvariantViolationError("origin: expected 'bootstrap' or 'redo'")
+        _require_fixed(payload["initial_status"], "pending", "initial_status")
+        _require_fixed(payload["task_kind"], "generation", "task_kind")
+        if not isinstance(payload["configured_provider_id"], str):
+            raise InvariantViolationError("configured_provider_id: expected a str")
+        _require_enum(payload["origin"], frozenset({"bootstrap", "redo"}), "origin")
+        if not (
+            payload["redo_of_task_id"] is None
+            or isinstance(payload["redo_of_task_id"], str)
+        ):
+            raise InvariantViolationError("redo_of_task_id: expected a str or null")
     elif event_type is QcdEventType.TASK_STATUS_CHANGED:
-        if payload["previous_status"] not in _TASK_STATUSES:
-            raise InvariantViolationError("previous_status: unknown value")
-        if payload["new_status"] not in _TASK_STATUSES:
-            raise InvariantViolationError("new_status: unknown value")
-        if payload["orchestration_action"] not in _ORCHESTRATION_ACTIONS:
-            raise InvariantViolationError("orchestration_action: unknown value")
+        _require_enum(payload["previous_status"], _TASK_STATUSES, "previous_status")
+        _require_enum(payload["new_status"], _TASK_STATUSES, "new_status")
+        _require_enum(
+            payload["orchestration_action"],
+            _ORCHESTRATION_ACTIONS,
+            "orchestration_action",
+        )
+        _require_fixed(payload["reason"], "provider_transition", "reason")
         validate_stable_id(payload["operation_id"], field_name="operation_id")
     elif event_type is QcdEventType.MANUAL_ATTEMPT_RECORDED:
         validate_stable_id(payload["attempt_id"], field_name="attempt_id")
-        if payload["outcome"] not in ("produced_candidate", "discarded", "unknown"):
-            raise InvariantViolationError("outcome: unknown value")
+        if not isinstance(payload["provider_id"], str):
+            raise InvariantViolationError("provider_id: expected a str")
+        _require_fixed(payload["action"], "manual_generation", "action")
+        _require_enum(
+            payload["outcome"],
+            frozenset({"produced_candidate", "discarded", "unknown"}),
+            "outcome",
+        )
         _validate_elapsed_ms(payload["elapsed_ms"])
         _validate_money(payload["cost_minor_units"], payload["currency"])
     elif event_type is QcdEventType.ASSET_IMPORTED:
         validate_stable_id(payload["asset_id"], field_name="asset_id")
+        _require_fixed(payload["asset_kind"], "video", "asset_kind")
         _validate_sha256(payload["sha256"], "sha256")
         _validate_positive_int(payload["size_bytes"], "size_bytes")
         _validate_positive_int(payload["version"], "version")
         _validate_duration_ms(payload["duration_ms"], "duration_ms")
+        validate_stable_id(payload["source_task_id"], field_name="source_task_id")
+        _require_opt_stable_id(payload["source_attempt_id"], "source_attempt_id")
         _validate_rel_path(payload["path"], "path")
     elif event_type is QcdEventType.VALIDATION_COMPLETED:
         _validate_bool(payload["passed"], "passed")
@@ -299,7 +340,10 @@ def _validate_payload_domains(event_type: QcdEventType, payload: Mapping) -> Non
         _validate_positive_int(payload["report_version"], "report_version")
         _validate_non_negative_int(payload["checks_total"], "checks_total")
         _validate_non_negative_int(payload["checks_failed"], "checks_failed")
+        if payload["checks_failed"] > payload["checks_total"]:
+            raise InvariantViolationError("checks_failed: must not exceed checks_total")
         _validate_elapsed_ms(payload["elapsed_ms"])
+        _require_opt_stable_id(payload["asset_id"], "asset_id")
         _validate_rel_path(payload["report_path"], "report_path")
     elif event_type is QcdEventType.COMPOSITION_COMPLETED:
         _validate_sha256(payload["output_sha256"], "output_sha256")
@@ -307,14 +351,22 @@ def _validate_payload_domains(event_type: QcdEventType, payload: Mapping) -> Non
         _validate_duration_ms(payload["output_duration_ms"], "output_duration_ms")
         _validate_non_negative_int(payload["entry_count"], "entry_count")
         _validate_rel_path(payload["output_path"], "output_path")
+        if not isinstance(payload["profile_digest"], str):
+            raise InvariantViolationError("profile_digest: expected a str")
         _validate_elapsed_ms(payload["elapsed_ms"])
         ids = payload["input_asset_ids"]
         if not isinstance(ids, list):
             raise InvariantViolationError("input_asset_ids: expected a list")
         for asset_id in ids:
             validate_stable_id(asset_id, field_name="input_asset_ids[]")
+        if payload["entry_count"] != len(ids):
+            raise InvariantViolationError(
+                "entry_count: must equal len(input_asset_ids)"
+            )
     elif event_type is QcdEventType.MANUAL_QUALITY_RATING_RECORDED:
         validate_stable_id(payload["rating_id"], field_name="rating_id")
+        _require_opt_stable_id(payload["asset_id"], "asset_id")
+        _require_fixed(payload["scale"], RATING_SCALE, "scale")
         score = payload["score"]
         if isinstance(score, bool) or not isinstance(score, int) or not 1 <= score <= 5:
             raise InvariantViolationError("score: expected an int in [1, 5]")
