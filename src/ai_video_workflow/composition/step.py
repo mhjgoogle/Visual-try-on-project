@@ -170,14 +170,21 @@ def run_composition_step(
 
     try:
         if media_exists:
-            output_sha = file_sha256(media_path)  # A/B reuse of the published MP4
+            # Recovery A/B: a prior run already no-replace published this
+            # final. Inspect the existing final separately before trusting it,
+            # then hash it — a corrupt already-published final fails here
+            # rather than being silently completed.
+            output_duration_ms = _inspect_final(inspector, media_path)
+            output_sha = file_sha256(media_path)
         else:
-            output_sha = _compose(
-                project_root, plan, version, composer, media_path, input_digest
-            )
-        # inspect the published media before committing: an undecodable or
-        # empty final MP4 must fail, never reach a COMPLETED manifest.
-        output_duration_ms = _inspect_final(inspector, media_path)
+            # Inspect and hash the composed candidate BEFORE publishing, so an
+            # undecodable or empty final MP4 is never written to outputs/: a
+            # failed inspection leaves the final absent and the same version
+            # can be recomposed next run (no unrecoverable placeholder).
+            temp_final = _compose(project_root, plan, version, composer, input_digest)
+            output_duration_ms = _inspect_final(inspector, temp_final)
+            output_sha = file_sha256(temp_final)
+            _publish_bytes(media_path, temp_final.read_bytes())
     except CompositionError as exc:
         _write_failed_manifest(
             project_root,
@@ -341,6 +348,16 @@ def _is_noop(
     observed = _existing_report_time(project_root, json_rel)
     if observed is None:
         return False
+    # ADR-0005: a committed operation uses one time value, so the report's
+    # observed_at must equal the manifest's committed created_at/completed_at.
+    # A drift here means the durable report was altered after commit -> a
+    # conflict, never a silent no-op skip.
+    if observed != existing.created_at or (
+        existing.completed_at is not None and observed != existing.completed_at
+    ):
+        raise CompositionConflictError(
+            "composition: report observed_at drifted from the committed manifest time"
+        )
     recorded_duration = existing.output_metadata.get("output_duration_ms")
     if not (recorded_duration is None or isinstance(recorded_duration, int)):
         return False
@@ -388,9 +405,13 @@ def _compose(
     plan: CompositionPlan,
     version: int,
     composer: VideoComposer,
-    media_path: Path,
     input_digest: str,
-) -> str:
+) -> Path:
+    """Normalize + concatenate into a staging temp file and return its path.
+
+    The candidate is NOT published here: the caller inspects and hashes it
+    first, then no-replace publishes, so a bad final never reaches outputs/.
+    """
     staging_dir = resolve_within_root(
         project_root, Path("staging") / "composition" / f"v{version}"
     )
@@ -414,16 +435,15 @@ def _compose(
         raise CompositionError(
             "composition: source inputs changed during compose; refusing to publish"
         )
-    media_path.parent.mkdir(parents=True, exist_ok=True)
-    _publish_bytes(media_path, temp_final.read_bytes())
-    return file_sha256(media_path)
+    return temp_final
 
 
 def _inspect_final(inspector: MediaInspector, media_path: Path) -> int | None:
-    """Probe the published final media; return its duration in ms or None.
+    """Probe a candidate/final media file; return its duration in ms or None.
 
     A probe failure (undecodable/empty output) is a composition tool error
-    so the caller records a FAILED manifest instead of a COMPLETED one.
+    so the caller records a FAILED manifest instead of a COMPLETED one, and
+    an unpublished candidate is never published.
     """
     try:
         probe = inspector.probe(media_path)

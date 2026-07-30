@@ -135,6 +135,7 @@ def run_composition_step(
     project_root: Path,
     data: ProjectData,
     composer: VideoComposer,
+    inspector: MediaInspector,  # probe 合成候选，发布前校验可解码性
     profile: CompositionProfile | None,
     observed_at: datetime,
 ) -> CompositionStepOutcome: ...

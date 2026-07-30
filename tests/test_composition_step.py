@@ -114,6 +114,51 @@ def _run(project_root, data, composer=None, inspector=None):
     )
 
 
+def test_undecodable_output_is_not_published_then_recomposes(tmp_path) -> None:
+    # the composed candidate is inspected BEFORE publishing: an undecodable
+    # output fails without ever creating outputs/final_v1.mp4, so the same
+    # version can be recomposed on a later healthy run (no unrecoverable
+    # placeholder).
+    from ai_video_workflow.composition.errors import CompositionToolError
+    from ai_video_workflow.inspection.errors import UndecodableMediaError
+
+    data = _build(tmp_path)
+    final = tmp_path / "outputs" / "final_v1.mp4"
+
+    with pytest.raises(CompositionToolError):
+        _run(
+            tmp_path,
+            data,
+            inspector=FakeMediaInspector(error=UndecodableMediaError("x")),
+        )
+    assert not final.exists()
+    failed = read_model_json(
+        composition_manifest_path(tmp_path, "proj-1"), StepManifest
+    )
+    assert failed.status is ManifestStatus.FAILED
+
+    outcome = _run(tmp_path, data)  # healthy inspector
+    assert outcome.skipped is False
+    assert outcome.version == 1
+    assert final.exists()
+    completed = read_model_json(
+        composition_manifest_path(tmp_path, "proj-1"), StepManifest
+    )
+    assert completed.status is ManifestStatus.COMPLETED
+
+
+def test_completed_report_time_drift_is_conflict(tmp_path) -> None:
+    # a completed report whose observed_at drifts from the committed manifest
+    # time is a conflict, never a silent no-op skip (ADR-0005).
+    data = _build(tmp_path)
+    _run(tmp_path, data)
+    for rel in ("reports/composition/final_v1.json", "reports/composition/final_v1.md"):
+        path = tmp_path / rel
+        path.write_text(path.read_text().replace("08:00:00", "09:00:00"))
+    with pytest.raises(CompositionConflictError):
+        _run(tmp_path, data)
+
+
 def test_internal_journal_not_in_public_exports() -> None:
     import ai_video_workflow.composition as composition
 

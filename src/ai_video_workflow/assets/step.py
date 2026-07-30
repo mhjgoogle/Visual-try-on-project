@@ -26,6 +26,7 @@ from pathlib import Path
 
 from ai_video_workflow.assets.policy import ValidationPolicy, policy_digest
 from ai_video_workflow.assets.registration import (
+    AssetConflictError,
     asset_record_relative_path,
     import_media,
     media_relative_path,
@@ -359,12 +360,30 @@ def _is_noop(
             return False
     except OSError:
         return False
+    # ADR-0005: a committed operation uses one time value, so the report's
+    # observed_at must equal the manifest's committed created_at/completed_at.
+    # A drift means the durable report was altered after commit -> a conflict,
+    # never a silent no-op skip.
+    observed = _existing_report_time(project_root, report_json_rel)
+    if observed is None:
+        return False
+    if observed != existing.created_at or (
+        existing.completed_at is not None and observed != existing.completed_at
+    ):
+        raise AssetConflictError(
+            "validation: report observed_at drifted from the committed manifest time"
+        )
     # a passing report must retain its asset and undrifted media
     passed = bool(existing.output_metadata.get("passed"))
     asset = _load_asset_if_any(project_root, existing)
     if passed:
         if asset is None:
             return False
+        # the registered asset's validated_at is the same committed time value
+        if asset.validated_at != observed:
+            raise AssetConflictError(
+                "validation: asset validated_at drifted from the report time"
+            )
         recorded_media = existing.output_metadata.get("media_sha256")
         if not isinstance(recorded_media, str):
             return False
