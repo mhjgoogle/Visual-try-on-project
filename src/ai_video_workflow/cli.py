@@ -48,6 +48,7 @@ from ai_video_workflow.orchestration import OrchestrationAction
 from ai_video_workflow.persistence import read_model_json
 from ai_video_workflow.project_data import ProjectData
 from ai_video_workflow.providers import ManualVideoProvider
+from ai_video_workflow.qcd.reporting import run_qcd_report_step
 from ai_video_workflow.security import resolve_within_root
 
 _RUN_LIFECYCLE = (
@@ -115,6 +116,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     _add("record-attempt", _cmd_record_attempt, task=True, extra=_attempt_args)
     _add("rate", _cmd_rate, shot=True, extra=_rate_args)
+    _add("qcd-report", _cmd_qcd_report)
     return parser
 
 
@@ -217,6 +219,16 @@ def _cmd_compose(args) -> None:
     outcome = _driver(args).compose(data)
     print(f"composed: {outcome.output_path} (version {outcome.version})")
     print(f"skipped: {outcome.skipped}")
+
+
+def _cmd_qcd_report(args) -> None:
+    data = _load_project_data(args.project_root)
+    outcome = run_qcd_report_step(
+        project_root=args.project_root, data=data, observed_at=utc_now()
+    )
+    print(f"qcd report: {outcome.json_path} (version {outcome.version})")
+    print(f"skipped: {outcome.skipped}")
+    print(f"reconciliation gaps: {len(outcome.summary.reconciliation)}")
 
 
 def _cmd_status(args) -> None:
