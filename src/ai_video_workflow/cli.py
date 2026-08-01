@@ -55,6 +55,7 @@ from ai_video_workflow.models import (
 )
 from ai_video_workflow.orchestration import OrchestrationAction
 from ai_video_workflow.persistence import read_model_json
+from ai_video_workflow.planning import compile_task_packets
 from ai_video_workflow.profile import (
     add_reuse_ref,
     parse_pack,
@@ -188,6 +189,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     _add("stage-plan", _cmd_stage_plan)
     _add("stage-status", _cmd_stage_status)
+
+    # TASK-020: production planning + task packets (ADR-0012)
+    _add("plan-compile", _cmd_plan_compile, extra=_verify_args)
     _add("stage-review", _cmd_stage_review, extra=_stage_args)
     _add("stage-approve", _cmd_stage_approve, extra=_stage_approve_args)
     _add("stage-reject", _cmd_stage_reject, extra=_stage_args)
@@ -436,6 +440,24 @@ def _cmd_reuse_verify(args) -> None:
     for pack in resolved:
         print(f"ok: {pack.asset_id} v{pack.version} ({pack.kind})")
     print(f"verified refs: {len(resolved)}")
+
+
+def _cmd_plan_compile(args) -> None:
+    config = load_project_config(args.project_root)
+    catalog = load_locked_catalog(config, args.catalog_dir)
+    packets = compile_task_packets(
+        args.project_root, _account_root(args), catalog, config
+    )
+    total_p50 = sum(p.p50_jpy for p in packets)
+    total_p90 = sum(p.p90_jpy for p in packets)
+    for packet in packets:
+        print(
+            f"{packet.shot_id} v{packet.packet_version}: "
+            f"{packet.provider_primary}/{packet.model_id} "
+            f"{packet.resolution}/{packet.duration_seconds}s "
+            f"p50={packet.p50_jpy} p90={packet.p90_jpy} JPY"
+        )
+    print(f"packets: {len(packets)}; episode p50={total_p50} p90={total_p90} JPY")
 
 
 def _cmd_stage_plan(args) -> None:

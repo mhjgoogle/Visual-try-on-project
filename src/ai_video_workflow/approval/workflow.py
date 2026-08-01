@@ -149,12 +149,26 @@ def stage_status(project_root: Path) -> tuple[StageState, ...]:
     return tuple(states)
 
 
+def _transitive_prerequisites(stage_id: str) -> tuple[str, ...]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+
+    def _walk(current: str) -> None:
+        for pre in _stage_info(current).prerequisites:
+            if pre not in seen:
+                seen.add(pre)
+                _walk(pre)
+                ordered.append(pre)
+
+    _walk(stage_id)
+    return tuple(ordered)
+
+
 def require_stage_ready(project_root: Path, stage_id: str) -> None:
-    """Downstream gate: the stage AND all its prerequisites must be
-    approved with fresh digests (feeds the same TASK-015 gate the paid
-    coordinator uses; upstream drift fails closed here)."""
-    info = _stage_info(stage_id)
-    for pre in info.prerequisites:
+    """Downstream gate: the stage AND its full transitive prerequisite
+    chain must be approved with fresh digests (feeds the same TASK-015
+    gate the paid coordinator uses; any upstream drift fails closed)."""
+    for pre in _transitive_prerequisites(stage_id):
         require_stage_approved(project_root, pre)
     require_stage_approved(project_root, stage_id)
 
@@ -179,7 +193,7 @@ def transition_stage(
     and fresh. Illegal transitions, unknown stages, and missing targets
     are typed errors; nothing is written on failure.
     """
-    info = _stage_info(stage_id)
+    _stage_info(stage_id)  # validates the stage id against the registry
     if action not in ("review", "approve", "revise", "reject"):
         raise ApprovalError(f"unknown action {action!r}")
     marker = _current_marker(project_root, stage_id)
@@ -193,9 +207,9 @@ def transition_stage(
         raise ApprovalError("by: a non-empty actor is required")
 
     if action == "approve":
-        # upstream must be approved AND fresh before anything downstream
-        # is approved — this is the automatic upstream-change invalidation.
-        for pre in info.prerequisites:
+        # the FULL upstream chain must be approved AND fresh before anything
+        # downstream is approved — the automatic upstream-change invalidation.
+        for pre in _transitive_prerequisites(stage_id):
             require_stage_approved(project_root, pre)
         if not targets:
             raise ApprovalError("approve: at least one target is required")

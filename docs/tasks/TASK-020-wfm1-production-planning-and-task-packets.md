@@ -1,7 +1,10 @@
 # TASK-020：WFM1 生产规划与镜头任务包
 
-> **状态：Draft（待批量设计基线批准）。** 本任务把 L0-S3 的已批准输入转换为
-> 可执行任务包；内容可以人工提供，不要求接入新的文本或图片生成 API。
+> **状态：Implemented。** 路径见 ADR-0012。实现：
+> `src/ai_video_workflow/planning/`（brief/story/shot_plan/prompt 不可变
+> 版本 + digest 锁定 task packet + P50/P90 预览），CLI `plan-compile`；
+> 编译前置 `require_stage_ready(production_lock)`（未批准/stale 阻断），
+> packet 可无损构造 TASK-016 GenerationSpec/PaidRequest（有对等测试）。
 
 ## 目的
 
