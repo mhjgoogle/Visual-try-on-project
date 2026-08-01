@@ -2,6 +2,14 @@
 
 Python foundations for the file-based AI video production workflow.
 
+The completed M1 CLI remains the stable minimal loop. WFM1 incrementally builds
+the reusable short-film workflow described in
+[`docs/ai_shortfilm_pipeline_workflow.md`](docs/ai_shortfilm_pipeline_workflow.md).
+A cross-project Creation Workspace is a later product direction, currently only
+specified as a requirements draft in
+[`docs/ai_video_creation_workspace_requirements.md`](docs/ai_video_creation_workspace_requirements.md);
+it is not part of the current UI or WFM1 implementation scope.
+
 ## Development Setup
 
 Run these commands from the repository root in WSL2 Ubuntu:

@@ -2,8 +2,8 @@
 
 > **状态：Implemented。** 吸收临时原型 B1/B2/B3，将其对齐
 > [TASK-014](TASK-014-wfm1-contract-consolidation.md) 锁定的合同 1–4 与
-> 合同 5 的非发射侧。**无冻结变更。** 统一审查与 TASK-016 合并进行。
-> 实施提交：`867db00`。
+> 合同 5 的非发射侧。**无冻结变更。** 已与 TASK-016 完成统一审查和资金
+> 安全修正。实施提交：`867db00`；修正提交：`f94da16`。
 
 ## 正式名称
 
@@ -92,5 +92,6 @@ B1 配置层、B2 选择+审批、B3 预算）对齐这些合同，为 TASK-016 
 
 ## 后续
 
-统一独立审查（Codex）覆盖 **TASK-015 + TASK-016** 全 diff；见
-[TASK-016](TASK-016-wfm1-cloud-provider-and-cost.md)。
+统一独立审查（Codex）已覆盖 **TASK-015 + TASK-016** 全 diff；资金安全修正
+见 [TASK-016](TASK-016-wfm1-cloud-provider-and-cost.md)。后续阶段审批状态机归
+[TASK-019](TASK-019-wfm1-stage-approval-and-change-control.md)。

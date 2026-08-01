@@ -4,7 +4,9 @@
 > M1–M3 后续设计与审查快照，保留当时的 pending、依赖和风险表述作为
 > 决策历史，不再作为当前 WFM1 路线图或状态事实来源。当前状态以
 > `docs/implementation_plan.md`、各任务卡、milestone review 和
-> ADR-0007 为准；WFM1 是原 M1 之后的独立增量路线。
+> ADR-0007 为准；WFM1 是原 M1 之后的独立增量路线。未来 Creation
+> Workspace 方向另见 `docs/ai_video_creation_workspace_requirements.md` 与
+> ADR-0010，不回写本文历史任务范围。
 
 - 日期：2026-07-28
 - 模式：batch milestone mode（用户决策：一次整体设计审查后连续

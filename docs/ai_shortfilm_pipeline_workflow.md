@@ -324,6 +324,9 @@ REJECTED
 | 文本与代码版本 | Git | 无 |
 | 二进制大文件 | 文件系统 + Manifest | 对象存储 |
 
+本表是生产工具方向建议，不构成 Creation Workspace 技术选型；其中 SQLite、
+对象存储等升级路径不得被解释为已决定的工作视窗数据库或部署结构。
+
 ---
 
 # 7. 成本控制模型
@@ -570,14 +573,23 @@ ownership 由批准任务卡确定，避免建立重复入口。
 
 ## 12.2 第二阶段：生成任务卡
 
-具体任务编号必须延续仓库全局序列，从 `TASK-014` 起。本节只列候选工作包，
-不创建任务卡、不锁定实现范围：
+任务编号延续仓库全局序列。`TASK-014`–`TASK-016` 已建立合同、审批/预算和
+厂商中立付费链；其余工作包已形成以下任务卡，Draft 卡须经 batch design
+baseline 批准后才能实施：
 
-- 项目实例与复用资产引用基线
-- 阶段状态与审批门
-- 镜头任务包与预算事前检查
-- 默认云 Provider 调用与结果审计
-- WFM1 端到端验收
+- [TASK-017](tasks/TASK-017-minimax-real-api-and-smoke.md)：首个真实云 Provider
+  与不重复提交的媒体恢复；
+- [TASK-018](tasks/TASK-018-wfm1-project-and-reusable-assets.md)：项目实例与
+  复用资产引用边界；
+- [TASK-019](tasks/TASK-019-wfm1-stage-approval-and-change-control.md)：阶段状态、
+  审批门和变更失效；
+- [TASK-020](tasks/TASK-020-wfm1-production-planning-and-task-packets.md)：L0-S3
+  生产规划、镜头任务包和预算预览；
+- [TASK-021](tasks/TASK-021-wfm1-paid-lifecycle-and-qcd-integration.md)：默认云
+  生成接回 M1 生命周期及 QCD 报表；
+- [TASK-022](tasks/TASK-022-wfm1-qc-release-and-archive.md)：S4-S7 最小质检、
+  发布包和归档；
+- [TASK-023](tasks/TASK-023-wfm1-end-to-end-acceptance.md)：WFM1 端到端验收。
 
 每张任务卡必须包含：
 
@@ -689,3 +701,25 @@ Claude Code：
 > 能跑通优先于完美，MVP 优先于完整系统。
 
 > 工作流必须与具体剧情解耦，具体作品永远只是运行时输入。
+
+---
+
+# 15. 与统一创作工作视窗的关系
+
+未来 Creation Workspace 将观察和运行本工作流，但不是 WFM1 的组成部分或验收
+条件。统一需求见
+[ai_video_creation_workspace_requirements.md](ai_video_creation_workspace_requirements.md)，
+安全边界见 [ADR-0010](adr/ADR-0010-creation-workspace-boundary.md)。
+数据 readiness 语义见
+[creation_workspace_data_observability_requirements.md](creation_workspace_data_observability_requirements.md)。
+
+WFM1 当前只承担以下前置责任：
+
+- 为项目、阶段、步骤、任务、版本和产物保留稳定可追溯身份；
+- 保留输入/输出关系、content digest、Provider/模型/参数、时间和成本证据；
+- 继续通过审批、预算、并发、恢复和防覆盖合同执行所有命令；
+- 使状态和派生报告可从权威文件/事件读取或重建。
+
+WFM1 不实现工作视窗、Command Gateway、Action Center、实验比较 UI 或跨项目
+学习系统，也不为这些未来能力锁定最终 schema。历史任务中的 Web UI/数据库排除
+是对应任务的局部范围，不取消该未来产品方向。

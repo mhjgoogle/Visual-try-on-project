@@ -55,15 +55,62 @@ WFM1 以原 M1 为稳定依赖，工作流需求见
 | 任务 | 内容 | 冻结变更 | 状态 |
 | --- | --- | --- | --- |
 | TASK-014 | 提交前合同收口（docs-only，锁定 5 合同） | 无 | Accepted |
-| TASK-015 | 配置/审批/预算合同对齐（吸收原型 B1/B2/B3） | 无 | implemented（Batch A；统一审查待 TASK-016 后） |
-| TASK-016 | 云端 Provider 接线 + 权威成本事实（吸收 P-C） | 仅 `qcd/events.py` 增第 8 类事件（ADR-0008） | implemented（Batch B；真实厂商接线待 ADR-0006 §5 裁决） |
+| TASK-015 | 配置/审批/预算合同对齐（吸收原型 B1/B2/B3） | 无 | Implemented；已完成与 TASK-016 的统一审查 |
+| TASK-016 | 云端 Provider 接线 + 权威成本事实（吸收 P-C） | 仅 `qcd/events.py` 增第 8 类事件（ADR-0008） | Implemented；资金安全修正已验收 |
+| TASK-017 | MiniMax 真实 API + 外部任务恢复 + 安全冒烟 | 无；厂商合同见 ADR-0009 | Completed：六轮独立复审通过（`205a88f`），真实付费冒烟端到端通过（`b231b91`） |
+| TASK-018 | 项目实例 profile 与跨项目复用资产引用 | 待配套目录 ADR；不改既有目录合同 | Draft |
+| TASK-019 | L0/S1-S7 阶段审批、退回与变更失效 | 如新增路径须配套 ADR | Draft |
+| TASK-020 | L0-S3 生产规划、镜头任务包与预算预览 | 无 | Draft |
+| TASK-021 | 付费媒体接回 M1 生命周期 + 云成本纳入 QCD 报表 | QCD 聚合增量须配套 ADR | Draft |
+| TASK-022 | S4-S7 质检、发布包与归档复盘 | 无 | Draft |
+| TASK-023 | WFM1 端到端验收与正式文档收口 | 无 | Draft |
 
 - 临时命名 B1/B2/B3 的已落盘原型归入 **TASK-015**；临时 P-C 归入
   **TASK-016**。原型代码不删除、不覆盖，由 TASK-015 在其上对齐合同。
 - WFM1 相关 ADR：[ADR-0007](adr/ADR-0007-wfm1-document-baseline-and-governance.md)
   （治理基线）、[ADR-0008](adr/ADR-0008-wfm1-authoritative-cost-fact-and-qcd-cost-event.md)
-  （成本事实与新增 QCD 事件）。合同细节见
+  （成本事实与新增 QCD 事件）、[ADR-0009](adr/ADR-0009-minimax-vendor-contract.md)
+  （首个真实云厂商契约）。合同细节见
   [TASK-014](tasks/TASK-014-wfm1-contract-consolidation.md)。
+
+### WFM1 剩余实施顺序
+
+1. **TASK-017 milestone gate**：已完成——六轮独立复审全部闭合并通过，
+   真实付费冒烟（submit → query → retrieve → 下载真实 MP4）端到端验证。
+2. **Batch C（TASK-018 + TASK-019）**：锁定项目/复用边界与独立阶段审批。
+   ——当前批次。
+3. **Batch D（TASK-020 + TASK-021）**：形成生产任务包，并把付费媒体接回 M1
+   校验、资产、合成和官方 QCD 报表。
+4. **Batch E（TASK-022 + TASK-023）**：完成最小 QC/交付/归档并执行 WFM1
+   端到端 milestone 验收。
+
+### Creation Workspace 后续路线（当前无任务编号）
+
+Creation Workspace 是核心工作流稳定后的独立产品路线，不属于 TASK-018–023 或
+WFM1 验收。需求见
+[ai_video_creation_workspace_requirements.md](ai_video_creation_workspace_requirements.md)，
+安全边界见 [ADR-0010](adr/ADR-0010-creation-workspace-boundary.md)。当前只要求
+WFM1 按
+[creation_workspace_data_observability_requirements.md](creation_workspace_data_observability_requirements.md)
+保留未来可观察所需的稳定身份、版本、digest、谱系、成本和审计证据。
+
+形成正式任务卡前的建议顺序固定为：
+
+```text
+核心工作流和 Orchestrator
+→ 统一运行命令和状态契约
+→ 只读观察窗口
+→ 提示词、图片和视频版本观察
+→ 评价与实验比较
+→ Action Center
+→ Command Gateway
+→ 工作视窗直接运行
+→ 项目复盘与跨项目学习
+```
+
+暂不选择界面技术、数据库、通信协议或最终数据结构；不得提前占用 TASK 编号。
+在 Command Gateway 形成前，任何工作视窗交付均只能只读；反馈、评价和 Action
+写入继续使用届时已批准的 CLI/app service，不得由界面直接写文件。
 
 注：implementation_plan 阶段 2 原列出的 QCD 原始事件采集
 （`task_created`、`task_status_changed`、`manual_attempt_recorded`）

@@ -64,6 +64,8 @@ AI 视频 / AI 短剧的制作目前是高度手工、碎片化的流程：故�
 - 不做 Web UI、数据库、Docker、云端部署；
 - 不做自动模型路由。
 
+以上是原 M1 的局部范围边界，不是对后续 Creation Workspace 的永久禁止。
+
 ## 6. WFM1 增量路线
 
 原 M1 最小闭环保持完成状态，并作为 WFM1 的稳定生产基础。WFM1 不重做
@@ -86,13 +88,35 @@ ADR-0001 的项目数据目录合同。详细流程见
 文档权威关系见
 [ADR-0007](adr/ADR-0007-wfm1-document-baseline-and-governance.md)。
 
+## 6.1 统一创作工作视窗（核心工作流后的产品方向）
+
+长期产品不仅是 CLI 流水线，还包括一个跨项目 Creation Workspace，用于：
+
+- 观察项目计划、阶段/步骤状态、依赖、产物谱系、版本和成本；
+- 在核心命令支持范围内运行、恢复、重试、选择和审批常规创作步骤；
+- 从具体对象创建反馈和版本绑定的 Action，并跟踪验证闭环；
+- 评价创作目标、产物质量、实验差异和重要创作决定；
+- 完成项目复盘、跨项目指标、经验沉淀和有证据的后续推荐。
+
+Creation Workspace 是核心工作流之上的表现/控制层，不直接调用 Provider，也不
+直接修改核心业务文件。写操作必须经 Command Gateway、审批/预算/版本/并发检查
+和 Workflow Orchestrator 应用边界；观察 projection 必须可从权威文件和事件重建。
+
+完整需求见
+[ai_video_creation_workspace_requirements.md](ai_video_creation_workspace_requirements.md)，
+安全边界见 [ADR-0010](adr/ADR-0010-creation-workspace-boundary.md)，核心数据
+可观察性基线见
+[creation_workspace_data_observability_requirements.md](creation_workspace_data_observability_requirements.md)。
+当前仅作为核心设计输入：不分配正式任务编号，不锁定 UI 技术、数据库或最终
+schema，且不计入 WFM1/TASK-023 的界面功能验收；TASK-023 只验证数据 readiness。
+
 ## 7. QCD 的基本定义
 
 QCD = Quality（质量）、Cost（成本）、Delivery（交付周期），是本项目度量与优化的核心指标：
 
 - **Quality（质量）**：产出是否可用。以人工主观评分与重做次数为起点，
   后续阶段引入结构化质量检查项。
-- **Cost（成本）**：产出的花费。包含人工操作与重做次数、API 调用费用（未来）、
+- **Cost（成本）**：产出的花费。包含人工操作与重做次数、API 调用费用、
   本地算力时间（未来）。
 - **Delivery（交付周期）**：从任务生成到镜头/成片完成的耗时。
 
@@ -102,6 +126,8 @@ QCD 的实现分两步：
   `task_created`、`task_status_changed`、`manual_attempt_recorded`、
   `asset_imported`、`validation_completed`、`composition_completed`、
   `manual_quality_rating_recorded`（人工评分可在任意时刻记录）；
+- **WFM1** 受 ADR-0008 授权新增 `provider_cost_recorded`，以整数原币记录
+  云端权威成本；
 - **阶段 6** 再基于这些事件实现按 GenerationTask / Shot / Project 三个粒度的
   汇总、指标计算、比较和报告。
 
@@ -119,5 +145,17 @@ QCD 数据用于未来比较不同 Provider 的性价比，并支撑阶段 9 的
 5. 以上流程在 WSL2 Ubuntu 中、仅用项目 venv 内的依赖即可完成；
 6. Claude Code 与 Codex 任一 Agent 仅凭仓库内容即可理解项目现状并继续开发。
 
-WFM1 的详细成功标准将在 `TASK-014` 及后续任务卡形成批量设计基线后写入
-实施规划；在此之前不得把起点工作流中的全部 L0–S7 内容声称为已实现。
+WFM1 成功标准：
+
+1. 一个角色、一个场景、一个地点、6–10 个镜头组成约 60 秒单集；
+2. 从 project profile 到 L0–S7 最小子集均有可定位产物、JSON 阶段状态和
+   人工审批；创意正文可继续使用 Markdown，WFM2 才要求完整执行 L0–S7；
+3. 付费前完成单镜头、单集和跨项目月度预算守门，单集计划与实际派生成本
+   均不超过 1200 JPY；
+4. 云端为默认生产路线但 Provider 可切换，凭据只来自环境变量；
+5. 中断后不重复付费、不重复记账、不静默覆盖，并能从首个未完成步骤续做；
+6. 输出可播放 MP4、发布包和可重算的 QCD/复盘记录；
+7. 至少以两个项目证明项目实例与不可变复用资产版本相分离。
+
+以上标准由 [TASK-018 至 TASK-023](implementation_plan.md#wfm1-任务映射)
+分批实现。在 TASK-023 milestone 验收前，不得声称全部 L0–S7 已完成。

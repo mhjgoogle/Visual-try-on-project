@@ -3,7 +3,8 @@
 > **状态：Implemented。** 真实 `RealMinimaxTransport` 接线，复用现有
 > registry/审批/报价/reservation/成本协调链。官方 API 契约见
 > [ADR-0009](../adr/ADR-0009-minimax-vendor-contract.md)。默认测试全打桩，
-> 真实付费冒烟显式 opt-in。实施提交：`a8a63a8`；milestone review 待完成。
+> 真实付费冒烟显式 opt-in。实施提交：`a8a63a8`（修正链至 `2c15bc2`）；
+> 六轮复审通过（`205a88f`），真实付费冒烟端到端通过（`b231b91`）。
 
 ## 正式名称
 

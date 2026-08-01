@@ -115,12 +115,14 @@ Codex/对抗审查发现付费提交的错误分类与并发预算安全不足�
 - 报价与 payload 绑定同一不可变 `GenerationSpec`（duration 必须与 shot 一致，否则 `spec_invalid` fail-closed）；镜头失败次数由 `shot_consecutive_failures`（持久化 reservation）计算，删除可传入的 `--failures`。
 - Provider 构造在创建 hold **之前**完成，失败返回 `provider_unavailable`，不遗留 held reservation。
 
-**后续项（不在本批次）**：`provider_cost_recorded` 尚未进入 TASK-009 QCD aggregation/报表（预算 ledger 已计入）；扩展 aggregation 属其冻结范围，需单独任务/ADR。
+**后续项（不在本批次）**：`provider_cost_recorded` 尚未进入 TASK-009 QCD
+aggregation/报表（预算 ledger 已计入）；由
+[TASK-021](TASK-021-wfm1-paid-lifecycle-and-qcd-integration.md) 在单独 ADR
+授权后扩展。
 
-## 真实 API 尚需配置
+## 真实 API 后续
 
-- 厂商端点/请求-响应形态（`RealMinimaxTransport` 骨架，需
-  `WFM1_MINIMAX_API_BASE` + 真实接线）；
-- 凭据环境变量名（catalog `credential_env_vars`）、预算数值最终裁决
-  （ADR-0006 §5）；
-- 真实冒烟测试显式 opt-in，绝不进回归门槛。
+真实端点、认证、固定价记账和外部 task ref 恢复由
+[ADR-0009](../adr/ADR-0009-minimax-vendor-contract.md) 与
+[TASK-017](TASK-017-minimax-real-api-and-smoke.md) 承接。真实冒烟仍须显式
+opt-in，绝不进入默认回归门槛。

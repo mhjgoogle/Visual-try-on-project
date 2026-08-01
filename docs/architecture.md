@@ -37,6 +37,44 @@ WFM1 在已完成的原 M1 之上增加创意审核、阶段准入、生产规�
 
 WFM1 的文档定位和治理规则见 ADR-0007。
 
+### Creation Workspace 未来边界
+
+Creation Workspace 位于现有四层之上，是跨项目的表现/控制客户端，不是第五个
+核心业务层，也不拥有业务事实。完整需求见
+[ai_video_creation_workspace_requirements.md](ai_video_creation_workspace_requirements.md)，
+边界决策见 [ADR-0010](adr/ADR-0010-creation-workspace-boundary.md)，核心工作流
+必须保留的语义信息见
+[creation_workspace_data_observability_requirements.md](creation_workspace_data_observability_requirements.md)。
+
+读取路径：
+
+```text
+权威项目文件 / append-only 事件 / catalog
+→ 可重建 projection / query service
+→ Creation Workspace
+```
+
+写入路径：
+
+```text
+Creation Workspace
+→ Command Gateway
+→ 审批、预算、版本、并发和恢复检查
+→ Workflow Orchestrator 应用边界及现有指定写入组件
+→ Provider（需要生成时）
+```
+
+- 工作视窗不得直接调用 Provider、编辑核心业务文件或成为状态唯一来源；
+- 未来索引/数据库只可作为可删除、可重建的 projection；
+- 核心执行不依赖界面进程，界面关闭后仍可继续并恢复；
+- Action、评价和实验是独立语义域，不复用审批、GenerationTask、Manifest、
+  Provider、reservation 或 QCD 状态；
+- 当前核心任务应保留稳定 ref/version/digest、输入输出引用、Provider/模型/参数、
+  尝试、时间、成本和选择/评价证据，但不得为未定 UI 提前设计通用平台；
+- 身份、状态、谱系和成本跨领域组合只发生在只读 query/projection 层；领域写入者
+  不为界面复制彼此事实；
+- Command Gateway、Action、谱系、评价、实验及知识库的最终 API/schema 均延期。
+
 ## 2. 核心概念（领域模型）
 
 第一阶段这些概念以结构化文件表达，阶段 1 才落为 Python 数据模型。
@@ -159,9 +197,11 @@ poll**，按自身能力映射到概念生命周期。
 Provider 在整个生命周期中不修改 GenerationTask、不创建或登记 VideoAsset、
 不执行媒体校验（见 §3 职责边界）。
 
-## 5. 未来 Provider 的扩展方式
+## 5. Provider 的扩展方式
 
-- **CloudVideoProvider（阶段 7）**：对接云端视频生成 API。实现同一接口，
+- **CloudVideoProvider（WFM1 TASK-016/017；原规划阶段 7）**：首个
+  MiniMax/Hailuo 适配器按 ADR-0009 对接云端视频生成 API。其它云厂商继续
+  通过同一接口扩展，
   `submit` 调 API、`poll` 查询远端任务；收集产物时可以使用自身鉴权将产物下载到
   编排器指定的 staging 路径，或返回可访问的临时产物引用（由编排器完成下载）。
   后续的校验、导入正式资产目录、登记 VideoAsset 与手工流程完全相同，
@@ -244,6 +284,9 @@ QCD 数据分两层：**原始事件采集**（阶段 2–4，随第一阶段最
   - `composition_completed`（FFmpeg 合成完成）；
   - `manual_quality_rating_recorded`（人工质量评分——可在任意时刻记录，
     不要求绑定任务状态变更）；
+- WFM1 由 ADR-0008 受控新增第 8 类原始事实事件
+  `provider_cost_recorded`，记录云 Provider 的整数原币成本；其 JPY 值由锁定
+  FX 派生，不形成第二事实来源。TASK-021 负责将该事件纳入既有 QCD 聚合；
 - 每条事件携带能归属到 GenerationTask / Shot / Project 的标识；按这三个粒度的
   汇总（含重做汇总、整体汇总）由阶段 6 的计算实现；
 - **append-only QCD 事件日志是原始 QCD 事实的唯一来源**：GenerationTask 等

@@ -11,7 +11,8 @@ Agent 之间只通过仓库中的文档、代码和 Git 状态共享上下文，
 
 故事构思 → 结构化剧本 → 场景与镜头拆分 → 人物/场景/道具资产管理 → 图片生成
 → 视频生成 → 配音、音效和字幕 → FFmpeg 合成 → 质量检查
-→ 质量、成本、交付周期（QCD）记录 → 最终成片。
+→ 质量、成本、交付周期（QCD）记录 → 最终成片
+→ 统一创作工作视窗中的观察、运行、评价、复盘与跨项目学习。
 
 ### 第一阶段目标（最小闭环，不接入付费 API）
 
@@ -42,6 +43,15 @@ WFM1 工作流见
 文档权威关系见
 [ADR-0007](docs/adr/ADR-0007-wfm1-document-baseline-and-governance.md)。
 
+### 统一创作工作视窗（未来路线）
+
+核心工作流稳定后，将建设跨项目 Creation Workspace。需求草案见
+[docs/ai_video_creation_workspace_requirements.md](docs/ai_video_creation_workspace_requirements.md)，
+安全边界见
+[ADR-0010](docs/adr/ADR-0010-creation-workspace-boundary.md)，WFM1 数据准备见
+[docs/creation_workspace_data_observability_requirements.md](docs/creation_workspace_data_observability_requirements.md)。
+当前不设置实施任务编号，不锁定 UI 技术或最终数据结构，也不属于 WFM1 验收范围。
+
 ## 2. 技术与环境约束
 
 1. Python 是主要开发语言。
@@ -57,10 +67,15 @@ WFM1 工作流见
 8. 核心工作流不能依赖任何具体视频厂商。
 9. 所有视频生成方法必须通过 `VideoProvider` 接口接入（手工流程、云端 API、本地模型一视同仁）。
 10. 原 M1 不接入任何付费 API；后续里程碑只有在 Accepted ADR 明确批准的
-    范围内才可接入，当前窄范围例外见 ADR-0006。
+    范围内才可接入，当前窄范围授权见 ADR-0006 与 ADR-0009。
 11. 工作流的每个步骤必须可以独立执行（可单独运行、单独重跑）。
 12. 工作流必须支持断点续跑：中断后可从已完成的步骤之后继续，不重做已完成的工作。
 13. 禁止静默覆盖用户文件和已有生成结果；覆盖前必须显式确认或采用带版本的新路径。
+
+未来 Creation Workspace 必须遵守：不直接调用 Provider、不直接修改核心业务
+文件；变更命令经 Command Gateway 和 Workflow Orchestrator 应用边界；观察数据
+可从权威文件/事件重建；界面关闭不影响核心执行。未经正式任务卡与 ADR，不得
+提前实现 UI、Action Center、数据库或 UI 专用状态机。
 
 ## 4. Agent 协作规则
 
