@@ -24,30 +24,52 @@ TASK-016 完成了厂商中立的付费协调链；ADR-0006 §5 将具体厂商�
      `duration`（秒，可选）、`resolution`（`512P`/`720P`/`768P`/`1080P`，可选）、
      `prompt_optimizer`（默认 true）、`callback_url`（可选）。
    - 响应：`task_id`、`base_resp.status_code`（0=成功）、`base_resp.status_msg`。
-2. **查询状态（poll）**：`GET https://api.minimax.io/v2/query/video_generation/{task_id}`
-   - 响应 `task.status` ∈ 中间态 `preparing`/`queueing`/`processing`；
-     终态 `succeeded`/`failed`/`cancelled`/`expired`。
-   - 成功时下载地址**直接**返回于 `task.content.url`（无 file_id 交换）。
-     该 URL 有效期 9 小时。
-3. **下载**：对 `content.url` 直接 HTTP GET 下载媒体。
-4. **认证/凭据**：Bearer API key，仅来自环境变量
-   **`WFM1_MINIMAX_API_KEY`**；端点基址来自 **`WFM1_MINIMAX_API_BASE`**
+2. **查询状态（poll）**：`GET https://api.minimax.io/v1/query/video_generation?task_id={task_id}`
+   - 响应**顶层** `status` ∈ `Preparing`/`Queueing`/`Processing`（中间态）、
+     `Success`/`Fail`（终态）；成功时返回顶层 `file_id`（int64）+
+     `video_width`/`video_height`；`base_resp.status_code`（0=成功）。
+   - **不返回下载 URL**：需再调用 files/retrieve 换取。
+3. **取回下载地址（retrieve）**：`GET https://api.minimax.io/v1/files/retrieve?file_id={file_id}`
+   - Bearer 认证；响应 `file.download_url`（有效 1 小时）。
+4. **下载**：对 `file.download_url` HTTP GET 下载媒体（协调器执行，见
+   `app/media_fetch.py`，带超时/大小上限/scheme+content-type 校验/原子
+   防覆盖发布）。
+5. **认证/凭据**：Bearer API key，仅来自环境变量
+   **`WFM1_MINIMAX_API_KEY`**（registry 严格要求 catalog 的
+   `credential_env_vars == ["WFM1_MINIMAX_API_KEY"]`，否则 fail-closed，
+   杜绝外发任意 env 变量）；端点基址来自 **`WFM1_MINIMAX_API_BASE`**
    （默认 `https://api.minimax.io`）。凭据永不入库、永不进日志/异常。
 
 ## Decision — 状态映射与错误分类
 
-| MiniMax `task.status` / 条件 | Provider 状态 / 错误 | 计费语义 |
+| MiniMax `status` / 条件 | Provider 状态 / 错误 | 计费语义 |
 | --- | --- | --- |
-| `preparing`/`queueing`/`processing` | PROCESSING | 未定 |
-| `succeeded` + `content.url` | ARTIFACT_AVAILABLE（EXTERNAL） | 已计费 |
-| `failed`/`cancelled`/`expired` | `ProviderVendorError`（**泛，不声明 no-charge**） | 不确定 → ambiguous |
-| submit `base_resp.status_code` 认证类 | `ProviderAuthError` | 未受理（提交前） |
-| HTTP 建连失败（未发送） | `ProviderNotDispatchedError` | 证明未受理 |
+| `Preparing`/`Queueing`/`Processing` | PROCESSING | 未定 |
+| `Success` + `file_id`→`download_url` | ARTIFACT_AVAILABLE（EXTERNAL） | 已计费 |
+| `Fail` | `ProviderVendorError`（**泛，不声明 no-charge**） | 不确定 → ambiguous |
+| 顶层 `status` 缺失/未知 | `ProviderResponseError` | 畸形 → ambiguous |
+| HTTP DNS 失败/连接拒绝（未发送） | `ProviderNotDispatchedError` | 证明未受理 → fallback 允许 |
 | 请求超时 / 响应畸形 / 泛网络 | `ProviderTimeoutError`/`ProviderResponseError`/`ProviderNetworkError` | **不确定** → ambiguous |
 
+**官方错误码映射**（`base_resp.status_code`，见官方 errorcode 文档）：
+
+| 码 | 官方含义 | 映射 | 处置 |
+| --- | --- | --- | --- |
+| `0` | 成功 | — | — |
+| `1004` | not authorized | `ProviderAuthError` | 未受理，可 fallback |
+| `2049` | invalid API Key | `ProviderAuthError` | 未受理，可 fallback |
+| `2013` | invalid params | `ProviderRequestRejectedError` | 无 job/无计费，**禁 fallback** |
+| `1008` | insufficient balance | `ProviderRequestRejectedError` | 无 job/无计费，**禁 fallback** |
+| 其它非 0 | — | `ProviderVendorError` | 不确定 → ambiguous |
+
 沿用 TASK-016 修正后的资金安全分类：只有"证明未受理"或"显式声明
-no-charge"才 release+fallback；其余一律 ambiguous → `needs_reconciliation`，
-禁止自动重复付费。
+no-charge"才 release+fallback；`request_rejected`（无效参数/余额不足）无
+计费但**禁止 fallback**（换 Provider 无意义或不可支付）；其余一律
+ambiguous → `needs_reconciliation`，禁止自动重复付费。
+
+**T2V 分辨率约束**：`MiniMax-Hailuo-02` 的 text-to-video 仅支持
+`768P`/`1080P`（**无 512P**）；6s 支持 768P/1080P，10s 仅 768P。冒烟用
+`768P/6s`。
 
 ## Decision — 成本记账（扩展 ADR-0008）
 
@@ -70,9 +92,12 @@ no-charge"才 release+fallback；其余一律 ambiguous → `needs_reconciliatio
   reservation `(task_id, operation_id)` 去重；遗留 `held` 不自动重提。
   额外发送一个 best-effort `Idempotency-Key` 头（MiniMax 可忽略），不作为
   正确性依据。
-- submit 成功后**立即持久化 `external_task_ref` 到 reservation**，故崩溃/
-  媒体未取回时不丢失外部 task ID；提供显式 `poll-media` 命令用该 ref
-  重新 poll/collect，**不重新 submit、不重复付费**。
+- submit 成功后**立即持久化 `external_task_ref` 到 reservation**（v3 record
+  同时持久化 spec 与原币报价），故崩溃/媒体未取回时不丢失外部 task ID；
+  `poll-media` 命令**仅凭记录**重新 poll/collect（不接受重新输入的
+  spec，booking 用持久化报价），**不重新 submit、不重复付费**。
+- **轮询节奏**：官方建议约 10s 间隔；协调器 poll-first + `sleeper` 注入，
+  就绪即取回、无谓等待为零，未就绪按间隔轮询至上限。
 
 ## Consequences
 
@@ -81,9 +106,10 @@ no-charge"才 release+fallback；其余一律 ambiguous → `needs_reconciliatio
 
 ## Not decided here / 未验证风险
 
-- **image-to-video 需 `first_frame_image`**，而 WFM1 Shot 当前无参考图字段；
-  真实 i2v 需操作者经 `provider_parameters.first_frame_image` 提供，或用
-  纯 prompt 的 t2v 模型。参考图资产化属后续任务。
-- 真实 API 的确切错误码→类型映射、`content.url` 下载鉴权细节，需真实
-  Key 冒烟验证（本 ADR 前未运行真实付费调用）。
+- **image-to-video 需 `first_frame_image`**，而 WFM1 Shot 当前无参考图字段。
+  i2v 现要求操作者经 `first_frame_image` 提供，且**已校验**仅接受公网
+  http(s) URL 或受限 image data URL、拒绝本地路径；capability=i2v 而无
+  首帧则 `spec_invalid` fail-closed。参考图资产化属后续任务。
+- 真实付费链路**尚未用真实 Key 端到端跑通**：错误码全集→类型映射、
+  `download_url` 下载鉴权与实际计费金额，需 opt-in 冒烟验证。
 - 未处理：TASK-009 成本报表聚合、自动路由、其它厂商、字幕/配音/发布。

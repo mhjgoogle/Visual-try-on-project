@@ -165,3 +165,26 @@ def test_bills_at_catalog_price_is_true() -> None:
     # fixed price (ADR-0009).
     provider = _provider(StubTransport(poll_states=[]))
     assert provider.bills_at_catalog_price is True
+
+
+def test_local_path_first_frame_rejected(monkeypatch) -> None:
+    from ai_video_workflow.providers.errors import InvalidProviderRequestError
+
+    monkeypatch.setenv(ENV, SECRET)
+    provider = _provider(StubTransport(poll_states=[]))
+    request = ProviderRequest(
+        provider_id="minimax",
+        task_id="task-1",
+        shot_id="shot-1",
+        prompt="a shot",
+        duration_seconds=6.0,
+        width=768,
+        height=768,
+        frame_rate=24.0,
+        staging_ref="staging/shots/task-1.mp4",
+        provider_parameters={"first_frame_image": "/etc/passwd"},
+    )
+    with pytest.raises(InvalidProviderRequestError, match="local paths"):
+        provider.submit(
+            request, provider.prepare(request, observed_at=T0), observed_at=T0
+        )

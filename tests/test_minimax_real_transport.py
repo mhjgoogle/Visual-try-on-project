@@ -12,6 +12,7 @@ from ai_video_workflow.providers.cloud_errors import (
     ProviderAuthError,
     ProviderNetworkError,
     ProviderNotDispatchedError,
+    ProviderRequestRejectedError,
     ProviderResponseError,
     ProviderTimeoutError,
     ProviderVendorError,
@@ -47,6 +48,19 @@ def _patch_urlopen(monkeypatch, *, returns=None, raises=None):
     monkeypatch.setattr("urllib.request.urlopen", _fake)
 
 
+def _patch_routed(monkeypatch, routes: dict):
+    """Route urlopen by a substring of the URL to a canned JSON response."""
+
+    def _fake(request, timeout=None):
+        url = request.full_url
+        for needle, payload in routes.items():
+            if needle in url:
+                return _FakeResp(json.dumps(payload).encode("utf-8"))
+        raise AssertionError(f"unexpected URL: {url}")
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake)
+
+
 def test_submit_success(monkeypatch) -> None:
     _patch_urlopen(
         monkeypatch, returns={"task_id": "tid-1", "base_resp": {"status_code": 0}}
@@ -72,15 +86,55 @@ def test_submit_base_resp_auth_error(monkeypatch) -> None:
         RealMinimaxTransport().submit(api_key=SECRET, payload={})
 
 
-def test_poll_processing_then_succeeded(monkeypatch) -> None:
-    _patch_urlopen(monkeypatch, returns={"task": {"status": "processing"}})
+def test_submit_invalid_params_is_request_rejected(monkeypatch) -> None:
+    _patch_urlopen(
+        monkeypatch,
+        returns={"base_resp": {"status_code": 2013, "status_msg": "invalid params"}},
+    )
+    with pytest.raises(ProviderRequestRejectedError):
+        RealMinimaxTransport().submit(api_key=SECRET, payload={})
+
+
+def test_submit_insufficient_balance_is_request_rejected(monkeypatch) -> None:
+    _patch_urlopen(
+        monkeypatch,
+        returns={"base_resp": {"status_code": 1008, "status_msg": "no balance"}},
+    )
+    with pytest.raises(ProviderRequestRejectedError):
+        RealMinimaxTransport().submit(api_key=SECRET, payload={})
+
+
+def test_submit_invalid_api_key_2049_is_auth(monkeypatch) -> None:
+    _patch_urlopen(
+        monkeypatch,
+        returns={"base_resp": {"status_code": 2049, "status_msg": "invalid key"}},
+    )
+    with pytest.raises(ProviderAuthError):
+        RealMinimaxTransport().submit(api_key=SECRET, payload={})
+
+
+def test_poll_processing(monkeypatch) -> None:
+    _patch_urlopen(
+        monkeypatch, returns={"status": "Processing", "base_resp": {"status_code": 0}}
+    )
     out = RealMinimaxTransport().poll(api_key=SECRET, external_task_ref="tid-1")
     assert out.state == "processing"
 
-    _patch_urlopen(
+
+def test_poll_success_queries_then_retrieves(monkeypatch) -> None:
+    # official 2-step: query returns file_id, retrieve returns download_url.
+    _patch_routed(
         monkeypatch,
-        returns={
-            "task": {"status": "succeeded", "content": {"url": "https://x/out.mp4"}}
+        {
+            "/v1/query/video_generation": {
+                "status": "Success",
+                "file_id": 12345,
+                "base_resp": {"status_code": 0},
+            },
+            "/v1/files/retrieve": {
+                "file": {"download_url": "https://x/out.mp4"},
+                "base_resp": {"status_code": 0},
+            },
         },
     )
     out = RealMinimaxTransport().poll(api_key=SECRET, external_task_ref="tid-1")
@@ -90,16 +144,48 @@ def test_poll_processing_then_succeeded(monkeypatch) -> None:
 
 
 def test_poll_failed_status(monkeypatch) -> None:
-    _patch_urlopen(monkeypatch, returns={"task": {"status": "failed"}})
+    _patch_urlopen(
+        monkeypatch, returns={"status": "Fail", "base_resp": {"status_code": 0}}
+    )
     out = RealMinimaxTransport().poll(api_key=SECRET, external_task_ref="tid-1")
     assert out.state == "failed"
 
 
-def test_poll_succeeded_without_url(monkeypatch) -> None:
+def test_poll_empty_status_is_response_error(monkeypatch) -> None:
+    _patch_urlopen(monkeypatch, returns={"base_resp": {"status_code": 0}})
+    with pytest.raises(ProviderResponseError, match="status"):
+        RealMinimaxTransport().poll(api_key=SECRET, external_task_ref="tid-1")
+
+
+def test_poll_success_missing_file_id(monkeypatch) -> None:
     _patch_urlopen(
-        monkeypatch, returns={"task": {"status": "succeeded", "content": {}}}
+        monkeypatch, returns={"status": "Success", "base_resp": {"status_code": 0}}
     )
-    with pytest.raises(ProviderResponseError, match="content.url"):
+    with pytest.raises(ProviderResponseError, match="file_id"):
+        RealMinimaxTransport().poll(api_key=SECRET, external_task_ref="tid-1")
+
+
+def test_retrieve_missing_download_url(monkeypatch) -> None:
+    _patch_routed(
+        monkeypatch,
+        {
+            "/v1/query/video_generation": {
+                "status": "Success",
+                "file_id": 1,
+                "base_resp": {"status_code": 0},
+            },
+            "/v1/files/retrieve": {"file": {}, "base_resp": {"status_code": 0}},
+        },
+    )
+    with pytest.raises(ProviderResponseError, match="download_url"):
+        RealMinimaxTransport().poll(api_key=SECRET, external_task_ref="tid-1")
+
+
+def test_query_base_resp_auth_error(monkeypatch) -> None:
+    _patch_urlopen(
+        monkeypatch, returns={"base_resp": {"status_code": 2049, "status_msg": "bad"}}
+    )
+    with pytest.raises(ProviderAuthError):
         RealMinimaxTransport().poll(api_key=SECRET, external_task_ref="tid-1")
 
 
@@ -173,17 +259,27 @@ def test_default_base_url(monkeypatch) -> None:
     reason="real MiniMax smoke: needs AI_VIDEO_WORKFLOW_REAL_MINIMAX=1 + key",
 )
 def test_real_minimax_smoke() -> None:  # pragma: no cover - opt-in only
+    import time
+
     key = os.environ["WFM1_MINIMAX_API_KEY"]
     transport = RealMinimaxTransport()
+    # MiniMax-Hailuo-02 T2V supports 768P/1080P (not 512P) — ADR-0009.
     task_id = transport.submit(
         api_key=key,
         payload={
             "model": "MiniMax-Hailuo-02",
             "prompt": "a calm sunrise over the sea",
             "duration": 6,
-            "resolution": "512P",
+            "resolution": "768P",
         },
     )
     assert task_id
+    # poll (with the recommended interval) to a terminal state
+    deadline = time.monotonic() + 600
     out = transport.poll(api_key=key, external_task_ref=task_id)
-    assert out.state in {"processing", "succeeded", "failed"}
+    while out.state == "processing" and time.monotonic() < deadline:
+        time.sleep(10)
+        out = transport.poll(api_key=key, external_task_ref=task_id)
+    assert out.state in {"succeeded", "failed"}
+    if out.state == "succeeded":
+        assert out.artifact_url and out.artifact_url.startswith("http")

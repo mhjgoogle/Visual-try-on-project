@@ -136,12 +136,18 @@ def _build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--model", required=True)
         sp.add_argument("--resolution", required=True)
         sp.add_argument("--duration", type=int, required=True)
+        sp.add_argument("--first-frame-image", default=None)
+
+    def _resume_args(sp):
+        # resume rebuilds everything from the persisted reservation record
+        sp.add_argument("--shot", required=True)
+        sp.add_argument("--operation-id", required=True)
 
     _add("record-attempt", _cmd_record_attempt, task=True, extra=_attempt_args)
     _add("rate", _cmd_rate, shot=True, extra=_rate_args)
     _add("qcd-report", _cmd_qcd_report)
     _add("paid-submit", _cmd_paid_submit, task=True, extra=_paid_args)
-    _add("poll-media", _cmd_poll_media, task=True, extra=_paid_args)
+    _add("poll-media", _cmd_poll_media, task=True, extra=_resume_args)
     return parser
 
 
@@ -278,7 +284,7 @@ def _cmd_compose(args) -> None:
     print(f"skipped: {outcome.skipped}")
 
 
-def _paid_setup(args):
+def _paid_coordinator(args):
     config = load_project_config(args.project_root)
     catalog = load_locked_catalog(config, args.catalog_dir)
     data = _load_project_data(args.project_root)
@@ -294,6 +300,11 @@ def _paid_setup(args):
         fetcher=UrllibMediaFetcher(),
         clock=utc_now,
     )
+    return coordinator, shot
+
+
+def _paid_setup(args):
+    coordinator, shot = _paid_coordinator(args)
     request = PaidRequest(
         task_id=args.task_id,
         shot_id=args.shot,
@@ -303,6 +314,7 @@ def _paid_setup(args):
         model_id=args.model,
         resolution=args.resolution,
         duration_seconds=args.duration,
+        first_frame_image=args.first_frame_image,
     )
     return coordinator, shot, request
 
@@ -326,9 +338,10 @@ def _cmd_paid_submit(args) -> None:
 
 def _cmd_poll_media(args) -> None:
     # resume an interrupted paid operation via its persisted external task
-    # id: re-poll/collect only, never re-submit or re-pay.
-    coordinator, shot, request = _paid_setup(args)
-    _render_paid(coordinator.resume_media(shot, request))
+    # id: re-poll/collect only, never re-submit or re-pay. Everything is
+    # rebuilt from the reservation record; only ids + shot are supplied.
+    coordinator, shot = _paid_coordinator(args)
+    _render_paid(coordinator.resume_media(shot, args.task_id, args.operation_id))
 
 
 def _cmd_qcd_report(args) -> None:

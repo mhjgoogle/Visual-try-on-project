@@ -11,6 +11,7 @@ from ai_video_workflow.providers.cloud_errors import (
     ProviderNetworkError,
     ProviderNoChargeFailureError,
     ProviderNotDispatchedError,
+    ProviderRequestRejectedError,
     ProviderTimeoutError,
     ProviderVendorError,
 )
@@ -80,6 +81,9 @@ class FakeProvider(VideoProvider):
         if self.behavior == "fail_before_submit":
             # provably not dispatched -> technical (safe to release + fallback)
             raise ProviderNotDispatchedError("connection refused")
+        if self.behavior == "request_rejected":
+            # invalid params / no balance -> no charge, but must not fall back
+            raise ProviderRequestRejectedError("invalid parameters")
         if self.behavior == "timeout_after_dispatch":
             # request may have been received -> ambiguous
             raise ProviderTimeoutError("submit timed out; delivery unknown")

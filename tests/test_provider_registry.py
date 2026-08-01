@@ -54,7 +54,19 @@ def test_minimax_without_credential_env_var_rejected() -> None:
         credential_env_vars=(),
         models={},
     )
-    with pytest.raises(ProviderRegistryError, match="no credential env var"):
+    with pytest.raises(ProviderRegistryError, match="requires credential_env_vars"):
+        default_registry().build("minimax", entry)
+
+
+def test_minimax_wrong_credential_env_var_rejected() -> None:
+    entry = ProviderEntry(
+        provider_id="minimax",
+        display_name="MiniMax",
+        capabilities=("image_to_video",),
+        credential_env_vars=("SOME_OTHER_SECRET",),
+        models={},
+    )
+    with pytest.raises(ProviderRegistryError, match="requires credential_env_vars"):
         default_registry().build("minimax", entry)
 
 

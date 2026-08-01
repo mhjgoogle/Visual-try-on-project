@@ -3,7 +3,7 @@
 > **状态：Implemented。** 真实 `RealMinimaxTransport` 接线，复用现有
 > registry/审批/报价/reservation/成本协调链。官方 API 契约见
 > [ADR-0009](../adr/ADR-0009-minimax-vendor-contract.md)。默认测试全打桩，
-> 真实付费冒烟显式 opt-in。
+> 真实付费冒烟显式 opt-in。实施提交：`a8a63a8`；milestone review 待完成。
 
 ## 正式名称
 
@@ -104,3 +104,35 @@ orchestration、领域模型、VideoAsset 或 QCD 聚合合同。
 - 未验证：真实错误码全集→类型映射、`content.url` 下载鉴权、i2v 参考图来源
   （WFM1 Shot 无参考图字段，i2v 需经 `provider_parameters.first_frame_image`
   提供，或用纯 prompt 的 t2v 模型）——参考图资产化属后续任务。
+
+## TASK-017 复审修正批次（2026-08-01，阻塞复审后）
+
+独立复审判定**阻塞**：查询/下载契约与官方不符（可能扣费却取不回媒体），
+及多项资金安全/健壮性缺陷。本批次逐项修正（真实契约已用官方
+api-reference 页复核）：
+
+**Blocker**
+- **查询/下载三段式**（改正）：`GET /v1/query/video_generation?task_id=` →
+  顶层 `status`（Preparing/Queueing/Processing/Success/Fail）+ `file_id` →
+  `GET /v1/files/retrieve?file_id=` → `file.download_url`。原 `/v2/.../content.url`
+  为误读，已删除。空/未知 status → `ProviderResponseError`。
+- **冒烟改为有效请求**：`MiniMax-Hailuo-02 + 768P + 6s`（T2V 无 512P），
+  按 10s 间隔轮询至终态，成功则断言 download_url。
+
+**Important**
+- **poll-media 绑定记录**：reservation v3 持久化 spec + 原币报价；
+  `resume_media(shot, task_id, operation_id)` 仅凭记录重建，booking 用
+  持久化报价，不接受重新输入的 model/resolution/duration。
+- **官方错误码**：1004/2049→auth；2013 invalid params 与 1008 余额不足→
+  `ProviderRequestRejectedError`（无计费、**禁 fallback**）；其它非 0→vendor。
+- **轮询节奏**：注入 `sleeper`（默认 10s）+ poll-first；就绪零等待。
+- **媒体下载硬化**：超时 + 流式大小上限 + scheme/content-type 校验 +
+  原子防覆盖发布（`app/media_fetch.py`）；协调器 fetch 幂等（已存在即跳过）。
+- **首帧校验**：i2v 必须提供 `--first-frame-image`，仅接受公网 http(s)/
+  image data URL，拒绝本地路径（协调器 + 适配器双重校验）。
+- **凭据严格**：MiniMax factory 要求 catalog `credential_env_vars` 严格
+  等于 `["WFM1_MINIMAX_API_KEY"]`，否则 fail-closed。
+
+**最小冒烟（更新）**：
+`AI_VIDEO_WORKFLOW_REAL_MINIMAX=1 WFM1_MINIMAX_API_KEY=... pytest tests/test_minimax_real_transport.py::test_real_minimax_smoke`
+（Hailuo-02 768P/6s，轮询至终态并取回 download_url）。

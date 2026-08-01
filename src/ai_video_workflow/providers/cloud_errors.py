@@ -76,3 +76,13 @@ class ProviderResponseError(CloudProviderError):
     """Raised when the provider returns a malformed or unusable response.
 
     After submit, a malformed response leaves the charge state unknown."""
+
+
+class ProviderRequestRejectedError(CloudProviderError):
+    """The provider rejected the request pre-generation (no job, no charge).
+
+    E.g. invalid parameters or insufficient balance. No remote job was
+    created, so there is nothing to reconcile — but the request is bad or
+    unpayable, so it must NOT fall back to another paid provider. The
+    coordinator releases the reservation and stops.
+    """

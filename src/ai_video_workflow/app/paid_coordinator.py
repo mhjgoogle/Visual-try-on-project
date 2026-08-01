@@ -26,6 +26,7 @@ never re-submitted; it is flagged for reconciliation.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -40,7 +41,7 @@ from ai_video_workflow.budget.account import (
     account_outstanding_holds,
     read_account_month_spent,
 )
-from ai_video_workflow.budget.estimate import estimate_generation_cost
+from ai_video_workflow.budget.estimate import CostEstimate, estimate_generation_cost
 from ai_video_workflow.budget.guard import evaluate_pre_flight
 from ai_video_workflow.budget.ledger import month_key_jst, read_ledger
 from ai_video_workflow.budget.lock import account_budget_lock
@@ -67,6 +68,7 @@ from ai_video_workflow.providers.cloud_errors import (
     ProviderAuthError,
     ProviderNoChargeFailureError,
     ProviderNotDispatchedError,
+    ProviderRequestRejectedError,
     ProviderVendorError,
 )
 from ai_video_workflow.providers.errors import ProviderError
@@ -96,6 +98,9 @@ TECHNICAL_FAILURE = "technical_failure"
 NEEDS_RECONCILIATION_OUTCOME = "needs_reconciliation"
 PROVIDER_UNAVAILABLE = "provider_unavailable"
 SPEC_INVALID = "spec_invalid"
+REQUEST_REJECTED = "request_rejected"
+
+_DEFAULT_POLL_INTERVAL_SECONDS = 10.0
 
 
 class CoordinatorError(AiVideoWorkflowError):
@@ -119,6 +124,7 @@ class GenerationSpec:
     height: int
     frame_rate: float
     prompt: str
+    first_frame_image: str | None = None
 
 
 class MediaFetcher(Protocol):
@@ -139,6 +145,7 @@ class PaidRequest:
     model_id: str
     resolution: str
     duration_seconds: int
+    first_frame_image: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,6 +170,11 @@ class _AmbiguousResult(Exception):
     """Internal: an unknown charge state; needs manual reconciliation."""
 
 
+class _RequestRejected(Exception):
+    """Internal: the request was rejected pre-generation (no charge, no
+    fallback) — e.g. invalid parameters or insufficient balance."""
+
+
 class PaidGenerationCoordinator:
     """Coordinates one paid generation attempt around a pluggable provider."""
 
@@ -177,6 +189,8 @@ class PaidGenerationCoordinator:
         fetcher: MediaFetcher,
         clock: Callable[[], datetime],
         account_root: Path | None = None,
+        sleeper: Callable[[float], None] = time.sleep,
+        poll_interval_seconds: float = _DEFAULT_POLL_INTERVAL_SECONDS,
     ) -> None:
         self._project_root = project_root
         self._config = config
@@ -186,6 +200,10 @@ class PaidGenerationCoordinator:
         self._fetcher = fetcher
         self._clock = clock
         self._account_root = account_root or project_root.parent
+        # Real async jobs never complete instantly; pace polling to avoid a
+        # tight rate-limited loop. Tests inject a no-op sleeper.
+        self._sleeper = sleeper
+        self._poll_interval = poll_interval_seconds
 
     def submit_paid(self, shot: Shot, request: PaidRequest) -> PaidOutcome:
         """Run the coordination chain, with one fallback on technical failure."""
@@ -219,29 +237,36 @@ class PaidGenerationCoordinator:
             return fallback
         return primary
 
-    def resume_media(self, shot: Shot, request: PaidRequest) -> PaidOutcome:
+    def resume_media(self, shot: Shot, task_id: str, operation_id: str) -> PaidOutcome:
         """Re-poll/collect an interrupted operation via its persisted task id.
 
-        Never re-submits and never re-pays: it only advances an operation
-        whose ``external_task_ref`` was already persisted. If the cost was
-        already committed, it just re-fetches the media; otherwise it books
-        the cost (once) and commits.
+        Rebuilt entirely from the persisted reservation record — the caller
+        supplies only the ids and the shot. It never re-submits, never
+        re-prices (booking uses the reservation's stored quote), and never
+        re-pays. If the cost was already committed it just re-fetches the
+        media; otherwise it books the stored cost (once) and commits.
         """
-        reservation = load_reservation(
-            self._project_root, request.task_id, request.operation_id
-        )
+        reservation = load_reservation(self._project_root, task_id, operation_id)
         if reservation is None:
             return PaidOutcome(
                 kind=NEEDS_RECONCILIATION_OUTCOME,
-                operation_id=request.operation_id,
+                operation_id=operation_id,
                 reason="no reservation to resume",
             )
         if reservation.external_task_ref is None:
             return PaidOutcome(
                 kind=NEEDS_RECONCILIATION_OUTCOME,
                 provider_id=reservation.provider_id,
-                operation_id=request.operation_id,
+                operation_id=operation_id,
                 reason="no external task id persisted; cannot resume safely",
+            )
+        if shot.shot_id != reservation.shot_id:
+            return PaidOutcome(
+                kind=SPEC_INVALID,
+                provider_id=reservation.provider_id,
+                operation_id=operation_id,
+                reason=f"shot {shot.shot_id!r} does not match reservation "
+                f"shot {reservation.shot_id!r}",
             )
         try:
             provider = self._build_provider(reservation.provider_id)
@@ -249,63 +274,80 @@ class PaidGenerationCoordinator:
             return PaidOutcome(
                 kind=PROVIDER_UNAVAILABLE,
                 provider_id=reservation.provider_id,
-                operation_id=request.operation_id,
-                reason=str(exc),
-            )
-        try:
-            spec = _build_spec(shot, request)
-        except CoordinatorError as exc:
-            return PaidOutcome(
-                kind=SPEC_INVALID,
-                provider_id=reservation.provider_id,
-                operation_id=request.operation_id,
+                operation_id=operation_id,
                 reason=str(exc),
             )
 
         now = self._clock()
-        provider_request = self._build_request(spec, request, reservation.provider_id)
+        # A minimal request for poll/collect identity checks; poll uses the
+        # external task id, not this request's payload.
+        provider_request = ProviderRequest(
+            provider_id=reservation.provider_id,
+            task_id=task_id,
+            shot_id=shot.shot_id,
+            prompt=shot.prompt,
+            duration_seconds=shot.duration_seconds,
+            width=shot.width,
+            height=shot.height,
+            frame_rate=shot.frame_rate,
+            staging_ref=staging_ref_for(task_id),
+            provider_parameters={},
+        )
         current = ProviderResult(
             provider_id=reservation.provider_id,
-            task_id=request.task_id,
-            shot_id=request.shot_id,
+            task_id=task_id,
+            shot_id=shot.shot_id,
             status=ProviderStatus.PROCESSING,
             observed_at=now,
             external_task_ref=reservation.external_task_ref,
         )
         already_committed = reservation.status == COMMITTED
         try:
-            final = _poll_collect_phase(provider, provider_request, current, now)
+            final = _poll_collect_phase(
+                provider,
+                provider_request,
+                current,
+                now,
+                self._sleeper,
+                self._poll_interval,
+            )
         except _TechnicalFailure as exc:
             if already_committed:
                 return self._media_pending(reservation, str(exc))
             return self._release_technical(
-                request, request.operation_id, reservation.provider_id, exc, False
+                reservation, operation_id, reservation.provider_id, exc, False
             )
         except _AmbiguousResult as exc:
             if already_committed:
                 return self._media_pending(reservation, str(exc))
             return self._flag_ambiguous(
-                request, request.operation_id, reservation.provider_id, exc, False
+                reservation, operation_id, reservation.provider_id, exc, False
             )
 
         if already_committed:
-            media_ok = self._fetch_to_staging(request.task_id, final.artifact.reference)
+            media_ok = self._fetch_to_staging(task_id, final.artifact.reference)
             return PaidOutcome(
                 kind=SUCCESS if media_ok else SUCCESS_MEDIA_PENDING,
                 provider_id=reservation.provider_id,
-                operation_id=request.operation_id,
+                operation_id=operation_id,
             )
-        estimate = estimate_generation_cost(
-            self._catalog,
-            self._config.fx,
-            reservation.provider_id,
-            spec.model_id,
-            resolution=spec.resolution,
-            duration_seconds=spec.duration_seconds,
-        )
+        # Book from the reservation's stored quote — never a re-quote. If the
+        # provider returns its own cost, that is used; the stored quote only
+        # backs a fixed-price provider (and its absence -> needs_reconciliation
+        # in _settle).
+        estimate = None
+        if (
+            reservation.quote_minor_units is not None
+            and reservation.quote_currency is not None
+        ):
+            estimate = CostEstimate(
+                original_amount_minor_units=reservation.quote_minor_units,
+                original_currency=reservation.quote_currency,
+                jpy=reservation.estimate_jpy,
+            )
         return self._settle(
-            request,
-            request.operation_id,
+            reservation,
+            operation_id,
             reservation.provider_id,
             final,
             estimate,
@@ -403,6 +445,11 @@ class PaidGenerationCoordinator:
                 model_id=spec.model_id,
                 estimate_jpy=estimate.jpy,
                 created_at=now.isoformat(),
+                resolution=spec.resolution,
+                duration_seconds=spec.duration_seconds,
+                capability=spec.capability,
+                quote_minor_units=estimate.original_amount_minor_units,
+                quote_currency=estimate.original_currency,
             )
 
         # 6a. submit (outside the lock)
@@ -411,6 +458,10 @@ class PaidGenerationCoordinator:
             submitted = _submit_phase(provider, provider_request, now)
         except _TechnicalFailure as exc:
             return self._release_technical(
+                request, operation_id, provider_id, exc, fell_back
+            )
+        except _RequestRejected as exc:
+            return self._reject_request(
                 request, operation_id, provider_id, exc, fell_back
             )
         except _AmbiguousResult as exc:
@@ -428,9 +479,16 @@ class PaidGenerationCoordinator:
                 submitted.external_task_ref,
             )
 
-        # 6c. poll + collect
+        # 6c. poll + collect (paced)
         try:
-            final = _poll_collect_phase(provider, provider_request, submitted, now)
+            final = _poll_collect_phase(
+                provider,
+                provider_request,
+                submitted,
+                now,
+                self._sleeper,
+                self._poll_interval,
+            )
         except _TechnicalFailure as exc:
             return self._release_technical(
                 request, operation_id, provider_id, exc, fell_back
@@ -443,6 +501,25 @@ class PaidGenerationCoordinator:
         # 7. book authoritative cost + commit, then fetch media
         return self._settle(
             request, operation_id, provider_id, final, estimate, provider, fell_back
+        )
+
+    def _reject_request(
+        self, request, operation_id, provider_id, exc, fell_back
+    ) -> PaidOutcome:
+        # request rejected pre-generation: no charge, but do NOT fall back.
+        release_reservation(
+            self._project_root,
+            request.task_id,
+            operation_id,
+            resolved_at=self._clock().isoformat(),
+            note=f"request rejected: {exc}",
+        )
+        return PaidOutcome(
+            kind=REQUEST_REJECTED,
+            provider_id=provider_id,
+            operation_id=operation_id,
+            reason=str(exc),
+            fell_back=fell_back,
         )
 
     def _release_technical(
@@ -537,7 +614,7 @@ class PaidGenerationCoordinator:
                 auth.observed_amount,
                 auth.observed_unit,
             )
-        if getattr(provider, "bills_at_catalog_price", False):
+        if getattr(provider, "bills_at_catalog_price", False) and estimate is not None:
             return (
                 estimate.original_amount_minor_units,
                 estimate.original_currency,
@@ -604,8 +681,14 @@ class PaidGenerationCoordinator:
         )
 
     def _fetch_to_staging(self, task_id: str, reference: str) -> bool:
-        """Fetch external media to staging; media is retryable, no money impact."""
+        """Fetch external media to staging; media is retryable, no money impact.
+
+        Idempotent: if the staged file already exists (a prior fetch), the
+        media is present and we do not re-download or overwrite it.
+        """
         dest = resolve_within_root(self._project_root, staging_ref_for(task_id))
+        if dest.is_file() and dest.stat().st_size > 0:
+            return True
         dest.parent.mkdir(parents=True, exist_ok=True)
         try:
             self._fetcher.fetch(reference, dest)
@@ -662,11 +745,25 @@ class PaidGenerationCoordinator:
                 "resolution": spec.resolution,
                 "capability": spec.capability,
                 "model": spec.model_id,
+                "first_frame_image": spec.first_frame_image,
                 # best-effort idempotency key for the provider; the
                 # authoritative guarantee is the reservation.
                 "operation_id": request.operation_id,
             },
         )
+
+
+def _validate_first_frame_image(value: str) -> str:
+    # image-to-video first frame: public URL or inline image data URL only —
+    # never a local path (which could leak a path or exfiltrate a local file).
+    if value.startswith(("http://", "https://")):
+        return value
+    if value.startswith("data:image/"):
+        return value
+    raise CoordinatorError(
+        "first_frame_image: must be a public http(s) URL or an image data URL "
+        "(local paths are not allowed)"
+    )
 
 
 def _build_spec(shot: Shot, request: PaidRequest) -> GenerationSpec:
@@ -687,6 +784,13 @@ def _build_spec(shot: Shot, request: PaidRequest) -> GenerationSpec:
             f"duration mismatch: request {request.duration_seconds}s != "
             f"shot {shot.duration_seconds}s (quote would diverge from payload)"
         )
+    first_frame_image = request.first_frame_image
+    if first_frame_image is not None:
+        first_frame_image = _validate_first_frame_image(first_frame_image)
+    if request.capability == "image_to_video" and first_frame_image is None:
+        raise CoordinatorError(
+            "first_frame_image: required for the image_to_video capability"
+        )
     return GenerationSpec(
         model_id=request.model_id,
         capability=request.capability,
@@ -696,6 +800,7 @@ def _build_spec(shot: Shot, request: PaidRequest) -> GenerationSpec:
         height=shot.height,
         frame_rate=shot.frame_rate,
         prompt=shot.prompt,
+        first_frame_image=first_frame_image,
     )
 
 
@@ -704,29 +809,48 @@ def _submit_phase(provider, request: ProviderRequest, now: datetime):
 
     prepare is local (pre-dispatch); a submit error is only a safe
     'technical' failure when it PROVES no remote job — a timeout / response
-    error / generic network error may have been received (ambiguous).
+    error / generic network error may have been received (ambiguous). A
+    request rejected pre-generation (invalid params / no balance) is no
+    charge but must not fall back.
     """
     try:
         prepared = provider.prepare(request, observed_at=now)
+    except ProviderRequestRejectedError as exc:
+        raise _RequestRejected(str(exc)) from exc
     except CloudProviderError as exc:
         raise _TechnicalFailure(str(exc)) from exc
     try:
         return provider.submit(request, prepared, observed_at=now)
+    except ProviderRequestRejectedError as exc:
+        raise _RequestRejected(str(exc)) from exc
     except _SAFE_NO_CHARGE_SUBMIT as exc:
         raise _TechnicalFailure(str(exc)) from exc
     except CloudProviderError as exc:
         raise _AmbiguousResult(str(exc)) from exc
 
 
-def _poll_collect_phase(provider, request: ProviderRequest, current, now: datetime):
-    """poll + collect. Post-submit the job may be charged.
+def _poll_collect_phase(
+    provider,
+    request: ProviderRequest,
+    current,
+    now: datetime,
+    sleeper: Callable[[float], None],
+    interval_seconds: float,
+):
+    """poll + collect, paced by ``sleeper`` between polls.
 
-    Only a provider that DECLARES no charge (ProviderNoChargeFailureError)
-    may be released and fall back; every other failure/terminal status is
-    ambiguous -> needs_reconciliation.
+    Post-submit the job may be charged. Only a provider that DECLARES no
+    charge (ProviderNoChargeFailureError) may be released and fall back;
+    every other failure/terminal status is ambiguous ->
+    needs_reconciliation.
     """
     try:
-        for _ in range(_MAX_POLLS):
+        for index in range(_MAX_POLLS):
+            # poll first so a job that is already done incurs no wait; sleep
+            # only between successive polls of a still-running job.
+            if index > 0:
+                sleeper(interval_seconds)
+            current = provider.poll(request, current, observed_at=now)
             status = current.status
             if status is ProviderStatus.ARTIFACT_AVAILABLE:
                 return provider.collect(
@@ -743,7 +867,6 @@ def _poll_collect_phase(provider, request: ProviderRequest, current, now: dateti
                 raise _AmbiguousResult(current.error_summary or "provider failed")
             if status is ProviderStatus.CANCELLED:
                 raise _AmbiguousResult("provider cancelled")
-            current = provider.poll(request, current, observed_at=now)
     except ProviderNoChargeFailureError as exc:
         raise _TechnicalFailure(str(exc)) from exc
     except ProviderVendorError as exc:

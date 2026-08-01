@@ -160,6 +160,7 @@ def _setup(tmp_path: Path, *, providers, config_overrides=None, approve=True):
         project=_project(),
         fetcher=fetcher,
         clock=_clock,
+        sleeper=lambda _seconds: None,
     )
     return project_root, coordinator, fetcher
 
@@ -174,6 +175,7 @@ def _request(**overrides) -> PaidRequest:
         model_id="m1",
         resolution="512p",
         duration_seconds=6,
+        first_frame_image="https://example.com/frame.png",
     )
     base.update(overrides)
     return PaidRequest(**base)
@@ -678,7 +680,7 @@ def test_resume_media_resumes_held_operation(tmp_path: Path) -> None:
         created_at=T0.isoformat(),
     )
     record_external_task_ref(root, "task-1", "op-1", "ext-1")
-    outcome = coord.resume_media(_shot(), _request())
+    outcome = coord.resume_media(_shot(), "task-1", "op-1")
     assert outcome.kind == "success"
     assert fake.calls["submit"] == 0  # never re-submitted
     assert load_reservation(root, "task-1", "op-1").status == "committed"
@@ -694,7 +696,7 @@ def test_resume_media_committed_only_refetches(tmp_path: Path) -> None:
     fake = FakeProvider(provider_id="fake-a")
     root, coord, fetcher = _setup(tmp_path, providers=[fake])
     coord.submit_paid(_shot(), _request())  # committed, 1 cost event
-    outcome = coord.resume_media(_shot(), _request())
+    outcome = coord.resume_media(_shot(), "task-1", "op-1")
     assert outcome.kind == "success"
     cost = [
         e
@@ -719,6 +721,40 @@ def test_resume_media_without_external_ref_needs_reconciliation(tmp_path: Path) 
         estimate_jpy=16,
         created_at=T0.isoformat(),
     )
-    outcome = coord.resume_media(_shot(), _request())
+    outcome = coord.resume_media(_shot(), "task-1", "op-1")
     assert outcome.kind == "needs_reconciliation"
+    assert fake.total_calls == 0
+
+
+# ============================================================================
+# TASK-017 review fixes: request-rejected, first-frame validation
+# ============================================================================
+
+
+def test_request_rejected_does_not_fall_back(tmp_path: Path) -> None:
+    primary = FakeProvider(provider_id="fake-a", behavior="request_rejected")
+    fallback = FakeProvider(provider_id="fake-b")
+    root, coord, _ = _setup(tmp_path, providers=[primary, fallback])
+    outcome = coord.submit_paid(_shot(), _request())
+    assert outcome.kind == "request_rejected"
+    assert fallback.total_calls == 0  # invalid request must not try fallback
+    assert load_reservation(root, "task-1", "op-1").status == "released"
+
+
+def test_i2v_without_first_frame_is_spec_invalid(tmp_path: Path) -> None:
+    fake = FakeProvider(provider_id="fake-a")
+    root, coord, _ = _setup(tmp_path, providers=[fake])
+    outcome = coord.submit_paid(
+        _shot(), _request(capability="image_to_video", first_frame_image=None)
+    )
+    assert outcome.kind == "spec_invalid"
+    assert fake.total_calls == 0
+    assert load_reservation(root, "task-1", "op-1") is None
+
+
+def test_first_frame_local_path_is_spec_invalid(tmp_path: Path) -> None:
+    fake = FakeProvider(provider_id="fake-a")
+    root, coord, _ = _setup(tmp_path, providers=[fake])
+    outcome = coord.submit_paid(_shot(), _request(first_frame_image="/etc/passwd"))
+    assert outcome.kind == "spec_invalid"
     assert fake.total_calls == 0

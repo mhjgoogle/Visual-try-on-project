@@ -169,6 +169,8 @@ def test_paid_submit_happy_path(tmp_path: Path, monkeypatch) -> None:
             "512p",
             "--duration",
             "6",
+            "--first-frame-image",
+            "https://example.com/frame.png",
         ]
     )
     assert code == 0
@@ -228,7 +230,7 @@ def test_poll_media_after_submit(tmp_path: Path, monkeypatch) -> None:
         "--catalog-dir",
         str(catalog_dir),
     ]
-    tail = [
+    submit_tail = [
         "task-1",
         "--shot",
         "shot-1",
@@ -240,9 +242,13 @@ def test_poll_media_after_submit(tmp_path: Path, monkeypatch) -> None:
         "512p",
         "--duration",
         "6",
+        "--first-frame-image",
+        "https://example.com/frame.png",
     ]
-    assert cli.main([*common, "paid-submit", *tail]) == 0
-    assert cli.main([*common, "poll-media", *tail]) == 0
+    # poll-media rebuilds from the record: only ids + shot are supplied.
+    resume_tail = ["task-1", "--shot", "shot-1", "--operation-id", "op-1"]
+    assert cli.main([*common, "paid-submit", *submit_tail]) == 0
+    assert cli.main([*common, "poll-media", *resume_tail]) == 0
     cost = [
         e
         for e in read_events(root)

@@ -38,7 +38,7 @@ from ai_video_workflow.budget.errors import ReservationError
 from ai_video_workflow.security.paths import resolve_within_root
 
 RESERVATIONS_DIR = "budget/reservations"
-RESERVATION_SCHEMA_VERSION = 2
+RESERVATION_SCHEMA_VERSION = 3
 
 HELD = "held"
 COMMITTED = "committed"
@@ -64,6 +64,11 @@ _KEYS = frozenset(
         "resolved_at",
         "note",
         "external_task_ref",
+        "resolution",
+        "duration_seconds",
+        "capability",
+        "quote_minor_units",
+        "quote_currency",
     }
 )
 
@@ -86,6 +91,14 @@ class Reservation:
     resolved_at: str | None
     note: str | None
     external_task_ref: str | None = None
+    # The bound generation spec + original-currency quote, so a resumed
+    # operation is booked from the record, never re-priced from re-entered
+    # CLI parameters.
+    resolution: str | None = None
+    duration_seconds: int | None = None
+    capability: str | None = None
+    quote_minor_units: int | None = None
+    quote_currency: str | None = None
 
     @property
     def is_outstanding(self) -> bool:
@@ -135,6 +148,11 @@ def hold_reservation(
     estimate_jpy: int,
     created_at: str,
     note: str | None = None,
+    resolution: str | None = None,
+    duration_seconds: int | None = None,
+    capability: str | None = None,
+    quote_minor_units: int | None = None,
+    quote_currency: str | None = None,
 ) -> Reservation:
     """Place a pre-flight hold, idempotently.
 
@@ -171,6 +189,11 @@ def hold_reservation(
         resolved_at=None,
         note=note,
         external_task_ref=None,
+        resolution=resolution,
+        duration_seconds=duration_seconds,
+        capability=capability,
+        quote_minor_units=quote_minor_units,
+        quote_currency=quote_currency,
     )
     _write(project_root, reservation, overwrite=False)
     return reservation
@@ -388,6 +411,11 @@ def parse_reservation(raw: object) -> Reservation:
         resolved_at=_optional_str(raw["resolved_at"], "resolved_at"),
         note=_optional_str(raw["note"], "note"),
         external_task_ref=_optional_str(raw["external_task_ref"], "external_task_ref"),
+        resolution=_optional_str(raw["resolution"], "resolution"),
+        duration_seconds=_optional_int(raw["duration_seconds"], "duration_seconds"),
+        capability=_optional_str(raw["capability"], "capability"),
+        quote_minor_units=_optional_int(raw["quote_minor_units"], "quote_minor_units"),
+        quote_currency=_optional_str(raw["quote_currency"], "quote_currency"),
     )
 
 
@@ -449,6 +477,11 @@ def _to_dict(reservation: Reservation) -> dict:
         "resolved_at": reservation.resolved_at,
         "note": reservation.note,
         "external_task_ref": reservation.external_task_ref,
+        "resolution": reservation.resolution,
+        "duration_seconds": reservation.duration_seconds,
+        "capability": reservation.capability,
+        "quote_minor_units": reservation.quote_minor_units,
+        "quote_currency": reservation.quote_currency,
     }
 
 
@@ -511,6 +544,14 @@ def _optional_str(value: object, name: str) -> str | None:
     if value is None:
         return None
     return _require_str(value, name)
+
+
+def _optional_int(value: object, name: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ReservationError(f"{name}: expected an int or null")
+    return value
 
 
 def _require_non_negative_int(value: object, name: str) -> None:

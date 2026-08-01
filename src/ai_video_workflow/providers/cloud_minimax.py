@@ -20,6 +20,7 @@ import json
 import os
 import socket
 import urllib.error
+import urllib.parse
 import urllib.request
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -30,11 +31,13 @@ from ai_video_workflow.providers.cloud_errors import (
     ProviderAuthError,
     ProviderNetworkError,
     ProviderNotDispatchedError,
+    ProviderRequestRejectedError,
     ProviderResponseError,
     ProviderTimeoutError,
     ProviderVendorError,
 )
 from ai_video_workflow.providers.errors import (
+    InvalidProviderRequestError,
     InvalidProviderStateError,
     MissingArtifactReferenceError,
 )
@@ -50,6 +53,27 @@ from ai_video_workflow.providers.models import (
 
 MINIMAX_PROVIDER_ID = "minimax"
 MINIMAX_ENDPOINT_ENV = "WFM1_MINIMAX_API_BASE"
+MINIMAX_CREDENTIAL_ENV = "WFM1_MINIMAX_API_KEY"
+
+# A first-frame image (image-to-video) must be a public URL or an inline
+# image data URL — never a local path (which could exfiltrate local files
+# or leak a path). Capped to keep an inline image from ballooning a request.
+_MAX_DATA_URL_LEN = 8 * 1024 * 1024
+
+
+def _validate_first_frame_image(value: object) -> str:
+    if not isinstance(value, str) or not value:
+        raise InvalidProviderRequestError("first_frame_image: expected a non-empty str")
+    if value.startswith(("http://", "https://")):
+        return value
+    if value.startswith("data:image/"):
+        if len(value) > _MAX_DATA_URL_LEN:
+            raise InvalidProviderRequestError("first_frame_image: data URL too large")
+        return value
+    raise InvalidProviderRequestError(
+        "first_frame_image: must be a public http(s) URL or an image data URL "
+        "(local paths are not allowed)"
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -256,8 +280,8 @@ class MinimaxVideoProvider(VideoProvider):
             "resolution": params.get("resolution"),
         }
         first_frame_image = params.get("first_frame_image")
-        if isinstance(first_frame_image, str) and first_frame_image:
-            body["first_frame_image"] = first_frame_image
+        if first_frame_image is not None:
+            body["first_frame_image"] = _validate_first_frame_image(first_frame_image)
         return {key: value for key, value in body.items() if value is not None}
 
     @staticmethod
@@ -271,7 +295,6 @@ class MinimaxVideoProvider(VideoProvider):
 
 _DEFAULT_BASE = "https://api.minimax.io"
 _PROCESSING_STATES = frozenset({"preparing", "queueing", "processing"})
-_FAILED_STATES = frozenset({"failed", "cancelled", "expired"})
 
 
 class RealMinimaxTransport(MinimaxTransport):
@@ -317,28 +340,54 @@ class RealMinimaxTransport(MinimaxTransport):
         return task_id
 
     def poll(self, *, api_key: str, external_task_ref: str) -> MinimaxPoll:
+        # Official contract (ADR-0009): GET /v1/query/video_generation?task_id
+        # returns a top-level `status` (Preparing/Queueing/Processing/Success/
+        # Fail) and, on Success, a `file_id`. The download URL is then a
+        # separate GET /v1/files/retrieve?file_id -> file.download_url.
+        base = urllib.parse.quote(external_task_ref, safe="")
         data = self._request(
             "GET",
-            f"{self._base()}/v2/query/video_generation/{external_task_ref}",
+            f"{self._base()}/v1/query/video_generation?task_id={base}",
             api_key,
             {},
             None,
         )
-        task = data.get("task") or data
-        status = str(task.get("status", "")).lower()
-        if status in _PROCESSING_STATES or status == "":
+        base_resp = data.get("base_resp") or {}
+        code = base_resp.get("status_code")
+        if code not in (0, None):
+            self._raise_base_resp(code, base_resp.get("status_msg"))
+        status = data.get("status")
+        if not isinstance(status, str) or not status:
+            raise ProviderResponseError("query: response missing status")
+        normalized = status.lower()
+        if normalized in _PROCESSING_STATES:
             return MinimaxPoll(state="processing")
-        if status in _FAILED_STATES:
+        if normalized == "fail":
             return MinimaxPoll(state="failed", error=f"task status {status!r}")
-        if status == "succeeded":
-            content = task.get("content") or {}
-            url = content.get("url")
-            if not isinstance(url, str) or not url:
-                raise ProviderResponseError("poll: succeeded without content.url")
+        if normalized == "success":
+            file_id = data.get("file_id")
+            if file_id in (None, ""):
+                raise ProviderResponseError("query: succeeded without file_id")
+            url = self._retrieve_download_url(api_key, file_id)
             # MiniMax returns no cost field (ADR-0009); the coordinator books
             # the locked catalog fixed price.
             return MinimaxPoll(state="succeeded", artifact_url=url)
-        raise ProviderResponseError(f"poll: unknown status {status!r}")
+        raise ProviderResponseError(f"query: unknown status {status!r}")
+
+    def _retrieve_download_url(self, api_key: str, file_id) -> str:
+        fid = urllib.parse.quote(str(file_id), safe="")
+        data = self._request(
+            "GET", f"{self._base()}/v1/files/retrieve?file_id={fid}", api_key, {}, None
+        )
+        base_resp = data.get("base_resp") or {}
+        code = base_resp.get("status_code")
+        if code not in (0, None):
+            self._raise_base_resp(code, base_resp.get("status_msg"))
+        file_obj = data.get("file") or {}
+        url = file_obj.get("download_url")
+        if not isinstance(url, str) or not url:
+            raise ProviderResponseError("retrieve: response missing file.download_url")
+        return url
 
     def _request(
         self, method: str, url: str, api_key: str, headers: dict, body: bytes | None
@@ -380,7 +429,14 @@ class RealMinimaxTransport(MinimaxTransport):
 
     @staticmethod
     def _raise_base_resp(status_code, status_msg) -> None:
-        # auth-family MiniMax status codes are rejected pre-generation
-        if status_code in (1004, 1008, 2013):  # invalid key / insufficient balance
-            raise ProviderAuthError(f"MiniMax auth/quota error {status_code}")
+        # Official error codes (ADR-0009): 1004 not authorized, 2049 invalid
+        # API key -> auth (no charge, fallback ok). 2013 invalid params, 1008
+        # insufficient balance -> request rejected pre-generation (no charge,
+        # but do NOT fall back). Everything else -> vendor error (ambiguous).
+        if status_code in (1004, 2049):
+            raise ProviderAuthError("MiniMax rejected the credentials")
+        if status_code == 2013:
+            raise ProviderRequestRejectedError("MiniMax rejected invalid parameters")
+        if status_code == 1008:
+            raise ProviderRequestRejectedError("MiniMax reported insufficient balance")
         raise ProviderVendorError(f"MiniMax error {status_code}: {status_msg!r}")

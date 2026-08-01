@@ -16,6 +16,7 @@ from collections.abc import Callable
 from ai_video_workflow.config.catalog import ProviderEntry
 from ai_video_workflow.providers.base import VideoProvider
 from ai_video_workflow.providers.cloud_minimax import (
+    MINIMAX_CREDENTIAL_ENV,
     MINIMAX_PROVIDER_ID,
     MinimaxVideoProvider,
     RealMinimaxTransport,
@@ -62,20 +63,23 @@ class ProviderRegistry:
         return provider
 
 
-def _first_credential_env_var(entry: ProviderEntry) -> str:
-    if not entry.credential_env_vars:
+def _minimax_credential_env_var(entry: ProviderEntry) -> str:
+    # Fail closed unless the catalog declares EXACTLY the one sanctioned
+    # MiniMax credential env var, so a misconfigured catalog cannot make the
+    # provider read and send some other environment variable as a token.
+    if tuple(entry.credential_env_vars) != (MINIMAX_CREDENTIAL_ENV,):
         raise ProviderRegistryError(
-            f"provider {entry.provider_id!r} declares no credential env var"
+            f"provider {entry.provider_id!r}: MiniMax requires credential_env_vars "
+            f"== [{MINIMAX_CREDENTIAL_ENV!r}], got {list(entry.credential_env_vars)}"
         )
-    return entry.credential_env_vars[0]
+    return MINIMAX_CREDENTIAL_ENV
 
 
 def default_registry() -> ProviderRegistry:
     """Return a registry with the built-in providers (manual + MiniMax).
 
-    The MiniMax factory wires the real HTTP transport, which is opt-in and
-    refuses to run until its endpoint is configured — so constructing the
-    default registry never performs a real paid call.
+    The MiniMax factory wires the real HTTP transport and pins the
+    credential env var to the one sanctioned name.
     """
     registry = ProviderRegistry()
     registry.register("manual", lambda entry: ManualVideoProvider())
@@ -83,7 +87,7 @@ def default_registry() -> ProviderRegistry:
         MINIMAX_PROVIDER_ID,
         lambda entry: MinimaxVideoProvider(
             transport=RealMinimaxTransport(),
-            credential_env_var=_first_credential_env_var(entry),
+            credential_env_var=_minimax_credential_env_var(entry),
             provider_id=entry.provider_id,
         ),
     )
