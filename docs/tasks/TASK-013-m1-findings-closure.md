@@ -1,9 +1,10 @@
 # TASK-013：M1 Findings Closure（整体审查 blocker/important 收口）
 
-> **状态：已实现（IMPLEMENTED）——M1 整体 Codex 审查未通过后的收口任务，
-> 待整体仓库 Codex 复审。** 7 类 blocker 根因组 + 已确认的 important 均已
-> 修复并各配反例测试，全量测试/格式/静态检查通过。实施 Agent 唯一；
-> 另一 Agent 仅作独立审查（AGENTS.md §14/15）。
+> **状态：已实现并验收（IMPLEMENTED AND ACCEPTED）——M1 整体 Codex
+> 审查 findings 已收口，随后 M1 milestone review 通过（2026-07-30，
+> 0 blockers / 0 important）。** 7 类 blocker 根因组 + 已确认的 important
+> 均已修复并各配反例测试。验收记录见
+> [M1-milestone-review](../design/M1-milestone-review.md)。
 
 ## 正式名称
 

@@ -1,7 +1,7 @@
 # TASK-009：QCD 汇总、指标计算与报告（阶段 6）
 
-> **状态：规划定稿（PLANNED，Milestone 2）——待整体 Codex 设计
-> 审查。**
+> **状态：已实现（IMPLEMENTED，Milestone 2）——聚焦设计与实现已完成，
+> 待与 TASK-008 一并进行 M2 milestone review。**
 
 ## 正式名称
 

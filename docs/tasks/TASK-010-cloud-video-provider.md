@@ -1,8 +1,9 @@
 # TASK-010：首个 CloudVideoProvider（阶段 7）
 
-> **状态：大纲（OUTLINE，Milestone 3——被产品级决策阻塞）。**
+> **状态：大纲（OUTLINE，Milestone 3——付费 API 边界已由 ADR-0006
+> 窄范围解除，仍被厂商、预算和凭据产品决策阻塞）。**
 > 本卡只锁定边界与合同方向；厂商选型是产品级取舍，须用户裁决并
-> 记录 ADR 后才能进入聚焦设计。规划阶段不得虚构厂商细节。
+> 记录新的厂商 ADR 后才能完成聚焦设计。规划阶段不得虚构厂商细节。
 
 ## 正式名称
 
@@ -15,9 +16,8 @@ First Cloud Video Provider Integration
 
 ## 阻塞项（用户裁决）
 
-1. 厂商选型（记录 ADR-0004 或后续编号）；
-2. 预算与计费边界（首次引入付费 API，越出第一阶段边界，须显式
-   解除）；
+1. 厂商选型（记录新的厂商 ADR；不得复用已有 ADR 编号）；
+2. 预算与计费边界具体值（付费 API 边界已由 ADR-0006 窄范围解除）；
 3. 凭据管理方式确认（环境变量命名合同）。
 
 ## 边界合同（已可锁定的部分）
@@ -41,5 +41,6 @@ TASK-003/004（已交付）；TASK-005/006/007（端到端验证链路）；
 
 ## 当前状态
 
-Outline only — blocked on user product decisions
-（厂商/预算/凭据）；不计入 Milestone 1–2 回归门槛
+Outline only — ADR-0006 has lifted the paid-API boundary for this task,
+but vendor / budget / credential decisions remain blocking；不计入
+Milestone 1–2 回归门槛

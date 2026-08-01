@@ -1,9 +1,16 @@
 # 剩余 Roadmap 整体设计报告（供 Codex 一次性架构审查）
 
+> **历史文档声明（2026-08-01）**：本文是 2026-07-28 时点的原
+> M1–M3 后续设计与审查快照，保留当时的 pending、依赖和风险表述作为
+> 决策历史，不再作为当前 WFM1 路线图或状态事实来源。当前状态以
+> `docs/implementation_plan.md`、各任务卡、milestone review 和
+> ADR-0007 为准；WFM1 是原 M1 之后的独立增量路线。
+
 - 日期：2026-07-28
 - 模式：batch milestone mode（用户决策：一次整体设计审查后连续
   实施，不再逐 Step 外部审查；实施审查合并到 milestone 回归门槛）
-- 状态：**Remaining roadmap design complete — single Codex
+- 当前文档状态：**Historical snapshot — superseded for current planning**
+- 原始时点状态：**Remaining roadmap design complete — single Codex
   architecture review pending**
 - 提取依据：AGENTS.md、product_spec、architecture、
   implementation_plan、ADR-0001、TASK-001–004 全部文档与当前源码

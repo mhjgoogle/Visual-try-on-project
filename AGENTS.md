@@ -23,9 +23,24 @@ Agent 之间只通过仓库中的文档、代码和 Git 状态共享上下文，
 → FFmpeg 按镜头顺序合成
 → 输出最终 MP4。
 
+该第一阶段称为原 **M1**，已经完成并作为后续工作的稳定基础保留。
+
+### WFM1 增量路线
+
+WFM1 在原 M1 之后增量加入可复用短剧生产流程、人工创意审批、生产规划、
+预算约束与云端视频默认生产路线。WFM1 不重定义原 M1，不修改既有冻结合同；
+新开发任务从 `TASK-014` 起，采用现有 batch milestone review。
+
+云端视频是 WFM1 的默认生产路线，但核心架构继续保持 Provider 中立。
+付费 API 仅可在 Accepted ADR 明确批准的范围内接入。
+
 详细规格见 [docs/product_spec.md](docs/product_spec.md)，
 架构见 [docs/architecture.md](docs/architecture.md)，
-实施规划见 [docs/implementation_plan.md](docs/implementation_plan.md)。
+WFM1 工作流见
+[docs/ai_shortfilm_pipeline_workflow.md](docs/ai_shortfilm_pipeline_workflow.md)，
+实施规划见 [docs/implementation_plan.md](docs/implementation_plan.md)，
+文档权威关系见
+[ADR-0007](docs/adr/ADR-0007-wfm1-document-baseline-and-governance.md)。
 
 ## 2. 技术与环境约束
 
@@ -41,7 +56,8 @@ Agent 之间只通过仓库中的文档、代码和 Git 状态共享上下文，
 
 8. 核心工作流不能依赖任何具体视频厂商。
 9. 所有视频生成方法必须通过 `VideoProvider` 接口接入（手工流程、云端 API、本地模型一视同仁）。
-10. 第一阶段不接入任何付费 API。
+10. 原 M1 不接入任何付费 API；后续里程碑只有在 Accepted ADR 明确批准的
+    范围内才可接入，当前窄范围例外见 ADR-0006。
 11. 工作流的每个步骤必须可以独立执行（可单独运行、单独重跑）。
 12. 工作流必须支持断点续跑：中断后可从已完成的步骤之后继续，不重做已完成的工作。
 13. 禁止静默覆盖用户文件和已有生成结果；覆盖前必须显式确认或采用带版本的新路径。
