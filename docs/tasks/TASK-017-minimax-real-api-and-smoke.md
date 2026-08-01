@@ -223,3 +223,23 @@ transport 级回归测试（4301 位、20 位、5000 个零、前导零小值）
 人工确认当前价格与预算、私有 `WFM1_SMOKE_DIR`、仅单个 smoke 测试显式
 opt-in 并即刻取消、且明确认知该测试**不经过** catalog digest/审批/预算
 协调器守门。
+
+## 真实付费冒烟执行记录（2026-08-01，用户授权）
+
+**PASSED（79.6s 端到端）。** 官方三段式契约以真实付费调用全链路验证：
+
+1. 首次调用（充值前）：submit 返回官方 `1008 insufficient balance` →
+   `ProviderRequestRejectedError`（无计费、无远端任务、无遗留状态）——
+   错误码契约与资金安全分类实证正确；
+2. 充值后重跑：`POST /v1/video_generation` 受理（task_id
+   `426141338214698`）→ 轮询至 `Success` → `file_id` →
+   `GET /v1/files/retrieve` → `file.download_url` → 硬化 fetcher 实际
+   下载 **3.3 MB 真实 MP4**（`ftyp isom`/avc1 验证）；
+3. durable smoke record 全程更新至 `state: downloaded`
+   （`~/.wfm1-smoke/minimax-smoke-9520e42e37b68e75.json`），文件名为
+   task_id 的本地 SHA-256 前缀；凭据经 `~/.wfm1-smoke/api-key`
+   （0600）注入进程环境，未进入任何输出/日志/仓库。
+
+至此 TASK-017 的"未验证风险"中的端点/认证/错误码/下载鉴权全部实证
+闭合；剩余未验证项仅为 i2v 参考图资产化（后续任务）。
+实际花费：一次 Hailuo-02 768P/6s 生成（官方价目 ≈ USD 0.28）。
