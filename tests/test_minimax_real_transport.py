@@ -500,3 +500,28 @@ def test_poll_unicode_digit_file_id_is_response_error(monkeypatch) -> None:
     )
     with pytest.raises(ProviderResponseError, match="malformed or missing file_id"):
         RealMinimaxTransport().poll(api_key=SECRET, external_task_ref="tid-1")
+
+
+def test_file_id_huge_digit_string_rejected_without_crash() -> None:
+    # a digit string beyond Python's int-conversion limit (~4300 chars) must
+    # be rejected as invalid, never escape as a ValueError.
+    from ai_video_workflow.providers.cloud_minimax import _is_valid_file_id
+
+    assert not _is_valid_file_id("1" * 4301)
+    assert not _is_valid_file_id("9" * 20)  # 20 digits > int64
+    assert not _is_valid_file_id("0" * 5000)  # strips to empty -> invalid
+    assert _is_valid_file_id("0" * 100 + "42")  # leading zeros, small value
+
+
+def test_poll_huge_file_id_is_response_error(monkeypatch) -> None:
+    _patch_urlopen(
+        monkeypatch,
+        returns={
+            "task_id": "tid-1",
+            "status": "Success",
+            "file_id": "1" * 4301,
+            "base_resp": {"status_code": 0},
+        },
+    )
+    with pytest.raises(ProviderResponseError, match="malformed or missing file_id"):
+        RealMinimaxTransport().poll(api_key=SECRET, external_task_ref="tid-1")

@@ -204,3 +204,11 @@ query task_id 串线 → `needs_reconciliation`、不 fallback、
 （`0 < v <= 2^63-1`）或 **ASCII 十进制字符串**（逐字符 `0-9`，转换后同做
 int64 范围检查）；负数、零、超 int64、全角/Unicode 数字（`１２３`、`²`）
 一律拒绝（`str.isdigit` 明确弃用）。新增边界与 transport 级回归测试。
+
+## TASK-017 第六次复审修正批次（2026-08-01）
+
+**Minor — 超长数字字符串**：`_is_valid_file_id` 对字符串先去前导零并按
+**有效位长度 ≤19** 预判，再仅对有效位执行 `int()`——超过 Python int
+转换上限（约 4300 位）的数字串（含超长前导零形态）不再逸出
+`ValueError`，一律判无效 → `ProviderResponseError`。新增边界与
+transport 级回归测试（4301 位、20 位、5000 个零、前导零小值）。

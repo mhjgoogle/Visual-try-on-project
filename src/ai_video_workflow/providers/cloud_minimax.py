@@ -314,7 +314,15 @@ def _is_valid_file_id(value: object) -> bool:
     if isinstance(value, str):
         if not value or any(c < "0" or c > "9" for c in value):
             return False
-        return 0 < int(value) <= _INT64_MAX
+        # bound the length BEFORE int(): int64 has at most 19 decimal
+        # digits, and a huge digit string would otherwise raise ValueError
+        # from Python's int-conversion limit (an unclassified escape).
+        # convert the significant digits only, so a long run of leading
+        # zeros can never reach the conversion limit either.
+        significant = value.lstrip("0")
+        if not significant or len(significant) > 19:
+            return False
+        return 0 < int(significant) <= _INT64_MAX
     return False
 
 
