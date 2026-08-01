@@ -35,6 +35,7 @@ from ai_video_workflow.app.paid_coordinator import (
     PaidRequest,
 )
 from ai_video_workflow.app.requests import DefaultProviderRequestFactory
+from ai_video_workflow.approval import stage_plan, stage_status, transition_stage
 from ai_video_workflow.assets.registration import ValidationFailedError
 from ai_video_workflow.composition.ffmpeg import FfmpegVideoComposer
 from ai_video_workflow.config.catalog import ProviderEntry
@@ -174,6 +175,23 @@ def _build_parser() -> argparse.ArgumentParser:
     _add("reuse-publish", _cmd_reuse_publish, extra=_from_file_args)
     _add("reuse-add-ref", _cmd_reuse_add_ref, extra=_ref_args)
     _add("reuse-verify", _cmd_reuse_verify, extra=_verify_args)
+
+    # TASK-019: stage approval + change control (ADR-0012)
+    def _stage_args(sp):
+        sp.add_argument("stage")
+        sp.add_argument("--by", required=True)
+        sp.add_argument("--reason", default=None)
+
+    def _stage_approve_args(sp):
+        _stage_args(sp)
+        sp.add_argument("--target", action="append", required=True)
+
+    _add("stage-plan", _cmd_stage_plan)
+    _add("stage-status", _cmd_stage_status)
+    _add("stage-review", _cmd_stage_review, extra=_stage_args)
+    _add("stage-approve", _cmd_stage_approve, extra=_stage_approve_args)
+    _add("stage-reject", _cmd_stage_reject, extra=_stage_args)
+    _add("stage-revise", _cmd_stage_revise, extra=_stage_args)
     return parser
 
 
@@ -418,6 +436,53 @@ def _cmd_reuse_verify(args) -> None:
     for pack in resolved:
         print(f"ok: {pack.asset_id} v{pack.version} ({pack.kind})")
     print(f"verified refs: {len(resolved)}")
+
+
+def _cmd_stage_plan(args) -> None:
+    del args
+    for info in stage_plan():
+        pres = ",".join(info.prerequisites) or "-"
+        print(f"{info.stage_id}: {info.label} (after: {pres})")
+
+
+def _cmd_stage_status(args) -> None:
+    for state in stage_status(args.project_root):
+        flags = []
+        if state.stale:
+            flags.append("STALE")
+        if state.blocked_by:
+            flags.append(f"blocked_by={','.join(state.blocked_by)}")
+        suffix = f" [{' '.join(flags)}]" if flags else ""
+        print(f"{state.stage_id}: {state.status}{suffix}")
+
+
+def _stage_transition(args, action: str, targets: tuple[str, ...] = ()) -> None:
+    marker = transition_stage(
+        args.project_root,
+        args.stage,
+        action,
+        at=utc_now().isoformat(),
+        by=args.by,
+        reason=args.reason,
+        targets=targets,
+    )
+    print(f"{args.stage}: {marker.status}")
+
+
+def _cmd_stage_review(args) -> None:
+    _stage_transition(args, "review")
+
+
+def _cmd_stage_approve(args) -> None:
+    _stage_transition(args, "approve", tuple(args.target))
+
+
+def _cmd_stage_reject(args) -> None:
+    _stage_transition(args, "reject")
+
+
+def _cmd_stage_revise(args) -> None:
+    _stage_transition(args, "revise")
 
 
 def _cmd_qcd_report(args) -> None:

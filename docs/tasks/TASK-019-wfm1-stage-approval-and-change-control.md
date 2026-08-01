@@ -1,7 +1,11 @@
 # TASK-019：WFM1 阶段审批与变更控制
 
-> **状态：Draft（待批量设计基线批准）。** 复用 TASK-015 的审批 v2 和 digest
-> 守门，不另建与 GenerationTask、Manifest 或 Provider 重叠的状态机。
+> **状态：Implemented。** 路径 ADR 见
+> [ADR-0012](../adr/ADR-0012-wfm1-stage-planning-release-paths.md)。实现：
+> `approval/workflow.py`（L0/S1–S7 registry、转换表、audit.jsonl、
+> `require_stage_ready` 接入既有 `require_stage_approved` 单一入口），CLI
+> `stage-plan/status/review/approve/reject/revise`；审批 v2 marker 合同
+> 零改动。
 
 ## 目的
 
