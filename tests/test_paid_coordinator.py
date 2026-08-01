@@ -912,3 +912,106 @@ def test_malformed_receipt_is_untrusted_not_a_crash(tmp_path: Path) -> None:
         receipt.write_text(bad, encoding="utf-8")
         outcome = coord.resume_media(_shot(), "task-1", "op-1")
         assert outcome.kind == "success_media_pending"
+
+
+def test_correlation_mismatch_needs_reconciliation(tmp_path: Path, monkeypatch) -> None:
+    # end to end through the coordinator with the REAL transport: a query
+    # response carrying another task's id must classify as a malformed
+    # response -> needs_reconciliation (never fallback, never wrong media).
+    import json as _json
+
+    from ai_video_workflow.providers.cloud_minimax import (
+        MinimaxVideoProvider,
+        RealMinimaxTransport,
+    )
+
+    monkeypatch.setenv("WFM1_MINIMAX_API_KEY", "sk-test")
+
+    class _Resp:
+        def __init__(self, payload):
+            self._raw = _json.dumps(payload).encode("utf-8")
+
+        def read(self):
+            return self._raw
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def _fake_urlopen(request, timeout=None):
+        url = request.full_url
+        if "/v1/video_generation" in url and "query" not in url:
+            return _Resp({"task_id": "tid-1", "base_resp": {"status_code": 0}})
+        if "/v1/query/video_generation" in url:
+            return _Resp(
+                {
+                    "task_id": "SOMEONE-ELSE",  # crossed wire
+                    "status": "Success",
+                    "file_id": 1,
+                    "base_resp": {"status_code": 0},
+                }
+            )
+        raise AssertionError(f"unexpected URL: {url}")
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    config = parse_project_config(
+        _config_dict(default_provider="minimax", fallback_provider=None)
+    )
+    write_project_config(root, config)
+    _approve(root)
+    catalog = parse_catalog(
+        {
+            "schema_version": 1,
+            "catalog_id": "test",
+            "version": 1,
+            "providers": {
+                "minimax": {
+                    "display_name": "M",
+                    "capabilities": ["image_to_video"],
+                    "credential_env_vars": ["WFM1_MINIMAX_API_KEY"],
+                    "models": {
+                        "m1": {
+                            "billing_mode": "per_clip",
+                            "currency": "USD",
+                            "clip_prices": [
+                                {
+                                    "resolution": "512p",
+                                    "duration_seconds": 6,
+                                    "amount_minor_units": 10,
+                                }
+                            ],
+                            "per_second_minor_units": {},
+                        }
+                    },
+                }
+            },
+        }
+    )
+    registry = ProviderRegistry()
+    registry.register(
+        "minimax",
+        lambda entry: MinimaxVideoProvider(
+            transport=RealMinimaxTransport(),
+            credential_env_var="WFM1_MINIMAX_API_KEY",
+        ),
+    )
+    coord = PaidGenerationCoordinator(
+        project_root=root,
+        config=config,
+        catalog=catalog,
+        registry=registry,
+        project=_project(),
+        fetcher=FakeFetcher(),
+        clock=_clock,
+        sleeper=lambda _s: None,
+    )
+    outcome = coord.submit_paid(_shot(), _request(model_id="m1"))
+    assert outcome.kind == "needs_reconciliation"
+    reservation = load_reservation(root, "task-1", "op-1")
+    assert reservation.status == "needs_reconciliation"
+    assert reservation.external_task_ref == "tid-1"  # id persisted for a human

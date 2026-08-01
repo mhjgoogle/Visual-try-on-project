@@ -187,3 +187,13 @@ reservation 留有人工对账信号。
 SHA-256 前缀（厂商 task_id 只进 JSON 内容，含 `/` 也不破坏写入、不逃逸
 `WFM1_SMOKE_DIR`，另有 resolve 包含断言）；记录写入改为临时文件 +
 fsync + `os.replace` 原子替换。
+
+## TASK-017 第四次复审修正批次（2026-08-01）
+
+**Important — 媒体关联校验**：query 响应的 `task_id` 必须与请求一致
+（串线响应不得让当前操作接收他人任务的状态/媒体）；`file_id` 仅接受
+int64 或纯数字字符串（数组等形状不再被字符串化发起 retrieve）；
+retrieve 响应的 `file.file_id` 必须与请求一致。缺失/类型错误/不匹配
+统一 `ProviderResponseError`。协调器级测试：真实 transport 全链路下
+query task_id 串线 → `needs_reconciliation`、不 fallback、
+`external_task_ref` 留存供人工核对。

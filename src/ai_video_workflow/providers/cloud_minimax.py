@@ -297,6 +297,15 @@ _DEFAULT_BASE = "https://api.minimax.io"
 _PROCESSING_STATES = frozenset({"preparing", "queueing", "processing"})
 
 
+def _is_valid_file_id(value: object) -> bool:
+    """A MiniMax file_id is an int64 or a purely numeric string (ADR-0009)."""
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return True
+    return isinstance(value, str) and value.isdigit()
+
+
 class RealMinimaxTransport(MinimaxTransport):
     """Real HTTP transport for the MiniMax video API (ADR-0009).
 
@@ -351,6 +360,13 @@ class RealMinimaxTransport(MinimaxTransport):
             None,
         )
         self._require_ok_base_resp(data, "query")
+        # correlation check: a crossed-wire or wrong response must never let
+        # this operation adopt another task's status or media.
+        returned_task = data.get("task_id")
+        if not isinstance(returned_task, str) or returned_task != external_task_ref:
+            raise ProviderResponseError(
+                "query: response task_id does not match the queried task"
+            )
         status = data.get("status")
         if not isinstance(status, str) or not status:
             raise ProviderResponseError("query: response missing status")
@@ -361,8 +377,8 @@ class RealMinimaxTransport(MinimaxTransport):
             return MinimaxPoll(state="failed", error=f"task status {status!r}")
         if normalized == "success":
             file_id = data.get("file_id")
-            if file_id in (None, ""):
-                raise ProviderResponseError("query: succeeded without file_id")
+            if not _is_valid_file_id(file_id):
+                raise ProviderResponseError("query: malformed or missing file_id")
             url = self._retrieve_download_url(api_key, file_id)
             # MiniMax returns no cost field (ADR-0009); the coordinator books
             # the locked catalog fixed price.
@@ -378,6 +394,12 @@ class RealMinimaxTransport(MinimaxTransport):
         file_obj = data.get("file")
         if not isinstance(file_obj, dict):
             raise ProviderResponseError("retrieve: malformed file object")
+        # correlation check: the retrieved file must be the one we asked for.
+        returned_fid = file_obj.get("file_id")
+        if not _is_valid_file_id(returned_fid) or str(returned_fid) != str(file_id):
+            raise ProviderResponseError(
+                "retrieve: file.file_id does not match the requested file"
+            )
         url = file_obj.get("download_url")
         if not isinstance(url, str) or not url:
             raise ProviderResponseError("retrieve: response missing file.download_url")

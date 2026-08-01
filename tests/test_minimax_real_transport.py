@@ -115,7 +115,12 @@ def test_submit_invalid_api_key_2049_is_auth(monkeypatch) -> None:
 
 def test_poll_processing(monkeypatch) -> None:
     _patch_urlopen(
-        monkeypatch, returns={"status": "Processing", "base_resp": {"status_code": 0}}
+        monkeypatch,
+        returns={
+            "task_id": "tid-1",
+            "status": "Processing",
+            "base_resp": {"status_code": 0},
+        },
     )
     out = RealMinimaxTransport().poll(api_key=SECRET, external_task_ref="tid-1")
     assert out.state == "processing"
@@ -127,12 +132,13 @@ def test_poll_success_queries_then_retrieves(monkeypatch) -> None:
         monkeypatch,
         {
             "/v1/query/video_generation": {
+                "task_id": "tid-1",
                 "status": "Success",
                 "file_id": 12345,
                 "base_resp": {"status_code": 0},
             },
             "/v1/files/retrieve": {
-                "file": {"download_url": "https://x/out.mp4"},
+                "file": {"file_id": 12345, "download_url": "https://x/out.mp4"},
                 "base_resp": {"status_code": 0},
             },
         },
@@ -145,21 +151,33 @@ def test_poll_success_queries_then_retrieves(monkeypatch) -> None:
 
 def test_poll_failed_status(monkeypatch) -> None:
     _patch_urlopen(
-        monkeypatch, returns={"status": "Fail", "base_resp": {"status_code": 0}}
+        monkeypatch,
+        returns={
+            "task_id": "tid-1",
+            "status": "Fail",
+            "base_resp": {"status_code": 0},
+        },
     )
     out = RealMinimaxTransport().poll(api_key=SECRET, external_task_ref="tid-1")
     assert out.state == "failed"
 
 
 def test_poll_empty_status_is_response_error(monkeypatch) -> None:
-    _patch_urlopen(monkeypatch, returns={"base_resp": {"status_code": 0}})
+    _patch_urlopen(
+        monkeypatch, returns={"task_id": "tid-1", "base_resp": {"status_code": 0}}
+    )
     with pytest.raises(ProviderResponseError, match="status"):
         RealMinimaxTransport().poll(api_key=SECRET, external_task_ref="tid-1")
 
 
 def test_poll_success_missing_file_id(monkeypatch) -> None:
     _patch_urlopen(
-        monkeypatch, returns={"status": "Success", "base_resp": {"status_code": 0}}
+        monkeypatch,
+        returns={
+            "task_id": "tid-1",
+            "status": "Success",
+            "base_resp": {"status_code": 0},
+        },
     )
     with pytest.raises(ProviderResponseError, match="file_id"):
         RealMinimaxTransport().poll(api_key=SECRET, external_task_ref="tid-1")
@@ -170,11 +188,15 @@ def test_retrieve_missing_download_url(monkeypatch) -> None:
         monkeypatch,
         {
             "/v1/query/video_generation": {
+                "task_id": "tid-1",
                 "status": "Success",
                 "file_id": 1,
                 "base_resp": {"status_code": 0},
             },
-            "/v1/files/retrieve": {"file": {}, "base_resp": {"status_code": 0}},
+            "/v1/files/retrieve": {
+                "file": {"file_id": 1},
+                "base_resp": {"status_code": 0},
+            },
         },
     )
     with pytest.raises(ProviderResponseError, match="download_url"):
@@ -282,6 +304,7 @@ def test_retrieve_file_as_array_is_response_error(monkeypatch) -> None:
         monkeypatch,
         {
             "/v1/query/video_generation": {
+                "task_id": "tid-1",
                 "status": "Success",
                 "file_id": 1,
                 "base_resp": {"status_code": 0},
@@ -290,6 +313,58 @@ def test_retrieve_file_as_array_is_response_error(monkeypatch) -> None:
         },
     )
     with pytest.raises(ProviderResponseError, match="malformed file"):
+        RealMinimaxTransport().poll(api_key=SECRET, external_task_ref="tid-1")
+
+
+def test_query_task_id_mismatch_is_response_error(monkeypatch) -> None:
+    # a crossed-wire response must never let this operation adopt another
+    # task's status/media.
+    _patch_urlopen(
+        monkeypatch,
+        returns={
+            "task_id": "SOMEONE-ELSE",
+            "status": "Success",
+            "file_id": 1,
+            "base_resp": {"status_code": 0},
+        },
+    )
+    with pytest.raises(ProviderResponseError, match="task_id does not match"):
+        RealMinimaxTransport().poll(api_key=SECRET, external_task_ref="tid-1")
+
+
+def test_file_id_wrong_shape_is_response_error(monkeypatch) -> None:
+    # file_id must be an int64 or numeric string; an array must never be
+    # stringified into a retrieve request.
+    _patch_urlopen(
+        monkeypatch,
+        returns={
+            "task_id": "tid-1",
+            "status": "Success",
+            "file_id": ["wrong-shape"],
+            "base_resp": {"status_code": 0},
+        },
+    )
+    with pytest.raises(ProviderResponseError, match="malformed or missing file_id"):
+        RealMinimaxTransport().poll(api_key=SECRET, external_task_ref="tid-1")
+
+
+def test_retrieve_file_id_mismatch_is_response_error(monkeypatch) -> None:
+    _patch_routed(
+        monkeypatch,
+        {
+            "/v1/query/video_generation": {
+                "task_id": "tid-1",
+                "status": "Success",
+                "file_id": 1,
+                "base_resp": {"status_code": 0},
+            },
+            "/v1/files/retrieve": {
+                "file": {"file_id": 999, "download_url": "https://x/out.mp4"},
+                "base_resp": {"status_code": 0},
+            },
+        },
+    )
+    with pytest.raises(ProviderResponseError, match="does not match the requested"):
         RealMinimaxTransport().poll(api_key=SECRET, external_task_ref="tid-1")
 
 
