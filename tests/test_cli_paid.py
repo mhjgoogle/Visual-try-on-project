@@ -216,3 +216,36 @@ def test_m1_submit_path_rejects_paid_provider(tmp_path: Path) -> None:
         ]
     )
     assert code == 1
+
+
+def test_poll_media_after_submit(tmp_path: Path, monkeypatch) -> None:
+    # paid-submit commits; poll-media then re-fetches media without re-paying.
+    root, catalog_dir = _setup_project(tmp_path)
+    _patch_fakes(monkeypatch, FakeProvider(provider_id="fake-a"))
+    common = [
+        "--project-root",
+        str(root),
+        "--catalog-dir",
+        str(catalog_dir),
+    ]
+    tail = [
+        "task-1",
+        "--shot",
+        "shot-1",
+        "--operation-id",
+        "op-1",
+        "--model",
+        "m1",
+        "--resolution",
+        "512p",
+        "--duration",
+        "6",
+    ]
+    assert cli.main([*common, "paid-submit", *tail]) == 0
+    assert cli.main([*common, "poll-media", *tail]) == 0
+    cost = [
+        e
+        for e in read_events(root)
+        if e.event_type is QcdEventType.PROVIDER_COST_RECORDED
+    ]
+    assert len(cost) == 1  # poll-media did not re-book

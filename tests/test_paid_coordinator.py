@@ -13,6 +13,7 @@ from ai_video_workflow.budget.reservation import (
     hold_reservation,
     list_reservations,
     load_reservation,
+    record_external_task_ref,
 )
 from ai_video_workflow.config import (
     parse_catalog,
@@ -549,7 +550,7 @@ def test_credential_secret_never_reaches_files_or_outcome(
     monkeypatch.setenv("WFM1_MINIMAX_API_KEY", secret)
 
     class _Stub(MinimaxTransport):
-        def submit(self, *, api_key, payload):
+        def submit(self, *, api_key, payload, idempotency_key=None):
             assert api_key == secret  # received, but must not be persisted
             return "ext-1"
 
@@ -619,3 +620,105 @@ def test_credential_secret_never_reaches_files_or_outcome(
     for path in root.rglob("*"):
         if path.is_file():
             assert secret not in path.read_text(encoding="utf-8", errors="ignore")
+
+
+# ============================================================================
+# TASK-017: catalog fixed-price booking, external task id, resume_media
+# ============================================================================
+
+
+def test_catalog_fixed_price_booking(tmp_path: Path) -> None:
+    # a provider that bills at the fixed catalog price and returns no cost
+    # observation -> the coordinator books the locked catalog price.
+    fake = FakeProvider(
+        provider_id="fake-a", cost_amount=None, bills_at_catalog_price=True
+    )
+    root, coord, _ = _setup(tmp_path, providers=[fake])
+    outcome = coord.submit_paid(_shot(), _request())
+    assert outcome.kind == "success"
+    assert outcome.cost_minor_units == 10  # catalog fixed price (USD cents)
+    assert outcome.currency == "USD"
+    cost = [
+        e
+        for e in read_events(root)
+        if e.event_type is QcdEventType.PROVIDER_COST_RECORDED
+    ]
+    assert len(cost) == 1
+    assert cost[0].payload["billing_source"] == "catalog_fixed_price"
+
+
+def test_no_cost_and_not_fixed_price_needs_reconciliation(tmp_path: Path) -> None:
+    fake = FakeProvider(provider_id="fake-a", cost_amount=None)  # no billing signal
+    root, coord, _ = _setup(tmp_path, providers=[fake])
+    outcome = coord.submit_paid(_shot(), _request())
+    assert outcome.kind == "needs_reconciliation"
+
+
+def test_external_task_ref_persisted_on_success(tmp_path: Path) -> None:
+    fake = FakeProvider(provider_id="fake-a")
+    root, coord, _ = _setup(tmp_path, providers=[fake])
+    coord.submit_paid(_shot(), _request())
+    assert load_reservation(root, "task-1", "op-1").external_task_ref == "ext-1"
+
+
+def test_resume_media_resumes_held_operation(tmp_path: Path) -> None:
+    # simulate: submit succeeded (ref persisted) but process crashed before
+    # collect. resume_media polls/collects and settles without re-submitting.
+    fake = FakeProvider(provider_id="fake-a")
+    root, coord, _ = _setup(tmp_path, providers=[fake])
+    hold_reservation(
+        root,
+        project_id="proj-1",
+        task_id="task-1",
+        operation_id="op-1",
+        shot_id="shot-1",
+        provider_id="fake-a",
+        model_id="m1",
+        estimate_jpy=16,
+        created_at=T0.isoformat(),
+    )
+    record_external_task_ref(root, "task-1", "op-1", "ext-1")
+    outcome = coord.resume_media(_shot(), _request())
+    assert outcome.kind == "success"
+    assert fake.calls["submit"] == 0  # never re-submitted
+    assert load_reservation(root, "task-1", "op-1").status == "committed"
+    cost = [
+        e
+        for e in read_events(root)
+        if e.event_type is QcdEventType.PROVIDER_COST_RECORDED
+    ]
+    assert len(cost) == 1
+
+
+def test_resume_media_committed_only_refetches(tmp_path: Path) -> None:
+    fake = FakeProvider(provider_id="fake-a")
+    root, coord, fetcher = _setup(tmp_path, providers=[fake])
+    coord.submit_paid(_shot(), _request())  # committed, 1 cost event
+    outcome = coord.resume_media(_shot(), _request())
+    assert outcome.kind == "success"
+    cost = [
+        e
+        for e in read_events(root)
+        if e.event_type is QcdEventType.PROVIDER_COST_RECORDED
+    ]
+    assert len(cost) == 1  # no second booking
+    assert fake.calls["submit"] == 1  # from the original only
+
+
+def test_resume_media_without_external_ref_needs_reconciliation(tmp_path: Path) -> None:
+    fake = FakeProvider(provider_id="fake-a")
+    root, coord, _ = _setup(tmp_path, providers=[fake])
+    hold_reservation(
+        root,
+        project_id="proj-1",
+        task_id="task-1",
+        operation_id="op-1",
+        shot_id="shot-1",
+        provider_id="fake-a",
+        model_id="m1",
+        estimate_jpy=16,
+        created_at=T0.isoformat(),
+    )
+    outcome = coord.resume_media(_shot(), _request())
+    assert outcome.kind == "needs_reconciliation"
+    assert fake.total_calls == 0

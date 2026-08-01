@@ -38,7 +38,7 @@ from ai_video_workflow.budget.errors import ReservationError
 from ai_video_workflow.security.paths import resolve_within_root
 
 RESERVATIONS_DIR = "budget/reservations"
-RESERVATION_SCHEMA_VERSION = 1
+RESERVATION_SCHEMA_VERSION = 2
 
 HELD = "held"
 COMMITTED = "committed"
@@ -63,6 +63,7 @@ _KEYS = frozenset(
         "created_at",
         "resolved_at",
         "note",
+        "external_task_ref",
     }
 )
 
@@ -84,6 +85,7 @@ class Reservation:
     created_at: str
     resolved_at: str | None
     note: str | None
+    external_task_ref: str | None = None
 
     @property
     def is_outstanding(self) -> bool:
@@ -168,9 +170,30 @@ def hold_reservation(
         created_at=_require_str(created_at, "created_at"),
         resolved_at=None,
         note=note,
+        external_task_ref=None,
     )
     _write(project_root, reservation, overwrite=False)
     return reservation
+
+
+def record_external_task_ref(
+    project_root: Path, task_id: str, operation_id: str, external_task_ref: str
+) -> Reservation:
+    """Persist the provider's external task id onto a held reservation.
+
+    Called immediately after a successful submit so a crash before the
+    media is collected never loses the external task id (the media can be
+    re-polled/collected later without re-submitting or re-paying).
+    """
+    reservation = load_reservation(project_root, task_id, operation_id)
+    if reservation is None:
+        raise ReservationError(f"no reservation for ({task_id!r}, {operation_id!r})")
+    updated = _with_fields(
+        reservation,
+        external_task_ref=_require_str(external_task_ref, "external_task_ref"),
+    )
+    _write(project_root, updated, overwrite=True)
+    return updated
 
 
 def load_reservation(
@@ -364,10 +387,18 @@ def parse_reservation(raw: object) -> Reservation:
         created_at=_require_str(raw["created_at"], "created_at"),
         resolved_at=_optional_str(raw["resolved_at"], "resolved_at"),
         note=_optional_str(raw["note"], "note"),
+        external_task_ref=_optional_str(raw["external_task_ref"], "external_task_ref"),
     )
 
 
 # --- internals ------------------------------------------------------------
+
+
+def _with_fields(reservation: Reservation, **overrides) -> Reservation:
+    fields = _to_dict(reservation)
+    fields.pop("schema_version")
+    fields.update(overrides)
+    return Reservation(schema_version=reservation.schema_version, **fields)
 
 
 def _resolve(
@@ -392,18 +423,9 @@ def _resolve(
             f"reservation ({task_id!r}, {operation_id!r}) is already "
             f"{reservation.status!r}; cannot transition to {target_status!r}"
         )
-    updated = Reservation(
-        schema_version=reservation.schema_version,
-        reservation_id=reservation.reservation_id,
-        project_id=reservation.project_id,
-        task_id=reservation.task_id,
-        operation_id=reservation.operation_id,
-        shot_id=reservation.shot_id,
-        provider_id=reservation.provider_id,
-        model_id=reservation.model_id,
-        estimate_jpy=reservation.estimate_jpy,
+    updated = _with_fields(
+        reservation,
         status=target_status,
-        created_at=reservation.created_at,
         resolved_at=resolved_at,
         note=note if note is not None else reservation.note,
     )
@@ -426,6 +448,7 @@ def _to_dict(reservation: Reservation) -> dict:
         "created_at": reservation.created_at,
         "resolved_at": reservation.resolved_at,
         "note": reservation.note,
+        "external_task_ref": reservation.external_task_ref,
     }
 
 

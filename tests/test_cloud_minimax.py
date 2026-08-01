@@ -33,7 +33,7 @@ class StubTransport(MinimaxTransport):
         self._submit_ref = submit_ref
         self.received_api_key = None
 
-    def submit(self, *, api_key, payload):
+    def submit(self, *, api_key, payload, idempotency_key=None):
         self.received_api_key = api_key
         return self._submit_ref
 
@@ -158,3 +158,10 @@ def test_succeeded_without_artifact_rejected(monkeypatch) -> None:
     )
     with pytest.raises(ProviderResponseError, match="without an artifact"):
         provider.poll(request, r1, observed_at=T0)
+
+
+def test_bills_at_catalog_price_is_true() -> None:
+    # MiniMax returns no cost field, so the coordinator books the catalog
+    # fixed price (ADR-0009).
+    provider = _provider(StubTransport(poll_states=[]))
+    assert provider.bills_at_catalog_price is True

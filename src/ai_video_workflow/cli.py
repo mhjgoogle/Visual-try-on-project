@@ -141,6 +141,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add("rate", _cmd_rate, shot=True, extra=_rate_args)
     _add("qcd-report", _cmd_qcd_report)
     _add("paid-submit", _cmd_paid_submit, task=True, extra=_paid_args)
+    _add("poll-media", _cmd_poll_media, task=True, extra=_paid_args)
     return parser
 
 
@@ -277,7 +278,7 @@ def _cmd_compose(args) -> None:
     print(f"skipped: {outcome.skipped}")
 
 
-def _cmd_paid_submit(args) -> None:
+def _paid_setup(args):
     config = load_project_config(args.project_root)
     catalog = load_locked_catalog(config, args.catalog_dir)
     data = _load_project_data(args.project_root)
@@ -293,19 +294,20 @@ def _cmd_paid_submit(args) -> None:
         fetcher=UrllibMediaFetcher(),
         clock=utc_now,
     )
-    outcome = coordinator.submit_paid(
-        shot,
-        PaidRequest(
-            task_id=args.task_id,
-            shot_id=args.shot,
-            operation_id=args.operation_id,
-            stage=args.stage,
-            capability=args.capability,
-            model_id=args.model,
-            resolution=args.resolution,
-            duration_seconds=args.duration,
-        ),
+    request = PaidRequest(
+        task_id=args.task_id,
+        shot_id=args.shot,
+        operation_id=args.operation_id,
+        stage=args.stage,
+        capability=args.capability,
+        model_id=args.model,
+        resolution=args.resolution,
+        duration_seconds=args.duration,
     )
+    return coordinator, shot, request
+
+
+def _render_paid(outcome) -> None:
     print(f"paid outcome: {outcome.kind}")
     print(f"provider: {outcome.provider_id}")
     print(f"operation: {outcome.operation_id}")
@@ -315,6 +317,18 @@ def _cmd_paid_submit(args) -> None:
         print("fell_back: true")
     if outcome.kind not in _PAID_SUCCESS_KINDS:
         raise AiVideoWorkflowError(f"{outcome.kind}: {outcome.reason}")
+
+
+def _cmd_paid_submit(args) -> None:
+    coordinator, shot, request = _paid_setup(args)
+    _render_paid(coordinator.submit_paid(shot, request))
+
+
+def _cmd_poll_media(args) -> None:
+    # resume an interrupted paid operation via its persisted external task
+    # id: re-poll/collect only, never re-submit or re-pay.
+    coordinator, shot, request = _paid_setup(args)
+    _render_paid(coordinator.resume_media(shot, request))
 
 
 def _cmd_qcd_report(args) -> None:

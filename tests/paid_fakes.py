@@ -28,7 +28,14 @@ from ai_video_workflow.providers.models import (
 class FakeProvider(VideoProvider):
     """A configurable, call-counting fake cloud provider."""
 
-    __slots__ = ("_pid", "calls", "behavior", "_cost_amount", "_cost_unit")
+    __slots__ = (
+        "_pid",
+        "calls",
+        "behavior",
+        "_cost_amount",
+        "_cost_unit",
+        "_bills_at_catalog_price",
+    )
 
     def __init__(
         self,
@@ -37,16 +44,22 @@ class FakeProvider(VideoProvider):
         behavior: str = "succeed",
         cost_amount: float | None = 0.10,
         cost_unit: str = "USD",
+        bills_at_catalog_price: bool = False,
     ) -> None:
         self._pid = provider_id
         self.calls: Counter = Counter()
         self.behavior = behavior
         self._cost_amount = cost_amount
         self._cost_unit = cost_unit
+        self._bills_at_catalog_price = bills_at_catalog_price
 
     @property
     def provider_id(self) -> str:
         return self._pid
+
+    @property
+    def bills_at_catalog_price(self) -> bool:
+        return self._bills_at_catalog_price
 
     @property
     def total_calls(self) -> int:

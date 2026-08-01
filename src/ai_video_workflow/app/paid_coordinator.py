@@ -53,6 +53,7 @@ from ai_video_workflow.budget.reservation import (
     load_reservation,
     mark_needs_reconciliation,
     outstanding_holds,
+    record_external_task_ref,
     release_reservation,
     shot_consecutive_failures,
 )
@@ -69,7 +70,11 @@ from ai_video_workflow.providers.cloud_errors import (
     ProviderVendorError,
 )
 from ai_video_workflow.providers.errors import ProviderError
-from ai_video_workflow.providers.models import ProviderRequest, ProviderStatus
+from ai_video_workflow.providers.models import (
+    ProviderRequest,
+    ProviderResult,
+    ProviderStatus,
+)
 from ai_video_workflow.providers.registry import ProviderRegistry
 from ai_video_workflow.qcd.events import build_provider_cost_recorded_event
 from ai_video_workflow.qcd.log import append_event
@@ -214,6 +219,108 @@ class PaidGenerationCoordinator:
             return fallback
         return primary
 
+    def resume_media(self, shot: Shot, request: PaidRequest) -> PaidOutcome:
+        """Re-poll/collect an interrupted operation via its persisted task id.
+
+        Never re-submits and never re-pays: it only advances an operation
+        whose ``external_task_ref`` was already persisted. If the cost was
+        already committed, it just re-fetches the media; otherwise it books
+        the cost (once) and commits.
+        """
+        reservation = load_reservation(
+            self._project_root, request.task_id, request.operation_id
+        )
+        if reservation is None:
+            return PaidOutcome(
+                kind=NEEDS_RECONCILIATION_OUTCOME,
+                operation_id=request.operation_id,
+                reason="no reservation to resume",
+            )
+        if reservation.external_task_ref is None:
+            return PaidOutcome(
+                kind=NEEDS_RECONCILIATION_OUTCOME,
+                provider_id=reservation.provider_id,
+                operation_id=request.operation_id,
+                reason="no external task id persisted; cannot resume safely",
+            )
+        try:
+            provider = self._build_provider(reservation.provider_id)
+        except ProviderError as exc:
+            return PaidOutcome(
+                kind=PROVIDER_UNAVAILABLE,
+                provider_id=reservation.provider_id,
+                operation_id=request.operation_id,
+                reason=str(exc),
+            )
+        try:
+            spec = _build_spec(shot, request)
+        except CoordinatorError as exc:
+            return PaidOutcome(
+                kind=SPEC_INVALID,
+                provider_id=reservation.provider_id,
+                operation_id=request.operation_id,
+                reason=str(exc),
+            )
+
+        now = self._clock()
+        provider_request = self._build_request(spec, request, reservation.provider_id)
+        current = ProviderResult(
+            provider_id=reservation.provider_id,
+            task_id=request.task_id,
+            shot_id=request.shot_id,
+            status=ProviderStatus.PROCESSING,
+            observed_at=now,
+            external_task_ref=reservation.external_task_ref,
+        )
+        already_committed = reservation.status == COMMITTED
+        try:
+            final = _poll_collect_phase(provider, provider_request, current, now)
+        except _TechnicalFailure as exc:
+            if already_committed:
+                return self._media_pending(reservation, str(exc))
+            return self._release_technical(
+                request, request.operation_id, reservation.provider_id, exc, False
+            )
+        except _AmbiguousResult as exc:
+            if already_committed:
+                return self._media_pending(reservation, str(exc))
+            return self._flag_ambiguous(
+                request, request.operation_id, reservation.provider_id, exc, False
+            )
+
+        if already_committed:
+            media_ok = self._fetch_to_staging(request.task_id, final.artifact.reference)
+            return PaidOutcome(
+                kind=SUCCESS if media_ok else SUCCESS_MEDIA_PENDING,
+                provider_id=reservation.provider_id,
+                operation_id=request.operation_id,
+            )
+        estimate = estimate_generation_cost(
+            self._catalog,
+            self._config.fx,
+            reservation.provider_id,
+            spec.model_id,
+            resolution=spec.resolution,
+            duration_seconds=spec.duration_seconds,
+        )
+        return self._settle(
+            request,
+            request.operation_id,
+            reservation.provider_id,
+            final,
+            estimate,
+            provider,
+            fell_back=False,
+        )
+
+    def _media_pending(self, reservation, reason: str) -> PaidOutcome:
+        return PaidOutcome(
+            kind=SUCCESS_MEDIA_PENDING,
+            provider_id=reservation.provider_id,
+            operation_id=reservation.operation_id,
+            reason=f"cost already committed; media unavailable: {reason}",
+        )
+
     # --- one attempt ------------------------------------------------------
 
     def _attempt(
@@ -298,42 +405,80 @@ class PaidGenerationCoordinator:
                 created_at=now.isoformat(),
             )
 
-        # 6. provider submit / poll / collect (outside the lock)
+        # 6a. submit (outside the lock)
         provider_request = self._build_request(spec, request, provider_id)
         try:
-            final = _drive_provider(provider, provider_request, now)
+            submitted = _submit_phase(provider, provider_request, now)
         except _TechnicalFailure as exc:
-            release_reservation(
-                self._project_root,
-                request.task_id,
-                operation_id,
-                resolved_at=self._clock().isoformat(),
-                note=f"technical failure: {exc}",
-            )
-            return PaidOutcome(
-                kind=TECHNICAL_FAILURE,
-                provider_id=provider_id,
-                operation_id=operation_id,
-                reason=str(exc),
-                fell_back=fell_back,
+            return self._release_technical(
+                request, operation_id, provider_id, exc, fell_back
             )
         except _AmbiguousResult as exc:
-            mark_needs_reconciliation(
+            return self._flag_ambiguous(
+                request, operation_id, provider_id, exc, fell_back
+            )
+
+        # 6b. persist the external task id IMMEDIATELY, so a crash before the
+        # media is collected never loses it (re-poll via `resume_media`).
+        if submitted.external_task_ref is not None:
+            record_external_task_ref(
                 self._project_root,
                 request.task_id,
                 operation_id,
-                note=f"unknown charge state: {exc}",
+                submitted.external_task_ref,
             )
-            return PaidOutcome(
-                kind=NEEDS_RECONCILIATION_OUTCOME,
-                provider_id=provider_id,
-                operation_id=operation_id,
-                reason=str(exc),
-                fell_back=fell_back,
+
+        # 6c. poll + collect
+        try:
+            final = _poll_collect_phase(provider, provider_request, submitted, now)
+        except _TechnicalFailure as exc:
+            return self._release_technical(
+                request, operation_id, provider_id, exc, fell_back
+            )
+        except _AmbiguousResult as exc:
+            return self._flag_ambiguous(
+                request, operation_id, provider_id, exc, fell_back
             )
 
         # 7. book authoritative cost + commit, then fetch media
-        return self._settle(request, operation_id, provider_id, final, fell_back)
+        return self._settle(
+            request, operation_id, provider_id, final, estimate, provider, fell_back
+        )
+
+    def _release_technical(
+        self, request, operation_id, provider_id, exc, fell_back
+    ) -> PaidOutcome:
+        release_reservation(
+            self._project_root,
+            request.task_id,
+            operation_id,
+            resolved_at=self._clock().isoformat(),
+            note=f"technical failure: {exc}",
+        )
+        return PaidOutcome(
+            kind=TECHNICAL_FAILURE,
+            provider_id=provider_id,
+            operation_id=operation_id,
+            reason=str(exc),
+            fell_back=fell_back,
+        )
+
+    def _flag_ambiguous(
+        self, request, operation_id, provider_id, exc, fell_back
+    ) -> PaidOutcome:
+        mark_needs_reconciliation(
+            self._project_root,
+            request.task_id,
+            operation_id,
+            note=f"unknown charge state: {exc}",
+        )
+        return PaidOutcome(
+            kind=NEEDS_RECONCILIATION_OUTCOME,
+            provider_id=provider_id,
+            operation_id=operation_id,
+            reason=str(exc),
+            fell_back=fell_back,
+        )
 
     def _resume_existing(self, existing, provider_id, fell_back) -> PaidOutcome:
         if existing.status == COMMITTED:
@@ -376,25 +521,52 @@ class PaidGenerationCoordinator:
             fell_back=fell_back,
         )
 
+    def _authoritative_cost(self, final, estimate, provider):
+        """Return (cost_minor_units, currency, billing_source, obs_amt, obs_unit).
+
+        Prefers the provider's reported cost (float boundary conversion);
+        else, for a provider that bills at the fixed catalog price
+        (ADR-0009), books the locked catalog price; else None (unbookable).
+        """
+        if final.cost_observation is not None:
+            auth = to_authoritative_cost(final.cost_observation)
+            return (
+                auth.cost_minor_units,
+                auth.currency,
+                auth.billing_source,
+                auth.observed_amount,
+                auth.observed_unit,
+            )
+        if getattr(provider, "bills_at_catalog_price", False):
+            return (
+                estimate.original_amount_minor_units,
+                estimate.original_currency,
+                "catalog_fixed_price",
+                None,
+                None,
+            )
+        return None
+
     def _settle(
-        self, request, operation_id, provider_id, final, fell_back
+        self, request, operation_id, provider_id, final, estimate, provider, fell_back
     ) -> PaidOutcome:
-        if final.cost_observation is None:
+        cost = self._authoritative_cost(final, estimate, provider)
+        if cost is None:
             mark_needs_reconciliation(
                 self._project_root,
                 request.task_id,
                 operation_id,
-                note="provider succeeded without a cost observation",
+                note="provider succeeded but cost cannot be determined",
             )
             return PaidOutcome(
                 kind=NEEDS_RECONCILIATION_OUTCOME,
                 provider_id=provider_id,
                 operation_id=operation_id,
-                reason="no cost observation to book",
+                reason="no cost to book",
                 fell_back=fell_back,
             )
+        cost_minor, currency, billing_source, obs_amt, obs_unit = cost
 
-        auth = to_authoritative_cost(final.cost_observation)
         now = self._clock()
         # authoritative cost fact (idempotent by event_id) then commit
         append_event(
@@ -406,12 +578,12 @@ class PaidGenerationCoordinator:
                 provider_id=provider_id,
                 model_id=request.model_id,
                 operation_id=operation_id,
-                cost_minor_units=auth.cost_minor_units,
-                currency=auth.currency,
-                billing_source=auth.billing_source,
+                cost_minor_units=cost_minor,
+                currency=currency,
+                billing_source=billing_source,
                 occurred_at=now,
-                observed_amount=auth.observed_amount,
-                observed_unit=auth.observed_unit,
+                observed_amount=obs_amt,
+                observed_unit=obs_unit,
             ),
         )
         commit_reservation(
@@ -421,23 +593,25 @@ class PaidGenerationCoordinator:
             resolved_at=now.isoformat(),
         )
 
-        # media fetch is retryable and has no money impact
-        kind = SUCCESS
-        dest = resolve_within_root(self._project_root, staging_ref_for(request.task_id))
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            self._fetcher.fetch(final.artifact.reference, dest)
-        except Exception:  # noqa: BLE001 - cost is settled; media is retryable
-            kind = SUCCESS_MEDIA_PENDING
-
+        media_ok = self._fetch_to_staging(request.task_id, final.artifact.reference)
         return PaidOutcome(
-            kind=kind,
+            kind=SUCCESS if media_ok else SUCCESS_MEDIA_PENDING,
             provider_id=provider_id,
             operation_id=operation_id,
-            cost_minor_units=auth.cost_minor_units,
-            currency=auth.currency,
+            cost_minor_units=cost_minor,
+            currency=currency,
             fell_back=fell_back,
         )
+
+    def _fetch_to_staging(self, task_id: str, reference: str) -> bool:
+        """Fetch external media to staging; media is retryable, no money impact."""
+        dest = resolve_within_root(self._project_root, staging_ref_for(task_id))
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self._fetcher.fetch(reference, dest)
+        except Exception:  # noqa: BLE001 - cost is settled; media is retryable
+            return False
+        return True
 
     def _check_budget(self, request: PaidRequest, estimate_jpy: int):
         # Called inside the account budget lock. Episode/shot are project
@@ -487,6 +661,10 @@ class PaidGenerationCoordinator:
             provider_parameters={
                 "resolution": spec.resolution,
                 "capability": spec.capability,
+                "model": spec.model_id,
+                # best-effort idempotency key for the provider; the
+                # authoritative guarantee is the reservation.
+                "operation_id": request.operation_id,
             },
         )
 
@@ -521,31 +699,32 @@ def _build_spec(shot: Shot, request: PaidRequest) -> GenerationSpec:
     )
 
 
-def _drive_provider(provider, request: ProviderRequest, now: datetime):
-    """Drive prepare/submit/poll/collect; classify failures by *charge state*.
+def _submit_phase(provider, request: ProviderRequest, now: datetime):
+    """prepare + submit. Failures classified by whether a job was created.
 
-    The classification is conservative about money: a failure is only
-    'technical' (release + fallback) when it PROVES no remote job/charge;
-    otherwise it is 'ambiguous' (needs_reconciliation, no fallback, no
-    auto-retry).
+    prepare is local (pre-dispatch); a submit error is only a safe
+    'technical' failure when it PROVES no remote job — a timeout / response
+    error / generic network error may have been received (ambiguous).
     """
-    # prepare is local / pre-dispatch: no job exists yet.
     try:
         prepared = provider.prepare(request, observed_at=now)
     except CloudProviderError as exc:
         raise _TechnicalFailure(str(exc)) from exc
-
-    # submit: only provably-not-dispatched errors are safe no-charge; a
-    # timeout / response error / generic network error may have been received.
     try:
-        current = provider.submit(request, prepared, observed_at=now)
+        return provider.submit(request, prepared, observed_at=now)
     except _SAFE_NO_CHARGE_SUBMIT as exc:
         raise _TechnicalFailure(str(exc)) from exc
     except CloudProviderError as exc:
         raise _AmbiguousResult(str(exc)) from exc
 
-    # post-submit: the job may be charged. Only a provider that DECLARES no
-    # charge (ProviderNoChargeFailureError) may release + fall back.
+
+def _poll_collect_phase(provider, request: ProviderRequest, current, now: datetime):
+    """poll + collect. Post-submit the job may be charged.
+
+    Only a provider that DECLARES no charge (ProviderNoChargeFailureError)
+    may be released and fall back; every other failure/terminal status is
+    ambiguous -> needs_reconciliation.
+    """
     try:
         for _ in range(_MAX_POLLS):
             status = current.status
@@ -566,12 +745,9 @@ def _drive_provider(provider, request: ProviderRequest, now: datetime):
                 raise _AmbiguousResult("provider cancelled")
             current = provider.poll(request, current, observed_at=now)
     except ProviderNoChargeFailureError as exc:
-        # provider definitively asserts no charge -> safe to release + fall back
         raise _TechnicalFailure(str(exc)) from exc
     except ProviderVendorError as exc:
-        # generic vendor failure: charge unknown -> ambiguous
         raise _AmbiguousResult(str(exc)) from exc
     except CloudProviderError as exc:
-        # network / timeout / response after submit: unknown charge -> ambiguous
         raise _AmbiguousResult(str(exc)) from exc
     raise _AmbiguousResult("provider did not reach a terminal state")

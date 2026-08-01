@@ -59,6 +59,7 @@ from ai_video_workflow.budget.reservation import (
     mark_needs_reconciliation,
     outstanding_holds,
     reconcile_reservations,
+    record_external_task_ref,
     release_reservation,
     shot_consecutive_failures,
 )
@@ -102,6 +103,7 @@ __all__ = [
     "read_account_month_spent",
     "read_ledger",
     "reconcile_reservations",
+    "record_external_task_ref",
     "release_reservation",
     "shot_consecutive_failures",
 ]
