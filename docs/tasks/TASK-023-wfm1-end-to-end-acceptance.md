@@ -1,7 +1,12 @@
 # TASK-023：WFM1 端到端验收与文档收口
 
-> **状态：Draft（待批量设计基线批准）。** 本任务是 WFM1 milestone gate，
-> 只补验收夹具、自动化验证和文档状态，不新增生产能力。
+> **状态：Implemented。** 交付：`tests/test_wfm1_e2e.py`（离线全链路 +
+> 故障恢复矩阵〔审批过期/预算拒绝/submit 二义/下载失败/中断续跑〕+
+> 双项目复用与月度在途口径 + 只读 projection 确定性重建）、
+> `examples/projects/wfm1-demo/`（8 镜头 ×6s ≈48s 示例 + runbook，
+> 含可选 MiniMax 冒烟说明）。已知限制：product spec /
+> architecture / implementation plan 的状态行因与并行 Workspace
+> 批次未提交改动重叠，本任务不改动这些文件；状态以任务卡为准。
 
 ## 目的
 

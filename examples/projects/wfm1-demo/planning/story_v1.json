@@ -1,0 +1,19 @@
+{
+  "beats": [
+    {
+      "beat_id": "open",
+      "description": "rain, an empty stop, Mia arrives"
+    },
+    {
+      "beat_id": "turn",
+      "description": "she pays twice; no words"
+    },
+    {
+      "beat_id": "after",
+      "description": "the bus leaves; she stays"
+    }
+  ],
+  "schema_version": 1,
+  "screenplay_md": null,
+  "version": 1
+}

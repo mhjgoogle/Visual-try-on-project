@@ -1,0 +1,13 @@
+{
+  "character_ids": [],
+  "created_at": "2026-08-02T00:00:00.000000+00:00",
+  "description": "close-up: Mia watches, hesitates",
+  "duration_seconds": 6.0,
+  "frame_rate": 24.0,
+  "height": 512,
+  "prompt": "close-up: Mia watches, hesitates",
+  "scene_id": "scene-001",
+  "sequence": 4,
+  "shot_id": "shot-004",
+  "width": 512
+}

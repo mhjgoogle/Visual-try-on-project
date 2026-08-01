@@ -1,0 +1,33 @@
+{
+  "aspect_ratio": "1:1",
+  "audience": "short-video viewers",
+  "budget_ref": "config/wfm1.json",
+  "duration_target_seconds": 48,
+  "forbidden_issues": [
+    "preachy dialogue",
+    "on-screen text"
+  ],
+  "genre": "human-warmth short drama",
+  "intent": "one irreversible kindness, shown not told",
+  "language": "zh",
+  "narrative_goals": [
+    "fast open",
+    "wordless turn",
+    "quiet afterglow"
+  ],
+  "quality_bar": [
+    "face consistency across shots",
+    "consistent rain"
+  ],
+  "release_targets": [
+    "short-video-platform"
+  ],
+  "schema_version": 1,
+  "success_criteria": [
+    "watchable ~48s cut",
+    "episode cost <= 1200 JPY"
+  ],
+  "title": "One Fare",
+  "version": 1,
+  "visual_style": "cinematic, rainy night, warm light"
+}
