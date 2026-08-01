@@ -73,6 +73,12 @@ from ai_video_workflow.profile import (
 from ai_video_workflow.project_data import ProjectData
 from ai_video_workflow.providers.registry import default_registry
 from ai_video_workflow.qcd.reporting import run_qcd_report_step
+from ai_video_workflow.release import (
+    archive_project,
+    package_release,
+    record_final_review,
+    run_technical_qc,
+)
 from ai_video_workflow.security import resolve_within_root
 
 _RUN_LIFECYCLE = (
@@ -201,6 +207,20 @@ def _build_parser() -> argparse.ArgumentParser:
     # TASK-021: settled paid media -> M1 lifecycle + lineage (ADR-0020)
     _add("paid-integrate", _cmd_paid_integrate, task=True)
     _add("lineage", _cmd_lineage, task=True)
+
+    # TASK-022: QC, release package, archive (ADR-0012)
+    def _review_args(sp):
+        sp.add_argument("--verdict", required=True, choices=("pass", "fail"))
+        sp.add_argument("--by", required=True)
+        sp.add_argument("--reason", required=True)
+        sp.add_argument("--issue-tag", action="append", default=[])
+        sp.add_argument("--compared", action="append", default=[])
+        sp.add_argument("--ai-assisted", action="store_true")
+
+    _add("qc-run", _cmd_qc_run)
+    _add("qc-review", _cmd_qc_review, extra=_review_args)
+    _add("package-release", _cmd_package_release)
+    _add("archive-project", _cmd_archive_project)
     _add("stage-review", _cmd_stage_review, extra=_stage_args)
     _add("stage-approve", _cmd_stage_approve, extra=_stage_approve_args)
     _add("stage-reject", _cmd_stage_reject, extra=_stage_args)
@@ -449,6 +469,46 @@ def _cmd_reuse_verify(args) -> None:
     for pack in resolved:
         print(f"ok: {pack.asset_id} v{pack.version} ({pack.kind})")
     print(f"verified refs: {len(resolved)}")
+
+
+def _cmd_qc_run(args) -> None:
+    outcome = run_technical_qc(args.project_root, _load_project_data(args.project_root))
+    for check in outcome["checks"]:
+        state = "ok" if check["passed"] else "FAIL"
+        print(f"{state}: {check['check_id']} ({check['detail']})")
+    print(f"technical qc v{outcome['version']}: passed={outcome['passed']}")
+    if not outcome["passed"]:
+        raise AiVideoWorkflowError("technical QC did not pass")
+
+
+def _cmd_qc_review(args) -> None:
+    outcome = record_final_review(
+        args.project_root,
+        verdict=args.verdict,
+        by=args.by,
+        at=utc_now().isoformat(),
+        decision_reason=args.reason,
+        issue_tags=tuple(args.issue_tag),
+        compared_versions=tuple(args.compared),
+        ai_assisted=args.ai_assisted,
+    )
+    print(f"final review v{outcome['version']}: {outcome['verdict']}")
+    print(f"bound to: {outcome['target']['ref']}")
+
+
+def _cmd_package_release(args) -> None:
+    outcome = package_release(args.project_root)
+    print(f"release v{outcome['version']} (created={outcome['created']})")
+    print(f"final: {outcome['final_mp4']['ref']}")
+
+
+def _cmd_archive_project(args) -> None:
+    outcome = archive_project(args.project_root, _load_project_data(args.project_root))
+    print(
+        f"archive manifest v{outcome['archive_manifest_version']}; "
+        f"postmortem v{outcome['postmortem_version']}; "
+        f"references: {outcome['references']}"
+    )
 
 
 def _cmd_paid_integrate(args) -> None:

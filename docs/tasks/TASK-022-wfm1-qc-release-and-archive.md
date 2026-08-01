@@ -1,7 +1,10 @@
 # TASK-022：WFM1 质检、发布包与归档收口
 
-> **状态：Draft（待批量设计基线批准）。** 只实现工作流文档 S4-S7 的 WFM1
-> 最小子集，复用现有视频检查、FFmpeg 和 QCD 能力；完整 L0-S7 属 WFM2。
+> **状态：Implemented。** 路径见 ADR-0012。实现：
+> `src/ai_video_workflow/release/`（technical QC 事实派生 + 人工终审
+> digest 绑定 + 发布包 manifest + 归档清单/复盘派生），CLI
+> `qc-run/qc-review/package-release/archive-project`；stale 终审阻断发布，
+> 复盘可由 QCD 事件重算，音频/字幕显式标 out-of-scope。
 
 ## 目的
 
