@@ -451,3 +451,52 @@ def test_real_minimax_smoke() -> None:  # pragma: no cover - opt-in only
         record,
         {"task_id": task_id, "state": "downloaded", "media": str(dest)},
     )
+
+
+def test_file_id_boundary_shapes_rejected() -> None:
+    # positive int64 / ASCII-decimal string only: negatives, beyond-int64,
+    # zero, and Unicode digits are all invalid vendor identifiers.
+    from ai_video_workflow.providers.cloud_minimax import _is_valid_file_id
+
+    assert _is_valid_file_id(1)
+    assert _is_valid_file_id(2**63 - 1)
+    assert _is_valid_file_id("12345")
+    assert not _is_valid_file_id(0)
+    assert not _is_valid_file_id(-5)
+    assert not _is_valid_file_id(2**63)  # beyond int64
+    assert not _is_valid_file_id("０１２")  # full-width digits
+    assert not _is_valid_file_id("²")  # unicode digit accepted by isdigit()
+    assert not _is_valid_file_id("１２３")
+    assert not _is_valid_file_id("")
+    assert not _is_valid_file_id("-5")
+    assert not _is_valid_file_id(str(2**63))
+    assert not _is_valid_file_id(True)
+    assert not _is_valid_file_id(1.0)
+
+
+def test_poll_negative_file_id_is_response_error(monkeypatch) -> None:
+    _patch_urlopen(
+        monkeypatch,
+        returns={
+            "task_id": "tid-1",
+            "status": "Success",
+            "file_id": -7,
+            "base_resp": {"status_code": 0},
+        },
+    )
+    with pytest.raises(ProviderResponseError, match="malformed or missing file_id"):
+        RealMinimaxTransport().poll(api_key=SECRET, external_task_ref="tid-1")
+
+
+def test_poll_unicode_digit_file_id_is_response_error(monkeypatch) -> None:
+    _patch_urlopen(
+        monkeypatch,
+        returns={
+            "task_id": "tid-1",
+            "status": "Success",
+            "file_id": "１２３",
+            "base_resp": {"status_code": 0},
+        },
+    )
+    with pytest.raises(ProviderResponseError, match="malformed or missing file_id"):
+        RealMinimaxTransport().poll(api_key=SECRET, external_task_ref="tid-1")

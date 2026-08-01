@@ -197,3 +197,10 @@ retrieve 响应的 `file.file_id` 必须与请求一致。缺失/类型错误/�
 统一 `ProviderResponseError`。协调器级测试：真实 transport 全链路下
 query task_id 串线 → `needs_reconciliation`、不 fallback、
 `external_task_ref` 留存供人工核对。
+
+## TASK-017 第五次复审修正批次（2026-08-01）
+
+**Minor — file_id 边界**：`_is_valid_file_id` 收紧为**正 int64**
+（`0 < v <= 2^63-1`）或 **ASCII 十进制字符串**（逐字符 `0-9`，转换后同做
+int64 范围检查）；负数、零、超 int64、全角/Unicode 数字（`１２３`、`²`）
+一律拒绝（`str.isdigit` 明确弃用）。新增边界与 transport 级回归测试。

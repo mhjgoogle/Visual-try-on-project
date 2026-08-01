@@ -297,13 +297,25 @@ _DEFAULT_BASE = "https://api.minimax.io"
 _PROCESSING_STATES = frozenset({"preparing", "queueing", "processing"})
 
 
+_INT64_MAX = 2**63 - 1
+
+
 def _is_valid_file_id(value: object) -> bool:
-    """A MiniMax file_id is an int64 or a purely numeric string (ADR-0009)."""
+    """A MiniMax file_id is a positive int64, or its ASCII-decimal string.
+
+    ``str.isdigit`` is deliberately NOT used: it accepts Unicode digits
+    (``１２３``, ``²``) that are not a valid vendor identifier. Negative
+    and beyond-int64 values are rejected too.
+    """
     if isinstance(value, bool):
         return False
     if isinstance(value, int):
-        return True
-    return isinstance(value, str) and value.isdigit()
+        return 0 < value <= _INT64_MAX
+    if isinstance(value, str):
+        if not value or any(c < "0" or c > "9" for c in value):
+            return False
+        return 0 < int(value) <= _INT64_MAX
+    return False
 
 
 class RealMinimaxTransport(MinimaxTransport):
