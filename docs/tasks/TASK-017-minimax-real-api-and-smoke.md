@@ -167,3 +167,23 @@ api-reference 页复核）：
 
 **Minor**：正文与 docstring 的旧契约（`/v2/`、`task.content.url`、
 "schema v2"）已就地替换为官方三段式与 v3。
+
+## TASK-017 第三次复审修正批次（2026-08-01）
+
+**Blocker — 响应结构严格校验**：新增
+`RealMinimaxTransport._require_ok_base_resp`——`base_resp` 必须为对象、
+`status_code` 必须为 int，且**必须显式为 0 才算成功**（缺失不再隐式
+成功）；`file` 必须为对象。任何合法 JSON 但形状错误（数组/字符串/缺失）
+一律 `ProviderResponseError`，不再逸出 `AttributeError`。协调器级测试
+断言 submit/poll 畸形响应 → `needs_reconciliation`、不 fallback、
+reservation 留有人工对账信号。
+
+**Important — 回执形状**：`_receipt_matches` 先验证回执为对象且
+`sha256` 为 64 位字符串；任何结构不符/读取异常 → 安全返回不信任
+（`success_media_pending`），`poll-media` 不再崩溃（含 `[]`/字符串/数字
+/非法 sha 四种形状的回归测试）。
+
+**Important — 冒烟记录安全**：记录/媒体文件名改用 task_id 的本地
+SHA-256 前缀（厂商 task_id 只进 JSON 内容，含 `/` 也不破坏写入、不逃逸
+`WFM1_SMOKE_DIR`，另有 resolve 包含断言）；记录写入改为临时文件 +
+fsync + `os.replace` 原子替换。

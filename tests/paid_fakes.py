@@ -168,3 +168,38 @@ class FakeFetcher:
     def fetch(self, reference: str, dest: Path) -> None:
         self.fetched.append((reference, dest))
         dest.write_bytes(b"fake-media")
+
+
+class MalformedResponseProvider(FakeProvider):
+    """Raises ProviderResponseError at a chosen phase (submit or poll)."""
+
+    __slots__ = ("_phase",)
+
+    def __init__(self, *, provider_id: str, phase: str) -> None:
+        super().__init__(provider_id=provider_id)
+        self._phase = phase
+
+    def submit(self, request, prepared, *, observed_at):
+        self.calls["submit"] += 1
+        if self._phase == "submit":
+            from ai_video_workflow.providers.cloud_errors import (
+                ProviderResponseError,
+            )
+
+            raise ProviderResponseError("submit: malformed or missing base_resp")
+        return super().submit(request, prepared, observed_at=observed_at)
+
+    def poll(self, request, current, *, observed_at, reported_artifact=None):
+        self.calls["poll"] += 1
+        if self._phase == "poll":
+            from ai_video_workflow.providers.cloud_errors import (
+                ProviderResponseError,
+            )
+
+            raise ProviderResponseError("query: malformed or missing base_resp")
+        return super().poll(
+            request,
+            current,
+            observed_at=observed_at,
+            reported_artifact=reported_artifact,
+        )

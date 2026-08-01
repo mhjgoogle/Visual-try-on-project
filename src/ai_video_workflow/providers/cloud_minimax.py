@@ -331,10 +331,7 @@ class RealMinimaxTransport(MinimaxTransport):
         data = self._request(
             "POST", f"{self._base()}/v1/video_generation", api_key, headers, body
         )
-        base_resp = data.get("base_resp") or {}
-        status_code = base_resp.get("status_code")
-        if status_code not in (0, None):
-            self._raise_base_resp(status_code, base_resp.get("status_msg"))
+        self._require_ok_base_resp(data, "submit")
         task_id = data.get("task_id")
         if not isinstance(task_id, str) or not task_id:
             raise ProviderResponseError("submit: response missing task_id")
@@ -353,10 +350,7 @@ class RealMinimaxTransport(MinimaxTransport):
             {},
             None,
         )
-        base_resp = data.get("base_resp") or {}
-        code = base_resp.get("status_code")
-        if code not in (0, None):
-            self._raise_base_resp(code, base_resp.get("status_msg"))
+        self._require_ok_base_resp(data, "query")
         status = data.get("status")
         if not isinstance(status, str) or not status:
             raise ProviderResponseError("query: response missing status")
@@ -380,15 +374,33 @@ class RealMinimaxTransport(MinimaxTransport):
         data = self._request(
             "GET", f"{self._base()}/v1/files/retrieve?file_id={fid}", api_key, {}, None
         )
-        base_resp = data.get("base_resp") or {}
-        code = base_resp.get("status_code")
-        if code not in (0, None):
-            self._raise_base_resp(code, base_resp.get("status_msg"))
-        file_obj = data.get("file") or {}
+        self._require_ok_base_resp(data, "retrieve")
+        file_obj = data.get("file")
+        if not isinstance(file_obj, dict):
+            raise ProviderResponseError("retrieve: malformed file object")
         url = file_obj.get("download_url")
         if not isinstance(url, str) or not url:
             raise ProviderResponseError("retrieve: response missing file.download_url")
         return url
+
+    def _require_ok_base_resp(self, data: dict, ctx: str) -> None:
+        """Strictly validate ``base_resp`` and require an explicit success.
+
+        Any legal-JSON-but-wrong shape (array, string, missing object,
+        missing/non-int status code) is a malformed response — never an
+        implicit success and never an unclassified ``AttributeError``.
+        """
+        base_resp = data.get("base_resp")
+        if not isinstance(base_resp, dict):
+            raise ProviderResponseError(f"{ctx}: malformed or missing base_resp")
+        code = base_resp.get("status_code")
+        if isinstance(code, bool) or not isinstance(code, int):
+            raise ProviderResponseError(f"{ctx}: missing base_resp.status_code")
+        if code != 0:
+            status_msg = base_resp.get("status_msg")
+            self._raise_base_resp(
+                code, status_msg if isinstance(status_msg, str) else None
+            )
 
     def _request(
         self, method: str, url: str, api_key: str, headers: dict, body: bytes | None

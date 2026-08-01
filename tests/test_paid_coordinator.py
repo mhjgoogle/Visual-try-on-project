@@ -28,7 +28,7 @@ from ai_video_workflow.providers.registry import (
 )
 from ai_video_workflow.qcd.events import QcdEventType
 from ai_video_workflow.qcd.log import read_events
-from tests.paid_fakes import FakeFetcher, FakeProvider
+from tests.paid_fakes import FakeFetcher, FakeProvider, MalformedResponseProvider
 
 T0 = datetime(2026, 8, 1, 0, 0, 0, tzinfo=timezone.utc)
 
@@ -872,3 +872,43 @@ def test_receipted_media_is_trusted_idempotent(tmp_path: Path) -> None:
     outcome = coord.resume_media(_shot(), "task-1", "op-1")
     assert outcome.kind == "success"
     assert len(fetcher.fetched) == fetch_count
+
+
+# ============================================================================
+# TASK-017 third review batch: malformed responses, receipt shapes
+# ============================================================================
+
+
+def test_malformed_submit_response_needs_reconciliation(tmp_path: Path) -> None:
+    # a malformed vendor response during submit is an unknown charge state:
+    # needs_reconciliation, no fallback, no leaked held record.
+    primary = MalformedResponseProvider(provider_id="fake-a", phase="submit")
+    fallback = FakeProvider(provider_id="fake-b")
+    root, coord, _ = _setup(tmp_path, providers=[primary, fallback])
+    outcome = coord.submit_paid(_shot(), _request())
+    assert outcome.kind == "needs_reconciliation"
+    assert fallback.total_calls == 0
+    assert load_reservation(root, "task-1", "op-1").status == "needs_reconciliation"
+
+
+def test_malformed_poll_response_needs_reconciliation(tmp_path: Path) -> None:
+    primary = MalformedResponseProvider(provider_id="fake-a", phase="poll")
+    fallback = FakeProvider(provider_id="fake-b")
+    root, coord, _ = _setup(tmp_path, providers=[primary, fallback])
+    outcome = coord.submit_paid(_shot(), _request())
+    assert outcome.kind == "needs_reconciliation"
+    assert fallback.total_calls == 0
+    assert load_reservation(root, "task-1", "op-1").status == "needs_reconciliation"
+
+
+def test_malformed_receipt_is_untrusted_not_a_crash(tmp_path: Path) -> None:
+    # a receipt of any legal-JSON-but-wrong shape must degrade to
+    # success_media_pending, never crash poll-media.
+    fake = FakeProvider(provider_id="fake-a")
+    root, coord, _ = _setup(tmp_path, providers=[fake])
+    assert coord.submit_paid(_shot(), _request()).kind == "success"
+    receipt = root / "staging" / "shots" / "task-1.mp4.fetched.json"
+    for bad in ("[]", '"a-string"', "42", '{"sha256": 7}'):
+        receipt.write_text(bad, encoding="utf-8")
+        outcome = coord.resume_media(_shot(), "task-1", "op-1")
+        assert outcome.kind == "success_media_pending"

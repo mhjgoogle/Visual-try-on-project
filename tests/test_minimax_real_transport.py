@@ -250,6 +250,49 @@ def test_default_base_url(monkeypatch) -> None:
     assert captured["url"] == "https://api.minimax.io/v1/video_generation"
 
 
+def test_base_resp_as_array_is_response_error(monkeypatch) -> None:
+    # legal JSON, wrong shape: must be a classified response error, never
+    # an unclassified AttributeError (which would leak a held reservation).
+    _patch_urlopen(monkeypatch, returns={"task_id": "t", "base_resp": [1, 2]})
+    with pytest.raises(ProviderResponseError, match="base_resp"):
+        RealMinimaxTransport().submit(api_key=SECRET, payload={})
+
+
+def test_missing_status_code_is_not_success(monkeypatch) -> None:
+    # a response without base_resp.status_code must NOT be an implicit success
+    _patch_urlopen(monkeypatch, returns={"task_id": "t", "base_resp": {}})
+    with pytest.raises(ProviderResponseError, match="status_code"):
+        RealMinimaxTransport().submit(api_key=SECRET, payload={})
+
+
+def test_missing_base_resp_is_response_error(monkeypatch) -> None:
+    _patch_urlopen(monkeypatch, returns={"task_id": "t"})
+    with pytest.raises(ProviderResponseError, match="base_resp"):
+        RealMinimaxTransport().submit(api_key=SECRET, payload={})
+
+
+def test_query_base_resp_as_array_is_response_error(monkeypatch) -> None:
+    _patch_urlopen(monkeypatch, returns={"status": "Processing", "base_resp": "x"})
+    with pytest.raises(ProviderResponseError, match="base_resp"):
+        RealMinimaxTransport().poll(api_key=SECRET, external_task_ref="tid-1")
+
+
+def test_retrieve_file_as_array_is_response_error(monkeypatch) -> None:
+    _patch_routed(
+        monkeypatch,
+        {
+            "/v1/query/video_generation": {
+                "status": "Success",
+                "file_id": 1,
+                "base_resp": {"status_code": 0},
+            },
+            "/v1/files/retrieve": {"file": [1], "base_resp": {"status_code": 0}},
+        },
+    )
+    with pytest.raises(ProviderResponseError, match="malformed file"):
+        RealMinimaxTransport().poll(api_key=SECRET, external_task_ref="tid-1")
+
+
 # --- opt-in real smoke (skipped unless explicitly enabled) ----------------
 
 
@@ -259,7 +302,9 @@ def test_default_base_url(monkeypatch) -> None:
     reason="real MiniMax smoke: needs AI_VIDEO_WORKFLOW_REAL_MINIMAX=1 + key",
 )
 def test_real_minimax_smoke() -> None:  # pragma: no cover - opt-in only
+    import hashlib
     import json as _json
+    import tempfile
     import time
     from pathlib import Path
 
@@ -271,8 +316,25 @@ def test_real_minimax_smoke() -> None:  # pragma: no cover - opt-in only
     smoke_dir = Path(os.environ.get("WFM1_SMOKE_DIR", str(Path.home() / ".wfm1-smoke")))
     smoke_dir.mkdir(parents=True, exist_ok=True)
 
+    def _write_record(record_path: Path, payload: dict) -> None:
+        # atomic + fsynced so the record survives a crash mid-write; the
+        # vendor task id lives only INSIDE the JSON, never in a path.
+        raw_fd, tmp_name = tempfile.mkstemp(dir=smoke_dir, suffix=".tmp")
+        tmp = Path(tmp_name)
+        try:
+            with os.fdopen(raw_fd, "w", encoding="utf-8") as stream:
+                stream.write(_json.dumps(payload) + "\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(tmp, record_path)
+        finally:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
     transport = RealMinimaxTransport()
-    # MiniMax-Hailuo-02 T2V supports 768P/1080P (not 512P) — ADR-0009.
+    # MiniMax-Hailuo-02 T2V supports 768P/1080P (not 512P) -- ADR-0009.
     task_id = transport.submit(
         api_key=key,
         payload={
@@ -283,11 +345,12 @@ def test_real_minimax_smoke() -> None:  # pragma: no cover - opt-in only
         },
     )
     assert task_id
-    record = smoke_dir / f"minimax-smoke-{task_id}.json"
-    record.write_text(
-        _json.dumps({"task_id": task_id, "state": "submitted"}) + "\n",
-        encoding="utf-8",
-    )
+    # a local digest names the files, so an unexpected vendor task id (e.g.
+    # one containing '/') can neither break the write nor escape smoke_dir.
+    safe = hashlib.sha256(task_id.encode("utf-8")).hexdigest()[:16]
+    record = smoke_dir / f"minimax-smoke-{safe}.json"
+    assert record.resolve().parent == smoke_dir.resolve()
+    _write_record(record, {"task_id": task_id, "state": "submitted"})
 
     # poll (with the recommended interval) to a terminal state
     deadline = time.monotonic() + 600
@@ -295,10 +358,7 @@ def test_real_minimax_smoke() -> None:  # pragma: no cover - opt-in only
     while out.state == "processing" and time.monotonic() < deadline:
         time.sleep(10)
         out = transport.poll(api_key=key, external_task_ref=task_id)
-    record.write_text(
-        _json.dumps({"task_id": task_id, "state": out.state}) + "\n",
-        encoding="utf-8",
-    )
+    _write_record(record, {"task_id": task_id, "state": out.state})
 
     # a failed (but paid-for) generation is a smoke FAILURE, not a pass
     assert out.state == "succeeded", (
@@ -309,11 +369,10 @@ def test_real_minimax_smoke() -> None:  # pragma: no cover - opt-in only
 
     # actually download the media (bounded, atomic, never overwriting) to
     # prove the download_url works end to end.
-    dest = smoke_dir / f"minimax-smoke-{task_id}.mp4"
+    dest = smoke_dir / f"minimax-smoke-{safe}.mp4"
     UrllibMediaFetcher().fetch(out.artifact_url, dest)
     assert dest.stat().st_size > 0
-    record.write_text(
-        _json.dumps({"task_id": task_id, "state": "downloaded", "media": str(dest)})
-        + "\n",
-        encoding="utf-8",
+    _write_record(
+        record,
+        {"task_id": task_id, "state": "downloaded", "media": str(dest)},
     )

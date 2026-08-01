@@ -718,10 +718,20 @@ class PaidGenerationCoordinator:
 
     @staticmethod
     def _receipt_matches(receipt: Path, dest: Path) -> bool:
+        # A receipt of any legal-JSON-but-wrong shape (array, string,
+        # missing/non-string sha256) is simply untrusted — never a crash.
         try:
             recorded = json.loads(receipt.read_text(encoding="utf-8"))
-            return recorded.get("sha256") == file_sha256(dest)
-        except (OSError, ValueError, AiVideoWorkflowError):
+        except (OSError, ValueError):
+            return False
+        if not isinstance(recorded, dict):
+            return False
+        sha = recorded.get("sha256")
+        if not isinstance(sha, str) or len(sha) != 64:
+            return False
+        try:
+            return sha == file_sha256(dest)
+        except AiVideoWorkflowError:
             return False
 
     def _check_budget(self, request: PaidRequest, estimate_jpy: int):
