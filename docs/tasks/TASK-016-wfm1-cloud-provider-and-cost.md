@@ -1,0 +1,99 @@
+# TASK-016：WFM1 云端 Provider 接线与权威成本事实（Batch B）
+
+> **状态：Implemented。** 吸收临时 P-C。接通付费生成闭环，保持 Provider
+> 可插拔。唯一冻结变更（新增 `provider_cost_recorded` QCD 事件）由
+> [ADR-0008](../adr/ADR-0008-wfm1-authoritative-cost-fact-and-qcd-cost-event.md)
+> 授权。合同见 [TASK-014](TASK-014-wfm1-contract-consolidation.md)。
+
+## 正式名称
+
+WFM1 Cloud Provider Wiring and Authoritative Cost
+
+## 目的
+
+在 TASK-015 对齐的配置/审批/预算之上，接通真实付费生成的协调链，并
+以厂商中立、可插拔的方式接入首个云端 Provider（MiniMax/Hailuo），同时
+把权威成本事实写入 QCD——全程不重构 M1 Orchestrator、不改
+`ProviderCostObservation`。
+
+## 输入
+
+- TASK-015 的 `config/`、`approval/`、`budget/`；
+- 冻结的 `VideoProvider` 契约、`ProviderResult`/`ProviderCostObservation`；
+- QCD 事件基础设施；ADR-0008 授权的新事件。
+
+## 输出文件（全部新增，除授权的冻结/接线点）
+
+**Provider 可插拔**
+- `providers/registry.py`：`ProviderRegistry` + `default_registry()`
+  （注册 manual + minimax）；未知 id **fail-closed**。
+- `providers/cloud_minimax.py`：`MinimaxVideoProvider`（stateless、
+  filesystem-free，collect 返回**外部**产物引用）+ 可打桩
+  `MinimaxTransport` + `RealMinimaxTransport`（opt-in，未配置端点即拒跑）。
+- `providers/cloud_errors.py`：`CloudProviderError` 子树（网络/超时/
+  认证/厂商/响应），继承冻结的 `ProviderError`。
+
+**协调链**
+- `app/cost_boundary.py`：float 遥测 → 权威整数原币最小单位
+  （Decimal、half-up、`billing_source="float_boundary_conversion"`）。
+- `app/paid_coordinator.py`：`PaidGenerationCoordinator` 七步链 + fallback。
+- `app/media_fetch.py`：`UrllibMediaFetcher`（协调器负责下载外部产物到
+  staging；Provider 不碰文件系统）。
+
+**冻结变更（ADR-0008 授权，仅此处）**
+- `qcd/events.py`：新增第 8 类事件 `PROVIDER_COST_RECORDED` + 固定
+  payload 键集 + 值域校验 + `event_id` 派生 + 构造器；`qcd/__init__.py`
+  导出。
+
+**CLI 接线（app 层，TASK-007 一次性授权）**
+- `cli.py`：所有 Provider 经 registry 构建（`manual` 用合成 entry，其余
+  从锁定 catalog 解析；**非 manual 的未知 id 不再静默构造 Manual**）；
+  新增 `paid-submit` 子命令 + `--catalog-dir`。
+
+**测试**：`test_provider_registry`、`test_cloud_minimax`、
+`test_cost_boundary`、`test_qcd_provider_cost_event`、
+`test_paid_coordinator`（fake-paid-provider 集成）、`test_cli_paid`；
+`tests/paid_fakes.py`。
+
+## 接通的数据流
+
+审批 digest 校验 → provider/model/capability 解析 → catalog 报价 →
+预算事前检查（committed 实际 + 未决 holds + 本次预估）→ reservation 预留
+→ Provider submit/poll/collect → 权威成本 `provider_cost_recorded`（原币
+整数）+ commit reservation → 协调器下载外部产物到 staging。
+
+## 关键语义（与 TASK-014 合同一致）
+
+- **技术故障**（submit 前网络/认证/厂商）→ 释放 hold → fallback（新
+  operation_id，重新审批/报价/预算/预留）；
+- **预算拒绝** → 停止，**绝不 fallback**；
+- **submit 后不确定**（未知计费状态）→ `needs_reconciliation`，**不自动
+  重复付费**；
+- **崩溃**：遗留 `held` reservation 不重提交，转 `needs_reconciliation`；
+- **账户根发现规则**：账户根默认 = 项目根父目录，其直接子目录中含
+  `config/wfm1.json` 者为项目；月度账本 = 各项目在该 JST 月的权威成本
+  之和，各按自身锁定 FX 换算（见 ADR-0001 增补）。
+
+## 明确不做
+
+- 不重构 M1 Orchestrator；不改 `ProviderCostObservation` 或其余冻结合同；
+- 不把 MiniMax 规则写进 budget/approval/选择等通用模块；
+- 不运行真实付费调用（除非显式配置端点 + 凭据 + opt-in）；
+- 不实现自动路由（M3 之后）。
+
+## 测试要求 / 验收标准
+
+- [x] fake-paid-provider 集成覆盖：审批失败 0 调用、预算拒绝 0 调用、
+      reservation 幂等、成本只入账一次、崩溃不重复提交、镜头级切换、
+      fallback 不绕预算、技术故障 fallback、不确定 → 对账；
+- [x] 凭据只来自 env，不进配置/日志/异常（`test_cloud_minimax`）；
+- [x] 全量 pytest 全绿、ruff clean；
+- [x] 冻结合同仅 ADR-0008 授权的 `qcd/events.py` 一处变更，其余为空。
+
+## 真实 API 尚需配置
+
+- 厂商端点/请求-响应形态（`RealMinimaxTransport` 骨架，需
+  `WFM1_MINIMAX_API_BASE` + 真实接线）；
+- 凭据环境变量名（catalog `credential_env_vars`）、预算数值最终裁决
+  （ADR-0006 §5）；
+- 真实冒烟测试显式 opt-in，绝不进回归门槛。

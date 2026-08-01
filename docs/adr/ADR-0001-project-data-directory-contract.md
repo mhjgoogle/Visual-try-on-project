@@ -479,3 +479,42 @@ TASK-004 amendment consequences:
 - `src/ai_video_workflow/persistence.py` (existing atomic
   temporary-file + fsync + replace publication strategy that record
   writes mirror)
+
+## WFM1 amendment (TASK-015 / TASK-016)
+
+WFM1 adds the following project-relative paths and one account-level
+rule. These extend, and do not change, the existing M1 layout.
+
+Per-project paths (all under `<project-root>/`, POSIX, containment-checked
+via ADR-0004):
+
+- `config/wfm1.json` — the per-project WFM1 config (provider selection,
+  yen budgets, locked FX, and the locked catalog id/version/digest).
+  Written once at project creation; overwrite-protected.
+- `approval/<stage>.json` — the content-bound approval marker for one
+  creative stage (e.g. `approval/concept_lock.json`). Human-maintained.
+- `budget/reservations/<task_id>/<operation_id>.json` — one durable
+  pre-flight budget reservation, keyed by `(task_id, operation_id)` for
+  idempotent dedup. Its status transitions (`held` →
+  `committed`/`released`/`needs_reconciliation`) overwrite the same
+  file; it is operational state, not a QCD fact.
+
+Global (repository-level, version-controlled, no secrets):
+
+- `config/providers/<catalog_id>.json` — a published provider catalog
+  (capabilities, models, prices, billing rules, credential env-var
+  names). Addressed by id; a project locks its version + content digest.
+
+Account-level rule (monthly budget scope):
+
+- The **account root** is the directory whose immediate subdirectories
+  are project roots (default: the project root's parent). A subdirectory
+  is a project only if it carries `config/wfm1.json`; others are skipped,
+  as are symlinked entries. The account monthly ledger is the sum, over
+  those projects, of each project's authoritative cost for the given
+  Asia/Tokyo calendar month, each converted at that project's own locked
+  FX. This scope is derived and holds no new source of truth.
+
+Authoritative cloud cost is recorded only in the QCD event log as
+`provider_cost_recorded` (ADR-0008); reservations and the account ledger
+never become a second source of cost truth.

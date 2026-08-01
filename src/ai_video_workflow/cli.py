@@ -29,9 +29,17 @@ from ai_video_workflow.app.bootstrap import (
 from ai_video_workflow.app.clock import utc_now
 from ai_video_workflow.app.contracts import staging_ref_for
 from ai_video_workflow.app.driver import WorkflowDriver
+from ai_video_workflow.app.media_fetch import UrllibMediaFetcher
+from ai_video_workflow.app.paid_coordinator import (
+    PaidGenerationCoordinator,
+    PaidRequest,
+)
 from ai_video_workflow.app.requests import DefaultProviderRequestFactory
 from ai_video_workflow.assets.registration import ValidationFailedError
 from ai_video_workflow.composition.ffmpeg import FfmpegVideoComposer
+from ai_video_workflow.config.catalog import ProviderEntry
+from ai_video_workflow.config.catalog_lock import load_locked_catalog
+from ai_video_workflow.config.project_config import load_project_config
 from ai_video_workflow.errors import AiVideoWorkflowError
 from ai_video_workflow.inspection.ffprobe import FfprobeMediaInspector
 from ai_video_workflow.manifest import StepManifest
@@ -47,7 +55,7 @@ from ai_video_workflow.models import (
 from ai_video_workflow.orchestration import OrchestrationAction
 from ai_video_workflow.persistence import read_model_json
 from ai_video_workflow.project_data import ProjectData
-from ai_video_workflow.providers import ManualVideoProvider
+from ai_video_workflow.providers.registry import default_registry
 from ai_video_workflow.qcd.reporting import run_qcd_report_step
 from ai_video_workflow.security import resolve_within_root
 
@@ -77,6 +85,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ai-video-workflow")
     parser.add_argument("--project-root", required=True, type=Path)
     parser.add_argument("--provider-id", default="manual")
+    parser.add_argument(
+        "--catalog-dir",
+        type=Path,
+        default=Path("config/providers"),
+        help="directory holding the versioned provider catalog(s)",
+    )
     sub = parser.add_subparsers(dest="command")
 
     def _add(name: str, handler, *, staged=False, task=False, shot=False, extra=None):
@@ -114,19 +128,64 @@ def _build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--score", type=int, required=True)
         sp.add_argument("--note", default=None)
 
+    def _paid_args(sp):
+        sp.add_argument("--shot", required=True)
+        sp.add_argument("--operation-id", required=True)
+        sp.add_argument("--stage", default="concept_lock")
+        sp.add_argument("--capability", default="image_to_video")
+        sp.add_argument("--model", required=True)
+        sp.add_argument("--resolution", required=True)
+        sp.add_argument("--duration", type=int, required=True)
+        sp.add_argument("--failures", type=int, default=0)
+
     _add("record-attempt", _cmd_record_attempt, task=True, extra=_attempt_args)
     _add("rate", _cmd_rate, shot=True, extra=_rate_args)
     _add("qcd-report", _cmd_qcd_report)
+    _add("paid-submit", _cmd_paid_submit, task=True, extra=_paid_args)
     return parser
 
 
+_PAID_SUCCESS_KINDS = frozenset(
+    {"success", "already_committed", "success_media_pending"}
+)
+
+
 # --- shared construction ---------------------------------------------------
+
+# A synthetic entry for the manual provider, which needs no catalog/prices.
+_MANUAL_ENTRY = ProviderEntry(
+    provider_id="manual",
+    display_name="Manual",
+    capabilities=("image_to_video",),
+    credential_env_vars=(),
+    models={},
+)
+
+
+def _build_provider(args):
+    """Build the provider for ``--provider-id`` through the registry.
+
+    ``manual`` needs no catalog; any other id is resolved from the
+    project's locked catalog. An unknown id fails closed — the CLI never
+    silently substitutes the manual provider for a non-manual id.
+    """
+    registry = default_registry()
+    if args.provider_id == "manual":
+        return registry.build("manual", _MANUAL_ENTRY)
+    config = load_project_config(args.project_root)
+    catalog = load_locked_catalog(config, args.catalog_dir)
+    entry = catalog.providers.get(args.provider_id)
+    if entry is None:
+        raise AiVideoWorkflowError(
+            f"provider {args.provider_id!r} is not in the locked catalog"
+        )
+    return registry.build(args.provider_id, entry)
 
 
 def _driver(args) -> WorkflowDriver:
     return WorkflowDriver(
         provider_id=args.provider_id,
-        provider=ManualVideoProvider(),
+        provider=_build_provider(args),
         request_factory=DefaultProviderRequestFactory(),
         project_root=args.project_root,
         inspector=FfprobeMediaInspector(),
@@ -219,6 +278,47 @@ def _cmd_compose(args) -> None:
     outcome = _driver(args).compose(data)
     print(f"composed: {outcome.output_path} (version {outcome.version})")
     print(f"skipped: {outcome.skipped}")
+
+
+def _cmd_paid_submit(args) -> None:
+    config = load_project_config(args.project_root)
+    catalog = load_locked_catalog(config, args.catalog_dir)
+    data = _load_project_data(args.project_root)
+    shot = next((s for s in data.shots if s.shot_id == args.shot), None)
+    if shot is None:
+        raise AiVideoWorkflowError(f"no shot record for {args.shot!r}")
+    coordinator = PaidGenerationCoordinator(
+        project_root=args.project_root,
+        config=config,
+        catalog=catalog,
+        registry=default_registry(),
+        project=data.project,
+        fetcher=UrllibMediaFetcher(),
+        clock=utc_now,
+    )
+    outcome = coordinator.submit_paid(
+        shot,
+        PaidRequest(
+            task_id=args.task_id,
+            shot_id=args.shot,
+            operation_id=args.operation_id,
+            stage=args.stage,
+            capability=args.capability,
+            model_id=args.model,
+            resolution=args.resolution,
+            duration_seconds=args.duration,
+            shot_consecutive_failures=args.failures,
+        ),
+    )
+    print(f"paid outcome: {outcome.kind}")
+    print(f"provider: {outcome.provider_id}")
+    print(f"operation: {outcome.operation_id}")
+    if outcome.cost_minor_units is not None:
+        print(f"cost: {outcome.cost_minor_units} {outcome.currency}")
+    if outcome.fell_back:
+        print("fell_back: true")
+    if outcome.kind not in _PAID_SUCCESS_KINDS:
+        raise AiVideoWorkflowError(f"{outcome.kind}: {outcome.reason}")
 
 
 def _cmd_qcd_report(args) -> None:

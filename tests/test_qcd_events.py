@@ -28,9 +28,10 @@ from ai_video_workflow.qcd.events import (
 T0 = datetime(2026, 7, 29, 8, 0, 0, tzinfo=timezone.utc)
 
 
-def test_seven_event_types() -> None:
-    assert len(QcdEventType) == 7
-    assert len(_PAYLOAD_KEYS) == 7
+def test_event_types() -> None:
+    # ADR-0003 fixed seven; ADR-0008 adds provider_cost_recorded (eighth).
+    assert len(QcdEventType) == 8
+    assert len(_PAYLOAD_KEYS) == 8
 
 
 def test_task_created_event_id_and_payload() -> None:

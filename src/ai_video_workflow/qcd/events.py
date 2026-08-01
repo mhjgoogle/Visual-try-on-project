@@ -45,7 +45,11 @@ _ORCHESTRATION_ACTIONS = frozenset(
 
 
 class QcdEventType(str, Enum):
-    """The seven fixed QCD event types (ADR-0003 §3)."""
+    """The fixed QCD event types.
+
+    Seven were fixed by ADR-0003 §3; ADR-0008 adds the eighth,
+    ``provider_cost_recorded``, as the authoritative cloud cost fact.
+    """
 
     TASK_CREATED = "task_created"
     TASK_STATUS_CHANGED = "task_status_changed"
@@ -54,6 +58,7 @@ class QcdEventType(str, Enum):
     VALIDATION_COMPLETED = "validation_completed"
     COMPOSITION_COMPLETED = "composition_completed"
     MANUAL_QUALITY_RATING_RECORDED = "manual_quality_rating_recorded"
+    PROVIDER_COST_RECORDED = "provider_cost_recorded"
 
 
 # Fixed payload key set per event type (ADR-0003 §4). Every listed key
@@ -129,6 +134,18 @@ _PAYLOAD_KEYS: dict[QcdEventType, frozenset[str]] = {
     ),
     QcdEventType.MANUAL_QUALITY_RATING_RECORDED: frozenset(
         {"rating_id", "asset_id", "score", "scale", "note"}
+    ),
+    QcdEventType.PROVIDER_COST_RECORDED: frozenset(
+        {
+            "provider_id",
+            "model_id",
+            "operation_id",
+            "cost_minor_units",
+            "currency",
+            "billing_source",
+            "observed_amount",
+            "observed_unit",
+        }
     ),
 }
 
@@ -370,6 +387,40 @@ def _validate_payload_domains(event_type: QcdEventType, payload: Mapping) -> Non
         score = payload["score"]
         if isinstance(score, bool) or not isinstance(score, int) or not 1 <= score <= 5:
             raise InvariantViolationError("score: expected an int in [1, 5]")
+    elif event_type is QcdEventType.PROVIDER_COST_RECORDED:
+        if not isinstance(payload["provider_id"], str) or not payload["provider_id"]:
+            raise InvariantViolationError("provider_id: expected a non-empty str")
+        if not isinstance(payload["model_id"], str) or not payload["model_id"]:
+            raise InvariantViolationError("model_id: expected a non-empty str")
+        validate_stable_id(payload["operation_id"], field_name="operation_id")
+        cost = payload["cost_minor_units"]
+        if isinstance(cost, bool) or not isinstance(cost, int) or cost < 0:
+            raise InvariantViolationError(
+                "cost_minor_units: expected a non-negative int"
+            )
+        currency = payload["currency"]
+        if (
+            not isinstance(currency, str)
+            or not currency
+            or currency != currency.upper()
+        ):
+            raise InvariantViolationError(
+                "currency: expected a non-empty ISO-4217 code"
+            )
+        if (
+            not isinstance(payload["billing_source"], str)
+            or not payload["billing_source"]
+        ):
+            raise InvariantViolationError("billing_source: expected a non-empty str")
+        observed_amount = payload["observed_amount"]
+        if observed_amount is not None and (
+            isinstance(observed_amount, bool)
+            or not isinstance(observed_amount, (int, float))
+        ):
+            raise InvariantViolationError("observed_amount: expected a float or null")
+        observed_unit = payload["observed_unit"]
+        if observed_unit is not None and not isinstance(observed_unit, str):
+            raise InvariantViolationError("observed_unit: expected a str or null")
 
 
 def _expected_event_id(
@@ -395,6 +446,8 @@ def _expected_event_id(
         return f"validation_completed:{task_id}:v{payload['report_version']}"
     if event_type is QcdEventType.COMPOSITION_COMPLETED:
         return f"composition_completed:{project_id}:v{payload['output_version']}"
+    if event_type is QcdEventType.PROVIDER_COST_RECORDED:
+        return f"provider_cost_recorded:{task_id}:{payload['operation_id']}"
     return f"manual_quality_rating_recorded:{shot_id}:{payload['rating_id']}"
 
 
@@ -633,6 +686,52 @@ def build_composition_completed_event(
             "entry_count": len(input_asset_ids),
             "profile_digest": profile_digest,
             "elapsed_ms": elapsed_ms,
+        },
+    )
+
+
+def build_provider_cost_recorded_event(
+    *,
+    project_id: str,
+    shot_id: str,
+    task_id: str,
+    provider_id: str,
+    model_id: str,
+    operation_id: str,
+    cost_minor_units: int,
+    currency: str,
+    billing_source: str,
+    occurred_at: datetime,
+    observed_amount: float | None = None,
+    observed_unit: str | None = None,
+) -> QcdEvent:
+    """Build the authoritative cloud cost fact event (ADR-0008).
+
+    ``cost_minor_units`` + ``currency`` are the authoritative integer
+    amount; ``observed_amount`` / ``observed_unit`` carry the provider's
+    non-authoritative float telemetry, and ``billing_source`` records how
+    the authoritative amount was derived.
+    """
+    validate_stable_id(task_id, field_name="task_id")
+    validate_stable_id(operation_id, field_name="operation_id")
+    if isinstance(cost_minor_units, bool) or not isinstance(cost_minor_units, int):
+        raise InvariantViolationError("cost_minor_units: expected a non-negative int")
+    return QcdEvent(
+        event_id=f"provider_cost_recorded:{task_id}:{operation_id}",
+        event_type=QcdEventType.PROVIDER_COST_RECORDED,
+        occurred_at=occurred_at,
+        project_id=project_id,
+        shot_id=shot_id,
+        task_id=task_id,
+        payload={
+            "provider_id": provider_id,
+            "model_id": model_id,
+            "operation_id": operation_id,
+            "cost_minor_units": cost_minor_units,
+            "currency": currency,
+            "billing_source": billing_source,
+            "observed_amount": observed_amount,
+            "observed_unit": observed_unit,
         },
     )
 

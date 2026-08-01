@@ -55,8 +55,8 @@ WFM1 以原 M1 为稳定依赖，工作流需求见
 | 任务 | 内容 | 冻结变更 | 状态 |
 | --- | --- | --- | --- |
 | TASK-014 | 提交前合同收口（docs-only，锁定 5 合同） | 无 | Accepted |
-| TASK-015 | 配置/审批/预算合同对齐（吸收原型 B1/B2/B3） | 无 | planned（Batch A） |
-| TASK-016 | 云端 Provider 接线 + 权威成本事实（吸收 P-C） | 仅 `qcd/events.py` 增第 8 类事件（ADR-0008） | planned（Batch B，前置 TASK-015 + 厂商裁决） |
+| TASK-015 | 配置/审批/预算合同对齐（吸收原型 B1/B2/B3） | 无 | implemented（Batch A；统一审查待 TASK-016 后） |
+| TASK-016 | 云端 Provider 接线 + 权威成本事实（吸收 P-C） | 仅 `qcd/events.py` 增第 8 类事件（ADR-0008） | implemented（Batch B；真实厂商接线待 ADR-0006 §5 裁决） |
 
 - 临时命名 B1/B2/B3 的已落盘原型归入 **TASK-015**；临时 P-C 归入
   **TASK-016**。原型代码不删除、不覆盖，由 TASK-015 在其上对齐合同。
