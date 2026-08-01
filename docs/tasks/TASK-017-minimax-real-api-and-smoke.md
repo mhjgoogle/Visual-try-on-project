@@ -25,12 +25,14 @@ submit/poll/collect，保持 Provider 可插拔与资金安全语义不变，并
 
 **代码**
 - `providers/cloud_minimax.py`：真实 `RealMinimaxTransport`
-  （`POST /v1/video_generation`、`GET /v2/query/video_generation/{id}`，
-  urllib，超时/错误按 charge-state 分类）；`MinimaxVideoProvider` 增
-  `bills_at_catalog_price=True`、best-effort `Idempotency-Key`、
-  `first_frame_image`（i2v，可选）。
-- `budget/reservation.py`：reservation schema v2 增 `external_task_ref` +
-  `record_external_task_ref`（submit 成功后立即持久化外部 task ID）。
+  （官方三段式：`POST /v1/video_generation` →
+  `GET /v1/query/video_generation?task_id=` →
+  `GET /v1/files/retrieve?file_id=`，urllib，超时/错误按 charge-state
+  分类）；`MinimaxVideoProvider` 增 `bills_at_catalog_price=True`、
+  best-effort `Idempotency-Key`、`first_frame_image`（i2v，已校验）。
+- `budget/reservation.py`：reservation schema v3（多版本兼容读取 v1–v3）
+  增 `external_task_ref` + spec/报价字段 + `record_external_task_ref`
+  （submit 成功后立即持久化外部 task ID）。
 - `app/paid_coordinator.py`：拆分 `_submit_phase`/`_poll_collect_phase`
   （submit 后立即持久化 external ref）；`_settle` 支持
   `catalog_fixed_price` 记账（MiniMax 无响应成本）；新增 `resume_media`
@@ -52,17 +54,19 @@ orchestration、领域模型、VideoAsset 或 QCD 聚合合同。
 
 ## 关键决策（依据官方文档，非第三方猜测）
 
-- 端点/认证/状态/下载：见 ADR-0009（`Authorization: Bearer`，成功返回
-  `task.content.url`，无 file_id 交换）。
+- 端点/认证/状态/下载：见 ADR-0009（`Authorization: Bearer`；三段式
+  submit → query（顶层 `status` + `file_id`）→ files/retrieve
+  （`file.download_url`，有效 1 小时））。
 - **无响应成本字段**：MiniMax 任何响应都不返回计费；按锁定 catalog 固定价
   记账（`billing_source="catalog_fixed_price"`），仅对
   `bills_at_catalog_price` Provider 启用。
 - **无 idempotency 字段**：幂等由 reservation 保证；额外发 best-effort
   `Idempotency-Key` 头。
-- **错误分类（资金安全）**：HTTP 401/403→auth（未受理，可 fallback）；
-  DNS/连接拒绝→NotDispatched（可 fallback）；**超时/畸形/泛网络→
+- **错误分类（资金安全）**：HTTP 401/403 与码 1004/2049→auth（未受理，可
+  fallback）；DNS/连接拒绝→NotDispatched（可 fallback）；码 2013/1008→
+  request_rejected（无计费、**禁 fallback**）；**超时/畸形/泛网络→
   ambiguous→needs_reconciliation，禁止自动重付**；HTTP 5xx / 终态
-  failed/cancelled/expired→泛 vendor error→ambiguous。
+  `Fail`→泛 vendor error→ambiguous。
 
 ## 明确不做
 
@@ -101,9 +105,10 @@ orchestration、领域模型、VideoAsset 或 QCD 聚合合同。
   （开启冒烟）。catalog 需含 `minimax` provider + MiniMax 模型/价目。
 - 最小冒烟：
   `AI_VIDEO_WORKFLOW_REAL_MINIMAX=1 WFM1_MINIMAX_API_KEY=... pytest tests/test_minimax_real_transport.py::test_real_minimax_smoke`
-- 未验证：真实错误码全集→类型映射、`content.url` 下载鉴权、i2v 参考图来源
-  （WFM1 Shot 无参考图字段，i2v 需经 `provider_parameters.first_frame_image`
-  提供，或用纯 prompt 的 t2v 模型）——参考图资产化属后续任务。
+- 未验证：真实错误码全集→类型映射、`file.download_url` 下载鉴权、i2v
+  参考图来源（WFM1 Shot 无参考图字段，i2v 需经 `--first-frame-image`
+  提供公网 URL / image data URL，或用纯 prompt 的 t2v 模型）——参考图
+  资产化属后续任务。
 
 ## TASK-017 复审修正批次（2026-08-01，阻塞复审后）
 
@@ -136,3 +141,29 @@ api-reference 页复核）：
 **最小冒烟（更新）**：
 `AI_VIDEO_WORKFLOW_REAL_MINIMAX=1 WFM1_MINIMAX_API_KEY=... pytest tests/test_minimax_real_transport.py::test_real_minimax_smoke`
 （Hailuo-02 768P/6s，轮询至终态并取回 download_url）。
+
+## TASK-017 第二次复审修正批次（2026-08-01）
+
+复审再判**阻塞**（两项）。本批次修正：
+
+**Blocker**
+- **reservation 多版本兼容**：`parse_reservation` 接受 v1–v3（旧版本缺失
+  字段解析为 None），预算扫描/`poll-media` 对旧记录不再失败；任何重写把
+  记录升级到当前版本。旧记录**无持久化报价 → 禁止自动固定价记账**，但
+  媒体照常取回并转人工对账（`_settle` 无成本路径现仍拉取媒体）。
+- **真实冒烟加固**：submit 后**立即**把 task_id 写入 durable smoke record
+  （`WFM1_SMOKE_DIR`，默认 `~/.wfm1-smoke/`）；仅 `succeeded` 判通过
+  （failed=测试失败）；并用硬化 fetcher **实际下载**到不覆盖的新路径、
+  断言非空，端到端验证 download_url。
+
+**Important**
+- **首帧校验一致 + 逃逸封堵**：协调器与 Provider 同为 8 MiB data URL 上限
+  （hold 之前 fail-closed）；`_submit_phase` 捕获
+  `InvalidProviderRequestError` → `request_rejected`（无计费、禁 fallback、
+  释放 hold），不再逸出遗留 held。
+- **媒体有效性**：fetcher 拒绝空下载；staging 幂等改为**下载回执**
+  （`<staging>.fetched.json` 记 sha256）——已有文件仅当回执匹配才算成功，
+  否则 `success_media_pending` 且不覆盖。
+
+**Minor**：正文与 docstring 的旧契约（`/v2/`、`task.content.url`、
+"schema v2"）已就地替换为官方三段式与 v3。

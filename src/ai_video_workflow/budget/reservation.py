@@ -48,7 +48,12 @@ NEEDS_RECONCILIATION = "needs_reconciliation"
 _STATUSES = frozenset({HELD, COMMITTED, RELEASED, NEEDS_RECONCILIATION})
 # Holds still counted against the budget in pre-flight decisions.
 _OUTSTANDING = frozenset({HELD, NEEDS_RECONCILIATION})
-_KEYS = frozenset(
+# Reservation schema history. Older records on disk stay readable: a v1/v2
+# record parses with its newer fields as None (no stored quote -> no
+# automatic fixed-price booking, but media recovery and manual
+# reconciliation still work). Any rewrite upgrades the record to the
+# current version.
+_V1_KEYS = frozenset(
     {
         "schema_version",
         "reservation_id",
@@ -63,14 +68,17 @@ _KEYS = frozenset(
         "created_at",
         "resolved_at",
         "note",
-        "external_task_ref",
-        "resolution",
-        "duration_seconds",
-        "capability",
-        "quote_minor_units",
-        "quote_currency",
     }
 )
+_V2_KEYS = _V1_KEYS | {"external_task_ref"}
+_V3_KEYS = _V2_KEYS | {
+    "resolution",
+    "duration_seconds",
+    "capability",
+    "quote_minor_units",
+    "quote_currency",
+}
+_KEYS_BY_VERSION = {1: _V1_KEYS, 2: _V2_KEYS, 3: _V3_KEYS}
 
 
 @dataclass(frozen=True, slots=True)
@@ -371,24 +379,31 @@ def reconcile_reservations(
 
 
 def parse_reservation(raw: object) -> Reservation:
-    """Build a ``Reservation`` from already-parsed JSON data."""
+    """Build a ``Reservation`` from already-parsed JSON data.
+
+    Accepts every historical schema version (1..current); fields a version
+    did not have parse as ``None``, so pre-existing holds stay readable,
+    budget scans never fail on old records, and a persisted
+    ``external_task_ref`` from a v2 record remains recoverable.
+    """
     if not isinstance(raw, dict):
         raise ReservationError(
             f"reservation: expected a JSON object, got {type(raw).__name__}"
         )
-    actual = frozenset(raw)
-    missing = _KEYS - actual
-    if missing:
-        raise ReservationError(f"reservation: missing keys {sorted(missing)}")
-    unknown = actual - _KEYS
-    if unknown:
-        raise ReservationError(f"reservation: unknown keys {sorted(unknown)}")
-
-    version = raw["schema_version"]
+    version = raw.get("schema_version")
     if isinstance(version, bool) or not isinstance(version, int):
         raise ReservationError("reservation: schema_version must be an int")
-    if version != RESERVATION_SCHEMA_VERSION:
+    allowed = _KEYS_BY_VERSION.get(version)
+    if allowed is None:
         raise ReservationError(f"reservation: unsupported version {version}")
+
+    actual = frozenset(raw)
+    missing = allowed - actual
+    if missing:
+        raise ReservationError(f"reservation: missing keys {sorted(missing)}")
+    unknown = actual - allowed
+    if unknown:
+        raise ReservationError(f"reservation: unknown keys {sorted(unknown)}")
 
     status = raw["status"]
     if status not in _STATUSES:
@@ -410,12 +425,16 @@ def parse_reservation(raw: object) -> Reservation:
         created_at=_require_str(raw["created_at"], "created_at"),
         resolved_at=_optional_str(raw["resolved_at"], "resolved_at"),
         note=_optional_str(raw["note"], "note"),
-        external_task_ref=_optional_str(raw["external_task_ref"], "external_task_ref"),
-        resolution=_optional_str(raw["resolution"], "resolution"),
-        duration_seconds=_optional_int(raw["duration_seconds"], "duration_seconds"),
-        capability=_optional_str(raw["capability"], "capability"),
-        quote_minor_units=_optional_int(raw["quote_minor_units"], "quote_minor_units"),
-        quote_currency=_optional_str(raw["quote_currency"], "quote_currency"),
+        external_task_ref=_optional_str(
+            raw.get("external_task_ref"), "external_task_ref"
+        ),
+        resolution=_optional_str(raw.get("resolution"), "resolution"),
+        duration_seconds=_optional_int(raw.get("duration_seconds"), "duration_seconds"),
+        capability=_optional_str(raw.get("capability"), "capability"),
+        quote_minor_units=_optional_int(
+            raw.get("quote_minor_units"), "quote_minor_units"
+        ),
+        quote_currency=_optional_str(raw.get("quote_currency"), "quote_currency"),
     )
 
 
@@ -426,7 +445,10 @@ def _with_fields(reservation: Reservation, **overrides) -> Reservation:
     fields = _to_dict(reservation)
     fields.pop("schema_version")
     fields.update(overrides)
-    return Reservation(schema_version=reservation.schema_version, **fields)
+    # Any rewrite serializes every current field, so the stored record is
+    # upgraded to the current schema version (older versions stay readable
+    # via parse_reservation's multi-version key sets).
+    return Reservation(schema_version=RESERVATION_SCHEMA_VERSION, **fields)
 
 
 def _resolve(

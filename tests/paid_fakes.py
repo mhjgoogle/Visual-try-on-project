@@ -84,6 +84,13 @@ class FakeProvider(VideoProvider):
         if self.behavior == "request_rejected":
             # invalid params / no balance -> no charge, but must not fall back
             raise ProviderRequestRejectedError("invalid parameters")
+        if self.behavior == "invalid_request_at_submit":
+            # provider-boundary request validation (client-side, pre-dispatch)
+            from ai_video_workflow.providers.errors import (
+                InvalidProviderRequestError,
+            )
+
+            raise InvalidProviderRequestError("first_frame_image: data URL too large")
         if self.behavior == "timeout_after_dispatch":
             # request may have been received -> ambiguous
             raise ProviderTimeoutError("submit timed out; delivery unknown")

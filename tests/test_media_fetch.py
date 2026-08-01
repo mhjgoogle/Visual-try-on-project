@@ -92,3 +92,11 @@ def test_network_error_wrapped(tmp_path: Path, monkeypatch) -> None:
     _patch(monkeypatch, raises=urllib.error.URLError("down"))
     with pytest.raises(MediaFetchError, match="failed to fetch"):
         UrllibMediaFetcher().fetch("https://x/out.mp4", tmp_path / "out.mp4")
+
+
+def test_empty_download_rejected(tmp_path: Path, monkeypatch) -> None:
+    _patch(monkeypatch, resp=_FakeHTTP(b""))
+    dest = tmp_path / "out.mp4"
+    with pytest.raises(MediaFetchError, match="empty"):
+        UrllibMediaFetcher().fetch("https://x/out.mp4", dest)
+    assert not dest.exists()

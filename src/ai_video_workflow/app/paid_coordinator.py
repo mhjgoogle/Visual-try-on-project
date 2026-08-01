@@ -26,6 +26,7 @@ never re-submitted; it is flagged for reconciliation.
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -61,6 +62,7 @@ from ai_video_workflow.budget.reservation import (
 from ai_video_workflow.config.catalog import ProviderCatalog
 from ai_video_workflow.config.project_config import ProjectConfig
 from ai_video_workflow.config.selection import resolve_provider_selection
+from ai_video_workflow.digests import file_sha256
 from ai_video_workflow.errors import AiVideoWorkflowError
 from ai_video_workflow.models import Project, Shot
 from ai_video_workflow.providers.cloud_errors import (
@@ -71,7 +73,10 @@ from ai_video_workflow.providers.cloud_errors import (
     ProviderRequestRejectedError,
     ProviderVendorError,
 )
-from ai_video_workflow.providers.errors import ProviderError
+from ai_video_workflow.providers.errors import (
+    InvalidProviderRequestError,
+    ProviderError,
+)
 from ai_video_workflow.providers.models import (
     ProviderRequest,
     ProviderResult,
@@ -635,11 +640,15 @@ class PaidGenerationCoordinator:
                 operation_id,
                 note="provider succeeded but cost cannot be determined",
             )
+            # the media is already paid for on the vendor side: recover it
+            # (retryable, no money impact) even though booking needs a human.
+            media_ok = self._fetch_to_staging(request.task_id, final.artifact.reference)
             return PaidOutcome(
                 kind=NEEDS_RECONCILIATION_OUTCOME,
                 provider_id=provider_id,
                 operation_id=operation_id,
-                reason="no cost to book",
+                reason="no cost to book"
+                + ("; media fetched to staging" if media_ok else "; media pending"),
                 fell_back=fell_back,
             )
         cost_minor, currency, billing_source, obs_amt, obs_unit = cost
@@ -683,18 +692,37 @@ class PaidGenerationCoordinator:
     def _fetch_to_staging(self, task_id: str, reference: str) -> bool:
         """Fetch external media to staging; media is retryable, no money impact.
 
-        Idempotent: if the staged file already exists (a prior fetch), the
-        media is present and we do not re-download or overwrite it.
+        Idempotent via a trusted download receipt: an existing staged file
+        counts as success only when the receipt written after our own
+        completed fetch still matches its digest. A pre-existing file
+        without a matching receipt is neither trusted nor overwritten —
+        the outcome stays ``success_media_pending`` for a human to resolve.
         """
         dest = resolve_within_root(self._project_root, staging_ref_for(task_id))
-        if dest.is_file() and dest.stat().st_size > 0:
-            return True
+        receipt = resolve_within_root(
+            self._project_root, staging_ref_for(task_id) + ".fetched.json"
+        )
+        if dest.is_file():
+            return self._receipt_matches(receipt, dest)
         dest.parent.mkdir(parents=True, exist_ok=True)
         try:
             self._fetcher.fetch(reference, dest)
         except Exception:  # noqa: BLE001 - cost is settled; media is retryable
             return False
+        try:
+            receipt_payload = json.dumps({"sha256": file_sha256(dest)}, sort_keys=True)
+            receipt.write_text(receipt_payload + "\n", encoding="utf-8")
+        except (OSError, AiVideoWorkflowError):
+            return False  # fetched but unverifiable -> media pending
         return True
+
+    @staticmethod
+    def _receipt_matches(receipt: Path, dest: Path) -> bool:
+        try:
+            recorded = json.loads(receipt.read_text(encoding="utf-8"))
+            return recorded.get("sha256") == file_sha256(dest)
+        except (OSError, ValueError, AiVideoWorkflowError):
+            return False
 
     def _check_budget(self, request: PaidRequest, estimate_jpy: int):
         # Called inside the account budget lock. Episode/shot are project
@@ -753,12 +781,19 @@ class PaidGenerationCoordinator:
         )
 
 
+# Same cap as the provider boundary (cloud_minimax), enforced here BEFORE a
+# reservation is held so an oversized inline image can never leak a hold.
+_MAX_FIRST_FRAME_DATA_URL_LEN = 8 * 1024 * 1024
+
+
 def _validate_first_frame_image(value: str) -> str:
     # image-to-video first frame: public URL or inline image data URL only —
     # never a local path (which could leak a path or exfiltrate a local file).
     if value.startswith(("http://", "https://")):
         return value
     if value.startswith("data:image/"):
+        if len(value) > _MAX_FIRST_FRAME_DATA_URL_LEN:
+            raise CoordinatorError("first_frame_image: data URL too large")
         return value
     raise CoordinatorError(
         "first_frame_image: must be a public http(s) URL or an image data URL "
@@ -815,13 +850,16 @@ def _submit_phase(provider, request: ProviderRequest, now: datetime):
     """
     try:
         prepared = provider.prepare(request, observed_at=now)
-    except ProviderRequestRejectedError as exc:
+    except (ProviderRequestRejectedError, InvalidProviderRequestError) as exc:
         raise _RequestRejected(str(exc)) from exc
     except CloudProviderError as exc:
         raise _TechnicalFailure(str(exc)) from exc
     try:
         return provider.submit(request, prepared, observed_at=now)
-    except ProviderRequestRejectedError as exc:
+    except (ProviderRequestRejectedError, InvalidProviderRequestError) as exc:
+        # a provider-boundary request-validation error is raised client-side
+        # before dispatch: no job, no charge — but the request is bad, so it
+        # must not fall back (and must never leak a held reservation).
         raise _RequestRejected(str(exc)) from exc
     except _SAFE_NO_CHARGE_SUBMIT as exc:
         raise _TechnicalFailure(str(exc)) from exc

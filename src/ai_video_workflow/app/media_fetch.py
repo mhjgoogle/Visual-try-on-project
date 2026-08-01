@@ -99,6 +99,9 @@ class UrllibMediaFetcher:
                                 f"media exceeds size cap of {self._max_bytes} bytes"
                             )
                         stream.write(chunk)
+                if written == 0:
+                    # an empty body is never a valid video; do not publish it
+                    raise MediaFetchError("empty media download")
         except (urllib.error.URLError, OSError) as exc:
             raise MediaFetchError(f"failed to fetch artifact: {exc}") from exc
         finally:

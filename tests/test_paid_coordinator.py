@@ -758,3 +758,117 @@ def test_first_frame_local_path_is_spec_invalid(tmp_path: Path) -> None:
     outcome = coord.submit_paid(_shot(), _request(first_frame_image="/etc/passwd"))
     assert outcome.kind == "spec_invalid"
     assert fake.total_calls == 0
+
+
+# ============================================================================
+# TASK-017 second review batch: v2 compat, escape-path, media validity
+# ============================================================================
+
+
+def _write_v2_reservation(root: Path, *, status="held", external_ref="ext-1"):
+    import json as _json
+
+    path = root / "budget" / "reservations" / "task-1" / "op-1.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        _json.dumps(
+            {
+                "schema_version": 2,
+                "reservation_id": "resv:task-1:op-1",
+                "project_id": "proj-1",
+                "task_id": "task-1",
+                "operation_id": "op-1",
+                "shot_id": "shot-1",
+                "provider_id": "fake-a",
+                "model_id": "m1",
+                "estimate_jpy": 16,
+                "status": status,
+                "created_at": T0.isoformat(),
+                "resolved_at": None,
+                "note": None,
+                "external_task_ref": external_ref,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_v2_reservation_is_readable_and_scannable(tmp_path: Path) -> None:
+    fake = FakeProvider(provider_id="fake-a")
+    root, coord, _ = _setup(tmp_path, providers=[fake])
+    _write_v2_reservation(root)
+    loaded = load_reservation(root, "task-1", "op-1")
+    assert loaded is not None
+    assert loaded.schema_version == 2
+    assert loaded.external_task_ref == "ext-1"
+    assert loaded.quote_minor_units is None  # v2 had no stored quote
+    # budget scans over mixed-version records must not fail
+    assert len(list_reservations(root)) == 1
+
+
+def test_v2_resume_recovers_media_but_never_auto_books(tmp_path: Path) -> None:
+    # an old v2 hold has an external task id but no stored quote: media is
+    # recovered, but booking requires a human (no automatic fixed-price).
+    fake = FakeProvider(provider_id="fake-a", cost_amount=None)
+    root, coord, fetcher = _setup(tmp_path, providers=[fake])
+    _write_v2_reservation(root)
+    outcome = coord.resume_media(_shot(), "task-1", "op-1")
+    assert outcome.kind == "needs_reconciliation"
+    assert fake.calls["submit"] == 0  # never re-submitted
+    assert fetcher.fetched  # media WAS recovered
+    cost = [
+        e
+        for e in read_events(root)
+        if e.event_type is QcdEventType.PROVIDER_COST_RECORDED
+    ]
+    assert cost == []  # nothing auto-booked
+    # the rewrite upgraded the record to the current schema
+    assert load_reservation(root, "task-1", "op-1").schema_version == 3
+
+
+def test_oversized_data_url_is_spec_invalid_before_hold(tmp_path: Path) -> None:
+    fake = FakeProvider(provider_id="fake-a")
+    root, coord, _ = _setup(tmp_path, providers=[fake])
+    huge = "data:image/png;base64," + "A" * (9 * 1024 * 1024)
+    outcome = coord.submit_paid(_shot(), _request(first_frame_image=huge))
+    assert outcome.kind == "spec_invalid"
+    assert fake.total_calls == 0
+    assert load_reservation(root, "task-1", "op-1") is None
+
+
+def test_provider_request_validation_error_releases_hold(tmp_path: Path) -> None:
+    # a provider-boundary InvalidProviderRequestError at submit must not
+    # escape and leave a held reservation: it becomes request_rejected
+    # (no charge, no fallback) and the hold is released.
+    primary = FakeProvider(provider_id="fake-a", behavior="invalid_request_at_submit")
+    fallback = FakeProvider(provider_id="fake-b")
+    root, coord, _ = _setup(tmp_path, providers=[primary, fallback])
+    outcome = coord.submit_paid(_shot(), _request())
+    assert outcome.kind == "request_rejected"
+    assert fallback.total_calls == 0
+    assert load_reservation(root, "task-1", "op-1").status == "released"
+
+
+def test_preexisting_unverified_media_is_pending_not_success(tmp_path: Path) -> None:
+    # an arbitrary pre-existing staged file is neither trusted nor
+    # overwritten: the outcome is success_media_pending.
+    fake = FakeProvider(provider_id="fake-a")
+    root, coord, fetcher = _setup(tmp_path, providers=[fake])
+    staged = root / "staging" / "shots" / "task-1.mp4"
+    staged.parent.mkdir(parents=True, exist_ok=True)
+    staged.write_bytes(b"who wrote this?")
+    outcome = coord.submit_paid(_shot(), _request())
+    assert outcome.kind == "success_media_pending"
+    assert staged.read_bytes() == b"who wrote this?"  # untouched
+    assert fetcher.fetched == []  # no overwrite attempt
+
+
+def test_receipted_media_is_trusted_idempotent(tmp_path: Path) -> None:
+    fake = FakeProvider(provider_id="fake-a")
+    root, coord, fetcher = _setup(tmp_path, providers=[fake])
+    assert coord.submit_paid(_shot(), _request()).kind == "success"
+    fetch_count = len(fetcher.fetched)
+    # resume: receipt matches, so no re-download and still success
+    outcome = coord.resume_media(_shot(), "task-1", "op-1")
+    assert outcome.kind == "success"
+    assert len(fetcher.fetched) == fetch_count

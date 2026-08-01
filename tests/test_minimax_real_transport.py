@@ -259,9 +259,18 @@ def test_default_base_url(monkeypatch) -> None:
     reason="real MiniMax smoke: needs AI_VIDEO_WORKFLOW_REAL_MINIMAX=1 + key",
 )
 def test_real_minimax_smoke() -> None:  # pragma: no cover - opt-in only
+    import json as _json
     import time
+    from pathlib import Path
+
+    from ai_video_workflow.app.media_fetch import UrllibMediaFetcher
 
     key = os.environ["WFM1_MINIMAX_API_KEY"]
+    # durable smoke record: the external task id is persisted IMMEDIATELY
+    # after submit, so a crash/interrupt never orphans a paid task.
+    smoke_dir = Path(os.environ.get("WFM1_SMOKE_DIR", str(Path.home() / ".wfm1-smoke")))
+    smoke_dir.mkdir(parents=True, exist_ok=True)
+
     transport = RealMinimaxTransport()
     # MiniMax-Hailuo-02 T2V supports 768P/1080P (not 512P) — ADR-0009.
     task_id = transport.submit(
@@ -274,12 +283,37 @@ def test_real_minimax_smoke() -> None:  # pragma: no cover - opt-in only
         },
     )
     assert task_id
+    record = smoke_dir / f"minimax-smoke-{task_id}.json"
+    record.write_text(
+        _json.dumps({"task_id": task_id, "state": "submitted"}) + "\n",
+        encoding="utf-8",
+    )
+
     # poll (with the recommended interval) to a terminal state
     deadline = time.monotonic() + 600
     out = transport.poll(api_key=key, external_task_ref=task_id)
     while out.state == "processing" and time.monotonic() < deadline:
         time.sleep(10)
         out = transport.poll(api_key=key, external_task_ref=task_id)
-    assert out.state in {"succeeded", "failed"}
-    if out.state == "succeeded":
-        assert out.artifact_url and out.artifact_url.startswith("http")
+    record.write_text(
+        _json.dumps({"task_id": task_id, "state": out.state}) + "\n",
+        encoding="utf-8",
+    )
+
+    # a failed (but paid-for) generation is a smoke FAILURE, not a pass
+    assert out.state == "succeeded", (
+        f"generation did not succeed: {out.state} ({out.error}); "
+        f"task recorded at {record}"
+    )
+    assert out.artifact_url and out.artifact_url.startswith("http")
+
+    # actually download the media (bounded, atomic, never overwriting) to
+    # prove the download_url works end to end.
+    dest = smoke_dir / f"minimax-smoke-{task_id}.mp4"
+    UrllibMediaFetcher().fetch(out.artifact_url, dest)
+    assert dest.stat().st_size > 0
+    record.write_text(
+        _json.dumps({"task_id": task_id, "state": "downloaded", "media": str(dest)})
+        + "\n",
+        encoding="utf-8",
+    )

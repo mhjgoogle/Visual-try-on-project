@@ -7,11 +7,11 @@ image-to-video API. The provider stays **stateless and filesystem-free**
 never writes the media itself.
 
 All network I/O goes through an injected ``MinimaxTransport`` so tests
-stub every request; the real HTTP transport is opt-in and refuses to run
-until its endpoint is configured (vendor endpoints are deferred to the
-vendor decision, ADR-0006 §5). Credentials are read only from the
-environment variable named in the catalog and never appear in a field,
-log, or error message.
+stub every request; ``RealMinimaxTransport`` implements the official
+three-step contract (submit -> query -> files/retrieve, ADR-0009).
+Credentials are read only from the sanctioned environment variable
+(``WFM1_MINIMAX_API_KEY``) and never appear in a field, log, or error
+message.
 """
 
 from __future__ import annotations
@@ -303,9 +303,10 @@ class RealMinimaxTransport(MinimaxTransport):
     Endpoints (base ``WFM1_MINIMAX_API_BASE``, default
     ``https://api.minimax.io``):
 
-    - submit: ``POST /v1/video_generation`` -> ``task_id``;
-    - poll:   ``GET /v2/query/video_generation/{task_id}`` ->
-      ``task.status`` + ``task.content.url`` on success.
+    - submit:   ``POST /v1/video_generation`` -> ``task_id``;
+    - query:    ``GET /v1/query/video_generation?task_id=`` -> top-level
+      ``status`` (Preparing/Queueing/Processing/Success/Fail) + ``file_id``;
+    - retrieve: ``GET /v1/files/retrieve?file_id=`` -> ``file.download_url``.
 
     Errors are classified by charge state (TASK-016): a connection that
     was never established is ``ProviderNotDispatchedError`` (safe); a
