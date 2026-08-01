@@ -1,0 +1,23 @@
+{
+  "schema_version": 2,
+  "default_provider": "cloud-a",
+  "fallback_provider": "cloud-b",
+  "shot_overrides": {
+    "shot-002": "cloud-b"
+  },
+  "budgets_jpy": {
+    "episode_soft": 1200,
+    "episode_hard": 1500,
+    "monthly_hard": 5000,
+    "per_shot": 400
+  },
+  "fx": {
+    "base_currency": "JPY",
+    "rates": {
+      "USD": 160
+    }
+  },
+  "catalog_id": "wfm1-default",
+  "catalog_version": 1,
+  "catalog_digest": "498fbcd308d823cf5f2d4a18ad89351f39ea3d5840a647a803f2827b7b1116ad"
+}
