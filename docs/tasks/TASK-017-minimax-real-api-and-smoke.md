@@ -212,3 +212,14 @@ int64 范围检查）；负数、零、超 int64、全角/Unicode 数字（`１�
 转换上限（约 4300 位）的数字串（含超长前导零形态）不再逸出
 `ValueError`，一律判无效 → `ProviderResponseError`。新增边界与
 transport 级回归测试（4301 位、20 位、5000 个零、前导零小值）。
+
+## TASK-017 复审门禁结论（2026-08-01）
+
+**通过。** 六轮独立复审（3 Blocker + 5 Important + 3 Minor）全部闭合：
+`a8a63a8` → `bc59296` → `c179d0a` → `c8fee4e` → `e0eeb78` → `e5550d6` →
+`2c15bc2`。最终验证：全量 2139 passed / 3 skipped，ruff 与格式检查通过，
+冻结合同零改动。**代码侧已具备真实付费冒烟条件**；执行为用户决策，
+前置条件：官方 `WFM1_MINIMAX_API_BASE`（或不设置）、专用低余额 Key、
+人工确认当前价格与预算、私有 `WFM1_SMOKE_DIR`、仅单个 smoke 测试显式
+opt-in 并即刻取消、且明确认知该测试**不经过** catalog digest/审批/预算
+协调器守门。
