@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "version": 1,
+  "title": "Minimal Episode",
+  "genre": "human-warmth short drama",
+  "audience": "short-video viewers",
+  "duration_target_seconds": 60,
+  "aspect_ratio": "9:16",
+  "language": "zh",
+  "visual_style": "cinematic stylized",
+  "release_targets": ["short-video-platform"],
+  "budget_ref": "config/wfm1.json",
+  "intent": "a single irreversible act of kindness, shown not told",
+  "narrative_goals": ["fast open", "one clear escalation", "quiet afterglow"],
+  "quality_bar": ["face consistency across shots", "no watermark artifacts"],
+  "forbidden_issues": ["preachy dialogue", "forced twist"],
+  "success_criteria": [
+    "watchable 60s cut composed from approved shots",
+    "episode cost within 1200 JPY soft budget"
+  ]
+}

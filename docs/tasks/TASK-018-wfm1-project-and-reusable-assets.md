@@ -1,7 +1,11 @@
 # TASK-018：WFM1 项目实例与复用资产边界
 
-> **状态：Draft（待批量设计基线批准）。** 与 TASK-017 无实现依赖；任何
-> 账户级物理目录必须先由本任务配套 ADR 授权。
+> **状态：Implemented。** 先行目录/所有权 ADR 见
+> [ADR-0011](../adr/ADR-0011-project-profile-and-reuse-pack-paths.md)。
+> 实现：`src/ai_video_workflow/profile/`（project_profile + reuse），CLI
+> `profile-init` / `reuse-publish` / `reuse-add-ref` / `reuse-verify`；
+> 账户根规则与月度预算守门零改动（reuse/ 无 config/wfm1.json，项目发现
+> 自然跳过，有回归测试）。
 
 ## 目的
 

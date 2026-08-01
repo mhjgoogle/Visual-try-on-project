@@ -54,6 +54,15 @@ from ai_video_workflow.models import (
 )
 from ai_video_workflow.orchestration import OrchestrationAction
 from ai_video_workflow.persistence import read_model_json
+from ai_video_workflow.profile import (
+    add_reuse_ref,
+    parse_pack,
+    parse_project_profile,
+    profile_digest,
+    publish_pack_version,
+    resolve_reuse_refs,
+    write_project_profile,
+)
 from ai_video_workflow.project_data import ProjectData
 from ai_video_workflow.providers.registry import default_registry
 from ai_video_workflow.qcd.reporting import run_qcd_report_step
@@ -143,11 +152,28 @@ def _build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--shot", required=True)
         sp.add_argument("--operation-id", required=True)
 
+    def _from_file_args(sp):
+        sp.add_argument("--from-file", required=True, type=Path)
+        sp.add_argument("--account-root", type=Path, default=None)
+
+    def _ref_args(sp):
+        sp.add_argument("--asset-id", required=True)
+        sp.add_argument("--version", type=int, required=True)
+        sp.add_argument("--account-root", type=Path, default=None)
+
+    def _verify_args(sp):
+        sp.add_argument("--account-root", type=Path, default=None)
+
     _add("record-attempt", _cmd_record_attempt, task=True, extra=_attempt_args)
     _add("rate", _cmd_rate, shot=True, extra=_rate_args)
     _add("qcd-report", _cmd_qcd_report)
     _add("paid-submit", _cmd_paid_submit, task=True, extra=_paid_args)
     _add("poll-media", _cmd_poll_media, task=True, extra=_resume_args)
+    # TASK-018: project profile + reusable asset references (ADR-0011)
+    _add("profile-init", _cmd_profile_init, extra=_from_file_args)
+    _add("reuse-publish", _cmd_reuse_publish, extra=_from_file_args)
+    _add("reuse-add-ref", _cmd_reuse_add_ref, extra=_ref_args)
+    _add("reuse-verify", _cmd_reuse_verify, extra=_verify_args)
     return parser
 
 
@@ -342,6 +368,56 @@ def _cmd_poll_media(args) -> None:
     # rebuilt from the reservation record; only ids + shot are supplied.
     coordinator, shot = _paid_coordinator(args)
     _render_paid(coordinator.resume_media(shot, args.task_id, args.operation_id))
+
+
+def _account_root(args) -> Path:
+    # the normative account-root rule (TASK-014 contract 4 / ADR-0001 WFM1
+    # amendment): the parent directory of the project root, unless given.
+    return args.account_root or args.project_root.parent
+
+
+def _read_json_file(path: Path) -> object:
+    import json as _json
+
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise AiVideoWorkflowError(f"unable to read {path}: {exc}") from exc
+    try:
+        return _json.loads(text)
+    except ValueError as exc:
+        raise AiVideoWorkflowError(f"{path} is not valid JSON") from exc
+
+
+def _cmd_profile_init(args) -> None:
+    profile = parse_project_profile(_read_json_file(args.from_file))
+    path = write_project_profile(args.project_root, profile)
+    print(f"profile written: {path}")
+    print(f"version: {profile.version}")
+    print(f"digest: {profile_digest(profile)}")
+
+
+def _cmd_reuse_publish(args) -> None:
+    pack = parse_pack(_read_json_file(args.from_file))
+    path = publish_pack_version(_account_root(args), pack)
+    print(f"published: {path}")
+    print(f"asset: {pack.asset_id} v{pack.version} ({pack.kind})")
+    print(f"digest: {pack.content_digest}")
+
+
+def _cmd_reuse_add_ref(args) -> None:
+    ref = add_reuse_ref(
+        args.project_root, _account_root(args), args.asset_id, args.version
+    )
+    print(f"referenced: {ref.asset_id} v{ref.version}")
+    print(f"digest: {ref.content_digest}")
+
+
+def _cmd_reuse_verify(args) -> None:
+    resolved = resolve_reuse_refs(args.project_root, _account_root(args))
+    for pack in resolved:
+        print(f"ok: {pack.asset_id} v{pack.version} ({pack.kind})")
+    print(f"verified refs: {len(resolved)}")
 
 
 def _cmd_qcd_report(args) -> None:
