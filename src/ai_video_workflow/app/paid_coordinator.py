@@ -36,10 +36,14 @@ from ai_video_workflow.app.contracts import staging_ref_for
 from ai_video_workflow.app.cost_boundary import to_authoritative_cost
 from ai_video_workflow.approval.errors import NotApprovedError
 from ai_video_workflow.approval.gate import require_stage_approved
-from ai_video_workflow.budget.account import read_account_month_spent
+from ai_video_workflow.budget.account import (
+    account_outstanding_holds,
+    read_account_month_spent,
+)
 from ai_video_workflow.budget.estimate import estimate_generation_cost
 from ai_video_workflow.budget.guard import evaluate_pre_flight
 from ai_video_workflow.budget.ledger import month_key_jst, read_ledger
+from ai_video_workflow.budget.lock import account_budget_lock
 from ai_video_workflow.budget.reservation import (
     COMMITTED,
     HELD,
@@ -50,15 +54,21 @@ from ai_video_workflow.budget.reservation import (
     mark_needs_reconciliation,
     outstanding_holds,
     release_reservation,
+    shot_consecutive_failures,
 )
 from ai_video_workflow.config.catalog import ProviderCatalog
 from ai_video_workflow.config.project_config import ProjectConfig
 from ai_video_workflow.config.selection import resolve_provider_selection
+from ai_video_workflow.errors import AiVideoWorkflowError
 from ai_video_workflow.models import Project, Shot
 from ai_video_workflow.providers.cloud_errors import (
     CloudProviderError,
+    ProviderAuthError,
+    ProviderNoChargeFailureError,
+    ProviderNotDispatchedError,
     ProviderVendorError,
 )
+from ai_video_workflow.providers.errors import ProviderError
 from ai_video_workflow.providers.models import ProviderRequest, ProviderStatus
 from ai_video_workflow.providers.registry import ProviderRegistry
 from ai_video_workflow.qcd.events import build_provider_cost_recorded_event
@@ -66,6 +76,10 @@ from ai_video_workflow.qcd.log import append_event
 from ai_video_workflow.security.paths import resolve_within_root
 
 _MAX_POLLS = 120
+
+# Submit-phase errors that PROVE no remote job was created (safe to release
+# and fall back). Everything else during submit is ambiguous.
+_SAFE_NO_CHARGE_SUBMIT = (ProviderAuthError, ProviderNotDispatchedError)
 
 # Outcome kinds
 SUCCESS = "success"
@@ -75,6 +89,31 @@ APPROVAL_BLOCKED = "approval_blocked"
 BUDGET_DENIED = "budget_denied"
 TECHNICAL_FAILURE = "technical_failure"
 NEEDS_RECONCILIATION_OUTCOME = "needs_reconciliation"
+PROVIDER_UNAVAILABLE = "provider_unavailable"
+SPEC_INVALID = "spec_invalid"
+
+
+class CoordinatorError(AiVideoWorkflowError):
+    """Raised when a paid request cannot be bound to a consistent spec."""
+
+
+@dataclass(frozen=True, slots=True)
+class GenerationSpec:
+    """One immutable spec both the quote and the provider payload derive from.
+
+    Built once from the request + shot and validated for internal
+    consistency, so a catalog quote can never be priced on parameters that
+    differ from what the provider is actually asked to generate.
+    """
+
+    model_id: str
+    capability: str
+    resolution: str
+    duration_seconds: int
+    width: int
+    height: int
+    frame_rate: float
+    prompt: str
 
 
 class MediaFetcher(Protocol):
@@ -95,7 +134,6 @@ class PaidRequest:
     model_id: str
     resolution: str
     duration_seconds: int
-    shot_consecutive_failures: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,10 +198,11 @@ class PaidGenerationCoordinator:
             primary.kind == TECHNICAL_FAILURE
             and selection.fallback_provider_id is not None
         ):
+            # The primary's failure is now a persisted (released) reservation,
+            # so the fallback's guard recomputes the failure count from facts.
             fallback_request = replace(
                 request,
                 operation_id=f"{request.operation_id}:fallback",
-                shot_consecutive_failures=request.shot_consecutive_failures + 1,
             )
             fallback = self._attempt(
                 shot,
@@ -194,52 +233,73 @@ class PaidGenerationCoordinator:
                 kind=APPROVAL_BLOCKED, reason=str(exc), fell_back=fell_back
             )
 
-        # crash-safety / idempotency by reservation state
-        existing = load_reservation(self._project_root, request.task_id, operation_id)
-        if existing is not None:
-            return self._resume_existing(existing, provider_id, fell_back)
-
-        # 3. quote + estimate
-        estimate = estimate_generation_cost(
-            self._catalog,
-            self._config.fx,
-            provider_id,
-            request.model_id,
-            resolution=request.resolution,
-            duration_seconds=request.duration_seconds,
-        )
-
-        # 4. budget pre-flight (denied -> stop, never fallback)
-        decision = self._check_budget(request, estimate.jpy)
-        if not decision.allowed:
+        # 2/5-pre. Build the provider and the immutable spec BEFORE any hold,
+        # so a missing provider or an inconsistent quote-vs-payload spec can
+        # never leave a held reservation behind (and never calls a provider).
+        try:
+            provider = self._build_provider(provider_id)
+        except ProviderError as exc:
             return PaidOutcome(
-                kind=BUDGET_DENIED,
+                kind=PROVIDER_UNAVAILABLE,
                 provider_id=provider_id,
                 operation_id=operation_id,
-                reason=decision.reason,
-                stop_scope=decision.stop_scope,
+                reason=str(exc),
+                fell_back=fell_back,
+            )
+        try:
+            spec = _build_spec(shot, request)
+        except CoordinatorError as exc:
+            return PaidOutcome(
+                kind=SPEC_INVALID,
+                provider_id=provider_id,
+                operation_id=operation_id,
+                reason=str(exc),
                 fell_back=fell_back,
             )
 
-        now = self._clock()
-        # 5. reservation (pre-flight hold, before any provider call)
-        hold_reservation(
-            self._project_root,
-            project_id=self._project.project_id,
-            task_id=request.task_id,
-            operation_id=operation_id,
-            shot_id=request.shot_id,
-            provider_id=provider_id,
-            model_id=request.model_id,
-            estimate_jpy=estimate.jpy,
-            created_at=now.isoformat(),
-        )
+        # 3-5. quote + budget + reservation, all under one account-level lock
+        # so two different operations cannot both pass check-then-reserve.
+        with account_budget_lock(self._account_root):
+            existing = load_reservation(
+                self._project_root, request.task_id, operation_id
+            )
+            if existing is not None:
+                # same-operation concurrency / crash resume stays idempotent
+                return self._resume_existing(existing, provider_id, fell_back)
 
-        # 6. provider submit / poll / collect
-        provider = self._registry.build(
-            provider_id, self._catalog.providers[provider_id]
-        )
-        provider_request = self._build_request(shot, request, provider_id)
+            estimate = estimate_generation_cost(
+                self._catalog,
+                self._config.fx,
+                provider_id,
+                spec.model_id,
+                resolution=spec.resolution,
+                duration_seconds=spec.duration_seconds,
+            )
+            decision = self._check_budget(request, estimate.jpy)
+            if not decision.allowed:
+                return PaidOutcome(
+                    kind=BUDGET_DENIED,
+                    provider_id=provider_id,
+                    operation_id=operation_id,
+                    reason=decision.reason,
+                    stop_scope=decision.stop_scope,
+                    fell_back=fell_back,
+                )
+            now = self._clock()
+            hold_reservation(
+                self._project_root,
+                project_id=self._project.project_id,
+                task_id=request.task_id,
+                operation_id=operation_id,
+                shot_id=request.shot_id,
+                provider_id=provider_id,
+                model_id=spec.model_id,
+                estimate_jpy=estimate.jpy,
+                created_at=now.isoformat(),
+            )
+
+        # 6. provider submit / poll / collect (outside the lock)
+        provider_request = self._build_request(spec, request, provider_id)
         try:
             final = _drive_provider(provider, provider_request, now)
         except _TechnicalFailure as exc:
@@ -380,47 +440,112 @@ class PaidGenerationCoordinator:
         )
 
     def _check_budget(self, request: PaidRequest, estimate_jpy: int):
+        # Called inside the account budget lock. Episode/shot are project
+        # scope; monthly is account scope (all projects' committed + all
+        # projects' outstanding holds). Failure count is derived from
+        # persisted reservations, never trusted from the request.
         ledger = read_ledger(self._project_root, self._config.fx)
         holds = outstanding_holds(self._project_root)
         month = month_key_jst(self._clock())
         account_month = read_account_month_spent(self._account_root, month).total_jpy
+        account_holds = account_outstanding_holds(self._account_root)
+        failures = shot_consecutive_failures(self._project_root, request.shot_id)
         return evaluate_pre_flight(
             budgets=self._config.budgets_jpy,
-            month_spent_jpy=account_month + holds.total_jpy,
+            month_spent_jpy=account_month + account_holds,
             episode_spent_jpy=ledger.project_total_jpy + holds.total_jpy,
             shot_spent_jpy=ledger.shot_spent(request.shot_id)
             + holds.shot_held(request.shot_id),
             estimate_jpy=estimate_jpy,
-            shot_consecutive_failures=request.shot_consecutive_failures,
+            shot_consecutive_failures=failures,
         )
 
+    def _build_provider(self, provider_id: str):
+        entry = self._catalog.providers.get(provider_id)
+        if entry is None:
+            raise ProviderError(
+                f"provider {provider_id!r} is not in the locked catalog"
+            )
+        return self._registry.build(provider_id, entry)
+
     def _build_request(
-        self, shot: Shot, request: PaidRequest, provider_id: str
+        self, spec: GenerationSpec, request: PaidRequest, provider_id: str
     ) -> ProviderRequest:
+        # Payload derives from the same spec the quote used; the priced
+        # resolution is passed through so the vendor generates what was
+        # priced.
         return ProviderRequest(
             provider_id=provider_id,
             task_id=request.task_id,
             shot_id=request.shot_id,
-            prompt=shot.prompt,
-            duration_seconds=shot.duration_seconds,
-            width=shot.width,
-            height=shot.height,
-            frame_rate=shot.frame_rate,
+            prompt=spec.prompt,
+            duration_seconds=float(spec.duration_seconds),
+            width=spec.width,
+            height=spec.height,
+            frame_rate=spec.frame_rate,
             staging_ref=staging_ref_for(request.task_id),
-            provider_parameters={},
+            provider_parameters={
+                "resolution": spec.resolution,
+                "capability": spec.capability,
+            },
         )
 
 
+def _build_spec(shot: Shot, request: PaidRequest) -> GenerationSpec:
+    """Bind the quote and the payload to one validated spec.
+
+    The duration used for pricing must equal the shot's duration, so a
+    CLI-supplied quote parameter can never diverge from what the provider
+    is asked to generate.
+    """
+    if not isinstance(request.duration_seconds, int) or request.duration_seconds < 1:
+        raise CoordinatorError("duration_seconds: expected a positive int")
+    if not request.resolution:
+        raise CoordinatorError("resolution: required")
+    if not request.model_id or not request.capability:
+        raise CoordinatorError("model_id and capability are required")
+    if float(request.duration_seconds) != float(shot.duration_seconds):
+        raise CoordinatorError(
+            f"duration mismatch: request {request.duration_seconds}s != "
+            f"shot {shot.duration_seconds}s (quote would diverge from payload)"
+        )
+    return GenerationSpec(
+        model_id=request.model_id,
+        capability=request.capability,
+        resolution=request.resolution,
+        duration_seconds=request.duration_seconds,
+        width=shot.width,
+        height=shot.height,
+        frame_rate=shot.frame_rate,
+        prompt=shot.prompt,
+    )
+
+
 def _drive_provider(provider, request: ProviderRequest, now: datetime):
-    """Drive prepare/submit/poll/collect; classify failures by charge state."""
-    # pre-submit phase: any failure means no charge -> technical (fallback ok)
+    """Drive prepare/submit/poll/collect; classify failures by *charge state*.
+
+    The classification is conservative about money: a failure is only
+    'technical' (release + fallback) when it PROVES no remote job/charge;
+    otherwise it is 'ambiguous' (needs_reconciliation, no fallback, no
+    auto-retry).
+    """
+    # prepare is local / pre-dispatch: no job exists yet.
     try:
         prepared = provider.prepare(request, observed_at=now)
-        current = provider.submit(request, prepared, observed_at=now)
     except CloudProviderError as exc:
         raise _TechnicalFailure(str(exc)) from exc
 
-    # post-submit phase: the job may be charged -> ambiguity matters
+    # submit: only provably-not-dispatched errors are safe no-charge; a
+    # timeout / response error / generic network error may have been received.
+    try:
+        current = provider.submit(request, prepared, observed_at=now)
+    except _SAFE_NO_CHARGE_SUBMIT as exc:
+        raise _TechnicalFailure(str(exc)) from exc
+    except CloudProviderError as exc:
+        raise _AmbiguousResult(str(exc)) from exc
+
+    # post-submit: the job may be charged. Only a provider that DECLARES no
+    # charge (ProviderNoChargeFailureError) may release + fall back.
     try:
         for _ in range(_MAX_POLLS):
             status = current.status
@@ -435,15 +560,18 @@ def _drive_provider(provider, request: ProviderRequest, now: datetime):
             if status is ProviderStatus.SUCCEEDED:
                 return current
             if status is ProviderStatus.FAILED:
-                # explicit failure: treated as no-charge technical failure
-                raise _TechnicalFailure(current.error_summary or "provider failed")
+                # a status result cannot prove no charge -> ambiguous
+                raise _AmbiguousResult(current.error_summary or "provider failed")
             if status is ProviderStatus.CANCELLED:
-                raise _TechnicalFailure("provider cancelled")
+                raise _AmbiguousResult("provider cancelled")
             current = provider.poll(request, current, observed_at=now)
-    except ProviderVendorError as exc:
-        # explicit vendor-side generation failure: no charge -> technical
+    except ProviderNoChargeFailureError as exc:
+        # provider definitively asserts no charge -> safe to release + fall back
         raise _TechnicalFailure(str(exc)) from exc
+    except ProviderVendorError as exc:
+        # generic vendor failure: charge unknown -> ambiguous
+        raise _AmbiguousResult(str(exc)) from exc
     except CloudProviderError as exc:
-        # network/timeout/response after submit: unknown charge -> ambiguous
+        # network / timeout / response after submit: unknown charge -> ambiguous
         raise _AmbiguousResult(str(exc)) from exc
     raise _AmbiguousResult("provider did not reach a terminal state")

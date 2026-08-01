@@ -9,6 +9,9 @@ from pathlib import Path
 from ai_video_workflow.providers.base import VideoProvider
 from ai_video_workflow.providers.cloud_errors import (
     ProviderNetworkError,
+    ProviderNoChargeFailureError,
+    ProviderNotDispatchedError,
+    ProviderTimeoutError,
     ProviderVendorError,
 )
 from ai_video_workflow.providers.models import (
@@ -62,7 +65,14 @@ class FakeProvider(VideoProvider):
     def submit(self, request, prepared, *, observed_at: datetime):
         self.calls["submit"] += 1
         if self.behavior == "fail_before_submit":
-            raise ProviderNetworkError("connection refused")
+            # provably not dispatched -> technical (safe to release + fallback)
+            raise ProviderNotDispatchedError("connection refused")
+        if self.behavior == "timeout_after_dispatch":
+            # request may have been received -> ambiguous
+            raise ProviderTimeoutError("submit timed out; delivery unknown")
+        if self.behavior == "network_after_dispatch":
+            # generic network error mid-submit -> ambiguous (unknown side-effect)
+            raise ProviderNetworkError("connection reset")
         return ProviderResult(
             provider_id=self._pid,
             task_id=request.task_id,
@@ -75,7 +85,11 @@ class FakeProvider(VideoProvider):
     def poll(self, request, current, *, observed_at: datetime, reported_artifact=None):
         self.calls["poll"] += 1
         if self.behavior == "fail_vendor":
+            # undeclared vendor failure -> charge unknown -> ambiguous
             raise ProviderVendorError("generation failed vendor-side")
+        if self.behavior == "vendor_no_charge":
+            # provider asserts no charge -> technical (release + fallback)
+            raise ProviderNoChargeFailureError("rejected before billing")
         if self.behavior == "ambiguous_after_submit":
             raise ProviderNetworkError("network dropped mid-poll")
         cost = None

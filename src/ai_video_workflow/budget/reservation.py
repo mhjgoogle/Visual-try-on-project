@@ -254,6 +254,25 @@ def outstanding_holds(project_root: Path) -> HeldSummary:
     return HeldSummary(total_jpy=total, per_shot_jpy=per_shot)
 
 
+def shot_consecutive_failures(project_root: Path, shot_id: str) -> int:
+    """Count a shot's consecutive released (clean-failed) reservations.
+
+    Derived from persisted reservations only (never a caller-supplied
+    number): the run of ``released`` reservations for the shot ending at
+    the most recent one, reset by any ``committed`` (successful) attempt.
+    Ordered by ``created_at`` then ``operation_id``.
+    """
+    shot_res = [r for r in list_reservations(project_root) if r.shot_id == shot_id]
+    shot_res.sort(key=lambda r: (r.created_at, r.operation_id))
+    count = 0
+    for reservation in reversed(shot_res):
+        if reservation.status == COMMITTED:
+            break
+        if reservation.status == RELEASED:
+            count += 1
+    return count
+
+
 def reconcile_reservations(
     project_root: Path,
     *,

@@ -197,3 +197,22 @@ def test_non_manual_provider_id_not_silently_manual(tmp_path: Path) -> None:
         ]
     )
     assert code == 1
+
+
+def test_m1_submit_path_rejects_paid_provider(tmp_path: Path) -> None:
+    # the M1 driver path (submit) is manual-only, even for a valid catalog
+    # provider — paid providers must go through paid-submit.
+    root, catalog_dir = _setup_project(tmp_path)
+    code = cli.main(
+        [
+            "--project-root",
+            str(root),
+            "--provider-id",
+            "fake-a",
+            "--catalog-dir",
+            str(catalog_dir),
+            "submit",
+            "task-1",
+        ]
+    )
+    assert code == 1

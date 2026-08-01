@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from ai_video_workflow.budget.account import (
     AccountMonthLedger,
+    account_outstanding_holds,
     read_account_month_spent,
 )
 from ai_video_workflow.budget.errors import (
@@ -41,6 +42,7 @@ from ai_video_workflow.budget.ledger import (
     month_key_jst,
     read_ledger,
 )
+from ai_video_workflow.budget.lock import account_budget_lock
 from ai_video_workflow.budget.quote import Quote, quote_original
 from ai_video_workflow.budget.reservation import (
     COMMITTED,
@@ -58,6 +60,7 @@ from ai_video_workflow.budget.reservation import (
     outstanding_holds,
     reconcile_reservations,
     release_reservation,
+    shot_consecutive_failures,
 )
 
 __all__ = [
@@ -69,6 +72,8 @@ __all__ = [
     "SHOT_STOP_SPEND_FRACTION_PCT",
     "AccountMonthLedger",
     "BudgetError",
+    "account_budget_lock",
+    "account_outstanding_holds",
     "BudgetLedger",
     "CostEstimate",
     "FxError",
@@ -98,4 +103,5 @@ __all__ = [
     "read_ledger",
     "reconcile_reservations",
     "release_reservation",
+    "shot_consecutive_failures",
 ]

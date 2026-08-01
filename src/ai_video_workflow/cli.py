@@ -136,7 +136,6 @@ def _build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--model", required=True)
         sp.add_argument("--resolution", required=True)
         sp.add_argument("--duration", type=int, required=True)
-        sp.add_argument("--failures", type=int, default=0)
 
     _add("record-attempt", _cmd_record_attempt, task=True, extra=_attempt_args)
     _add("rate", _cmd_rate, shot=True, extra=_rate_args)
@@ -163,23 +162,21 @@ _MANUAL_ENTRY = ProviderEntry(
 
 
 def _build_provider(args):
-    """Build the provider for ``--provider-id`` through the registry.
+    """Build the provider for the M1 driver path — manual only.
 
-    ``manual`` needs no catalog; any other id is resolved from the
-    project's locked catalog. An unknown id fails closed — the CLI never
-    silently substitutes the manual provider for a non-manual id.
+    The M1 ``prepare/submit/report-artifact/collect/run`` path drives the
+    orchestrator directly and does NOT run the paid coordination chain
+    (approval/budget/reservation/cost), so it must only ever build the
+    manual provider. A non-manual id is rejected and routed to
+    ``paid-submit``; the CLI never silently substitutes the manual
+    provider for a paid one.
     """
-    registry = default_registry()
-    if args.provider_id == "manual":
-        return registry.build("manual", _MANUAL_ENTRY)
-    config = load_project_config(args.project_root)
-    catalog = load_locked_catalog(config, args.catalog_dir)
-    entry = catalog.providers.get(args.provider_id)
-    if entry is None:
+    if args.provider_id != "manual":
         raise AiVideoWorkflowError(
-            f"provider {args.provider_id!r} is not in the locked catalog"
+            f"provider {args.provider_id!r} is a paid/cloud provider; the M1 "
+            "prepare/submit/run path is manual-only — use 'paid-submit'"
         )
-    return registry.build(args.provider_id, entry)
+    return default_registry().build("manual", _MANUAL_ENTRY)
 
 
 def _driver(args) -> WorkflowDriver:
@@ -307,7 +304,6 @@ def _cmd_paid_submit(args) -> None:
             model_id=args.model,
             resolution=args.resolution,
             duration_seconds=args.duration,
-            shot_consecutive_failures=args.failures,
         ),
     )
     print(f"paid outcome: {outcome.kind}")

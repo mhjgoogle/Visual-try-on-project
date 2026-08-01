@@ -20,6 +20,7 @@ from pathlib import Path
 
 from ai_video_workflow.budget.errors import LedgerError
 from ai_video_workflow.budget.ledger import build_ledger
+from ai_video_workflow.budget.reservation import outstanding_holds
 from ai_video_workflow.config.errors import ProjectConfigError
 from ai_video_workflow.config.project_config import (
     PROJECT_CONFIG_RELPATH,
@@ -66,3 +67,26 @@ def read_account_month_spent(account_root: Path, month: str) -> AccountMonthLedg
             total += spent
 
     return AccountMonthLedger(month=month, total_jpy=total, per_project_jpy=per_project)
+
+
+def _project_dirs(account_root: Path):
+    if not account_root.is_dir():
+        raise LedgerError(f"account root is not a directory: {account_root}")
+    for entry in sorted(account_root.iterdir()):
+        if entry.is_symlink() or not entry.is_dir():
+            continue
+        if (entry / PROJECT_CONFIG_RELPATH).is_file():
+            yield entry
+
+
+def account_outstanding_holds(account_root: Path) -> int:
+    """Sum outstanding reservation holds (yen) across all account projects.
+
+    Reservation ``estimate_jpy`` is already in yen (converted at hold time
+    with the holding project's locked FX), so cross-project holds sum
+    directly. Included in the monthly budget check so an in-flight hold in
+    another project cannot be double-spent past the account monthly cap.
+    """
+    return sum(
+        outstanding_holds(project).total_jpy for project in _project_dirs(account_root)
+    )

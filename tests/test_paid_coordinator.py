@@ -9,7 +9,11 @@ from ai_video_workflow.app.paid_coordinator import (
     PaidGenerationCoordinator,
     PaidRequest,
 )
-from ai_video_workflow.budget.reservation import load_reservation
+from ai_video_workflow.budget.reservation import (
+    hold_reservation,
+    list_reservations,
+    load_reservation,
+)
 from ai_video_workflow.config import (
     parse_catalog,
     parse_project_config,
@@ -17,7 +21,10 @@ from ai_video_workflow.config import (
 )
 from ai_video_workflow.digests import file_sha256
 from ai_video_workflow.models import Project, Shot
-from ai_video_workflow.providers.registry import ProviderRegistry
+from ai_video_workflow.providers.registry import (
+    ProviderRegistry,
+    ProviderRegistryError,
+)
 from ai_video_workflow.qcd.events import QcdEventType
 from ai_video_workflow.qcd.log import read_events
 from tests.paid_fakes import FakeFetcher, FakeProvider
@@ -356,3 +363,259 @@ def test_shot_level_provider_override(tmp_path: Path) -> None:
     assert outcome.provider_id == "fake-b"
     assert fake_b.total_calls > 0
     assert fake_a.total_calls == 0
+
+
+# ============================================================================
+# Money-safety correction batch (TASK-015/016 fix)
+# ============================================================================
+
+
+def test_submit_timeout_after_dispatch_needs_reconciliation(tmp_path: Path) -> None:
+    # a submit-phase timeout may have been received/charged -> ambiguous,
+    # never released, never fallback, never re-submitted.
+    primary = FakeProvider(provider_id="fake-a", behavior="timeout_after_dispatch")
+    fallback = FakeProvider(provider_id="fake-b")
+    root, coord, _ = _setup(tmp_path, providers=[primary, fallback])
+    outcome = coord.submit_paid(_shot(), _request())
+    assert outcome.kind == "needs_reconciliation"
+    assert outcome.fell_back is False
+    assert fallback.total_calls == 0  # no fallback on ambiguous
+    assert load_reservation(root, "task-1", "op-1").status == "needs_reconciliation"
+    cost = [
+        e
+        for e in read_events(root)
+        if e.event_type is QcdEventType.PROVIDER_COST_RECORDED
+    ]
+    assert cost == []
+
+
+def test_generic_network_after_dispatch_is_ambiguous(tmp_path: Path) -> None:
+    primary = FakeProvider(provider_id="fake-a", behavior="network_after_dispatch")
+    fallback = FakeProvider(provider_id="fake-b")
+    root, coord, _ = _setup(tmp_path, providers=[primary, fallback])
+    outcome = coord.submit_paid(_shot(), _request())
+    assert outcome.kind == "needs_reconciliation"
+    assert fallback.total_calls == 0
+
+
+def test_undeclared_vendor_failure_needs_reconciliation(tmp_path: Path) -> None:
+    primary = FakeProvider(provider_id="fake-a", behavior="fail_vendor")
+    fallback = FakeProvider(provider_id="fake-b")
+    root, coord, _ = _setup(tmp_path, providers=[primary, fallback])
+    outcome = coord.submit_paid(_shot(), _request())
+    assert outcome.kind == "needs_reconciliation"
+    assert fallback.total_calls == 0
+    assert load_reservation(root, "task-1", "op-1").status == "needs_reconciliation"
+
+
+def test_declared_no_charge_releases_and_falls_back(tmp_path: Path) -> None:
+    primary = FakeProvider(provider_id="fake-a", behavior="vendor_no_charge")
+    fallback = FakeProvider(provider_id="fake-b")
+    root, coord, _ = _setup(tmp_path, providers=[primary, fallback])
+    outcome = coord.submit_paid(_shot(), _request())
+    assert outcome.kind == "success"
+    assert outcome.fell_back is True
+    assert outcome.provider_id == "fake-b"
+    assert load_reservation(root, "task-1", "op-1").status == "released"
+    assert load_reservation(root, "task-1", "op-1:fallback").status == "committed"
+
+
+def test_two_operations_near_cap_only_one_reserves(tmp_path: Path) -> None:
+    # episode_hard=20, each estimate 16: op-1 fits, op-2 (seeing op-1's hold) denied.
+    fake = FakeProvider(provider_id="fake-a", behavior="ambiguous_after_submit")
+    root, coord, _ = _setup(
+        tmp_path,
+        providers=[fake],
+        config_overrides={
+            "budgets_jpy": {
+                "episode_soft": 1,
+                "episode_hard": 20,
+                "monthly_hard": 5000,
+                "per_shot": 20,
+            }
+        },
+    )
+    # op-1 holds (ambiguous keeps the hold as needs_reconciliation -> outstanding)
+    o1 = coord.submit_paid(_shot(), _request(operation_id="op-1"))
+    assert o1.kind == "needs_reconciliation"
+    # op-2 must be denied: 0 + outstanding hold(16) + estimate(16) = 32 > 20
+    o2 = coord.submit_paid(_shot(), _request(operation_id="op-2"))
+    assert o2.kind == "budget_denied"
+    held = [
+        r
+        for r in list_reservations(root)
+        if r.status in ("held", "needs_reconciliation")
+    ]
+    assert len(held) == 1
+
+
+def test_monthly_budget_includes_other_project_hold(tmp_path: Path) -> None:
+    # project-a has an outstanding hold near the monthly cap; project-b's
+    # monthly check must see it and deny.
+    account = tmp_path
+    a = account / "project-a"
+    a.mkdir()
+    write_project_config(a, parse_project_config(_config_dict()))
+    hold_reservation(
+        a,
+        project_id="proj-a",
+        task_id="t",
+        operation_id="op",
+        shot_id="s",
+        provider_id="fake-a",
+        model_id="m1",
+        estimate_jpy=4990,
+        created_at=T0.isoformat(),
+    )
+    b = account / "project-b"
+    b.mkdir()
+    config = parse_project_config(_config_dict())
+    write_project_config(b, config)
+    _approve(b)
+    fake = FakeProvider(provider_id="fake-a")
+    registry = ProviderRegistry()
+    registry.register("fake-a", lambda entry: fake)
+    coord = PaidGenerationCoordinator(
+        project_root=b,
+        config=config,
+        catalog=_catalog(),
+        registry=registry,
+        project=Project(project_id="proj-b", name="B", created_at=T0),
+        fetcher=FakeFetcher(),
+        clock=_clock,
+        account_root=account,
+    )
+    outcome = coord.submit_paid(_shot(), _request())
+    # monthly = other project's 4990 hold + estimate 16 > 5000
+    assert outcome.kind == "budget_denied"
+    assert outcome.stop_scope == "monthly"
+    assert fake.total_calls == 0
+
+
+def test_same_operation_stays_idempotent(tmp_path: Path) -> None:
+    fake = FakeProvider(provider_id="fake-a")
+    root, coord, _ = _setup(tmp_path, providers=[fake])
+    coord.submit_paid(_shot(), _request())
+    coord.submit_paid(_shot(), _request())  # same op
+    assert len(list_reservations(root)) == 1
+
+
+def test_quote_payload_duration_mismatch_fails_closed(tmp_path: Path) -> None:
+    fake = FakeProvider(provider_id="fake-a")
+    root, coord, _ = _setup(tmp_path, providers=[fake])
+    # request duration (10) diverges from the shot's duration (6)
+    outcome = coord.submit_paid(_shot(), _request(duration_seconds=10))
+    assert outcome.kind == "spec_invalid"
+    assert fake.total_calls == 0
+    assert load_reservation(root, "task-1", "op-1") is None
+
+
+def test_provider_build_failure_leaves_no_hold(tmp_path: Path) -> None:
+    root = tmp_path / "proj"
+    root.mkdir()
+    config = parse_project_config(_config_dict())
+    write_project_config(root, config)
+    _approve(root)
+    registry = ProviderRegistry()
+
+    def _boom(entry):
+        raise ProviderRegistryError("cannot build provider")
+
+    registry.register("fake-a", _boom)
+    coord = PaidGenerationCoordinator(
+        project_root=root,
+        config=config,
+        catalog=_catalog(),
+        registry=registry,
+        project=_project(),
+        fetcher=FakeFetcher(),
+        clock=_clock,
+    )
+    outcome = coord.submit_paid(_shot(), _request())
+    assert outcome.kind == "provider_unavailable"
+    assert load_reservation(root, "task-1", "op-1") is None  # no leaked hold
+
+
+def test_credential_secret_never_reaches_files_or_outcome(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from ai_video_workflow.providers.cloud_minimax import (
+        MinimaxPoll,
+        MinimaxTransport,
+        MinimaxVideoProvider,
+    )
+
+    secret = "sk-leak-canary-123"
+    monkeypatch.setenv("WFM1_MINIMAX_API_KEY", secret)
+
+    class _Stub(MinimaxTransport):
+        def submit(self, *, api_key, payload):
+            assert api_key == secret  # received, but must not be persisted
+            return "ext-1"
+
+        def poll(self, *, api_key, external_task_ref):
+            return MinimaxPoll(
+                state="succeeded",
+                artifact_url="https://vendor.example/out.mp4",
+                cost_amount=0.10,
+                cost_unit="USD",
+            )
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    config = parse_project_config(
+        _config_dict(default_provider="minimax", fallback_provider=None)
+    )
+    write_project_config(root, config)
+    _approve(root)
+    catalog = parse_catalog(
+        {
+            "schema_version": 1,
+            "catalog_id": "test",
+            "version": 1,
+            "providers": {
+                "minimax": {
+                    "display_name": "M",
+                    "capabilities": ["image_to_video"],
+                    "credential_env_vars": ["WFM1_MINIMAX_API_KEY"],
+                    "models": {
+                        "m1": {
+                            "billing_mode": "per_clip",
+                            "currency": "USD",
+                            "clip_prices": [
+                                {
+                                    "resolution": "512p",
+                                    "duration_seconds": 6,
+                                    "amount_minor_units": 10,
+                                }
+                            ],
+                            "per_second_minor_units": {},
+                        }
+                    },
+                }
+            },
+        }
+    )
+    registry = ProviderRegistry()
+    registry.register(
+        "minimax",
+        lambda entry: MinimaxVideoProvider(
+            transport=_Stub(), credential_env_var="WFM1_MINIMAX_API_KEY"
+        ),
+    )
+    coord = PaidGenerationCoordinator(
+        project_root=root,
+        config=config,
+        catalog=catalog,
+        registry=registry,
+        project=_project(),
+        fetcher=FakeFetcher(),
+        clock=_clock,
+    )
+    outcome = coord.submit_paid(_shot(), _request(model_id="m1"))
+    assert outcome.kind == "success"
+    assert secret not in repr(outcome)
+    # no reservation file, QCD log line, or staged file contains the secret
+    for path in root.rglob("*"):
+        if path.is_file():
+            assert secret not in path.read_text(encoding="utf-8", errors="ignore")

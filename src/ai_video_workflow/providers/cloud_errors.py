@@ -19,20 +19,60 @@ class CloudProviderError(ProviderError):
 
 
 class ProviderNetworkError(CloudProviderError):
-    """Raised when the provider cannot be reached (connection failure)."""
+    """Raised on a network failure whose remote side-effect is *unknown*.
+
+    A generic network error does NOT prove the request was never received,
+    so the coordinator treats a submit-phase ``ProviderNetworkError`` as an
+    ambiguous (possibly-charged) result, not a safe retry. Use
+    ``ProviderNotDispatchedError`` only when it is provable the request was
+    never sent or accepted.
+    """
+
+
+class ProviderNotDispatchedError(ProviderNetworkError):
+    """Raised only when the request provably never reached the provider.
+
+    E.g. a connection that was never established (DNS failure, connection
+    refused) *before* any bytes were sent. This is the only network
+    condition that proves no remote side-effect, so it is safe to release
+    a reservation and fall back.
+    """
 
 
 class ProviderTimeoutError(CloudProviderError):
-    """Raised when a provider request exceeds its deadline."""
+    """Raised when a provider request exceeds its deadline.
+
+    A timeout is ambiguous: the request may have been received and the job
+    may be charged. It never proves no side-effect.
+    """
 
 
 class ProviderAuthError(CloudProviderError):
-    """Raised when credentials are missing, rejected, or unauthorized."""
+    """Raised when credentials are missing, rejected, or unauthorized.
+
+    Auth is rejected *before* a job is created, so it proves no charge.
+    """
 
 
 class ProviderVendorError(CloudProviderError):
-    """Raised when the provider reports a generation/vendor-side failure."""
+    """Raised when the provider reports a generation/vendor-side failure.
+
+    By default the charge state is *unknown*: a failed job may or may not
+    be billed depending on the vendor, so the generic vendor error is
+    ambiguous. Only ``ProviderNoChargeFailureError`` asserts no charge.
+    """
+
+
+class ProviderNoChargeFailureError(ProviderVendorError):
+    """A vendor failure the provider *definitively* knows was not charged.
+
+    Providers must raise this (instead of the generic vendor error) only
+    when the vendor contract guarantees no charge for this failure, making
+    it safe to release the reservation and fall back.
+    """
 
 
 class ProviderResponseError(CloudProviderError):
-    """Raised when the provider returns a malformed or unusable response."""
+    """Raised when the provider returns a malformed or unusable response.
+
+    After submit, a malformed response leaves the charge state unknown."""

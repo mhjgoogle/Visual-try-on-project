@@ -90,6 +90,33 @@ WFM1 Cloud Provider Wiring and Authoritative Cost
 - [x] 全量 pytest 全绿、ruff clean；
 - [x] 冻结合同仅 ADR-0008 授权的 `qcd/events.py` 一处变更，其余为空。
 
+## 资金安全修正批次（2026-08-01，统一审查后）
+
+Codex/对抗审查发现付费提交的错误分类与并发预算安全不足，本批次修正
+（不接真实 API、不改冻结合同、不重构 Orchestrator）：
+
+**错误分类最终矩阵**（`app/paid_coordinator.py::_drive_provider`）：
+
+| 阶段 / 信号 | 分类 | 处置 |
+| --- | --- | --- |
+| prepare 失败 | technical（pre-dispatch） | 无 hold 影响；fallback 允许 |
+| submit `ProviderAuthError` / `ProviderNotDispatchedError` | technical（证明未受理） | 释放 + fallback |
+| submit `ProviderTimeoutError` / `ProviderResponseError` / 泛 `ProviderNetworkError` | **ambiguous** | needs_reconciliation，不 fallback、不重提 |
+| post-submit `ProviderNoChargeFailureError`（显式声明无计费） | technical | 释放 + fallback |
+| post-submit 泛 `ProviderVendorError` / `FAILED` / `CANCELLED` | **ambiguous** | needs_reconciliation，不 fallback |
+| post-submit 网络/超时/响应错误 | ambiguous | needs_reconciliation |
+
+- 新增 `providers/cloud_errors.py`：`ProviderNotDispatchedError`（唯一"证明未发送"的网络子类）、`ProviderNoChargeFailureError`（唯一"显式无计费"的厂商子类）；泛 `ProviderNetworkError` 不再被当作无副作用。
+
+**预算并发原子性**：新增 `budget/lock.py::account_budget_lock`（`fcntl` 账户级排他锁）。在**同一锁内**完成：读跨项目 committed（`read_account_month_spent`）+ 汇总跨项目 outstanding holds（新增 `budget/account.py::account_outstanding_holds`）+ 本项目 episode/shot spend+holds + `evaluate_pre_flight` + `hold_reservation`——杜绝不同 operation 的 check-then-act 超支；月度上限计入他项目 held/needs_reconciliation。同 operation 并发经锁内 existing-check 保持幂等。
+
+**其它守门加固**：
+- M1 `prepare/submit/run` 仅 Manual；非 Manual 一律路由到 `paid-submit`（`cli.py::_build_provider`）。
+- 报价与 payload 绑定同一不可变 `GenerationSpec`（duration 必须与 shot 一致，否则 `spec_invalid` fail-closed）；镜头失败次数由 `shot_consecutive_failures`（持久化 reservation）计算，删除可传入的 `--failures`。
+- Provider 构造在创建 hold **之前**完成，失败返回 `provider_unavailable`，不遗留 held reservation。
+
+**后续项（不在本批次）**：`provider_cost_recorded` 尚未进入 TASK-009 QCD aggregation/报表（预算 ledger 已计入）；扩展 aggregation 属其冻结范围，需单独任务/ADR。
+
 ## 真实 API 尚需配置
 
 - 厂商端点/请求-响应形态（`RealMinimaxTransport` 骨架，需
