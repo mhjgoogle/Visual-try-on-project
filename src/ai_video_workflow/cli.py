@@ -34,6 +34,11 @@ from ai_video_workflow.app.paid_coordinator import (
     PaidGenerationCoordinator,
     PaidRequest,
 )
+from ai_video_workflow.app.paid_lifecycle import (
+    build_lineage,
+    drive_manual_lifecycle,
+    integrate_paid_media,
+)
 from ai_video_workflow.app.requests import DefaultProviderRequestFactory
 from ai_video_workflow.approval import stage_plan, stage_status, transition_stage
 from ai_video_workflow.assets.registration import ValidationFailedError
@@ -192,6 +197,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # TASK-020: production planning + task packets (ADR-0012)
     _add("plan-compile", _cmd_plan_compile, extra=_verify_args)
+
+    # TASK-021: settled paid media -> M1 lifecycle + lineage (ADR-0020)
+    _add("paid-integrate", _cmd_paid_integrate, task=True)
+    _add("lineage", _cmd_lineage, task=True)
     _add("stage-review", _cmd_stage_review, extra=_stage_args)
     _add("stage-approve", _cmd_stage_approve, extra=_stage_approve_args)
     _add("stage-reject", _cmd_stage_reject, extra=_stage_args)
@@ -442,6 +451,24 @@ def _cmd_reuse_verify(args) -> None:
     print(f"verified refs: {len(resolved)}")
 
 
+def _cmd_paid_integrate(args) -> None:
+    # the M1 driver here is manual-only by design: the paid work is already
+    # settled; integration just drives the manual lifecycle over the staged,
+    # receipt-verified media and registers the formal asset.
+    args.provider_id = "manual"
+    outcome = integrate_paid_media(_driver(args), args.project_root, args.task_id)
+    print(f"integrated: {args.task_id}")
+    print(f"validation passed: {outcome.report.passed}")
+    if outcome.registered_asset is not None:
+        print(f"registered asset: {outcome.registered_asset.asset_id}")
+
+
+def _cmd_lineage(args) -> None:
+    import json as _json
+
+    print(_json.dumps(build_lineage(args.project_root, args.task_id), indent=2))
+
+
 def _cmd_plan_compile(args) -> None:
     config = load_project_config(args.project_root)
     catalog = load_locked_catalog(config, args.catalog_dir)
@@ -590,28 +617,8 @@ def _cmd_run(args) -> None:
 
 
 def _drive_generation(driver: WorkflowDriver, task_id: str) -> None:
-    """Drive one task's generation lifecycle, resuming from any point.
-
-    Each fixed lifecycle action runs only when the orchestrator reports it
-    legal now (already-completed actions are simply not legal, so a resumed
-    task advances without an illegal re-prepare). A task that is already
-    terminal stops the drive; ``run`` always uses the contract staging path.
-    """
-    staged = staging_ref_for(task_id)
-    for action in _RUN_LIFECYCLE:
-        assessment = driver.status(task_id)
-        if assessment.is_terminal:
-            return
-        if action not in assessment.legal_actions:
-            continue
-        if action is OrchestrationAction.PREPARE:
-            driver.prepare(task_id)
-        elif action is OrchestrationAction.SUBMIT:
-            driver.submit(task_id)
-        elif action is OrchestrationAction.REPORT_ARTIFACT:
-            driver.report_artifact(task_id, staged)  # verifies the staged file
-        else:  # COLLECT
-            driver.collect(task_id)
+    """Drive one task's lifecycle (shared with the paid adapter, TASK-021)."""
+    drive_manual_lifecycle(driver, task_id)
 
 
 def _require_done(project_root: Path, task_id: str) -> None:

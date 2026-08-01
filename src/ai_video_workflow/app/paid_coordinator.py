@@ -167,6 +167,27 @@ class PaidOutcome:
     fell_back: bool = False
 
 
+def media_receipt_matches(receipt: Path, dest: Path) -> bool:
+    """True iff ``dest`` matches the trusted download receipt.
+
+    A receipt of any legal-JSON-but-wrong shape (array, string,
+    missing/non-string sha256) is simply untrusted — never a crash.
+    """
+    try:
+        recorded = json.loads(receipt.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not isinstance(recorded, dict):
+        return False
+    sha = recorded.get("sha256")
+    if not isinstance(sha, str) or len(sha) != 64:
+        return False
+    try:
+        return sha == file_sha256(dest)
+    except AiVideoWorkflowError:
+        return False
+
+
 class _TechnicalFailure(Exception):
     """Internal: a technical failure eligible for fallback (no charge yet)."""
 
@@ -703,7 +724,7 @@ class PaidGenerationCoordinator:
             self._project_root, staging_ref_for(task_id) + ".fetched.json"
         )
         if dest.is_file():
-            return self._receipt_matches(receipt, dest)
+            return media_receipt_matches(receipt, dest)
         dest.parent.mkdir(parents=True, exist_ok=True)
         try:
             self._fetcher.fetch(reference, dest)
@@ -715,24 +736,6 @@ class PaidGenerationCoordinator:
         except (OSError, AiVideoWorkflowError):
             return False  # fetched but unverifiable -> media pending
         return True
-
-    @staticmethod
-    def _receipt_matches(receipt: Path, dest: Path) -> bool:
-        # A receipt of any legal-JSON-but-wrong shape (array, string,
-        # missing/non-string sha256) is simply untrusted — never a crash.
-        try:
-            recorded = json.loads(receipt.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return False
-        if not isinstance(recorded, dict):
-            return False
-        sha = recorded.get("sha256")
-        if not isinstance(sha, str) or len(sha) != 64:
-            return False
-        try:
-            return sha == file_sha256(dest)
-        except AiVideoWorkflowError:
-            return False
 
     def _check_budget(self, request: PaidRequest, estimate_jpy: int):
         # Called inside the account budget lock. Episode/shot are project

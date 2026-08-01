@@ -1,7 +1,12 @@
 # TASK-021：WFM1 付费生成生命周期与 QCD 接回
 
-> **状态：Draft（待批量设计基线批准）。** 复用 TASK-004/005/006/007 和
-> TASK-016/017，不重写 M1 Orchestrator。修改冻结的 QCD 聚合前必须先有明确 ADR。
+> **状态：Implemented。** QCD 聚合增量由
+> [ADR-0020](../adr/ADR-0020-qcd-aggregation-cloud-cost-increment.md) 先行
+> 授权（原拟 ADR-0013，因与并行 Workspace 治理 ADR 编号冲突改号，方案 A
+> 用户裁决）。实现：`qcd/aggregation.py` 单分支增量（provider_cost_recorded
+> 入 cost_by_currency）+ `app/paid_lifecycle.py`（committed 门槛、受信媒体、
+> 单一权威路径集成、lineage projection）+ CLI `paid-integrate`/`lineage`。
+> 未重写 M1 Orchestrator；恢复入口不重复 submit/记账/覆盖。
 
 ## 目的
 

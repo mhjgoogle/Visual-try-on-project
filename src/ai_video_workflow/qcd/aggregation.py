@@ -208,6 +208,19 @@ def aggregate_events(events: tuple[QcdEvent, ...], data: ProjectData) -> QcdSumm
                 and (isinstance(currency, str))
             ):
                 acc.cost[currency] = acc.cost.get(currency, 0) + cost
+        elif etype is QcdEventType.PROVIDER_COST_RECORDED and task_id is not None:
+            # ADR-0020: the sole authorized increment — cloud authoritative
+            # cost joins the same per-task cost accumulator as manual cost,
+            # so shot/project rollups and reports include it automatically.
+            acc = task_acc(task_id, shot_id)
+            cost = payload["cost_minor_units"]
+            currency = payload["currency"]
+            if (
+                isinstance(cost, int)
+                and not isinstance(cost, bool)
+                and (isinstance(currency, str))
+            ):
+                acc.cost[currency] = acc.cost.get(currency, 0) + cost
         elif etype is QcdEventType.ASSET_IMPORTED and task_id is not None:
             acc = task_acc(task_id, shot_id)
             if (
