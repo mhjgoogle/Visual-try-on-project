@@ -22,6 +22,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from ai_video_workflow.approval.gate import load_approval
 from ai_video_workflow.approval.workflow import require_stage_ready
 from ai_video_workflow.budget.estimate import estimate_generation_cost
 from ai_video_workflow.config.catalog import ProviderCatalog
@@ -33,6 +34,7 @@ from ai_video_workflow.planning.documents import (
     PlannedShot,
     _load_json,
     _publish,
+    latest_shot_plan_version,
     load_prompt,
     load_shot_plan,
 )
@@ -90,7 +92,8 @@ def compile_task_packets(
     # unapproved or stale upstream content blocks compilation entirely
     require_stage_ready(project_root, PACKET_STAGE)
 
-    plan = load_shot_plan(project_root)
+    # never "latest": load exactly the plan version production_lock approved
+    plan = load_shot_plan(project_root, _approved_plan_version(project_root))
     project_refs = {ref.asset_id: ref for ref in load_reuse_refs(project_root)}
     packets: list[TaskPacket] = []
     for shot in plan.shots:
@@ -108,6 +111,75 @@ def compile_task_packets(
     return tuple(packets)
 
 
+_PLAN_TARGET_RE = re.compile(rf"^{PLANNING_DIR}/shot_plan_v([1-9][0-9]*)\.json$")
+
+
+def _approved_plan_version(project_root: Path) -> int:
+    """The exact shot-plan version bound to the production_lock approval.
+
+    An approval locks specific target digests; compiling any OTHER plan
+    version (including a newer one published after the approval) would
+    turn unapproved content into paid work. A newer plan on disk
+    therefore blocks compilation until production_lock is re-approved.
+    """
+    marker = load_approval(project_root, PACKET_STAGE)
+    versions = [
+        int(match.group(1))
+        for target in marker.approved_targets
+        if (match := _PLAN_TARGET_RE.match(target.ref)) is not None
+    ]
+    if len(versions) != 1:
+        raise PacketError(
+            "production_lock must approve exactly one "
+            f"{PLANNING_DIR}/shot_plan_v<N>.json target, found {len(versions)}"
+        )
+    approved = versions[0]
+    latest = latest_shot_plan_version(project_root)
+    if latest is not None and latest > approved:
+        raise PacketError(
+            f"shot plan v{latest} exists but production_lock approved "
+            f"v{approved}; re-approve production_lock before compiling"
+        )
+    return approved
+
+
+def verify_packet(
+    project_root: Path,
+    account_root: Path,
+    catalog: ProviderCatalog,
+    config: ProjectConfig,
+    packet: TaskPacket,
+) -> None:
+    """Fail-closed: a packet may drive paid work only if it still derives
+    exactly from the approved, fresh inputs (nothing in the stored file is
+    trusted — everything is recomputed and compared)."""
+    require_stage_ready(project_root, PACKET_STAGE)
+    plan = load_shot_plan(project_root, _approved_plan_version(project_root))
+    planned = next((s for s in plan.shots if s.shot_id == packet.shot_id), None)
+    if planned is None:
+        raise PacketError(
+            f"packet shot {packet.shot_id!r} is not in the approved shot plan "
+            f"v{plan.version}"
+        )
+    project_refs = {ref.asset_id: ref for ref in load_reuse_refs(project_root)}
+    fresh = _build_packet(
+        project_root,
+        account_root,
+        catalog,
+        config,
+        plan.version,
+        planned,
+        project_refs,
+        version=packet.packet_version,
+    )
+    if packet_to_dict(fresh) != packet_to_dict(packet):
+        raise PacketError(
+            f"packet {packet.shot_id!r} v{packet.packet_version} no longer "
+            "matches its approved inputs; recompile with plan-compile and "
+            "use the new packet version"
+        )
+
+
 def _compile_shot(
     project_root: Path,
     account_root: Path,
@@ -116,6 +188,38 @@ def _compile_shot(
     plan_version: int,
     shot: PlannedShot,
     project_refs: dict,
+) -> TaskPacket:
+    candidate = _build_packet(
+        project_root,
+        account_root,
+        catalog,
+        config,
+        plan_version,
+        shot,
+        project_refs,
+        version=(_max_version(project_root, shot.shot_id) or 0) + 1,
+    )
+    existing = _find_existing(project_root, shot.shot_id, candidate)
+    if existing is not None:
+        return existing  # idempotent: unchanged inputs reuse the packet
+    _publish(
+        project_root,
+        packet_relpath(shot.shot_id, candidate.packet_version),
+        packet_to_dict(candidate),
+    )
+    return candidate
+
+
+def _build_packet(
+    project_root: Path,
+    account_root: Path,
+    catalog: ProviderCatalog,
+    config: ProjectConfig,
+    plan_version: int,
+    shot: PlannedShot,
+    project_refs: dict,
+    *,
+    version: int,
 ) -> TaskPacket:
     prompt = load_prompt(project_root, shot.prompt_id, shot.prompt_version)
 
@@ -178,16 +282,17 @@ def _compile_shot(
             "first_frame_image": shot.first_frame_image,
             "reuse_assets": resolved_assets,
             "provider_primary": selection.primary_provider_id,
+            "provider_fallback": selection.fallback_provider_id,
             "catalog_digest": config.catalog_digest,
+            # a changed FX table or fallback must never reuse an old quote
+            "fx": {
+                "base_currency": config.fx.base_currency,
+                "rates": dict(config.fx.rates),
+            },
         }
     )
 
-    existing = _find_existing(project_root, shot.shot_id, input_digest)
-    if existing is not None:
-        return existing  # idempotent: unchanged inputs reuse the packet
-
-    version = (_max_version(project_root, shot.shot_id) or 0) + 1
-    packet = TaskPacket(
+    return TaskPacket(
         schema_version=PACKET_SCHEMA_VERSION,
         shot_id=shot.shot_id,
         packet_version=version,
@@ -213,10 +318,6 @@ def _compile_shot(
         p50_jpy=estimate.jpy,
         p90_jpy=estimate.jpy * 2,  # per-shot retry ceiling: max 2 attempts
     )
-    _publish(
-        project_root, packet_relpath(shot.shot_id, version), packet_to_dict(packet)
-    )
-    return packet
 
 
 def packet_to_dict(packet: TaskPacket) -> dict:
@@ -320,19 +421,27 @@ def _max_version(project_root: Path, shot_id: str) -> int | None:
 
 
 def _find_existing(
-    project_root: Path, shot_id: str, input_digest: str
+    project_root: Path, shot_id: str, candidate: TaskPacket
 ) -> TaskPacket | None:
+    """Reuse a stored packet only when its ENTIRE content (not just the
+    stored input_digest, which a tampered file could keep) equals the
+    freshly recompiled candidate, version aside."""
     top = _max_version(project_root, shot_id)
     if top is None:
         return None
+    want = _versionless(packet_to_dict(candidate))
     for version in range(top, 0, -1):
         try:
             packet = load_packet(project_root, shot_id, version)
         except PacketError:
             continue
-        if packet.input_digest == input_digest:
+        if _versionless(packet_to_dict(packet)) == want:
             return packet
     return None
+
+
+def _versionless(content: dict) -> dict:
+    return {k: v for k, v in content.items() if k != "packet_version"}
 
 
 # --- bridge to the paid coordinator (TASK-016) ------------------------------

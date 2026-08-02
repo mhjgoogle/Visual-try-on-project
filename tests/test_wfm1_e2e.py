@@ -25,7 +25,7 @@ from ai_video_workflow.app.contracts import staging_ref_for
 from ai_video_workflow.app.paid_lifecycle import build_lineage
 from ai_video_workflow.approval import stage_status
 from ai_video_workflow.budget.ledger import build_ledger
-from ai_video_workflow.budget.reservation import hold_reservation
+from ai_video_workflow.budget.reservation import hold_reservation, list_reservations
 from ai_video_workflow.config import compute_catalog_digest
 from ai_video_workflow.config.project_config import FxConfig
 from ai_video_workflow.inspection.base import MediaProbeResult
@@ -314,32 +314,27 @@ def _compile(root, catalog_dir) -> None:
     assert _run(root, catalog_dir, "plan-compile") == 0
 
 
+def _packet_submit(root, catalog_dir, task_id: str, shot: str, op: str) -> int:
+    """The WFM1 paid entry: the request comes from the verified packet."""
+    return _run(
+        root,
+        catalog_dir,
+        "paid-submit",
+        task_id,
+        "--shot",
+        shot,
+        "--operation-id",
+        op,
+        "--packet-version",
+        "1",
+    )
+
+
 def _paid_all_shots(root, catalog_dir) -> None:
     _compile(root, catalog_dir)
     for i in range(1, SHOTS + 1):
-        packet = load_packet(root, f"shot-{i}", 1)
         task_id = f"task-shot-{i}-1"
-        assert (
-            _run(
-                root,
-                catalog_dir,
-                "paid-submit",
-                task_id,
-                "--shot",
-                packet.shot_id,
-                "--operation-id",
-                f"op-{i}",
-                "--capability",
-                packet.capability,
-                "--model",
-                packet.model_id,
-                "--resolution",
-                packet.resolution,
-                "--duration",
-                str(packet.duration_seconds),
-            )
-            == 0
-        )
+        assert _packet_submit(root, catalog_dir, task_id, f"shot-{i}", f"op-{i}") == 0
         assert _run(root, catalog_dir, "paid-integrate", task_id) == 0
 
 
@@ -414,32 +409,14 @@ def test_fault_matrix(tmp_path: Path, monkeypatch) -> None:
     assert _run(root, catalog_dir, "plan-compile") == 0
 
     # (a) stale approval: tamper an approved target -> zero provider calls
+    # (a transitively-stale prerequisite blocks the packet-gated entry)
     brief = root / "planning" / "brief_v1.json"
     original = brief.read_text(encoding="utf-8")
     brief.write_text(original.replace("kindness", "KINDNESS"), encoding="utf-8")
     calls = fake.total_calls
-    assert (
-        _run(
-            root,
-            catalog_dir,
-            "paid-submit",
-            "task-shot-1-1",
-            "--shot",
-            "shot-1",
-            "--operation-id",
-            "op-stale",
-            "--capability",
-            "text_to_video",
-            "--model",
-            "m1",
-            "--resolution",
-            "512p",
-            "--duration",
-            str(SECONDS_EACH),
-        )
-        == 1
-    )
+    assert _packet_submit(root, catalog_dir, "task-shot-1-1", "shot-1", "op-stale") == 1
     assert fake.total_calls == calls  # approval gate: zero calls
+    assert list_reservations(root) == ()  # and zero reservations
     brief.write_text(original, encoding="utf-8")  # restore
 
     # (b) budget denial: a pre-existing hold near the episode cap -> zero calls
@@ -456,25 +433,7 @@ def test_fault_matrix(tmp_path: Path, monkeypatch) -> None:
     )
     calls = fake.total_calls
     assert (
-        _run(
-            root,
-            catalog_dir,
-            "paid-submit",
-            "task-shot-1-1",
-            "--shot",
-            "shot-1",
-            "--operation-id",
-            "op-denied",
-            "--capability",
-            "text_to_video",
-            "--model",
-            "m1",
-            "--resolution",
-            "512p",
-            "--duration",
-            str(SECONDS_EACH),
-        )
-        == 1
+        _packet_submit(root, catalog_dir, "task-shot-1-1", "shot-1", "op-denied") == 1
     )
     assert fake.total_calls == calls  # budget gate: zero calls
     from ai_video_workflow.budget.reservation import release_reservation
@@ -483,50 +442,17 @@ def test_fault_matrix(tmp_path: Path, monkeypatch) -> None:
 
     # (c) ambiguous submit: needs_reconciliation, re-run does NOT re-submit
     fake.behavior = "timeout_after_dispatch"
-    assert (
-        _run(
-            root,
-            catalog_dir,
-            "paid-submit",
-            "task-shot-2-1",
-            "--shot",
-            "shot-2",
-            "--operation-id",
-            "op-amb",
-            "--capability",
-            "text_to_video",
-            "--model",
-            "m1",
-            "--resolution",
-            "512p",
-            "--duration",
-            str(SECONDS_EACH),
-        )
-        == 1
-    )
+    assert _packet_submit(root, catalog_dir, "task-shot-2-1", "shot-2", "op-amb") == 1
     submits = fake.calls["submit"]
-    assert (
-        _run(
-            root,
-            catalog_dir,
-            "paid-submit",
-            "task-shot-2-1",
-            "--shot",
-            "shot-2",
-            "--operation-id",
-            "op-amb",
-            "--capability",
-            "text_to_video",
-            "--model",
-            "m1",
-            "--resolution",
-            "512p",
-            "--duration",
-            str(SECONDS_EACH),
-        )
-        == 1
-    )
+    assert _packet_submit(root, catalog_dir, "task-shot-2-1", "shot-2", "op-amb") == 1
     assert fake.calls["submit"] == submits  # zero re-submission
+    # a DIFFERENT operation id on the same task is refused outright: the
+    # ambiguous charge must be reconciled, never re-paid around
+    assert _packet_submit(root, catalog_dir, "task-shot-2-1", "shot-2", "op-amb2") == 1
+    assert fake.calls["submit"] == submits  # operation guard: zero calls
+    assert (
+        len([r for r in list_reservations(root) if r.task_id == "task-shot-2-1"]) == 1
+    )
     # integration is blocked pending a human decision
     assert _run(root, catalog_dir, "paid-integrate", "task-shot-2-1") == 1
 
@@ -539,27 +465,8 @@ def test_fault_matrix(tmp_path: Path, monkeypatch) -> None:
             raise OSError("network down during download")
 
     monkeypatch.setattr(cli, "UrllibMediaFetcher", _FailingFetcher)
-    assert (
-        _run(
-            root,
-            catalog_dir,
-            "paid-submit",
-            "task-shot-1-1",
-            "--shot",
-            "shot-1",
-            "--operation-id",
-            "op-ok",
-            "--capability",
-            "text_to_video",
-            "--model",
-            "m1",
-            "--resolution",
-            "512p",
-            "--duration",
-            str(SECONDS_EACH),
-        )
-        == 0
-    )  # success_media_pending: paid, awaiting a re-fetch
+    assert _packet_submit(root, catalog_dir, "task-shot-1-1", "shot-1", "op-ok") == 0
+    # success_media_pending: paid, awaiting a re-fetch
     assert not (root / staging_ref_for("task-shot-1-1")).exists()
     # integration is blocked until receipt-verified media exists
     assert _run(root, catalog_dir, "paid-integrate", "task-shot-1-1") == 1
@@ -592,6 +499,127 @@ def test_fault_matrix(tmp_path: Path, monkeypatch) -> None:
         e for e in read_events(root) if e.event_type.value == "provider_cost_recorded"
     ]
     assert len(cost_events) == 1
+
+    # (f) double-payment guard: a NEW operation id on the already-paid task
+    # is refused before any hold or provider call — cost stays booked once
+    assert _packet_submit(root, catalog_dir, "task-shot-1-1", "shot-1", "op-2nd") == 1
+    assert fake.calls["submit"] == submits  # zero re-submission
+    cost_events = [
+        e for e in read_events(root) if e.event_type.value == "provider_cost_recorded"
+    ]
+    assert len(cost_events) == 1  # still exactly one charge
+
+
+# =============================================================================
+# 2b. the packet gate: only verified, approved packets can spend money
+# =============================================================================
+
+
+def test_packet_gate_blocks_unverified_paid_input(tmp_path: Path, monkeypatch) -> None:
+    root, catalog_dir, fake = _setup(tmp_path, monkeypatch)
+    _compile(root, catalog_dir)
+
+    # free-form parameters without the explicit ad-hoc opt-in are refused
+    calls = fake.total_calls
+    assert (
+        _run(
+            root,
+            catalog_dir,
+            "paid-submit",
+            "task-shot-1-1",
+            "--shot",
+            "shot-1",
+            "--operation-id",
+            "op-x",
+            "--model",
+            "m1",
+            "--resolution",
+            "512p",
+            "--duration",
+            str(SECONDS_EACH),
+        )
+        == 1
+    )
+    # mixing a packet with free-form overrides is refused
+    assert (
+        _run(
+            root,
+            catalog_dir,
+            "paid-submit",
+            "task-shot-1-1",
+            "--shot",
+            "shot-1",
+            "--operation-id",
+            "op-x",
+            "--packet-version",
+            "1",
+            "--resolution",
+            "768p",
+        )
+        == 1
+    )
+    # --stage is also a free-form parameter: the packet path pins the
+    # stage to production_lock and refuses an explicit override
+    assert (
+        _run(
+            root,
+            catalog_dir,
+            "paid-submit",
+            "task-shot-1-1",
+            "--shot",
+            "shot-1",
+            "--operation-id",
+            "op-x",
+            "--packet-version",
+            "1",
+            "--stage",
+            "concept_lock",
+        )
+        == 1
+    )
+    assert fake.total_calls == calls
+    assert list_reservations(root) == ()
+
+    # a tampered packet file (stored digest kept intact) is refused: the
+    # content is recomputed from authoritative inputs, never trusted
+    packet_path = root / "planning" / "packets" / "shot-1_v1.json"
+    raw = json.loads(packet_path.read_text(encoding="utf-8"))
+    raw["prompt"]["text"] = "EVIL injected prompt"
+    packet_path.write_text(json.dumps(raw), encoding="utf-8")
+    assert _packet_submit(root, catalog_dir, "task-shot-1-1", "shot-1", "op-x") == 1
+    assert fake.total_calls == calls
+    assert list_reservations(root) == ()
+
+    # an FX change invalidates old quotes: the stale packet cannot pay,
+    # and recompiling produces a NEW version with the new conversion
+    packet_path.unlink()  # drop the tampered copy
+    assert _run(root, catalog_dir, "plan-compile") == 0  # regenerate v1
+    config_path = root / "config" / "wfm1.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["fx"]["rates"]["USD"] = 200
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+    assert _packet_submit(root, catalog_dir, "task-shot-1-1", "shot-1", "op-x") == 1
+    assert fake.total_calls == calls
+    assert _run(root, catalog_dir, "plan-compile") == 0
+    from ai_video_workflow.planning import load_packet as _load_packet
+
+    repriced = _load_packet(root, "shot-1", 2)
+    assert repriced.estimate_jpy == 20  # 10 minor USD at 200 JPY/USD
+
+    # an unapproved NEWER shot plan blocks both compilation and payment
+    plan_raw = json.loads(
+        (root / "planning" / "shot_plan_v1.json").read_text(encoding="utf-8")
+    )
+    plan_raw["version"] = 2
+    plan_raw["shots"][0]["duration_seconds"] = SECONDS_EACH  # content tweak
+    plan_raw["shots"][0]["resolution"] = "512p"
+    from ai_video_workflow.planning import publish_shot_plan
+
+    plan_raw["shots"] = plan_raw["shots"][:SHOTS]
+    publish_shot_plan(root, plan_raw)
+    assert _run(root, catalog_dir, "plan-compile") == 1
+    assert _packet_submit(root, catalog_dir, "task-shot-1-1", "shot-1", "op-x") == 1
+    assert fake.total_calls == calls  # nothing above ever reached a provider
 
 
 # =============================================================================
@@ -649,6 +677,7 @@ def test_two_projects_reuse_and_monthly_budget(tmp_path: Path, monkeypatch) -> N
             catalog_dir,
             "paid-submit",
             "task-shot-1-1",
+            "--unplanned",  # the isolated ad-hoc path hits the same gate
             "--shot",
             "shot-1",
             "--operation-id",

@@ -19,6 +19,7 @@ from ai_video_workflow.planning.documents import (
     PlannedShot,
     PromptVersion,
     ShotPlan,
+    latest_shot_plan_version,
     load_brief,
     load_prompt,
     load_shot_plan,
@@ -42,6 +43,7 @@ from ai_video_workflow.planning.packets import (
     packet_to_generation_spec,
     packet_to_paid_request,
     parse_packet,
+    verify_packet,
 )
 
 __all__ = [
@@ -62,6 +64,7 @@ __all__ = [
     "load_brief",
     "load_packet",
     "load_prompt",
+    "latest_shot_plan_version",
     "load_shot_plan",
     "load_story",
     "packet_relpath",
@@ -69,6 +72,7 @@ __all__ = [
     "packet_to_paid_request",
     "parse_brief",
     "parse_packet",
+    "verify_packet",
     "parse_prompt",
     "parse_shot_plan",
     "parse_story",

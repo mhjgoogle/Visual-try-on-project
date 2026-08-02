@@ -66,3 +66,13 @@ inspection/composition/qcd 的公共读取接口，不改变其冻结模型。
 - [ ] 归档不删除历史、不复制成本事实、不破坏 M1 输出；
 - [ ] 复盘可追溯到运行、成本、评价和决定证据，最终判断由用户确认；
 - [ ] 音频/字幕缺失被明确标为 WFM1 范围外，而非伪装完成。
+
+## 修正记录（milestone review）
+
+- technical QC schema v1→v2：`final_output` 改为 `{ref, content_digest}`，
+  新增 `final_media_playable`（非空 + inspector 探测）检查；发布时校验
+  QC/终审/final/profile 四者的精确 digest 对应，任一漂移阻断。
+- 旧 v1 QC 文档不迁移：`package-release` 明确拒绝并要求重跑 `qc-run`
+  生成 v2 文档（重跑幂等、按版本追加，无覆盖）。
+- 归档清单逐文件 containment 校验并显式拒绝 symlink。
+- 详见 ADR-0012「Schema 演进记录」。

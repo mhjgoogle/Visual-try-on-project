@@ -32,6 +32,7 @@ import re
 from pathlib import Path
 
 from ai_video_workflow.digests import config_digest, file_sha256
+from ai_video_workflow.inspection.base import MediaInspector
 from ai_video_workflow.profile.project_profile import (
     load_project_profile,
     profile_digest,
@@ -42,7 +43,10 @@ from ai_video_workflow.qcd.log import read_events
 from ai_video_workflow.release.errors import ArchiveError, QcError, ReleaseError
 from ai_video_workflow.security.paths import resolve_within_root
 
-QC_SCHEMA_VERSION = 1
+# v2: final_output became {ref, content_digest} (was a bare ref string);
+# old v1 technical QC documents are rejected at release time — re-run qc-run
+TECHNICAL_QC_SCHEMA_VERSION = 2
+FINAL_REVIEW_SCHEMA_VERSION = 1
 RELEASE_SCHEMA_VERSION = 1
 ARCHIVE_SCHEMA_VERSION = 1
 
@@ -155,7 +159,9 @@ def latest_final_output(project_root: Path) -> tuple[int, str] | None:
 # --- S6 technical QC ---------------------------------------------------------
 
 
-def run_technical_qc(project_root: Path, data: ProjectData) -> dict:
+def run_technical_qc(
+    project_root: Path, data: ProjectData, inspector: MediaInspector
+) -> dict:
     """Derive the technical QC facts and publish them (idempotent)."""
     checks: list[dict] = []
 
@@ -167,14 +173,41 @@ def run_technical_qc(project_root: Path, data: ProjectData) -> dict:
             "detail": final[1] if final else "no outputs/final_v<N>.mp4",
         }
     )
+    final_digest: str | None = None
     if final is not None:
+        final_path = resolve_within_root(project_root, final[1])
+        final_digest = file_sha256(final_path)
+        # existence is not playability: the media must be non-empty and
+        # probe as an actual video (container + stream parameters)
+        playable = False
+        detail = f"{final[1]}: empty file"
+        if final_path.stat().st_size > 0:
+            try:
+                probe = inspector.probe(final_path)
+            except Exception as exc:  # inspector failures fail the check
+                detail = f"{final[1]}: probe failed: {exc}"
+            else:
+                playable = (
+                    probe.duration_seconds > 0 and probe.width > 0 and probe.height > 0
+                )
+                detail = (
+                    f"{final[1]}: {probe.container_format} "
+                    f"{probe.width}x{probe.height} {probe.duration_seconds}s"
+                )
+        checks.append(
+            {
+                "check_id": "final_media_playable",
+                "passed": playable,
+                "detail": detail,
+            }
+        )
         report_rel = f"reports/composition/final_v{final[0]}.json"
         report_ok = resolve_within_root(project_root, report_rel).is_file()
         checks.append(
             {
                 "check_id": "composition_report_present",
                 "passed": report_ok,
-                "detail": report_rel,
+                "detail": f"{report_rel} (same version as {final[1]})",
             }
         )
 
@@ -218,10 +251,14 @@ def run_technical_qc(project_root: Path, data: ProjectData) -> dict:
     )
 
     content = {
-        "schema_version": QC_SCHEMA_VERSION,
+        "schema_version": TECHNICAL_QC_SCHEMA_VERSION,
         "checks": checks,
         "passed": all(c["passed"] for c in checks),
-        "final_output": final[1] if final else None,
+        # bind the verdict to the EXACT media it examined, so a later
+        # composition can never ride on an old passing QC
+        "final_output": (
+            {"ref": final[1], "content_digest": final_digest} if final else None
+        ),
     }
     version, created = _publish_idempotent(
         project_root, "qc", "technical_qc", content, QcError
@@ -254,7 +291,7 @@ def record_final_review(
     final_digest = file_sha256(resolve_within_root(project_root, final[1]))
     profile = load_project_profile(project_root)  # goals baseline is REQUIRED
     content = {
-        "schema_version": QC_SCHEMA_VERSION,
+        "schema_version": FINAL_REVIEW_SCHEMA_VERSION,
         "verdict": verdict,
         "by": by,
         "at": at,
@@ -283,6 +320,15 @@ def package_release(project_root: Path) -> dict:
     technical = _load_version(
         project_root, "qc", "technical_qc", qc_version, ReleaseError
     )
+    # fail-closed on any other schema: a v1 document's final_output is a
+    # bare string with no digest, so its verdict cannot be bound to media
+    if technical.get("schema_version") != TECHNICAL_QC_SCHEMA_VERSION:
+        raise ReleaseError(
+            f"technical QC v{qc_version} uses schema_version "
+            f"{technical.get('schema_version')!r}, expected "
+            f"{TECHNICAL_QC_SCHEMA_VERSION}; re-run qc-run to produce a "
+            "current document"
+        )
     if technical.get("passed") is not True:
         raise ReleaseError("technical QC did not pass; release is blocked")
 
@@ -305,8 +351,29 @@ def package_release(project_root: Path) -> dict:
             "the approved final review is bound to different final media; "
             "re-review before packaging (stale approval never releases)"
         )
+    # the passing technical QC must have examined THIS final, not an older one
+    qc_final = technical.get("final_output")
+    qc_final = qc_final if isinstance(qc_final, dict) else {}
+    if (
+        qc_final.get("ref") != final[1]
+        or qc_final.get("content_digest") != final_digest
+    ):
+        raise ReleaseError(
+            "technical QC is bound to different final media; re-run qc-run "
+            "against the current final before packaging"
+        )
 
     profile = load_project_profile(project_root)
+    # the review approved the episode AGAINST a goals baseline; if the
+    # profile moved afterwards the review no longer covers what ships
+    profile_ref = review.get("profile_ref") or {}
+    if profile_ref.get("version") != profile.version or profile_ref.get(
+        "content_digest"
+    ) != profile_digest(profile):
+        raise ReleaseError(
+            "the project profile changed after the final review; re-review "
+            "against the current goals baseline (stale approval never releases)"
+        )
     content = {
         "schema_version": RELEASE_SCHEMA_VERSION,
         "final_mp4": {"ref": final[1], "content_digest": final_digest},
@@ -360,10 +427,18 @@ def archive_project(project_root: Path, data: ProjectData) -> dict:
         if not base.is_dir():
             continue
         for path in sorted(base.glob(name)):
+            rel = f"{directory}/{path.name}" if directory else path.name
+            # a symlink could smuggle content from OUTSIDE the project into
+            # the digest inventory — refuse it before any read
+            if path.is_symlink():
+                raise ArchiveError(
+                    f"refusing to archive symlink {rel}; the inventory "
+                    "digests only regular files inside the project"
+                )
             if not path.is_file():
                 continue
-            rel = f"{directory}/{path.name}" if directory else path.name
-            references.append({"ref": rel, "content_digest": file_sha256(path)})
+            safe = resolve_within_root(project_root, rel)  # containment
+            references.append({"ref": rel, "content_digest": file_sha256(safe)})
     manifest_content = {
         "schema_version": ARCHIVE_SCHEMA_VERSION,
         "references": references,

@@ -382,6 +382,11 @@ def publish_shot_plan(project_root: Path, raw: object) -> Path:
     )
 
 
+def latest_shot_plan_version(project_root: Path) -> int | None:
+    """Highest shot plan version present on disk (None when there is none)."""
+    return _highest_version(project_root, PLANNING_DIR, "shot_plan_v")
+
+
 def load_shot_plan(project_root: Path, version: int | None = None) -> ShotPlan:
     if version is None:
         version = _highest_version(project_root, PLANNING_DIR, "shot_plan_v")

@@ -126,3 +126,19 @@ aggregation/报表（预算 ledger 已计入）；由
 [ADR-0009](../adr/ADR-0009-minimax-vendor-contract.md) 与
 [TASK-017](TASK-017-minimax-real-api-and-smoke.md) 承接。真实冒烟仍须显式
 opt-in，绝不进入默认回归门槛。
+
+## 修正记录（milestone review）
+
+- 协调器新增 task 级操作守门：同一 task 已存在任何 reservation 时，
+  用户发起的新 operation 返回 `operation_conflict`（零 hold、零调用）；
+  仅协调器内部 fallback operation 豁免。重做必须新建 task。
+- 本卡的自由参数 `paid-submit` 入口保留为显式隔离路径，需 `--unplanned`
+  标志；WFM1 正式付费入口改为 packet 驱动（见 TASK-020 修正记录）。
+- 补充边界说明（milestone review M-3/M-4）：`paid-submit --account-root`
+  仅影响 packet 校验时的复用包解析；预算账户根恒为项目根的父目录，
+  不可被参数改写。reservation 文件为无签名本地 JSON，威胁模型为本机
+  单用户：手工篡改/删除 `budget/reservations/` 可影响操作守门与在途
+  口径，但已提交成本不受影响（台账由 append-only QCD 事件派生）。
+- 回放守门（M-1）：重放历史 released reservation 得到的技术失败
+  （`PaidOutcome.resumed=True`）不再触发 fallback，杜绝遗留混合状态
+  下的二次扣费。

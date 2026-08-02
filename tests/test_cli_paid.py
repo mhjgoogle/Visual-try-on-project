@@ -159,6 +159,7 @@ def test_paid_submit_happy_path(tmp_path: Path, monkeypatch) -> None:
             str(catalog_dir),
             "paid-submit",
             "task-1",
+            "--unplanned",
             "--shot",
             "shot-1",
             "--operation-id",
@@ -232,6 +233,7 @@ def test_poll_media_after_submit(tmp_path: Path, monkeypatch) -> None:
     ]
     submit_tail = [
         "task-1",
+        "--unplanned",
         "--shot",
         "shot-1",
         "--operation-id",

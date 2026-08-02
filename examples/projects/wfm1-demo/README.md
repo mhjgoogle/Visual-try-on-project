@@ -27,7 +27,8 @@ python -m pytest tests/test_wfm1_e2e.py -q
 
 ```bash
 cp -r examples/projects/wfm1-demo /tmp/demo
-cp -r examples/reuse /tmp/reuse-account/  # 账户级复用资产
+mkdir -p /tmp/reuse-account
+cp -r examples/reuse /tmp/reuse-account/reuse  # 账户级复用资产（加载器查找 <account>/reuse/）
 P="--project-root /tmp/demo --catalog-dir config/providers"
 python -m ai_video_workflow.cli $P stage-review  concept_lock    --by you
 python -m ai_video_workflow.cli $P stage-approve concept_lock    --by you --target planning/brief_v1.json
@@ -42,16 +43,20 @@ python -m ai_video_workflow.cli $P plan-compile --account-root /tmp/reuse-accoun
 # 预期：packets: 8; episode p50=128 p90=256 JPY（远低于 1200 上限）
 ```
 
-之后的 `paid-submit → paid-integrate → compose → qc-run → qc-review →
-package-release → archive-project` 需要一个已注册的 Provider；离线验收里
-由 Fake Provider 走通（见上面的 E2E 测试），真实付费见下节。
+之后的 `paid-submit --packet-version <N> → paid-integrate → compose →
+qc-run → qc-review → package-release → archive-project` 需要一个已注册的
+Provider。WFM1 的付费入口只接受已编译且校验通过的任务包
+（`--packet-version`），自由参数路径需显式 `--unplanned`，不属于 WFM1 流程。
+离线验收里由 Fake Provider 走通（见上面的 E2E 测试），真实付费见下节。
 
 ## 可选：真实 MiniMax 冒烟（会实际扣费，默认关闭）
 
-冒烟测试绕过目录/审批/预算门，只验证传输层，因此必须人工确认：
+冒烟测试**绕过 catalog、审批链和预算协调器**，只验证传输层，因此每一步都
+必须人工确认：
 
-1. **预算**：人工核对 MiniMax 官网当前价格，确认单条 512p/6s 费用可接受；
-   使用专用低余额 API Key，用完即弃。
+1. **预算**：冒烟实际提交的是 **`MiniMax-Hailuo-02` / `768P` / 6s**
+   （该模型 T2V 不支持 512P，见 ADR-0009）。请按官网当前价格人工核对
+   **这一 SKU** 的单条费用可接受；使用专用低余额 API Key，用完即弃。
 2. **凭据**：Key 只放环境变量，绝不写入仓库或示例文件：
    `export WFM1_MINIMAX_API_KEY=$(cat ~/.wfm1-smoke/api-key)`
 3. **记录目录**（外部任务 ID 会持久化，崩溃不丢单）：

@@ -52,6 +52,7 @@ from ai_video_workflow.budget.reservation import (
     NEEDS_RECONCILIATION,
     commit_reservation,
     hold_reservation,
+    list_reservations,
     load_reservation,
     mark_needs_reconciliation,
     outstanding_holds,
@@ -104,6 +105,7 @@ NEEDS_RECONCILIATION_OUTCOME = "needs_reconciliation"
 PROVIDER_UNAVAILABLE = "provider_unavailable"
 SPEC_INVALID = "spec_invalid"
 REQUEST_REJECTED = "request_rejected"
+OPERATION_CONFLICT = "operation_conflict"
 
 _DEFAULT_POLL_INTERVAL_SECONDS = 10.0
 
@@ -165,6 +167,11 @@ class PaidOutcome:
     reason: str | None = None
     stop_scope: str | None = None
     fell_back: bool = False
+    # True when the outcome merely REPLAYED a persisted reservation from an
+    # earlier run instead of executing a fresh attempt. A replayed technical
+    # failure must never trigger a fallback: the task may have settled
+    # through other operations since, and a fallback would pay again.
+    resumed: bool = False
 
 
 def media_receipt_matches(receipt: Path, dest: Path) -> bool:
@@ -245,6 +252,7 @@ class PaidGenerationCoordinator:
         )
         if (
             primary.kind == TECHNICAL_FAILURE
+            and not primary.resumed
             and selection.fallback_provider_id is not None
         ):
             # The primary's failure is now a persisted (released) reservation,
@@ -442,6 +450,35 @@ class PaidGenerationCoordinator:
                 # same-operation concurrency / crash resume stays idempotent
                 return self._resume_existing(existing, provider_id, fell_back)
 
+            # Task-level operation guard: idempotency by (task, operation)
+            # alone would let a NEW operation id re-pay for the same task.
+            # A task with ANY persisted operation accepts no further
+            # user-created operations — resume the same operation id,
+            # reconcile it, or create a redo TASK. Only the coordinator's
+            # own fallback attempt (after a proven-no-charge release in
+            # this same run) may add its derived operation.
+            if not fell_back:
+                prior = [
+                    r
+                    for r in list_reservations(self._project_root)
+                    if r.task_id == request.task_id
+                ]
+                if prior:
+                    seen = ", ".join(f"{r.operation_id} ({r.status})" for r in prior)
+                    return PaidOutcome(
+                        kind=OPERATION_CONFLICT,
+                        provider_id=provider_id,
+                        operation_id=operation_id,
+                        reason=(
+                            f"task {request.task_id!r} already has paid "
+                            f"operation(s): {seen}; a new operation could "
+                            "pay twice. Resume with the SAME operation id "
+                            "(or poll-media), resolve reconciliation, or "
+                            "create a redo task"
+                        ),
+                        fell_back=fell_back,
+                    )
+
             estimate = estimate_generation_cost(
                 self._catalog,
                 self._config.fx,
@@ -591,6 +628,7 @@ class PaidGenerationCoordinator:
                 provider_id=existing.provider_id,
                 operation_id=existing.operation_id,
                 fell_back=fell_back,
+                resumed=True,
             )
         if existing.status == HELD:
             # a prior attempt held then crashed before settling: unknown charge
@@ -606,6 +644,7 @@ class PaidGenerationCoordinator:
                 operation_id=existing.operation_id,
                 reason="prior attempt did not settle; manual reconciliation",
                 fell_back=fell_back,
+                resumed=True,
             )
         if existing.status == NEEDS_RECONCILIATION:
             return PaidOutcome(
@@ -614,6 +653,7 @@ class PaidGenerationCoordinator:
                 operation_id=existing.operation_id,
                 reason="reservation awaiting manual reconciliation",
                 fell_back=fell_back,
+                resumed=True,
             )
         # RELEASED: a prior clean failure for this exact operation
         return PaidOutcome(
@@ -622,6 +662,7 @@ class PaidGenerationCoordinator:
             operation_id=existing.operation_id,
             reason="operation previously failed and was released",
             fell_back=fell_back,
+            resumed=True,
         )
 
     def _authoritative_cost(self, final, estimate, provider):

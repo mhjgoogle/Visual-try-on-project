@@ -10,10 +10,12 @@ from ai_video_workflow.app.paid_coordinator import (
     PaidRequest,
 )
 from ai_video_workflow.budget.reservation import (
+    commit_reservation,
     hold_reservation,
     list_reservations,
     load_reservation,
     record_external_task_ref,
+    release_reservation,
 )
 from ai_video_workflow.config import (
     parse_catalog,
@@ -329,6 +331,48 @@ def test_technical_failure_falls_back_and_rebudgets(tmp_path: Path) -> None:
     assert cost_events[0].payload["provider_id"] == "fake-b"
 
 
+def test_replayed_release_never_falls_back_and_repays(tmp_path: Path) -> None:
+    # Legacy mixed state: the task already settled through another
+    # operation, and an old RELEASED operation is re-run. The replayed
+    # technical failure must NOT spawn a fallback attempt (which would
+    # pay a second time) — it only reports the historical failure.
+    primary = FakeProvider(provider_id="fake-a")
+    fallback = FakeProvider(provider_id="fake-b")
+    root, coord, _ = _setup(tmp_path, providers=[primary, fallback])
+    hold_reservation(
+        root,
+        project_id="proj-1",
+        task_id="task-1",
+        operation_id="op-old",
+        shot_id="shot-1",
+        provider_id="fake-a",
+        model_id="m1",
+        estimate_jpy=16,
+        created_at=T0.isoformat(),
+    )
+    release_reservation(root, "task-1", "op-old", resolved_at=T0.isoformat())
+    hold_reservation(
+        root,
+        project_id="proj-1",
+        task_id="task-1",
+        operation_id="op-paid",
+        shot_id="shot-1",
+        provider_id="fake-a",
+        model_id="m1",
+        estimate_jpy=16,
+        created_at=T0.isoformat(),
+    )
+    commit_reservation(root, "task-1", "op-paid", resolved_at=T0.isoformat())
+
+    outcome = coord.submit_paid(_shot(), _request(operation_id="op-old"))
+    assert outcome.kind == "technical_failure"
+    assert outcome.resumed is True
+    assert outcome.fell_back is False
+    assert primary.calls["submit"] == 0
+    assert fallback.calls["submit"] == 0  # zero fallback, zero re-pay
+    assert load_reservation(root, "task-1", "op-old:fallback") is None
+
+
 def test_budget_denial_does_not_fall_back(tmp_path: Path) -> None:
     primary = FakeProvider(provider_id="fake-a")
     fallback = FakeProvider(provider_id="fake-b")
@@ -441,9 +485,13 @@ def test_two_operations_near_cap_only_one_reserves(tmp_path: Path) -> None:
     # op-1 holds (ambiguous keeps the hold as needs_reconciliation -> outstanding)
     o1 = coord.submit_paid(_shot(), _request(operation_id="op-1"))
     assert o1.kind == "needs_reconciliation"
-    # op-2 must be denied: 0 + outstanding hold(16) + estimate(16) = 32 > 20
-    o2 = coord.submit_paid(_shot(), _request(operation_id="op-2"))
+    # a SECOND task must be denied: outstanding hold(16) + estimate(16) = 32 > 20
+    o2 = coord.submit_paid(_shot(), _request(task_id="task-2", operation_id="op-2"))
     assert o2.kind == "budget_denied"
+    # a second operation on the SAME task never even reaches the budget:
+    # the task-level operation guard refuses it (a new op could pay twice)
+    o3 = coord.submit_paid(_shot(), _request(operation_id="op-2"))
+    assert o3.kind == "operation_conflict"
     held = [
         r
         for r in list_reservations(root)

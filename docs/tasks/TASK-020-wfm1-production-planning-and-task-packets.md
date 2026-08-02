@@ -66,3 +66,13 @@
 - [ ] 提示词版本不可变且保留修改原因，为后续结果比较提供权威输入关系；
 - [ ] 任务包不依赖具体厂商 schema，厂商参数仅在 adapter 边界解析；
 - [ ] 未付费即可完成全套生产计划和预算预览。
+
+## 修正记录（milestone review）
+
+- `plan-compile` 只加载 production_lock 审批目标中锁定的确切
+  `shot_plan_v<N>`（绝不 latest）；磁盘存在更新版本时阻断，要求重审批。
+- packet 的 `input_digest` 纳入 FX 表与 fallback provider；复用改为
+  全内容重算比较，不信任文件内存储的 digest。
+- 新增 `verify_packet`：WFM1 付费入口 `paid-submit --packet-version <N>`
+  必经 `require_stage_ready(production_lock)` + packet 重算校验后，
+  由 packet 重建请求（`packet_to_paid_request`），拒绝任何自由参数。

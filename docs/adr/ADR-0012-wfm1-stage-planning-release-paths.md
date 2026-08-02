@@ -60,6 +60,15 @@ TASK-019/020/022 各自需要新的**项目内**持久化位置：阶段转换�
 - Batch C–E 的持久化位置一次锁定，后续任务不再需要路径类 ADR；
 - 审计、规划、QC、发布、复盘全部可由权威文件派生/重算，无第二事实来源。
 
+## Schema 演进记录
+
+- 2026-08-02（milestone review 修正批）：`qc/technical_qc_v<N>.json` 的
+  `schema_version` 由 1 升为 **2**：`final_output` 从裸 ref 字符串改为
+  `{ref, content_digest}`，并新增 `final_media_playable` 检查项，使 QC
+  判定绑定其检查过的确切媒体。旧 v1 文档在 `package-release` 处 fail-closed
+  （提示重新 `qc-run`），不做迁移。`qc/final_review_v<N>.json` 保持
+  schema_version 1 不变。
+
 ## Not decided here
 
 - 提示词自动优化、实验比较、发布平台集成（范围外）；

@@ -9,6 +9,7 @@ import pytest
 
 import ai_video_workflow.cli as cli
 from ai_video_workflow.app.contracts import staging_ref_for
+from ai_video_workflow.inspection.base import MediaProbeResult
 from ai_video_workflow.profile import parse_project_profile, write_project_profile
 from ai_video_workflow.release import (
     ArchiveError,
@@ -19,6 +20,7 @@ from ai_video_workflow.release import (
     record_final_review,
     run_technical_qc,
 )
+from tests.media_fakes import FakeMediaInspector
 from tests.paid_fakes import FakeProvider
 from tests.test_paid_lifecycle import TASK, _paid_submit, _seed_project, _use_fakes
 
@@ -74,15 +76,19 @@ def _load_project_data(root: Path):
     return cli._load_project_data(root)
 
 
+def _inspector() -> FakeMediaInspector:
+    return FakeMediaInspector(result=MediaProbeResult("mp4", 4.0, 1280, 720, 24.0))
+
+
 # --- technical QC ------------------------------------------------------------
 
 
 def test_technical_qc_passes_and_is_idempotent(tmp_path: Path, monkeypatch) -> None:
     root, _ = _finished_episode(tmp_path, monkeypatch)
-    first = run_technical_qc(root, _load_project_data(root))
+    first = run_technical_qc(root, _load_project_data(root), _inspector())
     assert first["passed"] is True
     assert first["created"] is True
-    second = run_technical_qc(root, _load_project_data(root))
+    second = run_technical_qc(root, _load_project_data(root), _inspector())
     assert second["version"] == first["version"]  # identical facts reused
     assert second["created"] is False
     # audio/subtitles are declared out of scope, not faked
@@ -94,10 +100,28 @@ def test_technical_qc_fails_on_missing_media(tmp_path: Path, monkeypatch) -> Non
     root, _ = _finished_episode(tmp_path, monkeypatch)
     # remove one registered asset's media
     (root / "assets" / "media" / "s01_sh001_v1.mp4").unlink()
-    outcome = run_technical_qc(root, _load_project_data(root))
+    outcome = run_technical_qc(root, _load_project_data(root), _inspector())
     assert outcome["passed"] is False
     failing = [c for c in outcome["checks"] if not c["passed"]]
     assert any(c["check_id"] == "asset_media_present" for c in failing)
+
+
+def test_technical_qc_fails_on_unplayable_final(tmp_path: Path, monkeypatch) -> None:
+    root, _ = _finished_episode(tmp_path, monkeypatch)
+    # an empty final must NEVER pass QC, existence alone is not playability
+    (root / "outputs" / "final_v1.mp4").write_bytes(b"")
+    outcome = run_technical_qc(root, _load_project_data(root), _inspector())
+    assert outcome["passed"] is False
+    failing = [c for c in outcome["checks"] if not c["passed"]]
+    assert any(c["check_id"] == "final_media_playable" for c in failing)
+
+    # a probe failure (corrupt container) also fails the check
+    (root / "outputs" / "final_v1.mp4").write_bytes(b"not-a-video")
+    broken = FakeMediaInspector(error=RuntimeError("no video stream"))
+    outcome = run_technical_qc(root, _load_project_data(root), broken)
+    assert outcome["passed"] is False
+    failing = [c for c in outcome["checks"] if not c["passed"]]
+    assert any(c["check_id"] == "final_media_playable" for c in failing)
 
 
 # --- final review + release ----------------------------------------------------
@@ -105,7 +129,7 @@ def test_technical_qc_fails_on_missing_media(tmp_path: Path, monkeypatch) -> Non
 
 def test_release_requires_passing_fresh_review(tmp_path: Path, monkeypatch) -> None:
     root, _ = _finished_episode(tmp_path, monkeypatch)
-    run_technical_qc(root, _load_project_data(root))
+    run_technical_qc(root, _load_project_data(root), _inspector())
 
     # no review yet -> blocked
     with pytest.raises(ReleaseError, match="final review"):
@@ -145,7 +169,7 @@ def test_release_requires_passing_fresh_review(tmp_path: Path, monkeypatch) -> N
 
 def test_stale_review_blocks_release(tmp_path: Path, monkeypatch) -> None:
     root, _ = _finished_episode(tmp_path, monkeypatch)
-    run_technical_qc(root, _load_project_data(root))
+    run_technical_qc(root, _load_project_data(root), _inspector())
     record_final_review(
         root,
         verdict="pass",
@@ -157,6 +181,69 @@ def test_stale_review_blocks_release(tmp_path: Path, monkeypatch) -> None:
     # simulated by replacing the file content)
     (root / "outputs" / "final_v1.mp4").write_bytes(b"different-final")
     with pytest.raises(ReleaseError, match="stale approval never releases"):
+        package_release(root)
+
+
+def test_old_v1_technical_qc_document_is_rejected(tmp_path: Path, monkeypatch) -> None:
+    # a pre-existing schema_version 1 technical QC (final_output was a bare
+    # string, no digest) must fail closed at release: re-run qc-run
+    root, _ = _finished_episode(tmp_path, monkeypatch)
+    (root / "qc").mkdir(exist_ok=True)
+    (root / "qc" / "technical_qc_v1.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "version": 1,
+                "checks": [{"check_id": "final_output_present", "passed": True}],
+                "passed": True,
+                "final_output": "outputs/final_v1.mp4",  # v1 shape: bare ref
+            }
+        ),
+        encoding="utf-8",
+    )
+    record_final_review(root, verdict="pass", by="owner", at=AT, decision_reason="ok")
+    with pytest.raises(ReleaseError, match="re-run qc-run"):
+        package_release(root)
+    # re-running qc-run produces a current (v2-schema) document and unblocks
+    run_technical_qc(root, _load_project_data(root), _inspector())
+    release = package_release(root)
+    assert release["created_from"]["technical_qc_version"] == 2
+
+
+def test_stale_technical_qc_blocks_release(tmp_path: Path, monkeypatch) -> None:
+    # QC passed against final #1; the final then changes and even a FRESH
+    # review of the new final must not release on the old QC verdict.
+    root, _ = _finished_episode(tmp_path, monkeypatch)
+    run_technical_qc(root, _load_project_data(root), _inspector())
+    (root / "outputs" / "final_v1.mp4").write_bytes(b"recomposed-final")
+    record_final_review(
+        root,
+        verdict="pass",
+        by="owner",
+        at=AT,
+        decision_reason="reviewed the NEW final",
+    )
+    with pytest.raises(ReleaseError, match="technical QC is bound to different"):
+        package_release(root)
+
+
+def test_profile_drift_after_review_blocks_release(tmp_path: Path, monkeypatch) -> None:
+    # the review approved against goals baseline v1; publishing profile v2
+    # afterwards invalidates the review for release purposes.
+    root, _ = _finished_episode(tmp_path, monkeypatch)
+    run_technical_qc(root, _load_project_data(root), _inspector())
+    record_final_review(
+        root,
+        verdict="pass",
+        by="owner",
+        at=AT,
+        decision_reason="ok against profile v1",
+    )
+    moved = dict(_PROFILE)
+    moved["version"] = 2
+    moved["intent"] = "a different creative intent entirely"
+    write_project_profile(root, parse_project_profile(moved))
+    with pytest.raises(ReleaseError, match="profile changed after the final review"):
         package_release(root)
 
 
@@ -187,7 +274,7 @@ def test_archive_inventory_and_recomputable_postmortem(
     tmp_path: Path, monkeypatch
 ) -> None:
     root, _ = _finished_episode(tmp_path, monkeypatch)
-    run_technical_qc(root, _load_project_data(root))
+    run_technical_qc(root, _load_project_data(root), _inspector())
     record_final_review(
         root,
         verdict="pass",
@@ -224,6 +311,26 @@ def test_archive_requires_release(tmp_path: Path, monkeypatch) -> None:
     root, _ = _finished_episode(tmp_path, monkeypatch)
     with pytest.raises(ArchiveError, match="no release package"):
         archive_project(root, _load_project_data(root))
+
+
+def test_archive_refuses_symlinks(tmp_path: Path, monkeypatch) -> None:
+    # a symlink inside the project pointing OUTSIDE must never be read or
+    # digested into the inventory
+    root, _ = _finished_episode(tmp_path, monkeypatch)
+    run_technical_qc(root, _load_project_data(root), _inspector())
+    record_final_review(root, verdict="pass", by="owner", at=AT, decision_reason="ok")
+    package_release(root)
+
+    secret = tmp_path / "outside-secret.mp4"
+    secret.write_bytes(b"outside-the-project")
+    (root / "outputs" / "final_v9.mp4").symlink_to(secret)
+    with pytest.raises(ArchiveError, match="refusing to archive symlink"):
+        archive_project(root, _load_project_data(root))
+    # nothing was written and the outside content leaked into no manifest
+    archive_dir = root / "archive"
+    if archive_dir.is_dir():
+        for path in archive_dir.iterdir():
+            assert b"outside-the-project" not in path.read_bytes()
 
 
 def test_cli_qc_release_archive_flow(tmp_path: Path, monkeypatch) -> None:

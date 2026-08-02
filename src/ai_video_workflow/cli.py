@@ -40,7 +40,12 @@ from ai_video_workflow.app.paid_lifecycle import (
     integrate_paid_media,
 )
 from ai_video_workflow.app.requests import DefaultProviderRequestFactory
-from ai_video_workflow.approval import stage_plan, stage_status, transition_stage
+from ai_video_workflow.approval import (
+    require_stage_ready,
+    stage_plan,
+    stage_status,
+    transition_stage,
+)
 from ai_video_workflow.assets.registration import ValidationFailedError
 from ai_video_workflow.composition.ffmpeg import FfmpegVideoComposer
 from ai_video_workflow.config.catalog import ProviderEntry
@@ -60,7 +65,12 @@ from ai_video_workflow.models import (
 )
 from ai_video_workflow.orchestration import OrchestrationAction
 from ai_video_workflow.persistence import read_model_json
-from ai_video_workflow.planning import compile_task_packets
+from ai_video_workflow.planning import (
+    compile_task_packets,
+    load_packet,
+    packet_to_paid_request,
+    verify_packet,
+)
 from ai_video_workflow.profile import (
     add_reuse_ref,
     parse_pack,
@@ -153,11 +163,27 @@ def _build_parser() -> argparse.ArgumentParser:
     def _paid_args(sp):
         sp.add_argument("--shot", required=True)
         sp.add_argument("--operation-id", required=True)
-        sp.add_argument("--stage", default="concept_lock")
-        sp.add_argument("--capability", default="image_to_video")
-        sp.add_argument("--model", required=True)
-        sp.add_argument("--resolution", required=True)
-        sp.add_argument("--duration", type=int, required=True)
+        # WFM1 path: the request is rebuilt from a verified task packet and
+        # the full production_lock chain is enforced.
+        sp.add_argument("--packet-version", type=int, default=None)
+        sp.add_argument(
+            "--account-root",
+            type=Path,
+            default=None,
+            help=(
+                "affects reuse-pack resolution during packet verification "
+                "ONLY; the budget account root is always the project "
+                "root's parent directory"
+            ),
+        )
+        # isolated ad-hoc path (TASK-017 mechanics; NOT the WFM1 flow):
+        # free-form generation parameters, explicitly opted into.
+        sp.add_argument("--unplanned", action="store_true")
+        sp.add_argument("--stage", default=None)
+        sp.add_argument("--capability", default=None)
+        sp.add_argument("--model", default=None)
+        sp.add_argument("--resolution", default=None)
+        sp.add_argument("--duration", type=int, default=None)
         sp.add_argument("--first-frame-image", default=None)
 
     def _resume_args(sp):
@@ -382,12 +408,62 @@ def _paid_coordinator(args):
 
 def _paid_setup(args):
     coordinator, shot = _paid_coordinator(args)
+    freeform = {
+        "--capability": args.capability,
+        "--model": args.model,
+        "--resolution": args.resolution,
+        "--duration": args.duration,
+        "--first-frame-image": args.first_frame_image,
+        "--stage": args.stage,
+    }
+    if args.packet_version is not None:
+        # WFM1 paid entry: only a verified packet may reach the coordinator.
+        if args.unplanned:
+            raise AiVideoWorkflowError(
+                "--packet-version and --unplanned are mutually exclusive"
+            )
+        given = [flag for flag, value in freeform.items() if value is not None]
+        if given:
+            raise AiVideoWorkflowError(
+                "packet-driven submit takes no free-form generation "
+                f"parameters; remove {', '.join(given)} — the packet is "
+                "the single source of the request"
+            )
+        # the FULL production chain must be approved and fresh (any stale
+        # or missing transitive prerequisite blocks BEFORE any coordinator
+        # state exists: zero reservations, zero provider calls)
+        require_stage_ready(args.project_root, "production_lock")
+        config = load_project_config(args.project_root)
+        catalog = load_locked_catalog(config, args.catalog_dir)
+        packet = load_packet(args.project_root, args.shot, args.packet_version)
+        # nothing in the stored packet file is trusted: recompute and
+        # compare everything against the approved authoritative inputs
+        verify_packet(args.project_root, _account_root(args), catalog, config, packet)
+        request = packet_to_paid_request(
+            packet,
+            task_id=args.task_id,
+            operation_id=args.operation_id,
+            stage="production_lock",
+        )
+        return coordinator, shot, request
+    if not args.unplanned:
+        raise AiVideoWorkflowError(
+            "paid-submit requires --packet-version <N> (the WFM1 flow), or "
+            "the explicit --unplanned flag for the isolated ad-hoc path"
+        )
+    missing = [
+        flag
+        for flag in ("--model", "--resolution", "--duration")
+        if freeform[flag] is None
+    ]
+    if missing:
+        raise AiVideoWorkflowError(f"--unplanned submit requires {', '.join(missing)}")
     request = PaidRequest(
         task_id=args.task_id,
         shot_id=args.shot,
         operation_id=args.operation_id,
-        stage=args.stage,
-        capability=args.capability,
+        stage=args.stage or "concept_lock",
+        capability=args.capability or "image_to_video",
         model_id=args.model,
         resolution=args.resolution,
         duration_seconds=args.duration,
@@ -472,7 +548,11 @@ def _cmd_reuse_verify(args) -> None:
 
 
 def _cmd_qc_run(args) -> None:
-    outcome = run_technical_qc(args.project_root, _load_project_data(args.project_root))
+    outcome = run_technical_qc(
+        args.project_root,
+        _load_project_data(args.project_root),
+        FfprobeMediaInspector(),
+    )
     for check in outcome["checks"]:
         state = "ok" if check["passed"] else "FAIL"
         print(f"{state}: {check['check_id']} ({check['detail']})")

@@ -191,6 +191,7 @@ def _paid_submit(root, catalog_dir, task_id: str, shot: str, op: str = "op-1") -
         catalog_dir,
         "paid-submit",
         task_id,
+        "--unplanned",
         "--shot",
         shot,
         "--operation-id",
