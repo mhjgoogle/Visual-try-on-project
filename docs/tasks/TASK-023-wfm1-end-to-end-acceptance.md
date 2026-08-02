@@ -1,12 +1,14 @@
 # TASK-023：WFM1 端到端验收与文档收口
 
-> **状态：Implemented。** 交付：`tests/test_wfm1_e2e.py`（离线全链路 +
+> **状态：Implemented；WFM1 milestone review PASSED（2026-08-02）。**
+> 独立 reviewer 两轮审查通过，全量验证绿，记录见
+> [WFM1-milestone-review.md](../design/WFM1-milestone-review.md)。交付：
+> `tests/test_wfm1_e2e.py`（离线全链路 +
 > 故障恢复矩阵〔审批过期/预算拒绝/submit 二义/下载失败/中断续跑〕+
 > 双项目复用与月度在途口径 + 只读 projection 确定性重建）、
 > `examples/projects/wfm1-demo/`（8 镜头 ×6s ≈48s 示例 + runbook，
-> 含可选 MiniMax 冒烟说明）。已知限制：product spec /
-> architecture / implementation plan 的状态行因与并行 Workspace
-> 批次未提交改动重叠，本任务不改动这些文件；状态以任务卡为准。
+> 含可选 MiniMax 冒烟说明；夹具由 `tests/test_wfm1_demo_example.py`
+> 回归保护）。TASK-018～022 随本 gate 一并收口。
 
 ## 目的
 
@@ -16,7 +18,8 @@ project profile 到可播放 MP4、发布包和复盘可重复运行，且审批
 
 ## 输入
 
-- TASK-014 至 TASK-022 的已验收产物与合同；
+- TASK-014 至 TASK-022 的已实现产物与已批准合同；TASK-018～022 的最终验收
+  由本 milestone gate 统一完成；
 - 工作流文档 §10 的 WFM1 目标和 ≤1200 JPY 预算；
 - [Creation Workspace 数据可观察性要求](../creation_workspace_data_observability_requirements.md)
   的完整只读查询与失败规则；
