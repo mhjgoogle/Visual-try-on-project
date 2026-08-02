@@ -251,6 +251,49 @@ def _build_parser() -> argparse.ArgumentParser:
     _add("stage-approve", _cmd_stage_approve, extra=_stage_approve_args)
     _add("stage-reject", _cmd_stage_reject, extra=_stage_args)
     _add("stage-revise", _cmd_stage_revise, extra=_stage_args)
+
+    # TASK-025: read-only cross-project workspace queries (WQ-01..WQ-14).
+    # These never write, never call a Provider; --account-root defaults to
+    # the project root's parent (the same account semantics as the budget
+    # layer). Output is the versioned read-only DTO as JSON.
+    def _ws_account(sp):
+        sp.add_argument("--account-root", type=Path, default=None)
+
+    def _ws_ref(sp):
+        _ws_account(sp)
+        sp.add_argument("--ref", required=True)
+
+    def _ws_shot(sp):
+        _ws_account(sp)
+        sp.add_argument("--shot", required=True)
+
+    def _ws_prompt(sp):
+        _ws_account(sp)
+        sp.add_argument("--prompt-id", required=True)
+
+    def _ws_reuse(sp):
+        _ws_account(sp)
+        sp.add_argument("--asset-id", required=True)
+        sp.add_argument("--version", type=int, required=True)
+
+    def _ws_query(sp):
+        _ws_account(sp)
+        sp.add_argument("--query", required=True)
+
+    _add("ws-plan", _cmd_ws_plan, extra=_ws_account)
+    _add("ws-status", _cmd_ws_status, extra=_ws_account)
+    _add("ws-lineage-up", _cmd_ws_lineage_up, extra=_ws_ref)
+    _add("ws-lineage-down", _cmd_ws_lineage_down, extra=_ws_ref)
+    _add("ws-prompt", _cmd_ws_prompt, extra=_ws_prompt)
+    _add("ws-shot", _cmd_ws_shot, extra=_ws_shot)
+    _add("ws-cost", _cmd_ws_cost, extra=_ws_account)
+    _add("ws-eval", _cmd_ws_eval, extra=_ws_account)
+    _add("ws-problems", _cmd_ws_problems, extra=_ws_account)
+    _add("ws-rebuild-check", _cmd_ws_rebuild, extra=_ws_query)
+    _add("ws-index", _cmd_ws_index, extra=_ws_account)
+    _add("ws-reuse", _cmd_ws_reuse, extra=_ws_reuse)
+    _add("ws-approval-audit", _cmd_ws_approval_audit, extra=_ws_account)
+    _add("ws-budget", _cmd_ws_budget, extra=_ws_account)
     return parser
 
 
@@ -589,6 +632,82 @@ def _cmd_archive_project(args) -> None:
         f"postmortem v{outcome['postmortem_version']}; "
         f"references: {outcome['references']}"
     )
+
+
+# --- TASK-025: read-only workspace query handlers --------------------------
+
+
+def _ws_service(args):
+    from ai_video_workflow.workspace import WorkspaceQueryService
+
+    account_root = args.account_root or args.project_root.parent
+    return WorkspaceQueryService(account_root, clock=utc_now)
+
+
+def _ws_emit(result) -> None:
+    import json as _json
+
+    from ai_video_workflow.workspace import to_jsonable
+
+    print(
+        _json.dumps(to_jsonable(result), ensure_ascii=False, sort_keys=True, indent=2)
+    )
+
+
+def _cmd_ws_plan(args) -> None:
+    _ws_emit(_ws_service(args).project_plan(args.project_root))
+
+
+def _cmd_ws_status(args) -> None:
+    _ws_emit(_ws_service(args).project_status(args.project_root))
+
+
+def _cmd_ws_lineage_up(args) -> None:
+    _ws_emit(_ws_service(args).lineage_upstream(args.project_root, args.ref))
+
+
+def _cmd_ws_lineage_down(args) -> None:
+    _ws_emit(_ws_service(args).lineage_downstream(args.project_root, args.ref))
+
+
+def _cmd_ws_prompt(args) -> None:
+    _ws_emit(_ws_service(args).prompt_history(args.project_root, args.prompt_id))
+
+
+def _cmd_ws_shot(args) -> None:
+    _ws_emit(_ws_service(args).shot_attempts(args.project_root, args.shot))
+
+
+def _cmd_ws_cost(args) -> None:
+    _ws_emit(_ws_service(args).cost_breakdown(args.project_root))
+
+
+def _cmd_ws_eval(args) -> None:
+    _ws_emit(_ws_service(args).evaluation_decision(args.project_root))
+
+
+def _cmd_ws_problems(args) -> None:
+    _ws_emit(_ws_service(args).recent_problems(args.project_root))
+
+
+def _cmd_ws_rebuild(args) -> None:
+    _ws_emit(_ws_service(args).rebuild_check(args.project_root, args.query))
+
+
+def _cmd_ws_index(args) -> None:
+    _ws_emit(_ws_service(args).cross_project_index())
+
+
+def _cmd_ws_reuse(args) -> None:
+    _ws_emit(_ws_service(args).reuse_usage(args.asset_id, args.version))
+
+
+def _cmd_ws_approval_audit(args) -> None:
+    _ws_emit(_ws_service(args).approval_audit(args.project_root))
+
+
+def _cmd_ws_budget(args) -> None:
+    _ws_emit(_ws_service(args).budget_standing(args.project_root))
 
 
 def _cmd_paid_integrate(args) -> None:
