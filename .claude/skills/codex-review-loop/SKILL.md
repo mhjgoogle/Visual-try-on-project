@@ -75,6 +75,32 @@ For each round:
      the next round to re-review.
    - Only P3/P4 present → do not fix anything; go to Phase 2.
 
+### Converge fast — do NOT let the loop turn into round-by-round whack-a-mole
+
+Extra rounds are expensive (each re-review is minutes + reviewer quota). Two
+habits cut the round count hard; apply both every round:
+
+- **Fix the whole CLASS, not the one instance.** When a finding points at a
+  general problem class, fix the class in this round, not just the exact line
+  cited. If the reviewer flags a symlink race on the write path, also close it
+  on the read path and harden the whole file-open (non-regular files, hard
+  links, TOCTOU) in the SAME round — do not wait for the reviewer to report
+  each variant in a later round. Ask "what is the general defect here, and
+  where else does it live in this diff?" and fix all of it at once. Classic
+  classes: unsafe file open (symlink / FIFO / hard-link / dir-fd containment),
+  bool-as-int / unhashable-value type checks, mutable-reference capture,
+  fail-closed error wrapping, short-write / partial-IO loops.
+- **Make the threat-model / scope call EARLY, not at round 9.** Before fixing,
+  ask whether the finding is in scope for THIS component's real threat model
+  and consistent with existing project convention (e.g. is this a local
+  single-user tool? do sibling modules like `qcd/log.py` already accept this
+  pattern?). If a finding requires an attacker who already has the access that
+  would make the whole system moot, or if fixing only here while identical
+  exposure lives across the codebase gives no net benefit, that is an
+  out-of-scope rebuttal (hard-stop a) — record it and a shared-fix follow-up,
+  do NOT chase progressively narrower variants of it across many rounds. Make
+  this judgment the first time the theme appears, not after several rounds.
+
 ### Hard stop conditions (hit any one → stop immediately, state why)
 
 The loop runs **until the verdict is pass** (or only P3/P4 remain). There is
