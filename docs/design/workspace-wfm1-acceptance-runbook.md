@@ -68,7 +68,7 @@ python -m ai_video_workflow.cli ws-recommendations --account-root "$WORK"  # WQ-
 
 ## 5. 用户签字
 
-- [ ] 已运行 §1 全部命令并通过
-- [ ] 已抽查 §3 只读观察，确认 fail-closed 行为符合预期
-- [ ] 认可 §4 已知限制与后续 owner 归属
-- [ ] **验收结论：** （PASS / 退回，附意见）
+- [x] 已运行 §1 全部命令并通过
+- [x] 已抽查 §3 只读观察，确认 fail-closed 行为符合预期
+- [x] 认可 §4 已知限制与后续 owner 归属
+- [x] **验收结论：PASS（2026-08-03 用户签字）**

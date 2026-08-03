@@ -1,6 +1,6 @@
 # TASK-033：Creation Workspace WFM1 数据基线验收（WSM3-B）
 
-> **状态：Implemented — 验收证据已备齐，等待用户签字（2026-08-03）。**
+> **状态：Accepted（2026-08-03，用户签字通过）。** 里程碑验收标准由用户确认 PASS。
 > 跨切面主验收 `tests/test_workspace_wfm1_acceptance.py`（5/5）、
 > [验收追踪矩阵](../design/workspace-wfm1-acceptance-traceability.md)、
 > [验收 runbook](../design/workspace-wfm1-acceptance-runbook.md)、

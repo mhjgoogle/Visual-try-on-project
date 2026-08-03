@@ -4,7 +4,7 @@
 - 审查方式：独立跨模型 codex 审查（codex-review-loop skill，无降级回退）
 - 审查基线：`feat/wfm1-batch-c`，TASK-024～032 已交付并各自过审之上的 TASK-033 增量
 - **代码/安全审查结论：PASS**（BLOCKING 0，NON_BLOCKING 0，1 轮收敛）
-- **里程碑验收结论：AWAITING USER SIGN-OFF**（验收标准勾选属于用户；见
+- **里程碑验收结论：PASS（2026-08-03，用户签字通过）**（验收标准由用户确认；见
   [验收 runbook](workspace-wfm1-acceptance-runbook.md) §5）
 
 ## 范围
