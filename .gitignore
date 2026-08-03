@@ -42,3 +42,4 @@ secrets.json
 
 # Claude Code local settings; shared Agent directories remain trackable.
 .claude/settings.local.json
+.claude/tmp/
