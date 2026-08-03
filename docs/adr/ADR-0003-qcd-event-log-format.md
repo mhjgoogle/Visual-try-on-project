@@ -4,8 +4,12 @@
 - Date: 2026-07-28
 - Accepted: 2026-07-28 — M1 gate 收口时随七类事件 payload schema 一并
   定稿（本次修订即第一次修订，payload 字段集为本 ADR 的一部分）。
+- Revised (ADR-0008): 新增第八类 `provider_cost_recorded`（权威云成本事实）。
+- Revised (TASK-008 / ADR-0039，2026-08-04): 新增第九类 `audiovisual_completed`
+  （S5 音画装配 master 事实，见 §4.8）。仅扩展，不改动既有八类的 envelope、
+  payload 键集或 event_id 派生；M1 `composition_completed` 及其消费计数不变。
 - Scope tasks: TASK-005 (module + 3 events), TASK-006 (1 event),
-  TASK-007 (3 events), TASK-009 (consumer)
+  TASK-007 (3 events), TASK-009 (consumer), TASK-008 (audiovisual_completed)
 
 ## Context
 
@@ -41,10 +45,12 @@ envelope 不足以让 TASK-005/006/007 的写入方与 TASK-009 的消费方
    }
    ```
 
-   事件类型固定七种：`task_created`、`task_status_changed`、
+   M1 固定七种：`task_created`、`task_status_changed`、
    `manual_attempt_recorded`、`asset_imported`、
    `validation_completed`、`composition_completed`、
-   `manual_quality_rating_recorded`。新增类型须修订本 ADR。
+   `manual_quality_rating_recorded`；ADR-0008 修订加入第八类
+   `provider_cost_recorded`，TASK-008/ADR-0039 修订加入第九类
+   `audiovisual_completed`（§4.8）。新增类型须修订本 ADR。
 4. **payload schema（per-type，durable 合同）**。通用规则：
    - 每类事件的 payload 键集**固定**：所列键全部必须出现；可空
      字段用显式 `null`，**不得省略键**；不得出现未列出的键；
@@ -146,6 +152,28 @@ envelope 不足以让 TASK-005/006/007 的写入方与 TASK-009 的消费方
    | `profile_digest` | str | 是 | CompositionProfile 的 config_digest |
    | `elapsed_ms` | int \| null | 键必在 | 合成耗时，调用方显式提供 |
 
+   ### 4.8 `audiovisual_completed`（writer: TASK-008 audio-visual mux step）
+
+   > 修订（TASK-008 / ADR-0039 clause 9，2026-08-04）新增的第九类事件。S5
+   > 音画装配（配音/音效混音 + 字幕挂载/烧录）产出的成片 master 与视频-only 的
+   > `composition_completed` 是**不同事实**（payload 结构与事实域不同），故按
+   > 「新增类型须修订本 ADR」新增独立类型，而非复用 `composition_completed`。
+   > M1 `composition_completed` 与其消费计数不受影响。
+
+   | 键 | 类型 | 必填 | 语义 |
+   | --- | --- | --- | --- |
+   | `output_path` | str | 是 | `outputs/final_av_v<N>.mp4` |
+   | `output_version` | int | 是 | `<N>`（音画 master 版本，独立序列） |
+   | `output_sha256` | str | 是 | 音画成片内容 SHA-256（输出身份） |
+   | `output_duration_ms` | int \| null | 键必在 | 成片时长（可测时必填） |
+   | `base_video_path` | str | 是 | 输入的 M1 视频 master 路径 |
+   | `base_video_sha256` | str | 是 | 该视频 master 内容摘要（精确输入引用） |
+   | `audio_refs` | array[obj] | 是 | 混入的音频资产引用 `{media_kind, ref, version}` 有序列表 |
+   | `audio_track_count` | int | 是 | `len(audio_refs)` |
+   | `subtitle` | obj \| null | 键必在 | 字幕引用 `{ref, version, mode}`；无字幕记 `null`（≠ 空对象） |
+   | `profile_digest` | str | 是 | AudioVisualProfile 的 config_digest |
+   | `elapsed_ms` | int \| null | 键必在 | 混流耗时，调用方显式提供 |
+
 5. **event_id 派生与去重**（全部确定性输入均为稳定 ID/摘要）：
 
    | 事件类型 | event_id 派生 | 幂等性来源 |
@@ -157,6 +185,7 @@ envelope 不足以让 TASK-005/006/007 的写入方与 TASK-009 的消费方
    | `manual_quality_rating_recorded` | `manual_quality_rating_recorded:<shot_id>:<rating_id>` | rating_id = uuid4 |
    | `validation_completed` | `validation_completed:<task_id>:v<version>` | 版本确定性 |
    | `composition_completed` | `composition_completed:<project_id>:v<N>` | 版本确定性 |
+   | `audiovisual_completed` | `audiovisual_completed:<project_id>:v<N>` | 版本确定性 |
 
    **日志中允许出现重复 event_id 的完整事件行**（断点续跑重放
    造成）；一切消费方必须按 event_id 去重（保留首行）。这是

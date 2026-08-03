@@ -252,6 +252,9 @@ def aggregate_events(events: tuple[QcdEvent, ...], data: ProjectData) -> QcdSumm
                         racc._latest_key = key
                         racc.latest = score
         elif etype is QcdEventType.COMPOSITION_COMPLETED:
+            # TASK-008's audio-visual mux emits a DISTINCT audiovisual_completed
+            # event (not handled here), so the M1 video composition counters are
+            # unaffected by it.
             composition_count += 1
             if (
                 latest_composition_at is None

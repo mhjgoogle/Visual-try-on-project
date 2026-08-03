@@ -58,6 +58,27 @@
   final field schema, DB/projection and specific paid vendors remain out of
   scope (ADR-0038 defers them; real paid calls stay explicit opt-in under
   ADR-0006/0009 credential discipline).
+- Amended (eighth): 2026-08-04 — TASK-008 subtitle / voice-over / audio (ADR-0039
+  clause 9). Three IMPORT-ONLY media kinds join the existing `media/assets/<kind>/`
+  index tree: `voiceover`, `sfx`, `subtitle` (files
+  `media/assets/<kind>/<ref>_v<N>.json`, same immutable create-only, linear,
+  digest-bound asset contract as amendment seven; producer `source=external`, never
+  a generation capability). A registered import's bound file is copied to an
+  index-owned, immutable, versioned location `media/imported/<kind>/<ref>_v<N>.<ext>`
+  (`.wav` for voiceover/sfx, `.srt` for subtitle) — never a pointer to the mutable
+  user source, so an old version survives the user replacing their file. The S5
+  audio-visual mux step adds: the versioned master `outputs/final_av_v<N>.mp4`
+  (the video-only `outputs/final_v<N>.mp4` is untouched), its reports
+  `reports/audiovisual/final_av_v<N>.{json,md}`, the durable manifest
+  `manifests/audiovisual-<project_id>.json`, the pre-publish intent journal
+  `records/step-intents/audiovisual/<project_id>/<N>.json`, and staging
+  `staging/audiovisual/v<N>/`. Audio-visual completion is recorded in the existing
+  `qcd/events/log.jsonl` as the new `audiovisual_completed` event (ADR-0003
+  revision), not a second ledger. This amendment extends the layout; it does not
+  change any earlier decision. The frozen `VideoProvider`, `VideoComposer`,
+  `CompositionProfile`, M1 `composition` step, `VideoAsset` and `serialization.py`
+  are untouched; no TTS / paid API is used (user-provided files; tests
+  self-generate deterministic placeholder WAV/SRT).
 
 ## Context
 

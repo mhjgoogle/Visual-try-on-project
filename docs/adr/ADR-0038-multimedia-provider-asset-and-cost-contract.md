@@ -185,3 +185,17 @@ MiniMax 厂商契约），图像与生成式音频尚无正式生产路径。若
 
 - 2026-08-02：用户 Accept 本 ADR，解除其 Proposed 门槛，授权对应 owner 任务实施代码。
 - 注：codex 未安装，本阶段相关代码/设计审查由 claude 回退完成，跨模型独立性降级（用户已知悉并接受）。
+
+## Amendment (TASK-008, 2026-08-04)
+
+TASK-008 依 ADR-0039 clause 9 复用本 ADR 的 media 资产索引与登记合同，**追加式**
+扩展媒体种类集，不改动既有决策：
+
+- `MEDIA_KINDS` 追加三种 **import-only** 种类 `voiceover`、`sfx`、`subtitle`
+  （用户提供的配音 / 音效 / 字幕文件）。它们不属于任何 `MEDIA_CAPABILITIES` 的
+  可产出集合（`_CAPABILITY_KINDS` 不变），因此任何生成请求都无法产出它们——只能经
+  `source=external` 的登记导入产生（fail-closed）。
+- 生成侧的 Provider、capability、batch/selection、成本链、`staging/media/<batch_id>/`
+  与既有五种 media_kind 全部不变；本次仅新增导入登记路径
+  `media/imported/<kind>/<ref>_v<N>.<ext>`（不可变副本，见 ADR-0001 第八次增补）。
+- 冻结的 `VideoProvider` / `VideoAsset` 不受影响；无付费调用。

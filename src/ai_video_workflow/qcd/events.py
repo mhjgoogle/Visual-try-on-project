@@ -48,7 +48,11 @@ class QcdEventType(str, Enum):
     """The fixed QCD event types.
 
     Seven were fixed by ADR-0003 §3; ADR-0008 adds the eighth,
-    ``provider_cost_recorded``, as the authoritative cloud cost fact.
+    ``provider_cost_recorded``, as the authoritative cloud cost fact; ADR-0003
+    revision (TASK-008) adds the ninth, ``audiovisual_completed``, for the S5
+    audio-visual mux master — a distinct fact from the video-only
+    ``composition_completed`` (its payload shape and fact domain differ, so a
+    separate type is required rather than overloading composition_completed).
     """
 
     TASK_CREATED = "task_created"
@@ -57,6 +61,7 @@ class QcdEventType(str, Enum):
     ASSET_IMPORTED = "asset_imported"
     VALIDATION_COMPLETED = "validation_completed"
     COMPOSITION_COMPLETED = "composition_completed"
+    AUDIOVISUAL_COMPLETED = "audiovisual_completed"
     MANUAL_QUALITY_RATING_RECORDED = "manual_quality_rating_recorded"
     PROVIDER_COST_RECORDED = "provider_cost_recorded"
 
@@ -128,6 +133,21 @@ _PAYLOAD_KEYS: dict[QcdEventType, frozenset[str]] = {
             "output_duration_ms",
             "input_asset_ids",
             "entry_count",
+            "profile_digest",
+            "elapsed_ms",
+        }
+    ),
+    QcdEventType.AUDIOVISUAL_COMPLETED: frozenset(
+        {
+            "output_path",
+            "output_version",
+            "output_sha256",
+            "output_duration_ms",
+            "base_video_path",
+            "base_video_sha256",
+            "audio_refs",
+            "audio_track_count",
+            "subtitle",
             "profile_digest",
             "elapsed_ms",
         }
@@ -446,6 +466,8 @@ def _expected_event_id(
         return f"validation_completed:{task_id}:v{payload['report_version']}"
     if event_type is QcdEventType.COMPOSITION_COMPLETED:
         return f"composition_completed:{project_id}:v{payload['output_version']}"
+    if event_type is QcdEventType.AUDIOVISUAL_COMPLETED:
+        return f"audiovisual_completed:{project_id}:v{payload['output_version']}"
     if event_type is QcdEventType.PROVIDER_COST_RECORDED:
         return f"provider_cost_recorded:{task_id}:{payload['operation_id']}"
     return f"manual_quality_rating_recorded:{shot_id}:{payload['rating_id']}"
@@ -684,6 +706,77 @@ def build_composition_completed_event(
             "output_duration_ms": output_duration_ms,
             "input_asset_ids": list(input_asset_ids),
             "entry_count": len(input_asset_ids),
+            "profile_digest": profile_digest,
+            "elapsed_ms": elapsed_ms,
+        },
+    )
+
+
+def build_audiovisual_completed_event(
+    *,
+    project_id: str,
+    output_path: str,
+    output_version: int,
+    output_sha256: str,
+    base_video_path: str,
+    base_video_sha256: str,
+    audio_refs: tuple[tuple[str, str, int], ...],
+    subtitle_ref: tuple[str, int, str] | None,
+    profile_digest: str,
+    occurred_at: datetime,
+    output_duration_ms: int | None,
+    elapsed_ms: int | None = None,
+) -> QcdEvent:
+    """Build the audio-visual mux completion fact (TASK-008 / ADR-0039).
+
+    This is a DISTINCT event type from the video-only ``composition_completed``
+    (ADR-0003 revision): the S5 audio-visual mux is a separate produced fact with
+    a different payload shape, so it never collides with, or inflates, the M1
+    video-only composition facts. The audio/subtitle inputs are recorded by their
+    media asset ref+version (a precise, immutable reference), the base video by
+    path+digest.
+    """
+    _validate_elapsed_ms(elapsed_ms)
+    _validate_sha256(output_sha256, "output_sha256")
+    _validate_sha256(base_video_sha256, "base_video_sha256")
+    _validate_positive_int(output_version, "output_version")
+    _validate_duration_ms(output_duration_ms, "output_duration_ms")
+    if not (isinstance(base_video_path, str) and base_video_path):
+        raise InvariantViolationError("base_video_path: must be a non-empty string")
+    audio_payload: list[dict[str, object]] = []
+    for kind, ref, version in audio_refs:
+        if not (isinstance(kind, str) and kind):
+            raise InvariantViolationError("audio_refs[].media_kind must be non-empty")
+        if not (isinstance(ref, str) and ref):
+            raise InvariantViolationError("audio_refs[].ref must be non-empty")
+        _validate_positive_int(version, "audio_refs[].version")
+        audio_payload.append({"media_kind": kind, "ref": ref, "version": version})
+    subtitle_payload: dict[str, object] | None = None
+    if subtitle_ref is not None:
+        sub_ref, sub_version, sub_mode = subtitle_ref
+        if not (isinstance(sub_ref, str) and sub_ref):
+            raise InvariantViolationError("subtitle_ref.ref must be non-empty")
+        _validate_positive_int(sub_version, "subtitle_ref.version")
+        if not (isinstance(sub_mode, str) and sub_mode):
+            raise InvariantViolationError("subtitle_ref.mode must be non-empty")
+        subtitle_payload = {"ref": sub_ref, "version": sub_version, "mode": sub_mode}
+    return QcdEvent(
+        event_id=f"audiovisual_completed:{project_id}:v{output_version}",
+        event_type=QcdEventType.AUDIOVISUAL_COMPLETED,
+        occurred_at=occurred_at,
+        project_id=project_id,
+        shot_id=None,
+        task_id=None,
+        payload={
+            "output_path": output_path,
+            "output_version": output_version,
+            "output_sha256": output_sha256,
+            "output_duration_ms": output_duration_ms,
+            "base_video_path": base_video_path,
+            "base_video_sha256": base_video_sha256,
+            "audio_refs": audio_payload,
+            "audio_track_count": len(audio_payload),
+            "subtitle": subtitle_payload,
             "profile_digest": profile_digest,
             "elapsed_ms": elapsed_ms,
         },

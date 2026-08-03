@@ -17,6 +17,7 @@ from ai_video_workflow.qcd.events import (
     QcdEvent,
     QcdEventType,
     build_asset_imported_event,
+    build_audiovisual_completed_event,
     build_composition_completed_event,
     build_manual_attempt_recorded_event,
     build_manual_quality_rating_event,
@@ -29,9 +30,49 @@ T0 = datetime(2026, 7, 29, 8, 0, 0, tzinfo=timezone.utc)
 
 
 def test_event_types() -> None:
-    # ADR-0003 fixed seven; ADR-0008 adds provider_cost_recorded (eighth).
-    assert len(QcdEventType) == 8
-    assert len(_PAYLOAD_KEYS) == 8
+    # ADR-0003 fixed seven; ADR-0008 adds provider_cost_recorded (eighth);
+    # ADR-0003 revision (TASK-008) adds audiovisual_completed (ninth).
+    assert len(QcdEventType) == 9
+    assert len(_PAYLOAD_KEYS) == 9
+
+
+def test_audiovisual_completed_event_id_and_payload() -> None:
+    event = build_audiovisual_completed_event(
+        project_id="proj-1",
+        output_path="outputs/final_av_v1.mp4",
+        output_version=1,
+        output_sha256="a" * 64,
+        base_video_path="outputs/final_v1.mp4",
+        base_video_sha256="b" * 64,
+        audio_refs=(("voiceover", "narration", 1), ("sfx", "whoosh", 2)),
+        subtitle_ref=("en", 1, "soft"),
+        profile_digest="pd",
+        occurred_at=T0,
+        output_duration_ms=8000,
+    )
+    assert event.event_id == "audiovisual_completed:proj-1:v1"
+    assert event.event_type is QcdEventType.AUDIOVISUAL_COMPLETED
+    assert event.payload["audio_track_count"] == 2
+    assert event.payload["subtitle"] == {"ref": "en", "version": 1, "mode": "soft"}
+    expected_keys = _PAYLOAD_KEYS[QcdEventType.AUDIOVISUAL_COMPLETED]
+    assert frozenset(event.payload) == expected_keys
+
+
+def test_audiovisual_completed_allows_no_subtitle() -> None:
+    event = build_audiovisual_completed_event(
+        project_id="proj-1",
+        output_path="outputs/final_av_v1.mp4",
+        output_version=1,
+        output_sha256="a" * 64,
+        base_video_path="outputs/final_v1.mp4",
+        base_video_sha256="b" * 64,
+        audio_refs=(("voiceover", "narration", 1),),
+        subtitle_ref=None,
+        profile_digest="pd",
+        occurred_at=T0,
+        output_duration_ms=None,
+    )
+    assert event.payload["subtitle"] is None
 
 
 def test_task_created_event_id_and_payload() -> None:

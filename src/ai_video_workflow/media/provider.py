@@ -34,9 +34,22 @@ MEDIA_CAPABILITIES: frozenset[str] = frozenset(
     {"text_to_image", "image_to_image", "text_to_audio"}
 )
 
-# Formal media asset kinds an operation may produce.
+# Formal media asset kinds an operation may produce or that may be imported.
+# ``voiceover`` / ``sfx`` / ``subtitle`` are IMPORT-ONLY (TASK-008 / ADR-0039):
+# they carry user-provided voice-over, sound-effect and subtitle files and are
+# never produced by a generation capability (see ``_CAPABILITY_KINDS`` below —
+# no capability lists them, so a MediaRequest for them fails closed).
 MEDIA_KINDS: frozenset[str] = frozenset(
-    {"reference", "master", "keyframe", "generated_image", "audio_generation"}
+    {
+        "reference",
+        "master",
+        "keyframe",
+        "generated_image",
+        "audio_generation",
+        "voiceover",
+        "sfx",
+        "subtitle",
+    }
 )
 
 # The staging file extension each kind uses (inert bytes; format is not probed).
@@ -46,6 +59,9 @@ MEDIA_KIND_EXT: dict[str, str] = {
     "keyframe": "png",
     "generated_image": "png",
     "audio_generation": "wav",
+    "voiceover": "wav",
+    "sfx": "wav",
+    "subtitle": "srt",
 }
 
 # Which media kinds each capability may produce. ``reference`` / ``master`` are

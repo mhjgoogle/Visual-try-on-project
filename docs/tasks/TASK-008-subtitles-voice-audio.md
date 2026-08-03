@@ -91,7 +91,43 @@ FFmpeg 合成流程，使最终 MP4 具备完整音画（implementation_plan
 Claude Code 实施；batch milestone mode——实施审查合并到
 Milestone 2 回归门槛。
 
+## As-built（2026-08-04，依 ADR-0038/0039 裁决后实施）
+
+上方草案（models.py/serialization.py 新增 AudioAsset/SubtitleAsset、
+`records/audio-assets/`、扩展 CompositionProfile）**未按原样实施**——ADR-0039
+clause 9 要求音频/字幕遵守「与 VideoAsset 同一的登记/版本/防覆盖/谱系」，
+落到 ADR-0038 已建成的 media 资产索引最省重复且单一事实源。实际实现：
+
+- **资产登记复用 `media/assets.py`**（不新增 models.py/serialization.py 条目，
+  冻结合同不动）。`MEDIA_KINDS` 追加 import-only 三种 `voiceover`/`sfx`/`subtitle`
+  （无 capability 可产出，只能 `source=external` 导入，fail-closed）。
+- **新包 `src/ai_video_workflow/audio/`**：`inspect.py`（`AudioInspector` 抽象 +
+  纯 Python `WavStructuralInspector` 离线结构校验 + `FfprobeAudioInspector` 真实
+  probe）、`subtitle.py`（SRT 结构校验，不改时间轴）、`registration.py`
+  （`register_voiceover/sfx/subtitle_asset`，校验→复制到不可变
+  `media/imported/<kind>/<ref>_v<N>.<ext>`→publish；同字节幂等、改文件需
+  `change_reason` 产新版本、绝不静默覆盖）。
+- **混音/字幕为独立可续跑步骤**（不改冻结的 `CompositionProfile`/M1
+  `composition` step 签名，其 digest 不变）：`composition/av_profile.py`
+  （`AudioTrackMix`/`SubtitleSpec`/`AudioVisualProfile` + digest）、
+  `composition/audiovisual.py`（`AudioVisualComposer` 抽象 + 纯 `build_mux_argv`
+  + `FfmpegAudioVisualComposer`，软字幕默认 mov_text、`burn_in` 烧录）、
+  `composition/av_step.py`（`run_audiovisual_step`：intent→mux→probe/hash→原子
+  no-replace 发布 `outputs/final_av_v<N>.mp4`→JSON/MD 报告→QCD→manifest，
+  recovery A–F、FAILED manifest、断点续跑幂等，输入按 ref+version+digest 绑定）。
+- **QCD 新增第九类事件 `audiovisual_completed`**（ADR-0003 修订；与视频-only
+  `composition_completed` 事实域分离，不干扰 M1 计数）。
+- 路径增补见 ADR-0001 第八次增补；MEDIA_KINDS 追加见 ADR-0038 增补。
+- 全程无 TTS/付费 API；生产合同仍是「用户提供文件」，测试/示例层自造确定性
+  合法 WAV/SRT，另加真实 ffmpeg 的 skipif 冒烟。
+
+测试：`tests/test_audio_inspect.py`、`test_subtitle_validation.py`、
+`test_audio_registration.py`、`test_av_mux_argv.py`、`test_av_step.py`、
+`test_av_ffmpeg_smoke.py`（skipif）。
+
 ## 当前状态
 
-Planned for WFM2。旧设计可复用，但不得按本卡中的草案路径直接实施；
-ADR-0038/0039 必须先裁决产品级未决问题、模型/路径 owner 与后期兼容关系。
+Delivered（WFM2，2026-08-04）。codex-review-loop 11 轮过审（0 blocking；1 P3
+WAV 对齐 nitpick 记录未修——离线结构校验为尽力而为，真实边界是 ffprobe + digest
+绑定的不可变资产 + fail-closed 混流）。全量 2588 passed / ruff clean。已本地提交
+（未 push）。

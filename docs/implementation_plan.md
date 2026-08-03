@@ -27,7 +27,7 @@
 | 2（QCD 事件采集） | TASK-007（基础设施在 TASK-005） | completed（M1） |
 | 3 | TASK-005 | completed（M1） |
 | 4 | TASK-006 + TASK-007（CLI 接线与端到端闭环） | completed（M1） |
-| 5 | TASK-008 | planned（WFM2；用户音频/字幕起点） |
+| 5 | TASK-008 | Delivered（WFM2，2026-08-04；用户音频/字幕 + AV 混流步骤） |
 | 6 | TASK-009 | implemented（ADR-0020/TASK-021 已增补云成本） |
 | 7 | TASK-010 | historical/superseded by TASK-016/017 |
 | 8 | TASK-011 | outline（可选 WFM3 升级） |
@@ -120,7 +120,7 @@ WFM2 在 WFM1 gate 之后补齐两份顶层需求仍缺少的完整创意、多�
 | --- | --- | --- | --- |
 | [TASK-034](tasks/TASK-034-wfm2-full-creative-and-audiovisual-design.md) | 完整 L0–S3 创意/叙事/视听设计产物 | ADR-0037 | Implemented（2026-08-03；验收 TASK-037） |
 | [TASK-035](tasks/TASK-035-wfm2-multimedia-generation-and-lineage.md) | 图片/音频等多媒体 Provider、资产、谱系与成本 | ADR-0038 | Implemented（2026-08-04；打桩不花钱；验收 TASK-037） |
-| [TASK-008](tasks/TASK-008-subtitles-voice-audio.md) | 字幕、用户音频与合成增量 | ADR-0038/0039 | Planned（复用旧设计） |
+| [TASK-008](tasks/TASK-008-subtitles-voice-audio.md) | 字幕、用户音频与合成增量 | ADR-0038/0039 | Delivered（2026-08-04；audio/ 包 + AV 混流步骤 + audiovisual_completed 事件） |
 | [TASK-036](tasks/TASK-036-wfm2-formal-postproduction-qc-release.md) | 正式 S4–S7 后期、QC、发布与复盘 | ADR-0039 | Planned |
 | [TASK-037](tasks/TASK-037-wfm2-end-to-end-acceptance.md) | WFM2 端到端 milestone gate | TASK-008/034～036 | Planned |
 
