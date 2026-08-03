@@ -16,6 +16,7 @@ from ai_video_workflow.workspace.adapters import (
     delivery,
     evaluation,
     execution,
+    multimedia,
     plan,
     project,
 )
@@ -1254,6 +1255,7 @@ def _rebuild_runner(service, project_root: Path, query_id: str, params: dict):
         "WQ-16": lambda: service.action_center(project_root),
         "WQ-17": lambda: service.cross_project_analytics(),
         "WQ-18": lambda: service.recommendations(),
+        "WQ-19": lambda: service.project_multimedia(project_root),
     }
     return runners.get(query_id)
 
@@ -1615,3 +1617,53 @@ def budget_standing(project_root: Path, account_root: Path, now: str) -> QueryRe
         items,
         problems,
     )
+
+
+# --- WQ-19 wfm2-multimedia (ADR-0038/0039 / TASK-039, WSM4) -------------------
+
+
+def project_multimedia(project_root: Path, now: str) -> QueryResult:
+    """The WFM2 media + post-production observability view (TASK-039).
+
+    Projects the authoritative media asset index (images / audio / subtitles /
+    masters) and the S5-S7 post-production index (fact domain + status) so the
+    Workspace observes these media types as AUTHORITATIVE facts rather than
+    ``unavailable`` WFM1 placeholders. Read-only, on-demand, no second source; a
+    corrupt/tampered/missing fact surfaces as a fail-closed problem.
+    """
+    src = multimedia.read_multimedia(project_root)
+    items: list[dict[str, Field]] = []
+    for m in src.media:
+        items.append(
+            {
+                "domain": Field.authoritative("media_asset"),
+                "media_kind": Field.authoritative(m.media_kind),
+                "ref": Field.authoritative(m.ref),
+                "version": Field.authoritative(m.version),
+                "content_digest": Field.authoritative(m.content_digest),
+                "media_sha256": Field.authoritative(m.media_sha256),
+                "size_bytes": Field.authoritative(m.size_bytes),
+                "producer_source": Field.authoritative(m.producer_source),
+            }
+        )
+    for p in src.postproduction:
+        items.append(
+            {
+                "domain": Field.authoritative("postproduction"),
+                "stage": Field.authoritative(p.stage),
+                "step_id": Field.authoritative(p.step_id),
+                "fact_domain": Field.authoritative(p.fact_domain),
+                "kind": Field.authoritative(p.kind),
+                "ref": Field.authoritative(p.ref),
+                "version": Field.authoritative(p.version),
+                "status": Field.authoritative(p.status),
+                "content_digest": Field.authoritative(p.content_digest),
+            }
+        )
+    scope = {
+        "project_root": str(project_root),
+        "media_asset_count": len(src.media),
+        "postproduction_count": len(src.postproduction),
+        "media_kinds_observable": list(multimedia.MEDIA_KIND_ORDER),
+    }
+    return _result("WQ-19", now, scope, items, src.problems)

@@ -1,7 +1,16 @@
 # TASK-039：Creation Workspace 多媒体与完整工作流扩展
 
-> **状态：Planned。** 依赖 TASK-033 baseline、TASK-037 WFM2 gate、TASK-038 的
-> 必需 command capabilities，以及 ADR-0031～0040 中适用合同 Accepted。
+> **状态：Delivered（只读观测层，2026-08-04）。** 依赖 TASK-033 baseline、
+> TASK-037 WFM2 gate（证据已备齐，等签字）、TASK-038 capability registry。交付
+> WQ-19 `project_multimedia` 只读 projection：`workspace/adapters/multimedia.py`
+> 读 ADR-0038 media 资产索引（图片/音频/字幕/母版）+ ADR-0039 S5–S7 postproduction
+> 索引（事实域+status），把这些媒体类型作为 **authoritative** 观测（不再是 WFM1
+> `unavailable` 占位）；损坏/篡改/缺失经索引自带 digest 校验 fail-closed 为
+> source_corrupt problem；纳入 WQ-10 rebuild-check（确定性/只读）。查询合同
+> 1.4→1.5（additive）。只读、无第二事实源、无写入、无 Provider。写命令仍走 Gateway/
+> capability（TASK-038）。**UI 页面/评价·Action·推荐扩展到新媒体 target 的更多 query
+> adapter 及 Gateway 真实写命令接线留作后续增量**（本轮交付核心多媒体只读观测 +
+> 缺失语义 + fail-closed，使统一需求不再对图片/音频/字幕标 unavailable）。
 
 ## 目的
 

@@ -24,7 +24,7 @@ def test_ws_subcommands_emit_dto(tmp_path, monkeypatch, capsys):
 
     plan = _ws(root, "ws-plan", capsys=capsys)
     assert plan["query_id"] == "WQ-01"
-    assert plan["contract_version"] == "1.4"
+    assert plan["contract_version"] == "1.5"
     assert "contains_unavailable" in plan["markers"]
     # every item field carries a provenance tag (the read-only DTO shape)
     step = next(it for it in plan["items"] if it["step_id"]["value"] == "L0-07")

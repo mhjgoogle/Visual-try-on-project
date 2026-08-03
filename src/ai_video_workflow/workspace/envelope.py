@@ -159,7 +159,12 @@ class QueryResult:
 # — additive account-level read-only derivations over authoritative facts and
 # the ADR-0036 append-only promoted-knowledge log. On-demand, no persistent
 # cache; existing queries unchanged.
-QUERY_CONTRACT_VERSION = "1.4"
+# 1.5 (TASK-039): WQ-19 wfm2-multimedia (WSM4) — additive read-only projection of
+# the ADR-0038 media asset index (images/audio/subtitles/masters) and the
+# ADR-0039 S5-S7 post-production index (fact domain + status). Makes those media
+# types observable as AUTHORITATIVE facts instead of WFM1 `unavailable`
+# placeholders; no writer change, no second source, existing queries unchanged.
+QUERY_CONTRACT_VERSION = "1.5"
 
 
 def to_jsonable(result: QueryResult) -> dict:

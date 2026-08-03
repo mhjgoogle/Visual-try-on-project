@@ -136,7 +136,7 @@ WFM2 在 WFM1 gate 之后补齐两份顶层需求仍缺少的完整创意、多�
 
 | 任务 | 内容 | 依赖 | 状态 |
 | --- | --- | --- | --- |
-| [TASK-039](tasks/TASK-039-workspace-multimedia-and-full-workflow-expansion.md) | Workspace 扩展到完整多媒体与 WFM2/WFM3 命令能力 | TASK-037/038 + TASK-033 | Planned |
+| [TASK-039](tasks/TASK-039-workspace-multimedia-and-full-workflow-expansion.md) | Workspace 扩展到完整多媒体与 WFM2/WFM3 命令能力 | TASK-037/038 + TASK-033 | Delivered（只读观测层，2026-08-04；WQ-19 多媒体 projection，authoritative+fail-closed；UI/写命令接线增量后续） |
 | [TASK-040](tasks/TASK-040-final-unified-product-acceptance.md) | 两份顶层需求的联合端到端验收 | TASK-037～039 | Planned |
 
 逐项需求归属与完成层级以
