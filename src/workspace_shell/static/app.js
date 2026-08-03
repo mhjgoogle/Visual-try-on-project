@@ -6,8 +6,9 @@
  * URLs or read files themselves. Every data region distinguishes
  * loading / empty / error / legacy / unavailable, surfaces the three-way
  * authoritative|derived|unavailable provenance, and never renders a query
- * failure as empty (fail-closed). No write / run / approve / retry control
- * exists anywhere in this file — every fetch is a GET.
+ * failure as empty (fail-closed). Reads are GET; the ONLY writes are POST
+ * Command Gateway commands (TASK-031) via `Q.preflightCommand`/`Q.submitCommand`
+ * — no other mutating verb, no Provider or file access, exists in this file.
  *
  * TASK-027 adds three read-only deep-dive views over the SAME query contract:
  *   - Lineage    (WQ-03 upstream + WQ-04 downstream of one ref)
@@ -81,6 +82,40 @@ const Q = {
   // A containment-guarded artifact URL (served read-only by /artifact). This is
   // the only place a media/file URL is built; it never carries a credential.
   artifactUrl(path) { return "/artifact?path=" + encodeURIComponent(path); },
+
+  // ---- the Gateway write path (TASK-031) ------------------------------------
+  // Every mutation is a Command Gateway command: preflight (read-only inputs /
+  // cost / downstream / blockers + a digest) then submit (a high-risk command
+  // carries a confirmation equal to that digest). POST is the only write verb;
+  // the client never touches a Provider or a file directly.
+  async _post(url, payload) {
+    let resp;
+    try {
+      resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {
+      return { kind: "error", status: 0, envelope: {
+        category: "network", detail: String(e), context: {}, readiness_failed: true } };
+    }
+    let body = null;
+    try { body = await resp.json(); } catch (_e) { body = null; }
+    if (!resp.ok) {
+      const env = (body && body.error) || {
+        category: "http_" + resp.status, detail: "command failed",
+        context: {}, readiness_failed: true };
+      return { kind: "error", status: resp.status, envelope: env };
+    }
+    return { kind: "ok", data: body };
+  },
+  preflightCommand(name, envelope) {
+    return this._post(`${this._p(name)}/preflight`, envelope);
+  },
+  submitCommand(name, envelope) {
+    return this._post(`${this._p(name)}/command`, envelope);
+  },
 };
 
 // ---- tiny DOM helpers (text set via textContent — no HTML injection) --------

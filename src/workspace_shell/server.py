@@ -20,10 +20,16 @@ from collections.abc import Callable
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from workspace_shell.app import Response, WorkspaceApp
 
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", ""}
+# Origin CSRF check: ONLY explicit loopback hostnames are same-origin. Unlike
+# the Host guard, an empty/opaque origin ("" or "null" from a sandboxed / data:
+# page) is NOT allowed to write — it is a cross-site/opaque caller.
+_LOOPBACK_ORIGIN_HOSTS = {"127.0.0.1", "localhost", "::1"}
+_MAX_BODY_BYTES = 1_000_000  # a command envelope is small; cap unbounded reads
 
 # Strict, self-only posture. The page loads only its own assets; no external
 # origin, no inline script, no framing, no form submission target.
@@ -98,7 +104,82 @@ class _Handler(BaseHTTPRequestHandler):
             )
         )
 
-    do_POST = _reject_write  # noqa: N815
+    def _guard_origin(self) -> bool:
+        """Reject a cross-origin write (CSRF). A browser sends ``Origin`` on a
+        cross-site POST; it must match the server's OWN origin — scheme + host +
+        PORT, not just a loopback host (so another local app on a different port,
+        or an https page, cannot drive commands). A missing Origin is a
+        same-origin/non-browser (local, trusted) caller. Combined with the
+        strict same-origin CSP and loopback bind, this closes local cross-site
+        command execution."""
+        origin = self.headers.get("Origin")
+        if origin is None:
+            return True
+        o = urlsplit(origin)
+        host_hdr = urlsplit("//" + (self.headers.get("Host") or ""))
+        try:
+            # .port raises ValueError on a non-numeric port; a malformed Origin
+            # or Host is never same-origin -> fall through to the 403.
+            same_origin = (
+                o.scheme == "http"
+                and (o.hostname or "").lower() in _LOOPBACK_ORIGIN_HOSTS
+                and (o.hostname or "").lower() == (host_hdr.hostname or "").lower()
+                and o.port == host_hdr.port
+            )
+        except ValueError:
+            same_origin = False
+        if same_origin:
+            return True
+        self.close_connection = True
+        self._write(
+            Response(
+                403,
+                b'{"error":{"category":"forbidden",'
+                b'"detail":"cross-origin write refused"}}',
+                headers=(("Connection", "close"),),
+            )
+        )
+        return False
+
+    def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        # The only mutating verb the shell accepts: a Gateway-routed write
+        # command (TASK-031). Every write still flows through the Command
+        # Gateway inside WorkspaceApp — the shell never touches a Provider or
+        # a business file. The body is fully read so keep-alive stays in sync.
+        if not self._guard_host() or not self._guard_origin():
+            return
+        # A chunked body has no Content-Length; this handler reads a fixed
+        # Content-Length only, so accepting it would leave unread chunk bytes on
+        # the socket and desync keep-alive. Refuse it and close the connection.
+        if self.headers.get("Transfer-Encoding"):
+            self.close_connection = True
+            self._write(
+                Response(
+                    411,
+                    b'{"error":{"category":"length_required",'
+                    b'"detail":"Content-Length required"}}',
+                    headers=(("Connection", "close"),),
+                )
+            )
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = -1
+        if length < 0 or length > _MAX_BODY_BYTES:
+            self.close_connection = True
+            self._write(
+                Response(
+                    413,
+                    b'{"error":{"category":"too_large",'
+                    b'"detail":"request body too large"}}',
+                    headers=(("Connection", "close"),),
+                )
+            )
+            return
+        body = self.rfile.read(length) if length else b""
+        self._write(self._app.handle_write(self.path, body))
+
     do_PUT = _reject_write  # noqa: N815
     do_PATCH = _reject_write  # noqa: N815
     do_DELETE = _reject_write  # noqa: N815

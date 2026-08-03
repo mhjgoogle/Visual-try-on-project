@@ -402,14 +402,21 @@ def test_cost_drilldown_stage_step_time_dimensions(tmp_path, monkeypatch):
 
 
 def test_backend_imports_only_public_query_contract():
-    """The shell may import only the TASK-025 public query package.
+    """The shell may import only the public read (query) + write (Gateway) paths.
 
-    It must not reach into core-internal modules (providers, orchestrator,
-    CLI write paths, business records) — importing any ``ai_video_workflow``
-    submodule other than the public ``ai_video_workflow.workspace`` package
-    would breach the ADR-0032 boundary.
+    It must not reach into core-internal modules (providers, orchestrator, CLI
+    write paths, business records). The read side is the TASK-025 query package;
+    the write side (TASK-031) is the public Command Gateway package plus the
+    approved WFM1 command factory — never a Provider or a direct business writer.
+    ``ai_video_workflow.errors`` (the base exception) is allowed for fail-closed
+    handling.
     """
-    allowed = {"ai_video_workflow.workspace"}
+    allowed = {
+        "ai_video_workflow.workspace",
+        "ai_video_workflow.gateway",
+        "ai_video_workflow.app.gateway_commands",
+        "ai_video_workflow.errors",
+    }
     for path in _SHELL_SRC.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
@@ -459,9 +466,10 @@ def test_backend_has_no_write_or_provider_surface():
         }
         offenders = names & banned
         assert not offenders, f"{path.name} references write/provider names {offenders}"
-    # the JS client issues no mutating fetch verb either
+    # the JS client's ONLY mutating verb is POST (the Gateway write path,
+    # TASK-031); PUT/DELETE/PATCH never appear.
     js = (_SHELL_SRC / "static" / "app.js").read_text(encoding="utf-8")
-    for verb in ("POST", "PUT", "DELETE", "PATCH"):
+    for verb in ("PUT", "DELETE", "PATCH"):
         assert f'"{verb}"' not in js and f"'{verb}'" not in js
 
 
@@ -516,16 +524,22 @@ def test_write_verbs_and_loopback_over_real_socket(tmp_path, monkeypatch):
             assert r.status == 200
             assert "sandbox" in r.headers.get_all("Content-Security-Policy")
             assert r.read() == some_file.read_bytes()
-        # a write verb is refused: there is no write endpoint. Its unread
-        # request body must not poison the keep-alive connection, so the
-        # server closes it (Connection: close) after the 405.
-        req = urllib.request.Request(
-            f"{base}/api/projects", method="POST", data=b"{}" * 64
-        )
+        # PUT/PATCH/DELETE remain refused outright (no such endpoints). Their
+        # unread body must not poison keep-alive, so the server closes it.
+        for verb in ("PUT", "PATCH", "DELETE"):
+            req = urllib.request.Request(
+                f"{base}/api/projects", method=verb, data=b"{}" * 64
+            )
+            with pytest.raises(urllib.error.HTTPError) as exc:
+                urllib.request.urlopen(req, timeout=5)
+            assert exc.value.code == 405
+            assert exc.value.headers.get("Connection") == "close"
+        # POST is the Gateway write path (TASK-031): a non-command path is a
+        # structured 404 (not 405), and its body IS read so keep-alive stays sane.
+        req = urllib.request.Request(f"{base}/api/projects", method="POST", data=b"{}")
         with pytest.raises(urllib.error.HTTPError) as exc:
             urllib.request.urlopen(req, timeout=5)
-        assert exc.value.code == 405
-        assert exc.value.headers.get("Connection") == "close"
+        assert exc.value.code == 404
     finally:
         server.shutdown()
         server.server_close()

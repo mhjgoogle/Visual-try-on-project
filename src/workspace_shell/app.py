@@ -5,12 +5,14 @@ TASK-025 public query and returns a :class:`Response`. Keeping it free of the
 HTTP transport makes the read-only boundary and the fail-closed behaviour
 directly unit-testable without a running server.
 
-Boundary invariants enforced here (ADR-0032):
-- The only core import is the public query package ``ai_video_workflow.workspace``.
-- Every data route is a read-only WQ query; there is no write / run / approve
-  / retry / edit route (the server rejects non-GET verbs outright).
-- A query that fails is surfaced as a structured problem envelope with a
-  non-2xx status — never as an empty result (fail-closed, contract §5).
+Boundary invariants enforced here (ADR-0032 / ADR-0033):
+- GET routes read the public query package ``ai_video_workflow.workspace`` only.
+- The ONLY write path is POST -> the Command Gateway (TASK-031): every mutation
+  is a registered Gateway command (preflight / submit); the shell never calls a
+  service, Provider, or business file directly — the Gateway enforces version
+  binding, idempotency, and fail-closed admission.
+- A query or command failure is a structured problem/error envelope with a
+  non-2xx status — never an empty result (fail-closed, contract §5).
 - ``/artifact`` serves files only from within a discovered project root, with
   strict path containment; arbitrary paths are refused.
 """
@@ -144,6 +146,119 @@ class WorkspaceApp:
             # separator guard in _project_root, so an encoded "/" stays refused.
             return self._project_api(unquote(name), sub, params)
         return self._error(404, "not_found", "unknown route")
+
+    def handle_write(self, raw_path: str, body: bytes) -> Response:
+        """Route a POST write to the Command Gateway (TASK-031 / ADR-0033).
+
+        The ONLY mutating path in the shell. Every write is a Gateway command
+        (preflight or submit); the shell never calls a service, Provider, or
+        business file directly — it constructs a per-project
+        :class:`CommandGateway` over the approved WFM1 registry and forwards.
+        Bad input and fail-closed admission refusals are structured errors,
+        never silent successes.
+        """
+        path = urlsplit(raw_path).path
+        if not path.startswith("/api/projects/"):
+            return self._error(404, "not_found", "unknown write route")
+        name, _, sub = path[len("/api/projects/") :].partition("/")
+        if sub not in ("preflight", "command"):
+            return self._error(404, "not_found", f"unknown write route: {sub!r}")
+        try:
+            root = self._project_root(unquote(name))
+        except Exception as exc:  # noqa: BLE001 - discovery must fail closed too
+            return self._discovery_error(exc)
+        if root is None:
+            return self._error(404, "not_found", "unknown project", project=name)
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+            return self._error(400, "bad_request", "invalid JSON body")
+        envelope, confirmation, err = self._parse_command(payload)
+        if err is not None:
+            return err
+        gateway = self._gateway(root)
+        if sub == "preflight":
+            return self._run_gateway(
+                lambda: gateway.preflight(envelope), preflight=True
+            )
+        return self._run_gateway(
+            lambda: gateway.submit(envelope, confirmation=confirmation)
+        )
+
+    # -- gateway write path (TASK-031) -------------------------------------
+
+    def _gateway(self, root: Path):
+        from ai_video_workflow.app.gateway_commands import build_gateway
+
+        return build_gateway(root, self._clock)
+
+    def _parse_command(self, payload: object):
+        """Build a CommandEnvelope from a client payload (identity is OURS).
+
+        The shell stamps ``occurred_at`` from its own clock (time-authority) and
+        FORCES ``actor="user"`` — the workspace is the local human's surface, so
+        a client cannot forge audit provenance or impersonate a privileged
+        actor. Agent/system provenance comes only from the programmatic/CLI
+        path, never the UI. The client supplies command_id (its idempotency
+        key), name, params, and an optional target + confirmation.
+        """
+        from ai_video_workflow.errors import AiVideoWorkflowError
+        from ai_video_workflow.gateway import CommandEnvelope
+
+        if not isinstance(payload, dict):
+            return None, None, self._error(400, "bad_request", "body must be an object")
+        try:
+            envelope = CommandEnvelope(
+                command_id=payload["command_id"],
+                name=payload["name"],
+                actor="user",  # not client-controlled (no provenance forgery)
+                params=payload.get("params") or {},
+                occurred_at=self._clock(),
+                target=payload.get("target"),
+            )
+        except KeyError as exc:
+            return (
+                None,
+                None,
+                self._error(
+                    400, "bad_request", f"missing command field: {exc.args[0]!r}"
+                ),
+            )
+        except AiVideoWorkflowError as exc:
+            return (
+                None,
+                None,
+                self._error(
+                    400, "bad_request", f"invalid command: {type(exc).__name__}"
+                ),
+            )
+        confirmation = payload.get("confirmation")
+        if confirmation is not None and not isinstance(confirmation, str):
+            return (
+                None,
+                None,
+                self._error(400, "bad_request", "confirmation must be a string"),
+            )
+        return envelope, confirmation, None
+
+    def _run_gateway(self, call, *, preflight: bool = False) -> Response:
+        """Run a Gateway call fail-closed; refusals are structured, not empty."""
+        from ai_video_workflow.errors import AiVideoWorkflowError
+        from ai_video_workflow.gateway import GatewayError
+
+        try:
+            result = call()
+        except GatewayError as exc:
+            # fail-closed admission refusal (unregistered / stale target /
+            # blocked / confirmation / conflict) — safe, path-free messages.
+            return self._error(409, "command_refused", str(exc))
+        except AiVideoWorkflowError as exc:
+            return self._error(400, "bad_request", type(exc).__name__)
+        except Exception as exc:  # noqa: BLE001 - fail closed, never leak internals
+            return self._error(
+                500, "command_failed", f"unexpected {type(exc).__name__}"
+            )
+        return self._ok(_preflight_json(result) if preflight else _receipt_json(result))
 
     # -- api ---------------------------------------------------------------
 
@@ -328,6 +443,36 @@ class WorkspaceApp:
             }
         }
         return Response(status, _dumps(payload))
+
+
+def _preflight_json(pf) -> dict:
+    return {
+        "command_id": pf.command_id,
+        "name": pf.name,
+        "is_high_risk": pf.is_high_risk,
+        "preflight_digest": pf.preflight_digest,
+        "preview": {
+            "inputs": dict(pf.preview.inputs),
+            "estimated_cost": (
+                dict(pf.preview.estimated_cost)
+                if pf.preview.estimated_cost is not None
+                else None
+            ),
+            "downstream": list(pf.preview.downstream),
+            "blockers": list(pf.preview.blockers),
+        },
+    }
+
+
+def _receipt_json(receipt) -> dict:
+    return {
+        "command_id": receipt.command_id,
+        "name": receipt.name,
+        "status": receipt.status.value,
+        "outcome": receipt.outcome,
+        "reason": receipt.reason,
+        "occurred_at": receipt.occurred_at.isoformat(timespec="microseconds"),
+    }
 
 
 def _within(candidate: Path, base: Path) -> bool:

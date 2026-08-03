@@ -1,6 +1,6 @@
 # TASK-031：工作视窗受控运行与 Action Center 写闭环（WSM2-D）
 
-> **状态：Planned。** 依赖 TASK-023、TASK-026、TASK-028～030 全部完成并通过
+> **状态：Delivered（2026-08-03）。** 只读 shell 新增唯一写路径 POST→Command Gateway（批准 WFM1 命令集：record-evaluation/create-feedback/create-action/action-transition，无花钱创意事实写），CSRF 同源+强制 user actor+幂等；付费 start/retry/resume 未注册。codex 5 轮独立审查通过（6 blocking 修复）。原文：Planned。** 依赖 TASK-023、TASK-026、TASK-028～030 全部完成并通过
 > 对应 review，ADR-0032/0033/0035 Accepted。
 
 ## 目的
