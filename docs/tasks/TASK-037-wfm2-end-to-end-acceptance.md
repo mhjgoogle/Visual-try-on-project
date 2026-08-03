@@ -1,7 +1,12 @@
 # TASK-037：WFM2 正式作品端到端验收
 
-> **状态：Planned。** WFM2 milestone gate；依赖 TASK-008、TASK-034～036 全部
-> Implemented。本任务不新增产品能力。
+> **状态：Evidence Ready — 等用户签字（2026-08-04）。** WFM2 milestone gate；
+> TASK-008、TASK-034～036 均 Implemented。本任务不新增产品能力，只备齐验收证据。
+> 交付 `tests/test_wfm2_e2e_acceptance.py`（L0→S7 组合）+
+> [追踪矩阵](../design/wfm2-acceptance-traceability.md) +
+> [runbook](../design/wfm2-acceptance-runbook.md) +
+> [里程碑评审](../design/WFM2-milestone-review.md)。里程碑 PASS 属用户（runbook §5），
+> 实施 Agent 不代判。证据已备齐，等签字；后续 TASK-038/039 不被此门阻塞，继续推进。
 
 ## 目的
 
