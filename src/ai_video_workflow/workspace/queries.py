@@ -709,22 +709,136 @@ def _stale_problem(record_id: str, reasons: tuple[str, ...]) -> Problem:
     )
 
 
+def _read_qcd_events(project_root: Path):
+    """Read the QCD event log for cost/time derivation; ``None`` if unreadable.
+
+    A corrupt/unreadable event log makes cost/time simply unavailable (QCD
+    integrity is surfaced by WQ-07/WQ-09, not here), so this never raises into
+    the evaluation query.
+    """
+    from ai_video_workflow.qcd.log import QcdLogError, read_events
+
+    try:
+        return read_events(project_root)
+    except QcdLogError:
+        return None
+
+
+def _asset_task_index(events) -> dict[tuple[str, int], str]:
+    """Map each imported asset ``(asset_id, version)`` to its producing task.
+
+    First-wins per key, matching the QCD reader's dedup, so a replayed import
+    cannot change which task an evaluation variant resolves to.
+    """
+    from ai_video_workflow.qcd.events import QcdEventType
+
+    index: dict[tuple[str, int], str] = {}
+    for e in events:
+        if e.event_type is not QcdEventType.ASSET_IMPORTED:
+            continue
+        key = (e.payload.get("asset_id"), e.payload.get("version"))
+        source = e.payload.get("source_task_id")
+        if key not in index and isinstance(source, str):
+            index[key] = source
+    return index
+
+
+def _experiment_cost_time(record, asset_task: dict, per_task: dict) -> dict:
+    """Per-variant authoritative cost/time + delta vs the first-listed variant.
+
+    Each variant's video asset resolves through its producing task to the
+    authoritative ``cost_by_currency`` (minor units) and ``attempts_elapsed_ms``
+    aggregated over that task's QCD facts (ADR-0034: derived in the query layer,
+    never a second cost source). Cost is only KNOWN when the variant resolves to
+    an aggregated task: ``cost_known`` distinguishes a KNOWN zero (a task with no
+    paid cost, e.g. a manual variant → ``cost_by_currency == {}``) from an
+    UNKNOWN cost (no producing task / not aggregated → ``cost_by_currency`` is
+    ``null``). A delta is emitted ONLY when BOTH sides are known — an unknown
+    cost never fabricates a numeric delta against a paid baseline (the
+    "never faked" contract). The elapsed delta is likewise ``null`` unless both
+    elapsed values are known.
+    """
+    baseline = None
+    variants: list[dict] = []
+    for index, v in enumerate(record.payload["variants"]):
+        ref = str(v["ref"])
+        version = int(v["version"])
+        task_id = asset_task.get((ref, version))
+        metrics = per_task.get(task_id) if task_id is not None else None
+        known = metrics is not None
+        row = {
+            "ref": ref,
+            "version": version,
+            "task_id": task_id,
+            "cost_known": known,
+            "cost_by_currency": dict(metrics.cost_by_currency) if known else None,
+            "attempts_elapsed_ms": metrics.attempts_elapsed_ms if known else None,
+        }
+        if index == 0:
+            baseline = row
+        # cost delta only when BOTH this variant and the baseline have KNOWN cost
+        if known and baseline["cost_known"]:
+            cost = row["cost_by_currency"]
+            base_cost = baseline["cost_by_currency"]
+            currencies = sorted(set(cost) | set(base_cost))
+            row["delta_cost_by_currency"] = {
+                c: cost.get(c, 0) - base_cost.get(c, 0) for c in currencies
+            }
+        else:
+            row["delta_cost_by_currency"] = None
+        # elapsed delta only when both elapsed values are known
+        base_elapsed = baseline["attempts_elapsed_ms"]
+        row["delta_attempts_elapsed_ms"] = (
+            row["attempts_elapsed_ms"] - base_elapsed
+            if row["attempts_elapsed_ms"] is not None and base_elapsed is not None
+            else None
+        )
+        variants.append(row)
+    return {"baseline_index": 0, "variants": variants}
+
+
 def evaluation_domain(project_root: Path, now: str) -> QueryResult:
     """The append-only evaluation / experiment / creative-decision facts, each
     with its bound target + goals + actor + payload (authoritative) and a
     read-time DERIVED staleness (goals/digest/version drift, vanished target).
     Experiment payloads carry their compared variants + changed factor +
-    expected/actual + reuse conclusion (the comparison view). Incremental
-    cost/time is not yet joined and is marked unavailable, never faked (query
-    contract §8; ADR-0034 keeps it derived from authoritative cost facts).
+    expected/actual + reuse conclusion (the comparison view); each experiment
+    also gets a DERIVED per-variant incremental cost/time (authoritative
+    cost_by_currency + attempts_elapsed_ms per variant, delta vs the first
+    variant), or ``unavailable`` when project data is absent — never faked
+    (query contract §8; ADR-0034 keeps cost/time derived, not a second source).
     Sorted by occurred_at then record_id (query contract §3 WQ-15)."""
-    from ai_video_workflow.evaluation import WorkflowAuthoritativeFacts, staleness_of
+    from ai_video_workflow.evaluation import (
+        EvaluationRecordType,
+        WorkflowAuthoritativeFacts,
+        staleness_of,
+    )
 
     src = evaluation.read_evaluation(project_root)
     problems: list[Problem] = list(src.problems)
     facts = WorkflowAuthoritativeFacts()
     current_goals = facts.current_goals_version(project_root)
     rows = sorted(src.records, key=lambda r: (r.occurred_at.isoformat(), r.record_id))
+
+    # Cost/time is a SECONDARY derived add-on, and only for experiments: read
+    # the QCD facts (not reservations) only when an experiment is present. When
+    # project data or a readable event log is absent, cost/time is simply marked
+    # unavailable per experiment (the honest three-way signal) — WQ-15's own
+    # problems stay focused on the evaluation domain, never coupled to unrelated
+    # cost-source health.
+    has_experiment = any(r.record_type is EvaluationRecordType.EXPERIMENT for r in rows)
+    per_task: dict = {}
+    asset_task: dict = {}
+    cost_available = False
+    if has_experiment:
+        data = project.read_project(project_root).data
+        events = _read_qcd_events(project_root)
+        if data is not None and events is not None:
+            summary = execution.summarize(events, data)
+            per_task = {t.task_id: t for t in summary.per_task}
+            asset_task = _asset_task_index(events)
+            cost_available = True
+
     items: list[dict[str, Field]] = []
     for record in rows:
         stale = staleness_of(
@@ -734,6 +848,18 @@ def evaluation_domain(project_root: Path, now: str) -> QueryResult:
             current_goals=current_goals,
         )
         env = record.to_envelope()
+        if record.record_type is not EvaluationRecordType.EXPERIMENT:
+            cost_time = Field.unavailable(
+                "incremental cost/time applies to experiments"
+            )
+        elif cost_available:
+            cost_time = Field.derived(
+                _experiment_cost_time(record, asset_task, per_task)
+            )
+        else:
+            cost_time = Field.unavailable(
+                "cost/time needs project data + QCD facts (none available)"
+            )
         items.append(
             {
                 "record_type": Field.authoritative(record.record_type.value),
@@ -745,10 +871,7 @@ def evaluation_domain(project_root: Path, now: str) -> QueryResult:
                 "payload": Field.authoritative(env["payload"]),
                 "stale": Field.derived(stale.is_stale),
                 "stale_reasons": Field.derived(list(stale.reasons)),
-                "incremental_cost_time": Field.unavailable(
-                    "incremental cost/time join (target -> authoritative cost "
-                    "facts) is a later WQ-15 refinement"
-                ),
+                "incremental_cost_time": cost_time,
             }
         )
         if stale.is_stale:

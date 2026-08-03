@@ -172,8 +172,12 @@
   asset_imported（target 权威事实，仅用于 stale 派生，只读引用不复制）。
 - 返回：record_type/record_id/occurred_at/actor/target/goals_version/payload〔A〕、
   stale + stale_reasons〔D，goals/digest/版本漂移或目标缺失〕、incremental_cost_time
-  〔当前 unavailable：增量成本/时间需 target→权威成本事实 join，列为 WQ-15 后续细化，
-  按 ADR-0034 仍为 query 层派生、本域不存第二成本源〕。
+  〔D（仅 experiment）：每个 variant 经 asset_imported→source_task_id 关联到该任务的
+  权威 cost_by_currency（minor units）+ attempts_elapsed_ms，并给出对首个 variant 的
+  delta。`cost_known` 区分**已知零**（有聚合任务但无付费成本，如手动 variant →
+  `cost_by_currency={}`、可算 delta）与**未知**（无产出任务 → `cost_by_currency=null`、
+  delta=null，绝不伪造成 0/负 delta）；delta 仅在两侧皆已知时给出。项目快照或事件
+  日志缺失时该项 unavailable。按 ADR-0034 为 query 层派生、本域不存第二成本源〕。
 - 排序：occurred_at → record_id。
 - 失败：评价日志损坏 → source_corrupt problem（fail-closed，空记录集）；某条记录
   target/goals 漂移或缺失 → 该条标 stale + 结构化 problem（readiness 不失败，事实仍
@@ -259,7 +263,7 @@ schema**。每个 source 由一个独立只读 adapter 读取，跨域组合只�
 | 图片/母资产/关键帧生成 | ⛔ unavailable | ADR-0038 / TASK-035，验收 TASK-037 |
 | 音频/对白/音乐/音效/字幕 | ⛔ unavailable | ADR-0038/0039 / TASK-008/035/036 |
 | 正式 S5–S7 后期/多维 QC/权利 QC/多平台发布 | ⛔ unavailable | ADR-0039 / TASK-036 |
-| 实验比较 / 评价 scorecard（超出 QC） | ✅ 可回答（WQ-15，contract v1.2） | ADR-0034 / TASK-028（WSM2-A 消费）；增量成本/时间 join 为 WQ-15 后续细化 |
+| 实验比较 / 评价 scorecard（超出 QC，含增量成本/时间） | ✅ 可回答（WQ-15，contract v1.2） | ADR-0034 / TASK-028（WSM2-A 消费） |
 | 观众表现数据 | ⛔ optional-data/unavailable | S7-T03；TASK-037/039 |
 | 跨项目学习 / 证据化推荐 | ⛔ unavailable | ADR-0036 / TASK-032 |
 | Action 状态机 / 写操作 | ⛔ 范围外（只读合同不含） | ADR-0033/0035 / TASK-029/030/031（WSM2） |

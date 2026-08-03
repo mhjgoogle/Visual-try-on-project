@@ -1,13 +1,14 @@
 # TASK-028：评价、实验比较与创作决定（WSM2-A）
 
-> **状态：Delivered（步骤 1–4，2026-08-03；1 项 derived 明确延期）。** 地基
-> records+log（0c08bf7）、application service 绑定/stale/actor（21f8c72）、写入
-> CLI eval/experiment/decision-record（f60127f）、WQ-15 只读查询 + 合同 v1.2
-> （1830799）均已实施并各经 codex 独立审查通过。写入仅经批准 CLI/app service，
-> Workspace 对本域只读。**明确延期**：experiment 的**增量成本/时间**派生（target→
-> 权威成本事实 join）标 `unavailable`，为 WQ-15 后续细化（语义需 ADR-0034 下的一次
-> 小设计确认），未伪造。仓库无 UI 框架（WFM1 Workspace 仅 query+CLI），「只读页面」
-> 即 WQ-15 查询输出。完整验收仍受 TASK-023 readiness 与独立审查约束（TASK-023 已过）。
+> **状态：Delivered（步骤 1–5，2026-08-03）。** 地基 records+log（0c08bf7）、
+> application service 绑定/stale/actor（21f8c72）、写入 CLI
+> eval/experiment/decision-record（f60127f）、WQ-15 只读查询 + 合同 v1.2（1830799）
+> 均已实施并各经 codex 独立审查通过。experiment 的**增量成本/时间**已在 WQ-15 派生
+> （每 variant 经 asset_imported→source_task_id 关联权威 cost_by_currency +
+> attempts_elapsed_ms，并给出对首个 variant 的 delta；无付费成本的手动 variant 为空
+> 成本/None，不伪造；用户已确认口径）。写入仅经批准 CLI/app service，Workspace 对本域
+> 只读。仓库无 UI 框架（WFM1 Workspace 仅 query+CLI），「只读页面」即 WQ-15 查询输出。
+> 完整验收仍受 TASK-023 readiness 与独立审查约束（TASK-023 已过）。
 >
 > TASK-028 是 ADR-0034 的 decision owner，聚焦设计已写入 ADR-0034（Accepted）。
 
@@ -135,8 +136,8 @@ CLI 子命令、`workspace` query adapter + 新 WQ 只读查询、只读 UI 页�
 
 - [x] 用户可追溯为什么选择、放弃、修改、重做或接受结果（creative_decision 记录 +
   WQ-15 历史）；
-- [~] 实验记录预期、实际、成本/时间和复用结论（预期/实际/复用结论已入 experiment
-  payload；**增量成本/时间**派生延期，WQ-15 标 `unavailable`，见状态说明）；
+- [x] 实验记录预期、实际、成本/时间和复用结论（预期/实际/复用结论入 experiment
+  payload；增量成本/时间由 WQ-15 从权威成本/运行事实派生，见状态说明）；
 - [x] 最终创作判断只能由用户确认（service 拒绝 AI 的 pass=true 与 select 优胜者）；
 - [x] 评价事实不嵌入产物或 QCD 汇总（独立 append-only `evaluation/events/log.jsonl`）；
 - [x] Gateway 前 Workspace 保持只读（WQ-15 只读查询；写入仅经批准 CLI/app service）。

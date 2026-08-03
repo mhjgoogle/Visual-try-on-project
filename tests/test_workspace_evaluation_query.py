@@ -170,11 +170,26 @@ def test_wq15_experiment_exposes_variants(project) -> None:
     assert exp["payload"].value["reuse_conclusion"] == "keep v2"
 
 
-def test_wq15_incremental_cost_time_is_unavailable_not_faked(project) -> None:
+def test_wq15_experiment_cost_time_known_zero_manual(project):
+    # the fixture's variant assets were imported (their producing task is known
+    # to the QCD facts) but carry no paid cost -> KNOWN zero (a manual variant):
+    # cost_known True, empty cost map, null elapsed, and zero/empty deltas —
+    # DERIVED and honest, never a faked number.
     _write_records(project)
     res = _service(project.parent).evaluation_domain(project)
-    ct = res.items[0]["incremental_cost_time"]
-    assert ct.provenance is Provenance.UNAVAILABLE
+    exp = next(it for it in res.items if it["record_type"].value == "experiment")
+    ct = exp["incremental_cost_time"]
+    assert ct.provenance is Provenance.DERIVED
+    variants = ct.value["variants"]
+    assert len(variants) == 2
+    assert all(v["cost_known"] is True for v in variants)
+    assert all(v["cost_by_currency"] == {} for v in variants)
+    assert all(v["attempts_elapsed_ms"] is None for v in variants)
+    assert variants[1]["delta_cost_by_currency"] == {}
+    assert variants[1]["delta_attempts_elapsed_ms"] is None
+    # evaluation / decision records: incremental cost/time is not applicable
+    ev = next(it for it in res.items if it["record_type"].value == "evaluation")
+    assert ev["incremental_cost_time"].provenance is Provenance.UNAVAILABLE
     assert "contains_unavailable" in res.markers
 
 
@@ -232,3 +247,108 @@ def test_wq15_rebuild_check_is_deterministic_and_writes_nothing(project) -> None
     # rebuild-check evaluates the query twice and compares the full envelope
     assert res.query_id == "WQ-10"
     assert res.readiness_failed is False
+
+
+# --- derived incremental cost/time (pure helpers) ----------------------------
+
+
+def _metrics(task_id: str, *, cost: dict, elapsed: int | None):
+    from ai_video_workflow.qcd.aggregation import TaskMetrics
+
+    return TaskMetrics(
+        task_id=task_id,
+        shot_id="shot-1",
+        created_at=None,
+        origin=None,
+        first_asset_imported_at=None,
+        delivery_ms=None,
+        attempt_count=1,
+        attempts_elapsed_ms=elapsed,
+        cost_by_currency=cost,
+        validation_runs=0,
+        validation_failures=0,
+        latest_status=None,
+    )
+
+
+def test_asset_task_index_first_wins():
+    from ai_video_workflow.qcd.events import build_asset_imported_event
+    from ai_video_workflow.workspace.queries import _asset_task_index
+
+    def _ev(task_id, sha):
+        return build_asset_imported_event(
+            project_id="p",
+            shot_id="shot-1",
+            task_id=task_id,
+            asset_id="asset-a",
+            sha256=sha,
+            size_bytes=1,
+            path="a.mp4",
+            version=1,
+            duration_ms=1,
+            source_attempt_id=None,
+            occurred_at=T0,
+        )
+
+    index = _asset_task_index([_ev("task-1", _DIGEST), _ev("task-2", _DIGEST2)])
+    assert index[("asset-a", 1)] == "task-1"  # first-wins
+
+
+def test_experiment_cost_time_absolute_and_delta_vs_first():
+    from ai_video_workflow.evaluation import EvaluationActor, build_experiment_record
+    from ai_video_workflow.workspace.queries import _experiment_cost_time
+
+    record = build_experiment_record(
+        project_id="proj-1",
+        actor=EvaluationActor.USER,
+        target=_target(),
+        goals_version=1,
+        experiment_id="x-1",
+        variants=[
+            _target(ref="asset-a", version=1),
+            _target(ref="asset-b", version=2, digest=_DIGEST2),
+            _target(ref="asset-c", version=3, digest="c" * 64),
+            _target(ref="asset-d", version=4, digest="d" * 64),
+        ],
+        changed_factor="prompt",
+        expected_improvement="tighter",
+        actual_result=None,
+        reuse_conclusion=None,
+        occurred_at=T0,
+    )
+    asset_task = {
+        ("asset-a", 1): "task-a",
+        ("asset-b", 2): "task-b",
+        # asset-c has no producing task -> UNKNOWN cost
+        ("asset-d", 4): "task-d",
+    }
+    per_task = {
+        "task-a": _metrics("task-a", cost={"JPY": 12000}, elapsed=31200),
+        "task-b": _metrics("task-b", cost={"JPY": 15000}, elapsed=28800),
+        # task-d is an aggregated task with NO paid cost -> KNOWN zero (manual)
+        "task-d": _metrics("task-d", cost={}, elapsed=None),
+    }
+    out = _experiment_cost_time(record, asset_task, per_task)
+    assert out["baseline_index"] == 0
+    a, b, c, d = out["variants"]
+    # baseline: known, zero deltas
+    assert a["cost_known"] is True
+    assert a["cost_by_currency"] == {"JPY": 12000}
+    assert a["attempts_elapsed_ms"] == 31200
+    assert a["delta_cost_by_currency"] == {"JPY": 0}
+    assert a["delta_attempts_elapsed_ms"] == 0
+    # second variant: absolute + delta vs first
+    assert b["delta_cost_by_currency"] == {"JPY": 3000}
+    assert b["delta_attempts_elapsed_ms"] == -2400
+    # UNKNOWN variant (no task): null cost, null deltas — never a faked -12000
+    assert c["cost_known"] is False
+    assert c["task_id"] is None
+    assert c["cost_by_currency"] is None
+    assert c["delta_cost_by_currency"] is None
+    assert c["attempts_elapsed_ms"] is None
+    assert c["delta_attempts_elapsed_ms"] is None
+    # KNOWN-zero variant (aggregated task, no paid cost): real numeric delta
+    assert d["cost_known"] is True
+    assert d["cost_by_currency"] == {}
+    assert d["delta_cost_by_currency"] == {"JPY": -12000}  # genuinely 0 - 12000
+    assert d["delta_attempts_elapsed_ms"] is None  # elapsed unknown on d
