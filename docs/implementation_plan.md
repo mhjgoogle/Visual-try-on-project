@@ -63,7 +63,7 @@ WFM1 以原 M1 为稳定依赖，工作流需求见
 | TASK-020 | L0-S3 生产规划、镜头任务包与预算预览 | ADR-0012 的新增路径 | Implemented（`159bcfa`）；milestone review pending |
 | TASK-021 | 付费媒体接回 M1 生命周期 + 云成本纳入 QCD 报表 | ADR-0020 授权 QCD 聚合增量 | Implemented（`76a28fc`）；milestone review pending |
 | TASK-022 | S4-S7 质检、发布包与归档复盘 | ADR-0012 的新增路径 | Implemented（`f9edd00`）；milestone review pending |
-| TASK-023 | WFM1 端到端验收与正式文档收口 | 无 | Implemented；WFM1 milestone review pending |
+| TASK-023 | WFM1 端到端验收与正式文档收口 | 无 | Implemented；WFM1 milestone review PASSED（2026-08-02） |
 
 - 临时命名 B1/B2/B3 的已落盘原型归入 **TASK-015**；临时 P-C 归入
   **TASK-016**。原型代码不删除、不覆盖，由 TASK-015 在其上对齐合同。
@@ -99,7 +99,7 @@ Creation Workspace 不属于 TASK-018～023 或 WFM1 验收。安全边界见
 | [TASK-027](tasks/TASK-027-workspace-lineage-comparison-and-cost.md) | WSM1 | 谱系、版本/产物比较、成本深钻 | TASK-020/021/022 + TASK-025/026 | Planned |
 | [TASK-028](tasks/TASK-028-workspace-evaluation-experiment-decision.md) | WSM2 | 评价、实验、创作决定 + 只读页面 | ADR-0034 + TASK-018/020/022/026/027 | Delivered（步骤 1–5） |
 | [TASK-029](tasks/TASK-029-workspace-feedback-and-action.md) | WSM2 | Feedback/Action + 只读 Action Center | ADR-0035 + TASK-025/026/028 | Delivered |
-| [TASK-030](tasks/TASK-030-command-gateway-foundation.md) | WSM2 | Gateway、preflight、确认、幂等回执 | **TASK-023** + ADR-0033 | Planned |
+| [TASK-030](tasks/TASK-030-command-gateway-foundation.md) | WSM2 | Gateway、preflight、确认、幂等回执 | **TASK-023** + ADR-0033 | Delivered |
 | [TASK-031](tasks/TASK-031-workspace-controlled-operations.md) | WSM2 | Workspace 受控运行与 Action 写闭环 | TASK-023 + TASK-026/028/029/030 | Planned |
 | [TASK-032](tasks/TASK-032-workspace-learning-and-recommendations.md) | WSM3 | 复盘、跨项目学习、证据化推荐 | ADR-0036 + TASK-022/027～031 | Planned |
 | [TASK-033](tasks/TASK-033-workspace-end-to-end-acceptance.md) | WSM3-B | Workspace-on-WFM1 数据基线、安全与恢复验收 | TASK-023～032 | Planned |

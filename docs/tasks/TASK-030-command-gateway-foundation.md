@@ -1,9 +1,13 @@
 # TASK-030：Command Gateway、安全预检与命令回执（WSM2-C）
 
-> **状态：Planned（聚焦设计草案已产出，见下「聚焦设计」；代码实施仍待 ADR-0033
-> Accepted 与相应 gate——TASK-023 完成且 WFM1 milestone review 通过）。** TASK-030
-> 是 ADR-0033 的 decision owner，本轮已完成聚焦设计并把裁决写入 ADR-0033
-> （Proposed）。可提前完成聚焦设计和 ADR-0033 审查，但不得提前接入真实写命令。
+> **状态：Delivered（2026-08-03）。** 硬门槛已满足：ADR-0033 已 Accepted、TASK-023
+> 完成且 WFM1 milestone review 2026-08-02 通过。交付统一 Gateway application service
+> 基础——命令注册表（仅批准操作）、target ref+version+digest 绑定 fail-closed、只读
+> preflight + 绑定 preflight-digest 的高风险二次确认、command_id 幂等 + WAL durable
+> receipt（并发/崩溃安全、防重复付费、unknown→ambiguous 不重放）、fail-closed 准入；
+> 唯一持久产物 `gateway/receipts/log.jsonl`（ADR-0001 第四次增补）。经 codex 5 轮独立
+> 审查通过（6 条 blocking 修复）。**未接入任何真实写命令**（stub 测试），真实命令由
+> TASK-031/038 注册。TASK-030 是 ADR-0033 的 decision owner。
 
 ## 目的
 
@@ -86,8 +90,8 @@ Orchestrator、approval、budget 等冻结合同只调用不修改。
 
 ## 验收标准
 
-- [ ] 所有 Gateway 命令均经过统一 preflight 与版本绑定；
-- [ ] 高风险操作必须二次确认且确认绑定当前影响摘要；
-- [ ] 重放、并发和未知副作用不重复执行/付费；
-- [ ] Gateway 只调用既有应用边界；
-- [ ] TASK-023 未完成或 WFM1 milestone review 未通过时，实现不得开始。
+- [x] 所有 Gateway 命令均经过统一 preflight 与版本绑定；
+- [x] 高风险操作必须二次确认且确认绑定当前影响摘要；
+- [x] 重放、并发和未知副作用不重复执行/付费；
+- [x] Gateway 只调用既有应用边界；
+- [x] 硬门槛已满足（TASK-023 完成 + WFM1 milestone review 2026-08-02 通过）后才开工。
