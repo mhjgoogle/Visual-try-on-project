@@ -347,6 +347,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add("ws-shot", _cmd_ws_shot, extra=_ws_shot)
     _add("ws-cost", _cmd_ws_cost, extra=_ws_account)
     _add("ws-eval", _cmd_ws_eval, extra=_ws_account)
+    _add("ws-eval-domain", _cmd_ws_eval_domain, extra=_ws_account)
     _add("ws-problems", _cmd_ws_problems, extra=_ws_account)
     _add("ws-rebuild-check", _cmd_ws_rebuild, extra=_ws_query)
     _add("ws-index", _cmd_ws_index, extra=_ws_account)
@@ -839,6 +840,10 @@ def _cmd_ws_cost(args) -> None:
 
 def _cmd_ws_eval(args) -> None:
     _ws_emit(_ws_service(args).evaluation_decision(args.project_root))
+
+
+def _cmd_ws_eval_domain(args) -> None:
+    _ws_emit(_ws_service(args).evaluation_domain(args.project_root))
 
 
 def _cmd_ws_problems(args) -> None:

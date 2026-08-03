@@ -379,7 +379,7 @@ def test_cost_drilldown_stage_step_time_dimensions(tmp_path, monkeypatch):
     """
     account, root = _episode(tmp_path, monkeypatch)
     dto = _json(_app(account).handle(f"/api/projects/{root.name}/cost"))
-    assert dto["contract_version"] == "1.1"
+    assert dto["contract_version"] == "1.2"
     item = dto["items"][0]
     for dim in ("by_step", "by_stage", "by_time"):
         assert item[dim]["provenance"] == "derived"

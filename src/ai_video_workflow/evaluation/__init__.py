@@ -37,6 +37,7 @@ from ai_video_workflow.evaluation.service import (
     Staleness,
     StaleTargetError,
     TargetFact,
+    staleness_of,
 )
 
 __all__ = [
@@ -57,6 +58,7 @@ __all__ = [
     "TargetFact",
     "WorkflowAuthoritativeFacts",
     "append_record",
+    "staleness_of",
     "build_creative_decision_record",
     "build_evaluation_record",
     "build_experiment_record",

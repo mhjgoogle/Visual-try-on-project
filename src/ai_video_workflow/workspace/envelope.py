@@ -147,7 +147,11 @@ class QueryResult:
 # 1.1 (TASK-027): WQ-07 gains derived by_step/by_stage/by_time rollups and a
 # per-operation occurred_at — additive read-only projection, no writer change
 # (see ADR-0031 amendment). Minor bump; the shell keys legacy on the major.
-QUERY_CONTRACT_VERSION = "1.1"
+# 1.2 (TASK-028): WQ-15 evaluation-domain (WSM2-A) is added over the frozen
+# WQ-01..WQ-14 baseline — additive read-only consumption of the ADR-0034
+# append-only evaluation facts (owner named in the query contract's coverage
+# table). No writer change; existing queries are unchanged.
+QUERY_CONTRACT_VERSION = "1.2"
 
 
 def to_jsonable(result: QueryResult) -> dict:

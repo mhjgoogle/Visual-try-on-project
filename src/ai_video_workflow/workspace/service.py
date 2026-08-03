@@ -87,6 +87,9 @@ class WorkspaceQueryService:
     def evaluation_decision(self, project_root: Path) -> QueryResult:
         return queries.evaluation_decision(self._project(project_root), self._now())
 
+    def evaluation_domain(self, project_root: Path) -> QueryResult:
+        return queries.evaluation_domain(self._project(project_root), self._now())
+
     def recent_problems(self, project_root: Path) -> QueryResult:
         return queries.recent_problems(self._project(project_root), self._now())
 

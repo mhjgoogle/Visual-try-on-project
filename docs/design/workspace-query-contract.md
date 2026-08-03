@@ -163,6 +163,24 @@
 - 排序：项目 → 时间。
 - 失败：hold 与已提交成本无法关联、FX 未在项目锁定 → problem。
 
+### WQ-15 evaluation-domain（评价 / 实验 / 创作决定，WSM2-A，contract v1.2）
+- 用途：返回 ADR-0034 append-only 评价事实域（evaluation / experiment /
+  creative_decision）历史；每条附其绑定 target + goals + actor + payload
+  （authoritative）与读取期派生的 stale。实验 payload 含被比较 variants、
+  changed_factor、预期/实际与复用结论（比较视图）。
+- 输入：评价域事实日志（ADR-0034）；project profile（goals 基线）与 QCD
+  asset_imported（target 权威事实，仅用于 stale 派生，只读引用不复制）。
+- 返回：record_type/record_id/occurred_at/actor/target/goals_version/payload〔A〕、
+  stale + stale_reasons〔D，goals/digest/版本漂移或目标缺失〕、incremental_cost_time
+  〔当前 unavailable：增量成本/时间需 target→权威成本事实 join，列为 WQ-15 后续细化，
+  按 ADR-0034 仍为 query 层派生、本域不存第二成本源〕。
+- 排序：occurred_at → record_id。
+- 失败：评价日志损坏 → source_corrupt problem（fail-closed，空记录集）；某条记录
+  target/goals 漂移或缺失 → 该条标 stale + 结构化 problem（readiness 不失败，事实仍
+  authoritative 返回，不静默补值）。
+- 只读：本查询不写入、不调用 Provider、不复制 QC/成本/谱系事实；写入仅经批准
+  CLI/app service（ADR-0032）。
+
 ## 4. 失败与问题模型
 
 - 每个 problem 至少语义包含：`category`（如 `missing_ref`、`version_absent`、
@@ -241,7 +259,7 @@ schema**。每个 source 由一个独立只读 adapter 读取，跨域组合只�
 | 图片/母资产/关键帧生成 | ⛔ unavailable | ADR-0038 / TASK-035，验收 TASK-037 |
 | 音频/对白/音乐/音效/字幕 | ⛔ unavailable | ADR-0038/0039 / TASK-008/035/036 |
 | 正式 S5–S7 后期/多维 QC/权利 QC/多平台发布 | ⛔ unavailable | ADR-0039 / TASK-036 |
-| 实验比较 / 评价 scorecard（超出 QC） | ⛔ unavailable | ADR-0034 / TASK-028（WSM2 消费） |
+| 实验比较 / 评价 scorecard（超出 QC） | ✅ 可回答（WQ-15，contract v1.2） | ADR-0034 / TASK-028（WSM2-A 消费）；增量成本/时间 join 为 WQ-15 后续细化 |
 | 观众表现数据 | ⛔ optional-data/unavailable | S7-T03；TASK-037/039 |
 | 跨项目学习 / 证据化推荐 | ⛔ unavailable | ADR-0036 / TASK-032 |
 | Action 状态机 / 写操作 | ⛔ 范围外（只读合同不含） | ADR-0033/0035 / TASK-029/030/031（WSM2） |
@@ -254,6 +272,10 @@ schema**。每个 source 由一个独立只读 adapter 读取，跨域组合只�
 - **冻结查询基线**：WQ-01～WQ-14 及其返回语义、排序、失败规则构成 WSM1-A/B/C 可
   实现的稳定合同；TASK-025 实现 projection/query service 时只依据本文与 ADR-0031，
   不新增查询语义、不引入第二事实来源。
+- **WQ-15 扩展（contract v1.2，TASK-028 / WSM2-A）**：在冻结的 WQ-01～14 之上叠加
+  WQ-15 评价域只读消费（§8 覆盖表指定的 owner，ADR-0034 事实域）。为叠加式只读：
+  不改任何写入者、不改既有查询语义/排序/失败规则、不新增第二事实源；
+  `QUERY_CONTRACT_VERSION` 由 1.1 minor bump 至 1.2。WQ-01～14 基线保持冻结。
 - **Projection 策略（初版）**：见 ADR-0031 决策——WSM1 采用 **on-demand 求值、
   不落持久缓存**；因此本基线**不授权任何项目/账户持久 projection 路径**。若 WSM1-A
   证明必须物化，须回到后续 ADR 增补（锁定路径、生命周期、唯一写入者，且持久路径

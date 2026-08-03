@@ -12,7 +12,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from ai_video_workflow.workspace import io_contract
-from ai_video_workflow.workspace.adapters import delivery, execution, plan, project
+from ai_video_workflow.workspace.adapters import (
+    delivery,
+    evaluation,
+    execution,
+    plan,
+    project,
+)
 from ai_video_workflow.workspace.discovery import discover_projects
 from ai_video_workflow.workspace.envelope import (
     QUERY_CONTRACT_VERSION,
@@ -678,6 +684,78 @@ def evaluation_decision(project_root: Path, now: str) -> QueryResult:
     return _result("WQ-08", now, {"project_root": str(project_root)}, items, problems)
 
 
+# --- WQ-15 evaluation-domain (ADR-0034 / TASK-028, WSM2-A) --------------------
+
+
+def _stale_problem(record_id: str, reasons: tuple[str, ...]) -> Problem:
+    """Map a stale record's reasons to one structured, non-readiness problem.
+
+    A stale evaluation still returns as an authoritative fact; the problem only
+    flags that its binding no longer matches the current authoritative facts
+    (ADR-0034 P3) — informational, so it never fails readiness.
+    """
+    joined = "; ".join(reasons)
+    if any("missing" in r for r in reasons):
+        category = ProblemCategory.MISSING_REF
+    elif any("digest" in r for r in reasons):
+        category = ProblemCategory.DIGEST_MISMATCH
+    else:  # goals moved / newer version
+        category = ProblemCategory.VERSION_ABSENT
+    return Problem.of(
+        category,
+        f"evaluation {record_id} is stale: {joined}",
+        readiness_failed=False,
+        object=record_id,
+    )
+
+
+def evaluation_domain(project_root: Path, now: str) -> QueryResult:
+    """The append-only evaluation / experiment / creative-decision facts, each
+    with its bound target + goals + actor + payload (authoritative) and a
+    read-time DERIVED staleness (goals/digest/version drift, vanished target).
+    Experiment payloads carry their compared variants + changed factor +
+    expected/actual + reuse conclusion (the comparison view). Incremental
+    cost/time is not yet joined and is marked unavailable, never faked (query
+    contract §8; ADR-0034 keeps it derived from authoritative cost facts).
+    Sorted by occurred_at then record_id (query contract §3 WQ-15)."""
+    from ai_video_workflow.evaluation import WorkflowAuthoritativeFacts, staleness_of
+
+    src = evaluation.read_evaluation(project_root)
+    problems: list[Problem] = list(src.problems)
+    facts = WorkflowAuthoritativeFacts()
+    current_goals = facts.current_goals_version(project_root)
+    rows = sorted(src.records, key=lambda r: (r.occurred_at.isoformat(), r.record_id))
+    items: list[dict[str, Field]] = []
+    for record in rows:
+        stale = staleness_of(
+            record,
+            facts=facts,
+            project_root=project_root,
+            current_goals=current_goals,
+        )
+        env = record.to_envelope()
+        items.append(
+            {
+                "record_type": Field.authoritative(record.record_type.value),
+                "record_id": Field.authoritative(record.record_id),
+                "occurred_at": Field.authoritative(env["occurred_at"]),
+                "actor": Field.authoritative(record.actor.value),
+                "target": Field.authoritative(env["target"]),
+                "goals_version": Field.authoritative(record.goals_version),
+                "payload": Field.authoritative(env["payload"]),
+                "stale": Field.derived(stale.is_stale),
+                "stale_reasons": Field.derived(list(stale.reasons)),
+                "incremental_cost_time": Field.unavailable(
+                    "incremental cost/time join (target -> authoritative cost "
+                    "facts) is a later WQ-15 refinement"
+                ),
+            }
+        )
+        if stale.is_stale:
+            problems.append(_stale_problem(record.record_id, stale.reasons))
+    return _result("WQ-15", now, {"project_root": str(project_root)}, items, problems)
+
+
 # --- WQ-09 recent-problems ----------------------------------------------------
 
 
@@ -816,6 +894,7 @@ def _rebuild_runner(service, project_root: Path, query_id: str, params: dict):
         "WQ-12": lambda: service.reuse_usage(params["asset_id"], params["version"]),
         "WQ-13": lambda: service.approval_audit(project_root),
         "WQ-14": lambda: service.budget_standing(project_root),
+        "WQ-15": lambda: service.evaluation_domain(project_root),
     }
     return runners.get(query_id)
 

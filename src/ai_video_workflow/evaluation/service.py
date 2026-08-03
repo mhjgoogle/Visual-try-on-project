@@ -331,37 +331,62 @@ class EvaluationService:
     def _staleness(
         self, record: EvaluationRecord, current_goals: int | None
     ) -> Staleness:
-        reasons: list[str] = []
-        if current_goals is None:
-            reasons.append("project-goals baseline is missing")
-        elif current_goals != record.goals_version:
-            reasons.append(
-                f"goals baseline moved from v{record.goals_version} to v{current_goals}"
-            )
-        for target, label in _targets_of(record):
-            reasons.extend(self._target_reasons(target, label))
-        return Staleness(bool(reasons), tuple(reasons))
-
-    def _target_reasons(
-        self, target: Mapping[str, JsonCompatibleValue], label: str
-    ) -> list[str]:
-        ref = target["ref"]
-        version = target["version"]
-        digest = target["content_digest"]
-        fact = self._facts.resolve_target(
-            self._project_root, ref=str(ref), version=int(version)
+        return staleness_of(
+            record,
+            facts=self._facts,
+            project_root=self._project_root,
+            current_goals=current_goals,
         )
-        if not fact.exists:
-            return [f"{label} {ref!r} v{version} no longer resolves (target missing)"]
-        reasons: list[str] = []
-        if fact.content_digest != digest:
-            reasons.append(f"{label} {ref!r} v{version} content_digest drifted")
-        if fact.latest_version is not None and fact.latest_version > int(version):
-            reasons.append(
-                f"{label} {ref!r} has a newer authoritative version "
-                f"v{fact.latest_version}"
-            )
-        return reasons
+
+
+def staleness_of(
+    record: EvaluationRecord,
+    *,
+    facts: AuthoritativeFacts,
+    project_root: Path,
+    current_goals: int | None,
+) -> Staleness:
+    """Derive one record's staleness against the current authoritative facts.
+
+    The single source of the stale rule, shared by the write service and the
+    read-only query layer so both agree (ADR-0034 P3/P4). ``current_goals`` is
+    the resolver's current goals version, resolved once by the caller and passed
+    in so a batch read makes a single goals lookup. The record and the log are
+    never mutated — staleness is purely derived.
+    """
+    reasons: list[str] = []
+    if current_goals is None:
+        reasons.append("project-goals baseline is missing")
+    elif current_goals != record.goals_version:
+        reasons.append(
+            f"goals baseline moved from v{record.goals_version} to v{current_goals}"
+        )
+    for target, label in _targets_of(record):
+        reasons.extend(_target_reasons(target, label, facts=facts, root=project_root))
+    return Staleness(bool(reasons), tuple(reasons))
+
+
+def _target_reasons(
+    target: Mapping[str, JsonCompatibleValue],
+    label: str,
+    *,
+    facts: AuthoritativeFacts,
+    root: Path,
+) -> list[str]:
+    ref = target["ref"]
+    version = target["version"]
+    digest = target["content_digest"]
+    fact = facts.resolve_target(root, ref=str(ref), version=int(version))
+    if not fact.exists:
+        return [f"{label} {ref!r} v{version} no longer resolves (target missing)"]
+    reasons: list[str] = []
+    if fact.content_digest != digest:
+        reasons.append(f"{label} {ref!r} v{version} content_digest drifted")
+    if fact.latest_version is not None and fact.latest_version > int(version):
+        reasons.append(
+            f"{label} {ref!r} has a newer authoritative version v{fact.latest_version}"
+        )
+    return reasons
 
 
 def _targets_of(
