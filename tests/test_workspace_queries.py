@@ -218,6 +218,14 @@ def test_wq07_cost_breakdown_per_operation_and_derived_rollups(tmp_path, monkeyp
         == SHOTS * 10
     )
     assert op0["occurred_at"] is not None
+    # per-op occurred_month is the JST bucket used by by_time — a client can
+    # filter rows by it and never disagree with the monthly rollup / budget
+    assert op0["occurred_month"] in item["by_time"].value
+    assert all(
+        op["occurred_month"] in item["by_time"].value
+        for op in item["per_operation"].value
+        if op["actual"] is not None
+    )
 
 
 def test_wq07_unreconciled_committed_op_fails_closed(tmp_path, monkeypatch):

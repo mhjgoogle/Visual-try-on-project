@@ -492,6 +492,12 @@ def cost_breakdown(project_root: Path, now: str) -> QueryResult:
                 "hold_estimate_jpy": r.estimate_jpy if r.is_outstanding else None,
                 "actual": actual,
                 "occurred_at": (ev.occurred_at.isoformat() if ev is not None else None),
+                # JST calendar month of the cost event, from the SAME helper as
+                # by_time and the budget ledger — so a client filtering per-op
+                # rows by month can never disagree with the monthly rollups.
+                "occurred_month": (
+                    execution.month_of(ev.occurred_at) if ev is not None else None
+                ),
                 "packet_estimate_jpy": pk.estimate_jpy if pk is not None else None,
             }
         )

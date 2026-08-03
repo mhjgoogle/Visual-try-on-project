@@ -334,11 +334,44 @@ function objTable(rows, cols, prov) {
 // reference assets, generation packets, ALL settled results (candidates) beside
 // the SELECTED (registered) results, downstream products, and an explicit
 // unavailable note for image/audio/subtitle results (out of WFM1 scope).
+// The added/removed elements between two lists, compared by value (strings by
+// identity, objects by their JSON shape). Used to diff one prompt version's
+// reference assets / generation packets against its parent version.
+function _listDelta(prevVals, curVals) {
+  const key = (x) => (typeof x === "string" ? x : JSON.stringify(x));
+  const prevKeys = new Set((prevVals || []).map(key));
+  const curKeys = new Set((curVals || []).map(key));
+  return {
+    added: (curVals || []).filter((x) => !prevKeys.has(key(x))),
+    removed: (prevVals || []).filter((x) => !curKeys.has(key(x))),
+  };
+}
+
+// One "field: +added / -removed" diff row, or null when nothing changed.
+function _deltaRow(label, prevItem, curItem, fieldName) {
+  const d = _listDelta(
+    prevItem[fieldName] && prevItem[fieldName].value,
+    curItem[fieldName] && curItem[fieldName].value,
+  );
+  if (!d.added.length && !d.removed.length) return null;
+  const row = el("div", { class: "delta" });
+  row.appendChild(el("span", { class: "delta-label", text: `${label}: ` }));
+  d.added.forEach((x) =>
+    row.appendChild(el("span", { class: "added", text: `+${renderValue(x)} ` })));
+  d.removed.forEach((x) =>
+    row.appendChild(el("span", { class: "removed", text: `-${renderValue(x)} ` })));
+  return row;
+}
+
 function renderPromptHistory(target, data) {
   if (!data.items || !data.items.length) {
     if (!data.problems || !data.problems.length) target.appendChild(emptyPanel());
     return;
   }
+  const byVersion = {};
+  data.items.forEach((v) => {
+    if (v.version) byVersion[v.version.value] = v;
+  });
   data.items.forEach((v) => {
     const card = el("div", { class: "card version" });
     const ver = v.version && v.version.value;
@@ -355,6 +388,32 @@ function renderPromptHistory(target, data) {
       basis.appendChild(el("em", { text: "no change reason recorded" }));
     }
     card.appendChild(basis);
+
+    // explicit version-to-version diff: what actually changed from the parent
+    // (added/removed reference assets and generation packets). digest change
+    // is shown too so an identical-input revision is distinguishable.
+    const parent = prev != null ? byVersion[prev] : undefined;
+    if (parent) {
+      const diff = el("div", { class: "vdiff" });
+      diff.appendChild(el("h4", { text: `Changes from v${prev}` }));
+      let any = false;
+      ["reference_assets", "generation_packets"].forEach((f) => {
+        const row = _deltaRow(f.replace("_", " "), parent, v, f);
+        if (row) { diff.appendChild(row); any = true; }
+      });
+      const pd = parent.digest && parent.digest.value;
+      const cd = v.digest && v.digest.value;
+      if (pd !== cd) {
+        diff.appendChild(el("div", { class: "delta",
+          text: `digest: ${pd} → ${cd}` }));
+        any = true;
+      }
+      if (!any) {
+        diff.appendChild(el("p", { class: "muted",
+          text: "no reference-asset, packet or digest change from the parent" }));
+      }
+      card.appendChild(diff);
+    }
     card.appendChild(field("digest", v.digest));
     card.appendChild(field("reference assets", v.reference_assets));
     card.appendChild(field("generation packets", v.generation_packets));
@@ -386,6 +445,80 @@ function renderPromptHistory(target, data) {
 // Every amount stays in its original currency; amounts of different currencies
 // are shown in distinct columns and NEVER summed. JPY conversion and all rollups
 // are labelled derived; per-operation original amounts are authoritative.
+// A per-operation cost table with read-only client-side dimension filters
+// (shot / provider / model / status / month). Each <select> narrows the
+// already-loaded rows — never a re-query — so the authoritative facts are
+// unchanged; a running count shows how many rows the current filter keeps.
+// month is derived from the operation's occurred_at (WQ-07 v1.1).
+function renderCostOperations(oc, ops) {
+  const dims = [
+    ["shot", (op) => op.shot_id],
+    ["provider", (op) => op.provider_id],
+    ["model", (op) => op.model_id],
+    ["status", (op) => op.status],
+    // JST month from the query (occurred_month), NOT sliced from the UTC
+    // occurred_at string — so this filter agrees with the by_time / budget
+    // monthly rollups, which also bucket in JST.
+    ["month", (op) => op.occurred_month || null],
+  ];
+  const state = {};
+  const bar = el("div", { class: "filters" });
+  dims.forEach(([name, getter]) => {
+    const values = Array.from(
+      new Set(ops.map(getter).filter((v) => v != null && v !== "")),
+    ).sort();
+    if (!values.length) return;
+    const sel = el("select");
+    sel.setAttribute("aria-label", `Filter by ${name}`);
+    sel.appendChild(el("option", { value: "" }, [`${name}: all`]));
+    values.forEach((v) =>
+      sel.appendChild(el("option", { value: String(v) }, [String(v)])));
+    sel.addEventListener("change", () => { state[name] = sel.value; rerender(); });
+    bar.appendChild(sel);
+  });
+  oc.appendChild(bar);
+
+  const cols = ["task_id", "operation_id", "shot_id", "provider_id", "model_id",
+    "status", "quote", "hold_estimate_jpy", "actual", "occurred_at"];
+  const count = el("p", { class: "muted" });
+  oc.appendChild(count);
+  const table = el("table");
+  const head = el("tr");
+  cols.forEach((c) => head.appendChild(el("th", { text: c })));
+  table.appendChild(el("thead", null, [head]));
+  const body = el("tbody");
+  table.appendChild(body);
+  oc.appendChild(table);
+
+  const keep = (op) => dims.every(([name, getter]) => {
+    const want = state[name];
+    if (!want) return true;
+    const val = getter(op);
+    return String(val == null ? "" : val) === want;
+  });
+  function rerender() {
+    clear(body);
+    const shown = ops.filter(keep);
+    shown.forEach((op) => {
+      const tr = el("tr");
+      const flagged = op.status && op.status !== "committed" && op.status !== "settled";
+      if (flagged) tr.className = "flagged";
+      const quote = op.quote_minor_units == null ? "—"
+        : `${op.quote_minor_units} ${op.quote_currency || ""}`.trim();
+      const actual = op.actual
+        ? `${op.actual.cost_minor_units} ${op.actual.currency || ""}`.trim() : "—";
+      const cells = [op.task_id, op.operation_id, op.shot_id, op.provider_id,
+        op.model_id, op.status, quote,
+        op.hold_estimate_jpy == null ? "—" : op.hold_estimate_jpy,
+        actual, op.occurred_at || "—"];
+      cells.forEach((c) => tr.appendChild(el("td", { text: renderValue(c) })));
+      body.appendChild(tr);
+    });
+    count.textContent = `showing ${shown.length} of ${ops.length} operations`;
+  }
+  rerender();
+}
+
 function renderCost(target, costData, budgetResult) {
   const item = (costData.items && costData.items[0]) || {};
   // 1. budget line (WQ-14), if the budget query succeeded
@@ -422,35 +555,17 @@ function renderCost(target, costData, budgetResult) {
     item.quotes && item.quotes.provenance));
   target.appendChild(qc);
 
-  // 3. per-operation facts — quote / hold / actual kept distinct, failed &
-  //    retry/redo/fallback operations flagged so their cost is identifiable
+  // 3. per-operation facts — quote / hold / actual kept distinct, with
+  //    read-only client-side dimension filters. Filtering narrows the rows
+  //    already loaded; it never re-queries, so the authoritative facts stay
+  //    intact. Failed/retry/redo/fallback operations are flagged.
   const ops = (item.per_operation && item.per_operation.value) || [];
   const oc = el("div", { class: "card" });
   oc.appendChild(el("h3", { text: "Per-operation cost (quote / hold / actual kept distinct)" }));
-  if (!ops.length) { oc.appendChild(el("p", { class: "muted", text: "—" })); }
-  else {
-    const table = el("table");
-    const cols = ["task_id", "operation_id", "shot_id", "provider_id", "model_id",
-      "status", "quote", "hold_estimate_jpy", "actual"];
-    const head = el("tr");
-    cols.forEach((c) => head.appendChild(el("th", { text: c })));
-    table.appendChild(el("thead", null, [head]));
-    const body = el("tbody");
-    ops.forEach((op) => {
-      const tr = el("tr");
-      const flagged = op.status && op.status !== "committed" && op.status !== "settled";
-      if (flagged) tr.className = "flagged";
-      const quote = op.quote_minor_units == null ? "—"
-        : `${op.quote_minor_units} ${op.quote_currency || ""}`.trim();
-      const actual = op.actual
-        ? `${op.actual.cost_minor_units} ${op.actual.currency || ""}`.trim() : "—";
-      const cells = [op.task_id, op.operation_id, op.shot_id, op.provider_id, op.model_id,
-        op.status, quote, op.hold_estimate_jpy == null ? "—" : op.hold_estimate_jpy, actual];
-      cells.forEach((c) => tr.appendChild(el("td", { text: renderValue(c) })));
-      body.appendChild(tr);
-    });
-    table.appendChild(body);
-    oc.appendChild(table);
+  if (!ops.length) {
+    oc.appendChild(el("p", { class: "muted", text: "—" }));
+  } else {
+    renderCostOperations(oc, ops);
     oc.appendChild(el("div", { class: "provline" },
       item.per_operation ? [provBadge(item.per_operation.provenance)] : []));
   }
