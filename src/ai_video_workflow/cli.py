@@ -51,7 +51,7 @@ from ai_video_workflow.composition.ffmpeg import FfmpegVideoComposer
 from ai_video_workflow.config.catalog import ProviderEntry
 from ai_video_workflow.config.catalog_lock import load_locked_catalog
 from ai_video_workflow.config.project_config import load_project_config
-from ai_video_workflow.errors import AiVideoWorkflowError
+from ai_video_workflow.errors import AiVideoWorkflowError, FieldTypeError
 from ai_video_workflow.inspection.ffprobe import FfprobeMediaInspector
 from ai_video_workflow.manifest import StepManifest
 from ai_video_workflow.models import (
@@ -251,6 +251,65 @@ def _build_parser() -> argparse.ArgumentParser:
     _add("stage-approve", _cmd_stage_approve, extra=_stage_approve_args)
     _add("stage-reject", _cmd_stage_reject, extra=_stage_args)
     _add("stage-revise", _cmd_stage_revise, extra=_stage_args)
+
+    # TASK-028: evaluation / experiment / creative-decision write CLI (ADR-0034).
+    # The approved pre-Gateway write path: each record binds its target
+    # (ref+version+digest) and the CURRENT goals baseline and is refused when an
+    # AI actor would form a pass=true or a 'select' auto-winner. Writes are
+    # append-only (never overwrite); Workspace stays read-only.
+    def _eval_target(sp):
+        sp.add_argument("--actor", required=True, choices=("user", "ai"))
+        sp.add_argument("--target-ref", required=True)
+        sp.add_argument("--target-version", type=int, required=True)
+        sp.add_argument("--target-digest", required=True)
+
+    def _eval_args(sp):
+        _eval_target(sp)
+        sp.add_argument("--id", required=True)
+        sp.add_argument("--criterion", required=True)
+        sp.add_argument("--score", type=int, default=None)
+        sp.add_argument("--tag", default=None)
+        sp.add_argument("--pass", dest="passed", action="store_true")
+        sp.add_argument("--rationale", required=True)
+
+    def _experiment_args(sp):
+        _eval_target(sp)
+        sp.add_argument("--id", required=True)
+        sp.add_argument(
+            "--variant",
+            nargs=3,
+            action="append",
+            required=True,
+            metavar=("REF", "VERSION", "DIGEST"),
+        )
+        sp.add_argument("--changed-factor", required=True)
+        sp.add_argument("--expected-improvement", required=True)
+        sp.add_argument("--actual-result", default=None)
+        sp.add_argument("--reuse-conclusion", default=None)
+
+    def _decision_args(sp):
+        _eval_target(sp)
+        sp.add_argument("--id", required=True)
+        sp.add_argument(
+            "--decision-type",
+            required=True,
+            choices=(
+                "select",
+                "abandon",
+                "change_prompt",
+                "switch_model",
+                "redo",
+                "accept_imperfect",
+            ),
+        )
+        sp.add_argument("--changed", required=True)
+        sp.add_argument("--why", required=True)
+        sp.add_argument("--expected", required=True)
+        sp.add_argument("--actual", default=None)
+
+    _add("eval-record", _cmd_eval_record, extra=_eval_args)
+    _add("experiment-record", _cmd_experiment_record, extra=_experiment_args)
+    _add("decision-record", _cmd_decision_record, extra=_decision_args)
 
     # TASK-025: read-only cross-project workspace queries (WQ-01..WQ-14).
     # These never write, never call a Provider; --account-root defaults to
@@ -631,6 +690,102 @@ def _cmd_archive_project(args) -> None:
         f"archive manifest v{outcome['archive_manifest_version']}; "
         f"postmortem v{outcome['postmortem_version']}; "
         f"references: {outcome['references']}"
+    )
+
+
+# --- TASK-028: evaluation-domain write handlers (ADR-0034) -----------------
+
+
+def _evaluation_service(args):
+    from ai_video_workflow.evaluation import (
+        EvaluationService,
+        WorkflowAuthoritativeFacts,
+    )
+
+    data = _load_project_data(args.project_root)
+    return EvaluationService(
+        args.project_root,
+        data.project.project_id,
+        facts=WorkflowAuthoritativeFacts(),
+        clock=utc_now,
+    )
+
+
+def _eval_actor(value: str):
+    from ai_video_workflow.evaluation import EvaluationActor
+
+    return EvaluationActor(value)
+
+
+def _eval_target_arg(args) -> dict:
+    return {
+        "ref": args.target_ref,
+        "version": args.target_version,
+        "content_digest": args.target_digest,
+    }
+
+
+def _cmd_eval_record(args) -> None:
+    record = _evaluation_service(args).record_evaluation(
+        actor=_eval_actor(args.actor),
+        target=_eval_target_arg(args),
+        evaluation_id=args.id,
+        criterion=args.criterion,
+        score=args.score,
+        tag=args.tag,
+        passed=args.passed,
+        rationale=args.rationale,
+    )
+    print(
+        f"evaluation {record.record_id}: pass={record.payload['pass']} "
+        f"actor={record.actor.value} goals_v{record.goals_version}"
+    )
+
+
+def _parse_variant(ref: str, version: str, digest: str) -> dict:
+    try:
+        parsed = int(version)
+    except ValueError:
+        raise FieldTypeError(
+            f"--variant VERSION must be an integer, got {version!r}"
+        ) from None
+    return {"ref": ref, "version": parsed, "content_digest": digest}
+
+
+def _cmd_experiment_record(args) -> None:
+    variants = [
+        _parse_variant(ref, version, digest) for ref, version, digest in args.variant
+    ]
+    record = _evaluation_service(args).record_experiment(
+        actor=_eval_actor(args.actor),
+        target=_eval_target_arg(args),
+        experiment_id=args.id,
+        variants=variants,
+        changed_factor=args.changed_factor,
+        expected_improvement=args.expected_improvement,
+        actual_result=args.actual_result,
+        reuse_conclusion=args.reuse_conclusion,
+    )
+    print(
+        f"experiment {record.record_id}: {len(variants)} variants "
+        f"actor={record.actor.value} goals_v{record.goals_version}"
+    )
+
+
+def _cmd_decision_record(args) -> None:
+    record = _evaluation_service(args).record_creative_decision(
+        actor=_eval_actor(args.actor),
+        target=_eval_target_arg(args),
+        decision_id=args.id,
+        decision_type=args.decision_type,
+        changed=args.changed,
+        why=args.why,
+        expected=args.expected,
+        actual=args.actual,
+    )
+    print(
+        f"decision {record.record_id}: {record.payload['decision_type']} "
+        f"actor={record.actor.value} goals_v{record.goals_version}"
     )
 
 
