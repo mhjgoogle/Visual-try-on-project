@@ -1,10 +1,21 @@
 # TASK-036：WFM2 正式后期、QC、发布与复盘
 
-> **状态：Planned（聚焦设计草案已产出，见下「聚焦设计」；代码实施待 ADR-0039
-> Accepted、TASK-008 与 TASK-034/035）。** 本任务是 ADR-0039 owner，本轮已完成
-> 聚焦设计并把合同层裁决写入 [ADR-0039](../adr/ADR-0039-wfm2-postproduction-qc-release-contract.md)
-> （Proposed）；生产代码依赖 ADR-0039 Accepted、TASK-008 音频/字幕与 TASK-034/035
-> 正式创意/多媒体资产完成。docs/design 可提前。
+> **状态：Delivered（合同层，2026-08-04）。** ADR-0039 Accepted 后实施合同层
+> 交付：`src/ai_video_workflow/postproduction/`（S5–S7 step catalog + 不可变、
+> digest 绑定、跨面谱系的 artifact index）。ADR-0039 是合同层裁决（不定最终
+> schema/service/DB），故本任务交付 catalog + index 契约执行体：唯一写入者事实域
+> 分离（P5）、缺失≠零 status 语义（P7 not_applicable/unavailable）、跨面 input
+> 绑定（postproduction/creative/media 解析 + external 声明）、身份/线性版本/防
+> 覆盖/防篡改/body 绑定。QC/发布/复盘的具体 validator/service/CLI 与最终字段
+> schema 属 ADR-0039「Not decided here」，留作 TASK-037 验收后按需细化，不在本合同
+> 层展开。TASK-008 音画（S5-T04/T05）经 media/postproduction 跨面 input 接入。
+> codex-review-loop 4 轮过审（0 blocking）；本地已提交。
+>
+> **Follow-up（跨切面，非本任务范围）：** content_digest 为自算、无外部锚定/签名——
+> 与已 Accepted 的 creative/index.py、media/assets.py 及 QCD 日志同一约定。对「拥有
+> 项目写权限的攻击者原地改写并重算 digest」不设防（该威胁已使整个本地工具失效）；
+> 被引用的上游被改写会在下游 load 时经 digest 失配检出。若要 keyed/signed/锚定完整性
+> 模型，应作跨切面 ADR 统一处理，不在 TASK-036 单独修。
 
 ## 目的
 

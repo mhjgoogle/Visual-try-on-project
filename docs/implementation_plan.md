@@ -121,7 +121,7 @@ WFM2 在 WFM1 gate 之后补齐两份顶层需求仍缺少的完整创意、多�
 | [TASK-034](tasks/TASK-034-wfm2-full-creative-and-audiovisual-design.md) | 完整 L0–S3 创意/叙事/视听设计产物 | ADR-0037 | Implemented（2026-08-03；验收 TASK-037） |
 | [TASK-035](tasks/TASK-035-wfm2-multimedia-generation-and-lineage.md) | 图片/音频等多媒体 Provider、资产、谱系与成本 | ADR-0038 | Implemented（2026-08-04；打桩不花钱；验收 TASK-037） |
 | [TASK-008](tasks/TASK-008-subtitles-voice-audio.md) | 字幕、用户音频与合成增量 | ADR-0038/0039 | Delivered（2026-08-04；audio/ 包 + AV 混流步骤 + audiovisual_completed 事件） |
-| [TASK-036](tasks/TASK-036-wfm2-formal-postproduction-qc-release.md) | 正式 S4–S7 后期、QC、发布与复盘 | ADR-0039 | Planned |
+| [TASK-036](tasks/TASK-036-wfm2-formal-postproduction-qc-release.md) | 正式 S4–S7 后期、QC、发布与复盘 | ADR-0039 | Delivered（合同层，2026-08-04；postproduction catalog+index，事实域分离+status 语义） |
 | [TASK-037](tasks/TASK-037-wfm2-end-to-end-acceptance.md) | WFM2 端到端 milestone gate | TASK-008/034～036 | Planned |
 
 ### WFM3 自动化路线

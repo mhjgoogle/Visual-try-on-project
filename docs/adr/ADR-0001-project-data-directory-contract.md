@@ -79,6 +79,21 @@
   `CompositionProfile`, M1 `composition` step, `VideoAsset` and `serialization.py`
   are untouched; no TTS / paid API is used (user-provided files; tests
   self-generate deterministic placeholder WAV/SRT).
+- Amended (ninth): 2026-08-04 — TASK-036 WFM2 S5–S7 post-production / QC / release /
+  archive artifact index tree `postproduction/s5/`, `postproduction/s6/`,
+  `postproduction/s7/` (files `postproduction/<stage>/<ref>_v<N>.json`), each an
+  immutable create-only structured index carrying `ref/version/content_digest`,
+  its `fact_domain` (unique writer per domain — ADR-0039 P5), producing step,
+  cross-surface digest-bound input refs (surface ∈ {postproduction, creative,
+  media, external}; the first three are resolved, `external` QCD/operation/
+  evaluation facts are declared-only), parent version + change reason, checklist
+  evidence, an optional `body_ref` bound by `body_digest`, and a `status`
+  (`produced` / `not_applicable` / `unavailable` — missing ≠ zero, ADR-0039 P7,
+  format per ADR-0039 / TASK-036). This amendment extends the layout; it does not
+  change any earlier decision. QC/release/post-mortem are PROJECTIONS derived from
+  authoritative media/QCD/evaluation facts — this index records identity/lineage
+  only and introduces no second cost/run ledger; concrete field schema, DB and
+  paid publish/analytics APIs remain out of scope (deferred by ADR-0039).
 
 ## Context
 
