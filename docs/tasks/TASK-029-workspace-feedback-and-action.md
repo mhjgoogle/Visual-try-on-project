@@ -1,10 +1,16 @@
 # TASK-029：Feedback、Action 合同与只读 Action Center（WSM2-B）
 
-> **状态：Planned（聚焦设计草案已产出，见下「聚焦设计」；代码实施待 ADR-0035
-> Accepted 与相应 gate）。** TASK-029 是 ADR-0035 的 decision owner，本轮已完成聚焦
-> 设计并把裁决写入 ADR-0035（Proposed）；生产代码依赖 ADR-0035 Accepted、
-> TASK-025/026/028。Gateway 前 feedback/action 仅由批准的 CLI/app service 写入，
-> Workspace Action Center 只读。
+> **状态：Delivered（2026-08-03；ADR-0035 已 Accepted）。** feedback/action 独立
+> 事实域（append-only `action/events/log.jsonl`，ADR-0001 第三次增补）、独立状态机
+> （fold 派生 + 合法转换图 + user-only verification + stale 叠加）、绑定/actor/stale
+> fail-closed 的批准写 CLI（feedback-create/action-create/action-transition/-handle/
+> -verify/-rebind），以及只读 Action Center（WQ-16，query 合同 v1.3，ws-action-center）
+> 均已实施，经 codex 11 轮独立审查通过（14 条 blocking 修复，末轮 free-text
+> secret-scanning finding 以威胁模型 rebuttal 收束）。写入仅经批准 CLI/app service，
+> Workspace 对本域只读；Action 隐含的真实变更留待 Command Gateway（ADR-0033 /
+> TASK-030）。新增共享 `appendlog` 加固原语供后续 append-only 日志复用。
+>
+> TASK-029 是 ADR-0035 的 decision owner，聚焦设计已写入 ADR-0035（Accepted）。
 
 ## 目的
 
@@ -90,8 +96,8 @@ schema/字段/目录/类型/DB、不定 Gateway 协议、不含代码。裁决�
 
 ## 验收标准
 
-- [ ] Action 始终绑定精确对象版本且状态域独立；
-- [ ] 用户可查看完整问题处理和验证闭环；
-- [ ] stale Action 不能继续执行或冒充已解决；
-- [ ] Workspace 在 Gateway 前仍为只读；
-- [ ] 未授予 Agent 绕过核心合同的写权限。
+- [x] Action 始终绑定精确对象版本且状态域独立；
+- [x] 用户可查看完整问题处理和验证闭环；
+- [x] stale Action 不能继续执行或冒充已解决；
+- [x] Workspace 在 Gateway 前仍为只读；
+- [x] 未授予 Agent 绕过核心合同的写权限。
