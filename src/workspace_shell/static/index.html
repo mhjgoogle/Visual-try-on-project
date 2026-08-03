@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Creation Workspace — read-only</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <nav class="sidebar" aria-label="Projects">
+        <h1>Creation Workspace</h1>
+        <p class="sub">Read-only observation (WSM1-B)</p>
+        <div id="project-nav" aria-live="polite">
+          <p class="state loading">Loading projects…</p>
+        </div>
+      </nav>
+      <main class="content" id="main" tabindex="-1" aria-live="polite">
+        <p class="state loading">Loading…</p>
+      </main>
+    </div>
+    <script src="/app.js"></script>
+  </body>
+</html>
