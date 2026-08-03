@@ -1,9 +1,14 @@
 # TASK-035：WFM2 多媒体生成、资产谱系与统一成本
 
-> **状态：Planned（聚焦设计草案已产出，见下「聚焦设计」；代码 / Provider / 付费
-> 实现仍待 ADR-0038 Accepted 且在 ADR-0006/0009 付费授权范围内）。** 本任务是
-> ADR-0038 owner；本轮已完成聚焦设计并把合同层裁决写入 ADR-0038（Proposed）。
-> ADR-0038 未 Accepted 前不得实现 Provider、资产路径或付费调用。
+> **状态：Implemented（2026-08-04）。** ADR-0038 Accepted、TASK-034 交付后实施。
+> 新包 `src/ai_video_workflow/media/`：capability 声明的 `MediaProvider` registry
+> （fail-closed；仅离线零成本 stub）、媒体资产身份/谱系索引（不可变线性版本、
+> content_digest + 媒体文件 sha256 绑定、跨域 input_refs 解析）、generation batch +
+> selection（全候选保留、未选不删）、正式资产 promotion，统一成本复用现有
+> budget/reservation/QCD 链（`provider_cost_recorded` 事件，ledger 自动汇总，不建第二账本）。
+> 路径经 ADR-0001 第七次增补授权（`media/assets|batches|selections/…`、`staging/media/…`）。
+> `VideoProvider` 冻结合同原样保留、不泛化；默认全打桩不花钱，真实付费仍为显式 opt-in
+> （ADR-0006/0009）。WFM2 端到端最终验收由 TASK-037。原文见下「聚焦设计」。
 
 ## 目的
 
@@ -38,6 +43,17 @@
 - 不实现完整后期、发布、Workspace 页面或自动路由；
 - 不让 Provider 写业务文件、选择正式资产路径或绕过预算；
 - 不把临时 URL 作为唯一产物身份。
+
+## 已记录的后续项（范围外，不在本任务修）
+
+- **共享下载器 SSRF 加固（follow-up）**：外部 `external_ref` 通过注入的
+  `UrllibMediaFetcher` 下载（scheme allowlist + redirect 复检 + size cap）。该下载器
+  是 WFM1 视频付费链（`app/paid_coordinator.py`）与本媒体链**共用**的安全边界，二者
+  当前均**未**在连接层阻断 loopback/私网/metadata IP（SSRF）。此暴露是既有、跨链、
+  已 Accepted 的姿态，正确修复位置在共享下载器（ADR-0006/0009 范围），会同时改动视频
+  付费链，超出 TASK-035（ADR-0038 合同层）授权。媒体层只做 http(s) scheme fail-fast 并
+  委托下载器，IP 层 SSRF 加固作为独立 follow-up（同时覆盖视频+媒体）跟踪，不在此单侧
+  实现（AGENTS.md 17：范围外问题记录不顺手改）。默认离线 stub 从不产生 external_ref。
 
 ## 聚焦设计（多媒体 Provider / 资产 / 成本合同）
 

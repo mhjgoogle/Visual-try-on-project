@@ -464,6 +464,29 @@ def _build_parser() -> argparse.ArgumentParser:
     _add("creative-plan", _cmd_creative_plan, extra=_creative_plan_args)
     _add("creative-publish", _cmd_creative_publish, extra=_creative_publish_args)
     _add("creative-validate", _cmd_creative_validate, extra=_creative_validate_args)
+
+    # TASK-035: WFM2 multimedia (image/audio) — offline stub generation, batch +
+    # selection (all candidates retained), and formal asset promotion. No real
+    # paid API; cost reuses the existing budget/QCD chain.
+    def _media_generate_args(sp):
+        sp.add_argument("--from", dest="from_file", type=Path, required=True)
+
+    def _media_select_args(sp):
+        sp.add_argument("--batch-id", required=True)
+        sp.add_argument("--candidate-id", required=True)
+        sp.add_argument("--selection-id", required=True)
+        sp.add_argument("--rationale", default="")
+
+    def _media_promote_args(sp):
+        sp.add_argument("--selection-id", required=True)
+        sp.add_argument("--ref", required=True)
+        sp.add_argument("--version", type=int, default=1)
+        sp.add_argument("--parent-version", type=int, default=None)
+        sp.add_argument("--change-reason", default=None)
+
+    _add("media-generate", _cmd_media_generate, extra=_media_generate_args)
+    _add("media-select", _cmd_media_select, extra=_media_select_args)
+    _add("media-promote", _cmd_media_promote, extra=_media_promote_args)
     return parser
 
 
@@ -1140,6 +1163,88 @@ def _cmd_creative_publish(args) -> None:
     print(
         f"creative {artifact.stage}/{artifact.ref} v{artifact.version} -> {rel} "
         f"digest={artifact.content_digest}"
+    )
+
+
+def _cmd_media_generate(args) -> None:
+    import json as _json
+
+    from ai_video_workflow.media import default_media_registry, generate_batch
+    from ai_video_workflow.media.errors import MediaError
+
+    try:
+        spec = _json.loads(args.from_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise MediaError(f"unable to read media spec: {exc}") from exc
+    if not isinstance(spec, dict):
+        raise MediaError("media spec must be a JSON object")
+    required = (
+        "provider_id",
+        "operation_id",
+        "batch_id",
+        "capability",
+        "media_kind",
+        "prompt",
+        "model_id",
+        "candidate_ids",
+    )
+    for key in required:
+        if key not in spec:
+            raise MediaError(f"media spec missing required field: {key!r}")
+    cand = spec["candidate_ids"]
+    if not (isinstance(cand, list) and all(isinstance(c, str) for c in cand)):
+        raise MediaError("media spec 'candidate_ids' must be a list of strings")
+    batch = generate_batch(
+        args.project_root,
+        registry=default_media_registry(),
+        provider_id=spec["provider_id"],
+        operation_id=spec["operation_id"],
+        batch_id=spec["batch_id"],
+        capability=spec["capability"],
+        media_kind=spec["media_kind"],
+        prompt=spec["prompt"],
+        model_id=spec["model_id"],
+        candidate_ids=cand,
+        clock=utc_now,
+        parameters=spec.get("parameters", {}),
+        input_refs=spec.get("input_refs", []),
+    )
+    print(
+        f"media batch {batch.batch_id}: {len(batch.candidates)} candidates "
+        f"({', '.join(c.candidate_id for c in batch.candidates)})"
+    )
+
+
+def _cmd_media_select(args) -> None:
+    from ai_video_workflow.media import record_selection
+
+    sel = record_selection(
+        args.project_root,
+        selection_id=args.selection_id,
+        batch_id=args.batch_id,
+        selected_candidate_id=args.candidate_id,
+        rationale=args.rationale,
+    )
+    print(
+        f"selection {sel.selection_id}: batch {sel.batch_id} "
+        f"-> {sel.selected_candidate_id}"
+    )
+
+
+def _cmd_media_promote(args) -> None:
+    from ai_video_workflow.media import promote_selection
+
+    asset = promote_selection(
+        args.project_root,
+        ref=args.ref,
+        version=args.version,
+        selection_id=args.selection_id,
+        parent_version=args.parent_version,
+        change_reason=args.change_reason,
+    )
+    print(
+        f"media asset {asset.media_kind}/{asset.ref} v{asset.version} "
+        f"digest={asset.content_digest} batch={asset.batch_id}"
     )
 
 

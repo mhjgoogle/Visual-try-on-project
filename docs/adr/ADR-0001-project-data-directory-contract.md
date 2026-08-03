@@ -36,6 +36,28 @@
   `planning/` and `approval/` paths are unaffected and remain the S3 formal /
   approval surface. Full JSON field schema, DB/projection and any Provider path
   remain out of scope (deferred by ADR-0037 to later ADRs).
+- Amended (seventh): 2026-08-04 — the WFM2 multimedia (image/audio) asset,
+  batch and selection tree: `media/assets/<kind>/<ref>_v<N>.json` (immutable
+  create-only asset index: stable `ref/version/content_digest`, `media_kind` ∈
+  {reference, master, keyframe, generated_image, audio_generation}, producer
+  operation ref + provider/model/parameters, input refs, optional `batch_id`,
+  and the bound media file's `media_sha256`), `media/batches/<batch_id>.json`
+  (a generation batch retaining ALL candidate results), and
+  `media/selections/<selection_id>.json` (a user selection referencing one
+  batch candidate; unselected candidates are never deleted). Media staging uses
+  `staging/media/<batch_id>/<candidate_id>.<ext>` (one file per retained
+  candidate, keyed by the unique batch so distinct generations never collide)
+  with the existing trusted-download
+  `.fetched.json` sha256 receipt (format per ADR-0038 / TASK-035). Cost,
+  reservation and budget REUSE the existing chain: media cost is recorded
+  through the existing `qcd/events/log.jsonl` `provider_cost_recorded` event and
+  `budget/reservations/` — no second ledger or cost path is introduced. This
+  amendment extends the layout; it does not change any earlier decision. The
+  frozen `VideoProvider`, `VideoAsset`, `staging/shots/` and video `asset_kind`
+  are untouched; media Providers never write these business facts. Concrete
+  final field schema, DB/projection and specific paid vendors remain out of
+  scope (ADR-0038 defers them; real paid calls stay explicit opt-in under
+  ADR-0006/0009 credential discipline).
 
 ## Context
 
