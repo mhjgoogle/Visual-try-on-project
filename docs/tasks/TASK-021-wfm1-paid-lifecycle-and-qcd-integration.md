@@ -2,8 +2,7 @@
 
 > **状态：Implemented。** QCD 聚合增量由
 > [ADR-0020](../adr/ADR-0020-qcd-aggregation-cloud-cost-increment.md) 先行
-> 授权（原拟 ADR-0013，因与并行 Workspace 治理 ADR 编号冲突改号，方案 A
-> 用户裁决）。实现：`qcd/aggregation.py` 单分支增量（provider_cost_recorded
+> 授权（先行决策最终编号为 ADR-0020）。实现：`qcd/aggregation.py` 单分支增量（provider_cost_recorded
 > 入 cost_by_currency）+ `app/paid_lifecycle.py`（committed 门槛、受信媒体、
 > 单一权威路径集成、lineage projection）+ CLI `paid-integrate`/`lineage`。
 > 未重写 M1 Orchestrator；恢复入口不重复 submit/记账/覆盖。

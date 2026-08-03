@@ -1,9 +1,10 @@
 # AI 视频创作工作视窗统一需求
 
-> **状态：Draft（产品方向已确认，实施范围未拆分）。**
+> **状态：Approved requirements；实施路线已规划，功能尚未实现。**
 > 本文定义核心 AI 视频工作流稳定后的统一创作控制台需求，不表示当前代码已经
-> 实现这些能力。当前不分配正式 TASK 编号，不选择最终界面技术，不锁定数据库
-> 或持久化 schema。安全边界见
+> 实现这些能力。TASK-024～033 交付 Workspace-on-WFM1 数据基线，TASK-039 扩展
+> 完整多媒体和 WFM2/WFM3 命令能力，TASK-040 执行最终验收；最终界面技术、数据库
+> 和持久化 schema 仍由对应 Proposed ADR 裁决。安全边界见
 > [ADR-0010](adr/ADR-0010-creation-workspace-boundary.md)，核心数据 readiness 见
 > [Creation Workspace 数据可观察性要求](creation_workspace_data_observability_requirements.md)。
 
@@ -35,6 +36,8 @@
 统一展示所有项目的当前阶段、整体及阶段进度、正在运行的步骤、等待/失败/
 阻塞/跳过状态、最近产物、最近问题、累计成本和剩余预算。新项目尚未运行时也
 必须由工作流定义显示完整计划，不得只根据已有运行记录拼出不完整流程。
+计划中的步骤、依赖、预期输入输出和 Gate 以
+[L0–S7 工作层级输入输出合同](design/workflow-stage-step-io-contract.md) 为语义基线。
 
 阶段详情展示步骤依赖、输入/输出、运行状态、Provider、模型、运行时间、尝试
 次数、预计/实际成本及失败或阻塞原因。
@@ -172,15 +175,20 @@ GenerationTask、Manifest、Provider 或 Orchestrator 状态。
 
 ## 8. 当前阶段与建设顺序
 
-核心 AI 视频工作流尚未完成。当前只要求正在设计的核心产物保留稳定标识、版本、
+WFM1 实现已进入 milestone review，但完整 WFM2/WFM3 核心工作流尚未完成。当前
+要求正在设计的核心产物保留稳定标识、版本、
 digest、输入/输出关系、Provider/模型/参数、时间、成本、评价和问题关联能力；这不
 授权提前实现 UI、数据库、Action schema 或通用事件平台。
 
-当前不设置正式任务编号，不锁定最终界面技术和数据结构。
+实施编号和里程碑由
+[ADR-0030](adr/ADR-0030-creation-workspace-delivery-governance.md) 确定；完整路线见
+[Creation Workspace 实施路线](design/creation-workspace-implementation-roadmap.md)，
+逐项需求归属见
+[端到端需求追踪矩阵](design/end-to-end-requirements-traceability.md)。
 
 ### 8.1 核心工作流 readiness gate
 
-进入任何工作视窗实施任务前，至少满足：
+WSM1 最终验收和 WSM2 写能力开始前，至少满足：
 
 - TASK-018～023 已完成并通过 WFM1 milestone review；
 - 项目未运行时也能从权威定义获得完整计划；
@@ -191,11 +199,17 @@ digest、输入/输出关系、Provider/模型/参数、时间、成本、评价
 - 仍未满足的字段明确标为 `unavailable/legacy`，不存在伪造补值。
 
 readiness gate 只证明核心数据足以被观察，不表示 Command Gateway、Action 或 UI
-已经设计完成。
+已经设计完成。TASK-024 可立即实施；TASK-025/026 可针对已 Accepted 的 source
+contract 增量开发只读能力，但 WSM1 不得在本 gate 前宣告完成。
+
+TASK-033 只证明工作视窗在 WFM1 已支持产物和命令范围内形成观察、评价、Action、
+受控运行和学习基线；图片、正式音频/字幕、完整 L0–S7 及 WFM3 命令能力必须等
+TASK-034～039，不能用 `unavailable` 状态替代最终交付。TASK-040 才是本文全部需求
+的最终产品 gate。
 
 ### 8.2 后续建设顺序
 
-核心工作流通过 readiness gate 后，再按以下顺序形成任务卡和必要 ADR：
+任务已按以下顺序形成；每项仍须满足其任务卡依赖与 ADR gate：
 
 ```text
 核心工作流和 Orchestrator
@@ -207,6 +221,8 @@ readiness gate 只证明核心数据足以被观察，不表示 Command Gateway�
 → Command Gateway
 → 工作视窗直接运行
 → 项目复盘与跨项目学习
+→ 完整多媒体与 WFM3 能力扩展
+→ 两份顶层需求联合验收
 ```
 
 每一阶段优先复用已有 CLI/app service、审批、预算、QCD、digest、恢复和防覆盖
@@ -221,4 +237,4 @@ readiness gate 只证明核心数据足以被观察，不表示 Command Gateway�
 - 是否使用数据库、搜索索引、消息队列或后台 worker；
 - Command Gateway、Action、评价、实验、谱系和知识库的最终 schema/API；
 - pause/cancel/skip 的精确状态转换和厂商取消计费语义；
-- 工作视窗建设任务编号、里程碑名称和验收批次。
+- Proposed ADR 的最终技术裁决及各任务的精确验收批次细节。

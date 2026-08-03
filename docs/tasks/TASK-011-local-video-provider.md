@@ -1,6 +1,6 @@
 # TASK-011：LocalVideoProvider（阶段 8）
 
-> **状态：大纲（OUTLINE，Milestone 3——被产品级决策阻塞）。**
+> **状态：Outline（可选 WFM3 升级）。**
 > 本地模型选型与硬件约束（WSL2 GPU 直通、显存）须用户裁决并记录
 > ADR 后才能进入聚焦设计。
 
@@ -31,9 +31,10 @@ Local Video Model Provider
 ## 依赖
 
 TASK-003/004（已交付）；TASK-005/006/007（端到端验证链路）；
-用户裁决 1–3。与 TASK-010 互相独立，可并行。
+用户裁决 1–3。与现行 TASK-016/017 云 Provider 路线互相独立；最终产品验收
+不以本地 Provider 为硬依赖，只有用户选择本地路线时才进入实施。
 
 ## 当前状态
 
-Outline only — blocked on user product decisions
-（模型/硬件/存放）；不计入 Milestone 1–2 回归门槛
+Optional WFM3 upgrade — blocked on user product decisions
+（模型/硬件/存放）；不计入 WFM2/WFM3 最小验收门槛。

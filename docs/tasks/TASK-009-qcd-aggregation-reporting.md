@@ -1,7 +1,7 @@
 # TASK-009：QCD 汇总、指标计算与报告（阶段 6）
 
-> **状态：已实现（IMPLEMENTED，Milestone 2）——聚焦设计与实现已完成，
-> 待与 TASK-008 一并进行 M2 milestone review。**
+> **状态：Implemented。** 原 M1/M2 聚合已完成；云端权威成本分支随后由
+> ADR-0020/TASK-021 增量加入。TASK-008 已转入 WFM2，不再作为本任务的审查门槛。
 
 ## 正式名称
 
@@ -116,4 +116,5 @@ implemented (M2 batch, branch `feat/m1-minimal-loop`) — focused design
 `qcd/reporting.py` (versioned, byte-stable `run_qcd_report_step`) +
 `qcd-report` CLI subcommand, delivered across 2 commits; 13 focused
 tests; full pytest 1896 passed / 2 skipped, ruff + git diff --check
-clean. M2 milestone review pending (runs with TASK-008).
+clean。后续 `provider_cost_recorded` 聚合增量见 ADR-0020/TASK-021；本卡不再
+等待 TASK-008，也不覆盖 WFM2 多媒体成本合同。

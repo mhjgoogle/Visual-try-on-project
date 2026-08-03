@@ -5,6 +5,8 @@
 - Scope tasks: TASK-010 (first cloud video provider)
 - Supersedes (narrowly): AGENTS.md 规则 10「第一阶段不接入任何付费
   API」— for the TASK-010 cloud provider only.
+- Historical implementation note: TASK-010 后由 TASK-016/017 取代；本 ADR 的
+  付费边界解除与安全原则由 ADR-0008/0009 延续，不再授权第二条 TASK-010 实现线。
 
 ## Context
 
@@ -52,3 +54,9 @@ TASK-010 解除该边界**，进入 M3 的云 Provider 实施轨道。
 
 - 厂商选型、预算数值、凭据命名（TASK-010 聚焦设计 + 用户裁决）;
 - LocalVideoProvider(TASK-011) 与自动路由(TASK-012) 的产品决策。
+
+## Later resolution
+
+厂商中立预算、审批、reservation 与成本事实由 TASK-016/ADR-0008 落地；首个
+厂商 MiniMax 的凭据、端点和计费合同由 TASK-017/ADR-0009 落地。因此 TASK-010
+保留为历史卡，现行实现和后续扩展均不得绕过上述合同。

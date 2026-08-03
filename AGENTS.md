@@ -43,14 +43,25 @@ WFM1 工作流见
 文档权威关系见
 [ADR-0007](docs/adr/ADR-0007-wfm1-document-baseline-and-governance.md)。
 
-### 统一创作工作视窗（未来路线）
+### 统一创作工作视窗（已规划路线）
 
-核心工作流稳定后，将建设跨项目 Creation Workspace。需求草案见
+跨项目 Creation Workspace 已进入分阶段建设规划。需求基线见
 [docs/ai_video_creation_workspace_requirements.md](docs/ai_video_creation_workspace_requirements.md)，
 安全边界见
 [ADR-0010](docs/adr/ADR-0010-creation-workspace-boundary.md)，WFM1 数据准备见
 [docs/creation_workspace_data_observability_requirements.md](docs/creation_workspace_data_observability_requirements.md)。
-当前不设置实施任务编号，不锁定 UI 技术或最终数据结构，也不属于 WFM1 验收范围。
+交付治理见
+[ADR-0030](docs/adr/ADR-0030-creation-workspace-delivery-governance.md)，任务路线为
+`TASK-024`～`TASK-033`（WFM1 数据基线）。TASK-024 可立即做 docs-only 收口，已稳定 source 的只读
+能力可增量实施；Workspace 仍不属于 WFM1 验收，生产级只读验收及全部界面写能力
+受 TASK-023 门槛约束。UI 技术和最终数据结构只有在对应 Proposed ADR Accepted
+后才可实施。完整流程由 WFM2 TASK-008/034～037 与 WFM3 TASK-012/038 补齐，
+Workspace 完整多媒体扩展和两份顶层需求最终验收分别由 TASK-039/040 承接；
+统一归属见
+[端到端需求追踪矩阵](docs/design/end-to-end-requirements-traceability.md)。
+L0–S7 阶段/步骤的逻辑输入输出基线见
+[工作层级输入输出合同](docs/design/workflow-stage-step-io-contract.md)；实现任务只能
+细化获批 schema/路径，不能删除输入绑定、输出身份或人工 Gate。
 
 ## 2. 技术与环境约束
 
@@ -76,6 +87,9 @@ WFM1 工作流见
 文件；变更命令经 Command Gateway 和 Workflow Orchestrator 应用边界；观察数据
 可从权威文件/事件重建；界面关闭不影响核心执行。未经正式任务卡与 ADR，不得
 提前实现 UI、Action Center、数据库或 UI 专用状态机。
+图片/音频等多媒体 Provider 抽象、完整创意/后期与 WFM3 command capability 必须
+分别等待 ADR-0037～0040 Accepted；不得提前泛化 `VideoProvider` 或由 UI 发明
+pause/cancel/skip 状态。
 
 ## 4. Agent 协作规则
 

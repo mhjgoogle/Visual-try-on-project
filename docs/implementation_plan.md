@@ -27,11 +27,11 @@
 | 2（QCD 事件采集） | TASK-007（基础设施在 TASK-005） | completed（M1） |
 | 3 | TASK-005 | completed（M1） |
 | 4 | TASK-006 + TASK-007（CLI 接线与端到端闭环） | completed（M1） |
-| 5 | TASK-008 | planned（M2，含产品级未决问题） |
-| 6 | TASK-009 | implemented（M2 milestone review pending） |
-| 7 | TASK-010 | outline（M3；付费边界已解除，仍待厂商/预算/凭据裁决） |
-| 8 | TASK-011 | outline（M3，待用户裁决模型/硬件） |
-| 9 | TASK-012 | outline（M3） |
+| 5 | TASK-008 | planned（WFM2；用户音频/字幕起点） |
+| 6 | TASK-009 | implemented（ADR-0020/TASK-021 已增补云成本） |
+| 7 | TASK-010 | historical/superseded by TASK-016/017 |
+| 8 | TASK-011 | outline（可选 WFM3 升级） |
+| 9 | TASK-012 | outline（WFM3，由 TASK-038 承接） |
 
 ## WFM1 增量里程碑
 
@@ -58,12 +58,12 @@ WFM1 以原 M1 为稳定依赖，工作流需求见
 | TASK-015 | 配置/审批/预算合同对齐（吸收原型 B1/B2/B3） | 无 | Implemented；已完成与 TASK-016 的统一审查 |
 | TASK-016 | 云端 Provider 接线 + 权威成本事实（吸收 P-C） | 仅 `qcd/events.py` 增第 8 类事件（ADR-0008） | Implemented；资金安全修正已验收 |
 | TASK-017 | MiniMax 真实 API + 外部任务恢复 + 安全冒烟 | 无；厂商合同见 ADR-0009 | Completed：六轮独立复审通过（`205a88f`），真实付费冒烟端到端通过（`b231b91`） |
-| TASK-018 | 项目实例 profile 与跨项目复用资产引用 | 待配套目录 ADR；不改既有目录合同 | Draft |
-| TASK-019 | L0/S1-S7 阶段审批、退回与变更失效 | 如新增路径须配套 ADR | Draft |
-| TASK-020 | L0-S3 生产规划、镜头任务包与预算预览 | 无 | Draft |
-| TASK-021 | 付费媒体接回 M1 生命周期 + 云成本纳入 QCD 报表 | QCD 聚合增量须配套 ADR | Draft |
-| TASK-022 | S4-S7 质检、发布包与归档复盘 | 无 | Draft |
-| TASK-023 | WFM1 端到端验收与正式文档收口 | 无 | Draft |
+| TASK-018 | 项目实例 profile 与跨项目复用资产引用 | ADR-0011 的新增路径；既有目录合同不变 | Implemented（`706a417`）；milestone review pending |
+| TASK-019 | L0/S1-S7 阶段审批、退回与变更失效 | ADR-0012 的新增路径 | Implemented（`7e86578`）；milestone review pending |
+| TASK-020 | L0-S3 生产规划、镜头任务包与预算预览 | ADR-0012 的新增路径 | Implemented（`159bcfa`）；milestone review pending |
+| TASK-021 | 付费媒体接回 M1 生命周期 + 云成本纳入 QCD 报表 | ADR-0020 授权 QCD 聚合增量 | Implemented（`76a28fc`）；milestone review pending |
+| TASK-022 | S4-S7 质检、发布包与归档复盘 | ADR-0012 的新增路径 | Implemented（`f9edd00`）；milestone review pending |
+| TASK-023 | WFM1 端到端验收与正式文档收口 | 无 | Implemented；WFM1 milestone review pending |
 
 - 临时命名 B1/B2/B3 的已落盘原型归入 **TASK-015**；临时 P-C 归入
   **TASK-016**。原型代码不删除、不覆盖，由 TASK-015 在其上对齐合同。
@@ -77,40 +77,70 @@ WFM1 以原 M1 为稳定依赖，工作流需求见
 
 1. **TASK-017 milestone gate**：已完成——六轮独立复审全部闭合并通过，
    真实付费冒烟（submit → query → retrieve → 下载真实 MP4）端到端验证。
-2. **Batch C（TASK-018 + TASK-019）**：锁定项目/复用边界与独立阶段审批。
-   ——当前批次。
-3. **Batch D（TASK-020 + TASK-021）**：形成生产任务包，并把付费媒体接回 M1
-   校验、资产、合成和官方 QCD 报表。
-4. **Batch E（TASK-022 + TASK-023）**：完成最小 QC/交付/归档并执行 WFM1
-   端到端 milestone 验收。
+2. **Batch C（TASK-018 + TASK-019）**：已实现项目/复用边界与独立阶段审批，
+   等待 WFM1 milestone review 收口。
+3. **Batch D（TASK-020 + TASK-021）**：已实现生产任务包、付费媒体接回 M1
+   校验/资产/合成及官方 QCD 云成本聚合，等待 WFM1 milestone review 收口。
+4. **Batch E（TASK-022 + TASK-023）**：TASK-022/023 实现已完成；下一步是
+   TASK-023 的独立 WFM1 milestone review、全量验证与正式状态收口。
 
-### Creation Workspace 后续路线（当前无任务编号）
+### Creation Workspace WFM1 数据基线路线（TASK-024～033）
 
-Creation Workspace 是核心工作流稳定后的独立产品路线，不属于 TASK-018–023 或
-WFM1 验收。需求见
-[ai_video_creation_workspace_requirements.md](ai_video_creation_workspace_requirements.md)，
-安全边界见 [ADR-0010](adr/ADR-0010-creation-workspace-boundary.md)。当前只要求
-WFM1 按
-[creation_workspace_data_observability_requirements.md](creation_workspace_data_observability_requirements.md)
-保留未来可观察所需的稳定身份、版本、digest、谱系、成本和审计证据。
+Creation Workspace 不属于 TASK-018～023 或 WFM1 验收。安全边界见
+[ADR-0010](adr/ADR-0010-creation-workspace-boundary.md)，交付治理见
+[ADR-0030](adr/ADR-0030-creation-workspace-delivery-governance.md)，完整依赖图见
+[creation-workspace-implementation-roadmap.md](design/creation-workspace-implementation-roadmap.md)。
 
-形成正式任务卡前的建议顺序固定为：
+| 任务 | 里程碑 | 内容 | 实现门槛 | 状态 |
+| --- | --- | --- | --- | --- |
+| [TASK-024](tasks/TASK-024-workspace-query-contract-and-information-architecture.md) | WSM0 | Query contract、信息架构、source gap、ADR-0031 | 可立即 docs-only | Planned |
+| [TASK-025](tasks/TASK-025-workspace-projection-and-query-service.md) | WSM1 | 可重建 projection/query service | TASK-024 + ADR-0031；最终验收等 TASK-023 | Planned |
+| [TASK-026](tasks/TASK-026-workspace-read-only-shell.md) | WSM1 | 跨项目只读工作视窗 | TASK-025 + ADR-0032 | Planned |
+| [TASK-027](tasks/TASK-027-workspace-lineage-comparison-and-cost.md) | WSM1 | 谱系、版本/产物比较、成本深钻 | TASK-020/021/022 + TASK-025/026 | Planned |
+| [TASK-028](tasks/TASK-028-workspace-evaluation-experiment-decision.md) | WSM2 | 评价、实验、创作决定 + 只读页面 | ADR-0034 + TASK-018/020/022/026/027 | Planned |
+| [TASK-029](tasks/TASK-029-workspace-feedback-and-action.md) | WSM2 | Feedback/Action + 只读 Action Center | ADR-0035 + TASK-025/026/028 | Planned |
+| [TASK-030](tasks/TASK-030-command-gateway-foundation.md) | WSM2 | Gateway、preflight、确认、幂等回执 | **TASK-023** + ADR-0033 | Planned |
+| [TASK-031](tasks/TASK-031-workspace-controlled-operations.md) | WSM2 | Workspace 受控运行与 Action 写闭环 | TASK-023 + TASK-026/028/029/030 | Planned |
+| [TASK-032](tasks/TASK-032-workspace-learning-and-recommendations.md) | WSM3 | 复盘、跨项目学习、证据化推荐 | ADR-0036 + TASK-022/027～031 | Planned |
+| [TASK-033](tasks/TASK-033-workspace-end-to-end-acceptance.md) | WSM3-B | Workspace-on-WFM1 数据基线、安全与恢复验收 | TASK-023～032 | Planned |
 
-```text
-核心工作流和 Orchestrator
-→ 统一运行命令和状态契约
-→ 只读观察窗口
-→ 提示词、图片和视频版本观察
-→ 评价与实验比较
-→ Action Center
-→ Command Gateway
-→ 工作视窗直接运行
-→ 项目复盘与跨项目学习
-```
+TASK-024 可以立即开始。TASK-025/026 可针对已 Accepted 的 WFM1 source contract
+增量开发，但 WSM1 最终验收等待 TASK-023。TASK-030/031 的 Gateway 与界面写能力
+在 TASK-023 前禁止实施；此前评价、反馈和 Action 只能通过批准的 CLI/app service
+写入，Workspace 页面保持只读。
 
-暂不选择界面技术、数据库、通信协议或最终数据结构；不得提前占用 TASK 编号。
-在 Command Gateway 形成前，任何工作视窗交付均只能只读；反馈、评价和 Action
-写入继续使用届时已批准的 CLI/app service，不得由界面直接写文件。
+### WFM2 完整作品路线
+
+WFM2 在 WFM1 gate 之后补齐两份顶层需求仍缺少的完整创意、多媒体生成、正式音画、
+后期和发布；不重做 M1/WFM1 已可靠能力。
+阶段与步骤的统一逻辑输入输出基线见
+[L0–S7 工作层级输入输出合同](design/workflow-stage-step-io-contract.md)。
+
+| 任务 | 内容 | 决策门槛 | 状态 |
+| --- | --- | --- | --- |
+| [TASK-034](tasks/TASK-034-wfm2-full-creative-and-audiovisual-design.md) | 完整 L0–S3 创意/叙事/视听设计产物 | ADR-0037 | Planned |
+| [TASK-035](tasks/TASK-035-wfm2-multimedia-generation-and-lineage.md) | 图片/音频等多媒体 Provider、资产、谱系与成本 | ADR-0038 | Planned |
+| [TASK-008](tasks/TASK-008-subtitles-voice-audio.md) | 字幕、用户音频与合成增量 | ADR-0038/0039 | Planned（复用旧设计） |
+| [TASK-036](tasks/TASK-036-wfm2-formal-postproduction-qc-release.md) | 正式 S4–S7 后期、QC、发布与复盘 | ADR-0039 | Planned |
+| [TASK-037](tasks/TASK-037-wfm2-end-to-end-acceptance.md) | WFM2 端到端 milestone gate | TASK-008/034～036 | Planned |
+
+### WFM3 自动化路线
+
+| 任务 | 内容 | 决策门槛 | 状态 |
+| --- | --- | --- | --- |
+| [TASK-011](tasks/TASK-011-local-video-provider.md) | 本地视频 Provider | 用户模型/硬件裁决 | Optional outline |
+| [TASK-012](tasks/TASK-012-qcd-auto-routing.md) | QCD 自动路由 | ADR-0040 + 至少两个候选 | Outline |
+| [TASK-038](tasks/TASK-038-wfm3-automation-and-command-capabilities.md) | 自动化职责、能力注册表和安全命令语义 | ADR-0040 | Planned |
+
+### 最终联合验收
+
+| 任务 | 内容 | 依赖 | 状态 |
+| --- | --- | --- | --- |
+| [TASK-039](tasks/TASK-039-workspace-multimedia-and-full-workflow-expansion.md) | Workspace 扩展到完整多媒体与 WFM2/WFM3 命令能力 | TASK-037/038 + TASK-033 | Planned |
+| [TASK-040](tasks/TASK-040-final-unified-product-acceptance.md) | 两份顶层需求的联合端到端验收 | TASK-037～039 | Planned |
+
+逐项需求归属与完成层级以
+[端到端需求追踪矩阵](design/end-to-end-requirements-traceability.md) 为准。
 
 注：implementation_plan 阶段 2 原列出的 QCD 原始事件采集
 （`task_created`、`task_status_changed`、`manual_attempt_recorded`）
@@ -164,6 +194,7 @@ TASK-005；三类事件的实际发射点（bootstrap/driver）→ TASK-007。
 
 ## 阶段 5：字幕、配音和音频
 
+- 当前归入 WFM2，由 TASK-008 在 ADR-0038/0039 下实施；
 - 字幕文件（SRT 等）生成与烧录/挂载；
 - 配音与音效轨道的管理与混音，接入 FFmpeg 合成流程。
 
@@ -176,7 +207,8 @@ TASK-005；三类事件的实际发射点（bootstrap/driver）→ TASK-007。
 
 ## 阶段 7：第一个云端 API Provider
 
-- 实现首个 CloudVideoProvider（厂商在该阶段选型并记录 ADR）；
+- 历史 TASK-010 已由 WFM1 TASK-016/017 与 ADR-0008/0009 实现并取代；
+- 其它云 Provider 继续沿用同一可插拔合同接入；
 - 凭据通过环境变量/本地配置管理，绝不入 Git；
 - 上层流程不做任何修改，验证 Provider 抽象的有效性。
 
@@ -187,6 +219,7 @@ TASK-005；三类事件的实际发射点（bootstrap/driver）→ TASK-007。
 
 ## 阶段 9：基于 QCD 的自动模型路由
 
+- 当前归入 WFM3 ADR-0040/TASK-038，TASK-012 保留为能力规格输入；
 - 基于阶段 2–4 采集、阶段 6 汇总的 QCD 数据，按质量/成本/时限要求自动为每个
   Shot 选择 Provider；
 - 支持人工覆盖路由决策。

@@ -107,8 +107,29 @@ Creation Workspace 是核心工作流之上的表现/控制层，不直接调用
 安全边界见 [ADR-0010](adr/ADR-0010-creation-workspace-boundary.md)，核心数据
 可观察性基线见
 [creation_workspace_data_observability_requirements.md](creation_workspace_data_observability_requirements.md)。
-当前仅作为核心设计输入：不分配正式任务编号，不锁定 UI 技术、数据库或最终
-schema，且不计入 WFM1/TASK-023 的界面功能验收；TASK-023 只验证数据 readiness。
+WFM1 数据基线实现路线已由
+[ADR-0030](adr/ADR-0030-creation-workspace-delivery-governance.md) 与
+[creation-workspace-implementation-roadmap.md](design/creation-workspace-implementation-roadmap.md)
+规划为 TASK-024～033。它不计入 WFM1/TASK-023 的界面功能验收；TASK-023 只验证
+核心 data readiness，TASK-033 只验收 Workspace-on-WFM1 数据基线。完整多媒体
+Workspace 由 TASK-039 扩展，两份顶层需求最终由 TASK-040 联合验收。UI、数据库、
+Gateway 和领域 schema 仍须对应 Proposed ADR Accepted 后才能实现。
+
+## 6.2 WFM2/WFM3 与最终产品范围
+
+- **WFM2**：完整执行 L0–S7，补齐正式创意/叙事/视听产物、参考图和图片生成、
+  正式音频/字幕、后期、QC、发布和复盘；路线为 TASK-008、TASK-034～037，
+  合同由 ADR-0037～0039 裁决。
+- **WFM3**：在不替代人工创意批准的前提下，提高固定职责自动化率，建立核心
+  command capability registry，并按可用候选进行可审计路由；路线为 TASK-012/038，
+  TASK-011 仅为可选本地 Provider。
+- **最终 Creation Workspace**：TASK-039 消费完整 WFM2/WFM3 source/capability，
+  TASK-040 对本产品规格、短剧流程和工作视窗统一需求做最终端到端验收。
+
+逐项归属见
+[端到端需求追踪矩阵](design/end-to-end-requirements-traceability.md)，完整 L0–S7
+步骤输入输出见
+[工作层级输入输出合同](design/workflow-stage-step-io-contract.md)。
 
 ## 7. QCD 的基本定义
 
@@ -159,3 +180,24 @@ WFM1 成功标准：
 
 以上标准由 [TASK-018 至 TASK-023](implementation_plan.md#wfm1-任务映射)
 分批实现。在 TASK-023 milestone 验收前，不得声称全部 L0–S7 已完成。
+
+WFM2 成功标准：
+
+1. 完整 L0–S7 均有版本化、可审批、可追溯的正式输入与输出；
+2. 参考图、生成图片、视频、音频和字幕均进入统一谱系与成本审计边界；
+3. 8–12 个镜头形成正式音画作品，无阻断 QC 问题，单集成本不超过 1500 JPY；
+4. 完成发布包、项目复盘，并记录模型表现与返工原因；
+5. TASK-037 通过独立 milestone review。
+
+WFM3 成功标准：
+
+1. 固定职责可通过批准命令安全组合，失败和恢复不重复执行或付费；
+2. 核心明确声明 start/retry/resume/select/approve 以及 pause/cancel/skip 等能力的
+   supported/unsupported 语义，Workspace 不自行猜测；
+3. 自动路由可审计、可人工覆盖，不替代创意判断和最终批准。
+
+最终产品成功标准：TASK-040 对
+[短剧工作流](ai_shortfilm_pipeline_workflow.md) 与
+[工作视窗统一需求](ai_video_creation_workspace_requirements.md) 的全部条目给出真实
+端到端证据；任何未满足项都必须保持未完成状态，不能以 `unavailable` 或 UI mock
+冒充通过。

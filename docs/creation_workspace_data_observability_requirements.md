@@ -1,9 +1,11 @@
 # Creation Workspace 数据可观察性要求
 
-> **状态：Draft（WFM1 readiness baseline）。**
+> **状态：Approved semantic requirements baseline；readiness 尚未验收。**
 > 本文定义核心工作流为未来只读 Creation Workspace 必须保留的**语义信息**，
 > 不定义最终 JSON schema、目录、数据库、API 或 UI。实现仍由 TASK-018～023
-> 各自的批准设计决定；任何新增物理路径或冻结合同变更仍须单独 ADR。
+> 各自的批准设计决定；因此这是 **WFM1 数据基线**，不是完整多媒体终态。
+> WFM2 扩展由 TASK-034～037/ADR-0037～0039 补齐，Workspace 最终消费由
+> TASK-039/040 验收。任何新增物理路径或冻结合同变更仍须单独 ADR。
 
 ## 1. 目的
 
@@ -89,7 +91,7 @@
 | --- | --- | --- | --- |
 | Project / goals | project ref、profile version/digest、目标、预算引用、创建状态 | project/profile 文件 | TASK-018 |
 | Reusable asset | asset ref、version/digest、来源、项目引用、替代关系 | reuse package + project ref | TASK-018 |
-| Workflow plan | stage/step stable id、依赖、预期输入输出、是否允许 skip | stage registry + project profile | TASK-019 |
+| Workflow plan | stage/step stable id、依赖、预期输入输出、是否允许 skip | stage registry + project profile + 工作层级 I/O 合同 | TASK-019；WFM2 TASK-034～036 |
 | Stage approval | stage status、target refs/versions/digests、审批人/时间、失效原因 | approval v2 + change audit | TASK-019 |
 | Creative/prompt version | 内容 ref/version/digest、parent、修改原因、参考资产 | planning artifacts/index | TASK-020 |
 | Task packet | stage/step/shot、锁定输入、Provider/model/参数、P50/P90 | task packet + locked catalog | TASK-020 |
@@ -102,6 +104,15 @@
 | Projection readiness | 完整计划、进度、谱系、成本、评价和问题可重建 | 只读验收 fixture | TASK-023 |
 
 “权威来源/写入边界”只指定语义所有者，不授权新增路径或修改冻结 schema。
+
+WFM2 的创意、图片、音频、字幕和正式后期必须沿用同一身份、版本、digest、谱系、
+成本和状态域分离原则；其精确 source owner 由 ADR-0037～0039/TASK-034～036
+确定，并由 TASK-037 验收。TASK-039 负责将这些新增 source 接入 Workspace query，
+TASK-040 负责最终完整性检查。
+
+完整逻辑输入、输出、执行条件与 stage gate 见
+[L0–S7 工作层级输入输出合同](design/workflow-stage-step-io-contract.md)。Projection
+只能显示该合同和权威运行事实，不能在 UI 层补造缺失步骤、输入或输出。
 
 ## 5. 谱系最低关系
 
@@ -160,3 +171,6 @@ TASK-023 的 readiness fixture 至少验证：
 - query API、GraphQL/REST、前端 view model 或刷新策略；
 - Action schema、跨项目知识 schema 和推荐算法；
 - 对历史 M1 数据的完整迁移方案。
+
+本文的 WFM1 readiness 通过不等于完整 Workspace 产品通过；验收层级以
+[端到端需求追踪矩阵](design/end-to-end-requirements-traceability.md) 为准。

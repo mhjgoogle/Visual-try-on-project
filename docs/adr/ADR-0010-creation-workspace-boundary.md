@@ -3,6 +3,8 @@
 - Status: Accepted
 - Date: 2026-08-01
 - Scope: Creation Workspace 的核心边界；不授权实现
+- Partially superseded by: ADR-0030（仅解除任务编号和“全部等待核心稳定后再规划”
+  的延期；本 ADR 安全边界继续有效）
 - Related: ADR-0001、ADR-0003、ADR-0004、ADR-0007、ADR-0008
 - Requirements: [AI 视频创作工作视窗统一需求](../ai_video_creation_workspace_requirements.md)
 - Data readiness: [Creation Workspace 数据可观察性要求](../creation_workspace_data_observability_requirements.md)
@@ -44,7 +46,9 @@
 - pause/cancel/skip 的精确语义；
 - 实施任务编号和工作视窗里程碑。
 
-以上内容必须在核心工作流稳定后通过聚焦任务卡和必要 ADR 决定。
+以上内容由 ADR-0030 分配的 owner task 和必要 ADR 聚焦决定。规划与已稳定 source
+的只读验证可以提前；生产级只读验收和所有界面写能力仍等待 TASK-023 完成并通过
+WFM1 milestone review。
 
 ## Consequences
 
@@ -53,3 +57,11 @@
   对未来 Creation Workspace 的永久禁止；
 - 当前不修改任何冻结合同，不创建工作视窗代码，不声明需求已实现；
 - 后续只读观察层可以先落地，写操作必须等待统一命令/状态合同和 Gateway 设计。
+
+## Addendum（2026-08-02）
+
+用户已授权现在规划并实现 Creation Workspace。ADR-0030 因此分配 TASK-024～033
+并允许 docs/query 规划和针对已稳定 source 的只读原型提前进行。UI 技术、最终
+schema 与所有写操作仍分别受 Proposed ADR 和 TASK-023 门槛约束。TASK-033 只验收
+WFM1 数据基线；WFM2/WFM3 完整 source/capability 由 ADR-0037～0040/TASK-034～038
+提供，TASK-039 扩展 Workspace，TASK-040 才执行两份顶层需求的最终联合验收。

@@ -32,8 +32,8 @@ WFM1 在已完成的原 M1 之上增加创意审核、阶段准入、生产规�
 - WFM1 继续使用 JSON 作为结构化持久化格式，不引入 YAML；
 - ADR-0001 继续定义项目数据根和稳定目录。`workflow/` 仅表示跨项目复用
   资产的逻辑集合，本基线不创建物理目录、不规定迁移；
-- 审批、预算、Provider 选择和复用资产的具体 schema 由后续任务或 ADR
-  决定，本次不预先设计。
+- WFM1 审批、预算、Provider 选择和复用资产 schema 以其 Accepted ADR/任务为准；
+  完整创意与多媒体扩展由 ADR-0037～0039 在不破坏可靠冻结合同的前提下裁决。
 
 WFM1 的文档定位和治理规则见 ADR-0007。
 
@@ -45,6 +45,10 @@ Creation Workspace 位于现有四层之上，是跨项目的表现/控制客户
 边界决策见 [ADR-0010](adr/ADR-0010-creation-workspace-boundary.md)，核心工作流
 必须保留的语义信息见
 [creation_workspace_data_observability_requirements.md](creation_workspace_data_observability_requirements.md)。
+分阶段交付与核心门槛见
+[ADR-0030](adr/ADR-0030-creation-workspace-delivery-governance.md)。Query、UI、
+Gateway、评价、Action 和学习的具体架构分别由 ADR-0031～0036 在 owner task 中
+聚焦裁决；Proposed 状态不授权实现。
 
 读取路径：
 
@@ -73,7 +77,8 @@ Creation Workspace
   尝试、时间、成本和选择/评价证据，但不得为未定 UI 提前设计通用平台；
 - 身份、状态、谱系和成本跨领域组合只发生在只读 query/projection 层；领域写入者
   不为界面复制彼此事实；
-- Command Gateway、Action、谱系、评价、实验及知识库的最终 API/schema 均延期。
+- Command Gateway、Action、谱系、评价、实验及知识库的最终 API/schema 由
+  ADR-0031～0036 的 owner task 裁决；Proposed 状态期间不得先写实现倒逼合同。
 
 ## 2. 核心概念（领域模型）
 
@@ -210,6 +215,9 @@ Provider 在整个生命周期中不修改 GenerationTask、不创建或登记 V
   `submit` 触发本地推理进程/队列；媒体**只能输出到编排器指定的 staging 路径**。
 - Provider 通过配置选择（Project 或 Shot 级别指定 provider 名称），
   阶段 9 引入基于 QCD 数据的自动路由（按质量/成本/时限自动选 Provider）。
+- `VideoProvider` 继续只代表视频生成。WFM2 图片/音频能力由 ADR-0038 比较独立
+  Provider 与受控 capability 协议后决定；在该 ADR Accepted 前不得把
+  `VideoProvider` 提前泛化为未经验证的通用媒体接口。
 
 ## 6. 中间产物的保存
 
@@ -309,3 +317,23 @@ QCD 数据分两层：**原始事件采集**（阶段 2–4，随第一阶段最
 
 以上是原 M1 的范围边界，不是对 WFM1 的禁止。WFM1 只能在保留已接受
 M1 合同的前提下增量补充这些能力，并遵循 ADR-0007 与后续批准任务卡。
+
+## 12. WFM2/WFM3 与最终 Workspace 扩展边界
+
+- **WFM2 创意/视听产物**由 ADR-0037/TASK-034 定义，必须保留稳定
+  ref/version/digest、输入谱系、人工批准和 WFM1 stage identity；新项目路径仍需
+  ADR-0001/0012 授权。阶段/步骤逻辑 I/O 基线见
+  [工作层级输入输出合同](design/workflow-stage-step-io-contract.md)。
+- **WFM2 多媒体生成**由 ADR-0038/TASK-035 定义。图片、音频、字幕等正式资产
+  必须遵守 Provider 不写业务事实、staging、原子发布、防覆盖、成本事实与恢复原则，
+  但不要求共享错误的统一接口抽象。
+- **WFM2 后期/QC/发布**由 ADR-0039、TASK-008/036 定义；外部人工工具结果必须
+  作为版本化输入重新导入，技术检查、主观评价、阶段审批与发布结果保持不同事实域。
+- **WFM3 自动化**由 ADR-0040/TASK-038 定义版本化 command capability registry。
+  自动化和 Workspace 只能组合 registry 中已批准的 application/Orchestrator 命令；
+  pause/cancel/skip 默认 unsupported，不能由 UI 或脚本自行发明状态转换。
+- **Workspace 验收分层**：TASK-033 只验收基于 WFM1 source 的工作视窗数据基线；
+  TASK-039 扩展完整多媒体/命令能力；TASK-040 才联合验收短剧工作流与工作视窗需求。
+
+端到端责任映射见
+[端到端需求追踪矩阵](design/end-to-end-requirements-traceability.md)。

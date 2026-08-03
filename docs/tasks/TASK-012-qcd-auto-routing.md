@@ -1,7 +1,8 @@
 # TASK-012：基于 QCD 的自动模型路由（阶段 9）
 
-> **状态：大纲（OUTLINE，Milestone 3——依赖 TASK-010/011 至少
-> 其一 + TASK-009）。** 路由策略的质量/成本/时限权重是产品级
+> **状态：Outline（WFM3）。** 依赖现行 TASK-016/017 云 Provider、
+> TASK-009/021 QCD 成本与 ADR-0040；若选择本地路线可再依赖 TASK-011。
+> 路由策略的质量/成本/时限权重是产品级
 > 取舍，实施前须用户裁决。
 
 ## 正式名称
@@ -27,10 +28,11 @@ Shot 选择 Provider，并支持人工覆盖路由决策
 
 ## 依赖
 
-TASK-009（QCD 汇总）；TASK-010 或 TASK-011 至少其一（存在第二个
-Provider 才有路由意义）；用户裁决路由策略权重。
+TASK-009/021（QCD 与云成本汇总）；TASK-016/017（现行可插拔云 Provider）；
+ADR-0040 Accepted 与 TASK-038 能力注册表；至少存在两个可用候选 Provider 或
+模型时才启用自动路由。TASK-011 是可选候选，不是硬依赖。
 
 ## 当前状态
 
-Outline only — blocked on TASK-010/011 and user product
-decisions；不计入 Milestone 1–2 回归门槛
+Outline for WFM3 — implementation is owned by TASK-038 after ADR-0040 Accepted；
+不计入 WFM1/WFM2 回归门槛。

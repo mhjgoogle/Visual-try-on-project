@@ -177,6 +177,10 @@ REJECTED
 
 # 4. L1 顶层阶段
 
+各阶段的精确逻辑输入、输出、责任主体和 Gate 见
+[L0–S7 工作层级输入输出合同](design/workflow-stage-step-io-contract.md)。下表是创作
+视角摘要，不代替该合同，也不授权物理路径。
+
 | 阶段 | 名称 | 进入条件 | 核心产出物 | 完成判定 |
 |---|---|---|---|---|
 | S1 | 叙事设计 | `concept_lock` 已批准 | 故事圣经、节拍表、剧本、连续性表 | 内容完整承载主载荷 |
@@ -197,6 +201,10 @@ REJECTED
 ---
 
 # 5. L2 任务模块
+
+以下文件名表示逻辑产物。每一步的 required/conditional、输入 refs、输出身份、
+完成条件和下游关系以
+[工作层级输入输出合同](design/workflow-stage-step-io-contract.md) 为准。
 
 ## S1 叙事设计
 
@@ -466,6 +474,10 @@ ownership 由批准任务卡确定，避免建立重复入口。
 - 已完成复盘
 - 已记录模型表现与返工原因
 
+实施归属：TASK-034 锁定完整 L0–S3；TASK-035 补齐多媒体生成与谱系；既有
+TASK-008 在 ADR-0038/0039 下实现音频/字幕；TASK-036 完整化 S4–S7；TASK-037
+执行 WFM2 milestone 验收。架构合同由 ADR-0037～0039 裁决。
+
 ## WFM3：自动化率提升
 
 目标：
@@ -481,6 +493,10 @@ ownership 由批准任务卡确定，避免建立重复入口。
 - 自动生成发布包
 
 创意判断与最终批准始终保留人工完成。
+
+实施归属：TASK-012 的可审计 QCD 路由由 TASK-038 统一承接；TASK-038 同时建立
+自动化职责和 command capability registry，受 ADR-0040 约束。TASK-011 本地
+Provider 是可选升级，不是 WFM3 最小通过条件。
 
 ---
 
@@ -590,6 +606,11 @@ baseline 批准后才能实施：
 - [TASK-022](tasks/TASK-022-wfm1-qc-release-and-archive.md)：S4-S7 最小质检、
   发布包和归档；
 - [TASK-023](tasks/TASK-023-wfm1-end-to-end-acceptance.md)：WFM1 端到端验收。
+
+WFM1 之后的完整目标不复用旧编号：WFM2 为 TASK-008、TASK-034～037，WFM3 为
+TASK-012/038（TASK-011 可选），完整 Workspace 扩展与两份顶层需求最终验收为
+TASK-039/040。逐项归属见
+[端到端需求追踪矩阵](design/end-to-end-requirements-traceability.md)。
 
 每张任务卡必须包含：
 
@@ -723,3 +744,8 @@ WFM1 当前只承担以下前置责任：
 WFM1 不实现工作视窗、Command Gateway、Action Center、实验比较 UI 或跨项目
 学习系统，也不为这些未来能力锁定最终 schema。历史任务中的 Web UI/数据库排除
 是对应任务的局部范围，不取消该未来产品方向。
+
+工作视窗现已按 TASK-024～033 建立 WFM1 数据基线路线，见 ADR-0030；TASK-033
+不是完整产品验收。WFM2/WFM3 完成后由 TASK-039 扩展多媒体与命令能力，最终由
+TASK-040 联合验收本文与工作视窗统一需求。任何 Workspace 实施都不得反向扩大
+WFM1 或把 Workspace 状态写入 WFM1 核心合同。

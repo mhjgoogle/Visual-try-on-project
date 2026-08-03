@@ -1,8 +1,8 @@
 # TASK-008：字幕、配音与音频合成（阶段 5）
 
-> **状态：规划定稿（PLANNED，Milestone 2）——待整体 Codex 设计
-> 审查。** 本卡为合同级规格；实施前须按本卡产出一份聚焦设计文档
-> （模型增补需独立审批，见「数据模型增补」）。
+> **状态：Planned（WFM2）。** 原 Milestone 2 设计继续作为用户提供音频与
+> 字幕的可靠起点；实施纳入 WFM2，并须先由 ADR-0038/0039 锁定资产、Provider、
+> 路径和后期边界。冻结模型或目录的增补仍需独立批准。
 
 ## 正式名称
 
@@ -18,6 +18,8 @@ FFmpeg 合成流程，使最终 MP4 具备完整音画（implementation_plan
 
 - TASK-006（`VideoComposer` 抽象与合成步骤）；
 - TASK-005（`qcd` 模块、`MediaInspector`、digest 工具）；
+- ADR-0002（外部媒体工具边界）；
+- ADR-0038、ADR-0039 Accepted，以及 TASK-034/035 已提供正式输入；
 - 产品级决策（见「产品级未决问题」）。
 
 ## 产品级未决问题（须用户裁决后实施）
@@ -91,6 +93,5 @@ Milestone 2 回归门槛。
 
 ## 当前状态
 
-Remaining roadmap design complete —
-single Codex architecture review pending
-（实施另需：产品级未决问题 1–3 用户裁决 + 模型增补独立审批）
+Planned for WFM2。旧设计可复用，但不得按本卡中的草案路径直接实施；
+ADR-0038/0039 必须先裁决产品级未决问题、模型/路径 owner 与后期兼容关系。

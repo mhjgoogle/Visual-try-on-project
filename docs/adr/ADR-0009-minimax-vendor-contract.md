@@ -5,6 +5,7 @@
 - Scope tasks: TASK-017（真实 API 接线）
 - Fulfils: ADR-0006 §5（厂商选型的厂商 ADR）
 - Related/extends: ADR-0008（权威成本事实）、TASK-016 合同
+- Resolves: ADR-0006/TASK-010 延期的首个厂商裁决；TASK-010 因而转为历史卡
 - 来源：MiniMax 官方文档（platform.minimax.io，2026-08 核对）。不依赖
   第三方描述。
 
@@ -110,6 +111,12 @@ ambiguous → `needs_reconciliation`，禁止自动重复付费。
   i2v 现要求操作者经 `first_frame_image` 提供，且**已校验**仅接受公网
   http(s) URL 或受限 image data URL、拒绝本地路径；capability=i2v 而无
   首帧则 `spec_invalid` fail-closed。参考图资产化属后续任务。
-- 真实付费链路**尚未用真实 Key 端到端跑通**：错误码全集→类型映射、
-  `download_url` 下载鉴权与实际计费金额，需 opt-in 冒烟验证。
-- 未处理：TASK-009 成本报表聚合、自动路由、其它厂商、字幕/配音/发布。
+- 真实错误码全集仍无法由单次冒烟穷尽；未知码继续按 ambiguous fail-closed。
+- TASK-009 成本报表聚合随后已由 ADR-0020/TASK-021 接入；自动路由、其它厂商、
+  字幕/配音与正式发布仍分别属于 WFM3、Provider 增量与 WFM2。
+
+## Later validation（2026-08-01）
+
+TASK-017 的显式 opt-in 真实付费冒烟已通过（提交 `b231b91`）：真实执行 submit →
+query → files/retrieve → 下载非空 MP4，并验证实际计费金额与锁定 catalog 一致。
+默认回归仍只使用打桩，不持有或要求真实 Key；该验证不改变本文的错误保守分类。

@@ -1,9 +1,8 @@
 # TASK-010：首个 CloudVideoProvider（阶段 7）
 
-> **状态：大纲（OUTLINE，Milestone 3——付费 API 边界已由 ADR-0006
-> 窄范围解除，仍被厂商、预算和凭据产品决策阻塞）。**
-> 本卡只锁定边界与合同方向；厂商选型是产品级取舍，须用户裁决并
-> 记录新的厂商 ADR 后才能完成聚焦设计。规划阶段不得虚构厂商细节。
+> **状态：Historical / Superseded。** 本卡的首个云 Provider 目标已由
+> TASK-016（厂商中立付费链）与 TASK-017（MiniMax 接线）在 ADR-0008/0009 下
+> 承接。保留本卡用于历史追踪，不再实施，也不再视为阻塞项。
 
 ## 正式名称
 
@@ -41,6 +40,5 @@ TASK-003/004（已交付）；TASK-005/006/007（端到端验证链路）；
 
 ## 当前状态
 
-Outline only — ADR-0006 has lifted the paid-API boundary for this task,
-but vendor / budget / credential decisions remain blocking；不计入
-Milestone 1–2 回归门槛
+Superseded by TASK-016/017。现行云端路线、预算与凭据合同以 ADR-0008/0009、
+TASK-016/017 为准；本卡不得与其并行形成第二套 Provider 接线。
