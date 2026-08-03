@@ -1,4 +1,4 @@
-"""The WQ-01..WQ-14 read-only queries (TASK-025 / WSM1-A).
+"""The WQ-01..WQ-18 read-only queries (TASK-025/028/029/032 / WSM1-A, WSM3).
 
 Each function evaluates one query on demand from authoritative sources
 (via the adapters) and returns a :class:`QueryResult`. No function writes

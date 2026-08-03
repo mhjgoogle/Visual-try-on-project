@@ -1,6 +1,13 @@
 # TASK-033：Creation Workspace WFM1 数据基线验收（WSM3-B）
 
-> **状态：Planned。** Workspace-on-WFM1 baseline milestone gate；依赖
+> **状态：Implemented — 验收证据已备齐，等待用户签字（2026-08-03）。**
+> 跨切面主验收 `tests/test_workspace_wfm1_acceptance.py`（5/5）、
+> [验收追踪矩阵](../design/workspace-wfm1-acceptance-traceability.md)、
+> [验收 runbook](../design/workspace-wfm1-acceptance-runbook.md)、
+> [里程碑评审](../design/WSM3-workspace-wfm1-milestone-review.md)均已产出；
+> codex 独立审查 1 轮 pass（0 blocking）；完整套件 2429 passed, 3 env-skips。
+> **代码/安全审查 = PASS；里程碑验收（下方 `## 验收标准` 勾选）属于用户，
+> 待用户在 runbook §5 签字后置为 Accepted。** 依赖
 > TASK-023～032 全部完成并通过对应 review。本任务不是两份顶层需求的最终产品验收；
 > 多媒体扩展与最终验收由 TASK-039/040 承接。
 > 本任务不新增产品能力，只补验收、修正归属任务缺陷并收口文档状态。

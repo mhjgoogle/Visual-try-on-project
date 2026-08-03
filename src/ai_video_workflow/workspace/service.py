@@ -1,7 +1,7 @@
 """The single read-only workspace query entry point (TASK-025 / WSM1-A).
 
 ``WorkspaceQueryService`` is the one place CLI, tests, and any future UI go
-to run the WQ-01..WQ-14 queries. It is strictly read-only: it never writes
+to run the WQ-01..WQ-18 queries. It is strictly read-only: it never writes
 business state, never calls a Provider, never imports UI, never reads
 credential values, and holds no persistent projection cache — every query
 is evaluated on demand from authoritative files (ADR-0031 decision 2), so
