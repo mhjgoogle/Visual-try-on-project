@@ -1,6 +1,6 @@
 # TASK-032：项目复盘、跨项目学习与证据化推荐（WSM3-A）
 
-> **状态：Planned（聚焦设计草案已产出，见下「聚焦设计」；代码实施待 ADR-0036
+> **状态：Delivered（2026-08-03）。** 账户级用户确认知识提升事实域（ADR-0001 第五次增补 `<account>/knowledge/events/log.jsonl`）+ WQ-17 跨项目派生指标 + WQ-18 证据化推荐（合同 v1.4）+ CLI 均已实施，codex 3 轮独立审查通过（3 blocking 修复）。派生 analytics/推荐 on-demand 无持久缓存；损坏源 source_corrupt fail-closed、无证据 insufficient_evidence，绝不伪造。原文：Planned（代码实施待 ADR-0036
 > Accepted 与相应 gate）。** TASK-032 是 ADR-0036 的 decision owner，本轮已完成
 > 聚焦设计并把裁决写入 ADR-0036（Proposed）；生产代码依赖 TASK-022、
 > TASK-027～031、ADR-0036 Accepted 及 TASK-023 门槛。

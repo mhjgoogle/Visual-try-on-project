@@ -19,6 +19,12 @@
 - Amended (fourth): 2026-08-03 — `gateway/receipts/log.jsonl`, the append-only
   Command Gateway durable receipt/outcome log (format per ADR-0033 / TASK-030).
   This amendment extends the layout; it does not change any earlier decision.
+- Amended (fifth): 2026-08-03 — one ACCOUNT-level path
+  `<account-root>/knowledge/events/log.jsonl`, the append-only user-confirmed
+  promoted-knowledge fact log (format per ADR-0036 / TASK-032). This amendment
+  extends the account-level layout; it does not change any earlier decision.
+  Cross-project analytics and recommendations remain on-demand derived views
+  with no persistent cache (ADR-0031 / ADR-0036).
 
 ## Context
 
@@ -536,3 +542,14 @@ Account-level rule (monthly budget scope):
 Authoritative cloud cost is recorded only in the QCD event log as
 `provider_cost_recorded` (ADR-0008); reservations and the account ledger
 never become a second source of cost truth.
+
+Account-level rule (cross-project knowledge, ADR-0036 / TASK-032):
+
+- `<account-root>/knowledge/events/log.jsonl` — the append-only, single-writer
+  log of USER-CONFIRMED promoted knowledge (reusable, evidence-backed
+  experience). A separate state domain (never reuses approval / GenerationTask /
+  Provider / reservation / Action state) that only REFERENCES authoritative
+  run / cost / evaluation / Action facts by ref + content_digest — it never
+  copies or rewrites them. Only user-confirmed knowledge is stored here;
+  candidate experiences and cross-project analytics/recommendations are derived
+  on demand from authoritative facts, with no persistent cache.

@@ -999,6 +999,119 @@ def _plain(value):
     return value
 
 
+# --- WQ-17 cross-project-analytics (ADR-0036 / TASK-032, WSM3-A) --------------
+
+
+def cross_project_analytics(account_root: Path, now: str) -> QueryResult:
+    """Deterministic per-project KPIs derived on demand from authoritative facts
+    (no persistent cache, ADR-0036/0031): evaluation pass rate and Action
+    resolution rate, each authoritative(count)/derived(rate); a project with no
+    such facts is ``unavailable`` (insufficient_evidence), never a fabricated
+    confidence. Sorted by project name (query contract §3 WQ-17)."""
+    from ai_video_workflow.learning import KnowledgeService
+
+    svc = KnowledgeService(account_root, clock=_no_clock)
+    items: list[dict[str, Field]] = []
+    problems: list[Problem] = []
+    for k in sorted(svc.project_kpis(), key=lambda x: x.project):
+        # A corrupt authoritative fact log fails closed as a structured problem,
+        # and its rate is unavailable("source_corrupt") — never a silent zero /
+        # insufficient_evidence.
+        eval_corrupt = "evaluation" in k.corrupt_sources
+        action_corrupt = "action" in k.corrupt_sources
+        for source in k.corrupt_sources:
+            problems.append(
+                Problem.of(
+                    ProblemCategory.SOURCE_CORRUPT,
+                    f"project {k.project!r} {source} fact log is corrupt",
+                    readiness_failed=True,
+                    project=k.project,
+                )
+            )
+        items.append(
+            {
+                "project": Field.authoritative(k.project),
+                # a corrupt source's count is unavailable, never authoritative(0)
+                "evaluation_count": (
+                    Field.unavailable("source_corrupt")
+                    if eval_corrupt
+                    else Field.authoritative(k.evaluation_count)
+                ),
+                "evaluation_pass_rate": (
+                    Field.derived(k.evaluation_pass_rate)
+                    if k.evaluation_pass_rate is not None
+                    else Field.unavailable(
+                        "source_corrupt" if eval_corrupt else "insufficient_evidence"
+                    )
+                ),
+                "action_count": (
+                    Field.unavailable("source_corrupt")
+                    if action_corrupt
+                    else Field.authoritative(k.action_count)
+                ),
+                "action_resolution_rate": (
+                    Field.derived(k.action_resolution_rate)
+                    if k.action_resolution_rate is not None
+                    else Field.unavailable(
+                        "source_corrupt" if action_corrupt else "insufficient_evidence"
+                    )
+                ),
+                "insufficient_evidence": Field.derived(k.insufficient_evidence),
+            }
+        )
+    return _result("WQ-17", now, {"account_root": str(account_root)}, items, problems)
+
+
+# --- WQ-18 recommendations (ADR-0036 / TASK-032, WSM3-A) ----------------------
+
+
+def recommendations(account_root: Path, now: str) -> QueryResult:
+    """Evidence-based recommendations = the user-confirmed promoted knowledge,
+    each with its applicability, historical evidence refs, sample scope, and
+    known limits (ADR-0036). Only user-confirmed knowledge appears; when there
+    is none the result is empty with an ``insufficient_evidence`` problem — never
+    a fabricated recommendation. Sorted by knowledge id (query contract §3
+    WQ-18)."""
+    from ai_video_workflow.learning import KnowledgeLogError, KnowledgeService
+
+    svc = KnowledgeService(account_root, clock=_no_clock)
+    problems: list[Problem] = []
+    try:
+        knowledge = svc.read()
+    except KnowledgeLogError as exc:
+        return _result(
+            "WQ-18",
+            now,
+            {"account_root": str(account_root)},
+            [],
+            [Problem.of(ProblemCategory.SOURCE_CORRUPT, str(exc), object="knowledge")],
+        )
+    if not knowledge:
+        problems.append(
+            Problem.of(
+                ProblemCategory.NOT_FOUND,
+                "no user-confirmed promoted knowledge yet (insufficient_evidence)",
+                readiness_failed=False,
+                object="knowledge",
+            )
+        )
+    items: list[dict[str, Field]] = []
+    for record in sorted(knowledge, key=lambda r: r.record_id):
+        payload = record.to_envelope()["payload"]
+        items.append(
+            {
+                "knowledge_id": Field.authoritative(payload["knowledge_id"]),
+                "category": Field.authoritative(payload["category"]),
+                "applicability": Field.authoritative(payload["applicability"]),
+                "recommendation": Field.authoritative(payload["recommendation"]),
+                "evidence_refs": Field.authoritative(payload["evidence_refs"]),
+                "scope": Field.authoritative(payload["scope"]),
+                "limits": Field.authoritative(payload["limits"]),
+            }
+        )
+    return _result("WQ-18", now, {"account_root": str(account_root)}, items, problems)
+
+
 # --- WQ-09 recent-problems ----------------------------------------------------
 
 
@@ -1139,6 +1252,8 @@ def _rebuild_runner(service, project_root: Path, query_id: str, params: dict):
         "WQ-14": lambda: service.budget_standing(project_root),
         "WQ-15": lambda: service.evaluation_domain(project_root),
         "WQ-16": lambda: service.action_center(project_root),
+        "WQ-17": lambda: service.cross_project_analytics(),
+        "WQ-18": lambda: service.recommendations(),
     }
     return runners.get(query_id)
 

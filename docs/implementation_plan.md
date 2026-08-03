@@ -101,7 +101,7 @@ Creation Workspace 不属于 TASK-018～023 或 WFM1 验收。安全边界见
 | [TASK-029](tasks/TASK-029-workspace-feedback-and-action.md) | WSM2 | Feedback/Action + 只读 Action Center | ADR-0035 + TASK-025/026/028 | Delivered |
 | [TASK-030](tasks/TASK-030-command-gateway-foundation.md) | WSM2 | Gateway、preflight、确认、幂等回执 | **TASK-023** + ADR-0033 | Delivered |
 | [TASK-031](tasks/TASK-031-workspace-controlled-operations.md) | WSM2 | Workspace 受控运行与 Action 写闭环 | TASK-023 + TASK-026/028/029/030 | Delivered |
-| [TASK-032](tasks/TASK-032-workspace-learning-and-recommendations.md) | WSM3 | 复盘、跨项目学习、证据化推荐 | ADR-0036 + TASK-022/027～031 | Planned |
+| [TASK-032](tasks/TASK-032-workspace-learning-and-recommendations.md) | WSM3 | 复盘、跨项目学习、证据化推荐 | ADR-0036 + TASK-022/027～031 | Delivered |
 | [TASK-033](tasks/TASK-033-workspace-end-to-end-acceptance.md) | WSM3-B | Workspace-on-WFM1 数据基线、安全与恢复验收 | TASK-023～032 | Planned |
 
 TASK-024 可以立即开始。TASK-025/026 可针对已 Accepted 的 WFM1 source contract

@@ -203,6 +203,27 @@
 - 只读：本查询不写入、不调用 Provider、不应用 Action 隐含的变更（那是 Gateway 的职责，
   ADR-0033）；写入仅经批准 CLI/app service，状态转换经独立状态机与合法转换图校验。
 
+### WQ-17 cross-project-analytics（跨项目派生指标，WSM3-A，contract v1.4）
+- 用途：账户级、按项目派生的 KPI——evaluation pass rate、Action resolution rate 等，
+  从版本化权威事实**按需派生、无持久缓存**（ADR-0036/0031），带稳定定义。
+- 输入：各项目 evaluation / action append-only 事实（只读引用）；账户发现。
+- 返回：per-project evaluation_count/action_count〔A〕、evaluation_pass_rate/
+  action_resolution_rate〔D，无该类事实即 `unavailable`（insufficient_evidence），
+  绝不编造置信度〕、insufficient_evidence〔D〕。
+- 排序：项目名。
+- 失败：源事实损坏按各域 fail-closed；证据不足 → unavailable，不伪造。
+
+### WQ-18 recommendations（证据化推荐，WSM3-A，contract v1.4）
+- 用途：返回**用户确认的已提升知识**作为证据化推荐，每条附适用条件、历史 evidence
+  refs（ref+digest+project）、样本 scope 与已知 limits（ADR-0036）。只作建议，不替代
+  用户创作决定、不自动触发任何写命令（变更须经 Gateway）。
+- 输入：账户级 append-only 知识事实日志（ADR-0036 / ADR-0001 第五次增补）。
+- 返回：knowledge_id/category/applicability/recommendation/evidence_refs/scope/
+  limits〔A〕。
+- 排序：knowledge id。
+- 失败：无已提升知识 → 空 + `insufficient_evidence` problem（不伪造推荐）；知识日志
+  损坏 → source_corrupt problem（fail-closed，空）。
+
 ## 4. 失败与问题模型
 
 - 每个 problem 至少语义包含：`category`（如 `missing_ref`、`version_absent`、
@@ -283,7 +304,7 @@ schema**。每个 source 由一个独立只读 adapter 读取，跨域组合只�
 | 正式 S5–S7 后期/多维 QC/权利 QC/多平台发布 | ⛔ unavailable | ADR-0039 / TASK-036 |
 | 实验比较 / 评价 scorecard（超出 QC，含增量成本/时间） | ✅ 可回答（WQ-15，contract v1.2） | ADR-0034 / TASK-028（WSM2-A 消费） |
 | 观众表现数据 | ⛔ optional-data/unavailable | S7-T03；TASK-037/039 |
-| 跨项目学习 / 证据化推荐 | ⛔ unavailable | ADR-0036 / TASK-032 |
+| 跨项目学习 / 证据化推荐 | ✅ 可回答（WQ-17/18，contract v1.4） | ADR-0036 / TASK-032（WSM3-A 消费） |
 | 反馈 / Action Center（只读观察） | ✅ 可回答（WQ-16，contract v1.3） | ADR-0035 / TASK-029（WSM2-B 消费） |
 | Action 写操作 / 状态机驱动 | ⛔ 范围外（只读合同不含，写入经 Gateway） | ADR-0033/0035 / TASK-030/031（WSM2） |
 
@@ -303,6 +324,11 @@ schema**。每个 source 由一个独立只读 adapter 读取，跨域组合只�
   只读消费（ADR-0035 事实域）。同为叠加式只读：Action 当前状态由 append-only 事件
   折叠派生，不引入第二写入者、不改既有查询语义；`QUERY_CONTRACT_VERSION` minor bump
   至 1.3。WQ-01～14 基线保持冻结。
+- **WQ-17/18 扩展（contract v1.4，TASK-032 / WSM3-A）**：叠加 WQ-17 跨项目派生指标
+  与 WQ-18 证据化推荐（ADR-0036）。指标为账户级 on-demand 派生、无持久缓存；推荐读
+  账户级 append-only 已提升知识事实（ADR-0001 第五次增补授权 `<account>/knowledge/
+  events/log.jsonl`）。均叠加式只读，不改既有查询语义；`QUERY_CONTRACT_VERSION` minor
+  bump 至 1.4。WQ-01～14 基线保持冻结。
 - **Projection 策略（初版）**：见 ADR-0031 决策——WSM1 采用 **on-demand 求值、
   不落持久缓存**；因此本基线**不授权任何项目/账户持久 projection 路径**。若 WSM1-A
   证明必须物化，须回到后续 ADR 增补（锁定路径、生命周期、唯一写入者，且持久路径

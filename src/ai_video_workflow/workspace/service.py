@@ -116,3 +116,9 @@ class WorkspaceQueryService:
 
     def cross_project_index(self) -> QueryResult:
         return queries.cross_project_index(self._account_root, self._now())
+
+    def cross_project_analytics(self) -> QueryResult:
+        return queries.cross_project_analytics(self._account_root, self._now())
+
+    def recommendations(self) -> QueryResult:
+        return queries.recommendations(self._account_root, self._now())

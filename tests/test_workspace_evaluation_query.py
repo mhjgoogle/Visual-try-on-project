@@ -147,7 +147,7 @@ def test_wq15_returns_history_sorted_with_authoritative_facts(project) -> None:
     _write_records(project)
     res = _service(project.parent).evaluation_domain(project)
     assert res.query_id == "WQ-15"
-    assert res.contract_version == "1.3"
+    assert res.contract_version == "1.4"
     kinds = [it["record_type"].value for it in res.items]
     assert kinds == [
         "evaluation",

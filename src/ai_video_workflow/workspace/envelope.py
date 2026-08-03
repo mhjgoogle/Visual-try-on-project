@@ -155,7 +155,11 @@ class QueryResult:
 # of the ADR-0035 append-only feedback/action facts, with the Action lifecycle
 # state folded (derived) from those facts. No writer change; existing queries
 # unchanged.
-QUERY_CONTRACT_VERSION = "1.3"
+# 1.4 (TASK-032): WQ-17 cross-project-analytics + WQ-18 recommendations (WSM3-A)
+# — additive account-level read-only derivations over authoritative facts and
+# the ADR-0036 append-only promoted-knowledge log. On-demand, no persistent
+# cache; existing queries unchanged.
+QUERY_CONTRACT_VERSION = "1.4"
 
 
 def to_jsonable(result: QueryResult) -> dict:

@@ -381,6 +381,25 @@ def _build_parser() -> argparse.ArgumentParser:
     _add("action-verify", _cmd_action_verify, extra=_verify_action_args)
     _add("action-rebind", _cmd_action_rebind, extra=_rebind_args)
 
+    # TASK-032: user-confirmed knowledge promotion (account-level, ADR-0036).
+    def _promote_args(sp):
+        sp.add_argument("--account-root", type=Path, default=None)
+        sp.add_argument("--id", required=True)
+        sp.add_argument("--category", required=True)
+        sp.add_argument("--recommendation", required=True)
+        sp.add_argument("--scope", required=True)
+        sp.add_argument("--limits", required=True)
+        sp.add_argument("--applies", action="append", default=[], metavar="KEY=VALUE")
+        sp.add_argument(
+            "--evidence",
+            nargs=3,
+            action="append",
+            required=True,
+            metavar=("REF", "DIGEST", "PROJECT"),
+        )
+
+    _add("knowledge-promote", _cmd_knowledge_promote, extra=_promote_args)
+
     # TASK-025: read-only cross-project workspace queries (WQ-01..WQ-14).
     # These never write, never call a Provider; --account-root defaults to
     # the project root's parent (the same account semantics as the budget
@@ -419,6 +438,8 @@ def _build_parser() -> argparse.ArgumentParser:
     _add("ws-eval", _cmd_ws_eval, extra=_ws_account)
     _add("ws-eval-domain", _cmd_ws_eval_domain, extra=_ws_account)
     _add("ws-action-center", _cmd_ws_action_center, extra=_ws_account)
+    _add("ws-analytics", _cmd_ws_analytics, extra=_ws_account)
+    _add("ws-recommendations", _cmd_ws_recommendations, extra=_ws_account)
     _add("ws-problems", _cmd_ws_problems, extra=_ws_account)
     _add("ws-rebuild-check", _cmd_ws_rebuild, extra=_ws_query)
     _add("ws-index", _cmd_ws_index, extra=_ws_account)
@@ -1001,6 +1022,37 @@ def _cmd_action_rebind(args) -> None:
         target=_act_target_arg(args),
     )
     print(f"rebind {record.record_id}: {args.action_id} reset to pending")
+
+
+# --- TASK-032: knowledge promotion (account-level, ADR-0036) ---------------
+
+
+def _cmd_knowledge_promote(args) -> None:
+    from ai_video_workflow.learning import KnowledgeService
+
+    account_root = args.account_root or args.project_root.parent
+    evidence = [
+        {"ref": ref, "content_digest": digest, "project": project}
+        for ref, digest, project in args.evidence
+    ]
+    record = KnowledgeService(account_root, clock=utc_now).promote(
+        knowledge_id=args.id,
+        category=args.category,
+        applicability=_parse_kv(args.applies, "--applies"),
+        recommendation=args.recommendation,
+        evidence_refs=evidence,
+        scope=args.scope,
+        limits=args.limits,
+    )
+    print(f"knowledge {record.record_id}: {record.payload['category']}")
+
+
+def _cmd_ws_analytics(args) -> None:
+    _ws_emit(_ws_service(args).cross_project_analytics())
+
+
+def _cmd_ws_recommendations(args) -> None:
+    _ws_emit(_ws_service(args).recommendations())
 
 
 # --- TASK-025: read-only workspace query handlers --------------------------
