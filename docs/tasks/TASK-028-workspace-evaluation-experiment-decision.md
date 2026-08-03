@@ -72,6 +72,43 @@ schema/字段名/目录/DB、不含代码。裁决结论见
   精确兼容读取映射，由 TASK-028 在 ADR-0034 Accepted 前补齐；任何项目/账户持久路径
   须经 ADR-0001 明确授权。
 
+## 实现设计（本轮补齐：路径 / schema / 写入者 / 版本语义）
+
+ADR-0034 把最终 schema、持久化路径与唯一写入者延给本卡在 Accepted 后锁定。裁决如下，
+硬性偏好为**镜像既有 append-only QCD 范式、最少新依赖**：
+
+- **持久化路径（经 ADR-0001 授权）**：`evaluation/events/log.jsonl`——单一 append-only
+  JSON Lines 日志，与 `qcd/events/log.jsonl` 同构；经 ADR-0004 `resolve_within_root`
+  containment 接纳，符号链接组件拒绝。**唯一写入者**为本域 application service，写入
+  `O_APPEND`+flush+`fsync`、torn-tail 守卫、读取按 `record_id` 去重 first-wins（照
+  `qcd/log.py`）。
+- **一域三类型**：同一日志承载 `record_type ∈ {evaluation, experiment,
+  creative_decision}`，统一 envelope + 每类型固定 payload key 集（照 `qcd/events.py`
+  的 `_PAYLOAD_KEYS` 范式）。
+- **统一 envelope（固定键）**：`schema_version`、`record_id`（确定性派生）、
+  `record_type`、`occurred_at`（调用方提供，不读时钟）、`project_id`、
+  `actor ∈ {user, ai}`、`target`（`ref + version + content_digest`）、`goals_version`、
+  `payload`。
+- **各类型 payload**：
+  - `evaluation`：`{criterion, score, tag, pass, rationale}`；
+  - `experiment`：`{variants[], changed_factor, expected_improvement, actual_result,
+    reuse_conclusion}`；
+  - `creative_decision`：`{decision_type ∈ (select｜abandon｜change_prompt｜switch_model｜
+    redo｜accept_imperfect), changed, why, expected, actual}`。
+- **版本绑定 / stale fail-closed**：service 与 query 读取时校验 `target` 的
+  ref+version+content_digest 与 `goals_version` 对应权威事实；漂移/digest 不符/目标缺失
+  → 标 `stale`/结构化 problem，不作用于错误版本（原始日志只存事实，stale 为读取期派生）。
+- **actor 分离 / 用户终判**：`actor = ai` 的记录仅辅助证据，service **拒绝**由 AI 记录
+  形成 `pass=true` 的终判或自动优胜者；最终 pass/创作决定须 `actor = user`。
+- **非第二事实源**：只按 ref+version+digest 引用 TASK-022 QC/发布/终审证据，只读可见，
+  绝不复制/改写；增量成本/时间在 ADR-0031 query 层从权威成本/运行事实派生，本域不存。
+- **写入姿态**：Gateway 前写入仅经批准 CLI/app service；Workspace 页面对本域只读。
+
+代码落点（后续增量按此照抄 QCD 范式）：`src/ai_video_workflow/evaluation/`
+（`records.py` 模型+codec、`log.py` append/read、`service.py` 绑定+stale+actor 校验）、
+CLI 子命令、`workspace` query adapter + 新 WQ 只读查询、只读 UI 页；测试
+`tests/test_evaluation_*.py`。
+
 ## 实施步骤
 
 1. 聚焦设计并接受 ADR-0034，明确路径、owner、版本语义及 TASK-022 兼容边界。

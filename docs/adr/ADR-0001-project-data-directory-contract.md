@@ -90,6 +90,9 @@ Loading remains explicit: callers provide every model file path to
   qcd/
     events/
       log.jsonl
+  evaluation/
+    events/
+      log.jsonl
   outputs/
     final_v<N>.mp4
 ```
@@ -116,6 +119,7 @@ placeholder directories.
 | `manifests/` | StepManifest records describing individual recoverable step results. |
 | `reports/` | Versioned validation, composition, and QCD reports (JSON fact source + deterministic Markdown rendering). Derived documents, never a second source of business truth. |
 | `qcd/events/` | Append-only raw QCD event log (`log.jsonl`, format per ADR-0003). Aggregates are not authoritative here. |
+| `evaluation/events/` | Append-only evaluation / experiment / creative-decision fact log (`log.jsonl`, format per ADR-0034 / TASK-028). Its own single writer; a separate state domain that only references QC / cost / lineage facts by ref+version+digest and never copies or rewrites them. Comparisons / rankings / incremental cost-time are derived views, not stored here. |
 | `outputs/` | Final deliverables. These files are not the formal source of reusable asset truth. |
 
 `staging/` content never becomes a formal asset merely by existing there.
