@@ -311,6 +311,76 @@ def _build_parser() -> argparse.ArgumentParser:
     _add("experiment-record", _cmd_experiment_record, extra=_experiment_args)
     _add("decision-record", _cmd_decision_record, extra=_decision_args)
 
+    # TASK-029: feedback / action write CLI (ADR-0035). The approved pre-Gateway
+    # write path; Action Center stays read-only (ws-action-center). No Provider
+    # call, no second writer — an Action's implied change is applied only through
+    # the Command Gateway (ADR-0033, TASK-030).
+    _ACT_ACTORS = ("user", "agent", "system")
+
+    def _act_target(sp):
+        sp.add_argument("--target-ref", required=True)
+        sp.add_argument("--target-version", type=int, required=True)
+        sp.add_argument("--target-digest", required=True)
+
+    def _feedback_args(sp):
+        sp.add_argument("--actor", required=True, choices=_ACT_ACTORS)
+        sp.add_argument("--id", required=True)
+        _act_target(sp)
+        sp.add_argument("--context", action="append", default=[], metavar="KEY=VALUE")
+        sp.add_argument("--summary", required=True)
+        sp.add_argument("--detail", required=True)
+
+    def _action_create_args(sp):
+        sp.add_argument("--actor", required=True, choices=_ACT_ACTORS)
+        sp.add_argument("--id", required=True)
+        sp.add_argument("--feedback-id", default=None)
+        _act_target(sp)
+        sp.add_argument("--context", action="append", default=[], metavar="KEY=VALUE")
+        sp.add_argument("--intent", required=True)
+
+    def _actor_event_action(sp):
+        sp.add_argument("--actor", required=True, choices=_ACT_ACTORS)
+        sp.add_argument("--event-id", required=True)
+        sp.add_argument("--action-id", required=True)
+
+    def _transition_args(sp):
+        _actor_event_action(sp)
+        sp.add_argument(
+            "--to-state",
+            required=True,
+            choices=(
+                "in_progress",
+                "waiting_for_user",
+                "completed",
+                "blocked",
+                "cancelled",
+            ),
+        )
+
+    def _handle_args(sp):
+        _actor_event_action(sp)
+        sp.add_argument("--note", required=True)
+        sp.add_argument("--new-ref", default=None)
+        sp.add_argument("--new-version", type=int, default=None)
+        sp.add_argument("--new-digest", default=None)
+        sp.add_argument("--cost", action="append", default=[], metavar="CUR=MINOR")
+
+    def _verify_action_args(sp):
+        _actor_event_action(sp)
+        sp.add_argument("--verdict", required=True, choices=("resolved", "continue"))
+        sp.add_argument("--note", required=True)
+
+    def _rebind_args(sp):
+        _actor_event_action(sp)
+        _act_target(sp)
+
+    _add("feedback-create", _cmd_feedback_create, extra=_feedback_args)
+    _add("action-create", _cmd_action_create, extra=_action_create_args)
+    _add("action-transition", _cmd_action_transition, extra=_transition_args)
+    _add("action-handle", _cmd_action_handle, extra=_handle_args)
+    _add("action-verify", _cmd_action_verify, extra=_verify_action_args)
+    _add("action-rebind", _cmd_action_rebind, extra=_rebind_args)
+
     # TASK-025: read-only cross-project workspace queries (WQ-01..WQ-14).
     # These never write, never call a Provider; --account-root defaults to
     # the project root's parent (the same account semantics as the budget
@@ -348,6 +418,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add("ws-cost", _cmd_ws_cost, extra=_ws_account)
     _add("ws-eval", _cmd_ws_eval, extra=_ws_account)
     _add("ws-eval-domain", _cmd_ws_eval_domain, extra=_ws_account)
+    _add("ws-action-center", _cmd_ws_action_center, extra=_ws_account)
     _add("ws-problems", _cmd_ws_problems, extra=_ws_account)
     _add("ws-rebuild-check", _cmd_ws_rebuild, extra=_ws_query)
     _add("ws-index", _cmd_ws_index, extra=_ws_account)
@@ -790,6 +861,148 @@ def _cmd_decision_record(args) -> None:
     )
 
 
+# --- TASK-029: feedback/action write handlers (ADR-0035) -------------------
+
+
+def _action_service(args):
+    from ai_video_workflow.action import ActionService, WorkflowTargetResolver
+
+    data = _load_project_data(args.project_root)
+    return ActionService(
+        args.project_root,
+        data.project.project_id,
+        resolver=WorkflowTargetResolver(),
+        clock=utc_now,
+    )
+
+
+def _action_actor(value: str):
+    from ai_video_workflow.action import ActionActor
+
+    return ActionActor(value)
+
+
+def _act_target_arg(args) -> dict:
+    return {
+        "ref": args.target_ref,
+        "version": args.target_version,
+        "content_digest": args.target_digest,
+    }
+
+
+def _parse_kv(pairs: list[str], flag: str) -> dict:
+    out: dict = {}
+    for pair in pairs:
+        if "=" not in pair:
+            raise FieldTypeError(f"{flag} expects KEY=VALUE, got {pair!r}")
+        key, value = pair.split("=", 1)
+        out[key] = value
+    return out
+
+
+def _parse_cost(pairs: list[str]) -> dict | None:
+    if not pairs:
+        return None
+    cost: dict = {}
+    for pair in pairs:
+        if "=" not in pair:
+            raise FieldTypeError(f"--cost expects CUR=MINOR, got {pair!r}")
+        cur, amount = pair.split("=", 1)
+        try:
+            cost[cur] = int(amount)
+        except ValueError:
+            raise FieldTypeError(
+                f"--cost MINOR must be an integer (minor units), got {amount!r}"
+            ) from None
+    return cost
+
+
+def _cmd_feedback_create(args) -> None:
+    record = _action_service(args).create_feedback(
+        actor=_action_actor(args.actor),
+        feedback_id=args.id,
+        target=_act_target_arg(args),
+        context=_parse_kv(args.context, "--context"),
+        summary=args.summary,
+        detail=args.detail,
+    )
+    print(f"feedback {record.record_id}: {record.payload['summary']}")
+
+
+def _cmd_action_create(args) -> None:
+    record = _action_service(args).create_action(
+        actor=_action_actor(args.actor),
+        action_id=args.id,
+        feedback_id=args.feedback_id,
+        target=_act_target_arg(args),
+        context=_parse_kv(args.context, "--context"),
+        intent=args.intent,
+    )
+    print(f"action {record.record_id}: pending intent={record.payload['intent']}")
+
+
+def _cmd_action_transition(args) -> None:
+    record = _action_service(args).transition(
+        actor=_action_actor(args.actor),
+        event_id=args.event_id,
+        action_id=args.action_id,
+        to_state=args.to_state,
+    )
+    print(f"action {args.action_id} -> {record.payload['to_state']}")
+
+
+def _cmd_action_handle(args) -> None:
+    new_artifact = None
+    # "provided" is presence (is not None), so --new-digest "" counts as given
+    # and is not silently dropped by falsiness; a partial or empty bundle is a
+    # clean validation error, never a misleading new_artifact=None fact.
+    provided = [
+        f for f in (args.new_ref, args.new_version, args.new_digest) if f is not None
+    ]
+    if provided:
+        if len(provided) != 3 or args.new_ref == "" or args.new_digest == "":
+            raise FieldTypeError(
+                "--new-ref, --new-version and --new-digest must all be given "
+                "together and non-empty"
+            )
+        new_artifact = {
+            "ref": args.new_ref,
+            "version": args.new_version,
+            "content_digest": args.new_digest,
+        }
+    record = _action_service(args).record_handling(
+        actor=_action_actor(args.actor),
+        event_id=args.event_id,
+        action_id=args.action_id,
+        execution_note=args.note,
+        old_artifact=None,
+        new_artifact=new_artifact,
+        cost_change=_parse_cost(args.cost),
+    )
+    print(f"handling {record.record_id} recorded for {args.action_id}")
+
+
+def _cmd_action_verify(args) -> None:
+    record = _action_service(args).record_verification(
+        actor=_action_actor(args.actor),
+        event_id=args.event_id,
+        action_id=args.action_id,
+        verdict=args.verdict,
+        note=args.note,
+    )
+    print(f"verification {record.record_id}: {record.payload['verdict']}")
+
+
+def _cmd_action_rebind(args) -> None:
+    record = _action_service(args).rebind(
+        actor=_action_actor(args.actor),
+        event_id=args.event_id,
+        action_id=args.action_id,
+        target=_act_target_arg(args),
+    )
+    print(f"rebind {record.record_id}: {args.action_id} reset to pending")
+
+
 # --- TASK-025: read-only workspace query handlers --------------------------
 
 
@@ -844,6 +1057,10 @@ def _cmd_ws_eval(args) -> None:
 
 def _cmd_ws_eval_domain(args) -> None:
     _ws_emit(_ws_service(args).evaluation_domain(args.project_root))
+
+
+def _cmd_ws_action_center(args) -> None:
+    _ws_emit(_ws_service(args).action_center(args.project_root))
 
 
 def _cmd_ws_problems(args) -> None:

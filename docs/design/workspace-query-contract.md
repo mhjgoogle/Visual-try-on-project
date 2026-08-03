@@ -185,6 +185,24 @@
 - 只读：本查询不写入、不调用 Provider、不复制 QC/成本/谱系事实；写入仅经批准
   CLI/app service（ADR-0032）。
 
+### WQ-16 action-center（反馈 / Action，WSM2-B，contract v1.3）
+- 用途：只读 Action Center——返回 ADR-0035 append-only feedback/action 事实域的
+  全部 feedback 与 Action；Action 附其**折叠出的**生命周期状态（pending/in_progress/
+  waiting_for_user/completed/blocked/cancelled）、派生 target stale 叠加与问题→处理→
+  验证事件轨迹。
+- 输入：feedback/action 事实日志（ADR-0035）；QCD asset_imported（target 权威事实，
+  仅用于 stale 派生，只读引用不复制）。
+- 返回：feedback〔kind/feedback_id/occurred_at/actor/target/context/summary〔A〕、
+  target_stale/stale_reason〔D〕〕；action〔kind/action_id/feedback_id/occurred_at/
+  actor/intent/target〔A〕、lifecycle_state/effective_state/target_stale/stale_reason/
+  rebind_count/event_trail〔D，由 append-only 事件折叠〕〕。
+- 排序：occurred_at → 记录 id。
+- 失败：日志损坏 → source_corrupt problem（fail-closed，空记录集）；target digest 漂移
+  或缺失的 Action → effective_state=stale + 结构化 problem（readiness 不失败，事实仍
+  authoritative 返回）。
+- 只读：本查询不写入、不调用 Provider、不应用 Action 隐含的变更（那是 Gateway 的职责，
+  ADR-0033）；写入仅经批准 CLI/app service，状态转换经独立状态机与合法转换图校验。
+
 ## 4. 失败与问题模型
 
 - 每个 problem 至少语义包含：`category`（如 `missing_ref`、`version_absent`、
@@ -266,7 +284,8 @@ schema**。每个 source 由一个独立只读 adapter 读取，跨域组合只�
 | 实验比较 / 评价 scorecard（超出 QC，含增量成本/时间） | ✅ 可回答（WQ-15，contract v1.2） | ADR-0034 / TASK-028（WSM2-A 消费） |
 | 观众表现数据 | ⛔ optional-data/unavailable | S7-T03；TASK-037/039 |
 | 跨项目学习 / 证据化推荐 | ⛔ unavailable | ADR-0036 / TASK-032 |
-| Action 状态机 / 写操作 | ⛔ 范围外（只读合同不含） | ADR-0033/0035 / TASK-029/030/031（WSM2） |
+| 反馈 / Action Center（只读观察） | ✅ 可回答（WQ-16，contract v1.3） | ADR-0035 / TASK-029（WSM2-B 消费） |
+| Action 写操作 / 状态机驱动 | ⛔ 范围外（只读合同不含，写入经 Gateway） | ADR-0033/0035 / TASK-030/031（WSM2） |
 
 范围外语义在查询结果中一律标 `unavailable`，不得为通过 readiness 伪造记录，也不得
 反向扩大 TASK-018～023。
@@ -280,6 +299,10 @@ schema**。每个 source 由一个独立只读 adapter 读取，跨域组合只�
   WQ-15 评价域只读消费（§8 覆盖表指定的 owner，ADR-0034 事实域）。为叠加式只读：
   不改任何写入者、不改既有查询语义/排序/失败规则、不新增第二事实源；
   `QUERY_CONTRACT_VERSION` 由 1.1 minor bump 至 1.2。WQ-01～14 基线保持冻结。
+- **WQ-16 扩展（contract v1.3，TASK-029 / WSM2-B）**：叠加 WQ-16 反馈/Action Center
+  只读消费（ADR-0035 事实域）。同为叠加式只读：Action 当前状态由 append-only 事件
+  折叠派生，不引入第二写入者、不改既有查询语义；`QUERY_CONTRACT_VERSION` minor bump
+  至 1.3。WQ-01～14 基线保持冻结。
 - **Projection 策略（初版）**：见 ADR-0031 决策——WSM1 采用 **on-demand 求值、
   不落持久缓存**；因此本基线**不授权任何项目/账户持久 projection 路径**。若 WSM1-A
   证明必须物化，须回到后续 ADR 增补（锁定路径、生命周期、唯一写入者，且持久路径

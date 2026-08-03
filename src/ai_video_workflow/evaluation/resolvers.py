@@ -29,8 +29,9 @@ from pathlib import Path
 from ai_video_workflow.evaluation.service import TargetFact
 from ai_video_workflow.profile.errors import ProfileNotFoundError
 from ai_video_workflow.profile.project_profile import load_project_profile
+from ai_video_workflow.project_data import owning_project_id
 from ai_video_workflow.qcd.events import QcdEventType
-from ai_video_workflow.qcd.log import read_events
+from ai_video_workflow.qcd.log import QcdLogError, read_events
 
 
 class WorkflowAuthoritativeFacts:
@@ -46,9 +47,26 @@ class WorkflowAuthoritativeFacts:
     def resolve_target(
         self, project_root: Path, *, ref: str, version: int
     ) -> TargetFact:
-        """Resolve a shot-video target to its authoritative ``asset_imported`` fact."""
-        for event in read_events(project_root):
+        """Resolve a shot-video target to its authoritative ``asset_imported`` fact.
+
+        A corrupt/unreadable QCD log must not raise into the read-only WQ-15
+        query (fail-closed contract): it reads as an unresolved target (stale),
+        never an uncaught error. QCD-log integrity is surfaced by WQ-07/WQ-09.
+        """
+        try:
+            events = read_events(project_root)
+        except QcdLogError:
+            return TargetFact(exists=False, content_digest=None, latest_version=None)
+        # Only this project's own facts may bind/refresh its targets. If the
+        # project identity is unknown we cannot verify ownership, so fail CLOSED
+        # (nothing resolves) rather than accept foreign facts.
+        owner = owning_project_id(project_root)
+        if owner is None:
+            return TargetFact(exists=False, content_digest=None, latest_version=None)
+        for event in events:
             if event.event_type is not QcdEventType.ASSET_IMPORTED:
+                continue
+            if event.project_id != owner:
                 continue
             if event.payload.get("asset_id") == ref and (
                 event.payload.get("version") == version

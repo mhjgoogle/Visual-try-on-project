@@ -13,6 +13,9 @@
   file retention/cleanup rule, per the finalized TASK-005/006/007
   contracts. This amendment extends the layout; it does not change any
   earlier decision.
+- Amended (third): 2026-08-03 — `action/events/log.jsonl`, the append-only
+  feedback / action fact log (format per ADR-0035 / TASK-029). This amendment
+  extends the layout; it does not change any earlier decision.
 
 ## Context
 
@@ -93,6 +96,9 @@ Loading remains explicit: callers provide every model file path to
   evaluation/
     events/
       log.jsonl
+  action/
+    events/
+      log.jsonl
   outputs/
     final_v<N>.mp4
 ```
@@ -120,6 +126,7 @@ placeholder directories.
 | `reports/` | Versioned validation, composition, and QCD reports (JSON fact source + deterministic Markdown rendering). Derived documents, never a second source of business truth. |
 | `qcd/events/` | Append-only raw QCD event log (`log.jsonl`, format per ADR-0003). Aggregates are not authoritative here. |
 | `evaluation/events/` | Append-only evaluation / experiment / creative-decision fact log (`log.jsonl`, format per ADR-0034 / TASK-028). Its own single writer; a separate state domain that only references QC / cost / lineage facts by ref+version+digest and never copies or rewrites them. Comparisons / rankings / incremental cost-time are derived views, not stored here. |
+| `action/events/` | Append-only feedback / action fact log (`log.jsonl`, format per ADR-0035 / TASK-029). Its own single writer; a separate state domain whose Action lifecycle states (`pending`/`in_progress`/`waiting_for_user`/`completed`/`blocked`/`cancelled`/`stale`) never reuse workflow-approval / GenerationTask / StepManifest / Provider / reservation state. It only references targets by ref+version+content_digest; the current Action state and the read-only Action Center are derived from these append-only facts. Any change an Action triggers is applied only through the Command Gateway (ADR-0033), never written here as a second writer. |
 | `outputs/` | Final deliverables. These files are not the formal source of reusable asset truth. |
 
 `staging/` content never becomes a formal asset merely by existing there.

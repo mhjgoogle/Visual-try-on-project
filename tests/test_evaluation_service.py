@@ -447,6 +447,11 @@ def _import_asset(project_root: Path, *, asset_id: str, version: int, sha: str) 
 
 
 def test_concrete_resolver_binds_real_goals_and_asset(tmp_path: Path) -> None:
+    from ai_video_workflow.models import Project
+    from ai_video_workflow.persistence import write_model_json
+
+    # project.json establishes the owning project_id the resolver checks against
+    write_model_json(tmp_path / "project.json", Project("proj-demo", "Demo", _AT))
     _write_profile(tmp_path, version=1)
     _import_asset(tmp_path, asset_id="asset-task1-v1", version=1, sha=_DIGEST)
     facts = WorkflowAuthoritativeFacts()

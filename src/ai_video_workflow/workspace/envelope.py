@@ -151,7 +151,11 @@ class QueryResult:
 # WQ-01..WQ-14 baseline — additive read-only consumption of the ADR-0034
 # append-only evaluation facts (owner named in the query contract's coverage
 # table). No writer change; existing queries are unchanged.
-QUERY_CONTRACT_VERSION = "1.2"
+# 1.3 (TASK-029): WQ-16 action-center (WSM2-B) — additive read-only consumption
+# of the ADR-0035 append-only feedback/action facts, with the Action lifecycle
+# state folded (derived) from those facts. No writer change; existing queries
+# unchanged.
+QUERY_CONTRACT_VERSION = "1.3"
 
 
 def to_jsonable(result: QueryResult) -> dict:

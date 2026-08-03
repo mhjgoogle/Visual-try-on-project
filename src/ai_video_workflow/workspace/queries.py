@@ -879,6 +879,126 @@ def evaluation_domain(project_root: Path, now: str) -> QueryResult:
     return _result("WQ-15", now, {"project_root": str(project_root)}, items, problems)
 
 
+# --- WQ-16 action-center (ADR-0035 / TASK-029, WSM2-B) -----------------------
+
+
+def _no_clock():
+    raise RuntimeError("WQ-16 is read-only; the clock is never used")
+
+
+def action_center(project_root: Path, now: str) -> QueryResult:
+    """The read-only Action Center: every feedback and Action with its folded
+    lifecycle state (authoritative facts folded → derived state), derived target
+    staleness, and the problem→handling→verification event trail. Actions are a
+    SEPARATE state domain (ADR-0010 decision 7); this query only observes facts
+    and never applies an Action's implied change (that is the Gateway's job).
+    Sorted by occurred_at then id (query contract §3 WQ-16)."""
+    from ai_video_workflow.action import ActionService, WorkflowTargetResolver
+    from ai_video_workflow.workspace.adapters import action as action_adapter
+
+    src = action_adapter.read_action(project_root)
+    problems: list[Problem] = list(src.problems)
+    # The service filters records to the owning project_id, so WQ-16 must supply
+    # the project's REAL id (from ProjectData) rather than a placeholder — else
+    # legitimate records would be filtered out. If the project identity is
+    # unresolvable, records cannot be attributed and are surfaced as a problem.
+    # only the project identity is needed here; ProjectData's own problems
+    # (missing profile/config) belong to WQ-01/WQ-02, not the Action Center.
+    psrc = project.read_project(project_root)
+    project_id = psrc.data.project.project_id if psrc.data is not None else None
+    if project_id is None:
+        if src.records:
+            problems.append(
+                Problem.of(
+                    ProblemCategory.SOURCE_CORRUPT,
+                    "cannot resolve project identity to attribute Action records",
+                    readiness_failed=False,
+                    project=str(project_root),
+                )
+            )
+        return _result("WQ-16", now, {"project_root": str(project_root)}, [], problems)
+    svc = ActionService(
+        project_root, project_id, resolver=WorkflowTargetResolver(), clock=_no_clock
+    )
+    # Build (sort_key, item) rows for feedback AND actions, then order the whole
+    # result by (occurred_at, record_id) as one sequence (query contract §3).
+    rows: list[tuple[tuple[str, str], dict[str, Field]]] = []
+
+    for fv in svc.feedback_views(src.records):
+        env = fv.feedback.to_envelope()
+        rows.append(
+            (
+                (env["occurred_at"], fv.feedback.record_id),
+                {
+                    "kind": Field.authoritative("feedback"),
+                    "feedback_id": Field.authoritative(env["payload"]["feedback_id"]),
+                    "occurred_at": Field.authoritative(env["occurred_at"]),
+                    "actor": Field.authoritative(fv.feedback.actor.value),
+                    "target": Field.authoritative(env["payload"]["target"]),
+                    "context": Field.authoritative(env["payload"]["context"]),
+                    "summary": Field.authoritative(env["payload"]["summary"]),
+                    "target_stale": Field.derived(fv.target_stale),
+                    "stale_reason": Field.derived(fv.stale_reason),
+                },
+            )
+        )
+
+    for av in svc.action_views(src.records):
+        env = av.action.to_envelope()
+        trail = [
+            {
+                "record_type": e.record_type.value,
+                "actor": e.actor.value,
+                "occurred_at": e.occurred_at.isoformat(timespec="microseconds"),
+            }
+            for e in av.events
+        ]
+        rows.append(
+            (
+                (env["occurred_at"], av.action.record_id),
+                {
+                    "kind": Field.authoritative("action"),
+                    "action_id": Field.authoritative(av.folded.action_id),
+                    "feedback_id": Field.authoritative(av.folded.feedback_id),
+                    "occurred_at": Field.authoritative(env["occurred_at"]),
+                    "actor": Field.authoritative(av.action.actor.value),
+                    "intent": Field.authoritative(av.folded.intent),
+                    "target": Field.authoritative(_plain(av.folded.effective_target)),
+                    "lifecycle_state": Field.derived(av.folded.lifecycle_state),
+                    "effective_state": Field.derived(av.effective_state),
+                    "target_stale": Field.derived(av.target_stale),
+                    "stale_reason": Field.derived(av.stale_reason),
+                    "rebind_count": Field.derived(av.folded.rebind_count),
+                    "event_trail": Field.derived(trail),
+                },
+            )
+        )
+        if av.target_stale:
+            problems.append(
+                Problem.of(
+                    ProblemCategory.DIGEST_MISMATCH,
+                    f"action {av.folded.action_id} is stale: {av.stale_reason}",
+                    readiness_failed=False,
+                    object=av.folded.action_id,
+                )
+            )
+
+    rows.sort(key=lambda row: row[0])
+    items = [item for _, item in rows]
+    return _result("WQ-16", now, {"project_root": str(project_root)}, items, problems)
+
+
+def _plain(value):
+    """A frozen (MappingProxyType/tuple) structure back to plain dict/list."""
+    from types import MappingProxyType
+
+    if isinstance(value, (MappingProxyType, dict)):
+        return {k: _plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    return value
+
+
 # --- WQ-09 recent-problems ----------------------------------------------------
 
 
@@ -1018,6 +1138,7 @@ def _rebuild_runner(service, project_root: Path, query_id: str, params: dict):
         "WQ-13": lambda: service.approval_audit(project_root),
         "WQ-14": lambda: service.budget_standing(project_root),
         "WQ-15": lambda: service.evaluation_domain(project_root),
+        "WQ-16": lambda: service.action_center(project_root),
     }
     return runners.get(query_id)
 

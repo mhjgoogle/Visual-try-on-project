@@ -19,6 +19,20 @@ from ai_video_workflow.models import (
 )
 from ai_video_workflow.persistence import read_model_json
 
+
+def owning_project_id(project_root: Path) -> str | None:
+    """Return the project's declared ``project_id`` from ``project.json``.
+
+    ``None`` if the file is absent or unreadable. Used by fact resolvers to
+    reject cross-project records (an out-of-band foreign-project event in this
+    project's log must never bind or refresh a local target).
+    """
+    try:
+        return read_model_json(project_root / "project.json", Project).project_id
+    except Exception:
+        return None
+
+
 EntityT = TypeVar(
     "EntityT",
     Character,
