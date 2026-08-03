@@ -1,10 +1,10 @@
 # TASK-028：评价、实验比较与创作决定（WSM2-A）
 
-> **状态：Planned（聚焦设计草案已产出，见下「聚焦设计」；代码实施仍待 ADR-0034
-> Accepted 与相应 gate）。** TASK-028 是 ADR-0034 的 decision owner，本轮已完成聚焦
-> 设计并把裁决写入 ADR-0034（Proposed）；生产代码依赖 ADR-0034 Accepted、
-> TASK-018/020/022 与 TASK-026/027。在 Command Gateway 前，写入仅通过批准的
-> CLI/app service，Workspace 页面只读。
+> **状态：Ready（ADR-0034 已 Accepted 2026-08-02，2026-08-03 用户复核确认；代码
+> 实施已解禁，尚未开始）。** TASK-028 是 ADR-0034 的 decision owner，聚焦设计已写入
+> ADR-0034（Accepted）；生产代码依赖已满足（ADR-0034 Accepted、TASK-018/020/022 与
+> TASK-026/027），可开工。在 Command Gateway 前，写入仅通过批准的 CLI/app service，
+> Workspace 页面只读；完整验收仍受 TASK-023 readiness 与独立审查约束。
 
 ## 目的
 

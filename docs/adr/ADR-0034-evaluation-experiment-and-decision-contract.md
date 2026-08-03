@@ -4,7 +4,7 @@
 - Date: 2026-08-02
 - Decision owner: TASK-028
 - Implementation scope: TASK-028、TASK-031～TASK-033、TASK-039、TASK-040
-- Depends on: ADR-0031（Accepted）、ADR-0032（Proposed）；TASK-018/020/022 source contracts
+- Depends on: ADR-0031（Accepted）、ADR-0032（Accepted）；TASK-018/020/022 source contracts
 
 ## Context
 
@@ -54,7 +54,7 @@
 | 扩展 TASK-022 QC/终审事实域 | ⚠ 复用既有准入状态与写入者，跨域污染 | ⚠ 主观评价增殖/改写 QC/发布/终审事实，形成第二源 | △ 可绑定，但与既有事实边界纠缠 | △ 可 append，但历史与准入事实混同，难独立重建 | ⚠ 评价与准入耦合，AI 辅助易被当作准入结论 | △ 仍可只读，但写路径与 QC 写入者冲突 |
 | 纯 UI 派生、无持久新事实 | ✅ 无新状态 | ✅ 不复制事实 | ⚠ 无处绑定用户评分/理由的版本身份 | ⚠ 用户主观判断未持久化，删除后无从重建 | ⚠ 用户理由/实验结论无法留存追溯 | ✅ 无写入 |
 
-## Proposed Decision（待独立审查后 Accept）
+## Decision（Accepted 2026-08-02，用户于 2026-08-03 复核确认）
 
 采用 **候选 1：独立评价事实域 + 派生比较视图**——唯一在全部 P1–P6 上均为 ✅ 的
 候选。evaluation、experiment 与 creative-decision 构成一个**独立的、append-only/
@@ -138,22 +138,25 @@
 - 代价：本域引入独立唯一写入者与版本绑定校验，须承担 stale 失效、append-only 与
   与 TASK-022 证据非重复归属的一致性责任。
 
-## Acceptance Criteria（独立审查须确认后方可 Accept）
+## Acceptance Criteria（Accept 时已确认）
 
-- [ ] 评价/实验/决定裁决只落在领域边界与状态域分离层，未定最终 schema/字段名/
+- [x] 评价/实验/决定裁决只落在领域边界与状态域分离层，未定最终 schema/字段名/
       目录/Python 类型/数据库，未创建代码；
-- [ ] 与 ADR-0010 决策 4/6/7、ADR-0031 只读合同、ADR-0032 只读姿态一致，未越权定义
+- [x] 与 ADR-0010 决策 4/6/7、ADR-0031 只读合同、ADR-0032 只读姿态一致，未越权定义
       Gateway/Action/推荐；
-- [ ] 状态域分离明确：本域不复用审批/GenerationTask/StepManifest/Provider/reservation
+- [x] 状态域分离明确：本域不复用审批/GenerationTask/StepManifest/Provider/reservation
       状态；
-- [ ] 非第二事实源明确：只 by-ref 引用 TASK-022 QC/发布/终审证据，不复制/替代；
-- [ ] 版本绑定 + stale fail-closed、append-only 不可变历史、派生视图可重建三点齐备；
-- [ ] 用户终判 / AI 仅辅助边界明确，无自动批准或自动优胜者；
-- [ ] 持久化路径、唯一写入者与 TASK-022 兼容映射列入 Not decided here，交 TASK-028
-      在 Accepted 前补齐，且项目/账户路径须经 ADR-0001 授权；
-- [ ] 未提前把 Status 置为 Accepted（留待用户裁定）。
+- [x] 非第二事实源明确：只 by-ref 引用 TASK-022 QC/发布/终审证据，不复制/替代；
+- [x] 版本绑定 + stale fail-closed、append-only 不可变历史、派生视图可重建三点齐备；
+- [x] 用户终判 / AI 仅辅助边界明确，无自动批准或自动优胜者；
+- [x] 持久化路径、唯一写入者与 TASK-022 兼容映射列入 Not decided here，交 TASK-028
+      在 Accepted 设计内补齐，且项目/账户路径须经 ADR-0001 授权；
+- [x] Status 由用户裁定为 Accepted（2026-08-02 裁定，2026-08-03 复核确认）。
 
 ## Acceptance
 
 - 2026-08-02：用户 Accept 本 ADR，解除其 Proposed 门槛，授权对应 owner 任务实施代码。
 - 注：codex 未安装，本阶段相关代码/设计审查由 claude 回退完成，跨模型独立性降级（用户已知悉并接受）。
+- 2026-08-03：用户复核确认 Accept，授权 TASK-028 实施。同时清理本 ADR 残留的 Proposed
+  期脚手架（标题、验收清单勾选、Depends-on 中 ADR-0032 状态），使正文与已 Accepted
+  的头部一致；本 ADR 仍只裁决领域边界与状态域分离，未定最终 schema/路径/DB。
