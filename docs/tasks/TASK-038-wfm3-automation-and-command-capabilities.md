@@ -1,9 +1,16 @@
 # TASK-038：WFM3 固定职责自动化与命令能力收口
 
-> **状态：Planned（聚焦设计草案已产出，见下「聚焦设计」）。** 本任务是 ADR-0040
-> owner；本轮已完成聚焦设计并把裁决写入 ADR-0040（Proposed）。代码实施仍待
-> ADR-0040 Accepted、TASK-037 WFM2 milestone gate 通过与 ADR-0033 Accepted；
-> TASK-011 是可选升级，非硬依赖。
+> **状态：Delivered（合同层，2026-08-04）。** ADR-0040 Accepted 后实施合同层交付：
+> `src/ai_video_workflow/automation/`（版本化单一事实来源 capability registry）。
+> 交付内容：8 项固定自动化职责（project_create/stage_validate/task_packet/submit/
+> collect/proxy/qc/package）作为 capability，每项绑定一个 ADR-0033 Gateway 命令
+> （同源 `verify_same_source`，缺一即 SecondSourceError）+ 一个真实 L0–S7 baseline
+> step（跨 creative/postproduction catalog + S4 allowlist 校验）+ 输入/输出合同
+> 描述 + 恢复语义 + 风险等级 + human_gate 标记；未注册即拒绝、version drift 后
+> snapshot fail-closed（ADR-0010 决策 6）；pause/cancel/skip 一律 UNSUPPORTED+依据、
+> 不伪造状态。**合同层不含真实 apply handler、TASK-012 路由执行与 CLI**（ADR-0040
+> 「Not decided here」/「TASK-038 Must Decide」，留作后续细化）；无新持久路径，
+> 无 ADR-0001 增补。TASK-011 Local Provider 仍为可选、非硬依赖。
 
 ## 目的
 

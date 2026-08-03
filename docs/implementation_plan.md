@@ -130,7 +130,7 @@ WFM2 在 WFM1 gate 之后补齐两份顶层需求仍缺少的完整创意、多�
 | --- | --- | --- | --- |
 | [TASK-011](tasks/TASK-011-local-video-provider.md) | 本地视频 Provider | 用户模型/硬件裁决 | Optional outline |
 | [TASK-012](tasks/TASK-012-qcd-auto-routing.md) | QCD 自动路由 | ADR-0040 + 至少两个候选 | Outline |
-| [TASK-038](tasks/TASK-038-wfm3-automation-and-command-capabilities.md) | 自动化职责、能力注册表和安全命令语义 | ADR-0040 | Planned |
+| [TASK-038](tasks/TASK-038-wfm3-automation-and-command-capabilities.md) | 自动化职责、能力注册表和安全命令语义 | ADR-0040 | Delivered（合同层，2026-08-04；`automation/` capability registry，同源+drift+control 裁决；apply/路由/CLI 延后） |
 
 ### 最终联合验收
 
