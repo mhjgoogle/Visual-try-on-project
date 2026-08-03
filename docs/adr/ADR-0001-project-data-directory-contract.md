@@ -25,6 +25,17 @@
   extends the account-level layout; it does not change any earlier decision.
   Cross-project analytics and recommendations remain on-demand derived views
   with no persistent cache (ADR-0031 / ADR-0036).
+- Amended (sixth): 2026-08-03 — the WFM2 creative/audiovisual locked-artifact
+  index tree `creative/l0/`, `creative/s1/`, `creative/s2/`, `creative/s3/`
+  (files `creative/<stage>/<kind>_v<N>.json`), each an immutable create-only
+  structured index carrying `ref/version/content_digest`, producing step,
+  precise input refs, parent version + change reason, checklist evidence and an
+  optional in-project `body_ref` prose/media path (format per ADR-0037 /
+  TASK-034). This amendment extends the layout; it does not change any earlier
+  decision. WFM1 stage/step ids are unchanged; the existing minimal
+  `planning/` and `approval/` paths are unaffected and remain the S3 formal /
+  approval surface. Full JSON field schema, DB/projection and any Provider path
+  remain out of scope (deferred by ADR-0037 to later ADRs).
 
 ## Context
 

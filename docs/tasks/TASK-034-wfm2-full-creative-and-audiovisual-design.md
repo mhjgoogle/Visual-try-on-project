@@ -1,9 +1,12 @@
 # TASK-034：WFM2 完整创意与视听设计（L0–S3）
 
-> **状态：Planned（聚焦设计草案已产出，见下「聚焦设计」；代码实施待 ADR-0037
-> Accepted 与 TASK-023 gate 通过）。** 本任务是 ADR-0037 owner；本轮已完成聚焦设计
-> 并把裁决写入 ADR-0037（Proposed）。docs/design 阶段可在 Proposed 下继续，任何代码
-> 或新路径实施必须等待 ADR-0037 Accepted 和 TASK-023 gate 通过。
+> **状态：Implemented（2026-08-03）。** ADR-0037 Accepted、TASK-023 gate 通过后实施。
+> 交付 `src/ai_video_workflow/creative/`（结构化索引 index + L0–S3 catalog + 载荷贯穿
+> payload + 三代表镜头 pilot 门 + 四锁 stage_targets + CLI），路径经 ADR-0001 第六次增补
+> 与 ADR-0012 WFM2 增补授权（`creative/<stage>/<ref>_v<N>.json`）。codex 11 轮独立审查
+> 通过（20+ blocking 修复，谱系/身份契约加固）；完整套件 2474 passed, 3 env-skips，ruff
+> clean。合同层裁决，不接 Provider、不做审批、不生成图片/音频（ADR-0038/0039 承接）；
+> WFM2 端到端最终验收由 TASK-037。原文见下「聚焦设计」。
 
 ## 目的
 

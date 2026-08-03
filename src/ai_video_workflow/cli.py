@@ -446,6 +446,24 @@ def _build_parser() -> argparse.ArgumentParser:
     _add("ws-reuse", _cmd_ws_reuse, extra=_ws_reuse)
     _add("ws-approval-audit", _cmd_ws_approval_audit, extra=_ws_account)
     _add("ws-budget", _cmd_ws_budget, extra=_ws_account)
+
+    # TASK-034: WFM2 creative/audiovisual (L0-S3) contract layer. Read-only
+    # catalog, create-only immutable index publish, and fail-closed validation.
+    # No Provider, no approval, no media generation.
+    def _creative_plan_args(sp):
+        sp.add_argument("--stage", default=None, help="project|l0|s1|s2|s3")
+
+    def _creative_publish_args(sp):
+        sp.add_argument("--from", dest="from_file", type=Path, required=True)
+
+    def _creative_validate_args(sp):
+        sp.add_argument("--stage-lock", default=None, help="a creative lock stage id")
+        sp.add_argument("--pilot", action="store_true")
+        sp.add_argument("--payload", action="store_true")
+
+    _add("creative-plan", _cmd_creative_plan, extra=_creative_plan_args)
+    _add("creative-publish", _cmd_creative_publish, extra=_creative_publish_args)
+    _add("creative-validate", _cmd_creative_validate, extra=_creative_validate_args)
     return parser
 
 
@@ -1053,6 +1071,96 @@ def _cmd_ws_analytics(args) -> None:
 
 def _cmd_ws_recommendations(args) -> None:
     _ws_emit(_ws_service(args).recommendations())
+
+
+# --- TASK-034: WFM2 creative/audiovisual (L0-S3) contract handlers ----------
+
+
+def _cmd_creative_plan(args) -> None:
+    import json as _json
+
+    from ai_video_workflow.creative import catalog
+    from ai_video_workflow.creative.errors import CreativeError
+
+    if args.stage is not None and args.stage not in catalog.stages():
+        raise CreativeError(
+            f"unknown stage: {args.stage!r} (expected one of {catalog.stages()})"
+        )
+    rows = catalog.steps(args.stage) if args.stage else catalog.steps()
+    out = [
+        {
+            "step_id": r.step_id,
+            "stage": r.stage,
+            "title": r.title,
+            "execution": r.execution,
+            "owner": r.owner,
+            "kind": r.kind,
+            "inputs": list(r.inputs),
+            "completion": r.completion,
+            "surface": r.surface,
+            "is_lock": r.is_lock,
+            "approval_stage": r.approval_stage,
+            "wfm1_compat": r.wfm1_compat,
+        }
+        for r in rows
+    ]
+    print(_json.dumps(out, ensure_ascii=False, sort_keys=True, indent=2))
+
+
+def _cmd_creative_publish(args) -> None:
+    import json as _json
+
+    from ai_video_workflow.creative import build_artifact, publish_artifact
+    from ai_video_workflow.creative.errors import CreativeError
+
+    try:
+        raw = _json.loads(args.from_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise CreativeError(f"unable to read creative spec: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise CreativeError("creative spec must be a JSON object")
+    for key in ("stage", "step_id", "kind", "ref", "version"):
+        if key not in raw:
+            raise CreativeError(f"creative spec missing required field: {key!r}")
+    artifact = build_artifact(
+        stage=raw["stage"],
+        step_id=raw["step_id"],
+        kind=raw["kind"],
+        ref=raw["ref"],
+        version=raw["version"],
+        input_refs=raw.get("input_refs") or (),
+        parent_version=raw.get("parent_version"),
+        change_reason=raw.get("change_reason"),
+        checklist=raw.get("checklist") or (),
+        body_ref=raw.get("body_ref"),
+        body_digest=raw.get("body_digest"),
+    )
+    path = publish_artifact(args.project_root, artifact)
+    rel = path.relative_to(args.project_root)
+    print(
+        f"creative {artifact.stage}/{artifact.ref} v{artifact.version} -> {rel} "
+        f"digest={artifact.content_digest}"
+    )
+
+
+def _cmd_creative_validate(args) -> None:
+    from ai_video_workflow.creative import payload, pilot, stage_targets
+    from ai_video_workflow.creative.errors import CreativeValidationError
+
+    if not (args.stage_lock or args.pilot or args.payload):
+        raise CreativeValidationError(
+            "specify at least one of --stage-lock, --pilot, --payload"
+        )
+    problems: list[str] = []
+    if args.stage_lock:
+        problems.extend(stage_targets.validate_lock(args.project_root, args.stage_lock))
+    if args.pilot:
+        problems.extend(pilot.pilot_gate_problems(args.project_root))
+    if args.payload:
+        problems.extend(payload.payload_threads(args.project_root))
+    if problems:
+        raise CreativeValidationError("; ".join(problems))
+    print("creative validation OK")
 
 
 # --- TASK-025: read-only workspace query handlers --------------------------
