@@ -97,7 +97,7 @@ Creation Workspace 不属于 TASK-018～023 或 WFM1 验收。安全边界见
 | [TASK-025](tasks/TASK-025-workspace-projection-and-query-service.md) | WSM1 | 可重建 projection/query service | TASK-024 + ADR-0031；最终验收等 TASK-023 | Planned |
 | [TASK-026](tasks/TASK-026-workspace-read-only-shell.md) | WSM1 | 跨项目只读工作视窗 | TASK-025 + ADR-0032 | Planned |
 | [TASK-027](tasks/TASK-027-workspace-lineage-comparison-and-cost.md) | WSM1 | 谱系、版本/产物比较、成本深钻 | TASK-020/021/022 + TASK-025/026 | Planned |
-| [TASK-028](tasks/TASK-028-workspace-evaluation-experiment-decision.md) | WSM2 | 评价、实验、创作决定 + 只读页面 | ADR-0034 + TASK-018/020/022/026/027 | Planned |
+| [TASK-028](tasks/TASK-028-workspace-evaluation-experiment-decision.md) | WSM2 | 评价、实验、创作决定 + 只读页面 | ADR-0034 + TASK-018/020/022/026/027 | Delivered（步骤 1–4；增量成本/时间 join 延期） |
 | [TASK-029](tasks/TASK-029-workspace-feedback-and-action.md) | WSM2 | Feedback/Action + 只读 Action Center | ADR-0035 + TASK-025/026/028 | Planned |
 | [TASK-030](tasks/TASK-030-command-gateway-foundation.md) | WSM2 | Gateway、preflight、确认、幂等回执 | **TASK-023** + ADR-0033 | Planned |
 | [TASK-031](tasks/TASK-031-workspace-controlled-operations.md) | WSM2 | Workspace 受控运行与 Action 写闭环 | TASK-023 + TASK-026/028/029/030 | Planned |
