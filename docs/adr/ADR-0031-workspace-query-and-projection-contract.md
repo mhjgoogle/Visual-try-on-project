@@ -78,3 +78,20 @@ on-demand 无持久缓存决定符合 ADR-0001/0030、source-to-query 与 gap li
 ADR-0032～0040；一项 Minor（§5.3 unavailable 枚举补齐 L0）已闭合。据此改为
 Accepted。WSM1 生产实现（TASK-025）自此可依本合同开工。ADR-0032～0040 保持
 Proposed，不受本 Accepted 影响。
+
+## Amendment 2026-08-03 (TASK-027, contract_version 1.1)
+
+依据第 5 条"新增可选返回字段为向后兼容（minor+）"，TASK-027 对 **WQ-07
+cost-breakdown** 做**纯附加、只读**扩展，`contract_version` 由 `1.0` 升至 `1.1`：
+
+- 新增派生维度 `by_step`、`by_stage`、`by_time`（均 DERIVED，币种分列不相加，
+  与既有 `by_shot/by_provider/by_model` 同构）；`by_time` 以 JST 日历月为桶键，
+  与预算台账 `monthly_remaining_jpy` 的月度单位对齐。
+- `per_operation` 每条新增 `occurred_at`（成本事件时间戳，AUTHORITATIVE）。
+- `by_step`/`by_stage` 的归属从 I/O 合同派生（付费成本记于 `paid_generation`
+  步骤，WFM1 即 `S4-T05`/`S4`），**不修改任何核心 lineage/cost 事实写入器**，
+  符合 TASK-027「明确不做」与本 ADR 第 2 条 projection 只读边界。
+
+属 minor 向后兼容变更：不删除/重命名字段、不收紧失败语义、`query_id` 不变；
+shell 按主版本判定 legacy，故 1.x 客户端不受影响。无需新 ADR，按第 5 条以增补
+记录即可。

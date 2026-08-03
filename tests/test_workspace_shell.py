@@ -371,6 +371,33 @@ def test_cost_drilldown_keeps_currencies_separate(tmp_path, monkeypatch):
     assert set(item["actual_by_currency"]["value"]) == {"USD"}
 
 
+def test_cost_drilldown_stage_step_time_dimensions(tmp_path, monkeypatch):
+    """WQ-07 v1.1: cost also rolls up by step, stage and JST month (TASK-027).
+
+    All are derived read-only projections over the same authoritative events —
+    no writer change — and keep currencies in separate buckets.
+    """
+    account, root = _episode(tmp_path, monkeypatch)
+    dto = _json(_app(account).handle(f"/api/projects/{root.name}/cost"))
+    assert dto["contract_version"] == "1.1"
+    item = dto["items"][0]
+    for dim in ("by_step", "by_stage", "by_time"):
+        assert item[dim]["provenance"] == "derived"
+        assert item[dim]["value"], f"{dim} should carry the paid actual cost"
+        for by_currency in item[dim]["value"].values():
+            assert all(isinstance(cur, str) for cur in by_currency)
+    # paid cost attributes to the single paid-generation step S4-T05 / stage S4
+    assert set(item["by_step"]["value"]) == {"S4-T05"}
+    assert set(item["by_stage"]["value"]) == {"S4"}
+    # by_time buckets are YYYY-MM JST month keys
+    assert all(len(k) == 7 and k[4] == "-" for k in item["by_time"]["value"]), item[
+        "by_time"
+    ]["value"]
+    # every reconciled operation carries its authoritative cost timestamp
+    paid_ops = [op for op in item["per_operation"]["value"] if op["actual"] is not None]
+    assert paid_ops and all(op["occurred_at"] for op in paid_ops)
+
+
 # --- read-only guards (source-level) -----------------------------------------
 
 

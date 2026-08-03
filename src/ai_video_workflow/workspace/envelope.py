@@ -144,7 +144,10 @@ class QueryResult:
 # The query contract's own version (workspace-query-contract.md §1.6, §6).
 # Additive query/field changes bump the minor; removals/renames need a new
 # ADR. WQ-01..WQ-14 are the frozen WSM1 baseline.
-QUERY_CONTRACT_VERSION = "1.0"
+# 1.1 (TASK-027): WQ-07 gains derived by_step/by_stage/by_time rollups and a
+# per-operation occurred_at — additive read-only projection, no writer change
+# (see ADR-0031 amendment). Minor bump; the shell keys legacy on the major.
+QUERY_CONTRACT_VERSION = "1.1"
 
 
 def to_jsonable(result: QueryResult) -> dict:

@@ -206,6 +206,18 @@ def test_wq07_cost_breakdown_per_operation_and_derived_rollups(tmp_path, monkeyp
     assert item["actual_total_jpy"].provenance is Provenance.DERIVED
     assert item["actual_total_jpy"].value == SHOTS * 16
     assert not res.readiness_failed  # a clean episode reconciles
+    # v1.1 (TASK-027): step/stage/time rollups are derived projections over the
+    # same events — paid cost books at the paid_generation step S4-T05 / stage
+    # S4, and by_time buckets by JST month; per-op carries its cost timestamp.
+    assert item["by_step"].provenance is Provenance.DERIVED
+    assert item["by_step"].value == {"S4-T05": {"USD": SHOTS * 10}}
+    assert item["by_stage"].value == {"S4": {"USD": SHOTS * 10}}
+    assert item["by_time"].provenance is Provenance.DERIVED
+    assert (
+        sum(c for months in item["by_time"].value.values() for c in months.values())
+        == SHOTS * 10
+    )
+    assert op0["occurred_at"] is not None
 
 
 def test_wq07_unreconciled_committed_op_fails_closed(tmp_path, monkeypatch):

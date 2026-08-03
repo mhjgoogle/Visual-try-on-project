@@ -491,6 +491,7 @@ def cost_breakdown(project_root: Path, now: str) -> QueryResult:
                 "quote_currency": r.quote_currency,
                 "hold_estimate_jpy": r.estimate_jpy if r.is_outstanding else None,
                 "actual": actual,
+                "occurred_at": (ev.occurred_at.isoformat() if ev is not None else None),
                 "packet_estimate_jpy": pk.estimate_jpy if pk is not None else None,
             }
         )
@@ -519,10 +520,31 @@ def cost_breakdown(project_root: Path, now: str) -> QueryResult:
             )
     per_operation.sort(key=lambda x: (x["task_id"], x["operation_id"]))
 
-    # derived dimensions (rollups are DERIVED, not authoritative)
+    # The single WFM1 step/stage that owns paid-generation cost, derived from
+    # the I/O contract (NOT a writer change): every paid operation is booked at
+    # the paid_generation step, so cost attributes there. Deriving it from the
+    # contract keeps by_step/by_stage correct if the step id ever moves.
+    _paid_step = next(
+        (
+            s
+            for s in io_contract.steps()
+            if io_contract.run_source(s.step_id) == "paid_generation"
+        ),
+        None,
+    )
+    paid_step_id = _paid_step.step_id if _paid_step is not None else "unknown"
+    paid_stage = _paid_step.level if _paid_step is not None else "unknown"
+
+    # derived dimensions (rollups are DERIVED, not authoritative). Each rollup
+    # keeps currencies in separate buckets — amounts of different currencies
+    # are never summed. by_time buckets by JST calendar month (the budget
+    # ledger's unit), so cost-over-time lines up with monthly_remaining_jpy.
     by_shot: dict[str, dict[str, int]] = {}
     by_provider: dict[str, dict[str, int]] = {}
     by_model: dict[str, dict[str, int]] = {}
+    by_step: dict[str, dict[str, int]] = {}
+    by_stage: dict[str, dict[str, int]] = {}
+    by_time: dict[str, dict[str, int]] = {}
     for op in per_operation:
         if op["actual"] is None:
             continue
@@ -534,9 +556,16 @@ def cost_breakdown(project_root: Path, now: str) -> QueryResult:
             (by_shot, op["shot_id"]),
             (by_provider, op["actual"]["provider_id"]),
             (by_model, op["actual"]["model_id"]),
+            (by_step, paid_step_id),
+            (by_stage, paid_stage),
         ):
             dim.setdefault(key, {}).setdefault(cur, 0)
             dim[key][cur] += amt
+        ce = cost_events.get((op["task_id"], op["operation_id"]))
+        if ce is not None:
+            month = execution.month_of(ce.occurred_at)
+            by_time.setdefault(month, {}).setdefault(cur, 0)
+            by_time[month][cur] += amt
 
     project_total_jpy = None
     actual_by_currency: dict[str, int] = {}
@@ -566,6 +595,9 @@ def cost_breakdown(project_root: Path, now: str) -> QueryResult:
             "by_shot": Field.derived(by_shot),
             "by_provider": Field.derived(by_provider),
             "by_model": Field.derived(by_model),
+            "by_step": Field.derived(by_step),
+            "by_stage": Field.derived(by_stage),
+            "by_time": Field.derived(by_time),
             "actual_by_currency": Field.derived(actual_by_currency),
             "actual_total_jpy": (
                 Field.derived(project_total_jpy)

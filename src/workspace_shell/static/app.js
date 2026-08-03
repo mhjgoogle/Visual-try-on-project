@@ -456,12 +456,21 @@ function renderCost(target, costData, budgetResult) {
   }
   target.appendChild(oc);
 
-  // 4. derived rollups by dimension — each currency in its own column, never
-  //    added together across currencies (cross-currency safety)
-  ["by_shot", "by_provider", "by_model"].forEach((dim) => {
+  // 4. derived rollups by dimension — stage / step / shot / provider / model /
+  //    time (WQ-07 v1.1). Each currency stays in its own column, never added
+  //    together across currencies (cross-currency safety). by_time is keyed by
+  //    JST calendar month so it lines up with the monthly budget line.
+  [
+    ["by_stage", "By stage"],
+    ["by_step", "By step"],
+    ["by_shot", "By shot"],
+    ["by_provider", "By provider"],
+    ["by_model", "By model"],
+    ["by_time", "By month (JST)"],
+  ].forEach(([dim, title]) => {
     const f = item[dim];
     if (!f) return;
-    target.appendChild(dimTable(dim, f.value || {}, f.provenance));
+    target.appendChild(dimTable(title, f.value || {}, f.provenance));
   });
 
   // 5. per-currency actual totals (derived aggregate) + derived JPY rollup
