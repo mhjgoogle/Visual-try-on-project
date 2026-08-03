@@ -26,14 +26,36 @@ from ai_video_workflow.evaluation.records import (
     build_experiment_record,
     record_from_envelope,
 )
+from ai_video_workflow.evaluation.resolvers import WorkflowAuthoritativeFacts
+from ai_video_workflow.evaluation.service import (
+    AuthoritativeFacts,
+    EvaluationActorError,
+    EvaluationService,
+    EvaluationServiceError,
+    EvaluationView,
+    MissingGoalsBaselineError,
+    Staleness,
+    StaleTargetError,
+    TargetFact,
+)
 
 __all__ = [
     "EVALUATION_LOG_SCHEMA_VERSION",
+    "AuthoritativeFacts",
     "CorruptEvaluationLogError",
     "EvaluationActor",
+    "EvaluationActorError",
     "EvaluationLogError",
     "EvaluationRecord",
     "EvaluationRecordType",
+    "EvaluationService",
+    "EvaluationServiceError",
+    "EvaluationView",
+    "MissingGoalsBaselineError",
+    "Staleness",
+    "StaleTargetError",
+    "TargetFact",
+    "WorkflowAuthoritativeFacts",
     "append_record",
     "build_creative_decision_record",
     "build_evaluation_record",
