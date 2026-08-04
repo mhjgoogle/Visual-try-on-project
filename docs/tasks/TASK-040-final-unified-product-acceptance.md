@@ -1,7 +1,13 @@
 # TASK-040：AI 短剧工作流与 Creation Workspace 最终统一验收
 
-> **状态：Planned。** 最终产品 milestone gate；依赖 TASK-037～039 通过，并要求
-> TASK-024～036 的适用任务和 ADR 已完成收口。本任务不新增功能。
+> **状态：Evidence Ready — 等用户签字（2026-08-04）。** 最终产品 milestone gate；
+> TASK-037（WFM2 gate，证据已备齐等签字）、TASK-038/039 已实现过审。本任务不新增
+> 功能，只备齐最终联合验收证据：`tests/test_final_unified_acceptance.py`（闭环
+> 目标→运行→观察→评价/Action→复盘→学习/复用 + 跨切面不变量）+
+> [最终追踪矩阵](../design/final-unified-acceptance-traceability.md) +
+> [runbook](../design/final-unified-acceptance-runbook.md) +
+> [里程碑评审](../design/final-unified-milestone-review.md)。里程碑 PASS 属用户
+> （runbook §5），实施 Agent 不代判。TASK-037 与本门两处签字共同构成最终产品验收。
 
 ## 目的
 
