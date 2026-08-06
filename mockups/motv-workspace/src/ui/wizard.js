@@ -3,7 +3,7 @@
 // asset node done.
 import { $, el } from "../util/dom.js";
 
-export function createWizard({ estimate, project, refresh }) {
+export function createWizard({ estimate, getProject, refresh }) {
   const scrim = $("#wz-scrim");
   let node = null;
   const close = () => scrim.classList.remove("show");
@@ -31,6 +31,7 @@ export function createWizard({ estimate, project, refresh }) {
 
   function open(assetNode) {
     node = assetNode;
+    const project = getProject();
     const chars = $("#wz-chars");
     chars.innerHTML = "";
     project.characters.forEach(([name, desc]) => {

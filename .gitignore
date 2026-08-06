@@ -43,3 +43,6 @@ secrets.json
 # Claude Code local settings; shared Agent directories remain trackable.
 .claude/settings.local.json
 .claude/tmp/
+
+# motv mockup: local canvas persistence (prototype scratch, not a fixture)
+mockups/motv-workspace/data/

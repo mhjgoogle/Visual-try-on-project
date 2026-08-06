@@ -1,13 +1,21 @@
-// motv workspace mockup — bootstrap. Registers node types, builds the shared
-// ctx, wires the generic engine to the workflow, and mounts the UI. Adding a new
-// workflow step = create ../workflow/nodes/<type>.js and add one register() line.
+// motv workspace mockup — bootstrap.
+//
+// Registers node types, builds the shared ctx, wires the generic engine to the
+// workflow, and mounts the UI. Two run modes:
+//   - CONNECTED: server.py present → real read-only project data (budget/status/
+//     cost via ADR-0031) + canvas persistence to data/<name>.json.
+//   - LOCAL/demo: static (no backend) → fixtures + localStorage persistence.
+// Generation stays stubbed ("待 Gateway") in both modes — no paid Provider, no
+// core writes.
 
-import { $, $$, toast } from "./util/dom.js";
+import { $, $$, toast, esc } from "./util/dom.js";
 import { GraphEngine } from "./graph/engine.js";
 import * as registry from "./graph/registry.js";
 import * as budget from "./services/budget.js";
 import { submitCommand } from "./services/gateway.js";
-import { getProject } from "./services/query.js";
+import * as query from "./services/query.js";
+import * as persist from "./services/persist.js";
+import * as realmap from "./services/realmap.js";
 import { createInspector } from "./ui/inspector.js";
 import { createEstimate } from "./ui/estimate.js";
 import { createWizard } from "./ui/wizard.js";
@@ -24,38 +32,83 @@ import edit from "./workflow/nodes/edit.js";
 import master from "./workflow/nodes/master.js";
 [script, scriptgen, assets, video, audio, edit, master].forEach(registry.register);
 
-const project = getProject("shengtang");
+const FIX = query.fixtureProject();
 const labelOf = (t) => (registry.get(t) ? registry.get(t).title : t);
 
-// --- budget readout (shared header widget) ---
+// --- session state ---
+let CONNECTED = false;
+let PROJECT_NAME = "local-draft";
+let DEFAULT_NAME = "local-draft";
+let REAL_STANDING = null;
+let canvasActive = false;
+let seeded = false;
+
+// --- budget readout (real in CONNECTED, fixture otherwise) ---
 function renderBudget() {
+  if (CONNECTED && REAL_STANDING) {
+    const s = REAL_STANDING;
+    const low = s.remaining < s.total * 0.15;
+    const html = `<span>已花 <b>${realmap.yen(s.spent)}</b></span><span class="sep">·</span><span>余额 <b class="bal" ${low ? 'style="color:var(--gate)"' : ""}>${realmap.yen(s.remaining)}</b></span><span class="sep">▾</span>`;
+    $$("#budget1,#budget2").forEach((e) => { e.innerHTML = html; e.onclick = openRealProjectData; });
+    return;
+  }
   const y = budget.yuan;
   const bal = budget.balance();
   const html = `<span>已花 <b>${y(budget.totalSpent())}</b></span><span class="sep">·</span><span>余额 <b class="bal" ${bal < 3000 ? 'style="color:var(--gate)"' : ""}>${y(bal)}</b></span><span class="sep">▾</span>`;
-  $$("#budget1,#budget2").forEach((e) => {
-    e.innerHTML = html;
-    e.onclick = () => inspector.openCost();
+  $$("#budget1,#budget2").forEach((e) => { e.innerHTML = html; e.onclick = () => inspector.openCost(); });
+}
+
+async function openRealProjectData() {
+  try {
+    const [statusJ, costJ] = await Promise.all([
+      query.getQuery(PROJECT_NAME, "status"),
+      query.getQuery(PROJECT_NAME, "cost"),
+    ]);
+    inspector.openProjectData(PROJECT_NAME, {
+      standing: REAL_STANDING,
+      stages: realmap.mapStages(statusJ),
+      cost: realmap.mapCost(costJ),
+    });
+  } catch {
+    inspector.openProjectData(PROJECT_NAME, { standing: REAL_STANDING });
+  }
+}
+
+function setModeBadge() {
+  $$("#modebadge1,#modebadge2").forEach((e) => {
+    e.className = "modebadge " + (CONNECTED ? "connected" : "local");
+    e.textContent = CONNECTED ? "🟢 真实只读数据" : "⚪ 演示模式";
+    e.title = CONNECTED
+      ? "已连接后端：项目/预算/状态为真实只读；创作为本地草稿；生成待 Gateway"
+      : "静态演示：数据为 fixtures，画布仍本地持久化";
   });
 }
 
 // --- UI singletons ---
 const inspector = createInspector();
 const est = createEstimate({ renderBudget, toast });
-const wizard = createWizard({ estimate: est, project, refresh: (n) => engine.refreshBody(n) });
 
 // --- shared context handed to every node def ---
 const ctx = {
-  project,
+  project: { ...FIX },
   gateway: { submitCommand },
   budget,
   inspector,
-  wizard,
+  wizard: null, // set below (needs ctx.estimate)
   toast,
-  estimate: est.open,
+  // paid generation: gated in CONNECTED mode (no spend, no write), demo preflight otherwise
+  estimate: (o) => {
+    if (CONNECTED) {
+      toast(`「${o.kind}」需经 Command Gateway（写侧 ADR 待接入）—— 本次不生成、不花费`);
+      return;
+    }
+    est.open(o);
+  },
   refresh: (node) => engine.refreshBody(node),
   markIncoming: (id, state) => engine.markIncoming(id, state),
   addNext,
 };
+ctx.wizard = createWizard({ estimate: { open: (o) => ctx.estimate(o) }, getProject: () => ctx.project, refresh: (n) => engine.refreshBody(n) });
 
 // --- engine wired to the workflow via registry/contract ---
 const engine = new GraphEngine({
@@ -92,7 +145,10 @@ const engine = new GraphEngine({
       engine.render();
     }),
   onEdgeInsert: (ed, cx, cy) => openMenu(cx, cy, (type) => insertOnEdge(ed, type)),
-  onChange: () => renderStepbar(engine, $("#stepbar"), $("#entrybar")),
+  onChange: () => {
+    renderStepbar(engine, $("#stepbar"), $("#entrybar"));
+    if (canvasActive && PROJECT_NAME) persist.saveCanvas(PROJECT_NAME, serializeGraph());
+  },
   onDeleteEdges: () => toast("已删除选中连线"),
 });
 
@@ -120,9 +176,6 @@ function insertOnEdge(ed, type) {
   const my = (a.offsetTop + b.offsetTop) / 2 + 70;
   const fromNode = engine.findNode(ed.from);
   const toNode = engine.findNode(ed.to);
-  // Validate BEFORE touching the original edge: only a legal insert (adjacent to
-  // both ends) may replace A→B. An incompatible type must never silently delete
-  // the existing user connection.
   const legal = registry.canConnect(fromNode.type, type) && registry.canConnect(type, toNode.type);
   const nn = createNode(type, mx, my);
   if (legal) {
@@ -132,7 +185,7 @@ function insertOnEdge(ed, type) {
     engine.render();
     toast(`已在连线中插入「${labelOf(type)}」`);
   } else {
-    engine.render(); // keep original A→B intact; node placed unconnected
+    engine.render();
     toast(`「${labelOf(type)}」与相邻步骤不匹配，已新建但未插入（原连线保留）`);
   }
 }
@@ -156,8 +209,40 @@ document.addEventListener("pointerdown", (e) => {
   if (!e.target.closest("#nmenu") && !e.target.closest(".ectl button")) closeMenu();
 }, true);
 
-// --- seeds (progressive: only the starting nodes; the rest grow on demand) ---
-let seeded = false;
+// --- canvas (de)serialization for persistence ---
+function serializeGraph() {
+  return {
+    v: 1,
+    project: PROJECT_NAME,
+    nodes: engine.nodes.map((n) => ({
+      id: n.id, type: n.type, x: n.x, y: n.y, state: n.state,
+      text: n.text, versions: n.versions, cur: n.cur, pickSingle: n.pickSingle,
+    })),
+    edges: engine.edges.map((e) => ({ from: e.from, to: e.to, state: e.state })),
+    pan: { x: engine.panX, y: engine.panY },
+  };
+}
+function restoreGraph(data) {
+  engine.reset();
+  seeded = false;
+  if (!data || !Array.isArray(data.nodes) || !data.nodes.length) return false;
+  const idMap = {};
+  for (const sn of data.nodes) {
+    if (!registry.get(sn.type)) continue;
+    const nd = registry.createNodeData(sn.type, sn.x || 0, sn.y || 0);
+    ["state", "text", "versions", "cur", "pickSingle"].forEach((k) => { if (sn[k] !== undefined) nd[k] = sn[k]; });
+    idMap[sn.id] = engine.addNode(nd).id;
+  }
+  for (const se of data.edges || []) {
+    if (idMap[se.from] && idMap[se.to]) engine.addEdge(idMap[se.from], idMap[se.to], se.state || "");
+  }
+  if (data.pan) { engine.panX = data.pan.x; engine.panY = data.pan.y; engine.applyPan(); }
+  seeded = true;
+  engine.render();
+  return true;
+}
+
+// --- seeds ---
 function seedStory() {
   if (seeded) { toast("画布已有故事工作流"); return; }
   seeded = true;
@@ -167,43 +252,110 @@ function seedStory() {
   engine.render();
   engine.panTo(g.id);
 }
-$$(".entry").forEach((b) => (b.onclick = () => {
-  seedStory();
-  if (b.dataset.seed !== "story") toast("已进入故事工作流（原型：过程统一到 L0–S7 链）");
-}));
-
-function openRecent() {
-  if (seeded) return;
-  seeded = true;
-  // 深夜便利店: mid-production — script✓ scriptgen✓ assets✓ video/audio pending
+function seedDemoGraph() {
+  // 演示：进行到 S4 —— script✓ scriptgen✓ assets✓ video/audio 待生成
   const s = createNode("script", 0, 40);
   const g = createNode("scriptgen", 360, 40);
   const a = createNode("assets", 720, 10);
   const v = createNode("video", 1060, -50);
   const au = createNode("audio", 1060, 150);
-  g.state = "done"; g.versions = [{ v: 1, shots: project.shots.v1 }]; g.cur = 1; a.state = "done";
+  g.state = "done"; g.versions = [{ v: 1, shots: ctx.project.shots.v1 }]; g.cur = 1; a.state = "done";
   engine.addEdge(s.id, g.id, "done");
   engine.addEdge(g.id, a.id, "done");
   engine.addEdge(a.id, v.id, "");
   engine.addEdge(a.id, au.id, "");
+  seeded = true;
   engine.render();
   engine.panTo(v.id);
-  toast("已打开：进行到 S4 视频生成（见底部进度条）");
+}
+$$(".entry").forEach((b) => (b.onclick = () => {
+  seedStory();
+  if (b.dataset.seed !== "story") toast("已进入故事工作流（原型：过程统一到 L0–S7 链）");
+}));
+
+// --- enter a project's canvas (real or demo) ---
+async function enterCanvas(name, opts = {}) {
+  PROJECT_NAME = name;
+  canvasActive = false;
+  ctx.project = {
+    ...FIX,
+    id: name,
+    name,
+    script: CONNECTED
+      ? `【${name}】\n（在此编写剧本草稿，自动保存到本地 data/${name}.json）`
+      : FIX.script,
+  };
+  if (CONNECTED) {
+    try { REAL_STANDING = realmap.mapStanding(await query.getQuery(name, "budget")); } catch { REAL_STANDING = null; }
+  } else {
+    REAL_STANDING = null;
+  }
+  renderBudget();
+  views.goCanvas();
+  if (opts.seedDemo) {
+    seedDemoGraph();
+  } else {
+    const saved = await persist.loadCanvas(name);
+    if (!restoreGraph(saved)) { engine.reset(); seeded = false; engine.render(); }
+  }
+  canvasActive = true;
+}
+
+// --- landing project cards ---
+function renderLanding(realNames) {
+  const grid = $("#projgrid");
+  [...grid.querySelectorAll(".pcard")].forEach((c) => c.remove());
+  if (CONNECTED) {
+    realNames.forEach((name) => {
+      const b = document.createElement("button");
+      b.className = "pcard";
+      b.innerHTML = `<div class="thumb" style="background:radial-gradient(120% 120% at 40% 30%,#1e4a56,#12183a)"><span style="color:#a9d8e8">📁 ${esc(name)}</span></div><div class="cap">${esc(name)} <span class="tg">真实项目</span></div>`;
+      b.onclick = () => enterCanvas(name, {});
+      grid.appendChild(b);
+    });
+  } else {
+    const b = document.createElement("button");
+    b.className = "pcard";
+    b.innerHTML = `<div class="thumb" style="background:radial-gradient(120% 120% at 30% 20%,#3a2a5e,#12183a)"><span style="color:#cbb9e8">🎬 示例·进行中</span></div><div class="cap">示例项目 <span class="tg">演示 · S4</span></div>`;
+    b.onclick = () => enterCanvas("demo", { seedDemo: true });
+    grid.appendChild(b);
+  }
 }
 
 // --- global bits ---
+const views = createViews();
+$("#start-create").onclick = () => enterCanvas(DEFAULT_NAME, {});
 engine.world.addEventListener("input", (e) => {
   if (e.target.classList.contains("scripttext")) {
     const n = engine.findNode(e.target.closest(".node").dataset.id);
-    if (n) n.text = e.target.value;
+    if (n) { n.text = e.target.value; if (canvasActive && PROJECT_NAME) persist.saveCanvas(PROJECT_NAME, serializeGraph()); }
   }
 });
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
-  if ($("#es-scrim").classList.contains("show")) return; // estimate handles itself
+  if ($("#es-scrim").classList.contains("show")) return;
   if ($("#nmenu").classList.contains("show")) { closeMenu(); return; }
   if ($("#wz-scrim").classList.contains("show")) { $("#wz-scrim").classList.remove("show"); return; }
   inspector.close();
 });
 
-createViews({ onStart: () => {}, onOpenRecent: openRecent, renderBudget });
+// --- async bootstrap ---
+async function boot() {
+  const m = await query.detectMode();
+  CONNECTED = m.mode === "connected";
+  setModeBadge();
+  let realNames = [];
+  if (CONNECTED) {
+    realNames = await query.listProjects();
+    DEFAULT_NAME = realNames[0] || "draft";
+    if (realNames[0]) {
+      PROJECT_NAME = realNames[0];
+      try { REAL_STANDING = realmap.mapStanding(await query.getQuery(realNames[0], "budget")); } catch { REAL_STANDING = null; }
+    }
+  } else {
+    DEFAULT_NAME = "local-draft";
+  }
+  renderLanding(realNames);
+  renderBudget();
+}
+boot();

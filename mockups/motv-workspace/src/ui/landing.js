@@ -1,14 +1,12 @@
-// Landing ⇄ canvas view switching + theme toggle + shared budget readout wiring.
+// View switching (landing ⇄ canvas) + theme toggle + home buttons. Project-card
+// wiring and the async data bootstrap live in app.js.
 import { $, $$ } from "../util/dom.js";
 
-export function createViews({ onStart, onOpenRecent, renderBudget }) {
+export function createViews() {
   const landing = $("#landing"), canvas = $("#canvas");
+  const goCanvas = () => { landing.style.display = "none"; canvas.style.display = "block"; };
+  const goHome = () => { canvas.style.display = "none"; landing.style.display = "block"; };
 
-  function goCanvas() { landing.style.display = "none"; canvas.style.display = "block"; }
-  function goHome() { canvas.style.display = "none"; landing.style.display = "block"; }
-
-  $("#start-create").onclick = () => { goCanvas(); onStart(); };
-  $("#open-recent").onclick = () => { goCanvas(); onOpenRecent(); };
   $("#back-home").onclick = goHome;
   $("#home-canvas").onclick = goHome;
   $("#wz-home").onclick = () => { $("#wz-scrim").classList.remove("show"); goHome(); };
@@ -19,6 +17,5 @@ export function createViews({ onStart, onOpenRecent, renderBudget }) {
     r.setAttribute("data-theme", c === "dark" ? "light" : "dark");
   }));
 
-  renderBudget();
   return { goCanvas, goHome };
 }

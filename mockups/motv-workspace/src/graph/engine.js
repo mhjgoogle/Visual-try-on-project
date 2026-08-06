@@ -28,6 +28,7 @@ export class GraphEngine {
     this.edges = [];
     this.panX = opts.panX ?? 140;
     this.panY = opts.panY ?? 120;
+    this._pan0 = { x: this.panX, y: this.panY }; // default viewport, restored on reset()
     this.selId = null;
     this.selEdges = new Set();
     this._seq = 0;
@@ -57,6 +58,20 @@ export class GraphEngine {
     this.edges = this.edges.filter((e) => e !== ed);
     this.selEdges.delete(ed.id);
   }
+  /** Clear the whole graph (used when switching projects / restoring). */
+  reset() {
+    this.nodes = [];
+    this.edges = [];
+    this.selId = null;
+    this.selEdges = new Set();
+    this.world.querySelectorAll(".node").forEach((e) => e.remove());
+    this.panX = this._pan0.x; // reset viewport so a new project doesn't inherit the last offset
+    this.panY = this._pan0.y;
+    this.applyPan();
+    this.renderEdges();
+    if (this.emptyhint) this.emptyhint.style.display = "flex";
+  }
+
   /** Colour every edge feeding a node (e.g. active while its node generates). */
   markIncoming(toId, state) {
     this.edges.forEach((e) => {
@@ -222,6 +237,7 @@ export class GraphEngine {
     const up = () => {
       document.removeEventListener("pointermove", mv);
       document.removeEventListener("pointerup", up);
+      this.o.onChange && this.o.onChange(); // persist moved position
     };
     document.addEventListener("pointermove", mv);
     document.addEventListener("pointerup", up);
@@ -247,6 +263,7 @@ export class GraphEngine {
       if (this._pan) {
         this._pan = null;
         this.viewport.classList.remove("panning");
+        this.o.onChange && this.o.onChange(); // persist pan offset
       }
     });
     this.viewport.addEventListener("dblclick", (ev) => {

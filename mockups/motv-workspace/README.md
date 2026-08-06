@@ -10,47 +10,66 @@
 
 ## 治理边界（重要）
 
-- 与生产级只读 shell（`src/workspace_shell/`）**物理与运行时隔离**：本目录不被任何
-  Python 服务引用或托管，不 import 核心 Python 类型，不直接调用 Provider。
-- 所有写操作走一层 **Command Gateway stub**（`src/services/gateway.js`），所有读数据走
-  **只读 query stub**（`src/services/query.js`）——**演示但不实现** ADR-0033 / ADR-0031
-  的真实边界。生成前必过**预算预检**（P50/P90，余额不足阻断）。
-- 正式 Workspace UI、最终数据结构与 UI 状态机受 ADR-0031/0032/0033 与对应任务卡约束；
-  把本原型的节点图落成生产实现需先走对应 ADR。本原型不在 `docs/adr` 或冻结合同中做任何决定。
+- **只读接真实数据是允许的**：ADR-0031（只读查询合同）与 ADR-0032（loopback web 拓扑）均已
+  Accepted，只读原型可提前（ADR-0032:19）。可选后端 `server.py` 消费**公开**查询包
+  `ai_video_workflow.workspace`（与 `src/workspace_shell/app.py` 同一公开面）——这**不是**
+  "import 核心内部类型"（ADR-0032:84 只禁内部类型），且后端**只读**、不写业务状态、不持凭据、
+  刻意**不放进** `src/workspace_shell/`。
+- **写侧仍受门槛，保持 stub**：生成 / 发布 / Command Gateway / DB / 最终 schema 受
+  CLAUDE.md、AGENTS.md、ADR-0033+ 约束。前端 `services/gateway.js` 是 client stub；连上后端时
+  生成类操作显式提示"**待 Gateway（写侧 ADR 待接入）**"，不产生真实花费、不写核心文件。
+- **画布持久化是原型本地 scratch**：`data/<project>.json` 只存画布自有状态（剧本草稿、节点
+  位置、连线），**不是**核心事实投影、**不回写**任何 `<project>/` 核心文件，`.gitignore` 已忽略。
+- 把本原型落成**生产 Workspace UI**（取代 WSM1-B）或做**真写/真生成**，须另走对应 ADR / 任务卡。
+  本原型不在 `docs/adr` 或冻结合同中做任何决定。
 
 ## 运行
 
-仓库无前端构建工具，用任意静态服务器即可（ES 模块需经 http 载入，不能 `file://` 直开）：
+两种模式，ES 模块都需经 http 载入（不能 `file://` 直开）：
 
+**演示模式（静态，纯 fixtures，零依赖）**
 ```bash
-cd mockups/motv-workspace
-python3 -m http.server 8000
-# 浏览器打开 http://localhost:8000/
+cd mockups/motv-workspace && python3 -m http.server 8000
+# 浏览器 http://localhost:8000/  → 顶部显示「⚪ 演示模式」
 ```
 
-走一遍：开始创作 → 故事脚本生成 → 「基于剧本生成分镜」(进度) → 准备资产(向导) →
-视频生成(**预算预检** → 批量/单个) → 音频生成 → 剪辑合成(本地 FFmpeg 免费) → 成片/质检。
-试：拖节点右侧端口连线（仅相邻步骤，跨步骤会被拒）、拖到空白新建下游、悬停连线 ＋插入 /
-×删除、Shift 多选连线后 Del 删、脚本生成器 `v▾` 切版本 / `⇄对比`、点顶部余额看各项目花费、
-底部进度条点击聚焦、🏠 返回主页、右上 ◐ 切换主题。
+**连接真实数据模式（同源 loopback 后端，读真实项目）**
+```bash
+source .venv/bin/activate            # 需已 pip install -e .
+python mockups/motv-workspace/server.py --account-root examples/projects
+# 浏览器 http://127.0.0.1:8770/  → 顶部显示「🟢 真实只读数据」
+```
+连接模式下：落地页列出**真实项目**（如 `wfm1-demo`）；顶部预算是**真实 WQ-14 数字（JPY）**；
+点余额看**真实预算 / 阶段状态(WQ-02) / 成本(WQ-07)**；画布编辑（剧本/节点/连线）**自动存到
+`data/<project>.json`，刷新不丢**；生成类操作提示"待 Gateway"。创意节点内容仍是本地草稿
+（无 checked-in 的真实创意数据）。
+
+**通用交互**：开始创作 → 选一个过程 → 分镜(进度) → 准备资产(向导) → 视频/音频 → 剪辑合成 →
+成片/质检；拖端口连线（仅相邻步骤）、拖空白新建、连线 ＋插入 / ×删、Shift 多选后 Del 删、
+`v▾` 切版本 / `⇄对比`、底部进度条点击聚焦、🏠 返回主页、右上 ◐ 主题。
+（演示模式下生成走**本地预算预检**；连接模式下生成为"待 Gateway"不花费。）
 
 ## 架构（为什么"好扩展"）
 
 ```
-index.html                shell 标记 + <script type="module" src="src/app.js">
+server.py                  可选同源 loopback 后端：只读查询(公开合同) + 画布本地持久化
+index.html                 shell 标记 + <script type="module" src="src/app.js">
 styles/tokens.css app.css  设计令牌（明暗双主题）+ 布局/组件
 src/
-  graph/engine.js          通用画布引擎：nodes/edges、render、pan、drag、连线、多选、panTo
-                           —— 不含任何短剧业务知识，纯交互
+  graph/engine.js          通用画布引擎：nodes/edges、render、pan、drag、连线、多选、panTo、
+                           reset/序列化 —— 不含任何短剧业务知识，纯交互
   graph/registry.js        节点类型注册表 + canConnect() 相邻步骤约束（"不能跨步骤"）
   workflow/contract.js     L0–S7 阶段/步骤 I/O 合同数据（inspector 的唯一数据源）
   workflow/nodes/*.js      **扩展点**：每种节点一个文件，导出一个 NodeType def
-  services/gateway.js      submitCommand()  —— 唯一写路径（stub → 真实=loopback POST）
-  services/budget.js       账户/项目、estimate、spend（stub → 真实=只读查询+结算）
-  services/query.js        读门面（stub → 真实=ADR-0031 只读查询）
+  services/query.js        读门面：connected 走后端真实查询，否则回退 fixture
+  services/realmap.js      把 WQ-14/02/07 DTO 映射进 UI 结构
+  services/persist.js      画布本地持久化（/api/canvas 或 localStorage 兜底）
+  services/gateway.js      submitCommand() —— 写路径 stub（真实=loopback POST，待 ADR）
+  services/budget.js       演示模式的账户/项目预算 + estimate/spend
   ui/*.js                  landing / inspector / stepbar / wizard / estimate 视图
-  app.js                   注册节点、构建 ctx、把引擎接到工作流
-fixtures/project-shengtang.js  样例项目数据
+  app.js                   注册节点、构建 ctx、异步 bootstrap（探测模式/拉真实数据/存取画布）
+fixtures/project-shengtang.js  演示创意 fixture（画布创作内容）
+data/<project>.json        画布本地持久化文件（gitignore，运行时生成）
 ```
 
 引擎、进度条、inspector、连线约束**全部从注册表 + 合同数据派生**；接真实后端只替换
@@ -82,5 +101,6 @@ fixtures/project-shengtang.js  样例项目数据
 
 ## 已知非目标
 
-不实现真实 loopback 后端、不接 Provider、不写核心业务文件、不进 `workspace_shell`；
-缩略图/播放/媒体均为占位；预算与项目数据为内存 fixtures。
+不接真实 Command Gateway、不做真实生成/发布、不写任何核心业务文件、不进 `workspace_shell`；
+后端**只读**（消费公开查询合同），不建 DB / 物化 projection；缩略图/播放/媒体均为占位；
+真实创意/多媒体数据尚不存在（运行期才产生），故创意节点内容仍为本地草稿。

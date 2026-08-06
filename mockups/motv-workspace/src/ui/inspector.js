@@ -4,6 +4,7 @@
 import { $, el } from "../util/dom.js";
 import { stageOf } from "../workflow/contract.js";
 import * as budget from "../services/budget.js";
+import { yen } from "../services/realmap.js";
 
 export function createInspector() {
   const insp = $("#insp"), scrim = $("#scrim"), tEl = $("#insp-t"), sEl = $("#insp-s"), bEl = $("#insp-b");
@@ -127,5 +128,56 @@ export function createInspector() {
     show();
   }
 
-  return { openNode, openCompare, openCost, close };
+  /** Real read-only project data (CONNECTED mode): budget + stages + cost. */
+  function openProjectData(name, { standing, stages, cost }) {
+    tEl.textContent = "真实项目数据 · " + name;
+    sEl.textContent = "只读投影（ADR-0031 查询合同）· 不可编辑";
+    bEl.innerHTML = "";
+
+    if (standing) {
+      const s = el("div", "sec");
+      s.appendChild(el("span", "eyebrow", "预算 · WQ-14（本集，JPY）"));
+      const rows = [
+        ["单集硬上限", yen(standing.total)],
+        ["已承诺", yen(standing.spent)],
+        ["未结算 hold", yen(standing.held)],
+        ["剩余", yen(standing.remaining)],
+        ["单集软上限", yen(standing.softCap)],
+        ["单镜上限", yen(standing.perShot)],
+      ];
+      const dl = el("dl", "kv");
+      rows.forEach(([k, v]) => { dl.appendChild(el("dt", null, k)); dl.appendChild(el("dd", "mono", v)); });
+      s.appendChild(dl);
+      bEl.appendChild(s);
+    }
+
+    if (stages) {
+      const s = el("div", "sec");
+      s.appendChild(el("span", "eyebrow", `阶段状态 · WQ-02（当前 ${stages.current || "—"} · ${stages.approved}/${stages.total} 已批准）`));
+      stages.stages.forEach((st) => {
+        const row = el("div", "step");
+        const tag = st.running ? "进行中" : st.status;
+        row.innerHTML = `<div class="st"><span class="nm">${st.id}</span><span class="ex" style="border:none;color:${st.stale ? "var(--bad)" : "var(--text-dim)"}">${tag}${st.stale ? " · stale" : ""}</span></div>${st.blocked && st.blocked.length ? `<div class="io">blocked_by: ${st.blocked.join(", ")}</div>` : ""}`;
+        s.appendChild(row);
+      });
+      bEl.appendChild(s);
+    }
+
+    if (cost) {
+      const s = el("div", "sec");
+      s.appendChild(el("span", "eyebrow", "成本 · WQ-07（已结算）"));
+      const dl = el("dl", "kv");
+      dl.appendChild(el("dt", null, "实际合计")); dl.appendChild(el("dd", "mono", yen(cost.actualTotalJpy)));
+      s.appendChild(dl);
+      s.appendChild(el("div", "digest-note", "只读投影；每种货币独立不合并（WQ-07）。"));
+      bEl.appendChild(s);
+    }
+
+    const note = el("div", "digest-note");
+    note.innerHTML = "以上为真实项目的<b>只读</b>数据；画布上的创作/生成为本地草稿，写入流水线需经 Command Gateway（待接入）。";
+    bEl.appendChild(note);
+    show();
+  }
+
+  return { openNode, openCompare, openCost, openProjectData, close };
 }
