@@ -1,6 +1,7 @@
 // 脚本生成器 — turns the 剧本 into a shot list (分镜). Re-runnable; each run
 // produces an immutable new version (v1, v2…) that can be compared.
 import { nx } from "./shared.js";
+import { esc } from "../../util/dom.js";
 
 const SKEL9 = '<div class="skel live">' + "<i></i>".repeat(9) + "</div>";
 
@@ -36,13 +37,65 @@ export default {
     if (node.state === "done") {
       const curV = node.versions.find((x) => x.v === node.cur);
       const shots = curV ? curV.shots : sd.v1;
-      const vbar = `<div class="vbar"><span class="vchip">v${node.cur} ▾</span>${node.versions.length >= 2 ? '<span class="vcmp">⇄ 对比</span>' : ""}${node.vmenu ? vmenuHtml(node) : ""}</div>`;
-      const rows = shots.map((s) => `<div class="shotrow"><span class="n mono">${s[0]}</span><span class="nm">${s[1]}</span></div>`).join("");
-      return `<div class="genbox">${vbar}${rows}<div style="font-size:11px;color:var(--text-faint);margin:2px 2px 0">…共 ${sd.total} 个镜头</div><button class="nrun ghost" data-run>重新生成（新版本）</button>${nx([["assets", "准备资产"]])}</div>`;
+      const isDraft = !!(curV && curV.draft);
+      const badge = isDraft
+        ? '<span style="font-size:10px;color:var(--gate);border:1px solid color-mix(in srgb,var(--gate) 40%,var(--line));border-radius:5px;padding:1px 6px;margin-left:6px">草稿 · Claude 生成 · 未锁定</span>'
+        : "";
+      const vbar = `<div class="vbar"><span class="vchip">v${node.cur} ▾</span>${node.versions.length >= 2 ? '<span class="vcmp">⇄ 对比</span>' : ""}${badge}${node.vmenu ? vmenuHtml(node) : ""}</div>`;
+      // Draft rows may carry agent-generated text — escape every row uniformly.
+      const rows = shots.map((s) => `<div class="shotrow"><span class="n mono">${esc(s[0])}</span><span class="nm">${esc(s[1])}</span></div>`).join("");
+      const total = isDraft ? shots.length : sd.total;
+      return `<div class="genbox">${vbar}${rows}<div style="font-size:11px;color:var(--text-faint);margin:2px 2px 0">…共 ${total} 个镜头</div><button class="nrun ghost" data-run>重新生成（新版本）</button>${nx([["assets", "准备资产"]])}</div>`;
     }
     return `<div class="genbox"><div class="skel"><i></i><i></i><i></i><i></i><i></i><i></i></div><button class="nrun" data-run>基于剧本生成分镜</button></div>`;
   },
   run(node, ctx) {
+    // CONNECTED: the REAL creative agent (ADR-0042) — the user's canvas script
+    // goes to the local Claude CLI and comes back as a structured shot DRAFT.
+    if (ctx.isConnected && ctx.isConnected() && ctx.agentShotsDraft) {
+      const script = ctx.getScriptText ? ctx.getScriptText() : "";
+      if (!script.trim()) { ctx.toast("剧本为空：先在「剧本」节点写内容"); return; }
+      node.state = "gen";
+      node.prog = 15; // indeterminate — real call takes seconds to ~1min
+      ctx.refresh(node);
+      ctx.markIncoming(node.id, "active");
+      node._pulse = setInterval(() => {
+        node.prog = 15 + ((node.prog - 15 + 7) % 75);
+        ctx.refresh(node);
+      }, 800);
+      ctx
+        .agentShotsDraft(script)
+        .then((shots) => {
+          clearInterval(node._pulse);
+          node._pulse = null;
+          if (node.state !== "gen") return; // user cancelled meanwhile
+          const rows = shots.map((s) => [
+            String(s.sequence).padStart(2, "0"),
+            `${s.title} — ${s.description}（${s.duration_seconds}s）`,
+          ]);
+          const v = node.versions.length + 1;
+          // Keep the raw draft on the version so switching versions can restore
+          // the matching draftShots (downstream prefill must follow selection).
+          node.versions.push({ v, shots: rows, draft: true, raw: shots });
+          node.cur = v;
+          node.state = "done";
+          ctx.project.draftShots = shots; // downstream nodes prefill from this
+          ctx.refresh(node);
+          ctx.markIncoming(node.id, "done");
+          ctx.toast(`Claude 分镜草稿完成 · ${shots.length} 个镜头（未锁定）`);
+        })
+        .catch((e) => {
+          clearInterval(node._pulse);
+          node._pulse = null;
+          node.state = "";
+          node.prog = 0;
+          ctx.markIncoming(node.id, "");
+          ctx.refresh(node);
+          ctx.toast("分镜生成失败：" + e.message);
+        });
+      return;
+    }
+    // demo mode: the offline fixture animation
     node.state = "gen";
     node.prog = 6;
     ctx.refresh(node);
@@ -70,6 +123,7 @@ export default {
     if (cx) cx.onclick = (e) => {
       e.stopPropagation();
       if (node._timer) { clearInterval(node._timer); node._timer = null; }
+      if (node._pulse) { clearInterval(node._pulse); node._pulse = null; }
       node.state = ""; node.prog = 0;
       ctx.markIncoming(node.id, ""); // clear the incoming edge's "generating" state
       ctx.refresh(node);
@@ -85,7 +139,13 @@ export default {
         e.stopPropagation();
         node.cur = +b.dataset.v;
         node.vmenu = false;
+        // Sync downstream prefill to the SELECTED version: a draft version
+        // restores its own shots, a non-draft (demo) version clears them so
+        // assets falls back to fixtures — never leave stale draftShots behind.
+        const sel = node.versions.find((x) => x.v === node.cur);
+        ctx.project.draftShots = sel && sel.raw ? sel.raw : null;
         ctx.refresh(node);
+        if (ctx.refreshType) ctx.refreshType("assets");
         ctx.toast(`切到版本 v${node.cur}（digest 绑定）`);
       }));
     const vcmp = el.querySelector(".vcmp");

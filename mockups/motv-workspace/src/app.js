@@ -167,8 +167,20 @@ const ctx = {
     est.open(o);
   },
   refresh: (node) => engine.refreshBody(node),
+  // re-render every node of a type — used when upstream state (e.g. the current
+  // draft version) changes and a downstream node's prefill must follow.
+  refreshType: (type) => engine.nodes.filter((n) => n.type === type).forEach((n) => engine.refreshBody(n)),
   markIncoming: (id, state) => engine.markIncoming(id, state),
   addNext,
+  // creative agent (ADR-0042): available whenever the backend is present
+  isConnected: () => CONNECTED,
+  // the CURRENT script text: the canvas script node's edit buffer, falling
+  // back to the project's script field
+  getScriptText: () => {
+    const s = engine.nodes.find((n) => n.type === "script");
+    return (s && s.text) || ctx.project.script || "";
+  },
+  agentShotsDraft: (script) => query.generateShotsDraft(script),
 };
 ctx.wizard = createWizard({ estimate: { open: (o) => ctx.estimate(o) }, getProject: () => ctx.project, refresh: (n) => engine.refreshBody(n) });
 
@@ -293,6 +305,20 @@ function restoreGraph(data) {
     if (!registry.get(sn.type)) continue;
     const nd = registry.createNodeData(sn.type, sn.x || 0, sn.y || 0);
     ["state", "text", "versions", "cur", "pickSingle"].forEach((k) => { if (sn[k] !== undefined) nd[k] = sn[k]; });
+    // Connected mode: a scriptgen node's shot list must come from a REAL agent
+    // draft (ADR-0042, draft:true), never a resurrected demo/fixture snapshot —
+    // otherwise a canvas persisted in demo mode shows shots that don't match the
+    // script. Drop non-draft generated versions; if none survive, revert the
+    // node to "ready to generate" so the real script drives a fresh real run.
+    if (CONNECTED && sn.type === "scriptgen" && Array.isArray(nd.versions)) {
+      nd.versions = nd.versions.filter((x) => x && x.draft);
+      if (!nd.versions.length) { nd.state = ""; nd.cur = 0; }
+      else if (!nd.versions.some((x) => x.v === nd.cur)) { nd.cur = nd.versions[nd.versions.length - 1].v; }
+      // Rehydrate downstream prefill from the restored current draft, else the
+      // Assets node falls back to fixtures after reload (auto-prefill breaks).
+      const curDraft = nd.versions.find((x) => x.v === nd.cur);
+      if (curDraft && curDraft.raw) ctx.project.draftShots = curDraft.raw;
+    }
     idMap[sn.id] = engine.addNode(nd).id;
   }
   for (const se of data.edges || []) {
@@ -349,6 +375,21 @@ async function enterCanvas(name, opts = {}) {
   };
   if (CONNECTED) {
     try { REAL_STANDING = realmap.mapStanding(await query.getQuery(name, "budget")); } catch { REAL_STANDING = null; }
+    // Show the project's REAL locked shot plan in the 分镜 node instead of the
+    // demo fixture — the paid generation is packet-only, so what the user sees
+    // must be what the locked plan will actually generate.
+    try {
+      const shots = await query.getShots(name);
+      if (shots.length) {
+        const rows = shots.map((s) => [
+          String(s.sequence ?? "").padStart(2, "0"),
+          `${s.description || s.shot_id}（${s.duration_seconds ?? "?"}s）`,
+        ]);
+        ctx.project.shots = { v1: rows, v2: rows, total: rows.length, real: true };
+      }
+    } catch {
+      /* keep fixture shots if records unavailable */
+    }
   } else {
     REAL_STANDING = null;
   }

@@ -50,6 +50,37 @@ export async function getQuery(name, q) {
   return j;
 }
 
+/** The project's REAL shot records (CONNECTED only), [] otherwise. */
+export async function getShots(name) {
+  if (!isConnected()) return [];
+  try {
+    const r = await fetch(`/api/projects/${encodeURIComponent(name)}/shots`);
+    const j = await r.json();
+    return j.shots || [];
+  } catch {
+    return [];
+  }
+}
+
+/** Creative agent (ADR-0042): script → structured shot DRAFT via the local
+ *  Claude CLI (subscription-billed; the browser never sees a credential). */
+export async function generateShotsDraft(script) {
+  const r = await fetch("/api/agent/shots-draft", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ script }),
+  });
+  const j = await r.json().catch(() => null);
+  if (!r.ok) {
+    const e = j && j.error ? j.error : {};
+    const err = new Error(e.detail || `agent ${r.status}`);
+    err.category = e.category;
+    err.rawExcerpt = e.raw_excerpt;
+    throw err;
+  }
+  return j.shots || [];
+}
+
 /** The demo creative fixture (used for canvas authoring content in both modes). */
 export function fixtureProject() {
   return SHENGTANG;

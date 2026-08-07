@@ -1,6 +1,7 @@
 // 资产准备 — character / scene / prop reference sheets (S4 母资产). Opens the
 // batch wizard; on generate it flips to done and guides to video/audio.
 import { nx } from "./shared.js";
+import { esc } from "../../util/dom.js";
 
 function labels(ctx) {
   const chars = ctx.project.characters.slice(0, 5).map((c) => c[0]);
@@ -17,6 +18,20 @@ export default {
     return { state: "" };
   },
   render(node, ctx) {
+    // Downstream auto-fill (ADR-0042): when an upstream Claude shot DRAFT
+    // exists, derive the asset checklist preview from it instead of fixtures.
+    const draft = ctx.project.draftShots;
+    if (draft && draft.length && node.state !== "done") {
+      // Agent-generated content is UNTRUSTED — always escaped before innerHTML.
+      const items = draft
+        .slice(0, 6)
+        .map(
+          (s) =>
+            `<div class="audrow">🎬 ${esc(String(s.sequence).padStart(2, "0"))} ${esc(s.title)}</div>`,
+        )
+        .join("");
+      return `<div>${items}<div style="font-size:11px;color:var(--gate);margin:9px 2px 0">⚠ 从分镜草稿派生（${draft.length} 镜头）· 资产设定图待生成</div><button class="nrun" data-run>一键生成所有资产 →</button></div>`;
+    }
     const cells = labels(ctx)
       .map((a) => {
         const bg = node.state === "done" ? "linear-gradient(135deg,#3a2a5e,#12183a)" : "var(--elev)";

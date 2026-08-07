@@ -49,6 +49,13 @@ python mockups/motv-workspace/server.py --account-root examples/projects
 `v▾` 切版本 / `⇄对比`、底部进度条点击聚焦、🏠 返回主页、右上 ◐ 主题。
 （演示模式下生成走**本地预算预检**；连接模式下生成为"待 Gateway"不花费。）
 
+**创意 Agent（ADR-0042）**：连接模式下「基于剧本生成分镜」是**真实的**——画布剧本文本
+经后端 `POST /api/agent/shots-draft` 交给**本地已登录的 Claude Code CLI**（`claude -p`，
+订阅计费、无 API key、约 20–60s），返回结构化分镜**草稿**（标注「草稿 · Claude 生成 ·
+未锁定」），资产节点自动从草稿预填。草稿只存画布本地状态，不写核心文件；付费视频生成
+仍严格按已锁定 packet 执行（草稿改不了已锁定参数）。CLI 缺失/输出不合法时 fail-closed
+报错。
+
 **付费写路径模式（ADR-0041 / TASK-041，真实生成，须显式授权）**
 ```bash
 source .venv/bin/activate
