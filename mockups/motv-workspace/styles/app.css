@@ -180,6 +180,13 @@ video.athumb { background: #000; }
 .dt-b .audrow { width: auto; }
 .nexpand { display: block; margin: 6px 0 0 auto; background: none; border: 1px solid var(--line); border-radius: 6px; color: var(--text-faint); font-size: 11px; cursor: pointer; padding: 3px 8px; }
 .nexpand:hover { color: var(--accent); border-color: var(--accent); }
+.arow .athumb { cursor: zoom-in; }
+
+/* media lightbox (over everything, incl. the detail window) */
+.lb-scrim { position: fixed; inset: 0; background: rgba(2, 4, 8, .86); z-index: 95; display: none; place-items: center; }
+.lb-scrim.show { display: grid; }
+.lb-scrim .lb-x { position: absolute; top: 14px; right: 18px; font-size: 16px; }
+#lb-c img, #lb-c video { max-width: 92vw; max-height: 88vh; border-radius: 10px; display: block; background: #000; }
 
 /* toast */
 .toast { position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%) translateY(16px); background: var(--text); color: var(--bg); padding: 11px 17px; border-radius: 10px; font-size: 13px; font-weight: 600; opacity: 0; pointer-events: none; transition: .2s; z-index: 90; box-shadow: var(--shadow); } .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }

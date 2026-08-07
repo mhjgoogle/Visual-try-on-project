@@ -372,6 +372,38 @@ function openDetail(node) {
   if (node.type === "video" && ctx.loadPaidOps) ctx.loadPaidOps();
 }
 $("#dt-x").onclick = () => { dtNode = null; dtScrim.classList.remove("show"); };
+
+// --- media lightbox: click any slot thumbnail (canvas OR detail window) to
+// view the image full-size / play the video with controls ---
+const lbScrim = $("#lb-scrim");
+function openLightbox(el) {
+  const c = $("#lb-c");
+  const src = el.currentSrc || el.src;
+  if (!src) return;
+  c.innerHTML = el.tagName === "VIDEO"
+    ? `<video src="${esc(src)}" controls autoplay></video>`
+    : `<img src="${esc(src)}" alt="">`;
+  lbScrim.classList.add("show");
+}
+function closeLightbox() {
+  $("#lb-c").innerHTML = ""; // stops playback
+  lbScrim.classList.remove("show");
+}
+$("#lb-x").onclick = closeLightbox;
+lbScrim.onclick = (e) => { if (e.target === lbScrim) closeLightbox(); };
+// capture phase so a canvas-node click doesn't ALSO open the inspector
+document.addEventListener(
+  "click",
+  (e) => {
+    const t = e.target;
+    if (t && t.classList && t.classList.contains("athumb") && (t.src || t.currentSrc)) {
+      e.stopPropagation();
+      e.preventDefault();
+      openLightbox(t);
+    }
+  },
+  true,
+);
 // script editing inside the detail window: update the node + mirror to the
 // canvas copy (the modal textarea itself is left untouched to keep focus)
 $("#dt-b").addEventListener("input", (e) => {
@@ -638,6 +670,8 @@ engine.world.addEventListener("input", (e) => {
 });
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
+  if (lbScrim.classList.contains("show")) { closeLightbox(); return; }
+  if (dtScrim.classList.contains("show")) { dtNode = null; dtScrim.classList.remove("show"); return; }
   if ($("#es-scrim").classList.contains("show")) return;
   if ($("#nmenu").classList.contains("show")) { closeMenu(); return; }
   if ($("#wz-scrim").classList.contains("show")) { $("#wz-scrim").classList.remove("show"); return; }
