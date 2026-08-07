@@ -152,7 +152,9 @@ const ctx = {
   //    flow, bound to EXACTLY the shot the user clicked (consent accuracy)
   //  - PAID mode + video batch (no shot) → refused; one confirmed shot at a time
   //  - PAID mode + image/audio → still gated (ADR-0038 not accepted for paid)
-  //  - CONNECTED (read-only backend) → gated toast
+  //  - CONNECTED (read-only backend) → NO real generation (write-side ADR not
+  //    wired), but advance the prototype with a PLACEHOLDER so downstream steps
+  //    stay reachable — honest toast, zero cost, nothing written server-side.
   //  - demo → local pretend preflight
   estimate: (o) => {
     if (PAID && o.kind === "视频") {
@@ -161,7 +163,11 @@ const ctx = {
       return;
     }
     if (CONNECTED) {
-      toast(`「${o.kind}」需经 Command Gateway（写侧 ADR 待接入）—— 本次不生成、不花费`);
+      // Placeholder-advance: real generation needs the write-side Gateway/ADR,
+      // so this produces NO real asset and costs nothing — it only lets the user
+      // preview the next steps. o.after marks the node done in the prototype.
+      toast(`「${o.kind}」占位推进：未真实生成、不花费（真实生成需接入写侧 Gateway）`);
+      if (typeof o.after === "function") o.after();
       return;
     }
     est.open(o);

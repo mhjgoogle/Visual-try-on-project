@@ -41,7 +41,13 @@ export default {
       .join("");
     const grid = `<div class="assetgrid">${cells}</div>`;
     if (node.state === "done") {
-      return `<div>${grid}<div style="font-size:11px;color:var(--ok);margin:9px 2px 0">✓ 9 个资产已生成</div>${nx([["video", "视频生成"], ["audio", "音频生成", 150]])}</div>`;
+      // Connected mode never really generates (write-side gated): say so plainly
+      // instead of claiming "✓ 已生成". Demo mode keeps its pretend-generated ✓.
+      const ph = ctx.isConnected && ctx.isConnected();
+      const msg = ph
+        ? `<div style="font-size:11px;color:var(--gate);margin:9px 2px 0">占位推进 · 未真实生成（待 Gateway）</div>`
+        : `<div style="font-size:11px;color:var(--ok);margin:9px 2px 0">✓ 9 个资产已生成</div>`;
+      return `<div>${grid}${msg}${nx([["video", "视频生成"], ["audio", "音频生成", 150]])}</div>`;
     }
     return `<div>${grid}<div style="font-size:11px;color:var(--gate);margin:9px 2px 0">⚠ 9 个资产缺设定图</div><button class="nrun" data-run>一键生成所有资产 →</button></div>`;
   },

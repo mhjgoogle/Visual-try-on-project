@@ -16,7 +16,14 @@ export default {
   render(node, ctx) {
     const total = ctx.project.shots.total;
     if (node.state === "done") {
-      return `<div class="filmprev"><div class="pl"></div><div class="lb mono">${total} 镜头 · 已生成</div></div><div style="font-size:11px;color:var(--ok);margin-bottom:2px">✓ 批量视频已生成</div>${nx([["edit", "剪辑合成"]])}`;
+      // Connected mode is a placeholder-advance (no real generation, gated);
+      // demo mode keeps its pretend-generated ✓.
+      const ph = ctx.isConnected && ctx.isConnected();
+      const lb = ph ? `${total} 镜头 · 占位` : `${total} 镜头 · 已生成`;
+      const msg = ph
+        ? `<div style="font-size:11px;color:var(--gate);margin-bottom:2px">占位推进 · 未真实生成（待 Gateway）</div>`
+        : `<div style="font-size:11px;color:var(--ok);margin-bottom:2px">✓ 批量视频已生成</div>`;
+      return `<div class="filmprev"><div class="pl"></div><div class="lb mono">${lb}</div></div>${msg}${nx([["edit", "剪辑合成"]])}`;
     }
     const pick = node.pickSingle
       ? `<div class="shotpick">${SINGLE_SHOTS.map((s) => `<button data-shot="${s}">镜头 ${s}</button>`).join("")}</div>`

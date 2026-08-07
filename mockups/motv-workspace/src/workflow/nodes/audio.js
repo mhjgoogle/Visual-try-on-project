@@ -11,8 +11,13 @@ export default {
   init() {
     return { state: "" };
   },
-  render(node) {
+  render(node, ctx) {
     if (node.state === "done") {
+      // Connected mode is a placeholder-advance (no real generation, gated);
+      // demo mode keeps its pretend-generated ✓.
+      if (ctx && ctx.isConnected && ctx.isConnected()) {
+        return `<div class="audrow">占位推进 · 未真实生成（待 Gateway）</div>${nx([["edit", "剪辑合成"]])}`;
+      }
       return `<div class="audrow ok">✓ 对白配音 · 11 句</div><div class="audrow ok">✓ 背景音乐 · 3 段</div><div class="audrow ok">✓ 音效 · 8 处</div>${nx([["edit", "剪辑合成"]])}`;
     }
     return `<div class="audrow">🎤 对白配音（S4-T04）</div><div class="audrow">🎼 背景音乐（S4-T06）</div><div class="audrow">🔊 音效（S4-T06）</div><button class="nrun" data-run>生成对白/音乐/音效</button>`;
