@@ -866,3 +866,65 @@ def test_unregistered_paid_command_is_refused(tmp_path: Path) -> None:
     )
     with pytest.raises(UnregisteredCommandError):
         gw.preflight(_env())
+
+
+# --- 9. shot-record target resolver -------------------------------------------
+
+
+def test_shot_record_resolver_binds_real_record_bytes(tmp_path: Path) -> None:
+    # End-to-end with the REAL resolver: the target digest is the sha256 of the
+    # authoritative shot record file, so the exact previewed bytes are bound.
+    import hashlib
+
+    from ai_video_workflow.app.paid_gateway import ShotRecordTargetResolver
+
+    root, catalog_dir = _setup_packet_project(tmp_path)
+    record = root / "records" / "shots" / "shot-1.json"
+    digest = hashlib.sha256(record.read_bytes()).hexdigest()
+    resolver = ShotRecordTargetResolver()
+
+    resolved = resolver.resolve_target(root, ref="shot-1", version=1)
+    assert resolved.exists and resolved.content_digest == digest
+    # record-path form of the ref binds identically
+    path_form = resolver.resolve_target(
+        root, ref="records/shots/shot-1.json", version=1
+    )
+    assert path_form.exists and path_form.content_digest == digest
+
+    registry = CommandRegistry()
+    _register_paid(registry, catalog_dir)
+    gw = CommandGateway(
+        root,
+        registry=registry,
+        target_resolver=resolver,
+        clock=_clock,
+    )
+    env = _env(target=_target(digest=digest))
+    receipt = gw.submit(env, confirmation=gw.preflight(env).preflight_digest)
+    assert receipt.status is ReceiptStatus.COMPLETED
+
+    # a drifted record (any byte change) fails closed at the gateway
+    record.write_text(record.read_text() + "\n", encoding="utf-8")
+    stale = _env(command_id="cmd-stale", params=_params(operation_id="op-9"))
+    stale = CommandEnvelope(
+        command_id=stale.command_id,
+        name=stale.name,
+        actor=stale.actor,
+        params=stale.params,
+        occurred_at=stale.occurred_at,
+        target=_target(digest=digest),  # digest of the OLD bytes
+    )
+    with pytest.raises(TargetBindingError):
+        gw.preflight(stale)
+
+
+def test_shot_record_resolver_fails_closed(tmp_path: Path) -> None:
+    from ai_video_workflow.app.paid_gateway import ShotRecordTargetResolver
+
+    root, _ = _setup_packet_project(tmp_path)
+    resolver = ShotRecordTargetResolver()
+    # non-1 version, missing record, traversal, empty ref -> absent
+    assert not resolver.resolve_target(root, ref="shot-1", version=2).exists
+    assert not resolver.resolve_target(root, ref="shot-9", version=1).exists
+    assert not resolver.resolve_target(root, ref="../shot-1", version=1).exists
+    assert not resolver.resolve_target(root, ref="", version=1).exists

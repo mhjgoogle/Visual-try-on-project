@@ -47,6 +47,8 @@ export default {
         cmd: `generate_video · 单镜头 ${shot}`,
         kind: "视频",
         count: 1,
+        // paid mode binds the REAL generation to exactly this shot
+        shot: `shot-${Number(shot)}`,
         p50: 4.2,
         p90: 6.0,
         actual: 4.2,

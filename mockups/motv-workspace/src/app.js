@@ -12,6 +12,7 @@ import { $, $$, toast, esc } from "./util/dom.js";
 import { GraphEngine } from "./graph/engine.js";
 import * as registry from "./graph/registry.js";
 import * as budget from "./services/budget.js";
+import * as gw from "./services/gateway.js";
 import { submitCommand } from "./services/gateway.js";
 import * as query from "./services/query.js";
 import * as persist from "./services/persist.js";
@@ -37,6 +38,7 @@ const labelOf = (t) => (registry.get(t) ? registry.get(t).title : t);
 
 // --- session state ---
 let CONNECTED = false;
+let PAID = false; // backend --enable-paid: real Gateway write path available
 let PROJECT_NAME = "local-draft";
 let DEFAULT_NAME = "local-draft";
 let REAL_STANDING = null;
@@ -77,11 +79,60 @@ async function openRealProjectData() {
 function setModeBadge() {
   $$("#modebadge1,#modebadge2").forEach((e) => {
     e.className = "modebadge " + (CONNECTED ? "connected" : "local");
-    e.textContent = CONNECTED ? "🟢 真实只读数据" : "⚪ 演示模式";
-    e.title = CONNECTED
-      ? "已连接后端：项目/预算/状态为真实只读；创作为本地草稿；生成待 Gateway"
-      : "静态演示：数据为 fixtures，画布仍本地持久化";
+    e.textContent = PAID
+      ? "💳 真实数据 + 付费写路径"
+      : CONNECTED
+        ? "🟢 真实只读数据"
+        : "⚪ 演示模式";
+    e.title = PAID
+      ? "已启用 ADR-0041 生成写路径：视频生成经 Gateway 真实提交（预检+确认后才花费）"
+      : CONNECTED
+        ? "已连接后端：项目/预算/状态为真实只读；创作为本地草稿；生成待 Gateway"
+        : "静态演示：数据为 fixtures，画布仍本地持久化";
   });
+}
+
+// --- REAL paid generation (ADR-0041 two-step: preflight → confirm → submit) ---
+async function paidGenerate(shotId) {
+  try {
+    const tgt = await gw.getGenerationTarget(PROJECT_NAME, shotId);
+    const opId = "op-ui-" + Date.now().toString(36);
+    const envelope = {
+      command_id: "cmd-" + opId,
+      name: "submit-video-generation",
+      params: { ...tgt.params, operation_id: opId },
+      target: tgt.target,
+    };
+    const pf = await gw.preflight(PROJECT_NAME, envelope);
+    est.openReal(pf, {
+      onConfirm: async (digest) => {
+        toast("已确认，真实生成中（约 1–2 分钟，请勿关闭页面）…");
+        try {
+          const receipt = await gw.submit(PROJECT_NAME, envelope, digest);
+          const oc = receipt.outcome || {};
+          if (receipt.status === "completed" && oc.kind === "success") {
+            toast(
+              `✅ 真实生成成功 · ${oc.cost_minor_units} ${oc.currency} · ${oc.operation_id}`,
+            );
+          } else {
+            toast(`结果：${receipt.status} · ${oc.kind || receipt.reason || ""}`);
+          }
+          try {
+            REAL_STANDING = realmap.mapStanding(
+              await query.getQuery(PROJECT_NAME, "budget"),
+            );
+            renderBudget();
+          } catch {
+            /* budget refresh is best-effort */
+          }
+        } catch (e) {
+          toast("提交被拒（fail-closed）：" + e.message);
+        }
+      },
+    });
+  } catch (e) {
+    toast("预检失败：" + e.message);
+  }
 }
 
 // --- UI singletons ---
@@ -96,8 +147,19 @@ const ctx = {
   inspector,
   wizard: null, // set below (needs ctx.estimate)
   toast,
-  // paid generation: gated in CONNECTED mode (no spend, no write), demo preflight otherwise
+  // paid generation routing:
+  //  - PAID mode + video + a picked shot → the REAL ADR-0041 two-step Gateway
+  //    flow, bound to EXACTLY the shot the user clicked (consent accuracy)
+  //  - PAID mode + video batch (no shot) → refused; one confirmed shot at a time
+  //  - PAID mode + image/audio → still gated (ADR-0038 not accepted for paid)
+  //  - CONNECTED (read-only backend) → gated toast
+  //  - demo → local pretend preflight
   estimate: (o) => {
+    if (PAID && o.kind === "视频") {
+      if (o.shot) paidGenerate(o.shot);
+      else toast("付费模式一次只生成一个镜头：请用「生成单个 ▾」选择镜头");
+      return;
+    }
     if (CONNECTED) {
       toast(`「${o.kind}」需经 Command Gateway（写侧 ADR 待接入）—— 本次不生成、不花费`);
       return;
@@ -343,6 +405,7 @@ document.addEventListener("keydown", (e) => {
 async function boot() {
   const m = await query.detectMode();
   CONNECTED = m.mode === "connected";
+  PAID = CONNECTED && m.paid === true;
   setModeBadge();
   let realNames = [];
   if (CONNECTED) {

@@ -2,7 +2,7 @@
 // audio) must pass through this before spend: shows P50/P90, current balance, the
 // projected post-generation balance (by P90), and blocks when funds are short.
 // Mirrors the S3/S4 P50/P90 preflight + reservation-hold discipline.
-import { $ } from "../util/dom.js";
+import { $, esc } from "../util/dom.js";
 import * as budget from "../services/budget.js";
 import { submitCommand } from "../services/gateway.js";
 
@@ -55,5 +55,38 @@ export function createEstimate({ renderBudget, toast }) {
     scrim.classList.add("show");
   }
 
-  return { open };
+  /** REAL preflight confirmation (paid mode): renders the Gateway's read-only
+   *  preview (locked-catalog cost, blockers, downstream) and, when clean, arms
+   *  the HIGH-risk confirmed submit — this is the human confirmation step that
+   *  authorizes the ~USD 0.28 spend. */
+  function openReal(pf, { onConfirm }) {
+    const p = pf.preview || {};
+    const cost = p.estimated_cost;
+    const blockers = p.blockers || [];
+    const block = blockers.length > 0;
+    // Every Gateway-derived value is escaped: this dialog is the SPEND CONSENT
+    // surface, so project-controlled content must never inject DOM into it.
+    $("#es-cmd").textContent = `${pf.name} · 真实提交（HIGH-risk）`;
+    const inputRows = Object.entries(p.inputs || {})
+      .map(([k, v]) => `<div class="es-row"><span class="l">${esc(k)}</span><span class="v">${esc(v)}</span></div>`)
+      .join("");
+    const costHtml = cost
+      ? `<div class="es-row big"><span class="l">锁定目录报价</span><span class="v">${esc(cost.jpy)} JPY（${esc(cost.original_currency)} ${esc((cost.original_amount_minor_units / 100).toFixed(2))}）</span></div>`
+      : `<div class="es-row"><span class="l">报价</span><span class="v">不可用</span></div>`;
+    const blockHtml = block
+      ? `<div class="es-blk" style="border-color:var(--bad)">${blockers.map((b) => `<div class="es-row"><span class="l" style="color:var(--bad)">阻断</span><span class="v">${esc(b)}</span></div>`).join("")}</div>`
+      : `<div class="es-row"><span class="l">阻断项</span><span class="v" style="color:var(--ok)">无</span></div>`;
+    $("#es-b").innerHTML = `
+      <div class="es-blk">${inputRows}</div>
+      <div class="es-blk">${costHtml}${blockHtml}</div>
+      <div class="es-blk">${(p.downstream || []).map((d) => `<div class="es-row"><span class="l">下游</span><span class="v">${esc(d)}</span></div>`).join("")}</div>
+      <div class="es-warn">确认即以 preflight digest 授权本次<b style="color:var(--text)">真实付费生成</b>（经 Command Gateway → coordinator；审批/预算/reservation 已预检）。digest: <span class="v" style="word-break:break-all">${esc(pf.preflight_digest)}</span></div>`;
+    const okBtn = $("#es-ok");
+    okBtn.disabled = block;
+    okBtn.textContent = block ? "存在阻断项，无法提交" : "确认真实生成（付费）";
+    onOk = block ? null : () => onConfirm(pf.preflight_digest);
+    scrim.classList.add("show");
+  }
+
+  return { open, openReal };
 }

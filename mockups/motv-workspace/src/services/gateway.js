@@ -1,24 +1,60 @@
-// Command Gateway seam (STUB).
+// Command Gateway seam.
 //
-// In the real system every mutation is a registered Command Gateway command
-// (ADR-0033): the browser POSTs a CommandEnvelope to the loopback backend, which
-// enforces version binding, idempotency and fail-closed admission — the UI never
-// calls a Provider or writes a business file directly. This stub keeps the SAME
-// shape so swapping in the real path is one function body:
+// PAID mode (backend started with --enable-paid): the REAL two-step write path
+// per ADR-0033/0041 — POST preflight (read-only: estimated_cost + blockers +
+// preflight_digest) → human confirmation → POST command with
+// confirmation=preflight_digest → receipt. The backend forces actor="user" and
+// routes through the Command Gateway → approved coordinator; the browser never
+// touches a Provider.
 //
-//   real submitCommand -> fetch('/api/projects/<p>/command', {method:'POST', ...})
-//
-// The mockup only logs and resolves; it changes no authoritative state.
+// Non-paid modes keep the harmless stub so the demo flows still narrate the
+// boundary without any write.
 
-/**
- * @param {{name:string, target?:string, params?:object}} cmd
- * @returns {{status:string, command:object, note:string}}
- */
+async function _post(project, sub, payload) {
+  const r = await fetch(
+    `/api/projects/${encodeURIComponent(project)}/${sub}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+  const j = await r.json().catch(() => null);
+  if (!r.ok) {
+    const detail = j && j.error ? j.error.detail : `${sub} ${r.status}`;
+    const err = new Error(detail);
+    err.category = j && j.error ? j.error.category : "error";
+    throw err;
+  }
+  return j;
+}
+
+/** Read-only generation coordinates (target digest + suggested params). */
+export async function getGenerationTarget(project, shotId) {
+  const r = await fetch(
+    `/api/projects/${encodeURIComponent(project)}/generation-target?shot_id=${encodeURIComponent(shotId)}`,
+  );
+  const j = await r.json().catch(() => null);
+  if (!r.ok) throw new Error(j && j.error ? j.error.detail : `target ${r.status}`);
+  return j;
+}
+
+/** Step 1: read-only preflight — never spends, never writes. */
+export function preflight(project, envelope) {
+  return _post(project, "preflight", envelope);
+}
+
+/** Step 2: confirmed submit — the actual HIGH-risk write (may spend). */
+export function submit(project, envelope, confirmation) {
+  return _post(project, "command", { ...envelope, confirmation });
+}
+
+/** Demo stub (non-paid modes): logs and resolves, changes nothing. */
 export function submitCommand(cmd) {
   const envelope = {
     command_id: "cmd-" + Math.round(performance.now()),
     name: cmd.name,
-    actor: "user", // forced by the surface — provenance cannot be forged
+    actor: "user",
     target: cmd.target || null,
     params: cmd.params || {},
   };

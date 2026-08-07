@@ -49,6 +49,21 @@ python mockups/motv-workspace/server.py --account-root examples/projects
 `v▾` 切版本 / `⇄对比`、底部进度条点击聚焦、🏠 返回主页、右上 ◐ 主题。
 （演示模式下生成走**本地预算预检**；连接模式下生成为"待 Gateway"不花费。）
 
+**付费写路径模式（ADR-0041 / TASK-041，真实生成，须显式授权）**
+```bash
+source .venv/bin/activate
+python mockups/motv-workspace/stage_evidence.py        # 离线搭建证据项目（零花费）
+export AI_VIDEO_WORKFLOW_ENABLE_PAID_COMMANDS=1        # 部署级 opt-in（缺省关闭）
+# 真实调用还需 WFM1_MINIMAX_API_KEY（.env）；只到预检为止不花费
+python mockups/motv-workspace/server.py --enable-paid \
+  --account-root mockups/motv-workspace/data/evidence-account
+# 浏览器 http://127.0.0.1:8770/ → 顶部「💳 真实数据 + 付费写路径」
+```
+在画布视频节点点「生成」→ 弹出**真实 Gateway 预检**（锁定目录报价 45 JPY / USD 0.28、
+blockers、preflight digest）→ **人工确认后才真实提交**（HIGH-risk，经 Command Gateway →
+coordinator：审批 / 目录锁 / 预算 reservation / 真实 MiniMax / 成本结算）。取消或存在
+blockers 则零花费。图像/音频付费仍被拒（ADR-0038 未授权）。
+
 ## 架构（为什么"好扩展"）
 
 ```

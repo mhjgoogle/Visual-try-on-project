@@ -29,6 +29,7 @@ default posture — this module never forces a real call.
 
 from __future__ import annotations
 
+import hashlib
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -530,3 +531,54 @@ def _apply(project_root: Path, envelope: CommandEnvelope, deps: _PaidDeps) -> di
     # Drop None-valued keys so the receipt outcome stays JSON-compatible
     # (the Gateway validates the outcome before persisting it).
     return {key: value for key, value in result.items() if value is not None}
+
+
+# --- shot-record target resolver ----------------------------------------------
+
+
+class ShotRecordTargetResolver:
+    """Resolve a generation target against the authoritative SHOT RECORD file.
+
+    The paid generation command targets a shot BEFORE any asset exists, so the
+    QCD ``asset_imported``-based ``WorkflowTargetResolver`` can never bind it.
+    Version binding for generation means: the exact shot record bytes the user
+    previewed are the bytes the generation runs for. ``ref`` is the bare shot id
+    (or its record path); ``version`` must be 1 — shot records are immutable
+    single-version inputs in the WFM1 record contract, and a re-authored shot is
+    a NEW record. The digest is the sha256 of the record file bytes, so any
+    drift between preview and submit fails closed (``TargetBindingError``).
+
+    Read-only and containment-checked; anything unresolvable reads as absent
+    (fail-closed at the Gateway).
+    """
+
+    def resolve_target(self, project_root: Path, *, ref: str, version: int):
+        from ai_video_workflow.gateway import ResolvedTarget
+
+        if version != 1:
+            return ResolvedTarget(exists=False, content_digest=None)
+        # Only the two canonical ref forms bind: the bare shot id, or exactly
+        # its record path. Any other shape (traversal-looking prefixes, foreign
+        # directories) reads as absent rather than being normalized to a leaf.
+        if not isinstance(ref, str) or not ref:
+            return ResolvedTarget(exists=False, content_digest=None)
+        if "/" in ref:
+            prefix, _, leaf = ref.rpartition("/")
+            if prefix != "records/shots" or not leaf.endswith(".json"):
+                return ResolvedTarget(exists=False, content_digest=None)
+            shot_id = leaf[: -len(".json")]
+        else:
+            shot_id = ref
+        if not shot_id or "\\" in shot_id or ".." in shot_id or "." in shot_id:
+            return ResolvedTarget(exists=False, content_digest=None)
+        try:
+            record = resolve_within_root(project_root, f"records/shots/{shot_id}.json")
+        except AiVideoWorkflowError:
+            return ResolvedTarget(exists=False, content_digest=None)
+        if not record.is_file():
+            return ResolvedTarget(exists=False, content_digest=None)
+        try:
+            digest = hashlib.sha256(record.read_bytes()).hexdigest()
+        except OSError:
+            return ResolvedTarget(exists=False, content_digest=None)
+        return ResolvedTarget(exists=True, content_digest=digest)
