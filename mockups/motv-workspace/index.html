@@ -87,6 +87,12 @@
       <div class="es-f"><button class="btn-ghost" id="se-add">＋ 添加镜头</button><button class="btn-ghost" id="se-cancel">取消</button><button class="btn-primary" id="se-save">保存为新版本</button></div>
     </div></div>
 
+    <!-- node detail (放大编辑视窗): the SAME node body, larger, live-synced -->
+    <div class="es-scrim" id="dt-scrim"><div class="es dt">
+      <div class="es-h" style="display:flex;align-items:center;gap:10px"><div class="t" id="dt-t">—</div><div class="cmd mono" id="dt-s"></div><div style="flex:1"></div><button class="icon-btn" id="dt-x">✕</button></div>
+      <div class="es-b dt-b" id="dt-b"></div>
+    </div></div>
+
     <script type="module" src="src/app.js"></script>
   </body>
 </html>

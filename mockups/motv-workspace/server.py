@@ -415,6 +415,8 @@ class _App:
             if sub == "shots":
                 return self._shots(unquote(name))
             return self._query(unquote(name), sub)
+        if path.startswith("/api/paid-ops/"):
+            return self._paid_ops(unquote(path[len("/api/paid-ops/") :]))
         if path.startswith("/api/canvas/"):
             return self._canvas_get(unquote(path[len("/api/canvas/") :]))
         if path.startswith("/api/uploads/"):
@@ -465,6 +467,8 @@ class _App:
             return self._agent_compose(body)
         if path == "/api/agent/image-gen":
             return self._agent_image(body)
+        if path == "/api/agent/adopt-paid":
+            return self._agent_adopt_paid(body)
         if not path.startswith("/api/projects/"):
             return _json(
                 404,
@@ -803,27 +807,102 @@ class _App:
                     }
                 },
             )
+        # Optional fit-to-video (先视频后配音): when fit_slug names an uploaded
+        # video slot, the voice is re-synthesized with a faster length-scale if
+        # it runs longer than the clip, so narration fits the SHOT's duration.
+        fit_slug = payload.get("fit_slug")
+        fit_seconds = None
+        if fit_slug:
+            if not isinstance(fit_slug, str):
+                return _json(
+                    400,
+                    {"error": {"category": "bad_request", "detail": "bad fit_slug"}},
+                )
+            vid = self._resolve_slot(d, fit_slug, (".mp4", ".webm"))
+            ffprobe = _shutil.which("ffprobe")
+            if vid is not None and ffprobe is not None:
+                probe = subprocess.run(  # noqa: S603 - fixed argv, no shell
+                    [
+                        ffprobe,
+                        "-v",
+                        "error",
+                        "-show_entries",
+                        "format=duration",
+                        "-of",
+                        "default=nw=1:nk=1",
+                        str(vid),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                try:
+                    fs = float(probe.stdout.strip())
+                    if probe.returncode == 0 and 0 < fs <= 600:
+                        fit_seconds = fs
+                except ValueError:
+                    pass  # unfittable → synthesize normally (compose still cuts)
+
+        def _wav_seconds(path: str) -> float | None:
+            ffprobe = _shutil.which("ffprobe")
+            if ffprobe is None:
+                return None
+            pr = subprocess.run(  # noqa: S603 - fixed argv, no shell
+                [
+                    ffprobe,
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "default=nw=1:nk=1",
+                    path,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            try:
+                v = float(pr.stdout.strip())
+            except ValueError:
+                return None
+            return v if pr.returncode == 0 and v > 0 else None
+
+        def _synth(dest: str, length_scale: float | None) -> None:
+            cmd = [piper, "-m", str(_TTS_MODEL), "-f", dest]
+            if length_scale is not None:
+                cmd += ["--length-scale", f"{length_scale:.3f}"]
+            proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
+                cmd,
+                input=text.encode("utf-8"),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=120,
+            )
+            out = Path(dest)
+            ok = (
+                proc.returncode == 0
+                and out.is_file()
+                and out.stat().st_size > 44
+                and out.open("rb").read(4) == b"RIFF"
+            )
+            if not ok:
+                raise OSError(f"piper exited {proc.returncode}")
+
+        fitted = False
         try:
             d.mkdir(parents=True, exist_ok=True)
             fd, tmpname = tempfile.mkstemp(dir=str(d), suffix=".tmp")
             os.close(fd)
             try:
-                proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
-                    [piper, "-m", str(_TTS_MODEL), "-f", tmpname],
-                    input=text.encode("utf-8"),
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=120,
-                )
-                out = Path(tmpname)
-                ok = (
-                    proc.returncode == 0
-                    and out.is_file()
-                    and out.stat().st_size > 44
-                    and out.open("rb").read(4) == b"RIFF"
-                )
-                if not ok:
-                    raise OSError(f"piper exited {proc.returncode}")
+                _synth(tmpname, None)
+                if fit_seconds is not None:
+                    adur = _wav_seconds(tmpname)
+                    if adur is not None and adur > fit_seconds + 0.05:
+                        # speak faster to fit; clamp so speech stays intelligible
+                        scale = max(0.65, (fit_seconds / adur) * 0.98)
+                        _synth(tmpname, scale)
+                        fitted = True
                 target = d / f"{slug}.wav"
                 # same-slot manual uploads in other formats are superseded
                 for other in set(_UPLOAD_TYPES.values()) - {".wav"}:
@@ -851,6 +930,8 @@ class _App:
                 "ok": True,
                 "url": f"/api/uploads/{project}/{slug}.wav",
                 "source": "piper",
+                "fitted": fitted,
+                "fit_seconds": fit_seconds,
             },
         )
 
@@ -1394,6 +1475,145 @@ class _App:
                 "music": music is not None,
             },
         )
+
+    # -- paid ops status (read-only projection of reservations/staging) -----
+    def _paid_ops(self, name: str):
+        """Per-operation paid generation status for the UI (READ-ONLY).
+
+        Projects the budget reservation records plus staging artifact
+        presence — enough for "生成情况" per shot without touching core code.
+        """
+        root = self._projects.get(name)
+        if root is None:
+            return _json(
+                404, {"error": {"category": "not_found", "detail": "unknown project"}}
+            )
+        ops = []
+        resv = (root / "budget" / "reservations").resolve()
+        rroot = root.resolve()
+        if rroot in resv.parents and resv.is_dir():
+            for p in sorted(resv.glob("*/*.json")):
+                try:
+                    if p.is_symlink():
+                        continue
+                    rp = p.resolve()
+                    if resv not in rp.parents or not rp.is_file():
+                        continue
+                    rec = json.loads(rp.read_text("utf-8"))
+                except (OSError, ValueError):
+                    continue
+                task_id = rec.get("task_id")
+                art = None
+                if isinstance(task_id, str) and _NAME_RE.fullmatch(task_id):
+                    ap = (root / "staging" / "shots" / f"{task_id}.mp4").resolve()
+                    if rroot in ap.parents and ap.is_file() and not ap.is_symlink():
+                        art = ap.stat().st_size
+                ops.append(
+                    {
+                        "task_id": task_id,
+                        "shot_id": rec.get("shot_id"),
+                        "operation_id": rec.get("operation_id"),
+                        "status": rec.get("status"),
+                        "model_id": rec.get("model_id"),
+                        "quote": f"{rec.get('quote_currency', '')} "
+                        f"{(rec.get('quote_minor_units') or 0) / 100:.2f}",
+                        "created_at": rec.get("created_at"),
+                        "resolved_at": rec.get("resolved_at"),
+                        "artifact_bytes": art,
+                    }
+                )
+        return _json(200, {"ops": ops})
+
+    # -- adopt a PAID staging clip into a canvas slot (ADR-0046 §3) ---------
+    def _agent_adopt_paid(self, body: bytes):
+        """Copy a coordinator-produced staging clip into an upload slot.
+
+        READ-ONLY towards core files (a copy, never a move); no spend. Lets the
+        canvas/compose use a paid clip without manual bridging. Fail-closed on
+        any invalid name, missing artifact, or non-mp4 content.
+        """
+        if len(body) > 100_000:
+            return _json(
+                413,
+                {"error": {"category": "too_large", "detail": "request too large"}},
+            )
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid JSON"}}
+            )
+        if not isinstance(payload, dict):
+            return _json(
+                400,
+                {"error": {"category": "bad_request", "detail": "body must be object"}},
+            )
+        project = payload.get("project")
+        slug = payload.get("slug")
+        task_id = payload.get("task_id")
+        if (
+            not isinstance(project, str)
+            or not isinstance(slug, str)
+            or not isinstance(task_id, str)
+        ):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid name"}}
+            )
+        root = self._projects.get(project)
+        d = self._upload_dir(project)
+        if (
+            root is None
+            or d is None
+            or not _NAME_RE.fullmatch(slug)
+            or _slug_reserved(slug)
+            or not _NAME_RE.fullmatch(task_id)
+        ):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid name"}}
+            )
+        src = (root / "staging" / "shots" / f"{task_id}.mp4").resolve()
+        rroot = root.resolve()
+        if rroot not in src.parents or src.is_symlink() or not src.is_file():
+            return _json(
+                404,
+                {
+                    "error": {
+                        "category": "not_found",
+                        "detail": "paid artifact not found in staging",
+                    }
+                },
+            )
+        try:
+            data = src.read_bytes()
+        except OSError:
+            return _json(
+                500, {"error": {"category": "read_failed", "detail": "could not read"}}
+            )
+        if len(data) > _UPLOAD_MAX[".mp4"] or not _media_magic_ok(".mp4", data):
+            return _json(
+                502,
+                {
+                    "error": {
+                        "category": "bad_artifact",
+                        "detail": "staging artifact is not a valid mp4",
+                    }
+                },
+            )
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            for other in set(_UPLOAD_TYPES.values()) - {".mp4"}:
+                stale = d / f"{slug}{other}"
+                if stale.is_file() and not stale.is_symlink():
+                    stale.unlink()
+            fd, tmpname = tempfile.mkstemp(dir=str(d), suffix=".tmp")
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(data)
+            os.replace(tmpname, d / f"{slug}.mp4")
+        except OSError:
+            return _json(
+                500, {"error": {"category": "write_failed", "detail": "could not save"}}
+            )
+        return _json(200, {"ok": True, "url": f"/api/uploads/{project}/{slug}.mp4"})
 
     # -- paid image generation (ADR-0045, MiniMax image-01) -----------------
     def _agent_image(self, body: bytes):

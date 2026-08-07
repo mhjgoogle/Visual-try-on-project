@@ -115,6 +115,11 @@ async function paidGenerate(shotId) {
             toast(
               `✅ 真实生成成功 · ${oc.cost_minor_units} ${oc.currency} · ${oc.operation_id}`,
             );
+            // auto-bridge the paid clip into the canvas slot (ADR-0046 §3)
+            adoptPaidIntoSlot(shotId, envelope.params.task_id).then((okAdopt) => {
+              if (okAdopt) toast("付费成片已自动进入画布槽位");
+              ctx.loadPaidOps();
+            });
           } else {
             toast(`结果：${receipt.status} · ${oc.kind || receipt.reason || ""}`);
           }
@@ -173,10 +178,16 @@ const ctx = {
     }
     est.open(o);
   },
-  refresh: (node) => engine.refreshBody(node),
+  refresh: (node) => {
+    engine.refreshBody(node);
+    if (dtNode === node) renderDetail(); // keep the detail window live-synced
+  },
   // re-render every node of a type — used when upstream state (e.g. the current
   // draft version) changes and a downstream node's prefill must follow.
-  refreshType: (type) => engine.nodes.filter((n) => n.type === type).forEach((n) => engine.refreshBody(n)),
+  refreshType: (type) => {
+    engine.nodes.filter((n) => n.type === type).forEach((n) => engine.refreshBody(n));
+    if (dtNode && dtNode.type === type) renderDetail();
+  },
   markIncoming: (id, state) => engine.markIncoming(id, state),
   addNext,
   // creative agent (ADR-0042): available whenever the backend is present
@@ -194,10 +205,11 @@ const ctx = {
     if (!CONNECTED) return Promise.reject(new Error("演示模式无后端，无法上传"));
     return query.uploadAssetImage(PROJECT_NAME, slug, file);
   },
-  // free automatic voice-over via local Piper TTS (ADR-0043)
-  agentTts: (slug, text) => {
+  // free automatic voice-over via local Piper TTS (ADR-0043); fitSlug names an
+  // uploaded video slot so the narration is paced to fit that clip's duration
+  agentTts: (slug, text, fitSlug) => {
     if (!CONNECTED) return Promise.reject(new Error("演示模式无后端"));
-    return query.ttsGenerate(PROJECT_NAME, slug, text);
+    return query.ttsGenerate(PROJECT_NAME, slug, text, fitSlug);
   },
   // paid image generation (ADR-0045): PAID mode only, price already confirmed
   // by the caller's per-image dialog and echoed for the server-side check
@@ -224,9 +236,151 @@ const ctx = {
   persist: () => {
     if (canvasActive && PROJECT_NAME) persist.saveCanvas(PROJECT_NAME, serializeGraph());
   },
+  // paid-op status projection (生成情况) — refreshed after paid actions
+  paidOps: {},
+  loadPaidOps: async () => {
+    if (!CONNECTED) return;
+    try {
+      const ops = await gw.paidOps(PROJECT_NAME);
+      ctx.paidOps = {};
+      ops.forEach((o) => {
+        if (!o.shot_id) return;
+        const cur = ctx.paidOps[o.shot_id];
+        // a committed op always wins over stale/aborted records for the shot
+        if (!cur || (o.status === "committed" && cur.status !== "committed")) {
+          ctx.paidOps[o.shot_id] = o;
+        }
+      });
+      ctx.refreshType("video");
+    } catch { /* status is best-effort */ }
+  },
 };
 ctx.wizard = createWizard({ estimate: { open: (o) => ctx.estimate(o) }, getProject: () => ctx.project, refresh: (n) => engine.refreshBody(n) });
 ctx.shotEditor = createShotEditor({ toast });
+
+// --- adopt a paid staging clip into every video node's slot (ADR-0046 §3) ---
+async function adoptPaidIntoSlot(shotId, taskId) {
+  const draft = ctx.project.draftShots || [];
+  const s = draft.find((x) => `shot-${x.sequence}` === shotId);
+  if (!s || !s.slot) return false;
+  try {
+    const url = await gw.adoptPaid(PROJECT_NAME, taskId, `video-${s.slot}`);
+    engine.nodes.filter((n) => n.type === "video").forEach((n) => {
+      n.uploads = n.uploads || {};
+      n.uploads[s.slot] = url;
+      engine.refreshBody(n);
+    });
+    ctx.persist();
+    return true;
+  } catch {
+    return false; // artifact may not be fetched yet — status view still shows it
+  }
+}
+
+// --- batch paid generation (ADR-0046): ONE total confirmation, per-shot
+// quote-equality validation, abort on any blocker/mismatch ---
+async function batchPaidGenerate(node) {
+  const draft = ctx.project.draftShots || [];
+  const media = ctx.collectMedia();
+  const pending = draft.filter((s) => s.slot && !media.video[s.slot]);
+  if (!pending.length) { toast("所有镜头都已有视频，无需批量生成"); return; }
+  const UNIT_USD = 0.28;
+  const total = (pending.length * UNIT_USD).toFixed(2);
+  const list = pending.map((s) => String(s.sequence).padStart(2, "0")).join("、");
+  if (!window.confirm(
+    `一键批量付费生成 ${pending.length} 个镜头（${list}）\n` +
+    `单价 $${UNIT_USD}/段 × ${pending.length} = 总计 $${total}\n\n` +
+    `确认后逐镜头经 Gateway 真实生成（每段约 1–2 分钟）；任何一笔报价与单价不符或存在阻断将立即中止。确认扣费？`,
+  )) return;
+  node._batchBusy = true;
+  let done = 0;
+  for (const s of pending) {
+    node._batchMsg = `批量付费 ${done + 1}/${pending.length} · 镜头 ${String(s.sequence).padStart(2, "0")} 生成中…`;
+    ctx.refresh(node);
+    try {
+      const shotId = `shot-${s.sequence}`;
+      const tgt = await gw.getGenerationTarget(PROJECT_NAME, shotId);
+      const opId = "op-ui-" + Date.now().toString(36) + s.sequence;
+      const envelope = {
+        command_id: "cmd-" + opId,
+        name: "submit-video-generation",
+        params: { ...tgt.params, operation_id: opId },
+        target: tgt.target,
+      };
+      const pf = await gw.preflight(PROJECT_NAME, envelope);
+      const p = pf.preview || {};
+      const cost = p.estimated_cost;
+      const blockers = p.blockers || [];
+      // per-shot validation: quote must equal the confirmed unit price
+      const quoteOk = cost
+        && cost.original_currency === "USD"
+        && cost.original_amount_minor_units === Math.round(UNIT_USD * 100);
+      if (blockers.length || !quoteOk) {
+        toast(`批量中止于镜头 ${s.sequence}：${blockers[0] || "报价与确认单价不符"}（已完成 ${done} 段，未再扣费）`);
+        break;
+      }
+      await gw.submit(PROJECT_NAME, envelope, pf.preflight_digest);
+      done++;
+      await adoptPaidIntoSlot(shotId, envelope.params.task_id);
+    } catch (e) {
+      toast(`批量中止于镜头 ${s.sequence}：${e.message}（已完成 ${done} 段）`);
+      break;
+    }
+  }
+  node._batchBusy = false;
+  node._batchMsg = "";
+  ctx.refresh(node);
+  ctx.loadPaidOps();
+  try {
+    REAL_STANDING = realmap.mapStanding(await query.getQuery(PROJECT_NAME, "budget"));
+    renderBudget();
+  } catch { /* best-effort */ }
+  if (done) toast(`批量付费完成 · ${done} 段已生成并入槽位`);
+}
+ctx.batchPaid = batchPaidGenerate;
+
+// --- shared node-body wiring (used by BOTH the canvas node and the detail
+// window, so every action works identically in either surface) ---
+function bindNodeBody(node, bodyEl) {
+  const def = registry.get(node.type);
+  if (def && def.bind) def.bind(node, bodyEl, ctx);
+  const run = bodyEl.querySelector("[data-run]");
+  if (run) run.onclick = (e) => { e.stopPropagation(); if (def && def.run) def.run(node, ctx); };
+  bodyEl.querySelectorAll("[data-next]").forEach((b) => (b.onclick = (e) => {
+    e.stopPropagation();
+    addNext(node, b.dataset.next, +(b.dataset.dy || 0));
+  }));
+}
+
+// --- node detail window (放大编辑视窗): live-synced with the canvas node ---
+let dtNode = null;
+const dtScrim = $("#dt-scrim");
+function renderDetail() {
+  if (!dtNode) return;
+  const def = registry.get(dtNode.type);
+  $("#dt-t").textContent = `${def.icon || ""} ${def.title || dtNode.type}`;
+  $("#dt-s").textContent = def.stage || "";
+  const body = $("#dt-b");
+  body.innerHTML = def && def.render ? def.render(dtNode, ctx) : "";
+  bindNodeBody(dtNode, body);
+  // the script textarea saves through the same global handler as the canvas
+}
+function openDetail(node) {
+  dtNode = node;
+  renderDetail();
+  dtScrim.classList.add("show");
+  if (node.type === "video" && ctx.loadPaidOps) ctx.loadPaidOps();
+}
+$("#dt-x").onclick = () => { dtNode = null; dtScrim.classList.remove("show"); };
+// script editing inside the detail window: update the node + mirror to the
+// canvas copy (the modal textarea itself is left untouched to keep focus)
+$("#dt-b").addEventListener("input", (e) => {
+  if (dtNode && e.target.classList.contains("scripttext")) {
+    dtNode.text = e.target.value;
+    engine.refreshBody(dtNode);
+    if (canvasActive && PROJECT_NAME) persist.saveCanvas(PROJECT_NAME, serializeGraph());
+  }
+});
 
 // --- engine wired to the workflow via registry/contract ---
 const engine = new GraphEngine({
@@ -237,17 +391,14 @@ const engine = new GraphEngine({
   emptyhint: $("#emptyhint"),
   renderBody: (node) => {
     const def = registry.get(node.type);
-    return def && def.render ? def.render(node, ctx) : "";
+    const body = def && def.render ? def.render(node, ctx) : "";
+    // every node gets an expand affordance into the detail window
+    return body + `<button class="nexpand" data-expand>⤢ 放大编辑</button>`;
   },
   bindBody: (node, bodyEl) => {
-    const def = registry.get(node.type);
-    if (def && def.bind) def.bind(node, bodyEl, ctx);
-    const run = bodyEl.querySelector("[data-run]");
-    if (run) run.onclick = (e) => { e.stopPropagation(); if (def && def.run) def.run(node, ctx); };
-    bodyEl.querySelectorAll("[data-next]").forEach((b) => (b.onclick = (e) => {
-      e.stopPropagation();
-      addNext(node, b.dataset.next, +(b.dataset.dy || 0));
-    }));
+    bindNodeBody(node, bodyEl);
+    const ex = bodyEl.querySelector("[data-expand]");
+    if (ex) ex.onclick = (e) => { e.stopPropagation(); openDetail(node); };
   },
   canConnect: (a, b) => registry.canConnect(a.type, b.type),
   onConnect: () => toast("已连线：手动建立工作流关系"),
@@ -452,6 +603,7 @@ async function enterCanvas(name, opts = {}) {
     if (!restoreGraph(saved)) { engine.reset(); seeded = false; engine.render(); }
   }
   canvasActive = true;
+  if (PAID) ctx.loadPaidOps(); // 生成情况 projection for the video node
 }
 
 // --- landing project cards ---

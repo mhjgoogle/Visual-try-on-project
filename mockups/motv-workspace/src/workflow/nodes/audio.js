@@ -64,10 +64,14 @@ export default {
         return s ? s.description : "";
       },
     });
-    // 🤖 automatic voice-over via local Piper TTS (ADR-0043, free, offline)
+    // 🤖 automatic voice-over via local Piper TTS (ADR-0043, free, offline).
+    // 先视频后配音: when the shot's video is already uploaded, pass its slot so
+    // the narration is paced to FIT that clip's duration (ADR-0043 fit mode).
     const synth = async (s) => {
       const k = `voice-${s.slot}`;
-      const url = await ctx.agentTts(`${node.type}-${k}`, s.description);
+      const media = ctx.collectMedia ? ctx.collectMedia() : { video: {} };
+      const fit = s.slot && media.video[s.slot] ? `video-${s.slot}` : undefined;
+      const url = await ctx.agentTts(`${node.type}-${k}`, s.description, fit);
       node.uploads = node.uploads || {};
       node.uploads[k] = url;
     };

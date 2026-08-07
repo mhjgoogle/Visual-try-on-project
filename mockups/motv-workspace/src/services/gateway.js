@@ -49,6 +49,26 @@ export function submit(project, envelope, confirmation) {
   return _post(project, "command", { ...envelope, confirmation });
 }
 
+/** Paid-op status projection (read-only; reservations + staging artifacts). */
+export async function paidOps(project) {
+  const r = await fetch(`/api/paid-ops/${encodeURIComponent(project)}`);
+  const j = await r.json().catch(() => null);
+  if (!r.ok) throw new Error(j && j.error ? j.error.detail : `ops ${r.status}`);
+  return j.ops || [];
+}
+
+/** Adopt a paid staging clip into a canvas upload slot (copy; no spend). */
+export async function adoptPaid(project, taskId, slug) {
+  const r = await fetch("/api/agent/adopt-paid", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ project, task_id: taskId, slug }),
+  });
+  const j = await r.json().catch(() => null);
+  if (!r.ok) throw new Error(j && j.error ? j.error.detail : `adopt ${r.status}`);
+  return j.url;
+}
+
 /** Demo stub (non-paid modes): logs and resolves, changes nothing. */
 export function submitCommand(cmd) {
   const envelope = {

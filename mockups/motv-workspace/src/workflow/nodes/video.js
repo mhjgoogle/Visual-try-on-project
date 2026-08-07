@@ -22,13 +22,21 @@ export default {
     if (draft && draft.length) {
       const up = node.uploads || {};
       const key = (s) => s.slot || "";
+      const ops = ctx.paidOps || {};
       const items = draft
         .map((s) => {
           const k = key(s);
           const thumb = k && up[k]
             ? `<video class="athumb" src="${esc(up[k])}" muted preload="metadata"></video>`
             : `<span class="aph">无片</span>`;
-          return `<div class="arow">${thumb}<span class="alb">${esc(String(s.sequence).padStart(2, "0"))} ${esc(s.title)}</span><button class="amini" data-copy="${esc(String(s.sequence))}" title="复制该镜头的视频提示词">📋</button><button class="amini" data-up="${esc(k)}" title="上传该镜头的视频">⬆</button></div>`;
+          // 生成情况: paid-op status projection for this shot (read-only)
+          const op = ops[`shot-${s.sequence}`];
+          const st = op
+            ? op.status === "committed"
+              ? `<span style="font-size:10px;color:var(--ok)" title="已付费 ${esc(op.quote || "")} · ${esc(op.operation_id || "")}">✓已付费</span>`
+              : `<span style="font-size:10px;color:var(--gate)" title="${esc(op.status || "")}">⏳${esc(op.status || "生成中")}</span>`
+            : "";
+          return `<div class="arow">${thumb}<span class="alb">${esc(String(s.sequence).padStart(2, "0"))} ${esc(s.title)}</span>${st}<button class="amini" data-copy="${esc(String(s.sequence))}" title="复制该镜头的视频提示词">📋</button><button class="amini" data-up="${esc(k)}" title="上传该镜头的视频">⬆</button></div>`;
         })
         .join("");
       const done = draft.filter((s) => key(s) && up[key(s)]).length;
@@ -47,7 +55,7 @@ export default {
           }).join("")}</div>`
         : "";
       const paidBtns = ctx.isPaid && ctx.isPaid()
-        ? `<div class="vbtns"><button class="nrun ghost" data-run>批量生成（自动）</button><button class="nrun ghost" data-single>单镜头（MiniMax 付费）▾</button></div>${pick}`
+        ? `<div class="vbtns"><button class="nrun ghost" data-run${node._batchBusy ? " disabled" : ""}>${node._batchBusy ? esc(node._batchMsg || "批量生成中…") : "一键批量生成（付费 · 总额确认）"}</button><button class="nrun ghost" data-single>单镜头（MiniMax 付费）▾</button></div>${pick}`
         : `<div class="vbtns"><button class="nrun ghost" data-run>批量生成（自动 · 占位）</button></div><div style="font-size:10.5px;color:var(--text-faint);margin-top:4px">真实自动：MiniMax 付费（约 $0.28/6s）· 需 --enable-paid</div>`;
       const complete = done >= draft.length || node.state === "done";
       const foot = complete
@@ -73,6 +81,13 @@ export default {
       <div class="vbtns"><button class="nrun" data-run>批量生成 ${total} 镜头</button><button class="nrun ghost" data-single>生成单个 ▾</button></div>${pick}`;
   },
   run(node, ctx) {
+    // PAID + draft: the batch button runs the REAL one-total-confirmation
+    // batch (ADR-0046) instead of the placeholder estimate flow.
+    const draft = ctx.project.draftShots;
+    if (draft && draft.length && ctx.isPaid && ctx.isPaid() && ctx.batchPaid) {
+      if (!node._batchBusy) ctx.batchPaid(node);
+      return;
+    }
     const total = ctx.project.shots.total;
     ctx.estimate({
       cmd: `generate_videos · 批量 ${total} 镜头`,
