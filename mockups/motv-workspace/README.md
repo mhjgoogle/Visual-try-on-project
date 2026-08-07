@@ -56,13 +56,18 @@ python mockups/motv-workspace/server.py --account-root examples/projects
 仍严格按已锁定 packet 执行（草稿改不了已锁定参数）。CLI 缺失/输出不合法时 fail-closed
 报错。
 
-**手工插入/修改（人工 Gate + 手工图片流）**：分镜节点「✎ 编辑分镜」打开编辑器，可改
-标题/描述/时长（6/10s）、增删镜头，保存为**新版本**（历史不覆盖，标「手工编辑 · 未锁
-定」），下游同步。资产节点每个镜头槽位：📋 复制生图提示词（模板即时生成）→ 用户在
-外部工具（如 Gemini 网页，免费）生成 → ⬆ 上传结果图（`PUT /api/uploads/<项目>/<槽位>`，
-仅 png/jpg/webp、magic 校验、8MB 上限、存 `data/uploads/` 原型 scratch；同槽位重传即
-替换）。这是**原型本地**的手工图片流；核心工作流的正式"手工图片 Provider"须另走
-ADR-0038。
+**手工插入/修改（人工 Gate + 手工媒体流，全免费）**：分镜节点「✎ 编辑分镜」打开编辑
+器，可改标题/描述/时长（6/10s）、增删镜头，保存为**新版本**（历史不覆盖，标「手工编
+辑 · 未锁定」），下游同步。资产/视频/音频节点每个镜头槽位：📋 复制提示词/文案（模板
+即时生成）→ 用户在外部免费工具生成（图：Gemini 网页；视频：Gemini 動画/Hailuo 网页
+免费额度；配音：网页/本地 TTS；音乐音效：CC0 库）→ ⬆ 上传结果
+（`PUT /api/uploads/<项目>/<槽位>`，png/jpg/webp 8MB、mp4/webm 60MB、mp3/wav 20MB，
+magic 字节校验，存 `data/uploads/` 原型 scratch；同槽位重传即替换）。上传绑定镜头的
+稳定 slot id，增删镜头/切版本不会错挂。自动路线：视频=MiniMax 付费（`--enable-paid`）；
+配音=**本地 Piper TTS（ADR-0043，免费离线）**——音频节点每镜头 🤖 或「一键自动配音」，
+经 `POST /api/agent/tts` 本地合成 WAV 存入同一槽位（需 `pip install piper-tts` 并将
+`zh_CN-huayan-medium.onnx(.json)` 放入 `data/tts/`，缺失时 503 且手工路不受影响）。
+核心工作流的正式"手工媒体 Provider"须另走 ADR-0038。
 
 **付费写路径模式（ADR-0041 / TASK-041，真实生成，须显式授权）**
 ```bash

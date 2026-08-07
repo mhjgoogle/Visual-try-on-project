@@ -1,6 +1,8 @@
-// 视频生成 — batch all shots, or generate a single shot. Both go through the
-// pre-generation budget preflight (paid Provider) before any spend.
-import { nx } from "./shared.js";
+// 视频生成 — manual free flow (copy prompt → generate in a web tool → upload)
+// per draft shot, or the automatic PAID MiniMax route (batch/single) via the
+// pre-generation budget preflight before any spend.
+import { nx, bindSlots } from "./shared.js";
+import { esc } from "../../util/dom.js";
 
 const SINGLE_SHOTS = ["01", "02", "03", "04", "05", "06"];
 
@@ -11,9 +13,38 @@ export default {
   title: "视频生成",
   icon: "▶",
   init() {
-    return { state: "", pickSingle: false };
+    return { state: "", pickSingle: false, uploads: {} };
   },
   render(node, ctx) {
+    // Manual flow (免费): one slot per draft shot — 📋 copy a video prompt for
+    // Gemini 動画/Hailuo web (free tiers), ⬆ upload the resulting clip.
+    const draft = ctx.project.draftShots;
+    if (draft && draft.length) {
+      const up = node.uploads || {};
+      const key = (s) => s.slot || "";
+      const items = draft
+        .map((s) => {
+          const k = key(s);
+          const thumb = k && up[k]
+            ? `<video class="athumb" src="${esc(up[k])}" muted preload="metadata"></video>`
+            : `<span class="aph">无片</span>`;
+          return `<div class="arow">${thumb}<span class="alb">${esc(String(s.sequence).padStart(2, "0"))} ${esc(s.title)}</span><button class="amini" data-copy="${esc(String(s.sequence))}" title="复制该镜头的视频提示词">📋</button><button class="amini" data-up="${esc(k)}" title="上传该镜头的视频">⬆</button></div>`;
+        })
+        .join("");
+      const done = draft.filter((s) => key(s) && up[key(s)]).length;
+      // The automatic route stays available alongside the manual one: batch
+      // data-run keeps its pre-existing behavior (PAID → per-shot-only refusal
+      // toast; connected non-paid → placeholder-advance), and PAID adds the
+      // per-shot real Gateway picker.
+      const paidBtns = ctx.isPaid && ctx.isPaid()
+        ? `<div class="vbtns"><button class="nrun ghost" data-run>批量生成（自动）</button><button class="nrun ghost" data-single>单镜头（MiniMax 付费）▾</button></div>${node.pickSingle ? `<div class="shotpick">${SINGLE_SHOTS.slice(0, draft.length).map((s) => `<button data-shot="${s}">镜头 ${s}</button>`).join("")}</div>` : ""}`
+        : `<div class="vbtns"><button class="nrun ghost" data-run>批量生成（自动 · 占位）</button></div><div style="font-size:10.5px;color:var(--text-faint);margin-top:4px">真实自动：MiniMax 付费（约 $0.28/6s）· 需 --enable-paid</div>`;
+      const complete = done >= draft.length || node.state === "done";
+      const foot = complete
+        ? `<div style="font-size:11px;color:var(--ok);margin:6px 2px 0">${done >= draft.length ? `✓ 手工视频 ${done}/${draft.length}` : "占位推进 · 未真实生成"} · 未锁定</div>${nx([["edit", "剪辑合成"]])}`
+        : `<div style="font-size:11px;color:var(--gate);margin:6px 2px 0">手工流程：📋 提示词 → Gemini 動画/Hailuo 网页（免费额度）→ ⬆ 上传（${done}/${draft.length}）</div>`;
+      return `<div>${items}${foot}${paidBtns}</div>`;
+    }
     const total = ctx.project.shots.total;
     if (node.state === "done") {
       // Connected mode is a placeholder-advance (no real generation, gated);
@@ -45,6 +76,20 @@ export default {
     });
   },
   bind(node, el, ctx) {
+    const draft = ctx.project.draftShots;
+    if (draft && draft.length) {
+      bindSlots(node, el, ctx, {
+        accept: "video/mp4,video/webm",
+        copiedMsg: "已复制视频提示词 — 去 Gemini 動画/Hailuo 网页生成后 ⬆ 上传",
+        uploadedMsg: "镜头视频已上传",
+        getPrompt: (seq) => {
+          const s = draft.find((x) => String(x.sequence) === seq);
+          if (!s) return "";
+          const nn = String(s.sequence).padStart(2, "0");
+          return `【镜头${nn}·${s.title}】${s.description}。时长约 ${s.duration_seconds} 秒，写实电影感，16:9，镜头运动自然流畅，与前后镜头保持同一人物与场景。`;
+        },
+      });
+    }
     const sg = el.querySelector("[data-single]");
     if (sg) sg.onclick = (e) => { e.stopPropagation(); node.pickSingle = !node.pickSingle; ctx.refresh(node); };
     el.querySelectorAll("[data-shot]").forEach((b) => (b.onclick = (e) => {

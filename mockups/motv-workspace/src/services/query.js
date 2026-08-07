@@ -93,6 +93,19 @@ export async function uploadAssetImage(project, slug, file) {
   return j.url;
 }
 
+/** Local Piper TTS (ADR-0043): synthesize a draft voice-over into an upload
+ *  slot — free, offline, no credential. Returns the audio URL. */
+export async function ttsGenerate(project, slug, text) {
+  const r = await fetch("/api/agent/tts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ project, slug, text }),
+  });
+  const j = await r.json().catch(() => null);
+  if (!r.ok) throw new Error((j && j.error && j.error.detail) || `tts ${r.status}`);
+  return j.url;
+}
+
 /** The demo creative fixture (used for canvas authoring content in both modes). */
 export function fixtureProject() {
   return SHENGTANG;

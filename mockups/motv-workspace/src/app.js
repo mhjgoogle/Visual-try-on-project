@@ -188,10 +188,16 @@ const ctx = {
     return (s && s.text) || ctx.project.script || "";
   },
   agentShotsDraft: (script) => query.generateShotsDraft(script),
-  // manual providers (prototype scratch): image upload + explicit persistence
-  uploadImage: (slug, file) => {
+  isPaid: () => PAID,
+  // manual providers (prototype scratch): media upload + explicit persistence
+  uploadMedia: (slug, file) => {
     if (!CONNECTED) return Promise.reject(new Error("演示模式无后端，无法上传"));
     return query.uploadAssetImage(PROJECT_NAME, slug, file);
+  },
+  // free automatic voice-over via local Piper TTS (ADR-0043)
+  agentTts: (slug, text) => {
+    if (!CONNECTED) return Promise.reject(new Error("演示模式无后端"));
+    return query.ttsGenerate(PROJECT_NAME, slug, text);
   },
   persist: () => {
     if (canvasActive && PROJECT_NAME) persist.saveCanvas(PROJECT_NAME, serializeGraph());

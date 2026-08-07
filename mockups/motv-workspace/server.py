@@ -52,22 +52,40 @@ DATA_DIR = MOCKUP_DIR / "data"
 # Static files this server will serve (same-origin). Everything else — data/,
 # server.py, README, plans — is refused.
 _STATIC_PREFIXES = ("src/", "styles/", "fixtures/")
-# Transport ceiling (largest allowed write = an image upload); each route then
+# Transport ceiling (largest allowed write = a video upload); each route then
 # enforces its own tighter bound so raising this never loosens JSON routes.
-_MAX_BODY_BYTES = 8_000_000
+_MAX_BODY_BYTES = 60_000_000
 _CANVAS_BODY_MAX = 2_000_000  # canvas JSON keeps its original tighter bound
 _GATEWAY_BODY_MAX = 2_000_000  # gateway/agent JSON envelopes stay small
-_UPLOAD_BODY_MAX = 8_000_000
 _NAME_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
-# Manual image uploads (ADR pending for the CORE manual image provider; this is
-# the PROTOTYPE-LOCAL scratch path only — user-generated reference images from
-# e.g. the Gemini web app, stored under data/uploads/, never core files).
-_UPLOAD_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
-_UPLOAD_FILE_RE = re.compile(r"[A-Za-z0-9_-]{1,64}\.(?:png|jpg|webp)")
+# Manual media uploads (ADR pending for the CORE manual providers; this is the
+# PROTOTYPE-LOCAL scratch path only — user-generated reference images / video
+# clips / audio from e.g. the Gemini web app or a TTS tool, stored under
+# data/uploads/, never core files). Per-class size caps.
+_UPLOAD_TYPES = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+    "video/mp4": ".mp4",
+    "video/webm": ".webm",
+    "audio/mpeg": ".mp3",
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+}
+_UPLOAD_MAX = {
+    ".png": 8_000_000,
+    ".jpg": 8_000_000,
+    ".webp": 8_000_000,
+    ".mp4": 60_000_000,
+    ".webm": 60_000_000,
+    ".mp3": 20_000_000,
+    ".wav": 20_000_000,
+}
+_UPLOAD_FILE_RE = re.compile(r"[A-Za-z0-9_-]{1,64}\.(?:png|jpg|webp|mp4|webm|mp3|wav)")
 
 
-def _image_magic_ok(ext: str, body: bytes) -> bool:
+def _media_magic_ok(ext: str, body: bytes) -> bool:
     """Fail-closed content sniff: bytes must actually be the declared format."""
     if ext == ".png":
         return body.startswith(b"\x89PNG\r\n\x1a\n")
@@ -75,6 +93,18 @@ def _image_magic_ok(ext: str, body: bytes) -> bool:
         return body.startswith(b"\xff\xd8\xff")
     if ext == ".webp":
         return body[:4] == b"RIFF" and body[8:12] == b"WEBP"
+    if ext == ".mp4":
+        return len(body) > 12 and body[4:8] == b"ftyp"
+    if ext == ".webm":
+        return body.startswith(b"\x1a\x45\xdf\xa3")
+    if ext == ".mp3":
+        return body.startswith(b"ID3") or body[:2] in (
+            b"\xff\xfb",
+            b"\xff\xf3",
+            b"\xff\xf2",
+        )
+    if ext == ".wav":
+        return body[:4] == b"RIFF" and body[8:12] == b"WAVE"
     return False
 
 
@@ -133,10 +163,20 @@ _CTYPE = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
     ".webp": "image/webp",
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mp3": "audio/mpeg",
+    ".wav": "audio/wav",
 }
 
 
 _CLAUDE_OUTPUT_CAP = 200_000  # hard ceiling on bytes ever accepted from the CLI
+
+# Local Piper TTS (ADR-0043): free offline draft voice-over. Model lives in
+# data/tts/ (gitignored, downloaded locally); absent → the endpoint 503s with
+# an install hint and the manual upload route is unaffected.
+_TTS_MODEL = DATA_DIR / "tts" / "zh_CN-huayan-medium.onnx"
+_TTS_TEXT_MAX = 2_000
 
 
 def _run_claude(prompt: str, timeout: int = 180) -> str:
@@ -401,6 +441,8 @@ class _App:
         path = urlsplit(raw_path).path
         if path == "/api/agent/shots-draft":
             return self._agent_shots_draft(body)
+        if path == "/api/agent/tts":
+            return self._agent_tts(body)
         if not path.startswith("/api/projects/"):
             return _json(
                 404,
@@ -679,6 +721,117 @@ class _App:
             )
         return _json(200, {"shots": shots, "draft": True, "source": "claude -p"})
 
+    # -- local TTS draft voice-over (ADR-0043) ------------------------------
+    def _agent_tts(self, body: bytes):
+        """Synthesize draft voice-over with LOCAL Piper TTS (free, offline).
+
+        Output lands in the same prototype upload scratch as manual uploads
+        (``data/uploads/<project>/<slug>.wav``) so manual and automatic routes
+        share the slot. Fail-closed: missing piper/model → 503 with an install
+        hint; over-long text → 400; synthesis failure → 502 (never fabricated).
+        """
+        if len(body) > 100_000:
+            return _json(
+                413,
+                {"error": {"category": "too_large", "detail": "request too large"}},
+            )
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid JSON"}}
+            )
+        if not isinstance(payload, dict):
+            return _json(
+                400,
+                {"error": {"category": "bad_request", "detail": "body must be object"}},
+            )
+        project = payload.get("project")
+        slug = payload.get("slug")
+        text = payload.get("text")
+        if not isinstance(project, str) or not isinstance(slug, str):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid name"}}
+            )
+        d = self._upload_dir(project)
+        if d is None or not _NAME_RE.fullmatch(slug):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid name"}}
+            )
+        if not isinstance(text, str) or not text.strip():
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "missing 'text'"}}
+            )
+        if len(text) > _TTS_TEXT_MAX:
+            return _json(
+                400,
+                {"error": {"category": "too_large", "detail": "text too long (2000)"}},
+            )
+        import shutil as _shutil
+
+        piper = _shutil.which("piper")
+        if piper is None or not _TTS_MODEL.is_file():
+            return _json(
+                503,
+                {
+                    "error": {
+                        "category": "tts_unavailable",
+                        "detail": "piper 或语音模型缺失：pip install piper-tts 并将"
+                        " zh_CN-huayan-medium.onnx(.json) 放入 data/tts/",
+                    }
+                },
+            )
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            fd, tmpname = tempfile.mkstemp(dir=str(d), suffix=".tmp")
+            os.close(fd)
+            try:
+                proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
+                    [piper, "-m", str(_TTS_MODEL), "-f", tmpname],
+                    input=text.encode("utf-8"),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=120,
+                )
+                out = Path(tmpname)
+                ok = (
+                    proc.returncode == 0
+                    and out.is_file()
+                    and out.stat().st_size > 44
+                    and out.open("rb").read(4) == b"RIFF"
+                )
+                if not ok:
+                    raise OSError(f"piper exited {proc.returncode}")
+                target = d / f"{slug}.wav"
+                # same-slot manual uploads in other formats are superseded
+                for other in set(_UPLOAD_TYPES.values()) - {".wav"}:
+                    stale = d / f"{slug}{other}"
+                    if stale.is_file() and not stale.is_symlink():
+                        stale.unlink()
+                os.replace(tmpname, target)
+            except (OSError, subprocess.TimeoutExpired):
+                try:
+                    os.unlink(tmpname)
+                except OSError:
+                    pass
+                raise
+        except subprocess.TimeoutExpired:
+            return _json(
+                504, {"error": {"category": "tts_timeout", "detail": "piper timed out"}}
+            )
+        except OSError:
+            return _json(
+                502, {"error": {"category": "tts_failed", "detail": "synthesis failed"}}
+            )
+        return _json(
+            200,
+            {
+                "ok": True,
+                "url": f"/api/uploads/{project}/{slug}.wav",
+                "source": "piper",
+            },
+        )
+
     def _generation_target(self, name: str, shot_id: str):
         """Read-only generation coordinates for the UI (ref/digest/params).
 
@@ -880,27 +1033,27 @@ class _App:
                 {
                     "error": {
                         "category": "unsupported_type",
-                        "detail": "Content-Type must be png, jpeg or webp",
+                        "detail": "type must be png/jpeg/webp, mp4/webm or mp3/wav",
                     }
                 },
             )
-        if len(body) > _UPLOAD_BODY_MAX:
+        if len(body) > _UPLOAD_MAX[ext]:
             return _json(
                 413,
                 {
                     "error": {
                         "category": "too_large",
-                        "detail": "image too large (8MB max)",
+                        "detail": f"max {_UPLOAD_MAX[ext] // 1_000_000}MB for {ext}",
                     }
                 },
             )
-        if not body or not _image_magic_ok(ext, body):
+        if not body or not _media_magic_ok(ext, body):
             return _json(
                 400,
                 {
                     "error": {
                         "category": "bad_request",
-                        "detail": "bytes are not a valid image of the declared type",
+                        "detail": "bytes are not a valid file of the declared type",
                     }
                 },
             )
@@ -1053,6 +1206,15 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._write(self._app.handle(self.path), body=False)
 
+    def _route_body_cap(self) -> int:
+        """Per-route transport ceiling, enforced BEFORE the body is read: only
+        the media-upload route may send large bodies; every JSON route is
+        bounded at 2 MB so an oversized request is refused without buffering."""
+        path = urlsplit(self.path).path
+        if path.startswith("/api/uploads/"):
+            return _MAX_BODY_BYTES
+        return _GATEWAY_BODY_MAX
+
     def do_PUT(self):  # noqa: N802
         if not self._guard_host() or not self._guard_origin():
             return
@@ -1074,7 +1236,7 @@ class _Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
             length = -1
-        if length < 0 or length > _MAX_BODY_BYTES:
+        if length < 0 or length > self._route_body_cap():
             self.close_connection = True
             self._write(
                 _json(
@@ -1130,7 +1292,7 @@ class _Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
             length = -1
-        if length < 0 or length > _MAX_BODY_BYTES:
+        if length < 0 or length > self._route_body_cap():
             self.close_connection = True
             self._write(
                 _json(

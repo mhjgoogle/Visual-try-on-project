@@ -1,6 +1,6 @@
 // 资产准备 — character / scene / prop reference sheets (S4 母资产). Opens the
 // batch wizard; on generate it flips to done and guides to video/audio.
-import { nx } from "./shared.js";
+import { nx, bindSlots } from "./shared.js";
 import { esc } from "../../util/dom.js";
 
 function labels(ctx) {
@@ -80,45 +80,18 @@ export default {
   bind(node, el, ctx) {
     const draft = ctx.project.draftShots;
     if (!draft || !draft.length) return;
-    // 📋 copy a generation prompt for the shot (template, instant, free)
-    el.querySelectorAll("[data-copy]").forEach((b) => (b.onclick = async (e) => {
-      e.stopPropagation();
-      const s = draft.find((x) => String(x.sequence) === b.dataset.copy);
-      if (!s) return;
-      const nn = String(s.sequence).padStart(2, "0");
-      const prompt = `【镜头${nn}·${s.title}】${s.description}（时长约${s.duration_seconds}s）。写实电影感，16:9。请为该镜头生成一张设定图拼版：包含远景（全景/全身）、近景特写、3/4 侧面与背面等多角度视图；同一人物、服装与场景在所有视图中保持一致。`;
-      try {
-        await navigator.clipboard.writeText(prompt);
-        ctx.toast(`已复制镜头 ${nn} 的生图提示词 — 去 Gemini 网页生成后 ⬆ 上传`);
-      } catch {
-        ctx.toast("复制失败：请手动从 inspector 复制");
-      }
-    }));
-    // ⬆ upload the user-generated image into the shot's SLOT (manual provider)
-    el.querySelectorAll("[data-up]").forEach((b) => (b.onclick = (e) => {
-      e.stopPropagation();
-      const k = b.dataset.up; // slot id, e.g. "v3-2"
-      if (!k) { ctx.toast("该镜头缺少槽位标识：请重新生成或编辑分镜"); return; }
-      const input = document.createElement("input");
-      input.type = "file";
-      input.accept = "image/png,image/jpeg,image/webp";
-      input.onchange = async () => {
-        const file = input.files && input.files[0];
-        if (!file) return;
-        if (!ctx.uploadImage) { ctx.toast("演示模式暂不支持上传（需连接后端）"); return; }
-        try {
-          const url = await ctx.uploadImage(`shot-${k}`, file);
-          node.uploads = node.uploads || {};
-          node.uploads[k] = url;
-          ctx.refresh(node);
-          if (ctx.persist) ctx.persist();
-          ctx.toast("设定图已上传");
-        } catch (err) {
-          ctx.toast("上传失败：" + err.message);
-        }
-      };
-      input.click();
-    }));
+    bindSlots(node, el, ctx, {
+      accept: "image/png,image/jpeg,image/webp",
+      copiedMsg: "已复制生图提示词 — 去 Gemini 网页生成后 ⬆ 上传",
+      uploadedMsg: "设定图已上传",
+      // data-copy carries the sequence (prompt is per-shot content)
+      getPrompt: (seq) => {
+        const s = draft.find((x) => String(x.sequence) === seq);
+        if (!s) return "";
+        const nn = String(s.sequence).padStart(2, "0");
+        return `【镜头${nn}·${s.title}】${s.description}（时长约${s.duration_seconds}s）。写实电影感，16:9。请为该镜头生成一张设定图拼版：包含远景（全景/全身）、近景特写、3/4 侧面与背面等多角度视图；同一人物、服装与场景在所有视图中保持一致。`;
+      },
+    });
   },
   next: ["video", "audio"],
 };
