@@ -45,9 +45,13 @@ export default {
             ? `<img class="athumb" src="${esc(up[k])}" alt="">`
             : `<span class="aph">无图</span>`;
           const gen = paid
-            ? `<button class="amini" data-gen="${esc(String(s.sequence))}" title="自动生成（MiniMax image-01 付费 · $0.0035/张 · 每张确认）">💳</button>`
+            ? `<button class="amini" data-gen="${esc(String(s.sequence))}" title="自动生成（MiniMax image-01 付费 · $0.0035/张 · 每张确认；可选拼版/单幅首帧）">💳</button>`
             : "";
-          return `<div class="arow">${thumb}<span class="alb">${esc(String(s.sequence).padStart(2, "0"))} ${esc(s.title)}</span><button class="amini" data-copy="${esc(String(s.sequence))}" title="复制该镜头的生图提示词">📋</button>${gen}<button class="amini" data-up="${esc(k)}" title="上传该镜头的设定图">⬆</button></div>`;
+          // Two prompt flavors per shot: 📋 multi-view reference sheet (character
+          // consistency), 🎬 SINGLE-frame composition — the slot image is what
+          // lock-draft-plan sends as the shot's first frame (ADR-0047), and a
+          // collage first frame would put the grid itself into the video.
+          return `<div class="arow">${thumb}<span class="alb">${esc(String(s.sequence).padStart(2, "0"))} ${esc(s.title)}</span><button class="amini" data-copy="${esc(String(s.sequence))}" title="复制「多角度拼版设定图」提示词（人物一致性参考）">📋</button><button class="amini" data-copyframe="${esc(String(s.sequence))}" title="复制「单幅首帧图」提示词（锁定后用作该镜头图生视频的第一帧）">🎬</button>${gen}<button class="amini" data-up="${esc(k)}" title="上传该镜头的图（单幅首帧图可被锁定为视频首帧）">⬆</button></div>`;
         })
         .join("");
       // Completion counts ONLY the current draft's slots — an upload belonging
@@ -84,19 +88,41 @@ export default {
   bind(node, el, ctx) {
     const draft = ctx.project.draftShots;
     if (!draft || !draft.length) return;
-    const promptOf = (seq) => {
+    // 拼版设定图: multi-view character/scene consistency reference (NOT a first
+    // frame — the grid itself would become the video's opening image).
+    const promptSheet = (seq) => {
       const s = draft.find((x) => String(x.sequence) === seq);
       if (!s) return "";
       const nn = String(s.sequence).padStart(2, "0");
       return `【镜头${nn}·${s.title}】${s.description}（时长约${s.duration_seconds}s）。写实电影感，16:9。请为该镜头生成一张设定图拼版：包含远景（全景/全身）、近景特写、3/4 侧面与背面等多角度视图；同一人物、服装与场景在所有视图中保持一致。`;
     };
+    // 单幅首帧图: ONE full-bleed composition — exactly what the shot's first
+    // frame should look like, usable via lock-draft-plan as image-to-video.
+    const promptFrame = (seq) => {
+      const s = draft.find((x) => String(x.sequence) === seq);
+      if (!s) return "";
+      const nn = String(s.sequence).padStart(2, "0");
+      return `【镜头${nn}·${s.title}】首帧单幅画面：${s.description}。写实电影感，16:9 横幅，单一完整构图（不要拼版、不要分格、不要文字标注或边框），人物、服装与场景与该镜头设定图保持一致；这张图将直接作为该镜头图生视频的第一帧。`;
+    };
     bindSlots(node, el, ctx, {
       accept: "image/png,image/jpeg,image/webp",
-      copiedMsg: "已复制生图提示词 — 去 Gemini 网页生成后 ⬆ 上传",
-      uploadedMsg: "设定图已上传",
+      copiedMsg: "已复制「拼版设定图」提示词 — 去 Gemini 网页生成后 ⬆ 上传",
+      uploadedMsg: "图已上传（该槽位图片在锁定后会作为此镜头的视频首帧）",
       // data-copy carries the sequence (prompt is per-shot content)
-      getPrompt: promptOf,
+      getPrompt: promptSheet,
     });
+    // 🎬 second prompt flavor (single-frame first frame) — same copy handling
+    el.querySelectorAll("[data-copyframe]").forEach((b) => (b.onclick = async (e) => {
+      e.stopPropagation();
+      const text = promptFrame(b.dataset.copyframe);
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        ctx.toast("已复制「单幅首帧图」提示词 — 生成后 ⬆ 上传，锁定后即为该镜头视频首帧");
+      } catch {
+        ctx.toast("复制失败：请手动选择文本复制");
+      }
+    }));
     // 💳 paid automatic generation (ADR-0045): explicit per-image price
     // confirmation BEFORE any spend; result lands in the same slot.
     const PRICE = 0.0035;
@@ -104,11 +130,19 @@ export default {
       e.stopPropagation();
       const s = draft.find((x) => String(x.sequence) === b.dataset.gen);
       if (!s || !s.slot || node._genBusy) return;
-      if (!window.confirm(`将调用 MiniMax image-01 真实生成 1 张设定图，费用 $${PRICE}（约 0.5 日元）。确认扣费？`)) return;
+      // choose the prompt flavor BEFORE the price consent: the slot image is
+      // what lock-draft-plan sends as this shot's first frame, so the single-
+      // frame composition is usually what image-to-video wants
+      const wantFrame = window.confirm(
+        "生成哪种图？\n确定 = 单幅首帧图（锁定后作为该镜头视频首帧）\n取消 = 多角度拼版设定图（人物一致性参考）",
+      );
+      const kind = wantFrame ? "单幅首帧图" : "拼版设定图";
+      if (!window.confirm(`将调用 MiniMax image-01 真实生成 1 张「${kind}」，费用 $${PRICE}（约 0.5 日元）。确认扣费？`)) return;
       node._genBusy = true;
       ctx.toast("MiniMax 生成中…（约 5-20 秒）");
       try {
-        const res = await ctx.paidImage(`${node.type}-${s.slot}`, promptOf(b.dataset.gen), PRICE);
+        const prompt = wantFrame ? promptFrame(b.dataset.gen) : promptSheet(b.dataset.gen);
+        const res = await ctx.paidImage(`${node.type}-${s.slot}`, prompt, PRICE);
         node.uploads = node.uploads || {};
         node.uploads[s.slot] = res.url;
         ctx.toast(`设定图已生成（$${res.usd} 已扣，见 data/paid-image-log.jsonl）`);
