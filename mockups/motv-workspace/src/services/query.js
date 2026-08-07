@@ -106,6 +106,32 @@ export async function ttsGenerate(project, slug, text) {
   return j.url;
 }
 
+/** Local FFmpeg draft compose (ADR-0044): stitch uploaded shot videos
+ *  (+ optional voice/music) into a real MP4. Returns {url, version, shots}. */
+export async function composeFinal(project, spec) {
+  const r = await fetch("/api/agent/compose", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ project, ...spec }),
+  });
+  const j = await r.json().catch(() => null);
+  if (!r.ok) throw new Error((j && j.error && j.error.detail) || `compose ${r.status}`);
+  return j;
+}
+
+/** Paid image generation (ADR-0045, MiniMax image-01). confirmUsd echoes the
+ *  catalog price the user just confirmed — server 409s on any mismatch. */
+export async function paidImageGenerate(project, slug, prompt, confirmUsd) {
+  const r = await fetch("/api/agent/image-gen", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ project, slug, prompt, confirm_usd: confirmUsd }),
+  });
+  const j = await r.json().catch(() => null);
+  if (!r.ok) throw new Error((j && j.error && j.error.detail) || `image ${r.status}`);
+  return j;
+}
+
 /** The demo creative fixture (used for canvas authoring content in both modes). */
 export function fixtureProject() {
   return SHENGTANG;

@@ -37,13 +37,17 @@ export default {
       // other versions simply never match and are ignored in count and render.
       const key = (s) => s.slot || "";
       // Agent-generated content is UNTRUSTED — always escaped before innerHTML.
+      const paid = !!(ctx.isPaid && ctx.isPaid());
       const items = draft
         .map((s) => {
           const k = key(s);
           const thumb = k && up[k]
             ? `<img class="athumb" src="${esc(up[k])}" alt="">`
             : `<span class="aph">无图</span>`;
-          return `<div class="arow">${thumb}<span class="alb">${esc(String(s.sequence).padStart(2, "0"))} ${esc(s.title)}</span><button class="amini" data-copy="${esc(String(s.sequence))}" title="复制该镜头的生图提示词">📋</button><button class="amini" data-up="${esc(k)}" title="上传该镜头的设定图">⬆</button></div>`;
+          const gen = paid
+            ? `<button class="amini" data-gen="${esc(String(s.sequence))}" title="自动生成（MiniMax image-01 付费 · $0.0035/张 · 每张确认）">💳</button>`
+            : "";
+          return `<div class="arow">${thumb}<span class="alb">${esc(String(s.sequence).padStart(2, "0"))} ${esc(s.title)}</span><button class="amini" data-copy="${esc(String(s.sequence))}" title="复制该镜头的生图提示词">📋</button>${gen}<button class="amini" data-up="${esc(k)}" title="上传该镜头的设定图">⬆</button></div>`;
         })
         .join("");
       // Completion counts ONLY the current draft's slots — an upload belonging
@@ -80,18 +84,42 @@ export default {
   bind(node, el, ctx) {
     const draft = ctx.project.draftShots;
     if (!draft || !draft.length) return;
+    const promptOf = (seq) => {
+      const s = draft.find((x) => String(x.sequence) === seq);
+      if (!s) return "";
+      const nn = String(s.sequence).padStart(2, "0");
+      return `【镜头${nn}·${s.title}】${s.description}（时长约${s.duration_seconds}s）。写实电影感，16:9。请为该镜头生成一张设定图拼版：包含远景（全景/全身）、近景特写、3/4 侧面与背面等多角度视图；同一人物、服装与场景在所有视图中保持一致。`;
+    };
     bindSlots(node, el, ctx, {
       accept: "image/png,image/jpeg,image/webp",
       copiedMsg: "已复制生图提示词 — 去 Gemini 网页生成后 ⬆ 上传",
       uploadedMsg: "设定图已上传",
       // data-copy carries the sequence (prompt is per-shot content)
-      getPrompt: (seq) => {
-        const s = draft.find((x) => String(x.sequence) === seq);
-        if (!s) return "";
-        const nn = String(s.sequence).padStart(2, "0");
-        return `【镜头${nn}·${s.title}】${s.description}（时长约${s.duration_seconds}s）。写实电影感，16:9。请为该镜头生成一张设定图拼版：包含远景（全景/全身）、近景特写、3/4 侧面与背面等多角度视图；同一人物、服装与场景在所有视图中保持一致。`;
-      },
+      getPrompt: promptOf,
     });
+    // 💳 paid automatic generation (ADR-0045): explicit per-image price
+    // confirmation BEFORE any spend; result lands in the same slot.
+    const PRICE = 0.0035;
+    el.querySelectorAll("[data-gen]").forEach((b) => (b.onclick = async (e) => {
+      e.stopPropagation();
+      const s = draft.find((x) => String(x.sequence) === b.dataset.gen);
+      if (!s || !s.slot || node._genBusy) return;
+      if (!window.confirm(`将调用 MiniMax image-01 真实生成 1 张设定图，费用 $${PRICE}（约 0.5 日元）。确认扣费？`)) return;
+      node._genBusy = true;
+      ctx.toast("MiniMax 生成中…（约 5-20 秒）");
+      try {
+        const res = await ctx.paidImage(`${node.type}-${s.slot}`, promptOf(b.dataset.gen), PRICE);
+        node.uploads = node.uploads || {};
+        node.uploads[s.slot] = res.url;
+        ctx.toast(`设定图已生成（$${res.usd} 已扣，见 data/paid-image-log.jsonl）`);
+      } catch (err) {
+        ctx.toast("付费生成失败（未扣费或已在日志留痕）：" + err.message);
+      } finally {
+        node._genBusy = false;
+        ctx.refresh(node);
+        if (ctx.persist) ctx.persist();
+      }
+    }));
   },
   next: ["video", "audio"],
 };

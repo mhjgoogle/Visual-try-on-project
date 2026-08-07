@@ -84,6 +84,16 @@ _UPLOAD_MAX = {
 }
 _UPLOAD_FILE_RE = re.compile(r"[A-Za-z0-9_-]{1,64}\.(?:png|jpg|webp|mp4|webm|mp3|wav)")
 
+# Slug prefix reserved for compose OUTPUT (ADR-0044). No user-facing write path
+# (manual upload / TTS / paid image) may claim it — otherwise an upload could
+# silently replace a composed deliverable, and the same-slug other-extension
+# cleanup in TTS/image-gen could even delete one.
+_RESERVED_SLUG_PREFIX = "final-cut"
+
+
+def _slug_reserved(slug: str) -> bool:
+    return slug.startswith(_RESERVED_SLUG_PREFIX)
+
 
 def _media_magic_ok(ext: str, body: bytes) -> bool:
     """Fail-closed content sniff: bytes must actually be the declared format."""
@@ -177,6 +187,14 @@ _CLAUDE_OUTPUT_CAP = 200_000  # hard ceiling on bytes ever accepted from the CLI
 # an install hint and the manual upload route is unaffected.
 _TTS_MODEL = DATA_DIR / "tts" / "zh_CN-huayan-medium.onnx"
 _TTS_TEXT_MAX = 2_000
+
+# Paid image generation (ADR-0045): MiniMax image-01, narrow authorization.
+# Catalog list price; the client must echo it back (confirm_usd) so a stale UI
+# can never silently spend at a different price. Spend is logged locally.
+_IMAGE_PRICE_USD = 0.0035
+_IMAGE_API = "https://api.minimax.io/v1/image_generation"
+_IMAGE_PROMPT_MAX = 1_500
+_IMAGE_LOG = DATA_DIR / "paid-image-log.jsonl"
 
 
 def _run_claude(prompt: str, timeout: int = 180) -> str:
@@ -443,6 +461,10 @@ class _App:
             return self._agent_shots_draft(body)
         if path == "/api/agent/tts":
             return self._agent_tts(body)
+        if path == "/api/agent/compose":
+            return self._agent_compose(body)
+        if path == "/api/agent/image-gen":
+            return self._agent_image(body)
         if not path.startswith("/api/projects/"):
             return _json(
                 404,
@@ -754,7 +776,7 @@ class _App:
                 400, {"error": {"category": "bad_request", "detail": "invalid name"}}
             )
         d = self._upload_dir(project)
-        if d is None or not _NAME_RE.fullmatch(slug):
+        if d is None or not _NAME_RE.fullmatch(slug) or _slug_reserved(slug):
             return _json(
                 400, {"error": {"category": "bad_request", "detail": "invalid name"}}
             )
@@ -1004,6 +1026,612 @@ class _App:
             )
         return _json(200, {"ok": True})
 
+    # -- local FFmpeg draft compose (ADR-0044) ------------------------------
+    def _resolve_slot(self, d, slug: str, exts: tuple[str, ...]):
+        """Resolve an upload slug to an existing regular file among exts."""
+        if not isinstance(slug, str) or not _NAME_RE.fullmatch(slug):
+            return None
+        for ext in exts:
+            p = d / f"{slug}{ext}"
+            if p.is_file() and not p.is_symlink():
+                rp = p.resolve()
+                if d in rp.parents and rp.is_file():
+                    return rp
+        return None
+
+    def _agent_compose(self, body: bytes):
+        """Compose the draft's uploaded shot videos (+ optional voice/music)
+        into a real MP4 with LOCAL ffmpeg (ADR-0044; free, prototype scratch).
+
+        Per shot: normalize to 720p/25fps/AAC with the voice track mapped in
+        (video duration governs); concat; optionally mix music underneath.
+        Output ``final-cut-v<N>.mp4`` — versioned, never overwrites (§13).
+        Fail-closed: missing ffmpeg → 503; missing/invalid slot files → 400;
+        a failed step → 5xx naming the shot. Never a fabricated success.
+        """
+        if len(body) > 100_000:
+            return _json(
+                413,
+                {"error": {"category": "too_large", "detail": "request too large"}},
+            )
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid JSON"}}
+            )
+        if not isinstance(payload, dict):
+            return _json(
+                400,
+                {"error": {"category": "bad_request", "detail": "body must be object"}},
+            )
+        project = payload.get("project")
+        shots = payload.get("shots")
+        music_slug = payload.get("music")
+        if not isinstance(project, str):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid name"}}
+            )
+        d = self._upload_dir(project)
+        if d is None:
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid name"}}
+            )
+        if not isinstance(shots, list) or not (1 <= len(shots) <= 20):
+            return _json(
+                400,
+                {"error": {"category": "bad_request", "detail": "1-20 shots required"}},
+            )
+        import shutil as _shutil
+
+        ffmpeg = _shutil.which("ffmpeg")
+        ffprobe = _shutil.which("ffprobe")
+        if ffmpeg is None or ffprobe is None:
+            return _json(
+                503,
+                {
+                    "error": {
+                        "category": "compose_unavailable",
+                        "detail": "ffmpeg/ffprobe 缺失：请安装（或放入 .venv/bin）",
+                    }
+                },
+            )
+        # resolve every input BEFORE any work (fail-closed on the first hole)
+        resolved = []
+        for i, item in enumerate(shots, start=1):
+            if not isinstance(item, dict):
+                return _json(
+                    400,
+                    {"error": {"category": "bad_request", "detail": f"shot {i} bad"}},
+                )
+            video = self._resolve_slot(d, item.get("video"), (".mp4", ".webm"))
+            if video is None:
+                return _json(
+                    400,
+                    {
+                        "error": {
+                            "category": "bad_request",
+                            "detail": f"shot {i}: video missing/not uploaded",
+                        }
+                    },
+                )
+            voice = None
+            if item.get("voice"):
+                # Fail-closed: an EXPLICITLY requested voice slot that no longer
+                # resolves is an error — never silently deliver a mute shot.
+                voice = self._resolve_slot(d, item.get("voice"), (".wav", ".mp3"))
+                if voice is None:
+                    return _json(
+                        400,
+                        {
+                            "error": {
+                                "category": "bad_request",
+                                "detail": f"shot {i}: voice slot missing/not uploaded",
+                            }
+                        },
+                    )
+            resolved.append((video, voice))
+        music = None
+        if music_slug:
+            # Fail-closed: an EXPLICITLY requested music slot that no longer
+            # resolves is an error — never silently deliver a musicless cut.
+            music = self._resolve_slot(d, music_slug, (".mp3", ".wav"))
+            if music is None:
+                return _json(
+                    400,
+                    {
+                        "error": {
+                            "category": "bad_request",
+                            "detail": "music slot missing/not uploaded",
+                        }
+                    },
+                )
+        # workdir creation is inside the fail-closed envelope too: an
+        # unwritable/missing uploads dir or ENOSPC must yield JSON 5xx,
+        # never an uncaught exception.
+        try:
+            work = Path(tempfile.mkdtemp(prefix="compose-", dir=str(d)))
+        except OSError:
+            return _json(
+                500,
+                {"error": {"category": "write_failed", "detail": "workdir failed"}},
+            )
+        try:
+            parts = []
+            for i, (video, voice) in enumerate(resolved, start=1):
+                out = work / f"part{i:02d}.mp4"
+                norm = (
+                    "scale=1280:720:force_original_aspect_ratio=decrease,"
+                    "pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=25"
+                )
+                if voice is not None:
+                    # The VIDEO's probed duration governs the shot exactly:
+                    # apad pads a shorter voice with silence and ``-t`` caps the
+                    # output at the video length (deterministic — apad+-shortest
+                    # alone is unreliable and can run long). A longer voice is
+                    # likewise cut at the video's end.
+                    probe = subprocess.run(  # noqa: S603 - fixed argv, no shell
+                        [
+                            ffprobe,
+                            "-v",
+                            "error",
+                            "-show_entries",
+                            "format=duration",
+                            "-of",
+                            "default=nw=1:nk=1",
+                            str(video),
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
+                    )
+                    try:
+                        vdur = float(probe.stdout.strip())
+                    except ValueError:
+                        vdur = 0.0
+                    if probe.returncode != 0 or not (0 < vdur <= 600):
+                        return _json(
+                            502,
+                            {
+                                "error": {
+                                    "category": "compose_failed",
+                                    "detail": f"shot {i}: probe failed",
+                                }
+                            },
+                        )
+                    cmd = [
+                        ffmpeg,
+                        "-y",
+                        "-nostdin",
+                        "-i",
+                        str(video),
+                        "-i",
+                        str(voice),
+                        "-map",
+                        "0:v:0",
+                        "-map",
+                        "1:a:0",
+                        "-af",
+                        "apad",
+                        "-t",
+                        f"{vdur:.3f}",
+                    ]
+                else:  # silent track keeps concat streams uniform
+                    cmd = [
+                        ffmpeg,
+                        "-y",
+                        "-nostdin",
+                        "-i",
+                        str(video),
+                        "-f",
+                        "lavfi",
+                        "-i",
+                        "anullsrc=r=44100:cl=stereo",
+                        "-map",
+                        "0:v:0",
+                        "-map",
+                        "1:a:0",
+                        "-shortest",
+                    ]
+                # Audio params are normalized IDENTICALLY in both branches
+                # (-ac 2 -ar 44100): a mono TTS voice next to a stereo silent
+                # track would otherwise produce mismatched parts that break
+                # the stream-copy concat.
+                cmd += [
+                    "-vf",
+                    norm,
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "veryfast",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-c:a",
+                    "aac",
+                    "-ac",
+                    "2",
+                    "-ar",
+                    "44100",
+                    str(out),
+                ]
+                proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=300,
+                )
+                if proc.returncode != 0 or not out.is_file():
+                    return _json(
+                        502,
+                        {
+                            "error": {
+                                "category": "compose_failed",
+                                "detail": f"shot {i}: ffmpeg normalize failed",
+                            }
+                        },
+                    )
+                parts.append(out)
+            listfile = work / "concat.txt"
+            listfile.write_text("".join(f"file '{p.name}'\n" for p in parts), "utf-8")
+            joined = work / "joined.mp4"
+            proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
+                [
+                    ffmpeg,
+                    "-y",
+                    "-nostdin",
+                    "-f",
+                    "concat",
+                    "-safe",
+                    "0",
+                    "-i",
+                    str(listfile),
+                    "-c",
+                    "copy",
+                    str(joined),
+                ],
+                cwd=str(work),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=300,
+            )
+            if proc.returncode != 0 or not joined.is_file():
+                return _json(
+                    502,
+                    {
+                        "error": {
+                            "category": "compose_failed",
+                            "detail": "concat failed",
+                        }
+                    },
+                )
+            final_src = joined
+            if music is not None:
+                mixed = work / "mixed.mp4"
+                proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
+                    [
+                        ffmpeg,
+                        "-y",
+                        "-nostdin",
+                        "-i",
+                        str(joined),
+                        "-stream_loop",
+                        "-1",
+                        "-i",
+                        str(music),
+                        "-filter_complex",
+                        "[1:a]volume=0.22[m];[0:a][m]amix=inputs=2:duration=first[a]",
+                        "-map",
+                        "0:v:0",
+                        "-map",
+                        "[a]",
+                        "-c:v",
+                        "copy",
+                        "-c:a",
+                        "aac",
+                        "-ar",
+                        "44100",
+                        str(mixed),
+                    ],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=300,
+                )
+                if proc.returncode != 0 or not mixed.is_file():
+                    return _json(
+                        502,
+                        {
+                            "error": {
+                                "category": "compose_failed",
+                                "detail": "music mix failed",
+                            }
+                        },
+                    )
+                final_src = mixed
+            # Versioned final name — never overwrite an earlier cut (§13).
+            # The version number is claimed ATOMICALLY via O_CREAT|O_EXCL so two
+            # concurrent composes can never pick the same N (check-then-replace
+            # would race); once claimed, the placeholder is ours to replace.
+            n = 1
+            while True:
+                target = d / f"final-cut-v{n}.mp4"
+                try:
+                    os.close(os.open(str(target), os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+                    break
+                except FileExistsError:
+                    n += 1
+            try:
+                os.replace(final_src, target)
+            except OSError:
+                try:
+                    os.unlink(target)  # release the claimed slot on failure
+                except OSError:
+                    pass
+                raise
+        except subprocess.TimeoutExpired:
+            return _json(
+                504,
+                {
+                    "error": {
+                        "category": "compose_timeout",
+                        "detail": "ffmpeg timed out",
+                    }
+                },
+            )
+        except OSError:
+            return _json(
+                502,
+                {"error": {"category": "compose_failed", "detail": "compose failed"}},
+            )
+        finally:
+            _shutil.rmtree(work, ignore_errors=True)
+        return _json(
+            200,
+            {
+                "ok": True,
+                "url": f"/api/uploads/{project}/final-cut-v{n}.mp4",
+                "version": n,
+                "shots": len(resolved),
+                "music": music is not None,
+            },
+        )
+
+    # -- paid image generation (ADR-0045, MiniMax image-01) -----------------
+    def _agent_image(self, body: bytes):
+        """Generate ONE draft asset image via MiniMax image-01 (PAID).
+
+        Narrowly authorized by ADR-0045: same deployment gate as paid video
+        (``--enable-paid`` + env flag), same credential, catalog price echoed
+        back by the client (``confirm_usd``) so a stale UI can never spend at
+        an unexpected price. Output lands in the manual-upload slot; each spend
+        appends one line to ``data/paid-image-log.jsonl``. Fail-closed.
+        """
+        if len(body) > 100_000:
+            return _json(
+                413,
+                {"error": {"category": "too_large", "detail": "request too large"}},
+            )
+        if (
+            not self.paid
+            or os.environ.get("AI_VIDEO_WORKFLOW_ENABLE_PAID_COMMANDS") != "1"
+        ):
+            return _json(
+                403,
+                {
+                    "error": {
+                        "category": "forbidden",
+                        "detail": "paid image generation not enabled (--enable-paid)",
+                    }
+                },
+            )
+        api_key = os.environ.get("WFM1_MINIMAX_API_KEY", "")
+        if not api_key:
+            return _json(
+                503,
+                {
+                    "error": {
+                        "category": "image_unavailable",
+                        "detail": "WFM1_MINIMAX_API_KEY missing",
+                    }
+                },
+            )
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid JSON"}}
+            )
+        if not isinstance(payload, dict):
+            return _json(
+                400,
+                {"error": {"category": "bad_request", "detail": "body must be object"}},
+            )
+        project = payload.get("project")
+        slug = payload.get("slug")
+        prompt = payload.get("prompt")
+        confirm = payload.get("confirm_usd")
+        if not isinstance(project, str) or not isinstance(slug, str):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid name"}}
+            )
+        d = self._upload_dir(project)
+        if d is None or not _NAME_RE.fullmatch(slug) or _slug_reserved(slug):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid name"}}
+            )
+        if not isinstance(prompt, str) or not prompt.strip():
+            return _json(
+                400,
+                {"error": {"category": "bad_request", "detail": "missing 'prompt'"}},
+            )
+        if len(prompt) > _IMAGE_PROMPT_MAX:
+            return _json(
+                400,
+                {
+                    "error": {
+                        "category": "too_large",
+                        "detail": "prompt too long (1500)",
+                    }
+                },
+            )
+        # price echo — the human confirmation surface must match the catalog
+        if (
+            not isinstance(confirm, (int, float))
+            or isinstance(confirm, bool)
+            or abs(float(confirm) - _IMAGE_PRICE_USD) > 1e-9
+        ):
+            return _json(
+                409,
+                {
+                    "error": {
+                        "category": "price_mismatch",
+                        "detail": f"confirm_usd must equal {_IMAGE_PRICE_USD}",
+                    }
+                },
+            )
+        import base64
+        import binascii
+        import urllib.error
+        import urllib.request
+
+        # base64 response: the image arrives INSIDE the API reply, so this
+        # backend never fetches a provider-supplied URL — no SSRF surface.
+        req = urllib.request.Request(  # noqa: S310 - fixed https endpoint
+            _IMAGE_API,
+            data=json.dumps(
+                {
+                    "model": "image-01",
+                    "prompt": prompt,
+                    "aspect_ratio": "16:9",
+                    "n": 1,
+                    "response_format": "base64",
+                }
+            ).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:  # noqa: S310
+                raw = resp.read(16_000_000)  # ~12MB binary as base64
+            j = json.loads(raw.decode("utf-8", "replace"))
+        except urllib.error.HTTPError as exc:
+            return _json(
+                502,
+                {
+                    "error": {
+                        "category": "image_failed",
+                        "detail": f"provider HTTP {exc.code}",
+                    }
+                },
+            )
+        except (urllib.error.URLError, TimeoutError, ValueError):
+            return _json(
+                502,
+                {
+                    "error": {
+                        "category": "image_failed",
+                        "detail": "provider request failed",
+                    }
+                },
+            )
+        b64list = (
+            (j.get("data") or {}).get("image_base64") if isinstance(j, dict) else None
+        )
+        if (
+            not isinstance(b64list, list)
+            or not b64list
+            or not isinstance(b64list[0], str)
+        ):
+            detail = ""
+            if isinstance(j, dict) and isinstance(j.get("base_resp"), dict):
+                detail = str(j["base_resp"].get("status_msg") or "")[:120]
+            return _json(
+                502,
+                {
+                    "error": {
+                        "category": "image_bad_output",
+                        "detail": detail or "no image_base64 in provider response",
+                    }
+                },
+            )
+        try:
+            img = base64.b64decode(b64list[0], validate=True)
+        except (binascii.Error, ValueError):
+            return _json(
+                502,
+                {
+                    "error": {
+                        "category": "image_bad_output",
+                        "detail": "invalid base64 image payload",
+                    }
+                },
+            )
+        if len(img) > 8_000_000:
+            return _json(
+                502,
+                {"error": {"category": "too_large", "detail": "image exceeds 8MB"}},
+            )
+        ext = next(
+            (e for e in (".png", ".jpg", ".webp") if _media_magic_ok(e, img)), None
+        )
+        if ext is None:
+            return _json(
+                502,
+                {
+                    "error": {
+                        "category": "image_bad_output",
+                        "detail": "downloaded bytes are not an image",
+                    }
+                },
+            )
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            for other in set(_UPLOAD_TYPES.values()) - {ext}:
+                stale = d / f"{slug}{other}"
+                if stale.is_file() and not stale.is_symlink():
+                    stale.unlink()
+            fd, tmpname = tempfile.mkstemp(dir=str(d), suffix=".tmp")
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(img)
+            os.replace(tmpname, d / f"{slug}{ext}")
+        except OSError:
+            return _json(
+                500, {"error": {"category": "write_failed", "detail": "could not save"}}
+            )
+        # Local spend transparency (prototype-level, not the core ledger).
+        # SEPARATE from the image write: the spend already happened and the
+        # image is saved — a log failure must NOT 500 (a retry would double
+        # the charge); it degrades to a warning in the response instead.
+        log_warning = None
+        try:
+            with _IMAGE_LOG.open("a", encoding="utf-8") as fh:
+                fh.write(
+                    json.dumps(
+                        {
+                            "at": datetime.now(timezone.utc).isoformat(),
+                            "project": project,
+                            "slug": slug,
+                            "usd": _IMAGE_PRICE_USD,
+                            "prompt": prompt[:120],
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
+        except OSError:
+            log_warning = "spend-log append failed (image saved, charge occurred)"
+        result = {
+            "ok": True,
+            "url": f"/api/uploads/{project}/{slug}{ext}",
+            "usd": _IMAGE_PRICE_USD,
+            "source": "minimax image-01",
+        }
+        if log_warning:
+            result["warning"] = log_warning
+        return _json(200, result)
+
     # -- manual image uploads (prototype-local scratch, data/uploads/) ------
     def _upload_dir(self, project: str):
         if not _NAME_RE.fullmatch(project):
@@ -1022,7 +1650,7 @@ class _App:
         Fail-closed: type allow-list + magic-byte sniff + size cap + containment.
         """
         d = self._upload_dir(project)
-        if d is None or not _NAME_RE.fullmatch(slug):
+        if d is None or not _NAME_RE.fullmatch(slug) or _slug_reserved(slug):
             return _json(
                 400, {"error": {"category": "bad_request", "detail": "invalid name"}}
             )

@@ -199,6 +199,28 @@ const ctx = {
     if (!CONNECTED) return Promise.reject(new Error("演示模式无后端"));
     return query.ttsGenerate(PROJECT_NAME, slug, text);
   },
+  // paid image generation (ADR-0045): PAID mode only, price already confirmed
+  // by the caller's per-image dialog and echoed for the server-side check
+  paidImage: (slug, prompt, confirmUsd) => {
+    if (!PAID) return Promise.reject(new Error("付费模式未开启（--enable-paid）"));
+    return query.paidImageGenerate(PROJECT_NAME, slug, prompt, confirmUsd);
+  },
+  // real local FFmpeg draft compose (ADR-0044)
+  composeFinal: (spec) => {
+    if (!CONNECTED) return Promise.reject(new Error("演示模式无后端"));
+    return query.composeFinal(PROJECT_NAME, spec);
+  },
+  // The video/audio upload maps for the edit node's readiness view — merged
+  // across ALL nodes of the type: slot ids are unique per draft version, so
+  // whichever node holds a slot's upload IS that shot's upload (duplicated or
+  // branched nodes can never make compose pick an unrelated file).
+  collectMedia: () => {
+    const merge = (type) =>
+      engine.nodes
+        .filter((n) => n.type === type)
+        .reduce((acc, n) => Object.assign(acc, n.uploads || {}), {});
+    return { video: merge("video"), audio: merge("audio") };
+  },
   persist: () => {
     if (canvasActive && PROJECT_NAME) persist.saveCanvas(PROJECT_NAME, serializeGraph());
   },
@@ -313,7 +335,7 @@ function serializeGraph() {
     nodes: engine.nodes.map((n) => ({
       id: n.id, type: n.type, x: n.x, y: n.y, state: n.state,
       text: n.text, versions: n.versions, cur: n.cur, pickSingle: n.pickSingle,
-      uploads: n.uploads,
+      uploads: n.uploads, finals: n.finals,
     })),
     edges: engine.edges.map((e) => ({ from: e.from, to: e.to, state: e.state })),
     pan: { x: engine.panX, y: engine.panY },
@@ -327,7 +349,7 @@ function restoreGraph(data) {
   for (const sn of data.nodes) {
     if (!registry.get(sn.type)) continue;
     const nd = registry.createNodeData(sn.type, sn.x || 0, sn.y || 0);
-    ["state", "text", "versions", "cur", "pickSingle", "uploads"].forEach((k) => { if (sn[k] !== undefined) nd[k] = sn[k]; });
+    ["state", "text", "versions", "cur", "pickSingle", "uploads", "finals"].forEach((k) => { if (sn[k] !== undefined) nd[k] = sn[k]; });
     // Connected mode: a scriptgen node's shot list must come from a REAL agent
     // draft (ADR-0042, draft:true), never a resurrected demo/fixture snapshot —
     // otherwise a canvas persisted in demo mode shows shots that don't match the

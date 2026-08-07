@@ -164,6 +164,7 @@ button { font-family: inherit; cursor: pointer; }
 .arow .amini { background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 6px; color: var(--text); font-size: 11px; padding: 4px 7px; cursor: pointer; flex: none; } .arow .amini:hover { border-color: var(--accent); color: var(--accent); }
 .aaud { width: 250px; height: 28px; margin: -2px 0 6px; display: block; }
 video.athumb { background: #000; }
+.afinal { width: 280px; border-radius: 9px; margin-top: 8px; display: block; background: #000; }
 
 /* toast */
 .toast { position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%) translateY(16px); background: var(--text); color: var(--bg); padding: 11px 17px; border-radius: 10px; font-size: 13px; font-weight: 600; opacity: 0; pointer-events: none; transition: .2s; z-index: 90; box-shadow: var(--shadow); } .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }

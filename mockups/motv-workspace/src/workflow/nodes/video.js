@@ -36,8 +36,18 @@ export default {
       // data-run keeps its pre-existing behavior (PAID → per-shot-only refusal
       // toast; connected non-paid → placeholder-advance), and PAID adds the
       // per-shot real Gateway picker.
+      // Paid picker is built from the DRAFT itself (every shot, not a fixed
+      // 01-06 list); a shot whose slot already holds a clip is marked ✓已有 —
+      // clicking it explains the anti-double-pay guard instead of hitting it.
+      const pick = node.pickSingle
+        ? `<div class="shotpick">${draft.map((s) => {
+            const nn = String(s.sequence).padStart(2, "0");
+            const has = s.slot && up[s.slot];
+            return `<button data-shot="${esc(nn)}"${has ? ' data-has="1"' : ""}>镜头 ${esc(nn)}${has ? " ✓已有" : ""}</button>`;
+          }).join("")}</div>`
+        : "";
       const paidBtns = ctx.isPaid && ctx.isPaid()
-        ? `<div class="vbtns"><button class="nrun ghost" data-run>批量生成（自动）</button><button class="nrun ghost" data-single>单镜头（MiniMax 付费）▾</button></div>${node.pickSingle ? `<div class="shotpick">${SINGLE_SHOTS.slice(0, draft.length).map((s) => `<button data-shot="${s}">镜头 ${s}</button>`).join("")}</div>` : ""}`
+        ? `<div class="vbtns"><button class="nrun ghost" data-run>批量生成（自动）</button><button class="nrun ghost" data-single>单镜头（MiniMax 付费）▾</button></div>${pick}`
         : `<div class="vbtns"><button class="nrun ghost" data-run>批量生成（自动 · 占位）</button></div><div style="font-size:10.5px;color:var(--text-faint);margin-top:4px">真实自动：MiniMax 付费（约 $0.28/6s）· 需 --enable-paid</div>`;
       const complete = done >= draft.length || node.state === "done";
       const foot = complete
@@ -95,6 +105,10 @@ export default {
     el.querySelectorAll("[data-shot]").forEach((b) => (b.onclick = (e) => {
       e.stopPropagation();
       const shot = b.dataset.shot;
+      if (b.dataset.has) {
+        ctx.toast(`镜头 ${shot} 已有成片（防重复扣费护栏会拒绝再次付费；要重做需先建 redo 任务）`);
+        return;
+      }
       ctx.estimate({
         cmd: `generate_video · 单镜头 ${shot}`,
         kind: "视频",
