@@ -4,6 +4,13 @@ import { nx } from "./shared.js";
 import { esc } from "../../util/dom.js";
 
 function labels(ctx) {
+  // When a Claude shot DRAFT is active, the placeholder grid must show the
+  // draft's shots — not the demo fixture's characters/scenes (which would
+  // contradict the script). Demo mode (no draft) keeps the fixture labels.
+  const draft = ctx.project.draftShots;
+  if (draft && draft.length) {
+    return draft.slice(0, 6).map((s) => `${String(s.sequence).padStart(2, "0")} ${s.title}`);
+  }
   const chars = ctx.project.characters.slice(0, 5).map((c) => c[0]);
   return [...chars, ctx.project.scenes[0][0]];
 }
@@ -36,7 +43,7 @@ export default {
       .map((a) => {
         const bg = node.state === "done" ? "linear-gradient(135deg,#3a2a5e,#12183a)" : "var(--elev)";
         const col = node.state === "done" ? "#fff" : "var(--text-dim)";
-        return `<div class="a" style="background:${bg}"><span class="lb" style="color:${col}">${a}</span></div>`;
+        return `<div class="a" style="background:${bg}"><span class="lb" style="color:${col}">${esc(a)}</span></div>`;
       })
       .join("");
     const grid = `<div class="assetgrid">${cells}</div>`;
