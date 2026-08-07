@@ -52,8 +52,31 @@ DATA_DIR = MOCKUP_DIR / "data"
 # Static files this server will serve (same-origin). Everything else — data/,
 # server.py, README, plans — is refused.
 _STATIC_PREFIXES = ("src/", "styles/", "fixtures/")
-_MAX_BODY_BYTES = 2_000_000
+# Transport ceiling (largest allowed write = an image upload); each route then
+# enforces its own tighter bound so raising this never loosens JSON routes.
+_MAX_BODY_BYTES = 8_000_000
+_CANVAS_BODY_MAX = 2_000_000  # canvas JSON keeps its original tighter bound
+_GATEWAY_BODY_MAX = 2_000_000  # gateway/agent JSON envelopes stay small
+_UPLOAD_BODY_MAX = 8_000_000
 _NAME_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+# Manual image uploads (ADR pending for the CORE manual image provider; this is
+# the PROTOTYPE-LOCAL scratch path only — user-generated reference images from
+# e.g. the Gemini web app, stored under data/uploads/, never core files).
+_UPLOAD_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
+_UPLOAD_FILE_RE = re.compile(r"[A-Za-z0-9_-]{1,64}\.(?:png|jpg|webp)")
+
+
+def _image_magic_ok(ext: str, body: bytes) -> bool:
+    """Fail-closed content sniff: bytes must actually be the declared format."""
+    if ext == ".png":
+        return body.startswith(b"\x89PNG\r\n\x1a\n")
+    if ext == ".jpg":
+        return body.startswith(b"\xff\xd8\xff")
+    if ext == ".webp":
+        return body[:4] == b"RIFF" and body[8:12] == b"WEBP"
+    return False
+
 
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", ""}
 _LOOPBACK_ORIGIN_HOSTS = {"127.0.0.1", "localhost", "::1"}
@@ -107,6 +130,9 @@ _CTYPE = {
     ".css": "text/css; charset=utf-8",
     ".json": "application/json; charset=utf-8",
     ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".webp": "image/webp",
 }
 
 
@@ -333,6 +359,10 @@ class _App:
             return self._query(unquote(name), sub)
         if path.startswith("/api/canvas/"):
             return self._canvas_get(unquote(path[len("/api/canvas/") :]))
+        if path.startswith("/api/uploads/"):
+            rest = unquote(path[len("/api/uploads/") :])
+            project, _, fname = rest.partition("/")
+            return self._upload_get(project, fname)
         rel = path.lstrip("/")
         if any(rel.startswith(p) for p in _STATIC_PREFIXES):
             return self._static(rel)
@@ -340,18 +370,34 @@ class _App:
             404, {"error": {"category": "not_found", "detail": "unknown route"}}
         )
 
-    # -- PUT (mockup-local canvas save) ------------------------------------
-    def handle_put(self, raw_path: str, body: bytes):
+    # -- PUT (mockup-local canvas save / manual image upload) ---------------
+    def handle_put(self, raw_path: str, body: bytes, ctype: str = ""):
         path = urlsplit(raw_path).path
-        if not path.startswith("/api/canvas/"):
-            return _json(
-                404,
-                {"error": {"category": "not_found", "detail": "unknown write route"}},
-            )
-        return self._canvas_put(unquote(path[len("/api/canvas/") :]), body)
+        if path.startswith("/api/canvas/"):
+            return self._canvas_put(unquote(path[len("/api/canvas/") :]), body)
+        if path.startswith("/api/uploads/"):
+            rest = unquote(path[len("/api/uploads/") :])
+            project, _, slug = rest.partition("/")
+            return self._upload_put(project, slug, ctype, body)
+        return _json(
+            404,
+            {"error": {"category": "not_found", "detail": "unknown write route"}},
+        )
 
     # -- POST (Gateway write path, ADR-0041; only in paid mode) ------------
     def handle_post(self, raw_path: str, body: bytes):
+        # POST routes carry small JSON envelopes only — keep the original 2 MB
+        # bound here even though the transport now allows 8 MB image uploads.
+        if len(body) > _GATEWAY_BODY_MAX:
+            return _json(
+                413,
+                {
+                    "error": {
+                        "category": "too_large",
+                        "detail": "request body too large",
+                    }
+                },
+            )
         path = urlsplit(raw_path).path
         if path == "/api/agent/shots-draft":
             return self._agent_shots_draft(body)
@@ -759,6 +805,18 @@ class _App:
             return _json(
                 400, {"error": {"category": "bad_request", "detail": "invalid name"}}
             )
+        # Canvas JSON keeps its original 2 MB bound (transport now allows 8 MB
+        # for image uploads only).
+        if len(body) > _CANVAS_BODY_MAX:
+            return _json(
+                413,
+                {
+                    "error": {
+                        "category": "too_large",
+                        "detail": "request body too large",
+                    }
+                },
+            )
         try:
             payload = json.loads(body.decode("utf-8"))
         except (ValueError, UnicodeDecodeError):
@@ -792,6 +850,109 @@ class _App:
                 500, {"error": {"category": "write_failed", "detail": "could not save"}}
             )
         return _json(200, {"ok": True})
+
+    # -- manual image uploads (prototype-local scratch, data/uploads/) ------
+    def _upload_dir(self, project: str):
+        if not _NAME_RE.fullmatch(project):
+            return None
+        d = (DATA_DIR / "uploads" / project).resolve()
+        base = DATA_DIR.resolve()
+        if base not in d.parents:
+            return None
+        return d
+
+    def _upload_put(self, project: str, slug: str, ctype: str, body: bytes):
+        """Store a user-uploaded reference image (manual provider, prototype).
+
+        Re-uploading the same slug intentionally REPLACES the previous image —
+        the slot is user scratch and the user drives the re-upload explicitly.
+        Fail-closed: type allow-list + magic-byte sniff + size cap + containment.
+        """
+        d = self._upload_dir(project)
+        if d is None or not _NAME_RE.fullmatch(slug):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid name"}}
+            )
+        ext = _UPLOAD_TYPES.get(ctype.partition(";")[0].strip().lower())
+        if ext is None:
+            return _json(
+                415,
+                {
+                    "error": {
+                        "category": "unsupported_type",
+                        "detail": "Content-Type must be png, jpeg or webp",
+                    }
+                },
+            )
+        if len(body) > _UPLOAD_BODY_MAX:
+            return _json(
+                413,
+                {
+                    "error": {
+                        "category": "too_large",
+                        "detail": "image too large (8MB max)",
+                    }
+                },
+            )
+        if not body or not _image_magic_ok(ext, body):
+            return _json(
+                400,
+                {
+                    "error": {
+                        "category": "bad_request",
+                        "detail": "bytes are not a valid image of the declared type",
+                    }
+                },
+            )
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            target = d / f"{slug}{ext}"
+            # Drop the same slug's other-extension variants so the slot has one
+            # authoritative image (a re-upload may switch png<->jpg).
+            for other in set(_UPLOAD_TYPES.values()) - {ext}:
+                stale = d / f"{slug}{other}"
+                if stale.is_file() and not stale.is_symlink():
+                    stale.unlink()
+            fd, tmpname = tempfile.mkstemp(dir=str(d), suffix=".tmp")
+            try:
+                with os.fdopen(fd, "wb") as fh:
+                    fh.write(body)
+                os.replace(tmpname, target)  # atomic, mockup-local only
+            except OSError:
+                try:
+                    os.unlink(tmpname)
+                except OSError:
+                    pass
+                raise
+        except OSError:
+            return _json(
+                500, {"error": {"category": "write_failed", "detail": "could not save"}}
+            )
+        return _json(200, {"ok": True, "url": f"/api/uploads/{project}/{slug}{ext}"})
+
+    def _upload_get(self, project: str, fname: str):
+        d = self._upload_dir(project)
+        if d is None or not _UPLOAD_FILE_RE.fullmatch(fname):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid name"}}
+            )
+        p = d / fname
+        # Same symlink-safety class as the shots reader: never follow a link out.
+        if p.is_symlink():
+            return _json(
+                404, {"error": {"category": "not_found", "detail": "not found"}}
+            )
+        rp = p.resolve()
+        if d not in rp.parents or not rp.is_file():
+            return _json(
+                404, {"error": {"category": "not_found", "detail": "not found"}}
+            )
+        try:
+            return _Resp(200, rp.read_bytes(), _CTYPE[rp.suffix])
+        except OSError:
+            return _json(
+                500, {"error": {"category": "read_failed", "detail": "could not read"}}
+            )
 
     # -- static ----------------------------------------------------------
     def _static(self, rel: str):
@@ -928,7 +1089,11 @@ class _Handler(BaseHTTPRequestHandler):
             )
             return
         body = self.rfile.read(length) if length else b""
-        self._write(self._app.handle_put(self.path, body))
+        self._write(
+            self._app.handle_put(
+                self.path, body, self.headers.get("Content-Type") or ""
+            )
+        )
 
     def _reject(self):
         self.close_connection = True

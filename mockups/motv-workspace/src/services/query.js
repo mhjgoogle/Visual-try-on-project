@@ -81,6 +81,18 @@ export async function generateShotsDraft(script) {
   return j.shots || [];
 }
 
+/** Manual image provider (prototype scratch): upload a user-generated reference
+ *  image (e.g. from the Gemini web app) for an asset slot. Returns its URL. */
+export async function uploadAssetImage(project, slug, file) {
+  const r = await fetch(
+    `/api/uploads/${encodeURIComponent(project)}/${encodeURIComponent(slug)}`,
+    { method: "PUT", headers: { "Content-Type": file.type }, body: file },
+  );
+  const j = await r.json().catch(() => null);
+  if (!r.ok) throw new Error((j && j.error && j.error.detail) || `upload ${r.status}`);
+  return j.url;
+}
+
 /** The demo creative fixture (used for canvas authoring content in both modes). */
 export function fixtureProject() {
   return SHENGTANG;

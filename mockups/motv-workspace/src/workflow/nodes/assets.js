@@ -22,22 +22,38 @@ export default {
   title: "资产准备",
   icon: "🧑‍🎨",
   init() {
-    return { state: "" };
+    return { state: "", uploads: {} };
   },
   render(node, ctx) {
     // Downstream auto-fill (ADR-0042): when an upstream Claude shot DRAFT
-    // exists, derive the asset checklist preview from it instead of fixtures.
+    // exists, derive the asset checklist from it instead of fixtures — each
+    // shot slot supports the MANUAL image provider: 📋 copies a generation
+    // prompt (paste into e.g. Gemini web, free), ⬆ uploads the result image.
     const draft = ctx.project.draftShots;
-    if (draft && draft.length && node.state !== "done") {
+    if (draft && draft.length) {
+      const up = node.uploads || {};
+      // Uploads are keyed by each shot's stable SLOT id (assigned per version;
+      // surviving shots keep theirs across manual edits) — stale entries from
+      // other versions simply never match and are ignored in count and render.
+      const key = (s) => s.slot || "";
       // Agent-generated content is UNTRUSTED — always escaped before innerHTML.
       const items = draft
-        .slice(0, 6)
-        .map(
-          (s) =>
-            `<div class="audrow">🎬 ${esc(String(s.sequence).padStart(2, "0"))} ${esc(s.title)}</div>`,
-        )
+        .map((s) => {
+          const k = key(s);
+          const thumb = k && up[k]
+            ? `<img class="athumb" src="${esc(up[k])}" alt="">`
+            : `<span class="aph">无图</span>`;
+          return `<div class="arow">${thumb}<span class="alb">${esc(String(s.sequence).padStart(2, "0"))} ${esc(s.title)}</span><button class="amini" data-copy="${esc(String(s.sequence))}" title="复制该镜头的生图提示词">📋</button><button class="amini" data-up="${esc(k)}" title="上传该镜头的设定图">⬆</button></div>`;
+        })
         .join("");
-      return `<div>${items}<div style="font-size:11px;color:var(--gate);margin:9px 2px 0">⚠ 从分镜草稿派生（${draft.length} 镜头）· 资产设定图待生成</div><button class="nrun" data-run>一键生成所有资产 →</button></div>`;
+      // Completion counts ONLY the current draft's slots — an upload belonging
+      // to another version can never make this draft look ready.
+      const done = draft.filter((s) => key(s) && up[key(s)]).length;
+      const complete = done >= draft.length;
+      const foot = complete
+        ? `<div style="font-size:11px;color:var(--ok);margin:6px 2px 0">✓ 手工图 ${done}/${draft.length} · 未锁定</div>${nx([["video", "视频生成"], ["audio", "音频生成", 150]])}`
+        : `<div style="font-size:11px;color:var(--gate);margin:6px 2px 0">手工流程：📋 复制提示词 → 网页生图（免费）→ ⬆ 上传（${done}/${draft.length}）</div><button class="nrun" data-run>一键生成所有资产 →</button>`;
+      return `<div>${items}${foot}</div>`;
     }
     const cells = labels(ctx)
       .map((a) => {
@@ -60,6 +76,49 @@ export default {
   },
   run(node, ctx) {
     ctx.wizard.open(node); // wizard's confirm -> estimate -> marks node done
+  },
+  bind(node, el, ctx) {
+    const draft = ctx.project.draftShots;
+    if (!draft || !draft.length) return;
+    // 📋 copy a generation prompt for the shot (template, instant, free)
+    el.querySelectorAll("[data-copy]").forEach((b) => (b.onclick = async (e) => {
+      e.stopPropagation();
+      const s = draft.find((x) => String(x.sequence) === b.dataset.copy);
+      if (!s) return;
+      const nn = String(s.sequence).padStart(2, "0");
+      const prompt = `【镜头${nn}·${s.title}】${s.description}（时长约${s.duration_seconds}s）。写实电影感，16:9。请为该镜头生成一张设定图拼版：包含远景（全景/全身）、近景特写、3/4 侧面与背面等多角度视图；同一人物、服装与场景在所有视图中保持一致。`;
+      try {
+        await navigator.clipboard.writeText(prompt);
+        ctx.toast(`已复制镜头 ${nn} 的生图提示词 — 去 Gemini 网页生成后 ⬆ 上传`);
+      } catch {
+        ctx.toast("复制失败：请手动从 inspector 复制");
+      }
+    }));
+    // ⬆ upload the user-generated image into the shot's SLOT (manual provider)
+    el.querySelectorAll("[data-up]").forEach((b) => (b.onclick = (e) => {
+      e.stopPropagation();
+      const k = b.dataset.up; // slot id, e.g. "v3-2"
+      if (!k) { ctx.toast("该镜头缺少槽位标识：请重新生成或编辑分镜"); return; }
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = "image/png,image/jpeg,image/webp";
+      input.onchange = async () => {
+        const file = input.files && input.files[0];
+        if (!file) return;
+        if (!ctx.uploadImage) { ctx.toast("演示模式暂不支持上传（需连接后端）"); return; }
+        try {
+          const url = await ctx.uploadImage(`shot-${k}`, file);
+          node.uploads = node.uploads || {};
+          node.uploads[k] = url;
+          ctx.refresh(node);
+          if (ctx.persist) ctx.persist();
+          ctx.toast("设定图已上传");
+        } catch (err) {
+          ctx.toast("上传失败：" + err.message);
+        }
+      };
+      input.click();
+    }));
   },
   next: ["video", "audio"],
 };

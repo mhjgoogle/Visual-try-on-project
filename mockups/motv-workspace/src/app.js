@@ -20,6 +20,7 @@ import * as realmap from "./services/realmap.js";
 import { createInspector } from "./ui/inspector.js";
 import { createEstimate } from "./ui/estimate.js";
 import { createWizard } from "./ui/wizard.js";
+import { createShotEditor } from "./ui/shoteditor.js";
 import { createViews } from "./ui/landing.js";
 import { renderStepbar } from "./ui/stepbar.js";
 
@@ -187,8 +188,17 @@ const ctx = {
     return (s && s.text) || ctx.project.script || "";
   },
   agentShotsDraft: (script) => query.generateShotsDraft(script),
+  // manual providers (prototype scratch): image upload + explicit persistence
+  uploadImage: (slug, file) => {
+    if (!CONNECTED) return Promise.reject(new Error("演示模式无后端，无法上传"));
+    return query.uploadAssetImage(PROJECT_NAME, slug, file);
+  },
+  persist: () => {
+    if (canvasActive && PROJECT_NAME) persist.saveCanvas(PROJECT_NAME, serializeGraph());
+  },
 };
 ctx.wizard = createWizard({ estimate: { open: (o) => ctx.estimate(o) }, getProject: () => ctx.project, refresh: (n) => engine.refreshBody(n) });
+ctx.shotEditor = createShotEditor({ toast });
 
 // --- engine wired to the workflow via registry/contract ---
 const engine = new GraphEngine({
@@ -297,6 +307,7 @@ function serializeGraph() {
     nodes: engine.nodes.map((n) => ({
       id: n.id, type: n.type, x: n.x, y: n.y, state: n.state,
       text: n.text, versions: n.versions, cur: n.cur, pickSingle: n.pickSingle,
+      uploads: n.uploads,
     })),
     edges: engine.edges.map((e) => ({ from: e.from, to: e.to, state: e.state })),
     pan: { x: engine.panX, y: engine.panY },
@@ -310,7 +321,7 @@ function restoreGraph(data) {
   for (const sn of data.nodes) {
     if (!registry.get(sn.type)) continue;
     const nd = registry.createNodeData(sn.type, sn.x || 0, sn.y || 0);
-    ["state", "text", "versions", "cur", "pickSingle"].forEach((k) => { if (sn[k] !== undefined) nd[k] = sn[k]; });
+    ["state", "text", "versions", "cur", "pickSingle", "uploads"].forEach((k) => { if (sn[k] !== undefined) nd[k] = sn[k]; });
     // Connected mode: a scriptgen node's shot list must come from a REAL agent
     // draft (ADR-0042, draft:true), never a resurrected demo/fixture snapshot —
     // otherwise a canvas persisted in demo mode shows shots that don't match the
@@ -320,6 +331,11 @@ function restoreGraph(data) {
       nd.versions = nd.versions.filter((x) => x && x.draft);
       if (!nd.versions.length) { nd.state = ""; nd.cur = 0; }
       else if (!nd.versions.some((x) => x.v === nd.cur)) { nd.cur = nd.versions[nd.versions.length - 1].v; }
+      // Back-compat: drafts persisted before slot ids got one per shot so
+      // uploads can attach (an upload never matches across versions).
+      nd.versions.forEach((ver) => {
+        if (ver.raw) ver.raw.forEach((s, i) => { if (!s.slot) s.slot = `v${ver.v}-${i + 1}`; });
+      });
       // Rehydrate downstream prefill from the restored current draft, else the
       // Assets node falls back to fixtures after reload (auto-prefill breaks).
       const curDraft = nd.versions.find((x) => x.v === nd.cur);

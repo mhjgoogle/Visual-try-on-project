@@ -38,14 +38,15 @@ export default {
       const curV = node.versions.find((x) => x.v === node.cur);
       const shots = curV ? curV.shots : sd.v1;
       const isDraft = !!(curV && curV.draft);
+      const badgeText = curV && curV.edited ? "手工编辑 · 未锁定" : "草稿 · Claude 生成 · 未锁定";
       const badge = isDraft
-        ? '<span style="font-size:10px;color:var(--gate);border:1px solid color-mix(in srgb,var(--gate) 40%,var(--line));border-radius:5px;padding:1px 6px;margin-left:6px">草稿 · Claude 生成 · 未锁定</span>'
+        ? `<span style="font-size:10px;color:var(--gate);border:1px solid color-mix(in srgb,var(--gate) 40%,var(--line));border-radius:5px;padding:1px 6px;margin-left:6px">${badgeText}</span>`
         : "";
       const vbar = `<div class="vbar"><span class="vchip">v${node.cur} ▾</span>${node.versions.length >= 2 ? '<span class="vcmp">⇄ 对比</span>' : ""}${badge}${node.vmenu ? vmenuHtml(node) : ""}</div>`;
       // Draft rows may carry agent-generated text — escape every row uniformly.
       const rows = shots.map((s) => `<div class="shotrow"><span class="n mono">${esc(s[0])}</span><span class="nm">${esc(s[1])}</span></div>`).join("");
       const total = isDraft ? shots.length : sd.total;
-      return `<div class="genbox">${vbar}${rows}<div style="font-size:11px;color:var(--text-faint);margin:2px 2px 0">…共 ${total} 个镜头</div><button class="nrun ghost" data-run>重新生成（新版本）</button>${nx([["assets", "准备资产"]])}</div>`;
+      return `<div class="genbox">${vbar}${rows}<div style="font-size:11px;color:var(--text-faint);margin:2px 2px 0">…共 ${total} 个镜头</div><div class="vbtns"><button class="nrun ghost" data-run>重新生成（新版本）</button><button class="nrun ghost" data-edit>✎ 编辑分镜</button></div>${nx([["assets", "准备资产"]])}</div>`;
     }
     return `<div class="genbox"><div class="skel"><i></i><i></i><i></i><i></i><i></i><i></i></div><button class="nrun" data-run>基于剧本生成分镜</button></div>`;
   },
@@ -74,6 +75,9 @@ export default {
             `${s.title} — ${s.description}（${s.duration_seconds}s）`,
           ]);
           const v = node.versions.length + 1;
+          // Stable per-shot SLOT ids: uploads attach to a shot's slot, so an
+          // image can never leak onto a different shot after edits/regeneration.
+          shots.forEach((s, i) => { s.slot = `v${v}-${i + 1}`; });
           // Keep the raw draft on the version so switching versions can restore
           // the matching draftShots (downstream prefill must follow selection).
           node.versions.push({ v, shots: rows, draft: true, raw: shots });
@@ -82,6 +86,7 @@ export default {
           ctx.project.draftShots = shots; // downstream nodes prefill from this
           ctx.refresh(node);
           ctx.markIncoming(node.id, "done");
+          if (ctx.persist) ctx.persist(); // survive an immediate reload
           ctx.toast(`Claude 分镜草稿完成 · ${shots.length} 个镜头（未锁定）`);
         })
         .catch((e) => {
@@ -150,6 +155,41 @@ export default {
       }));
     const vcmp = el.querySelector(".vcmp");
     if (vcmp) vcmp.onclick = (e) => { e.stopPropagation(); ctx.inspector.openCompare(node); };
+    // Manual edit (人工 Gate): edit the CURRENT version's shots and save as a
+    // NEW immutable draft version — history is never overwritten (§1.2).
+    const ed = el.querySelector("[data-edit]");
+    if (ed && ctx.shotEditor)
+      ed.onclick = (e) => {
+        e.stopPropagation();
+        const curV = node.versions.find((x) => x.v === node.cur);
+        if (!curV) return;
+        // Draft versions carry structured raw shots; fixture versions only have
+        // display rows — derive an editable structure from them.
+        const initial = curV.raw
+          ? curV.raw
+          : curV.shots.map((r, i) => ({ sequence: i + 1, title: r[1], description: "", duration_seconds: 6 }));
+        ctx.shotEditor.open(initial, {
+          subtitle: `基于 v${node.cur} → 保存为 v${node.versions.length + 1}（手工编辑）`,
+          // surviving shots keep their slot (their uploaded image follows them);
+          // newly added shots get fresh slots under the new version's prefix.
+          slotPrefix: `v${node.versions.length + 1}`,
+          onSave: (edited) => {
+            const rows = edited.map((s) => [
+              String(s.sequence).padStart(2, "0"),
+              `${s.title} — ${s.description}（${s.duration_seconds}s）`,
+            ]);
+            const v = node.versions.length + 1;
+            node.versions.push({ v, shots: rows, draft: true, edited: true, raw: edited });
+            node.cur = v;
+            node.state = "done";
+            ctx.project.draftShots = edited;
+            ctx.refresh(node);
+            if (ctx.refreshType) ctx.refreshType("assets");
+            if (ctx.persist) ctx.persist();
+            ctx.toast(`已保存手工编辑为 v${v} · ${edited.length} 个镜头（未锁定）`);
+          },
+        });
+      };
   },
   next: ["assets"],
 };

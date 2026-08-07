@@ -56,6 +56,14 @@ python mockups/motv-workspace/server.py --account-root examples/projects
 仍严格按已锁定 packet 执行（草稿改不了已锁定参数）。CLI 缺失/输出不合法时 fail-closed
 报错。
 
+**手工插入/修改（人工 Gate + 手工图片流）**：分镜节点「✎ 编辑分镜」打开编辑器，可改
+标题/描述/时长（6/10s）、增删镜头，保存为**新版本**（历史不覆盖，标「手工编辑 · 未锁
+定」），下游同步。资产节点每个镜头槽位：📋 复制生图提示词（模板即时生成）→ 用户在
+外部工具（如 Gemini 网页，免费）生成 → ⬆ 上传结果图（`PUT /api/uploads/<项目>/<槽位>`，
+仅 png/jpg/webp、magic 校验、8MB 上限、存 `data/uploads/` 原型 scratch；同槽位重传即
+替换）。这是**原型本地**的手工图片流；核心工作流的正式"手工图片 Provider"须另走
+ADR-0038。
+
 **付费写路径模式（ADR-0041 / TASK-041，真实生成，须显式授权）**
 ```bash
 source .venv/bin/activate
