@@ -188,6 +188,39 @@ video.athumb { background: #000; }
 .lb-scrim .lb-x { position: absolute; top: 14px; right: 18px; font-size: 16px; }
 #lb-c img, #lb-c video { max-width: 92vw; max-height: 88vh; border-radius: 10px; display: block; background: #000; }
 
+/* first-frame input chip on video rows (TASK-048 第1步) */
+.arow .ffchip { display: inline-flex; align-items: center; gap: 3px; flex: none; font-size: 10px; color: var(--ok); border: 1px solid color-mix(in srgb, var(--ok) 40%, var(--line)); border-radius: 6px; padding: 2px 5px; background: color-mix(in srgb, var(--ok) 10%, transparent); }
+.arow .ffchip img { width: 22px; height: 15px; object-fit: cover; border-radius: 3px; }
+
+/* slot version badge + version picker (TASK-048 第3步) */
+.arow .vbadge { background: none; border: 1px solid var(--line-2); border-radius: 6px; color: var(--text-faint); font-size: 10px; padding: 2px 5px; flex: none; font-variant-numeric: tabular-nums; }
+.arow .vbadge:hover { color: var(--accent); border-color: var(--accent); }
+.vpick { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.vpick img, .vpick video { max-width: 88vw; max-height: 70vh; border-radius: 10px; background: #000; }
+.vstrip { display: flex; gap: 10px; max-width: 88vw; overflow-x: auto; padding: 4px; }
+.vstrip .vitem { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px; border: 1px solid var(--line-2); border-radius: 9px; background: var(--panel); cursor: pointer; flex: none; }
+.vstrip .vitem.on { border-color: var(--accent); }
+.vstrip .vthumb { width: 96px; height: 60px; object-fit: cover; border-radius: 6px; background: #000; }
+.vstrip .vaud { width: 96px; height: 60px; display: grid; place-items: center; font-size: 22px; background: var(--panel-2); border-radius: 6px; }
+.vstrip .vtag { font-size: 10.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.vstrip .vuse { background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 6px; color: var(--text-dim); font-size: 10.5px; padding: 3px 8px; }
+.vstrip .vuse:hover { color: var(--accent); border-color: var(--accent); }
+
+/* global paid queue bar (TASK-048 第2步: read-only status projection) */
+.paidqueue { position: fixed; top: 60px; left: 50%; transform: translateX(-50%); max-width: min(1100px, 96vw); display: flex; align-items: center; gap: 7px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 999px; padding: 5px 12px; z-index: 26; overflow-x: auto; box-shadow: var(--shadow); white-space: nowrap; }
+.paidqueue[hidden] { display: none; }
+.paidqueue .qhead { font-size: 11px; font-weight: 700; color: var(--text-dim); flex: none; }
+.paidqueue .qseg { font-size: 11px; color: var(--text-dim); flex: none; } .paidqueue .qseg b { font-variant-numeric: tabular-nums; }
+.paidqueue .qsep { width: 1px; align-self: stretch; background: var(--line); flex: none; }
+.paidqueue .qitem { background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; color: var(--text-dim); font-size: 11px; padding: 3px 9px; flex: none; }
+.paidqueue .qitem i { font-style: normal; color: var(--text-faint); }
+.paidqueue .qitem:hover { border-color: var(--accent); color: var(--accent); }
+.paidqueue .q-ok, .paidqueue .qitem.q-ok i { color: var(--ok); }
+.paidqueue .q-held, .paidqueue .qitem.q-held i { color: var(--gate); }
+.paidqueue .q-warn, .paidqueue .qitem.q-warn i { color: var(--gate); }
+.paidqueue .q-rel, .paidqueue .qitem.q-rel i { color: var(--text-faint); }
+.paidqueue .qbatch { font-weight: 700; }
+
 /* toast */
 .toast { position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%) translateY(16px); background: var(--text); color: var(--bg); padding: 11px 17px; border-radius: 10px; font-size: 13px; font-weight: 600; opacity: 0; pointer-events: none; transition: .2s; z-index: 90; box-shadow: var(--shadow); } .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 

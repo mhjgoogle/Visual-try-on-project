@@ -67,7 +67,9 @@ export async function paidOps(project) {
   return j.ops || [];
 }
 
-/** Adopt a paid staging clip into a canvas upload slot (copy; no spend). */
+/** Adopt a paid staging clip into a canvas upload slot (copy; no spend).
+ *  An occupied slot gains a NEW version (TASK-048 — never overwritten).
+ *  Returns {url, version, sha256}. */
 export async function adoptPaid(project, taskId, slug) {
   const r = await fetch("/api/agent/adopt-paid", {
     method: "POST",
@@ -76,7 +78,7 @@ export async function adoptPaid(project, taskId, slug) {
   });
   const j = await r.json().catch(() => null);
   if (!r.ok) throw new Error(j && j.error ? j.error.detail : `adopt ${r.status}`);
-  return j.url;
+  return j;
 }
 
 /** Demo stub (non-paid modes): logs and resolves, changes nothing. */

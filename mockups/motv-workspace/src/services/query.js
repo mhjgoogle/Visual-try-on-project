@@ -81,8 +81,9 @@ export async function generateShotsDraft(script) {
   return j.shots || [];
 }
 
-/** Manual image provider (prototype scratch): upload a user-generated reference
- *  image (e.g. from the Gemini web app) for an asset slot. Returns its URL. */
+/** Manual image provider (prototype scratch): upload a user-generated media
+ *  file for a slot. Same slot re-uploads APPEND a new version (TASK-048/
+ *  ADR-0048), never replace. Returns {url, version, sha256}. */
 export async function uploadAssetImage(project, slug, file) {
   const r = await fetch(
     `/api/uploads/${encodeURIComponent(project)}/${encodeURIComponent(slug)}`,
@@ -90,7 +91,7 @@ export async function uploadAssetImage(project, slug, file) {
   );
   const j = await r.json().catch(() => null);
   if (!r.ok) throw new Error((j && j.error && j.error.detail) || `upload ${r.status}`);
-  return j.url;
+  return j;
 }
 
 /** Local Piper TTS (ADR-0043): synthesize a draft voice-over into an upload
@@ -108,7 +109,7 @@ export async function ttsGenerate(project, slug, text, fitSlug) {
   });
   const j = await r.json().catch(() => null);
   if (!r.ok) throw new Error((j && j.error && j.error.detail) || `tts ${r.status}`);
-  return j.url;
+  return j;
 }
 
 /** Local FFmpeg draft compose (ADR-0044): stitch uploaded shot videos

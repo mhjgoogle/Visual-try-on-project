@@ -23,6 +23,8 @@ import { createWizard } from "./ui/wizard.js";
 import { createShotEditor } from "./ui/shoteditor.js";
 import { createViews } from "./ui/landing.js";
 import { renderStepbar } from "./ui/stepbar.js";
+import { renderQueueBar, hasInflight } from "./ui/paidqueue.js";
+import * as mediaref from "./workflow/mediaref.js";
 
 // --- register node types (the extension list) ---
 import script from "./workflow/nodes/script.js";
@@ -108,6 +110,9 @@ async function paidGenerate(shotId) {
     est.openReal(pf, {
       onConfirm: async (digest) => {
         toast("已确认，真实生成中（约 1–2 分钟，请勿关闭页面）…");
+        // pick up the freshly-held reservation soon so the queue bar starts
+        // showing ⏳ without waiting for the submit to return
+        setTimeout(() => ctx.loadPaidOps(), 2_000);
         try {
           const receipt = await gw.submit(PROJECT_NAME, envelope, digest);
           const oc = receipt.outcome || {};
@@ -153,16 +158,22 @@ async function lockDraftPlan(node) {
   if (node._lockBusy) return;
   node._lockBusy = true;
   try {
-    // per-shot first frame = the assets node's uploaded/generated image for
-    // the shot's slot, inlined as a data URL (>5.5MB fails closed with a
-    // compress-and-reupload hint; a shot without an image locks text-only)
+    // Per-shot first frame resolved by MediaRef (TASK-048 第1步): the video
+    // node's explicit first-frame input (「🎬→ 用作视频首帧」) wins; a shot
+    // without one falls back to the assets slot's CURRENT version, as before.
+    // Behavior otherwise unchanged: inlined as a data URL, >5.5MB fails closed
+    // with a compress-and-reupload hint; a shot with no image locks text-only.
     const assetUploads = engine.nodes
       .filter((n) => n.type === "assets")
       .reduce((acc, n) => Object.assign(acc, n.uploads || {}), {});
+    const videoFrames = engine.nodes
+      .filter((n) => n.type === "video")
+      .reduce((acc, n) => Object.assign(acc, n.firstFrames || {}), {});
     const shots = [];
     for (const s of draft) {
       let frame = null;
-      const url = s.slot && assetUploads[s.slot];
+      const fref = s.slot && videoFrames[s.slot];
+      const url = (fref && fref.url) || (s.slot && mediaref.slotUrl(assetUploads, s.slot));
       if (url) {
         try {
           frame = await query.fetchAsDataUrl(url, FRAME_MAX_BYTES);
@@ -312,7 +323,8 @@ const ctx = {
   // The video/audio upload maps for the edit node's readiness view — merged
   // across ALL nodes of the type: slot ids are unique per draft version, so
   // whichever node holds a slot's upload IS that shot's upload (duplicated or
-  // branched nodes can never make compose pick an unrelated file).
+  // branched nodes can never make compose pick an unrelated file). Values are
+  // versioned slot entries — consumers read them via mediaref.slotUrl/slotStem.
   collectMedia: () => {
     const merge = (type) =>
       engine.nodes
@@ -320,15 +332,45 @@ const ctx = {
         .reduce((acc, n) => Object.assign(acc, n.uploads || {}), {});
     return { video: merge("video"), audio: merge("audio") };
   },
+  // 「🎬→ 用作视频首帧」(TASK-048 第1步): flow the assets slot's CURRENT
+  // version image into every video node's first-frame input as a MediaRef.
+  useAsFirstFrame: async (assetsNode, slot) => {
+    const ref = mediaref.currentRef(assetsNode.uploads, slot);
+    if (!ref) { toast("该镜头还没有图，先生成/上传一张"); return; }
+    let digest = ref.digest;
+    if (!digest) {
+      // legacy entries carry no digest — compute it now so the MediaRef binds
+      // the exact bytes (same sha256 family as the lock-draft first frame)
+      try { digest = await mediaref.sha256OfUrl(ref.url); } catch { digest = null; }
+    }
+    const frameRef = { ...ref, slot_id: slot, digest };
+    let vids = engine.nodes.filter((n) => n.type === "video");
+    if (!vids.length) {
+      addNext(assetsNode, "video", -50); // no video node yet — expand one
+      vids = engine.nodes.filter((n) => n.type === "video");
+    }
+    vids.forEach((n) => {
+      n.firstFrames = n.firstFrames || {};
+      n.firstFrames[slot] = frameRef;
+    });
+    ctx.refreshType("video");
+    ctx.persist();
+    toast(`已设为该镜头视频首帧（来自资产 v${frameRef.version}）`);
+  },
+  // 版本选择器（TASK-048 第3步）：浏览槽位历史版本 / 回切当前版本
+  openVersions: (node, slot) => openVersionPicker(node, slot),
   persist: () => {
     if (canvasActive && PROJECT_NAME) persist.saveCanvas(PROJECT_NAME, serializeGraph());
   },
-  // paid-op status projection (生成情况) — refreshed after paid actions
+  // paid-op status projection (生成情况) — refreshed after paid actions AND
+  // auto-polled while any op is in flight (TASK-048 第2步; read-only)
   paidOps: {},
+  paidOpsAll: [],
   loadPaidOps: async () => {
     if (!CONNECTED) return;
     try {
       const ops = await gw.paidOps(PROJECT_NAME);
+      ctx.paidOpsAll = ops;
       ctx.paidOps = {};
       ops.forEach((o) => {
         if (!o.shot_id) return;
@@ -340,8 +382,45 @@ const ctx = {
       });
       ctx.refreshType("video");
     } catch { /* status is best-effort */ }
+    updateQueueBar();
+    schedulePaidPolling();
   },
 };
+
+// --- paid-op auto polling + global queue bar (TASK-048 第2步, read-only) ---
+// While a paid generation is running (reservation held) or the batch loop is
+// busy, refresh the projection every POLL_MS; otherwise the timer stops — no
+// idle polling. Everything here consumes existing read-only endpoints only.
+const PAID_POLL_MS = 12_000;
+let paidPollTimer = null;
+function batchBusyNode() {
+  return engine.nodes.find((n) => n._batchBusy);
+}
+function schedulePaidPolling() {
+  const busy = hasInflight(ctx.paidOpsAll) || !!batchBusyNode();
+  if (busy && paidPollTimer === null) {
+    paidPollTimer = setInterval(() => ctx.loadPaidOps(), PAID_POLL_MS);
+  } else if (!busy && paidPollTimer !== null) {
+    clearInterval(paidPollTimer);
+    paidPollTimer = null;
+  }
+}
+function updateQueueBar() {
+  const busy = batchBusyNode();
+  renderQueueBar(
+    $("#paidqueue"),
+    { ops: PAID ? ctx.paidOpsAll : [], batchMsg: busy ? busy._batchMsg : "" },
+    {
+      onJump: () => {
+        // the ops belong to the video stage — open its node detail
+        const vn = engine.nodes.find((n) => n.type === "video");
+        if (!vn) { toast("画布上还没有视频节点"); return; }
+        engine.panTo(vn.id);
+        openDetail(vn);
+      },
+    },
+  );
+}
 ctx.wizard = createWizard({ estimate: { open: (o) => ctx.estimate(o) }, getProject: () => ctx.project, refresh: (n) => engine.refreshBody(n) });
 ctx.shotEditor = createShotEditor({ toast });
 
@@ -356,10 +435,12 @@ async function adoptPaidIntoSlot(shotId, taskId) {
   );
   if (!s || !s.slot) return false;
   try {
-    const url = await gw.adoptPaid(PROJECT_NAME, taskId, `video-${s.slot}`);
+    // an occupied slot gains a NEW version (origin=adopted) — never overwrites
+    // an earlier take (TASK-048 第3步; the anti-double-pay guard stays on the
+    // submit side, unchanged)
+    const res = await gw.adoptPaid(PROJECT_NAME, taskId, `video-${s.slot}`);
     engine.nodes.filter((n) => n.type === "video").forEach((n) => {
-      n.uploads = n.uploads || {};
-      n.uploads[s.slot] = url;
+      mediaref.addVersion(n, s.slot, mediaref.refFromResponse(s.slot, "adopted", res));
       engine.refreshBody(n);
     });
     ctx.persist();
@@ -374,7 +455,7 @@ async function adoptPaidIntoSlot(shotId, taskId) {
 async function batchPaidGenerate(node) {
   const draft = ctx.project.draftShots || [];
   const media = ctx.collectMedia();
-  const pending = draft.filter((s) => s.slot && !media.video[s.slot]);
+  const pending = draft.filter((s) => s.slot && !mediaref.slotUrl(media.video, s.slot));
   if (!pending.length) { toast("所有镜头都已有视频，无需批量生成"); return; }
   const UNIT_USD = 0.28;
   const total = (pending.length * UNIT_USD).toFixed(2);
@@ -389,6 +470,8 @@ async function batchPaidGenerate(node) {
   for (const s of pending) {
     node._batchMsg = `批量付费 ${done + 1}/${pending.length} · 镜头 ${String(s.sequence).padStart(2, "0")} 生成中…`;
     ctx.refresh(node);
+    updateQueueBar(); // N/M progress in the global bar (data source: _batchMsg)
+    schedulePaidPolling(); // keep the ⏳ projection live during each 1–2min submit
     try {
       const shotId = ctx.lockedShotId(s.sequence);
       const tgt = await gw.getGenerationTarget(PROJECT_NAME, shotId);
@@ -466,16 +549,65 @@ function openDetail(node) {
 $("#dt-x").onclick = () => { dtNode = null; dtScrim.classList.remove("show"); };
 
 // --- media lightbox: click any slot thumbnail (canvas OR detail window) to
-// view the image full-size / play the video with controls ---
+// view the image full-size / play the video with controls. Versioned slots
+// (data-vslot/data-vnode) additionally get a history strip: browse every
+// version and 回切 the current one (TASK-048 第3步). ---
 const lbScrim = $("#lb-scrim");
+function media(src, kind, cls = "") {
+  if (kind === "video") {
+    return cls
+      ? `<video src="${esc(src)}" class="${cls}" muted preload="metadata"></video>`
+      : `<video src="${esc(src)}" controls autoplay></video>`;
+  }
+  return `<img src="${esc(src)}" ${cls ? `class="${cls}"` : ""} alt="">`;
+}
+function kindOf(url) {
+  return /\.(mp4|webm)$/i.test(url) ? "video" : /\.(mp3|wav)$/i.test(url) ? "audio" : "image";
+}
 function openLightbox(el) {
+  const node = el.dataset && el.dataset.vnode ? engine.findNode(el.dataset.vnode) : null;
+  if (node && el.dataset.vslot) { openVersionPicker(node, el.dataset.vslot); return; }
   const c = $("#lb-c");
   const src = el.currentSrc || el.src;
   if (!src) return;
-  c.innerHTML = el.tagName === "VIDEO"
-    ? `<video src="${esc(src)}" controls autoplay></video>`
-    : `<img src="${esc(src)}" alt="">`;
+  c.innerHTML = media(src, el.tagName === "VIDEO" ? "video" : "image");
   lbScrim.classList.add("show");
+}
+// 版本选择器：主视图显示所选版本，底部缩略图条列出全部历史版本；
+// 「设为当前」回切画布槽位的当前版本（持久化，重载后仍生效）。
+function openVersionPicker(node, slot, showVersion = null) {
+  const e = mediaref.slotEntry(node.uploads, slot);
+  if (!e || !e.history.length) { toast("该槽位还没有媒体"); return; }
+  const shown = e.history.find((r) => r.version === (showVersion ?? e.current)) || e.history[e.history.length - 1];
+  const kind = kindOf(shown.url);
+  const main = kind === "audio"
+    ? `<audio src="${esc(shown.url)}" controls autoplay style="width:min(80vw,560px)"></audio>`
+    : media(shown.url, kind);
+  const strip = e.history
+    .map((r) => {
+      const cur = r.version === e.current;
+      const on = r.version === shown.version;
+      const tag = `v${r.version}${cur ? " ✓当前" : ""}`;
+      const tile = kindOf(r.url) === "audio" ? `<span class="vaud">🎵</span>` : media(r.url, kindOf(r.url), "vthumb");
+      return `<div class="vitem${on ? " on" : ""}" data-show="${r.version}" title="${esc(r.origin || "upload")} · ${esc(r.digest ? r.digest.slice(0, 12) : "无摘要")}">${tile}<span class="vtag">${esc(tag)}</span>${cur ? "" : `<button class="vuse" data-use="${r.version}">设为当前</button>`}</div>`;
+    })
+    .join("");
+  $("#lb-c").innerHTML = `<div class="vpick">${main}<div class="vstrip">${strip}</div></div>`;
+  lbScrim.classList.add("show");
+  $("#lb-c").querySelectorAll("[data-show]").forEach((d) => (d.onclick = (ev) => {
+    if (ev.target.closest("[data-use]")) return;
+    openVersionPicker(node, slot, Number(d.dataset.show));
+  }));
+  $("#lb-c").querySelectorAll("[data-use]").forEach((b) => (b.onclick = (ev) => {
+    ev.stopPropagation();
+    const v = Number(b.dataset.use);
+    if (mediaref.setCurrent(node, slot, v)) {
+      ctx.refresh(node);
+      ctx.persist();
+      toast(`已回切到 v${v}（旧版本全部保留）`);
+      openVersionPicker(node, slot, v);
+    }
+  }));
 }
 function closeLightbox() {
   $("#lb-c").innerHTML = ""; // stops playback
@@ -610,7 +742,7 @@ function serializeGraph() {
     nodes: engine.nodes.map((n) => ({
       id: n.id, type: n.type, x: n.x, y: n.y, state: n.state,
       text: n.text, versions: n.versions, cur: n.cur, pickSingle: n.pickSingle,
-      uploads: n.uploads, finals: n.finals,
+      uploads: n.uploads, finals: n.finals, firstFrames: n.firstFrames,
     })),
     edges: engine.edges.map((e) => ({ from: e.from, to: e.to, state: e.state })),
     pan: { x: engine.panX, y: engine.panY },
@@ -624,7 +756,10 @@ function restoreGraph(data) {
   for (const sn of data.nodes) {
     if (!registry.get(sn.type)) continue;
     const nd = registry.createNodeData(sn.type, sn.x || 0, sn.y || 0);
-    ["state", "text", "versions", "cur", "pickSingle", "uploads", "finals"].forEach((k) => { if (sn[k] !== undefined) nd[k] = sn[k]; });
+    ["state", "text", "versions", "cur", "pickSingle", "uploads", "finals", "firstFrames"].forEach((k) => { if (sn[k] !== undefined) nd[k] = sn[k]; });
+    // TASK-048 第3步 back-compat: legacy canvases persisted uploads as plain
+    // url strings（“重传即替换”时代）— read them in as v1 version chains.
+    if (nd.uploads) mediaref.migrateUploads(nd.uploads);
     // Connected mode: a scriptgen node's shot list must come from a REAL agent
     // draft (ADR-0042, draft:true), never a resurrected demo/fixture snapshot —
     // otherwise a canvas persisted in demo mode shows shots that don't match the

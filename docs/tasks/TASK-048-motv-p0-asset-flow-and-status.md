@@ -1,6 +1,8 @@
 # TASK-048: motv 原型 P0 断层修复——图→视频流转、付费状态自动轮询、上传版本化
 
-- Status: Approved（2026-08-07 拍板，待实施，新会话承接）
+- Status: Done（2026-08-07 实施完成；按拍板顺序 2→1→3 串行交付，
+  ADR-0048 已随任务 Accepted；E2E 见 `tests/test_motv_task048_e2e.py` +
+  `mockups/motv-workspace/tests/frontend-units.test.mjs`）
 - Owner: 单实施 Agent（新会话）
 - 依据: ADR-0010/0030（Workspace 边界与治理）、ADR-0041/0045/0046/0047（原型
   付费与锁定范式）；诊断来源为 2026-08-07 工作流数据流转四维排查

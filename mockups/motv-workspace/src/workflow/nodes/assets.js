@@ -1,6 +1,7 @@
 // 资产准备 — character / scene / prop reference sheets (S4 母资产). Opens the
 // batch wizard; on generate it flips to done and guides to video/audio.
-import { nx, bindSlots } from "./shared.js";
+import { nx, bindSlots, vbadge } from "./shared.js";
+import { slotUrl, addVersion, refFromResponse } from "../mediaref.js";
 import { esc } from "../../util/dom.js";
 
 function labels(ctx) {
@@ -41,22 +42,28 @@ export default {
       const items = draft
         .map((s) => {
           const k = key(s);
-          const thumb = k && up[k]
-            ? `<img class="athumb" src="${esc(up[k])}" alt="">`
+          const url = k && slotUrl(up, k);
+          const thumb = url
+            ? `<img class="athumb" src="${esc(url)}" alt="" data-vslot="${esc(k)}" data-vnode="${esc(String(node.id))}">`
             : `<span class="aph">无图</span>`;
           const gen = paid
             ? `<button class="amini" data-gen="${esc(String(s.sequence))}" title="自动生成（MiniMax image-01 付费 · $0.0035/张 · 每张确认；可选拼版/单幅首帧）">💳</button>`
+            : "";
+          // 一键流转（TASK-048 第1步）：把该槽位当前版本图以 MediaRef 写入
+          // video 节点同槽位的首帧输入位（手工路线图↔视频闭环）。
+          const useFf = url
+            ? `<button class="amini" data-usefirst="${esc(k)}" title="用作视频首帧：当前版本图流转到视频节点，成为该镜头图生视频的第一帧">🎬→</button>`
             : "";
           // Two prompt flavors per shot: 📋 multi-view reference sheet (character
           // consistency), 🎬 SINGLE-frame composition — the slot image is what
           // lock-draft-plan sends as the shot's first frame (ADR-0047), and a
           // collage first frame would put the grid itself into the video.
-          return `<div class="arow">${thumb}<span class="alb">${esc(String(s.sequence).padStart(2, "0"))} ${esc(s.title)}</span><button class="amini" data-copy="${esc(String(s.sequence))}" title="复制「多角度拼版设定图」提示词（人物一致性参考）">📋</button><button class="amini" data-copyframe="${esc(String(s.sequence))}" title="复制「单幅首帧图」提示词（锁定后用作该镜头图生视频的第一帧）">🎬</button>${gen}<button class="amini" data-up="${esc(k)}" title="上传该镜头的图（单幅首帧图可被锁定为视频首帧）">⬆</button></div>`;
+          return `<div class="arow">${thumb}<span class="alb">${esc(String(s.sequence).padStart(2, "0"))} ${esc(s.title)}</span>${vbadge(up, k)}<button class="amini" data-copy="${esc(String(s.sequence))}" title="复制「多角度拼版设定图」提示词（人物一致性参考）">📋</button><button class="amini" data-copyframe="${esc(String(s.sequence))}" title="复制「单幅首帧图」提示词（锁定后用作该镜头图生视频的第一帧）">🎬</button>${useFf}${gen}<button class="amini" data-up="${esc(k)}" title="上传该镜头的图（同槽位重传保留旧版本，可回切）">⬆</button></div>`;
         })
         .join("");
       // Completion counts ONLY the current draft's slots — an upload belonging
       // to another version can never make this draft look ready.
-      const done = draft.filter((s) => key(s) && up[key(s)]).length;
+      const done = draft.filter((s) => key(s) && slotUrl(up, key(s))).length;
       const complete = done >= draft.length;
       const foot = complete
         ? `<div style="font-size:11px;color:var(--ok);margin:6px 2px 0">✓ 手工图 ${done}/${draft.length} · 未锁定</div>${nx([["video", "视频生成"], ["audio", "音频生成", 150]])}`
@@ -111,6 +118,11 @@ export default {
       // data-copy carries the sequence (prompt is per-shot content)
       getPrompt: promptSheet,
     });
+    // 🎬→ one-click flow into the video node's first-frame input (TASK-048)
+    el.querySelectorAll("[data-usefirst]").forEach((b) => (b.onclick = (e) => {
+      e.stopPropagation();
+      if (ctx.useAsFirstFrame) ctx.useAsFirstFrame(node, b.dataset.usefirst);
+    }));
     // 🎬 second prompt flavor (single-frame first frame) — same copy handling
     el.querySelectorAll("[data-copyframe]").forEach((b) => (b.onclick = async (e) => {
       e.stopPropagation();
@@ -143,9 +155,8 @@ export default {
       try {
         const prompt = wantFrame ? promptFrame(b.dataset.gen) : promptSheet(b.dataset.gen);
         const res = await ctx.paidImage(`${node.type}-${s.slot}`, prompt, PRICE);
-        node.uploads = node.uploads || {};
-        node.uploads[s.slot] = res.url;
-        ctx.toast(`设定图已生成（$${res.usd} 已扣，见 data/paid-image-log.jsonl）`);
+        addVersion(node, s.slot, refFromResponse(s.slot, "paid-image", res));
+        ctx.toast(`设定图已生成 v${res.version || 1}（$${res.usd} 已扣，旧版本保留；见 data/paid-image-log.jsonl）`);
       } catch (err) {
         ctx.toast("付费生成失败（未扣费或已在日志留痕）：" + err.message);
       } finally {

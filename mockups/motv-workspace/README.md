@@ -62,8 +62,12 @@ python mockups/motv-workspace/server.py --account-root examples/projects
 即时生成）→ 用户在外部免费工具生成（图：Gemini 网页；视频：Gemini 動画/Hailuo 网页
 免费额度；配音：网页/本地 TTS；音乐音效：CC0 库）→ ⬆ 上传结果
 （`PUT /api/uploads/<项目>/<槽位>`，png/jpg/webp 8MB、mp4/webm 60MB、mp3/wav 20MB，
-magic 字节校验，存 `data/uploads/` 原型 scratch；同槽位重传即替换）。上传绑定镜头的
-稳定 slot id，增删镜头/切版本不会错挂。自动路线：视频=MiniMax 付费（`--enable-paid`）；
+magic 字节校验，存 `data/uploads/` 原型 scratch；**同槽位重传追加新版本
+`<slot>_v<N>.<ext>`，绝不删除/覆盖旧版本**——缩略图角标 v‹N› 打开版本选择器可回切、
+lightbox 可浏览历史，ADR-0048/TASK-048）。上传绑定镜头的
+稳定 slot id，增删镜头/切版本不会错挂。资产节点每镜头 `🎬→ 用作视频首帧`：把该槽位
+当前版本图以 MediaRef 一键流转到视频节点首帧输入位（视频行显示首帧缩略图+「来自资产
+v‹N›」，提示词模板同步提示首帧来源；锁定分镜时首帧按 MediaRef 解析，行为不变）。自动路线：视频=MiniMax 付费（`--enable-paid`）；
 配音=**本地 Piper TTS（ADR-0043，免费离线）**——音频节点每镜头 🤖 或「一键自动配音」，
 经 `POST /api/agent/tts` 本地合成 WAV 存入同一槽位（需 `pip install piper-tts` 并将
 `zh_CN-huayan-medium.onnx(.json)` 放入 `data/tts/`，缺失时 503 且手工路不受影响）。
@@ -72,8 +76,11 @@ magic 字节校验，存 `data/uploads/` 原型 scratch；同槽位重传即替�
 **批量付费 / 状态 / 放大视窗**：付费模式下视频节点「一键批量生成（付费·总额确认）」
 按 ADR-0046 一次确认总额（跳过已有成片），逐镜头 Gateway 预检并校验报价等于确认单价
 （任何偏差/阻断立即中止）；付费成片经 `/api/agent/adopt-paid` **自动复制进画布槽位**
-（只读桥接，不改核心文件）。`/api/paid-ops/<项目>` 只读投影 reservations+staging，
-视频行内显示每镜头生成情况（⏳/✓已付费）。每个节点有「⤢ 放大编辑」打开大视窗
+（只读桥接，不改核心文件；已有成片槽位再 adopt 追加新版本，防重复扣费护栏仍在提交侧）。
+`/api/paid-ops/<项目>` 只读投影 reservations+staging，视频行内显示每镜头生成情况
+（⏳/✓已付费）；存在在途任务（reservation held / 批量进行中）时前端**每 12s 自动轮询**、
+无在途即停表，画布顶部常驻**全局付费队列条**聚合 生成中/已入账/已释放/需对账 计数与
+逐镜头状态（点击跳到视频节点 detail；批量时同步显示 N/M 进度，TASK-048）。每个节点有「⤢ 放大编辑」打开大视窗
 （同一节点体、实时同步、全部操作可用）。🤖 配音在该镜头已有视频时自动**贴合视频
 时长**（Piper length-scale 加速，最低 0.65，超出部分由合成按画面截断）。
 

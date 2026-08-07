@@ -33,6 +33,7 @@ Host-guarded, strict same-origin CSP. This backend is deliberately kept OUT of
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -89,7 +90,8 @@ _UPLOAD_MAX = {
     ".mp3": 20_000_000,
     ".wav": 20_000_000,
 }
-_UPLOAD_FILE_RE = re.compile(r"[A-Za-z0-9_-]{1,64}\.(?:png|jpg|webp|mp4|webm|mp3|wav)")
+# Stem allows a 64-char slug PLUS the ADR-0048 version suffix (_v<N>).
+_UPLOAD_FILE_RE = re.compile(r"[A-Za-z0-9_-]{1,76}\.(?:png|jpg|webp|mp4|webm|mp3|wav)")
 
 # Slug prefix reserved for compose OUTPUT (ADR-0044). No user-facing write path
 # (manual upload / TTS / paid image) may claim it — otherwise an upload could
@@ -100,6 +102,58 @@ _RESERVED_SLUG_PREFIX = "final-cut"
 
 def _slug_reserved(slug: str) -> bool:
     return slug.startswith(_RESERVED_SLUG_PREFIX)
+
+
+# Upload versioning (ADR-0048): every write to a slot APPENDS a new file
+# ``<slug>_v<N>.<ext>`` — no write path deletes or overwrites an existing
+# upload. Slugs ending in ``_v<N>`` are refused so the version namespace stays
+# unambiguous (historically generated slugs are hyphen-separated, unaffected).
+_VERSION_SUFFIX_RE = re.compile(r"_v[1-9][0-9]*$")
+
+
+def _slug_versioned(slug: str) -> bool:
+    return bool(_VERSION_SUFFIX_RE.search(slug))
+
+
+def _existing_versions(d: Path, slug: str) -> set[int]:
+    """Version numbers already present for a slot, across ALL extensions.
+
+    A legacy un-suffixed ``<slug>.<ext>`` counts as v1 (ADR-0048 back-compat),
+    so the next write on a pre-versioning slot becomes v2 and the old file is
+    kept untouched.
+    """
+    versions: set[int] = set()
+    exts = set(_UPLOAD_TYPES.values())
+    if not d.is_dir():
+        return versions
+    if any((d / f"{slug}{ext}").exists() for ext in exts):
+        versions.add(1)
+    pat = re.compile(rf"^{re.escape(slug)}_v([1-9][0-9]*)$")
+    for p in d.iterdir():
+        if p.suffix not in exts:
+            continue
+        m = pat.match(p.name[: -len(p.suffix)])
+        if m is not None:
+            versions.add(int(m.group(1)))
+    return versions
+
+
+def _claim_version(d: Path, slug: str, ext: str) -> tuple[int, Path]:
+    """Atomically claim the slot's next version file via O_CREAT|O_EXCL.
+
+    Concurrent writers can never claim the same filename (the loop recomputes
+    on FileExistsError); old versions are never touched. The pathological
+    same-instant different-extension race can at worst mint two files sharing
+    an N — both are preserved, nothing is overwritten (fail-safe direction).
+    """
+    while True:
+        n = max(_existing_versions(d, slug), default=0) + 1
+        target = d / f"{slug}_v{n}{ext}"
+        try:
+            os.close(os.open(str(target), os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            return n, target
+        except FileExistsError:
+            continue
 
 
 def _media_magic_ok(ext: str, body: bytes) -> bool:
@@ -855,7 +909,12 @@ class _App:
                 400, {"error": {"category": "bad_request", "detail": "invalid name"}}
             )
         d = self._upload_dir(project)
-        if d is None or not _NAME_RE.fullmatch(slug) or _slug_reserved(slug):
+        if (
+            d is None
+            or not _NAME_RE.fullmatch(slug)
+            or _slug_reserved(slug)
+            or _slug_versioned(slug)
+        ):
             return _json(
                 400, {"error": {"category": "bad_request", "detail": "invalid name"}}
             )
@@ -969,6 +1028,7 @@ class _App:
             d.mkdir(parents=True, exist_ok=True)
             fd, tmpname = tempfile.mkstemp(dir=str(d), suffix=".tmp")
             os.close(fd)
+            target = None
             try:
                 _synth(tmpname, None)
                 if fit_seconds is not None:
@@ -978,18 +1038,17 @@ class _App:
                         scale = max(0.65, (fit_seconds / adur) * 0.98)
                         _synth(tmpname, scale)
                         fitted = True
-                target = d / f"{slug}.wav"
-                # same-slot manual uploads in other formats are superseded
-                for other in set(_UPLOAD_TYPES.values()) - {".wav"}:
-                    stale = d / f"{slug}{other}"
-                    if stale.is_file() and not stale.is_symlink():
-                        stale.unlink()
+                digest = hashlib.sha256(Path(tmpname).read_bytes()).hexdigest()
+                # ADR-0048: a re-synth APPENDS a new version — the previous
+                # take (any format) is kept and can be switched back to.
+                n, target = _claim_version(d, slug, ".wav")
                 os.replace(tmpname, target)
             except (OSError, subprocess.TimeoutExpired):
-                try:
-                    os.unlink(tmpname)
-                except OSError:
-                    pass
+                for stale in [tmpname] + ([str(target)] if target else []):
+                    try:
+                        os.unlink(stale)  # our tmp + our claimed placeholder only
+                    except OSError:
+                        pass
                 raise
         except subprocess.TimeoutExpired:
             return _json(
@@ -1003,7 +1062,9 @@ class _App:
             200,
             {
                 "ok": True,
-                "url": f"/api/uploads/{project}/{slug}.wav",
+                "url": f"/api/uploads/{project}/{target.name}",
+                "version": n,
+                "sha256": digest,
                 "source": "piper",
                 "fitted": fitted,
                 "fit_seconds": fit_seconds,
@@ -1713,6 +1774,7 @@ class _App:
             or d is None
             or not _NAME_RE.fullmatch(slug)
             or _slug_reserved(slug)
+            or _slug_versioned(slug)
             or not _NAME_RE.fullmatch(task_id)
         ):
             return _json(
@@ -1748,19 +1810,35 @@ class _App:
             )
         try:
             d.mkdir(parents=True, exist_ok=True)
-            for other in set(_UPLOAD_TYPES.values()) - {".mp4"}:
-                stale = d / f"{slug}{other}"
-                if stale.is_file() and not stale.is_symlink():
-                    stale.unlink()
+            # ADR-0048: adopting into an occupied slot APPENDS a new version
+            # (origin=adopted on the canvas side) instead of overwriting the
+            # previous take; the anti-double-pay guard stays on the submit side.
+            n, target = _claim_version(d, slug, ".mp4")
             fd, tmpname = tempfile.mkstemp(dir=str(d), suffix=".tmp")
-            with os.fdopen(fd, "wb") as fh:
-                fh.write(data)
-            os.replace(tmpname, d / f"{slug}.mp4")
+            try:
+                with os.fdopen(fd, "wb") as fh:
+                    fh.write(data)
+                os.replace(tmpname, target)
+            except OSError:
+                for stale in (tmpname, str(target)):
+                    try:
+                        os.unlink(stale)  # our tmp + our claimed placeholder only
+                    except OSError:
+                        pass
+                raise
         except OSError:
             return _json(
                 500, {"error": {"category": "write_failed", "detail": "could not save"}}
             )
-        return _json(200, {"ok": True, "url": f"/api/uploads/{project}/{slug}.mp4"})
+        return _json(
+            200,
+            {
+                "ok": True,
+                "url": f"/api/uploads/{project}/{target.name}",
+                "version": n,
+                "sha256": hashlib.sha256(data).hexdigest(),
+            },
+        )
 
     # -- paid image generation (ADR-0045, MiniMax image-01) -----------------
     def _agent_image(self, body: bytes):
@@ -1821,7 +1899,12 @@ class _App:
                 400, {"error": {"category": "bad_request", "detail": "invalid name"}}
             )
         d = self._upload_dir(project)
-        if d is None or not _NAME_RE.fullmatch(slug) or _slug_reserved(slug):
+        if (
+            d is None
+            or not _NAME_RE.fullmatch(slug)
+            or _slug_reserved(slug)
+            or _slug_versioned(slug)
+        ):
             return _json(
                 400, {"error": {"category": "bad_request", "detail": "invalid name"}}
             )
@@ -1955,14 +2038,21 @@ class _App:
             )
         try:
             d.mkdir(parents=True, exist_ok=True)
-            for other in set(_UPLOAD_TYPES.values()) - {ext}:
-                stale = d / f"{slug}{other}"
-                if stale.is_file() and not stale.is_symlink():
-                    stale.unlink()
+            # ADR-0048: a slot re-generation APPENDS a new version — earlier
+            # takes (any format) are preserved for comparison and 回切.
+            n, target = _claim_version(d, slug, ext)
             fd, tmpname = tempfile.mkstemp(dir=str(d), suffix=".tmp")
-            with os.fdopen(fd, "wb") as fh:
-                fh.write(img)
-            os.replace(tmpname, d / f"{slug}{ext}")
+            try:
+                with os.fdopen(fd, "wb") as fh:
+                    fh.write(img)
+                os.replace(tmpname, target)
+            except OSError:
+                for stale in (tmpname, str(target)):
+                    try:
+                        os.unlink(stale)  # our tmp + our claimed placeholder only
+                    except OSError:
+                        pass
+                raise
         except OSError:
             return _json(
                 500, {"error": {"category": "write_failed", "detail": "could not save"}}
@@ -1991,7 +2081,9 @@ class _App:
             log_warning = "spend-log append failed (image saved, charge occurred)"
         result = {
             "ok": True,
-            "url": f"/api/uploads/{project}/{slug}{ext}",
+            "url": f"/api/uploads/{project}/{target.name}",
+            "version": n,
+            "sha256": hashlib.sha256(img).hexdigest(),
             "usd": _IMAGE_PRICE_USD,
             "source": "minimax image-01",
         }
@@ -2010,14 +2102,20 @@ class _App:
         return d
 
     def _upload_put(self, project: str, slug: str, ctype: str, body: bytes):
-        """Store a user-uploaded reference image (manual provider, prototype).
+        """Store a user-uploaded media file (manual provider, prototype).
 
-        Re-uploading the same slug intentionally REPLACES the previous image —
-        the slot is user scratch and the user drives the re-upload explicitly.
+        Re-uploading the same slug APPENDS a new version ``<slug>_v<N>.<ext>``
+        (ADR-0048): previous versions are never deleted or overwritten, so
+        multiple takes can be kept, compared and switched in the canvas.
         Fail-closed: type allow-list + magic-byte sniff + size cap + containment.
         """
         d = self._upload_dir(project)
-        if d is None or not _NAME_RE.fullmatch(slug) or _slug_reserved(slug):
+        if (
+            d is None
+            or not _NAME_RE.fullmatch(slug)
+            or _slug_reserved(slug)
+            or _slug_versioned(slug)
+        ):
             return _json(
                 400, {"error": {"category": "bad_request", "detail": "invalid name"}}
             )
@@ -2054,29 +2152,34 @@ class _App:
             )
         try:
             d.mkdir(parents=True, exist_ok=True)
-            target = d / f"{slug}{ext}"
-            # Drop the same slug's other-extension variants so the slot has one
-            # authoritative image (a re-upload may switch png<->jpg).
-            for other in set(_UPLOAD_TYPES.values()) - {ext}:
-                stale = d / f"{slug}{other}"
-                if stale.is_file() and not stale.is_symlink():
-                    stale.unlink()
+            # Claim the NEXT version slot atomically, then fill it (the claimed
+            # empty placeholder is ours to replace — never an existing upload).
+            n, target = _claim_version(d, slug, ext)
             fd, tmpname = tempfile.mkstemp(dir=str(d), suffix=".tmp")
             try:
                 with os.fdopen(fd, "wb") as fh:
                     fh.write(body)
                 os.replace(tmpname, target)  # atomic, mockup-local only
             except OSError:
-                try:
-                    os.unlink(tmpname)
-                except OSError:
-                    pass
+                for stale in (tmpname, str(target)):
+                    try:
+                        os.unlink(stale)  # release only OUR tmp/placeholder
+                    except OSError:
+                        pass
                 raise
         except OSError:
             return _json(
                 500, {"error": {"category": "write_failed", "detail": "could not save"}}
             )
-        return _json(200, {"ok": True, "url": f"/api/uploads/{project}/{slug}{ext}"})
+        return _json(
+            200,
+            {
+                "ok": True,
+                "url": f"/api/uploads/{project}/{target.name}",
+                "version": n,
+                "sha256": hashlib.sha256(body).hexdigest(),
+            },
+        )
 
     def _upload_get(self, project: str, fname: str):
         d = self._upload_dir(project)

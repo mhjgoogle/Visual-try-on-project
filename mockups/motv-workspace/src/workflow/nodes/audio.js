@@ -1,7 +1,8 @@
 // 音频生成 — manual free flow: per-shot 配音 (copy text → web/local TTS →
 // upload) plus optional 音乐/音效 slots (CC0 libraries). Local Piper TTS as a
 // free AUTOMATIC route is planned behind its own ADR. Feeds 剪辑合成.
-import { nx, bindSlots } from "./shared.js";
+import { nx, bindSlots, vbadge } from "./shared.js";
+import { slotUrl, slotStem, addVersion, refFromResponse } from "../mediaref.js";
 import { esc } from "../../util/dom.js";
 
 export default {
@@ -21,19 +22,20 @@ export default {
       const vkey = (s) => (s.slot ? `voice-${s.slot}` : "");
       const canTts = !!(ctx.isConnected && ctx.isConnected());
       const row = (k, label, copySeq) => {
-        const player = k && up[k]
-          ? `<audio class="aaud" src="${esc(up[k])}" controls preload="none"></audio>`
+        const url = k && slotUrl(up, k);
+        const player = url
+          ? `<audio class="aaud" src="${esc(url)}" controls preload="none"></audio>`
           : "";
         const tts = copySeq && canTts
           ? `<button class="amini" data-tts="${esc(copySeq)}" title="本地 Piper TTS 自动配音（免费）">🤖</button>`
           : "";
-        return `<div class="arow"><span class="alb">${label}</span>${copySeq ? `<button class="amini" data-copy="${esc(copySeq)}" title="复制该镜头文案（用于 TTS）">📋</button>` : ""}${tts}<button class="amini" data-up="${esc(k)}" title="上传音频">⬆</button></div>${player}`;
+        return `<div class="arow"><span class="alb">${label}</span>${vbadge(up, k)}${copySeq ? `<button class="amini" data-copy="${esc(copySeq)}" title="复制该镜头文案（用于 TTS）">📋</button>` : ""}${tts}<button class="amini" data-up="${esc(k)}" title="上传音频（同槽位重传保留旧版本，可回切）">⬆</button></div>${player}`;
       };
       const items = draft
         .map((s) => row(vkey(s), `🎤 ${esc(String(s.sequence).padStart(2, "0"))} ${esc(s.title)}`, String(s.sequence)))
         .join("");
       const extras = row("music-main", "🎼 背景音乐（可选 · CC0 曲库）", "") + row("sfx-main", "🔊 音效（可选 · CC0 库）", "");
-      const done = draft.filter((s) => vkey(s) && up[vkey(s)]).length;
+      const done = draft.filter((s) => vkey(s) && slotUrl(up, vkey(s))).length;
       const ttsAll = canTts && done < draft.length
         ? `<button class="nrun ghost" data-ttsall${node._ttsBusy ? " disabled" : ""}>${node._ttsBusy ? "自动配音中…" : "🤖 一键自动配音（本地 TTS · 免费）"}</button>`
         : "";
@@ -70,10 +72,10 @@ export default {
     const synth = async (s) => {
       const k = `voice-${s.slot}`;
       const media = ctx.collectMedia ? ctx.collectMedia() : { video: {} };
-      const fit = s.slot && media.video[s.slot] ? `video-${s.slot}` : undefined;
-      const url = await ctx.agentTts(`${node.type}-${k}`, s.description, fit);
-      node.uploads = node.uploads || {};
-      node.uploads[k] = url;
+      // fit 按当前版本的实际文件名主干解析（版本化后不再是裸 slug）
+      const fit = (s.slot && slotStem(media.video, s.slot)) || undefined;
+      const res = await ctx.agentTts(`${node.type}-${k}`, s.description, fit);
+      addVersion(node, k, refFromResponse(k, "tts", res));
     };
     el.querySelectorAll("[data-tts]").forEach((b) => (b.onclick = async (e) => {
       e.stopPropagation();
@@ -102,7 +104,7 @@ export default {
       try {
         for (const s of draft) {
           const k = `voice-${s.slot}`;
-          if (!s.slot || (node.uploads && node.uploads[k])) continue;
+          if (!s.slot || slotUrl(node.uploads, k)) continue;
           await synth(s); // sequential — piper is CPU-bound
           okCount++;
           ctx.refresh(node);

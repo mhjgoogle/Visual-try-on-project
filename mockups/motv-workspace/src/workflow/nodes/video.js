@@ -1,7 +1,8 @@
 // 视频生成 — manual free flow (copy prompt → generate in a web tool → upload)
 // per draft shot, or the automatic PAID MiniMax route (batch/single) via the
 // pre-generation budget preflight before any spend.
-import { nx, bindSlots } from "./shared.js";
+import { nx, bindSlots, vbadge } from "./shared.js";
+import { slotUrl } from "../mediaref.js";
 import { esc } from "../../util/dom.js";
 
 const SINGLE_SHOTS = ["01", "02", "03", "04", "05", "06"];
@@ -13,7 +14,9 @@ export default {
   title: "视频生成",
   icon: "▶",
   init() {
-    return { state: "", pickSingle: false, uploads: {} };
+    // firstFrames: per-slot MediaRef set by the assets node's 「🎬→ 用作视频
+    // 首帧」 (TASK-048 第1步) — the shot's image-to-video first-frame input.
+    return { state: "", pickSingle: false, uploads: {}, firstFrames: {} };
   },
   render(node, ctx) {
     // Manual flow (免费): one slot per draft shot — 📋 copy a video prompt for
@@ -21,14 +24,22 @@ export default {
     const draft = ctx.project.draftShots;
     if (draft && draft.length) {
       const up = node.uploads || {};
+      const ff = node.firstFrames || {};
       const key = (s) => s.slot || "";
       const ops = ctx.paidOps || {};
       const items = draft
         .map((s) => {
           const k = key(s);
-          const thumb = k && up[k]
-            ? `<video class="athumb" src="${esc(up[k])}" muted preload="metadata"></video>`
+          const url = k && slotUrl(up, k);
+          const thumb = url
+            ? `<video class="athumb" src="${esc(url)}" muted preload="metadata" data-vslot="${esc(k)}" data-vnode="${esc(String(node.id))}"></video>`
             : `<span class="aph">无片</span>`;
+          // first-frame input (MediaRef from the assets node): thumbnail +
+          // provenance badge, so the 图→视频 handoff is visible per shot
+          const fref = k && ff[k];
+          const ffchip = fref
+            ? `<span class="ffchip" title="首帧输入 · 来自资产 v${esc(String(fref.version))}（${esc(fref.origin || "upload")}）"><img src="${esc(fref.url)}" alt="">🎬v${esc(String(fref.version))}</span>`
+            : "";
           // 生成情况: paid-op status projection for this shot (read-only);
           // a locked draft's ops live under its minted official shot ids
           const op = ops[ctx.lockedShotId ? ctx.lockedShotId(s.sequence) : `shot-${s.sequence}`];
@@ -37,10 +48,16 @@ export default {
               ? `<span style="font-size:10px;color:var(--ok)" title="已付费 ${esc(op.quote || "")} · ${esc(op.operation_id || "")}">✓已付费</span>`
               : `<span style="font-size:10px;color:var(--gate)" title="${esc(op.status || "")}">⏳${esc(op.status || "生成中")}</span>`
             : "";
-          return `<div class="arow">${thumb}<span class="alb">${esc(String(s.sequence).padStart(2, "0"))} ${esc(s.title)}</span>${st}<button class="amini" data-copy="${esc(String(s.sequence))}" title="复制该镜头的视频提示词">📋</button><button class="amini" data-up="${esc(k)}" title="上传该镜头的视频">⬆</button></div>`;
+          return `<div class="arow">${thumb}<span class="alb">${esc(String(s.sequence).padStart(2, "0"))} ${esc(s.title)}</span>${ffchip}${st}${vbadge(up, k)}<button class="amini" data-copy="${esc(String(s.sequence))}" title="复制该镜头的视频提示词（含首帧来源提示）">📋</button><button class="amini" data-up="${esc(k)}" title="上传该镜头的视频（同槽位重传保留旧版本，可回切）">⬆</button></div>`;
         })
         .join("");
-      const done = draft.filter((s) => key(s) && up[key(s)]).length;
+      const done = draft.filter((s) => key(s) && slotUrl(up, key(s))).length;
+      // 手工路线提示：当前已就位的首帧来源（与付费路线「提示词/首帧来自你的
+      // 草稿」hint 呼应）
+      const ffCount = draft.filter((s) => key(s) && ff[key(s)]).length;
+      const ffHint = ffCount
+        ? `<div style="font-size:10.5px;color:var(--ok);margin-top:4px">🎬 首帧已就位 ${ffCount}/${draft.length}（来自资产节点）：手工生成时请把该图设为视频第一帧</div>`
+        : "";
       // The automatic route stays available alongside the manual one: batch
       // data-run keeps its pre-existing behavior (PAID → per-shot-only refusal
       // toast; connected non-paid → placeholder-advance), and PAID adds the
@@ -51,7 +68,7 @@ export default {
       const pick = node.pickSingle
         ? `<div class="shotpick">${draft.map((s) => {
             const nn = String(s.sequence).padStart(2, "0");
-            const has = s.slot && up[s.slot];
+            const has = s.slot && slotUrl(up, s.slot);
             return `<button data-shot="${esc(nn)}"${has ? ' data-has="1"' : ""}>镜头 ${esc(nn)}${has ? " ✓已有" : ""}</button>`;
           }).join("")}</div>`
         : "";
@@ -68,7 +85,7 @@ export default {
       const foot = complete
         ? `<div style="font-size:11px;color:var(--ok);margin:6px 2px 0">${done >= draft.length ? `✓ 手工视频 ${done}/${draft.length}` : "占位推进 · 未真实生成"} · 未锁定</div>${nx([["edit", "剪辑合成"]])}`
         : `<div style="font-size:11px;color:var(--gate);margin:6px 2px 0">手工流程：📋 提示词 → Gemini 動画/Hailuo 网页（免费额度）→ ⬆ 上传（${done}/${draft.length}）</div>`;
-      return `<div>${items}${foot}${paidBtns}</div>`;
+      return `<div>${items}${ffHint}${foot}${paidBtns}</div>`;
     }
     const total = ctx.project.shots.total;
     if (node.state === "done") {
@@ -118,7 +135,12 @@ export default {
           const s = draft.find((x) => String(x.sequence) === seq);
           if (!s) return "";
           const nn = String(s.sequence).padStart(2, "0");
-          return `【镜头${nn}·${s.title}】${s.description}。时长约 ${s.duration_seconds} 秒，写实电影感，16:9，镜头运动自然流畅，与前后镜头保持同一人物与场景。`;
+          // 提示词模板提示当前首帧来源（TASK-048 第1步：手工路线的图→视频衔接）
+          const fref = s.slot && (node.firstFrames || {})[s.slot];
+          const ffNote = fref
+            ? `（该镜头首帧图已就位：来自资产 v${fref.version}，请在视频工具中将该图设为第一帧再生成）`
+            : "";
+          return `【镜头${nn}·${s.title}】${s.description}。时长约 ${s.duration_seconds} 秒，写实电影感，16:9，镜头运动自然流畅，与前后镜头保持同一人物与场景。${ffNote}`;
         },
       });
     }

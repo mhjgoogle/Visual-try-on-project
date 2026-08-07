@@ -3,6 +3,7 @@
 // With a draft + backend, "真实合成" runs REAL ffmpeg over the uploaded shot
 // videos (+ voice/music) and returns a playable versioned MP4 (ADR-0044).
 import { nx } from "./shared.js";
+import { slotUrl, slotStem } from "../mediaref.js";
 import { esc } from "../../util/dom.js";
 
 export default {
@@ -21,12 +22,12 @@ export default {
       const media = ctx.collectMedia ? ctx.collectMedia() : { video: {}, audio: {} };
       const rows = draft
         .map((s) => {
-          const v = s.slot && media.video[s.slot];
-          const a = s.slot && media.audio[`voice-${s.slot}`];
+          const v = s.slot && slotUrl(media.video, s.slot);
+          const a = s.slot && slotUrl(media.audio, `voice-${s.slot}`);
           return `<div class="arow"><span class="alb">${esc(String(s.sequence).padStart(2, "0"))} ${esc(s.title)}</span><span class="amini" style="cursor:default">${v ? "🎞✓" : "🎞–"}</span><span class="amini" style="cursor:default">${a ? "🎤✓" : "🎤–"}</span></div>`;
         })
         .join("");
-      const ready = draft.filter((s) => s.slot && media.video[s.slot]).length;
+      const ready = draft.filter((s) => s.slot && slotUrl(media.video, s.slot)).length;
       const allReady = ready >= draft.length;
       const last = node.finals && node.finals.length ? node.finals[node.finals.length - 1] : null;
       const player = last
@@ -56,12 +57,20 @@ export default {
       if (node._busy) return;
       const draft = ctx.project.draftShots || [];
       const media = ctx.collectMedia ? ctx.collectMedia() : { video: {}, audio: {} };
+      // Versioned slots: compose must receive the CURRENT version's actual
+      // server filename stem (e.g. video-v1-2_v3), not the bare slug —
+      // otherwise a 回切 would be ignored. slotStem derives it from the
+      // current MediaRef's url (legacy un-versioned files keep bare stems).
       const spec = {
         shots: draft.map((s) => ({
-          video: `video-${s.slot}`,
-          ...(media.audio[`voice-${s.slot}`] ? { voice: `audio-voice-${s.slot}` } : {}),
+          video: slotStem(media.video, s.slot),
+          ...(slotUrl(media.audio, `voice-${s.slot}`)
+            ? { voice: slotStem(media.audio, `voice-${s.slot}`) }
+            : {}),
         })),
-        ...(media.audio["music-main"] ? { music: "audio-music-main" } : {}),
+        ...(slotUrl(media.audio, "music-main")
+          ? { music: slotStem(media.audio, "music-main") }
+          : {}),
       };
       node._busy = true;
       ctx.refresh(node);
