@@ -1,6 +1,13 @@
 # TASK-047: lock-draft-plan 命令与图↔视频一致性打通
 
-- Status: Accepted
+> **状态：Done（2026-08-07 实施完成）。** `lock-draft-plan` 命令
+> （`src/ai_video_workflow/app/lock_gateway.py`）+ offline 单测 28 个 +
+> mockup E2E 3 个 + mockup server/前端接线全部落地；ruff/pytest 全绿
+> （2694 passed）。codex-review-loop 过审（2 轮，VERDICT: pass；codex 不可
+> 用，回退独立 claude 会话审查——独立性降级，见 `.claude/tmp/last-review.md`）。
+> 真实付费首帧验证（可选 $0.28）未执行，留待用户显式授权时进行。
+
+- Status: Done
 - Owner: 单实施 Agent（新会话）
 - 依据: ADR-0047（Accepted）、ADR-0033/0041/0042/0045/0046
 - 前置: 无（planning first_frame_image 链路已存在；ADR-0041 命令为范式）

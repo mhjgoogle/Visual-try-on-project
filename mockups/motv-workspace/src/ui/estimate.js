@@ -88,5 +88,42 @@ export function createEstimate({ renderBudget, toast }) {
     scrim.classList.add("show");
   }
 
-  return { open, openReal };
+  /** Draft-lock confirmation (ADR-0047): renders the Gateway preview of the
+   *  FULL shot table the lock will publish (title/description/duration/首帧)
+   *  plus the new plan/packet versions, and arms the HIGH-risk confirmed
+   *  submit. Locking spends nothing — this Gate authorizes the official
+   *  versioned publish, not any payment. */
+  function openLock(pf, { onConfirm }) {
+    const p = pf.preview || {};
+    const inputs = p.inputs || {};
+    const blockers = p.blockers || [];
+    const block = blockers.length > 0;
+    // Everything shown is Gateway-derived, agent/user-authored content —
+    // escaped uniformly (this dialog is the lock CONSENT surface).
+    $("#es-cmd").textContent = `${pf.name} · 锁定为正式分镜（HIGH-risk · 不花费）`;
+    const shots = inputs.shots || [];
+    const shotRows = shots
+      .map((s) => {
+        const frame = s.first_frame_sha256
+          ? `<span style="color:var(--ok)">✓ 首帧图</span>`
+          : `<span style="color:var(--text-faint)">无首帧</span>`;
+        return `<div class="es-row"><span class="l">${esc(String(s.sequence).padStart(2, "0"))} ${esc(s.title)}</span><span class="v">${esc(s.description)}（${esc(s.duration_seconds)}s · ${frame} · ${esc(s.shot_id)} packet v${esc(s.packet_version)}）</span></div>`;
+      })
+      .join("");
+    const blockHtml = block
+      ? `<div class="es-blk" style="border-color:var(--bad)">${blockers.map((b) => `<div class="es-row"><span class="l" style="color:var(--bad)">阻断</span><span class="v">${esc(b)}</span></div>`).join("")}</div>`
+      : `<div class="es-row"><span class="l">阻断项</span><span class="v" style="color:var(--ok)">无</span></div>`;
+    $("#es-b").innerHTML = `
+      <div class="es-blk"><div class="es-row"><span class="l">当前计划</span><span class="v">shot plan v${esc(inputs.plan_version)}</span></div><div class="es-row big"><span class="l">锁定后</span><span class="v">shot plan v${esc(inputs.new_plan_version)} · ${esc(shots.length)} 镜头（新版本，不覆盖旧版）</span></div></div>
+      <div class="es-blk">${shotRows}</div>
+      <div class="es-blk">${(p.downstream || []).map((d) => `<div class="es-row"><span class="l">下游</span><span class="v">${esc(d)}</span></div>`).join("")}${blockHtml}</div>
+      <div class="es-warn">确认即以 preflight digest 授权把上述草稿发布为<b style="color:var(--text)">正式 plan/records/packet 新版本</b>并重批 production_lock（人工 Gate；不花费）。此后付费视频的提示词/首帧即来自该草稿。digest: <span class="v" style="word-break:break-all">${esc(pf.preflight_digest)}</span></div>`;
+    const okBtn = $("#es-ok");
+    okBtn.disabled = block;
+    okBtn.textContent = block ? "存在阻断项，无法锁定" : "确认锁定（不花费）";
+    onOk = block ? null : () => onConfirm(pf.preflight_digest);
+    scrim.classList.add("show");
+  }
+
+  return { open, openReal, openLock };
 }

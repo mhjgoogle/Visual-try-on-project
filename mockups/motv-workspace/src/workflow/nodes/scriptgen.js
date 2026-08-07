@@ -38,15 +38,29 @@ export default {
       const curV = node.versions.find((x) => x.v === node.cur);
       const shots = curV ? curV.shots : sd.v1;
       const isDraft = !!(curV && curV.draft);
-      const badgeText = curV && curV.edited ? "手工编辑 · 未锁定" : "草稿 · Claude 生成 · 未锁定";
+      const locked = curV && curV.locked;
+      // Locked = this draft version was published as the OFFICIAL plan via the
+      // lock-draft-plan Gateway command (ADR-0047); paid generation now derives
+      // its prompts/first frames from it. Fresh shot ids → packet v1.
+      const badgeText = locked
+        ? `已锁定 · plan v${locked.plan_version} · packet v1`
+        : curV && curV.edited
+          ? "手工编辑 · 未锁定"
+          : "草稿 · Claude 生成 · 未锁定";
+      const badgeColor = locked ? "var(--ok)" : "var(--gate)";
       const badge = isDraft
-        ? `<span style="font-size:10px;color:var(--gate);border:1px solid color-mix(in srgb,var(--gate) 40%,var(--line));border-radius:5px;padding:1px 6px;margin-left:6px">${badgeText}</span>`
+        ? `<span style="font-size:10px;color:${badgeColor};border:1px solid color-mix(in srgb,${badgeColor} 40%,var(--line));border-radius:5px;padding:1px 6px;margin-left:6px">${badgeText}</span>`
         : "";
       const vbar = `<div class="vbar"><span class="vchip">v${node.cur} ▾</span>${node.versions.length >= 2 ? '<span class="vcmp">⇄ 对比</span>' : ""}${badge}${node.vmenu ? vmenuHtml(node) : ""}</div>`;
       // Draft rows may carry agent-generated text — escape every row uniformly.
       const rows = shots.map((s) => `<div class="shotrow"><span class="n mono">${esc(s[0])}</span><span class="nm">${esc(s[1])}</span></div>`).join("");
       const total = isDraft ? shots.length : sd.total;
-      return `<div class="genbox">${vbar}${rows}<div style="font-size:11px;color:var(--text-faint);margin:2px 2px 0">…共 ${total} 个镜头</div><div class="vbtns"><button class="nrun ghost" data-run>重新生成（新版本）</button><button class="nrun ghost" data-edit>✎ 编辑分镜</button></div>${nx([["assets", "准备资产"]])}</div>`;
+      // The lock Gate (ADR-0047): connected + unlocked draft → offer the
+      // preview→confirm publish; an already-locked version never re-locks.
+      const lockBtn = isDraft && !locked && ctx.isConnected && ctx.isConnected()
+        ? `<button class="nrun ghost" data-lock>🔒 锁定为正式分镜</button>`
+        : "";
+      return `<div class="genbox">${vbar}${rows}<div style="font-size:11px;color:var(--text-faint);margin:2px 2px 0">…共 ${total} 个镜头</div><div class="vbtns"><button class="nrun ghost" data-run>重新生成（新版本）</button><button class="nrun ghost" data-edit>✎ 编辑分镜</button>${lockBtn}</div>${nx([["assets", "准备资产"]])}</div>`;
     }
     return `<div class="genbox"><div class="skel"><i></i><i></i><i></i><i></i><i></i><i></i></div><button class="nrun" data-run>基于剧本生成分镜</button></div>`;
   },
@@ -149,12 +163,20 @@ export default {
         // assets falls back to fixtures — never leave stale draftShots behind.
         const sel = node.versions.find((x) => x.v === node.cur);
         ctx.project.draftShots = sel && sel.raw ? sel.raw : null;
+        // the lock state follows the selected version (a locked v2 stays
+        // locked when the user flips back to it; an unlocked v3 is unlocked)
+        ctx.project.lockedPlan = (sel && sel.locked) || null;
         ctx.refresh(node);
         if (ctx.refreshType) ctx.refreshType("assets");
+        if (ctx.refreshType) ctx.refreshType("video");
         ctx.toast(`切到版本 v${node.cur}（digest 绑定）`);
       }));
     const vcmp = el.querySelector(".vcmp");
     if (vcmp) vcmp.onclick = (e) => { e.stopPropagation(); ctx.inspector.openCompare(node); };
+    // 锁定为正式分镜 (ADR-0047): preview modal → confirmed Gateway submit
+    const lk = el.querySelector("[data-lock]");
+    if (lk && ctx.lockDraft)
+      lk.onclick = (e) => { e.stopPropagation(); ctx.lockDraft(node); };
     // Manual edit (人工 Gate): edit the CURRENT version's shots and save as a
     // NEW immutable draft version — history is never overwritten (§1.2).
     const ed = el.querySelector("[data-edit]");

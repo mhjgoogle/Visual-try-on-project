@@ -29,8 +29,9 @@ export default {
           const thumb = k && up[k]
             ? `<video class="athumb" src="${esc(up[k])}" muted preload="metadata"></video>`
             : `<span class="aph">无片</span>`;
-          // 生成情况: paid-op status projection for this shot (read-only)
-          const op = ops[`shot-${s.sequence}`];
+          // 生成情况: paid-op status projection for this shot (read-only);
+          // a locked draft's ops live under its minted official shot ids
+          const op = ops[ctx.lockedShotId ? ctx.lockedShotId(s.sequence) : `shot-${s.sequence}`];
           const st = op
             ? op.status === "committed"
               ? `<span style="font-size:10px;color:var(--ok)" title="已付费 ${esc(op.quote || "")} · ${esc(op.operation_id || "")}">✓已付费</span>`
@@ -54,8 +55,14 @@ export default {
             return `<button data-shot="${esc(nn)}"${has ? ' data-has="1"' : ""}>镜头 ${esc(nn)}${has ? " ✓已有" : ""}</button>`;
           }).join("")}</div>`
         : "";
+      // Draft-lock coherence hint (ADR-0047): once the draft is locked, the
+      // paid route's prompts + first frames come from the user's own draft.
+      const lp = ctx.project.lockedPlan;
+      const paidHint = lp
+        ? `<div style="font-size:10.5px;color:var(--ok);margin-top:4px">✓ 已锁定 plan v${esc(lp.plan_version)}：付费生成的提示词/首帧来自你的草稿</div>`
+        : `<div style="font-size:10.5px;color:var(--gate);margin-top:4px">提示：先在分镜节点「🔒 锁定为正式分镜」，付费生成才使用你的草稿与首帧图</div>`;
       const paidBtns = ctx.isPaid && ctx.isPaid()
-        ? `<div class="vbtns"><button class="nrun ghost" data-run${node._batchBusy ? " disabled" : ""}>${node._batchBusy ? esc(node._batchMsg || "批量生成中…") : "一键批量生成（付费 · 总额确认）"}</button><button class="nrun ghost" data-single>单镜头（MiniMax 付费）▾</button></div>${pick}`
+        ? `<div class="vbtns"><button class="nrun ghost" data-run${node._batchBusy ? " disabled" : ""}>${node._batchBusy ? esc(node._batchMsg || "批量生成中…") : "一键批量生成（付费 · 总额确认）"}</button><button class="nrun ghost" data-single>单镜头（MiniMax 付费）▾</button></div>${pick}${paidHint}`
         : `<div class="vbtns"><button class="nrun ghost" data-run>批量生成（自动 · 占位）</button></div><div style="font-size:10.5px;color:var(--text-faint);margin-top:4px">真实自动：MiniMax 付费（约 $0.28/6s）· 需 --enable-paid</div>`;
       const complete = done >= draft.length || node.state === "done";
       const foot = complete
@@ -128,8 +135,9 @@ export default {
         cmd: `generate_video · 单镜头 ${shot}`,
         kind: "视频",
         count: 1,
-        // paid mode binds the REAL generation to exactly this shot
-        shot: `shot-${Number(shot)}`,
+        // paid mode binds the REAL generation to exactly this shot; a locked
+        // draft binds its minted official shot id (draft-derived packet)
+        shot: ctx.lockedShotId ? ctx.lockedShotId(Number(shot)) : `shot-${Number(shot)}`,
         p50: 4.2,
         p90: 6.0,
         actual: 4.2,

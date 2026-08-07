@@ -137,6 +137,26 @@ export async function paidImageGenerate(project, slug, prompt, confirmUsd) {
   return j;
 }
 
+/** Fetch a same-origin upload URL and inline it as a data URL (ADR-0047:
+ *  first-frame images travel to the Gateway as data URLs, never paths).
+ *  Fails closed with `.tooLarge` when the original exceeds maxBytes. */
+export async function fetchAsDataUrl(url, maxBytes) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`读取图片失败 ${r.status}`);
+  const blob = await r.blob();
+  if (maxBytes && blob.size > maxBytes) {
+    const err = new Error(`图片 ${(blob.size / 1024 / 1024).toFixed(1)}MB 超过上限`);
+    err.tooLarge = true;
+    throw err;
+  }
+  return await new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result);
+    fr.onerror = () => reject(new Error("图片读取失败"));
+    fr.readAsDataURL(blob);
+  });
+}
+
 /** The demo creative fixture (used for canvas authoring content in both modes). */
 export function fixtureProject() {
   return SHENGTANG;

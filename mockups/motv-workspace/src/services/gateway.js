@@ -39,6 +39,16 @@ export async function getGenerationTarget(project, shotId) {
   return j;
 }
 
+/** Read-only lock coordinates (current shot-plan version + digest, ADR-0047). */
+export async function getLockTarget(project) {
+  const r = await fetch(
+    `/api/projects/${encodeURIComponent(project)}/lock-target`,
+  );
+  const j = await r.json().catch(() => null);
+  if (!r.ok) throw new Error(j && j.error ? j.error.detail : `lock-target ${r.status}`);
+  return j;
+}
+
 /** Step 1: read-only preflight — never spends, never writes. */
 export function preflight(project, envelope) {
   return _post(project, "preflight", envelope);

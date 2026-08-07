@@ -141,6 +141,82 @@ async function paidGenerate(shotId) {
   }
 }
 
+// --- REAL draft lock (ADR-0047 two-step: preflight → confirm → submit) ---
+// Turns the CURRENT canvas draft (shots + per-shot asset first-frame images)
+// into an official versioned plan/records/packets via the lock-draft-plan
+// Gateway command. Spends nothing; available in both modes.
+const FRAME_MAX_BYTES = Math.round(5.5 * 1024 * 1024); // ADR-0047 原图上限
+async function lockDraftPlan(node) {
+  const curV = (node.versions || []).find((x) => x.v === node.cur);
+  const draft = curV && curV.raw;
+  if (!draft || !draft.length) { toast("没有可锁定的分镜草稿"); return; }
+  if (node._lockBusy) return;
+  node._lockBusy = true;
+  try {
+    // per-shot first frame = the assets node's uploaded/generated image for
+    // the shot's slot, inlined as a data URL (>5.5MB fails closed with a
+    // compress-and-reupload hint; a shot without an image locks text-only)
+    const assetUploads = engine.nodes
+      .filter((n) => n.type === "assets")
+      .reduce((acc, n) => Object.assign(acc, n.uploads || {}), {});
+    const shots = [];
+    for (const s of draft) {
+      let frame = null;
+      const url = s.slot && assetUploads[s.slot];
+      if (url) {
+        try {
+          frame = await query.fetchAsDataUrl(url, FRAME_MAX_BYTES);
+        } catch (e) {
+          if (e.tooLarge) {
+            toast(`镜头 ${s.sequence} 首帧图超过 5.5MB：请压缩后重新上传`);
+            return;
+          }
+          throw e;
+        }
+      }
+      shots.push({
+        title: s.title,
+        description: s.description,
+        duration_seconds: s.duration_seconds,
+        first_frame_image: frame,
+      });
+    }
+    const tgt = await gw.getLockTarget(PROJECT_NAME);
+    const envelope = {
+      command_id: "cmd-lock-" + Date.now().toString(36),
+      name: "lock-draft-plan",
+      params: { ...tgt.params, shots },
+      target: tgt.target,
+    };
+    const pf = await gw.preflight(PROJECT_NAME, envelope);
+    est.openLock(pf, {
+      onConfirm: async (digest) => {
+        toast("已确认，正在发布正式分镜（新版本，不覆盖旧版）…");
+        try {
+          const receipt = await gw.submit(PROJECT_NAME, envelope, digest);
+          const oc = receipt.outcome || {};
+          if (receipt.status === "completed") {
+            curV.locked = { plan_version: oc.plan_version, shots: oc.shots || [] };
+            ctx.project.lockedPlan = curV.locked;
+            ctx.refresh(node);
+            ctx.refreshType("video");
+            ctx.persist();
+            toast(`✅ 已锁定为正式分镜 · plan v${oc.plan_version} · ${(oc.shots || []).length} 个镜头 packet 已编译`);
+          } else {
+            toast(`锁定结果：${receipt.status} · ${receipt.reason || ""}`);
+          }
+        } catch (e) {
+          toast("锁定被拒（fail-closed）：" + e.message);
+        }
+      },
+    });
+  } catch (e) {
+    toast("锁定预检失败：" + e.message);
+  } finally {
+    node._lockBusy = false;
+  }
+}
+
 // --- UI singletons ---
 const inspector = createInspector();
 const est = createEstimate({ renderBudget, toast });
@@ -200,6 +276,17 @@ const ctx = {
   },
   agentShotsDraft: (script) => query.generateShotsDraft(script),
   isPaid: () => PAID,
+  // draft lock (ADR-0047): canvas draft → official versioned plan/records/
+  // packets via the lock-draft-plan Gateway command (no spend, both modes)
+  lockDraft: (node) => lockDraftPlan(node),
+  // the record shot id paid generation binds for a draft sequence: a LOCKED
+  // draft uses its minted official ids (shot-p<plan>-<seq>), the pre-seeded
+  // evidence project keeps its shot-<seq> records
+  lockedShotId: (seq) => {
+    const lp = ctx.project.lockedPlan;
+    const row = lp && lp.shots && lp.shots[seq - 1];
+    return row ? row.shot_id : `shot-${seq}`;
+  },
   // manual providers (prototype scratch): media upload + explicit persistence
   uploadMedia: (slug, file) => {
     if (!CONNECTED) return Promise.reject(new Error("演示模式无后端，无法上传"));
@@ -261,7 +348,12 @@ ctx.shotEditor = createShotEditor({ toast });
 // --- adopt a paid staging clip into every video node's slot (ADR-0046 §3) ---
 async function adoptPaidIntoSlot(shotId, taskId) {
   const draft = ctx.project.draftShots || [];
-  const s = draft.find((x) => `shot-${x.sequence}` === shotId);
+  // match the CURRENT locked id or the legacy shot-<seq> id: a paid op
+  // submitted before a lock (or after one) must still adopt into its slot
+  // even if the lock state changed while the generation was running
+  const s = draft.find(
+    (x) => ctx.lockedShotId(x.sequence) === shotId || `shot-${x.sequence}` === shotId,
+  );
   if (!s || !s.slot) return false;
   try {
     const url = await gw.adoptPaid(PROJECT_NAME, taskId, `video-${s.slot}`);
@@ -298,7 +390,7 @@ async function batchPaidGenerate(node) {
     node._batchMsg = `批量付费 ${done + 1}/${pending.length} · 镜头 ${String(s.sequence).padStart(2, "0")} 生成中…`;
     ctx.refresh(node);
     try {
-      const shotId = `shot-${s.sequence}`;
+      const shotId = ctx.lockedShotId(s.sequence);
       const tgt = await gw.getGenerationTarget(PROJECT_NAME, shotId);
       const opId = "op-ui-" + Date.now().toString(36) + s.sequence;
       const envelope = {
@@ -551,6 +643,9 @@ function restoreGraph(data) {
       // Assets node falls back to fixtures after reload (auto-prefill breaks).
       const curDraft = nd.versions.find((x) => x.v === nd.cur);
       if (curDraft && curDraft.raw) ctx.project.draftShots = curDraft.raw;
+      // rehydrate the lock state too, so paid generation keeps binding the
+      // locked official shot ids after a reload
+      ctx.project.lockedPlan = (curDraft && curDraft.locked) || null;
     }
     idMap[sn.id] = engine.addNode(nd).id;
   }

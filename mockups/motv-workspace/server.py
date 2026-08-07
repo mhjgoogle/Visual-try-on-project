@@ -56,7 +56,14 @@ _STATIC_PREFIXES = ("src/", "styles/", "fixtures/")
 # enforces its own tighter bound so raising this never loosens JSON routes.
 _MAX_BODY_BYTES = 60_000_000
 _CANVAS_BODY_MAX = 2_000_000  # canvas JSON keeps its original tighter bound
-_GATEWAY_BODY_MAX = 2_000_000  # gateway/agent JSON envelopes stay small
+_GATEWAY_BODY_MAX = 2_000_000  # agent JSON envelopes stay small
+# Gateway command envelopes may inline per-shot first-frame images as data URLs
+# (lock-draft-plan, ADR-0047: <=5.5MB original -> ~7.34MB base64 per shot). The
+# planning contract allows up to 10 shots, so a fully legal image-heavy draft
+# is ~74MB of JSON — size the ceiling to fit it with margin, or a draft that
+# passes every per-shot cap would be 413-rejected at transport. Loopback-only +
+# Origin-guarded, same as every write route.
+_COMMAND_BODY_MAX = 80_000_000
 _NAME_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 # Manual media uploads (ADR pending for the CORE manual providers; this is the
@@ -320,11 +327,13 @@ def _host_is_loopback(host_header):
 class _App:
     """Transport-agnostic routing + read-only query/persistence logic.
 
-    With ``paid_catalog_dir`` set (server started with ``--enable-paid``), the
-    app additionally exposes the ADR-0041 generation write path: POST
-    ``/api/projects/<name>/{preflight,command}`` routed to a Command Gateway
-    whose registry holds ONLY the authorized ``submit-video-generation``
-    command. Registration is doubly gated (in-code ``authorized=True`` + the
+    POST ``/api/projects/<name>/{preflight,command}`` routes to a per-project
+    Command Gateway. Its registry always holds the no-spend ``lock-draft-plan``
+    command (ADR-0047: canvas draft -> official versioned plan/records/packets,
+    preview -> confirmed submit); with ``paid_catalog_dir`` set (server started
+    with ``--enable-paid``) it additionally holds the authorized
+    ``submit-video-generation`` command (ADR-0041). Paid registration is doubly
+    gated (in-code ``authorized=True`` + the
     ``AI_VIDEO_WORKFLOW_ENABLE_PAID_COMMANDS=1`` deployment flag); a real
     provider call additionally needs ``WFM1_MINIMAX_API_KEY`` at submit time.
     The server never calls a Provider itself — every write goes through the
@@ -336,6 +345,14 @@ class _App:
         self._svc = None
         self._projects: dict[str, Path] = {}
         self.paid_catalog_dir = paid_catalog_dir
+        # lock-draft-plan (ADR-0047) spends nothing, so it is registered in
+        # BOTH modes; it needs the same locked catalog the paid flow prices
+        # against (default: <account-root>/catalog, the --catalog-dir default).
+        self.lock_catalog_dir = (
+            paid_catalog_dir
+            if paid_catalog_dir is not None
+            else (account_root / "catalog" if account_root is not None else None)
+        )
         if _QUERY_OK and account_root is not None:
             try:
                 self._svc = WorkspaceQueryService(
@@ -355,29 +372,68 @@ class _App:
     def paid(self) -> bool:
         return self.paid_catalog_dir is not None
 
-    def _paid_gateway(self, root: Path):
-        """A per-project Gateway holding only the paid generation command."""
-        from ai_video_workflow.app.media_fetch import UrllibMediaFetcher
-        from ai_video_workflow.app.paid_gateway import (
-            ShotRecordTargetResolver,
-            register_paid_video_command,
+    def _command_gateway(self, root: Path):
+        """A per-project Gateway over the approved mockup command registry.
+
+        ``lock-draft-plan`` (no-spend, ADR-0047) is always registered; the
+        paid ``submit-video-generation`` command only in paid mode. Targets
+        are resolved per command family: shot-plan refs bind the draft lock,
+        shot-record refs bind paid generation.
+        """
+        from ai_video_workflow.app.lock_gateway import (
+            ShotPlanTargetResolver,
+            register_lock_draft_command,
         )
+        from ai_video_workflow.app.paid_gateway import ShotRecordTargetResolver
         from ai_video_workflow.gateway import CommandGateway, CommandRegistry
-        from ai_video_workflow.providers.registry import default_registry
 
         registry = CommandRegistry()
-        register_paid_video_command(
+        register_lock_draft_command(
             registry,
-            provider_registry=default_registry,
-            fetcher=UrllibMediaFetcher,
-            catalog_dir=self.paid_catalog_dir,
-            authorized=True,  # --enable-paid; env flag enforced inside
+            catalog_dir=self.lock_catalog_dir,
             account_root=self.account_root,
         )
+        if self.paid:
+            from ai_video_workflow.app.media_fetch import UrllibMediaFetcher
+            from ai_video_workflow.app.paid_gateway import (
+                register_paid_video_command,
+            )
+            from ai_video_workflow.providers.registry import default_registry
+
+            register_paid_video_command(
+                registry,
+                provider_registry=default_registry,
+                fetcher=UrllibMediaFetcher,
+                catalog_dir=self.paid_catalog_dir,
+                authorized=True,  # --enable-paid; env flag enforced inside
+                account_root=self.account_root,
+            )
+
+        plan_resolver = ShotPlanTargetResolver()
+        shot_resolver = ShotRecordTargetResolver()
+
+        class _RefDispatchResolver:
+            """Route a target ref to its command family's resolver.
+
+            Ref shapes are disjoint (``planning/shot_plan_v<N>.json`` vs a
+            bare shot id / ``records/shots/<id>.json``); anything either
+            resolver does not recognize reads as absent (fail-closed at the
+            Gateway).
+            """
+
+            def resolve_target(self, project_root, *, ref, version):
+                if isinstance(ref, str) and ref.startswith("planning/"):
+                    return plan_resolver.resolve_target(
+                        project_root, ref=ref, version=version
+                    )
+                return shot_resolver.resolve_target(
+                    project_root, ref=ref, version=version
+                )
+
         return CommandGateway(
             root,
             registry=registry,
-            target_resolver=ShotRecordTargetResolver(),
+            target_resolver=_RefDispatchResolver(),
             clock=lambda: datetime.now(timezone.utc),
         )
 
@@ -412,6 +468,8 @@ class _App:
                 return self._generation_target(
                     unquote(name), (params.get("shot_id") or [""])[0]
                 )
+            if sub == "lock-target":
+                return self._lock_target(unquote(name))
             if sub == "shots":
                 return self._shots(unquote(name))
             return self._query(unquote(name), sub)
@@ -444,11 +502,17 @@ class _App:
             {"error": {"category": "not_found", "detail": "unknown write route"}},
         )
 
-    # -- POST (Gateway write path, ADR-0041; only in paid mode) ------------
+    # -- POST (Gateway write path, ADR-0041/0047) ---------------------------
     def handle_post(self, raw_path: str, body: bytes):
-        # POST routes carry small JSON envelopes only — keep the original 2 MB
-        # bound here even though the transport now allows 8 MB image uploads.
-        if len(body) > _GATEWAY_BODY_MAX:
+        path = urlsplit(raw_path).path
+        # Agent routes carry small JSON envelopes only; the Gateway
+        # preflight/command routes may inline first-frame data URLs
+        # (lock-draft-plan) and share the transport ceiling instead.
+        is_command_route = path.startswith("/api/projects/") and path.endswith(
+            ("/preflight", "/command")
+        )
+        cap = _COMMAND_BODY_MAX if is_command_route else _GATEWAY_BODY_MAX
+        if len(body) > cap:
             return _json(
                 413,
                 {
@@ -458,7 +522,6 @@ class _App:
                     }
                 },
             )
-        path = urlsplit(raw_path).path
         if path == "/api/agent/shots-draft":
             return self._agent_shots_draft(body)
         if path == "/api/agent/tts":
@@ -481,13 +544,13 @@ class _App:
                 404,
                 {"error": {"category": "not_found", "detail": "unknown write route"}},
             )
-        if not self.paid:
+        if not _QUERY_OK:
             return _json(
-                403,
+                503,
                 {
                     "error": {
-                        "category": "forbidden",
-                        "detail": "paid commands not enabled (--enable-paid)",
+                        "category": "unavailable",
+                        "detail": "command backend not available (run inside the venv)",
                     }
                 },
             )
@@ -506,6 +569,18 @@ class _App:
             return _json(
                 400,
                 {"error": {"category": "bad_request", "detail": "body must be object"}},
+            )
+        # The no-spend lock-draft-plan command is available in both modes;
+        # every other Gateway command (paid generation) still needs paid mode.
+        if not self.paid and payload.get("name") != "lock-draft-plan":
+            return _json(
+                403,
+                {
+                    "error": {
+                        "category": "forbidden",
+                        "detail": "paid commands not enabled (--enable-paid)",
+                    }
+                },
             )
         from ai_video_workflow.errors import AiVideoWorkflowError
         from ai_video_workflow.gateway import CommandEnvelope, GatewayError
@@ -551,7 +626,7 @@ class _App:
                 },
             )
         try:
-            gateway = self._paid_gateway(root)
+            gateway = self._command_gateway(root)
             if sub == "preflight":
                 pf = gateway.preflight(envelope)
                 return _json(
@@ -935,6 +1010,66 @@ class _App:
             },
         )
 
+    def _lock_target(self, name: str):
+        """Read-only lock coordinates for the UI (ADR-0047).
+
+        The current shot-plan version + its file digest via the same resolver
+        the Gateway uses, so the digest the UI binds is the digest the submit
+        will verify. Available in BOTH modes — locking never spends.
+        """
+        if not _QUERY_OK:
+            return _json(
+                503,
+                {
+                    "error": {
+                        "category": "unavailable",
+                        "detail": "command backend not available (run inside the venv)",
+                    }
+                },
+            )
+        root = self._projects.get(name)
+        if root is None:
+            return _json(
+                404, {"error": {"category": "not_found", "detail": "unknown project"}}
+            )
+        from ai_video_workflow.app.lock_gateway import ShotPlanTargetResolver
+        from ai_video_workflow.planning import latest_shot_plan_version
+
+        try:
+            version = latest_shot_plan_version(root)
+        except Exception:  # noqa: BLE001 - fail closed, expose nothing
+            version = None
+        if version is None:
+            return _json(
+                404,
+                {
+                    "error": {
+                        "category": "not_found",
+                        "detail": "project has no shot plan",
+                    }
+                },
+            )
+        ref = f"planning/shot_plan_v{version}.json"
+        resolved = ShotPlanTargetResolver().resolve_target(
+            root, ref=ref, version=version
+        )
+        if not resolved.exists:
+            return _json(
+                404,
+                {"error": {"category": "not_found", "detail": "shot plan not found"}},
+            )
+        return _json(
+            200,
+            {
+                "target": {
+                    "ref": ref,
+                    "version": version,
+                    "content_digest": resolved.content_digest,
+                },
+                "params": {"plan_version": version},
+            },
+        )
+
     def _generation_target(self, name: str, shot_id: str):
         """Read-only generation coordinates for the UI (ref/digest/params).
 
@@ -967,6 +1102,18 @@ class _App:
                 404,
                 {"error": {"category": "not_found", "detail": "shot record not found"}},
             )
+        # Suggest the LATEST compiled packet version for the shot (a fresh
+        # lock-draft-plan compiles new versions); the Gateway re-verifies the
+        # packet against the approved inputs at preflight/submit regardless.
+        packets_dir = root / "planning" / "packets"
+        packet_versions = []
+        if packets_dir.is_dir():
+            packet_re = re.compile(rf"^{re.escape(shot_id)}_v([1-9][0-9]*)\.json$")
+            packet_versions = [
+                int(m.group(1))
+                for p in packets_dir.iterdir()
+                if (m := packet_re.match(p.name)) is not None
+            ]
         return _json(
             200,
             {
@@ -978,7 +1125,7 @@ class _App:
                 "params": {
                     "task_id": initial_task_id(shot_id),
                     "shot_id": shot_id,
-                    "packet_version": 1,
+                    "packet_version": max(packet_versions, default=1),
                 },
             },
         )
@@ -2056,11 +2203,16 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _route_body_cap(self) -> int:
         """Per-route transport ceiling, enforced BEFORE the body is read: only
-        the media-upload route may send large bodies; every JSON route is
+        the media-upload and Gateway-command routes may send large bodies
+        (uploads / inline first-frame data URLs); every other JSON route is
         bounded at 2 MB so an oversized request is refused without buffering."""
         path = urlsplit(self.path).path
         if path.startswith("/api/uploads/"):
             return _MAX_BODY_BYTES
+        if path.startswith("/api/projects/") and path.endswith(
+            ("/preflight", "/command")
+        ):
+            return _COMMAND_BODY_MAX
         return _GATEWAY_BODY_MAX
 
     def do_PUT(self):  # noqa: N802
