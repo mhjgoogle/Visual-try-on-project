@@ -11,8 +11,12 @@ import {
   videoModel,
   audioModel,
   editModel,
+  renderSettings,
+  renderEpisodes,
+  renderShots,
+  renderFrames,
 } from "../src/ui/workspaces.js";
-import { navBadges } from "../src/ui/production.js";
+import { navBadges, NAV } from "../src/ui/production.js";
 import * as sd from "../src/workflow/scriptdoc.js";
 
 /** Empty prodData snapshot (fresh project). */
@@ -207,16 +211,67 @@ test("navBadges: counts reflect state; empty modules still get a badge-less item
   const d = sd.createDoc();
   const empty = navBadges(d, pdEmpty());
   assert.deepEqual(empty, {
-    idea: "", script: "草稿", shots: "", assets: "", video: "", audio: "", edit: "",
+    story: "", settings: "", episodes: "",
+    script: "草稿", shots: "", frames: "", video: "", audio: "", edit: "",
   });
   sd.setBrief(d, "想法");
   sd.completeGeneration(d, sd.beginGeneration(d, "initial", "想法"), "v1");
   const b = navBadges(d, pdDraft());
-  assert.equal(b.idea, "✓");
+  assert.equal(b.story, "✓");
   assert.equal(b.script, "v1");
   assert.equal(b.shots, "2");
-  assert.equal(b.assets, "1/2");
+  assert.equal(b.frames, "1/2");
   assert.equal(b.video, "1/2");
   assert.equal(b.audio, "1/2");
   assert.equal(b.edit, "");
+  // 作品设定/剧集 never fabricate a count — their domains are not persisted yet
+  assert.equal(b.settings, "");
+  assert.equal(b.episodes, "");
+});
+
+// --- M2.5 最终信息架构 ----------------------------------------------------- //
+
+test("NAV: grouped final IA — 项目级 and 当前剧集 with every module present", () => {
+  assert.deepEqual(NAV.map((g) => g.sec), ["项目", "当前剧集"]);
+  assert.deepEqual(NAV[0].items.map((i) => i[0]), ["story", "settings", "episodes"]);
+  assert.deepEqual(NAV[1].items.map((i) => i[0]), ["script", "shots", "frames", "video", "audio", "edit"]);
+});
+
+function fakeCtx(pd, doc) {
+  const d = doc || sd.createDoc();
+  return { prodData: () => pd, script: { doc: () => d } };
+}
+
+test("作品设定/剧集 are honest placeholders — no fake persistence claimed", () => {
+  const settings = renderSettings();
+  assert.ok(settings.includes("尚未开放"));
+  assert.ok(settings.includes("后续检查点"));
+  const eps = renderEpisodes(fakeCtx(pdEmpty()));
+  assert.ok(eps.includes("单剧集视图"));
+  assert.ok(eps.includes("无剧集实体被持久化"));
+  assert.ok(eps.includes("剧本未生成"));
+});
+
+test("剧集 card reflects real current data without inventing entities", () => {
+  const d = sd.createDoc();
+  sd.completeGeneration(d, sd.beginGeneration(d, "initial", "想法"), "剧本");
+  const eps = renderEpisodes(fakeCtx(pdDraft(), d));
+  assert.ok(eps.includes("剧本 v1"));
+  assert.ok(eps.includes("2 个镜头"));
+});
+
+test("分镜 renders creator-facing Shot cards from the current collection", () => {
+  const html = renderShots(fakeCtx(pdDraft()));
+  assert.ok(html.includes("shotgrid"));
+  assert.ok(html.includes("跪殿"));
+  assert.ok(html.includes("逼诗"));
+  assert.ok(html.includes("/u/a1_v2.png")); // current asset version as card thumb
+  assert.ok(!html.includes("场景")); // no fabricated Scene grouping
+});
+
+test("画面 workspace presents the same asset read model as cards", () => {
+  const html = renderFrames(fakeCtx(pdDraft()));
+  assert.ok(html.includes("画面工作区"));
+  assert.ok(html.includes("/u/a1_v2.png"));
+  assert.ok(html.includes("缺图")); // shot 2 honestly missing
 });

@@ -1,23 +1,38 @@
-// Production Workspace shell — the creator-facing editing surface. Left nav
-// selects a production module (transient UI state only — never persisted);
-// center renders that module's workspace: Script keeps its full editor + the
-// AI Director pane, every other stage opens a read-only status workspace
-// (src/ui/workspaces.js) over the same project state — a stage with no data
-// opens to an empty/needs-input state, never a disabled item. PURE
-// PRESENTATION over ctx.script / ctx.prodData(): the scriptDoc domain
-// document stays the single source of truth (shared with the workflow node),
-// AI calls stay behind the controller in app.js.
+// Production Workspace shell (M2.5 — final information architecture).
+//
+// Creator-facing product shell: a persistent Project/Episode context header,
+// a grouped left nav (项目级 / 当前剧集), the selected module's workspace in
+// the center, and a PERSISTENT right-side AI Director region. The Script
+// module keeps its full editor + live AI assistant; every other module's AI
+// pane states honestly what is available today and what waits on later
+// domain checkpoints (M3/M4). PURE PRESENTATION over ctx.script /
+// ctx.prodData(): the scriptDoc domain document stays the single source of
+// truth (shared with the workflow node), AI calls stay behind the controller
+// in app.js. Nav selection is transient UI state only — never persisted.
 import { $, esc } from "../util/dom.js";
 import * as ws from "./workspaces.js";
 
-const NAV = [
-  ["idea", "💡", "创意"],
-  ["script", "📄", "剧本"],
-  ["shots", "🎞", "分镜"],
-  ["assets", "🧑‍🎨", "资产"],
-  ["video", "▶", "视频"],
-  ["audio", "🎵", "音频"],
-  ["edit", "✂", "剪辑"],
+/** Grouped navigation — the approved final IA. Exported for tests. */
+export const NAV = [
+  {
+    sec: "项目",
+    items: [
+      ["story", "📖", "故事"],
+      ["settings", "🎭", "作品设定"],
+      ["episodes", "📺", "剧集"],
+    ],
+  },
+  {
+    sec: "当前剧集",
+    items: [
+      ["script", "📄", "剧本"],
+      ["shots", "🎞", "分镜"],
+      ["frames", "🖼", "画面"],
+      ["video", "▶", "视频"],
+      ["audio", "🎵", "音频"],
+      ["edit", "✂", "剪辑"],
+    ],
+  },
 ];
 
 /** Pure view-model of the script document for the shell (unit-tested):
@@ -38,24 +53,70 @@ export function scriptStatus(doc) {
 }
 
 /** Pure nav badges from current state — counts, not availability: every
- *  module stays clickable regardless of workflow progress (unit-tested). */
+ *  module stays clickable regardless of workflow progress (unit-tested).
+ *  作品设定/剧集 carry no counts: their domain models don't exist yet and a
+ *  fabricated number would claim persistence M2.5 does not have. */
 export function navBadges(doc, pd) {
   const st = scriptStatus(doc);
   const shots = ws.shotsModel(pd);
-  const assets = ws.assetsModel(pd);
+  const frames = ws.assetsModel(pd);
   const video = ws.videoModel(pd);
   const audio = ws.audioModel(pd);
   const edit = ws.editModel(pd);
   return {
-    idea: doc.brief && doc.brief.trim() ? "✓" : "",
+    story: doc.brief && doc.brief.trim() ? "✓" : "",
+    settings: "",
+    episodes: "",
     script: st.versions ? `v${st.active}` : "草稿",
     shots: shots.empty ? "" : String(shots.shots.length),
-    assets: assets.empty ? "" : `${assets.done}/${assets.total}`,
+    frames: frames.empty ? "" : `${frames.done}/${frames.total}`,
     video: video.empty ? "" : `${video.done}/${video.total}`,
     audio: audio.empty ? "" : `${audio.done}/${audio.total}`,
     edit: edit.finals ? `✓v${edit.finals}` : "",
   };
 }
+
+const MODULE_LABEL = {
+  story: "故事", settings: "作品设定", episodes: "剧集", script: "剧本",
+  shots: "分镜", frames: "画面", video: "视频", audio: "音频", edit: "剪辑",
+};
+
+/** AI Director copy for non-script modules: first what WILL come (and what it
+ *  waits on), then what genuinely works today — honest labels, nothing fake. */
+const AI_DIRECTOR = {
+  story: {
+    future: ["创意扩写、题材/结构建议（待创意域扩展）"],
+    now: ["现在可用：写下创意后，到「剧本」工作区一键生成剧本 v1"],
+  },
+  settings: {
+    future: ["角色/场景/道具/风格一致性检查（待作品设定域模型，后续检查点）"],
+    now: ["现在可用：暂无 — 本工作区当前没有可操作能力"],
+  },
+  episodes: {
+    future: ["剧集规划、跨集连贯性建议（待剧集域模型，后续检查点）"],
+    now: ["现在可用：暂无 — 当前为单剧集视图"],
+  },
+  shots: {
+    future: ["按镜头的修订建议与一致性检查（待资产/生成记录域，M3/M4）"],
+    now: ["现在可用：分镜生成/重新生成/手工编辑在工作流视图「脚本生成器」节点"],
+  },
+  frames: {
+    future: ["画面一致性/风格检查（待资产域模型，M3）"],
+    now: ["现在可用：图片上传与付费生成在工作流视图「资产准备」节点"],
+  },
+  video: {
+    future: ["镜头节奏/运动建议（待生成记录域，M4）"],
+    now: ["现在可用：视频上传/付费生成在工作流视图「视频生成」节点"],
+  },
+  audio: {
+    future: ["配音风格与情绪建议（待 VoiceProfile 域，后续检查点）"],
+    now: ["现在可用：配音上传/本地 TTS 在工作流视图「音频生成」节点"],
+  },
+  edit: {
+    future: ["剪辑节奏/转场建议（待生成记录域，M4）"],
+    now: ["现在可用：本地 FFmpeg 合成在工作流视图「剪辑合成」节点（免费）"],
+  },
+};
 
 export function createProduction(getCtx) {
   const root = $("#production");
@@ -110,7 +171,37 @@ export function createProduction(getCtx) {
     );
   }
 
-  function scriptContent(ctx) {
+  /** The persistent right-side AI Director region. Script gets the live
+   *  assistant; every other module states capabilities honestly. */
+  function aiDirector(ctx) {
+    if (activeModule === "script") {
+      const d = ctx.script.doc();
+      return `<aside class="prod-ai"><div class="pa-title">🎬 AI 导演 · 剧本助理</div>${aiPane(ctx, d, scriptStatus(d))}</aside>`;
+    }
+    const c = AI_DIRECTOR[activeModule] || { future: [], now: [] };
+    const future = c.future
+      .map((t) => `<div class="pa-unavail">◌ ${esc(t)}</div>`)
+      .join("");
+    const now = c.now.map((t) => `<div class="pa-note">${esc(t)}</div>`).join("");
+    return (
+      `<aside class="prod-ai"><div class="pa-title">🎬 AI 导演 · ${esc(MODULE_LABEL[activeModule] || "")}</div>` +
+      `<div class="pa-lab">待后续域模型解锁</div>${future}${now}</aside>`
+    );
+  }
+
+  /** Persistent Project / current-Episode context header. The episode is the
+   *  project's single current episode VIEW — no Episode entity is persisted
+   *  (that domain model belongs to a later checkpoint), and the label says so. */
+  function ctxHead(ctx) {
+    const name = (ctx.project && ctx.project.name) || "未命名项目";
+    return (
+      `<header class="prod-ctx"><span class="pc-proj">📁 ${esc(name)}</span>` +
+      `<span class="pc-sep">›</span><span class="pc-ep">📺 当前剧集</span>` +
+      `<span class="pc-note">单剧集视图 · 多剧集管理待剧集域模型（后续检查点）</span></header>`
+    );
+  }
+
+  function scriptMain(ctx) {
     const d = ctx.script.doc();
     const st = scriptStatus(d);
     const dirty = ctx.script.isDirty();
@@ -122,15 +213,16 @@ export function createProduction(getCtx) {
       `<div class="pm-head"><div class="pm-title">📄 剧本工作区</div>${vbar}<div class="pm-note">应用修订 = 创建新版本，旧版本保留</div></div>` +
       `<div class="pm-brief"><label class="pa-lab">💡 创意 / 想法</label><textarea class="brieftext pm-brieftext" rows="2" spellcheck="false" placeholder="一句话创意，例如：社畜穿越盛唐，被逼当殿作诗">${esc(d.brief)}</textarea></div>` +
       `<textarea class="pm-text" spellcheck="false" placeholder="在此输入/粘贴剧本，或在右侧用创意生成">${esc(ctx.script.currentText())}</textarea>` +
-      `</main>` +
-      `<aside class="prod-ai"><div class="pa-title">🎬 AI 导演 · 剧本助理</div>${aiPane(ctx, d, st)}</aside>`
+      `</main>`
     );
   }
 
   const WORKSPACES = {
-    idea: ws.renderIdea,
+    story: ws.renderStory,
+    settings: ws.renderSettings,
+    episodes: ws.renderEpisodes,
     shots: ws.renderShots,
-    assets: ws.renderAssets,
+    frames: ws.renderFrames,
     video: ws.renderVideo,
     audio: ws.renderAudio,
     edit: ws.renderEdit,
@@ -139,16 +231,22 @@ export function createProduction(getCtx) {
   function render() {
     const ctx = getCtx();
     const badges = navBadges(ctx.script.doc(), ctx.prodData());
-    const nav = NAV.map(([k, icon, label]) => {
-      const b = badges[k];
-      return `<button class="pnav-item${k === activeModule ? " active" : ""}" data-mod="${k}">${icon} ${label}${b ? `<span class="pnav-badge">${esc(b)}</span>` : ""}</button>`;
-    }).join("");
-    const content =
+    const nav = NAV.map(
+      (grp) =>
+        `<div class="pnav-sec">${esc(grp.sec)}</div>` +
+        grp.items
+          .map(([k, icon, label]) => {
+            const b = badges[k];
+            return `<button class="pnav-item${k === activeModule ? " active" : ""}" data-mod="${k}">${icon} ${label}${b ? `<span class="pnav-badge">${esc(b)}</span>` : ""}</button>`;
+          })
+          .join(""),
+    ).join("");
+    const main =
       activeModule === "script"
-        ? scriptContent(ctx)
+        ? scriptMain(ctx)
         : `<main class="prod-main">${WORKSPACES[activeModule](ctx)}</main>`;
-    root.classList.toggle("noai", activeModule !== "script");
-    root.innerHTML = `<nav class="prod-nav">${nav}</nav>` + content;
+    root.innerHTML =
+      ctxHead(ctx) + `<nav class="prod-nav">${nav}</nav>` + main + aiDirector(ctx);
     bind(ctx);
   }
 
@@ -162,7 +260,7 @@ export function createProduction(getCtx) {
   function bind(ctx) {
     // left nav — every module opens; selection is visually .active
     root.querySelectorAll("[data-mod]").forEach((b) => (b.onclick = () => setModule(b.dataset.mod)));
-    // the brief textarea exists in BOTH the script and idea workspaces
+    // the brief textarea exists in BOTH the script and story workspaces
     const brief = root.querySelector(".pm-brieftext");
     if (brief) brief.oninput = () => ctx.script.setBrief(brief.value);
     const jump = root.querySelector("[data-goto]");

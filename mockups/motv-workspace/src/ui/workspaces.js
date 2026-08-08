@@ -208,7 +208,7 @@ function head(title, meta) {
 
 // ---------- workspaces ---------------------------------------------------- //
 
-export function renderIdea(ctx) {
+export function renderStory(ctx) {
   const m = ideaModel(ctx.script.doc());
   const status = m.hasScript
     ? m.scriptVersions
@@ -223,15 +223,48 @@ export function renderIdea(ctx) {
         ? `<div class="ws-kv gate">⚠ 上次生成失败（见剧本工作区）</div>`
         : "";
   return (
-    head("💡 创意工作区", "创意是剧本的输入 · 与剧本工作区同源") +
+    head("📖 故事工作区", "项目级 · 故事创意是剧本的输入 · 与剧本工作区同源") +
     `<div class="pm-brief"><label class="pa-lab">创意 / 想法（Creative Brief）</label><textarea class="brieftext pm-brieftext" rows="4" spellcheck="false" placeholder="一句话创意，例如：社畜穿越盛唐，被逼当殿作诗">${esc(ctx.script.doc().brief)}</textarea></div>` +
     `<div class="ws-kv">${esc(status)}</div>` + pending +
     `<button class="nrun ws-jump" data-goto="script">→ 去剧本工作区${m.hasScript ? "" : "生成 v1"}</button>`
   );
 }
 
+/** 作品设定 (Production Bible) — the domain model does not exist yet, and this
+ *  workspace says exactly that instead of pretending: no fake fields, no fake
+ *  persistence, a plain list of what a later checkpoint will bring. */
+export function renderSettings() {
+  return (
+    head("🎭 作品设定", "项目级 · 域模型未建立") +
+    empty("🎭", "作品设定（Production Bible）尚未开放", [
+      "将包含：角色 / 场景 / 道具 / 美术风格 / 声音风格 等跨集一致性设定",
+      "依赖作品设定域模型 — 属于后续检查点，当前没有可编辑或已持久化的数据",
+    ])
+  );
+}
+
+/** 剧集 — no Episode entity is persisted yet. Present the project's single
+ *  current episode VIEW with live counts from real data, labeled honestly. */
+export function renderEpisodes(ctx) {
+  const doc = ctx.script.doc();
+  const pd = ctx.prodData();
+  const shots = shotsModel(pd);
+  const edit = editModel(pd);
+  const bits = [
+    doc.versions.length ? `剧本 v${doc.active}（共 ${doc.versions.length} 版）` : "剧本未生成",
+    shots.empty ? "分镜未生成" : `${shots.shots.length} 个镜头`,
+    edit.finals ? `成片 v${edit.finals}` : "未合成",
+  ].join(" · ");
+  return (
+    head("📺 剧集", "项目级 · 单剧集视图") +
+    `<div class="ws-epcard"><div class="ws-epname">▶ 当前剧集</div><div class="ws-desc">${esc(bits)}</div><div class="ws-tag">当前</div></div>` +
+    `<div class="ws-kv">多剧集管理（新建/切换/排序）依赖剧集域模型 — 属于后续检查点，当前项目以单剧集呈现，无剧集实体被持久化。</div>`
+  );
+}
+
 export function renderShots(ctx) {
-  const m = shotsModel(ctx.prodData());
+  const pd = ctx.prodData();
+  const m = shotsModel(pd);
   const meta = [
     m.versions && m.versions.count ? `版本 v${m.versions.cur}/${m.versions.count}` : "",
     m.lock ? `🔒 已锁定 plan v${esc(String(m.lock.planVersion))}` : "未锁定",
@@ -242,36 +275,47 @@ export function renderShots(ctx) {
       "在工作流视图的「脚本生成器」节点点「基于剧本生成分镜」",
     ]);
   }
-  const rows = m.shots
-    .map(
-      (s) =>
-        `<div class="ws-row"><span class="n mono">${esc(nn(s.seq))}</span><div class="ws-main"><b>${esc(s.title)}</b>${s.description ? `<div class="ws-desc">${esc(s.description)}</div>` : ""}</div>${s.duration != null ? `<span class="ws-tag">${esc(String(s.duration))}s</span>` : ""}</div>`,
-    )
+  // Creator-facing Shot cards over the CURRENT shot collection. Scene grouping
+  // is not provable from current data, so this is deliberately a flat
+  // collection — no fabricated Scene semantics (that domain waits for later).
+  const cards = m.shots
+    .map((s) => {
+      const ref = s.slot ? currentRef(pd.assetUploads, s.slot) : null;
+      const thumb = ref
+        ? `<img class="sc-thumb" src="${esc(ref.url)}" alt="">`
+        : `<div class="sc-thumb sc-none">🎞</div>`;
+      return (
+        `<div class="shotcard">${thumb}<div class="sc-body">` +
+        `<div class="sc-title"><span class="n mono">${esc(nn(s.seq))}</span> <b>${esc(s.title)}</b>${s.duration != null ? `<span class="ws-tag">${esc(String(s.duration))}s</span>` : ""}</div>` +
+        (s.description ? `<div class="ws-desc">${esc(s.description)}</div>` : "") +
+        `</div></div>`
+      );
+    })
     .join("");
   const note = m.kind === "draft" ? "" : `<div class="ws-kv">（当前仅有镜头标题行 — 结构化草稿在生成分镜后可见）</div>`;
-  return head("🎞 分镜工作区", `${m.shots.length} 个镜头 · ${meta} · 只读`) + note + `<div class="ws-list">${rows}</div>`;
+  return head("🎞 分镜工作区", `${m.shots.length} 个镜头 · ${meta} · 只读`) + note + `<div class="shotgrid">${cards}</div>`;
 }
 
-export function renderAssets(ctx) {
+export function renderFrames(ctx) {
   const m = assetsModel(ctx.prodData());
   if (m.empty) {
-    return head("🧑‍🎨 资产工作区", "只读") + mediaEmpty("🧑‍🎨", "图片资产", m.context, [
+    return head("🖼 画面工作区", "只读") + mediaEmpty("🖼", "画面（镜头图片）", m.context, [
       "前置：分镜（分镜工作区当前为空则先生成分镜）",
       "生成分镜后，在工作流视图的「资产准备」节点按镜头上传/生成图片",
     ]);
   }
-  const rows = m.items
+  const cards = m.items
     .map((x) => {
       const thumb = x.url
-        ? `<img class="athumb" src="${esc(x.url)}" alt="">`
-        : `<span class="aph">无图</span>`;
+        ? `<img class="sc-thumb" src="${esc(x.url)}" alt="">`
+        : `<div class="sc-thumb sc-none">无图</div>`;
       const meta = x.url
         ? `v${x.current} · 共 ${x.versions} 版 · ${esc(ORIGIN_ZH[x.origin] || x.origin || "")}`
         : "缺图";
-      return `<div class="ws-row">${thumb}<div class="ws-main"><b>${esc(nn(x.seq))} ${esc(x.title)}</b><div class="ws-desc">${meta}</div></div></div>`;
+      return `<div class="shotcard">${thumb}<div class="sc-body"><div class="sc-title"><span class="n mono">${esc(nn(x.seq))}</span> <b>${esc(x.title)}</b></div><div class="ws-desc">${meta}</div></div></div>`;
     })
     .join("");
-  return head("🧑‍🎨 资产工作区", `图片就绪 ${m.done}/${m.total} · 只读`) + `<div class="ws-list">${rows}</div>`;
+  return head("🖼 画面工作区", `画面就绪 ${m.done}/${m.total} · 只读`) + `<div class="shotgrid">${cards}</div>`;
 }
 
 export function renderVideo(ctx) {
