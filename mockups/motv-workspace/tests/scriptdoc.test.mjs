@@ -17,7 +17,9 @@ test("initial generation applies directly as v1 and records the instruction", ()
   assert.equal(sd.completeGeneration(d, id, "【金銮殿·日】剧本正文"), true);
   assert.equal(d.pending, null);
   assert.equal(d.versions.length, 1);
-  assert.deepEqual(d.versions[0], {
+  assert.match(d.versions[0].id, /^sv-/); // stable machine identity (M2)
+  const { id: _svid, ...fields } = d.versions[0];
+  assert.deepEqual(fields, {
     v: 1,
     content: "【金銮殿·日】剧本正文",
     instruction: "社畜穿越盛唐",

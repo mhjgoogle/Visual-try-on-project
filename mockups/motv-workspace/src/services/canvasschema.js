@@ -18,11 +18,83 @@
 //   outcome overwrite the stored document.
 
 /** Authoritative CURRENT canvas schema version. Saves must emit exactly this. */
-export const CANVAS_SCHEMA_VERSION = 1;
+export const CANVAS_SCHEMA_VERSION = 2;
+
+/**
+ * v1 → v2 (checkpoint M2): stable creator identity + minimal provenance.
+ * Purely ADDITIVE — no existing field is renamed, removed, or altered:
+ * - scriptDoc.versions[]           += id                     (sv-mig-<n>)
+ * - node.versions[]                += id                     (sdv-mig-<n>)
+ * - draft versions (raw/draft)     += sourceScriptVersionId / basedOnDraftId
+ *   — legacy saves never recorded this relation, so it is honestly null,
+ *   never guessed from sequence/index/slot
+ * - draft raw shots                += shotId                 (shot-mig-<n>)
+ *
+ * Determinism: ids are counter-based in document traversal order, so loading
+ * the same untouched v1 save always mints the same identities. Runtime-minted
+ * ids (identity.js) use UUIDs — the `-mig-` namespace cannot collide with
+ * them. Records that already carry a string id are left untouched.
+ */
+function migrateV1ToV2(doc) {
+  const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
+  // Collision safety: a v1 document may ALREADY carry ids (e.g. hand-restored
+  // from a v2 backup). Those are kept verbatim, so freshly minted ids must
+  // skip every id already present — duplicates would make identity ambiguous.
+  const taken = new Set();
+  if (isObj(doc.scriptDoc) && Array.isArray(doc.scriptDoc.versions)) {
+    for (const ver of doc.scriptDoc.versions) {
+      if (isObj(ver) && typeof ver.id === "string") taken.add(ver.id);
+    }
+  }
+  if (Array.isArray(doc.nodes)) {
+    for (const n of doc.nodes) {
+      if (!isObj(n) || !Array.isArray(n.versions)) continue;
+      for (const ver of n.versions) {
+        if (!isObj(ver)) continue;
+        if (typeof ver.id === "string") taken.add(ver.id);
+        for (const s of Array.isArray(ver.raw) ? ver.raw : []) {
+          if (isObj(s) && typeof s.shotId === "string") taken.add(s.shotId);
+        }
+      }
+    }
+  }
+  const counters = { sv: 0, sdv: 0, shot: 0 };
+  const mig = (p) => {
+    let cand;
+    do cand = `${p}-mig-${++counters[p]}`;
+    while (taken.has(cand));
+    taken.add(cand);
+    return cand;
+  };
+  if (isObj(doc.scriptDoc) && Array.isArray(doc.scriptDoc.versions)) {
+    for (const ver of doc.scriptDoc.versions) {
+      if (isObj(ver) && typeof ver.id !== "string") ver.id = mig("sv");
+    }
+  }
+  if (Array.isArray(doc.nodes)) {
+    for (const n of doc.nodes) {
+      if (!isObj(n) || !Array.isArray(n.versions)) continue;
+      for (const ver of n.versions) {
+        if (!isObj(ver)) continue;
+        if (typeof ver.id !== "string") ver.id = mig("sdv");
+        if (Array.isArray(ver.raw) || ver.draft === true) {
+          if (!("sourceScriptVersionId" in ver)) ver.sourceScriptVersionId = null;
+          if (!("basedOnDraftId" in ver)) ver.basedOnDraftId = null;
+        }
+        if (Array.isArray(ver.raw)) {
+          for (const s of ver.raw) {
+            if (isObj(s) && typeof s.shotId !== "string") s.shotId = mig("shot");
+          }
+        }
+      }
+    }
+  }
+  return doc;
+}
 
 /** Sequential migration steps: { [fromVersion]: (doc) => docAtFromVersion+1 }.
- *  Empty at v1 — extended by future checkpoints, never speculatively. */
-export const MIGRATIONS = {};
+ *  Extended one real step at a time, never speculatively. */
+export const MIGRATIONS = { 1: migrateV1ToV2 };
 
 /** Read the schema version of a raw persisted document.
  *  Returns a positive integer, or null if the marker is malformed.

@@ -50,9 +50,10 @@ function v1Doc() {
 
 // --- schema constants -------------------------------------------------------
 
-test("authoritative current version is 1 and no migrations ship yet", () => {
-  assert.equal(CANVAS_SCHEMA_VERSION, 1);
-  assert.deepEqual(MIGRATIONS, {});
+test("authoritative current version is 2 with exactly the v1→v2 migration", () => {
+  assert.equal(CANVAS_SCHEMA_VERSION, 2);
+  assert.deepEqual(Object.keys(MIGRATIONS), ["1"]);
+  assert.equal(typeof MIGRATIONS[1], "function");
 });
 
 test("readSchemaVersion: explicit, legacy-missing, malformed", () => {
@@ -66,13 +67,24 @@ test("readSchemaVersion: explicit, legacy-missing, malformed", () => {
 
 // --- dispatch: current / legacy / empty ------------------------------------
 
-test("existing real v1 save loads as-is with no mutation", () => {
+test("existing v1 save migrates to current without mutating the input", () => {
   const doc = v1Doc();
   const snapshot = structuredClone(doc);
   const res = migrateToCurrent(doc);
   assert.equal(res.status, "ok");
   assert.equal(res.fromVersion, 1);
-  assert.equal(res.doc, doc); // current version: returned untouched, not rewritten
+  assert.notEqual(res.doc, doc); // migrated on a deep copy…
+  assert.deepEqual(doc, snapshot); // …the caller's object is never touched
+  assert.equal(res.doc.v, CANVAS_SCHEMA_VERSION);
+});
+
+test("current-version (v2) save loads as-is with no rewriting", () => {
+  const doc = migrateToCurrent(v1Doc()).doc; // a genuine v2 document
+  const snapshot = structuredClone(doc);
+  const res = migrateToCurrent(doc);
+  assert.equal(res.status, "ok");
+  assert.equal(res.fromVersion, CANVAS_SCHEMA_VERSION);
+  assert.equal(res.doc, doc); // current version: returned untouched
   assert.deepEqual(doc, snapshot);
 });
 
@@ -98,7 +110,8 @@ test("REAL saved project fixtures (data/*.json) dispatch ok", async () => {
     const doc = JSON.parse(fs.readFileSync(p, "utf-8"));
     const res = migrateToCurrent(doc);
     assert.equal(res.status, "ok", `${rel}: ${res.detail || res.status}`);
-    assert.equal(res.doc, doc); // v1 is current — loaded untouched
+    assert.equal(res.fromVersion, 1);
+    assert.equal(res.doc.v, CANVAS_SCHEMA_VERSION);
   }
 });
 

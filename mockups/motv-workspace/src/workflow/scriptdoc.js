@@ -11,10 +11,15 @@
 // proposed / failed) and is intentionally NOT persisted — a reload lands on the
 // last durable version, never on a half-finished call.
 
+import { mintId } from "./identity.js";
+
 /** One immutable version record: what was asked (instruction), what came back
- *  (content), where it started (basedOn) and how (origin). */
+ *  (content), where it started (basedOn) and how (origin). `id` is the stable
+ *  machine identity (M2) — minted once here, carried forever; the integer `v`
+ *  stays the creator-facing number and keeps its existing dense-chain rules. */
 function versionRecord(doc, { content, instruction, origin, basedOn }) {
   return {
+    id: mintId("sv"),
     v: doc.versions.length + 1,
     content: String(content),
     instruction: String(instruction || ""),
@@ -32,6 +37,10 @@ function sanitizeVersions(list) {
   for (const x of list) {
     if (!x || typeof x.content !== "string" || !Number.isInteger(x.v)) continue;
     out.push({
+      // stable id survives the reload verbatim; only a tampered/legacy record
+      // without one gets a fresh mint (the v1→v2 migration normally backfills
+      // deterministic ids before this ever runs)
+      id: typeof x.id === "string" && x.id ? x.id : mintId("sv"),
       v: out.length + 1, // renumber defensively — the chain must stay dense
       content: x.content,
       instruction: typeof x.instruction === "string" ? x.instruction : "",
@@ -90,6 +99,15 @@ export function currentText(doc) {
 export function isDirty(doc) {
   const av = activeVersion(doc);
   return av != null && typeof doc.workingText === "string" && doc.workingText !== av.content;
+}
+
+/** The stable id of the Script version whose exact content downstream steps
+ *  would consume RIGHT NOW — or null when that provenance cannot be proven
+ *  (no versions yet, or the buffer holds unversioned manual edits). Missing
+ *  provenance is recorded honestly as null, never guessed (M2). */
+export function sourceVersionId(doc) {
+  const av = activeVersion(doc);
+  return av && !isDirty(doc) ? av.id : null;
 }
 
 export function setBrief(doc, idea) {

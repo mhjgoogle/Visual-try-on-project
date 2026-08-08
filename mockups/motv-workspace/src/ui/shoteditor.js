@@ -3,6 +3,26 @@
 // result back via onSave — the CALLER creates a NEW immutable version (never
 // overwrites history, per §1.2). All user/agent text is escaped on render.
 import { $, esc } from "../util/dom.js";
+import { mintId } from "../workflow/identity.js";
+
+/** Normalize edited shots for a NEW immutable draft version (pure — used by
+ *  the save handler, exported for tests). Identity semantics (M2):
+ *  - a surviving shot keeps its `shotId` no matter how its fields changed or
+ *    where it moved in the list — identity is carried, never re-derived;
+ *  - a shot without one (newly added here, or derived from display-only demo
+ *    rows) mints a fresh `shotId`;
+ *  - `slot` keeps its EXACT legacy behavior: surviving shots keep their slot
+ *    (their uploaded media follows them), new shots get `<prefix>-<i>`. */
+export function normalizeShots(items, slotPrefix) {
+  return items.map((s, i) => ({
+    shotId: typeof s.shotId === "string" && s.shotId ? s.shotId : mintId("shot"),
+    sequence: i + 1,
+    title: s.title.trim().slice(0, 80),
+    description: (s.description || "").trim().slice(0, 500) || s.title.trim(),
+    duration_seconds: s.duration_seconds === 10 ? 10 : 6,
+    slot: s.slot || `${slotPrefix}-${i + 1}`,
+  }));
+}
 
 export function createShotEditor({ toast }) {
   const scrim = $("#se-scrim");
@@ -64,15 +84,7 @@ export function createShotEditor({ toast }) {
       toast("每个镜头都需要镜头名");
       return;
     }
-    const out = items.map((s, i) => ({
-      sequence: i + 1,
-      title: s.title.trim().slice(0, 80),
-      description: (s.description || "").trim().slice(0, 500) || s.title.trim(),
-      duration_seconds: s.duration_seconds === 10 ? 10 : 6,
-      // surviving shots keep their slot (uploaded image follows the SHOT);
-      // new shots get a fresh slot under the caller's version prefix.
-      slot: s.slot || `${slotPrefix}-${i + 1}`,
-    }));
+    const out = normalizeShots(items, slotPrefix);
     close();
     if (onSave) onSave(out);
   };
@@ -80,6 +92,7 @@ export function createShotEditor({ toast }) {
   function open(initial, opts = {}) {
     // Deep-copy so cancel never mutates the caller's version data.
     items = (initial || []).map((s) => ({
+      shotId: typeof s.shotId === "string" && s.shotId ? s.shotId : null,
       sequence: s.sequence,
       title: s.title || "",
       description: s.description || "",

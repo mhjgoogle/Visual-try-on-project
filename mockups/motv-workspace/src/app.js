@@ -367,6 +367,9 @@ const ctx = {
   // from the script DOMAIN document ONLY: an empty/cleared doc reads as empty
   // so shot generation refuses instead of running on non-script text
   getScriptText: () => scriptdoc.currentText(scriptDoc),
+  // stable id of the Script version that text comes from — null when the
+  // buffer holds unversioned manual edits (provenance is never guessed, M2)
+  getScriptSourceId: () => scriptdoc.sourceVersionId(scriptDoc),
   // Script domain controller (Idea → Script slice): the ONLY way node views
   // touch the script document. State transitions live in workflow/scriptdoc.js;
   // the AI call lives in generateScript() above.

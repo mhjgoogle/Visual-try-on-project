@@ -2,6 +2,7 @@
 // produces an immutable new version (v1, v2…) that can be compared.
 import { nx } from "./shared.js";
 import { esc } from "../../util/dom.js";
+import { mintId, assignShotIdentity } from "../identity.js";
 
 const SKEL9 = '<div class="skel live">' + "<i></i>".repeat(9) + "</div>";
 
@@ -70,6 +71,10 @@ export default {
     if (ctx.isConnected && ctx.isConnected() && ctx.agentShotsDraft) {
       const script = ctx.getScriptText ? ctx.getScriptText() : "";
       if (!script.trim()) { ctx.toast("剧本为空：先在「剧本」节点写内容"); return; }
+      // Provenance is captured at CALL time, when the consumed text is read:
+      // the active Script version's stable id when the text IS that version,
+      // or null when the buffer holds unversioned edits (never guessed, M2).
+      const sourceScriptVersionId = ctx.getScriptSourceId ? ctx.getScriptSourceId() : null;
       node.state = "gen";
       node.prog = 15; // indeterminate — real call takes seconds to ~1min
       ctx.refresh(node);
@@ -92,9 +97,22 @@ export default {
           // Stable per-shot SLOT ids: uploads attach to a shot's slot, so an
           // image can never leak onto a different shot after edits/regeneration.
           shots.forEach((s, i) => { s.slot = `v${v}-${i + 1}`; });
+          // Every shot of an AI-GENERATED draft is a NEW logical shot: identity
+          // across a replacement draft cannot be proven, so fresh shotIds are
+          // minted rather than fabricating continuity with an earlier version.
+          assignShotIdentity(shots);
           // Keep the raw draft on the version so switching versions can restore
           // the matching draftShots (downstream prefill must follow selection).
-          node.versions.push({ v, shots: rows, draft: true, raw: shots });
+          node.versions.push({
+            id: mintId("sdv"),
+            v,
+            shots: rows,
+            draft: true,
+            raw: shots,
+            origin: "generated",
+            sourceScriptVersionId,
+            basedOnDraftId: null, // a regeneration is a fresh run from the script, not a revision
+          });
           node.cur = v;
           node.state = "done";
           ctx.project.draftShots = shots; // downstream nodes prefill from this
@@ -127,7 +145,9 @@ export default {
         node._timer = null;
         node.state = "done";
         const v = node.versions.length + 1;
-        node.versions.push({ v, shots: shotsForVersion(ctx.project, v) });
+        // demo fixture versions are display-only (no raw draft, no shot
+        // identity) but still get a stable version id for uniformity
+        node.versions.push({ id: mintId("sdv"), v, shots: shotsForVersion(ctx.project, v) });
         node.cur = v;
         ctx.refresh(node);
         ctx.markIncoming(node.id, "done");
@@ -201,7 +221,19 @@ export default {
               `${s.title} — ${s.description}（${s.duration_seconds}s）`,
             ]);
             const v = node.versions.length + 1;
-            node.versions.push({ v, shots: rows, draft: true, edited: true, raw: edited });
+            node.versions.push({
+              id: mintId("sdv"),
+              v,
+              shots: rows,
+              draft: true,
+              edited: true,
+              raw: edited, // surviving shots kept their shotId in the editor; new ones minted fresh
+              origin: "edited",
+              // a manual edit provably revises the version it opened from; its
+              // script relation is whatever that base version recorded
+              sourceScriptVersionId: curV.sourceScriptVersionId ?? null,
+              basedOnDraftId: typeof curV.id === "string" ? curV.id : null,
+            });
             node.cur = v;
             node.state = "done";
             ctx.project.draftShots = edited;
