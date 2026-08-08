@@ -55,11 +55,11 @@ fi
 # is killed by ITS OWN timeout with a clear message, before the outer harness
 # kills the whole hook ambiguously.
 #
-# The full suite runs in ~81s (2271 tests) because the repo-root conftest.py
-# routes pytest's tmp tree onto tmpfs (/dev/shm) — without that it is ~39 min
-# of fsync wait on the WSL2 disk and CANNOT gate a commit. The 120s pytest
-# budget leaves ~48% headroom for CPU contention and growth. If the suite
-# grows past ~110s, raise the pytest budget here AND the hook timeout in
+# The full suite runs in ~110-150s (2719 tests) because the repo-root
+# conftest.py routes pytest's tmp tree onto tmpfs (/dev/shm) — without that it
+# is ~39 min of fsync wait on the WSL2 disk and CANNOT gate a commit. The 220s
+# pytest budget leaves ~47% headroom for CPU contention and growth. If the
+# suite grows past ~200s, raise the pytest budget here AND the hook timeout in
 # settings.json together (keep hook timeout ≈ budget-sum + 4s).
 FAIL_LABEL=""
 FAIL_OUT=""
@@ -89,7 +89,7 @@ run_check() {
 # 5. git diff --cached --check (whitespace / conflict markers in staged content)
 run_check "ruff format --check"   15 "$PY" -m ruff format --check . \
   && run_check "ruff check"         15 "$PY" -m ruff check . \
-  && run_check "pytest"            120 "$PY" -m pytest \
+  && run_check "pytest"            220 "$PY" -m pytest \
   && run_check "git diff --check"    8 git diff --check \
   && run_check "git diff --cached --check" 8 git diff --cached --check
 
