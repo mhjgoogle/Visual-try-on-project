@@ -1452,6 +1452,22 @@ class _App:
             return None
         return p
 
+    def _backup_corrupt_canvas(self, p) -> bool:
+        """Copy an unparseable canvas file aside (never move/delete the
+        original). Named by content digest so repeated hits on the same corrupt
+        file are idempotent, and ``.corrupt-*`` cannot collide with a canvas
+        name (names disallow dots). Returns True when the backup exists."""
+        try:
+            data = p.read_bytes()
+            backup = p.with_name(
+                f"{p.name}.corrupt-{hashlib.sha256(data).hexdigest()[:12]}"
+            )
+            if not backup.is_file():
+                backup.write_bytes(data)
+            return True
+        except OSError:
+            return False
+
     def _canvas_get(self, name: str):
         p = self._canvas_path(name)
         if p is None:
@@ -1462,8 +1478,31 @@ class _App:
             return _json(200, {})
         try:
             return _json(200, json.loads(p.read_text("utf-8")))
-        except (OSError, ValueError):
-            return _json(200, {})
+        except OSError:
+            # Never collapse a present-but-unreadable save into an "empty
+            # project" — the client would offer a blank canvas whose next
+            # autosave overwrites potentially recoverable creator data.
+            return _json(
+                500,
+                {
+                    "error": {
+                        "category": "read_failed",
+                        "detail": "could not read canvas",
+                    }
+                },
+            )
+        except ValueError:
+            self._backup_corrupt_canvas(p)
+            return _json(
+                409,
+                {
+                    "error": {
+                        "category": "corrupt_save",
+                        "detail": "stored canvas is not valid JSON "
+                        "(kept on disk, backup created)",
+                    }
+                },
+            )
 
     def _canvas_put(self, name: str, body: bytes):
         p = self._canvas_path(name)
@@ -1499,6 +1538,35 @@ class _App:
                     }
                 },
             )
+        # Overwriting an unparseable existing save would destroy the only copy
+        # of possibly-recoverable creator data — secure a backup first, and
+        # refuse the write if the backup cannot be created.
+        if p.is_file():
+            try:
+                json.loads(p.read_text("utf-8"))
+            except ValueError:
+                if not self._backup_corrupt_canvas(p):
+                    return _json(
+                        500,
+                        {
+                            "error": {
+                                "category": "write_failed",
+                                "detail": "existing canvas is corrupt "
+                                "and could not be backed up",
+                            }
+                        },
+                    )
+            except OSError:
+                return _json(
+                    500,
+                    {
+                        "error": {
+                            "category": "write_failed",
+                            "detail": "existing canvas could not be verified "
+                            "before overwrite",
+                        }
+                    },
+                )
         DATA_DIR.mkdir(exist_ok=True)
         # A unique temp file per write so concurrent saves for the same project
         # (multiple tabs) can't collide on a shared ``<name>.json.tmp``.

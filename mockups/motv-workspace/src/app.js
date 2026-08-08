@@ -16,6 +16,7 @@ import * as gw from "./services/gateway.js";
 import { submitCommand } from "./services/gateway.js";
 import * as query from "./services/query.js";
 import * as persist from "./services/persist.js";
+import { CANVAS_SCHEMA_VERSION } from "./services/canvasschema.js";
 import * as realmap from "./services/realmap.js";
 import { createInspector } from "./ui/inspector.js";
 import { createEstimate } from "./ui/estimate.js";
@@ -903,7 +904,7 @@ document.addEventListener("pointerdown", (e) => {
 // --- canvas (de)serialization for persistence ---
 function serializeGraph() {
   return {
-    v: 1,
+    v: CANVAS_SCHEMA_VERSION,
     project: PROJECT_NAME,
     scriptDoc: scriptdoc.serialize(scriptDoc),
     nodes: engine.nodes.map((n) => ({
@@ -1037,8 +1038,19 @@ async function enterCanvas(name, opts = {}) {
   if (opts.seedDemo) {
     seedDemoGraph();
   } else {
-    const saved = await persist.loadCanvas(name);
-    if (!restoreGraph(saved)) { engine.reset(); seeded = false; engine.render(); }
+    const res = await persist.loadCanvas(name);
+    const doc = res.status === "ok" ? res.doc : null;
+    if (!restoreGraph(doc)) { engine.reset(); seeded = false; engine.render(); }
+    // Fail-safe load (corrupt save / newer schema / backend read failure):
+    // persist has already blocked saves for this project so the stored
+    // document stays recoverable — tell the creator why nothing autosaves.
+    if (res.status !== "ok" && res.status !== "empty") {
+      toast(
+        res.status === "unsupported"
+          ? `画布存档版本过新（v${res.version} > 本版本支持的 v${CANVAS_SCHEMA_VERSION}），已停用自动保存以保护存档`
+          : "画布存档无法读取，已停用自动保存以保护原始数据（存档未被修改）",
+      );
+    }
   }
   // DEMO ONLY: seed the example script into a VIRGIN document (never typed,
   // no versions) so what the textarea shows is real, consumable content —
