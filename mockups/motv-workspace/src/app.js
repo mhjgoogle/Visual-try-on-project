@@ -25,6 +25,7 @@ import { createViews } from "./ui/landing.js";
 import { renderStepbar } from "./ui/stepbar.js";
 import { renderQueueBar, hasInflight } from "./ui/paidqueue.js";
 import * as mediaref from "./workflow/mediaref.js";
+import * as scriptdoc from "./workflow/scriptdoc.js";
 
 // --- register node types (the extension list) ---
 import script from "./workflow/nodes/script.js";
@@ -47,6 +48,9 @@ let DEFAULT_NAME = "local-draft";
 let REAL_STANDING = null;
 let canvasActive = false;
 let seeded = false;
+// The Script DOMAIN document (Idea → Script slice): brief + append-only script
+// versions, per project. Canvas nodes render FROM it — it is not node state.
+let scriptDoc = scriptdoc.createDoc();
 
 // --- budget readout (real in CONNECTED, fixture otherwise) ---
 function renderBudget() {
@@ -228,6 +232,81 @@ async function lockDraftPlan(node) {
   }
 }
 
+// --- script drafting orchestration (Idea → Script slice) -------------------
+// The AI call lives HERE (behind ctx.script), never in the node's render/bind.
+// CONNECTED → the real local Claude CLI via /api/agent/script-draft (ADR-0042
+// posture: draft-domain, free, nothing written server-side). Demo → an honest
+// deterministic local template so the flow stays walkable offline.
+function demoScriptDraft(kind, instruction, base) {
+  if (kind === "revision") {
+    return (
+      `${base}\n\n【演示修订 · ${instruction}】\n` +
+      "（演示模式：本地模板改写，未调用 AI——连接后端后为真实 Claude 修订）"
+    );
+  }
+  return (
+    `【创意】${instruction}\n\n${FIX.script}\n\n` +
+    "（演示模式：以上为本地示例剧本，未调用 AI——连接后端后按创意真实生成）"
+  );
+}
+
+async function generateScript(kind, instruction) {
+  const doc = scriptDoc;
+  if (!instruction || !instruction.trim()) {
+    toast(kind === "initial" ? "先在「创意」里写一句想法" : "先写修改要求");
+    return;
+  }
+  // The revision base is the DOCUMENT's own text only — never the fixture/
+  // placeholder fallback, so a fresh canvas can't mint a version chain from
+  // non-script content (generate v1 or type a script first).
+  const base = scriptdoc.currentText(doc);
+  if (kind === "revision" && !base.trim()) {
+    toast("当前没有剧本可修订：先「AI 生成剧本 v1」或直接输入剧本");
+    return;
+  }
+  const id = scriptdoc.beginGeneration(doc, kind, instruction);
+  if (!id) {
+    toast(
+      doc.pending && doc.pending.status === "proposed"
+        ? "有一份修订稿待处理：请先「应用」或「放弃」"
+        : "已有一个生成在进行中",
+    );
+    return;
+  }
+  ctx.refreshType("script");
+  try {
+    let content;
+    if (CONNECTED) {
+      content = await query.generateScriptDraft(
+        kind === "revision" ? { baseScript: base, instruction } : { idea: instruction },
+      );
+    } else {
+      await new Promise((r) => setTimeout(r, 900)); // visible loading state
+      content = demoScriptDraft(kind, instruction, base);
+    }
+    // The user may have switched projects / reloaded the canvas while the call
+    // was in flight — refresh/persist/toast would then act on the WRONG
+    // project's state. Drop the stale result honestly instead.
+    if (scriptDoc !== doc) {
+      toast("剧本生成已完成，但画布已切换/重载，本次结果未套用");
+      return;
+    }
+    // completeGeneration rejects a stale id (user cancelled meanwhile)
+    if (scriptdoc.completeGeneration(doc, id, content)) {
+      ctx.refreshType("script");
+      ctx.persist();
+      toast(
+        kind === "initial"
+          ? `剧本 v${doc.active} 已生成（旧版本保留，可回切）`
+          : "修订稿已就绪：确认后应用为新版本，或放弃",
+      );
+    }
+  } catch (e) {
+    if (scriptDoc !== doc) return; // project switched mid-flight — nothing to show
+    if (scriptdoc.failGeneration(doc, id, e.message)) ctx.refreshType("script");
+  }
+}
+
 // --- UI singletons ---
 const inspector = createInspector();
 const est = createEstimate({ renderBudget, toast });
@@ -279,11 +358,41 @@ const ctx = {
   addNext,
   // creative agent (ADR-0042): available whenever the backend is present
   isConnected: () => CONNECTED,
-  // the CURRENT script text: the canvas script node's edit buffer, falling
-  // back to the project's script field
-  getScriptText: () => {
-    const s = engine.nodes.find((n) => n.type === "script");
-    return (s && s.text) || ctx.project.script || "";
+  // the CURRENT script text CONSUMED downstream (scriptgen → Claude) comes
+  // from the script DOMAIN document ONLY: an empty/cleared doc reads as empty
+  // so shot generation refuses instead of running on non-script text
+  getScriptText: () => scriptdoc.currentText(scriptDoc),
+  // Script domain controller (Idea → Script slice): the ONLY way node views
+  // touch the script document. State transitions live in workflow/scriptdoc.js;
+  // the AI call lives in generateScript() above.
+  script: {
+    doc: () => scriptDoc,
+    // WHAT THE DOCUMENT HOLDS, nothing else — the view never shows fixture/
+    // placeholder text as if it were content (display == truth == what
+    // scriptgen consumes). Demo mode instead SEEDS the example script into a
+    // virgin document on canvas entry (see enterCanvas), so it is real.
+    currentText: () => scriptdoc.currentText(scriptDoc),
+    // non-empty real document content — gates the revision affordance
+    hasContent: () => !!scriptdoc.currentText(scriptDoc).trim(),
+    isDirty: () => scriptdoc.isDirty(scriptDoc),
+    setBrief: (t) => { scriptdoc.setBrief(scriptDoc, t); ctx.persist(); },
+    edit: (t) => { scriptdoc.editText(scriptDoc, t); ctx.persist(); },
+    generate: (kind, instruction) => generateScript(kind, instruction),
+    cancel: () => { scriptdoc.cancelGeneration(scriptDoc); ctx.refreshType("script"); },
+    applyProposal: () => {
+      const rec = scriptdoc.applyProposal(scriptDoc);
+      if (!rec) return;
+      ctx.refreshType("script");
+      ctx.persist();
+      toast(`已应用修订为剧本 v${rec.v}（旧版本全部保留，可回切）`);
+    },
+    discardProposal: () => { scriptdoc.discardProposal(scriptDoc); ctx.refreshType("script"); },
+    setActive: (v) => {
+      if (!scriptdoc.setActive(scriptDoc, v)) return;
+      ctx.refreshType("script");
+      ctx.persist();
+      toast(`已切到剧本 v${v}`);
+    },
   },
   agentShotsDraft: (script) => query.generateShotsDraft(script),
   isPaid: () => PAID,
@@ -628,14 +737,16 @@ document.addEventListener(
   },
   true,
 );
-// script editing inside the detail window: update the node + mirror to the
-// canvas copy (the modal textarea itself is left untouched to keep focus)
+// script/brief editing inside the detail window: write to the script document
+// + mirror to the canvas copy (the modal textarea itself is left untouched to
+// keep focus)
 $("#dt-b").addEventListener("input", (e) => {
-  if (dtNode && e.target.classList.contains("scripttext")) {
-    dtNode.text = e.target.value;
-    engine.refreshBody(dtNode);
-    if (canvasActive && PROJECT_NAME) persist.saveCanvas(PROJECT_NAME, serializeGraph());
-  }
+  if (!dtNode) return;
+  const cl = e.target.classList;
+  if (cl.contains("scripttext")) ctx.script.edit(e.target.value);
+  else if (cl.contains("brieftext")) ctx.script.setBrief(e.target.value);
+  else return;
+  engine.refreshBody(dtNode);
 });
 
 // --- engine wired to the workflow via registry/contract ---
@@ -739,6 +850,7 @@ function serializeGraph() {
   return {
     v: 1,
     project: PROJECT_NAME,
+    scriptDoc: scriptdoc.serialize(scriptDoc),
     nodes: engine.nodes.map((n) => ({
       id: n.id, type: n.type, x: n.x, y: n.y, state: n.state,
       text: n.text, versions: n.versions, cur: n.cur, pickSingle: n.pickSingle,
@@ -751,7 +863,15 @@ function serializeGraph() {
 function restoreGraph(data) {
   engine.reset();
   seeded = false;
+  // The script document rides in the SAME canvas save; hydrate it before any
+  // node renders (script nodes are views over it). Legacy canvases persisted
+  // the script as node.text — migrate that into the unversioned buffer.
+  scriptDoc = scriptdoc.createDoc((data && data.scriptDoc) || null);
   if (!data || !Array.isArray(data.nodes) || !data.nodes.length) return false;
+  if (!data.scriptDoc) {
+    const legacy = data.nodes.find((n) => n.type === "script" && typeof n.text === "string" && n.text);
+    if (legacy) scriptDoc = scriptdoc.createDoc({ legacyText: legacy.text });
+  }
   const idMap = {};
   for (const sn of data.nodes) {
     if (!registry.get(sn.type)) continue;
@@ -828,6 +948,7 @@ $$(".entry").forEach((b) => (b.onclick = () => {
 async function enterCanvas(name, opts = {}) {
   PROJECT_NAME = name;
   canvasActive = false;
+  scriptDoc = scriptdoc.createDoc(); // per-project; restoreGraph rehydrates
   ctx.project = {
     ...FIX,
     id: name,
@@ -864,6 +985,14 @@ async function enterCanvas(name, opts = {}) {
     const saved = await persist.loadCanvas(name);
     if (!restoreGraph(saved)) { engine.reset(); seeded = false; engine.render(); }
   }
+  // DEMO ONLY: seed the example script into a VIRGIN document (never typed,
+  // no versions) so what the textarea shows is real, consumable content —
+  // display always equals the document; there is no render-time fallback.
+  // A deliberately cleared buffer ("") is respected, not resurrected.
+  if (!CONNECTED && scriptDoc.workingText == null && !scriptDoc.versions.length) {
+    scriptdoc.editText(scriptDoc, ctx.project.script || "");
+    ctx.refreshType("script");
+  }
   canvasActive = true;
   if (PAID) ctx.loadPaidOps(); // 生成情况 projection for the video node
 }
@@ -893,10 +1022,11 @@ function renderLanding(realNames) {
 const views = createViews();
 $("#start-create").onclick = () => enterCanvas(DEFAULT_NAME, {});
 engine.world.addEventListener("input", (e) => {
-  if (e.target.classList.contains("scripttext")) {
-    const n = engine.findNode(e.target.closest(".node").dataset.id);
-    if (n) { n.text = e.target.value; if (canvasActive && PROJECT_NAME) persist.saveCanvas(PROJECT_NAME, serializeGraph()); }
-  }
+  // Script-slice inputs write to the DOMAIN document (no re-render — the
+  // textarea being typed in must keep focus); ctx.script persists internally.
+  const cl = e.target.classList;
+  if (cl.contains("scripttext")) ctx.script.edit(e.target.value);
+  else if (cl.contains("brieftext")) ctx.script.setBrief(e.target.value);
 });
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;

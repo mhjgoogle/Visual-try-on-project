@@ -49,6 +49,16 @@ python mockups/motv-workspace/server.py --account-root examples/projects
 `v▾` 切版本 / `⇄对比`、底部进度条点击聚焦、🏠 返回主页、右上 ◐ 主题。
 （演示模式下生成走**本地预算预检**；连接模式下生成为"待 Gateway"不花费。）
 
+**创意 → 剧本（版本化，创作者优先交互的第一个纵切）**：剧本节点是「剧本文档」
+的视图，不再自持内容——创意（Creative Brief）、剧本版本链与当前版本都存在画布
+持久化里的 `scriptDoc` 域（`src/workflow/scriptdoc.js`，旧画布的 node.text 自动
+迁移为未版本化缓冲）。流程：写一句创意 → 「AI 生成剧本 v1」；输入修改要求 →
+「AI 修订」产出**修订稿提案**（不自动生效）→ 确认「应用为 v2」才落为新版本，
+**旧版本全部保留、v▾ 可回切**；每个版本记录指令、来源（AI 生成/AI 修订）与状态。
+连接模式走后端 `POST /api/agent/script-draft`（同 ADR-0042 姿态：本地 `claude -p`、
+工具禁用、剧本/创意按纯数据框定、fail-closed）；演示模式为明确标注的本地模板，
+不调用 AI。手工直接改剧本文本仍可用（显示「已手工修改」，版本本体不可变）。
+
 **创意 Agent（ADR-0042）**：连接模式下「基于剧本生成分镜」是**真实的**——画布剧本文本
 经后端 `POST /api/agent/shots-draft` 交给**本地已登录的 Claude Code CLI**（`claude -p`，
 订阅计费、无 API key、约 20–60s），返回结构化分镜**草稿**（标注「草稿 · Claude 生成 ·
@@ -110,6 +120,7 @@ src/
                            reset/序列化 —— 不含任何短剧业务知识，纯交互
   graph/registry.js        节点类型注册表 + canConnect() 相邻步骤约束（"不能跨步骤"）
   workflow/contract.js     L0–S7 阶段/步骤 I/O 合同数据（inspector 的唯一数据源）
+  workflow/scriptdoc.js    剧本域文档：创意 + 追加式剧本版本链（纯状态，节点只是视图）
   workflow/nodes/*.js      **扩展点**：每种节点一个文件，导出一个 NodeType def
   services/query.js        读门面：connected 走后端真实查询，否则回退 fixture
   services/realmap.js      把 WQ-14/02/07 DTO 映射进 UI 结构

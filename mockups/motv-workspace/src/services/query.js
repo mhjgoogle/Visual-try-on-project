@@ -81,6 +81,29 @@ export async function generateShotsDraft(script) {
   return j.shots || [];
 }
 
+/** Script drafting (Idea → Script slice): the brief (initial) or the current
+ *  script + a revision instruction (revision) goes to the local Claude CLI and
+ *  comes back as plain script text. Same trust posture as shots-draft. */
+export async function generateScriptDraft({ idea, baseScript, instruction }) {
+  const r = await fetch("/api/agent/script-draft", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(
+      instruction
+        ? { base_script: baseScript, instruction }
+        : { idea },
+    ),
+  });
+  const j = await r.json().catch(() => null);
+  if (!r.ok) {
+    const e = j && j.error ? j.error : {};
+    const err = new Error(e.detail || `agent ${r.status}`);
+    err.category = e.category;
+    throw err;
+  }
+  return j.script || "";
+}
+
 /** Manual image provider (prototype scratch): upload a user-generated media
  *  file for a slot. Same slot re-uploads APPEND a new version (TASK-048/
  *  ADR-0048), never replace. Returns {url, version, sha256}. */
