@@ -34,7 +34,7 @@
       <div class="cv-top">
         <button class="brandbtn" id="home-canvas" title="返回主页"><span class="mk">▶</span> motv</button>
         <div class="ws-chip"><span class="sep"></span> 盛唐·金銮殿 <span class="sep">·</span> 画布 1 ▾</div>
-        <div class="modeseg"><button class="active" title="节点画布">⛓</button><button title="面板视图">▦</button></div>
+        <div class="modeseg wide"><button id="seg-prod" class="active" title="制作工作区：按创作对象编辑（剧本…）">▦ 制作</button><button id="seg-wf" title="工作流画布：节点/连线执行视图">⛓ 工作流</button></div>
         <div class="spacer"></div>
         <span class="hintbar">完成一步会指引下一步 · 拖端口连线（仅相邻步骤）· 连线可多选(Shift)后 Del 删除</span>
         <div class="spacer"></div>
@@ -43,6 +43,9 @@
       </div>
       <!-- 全局付费队列条（只读投影：排队/生成中/已入账/失败，自动轮询刷新） -->
       <div class="paidqueue" id="paidqueue" hidden></div>
+      <!-- Production workspace (creator-facing; this checkpoint: Script only).
+           Renders FROM the same scriptDoc domain document as the workflow node. -->
+      <div id="production"></div>
       <div class="viewport" id="viewport">
         <div id="world"><svg id="edges"></svg><div id="edgectl"></div></div>
         <div class="emptyhint" id="emptyhint">▶ 双击画布 · 或从下方选一个过程开始</div>

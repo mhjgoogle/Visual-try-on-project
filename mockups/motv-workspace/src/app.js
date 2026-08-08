@@ -22,6 +22,7 @@ import { createEstimate } from "./ui/estimate.js";
 import { createWizard } from "./ui/wizard.js";
 import { createShotEditor } from "./ui/shoteditor.js";
 import { createViews } from "./ui/landing.js";
+import { createProduction } from "./ui/production.js";
 import { renderStepbar } from "./ui/stepbar.js";
 import { renderQueueBar, hasInflight } from "./ui/paidqueue.js";
 import * as mediaref from "./workflow/mediaref.js";
@@ -349,10 +350,13 @@ const ctx = {
     if (dtNode === node) renderDetail(); // keep the detail window live-synced
   },
   // re-render every node of a type — used when upstream state (e.g. the current
-  // draft version) changes and a downstream node's prefill must follow.
+  // draft version) changes and a downstream node's prefill must follow. The
+  // Production workspace is one more view over the same domain state, so a
+  // script refresh reaches it too (when visible).
   refreshType: (type) => {
     engine.nodes.filter((n) => n.type === type).forEach((n) => engine.refreshBody(n));
     if (dtNode && dtNode.type === type) renderDetail();
+    if (type === "script" && production.isVisible()) production.render();
   },
   markIncoming: (id, state) => engine.markIncoming(id, state),
   addNext,
@@ -471,6 +475,33 @@ const ctx = {
   persist: () => {
     if (canvasActive && PROJECT_NAME) persist.saveCanvas(PROJECT_NAME, serializeGraph());
   },
+  // READ-ONLY snapshot of current workflow/node state for the Production
+  // workspaces (this checkpoint: expose, don't migrate). Ownership stays on
+  // the nodes / project mirrors — same merge pattern as collectMedia().
+  prodData: () => {
+    const merge = (type, field) =>
+      engine.nodes
+        .filter((n) => n.type === type)
+        .reduce((acc, n) => Object.assign(acc, n[field] || {}), {});
+    const sg = engine.nodes.find((n) => n.type === "scriptgen");
+    const cur = sg && (sg.versions || []).find((x) => x.v === sg.cur);
+    return {
+      draftShots: ctx.project.draftShots || null,
+      lockedPlan: ctx.project.lockedPlan || null,
+      // shot version standing lives ONLY on the scriptgen node — summarized,
+      // not copied: rows of the CURRENT version for display fallback
+      shotVersions: sg
+        ? { count: (sg.versions || []).length, cur: sg.cur, state: sg.state, rows: (cur && cur.shots) || null }
+        : null,
+      // connected mode may hold the project's REAL locked shot records
+      realShots: ctx.project.shots && ctx.project.shots.real ? ctx.project.shots.v1 : null,
+      assetUploads: merge("assets", "uploads"),
+      media: ctx.collectMedia(),
+      firstFrames: merge("video", "firstFrames"),
+      finals: engine.nodes.filter((n) => n.type === "edit").flatMap((n) => n.finals || []),
+      paidOps: ctx.paidOps || {},
+    };
+  },
   // paid-op status projection (生成情况) — refreshed after paid actions AND
   // auto-polled while any op is in flight (TASK-048 第2步; read-only)
   paidOps: {},
@@ -532,6 +563,30 @@ function updateQueueBar() {
 }
 ctx.wizard = createWizard({ estimate: { open: (o) => ctx.estimate(o) }, getProject: () => ctx.project, refresh: (n) => engine.refreshBody(n) });
 ctx.shotEditor = createShotEditor({ toast });
+
+// --- Production ⇄ Workflow views (creator-facing shell vs node canvas) ------
+// Both are views over the SAME state (scriptDoc + engine graph) — switching
+// only toggles display and re-renders the surface being entered, so nothing
+// is ever lost. Production is the default creator-facing area.
+const production = createProduction(() => ctx);
+function goProduction() {
+  $("#seg-prod").classList.add("active");
+  $("#seg-wf").classList.remove("active");
+  $("#viewport").style.display = "none";
+  $("#entrybar").style.display = "none";
+  $("#stepbar").style.display = "none";
+  production.show(); // renders from the current scriptDoc
+}
+function goWorkflow() {
+  $("#seg-prod").classList.remove("active");
+  $("#seg-wf").classList.add("active");
+  production.hide();
+  $("#viewport").style.display = "block";
+  renderStepbar(engine, $("#stepbar"), $("#entrybar")); // restores bar visibility
+  ctx.refreshType("script"); // node summaries pick up workspace edits
+}
+$("#seg-prod").onclick = goProduction;
+$("#seg-wf").onclick = goWorkflow;
 
 // --- adopt a paid staging clip into every video node's slot (ADR-0046 §3) ---
 async function adoptPaidIntoSlot(shotId, taskId) {
@@ -995,6 +1050,9 @@ async function enterCanvas(name, opts = {}) {
   }
   canvasActive = true;
   if (PAID) ctx.loadPaidOps(); // 生成情况 projection for the video node
+  // Default creator-facing view: Production (Script workspace). The workflow
+  // canvas keeps its full state behind the ⛓ 工作流 toggle.
+  goProduction();
 }
 
 // --- landing project cards ---

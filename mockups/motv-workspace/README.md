@@ -49,6 +49,20 @@ python mockups/motv-workspace/server.py --account-root examples/projects
 `v▾` 切版本 / `⇄对比`、底部进度条点击聚焦、🏠 返回主页、右上 ◐ 主题。
 （演示模式下生成走**本地预算预检**；连接模式下生成为"待 Gateway"不花费。）
 
+**制作 ⇄ 工作流 双视图（创作者优先外壳）**：顶栏 `▦ 制作 / ⛓ 工作流` 切换。
+**制作视图**（进项目后默认）左侧制作导航 **全部可进**：创意/剧本/分镜/资产/视频/音频/
+剪辑（带状态徽标；工作流没走到某步也照样能打开——没有数据就显示明确的空态/前置提示，
+绝不置灰导航）。**剧本**是完整工作区：中间大编辑器+版本条，右侧 **AI 导演**（修改要求 →
+修订稿提案 → 明确「应用为 vN（新持久版本）」/放弃，含生成中/失败态）；其余模块是
+**只读现状工作区**（`src/ui/workspaces.js`）：创意=Creative Brief+剧本状态；分镜=当前
+镜头（序号/标题/描述/时长/版本/锁定）；资产/视频/音频=按镜头列媒体槽位（缩略图、版本
+数、来源；视频含**已记录的**首帧来源——未记录如实标「未记录」，绝不臆造血缘）+付费
+状态投影；剪辑=素材就绪度+已合成成片。数据经 `ctx.prodData()` 只读快照读取现有节点
+状态，**不迁移所有权、不复制成第二份持久域状态**；模块切换是纯 UI 导航（transient），
+不触发生成、不改工作流；剧本手工编辑与未应用提案在模块切换间原样保留。**工作流视图**
+即原节点画布，行为不变；两个视图渲染**同一个** `scriptDoc` 域文档（`src/ui/production.js`
+纯展示，AI 调用仍在 ctx.script 后面），切换互见改动、不丢状态。
+
 **创意 → 剧本（版本化，创作者优先交互的第一个纵切）**：剧本节点是「剧本文档」
 的视图，不再自持内容——创意（Creative Brief）、剧本版本链与当前版本都存在画布
 持久化里的 `scriptDoc` 域（`src/workflow/scriptdoc.js`，旧画布的 node.text 自动
@@ -127,6 +141,8 @@ src/
   services/persist.js      画布本地持久化（/api/canvas 或 localStorage 兜底）
   services/gateway.js      submitCommand() —— 写路径 stub（真实=loopback POST，待 ADR）
   services/budget.js       演示模式的账户/项目预算 + estimate/spend
+  ui/production.js         制作视图外壳（左导航 activeModule + 模块分发；纯展示，读写 scriptDoc）
+  ui/workspaces.js         各制作模块的只读现状工作区 + 可测的纯视图模型（读 ctx.prodData()）
   ui/*.js                  landing / inspector / stepbar / wizard / estimate 视图
   app.js                   注册节点、构建 ctx、异步 bootstrap（探测模式/拉真实数据/存取画布）
 fixtures/project-shengtang.js  演示创意 fixture（画布创作内容）
