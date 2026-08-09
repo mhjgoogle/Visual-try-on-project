@@ -49,8 +49,17 @@ export function bindSlots(node, el, ctx, { accept, getPrompt, copiedMsg, uploade
       if (!ctx.uploadMedia) { ctx.toast("演示模式暂不支持上传（需连接后端）"); return; }
       try {
         const res = await ctx.uploadMedia(`${node.type}-${k}`, file);
-        addVersion(node, k, refFromResponse(k, "upload", res));
-        ctx.refresh(node);
+        // stamp the PROVABLE shot association (null when ambiguous — M3);
+        // pass the DOMAIN (node type) so the slot is read correctly, never
+        // guessed from a voice-/music-/sfx- prefix on the key text
+        const domain = node.type === "assets" ? "images" : node.type === "video" ? "videos" : "audio";
+        const shotId = ctx.shotIdForKey ? ctx.shotIdForKey(k, domain) : null;
+        addVersion(node, k, refFromResponse(k, "upload", res, shotId));
+        // M3: node.uploads aliases the shared project registry, so a duplicate
+        // node of the same type shows this slot too — refresh them all, not
+        // just the initiating node, or the sibling would display stale media.
+        if (ctx.refreshType) ctx.refreshType(node.type);
+        else ctx.refresh(node);
         if (ctx.persist) ctx.persist();
         ctx.toast(`${uploadedMsg || "已上传"} · v${res.version || 1}（旧版本保留，可回切）`);
       } catch (err) {

@@ -13,6 +13,20 @@
 //     多批次媒体全部保留，可回切当前版本，绝不静默覆盖。
 // 本模块是所有读写槽位代码的唯一入口，读侧对两种形态透明。
 
+import { mintId } from "./identity.js";
+
+/** 安全写入一个可能名为 `__proto__` 的槽位键：普通对象上 `obj["__proto__"]=x`
+ *  会改写原型（污染），而 slot 是外部/可损坏数据里的任意字符串。以 own 属性
+ *  写入，杜绝原型污染，同时让映射保持普通对象（可 JSON 序列化、可 deepEqual）。 */
+export function putKey(obj, key, val) {
+  if (key === "__proto__") {
+    Object.defineProperty(obj, key, { value: val, writable: true, enumerable: true, configurable: true });
+  } else {
+    obj[key] = val;
+  }
+  return obj;
+}
+
 /** 旧格式字符串 → 规范化槽位条目（自动迁移为 v1，origin 按上传保守标注）。 */
 export function normalizeEntry(slotId, val) {
   if (val && typeof val === "object" && Array.isArray(val.history)) return val;
@@ -32,7 +46,7 @@ export function migrateUploads(uploads) {
   if (!uploads) return uploads;
   for (const k of Object.keys(uploads)) {
     const norm = normalizeEntry(k, uploads[k]);
-    if (norm) uploads[k] = norm;
+    if (norm) putKey(uploads, k, norm);
     else delete uploads[k];
   }
   return uploads;
@@ -67,15 +81,18 @@ export function slotStem(uploads, k) {
   return dot > 0 ? base.slice(0, dot) : base;
 }
 
-/** 追加一个新版本并把它设为当前（写路径统一入口）。 */
+/** 追加一个新版本并把它设为当前（唯一的创作媒体写入口 — M3 起 node.uploads
+ *  即项目资产注册表的别名视图，写这里就是写注册表）。每个耐久媒体版本是一个
+ *  Asset：缺 assetId 的新记录在此铸造一次，此后只携带、永不重推。 */
 export function addVersion(node, k, ref) {
+  if (typeof ref.assetId !== "string" || !ref.assetId) ref.assetId = mintId("asset");
   node.uploads = node.uploads || {};
   const e = normalizeEntry(k, node.uploads[k]) || { current: 0, history: [] };
   // 同版本号重复追加（例如重放）时以新记录为准，但绝不丢历史其它版本
   e.history = e.history.filter((r) => r.version !== ref.version).concat([ref]);
   e.history.sort((a, b) => a.version - b.version);
   e.current = ref.version;
-  node.uploads[k] = e;
+  putKey(node.uploads, k, e); // safe against a slot literally named __proto__
   return e;
 }
 
@@ -84,18 +101,21 @@ export function setCurrent(node, k, version) {
   const e = slotEntry(node.uploads, k);
   if (!e || !e.history.some((r) => r.version === version)) return false;
   e.current = version;
-  node.uploads[k] = e;
+  putKey(node.uploads, k, e);
   return true;
 }
 
-/** 由服务器写响应（{url, version, sha256}）构造 MediaRef。 */
-export function refFromResponse(slotId, origin, res) {
+/** 由服务器写响应（{url, version, sha256}）构造 MediaRef。shotId 是该媒体
+ *  可证明归属的 M2 镜头身份（调用方经 assetlib.shotIdForKey 或直接持有的
+ *  draft shot 求得）；不可证明时诚实传 null，绝不猜。 */
+export function refFromResponse(slotId, origin, res, shotId = null) {
   return {
     slot_id: slotId,
     origin,
     version: typeof res.version === "number" ? res.version : 1,
     digest: res.sha256 || null,
     url: res.url,
+    shot_id: typeof shotId === "string" && shotId ? shotId : null,
   };
 }
 

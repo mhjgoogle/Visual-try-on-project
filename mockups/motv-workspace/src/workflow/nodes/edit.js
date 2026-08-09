@@ -13,7 +13,7 @@ export default {
   title: "剪辑合成",
   icon: "✂",
   init() {
-    return { state: "", prog: 0, finals: [] };
+    return { state: "", prog: 0 }; // finals live on the Project Asset Registry (M3)
   },
   render(node, ctx) {
     const draft = ctx.project.draftShots;
@@ -29,9 +29,11 @@ export default {
         .join("");
       const ready = draft.filter((s) => s.slot && slotUrl(media.video, s.slot)).length;
       const allReady = ready >= draft.length;
-      const last = node.finals && node.finals.length ? node.finals[node.finals.length - 1] : null;
+      // finals are PROJECT Assets (M3) — this node presents them, never owns them
+      const finals = ctx.finalUrls ? ctx.finalUrls() : [];
+      const last = finals.length ? finals[finals.length - 1] : null;
       const player = last
-        ? `<video class="afinal" src="${esc(last)}" controls preload="metadata"></video><div style="font-size:11px;color:var(--ok);margin:4px 2px">✓ 成片 v${node.finals.length} · 本地 FFmpeg · 草稿级 720p</div>${nx([["master", "成片/质检"]])}`
+        ? `<video class="afinal" src="${esc(last)}" controls preload="metadata"></video><div style="font-size:11px;color:var(--ok);margin:4px 2px">✓ 成片 v${finals.length} · 本地 FFmpeg · 草稿级 720p</div>${nx([["master", "成片/质检"]])}`
         : "";
       const btn = node._busy
         ? `<button class="nrun" disabled>FFmpeg 合成中…（约 ${draft.length * 4}s）</button>`
@@ -77,8 +79,11 @@ export default {
       ctx.markIncoming(node.id, "active");
       try {
         const res = await ctx.composeFinal(spec);
-        node.finals = node.finals || [];
-        node.finals.push(res.url);
+        // a new PROJECT Asset (origin: compose); a malformed response with no
+        // playable url is refused rather than persisted as a broken final —
+        // throw so it takes the SAME failure path as any compose error
+        const rec = ctx.addFinal ? ctx.addFinal(res.url) : null;
+        if (!rec) throw new Error("合成返回无效结果：未生成成片");
         node.state = "done";
         ctx.toast(`成片已合成 · final-cut v${res.version}（${res.shots} 镜头${res.music ? " + 音乐" : ""} · 本地 FFmpeg · 免费）`);
         ctx.markIncoming(node.id, "done");
@@ -87,7 +92,10 @@ export default {
         ctx.markIncoming(node.id, "");
       } finally {
         node._busy = false;
-        ctx.refresh(node);
+        // finals live on the project-wide registry (M3) — refresh every edit
+        // node so a duplicate reflects the new composed output too
+        if (ctx.refreshType) ctx.refreshType(node.type);
+        else ctx.refresh(node);
         if (ctx.persist) ctx.persist();
       }
     };

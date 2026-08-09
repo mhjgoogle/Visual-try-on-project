@@ -80,7 +80,9 @@ test("addVersion appends and becomes current; setCurrent switches back", () => {
 
 test("refFromResponse carries origin/version/digest for the MediaRef", () => {
   const r = refFromResponse("s1", "adopted", { url: "/u/v-s1_v3.mp4", version: 3, sha256: "abc" });
-  assert.deepEqual(r, { slot_id: "s1", origin: "adopted", version: 3, digest: "abc", url: "/u/v-s1_v3.mp4" });
+  // shot_id defaults to null — provable association is passed by the caller (M3)
+  assert.deepEqual(r, { slot_id: "s1", origin: "adopted", version: 3, digest: "abc", url: "/u/v-s1_v3.mp4", shot_id: null });
+  assert.equal(refFromResponse("s1", "adopted", { url: "/u" }, "shot-a").shot_id, "shot-a");
   // missing version/sha256 (defensive) → v1, null digest
   const r2 = refFromResponse("s1", "tts", { url: "/u/a.wav" });
   assert.equal(r2.version, 1);

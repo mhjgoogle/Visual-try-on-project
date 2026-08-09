@@ -27,6 +27,7 @@ import { createProduction } from "./ui/production.js";
 import { renderStepbar } from "./ui/stepbar.js";
 import { renderQueueBar, hasInflight } from "./ui/paidqueue.js";
 import * as mediaref from "./workflow/mediaref.js";
+import * as assetlib from "./workflow/assetlib.js";
 import * as scriptdoc from "./workflow/scriptdoc.js";
 
 // --- register node types (the extension list) ---
@@ -53,6 +54,11 @@ let seeded = false;
 // The Script DOMAIN document (Idea → Script slice): brief + append-only script
 // versions, per project. Canvas nodes render FROM it — it is not node state.
 let scriptDoc = scriptdoc.createDoc();
+// Project Asset Registry (M3) — the ONE durable owner of creator media.
+// Node uploads/firstFrames are ALIAS views over these maps (attachAssetViews),
+// so mediaref.addVersion stays the single write path and serialization only
+// ever persists the registry, never node-local copies.
+let assetRegistry = assetlib.createRegistry(null);
 
 // --- budget readout (real in CONNECTED, fixture otherwise) ---
 function renderBudget() {
@@ -169,12 +175,8 @@ async function lockDraftPlan(node) {
     // without one falls back to the assets slot's CURRENT version, as before.
     // Behavior otherwise unchanged: inlined as a data URL, >5.5MB fails closed
     // with a compress-and-reupload hint; a shot with no image locks text-only.
-    const assetUploads = engine.nodes
-      .filter((n) => n.type === "assets")
-      .reduce((acc, n) => Object.assign(acc, n.uploads || {}), {});
-    const videoFrames = engine.nodes
-      .filter((n) => n.type === "video")
-      .reduce((acc, n) => Object.assign(acc, n.firstFrames || {}), {});
+    const assetUploads = assetRegistry.images; // registry-backed, same data the nodes show
+    const videoFrames = assetRegistry.firstFrames;
     const shots = [];
     for (const s of draft) {
       let frame = null;
@@ -442,13 +444,12 @@ const ctx = {
   // whichever node holds a slot's upload IS that shot's upload (duplicated or
   // branched nodes can never make compose pick an unrelated file). Values are
   // versioned slot entries — consumers read them via mediaref.slotUrl/slotStem.
-  collectMedia: () => {
-    const merge = (type) =>
-      engine.nodes
-        .filter((n) => n.type === type)
-        .reduce((acc, n) => Object.assign(acc, n.uploads || {}), {});
-    return { video: merge("video"), audio: merge("audio") };
-  },
+  collectMedia: () => ({
+    // M3: the Project Asset Registry IS the media source of truth — node
+    // views alias these same maps, so this is the same data every node shows.
+    video: assetRegistry.videos,
+    audio: assetRegistry.audio,
+  }),
   // 「🎬→ 用作视频首帧」(TASK-048 第1步): flow the assets slot's CURRENT
   // version image into every video node's first-frame input as a MediaRef.
   useAsFirstFrame: async (assetsNode, slot) => {
@@ -460,22 +461,31 @@ const ctx = {
       // the exact bytes (same sha256 family as the lock-draft first frame)
       try { digest = await mediaref.sha256OfUrl(ref.url); } catch { digest = null; }
     }
+    // The carried reference keeps the image Asset's identity (same assetId):
+    // "use as first frame" relates the SAME Asset, it does not mint a twin.
     const frameRef = { ...ref, slot_id: slot, digest };
-    let vids = engine.nodes.filter((n) => n.type === "video");
-    if (!vids.length) {
+    if (!engine.nodes.some((n) => n.type === "video")) {
       addNext(assetsNode, "video", -50); // no video node yet — expand one
-      vids = engine.nodes.filter((n) => n.type === "video");
     }
-    vids.forEach((n) => {
-      n.firstFrames = n.firstFrames || {};
-      n.firstFrames[slot] = frameRef;
-    });
+    mediaref.putKey(assetRegistry.firstFrames, slot, frameRef); // video nodes alias this map
     ctx.refreshType("video");
     ctx.persist();
     toast(`已设为该镜头视频首帧（来自资产 v${frameRef.version}）`);
   },
   // 版本选择器（TASK-048 第3步）：浏览槽位历史版本 / 回切当前版本
   openVersions: (node, slot) => openVersionPicker(node, slot),
+  // M3 — Asset Registry helpers:
+  // the M2 shotId a media key PROVABLY belongs to (unique across all drafts),
+  // else null; write sites stamp it on new Assets, never guessed by index
+  shotIdForKey: (key, domain) =>
+    assetlib.shotIdForKey(
+      engine.nodes.filter((n) => n.type === "scriptgen").map((n) => n.versions || []),
+      key,
+      domain,
+    ),
+  // composed finals: registry-owned records, url view for every consumer
+  finalUrls: () => assetlib.finalUrls(assetRegistry),
+  addFinal: (url) => assetlib.addFinal(assetRegistry, url),
   persist: () => {
     if (canvasActive && PROJECT_NAME) persist.saveCanvas(PROJECT_NAME, serializeGraph());
   },
@@ -483,10 +493,6 @@ const ctx = {
   // workspaces (this checkpoint: expose, don't migrate). Ownership stays on
   // the nodes / project mirrors — same merge pattern as collectMedia().
   prodData: () => {
-    const merge = (type, field) =>
-      engine.nodes
-        .filter((n) => n.type === type)
-        .reduce((acc, n) => Object.assign(acc, n[field] || {}), {});
     const sg = engine.nodes.find((n) => n.type === "scriptgen");
     const cur = sg && (sg.versions || []).find((x) => x.v === sg.cur);
     return {
@@ -499,10 +505,11 @@ const ctx = {
         : null,
       // connected mode may hold the project's REAL locked shot records
       realShots: ctx.project.shots && ctx.project.shots.real ? ctx.project.shots.v1 : null,
-      assetUploads: merge("assets", "uploads"),
+      // M3: same shapes as before, now read straight off the Asset Registry
+      assetUploads: assetRegistry.images,
       media: ctx.collectMedia(),
-      firstFrames: merge("video", "firstFrames"),
-      finals: engine.nodes.filter((n) => n.type === "edit").flatMap((n) => n.finals || []),
+      firstFrames: assetRegistry.firstFrames,
+      finals: assetlib.finalUrls(assetRegistry),
       paidOps: ctx.paidOps || {},
     };
   },
@@ -607,10 +614,11 @@ async function adoptPaidIntoSlot(shotId, taskId) {
     // an earlier take (TASK-048 第3步; the anti-double-pay guard stays on the
     // submit side, unchanged)
     const res = await gw.adoptPaid(PROJECT_NAME, taskId, `video-${s.slot}`);
-    engine.nodes.filter((n) => n.type === "video").forEach((n) => {
-      mediaref.addVersion(n, s.slot, mediaref.refFromResponse(s.slot, "adopted", res));
-      engine.refreshBody(n);
-    });
+    // Write into the REGISTRY (video domain) — the draft shot in hand carries
+    // its own M2 identity, provable rather than guessed; video nodes alias
+    // the same map and simply re-render.
+    mediaref.addVersion({ uploads: assetRegistry.videos }, s.slot, mediaref.refFromResponse(s.slot, "adopted", res, s.shotId ?? null));
+    engine.nodes.filter((n) => n.type === "video").forEach((n) => engine.refreshBody(n));
     ctx.persist();
     return true;
   } catch {
@@ -770,7 +778,9 @@ function openVersionPicker(node, slot, showVersion = null) {
     ev.stopPropagation();
     const v = Number(b.dataset.use);
     if (mediaref.setCurrent(node, slot, v)) {
-      ctx.refresh(node);
+      // setCurrent mutates the shared project registry (M3) — refresh every
+      // same-type node so a duplicate reflects the version switch too
+      ctx.refreshType(node.type);
       ctx.persist();
       toast(`已回切到 v${v}（旧版本全部保留）`);
       openVersionPicker(node, slot, v);
@@ -849,7 +859,9 @@ const engine = new GraphEngine({
 
 // --- helpers ---
 function createNode(type, x, y) {
-  return engine.addNode(registry.createNodeData(type, x, y));
+  const nd = registry.createNodeData(type, x, y);
+  attachAssetViews(nd); // fresh nodes present the SAME project registry
+  return engine.addNode(nd);
 }
 function addNext(from, type, dy) {
   let n = engine.nodes.find((x) => x.type === type);
@@ -910,14 +922,26 @@ function serializeGraph() {
     v: CANVAS_SCHEMA_VERSION,
     project: PROJECT_NAME,
     scriptDoc: scriptdoc.serialize(scriptDoc),
+    // Creator media is owned by the PROJECT registry (M3) — node-local
+    // uploads/finals/firstFrames are alias views and are deliberately NOT
+    // serialized, so no second durable media source of truth can form.
+    assets: assetRegistry,
     nodes: engine.nodes.map((n) => ({
       id: n.id, type: n.type, x: n.x, y: n.y, state: n.state,
       text: n.text, versions: n.versions, cur: n.cur, pickSingle: n.pickSingle,
-      uploads: n.uploads, finals: n.finals, firstFrames: n.firstFrames,
     })),
     edges: engine.edges.map((e) => ({ from: e.from, to: e.to, state: e.state })),
     pan: { x: engine.panX, y: engine.panY },
   };
+}
+/** Attach the registry's maps as this node's media views — same OBJECT, not a
+ *  copy: reads see the registry, writes via mediaref.addVersion land in it. */
+function attachAssetViews(nd) {
+  if (nd.type === "assets") nd.uploads = assetRegistry.images;
+  else if (nd.type === "video") {
+    nd.uploads = assetRegistry.videos;
+    nd.firstFrames = assetRegistry.firstFrames;
+  } else if (nd.type === "audio") nd.uploads = assetRegistry.audio;
 }
 function restoreGraph(data) {
   engine.reset();
@@ -926,6 +950,8 @@ function restoreGraph(data) {
   // node renders (script nodes are views over it). Legacy canvases persisted
   // the script as node.text — migrate that into the unversioned buffer.
   scriptDoc = scriptdoc.createDoc((data && data.scriptDoc) || null);
+  // Same for the Asset Registry (M3): hydrate BEFORE nodes attach their views.
+  assetRegistry = assetlib.createRegistry((data && data.assets) || null);
   if (!data || !Array.isArray(data.nodes) || !data.nodes.length) return false;
   if (!data.scriptDoc) {
     const legacy = data.nodes.find((n) => n.type === "script" && typeof n.text === "string" && n.text);
@@ -935,10 +961,10 @@ function restoreGraph(data) {
   for (const sn of data.nodes) {
     if (!registry.get(sn.type)) continue;
     const nd = registry.createNodeData(sn.type, sn.x || 0, sn.y || 0);
-    ["state", "text", "versions", "cur", "pickSingle", "uploads", "finals", "firstFrames"].forEach((k) => { if (sn[k] !== undefined) nd[k] = sn[k]; });
-    // TASK-048 第3步 back-compat: legacy canvases persisted uploads as plain
-    // url strings（“重传即替换”时代）— read them in as v1 version chains.
-    if (nd.uploads) mediaref.migrateUploads(nd.uploads);
+    ["state", "text", "versions", "cur", "pickSingle"].forEach((k) => { if (sn[k] !== undefined) nd[k] = sn[k]; });
+    // Media is NOT copied off the saved node: since v3 the registry owns it
+    // (migration moved legacy node media there) and nodes only attach views.
+    attachAssetViews(nd);
     // Connected mode: a scriptgen node's shot list must come from a REAL agent
     // draft (ADR-0042, draft:true), never a resurrected demo/fixture snapshot —
     // otherwise a canvas persisted in demo mode shows shots that don't match the

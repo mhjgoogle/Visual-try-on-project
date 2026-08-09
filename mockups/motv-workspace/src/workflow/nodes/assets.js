@@ -155,13 +155,17 @@ export default {
       try {
         const prompt = wantFrame ? promptFrame(b.dataset.gen) : promptSheet(b.dataset.gen);
         const res = await ctx.paidImage(`${node.type}-${s.slot}`, prompt, PRICE);
-        addVersion(node, s.slot, refFromResponse(s.slot, "paid-image", res));
+        // the draft shot in hand carries its M2 identity — provable association
+        addVersion(node, s.slot, refFromResponse(s.slot, "paid-image", res, s.shotId ?? null));
         ctx.toast(`设定图已生成 v${res.version || 1}（$${res.usd} 已扣，旧版本保留；见 data/paid-image-log.jsonl）`);
       } catch (err) {
         ctx.toast("付费生成失败（未扣费或已在日志留痕）：" + err.message);
       } finally {
         node._genBusy = false;
-        ctx.refresh(node);
+        // uploads alias the shared project registry (M3) — refresh every
+        // same-type node so a duplicate isn't left showing stale media
+        if (ctx.refreshType) ctx.refreshType(node.type);
+        else ctx.refresh(node);
         if (ctx.persist) ctx.persist();
       }
     }));

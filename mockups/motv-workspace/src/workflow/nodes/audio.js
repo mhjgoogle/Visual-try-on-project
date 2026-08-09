@@ -75,7 +75,8 @@ export default {
       // fit 按当前版本的实际文件名主干解析（版本化后不再是裸 slug）
       const fit = (s.slot && slotStem(media.video, s.slot)) || undefined;
       const res = await ctx.agentTts(`${node.type}-${k}`, s.description, fit);
-      addVersion(node, k, refFromResponse(k, "tts", res));
+      // the draft shot in hand carries its M2 identity — provable association
+      addVersion(node, k, refFromResponse(k, "tts", res, s.shotId ?? null));
     };
     el.querySelectorAll("[data-tts]").forEach((b) => (b.onclick = async (e) => {
       e.stopPropagation();
@@ -90,7 +91,9 @@ export default {
         ctx.toast("自动配音失败：" + err.message);
       } finally {
         node._ttsBusy = false;
-        ctx.refresh(node);
+        // uploads alias the shared project registry (M3) — refresh siblings too
+        if (ctx.refreshType) ctx.refreshType(node.type);
+        else ctx.refresh(node);
         if (ctx.persist) ctx.persist();
       }
     }));
@@ -114,7 +117,8 @@ export default {
         ctx.toast(`自动配音中断（已完成 ${okCount} 段）：` + err.message);
       } finally {
         node._ttsBusy = false;
-        ctx.refresh(node);
+        if (ctx.refreshType) ctx.refreshType(node.type);
+        else ctx.refresh(node);
         if (ctx.persist) ctx.persist();
       }
     };

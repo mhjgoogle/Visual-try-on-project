@@ -50,10 +50,11 @@ function v1Doc() {
 
 // --- schema constants -------------------------------------------------------
 
-test("authoritative current version is 2 with exactly the v1→v2 migration", () => {
-  assert.equal(CANVAS_SCHEMA_VERSION, 2);
-  assert.deepEqual(Object.keys(MIGRATIONS), ["1"]);
+test("authoritative current version is 3 with exactly the v1→v2→v3 chain", () => {
+  assert.equal(CANVAS_SCHEMA_VERSION, 3);
+  assert.deepEqual(Object.keys(MIGRATIONS), ["1", "2"]);
   assert.equal(typeof MIGRATIONS[1], "function");
+  assert.equal(typeof MIGRATIONS[2], "function");
 });
 
 test("readSchemaVersion: explicit, legacy-missing, malformed", () => {
@@ -110,7 +111,10 @@ test("REAL saved project fixtures (data/*.json) dispatch ok", async () => {
     const doc = JSON.parse(fs.readFileSync(p, "utf-8"));
     const res = migrateToCurrent(doc);
     assert.equal(res.status, "ok", `${rel}: ${res.detail || res.status}`);
-    assert.equal(res.fromVersion, 1);
+    // data/*.json are gitignored runtime scratch — their on-disk version may
+    // be anything from 1 to current. Whatever it is, dispatch must reach the
+    // authoritative current version.
+    assert.ok(res.fromVersion >= 1 && res.fromVersion <= CANVAS_SCHEMA_VERSION, `${rel}: from ${res.fromVersion}`);
     assert.equal(res.doc.v, CANVAS_SCHEMA_VERSION);
   }
 });
@@ -168,7 +172,8 @@ test("migrations chain sequentially and preserve unknown fields", () => {
   const order = [];
   const migrations = {
     1: (d) => { order.push("1→2"); return { ...d, renamedIn2: d.legacyField }; },
-    2: (d) => { order.push("2→3"); return d; },
+    // a real v3 carries the assets registry; add it so the result is schema-valid
+    2: (d) => { order.push("2→3"); return { ...d, assets: { images: {}, videos: {}, audio: {}, firstFrames: {}, finals: [], displaced: [] } }; },
   };
   const raw = { v: 1, legacyField: "keep-me", futureUnknown: { nested: true }, nodes: [] };
   const before = structuredClone(raw);

@@ -10,8 +10,13 @@ import assert from "node:assert/strict";
 
 import {
   CANVAS_SCHEMA_VERSION,
+  MIGRATIONS,
   migrateToCurrent,
 } from "../src/services/canvasschema.js";
+
+// These tests pin the M2 (v1→v2) migration semantics regardless of later
+// schema steps: dispatch with an injected chain that STOPS at v2.
+const M2 = { migrations: { 1: MIGRATIONS[1] }, current: 2 };
 import { mintId, assignShotIdentity } from "../src/workflow/identity.js";
 import * as scriptdoc from "../src/workflow/scriptdoc.js";
 import { normalizeShots } from "../src/ui/shoteditor.js";
@@ -84,7 +89,7 @@ function stripM2Fields(doc) {
 
 test("v1 save migrates to v2 adding identity and losing NOTHING", () => {
   const original = v1Save();
-  const res = migrateToCurrent(v1Save());
+  const res = migrateToCurrent(v1Save(), M2);
   assert.equal(res.status, "ok");
   assert.equal(res.doc.v, 2);
   // every script version, draft version and raw shot got a stable id
@@ -104,13 +109,13 @@ test("v1 save migrates to v2 adding identity and losing NOTHING", () => {
 });
 
 test("migrating the same untouched v1 save twice yields identical identities", () => {
-  const a = migrateToCurrent(v1Save());
-  const b = migrateToCurrent(v1Save());
+  const a = migrateToCurrent(v1Save(), M2);
+  const b = migrateToCurrent(v1Save(), M2);
   assert.deepEqual(a.doc, b.doc);
 });
 
 test("legacy provenance is explicitly null, never guessed", () => {
-  const res = migrateToCurrent(v1Save());
+  const res = migrateToCurrent(v1Save(), M2);
   for (const ver of res.doc.nodes[1].versions) {
     assert.equal(ver.sourceScriptVersionId, null);
     assert.equal(ver.basedOnDraftId, null);
@@ -124,7 +129,7 @@ test("legacy provenance is explicitly null, never guessed", () => {
 test("duplicate legacy slots cannot produce duplicate shotIds", () => {
   const doc = v1Save();
   doc.nodes[1].versions[0].raw[1].slot = "v1-1"; // corrupt duplicate slot
-  const res = migrateToCurrent(doc);
+  const res = migrateToCurrent(doc, M2);
   const [s1, s2] = res.doc.nodes[1].versions[0].raw;
   assert.notEqual(s1.shotId, s2.shotId); // identity never derives from slot
   assert.equal(s2.slot, "v1-1"); // slot data itself untouched
@@ -135,7 +140,7 @@ test("records already carrying an id keep it verbatim through migration", () => 
   doc.scriptDoc.versions[0].id = "sv-keep-me";
   doc.nodes[1].versions[0].id = "sdv-keep-me";
   doc.nodes[1].versions[0].raw[0].shotId = "shot-keep-me";
-  const res = migrateToCurrent(doc);
+  const res = migrateToCurrent(doc, M2);
   assert.equal(res.doc.scriptDoc.versions[0].id, "sv-keep-me");
   assert.equal(res.doc.nodes[1].versions[0].id, "sdv-keep-me");
   assert.equal(res.doc.nodes[1].versions[0].raw[0].shotId, "shot-keep-me");
@@ -147,7 +152,7 @@ test("pre-existing mig-style ids are skipped, never duplicated", () => {
   doc.scriptDoc.versions[0].id = "sv-mig-1";
   doc.nodes[1].versions[0].id = "sdv-mig-2";
   doc.nodes[1].versions[0].raw[0].shotId = "shot-mig-1";
-  const res = migrateToCurrent(doc);
+  const res = migrateToCurrent(doc, M2);
   const all = [
     ...res.doc.scriptDoc.versions.map((x) => x.id),
     ...res.doc.nodes[1].versions.map((x) => x.id),
@@ -159,8 +164,16 @@ test("pre-existing mig-style ids are skipped, never duplicated", () => {
   // …and the fresh mint for the OTHER script version avoided the collision
   assert.notEqual(res.doc.scriptDoc.versions[1].id, "sv-mig-1");
   // determinism still holds for the same partially-migrated input
-  const again = migrateToCurrent(structuredClone(doc));
+  const again = migrateToCurrent(structuredClone(doc), M2);
   assert.deepEqual(again.doc, res.doc);
+});
+
+test("synthetic v1 save is non-destructive under the M2 chain (strip proof)", () => {
+  // The strict strip-to-original proof runs on a KNOWN v1 document; the live
+  // fixtures below are gitignored scratch whose version can drift, so they get
+  // a version-agnostic check instead.
+  const a = migrateToCurrent(v1Save(), M2);
+  assert.deepEqual(stripM2Fields(a.doc), v1Save());
 });
 
 test("REAL saved fixtures migrate deterministically with full identity coverage", async () => {
@@ -169,11 +182,13 @@ test("REAL saved fixtures migrate deterministically with full identity coverage"
     const p = new URL(rel, import.meta.url);
     if (!fs.existsSync(p)) continue;
     const raw = JSON.parse(fs.readFileSync(p, "utf-8"));
+    // full chain to the authoritative current version (fixture may already be
+    // migrated on disk — data/*.json is runtime scratch, not a pinned fixture)
     const a = migrateToCurrent(structuredClone(raw));
     const b = migrateToCurrent(structuredClone(raw));
     assert.equal(a.status, "ok", rel);
+    assert.equal(a.doc.v, CANVAS_SCHEMA_VERSION, rel);
     assert.deepEqual(a.doc, b.doc, `${rel}: migration must be deterministic`);
-    assert.deepEqual(stripM2Fields(a.doc), raw, `${rel}: migration must be non-destructive`);
     for (const ver of a.doc.scriptDoc ? a.doc.scriptDoc.versions || [] : []) {
       assert.equal(typeof ver.id, "string", rel);
     }
@@ -279,9 +294,22 @@ test("mintId namespaces never collide with migration ids", () => {
 // --- save → reload preserves all new ids --------------------------------------
 
 test("v2 document round-trips through dispatch without id changes", () => {
-  const migrated = migrateToCurrent(v1Save()).doc;
-  const reloaded = migrateToCurrent(JSON.parse(JSON.stringify(migrated)));
+  const migrated = migrateToCurrent(v1Save(), M2).doc;
+  const reloaded = migrateToCurrent(JSON.parse(JSON.stringify(migrated)), M2);
   assert.equal(reloaded.status, "ok");
-  assert.equal(reloaded.fromVersion, CANVAS_SCHEMA_VERSION);
+  assert.equal(reloaded.fromVersion, 2); // pinned at the M2 chain's current
   assert.deepEqual(reloaded.doc, migrated);
+});
+
+test("the M2 identity fields survive the FULL chain to the current version", () => {
+  const full = migrateToCurrent(v1Save());
+  assert.equal(full.status, "ok");
+  assert.equal(full.doc.v, CANVAS_SCHEMA_VERSION);
+  const pinned = migrateToCurrent(v1Save(), M2).doc;
+  assert.deepEqual(
+    full.doc.scriptDoc.versions.map((x) => x.id),
+    pinned.scriptDoc.versions.map((x) => x.id),
+  );
+  const ids = (d) => d.nodes[1].versions.flatMap((v) => [v.id, ...(v.raw || []).map((s) => s.shotId)]);
+  assert.deepEqual(ids(full.doc), ids(pinned));
 });
