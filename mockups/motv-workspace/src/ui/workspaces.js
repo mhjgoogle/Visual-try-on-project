@@ -10,6 +10,7 @@ import { esc } from "../util/dom.js";
 import { slotEntry, currentRef } from "../workflow/mediaref.js";
 import { buildShotSlotIndex, slotForShotId, buildServerBridge, serverShotIdForShot } from "../workflow/shotmap.js";
 import { episodeView, sceneOfShot } from "../workflow/proddoc.js";
+import { resolveCharacter, resolveLocation, findCharacter, findLocation } from "../workflow/bibledoc.js";
 
 const nn = (seq) => String(seq).padStart(2, "0");
 
@@ -100,10 +101,121 @@ export function shotsModel(pd) {
  *  reference whose shot left the current draft is flagged dangling (never
  *  guessed, never pruned). Draft shots without a shotId (legacy) cannot be
  *  assigned and are counted honestly. */
+/** Image Assets available as bible reference candidates: every version in the
+ *  M3 registry's image domain, labeled by slot+version. Pure. */
+export function imageAssetOptions(assetUploads) {
+  const out = [];
+  for (const slot of Object.keys(assetUploads || {})) {
+    const e = slotEntry(assetUploads, slot);
+    if (!e) continue;
+    for (const r of e.history) {
+      if (r && typeof r.assetId === "string" && r.assetId) {
+        out.push({ assetId: r.assetId, label: `${slot} v${r.version}`, url: r.url || "" });
+      }
+    }
+  }
+  return out;
+}
+
+/** 作品设定 (Production Bible, M7): characters & locations with their states,
+ *  voice profile, and asset references resolved to thumbnails where the Asset
+ *  is still present (a missing Asset shows its id — the reference legitimately
+ *  outlives the media, never silently dropped). Pure. */
+export function settingsModel(pd) {
+  const prod = pd.production;
+  if (!prod || !Array.isArray(prod.characters) || !Array.isArray(prod.locations)) return { empty: true };
+  const assets = imageAssetOptions(pd.assetUploads);
+  const byAsset = new Map(assets.map((a) => [a.assetId, a]));
+  const refView = (ids, active) =>
+    ids.map((id) => ({
+      assetId: id,
+      url: byAsset.has(id) ? byAsset.get(id).url : "",
+      label: byAsset.has(id) ? byAsset.get(id).label : id,
+      missing: !byAsset.has(id),
+      active: id === active,
+    }));
+  return {
+    empty: false,
+    assets,
+    // a state's refs view is null when the state INHERITS the base list (no
+    // referenceAssetIds override) — distinct from an explicit empty list
+    characters: prod.characters.map((c) => ({
+      characterId: c.characterId,
+      name: c.name,
+      profile: c.profile,
+      voice: c.voice,
+      refs: refView(c.referenceAssetIds, c.activeReferenceAssetId),
+      states: c.states.map((s) => {
+        const resolved = resolveCharacter(c, s.stateId);
+        return {
+          stateId: s.stateId,
+          name: s.name,
+          overrides: s.overrides,
+          resolved,
+          // the EFFECTIVE pair from the resolver — a state that overrides the
+          // list but not the active field still shows the inherited active
+          // when it is a member of the state's own list
+          refs: "referenceAssetIds" in s.overrides
+            ? refView(resolved.referenceAssetIds, resolved.activeReferenceAssetId)
+            : null,
+        };
+      }),
+    })),
+    locations: prod.locations.map((l) => ({
+      locationId: l.locationId,
+      name: l.name,
+      profile: l.profile,
+      refs: refView(l.referenceAssetIds, l.activeReferenceAssetId),
+      states: l.states.map((s) => {
+        const resolved = resolveLocation(l, s.stateId);
+        return {
+          stateId: s.stateId,
+          name: s.name,
+          overrides: s.overrides,
+          resolved,
+          // effective pair from the resolver (see character states above)
+          refs: "referenceAssetIds" in s.overrides
+            ? refView(resolved.referenceAssetIds, resolved.activeReferenceAssetId)
+            : null,
+        };
+      }),
+    })),
+  };
+}
+
 export function episodesModel(pd) {
   const prod = pd.production;
   if (!prod || !Array.isArray(prod.episodes)) return { empty: true };
   const draft = pd.draftShots || [];
+  // scene bible references resolved for display (M7); entities always resolve
+  // (internal refs are validated), states merge through the pure resolvers
+  const sceneRefs = (s) => ({
+    characters: (s.characterRefs || []).map((r) => {
+      const c = findCharacter(prod, r.characterId);
+      const rc = c ? resolveCharacter(c, r.stateId) : null;
+      return {
+        characterId: r.characterId,
+        stateId: r.stateId,
+        name: rc ? rc.name : r.characterId,
+        stateName: rc ? rc.stateName : null,
+        states: c ? c.states.map((x) => ({ stateId: x.stateId, name: x.name })) : [],
+      };
+    }),
+    location: (() => {
+      const r = s.locationRef;
+      const l = r && findLocation(prod, r.locationId);
+      const rl = l ? resolveLocation(l, r.stateId) : null;
+      return r
+        ? {
+            locationId: r.locationId,
+            stateId: r.stateId,
+            name: rl ? rl.name : r.locationId,
+            stateName: rl ? rl.stateName : null,
+            states: l ? l.states.map((x) => ({ stateId: x.stateId, name: x.name })) : [],
+          }
+        : null;
+    })(),
+  });
   const episodes = prod.episodes.map((e) => ({
     episodeId: e.episodeId,
     title: e.title,
@@ -127,6 +239,18 @@ export function episodesModel(pd) {
             seq: x.shot ? x.shot.sequence : null,
             title: x.shot ? x.shot.title : null,
           })),
+          // M7: the scene's bible references, resolved for display (read off
+          // the raw scene record — episodeView's rows carry shots only)
+          refs: sceneRefs(view.episode.scenes.find((x) => x.sceneId === s.sceneId) || {}),
+        })),
+        // M7: entities offerable to scenes (id/name/states only — by reference)
+        characterOptions: (prod.characters || []).map((c) => ({
+          characterId: c.characterId, name: c.name,
+          states: c.states.map((x) => ({ stateId: x.stateId, name: x.name })),
+        })),
+        locationOptions: (prod.locations || []).map((l) => ({
+          locationId: l.locationId, name: l.name,
+          states: l.states.map((x) => ({ stateId: x.stateId, name: x.name })),
         })),
         unassigned: view.unassigned.map((s) => ({ shotId: s.shotId, seq: s.sequence, title: s.title })),
         unassignableCount: view.unassignable.length,
@@ -313,17 +437,308 @@ export function renderStory(ctx) {
   );
 }
 
-/** 作品设定 (Production Bible) — the domain model does not exist yet, and this
- *  workspace says exactly that instead of pretending: no fake fields, no fake
- *  persistence, a plain list of what a later checkpoint will bring. */
-export function renderSettings() {
+/** 作品设定 (Production Bible, M7) — project-level Characters & Locations
+ *  with States. One stable identity per entity; a state overrides
+ *  presentation facets (per-field: empty = inherit the base) but never mints
+ *  a new identity, and never a new voice identity (voice rule). Reference
+ *  images are REFERENCES into the M3 Asset Registry. */
+export function renderSettings(ctx) {
+  const m = settingsModel(ctx.prodData());
+  if (m.empty) {
+    return head("🎭 作品设定", "项目级") + empty("🎭", "作品设定不可用", ["生产域文档未加载"]);
+  }
+  const refBlock = (entityId, refs) => {
+    const rows = refs
+      .map((r) => {
+        const thumb = r.url
+          ? `<img class="ws-refthumb" src="${esc(r.url)}" alt="">`
+          : `<span class="ws-refthumb ws-refmiss" title="${esc(r.assetId)}">缺</span>`;
+        return (
+          `<span class="ws-refitem${r.active ? " on" : ""}">${thumb}<span class="ws-desc">${esc(r.label)}${r.active ? " ·主参考" : ""}${r.missing ? "（资产已不在注册表——引用保留）" : ""}</span>` +
+          (r.active ? "" : `<button class="ws-chipx" data-b-refactive="${esc(entityId)}" data-aid="${esc(r.assetId)}">设为主参考</button>`) +
+          `<button class="ws-chipx" data-b-refdel="${esc(entityId)}" data-aid="${esc(r.assetId)}">移除</button></span>`
+        );
+      })
+      .join("");
+    const addable = m.assets.filter((a) => !refs.some((r) => r.assetId === a.assetId));
+    const add = addable.length
+      ? `<select class="ws-assign" data-b-refadd="${esc(entityId)}"><option value="">＋ 从画面资产添加参考图…</option>${addable
+          .map((a) => `<option value="${esc(a.assetId)}">${esc(a.label)}</option>`)
+          .join("")}</select>`
+      : `<div class="ws-desc">（没有可添加的画面资产 — 先在「画面」为镜头上传/生成图片）</div>`;
+    return `<div class="ws-lab">参考图（引用 M3 资产，不复制）</div>${rows || ""}${add}`;
+  };
+  // sid: explicit data-sid attribute — ids are NEVER packed into one
+  // attribute value (an id containing the join character would mis-parse)
+  const profField = (kind, id, field, label, value, base = null, sid = null) =>
+    `<label class="ws-lab">${esc(label)}</label><textarea class="ws-bibletext" rows="2" spellcheck="false" data-b-${kind}="${esc(id)}"${sid ? ` data-sid="${esc(sid)}"` : ""} data-field="${esc(field)}" ${base !== null ? `placeholder="（空 = 继承基础形态：${esc(base)}）"` : ""}>${esc(value)}</textarea>`;
+  // state-level reference images: null refs = the state INHERITS the base
+  // list; an explicit override list gets the same add/active/remove controls
+  // as the base block (all writes go through the state's overrides).
+  const stateRefBlock = (kind, entityId, stateId, refs) => {
+    const attrs = `data-kind="${kind}" data-eid="${esc(entityId)}" data-sid="${esc(stateId)}"`;
+    const listed = refs || [];
+    const rows = listed
+      .map((r) => {
+        const thumb = r.url
+          ? `<img class="ws-refthumb" src="${esc(r.url)}" alt="">`
+          : `<span class="ws-refthumb ws-refmiss" title="${esc(r.assetId)}">缺</span>`;
+        return (
+          `<span class="ws-refitem${r.active ? " on" : ""}">${thumb}<span class="ws-desc">${esc(r.label)}${r.active ? " ·主参考" : ""}${r.missing ? "（资产已不在注册表——引用保留）" : ""}</span>` +
+          (r.active ? "" : `<button class="ws-chipx" data-b-ovrefactive ${attrs} data-aid="${esc(r.assetId)}">设为主参考</button>`) +
+          `<button class="ws-chipx" data-b-ovrefdel ${attrs} data-aid="${esc(r.assetId)}">移除</button></span>`
+        );
+      })
+      .join("");
+    const addable = m.assets.filter((a) => !listed.some((r) => r.assetId === a.assetId));
+    const add = addable.length
+      ? `<select class="ws-assign" data-b-ovrefadd ${attrs}><option value="">＋ 状态专属参考图…</option>${addable
+          .map((a) => `<option value="${esc(a.assetId)}">${esc(a.label)}</option>`)
+          .join("")}</select>`
+      : "";
+    const standing = refs === null
+      ? `<div class="ws-desc">（继承基础参考图 — 添加后此状态使用自己的参考图列表）</div>`
+      : `<button class="ws-chipx" data-b-ovrefreset ${attrs}>恢复继承基础参考图</button>`;
+    return `<div class="ws-lab">状态参考图（覆盖）</div>${rows}${standing}${add}`;
+  };
+  const charCard = (c) => {
+    const states = c.states
+      .map(
+        (s) =>
+          `<details class="ws-state" data-key="${esc(JSON.stringify([c.characterId, s.stateId]))}"><summary>◈ ${esc(s.name)}</summary>` +
+          `<div class="ws-epbtns"><button class="nrun ghost" data-b-csrename="${esc(c.characterId)}" data-sid="${esc(s.stateId)}">重命名</button><button class="nrun ghost" data-b-csdel="${esc(c.characterId)}" data-sid="${esc(s.stateId)}">删除</button></div>` +
+          profField("csov", c.characterId, "appearance", "外貌（覆盖）", s.overrides.appearance ?? "", c.profile.appearance, s.stateId) +
+          profField("csov", c.characterId, "costume", "服装（覆盖）", s.overrides.costume ?? "", c.profile.costume, s.stateId) +
+          profField("csov", c.characterId, "visualInstruction", "画面指令（覆盖）", s.overrides.visualInstruction ?? "", c.profile.visualInstruction, s.stateId) +
+          profField("csov", c.characterId, "voiceDescription", "声音表现（覆盖·同一声音身份）", (s.overrides.voice && s.overrides.voice.description) ?? "", c.voice.description, s.stateId) +
+          stateRefBlock("c", c.characterId, s.stateId, s.refs) +
+          `</details>`,
+      )
+      .join("");
+    return (
+      `<details class="ws-bible" data-key="${esc(JSON.stringify([c.characterId]))}"><summary>👤 <b>${esc(c.name)}</b><span class="ws-desc"> · ${c.states.length} 个状态 · ${c.refs.length} 张参考图</span></summary>` +
+      `<div class="ws-epbtns"><button class="nrun ghost" data-b-chrename="${esc(c.characterId)}">重命名</button><button class="nrun ghost" data-b-chdel="${esc(c.characterId)}">删除</button></div>` +
+      profField("chprof", c.characterId, "appearance", "外貌", c.profile.appearance) +
+      profField("chprof", c.characterId, "costume", "服装", c.profile.costume) +
+      profField("chprof", c.characterId, "personality", "性格（状态不可覆盖）", c.profile.personality) +
+      profField("chprof", c.characterId, "visualInstruction", "画面指令", c.profile.visualInstruction) +
+      `<label class="ws-lab">基础声音（角色唯一声音身份；状态只能调表现，不能换声音）</label>` +
+      `<input class="ws-bibleinput" data-b-voice="${esc(c.characterId)}" data-field="voiceId" placeholder="声音标识（如 piper 声音名，可留空）" value="${esc(c.voice.voiceId || "")}">` +
+      `<input class="ws-bibleinput" data-b-voice="${esc(c.characterId)}" data-field="description" placeholder="声音描述（音色/年龄感/语气）" value="${esc(c.voice.description)}">` +
+      refBlock(c.characterId, c.refs) +
+      `<div class="ws-lab">角色状态（少女时期/黑化时期… — 同一角色身份）</div>${states}` +
+      `<button class="nrun ghost" data-b-csadd="${esc(c.characterId)}">＋ 新建状态</button>` +
+      `</details>`
+    );
+  };
+  const locCard = (l) => {
+    const states = l.states
+      .map(
+        (s) =>
+          `<details class="ws-state" data-key="${esc(JSON.stringify([l.locationId, s.stateId]))}"><summary>◈ ${esc(s.name)}</summary>` +
+          `<div class="ws-epbtns"><button class="nrun ghost" data-b-lsrename="${esc(l.locationId)}" data-sid="${esc(s.stateId)}">重命名</button><button class="nrun ghost" data-b-lsdel="${esc(l.locationId)}" data-sid="${esc(s.stateId)}">删除</button></div>` +
+          profField("lsov", l.locationId, "description", "描述（覆盖）", s.overrides.description ?? "", l.profile.description, s.stateId) +
+          profField("lsov", l.locationId, "visualInstruction", "画面指令（覆盖）", s.overrides.visualInstruction ?? "", l.profile.visualInstruction, s.stateId) +
+          stateRefBlock("l", l.locationId, s.stateId, s.refs) +
+          `</details>`,
+      )
+      .join("");
+    return (
+      `<details class="ws-bible" data-key="${esc(JSON.stringify([l.locationId]))}"><summary>📍 <b>${esc(l.name)}</b><span class="ws-desc"> · ${l.states.length} 个状态 · ${l.refs.length} 张参考图</span></summary>` +
+      `<div class="ws-epbtns"><button class="nrun ghost" data-b-locrename="${esc(l.locationId)}">重命名</button><button class="nrun ghost" data-b-locdel="${esc(l.locationId)}">删除</button></div>` +
+      profField("locprof", l.locationId, "description", "描述", l.profile.description) +
+      profField("locprof", l.locationId, "visualInstruction", "画面指令", l.profile.visualInstruction) +
+      refBlock(l.locationId, l.refs) +
+      `<div class="ws-lab">场景地状态（日/夜、天气、受损/完好、季节…）</div>${states}` +
+      `<button class="nrun ghost" data-b-lsadd="${esc(l.locationId)}">＋ 新建状态</button>` +
+      `</details>`
+    );
+  };
   return (
-    head("🎭 作品设定", "项目级 · 域模型未建立") +
-    empty("🎭", "作品设定（Production Bible）尚未开放", [
-      "将包含：角色 / 场景 / 道具 / 美术风格 / 声音风格 等跨集一致性设定",
-      "依赖作品设定域模型 — 属于后续检查点，当前没有可编辑或已持久化的数据",
-    ])
+    head("🎭 作品设定（Production Bible）", `${m.characters.length} 个角色 · ${m.locations.length} 个场景地 · 结构已持久化`) +
+    `<div class="pm-title2">👤 角色库</div>` +
+    (m.characters.map(charCard).join("") || `<div class="ws-kv">还没有角色 — 建立角色档案，保证跨镜头/跨集一致性</div>`) +
+    `<button class="nrun" data-b-chadd>＋ 新建角色</button>` +
+    `<div class="pm-title2">📍 场景地库</div>` +
+    (m.locations.map(locCard).join("") || `<div class="ws-kv">还没有场景地 — 建立场景档案（可含日/夜等状态）</div>`) +
+    `<button class="nrun" data-b-locadd>＋ 新建场景地</button>` +
+    `<div class="ws-kv">场景（剧集工作区）按 ID 引用角色/场景地及其状态；档案内容只存在这里，绝不复制进场景或镜头。</div>`
   );
+}
+
+/** Pure: the state's next override pair after ADDING a state-specific
+ *  reference. The state's EFFECTIVE primary (its own override key, else the
+ *  inherited base active) is never displaced while it remains a member of the
+ *  new list — adding a secondary reference must not silently change the
+ *  primary. Only when nothing effective remains (first state-specific ref,
+ *  explicit none, or the old primary left the list) does the added reference
+ *  become primary. Returns null for a duplicate add (no-op). Exported for
+ *  node --test. */
+export function nextStateRefsOnAdd(entity, overrides, assetId) {
+  const cur = Array.isArray(overrides.referenceAssetIds) ? overrides.referenceAssetIds : [];
+  if (cur.includes(assetId)) return null;
+  const refs = [...cur, assetId];
+  const next = { ...overrides, referenceAssetIds: refs };
+  const effective = "activeReferenceAssetId" in overrides
+    ? overrides.activeReferenceAssetId
+    : entity.activeReferenceAssetId; // inherited base primary
+  if (!(effective != null && refs.includes(effective))) next.activeReferenceAssetId = assetId;
+  return next;
+}
+
+/** Wire the 作品设定 workspace to the bible controller. Per-field override
+ *  edits MERGE into the state's existing overrides; clearing a field removes
+ *  the key (= inherit base), never writes a hollow empty override. */
+export function bindSettings(root, ctx) {
+  const on = (sel, fn) =>
+    root.querySelectorAll(sel).forEach((el) => (el.onclick = (ev) => { ev.stopPropagation(); fn(el); }));
+  const prompt2 = (label, cur = "") => {
+    const t = window.prompt(label, cur);
+    return t == null ? null : t.trim();
+  };
+  const prod = () => ctx.production.doc();
+  on("[data-b-chadd]", () => {
+    const t = prompt2("角色名称");
+    if (t != null) ctx.bible.addCharacter(t);
+  });
+  on("[data-b-locadd]", () => {
+    const t = prompt2("场景地名称");
+    if (t != null) ctx.bible.addLocation(t);
+  });
+  on("[data-b-chrename]", (el) => {
+    const t = prompt2("角色名称");
+    if (t) ctx.bible.renameCharacter(el.dataset.bChrename, t);
+  });
+  on("[data-b-locrename]", (el) => {
+    const t = prompt2("场景地名称");
+    if (t) ctx.bible.renameLocation(el.dataset.bLocrename, t);
+  });
+  on("[data-b-chdel]", (el) => {
+    if (!ctx.bible.removeCharacter(el.dataset.bChdel)) ctx.toast("仍有场景引用该角色：先在剧集工作区移除引用");
+  });
+  on("[data-b-locdel]", (el) => {
+    if (!ctx.bible.removeLocation(el.dataset.bLocdel)) ctx.toast("仍有场景引用该场景地：先在剧集工作区移除引用");
+  });
+  on("[data-b-csadd]", (el) => {
+    const t = prompt2("状态名称（如：少女时期 / 黑化时期）");
+    if (t != null) ctx.bible.addCharacterState(el.dataset.bCsadd, t);
+  });
+  on("[data-b-lsadd]", (el) => {
+    const t = prompt2("状态名称（如：夜晚 / 战损）");
+    if (t != null) ctx.bible.addLocationState(el.dataset.bLsadd, t);
+  });
+  on("[data-b-csrename]", (el) => {
+    const t = prompt2("状态名称");
+    if (t) ctx.bible.renameCharacterState(el.dataset.bCsrename, el.dataset.sid, t);
+  });
+  on("[data-b-lsrename]", (el) => {
+    const t = prompt2("状态名称");
+    if (t) ctx.bible.renameLocationState(el.dataset.bLsrename, el.dataset.sid, t);
+  });
+  on("[data-b-csdel]", (el) => {
+    if (!ctx.bible.removeCharacterState(el.dataset.bCsdel, el.dataset.sid)) ctx.toast("仍有场景以该状态引用角色：先切换/移除场景引用");
+  });
+  on("[data-b-lsdel]", (el) => {
+    if (!ctx.bible.removeLocationState(el.dataset.bLsdel, el.dataset.sid)) ctx.toast("仍有场景以该状态引用场景地：先切换/移除场景引用");
+  });
+  on("[data-b-refactive]", (el) => ctx.bible.setActiveReferenceAsset(el.dataset.bRefactive, el.dataset.aid));
+  on("[data-b-refdel]", (el) => ctx.bible.removeReferenceAsset(el.dataset.bRefdel, el.dataset.aid));
+  root.querySelectorAll("[data-b-refadd]").forEach((sel) => {
+    sel.onchange = () => { if (sel.value) ctx.bible.addReferenceAsset(sel.dataset.bRefadd, sel.value); };
+  });
+  // profile / voice fields save on change (blur) — no re-render while typing
+  root.querySelectorAll("[data-b-chprof]").forEach((el) => {
+    el.onchange = () => ctx.bible.updateCharacterProfile(el.dataset.bChprof, { [el.dataset.field]: el.value });
+  });
+  root.querySelectorAll("[data-b-locprof]").forEach((el) => {
+    el.onchange = () => ctx.bible.updateLocationProfile(el.dataset.bLocprof, { [el.dataset.field]: el.value });
+  });
+  root.querySelectorAll("[data-b-voice]").forEach((el) => {
+    el.onchange = () => ctx.bible.setCharacterVoice(el.dataset.bVoice, { [el.dataset.field]: el.value });
+  });
+  // state override fields: merge per field; empty value = inherit (drop key)
+  const mergeOverride = (overrides, field, value) => {
+    const next = { ...overrides };
+    if (field === "voiceDescription") {
+      const v = { ...(next.voice || {}) };
+      if (value) v.description = value;
+      else delete v.description;
+      if (Object.keys(v).length) next.voice = v;
+      else delete next.voice;
+    } else if (value) {
+      next[field] = value;
+    } else {
+      delete next[field];
+    }
+    return next;
+  };
+  // ids are carried in SEPARATE data attributes (data-sid/data-eid) — never
+  // packed into one value that a delimiter split could mis-parse
+  const entityRec = (kind, eid) => {
+    const doc = prod();
+    return kind === "c"
+      ? doc.characters.find((x) => x.characterId === eid)
+      : doc.locations.find((x) => x.locationId === eid);
+  };
+  const stateOv = (kind, eid, sid) => {
+    const e = entityRec(kind, eid);
+    const s = e && e.states.find((x) => x.stateId === sid);
+    return s ? s.overrides : null;
+  };
+  const setOv = (kind, eid, sid, ov) =>
+    kind === "c" ? ctx.bible.setCharacterStateOverrides(eid, sid, ov) : ctx.bible.setLocationStateOverrides(eid, sid, ov);
+  root.querySelectorAll("[data-b-csov]").forEach((el) => {
+    el.onchange = () => {
+      const o = stateOv("c", el.dataset.bCsov, el.dataset.sid);
+      if (o) setOv("c", el.dataset.bCsov, el.dataset.sid, mergeOverride(o, el.dataset.field, el.value));
+    };
+  });
+  root.querySelectorAll("[data-b-lsov]").forEach((el) => {
+    el.onchange = () => {
+      const o = stateOv("l", el.dataset.bLsov, el.dataset.sid);
+      if (o) setOv("l", el.dataset.bLsov, el.dataset.sid, mergeOverride(o, el.dataset.field, el.value));
+    };
+  });
+  // --- state-level reference images (override list on the state itself) --- //
+  on("[data-b-ovrefactive]", (el) => {
+    const { kind, eid, sid, aid } = el.dataset;
+    const o = stateOv(kind, eid, sid);
+    if (o && Array.isArray(o.referenceAssetIds) && o.referenceAssetIds.includes(aid)) {
+      setOv(kind, eid, sid, { ...o, activeReferenceAssetId: aid });
+    }
+  });
+  on("[data-b-ovrefdel]", (el) => {
+    const { kind, eid, sid, aid } = el.dataset;
+    const o = stateOv(kind, eid, sid);
+    if (!o || !Array.isArray(o.referenceAssetIds)) return;
+    const refs = o.referenceAssetIds.filter((x) => x !== aid);
+    const next = { ...o, referenceAssetIds: refs };
+    if (next.activeReferenceAssetId === aid) next.activeReferenceAssetId = refs[0] ?? null;
+    setOv(kind, eid, sid, next);
+  });
+  on("[data-b-ovrefreset]", (el) => {
+    // back to INHERITING the base list: remove both override keys
+    const { kind, eid, sid } = el.dataset;
+    const o = stateOv(kind, eid, sid);
+    if (!o) return;
+    const next = { ...o };
+    delete next.referenceAssetIds;
+    delete next.activeReferenceAssetId;
+    setOv(kind, eid, sid, next);
+  });
+  root.querySelectorAll("[data-b-ovrefadd]").forEach((sel) => {
+    sel.onchange = () => {
+      if (!sel.value) return;
+      const { kind, eid, sid } = sel.dataset;
+      const e = entityRec(kind, eid);
+      const o = stateOv(kind, eid, sid);
+      if (!e || !o) return;
+      // an effective (possibly inherited) primary is never displaced by
+      // adding a secondary reference — pure decision, unit-tested
+      const next = nextStateRefsOnAdd(e, o, sel.value);
+      if (next) setOv(kind, eid, sid, next);
+    };
+  });
 }
 
 /** 剧集 — the persisted Production structure (M6): manage Episodes, the active
@@ -362,9 +777,45 @@ export function renderEpisodes(ctx) {
               .map((u) => `<option value="${esc(u.shotId)}">${esc(nn(u.seq))} ${esc(u.title || "")}</option>`)
               .join("")}</select>`
           : "";
+        // M7: the scene's bible references — location (one) + characters (many),
+        // each with a state picker resolving to the SAME identity. `attrs` is a
+        // raw attribute string; ids ride in SEPARATE attributes, never packed
+        // into one value a delimiter split could mis-parse.
+        const stateSel = (attrs, states, cur) =>
+          states.length
+            ? `<select class="ws-assign ws-staterefsel" ${attrs}><option value="">（基础形态）</option>${states
+                .map((x) => `<option value="${esc(x.stateId)}"${x.stateId === cur ? " selected" : ""}>${esc(x.name)}</option>`)
+                .join("")}</select>`
+            : "";
+        const loc = s.refs.location
+          ? `<span class="ws-tag">📍 ${esc(s.refs.location.name)}</span>` +
+            stateSel(`data-scref-lstate="${esc(s.sceneId)}"`, s.refs.location.states, s.refs.location.stateId) +
+            `<button class="ws-chipx" data-scref-lclear="${esc(s.sceneId)}">×</button>`
+          : a.locationOptions.length
+            ? `<select class="ws-assign" data-scref-lset="${esc(s.sceneId)}"><option value="">📍 设定场景地…</option>${a.locationOptions
+                .map((l) => `<option value="${esc(l.locationId)}">${esc(l.name)}</option>`)
+                .join("")}</select>`
+            : "";
+        const charChips = s.refs.characters
+          .map(
+            (r) =>
+              `<span class="ws-tag">👤 ${esc(r.name)}</span>` +
+              stateSel(`data-scref-cstate="${esc(s.sceneId)}" data-cid="${esc(r.characterId)}"`, r.states, r.stateId) +
+              `<button class="ws-chipx" data-scref-cdel="${esc(s.sceneId)}" data-cid="${esc(r.characterId)}">×</button>`,
+          )
+          .join(" ");
+        const charAddable = a.characterOptions.filter((c) => !s.refs.characters.some((r) => r.characterId === c.characterId));
+        const charAdd = charAddable.length
+          ? `<select class="ws-assign" data-scref-cadd="${esc(s.sceneId)}"><option value="">＋ 出场角色…</option>${charAddable
+              .map((c) => `<option value="${esc(c.characterId)}">${esc(c.name)}</option>`)
+              .join("")}</select>`
+          : "";
+        const bibleLine = loc || charChips || charAdd
+          ? `<div class="ws-scenerefs">${loc} ${charChips} ${charAdd}</div>`
+          : "";
         return (
           `<div class="ws-row"><div class="ws-main"><b>🎬 ${esc(s.title)}</b>` +
-          `<div class="ws-desc">${chips || "（还没有镜头归入此场景）"}</div>${assign}</div>` +
+          `<div class="ws-desc">${chips || "（还没有镜头归入此场景）"}</div>${bibleLine}${assign}</div>` +
           `<button class="nrun ghost" data-sc-rename="${esc(s.sceneId)}">重命名</button>` +
           (s.removable ? `<button class="nrun ghost" data-sc-del="${esc(s.sceneId)}">删除</button>` : "") +
           `</div>`
@@ -433,6 +884,29 @@ export function bindEpisodes(root, ctx) {
   root.querySelectorAll("[data-assign-scene]").forEach((sel) => {
     sel.onchange = () => {
       if (sel.value) ctx.production.assignShot(sel.dataset.assignScene, sel.value);
+    };
+  });
+  // --- scene ↔ bible references (M7) --------------------------------------- //
+  on("[data-scref-lclear]", (el) => ctx.bible.setSceneLocation(el.dataset.screfLclear, null, null));
+  on("[data-scref-cdel]", (el) => ctx.bible.removeSceneCharacter(el.dataset.screfCdel, el.dataset.cid));
+  root.querySelectorAll("[data-scref-lset]").forEach((sel) => {
+    sel.onchange = () => { if (sel.value) ctx.bible.setSceneLocation(sel.dataset.screfLset, sel.value, null); };
+  });
+  root.querySelectorAll("[data-scref-lstate]").forEach((sel) => {
+    sel.onchange = () => {
+      const sceneId = sel.dataset.screfLstate;
+      const cur = ctx.production.doc(); // re-read the current location ref
+      let locId = null;
+      for (const e of cur.episodes) for (const s of e.scenes) if (s.sceneId === sceneId && s.locationRef) locId = s.locationRef.locationId;
+      if (locId) ctx.bible.setSceneLocation(sceneId, locId, sel.value || null);
+    };
+  });
+  root.querySelectorAll("[data-scref-cadd]").forEach((sel) => {
+    sel.onchange = () => { if (sel.value) ctx.bible.addSceneCharacter(sel.dataset.screfCadd, sel.value, null); };
+  });
+  root.querySelectorAll("[data-scref-cstate]").forEach((sel) => {
+    sel.onchange = () => {
+      ctx.bible.setSceneCharacterState(sel.dataset.screfCstate, sel.dataset.cid, sel.value || null);
     };
   });
 }

@@ -64,9 +64,13 @@ export function navBadges(doc, pd) {
   const audio = ws.audioModel(pd);
   const edit = ws.editModel(pd);
   const prod = pd.production;
+  const bibleCount = prod && Array.isArray(prod.characters) && Array.isArray(prod.locations)
+    ? prod.characters.length + prod.locations.length
+    : 0;
   return {
     story: doc.brief && doc.brief.trim() ? "✓" : "",
-    settings: "",
+    // M7: real persisted bible entities (characters + locations)
+    settings: bibleCount ? String(bibleCount) : "",
     // M6: real persisted Episode entities — the count is honest domain data
     episodes: prod && Array.isArray(prod.episodes) ? String(prod.episodes.length) : "",
     script: st.versions ? `v${st.active}` : "草稿",
@@ -91,8 +95,8 @@ const AI_DIRECTOR = {
     now: ["现在可用：写下创意后，到「剧本」工作区一键生成剧本 v1"],
   },
   settings: {
-    future: ["角色/场景/道具/风格一致性检查（待作品设定域模型，后续检查点）"],
-    now: ["现在可用：暂无 — 本工作区当前没有可操作能力"],
+    future: ["按设定的一致性检查、Prompt 编译（待后续检查点）"],
+    now: ["现在可用：建立角色/场景地档案与状态（少女/黑化、日/夜…），挂参考图，供场景按 ID 引用（结构已持久化，M7）"],
   },
   episodes: {
     future: ["剧集规划、跨集连贯性建议（待后续检查点）"],
@@ -126,6 +130,7 @@ export function createProduction(getCtx) {
   let activeModule = "script";
   let revText = "";
   let vmenuOpen = false;
+  const openBible = new Set(); // 作品设定 <details> open state (transient)
 
   function vmenuHtml(d) {
     const label = { generated: "AI 生成", revision: "AI 修订", manual: "手工" };
@@ -273,6 +278,19 @@ export function createProduction(getCtx) {
     if (jump) jump.onclick = () => setModule(jump.dataset.goto);
     // 剧集 workspace structure actions (M6) — domain writes via ctx.production
     if (activeModule === "episodes") ws.bindEpisodes(root, ctx);
+    // 作品设定 workspace (M7) — domain writes via ctx.bible. Re-renders
+    // collapse <details>; restore the ones the creator had open (transient
+    // UI state only, never persisted).
+    if (activeModule === "settings") {
+      ws.bindSettings(root, ctx);
+      root.querySelectorAll("details[data-key]").forEach((d) => {
+        if (openBible.has(d.dataset.key)) d.open = true;
+        d.ontoggle = () => {
+          if (d.open) openBible.add(d.dataset.key);
+          else openBible.delete(d.dataset.key);
+        };
+      });
+    }
     if (activeModule !== "script") return;
     // --- script workspace bindings (unchanged behavior) ---
     const text = root.querySelector(".pm-text");

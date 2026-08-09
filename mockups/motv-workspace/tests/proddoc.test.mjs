@@ -31,9 +31,14 @@ test("createProduction: persisted ids survive verbatim (never re-minted)", () =>
   const saved = {
     activeEpisodeId: "ep-x",
     episodes: [
-      { episodeId: "ep-x", title: "上集", scenes: [{ sceneId: "scene-1", title: "大殿", shotIds: ["shot-a"] }] },
+      {
+        episodeId: "ep-x", title: "上集",
+        scenes: [{ sceneId: "scene-1", title: "大殿", shotIds: ["shot-a"], characterRefs: [], locationRef: null }],
+      },
       { episodeId: "ep-mig-1", title: "第 1 集", scenes: [] },
     ],
+    characters: [],
+    locations: [],
   };
   const p = pd.createProduction(structuredClone(saved));
   assert.deepEqual(pd.serialize(p), saved);
@@ -244,12 +249,14 @@ test("v5→v6 mints exactly the deterministic default single episode, nothing el
   assert.deepEqual(res.doc.production, {
     activeEpisodeId: "ep-mig-1",
     episodes: [{ episodeId: "ep-mig-1", title: "第 1 集", scenes: [] }],
+    characters: [], // v6→v7 continues the chain with an empty bible
+    locations: [],
   });
   // deterministic: same input → identical output
   assert.deepEqual(migrateToCurrent(v5Doc()).doc, migrateToCurrent(v5Doc()).doc);
   // …and everything else is untouched
   const { production: _p, ...rest } = res.doc;
-  assert.deepEqual(rest, { ...v5Doc(), v: 6 });
+  assert.deepEqual(rest, { ...v5Doc(), v: CANVAS_SCHEMA_VERSION });
 });
 
 test("v5→v6 replaces hand-crafted junk production (the field is introduced AT v6)", () => {

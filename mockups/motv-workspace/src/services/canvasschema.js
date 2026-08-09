@@ -18,7 +18,7 @@
 //   outcome overwrite the stored document.
 
 /** Authoritative CURRENT canvas schema version. Saves must emit exactly this. */
-export const CANVAS_SCHEMA_VERSION = 6;
+export const CANVAS_SCHEMA_VERSION = 7;
 
 /**
  * v1 → v2 (checkpoint M2): stable creator identity + minimal provenance.
@@ -597,9 +597,40 @@ function migrateV5ToV6(doc) {
   return doc;
 }
 
+/**
+ * v6 → v7 (checkpoint M7): Production Bible — project-level Characters and
+ * Locations with States, plus Scene references to them.
+ *
+ * Purely ADDITIVE to the production document:
+ * - production.characters / production.locations — introduced AT v7, so a
+ *   genuine v6 save never carries them; any pre-existing value is
+ *   hand-crafted junk and is REPLACED by the honest empty registry (same
+ *   posture as the v5 generations / v6 production backfills). No character or
+ *   location is ever fabricated from drafts, media, or scene titles.
+ * - every scene += characterRefs: [] / locationRef: null — references INTO
+ *   the bible (by id + optional state id); pre-existing junk under those key
+ *   names is likewise replaced (the fields are born here).
+ * Episodes, scenes, shot refs, assets, generations are untouched.
+ */
+function migrateV6ToV7(doc) {
+  const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
+  if (!isObj(doc.production)) return doc; // fail safe: v7 validation will reject
+  doc.production.characters = [];
+  doc.production.locations = [];
+  for (const e of Array.isArray(doc.production.episodes) ? doc.production.episodes : []) {
+    if (!isObj(e)) continue;
+    for (const s of Array.isArray(e.scenes) ? e.scenes : []) {
+      if (!isObj(s)) continue;
+      s.characterRefs = [];
+      s.locationRef = null;
+    }
+  }
+  return doc;
+}
+
 /** Sequential migration steps: { [fromVersion]: (doc) => docAtFromVersion+1 }.
  *  Extended one real step at a time, never speculatively. */
-export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6 };
+export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7 };
 
 /** Read the schema version of a raw persisted document.
  *  Returns a positive integer, or null if the marker is malformed.
@@ -863,6 +894,129 @@ export function validateCanvasDoc(doc) {
     if (!isPlainObject(doc.production)) return "production is not an object";
     const p = doc.production;
     if (!Array.isArray(p.episodes)) return "production.episodes is not an array";
+    // Since v7 the Production Bible (characters/locations + scene references)
+    // lives inside the production document. Entities are validated FIRST so
+    // scene references can be checked against them below.
+    const atV7 = Number.isInteger(doc.v) && doc.v >= 7;
+    const charStates = new Map(); // characterId → Set(stateId)
+    const locStates = new Map(); // locationId → Set(stateId)
+    if (atV7) {
+      const bibleStateIds = new Set();
+      const checkRefs = (e, where) => {
+        if (!Array.isArray(e.referenceAssetIds)) return `${where} referenceAssetIds is not an array`;
+        for (const id of e.referenceAssetIds) {
+          if (typeof id !== "string" || !id) return `${where} has a non-string reference asset id`;
+        }
+        // duplicates render twice and one removal deletes every copy —
+        // hydration would dedupe (data change), so reject instead
+        if (new Set(e.referenceAssetIds).size !== e.referenceAssetIds.length) {
+          return `${where} has duplicate reference asset ids`;
+        }
+        // the active pointer must be one of the entity's own references (or
+        // null) — an active ref outside the list is meaningless dead data.
+        // SHAPE only vs the Asset registry: like Generation links (M5), a
+        // bible reference legitimately outlives the Asset's bytes/record.
+        if (e.activeReferenceAssetId !== null && !e.referenceAssetIds.includes(e.activeReferenceAssetId)) {
+          return `${where} activeReferenceAssetId is not one of its references`;
+        }
+        return null;
+      };
+      // Override values are validated EXACTLY as strictly as hydration
+      // (bibledoc.sanitizeOverrides) consumes them: any key or value shape
+      // hydration would drop or coerce is REJECTED here instead — an accepted
+      // save must never silently lose data on the next load→save round-trip.
+      const idList = (v) =>
+        Array.isArray(v) && v.every((x) => typeof x === "string" && x) && new Set(v).size === v.length;
+      const checkStates = (entity, where, facetKeys) => {
+        if (!Array.isArray(entity.states)) return `${where} states is not an array`;
+        for (const s of entity.states) {
+          if (!isPlainObject(s)) return `${where} states contains a non-object entry`;
+          if (typeof s.stateId !== "string" || !s.stateId) return `${where} has a state with no stateId`;
+          if (bibleStateIds.has(s.stateId)) return `duplicate stateId ${s.stateId}`;
+          bibleStateIds.add(s.stateId);
+          if (typeof s.name !== "string") return `state ${s.stateId} has no name string`;
+          if (!isPlainObject(s.overrides)) return `state ${s.stateId} overrides is not an object`;
+          const o = s.overrides;
+          for (const k of Object.keys(o)) {
+            if (k === "voice") {
+              if (!facetKeys.includes("voice")) return `state ${s.stateId} has unknown override "voice"`;
+              // VOICE RULE: a state may modify performance characteristics but
+              // never carries its own voice IDENTITY — same character, same voice.
+              if (!isPlainObject(o.voice)) return `state ${s.stateId} voice override is not an object`;
+              for (const vk of Object.keys(o.voice)) {
+                if (vk === "voiceId") return `state ${s.stateId} overrides the voice identity (voiceId) — states must keep the base voice`;
+                if (vk === "description") {
+                  if (typeof o.voice.description !== "string") return `state ${s.stateId} voice description override is not a string`;
+                } else if (vk === "performance") {
+                  if (!isPlainObject(o.voice.performance)) return `state ${s.stateId} voice performance override is not an object`;
+                } else {
+                  return `state ${s.stateId} has unknown voice override "${vk}"`;
+                }
+              }
+            } else if (k === "referenceAssetIds") {
+              if (!idList(o.referenceAssetIds)) return `state ${s.stateId} referenceAssetIds override is not a list of ids`;
+            } else if (k === "activeReferenceAssetId") {
+              // a state's active ref must live in the state's OWN override list
+              if (o.activeReferenceAssetId !== null) {
+                if (typeof o.activeReferenceAssetId !== "string") return `state ${s.stateId} activeReferenceAssetId override is not an id`;
+                if (!Array.isArray(o.referenceAssetIds) || !o.referenceAssetIds.includes(o.activeReferenceAssetId)) {
+                  return `state ${s.stateId} activeReferenceAssetId is not in its override references`;
+                }
+              }
+            } else if (facetKeys.includes(k)) {
+              if (typeof o[k] !== "string") return `state ${s.stateId} override "${k}" is not a string`;
+            } else {
+              return `state ${s.stateId} has unknown override "${k}"`;
+            }
+          }
+        }
+        return null;
+      };
+      // base facets: hydration coerces non-strings — reject them instead
+      const checkProfile = (entity, where, fields) => {
+        for (const k of fields) {
+          if (typeof entity.profile[k] !== "string") return `${where} profile ${k} is missing or not a string`;
+        }
+        return null;
+      };
+      // Character/Location ids share ONE namespace: entity lookups (e.g. the
+      // reference-asset ops) resolve by id across both kinds, so a cross-kind
+      // collision would silently address the wrong entity.
+      const CHAR_FACETS = ["appearance", "costume", "visualInstruction", "voice"];
+      const LOC_FACETS = ["description", "visualInstruction"];
+      if (!Array.isArray(p.characters)) return "production.characters is missing or not an array";
+      for (const c of p.characters) {
+        if (!isPlainObject(c)) return "production.characters contains a non-object entry";
+        if (typeof c.characterId !== "string" || !c.characterId) return "a character has no characterId";
+        if (charStates.has(c.characterId)) return `duplicate characterId ${c.characterId}`;
+        if (typeof c.name !== "string") return `character ${c.characterId} has no name string`;
+        if (!isPlainObject(c.profile)) return `character ${c.characterId} has no profile object`;
+        if (!isPlainObject(c.voice)) return `character ${c.characterId} has no voice profile`;
+        if (c.voice.voiceId !== null && (typeof c.voice.voiceId !== "string" || !c.voice.voiceId)) {
+          return `character ${c.characterId} has an invalid base voiceId`;
+        }
+        if (typeof c.voice.description !== "string") return `character ${c.characterId} voice description is missing or not a string`;
+        if (!isPlainObject(c.voice.performance)) return `character ${c.characterId} voice performance is missing or not an object`;
+        const err = checkProfile(c, `character ${c.characterId}`, ["appearance", "costume", "personality", "visualInstruction"])
+          || checkRefs(c, `character ${c.characterId}`)
+          || checkStates(c, `character ${c.characterId}`, CHAR_FACETS);
+        if (err) return err;
+        charStates.set(c.characterId, new Set(c.states.map((s) => s.stateId)));
+      }
+      if (!Array.isArray(p.locations)) return "production.locations is missing or not an array";
+      for (const l of p.locations) {
+        if (!isPlainObject(l)) return "production.locations contains a non-object entry";
+        if (typeof l.locationId !== "string" || !l.locationId) return "a location has no locationId";
+        if (locStates.has(l.locationId) || charStates.has(l.locationId)) return `duplicate locationId ${l.locationId}`;
+        if (typeof l.name !== "string") return `location ${l.locationId} has no name string`;
+        if (!isPlainObject(l.profile)) return `location ${l.locationId} has no profile object`;
+        const err = checkProfile(l, `location ${l.locationId}`, ["description", "visualInstruction"])
+          || checkRefs(l, `location ${l.locationId}`)
+          || checkStates(l, `location ${l.locationId}`, LOC_FACETS);
+        if (err) return err;
+        locStates.set(l.locationId, new Set(l.states.map((s) => s.stateId)));
+      }
+    }
     if (atV6) {
       // v6 structural invariants: at least one episode (the shell's current-
       // episode context), unique non-empty ids, scenes referencing each shot
@@ -892,6 +1046,50 @@ export function validateCanvasDoc(doc) {
             if (typeof id !== "string" || !id) return `scene ${s.sceneId} has a non-string shot reference`;
             if (shotRefs.has(id)) return `shot ${id} is referenced by more than one scene`;
             shotRefs.add(id);
+          }
+          // v7 bible references: INTERNAL to this document, so they must
+          // resolve — a ref to a missing character/location/state is corrupt
+          // (domain ops refuse removals while referenced), unlike shot refs
+          // which point outside the document and may legitimately dangle.
+          if (atV7) {
+            // ID-ONLY reference contract: a scene ref carries EXACTLY the
+            // entity id + state id, nothing else — an extra field would be
+            // dropped by hydration (accepted save loses data) and could
+            // smuggle embedded profile copies past the never-duplicate rule.
+            const idOnly = (r, idKey, where) => {
+              for (const k of Object.keys(r)) {
+                if (k !== idKey && k !== "stateId") return `${where} has unknown field "${k}" (references are id-only)`;
+              }
+              if (!("stateId" in r)) return `${where} is missing stateId`;
+              return null;
+            };
+            if (!Array.isArray(s.characterRefs)) return `scene ${s.sceneId} characterRefs is not an array`;
+            const seenChars = new Set();
+            for (const r of s.characterRefs) {
+              if (!isPlainObject(r)) return `scene ${s.sceneId} characterRefs contains a non-object entry`;
+              const shapeErr = idOnly(r, "characterId", `scene ${s.sceneId} character reference`);
+              if (shapeErr) return shapeErr;
+              if (!charStates.has(r.characterId)) return `scene ${s.sceneId} references unknown character ${JSON.stringify(r.characterId)}`;
+              if (seenChars.has(r.characterId)) return `scene ${s.sceneId} references character ${r.characterId} twice`;
+              seenChars.add(r.characterId);
+              if (r.stateId !== null && !charStates.get(r.characterId).has(r.stateId)) {
+                return `scene ${s.sceneId} references unknown state ${JSON.stringify(r.stateId)} of character ${r.characterId}`;
+              }
+            }
+            // the field itself is REQUIRED at v7 (migration/serializer always
+            // emit it) — accepting an absent key would let a truncated scene
+            // pass as "no location" instead of failing safe
+            if (s.locationRef === undefined) return `scene ${s.sceneId} is missing locationRef`;
+            if (s.locationRef !== null) {
+              const r = s.locationRef;
+              if (!isPlainObject(r)) return `scene ${s.sceneId} locationRef is not an object`;
+              const shapeErr = idOnly(r, "locationId", `scene ${s.sceneId} locationRef`);
+              if (shapeErr) return shapeErr;
+              if (!locStates.has(r.locationId)) return `scene ${s.sceneId} references unknown location ${JSON.stringify(r.locationId)}`;
+              if (r.stateId !== null && !locStates.get(r.locationId).has(r.stateId)) {
+                return `scene ${s.sceneId} references unknown state ${JSON.stringify(r.stateId)} of location ${r.locationId}`;
+              }
+            }
           }
         }
       }

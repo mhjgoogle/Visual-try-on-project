@@ -32,6 +32,7 @@ import * as genlib from "./workflow/genlib.js";
 import { buildShotSlotIndex, slotForShotId, shotIdForSlot, resolveAdoptTarget } from "./workflow/shotmap.js";
 import * as scriptdoc from "./workflow/scriptdoc.js";
 import * as proddoc from "./workflow/proddoc.js";
+import * as bibledoc from "./workflow/bibledoc.js";
 
 // --- register node types (the extension list) ---
 import script from "./workflow/nodes/script.js";
@@ -489,6 +490,37 @@ const ctx = {
     assignShot: (sceneId, shotId) => prodOp(proddoc.assignShot(productionDoc, sceneId, shotId)),
     unassignShot: (shotId) => prodOp(proddoc.unassignShot(productionDoc, shotId)),
   },
+  // Production Bible controller (M7): characters/locations with states, voice
+  // profiles, asset references, and scene↔bible references. Same posture as
+  // ctx.production: the ONLY write path, every mutation persists + re-renders;
+  // refused ops (false/null) change nothing. State transitions live in
+  // workflow/bibledoc.js.
+  bible: {
+    addCharacter: (name) => prodNew(bibledoc.addCharacter(productionDoc, name)),
+    renameCharacter: (id, name) => prodOp(bibledoc.renameCharacter(productionDoc, id, name)),
+    removeCharacter: (id) => prodOp(bibledoc.removeCharacter(productionDoc, id)),
+    updateCharacterProfile: (id, fields) => prodOp(bibledoc.updateCharacterProfile(productionDoc, id, fields)),
+    setCharacterVoice: (id, voice) => prodOp(bibledoc.setCharacterVoice(productionDoc, id, voice)),
+    addCharacterState: (id, name) => prodNew(bibledoc.addCharacterState(productionDoc, id, name)),
+    renameCharacterState: (id, sid, name) => prodOp(bibledoc.renameCharacterState(productionDoc, id, sid, name)),
+    removeCharacterState: (id, sid) => prodOp(bibledoc.removeCharacterState(productionDoc, id, sid)),
+    setCharacterStateOverrides: (id, sid, o) => prodOp(bibledoc.setCharacterStateOverrides(productionDoc, id, sid, o)),
+    addLocation: (name) => prodNew(bibledoc.addLocation(productionDoc, name)),
+    renameLocation: (id, name) => prodOp(bibledoc.renameLocation(productionDoc, id, name)),
+    removeLocation: (id) => prodOp(bibledoc.removeLocation(productionDoc, id)),
+    updateLocationProfile: (id, fields) => prodOp(bibledoc.updateLocationProfile(productionDoc, id, fields)),
+    addLocationState: (id, name) => prodNew(bibledoc.addLocationState(productionDoc, id, name)),
+    renameLocationState: (id, sid, name) => prodOp(bibledoc.renameLocationState(productionDoc, id, sid, name)),
+    removeLocationState: (id, sid) => prodOp(bibledoc.removeLocationState(productionDoc, id, sid)),
+    setLocationStateOverrides: (id, sid, o) => prodOp(bibledoc.setLocationStateOverrides(productionDoc, id, sid, o)),
+    addReferenceAsset: (id, assetId) => prodOp(bibledoc.addReferenceAsset(productionDoc, id, assetId)),
+    removeReferenceAsset: (id, assetId) => prodOp(bibledoc.removeReferenceAsset(productionDoc, id, assetId)),
+    setActiveReferenceAsset: (id, assetId) => prodOp(bibledoc.setActiveReferenceAsset(productionDoc, id, assetId)),
+    addSceneCharacter: (sceneId, cid, sid) => prodOp(bibledoc.addSceneCharacter(productionDoc, sceneId, cid, sid)),
+    setSceneCharacterState: (sceneId, cid, sid) => prodOp(bibledoc.setSceneCharacterState(productionDoc, sceneId, cid, sid)),
+    removeSceneCharacter: (sceneId, cid) => prodOp(bibledoc.removeSceneCharacter(productionDoc, sceneId, cid)),
+    setSceneLocation: (sceneId, lid, sid) => prodOp(bibledoc.setSceneLocation(productionDoc, sceneId, lid, sid)),
+  },
   agentShotsDraft: (script) => query.generateShotsDraft(script),
   isPaid: () => PAID,
   // draft lock (ADR-0047): canvas draft → official versioned plan/records/
@@ -707,6 +739,14 @@ function prodOp(ok) {
     refreshProductionView();
   }
   return ok;
+}
+// Same landing for ops that return a freshly minted record (or null).
+function prodNew(rec) {
+  if (rec) {
+    ctx.persist();
+    refreshProductionView();
+  }
+  return rec;
 }
 function goProduction() {
   $("#seg-prod").classList.add("active");

@@ -244,8 +244,13 @@ test("the creativeShotId bridge in lockedPlan survives a canvas dispatch round-t
     scriptDoc: null,
     assets: { images: {}, videos: {}, audio: {}, firstFrames: {}, finals: [], displaced: [] },
     generations: [], // M5: a current-version doc carries the generation registry
-    // M6: …and the production structure
-    production: { activeEpisodeId: "ep-1", episodes: [{ episodeId: "ep-1", title: "第 1 集", scenes: [] }] },
+    // M6/M7: …and the production structure (with its bible registries)
+    production: {
+      activeEpisodeId: "ep-1",
+      episodes: [{ episodeId: "ep-1", title: "第 1 集", scenes: [] }],
+      characters: [],
+      locations: [],
+    },
     nodes: [{
       id: "g", type: "scriptgen", x: 0, y: 0, state: "done", cur: 1,
       versions: [{

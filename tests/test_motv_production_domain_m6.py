@@ -93,9 +93,10 @@ def test_scene_references_shots_and_never_duplicates_content() -> None:
         )
 
 
-def test_schema_is_v6_with_production_structure() -> None:
+def test_schema_has_v6_production_structure() -> None:
     schema = (_SRC / "services" / "canvasschema.js").read_text("utf-8")
-    assert "CANVAS_SCHEMA_VERSION = 6" in schema
+    # the schema version has moved past 6 (M7+); M6's guarantee is the v5→v6
+    # step and its invariants staying in the chain, not the current pin
     assert "function migrateV5ToV6" in schema
     assert "5: migrateV5ToV6" in schema
     # v6 validation guards presence + id uniqueness + single-owner shot refs

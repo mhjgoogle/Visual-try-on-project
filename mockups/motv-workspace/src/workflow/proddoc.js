@@ -25,15 +25,17 @@
 // Pure state + transitions only — no fetch, no DOM, no clock.
 
 import { mintId } from "./identity.js";
+import { sanitizeBible, sanitizeSceneRefs } from "./bibledoc.js";
 
 const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
 const nonEmpty = (x) => typeof x === "string" && x !== "";
 
-/** A fresh default document: one episode, active, no scenes. Every project
- *  has at least one episode (the shell's "当前剧集" context header). */
+/** A fresh default document: one episode, active, no scenes; an empty
+ *  Production Bible (M7). Every project has at least one episode (the
+ *  shell's "当前剧集" context header). */
 function defaultProduction() {
   const ep = { episodeId: mintId("ep"), title: "第 1 集", scenes: [] };
-  return { activeEpisodeId: ep.episodeId, episodes: [ep] };
+  return { activeEpisodeId: ep.episodeId, episodes: [ep], characters: [], locations: [] };
 }
 
 function sanitizeScene(s, takenSceneIds, takenShotIds) {
@@ -49,7 +51,15 @@ function sanitizeScene(s, takenSceneIds, takenShotIds) {
       shotIds.push(id);
     }
   }
-  return { sceneId: s.sceneId, title: typeof s.title === "string" ? s.title : "", shotIds };
+  return {
+    sceneId: s.sceneId,
+    title: typeof s.title === "string" ? s.title : "",
+    shotIds,
+    // M7 bible references — validated against the hydrated entities below
+    // (sanitizeSceneRefs), since they point INSIDE this same document
+    characterRefs: Array.isArray(s.characterRefs) ? s.characterRefs : [],
+    locationRef: s.locationRef ?? null,
+  };
 }
 
 /** Hydrate the production document from a persisted `production` field (or
@@ -75,12 +85,20 @@ export function createProduction(saved) {
   const active = nonEmpty(saved.activeEpisodeId) && episodes.some((e) => e.episodeId === saved.activeEpisodeId)
     ? saved.activeEpisodeId
     : episodes[0].episodeId; // a dangling pointer falls back deterministically
-  return { activeEpisodeId: active, episodes };
+  // M7 Production Bible: hydrate entities first, then scene refs against them
+  const { characters, locations } = sanitizeBible(saved);
+  for (const e of episodes) for (const s of e.scenes) sanitizeSceneRefs(s, characters, locations);
+  return { activeEpisodeId: active, episodes, characters, locations };
 }
 
-/** The durable slice for persistence (schema v6 `production`). */
+/** The durable slice for persistence (schema v7 `production`). */
 export function serialize(prod) {
-  return { activeEpisodeId: prod.activeEpisodeId, episodes: prod.episodes };
+  return {
+    activeEpisodeId: prod.activeEpisodeId,
+    episodes: prod.episodes,
+    characters: prod.characters,
+    locations: prod.locations,
+  };
 }
 
 export function findEpisode(prod, episodeId) {
@@ -143,6 +161,8 @@ export function addScene(prod, episodeId, title) {
     sceneId: mintId("scene"),
     title: nonEmpty(title) ? title : `场 ${ep.scenes.length + 1}`,
     shotIds: [],
+    characterRefs: [], // M7: bible references (by id + optional state)
+    locationRef: null,
   };
   ep.scenes.push(scene);
   return scene;

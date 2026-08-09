@@ -11,6 +11,9 @@ import {
   videoModel,
   audioModel,
   editModel,
+  episodesModel,
+  settingsModel,
+  nextStateRefsOnAdd,
   renderSettings,
   renderEpisodes,
   renderShots,
@@ -19,11 +22,13 @@ import {
 import { navBadges, NAV } from "../src/ui/production.js";
 import * as sd from "../src/workflow/scriptdoc.js";
 
-/** The default production structure a fresh project carries (M6). */
+/** The default production structure a fresh project carries (M6/M7). */
 function prodDefault() {
   return {
     activeEpisodeId: "ep-1",
     episodes: [{ episodeId: "ep-1", title: "第 1 集", scenes: [] }],
+    characters: [],
+    locations: [],
   };
 }
 
@@ -391,10 +396,128 @@ function fakeCtx(pd, doc) {
   return { prodData: () => pd, script: { doc: () => d } };
 }
 
-test("作品设定 is an honest placeholder — no fake persistence claimed", () => {
-  const settings = renderSettings();
-  assert.ok(settings.includes("尚未开放"));
-  assert.ok(settings.includes("后续检查点"));
+test("作品设定 renders the persisted bible: characters, locations, voice rule (M7)", () => {
+  // fresh project: honest empty library with add affordances
+  const empty = renderSettings(fakeCtx(pdEmpty()));
+  assert.ok(empty.includes("还没有角色"));
+  assert.ok(empty.includes("还没有场景地"));
+  assert.ok(empty.includes("data-b-chadd"));
+  assert.ok(empty.includes("data-b-locadd"));
+  // with entities: profile fields, states, references (a missing Asset is
+  // kept + labeled, never dropped), and the voice-rule wording
+  const pd = pdDraft();
+  pd.production = prodDefault();
+  pd.production.characters = [{
+    characterId: "char-1", name: "李昭",
+    profile: { appearance: "束发", costume: "襦裙", personality: "怯懦", visualInstruction: "" },
+    referenceAssetIds: ["asset-gone"], activeReferenceAssetId: "asset-gone",
+    voice: { voiceId: "zh_CN-huayan", description: "清亮", performance: {} },
+    states: [{ stateId: "cstate-1", name: "黑化时期", overrides: { appearance: "黑衣" } }],
+  }];
+  pd.production.locations = [{
+    locationId: "loc-1", name: "太极殿",
+    profile: { description: "金殿", visualInstruction: "" },
+    referenceAssetIds: [], activeReferenceAssetId: null, states: [],
+  }];
+  const html = renderSettings(fakeCtx(pd));
+  assert.ok(html.includes("李昭"));
+  assert.ok(html.includes("黑化时期"));
+  assert.ok(html.includes("太极殿"));
+  assert.ok(html.includes("引用保留")); // missing asset reference kept + labeled
+  assert.ok(html.includes("不能换声音")); // voice rule stated
+});
+
+test("nextStateRefsOnAdd: adding a secondary reference never displaces the effective primary", () => {
+  const entity = { activeReferenceAssetId: "asset-base" };
+  // override list contains the INHERITED primary, no active key of its own —
+  // adding another ref keeps inheriting (no active key minted), primary stays
+  const kept = nextStateRefsOnAdd(entity, { referenceAssetIds: ["asset-base"] }, "asset-x");
+  assert.deepEqual(kept, { referenceAssetIds: ["asset-base", "asset-x"] });
+  // an explicit override primary is kept verbatim
+  const explicit = nextStateRefsOnAdd(entity, { referenceAssetIds: ["a"], activeReferenceAssetId: "a" }, "b");
+  assert.equal(explicit.activeReferenceAssetId, "a");
+  // FIRST state-specific ref: the inherited primary is not a member of the
+  // new one-item list → the added ref becomes primary
+  const first = nextStateRefsOnAdd(entity, {}, "asset-x");
+  assert.deepEqual(first, { referenceAssetIds: ["asset-x"], activeReferenceAssetId: "asset-x" });
+  // explicit none → the added ref becomes primary
+  const none = nextStateRefsOnAdd(entity, { referenceAssetIds: [], activeReferenceAssetId: null }, "c");
+  assert.equal(none.activeReferenceAssetId, "c");
+  // duplicate add is a no-op
+  assert.equal(nextStateRefsOnAdd(entity, { referenceAssetIds: ["d"] }, "d"), null);
+});
+
+test("剧集场景行提供角色/场景地引用（按 ID + 状态，不复制档案）", () => {
+  const pd = pdDraft();
+  pd.production = {
+    activeEpisodeId: "ep-1",
+    episodes: [{
+      episodeId: "ep-1", title: "第 1 集",
+      scenes: [{
+        sceneId: "scene-1", title: "大殿", shotIds: [],
+        characterRefs: [{ characterId: "char-1", stateId: "cstate-1" }],
+        locationRef: { locationId: "loc-1", stateId: null },
+      }],
+    }],
+    characters: [{
+      characterId: "char-1", name: "李昭",
+      profile: { appearance: "", costume: "", personality: "", visualInstruction: "" },
+      referenceAssetIds: [], activeReferenceAssetId: null,
+      voice: { voiceId: null, description: "", performance: {} },
+      states: [{ stateId: "cstate-1", name: "黑化时期", overrides: {} }],
+    }],
+    locations: [{
+      locationId: "loc-1", name: "太极殿",
+      profile: { description: "", visualInstruction: "" },
+      referenceAssetIds: [], activeReferenceAssetId: null, states: [],
+    }],
+  };
+  const m = episodesModel(pd);
+  const scene = m.active.scenes[0];
+  assert.equal(scene.refs.characters[0].name, "李昭");
+  assert.equal(scene.refs.characters[0].stateName, "黑化时期");
+  assert.equal(scene.refs.location.name, "太极殿");
+  const html = renderEpisodes(fakeCtx(pd));
+  assert.ok(html.includes("👤 李昭"));
+  assert.ok(html.includes("📍 太极殿"));
+  // scene id and character id ride in SEPARATE attributes — never packed into
+  // one value a delimiter split could mis-parse (regression: a NUL byte, and
+  // later a space-join fragile against ids containing spaces, both lived here)
+  assert.ok(html.includes('data-scref-cstate="scene-1" data-cid="char-1"'));
+});
+
+test("作品设定状态区提供状态专属参考图控件（M7 round-2）", () => {
+  const pd = pdDraft();
+  // image assets must carry assetId to be offerable as references (M3 identity)
+  pd.assetUploads = {
+    "v1-1": {
+      current: 1,
+      history: [{ slot_id: "v1-1", origin: "upload", version: 1, digest: null, url: "/u/a1.png", assetId: "asset-a1" }],
+    },
+  };
+  pd.production = prodDefault();
+  pd.production.characters = [{
+    characterId: "char-1", name: "李昭",
+    profile: { appearance: "", costume: "", personality: "", visualInstruction: "" },
+    referenceAssetIds: ["asset-a1"], activeReferenceAssetId: "asset-a1",
+    voice: { voiceId: null, description: "", performance: {} },
+    states: [
+      { stateId: "cstate-1", name: "黑化时期", overrides: {} }, // inherits base refs
+      { stateId: "cstate-2", name: "受伤时期", overrides: { referenceAssetIds: ["asset-x"], activeReferenceAssetId: "asset-x" } },
+      // overrides the LIST only — the inherited base active is a member, so
+      // the state view must still show it as the main reference (round-3 fix)
+      { stateId: "cstate-3", name: "回忆", overrides: { referenceAssetIds: ["asset-a1", "asset-x"] } },
+    ],
+  }];
+  const m = settingsModel(pd);
+  const s3 = m.characters[0].states.find((s) => s.stateId === "cstate-3");
+  assert.deepEqual(s3.refs.map((r) => [r.assetId, r.active]), [["asset-a1", true], ["asset-x", false]]);
+  assert.equal(m.characters[0].states[0].refs, null); // inherit = null, not []
+  const html = renderSettings(fakeCtx(pd));
+  assert.ok(html.includes("data-b-ovrefadd")); // add a state-specific reference
+  assert.ok(html.includes("继承基础参考图")); // inherit standing stated honestly
+  assert.ok(html.includes("data-b-ovrefreset")); // explicit list can revert to inherit
+  assert.ok(html.includes('data-eid="char-1" data-sid="cstate-2"')); // separate id attrs
 });
 
 test("剧集 renders the persisted structure: episodes, scenes, assignment pool (M6)", () => {

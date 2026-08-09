@@ -73,6 +73,19 @@ python mockups/motv-workspace/server.py --account-root examples/projects
 绝不按位置猜**，也不静默清除；删除仍有镜头归属的场景/仍有场景的剧集会被拒绝（先显式
 清空）。旧存档 v5→v6 迁移只铸一个确定性的默认剧集（`ep-mig-1`），场景/归属绝不臆造。
 
+**作品设定 Production Bible（M7）**：`production` 域文档扩展（schema v7）持久化项目级
+**角色库与场景地库**。角色 = 一个稳定身份（characterId）+ 规范档案（外貌/服装/性格/
+画面指令）+ **参考图引用**（referenceAssetIds 指向 M3 资产注册表，只引用不复制，主参考
+activeReferenceAssetId）+ **基础声音档案**（voiceId/描述/表现）+ **角色状态**
+（少女时期/黑化时期/受伤时期…）：状态只**覆盖**外貌/服装/画面指令/声音表现/参考图，
+**始终是同一个角色身份**；**声音规则**——状态可调表现但**不能携带自己的 voiceId**
+（域层剥离 + v7 校验双重强制）。场景地（Location）对称：档案（描述/画面指令）+ 参考图 +
+状态（日/夜、天气、战损、季节…）。剧集工作区的场景按 **ID+状态引用**出场角色与场景地
+（`characterRefs`/`locationRef`），档案内容绝不复制进场景或镜头；仍被场景引用的
+角色/场景地/状态**拒绝删除**（先释放引用）。纯解析器 `resolveCharacter/resolveLocation`
+给出基础⊕状态合并后的有效呈现。v6→v7 迁移只加空库与空引用字段，绝不臆造角色/场景。
+（Prompt 编译、配音生成、Provider 适配均不在本检查点。）
+
 **创意 → 剧本（版本化，创作者优先交互的第一个纵切）**：剧本节点是「剧本文档」
 的视图，不再自持内容——创意（Creative Brief）、剧本版本链与当前版本都存在画布
 持久化里的 `scriptDoc` 域（`src/workflow/scriptdoc.js`，旧画布的 node.text 自动
@@ -146,6 +159,7 @@ src/
   workflow/contract.js     L0–S7 阶段/步骤 I/O 合同数据（inspector 的唯一数据源）
   workflow/scriptdoc.js    剧本域文档：创意 + 追加式剧本版本链（纯状态，节点只是视图）
   workflow/proddoc.js      生产域文档：剧集→场景→镜头引用结构（M6，纯状态，镜头内容不复制）
+  workflow/bibledoc.js     作品设定域：角色/场景地+状态+声音档案+参考图引用（M7，纯状态）
   workflow/nodes/*.js      **扩展点**：每种节点一个文件，导出一个 NodeType def
   services/query.js        读门面：connected 走后端真实查询，否则回退 fixture
   services/realmap.js      把 WQ-14/02/07 DTO 映射进 UI 结构
