@@ -38,8 +38,8 @@ function pdEmpty() {
 function pdDraft() {
   const pd = pdEmpty();
   pd.draftShots = [
-    { sequence: 1, title: "跪殿", description: "大殿中央", duration_seconds: 6, slot: "v1-1" },
-    { sequence: 2, title: "逼诗", description: "皇帝俯视", duration_seconds: 10, slot: "v1-2" },
+    { shotId: "shot-a", sequence: 1, title: "跪殿", description: "大殿中央", duration_seconds: 6, slot: "v1-1" },
+    { shotId: "shot-b", sequence: 2, title: "逼诗", description: "皇帝俯视", duration_seconds: 10, slot: "v1-2" },
   ];
   pd.shotVersions = { count: 1, cur: 1, state: "done", rows: null };
   // shot 1 has an asset image (2 versions, current v2, paid) — shot 2 has none
@@ -93,7 +93,7 @@ test("shotsModel: structured draft exposes index/title/description/duration", ()
   assert.equal(m.empty, false);
   assert.equal(m.kind, "draft");
   assert.deepEqual(m.shots[1], {
-    seq: 2, title: "逼诗", description: "皇帝俯视", duration: 10, slot: "v1-2",
+    seq: 2, title: "逼诗", description: "皇帝俯视", duration: 10, slot: "v1-2", unresolved: false,
   });
   assert.deepEqual(m.versions, { count: 1, cur: 1 });
 });
@@ -119,7 +119,7 @@ test("assetsModel: per-shot slot standing with version chain metadata", () => {
   assert.equal(m.done, 1);
   assert.equal(m.total, 2);
   assert.deepEqual(m.items[0], {
-    seq: 1, title: "跪殿", slot: "v1-1",
+    seq: 1, title: "跪殿", slot: "v1-1", unresolved: false,
     url: "/u/a1_v2.png", versions: 2, current: 2, origin: "paid-image",
   });
   assert.equal(m.items[1].url, ""); // empty slot shows as missing, still listed
@@ -193,8 +193,8 @@ test("editModel: readiness per shot and composed finals", () => {
   const m = editModel(pd);
   assert.equal(m.ready, 1);
   assert.equal(m.total, 2);
-  assert.deepEqual(m.items[0], { seq: 1, title: "跪殿", video: true, voice: false });
-  assert.deepEqual(m.items[1], { seq: 2, title: "逼诗", video: false, voice: true });
+  assert.deepEqual(m.items[0], { seq: 1, title: "跪殿", unresolved: false, video: true, voice: false });
+  assert.deepEqual(m.items[1], { seq: 2, title: "逼诗", unresolved: false, video: false, voice: true });
   assert.equal(m.finals, 2);
   assert.equal(m.lastFinal, "/u/final_v2.mp4");
 });
@@ -203,6 +203,72 @@ test("editModel: empty project still surfaces finals standing", () => {
   const m = editModel(pdEmpty());
   assert.equal(m.empty, true);
   assert.equal(m.finals, 0);
+});
+
+// --- M4b: media joins by canonical creativeShotId, not draft position ----- //
+
+const titled = (items, title) => items.find((x) => x.title === title);
+
+test("REORDER: media follows the creative Shot, not its draft position", () => {
+  const pd = pdDraft(); // shot-a(跪殿)→v1-1 has image+video+frame; shot-b(逼诗)→v1-2 has voice
+  pd.draftShots = [pd.draftShots[1], pd.draftShots[0]]; // reorder → [逼诗, 跪殿]
+  // asset image stays with 跪殿 (shot-a) wherever it now sits
+  const a = assetsModel(pd);
+  assert.equal(titled(a.items, "跪殿").url, "/u/a1_v2.png");
+  assert.equal(titled(a.items, "逼诗").url, ""); // shot-b never had an image
+  // video + first frame stay with shot-a; voice stays with shot-b
+  const v = videoModel(pd);
+  assert.equal(titled(v.items, "跪殿").url, "/u/vid1.mp4");
+  assert.ok(titled(v.items, "跪殿").firstFrame);
+  assert.equal(titled(v.items, "逼诗").url, "");
+  const au = audioModel(pd);
+  assert.equal(titled(au.items, "逼诗").url, "/u/voice2.wav");
+  assert.equal(titled(au.items, "跪殿").url, "");
+});
+
+test("INSERT: a new shot does not slide a neighbor's media", () => {
+  const pd = pdDraft();
+  pd.draftShots = [
+    { shotId: "shot-new", sequence: 1, title: "新镜头", slot: "v2-1" }, // inserted, no media
+    ...pd.draftShots,
+  ];
+  const a = assetsModel(pd);
+  assert.equal(titled(a.items, "新镜头").url, ""); // new shot has no image
+  assert.equal(titled(a.items, "跪殿").url, "/u/a1_v2.png"); // shot-a's image unmoved
+});
+
+test("DELETE: removing a shot does not slide a survivor's media", () => {
+  const pd = pdDraft();
+  pd.draftShots = [pd.draftShots[1]]; // delete shot-a(跪殿), keep shot-b(逼诗)
+  const a = assetsModel(pd);
+  assert.equal(a.items.length, 1);
+  assert.equal(a.items[0].title, "逼诗");
+  assert.equal(a.items[0].url, ""); // shot-b did NOT inherit shot-a's image
+  const au = audioModel(pd);
+  assert.equal(au.items[0].url, "/u/voice2.wav"); // shot-b keeps its own voice
+});
+
+test("AMBIGUOUS identity resolves to unresolved (unknown), never positional", () => {
+  const pd = pdDraft();
+  // two shots now claim slot v1-1 — the binding is unprovable
+  pd.draftShots = [
+    { shotId: "shot-a", sequence: 1, title: "跪殿", slot: "v1-1" },
+    { shotId: "shot-x", sequence: 2, title: "冒名", slot: "v1-1" }, // dup slot
+  ];
+  const a = assetsModel(pd);
+  for (const it of a.items) {
+    assert.equal(it.unresolved, true); // both flagged unresolved
+    assert.equal(it.url, ""); // neither silently grabs v1-1's image
+  }
+  assert.equal(a.done, 0);
+});
+
+test("LEGACY draft without creativeShotId falls back to its carried slot", () => {
+  const pd = pdDraft();
+  pd.draftShots = [{ sequence: 1, title: "旧镜头", slot: "v1-1" }]; // no shotId
+  const a = assetsModel(pd);
+  assert.equal(a.items[0].unresolved, false);
+  assert.equal(a.items[0].url, "/u/a1_v2.png"); // legacy compat: uses the carried slot
 });
 
 // --- 导航徽标 ------------------------------------------------------------ //

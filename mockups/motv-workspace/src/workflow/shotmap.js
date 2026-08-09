@@ -46,15 +46,20 @@ export function buildShotSlotIndex(rawShots) {
   return { slotByShotId, shotIdBySlot };
 }
 
-/** The storage slot for a creative shotId, or null when unresolved/ambiguous. */
+/** The storage slot for a creative shotId, or null when unresolved/ambiguous.
+ *  Tolerates a null/malformed index (returns null rather than throwing) — the
+ *  map must be a real Map, so a non-Map/non-callable `.get` can never crash. */
 export function slotForShotId(index, shotId) {
-  if (!index || typeof shotId !== "string" || !shotId) return null;
-  return index.slotByShotId.get(shotId) ?? null;
+  if (typeof shotId !== "string" || !shotId) return null;
+  const m = index && index.slotByShotId;
+  return m instanceof Map ? m.get(shotId) ?? null : null;
 }
 
 /** The creative shotId a storage slot belongs to, or null when
- *  unresolved/ambiguous. A slot with no proven shotId resolves to null. */
+ *  unresolved/ambiguous. A slot with no proven shotId resolves to null.
+ *  Tolerates a null/malformed index (returns null rather than throwing). */
 export function shotIdForSlot(index, slot) {
-  if (!index || typeof slot !== "string" || !slot) return null;
-  return index.shotIdBySlot.get(slot) ?? null;
+  if (typeof slot !== "string" || !slot) return null;
+  const m = index && index.shotIdBySlot;
+  return m instanceof Map ? m.get(slot) ?? null : null;
 }

@@ -8,8 +8,28 @@
 // here mutates workflow nodes, domain state, or triggers generation.
 import { esc } from "../util/dom.js";
 import { slotEntry, currentRef } from "../workflow/mediaref.js";
+import { buildShotSlotIndex, slotForShotId } from "../workflow/shotmap.js";
 
 const nn = (seq) => String(seq).padStart(2, "0");
+
+// M4b — creator-facing media joins resolve by CANONICAL creativeShotId, not by
+// draft position. For a draft shot, resolve its storage slot via the
+// authoritative-draft index (creativeShotId → slot), then look media up by that
+// slot in the Asset Registry. Returns { slot, unresolved }:
+//  - slot: the storage key to look media up by (null when none/unresolvable);
+//  - unresolved: the shot HAS a slot binding that CANNOT be proven (ambiguous
+//    identity) — callers show "unknown", never guess by slot/sequence (M4 §5).
+// A shot with a shotId but no slot yet is simply empty (not unresolved). A
+// legacy shot with no creativeShotId falls back to its carried slot (compat).
+function shotSlot(index, s) {
+  if (typeof s.shotId === "string" && s.shotId) {
+    const slot = slotForShotId(index, s.shotId);
+    if (slot) return { slot, unresolved: false };
+    const hasSlot = typeof s.slot === "string" && !!s.slot;
+    return { slot: null, unresolved: hasSlot }; // has a slot that won't resolve → ambiguous
+  }
+  return { slot: s.slot || null, unresolved: false }; // legacy: no canonical identity
+}
 
 // ---------- pure view-models --------------------------------------------- //
 
@@ -33,18 +53,23 @@ export function shotsModel(pd) {
     ? { count: pd.shotVersions.count, cur: pd.shotVersions.cur }
     : null;
   if (pd.draftShots && pd.draftShots.length) {
+    const idx = buildShotSlotIndex(pd.draftShots);
     return {
       empty: false,
       kind: "draft",
       lock,
       versions,
-      shots: pd.draftShots.map((s) => ({
-        seq: s.sequence,
-        title: s.title,
-        description: s.description || "",
-        duration: s.duration_seconds ?? null,
-        slot: s.slot || null,
-      })),
+      shots: pd.draftShots.map((s) => {
+        const { slot, unresolved } = shotSlot(idx, s);
+        return {
+          seq: s.sequence,
+          title: s.title,
+          description: s.description || "",
+          duration: s.duration_seconds ?? null,
+          slot, // canonical (creativeShotId → slot); null when none/unresolved
+          unresolved,
+        };
+      }),
     };
   }
   const rows = (pd.shotVersions && pd.shotVersions.rows) || pd.realShots;
@@ -74,17 +99,21 @@ function shotContext(pd) {
   return m.empty || m.kind === "draft" ? null : { count: m.shots.length, kind: m.kind };
 }
 
-/** 资产: per current shot — image slot standing (versions, origin). */
+/** 资产: per current shot — image slot standing (versions, origin), joined by
+ *  canonical creativeShotId → slot → registry (M4b). */
 export function assetsModel(pd) {
   if (!pd.draftShots || !pd.draftShots.length)
     return { empty: true, items: [], context: shotContext(pd) };
+  const idx = buildShotSlotIndex(pd.draftShots);
   const items = pd.draftShots.map((s) => {
-    const e = s.slot ? slotEntry(pd.assetUploads, s.slot) : null;
-    const ref = s.slot ? currentRef(pd.assetUploads, s.slot) : null;
+    const { slot, unresolved } = shotSlot(idx, s);
+    const e = slot ? slotEntry(pd.assetUploads, slot) : null;
+    const ref = slot ? currentRef(pd.assetUploads, slot) : null;
     return {
       seq: s.sequence,
       title: s.title,
-      slot: s.slot || null,
+      slot, // resolved storage key (null when none/unresolved)
+      unresolved,
       url: ref ? ref.url : "",
       versions: e ? e.history.length : 0,
       current: e ? e.current : 0,
@@ -101,20 +130,25 @@ function opShotId(pd, seq) {
   return row ? row.shot_id : `shot-${seq}`;
 }
 
-/** 视频: per current shot — clip standing, KNOWN first-frame lineage (absent
- *  = honestly unknown, never invented), paid-op status projection. */
+/** 视频: per current shot — clip standing joined by canonical creativeShotId →
+ *  slot → registry (M4b); KNOWN first-frame lineage (absent = honestly unknown,
+ *  never invented). NOTE: the paid-op status join is STILL positional (draft
+ *  sequence → server shot_id) — the creativeShotId ↔ server-shot_id bridge does
+ *  not exist until M4c, so it cannot be de-sequenced safely yet (see opShotId). */
 export function videoModel(pd) {
   if (!pd.draftShots || !pd.draftShots.length)
     return { empty: true, items: [], context: shotContext(pd) };
+  const idx = buildShotSlotIndex(pd.draftShots);
   const items = pd.draftShots.map((s) => {
-    const k = s.slot || null;
-    const e = k ? slotEntry(pd.media.video, k) : null;
-    const ref = k ? currentRef(pd.media.video, k) : null;
-    const ff = k ? pd.firstFrames[k] : null;
-    const op = pd.paidOps[opShotId(pd, s.sequence)] || null;
+    const { slot, unresolved } = shotSlot(idx, s);
+    const e = slot ? slotEntry(pd.media.video, slot) : null;
+    const ref = slot ? currentRef(pd.media.video, slot) : null;
+    const ff = slot ? pd.firstFrames[slot] : null;
+    const op = pd.paidOps[opShotId(pd, s.sequence)] || null; // legacy positional — M4c
     return {
       seq: s.sequence,
       title: s.title,
+      unresolved,
       url: ref ? ref.url : "",
       versions: e ? e.history.length : 0,
       origin: ref ? ref.origin : null,
@@ -126,20 +160,21 @@ export function videoModel(pd) {
   return { empty: false, items, done: items.filter((x) => x.url).length, total: items.length };
 }
 
-/** 音频: per current shot voice slot + optional music/sfx extras. */
+/** 音频: per current shot voice slot (joined by canonical creativeShotId → slot
+ *  → registry, M4b) + optional music/sfx extras. */
 export function audioModel(pd) {
   if (!pd.draftShots || !pd.draftShots.length)
     return { empty: true, items: [], extras: [], context: shotContext(pd) };
   const entry = (k) => {
-    const e = slotEntry(pd.media.audio, k);
-    const ref = currentRef(pd.media.audio, k);
+    const e = k ? slotEntry(pd.media.audio, k) : null;
+    const ref = k ? currentRef(pd.media.audio, k) : null;
     return { url: ref ? ref.url : "", versions: e ? e.history.length : 0, origin: ref ? ref.origin : null };
   };
-  const items = pd.draftShots.map((s) => ({
-    seq: s.sequence,
-    title: s.title,
-    ...entry(s.slot ? `voice-${s.slot}` : ""),
-  }));
+  const idx = buildShotSlotIndex(pd.draftShots);
+  const items = pd.draftShots.map((s) => {
+    const { slot, unresolved } = shotSlot(idx, s);
+    return { seq: s.sequence, title: s.title, unresolved, ...entry(slot ? `voice-${slot}` : "") };
+  });
   const extras = [
     { key: "music-main", label: "🎼 背景音乐", ...entry("music-main") },
     { key: "sfx-main", label: "🔊 音效", ...entry("sfx-main") },
@@ -159,12 +194,17 @@ export function editModel(pd) {
       context: shotContext(pd),
     };
   }
-  const items = pd.draftShots.map((s) => ({
-    seq: s.sequence,
-    title: s.title,
-    video: !!(s.slot && currentRef(pd.media.video, s.slot)),
-    voice: !!(s.slot && currentRef(pd.media.audio, `voice-${s.slot}`)),
-  }));
+  const idx = buildShotSlotIndex(pd.draftShots);
+  const items = pd.draftShots.map((s) => {
+    const { slot, unresolved } = shotSlot(idx, s);
+    return {
+      seq: s.sequence,
+      title: s.title,
+      unresolved,
+      video: !!(slot && currentRef(pd.media.video, slot)),
+      voice: !!(slot && currentRef(pd.media.audio, `voice-${slot}`)),
+    };
+  });
   return {
     empty: false,
     items,
@@ -280,14 +320,17 @@ export function renderShots(ctx) {
   // collection — no fabricated Scene semantics (that domain waits for later).
   const cards = m.shots
     .map((s) => {
+      // s.slot is the CANONICAL slot (creativeShotId → slot); null when a shot's
+      // identity can't be proven — show unresolved, never guess by position.
       const ref = s.slot ? currentRef(pd.assetUploads, s.slot) : null;
       const thumb = ref
         ? `<img class="sc-thumb" src="${esc(ref.url)}" alt="">`
-        : `<div class="sc-thumb sc-none">🎞</div>`;
+        : `<div class="sc-thumb sc-none">${s.unresolved ? "⚠" : "🎞"}</div>`;
       return (
         `<div class="shotcard">${thumb}<div class="sc-body">` +
         `<div class="sc-title"><span class="n mono">${esc(nn(s.seq))}</span> <b>${esc(s.title)}</b>${s.duration != null ? `<span class="ws-tag">${esc(String(s.duration))}s</span>` : ""}</div>` +
         (s.description ? `<div class="ws-desc">${esc(s.description)}</div>` : "") +
+        (s.unresolved ? `<div class="ws-kv gate">⚠ 镜头身份未解析（slot 归属歧义）— 不按位置猜测</div>` : "") +
         `</div></div>`
       );
     })
@@ -308,10 +351,12 @@ export function renderFrames(ctx) {
     .map((x) => {
       const thumb = x.url
         ? `<img class="sc-thumb" src="${esc(x.url)}" alt="">`
-        : `<div class="sc-thumb sc-none">无图</div>`;
+        : `<div class="sc-thumb sc-none">${x.unresolved ? "⚠" : "无图"}</div>`;
       const meta = x.url
         ? `v${x.current} · 共 ${x.versions} 版 · ${esc(ORIGIN_ZH[x.origin] || x.origin || "")}`
-        : "缺图";
+        : x.unresolved
+          ? "⚠ 身份未解析（slot 归属歧义）"
+          : "缺图";
       return `<div class="shotcard">${thumb}<div class="sc-body"><div class="sc-title"><span class="n mono">${esc(nn(x.seq))}</span> <b>${esc(x.title)}</b></div><div class="ws-desc">${meta}</div></div></div>`;
     })
     .join("");
@@ -339,7 +384,9 @@ export function renderVideo(ctx) {
         : "";
       const meta = x.url
         ? `${x.versions} 版 · ${esc(ORIGIN_ZH[x.origin] || x.origin || "")} · ${ff}${op}`
-        : `缺片 · ${ff}${op}`;
+        : x.unresolved
+          ? `⚠ 身份未解析（slot 归属歧义）${op}`
+          : `缺片 · ${ff}${op}`;
       return `<div class="ws-row">${thumb}<div class="ws-main"><b>${esc(nn(x.seq))} ${esc(x.title)}</b><div class="ws-desc">${meta}</div></div></div>`;
     })
     .join("");
@@ -356,7 +403,11 @@ export function renderAudio(ctx) {
   }
   const row = (label, x) => {
     const player = x.url ? `<audio class="aaud" src="${esc(x.url)}" controls preload="none"></audio>` : "";
-    const meta = x.url ? `${x.versions} 版 · ${esc(ORIGIN_ZH[x.origin] || x.origin || "")}` : "缺音频";
+    const meta = x.url
+      ? `${x.versions} 版 · ${esc(ORIGIN_ZH[x.origin] || x.origin || "")}`
+      : x.unresolved
+        ? "⚠ 身份未解析（slot 归属歧义）"
+        : "缺音频";
     return `<div class="ws-row"><div class="ws-main"><b>${label}</b><div class="ws-desc">${meta}</div>${player}</div></div>`;
   };
   const rows = m.items.map((x) => row(`🎤 ${esc(nn(x.seq))} ${esc(x.title)}`, x)).join("");

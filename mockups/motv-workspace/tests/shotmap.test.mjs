@@ -154,6 +154,15 @@ test("resolver ignores malformed rows and empty input", () => {
   assert.equal(slotForShotId(empty, "shot-a"), null);
 });
 
+test("resolver tolerates a null OR malformed index without throwing", () => {
+  for (const bad of [null, undefined, {}, "nope", 5, { slotByShotId: null }, { slotByShotId: {} }, { slotByShotId: { get: "notafn" } }]) {
+    assert.equal(slotForShotId(bad, "shot-a"), null); // never throws, always null
+  }
+  for (const bad of [null, undefined, {}, { shotIdBySlot: {} }, { shotIdBySlot: { get: 7 } }]) {
+    assert.equal(shotIdForSlot(bad, "v1-1"), null);
+  }
+});
+
 // --- identity NOT position: reorder / insert / delete --------------------- //
 
 test("REORDER preserves every shotId↔slot binding", () => {
