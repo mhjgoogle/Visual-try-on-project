@@ -18,7 +18,7 @@
 //   outcome overwrite the stored document.
 
 /** Authoritative CURRENT canvas schema version. Saves must emit exactly this. */
-export const CANVAS_SCHEMA_VERSION = 5;
+export const CANVAS_SCHEMA_VERSION = 6;
 
 /**
  * v1 → v2 (checkpoint M2): stable creator identity + minimal provenance.
@@ -570,9 +570,36 @@ function migrateV4ToV5(doc) {
   return doc;
 }
 
+/**
+ * v5 → v6 (checkpoint M6): Production domain structure —
+ * Project → Episodes → Scenes → Shots.
+ *
+ * Adds the top-level `production` document: episodes own scenes, scenes
+ * reference shots by canonical creativeShotId (M2/M4) — shot CONTENT stays on
+ * the scriptgen draft, asset ownership stays in `assets` (M3), generation
+ * provenance in `generations` (M5). Nothing existing is renamed/removed.
+ *
+ * Every v5 project is a single-episode project by construction (the shell's
+ * 单剧集视图), so the migration mints exactly ONE deterministic episode
+ * (`ep-mig-1`, active) with no scenes: scene grouping and shot assignment are
+ * creator decisions and are NEVER fabricated from sequence or position.
+ *
+ * The `production` field is introduced AT v6, so a genuine v5 save never
+ * carries one. A pre-existing value is hand-crafted junk that could satisfy
+ * some v6 invariants while violating others → it is REPLACED by the
+ * deterministic default (same posture as the v5 `generations` backfill).
+ */
+function migrateV5ToV6(doc) {
+  doc.production = {
+    activeEpisodeId: "ep-mig-1",
+    episodes: [{ episodeId: "ep-mig-1", title: "第 1 集", scenes: [] }],
+  };
+  return doc;
+}
+
 /** Sequential migration steps: { [fromVersion]: (doc) => docAtFromVersion+1 }.
  *  Extended one real step at a time, never speculatively. */
-export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5 };
+export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6 };
 
 /** Read the schema version of a raw persisted document.
  *  Returns a positive integer, or null if the marker is malformed.
@@ -821,6 +848,55 @@ export function validateCanvasDoc(doc) {
             }
           }
         }
+      }
+    }
+  }
+  // Since v6 the Production domain document (top-level `production`) owns the
+  // Episode/Scene structure. A v6 save always emits it (even for a fresh
+  // canvas); a truncated one missing it would restore the default structure
+  // and cement loss of the creator's episode/scene organization on next save.
+  const atV6 = Number.isInteger(doc.v) && doc.v >= 6;
+  if (atV6 && !isPlainObject(doc.production)) {
+    return "v6 document is missing its production structure";
+  }
+  if (doc.production !== undefined) {
+    if (!isPlainObject(doc.production)) return "production is not an object";
+    const p = doc.production;
+    if (!Array.isArray(p.episodes)) return "production.episodes is not an array";
+    if (atV6) {
+      // v6 structural invariants: at least one episode (the shell's current-
+      // episode context), unique non-empty ids, scenes referencing each shot
+      // at most ONCE project-wide (a shot in two scenes is ambiguous
+      // ownership). Scene shotIds are canonical creativeShotIds and are NOT
+      // required to resolve to a current draft shot: structure legitimately
+      // outlives a regenerated draft (dangling refs display as unresolved).
+      if (!p.episodes.length) return "production has no episodes";
+      const epIds = new Set();
+      const sceneIds = new Set();
+      const shotRefs = new Set();
+      for (const e of p.episodes) {
+        if (!isPlainObject(e)) return "production.episodes contains a non-object entry";
+        if (typeof e.episodeId !== "string" || !e.episodeId) return "an episode has no episodeId";
+        if (epIds.has(e.episodeId)) return `duplicate episodeId ${e.episodeId}`;
+        epIds.add(e.episodeId);
+        if (typeof e.title !== "string") return `episode ${e.episodeId} has no title string`;
+        if (!Array.isArray(e.scenes)) return `episode ${e.episodeId} scenes is not an array`;
+        for (const s of e.scenes) {
+          if (!isPlainObject(s)) return `episode ${e.episodeId} scenes contains a non-object entry`;
+          if (typeof s.sceneId !== "string" || !s.sceneId) return "a scene has no sceneId";
+          if (sceneIds.has(s.sceneId)) return `duplicate sceneId ${s.sceneId}`;
+          sceneIds.add(s.sceneId);
+          if (typeof s.title !== "string") return `scene ${s.sceneId} has no title string`;
+          if (!Array.isArray(s.shotIds)) return `scene ${s.sceneId} shotIds is not an array`;
+          for (const id of s.shotIds) {
+            if (typeof id !== "string" || !id) return `scene ${s.sceneId} has a non-string shot reference`;
+            if (shotRefs.has(id)) return `shot ${id} is referenced by more than one scene`;
+            shotRefs.add(id);
+          }
+        }
+      }
+      if (typeof p.activeEpisodeId !== "string" || !epIds.has(p.activeEpisodeId)) {
+        return "production.activeEpisodeId does not reference an episode";
       }
     }
   }

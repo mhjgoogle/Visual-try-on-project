@@ -96,9 +96,10 @@ def test_generation_target_is_creativeShotId_never_slot() -> None:
     assert "targetId: s.slot" not in audio
 
 
-def test_schema_is_v5_with_generation_registry_and_storage_state() -> None:
+def test_schema_has_v5_generation_registry_and_storage_state() -> None:
     schema = (_SRC / "services" / "canvasschema.js").read_text("utf-8")
-    assert "CANVAS_SCHEMA_VERSION = 5" in schema
+    # the schema version has moved past 5 (M6+); M5's guarantee is the v4→v5
+    # step and its invariants staying in the chain, not the current pin
     assert "function migrateV4ToV5" in schema
     assert "4: migrateV4ToV5" in schema
     # v5 validation guards the generation registry + the storage lifecycle field

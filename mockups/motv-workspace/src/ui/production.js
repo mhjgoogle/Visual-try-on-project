@@ -63,10 +63,12 @@ export function navBadges(doc, pd) {
   const video = ws.videoModel(pd);
   const audio = ws.audioModel(pd);
   const edit = ws.editModel(pd);
+  const prod = pd.production;
   return {
     story: doc.brief && doc.brief.trim() ? "✓" : "",
     settings: "",
-    episodes: "",
+    // M6: real persisted Episode entities — the count is honest domain data
+    episodes: prod && Array.isArray(prod.episodes) ? String(prod.episodes.length) : "",
     script: st.versions ? `v${st.active}` : "草稿",
     shots: shots.empty ? "" : String(shots.shots.length),
     frames: frames.empty ? "" : `${frames.done}/${frames.total}`,
@@ -93,8 +95,8 @@ const AI_DIRECTOR = {
     now: ["现在可用：暂无 — 本工作区当前没有可操作能力"],
   },
   episodes: {
-    future: ["剧集规划、跨集连贯性建议（待剧集域模型，后续检查点）"],
-    now: ["现在可用：暂无 — 当前为单剧集视图"],
+    future: ["剧集规划、跨集连贯性建议（待后续检查点）"],
+    now: ["现在可用：新建/切换剧集，在剧集内建场景并把镜头归入场景（结构已持久化，M6）"],
   },
   shots: {
     future: ["按镜头的修订建议与一致性检查（待资产/生成记录域，M3/M4）"],
@@ -189,15 +191,19 @@ export function createProduction(getCtx) {
     );
   }
 
-  /** Persistent Project / current-Episode context header. The episode is the
-   *  project's single current episode VIEW — no Episode entity is persisted
-   *  (that domain model belongs to a later checkpoint), and the label says so. */
+  /** Persistent Project / current-Episode context header. Since M6 the active
+   *  Episode is a REAL persisted domain entity (production document); episode
+   *  management lives in the 剧集 workspace. */
   function ctxHead(ctx) {
     const name = (ctx.project && ctx.project.name) || "未命名项目";
+    const prod = ctx.production && ctx.production.doc();
+    const ep = prod && (prod.episodes.find((e) => e.episodeId === prod.activeEpisodeId) || prod.episodes[0]);
+    const epLabel = ep ? ep.title : "当前剧集";
+    const more = prod && prod.episodes.length > 1 ? `（共 ${prod.episodes.length} 集，在「剧集」切换）` : "";
     return (
       `<header class="prod-ctx"><span class="pc-proj">📁 ${esc(name)}</span>` +
-      `<span class="pc-sep">›</span><span class="pc-ep">📺 当前剧集</span>` +
-      `<span class="pc-note">单剧集视图 · 多剧集管理待剧集域模型（后续检查点）</span></header>`
+      `<span class="pc-sep">›</span><span class="pc-ep">📺 ${esc(epLabel)}</span>` +
+      `<span class="pc-note">剧集/场景结构已持久化（M6）${esc(more)}</span></header>`
     );
   }
 
@@ -265,6 +271,8 @@ export function createProduction(getCtx) {
     if (brief) brief.oninput = () => ctx.script.setBrief(brief.value);
     const jump = root.querySelector("[data-goto]");
     if (jump) jump.onclick = () => setModule(jump.dataset.goto);
+    // 剧集 workspace structure actions (M6) — domain writes via ctx.production
+    if (activeModule === "episodes") ws.bindEpisodes(root, ctx);
     if (activeModule !== "script") return;
     // --- script workspace bindings (unchanged behavior) ---
     const text = root.querySelector(".pm-text");

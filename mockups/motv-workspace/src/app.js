@@ -31,6 +31,7 @@ import * as assetlib from "./workflow/assetlib.js";
 import * as genlib from "./workflow/genlib.js";
 import { buildShotSlotIndex, slotForShotId, shotIdForSlot, resolveAdoptTarget } from "./workflow/shotmap.js";
 import * as scriptdoc from "./workflow/scriptdoc.js";
+import * as proddoc from "./workflow/proddoc.js";
 
 // --- register node types (the extension list) ---
 import script from "./workflow/nodes/script.js";
@@ -65,6 +66,10 @@ let assetRegistry = assetlib.createRegistry(null);
 // provenance, top-level and parallel to the asset registry. Decoupled from
 // media bytes: a Generation record outlives its result Asset's local copy.
 let generationRegistry = genlib.createGenerationRegistry(null);
+// Production domain document (M6) — Project → Episodes → Scenes → Shots
+// structure. Scenes reference shots by canonical creativeShotId; shot content
+// stays on the scriptgen draft, media/provenance stay in their registries.
+let productionDoc = proddoc.createProduction(null);
 
 // --- budget readout (real in CONNECTED, fixture otherwise) ---
 function renderBudget() {
@@ -460,6 +465,30 @@ const ctx = {
       toast(`已切到剧本 v${v}`);
     },
   },
+  // Production structure controller (M6): the ONLY way views touch the
+  // Episode/Scene document. State transitions live in workflow/proddoc.js;
+  // every mutation persists (same canvas save) and re-renders the shell.
+  production: {
+    doc: () => productionDoc,
+    addEpisode: (title) => {
+      const ep = proddoc.addEpisode(productionDoc, title);
+      ctx.persist();
+      refreshProductionView();
+      return ep;
+    },
+    renameEpisode: (id, title) => prodOp(proddoc.renameEpisode(productionDoc, id, title)),
+    removeEpisode: (id) => prodOp(proddoc.removeEpisode(productionDoc, id)),
+    setActiveEpisode: (id) => prodOp(proddoc.setActiveEpisode(productionDoc, id)),
+    addScene: (episodeId, title) => {
+      const scene = proddoc.addScene(productionDoc, episodeId, title);
+      if (scene) { ctx.persist(); refreshProductionView(); }
+      return scene;
+    },
+    renameScene: (id, title) => prodOp(proddoc.renameScene(productionDoc, id, title)),
+    removeScene: (id) => prodOp(proddoc.removeScene(productionDoc, id)),
+    assignShot: (sceneId, shotId) => prodOp(proddoc.assignShot(productionDoc, sceneId, shotId)),
+    unassignShot: (shotId) => prodOp(proddoc.unassignShot(productionDoc, shotId)),
+  },
   agentShotsDraft: (script) => query.generateShotsDraft(script),
   isPaid: () => PAID,
   // draft lock (ADR-0047): canvas draft → official versioned plan/records/
@@ -594,6 +623,9 @@ const ctx = {
       firstFrames: assetRegistry.firstFrames,
       finals: assetlib.finalUrls(assetRegistry),
       paidOps: ctx.paidOps || {},
+      // M6: the production structure document (episodes/scenes/shot refs) —
+      // read it only; writes go through ctx.production.
+      production: productionDoc,
     };
   },
   // paid-op status projection (生成情况) — refreshed after paid actions AND
@@ -663,6 +695,19 @@ ctx.shotEditor = createShotEditor({ toast });
 // only toggles display and re-renders the surface being entered, so nothing
 // is ever lost. Production is the default creator-facing area.
 const production = createProduction(() => ctx);
+// Land a production-structure mutation: refused ops (false) change nothing and
+// must not persist; successful ones persist + re-render the shell (hoisted —
+// ctx.production above calls these only at runtime).
+function refreshProductionView() {
+  if (production.isVisible()) production.render();
+}
+function prodOp(ok) {
+  if (ok) {
+    ctx.persist();
+    refreshProductionView();
+  }
+  return ok;
+}
 function goProduction() {
   $("#seg-prod").classList.add("active");
   $("#seg-wf").classList.remove("active");
@@ -1141,6 +1186,8 @@ function serializeGraph() {
     // Generation provenance (M5) — top-level, parallel to assets, durable
     // independent of media bytes.
     generations: generationRegistry,
+    // Production structure (M6) — episodes/scenes owning shot REFERENCES only.
+    production: proddoc.serialize(productionDoc),
     nodes: engine.nodes.map((n) => ({
       id: n.id, type: n.type, x: n.x, y: n.y, state: n.state,
       text: n.text, versions: n.versions, cur: n.cur, pickSingle: n.pickSingle,
@@ -1169,6 +1216,9 @@ function restoreGraph(data) {
   assetRegistry = assetlib.createRegistry((data && data.assets) || null);
   // Generation Registry (M5): hydrate from the same save (durable provenance).
   generationRegistry = genlib.createGenerationRegistry((data && data.generations) || null);
+  // Production structure (M6): existing episode/scene ids survive verbatim; a
+  // fresh/legacy canvas starts with the default single active episode.
+  productionDoc = proddoc.createProduction((data && data.production) || null);
   if (!data || !Array.isArray(data.nodes) || !data.nodes.length) return false;
   if (!data.scriptDoc) {
     const legacy = data.nodes.find((n) => n.type === "script" && typeof n.text === "string" && n.text);

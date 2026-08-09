@@ -81,6 +81,7 @@ test("v3→current is non-destructive: assetId/url/slot/version/current/history 
   for (const k of Object.keys(a.firstFrames)) strip(a.firstFrames[k]);
   for (const f of Array.isArray(a.finals) ? a.finals : []) stripStorage(f); // M5 additive
   delete res.doc.generations; // M5 additive top-level registry
+  delete res.doc.production; // M6 additive top-level production structure
   res.doc.v = 3;
   assert.deepEqual(res.doc, before);
 });

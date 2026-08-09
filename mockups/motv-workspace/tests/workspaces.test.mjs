@@ -19,6 +19,14 @@ import {
 import { navBadges, NAV } from "../src/ui/production.js";
 import * as sd from "../src/workflow/scriptdoc.js";
 
+/** The default production structure a fresh project carries (M6). */
+function prodDefault() {
+  return {
+    activeEpisodeId: "ep-1",
+    episodes: [{ episodeId: "ep-1", title: "第 1 集", scenes: [] }],
+  };
+}
+
 /** Empty prodData snapshot (fresh project). */
 function pdEmpty() {
   return {
@@ -31,6 +39,7 @@ function pdEmpty() {
     firstFrames: {},
     finals: [],
     paidOps: {},
+    production: prodDefault(),
   };
 }
 
@@ -94,6 +103,7 @@ test("shotsModel: structured draft exposes index/title/description/duration", ()
   assert.equal(m.kind, "draft");
   assert.deepEqual(m.shots[1], {
     seq: 2, title: "逼诗", description: "皇帝俯视", duration: 10, slot: "v1-2", unresolved: false,
+    shotId: "shot-b", // M6: canonical identity exposed for scene-assignment display
   });
   assert.deepEqual(m.versions, { count: 1, cur: 1 });
 });
@@ -347,7 +357,7 @@ test("navBadges: counts reflect state; empty modules still get a badge-less item
   const d = sd.createDoc();
   const empty = navBadges(d, pdEmpty());
   assert.deepEqual(empty, {
-    story: "", settings: "", episodes: "",
+    story: "", settings: "", episodes: "1", // M6: real persisted episode count
     script: "草稿", shots: "", frames: "", video: "", audio: "", edit: "",
   });
   sd.setBrief(d, "想法");
@@ -360,9 +370,12 @@ test("navBadges: counts reflect state; empty modules still get a badge-less item
   assert.equal(b.video, "1/2");
   assert.equal(b.audio, "1/2");
   assert.equal(b.edit, "");
-  // 作品设定/剧集 never fabricate a count — their domains are not persisted yet
+  // 作品设定 never fabricates a count — its domain is not persisted yet;
+  // 剧集 counts the REAL persisted episodes (M6), and honestly shows nothing
+  // when the production document is absent from the snapshot
   assert.equal(b.settings, "");
-  assert.equal(b.episodes, "");
+  assert.equal(b.episodes, "1");
+  assert.equal(navBadges(d, { ...pdEmpty(), production: null }).episodes, "");
 });
 
 // --- M2.5 最终信息架构 ----------------------------------------------------- //
@@ -378,22 +391,36 @@ function fakeCtx(pd, doc) {
   return { prodData: () => pd, script: { doc: () => d } };
 }
 
-test("作品设定/剧集 are honest placeholders — no fake persistence claimed", () => {
+test("作品设定 is an honest placeholder — no fake persistence claimed", () => {
   const settings = renderSettings();
   assert.ok(settings.includes("尚未开放"));
   assert.ok(settings.includes("后续检查点"));
-  const eps = renderEpisodes(fakeCtx(pdEmpty()));
-  assert.ok(eps.includes("单剧集视图"));
-  assert.ok(eps.includes("无剧集实体被持久化"));
-  assert.ok(eps.includes("剧本未生成"));
 });
 
-test("剧集 card reflects real current data without inventing entities", () => {
-  const d = sd.createDoc();
-  sd.completeGeneration(d, sd.beginGeneration(d, "initial", "想法"), "剧本");
-  const eps = renderEpisodes(fakeCtx(pdDraft(), d));
-  assert.ok(eps.includes("剧本 v1"));
-  assert.ok(eps.includes("2 个镜头"));
+test("剧集 renders the persisted structure: episodes, scenes, assignment pool (M6)", () => {
+  // fresh project: the default single episode, active, no scenes yet
+  const eps = renderEpisodes(fakeCtx(pdEmpty()));
+  assert.ok(eps.includes("第 1 集"));
+  assert.ok(eps.includes("结构已持久化"));
+  assert.ok(eps.includes("data-ep-add")); // 新建剧集
+  assert.ok(eps.includes("data-sc-add")); // 新建场景（当前剧集）
+  assert.ok(eps.includes("还没有场景"));
+  // with a draft + a scene holding shot-a: chip for the assigned shot, the
+  // unassigned pool offers ONLY shot-b, and a dangling ref is flagged
+  const pd = pdDraft();
+  pd.production = {
+    activeEpisodeId: "ep-1",
+    episodes: [{
+      episodeId: "ep-1", title: "第 1 集",
+      scenes: [{ sceneId: "scene-1", title: "大殿", shotIds: ["shot-a", "shot-gone"] }],
+    }],
+  };
+  const html = renderEpisodes(fakeCtx(pd));
+  assert.ok(html.includes("大殿"));
+  assert.ok(html.includes("跪殿")); // shot-a resolved via canonical identity
+  assert.ok(html.includes("不在当前草稿")); // shot-gone → dangling, flagged not guessed
+  assert.ok(html.includes("未归入场景的镜头"));
+  assert.ok(html.includes("逼诗")); // shot-b still unassigned
 });
 
 test("分镜 renders creator-facing Shot cards from the current collection", () => {

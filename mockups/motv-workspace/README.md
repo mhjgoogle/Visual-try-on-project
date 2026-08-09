@@ -63,6 +63,16 @@ python mockups/motv-workspace/server.py --account-root examples/projects
 即原节点画布，行为不变；两个视图渲染**同一个** `scriptDoc` 域文档（`src/ui/production.js`
 纯展示，AI 调用仍在 ctx.script 后面），切换互见改动、不丢状态。
 
+**剧集 → 场景 → 镜头（生产域结构，M6）**：项目级 `production` 域文档
+（`src/workflow/proddoc.js`，画布存档 schema v6 顶层字段）持久化
+**Project → Episodes → Scenes → Shots** 结构：剧集（可新建/重命名/切换当前/删除空集）
+拥有场景，场景按**稳定镜头身份 creativeShotId 引用**镜头（镜头内容/媒体/溯源仍分别在
+分镜草稿、Asset Registry(M3)、Generation Registry(M5)，不复制第二份）。制作视图「剧集」
+工作区管理结构并把当前草稿镜头归入场景（一个镜头至多属于一个场景，移动语义）；分镜卡片
+显示所属场景标签。引用不再能解析（草稿重生成后镜头已不在）时**如实标「不在当前草稿」，
+绝不按位置猜**，也不静默清除；删除仍有镜头归属的场景/仍有场景的剧集会被拒绝（先显式
+清空）。旧存档 v5→v6 迁移只铸一个确定性的默认剧集（`ep-mig-1`），场景/归属绝不臆造。
+
 **创意 → 剧本（版本化，创作者优先交互的第一个纵切）**：剧本节点是「剧本文档」
 的视图，不再自持内容——创意（Creative Brief）、剧本版本链与当前版本都存在画布
 持久化里的 `scriptDoc` 域（`src/workflow/scriptdoc.js`，旧画布的 node.text 自动
@@ -135,6 +145,7 @@ src/
   graph/registry.js        节点类型注册表 + canConnect() 相邻步骤约束（"不能跨步骤"）
   workflow/contract.js     L0–S7 阶段/步骤 I/O 合同数据（inspector 的唯一数据源）
   workflow/scriptdoc.js    剧本域文档：创意 + 追加式剧本版本链（纯状态，节点只是视图）
+  workflow/proddoc.js      生产域文档：剧集→场景→镜头引用结构（M6，纯状态，镜头内容不复制）
   workflow/nodes/*.js      **扩展点**：每种节点一个文件，导出一个 NodeType def
   services/query.js        读门面：connected 走后端真实查询，否则回退 fixture
   services/realmap.js      把 WQ-14/02/07 DTO 映射进 UI 结构

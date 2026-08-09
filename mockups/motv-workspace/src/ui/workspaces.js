@@ -9,6 +9,7 @@
 import { esc } from "../util/dom.js";
 import { slotEntry, currentRef } from "../workflow/mediaref.js";
 import { buildShotSlotIndex, slotForShotId, buildServerBridge, serverShotIdForShot } from "../workflow/shotmap.js";
+import { episodeView, sceneOfShot } from "../workflow/proddoc.js";
 
 const nn = (seq) => String(seq).padStart(2, "0");
 
@@ -68,6 +69,8 @@ export function shotsModel(pd) {
           duration: s.duration_seconds ?? null,
           slot, // canonical (creativeShotId → slot); null when none/unresolved
           unresolved,
+          // canonical identity + its scene assignment (M6) — display only
+          shotId: typeof s.shotId === "string" && s.shotId ? s.shotId : null,
         };
       }),
     };
@@ -89,6 +92,48 @@ export function shotsModel(pd) {
     };
   }
   return { empty: true, lock, versions };
+}
+
+/** 剧集: the Production domain structure (M6) — episodes, the active episode's
+ *  scenes, and scene↔shot assignment joined against the CURRENT draft. Pure:
+ *  a scene shot reference resolves by canonical creativeShotId only; a
+ *  reference whose shot left the current draft is flagged dangling (never
+ *  guessed, never pruned). Draft shots without a shotId (legacy) cannot be
+ *  assigned and are counted honestly. */
+export function episodesModel(pd) {
+  const prod = pd.production;
+  if (!prod || !Array.isArray(prod.episodes)) return { empty: true };
+  const draft = pd.draftShots || [];
+  const episodes = prod.episodes.map((e) => ({
+    episodeId: e.episodeId,
+    title: e.title,
+    active: e.episodeId === prod.activeEpisodeId,
+    sceneCount: e.scenes.length,
+    shotRefCount: e.scenes.reduce((n, s) => n + s.shotIds.length, 0),
+    removable: !e.scenes.length && prod.episodes.length > 1,
+  }));
+  const view = episodeView(prod, prod.activeEpisodeId, draft);
+  const active = view
+    ? {
+        episodeId: view.episode.episodeId,
+        title: view.episode.title,
+        scenes: view.scenes.map((s) => ({
+          sceneId: s.sceneId,
+          title: s.title,
+          removable: !s.shots.length,
+          shots: s.shots.map((x) => ({
+            shotId: x.shotId,
+            dangling: x.dangling,
+            seq: x.shot ? x.shot.sequence : null,
+            title: x.shot ? x.shot.title : null,
+          })),
+        })),
+        unassigned: view.unassigned.map((s) => ({ shotId: s.shotId, seq: s.sequence, title: s.title })),
+        unassignableCount: view.unassignable.length,
+        draftCount: draft.length,
+      }
+    : null;
+  return { empty: false, episodes, active };
 }
 
 /** Media slots are keyed by DRAFT slot ids — when only display rows / real
@@ -281,23 +326,115 @@ export function renderSettings() {
   );
 }
 
-/** 剧集 — no Episode entity is persisted yet. Present the project's single
- *  current episode VIEW with live counts from real data, labeled honestly. */
+/** 剧集 — the persisted Production structure (M6): manage Episodes, the active
+ *  episode's Scenes, and scene↔shot assignment. Structure only: shot content /
+ *  media / provenance stay in their own domains and are never copied here. */
 export function renderEpisodes(ctx) {
-  const doc = ctx.script.doc();
-  const pd = ctx.prodData();
-  const shots = shotsModel(pd);
-  const edit = editModel(pd);
-  const bits = [
-    doc.versions.length ? `剧本 v${doc.active}（共 ${doc.versions.length} 版）` : "剧本未生成",
-    shots.empty ? "分镜未生成" : `${shots.shots.length} 个镜头`,
-    edit.finals ? `成片 v${edit.finals}` : "未合成",
-  ].join(" · ");
+  const m = episodesModel(ctx.prodData());
+  if (m.empty) {
+    return head("📺 剧集", "项目级") + empty("📺", "剧集结构不可用", ["生产域文档未加载"]);
+  }
+  const cards = m.episodes
+    .map(
+      (e) =>
+        `<div class="ws-epcard${e.active ? " on" : ""}"><div class="ws-epname">${e.active ? "▶ " : ""}${esc(e.title)}</div>` +
+        `<div class="ws-desc">${e.sceneCount} 个场景 · ${e.shotRefCount} 个镜头归属</div>` +
+        `<div class="ws-epbtns">${e.active ? `<span class="ws-tag">当前</span>` : `<button class="nrun ghost" data-ep-active="${esc(e.episodeId)}">设为当前</button>`}` +
+        `<button class="nrun ghost" data-ep-rename="${esc(e.episodeId)}">重命名</button>` +
+        (e.removable ? `<button class="nrun ghost" data-ep-del="${esc(e.episodeId)}">删除</button>` : "") +
+        `</div></div>`,
+    )
+    .join("");
+  const a = m.active;
+  let structure = "";
+  if (a) {
+    const sceneRows = a.scenes
+      .map((s) => {
+        const chips = s.shots
+          .map((x) =>
+            x.dangling
+              ? `<span class="ws-tag gate" title="${esc(x.shotId)}">⚠ 不在当前草稿<button class="ws-chipx" data-shot-un="${esc(x.shotId)}">移出</button></span>`
+              : `<span class="ws-tag">${esc(nn(x.seq))} ${esc(x.title || "")}<button class="ws-chipx" data-shot-un="${esc(x.shotId)}">移出</button></span>`,
+          )
+          .join(" ");
+        const assign = a.unassigned.length
+          ? `<select class="ws-assign" data-assign-scene="${esc(s.sceneId)}"><option value="">＋ 归入镜头…</option>${a.unassigned
+              .map((u) => `<option value="${esc(u.shotId)}">${esc(nn(u.seq))} ${esc(u.title || "")}</option>`)
+              .join("")}</select>`
+          : "";
+        return (
+          `<div class="ws-row"><div class="ws-main"><b>🎬 ${esc(s.title)}</b>` +
+          `<div class="ws-desc">${chips || "（还没有镜头归入此场景）"}</div>${assign}</div>` +
+          `<button class="nrun ghost" data-sc-rename="${esc(s.sceneId)}">重命名</button>` +
+          (s.removable ? `<button class="nrun ghost" data-sc-del="${esc(s.sceneId)}">删除</button>` : "") +
+          `</div>`
+        );
+      })
+      .join("");
+    const pool = a.unassigned.length
+      ? `<div class="ws-kv">未归入场景的镜头：${a.unassigned.map((u) => `${esc(nn(u.seq))} ${esc(u.title || "")}`).join("、")}</div>`
+      : a.draftCount
+        ? `<div class="ws-kv ok">当前草稿镜头已全部归入场景</div>`
+        : `<div class="ws-kv">当前没有分镜草稿镜头可归入 — 先在「分镜」生成分镜</div>`;
+    const legacyNote = a.unassignableCount
+      ? `<div class="ws-kv gate">⚠ ${a.unassignableCount} 个草稿镜头没有稳定身份（legacy），无法归入场景</div>`
+      : "";
+    structure =
+      `<div class="pm-head"><div class="pm-title">🎬 「${esc(a.title)}」的场景</div><div class="pm-note">场景按稳定镜头身份（creativeShotId）引用镜头 · 镜头内容仍在分镜草稿</div></div>` +
+      `<div class="ws-list">${sceneRows || `<div class="ws-kv">还没有场景 — 新建一个场景，把镜头按叙事单元归组</div>`}</div>` +
+      `<button class="nrun" data-sc-add="${esc(a.episodeId)}">＋ 新建场景</button>` +
+      pool + legacyNote;
+  }
   return (
-    head("📺 剧集", "项目级 · 单剧集视图") +
-    `<div class="ws-epcard"><div class="ws-epname">▶ 当前剧集</div><div class="ws-desc">${esc(bits)}</div><div class="ws-tag">当前</div></div>` +
-    `<div class="ws-kv">多剧集管理（新建/切换/排序）依赖剧集域模型 — 属于后续检查点，当前项目以单剧集呈现，无剧集实体被持久化。</div>`
+    head("📺 剧集", `${m.episodes.length} 集 · 结构已持久化`) +
+    `<div class="ws-epgrid">${cards}</div>` +
+    `<button class="nrun" data-ep-add>＋ 新建剧集</button>` +
+    structure
   );
+}
+
+/** Wire the 剧集 workspace's structure actions to the production controller.
+ *  Every mutation goes through ctx.production (the single domain write path);
+ *  a refused op (returns false/null) is reported honestly, nothing persists. */
+export function bindEpisodes(root, ctx) {
+  const on = (sel, fn) =>
+    root.querySelectorAll(sel).forEach((el) => (el.onclick = (ev) => { ev.stopPropagation(); fn(el); }));
+  on("[data-ep-add]", () => {
+    const t = window.prompt("新剧集名称", `第 ${ctx.production.doc().episodes.length + 1} 集`);
+    if (t != null) ctx.production.addEpisode(t.trim());
+  });
+  on("[data-ep-active]", (el) => ctx.production.setActiveEpisode(el.dataset.epActive));
+  on("[data-ep-rename]", (el) => {
+    const ep = ctx.production.doc().episodes.find((e) => e.episodeId === el.dataset.epRename);
+    const t = window.prompt("剧集名称", ep ? ep.title : "");
+    if (t != null && t.trim() && !ctx.production.renameEpisode(el.dataset.epRename, t.trim())) {
+      ctx.toast("重命名失败");
+    }
+  });
+  on("[data-ep-del]", (el) => {
+    if (!ctx.production.removeEpisode(el.dataset.epDel)) {
+      ctx.toast("只能删除没有场景的非当前剩余剧集（先删除其场景）");
+    }
+  });
+  on("[data-sc-add]", (el) => {
+    const t = window.prompt("新场景名称", "");
+    if (t != null) ctx.production.addScene(el.dataset.scAdd, t.trim());
+  });
+  on("[data-sc-rename]", (el) => {
+    const t = window.prompt("场景名称", "");
+    if (t != null && t.trim()) ctx.production.renameScene(el.dataset.scRename, t.trim());
+  });
+  on("[data-sc-del]", (el) => {
+    if (!ctx.production.removeScene(el.dataset.scDel)) {
+      ctx.toast("场景内仍有镜头归属：先「移出」全部镜头再删除");
+    }
+  });
+  on("[data-shot-un]", (el) => ctx.production.unassignShot(el.dataset.shotUn));
+  root.querySelectorAll("[data-assign-scene]").forEach((sel) => {
+    sel.onchange = () => {
+      if (sel.value) ctx.production.assignShot(sel.dataset.assignScene, sel.value);
+    };
+  });
 }
 
 export function renderShots(ctx) {
@@ -324,9 +461,13 @@ export function renderShots(ctx) {
       const thumb = ref
         ? `<img class="sc-thumb" src="${esc(ref.url)}" alt="">`
         : `<div class="sc-thumb sc-none">${s.unresolved ? "⚠" : "🎞"}</div>`;
+      // M6: which scene this shot is assigned to (by canonical shotId) — a tag
+      // only; assignment is managed in the 剧集 workspace
+      const sc = s.shotId && pd.production ? sceneOfShot(pd.production, s.shotId) : null;
+      const sceneTag = sc ? `<span class="ws-tag">🎬 ${esc(sc.scene.title)}</span>` : "";
       return (
         `<div class="shotcard">${thumb}<div class="sc-body">` +
-        `<div class="sc-title"><span class="n mono">${esc(nn(s.seq))}</span> <b>${esc(s.title)}</b>${s.duration != null ? `<span class="ws-tag">${esc(String(s.duration))}s</span>` : ""}</div>` +
+        `<div class="sc-title"><span class="n mono">${esc(nn(s.seq))}</span> <b>${esc(s.title)}</b>${s.duration != null ? `<span class="ws-tag">${esc(String(s.duration))}s</span>` : ""}${sceneTag}</div>` +
         (s.description ? `<div class="ws-desc">${esc(s.description)}</div>` : "") +
         (s.unresolved ? `<div class="ws-kv gate">⚠ 镜头身份未解析（slot 归属歧义）— 不按位置猜测</div>` : "") +
         `</div></div>`
