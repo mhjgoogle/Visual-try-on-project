@@ -63,6 +63,25 @@ python mockups/motv-workspace/server.py --account-root examples/projects
 即原节点画布，行为不变；两个视图渲染**同一个** `scriptDoc` 域文档（`src/ui/production.js`
 纯展示，AI 调用仍在 ctx.script 后面），切换互见改动、不丢状态。
 
+**制作工作室（Production Studio，M8）**：制作视图重建为三栏专业制片环境——左「导航/资源」
+（项目级：故事/作品设定/剧集；当前剧集：剧本/分镜/画面/视频/音频/剪辑）+ 中「制作工作区」+
+右「AI 导演（常驻）」；工作流节点画布保留在 ⛓ 标签但不再是主创作体验。**分镜工作区**
+（`src/ui/storyboard.js`）：场景组（含出场角色·状态 / 场景地·状态上下文标签）→ 镜头卡 →
+选中镜头详情（描述/动作/运镜/台词/时长——新创意字段加性存于草稿 raw shot，保存=追加新
+不可变草稿版本）→ 当前镜头媒体区（图片/视频**变体条**·设为当前·用作首帧·配音状态·本镜头
+生成记录，全部走 M3/M5 注册表与 mediaref 单一写入口，不建第二份媒体状态）。**AI 导演**
+（`src/ui/director.js`）：当前上下文 + 指令 + 真实动作（剧本生成/修订、分镜生成、剧本拆解）
++ **生成历史**（真实读 M5 Generation Registry）；未接线的能力如实标注。**剧集屏**：剧集
+选择卡 + 当前集六阶段进度条。空态均带前置指引与可点动作。
+**AI 优先作品设定（M8 修正）**：作品设定以「🪄 剧本拆解 / 同步」为先、手工表单为辅
+（`src/workflow/breakdown.js` + `/api/agent/bible-breakdown`，ADR-0042 姿态：本地
+claude -p、fail-closed、服务端零写入；演示模式为标注的本地模板）。AI 从剧本提议
+新角色/既有角色更新/新场景地/场景地更新/剧情阶段状态，全部以**提案卡**呈现：
+添加 / 并入已有（只填空字段）/ 应用更新（只写卡上显示的变更）/ 忽略——已确认档案
+**绝不被静默覆盖**。角色/场景地的**出场剧集由场景引用派生**（characterRefs/locationRef，
+不维护手工出场列表）；场景设定场景地时可**选已有或当场新建**（新建立即进入作品设定，
+场景≠场景地，绝不逐场景复制实体）。
+
 **剧集 → 场景 → 镜头（生产域结构，M6）**：项目级 `production` 域文档
 （`src/workflow/proddoc.js`，画布存档 schema v6 顶层字段）持久化
 **Project → Episodes → Scenes → Shots** 结构：剧集（可新建/重命名/切换当前/删除空集）
@@ -160,6 +179,9 @@ src/
   workflow/scriptdoc.js    剧本域文档：创意 + 追加式剧本版本链（纯状态，节点只是视图）
   workflow/proddoc.js      生产域文档：剧集→场景→镜头引用结构（M6，纯状态，镜头内容不复制）
   workflow/bibledoc.js     作品设定域：角色/场景地+状态+声音档案+参考图引用（M7，纯状态）
+  workflow/breakdown.js    剧本拆解提案：解析/匹配/变更计算/出场派生（M8，纯函数，应用走 bibledoc）
+  ui/storyboard.js         分镜工作区：场景组→镜头卡→详情+媒体变体区（M8，纯视图模型可测）
+  ui/director.js           AI 导演常驻面板：上下文/指令/真实动作/生成历史（M8）
   workflow/nodes/*.js      **扩展点**：每种节点一个文件，导出一个 NodeType def
   services/query.js        读门面：connected 走后端真实查询，否则回退 fixture
   services/realmap.js      把 WQ-14/02/07 DTO 映射进 UI 结构

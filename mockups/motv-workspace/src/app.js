@@ -21,7 +21,8 @@ import * as realmap from "./services/realmap.js";
 import { createInspector } from "./ui/inspector.js";
 import { createEstimate } from "./ui/estimate.js";
 import { createWizard } from "./ui/wizard.js";
-import { createShotEditor } from "./ui/shoteditor.js";
+import { createShotEditor, normalizeShots, nextDraftVersion } from "./ui/shoteditor.js";
+import { mintId } from "./workflow/identity.js";
 import { createViews } from "./ui/landing.js";
 import { createProduction } from "./ui/production.js";
 import { renderStepbar } from "./ui/stepbar.js";
@@ -33,6 +34,7 @@ import { buildShotSlotIndex, slotForShotId, shotIdForSlot, resolveAdoptTarget } 
 import * as scriptdoc from "./workflow/scriptdoc.js";
 import * as proddoc from "./workflow/proddoc.js";
 import * as bibledoc from "./workflow/bibledoc.js";
+import * as breakdown from "./workflow/breakdown.js";
 
 // --- register node types (the extension list) ---
 import script from "./workflow/nodes/script.js";
@@ -71,6 +73,10 @@ let generationRegistry = genlib.createGenerationRegistry(null);
 // structure. Scenes reference shots by canonical creativeShotId; shot content
 // stays on the scriptgen draft, media/provenance stay in their registries.
 let productionDoc = proddoc.createProduction(null);
+// 剧本拆解提案 (M8) — TRANSIENT review state, per session, never persisted:
+// null | { status: "running"|"ready"|"failed", cards, error, source }.
+// A reload lands on the confirmed bible; proposals are re-derivable any time.
+let bibleProposals = null;
 
 // --- budget readout (real in CONNECTED, fixture otherwise) ---
 function renderBudget() {
@@ -316,6 +322,33 @@ function demoScriptDraft(kind, instruction, base) {
   );
 }
 
+// Demo-mode breakdown: an honest deterministic template (labeled 演示模板 in
+// the reasons) so the proposal review flow stays walkable offline — no AI.
+function demoBibleBreakdown() {
+  return {
+    characters: [
+      {
+        name: "李昭", appearance: "束发青衫，眉目清瘦", costume: "青色襦衫",
+        personality: "怯懦中藏锋", visualInstruction: "冷色调，低角度仰拍",
+        voiceDescription: "清亮偏紧的青年声",
+        states: [{ name: "殿前受迫", reason: "被逼当殿作诗（演示模板）" }],
+      },
+      {
+        name: "皇帝", appearance: "冕旒垂面，目光如刀", costume: "玄色龙袍",
+        personality: "威压难测", visualInstruction: "高位俯拍，金色逆光",
+        voiceDescription: "低沉迟缓的中年声", states: [],
+      },
+    ],
+    locations: [
+      {
+        name: "太极殿", description: "金砖白玉阶，百官分列",
+        visualInstruction: "对称构图，纵深透视",
+        states: [{ name: "夜晚", reason: "烛影幢幢（演示模板）" }],
+      },
+    ],
+  };
+}
+
 async function generateScript(kind, instruction) {
   const doc = scriptDoc;
   if (!instruction || !instruction.trim()) {
@@ -413,6 +446,11 @@ const ctx = {
   refresh: (node) => {
     engine.refreshBody(node);
     if (dtNode === node) renderDetail(); // keep the detail window live-synced
+    // M8: the Production studio renders the SAME draft state — a scriptgen
+    // change (generation progress/completion, version switch) must reach it.
+    // Other node types deliberately do NOT re-render the studio here: the
+    // 12s paid polling would otherwise wipe in-progress field edits.
+    if (node.type === "scriptgen") refreshProductionView();
   },
   // re-render every node of a type — used when upstream state (e.g. the current
   // draft version) changes and a downstream node's prefill must follow. The
@@ -522,6 +560,241 @@ const ctx = {
     setSceneLocation: (sceneId, lid, sid) => prodOp(bibledoc.setSceneLocation(productionDoc, sceneId, lid, sid)),
   },
   agentShotsDraft: (script) => query.generateShotsDraft(script),
+  // 剧本拆解 / 同步作品设定 (M8): AI-first bible workflow. The agent PROPOSES
+  // characters/locations/states from the episode script; every application is
+  // an explicit user action composed of existing bibledoc ops — a confirmed
+  // entity is never destructively overwritten by the sync (updates write only
+  // the shown changed fields; merges fill only EMPTY fields; states are
+  // additive). Proposals are transient review state, never persisted.
+  breakdown: {
+    state: () => bibleProposals,
+    clear: () => { bibleProposals = null; refreshProductionView(); },
+    dismiss: (id) => {
+      if (!bibleProposals || bibleProposals.status !== "ready") return;
+      bibleProposals.cards = bibleProposals.cards.filter((c) => c.id !== id);
+      refreshProductionView();
+    },
+    run: async () => {
+      if (bibleProposals && bibleProposals.status === "running") return;
+      const script = scriptdoc.currentText(scriptDoc);
+      if (!script.trim()) { toast("剧本为空：先在「剧本」工作区生成/输入剧本"); return; }
+      const doc = productionDoc;
+      bibleProposals = { status: "running", cards: [], error: null, source: CONNECTED ? "claude" : "demo" };
+      refreshProductionView();
+      try {
+        let raw;
+        if (CONNECTED) {
+          raw = await query.generateBibleBreakdown(script);
+        } else {
+          await new Promise((r) => setTimeout(r, 700)); // visible working state
+          raw = demoBibleBreakdown();
+        }
+        // project switched / reloaded while the call was in flight → stale
+        if (productionDoc !== doc) return;
+        const parsed = breakdown.parseBreakdown(raw);
+        const cards = breakdown.matchProposals(productionDoc, parsed);
+        bibleProposals = {
+          status: "ready",
+          cards,
+          error: null,
+          source: CONNECTED ? "claude" : "demo",
+          // the script changed while the agent ran — the proposals derive
+          // from the text as it was at launch; say so instead of pretending
+          stale: scriptdoc.currentText(scriptDoc) !== script,
+        };
+      } catch (e) {
+        if (productionDoc !== doc) return;
+        bibleProposals = { status: "failed", cards: [], error: e.message, source: CONNECTED ? "claude" : "demo" };
+      }
+      refreshProductionView();
+    },
+    // 添加为新实体 — creates the entity, fills its profile/voice, adds states.
+    addAsNew: (id) => {
+      const card = (bibleProposals?.cards || []).find((c) => c.id === id);
+      if (!card || !card.kind.startsWith("new-")) return null;
+      const p = card.proposal;
+      let entity;
+      if (card.kind === "new-character") {
+        entity = bibledoc.addCharacter(productionDoc, p.name);
+        bibledoc.updateCharacterProfile(productionDoc, entity.characterId, p);
+        if (p.voiceDescription) bibledoc.setCharacterVoice(productionDoc, entity.characterId, { description: p.voiceDescription });
+        for (const s of p.states) bibledoc.addCharacterState(productionDoc, entity.characterId, s.name);
+      } else {
+        entity = bibledoc.addLocation(productionDoc, p.name);
+        bibledoc.updateLocationProfile(productionDoc, entity.locationId, p);
+        for (const s of p.states) bibledoc.addLocationState(productionDoc, entity.locationId, s.name);
+      }
+      ctx.breakdown.dismiss(id);
+      ctx.persist();
+      toast(`已添加${card.kind === "new-character" ? "角色" : "场景地"}「${p.name}」`);
+      return entity;
+    },
+    // 应用更新 — writes EXACTLY the changes the card DISPLAYED. A field whose
+    // current value no longer matches the card's "from" was manually edited
+    // mid-review and is SKIPPED (reported honestly) — an unseen difference is
+    // never written, so a confirmed edit can't be silently lost.
+    applyUpdate: (id) => ctx.breakdown._applyTo(id, null, "update"),
+    // 并入已有 — the user picked the target; only fields EMPTY at apply time
+    // are filled (non-destructive by construction, even after mid-review edits).
+    mergeInto: (id, entityId) => ctx.breakdown._applyTo(id, entityId, "merge"),
+    _applyTo: (id, entityId, mode) => {
+      const card = (bibleProposals?.cards || []).find((c) => c.id === id);
+      if (!card) return false;
+      const p = card.proposal;
+      const isChar = card.kind.endsWith("character");
+      const targetId = entityId || card.entityId;
+      const entity = isChar
+        ? bibledoc.findCharacter(productionDoc, targetId)
+        : bibledoc.findLocation(productionDoc, targetId);
+      if (!entity) return false;
+      let fieldsToWrite;
+      let statesToAdd;
+      let skipped = 0;
+      if (mode === "merge") {
+        const changes = isChar
+          ? breakdown.characterChanges(entity, p, "merge")
+          : breakdown.locationChanges(entity, p, "merge");
+        fieldsToWrite = changes.fields;
+        statesToAdd = changes.states;
+      } else {
+        // the card's snapshot, gated field-by-field on "unchanged since shown"
+        const gated = breakdown.gateUpdate(entity, card.changes);
+        fieldsToWrite = gated.fields;
+        skipped = gated.skipped;
+        statesToAdd = gated.states;
+      }
+      const fields = {};
+      for (const f of fieldsToWrite) {
+        if (f.key === "voiceDescription") bibledoc.setCharacterVoice(productionDoc, targetId, { description: f.to });
+        else fields[f.key] = f.to;
+      }
+      if (Object.keys(fields).length) {
+        if (isChar) bibledoc.updateCharacterProfile(productionDoc, targetId, fields);
+        else bibledoc.updateLocationProfile(productionDoc, targetId, fields);
+      }
+      for (const s of statesToAdd) {
+        if (isChar) bibledoc.addCharacterState(productionDoc, targetId, s.name);
+        else bibledoc.addLocationState(productionDoc, targetId, s.name);
+      }
+      ctx.breakdown.dismiss(id);
+      ctx.persist();
+      toast(
+        mode === "merge"
+          ? `已并入「${entity.name}」（只填充空字段，已确认内容未被覆盖）`
+          : skipped
+            ? `已应用更新到「${entity.name}」；${skipped} 个字段在提案后被手工修改，已保留你的版本未覆盖`
+            : `已应用更新到「${entity.name}」`,
+      );
+      return true;
+    },
+  },
+  // Shot-draft controller (M8): the Production studio's write path INTO the
+  // scriptgen node. The workflow node stays the SINGLE owner of draft
+  // versions — both views render one state; every save is a NEW immutable
+  // version (never overwrites history), exactly like the node's ✎ editor.
+  shots: {
+    node: () => engine.nodes.find((n) => n.type === "scriptgen") || null,
+    // The scriptgen node (and its script predecessor) exist whenever the
+    // studio needs to write — a fresh canvas gets the story seed; a seeded
+    // canvas whose scriptgen node was deleted gets one re-created.
+    ensure: () => {
+      let n = ctx.shots.node();
+      if (n) return n;
+      if (!seeded) seedStory();
+      n = ctx.shots.node();
+      if (!n) {
+        const s = engine.nodes.find((x) => x.type === "script");
+        n = createNode("scriptgen", s ? s.x + 360 : 360, s ? s.y : 40);
+        if (s) engine.addEdge(s.id, n.id, "");
+        engine.render();
+      }
+      return n;
+    },
+    // Kick a (re)generation — the node's OWN run flow (real agent when
+    // connected, fixture demo otherwise), so state/versions behave identically
+    // from either view.
+    generateDraft: () => {
+      const n = ctx.shots.ensure();
+      if (!n || n.state === "gen") return false;
+      registry.get("scriptgen").run(n, ctx);
+      return true;
+    },
+    // Save an edited raw shot list as a NEW draft version. Same identity
+    // rules as the node editor: surviving shots keep shotId + slot, new ones
+    // mint fresh; M8 creative facets ride on the raw shots additively.
+    saveEdit: (items) => {
+      const node = ctx.shots.node();
+      const curV = node && (node.versions || []).find((x) => x.v === node.cur);
+      if (!curV) return false;
+      const v = nextDraftVersion(node.versions); // max+1, never length+1
+      const edited = normalizeShots(items, `v${v}`);
+      node.versions.push({
+        id: mintId("sdv"),
+        v,
+        shots: edited.map((s) => [
+          String(s.sequence).padStart(2, "0"),
+          `${s.title} — ${s.description}（${s.duration_seconds}s）`,
+        ]),
+        draft: true,
+        edited: true,
+        raw: edited,
+        origin: "edited",
+        sourceScriptVersionId: curV.sourceScriptVersionId ?? null,
+        basedOnDraftId: typeof curV.id === "string" ? curV.id : null,
+      });
+      node.cur = v;
+      node.state = "done";
+      ctx.project.draftShots = edited;
+      ctx.project.lockedPlan = null; // the new edited version is not locked
+      ctx.refresh(node);
+      ctx.refreshType("assets");
+      ctx.refreshType("video");
+      ctx.persist();
+      return true;
+    },
+  },
+  // Media controller (M8): variant switching on the PROJECT registry (M3)
+  // through the same mediaref primitive the node version picker uses — no
+  // second media state, no new write path.
+  media: {
+    setCurrent: (domain, slot, version) => {
+      const map =
+        domain === "image" ? assetRegistry.images
+        : domain === "video" ? assetRegistry.videos
+        : domain === "audio" ? assetRegistry.audio
+        : null;
+      if (!map) return false;
+      const ok = mediaref.setCurrent({ uploads: map }, slot, version);
+      if (ok) {
+        ctx.refreshType(domain === "image" ? "assets" : domain);
+        ctx.persist();
+        refreshProductionView();
+        toast(`已回切到 v${version}（旧版本全部保留）`);
+      }
+      return ok;
+    },
+    // 「用作视频首帧」 from the studio — same carried-reference semantics as
+    // the assets node flow (registry maps are the same objects).
+    useAsFirstFrame: async (slot) => {
+      const an = engine.nodes.find((n) => n.type === "assets");
+      if (an) {
+        await ctx.useAsFirstFrame(an, slot);
+        refreshProductionView();
+        return;
+      }
+      const ref = mediaref.currentRef(assetRegistry.images, slot);
+      if (!ref) { toast("该镜头还没有图，先生成/上传一张"); return; }
+      let digest = ref.digest;
+      if (!digest) {
+        try { digest = await mediaref.sha256OfUrl(ref.url); } catch { digest = null; }
+      }
+      mediaref.putKey(assetRegistry.firstFrames, slot, { ...ref, slot_id: slot, digest });
+      ctx.refreshType("video");
+      ctx.persist();
+      refreshProductionView();
+      toast(`已设为该镜头视频首帧（来自资产 v${ref.version}）`);
+    },
+  },
   isPaid: () => PAID,
   // draft lock (ADR-0047): canvas draft → official versioned plan/records/
   // packets via the lock-draft-plan Gateway command (no spend, both modes)
@@ -658,6 +931,9 @@ const ctx = {
       // M6: the production structure document (episodes/scenes/shot refs) —
       // read it only; writes go through ctx.production.
       production: productionDoc,
+      // M5/M8: generation provenance for the studio (AI Director history,
+      // per-shot lineage) — read-only; writes stay on ctx.*Generation.
+      generations: generationRegistry,
     };
   },
   // paid-op status projection (生成情况) — refreshed after paid actions AND
@@ -1259,6 +1535,11 @@ function restoreGraph(data) {
   // Production structure (M6): existing episode/scene ids survive verbatim; a
   // fresh/legacy canvas starts with the default single active episode.
   productionDoc = proddoc.createProduction((data && data.production) || null);
+  // Breakdown proposals are PER-PROJECT transient review state: cards derived
+  // from another project's script must never be appliable here, and a switch
+  // mid-run must not leave a stuck "running" guard. (The in-flight run's
+  // stale check compares productionDoc identity and will drop its result.)
+  bibleProposals = null;
   if (!data || !Array.isArray(data.nodes) || !data.nodes.length) return false;
   if (!data.scriptDoc) {
     const legacy = data.nodes.find((n) => n.type === "script" && typeof n.text === "string" && n.text);
@@ -1272,22 +1553,27 @@ function restoreGraph(data) {
     // Media is NOT copied off the saved node: since v3 the registry owns it
     // (migration moved legacy node media there) and nodes only attach views.
     attachAssetViews(nd);
-    // Connected mode: a scriptgen node's shot list must come from a REAL agent
-    // draft (ADR-0042, draft:true), never a resurrected demo/fixture snapshot —
-    // otherwise a canvas persisted in demo mode shows shots that don't match the
-    // script. Drop non-draft generated versions; if none survive, revert the
-    // node to "ready to generate" so the real script drives a fresh real run.
-    if (CONNECTED && sn.type === "scriptgen" && Array.isArray(nd.versions)) {
-      nd.versions = nd.versions.filter((x) => x && x.draft);
-      if (!nd.versions.length) { nd.state = ""; nd.cur = 0; }
-      else if (!nd.versions.some((x) => x.v === nd.cur)) { nd.cur = nd.versions[nd.versions.length - 1].v; }
+    if (sn.type === "scriptgen" && Array.isArray(nd.versions)) {
+      // Connected mode: a scriptgen node's shot list must come from a REAL
+      // agent draft (ADR-0042, draft:true), never a resurrected demo/fixture
+      // snapshot — otherwise a canvas persisted in demo mode shows shots that
+      // don't match the script. Drop non-draft generated versions; if none
+      // survive, revert the node to "ready to generate".
+      if (CONNECTED) {
+        nd.versions = nd.versions.filter((x) => x && x.draft);
+        if (!nd.versions.length) { nd.state = ""; nd.cur = 0; }
+        else if (!nd.versions.some((x) => x.v === nd.cur)) { nd.cur = nd.versions[nd.versions.length - 1].v; }
+      }
       // Back-compat: drafts persisted before slot ids got one per shot so
       // uploads can attach (an upload never matches across versions).
       nd.versions.forEach((ver) => {
         if (ver.raw) ver.raw.forEach((s, i) => { if (!s.slot) s.slot = `v${ver.v}-${i + 1}`; });
       });
-      // Rehydrate downstream prefill from the restored current draft, else the
-      // Assets node falls back to fixtures after reload (auto-prefill breaks).
+      // Rehydrate downstream prefill from the restored current draft in BOTH
+      // modes (M8): the Production studio renders from draftShots, and a demo/
+      // static reload must restore it too — else a saved draft shows an empty
+      // storyboard. (Pre-M8 this only mattered connected; demo saves carrying
+      // raw drafts are legitimate now.)
       const curDraft = nd.versions.find((x) => x.v === nd.cur);
       if (curDraft && curDraft.raw) ctx.project.draftShots = curDraft.raw;
       // rehydrate the lock state too, so paid generation keeps binding the

@@ -3,6 +3,7 @@
 import { nx } from "./shared.js";
 import { esc } from "../../util/dom.js";
 import { mintId, assignShotIdentity } from "../identity.js";
+import { nextDraftVersion } from "../../ui/shoteditor.js";
 
 const SKEL9 = '<div class="skel live">' + "<i></i>".repeat(9) + "</div>";
 
@@ -93,7 +94,10 @@ export default {
             String(s.sequence).padStart(2, "0"),
             `${s.title} — ${s.description}（${s.duration_seconds}s）`,
           ]);
-          const v = node.versions.length + 1;
+          // max+1, NOT length+1: after the connected restore filters non-draft
+          // versions the surviving numbers can be noncontiguous — length+1
+          // would mint a DUPLICATE v (M8 fix, same class as ctx.shots.saveEdit).
+          const v = nextDraftVersion(node.versions);
           // Stable per-shot SLOT ids: uploads attach to a shot's slot, so an
           // image can never leak onto a different shot after edits/regeneration.
           shots.forEach((s, i) => { s.slot = `v${v}-${i + 1}`; });
@@ -210,17 +214,32 @@ export default {
         const initial = curV.raw
           ? curV.raw
           : curV.shots.map((r, i) => ({ sequence: i + 1, title: r[1], description: "", duration_seconds: 6 }));
+        // max+1, NOT length+1 (same class as the generate path above)
+        const nextV = nextDraftVersion(node.versions);
         ctx.shotEditor.open(initial, {
-          subtitle: `基于 v${node.cur} → 保存为 v${node.versions.length + 1}（手工编辑）`,
+          subtitle: `基于 v${node.cur} → 保存为 v${nextV}（手工编辑）`,
           // surviving shots keep their slot (their uploaded image follows them);
           // newly added shots get fresh slots under the new version's prefix.
-          slotPrefix: `v${node.versions.length + 1}`,
+          slotPrefix: `v${nextV}`,
           onSave: (edited) => {
+            // RECOMPUTE at save time: another version may have landed while
+            // the editor modal was open (async generation) — reusing the
+            // open-time number would duplicate a version id AND its freshly
+            // minted slot prefix. New shots minted under the stale prefix are
+            // re-prefixed; surviving shots (whose slots predate nextV) are
+            // untouched.
+            const v = nextDraftVersion(node.versions);
+            if (v !== nextV) {
+              edited.forEach((s) => {
+                if (s.slot && s.slot.startsWith(`v${nextV}-`)) {
+                  s.slot = `v${v}-` + s.slot.slice(`v${nextV}-`.length);
+                }
+              });
+            }
             const rows = edited.map((s) => [
               String(s.sequence).padStart(2, "0"),
               `${s.title} — ${s.description}（${s.duration_seconds}s）`,
             ]);
-            const v = node.versions.length + 1;
             node.versions.push({
               id: mintId("sdv"),
               v,

@@ -16,7 +16,6 @@ import {
   nextStateRefsOnAdd,
   renderSettings,
   renderEpisodes,
-  renderShots,
   renderFrames,
 } from "../src/ui/workspaces.js";
 import { navBadges, NAV } from "../src/ui/production.js";
@@ -393,7 +392,13 @@ test("NAV: grouped final IA — 项目级 and 当前剧集 with every module pre
 
 function fakeCtx(pd, doc) {
   const d = doc || sd.createDoc();
-  return { prodData: () => pd, script: { doc: () => d } };
+  return {
+    prodData: () => pd,
+    script: { doc: () => d },
+    // same shape the real ctx provides (M8): idle breakdown, offline
+    breakdown: { state: () => null },
+    isConnected: () => false,
+  };
 }
 
 test("作品设定 renders the persisted bible: characters, locations, voice rule (M7)", () => {
@@ -544,15 +549,6 @@ test("剧集 renders the persisted structure: episodes, scenes, assignment pool 
   assert.ok(html.includes("不在当前草稿")); // shot-gone → dangling, flagged not guessed
   assert.ok(html.includes("未归入场景的镜头"));
   assert.ok(html.includes("逼诗")); // shot-b still unassigned
-});
-
-test("分镜 renders creator-facing Shot cards from the current collection", () => {
-  const html = renderShots(fakeCtx(pdDraft()));
-  assert.ok(html.includes("shotgrid"));
-  assert.ok(html.includes("跪殿"));
-  assert.ok(html.includes("逼诗"));
-  assert.ok(html.includes("/u/a1_v2.png")); // current asset version as card thumb
-  assert.ok(!html.includes("场景")); // no fabricated Scene grouping
 });
 
 test("画面 workspace presents the same asset read model as cards", () => {

@@ -12,16 +12,39 @@ import { mintId } from "../workflow/identity.js";
  *  - a shot without one (newly added here, or derived from display-only demo
  *    rows) mints a fresh `shotId`;
  *  - `slot` keeps its EXACT legacy behavior: surviving shots keep their slot
- *    (their uploaded media follows them), new shots get `<prefix>-<i>`. */
+ *    (their uploaded media follows them), new shots get `<prefix>-<i>`.
+ *  M8 creative facets (action / cameraMotion / dialogue) are OPTIONAL additive
+ *  fields on the raw shot: carried when non-empty, omitted when blank — the
+ *  lock/paid pipeline reads only the fields it always did. */
 export function normalizeShots(items, slotPrefix) {
-  return items.map((s, i) => ({
-    shotId: typeof s.shotId === "string" && s.shotId ? s.shotId : mintId("shot"),
-    sequence: i + 1,
-    title: s.title.trim().slice(0, 80),
-    description: (s.description || "").trim().slice(0, 500) || s.title.trim(),
-    duration_seconds: s.duration_seconds === 10 ? 10 : 6,
-    slot: s.slot || `${slotPrefix}-${i + 1}`,
-  }));
+  return items.map((s, i) => {
+    const out = {
+      shotId: typeof s.shotId === "string" && s.shotId ? s.shotId : mintId("shot"),
+      sequence: i + 1,
+      title: s.title.trim().slice(0, 80),
+      description: (s.description || "").trim().slice(0, 500) || s.title.trim(),
+      duration_seconds: s.duration_seconds === 10 ? 10 : 6,
+      slot: s.slot || `${slotPrefix}-${i + 1}`,
+    };
+    for (const k of ["action", "cameraMotion", "dialogue"]) {
+      const v = typeof s[k] === "string" ? s[k].trim().slice(0, 500) : "";
+      if (v) out[k] = v;
+    }
+    return out;
+  });
+}
+
+/** The next draft version number: max existing + 1 — NEVER length + 1. The
+ *  connected restore filters non-draft versions, so surviving numbers can be
+ *  noncontiguous; length+1 would mint a DUPLICATE v and corrupt the
+ *  current-version lookup. Pure, exported for tests. */
+export function nextDraftVersion(versions) {
+  return (
+    (Array.isArray(versions) ? versions : []).reduce(
+      (m, x) => Math.max(m, Number.isInteger(x && x.v) ? x.v : 0),
+      0,
+    ) + 1
+  );
 }
 
 export function createShotEditor({ toast }) {

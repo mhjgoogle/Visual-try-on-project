@@ -103,7 +103,7 @@ button { font-family: inherit; cursor: pointer; }
 .ws-epbtns { display: flex; gap: 6px; align-items: center; }
 .ws-chipx { border: 0; background: transparent; color: var(--text-faint); cursor: pointer; font-size: 10px; padding: 0 0 0 4px; } .ws-chipx:hover { color: var(--gate); }
 .ws-assign { margin-top: 6px; font-size: 11px; background: var(--elev); color: var(--text-dim); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; max-width: 280px; }
-.prod-main .ws-row .nrun.ghost { flex: none; }
+.prod-main .ws-row .nrun.ghost { flex: none; width: auto; margin-top: 0; white-space: nowrap; padding: 6px 10px; }
 /* 作品设定 Production Bible (M7) */
 .pm-title2 { font-weight: 800; font-size: 13px; margin: 14px 0 6px; }
 .ws-bible { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; margin: 6px 0; max-width: 760px; }
@@ -119,6 +119,64 @@ button { font-family: inherit; cursor: pointer; }
 span.ws-refthumb.ws-refmiss { display: inline-grid; place-items: center; font-size: 9px; color: var(--text-faint); background: var(--elev); border-style: dashed; }
 .ws-scenerefs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; }
 .ws-staterefsel { margin-top: 0; max-width: 130px; }
+
+/* ---- M8 Production studio ------------------------------------------------ */
+.pnav-ic { width: 18px; text-align: center; }
+.ws-tag.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
+.ws-tag.gate { color: var(--gate); border-color: color-mix(in srgb, var(--gate) 40%, var(--line)); }
+.pc-mod { font-weight: 700; color: var(--accent); }
+.pm-head .pm-actions { display: flex; gap: 6px; }
+/* 剧集: current-episode progress strip */
+.ws-progress { display: flex; gap: 8px; flex-wrap: wrap; }
+.ws-stage { display: flex; align-items: center; gap: 7px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 9px 13px; color: var(--text-dim); font-size: 11.5px; cursor: pointer; }
+.ws-stage:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+.ws-stage b { color: var(--text); font-size: 12.5px; }
+.ws-stage-ic { font-size: 14px; } .ws-stage-l { color: var(--text-faint); }
+/* 分镜 storyboard: scene groups → shot cards → detail + media */
+.sb-scene { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.sb-scene-h { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700; margin-bottom: 8px; }
+.sb-scene-h .ws-desc { margin-left: auto; }
+.sb-refchips { display: inline-flex; gap: 4px; flex-wrap: wrap; font-weight: 400; }
+.sb-cards { display: flex; gap: 10px; flex-wrap: wrap; }
+.sb-card { width: 148px; background: var(--elev); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; cursor: pointer; }
+.sb-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.sb-card.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.sb-card.sb-dangling, .sb-card.sb-legacy { opacity: .65; cursor: default; }
+.sb-thumb { width: 100%; height: 84px; object-fit: cover; display: block; border-bottom: 1px solid var(--line); }
+div.sb-thumb.sb-none { display: grid; place-items: center; font-size: 20px; color: var(--text-faint); border-bottom: 1px dashed var(--line-2); }
+.sb-cap { font-size: 11.5px; padding: 6px 8px 0; display: flex; gap: 4px; align-items: baseline; min-width: 0; }
+.sb-cap .n { color: var(--text-faint); font-size: 10px; flex: none; }
+.sb-marks { margin-left: auto; color: var(--ok); flex: none; }
+.sb-sub { font-size: 10px; color: var(--text-faint); padding: 1px 8px 7px; }
+.sb-detail { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.sb-detail-empty { border-style: dashed; text-align: center; padding: 18px; }
+.sb-detail-head { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.sb-detail-head .mono { margin-left: auto; font-size: 9.5px; }
+.sb-scenectx { font-size: 11.5px; margin: 6px 0 4px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.sb-detail-grid { display: grid; grid-template-columns: minmax(280px, 5fr) minmax(280px, 6fr); gap: 18px; }
+@media (max-width: 1100px) { .sb-detail-grid { grid-template-columns: 1fr; } }
+.sb-fields .ws-bibleinput, .sb-fields .ws-bibletext { margin-bottom: 2px; }
+.sb-media { border-left: 1px solid var(--line); padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+@media (max-width: 1100px) { .sb-media { border-left: 0; padding-left: 0; } }
+.sb-vstrip { display: flex; gap: 8px; flex-wrap: wrap; }
+.sb-vitem { width: 128px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--elev); }
+.sb-vitem.on { border-color: color-mix(in srgb, var(--ok) 55%, var(--line)); }
+.sb-vthumb { width: 100%; height: 72px; object-fit: cover; display: block; }
+.sb-vmeta { font-size: 10px; color: var(--text-dim); padding: 4px 6px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+/* 剧本拆解提案 (M8) */
+.bd-panel { background: color-mix(in srgb, var(--accent) 5%, var(--panel)); border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--line)); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; max-width: 760px; }
+.bd-h { font-weight: 800; font-size: 12.5px; }
+.bd-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; display: flex; flex-direction: column; gap: 4px; }
+.bd-card-h { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.bd-f { font-size: 11px; color: var(--text-dim); } .bd-f span { color: var(--text-faint); margin-right: 6px; } .bd-f s { color: var(--text-faint); }
+.bd-states { font-size: 11px; color: var(--text-dim); display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.bd-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 3px; }
+/* AI Director structured panel */
+.dir-body { display: flex; flex-direction: column; gap: 8px; }
+.dir-ctx { font-size: 11px; color: var(--text-dim); background: var(--elev); border: 1px solid var(--line); border-radius: 7px; padding: 5px 9px; }
+.dir-hist { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); border-bottom: 1px dashed var(--line); padding: 4px 2px; }
+.dir-hist-l { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dir-hist .ws-desc { flex: none; }
 .prod-main .athumb { width: 74px; height: 46px; object-fit: cover; border-radius: 7px; border: 1px solid var(--line); flex: none; }
 .prod-main .aph { width: 74px; height: 46px; display: grid; place-items: center; font-size: 10px; color: var(--text-faint); background: var(--elev); border: 1px dashed var(--line-2); border-radius: 7px; flex: none; }
 .prod-main .aaud { width: 100%; height: 28px; margin-top: 6px; }

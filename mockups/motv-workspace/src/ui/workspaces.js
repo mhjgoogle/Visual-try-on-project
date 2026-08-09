@@ -9,8 +9,9 @@
 import { esc } from "../util/dom.js";
 import { slotEntry, currentRef } from "../workflow/mediaref.js";
 import { buildShotSlotIndex, slotForShotId, buildServerBridge, serverShotIdForShot } from "../workflow/shotmap.js";
-import { episodeView, sceneOfShot } from "../workflow/proddoc.js";
+import { episodeView } from "../workflow/proddoc.js";
 import { resolveCharacter, resolveLocation, findCharacter, findLocation } from "../workflow/bibledoc.js";
+import { derivedAppearances } from "../workflow/breakdown.js";
 
 const nn = (seq) => String(seq).padStart(2, "0");
 
@@ -134,6 +135,9 @@ export function settingsModel(pd) {
       missing: !byAsset.has(id),
       active: id === active,
     }));
+  // M8: episode appearances are DERIVED from Scene references (characterRefs
+  // / locationRef) — never a manually maintained list.
+  const appearances = derivedAppearances(prod);
   return {
     empty: false,
     assets,
@@ -144,6 +148,7 @@ export function settingsModel(pd) {
       name: c.name,
       profile: c.profile,
       voice: c.voice,
+      episodes: (appearances.characters.get(c.characterId) || []).map((x) => x.title),
       refs: refView(c.referenceAssetIds, c.activeReferenceAssetId),
       states: c.states.map((s) => {
         const resolved = resolveCharacter(c, s.stateId);
@@ -165,6 +170,7 @@ export function settingsModel(pd) {
       locationId: l.locationId,
       name: l.name,
       profile: l.profile,
+      episodes: (appearances.locations.get(l.locationId) || []).map((x) => x.title),
       refs: refView(l.referenceAssetIds, l.activeReferenceAssetId),
       states: l.states.map((s) => {
         const resolved = resolveLocation(l, s.stateId);
@@ -442,6 +448,88 @@ export function renderStory(ctx) {
  *  presentation facets (per-field: empty = inherit the base) but never mints
  *  a new identity, and never a new voice identity (voice rule). Reference
  *  images are REFERENCES into the M3 Asset Registry. */
+/** 剧本拆解 / 同步提案面板 (M8) — AI-first: proposals with explicit 添加 /
+ *  并入已有 / 应用更新 / 忽略 actions; confirmed entities never overwritten. */
+export function renderBreakdownPanel(ctx, m) {
+  const st = ctx.breakdown.state();
+  const runLabel = ctx.isConnected && ctx.isConnected()
+    ? "🪄 AI 剧本拆解 → 同步提案"
+    : "🪄 剧本拆解（演示模板）→ 同步提案";
+  if (!st) {
+    return (
+      `<div class="bd-panel"><div class="bd-h">🪄 剧本拆解 / 同步作品设定</div>` +
+      `<div class="ws-desc">让 AI 通读当前剧本，提议新角色/场景地、既有档案更新与剧情阶段状态 — 全部以提案呈现，逐条确认，绝不覆盖已确认内容。</div>` +
+      `<button class="nrun" data-bd-run>${runLabel}</button></div>`
+    );
+  }
+  if (st.status === "running") {
+    return `<div class="bd-panel"><div class="bd-h">🪄 剧本拆解中…</div><div class="skel live"><i></i><i></i><i></i><i></i></div></div>`;
+  }
+  if (st.status === "failed") {
+    return (
+      `<div class="bd-panel"><div class="bd-h">🪄 剧本拆解失败</div>` +
+      `<div class="scripterr">⚠ ${esc(st.error || "")}</div>` +
+      `<button class="nrun ghost" data-bd-run>重试</button></div>`
+    );
+  }
+  if (!st.cards.length) {
+    return (
+      `<div class="bd-panel"><div class="bd-h">🪄 剧本拆解 · 已同步</div>` +
+      `<div class="ws-kv ok">✓ 没有待处理提案 — 作品设定与剧本一致（或提案已全部处理）</div>` +
+      `<button class="nrun ghost" data-bd-run>重新拆解</button></div>`
+    );
+  }
+  const KIND = {
+    "new-character": ["👤 新角色", ""],
+    "new-location": ["📍 新场景地", ""],
+    "update-character": ["👤 角色更新", "update"],
+    "update-location": ["📍 场景地更新", "update"],
+  };
+  const cards = st.cards
+    .map((c) => {
+      const p = c.proposal;
+      const [badge] = KIND[c.kind];
+      let body = "";
+      let actions = "";
+      if (c.kind.startsWith("new-")) {
+        const facets = c.kind === "new-character"
+          ? [["外貌", p.appearance], ["服装", p.costume], ["性格", p.personality], ["画面指令", p.visualInstruction], ["声音", p.voiceDescription]]
+          : [["描述", p.description], ["画面指令", p.visualInstruction]];
+        body = facets.filter(([, v]) => v).map(([k, v]) => `<div class="bd-f"><span>${esc(k)}</span>${esc(v)}</div>`).join("");
+        const sameKind = c.kind === "new-character" ? m.characters : m.locations;
+        const mergeSel = sameKind.length
+          ? `<select class="ws-assign" data-bd-merge="${esc(c.id)}"><option value="">并入已有…（只填充空字段）</option>${sameKind
+              .map((e) => `<option value="${esc(c.kind === "new-character" ? e.characterId : e.locationId)}">${esc(e.name)}</option>`)
+              .join("")}</select>`
+          : "";
+        actions = `<button class="nrun" data-bd-add="${esc(c.id)}">＋ 添加</button>${mergeSel}<button class="nrun ghost" data-bd-ignore="${esc(c.id)}">忽略</button>`;
+      } else {
+        body = c.changes.fields
+          .map((f) => `<div class="bd-f"><span>${esc(f.key)}</span><s>${esc(f.from || "（空）")}</s> → ${esc(f.to)}</div>`)
+          .join("");
+        actions = `<button class="nrun" data-bd-apply="${esc(c.id)}">应用更新到「${esc(c.entityName)}」</button><button class="nrun ghost" data-bd-ignore="${esc(c.id)}">忽略</button>`;
+      }
+      const states = (c.kind.startsWith("new-") ? p.states : c.changes.states)
+        .map((s) => `<span class="ws-tag" title="${esc(s.reason || "")}">◈ ${esc(s.name)}</span>`)
+        .join(" ");
+      return (
+        `<div class="bd-card"><div class="bd-card-h"><span class="ws-tag">${badge}</span><b>${esc(p.name)}</b></div>` +
+        body + (states ? `<div class="bd-states">建议状态：${states}</div>` : "") +
+        `<div class="bd-actions">${actions}</div></div>`
+      );
+    })
+    .join("");
+  const staleNote = st.stale
+    ? `<div class="ws-kv gate">⚠ 拆解期间剧本已被修改：以下提案基于拆解时的剧本文本 — 建议「重新拆解」后再确认</div>`
+    : "";
+  return (
+    `<div class="bd-panel"><div class="bd-h">🪄 剧本拆解提案 · ${st.cards.length} 条待处理${st.source === "demo" ? " · 演示模板" : ""}</div>` +
+    `<div class="ws-desc">逐条确认：添加 / 并入已有（只填充空字段）/ 应用更新 / 忽略 — 已确认的档案绝不被静默覆盖。</div>` +
+    staleNote + cards +
+    `<button class="nrun ghost" data-bd-run>重新拆解</button></div>`
+  );
+}
+
 export function renderSettings(ctx) {
   const m = settingsModel(ctx.prodData());
   if (m.empty) {
@@ -515,8 +603,14 @@ export function renderSettings(ctx) {
           `</details>`,
       )
       .join("");
+    // M8: episode appearances are DERIVED from scene references — displayed,
+    // never edited here
+    const appear = c.episodes.length
+      ? `<div class="ws-kv">出现于：${c.episodes.map((t) => `<span class="ws-tag">📺 ${esc(t)}</span>`).join(" ")}（由场景引用派生）</div>`
+      : `<div class="ws-desc">尚未在任何场景出场 — 在「剧集」的场景里添加出场角色后自动显示</div>`;
     return (
-      `<details class="ws-bible" data-key="${esc(JSON.stringify([c.characterId]))}"><summary>👤 <b>${esc(c.name)}</b><span class="ws-desc"> · ${c.states.length} 个状态 · ${c.refs.length} 张参考图</span></summary>` +
+      `<details class="ws-bible" data-key="${esc(JSON.stringify([c.characterId]))}"><summary>👤 <b>${esc(c.name)}</b><span class="ws-desc"> · ${c.states.length} 个状态 · ${c.refs.length} 张参考图${c.episodes.length ? ` · 出现于 ${c.episodes.length} 集` : ""}</span></summary>` +
+      appear +
       `<div class="ws-epbtns"><button class="nrun ghost" data-b-chrename="${esc(c.characterId)}">重命名</button><button class="nrun ghost" data-b-chdel="${esc(c.characterId)}">删除</button></div>` +
       profField("chprof", c.characterId, "appearance", "外貌", c.profile.appearance) +
       profField("chprof", c.characterId, "costume", "服装", c.profile.costume) +
@@ -543,8 +637,12 @@ export function renderSettings(ctx) {
           `</details>`,
       )
       .join("");
+    const appear = l.episodes.length
+      ? `<div class="ws-kv">出现于：${l.episodes.map((t) => `<span class="ws-tag">📺 ${esc(t)}</span>`).join(" ")}（由场景引用派生）</div>`
+      : `<div class="ws-desc">尚未被任何场景使用 — 在「剧集」的场景里设定场景地后自动显示</div>`;
     return (
-      `<details class="ws-bible" data-key="${esc(JSON.stringify([l.locationId]))}"><summary>📍 <b>${esc(l.name)}</b><span class="ws-desc"> · ${l.states.length} 个状态 · ${l.refs.length} 张参考图</span></summary>` +
+      `<details class="ws-bible" data-key="${esc(JSON.stringify([l.locationId]))}"><summary>📍 <b>${esc(l.name)}</b><span class="ws-desc"> · ${l.states.length} 个状态 · ${l.refs.length} 张参考图${l.episodes.length ? ` · 用于 ${l.episodes.length} 集` : ""}</span></summary>` +
+      appear +
       `<div class="ws-epbtns"><button class="nrun ghost" data-b-locrename="${esc(l.locationId)}">重命名</button><button class="nrun ghost" data-b-locdel="${esc(l.locationId)}">删除</button></div>` +
       profField("locprof", l.locationId, "description", "描述", l.profile.description) +
       profField("locprof", l.locationId, "visualInstruction", "画面指令", l.profile.visualInstruction) +
@@ -555,7 +653,8 @@ export function renderSettings(ctx) {
     );
   };
   return (
-    head("🎭 作品设定（Production Bible）", `${m.characters.length} 个角色 · ${m.locations.length} 个场景地 · 结构已持久化`) +
+    head("🎭 作品设定（Production Bible）", `${m.characters.length} 个角色 · ${m.locations.length} 个场景地 · AI 拆解为先，手工编辑为辅`) +
+    renderBreakdownPanel(ctx, m) +
     `<div class="pm-title2">👤 角色库</div>` +
     (m.characters.map(charCard).join("") || `<div class="ws-kv">还没有角色 — 建立角色档案，保证跨镜头/跨集一致性</div>`) +
     `<button class="nrun" data-b-chadd>＋ 新建角色</button>` +
@@ -597,6 +696,14 @@ export function bindSettings(root, ctx) {
     return t == null ? null : t.trim();
   };
   const prod = () => ctx.production.doc();
+  // --- 剧本拆解提案 (M8): explicit per-card actions ------------------------ //
+  on("[data-bd-run]", () => ctx.breakdown.run());
+  on("[data-bd-add]", (el) => ctx.breakdown.addAsNew(el.dataset.bdAdd));
+  on("[data-bd-apply]", (el) => ctx.breakdown.applyUpdate(el.dataset.bdApply));
+  on("[data-bd-ignore]", (el) => ctx.breakdown.dismiss(el.dataset.bdIgnore));
+  root.querySelectorAll("[data-bd-merge]").forEach((sel) => {
+    sel.onchange = () => { if (sel.value) ctx.breakdown.mergeInto(sel.dataset.bdMerge, sel.value); };
+  });
   on("[data-b-chadd]", () => {
     const t = prompt2("角色名称");
     if (t != null) ctx.bible.addCharacter(t);
@@ -787,15 +894,19 @@ export function renderEpisodes(ctx) {
                 .map((x) => `<option value="${esc(x.stateId)}"${x.stateId === cur ? " selected" : ""}>${esc(x.name)}</option>`)
                 .join("")}</select>`
             : "";
+        // M8 rule: a Scene REFERENCES a reusable Location — pick an existing
+        // one, or create a NEW Location (it lands in the Production Bible
+        // immediately); never a per-scene duplicate location entity.
+        const newLocBtn = `<button class="ws-chipx" data-scref-lnew="${esc(s.sceneId)}">＋新建场景地</button>`;
         const loc = s.refs.location
           ? `<span class="ws-tag">📍 ${esc(s.refs.location.name)}</span>` +
             stateSel(`data-scref-lstate="${esc(s.sceneId)}"`, s.refs.location.states, s.refs.location.stateId) +
             `<button class="ws-chipx" data-scref-lclear="${esc(s.sceneId)}">×</button>`
-          : a.locationOptions.length
-            ? `<select class="ws-assign" data-scref-lset="${esc(s.sceneId)}"><option value="">📍 设定场景地…</option>${a.locationOptions
-                .map((l) => `<option value="${esc(l.locationId)}">${esc(l.name)}</option>`)
-                .join("")}</select>`
-            : "";
+          : (a.locationOptions.length
+              ? `<select class="ws-assign" data-scref-lset="${esc(s.sceneId)}"><option value="">📍 选择场景地…</option>${a.locationOptions
+                  .map((l) => `<option value="${esc(l.locationId)}">${esc(l.name)}</option>`)
+                  .join("")}</select>`
+              : `<span class="ws-desc">📍 还没有场景地</span>`) + newLocBtn;
         const charChips = s.refs.characters
           .map(
             (r) =>
@@ -836,8 +947,30 @@ export function renderEpisodes(ctx) {
       `<button class="nrun" data-sc-add="${esc(a.episodeId)}">＋ 新建场景</button>` +
       pool + legacyNote;
   }
+  // 当前剧集进度 (M8): the ACTIVE episode's production standing — script /
+  // shots / per-stage media readiness / finals, all from existing read models
+  const doc = ctx.script.doc();
+  const pdAll = ctx.prodData();
+  const shots = shotsModel(pdAll);
+  const frames = assetsModel(pdAll);
+  const video = videoModel(pdAll);
+  const audio = audioModel(pdAll);
+  const edit = editModel(pdAll);
+  const stage = (icon, label, value, goto) =>
+    `<button class="ws-stage" data-goto="${goto}"><span class="ws-stage-ic">${icon}</span><span class="ws-stage-l">${esc(label)}</span><b>${esc(value)}</b></button>`;
+  const progress = m.active
+    ? `<div class="ws-progress">` +
+      stage("📄", "剧本", doc.versions.length ? `v${doc.active}` : "未生成", "script") +
+      stage("🎞", "分镜", shots.empty ? "未生成" : `${shots.shots.length} 镜`, "shots") +
+      stage("🖼", "画面", frames.empty ? "—" : `${frames.done}/${frames.total}`, "frames") +
+      stage("▶", "视频", video.empty ? "—" : `${video.done}/${video.total}`, "video") +
+      stage("🎵", "配音", audio.empty ? "—" : `${audio.done}/${audio.total}`, "audio") +
+      stage("✂", "成片", edit.finals ? `v${edit.finals}` : "未合成", "edit") +
+      `</div>`
+    : "";
   return (
     head("📺 剧集", `${m.episodes.length} 集 · 结构已持久化`) +
+    progress +
     `<div class="ws-epgrid">${cards}</div>` +
     `<button class="nrun" data-ep-add>＋ 新建剧集</button>` +
     structure
@@ -887,6 +1020,14 @@ export function bindEpisodes(root, ctx) {
     };
   });
   // --- scene ↔ bible references (M7) --------------------------------------- //
+  // create a NEW reusable Location and reference it from this scene — the
+  // entity lands in the Production Bible immediately (M8 rule 7/8)
+  on("[data-scref-lnew]", (el) => {
+    const t = window.prompt("新场景地名称（将进入作品设定，可复用于其它场景）");
+    if (t == null || !t.trim()) return;
+    const loc = ctx.bible.addLocation(t.trim());
+    if (loc) ctx.bible.setSceneLocation(el.dataset.screfLnew, loc.locationId, null);
+  });
   on("[data-scref-lclear]", (el) => ctx.bible.setSceneLocation(el.dataset.screfLclear, null, null));
   on("[data-scref-cdel]", (el) => ctx.bible.removeSceneCharacter(el.dataset.screfCdel, el.dataset.cid));
   root.querySelectorAll("[data-scref-lset]").forEach((sel) => {
@@ -909,47 +1050,6 @@ export function bindEpisodes(root, ctx) {
       ctx.bible.setSceneCharacterState(sel.dataset.screfCstate, sel.dataset.cid, sel.value || null);
     };
   });
-}
-
-export function renderShots(ctx) {
-  const pd = ctx.prodData();
-  const m = shotsModel(pd);
-  const meta = [
-    m.versions && m.versions.count ? `版本 v${m.versions.cur}/${m.versions.count}` : "",
-    m.lock ? `🔒 已锁定 plan v${esc(String(m.lock.planVersion))}` : "未锁定",
-  ].filter(Boolean).join(" · ");
-  if (m.empty) {
-    return head("🎞 分镜工作区", meta) + empty("🎞", "还没有生成分镜", [
-      "前置：剧本（可在剧本工作区生成/编辑）",
-      "在工作流视图的「脚本生成器」节点点「基于剧本生成分镜」",
-    ]);
-  }
-  // Creator-facing Shot cards over the CURRENT shot collection. Scene grouping
-  // is not provable from current data, so this is deliberately a flat
-  // collection — no fabricated Scene semantics (that domain waits for later).
-  const cards = m.shots
-    .map((s) => {
-      // s.slot is the CANONICAL slot (creativeShotId → slot); null when a shot's
-      // identity can't be proven — show unresolved, never guess by position.
-      const ref = s.slot ? currentRef(pd.assetUploads, s.slot) : null;
-      const thumb = ref
-        ? `<img class="sc-thumb" src="${esc(ref.url)}" alt="">`
-        : `<div class="sc-thumb sc-none">${s.unresolved ? "⚠" : "🎞"}</div>`;
-      // M6: which scene this shot is assigned to (by canonical shotId) — a tag
-      // only; assignment is managed in the 剧集 workspace
-      const sc = s.shotId && pd.production ? sceneOfShot(pd.production, s.shotId) : null;
-      const sceneTag = sc ? `<span class="ws-tag">🎬 ${esc(sc.scene.title)}</span>` : "";
-      return (
-        `<div class="shotcard">${thumb}<div class="sc-body">` +
-        `<div class="sc-title"><span class="n mono">${esc(nn(s.seq))}</span> <b>${esc(s.title)}</b>${s.duration != null ? `<span class="ws-tag">${esc(String(s.duration))}s</span>` : ""}${sceneTag}</div>` +
-        (s.description ? `<div class="ws-desc">${esc(s.description)}</div>` : "") +
-        (s.unresolved ? `<div class="ws-kv gate">⚠ 镜头身份未解析（slot 归属歧义）— 不按位置猜测</div>` : "") +
-        `</div></div>`
-      );
-    })
-    .join("");
-  const note = m.kind === "draft" ? "" : `<div class="ws-kv">（当前仅有镜头标题行 — 结构化草稿在生成分镜后可见）</div>`;
-  return head("🎞 分镜工作区", `${m.shots.length} 个镜头 · ${meta} · 只读`) + note + `<div class="shotgrid">${cards}</div>`;
 }
 
 export function renderFrames(ctx) {

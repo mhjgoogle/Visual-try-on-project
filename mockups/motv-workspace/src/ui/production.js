@@ -1,16 +1,16 @@
-// Production Workspace shell (M2.5 — final information architecture).
+// Production studio shell (M8) — the creator-facing production environment:
+// LEFT navigation/resources · CENTER production workspace · RIGHT persistent
+// AI Director. The workflow node canvas stays available under the ⛓ tab but
+// is no longer the primary creator experience.
 //
-// Creator-facing product shell: a persistent Project/Episode context header,
-// a grouped left nav (项目级 / 当前剧集), the selected module's workspace in
-// the center, and a PERSISTENT right-side AI Director region. The Script
-// module keeps its full editor + live AI assistant; every other module's AI
-// pane states honestly what is available today and what waits on later
-// domain checkpoints (M3/M4). PURE PRESENTATION over ctx.script /
-// ctx.prodData(): the scriptDoc domain document stays the single source of
-// truth (shared with the workflow node), AI calls stay behind the controller
-// in app.js. Nav selection is transient UI state only — never persisted.
+// PURE PRESENTATION over the domain documents (scriptDoc / production / bible
+// / Asset & Generation registries) through ctx controllers — the shell owns
+// only TRANSIENT UI state (active module, selection, edit buffers, open
+// panels), never persisted, never on canvas nodes.
 import { $, esc } from "../util/dom.js";
 import * as ws from "./workspaces.js";
+import { renderStoryboard, bindStoryboard } from "./storyboard.js";
+import { directorModel, renderDirector, bindDirector } from "./director.js";
 
 /** Grouped navigation — the approved final IA. Exported for tests. */
 export const NAV = [
@@ -53,9 +53,7 @@ export function scriptStatus(doc) {
 }
 
 /** Pure nav badges from current state — counts, not availability: every
- *  module stays clickable regardless of workflow progress (unit-tested).
- *  作品设定/剧集 carry no counts: their domain models don't exist yet and a
- *  fabricated number would claim persistence M2.5 does not have. */
+ *  module stays clickable regardless of workflow progress (unit-tested). */
 export function navBadges(doc, pd) {
   const st = scriptStatus(doc);
   const shots = ws.shotsModel(pd);
@@ -87,43 +85,6 @@ const MODULE_LABEL = {
   shots: "分镜", frames: "画面", video: "视频", audio: "音频", edit: "剪辑",
 };
 
-/** AI Director copy for non-script modules: first what WILL come (and what it
- *  waits on), then what genuinely works today — honest labels, nothing fake. */
-const AI_DIRECTOR = {
-  story: {
-    future: ["创意扩写、题材/结构建议（待创意域扩展）"],
-    now: ["现在可用：写下创意后，到「剧本」工作区一键生成剧本 v1"],
-  },
-  settings: {
-    future: ["按设定的一致性检查、Prompt 编译（待后续检查点）"],
-    now: ["现在可用：建立角色/场景地档案与状态（少女/黑化、日/夜…），挂参考图，供场景按 ID 引用（结构已持久化，M7）"],
-  },
-  episodes: {
-    future: ["剧集规划、跨集连贯性建议（待后续检查点）"],
-    now: ["现在可用：新建/切换剧集，在剧集内建场景并把镜头归入场景（结构已持久化，M6）"],
-  },
-  shots: {
-    future: ["按镜头的修订建议与一致性检查（待资产/生成记录域，M3/M4）"],
-    now: ["现在可用：分镜生成/重新生成/手工编辑在工作流视图「脚本生成器」节点"],
-  },
-  frames: {
-    future: ["画面一致性/风格检查（待资产域模型，M3）"],
-    now: ["现在可用：图片上传与付费生成在工作流视图「资产准备」节点"],
-  },
-  video: {
-    future: ["镜头节奏/运动建议（待生成记录域，M4）"],
-    now: ["现在可用：视频上传/付费生成在工作流视图「视频生成」节点"],
-  },
-  audio: {
-    future: ["配音风格与情绪建议（待 VoiceProfile 域，后续检查点）"],
-    now: ["现在可用：配音上传/本地 TTS 在工作流视图「音频生成」节点"],
-  },
-  edit: {
-    future: ["剪辑节奏/转场建议（待生成记录域，M4）"],
-    now: ["现在可用：本地 FFmpeg 合成在工作流视图「剪辑合成」节点（免费）"],
-  },
-};
-
 export function createProduction(getCtx) {
   const root = $("#production");
   // transient view state — NEVER persisted, never on canvas nodes
@@ -131,6 +92,10 @@ export function createProduction(getCtx) {
   let revText = "";
   let vmenuOpen = false;
   const openBible = new Set(); // 作品设定 <details> open state (transient)
+  // storyboard selection + UNSAVED shot-edit buffer + director instruction —
+  // shared across re-renders so a media action / poll re-render never
+  // discards in-progress field edits (they commit only on explicit save)
+  const ui = { selectedShotId: null, dirty: false, buffer: {}, directorText: "" };
 
   function vmenuHtml(d) {
     const label = { generated: "AI 生成", revision: "AI 修订", manual: "手工" };
@@ -142,6 +107,7 @@ export function createProduction(getCtx) {
       .join("")}</div>`;
   }
 
+  // --- the SCRIPT module keeps its full live assistant ---------------------- //
   function aiPane(ctx, d, st) {
     if (st.generating) {
       const lab = d.pending.kind === "initial" ? "AI 生成剧本中…" : "AI 生成修订稿中…";
@@ -178,27 +144,29 @@ export function createProduction(getCtx) {
     );
   }
 
-  /** The persistent right-side AI Director region. Script gets the live
-   *  assistant; every other module states capabilities honestly. */
+  /** The persistent right-side AI Director. Script gets the live assistant;
+   *  every other module gets the structured Director panel (context +
+   *  instruction + real action where one exists + generation history). */
   function aiDirector(ctx) {
     if (activeModule === "script") {
       const d = ctx.script.doc();
       return `<aside class="prod-ai"><div class="pa-title">🎬 AI 导演 · 剧本助理</div>${aiPane(ctx, d, scriptStatus(d))}</aside>`;
     }
-    const c = AI_DIRECTOR[activeModule] || { future: [], now: [] };
-    const future = c.future
-      .map((t) => `<div class="pa-unavail">◌ ${esc(t)}</div>`)
-      .join("");
-    const now = c.now.map((t) => `<div class="pa-note">${esc(t)}</div>`).join("");
+    const m = directorModel({
+      module: activeModule,
+      doc: ctx.script.doc(),
+      pd: ctx.prodData(),
+      sel: ui,
+    });
     return (
       `<aside class="prod-ai"><div class="pa-title">🎬 AI 导演 · ${esc(MODULE_LABEL[activeModule] || "")}</div>` +
-      `<div class="pa-lab">待后续域模型解锁</div>${future}${now}</aside>`
+      renderDirector(m, ui.directorText) +
+      `</aside>`
     );
   }
 
   /** Persistent Project / current-Episode context header. Since M6 the active
-   *  Episode is a REAL persisted domain entity (production document); episode
-   *  management lives in the 剧集 workspace. */
+   *  Episode is a REAL persisted domain entity (production document). */
   function ctxHead(ctx) {
     const name = (ctx.project && ctx.project.name) || "未命名项目";
     const prod = ctx.production && ctx.production.doc();
@@ -208,7 +176,8 @@ export function createProduction(getCtx) {
     return (
       `<header class="prod-ctx"><span class="pc-proj">📁 ${esc(name)}</span>` +
       `<span class="pc-sep">›</span><span class="pc-ep">📺 ${esc(epLabel)}</span>` +
-      `<span class="pc-note">剧集/场景结构已持久化（M6）${esc(more)}</span></header>`
+      `<span class="pc-sep">›</span><span class="pc-mod">${esc(MODULE_LABEL[activeModule] || "")}</span>` +
+      `<span class="pc-note">${esc(more)}</span></header>`
     );
   }
 
@@ -229,14 +198,14 @@ export function createProduction(getCtx) {
   }
 
   const WORKSPACES = {
-    story: ws.renderStory,
-    settings: ws.renderSettings,
-    episodes: ws.renderEpisodes,
-    shots: ws.renderShots,
-    frames: ws.renderFrames,
-    video: ws.renderVideo,
-    audio: ws.renderAudio,
-    edit: ws.renderEdit,
+    story: (ctx) => ws.renderStory(ctx),
+    settings: (ctx) => ws.renderSettings(ctx),
+    episodes: (ctx) => ws.renderEpisodes(ctx),
+    shots: (ctx) => renderStoryboard(ctx, ui),
+    frames: (ctx) => ws.renderFrames(ctx),
+    video: (ctx) => ws.renderVideo(ctx),
+    audio: (ctx) => ws.renderAudio(ctx),
+    edit: (ctx) => ws.renderEdit(ctx),
   };
 
   function render() {
@@ -248,7 +217,7 @@ export function createProduction(getCtx) {
         grp.items
           .map(([k, icon, label]) => {
             const b = badges[k];
-            return `<button class="pnav-item${k === activeModule ? " active" : ""}" data-mod="${k}">${icon} ${label}${b ? `<span class="pnav-badge">${esc(b)}</span>` : ""}</button>`;
+            return `<button class="pnav-item${k === activeModule ? " active" : ""}" data-mod="${k}"><span class="pnav-ic">${icon}</span>${label}${b ? `<span class="pnav-badge">${esc(b)}</span>` : ""}</button>`;
           })
           .join(""),
     ).join("");
@@ -263,8 +232,12 @@ export function createProduction(getCtx) {
 
   function setModule(k) {
     if (!WORKSPACES[k] && k !== "script") return;
-    activeModule = k; // UI navigation state only — Script edits/proposal live
-    vmenuOpen = false; // in scriptDoc and survive this switch untouched
+    if (k === activeModule) return; // staying put must not touch unsaved edits
+    if (ui.dirty && !window.confirm("镜头详情有未保存的修改，离开将丢弃？")) return;
+    ui.dirty = false;
+    ui.buffer = {};
+    activeModule = k; // UI navigation state only — domain edits/proposals live
+    vmenuOpen = false; // in their documents and survive this switch untouched
     render();
   }
 
@@ -274,13 +247,12 @@ export function createProduction(getCtx) {
     // the brief textarea exists in BOTH the script and story workspaces
     const brief = root.querySelector(".pm-brieftext");
     if (brief) brief.oninput = () => ctx.script.setBrief(brief.value);
-    const jump = root.querySelector("[data-goto]");
-    if (jump) jump.onclick = () => setModule(jump.dataset.goto);
+    // cross-module jumps (empty states, director) — EVERY [data-goto] wires
+    root.querySelectorAll("[data-goto]").forEach((j) => (j.onclick = () => setModule(j.dataset.goto)));
     // 剧集 workspace structure actions (M6) — domain writes via ctx.production
     if (activeModule === "episodes") ws.bindEpisodes(root, ctx);
     // 作品设定 workspace (M7) — domain writes via ctx.bible. Re-renders
-    // collapse <details>; restore the ones the creator had open (transient
-    // UI state only, never persisted).
+    // collapse <details>; restore the ones the creator had open.
     if (activeModule === "settings") {
       ws.bindSettings(root, ctx);
       root.querySelectorAll("details[data-key]").forEach((d) => {
@@ -291,7 +263,13 @@ export function createProduction(getCtx) {
         };
       });
     }
-    if (activeModule !== "script") return;
+    // 分镜 storyboard (M8) — selection + buffered shot edits + media actions
+    if (activeModule === "shots") bindStoryboard(root, ctx, ui, render);
+    // AI Director (non-script modules) — real dispatches only
+    if (activeModule !== "script") {
+      bindDirector(root, ctx, ui);
+      return;
+    }
     // --- script workspace bindings (unchanged behavior) ---
     const text = root.querySelector(".pm-text");
     const dirtyTag = root.querySelector(".dirtytag");

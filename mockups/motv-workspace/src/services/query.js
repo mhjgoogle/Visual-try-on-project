@@ -104,6 +104,27 @@ export async function generateScriptDraft({ idea, baseScript, instruction }) {
   return j.script || "";
 }
 
+/** Script breakdown → Production Bible PROPOSALS (M8): the episode script
+ *  goes to the local Claude CLI and comes back as proposed characters /
+ *  locations / states. Same trust posture as shots-draft — the caller
+ *  presents proposals; nothing is applied without an explicit user action. */
+export async function generateBibleBreakdown(script) {
+  const r = await fetch("/api/agent/bible-breakdown", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ script }),
+  });
+  const j = await r.json().catch(() => null);
+  if (!r.ok) {
+    const e = j && j.error ? j.error : {};
+    const err = new Error(e.detail || `agent ${r.status}`);
+    err.category = e.category;
+    err.rawExcerpt = e.raw_excerpt;
+    throw err;
+  }
+  return j.breakdown || { characters: [], locations: [] };
+}
+
 /** Manual image provider (prototype scratch): upload a user-generated media
  *  file for a slot. Same slot re-uploads APPEND a new version (TASK-048/
  *  ADR-0048), never replace. Returns {url, version, sha256}. */
