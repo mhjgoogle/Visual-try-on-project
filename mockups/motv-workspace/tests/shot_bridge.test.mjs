@@ -243,6 +243,7 @@ test("the creativeShotId bridge in lockedPlan survives a canvas dispatch round-t
     project: "p",
     scriptDoc: null,
     assets: { images: {}, videos: {}, audio: {}, firstFrames: {}, finals: [], displaced: [] },
+    generations: [], // M5: a current-version doc carries the generation registry
     nodes: [{
       id: "g", type: "scriptgen", x: 0, y: 0, state: "done", cur: 1,
       versions: [{

@@ -76,6 +76,33 @@ export function clearUnresolvedPaid(reg, taskId) {
   reg.unresolvedPaid = reg.unresolvedPaid.filter((e) => e && e.taskId !== taskId);
 }
 
+/** Change an Asset's byte-availability lifecycle (M5) WITHOUT touching its
+ *  identity, url (last-known location), or its Generation provenance — those
+ *  live independently, so releasing disk space never breaks the lineage chain.
+ *  States: local | archived | missing | deleted. This is the single data-model
+ *  primitive a future Remove-Local-Copy / archive / missing-detection /
+ *  permanent-delete flow builds on. Returns true if a matching Asset was found.
+ *  (`deleted`/`missing` keep the record + assetId; only availability changes.) */
+export function setStorageState(reg, assetId, state) {
+  const STATES = new Set(["local", "archived", "missing", "deleted"]);
+  if (!isObj(reg) || typeof assetId !== "string" || !assetId || !STATES.has(state)) return false;
+  let changed = false;
+  const visit = (r) => {
+    if (isObj(r) && r.assetId === assetId) { r.storageState = state; changed = true; }
+  };
+  for (const dom of ["images", "videos", "audio"]) {
+    const m = reg[dom];
+    if (!isObj(m)) continue;
+    for (const k of Object.keys(m)) {
+      const e = m[k];
+      if (isObj(e) && Array.isArray(e.history)) e.history.forEach(visit);
+    }
+  }
+  for (const f of Array.isArray(reg.finals) ? reg.finals : []) visit(f);
+  if (isObj(reg.firstFrames)) for (const k of Object.keys(reg.firstFrames)) visit(reg.firstFrames[k]);
+  return changed;
+}
+
 /** Composed finals as the plain url list every existing consumer renders
  *  (edit node player, Production 剪辑 workspace). Defensive against a
  *  hand-corrupted save (`finals: [null]`): only real urls surface. */
@@ -95,7 +122,9 @@ export function finalUrls(reg) {
  *  the caller can surface the failure instead. */
 export function addFinal(reg, url) {
   if (typeof url !== "string" || !url) return null;
-  const rec = { assetId: mintId("asset"), url, origin: "compose" };
+  // storageState 'local' (M5): a freshly composed final's bytes are present, and
+  // v5 validation requires the field on every durable Asset record.
+  const rec = { assetId: mintId("asset"), url, origin: "compose", storageState: "local" };
   reg.finals.push(rec);
   return rec;
 }

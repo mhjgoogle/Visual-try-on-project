@@ -18,7 +18,7 @@
 //   outcome overwrite the stored document.
 
 /** Authoritative CURRENT canvas schema version. Saves must emit exactly this. */
-export const CANVAS_SCHEMA_VERSION = 4;
+export const CANVAS_SCHEMA_VERSION = 5;
 
 /**
  * v1 → v2 (checkpoint M2): stable creator identity + minimal provenance.
@@ -469,9 +469,110 @@ function migrateV3ToV4(doc) {
   return doc;
 }
 
+/**
+ * v4 → v5 (checkpoint M5): Project Generation Registry + Asset storage lifecycle.
+ * Two purely ADDITIVE changes — no existing field is renamed/removed/altered:
+ *
+ * 1. doc.generations (NEW top-level array) — the durable source of generation
+ *    provenance, INDEPENDENT of media bytes. Backfilled from the Asset registry:
+ *    every history record whose origin is an AI generation (paid-image /
+ *    paid-video / adopted / tts — NOT upload) gets a Generation record linking to
+ *    that assetId + its proven creativeShotId (M4). Historical prompt / model /
+ *    parameters / inputs were never persisted on the MediaRef, so they stay
+ *    honestly null (legacy) — never manufactured. gen-mig-<n> ids are
+ *    counter-based in fixed traversal order (deterministic) and pre-scanned
+ *    against any id an already-present generations array carries.
+ *
+ * 2. Asset storageState (NEW field on every durable Asset record) — 'local' for
+ *    all existing media (bytes present). Lets a future Remove-Local-Copy /
+ *    archive / missing-detection / permanent-delete flow change an Asset's byte
+ *    availability WITHOUT touching its identity or its Generation provenance.
+ *    assetId / url / version / digest / creativeShotId are untouched.
+ */
+function migrateV4ToV5(doc) {
+  const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
+  if (!isObj(doc.assets)) {
+    if (!Array.isArray(doc.generations)) doc.generations = [];
+    return doc;
+  }
+  const AI_ORIGINS = new Set(["paid-image", "paid-video", "adopted", "tts"]);
+  const DOMAIN_TYPE = { images: "image", videos: "video", audio: "audio" };
+  const STORAGE_STATES = new Set(["local", "archived", "missing", "deleted"]);
+
+  // -- storageState: NORMALIZE every durable Asset record to a valid value.
+  // 'local' when absent (bytes present); also OVERWRITE an invalid pre-existing
+  // value — v4 permitted arbitrary unknown fields, but v5 rejects a bad
+  // storageState, so a normalize (not merely a fill) keeps a valid v4 save
+  // loadable after migration.
+  const stampStorage = (r) => {
+    if (isObj(r) && !STORAGE_STATES.has(r.storageState)) r.storageState = "local";
+  };
+  for (const dom of ["images", "videos", "audio"]) {
+    const m = doc.assets[dom];
+    if (!isObj(m)) continue;
+    for (const k of Object.keys(m)) {
+      const e = m[k];
+      if (isObj(e) && Array.isArray(e.history)) e.history.forEach(stampStorage);
+    }
+  }
+  for (const f of Array.isArray(doc.assets.finals) ? doc.assets.finals : []) stampStorage(f);
+  if (isObj(doc.assets.firstFrames)) {
+    for (const k of Object.keys(doc.assets.firstFrames)) stampStorage(doc.assets.firstFrames[k]);
+  }
+
+  // -- generations: backfill FRESH from AI-origin history records --
+  // The `generations` field is introduced AT v5, so a genuine v4 save never
+  // carries it. Any pre-existing value on a v4 doc is hand-crafted junk that
+  // could satisfy some v5 invariants while violating others (dup ids, dangling
+  // links, wrong-domain results, mismatched targets) → an unloadable migrated
+  // doc. We therefore IGNORE any pre-existing generations and build the registry
+  // purely from the (already-validated-at-v5) asset backfill, which is always
+  // v5-valid by construction.
+  const gens = [];
+  const claimedAssets = new Set();
+  let counter = 0;
+  // gen-mig-<n> in traversal order — deterministic and collision-free (the
+  // registry starts empty, so no pre-existing id can clash).
+  const migId = () => `gen-mig-${++counter}`;
+  for (const dom of ["images", "videos", "audio"]) {
+    const m = doc.assets[dom];
+    if (!isObj(m)) continue;
+    const type = DOMAIN_TYPE[dom];
+    for (const k of Object.keys(m)) {
+      const e = m[k];
+      if (!isObj(e) || !Array.isArray(e.history)) continue;
+      for (const r of e.history) {
+        if (!isObj(r) || typeof r.assetId !== "string" || !r.assetId) continue;
+        if (!AI_ORIGINS.has(r.origin)) continue; // upload / unknown → not an AI generation
+        if (claimedAssets.has(r.assetId)) continue; // already registered
+        claimedAssets.add(r.assetId);
+        const target = typeof r.creativeShotId === "string" && r.creativeShotId ? r.creativeShotId : null;
+        gens.push({
+          generationId: migId(),
+          type,
+          targetType: target ? "shot" : null,
+          targetId: target, // canonical creativeShotId (M4), never slot
+          inputAssetIds: [],
+          referenceAssetIds: [],
+          userInstruction: null,
+          promptSnapshot: null, // never persisted historically → honest null
+          provider: null,
+          model: null,
+          parameters: null,
+          status: "success", // the record IS its produced Asset
+          resultAssetIds: [r.assetId],
+          createdAt: null, // a deterministic migration mints no clock time
+        });
+      }
+    }
+  }
+  doc.generations = gens;
+  return doc;
+}
+
 /** Sequential migration steps: { [fromVersion]: (doc) => docAtFromVersion+1 }.
  *  Extended one real step at a time, never speculatively. */
-export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4 };
+export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5 };
 
 /** Read the schema version of a raw persisted document.
  *  Returns a positive integer, or null if the marker is malformed.
@@ -540,8 +641,19 @@ export function validateCanvasDoc(doc) {
   // restore an empty registry and cement silent loss of all creator media on
   // the next save; fail safe instead.
   const atV3 = Number.isInteger(doc.v) && doc.v >= 3;
+  const atV5 = Number.isInteger(doc.v) && doc.v >= 5;
+  const STORAGE_STATES = new Set(["local", "archived", "missing", "deleted"]);
   if (atV3 && !isPlainObject(doc.assets)) {
     return "v3 document is missing its assets registry";
+  }
+  // Since v5 the Project Generation Registry (top-level `generations`) is the
+  // durable provenance source. A v5 save always emits it (even empty); a
+  // truncated one missing it would restore empty and cement provenance loss.
+  if (atV5 && !Array.isArray(doc.generations)) {
+    return "v5 document is missing its generations registry";
+  }
+  if (doc.generations !== undefined && !Array.isArray(doc.generations)) {
+    return "generations is not an array";
   }
   if (doc.assets !== undefined) {
     if (!isPlainObject(doc.assets)) return "assets is not an object";
@@ -602,6 +714,10 @@ export function validateCanvasDoc(doc) {
             // loads but its media/current-pointer is dead
             if (typeof r.url !== "string" || !r.url) return `assets.${k}[${slot}] history record has no url`;
             if (!Number.isInteger(r.version)) return `assets.${k}[${slot}] history record has no valid version`;
+            // v5 storage lifecycle: byte availability is explicit and decoupled
+            // from identity (the url stays as the last-known location even when
+            // bytes are archived/missing/deleted).
+            if (atV5 && !STORAGE_STATES.has(r.storageState)) return `assets.${k}[${slot}] history record has invalid storageState`;
           }
           // the current pointer must resolve to a real version in the chain
           if (!e.history.some((r) => isPlainObject(r) && r.version === e.current)) {
@@ -617,10 +733,15 @@ export function validateCanvasDoc(doc) {
         // …and a real, reachable url — else finalUrls silently hides it and the
         // "final" is inaccessible dead data
         if (typeof f.url !== "string" || !f.url) return "assets.finals record has no url";
+        if (atV5 && !STORAGE_STATES.has(f.storageState)) return "assets.finals record has invalid storageState";
       }
       const ff = doc.assets.firstFrames;
+      // standalone (non-image-alias) first-frame ids ARE durable Assets a video
+      // generation can legitimately take as input — collected here so the
+      // generation link check below accepts them (hoisted so it stays in scope
+      // even when there are no first frames).
+      const standaloneFrameIds = new Set();
       if (isPlainObject(ff)) {
-        const standaloneFrameIds = new Set();
         for (const slot of Object.keys(ff)) {
           const r = ff[slot];
           // a first frame is an object REFERENCE with a non-empty assetId (it
@@ -634,6 +755,7 @@ export function validateCanvasDoc(doc) {
           // reachable bytes and a resolvable version, never undefined media
           if (typeof r.url !== "string" || !r.url) return `assets.firstFrames[${slot}] reference has no url`;
           if (!Number.isInteger(r.version)) return `assets.firstFrames[${slot}] reference has no valid version`;
+          if (atV5 && !STORAGE_STATES.has(r.storageState)) return `assets.firstFrames[${slot}] reference has invalid storageState`;
           if (imageById.has(r.assetId)) {
             // reuse is legit ONLY if it references THAT image at the SAME slot
             // (a first frame is per-shot, carried from that shot's own image)
@@ -660,6 +782,44 @@ export function validateCanvasDoc(doc) {
             return `assets.firstFrames[${slot}] shares a standalone assetId ${r.assetId}`;
           }
           standaloneFrameIds.add(r.assetId);
+        }
+      }
+      // v5 Generation Registry: every record is well-formed, uniquely
+      // identified, and its asset links reference REAL Assets in this registry
+      // (`ids` = every durable history + final assetId). A dangling link is
+      // unprovable lineage; a deleted-bytes Asset still keeps its record + id
+      // (only its storageState changes), so provenance survives byte removal.
+      if (atV5) {
+        const GEN_TYPES = new Set(["image", "video", "audio"]);
+        const GEN_STATUSES = new Set(["queued", "generating", "success", "failed", "cancelled"]);
+        const genIds = new Set();
+        for (const g of doc.generations) {
+          if (!isPlainObject(g)) return "generations contains a non-object entry";
+          if (typeof g.generationId !== "string" || !g.generationId) return "a generation has no generationId";
+          if (genIds.has(g.generationId)) return `duplicate generationId ${g.generationId}`;
+          genIds.add(g.generationId);
+          if (!GEN_TYPES.has(g.type)) return `generation ${g.generationId} has invalid type`;
+          if (!GEN_STATUSES.has(g.status)) return `generation ${g.generationId} has invalid status`;
+          // a Shot-level generation targets the canonical creativeShotId — never
+          // a slot. Only 'shot' (or null) is a valid targetType; targetId is a
+          // non-empty id or null. This rejects e.g. targetType:"slot".
+          if (g.targetType !== null && g.targetType !== "shot") return `generation ${g.generationId} has invalid targetType`;
+          if (g.targetId !== null && (typeof g.targetId !== "string" || !g.targetId)) return `generation ${g.generationId} has invalid targetId`;
+          // type and id must AGREE — a 'shot' target needs an id, and an id needs
+          // a 'shot' type — else the shot provenance is ambiguous or unusable
+          if ((g.targetType === "shot") !== (g.targetId !== null)) return `generation ${g.generationId} has inconsistent target (targetType/targetId must agree)`;
+          for (const field of ["inputAssetIds", "referenceAssetIds", "resultAssetIds"]) {
+            if (!Array.isArray(g[field])) return `generation ${g.generationId} ${field} is not an array`;
+            for (const aid of g[field]) {
+              if (typeof aid !== "string" || !aid) return `generation ${g.generationId} ${field} has a non-string id`;
+              // SHAPE only — a link is NOT required to resolve to a currently
+              // present Asset. Provenance legitimately OUTLIVES an Asset whose
+              // record was removed (Remove-Local-Copy / replace / permanent
+              // delete); requiring resolution would make removing ONE Asset
+              // reject the WHOLE canvas (M5: Generation metadata ≠ media
+              // lifecycle). Corrupt fabricated links are the accepted trade-off.
+            }
+          }
         }
       }
     }

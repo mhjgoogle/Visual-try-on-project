@@ -74,9 +74,28 @@ export default {
       const media = ctx.collectMedia ? ctx.collectMedia() : { video: {} };
       // fit 按当前版本的实际文件名主干解析（版本化后不再是裸 slug）
       const fit = (s.slot && slotStem(media.video, s.slot)) || undefined;
-      const res = await ctx.agentTts(`${node.type}-${k}`, s.description, fit);
-      // the draft shot in hand carries its M2 identity — provable association
-      addVersion(node, k, refFromResponse(k, "tts", res, s.shotId ?? null));
+      // M5: freeze provenance at LAUNCH — the exact narration text (prompt),
+      // provider/model, and the shot it targets (canonical M2 shotId).
+      const gen = ctx.startGeneration ? ctx.startGeneration({
+        type: "audio",
+        targetType: s.shotId ? "shot" : null,
+        targetId: s.shotId ?? null,
+        promptSnapshot: s.description,
+        provider: "Piper",
+        model: "piper-tts",
+        parameters: { fit: fit ?? null },
+        status: "generating",
+      }) : null;
+      try {
+        const res = await ctx.agentTts(`${node.type}-${k}`, s.description, fit);
+        // the draft shot in hand carries its M2 identity — provable association
+        const ref = refFromResponse(k, "tts", res, s.shotId ?? null);
+        addVersion(node, k, ref);
+        if (gen) ctx.completeGeneration(gen.generationId, [ref.assetId]);
+      } catch (err) {
+        if (gen) ctx.failGeneration(gen.generationId, "failed");
+        throw err;
+      }
     };
     el.querySelectorAll("[data-tts]").forEach((b) => (b.onclick = async (e) => {
       e.stopPropagation();

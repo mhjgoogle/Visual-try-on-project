@@ -65,14 +65,22 @@ test("v3→v4 renames creative shot_id to creativeShotId on every media record",
   assert.ok(!("shot_id" in a.firstFrames["v1-1"]));
 });
 
-test("v3→v4 is non-destructive: assetId/url/slot/version/current/history preserved", () => {
+test("v3→current is non-destructive: assetId/url/slot/version/current/history preserved", () => {
   const before = v3Doc();
   const res = migrateToCurrent(v3Doc());
   const a = res.doc.assets;
-  // strip creativeShotId back to shot_id and the doc must equal the original v3
-  const strip = (r) => { r.shot_id = "creativeShotId" in r ? r.creativeShotId : r.shot_id; delete r.creativeShotId; };
+  // undo the ADDITIVE later migrations (M4a rename, M5 storageState/generations)
+  // and the original v3 media must be byte-identical — nothing destroyed:
+  const strip = (r) => {
+    r.shot_id = "creativeShotId" in r ? r.creativeShotId : r.shot_id;
+    delete r.creativeShotId;
+    delete r.storageState; // M5 additive per-Asset field
+  };
+  const stripStorage = (r) => { if (r) delete r.storageState; };
   for (const dom of ["images", "videos", "audio"]) for (const k of Object.keys(a[dom])) a[dom][k].history.forEach(strip);
-  strip(a.firstFrames["v1-1"]);
+  for (const k of Object.keys(a.firstFrames)) strip(a.firstFrames[k]);
+  for (const f of Array.isArray(a.finals) ? a.finals : []) stripStorage(f); // M5 additive
+  delete res.doc.generations; // M5 additive top-level registry
   res.doc.v = 3;
   assert.deepEqual(res.doc, before);
 });

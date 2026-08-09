@@ -28,6 +28,7 @@ import { renderStepbar } from "./ui/stepbar.js";
 import { renderQueueBar, hasInflight } from "./ui/paidqueue.js";
 import * as mediaref from "./workflow/mediaref.js";
 import * as assetlib from "./workflow/assetlib.js";
+import * as genlib from "./workflow/genlib.js";
 import { buildShotSlotIndex, slotForShotId, shotIdForSlot, resolveAdoptTarget } from "./workflow/shotmap.js";
 import * as scriptdoc from "./workflow/scriptdoc.js";
 
@@ -60,6 +61,10 @@ let scriptDoc = scriptdoc.createDoc();
 // so mediaref.addVersion stays the single write path and serialization only
 // ever persists the registry, never node-local copies.
 let assetRegistry = assetlib.createRegistry(null);
+// Project Generation Registry (M5) — the ONE durable source of generation
+// provenance, top-level and parallel to the asset registry. Decoupled from
+// media bytes: a Generation record outlives its result Asset's local copy.
+let generationRegistry = genlib.createGenerationRegistry(null);
 
 // --- budget readout (real in CONNECTED, fixture otherwise) ---
 function renderBudget() {
@@ -119,6 +124,27 @@ async function paidGenerate(shotId) {
       params: { ...tgt.params, operation_id: opId },
       target: tgt.target,
     };
+    // M5: SNAPSHOT this video generation's provenance now, at envelope-build
+    // time — these are the inputs the submitted job uses. Resolving at confirm
+    // time instead would record whatever the draft looked like AFTER any edit
+    // made while the confirm dialog was open, diverging from the submitted job.
+    // The target is the canonical creativeShotId (never the slot); the input is
+    // the shot's proven first-frame Asset; the correlation ids travel with the
+    // frozen params so an adopt after reload can reconcile the record by task.
+    const launch = resolveAdoptSlot(shotId);
+    const launchSlot = launch && launch.slot ? launch.slot : null;
+    const frameRef = launchSlot ? assetRegistry.firstFrames[launchSlot] : null;
+    const p = tgt.params && typeof tgt.params === "object" ? tgt.params : null;
+    const genSeed = {
+      type: "video",
+      targetType: launch && launch.creativeShotId ? "shot" : null,
+      targetId: (launch && launch.creativeShotId) || null,
+      inputAssetIds: frameRef && frameRef.assetId ? [frameRef.assetId] : [],
+      promptSnapshot: p && typeof p.prompt === "string" ? p.prompt : null,
+      provider: p && p.provider ? String(p.provider) : null,
+      model: p && p.model ? String(p.model) : null,
+      parameters: { ...(p || {}), operation_id: opId, task_id: envelope.params.task_id },
+    };
     const pf = await gw.preflight(PROJECT_NAME, envelope);
     est.openReal(pf, {
       onConfirm: async (digest) => {
@@ -126,6 +152,11 @@ async function paidGenerate(shotId) {
         // pick up the freshly-held reservation soon so the queue bar starts
         // showing ⏳ without waiting for the submit to return
         setTimeout(() => ctx.loadPaidOps(), 2_000);
+        // record the generation from the FROZEN seed (only now that the user is
+        // spending) — persisted before submit, so a lost response / page exit
+        // still leaves a durable record reconcilable by task_id
+        const gen = ctx.startGeneration({ ...genSeed, status: "generating" });
+        const genId = gen && gen.generationId;
         try {
           const receipt = await gw.submit(PROJECT_NAME, envelope, digest);
           const oc = receipt.outcome || {};
@@ -136,9 +167,16 @@ async function paidGenerate(shotId) {
             // auto-bridge the paid clip into the canvas slot (ADR-0046 §3)
             adoptPaidIntoSlot(shotId, envelope.params.task_id).then((r) => {
               if (r.adopted) toast("付费成片已自动进入画布槽位");
+              // adopt reconciled the record BY TASK on success; a result that
+              // couldn't be adopted (shot changed in flight, preserved
+              // unresolved) still marks the generation successful with NO result
+              // Asset — honest and recoverable.
+              else if (genId && r.unresolved) ctx.completeGeneration(genId, []);
               ctx.loadPaidOps();
             });
           } else {
+            // a DEFINITIVE server response saying not-success → mark failed
+            if (genId) ctx.failGeneration(genId, "failed");
             toast(`结果：${receipt.status} · ${oc.kind || receipt.reason || ""}`);
           }
           try {
@@ -150,6 +188,12 @@ async function paidGenerate(shotId) {
             /* budget refresh is best-effort */
           }
         } catch (e) {
+          // AMBIGUOUS outcome: the submit threw, but the remote may already have
+          // accepted+billed the job. Do NOT mark the generation failed — that
+          // would exclude it from task reconciliation and permanently orphan a
+          // billed success. Leave it `generating`; a later adopt reconciles it by
+          // task if the job did complete. (A truly-rejected submit leaves a
+          // `generating` record a future paid-op sweep can retire.)
           toast("提交被拒（fail-closed）：" + e.message);
         }
       },
@@ -443,7 +487,11 @@ const ctx = {
   // paid image generation (ADR-0045): PAID mode only, price already confirmed
   // by the caller's per-image dialog and echoed for the server-side check
   paidImage: (slug, prompt, confirmUsd) => {
-    if (!PAID) return Promise.reject(new Error("付费模式未开启（--enable-paid）"));
+    if (!PAID) {
+      const err = new Error("付费模式未开启（--enable-paid）");
+      err.definitiveReject = true; // a client-side guard — nothing was generated/billed
+      return Promise.reject(err);
+    }
     return query.paidImageGenerate(PROJECT_NAME, slug, prompt, confirmUsd);
   },
   // real local FFmpeg draft compose (ADR-0044)
@@ -498,6 +546,29 @@ const ctx = {
   // composed finals: registry-owned records, url view for every consumer
   finalUrls: () => assetlib.finalUrls(assetRegistry),
   addFinal: (url) => assetlib.addFinal(assetRegistry, url),
+  // M5 — Generation Registry helpers. startGeneration freezes the inputs /
+  // prompt / model / target at LAUNCH; complete/fail update the SAME record by
+  // generationId and NEVER re-derive inputs — so a result landing after the
+  // active Shot or image changed keeps the lineage it launched with. targetId
+  // is a canonical creativeShotId (never a slot).
+  startGeneration: (entry) => {
+    const rec = genlib.startGeneration(generationRegistry, {
+      ...entry,
+      createdAt: (entry && entry.createdAt) || new Date().toISOString(),
+    });
+    ctx.persist();
+    return rec;
+  },
+  completeGeneration: (generationId, resultAssetIds) => {
+    const g = genlib.completeGeneration(generationRegistry, generationId, resultAssetIds);
+    ctx.persist();
+    return g;
+  },
+  failGeneration: (generationId, status) => {
+    const g = genlib.failGeneration(generationRegistry, generationId, status);
+    ctx.persist();
+    return g;
+  },
   persist: () => {
     if (canvasActive && PROJECT_NAME) persist.saveCanvas(PROJECT_NAME, serializeGraph());
   },
@@ -715,13 +786,20 @@ async function adoptPaidIntoSlot(serverShotId, taskId) {
     // stamp the PROVABLE creative identity: the resolved bridge id, else the
     // slot's owning shot (both provable, never guessed positionally)
     const cid = before.creativeShotId ?? ownerBefore;
-    mediaref.addVersion({ uploads: assetRegistry.videos }, before.slot, mediaref.refFromResponse(before.slot, "adopted", res, cid ?? null));
+    const ref = mediaref.refFromResponse(before.slot, "adopted", res, cid ?? null);
+    mediaref.addVersion({ uploads: assetRegistry.videos }, before.slot, ref);
     // a task that once failed to resolve (recorded unresolved) has now adopted —
     // clear its stale marker so it isn't reported unresolved forever (M4d)
     assetlib.clearUnresolvedPaid(assetRegistry, taskId);
+    // M5: reconcile the launching video Generation BY TASK id — this closes the
+    // provenance loop whether the adopt runs in the original session or after a
+    // reload (whose launch closure is gone), so a completed job is never left
+    // permanently `generating`.
+    genlib.completeGenerationByTask(generationRegistry, taskId, [ref.assetId]);
     engine.nodes.filter((n) => n.type === "video").forEach((n) => engine.refreshBody(n));
     ctx.persist();
-    return { adopted: true };
+    // M5: the adopted video Asset's id, so the launching Generation can link it
+    return { adopted: true, assetId: ref.assetId };
   } catch {
     // a malformed response or storage/render failure must degrade to a plain
     // non-adopt (as when this lived inside the adopt try) — never reject the
@@ -752,6 +830,7 @@ async function batchPaidGenerate(node) {
     ctx.refresh(node);
     updateQueueBar(); // N/M progress in the global bar (data source: _batchMsg)
     schedulePaidPolling(); // keep the ⏳ projection live during each 1–2min submit
+    let gen = null; // recorded just before this shot's submit; failed in catch
     try {
       const shotId = ctx.lockedShotId(s.sequence);
       const tgt = await gw.getGenerationTarget(PROJECT_NAME, shotId);
@@ -762,6 +841,21 @@ async function batchPaidGenerate(node) {
         params: { ...tgt.params, operation_id: opId },
         target: tgt.target,
       };
+      // M5: SNAPSHOT provenance at envelope-build time — the draft shot in hand
+      // carries its canonical creativeShotId (s.shotId, never the slot) and its
+      // proven first-frame input Asset; these are the inputs the job will use.
+      const frameRef = s.slot ? assetRegistry.firstFrames[s.slot] : null;
+      const bp = tgt.params && typeof tgt.params === "object" ? tgt.params : null;
+      const genSeed = {
+        type: "video",
+        targetType: s.shotId ? "shot" : null,
+        targetId: s.shotId ?? null,
+        inputAssetIds: frameRef && frameRef.assetId ? [frameRef.assetId] : [],
+        promptSnapshot: bp && typeof bp.prompt === "string" ? bp.prompt : null,
+        provider: bp && bp.provider ? String(bp.provider) : null,
+        model: bp && bp.model ? String(bp.model) : null,
+        parameters: { ...(bp || {}), operation_id: opId, task_id: envelope.params.task_id },
+      };
       const pf = await gw.preflight(PROJECT_NAME, envelope);
       const p = pf.preview || {};
       const cost = p.estimated_cost;
@@ -771,13 +865,27 @@ async function batchPaidGenerate(node) {
         && cost.original_currency === "USD"
         && cost.original_amount_minor_units === Math.round(UNIT_USD * 100);
       if (blockers.length || !quoteOk) {
+        // aborted BEFORE launch (no spend) → no generation is recorded
         toast(`批量中止于镜头 ${s.sequence}：${blockers[0] || "报价与确认单价不符"}（已完成 ${done} 段，未再扣费）`);
         break;
       }
+      // record the generation just BEFORE the launch (submit) — a failed launch
+      // still leaves a durable record (failed in catch), and the snapshot is
+      // launch-time, not completion-time
+      gen = ctx.startGeneration({ ...genSeed, status: "generating" });
       await gw.submit(PROJECT_NAME, envelope, pf.preflight_digest);
       done++;
-      await adoptPaidIntoSlot(shotId, envelope.params.task_id);
+      const r = await adoptPaidIntoSlot(shotId, envelope.params.task_id);
+      // adopt reconciles the record BY TASK on success; ONLY the preserved-
+      // unresolved case (shot changed in flight) completes with no result Asset.
+      // A transient non-adopt (artifact not fetched yet) must stay `generating`
+      // so a later adopt reconciles it by task — never mark a failure successful.
+      if (gen && !r.adopted && r.unresolved) ctx.completeGeneration(gen.generationId, []);
     } catch (e) {
+      // AMBIGUOUS: the submit threw, but the remote may already have accepted+
+      // billed the job. Leave the record `generating` (never mark failed) so a
+      // later adopt can reconcile a billed success by task — same rationale as
+      // the single-shot path.
       toast(`批量中止于镜头 ${s.sequence}：${e.message}（已完成 ${done} 段）`);
       break;
     }
@@ -1030,6 +1138,9 @@ function serializeGraph() {
     // uploads/finals/firstFrames are alias views and are deliberately NOT
     // serialized, so no second durable media source of truth can form.
     assets: assetRegistry,
+    // Generation provenance (M5) — top-level, parallel to assets, durable
+    // independent of media bytes.
+    generations: generationRegistry,
     nodes: engine.nodes.map((n) => ({
       id: n.id, type: n.type, x: n.x, y: n.y, state: n.state,
       text: n.text, versions: n.versions, cur: n.cur, pickSingle: n.pickSingle,
@@ -1056,6 +1167,8 @@ function restoreGraph(data) {
   scriptDoc = scriptdoc.createDoc((data && data.scriptDoc) || null);
   // Same for the Asset Registry (M3): hydrate BEFORE nodes attach their views.
   assetRegistry = assetlib.createRegistry((data && data.assets) || null);
+  // Generation Registry (M5): hydrate from the same save (durable provenance).
+  generationRegistry = genlib.createGenerationRegistry((data && data.generations) || null);
   if (!data || !Array.isArray(data.nodes) || !data.nodes.length) return false;
   if (!data.scriptDoc) {
     const legacy = data.nodes.find((n) => n.type === "script" && typeof n.text === "string" && n.text);

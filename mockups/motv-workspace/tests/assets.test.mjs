@@ -571,8 +571,9 @@ test("v3 rejects two standalone first frames conflated under one assetId", () =>
   const base = migrateToCurrent(v2Save()).doc;
   const doc = structuredClone(base);
   // two DIFFERENT frame urls sharing one non-image (standalone) assetId
-  doc.assets.firstFrames["f1"] = { slot_id: "f1", version: 1, url: "/u/one.png", assetId: "asset-standalone" };
-  doc.assets.firstFrames["f2"] = { slot_id: "f2", version: 1, url: "/u/two.png", assetId: "asset-standalone" };
+  // (storageState present so validation reaches the standalone-id check, M5)
+  doc.assets.firstFrames["f1"] = { slot_id: "f1", version: 1, url: "/u/one.png", assetId: "asset-standalone", storageState: "local" };
+  doc.assets.firstFrames["f2"] = { slot_id: "f2", version: 1, url: "/u/two.png", assetId: "asset-standalone", storageState: "local" };
   const res = migrateToCurrent(doc);
   assert.equal(res.status, "invalid");
   assert.match(res.detail, /shares a standalone assetId/);
@@ -847,7 +848,8 @@ test("a first frame reusing a same-id image at a DIFFERENT slot is rejected", ()
   const doc = structuredClone(base);
   const img = base.assets.images["v1-1"].history[0];
   // frame at slot v1-2 reusing image v1-1's id + exact media — but wrong slot
-  doc.assets.firstFrames["v1-2"] = { slot_id: "v1-2", version: img.version, url: img.url, assetId: img.assetId };
+  // (storageState present so validation reaches the slot/media reuse check, M5)
+  doc.assets.firstFrames["v1-2"] = { slot_id: "v1-2", version: img.version, url: img.url, assetId: img.assetId, storageState: "local" };
   const res = migrateToCurrent(doc);
   assert.equal(res.status, "invalid");
   assert.match(res.detail, /does not match its slot\/media/);

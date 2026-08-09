@@ -157,7 +157,17 @@ export async function paidImageGenerate(project, slug, prompt, confirmUsd) {
     body: JSON.stringify({ project, slug, prompt, confirm_usd: confirmUsd }),
   });
   const j = await r.json().catch(() => null);
-  if (!r.ok) throw new Error((j && j.error && j.error.detail) || `image ${r.status}`);
+  if (!r.ok) {
+    const err = new Error((j && j.error && j.error.detail) || `image ${r.status}`);
+    // Only a small ALLOWLIST of 4xx codes is treated as DEFINITIVELY
+    // side-effect-free (request rejected before any generation/bill). Timing /
+    // conflict / rate codes (408, 409, 425, 429, …) can arrive AFTER upstream
+    // dispatch, so they stay AMBIGUOUS — as do all 5xx and network failures —
+    // and the caller must not record a false failure for a possibly-billed image.
+    const DEFINITIVE_REJECT = new Set([400, 401, 403, 404, 422]);
+    if (DEFINITIVE_REJECT.has(r.status)) err.definitiveReject = true;
+    throw err;
+  }
   return j;
 }
 

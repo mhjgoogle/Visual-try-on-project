@@ -82,7 +82,8 @@ test("refFromResponse carries origin/version/digest for the MediaRef", () => {
   const r = refFromResponse("s1", "adopted", { url: "/u/v-s1_v3.mp4", version: 3, sha256: "abc" });
   // creativeShotId defaults to null — provable association passed by the caller;
   // the field is `creativeShotId` (M4a), distinct from server sequence shot_id
-  assert.deepEqual(r, { slot_id: "s1", origin: "adopted", version: 3, digest: "abc", url: "/u/v-s1_v3.mp4", creativeShotId: null });
+  // storageState defaults to "local" (M5) — freshly written bytes are present
+  assert.deepEqual(r, { slot_id: "s1", origin: "adopted", version: 3, digest: "abc", url: "/u/v-s1_v3.mp4", creativeShotId: null, storageState: "local" });
   assert.equal(refFromResponse("s1", "adopted", { url: "/u" }, "shot-a").creativeShotId, "shot-a");
   // missing version/sha256 (defensive) → v1, null digest
   const r2 = refFromResponse("s1", "tts", { url: "/u/a.wav" });

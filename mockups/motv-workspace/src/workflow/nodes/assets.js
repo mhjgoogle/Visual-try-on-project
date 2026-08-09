@@ -152,13 +152,33 @@ export default {
       if (!window.confirm(`将调用 MiniMax image-01 真实生成 1 张「${kind}」，费用 $${PRICE}（约 0.5 日元）。确认扣费？`)) return;
       node._genBusy = true;
       ctx.toast("MiniMax 生成中…（约 5-20 秒）");
+      const prompt = wantFrame ? promptFrame(b.dataset.gen) : promptSheet(b.dataset.gen);
+      // M5: freeze this generation's provenance at LAUNCH — the exact prompt,
+      // model and parameters used, and the shot it targets (canonical M2 shotId,
+      // never the slot). Result Asset is linked on success below.
+      const gen = ctx.startGeneration ? ctx.startGeneration({
+        type: "image",
+        targetType: s.shotId ? "shot" : null,
+        targetId: s.shotId ?? null,
+        userInstruction: kind,
+        promptSnapshot: prompt,
+        provider: "MiniMax",
+        model: "image-01",
+        parameters: { kind, priceUsd: PRICE },
+        status: "generating",
+      }) : null;
       try {
-        const prompt = wantFrame ? promptFrame(b.dataset.gen) : promptSheet(b.dataset.gen);
         const res = await ctx.paidImage(`${node.type}-${s.slot}`, prompt, PRICE);
         // the draft shot in hand carries its M2 identity — provable association
-        addVersion(node, s.slot, refFromResponse(s.slot, "paid-image", res, s.shotId ?? null));
+        const ref = refFromResponse(s.slot, "paid-image", res, s.shotId ?? null);
+        addVersion(node, s.slot, ref);
+        if (gen) ctx.completeGeneration(gen.generationId, [ref.assetId]);
         ctx.toast(`设定图已生成 v${res.version || 1}（$${res.usd} 已扣，旧版本保留；见 data/paid-image-log.jsonl）`);
       } catch (err) {
+        // only a DEFINITIVE rejection (4xx / client guard — no bill) marks the
+        // generation failed. An AMBIGUOUS error (5xx / network) may have billed a
+        // real image, so leave it `generating` rather than record a false failure.
+        if (gen && err && err.definitiveReject) ctx.failGeneration(gen.generationId, "failed");
         ctx.toast("付费生成失败（未扣费或已在日志留痕）：" + err.message);
       } finally {
         node._genBusy = false;

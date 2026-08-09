@@ -51,9 +51,9 @@ def test_media_write_path_emits_creativeShotId_not_shot_id() -> None:
 
 def test_v3_to_v4_migration_registered() -> None:
     src = (_SRC / "services" / "canvasschema.js").read_text("utf-8")
-    assert "CANVAS_SCHEMA_VERSION = 4" in src
+    # the M4a rename step stays registered as the current chain grows (M5 → v5)
     assert "migrateV3ToV4" in src
-    assert "1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4" in src
+    assert "3: migrateV3ToV4" in src
 
 
 def test_read_models_and_nodes_never_read_creativeShotId_raw() -> None:

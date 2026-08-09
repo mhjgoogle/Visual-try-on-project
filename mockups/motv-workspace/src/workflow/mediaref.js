@@ -86,6 +86,8 @@ export function slotStem(uploads, k) {
  *  Asset：缺 assetId 的新记录在此铸造一次，此后只携带、永不重推。 */
 export function addVersion(node, k, ref) {
   if (typeof ref.assetId !== "string" || !ref.assetId) ref.assetId = mintId("asset");
+  // M5 storage lifecycle: a freshly written version's bytes are present locally.
+  if (typeof ref.storageState !== "string" || !ref.storageState) ref.storageState = "local";
   node.uploads = node.uploads || {};
   const e = normalizeEntry(k, node.uploads[k]) || { current: 0, history: [] };
   // 同版本号重复追加（例如重放）时以新记录为准，但绝不丢历史其它版本
@@ -118,6 +120,7 @@ export function refFromResponse(slotId, origin, res, shotId = null) {
     digest: res.sha256 || null,
     url: res.url,
     creativeShotId: typeof shotId === "string" && shotId ? shotId : null,
+    storageState: "local", // M5: freshly written bytes are present locally
   };
 }
 
