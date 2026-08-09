@@ -63,3 +63,58 @@ export function shotIdForSlot(index, slot) {
   const m = index && index.shotIdBySlot;
   return m instanceof Map ? m.get(slot) ?? null : null;
 }
+
+// ---- creativeShotId ↔ server official shot_id bridge (M4c) ---------------- //
+
+/** Build the creativeShotId → server shot_id bridge from a locked plan's shot
+ *  records. A record `{ shot_id, creativeShotId, sequence }` contributes ONLY a
+ *  clean 1:1 mapping: a creativeShotId claimed by multiple records, or a
+ *  server shot_id claimed by multiple creativeShotIds, is dropped (conflict →
+ *  unresolved, fail safe). Returns { byCreative: Map, bridged: bool } where
+ *  `bridged` is true when ANY record carries a creativeShotId (an M4c lock);
+ *  false means a legacy pre-M4c lock, where a positional fallback is allowed. */
+export function buildServerBridge(lockedShots) {
+  const rows = [];
+  const creativeCount = new Map();
+  const serverCount = new Map();
+  let bridged = false;
+  for (const r of Array.isArray(lockedShots) ? lockedShots : []) {
+    if (r == null || typeof r !== "object") continue;
+    // Presence of the KEY (even null) marks an M4c-attempted lock — a bridge
+    // the server nulled on fail-safe must still be treated as M4c (unresolved),
+    // NEVER misread as legacy → sequence fallback. Legacy locks lack the key.
+    if (Object.prototype.hasOwnProperty.call(r, "creativeShotId")) bridged = true;
+    const cid = typeof r.creativeShotId === "string" && r.creativeShotId ? r.creativeShotId : null;
+    const sid = typeof r.shot_id === "string" && r.shot_id ? r.shot_id : null;
+    rows.push({ cid, sid });
+    if (cid) creativeCount.set(cid, (creativeCount.get(cid) || 0) + 1);
+    if (sid) serverCount.set(sid, (serverCount.get(sid) || 0) + 1);
+  }
+  const byCreative = new Map();
+  for (const { cid, sid } of rows) {
+    if (cid && sid && creativeCount.get(cid) === 1 && serverCount.get(sid) === 1) {
+      byCreative.set(cid, sid);
+    }
+  }
+  return { byCreative, bridged };
+}
+
+/** The server official shot_id a draft shot's paid records join to (M4c):
+ *  returns { id, unresolved }.
+ *  - M4c lock (bridge present): resolve by creativeShotId ONLY; a shot whose
+ *    identity can't be proven is { id: null, unresolved: true } — NEVER a
+ *    sequence fallback (decision #5).
+ *  - legacy pre-M4c lock (no bridge) or no lock: explicit positional fallback
+ *    (lockedShots[seq-1].shot_id, else the pre-seeded `shot-<seq>`). */
+export function serverShotIdForShot(bridge, lockedShots, shot) {
+  if (bridge && bridge.bridged) {
+    const sid = shot && typeof shot.shotId === "string" && shot.shotId
+      ? bridge.byCreative.get(shot.shotId)
+      : undefined;
+    return sid ? { id: sid, unresolved: false } : { id: null, unresolved: true };
+  }
+  const seq = shot && shot.sequence;
+  const row = Array.isArray(lockedShots) ? lockedShots[seq - 1] : null;
+  const id = row && typeof row.shot_id === "string" && row.shot_id ? row.shot_id : `shot-${seq}`;
+  return { id, unresolved: false };
+}

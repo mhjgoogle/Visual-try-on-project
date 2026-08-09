@@ -8,7 +8,7 @@
 // here mutates workflow nodes, domain state, or triggers generation.
 import { esc } from "../util/dom.js";
 import { slotEntry, currentRef } from "../workflow/mediaref.js";
-import { buildShotSlotIndex, slotForShotId } from "../workflow/shotmap.js";
+import { buildShotSlotIndex, slotForShotId, buildServerBridge, serverShotIdForShot } from "../workflow/shotmap.js";
 
 const nn = (seq) => String(seq).padStart(2, "0");
 
@@ -123,28 +123,25 @@ export function assetsModel(pd) {
   return { empty: false, items, done: items.filter((x) => x.url).length, total: items.length };
 }
 
-/** The official shot id a paid op binds for a draft sequence (mirror of the
- *  ctx.lockedShotId rule, kept pure for the read-only view). */
-function opShotId(pd, seq) {
-  const row = pd.lockedPlan && pd.lockedPlan.shots && pd.lockedPlan.shots[seq - 1];
-  return row ? row.shot_id : `shot-${seq}`;
-}
-
 /** 视频: per current shot — clip standing joined by canonical creativeShotId →
  *  slot → registry (M4b); KNOWN first-frame lineage (absent = honestly unknown,
- *  never invented). NOTE: the paid-op status join is STILL positional (draft
- *  sequence → server shot_id) — the creativeShotId ↔ server-shot_id bridge does
- *  not exist until M4c, so it cannot be de-sequenced safely yet (see opShotId). */
+ *  never invented). Paid-op status joins by the M4c bridge: creativeShotId →
+ *  locked bridge → server shot_id → paidOps (NOT draft sequence). An M4c lock
+ *  whose shot can't be bridged shows opUnresolved (never a sequence guess); a
+ *  legacy pre-M4c lock keeps the positional fallback. */
 export function videoModel(pd) {
   if (!pd.draftShots || !pd.draftShots.length)
     return { empty: true, items: [], context: shotContext(pd) };
   const idx = buildShotSlotIndex(pd.draftShots);
+  const lockedShots = pd.lockedPlan && pd.lockedPlan.shots;
+  const bridge = buildServerBridge(lockedShots);
   const items = pd.draftShots.map((s) => {
     const { slot, unresolved } = shotSlot(idx, s);
     const e = slot ? slotEntry(pd.media.video, slot) : null;
     const ref = slot ? currentRef(pd.media.video, slot) : null;
     const ff = slot ? pd.firstFrames[slot] : null;
-    const op = pd.paidOps[opShotId(pd, s.sequence)] || null; // legacy positional — M4c
+    const { id: sid, unresolved: opUnresolved } = serverShotIdForShot(bridge, lockedShots, s);
+    const op = sid ? pd.paidOps[sid] || null : null;
     return {
       seq: s.sequence,
       title: s.title,
@@ -155,6 +152,7 @@ export function videoModel(pd) {
       // lineage: only what the data actually records
       firstFrame: ff ? { version: ff.version, origin: ff.origin || "upload", url: ff.url } : null,
       opStatus: op ? op.status : null,
+      opUnresolved, // paid-op identity could not be bridged (M4c lock) — show unknown
     };
   });
   return { empty: false, items, done: items.filter((x) => x.url).length, total: items.length };
@@ -381,7 +379,7 @@ export function renderVideo(ctx) {
         : "首帧来源：未记录";
       const op = x.opStatus
         ? x.opStatus === "committed" ? " · ✓已付费" : ` · ⏳${esc(x.opStatus)}`
-        : "";
+        : x.opUnresolved ? " · 付费状态未解析（身份无法桥接）" : "";
       const meta = x.url
         ? `${x.versions} 版 · ${esc(ORIGIN_ZH[x.origin] || x.origin || "")} · ${ff}${op}`
         : x.unresolved

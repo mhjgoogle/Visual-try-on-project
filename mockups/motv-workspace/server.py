@@ -104,6 +104,68 @@ def _slug_reserved(slug: str) -> bool:
     return slug.startswith(_RESERVED_SLUG_PREFIX)
 
 
+def _bridge_creative_shot_ids(outcome, creative_shot_ids):
+    """M4c: additively echo the client's creative shot identities onto each
+    official locked record, zipped by SEQUENCE (authoritative at lock time —
+    the client defined the order). The official ``shot_id`` is never touched;
+    each record gains a separate ``creativeShotId`` field.
+
+    Fail SAFE: duplicate creative ids, a length mismatch, or a sequence that
+    doesn't line up all resolve to ``creativeShotId = None`` (the client then
+    treats the record as unresolved, never guessing by position). Anything that
+    isn't the expected shape is passed through unchanged.
+    """
+    if not isinstance(creative_shot_ids, list):
+        return outcome
+    if not isinstance(outcome, dict):
+        return outcome
+    shots = outcome.get("shots")
+    if not isinstance(shots, list):
+        return outcome
+    if any(not isinstance(rec, dict) for rec in shots):
+        return outcome  # unexpected shape — pass through untouched
+
+    n = len(creative_shot_ids)
+    conflict = False
+
+    # creative id per 1-based sequence (client send order); drop non-strings.
+    by_seq: dict[int, str] = {}
+    seen: set[str] = set()
+    for i, cid in enumerate(creative_shot_ids):
+        if not isinstance(cid, str) or not cid:
+            continue
+        if cid in seen:  # same creative id twice → not a 1:1 bridge
+            conflict = True
+        seen.add(cid)
+        by_seq[i + 1] = cid
+
+    # The parallel array is aligned to the records ONLY if the record sequences
+    # are exactly a 1..N permutation (unique, complete, in range) and the counts
+    # match. Any duplicate/missing/out-of-range sequence is a malformed outcome
+    # → null EVERY mapping (fail safe), never a partial bridge. (bool is an int
+    # subclass, so exclude it explicitly.)
+    seqs = sorted(
+        s
+        for s in (rec.get("sequence") for rec in shots)
+        if isinstance(s, int) and not isinstance(s, bool)
+    )
+    if len(shots) != n or seqs != list(range(1, n + 1)):
+        conflict = True
+
+    bridged = []
+    used: set[str] = set()
+    for rec in shots:
+        cid = None if conflict else by_seq.get(rec.get("sequence"))
+        if cid is not None:
+            if cid in used:  # would map one creative id to two records
+                cid = None
+            else:
+                used.add(cid)
+        bridged.append({**rec, "creativeShotId": cid})
+
+    return {**outcome, "shots": bridged}
+
+
 # Upload versioning (ADR-0048): every write to a slot APPENDS a new file
 # ``<slug>_v<N>.<ext>`` — no write path deletes or overwrites an existing
 # upload. Slugs ending in ``_v<N>`` are refused so the version namespace stays
@@ -691,12 +753,23 @@ class _App:
         from ai_video_workflow.errors import AiVideoWorkflowError
         from ai_video_workflow.gateway import CommandEnvelope, GatewayError
 
+        # M4c bridge: the client sends creative shot identities as a PARALLEL
+        # array separate from the shots core consumes. Strip it before building
+        # the envelope so Core's contract is untouched (and the preflight digest
+        # is computed over the same core params on both preflight and submit);
+        # the server echoes it back onto each official record on submit.
+        raw_params = payload.get("params") or {}
+        creative_shot_ids = None
+        if isinstance(raw_params, dict) and "creativeShotIds" in raw_params:
+            creative_shot_ids = raw_params.get("creativeShotIds")
+            raw_params = {k: v for k, v in raw_params.items() if k != "creativeShotIds"}
+
         try:
             envelope = CommandEnvelope(
                 command_id=payload["command_id"],
                 name=payload["name"],
                 actor="user",  # forced server-side — no provenance forgery
-                params=payload.get("params") or {},
+                params=raw_params,
                 occurred_at=datetime.now(timezone.utc),
                 target=payload.get("target"),
             )
@@ -755,13 +828,14 @@ class _App:
                     },
                 )
             receipt = gateway.submit(envelope, confirmation=confirmation)
+            outcome = _bridge_creative_shot_ids(receipt.outcome, creative_shot_ids)
             return _json(
                 200,
                 {
                     "command_id": receipt.command_id,
                     "name": receipt.name,
                     "status": receipt.status.value,
-                    "outcome": receipt.outcome,
+                    "outcome": outcome,
                     "reason": receipt.reason,
                     "occurred_at": receipt.occurred_at.isoformat(
                         timespec="microseconds"

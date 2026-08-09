@@ -162,15 +162,85 @@ test("videoModel: known first-frame lineage is exposed; absent stays unknown", (
   assert.equal(s2.url, "");
 });
 
-test("videoModel: paid ops map via locked plan ids, else shot-<seq>", () => {
+test("videoModel: LEGACY lock (no bridge) maps paid ops positionally, else shot-<seq>", () => {
   const pd = pdDraft();
   pd.paidOps = { "shot-1": { status: "held" } };
-  assert.equal(videoModel(pd).items[0].opStatus, "held");
-  pd.lockedPlan = { plan_version: 2, shots: [{ shot_id: "shot-p2-1" }, { shot_id: "shot-p2-2" }] };
+  assert.equal(videoModel(pd).items[0].opStatus, "held"); // no lock → shot-<seq>
+  pd.lockedPlan = { plan_version: 2, shots: [{ shot_id: "shot-p2-1" }, { shot_id: "shot-p2-2" }] }; // no creativeShotId
   pd.paidOps = { "shot-p2-1": { status: "committed" } };
   const m = videoModel(pd);
   assert.equal(m.items[0].opStatus, "committed");
   assert.equal(m.items[1].opStatus, null);
+  assert.equal(m.items[0].opUnresolved, false); // legacy positional fallback is allowed
+});
+
+// --- M4c: paid-op state joins by the creativeShotId ↔ server bridge -------- //
+
+function pdBridged() {
+  const pd = pdDraft(); // shot-a(跪殿)→v1-1, shot-b(逼诗)→v1-2
+  // an M4c lock: each official record carries the creative identity
+  pd.lockedPlan = {
+    plan_version: 3,
+    shots: [
+      { shot_id: "shot-p3-1", creativeShotId: "shot-a", sequence: 1 },
+      { shot_id: "shot-p3-2", creativeShotId: "shot-b", sequence: 2 },
+    ],
+  };
+  pd.paidOps = { "shot-p3-1": { status: "committed" } }; // shot-a's op is committed
+  return pd;
+}
+
+test("M4c: paid state follows the creative Shot after REORDER, not draft position", () => {
+  const pd = pdBridged();
+  pd.draftShots = [pd.draftShots[1], pd.draftShots[0]]; // reorder → [逼诗, 跪殿]
+  const m = videoModel(pd);
+  // shot-a(跪殿)'s committed op stays with 跪殿 wherever it now sits — NOT with
+  // whatever shot is now at sequence 1
+  assert.equal(m.items.find((x) => x.title === "跪殿").opStatus, "committed");
+  assert.equal(m.items.find((x) => x.title === "逼诗").opStatus, null);
+});
+
+test("M4c: insert/delete does not shift paid state to a neighbor", () => {
+  const pd = pdBridged();
+  pd.draftShots = [{ shotId: "shot-new", sequence: 1, title: "新镜头", slot: "v2-1" }, ...pd.draftShots];
+  const m = videoModel(pd);
+  assert.equal(m.items.find((x) => x.title === "新镜头").opStatus, null); // no op for a new shot
+  assert.equal(m.items.find((x) => x.title === "跪殿").opStatus, "committed"); // shot-a keeps its op
+});
+
+test("M4c: an unbridgeable shot is opUnresolved, never sequence-guessed", () => {
+  const pd = pdBridged();
+  // a draft shot whose creativeShotId isn't in the locked bridge
+  pd.draftShots = [{ shotId: "shot-ghost", sequence: 1, title: "幽灵", slot: "v9-9" }];
+  pd.paidOps = { "shot-p3-1": { status: "committed" } }; // would be grabbed if we guessed by seq
+  const m = videoModel(pd);
+  assert.equal(m.items[0].opStatus, null); // NOT the sequence-1 op
+  assert.equal(m.items[0].opUnresolved, true);
+});
+
+test("M4c: a conflicting bridge (dup creativeShotId) resolves to unresolved", () => {
+  const pd = pdBridged();
+  pd.lockedPlan.shots = [
+    { shot_id: "shot-p3-1", creativeShotId: "shot-a", sequence: 1 },
+    { shot_id: "shot-p3-2", creativeShotId: "shot-a", sequence: 2 }, // conflict
+  ];
+  const m = videoModel(pd);
+  for (const it of m.items) assert.equal(it.opUnresolved, true); // fail safe
+});
+
+test("M4c: an ALL-NULL bridge (server fail-safe) is unresolved, NEVER sequence fallback", () => {
+  const pd = pdBridged();
+  // the server nulled the bridge but kept the keys — must not sequence-guess
+  pd.lockedPlan.shots = [
+    { shot_id: "shot-p3-1", creativeShotId: null, sequence: 1 },
+    { shot_id: "shot-p3-2", creativeShotId: null, sequence: 2 },
+  ];
+  pd.paidOps = { "shot-p3-1": { status: "committed" } }; // would be grabbed by seq fallback
+  const m = videoModel(pd);
+  for (const it of m.items) {
+    assert.equal(it.opUnresolved, true);
+    assert.equal(it.opStatus, null); // NOT the sequence-1 committed op
+  }
 });
 
 // --- 音频 --------------------------------------------------------------- //

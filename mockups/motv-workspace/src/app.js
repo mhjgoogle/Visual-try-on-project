@@ -201,10 +201,15 @@ async function lockDraftPlan(node) {
       });
     }
     const tgt = await gw.getLockTarget(PROJECT_NAME);
+    // M4c bridge: send each shot's CREATIVE identity as a PARALLEL array (in
+    // draft order), separate from the shot payload core consumes. The server
+    // strips it before core and echoes it back onto each official record —
+    // core's contract is untouched, the bridge is additive.
+    const creativeShotIds = draft.map((s) => (typeof s.shotId === "string" && s.shotId ? s.shotId : null));
     const envelope = {
       command_id: "cmd-lock-" + Date.now().toString(36),
       name: "lock-draft-plan",
-      params: { ...tgt.params, shots },
+      params: { ...tgt.params, shots, creativeShotIds },
       target: tgt.target,
     };
     const pf = await gw.preflight(PROJECT_NAME, envelope);

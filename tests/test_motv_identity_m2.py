@@ -54,13 +54,19 @@ def test_draft_flows_record_provenance_at_the_real_push_sites() -> None:
     assert 'origin: "edited"' in src
 
 
-def test_lock_payload_still_projects_only_legacy_fields() -> None:
-    """M2 不改锁定行为：Gateway 载荷仍是显式旧字段投影，shotId 不得泄入。"""
+def test_lock_payload_shot_objects_carry_only_legacy_fields() -> None:
+    """锁定载荷里每个 shot 对象仍只投影旧字段（title/desc/duration/first_frame_image）。
+
+    M4c 在 params 里另加 PARALLEL 数组 ``creativeShotIds`` 建桥（服务端剥离后
+    交 Core），但绝不把创作身份塞进 shot 对象本身 —— shot 对象保持 Core 消费的
+    旧形状不变。
+    """
     src = (_MOCKUP_DIR / "src" / "app.js").read_text("utf-8")
-    lock = src.split("async function lockDraftPlan")[1].split("\n}\n")[0]
-    assert "title: s.title" in lock
-    assert "first_frame_image" in lock
-    assert "shotId" not in lock
+    # the per-shot payload pushed inside the loop
+    shot_push = src.split("shots.push({")[1].split("});")[0]
+    assert "title: s.title" in shot_push
+    assert "first_frame_image" in shot_push
+    assert "shotId" not in shot_push  # creative identity never inside the shot object
 
 
 def test_core_contracts_untouched_by_m2() -> None:
