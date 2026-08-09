@@ -80,9 +80,10 @@ def test_scene_references_bible_by_id_never_copies_profiles() -> None:
     assert "s.locationRef = { locationId, stateId }" in src
 
 
-def test_schema_is_v7_with_bible_validation() -> None:
+def test_schema_has_v7_bible_validation() -> None:
     schema = (_SRC / "services" / "canvasschema.js").read_text("utf-8")
-    assert "CANVAS_SCHEMA_VERSION = 7" in schema
+    # the schema version has moved past 7 (M9+); M7's guarantee is the v6→v7
+    # step and its invariants staying in the chain, not the current pin
     assert "function migrateV6ToV7" in schema
     assert "6: migrateV6ToV7" in schema
     assert "duplicate characterId" in schema

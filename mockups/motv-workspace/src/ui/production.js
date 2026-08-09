@@ -66,7 +66,10 @@ export function navBadges(doc, pd) {
     ? prod.characters.length + prod.locations.length
     : 0;
   return {
-    story: doc.brief && doc.brief.trim() ? "✓" : "",
+    // M9: the story badge reflects the OUTLINE standing (approved > drafted > idea)
+    story: pd.story
+      ? pd.story.approved ? `✓v${pd.story.approved}` : pd.story.versions.length ? `v${pd.story.active}` : pd.story.idea.trim() ? "…" : ""
+      : "",
     // M7: real persisted bible entities (characters + locations)
     settings: bibleCount ? String(bibleCount) : "",
     // M6: real persisted Episode entities — the count is honest domain data
@@ -129,10 +132,12 @@ export function createProduction(getCtx) {
       );
     }
     if (!st.versions && !ctx.script.hasContent()) {
+      // M9: initial generation runs from the story context (idea + approved
+      // outline + this episode's confirmed plan entry)
       return (
         out +
-        `<div class="pa-note">先在左侧写一句创意，然后：</div>` +
-        `<button class="nrun" data-gen>AI 生成剧本 v1（基于创意）</button>`
+        `<div class="pa-note">基于 创意＋已批准大纲＋本集规划 生成本集剧本（也可直接在左侧输入）：</div>` +
+        `<button class="nrun" data-gen>AI 生成本集剧本 v1</button>`
       );
     }
     return (
@@ -155,6 +160,7 @@ export function createProduction(getCtx) {
     const m = directorModel({
       module: activeModule,
       doc: ctx.script.doc(),
+      story: ctx.story.doc(),
       pd: ctx.prodData(),
       sel: ui,
     });
@@ -188,11 +194,22 @@ export function createProduction(getCtx) {
     const vbar = st.versions
       ? `<div class="vbar"><span class="vchip">v${st.active} ▾</span><span class="dirtytag" ${dirty ? "" : "hidden"}>已手工修改（未版本化）</span>${vmenuOpen ? vmenuHtml(d) : ""}</div>`
       : "";
+    // M9: the script is PER-EPISODE — title the workspace with the episode,
+    // and (softly) point at the story pipeline when it hasn't been walked
+    const prod = ctx.production.doc();
+    const ep = prod.episodes.find((e) => e.episodeId === prod.activeEpisodeId) || prod.episodes[0];
+    const story = ctx.story.doc();
+    const planned = story.confirmedPlan
+      ? (story.plans.find((p) => p.v === story.confirmedPlan) || { episodes: [] }).episodes.some((e) => e.episodeId === (ep && ep.episodeId))
+      : false;
+    const hint = !st.versions && !ctx.script.hasContent() && !planned
+      ? `<div class="ws-kv gate">建议路径：先在「故事」发展并批准大纲 → 在「剧集」确认分集规划 → 再回到本集写剧本（也可直接在下方输入）</div>`
+      : "";
     return (
       `<main class="prod-main">` +
-      `<div class="pm-head"><div class="pm-title">📄 剧本工作区</div>${vbar}<div class="pm-note">应用修订 = 创建新版本，旧版本保留</div></div>` +
-      `<div class="pm-brief"><label class="pa-lab">💡 创意 / 想法</label><textarea class="brieftext pm-brieftext" rows="2" spellcheck="false" placeholder="一句话创意，例如：社畜穿越盛唐，被逼当殿作诗">${esc(d.brief)}</textarea></div>` +
-      `<textarea class="pm-text" spellcheck="false" placeholder="在此输入/粘贴剧本，或在右侧用创意生成">${esc(ctx.script.currentText())}</textarea>` +
+      `<div class="pm-head"><div class="pm-title">📄 剧本工作区 · ${esc(ep ? ep.title : "当前剧集")}</div>${vbar}<div class="pm-note">按集剧本 · 应用修订 = 创建新版本，旧版本保留</div></div>` +
+      hint +
+      `<textarea class="pm-text" spellcheck="false" placeholder="在此输入/粘贴本集剧本，或在右侧用 AI 基于大纲与本集规划生成">${esc(ctx.script.currentText())}</textarea>` +
       `</main>`
     );
   }
@@ -244,13 +261,22 @@ export function createProduction(getCtx) {
   function bind(ctx) {
     // left nav — every module opens; selection is visually .active
     root.querySelectorAll("[data-mod]").forEach((b) => (b.onclick = () => setModule(b.dataset.mod)));
-    // the brief textarea exists in BOTH the script and story workspaces
+    // the idea textarea lives in the 故事 workspace (M9: the story document
+    // owns the idea; scripts are per-episode and no longer carry a brief box)
     const brief = root.querySelector(".pm-brieftext");
-    if (brief) brief.oninput = () => ctx.script.setBrief(brief.value);
+    if (brief) brief.oninput = () => ctx.story.setIdea(brief.value);
     // cross-module jumps (empty states, director) — EVERY [data-goto] wires
     root.querySelectorAll("[data-goto]").forEach((j) => (j.onclick = () => setModule(j.dataset.goto)));
+    // 故事 workspace (M9): outline development/approval
+    if (activeModule === "story") ws.bindStory(root, ctx);
     // 剧集 workspace structure actions (M6) — domain writes via ctx.production
-    if (activeModule === "episodes") ws.bindEpisodes(root, ctx);
+    if (activeModule === "episodes") {
+      ws.bindEpisodes(root, ctx);
+      // M9: enter an episode's script workspace (plan panel + episode cards)
+      root.querySelectorAll("[data-ep-open]").forEach((b) => (b.onclick = () => {
+        if (ctx.story.openEpisodeScript(b.dataset.epOpen)) setModule("script");
+      }));
+    }
     // 作品设定 workspace (M7) — domain writes via ctx.bible. Re-renders
     // collapse <details>; restore the ones the creator had open.
     if (activeModule === "settings") {
@@ -284,7 +310,9 @@ export function createProduction(getCtx) {
       const el = root.querySelector(sel);
       if (el) el.onclick = fn;
     };
-    on("[data-gen]", () => ctx.script.generate("initial", ctx.script.doc().brief));
+    // M9: the initial episode-script generation runs from the composed story
+    // context (idea + approved outline + this episode's confirmed plan entry)
+    on("[data-gen]", () => ctx.script.generate("initial", ctx.episodeScriptBrief()));
     on("[data-revise]", () => ctx.script.generate("revision", revText));
     on("[data-apply]", () => { revText = ""; ctx.script.applyProposal(); });
     on("[data-discard]", () => ctx.script.discardProposal());

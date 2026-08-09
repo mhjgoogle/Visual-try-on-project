@@ -241,7 +241,9 @@ test("the creativeShotId bridge in lockedPlan survives a canvas dispatch round-t
   const doc = {
     v: CANVAS_SCHEMA_VERSION,
     project: "p",
-    scriptDoc: null,
+    // M9: scripts are per-episode; the story chain is a required v8 field
+    story: { idea: "", versions: [], active: 0, approved: 0, plans: [], activePlan: 0, confirmedPlan: 0 },
+    scripts: {},
     assets: { images: {}, videos: {}, audio: {}, firstFrames: {}, finals: [], displaced: [] },
     generations: [], // M5: a current-version doc carries the generation registry
     // M6/M7: …and the production structure (with its bible registries)

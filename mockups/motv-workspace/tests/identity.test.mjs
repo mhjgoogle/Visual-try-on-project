@@ -306,8 +306,11 @@ test("the M2 identity fields survive the FULL chain to the current version", () 
   assert.equal(full.status, "ok");
   assert.equal(full.doc.v, CANVAS_SCHEMA_VERSION);
   const pinned = migrateToCurrent(v1Save(), M2).doc;
+  // v8 moved the single legacy scriptDoc to the ACTIVE episode's slot — the
+  // identity chain inside it survives verbatim
+  const activeEp = full.doc.production.activeEpisodeId;
   assert.deepEqual(
-    full.doc.scriptDoc.versions.map((x) => x.id),
+    full.doc.scripts[activeEp].versions.map((x) => x.id),
     pinned.scriptDoc.versions.map((x) => x.id),
   );
   const ids = (d) => d.nodes[1].versions.flatMap((v) => [v.id, ...(v.raw || []).map((s) => s.shotId)]);

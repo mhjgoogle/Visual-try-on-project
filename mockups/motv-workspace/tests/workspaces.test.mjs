@@ -364,10 +364,23 @@ test("navBadges: counts reflect state; empty modules still get a badge-less item
     story: "", settings: "", episodes: "1", // M6: real persisted episode count
     script: "草稿", shots: "", frames: "", video: "", audio: "", edit: "",
   });
-  sd.setBrief(d, "想法");
   sd.completeGeneration(d, sd.beginGeneration(d, "initial", "想法"), "v1");
-  const b = navBadges(d, pdDraft());
-  assert.equal(b.story, "✓");
+  // M9: the story badge reflects the OUTLINE standing, not the script brief
+  const pdStory = pdDraft();
+  pdStory.story = {
+    ...storyDefault(),
+    idea: "想法",
+    versions: [{ id: "so-1", v: 1, outline: {}, origin: "developed", instruction: "", basedOn: null }],
+    active: 1,
+    approved: 1,
+  };
+  const b = navBadges(d, pdStory);
+  assert.equal(b.story, "✓v1"); // approved outline
+  pdStory.story.approved = 0;
+  assert.equal(navBadges(d, pdStory).story, "v1"); // drafted, not approved
+  pdStory.story.versions = [];
+  pdStory.story.active = 0;
+  assert.equal(navBadges(d, pdStory).story, "…"); // idea only
   assert.equal(b.script, "v1");
   assert.equal(b.shots, "2");
   assert.equal(b.frames, "1/2");
@@ -390,13 +403,20 @@ test("NAV: grouped final IA — 项目级 and 当前剧集 with every module pre
   assert.deepEqual(NAV[1].items.map((i) => i[0]), ["script", "shots", "frames", "video", "audio", "edit"]);
 });
 
+/** An empty story document (M9 default shape). */
+function storyDefault() {
+  return { idea: "", versions: [], active: 0, approved: 0, plans: [], activePlan: 0, confirmedPlan: 0, pending: null };
+}
+
 function fakeCtx(pd, doc) {
   const d = doc || sd.createDoc();
+  const story = pd.story || storyDefault();
   return {
     prodData: () => pd,
     script: { doc: () => d },
-    // same shape the real ctx provides (M8): idle breakdown, offline
+    // same shape the real ctx provides (M8/M9): idle breakdown, offline
     breakdown: { state: () => null },
+    story: { doc: () => story },
     isConnected: () => false,
   };
 }

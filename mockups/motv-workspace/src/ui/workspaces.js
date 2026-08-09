@@ -421,26 +421,139 @@ function head(title, meta) {
 
 // ---------- workspaces ---------------------------------------------------- //
 
+const OUTLINE_LABELS = [
+  ["premise", "前提（Premise）"],
+  ["logline", "故事线（Logline）"],
+  ["genreTone", "题材 / 基调"],
+  ["world", "世界观"],
+  ["centralConflict", "核心冲突"],
+  ["storyArc", "故事弧"],
+  ["ending", "结局方向"],
+  ["durationNote", "每集时长预期"],
+];
+
+/** 故事 (M9): the development pipeline standing — pure, unit-tested. */
+export function storyModel(story) {
+  const active = story.versions.find((x) => x.v === story.active) || null;
+  const approved = story.versions.find((x) => x.v === story.approved) || null;
+  const plan = story.plans.find((x) => x.v === story.activePlan) || null;
+  const confirmed = story.plans.find((x) => x.v === story.confirmedPlan) || null;
+  const p = story.pending;
+  return {
+    idea: story.idea,
+    hasIdea: !!story.idea.trim(),
+    outlineCount: story.versions.length,
+    active,
+    approved,
+    approvedIsActive: !!active && story.approved === story.active,
+    planCount: story.plans.length,
+    plan,
+    confirmed,
+    confirmedIsActive: !!plan && story.confirmedPlan === story.activePlan,
+    pending: p ? { kind: p.kind, status: p.status, error: p.error || null, proposal: p.proposal } : null,
+  };
+}
+
+/** 故事 (M9) — Idea → AI story development → versioned Outline → approval.
+ *  NO idea→script shortcut: the path to scripts goes through the approved
+ *  outline and the confirmed episode plan (剧集工作区). */
 export function renderStory(ctx) {
-  const m = ideaModel(ctx.script.doc());
-  const status = m.hasScript
-    ? m.scriptVersions
-      ? `✓ 已有剧本 · 当前 v${m.activeVersion}（共 ${m.scriptVersions} 个版本）`
-      : "✓ 已有剧本草稿（未版本化）"
-    : "尚无剧本 — 在剧本工作区用创意生成 v1";
-  const pending = m.pending === "generating"
-    ? `<div class="ws-kv gate">⏳ 有一个生成正在进行（见剧本工作区）</div>`
-    : m.pending === "proposed"
-      ? `<div class="ws-kv gate">📝 有一份修订稿提案待处理（见剧本工作区）</div>`
-      : m.pending === "failed"
-        ? `<div class="ws-kv gate">⚠ 上次生成失败（见剧本工作区）</div>`
+  const m = storyModel(ctx.story.doc());
+  const stepChip = (label, state) =>
+    `<span class="ws-tag${state === "done" ? " ok" : state === "next" ? " gate" : ""}">${esc(label)}</span>`;
+  const pipeline =
+    `<div class="ws-scenerefs">` +
+    stepChip(m.hasIdea ? "✓ 创意" : "① 创意", m.hasIdea ? "done" : "next") +
+    "→" + stepChip(m.approved ? `✓ 大纲 v${m.approved.v} 已批准` : m.outlineCount ? "② 大纲（待批准）" : "② AI 发展故事", m.approved ? "done" : m.hasIdea ? "next" : "") +
+    "→" + stepChip(m.confirmed ? `✓ 规划 v${m.confirmed.v} 已确认` : "③ 剧集规划（在「剧集」）", m.confirmed ? "done" : m.approved ? "next" : "") +
+    "→" + stepChip("④ 分集剧本", m.confirmed ? "next" : "") +
+    `</div>`;
+  const idea =
+    `<div class="pm-brief"><label class="pa-lab">💡 创意 / 想法（Idea）</label>` +
+    `<textarea class="brieftext pm-brieftext" rows="3" spellcheck="false" placeholder="一句话创意，例如：社畜穿越盛唐，被逼当殿作诗">${esc(m.idea)}</textarea></div>`;
+  // --- pending outline proposal (AI output is a PROPOSAL first) ----------- //
+  let proposal = "";
+  if (m.pending && m.pending.kind === "outline") {
+    if (m.pending.status === "generating") {
+      proposal = `<div class="bd-panel"><div class="bd-h">🪄 AI 发展故事中…</div><div class="skel live"><i></i><i></i><i></i><i></i></div></div>`;
+    } else if (m.pending.status === "failed") {
+      proposal = `<div class="bd-panel"><div class="bd-h">🪄 故事发展失败</div><div class="scripterr">⚠ ${esc(m.pending.error || "")}</div><button class="nrun ghost" data-st-cancel>知道了</button></div>`;
+    } else if (m.pending.status === "proposed") {
+      const o = m.pending.proposal;
+      const rows = OUTLINE_LABELS
+        .map(([k, label]) => (o[k] ? `<div class="bd-f"><span>${esc(label)}</span>${esc(o[k])}</div>` : ""))
+        .join("");
+      const chars = o.characterConcepts.length
+        ? `<div class="bd-f"><span>角色概念</span>${o.characterConcepts.map((c) => `<span class="ws-tag">👤 ${esc(c)}</span>`).join(" ")}</div>`
         : "";
+      const count = o.episodeCount ? `<div class="bd-f"><span>建议集数</span>${o.episodeCount} 集</div>` : "";
+      proposal =
+        `<div class="bd-panel"><div class="bd-h">🪄 故事大纲提案 · 未应用</div>` +
+        rows + chars + count +
+        `<div class="bd-actions"><button class="nrun" data-st-apply>✔ 应用为大纲 v${m.outlineCount + 1}（旧版本保留）</button>` +
+        `<button class="nrun ghost" data-st-discard>放弃提案</button></div></div>`;
+    }
+  }
+  // --- the ACTIVE outline version (editable → new manual version) --------- //
+  let outline = "";
+  if (m.active) {
+    const o = m.active.outline;
+    const vchips = ctx.story.doc().versions
+      .map((x) => `<button class="ws-chipx${x.v === m.active.v ? " on" : ""}" data-st-v="${x.v}">v${x.v}${x.v === ctx.story.doc().approved ? "✓" : ""}</button>`)
+      .join(" ");
+    const fields = OUTLINE_LABELS
+      .map(([k, label]) => `<label class="ws-lab">${esc(label)}</label><textarea class="ws-bibletext" rows="2" spellcheck="false" data-so-field="${k}">${esc(o[k])}</textarea>`)
+      .join("");
+    const chars =
+      `<label class="ws-lab">主要角色概念（正式角色档案由剧本拆解进入作品设定，不从大纲自动建立）</label>` +
+      `<div class="ws-scenerefs">${o.characterConcepts.map((c) => `<span class="ws-tag">👤 ${esc(c)}</span>`).join(" ") || "<span class='ws-desc'>（暂无）</span>"}</div>`;
+    const count = `<div class="ws-kv">建议集数：${o.episodeCount ? `${o.episodeCount} 集` : "未定"} · ${esc(o.durationNote || "时长未定")}</div>`;
+    const approveBtn = m.approvedIsActive
+      ? `<span class="ws-tag ok">✓ 已批准（剧集规划以此版为准）</span>`
+      : `<button class="nrun" data-st-approve="${m.active.v}">✔ 批准大纲 v${m.active.v} → 可规划分集</button>`;
+    outline =
+      `<div class="pm-head"><div class="pm-title">📑 故事大纲 · v${m.active.v}${m.active.v === ctx.story.doc().approved ? "（已批准）" : ""}</div>` +
+      `<div class="pm-note">版本：${vchips}</div></div>` +
+      fields +
+      `<div class="vbtns"><button class="nrun ghost" data-st-save>保存修改为新版本</button>${approveBtn}</div>` +
+      chars + count;
+  } else if (!m.pending) {
+    outline =
+      `<div class="ws-empty"><div class="ic">📑</div><div class="tt">从创意发展故事大纲</div>` +
+      `<div class="hh">先写一句创意，AI 帮你发展：前提/故事线/题材基调/世界观/角色概念/核心冲突/故事弧/结局/集数 — 以提案呈现，应用后成为可批准的大纲版本</div>` +
+      (m.hasIdea
+        ? `<button class="nrun" data-st-develop>🪄 AI 发展故事（生成大纲提案）</button>`
+        : `<div class="hh">↑ 在上方创意框写下想法后开始</div>`) +
+      `</div>`;
+  }
+  const next = m.approved
+    ? `<div class="ws-kv ok">下一步：到「剧集」生成/确认剧集规划${m.confirmed ? "（已确认 — 可逐集写剧本）" : ""}</div><button class="nrun ghost" data-goto="episodes">→ 去剧集规划</button>`
+    : "";
   return (
-    head("📖 故事工作区", "项目级 · 故事创意是剧本的输入 · 与剧本工作区同源") +
-    `<div class="pm-brief"><label class="pa-lab">创意 / 想法（Creative Brief）</label><textarea class="brieftext pm-brieftext" rows="4" spellcheck="false" placeholder="一句话创意，例如：社畜穿越盛唐，被逼当殿作诗">${esc(ctx.script.doc().brief)}</textarea></div>` +
-    `<div class="ws-kv">${esc(status)}</div>` + pending +
-    `<button class="nrun ws-jump" data-goto="script">→ 去剧本工作区${m.hasScript ? "" : "生成 v1"}</button>`
+    head("📖 故事工作区", "项目级 · 创意 → 大纲 → 剧集规划 → 分集剧本") +
+    pipeline + idea + proposal + outline + next
   );
+}
+
+/** Wire the 故事 workspace: idea edits, outline proposal review, version
+ *  switch/approve, manual outline edits (buffered → one new version). */
+export function bindStory(root, ctx) {
+  const on = (sel, fn) =>
+    root.querySelectorAll(sel).forEach((el) => (el.onclick = (ev) => { ev.stopPropagation(); fn(el); }));
+  on("[data-st-develop]", () => ctx.story.develop("outline", ""));
+  on("[data-st-apply]", () => ctx.story.applyProposal());
+  on("[data-st-discard]", () => ctx.story.discardProposal());
+  on("[data-st-cancel]", () => ctx.story.cancel());
+  on("[data-st-approve]", (el) => ctx.story.approveOutline(+el.dataset.stApprove));
+  on("[data-st-v]", (el) => ctx.story.setActiveOutline(+el.dataset.stV));
+  const buffer = {};
+  root.querySelectorAll("[data-so-field]").forEach((el) => {
+    el.oninput = () => { buffer[el.dataset.soField] = el.value; };
+  });
+  on("[data-st-save]", () => {
+    if (!Object.keys(buffer).length) { ctx.toast("没有修改"); return; }
+    ctx.story.applyManualOutline(buffer);
+  });
 }
 
 /** 作品设定 (Production Bible, M7) — project-level Characters & Locations
@@ -970,10 +1083,72 @@ export function renderEpisodes(ctx) {
     : "";
   return (
     head("📺 剧集", `${m.episodes.length} 集 · 结构已持久化`) +
+    renderPlanPanel(ctx, m) +
     progress +
     `<div class="ws-epgrid">${cards}</div>` +
     `<button class="nrun" data-ep-add>＋ 新建剧集</button>` +
     structure
+  );
+}
+
+/** 剧集规划 (M9): plan proposal → applied plan versions → CONFIRMATION
+ *  (instantiates/links Episode entities) → per-episode script entry. */
+export function renderPlanPanel(ctx, m) {
+  const sm = storyModel(ctx.story.doc());
+  const epCard = (e, opts = {}) => {
+    const rows = [
+      ["梗概", e.synopsis], ["戏剧功能", e.purpose], ["开场钩子", e.hook],
+      ["结尾拍", e.endingBeat], ["时长", e.duration],
+    ].filter(([, v]) => v).map(([k, v]) => `<div class="bd-f"><span>${esc(k)}</span>${esc(v)}</div>`).join("");
+    const link = opts.confirmed
+      ? e.episodeId && m.episodes.some((x) => x.episodeId === e.episodeId)
+        ? `<button class="nrun ghost" data-ep-open="${esc(e.episodeId)}">→ 进入本集剧本</button>`
+        : `<span class="ws-tag gate">⚠ 剧集实体缺失（已被删除）</span>`
+      : "";
+    return (
+      `<div class="bd-card"><div class="bd-card-h"><span class="ws-tag">EP${e.epNumber}</span><b>${esc(e.title)}</b>${link}</div>${rows}</div>`
+    );
+  };
+  const p = sm.pending;
+  if (p && p.kind === "plan") {
+    if (p.status === "generating") {
+      return `<div class="bd-panel"><div class="bd-h">🪄 AI 规划分集中…</div><div class="skel live"><i></i><i></i><i></i><i></i></div></div>`;
+    }
+    if (p.status === "failed") {
+      return `<div class="bd-panel"><div class="bd-h">🪄 规划失败</div><div class="scripterr">⚠ ${esc(p.error || "")}</div><button class="nrun ghost" data-pl-cancel>知道了</button></div>`;
+    }
+    return (
+      `<div class="bd-panel"><div class="bd-h">🪄 剧集规划提案 · ${p.proposal.length} 集 · 未应用</div>` +
+      p.proposal.map((e) => epCard(e)).join("") +
+      `<div class="bd-actions"><button class="nrun" data-pl-apply>✔ 应用为规划 v${sm.planCount + 1}（旧版本保留）</button>` +
+      `<button class="nrun ghost" data-pl-discard>放弃提案</button></div></div>`
+    );
+  }
+  if (sm.plan) {
+    const vchips = ctx.story.doc().plans
+      .map((x) => `<button class="ws-chipx${x.v === sm.plan.v ? " on" : ""}" data-pl-v="${x.v}">v${x.v}${x.v === ctx.story.doc().confirmedPlan ? "✓" : ""}</button>`)
+      .join(" ");
+    const confirmed = sm.plan.v === ctx.story.doc().confirmedPlan;
+    const confirmBtn = confirmed
+      ? `<span class="ws-tag ok">✓ 已确认 — 每集可进入剧本</span>`
+      : `<button class="nrun" data-pl-confirm="${sm.plan.v}">✔ 确认规划 v${sm.plan.v}（建立/联结剧集，然后逐集写剧本）</button>`;
+    return (
+      `<div class="bd-panel"><div class="bd-h">📋 剧集规划 · v${sm.plan.v}${confirmed ? "（已确认）" : "（未确认）"}<span class="ws-desc"> 版本：${vchips}</span></div>` +
+      sm.plan.episodes.map((e) => epCard(e, { confirmed })).join("") +
+      `<div class="bd-actions">${confirmBtn}<button class="nrun ghost" data-pl-develop>🪄 重新规划（新提案）</button></div></div>`
+    );
+  }
+  if (sm.approved) {
+    return (
+      `<div class="bd-panel"><div class="bd-h">📋 剧集规划</div>` +
+      `<div class="ws-desc">大纲 v${sm.approved.v} 已批准 — 让 AI 按大纲规划逐集（集数/标题/梗概/戏剧功能/钩子/结尾拍/时长），确认后建立剧集并逐集写剧本。</div>` +
+      `<button class="nrun" data-pl-develop>🪄 生成剧集规划提案</button></div>`
+    );
+  }
+  return (
+    `<div class="bd-panel"><div class="bd-h">📋 剧集规划</div>` +
+    `<div class="ws-desc">前置：已批准的故事大纲 — 先在「故事」发展并批准大纲，再规划分集。</div>` +
+    `<button class="nrun ghost" data-goto="story">→ 去故事工作区</button></div>`
   );
 }
 
@@ -983,6 +1158,16 @@ export function renderEpisodes(ctx) {
 export function bindEpisodes(root, ctx) {
   const on = (sel, fn) =>
     root.querySelectorAll(sel).forEach((el) => (el.onclick = (ev) => { ev.stopPropagation(); fn(el); }));
+  // --- 剧集规划 (M9): proposal → apply → confirm --------------------------- //
+  on("[data-pl-develop]", () => ctx.story.develop("plan", ""));
+  on("[data-pl-apply]", () => ctx.story.applyProposal());
+  on("[data-pl-discard]", () => ctx.story.discardProposal());
+  on("[data-pl-cancel]", () => ctx.story.cancel());
+  on("[data-pl-v]", (el) => ctx.story.setActivePlan(+el.dataset.plV));
+  on("[data-pl-confirm]", (el) => {
+    if (!window.confirm("确认此剧集规划？将建立/联结对应剧集实体（旧剧集与内容保留，不会被删除）。")) return;
+    ctx.story.confirmPlan(+el.dataset.plConfirm);
+  });
   on("[data-ep-add]", () => {
     const t = window.prompt("新剧集名称", `第 ${ctx.production.doc().episodes.length + 1} 集`);
     if (t != null) ctx.production.addEpisode(t.trim());

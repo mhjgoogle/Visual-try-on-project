@@ -19,14 +19,23 @@ const TYPE_ICON = { image: "🖼", video: "▶", audio: "🎵" };
 
 /** Pure view-model of the Director panel. `sel` is the shell's transient
  *  selection ({ selectedShotId } — storyboard only). */
-export function directorModel({ module, doc, pd, sel }) {
+export function directorModel({ module, doc, story, pd, sel }) {
   const st = scriptStatus(doc);
+  const approved = story ? story.versions.find((x) => x.v === story.approved) || null : null;
   const shot = sel && sel.selectedShotId
     ? (pd.draftShots || []).find((s) => s && s.shotId === sel.selectedShotId) || null
     : null;
   // context: where the director is looking right now
   const context = [`模块：${MODULE_LABEL[module] || module}`];
-  if (module === "script") context.push(st.versions ? `剧本 v${st.active}（共 ${st.versions} 版）` : "剧本：草稿");
+  if (module === "story" && story) {
+    context.push(story.versions.length ? `大纲 v${story.active}（共 ${story.versions.length} 版）` : "大纲：未发展");
+    context.push(approved ? `已批准 v${approved.v}` : "大纲未批准");
+  }
+  if (module === "episodes" && story) {
+    context.push(approved ? `大纲 v${approved.v} 已批准` : "大纲未批准");
+    context.push(story.confirmedPlan ? `规划 v${story.confirmedPlan} 已确认` : story.plans.length ? `规划 v${story.activePlan}（未确认）` : "规划：未生成");
+  }
+  if (module === "script") context.push(st.versions ? `本集剧本 v${st.active}（共 ${st.versions} 版）` : "本集剧本：草稿");
   if (module === "shots") {
     context.push(pd.draftShots && pd.draftShots.length ? `分镜 ${pd.draftShots.length} 镜` : "分镜：未生成");
     if (shot) context.push(`选中镜头 ${String(shot.sequence).padStart(2, "0")} ${shot.title || ""}`);
@@ -35,10 +44,20 @@ export function directorModel({ module, doc, pd, sel }) {
   // `input: true` ⇔ the action actually CONSUMES the instruction text — an
   // input box is never rendered for an action that would silently discard it
   let primary = null;
-  if (module === "script" || module === "story") {
+  if (module === "story") {
+    // M9: the story workspace develops the IDEA into an outline — the path to
+    // scripts goes through approval and the episode plan, never a direct jump
+    primary = story && story.versions.length
+      ? { kind: "story-develop", label: "🪄 AI 修订大纲 → 生成提案", ph: "修改要求，例如：基调更黑色幽默；结局改开放式", input: true }
+      : { kind: "story-develop", label: "🪄 AI 发展故事（生成大纲提案）", ph: "可补充方向，例如：偏权谋、女性主角", input: true };
+  } else if (module === "episodes") {
+    primary = approved
+      ? { kind: "story-plan", label: "🪄 生成剧集规划提案", ph: "可补充要求，例如：压缩到 4 集、每集都要钩子", input: true }
+      : null;
+  } else if (module === "script") {
     primary = st.versions || doc.workingText
-      ? { kind: "script-revise", label: "AI 修订剧本 → 生成提案", ph: "修改要求，例如：结尾加一个反转", input: true }
-      : { kind: "script-initial", label: "AI 生成剧本 v1（基于创意）", ph: "留空则使用「故事」创意框的内容", input: true };
+      ? { kind: "script-revise", label: "AI 修订本集剧本 → 生成提案", ph: "修改要求，例如：结尾加一个反转", input: true }
+      : { kind: "script-initial", label: "AI 生成本集剧本 v1", ph: "留空则使用 大纲+本集规划 组成的上下文", input: true };
   } else if (module === "shots") {
     primary = pd.draftShots && pd.draftShots.length
       ? { kind: "shots-generate", label: "↻ 重新生成分镜（新版本）", ph: "当前版本保留；重新生成产出全新草稿版本", input: false }
@@ -50,7 +69,7 @@ export function directorModel({ module, doc, pd, sel }) {
   // what is NOT wired yet, said honestly
   const pending = {
     settings: "按设定的一致性检查 / Prompt 编译（待后续检查点）",
-    episodes: "剧集规划与跨集连贯性建议（待后续检查点）",
+    episodes: approved ? null : "剧集规划需要已批准的故事大纲 — 先在「故事」发展并批准",
     frames: "按镜头生成图片：付费生成在工作流「资产准备」节点（ADR-0045）",
     video: "按镜头生成视频：付费生成在工作流「视频生成」节点（ADR-0041/0046）",
     audio: "配音生成：本地 TTS 在工作流「音频生成」节点（ADR-0043）",
@@ -69,14 +88,21 @@ export function directorModel({ module, doc, pd, sel }) {
       busy: g.status === "generating" || g.status === "queued",
       when: g.createdAt ? g.createdAt.slice(5, 16).replace("T", " ") : "",
     }));
+  // the transient run this module's action drives: the STORY document's
+  // pending for story/episodes, the episode script's for everything else
+  const pend = (module === "story" || module === "episodes") && story ? story.pending : doc.pending;
   return {
     context,
     primary,
     pending,
     history,
-    generating: !!(doc.pending && doc.pending.status === "generating"),
-    proposal: !!(doc.pending && doc.pending.status === "proposed"),
-    error: doc.pending && doc.pending.status === "failed" ? doc.pending.error : null,
+    generating: !!(pend && pend.status === "generating"),
+    proposal: !!(pend && pend.status === "proposed"),
+    // where a pending proposal is reviewed — derived from WHAT is pending
+    // (its kind), not from where the user happens to be standing
+    proposalGoto: pend && pend.kind === "plan" ? "episodes" : pend && pend.kind === "outline" ? "story" : "script",
+    error: pend && pend.status === "failed" ? pend.error : null,
+    module,
   };
 }
 
@@ -87,9 +113,14 @@ export function renderDirector(m, instruction) {
   const ctxLines = m.context.map((t) => `<div class="dir-ctx">${esc(t)}</div>`).join("");
   let action = "";
   if (m.generating) {
-    action = `<div class="skel live"><i></i><i></i><i></i><i></i></div><div class="genprog"><span class="pc">AI 生成中…</span><span class="cx" data-dir-cancel>取消</span></div>`;
+    action = `<div class="skel live"><i></i><i></i><i></i><i></i></div><div class="genprog"><span class="pc">AI 生成中…</span><span class="cx" data-dir-cancel="${esc(m.module)}">取消</span></div>`;
   } else if (m.proposal) {
-    action = `<div class="pa-note">📝 有一份剧本修订提案待处理 — 在「剧本」工作区应用或放弃</div><button class="nrun ghost" data-goto="script">→ 去剧本工作区</button>`;
+    // reviewing happens in the workspace; when we ARE that workspace's module
+    // the proposal panel is already on screen — no jump button needed
+    const jump = m.proposalGoto !== m.module
+      ? `<button class="nrun ghost" data-goto="${esc(m.proposalGoto)}">→ 去处理提案</button>`
+      : "";
+    action = `<div class="pa-note">📝 有一份提案待处理 — 在工作区「应用」或「放弃」后可继续</div>${jump}`;
   } else if (m.primary) {
     // instruction input ONLY for actions that consume it; others get the
     // explanation as a plain note (never a silently-discarded input)
@@ -98,7 +129,7 @@ export function renderDirector(m, instruction) {
         `<textarea class="pa-rev dir-input" rows="3" spellcheck="false" placeholder="${esc(m.primary.ph)}">${esc(instruction)}</textarea>`
       : `<div class="pa-note">${esc(m.primary.ph)}</div>`;
     action =
-      (m.error ? `<div class="scripterr">⚠ 上次生成失败：${esc(m.error)}<button class="errx" data-dir-cancel>知道了</button></div>` : "") +
+      (m.error ? `<div class="scripterr">⚠ 上次生成失败：${esc(m.error)}<button class="errx" data-dir-cancel="${esc(m.module)}">知道了</button></div>` : "") +
       inputOrNote +
       `<button class="nrun" data-dir-run="${esc(m.primary.kind)}">${esc(m.primary.label)}</button>`;
   }
@@ -127,7 +158,8 @@ export function bindDirector(root, ctx, state) {
       const kind = run.dataset.dirRun;
       const text = (state.directorText || "").trim();
       if (kind === "script-initial") {
-        ctx.script.generate("initial", text || ctx.script.doc().brief);
+        // M9: default context = idea + approved outline + this EP's plan entry
+        ctx.script.generate("initial", text || ctx.episodeScriptBrief());
       } else if (kind === "script-revise") {
         if (!text) { ctx.toast("先写修改要求"); return; }
         state.directorText = "";
@@ -142,8 +174,19 @@ export function bindDirector(root, ctx, state) {
         if (!ctx.shots.generateDraft()) ctx.toast("已有一个生成在进行中");
       } else if (kind === "bible-breakdown") {
         ctx.breakdown.run();
+      } else if (kind === "story-develop") {
+        state.directorText = "";
+        ctx.story.develop("outline", text);
+      } else if (kind === "story-plan") {
+        state.directorText = "";
+        ctx.story.develop("plan", text);
       }
     };
   const cancel = root.querySelector("[data-dir-cancel]");
-  if (cancel) cancel.onclick = () => ctx.script.cancel();
+  if (cancel)
+    cancel.onclick = () => {
+      const mod = cancel.dataset.dirCancel;
+      if (mod === "story" || mod === "episodes") ctx.story.cancel();
+      else ctx.script.cancel();
+    };
 }

@@ -63,6 +63,21 @@ python mockups/motv-workspace/server.py --account-root examples/projects
 即原节点画布，行为不变；两个视图渲染**同一个** `scriptDoc` 域文档（`src/ui/production.js`
 纯展示，AI 调用仍在 ctx.script 后面），切换互见改动、不丢状态。
 
+**故事发展与剧集规划（M9）**：故事工作区不再「创意→直接跳剧本」，改为真实创作路径
+**创意 → AI 发展故事 → 故事大纲（versioned·批准）→ 剧集规划（versioned·确认）→ 选集
+→ 该集剧本**。`story` 域文档（`src/workflow/storydoc.js`，画布 schema v8 顶层字段）持久化
+大纲版本链（前提/故事线/题材基调/世界观/角色概念/核心冲突/故事弧/结局/建议集数与时长）
+与规划版本链（每集 集数/标题/梗概/戏剧功能/开场钩子/结尾拍/预期时长）；AI 输出一律
+**先提案**（应用才成版本，旧版本全保留），**批准大纲**是规划的前置门，**确认规划**才
+建立/联结剧集实体（episodeId 显式写回规划版本，绝不按标题猜；唯一「无场景无剧本」的
+初始默认集会被第一个未联结条目收养而非留孤儿）。**剧本自 v8 起按集存放**（顶层
+`scripts` map，旧单一 scriptDoc 迁移到当时的当前剧集；畸形残留 fail-safe 拒绝）；剧集
+规划面板每集「进入本集剧本」即切换当前集并进入剧本工作区；本集剧本 AI 生成默认使用
+创意+已批准大纲+本集规划组成的上下文。大纲**绝不**自动写入作品设定（正式 Bible 同步
+仍由剧集剧本拆解驱动，M8）。两个新 agent 端点 `/api/agent/story-develop`、
+`/api/agent/episode-plan` 沿用 ADR-0042 姿态（本地 claude -p --tools ""、fail-closed、
+零写入）；演示模式为标注的本地模板。
+
 **制作工作室（Production Studio，M8）**：制作视图重建为三栏专业制片环境——左「导航/资源」
 （项目级：故事/作品设定/剧集；当前剧集：剧本/分镜/画面/视频/音频/剪辑）+ 中「制作工作区」+
 右「AI 导演（常驻）」；工作流节点画布保留在 ⛓ 标签但不再是主创作体验。**分镜工作区**
@@ -176,7 +191,8 @@ src/
                            reset/序列化 —— 不含任何短剧业务知识，纯交互
   graph/registry.js        节点类型注册表 + canConnect() 相邻步骤约束（"不能跨步骤"）
   workflow/contract.js     L0–S7 阶段/步骤 I/O 合同数据（inspector 的唯一数据源）
-  workflow/scriptdoc.js    剧本域文档：创意 + 追加式剧本版本链（纯状态，节点只是视图）
+  workflow/scriptdoc.js    剧本域文档：追加式剧本版本链（v8 起按集存放，节点只是视图）
+  workflow/storydoc.js     故事域文档：创意→大纲版本链(批准)→剧集规划版本链(确认)（M9，纯状态）
   workflow/proddoc.js      生产域文档：剧集→场景→镜头引用结构（M6，纯状态，镜头内容不复制）
   workflow/bibledoc.js     作品设定域：角色/场景地+状态+声音档案+参考图引用（M7，纯状态）
   workflow/breakdown.js    剧本拆解提案：解析/匹配/变更计算/出场派生（M8，纯函数，应用走 bibledoc）

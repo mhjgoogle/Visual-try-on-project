@@ -254,9 +254,14 @@ test("v5→v6 mints exactly the deterministic default single episode, nothing el
   });
   // deterministic: same input → identical output
   assert.deepEqual(migrateToCurrent(v5Doc()).doc, migrateToCurrent(v5Doc()).doc);
-  // …and everything else is untouched
-  const { production: _p, ...rest } = res.doc;
-  assert.deepEqual(rest, { ...v5Doc(), v: CANVAS_SCHEMA_VERSION });
+  // …and everything else is untouched (v8 moves the null scriptDoc away and
+  // adds the empty story chain + per-episode scripts map)
+  const { production: _p, story: _s, scripts: _sc, ...rest } = res.doc;
+  assert.deepEqual(_s, { idea: "", versions: [], active: 0, approved: 0, plans: [], activePlan: 0, confirmedPlan: 0 });
+  assert.deepEqual(_sc, {});
+  const expected = { ...v5Doc(), v: CANVAS_SCHEMA_VERSION };
+  delete expected.scriptDoc; // null scriptDoc carries nothing durable
+  assert.deepEqual(rest, expected);
 });
 
 test("v5→v6 replaces hand-crafted junk production (the field is introduced AT v6)", () => {

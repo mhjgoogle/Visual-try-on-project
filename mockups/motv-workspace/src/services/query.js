@@ -125,6 +125,41 @@ export async function generateBibleBreakdown(script) {
   return j.breakdown || { characters: [], locations: [] };
 }
 
+/** Story development (M9): idea (+ optional current outline + instruction) →
+ *  Story-Outline PROPOSAL. Same trust posture as the other agent calls. */
+export async function developStory({ idea, current, instruction }) {
+  const r = await fetch("/api/agent/story-develop", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ idea, current: current || null, instruction: instruction || "" }),
+  });
+  const j = await r.json().catch(() => null);
+  if (!r.ok) {
+    const e = j && j.error ? j.error : {};
+    const err = new Error(e.detail || `agent ${r.status}`);
+    err.category = e.category;
+    throw err;
+  }
+  return j.outline || {};
+}
+
+/** Episode planning (M9): approved outline → Episode-Plan PROPOSAL. */
+export async function planEpisodes({ outline, instruction }) {
+  const r = await fetch("/api/agent/episode-plan", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ outline, instruction: instruction || "" }),
+  });
+  const j = await r.json().catch(() => null);
+  if (!r.ok) {
+    const e = j && j.error ? j.error : {};
+    const err = new Error(e.detail || `agent ${r.status}`);
+    err.category = e.category;
+    throw err;
+  }
+  return j.episodes || [];
+}
+
 /** Manual image provider (prototype scratch): upload a user-generated media
  *  file for a slot. Same slot re-uploads APPEND a new version (TASK-048/
  *  ADR-0048), never replace. Returns {url, version, sha256}. */

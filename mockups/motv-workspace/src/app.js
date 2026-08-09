@@ -32,6 +32,7 @@ import * as assetlib from "./workflow/assetlib.js";
 import * as genlib from "./workflow/genlib.js";
 import { buildShotSlotIndex, slotForShotId, shotIdForSlot, resolveAdoptTarget } from "./workflow/shotmap.js";
 import * as scriptdoc from "./workflow/scriptdoc.js";
+import * as storydoc from "./workflow/storydoc.js";
 import * as proddoc from "./workflow/proddoc.js";
 import * as bibledoc from "./workflow/bibledoc.js";
 import * as breakdown from "./workflow/breakdown.js";
@@ -57,9 +58,29 @@ let DEFAULT_NAME = "local-draft";
 let REAL_STANDING = null;
 let canvasActive = false;
 let seeded = false;
-// The Script DOMAIN document (Idea → Script slice): brief + append-only script
-// versions, per project. Canvas nodes render FROM it — it is not node state.
+// Script DOMAIN documents — PER EPISODE since M9 (schema v8 `scripts` map).
+// `scriptDoc` always aliases the ACTIVE episode's document, so every existing
+// consumer (nodes, storyboard, breakdown) keeps reading one current script.
+// Null-prototype map: an episodeId literally named __proto__ stays an own key.
+let scriptDocs = Object.create(null);
 let scriptDoc = scriptdoc.createDoc();
+// Story DOMAIN document (M9): Idea → Story Outline (versioned, approvable) →
+// Episode Plan (versioned, confirmable) → per-episode scripts.
+let storyDoc = storydoc.createStory(null);
+
+/** The script document for an episode, created lazily (a fresh episode has an
+ *  empty script — honest, nothing fabricated). */
+function scriptForEpisode(episodeId) {
+  if (typeof episodeId !== "string" || !episodeId) return scriptdoc.createDoc();
+  if (!scriptDocs[episodeId]) scriptDocs[episodeId] = scriptdoc.createDoc();
+  return scriptDocs[episodeId];
+}
+
+/** Re-point the `scriptDoc` alias at the ACTIVE episode's document. Called on
+ *  restore and on every active-episode switch. */
+function syncActiveScript() {
+  scriptDoc = scriptForEpisode(productionDoc.activeEpisodeId);
+}
 // Project Asset Registry (M3) — the ONE durable owner of creator media.
 // Node uploads/firstFrames are ALIAS views over these maps (attachAssetViews),
 // so mediaref.addVersion stays the single write path and serialization only
@@ -349,6 +370,96 @@ function demoBibleBreakdown() {
   };
 }
 
+// Demo-mode story development: honest deterministic templates (labeled) so
+// the outline/plan proposal flow stays walkable offline — no AI.
+function demoStoryOutline(doc) {
+  const idea = doc.idea.trim() || "社畜穿越盛唐，被逼当殿作诗";
+  return {
+    premise: `${idea}（演示模板）`,
+    logline: "小人物身怀现代记忆闯入权力之巅，每一次开口都是生死赌局。",
+    genreTone: "古装爽剧 · 紧张中带黑色幽默",
+    world: "架空盛唐，宫廷礼法森严，诗才即权力通行证。",
+    characterConcepts: ["李昭：怯懦社畜，被逼觉醒的急智诗人", "皇帝：威压难测，以诗试人心", "高内侍：冷眼旁观的宫廷守门人"],
+    centralConflict: "现代灵魂的求生欲 VS 皇权的猜忌与规训",
+    storyArc: "被迫登场 → 险中求胜 → 名动长安 → 树敌宫闱 → 抉择去留",
+    ending: "以一首『离席诗』换得自由身，留下传世之名。",
+    episodeCount: 4,
+    durationNote: "每集 60-90 秒",
+  };
+}
+function demoEpisodePlan(doc) {
+  const o = storydoc.approvedOutline(doc);
+  // hard-capped like the real endpoint's parser (≤50): a crafted/huge
+  // episodeCount must not exhaust memory building demo entries
+  const n = Math.min((o && o.outline.episodeCount) || 4, 50);
+  const beats = [
+    ["殿前成诗", "李昭被拖上大殿，三步成诗保命。", "建立人物与规则", "拖拽上殿的混乱", "皇帝眯眼：『再来一首。』"],
+    ["名动长安", "诗作传出宫墙，李昭一夜成名，也被盯上。", "扩张世界与代价", "满城传抄的诗笺", "暗处一只手捏碎诗笺"],
+    ["宫闱暗流", "嫉恨者设局，命题诗暗藏杀机。", "反转与险境", "一道不可能的诗题", "李昭落笔前的死寂"],
+    ["离席之诗", "李昭以一首离席诗自证，换得去留抉择。", "高潮与收束", "殿门缓缓打开", "背影消失在长安晨光"],
+  ];
+  // honor the approved episodeCount even beyond the template beats — extra
+  // episodes get honest generic beats (still labeled 演示模板), never fewer
+  // episodes than the approved outline requests
+  return Array.from({ length: n }, (_, i) => {
+    const b = beats[i] || [
+      `第 ${i + 1} 集`, "剧情推进一步，埋下一个新钩子。", "推进",
+      "上集结尾的钩子回收", "新的悬念落下",
+    ];
+    return {
+      epNumber: i + 1,
+      title: b[0],
+      synopsis: `${b[1]}（演示模板）`,
+      purpose: b[2],
+      hook: b[3],
+      endingBeat: b[4],
+      duration: "60-90 秒",
+    };
+  });
+}
+
+// Run an AI story-development pass (outline or plan) — proposals only; the
+// creator applies/discards in the story workspace (M9).
+async function developStoryRun(kind, instruction) {
+  const doc = storyDoc;
+  if (kind === "outline" && !doc.idea.trim() && !storydoc.activeOutline(doc)) {
+    toast("先在「故事」写一句创意");
+    return;
+  }
+  const id = storydoc.beginDevelop(doc, kind, instruction);
+  if (!id) {
+    toast(
+      kind === "plan" && !storydoc.approvedOutline(doc)
+        ? "先批准一个故事大纲版本，再生成剧集规划"
+        : doc.pending && doc.pending.status === "proposed"
+          ? "有一份提案待处理：请先「应用」或「放弃」"
+          : "已有一个生成在进行中",
+    );
+    return;
+  }
+  refreshProductionView();
+  try {
+    let payload;
+    if (CONNECTED) {
+      payload = kind === "plan"
+        ? await query.planEpisodes({ outline: storydoc.approvedOutline(doc).outline, instruction })
+        : await query.developStory({
+            idea: doc.idea,
+            current: (storydoc.activeOutline(doc) || {}).outline || null,
+            instruction,
+          });
+    } else {
+      await new Promise((r) => setTimeout(r, 700)); // visible working state
+      payload = kind === "plan" ? demoEpisodePlan(doc) : demoStoryOutline(doc);
+    }
+    if (storyDoc !== doc) return; // project switched mid-flight
+    if (storydoc.completeDevelop(doc, id, payload)) refreshProductionView();
+  } catch (e) {
+    if (storyDoc !== doc) return;
+    if (storydoc.failDevelop(doc, id, e.message)) refreshProductionView();
+  }
+}
+
 async function generateScript(kind, instruction) {
   const doc = scriptDoc;
   if (!instruction || !instruction.trim()) {
@@ -516,8 +627,27 @@ const ctx = {
       return ep;
     },
     renameEpisode: (id, title) => prodOp(proddoc.renameEpisode(productionDoc, id, title)),
-    removeEpisode: (id) => prodOp(proddoc.removeEpisode(productionDoc, id)),
-    setActiveEpisode: (id) => prodOp(proddoc.setActiveEpisode(productionDoc, id)),
+    removeEpisode: (id) => {
+      const ok = proddoc.removeEpisode(productionDoc, id);
+      if (ok) {
+        // removing the ACTIVE episode re-points the active pointer — the
+        // script alias must follow, or edits would target the removed
+        // episode's document (M9)
+        syncActiveScript();
+        ctx.refreshType("script");
+      }
+      return prodOp(ok);
+    },
+    setActiveEpisode: (id) => {
+      const ok = proddoc.setActiveEpisode(productionDoc, id);
+      if (ok) {
+        // M9: the script surface follows the episode — re-point the alias and
+        // refresh every script view before the shell re-renders
+        syncActiveScript();
+        ctx.refreshType("script");
+      }
+      return prodOp(ok);
+    },
     addScene: (episodeId, title) => {
       const scene = proddoc.addScene(productionDoc, episodeId, title);
       if (scene) { ctx.persist(); refreshProductionView(); }
@@ -560,6 +690,119 @@ const ctx = {
     setSceneLocation: (sceneId, lid, sid) => prodOp(bibledoc.setSceneLocation(productionDoc, sceneId, lid, sid)),
   },
   agentShotsDraft: (script) => query.generateShotsDraft(script),
+  // Story development controller (M9): Idea → Outline (versioned, approved) →
+  // Episode Plan (versioned, confirmed). The ONLY write path into the story
+  // document; AI output lands as proposals, application is explicit, versions
+  // are never overwritten. Confirming a plan INSTANTIATES/links Episode
+  // entities (explicit identity join stamped into the plan version). The
+  // outline never writes Production Bible entities (M9 rule 8).
+  story: {
+    doc: () => storyDoc,
+    setIdea: (t) => { storydoc.setIdea(storyDoc, t); ctx.persist(); },
+    develop: (kind, instruction) => developStoryRun(kind, instruction),
+    cancel: () => { storydoc.cancelDevelop(storyDoc); refreshProductionView(); },
+    applyProposal: () => {
+      const rec = storydoc.applyProposal(storyDoc);
+      if (!rec) return null;
+      ctx.persist();
+      refreshProductionView();
+      toast(rec.outline
+        ? `已应用为故事大纲 v${rec.v}（旧版本保留；批准后才能规划分集）`
+        : `已应用为剧集规划 v${rec.v}（确认后才建立剧集）`);
+      return rec;
+    },
+    discardProposal: () => { storydoc.discardProposal(storyDoc); refreshProductionView(); },
+    applyManualOutline: (fields) => {
+      const rec = storydoc.applyManualOutline(storyDoc, fields);
+      ctx.persist();
+      refreshProductionView();
+      toast(`已保存为大纲 v${rec.v}（手工修改，旧版本保留）`);
+      return rec;
+    },
+    setActiveOutline: (v) => prodOp(storydoc.setActiveOutline(storyDoc, v)),
+    approveOutline: (v) => {
+      const ok = storydoc.approveOutline(storyDoc, v);
+      if (ok) {
+        ctx.persist();
+        refreshProductionView();
+        toast(`已批准故事大纲 v${v} — 现在可以生成剧集规划`);
+      }
+      return ok;
+    },
+    setActivePlan: (v) => prodOp(storydoc.setActivePlan(storyDoc, v)),
+    // Confirm the plan: entries without an episode get one created; entries
+    // already linked keep their episode (title follows the plan). A pristine
+    // sole default episode (no scenes, no script content) is ADOPTED as the
+    // first unlinked entry's episode instead of leaving an empty orphan —
+    // a deterministic adoption rule, never a name-based guess.
+    confirmPlan: (v) => {
+      const plan = storyDoc.plans.find((p) => p.v === v);
+      if (!plan) return false;
+      const pristine =
+        productionDoc.episodes.length === 1
+        && productionDoc.episodes[0].scenes.length === 0
+        // a manually RENAMED episode is intentional user data — never adopt
+        // and retitle it; only the untouched default (第 1 集, the exact title
+        // both the migration and defaultProduction mint) qualifies
+        && productionDoc.episodes[0].title === "第 1 集"
+        && !plan.episodes.some((e) => e.episodeId === productionDoc.episodes[0].episodeId)
+        && !scriptdoc.currentText(scriptForEpisode(productionDoc.episodes[0].episodeId)).trim()
+          ? productionDoc.episodes[0]
+          : null;
+      let adopted = false;
+      for (const e of plan.episodes) {
+        const existing = e.episodeId ? proddoc.findEpisode(productionDoc, e.episodeId) : null;
+        if (existing) {
+          if (e.title.trim() && existing.title !== e.title) proddoc.renameEpisode(productionDoc, existing.episodeId, e.title);
+        } else if (pristine && !adopted) {
+          adopted = true;
+          e.episodeId = pristine.episodeId;
+          if (e.title.trim()) proddoc.renameEpisode(productionDoc, pristine.episodeId, e.title);
+        } else {
+          const ep = proddoc.addEpisode(productionDoc, e.title);
+          e.episodeId = ep.episodeId; // explicit identity join, stamped once
+        }
+      }
+      storydoc.confirmPlan(storyDoc, v);
+      // defensive: none of the episode ops above moves the active pointer
+      // today (addEpisode only appends), but the script alias must be correct
+      // no matter how they evolve — resyncing is idempotent
+      syncActiveScript();
+      ctx.persist();
+      refreshProductionView();
+      toast(`已确认剧集规划 v${v} · ${plan.episodes.length} 集已建立/联结 — 选择一集进入其剧本`);
+      return true;
+    },
+    // enter an episode's script workspace (M9 rule 7)
+    openEpisodeScript: (episodeId) => {
+      if (!ctx.production.setActiveEpisode(episodeId)) return false;
+      return true;
+    },
+  },
+  // The CONTEXT brief the active episode's initial script generation runs
+  // from: idea + approved outline + this episode's confirmed plan entry —
+  // composed at call time, honest fallback to the bare idea.
+  episodeScriptBrief: () => {
+    const epId = productionDoc.activeEpisodeId;
+    const plan = storydoc.confirmedPlan(storyDoc);
+    // the outline the CONFIRMED plan was built from — never a newer approved
+    // outline mixed with an older plan (contradictory context)
+    const o = plan ? storydoc.outlineForPlan(storyDoc, plan) : storydoc.approvedOutline(storyDoc);
+    const entry = plan && plan.episodes.find((e) => e.episodeId === epId);
+    const parts = [];
+    if (storyDoc.idea.trim()) parts.push(`创意：${storyDoc.idea.trim()}`);
+    if (o) {
+      if (o.outline.premise) parts.push(`前提：${o.outline.premise}`);
+      if (o.outline.logline) parts.push(`故事线：${o.outline.logline}`);
+      if (o.outline.genreTone) parts.push(`题材/基调：${o.outline.genreTone}`);
+    }
+    if (entry) {
+      parts.push(`本集 EP${entry.epNumber}「${entry.title}」：${entry.synopsis}`);
+      if (entry.hook) parts.push(`开场钩子：${entry.hook}`);
+      if (entry.endingBeat) parts.push(`结尾拍：${entry.endingBeat}`);
+    }
+    return parts.join("\n");
+  },
   // 剧本拆解 / 同步作品设定 (M8): AI-first bible workflow. The agent PROPOSES
   // characters/locations/states from the episode script; every application is
   // an explicit user action composed of existing bibledoc ops — a confirmed
@@ -934,6 +1177,8 @@ const ctx = {
       // M5/M8: generation provenance for the studio (AI Director history,
       // per-shot lineage) — read-only; writes stay on ctx.*Generation.
       generations: generationRegistry,
+      // M9: the story development chain — read-only; writes via ctx.story.
+      story: storyDoc,
     };
   },
   // paid-op status projection (生成情况) — refreshed after paid actions AND
@@ -1491,10 +1736,15 @@ document.addEventListener("pointerdown", (e) => {
 
 // --- canvas (de)serialization for persistence ---
 function serializeGraph() {
+  // per-episode scripts (M9): serialize every episode's document
+  const scripts = Object.create(null);
+  for (const k of Object.keys(scriptDocs)) scripts[k] = scriptdoc.serialize(scriptDocs[k]);
   return {
     v: CANVAS_SCHEMA_VERSION,
     project: PROJECT_NAME,
-    scriptDoc: scriptdoc.serialize(scriptDoc),
+    // Story development chain (M9) — idea/outline/plan, project-level.
+    story: storydoc.serialize(storyDoc),
+    scripts,
     // Creator media is owned by the PROJECT registry (M3) — node-local
     // uploads/finals/firstFrames are alias views and are deliberately NOT
     // serialized, so no second durable media source of truth can form.
@@ -1524,10 +1774,17 @@ function attachAssetViews(nd) {
 function restoreGraph(data) {
   engine.reset();
   seeded = false;
-  // The script document rides in the SAME canvas save; hydrate it before any
-  // node renders (script nodes are views over it). Legacy canvases persisted
-  // the script as node.text — migrate that into the unversioned buffer.
-  scriptDoc = scriptdoc.createDoc((data && data.scriptDoc) || null);
+  // Per-episode script documents (M9): hydrate the whole map, then alias the
+  // active episode's document (after production hydrates below).
+  scriptDocs = Object.create(null);
+  if (data && data.scripts && typeof data.scripts === "object" && !Array.isArray(data.scripts)) {
+    for (const k of Object.keys(data.scripts)) {
+      if (k) scriptDocs[k] = scriptdoc.createDoc(data.scripts[k]);
+    }
+  }
+  // Story development chain (M9).
+  storyDoc = storydoc.createStory((data && data.story) || null);
+  scriptDoc = scriptdoc.createDoc();
   // Same for the Asset Registry (M3): hydrate BEFORE nodes attach their views.
   assetRegistry = assetlib.createRegistry((data && data.assets) || null);
   // Generation Registry (M5): hydrate from the same save (durable provenance).
@@ -1540,10 +1797,16 @@ function restoreGraph(data) {
   // mid-run must not leave a stuck "running" guard. (The in-flight run's
   // stale check compares productionDoc identity and will drop its result.)
   bibleProposals = null;
+  syncActiveScript(); // alias follows the restored active episode
   if (!data || !Array.isArray(data.nodes) || !data.nodes.length) return false;
-  if (!data.scriptDoc) {
+  if (!Object.keys(scriptDocs).length) {
+    // pre-scriptDoc canvases persisted the script as node.text — migrate it
+    // into the ACTIVE episode's unversioned buffer (M9: scripts are per-episode)
     const legacy = data.nodes.find((n) => n.type === "script" && typeof n.text === "string" && n.text);
-    if (legacy) scriptDoc = scriptdoc.createDoc({ legacyText: legacy.text });
+    if (legacy && productionDoc.activeEpisodeId) {
+      scriptDocs[productionDoc.activeEpisodeId] = scriptdoc.createDoc({ legacyText: legacy.text });
+      syncActiveScript();
+    }
   }
   const idMap = {};
   for (const sn of data.nodes) {
@@ -1626,7 +1889,9 @@ $$(".entry").forEach((b) => (b.onclick = () => {
 async function enterCanvas(name, opts = {}) {
   PROJECT_NAME = name;
   canvasActive = false;
-  scriptDoc = scriptdoc.createDoc(); // per-project; restoreGraph rehydrates
+  scriptDocs = Object.create(null); // per-project; restoreGraph rehydrates
+  scriptDoc = scriptdoc.createDoc();
+  storyDoc = storydoc.createStory(null);
   ctx.project = {
     ...FIX,
     id: name,

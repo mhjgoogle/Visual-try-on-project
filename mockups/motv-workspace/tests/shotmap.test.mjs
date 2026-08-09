@@ -82,6 +82,9 @@ test("v3→current is non-destructive: assetId/url/slot/version/current/history 
   for (const f of Array.isArray(a.finals) ? a.finals : []) stripStorage(f); // M5 additive
   delete res.doc.generations; // M5 additive top-level registry
   delete res.doc.production; // M6 additive top-level production structure
+  delete res.doc.story; // M9 additive story development chain
+  delete res.doc.scripts; // M9 per-episode scripts map (empty here)
+  delete before.scriptDoc; // v8 moves the (null = empty) script away
   res.doc.v = 3;
   assert.deepEqual(res.doc, before);
 });

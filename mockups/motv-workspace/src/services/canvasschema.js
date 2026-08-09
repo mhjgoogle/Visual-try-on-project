@@ -18,7 +18,7 @@
 //   outcome overwrite the stored document.
 
 /** Authoritative CURRENT canvas schema version. Saves must emit exactly this. */
-export const CANVAS_SCHEMA_VERSION = 7;
+export const CANVAS_SCHEMA_VERSION = 8;
 
 /**
  * v1 → v2 (checkpoint M2): stable creator identity + minimal provenance.
@@ -628,9 +628,61 @@ function migrateV6ToV7(doc) {
   return doc;
 }
 
+/**
+ * v7 → v8 (checkpoint M9): Story development chain + per-episode scripts.
+ *
+ * 1. `story` (NEW top-level document) — Idea → Story Outline (versioned,
+ *    approvable) → Episode Plan (versioned, confirmable). Introduced empty:
+ *    outlines/plans are creator decisions and are NEVER fabricated. The idea
+ *    is backfilled from the legacy project-level Creative Brief
+ *    (scriptDoc.brief) — an honest copy of what the creator already wrote.
+ * 2. `scripts` (NEW top-level map, episodeId → script document) — scripts
+ *    become PER-EPISODE. Every pre-v8 project is a single-episode workflow by
+ *    construction, so the one legacy `scriptDoc` moves (verbatim) to the
+ *    ACTIVE episode's slot. The top-level `scriptDoc` field is gone at v8 —
+ *    a leftover one is rejected by validation (like node media since v3),
+ *    so no second durable script source of truth can form.
+ */
+function migrateV7ToV8(doc) {
+  const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
+  const brief = isObj(doc.scriptDoc) && typeof doc.scriptDoc.brief === "string" ? doc.scriptDoc.brief : "";
+  doc.story = {
+    idea: brief,
+    versions: [],
+    active: 0,
+    approved: 0,
+    plans: [],
+    activePlan: 0,
+    confirmedPlan: 0,
+  };
+  const scripts = {};
+  const active = isObj(doc.production) && typeof doc.production.activeEpisodeId === "string"
+    ? doc.production.activeEpisodeId
+    : null;
+  if (doc.scriptDoc === null || doc.scriptDoc === undefined) {
+    delete doc.scriptDoc; // nothing durable to move
+  } else if (isObj(doc.scriptDoc) && active) {
+    // own-key write: an episodeId literally named `__proto__` must become a
+    // real entry, never invoke the prototype setter (same rule as putKey in
+    // the v2→v3 migration)
+    if (active === "__proto__") {
+      Object.defineProperty(scripts, active, {
+        value: doc.scriptDoc, writable: true, enumerable: true, configurable: true,
+      });
+    } else {
+      scripts[active] = doc.scriptDoc;
+    }
+    delete doc.scriptDoc; // moved verbatim to the active episode
+  }
+  // else: a malformed scriptDoc (or one with no episode to attach to) is LEFT
+  // in place — v8 validation rejects the leftover, never a silent drop
+  doc.scripts = scripts;
+  return doc;
+}
+
 /** Sequential migration steps: { [fromVersion]: (doc) => docAtFromVersion+1 }.
  *  Extended one real step at a time, never speculatively. */
-export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7 };
+export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7, 7: migrateV7ToV8 };
 
 /** Read the schema version of a raw persisted document.
  *  Returns a positive integer, or null if the marker is malformed.
@@ -690,6 +742,143 @@ export function validateCanvasDoc(doc) {
   if (doc.pan !== undefined && !isPlainObject(doc.pan)) return "pan is not an object";
   if (doc.scriptDoc !== undefined && doc.scriptDoc !== null && !isPlainObject(doc.scriptDoc)) {
     return "scriptDoc is not an object";
+  }
+  // Since v8 scripts are PER-EPISODE (top-level `scripts` map) and the story
+  // development chain lives in `story`. A leftover top-level scriptDoc would
+  // be a second durable script source of truth — rejected like node media
+  // since v3. Both new fields are always emitted by the serializer; a
+  // truncated save missing either must fail safe, not restore empty.
+  const atV8 = Number.isInteger(doc.v) && doc.v >= 8;
+  if (atV8 && doc.scriptDoc !== undefined) {
+    return "v8 document retains scriptDoc (scripts are per-episode since v8)";
+  }
+  if (atV8 && !isPlainObject(doc.scripts)) return "v8 document is missing its scripts map";
+  if (doc.scripts !== undefined) {
+    if (!isPlainObject(doc.scripts)) return "scripts is not an object";
+    for (const k of Object.keys(doc.scripts)) {
+      if (typeof k !== "string" || !k) return "scripts has an empty episode key";
+      const s = doc.scripts[k];
+      if (!isPlainObject(s)) return `scripts[${k}] is not an object`;
+      if (!atV8) continue;
+      // strict at v8 — everything script hydration (scriptdoc.createDoc)
+      // would drop, coerce, or renumber is rejected instead: an accepted
+      // save must never silently lose script content on the round-trip
+      if (typeof s.brief !== "string") return `scripts[${k}] brief is missing or not a string`;
+      if (!(s.workingText === null || typeof s.workingText === "string")) {
+        return `scripts[${k}] workingText is not null or a string`;
+      }
+      if (!Array.isArray(s.versions)) return `scripts[${k}] versions is not an array`;
+      const svIds = new Set();
+      for (let i = 0; i < s.versions.length; i++) {
+        const x = s.versions[i];
+        const where = `scripts[${k}] v${i + 1}`;
+        if (!isPlainObject(x)) return `scripts[${k}] versions contains a non-object entry`;
+        if (typeof x.id !== "string" || !x.id) return `${where} has no id`;
+        if (svIds.has(x.id)) return `scripts[${k}] has duplicate version id ${x.id}`;
+        svIds.add(x.id);
+        if (x.v !== i + 1) return `${where} is not densely numbered`;
+        if (typeof x.content !== "string") return `${where} content is missing or not a string`;
+        if (!["generated", "revision", "manual"].includes(x.origin)) return `${where} has invalid origin`;
+        if (typeof x.instruction !== "string") return `${where} instruction is not a string`;
+        if (!(x.basedOn === null || Number.isInteger(x.basedOn))) return `${where} basedOn is invalid`;
+        if (x.status !== "done") return `${where} has invalid status`;
+      }
+      if (!(s.active === 0 || (Number.isInteger(s.active) && s.versions.some((x) => x.v === s.active)))) {
+        return `scripts[${k}] active pointer has no matching version`;
+      }
+    }
+  }
+  if (atV8 && !isPlainObject(doc.story)) return "v8 document is missing its story document";
+  if (doc.story !== undefined) {
+    if (!isPlainObject(doc.story)) return "story is not an object";
+    const st = doc.story;
+    if (atV8) {
+      // strict on every KNOWN field — anything hydration would coerce or
+      // renumber is rejected instead (accepted saves never lose data)
+      const OUTLINE_FIELDS = ["premise", "logline", "genreTone", "world", "centralConflict", "storyArc", "ending", "durationNote"];
+      const PLAN_FIELDS = ["title", "synopsis", "purpose", "hook", "endingBeat", "duration"];
+      if (typeof st.idea !== "string") return "story idea is missing or not a string";
+      if (!Array.isArray(st.versions)) return "story versions is not an array";
+      const soIds = new Set();
+      for (let i = 0; i < st.versions.length; i++) {
+        const x = st.versions[i];
+        const where = `story outline v${i + 1}`;
+        if (!isPlainObject(x)) return "story versions contains a non-object entry";
+        if (typeof x.id !== "string" || !x.id) return `${where} has no id`;
+        if (soIds.has(x.id)) return `duplicate story outline id ${x.id}`;
+        soIds.add(x.id);
+        if (x.v !== i + 1) return `${where} is not densely numbered`;
+        if (!isPlainObject(x.outline)) return `${where} has no outline object`;
+        for (const k of OUTLINE_FIELDS) {
+          if (typeof x.outline[k] !== "string") return `${where} outline ${k} is missing or not a string`;
+        }
+        if (!Array.isArray(x.outline.characterConcepts)
+          || x.outline.characterConcepts.some((s) => typeof s !== "string" || !s.trim())) {
+          return `${where} characterConcepts is not a list of non-blank strings`;
+        }
+        const n = x.outline.episodeCount;
+        // 1..50, matching the plan endpoint's parser cap (hydration nulls
+        // out-of-range values, so out-of-range is rejected here instead)
+        if (!(n === null || (Number.isInteger(n) && n > 0 && n <= 50))) {
+          return `${where} episodeCount is not null or an integer in 1..50`;
+        }
+        if (!["developed", "revision", "manual"].includes(x.origin)) return `${where} has invalid origin`;
+        if (typeof x.instruction !== "string") return `${where} instruction is not a string`;
+        if (!(x.basedOn === null || Number.isInteger(x.basedOn))) return `${where} basedOn is invalid`;
+      }
+      const vOk = (v) => v === 0 || (Number.isInteger(v) && st.versions.some((x) => x.v === v));
+      if (!vOk(st.active)) return "story active pointer has no matching outline version";
+      if (!vOk(st.approved)) return "story approved pointer has no matching outline version";
+      if (!Array.isArray(st.plans)) return "story plans is not an array";
+      const planIds = new Set();
+      for (let i = 0; i < st.plans.length; i++) {
+        const x = st.plans[i];
+        const where = `episode plan v${i + 1}`;
+        if (!isPlainObject(x)) return "story plans contains a non-object entry";
+        if (typeof x.id !== "string" || !x.id) return `${where} has no id`;
+        if (planIds.has(x.id)) return `duplicate episode plan id ${x.id}`;
+        planIds.add(x.id);
+        if (x.v !== i + 1) return `${where} is not densely numbered`;
+        if (!["proposed", "manual"].includes(x.origin)) return `${where} has invalid origin`;
+        if (typeof x.instruction !== "string") return `${where} instruction is not a string`;
+        if (!(x.outlineVersionId === null || (typeof x.outlineVersionId === "string" && x.outlineVersionId))) {
+          return `${where} outlineVersionId is invalid`;
+        }
+        if (!Array.isArray(x.episodes) || !x.episodes.length) return `${where} has no episodes`;
+        const linked = new Set();
+        for (let j = 0; j < x.episodes.length; j++) {
+          const e = x.episodes[j];
+          const ew = `${where} EP${j + 1}`;
+          if (!isPlainObject(e)) return `${where} episodes contains a non-object entry`;
+          if (e.epNumber !== j + 1) return `${ew} is not densely numbered`;
+          for (const k of PLAN_FIELDS) {
+            if (typeof e[k] !== "string") return `${ew} ${k} is missing or not a string`;
+          }
+          if (!e.title.trim()) return `${ew} has a blank title`;
+          if (!(e.episodeId === null || (typeof e.episodeId === "string" && e.episodeId))) {
+            return `${ew} episodeId is invalid`;
+          }
+          // two planned episodes mapped to ONE entity would share a script
+          // and fight over the title on every confirmation — reject
+          if (e.episodeId !== null) {
+            if (linked.has(e.episodeId)) return `${ew} reuses episodeId ${e.episodeId} within the plan`;
+            linked.add(e.episodeId);
+          }
+        }
+      }
+      const pOk = (v) => v === 0 || (Number.isInteger(v) && st.plans.some((x) => x.v === v));
+      if (!pOk(st.activePlan)) return "story activePlan pointer has no matching plan version";
+      if (!pOk(st.confirmedPlan)) return "story confirmedPlan pointer has no matching plan version";
+      // a CONFIRMED plan's entries are all episode-linked (confirmation stamps
+      // every episodeId) — a "confirmed" save with unlinked entries would
+      // claim planned episodes that have no script workspace to enter
+      if (st.confirmedPlan !== 0) {
+        const cp = st.plans.find((x) => x.v === st.confirmedPlan);
+        if (cp && cp.episodes.some((e) => e.episodeId === null)) {
+          return "confirmed episode plan has an entry with no linked episode";
+        }
+      }
+    }
   }
   if (doc.project !== undefined && typeof doc.project !== "string") {
     return "project is not a string";

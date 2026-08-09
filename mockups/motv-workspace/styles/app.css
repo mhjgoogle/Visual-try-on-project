@@ -168,6 +168,8 @@ div.sb-thumb.sb-none { display: grid; place-items: center; font-size: 20px; colo
 .bd-h { font-weight: 800; font-size: 12.5px; }
 .bd-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; display: flex; flex-direction: column; gap: 4px; }
 .bd-card-h { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.bd-card-h .nrun { width: auto; flex: none; margin: 0 0 0 auto; white-space: nowrap; padding: 6px 10px; }
+.bd-card-h b { white-space: nowrap; }
 .bd-f { font-size: 11px; color: var(--text-dim); } .bd-f span { color: var(--text-faint); margin-right: 6px; } .bd-f s { color: var(--text-faint); }
 .bd-states { font-size: 11px; color: var(--text-dim); display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
 .bd-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 3px; }

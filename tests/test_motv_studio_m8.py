@@ -56,9 +56,11 @@ def test_studio_adds_no_new_persisted_field() -> None:
     serializer = app[
         app.index("function serializeGraph") : app.index("function attachAssetViews")
     ]
-    # exactly the M7 field set — the studio persists NOTHING of its own
+    # exactly the domain field set (M9: scriptDoc → per-episode scripts +
+    # story) — the studio persists NOTHING of its own
     for field in (
-        "scriptDoc:",
+        "story:",
+        "scripts,",
         "assets:",
         "generations:",
         "production:",
