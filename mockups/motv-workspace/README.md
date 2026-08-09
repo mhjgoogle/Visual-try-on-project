@@ -63,6 +63,17 @@ python mockups/motv-workspace/server.py --account-root examples/projects
 即原节点画布，行为不变；两个视图渲染**同一个** `scriptDoc` 域文档（`src/ui/production.js`
 纯展示，AI 调用仍在 ctx.script 后面），切换互见改动、不丢状态。
 
+**Prompt 编译 + 手动生成入口（M10）**：分镜详情媒体区新增两块生成入口面板。
+**Image Prompt** 由 场景地·状态 + 出场角色·状态（bibledoc 解析器输出，状态覆盖生效）+
+镜头画面内容 + 大纲题材基调（confirmedPlan 的发起大纲）纯函数编译
+（`src/workflow/promptc.js`），缺什么如实列出（场景地/角色/画面内容），绝不臆造；
+**Video Prompt** = 当前镜头图片作首帧 + 动作 + 运镜 + 时长 + 台词。入口：📋 复制 /
+↗ ChatGPT / ↗ Gemini（复制并打开）/ ⬆ 导入生成结果（连接模式；同一上传端点与
+slug 命名空间，mediaref 追加版本）/ API 自动生成为诚实的「未来/可选」注记（付费
+生成仍在工作流节点，ADR-0041/0045）。经入口流导入的结果**记录真实 Generation 溯源**
+（promptSnapshot=复制时的编译文本，provider=chatgpt-manual/gemini-manual/manual）；
+未走入口的普通导入保持普通上传，不伪造溯源。
+
 **故事发展与剧集规划（M9）**：故事工作区不再「创意→直接跳剧本」，改为真实创作路径
 **创意 → AI 发展故事 → 故事大纲（versioned·批准）→ 剧集规划（versioned·确认）→ 选集
 → 该集剧本**。`story` 域文档（`src/workflow/storydoc.js`，画布 schema v8 顶层字段）持久化
@@ -193,6 +204,7 @@ src/
   workflow/contract.js     L0–S7 阶段/步骤 I/O 合同数据（inspector 的唯一数据源）
   workflow/scriptdoc.js    剧本域文档：追加式剧本版本链（v8 起按集存放，节点只是视图）
   workflow/storydoc.js     故事域文档：创意→大纲版本链(批准)→剧集规划版本链(确认)（M9，纯状态）
+  workflow/promptc.js      Prompt 编译器：镜头+状态解析→Image/Video Prompt+缺口诊断（M10，纯函数）
   workflow/proddoc.js      生产域文档：剧集→场景→镜头引用结构（M6，纯状态，镜头内容不复制）
   workflow/bibledoc.js     作品设定域：角色/场景地+状态+声音档案+参考图引用（M7，纯状态）
   workflow/breakdown.js    剧本拆解提案：解析/匹配/变更计算/出场派生（M8，纯函数，应用走 bibledoc）

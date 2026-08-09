@@ -13,6 +13,8 @@ import { slotEntry } from "../workflow/mediaref.js";
 import { buildShotSlotIndex, slotForShotId, buildServerBridge, serverShotIdForShot } from "../workflow/shotmap.js";
 import { episodeView, sceneOfShot, activeEpisode } from "../workflow/proddoc.js";
 import { findCharacter, findLocation, resolveCharacter, resolveLocation } from "../workflow/bibledoc.js";
+import { outlineForPlan } from "../workflow/storydoc.js";
+import { compileImagePrompt, compileVideoPrompt } from "../workflow/promptc.js";
 
 const nn = (seq) => String(seq).padStart(2, "0");
 
@@ -106,6 +108,33 @@ export function storyboardModel(pd) {
   };
 }
 
+/** The shot's FULLY-RESOLVED creative context for prompt compilation (M10):
+ *  the scene's characters/location resolved through their states, plus the
+ *  outline tone (the CONFIRMED plan's launch outline, honest fallback). */
+function promptInputs(pd, shotId) {
+  const prod = pd.production;
+  const owner = prod ? sceneOfShot(prod, shotId) : null;
+  const characters = [];
+  let location = null;
+  if (owner) {
+    for (const r of owner.scene.characterRefs || []) {
+      const c = findCharacter(prod, r.characterId);
+      if (c) characters.push(resolveCharacter(c, r.stateId));
+    }
+    const lr = owner.scene.locationRef;
+    const l = lr && findLocation(prod, lr.locationId);
+    if (l) location = resolveLocation(l, lr.stateId);
+  }
+  let tone = "";
+  const story = pd.story;
+  if (story) {
+    const plan = story.plans.find((x) => x.v === story.confirmedPlan) || null;
+    const o = outlineForPlan(story, plan);
+    tone = o ? o.outline.genreTone : "";
+  }
+  return { characters, location, tone };
+}
+
 /** Everything the detail panel needs for ONE selected shot: creative fields,
  *  its scene's bible context, its media variants (image/video), first-frame
  *  lineage, voice standing, paid-op status and per-shot generations. */
@@ -148,7 +177,14 @@ export function shotDetailModel(pd, shotId) {
       provider: g.provider,
     }))
     .reverse(); // registry is append-only → newest first
+  const images = variants(pd.assetUploads);
+  const ctxIn = promptInputs(pd, shotId);
   return {
+    // M10: compiled generation prompts + honest gaps
+    prompts: {
+      image: compileImagePrompt({ shot: s, ...ctxIn }),
+      video: compileVideoPrompt({ shot: s, hasImage: images.list.some((r) => r.current) }),
+    },
     shot: {
       shotId,
       seq: s.sequence,
@@ -163,7 +199,7 @@ export function shotDetailModel(pd, shotId) {
       ? { sceneId: owner.scene.sceneId, title: owner.scene.title, ...sceneRefsView(prod, owner.scene) }
       : null,
     slot,
-    images: variants(pd.assetUploads),
+    images,
     videos: variants(pd.media.video),
     firstFrame: ff ? { version: ff.version, origin: ORIGIN_ZH[ff.origin] || ff.origin || "", url: ff.url } : null,
     voice: voiceCur
@@ -246,6 +282,23 @@ function detailHtml(ctx, d, buf) {
   const voice = d.voice
     ? `<div class="ws-desc">🎤 配音就绪 · ${d.voice.versions} 版 · ${esc(d.voice.origin)}</div><audio class="aaud" src="${esc(d.voice.url)}" controls preload="none"></audio>`
     : `<div class="ws-desc">🎤 还没有配音 — 「音频」工作区查看，或在工作流「音频生成」节点本地 TTS/上传</div>`;
+  // 生成入口 (M10): compiled prompt → pick an entry → result imports back
+  // onto this shot (with real Generation provenance when the flow was used)
+  const genPanel = (kind, p, entries) => {
+    const gaps = p.missing.map((m) => `<div class="ws-kv gate">◌ ${esc(m)}</div>`).join("");
+    const entryBtns = entries
+      .map(([key, label]) => `<button class="nrun ghost" data-gp-entry="${key}" data-kind="${kind}">↗ ${esc(label)}（复制并打开）</button>`)
+      .join("");
+    return (
+      `<div class="gen-panel"><div class="ws-lab">🪄 ${kind === "image" ? "生成画面 · Image Prompt（场景地/角色状态/画面内容 编译）" : "生成视频 · Video Prompt（首帧图片 + 动作 + 运镜）"}</div>` +
+      gaps +
+      `<textarea class="gen-prompt" readonly spellcheck="false" data-genprompt="${kind}">${esc(p.text)}</textarea>` +
+      `<div class="bd-actions"><button class="nrun ghost" data-gp-copy data-kind="${kind}">📋 复制提示词</button>${entryBtns}` +
+      `<button class="nrun ghost" data-gp-import data-kind="${kind}">⬆ 导入生成结果</button></div>` +
+      `<div class="pa-unavail">◌ API 自动生成（未来/可选）— 付费生成当前在工作流节点（图像 ADR-0045 / 视频 ADR-0041），本入口后续接线</div>` +
+      `</div>`
+    );
+  };
   return (
     `<div class="sb-detail">` +
     `<div class="sb-detail-head"><b>${esc(nn(d.shot.seq))} ${esc(d.shot.title)}</b>${op}<span class="ws-desc mono">${esc(d.shot.shotId)}</span></div>` +
@@ -264,8 +317,10 @@ function detailHtml(ctx, d, buf) {
     `</div><div class="sb-media">` +
     `<div class="ws-lab">🖼 画面变体${d.slot ? "" : "（镜头身份未解析——无法定位媒体槽位）"}</div>` +
     variantStrip("image", d.slot, d.images, ffBtn) + ffLine +
+    genPanel("image", d.prompts.image, [["chatgpt", "ChatGPT"], ["gemini", "Gemini"]]) +
     `<div class="ws-lab">▶ 视频变体</div>` +
     variantStrip("video", d.slot, d.videos, "") +
+    genPanel("video", d.prompts.video, [["gemini", "Gemini 视频"]]) +
     voice + gens +
     `</div></div></div>`
   );
@@ -395,4 +450,74 @@ export function bindStoryboard(root, ctx, ui, rerender) {
   });
   const ff = root.querySelector("[data-useff]");
   if (ff) ff.onclick = () => { if (ff.dataset.useff) ctx.media.useAsFirstFrame(ff.dataset.useff); };
+  // --- 生成入口 (M10): prompt → entry → import with provenance -------------- //
+  // The INTENT (compiled prompt + entry) is captured when the creator copies
+  // or opens an entry; an import through this panel then records a REAL
+  // Generation (promptSnapshot = the copied text, provider = the entry).
+  // A plain import without a prior intent stays an ordinary upload.
+  const ENTRY_URL = { chatgpt: "https://chatgpt.com/", gemini: "https://gemini.google.com/" };
+  const promptText = (kind) => {
+    const ta = root.querySelector(`textarea[data-genprompt="${kind}"]`);
+    return ta ? ta.value : "";
+  };
+  const setIntent = (kind, entry) => {
+    ui.genIntent = ui.genIntent || {};
+    ui.genIntent[kind] = { shotId: ui.selectedShotId, prompt: promptText(kind), entry };
+  };
+  const copyPrompt = async (kind) => {
+    try {
+      await navigator.clipboard.writeText(promptText(kind));
+      ctx.toast("提示词已复制");
+      return true;
+    } catch {
+      ctx.toast("复制失败：请手动选择文本复制");
+      return false;
+    }
+  };
+  root.querySelectorAll("[data-gp-copy]").forEach((b) => {
+    b.onclick = async () => {
+      if (await copyPrompt(b.dataset.kind)) setIntent(b.dataset.kind, "manual");
+    };
+  });
+  root.querySelectorAll("[data-gp-entry]").forEach((b) => {
+    b.onclick = async () => {
+      const kind = b.dataset.kind;
+      const entry = b.dataset.gpEntry;
+      // open FIRST, synchronously in the user gesture — an awaited clipboard
+      // call before window.open can demote it to a blocked popup
+      window.open(ENTRY_URL[entry] || "about:blank", "_blank", "noopener");
+      // provenance intent ONLY when the prompt actually reached the
+      // clipboard — a denied copy must not fake a "sent to ChatGPT" record
+      if (await copyPrompt(kind)) setIntent(kind, `${entry}-manual`);
+    };
+  });
+  root.querySelectorAll("[data-gp-import]").forEach((b) => {
+    b.onclick = () => {
+      const kind = b.dataset.kind;
+      const d = shotDetailModel(ctx.prodData(), ui.selectedShotId);
+      if (!d || !d.slot) { ctx.toast("镜头身份未解析：无法定位媒体槽位"); return; }
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = kind === "image" ? "image/png,image/jpeg,image/webp" : "video/mp4,video/webm";
+      input.onchange = async () => {
+        const file = input.files && input.files[0];
+        if (!file) return;
+        const intent = ui.genIntent && ui.genIntent[kind] && ui.genIntent[kind].shotId === ui.selectedShotId
+          ? ui.genIntent[kind]
+          : null;
+        try {
+          await ctx.media.importShotMedia(kind, d.slot, ui.selectedShotId, file, intent);
+          // consume ONLY the intent this import used — a NEWER intent set
+          // while the upload was in flight belongs to the next import
+          if (intent && ui.genIntent && ui.genIntent[kind] === intent) {
+            delete ui.genIntent[kind];
+          }
+          rerender();
+        } catch (err) {
+          ctx.toast("导入失败：" + err.message);
+        }
+      };
+      input.click();
+    };
+  });
 }

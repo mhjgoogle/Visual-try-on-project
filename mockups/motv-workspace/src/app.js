@@ -1016,6 +1016,38 @@ const ctx = {
       }
       return ok;
     },
+    // 导入生成结果 (M10): a manual-entry (ChatGPT/Gemini) generation comes
+    // BACK onto the shot — same upload endpoint + mediaref write path as the
+    // workflow nodes (identical slug namespace, so files land alongside node
+    // uploads); when the prompt flow was used, the Generation Registry gets a
+    // REAL record (promptSnapshot = the copied text, provider = the entry).
+    importShotMedia: async (kind, slot, shotId, file, intent) => {
+      if (!CONNECTED) {
+        throw new Error("演示模式无后端，无法导入文件（复制提示词仍可用）");
+      }
+      const slug = kind === "image" ? `assets-${slot}` : `video-${slot}`;
+      const res = await query.uploadAssetImage(PROJECT_NAME, slug, file);
+      const map = kind === "image" ? assetRegistry.images : assetRegistry.videos;
+      const ref = mediaref.refFromResponse(slot, "upload", res, shotId ?? null);
+      mediaref.addVersion({ uploads: map }, slot, ref);
+      if (intent && intent.prompt && intent.shotId === shotId) {
+        const gen = ctx.startGeneration({
+          type: kind === "image" ? "image" : "video",
+          targetType: shotId ? "shot" : null,
+          targetId: shotId ?? null,
+          promptSnapshot: intent.prompt,
+          provider: intent.entry || "manual",
+          parameters: null,
+          status: "generating",
+        });
+        if (gen) ctx.completeGeneration(gen.generationId, [ref.assetId]);
+      }
+      ctx.refreshType(kind === "image" ? "assets" : "video");
+      ctx.persist();
+      refreshProductionView();
+      toast(`已导入 · v${res.version || 1}（旧版本保留，可回切）${intent ? " · 已记录生成溯源" : ""}`);
+      return ref;
+    },
     // 「用作视频首帧」 from the studio — same carried-reference semantics as
     // the assets node flow (registry maps are the same objects).
     useAsFirstFrame: async (slot) => {
