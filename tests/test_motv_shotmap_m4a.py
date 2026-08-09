@@ -56,23 +56,27 @@ def test_v3_to_v4_migration_registered() -> None:
     assert "1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4" in src
 
 
-def test_creativeShotId_read_only_in_the_identity_bridge_layer() -> None:
-    """creativeShotId 只在身份/桥接层被读，绝不散落进媒体查找 join 或工作流节点。
+def test_read_models_and_nodes_never_read_creativeShotId_raw() -> None:
+    """读模型与工作流节点必须经 shotmap 解析函数用身份，绝不直接读 .creativeShotId。
 
-    写入限于迁移(canvasschema.js)与媒体写路径(mediaref.js)；读取限于身份桥接层
-    (shotmap.js，M4c 读锁定记录的 creativeShotId 建 server 桥)。任何其它文件读
-    ``.creativeShotId`` 都会把创作/服务端两个命名空间混进普通 join —— 正是整条
-    M4 线要防的坑。（读模型经 shotmap 的解析函数间接使用，不直接读该字段。）
+    creativeShotId 允许出现在：迁移/写路径(canvasschema.js, mediaref.js)、身份桥接层
+    (shotmap.js)、以及编排层 app.js（M4d adopt：把解析器产出的 creativeShotId 盖到
+    入槽 MediaRef、记录未解析付费）。但 PRODUCTION 读模型(workspaces.js)与工作流节点
+    (workflow/nodes/*.js) 只能经解析函数间接用身份 —— 直接读该字段会把创作/服务端两个
+    命名空间混进普通 join，正是整条 M4 线要防的坑。
     """
-    allowed = {"canvasschema.js", "mediaref.js", "shotmap.js"}
+    must_not_read = [
+        _SRC / "ui" / "workspaces.js",
+        *(_SRC / "workflow" / "nodes").glob("*.js"),
+    ]
     hits = []
-    for p in _SRC.rglob("*.js"):
-        if p.name in allowed:
-            continue
+    for p in must_not_read:
         for i, line in enumerate(p.read_text("utf-8").splitlines(), 1):
             if ".creativeShotId" in line:
                 hits.append(f"{p.name}:{i}: {line.strip()}")
-    assert hits == [], f"creativeShotId leaked into a non-bridge file: {hits}"
+    assert hits == [], (
+        f"a read-model/node reads creativeShotId directly (use the resolver): {hits}"
+    )
 
 
 def test_core_contracts_untouched_by_m4a() -> None:

@@ -129,7 +129,7 @@ def test_bridge_passes_through_unexpected_shapes(server_module):
 def test_frontend_bridge_units_via_node() -> None:
     """creativeShotId↔server 桥 + 付费读状态按身份联结 的前端单测。"""
     proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
-        ["node", "--test", "tests/shotmap.test.mjs", "tests/workspaces.test.mjs"],
+        ["node", "--test", "tests/shot_bridge.test.mjs", "tests/workspaces.test.mjs"],
         cwd=str(_MOCKUP_DIR),
         capture_output=True,
         text=True,

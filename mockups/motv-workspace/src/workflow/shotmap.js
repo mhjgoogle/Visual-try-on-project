@@ -70,7 +70,9 @@ export function shotIdForSlot(index, slot) {
  *  records. A record `{ shot_id, creativeShotId, sequence }` contributes ONLY a
  *  clean 1:1 mapping: a creativeShotId claimed by multiple records, or a
  *  server shot_id claimed by multiple creativeShotIds, is dropped (conflict →
- *  unresolved, fail safe). Returns { byCreative: Map, bridged: bool } where
+ *  unresolved, fail safe). Returns { byCreative, byServer, bridged } where
+ *  byCreative maps creativeShotId → server shot_id, byServer the reverse (for
+ *  adopt-paid: a server op resolves back to its canonical creative shot), and
  *  `bridged` is true when ANY record carries a creativeShotId (an M4c lock);
  *  false means a legacy pre-M4c lock, where a positional fallback is allowed. */
 export function buildServerBridge(lockedShots) {
@@ -91,12 +93,92 @@ export function buildServerBridge(lockedShots) {
     if (sid) serverCount.set(sid, (serverCount.get(sid) || 0) + 1);
   }
   const byCreative = new Map();
+  const byServer = new Map();
   for (const { cid, sid } of rows) {
     if (cid && sid && creativeCount.get(cid) === 1 && serverCount.get(sid) === 1) {
       byCreative.set(cid, sid);
+      byServer.set(sid, cid);
     }
   }
-  return { byCreative, bridged };
+  return { byCreative, byServer, bridged };
+}
+
+/** Resolve a SERVER shot_id → the CURRENT draft's target media slot for
+ *  adopt-paid (M4d). Pure: no engine/DOM. Returns one of
+ *   - { slot, creativeShotId }         resolved by canonical identity (M4c op)
+ *   - { slot, legacy: true }           resolved by approved positional fallback
+ *   - { legacy: true }                 legacy op, no matching draft shot/slot
+ *   - { unresolved, reason, creativeShotId? }  identity known-but-unresolvable
+ *     (its creative shot left the draft, or the op is a bridge-less M4c record)
+ *     — NEVER a sequence guess for an M4 record.
+ *  @param allLockedPlans  every locked plan a paid op could belong to
+ *    (each `{plan_version, shots}` — a re-lock keeps the prior plan's bridge).
+ *  @param currentLockedPlan  the current plan, for the legacy positional rule. */
+export function resolveAdoptTarget(serverShotId, draftRaw, allLockedPlans) {
+  const idx = buildShotSlotIndex(draftRaw);
+  const draft = Array.isArray(draftRaw) ? draftRaw : [];
+  const plans = Array.isArray(allLockedPlans) ? allLockedPlans : [];
+  // the approved legacy positional fallback: map a sequence to the CURRENT
+  // draft's shot at that position → its slot (task #4).
+  const positional = (seq) => {
+    const matches = draft.filter((x) => {
+      if (!x || typeof x !== "object") return false;
+      const xs = x.sequence;
+      // a persisted / imported save may carry the sequence as a numeric STRING
+      // ("2"); accept that, but never a boolean (true == 1) or a non-numeric
+      // string — those must not positional-match by coincidence.
+      if (typeof xs === "number") return xs === seq;
+      if (typeof xs === "string") return /^\d+$/.test(xs) && Number(xs) === seq;
+      return false;
+    });
+    // a corrupt / imported draft with two shots sharing one sequence is
+    // ambiguous — never arbitrarily pick the first (decision #5); no slot.
+    const s = matches.length === 1 ? matches[0] : null;
+    return s && s.slot ? { slot: s.slot, legacy: true } : { legacy: true };
+  };
+  const sid = typeof serverShotId === "string" ? serverShotId : "";
+
+  const planM = /^shot-p(\d+)-(\d+)$/.exec(sid);
+  if (planM) {
+    const planV = Number(planM[1]);
+    const seq = Number(planM[2]);
+    // plan_version is server-minted unique; a collision (hand-edited save) can't
+    // prove which plan owns the op → unresolved, never guess.
+    const matches = plans.filter((p) => p && p.plan_version === planV);
+    if (matches.length !== 1) {
+      // an M4c-FORMAT op whose plan bridge is gone/ambiguous must NOT sequence-
+      // guess — preserve it as unresolved, explicitly.
+      return { unresolved: true, reason: matches.length === 0 ? "locked-plan-not-found" : "ambiguous-plan-version" };
+    }
+    const bridge = buildServerBridge(matches[0].shots);
+    if (bridge.bridged) {
+      const cid = bridge.byServer.get(sid);
+      if (cid) {
+        const slot = slotForShotId(idx, cid);
+        return slot
+          ? { slot, creativeShotId: cid }
+          : { unresolved: true, creativeShotId: cid, reason: "creative-shot-not-in-current-draft" };
+      }
+      return { unresolved: true, reason: "server-shot-id-not-in-bridge" };
+    }
+    // a pre-M4c bridge-less locked plan (even a HISTORICAL one after re-lock) →
+    // approved positional fallback by the op's OWN sequence, but ONLY for a
+    // shot_id that actually EXISTS in that plan. A malformed shot-p*-* matching
+    // no plan record must not positional-guess into a coincidental current shot
+    // at the same sequence (decision #5) — symmetric to the bridged path's
+    // server-shot-id-not-in-bridge guard above.
+    const planShots = Array.isArray(matches[0].shots) ? matches[0].shots : [];
+    if (!planShots.some((r) => r && r.shot_id === sid)) {
+      return { unresolved: true, reason: "server-shot-id-not-in-plan" };
+    }
+    return positional(seq);
+  }
+
+  // pre-seeded legacy `shot-<seq>` (no plan) → approved positional fallback.
+  const seqM = /^shot-(\d+)$/.exec(sid);
+  if (seqM) return positional(Number(seqM[1]));
+
+  return { legacy: true }; // unknown id shape — no positional guess
 }
 
 /** The server official shot_id a draft shot's paid records join to (M4c):

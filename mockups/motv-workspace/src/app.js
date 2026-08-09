@@ -28,6 +28,7 @@ import { renderStepbar } from "./ui/stepbar.js";
 import { renderQueueBar, hasInflight } from "./ui/paidqueue.js";
 import * as mediaref from "./workflow/mediaref.js";
 import * as assetlib from "./workflow/assetlib.js";
+import { buildShotSlotIndex, slotForShotId, shotIdForSlot, resolveAdoptTarget } from "./workflow/shotmap.js";
 import * as scriptdoc from "./workflow/scriptdoc.js";
 
 // --- register node types (the extension list) ---
@@ -133,8 +134,8 @@ async function paidGenerate(shotId) {
               `✅ 真实生成成功 · ${oc.cost_minor_units} ${oc.currency} · ${oc.operation_id}`,
             );
             // auto-bridge the paid clip into the canvas slot (ADR-0046 §3)
-            adoptPaidIntoSlot(shotId, envelope.params.task_id).then((okAdopt) => {
-              if (okAdopt) toast("付费成片已自动进入画布槽位");
+            adoptPaidIntoSlot(shotId, envelope.params.task_id).then((r) => {
+              if (r.adopted) toast("付费成片已自动进入画布槽位");
               ctx.loadPaidOps();
             });
           } else {
@@ -177,11 +178,17 @@ async function lockDraftPlan(node) {
     // with a compress-and-reupload hint; a shot with no image locks text-only.
     const assetUploads = assetRegistry.images; // registry-backed, same data the nodes show
     const videoFrames = assetRegistry.firstFrames;
+    // M4d: resolve each shot's first-frame/media slot through its CANONICAL
+    // creative identity (creativeShotId → slot), not by trusting a positional
+    // slot — an ambiguous shot resolves to no slot → text-only lock, never a
+    // frame borrowed from another shot.
+    const lockIdx = buildShotSlotIndex(draft);
     const shots = [];
     for (const s of draft) {
       let frame = null;
-      const fref = s.slot && videoFrames[s.slot];
-      const url = (fref && fref.url) || (s.slot && mediaref.slotUrl(assetUploads, s.slot));
+      const slot = typeof s.shotId === "string" && s.shotId ? slotForShotId(lockIdx, s.shotId) : s.slot || null;
+      const fref = slot && videoFrames[slot];
+      const url = (fref && fref.url) || (slot && mediaref.slotUrl(assetUploads, slot));
       if (url) {
         try {
           frame = await query.fetchAsDataUrl(url, FRAME_MAX_BYTES);
@@ -604,30 +611,122 @@ function goWorkflow() {
 $("#seg-prod").onclick = goProduction;
 $("#seg-wf").onclick = goWorkflow;
 
+// Every locked plan a paid op could have been minted under: each scriptgen
+// version keeps its own `locked` bridge, so a paid op from a PRIOR (re-locked)
+// plan still resolves to its canonical creative shot (M4d).
+function collectLockedPlans() {
+  const out = [];
+  for (const n of engine.nodes) {
+    if (n.type !== "scriptgen" || !Array.isArray(n.versions)) continue;
+    for (const v of n.versions) {
+      if (v && v.locked && Array.isArray(v.locked.shots)) {
+        out.push({ plan_version: v.locked.plan_version, shots: v.locked.shots });
+      }
+    }
+  }
+  return out;
+}
+
+// Resolve a SERVER shot_id → the CURRENT draft's target media slot (M4d) via
+// the pure resolver: server shot_id → M4c bridge → creativeShotId → slot; a
+// re-locked op resolves through its own prior plan's bridge; legacy → positional.
+function resolveAdoptSlot(serverShotId) {
+  return resolveAdoptTarget(serverShotId, ctx.project.draftShots || [], collectLockedPlans());
+}
+
 // --- adopt a paid staging clip into every video node's slot (ADR-0046 §3) ---
-async function adoptPaidIntoSlot(shotId, taskId) {
-  const draft = ctx.project.draftShots || [];
-  // match the CURRENT locked id or the legacy shot-<seq> id: a paid op
-  // submitted before a lock (or after one) must still adopt into its slot
-  // even if the lock state changed while the generation was running
-  const s = draft.find(
-    (x) => ctx.lockedShotId(x.sequence) === shotId || `shot-${x.sequence}` === shotId,
-  );
-  if (!s || !s.slot) return false;
+// M4d: the slot is resolved through canonical creative-Shot identity, never by
+// sequence for M4 records; a result that can't be resolved is preserved with an
+// explicit unresolved state (kept in the queue + recorded), never silently
+// attached to another shot or discarded.
+async function adoptPaidIntoSlot(serverShotId, taskId) {
+  // preserve a paid result that can't be safely attached — recorded + kept in
+  // the queue with an explicit state, never silently dropped or misattached.
+  // (The staging clip is COPIED not moved server-side, so a preserved result is
+  // always re-adoptable once its shot settles.)
+  const preserve = (reason, creativeShotId, msg) => {
+    assetlib.recordUnresolvedPaid(assetRegistry, {
+      serverShotId, taskId, creativeShotId: creativeShotId || null, reason,
+    });
+    // best-effort persist — a storage/quota/serialization failure must not reject
+    // the adoption promise and strand the caller's paid-op refresh; the in-memory
+    // record + toast still inform the user, and the entry re-persists on the next
+    // successful save
+    try { ctx.persist(); } catch { /* keep the in-memory record; do not reject */ }
+    toast(msg);
+    return { adopted: false, unresolved: true };
+  };
+  // the shot a resolved target PROVABLY belongs to: the canonical creativeShotId
+  // (M4 record), else the single draft shot occupying the slot (legacy). Null
+  // when unprovable — which must NEVER pass the stability gate (a bare slot is
+  // storage, not identity, so a legacy `undefined` owner is not "stable").
+  const owner = (r, draft) =>
+    r.creativeShotId ?? shotIdForSlot(buildShotSlotIndex(draft), r.slot);
+
+  const draftBefore = ctx.project.draftShots || [];
+  const before = resolveAdoptSlot(serverShotId);
+  if (before.unresolved) {
+    return preserve(
+      before.reason, before.creativeShotId,
+      before.reason === "creative-shot-not-in-current-draft"
+        ? "付费成片对应的镜头已不在当前分镜：已保留在生成队列，未附加到任何镜头"
+        : "付费成片身份无法桥接到镜头：已保留在生成队列，未附加到任何镜头",
+    );
+  }
+  if (!before.slot) {
+    // a legacy / unknown-shape op that maps to no current slot must NOT be
+    // silently dropped — preserve it explicitly (decision #5)
+    return preserve(
+      "no-current-slot", before.creativeShotId,
+      "付费成片无法定位到当前分镜槽位：已保留在生成队列，未附加到任何镜头",
+    );
+  }
+  const ownerBefore = owner(before, draftBefore);
+  let res;
   try {
     // an occupied slot gains a NEW version (origin=adopted) — never overwrites
     // an earlier take (TASK-048 第3步; the anti-double-pay guard stays on the
     // submit side, unchanged)
-    const res = await gw.adoptPaid(PROJECT_NAME, taskId, `video-${s.slot}`);
-    // Write into the REGISTRY (video domain) — the draft shot in hand carries
-    // its own M2 identity, provable rather than guessed; video nodes alias
-    // the same map and simply re-render.
-    mediaref.addVersion({ uploads: assetRegistry.videos }, s.slot, mediaref.refFromResponse(s.slot, "adopted", res, s.shotId ?? null));
+    res = await gw.adoptPaid(PROJECT_NAME, taskId, `video-${before.slot}`);
+  } catch {
+    return { adopted: false }; // artifact may not be fetched yet — status view still shows it
+  }
+  // The draft can be re-locked / regenerated WHILE this adopt is in flight
+  // (M4d #3). The slot was resolved BEFORE the await — re-resolve now and
+  // require the PROVABLE owning shot AND its slot to be unchanged before
+  // registering the client media. If either moved (or is no longer provable),
+  // the clip would attach to a slot reassigned to another shot → preserve as
+  // unresolved instead, never misattach. (The server copied the clip to the
+  // call-time slot; a preserved result leaves an inert, unreferenced orphan
+  // version there — business identity lives ONLY in the client media ref, which
+  // we do not write, so no shot gains the wrong clip.)
+  const draftAfter = ctx.project.draftShots || [];
+  const after = resolveAdoptSlot(serverShotId);
+  const ownerAfter = after.unresolved ? null : owner(after, draftAfter);
+  const stable = ownerBefore != null && ownerBefore === ownerAfter
+    && !!after.slot && after.slot === before.slot;
+  if (!stable) {
+    return preserve(
+      "shot-changed-while-in-flight", before.creativeShotId,
+      "付费成片生成期间分镜已变化：已保留在生成队列，未附加到任何镜头",
+    );
+  }
+  try {
+    // stamp the PROVABLE creative identity: the resolved bridge id, else the
+    // slot's owning shot (both provable, never guessed positionally)
+    const cid = before.creativeShotId ?? ownerBefore;
+    mediaref.addVersion({ uploads: assetRegistry.videos }, before.slot, mediaref.refFromResponse(before.slot, "adopted", res, cid ?? null));
+    // a task that once failed to resolve (recorded unresolved) has now adopted —
+    // clear its stale marker so it isn't reported unresolved forever (M4d)
+    assetlib.clearUnresolvedPaid(assetRegistry, taskId);
     engine.nodes.filter((n) => n.type === "video").forEach((n) => engine.refreshBody(n));
     ctx.persist();
-    return true;
+    return { adopted: true };
   } catch {
-    return false; // artifact may not be fetched yet — status view still shows it
+    // a malformed response or storage/render failure must degrade to a plain
+    // non-adopt (as when this lived inside the adopt try) — never reject the
+    // promise and strand the caller's queue refresh
+    return { adopted: false };
   }
 }
 

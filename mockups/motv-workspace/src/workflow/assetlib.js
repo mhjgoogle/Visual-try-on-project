@@ -34,18 +34,46 @@ const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
 export function createRegistry(saved) {
   // Spread first so any unknown field a future checkpoint added under `assets`
   // is carried through the hydrate → serialize round-trip instead of dropped.
-  const reg = { ...(isObj(saved) ? saved : {}), images: {}, videos: {}, audio: {}, firstFrames: {}, finals: [], displaced: [] };
+  const reg = {
+    ...(isObj(saved) ? saved : {}),
+    images: {}, videos: {}, audio: {}, firstFrames: {}, finals: [], displaced: [],
+    // M4d: paid results whose creative-Shot identity could not be resolved for
+    // adoption — preserved with an explicit state, never silently attached to
+    // another Shot or discarded. { serverShotId, taskId, creativeShotId, reason }.
+    unresolvedPaid: [],
+  };
   if (isObj(saved)) {
     for (const k of ["images", "videos", "audio", "firstFrames"]) {
       if (isObj(saved[k])) reg[k] = saved[k];
     }
     if (Array.isArray(saved.finals)) reg.finals = saved.finals;
     if (Array.isArray(saved.displaced)) reg.displaced = saved.displaced;
+    if (Array.isArray(saved.unresolvedPaid)) reg.unresolvedPaid = saved.unresolvedPaid;
   }
   migrateUploads(reg.images);
   migrateUploads(reg.videos);
   migrateUploads(reg.audio);
   return reg;
+}
+
+/** Record a paid result that could not be resolved to a creative Shot (M4d),
+ *  deduped by the unique `taskId` (a shot can have MANY paid results — deduping
+ *  by serverShotId would silently drop earlier takes). Preserved, never lost. */
+export function recordUnresolvedPaid(reg, entry) {
+  if (!isObj(reg)) return;
+  if (!Array.isArray(reg.unresolvedPaid)) reg.unresolvedPaid = [];
+  const tid = entry && entry.taskId;
+  if (typeof tid !== "string" || !tid) return; // a paid result is uniquely its task
+  reg.unresolvedPaid = reg.unresolvedPaid.filter((e) => e && e.taskId !== tid).concat([entry]);
+}
+
+/** Clear a task's unresolved-paid record once it has been adopted successfully
+ *  — else the persisted state keeps reporting an already-adopted result as
+ *  unresolved (M4d). No-op when the task was never unresolved. */
+export function clearUnresolvedPaid(reg, taskId) {
+  if (!isObj(reg) || !Array.isArray(reg.unresolvedPaid)) return;
+  if (typeof taskId !== "string" || !taskId) return;
+  reg.unresolvedPaid = reg.unresolvedPaid.filter((e) => e && e.taskId !== taskId);
 }
 
 /** Composed finals as the plain url list every existing consumer renders

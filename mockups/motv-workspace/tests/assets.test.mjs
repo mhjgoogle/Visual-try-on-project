@@ -20,6 +20,8 @@ import {
   finalUrls,
   addFinal,
   shotIdForKey,
+  recordUnresolvedPaid,
+  clearUnresolvedPaid,
 } from "../src/workflow/assetlib.js";
 import { addVersion, refFromResponse, currentRef, slotUrl, putKey } from "../src/workflow/mediaref.js";
 
@@ -877,4 +879,42 @@ test("slot reads (slotUrl/currentRef) behave identically over registry maps", ()
   assert.equal(slotUrl(a.images, "v1-1"), "/u/img1.png"); // current=1 selection respected
   assert.equal(slotUrl(a.videos, "v1-1"), "/u/clip1.mp4");
   assert.equal(slotUrl(a.audio, "voice-v1-2"), "/u/voice2.wav");
+});
+
+// --- M4d: unresolved paid results are preserved with an explicit state ----- //
+
+test("recordUnresolvedPaid preserves entries, dedupes by unique taskId, survives reload", () => {
+  const reg = createRegistry(null);
+  assert.deepEqual(reg.unresolvedPaid, []); // present by default
+  // TWO paid results for the SAME shot (same serverShotId) but different tasks
+  // must BOTH be preserved — a shot can have many takes.
+  recordUnresolvedPaid(reg, { serverShotId: "shot-p3-1", taskId: "t1", creativeShotId: "shot-a", reason: "creative-shot-not-in-current-draft" });
+  recordUnresolvedPaid(reg, { serverShotId: "shot-p3-1", taskId: "t2", creativeShotId: "shot-a", reason: "creative-shot-not-in-current-draft" });
+  assert.equal(reg.unresolvedPaid.length, 2); // NOT collapsed by serverShotId
+  // a resubmit of the SAME task replaces its record (dedupe by taskId)
+  recordUnresolvedPaid(reg, { serverShotId: "shot-p3-1", taskId: "t1", creativeShotId: "shot-a", reason: "locked-plan-not-found" });
+  assert.equal(reg.unresolvedPaid.length, 2);
+  assert.equal(reg.unresolvedPaid.find((e) => e.taskId === "t1").reason, "locked-plan-not-found");
+  // survives a hydrate round-trip (never silently dropped)
+  const reloaded = createRegistry(JSON.parse(JSON.stringify(reg)));
+  assert.equal(reloaded.unresolvedPaid.length, 2);
+  // ignores malformed input (no taskId, or no registry)
+  recordUnresolvedPaid(reg, { serverShotId: "no-task" });
+  recordUnresolvedPaid(null, { taskId: "x" });
+  assert.equal(reg.unresolvedPaid.length, 2);
+});
+
+test("clearUnresolvedPaid removes a task's stale record once it adopts", () => {
+  const reg = createRegistry(null);
+  recordUnresolvedPaid(reg, { serverShotId: "shot-p3-1", taskId: "t1", reason: "creative-shot-not-in-current-draft" });
+  recordUnresolvedPaid(reg, { serverShotId: "shot-p3-2", taskId: "t2", reason: "server-shot-id-not-in-bridge" });
+  assert.equal(reg.unresolvedPaid.length, 2);
+  clearUnresolvedPaid(reg, "t1"); // t1 later adopted successfully
+  assert.equal(reg.unresolvedPaid.length, 1);
+  assert.equal(reg.unresolvedPaid[0].taskId, "t2");
+  // no-op for a task that was never unresolved, and malformed input
+  clearUnresolvedPaid(reg, "never-recorded");
+  clearUnresolvedPaid(reg, "");
+  clearUnresolvedPaid(null, "t2");
+  assert.equal(reg.unresolvedPaid.length, 1);
 });

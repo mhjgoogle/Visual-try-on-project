@@ -10,10 +10,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { CANVAS_SCHEMA_VERSION, migrateToCurrent } from "../src/services/canvasschema.js";
-import {
-  buildShotSlotIndex, slotForShotId, shotIdForSlot,
-  buildServerBridge, serverShotIdForShot,
-} from "../src/workflow/shotmap.js";
+import { buildShotSlotIndex, slotForShotId, shotIdForSlot } from "../src/workflow/shotmap.js";
 
 const rec = (slot, url, extra = {}) => ({ slot_id: slot, origin: "upload", version: 1, digest: null, url, ...extra });
 
@@ -197,77 +194,4 @@ test("DELETE removes only the deleted binding; survivors are stable", () => {
   assert.equal(slotForShotId(i1, "shot-c"), "v1-3"); // did NOT shift into shot-b's old slot
   assert.equal(slotForShotId(i1, "shot-b"), null); // gone
   assert.equal(shotIdForSlot(i1, "v1-2"), null); // its slot is unbound now
-});
-
-// --- M4c: creativeShotId ↔ server official shot_id bridge ----------------- //
-
-const lockRec = (shot_id, creativeShotId, sequence) => ({ shot_id, creativeShotId, sequence });
-
-test("buildServerBridge maps clean 1:1 creativeShotId → server shot_id", () => {
-  const b = buildServerBridge([
-    lockRec("shot-p2-1", "shot-a", 1),
-    lockRec("shot-p2-2", "shot-b", 2),
-  ]);
-  assert.equal(b.bridged, true);
-  assert.equal(b.byCreative.get("shot-a"), "shot-p2-1");
-  assert.equal(b.byCreative.get("shot-b"), "shot-p2-2");
-});
-
-test("buildServerBridge drops conflicts (dup creativeShotId or dup server id)", () => {
-  const dupCreative = buildServerBridge([
-    lockRec("shot-p2-1", "shot-a", 1),
-    lockRec("shot-p2-2", "shot-a", 2), // same creative id → both dropped
-  ]);
-  assert.equal(dupCreative.bridged, true);
-  assert.equal(dupCreative.byCreative.has("shot-a"), false);
-  const dupServer = buildServerBridge([
-    lockRec("shot-p2-1", "shot-a", 1),
-    lockRec("shot-p2-1", "shot-b", 2), // same server id → both dropped
-  ]);
-  assert.equal(dupServer.byCreative.has("shot-a"), false);
-  assert.equal(dupServer.byCreative.has("shot-b"), false);
-});
-
-test("buildServerBridge: legacy records (no creativeShotId KEY) → bridged:false", () => {
-  const b = buildServerBridge([{ shot_id: "shot-p1-1", sequence: 1 }, { shot_id: "shot-p1-2", sequence: 2 }]);
-  assert.equal(b.bridged, false);
-  assert.equal(b.byCreative.size, 0);
-});
-
-test("buildServerBridge: an ALL-NULL M4c bridge is still bridged (key present) → NOT legacy", () => {
-  // the server nulls creativeShotId on fail-safe but KEEPS the key — this must
-  // NOT be misread as a legacy lock (which would sequence-fall-back)
-  const b = buildServerBridge([
-    { shot_id: "shot-p3-1", creativeShotId: null, sequence: 1 },
-    { shot_id: "shot-p3-2", creativeShotId: null, sequence: 2 },
-  ]);
-  assert.equal(b.bridged, true); // M4c-attempted → resolve by identity or unresolved
-  assert.equal(b.byCreative.size, 0);
-});
-
-test("buildServerBridge tolerates malformed input", () => {
-  assert.equal(buildServerBridge(null).bridged, false);
-  assert.equal(buildServerBridge([null, "x", 5]).byCreative.size, 0);
-});
-
-test("serverShotIdForShot: M4c lock resolves by creativeShotId, NO sequence fallback", () => {
-  const locked = [lockRec("shot-p2-1", "shot-a", 1), lockRec("shot-p2-2", "shot-b", 2)];
-  const bridge = buildServerBridge(locked);
-  // resolve by identity regardless of the shot's current sequence
-  assert.deepEqual(serverShotIdForShot(bridge, locked, { shotId: "shot-b", sequence: 1 }), { id: "shot-p2-2", unresolved: false });
-  assert.deepEqual(serverShotIdForShot(bridge, locked, { shotId: "shot-a", sequence: 2 }), { id: "shot-p2-1", unresolved: false });
-  // an M4c shot that can't be bridged → unresolved, never `shot-<seq>`
-  assert.deepEqual(serverShotIdForShot(bridge, locked, { shotId: "shot-ghost", sequence: 1 }), { id: null, unresolved: true });
-  assert.deepEqual(serverShotIdForShot(bridge, locked, { sequence: 1 }), { id: null, unresolved: true }); // no shotId
-});
-
-test("serverShotIdForShot: legacy lock (no bridge) uses positional fallback", () => {
-  const locked = [{ shot_id: "shot-p1-1", sequence: 1 }, { shot_id: "shot-p1-2", sequence: 2 }];
-  const bridge = buildServerBridge(locked);
-  assert.equal(serverShotIdForShot(bridge, locked, { shotId: "shot-a", sequence: 2 }).id, "shot-p1-2");
-});
-
-test("serverShotIdForShot: no lock → pre-seeded shot-<seq>", () => {
-  const bridge = buildServerBridge(null);
-  assert.deepEqual(serverShotIdForShot(bridge, null, { shotId: "shot-a", sequence: 3 }), { id: "shot-3", unresolved: false });
 });
