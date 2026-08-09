@@ -146,7 +146,7 @@ test("pre-existing assets.firstFrames without ids are stamped, and collide-free"
   const res = migrateToCurrent(doc);
   const ff = res.doc.assets.firstFrames["v1-1"];
   assert.equal(typeof ff.assetId, "string"); // stamped, not identity-less
-  assert.ok("shot_id" in ff);
+  assert.ok("creativeShotId" in ff);
   const imgV1 = res.doc.assets.images["v1-1"].history[0];
   assert.equal(ff.assetId, imgV1.assetId); // reused the carried image Asset's id
 });
@@ -282,8 +282,8 @@ test("a partial pre-existing registry gets every chain stamped with an identity"
   // the pre-existing image chain record was stamped, not left identity-less
   assert.match(res.doc.assets.images["pre-1"].history[0].assetId, /^asset-mig-\d+$/);
   assert.match(res.doc.assets.finals[0].assetId, /^asset-mig-\d+$/);
-  // and its shot_id was resolved (null here — no draft claims "pre-1")
-  assert.equal(res.doc.assets.images["pre-1"].history[0].shot_id, null);
+  // and its creativeShotId was resolved (null here — no draft claims "pre-1")
+  assert.equal(res.doc.assets.images["pre-1"].history[0].creativeShotId, null);
 });
 
 test("pre-existing image asset is reusable by a carried first frame after stamping", () => {
@@ -329,11 +329,11 @@ test("provable slot→shotId lands on Assets; ambiguity stays null", () => {
   });
   const res = migrateToCurrent(doc);
   const a = res.doc.assets;
-  assert.equal(a.images["v1-1"].history[0].shot_id, "shot-mig-1"); // unique across all drafts
-  assert.equal(a.videos["v1-1"].history[0].shot_id, "shot-mig-1");
-  assert.equal(a.firstFrames["v1-1"].shot_id, "shot-mig-1");
-  assert.equal(a.audio["voice-v1-2"].history[0].shot_id, null); // ambiguous → never guessed
-  assert.equal(a.audio["music-main"].history[0].shot_id, null); // not per-shot at all
+  assert.equal(a.images["v1-1"].history[0].creativeShotId, "shot-mig-1"); // unique across all drafts
+  assert.equal(a.videos["v1-1"].history[0].creativeShotId, "shot-mig-1");
+  assert.equal(a.firstFrames["v1-1"].creativeShotId, "shot-mig-1");
+  assert.equal(a.audio["voice-v1-2"].history[0].creativeShotId, null); // ambiguous → never guessed
+  assert.equal(a.audio["music-main"].history[0].creativeShotId, null); // not per-shot at all
 });
 
 test("duplicate slot across SAME-type nodes: later wins, loser preserved in displaced", () => {
@@ -418,7 +418,7 @@ test("shot provenance comes ONLY from scriptgen nodes, not any node with version
     versions: [{ raw: [{ slot: "v1-1", shotId: "shot-FORGED" }] }],
   });
   const res = migrateToCurrent(doc);
-  assert.equal(res.doc.assets.images["v1-1"].history[0].shot_id, "shot-mig-1"); // real, un-forged
+  assert.equal(res.doc.assets.images["v1-1"].history[0].creativeShotId, "shot-mig-1"); // real, un-forged
 });
 
 test("a registry chain map entry that hydration would drop is rejected, not lost", () => {
@@ -795,7 +795,7 @@ test("the single write path mints assetId once and never replaces it", () => {
   addVersion(view, "v1-1", refFromResponse("v1-1", "upload", { url: "/u/x.png", version: 1, sha256: "s" }, "shot-a"));
   const first = currentRef(view.uploads, "v1-1");
   assert.match(first.assetId, /^asset-/);
-  assert.equal(first.shot_id, "shot-a");
+  assert.equal(first.creativeShotId, "shot-a");
   // a new version is a NEW Asset; re-adding the same version keeps identity rules
   addVersion(view, "v1-1", refFromResponse("v1-1", "upload", { url: "/u/x2.png", version: 2 }));
   const second = currentRef(view.uploads, "v1-1");
@@ -837,7 +837,7 @@ test("migration provenance is domain-correct for a video slot literally named 'v
   assert.equal(res.status, "ok");
   // video slot "voice-1" resolves to the draft's shotId (its own slot), NOT
   // stripped to "1" as an audio key would be
-  assert.equal(res.doc.assets.videos["voice-1"].history[0].shot_id, "shot-mig-1");
+  assert.equal(res.doc.assets.videos["voice-1"].history[0].creativeShotId, "shot-mig-1");
 });
 
 test("a first frame reusing a same-id image at a DIFFERENT slot is rejected", () => {

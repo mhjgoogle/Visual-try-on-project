@@ -106,8 +106,10 @@ export function setCurrent(node, k, version) {
 }
 
 /** 由服务器写响应（{url, version, sha256}）构造 MediaRef。shotId 是该媒体
- *  可证明归属的 M2 镜头身份（调用方经 assetlib.shotIdForKey 或直接持有的
- *  draft shot 求得）；不可证明时诚实传 null，绝不猜。 */
+ *  可证明归属的 M2 CREATIVE 镜头身份（调用方经 assetlib.shotIdForKey 或直接
+ *  持有的 draft shot 求得）；不可证明时诚实传 null，绝不猜。
+ *  字段名为 `creativeShotId`（M4a）——与服务端 sequence 型 `shot_id` 属不同
+ *  命名空间，故用不同字段名，杜绝跨命名空间误读。 */
 export function refFromResponse(slotId, origin, res, shotId = null) {
   return {
     slot_id: slotId,
@@ -115,7 +117,7 @@ export function refFromResponse(slotId, origin, res, shotId = null) {
     version: typeof res.version === "number" ? res.version : 1,
     digest: res.sha256 || null,
     url: res.url,
-    shot_id: typeof shotId === "string" && shotId ? shotId : null,
+    creativeShotId: typeof shotId === "string" && shotId ? shotId : null,
   };
 }
 

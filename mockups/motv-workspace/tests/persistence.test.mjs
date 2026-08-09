@@ -50,11 +50,10 @@ function v1Doc() {
 
 // --- schema constants -------------------------------------------------------
 
-test("authoritative current version is 3 with exactly the v1→v2→v3 chain", () => {
-  assert.equal(CANVAS_SCHEMA_VERSION, 3);
-  assert.deepEqual(Object.keys(MIGRATIONS), ["1", "2"]);
-  assert.equal(typeof MIGRATIONS[1], "function");
-  assert.equal(typeof MIGRATIONS[2], "function");
+test("authoritative current version is 4 with exactly the v1→v2→v3→v4 chain", () => {
+  assert.equal(CANVAS_SCHEMA_VERSION, 4);
+  assert.deepEqual(Object.keys(MIGRATIONS), ["1", "2", "3"]);
+  for (const k of ["1", "2", "3"]) assert.equal(typeof MIGRATIONS[k], "function");
 });
 
 test("readSchemaVersion: explicit, legacy-missing, malformed", () => {

@@ -18,7 +18,7 @@
 //   outcome overwrite the stored document.
 
 /** Authoritative CURRENT canvas schema version. Saves must emit exactly this. */
-export const CANVAS_SCHEMA_VERSION = 3;
+export const CANVAS_SCHEMA_VERSION = 4;
 
 /**
  * v1 → v2 (checkpoint M2): stable creator identity + minimal provenance.
@@ -433,9 +433,45 @@ function migrateV2ToV3(doc) {
   return doc;
 }
 
+/**
+ * v3 → v4 (checkpoint M4a): rename the CREATIVE media-shot reference.
+ * M3 stamped every media record with `shot_id` = the provable creative shotId.
+ * That collides by NAME with the server's sequence-based official `shot_id`
+ * (different namespace) — a dangerous trap for the M4 shotId↔server bridge.
+ * Since `MediaRef.shot_id` is write-only/inert in M3 (no reader anywhere), the
+ * rename to `creativeShotId` is deterministic and behavior-free: it only
+ * disambiguates the two namespaces before any join starts reading them.
+ *
+ * Purely a field rename on media records (images/videos/audio history +
+ * firstFrames). No id, url, slot, version, digest, current pointer, or history
+ * order is touched. The server-side `shot_id` (paid ops, locked records) is a
+ * DIFFERENT field on different objects and is NOT touched.
+ */
+function migrateV3ToV4(doc) {
+  const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
+  const rename = (r) => {
+    if (!isObj(r) || !("shot_id" in r)) return;
+    if (!("creativeShotId" in r)) r.creativeShotId = r.shot_id;
+    delete r.shot_id; // the collided name is gone for good
+  };
+  if (!isObj(doc.assets)) return doc;
+  for (const dom of ["images", "videos", "audio"]) {
+    const m = doc.assets[dom];
+    if (!isObj(m)) continue;
+    for (const k of Object.keys(m)) {
+      const e = m[k];
+      if (isObj(e) && Array.isArray(e.history)) e.history.forEach(rename);
+    }
+  }
+  if (isObj(doc.assets.firstFrames)) {
+    for (const k of Object.keys(doc.assets.firstFrames)) rename(doc.assets.firstFrames[k]);
+  }
+  return doc;
+}
+
 /** Sequential migration steps: { [fromVersion]: (doc) => docAtFromVersion+1 }.
  *  Extended one real step at a time, never speculatively. */
-export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3 };
+export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4 };
 
 /** Read the schema version of a raw persisted document.
  *  Returns a positive integer, or null if the marker is malformed.
