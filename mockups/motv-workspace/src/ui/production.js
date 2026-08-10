@@ -10,6 +10,9 @@
 import { $, esc } from "../util/dom.js";
 import * as ws from "./workspaces.js";
 import { renderStoryboard, bindStoryboard } from "./storyboard.js";
+import { renderAudioWs, bindAudioWs } from "./audiows.js";
+import { renderTimelineWs, bindTimelineWs } from "./timelinews.js";
+import { renderStorageWs, bindStorageWs } from "./storagews.js";
 import { directorModel, renderDirector, bindDirector } from "./director.js";
 
 /** Grouped navigation — the approved final IA. Exported for tests. */
@@ -20,6 +23,7 @@ export const NAV = [
       ["story", "📖", "故事"],
       ["settings", "🎭", "作品设定"],
       ["episodes", "📺", "剧集"],
+      ["storage", "🗄", "存储"],
     ],
   },
   {
@@ -80,12 +84,14 @@ export function navBadges(doc, pd) {
     video: video.empty ? "" : `${video.done}/${video.total}`,
     audio: audio.empty ? "" : `${audio.done}/${audio.total}`,
     edit: edit.finals ? `✓v${edit.finals}` : "",
+    storage: "", // stats live in the workspace; no fabricated badge
   };
 }
 
 const MODULE_LABEL = {
-  story: "故事", settings: "作品设定", episodes: "剧集", script: "剧本",
-  shots: "分镜", frames: "画面", video: "视频", audio: "音频", edit: "剪辑",
+  story: "故事", settings: "作品设定", episodes: "剧集", storage: "存储",
+  script: "剧本", shots: "分镜", frames: "画面", video: "视频", audio: "音频",
+  edit: "时间线",
 };
 
 export function createProduction(getCtx) {
@@ -221,8 +227,9 @@ export function createProduction(getCtx) {
     shots: (ctx) => renderStoryboard(ctx, ui),
     frames: (ctx) => ws.renderFrames(ctx),
     video: (ctx) => ws.renderVideo(ctx),
-    audio: (ctx) => ws.renderAudio(ctx),
-    edit: (ctx) => ws.renderEdit(ctx),
+    audio: (ctx) => renderAudioWs(ctx, ui), // M11-A: full audio workspace
+    edit: (ctx) => renderTimelineWs(ctx, ui), // M11-B: lightweight timeline
+    storage: (ctx) => renderStorageWs(ctx, ui), // M11-D: storage management
   };
 
   function render() {
@@ -291,6 +298,11 @@ export function createProduction(getCtx) {
     }
     // 分镜 storyboard (M8) — selection + buffered shot edits + media actions
     if (activeModule === "shots") bindStoryboard(root, ctx, ui, render);
+    // 音频工作区 (M11-A) — dialogue/ambience/sfx/bgm through ctx.audio
+    if (activeModule === "audio") bindAudioWs(root, ctx, ui, render);
+    // 时间线 (M11-B) + 存储管理 (M11-D)
+    if (activeModule === "edit") bindTimelineWs(root, ctx, ui, render);
+    if (activeModule === "storage") bindStorageWs(root, ctx, ui, render);
     // AI Director (non-script modules) — real dispatches only
     if (activeModule !== "script") {
       bindDirector(root, ctx, ui);

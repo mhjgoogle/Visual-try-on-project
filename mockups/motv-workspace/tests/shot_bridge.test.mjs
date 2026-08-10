@@ -249,10 +249,11 @@ test("the creativeShotId bridge in lockedPlan survives a canvas dispatch round-t
     // M6/M7: …and the production structure (with its bible registries)
     production: {
       activeEpisodeId: "ep-1",
-      episodes: [{ episodeId: "ep-1", title: "第 1 集", scenes: [] }],
+      episodes: [{ episodeId: "ep-1", title: "第 1 集", scenes: [], bgmAssetId: null }],
       characters: [],
       locations: [],
     },
+    timelines: {}, // M11: required v9 field
     nodes: [{
       id: "g", type: "scriptgen", x: 0, y: 0, state: "done", cur: 1,
       versions: [{

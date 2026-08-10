@@ -362,7 +362,7 @@ test("navBadges: counts reflect state; empty modules still get a badge-less item
   const empty = navBadges(d, pdEmpty());
   assert.deepEqual(empty, {
     story: "", settings: "", episodes: "1", // M6: real persisted episode count
-    script: "草稿", shots: "", frames: "", video: "", audio: "", edit: "",
+    script: "草稿", shots: "", frames: "", video: "", audio: "", edit: "", storage: "",
   });
   sd.completeGeneration(d, sd.beginGeneration(d, "initial", "想法"), "v1");
   // M9: the story badge reflects the OUTLINE standing, not the script brief
@@ -399,7 +399,7 @@ test("navBadges: counts reflect state; empty modules still get a badge-less item
 
 test("NAV: grouped final IA — 项目级 and 当前剧集 with every module present", () => {
   assert.deepEqual(NAV.map((g) => g.sec), ["项目", "当前剧集"]);
-  assert.deepEqual(NAV[0].items.map((i) => i[0]), ["story", "settings", "episodes"]);
+  assert.deepEqual(NAV[0].items.map((i) => i[0]), ["story", "settings", "episodes", "storage"]); // M11: storage management
   assert.deepEqual(NAV[1].items.map((i) => i[0]), ["script", "shots", "frames", "video", "audio", "edit"]);
 });
 

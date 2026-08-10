@@ -18,7 +18,7 @@
 //   outcome overwrite the stored document.
 
 /** Authoritative CURRENT canvas schema version. Saves must emit exactly this. */
-export const CANVAS_SCHEMA_VERSION = 8;
+export const CANVAS_SCHEMA_VERSION = 9;
 
 /**
  * v1 → v2 (checkpoint M2): stable creator identity + minimal provenance.
@@ -680,9 +680,49 @@ function migrateV7ToV8(doc) {
   return doc;
 }
 
+/**
+ * v8 → v9 (checkpoint M11): audio references + per-episode timelines.
+ * Purely ADDITIVE:
+ * - every scene += ambienceAssetId: null / bgmAssetId: null, every episode +=
+ *   bgmAssetId: null — REFERENCES into the audio registry (never copies; the
+ *   fields are born here, pre-existing junk under these names is replaced);
+ * - `timelines` (NEW top-level map, episodeId → { clips, settings, edited })
+ *   — introduced empty; timeline clips are creator/sync decisions, never
+ *   fabricated by a migration;
+ * - the Generation type vocabulary gains "render" AT v9 (local FFmpeg render
+ *   provenance: inputs = clip assetIds, parameters = settings + clip
+ *   snapshot, result = the final Asset) — a mechanical render is durable
+ *   provenance like any generation, with an honest non-AI provider.
+ */
+function migrateV8ToV9(doc) {
+  const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
+  // ADD the v9 fields without CLOBBERING any value already present under those
+  // names (the codebase's unknown-field-preservation convention): only default
+  // a field that is genuinely absent — never overwrite persisted data.
+  // preserve a VALID pre-existing ref (non-empty string), else default to null:
+  // a v8 doc may carry a non-string value under these names that v8 ignored;
+  // carrying it into v9 unchanged would make v9 validation reject the doc, so
+  // coerce anything that is not a valid assetRef to null (still non-destructive
+  // for real data — only invalid/absent values change).
+  const ref = (v) => (typeof v === "string" && v ? v : null);
+  if (isObj(doc.production)) {
+    for (const e of Array.isArray(doc.production.episodes) ? doc.production.episodes : []) {
+      if (!isObj(e)) continue;
+      e.bgmAssetId = ref(e.bgmAssetId);
+      for (const s of Array.isArray(e.scenes) ? e.scenes : []) {
+        if (!isObj(s)) continue;
+        s.ambienceAssetId = ref(s.ambienceAssetId);
+        s.bgmAssetId = ref(s.bgmAssetId);
+      }
+    }
+  }
+  if (!isObj(doc.timelines)) doc.timelines = {};
+  return doc;
+}
+
 /** Sequential migration steps: { [fromVersion]: (doc) => docAtFromVersion+1 }.
  *  Extended one real step at a time, never speculatively. */
-export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7, 7: migrateV7ToV8 };
+export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7, 7: migrateV7ToV8, 8: migrateV8ToV9 };
 
 /** Read the schema version of a raw persisted document.
  *  Returns a positive integer, or null if the marker is malformed.
@@ -1037,7 +1077,11 @@ export function validateCanvasDoc(doc) {
       // unprovable lineage; a deleted-bytes Asset still keeps its record + id
       // (only its storageState changes), so provenance survives byte removal.
       if (atV5) {
-        const GEN_TYPES = new Set(["image", "video", "audio"]);
+        // v9 adds the non-AI "render" provenance type (local FFmpeg episode
+        // renders) — earlier versions never legitimately carry it
+        const GEN_TYPES = Number.isInteger(doc.v) && doc.v >= 9
+          ? new Set(["image", "video", "audio", "render"])
+          : new Set(["image", "video", "audio"]);
         const GEN_STATUSES = new Set(["queued", "generating", "success", "failed", "cancelled"]);
         const genIds = new Set();
         for (const g of doc.generations) {
@@ -1217,12 +1261,17 @@ export function validateCanvasDoc(doc) {
       const epIds = new Set();
       const sceneIds = new Set();
       const shotRefs = new Set();
+      const atV9 = Number.isInteger(doc.v) && doc.v >= 9;
+      const assetRefOk = (v) => v === null || (typeof v === "string" && v);
       for (const e of p.episodes) {
         if (!isPlainObject(e)) return "production.episodes contains a non-object entry";
         if (typeof e.episodeId !== "string" || !e.episodeId) return "an episode has no episodeId";
         if (epIds.has(e.episodeId)) return `duplicate episodeId ${e.episodeId}`;
         epIds.add(e.episodeId);
         if (typeof e.title !== "string") return `episode ${e.episodeId} has no title string`;
+        // v9: episode BGM reference — SHAPE only vs the audio registry (a
+        // music asset legitimately outlives its bytes, like bible refs)
+        if (atV9 && !assetRefOk(e.bgmAssetId)) return `episode ${e.episodeId} bgmAssetId is invalid`;
         if (!Array.isArray(e.scenes)) return `episode ${e.episodeId} scenes is not an array`;
         for (const s of e.scenes) {
           if (!isPlainObject(s)) return `episode ${e.episodeId} scenes contains a non-object entry`;
@@ -1235,6 +1284,11 @@ export function validateCanvasDoc(doc) {
             if (typeof id !== "string" || !id) return `scene ${s.sceneId} has a non-string shot reference`;
             if (shotRefs.has(id)) return `shot ${id} is referenced by more than one scene`;
             shotRefs.add(id);
+          }
+          // v9 audio references — shape-only asset refs, required present
+          if (atV9) {
+            if (!assetRefOk(s.ambienceAssetId)) return `scene ${s.sceneId} ambienceAssetId is invalid`;
+            if (!assetRefOk(s.bgmAssetId)) return `scene ${s.sceneId} bgmAssetId is invalid`;
           }
           // v7 bible references: INTERNAL to this document, so they must
           // resolve — a ref to a missing character/location/state is corrupt
@@ -1284,6 +1338,52 @@ export function validateCanvasDoc(doc) {
       }
       if (typeof p.activeEpisodeId !== "string" || !epIds.has(p.activeEpisodeId)) {
         return "production.activeEpisodeId does not reference an episode";
+      }
+    }
+  }
+  // Since v9 per-episode timelines are durable (top-level `timelines` map).
+  // Clips REFERENCE assets by id (shape-only — the registry stays the single
+  // media source of truth; a clip whose asset lost its bytes shows honestly).
+  const atV9top = Number.isInteger(doc.v) && doc.v >= 9;
+  if (atV9top && !isPlainObject(doc.timelines)) return "v9 document is missing its timelines map";
+  if (doc.timelines !== undefined) {
+    if (!isPlainObject(doc.timelines)) return "timelines is not an object";
+    const TRACKS = new Set(["video", "dialogue", "ambience", "sfx", "bgm"]);
+    const num = (v) => typeof v === "number" && Number.isFinite(v);
+    for (const k of Object.keys(doc.timelines)) {
+      if (typeof k !== "string" || !k) return "timelines has an empty episode key";
+      const t = doc.timelines[k];
+      if (!isPlainObject(t)) return `timelines[${k}] is not an object`;
+      if (!atV9top) continue;
+      if (typeof t.edited !== "boolean") return `timelines[${k}] edited flag is missing or not a boolean`;
+      if (!isPlainObject(t.settings)) return `timelines[${k}] settings is not an object`;
+      // render settings the creator chose must survive the round-trip EXACTLY
+      // and must be RENDERABLE: the bounds match the render endpoint's, so a
+      // persisted setting can never disagree with what the server would render
+      // (it would otherwise silently default an out-of-range value). Fail safe
+      // — a save is rejected rather than mutated.
+      const st = t.settings;
+      const inRange = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+      if (!inRange(st.width, 16, 3840) || !inRange(st.height, 16, 2160)) return `timelines[${k}] settings width/height are invalid`;
+      if (!inRange(st.fps, 1, 60)) return `timelines[${k}] settings fps is invalid`;
+      if (st.format !== "mp4" && st.format !== "webm") return `timelines[${k}] settings format is invalid`;
+      if (!Array.isArray(t.clips)) return `timelines[${k}] clips is not an array`;
+      const clipIds = new Set();
+      for (const c of t.clips) {
+        if (!isPlainObject(c)) return `timelines[${k}] clips contains a non-object entry`;
+        if (typeof c.clipId !== "string" || !c.clipId) return `timelines[${k}] has a clip with no clipId`;
+        if (clipIds.has(c.clipId)) return `timelines[${k}] has duplicate clipId ${c.clipId}`;
+        clipIds.add(c.clipId);
+        if (!TRACKS.has(c.trackType)) return `clip ${c.clipId} has invalid trackType`;
+        if (typeof c.assetId !== "string" || !c.assetId) return `clip ${c.clipId} has no assetId`;
+        if (!(c.shotId === null || (typeof c.shotId === "string" && c.shotId))) return `clip ${c.clipId} shotId is invalid`;
+        if (!num(c.startTime) || c.startTime < 0) return `clip ${c.clipId} startTime is invalid`;
+        if (!num(c.trimIn) || c.trimIn < 0) return `clip ${c.clipId} trimIn is invalid`;
+        if (!num(c.trimOut) || c.trimOut <= c.trimIn) return `clip ${c.clipId} trimOut must exceed trimIn`;
+        if (!num(c.volume) || c.volume < 0 || c.volume > 2) return `clip ${c.clipId} volume must be 0..2`;
+        if (typeof c.muted !== "boolean") return `clip ${c.clipId} muted is not a boolean`;
+        if (!num(c.fadeIn) || c.fadeIn < 0) return `clip ${c.clipId} fadeIn is invalid`;
+        if (!num(c.fadeOut) || c.fadeOut < 0) return `clip ${c.clipId} fadeOut is invalid`;
       }
     }
   }

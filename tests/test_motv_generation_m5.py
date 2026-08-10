@@ -76,9 +76,10 @@ def test_ai_paths_record_generations_with_frozen_snapshot() -> None:
         assert "ctx.failGeneration" in src
     # video: BOTH the single and the batch paid paths start a generation and
     # complete it on adopt (link the produced video Asset); M10 adds the
-    # manual-entry import path (promptSnapshot from the copied prompt)
-    assert app.count("ctx.startGeneration") == 3  # paidGenerate + batch + M10 import
-    assert app.count("ctx.completeGeneration") >= 3
+    # manual-entry import path (promptSnapshot from the copied prompt); M11
+    # adds audio entry-import + local TTS + the ffmpeg render provenance
+    assert app.count("ctx.startGeneration") == 6
+    assert app.count("ctx.completeGeneration") >= 6
     assert "promptSnapshot" in assets and "promptSnapshot" in audio
     # an AMBIGUOUS submit exception must NOT mark the video generation failed
     # (the remote may have billed it) — only a DEFINITIVE non-success response

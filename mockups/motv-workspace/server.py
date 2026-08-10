@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import socket
@@ -97,11 +98,18 @@ _UPLOAD_FILE_RE = re.compile(r"[A-Za-z0-9_-]{1,76}\.(?:png|jpg|webp|mp4|webm|mp3
 # (manual upload / TTS / paid image) may claim it — otherwise an upload could
 # silently replace a composed deliverable, and the same-slug other-extension
 # cleanup in TTS/image-gen could even delete one.
-_RESERVED_SLUG_PREFIX = "final-cut"
+_RESERVED_SLUG_PREFIXES = ("final-cut", "render-ep")
+
+# Episode render is CPU/disk heavy: allow only ONE at a time (a second caller
+# gets a busy response, never a pile-up), and bound the total output work by a
+# pixel-seconds budget (≈ 1h of 1080p30) so no single request can synthesize an
+# arbitrarily large file even within the 1h duration cap (M11 review).
+_RENDER_LOCK = threading.Lock()
+_RENDER_PIXEL_SECONDS_MAX = 1920 * 1080 * 30 * 3600
 
 
 def _slug_reserved(slug: str) -> bool:
-    return slug.startswith(_RESERVED_SLUG_PREFIX)
+    return slug.startswith(_RESERVED_SLUG_PREFIXES)
 
 
 def _bridge_creative_shot_ids(outcome, creative_shot_ids):
@@ -785,6 +793,10 @@ class _App:
             return self._agent_story_develop(body)
         if path == "/api/agent/episode-plan":
             return self._agent_episode_plan(body)
+        if path == "/api/agent/render-episode":
+            return self._agent_render_episode(body)
+        if path == "/api/assets/delete-file":
+            return self._assets_delete_file(body)
         if path == "/api/agent/script-draft":
             return self._agent_script_draft(body)
         if path == "/api/agent/tts":
@@ -1621,6 +1633,25 @@ class _App:
                     }
                 },
             )
+        # Optional per-character LOCAL voice model (M11 voice-identity rule):
+        # a `voice` names a piper model `data/tts/<voice>.onnx` — used when that
+        # model is present so a character's fixed base voice actually renders,
+        # else an HONEST fallback to the default model (no fabrication, still
+        # free/offline; multi-voice PAID providers stay out of scope, ADR-0043).
+        voice = payload.get("voice")
+        model = _TTS_MODEL
+        voice_used = None
+        if voice is not None:
+            if not isinstance(voice, str) or not _NAME_RE.fullmatch(voice):
+                return _json(
+                    400,
+                    {"error": {"category": "bad_request", "detail": "bad voice"}},
+                )
+            cand = (DATA_DIR / "tts" / f"{voice}.onnx").resolve()
+            tts_dir = (DATA_DIR / "tts").resolve()
+            if tts_dir in cand.parents and cand.is_file() and not cand.is_symlink():
+                model = cand
+                voice_used = voice
         # Optional fit-to-video (先视频后配音): when fit_slug names an uploaded
         # video slot, the voice is re-synthesized with a faster length-scale if
         # it runs longer than the clip, so narration fits the SHOT's duration.
@@ -1683,7 +1714,7 @@ class _App:
             return v if pr.returncode == 0 and v > 0 else None
 
         def _synth(dest: str, length_scale: float | None) -> None:
-            cmd = [piper, "-m", str(_TTS_MODEL), "-f", dest]
+            cmd = [piper, "-m", str(model), "-f", dest]
             if length_scale is not None:
                 cmd += ["--length-scale", f"{length_scale:.3f}"]
             proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
@@ -1748,6 +1779,10 @@ class _App:
                 "source": "piper",
                 "fitted": fitted,
                 "fit_seconds": fit_seconds,
+                # the voice model actually used: the requested per-character
+                # voice when its local model was present, else null (default
+                # model) — provenance never claims a voice it didn't render
+                "voice": voice_used,
             },
         )
 
@@ -2431,6 +2466,450 @@ class _App:
                 "music": music is not None,
             },
         )
+
+    def _resolve_upload_file(self, d, name, exts):
+        """Resolve an EXACT upload basename (incl. its ADR-0048 version
+        suffix) to a regular file inside the project's upload dir. Same
+        containment discipline as _resolve_slot: whitelist pattern, no
+        symlinks, resolved path must stay under the directory."""
+        if not isinstance(name, str) or not _UPLOAD_FILE_RE.fullmatch(name):
+            return None
+        if not name.endswith(exts):
+            return None
+        p = d / name
+        if p.is_file() and not p.is_symlink():
+            rp = p.resolve()
+            if d in rp.parents and rp.is_file():
+                return rp
+        return None
+
+    def _agent_render_episode(self, body: bytes):
+        """Lightweight episode render (M11): timeline clips → ONE MP4/WebM
+        with LOCAL ffmpeg. Video track = sequential trimmed clips (scaled/
+        padded/fps-normalized, source audio deliberately dropped — dialogue/
+        ambience/sfx/bgm come from their own clips); audio clips are trimmed,
+        volume/fade-shaped, delayed to their startTime and mixed. Output
+        ``render-ep-v<N>.<ext>`` — versioned atomically, never overwrites.
+        Fail-closed at every step; never a fabricated success."""
+        if len(body) > 1_000_000:
+            return _json(
+                413, {"error": {"category": "too_large", "detail": "request too large"}}
+            )
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid JSON"}}
+            )
+        if not isinstance(payload, dict):
+            return _json(
+                400,
+                {"error": {"category": "bad_request", "detail": "body must be object"}},
+            )
+        project = payload.get("project")
+        clips = payload.get("clips")
+        settings = (
+            payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
+        )
+        if not isinstance(project, str):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid name"}}
+            )
+        d = self._upload_dir(project)
+        if d is None:
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid name"}}
+            )
+        if not isinstance(clips, list) or not (1 <= len(clips) <= 120):
+            return _json(
+                400,
+                {
+                    "error": {
+                        "category": "bad_request",
+                        "detail": "1-120 clips required",
+                    }
+                },
+            )
+
+        # a PRESENT setting must be in range — REJECT out-of-range rather than
+        # silently substitute a default, so the rendered output never disagrees
+        # with the settings the caller (and the persisted timeline) recorded;
+        # an ABSENT setting takes the default (M11 review).
+        def _int(key, lo, hi, default):
+            v = settings.get(key)
+            if v is None:
+                return default, None
+            if isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi:
+                return v, None
+            return None, f"invalid {key}"
+
+        width, e1 = _int("width", 16, 3840, 1280)
+        height, e2 = _int("height", 16, 2160, 720)
+        fps, e3 = _int("fps", 1, 60, 25)
+        fmt_raw = settings.get("format")
+        e4 = None if fmt_raw in (None, "mp4", "webm") else "invalid format"
+        fmt = "webm" if fmt_raw == "webm" else "mp4"
+        bad_setting = e1 or e2 or e3 or e4
+        if bad_setting:
+            return _json(
+                400,
+                {"error": {"category": "bad_request", "detail": bad_setting}},
+            )
+
+        import shutil as _shutil
+
+        ffmpeg = _shutil.which("ffmpeg")
+        if ffmpeg is None:
+            return _json(
+                503,
+                {
+                    "error": {
+                        "category": "render_unavailable",
+                        "detail": "ffmpeg 缺失：请安装",
+                    }
+                },
+            )
+
+        # resolve + validate EVERY clip before any work (fail-closed)
+        vids = []
+        auds = []
+        for i, c in enumerate(clips, start=1):
+            if not isinstance(c, dict):
+                return _json(
+                    400,
+                    {"error": {"category": "bad_request", "detail": f"clip {i} bad"}},
+                )
+            track = c.get("track")
+
+            # a PRESENT numeric field must be valid + in range — REJECT rather
+            # than silently substitute a default, so the rendered timeline (and
+            # the recorded provenance snapshot) can never disagree with what the
+            # caller supplied; an ABSENT field takes its default (M11 review).
+            def _num(key, lo, hi, default, c=c, i=i):
+                v = c.get(key)
+                if v is None:
+                    return default, None
+                if (
+                    isinstance(v, (int, float))
+                    and not isinstance(v, bool)
+                    and math.isfinite(v)
+                    and lo <= v <= hi
+                ):
+                    return float(v), None
+                return None, f"clip {i}: bad {key}"
+
+            tin, e = _num("in", 0.0, 36000.0, 0.0)
+            if e:
+                return _json(400, {"error": {"category": "bad_request", "detail": e}})
+            tout, e = _num("out", 0.0, 36000.0, tin + 1.0)
+            if e:
+                return _json(400, {"error": {"category": "bad_request", "detail": e}})
+            if not (tin < tout):
+                return _json(
+                    400,
+                    {
+                        "error": {
+                            "category": "bad_request",
+                            "detail": f"clip {i}: bad trim",
+                        }
+                    },
+                )
+            start, e = _num("start", 0.0, 36000.0, 0.0)
+            if e:
+                return _json(400, {"error": {"category": "bad_request", "detail": e}})
+            vol, e = _num("volume", 0.0, 2.0, 1.0)
+            if e:
+                return _json(400, {"error": {"category": "bad_request", "detail": e}})
+            fade_in, e = _num("fadeIn", 0.0, 30.0, 0.0)
+            if e:
+                return _json(400, {"error": {"category": "bad_request", "detail": e}})
+            fade_out, e = _num("fadeOut", 0.0, 30.0, 0.0)
+            if e:
+                return _json(400, {"error": {"category": "bad_request", "detail": e}})
+            if track == "video":
+                f = self._resolve_upload_file(d, c.get("file"), (".mp4", ".webm"))
+                if f is None:
+                    return _json(
+                        400,
+                        {
+                            "error": {
+                                "category": "bad_request",
+                                "detail": f"clip {i}: video file missing",
+                            }
+                        },
+                    )
+                vids.append({"f": f, "in": tin, "out": tout})
+            elif track in ("dialogue", "ambience", "sfx", "bgm"):
+                if c.get("muted") is True or vol <= 0:
+                    continue  # a muted clip contributes nothing — skipped
+                f = self._resolve_upload_file(d, c.get("file"), (".mp3", ".wav"))
+                if f is None:
+                    return _json(
+                        400,
+                        {
+                            "error": {
+                                "category": "bad_request",
+                                "detail": f"clip {i}: audio file missing",
+                            }
+                        },
+                    )
+                auds.append(
+                    {
+                        "f": f,
+                        "in": tin,
+                        "out": tout,
+                        "start": start,
+                        "vol": vol,
+                        "fi": fade_in,
+                        "fo": fade_out,
+                    }
+                )
+            else:
+                return _json(
+                    400,
+                    {
+                        "error": {
+                            "category": "bad_request",
+                            "detail": f"clip {i}: bad track",
+                        }
+                    },
+                )
+        if not vids:
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "no video clips"}}
+            )
+        # bound the TOTAL synthesized picture length: per-clip trims may reach
+        # 36000s each, but tpad materializes every segment's full planned
+        # duration, so 120 clips could demand hours of frames -> CPU/disk DoS.
+        # An episode render is minutes; cap the sum at a generous 1 hour.
+        video_total = sum(v["out"] - v["in"] for v in vids)
+        if video_total > 3600:
+            return _json(
+                400,
+                {
+                    "error": {
+                        "category": "bad_request",
+                        "detail": "总时长超过 1 小时上限（本集渲染）",
+                    }
+                },
+            )
+        # bound the total OUTPUT work (pixels × fps × seconds), so a 1h render at
+        # 4K60 — huge CPU/disk even under the duration cap — is refused
+        if width * height * fps * video_total > _RENDER_PIXEL_SECONDS_MAX:
+            return _json(
+                400,
+                {
+                    "error": {
+                        "category": "bad_request",
+                        "detail": "渲染规模超限：请降低分辨率/帧率或缩短时长",
+                    }
+                },
+            )
+
+        # one ffmpeg pass: inputs in order (videos then audios)
+        args = [ffmpeg, "-y", "-nostdin"]
+        for v in vids:
+            args += ["-i", str(v["f"])]
+        for a in auds:
+            args += ["-i", str(a["f"])]
+        parts = []
+        for idx, v in enumerate(vids):
+            # FORCE each segment to EXACTLY its planned (out-in) length: clone
+            # the last frame to fill a too-short source, then trim to length.
+            # Without this, a video shorter than its trim window lets concat
+            # start the next clip early while the audio track keeps its planned
+            # delays -> A/V desync after short clips (M11 review). tpad must run
+            # AFTER fps: a preceding trim breaks clone-frame propagation.
+            seg = v["out"] - v["in"]
+            parts.append(
+                f"[{idx}:v]trim=start={v['in']:.3f}:end={v['out']:.3f},setpts=PTS-STARTPTS,"
+                f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+                f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,fps={fps},setsar=1,"
+                f"tpad=stop_mode=clone:stop_duration={seg:.3f},"
+                f"trim=start=0:end={seg:.3f},setpts=PTS-STARTPTS[v{idx}]"
+            )
+        parts.append(
+            "".join(f"[v{i}]" for i in range(len(vids)))
+            + f"concat=n={len(vids)}:v=1:a=0[vout]"
+        )
+        maps = ["-map", "[vout]"]
+        if auds:
+            for j, a in enumerate(auds):
+                k = len(vids) + j
+                dur = a["out"] - a["in"]
+                fades = ""
+                if a["fi"] > 0:
+                    fades += f",afade=t=in:st=0:d={min(a['fi'], dur):.3f}"
+                if a["fo"] > 0:
+                    fo_st = max(0.0, dur - a["fo"])
+                    fades += f",afade=t=out:st={fo_st:.3f}:d={min(a['fo'], dur):.3f}"
+                delay_ms = int(round(a["start"] * 1000))
+                parts.append(
+                    f"[{k}:a]atrim=start={a['in']:.3f}:end={a['out']:.3f},asetpts=PTS-STARTPTS,"
+                    f"volume={a['vol']:.3f}{fades},aresample=44100,adelay={delay_ms}:all=1[a{j}]"
+                )
+            parts.append(
+                "".join(f"[a{j}]" for j in range(len(auds)))
+                + f"amix=inputs={len(auds)}:duration=longest:normalize=0[aout]"
+            )
+            maps += ["-map", "[aout]"]
+        args += ["-filter_complex", ";".join(parts)] + maps
+        # the PICTURE defines the episode length: cap the whole render to the
+        # summed video duration (bounded to 1h above) so a far-delayed audio
+        # clip (adelay up to 36000s) can never stretch the output past the
+        # video / exhaust CPU/disk via amix=duration=longest (M11 review).
+        args += ["-t", f"{video_total:.3f}"]
+        if fmt == "webm":
+            args += ["-c:v", "libvpx-vp9", "-b:v", "2M"]
+            if auds:
+                args += ["-c:a", "libopus"]
+        else:
+            args += ["-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p"]
+            if auds:
+                args += ["-c:a", "aac", "-ar", "44100"]
+
+        # one render at a time: a concurrent caller is turned away rather than
+        # allowed to pile CPU/disk load on top of a render in flight
+        if not _RENDER_LOCK.acquire(blocking=False):
+            return _json(
+                503,
+                {
+                    "error": {
+                        "category": "render_busy",
+                        "detail": "已有渲染在进行中，请稍后再试",
+                    }
+                },
+            )
+        work = None
+        try:
+            work = Path(tempfile.mkdtemp(prefix="motv-render-", dir=str(d)))
+            out_tmp = work / f"out.{fmt}"
+            try:
+                proc = subprocess.run(  # noqa: S603 - fixed argv, validated paths
+                    args + [str(out_tmp)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    timeout=600,
+                )
+            except subprocess.TimeoutExpired:
+                return _json(
+                    504,
+                    {
+                        "error": {
+                            "category": "render_timeout",
+                            "detail": "ffmpeg timed out",
+                        }
+                    },
+                )
+            if proc.returncode != 0 or not out_tmp.is_file():
+                detail = (proc.stderr or b"")[-400:].decode("utf-8", "replace")
+                return _json(
+                    502,
+                    {
+                        "error": {
+                            "category": "render_failed",
+                            "detail": f"ffmpeg failed: {detail}",
+                        }
+                    },
+                )
+            # atomic versioned claim — two concurrent renders can never share N
+            n = 1
+            while True:
+                target = d / f"render-ep-v{n}.{fmt}"
+                try:
+                    os.close(os.open(str(target), os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+                    break
+                except FileExistsError:
+                    n += 1
+            try:
+                os.replace(out_tmp, target)
+            except OSError:
+                try:
+                    os.unlink(target)  # release the claimed slot on failure
+                except OSError:
+                    pass
+                raise
+            # hash in bounded chunks — a large permitted render must never be
+            # slurped whole into memory (M11 review)
+            h = hashlib.sha256()
+            with open(target, "rb") as fh:
+                for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                    h.update(chunk)
+            sha = h.hexdigest()
+        except OSError:
+            return _json(
+                502, {"error": {"category": "render_failed", "detail": "render failed"}}
+            )
+        finally:
+            if work is not None:
+                _shutil.rmtree(work, ignore_errors=True)
+            _RENDER_LOCK.release()
+        return _json(
+            200,
+            {
+                "ok": True,
+                "url": f"/api/uploads/{project}/render-ep-v{n}.{fmt}",
+                "version": n,
+                "sha256": sha,
+                "clips": len(vids) + len(auds),
+            },
+        )
+
+    def _assets_delete_file(self, body: bytes):
+        """Delete ONE uploaded media file's bytes (M11 storage management —
+        Remove Local Copy / the byte half of a permanent delete). The CLIENT
+        owns the registry semantics (storageState, record removal, reference
+        checks); this endpoint only removes bytes, with the same containment
+        discipline as every other file route. Composed/rendered deliverables
+        (reserved prefixes) may also be removed — they are project scratch."""
+        if len(body) > 10_000:
+            return _json(
+                413, {"error": {"category": "too_large", "detail": "request too large"}}
+            )
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid JSON"}}
+            )
+        project = payload.get("project") if isinstance(payload, dict) else None
+        name = payload.get("file") if isinstance(payload, dict) else None
+        if not isinstance(project, str):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid name"}}
+            )
+        d = self._upload_dir(project)
+        if d is None:
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid name"}}
+            )
+        p = self._resolve_upload_file(
+            d, name, (".png", ".jpg", ".webp", ".mp4", ".webm", ".mp3", ".wav")
+        )
+        if p is None:
+            # already gone counts as done — the goal state (no bytes) holds
+            if (
+                isinstance(name, str)
+                and _UPLOAD_FILE_RE.fullmatch(name)
+                and not (d / name).exists()
+            ):
+                return _json(200, {"ok": True, "deleted": False})
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid file"}}
+            )
+        try:
+            p.unlink()
+        except OSError:
+            return _json(
+                502,
+                {
+                    "error": {
+                        "category": "delete_failed",
+                        "detail": "could not delete file",
+                    }
+                },
+            )
+        return _json(200, {"ok": True, "deleted": True})
 
     # -- paid ops status (read-only projection of reservations/staging) -----
     def _paid_ops(self, name: str):

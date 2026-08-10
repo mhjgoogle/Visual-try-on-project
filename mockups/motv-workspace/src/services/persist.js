@@ -36,7 +36,7 @@ const _loadChain = new Map();
 
 // Top-level fields the app serializer owns (see serializeGraph in app.js).
 // Anything else in a loaded document is carried through saves untouched.
-const OWNED_FIELDS = ["v", "project", "scriptDoc", "story", "scripts", "assets", "generations", "production", "nodes", "edges", "pan"];
+const OWNED_FIELDS = ["v", "project", "scriptDoc", "story", "scripts", "assets", "generations", "production", "timelines", "nodes", "edges", "pan"];
 
 function _dispatch(name, raw) {
   const res = migrateToCurrent(raw);

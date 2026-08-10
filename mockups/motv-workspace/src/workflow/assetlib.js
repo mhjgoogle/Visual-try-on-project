@@ -129,6 +129,117 @@ export function addFinal(reg, url) {
   return rec;
 }
 
+/** Locate an Asset RECORD by id anywhere in the registry (chains, finals,
+ *  standalone first frames). Returns { record, domain, key } or null.
+ *  firstFrames that ALIAS an image asset resolve to the image chain entry. */
+export function findAssetById(reg, assetId) {
+  if (!isObj(reg) || typeof assetId !== "string" || !assetId) return null;
+  for (const domain of ["images", "videos", "audio"]) {
+    const m = reg[domain];
+    if (!isObj(m)) continue;
+    for (const key of Object.keys(m)) {
+      const e = m[key];
+      if (!isObj(e) || !Array.isArray(e.history)) continue;
+      const r = e.history.find((x) => isObj(x) && x.assetId === assetId);
+      if (r) return { record: r, domain, key };
+    }
+  }
+  for (const f of Array.isArray(reg.finals) ? reg.finals : []) {
+    if (isObj(f) && f.assetId === assetId) return { record: f, domain: "finals", key: null };
+  }
+  if (isObj(reg.firstFrames)) {
+    for (const key of Object.keys(reg.firstFrames)) {
+      const r = reg.firstFrames[key];
+      if (isObj(r) && r.assetId === assetId) return { record: r, domain: "firstFrames", key };
+    }
+  }
+  return null;
+}
+
+/** Every place that REFERENCES an Asset (M11 permanent-delete gate). Returns
+ *  { blocking: [labels], provenance: n } — blocking references must be
+ *  released BEFORE a permanent delete (never silently broken); generation
+ *  links are provenance (allowed to dangle by design, M5) and are only
+ *  REPORTED so the deletion prompt can state the impact honestly. */
+export function referencesOfAsset({ reg, assetId, production, timelines, generations }) {
+  const blocking = [];
+  if (isObj(reg) && isObj(reg.firstFrames)) {
+    for (const key of Object.keys(reg.firstFrames)) {
+      const r = reg.firstFrames[key];
+      if (isObj(r) && r.assetId === assetId) blocking.push(`镜头首帧引用（槽位 ${key}）`);
+    }
+  }
+  if (isObj(production)) {
+    for (const c of Array.isArray(production.characters) ? production.characters : []) {
+      if (Array.isArray(c.referenceAssetIds) && c.referenceAssetIds.includes(assetId)) blocking.push(`角色参考图（${c.name}）`);
+      for (const st of Array.isArray(c.states) ? c.states : []) {
+        if (st.overrides && Array.isArray(st.overrides.referenceAssetIds) && st.overrides.referenceAssetIds.includes(assetId)) {
+          blocking.push(`角色状态参考图（${c.name} · ${st.name}）`);
+        }
+      }
+    }
+    for (const l of Array.isArray(production.locations) ? production.locations : []) {
+      if (Array.isArray(l.referenceAssetIds) && l.referenceAssetIds.includes(assetId)) blocking.push(`场景地参考图（${l.name}）`);
+      for (const st of Array.isArray(l.states) ? l.states : []) {
+        if (st.overrides && Array.isArray(st.overrides.referenceAssetIds) && st.overrides.referenceAssetIds.includes(assetId)) {
+          blocking.push(`场景地状态参考图（${l.name} · ${st.name}）`);
+        }
+      }
+    }
+    for (const ep of Array.isArray(production.episodes) ? production.episodes : []) {
+      if (ep.bgmAssetId === assetId) blocking.push(`剧集 BGM（${ep.title}）`);
+      for (const sc of Array.isArray(ep.scenes) ? ep.scenes : []) {
+        if (sc.ambienceAssetId === assetId) blocking.push(`场景环境音（${sc.title}）`);
+        if (sc.bgmAssetId === assetId) blocking.push(`场景 BGM（${sc.title}）`);
+      }
+    }
+  }
+  if (isObj(timelines)) {
+    for (const epId of Object.keys(timelines)) {
+      const t = timelines[epId];
+      for (const c of isObj(t) && Array.isArray(t.clips) ? t.clips : []) {
+        if (isObj(c) && c.assetId === assetId) blocking.push(`时间线 clip（${c.trackType}）`);
+      }
+    }
+  }
+  let provenance = 0;
+  for (const g of Array.isArray(generations) ? generations : []) {
+    if (!isObj(g)) continue;
+    for (const field of ["inputAssetIds", "referenceAssetIds", "resultAssetIds"]) {
+      if (Array.isArray(g[field]) && g[field].includes(assetId)) provenance += 1;
+    }
+  }
+  return { blocking, provenance };
+}
+
+/** Surgically remove ONE Asset record (permanent delete, AFTER the blocking
+ *  reference gate + byte deletion). Chain records: the version leaves the
+ *  history; a current pointer at it re-points to the newest remaining; an
+ *  emptied chain key is removed. Finals: the record leaves the list.
+ *  Generation provenance is NEVER touched (dangling links are by design). */
+export function removeAssetRecord(reg, assetId) {
+  const hit = findAssetById(reg, assetId);
+  if (!hit) return false;
+  if (hit.domain === "finals") {
+    reg.finals = reg.finals.filter((f) => !(isObj(f) && f.assetId === assetId));
+    return true;
+  }
+  if (hit.domain === "firstFrames") {
+    delete reg.firstFrames[hit.key];
+    return true;
+  }
+  const chain = reg[hit.domain][hit.key];
+  chain.history = chain.history.filter((r) => !(isObj(r) && r.assetId === assetId));
+  if (!chain.history.length) {
+    delete reg[hit.domain][hit.key];
+    return true;
+  }
+  if (!chain.history.some((r) => r.version === chain.current)) {
+    chain.current = chain.history[chain.history.length - 1].version;
+  }
+  return true;
+}
+
 /** The M2 shotId a media key PROVABLY belongs to, else null.
  *
  *  The DOMAIN must be passed, never guessed from the key text: an image/video

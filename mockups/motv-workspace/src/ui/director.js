@@ -10,8 +10,9 @@ import { esc } from "../util/dom.js";
 import { scriptStatus } from "./production.js";
 
 const MODULE_LABEL = {
-  story: "故事", settings: "作品设定", episodes: "剧集", script: "剧本",
-  shots: "分镜", frames: "画面", video: "视频", audio: "音频", edit: "剪辑",
+  story: "故事", settings: "作品设定", episodes: "剧集", storage: "存储",
+  script: "剧本", shots: "分镜", frames: "画面", video: "视频", audio: "音频",
+  edit: "时间线",
 };
 
 const STATUS_ZH = { queued: "排队", generating: "生成中", success: "成功", failed: "失败", cancelled: "已取消" };
@@ -72,8 +73,9 @@ export function directorModel({ module, doc, story, pd, sel }) {
     episodes: approved ? null : "剧集规划需要已批准的故事大纲 — 先在「故事」发展并批准",
     frames: "按镜头生成图片：付费生成在工作流「资产准备」节点（ADR-0045）",
     video: "按镜头生成视频：付费生成在工作流「视频生成」节点（ADR-0041/0046）",
-    audio: "配音生成：本地 TTS 在工作流「音频生成」节点（ADR-0043）",
-    edit: "合成：本地 FFmpeg 在工作流「剪辑合成」节点（ADR-0044）",
+    audio: "对白/环境音/SFX/BGM 入口在音频工作区：本地 TTS（免费）· 复制提示词 · 导入 · Voice/Music API（未来）",
+    edit: "时间线：修剪/音量/淡入淡出/重排 → 本地 FFmpeg 渲染本集（免费，含渲染溯源）",
+    storage: "推荐清理：移除本地副本（保身份/溯源/引用）；永久删除受引用阻断保护",
   }[module] || null;
   // history: newest first — real provenance (M5), never fabricated
   const history = (pd.generations || [])

@@ -63,6 +63,14 @@ def test_single_media_write_path_is_mediaref() -> None:
         if p.name == "mediaref.js":
             continue
         text = p.read_text("utf-8")
+        if p.name == "assetlib.js":
+            # M11: removeAssetRecord is the ONE sanctioned non-mediaref
+            # history writer (permanent-delete chain surgery, gated by the
+            # blocking-reference scan). Everything else in assetlib.js must
+            # still stay off the version-history write path.
+            start = text.index("export function removeAssetRecord")
+            end = text.index("export function", start + 1)
+            text = text[:start] + text[end:]
         for needle in ("history.filter", "history.push", "history.sort", ".current ="):
             if needle in text:
                 hits.append(f"{p.name}: {needle}")

@@ -34,6 +34,7 @@ import { buildShotSlotIndex, slotForShotId, shotIdForSlot, resolveAdoptTarget } 
 import * as scriptdoc from "./workflow/scriptdoc.js";
 import * as storydoc from "./workflow/storydoc.js";
 import * as proddoc from "./workflow/proddoc.js";
+import * as timeline from "./workflow/timeline.js";
 import * as bibledoc from "./workflow/bibledoc.js";
 import * as breakdown from "./workflow/breakdown.js";
 
@@ -76,6 +77,16 @@ function scriptForEpisode(episodeId) {
   return scriptDocs[episodeId];
 }
 
+/** A stable signature of a default clip build — the fingerprint of the SOURCE
+ *  (shots/media/scene audio) a timeline was last synced from. Includes shotId
+ *  + startTime so reordering equal-duration shots reusing one asset changes it
+ *  (M11 review). Stamped on the timeline as `sourceSig` at each sync. */
+function timelineSourceSig(clips) {
+  return clips
+    .map((c) => `${c.trackType}:${c.assetId}:${c.shotId || ""}:${c.startTime.toFixed(2)}:${(c.trimOut - c.trimIn).toFixed(2)}`)
+    .join("|");
+}
+
 /** Re-point the `scriptDoc` alias at the ACTIVE episode's document. Called on
  *  restore and on every active-episode switch. */
 function syncActiveScript() {
@@ -94,6 +105,8 @@ let generationRegistry = genlib.createGenerationRegistry(null);
 // structure. Scenes reference shots by canonical creativeShotId; shot content
 // stays on the scriptgen draft, media/provenance stay in their registries.
 let productionDoc = proddoc.createProduction(null);
+// Per-episode timelines (M11) — clips referencing assets by id, never bytes.
+let timelinesDoc = timeline.createTimelines(null);
 // 剧本拆解提案 (M8) — TRANSIENT review state, per session, never persisted:
 // null | { status: "running"|"ready"|"failed", cards, error, source }.
 // A reload lands on the confirmed bible; proposals are re-derivable any time.
@@ -996,6 +1009,310 @@ const ctx = {
       return true;
     },
   },
+  // Audio production controller (M11-A): the single write path for audio
+  // REFERENCES (scene ambience / episode+scene BGM) and for audio media
+  // entering from the studio. providerModes: manual_subscription (copy the
+  // compiled prompt → external web tool) / local_subscription (piper TTS) /
+  // import / api (future — architecture slot only, no provider wired).
+  audio: {
+    setSceneAmbience: (sceneId, assetId) => prodOp(proddoc.setSceneAmbience(productionDoc, sceneId, assetId)),
+    setSceneBgm: (sceneId, assetId) => prodOp(proddoc.setSceneBgm(productionDoc, sceneId, assetId)),
+    setEpisodeBgm: (episodeId, assetId) => prodOp(proddoc.setEpisodeBgm(productionDoc, episodeId, assetId)),
+    // the reusable audio pools: every history record under keys with this
+    // prefix IS an Asset (ambience: amb-…, music: bgm-… + legacy music-main)
+    pool: (prefix) => {
+      const out = [];
+      for (const key of Object.keys(assetRegistry.audio)) {
+        if (!key.startsWith(prefix) && !(prefix === "bgm" && key === "music-main")) continue;
+        const e = mediaref.slotEntry(assetRegistry.audio, key);
+        if (!e) continue;
+        for (const r of e.history) {
+          if (r && r.assetId) out.push({ assetId: r.assetId, key, version: r.version, url: r.url, label: `${key} v${r.version}`, storageState: r.storageState || "local" });
+        }
+      }
+      return out;
+    },
+    // shared audio-import core: same upload endpoint + slug namespace as the
+    // audio node (`audio-<key>`), mediaref appends a version, and an
+    // intent-carrying import records REAL Generation provenance
+    importKey: async (key, shotId, file, intent) => {
+      if (!CONNECTED) throw new Error("演示模式无后端，无法导入文件");
+      const res = await query.uploadAssetImage(PROJECT_NAME, `audio-${key}`, file);
+      const ref = mediaref.refFromResponse(key, "upload", res, shotId ?? null);
+      mediaref.addVersion({ uploads: assetRegistry.audio }, key, ref);
+      if (intent && intent.prompt) {
+        const gen = ctx.startGeneration({
+          type: "audio",
+          targetType: shotId ? "shot" : null,
+          targetId: shotId ?? null,
+          promptSnapshot: intent.prompt,
+          provider: intent.entry || "import",
+          parameters: { providerMode: intent.providerMode || "import" },
+          status: "generating",
+        });
+        if (gen) ctx.completeGeneration(gen.generationId, [ref.assetId]);
+      }
+      ctx.refreshType("audio");
+      ctx.persist();
+      refreshProductionView();
+      toast(`已导入音频 · v${res.version || 1}（旧版本保留）${intent && intent.prompt ? " · 已记录生成溯源" : ""}`);
+      return ref;
+    },
+    // mint a NEW pool chain and import its first take (ambience/BGM pools)
+    importPool: async (prefix, file, intent) => {
+      const key = mintId(prefix); // e.g. amb-<uuid> / bgm-<uuid>
+      return ctx.audio.importKey(key, null, file, intent);
+    },
+    // REAL local dialogue TTS (piper, ADR-0043 — the local_subscription mode):
+    // fits the shot's video length when a clip exists, registers the take as
+    // a new variant and records provenance with the dialogue text.
+    ttsDialogue: async (slot, shotId, text, fitSlug, voiceMeta = null) => {
+      if (!CONNECTED) throw new Error("演示模式无后端，无法本地 TTS");
+      if (!text || !text.trim()) throw new Error("对白为空：先在镜头详情填写台词");
+      // the voice-identity rule is ENFORCED at generation: a dialogue take
+      // must belong to a speaker with a FIXED base voice identity — an
+      // unassigned shot or a scene with no characters cannot generate one
+      if (!voiceMeta || !voiceMeta.characterId) throw new Error("未选择说话人：在场景添加出场角色并选择说话人");
+      if (!voiceMeta.voiceId) throw new Error("说话人未设基础声音（voiceId）：先在「作品设定」填写声音档案");
+      const key = `voice-${slot}`;
+      // pass the speaker's FIXED base voiceId so the server renders with a
+      // matching local piper model when present (else honest default fallback)
+      const res = await query.ttsGenerate(PROJECT_NAME, `audio-${key}`, text, fitSlug || undefined, voiceMeta && voiceMeta.voiceId ? voiceMeta.voiceId : undefined);
+      const ref = mediaref.refFromResponse(key, "tts", res, shotId ?? null);
+      mediaref.addVersion({ uploads: assetRegistry.audio }, key, ref);
+      const gen = ctx.startGeneration({
+        type: "audio",
+        targetType: shotId ? "shot" : null,
+        targetId: shotId ?? null,
+        promptSnapshot: text,
+        provider: "piper",
+        // the speaker's FIXED voice identity + state performance + emotion are
+        // recorded with the take (provenance says WHO this line belongs to),
+        // AND what the local model ACTUALLY rendered: res.voice is the requested
+        // voiceId when its piper model was present, else null (default model) —
+        // so history never falsely claims a character voice that didn't render
+        parameters: {
+          providerMode: "local_subscription",
+          ...(voiceMeta && typeof voiceMeta === "object" ? { voice: voiceMeta } : {}),
+          voiceRendered: res && "voice" in res ? res.voice : null,
+        },
+        status: "generating",
+      });
+      if (gen) ctx.completeGeneration(gen.generationId, [ref.assetId]);
+      ctx.refreshType("audio");
+      ctx.persist();
+      refreshProductionView();
+      toast(`本地配音完成 · v${res.version || 1}（旧版本保留，可回切）`);
+      return ref;
+    },
+  },
+  // Episode-timeline controller (M11-B): the single write path into the
+  // per-episode timeline. Clips reference assetIds only. SHOT→TIMELINE RULE:
+  // an UN-EDITED timeline always mirrors the shots (auto-sync is safe —
+  // nothing hand-made can be lost); after the first manual edit a stale
+  // source shows a banner and re-sync is an EXPLICIT confirmed action
+  // (a hand-edited timeline is never silently overwritten).
+  timeline: {
+    // sync a timeline from rows AND stamp the source fingerprint used by
+    // sourceStale — the ONE place both fields move together
+    _sync: (t, rows) => {
+      timeline.syncFromRows(t, rows);
+      t.sourceSig = timelineSourceSig(t.clips);
+    },
+    doc: () => {
+      const t = timeline.timelineFor(timelinesDoc, productionDoc.activeEpisodeId);
+      if (!t.edited) {
+        const rows = ctx.timeline.gatherRows();
+        const hasVideo = rows.some((r) => r.videoAssetId);
+        if ((t.clips.length && ctx.timeline.sourceStale(t)) || (!t.clips.length && hasVideo)) {
+          ctx.timeline._sync(t, rows);
+          ctx.persist();
+        }
+      }
+      return t;
+    },
+    // the DEFAULT rows the timeline mirrors: active episode's scenes in
+    // order (then unassigned draft shots), each shot's CURRENT video/voice/
+    // sfx assets + the scene's ambience + effective BGM
+    gatherRows: () => {
+      const draft = ctx.project.draftShots || [];
+      const idx = buildShotSlotIndex(draft);
+      const ep = proddoc.activeEpisode(productionDoc);
+      const view = ep ? proddoc.episodeView(productionDoc, ep.episodeId, draft) : null;
+      const ordered = [];
+      if (view) {
+        for (const sc of view.scenes) {
+          for (const x of sc.shots) if (x.shot) ordered.push({ shot: x.shot, sceneId: sc.sceneId });
+        }
+        for (const s of view.unassigned) ordered.push({ shot: s, sceneId: null });
+      }
+      // the CURRENT asset regardless of byte availability: a clip must keep
+      // REFERENCING an archived/removed asset (the timeline UI shows it as
+      // unavailable and render refuses honestly) — filtering non-local here
+      // would let the unedited auto-sync silently DROP those references
+      const cur = (map, key) => {
+        const r = key ? mediaref.currentRef(map, key) : null;
+        return r && r.assetId ? r.assetId : null;
+      };
+      return ordered.map(({ shot, sceneId }) => {
+        const slot = shot.shotId ? slotForShotId(idx, shot.shotId) : null;
+        const scene = sceneId ? proddoc.findScene(productionDoc, sceneId) : null;
+        const bgm = ep ? proddoc.effectiveBgm(productionDoc, ep.episodeId, sceneId) : null;
+        return {
+          shotId: shot.shotId || null,
+          duration: shot.duration_seconds === 10 ? 10 : 6,
+          videoAssetId: cur(assetRegistry.videos, slot),
+          dialogueAssetId: cur(assetRegistry.audio, slot ? `voice-${slot}` : null),
+          sfxAssetId: cur(assetRegistry.audio, slot ? `sfx-${slot}` : null),
+          sceneId,
+          ambienceAssetId: scene ? scene.scene.ambienceAssetId : null,
+          bgmAssetId: bgm ? bgm.assetId : null,
+        };
+      });
+    },
+    // Has the SOURCE (shots / current media / scene audio) changed since this
+    // timeline was last built from it? Compares the current source's default
+    // build to the sourceSig STAMPED at the last sync — NOT to the (possibly
+    // hand-edited) clip list, so trim/reorder/volume edits never false-report
+    // "source changed". The signature carries shotId + startTime so reordering
+    // equal-duration shots that reuse one asset is still detected.
+    sourceStale: (t) => timelineSourceSig(timeline.buildFromRows(ctx.timeline.gatherRows())) !== (t.sourceSig || ""),
+    resync: () => {
+      const t = timeline.timelineFor(timelinesDoc, productionDoc.activeEpisodeId);
+      ctx.timeline._sync(t, ctx.timeline.gatherRows());
+      ctx.persist();
+      refreshProductionView();
+      toast("时间线已按当前镜头/音频重建（此前的手工调整被本次同步覆盖）");
+    },
+    op: (fn, ...args) => {
+      const t = timeline.timelineFor(timelinesDoc, productionDoc.activeEpisodeId);
+      const ok = timeline[fn](t, ...args);
+      if (ok) { ctx.persist(); refreshProductionView(); }
+      return ok;
+    },
+    setSettings: (s) => {
+      const t = timeline.timelineFor(timelinesDoc, productionDoc.activeEpisodeId);
+      timeline.setSettings(t, s);
+      ctx.persist();
+      return true;
+    },
+    // FINAL RENDER (local FFmpeg): resolve every clip's asset to its exact
+    // uploaded file (bytes must be local — missing media fails honestly, it
+    // is never skipped), render server-side, register the Final Asset and a
+    // durable RENDER provenance record (type "render", provider ffmpeg-local,
+    // inputs = clip assetIds, parameters = settings + clip snapshot).
+    render: async () => {
+      if (!CONNECTED) throw new Error("演示模式无后端，无法渲染（需连接模式 + 本地 ffmpeg）");
+      const t = timeline.timelineFor(timelinesDoc, productionDoc.activeEpisodeId);
+      if (!t.clips.some((c) => c.trackType === "video")) throw new Error("时间线没有视频 clip");
+      const clips = [];
+      for (const c of t.clips) {
+        // a muted / zero-volume AUDIO clip contributes nothing and the backend
+        // skips it — drop it here too so an unavailable (deleted) asset on such
+        // a clip never blocks a render it wouldn't participate in anyway
+        const silentAudio = c.trackType !== "video" && (c.muted === true || c.volume <= 0);
+        if (silentAudio) continue;
+        const hit = assetlib.findAssetById(assetRegistry, c.assetId);
+        if (!hit) throw new Error(`clip 引用的资产已不存在（${c.trackType} · ${c.assetId}）`);
+        if ((hit.record.storageState || "local") !== "local") {
+          throw new Error(`clip 的媒体不可用（${c.trackType} · ${hit.record.storageState}）— 请恢复或替换后再渲染`);
+        }
+        clips.push({
+          track: c.trackType,
+          file: String(hit.record.url || "").split("/").pop(),
+          start: c.startTime,
+          in: c.trimIn,
+          out: c.trimOut,
+          volume: c.volume,
+          muted: c.muted,
+          fadeIn: c.fadeIn,
+          fadeOut: c.fadeOut,
+        });
+      }
+      const res = await query.renderEpisode(PROJECT_NAME, clips, t.settings);
+      const rec = assetlib.addFinal(assetRegistry, res.url);
+      const gen = ctx.startGeneration({
+        type: "render",
+        targetType: null,
+        targetId: null,
+        inputAssetIds: [...new Set(t.clips.map((c) => c.assetId))],
+        promptSnapshot: null,
+        provider: "ffmpeg-local",
+        parameters: {
+          providerMode: "local",
+          settings: { ...t.settings },
+          episodeId: productionDoc.activeEpisodeId,
+          clips: t.clips.map((c) => ({ clipId: c.clipId, trackType: c.trackType, assetId: c.assetId, startTime: c.startTime, trimIn: c.trimIn, trimOut: c.trimOut, volume: c.volume, muted: c.muted, fadeIn: c.fadeIn, fadeOut: c.fadeOut })),
+        },
+        status: "generating",
+      });
+      if (gen && rec) ctx.completeGeneration(gen.generationId, [rec.assetId]);
+      ctx.refreshType("edit");
+      ctx.persist();
+      refreshProductionView();
+      return { ...res, assetId: rec ? rec.assetId : null };
+    },
+  },
+  // read-only registry view for the storage workspace (writes stay on the
+  // ctx.storage / mediaref paths)
+  assetRegistryView: () => assetRegistry,
+  // Storage-management controller (M11-D): built on the EXISTING M5
+  // storageState lifecycle — no second state system. Byte removal keeps the
+  // assetId, metadata, provenance and every reference (shown unavailable);
+  // permanent delete is gated on the blocking-reference scan.
+  storage: {
+    referencesOf: (assetId) => assetlib.referencesOfAsset({
+      reg: assetRegistry,
+      assetId,
+      production: productionDoc,
+      timelines: timelinesDoc,
+      generations: generationRegistry,
+    }),
+    archive: (assetId, on) => {
+      // archive is a local↔archived toggle ONLY: un-archiving must never
+      // resurrect a deleted/missing record to "local" (bytes are still gone)
+      const hit = assetlib.findAssetById(assetRegistry, assetId);
+      const state = hit ? hit.record.storageState || "local" : null;
+      if (state !== "local" && state !== "archived") return false;
+      const ok = assetlib.setStorageState(assetRegistry, assetId, on ? "archived" : "local");
+      if (ok) { ctx.persist(); refreshProductionView(); }
+      return ok;
+    },
+    // Remove Local Copy: bytes go, EVERYTHING else stays (assetId, metadata,
+    // provenance, references — the UI shows the media as unavailable).
+    removeLocal: async (assetId) => {
+      if (!CONNECTED) throw new Error("演示模式无后端，无法删除文件");
+      const hit = assetlib.findAssetById(assetRegistry, assetId);
+      if (!hit) throw new Error("资产不存在");
+      await query.deleteAssetFile(PROJECT_NAME, String(hit.record.url || "").split("/").pop());
+      assetlib.setStorageState(assetRegistry, assetId, "deleted");
+      ctx.persist();
+      refreshProductionView();
+      toast("已移除本地副本 — 资产身份/元数据/溯源保留，引用处将显示媒体不可用");
+      return true;
+    },
+    // Permanent Delete: EXPLICIT destructive action — blocked while any
+    // blocking reference exists (never silently broken); provenance links
+    // are reported and deliberately left dangling (M5 design).
+    permanentDelete: async (assetId) => {
+      if (!CONNECTED) throw new Error("演示模式无后端，无法删除文件");
+      const refs = ctx.storage.referencesOf(assetId);
+      if (refs.blocking.length) {
+        throw new Error(`仍被引用，已阻止删除：${refs.blocking.join("；")} — 先释放这些引用`);
+      }
+      const hit = assetlib.findAssetById(assetRegistry, assetId);
+      if (!hit) throw new Error("资产不存在");
+      await query.deleteAssetFile(PROJECT_NAME, String(hit.record.url || "").split("/").pop());
+      assetlib.removeAssetRecord(assetRegistry, assetId);
+      ctx.refreshType("assets");
+      ctx.refreshType("video");
+      ctx.refreshType("audio");
+      ctx.persist();
+      refreshProductionView();
+      toast(`已永久删除资产（溯源记录保留${refs.provenance ? `，${refs.provenance} 条生成记录的链接将悬空——按设计如实保留` : ""}）`);
+      return true;
+    },
+  },
   // Media controller (M8): variant switching on the PROJECT registry (M3)
   // through the same mediaref primitive the node version picker uses — no
   // second media state, no new write path.
@@ -1786,6 +2103,8 @@ function serializeGraph() {
     generations: generationRegistry,
     // Production structure (M6) — episodes/scenes owning shot REFERENCES only.
     production: proddoc.serialize(productionDoc),
+    // Per-episode timelines (M11) — asset REFERENCES only, never media bytes.
+    timelines: timeline.serialize(timelinesDoc),
     nodes: engine.nodes.map((n) => ({
       id: n.id, type: n.type, x: n.x, y: n.y, state: n.state,
       text: n.text, versions: n.versions, cur: n.cur, pickSingle: n.pickSingle,
@@ -1824,6 +2143,8 @@ function restoreGraph(data) {
   // Production structure (M6): existing episode/scene ids survive verbatim; a
   // fresh/legacy canvas starts with the default single active episode.
   productionDoc = proddoc.createProduction((data && data.production) || null);
+  // Per-episode timelines (M11).
+  timelinesDoc = timeline.createTimelines((data && data.timelines) || null);
   // Breakdown proposals are PER-PROJECT transient review state: cards derived
   // from another project's script must never be appliable here, and a switch
   // mid-run must not leave a stuck "running" guard. (The in-flight run's
@@ -1924,6 +2245,7 @@ async function enterCanvas(name, opts = {}) {
   scriptDocs = Object.create(null); // per-project; restoreGraph rehydrates
   scriptDoc = scriptdoc.createDoc();
   storyDoc = storydoc.createStory(null);
+  timelinesDoc = timeline.createTimelines(null);
   ctx.project = {
     ...FIX,
     id: name,

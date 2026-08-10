@@ -42,6 +42,56 @@ export function compileImagePrompt({ shot, characters = [], location = null, ton
   return { text: parts.join("\n"), missing };
 }
 
+/** Compile the DIALOGUE (voice) prompt for one shot's line (M11-A).
+ *  VOICE RULE embodied: the voice IDENTITY always comes from the character's
+ *  BASE voice; a Character State contributes PERFORMANCE adjustments only
+ *  (age feel, maturity, pace, emotional base, pitch lean, intensity).
+ *  @param dialogue   the shot's line text
+ *  @param character  resolveCharacter() output (voice merged base⊕state)
+ *  @param baseVoice  the character's BASE voice ({voiceId, description}) —
+ *                    passed separately so the identity line is explicit
+ *  @param emotion    shot-level performance note (镜头情绪/表演), optional */
+export function compileDialoguePrompt({ dialogue, character = null, baseVoice = null, emotion = "" }) {
+  const missing = [];
+  const parts = [];
+  if (s(dialogue)) parts.push(`【台词】${s(dialogue)}`);
+  else missing.push("台词为空（在镜头详情填写）");
+  if (character) {
+    parts.push(`【角色】${s(character.name)}${character.stateName ? `（${s(character.stateName)}）` : ""}`);
+    const id = baseVoice || character.voice || {};
+    if (s(id.voiceId) || s(id.description)) {
+      parts.push(`【声音身份（固定）】${[s(id.voiceId), s(id.description)].filter(Boolean).join(" · ")}`);
+    } else {
+      missing.push("角色基础声音未设定（在「作品设定」填写声音档案）");
+    }
+    // state PERFORMANCE only — never a different voice identity. Both the
+    // free-text description AND the structured performance object (pace/
+    // intensity/…) are surfaced: a state can change pace without changing the
+    // description, and those instructions must not silently vanish (M11 review)
+    const cv = character.voice || {};
+    const perfDesc = s(cv.description);
+    const perfBits = [];
+    if (perfDesc && baseVoice && perfDesc !== s(baseVoice.description)) perfBits.push(perfDesc);
+    const perfObj = cv.performance;
+    const basePerfObj = baseVoice && baseVoice.performance;
+    if (perfObj && typeof perfObj === "object") {
+      for (const k of Object.keys(perfObj)) {
+        const v = perfObj[k];
+        if (v == null || v === "") continue;
+        // only STATE-differing performance facets (a state contribution)
+        if (basePerfObj && typeof basePerfObj === "object" && basePerfObj[k] === v) continue;
+        perfBits.push(`${k}：${typeof v === "string" ? v : JSON.stringify(v)}`);
+      }
+    }
+    if (perfBits.length) parts.push(`【状态表现（仅调表现，不换声音）】${perfBits.join("；")}`);
+  } else {
+    missing.push("出场角色未设定（在「剧集」的场景上添加，并在此选择说话人）");
+  }
+  if (s(emotion)) parts.push(`【本镜头情绪/表演】${s(emotion)}`);
+  parts.push("【要求】单人独白干声，无背景音乐/混响，语言与台词一致");
+  return { text: parts.join("\n"), missing };
+}
+
 /** Compile the VIDEO prompt for one shot. The CURRENT image is the first
  *  frame — the entry (Gemini 视频等) receives that image alongside this text.
  *  @param shot      raw draft shot ({description, action, cameraMotion,

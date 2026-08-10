@@ -160,6 +160,32 @@ export async function planEpisodes({ outline, instruction }) {
   return j.episodes || [];
 }
 
+/** Lightweight episode render (M11): timeline clips → one MP4/WebM via the
+ *  local FFmpeg endpoint. Returns {url, version, sha256, clips}. */
+export async function renderEpisode(project, clips, settings) {
+  const r = await fetch("/api/agent/render-episode", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ project, clips, settings }),
+  });
+  const j = await r.json().catch(() => null);
+  if (!r.ok) throw new Error((j && j.error && j.error.detail) || `render ${r.status}`);
+  return j;
+}
+
+/** Delete ONE uploaded media file's bytes (M11 storage management). The
+ *  caller owns the registry semantics; this only removes bytes. */
+export async function deleteAssetFile(project, file) {
+  const r = await fetch("/api/assets/delete-file", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ project, file }),
+  });
+  const j = await r.json().catch(() => null);
+  if (!r.ok) throw new Error((j && j.error && j.error.detail) || `delete ${r.status}`);
+  return j;
+}
+
 /** Manual image provider (prototype scratch): upload a user-generated media
  *  file for a slot. Same slot re-uploads APPEND a new version (TASK-048/
  *  ADR-0048), never replace. Returns {url, version, sha256}. */
@@ -175,7 +201,7 @@ export async function uploadAssetImage(project, slug, file) {
 
 /** Local Piper TTS (ADR-0043): synthesize a draft voice-over into an upload
  *  slot — free, offline, no credential. Returns the audio URL. */
-export async function ttsGenerate(project, slug, text, fitSlug) {
+export async function ttsGenerate(project, slug, text, fitSlug, voice) {
   const r = await fetch("/api/agent/tts", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -184,6 +210,9 @@ export async function ttsGenerate(project, slug, text, fitSlug) {
       slug,
       text,
       ...(fitSlug ? { fit_slug: fitSlug } : {}),
+      // the character's FIXED base voiceId: the server renders with a matching
+      // local piper model when present, else honest fallback (M11 voice rule)
+      ...(voice ? { voice } : {}),
     }),
   });
   const j = await r.json().catch(() => null);

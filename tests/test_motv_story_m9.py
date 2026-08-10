@@ -72,7 +72,8 @@ def test_story_is_a_dedicated_domain_module() -> None:
 
 def test_scripts_are_per_episode_since_v8() -> None:
     schema = (_SRC / "services" / "canvasschema.js").read_text("utf-8")
-    assert "CANVAS_SCHEMA_VERSION = 8" in schema
+    # v9 (M11) is current; the v8 per-episode-scripts mechanics stay pinned
+    assert "CANVAS_SCHEMA_VERSION = 9" in schema
     assert "function migrateV7ToV8" in schema
     assert "7: migrateV7ToV8" in schema
     assert "missing its scripts map" in schema

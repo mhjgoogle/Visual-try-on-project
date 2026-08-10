@@ -74,6 +74,33 @@ slug 命名空间，mediaref 追加版本）/ API 自动生成为诚实的「未
 （promptSnapshot=复制时的编译文本，provider=chatgpt-manual/gemini-manual/manual）；
 未走入口的普通导入保持普通上传，不伪造溯源。
 
+**音频生产 + 轻量时间线 + 最终导出 + 存储管理（M11）**：画布 schema v9。
+**音频工作区**重建为按 场景→镜头 的生产面：**对白**——说话人取自该镜头场景的出场角色
+（bibledoc 解析，**声音身份永远来自角色基础声音档案**，状态只调表现，域层+v7 校验+
+Prompt 编译三重强制），台词+声音身份+状态表现+镜头情绪纯函数编译成 Dialogue Prompt
+（`compileDialoguePrompt`），入口：🤖 本地 Piper TTS（免费）/ 📋 复制（网页订阅工具，
+manual_subscription）/ ⬆ 导入 / Voice API 诚实的「未来」注记；同镜头多次生成为
+`voice-<slot>` 版本链变体，可回切。**场景环境音**挂在场景上（`scene.ambienceAssetId`
+**引用**音频池资产，多场景复用同一资产，绝不逐镜头复制）；**镜头音效**按关键词给建议
+（`sfx-<slot>` 变体链）；**BGM** 剧集级 `episode.bgmAssetId` + 场景级覆盖，`effectiveBgm`
+纯函数解析。**时间线工作区**（`src/workflow/timeline.js` + `src/ui/timelinews.js`）：
+5 轨（video/dialogue/ambience/sfx/bgm），TimelineClip **只引用 assetId 绝不复制媒体**；
+视频轨顺序制（重排=换序+重排版，镜头锚定的音频随镜头平移），修剪/音量/静音/淡入淡出/
+音频移位/替换视频变体（同链另一版本，确定性引用替换）全部持久化（v9 `timelines` 顶层
+map，fail-safe 校验）；**未手工编辑**的时间线随镜头自动同步，**手工编辑过的绝不静默
+覆盖**——来源变化显示横幅，明确确认「重建时间线」才重建。**预览**（播放/暂停/游标/粗略
+音频同步）+ **最终渲染**：渲染设置可见（分辨率/fps/容器），`POST /api/agent/render-episode`
+本地 FFmpeg 单遍合成（视频 trim/scale/pad/fps 归一 concat；音频 atrim/volume/afade/
+adelay/amix；静音或零音量 clip 如实跳过），输出 `render-ep-v<N>` **原子版本化**
+（O_CREAT|O_EXCL，绝不覆盖），成片进 M3 finals 成为稳定资产 + **渲染溯源**记录为 v9
+新增的非 AI Generation type `"render"`（provider ffmpeg-local，参数含 clips 快照与设置，
+inputAssetIds=各 clip 资产）。**存储管理工作区**（`src/ui/storagews.js`）：基于既有 M5
+storageState 生命周期（**不建第二套状态**），总量/活跃/历史/未使用/已归档/不可用统计 +
+每资产行动作：归档（隐藏）/ **移除本地副本**（默认推荐：删字节→storageState=deleted，
+assetId/元数据/溯源/引用全保留，媒体处显示不可用）/ **永久删除**（显式破坏性：二次确认；
+被 镜头首帧/角色/场景地参考图/场景环境音/剧集场景 BGM/时间线 clip 阻断性引用时**拒绝并
+列明**，绝不静默断引用；Generation 溯源链接允许悬空但删除前如实提示）。
+
 **故事发展与剧集规划（M9）**：故事工作区不再「创意→直接跳剧本」，改为真实创作路径
 **创意 → AI 发展故事 → 故事大纲（versioned·批准）→ 剧集规划（versioned·确认）→ 选集
 → 该集剧本**。`story` 域文档（`src/workflow/storydoc.js`，画布 schema v8 顶层字段）持久化
@@ -90,7 +117,7 @@ slug 命名空间，mediaref 追加版本）/ API 自动生成为诚实的「未
 零写入）；演示模式为标注的本地模板。
 
 **制作工作室（Production Studio，M8）**：制作视图重建为三栏专业制片环境——左「导航/资源」
-（项目级：故事/作品设定/剧集；当前剧集：剧本/分镜/画面/视频/音频/剪辑）+ 中「制作工作区」+
+（项目级：故事/作品设定/剧集/存储；当前剧集：剧本/分镜/画面/视频/音频/时间线）+ 中「制作工作区」+
 右「AI 导演（常驻）」；工作流节点画布保留在 ⛓ 标签但不再是主创作体验。**分镜工作区**
 （`src/ui/storyboard.js`）：场景组（含出场角色·状态 / 场景地·状态上下文标签）→ 镜头卡 →
 选中镜头详情（描述/动作/运镜/台词/时长——新创意字段加性存于草稿 raw shot，保存=追加新
@@ -207,9 +234,13 @@ src/
   workflow/promptc.js      Prompt 编译器：镜头+状态解析→Image/Video Prompt+缺口诊断（M10，纯函数）
   workflow/proddoc.js      生产域文档：剧集→场景→镜头引用结构（M6，纯状态，镜头内容不复制）
   workflow/bibledoc.js     作品设定域：角色/场景地+状态+声音档案+参考图引用（M7，纯状态）
+  workflow/timeline.js     轻量时间线域：5 轨 clip 引用 assetId、顺序制视频、edited 保护（M11，纯状态）
   workflow/breakdown.js    剧本拆解提案：解析/匹配/变更计算/出场派生（M8，纯函数，应用走 bibledoc）
   ui/storyboard.js         分镜工作区：场景组→镜头卡→详情+媒体变体区（M8，纯视图模型可测）
   ui/director.js           AI 导演常驻面板：上下文/指令/真实动作/生成历史（M8）
+  ui/audiows.js            音频工作区：对白/环境音/SFX/BGM 生产面（M11，纯视图模型可测）
+  ui/timelinews.js         时间线工作区：轨道/剪辑属性/预览/渲染设置（M11）
+  ui/storagews.js          存储管理工作区：统计/归档/移除本地副本/永久删除（M11）
   workflow/nodes/*.js      **扩展点**：每种节点一个文件，导出一个 NodeType def
   services/query.js        读门面：connected 走后端真实查询，否则回退 fixture
   services/realmap.js      把 WQ-14/02/07 DTO 映射进 UI 结构

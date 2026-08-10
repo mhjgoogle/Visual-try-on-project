@@ -32,10 +32,10 @@ test("createProduction: persisted ids survive verbatim (never re-minted)", () =>
     activeEpisodeId: "ep-x",
     episodes: [
       {
-        episodeId: "ep-x", title: "上集",
-        scenes: [{ sceneId: "scene-1", title: "大殿", shotIds: ["shot-a"], characterRefs: [], locationRef: null }],
+        episodeId: "ep-x", title: "上集", bgmAssetId: null,
+        scenes: [{ sceneId: "scene-1", title: "大殿", shotIds: ["shot-a"], characterRefs: [], locationRef: null, ambienceAssetId: null, bgmAssetId: null }],
       },
-      { episodeId: "ep-mig-1", title: "第 1 集", scenes: [] },
+      { episodeId: "ep-mig-1", title: "第 1 集", scenes: [], bgmAssetId: null },
     ],
     characters: [],
     locations: [],
@@ -248,7 +248,7 @@ test("v5→v6 mints exactly the deterministic default single episode, nothing el
   assert.equal(res.doc.v, CANVAS_SCHEMA_VERSION);
   assert.deepEqual(res.doc.production, {
     activeEpisodeId: "ep-mig-1",
-    episodes: [{ episodeId: "ep-mig-1", title: "第 1 集", scenes: [] }],
+    episodes: [{ episodeId: "ep-mig-1", title: "第 1 集", scenes: [], bgmAssetId: null }], // v9 adds the BGM ref
     characters: [], // v6→v7 continues the chain with an empty bible
     locations: [],
   });
@@ -256,7 +256,8 @@ test("v5→v6 mints exactly the deterministic default single episode, nothing el
   assert.deepEqual(migrateToCurrent(v5Doc()).doc, migrateToCurrent(v5Doc()).doc);
   // …and everything else is untouched (v8 moves the null scriptDoc away and
   // adds the empty story chain + per-episode scripts map)
-  const { production: _p, story: _s, scripts: _sc, ...rest } = res.doc;
+  const { production: _p, story: _s, scripts: _sc, timelines: _tl, ...rest } = res.doc;
+  assert.deepEqual(_tl, {}); // v9: empty timelines map
   assert.deepEqual(_s, { idea: "", versions: [], active: 0, approved: 0, plans: [], activePlan: 0, confirmedPlan: 0 });
   assert.deepEqual(_sc, {});
   const expected = { ...v5Doc(), v: CANVAS_SCHEMA_VERSION };

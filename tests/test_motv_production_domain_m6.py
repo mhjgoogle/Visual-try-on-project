@@ -78,8 +78,18 @@ def test_scene_references_shots_and_never_duplicates_content() -> None:
     src = (_SRC / "workflow" / "proddoc.js").read_text("utf-8")
     # scenes hold shot REFERENCES (ids) only — no shot content / media / asset
     # fields exist in the domain document (a prose mention in the ownership
-    # comment is fine; a field write like `description:` is not)
+    # comment is fine; a field write like `description:` is not). M11's
+    # ambience/BGM fields are Asset REFERENCES (ids into the M3 registry),
+    # exactly like shotIds — strip them before scanning for owned content.
     assert "shotIds" in src
+    src = src.replace("ambienceAssetId", "").replace("bgmAssetId", "")
+    # the M11 reference-setter section (setSceneAmbience/setSceneBgm/
+    # setEpisodeBgm/effectiveBgm) necessarily names its assetId PARAMETER —
+    # strip that delimited section; everything else must stay reference-free
+    start = src.index("// ---- M11 audio references")
+    end = src.index("/** The scene a shotId is assigned to")
+    src = src[:start] + src[end:]
+    src = src.replace("the same assetId may serve many scenes", "")
     for owned_elsewhere in (
         "description:",
         "duration_seconds",

@@ -34,7 +34,7 @@ const nonEmpty = (x) => typeof x === "string" && x !== "";
  *  Production Bible (M7). Every project has at least one episode (the
  *  shell's "当前剧集" context header). */
 function defaultProduction() {
-  const ep = { episodeId: mintId("ep"), title: "第 1 集", scenes: [] };
+  const ep = { episodeId: mintId("ep"), title: "第 1 集", scenes: [], bgmAssetId: null };
   return { activeEpisodeId: ep.episodeId, episodes: [ep], characters: [], locations: [] };
 }
 
@@ -51,6 +51,7 @@ function sanitizeScene(s, takenSceneIds, takenShotIds) {
       shotIds.push(id);
     }
   }
+  const assetRef = (v) => (typeof v === "string" && v ? v : null);
   return {
     sceneId: s.sceneId,
     title: typeof s.title === "string" ? s.title : "",
@@ -59,6 +60,11 @@ function sanitizeScene(s, takenSceneIds, takenShotIds) {
     // (sanitizeSceneRefs), since they point INSIDE this same document
     characterRefs: Array.isArray(s.characterRefs) ? s.characterRefs : [],
     locationRef: s.locationRef ?? null,
+    // M11 audio references (shape-only, into the M3 audio registry): the
+    // scene's reusable ambience and its optional BGM override — REFERENCES,
+    // never copies; the same assetId may serve many scenes
+    ambienceAssetId: assetRef(s.ambienceAssetId),
+    bgmAssetId: assetRef(s.bgmAssetId),
   };
 }
 
@@ -79,7 +85,13 @@ export function createProduction(saved) {
       const sc = sanitizeScene(s, takenSceneIds, takenShotIds);
       if (sc) scenes.push(sc);
     }
-    episodes.push({ episodeId: e.episodeId, title: typeof e.title === "string" ? e.title : "", scenes });
+    episodes.push({
+      episodeId: e.episodeId,
+      title: typeof e.title === "string" ? e.title : "",
+      scenes,
+      // M11: the episode-level BGM reference (scenes may override)
+      bgmAssetId: typeof e.bgmAssetId === "string" && e.bgmAssetId ? e.bgmAssetId : null,
+    });
   }
   if (!episodes.length) return defaultProduction();
   const active = nonEmpty(saved.activeEpisodeId) && episodes.some((e) => e.episodeId === saved.activeEpisodeId)
@@ -123,6 +135,7 @@ export function addEpisode(prod, title) {
     episodeId: mintId("ep"),
     title: nonEmpty(title) ? title : `第 ${prod.episodes.length + 1} 集`,
     scenes: [],
+    bgmAssetId: null,
   };
   prod.episodes.push(ep);
   return ep;
@@ -163,6 +176,8 @@ export function addScene(prod, episodeId, title) {
     shotIds: [],
     characterRefs: [], // M7: bible references (by id + optional state)
     locationRef: null,
+    ambienceAssetId: null, // M11: reusable ambience/BGM references
+    bgmAssetId: null,
   };
   ep.scenes.push(scene);
   return scene;
@@ -208,6 +223,40 @@ export function unassignShot(prod, shotId) {
     }
   }
   return removed;
+}
+
+// ---- M11 audio references (scene ambience / episode+scene BGM) ------------ //
+// REFERENCES into the M3 audio registry (assetId), never copies — the same
+// ambience/music asset legitimately serves many scenes/episodes. null clears.
+
+export function setSceneAmbience(prod, sceneId, assetId) {
+  const hit = findScene(prod, sceneId);
+  if (!hit) return false;
+  hit.scene.ambienceAssetId = typeof assetId === "string" && assetId ? assetId : null;
+  return true;
+}
+
+export function setSceneBgm(prod, sceneId, assetId) {
+  const hit = findScene(prod, sceneId);
+  if (!hit) return false;
+  hit.scene.bgmAssetId = typeof assetId === "string" && assetId ? assetId : null;
+  return true;
+}
+
+export function setEpisodeBgm(prod, episodeId, assetId) {
+  const ep = findEpisode(prod, episodeId);
+  if (!ep) return false;
+  ep.bgmAssetId = typeof assetId === "string" && assetId ? assetId : null;
+  return true;
+}
+
+/** The effective BGM for a scene: its own override, else its episode's. */
+export function effectiveBgm(prod, episodeId, sceneId) {
+  const hit = sceneId ? findScene(prod, sceneId) : null;
+  if (hit && hit.scene.bgmAssetId) return { assetId: hit.scene.bgmAssetId, from: "scene" };
+  const ep = findEpisode(prod, episodeId);
+  if (ep && ep.bgmAssetId) return { assetId: ep.bgmAssetId, from: "episode" };
+  return null;
 }
 
 /** The scene a shotId is assigned to, or null. */
