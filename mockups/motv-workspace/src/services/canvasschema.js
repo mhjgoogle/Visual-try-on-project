@@ -17,6 +17,8 @@
 //   version markers are rejected ("invalid"). Callers must not let either
 //   outcome overwrite the stored document.
 
+import { MAX_CLIP_START, MAX_CLIP_FADE } from "../workflow/timeline.js";
+
 /** Authoritative CURRENT canvas schema version. Saves must emit exactly this. */
 export const CANVAS_SCHEMA_VERSION = 9;
 
@@ -1377,13 +1379,16 @@ export function validateCanvasDoc(doc) {
         if (!TRACKS.has(c.trackType)) return `clip ${c.clipId} has invalid trackType`;
         if (typeof c.assetId !== "string" || !c.assetId) return `clip ${c.clipId} has no assetId`;
         if (!(c.shotId === null || (typeof c.shotId === "string" && c.shotId))) return `clip ${c.clipId} shotId is invalid`;
-        if (!num(c.startTime) || c.startTime < 0) return `clip ${c.clipId} startTime is invalid`;
+        // start/fade upper bounds are SHARED with the domain + render caps
+        // (imported MAX_CLIP_*), so a persisted clip can never hold a value the
+        // render would reject — no "valid-looking edit that cannot render".
+        if (!num(c.startTime) || c.startTime < 0 || c.startTime > MAX_CLIP_START) return `clip ${c.clipId} startTime is invalid`;
         if (!num(c.trimIn) || c.trimIn < 0) return `clip ${c.clipId} trimIn is invalid`;
         if (!num(c.trimOut) || c.trimOut <= c.trimIn) return `clip ${c.clipId} trimOut must exceed trimIn`;
         if (!num(c.volume) || c.volume < 0 || c.volume > 2) return `clip ${c.clipId} volume must be 0..2`;
         if (typeof c.muted !== "boolean") return `clip ${c.clipId} muted is not a boolean`;
-        if (!num(c.fadeIn) || c.fadeIn < 0) return `clip ${c.clipId} fadeIn is invalid`;
-        if (!num(c.fadeOut) || c.fadeOut < 0) return `clip ${c.clipId} fadeOut is invalid`;
+        if (!num(c.fadeIn) || c.fadeIn < 0 || c.fadeIn > MAX_CLIP_FADE) return `clip ${c.clipId} fadeIn is invalid`;
+        if (!num(c.fadeOut) || c.fadeOut < 0 || c.fadeOut > MAX_CLIP_FADE) return `clip ${c.clipId} fadeOut is invalid`;
       }
     }
   }

@@ -14,8 +14,11 @@ import { findAssetById } from "../workflow/assetlib.js";
 const TRACK_LABEL = { video: "VIDEO", dialogue: "DIALOGUE", ambience: "AMBIENCE", sfx: "SFX", bgm: "BGM" };
 const fmtT = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
 
-/** Pure view-model: tracks with proportional clip geometry + media lookup. */
-export function timelineModel(t, reg) {
+/** Pure view-model: tracks with proportional clip geometry + media lookup.
+ *  `shotLabels` maps a shotId → a human label ("01 跪殿") so a clip reads as
+ *  its shot rather than its raw assetId; scene/episode audio (no shotId) and
+ *  unmapped shots fall back to a short assetId. */
+export function timelineModel(t, reg, shotLabels = {}) {
   const dur = Math.max(1, timeline.timelineDuration(t));
   const tracks = timeline.TRACKS.map((track) => ({
     track,
@@ -23,11 +26,13 @@ export function timelineModel(t, reg) {
     clips: timeline.clipsOf(t, track).map((c) => {
       const hit = findAssetById(reg, c.assetId);
       const available = !!hit && (hit.record.storageState || "local") === "local";
+      const label = (c.shotId && shotLabels[c.shotId]) || c.assetId.slice(0, 12);
       return {
         ...c,
         left: (c.startTime / dur) * 100,
         width: Math.max(1.2, ((c.trimOut - c.trimIn) / dur) * 100),
         url: hit ? hit.record.url : "",
+        label,
         available,
         missing: !hit,
       };
@@ -36,10 +41,19 @@ export function timelineModel(t, reg) {
   return { duration: dur, tracks, edited: t.edited, settings: t.settings };
 }
 
+/** shotId → "NN 标题" from the current draft shots (for clip labels). */
+function shotLabelMap(pd) {
+  const out = {};
+  for (const s of pd.draftShots || []) {
+    if (s && s.shotId) out[s.shotId] = `${String(s.sequence).padStart(2, "0")} ${s.title || ""}`.trim();
+  }
+  return out;
+}
+
 export function renderTimelineWs(ctx, ui) {
   const pd = ctx.prodData();
   const t = ctx.timeline.doc();
-  const m = timelineModel(t, ctxReg(ctx));
+  const m = timelineModel(t, ctxReg(ctx), shotLabelMap(pd));
   const stale = ctx.timeline.sourceStale(t);
   const hasVideo = m.tracks[0].clips.length > 0;
   if (!hasVideo && !t.edited) {
@@ -71,8 +85,8 @@ export function renderTimelineWs(ctx, ui) {
             (c) =>
               `<button class="tl-clip${c.clipId === ui.tlSelected ? " on" : ""}${c.available ? "" : " unavailable"}" ` +
               `data-tl-clip="${esc(c.clipId)}" style="left:${c.left}%;width:${c.width}%" ` +
-              `title="${esc(c.assetId)}${c.available ? "" : c.missing ? "（资产已删除）" : "（媒体不可用）"}">` +
-              `${c.muted ? "🔇 " : ""}${esc(c.assetId.slice(0, 12))}${c.available ? "" : " ⚠"}</button>`,
+              `title="${esc(c.label)} · ${esc(c.assetId)}${c.available ? "" : c.missing ? "（资产已删除）" : "（媒体不可用）"}">` +
+              `${c.muted ? "🔇 " : ""}${esc(c.label)}${c.available ? "" : " ⚠"}</button>`,
           )
           .join("") +
         `</div></div>`,
@@ -99,15 +113,15 @@ export function renderTimelineWs(ctx, ui) {
       `<div class="tl-props"><div class="pm-title">clip · ${esc(TRACK_LABEL[sel.trackType])} <span class="ws-desc mono">${esc(sel.assetId)}</span></div>` +
       (isVideo
         ? `<div class="bd-actions"><button class="nrun ghost" data-tl-move="-1">◀ 前移</button><button class="nrun ghost" data-tl-move="1">后移 ▶</button></div>`
-        : `<label class="ws-lab">开始时间（秒）</label><input class="ws-bibleinput" type="number" min="0" step="0.1" data-tl-prop="startTime" value="${sel.startTime}">`) +
+        : `<label class="ws-lab">开始时间（秒）</label><input class="ws-bibleinput" type="number" min="0" max="${timeline.MAX_CLIP_START}" step="0.1" data-tl-prop="startTime" value="${sel.startTime}">`) +
       `<label class="ws-lab">修剪入点 / 出点（秒）</label>` +
       `<div class="bd-actions"><input class="ws-bibleinput tl-num" type="number" min="0" step="0.1" data-tl-prop="trimIn" value="${sel.trimIn}">` +
       `<input class="ws-bibleinput tl-num" type="number" min="0" step="0.1" data-tl-prop="trimOut" value="${sel.trimOut}"></div>` +
       `<label class="ws-lab">音量 ${sel.volume.toFixed(2)}（渲染与混音使用；预览近似）</label>` +
       `<input type="range" min="0" max="2" step="0.05" data-tl-prop="volume" value="${sel.volume}">` +
       `<div class="bd-actions"><label class="ws-kv"><input type="checkbox" data-tl-prop="muted" ${sel.muted ? "checked" : ""}> 静音</label>` +
-      `<label class="ws-lab">淡入</label><input class="ws-bibleinput tl-num" type="number" min="0" step="0.1" data-tl-prop="fadeIn" value="${sel.fadeIn}">` +
-      `<label class="ws-lab">淡出</label><input class="ws-bibleinput tl-num" type="number" min="0" step="0.1" data-tl-prop="fadeOut" value="${sel.fadeOut}"></div>` +
+      `<label class="ws-lab">淡入</label><input class="ws-bibleinput tl-num" type="number" min="0" max="${timeline.MAX_CLIP_FADE}" step="0.1" data-tl-prop="fadeIn" value="${sel.fadeIn}">` +
+      `<label class="ws-lab">淡出</label><input class="ws-bibleinput tl-num" type="number" min="0" max="${timeline.MAX_CLIP_FADE}" step="0.1" data-tl-prop="fadeOut" value="${sel.fadeOut}"></div>` +
       variantSel +
       `<div class="bd-actions"><button class="nrun ghost" data-tl-remove>移除 clip（源资产不受影响）</button></div></div>`;
   }

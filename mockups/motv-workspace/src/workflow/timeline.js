@@ -24,8 +24,19 @@ import { mintId } from "./identity.js";
 
 const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
 const num = (v, d = 0) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : d);
+// clamp a non-negative time to a shared upper bound (start/fade caps) so a
+// hydrated or edited value can never exceed what the render accepts
+const capped = (v, max, d = 0) => Math.min(max, num(v, d));
 
 export const TRACKS = ["video", "dialogue", "ambience", "sfx", "bgm"];
+
+// Clip time bounds — the SINGLE source of truth shared by the domain (here),
+// canvas validation (canvasschema imports these) and the timeline UI inputs,
+// and kept in lock-step with the render endpoint's caps (server.py: start
+// <=36000s, fade <=30s). A value a creator can save is therefore always a
+// value the render will accept — no "valid-looking edit that cannot render".
+export const MAX_CLIP_START = 36000; // seconds
+export const MAX_CLIP_FADE = 30; // seconds
 
 /** Render settings — defaults are VISIBLE and editable, never hidden. */
 export const DEFAULT_SETTINGS = Object.freeze({
@@ -60,13 +71,13 @@ function sanitizeClip(c, taken) {
     trackType: c.trackType,
     assetId: c.assetId,
     shotId: typeof c.shotId === "string" && c.shotId ? c.shotId : null,
-    startTime: num(c.startTime, 0),
+    startTime: capped(c.startTime, MAX_CLIP_START, 0),
     trimIn,
     trimOut,
     volume: typeof c.volume === "number" && Number.isFinite(c.volume) ? Math.min(2, Math.max(0, c.volume)) : 1,
     muted: c.muted === true,
-    fadeIn: num(c.fadeIn, 0),
-    fadeOut: num(c.fadeOut, 0),
+    fadeIn: capped(c.fadeIn, MAX_CLIP_FADE, 0),
+    fadeOut: capped(c.fadeOut, MAX_CLIP_FADE, 0),
   };
 }
 
@@ -289,8 +300,8 @@ export function setClipMuted(t, clipId, muted) {
 export function setClipFades(t, clipId, fadeIn, fadeOut) {
   const c = findClip(t, clipId);
   if (!c) return false;
-  c.fadeIn = num(fadeIn, c.fadeIn);
-  c.fadeOut = num(fadeOut, c.fadeOut);
+  c.fadeIn = capped(fadeIn, MAX_CLIP_FADE, c.fadeIn);
+  c.fadeOut = capped(fadeOut, MAX_CLIP_FADE, c.fadeOut);
   return touched(t);
 }
 
@@ -298,7 +309,7 @@ export function setClipFades(t, clipId, fadeIn, fadeOut) {
 export function moveClip(t, clipId, startTime) {
   const c = findClip(t, clipId);
   if (!c || c.trackType === "video") return false;
-  c.startTime = num(startTime, c.startTime);
+  c.startTime = capped(startTime, MAX_CLIP_START, c.startTime);
   return touched(t);
 }
 
@@ -330,7 +341,7 @@ export function addClip(t, { trackType, assetId, shotId = null, startTime = 0, d
     trackType,
     assetId,
     shotId: typeof shotId === "string" && shotId ? shotId : null,
-    startTime: num(startTime, 0),
+    startTime: capped(startTime, MAX_CLIP_START, 0),
     trimIn: 0,
     trimOut: Math.max(0.2, num(duration, 4)),
     volume: 1,

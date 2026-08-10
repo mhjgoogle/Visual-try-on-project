@@ -10,7 +10,7 @@
 // from the character's BASE voice; a Character State adjusts performance
 // only (M7 voice rule — surfaced verbatim in the dialogue prompt).
 import { esc } from "../util/dom.js";
-import { slotEntry } from "../workflow/mediaref.js";
+import { slotEntry, currentRef } from "../workflow/mediaref.js";
 import { buildShotSlotIndex, slotForShotId } from "../workflow/shotmap.js";
 import { sceneOfShot, activeEpisode, findEpisode, effectiveBgm } from "../workflow/proddoc.js";
 import { findCharacter, findLocation, resolveCharacter, resolveLocation } from "../workflow/bibledoc.js";
@@ -80,7 +80,12 @@ export function audioShotModel(pd, shotId, speakerId = null) {
         return l ? resolveLocation(l, owner.scene.locationRef.stateId) : null;
       })()
     : null;
-  const hasVideo = slot ? !!slotEntry(pd.media.video, slot) : false;
+  // hasVideo means "a video whose BYTES are present" — the TTS fit-to-video
+  // path needs a real local file. A video whose local copy was removed
+  // (storageState !== "local") must NOT trigger fitSlug, or TTS would fail
+  // instead of falling back to unfitted synthesis (M11 review debt).
+  const curVideo = slot ? currentRef(pd.media.video, slot) : null;
+  const hasVideo = !!(curVideo && (curVideo.storageState || "local") === "local");
   return {
     shot: { shotId, seq: s.sequence, title: s.title || "", dialogue: s.dialogue || "", action: s.action || "", description: s.description || "" },
     slot,

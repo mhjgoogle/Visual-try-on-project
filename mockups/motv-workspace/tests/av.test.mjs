@@ -18,6 +18,8 @@ import * as bd from "../src/workflow/bibledoc.js";
 import * as al from "../src/workflow/assetlib.js";
 import { compileDialoguePrompt } from "../src/workflow/promptc.js";
 import { storageModel } from "../src/ui/storagews.js";
+import { audioShotModel } from "../src/ui/audiows.js";
+import { timelineModel } from "../src/ui/timelinews.js";
 import { CANVAS_SCHEMA_VERSION, migrateToCurrent, validateCanvasDoc } from "../src/services/canvasschema.js";
 
 // --- fixtures --------------------------------------------------------------- //
@@ -110,6 +112,24 @@ test("compileDialoguePrompt: structured state performance (pace/intensity) survi
   assert.match(perfLine, /pace：急促/); // the changed facet is surfaced
   assert.match(perfLine, /intensity：高/); // the new facet is surfaced
   assert.ok(!perfLine.includes("平稳")); // the UNCHANGED base facet is not repeated
+});
+
+test("audioShotModel.hasVideo respects storageState — a removed local copy is not usable (V1 debt)", () => {
+  const p = pd.createProduction(null);
+  const epId = p.episodes[0].episodeId;
+  const sc = pd.addScene(p, epId, "大殿");
+  pd.assignShot(p, sc.sceneId, "shot-a");
+  const mkPd = (videoState) => ({
+    draftShots: [{ shotId: "shot-a", sequence: 1, title: "跪殿", slot: "v1-1", dialogue: "台词" }],
+    production: p,
+    media: {
+      video: { "v1-1": { current: 1, history: [{ slot_id: "v1-1", version: 1, url: "/u/v.mp4", assetId: "asset-v", storageState: videoState }] } },
+      audio: {},
+    },
+  });
+  assert.equal(audioShotModel(mkPd("local"), "shot-a").hasVideo, true);
+  assert.equal(audioShotModel(mkPd("deleted"), "shot-a").hasVideo, false); // bytes gone
+  assert.equal(audioShotModel(mkPd("missing"), "shot-a").hasVideo, false);
 });
 
 // --- ambience / BGM: references reused, never copied --------------------------- //
@@ -281,6 +301,48 @@ test("removeClip on a VIDEO clip cascades to its shot-anchored audio, never scen
   assert.equal(tl.clipsOf(t, "bgm").length, 1);
   // shot-b's sfx (a different shot) is untouched
   assert.ok(tl.clipsOf(t, "sfx").some((c) => c.shotId === "shot-b"));
+});
+
+test("timelineModel labels clips by shot ('01 跪殿'), falling back to assetId (V1 friction)", () => {
+  const t = tl.timelineFor(tl.createTimelines(null), "ep-1");
+  tl.syncFromRows(t, rows());
+  const labels = { "shot-a": "01 跪殿", "shot-b": "02 逼诗" };
+  const m = timelineModel(t, regFixture(), labels);
+  const vids = m.tracks.find((x) => x.track === "video").clips;
+  assert.equal(vids[0].label, "01 跪殿"); // shot-anchored → human label
+  assert.equal(vids[1].label, "02 逼诗");
+  const bgm = m.tracks.find((x) => x.track === "bgm").clips[0];
+  assert.equal(bgm.label, bgm.assetId.slice(0, 12)); // scene/episode audio → assetId fallback
+  const c = m.tracks.find((x) => x.track === "video").clips[2]; // shot-c, unmapped
+  assert.equal(c.label, c.assetId.slice(0, 12));
+});
+
+test("clip start/fade are clamped to the shared render bounds (V1 debt: no unrenderable saves)", () => {
+  const t = tl.timelineFor(tl.createTimelines(null), "ep-1");
+  tl.syncFromRows(t, rows());
+  const d = tl.clipsOf(t, "dialogue")[0];
+  tl.setClipFades(t, d.clipId, 999, 999); // absurd fades
+  assert.equal(tl.findClip(t, d.clipId).fadeIn, tl.MAX_CLIP_FADE);
+  assert.equal(tl.findClip(t, d.clipId).fadeOut, tl.MAX_CLIP_FADE);
+  tl.moveClip(t, d.clipId, 1e9); // absurd start
+  assert.equal(tl.findClip(t, d.clipId).startTime, tl.MAX_CLIP_START);
+  // hydration clamps a corrupt persisted value too, so the doc stays valid
+  const h = tl.createTimelines({
+    "ep-1": { edited: true, settings: { width: 1280, height: 720, fps: 25, format: "mp4" }, clips: [
+      { clipId: "c1", trackType: "dialogue", assetId: "a", startTime: 1e9, trimIn: 0, trimOut: 2, fadeIn: 999, fadeOut: 999 },
+    ] },
+  })["ep-1"];
+  assert.equal(h.clips[0].startTime, tl.MAX_CLIP_START);
+  assert.equal(h.clips[0].fadeIn, tl.MAX_CLIP_FADE);
+  const doc = v9Doc();
+  doc.timelines = { "ep-1": h };
+  assert.equal(validateCanvasDoc(doc), null); // clamped values pass validation
+  // and validation REJECTS an out-of-bounds value crafted directly (not clamped)
+  const bad = v9Doc();
+  bad.timelines = { "ep-1": { edited: true, settings: h.settings, clips: [
+    { clipId: "x", trackType: "dialogue", assetId: "a", shotId: null, startTime: 0, trimIn: 0, trimOut: 2, volume: 1, muted: false, fadeIn: tl.MAX_CLIP_FADE + 1, fadeOut: 0 },
+  ] } };
+  assert.notEqual(validateCanvasDoc(bad), null);
 });
 
 test("syncFromRows is the ONLY overwrite path and it clears `edited` (explicit confirmed re-sync)", () => {
