@@ -21,12 +21,21 @@ The caller owns JSON encoding/decoding and dedup; this module only moves bytes.
 
 from __future__ import annotations
 
-import fcntl
 import os
 import stat
+import sys
 from pathlib import Path
 
+from ai_video_workflow._fslock import flock_exclusive
 from ai_video_workflow.errors import AiVideoWorkflowError
+
+# Native Windows lacks O_NOFOLLOW/O_DIRECTORY/dir_fd/os.pread/os.fchmod and
+# fcntl. On Windows the opener falls back to the pathlib containment resolver
+# (resolve_within_root, per-component symlink rejection + root containment) plus
+# a regular-file guard. The residual symlink-TOCTOU window POSIX closes with
+# O_NOFOLLOW is accepted on Windows because creating a symlink there requires
+# elevation/Developer Mode (single-user local model) — ADR-0049.
+_WINDOWS = sys.platform == "win32"
 
 
 def append_line(
@@ -40,9 +49,9 @@ def append_line(
     """
     fd = _open_append_contained(project_root, parts, error_cls)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        flock_exclusive(fd)
         size = os.fstat(fd).st_size
-        if size > 0 and os.pread(fd, 1, size - 1) != b"\n":
+        if size > 0 and _read_at(fd, size - 1, 1) != b"\n":
             raise error_cls("log has a torn final line; refusing to append")
         view = memoryview(line)
         written = 0
@@ -87,7 +96,77 @@ def resolve_log_path(project_root: Path, parts: tuple[str, ...]) -> Path:
     return resolve_within_root(project_root, Path(*parts))
 
 
+def _read_at(fd: int, offset: int, n: int) -> bytes:
+    """Read ``n`` bytes at ``offset`` — ``os.pread`` on POSIX, a locked
+    lseek+read on Windows (no ``os.pread`` there; we hold the exclusive lock and
+    O_APPEND writes ignore the file position, so moving it is safe)."""
+    if not _WINDOWS:
+        return os.pread(fd, n, offset)
+    pos = os.lseek(fd, 0, os.SEEK_CUR)
+    try:
+        os.lseek(fd, offset, os.SEEK_SET)
+        return os.read(fd, n)
+    finally:
+        os.lseek(fd, pos, os.SEEK_SET)
+
+
+def _contained_target(root: Path, parts: tuple[str, ...], error_cls: type) -> Path:
+    """Windows containment: the pathlib resolver rejects an absolute/``..``/
+    symlinked-component/escaping path, returning the un-resolved join."""
+    from ai_video_workflow.security import PathEscapeError, resolve_within_root
+
+    try:
+        return resolve_within_root(root, Path(*parts))
+    except PathEscapeError as exc:
+        raise error_cls(
+            f"refusing to open the log (uncontained path under {root})"
+        ) from exc
+
+
+def _open_append_windows(root: Path, parts: tuple[str, ...], error_cls: type) -> int:
+    target = _contained_target(root, parts, error_cls)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.is_symlink():  # resolver already rejected existing symlinks
+            raise error_cls("refusing to open the log (symlinked path)")
+        fd = os.open(target, os.O_RDWR | os.O_APPEND | os.O_CREAT, 0o600)
+    except OSError as exc:
+        raise error_cls(
+            f"refusing to open the log (unopenable path under {root})"
+        ) from exc
+    _require_regular_file_windows(fd, error_cls)
+    return fd
+
+
+def _open_read_windows(
+    root: Path, parts: tuple[str, ...], error_cls: type
+) -> int | None:
+    target = _contained_target(root, parts, error_cls)
+    if not target.exists():
+        return None
+    try:
+        if target.is_symlink():
+            raise error_cls("refusing to read the log (symlinked path)")
+        fd = os.open(target, os.O_RDONLY)
+    except OSError as exc:
+        raise error_cls(
+            f"refusing to read the log (unopenable path under {root})"
+        ) from exc
+    _require_regular_file_windows(fd, error_cls)
+    return fd
+
+
+def _require_regular_file_windows(fd: int, error_cls: type) -> None:
+    """Windows regular-file guard: S_ISREG only (``st_nlink`` is unreliable and
+    ``os.fchmod`` is unavailable on Windows — see ADR-0049)."""
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+        os.close(fd)
+        raise error_cls("log path is not a regular file")
+
+
 def _open_append_contained(root: Path, parts: tuple[str, ...], error_cls: type) -> int:
+    if _WINDOWS:
+        return _open_append_windows(root, parts, error_cls)
     try:
         dir_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
@@ -126,6 +205,8 @@ def _open_append_contained(root: Path, parts: tuple[str, ...], error_cls: type) 
 def _open_read_contained(
     root: Path, parts: tuple[str, ...], error_cls: type
 ) -> int | None:
+    if _WINDOWS:
+        return _open_read_windows(root, parts, error_cls)
     try:
         dir_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:

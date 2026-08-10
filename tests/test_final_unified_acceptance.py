@@ -137,7 +137,7 @@ def test_corruption_of_an_authoritative_fact_fails_closed(tmp_path) -> None:
     _run_a_project(root)
     # tamper a post-production index -> the projection fails closed (not silent)
     path = root / pp.index_relpath("s5", "t", 1)
-    raw = json.loads(path.read_text())
+    raw = json.loads(path.read_text(encoding="utf-8"))
     raw["kind"] = "rough_cut"
     path.write_text(json.dumps(raw))
     view = queries.project_multimedia(root, NOW)

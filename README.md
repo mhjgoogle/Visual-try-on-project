@@ -18,7 +18,8 @@ The logical input/output contract for every Project/L0/S1-S7 step is in
 
 ## Development Setup
 
-Run these commands from the repository root in WSL2 Ubuntu:
+WSL2 Ubuntu is the authoritative development/build environment. Run these
+commands from the repository root:
 
 ```bash
 python3 -m venv .venv
@@ -30,6 +31,38 @@ python -m ruff format --check .
 python -m ruff check .
 python -m pytest
 ```
+
+### Native Windows (run + test target, ADR-0049)
+
+Since [ADR-0049](docs/adr/ADR-0049-native-windows-run-and-test-target.md),
+native Windows (Windows Python, no WSL) is a **supported run and test target**
+on **NTFS**. In PowerShell from the repository root:
+
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+# run each on its own line — PowerShell's ';' does not fail-fast, so a
+# one-liner could mask a failing check behind a later passing one
+ruff check .
+ruff format --check .
+python -m pytest
+```
+
+Or use the launcher (creates the venv, installs deps, opens the demo studio):
+
+```powershell
+.\run-windows.ps1              # setup + demo studio
+.\run-windows.ps1 -Connected   # setup + connected backend (server.py)
+.\run-windows.ps1 -SetupOnly    # just venv + deps
+```
+
+FFmpeg/ffprobe (real render/probe) and, optionally, Piper (local TTS) must be
+installed and on `PATH` (e.g. `choco install ffmpeg`); there is no `apt`. The
+bash AI-agent dev tooling (commit-gate hook, codex-review-loop) is not ported
+and remains WSL2/Ubuntu-only. Windows CI (`.github/workflows/ci.yml`) is the
+verification of record for this target.
 
 ## Minimal Loop (M1)
 

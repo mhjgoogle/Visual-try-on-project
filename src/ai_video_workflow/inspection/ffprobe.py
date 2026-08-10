@@ -52,6 +52,8 @@ class FfprobeMediaInspector(MediaInspector):
                 argv,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",  # CJK stderr under a Windows locale codepage
                 timeout=self._timeout_seconds,
                 check=False,
                 shell=False,

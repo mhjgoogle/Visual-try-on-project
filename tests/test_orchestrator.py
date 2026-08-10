@@ -177,7 +177,9 @@ def _ctx(root: Path) -> OrchestrationContext:
 
 
 def _record_json(root: Path) -> dict:
-    return json.loads((root / "records/orchestration/task-1.json").read_text())
+    return json.loads(
+        (root / "records/orchestration/task-1.json").read_text(encoding="utf-8")
+    )
 
 
 # --- provider test doubles --------------------------------------------------
@@ -1460,7 +1462,7 @@ def _record_phase_or_none(root):
     path = root / "records/orchestration/task-1.json"
     if not path.exists():
         return None
-    return json.loads(path.read_text())["phase"]
+    return json.loads(path.read_text(encoding="utf-8"))["phase"]
 
 
 def _state_dir_snapshot(root):

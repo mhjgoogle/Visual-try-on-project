@@ -3,15 +3,17 @@
 Serializes the whole "read spend + reserve" critical section across
 projects so two concurrent paid submissions cannot both pass the
 pre-flight budget check and then both reserve (a check-then-act
-overspend). Uses an ``fcntl`` exclusive file lock on the account root;
-the project is Linux/WSL2-only, so ``fcntl`` is always available.
+overspend). Uses an exclusive advisory file lock on the account root via
+the cross-platform :mod:`ai_video_workflow._fslock` shim (POSIX
+``fcntl.flock`` / Windows ``msvcrt.locking``; ADR-0049).
 """
 
 from __future__ import annotations
 
-import fcntl
 from contextlib import contextmanager
 from pathlib import Path
+
+from ai_video_workflow._fslock import flock_exclusive, flock_unlock
 
 LOCK_FILENAME = ".wfm1-budget.lock"
 
@@ -23,10 +25,10 @@ def account_budget_lock(account_root: Path):
     lock_path = account_root / LOCK_FILENAME
     handle = open(lock_path, "w")  # noqa: SIM115 - released in finally
     try:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        flock_exclusive(handle.fileno())
         yield
     finally:
         try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            flock_unlock(handle.fileno())
         finally:
             handle.close()

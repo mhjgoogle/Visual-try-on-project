@@ -28,9 +28,12 @@ import importlib.util
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+
+from tests._scan import core_files_containing
 
 _MOCKUP_DIR = Path(__file__).resolve().parents[1] / "mockups" / "motv-workspace"
 _SERVER_PATH = _MOCKUP_DIR / "server.py"
@@ -390,20 +393,28 @@ def test_render_forces_planned_segment_length_keeping_av_in_sync(
 # --- TTS voice-model selection (M11 voice-identity rule) ----------------------
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="fake piper needs a bare-name POSIX-executable shim; the "
+    "voice-selection logic it exercises is platform-independent (ADR-0049)",
+)
 def test_tts_voice_param_validated_and_falls_back_honestly(
     server_module, data_dir, monkeypatch
 ) -> None:
     """A `voice` names a per-character local model; a bad name is refused, and
     an absent model falls back to the default (response.voice=None) — never a
     fabricated claim of a voice it didn't render (M11 voice rule)."""
-    # a fake piper that just writes a minimal WAV so the route reaches the end
-    fake = data_dir / "fakepiper.sh"
-    # emit a >44-byte WAV starting with RIFF (the route's validity check)
+    # a cross-platform fake piper: a Python script (shebang-executable on POSIX)
+    # that writes a >44-byte RIFF WAV to its `-f` argument — no /bin/sh, dd or
+    # /dev/zero. The server invokes it by resolved path (shell=False).
+    fake = data_dir / "fakepiper.py"
     fake.write_text(
-        '#!/bin/sh\nout=""\nwhile [ $# -gt 0 ]; do\n'
-        ' [ "$1" = "-f" ] && out="$2";\n shift\ndone\n'
-        'printf "RIFF" > "$out"\n'
-        'dd if=/dev/zero bs=1 count=64 >> "$out" 2>/dev/null\n'
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "a = sys.argv\n"
+        'out = a[a.index("-f") + 1] if "-f" in a else "out.wav"\n'
+        'open(out, "wb").write(b"RIFF" + b"\\x00" * 64)\n',
+        encoding="utf-8",
     )
     fake.chmod(0o755)
     (data_dir / "tts").mkdir(parents=True, exist_ok=True)
@@ -505,9 +516,4 @@ def test_core_contracts_untouched_by_m11() -> None:
         "ambienceAssetId",
         "removeAssetRecord",
     ):
-        hits = subprocess.run(  # noqa: S603 - fixed argv, no shell
-            ["grep", "-rl", needle, str(core)],
-            capture_output=True,
-            text=True,
-        )
-        assert hits.stdout.strip() == "", f"{needle} leaked into Core"
+        assert core_files_containing(needle, core) == [], f"{needle} leaked into Core"

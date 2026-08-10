@@ -904,7 +904,7 @@ def test_shot_record_resolver_binds_real_record_bytes(tmp_path: Path) -> None:
     assert receipt.status is ReceiptStatus.COMPLETED
 
     # a drifted record (any byte change) fails closed at the gateway
-    record.write_text(record.read_text() + "\n", encoding="utf-8")
+    record.write_text(record.read_text(encoding="utf-8") + "\n", encoding="utf-8")
     stale = _env(command_id="cmd-stale", params=_params(operation_id="op-9"))
     stale = CommandEnvelope(
         command_id=stale.command_id,

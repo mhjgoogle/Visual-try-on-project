@@ -21,6 +21,8 @@ from pathlib import Path
 
 import pytest
 
+from tests._scan import core_files_containing
+
 _MOCKUP_DIR = Path(__file__).resolve().parents[1] / "mockups" / "motv-workspace"
 _SRC = _MOCKUP_DIR / "src"
 
@@ -113,9 +115,4 @@ def test_schema_has_v5_generation_registry_and_storage_state() -> None:
 def test_core_contracts_untouched_by_m5() -> None:
     core = Path(__file__).resolve().parents[1] / "src" / "ai_video_workflow"
     for needle in ("generationId", "createGenerationRegistry", "storageState"):
-        hits = subprocess.run(  # noqa: S603 - fixed argv, no shell
-            ["grep", "-rl", needle, str(core)],
-            capture_output=True,
-            text=True,
-        )
-        assert hits.stdout.strip() == "", f"{needle} leaked into Core"
+        assert core_files_containing(needle, core) == [], f"{needle} leaked into Core"

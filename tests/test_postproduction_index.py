@@ -70,7 +70,7 @@ def test_publish_load_roundtrip_and_digest(tmp_path) -> None:
 def test_tampered_index_fails_closed(tmp_path) -> None:
     _assembly(tmp_path)
     path = tmp_path / index.index_relpath("s5", "timeline", 1)
-    raw = json.loads(path.read_text())
+    raw = json.loads(path.read_text(encoding="utf-8"))
     raw["kind"] = "rough_cut"  # identity change without recomputing digest
     path.write_text(json.dumps(raw))
     with pytest.raises(PostProductionValidationError):

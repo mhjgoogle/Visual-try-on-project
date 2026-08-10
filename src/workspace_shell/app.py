@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -387,11 +388,17 @@ class WorkspaceApp:
             return self._error(404, "not_found", "unreadable artifact")
         # Re-verify containment on the file actually opened: between the
         # resolve() check above and open(), a path component could have been
-        # swapped for a symlink escaping the project (TOCTOU). The opened
-        # descriptor's real path (/proc/self/fd, Linux/WSL2 — this project's
-        # only supported platform) cannot be redirected after the fact.
+        # swapped for a symlink escaping the project (TOCTOU). On Linux/WSL2 the
+        # opened descriptor's real path (/proc/self/fd) cannot be redirected
+        # after the fact. Native Windows has no /proc; per ADR-0049 we fall back
+        # to re-resolving the target path (still a real post-open check, minus
+        # the exact-descriptor guarantee — acceptable since Windows symlink
+        # creation requires elevation/Developer Mode, single-user local model).
         try:
-            opened = Path(os.readlink(f"/proc/self/fd/{stream.fileno()}"))
+            if sys.platform == "win32":
+                opened = resolved.resolve()
+            else:
+                opened = Path(os.readlink(f"/proc/self/fd/{stream.fileno()}"))
             size = os.fstat(stream.fileno()).st_size
         except OSError:
             stream.close()

@@ -154,7 +154,9 @@ def test_completed_report_time_drift_is_conflict(tmp_path) -> None:
     _run(tmp_path, data)
     for rel in ("reports/composition/final_v1.json", "reports/composition/final_v1.md"):
         path = tmp_path / rel
-        path.write_text(path.read_text().replace("08:00:00", "09:00:00"))
+        path.write_text(
+            path.read_text(encoding="utf-8").replace("08:00:00", "09:00:00")
+        )
     with pytest.raises(CompositionConflictError):
         _run(tmp_path, data)
 

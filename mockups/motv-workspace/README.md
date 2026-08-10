@@ -29,7 +29,9 @@
 
 **演示模式（静态，纯 fixtures，零依赖）**
 ```bash
-cd mockups/motv-workspace && python3 -m http.server 8000
+# 用 serve.py（显式 MIME，跨平台）；不要用 `python -m http.server`——原生 Windows
+# 会按注册表给 .js/.mjs 发错误 MIME，浏览器拒绝执行 ES module（ADR-0049）。
+cd mockups/motv-workspace && python serve.py --port 8000   # Windows 用 `py -3 serve.py`
 # 浏览器 http://localhost:8000/  → 顶部显示「⚪ 演示模式」
 ```
 
@@ -39,6 +41,13 @@ source .venv/bin/activate            # 需已 pip install -e .
 python mockups/motv-workspace/server.py --account-root examples/projects
 # 浏览器 http://127.0.0.1:8770/  → 顶部显示「🟢 真实只读数据」
 ```
+
+**原生 Windows（ADR-0049，NTFS）**：PowerShell 里
+`.\.venv\Scripts\Activate.ps1` 激活后同样 `python mockups\motv-workspace\server.py
+--account-root examples\projects`；演示模式用 `py -3 mockups\motv-workspace\serve.py`。
+ffmpeg/ffprobe（渲染/探测）与可选 Piper（本地 TTS）需装好并在 `PATH`。付费模式的
+`export AI_VIDEO_WORKFLOW_ENABLE_PAID_COMMANDS=1` 在 PowerShell 里是
+`$env:AI_VIDEO_WORKFLOW_ENABLE_PAID_COMMANDS=1`。仓库根 `run-windows.ps1` 提供一键启动。
 连接模式下：落地页列出**真实项目**（如 `wfm1-demo`）；顶部预算是**真实 WQ-14 数字（JPY）**；
 点余额看**真实预算 / 阶段状态(WQ-02) / 成本(WQ-07)**；画布编辑（剧本/节点/连线）**自动存到
 `data/<project>.json`，刷新不丢**；生成类操作提示"待 Gateway"。创意节点内容仍是本地草稿

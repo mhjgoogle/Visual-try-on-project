@@ -94,7 +94,7 @@ def test_corrupt_postproduction_fails_closed(tmp_path) -> None:
     _seed(tmp_path)
     # tamper a post-production index so its self-digest no longer matches
     path = tmp_path / pp.index_relpath("s5", "t", 1)
-    raw = json.loads(path.read_text())
+    raw = json.loads(path.read_text(encoding="utf-8"))
     raw["kind"] = "rough_cut"
     path.write_text(json.dumps(raw))
     res = queries.project_multimedia(tmp_path, NOW)

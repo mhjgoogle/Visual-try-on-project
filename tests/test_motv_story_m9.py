@@ -26,6 +26,8 @@ from pathlib import Path
 
 import pytest
 
+from tests._scan import core_files_containing
+
 _MOCKUP_DIR = Path(__file__).resolve().parents[1] / "mockups" / "motv-workspace"
 _SRC = _MOCKUP_DIR / "src"
 
@@ -137,9 +139,4 @@ def test_core_contracts_untouched_by_m9() -> None:
         "story-develop",
         "episode-plan",
     ):
-        hits = subprocess.run(  # noqa: S603 - fixed argv, no shell
-            ["grep", "-rl", needle, str(core)],
-            capture_output=True,
-            text=True,
-        )
-        assert hits.stdout.strip() == "", f"{needle} leaked into Core"
+        assert core_files_containing(needle, core) == [], f"{needle} leaked into Core"

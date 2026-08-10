@@ -24,6 +24,8 @@ from pathlib import Path
 
 import pytest
 
+from tests._scan import core_files_containing
+
 _MOCKUP_DIR = Path(__file__).resolve().parents[1] / "mockups" / "motv-workspace"
 
 
@@ -72,9 +74,4 @@ def test_lock_payload_shot_objects_carry_only_legacy_fields() -> None:
 def test_core_contracts_untouched_by_m2() -> None:
     """M2 是 mockup 域检查点：核心合同目录不得出现 creator 身份字段。"""
     core = Path(__file__).resolve().parents[1] / "src" / "ai_video_workflow"
-    hits = subprocess.run(  # noqa: S603 - fixed argv, no shell
-        ["grep", "-rl", "sourceScriptVersionId", str(core)],
-        capture_output=True,
-        text=True,
-    )
-    assert hits.stdout.strip() == ""
+    assert core_files_containing("sourceScriptVersionId", core) == []

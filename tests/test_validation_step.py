@@ -139,7 +139,9 @@ def test_completed_report_time_drift_is_conflict(tmp_path) -> None:
         "reports/validation/task-shot-1-1_v1.md",
     ):
         path = tmp_path / rel
-        path.write_text(path.read_text().replace("08:00:00", "09:00:00"))
+        path.write_text(
+            path.read_text(encoding="utf-8").replace("08:00:00", "09:00:00")
+        )
     with pytest.raises(AssetConflictError):
         _run(tmp_path, probe=_good_probe(), task=task)
 
@@ -153,7 +155,9 @@ def test_completed_asset_validated_at_drift_is_conflict(tmp_path) -> None:
     _stage(tmp_path, task)
     _run(tmp_path, probe=_good_probe(), task=task)
     asset_path = tmp_path / "records/video-assets/asset-task-shot-1-1-v1.json"
-    asset_path.write_text(asset_path.read_text().replace("08:00:00", "09:00:00"))
+    asset_path.write_text(
+        asset_path.read_text(encoding="utf-8").replace("08:00:00", "09:00:00")
+    )
     with pytest.raises(AssetConflictError):
         _run(tmp_path, probe=_good_probe(), task=task)
 

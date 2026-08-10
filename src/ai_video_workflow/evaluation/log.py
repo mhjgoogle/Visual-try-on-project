@@ -17,17 +17,22 @@ facts (ADR-0034).
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import stat
+import sys
 from pathlib import Path
 
+from ai_video_workflow._fslock import flock_exclusive
 from ai_video_workflow.errors import AiVideoWorkflowError
 from ai_video_workflow.evaluation.records import EvaluationRecord, record_from_envelope
-from ai_video_workflow.security import resolve_within_root
+from ai_video_workflow.security import PathEscapeError, resolve_within_root
 
 _LOG_RELATIVE = ("evaluation", "events", "log.jsonl")
+
+# Windows fallback for the POSIX-only hardened opener — see ADR-0049 and the
+# equivalent note in ai_video_workflow/appendlog.py.
+_WINDOWS = sys.platform == "win32"
 
 
 class EvaluationLogError(AiVideoWorkflowError):
@@ -75,13 +80,13 @@ def append_record(project_root: Path, record: EvaluationRecord) -> None:
         # one critical section w.r.t. any other flock-using appender, so even
         # under accidental concurrency a partial write can never interleave
         # into a corrupt middle line. Released when the fd is closed.
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        flock_exclusive(fd)
         # Torn-tail guard on the SAME contained descriptor (no separate,
         # racy resolve+read): if the existing file is non-empty and does not
         # end with a newline, appending would turn the torn fragment into a
         # corrupt middle line, so refuse.
         size = os.fstat(fd).st_size
-        if size > 0 and os.pread(fd, 1, size - 1) != b"\n":
+        if size > 0 and _read_at(fd, size - 1, 1) != b"\n":
             raise CorruptEvaluationLogError(
                 "evaluation log has a torn final line; refusing to append"
             )
@@ -102,6 +107,67 @@ def append_record(project_root: Path, record: EvaluationRecord) -> None:
         os.close(fd)
 
 
+def _read_at(fd: int, offset: int, n: int) -> bytes:
+    """``os.pread`` on POSIX; a locked lseek+read on Windows (no ``os.pread``
+    there; the exclusive lock is held and O_APPEND ignores the position)."""
+    if not _WINDOWS:
+        return os.pread(fd, n, offset)
+    pos = os.lseek(fd, 0, os.SEEK_CUR)
+    try:
+        os.lseek(fd, offset, os.SEEK_SET)
+        return os.read(fd, n)
+    finally:
+        os.lseek(fd, pos, os.SEEK_SET)
+
+
+def _contained_target(root: Path, parts: tuple[str, ...]) -> Path:
+    try:
+        return resolve_within_root(root, Path(*parts))
+    except PathEscapeError as exc:
+        raise EvaluationLogError(
+            f"refusing to open the evaluation log (uncontained path under {root})"
+        ) from exc
+
+
+def _require_regular_file_windows(fd: int) -> None:
+    """Windows regular-file guard (S_ISREG only; ``st_nlink``/``os.fchmod`` are
+    POSIX-only — ADR-0049)."""
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+        os.close(fd)
+        raise EvaluationLogError("evaluation log path is not a regular file")
+
+
+def _open_append_windows(root: Path, parts: tuple[str, ...]) -> int:
+    target = _contained_target(root, parts)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.is_symlink():
+            raise EvaluationLogError("refusing to open the evaluation log (symlink)")
+        fd = os.open(target, os.O_RDWR | os.O_APPEND | os.O_CREAT, 0o600)
+    except OSError as exc:
+        raise EvaluationLogError(
+            f"refusing to open the evaluation log (unopenable path under {root})"
+        ) from exc
+    _require_regular_file_windows(fd)
+    return fd
+
+
+def _open_read_windows(root: Path, parts: tuple[str, ...]) -> int | None:
+    target = _contained_target(root, parts)
+    if not target.exists():
+        return None
+    try:
+        if target.is_symlink():
+            raise EvaluationLogError("refusing to read the evaluation log (symlink)")
+        fd = os.open(target, os.O_RDONLY)
+    except OSError as exc:
+        raise EvaluationLogError(
+            f"refusing to read the evaluation log (unopenable path under {root})"
+        ) from exc
+    _require_regular_file_windows(fd)
+    return fd
+
+
 def _open_append_contained(root: Path, parts: tuple[str, ...]) -> int:
     """Open ``root/*parts`` read-write for append, creating dirs, no symlink.
 
@@ -111,7 +177,10 @@ def _open_append_contained(root: Path, parts: tuple[str, ...]) -> int:
     TOCTOU window that a post-open containment re-check would only detect
     *after* ``O_CREAT`` had already created a file outside the root. Opened
     ``O_RDWR`` so the torn-tail guard can pread the last byte on this same fd.
+    On Windows (no O_NOFOLLOW/dir_fd) the containment resolver is used instead.
     """
+    if _WINDOWS:
+        return _open_append_windows(root, parts)
     try:
         dir_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
@@ -169,8 +238,11 @@ def _open_read_contained(root: Path, parts: tuple[str, ...]) -> int | None:
     concurrently-swapped symlink component cannot redirect the read outside
     ``root`` (the read counterpart of :func:`_open_append_contained`). Returns
     ``None`` when the log (or a parent) simply does not exist yet; a symlinked
-    component or any other open failure raises.
+    component or any other open failure raises. On Windows the containment
+    resolver is used instead of O_NOFOLLOW/dir_fd (ADR-0049).
     """
+    if _WINDOWS:
+        return _open_read_windows(root, parts)
     try:
         dir_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:

@@ -7,7 +7,9 @@ Agent 之间只通过仓库中的文档、代码和 Git 状态共享上下文，
 
 ### 长期目标
 
-构建一个在 WSL2 Ubuntu + VS Code 环境中运行的 AI 视频 / AI 短剧生产工作流，覆盖：
+构建一个 AI 视频 / AI 短剧生产工作流（权威开发环境为 WSL2 Ubuntu + VS Code；
+自 [ADR-0049](docs/adr/ADR-0049-native-windows-run-and-test-target.md) 起，原生
+Windows 为受支持的**运行+测试**目标），覆盖：
 
 故事构思 → 结构化剧本 → 场景与镜头拆分 → 人物/场景/道具资产管理 → 图片生成
 → 视频生成 → 配音、音效和字幕 → FFmpeg 合成 → 质量检查
@@ -66,11 +68,20 @@ L0–S7 阶段/步骤的逻辑输入输出基线见
 ## 2. 技术与环境约束
 
 1. Python 是主要开发语言。
-2. 项目运行在 WSL2 Ubuntu 中（Windows 宿主机）。
-3. 只使用 Linux/POSIX 路径和命令。
-4. 不使用 PowerShell、CMD 或 Windows 路径（如 `C:\Users\...`）。
-5. 仓库必须保留在 Ubuntu 文件系统 `/home` 下；未经用户明确要求，不得将活动仓库放在 `/mnt/c` 下。
-6. Git、Python、FFmpeg、Claude Code、Codex 必须在 Ubuntu 内运行；不得假设 Windows 侧安装的工具在 Ubuntu 内可用。
+2. 权威开发/构建/CI/agent 环境为 WSL2 Ubuntu（Windows 宿主机）。自 ADR-0049 起，
+   原生 Windows 是受支持的**运行+测试**目标（流水线、CLI、motv 原型的演示/连接/
+   FFmpeg 渲染、测试套件），文件系统限 NTFS 同卷。
+3. 流水线代码与 agent 工作流只使用 Linux/POSIX 语义的路径与命令；跨平台代码用
+   pathlib/stdlib，不硬编码分隔符或平台专属 syscall（面向 Windows 用户的启动器与
+   运行文档除外，见规则 4 与 ADR-0049）。
+4. 流水线代码与 agent 工作流内不使用 PowerShell、CMD 或 Windows 路径（如
+   `C:\Users\...`）。**例外**：ADR-0049 允许为 Windows 用户提供 `.ps1`/`.bat` 启动器
+   与 PowerShell/CMD 运行文档作为产品入口。
+5. 权威仓库保留在 Ubuntu 文件系统 `/home` 下；未经用户明确要求，不得将活动仓库放在
+   `/mnt/c` 下。（Windows 用户在本机 NTFS 上运行 V1 属 ADR-0049 支持范围。）
+6. 权威开发中 Git、Python、FFmpeg、Claude Code、Codex 在 Ubuntu 内运行；不得假设
+   Windows 侧安装的工具在 Ubuntu 内可用。所有外部工具（ffmpeg/ffprobe/piper/claude）
+   一律经 `shutil.which` 解析、失败即 fail-closed，不得裸名调用（ADR-0049）。
 7. Python 依赖必须安装在项目虚拟环境（venv）内，不污染系统环境。
 
 ## 3. 架构约束

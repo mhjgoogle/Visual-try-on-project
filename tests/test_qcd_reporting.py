@@ -82,7 +82,7 @@ def test_first_report_publishes_v1(tmp_path) -> None:
     assert outcome.version == 1 and outcome.skipped is False
     assert (tmp_path / "reports/qcd/summary_v1.json").exists()
     assert (tmp_path / "reports/qcd/summary_v1.md").exists()
-    obj = json.loads((tmp_path / outcome.json_path).read_text())
+    obj = json.loads((tmp_path / outcome.json_path).read_text(encoding="utf-8"))
     assert obj["derived"] is True
     assert obj["project_id"] == "proj-1"
 
@@ -133,7 +133,7 @@ def test_conflicting_report_content_raises(tmp_path) -> None:
     # reuses v1 (JSON is byte-identical) and then republishes the Markdown,
     # which no-replace-conflicts with the tampered file.
     md = tmp_path / "reports/qcd/summary_v1.md"
-    md.write_text(md.read_text() + "\ntampered\n", encoding="utf-8")
+    md.write_text(md.read_text(encoding="utf-8") + "\ntampered\n", encoding="utf-8")
     with pytest.raises(QcdReportConflictError):
         run_qcd_report_step(project_root=tmp_path, data=data, observed_at=_t(13))
 

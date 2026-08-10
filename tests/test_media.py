@@ -148,7 +148,7 @@ def test_asset_immutable_linear_versions(tmp_path):
 def test_asset_tamper_fails_closed(tmp_path):
     publish_asset(tmp_path, _import_asset(tmp_path))
     path = tmp_path / "media" / "assets" / "reference" / "ref-a_v1.json"
-    raw = json.loads(path.read_text())
+    raw = json.loads(path.read_text(encoding="utf-8"))
     raw["size_bytes"] = 999  # identity changed, digest not
     path.write_text(json.dumps(raw))
     with pytest.raises(MediaValidationError):
@@ -643,7 +643,7 @@ def test_load_selection_rejects_tampered_actor(tmp_path):
         tmp_path, selection_id="sel-1", batch_id="batch-1", selected_candidate_id="c1"
     )
     path = tmp_path / "media" / "selections" / "sel-1.json"
-    raw = json.loads(path.read_text())
+    raw = json.loads(path.read_text(encoding="utf-8"))
     raw["actor"] = "agent"  # forge non-user provenance
     path.write_text(json.dumps(raw))
     from ai_video_workflow.media import load_selection
@@ -780,7 +780,7 @@ def test_load_batch_rejects_id_mismatch(tmp_path):
         clock=_clock,
     )
     path = tmp_path / "media" / "batches" / "batch-1.json"
-    raw = json.loads(path.read_text())
+    raw = json.loads(path.read_text(encoding="utf-8"))
     raw["batch_id"] = "batch-9"  # tamper provenance
     path.write_text(json.dumps(raw))
     from ai_video_workflow.media import load_batch
@@ -1327,7 +1327,7 @@ def test_external_fetch_writes_trusted_download_receipt(tmp_path):
     receipt = tmp_path / "staging" / "media" / "batch-1" / "c1.png.fetched.json"
     assert receipt.is_file()
     assert (
-        json.loads(receipt.read_text())["sha256"]
+        json.loads(receipt.read_text(encoding="utf-8"))["sha256"]
         == hashlib.sha256(b"fetched-bytes").hexdigest()
     )
 
@@ -1366,7 +1366,7 @@ def test_load_batch_rejects_tampered_provenance(tmp_path):
         clock=_clock,
     )
     path = tmp_path / "media" / "batches" / "batch-1.json"
-    raw = json.loads(path.read_text())
+    raw = json.loads(path.read_text(encoding="utf-8"))
     raw["prompt"] = "a forged prompt"  # candidate file hashes still valid
     path.write_text(json.dumps(raw))
     from ai_video_workflow.media import load_batch
@@ -1394,7 +1394,7 @@ def test_load_selection_rejects_tampered_record(tmp_path):
         tmp_path, selection_id="sel-1", batch_id="batch-1", selected_candidate_id="c1"
     )
     path = tmp_path / "media" / "selections" / "sel-1.json"
-    raw = json.loads(path.read_text())
+    raw = json.loads(path.read_text(encoding="utf-8"))
     raw["rationale"] = "forged"  # digest no longer matches
     path.write_text(json.dumps(raw))
     from ai_video_workflow.media import load_selection

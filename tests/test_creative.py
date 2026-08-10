@@ -250,7 +250,7 @@ def test_immutable_publish_refuses_overwrite(tmp_path):
 def test_tampered_index_fails_closed(tmp_path):
     _pub(tmp_path, "l0", "L0-01", "idea_card")
     path = tmp_path / "creative" / "l0" / "idea_card_v1.json"
-    raw = json.loads(path.read_text())
+    raw = json.loads(path.read_text(encoding="utf-8"))
     raw["checklist"] = [{"item": "x", "verdict": "pass", "note": "tampered"}]
     path.write_text(json.dumps(raw))  # digest no longer matches
     with pytest.raises(CreativeValidationError):
@@ -424,7 +424,7 @@ def test_publish_refuses_digest_forged_input_ref(tmp_path):
 def test_publish_refuses_corrupt_parent(tmp_path):
     _pub(tmp_path, "l0", "L0-01", "idea_card")
     path = tmp_path / "creative" / "l0" / "idea_card_v1.json"
-    raw = json.loads(path.read_text())
+    raw = json.loads(path.read_text(encoding="utf-8"))
     raw["checklist"] = [{"item": "x", "verdict": "pass", "note": "tampered"}]
     path.write_text(json.dumps(raw))
     v2 = build_artifact(

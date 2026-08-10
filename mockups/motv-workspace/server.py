@@ -359,9 +359,19 @@ def _run_claude(prompt: str, timeout: int = 180) -> str:
     the prompt-level "treat as data" framing is defense in depth.
     """
     cap = _CLAUDE_OUTPUT_CAP
+    # Resolve the CLI on PATH rather than invoking it by bare name: on Windows
+    # the Claude Code CLI is `claude.cmd`, which CreateProcess (shell=False) does
+    # NOT resolve from a bare "claude" — shutil.which honors PATHEXT and returns
+    # the full path (ADR-0049). Absent CLI raises FileNotFoundError (caller maps
+    # it to a fail-closed error), same as before.
+    import shutil as _shutil
+
+    claude_exe = _shutil.which("claude")
+    if claude_exe is None:
+        raise FileNotFoundError("claude CLI not found on PATH")
     # FileNotFoundError here (claude absent) propagates unchanged to the caller.
     proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
-        ["claude", "-p", prompt, "--tools", ""],
+        [claude_exe, "-p", prompt, "--tools", ""],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,  # merge: one bounded stream, no drain deadlock
         cwd=str(MOCKUP_DIR),  # neutral cwd: no repo project context
@@ -2164,7 +2174,7 @@ class _App:
                 {
                     "error": {
                         "category": "compose_unavailable",
-                        "detail": "ffmpeg/ffprobe 缺失：请安装（或放入 .venv/bin）",
+                        "detail": "ffmpeg/ffprobe 缺失：请安装并加入 PATH",
                     }
                 },
             )

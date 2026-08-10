@@ -28,7 +28,6 @@ command; specs are exercised with registered stubs.
 
 from __future__ import annotations
 
-import fcntl
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -36,6 +35,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
+from ai_video_workflow._fslock import flock_exclusive
 from ai_video_workflow.gateway.commands import (
     CommandEnvelope,
     CommandRegistry,
@@ -237,7 +237,7 @@ class CommandGateway:
         except OSError:
             pass
         fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        flock_exclusive(fd)  # released by os.close(fd) (ADR-0049 shim)
         return fd
 
     def _verify_target(self, spec: CommandSpec, envelope: CommandEnvelope) -> None:

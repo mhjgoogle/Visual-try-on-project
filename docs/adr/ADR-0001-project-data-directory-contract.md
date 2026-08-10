@@ -358,6 +358,13 @@ distinct; target file names must match the task_id / manifest
 identity. The supported and tested environment is WSL2 Ubuntu / Linux;
 Windows path and replace semantics are out of scope.
 
+> **Superseded in part by [ADR-0049](ADR-0049-native-windows-run-and-test-target.md)
+> (2026-08-10):** native Windows is now a supported run+test target on **NTFS,
+> same volume**. `os.replace` (atomic overwrite) and `os.link` (create-only "no
+> silent overwrite") both hold those semantics on NTFS. FAT/exFAT and network
+> shares remain out of scope. All other path-containment rules above are
+> unchanged and apply on both platforms.
+
 ## Fixed Asset Boundary (TASK-004)
 
 This amendment introduces none of the following: VideoAsset creation,
@@ -557,7 +564,8 @@ TASK-004 amendment consequences:
   durable pending payload and compare-and-set fingerprints; a lost
   orchestration record with existing orchestration traces cannot be
   rebuilt automatically; an unknown provider-call result may require
-  manual reconciliation; only WSL2/Linux path semantics are supported;
+  manual reconciliation; WSL2/Linux path semantics are supported, and per
+  ADR-0049 native Windows on NTFS/same-volume is additionally supported;
   the existence of a directory does not imply orchestration has
   started.
 

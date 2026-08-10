@@ -145,7 +145,9 @@ def executor(project: Path) -> _FileOrchestrationExecutor:
 
 
 def _record(root: Path) -> dict:
-    return json.loads((root / "records/orchestration/task-1.json").read_text())
+    return json.loads(
+        (root / "records/orchestration/task-1.json").read_text(encoding="utf-8")
+    )
 
 
 def first_prepare_plan(executor: _FileOrchestrationExecutor):

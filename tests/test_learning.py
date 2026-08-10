@@ -156,8 +156,10 @@ def _project_with_facts(account_root):
     root.mkdir()
     write_model_json(root / "project.json", Project("proj-1", "Demo", T0))
     (root / "config").mkdir()
-    (root / "config" / "wfm1.json").write_text(_CFG.read_text(), encoding="utf-8")
-    raw = json.loads(_PROFILE.read_text())
+    (root / "config" / "wfm1.json").write_text(
+        _CFG.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    raw = json.loads(_PROFILE.read_text(encoding="utf-8"))
     raw["version"] = 1
     write_project_profile(root, parse_project_profile(raw))
     append_event(
@@ -284,7 +286,9 @@ def test_wq17_insufficient_evidence(tmp_path):
     root.mkdir()
     write_model_json(root / "project.json", Project("proj-empty", "Demo", T0))
     (root / "config").mkdir()
-    (root / "config" / "wfm1.json").write_text(_CFG.read_text(), encoding="utf-8")
+    (root / "config" / "wfm1.json").write_text(
+        _CFG.read_text(encoding="utf-8"), encoding="utf-8"
+    )
     res = WorkspaceQueryService(tmp_path, clock=_clock).cross_project_analytics()
     from ai_video_workflow.workspace import Provenance
 
