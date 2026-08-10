@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -465,8 +466,9 @@ class TestArtifactComparison:
             )
 
     @pytest.mark.skipif(
-        RUNNING_AS_ROOT,
-        reason="permission errors do not apply when running as root",
+        RUNNING_AS_ROOT or sys.platform == "win32",
+        reason="chmod-based permission denial does not apply as root, nor on "
+        "Windows (chmod cannot revoke directory access) — ADR-0049",
     )
     def test_unresolvable_existing_parent_is_conservatively_rejected(
         self,

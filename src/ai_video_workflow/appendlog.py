@@ -36,6 +36,7 @@ from ai_video_workflow.errors import AiVideoWorkflowError
 # O_NOFOLLOW is accepted on Windows because creating a symlink there requires
 # elevation/Developer Mode (single-user local model) — ADR-0049.
 _WINDOWS = sys.platform == "win32"
+_O_BINARY = getattr(os, "O_BINARY", 0)  # Windows text/binary flag; 0 on POSIX
 
 
 def append_line(
@@ -129,7 +130,10 @@ def _open_append_windows(root: Path, parts: tuple[str, ...], error_cls: type) ->
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.is_symlink():  # resolver already rejected existing symlinks
             raise error_cls("refusing to open the log (symlinked path)")
-        fd = os.open(target, os.O_RDWR | os.O_APPEND | os.O_CREAT, 0o600)
+        # O_BINARY: the log is a byte-exact format; without it Windows opens the
+        # fd in text mode and translates \n<->\r\n, corrupting the JSONL. The
+        # flag is Windows-only (0 elsewhere), so POSIX is unaffected.
+        fd = os.open(target, os.O_RDWR | os.O_APPEND | os.O_CREAT | _O_BINARY, 0o600)
     except OSError as exc:
         raise error_cls(
             f"refusing to open the log (unopenable path under {root})"
@@ -147,7 +151,7 @@ def _open_read_windows(
     try:
         if target.is_symlink():
             raise error_cls("refusing to read the log (symlinked path)")
-        fd = os.open(target, os.O_RDONLY)
+        fd = os.open(target, os.O_RDONLY | _O_BINARY)
     except OSError as exc:
         raise error_cls(
             f"refusing to read the log (unopenable path under {root})"

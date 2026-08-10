@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ai_video_workflow.budget.reservation import FALLBACK_OPERATION_SUFFIXES
 from ai_video_workflow.workspace import io_contract
 from ai_video_workflow.workspace.adapters import (
     delivery,
@@ -275,7 +276,9 @@ def lineage_downstream(project_root: Path, object_ref: str, now: str) -> QueryRe
     problems.extend(esrc.problems)
     for r in esrc.reservations:
         # a redo/fallback operation is a downstream successor of the task
-        if r.task_id == object_ref and r.operation_id.endswith(":fallback"):
+        if r.task_id == object_ref and r.operation_id.endswith(
+            FALLBACK_OPERATION_SUFFIXES
+        ):
             consumers.append({"kind": "fallback_operation", "ref": r.operation_id})
         if r.shot_id == object_ref:
             consumers.append(
@@ -400,7 +403,7 @@ def shot_attempts(project_root: Path, shot_id: str, now: str) -> QueryResult:
     tasks_seen: set[str] = set()
     items: list[dict[str, Field]] = []
     for r in reservations:
-        if r.operation_id.endswith(":fallback"):
+        if r.operation_id.endswith(FALLBACK_OPERATION_SUFFIXES):
             kind = "fallback"
         elif r.task_id in tasks_seen:
             kind = "retry"

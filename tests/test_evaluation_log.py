@@ -8,6 +8,7 @@ provider, no network, no payment; a temp project root only.
 
 from __future__ import annotations
 
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -258,6 +259,11 @@ def test_schema_version_bool_is_rejected(tmp_path: Path):
         record_from_envelope(env)
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="os.mkfifo does not exist on Windows; the S_ISREG guard still "
+    "refuses non-regular files, but a FIFO cannot be created to test it",
+)
 def test_append_and_read_refuse_a_fifo_log(tmp_path: Path):
     """A FIFO at the log path is refused both ways (no data leak, no DoS)."""
     import os
@@ -271,6 +277,11 @@ def test_append_and_read_refuse_a_fifo_log(tmp_path: Path):
         read_records(tmp_path)  # O_NONBLOCK -> refuses instead of blocking
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="the st_nlink hard-link guard is POSIX-only; the Windows opener "
+    "drops it (unreliable there) with a documented reduced guarantee — ADR-0049",
+)
 def test_append_and_read_refuse_hard_linked_log(tmp_path: Path):
     """A log hard-linked to an out-of-root file is refused (nlink != 1)."""
     import os

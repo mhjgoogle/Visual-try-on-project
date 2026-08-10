@@ -48,6 +48,8 @@ from ai_video_workflow.budget.ledger import month_key_jst, read_ledger
 from ai_video_workflow.budget.lock import account_budget_lock
 from ai_video_workflow.budget.reservation import (
     COMMITTED,
+    FALLBACK_OPERATION_SUFFIX,
+    FALLBACK_OPERATION_SUFFIXES,
     HELD,
     NEEDS_RECONCILIATION,
     commit_reservation,
@@ -240,6 +242,15 @@ class PaidGenerationCoordinator:
 
     def submit_paid(self, shot: Shot, request: PaidRequest) -> PaidOutcome:
         """Run the coordination chain, with one fallback on technical failure."""
+        # The fallback operation reuses the primary operation_id + the reserved
+        # suffix; a caller-supplied id ending in a reserved suffix (new or the
+        # legacy ':fallback') would collide with a real fallback's reservation
+        # path (mischarge/misroute) or corrupt lineage, so refuse it.
+        if request.operation_id.endswith(FALLBACK_OPERATION_SUFFIXES):
+            raise CoordinatorError(
+                f"operation_id must not end in a reserved fallback suffix "
+                f"{FALLBACK_OPERATION_SUFFIXES}: {request.operation_id!r}"
+            )
         selection = resolve_provider_selection(
             self._config,
             self._catalog,
@@ -259,7 +270,10 @@ class PaidGenerationCoordinator:
             # so the fallback's guard recomputes the failure count from facts.
             fallback_request = replace(
                 request,
-                operation_id=f"{request.operation_id}:fallback",
+                # reserved, filesystem-safe suffix (not ':fallback' — ':' is
+                # illegal in Windows filenames, ADR-0049); caller ids ending in
+                # it are refused above, so this can never collide.
+                operation_id=f"{request.operation_id}{FALLBACK_OPERATION_SUFFIX}",
             )
             fallback = self._attempt(
                 shot,

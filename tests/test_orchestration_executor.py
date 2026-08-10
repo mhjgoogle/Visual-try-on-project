@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
@@ -613,8 +614,9 @@ class TestApprovedParentCreation:
         executor.create_approved_parents(layout)
 
     @pytest.mark.skipif(
-        RUNNING_AS_ROOT,
-        reason="permission errors do not apply when running as root",
+        RUNNING_AS_ROOT or sys.platform == "win32",
+        reason="chmod-based permission denial does not apply as root, nor on "
+        "Windows (chmod cannot make a directory non-writable) — ADR-0049",
     )
     def test_directory_creation_failure_raises(
         self,

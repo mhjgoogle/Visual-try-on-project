@@ -33,6 +33,7 @@ _LOG_RELATIVE = ("evaluation", "events", "log.jsonl")
 # Windows fallback for the POSIX-only hardened opener — see ADR-0049 and the
 # equivalent note in ai_video_workflow/appendlog.py.
 _WINDOWS = sys.platform == "win32"
+_O_BINARY = getattr(os, "O_BINARY", 0)  # Windows text/binary flag; 0 on POSIX
 
 
 class EvaluationLogError(AiVideoWorkflowError):
@@ -143,7 +144,9 @@ def _open_append_windows(root: Path, parts: tuple[str, ...]) -> int:
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.is_symlink():
             raise EvaluationLogError("refusing to open the evaluation log (symlink)")
-        fd = os.open(target, os.O_RDWR | os.O_APPEND | os.O_CREAT, 0o600)
+        # O_BINARY: byte-exact JSONL; Windows text mode would translate newlines
+        # and corrupt the log. Windows-only flag (0 on POSIX).
+        fd = os.open(target, os.O_RDWR | os.O_APPEND | os.O_CREAT | _O_BINARY, 0o600)
     except OSError as exc:
         raise EvaluationLogError(
             f"refusing to open the evaluation log (unopenable path under {root})"
@@ -159,7 +162,7 @@ def _open_read_windows(root: Path, parts: tuple[str, ...]) -> int | None:
     try:
         if target.is_symlink():
             raise EvaluationLogError("refusing to read the evaluation log (symlink)")
-        fd = os.open(target, os.O_RDONLY)
+        fd = os.open(target, os.O_RDONLY | _O_BINARY)
     except OSError as exc:
         raise EvaluationLogError(
             f"refusing to read the evaluation log (unopenable path under {root})"

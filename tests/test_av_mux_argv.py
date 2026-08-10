@@ -44,7 +44,9 @@ def test_original_only_copies_video_and_reencodes_audio() -> None:
     assert "-c:v" in argv and argv[argv.index("-c:v") + 1] == "copy"
     assert "-c:a" in argv and argv[argv.index("-c:a") + 1] == "aac"
     assert "-b:a" in argv and "192k" in argv
-    assert argv[-1] == "/out.mp4"
+    # build_mux_argv passes the OS-native path string to ffmpeg (str(Path));
+    # compare os-agnostically so the assertion holds on Windows too (\out.mp4)
+    assert Path(argv[-1]) == Path("/out.mp4")
 
 
 def test_voiceover_mix_uses_amix_and_volume() -> None:

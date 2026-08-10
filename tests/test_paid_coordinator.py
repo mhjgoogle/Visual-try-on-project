@@ -5,11 +5,15 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from ai_video_workflow.app.paid_coordinator import (
+    CoordinatorError,
     PaidGenerationCoordinator,
     PaidRequest,
 )
 from ai_video_workflow.budget.reservation import (
+    FALLBACK_OPERATION_SUFFIXES,
     commit_reservation,
     hold_reservation,
     list_reservations,
@@ -183,6 +187,23 @@ def _request(**overrides) -> PaidRequest:
     return PaidRequest(**base)
 
 
+# --- reserved fallback suffix (ADR-0049) ----------------------------------
+
+
+def test_caller_operation_id_ending_in_fallback_suffix_is_refused(
+    tmp_path: Path,
+) -> None:
+    """A caller op ending in a reserved fallback suffix (the new '__fallback'
+    or the legacy ':fallback') would collide with a real fallback's reservation
+    path or corrupt lineage, so it is refused before any provider call."""
+    fake = FakeProvider(provider_id="fake-a")
+    root, coord, _ = _setup(tmp_path, providers=[fake])
+    for suffix in FALLBACK_OPERATION_SUFFIXES:
+        with pytest.raises(CoordinatorError):
+            coord.submit_paid(_shot(), _request(operation_id=f"op-x{suffix}"))
+    assert list_reservations(root) == ()  # nothing held; no provider call
+
+
 # --- success + cost booking ----------------------------------------------
 
 
@@ -318,7 +339,7 @@ def test_technical_failure_falls_back_and_rebudgets(tmp_path: Path) -> None:
     assert outcome.provider_id == "fake-b"
     # primary reservation released, fallback committed
     assert load_reservation(root, "task-1", "op-1").status == "released"
-    assert load_reservation(root, "task-1", "op-1:fallback").status == "committed"
+    assert load_reservation(root, "task-1", "op-1__fallback").status == "committed"
     # fallback cost (8c) booked
     cost_events = [
         e
@@ -370,7 +391,7 @@ def test_replayed_release_never_falls_back_and_repays(tmp_path: Path) -> None:
     assert outcome.fell_back is False
     assert primary.calls["submit"] == 0
     assert fallback.calls["submit"] == 0  # zero fallback, zero re-pay
-    assert load_reservation(root, "task-1", "op-old:fallback") is None
+    assert load_reservation(root, "task-1", "op-old__fallback") is None
 
 
 def test_budget_denial_does_not_fall_back(tmp_path: Path) -> None:
@@ -464,7 +485,7 @@ def test_declared_no_charge_releases_and_falls_back(tmp_path: Path) -> None:
     assert outcome.fell_back is True
     assert outcome.provider_id == "fake-b"
     assert load_reservation(root, "task-1", "op-1").status == "released"
-    assert load_reservation(root, "task-1", "op-1:fallback").status == "committed"
+    assert load_reservation(root, "task-1", "op-1__fallback").status == "committed"
 
 
 def test_two_operations_near_cap_only_one_reserves(tmp_path: Path) -> None:

@@ -40,6 +40,20 @@ from ai_video_workflow.security.paths import resolve_within_root
 RESERVATIONS_DIR = "budget/reservations"
 RESERVATION_SCHEMA_VERSION = 3
 
+# The paid coordinator derives a fallback operation by appending this to the
+# primary operation_id (it becomes the reservation filename, so it must be a
+# valid filename on every platform — no ':'; ADR-0049). It is a RESERVED
+# suffix: a caller-supplied operation_id ending in it is refused, so a real
+# operation and a fallback can never collide on the same reservation path, and
+# lineage detection (endswith) stays unambiguous.
+FALLBACK_OPERATION_SUFFIX = "__fallback"
+# WRITE the new suffix, but READ both: pre-ADR-0049 projects persisted fallback
+# reservations with the legacy ':fallback' suffix, and lineage/attempt-history
+# readers must keep recognizing them so an upgraded project's history stays
+# correct. New callers are refused either suffix (unambiguous going forward).
+_LEGACY_FALLBACK_SUFFIX = ":fallback"
+FALLBACK_OPERATION_SUFFIXES = (FALLBACK_OPERATION_SUFFIX, _LEGACY_FALLBACK_SUFFIX)
+
 HELD = "held"
 COMMITTED = "committed"
 RELEASED = "released"

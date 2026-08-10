@@ -9,6 +9,7 @@ no network, no payment; a temp project root only.
 
 from __future__ import annotations
 
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -638,6 +639,10 @@ def test_foreign_project_records_are_ignored(tmp_path):
     assert actions[0].folded.lifecycle_state == "pending"  # foreign event ignored
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX mode-bit tightening (fchmod) is a no-op on Windows — ADR-0049",
+)
 def test_existing_loose_log_permissions_are_tightened(tmp_path):
     import os
     import stat

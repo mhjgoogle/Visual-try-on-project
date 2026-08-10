@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ast
 import json
+import sys
 import threading
 import urllib.request
 from datetime import datetime, timezone
@@ -250,6 +251,11 @@ def test_artifact_active_content_served_inert(tmp_path, monkeypatch):
     resp.stream.close()
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="simulates a TOCTOU swap via os.readlink(/proc/self/fd), which is "
+    "the POSIX check; the Windows branch re-resolves the path instead — ADR-0049",
+)
 def test_artifact_containment_rechecked_on_opened_file(tmp_path, monkeypatch):
     """The post-open re-verification (anti-TOCTOU) refuses an escaped file.
 
