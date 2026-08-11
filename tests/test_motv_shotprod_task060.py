@@ -97,10 +97,27 @@ def test_only_a_human_action_records_an_approval() -> None:
     for forbidden in ("assetRegistry", "generation", "mediaref", "genlib"):
         assert forbidden not in dom, f"shotprod.js must not reach into {forbidden}"
     app = _code("app.js")
-    # every call site of approveShot is the explicit user action
-    for line in app.splitlines():
-        if "shotprod.approveShot" in line:
-            assert "approve:" in app.split(line)[0].rsplit("\n", 3)[-1] or True
+    # EVERY call site of approveShot lives inside the explicit user action, and
+    # there is exactly one. (This assertion previously ended in `or True`, which
+    # made it unconditionally pass — the only automated defence for 决策 1 never
+    # actually ran. Found by the TASK-057 session's codex review; see TASK-060
+    # §5A.)
+    call_lines = [ln for ln in app.splitlines() if "shotprod.approveShot" in ln]
+    assert len(call_lines) == 1, (
+        f"approveShot must have exactly ONE call site, found {len(call_lines)}"
+    )
+    lines = app.splitlines()
+    idx = next(i for i, ln in enumerate(lines) if "shotprod.approveShot" in ln)
+    # walk back to the enclosing controller method (a 4-space-indented `key:`)
+    controller = None
+    for ln in reversed(lines[:idx]):
+        m = re.match(r"^ {4}(\w+):", ln)
+        if m:
+            controller = m.group(1)
+            break
+    assert controller == "approve", (
+        f"approveShot is called from `{controller}`, not the explicit approve action"
+    )
     # …and no generation/import path approves anything
     for marker in ("completeGeneration", "importShotMedia", "adoptPaidIntoSlot"):
         seg = app.split(marker, 1)

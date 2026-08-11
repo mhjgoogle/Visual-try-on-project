@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import {
   SHOT_STAGES, SHOT_STAGE_LABEL, hasStaleApproval, isApprovedFor,
   defaultShotProduction, sanitizeShotProduction,
-  isApproved, reviewOf, approveShot, unapproveShot,
+  isApproved, reviewOf, approveShot, approveShot as shotprodApprove, unapproveShot,
   referencesOfShot, addShotReference, removeShotReference, shotsUsingReference,
   pruneShotReferences, isDesigned, shotStage, stageCounts,
 } from "../src/workflow/shotprod.js";
@@ -219,6 +219,26 @@ test("v12→v13 adds an EMPTY shot-production map and approves nothing", () => {
   assert.equal(validateCanvasDoc(res.doc), null);
   // deterministic + idempotent
   assert.deepEqual(migrateToCurrent(structuredClone(res.doc)).doc, res.doc);
+});
+
+test("an approval survives a canvas ROUND-TRIP, and inherits nothing it should not", () => {
+  // TASK-060 §5A requirement 4: reload must keep the approvals that belong and
+  // must not let a different take pick one up.
+  const p = pd.createProduction(null);
+  shotprodApprove(p, "s1", "vid-1", "2026-08-12T05:00:00Z", "夜色对了");
+  const reloaded = pd.createProduction(JSON.parse(JSON.stringify(pd.serialize(p))));
+  assert.equal(isApproved(reloaded, "s1"), true, "the decision survives reload");
+  assert.equal(isApprovedFor(reloaded, "s1", "vid-1"), true);
+  assert.equal(reloaded.shotProduction.reviews["s1"].note, "夜色对了");
+  assert.equal(reloaded.shotProduction.reviews["s1"].approvedAt, "2026-08-12T05:00:00Z");
+  // …and the take it was NOT given for still does not inherit it after reload
+  assert.equal(isApprovedFor(reloaded, "s1", "vid-2"), false);
+  const shot = { shotId: "s1", description: "推门" };
+  assert.equal(shotStage(reloaded, shot, { image: true, video: true, videoAssetId: "vid-2" }), "todo-review");
+  assert.equal(shotStage(reloaded, shot, { image: true, video: true, videoAssetId: "vid-1" }), "approved");
+  // a second round-trip is idempotent
+  assert.deepEqual(pd.serialize(pd.createProduction(pd.serialize(reloaded))).shotProduction,
+    pd.serialize(reloaded).shotProduction);
 });
 
 test("v13 validation refuses a review that misreports the creator's decision", () => {
