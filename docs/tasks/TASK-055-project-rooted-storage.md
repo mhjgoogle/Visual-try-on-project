@@ -67,8 +67,39 @@
 
 ## 4. 已知剩余项（不在本卡）
 
-- 资产记录仍存 `/api/uploads/<project>/<file>` 而非项目相对路径：项目改名/搬盘后
-  URL 会失效。真正的可移植性需要 canvas schema v10，本次刻意不做。
-- `data/projects.json`（账户级注册表 + 已确认根）仍在仓库 scratch 内。它跨项目、
-  不是创作数据，但严格说仍是「连接模式往仓库写」的最后一处。
-- 旧 scratch 只保留、不回收，没有清理工具。
+用户已就以下四项定过优先级（2026-08-11），按此执行，不要自行提前：
+
+| # | 项 | 优先级 | 决定 |
+| --- | --- | --- | --- |
+| ① | 资产 URL 仍带 project name（非项目相对路径） | **暂不修** | 最终应改为 project-relative asset path，但需要 canvas schema v10。不值得为它拖慢真实使用；等做**项目改名 / 项目移动 / 打包导出**时一并解决。 |
+| ② | `data/projects.json` 仍写在仓库内 | **中** | 这是**应用级**数据，既非源码也非项目数据，最终不应留在仓库。目标位置形如 `%LOCALAPPDATA%\motv\projects.json`，或用户指定的 `D:\MotvData\`。不阻塞使用，后续做一个很小的 App Storage checkpoint（[TASK-056](TASK-056-app-storage-location.md)）。 |
+| ③ | 旧 scratch 只保留、不回收 | **低** | 保留旧数据比自动删除安全得多。以后给一个「清理旧版数据」工具即可。 |
+| ④ | 真实 FFmpeg 实媒体验证 | **已完成**（见 §5） | 真实 PNG → 真实 MP4 → 真实音频 → Timeline → FFmpeg → Final MP4。**不要为此再造大架构。** |
+
+## 5. 实媒体验收（④，2026-08-11）
+
+FFmpeg 9.0（winget `Gyan.FFmpeg`）安装后完成。测试项目 `夜班沉默`：
+
+- **真实媒体**：用 ffmpeg 生成真实 PNG/JPG、H.264+AAC MP4、PCM WAV，全部经产品自身
+  的 `PUT /api/uploads` 落到 `<ProjectRoot>\media\`；MP4 原样取回（1067251 字节）。
+- **domain records 走真实模块**：story/bible/scene/shot/asset/generation/timeline
+  全部由 `proddoc / bibledoc / storydoc / scriptdoc / mediaref / assetlib / genlib /
+  timeline` 建立，再经真实写路径 `PUT /api/canvas/<project>` 保存，并通过 canvas
+  schema v9 校验（首次未通过：计划集缺 `purpose`，补齐后 ok）。
+- **真实渲染**：在「剪辑」里点产品自己的「渲染本集」→ FFmpeg 实跑 → 成片入库，
+  `render` 生成记录（provider `ffmpeg-local`，3 个输入 clip → 1 个成片）。
+- **UI 真实播放**：分镜显示真实 JPG（1280×720）；视频工作区 `<video>` 解码真实 MP4
+  （readyState 4）；音频工作区播放真实 WAV（2s）；工作流显示真实 lineage 与成片链路。
+- **真实 authoring smoke**：在镜头详情改写真实字段 → 自动保存 → 落到
+  `studio\canvas.json` → 整页 reload 后仍在。
+
+### 实媒体暴露、并已修复的缺陷
+
+1. `ui/shoteditor.js: normalizeShots` 只保留 action/cameraMotion/dialogue，
+   **每次保存镜头都会静默丢掉 shotSize/angle/emotion**（分镜的紧凑元数据 +
+   图片 Prompt 的编译输入）。占位数据看不出来，真实项目一改就丢。
+2. `ui/wfgraph.js` 把视频资产放进 `<img>`：占位素材时代「视频」其实是图片，
+   换成真实 mp4 后显示为坏图。改为 `<video preload="metadata">`；场景/镜头缩略条
+   只取图片。
+3. `ui/timelinews.js` 的输出路径文案仍写 `data/uploads/<项目>/`，ADR-0053 之后
+   已不属实，改为 `<项目目录>/media/`。

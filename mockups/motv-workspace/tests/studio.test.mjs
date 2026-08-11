@@ -178,6 +178,25 @@ test("normalizeShots carries action/cameraMotion/dialogue additively; blanks omi
   assert.equal(out[1].slot, "v2-2");
 });
 
+test("normalizeShots keeps the framing facets — editing a shot must not erase them", () => {
+  // shotSize / angle / emotion are shown as the storyboard's compact metadata
+  // and compiled into the image prompt. Dropping them here meant every save
+  // silently threw away the shot's directing.
+  const out = normalizeShots(
+    [{
+      shotId: "shot-a", title: "甲", description: "d", duration_seconds: 6, slot: "v1-1",
+      shotSize: "远景", angle: " 仰视 ", emotion: "压抑", action: "抬手", cameraMotion: "推近",
+    }],
+    "v2",
+  );
+  assert.equal(out[0].shotSize, "远景");
+  assert.equal(out[0].angle, "仰视"); // trimmed like the other facets
+  assert.equal(out[0].emotion, "压抑");
+  // and a blank facet is still omitted rather than stored as ""
+  const blank = normalizeShots([{ title: "乙", description: "d", shotSize: "  " }], "v2");
+  assert.ok(!("shotSize" in blank[0]));
+});
+
 // --- breakdown: parse → match → apply-semantics -------------------------------------- //
 
 test("parseBreakdown sanitizes the agent payload fail-closed", () => {

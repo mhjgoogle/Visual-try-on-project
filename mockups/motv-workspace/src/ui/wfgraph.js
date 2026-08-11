@@ -90,9 +90,17 @@ function assetCard(n) {
     visual = n.url
       ? `<img class="wg-thumb wg-wave" src="${esc(n.url)}" alt="" loading="lazy">`
       : `<div class="wg-thumb wg-wave wg-gone"><span>无波形</span></div>`;
+  } else if (n.url && (n.kind === "shotVideo" || n.kind === "final")) {
+    // A video asset's url IS the video file. An <img> cannot decode an mp4 —
+    // with the SVG placeholders every "video" was really a picture, so this
+    // only shows up against real media, as a broken-image glyph. <video> with
+    // metadata preload paints the real first frame without downloading it all.
+    visual =
+      `<div class="wg-thumbwrap">` +
+      `<video class="wg-thumb" src="${esc(n.url)}" muted preload="metadata" playsinline></video>` +
+      `<span class="wg-play">▶</span></div>`;
   } else if (n.url) {
-    visual = `<div class="wg-thumbwrap"><img class="wg-thumb" src="${esc(n.url)}" alt="" loading="lazy">` +
-      (n.kind === "shotVideo" || n.kind === "final" ? `<span class="wg-play">▶</span>` : "") + `</div>`;
+    visual = `<div class="wg-thumbwrap"><img class="wg-thumb" src="${esc(n.url)}" alt="" loading="lazy"></div>`;
   } else {
     visual = `<div class="wg-thumb wg-gone"><span>无预览</span></div>`;
   }
@@ -258,7 +266,9 @@ export function createWorkflowGraph(getCtx) {
     for (const id of g.order) {
       const n = g.nodes.get(id);
       if (n.sceneId !== sceneId || n.type !== "asset") continue;
-      if (n.kind !== "shotImage" && n.kind !== "shotVideo") continue;
+      // images only: a filmstrip <img> cannot decode an mp4, and a shot's frame
+      // is the right glance-level thumbnail anyway
+      if (n.kind !== "shotImage") continue;
       const key = `${n.shotId}:${n.kind}`;
       const prev = shots.get(key);
       if (!prev || (n.version || 0) > (prev.version || 0)) shots.set(key, n);
@@ -277,8 +287,7 @@ export function createWorkflowGraph(getCtx) {
   function shotStrip(g, shotId) {
     const pics = g.order
       .map((id) => g.nodes.get(id))
-      .filter((n) => n.shotId === shotId && n.type === "asset" && n.url
-        && (n.kind === "shotImage" || n.kind === "shotVideo"))
+      .filter((n) => n.shotId === shotId && n.type === "asset" && n.url && n.kind === "shotImage")
       .sort((a, b) => (a.kind === b.kind ? (a.version || 0) - (b.version || 0) : a.kind < b.kind ? 1 : -1))
       .slice(0, 8);
     if (!pics.length) return `<span class="wg-stripnone">还没有画面</span>`;

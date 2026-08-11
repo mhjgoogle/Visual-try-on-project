@@ -137,7 +137,7 @@ export function renderTimelineWs(ctx, ui) {
     `</select>` +
     `<label class="ws-lab">帧率</label><select class="ws-assign" data-tl-set="fps">${[24, 25, 30].map((f) => `<option value="${f}"${st.fps === f ? " selected" : ""}>${f} fps</option>`).join("")}</select>` +
     `<label class="ws-lab">容器/编码</label><select class="ws-assign" data-tl-set="format"><option value="mp4"${st.format === "mp4" ? " selected" : ""}>MP4 · H.264/AAC</option><option value="webm"${st.format === "webm" ? " selected" : ""}>WebM · VP9/Opus</option></select>` +
-    `</div><div class="ws-desc">输出路径：data/uploads/&lt;项目&gt;/render-ep-v&lt;N&gt;.${esc(st.format)}（版本化，绝不覆盖）</div>` +
+    `</div><div class="ws-desc">输出路径：&lt;项目目录&gt;/media/render-ep-v&lt;N&gt;.${esc(st.format)}（版本化，绝不覆盖）</div>` +
     `<div class="bd-actions"><button class="nrun" data-tl-render${ui.tlRendering ? " disabled" : ""}>${ui.tlRendering ? "⏳ 渲染中…" : "🎬 渲染本集（Final Render）"}</button></div>` +
     (finals.length
       ? `<div class="ws-lab">最新成片</div>` + finals.map((u) => `<video class="afinal" src="${esc(u)}" controls preload="metadata"></video>`).join("")

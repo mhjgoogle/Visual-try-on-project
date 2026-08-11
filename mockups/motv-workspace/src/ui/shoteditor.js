@@ -26,7 +26,11 @@ export function normalizeShots(items, slotPrefix) {
       duration_seconds: s.duration_seconds === 10 ? 10 : 6,
       slot: s.slot || `${slotPrefix}-${i + 1}`,
     };
-    for (const k of ["action", "cameraMotion", "dialogue"]) {
+    // Every additive draft-shot field has to survive a save. shotSize / angle /
+    // emotion are shown as the storyboard's compact metadata AND compiled into
+    // the image prompt, so omitting them here meant editing ANY field silently
+    // erased the shot's framing — the edit saved, the directing did not.
+    for (const k of ["action", "cameraMotion", "dialogue", "shotSize", "angle", "emotion"]) {
       const v = typeof s[k] === "string" ? s[k].trim().slice(0, 500) : "";
       if (v) out[k] = v;
     }
