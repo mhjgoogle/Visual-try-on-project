@@ -15,6 +15,7 @@ import * as budget from "./services/budget.js";
 import * as gw from "./services/gateway.js";
 import { submitCommand } from "./services/gateway.js";
 import * as query from "./services/query.js";
+import * as projects from "./services/projects.js";
 import * as persist from "./services/persist.js";
 import { CANVAS_SCHEMA_VERSION } from "./services/canvasschema.js";
 import * as realmap from "./services/realmap.js";
@@ -25,6 +26,7 @@ import { createShotEditor, normalizeShots, nextDraftVersion } from "./ui/shotedi
 import { mintId } from "./workflow/identity.js";
 import { createViews } from "./ui/landing.js";
 import { createProduction } from "./ui/production.js";
+import { createWorkflowGraph } from "./ui/wfgraph.js";
 import { renderStepbar } from "./ui/stepbar.js";
 import { renderQueueBar, hasInflight } from "./ui/paidqueue.js";
 import * as mediaref from "./workflow/mediaref.js";
@@ -37,6 +39,7 @@ import * as proddoc from "./workflow/proddoc.js";
 import * as timeline from "./workflow/timeline.js";
 import * as bibledoc from "./workflow/bibledoc.js";
 import * as breakdown from "./workflow/breakdown.js";
+import { seedDemoProject, DEMO_PROJECT_NAME } from "../fixtures/demo-project.js";
 
 // --- register node types (the extension list) ---
 import script from "./workflow/nodes/script.js";
@@ -57,6 +60,9 @@ let PAID = false; // backend --enable-paid: real Gateway write path available
 let PROJECT_NAME = "local-draft";
 let DEFAULT_NAME = "local-draft";
 let REAL_STANDING = null;
+// the backend's project list, kept so the landing/new-project dialog can
+// re-render and name-check without refetching
+let REAL_NAMES = [];
 let canvasActive = false;
 let seeded = false;
 // Script DOMAIN documents — PER EPISODE since M9 (schema v8 `scripts` map).
@@ -1528,6 +1534,13 @@ const ctx = {
       generations: generationRegistry,
       // M9: the story development chain — read-only; writes via ctx.story.
       story: storyDoc,
+      // TASK-051A: the AI Director's Production Plan / Asset Inbox DERIVE from
+      // existing state and own nothing. They need the whole Asset Registry
+      // (finals/displaced/unresolvedPaid, not just the chain maps) and the
+      // per-episode timelines. Exposed READ-ONLY here, exactly like the other
+      // registries above — no second copy, no new document.
+      assets: assetRegistry,
+      timelines: timelinesDoc,
     };
   },
   // paid-op status projection (生成情况) — refreshed after paid actions AND
@@ -1597,6 +1610,38 @@ ctx.shotEditor = createShotEditor({ toast });
 // only toggles display and re-renders the surface being entered, so nothing
 // is ever lost. Production is the default creator-facing area.
 const production = createProduction(() => ctx);
+// Workflow · 生成溯源 — a READ-ONLY view over the same registries (TASK-054).
+// It derives its graph fresh on every render, so it can never hold a stale or
+// second copy of provenance.
+const wfGraph = createWorkflowGraph(() => ctx);
+wfGraph.mount($("#wfgraph"));
+/** Hand off from a provenance node to the shot's production workspace: switch
+ *  to the shot's OWN episode first (a shot from another episode would otherwise
+ *  be selected under the wrong one), then open it. */
+ctx.openShotInProduction = (shotId) => {
+  // Ask BEFORE switching the episode: an unsaved buffer belongs to a shot in
+  // the episode we would be leaving. Once the creator agrees, DROP the buffer
+  // here — otherwise openShot() asks the same question again, and declining
+  // that second prompt would leave the new episode active with the old shot's
+  // edit still pending.
+  if (production.hasUnsavedShotEdit()) {
+    if (!window.confirm("镜头详情有未保存的修改，跳转将丢弃？")) return;
+    production.discardShotEdit();
+  }
+  const owner = proddoc.sceneOfShot(productionDoc, shotId);
+  if (owner && owner.episode.episodeId !== productionDoc.activeEpisodeId) {
+    ctx.production.setActiveEpisode(owner.episode.episodeId);
+  }
+  setTopMode("prod");
+  if (!production.openShot(shotId, "shots")) setTopMode("wf"); // refused — stay put
+};
+/** Whether the Production shell holds an unsaved shot edit (read-only probe for
+ *  surfaces that can change what it is looking at). */
+ctx.hasUnsavedShotEdit = () => production.hasUnsavedShotEdit();
+/** Drop that buffer — ONLY after the caller has asked and been told to discard.
+ *  A surface that changes the active episode must call this once the creator
+ *  agrees, or the edit survives into an episode it does not belong to. */
+ctx.discardShotEdit = () => production.discardShotEdit();
 // Land a production-structure mutation: refused ops (false) change nothing and
 // must not persist; successful ones persist + re-render the shell (hoisted —
 // ctx.production above calls these only at runtime).
@@ -1618,24 +1663,61 @@ function prodNew(rec) {
   }
   return rec;
 }
-function goProduction() {
-  $("#seg-prod").classList.add("active");
-  $("#seg-wf").classList.remove("active");
+/** Top-level mode switch: 制作 (Production) | 工作流 (Workflow) | 资产 (Assets).
+ *  Production and Assets are both the studio shell — Assets simply opens the
+ *  shell on its asset-library module — so only the workflow canvas is a
+ *  genuinely different surface. */
+// Which Workflow view is showing: the provenance graph (default) or the node
+// canvas. Both are Workflow — the graph explains what WAS generated, the canvas
+// is where generation is executed (ADR-0052). Neither replaces the other.
+let wfView = "graph";
+function showWorkflowCanvas(on) {
+  $("#viewport").style.display = on ? "block" : "none";
+  $("#wf-hint").hidden = !on;
+  $("#wfgraph").hidden = on;
+  $("#wf-tab-graph").classList.toggle("on", !on);
+  $("#wf-tab-canvas").classList.toggle("on", on);
+  if (on) {
+    renderStepbar(engine, $("#stepbar"), $("#entrybar")); // restores bar visibility
+    ctx.refreshType("script"); // node summaries pick up workspace edits
+  } else {
+    $("#entrybar").style.display = "none";
+    $("#stepbar").style.display = "none";
+    wfGraph.render();
+  }
+}
+function setTopMode(mode) {
+  const highlight = (m) => {
+    for (const [id, k] of [["#seg-prod", "prod"], ["#seg-wf", "wf"], ["#seg-assets", "assets"]]) {
+      $(id).classList.toggle("on", k === m);
+    }
+  };
+  if (mode === "wf") {
+    highlight("wf");
+    production.hide();
+    $("#wf-tabs").hidden = false;
+    showWorkflowCanvas(wfView === "canvas");
+    return;
+  }
   $("#viewport").style.display = "none";
+  $("#wf-hint").hidden = true;
+  $("#wf-tabs").hidden = true;
+  $("#wfgraph").hidden = true;
   $("#entrybar").style.display = "none";
   $("#stepbar").style.display = "none";
-  production.show(); // renders from the current scriptDoc
+  // the shell may REFUSE the switch (unsaved shot edits) — highlight what it
+  // actually landed on, never what we asked for
+  const landed = production.show(mode === "assets" ? "assets" : null);
+  highlight(landed === "assets" ? "assets" : "prod");
 }
-function goWorkflow() {
-  $("#seg-prod").classList.remove("active");
-  $("#seg-wf").classList.add("active");
-  production.hide();
-  $("#viewport").style.display = "block";
-  renderStepbar(engine, $("#stepbar"), $("#entrybar")); // restores bar visibility
-  ctx.refreshType("script"); // node summaries pick up workspace edits
-}
+function goProduction() { setTopMode("prod"); }
+function goWorkflow() { setTopMode("wf"); }
 $("#seg-prod").onclick = goProduction;
 $("#seg-wf").onclick = goWorkflow;
+$("#seg-assets").onclick = () => setTopMode("assets");
+$("#wf-tab-graph").onclick = () => { wfView = "graph"; showWorkflowCanvas(false); };
+$("#wf-tab-canvas").onclick = () => { wfView = "canvas"; showWorkflowCanvas(true); };
+$("#proj-switch").onclick = () => views.goHome();
 
 // Every locked plan a paid op could have been minted under: each scriptgen
 // version keeps its own `locked` bridge, so a paid op from a PRIOR (re-locked)
@@ -2018,7 +2100,16 @@ const engine = new GraphEngine({
     }),
   onEdgeInsert: (ed, cx, cy) => openMenu(cx, cy, (type) => insertOnEdge(ed, type)),
   onChange: () => {
-    renderStepbar(engine, $("#stepbar"), $("#entrybar"));
+    // The step/entry bars belong to the WORKFLOW CANVAS — not merely to "not
+    // Production". A graph change while the provenance view is open (switching
+    // episode re-renders nodes) would otherwise pop them over that surface,
+    // which is hidden from Production's point of view but is not the canvas.
+    if ($("#viewport").style.display !== "block") {
+      $("#stepbar").style.display = "none";
+      $("#entrybar").style.display = "none";
+    } else {
+      renderStepbar(engine, $("#stepbar"), $("#entrybar"));
+    }
     if (canvasActive && PROJECT_NAME) persist.saveCanvas(PROJECT_NAME, serializeGraph());
   },
   onDeleteEdges: () => toast("已删除选中连线"),
@@ -2218,13 +2309,34 @@ function seedStory() {
   engine.panTo(g.id);
 }
 function seedDemoGraph() {
-  // 演示：进行到 S4 —— script✓ scriptgen✓ assets✓ video/audio 待生成
+  // 演示：一个进行到一半的真实项目 —— 故事/作品设定/剧集/分镜/媒体全部就位。
+  // DEMO ONLY: seeds through the same domain APIs the UI writes with, so the
+  // fixture can never drift from the schema (fixtures/demo-project.js).
+  const seed = seedDemoProject({
+    story: storyDoc,
+    production: productionDoc,
+    scripts: scriptDocs,
+    assets: assetRegistry,
+    generations: generationRegistry,
+    timelines: timelinesDoc,
+  });
+  syncActiveScript();
+  ctx.project.draftShots = seed.draftShots;
+  const rows = seed.draftShots.map((s) => [
+    String(s.sequence).padStart(2, "0"),
+    `${s.title} — ${s.description}（${s.duration_seconds}s）`,
+  ]);
   const s = createNode("script", 0, 40);
   const g = createNode("scriptgen", 360, 40);
   const a = createNode("assets", 720, 10);
   const v = createNode("video", 1060, -50);
   const au = createNode("audio", 1060, 150);
-  g.state = "done"; g.versions = [{ v: 1, shots: ctx.project.shots.v1 }]; g.cur = 1; a.state = "done";
+  g.state = "done";
+  g.versions = [{
+    id: mintId("sdv"), v: 1, shots: rows, draft: true, raw: seed.draftShots,
+    origin: "generated", sourceScriptVersionId: null, basedOnDraftId: null,
+  }];
+  g.cur = 1; a.state = "done";
   engine.addEdge(s.id, g.id, "done");
   engine.addEdge(g.id, a.id, "done");
   engine.addEdge(a.id, v.id, "");
@@ -2246,10 +2358,13 @@ async function enterCanvas(name, opts = {}) {
   scriptDoc = scriptdoc.createDoc();
   storyDoc = storydoc.createStory(null);
   timelinesDoc = timeline.createTimelines(null);
+  const known = projects.loadRegistry(window.localStorage).find((p) => p.name === name);
   ctx.project = {
     ...FIX,
     id: name,
     name,
+    // DECLARED asset location (prototype metadata, never a filesystem action)
+    assetRoot: (opts.assetRoot != null ? opts.assetRoot : known ? known.assetRoot : "") || "",
     script: CONNECTED
       ? `【${name}】\n（在此编写剧本草稿，自动保存到本地 data/${name}.json）`
       : FIX.script,
@@ -2275,8 +2390,19 @@ async function enterCanvas(name, opts = {}) {
     REAL_STANDING = null;
   }
   renderBudget();
+  $("#proj-name").textContent = name;
+  $("#proj-switch").title = ctx.project.assetRoot
+    ? `资产位置：${projects.assetPathFor(ctx.project.assetRoot, name)}（点击返回项目列表）`
+    : "点击返回项目列表";
   views.goCanvas();
   if (opts.seedDemo) {
+    // A re-entry must rebuild the demo from scratch: these registries are
+    // otherwise only reset by restoreGraph, which the seed path skips.
+    engine.reset();
+    seeded = false;
+    assetRegistry = assetlib.createRegistry(null);
+    generationRegistry = genlib.createGenerationRegistry(null);
+    productionDoc = proddoc.createProduction(null);
     seedDemoGraph();
   } else {
     const res = await persist.loadCanvas(name);
@@ -2308,30 +2434,232 @@ async function enterCanvas(name, opts = {}) {
   goProduction();
 }
 
-// --- landing project cards ---
+// --- global bits ---
+const views = createViews();
+
+// --- landing: my projects + new project ---------------------------------- //
+// The landing page shows exactly two things: the projects this creator has,
+// and a way to make another one. Project creation is PROTOTYPE-LOCAL: it
+// records a name and a DECLARED asset location (services/projects.js) and
+// opens a canvas for it. It does NOT create a project directory — that is the
+// backend/CLI's write path (ADR-0033+), and the dialog says so.
+
+/** The asset root a new project defaults to.
+ *  Connected: the backend's own --account-root, so the default is always the
+ *  place this deployment actually writes into. Otherwise: the last root the
+ *  creator used. Never a hardcoded platform path (AGENTS.md §3/§4). */
+async function defaultAssetRoot() {
+  if (CONNECTED) {
+    const res = await query.fsDefault();
+    if (res.ok && res.data.root) return res.data.root;
+  }
+  const m = query.meta();
+  if (m && m.account_root) return m.account_root;
+  const local = projects.loadRegistry(window.localStorage);
+  const last = local.filter((p) => p.assetRoot).pop();
+  return last ? last.assetRoot : "";
+}
+
+function landingThumb(kind, name) {
+  const grad = kind === "demo"
+    ? "radial-gradient(120% 120% at 30% 20%,#3a2a5e,#12183a)"
+    : kind === "real"
+      ? "radial-gradient(120% 120% at 40% 30%,#1e4a56,#12183a)"
+      : "radial-gradient(120% 120% at 35% 25%,#28323f,#11161d)";
+  const ic = kind === "demo" ? "🎬" : "📁";
+  return `<div class="thumb" style="background:${grad}"><span style="font-size:30px;opacity:.75">${ic}</span></div>`;
+}
+
 function renderLanding(realNames) {
   const grid = $("#projgrid");
   [...grid.querySelectorAll(".pcard")].forEach((c) => c.remove());
-  if (CONNECTED) {
-    realNames.forEach((name) => {
-      const b = document.createElement("button");
-      b.className = "pcard";
-      b.innerHTML = `<div class="thumb" style="background:radial-gradient(120% 120% at 40% 30%,#1e4a56,#12183a)"><span style="color:#a9d8e8">📁 ${esc(name)}</span></div><div class="cap">${esc(name)} <span class="tg">真实项目</span></div>`;
-      b.onclick = () => enterCanvas(name, {});
-      grid.appendChild(b);
-    });
-  } else {
+  const local = projects.loadRegistry(window.localStorage);
+  const cards = projects.projectCards({
+    local,
+    remote: CONNECTED ? realNames : [],
+    // the seeded demo is always offered in demo mode — it is what makes the
+    // studio explorable without any real data
+    demo: CONNECTED ? null : { name: DEMO_PROJECT_NAME, assetRoot: "", openedAt: "" },
+  });
+  const note = $("#landing-note");
+  if (note) {
+    const m = query.meta();
+    note.textContent = CONNECTED
+      ? `已连接后端 · 资产根目录 ${m && m.account_root ? m.account_root : "未知"}`
+      : "演示模式（无后端）· 画布与项目列表保存在本机浏览器";
+  }
+  for (const c of cards) {
     const b = document.createElement("button");
     b.className = "pcard";
-    b.innerHTML = `<div class="thumb" style="background:radial-gradient(120% 120% at 30% 20%,#3a2a5e,#12183a)"><span style="color:#cbb9e8">🎬 示例·进行中</span></div><div class="cap">示例项目 <span class="tg">演示 · S4</span></div>`;
-    b.onclick = () => enterCanvas("demo", { seedDemo: true });
+    const tag = c.kind === "real" ? "真实项目" : c.kind === "demo" ? "演示项目" : "画布项目";
+    const where = c.kind === "demo"
+      ? "内置示例 · EP01 制作中"
+      : c.assetRoot
+        ? projects.assetPathFor(c.assetRoot, c.name)
+        : "未记录资产位置";
+    b.innerHTML =
+      landingThumb(c.kind, c.name) +
+      `<div class="cap"><div class="nm">${esc(c.name)}</div>` +
+      `<div class="rw"><span class="chip${c.kind === "real" ? " ok" : c.kind === "demo" ? " gate" : ""}">${esc(tag)}</span></div>` +
+      `<div class="pt" title="${esc(where)}">${esc(where)}</div></div>`;
+    b.onclick = () => {
+      if (c.kind !== "demo") projects.touchProject(window.localStorage, c.name, new Date().toISOString());
+      enterCanvas(c.name, c.kind === "demo" ? { seedDemo: true } : {});
+    };
     grid.appendChild(b);
   }
 }
 
-// --- global bits ---
-const views = createViews();
-$("#start-create").onclick = () => enterCanvas(DEFAULT_NAME, {});
+// --- new-project dialog ---------------------------------------------------- //
+// The project location is CHOSEN, never typed: one 「选择…」 button opens a
+// server-backed directory picker (ADR-0051 §4 — the browser cannot hand a real
+// absolute path to the backend, so the backend lists directories for it).
+const npScrim = $("#np-scrim");
+const npName = $("#np-name");
+const npRootEl = $("#np-root");
+const npPath = $("#np-path");
+const npNote = $("#np-note");
+const npErr = $("#np-err");
+let npRoot = ""; // the chosen location; "" until picked/defaulted
+
+function npRefresh() {
+  const name = projects.normalizeName(npName.value);
+  npRootEl.textContent = npRoot || (CONNECTED ? "" : "（演示模式不写盘）");
+  npPath.innerHTML = npRoot
+    ? `项目将创建在 <b>${esc(projects.assetPathFor(npRoot, name || "<项目名>"))}</b>`
+    : CONNECTED
+      ? "先选择一个保存位置"
+      : "演示模式：项目只存在于本机浏览器，不会写到磁盘";
+  npErr.hidden = true;
+}
+
+function npFail(msg, focus) {
+  npErr.textContent = msg;
+  npErr.hidden = false;
+  if (focus) focus.focus();
+}
+
+async function npOpen() {
+  npName.value = "";
+  npRoot = await defaultAssetRoot();
+  npNote.textContent = CONNECTED
+    ? "项目文件夹会由后端创建在这个位置。第一次使用一个新位置时会要求你确认一次。"
+    : "演示模式没有后端，也就没有文件系统：这里不会建任何文件夹。要真正把项目建到磁盘上，用连接模式启动（./run-windows.ps1 -Connected）。";
+  const pick = $("#np-pick");
+  pick.disabled = !CONNECTED;
+  pick.title = CONNECTED ? "" : "目录选择需要连接模式（后端）";
+  npRefresh();
+  npScrim.classList.add("show");
+  npName.focus();
+}
+
+const npClose = () => npScrim.classList.remove("show");
+
+async function npCreate() {
+  const local = projects.loadRegistry(window.localStorage);
+  const taken = local.map((p) => p.name).concat(CONNECTED ? REAL_NAMES : [DEMO_PROJECT_NAME]);
+  const v = projects.validateName(npName.value, taken);
+  if (!v.ok) return npFail(v.error, npName);
+  if (CONNECTED && !npRoot) return npFail("请先选择项目保存位置", null);
+
+  if (CONNECTED) {
+    // the BACKEND creates the folder; it owns admission (deny-list, symlink,
+    // writability) and asks once per new location
+    let res = await query.createProject(v.name, npRoot, false);
+    if (res.status === 409 && res.error && res.error.category === "root_unconfirmed") {
+      if (!window.confirm(`${res.error.detail}\n\n确认使用这个位置？`)) return;
+      res = await query.createProject(v.name, npRoot, true);
+    }
+    if (!res.ok) {
+      return npFail((res.error && res.error.detail) || "创建失败", null);
+    }
+    REAL_NAMES = REAL_NAMES.concat([v.name]);
+    projects.addProject(window.localStorage, {
+      name: v.name, assetRoot: npRoot, now: new Date().toISOString(),
+    });
+    npClose();
+    renderLanding(REAL_NAMES);
+    ctx.toast(`已创建项目文件夹：${res.data.project_path}`);
+    enterCanvas(v.name, { assetRoot: npRoot });
+    return;
+  }
+
+  // demo mode: prototype-local only, and the note above says so
+  const res = projects.addProject(window.localStorage, {
+    name: v.name, assetRoot: npRoot, now: new Date().toISOString(),
+  });
+  if (!res.ok) return npFail(res.error, null);
+  ctx.toast("演示模式：项目只记录在本机浏览器，没有写盘");
+  npClose();
+  renderLanding(REAL_NAMES);
+  enterCanvas(res.name, { assetRoot: res.assetRoot });
+}
+
+$("#start-create").onclick = npOpen;
+$("#np-x").onclick = npClose;
+$("#np-cancel").onclick = npClose;
+$("#np-ok").onclick = npCreate;
+$("#np-pick").onclick = () => fsOpen(npRoot);
+npName.oninput = npRefresh;
+npName.onkeydown = (e) => { if (e.key === "Enter") npCreate(); };
+npScrim.onclick = (e) => { if (e.target === npScrim) npClose(); };
+
+// --- directory picker ------------------------------------------------------ //
+const fsScrim = $("#fs-scrim");
+const fsList = $("#fs-list");
+const fsCur = $("#fs-cur");
+const fsErr = $("#fs-err");
+let fsPath = "";
+let fsParent = null;
+
+async function fsRender(path) {
+  fsErr.hidden = true;
+  const res = await query.fsList(path);
+  if (!res.ok) {
+    // The view still shows the PREVIOUS directory, so leaving the select
+    // button live would hand back a folder the creator never asked for.
+    // Disable it until a listing succeeds, and name the path that failed.
+    fsErr.textContent = `${path}：${(res.error && res.error.detail) || "无法读取这个目录"}`;
+    fsErr.hidden = false;
+    $("#fs-ok").disabled = true;
+    return;
+  }
+  $("#fs-ok").disabled = false;
+  fsPath = res.data.path;
+  fsParent = res.data.parent;
+  fsCur.textContent = fsPath;
+  $("#fs-up").disabled = !fsParent;
+  fsList.innerHTML = res.data.entries.length
+    ? res.data.entries
+        .map((e) => `<button class="fs-row" data-fs="${esc(e.path)}"><span class="ic">📁</span><span class="nm">${esc(e.name)}</span></button>`)
+        .join("") + (res.data.truncated ? `<div class="fs-empty">子文件夹过多，仅显示前 500 个</div>` : "")
+    : `<div class="fs-empty">这个文件夹里没有子文件夹 — 可以直接选择它</div>`;
+  fsList.querySelectorAll("[data-fs]").forEach((b) => (b.onclick = () => fsRender(b.dataset.fs)));
+}
+
+async function fsOpen(start) {
+  if (!CONNECTED) {
+    ctx.toast("目录选择需要连接模式（后端）——演示模式没有文件系统访问");
+    return;
+  }
+  fsPath = "";
+  $("#fs-ok").disabled = true; // nothing listed yet
+  fsScrim.classList.add("show");
+  await fsRender(start || (await defaultAssetRoot()));
+}
+
+const fsClose = () => fsScrim.classList.remove("show");
+$("#fs-x").onclick = fsClose;
+$("#fs-cancel").onclick = fsClose;
+$("#fs-up").onclick = () => { if (fsParent) fsRender(fsParent); };
+$("#fs-ok").onclick = () => {
+  if (!fsPath) return;
+  npRoot = fsPath;
+  fsClose();
+  npRefresh();
+};
+fsScrim.onclick = (e) => { if (e.target === fsScrim) fsClose(); };
+
 engine.world.addEventListener("input", (e) => {
   // Script-slice inputs write to the DOMAIN document (no re-render — the
   // textarea being typed in must keep focus); ctx.script persists internally.
@@ -2355,18 +2683,18 @@ async function boot() {
   CONNECTED = m.mode === "connected";
   PAID = CONNECTED && m.paid === true;
   setModeBadge();
-  let realNames = [];
+  REAL_NAMES = [];
   if (CONNECTED) {
-    realNames = await query.listProjects();
-    DEFAULT_NAME = realNames[0] || "draft";
-    if (realNames[0]) {
-      PROJECT_NAME = realNames[0];
-      try { REAL_STANDING = realmap.mapStanding(await query.getQuery(realNames[0], "budget")); } catch { REAL_STANDING = null; }
+    REAL_NAMES = await query.listProjects();
+    DEFAULT_NAME = REAL_NAMES[0] || "draft";
+    if (REAL_NAMES[0]) {
+      PROJECT_NAME = REAL_NAMES[0];
+      try { REAL_STANDING = realmap.mapStanding(await query.getQuery(REAL_NAMES[0], "budget")); } catch { REAL_STANDING = null; }
     }
   } else {
     DEFAULT_NAME = "local-draft";
   }
-  renderLanding(realNames);
+  renderLanding(REAL_NAMES);
   renderBudget();
 }
 boot();

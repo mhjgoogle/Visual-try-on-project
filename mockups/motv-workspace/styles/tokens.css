@@ -1,26 +1,64 @@
-/* Design tokens — cinematic edit-bay palette, theme-aware.
-   Cool blue-charcoal grounds + one warm tungsten-gold accent; neon-noir
-   thumbnails. Both light and dark are defined; the toggle stamps
-   data-theme on <html>. */
+/* Design tokens — the ONE source of truth for the studio's visual language.
+   Cinematic edit-bay: cool blue-charcoal grounds, one warm tungsten accent,
+   semantic status colours. Both themes are fully defined; the toggle stamps
+   data-theme on <html>.
+
+   Rules this palette enforces (see docs/tasks/TASK-051):
+   - exactly ONE warm accent drives primary actions; status colours are
+     semantic only (never decorative);
+   - surfaces step in fixed elevations (bg < canvas < panel < panel-2 < elev)
+     so a card never has to invent its own background;
+   - spacing / radius / type sizes come from the scales below, never ad-hoc. */
 
 :root {
-  --bg: #0a0d12; --canvas: #0b0e14; --panel: #141920; --panel-2: #1a212a; --elev: #1e2731;
-  --line: #242d38; --line-2: #334050;
-  --text: #e8edf3; --text-dim: #9aa8b6; --text-faint: #5f6e7d;
-  --accent: #f0b23f; --accent-strong: #ffc65c; --accent-ink: #1a1206;
-  --link: #4bc5e8; --link-glow: #6fd8f5;
+  /* --- surfaces (ascending elevation) --- */
+  --bg: #07090d; --canvas: #0a0d13; --panel: #10151c; --panel-2: #161d26; --elev: #1c2531;
+  --elev-2: #232e3c;
+  --line: #202a36; --line-2: #2e3b4b; --line-3: #40506380;
+
+  /* --- ink --- */
+  --text: #e9eef4; --text-dim: #93a2b3; --text-faint: #61707f;
+
+  /* --- the single warm accent --- */
+  --accent: #f0b23f; --accent-strong: #ffc65c; --accent-ink: #171003;
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --accent-line: color-mix(in srgb, var(--accent) 38%, var(--line));
+
+  /* --- semantic status (never decorative) --- */
   --ok: #56c08a; --gen: #4bc5e8; --gate: #f0b23f; --bad: #ec6a54; --pending: #64748b;
+  --link: #4bc5e8; --link-glow: #6fd8f5;
+  /* Prompt is TEXT, not media: it gets its own violet so a provenance graph can
+     be read at a glance (word ≠ picture ≠ process). Not a second accent —
+     nothing actionable is ever painted with it. */
+  --prompt: #a78bfa; --prompt-soft: color-mix(in srgb, #a78bfa 13%, transparent);
+
+  /* --- depth --- */
   --shadow: 0 18px 46px -20px rgba(0,0,0,.75);
+  --shadow-sm: 0 4px 14px -6px rgba(0,0,0,.6);
+  --shadow-hero: 0 28px 70px -30px rgba(0,0,0,.9);
+
+  /* --- scales --- */
+  --s1: 4px; --s2: 6px; --s3: 8px; --s4: 12px; --s5: 16px; --s6: 22px; --s7: 30px;
+  --r1: 5px; --r2: 8px; --r3: 11px; --r4: 15px;
+  --t-micro: 10px; --t-xs: 11px; --t-sm: 12px; --t-md: 13px; --t-lg: 15px; --t-xl: 19px;
+
+  /* --- media --- */
+  --thumb-ratio: 16 / 9;
+
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
 }
 
 :root[data-theme="light"] {
   --bg: #eef1f5; --canvas: #e9edf2; --panel: #ffffff; --panel-2: #f4f6f9; --elev: #ffffff;
-  --line: #dce2e9; --line-2: #c3cdd8;
+  --elev-2: #eef2f7;
+  --line: #dce2e9; --line-2: #c3cdd8; --line-3: #aebbc980;
   --text: #131a23; --text-dim: #52616f; --text-faint: #8492a0;
   --accent: #b9791a; --accent-strong: #a2680f; --accent-ink: #ffffff;
-  --link: #1a8ba4; --link-glow: #2ba7c4;
   --ok: #2f9d68; --gen: #1a8ba4; --gate: #b9791a; --bad: #cf4c37; --pending: #7a8794;
+  --link: #1a8ba4; --link-glow: #2ba7c4;
+  --prompt: #6d4bd6; --prompt-soft: color-mix(in srgb, #6d4bd6 11%, transparent);
   --shadow: 0 14px 34px -18px rgba(20,30,45,.4);
+  --shadow-sm: 0 3px 10px -5px rgba(20,30,45,.3);
+  --shadow-hero: 0 22px 50px -26px rgba(20,30,45,.45);
 }

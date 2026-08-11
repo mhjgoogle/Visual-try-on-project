@@ -17,7 +17,7 @@
 //
 // Generation {
 //   generationId,                 // stable: gen-<uuid> (runtime) | gen-mig-N (migration)
-//   type: 'image'|'video'|'audio',
+//   type: 'image'|'video'|'audio'|'render',
 //   targetType: 'shot'|null,      // what the generation targets
 //   targetId,                     // canonical creativeShotId (NEVER slot) | null
 //   inputAssetIds:     [assetId], // proven inputs, FROZEN at launch
@@ -38,7 +38,12 @@
 import { mintId } from "./identity.js";
 
 const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
-const TYPES = new Set(["image", "video", "audio"]);
+// "render" is the non-AI local FFmpeg episode composition (added to the durable
+// vocabulary at schema v9). It is a real provenance record — inputs are the
+// timeline's clip Assets, the result is the Final — so it must be accepted here
+// too; without it every render record was minted and silently dropped, and the
+// Final had no recorded lineage at all.
+const TYPES = new Set(["image", "video", "audio", "render"]);
 const STATUSES = new Set(["queued", "generating", "success", "failed", "cancelled"]);
 
 export const GENERATION_TYPES = TYPES;

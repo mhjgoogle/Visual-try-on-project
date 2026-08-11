@@ -9,6 +9,11 @@
 // Registry, provenance on the M5 Generation Registry. No state is duplicated
 // here; transient UI state (selection, edit buffer) belongs to the shell.
 import { esc } from "../util/dom.js";
+import { head, empty } from "./shell.js";
+import {
+  nn, renderSceneStrip, renderShotList, renderHero, renderVariantGrid,
+  renderVariantTabs, renderRefCards, renderLineage, renderShotMeta, videoSourceFrame, curVideoVersion,
+} from "./studioparts.js";
 import { slotEntry } from "../workflow/mediaref.js";
 import { buildShotSlotIndex, slotForShotId, buildServerBridge, serverShotIdForShot } from "../workflow/shotmap.js";
 import { episodeView, sceneOfShot, activeEpisode } from "../workflow/proddoc.js";
@@ -16,7 +21,6 @@ import { findCharacter, findLocation, resolveCharacter, resolveLocation } from "
 import { outlineForPlan } from "../workflow/storydoc.js";
 import { compileImagePrompt, compileVideoPrompt } from "../workflow/promptc.js";
 
-const nn = (seq) => String(seq).padStart(2, "0");
 
 const ORIGIN_ZH = {
   upload: "手工上传", "paid-image": "付费生成", "paid-video": "付费生成",
@@ -95,8 +99,20 @@ export function storyboardModel(pd) {
       }))
     : [];
   const unassigned = view ? view.unassigned.map((s) => shotCard(pd, idx, s)) : [];
+  // Shots this EPISODE owns — referenced by one of ITS scenes. The draft is
+  // project-level (it lives on the scriptgen node) and the unassigned pool
+  // belongs to no episode at all, so neither `draft.length` nor the pool may
+  // be counted here: both would credit the same work to every episode.
+  const episodeShotIds = [];
+  for (const sc of scenes) {
+    for (const x of sc.shots) if (x.shotId && !x.dangling) episodeShotIds.push(x.shotId);
+  }
+  const episodeTotal = episodeShotIds.length;
   return {
     hasDraft: draft.length > 0,
+    episodeShotIds,
+    episodeTotal,
+    episodeEmpty: episodeTotal === 0,
     generating: pd.shotVersions ? pd.shotVersions.state === "gen" : false,
     episode: ep ? { episodeId: ep.episodeId, title: ep.title } : null,
     lock: pd.lockedPlan ? { planVersion: pd.lockedPlan.plan_version } : null,
@@ -178,6 +194,25 @@ export function shotDetailModel(pd, shotId) {
     }))
     .reverse(); // registry is append-only → newest first
   const images = variants(pd.assetUploads);
+  const videos = variants(pd.media.video);
+  // The source image of EACH video version, from the Generation that produced
+  // that version. `firstFrames[slot]` is slot-level and overwritten, so it
+  // describes only the newest take — using it for every version would show an
+  // older video as having come from an image that did not exist yet.
+  const imageByAssetId = new Map(images.list.filter((r) => r.assetId).map((r) => [r.assetId, r]));
+  const videoSources = {};
+  for (const v of videos.list) {
+    let src = null;
+    if (v.assetId) {
+      const gen = (pd.generations || []).find(
+        (g) => g && Array.isArray(g.resultAssetIds) && g.resultAssetIds.includes(v.assetId),
+      );
+      const inputId = gen && Array.isArray(gen.inputAssetIds) ? gen.inputAssetIds[0] : null;
+      const img = inputId ? imageByAssetId.get(inputId) : null;
+      if (img) src = { version: img.version, origin: img.origin, url: img.url, proven: true };
+    }
+    videoSources[v.version] = src;
+  }
   const ctxIn = promptInputs(pd, shotId);
   return {
     // M10: compiled generation prompts + honest gaps
@@ -194,13 +229,20 @@ export function shotDetailModel(pd, shotId) {
       cameraMotion: s.cameraMotion || "",
       dialogue: s.dialogue || "",
       duration: s.duration_seconds === 10 ? 10 : 6,
+      // Directing facets the storyboard shows as compact metadata. They are
+      // additive draft-shot fields (like action/cameraMotion before them) and
+      // are honestly blank when the draft never carried them.
+      shotSize: s.shotSize || "",
+      angle: s.angle || "",
+      emotion: s.emotion || "",
     },
     scene: owner
       ? { sceneId: owner.scene.sceneId, title: owner.scene.title, ...sceneRefsView(prod, owner.scene) }
       : null,
     slot,
     images,
-    videos: variants(pd.media.video),
+    videos,
+    videoSources,
     firstFrame: ff ? { version: ff.version, origin: ORIGIN_ZH[ff.origin] || ff.origin || "", url: ff.url } : null,
     voice: voiceCur
       ? { url: voiceCur.url, versions: voiceE.history.length, origin: ORIGIN_ZH[voiceCur.origin] || voiceCur.origin || "" }
@@ -211,175 +253,255 @@ export function shotDetailModel(pd, shotId) {
   };
 }
 
-// ---------- render --------------------------------------------------------- //
-
-function sceneRefChips(refs) {
-  const loc = refs.location
-    ? `<span class="ws-tag">📍 ${esc(refs.location.name)}${refs.location.stateName ? ` · ${esc(refs.location.stateName)}` : ""}</span>`
-    : "";
-  const chars = refs.characters
-    .map((c) => `<span class="ws-tag">👤 ${esc(c.name)}${c.stateName ? ` · ${esc(c.stateName)}` : ""}</span>`)
-    .join(" ");
-  return loc || chars ? `<span class="sb-refchips">${loc} ${chars}</span>` : "";
+/** The shot a shot-centric workspace should open on when nothing is selected
+ *  yet (or the previous selection left the draft): the active episode's first
+ *  resolvable shot, else the first unassigned one, else null. Keeps the centre
+ *  column showing real production context instead of a blank panel. */
+export function defaultShotId(pd) {
+  const m = storyboardModel(pd);
+  if (m.episodeShotIds.length) return m.episodeShotIds[0];
+  // A project whose shots are all still unassigned has REAL inventory and no
+  // episode owning any of it. Returning null here left the shot workspaces with
+  // nothing selected and no way to reach that inventory at all, which is the
+  // blank centre column this function exists to avoid. An unassigned shot is
+  // never credited to the episode — it is only made reachable.
+  const free = m.unassigned.find((s) => s.shotId && !s.dangling);
+  return free ? free.shotId : null;
 }
 
-function shotCardHtml(c, selected) {
-  if (c.dangling) {
-    return `<div class="sb-card sb-dangling" title="${esc(c.shotId)}"><div class="sb-thumb sb-none">⚠</div><div class="sb-cap">不在当前草稿</div></div>`;
+/** Is `shotId` owned by the ACTIVE episode? Selection must be validated
+ *  against this, not against the project-wide draft: a shot from the previous
+ *  episode still exists in the draft, so a draft-wide check would leave it
+ *  selected after an episode switch and show its media under the new one. */
+export function isEpisodeShot(pd, shotId) {
+  return !!shotId && storyboardModel(pd).episodeShotIds.includes(shotId);
+}
+
+/** Can the shell KEEP this selection?
+ *
+ *  Broader than `isEpisodeShot` on purpose: the shot list also renders the
+ *  UNASSIGNED pool as selectable cards, and those shots belong to no episode at
+ *  all, so validating selection against episode ownership alone snapped the
+ *  selection back the instant one was clicked — their detail and media were
+ *  unreachable. A shot owned by ANOTHER episode is still rejected, which is the
+ *  case the episode-scoped check exists for. */
+export function isSelectableShot(pd, shotId) {
+  if (!shotId) return false;
+  const m = storyboardModel(pd);
+  return m.episodeShotIds.includes(shotId) || m.unassigned.some((s) => s.shotId === shotId);
+}
+
+/** Portrait lookup: a bible entity's ACTIVE reference image url, or "" when it
+ *  has none. Reference-only — resolves ids against the M3 registry, never
+ *  copies or invents an image. */
+export function buildPortraitIndex(pd) {
+  const byAsset = new Map();
+  for (const slot of Object.keys(pd.assetUploads || {})) {
+    const e = slotEntry(pd.assetUploads, slot);
+    if (!e) continue;
+    for (const r of e.history) if (r && r.assetId) byAsset.set(r.assetId, r.url || "");
   }
-  const thumb = c.thumb
-    ? `<img class="sb-thumb" src="${esc(c.thumb)}" alt="">`
-    : `<div class="sb-thumb sb-none">${c.unresolved ? "⚠" : "🎞"}</div>`;
-  const marks = `${c.hasVideo ? "▶" : ""}`;
-  return (
-    `<div class="sb-card${selected ? " on" : ""}${c.shotId ? "" : " sb-legacy"}" ${c.shotId ? `data-shot="${esc(c.shotId)}"` : ""}>` +
-    `${thumb}<div class="sb-cap"><span class="n mono">${esc(nn(c.seq))}</span> ${esc(c.title)}${marks ? `<span class="sb-marks">${marks}</span>` : ""}</div>` +
-    `<div class="sb-sub">${c.duration != null ? `${esc(String(c.duration))}s` : ""}${c.unresolved ? " · ⚠未解析" : ""}</div></div>`
-  );
-}
-
-function variantStrip(kind, slot, v, actions) {
-  if (!v.list.length) return `<div class="ws-desc">（还没有${kind === "image" ? "图片" : "视频"}）</div>`;
-  const tiles = v.list
-    .map((r) => {
-      const media = kind === "image"
-        ? `<img class="sb-vthumb" src="${esc(r.url)}" alt="">`
-        : `<video class="sb-vthumb" src="${esc(r.url)}" muted preload="metadata"></video>`;
-      const use = r.current
-        ? `<span class="ws-tag">✓当前</span>`
-        : `<button class="ws-chipx" data-setcur="${kind}" data-slot="${esc(slot)}" data-v="${r.version}">设为当前</button>`;
-      return `<div class="sb-vitem${r.current ? " on" : ""}">${media}<div class="sb-vmeta">v${r.version} · ${esc(r.origin)} ${use}</div></div>`;
-    })
-    .join("");
-  return `<div class="sb-vstrip">${tiles}</div>${actions || ""}`;
-}
-
-/** Selected-shot detail: creative facet form + scene context + media area.
- *  `buf` is the shell's UNSAVED edit buffer — rendered values prefer it, so a
- *  re-render (media switch, poll) never loses in-progress edits. */
-function detailHtml(ctx, d, buf) {
-  const val = (key, committed) => (key in buf ? buf[key] : committed);
-  const field = (key, label, committed, rows = 2, ph = "") =>
-    `<label class="ws-lab">${esc(label)}</label><textarea class="ws-bibletext" rows="${rows}" spellcheck="false" data-sf="${key}" placeholder="${esc(ph)}">${esc(val(key, committed))}</textarea>`;
-  const sceneCtx = d.scene
-    ? `<div class="sb-scenectx">🎬 ${esc(d.scene.title)} ${sceneRefChips(d.scene)}</div>`
-    : `<div class="sb-scenectx ws-desc">未归入场景 — 在「剧集」把镜头归入场景后，这里显示出场角色/场景地上下文</div>`;
-  const op = d.opStatus
-    ? d.opStatus === "committed" ? `<span class="ws-tag ok">✓已付费</span>` : `<span class="ws-tag">⏳${esc(d.opStatus)}</span>`
-    : d.opUnresolved ? `<span class="ws-tag gate">付费状态未解析</span>` : "";
-  const gens = d.generations.length
-    ? `<div class="ws-lab">本镜头生成记录</div>` + d.generations.slice(0, 5)
-        .map((g) => `<div class="ws-desc">· ${esc(g.type)} — ${esc(g.status)}${g.createdAt ? ` · ${esc(g.createdAt.slice(0, 16).replace("T", " "))}` : ""}</div>`)
-        .join("")
-    : "";
-  const curImg = d.images.list.find((r) => r.current);
-  const ffBtn = curImg
-    ? `<button class="nrun ghost" data-useff="${esc(d.slot || "")}">🎬→ 用作视频首帧</button>`
-    : "";
-  const ffLine = d.firstFrame
-    ? `<div class="ws-desc">首帧：资产 v${esc(String(d.firstFrame.version))}（${esc(d.firstFrame.origin)}）</div>`
-    : `<div class="ws-desc">首帧来源：未记录</div>`;
-  const voice = d.voice
-    ? `<div class="ws-desc">🎤 配音就绪 · ${d.voice.versions} 版 · ${esc(d.voice.origin)}</div><audio class="aaud" src="${esc(d.voice.url)}" controls preload="none"></audio>`
-    : `<div class="ws-desc">🎤 还没有配音 — 「音频」工作区查看，或在工作流「音频生成」节点本地 TTS/上传</div>`;
-  // 生成入口 (M10): compiled prompt → pick an entry → result imports back
-  // onto this shot (with real Generation provenance when the flow was used)
-  const genPanel = (kind, p, entries) => {
-    const gaps = p.missing.map((m) => `<div class="ws-kv gate">◌ ${esc(m)}</div>`).join("");
-    const entryBtns = entries
-      .map(([key, label]) => `<button class="nrun ghost" data-gp-entry="${key}" data-kind="${kind}">↗ ${esc(label)}（复制并打开）</button>`)
-      .join("");
-    return (
-      `<div class="gen-panel"><div class="ws-lab">🪄 ${kind === "image" ? "生成画面 · Image Prompt（场景地/角色状态/画面内容 编译）" : "生成视频 · Video Prompt（首帧图片 + 动作 + 运镜）"}</div>` +
-      gaps +
-      `<textarea class="gen-prompt" readonly spellcheck="false" data-genprompt="${kind}">${esc(p.text)}</textarea>` +
-      `<div class="bd-actions"><button class="nrun ghost" data-gp-copy data-kind="${kind}">📋 复制提示词</button>${entryBtns}` +
-      `<button class="nrun ghost" data-gp-import data-kind="${kind}">⬆ 导入生成结果</button></div>` +
-      `<div class="pa-unavail">◌ API 自动生成（未来/可选）— 付费生成当前在工作流节点（图像 ADR-0045 / 视频 ADR-0041），本入口后续接线</div>` +
-      `</div>`
-    );
+  const out = new Map();
+  const prod = pd.production;
+  const add = (id, activeId, list) => {
+    const pick = activeId && byAsset.has(activeId) ? activeId : (list || []).find((a) => byAsset.has(a));
+    out.set(id, pick ? byAsset.get(pick) : "");
   };
+  for (const c of (prod && prod.characters) || []) add(c.characterId, c.activeReferenceAssetId, c.referenceAssetIds);
+  for (const l of (prod && prod.locations) || []) add(l.locationId, l.activeReferenceAssetId, l.referenceAssetIds);
+  return (kind, id) => out.get(id) || "";
+}
+
+/// ---------- render --------------------------------------------------------- //
+
+/** Selected-shot detail: the media-first surface. A large hero of the shot's
+ *  CURRENT frame, compact directing metadata beneath it, the variant gallery
+ *  with visible provenance, and the scene's character/location references as
+ *  pictures. The editable form lives behind an explicit 编辑 toggle so the
+ *  default view reads as a shot, not a database row. */
+function detailHtml(ctx, d, ui) {
+  const buf = ui.buffer || {};
+  const val = (key, committed) => (key in buf ? buf[key] : committed);
+  const tab = ui.variantTab || "image";
+
+  const curImg = d.images.list.find((r) => r.current);
+  const curVid = d.videos.list.find((r) => r.current);
+  const showVideo = tab === "video" && curVid;
+  const op = d.opStatus
+    ? d.opStatus === "committed" ? `<span class="chip ok">✓ 已付费</span>` : `<span class="chip gen">⏳ ${esc(d.opStatus)}</span>`
+    : d.opUnresolved ? `<span class="chip gate">付费状态未解析</span>` : "";
+
+  const hero = renderHero({
+    url: showVideo ? curVid.url : curImg ? curImg.url : "",
+    kind: showVideo ? "video" : "image",
+    // a video is only ever shown over its RECORDED first frame
+    poster: videoSourceFrame(d, curVideoVersion(d)),
+    title: `${nn(d.shot.seq)} ${d.shot.title}`,
+    badges: [
+      `<span class="chip solid">${esc(nn(d.shot.seq))}</span>`,
+      d.shot.shotSize ? `<span class="chip">${esc(d.shot.shotSize)}</span>` : "",
+      `<span class="chip">${d.shot.duration}s</span>`,
+    ].filter(Boolean),
+    right: [
+      showVideo
+        ? `<span class="chip ok">Video v${curVid.version}</span>`
+        : curImg ? `<span class="chip ok">Image v${curImg.version}</span>` : "",
+      op,
+    ].filter(Boolean),
+    missing: "这个镜头还没有画面 — 用右侧 AI 导演生成或导入",
+  });
+
+  // variant gallery — a video card shows the shot's own current image as its
+  // frame (that IS the recorded first frame), never a fabricated still
+  const counts = { image: d.images.list.length, video: d.videos.list.length, audio: d.voice ? d.voice.versions : 0 };
+  let panel;
+  if (tab === "image") {
+    panel = renderVariantGrid("image", d.slot, d.images, null) +
+      (curImg ? `<div class="row"><button class="btn sm" data-useff="${esc(d.slot || "")}">🎬 用作视频首帧</button></div>` : "");
+  } else if (tab === "video") {
+    panel = renderVariantGrid("video", d.slot, d.videos, (r) => videoSourceFrame(d, r.version));
+  } else if (tab === "audio") {
+    panel = d.voice
+      ? `<div class="row"><span class="chip ok">🎤 配音就绪 · ${d.voice.versions} 版 · ${esc(d.voice.origin)}</span>` +
+        `<button class="btn sm" data-goto="audio">在「音频」编辑 →</button></div>` +
+        `<audio class="aaud" src="${esc(d.voice.url)}" controls preload="none"></audio>`
+      : `<div class="meta">还没有配音 — 到「音频」工作区用本地 TTS 生成，或导入。</div>` +
+        `<div class="row"><button class="btn sm" data-goto="audio">→ 去音频工作区</button></div>`;
+  } else {
+    panel = d.generations.length
+      ? `<div class="stack" style="gap:var(--s1)">` + d.generations.slice(0, 8)
+          .map((g) => `<div class="dir-hrow"><span class="l">${esc(g.type)} · ${esc(g.provider || "—")}</span>` +
+            `<span class="chip${g.status === "success" ? " ok" : g.status === "failed" ? " bad" : " gen"}">${esc(g.status)}</span>` +
+            `<span class="t">${g.createdAt ? esc(g.createdAt.slice(0, 16).replace("T", " ")) : ""}</span></div>`)
+          .join("") + `</div>`
+      : `<div class="meta">这个镜头还没有生成记录。</div>`;
+  }
+
+  const editor = ui.shotEdit
+    ? `<div class="card pad"><div class="st-sec"><h3>编辑镜头</h3><div class="acts">` +
+      `<button class="btn primary sm" data-shot-save>保存为新草稿版本</button>` +
+      `<button class="btn sm" data-shot-editoff>取消</button></div></div>` +
+      `<div class="editgrid">` +
+      `<div class="kv full"><label class="lab">镜头名</label><input class="field" data-sf="title" maxlength="80" value="${esc(val("title", d.shot.title))}"></div>` +
+      `<div class="kv full"><label class="lab">画面内容</label><textarea class="field" rows="3" spellcheck="false" data-sf="description">${esc(val("description", d.shot.description))}</textarea></div>` +
+      `<div class="kv"><label class="lab">动作</label><textarea class="field" rows="2" spellcheck="false" data-sf="action" placeholder="例如：她抬手碰了一下纱布，随即放下">${esc(val("action", d.shot.action))}</textarea></div>` +
+      `<div class="kv"><label class="lab">运镜</label><textarea class="field" rows="2" spellcheck="false" data-sf="cameraMotion" placeholder="例如：低角度缓慢推近至面部特写">${esc(val("cameraMotion", d.shot.cameraMotion))}</textarea></div>` +
+      `<div class="kv"><label class="lab">台词 / 旁白</label><textarea class="field" rows="2" spellcheck="false" data-sf="dialogue" placeholder="例如：「你到底是谁？」">${esc(val("dialogue", d.shot.dialogue))}</textarea></div>` +
+      `<div class="kv"><label class="lab">时长</label><select class="field" data-sf="duration">${(() => {
+        const dur = "duration" in buf ? +buf.duration : d.shot.duration;
+        return `<option value="6"${dur === 10 ? "" : " selected"}>6s</option><option value="10"${dur === 10 ? " selected" : ""}>10s</option>`;
+      })()}</select></div>` +
+      `</div></div>`
+    : "";
+
   return (
-    `<div class="sb-detail">` +
-    `<div class="sb-detail-head"><b>${esc(nn(d.shot.seq))} ${esc(d.shot.title)}</b>${op}<span class="ws-desc mono">${esc(d.shot.shotId)}</span></div>` +
-    sceneCtx +
-    `<div class="sb-detail-grid"><div class="sb-fields">` +
-    `<label class="ws-lab">镜头名</label><input class="ws-bibleinput" data-sf="title" maxlength="80" value="${esc(val("title", d.shot.title))}">` +
-    field("description", "画面内容（可直接用作生成提示词）", d.shot.description, 3) +
-    field("action", "动作（人物/物体做什么）", d.shot.action, 2, "例如：李昭跪地，指尖颤抖地抬起") +
-    field("cameraMotion", "运镜", d.shot.cameraMotion, 2, "例如：低角度缓慢推近至面部特写") +
-    field("dialogue", "台词/旁白", d.shot.dialogue, 2, "例如：「臣……遵旨。」") +
-    `<label class="ws-lab">时长</label><select class="ws-assign" data-sf="duration">${(() => {
-      const dur = "duration" in buf ? +buf.duration : d.shot.duration;
-      return `<option value="6"${dur === 10 ? "" : " selected"}>6s</option><option value="10"${dur === 10 ? " selected" : ""}>10s</option>`;
-    })()}</select>` +
-    `<div class="vbtns"><button class="nrun" data-shot-save>保存为新草稿版本（历史保留）</button></div>` +
-    `</div><div class="sb-media">` +
-    `<div class="ws-lab">🖼 画面变体${d.slot ? "" : "（镜头身份未解析——无法定位媒体槽位）"}</div>` +
-    variantStrip("image", d.slot, d.images, ffBtn) + ffLine +
-    genPanel("image", d.prompts.image, [["chatgpt", "ChatGPT"], ["gemini", "Gemini"]]) +
-    `<div class="ws-lab">▶ 视频变体</div>` +
-    variantStrip("video", d.slot, d.videos, "") +
-    genPanel("video", d.prompts.video, [["gemini", "Gemini 视频"]]) +
-    voice + gens +
-    `</div></div></div>`
+    `<div class="stack">` +
+    hero +
+    renderLineage(d) +
+    // the shot's name already reads off the hero — this row is the actions
+    `<div class="st-sec"><h3>镜头信息</h3><div class="acts">` +
+    (ui.shotEdit ? "" : `<button class="btn sm" data-shot-editon>✎ 编辑镜头</button>`) +
+    `</div></div>` +
+    editor +
+    renderShotMeta(d.shot) +
+    `<div class="variants">${renderVariantTabs(tab, counts)}` +
+    (d.slot ? panel : `<div class="meta">镜头身份未解析 — 无法定位媒体槽位。</div>`) +
+    `</div></div>`
   );
 }
 
 /** The whole Storyboard workspace. `ui` is the shell's transient state:
- *  { selectedShotId } — selection only, nothing persisted. */
+ *  { selectedShotId, variantTab, shotEdit } — selection only, nothing
+ *  persisted. */
 export function renderStoryboard(ctx, ui) {
   const pd = ctx.prodData();
   const m = storyboardModel(pd);
   if (m.generating) {
     return (
-      `<div class="pm-head"><div class="pm-title">🎞 分镜工作区</div><div class="pm-note">生成中</div></div>` +
-      `<div class="ws-empty"><div class="ic">⏳</div><div class="tt">Claude 正在生成分镜草稿…</div><div class="hh">通常 20–60 秒，完成后自动出现在这里</div><div class="skel live"><i></i><i></i><i></i><i></i><i></i><i></i></div></div>`
+      head("分镜", "生成中") +
+      `<div class="st-empty"><div class="ic">⏳</div><div class="tt">Claude 正在生成分镜草稿…</div>` +
+      `<div class="hh">通常 20–60 秒，完成后自动出现在这里</div>` +
+      `<div class="st-skel" style="width:100%;max-width:520px"><i></i><i></i><i></i><i></i><i></i></div></div>`
     );
   }
   if (!m.hasDraft) {
     const hasScript = ctx.script.hasContent();
     return (
-      `<div class="pm-head"><div class="pm-title">🎞 分镜工作区</div><div class="pm-note">还没有分镜</div></div>` +
-      `<div class="ws-empty"><div class="ic">🎞</div><div class="tt">从剧本生成分镜，开始逐镜头制作</div>` +
-      (hasScript
-        ? `<div class="hh">剧本已就绪 — 一键让 AI 拆分镜头（草稿可手工改、可重生成，全部版本保留）</div><button class="nrun" data-sb-generate>🎬 基于剧本生成分镜</button>`
-        : `<div class="hh">前置：剧本 — 先到「剧本」工作区写一句创意生成 v1</div><button class="nrun ghost" data-goto="script">→ 去剧本工作区</button>`) +
-      `</div>`
+      head("分镜", "还没有分镜") +
+      empty(
+        "🎬",
+        "从剧本生成分镜，开始逐镜头制作",
+        hasScript
+          ? "剧本已就绪 — 一键让 AI 拆分镜头。草稿可手工改、可重生成，全部版本保留。"
+          : "前置：剧本 — 先到「剧本」工作区写下本集内容或用 AI 生成 v1。",
+        hasScript
+          ? `<button class="btn primary" data-sb-generate>🎬 基于剧本生成分镜</button>`
+          : `<button class="btn" data-goto="script">→ 去剧本工作区</button>`,
+      )
+    );
+  }
+  // This EPISODE owns no shots AND there is no unassigned inventory either:
+  // there is genuinely nothing to list, so say so and point at the fix.
+  //
+  // When a pool DOES exist the board renders normally instead — those shots are
+  // real work, they are already selectable in the list, and hiding them behind
+  // an empty state made a project whose shots are all unassigned impossible to
+  // inspect from any shot workspace. The header still states plainly that this
+  // episode owns none of them.
+  if (m.episodeEmpty && !m.unassigned.length) {
+    return (
+      head(m.episode ? m.episode.title : "分镜", `本集还没有镜头 · 项目草稿共 ${m.total} 个镜头`) +
+      empty(
+        "🎬",
+        "本集还没有镜头",
+        "分镜草稿是项目级的，场景与镜头归属是按集的。先在「剧集」为本集建立场景并归入镜头，或基于本集剧本重新生成分镜。",
+        `<div class="row"><button class="btn primary" data-goto="episodes">→ 去剧集建立场景</button>` +
+          `<button class="btn" data-goto="script">→ 去本集剧本</button></div>`,
+      )
     );
   }
   const selected = ui.selectedShotId;
-  const sceneBlocks = m.scenes
-    .map(
-      (sc) =>
-        `<div class="sb-scene"><div class="sb-scene-h">🎬 ${esc(sc.title)} ${sceneRefChips(sc.refs)}<span class="ws-desc">${sc.shots.length} 镜</span></div>` +
-        `<div class="sb-cards">${sc.shots.map((c) => shotCardHtml(c, c.shotId === selected)).join("") || `<div class="ws-desc">（空场景 — 在下方未归组镜头卡上归入）</div>`}</div></div>`,
-    )
-    .join("");
-  const pool = m.unassigned.length
-    ? `<div class="sb-scene"><div class="sb-scene-h">未归组镜头<span class="ws-desc">${m.unassigned.length} 镜 · 在「剧集」建场景后归组</span></div>` +
-      `<div class="sb-cards">${m.unassigned.map((c) => shotCardHtml(c, c.shotId === selected)).join("")}</div></div>`
-    : "";
+  const portraitFor = buildPortraitIndex(pd);
+  // the scene the selection belongs to drives the strip's highlight
+  const selScene = m.scenes.find((sc) => sc.shots.some((s) => s.shotId === selected));
+  const d = selected ? shotDetailModel(pd, selected) : null;
   const meta = [
     m.versions && m.versions.count ? `草稿 v${m.versions.cur}/${m.versions.count}` : "",
     m.lock ? `🔒 已锁定 plan v${m.lock.planVersion}` : "未锁定",
-    `${m.total} 个镜头`,
+    `本集 ${m.episodeTotal} 个镜头${m.episodeTotal === m.total ? "" : `（项目共 ${m.total}）`}`,
+    // the episode owns nothing yet, but the pool below is real inventory — say
+    // which is which rather than letting the list imply these are this episode's
+    m.episodeEmpty ? `本集尚未归入任何镜头 · 下方 ${m.unassigned.length} 个未归组` : "",
     m.unassignableCount ? `⚠ ${m.unassignableCount} 个 legacy 镜头无稳定身份` : "",
   ].filter(Boolean).join(" · ");
-  const d = selected ? shotDetailModel(pd, selected) : null;
-  const detail = d
-    ? detailHtml(ctx, d, ui.buffer || {})
-    : `<div class="sb-detail sb-detail-empty ws-desc">点击上方镜头卡查看/编辑镜头详情与媒体</div>`;
+
+  const centre = d
+    ? detailHtml(ctx, d, ui)
+    : empty("🎞", "选一个镜头", "左侧点击任意镜头，这里会显示它的画面、变体与可直接修改的镜头信息。");
+
   return (
-    `<div class="pm-head"><div class="pm-title">🎞 分镜工作区${m.episode ? ` · ${esc(m.episode.title)}` : ""}</div><div class="pm-note">${esc(meta)}</div>` +
-    `<div class="pm-actions"><button class="nrun ghost" data-sb-generate>↻ 重新生成（新版本）</button></div></div>` +
-    sceneBlocks + pool + detail
+    head(
+      m.episode ? m.episode.title : "分镜",
+      meta,
+      (m.episodeEmpty ? `<button class="btn sm" data-goto="episodes">→ 去剧集归入镜头</button>` : "") +
+        `<button class="btn sm" data-sb-generate>↻ 重新生成（新版本）</button>`,
+    ) +
+    renderSceneStrip(m.scenes, selScene ? selScene.sceneId : null) +
+    `<div class="wsplit">` +
+    `<div class="listcol">${renderShotList(m.scenes, m.unassigned, selected)}</div>` +
+    `<div class="maincol">${centre}</div>` +
+    `<div class="refcol">${d ? renderRefCards(d.scene, portraitFor) : ""}</div>` +
+    `</div>`
   );
 }
 
 /** Wire the storyboard. Field edits buffer locally (no re-render while
  *  typing); ONLY 「保存为新草稿版本」 commits — through ctx.shots.saveEdit,
- *  which appends an immutable draft version. */
+ *  which appends an immutable draft version.
+ *
+ *  The generation entry (prompt → provider → import) now lives in the AI
+ *  Director and is wired by ui/genentry.js; the shot-level wiring below is
+ *  unchanged from before that move. */
 export function bindStoryboard(root, ctx, ui, rerender) {
   const gen = root.querySelector("[data-sb-generate]");
   if (gen)
@@ -393,17 +515,46 @@ export function bindStoryboard(root, ctx, ui, rerender) {
       ui.selectedShotId = null; // the regenerated draft mints fresh shot ids
       if (!ctx.shots.generateDraft()) ctx.toast("已有一个生成在进行中");
     };
-  root.querySelectorAll("[data-shot]").forEach((el) => {
-    el.onclick = () => {
-      if (el.dataset.shot === ui.selectedShotId) return;
-      if (ui.dirty && !window.confirm("镜头详情有未保存的修改，切换将丢弃？")) return;
-      ui.dirty = false;
-      ui.buffer = {};
-      ui.selectedShotId = el.dataset.shot;
-      rerender();
-    };
-  });
-  // --- detail: buffered field edits → one immutable save ------------------ //
+  bindShotSelection(root, ctx, ui, rerender);
+  bindShotEditor(root, ctx, ui, rerender);
+  bindShotMedia(root, ctx, ui);
+}
+
+/** Shot selection — shared by 分镜 / 画面 / 视频 (all three are shot-centric).
+ *  Clicking a scene card selects that scene's FIRST shot, which is what makes
+ *  the scene strip a navigation control rather than decoration. */
+export function bindShotSelection(root, ctx, ui, rerender) {
+  const pick = (shotId) => {
+    if (!shotId || shotId === ui.selectedShotId) return;
+    if (ui.dirty && !window.confirm("镜头详情有未保存的修改，切换将丢弃？")) return;
+    ui.dirty = false;
+    ui.buffer = {};
+    ui.shotEdit = false;
+    ui.selectedShotId = shotId;
+    rerender();
+  };
+  root.querySelectorAll("[data-shot]").forEach((el) => (el.onclick = () => pick(el.dataset.shot)));
+  root.querySelectorAll("[data-scene]").forEach((el) => (el.onclick = () => {
+    const m = storyboardModel(ctx.prodData());
+    const sc = m.scenes.find((x) => x.sceneId === el.dataset.scene);
+    const first = sc && sc.shots.find((s) => s.shotId && !s.dangling);
+    if (first) pick(first.shotId);
+  }));
+  root.querySelectorAll("[data-vtab]").forEach((el) => (el.onclick = () => {
+    ui.variantTab = el.dataset.vtab;
+    rerender();
+  }));
+}
+
+/** The buffered shot-detail editor: edits stay local until 保存, which appends
+ *  ONE new immutable draft version. */
+export function bindShotEditor(root, ctx, ui, rerender) {
+  const on = (sel, fn) => {
+    const el = root.querySelector(sel);
+    if (el) el.onclick = fn;
+  };
+  on("[data-shot-editon]", () => { ui.shotEdit = true; rerender(); });
+  on("[data-shot-editoff]", () => { ui.shotEdit = false; ui.dirty = false; ui.buffer = {}; rerender(); });
   // the buffer lives on the SHELL's ui state (not this binding closure), so a
   // re-render — media variant switch, generation completion — re-renders the
   // buffered values instead of discarding unsaved edits
@@ -412,112 +563,44 @@ export function bindStoryboard(root, ctx, ui, rerender) {
     el.oninput = () => { buffer[el.dataset.sf] = el.value; ui.dirty = true; };
     if (el.tagName === "SELECT") el.onchange = () => { buffer[el.dataset.sf] = el.value; ui.dirty = true; };
   });
-  const save = root.querySelector("[data-shot-save]");
-  if (save)
-    save.onclick = () => {
-      const draft = ctx.prodData().draftShots || [];
-      const before = draft.find((s) => s && s.shotId === ui.selectedShotId);
-      const items = draft.map((s) => {
-        if (!s || s.shotId !== ui.selectedShotId) return { ...s };
-        const n = { ...s };
-        for (const k of ["title", "description", "action", "cameraMotion", "dialogue"]) {
-          if (k in buffer) n[k] = buffer[k];
-        }
-        if ("duration" in buffer) n.duration_seconds = +buffer.duration;
-        return n;
-      });
-      if (!items.length || !before) return;
-      // no effective change → no version churn (an identical draft version
-      // would only pollute the history)
-      const after = items.find((s) => s.shotId === ui.selectedShotId);
-      const changed = ["title", "description", "action", "cameraMotion", "dialogue"]
-        .some((k) => (after[k] || "") !== (before[k] || ""))
-        || after.duration_seconds !== before.duration_seconds;
-      if (!changed) { ctx.toast("没有修改 — 未创建新版本"); return; }
-      if (items.some((s) => !(s.title || "").trim())) { ctx.toast("镜头名不能为空"); return; }
-      if (ctx.shots.saveEdit(items)) {
-        ui.dirty = false;
-        ui.buffer = {};
-        ctx.toast("已保存为新草稿版本（旧版本保留，可在工作流节点回切）");
-        rerender();
-      } else {
-        ctx.toast("没有可保存的草稿版本");
+  on("[data-shot-save]", () => {
+    const draft = ctx.prodData().draftShots || [];
+    const before = draft.find((s) => s && s.shotId === ui.selectedShotId);
+    const items = draft.map((s) => {
+      if (!s || s.shotId !== ui.selectedShotId) return { ...s };
+      const n = { ...s };
+      for (const k of ["title", "description", "action", "cameraMotion", "dialogue"]) {
+        if (k in buffer) n[k] = buffer[k];
       }
-    };
-  // --- media: variant switching + first-frame flow ------------------------- //
+      if ("duration" in buffer) n.duration_seconds = +buffer.duration;
+      return n;
+    });
+    if (!items.length || !before) return;
+    // no effective change → no version churn (an identical draft version would
+    // only pollute the history)
+    const after = items.find((s) => s.shotId === ui.selectedShotId);
+    const changed = ["title", "description", "action", "cameraMotion", "dialogue"]
+      .some((k) => (after[k] || "") !== (before[k] || ""))
+      || after.duration_seconds !== before.duration_seconds;
+    if (!changed) { ctx.toast("没有修改 — 未创建新版本"); return; }
+    if (items.some((s) => !(s.title || "").trim())) { ctx.toast("镜头名不能为空"); return; }
+    if (ctx.shots.saveEdit(items)) {
+      ui.dirty = false;
+      ui.buffer = {};
+      ui.shotEdit = false;
+      ctx.toast("已保存为新草稿版本（旧版本保留，可在工作流节点回切）");
+      rerender();
+    } else {
+      ctx.toast("没有可保存的草稿版本");
+    }
+  });
+}
+
+/** Variant switching + the first-frame flow — shared by all shot workspaces. */
+export function bindShotMedia(root, ctx, ui) {
   root.querySelectorAll("[data-setcur]").forEach((b) => {
     b.onclick = () => ctx.media.setCurrent(b.dataset.setcur, b.dataset.slot, +b.dataset.v);
   });
   const ff = root.querySelector("[data-useff]");
   if (ff) ff.onclick = () => { if (ff.dataset.useff) ctx.media.useAsFirstFrame(ff.dataset.useff); };
-  // --- 生成入口 (M10): prompt → entry → import with provenance -------------- //
-  // The INTENT (compiled prompt + entry) is captured when the creator copies
-  // or opens an entry; an import through this panel then records a REAL
-  // Generation (promptSnapshot = the copied text, provider = the entry).
-  // A plain import without a prior intent stays an ordinary upload.
-  const ENTRY_URL = { chatgpt: "https://chatgpt.com/", gemini: "https://gemini.google.com/" };
-  const promptText = (kind) => {
-    const ta = root.querySelector(`textarea[data-genprompt="${kind}"]`);
-    return ta ? ta.value : "";
-  };
-  const setIntent = (kind, entry) => {
-    ui.genIntent = ui.genIntent || {};
-    ui.genIntent[kind] = { shotId: ui.selectedShotId, prompt: promptText(kind), entry };
-  };
-  const copyPrompt = async (kind) => {
-    try {
-      await navigator.clipboard.writeText(promptText(kind));
-      ctx.toast("提示词已复制");
-      return true;
-    } catch {
-      ctx.toast("复制失败：请手动选择文本复制");
-      return false;
-    }
-  };
-  root.querySelectorAll("[data-gp-copy]").forEach((b) => {
-    b.onclick = async () => {
-      if (await copyPrompt(b.dataset.kind)) setIntent(b.dataset.kind, "manual");
-    };
-  });
-  root.querySelectorAll("[data-gp-entry]").forEach((b) => {
-    b.onclick = async () => {
-      const kind = b.dataset.kind;
-      const entry = b.dataset.gpEntry;
-      // open FIRST, synchronously in the user gesture — an awaited clipboard
-      // call before window.open can demote it to a blocked popup
-      window.open(ENTRY_URL[entry] || "about:blank", "_blank", "noopener");
-      // provenance intent ONLY when the prompt actually reached the
-      // clipboard — a denied copy must not fake a "sent to ChatGPT" record
-      if (await copyPrompt(kind)) setIntent(kind, `${entry}-manual`);
-    };
-  });
-  root.querySelectorAll("[data-gp-import]").forEach((b) => {
-    b.onclick = () => {
-      const kind = b.dataset.kind;
-      const d = shotDetailModel(ctx.prodData(), ui.selectedShotId);
-      if (!d || !d.slot) { ctx.toast("镜头身份未解析：无法定位媒体槽位"); return; }
-      const input = document.createElement("input");
-      input.type = "file";
-      input.accept = kind === "image" ? "image/png,image/jpeg,image/webp" : "video/mp4,video/webm";
-      input.onchange = async () => {
-        const file = input.files && input.files[0];
-        if (!file) return;
-        const intent = ui.genIntent && ui.genIntent[kind] && ui.genIntent[kind].shotId === ui.selectedShotId
-          ? ui.genIntent[kind]
-          : null;
-        try {
-          await ctx.media.importShotMedia(kind, d.slot, ui.selectedShotId, file, intent);
-          // consume ONLY the intent this import used — a NEWER intent set
-          // while the upload was in flight belongs to the next import
-          if (intent && ui.genIntent && ui.genIntent[kind] === intent) {
-            delete ui.genIntent[kind];
-          }
-          rerender();
-        } catch (err) {
-          ctx.toast("导入失败：" + err.message);
-        }
-      };
-      input.click();
-    };
-  });
 }

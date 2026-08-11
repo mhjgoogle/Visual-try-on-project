@@ -47,9 +47,98 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
+from rootadmit import RootRejected, admit_root
+
 MOCKUP_DIR = Path(__file__).resolve().parent
 REPO_ROOT = MOCKUP_DIR.parents[1]
 DATA_DIR = MOCKUP_DIR / "data"
+# A project name becomes a directory segment under the chosen root, so the same
+# rule the studio applies client-side is enforced here as well — the page is
+# never trusted. Windows refuses the reserved device names in any case, with or
+# without an extension, and refuses a trailing dot or space (ADR-0049).
+_NAME_FORBIDDEN_RE = re.compile(r'[\\/:*?"<>|]')
+_WIN_RESERVED = frozenset(
+    ["con", "prn", "aux", "nul"]
+    + [f"com{i}" for i in range(1, 10)]
+    + [f"lpt{i}" for i in range(1, 10)]
+)
+
+
+def _valid_project_name(name: str) -> bool:
+    if not name or len(name) > 60 or name in (".", ".."):
+        return False
+    # Control characters (NUL above all) are not just invalid path segments:
+    # a NUL reaches Path() and raises ValueError, which is NOT an OSError and
+    # would escape as a dropped connection instead of a 400.
+    if any(ch < " " or ch == "" for ch in name):
+        return False
+    if _NAME_FORBIDDEN_RE.search(name):
+        return False
+    if name[-1] in ". ":
+        return False
+    return name.split(".")[0].lower() not in _WIN_RESERVED
+
+
+# --- project roots (ADR-0051) ---------------------------------------------- #
+# The studio lets the creator pick WHERE a project lives, so the backend keeps a
+# durable name -> root registry beside the canvas scratch. Prototype-local state,
+# exactly like data/<name>.json: not a projection of any core fact, and never
+# written back into a project's own files.
+
+
+_REGISTRY_LOCK = threading.Lock()
+
+
+def _registry_path() -> Path:
+    return DATA_DIR / "projects.json"
+
+
+def _empty_registry() -> dict:
+    return {"version": 1, "projects": [], "confirmedRoots": []}
+
+
+def _load_project_registry() -> dict:
+    """{"version":1,"projects":[{name,root,created_at}],"confirmedRoots":[...]}"""
+    try:
+        raw = json.loads(_registry_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return _empty_registry()
+    if not isinstance(raw, dict):
+        return _empty_registry()
+    projects = [
+        x
+        for x in (raw.get("projects") or [])
+        if isinstance(x, dict)
+        and isinstance(x.get("name"), str)
+        and x["name"]
+        and isinstance(x.get("root"), str)
+        and x["root"]
+    ]
+    confirmed = [
+        x for x in (raw.get("confirmedRoots") or []) if isinstance(x, str) and x
+    ]
+    return {"version": 1, "projects": projects, "confirmedRoots": confirmed}
+
+
+def _load_registry_projects() -> list[dict]:
+    return _load_project_registry()["projects"]
+
+
+def _save_project_registry(reg: dict) -> bool:
+    DATA_DIR.mkdir(exist_ok=True)
+    fd, tmpname = tempfile.mkstemp(dir=str(DATA_DIR), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(reg, ensure_ascii=False, indent=2))
+        os.replace(tmpname, _registry_path())  # atomic
+        return True
+    except OSError:
+        try:
+            os.unlink(tmpname)
+        except OSError:
+            pass
+        return False
+
 
 # Static files this server will serve (same-origin). Everything else — data/,
 # server.py, README, plans — is refused.
@@ -636,6 +725,24 @@ class _App:
                 }
             except Exception:  # noqa: BLE001 - stay up; queries just return unavailable
                 self._svc = None
+        # ADR-0051: projects created through the studio may live under OTHER
+        # roots. Merge the durable registry on top of the account-root scan so
+        # they survive a restart. A registered project whose directory is gone
+        # is dropped rather than served as a phantom.
+        for entry in _load_registry_projects():
+            root = Path(entry["root"])
+            if not root.is_dir():
+                continue  # gone: dropped rather than served as a phantom
+            # The stored path was already RESOLVED when the project was
+            # created, so it must still resolve to itself. If it no longer
+            # does, something replaced the directory with a link since the last
+            # run and following it would write outside the admitted root.
+            try:
+                if root.resolve() != root:
+                    continue
+            except OSError:
+                continue
+            self._projects.setdefault(entry["name"], root)
 
     @property
     def connected(self) -> bool:
@@ -727,6 +834,18 @@ class _App:
                     else None,
                 },
             )
+        if path == "/api/fs/default":
+            return _json(
+                200,
+                {
+                    "root": str(self.account_root) if self.account_root else None,
+                    "sep": os.sep,
+                    "home": str(Path.home()),
+                },
+            )
+        if path == "/api/fs/list":
+            q = parse_qs(urlsplit(raw_path).query)
+            return self._fs_list((q.get("path") or [""])[0])
         if path == "/api/projects":
             if not self.connected:
                 return _json(200, {"projects": [], "mode": "local"})
@@ -817,6 +936,8 @@ class _App:
             return self._agent_image(body)
         if path == "/api/agent/adopt-paid":
             return self._agent_adopt_paid(body)
+        if path == "/api/projects":
+            return self._create_project(body)
         if not path.startswith("/api/projects/"):
             return _json(
                 404,
@@ -2107,6 +2228,284 @@ class _App:
                 500, {"error": {"category": "write_failed", "detail": "could not save"}}
             )
         return _json(200, {"ok": True})
+
+    # -- project browse + creation (ADR-0051) -------------------------------
+
+    def _fs_list(self, raw_path: str):
+        """Read-only directory listing so the studio can OFFER a picker.
+
+        Directories only. No file contents, no sizes, nothing but names and
+        whether a child directory exists. Same loopback + Origin guards as
+        every other route (ADR-0051 §4).
+        """
+        if not raw_path:
+            base = self.account_root or Path.home()
+        else:
+            # A NUL (or any control character) reaches the filesystem calls below
+            # and raises ValueError, which is NOT an OSError — it would escape as
+            # a dropped connection instead of a 400. Same rule as project names.
+            if "\x00" in raw_path:
+                return _json(
+                    400,
+                    {
+                        "error": {
+                            "category": "bad_path",
+                            "detail": "path contains a NUL byte",
+                        }
+                    },
+                )
+            base = Path(raw_path)
+        if not base.is_absolute():
+            return _json(
+                400,
+                {"error": {"category": "bad_path", "detail": "path must be absolute"}},
+            )
+        try:
+            base = base.resolve()
+        except (OSError, ValueError) as exc:
+            return _json(400, {"error": {"category": "bad_path", "detail": str(exc)}})
+        if not base.is_dir():
+            return _json(
+                404,
+                {"error": {"category": "not_found", "detail": "not a directory"}},
+            )
+        entries = []
+        try:
+            with os.scandir(base) as it:
+                for e in it:
+                    try:
+                        if not e.is_dir(follow_symlinks=False):
+                            continue
+                    except OSError:
+                        continue
+                    if e.name.startswith("."):
+                        continue  # hidden/system noise, never useful as a root
+                    entries.append({"name": e.name, "path": str(base / e.name)})
+        except PermissionError:
+            return _json(
+                403,
+                {
+                    "error": {
+                        "category": "forbidden",
+                        "detail": "directory not readable",
+                    }
+                },
+            )
+        except OSError as exc:
+            return _json(400, {"error": {"category": "bad_path", "detail": str(exc)}})
+        entries.sort(key=lambda x: x["name"].lower())
+        parent = None if base == base.parent else str(base.parent)
+        return _json(
+            200,
+            {
+                "path": str(base),
+                "parent": parent,
+                "sep": os.sep,
+                "entries": entries[:500],
+                "truncated": len(entries) > 500,
+            },
+        )
+
+    def _create_project(self, body: bytes):
+        """POST /api/projects — admit a root, scaffold the project, register it."""
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            return _json(
+                400, {"error": {"category": "bad_json", "detail": "invalid JSON body"}}
+            )
+        if not isinstance(payload, dict):
+            return _json(
+                400, {"error": {"category": "bad_json", "detail": "expected an object"}}
+            )
+        name = str(payload.get("name") or "").strip()
+        root_in = str(payload.get("root") or "").strip()
+        confirm = payload.get("confirm") is True
+        if not _valid_project_name(name):
+            return _json(
+                400,
+                {
+                    "error": {
+                        "category": "bad_name",
+                        "detail": (
+                            "项目名不能为空、不能超过 60 字，"
+                            '不能包含 \\ / : * ? " < > |，也不能以 . 或空格结尾'
+                        ),
+                    }
+                },
+            )
+        with _REGISTRY_LOCK:
+            # one writer at a time: read-modify-write of the registry is atomic
+            # with respect to other create requests (ThreadingHTTPServer)
+            reg = _load_project_registry()
+            confirmed = set(reg.get("confirmedRoots") or [])
+            try:
+                admitted = admit_root(
+                    root_in,
+                    repo_root=REPO_ROOT,
+                    confirmed_roots=confirmed,
+                    confirm=confirm,
+                )
+            except RootRejected as exc:
+                status = 409 if exc.code == "root_unconfirmed" else 400
+                return _json(
+                    status, {"error": {"category": exc.code, "detail": exc.detail}}
+                )
+
+            target = admitted.resolved / name
+            # A pre-existing SYMLINK named like the project would pass an emptiness
+            # check while pointing anywhere, and every later write would follow it
+            # straight out of the admitted root. Refuse the link itself, and require
+            # the resolved project directory to sit directly under the admitted
+            # root (ADR-0004 containment, applied to this project's own root).
+            if target.is_symlink():
+                return _json(
+                    400,
+                    {
+                        "error": {
+                            "category": "symlink_escape",
+                            "detail": f"这个位置已经有一个同名的符号链接：{target}",
+                        }
+                    },
+                )
+            if target.exists():
+                real = target.resolve()
+                if real.parent != admitted.resolved:
+                    return _json(
+                        400,
+                        {
+                            "error": {
+                                "category": "symlink_escape",
+                                "detail": f"同名文件夹解析后不在所选位置之内：{real}",
+                            }
+                        },
+                    )
+                if not target.is_dir():
+                    return _json(
+                        409,
+                        {
+                            "error": {
+                                "category": "exists",
+                                "detail": (f"这个位置已经有一个同名文件：{target}"),
+                            }
+                        },
+                    )
+                if any(target.iterdir()):
+                    return _json(
+                        409,
+                        {
+                            "error": {
+                                "category": "exists",
+                                "detail": (
+                                    f"这个位置已经有一个非空的同名文件夹：{target}"
+                                ),
+                            }
+                        },
+                    )
+            # Case-INSENSITIVELY: the landing page merges project names that way
+            # (NTFS would collide anyway), so on a case-sensitive filesystem a
+            # direct API call could otherwise create both `Foo` and `foo` and
+            # leave one of them permanently invisible in the UI.
+            lower = name.casefold()
+            clash = next(
+                (k for k in self._projects if k.casefold() == lower),
+                None,
+            )
+            if clash is not None:
+                return _json(
+                    409,
+                    {
+                        "error": {
+                            "category": "exists",
+                            "detail": f"已有同名项目：{clash}",
+                        }
+                    },
+                )
+            # The link / emptiness checks above ran against the path as it was a
+            # moment ago. Everything below therefore re-establishes safety at the
+            # instant of writing, rather than trusting that earlier look:
+            #   * mkdir with exist_ok=False fails outright if anything (including
+            #     a symlink or junction swapped in since) now occupies the path;
+            #   * the resolved parent is re-checked AFTER the directory exists;
+            #   * project.json is created with O_EXCL (+ O_NOFOLLOW where the
+            #     platform has it), which refuses to follow a link on the final
+            #     component instead of writing through it.
+            made_dir = False
+            try:
+                if not target.exists():
+                    target.mkdir(parents=True, exist_ok=False)
+                    made_dir = True
+                if target.is_symlink() or target.resolve().parent != admitted.resolved:
+                    raise OSError(f"项目目录在创建过程中被替换：{target}")
+                flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+                flags |= getattr(os, "O_NOFOLLOW", 0)
+                flags |= getattr(os, "O_BINARY", 0)
+                fd = os.open(target / "project.json", flags, 0o644)
+                with os.fdopen(fd, "wb") as fh:
+                    fh.write(
+                        json.dumps(
+                            {
+                                "created_at": datetime.now(timezone.utc).isoformat(),
+                                "description": None,
+                                "name": name,
+                                "project_id": name,
+                            },
+                            ensure_ascii=False,
+                            indent=2,
+                        ).encode("utf-8")
+                    )
+            except OSError as exc:
+                # Same rule as the registry rollback below: never leave a partial
+                # project behind, or every retry is rejected as "already exists".
+                try:
+                    (target / "project.json").unlink(missing_ok=True)
+                    if made_dir:
+                        target.rmdir()
+                except OSError:
+                    pass
+                return _json(
+                    500, {"error": {"category": "write_failed", "detail": str(exc)}}
+                )
+
+            reg["projects"] = [x for x in reg["projects"] if x.get("name") != name] + [
+                {
+                    "name": name,
+                    "root": str(target),
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                }
+            ]
+            if str(admitted.resolved) not in confirmed:
+                reg["confirmedRoots"] = sorted(confirmed | {str(admitted.resolved)})
+            if not _save_project_registry(reg):
+                # Roll back what WE created, so the failure is not half-applied:
+                # otherwise a retry hits "非空的同名文件夹" while the project is
+                # still unregistered and invisible after a restart.
+                try:
+                    (target / "project.json").unlink(missing_ok=True)
+                    if made_dir:
+                        target.rmdir()
+                except OSError:
+                    pass
+                return _json(
+                    500,
+                    {
+                        "error": {
+                            "category": "write_failed",
+                            "detail": "项目列表写入失败，已回滚刚创建的项目文件夹",
+                        }
+                    },
+                )
+            self._projects[name] = target
+        return _json(
+            201,
+            {
+                "ok": True,
+                "name": name,
+                "root": str(admitted.resolved),
+                "project_path": str(target),
+                "created_root": admitted.created,
+            },
+        )
 
     # -- local FFmpeg draft compose (ADR-0044) ------------------------------
     def _resolve_slot(self, d, slug: str, exts: tuple[str, ...]):

@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 
 import { compileImagePrompt, compileVideoPrompt } from "../src/workflow/promptc.js";
 import { shotDetailModel, renderStoryboard } from "../src/ui/storyboard.js";
+import { renderGenEntry } from "../src/ui/genentry.js";
 import * as pd from "../src/workflow/proddoc.js";
 import * as bd from "../src/workflow/bibledoc.js";
 
@@ -134,17 +135,29 @@ test("shotDetailModel compiles prompts from the scene's STATE-resolved bible ref
   assert.ok(d.prompts.video.text.includes("【动作】缓缓抬头"));
 });
 
-test("the storyboard detail renders both entry panels with real affordances", () => {
+test("the AI Director hosts both entry panels with real affordances", () => {
+  const s = snapshot();
+  const d = shotDetailModel(s, "shot-a");
+  for (const kind of ["image", "video"]) {
+    const html = renderGenEntry(d, kind, null);
+    assert.ok(html.includes(`data-genprompt="${kind}"`));
+    assert.ok(html.includes("data-gp-go"));
+    assert.ok(html.includes("data-gp-import"));
+    assert.ok(html.includes('data-gp-prov="gemini"'));
+    assert.ok(html.includes("API 自动生成")); // honest future note, not a fake button
+    assert.ok(html.includes("未来"));
+  }
+  // ChatGPT is an image entry; the video prompt offers Gemini video
+  assert.ok(renderGenEntry(d, "image", null).includes('data-gp-prov="chatgpt"'));
+  // the compiled text is IN the panel, ready to copy
+  assert.ok(renderGenEntry(d, "image", null).includes("黑衣冷面"));
+});
+
+test("the storyboard detail still renders the shot's media-first surface", () => {
   const s = snapshot();
   const ctx = { prodData: () => s, script: { hasContent: () => true } };
   const html = renderStoryboard(ctx, { selectedShotId: "shot-a", buffer: {} });
-  assert.ok(html.includes('data-genprompt="image"'));
-  assert.ok(html.includes('data-genprompt="video"'));
-  assert.ok(html.includes("data-gp-copy"));
-  assert.ok(html.includes('data-gp-entry="chatgpt"'));
-  assert.ok(html.includes('data-gp-entry="gemini"'));
-  assert.ok(html.includes("data-gp-import"));
-  assert.ok(html.includes("API 自动生成（未来/可选）")); // honest, not a fake button
-  // the compiled text is IN the page, ready to copy
-  assert.ok(html.includes("黑衣冷面"));
+  assert.ok(html.includes("herobox")); // large current-frame preview
+  assert.ok(html.includes("data-vtab=")); // variant tabs
+  assert.ok(html.includes("跪殿")); // the shot itself
 });

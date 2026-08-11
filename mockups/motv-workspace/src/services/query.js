@@ -42,6 +42,45 @@ export async function listProjects() {
   }
 }
 
+/* --- project location (ADR-0051) ------------------------------------------ */
+// The browser cannot hand a real absolute path to the backend, so the backend
+// reports its default location and lists directories for the picker. Both are
+// read-only and same-origin, like every other query here.
+
+/** Uniform {ok, status, data, error} so callers branch without try/catch. */
+async function _call(path, init) {
+  try {
+    const r = await fetch(path, init);
+    const j = await r.json().catch(() => null);
+    if (!r.ok) {
+      return { ok: false, status: r.status, error: (j && j.error) || { detail: `HTTP ${r.status}` } };
+    }
+    return { ok: true, status: r.status, data: j || {} };
+  } catch (e) {
+    return { ok: false, status: 0, error: { category: "offline", detail: e.message } };
+  }
+}
+
+/** The backend's default project location (its --account-root). */
+export function fsDefault() {
+  return _call("/api/fs/default", { cache: "no-store" });
+}
+
+/** Directories under `path` (directories only — never file contents). */
+export function fsList(path) {
+  return _call(`/api/fs/list?path=${encodeURIComponent(path || "")}`, { cache: "no-store" });
+}
+
+/** Ask the backend to create a project folder at `root`. A location never used
+ *  before comes back 409 `root_unconfirmed`; re-send with confirm=true. */
+export function createProject(name, root, confirm) {
+  return _call("/api/projects", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, root, confirm: !!confirm }),
+  });
+}
+
 /** One read-only query (plan/status/budget/cost/problems/approvals) as JSON. */
 export async function getQuery(name, q) {
   const r = await fetch(`/api/projects/${encodeURIComponent(name)}/${q}`);

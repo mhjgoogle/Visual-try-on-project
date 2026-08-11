@@ -6,14 +6,23 @@
 #
 #     ./run-windows.ps1                # setup + open the demo studio
 #     ./run-windows.ps1 -Connected     # setup + run the connected backend (server.py)
-#     ./run-windows.ps1 -SetupOnly      # just create the venv + install deps
+#     ./run-windows.ps1 -SetupOnly     # just create the venv + install deps
+#
+# In connected mode the backend's --account-root is where projects and their
+# assets live; it defaults to the folder CONTAINING this repository. Override
+# it with -AssetRoot. The studio's "新建项目" dialog pre-fills that same value.
 #
 # FFmpeg/ffprobe (for render) and Piper (optional TTS) must be installed and on
 # PATH separately; see README "原生 Windows" section. NTFS is required (ADR-0049).
 param(
     [switch]$Connected,
     [switch]$SetupOnly,
-    [int]$Port = 8000
+    [int]$Port = 8000,
+    # Where projects (and their assets) live. Defaults to the folder that
+    # CONTAINS this repository, so generated media never lands inside the repo
+    # (AGENTS.md §23). Override for another location:
+    #     ./run-windows.ps1 -Connected -AssetRoot "E:\media\projects"
+    [string]$AssetRoot
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -37,8 +46,15 @@ if ($SetupOnly) {
 }
 
 if ($Connected) {
+    if (-not $AssetRoot) { $AssetRoot = Split-Path -Parent $root }
+    if (-not (Test-Path -LiteralPath $AssetRoot)) {
+        New-Item -ItemType Directory -Force -Path $AssetRoot | Out-Null
+    }
+    $AssetRoot = (Resolve-Path -LiteralPath $AssetRoot).Path
     Write-Host "Starting the connected backend (server.py) on http://127.0.0.1:8770/ ..."
-    & $venvPython "mockups\motv-workspace\server.py" --account-root "examples\projects"
+    Write-Host "  asset root (--account-root): $AssetRoot"
+    Start-Process "http://127.0.0.1:8770/"
+    & $venvPython "mockups\motv-workspace\server.py" --account-root $AssetRoot
 } else {
     Write-Host "Opening the motv demo studio on http://127.0.0.1:$Port/ ..."
     Start-Process "http://127.0.0.1:$Port/"

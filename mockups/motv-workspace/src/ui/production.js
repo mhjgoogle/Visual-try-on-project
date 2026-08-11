@@ -1,43 +1,27 @@
-// Production studio shell (M8) — the creator-facing production environment:
-// LEFT navigation/resources · CENTER production workspace · RIGHT persistent
-// AI Director. The workflow node canvas stays available under the ⛓ tab but
-// is no longer the primary creator experience.
+// Production studio shell — the creator-facing production environment:
+// LEFT rail (project · episode selector · this episode's stages) · CENTER
+// media-first workspace · RIGHT persistent AI Director. The workflow node
+// canvas stays available under the 工作流 top-level mode but is not the
+// primary creator experience.
 //
-// PURE PRESENTATION over the domain documents (scriptDoc / production / bible
-// / Asset & Generation registries) through ctx controllers — the shell owns
-// only TRANSIENT UI state (active module, selection, edit buffers, open
-// panels), never persisted, never on canvas nodes.
+// PURE PRESENTATION over the domain documents (story / scriptDoc / production
+// / bible / Asset & Generation registries) through ctx controllers — the shell
+// owns only TRANSIENT UI state (active module, selection, edit buffers, open
+// drawers), never persisted, never on canvas nodes.
 import { $, esc } from "../util/dom.js";
 import * as ws from "./workspaces.js";
-import { renderStoryboard, bindStoryboard } from "./storyboard.js";
+import { renderStoryboard, bindStoryboard, defaultShotId, isSelectableShot } from "./storyboard.js";
+import { episodeStageCounts } from "./prodplan.js";
 import { renderAudioWs, bindAudioWs } from "./audiows.js";
 import { renderTimelineWs, bindTimelineWs } from "./timelinews.js";
 import { renderStorageWs, bindStorageWs } from "./storagews.js";
+import { renderStoryWs, bindStoryWs } from "./storyws.js";
+import { renderBibleWs, bindBibleWs } from "./biblews.js";
+import { renderImageWs, bindImageWs, renderVideoWs, bindVideoWs } from "./mediaws.js";
 import { directorModel, renderDirector, bindDirector } from "./director.js";
+import { NAV, MODULE_LABEL, renderRail, renderCrumb, episodeLabels, head } from "./shell.js";
 
-/** Grouped navigation — the approved final IA. Exported for tests. */
-export const NAV = [
-  {
-    sec: "项目",
-    items: [
-      ["story", "📖", "故事"],
-      ["settings", "🎭", "作品设定"],
-      ["episodes", "📺", "剧集"],
-      ["storage", "🗄", "存储"],
-    ],
-  },
-  {
-    sec: "当前剧集",
-    items: [
-      ["script", "📄", "剧本"],
-      ["shots", "🎞", "分镜"],
-      ["frames", "🖼", "画面"],
-      ["video", "▶", "视频"],
-      ["audio", "🎵", "音频"],
-      ["edit", "✂", "剪辑"],
-    ],
-  },
-];
+export { NAV };
 
 /** Pure view-model of the script document for the shell (unit-tested):
  *  version standing + exactly one of the transient generation states. */
@@ -85,26 +69,72 @@ export function navBadges(doc, pd) {
     audio: audio.empty ? "" : `${audio.done}/${audio.total}`,
     edit: edit.finals ? `✓v${edit.finals}` : "",
     storage: "", // stats live in the workspace; no fabricated badge
+    assets: "",
   };
 }
 
-const MODULE_LABEL = {
-  story: "故事", settings: "作品设定", episodes: "剧集", storage: "存储",
-  script: "剧本", shots: "分镜", frames: "画面", video: "视频", audio: "音频",
-  edit: "时间线",
-};
+/** Per-EPISODE stage standing for the rail.
+ *
+ *  `navBadges` counts project-wide (the shot draft lives on the scriptgen node,
+ *  not per episode). The rail groups these stages under 本集制作, so counting
+ *  the whole project there would claim work that belongs to another episode.
+ *  Derived from ui/prodplan.js — the SAME derivation the AI Director's
+ *  Production Plan prints, so the rail badge and the plan row cannot disagree.
+ *  No domain model changes, nothing new persisted. */
+export function episodeStages(pd) {
+  const c = episodeStageCounts(pd);
+  // An episode that owns no shots must show NOTHING here — falling back to the
+  // project-wide badge would credit another episode's work to this one, which
+  // is exactly what grouping these rows under 本集制作 promises not to do.
+  if (!c.total) return { badges: { shots: "", frames: "", video: "", audio: "" }, ratios: {} };
+  const stat = (done, total) => ({ done, total });
+  // audio is measured against SPEAKING shots (prodplan), not every shot — using
+  // c.total here would make the rail contradict the plan row it mirrors
+  return {
+    badges: {
+      shots: String(c.total),
+      frames: `${c.frames}/${c.total}`,
+      video: `${c.video}/${c.total}`,
+      audio: c.audioTotal ? `${c.audio}/${c.audioTotal}` : "",
+    },
+    ratios: {
+      frames: stat(c.frames, c.total),
+      video: stat(c.video, c.total),
+      ...(c.audioTotal ? { audio: stat(c.audio, c.audioTotal) } : {}),
+    },
+  };
+}
 
 export function createProduction(getCtx) {
   const root = $("#production");
   // transient view state — NEVER persisted, never on canvas nodes
-  let activeModule = "script";
+  let activeModule = "shots";
+  // the last PRODUCTION module (never the top-level asset library) — returning
+  // from 资产 to 制作 restores where the creator actually was
+  let lastProdModule = activeModule;
   let revText = "";
   let vmenuOpen = false;
-  const openBible = new Set(); // 作品设定 <details> open state (transient)
   // storyboard selection + UNSAVED shot-edit buffer + director instruction —
   // shared across re-renders so a media action / poll re-render never
   // discards in-progress field edits (they commit only on explicit save)
-  const ui = { selectedShotId: null, dirty: false, buffer: {}, directorText: "" };
+  const ui = {
+    selectedShotId: null,
+    dirty: false,
+    buffer: {},
+    directorText: "",
+    // Bible: which card's detail drawer is open, and which state is previewed
+    bibleOpen: null,
+    bibleTab: "characters",
+    bibleState: {},
+    // Storyboard/Image/Video: which variant tab is showing
+    variantTab: "image",
+    shotEdit: false,
+    // AI Director: per-section collapse overrides (transient; the default is
+    // derived contextually from what most needs attention)
+    dirOpen: {},
+    // Story: which outline version is being read
+    storyTab: "outline",
+  };
 
   function vmenuHtml(d) {
     const label = { generated: "AI 生成", revision: "AI 修订", manual: "手工" };
@@ -120,7 +150,7 @@ export function createProduction(getCtx) {
   function aiPane(ctx, d, st) {
     if (st.generating) {
       const lab = d.pending.kind === "initial" ? "AI 生成剧本中…" : "AI 生成修订稿中…";
-      return `<div class="skel live"><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="genprog"><span class="pc">${lab}</span><span class="cx">取消</span></div>`;
+      return `<div class="st-skel"><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="genprog"><span class="pc">${lab}</span><span class="cx">取消</span></div>`;
     }
     let out = "";
     if (st.error) {
@@ -130,38 +160,40 @@ export function createProduction(getCtx) {
       // proposal vs current: both labeled, apply is explicitly "new version"
       return (
         out +
-        `<div class="pa-cur">当前剧本：<b>v${st.active}</b>${ctx.script.isDirty() ? "（含未版本化的手工修改）" : ""}</div>` +
+        `<div class="meta">当前剧本：<b>v${st.active}</b>${ctx.script.isDirty() ? "（含未版本化的手工修改）" : ""}</div>` +
         `<div class="proposal"><div class="proplab">修订稿提案 · 未应用 · 要求：${esc(st.proposal.instruction)}</div>` +
         `<textarea class="pa-proptext" readonly spellcheck="false">${esc(st.proposal.text)}</textarea>` +
-        `<div class="vbtns"><button class="nrun" data-apply>✔ 应用为 v${st.nextVersion}（新持久版本）</button><button class="nrun ghost" data-discard>放弃提案</button></div></div>` +
-        `<div class="pa-note">应用后成为持久版本 v${st.nextVersion}；v1…v${st.versions} 全部保留，可随时回切。</div>`
+        `<div class="row"><button class="btn primary" data-apply>✔ 应用为 v${st.nextVersion}</button><button class="btn" data-discard>放弃提案</button></div></div>` +
+        `<div class="meta">应用后成为持久版本 v${st.nextVersion}；v1…v${st.versions} 全部保留，可随时回切。</div>`
       );
     }
     if (!st.versions && !ctx.script.hasContent()) {
-      // M9: initial generation runs from the story context (idea + approved
-      // outline + this episode's confirmed plan entry)
       return (
         out +
-        `<div class="pa-note">基于 创意＋已批准大纲＋本集规划 生成本集剧本（也可直接在左侧输入）：</div>` +
-        `<button class="nrun" data-gen>AI 生成本集剧本 v1</button>`
+        `<div class="meta">基于 创意＋已批准大纲＋本集规划 生成本集剧本：</div>` +
+        `<button class="btn primary" data-gen>AI 生成本集剧本 v1</button>`
       );
     }
     return (
       out +
-      `<label class="pa-lab">修改要求</label>` +
-      `<textarea class="pa-rev" rows="3" spellcheck="false" placeholder="例如：结尾加一个反转；台词更口语化">${esc(revText)}</textarea>` +
-      `<button class="nrun" data-revise>AI 修订 → 生成提案</button>` +
-      `<div class="pa-note">提案不会直接生效：确认「应用」后才会创建新版本 v${st.nextVersion}，旧版本全部保留。</div>`
+      `<label class="lab">修改要求</label>` +
+      `<textarea class="field pa-rev" rows="3" spellcheck="false" placeholder="例如：结尾加一个反转；台词更口语化">${esc(revText)}</textarea>` +
+      `<button class="btn primary" data-revise>AI 修订 → 生成提案</button>` +
+      `<div class="meta">提案不会直接生效：确认「应用」后才创建新版本 v${st.nextVersion}，旧版本全部保留。</div>`
     );
   }
 
   /** The persistent right-side AI Director. Script gets the live assistant;
-   *  every other module gets the structured Director panel (context +
-   *  instruction + real action where one exists + generation history). */
+   *  every other module gets the contextual Director panel. */
   function aiDirector(ctx) {
     if (activeModule === "script") {
       const d = ctx.script.doc();
-      return `<aside class="prod-ai"><div class="pa-title">🎬 AI 导演 · 剧本助理</div>${aiPane(ctx, d, scriptStatus(d))}</aside>`;
+      return (
+        `<aside class="st-dir prod-ai">` +
+        `<div class="dir-head"><span class="av">🎬</span>AI 导演 · 剧本</div>` +
+        aiPane(ctx, d, scriptStatus(d)) +
+        `</aside>`
+      );
     }
     const m = directorModel({
       module: activeModule,
@@ -171,26 +203,39 @@ export function createProduction(getCtx) {
       sel: ui,
     });
     return (
-      `<aside class="prod-ai"><div class="pa-title">🎬 AI 导演 · ${esc(MODULE_LABEL[activeModule] || "")}</div>` +
-      renderDirector(m, ui.directorText) +
+      `<aside class="st-dir prod-ai">` +
+      `<div class="dir-head"><span class="av">🎬</span>AI 导演</div>` +
+      renderDirector(m, ui.directorText, ui.dirOpen) +
       `</aside>`
     );
   }
 
-  /** Persistent Project / current-Episode context header. Since M6 the active
-   *  Episode is a REAL persisted domain entity (production document). */
-  function ctxHead(ctx) {
-    const name = (ctx.project && ctx.project.name) || "未命名项目";
-    const prod = ctx.production && ctx.production.doc();
-    const ep = prod && (prod.episodes.find((e) => e.episodeId === prod.activeEpisodeId) || prod.episodes[0]);
-    const epLabel = ep ? ep.title : "当前剧集";
-    const more = prod && prod.episodes.length > 1 ? `（共 ${prod.episodes.length} 集，在「剧集」切换）` : "";
-    return (
-      `<header class="prod-ctx"><span class="pc-proj">📁 ${esc(name)}</span>` +
-      `<span class="pc-sep">›</span><span class="pc-ep">📺 ${esc(epLabel)}</span>` +
-      `<span class="pc-sep">›</span><span class="pc-mod">${esc(MODULE_LABEL[activeModule] || "")}</span>` +
-      `<span class="pc-note">${esc(more)}</span></header>`
-    );
+  /** Everything the breadcrumb needs, resolved from real domain state. */
+  function crumb(ctx) {
+    const pd = ctx.prodData();
+    const prod = pd.production;
+    const eps = episodeLabels(prod);
+    const ep = eps.find((e) => e.active) || eps[0] || null;
+    let scene = null;
+    let shot = null;
+    if (ui.selectedShotId && prod) {
+      const s = (pd.draftShots || []).find((x) => x && x.shotId === ui.selectedShotId);
+      if (s) shot = `Shot ${String(s.sequence).padStart(2, "0")}`;
+      for (const e of prod.episodes) {
+        const sc = e.scenes.find((x) => x.shotIds.includes(ui.selectedShotId));
+        if (sc) { scene = sc.title.split(" ")[0] || sc.title; break; }
+      }
+    }
+    const showSel = ["shots", "frames", "video", "audio"].includes(activeModule);
+    const tail = ep && eps.length > 1 ? `共 ${eps.length} 集` : "";
+    return renderCrumb({
+      project: (ctx.project && ctx.project.name) || "未命名项目",
+      episode: ep ? ep.code : null,
+      scene: showSel ? scene : null,
+      shot: showSel ? shot : null,
+      module: MODULE_LABEL[activeModule] || "",
+      tail,
+    });
   }
 
   function scriptMain(ctx) {
@@ -200,8 +245,6 @@ export function createProduction(getCtx) {
     const vbar = st.versions
       ? `<div class="vbar"><span class="vchip">v${st.active} ▾</span><span class="dirtytag" ${dirty ? "" : "hidden"}>已手工修改（未版本化）</span>${vmenuOpen ? vmenuHtml(d) : ""}</div>`
       : "";
-    // M9: the script is PER-EPISODE — title the workspace with the episode,
-    // and (softly) point at the story pipeline when it hasn't been walked
     const prod = ctx.production.doc();
     const ep = prod.episodes.find((e) => e.episodeId === prod.activeEpisodeId) || prod.episodes[0];
     const story = ctx.story.doc();
@@ -209,48 +252,66 @@ export function createProduction(getCtx) {
       ? (story.plans.find((p) => p.v === story.confirmedPlan) || { episodes: [] }).episodes.some((e) => e.episodeId === (ep && ep.episodeId))
       : false;
     const hint = !st.versions && !ctx.script.hasContent() && !planned
-      ? `<div class="ws-kv gate">建议路径：先在「故事」发展并批准大纲 → 在「剧集」确认分集规划 → 再回到本集写剧本（也可直接在下方输入）</div>`
+      ? `<div class="chip gate">建议先在「故事」批准大纲 → 在「剧集」确认分集规划</div>`
       : "";
     return (
-      `<main class="prod-main">` +
-      `<div class="pm-head"><div class="pm-title">📄 剧本工作区 · ${esc(ep ? ep.title : "当前剧集")}</div>${vbar}<div class="pm-note">按集剧本 · 应用修订 = 创建新版本，旧版本保留</div></div>` +
-      hint +
-      `<textarea class="pm-text" spellcheck="false" placeholder="在此输入/粘贴本集剧本，或在右侧用 AI 基于大纲与本集规划生成">${esc(ctx.script.currentText())}</textarea>` +
-      `</main>`
+      head(ep ? ep.title : "当前剧集", "按集剧本 · 应用修订 = 创建新版本，旧版本保留", vbar + hint) +
+      `<textarea class="pm-text" spellcheck="false" placeholder="在此输入/粘贴本集剧本，或在右侧用 AI 基于大纲与本集规划生成">${esc(ctx.script.currentText())}</textarea>`
     );
   }
 
   const WORKSPACES = {
-    story: (ctx) => ws.renderStory(ctx),
-    settings: (ctx) => ws.renderSettings(ctx),
+    story: (ctx) => renderStoryWs(ctx, ui),
+    settings: (ctx) => renderBibleWs(ctx, ui),
     episodes: (ctx) => ws.renderEpisodes(ctx),
     shots: (ctx) => renderStoryboard(ctx, ui),
-    frames: (ctx) => ws.renderFrames(ctx),
-    video: (ctx) => ws.renderVideo(ctx),
-    audio: (ctx) => renderAudioWs(ctx, ui), // M11-A: full audio workspace
-    edit: (ctx) => renderTimelineWs(ctx, ui), // M11-B: lightweight timeline
-    storage: (ctx) => renderStorageWs(ctx, ui), // M11-D: storage management
+    frames: (ctx) => renderImageWs(ctx, ui),
+    video: (ctx) => renderVideoWs(ctx, ui),
+    audio: (ctx) => renderAudioWs(ctx, ui),
+    edit: (ctx) => renderTimelineWs(ctx, ui),
+    storage: (ctx) => renderStorageWs(ctx, ui),
+    assets: (ctx) => renderStorageWs(ctx, ui),
   };
+
+  /** Shot workspaces open on a real shot: an empty centre column next to a
+   *  populated episode is exactly the blank-space failure the studio is meant
+   *  to avoid. A selection that no longer resolves (draft regenerated, episode
+   *  switched) falls back the same way — it is never left dangling. */
+  function ensureShotSelection(pd) {
+    if (!["shots", "frames", "video"].includes(activeModule)) return;
+    // scoped to the ACTIVE episode PLUS the unassigned pool: the previous
+    // episode's shot still exists in the project-wide draft, so a draft-wide
+    // check would keep it selected under the episode just switched to — but the
+    // unassigned pool is rendered as selectable and belongs to no episode, so
+    // rejecting it would snap the selection back the moment one is clicked
+    if (isSelectableShot(pd, ui.selectedShotId)) return;
+    if (ui.dirty) return; // never discard an in-progress edit to re-point
+    ui.selectedShotId = defaultShotId(pd);
+  }
 
   function render() {
     const ctx = getCtx();
-    const badges = navBadges(ctx.script.doc(), ctx.prodData());
-    const nav = NAV.map(
-      (grp) =>
-        `<div class="pnav-sec">${esc(grp.sec)}</div>` +
-        grp.items
-          .map(([k, icon, label]) => {
-            const b = badges[k];
-            return `<button class="pnav-item${k === activeModule ? " active" : ""}" data-mod="${k}"><span class="pnav-ic">${icon}</span>${label}${b ? `<span class="pnav-badge">${esc(b)}</span>` : ""}</button>`;
-          })
-          .join(""),
-    ).join("");
+    const pd = ctx.prodData();
+    ensureShotSelection(pd);
+    // project-wide badges, with the 本集制作 stages overridden by the episode's
+    // own standing (a stage listed under "this episode" must count this episode)
+    const stages = episodeStages(pd);
+    const badges = { ...navBadges(ctx.script.doc(), pd), ...stages.badges };
+    const rail = renderRail({
+      activeModule,
+      badges,
+      episodes: episodeLabels(pd.production),
+      ratios: stages.ratios,
+    });
     const main =
       activeModule === "script"
         ? scriptMain(ctx)
-        : `<main class="prod-main">${WORKSPACES[activeModule](ctx)}</main>`;
+        : WORKSPACES[activeModule](ctx);
     root.innerHTML =
-      ctxHead(ctx) + `<nav class="prod-nav">${nav}</nav>` + main + aiDirector(ctx);
+      crumb(ctx) +
+      `<nav class="st-rail prod-nav">${rail}</nav>` +
+      `<main class="st-main prod-main">${main}</main>` +
+      aiDirector(ctx);
     bind(ctx);
   }
 
@@ -260,52 +321,44 @@ export function createProduction(getCtx) {
     if (ui.dirty && !window.confirm("镜头详情有未保存的修改，离开将丢弃？")) return;
     ui.dirty = false;
     ui.buffer = {};
+    ui.shotEdit = false;
     activeModule = k; // UI navigation state only — domain edits/proposals live
+    if (k !== "assets") lastProdModule = k;
     vmenuOpen = false; // in their documents and survive this switch untouched
+    ui.bibleOpen = null;
     render();
   }
 
   function bind(ctx) {
-    // left nav — every module opens; selection is visually .active
+    // left rail — every module opens; selection is visually .on
     root.querySelectorAll("[data-mod]").forEach((b) => (b.onclick = () => setModule(b.dataset.mod)));
-    // the idea textarea lives in the 故事 workspace (M9: the story document
-    // owns the idea; scripts are per-episode and no longer carry a brief box)
-    const brief = root.querySelector(".pm-brieftext");
-    if (brief) brief.oninput = () => ctx.story.setIdea(brief.value);
+    // episode selector — switches the subject of the 本集制作 group
+    root.querySelectorAll("[data-ep]").forEach((b) => (b.onclick = () => {
+      if (ui.dirty && !window.confirm("镜头详情有未保存的修改，切换剧集将丢弃？")) return;
+      ui.dirty = false;
+      ui.buffer = {};
+      ui.selectedShotId = null;
+      if (ctx.production.setActiveEpisode(b.dataset.ep)) render();
+    }));
     // cross-module jumps (empty states, director) — EVERY [data-goto] wires
     root.querySelectorAll("[data-goto]").forEach((j) => (j.onclick = () => setModule(j.dataset.goto)));
-    // 故事 workspace (M9): outline development/approval
-    if (activeModule === "story") ws.bindStory(root, ctx);
-    // 剧集 workspace structure actions (M6) — domain writes via ctx.production
+    if (activeModule === "story") bindStoryWs(root, ctx, ui, render);
     if (activeModule === "episodes") {
       ws.bindEpisodes(root, ctx);
-      // M9: enter an episode's script workspace (plan panel + episode cards)
       root.querySelectorAll("[data-ep-open]").forEach((b) => (b.onclick = () => {
         if (ctx.story.openEpisodeScript(b.dataset.epOpen)) setModule("script");
       }));
     }
-    // 作品设定 workspace (M7) — domain writes via ctx.bible. Re-renders
-    // collapse <details>; restore the ones the creator had open.
-    if (activeModule === "settings") {
-      ws.bindSettings(root, ctx);
-      root.querySelectorAll("details[data-key]").forEach((d) => {
-        if (openBible.has(d.dataset.key)) d.open = true;
-        d.ontoggle = () => {
-          if (d.open) openBible.add(d.dataset.key);
-          else openBible.delete(d.dataset.key);
-        };
-      });
-    }
-    // 分镜 storyboard (M8) — selection + buffered shot edits + media actions
+    if (activeModule === "settings") bindBibleWs(root, ctx, ui, render);
     if (activeModule === "shots") bindStoryboard(root, ctx, ui, render);
-    // 音频工作区 (M11-A) — dialogue/ambience/sfx/bgm through ctx.audio
+    if (activeModule === "frames") bindImageWs(root, ctx, ui, render);
+    if (activeModule === "video") bindVideoWs(root, ctx, ui, render);
     if (activeModule === "audio") bindAudioWs(root, ctx, ui, render);
-    // 时间线 (M11-B) + 存储管理 (M11-D)
     if (activeModule === "edit") bindTimelineWs(root, ctx, ui, render);
-    if (activeModule === "storage") bindStorageWs(root, ctx, ui, render);
+    if (activeModule === "storage" || activeModule === "assets") bindStorageWs(root, ctx, ui, render);
     // AI Director (non-script modules) — real dispatches only
     if (activeModule !== "script") {
-      bindDirector(root, ctx, ui);
+      bindDirector(root, ctx, ui, render);
       return;
     }
     // --- script workspace bindings (unchanged behavior) ---
@@ -322,8 +375,6 @@ export function createProduction(getCtx) {
       const el = root.querySelector(sel);
       if (el) el.onclick = fn;
     };
-    // M9: the initial episode-script generation runs from the composed story
-    // context (idea + approved outline + this episode's confirmed plan entry)
     on("[data-gen]", () => ctx.script.generate("initial", ctx.episodeScriptBrief()));
     on("[data-revise]", () => ctx.script.generate("revision", revText));
     on("[data-apply]", () => { revText = ""; ctx.script.applyProposal(); });
@@ -341,8 +392,68 @@ export function createProduction(getCtx) {
 
   return {
     render,
-    show() { root.style.display = "grid"; render(); },
+    /** Open the shell on a module. `"assets"` is the top bar's 资产 mode;
+     *  `null` means 制作 — which must LEAVE the asset library, restoring the
+     *  last production module rather than silently staying on assets. */
+    show(module) {
+      const next = module === "assets"
+        ? "assets"
+        : module && (WORKSPACES[module] || module === "script")
+          ? module
+          : activeModule === "assets" ? lastProdModule : activeModule;
+      if (next !== activeModule) {
+        if (ui.dirty && !window.confirm("镜头详情有未保存的修改，切换将丢弃？")) {
+          root.style.display = "grid";
+          render();
+          return activeModule; // rejected — the caller must not claim the switch
+        }
+        ui.dirty = false;
+        ui.buffer = {};
+        ui.shotEdit = false;
+        activeModule = next;
+      }
+      if (activeModule !== "assets") lastProdModule = activeModule;
+      root.style.display = "grid";
+      render();
+      return activeModule;
+    },
     hide() { root.style.display = "none"; vmenuOpen = false; },
     isVisible: () => root.style.display === "grid",
+    /** True while a shot detail has unsaved edits. Anything OUTSIDE this shell
+     *  that would change what the shell is looking at — switching the active
+     *  episode from Workflow, for instance — has to ask first: the buffer
+     *  belongs to a shot in the episode being left, and re-selection is blocked
+     *  while it is dirty, so the edit would end up attributed to the wrong
+     *  episode's context. */
+    hasUnsavedShotEdit: () => ui.dirty === true,
+    /** Drop the unsaved shot buffer. Only for a caller that has ALREADY asked
+     *  the creator and been told to discard — it exists so such a caller does
+     *  not trigger a second prompt for the same decision, where declining the
+     *  second one would strand the buffer under a context that has moved on. */
+    discardShotEdit() {
+      ui.dirty = false;
+      ui.buffer = {};
+      ui.shotEdit = false;
+    },
+    /** Open a specific shot in a shot workspace — the hand-off the Workflow
+     *  provenance page uses for 「在制作中打开」. It only SELECTS; it does not
+     *  switch episodes, because the caller (which knows the shot's episode)
+     *  must decide that, and a silent episode switch would move the creator's
+     *  context out from under them. Returns false when the selection was
+     *  refused (unsaved shot edits), so the caller never claims a jump that
+     *  did not happen. */
+    openShot(shotId, module = "shots") {
+      if (typeof shotId !== "string" || !shotId) return false;
+      if (ui.dirty && !window.confirm("镜头详情有未保存的修改，切换将丢弃？")) return false;
+      ui.dirty = false;
+      ui.buffer = {};
+      ui.shotEdit = false;
+      ui.selectedShotId = shotId;
+      activeModule = WORKSPACES[module] || module === "script" ? module : "shots";
+      lastProdModule = activeModule;
+      root.style.display = "grid";
+      render();
+      return true;
+    },
   };
 }

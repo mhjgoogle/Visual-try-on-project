@@ -421,7 +421,7 @@ function head(title, meta) {
 
 // ---------- workspaces ---------------------------------------------------- //
 
-const OUTLINE_LABELS = [
+export const OUTLINE_LABELS = [
   ["premise", "前提（Premise）"],
   ["logline", "故事线（Logline）"],
   ["genreTone", "题材 / 基调"],
@@ -643,19 +643,21 @@ export function renderBreakdownPanel(ctx, m) {
   );
 }
 
-export function renderSettings(ctx) {
-  const m = settingsModel(ctx.prodData());
-  if (m.empty) {
-    return head("🎭 作品设定", "项目级") + empty("🎭", "作品设定不可用", ["生产域文档未加载"]);
-  }
+// The bible's detail FIELDS (profile, voice, states, reference blocks) are
+// shared: the gallery-first workspace (ui/biblews.js) renders them inside a
+// detail drawer, and they keep the exact same data-* hooks bindSettings wires.
+// They live at module scope, taking the settings model explicitly, so there is
+// only ONE definition of each editable field in the codebase.
+export function bibleFields(m) {
   const refBlock = (entityId, refs) => {
     const rows = refs
-      .map((r) => {
+      .map((r, i) => {
+        const human = `参考图 v${i + 1}`;
         const thumb = r.url
           ? `<img class="ws-refthumb" src="${esc(r.url)}" alt="">`
           : `<span class="ws-refthumb ws-refmiss" title="${esc(r.assetId)}">缺</span>`;
         return (
-          `<span class="ws-refitem${r.active ? " on" : ""}">${thumb}<span class="ws-desc">${esc(r.label)}${r.active ? " ·主参考" : ""}${r.missing ? "（资产已不在注册表——引用保留）" : ""}</span>` +
+          `<span class="ws-refitem${r.active ? " on" : ""}" title="${esc(r.label)}">${thumb}<span class="ws-desc">${esc(human)}${r.active ? " ·主参考" : ""}${r.missing ? "（资产已不在注册表——引用保留）" : ""}</span>` +
           (r.active ? "" : `<button class="ws-chipx" data-b-refactive="${esc(entityId)}" data-aid="${esc(r.assetId)}">设为主参考</button>`) +
           `<button class="ws-chipx" data-b-refdel="${esc(entityId)}" data-aid="${esc(r.assetId)}">移除</button></span>`
         );
@@ -702,7 +704,9 @@ export function renderSettings(ctx) {
       : `<button class="ws-chipx" data-b-ovrefreset ${attrs}>恢复继承基础参考图</button>`;
     return `<div class="ws-lab">状态参考图（覆盖）</div>${rows}${standing}${add}`;
   };
-  const charCard = (c) => {
+  // `bare` returns the BODY only (no <details> accordion) so the gallery-first
+  // workspace can place the identical fields inside its detail drawer.
+  const charCard = (c, bare = false) => {
     const states = c.states
       .map(
         (s) =>
@@ -721,8 +725,7 @@ export function renderSettings(ctx) {
     const appear = c.episodes.length
       ? `<div class="ws-kv">出现于：${c.episodes.map((t) => `<span class="ws-tag">📺 ${esc(t)}</span>`).join(" ")}（由场景引用派生）</div>`
       : `<div class="ws-desc">尚未在任何场景出场 — 在「剧集」的场景里添加出场角色后自动显示</div>`;
-    return (
-      `<details class="ws-bible" data-key="${esc(JSON.stringify([c.characterId]))}"><summary>👤 <b>${esc(c.name)}</b><span class="ws-desc"> · ${c.states.length} 个状态 · ${c.refs.length} 张参考图${c.episodes.length ? ` · 出现于 ${c.episodes.length} 集` : ""}</span></summary>` +
+    const body =
       appear +
       `<div class="ws-epbtns"><button class="nrun ghost" data-b-chrename="${esc(c.characterId)}">重命名</button><button class="nrun ghost" data-b-chdel="${esc(c.characterId)}">删除</button></div>` +
       profField("chprof", c.characterId, "appearance", "外貌", c.profile.appearance) +
@@ -734,11 +737,15 @@ export function renderSettings(ctx) {
       `<input class="ws-bibleinput" data-b-voice="${esc(c.characterId)}" data-field="description" placeholder="声音描述（音色/年龄感/语气）" value="${esc(c.voice.description)}">` +
       refBlock(c.characterId, c.refs) +
       `<div class="ws-lab">角色状态（少女时期/黑化时期… — 同一角色身份）</div>${states}` +
-      `<button class="nrun ghost" data-b-csadd="${esc(c.characterId)}">＋ 新建状态</button>` +
+      `<button class="nrun ghost" data-b-csadd="${esc(c.characterId)}">＋ 新建状态</button>`;
+    if (bare) return body;
+    return (
+      `<details class="ws-bible" data-key="${esc(JSON.stringify([c.characterId]))}"><summary>👤 <b>${esc(c.name)}</b><span class="ws-desc"> · ${c.states.length} 个状态 · ${c.refs.length} 张参考图${c.episodes.length ? ` · 出现于 ${c.episodes.length} 集` : ""}</span></summary>` +
+      body +
       `</details>`
     );
   };
-  const locCard = (l) => {
+  const locCard = (l, bare = false) => {
     const states = l.states
       .map(
         (s) =>
@@ -753,18 +760,30 @@ export function renderSettings(ctx) {
     const appear = l.episodes.length
       ? `<div class="ws-kv">出现于：${l.episodes.map((t) => `<span class="ws-tag">📺 ${esc(t)}</span>`).join(" ")}（由场景引用派生）</div>`
       : `<div class="ws-desc">尚未被任何场景使用 — 在「剧集」的场景里设定场景地后自动显示</div>`;
-    return (
-      `<details class="ws-bible" data-key="${esc(JSON.stringify([l.locationId]))}"><summary>📍 <b>${esc(l.name)}</b><span class="ws-desc"> · ${l.states.length} 个状态 · ${l.refs.length} 张参考图${l.episodes.length ? ` · 用于 ${l.episodes.length} 集` : ""}</span></summary>` +
+    const body =
       appear +
       `<div class="ws-epbtns"><button class="nrun ghost" data-b-locrename="${esc(l.locationId)}">重命名</button><button class="nrun ghost" data-b-locdel="${esc(l.locationId)}">删除</button></div>` +
       profField("locprof", l.locationId, "description", "描述", l.profile.description) +
       profField("locprof", l.locationId, "visualInstruction", "画面指令", l.profile.visualInstruction) +
       refBlock(l.locationId, l.refs) +
       `<div class="ws-lab">场景地状态（日/夜、天气、受损/完好、季节…）</div>${states}` +
-      `<button class="nrun ghost" data-b-lsadd="${esc(l.locationId)}">＋ 新建状态</button>` +
+      `<button class="nrun ghost" data-b-lsadd="${esc(l.locationId)}">＋ 新建状态</button>`;
+    if (bare) return body;
+    return (
+      `<details class="ws-bible" data-key="${esc(JSON.stringify([l.locationId]))}"><summary>📍 <b>${esc(l.name)}</b><span class="ws-desc"> · ${l.states.length} 个状态 · ${l.refs.length} 张参考图${l.episodes.length ? ` · 用于 ${l.episodes.length} 集` : ""}</span></summary>` +
+      body +
       `</details>`
     );
   };
+  return { refBlock, profField, stateRefBlock, charCard, locCard };
+}
+
+export function renderSettings(ctx) {
+  const m = settingsModel(ctx.prodData());
+  if (m.empty) {
+    return head("🎭 作品设定", "项目级") + empty("🎭", "作品设定不可用", ["生产域文档未加载"]);
+  }
+  const { charCard, locCard } = bibleFields(m);
   return (
     head("🎭 作品设定（Production Bible）", `${m.characters.length} 个角色 · ${m.locations.length} 个场景地 · AI 拆解为先，手工编辑为辅`) +
     renderBreakdownPanel(ctx, m) +

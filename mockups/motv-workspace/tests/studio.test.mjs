@@ -9,6 +9,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { storyboardModel, shotDetailModel, renderStoryboard } from "../src/ui/storyboard.js";
+import { videoSourceFrame, curVideoVersion } from "../src/ui/studioparts.js";
+import { renderImageWs, renderVideoWs } from "../src/ui/mediaws.js";
 import { directorModel } from "../src/ui/director.js";
 import { normalizeShots, nextDraftVersion } from "../src/ui/shoteditor.js";
 import {
@@ -144,10 +146,17 @@ test("directorModel: per-module context, real primary actions, provenance histor
   assert.equal(m.primary.kind, "bible-breakdown");
   // history: newest first, real registry statuses
   assert.deepEqual(m.history.map((h) => h.status), ["生成中", "成功"]);
-  // frames module: no fake generate button, honest pending note
+  // frames module: no fake generate button. With NO shot selected there is
+  // nothing to act on, so the honest note stands; WITH one, the real
+  // generation entry (compiled prompt + provider + import) is offered.
   m = directorModel({ module: "frames", doc, pd: s, sel: {} });
   assert.equal(m.primary, null);
   assert.ok(m.pending.includes("资产准备"));
+  m = directorModel({ module: "frames", doc, pd: s, sel: { selectedShotId: "shot-a" } });
+  assert.equal(m.primary, null);
+  assert.equal(m.pending, null);
+  assert.equal(m.genKind, "image");
+  assert.ok(m.genDetail);
 });
 
 // --- normalizeShots M8 facets ------------------------------------------------------ //
@@ -288,7 +297,9 @@ test("normName collapses whitespace but never removes it (distinct names stay di
 test("unsaved shot-edit buffer survives a re-render (rendered over committed values)", () => {
   const s = snapshot();
   const ctx = { prodData: () => s, script: { hasContent: () => true } };
-  const ui = { selectedShotId: "shot-a", buffer: { title: "改到一半的镜头名", dialogue: "新台词" } };
+  // the editor is secondary now (opened with ✎ 编辑镜头); the buffer guarantee
+  // it protects is unchanged — a re-render must still show the unsaved values
+  const ui = { selectedShotId: "shot-a", shotEdit: true, buffer: { title: "改到一半的镜头名", dialogue: "新台词" } };
   const html = renderStoryboard(ctx, ui);
   assert.ok(html.includes('value="改到一半的镜头名"')); // buffered, not committed
   assert.ok(html.includes("新台词"));
@@ -310,4 +321,96 @@ test("episode appearances are DERIVED from scene references, never stored", () =
   // removing the scene reference removes the derived appearance — no stale list
   bd.removeSceneCharacter(prod, sc2.sceneId, s._ids.characterId);
   assert.deepEqual(derivedAppearances(prod).characters.get(s._ids.characterId).map((x) => x.title), ["第 1 集"]);
+});
+
+
+test("each video version keeps the source image ITS generation recorded", () => {
+  // `firstFrames[slot]` is slot-level and overwritten, so it describes only the
+  // newest take. Using it for every version showed an older video as having come
+  // from an image that did not exist when it was made.
+  const s = snapshot();
+  s.media.video["v1-1"] = {
+    current: 2,
+    history: [
+      { slot_id: "v1-1", origin: "paid-video", version: 1, url: "/u/v1.mp4", assetId: "asset-v1" },
+      { slot_id: "v1-1", origin: "paid-video", version: 2, url: "/u/v2.mp4", assetId: "asset-v2" },
+    ],
+  };
+  s.generations = s.generations.concat([
+    { generationId: "g-v1", type: "video", targetId: "shot-a", status: "success",
+      inputAssetIds: ["asset-1"], resultAssetIds: ["asset-v1"] },   // from Image v1
+    { generationId: "g-v2", type: "video", targetId: "shot-a", status: "success",
+      inputAssetIds: ["asset-2"], resultAssetIds: ["asset-v2"] },   // from Image v2
+  ]);
+  const d = shotDetailModel(s, "shot-a");
+  assert.equal(d.videoSources[1].version, 1, "Video v1 came from Image v1");
+  assert.equal(d.videoSources[2].version, 2, "Video v2 came from Image v2");
+  assert.equal(videoSourceFrame(d, 1), "/u/a1.png");
+  assert.equal(videoSourceFrame(d, 2), "/u/a1_v2.png");
+  assert.equal(curVideoVersion(d), 2);
+});
+
+test("an older video with no recorded generation borrows nothing", () => {
+  // the slot-level first frame may stand in for the CURRENT take only
+  const s = snapshot();
+  s.media.video["v1-1"] = {
+    current: 2,
+    history: [
+      { slot_id: "v1-1", origin: "upload", version: 1, url: "/u/v1.mp4", assetId: "asset-v1" },
+      { slot_id: "v1-1", origin: "upload", version: 2, url: "/u/v2.mp4", assetId: "asset-v2" },
+    ],
+  };
+  const d = shotDetailModel(s, "shot-a");
+  assert.equal(d.videoSources[1], null);
+  assert.equal(videoSourceFrame(d, 1), "", "no invented source for the older take");
+  assert.equal(videoSourceFrame(d, 2), "/u/a1_v2.png", "the slot record describes the NEWEST take");
+
+  // selecting an older take must not make the slot record describe THAT one
+  s.media.video["v1-1"].current = 1;
+  const d2 = shotDetailModel(s, "shot-a");
+  assert.equal(curVideoVersion(d2), 1);
+  assert.equal(videoSourceFrame(d2, 1), "", "the selected-but-older take still has no proven source");
+});
+
+
+test("the board LISTS the unassigned pool instead of hiding it behind an empty state", () => {
+  // a project whose shots are all unassigned must still be inspectable: the
+  // empty state is only correct when there is genuinely nothing to show
+  const s = snapshot();
+  s.production.episodes[0].scenes = [];
+  const ctx = {
+    prodData: () => s,
+    script: { hasContent: () => true, doc: () => null },
+  };
+  const html = renderStoryboard(ctx, { selectedShotId: "shot-a", buffer: {}, shotEdit: false });
+  assert.ok(!html.includes("本集还没有镜头"), "no dead-end empty state while inventory exists");
+  assert.ok(html.includes("跪殿"), "the unassigned shot is listed");
+  assert.ok(html.includes("未归组"), "and is honestly labelled as not this episode's");
+
+  // with NO shots at all, the empty state is still the right answer
+  const s2 = snapshot();
+  s2.production.episodes[0].scenes = [];
+  s2.draftShots = [];
+  const html2 = renderStoryboard({ ...ctx, prodData: () => s2 }, { selectedShotId: null, buffer: {} });
+  assert.ok(html2.includes("还没有分镜") || html2.includes("本集还没有镜头"));
+});
+
+test("the Image and Video workspaces show the unassigned pool too", () => {
+  // the same rule as the board: an empty state is only correct when there is
+  // genuinely nothing to work on
+  const s = snapshot();
+  s.production.episodes[0].scenes = [];
+  const ctx = { prodData: () => s, script: { hasContent: () => true, doc: () => null } };
+  const ui = { selectedShotId: "shot-a", buffer: {}, variantTab: "image" };
+  for (const render of [renderImageWs, renderVideoWs]) {
+    const html = render(ctx, ui);
+    assert.ok(!html.includes("本集还没有镜头"), "no dead-end while inventory exists");
+    assert.ok(html.includes("跪殿"), "the unassigned shot is workable here");
+  }
+  // with nothing at all, the empty state remains
+  const s2 = snapshot();
+  s2.production.episodes[0].scenes = [];
+  s2.draftShots = [];
+  const html2 = renderImageWs({ ...ctx, prodData: () => s2 }, { selectedShotId: null, buffer: {} });
+  assert.ok(html2.includes("还没有") );
 });

@@ -3,9 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>motv — 节点画布创作工作台（原型）</title>
+    <title>motv — AI 短剧制作工作室（原型）</title>
     <link rel="stylesheet" href="styles/tokens.css" />
     <link rel="stylesheet" href="styles/app.css" />
+    <!-- studio.css loads LAST: it owns the creator-facing Production surface and
+         deliberately overrides the older canvas-era rules for those elements. -->
+    <link rel="stylesheet" href="styles/studio.css" />
+    <!-- the Workflow provenance surface owns its own sheet (TASK-054) -->
+    <link rel="stylesheet" href="styles/wfgraph.css" />
   </head>
   <body>
     <!-- ===================== LANDING ===================== -->
@@ -18,29 +23,77 @@
         <button class="icon-btn" id="theme1" title="主题">◐</button>
       </div>
       <div class="lwrap">
-        <div class="banner"><div class="side l"></div><div class="side r"></div>
-          <div class="bt"><h2>短剧创作 · 从一句灵感到成片</h2><div class="sub">故事构思 → 剧本 → 分镜 → 资产 → 视频/音频 → 剪辑 → 成片</div><div class="promo">节点式画布 · 一步步展开，每步可编辑、可连线、可追溯</div></div>
-        </div>
-        <div class="dots"><i></i><i class="on"></i><i></i><i></i><i></i></div>
-        <div class="sec-h"><h3>个人最近项目</h3><a href="#">全部项目 ›</a></div>
+        <div class="sec-h"><h3>我的项目</h3><span class="sec-note" id="landing-note"></span></div>
         <div class="projgrid" id="projgrid">
-          <button class="newproj" id="start-create"><span class="plus">+</span> 开始创作</button>
+          <button class="newproj" id="start-create"><span class="plus">+</span> 新建项目</button>
         </div>
+      </div>
+    </div>
+
+    <!-- 新建项目：项目名 + 资产保存位置（默认取后端 account-root，可自行填写） -->
+    <div class="np-scrim" id="np-scrim">
+      <div class="np" role="dialog" aria-modal="true" aria-labelledby="np-title">
+        <div class="np-h"><div class="t" id="np-title">新建项目</div>
+          <button class="icon-btn" id="np-x" aria-label="关闭">✕</button></div>
+        <div class="np-b">
+          <label class="lab" for="np-name">项目名</label>
+          <input class="field" id="np-name" maxlength="60" autocomplete="off"
+                 placeholder="例如：夜班沉默" />
+          <div class="lab">项目保存位置</div>
+          <div class="np-root"><span class="p" id="np-root"></span>
+            <button class="btn sm" id="np-pick">选择…</button></div>
+          <div class="np-path" id="np-path"></div>
+          <div class="np-note" id="np-note"></div>
+          <div class="np-err" id="np-err" hidden></div>
+        </div>
+        <div class="np-f">
+          <span class="push"></span>
+          <button class="btn" id="np-cancel">取消</button>
+          <button class="btn primary" id="np-ok">创建项目</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 目录选择器：服务端只读列目录（ADR-0051 §4），浏览器无法交出真实路径 -->
+    <div class="np-scrim" id="fs-scrim">
+      <div class="np fs" role="dialog" aria-modal="true" aria-labelledby="fs-title">
+        <div class="np-h"><div class="t" id="fs-title">选择项目保存位置</div>
+          <button class="icon-btn" id="fs-x" aria-label="关闭">✕</button></div>
+        <div class="fs-bar"><button class="btn sm" id="fs-up">↑ 上一层</button>
+          <span class="cur mono" id="fs-cur"></span></div>
+        <div class="fs-list" id="fs-list"></div>
+        <div class="np-err" id="fs-err" hidden></div>
+        <div class="np-f"><span class="push"></span>
+          <button class="btn" id="fs-cancel">取消</button>
+          <button class="btn primary" id="fs-ok">选择这个文件夹</button></div>
       </div>
     </div>
 
     <!-- ===================== CANVAS ===================== -->
     <div id="canvas">
-      <div class="cv-top">
-        <button class="brandbtn" id="home-canvas" title="返回主页"><span class="mk">▶</span> motv</button>
-        <div class="ws-chip"><span class="sep"></span> 盛唐·金銮殿 <span class="sep">·</span> 画布 1 ▾</div>
-        <div class="modeseg wide"><button id="seg-prod" class="active" title="制作工作区：按创作对象编辑（剧本…）">▦ 制作</button><button id="seg-wf" title="工作流画布：节点/连线执行视图">⛓ 工作流</button></div>
-        <div class="spacer"></div>
-        <span class="hintbar">完成一步会指引下一步 · 拖端口连线（仅相邻步骤）· 连线可多选(Shift)后 Del 删除</span>
-        <div class="spacer"></div>
-        <button class="icon-btn" title="分享">↗</button><span class="modebadge" id="modebadge2"></span><div class="budget" id="budget2"></div>
+      <div class="st-top">
+        <button class="st-brand" id="home-canvas" title="返回主页"><span class="mk">▶</span> motv</button>
+        <button class="st-proj" id="proj-switch" title="切换项目">
+          <span class="nm" id="proj-name">—</span><span class="cv">▾</span>
+        </button>
+        <div class="st-modes">
+          <button id="seg-prod" class="on" title="制作：按创作对象工作（故事/设定/分镜/画面/视频/音频/剪辑）">制作</button>
+          <button id="seg-wf" title="工作流：生产流程地图">工作流</button>
+          <button id="seg-assets" title="资产库：项目全部媒体资产">资产</button>
+        </div>
+        <div class="st-sp"></div>
+        <span class="modebadge" id="modebadge2"></span><div class="budget" id="budget2"></div>
         <button class="icon-btn" id="theme2" title="主题">◐</button><button class="icon-btn" id="back-home" title="返回主页">🏠</button>
       </div>
+      <!-- 工作流的两个视图：默认「生成溯源」（谁生成了谁），以及原有的
+           「流程画布」（节点执行面，仍然是生成真正发生的地方）。ADR-0052 -->
+      <div class="wf-tabs" id="wf-tabs" hidden>
+        <button id="wf-tab-graph" class="on">生成溯源</button>
+        <button id="wf-tab-canvas">流程画布</button>
+        <span class="wf-tabnote">溯源图只读：它显示已经发生过的生成，不发起生成。</span>
+      </div>
+      <div id="wfgraph" hidden></div>
+      <span class="hintbar" id="wf-hint" hidden>拖端口连线（仅相邻步骤）· 连线可多选(Shift)后 Del 删除</span>
       <!-- 全局付费队列条（只读投影：排队/生成中/已入账/失败，自动轮询刷新） -->
       <div class="paidqueue" id="paidqueue" hidden></div>
       <!-- Production workspace (creator-facing; this checkpoint: Script only).
