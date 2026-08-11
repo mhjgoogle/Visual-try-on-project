@@ -69,6 +69,22 @@ test("startGeneration mints a stable id and freezes the launch snapshot", () => 
   assert.equal(reg.length, 1);
 });
 
+test("a status outside the vocabulary is REJECTED, not coerced to 生成中", () => {
+  // TASK-061 independent review F1: coercing it wrote a record that looks like
+  // a running job and can never move again — the caller got a non-null record
+  // and no error, and the UI showed 生成中 forever.
+  const reg = [];
+  assert.equal(startGeneration(reg, { type: "video", status: "succeeded", createdAt: "t0" }), null);
+  assert.equal(startGeneration(reg, { type: "video", status: "", createdAt: "t0" }), null);
+  assert.equal(reg.length, 0, "nothing was written");
+  // every real value is accepted, and an ABSENT status still means "starting"
+  for (const st of ["queued", "generating", "success", "failed", "cancelled"]) {
+    assert.equal(startGeneration(reg, { type: "image", status: st, createdAt: "t0" }).status, st);
+  }
+  assert.equal(startGeneration(reg, { type: "image", createdAt: "t0" }).status, "generating");
+  assert.equal(startGeneration(reg, { type: "image", status: null, createdAt: "t0" }).status, "generating");
+});
+
 test("generationId is stable across a persistence round-trip", () => {
   const reg = [];
   const g = startGeneration(reg, { type: "image", targetId: "shot-a", createdAt: "t0" });

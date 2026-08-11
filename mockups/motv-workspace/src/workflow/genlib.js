@@ -146,6 +146,12 @@ export function createGenerationRegistry(saved) {
 export function startGeneration(reg, entry) {
   if (!Array.isArray(reg) || !isObj(entry)) return null;
   if (!TYPES.has(entry.type)) return null;
+  // …and a status outside the vocabulary is rejected the same way (TASK-061
+  // independent review, F1). Coercing an unknown status to "generating" wrote a
+  // record that LOOKS like a running job and will never move again: the caller
+  // gets a non-null record and no error, and the UI shows 生成中 forever. An
+  // absent status still means "starting", which is the honest default.
+  if (entry.status !== undefined && entry.status !== null && !STATUSES.has(entry.status)) return null;
   const targetId = strOrNull(entry.targetId); // canonical creativeShotId, never a slot
   const parameters = freezeParams(entry.parameters); // deep-copied + redacted, frozen at launch
   const rec = {
@@ -163,7 +169,7 @@ export function startGeneration(reg, entry) {
     model: strOrNull(entry.model),
     parameters,
 
-    status: STATUSES.has(entry.status) ? entry.status : "generating",
+    status: entry.status == null ? "generating" : entry.status, // validated above
     resultAssetIds: idArray(entry.resultAssetIds),
     createdAt: strOrNull(entry.createdAt),
   };
