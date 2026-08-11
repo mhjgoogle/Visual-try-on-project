@@ -68,6 +68,40 @@
 
 本批只做**镜头生产状态 + 审片**。
 
+## 5A. 移交给 TASK-060 会话：立即修复失效的人工批准测试
+
+来源：TASK-057 persistence 会话的 codex 独立审查（`.claude/tmp/last-review.md`），
+用户已确认为**立即修复项**。本节由 TASK-057 会话写入，实施仍由 TASK-060 会话负责
+（AGENTS.md 规则 14/15：一个任务只有一个实施 Agent）。
+
+**缺陷**：`tests/test_motv_shotprod_task060.py:103`（提交 `cbcac64` 已带入）
+
+```python
+assert "approve:" in app.split(line)[0].rsplit("\n", 3)[-1] or True
+```
+
+`or True` 使整个断言无条件成立。`test_only_a_human_action_records_an_approval`
+中「每个 `shotprod.approveShot` 调用点都是显式用户动作」这一条实际上**从未被
+验证**——任何生成/导入路径偷偷调用 `approveShot` 都不会让测试失败,而这正是
+ADR-0057 决策 1（生成成功 != 镜头完成）唯一的自动化防线。
+
+**要求**：
+
+1. 删除 `or True`,并让该断言真正成立（不得靠放宽断言强度让测试变绿）。
+2. approval 必须绑定到**具体的 active video / take**,不是绑定到 Shot。
+3. 换 take / 换 variant / 新增更新的 take 之后,旧 approval **不得被继承**——
+   未经审看的素材不能拿到它没挣得的「已通过」。
+4. reload（`studio/canvas.json` 往返）之后 approval 持久化正确:该在的在,
+   不该继承的不继承。
+5. 没有 video 的 Shot **不允许** approve。
+6. 跑对应的 targeted 测试:`mockups/motv-workspace/tests/shotprod.test.mjs` +
+   `tests/test_motv_shotprod_task060.py`（按风险分级,涉及持久化/审批状态属高风险
+   → full pytest + 全量 node）。
+7. 如果去掉 `or True` 后暴露的是**实现真实 bug**,一并修实现,不要改测试迁就实现。
+
+现有 `isApprovedFor` / `hasStaleApproval`（见 §5 上方 shotprod.js 断言）是第 2–3 点
+的既有基础,验证它们在上述每条路径上都真的被调用。
+
 ## 6. 明确留待后续（不在本批）
 
 - Reference Planning 的完整统筹界面（已有 / 缺失 / 建议复用 / 建议新建）
