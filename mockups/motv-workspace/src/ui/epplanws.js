@@ -21,6 +21,7 @@ import { esc } from "../util/dom.js";
 import { episodesModel, renderPlanPanel } from "./workspaces.js";
 import { UPSTREAM_STATE_LABEL } from "../workflow/canondoc.js";
 import { head, empty } from "./shell.js";
+import { bindField, restoreFieldFocus } from "./fieldsync.js";
 
 const code = (i) => `EP${String(i + 1).padStart(2, "0")}`;
 
@@ -282,27 +283,32 @@ export function bindEpPlanWs(root, ctx, ui, rerender) {
   on("[data-impact]", (el) => { ui.impactOpen = el.dataset.impact; rerender(); });
   on("[data-impact-close]", () => { ui.impactOpen = null; rerender(); });
   on("[data-stamp]", (el) => { if (ctx.canon.stamp(el.dataset.stamp)) { ui.impactOpen = null; rerender(); } });
-  // beat edits commit on change (blur), never while typing
+  // AUTOSAVE ON INPUT (see ui/fieldsync.js): beats are canonical episode data,
+  // so a refresh mid-sentence must not lose them.
   root.querySelectorAll("[data-beat-text]").forEach((el) => {
-    el.onchange = () => {
-      const list = el.value.split("\n").map((s) => s.trim()).filter(Boolean);
+    bindField(el, ui, (value) => {
+      const list = value.split("\n").map((s) => s.trim()).filter(Boolean);
       ctx.canon.setTextBeats(el.dataset.beatText, el.dataset.kind, list);
-    };
+    });
   });
   root.querySelectorAll("[data-beat-char]").forEach((el) => {
-    el.onchange = () => ctx.canon.setCharacterBeat(el.dataset.beatChar, el.dataset.cid, el.value);
+    bindField(el, ui, (value) => ctx.canon.setCharacterBeat(el.dataset.beatChar, el.dataset.cid, value));
   });
   root.querySelectorAll("[data-beat-rel]").forEach((el) => {
-    el.onchange = () => {
-      // re-read the row's three inputs so one edit never blanks the other two
+    // start/event/end are ONE record, so the write re-reads all three from the
+    // row (via the field's own current value for the one being edited) — saving
+    // one of them can never blank the other two
+    bindField(el, ui, (value) => {
       const scope = el.closest(".beatrow");
       const get = (f) => {
+        if (f === el.dataset.field) return value;
         const x = scope && scope.querySelector(`[data-beat-rel][data-field="${f}"]`);
         return x ? x.value : "";
       };
       ctx.canon.setRelationshipBeat(el.dataset.beatRel, el.dataset.rid, {
         start: get("start"), event: get("event"), end: get("end"),
       });
-    };
+    });
   });
+  restoreFieldFocus(root, ui);
 }

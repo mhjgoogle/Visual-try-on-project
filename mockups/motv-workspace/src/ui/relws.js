@@ -15,6 +15,7 @@
 import { esc } from "../util/dom.js";
 import { RELATIONSHIP_FIELDS } from "../workflow/canondoc.js";
 import { head, empty } from "./shell.js";
+import { bindField, restoreFieldFocus } from "./fieldsync.js";
 
 /** The definition facets, grouped the way a writer reads a relationship. */
 const FACETS = [
@@ -215,9 +216,11 @@ export function bindRelWs(root, ctx, ui, rerender) {
     if (ctx.canon.removeRelationship(el.dataset.reldel)) { ui.relOpen = null; rerender(); }
     else ctx.toast("仍有剧集记录了这段关系的推进：先在「分集规划」移除该集的 Relationship Beat");
   });
-  // facet edits save on change (blur) — no re-render while typing
+  // AUTOSAVE ON INPUT (see ui/fieldsync.js) — a refresh mid-sentence kept
+  // nothing when these only wrote on blur.
   root.querySelectorAll("[data-rel-field]").forEach((el) => {
-    el.onchange = () => ctx.canon.updateRelationship(el.dataset.relField, { [el.dataset.field]: el.value });
+    bindField(el, ui, (value) => ctx.canon.updateRelationship(el.dataset.relField, { [el.dataset.field]: value }));
   });
   on("[data-canon-confirm]", (el) => ctx.canon.confirm(el.dataset.canonConfirm));
+  restoreFieldFocus(root, ui);
 }

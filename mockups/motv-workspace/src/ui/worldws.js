@@ -10,6 +10,7 @@
 import { esc } from "../util/dom.js";
 import { WORLD_FIELDS } from "../workflow/canondoc.js";
 import { head, empty } from "./shell.js";
+import { bindField, restoreFieldFocus } from "./fieldsync.js";
 
 const FIELDS = [
   ["era", "时间 / 时代", "如：2019 年冬，某座沿海二线城市", 2, true],
@@ -69,12 +70,16 @@ export function renderWorldWs(ctx, ui) {
 
 export function bindWorldWs(root, ctx, ui) {
   const buf = ui.worldBuffer || (ui.worldBuffer = {});
+  // AUTOSAVE ON INPUT (see ui/fieldsync.js): updateWorld re-renders through
+  // prodOp, so the write is debounced and the caret is restored below.
   root.querySelectorAll("[data-w-field]").forEach((el) => {
-    el.oninput = () => { buf[el.dataset.wField] = el.value; };
-    el.onchange = () => ctx.canon.updateWorld({ [el.dataset.wField]: el.value });
+    bindField(el, ui, (value) => ctx.canon.updateWorld({ [el.dataset.wField]: value }), {
+      onInput: (value) => { buf[el.dataset.wField] = value; },
+    });
   });
   root.querySelectorAll("[data-canon-confirm]").forEach((b) => (b.onclick = (ev) => {
     ev.stopPropagation();
     ctx.canon.confirm(b.dataset.canonConfirm);
   }));
+  restoreFieldFocus(root, ui);
 }

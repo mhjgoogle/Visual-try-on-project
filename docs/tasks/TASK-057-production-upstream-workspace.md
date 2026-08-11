@@ -132,6 +132,41 @@ project-relative path 迁移**必须是 v11+**（TASK-055 §4 ① 已同步更�
 截图（headless Edge，1680×1150，真实项目状态渲染）：创意 / 故事大纲 / 人物 /
 人物关系 / 世界观 / 分集规划 / 影响审阅。
 
+## 5B. Persistence blocker 修复（后续追加）
+
+Creative Brief / Story Outline / Character / Relationship / World / Episode Plan
+不是 Asset，但必须作为 canonical domain data 持久化。验收标准：**输入 → autosave
+→ `studio/canvas.json` → refresh / reload → 内容完整恢复。**
+
+缺陷：上游字段只在 `change`（失焦）时写入文档。创作者输入后光标仍在字段里就
+刷新，文本从未离开 DOM，直接丢失。
+
+修复：新增 `src/ui/fieldsync.js`——输入即写入（300ms 合并），IME
+`compositionstart`/`compositionend` 期间挂起写入（半成词不得被中间态覆盖），
+`pagehide` / `visibilitychange:hidden` 立即冲刷，光标位置在重渲染后恢复。
+六个上游工作区全部改用它。
+
+canvas 写入路径同批加固（详见 `.claude/tmp/last-review.md`）：teardown 写入
+不再排在在途请求之后（否则页面先结束就永远不发出），并取消它所取代的旧快照；
+`loadCanvas` 丢弃属于被替换 graph 的排队 payload、作废链上等待的写入、取消在途
+写入；keepalive 的 64 KiB 上限按**在途总量**计算而非单请求；连续两次 teardown
+写入不再互相竞争。
+
+真实项目「夜班沉默」验证（只发 input 事件，全程不失焦）：三次 autosave 后
+`canvas.json` 内含 Brief draft / 核心创意 / 世界观 / Character Arc，
+`brief.versions` 仍为 0（autosave 不造版本），既有资产/生成/节点/剧集逐项未丢，
+重新读取该文件后 UI 渲染出全部输入内容；原文件未被写入（脚本只写副本）。
+
+### 遗留项（需要新任务）
+
+**写入顺序的最终保证必须在服务端。** PUT 一旦离开浏览器，客户端无法阻止服务器
+应用它——被取消但已被接收的旧请求仍可能在新请求之后落盘。要彻底关闭，需要
+`PUT /api/canvas/<name>` 引入单调写入序号（或 `If-Match`），服务器拒绝比自己
+持有的更旧的写入。这是后端合同变更，超出本任务范围，且 `server.py` 正被并行
+会话编辑。**不得再用客户端本地启发式决定优先级**——早先版本正是这样做的，
+审查在那个决定里连续发现多轮顺序缺陷（未确认写入的本地恢复缓存因此被整体删除，
+而不是继续修补）。
+
 ## 6. 测试
 
 高风险 → full pytest + 全量 node --test + ruff + Codex 独立审查。

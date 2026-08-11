@@ -14,6 +14,7 @@
 import { esc } from "../util/dom.js";
 import { BRIEF_FIELDS } from "../workflow/storydoc.js";
 import { head } from "./shell.js";
+import { bindField, restoreFieldFocus } from "./fieldsync.js";
 
 /** The brief's fields as the creator reads them: label, placeholder, and how
  *  much room each one deserves. */
@@ -140,9 +141,12 @@ export function bindBriefWs(root, ctx, ui, rerender) {
     // what a revision snapshots — so it moves the dirty standing too
     idea.onchange = () => rerender();
   }
+  // AUTOSAVE ON INPUT, not on blur: a refresh while the caret is still in the
+  // field must not lose the text (see ui/fieldsync.js).
   root.querySelectorAll("[data-cb-field]").forEach((el) => {
-    el.oninput = () => { buf[el.dataset.cbField] = el.value; };
-    el.onchange = () => commit(el.dataset.cbField, el.value);
+    bindField(el, ui, (value) => commit(el.dataset.cbField, value), {
+      onInput: (value) => { buf[el.dataset.cbField] = value; },
+    });
   });
   const count = root.querySelector("[data-cb-count]");
   if (count) {
@@ -182,4 +186,5 @@ export function bindBriefWs(root, ctx, ui, rerender) {
     ui.briefBuffer = {};
     ctx.story.restoreBriefDraft(+el.dataset.cbRestore);
   });
+  restoreFieldFocus(root, ui); // a commit may have re-rendered us mid-typing
 }

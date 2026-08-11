@@ -238,40 +238,19 @@ test("the creativeShotId bridge in lockedPlan survives a canvas dispatch round-t
   // lockedPlan rides on a scriptgen node version's `locked` (persisted in the
   // canvas save); the paid-op join reads it from there, never re-fetched from
   // Core — so it must round-trip through the schema dispatcher unchanged.
+  // The document is layered over a base produced by the real migration chain,
+  // so it always satisfies the CURRENT schema — this test is about the locked
+  // bridge surviving dispatch, not about restating every field a later
+  // checkpoint happens to require.
+  const base = migrateToCurrent({
+    v: 1, project: "p", scriptDoc: null,
+    nodes: [{ id: "n1", type: "script", x: 0, y: 0 }], edges: [], pan: { x: 0, y: 0 },
+  });
+  assert.equal(base.status, "ok", base.detail);
   const doc = {
-    v: CANVAS_SCHEMA_VERSION,
-    project: "p",
-    // M9: scripts are per-episode; the story chain is a required v8 field
-    story: {
-      idea: "", versions: [], active: 0, approved: 0, plans: [], activePlan: 0, confirmedPlan: 0,
-      // TASK-057: the Creative Brief is a required v10 field
-      brief: {
-        draft: { genre: "", tone: "", form: "", episodeDuration: "", totalDuration: "", notes: "", targetEpisodes: null },
-        versions: [], active: 0,
-      },
-    },
-    scripts: {},
-    assets: { images: {}, videos: {}, audio: {}, firstFrames: {}, finals: [], displaced: [] },
-    generations: [], // M5: a current-version doc carries the generation registry
-    // M6/M7: …and the production structure (with its bible registries)
-    production: {
-      activeEpisodeId: "ep-1",
-      episodes: [{
-        episodeId: "ep-1", title: "第 1 集", scenes: [], bgmAssetId: null,
-        // TASK-057: Arc beats + the upstream version stamp
-        beats: { plot: [], character: [], relationship: [], world: [] },
-        basedOn: { brief: 0, outline: 0, characters: 0, relationships: 0, world: 0 },
-      }],
-      characters: [],
-      locations: [],
-      // TASK-057: project-level canon
-      relationships: [],
-      world: { era: "", rules: "", society: "", regions: "", places: "", visualTone: "", atmosphere: "" },
-      canon: { characters: 0, relationships: 0, world: 0 },
-    },
-    timelines: {}, // M11: required v9 field
+    ...base.doc,
     nodes: [{
-      id: "g", type: "scriptgen", x: 0, y: 0, state: "done", cur: 1,
+      id: "g1", type: "scriptgen", x: 0, y: 0, state: "done", cur: 1,
       versions: [{
         id: "sdv-1", v: 1, draft: true,
         raw: [{ shotId: "shot-a", sequence: 1, title: "甲", slot: "v1-1" }],
@@ -281,8 +260,6 @@ test("the creativeShotId bridge in lockedPlan survives a canvas dispatch round-t
         },
       }],
     }],
-    edges: [],
-    pan: { x: 0, y: 0 },
   };
   const res = migrateToCurrent(JSON.parse(JSON.stringify(doc)));
   assert.equal(res.status, "ok");

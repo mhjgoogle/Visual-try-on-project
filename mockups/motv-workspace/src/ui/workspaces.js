@@ -12,6 +12,7 @@ import { buildShotSlotIndex, slotForShotId, buildServerBridge, serverShotIdForSh
 import { episodeView } from "../workflow/proddoc.js";
 import { resolveCharacter, resolveLocation, findCharacter, findLocation } from "../workflow/bibledoc.js";
 import { derivedAppearances } from "../workflow/breakdown.js";
+import { bindField, restoreFieldFocus } from "./fieldsync.js";
 
 const nn = (seq) => String(seq).padStart(2, "0");
 
@@ -849,7 +850,7 @@ export function nextStateRefsOnAdd(entity, overrides, assetId) {
 /** Wire the 作品设定 workspace to the bible controller. Per-field override
  *  edits MERGE into the state's existing overrides; clearing a field removes
  *  the key (= inherit base), never writes a hollow empty override. */
-export function bindSettings(root, ctx) {
+export function bindSettings(root, ctx, ui = {}) {
   const on = (sel, fn) =>
     root.querySelectorAll(sel).forEach((el) => (el.onclick = (ev) => { ev.stopPropagation(); fn(el); }));
   const prompt2 = (label, cur = "") => {
@@ -914,15 +915,17 @@ export function bindSettings(root, ctx) {
   root.querySelectorAll("[data-b-refadd]").forEach((sel) => {
     sel.onchange = () => { if (sel.value) ctx.bible.addReferenceAsset(sel.dataset.bRefadd, sel.value); };
   });
-  // profile / voice fields save on change (blur) — no re-render while typing
+  // AUTOSAVE ON INPUT (see ui/fieldsync.js). These used to write only on blur,
+  // so a browser refresh with the caret still in a character field lost the
+  // edit — the same TASK-057 persistence blocker as the upstream surfaces.
   root.querySelectorAll("[data-b-chprof]").forEach((el) => {
-    el.onchange = () => ctx.bible.updateCharacterProfile(el.dataset.bChprof, { [el.dataset.field]: el.value });
+    bindField(el, ui, (value) => ctx.bible.updateCharacterProfile(el.dataset.bChprof, { [el.dataset.field]: value }));
   });
   root.querySelectorAll("[data-b-locprof]").forEach((el) => {
-    el.onchange = () => ctx.bible.updateLocationProfile(el.dataset.bLocprof, { [el.dataset.field]: el.value });
+    bindField(el, ui, (value) => ctx.bible.updateLocationProfile(el.dataset.bLocprof, { [el.dataset.field]: value }));
   });
   root.querySelectorAll("[data-b-voice]").forEach((el) => {
-    el.onchange = () => ctx.bible.setCharacterVoice(el.dataset.bVoice, { [el.dataset.field]: el.value });
+    bindField(el, ui, (value) => ctx.bible.setCharacterVoice(el.dataset.bVoice, { [el.dataset.field]: value }));
   });
   // state override fields: merge per field; empty value = inherit (drop key)
   const mergeOverride = (overrides, field, value) => {
@@ -956,16 +959,16 @@ export function bindSettings(root, ctx) {
   const setOv = (kind, eid, sid, ov) =>
     kind === "c" ? ctx.bible.setCharacterStateOverrides(eid, sid, ov) : ctx.bible.setLocationStateOverrides(eid, sid, ov);
   root.querySelectorAll("[data-b-csov]").forEach((el) => {
-    el.onchange = () => {
+    bindField(el, ui, (value) => {
       const o = stateOv("c", el.dataset.bCsov, el.dataset.sid);
-      if (o) setOv("c", el.dataset.bCsov, el.dataset.sid, mergeOverride(o, el.dataset.field, el.value));
-    };
+      if (o) setOv("c", el.dataset.bCsov, el.dataset.sid, mergeOverride(o, el.dataset.field, value));
+    });
   });
   root.querySelectorAll("[data-b-lsov]").forEach((el) => {
-    el.onchange = () => {
+    bindField(el, ui, (value) => {
       const o = stateOv("l", el.dataset.bLsov, el.dataset.sid);
-      if (o) setOv("l", el.dataset.bLsov, el.dataset.sid, mergeOverride(o, el.dataset.field, el.value));
-    };
+      if (o) setOv("l", el.dataset.bLsov, el.dataset.sid, mergeOverride(o, el.dataset.field, value));
+    });
   });
   // --- state-level reference images (override list on the state itself) --- //
   on("[data-b-ovrefactive]", (el) => {
@@ -1007,6 +1010,7 @@ export function bindSettings(root, ctx) {
       if (next) setOv(kind, eid, sid, next);
     };
   });
+  restoreFieldFocus(root, ui);
 }
 
 /** 剧集 — the persisted Production structure (M6): manage Episodes, the active

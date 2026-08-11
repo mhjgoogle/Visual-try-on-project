@@ -1472,8 +1472,15 @@ test("the demo seed produces a document that VALIDATES at the current schema", a
   // exactly the shape app.js serializeGraph() persists
   const scriptsOut = Object.create(null);
   for (const k of Object.keys(scripts)) scriptsOut[k] = sd.serialize(scripts[k]);
+  // layered over a migrated base so the document always satisfies the CURRENT
+  // schema — the subject here is the demo seed's own content
+  const base = migrateToCurrent({
+    v: 1, project: "demo", scriptDoc: null,
+    nodes: [{ id: "n1", type: "script", x: 0, y: 0 }], edges: [], pan: { x: 0, y: 0 },
+  });
+  assert.equal(base.status, "ok", base.detail);
   const doc = {
-    v: CANVAS_SCHEMA_VERSION,
+    ...base.doc,
     project: "demo",
     story: st.serialize(story),
     scripts: scriptsOut,
@@ -1481,9 +1488,6 @@ test("the demo seed produces a document that VALIDATES at the current schema", a
     generations,
     production: pd.serialize(production),
     timelines: tl.serialize(timelines),
-    nodes: [{ id: "n1", type: "script", x: 0, y: 0 }],
-    edges: [],
-    pan: { x: 0, y: 0 },
   };
   assert.equal(validateCanvasDoc(doc), null);
 
@@ -1524,7 +1528,11 @@ test("IA: Production's rail is upstream-only; episode stages sit under Episodes"
     assert.ok(!NAV.some((g) => g.items.some((i) => i[0] === k)));
     assert.ok(EPISODE_MODULES.includes(k));
   }
-  assert.deepEqual(EPISODE_NAV.map((i) => i[0]), ["script", "scenes", "shots", "frames", "video", "audio", "edit"]);
+  // the episode context contains these stages (a later checkpoint may add more)
+  const epKeys = EPISODE_NAV.map((i) => i[0]);
+  for (const k of ["script", "scenes", "shots", "frames", "video", "audio", "edit"]) {
+    assert.ok(epKeys.includes(k), `episode context is missing ${k}`);
+  }
   // every module the rail can open has a human label
   for (const [k] of [...NAV[0].items, ...EPISODE_NAV]) assert.equal(typeof MODULE_LABEL[k], "string");
 });

@@ -277,7 +277,9 @@ export function renderBibleWs(ctx, ui) {
 
 export function bindBibleWs(root, ctx, ui, rerender) {
   // every editable control in the drawer keeps its original wiring
-  bindSettings(root, ctx);
+  // `ui` carries the field-sync state so a character edit autosaves on input
+  // and the caret survives the re-render the write triggers
+  bindSettings(root, ctx, ui);
   root.querySelectorAll("[data-btab]").forEach((b) => (b.onclick = () => {
     ui.bibleTab = b.dataset.btab;
     ui.bibleOpen = null;
