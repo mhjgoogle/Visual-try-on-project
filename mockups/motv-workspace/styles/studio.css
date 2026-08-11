@@ -937,18 +937,18 @@
 .dl-wrap { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr); gap: 16px; align-items: start; }
 .dl-stage { background: #0b0d12; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; min-height: 240px; display: grid; place-items: center; }
 .dl-video { width: 100%; max-height: 62vh; display: block; background: #000; }
-.dl-novideo { display: grid; gap: 6px; place-items: center; padding: 48px 16px; color: var(--muted); text-align: center; }
+.dl-novideo { display: grid; gap: 6px; place-items: center; padding: 48px 16px; color: var(--text-faint); text-align: center; }
 .dl-novideo .ic { font-size: 30px; opacity: .65; }
 .dl-novideo .hh { font-size: 12px; opacity: .8; }
 .dl-meta { display: grid; gap: 10px; align-content: start; }
 .dl-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; }
-.dl-scene { font-size: 12px; color: var(--muted); }
+.dl-scene { font-size: 12px; color: var(--text-faint); }
 .dl-scene.muted { opacity: .7; }
 .dl-desc { margin: 0; font-size: 13px; line-height: 1.6; }
 .dl-design { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: 12px; }
-.dl-design dt { color: var(--muted); }
+.dl-design dt { color: var(--text-faint); }
 .dl-design dd { margin: 0; }
-.dl-nodesign { font-size: 12px; color: var(--muted); }
+.dl-nodesign { font-size: 12px; color: var(--text-faint); }
 .dl-strip { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
 .dl-chip { min-width: 30px; height: 26px; padding: 0 7px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--fg); font-size: 12px; cursor: pointer; }
 .dl-chip.on { border-color: var(--acc); box-shadow: inset 0 0 0 1px var(--acc); }
@@ -957,3 +957,127 @@
 @media (max-width: 1100px) { .dl-wrap { grid-template-columns: minmax(0, 1fr); } }
 
 .dl-stale { font-size: 12px; line-height: 1.55; color: var(--gate); border: 1px solid color-mix(in srgb, var(--gate) 40%, var(--line)); background: color-mix(in srgb, var(--gate) 8%, transparent); border-radius: 8px; padding: 8px 10px; }
+
+/* --- Asset Library: visual-first Production Memory (CP5 / ADR-0058) ------- */
+.al-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.al-tab { padding: 5px 11px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--fg); font-size: 12px; cursor: pointer; }
+.al-tab.on { border-color: var(--acc); background: color-mix(in srgb, var(--acc) 14%, transparent); }
+.al-tab b { opacity: .6; font-weight: 600; margin-left: 3px; }
+.al-bar2 { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.al-search { flex: 1 1 240px; min-width: 180px; }
+.al-sel { background: var(--panel, #14161d); color: var(--fg); border: 1px solid var(--line); border-radius: 7px; padding: 5px 8px; font-size: 12px; }
+.al-toggle { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-faint); }
+.al-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
+.al-tagchip { padding: 3px 9px; border: 1px dashed var(--line); border-radius: 999px; background: transparent; color: var(--text-faint); font-size: 11px; cursor: pointer; }
+.al-tagchip.on { border-style: solid; border-color: var(--acc); color: var(--fg); }
+.al-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0fr); gap: 16px; align-items: start; }
+.al-body:has(.al-insp) { grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); }
+.al-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 12px; }
+.al-card { display: flex; flex-direction: column; gap: 0; padding: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--panel, #14161d); overflow: hidden; cursor: pointer; text-align: left; color: var(--fg); }
+.al-card:hover { border-color: var(--acc); }
+.al-card.needs { border-style: dashed; }
+.al-media { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; display: block; background: #0b0d12; }
+.al-insp-media .al-media { aspect-ratio: auto; max-height: 42vh; object-fit: contain; }
+.al-wave { display: grid; place-items: center; gap: 6px; padding: 10px; background: linear-gradient(90deg, #0b0d12 0 4px, transparent 4px 8px) 0 0/8px 100%, #10131a; }
+.al-wave .ic { font-size: 20px; opacity: .7; }
+.al-wave audio { width: 100%; height: 30px; }
+.al-gone { display: grid; place-items: center; gap: 4px; color: var(--text-faint); font-size: 12px; }
+.al-cap { padding: 8px 10px; display: grid; gap: 5px; }
+.al-name { font-size: 12.5px; font-weight: 600; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.al-sub { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 11px; }
+.al-use { color: var(--text-faint); }
+.al-use.muted { opacity: .6; }
+.al-insp { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: var(--panel, #14161d); display: grid; gap: 10px; align-content: start; position: sticky; top: 8px; max-height: calc(100vh - 90px); overflow: auto; }
+.al-insp-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.al-insp h4 { margin: 6px 0 0; font-size: 12px; color: var(--text-faint); font-weight: 600; }
+.al-info { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: 12px; }
+.al-info dt { color: var(--text-faint); }
+.al-info dd { margin: 0; word-break: break-word; }
+.al-usage { margin: 0; padding-left: 0; list-style: none; display: grid; gap: 4px; font-size: 12px; }
+.al-usage li { display: flex; gap: 6px; align-items: baseline; }
+.al-none { color: var(--text-faint); font-size: 12px; padding: 6px 0; }
+.al-edit { display: grid; gap: 6px; }
+.al-reuse { font-size: 12px; color: var(--text-faint); display: flex; gap: 6px; align-items: center; }
+.al-tech { font-size: 12px; color: var(--text-faint); }
+.al-tech summary { cursor: pointer; }
+.al-tech code { font-size: 11px; word-break: break-all; }
+@media (max-width: 1100px) { .al-body:has(.al-insp) { grid-template-columns: minmax(0, 1fr); } }
+
+/* --- 本集制作 (CP6) — the unified script ↔ scene ↔ shot creative context ---- */
+.ep-wrap { display: flex; flex-direction: column; gap: 18px; }
+.ep-scene { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); overflow: hidden; }
+.ep-scenehead { display: flex; align-items: baseline; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.ep-scenehead h3 { margin: 0; font-size: 15px; }
+.ep-scenen { font-size: 12px; color: var(--text-faint); }
+.ep-script { padding: 10px 14px; border-bottom: 1px solid var(--line); background: rgba(127, 127, 127, .05); }
+.ep-script summary { cursor: pointer; font-size: 12px; color: var(--text-faint); }
+.ep-script pre { margin: 8px 0 0; white-space: pre-wrap; font: 13px/1.7 var(--sans); max-height: 260px; overflow: auto; }
+.ep-scriptnote, .ep-dangling { padding: 8px 14px; font-size: 12px; color: var(--text-faint); }
+.ep-shots { display: flex; flex-direction: column; }
+.ep-shot { border-top: 1px solid var(--line); }
+.ep-shot:first-child { border-top: 0; }
+.ep-shot.on { background: rgba(127, 127, 127, .06); }
+.ep-shothead { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 14px;
+  background: none; border: 0; color: inherit; text-align: left; cursor: pointer; }
+.ep-shothead:hover { background: rgba(127, 127, 127, .08); }
+.ep-thumb { width: 96px; height: 54px; object-fit: cover; border-radius: 6px; background: #0003; flex: none; }
+.ep-nothumb { display: grid; place-items: center; font-size: 18px; opacity: .45; }
+.ep-shotmeta { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.ep-shottitle { font-size: 14px; }
+.ep-shotsub { font-size: 12px; color: var(--text-faint); }
+.ep-shotrefs { display: flex; flex-wrap: wrap; gap: 4px; }
+.ep-refchip { font-size: 11px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--text-faint); }
+.ep-noref { font-size: 11px; color: var(--text-faint); opacity: .7; }
+.ep-shot.ok .ep-shottitle::after { content: " ✓"; color: var(--ok); }
+.ep-detail { display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr); gap: 16px; padding: 0 14px 14px 14px; }
+.ep-player { width: 100%; border-radius: 8px; background: #000; max-height: 260px; }
+.ep-design { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0 0 12px; font-size: 13px; }
+.ep-design dt { color: var(--text-faint); }
+.ep-design dd { margin: 0; }
+.ep-nodesign { font-size: 13px; color: var(--text-faint); margin-bottom: 12px; }
+.ep-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+@media (max-width: 900px) { .ep-detail { grid-template-columns: minmax(0, 1fr); } }
+
+/* the reference picker / generation task panel.
+   `position: relative` + z-index, NOT sticky: sticky pinned it to the bottom of
+   the scrollport where it painted underneath the shot rows scrolling past it —
+   the panel's own text and the shot list were legible through each other. It
+   belongs at the end of the page, after the shot it is about. */
+.ep-panel { position: relative; z-index: 2; margin-top: 18px; padding: 14px;
+  border: 1px solid var(--line-2); border-radius: 12px; background: var(--panel);
+  box-shadow: var(--shadow); }
+.ep-panelhead { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.ep-panelhead b { flex: 1; }
+.ep-panel h4 { margin: 14px 0 6px; font-size: 12px; color: var(--text-faint); font-weight: 600; }
+.ep-picklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ep-picklist li { display: flex; align-items: center; gap: 10px; }
+.ep-pickname { flex: 1; font-size: 13px; }
+.ep-upload { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ep-kinds { display: flex; gap: 4px; }
+.ep-kind { padding: 3px 10px; font-size: 12px; border: 1px solid var(--line); border-radius: 999px;
+  background: none; color: var(--text-faint); cursor: pointer; }
+.ep-kind.on { background: var(--accent); border-color: transparent; color: #fff; }
+.ep-inputs { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: 13px; }
+.ep-inputs dt { color: var(--text-faint); }
+.ep-inputs dd { margin: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.ep-prompt { width: 100%; font: 12px/1.6 var(--mono); resize: vertical; }
+.ep-importlbl { cursor: pointer; }
+.ep-blockers { margin: 10px 0 0; padding-left: 20px; font-size: 12px; color: var(--gate); }
+
+/* --- 参考统筹 (CP6) --------------------------------------------------------- */
+.rp-sec { margin-bottom: 22px; }
+.rp-sec h3 { margin: 0 0 4px; font-size: 14px; }
+.rp-note { margin: 0 0 10px; font-size: 12px; color: var(--text-faint); }
+.rp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.rp-card { display: flex; gap: 10px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.rp-thumb { width: 72px; height: 72px; object-fit: cover; border-radius: 6px; background: #0003; flex: none; }
+.rp-thumb.sm { width: 40px; height: 40px; }
+.rp-none { display: grid; place-items: center; font-size: 18px; opacity: .4; }
+.rp-body { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.rp-name { font-size: 13px; }
+.rp-shots { font-size: 12px; color: var(--text-faint); }
+.rp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.rp-list li { display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.rp-list li .rp-shots { flex: 1; }
+.rp-empty { font-size: 13px; color: var(--text-faint); }

@@ -27,12 +27,17 @@ import { mintId } from "./workflow/identity.js";
 import { createViews } from "./ui/landing.js";
 import { createProduction } from "./ui/production.js";
 import { dailiesModel } from "./ui/dailies.js";
+import { shotDetailModel } from "./ui/storyboard.js";
+import * as assetlibws from "./ui/assetlibws.js";
 import { createWorkflowGraph } from "./ui/wfgraph.js";
 import { renderStepbar } from "./ui/stepbar.js";
 import { renderQueueBar, hasInflight } from "./ui/paidqueue.js";
 import * as mediaref from "./workflow/mediaref.js";
 import * as assetlib from "./workflow/assetlib.js";
 import * as assetreg from "./workflow/assetreg.js";
+import * as assetusage from "./workflow/assetusage.js";
+import * as geninput from "./workflow/geninput.js";
+import { referencePlan } from "./ui/refplan.js";
 import * as genlib from "./workflow/genlib.js";
 import * as skills from "./workflow/skills.js";
 import * as skillrun from "./workflow/skillrun.js";
@@ -140,6 +145,21 @@ function mediaDomainOfFile(file) {
   if (t.startsWith("video/")) return "videos";
   if (t.startsWith("audio/")) return "audio";
   return "";
+}
+
+/** Ask the creator for ONE file. Resolves to null when they cancel — so every
+ *  caller can `if (!file) return` instead of hanging on a promise that never
+ *  settles. (`cancel` is not fired by older browsers; the picker is
+ *  single-shot, so an unresolved cancel simply ends that gesture.) */
+function pickFile(accept) {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = accept;
+    input.oncancel = () => resolve(null);
+    input.onchange = () => resolve((input.files && input.files[0]) || null);
+    input.click();
+  });
 }
 
 /** The upload slug prefix each domain uses (the namespace the media files
@@ -1698,6 +1718,204 @@ const ctx = {
       });
     },
   },
+  // ---------------------------------------------------------------------- //
+  // Episode Production controller (CP6 / ADR-0058) — the read models behind
+  // 本集制作 and 参考统筹, plus the manual generation round trip.
+  //
+  // Everything here DERIVES from the canonical documents on every call. The
+  // only writes are the two the creator explicitly asks for — bind a
+  // Reference, import a generation result — and both go through the existing
+  // single write paths (ctx.shot.addReference / ctx.media.importShotMedia),
+  // never around them.
+  // ---------------------------------------------------------------------- //
+  episode: {
+    view: () => {
+      const ep = proddoc.activeEpisode(productionDoc);
+      return ep ? proddoc.episodeView(productionDoc, ep.episodeId, ctx.project.draftShots || []) : null;
+    },
+    /** The canonical References bound to a shot, RESOLVED to their current
+     *  version. A binding whose reference no longer exists is dropped from the
+     *  view (never rendered as a phantom chip) — pruning it from the document
+     *  is ctx.shot.pruneReferences's job, not a render's. */
+    referencesOfShot: (shotId) => {
+      const byKey = new Map(assetreg.listReferences(assetRegistry).map((r) => [r.key, r]));
+      return shotprod.referencesOfShot(productionDoc, shotId)
+        .map((key) => byKey.get(key))
+        .filter(Boolean)
+        .map((r) => ({
+          key: r.key,
+          kind: r.kind,
+          name: assetreg.derivedLabel(r),
+          version: r.version,
+          assetId: r.assetId,
+          url: r.url,
+          storageState: r.storageState,
+        }));
+    },
+    mediaUrl: (shot, domain) => {
+      const slot = ctx.shot._slotOf(shot);
+      return slot ? mediaref.slotUrl(assetRegistry[domain], slot) : "";
+    },
+    /** The Reference picker's three entrances: what this shot already has,
+     *  what THIS episode suggests (a reference for a character/location that
+     *  appears in the shot's own scene), and the whole library. */
+    pickerModel: (shotId) => {
+      const bound = ctx.episode.referencesOfShot(shotId);
+      const boundKeys = new Set(bound.map((r) => r.key));
+      const all = assetreg.listReferences(assetRegistry).map((r) => ({
+        key: r.key, kind: r.kind, name: assetreg.derivedLabel(r),
+        version: r.version, assetId: r.assetId, url: r.url, links: r.links,
+      }));
+      const owner = proddoc.sceneOfShot(productionDoc, shotId);
+      const wantChar = new Set((owner ? owner.scene.characterRefs || [] : []).map((r) => r.characterId));
+      const wantLoc = owner && owner.scene.locationRef ? owner.scene.locationRef.locationId : null;
+      const suggested = all.filter((r) => !boundKeys.has(r.key) && (
+        (r.links && r.links.characterId && wantChar.has(r.links.characterId))
+        || (r.links && r.links.locationId && r.links.locationId === wantLoc)
+      ));
+      const suggestedKeys = new Set(suggested.map((r) => r.key));
+      return {
+        bound,
+        suggested,
+        library: all.filter((r) => !boundKeys.has(r.key) && !suggestedKeys.has(r.key)),
+      };
+    },
+    /** The Generation Input Set + the effective prompt for one shot. */
+    genModel: (shotId, kind) => {
+      const pd = ctx.prodData();
+      const d = shotDetailModel(pd, shotId);
+      const shot = ctx.shot.find(shotId);
+      const owner = proddoc.sceneOfShot(productionDoc, shotId);
+      const epIndex = productionDoc.episodes.findIndex(
+        (e) => owner && e.episodeId === owner.episode.episodeId,
+      );
+      const compiled = d ? (kind === "video" ? d.prompts.video : d.prompts.image) : { text: "", missing: [] };
+      // the first frame is a real image Asset when this shot has one — the
+      // video route is framed by it, the image route honestly has neither
+      const slot = shot ? ctx.shot._slotOf(shot) : null;
+      const frameRef = slot ? mediaref.currentRef(assetRegistry.images, slot) : null;
+      const set = geninput.buildInputSet({
+        shot,
+        context: {
+          shotId,
+          sceneId: owner ? owner.scene.sceneId : null,
+          episodeId: owner ? owner.episode.episodeId : null,
+          sceneTitle: owner ? owner.scene.title : null,
+          episodeCode: epIndex >= 0 ? `EP${String(epIndex + 1).padStart(2, "0")}` : null,
+        },
+        references: ctx.episode.referencesOfShot(shotId),
+        frames: kind === "video" && frameRef
+          ? { start: { assetId: frameRef.assetId, name: `本镜头画面 v${frameRef.version}`, url: frameRef.url }, end: null }
+          : null,
+        prompt: compiled.text,
+        // A manual external run reports NOTHING about the model it used, so
+        // model/parameters/seed stay null until an import tells us otherwise.
+        runtime: { source: "手工外部生成", model: null, parameters: null, seed: null },
+      });
+      return {
+        set,
+        prompt: compiled.text,
+        // both the compiler's honest gaps and the input set's own
+        missing: [...compiled.missing, ...geninput.missingForGeneration(set, { kind })],
+        slot: d ? d.slot : null,
+      };
+    },
+    copyPrompt: async (text) => {
+      try {
+        await navigator.clipboard.writeText(text);
+        toast("Prompt 已复制——粘贴到你的生成工具，结果回来点「上传外部生成结果」");
+      } catch {
+        toast("复制失败：请手动选中文本复制");
+      }
+    },
+    /** Temp upload from the picker. It is NOT a shortcut around registration:
+     *  the file becomes a real canonical Reference (its own `ref-…` chain,
+     *  declared kind, linked to the scene's subject when there is one) and is
+     *  then bound to the shot. There is no path here that leaves media
+     *  unregistered. */
+    uploadReference: async (shotId, kind) => {
+      const file = await pickFile("image/png,image/jpeg,image/webp");
+      if (!file) return null;
+      const owner = proddoc.sceneOfShot(productionDoc, shotId);
+      const links = {};
+      if (owner) {
+        if (kind === "character-reference") {
+          const first = (owner.scene.characterRefs || [])[0];
+          if (first) links.characterId = first.characterId;
+        } else if (kind === "location-reference" && owner.scene.locationRef) {
+          links.locationId = owner.scene.locationRef.locationId;
+        }
+      }
+      try {
+        const { key } = await ctx.assets.importReference({ kind, file, links });
+        ctx.shot.addReference(shotId, key);
+        return key;
+      } catch (err) {
+        toast(`上传参考失败：${err.message}`);
+        return null;
+      }
+    },
+    /** The manual generation round trip closes HERE: the external result comes
+     *  back, is registered as an Asset on this shot, and the Generation record
+     *  freezes the prompt and the reference/frame inputs it was made from — so
+     *  the Workflow graph can show the whole chain afterwards. */
+    importResult: async (shotId, kind, file, promptText) => {
+      const g = ctx.episode.genModel(shotId, kind);
+      if (!g.slot) { toast("镜头身份未解析：无法定位媒体槽位"); return null; }
+      const seed = geninput.generationSeedFrom(g.set, {
+        type: kind,
+        promptSnapshot: promptText || g.prompt,
+      });
+      const ref = await ctx.media.importShotMedia(kind, g.slot, shotId, file, {
+        shotId,
+        prompt: seed.promptSnapshot,
+        entry: "manual",
+        seed,
+      });
+      return ref;
+    },
+  },
+  // Reference Planning read model (CP6) — the episode's reference material as
+  // ONE plan. Derived; it never copies a canonical Asset.
+  refplan: {
+    model: () => referencePlan({
+      view: ctx.episode.view(),
+      bindings: (shotId) => shotprod.referencesOfShot(productionDoc, shotId),
+      references: assetreg.listReferences(assetRegistry),
+      sceneOf: (shotId) => {
+        const owner = proddoc.sceneOfShot(productionDoc, shotId);
+        if (!owner) return null;
+        return {
+          sceneId: owner.scene.sceneId,
+          title: owner.scene.title,
+          characterIds: (owner.scene.characterRefs || []).map((r) => r.characterId).filter(Boolean),
+          locationId: owner.scene.locationRef ? owner.scene.locationRef.locationId : null,
+        };
+      },
+      names: ctx.assets.names(),
+    }),
+    shotName: (shotId) => {
+      const s = ctx.shot.find(shotId);
+      return s ? (s.title || `镜头 ${s.sequence}`) : "";
+    },
+    /** Fill a gap: upload a reference FOR a named subject. The subject is the
+     *  reason the gap exists, so it is linked at registration — the creator
+     *  never has to re-state what they just answered. */
+    uploadFor: async (kind, subjectId) => {
+      const file = await pickFile("image/png,image/jpeg,image/webp");
+      if (!file) return null;
+      const links = kind === "character-reference"
+        ? { characterId: subjectId }
+        : { locationId: subjectId };
+      try {
+        const { key } = await ctx.assets.importReference({ kind, file, links });
+        return key;
+      } catch (err) {
+        toast(`上传参考失败：${err.message}`);
+        return null;
+      }
+    },
+  },
   // read-only registry view for the storage workspace (writes stay on the
   // ctx.storage / mediaref paths)
   assetRegistryView: () => assetRegistry,
@@ -1835,6 +2053,80 @@ const ctx = {
     setCurrent: (domain, key, version) => ctx.media.setCurrent(
       domain === "images" ? "image" : domain === "videos" ? "video" : "audio", key, version,
     ),
+
+    // --- Asset Library read models (CP5) ----------------------------------- //
+    // All DERIVED per render: the library owns no state, so it cannot disagree
+    // with what the project actually holds.
+    /** Where every asset is used — one pass over the canonical documents. */
+    usage: () => assetusage.usageIndex({
+      assets: assetreg.listAssets(assetRegistry),
+      production: productionDoc,
+      timelines: timelinesDoc,
+      generations: generationRegistry,
+    }),
+    usageOf: (assetId) => {
+      const hit = assetlib.findAssetById(assetRegistry, assetId);
+      return assetusage.usageOfAsset({
+        assetId,
+        referenceKey: hit ? hit.key : null,
+        production: productionDoc,
+        timelines: timelinesDoc,
+        generations: generationRegistry,
+      });
+    },
+    library: (filters) => assetlibws.libraryModel({
+      assets: assetreg.listAssets(assetRegistry),
+      usage: ctx.assets.usage(),
+      names: ctx.assets.names(),
+      filters,
+    }),
+    /** One asset in the library's shape, even when the current filters hide it
+     *  — an inspector that closes because you ticked a filter is maddening. */
+    libraryOne: (assetId) => ctx.assets.library({ type: "all", variant: "all" })
+      .rows.find((r) => r.assetId === assetId) || null,
+    /** id → human name, so search and filters work on what the creator SEES. */
+    names: () => {
+      const prod = productionDoc;
+      const ch = new Map((prod.characters || []).map((c) => [c.characterId, c.name]));
+      const lo = new Map((prod.locations || []).map((l) => [l.locationId, l.name]));
+      const ep = new Map();
+      const sc = new Map();
+      (prod.episodes || []).forEach((e, i) => {
+        ep.set(e.episodeId, `EP${String(i + 1).padStart(2, "0")} ${e.title}`);
+        for (const s of e.scenes || []) sc.set(s.sceneId, s.title);
+      });
+      const sh = new Map((ctx.project.draftShots || []).map((s) => [s.shotId, s.title || ""]));
+      const get = (m) => (id) => (id && m.get(id)) || "";
+      return { character: get(ch), location: get(lo), episode: get(ep), scene: get(sc), shot: get(sh) };
+    },
+    /** The dropdown options — only canonical objects that really exist. */
+    filterOptions: () => {
+      const prod = productionDoc;
+      const sources = [...new Set(assetreg.listAssets(assetRegistry).map((a) => a.origin).filter(Boolean))];
+      return {
+        characters: (prod.characters || []).map((c) => ({ id: c.characterId, name: c.name })),
+        locations: (prod.locations || []).map((l) => ({ id: l.locationId, name: l.name })),
+        episodes: (prod.episodes || []).map((e, i) => ({ id: e.episodeId, name: `EP${String(i + 1).padStart(2, "0")} ${e.title}` })),
+        sources: sources.map((s) => ({ id: s, name: s })),
+      };
+    },
+    /** The Generation that produced this asset, with its frozen inputs resolved
+     *  to names. Honest null when nothing recorded producing it. */
+    provenanceOf: (assetId) => {
+      const gen = generationRegistry.find(
+        (g) => g && Array.isArray(g.resultAssetIds) && g.resultAssetIds.includes(assetId),
+      );
+      if (!gen) return null;
+      const nameOf = (id) => {
+        const hit = assetlib.findAssetById(assetRegistry, id);
+        if (!hit) return `${id}（已删除）`;
+        return assetreg.derivedLabel({ ...hit.record, version: hit.record.version, key: hit.key });
+      };
+      return {
+        generation: gen,
+        references: [...(gen.referenceAssetIds || []), ...(gen.inputAssetIds || [])].map(nameOf),
+      };
+    },
   },
   // Storage-management controller (M11-D): built on the EXISTING M5
   // storageState lifecycle — no second state system. Byte removal keeps the
@@ -1956,7 +2248,17 @@ const ctx = {
       if (!decl.ok) throw new Error(`登记失败：${decl.error}`);
       mediaref.addVersion({ uploads: map }, slot, ref);
       if (intent && intent.prompt && intent.shotId === shotId) {
-        const gen = ctx.startGeneration({
+        // CP6: when the caller assembled a Generation Input Set, the record is
+        // built FROM it — so the references and first frame the creator was
+        // actually given are frozen into the lineage, not lost because the
+        // manual route had nowhere to put them. The older entry path (which
+        // knows only the prompt) keeps its minimal record; both produce the
+        // same SHAPE, and what a route cannot know stays null.
+        const gen = ctx.startGeneration(intent.seed ? {
+          ...intent.seed,
+          provider: intent.entry || intent.seed.provider || "manual",
+          status: "generating",
+        } : {
           type: kind === "image" ? "image" : "video",
           targetType: shotId ? "shot" : null,
           targetId: shotId ?? null,
@@ -2146,6 +2448,10 @@ const ctx = {
       generations: generationRegistry,
       // M9: the story development chain — read-only; writes via ctx.story.
       story: storyDoc,
+      // CP7: the per-episode script documents, so the provenance graph can
+      // start where the work actually starts. READ-ONLY, like every other
+      // registry here — writes stay on ctx.script.
+      scripts: scriptDocs,
       // TASK-051A: the AI Director's Production Plan / Asset Inbox DERIVE from
       // existing state and own nothing. They need the whole Asset Registry
       // (finals/displaced/unresolvedPaid, not just the chain maps) and the

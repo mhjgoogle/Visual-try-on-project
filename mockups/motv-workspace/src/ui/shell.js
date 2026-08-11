@@ -36,10 +36,17 @@ export const NAV = [
 /** The EPISODE's own production stages. Shown nested under the episode the
  *  creator has entered — Production's exit, not its main navigation. */
 export const EPISODE_NAV = [
+  // CP6/ADR-0058: 本集制作 leads, because it IS the work — one creative context
+  // holding this episode's script, its scenes, and every scene's shots with the
+  // picture each one currently has. The stage modules below it stay exactly as
+  // they were: they are how you work THROUGH one stage, not how you see the
+  // episode.
+  ["episode", "🎬", "本集制作"],
   ["script", "📄", "剧本"],
-  ["scenes", "🎬", "场景"],
+  ["scenes", "🗂", "场景"],
   ["shots", "🎞", "分镜"],
-  ["frames", "🖼", "画面"],
+  ["refplan", "🖼", "参考统筹"],
+  ["frames", "🎨", "画面"],
   ["video", "▶", "视频"],
   ["audio", "🎵", "音频"],
   // CP4/ADR-0057: 审片 sits between the media stages and the cut, because that
@@ -65,7 +72,8 @@ export const MODULE_LABEL = {
   // every existing jump target — the Director's blocker fixes, the shot
   // workspaces' empty states — keeps landing somewhere real.
   settings: "作品设定", storage: "存储", assets: "资产库",
-  script: "剧本", scenes: "场景", shots: "分镜", frames: "画面", video: "视频",
+  episode: "本集制作", script: "剧本", scenes: "场景", shots: "分镜",
+  refplan: "参考统筹", frames: "画面", video: "视频",
   audio: "音频", dailies: "审片", edit: "剪辑",
 };
 

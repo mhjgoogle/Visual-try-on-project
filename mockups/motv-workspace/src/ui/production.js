@@ -21,6 +21,9 @@ import { episodeStageCounts } from "./prodplan.js";
 import { renderAudioWs, bindAudioWs } from "./audiows.js";
 import { renderTimelineWs, bindTimelineWs } from "./timelinews.js";
 import { renderDailies, bindDailies } from "./dailies.js";
+import { renderEpisodeWs, bindEpisodeWs } from "./episodews.js";
+import { renderRefPlan, bindRefPlan } from "./refplan.js";
+import { renderAssetLibrary, bindAssetLibrary } from "./assetlibws.js";
 import { renderStorageWs, bindStorageWs } from "./storagews.js";
 import { renderStoryWs, bindStoryWs } from "./storyws.js";
 import { renderBibleWs, bindBibleWs } from "./biblews.js";
@@ -93,6 +96,10 @@ export function navBadges(doc, pd) {
     // M6: real persisted Episode entities — the count is honest domain data
     episodes: prod && Array.isArray(prod.episodes) ? String(prod.episodes.length) : "",
     scenes: "",
+    // 本集制作 and 参考统筹 carry no badge: their own headers report the real
+    // numbers, and a second copy here could only ever disagree with them.
+    episode: "",
+    refplan: "",
     script: st.versions ? `v${st.active}` : "草稿",
     shots: shots.empty ? "" : String(shots.shots.length),
     frames: frames.empty ? "" : `${frames.done}/${frames.total}`,
@@ -172,6 +179,9 @@ export function createProduction(getCtx) {
     // Dailies: which shot the review pass is on (transient — a review position
     // is not a decision, so it is never persisted)
     dailiesShotId: null,
+    // Asset Library: filters + the open inspector (transient view state)
+    alFilters: {},
+    alOpen: null,
   };
 
   function vmenuHtml(d) {
@@ -313,6 +323,12 @@ export function createProduction(getCtx) {
     world: (ctx) => renderWorldWs(ctx, ui),
     episodes: (ctx) => renderEpPlanWs(ctx, ui),
     // --- 本集制作 (inside ONE episode) ------------------------------------- //
+    // CP6/ADR-0058: 本集制作 is the unified creative context — the episode's
+    // script, its scenes, and each scene's shots with their current picture,
+    // in ONE place. The per-stage workspaces below stay exactly as they are;
+    // this is where the work is done, they are where a stage is worked through.
+    episode: (ctx) => renderEpisodeWs(ctx, ui),
+    refplan: (ctx) => renderRefPlan(ctx, ui),
     scenes: (ctx) => ws.renderEpisodes(ctx),
     shots: (ctx) => renderStoryboard(ctx, ui),
     frames: (ctx) => renderImageWs(ctx, ui),
@@ -320,8 +336,10 @@ export function createProduction(getCtx) {
     audio: (ctx) => renderAudioWs(ctx, ui),
     dailies: (ctx) => renderDailies(ctx, ui),
     edit: (ctx) => renderTimelineWs(ctx, ui),
+    // 存储 stays the storage MANAGER (archive / remove bytes / delete);
+    // 资产 is now the visual-first Production Memory Library (CP5).
     storage: (ctx) => renderStorageWs(ctx, ui),
-    assets: (ctx) => renderStorageWs(ctx, ui),
+    assets: (ctx) => renderAssetLibrary(ctx, ui),
   };
 
   /** Shot workspaces open on a real shot: an empty centre column next to a
@@ -416,7 +434,11 @@ export function createProduction(getCtx) {
     ui.shotEdit = false;
     ui.selectedShotId = null;
     if (!ctx.production.setActiveEpisode(episodeId)) return;
-    const target = module || (EPISODE_MODULES.includes(activeModule) ? activeModule : "script");
+    // staying on the stage you were already on when switching episodes; from
+    // upstream, entering an episode opens 本集制作 — the view of the whole
+    // episode,
+    // which is what "进入本集" means now that one exists
+    const target = module || (EPISODE_MODULES.includes(activeModule) ? activeModule : "episode");
     if (target !== activeModule) {
       activeModule = target;
       lastProdModule = target;
@@ -449,16 +471,27 @@ export function createProduction(getCtx) {
     if (activeModule === "frames") bindImageWs(root, ctx, ui, render);
     if (activeModule === "video") bindVideoWs(root, ctx, ui, render);
     if (activeModule === "audio") bindAudioWs(root, ctx, ui, render);
+    if (activeModule === "episode") bindEpisodeWs(root, ctx, ui, render);
+    if (activeModule === "refplan") bindRefPlan(root, ctx, ui, render);
     if (activeModule === "dailies") bindDailies(root, ctx, ui, render);
     if (activeModule === "edit") bindTimelineWs(root, ctx, ui, render);
-    if (activeModule === "storage" || activeModule === "assets") bindStorageWs(root, ctx, ui, render);
+    if (activeModule === "storage") bindStorageWs(root, ctx, ui, render);
+    if (activeModule === "assets") bindAssetLibrary(root, ctx, ui, render);
     // "进入本集" — bound LAST, and centrally: entering an episode is a SHELL
     // decision (switch the active episode AND open one of its stages), so it
     // must not be re-implemented per workspace. Binding after the workspaces
     // means a workspace that also wires the attribute cannot shadow it.
-    root.querySelectorAll("[data-ep-enter],[data-ep-open]").forEach((b) => (b.onclick = (ev) => {
+    //
+    // The two entrances land where their LABEL says they land: 「进入本集」opens
+    // 本集制作, 「进入本集剧本」opens 剧本. One shared target would have made one
+    // of the two buttons lie about where it goes.
+    root.querySelectorAll("[data-ep-enter]").forEach((b) => (b.onclick = (ev) => {
       ev.stopPropagation();
-      enterEpisode(b.dataset.epEnter || b.dataset.epOpen, "script");
+      enterEpisode(b.dataset.epEnter, "episode");
+    }));
+    root.querySelectorAll("[data-ep-open]").forEach((b) => (b.onclick = (ev) => {
+      ev.stopPropagation();
+      enterEpisode(b.dataset.epOpen, "script");
     }));
     // AI Director (non-script modules) — real dispatches only
     if (activeModule !== "script") {
