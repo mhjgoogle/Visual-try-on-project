@@ -1,11 +1,14 @@
-// Story document (checkpoint M9) — the project-level CREATIVE development
-// chain that sits BETWEEN the idea and the episode scripts:
+// Story document (checkpoint M9; Creative Brief added by TASK-057) — the
+// project-level CREATIVE development chain that sits BETWEEN the idea and the
+// episode scripts:
 //
-//   Idea → AI-assisted Story Development → Story Outline (versioned, approved)
+//   Creative Brief (working draft + revisions)
+//        → AI-assisted Story Development → Story Outline (versioned, approved)
 //        → Episode Plan (versioned, confirmed) → per-episode Scripts
 //
-// Owns the Idea, the append-only Story OUTLINE version chain, and the
-// append-only Episode PLAN version chain. AI output is always a PROPOSAL
+// Owns the Idea, the Creative BRIEF (working draft + append-only revision
+// chain), the append-only Story OUTLINE version chain, and the append-only
+// Episode PLAN version chain. AI output is always a PROPOSAL
 // (transient `pending`) until the creator applies it as a new immutable
 // version; earlier versions are never overwritten. `approved` / `confirmedPlan`
 // are durable pointers the downstream steps key off:
@@ -27,10 +30,138 @@ const str = (x) => (typeof x === "string" ? x : "");
 // content — v8 validation rejects malformed values instead of coercing them
 const strList = (x) => (Array.isArray(x) ? x.filter((s) => typeof s === "string" && s.trim()) : []);
 
+// `climax` joins the outline at TASK-057 (v10): 高潮 is one of the beats a
+// creator reads an outline for, and it was previously only expressible inside
+// the storyArc prose. Purely additive — every earlier version migrates to "".
 export const OUTLINE_FIELDS = [
-  "premise", "logline", "genreTone", "world", "centralConflict", "storyArc", "ending", "durationNote",
+  "premise", "logline", "genreTone", "world", "centralConflict", "storyArc", "climax", "ending", "durationNote",
 ];
 export const PLAN_FIELDS = ["title", "synopsis", "purpose", "hook", "endingBeat", "duration"];
+
+// ---- Creative Brief (TASK-057) --------------------------------------------- //
+// The brief's own fields. The CORE IDEA is deliberately NOT one of them: it
+// stays `story.idea`, the single canonical place it has always lived (a second
+// copy is exactly what ADR-0054 决策 2 forbids). A brief REVISION snapshots the
+// idea alongside these fields, because a revision must be immutable.
+export const BRIEF_FIELDS = ["genre", "tone", "form", "episodeDuration", "totalDuration", "notes"];
+
+/** Normalize the brief's editable draft. `targetEpisodes` is a positive
+ *  integer or null (1..50, matching the plan endpoint's cap, so a brief can
+ *  never ask for a count compliant planning cannot serve). */
+export function sanitizeBriefDraft(d) {
+  const src = isObj(d) ? d : {};
+  const out = { ...src }; // unknown fields survive the round-trip
+  for (const k of BRIEF_FIELDS) out[k] = str(src[k]);
+  const n = src.targetEpisodes;
+  out.targetEpisodes = Number.isInteger(n) && n > 0 && n <= 50 ? n : null;
+  return out;
+}
+
+function sanitizeBriefVersions(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const x of list) {
+    if (!isObj(x)) continue;
+    out.push({
+      ...x, // unknown fields survive
+      id: typeof x.id === "string" && x.id ? x.id : mintId("cb"),
+      v: out.length + 1, // dense chain, defensively renumbered
+      // a revision is IMMUTABLE and self-contained: it carries the idea it was
+      // taken with, so "Based on Creative Brief v2" means one exact thing
+      idea: str(x.idea),
+      fields: sanitizeBriefDraft(x.fields),
+      origin: ["manual", "developed"].includes(x.origin) ? x.origin : "manual",
+      instruction: str(x.instruction),
+    });
+  }
+  return out;
+}
+
+function createBrief(saved) {
+  const doc = { draft: sanitizeBriefDraft(null), versions: [], active: 0 };
+  if (!isObj(saved)) return doc;
+  doc.draft = sanitizeBriefDraft(saved.draft);
+  doc.versions = sanitizeBriefVersions(saved.versions);
+  const vOk = (v) => Number.isInteger(v) && doc.versions.some((x) => x.v === v);
+  // an unusable pointer falls back to the LATEST revision (deterministic), and
+  // 0 (= only a working draft, no formal revision yet) is always legal
+  doc.active = saved.active === 0 ? 0 : vOk(saved.active) ? saved.active : doc.versions.length;
+  return doc;
+}
+
+/** The Creative Brief revision the downstream is based on, or null when the
+ *  creator has only a working draft so far (honest — never invented). */
+export function activeBrief(doc) {
+  return doc.brief.versions.find((x) => x.v === doc.brief.active) || null;
+}
+
+/** Edit the working draft. AUTOSAVE ONLY — never creates a revision. The core
+ *  idea is not a brief field: it is written through setIdea, so there is
+ *  exactly one place the idea lives. */
+export function editBriefDraft(doc, fields) {
+  if (!isObj(fields)) return false;
+  for (const k of BRIEF_FIELDS) {
+    if (k in fields) doc.brief.draft[k] = str(fields[k]);
+  }
+  if ("targetEpisodes" in fields) {
+    const n = fields.targetEpisodes;
+    doc.brief.draft.targetEpisodes = Number.isInteger(n) && n > 0 && n <= 50 ? n : null;
+  }
+  return true;
+}
+
+/** True while the working draft differs from the active revision (or there is
+ *  no revision yet and the creator has written something). Drives the
+ *  「Working Draft · 未版本化」 標記 — the UI never guesses this. */
+export function briefIsDirty(doc) {
+  const cur = activeBrief(doc);
+  const d = doc.brief.draft;
+  if (!cur) {
+    return !!doc.idea.trim() || BRIEF_FIELDS.some((k) => d[k].trim()) || d.targetEpisodes !== null;
+  }
+  if (cur.idea !== doc.idea) return true;
+  if (cur.fields.targetEpisodes !== d.targetEpisodes) return true;
+  return BRIEF_FIELDS.some((k) => cur.fields[k] !== d[k]);
+}
+
+/** Create a formal Brief REVISION from the current working draft — the ONLY
+ *  thing that bumps the brief's version number (决策 2 / 决策 6). Returns the
+ *  record, or null when nothing has changed since the active revision (a
+ *  no-op must not mint an identical version). */
+export function commitBrief(doc, origin = "manual", instruction = "") {
+  if (!briefIsDirty(doc)) return null;
+  const rec = {
+    id: mintId("cb"),
+    v: doc.brief.versions.length + 1,
+    idea: doc.idea,
+    fields: sanitizeBriefDraft(doc.brief.draft),
+    origin: ["manual", "developed"].includes(origin) ? origin : "manual",
+    instruction: String(instruction || ""),
+  };
+  doc.brief.versions.push(rec);
+  doc.brief.active = rec.v;
+  return rec;
+}
+
+/** Read an EARLIER revision without changing what downstream is based on:
+ *  switching the active pointer IS a downstream-visible decision, so it is a
+ *  separate explicit op. */
+export function setActiveBrief(doc, v) {
+  if (!doc.brief.versions.some((x) => x.v === v)) return false;
+  doc.brief.active = v;
+  return true;
+}
+
+/** Restore an earlier revision's content INTO the working draft (non
+ *  destructive: the revision chain is untouched, and the restored draft is
+ *  only formal once the creator commits it). */
+export function restoreBriefDraft(doc, v) {
+  const rec = doc.brief.versions.find((x) => x.v === v);
+  if (!rec) return false;
+  doc.brief.draft = sanitizeBriefDraft(rec.fields);
+  doc.idea = rec.idea;
+  return true;
+}
 
 /** Normalize a (possibly agent-produced) outline into the canonical shape.
  *  Strings for every facet, characterConcepts a string list, episodeCount a
@@ -75,6 +206,11 @@ function sanitizeVersions(list) {
       origin: ["developed", "revision", "manual"].includes(x.origin) ? x.origin : "developed",
       instruction: str(x.instruction),
       basedOn: Number.isInteger(x.basedOn) ? x.basedOn : null,
+      // TASK-057: the Creative Brief revision this outline was developed from.
+      // Honestly null when there was none (never back-derived from a later
+      // revision — an outline written before any brief revision is based on no
+      // revision, and saying otherwise would fake provenance).
+      briefVersionId: typeof x.briefVersionId === "string" && x.briefVersionId ? x.briefVersionId : null,
     });
   }
   return out;
@@ -104,6 +240,8 @@ function sanitizePlans(list) {
 export function createStory(saved) {
   const doc = {
     idea: "",
+    // Creative Brief (TASK-057): working draft + append-only revision chain
+    brief: createBrief(null),
     versions: [],
     active: 0,
     approved: 0,
@@ -115,6 +253,7 @@ export function createStory(saved) {
   };
   if (!isObj(saved)) return doc;
   doc.idea = str(saved.idea);
+  doc.brief = createBrief(saved.brief);
   doc.versions = sanitizeVersions(saved.versions);
   const vOk = (v) => Number.isInteger(v) && doc.versions.some((x) => x.v === v);
   doc.active = vOk(saved.active) ? saved.active : doc.versions.length;
@@ -130,6 +269,7 @@ export function createStory(saved) {
 export function serialize(doc) {
   return {
     idea: doc.idea,
+    brief: { draft: doc.brief.draft, versions: doc.brief.versions, active: doc.brief.active },
     versions: doc.versions,
     active: doc.active,
     approved: doc.approved,
@@ -169,12 +309,16 @@ export function beginDevelop(doc, kind, instruction) {
   if (st === "generating" || st === "proposed") return 0;
   if (kind === "plan" && !approvedOutline(doc)) return 0;
   const id = ++doc._seq;
+  const brief = activeBrief(doc);
   doc.pending = {
     id,
     kind, // "outline" | "plan"
     status: "generating",
     instruction: String(instruction || ""),
     basedOn: kind === "outline" ? doc.active || null : doc.activePlan || null,
+    // captured at LAUNCH, like outlineVersionId below: committing another brief
+    // revision mid-review must not re-attribute this run
+    briefVersionId: kind === "outline" ? (brief ? brief.id : null) : null,
     // plan provenance is captured at LAUNCH — the outline the generation
     // actually ran from, not whatever is approved when the proposal is
     // applied (approving another version mid-review must not re-attribute it)
@@ -238,6 +382,7 @@ export function applyProposal(doc) {
       origin: doc.versions.length ? "revision" : "developed",
       instruction: p.instruction,
       basedOn: p.basedOn,
+      briefVersionId: p.briefVersionId ?? null, // captured at launch
     };
     doc.versions.push(rec);
     doc.active = rec.v;
@@ -254,6 +399,7 @@ export function discardProposal(doc) {
 export function applyManualOutline(doc, fields) {
   const base = activeOutline(doc);
   const merged = sanitizeOutline({ ...(base ? base.outline : {}), ...(isObj(fields) ? fields : {}) });
+  const brief = activeBrief(doc);
   const rec = {
     id: mintId("so"),
     v: doc.versions.length + 1,
@@ -261,6 +407,7 @@ export function applyManualOutline(doc, fields) {
     origin: "manual",
     instruction: "",
     basedOn: doc.active || null,
+    briefVersionId: brief ? brief.id : null,
   };
   doc.versions.push(rec);
   doc.active = rec.v;
@@ -299,6 +446,14 @@ export function confirmPlan(doc, v) {
  *  an honest fallback to the currently approved outline when the linked
  *  version is unavailable. Episode-script context must never mix a newer
  *  approved outline with an older confirmed plan. */
+/** The Creative Brief revision an OUTLINE version was developed from, or null.
+ *  Display-only ("Based on Creative Brief v2"); an outline predating the brief
+ *  chain honestly resolves to null rather than borrowing today's revision. */
+export function briefForOutline(doc, outline) {
+  if (!outline || !outline.briefVersionId) return null;
+  return doc.brief.versions.find((x) => x.id === outline.briefVersionId) || null;
+}
+
 export function outlineForPlan(doc, plan) {
   if (plan && plan.outlineVersionId) {
     const src = doc.versions.find((x) => x.id === plan.outlineVersionId);

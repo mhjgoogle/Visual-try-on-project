@@ -27,6 +27,7 @@
 // Pure state + transitions only — no fetch, no DOM, no clock.
 
 import { mintId } from "./identity.js";
+import { relationshipsOfCharacter, episodesWithCharacterBeat } from "./canondoc.js";
 
 const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
 const nonEmpty = (x) => typeof x === "string" && x !== "";
@@ -34,6 +35,33 @@ const str = (x) => (typeof x === "string" ? x : "");
 // unique ids only: a duplicated reference renders twice and one removal would
 // delete every copy — validation rejects duplicates, hydration dedupes
 const idArray = (x) => (Array.isArray(x) ? [...new Set(x.filter(nonEmpty))] : []);
+
+/** Character TIERS (TASK-057). A `bit` character (服务员 / 路人 / 警察 / 医生)
+ *  carries the same identity machinery but is never required to fill in a
+ *  complete Character Bible; promoting it to `formal` keeps its id and every
+ *  existing reference (scene refs, relationships, beats, reference images). */
+export const CHARACTER_TIERS = ["formal", "bit"];
+
+/** A Character's CREATIVE-layer facets (TASK-057). These describe who the
+ *  character IS, not how they look in one scene — which is exactly why none of
+ *  them is state-overridable (same rule as `personality`): a state is the same
+ *  person. `visualInstruction` (基础视觉方向) and `appearance`/`costume` stay the
+ *  presentation facets a state may override.
+ *
+ *  关键关系摘要 is deliberately NOT here: it is DERIVED from the first-class
+ *  Relationship objects, so a character never carries a second copy of it. */
+export const CHARACTER_CREATIVE_FACETS = [
+  "identity",      // 身份
+  "desire",        // 欲望 / 目标
+  "weakness",      // 弱点
+  "coreConflict",  // 核心矛盾
+  "arc",           // Character Arc
+];
+
+/** Every writable profile facet of a Character. */
+export const CHARACTER_PROFILE_FIELDS = [
+  "appearance", "costume", "personality", "visualInstruction", ...CHARACTER_CREATIVE_FACETS,
+];
 
 // Facets a CharacterState / LocationState may override. personality and the
 // voice IDENTITY are deliberately absent: a state is the SAME character.
@@ -95,12 +123,13 @@ function sanitizeCharacter(c, taken, stateIds) {
     ...c,
     characterId: c.characterId,
     name: str(c.name),
+    // TASK-057: an unknown/absent tier hydrates as `formal` — an existing
+    // character was confirmed by the creator, so silently demoting it to a bit
+    // part would be the lossy reading
+    tier: CHARACTER_TIERS.includes(c.tier) ? c.tier : "formal",
     profile: {
       ...p,
-      appearance: str(p.appearance),
-      costume: str(p.costume),
-      personality: str(p.personality),
-      visualInstruction: str(p.visualInstruction),
+      ...Object.fromEntries(CHARACTER_PROFILE_FIELDS.map((k) => [k, str(p[k])])),
     },
     referenceAssetIds: refs,
     activeReferenceAssetId: activeIn(refs, c.activeReferenceAssetId),
@@ -222,11 +251,16 @@ export function scenesReferencingLocation(prod, locationId, stateId = null) {
 
 // ---- character transitions -------------------------------------------------- //
 
-export function addCharacter(prod, name) {
+/** Add a Character. `tier` defaults to a FORMAL character; pass "bit" for a
+ *  temporary / episode character (服务员、路人…) that is not expected to carry a
+ *  full Character Bible. A character may be added at ANY point in the project —
+ *  nothing requires the cast to be complete up front. */
+export function addCharacter(prod, name, tier = "formal") {
   const c = {
     characterId: mintId("char"),
     name: nonEmpty(name) ? name : `角色 ${prod.characters.length + 1}`,
-    profile: { appearance: "", costume: "", personality: "", visualInstruction: "" },
+    tier: CHARACTER_TIERS.includes(tier) ? tier : "formal",
+    profile: Object.fromEntries(CHARACTER_PROFILE_FIELDS.map((k) => [k, ""])),
     referenceAssetIds: [],
     activeReferenceAssetId: null,
     voice: { voiceId: null, description: "", performance: {} },
@@ -236,6 +270,17 @@ export function addCharacter(prod, name) {
   return c;
 }
 
+/** Change a character's tier. PROMOTION (bit → formal) keeps the identity and
+ *  therefore every existing reference: scene refs, relationships, episode
+ *  beats and reference images all continue to point at the same characterId
+ *  (ADR-0054 决策 7). Demotion is symmetric and equally non-destructive. */
+export function setCharacterTier(prod, characterId, tier) {
+  const c = findCharacter(prod, characterId);
+  if (!c || !CHARACTER_TIERS.includes(tier)) return false;
+  c.tier = tier;
+  return true;
+}
+
 export function renameCharacter(prod, characterId, name) {
   const c = findCharacter(prod, characterId);
   if (!c || typeof name !== "string" || !name.trim()) return false;
@@ -243,10 +288,16 @@ export function renameCharacter(prod, characterId, name) {
   return true;
 }
 
-/** Remove a Character — REFUSED while any scene still references it. */
+/** Remove a Character — REFUSED while anything still references it: a scene
+ *  (M7), a Relationship definition or an episode Character Beat (TASK-057).
+ *  Cascading would silently destroy creator canon, so the references must be
+ *  released explicitly first. */
 export function removeCharacter(prod, characterId) {
   const c = findCharacter(prod, characterId);
-  if (!c || scenesReferencingCharacter(prod, characterId).length) return false;
+  if (!c) return false;
+  if (scenesReferencingCharacter(prod, characterId).length) return false;
+  if (relationshipsOfCharacter(prod, characterId).length) return false;
+  if (episodesWithCharacterBeat(prod, characterId).length) return false;
   prod.characters = prod.characters.filter((x) => x.characterId !== characterId);
   return true;
 }
@@ -255,7 +306,7 @@ export function removeCharacter(prod, characterId) {
 export function updateCharacterProfile(prod, characterId, fields) {
   const c = findCharacter(prod, characterId);
   if (!c || !isObj(fields)) return false;
-  for (const k of ["appearance", "costume", "personality", "visualInstruction"]) {
+  for (const k of CHARACTER_PROFILE_FIELDS) {
     if (k in fields) c.profile[k] = str(fields[k]);
   }
   return true;

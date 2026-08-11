@@ -71,7 +71,7 @@
 
 | # | 项 | 优先级 | 决定 |
 | --- | --- | --- | --- |
-| ① | 资产 URL 仍带 project name（非项目相对路径） | **暂不修** | 最终应改为 project-relative asset path，但需要 canvas schema v10。不值得为它拖慢真实使用；等做**项目改名 / 项目移动 / 打包导出**时一并解决。 |
+| ① | 资产 URL 仍带 project name（非项目相对路径） | **暂不修** | 最终应改为 project-relative asset path，需要一次 canvas schema 迁移。**注意编号：v10 已被 TASK-057 / ADR-0054（Production 上游 canon）占用并正式启用，本项迁移必须使用 v11 或更高**。不值得为它拖慢真实使用；等做**项目改名 / 项目移动 / 打包导出**时一并解决。 |
 | ② | `data/projects.json` 仍写在仓库内 | **中** | 这是**应用级**数据，既非源码也非项目数据，最终不应留在仓库。目标位置形如 `%LOCALAPPDATA%\motv\projects.json`，或用户指定的 `D:\MotvData\`。不阻塞使用，后续做一个很小的 App Storage checkpoint（[TASK-056](TASK-056-app-storage-location.md)）。 |
 | ③ | 旧 scratch 只保留、不回收 | **低** | 保留旧数据比自动删除安全得多。以后给一个「清理旧版数据」工具即可。 |
 | ④ | 真实 FFmpeg 实媒体验证 | **已完成**（见 §5） | 真实 PNG → 真实 MP4 → 真实音频 → Timeline → FFmpeg → Final MP4。**不要为此再造大架构。** |

@@ -30,11 +30,20 @@ import { assetInbox, inboxLabel } from "./assetinbox.js";
 import { invoke } from "./directorops.js";
 import { sceneOfShot, activeEpisode } from "../workflow/proddoc.js";
 import { findCharacter, resolveCharacter, findLocation, resolveLocation } from "../workflow/bibledoc.js";
+import { episodeImpact, upstreamVersions } from "../workflow/canondoc.js";
 
 const MODULE_LABEL = {
-  story: "故事", settings: "作品设定", episodes: "剧集", storage: "存储", assets: "资产库",
-  script: "剧本", shots: "分镜", frames: "画面", video: "视频", audio: "音频", edit: "剪辑",
+  brief: "创意", story: "故事大纲", characters: "人物", relationships: "人物关系",
+  world: "世界观", episodes: "分集规划", settings: "作品设定",
+  storage: "存储", assets: "资产库",
+  script: "剧本", scenes: "场景", shots: "分镜", frames: "画面", video: "视频",
+  audio: "音频", edit: "剪辑",
 };
+
+/** The upstream modules whose subject is the PROJECT, not one episode. The
+ *  Director's per-shot machinery (blockers, prompts, media standing) is
+ *  meaningless there, so those sections stay collapsed rather than empty. */
+const UPSTREAM_MODULES = ["brief", "story", "characters", "relationships", "world", "episodes", "settings"];
 
 const STATUS_ZH = { queued: "排队", generating: "生成中", success: "成功", failed: "失败", cancelled: "已取消" };
 const TYPE_ICON = { image: "🖼", video: "▶", audio: "🎵", render: "🎬" };
@@ -112,18 +121,50 @@ function contextOf(pd, module, shotId) {
 export function directorNote({ module, story, doc, pd, shotId }) {
   const st = scriptStatus(doc);
   const prod = pd.production;
-  if (module === "story") {
-    if (!story.idea.trim()) return "先写一句创意——一句话就够。我会把它发展成前提、故事线、世界观和分集结构。";
-    if (!story.versions.length) return "创意已经在了。让我把它发展成一版完整大纲，你再逐条改。";
-    if (!story.approved) return `大纲已有 ${story.versions.length} 版但都没批准。批准一版，剧集规划才有稳定依据。`;
-    return `大纲 v${story.approved} 已批准。下一步是分集规划——把故事弧切成每集的钩子和结尾拍。`;
+  if (module === "brief") {
+    const b = story.brief || { versions: [], active: 0 };
+    if (!story.idea.trim()) return "先写一句核心创意——一句话就够。类型、基调、形式可以之后慢慢补，不必一次填满。";
+    if (!b.active) return "创意已经在了。想让下游稳定地依据它，就把当前草稿确认成一个创意版本——日常编辑我不会替你版本化。";
+    return `创意 v${b.active} 已确认。下一步是把它发展成故事大纲：前提、主线、核心冲突、Story Arc、高潮、结局。`;
   }
-  if (module === "settings") {
+  if (module === "story") {
+    if (!story.idea.trim()) return "先写一句创意——一句话就够。我会把它发展成前提、主线、核心冲突和分集结构。";
+    if (!story.versions.length) return "创意已经在了。让我把它发展成一版完整大纲，你再逐条改。";
+    if (!story.approved) return `大纲已有 ${story.versions.length} 版但都没批准。批准一版，分集规划才有稳定依据。`;
+    return `大纲 v${story.approved} 已批准。下一步是分集规划——把 Story Arc 切成每集的钩子和结尾拍。`;
+  }
+  if (module === "relationships") {
     const chars = (prod && prod.characters) || [];
-    const noRef = chars.filter((c) => !c.referenceAssetIds.length);
-    if (!chars.length) return "作品设定还是空的。用「剧本拆解」让我从剧本里提出角色和场景地，你逐条确认。";
+    const rels = (prod && prod.relationships) || [];
+    if (chars.length < 2) return "关系需要两个人物。先把主要人物立起来，我再帮你看他们之间的张力。";
+    if (!rels.length) return "还没有一段人物关系。关系是独立对象：核心矛盾、权力关系、Arc 都写在关系上，不写在角色档案里。";
+    const thin = rels.filter((r) => !r.profile.coreConflict.trim() || !r.profile.arc.trim());
+    if (thin.length) return `${thin.length} 段关系还缺核心矛盾或 Arc。没有 Arc，我无法判断某一集的关系推进是否走偏。`;
+    return "关系定义完整。记住这里写的是整部作品的走向；某一集实际发生什么，记在该集的 Relationship Beat 里。";
+  }
+  if (module === "world") {
+    const w = (prod && prod.world) || null;
+    if (!w) return "世界观文档未加载。";
+    if (!w.era.trim() && !w.rules.trim()) return "世界观还是空的。先定时代与世界规则——它们决定后面每一集什么可能、什么不可能。";
+    if (!w.rules.trim()) return "时代有了，但世界规则还没写。规则是连续性的地基：AI 与后续集数都靠它避免自相矛盾。";
+    if (!w.visualTone.trim()) return "视觉基调还没定。它会进入画面 Prompt 的编译结果，决定整部作品看起来是否像同一部。";
+    return "世界观可用。具体场景地（含日/夜状态与参考图）在「人物 · 场景地库」里，这里不重复存第二份地点数据。";
+  }
+  if (module === "episodes") {
+    const eps = (prod && prod.episodes) || [];
+    if (!story.approved) return "分集规划要基于已批准的大纲。先在「故事大纲」批准一版，我再按它拆集。";
+    if (!story.confirmedPlan) return "规划还没确认。确认之后才会建立剧集实体——在那之前我不会动任何一集。";
+    const noBeat = eps.filter((e) => !e.beats || !(e.beats.plot.length || e.beats.relationship.length || e.beats.character.length || e.beats.world.length));
+    if (noBeat.length) return `${noBeat.length} 集还没有记录 Arc 推进。写下主线 / 人物 / 关系 / 世界揭示的 beat，我才能判断整部作品是否在前进。`;
+    return "每集都有 Arc 推进记录。上游改版时我只会告诉你哪一集基于旧版本——绝不替你改写剧情。";
+  }
+  if (module === "settings" || module === "characters") {
+    const chars = (prod && prod.characters) || [];
+    const formal = chars.filter((c) => c.tier !== "bit");
+    const noRef = formal.filter((c) => !c.referenceAssetIds.length);
+    if (!chars.length) return "人物还是空的。用「剧本拆解」让我从剧本里提出角色和场景地，你逐条确认。";
     if (noRef.length) return `${noRef.map((c) => c.name).join("、")} 还没有参考图。跨镜头一致性靠的就是这张主参考——建议先补上。`;
-    return "角色都有主参考了。状态（少女/成年/黑化…）只改表现，声音身份始终跟着角色本人。";
+    return "正式角色都有主参考了。临时角色（服务员/路人/医生）不需要完整档案，需要时再提升为正式角色。";
   }
   if (module === "script") {
     if (!st.versions && !doc.workingText) return "本集还没有剧本。我可以用创意＋已批准大纲＋本集规划直接起一版。";
@@ -159,11 +200,71 @@ export function directorNote({ module, story, doc, pd, shotId }) {
 /* -------------------------------------------------------------------------- */
 
 /** Which section deserves the top slot right now. */
-export function surfacedSection({ plan, inbox, currentBlocked }) {
+export function surfacedSection({ plan, inbox, currentBlocked, upstream, module }) {
   if (currentBlocked) return "plan";       // the shot in front of you cannot proceed
+  // upstream: while the creator is UPSTREAM, canon standing (what is defined,
+  // what episodes are behind) is what they are actually working on
+  if (upstream && upstream.isUpstream) return upstream.stale.length ? "canon" : "canon";
   if (inbox.pending) return "inbox";        // assets are waiting on a human decision
   if (plan.next) return "plan";             // healthy: show the next production step
   return "director";
+}
+
+/** What the Director can READ about the work as a whole, and — separately —
+ *  what it can not yet DO about it.
+ *
+ *  Everything here is a projection of real canon: brief / outline / character
+ *  (with arc) / relationship (with arc) / world rules / episode plan / recorded
+ *  episode facts (beats). The `capabilities` list is deliberately explicit
+ *  about the supervising checks that are NOT wired: an unavailable capability is
+ *  shown as unavailable, never as a button that fakes a verdict (ADR-0054). */
+export function canonModel({ story, pd }) {
+  const prod = pd.production;
+  if (!prod || !prod.canon) return null;
+  const cur = upstreamVersions(story, prod);
+  const chars = prod.characters || [];
+  const rels = prod.relationships || [];
+  const w = prod.world || {};
+  // CHANGED and UNRECORDED are counted separately: an episode with no recorded
+  // baseline (every migrated one) is not behind anything, and listing it as a
+  // change would assert a history the document does not contain.
+  const stale = [];
+  const unrecorded = [];
+  for (const [i, e] of (prod.episodes || []).entries()) {
+    const im = episodeImpact(prod, e.episodeId, story);
+    if (!im) continue;
+    const row = { episodeId: e.episodeId, code: `EP${String(i + 1).padStart(2, "0")}`, title: e.title };
+    if (im.count) {
+      stale.push({ ...row, count: im.count, surfaces: im.stale.map((s) => `${s.label}（${s.state === "outdated" ? "已更新" : "已回退"}）`) });
+    } else if (im.unknown.length) {
+      unrecorded.push({ ...row, count: im.unknown.length });
+    }
+  }
+  const beatCount = (prod.episodes || []).reduce(
+    (n, e) => n + (e.beats ? e.beats.plot.length + e.beats.world.length + e.beats.character.length + e.beats.relationship.length : 0),
+    0,
+  );
+  return {
+    versions: cur,
+    reads: [
+      { k: "创意 Brief", v: cur.brief ? `v${cur.brief}` : story.idea.trim() ? "草稿" : "—", ok: !!cur.brief },
+      { k: "故事大纲", v: cur.outline ? `v${cur.outline}` : story.versions.length ? "未批准" : "—", ok: !!cur.outline },
+      { k: "人物", v: chars.length ? `${chars.length} 个` : "—", ok: chars.length > 0 },
+      { k: "人物关系", v: rels.length ? `${rels.length} 段` : "—", ok: rels.length > 0 },
+      { k: "世界规则", v: w.rules && w.rules.trim() ? "已定义" : "—", ok: !!(w.rules && w.rules.trim()) },
+      { k: "分集规划", v: story.confirmedPlan ? `v${story.confirmedPlan}` : "未确认", ok: !!story.confirmedPlan },
+      { k: "已发生的剧集事实", v: beatCount ? `${beatCount} 条 beat` : "—", ok: beatCount > 0 },
+    ],
+    stale,
+    unrecorded,
+    // future SUPERVISING capabilities — listed, not stubbed
+    capabilities: [
+      "剧情一致性 / 角色 OOC 检查",
+      "关系 Arc 偏离检查",
+      "世界规则与揭示顺序检查",
+      "跨集连续性与推进检查",
+    ],
+  };
 }
 
 export function directorModel({ module, doc, story, pd, sel }) {
@@ -180,7 +281,13 @@ export function directorModel({ module, doc, story, pd, sel }) {
       : { kind: "story-develop", label: "🪄 AI 发展故事（生成大纲提案）", ph: "可补充方向，例如：偏权谋、女性主角", input: true };
   } else if (module === "episodes") {
     primary = approved
-      ? { kind: "story-plan", label: "🪄 生成剧集规划提案", ph: "可补充要求，例如：压缩到 4 集、每集都要钩子", input: true }
+      ? { kind: "story-plan", label: "🪄 生成分集规划提案", ph: "可补充要求，例如：压缩到 4 集、每集都要钩子", input: true }
+      : null;
+  } else if (module === "brief") {
+    // developing the outline IS the brief's forward action — the brief itself
+    // has no AI capability wired, and inventing one would be a fake button
+    primary = story && story.idea.trim()
+      ? { kind: "story-develop", label: "🪄 由创意发展故事大纲 → 生成提案", ph: "可补充方向，例如：偏权谋、女性主角", input: true }
       : null;
   } else if (module === "script") {
     primary = st.versions || doc.workingText
@@ -190,13 +297,20 @@ export function directorModel({ module, doc, story, pd, sel }) {
     primary = pd.draftShots && pd.draftShots.length
       ? { kind: "shots-generate", label: "↻ 重新生成分镜（新版本）", ph: "当前版本保留；重新生成产出全新草稿版本", input: false }
       : { kind: "shots-generate", label: "🎬 基于剧本生成分镜", ph: "需要剧本 — 生成走本地 Claude，免费", input: false };
-  } else if (module === "settings") {
-    primary = { kind: "bible-breakdown", label: "🪄 剧本拆解 → 同步作品设定提案", ph: "提案逐条确认，绝不覆盖已确认档案", input: false };
+  } else if (module === "settings" || module === "characters") {
+    primary = { kind: "bible-breakdown", label: "🪄 剧本拆解 → 同步人物 / 场景地提案", ph: "提案逐条确认，绝不覆盖已确认档案", input: false };
   }
 
   const pending = {
     settings: "按设定的一致性检查（待后续检查点）",
-    episodes: approved ? null : "剧集规划需要已批准的故事大纲 — 先在「故事」发展并批准",
+    characters: "按设定的一致性检查（待后续检查点）",
+    // These are the Director's FUTURE supervising capabilities. They are listed
+    // as unavailable rather than wired to a stub: a button that pretends to
+    // check relationship drift would be worse than no button (ADR-0054 决策 6).
+    relationships: "关系 Arc 偏离检查（Relationship Arc / OOC）尚未接入 — 需另立 ADR",
+    world: "世界规则一致性与揭示顺序检查尚未接入 — 需另立 ADR",
+    brief: "创意本身没有 AI 能力接线；由创意发展大纲走上面的动作",
+    episodes: approved ? null : "分集规划需要已批准的故事大纲 — 先在「故事大纲」发展并批准",
     frames: shotId ? null : "选一个镜头后可编译 Image Prompt 并生成；付费生成在工作流「资产准备」节点（ADR-0045）",
     video: shotId ? null : "选一个镜头后可编译 Video Prompt 并生成；付费生成在工作流「视频生成」节点（ADR-0041/0046）",
   }[module] || null;
@@ -231,7 +345,15 @@ export function directorModel({ module, doc, story, pd, sel }) {
   const inbox = assetInbox(pd);
   const currentShot = shotId ? episodeShots(pd).find((s) => s.shotId === shotId) : null;
   const currentBlockers = currentShot ? shotBlockers(pd, currentShot) : [];
-  const surfaced = surfacedSection({ plan, inbox, currentBlocked: currentBlockers.length > 0 });
+  const canon = canonModel({ story: story || { idea: "", brief: { active: 0, versions: [] }, versions: [], approved: 0, confirmedPlan: 0 }, pd });
+  const isUpstream = UPSTREAM_MODULES.includes(module);
+  const surfaced = surfacedSection({
+    plan,
+    inbox,
+    currentBlocked: currentBlockers.length > 0,
+    upstream: canon ? { isUpstream, stale: canon.stale } : null,
+    module,
+  });
 
   const ctxOf = contextOf(pd, module, shotId);
   return {
@@ -243,6 +365,8 @@ export function directorModel({ module, doc, story, pd, sel }) {
     history,
     plan,
     inbox,
+    canon,
+    isUpstream,
     currentBlockers,
     surfaced,
     generating: !!(pend && pend.status === "generating"),
@@ -316,6 +440,55 @@ function blockerLabel(m, shotId) {
   const b = m.plan.blocked.find((x) => x.shotId === shotId);
   if (!b) return "";
   return `${String(b.seq).padStart(2, "0")} ${b.title} — ${b.reason.text}`;
+}
+
+/** 作品 Canon — what the supervising director actually knows about the work,
+ *  plus the episodes that are provably based on older upstream versions. */
+function canonBody(m) {
+  const c = m.canon;
+  if (!c) return `<div class="meta">生产域文档未加载。</div>`;
+  // one row per surface, not chips: seven label+value pairs squeezed into a
+  // 300px column wrap into unreadable vertical slivers
+  const reads =
+    `<div class="dir-canon">` +
+    c.reads
+      .map((r) => `<div class="cr${r.ok ? " ok" : ""}"><span class="k">${esc(r.k)}</span><span class="v">${esc(r.v)}</span></div>`)
+      .join("") +
+    `</div>`;
+  const stale = c.stale.length
+    ? `<div class="lab">上游变化（确定性）</div>` +
+      c.stale
+        .map(
+          (s) =>
+            `<button class="pl-row active" data-canon-ep="${esc(s.episodeId)}">` +
+            `<span class="mk">⚠</span><span class="nm">${esc(s.code)} ${esc(s.title)}</span>` +
+            `<span class="dt">${s.count} 项：${esc(s.surfaces.join("、"))}</span></button>`,
+        )
+        .join("") +
+      `<div class="meta">上游变化<b>不会</b>自动改写这些剧集 —— 点开进入「分集规划」的影响审阅。</div>`
+    : `<div class="meta">没有剧集基于与当前不同的上游版本。</div>`;
+  // separate line, separate wording: these episodes are not behind — the
+  // document simply never recorded what they were built on
+  const unrec = c.unrecorded.length
+    ? `<div class="lab">上游基线未记录</div>` +
+      c.unrecorded
+        .map(
+          (s) =>
+            `<button class="pl-row" data-canon-ep="${esc(s.episodeId)}">` +
+            `<span class="mk">○</span><span class="nm">${esc(s.code)} ${esc(s.title)}</span>` +
+            `<span class="dt">${s.count} 项未记录</span></button>`,
+        )
+        .join("") +
+      `<div class="meta">未记录 ≠ 落后：这些剧集没有记录所基于的上游版本，因此无从判断。复核后可在「分集规划」建立当前基线。</div>`
+    : "";
+  return (
+    reads +
+    stale +
+    unrec +
+    `<div class="lab">监督能力（尚未接入）</div>` +
+    c.capabilities.map((t) => `<div class="dir-unavail">◌ ${esc(t)}</div>`).join("") +
+    `<div class="meta">这些判断需要语义检查能力，另立 ADR 后接入；现在不给伪造结论。</div>`
+  );
 }
 
 function inboxBody(m) {
@@ -416,10 +589,28 @@ export function renderDirector(m, instruction, open = {}) {
     ? `<span class="chip">${m.genKind === "image" ? "画面" : "视频"} Prompt</span>`
     : m.history.length ? `<span class="chip">${m.history.length} 条记录</span>` : "";
 
+  // three states, three summaries: a collapsed section must not claim
+  // 「与上游一致」 for episodes whose baseline was never recorded — that is an
+  // absence of information, not agreement (ADR-0054 决策 6)
+  const canonSummary = m.canon
+    ? m.canon.stale.length
+      ? `<span class="chip gate">${m.canon.stale.length} 集基于另一版本</span>`
+      : m.canon.unrecorded.length
+        ? `<span class="chip mute">${m.canon.unrecorded.length} 集基线未记录</span>`
+        : `<span class="chip ok">与上游一致</span>`
+    : "";
+
   // The OPERATIONAL group is what reorders; CURRENT CONTEXT and DIRECTOR stay
   // pinned so the panel keeps a learnable shape. A blocker on the shot in
   // front of the creator is the one thing that jumps above everything — it is
   // literally why they cannot proceed.
+  secs.push({
+    key: "canon",
+    html: (o) => section("canon", "作品 Canon", canonSummary, canonBody(m), { open: o, surfaced: m.surfaced === "canon" }),
+    // open while working UPSTREAM (that is the subject there) or when something
+    // is provably behind; collapsed to its one-line summary otherwise
+    dflt: !!(m.isUpstream || (m.canon && m.canon.stale.length)),
+  });
   secs.push({
     key: "plan",
     html: (o) => section("plan", `生产计划 · ${m.plan.episode ? m.plan.episode.code : ""}`, planSummary, planBody(m), { open: o, surfaced: m.surfaced === "plan" }),
@@ -563,6 +754,19 @@ export function bindDirector(root, ctx, state, rerender) {
   root.querySelectorAll("[data-ibopen]").forEach((b) => (b.onclick = () => invoke("navigate", openAssets)));
   const ibAll = root.querySelector("[data-ibopen-all]");
   if (ibAll) ibAll.onclick = () => invoke("navigate", openAssets);
+
+  // --- 作品 CANON: open a stale episode's Impact Review --------------------- //
+  // navigation only; the review itself never writes, and the re-stamp inside it
+  // is the creator's explicit act.
+  root.querySelectorAll("[data-canon-ep]").forEach((b) => (b.onclick = () => {
+    invoke("navigate", () => {
+      state.impactOpen = b.dataset.canonEp;
+      state.beatsOpen = null;
+      const nav = root.querySelector('[data-mod="episodes"]');
+      if (nav && !nav.classList.contains("on")) nav.click();
+      else redraw();
+    });
+  }));
 
   bindGenEntry(root, ctx, state, redraw);
 }

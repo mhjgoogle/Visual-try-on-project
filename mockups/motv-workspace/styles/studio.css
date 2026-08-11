@@ -840,3 +840,95 @@
 .st-skel > i:nth-child(3n) { width: 62%; }
 @keyframes stshimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
 @media (prefers-reduced-motion: reduce) { .st-skel > i { animation: none; } }
+
+/* ======================================================================== */
+/* TASK-057 · Production upstream workspace (ADR-0054)                      */
+/* ======================================================================== */
+
+/* --- rail: the 作品设定 sub-heading and its indented items --------------- */
+.st-railsub {
+  font-size: var(--t-micro); font-weight: 700; letter-spacing: .06em;
+  color: var(--text-faint); padding: var(--s2) var(--s3) 2px var(--s4);
+}
+.st-subitem { padding-left: calc(var(--s3) + var(--s4)); }
+.st-subitem .ic { opacity: .75; }
+.st-railnote {
+  font-size: var(--t-xs); color: var(--text-faint); line-height: 1.6;
+  padding: var(--s1) var(--s3) var(--s3);
+}
+/* an episode row: the rail's expandable exit into one episode */
+.st-eprow .nm { font-weight: 700; }
+.st-eprow.on { background: var(--accent-soft); border-color: var(--accent-line); color: var(--text); }
+.st-navitem .bdg.gate { color: var(--gate); }
+
+/* --- creative brief / world: the autosave-vs-version note ---------------- */
+.cb-note {
+  padding: var(--s2) var(--s3); border: 1px dashed var(--line-2);
+  border-radius: var(--r2); background: var(--panel-2); line-height: 1.7;
+}
+
+/* --- relationships: the pair gallery ------------------------------------- */
+.relgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(266px, 1fr)); gap: var(--s4); }
+.relcard {
+  display: flex; flex-direction: column; text-align: left; cursor: pointer;
+  border: 1px solid var(--line); border-radius: var(--r3); background: var(--panel);
+  overflow: hidden; color: inherit; font: inherit; padding: 0;
+}
+.relcard:hover { border-color: var(--line-2); background: var(--panel-2); }
+.relcard.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-line) inset; }
+.relcard .rel-pair { display: flex; gap: 1px; background: var(--line); }
+.relcard .por.sm { width: 50%; aspect-ratio: 4 / 5; object-fit: cover; display: block; background: var(--canvas); }
+.relcard .rel-pair .media-none {
+  width: 50%; aspect-ratio: 4 / 5; display: flex; align-items: center; justify-content: center;
+  background: var(--canvas); color: var(--text-faint);
+}
+.relcard .bd { padding: var(--s3) var(--s4) var(--s4); display: flex; flex-direction: column; gap: var(--s2); }
+.relcard .nm { display: flex; align-items: center; gap: var(--s2); font-size: var(--t-md); }
+.relcard .rel-x { color: var(--accent); font-weight: 800; }
+.relcard .kv .v { font-size: var(--t-sm); color: var(--text-dim); line-height: 1.7; }
+.relcard .rw { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.relcard .k { font-size: var(--t-micro); font-weight: 700; color: var(--text-faint); text-transform: uppercase; }
+
+/* --- episode plan: wide cards with the Arc / dependency blocks ----------- */
+/* auto-FIT, not auto-fill: a project with one or two episodes must let the
+   cards use the whole column instead of leaving empty tracks beside them */
+.epgrid.wide { grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); }
+.epcard.on { border-color: var(--accent-line); }
+.epcard .rw { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.epcard .rw .k { font-size: var(--t-micro); font-weight: 700; color: var(--text-faint); text-transform: uppercase; }
+.epcard .push { margin-left: auto; }
+
+.beatbox, .impactbox {
+  border: 1px solid var(--line-2); border-radius: var(--r2); background: var(--canvas);
+  padding: var(--s3); display: flex; flex-direction: column; gap: var(--s2);
+}
+.impactbox {
+  border-color: color-mix(in srgb, var(--gate) 45%, var(--line));
+  background: color-mix(in srgb, var(--gate) 8%, transparent);
+}
+.beatbox .hd, .impactbox .hd { display: flex; align-items: center; gap: var(--s2); font-size: var(--t-sm); }
+.beatbox .hd .push, .impactbox .hd .push { margin-left: auto; }
+.beatrow { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.beatrow > .chip { flex: none; min-width: 96px; }
+.beatrow input { flex: 1; min-width: 140px; }
+.beatrow.rel input { min-width: 118px; }
+.beatrow .ws-bibleinput { width: auto; margin: 0; }
+.beatbox .ws-lab, .impactbox .lab { margin-top: var(--s1); }
+
+/* AI Director · 作品 CANON: one readable row per upstream surface (seven
+   label+value chips would wrap into vertical slivers in a 300px column) */
+.dir-canon { display: flex; flex-direction: column; gap: 1px; }
+.dir-canon .cr {
+  display: flex; align-items: baseline; gap: var(--s2);
+  padding: 3px var(--s2); border-radius: var(--r1); background: var(--panel-2);
+}
+.dir-canon .cr .k { flex: 1; min-width: 0; font-size: var(--t-xs); color: var(--text-faint); }
+.dir-canon .cr .v {
+  flex: none; font-size: var(--t-xs); font-weight: 700; color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.dir-canon .cr.ok .v { color: var(--ok); }
+
+/* a relationship SUMMARY is prose, so it must ellipsize rather than clip
+   mid-character when it does not fit its card */
+.bcard .rw .chip, .drawer-b .row .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

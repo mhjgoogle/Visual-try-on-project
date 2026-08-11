@@ -26,16 +26,33 @@
 
 import { mintId } from "./identity.js";
 import { sanitizeBible, sanitizeSceneRefs } from "./bibledoc.js";
+import {
+  sanitizeRelationships, sanitizeWorld, sanitizeCanon, sanitizeBeats, sanitizeBasedOn,
+  defaultWorld, defaultCanon, defaultBeats, defaultBasedOn,
+} from "./canondoc.js";
 
 const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
 const nonEmpty = (x) => typeof x === "string" && x !== "";
 
 /** A fresh default document: one episode, active, no scenes; an empty
- *  Production Bible (M7). Every project has at least one episode (the
- *  shell's "当前剧集" context header). */
+ *  Production Bible (M7) and empty project-level canon (TASK-057). Every
+ *  project has at least one episode (the shell's "当前剧集" context header). */
 function defaultProduction() {
-  const ep = { episodeId: mintId("ep"), title: "第 1 集", scenes: [], bgmAssetId: null };
-  return { activeEpisodeId: ep.episodeId, episodes: [ep], characters: [], locations: [] };
+  const ep = {
+    episodeId: mintId("ep"), title: "第 1 集", scenes: [], bgmAssetId: null,
+    beats: defaultBeats(), basedOn: defaultBasedOn(),
+  };
+  return {
+    activeEpisodeId: ep.episodeId,
+    episodes: [ep],
+    characters: [],
+    locations: [],
+    // TASK-057 project-level canon: relationships between characters, the
+    // World Setting, and one revision number per canon surface
+    relationships: [],
+    world: defaultWorld(),
+    canon: defaultCanon(),
+  };
 }
 
 function sanitizeScene(s, takenSceneIds, takenShotIds) {
@@ -91,6 +108,10 @@ export function createProduction(saved) {
       scenes,
       // M11: the episode-level BGM reference (scenes may override)
       bgmAssetId: typeof e.bgmAssetId === "string" && e.bgmAssetId ? e.bgmAssetId : null,
+      // TASK-057: beats + upstream stamp are sanitized below, once the canon
+      // entities they reference are hydrated
+      _rawBeats: e.beats,
+      basedOn: sanitizeBasedOn(e.basedOn),
     });
   }
   if (!episodes.length) return defaultProduction();
@@ -100,16 +121,36 @@ export function createProduction(saved) {
   // M7 Production Bible: hydrate entities first, then scene refs against them
   const { characters, locations } = sanitizeBible(saved);
   for (const e of episodes) for (const s of e.scenes) sanitizeSceneRefs(s, characters, locations);
-  return { activeEpisodeId: active, episodes, characters, locations };
+  // TASK-057 canon: relationships need the characters to exist, and beats need
+  // both — so the order is characters → relationships → beats
+  const charIds = new Set(characters.map((c) => c.characterId));
+  const relationships = sanitizeRelationships(saved.relationships, charIds);
+  const relIds = new Set(relationships.map((r) => r.relationshipId));
+  for (const e of episodes) {
+    e.beats = sanitizeBeats(e._rawBeats, charIds, relIds);
+    delete e._rawBeats;
+  }
+  return {
+    activeEpisodeId: active,
+    episodes,
+    characters,
+    locations,
+    relationships,
+    world: sanitizeWorld(saved.world),
+    canon: sanitizeCanon(saved.canon),
+  };
 }
 
-/** The durable slice for persistence (schema v7 `production`). */
+/** The durable slice for persistence (schema v10 `production`). */
 export function serialize(prod) {
   return {
     activeEpisodeId: prod.activeEpisodeId,
     episodes: prod.episodes,
     characters: prod.characters,
     locations: prod.locations,
+    relationships: prod.relationships,
+    world: prod.world,
+    canon: prod.canon,
   };
 }
 
@@ -136,6 +177,10 @@ export function addEpisode(prod, title) {
     title: nonEmpty(title) ? title : `第 ${prod.episodes.length + 1} 集`,
     scenes: [],
     bgmAssetId: null,
+    // TASK-057: a new episode records no beats and is NOT auto-stamped against
+    // upstream — the creator stamps it when they decide it is up to date
+    beats: defaultBeats(),
+    basedOn: defaultBasedOn(),
   };
   prod.episodes.push(ep);
   return ep;

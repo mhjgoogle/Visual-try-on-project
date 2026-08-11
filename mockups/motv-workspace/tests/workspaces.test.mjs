@@ -19,6 +19,7 @@ import {
   renderFrames,
 } from "../src/ui/workspaces.js";
 import { navBadges, NAV } from "../src/ui/production.js";
+import { EPISODE_NAV, EPISODE_MODULES } from "../src/ui/shell.js";
 import * as sd from "../src/workflow/scriptdoc.js";
 
 /** The default production structure a fresh project carries (M6/M7). */
@@ -361,8 +362,10 @@ test("navBadges: counts reflect state; empty modules still get a badge-less item
   const d = sd.createDoc();
   const empty = navBadges(d, pdEmpty());
   assert.deepEqual(empty, {
+    // TASK-057 upstream surfaces: brief / characters / relationships / world
+    brief: "", characters: "", relationships: "", world: "",
     story: "", settings: "", episodes: "1", // M6: real persisted episode count
-    script: "草稿", shots: "", frames: "", video: "", audio: "", edit: "",
+    script: "草稿", scenes: "", shots: "", frames: "", video: "", audio: "", edit: "",
     storage: "", assets: "",
   });
   sd.completeGeneration(d, sd.beginGeneration(d, "initial", "想法"), "v1");
@@ -398,13 +401,32 @@ test("navBadges: counts reflect state; empty modules still get a badge-less item
 
 // --- M2.5 最终信息架构 ----------------------------------------------------- //
 
-test("NAV: the rail is PROJECT + CURRENT EPISODE; assets is a top-level mode", () => {
-  assert.deepEqual(NAV.map((g) => g.sec), ["项目", "本集制作"]);
-  assert.deepEqual(NAV[0].items.map((i) => i[0]), ["story", "settings", "episodes"]);
+test("NAV: the rail is the UPSTREAM 作品开发; episode stages are NOT in it (TASK-057)", () => {
+  // ADR-0054 决策 1: Production is the upstream workspace. Its primary
+  // navigation is building the whole work's foundation — 创意 → 故事大纲 →
+  // 作品设定（人物 / 人物关系 / 世界观）→ 分集规划.
+  assert.deepEqual(NAV.map((g) => g.sec), ["作品开发"]);
+  assert.deepEqual(NAV[0].items.map((i) => i[0]), [
+    "brief", "story", "characters", "relationships", "world", "episodes",
+  ]);
+  // 人物 / 人物关系 / 世界观 are grouped under one 作品设定 sub-heading rather
+  // than being a dozen first-level pages
+  assert.deepEqual(
+    NAV[0].items.filter((i) => i[3] && i[3].under === "作品设定").map((i) => i[0]),
+    ["characters", "relationships", "world"],
+  );
+  // the DOWNSTREAM production stages left the project rail entirely: they
+  // belong to ONE episode and are reached by entering it
+  for (const k of ["shots", "frames", "video", "audio", "edit", "script", "scenes"]) {
+    assert.ok(!NAV.some((g) => g.items.some((i) => i[0] === k)), `${k} must not be in the project rail`);
+  }
+  assert.deepEqual(EPISODE_NAV.map((i) => i[0]), [
+    "script", "scenes", "shots", "frames", "video", "audio", "edit",
+  ]);
+  assert.deepEqual(EPISODE_MODULES, EPISODE_NAV.map((i) => i[0]));
   // storage/assets left the rail: the asset library is a top-level mode in the
   // studio top bar (TASK-051 §11), not a per-project rail item
   assert.ok(!NAV.some((g) => g.items.some((i) => i[0] === "storage" || i[0] === "assets")));
-  assert.deepEqual(NAV[1].items.map((i) => i[0]), ["script", "shots", "frames", "video", "audio", "edit"]);
 });
 
 /** An empty story document (M9 default shape). */

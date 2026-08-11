@@ -242,16 +242,32 @@ test("the creativeShotId bridge in lockedPlan survives a canvas dispatch round-t
     v: CANVAS_SCHEMA_VERSION,
     project: "p",
     // M9: scripts are per-episode; the story chain is a required v8 field
-    story: { idea: "", versions: [], active: 0, approved: 0, plans: [], activePlan: 0, confirmedPlan: 0 },
+    story: {
+      idea: "", versions: [], active: 0, approved: 0, plans: [], activePlan: 0, confirmedPlan: 0,
+      // TASK-057: the Creative Brief is a required v10 field
+      brief: {
+        draft: { genre: "", tone: "", form: "", episodeDuration: "", totalDuration: "", notes: "", targetEpisodes: null },
+        versions: [], active: 0,
+      },
+    },
     scripts: {},
     assets: { images: {}, videos: {}, audio: {}, firstFrames: {}, finals: [], displaced: [] },
     generations: [], // M5: a current-version doc carries the generation registry
     // M6/M7: …and the production structure (with its bible registries)
     production: {
       activeEpisodeId: "ep-1",
-      episodes: [{ episodeId: "ep-1", title: "第 1 集", scenes: [], bgmAssetId: null }],
+      episodes: [{
+        episodeId: "ep-1", title: "第 1 集", scenes: [], bgmAssetId: null,
+        // TASK-057: Arc beats + the upstream version stamp
+        beats: { plot: [], character: [], relationship: [], world: [] },
+        basedOn: { brief: 0, outline: 0, characters: 0, relationships: 0, world: 0 },
+      }],
       characters: [],
       locations: [],
+      // TASK-057: project-level canon
+      relationships: [],
+      world: { era: "", rules: "", society: "", regions: "", places: "", visualTone: "", atmosphere: "" },
+      canon: { characters: 0, relationships: 0, world: 0 },
     },
     timelines: {}, // M11: required v9 field
     nodes: [{

@@ -1,27 +1,31 @@
-// 故事工作区 — story DEVELOPMENT, not a database editor.
+// 故事大纲工作区 — the durable Story Outline, read as prose.
 //
-// The pipeline (创意 → 发展 → 大纲 → 剧集规划) is the spine; the approved
-// outline reads as structured section CARDS, and the confirmed plan as episode
-// CARDS. Long stacks of textareas are gone: editing an outline opens a
-// secondary editor, so the default view stays readable prose.
+// 「故事发展」 is NOT a stage of its own (ADR-0054 §4): AI Story Development is
+// the AI Director's ABILITY to develop this outline, not a separate domain
+// layer. The spine the creator sees is 创意 → 故事大纲 → 分集规划, and the
+// outline surface shows exactly one thing: Working Draft / the current formal
+// Revision, plus the Creative Brief revision it was developed from.
 //
-// Behaviour is unchanged from the previous form-first screen — the same
+// The version model is the EXISTING one (story.versions / active / approved) —
+// no second Story data was introduced. Behaviour is unchanged: the same
 // ctx.story controllers, the same proposal-then-apply gate, the same
-// approval/confirmation semantics. Only the presentation is new.
+// approval/confirmation semantics.
 import { esc } from "../util/dom.js";
 import { storyModel, OUTLINE_LABELS } from "./workspaces.js";
+import { briefForOutline } from "../workflow/storydoc.js";
 import { head, empty } from "./shell.js";
 
 // The outline sections, grouped the way a writer reads them rather than the
 // order the schema happens to store them in.
 const SECTIONS = [
-  ["premise", "前提", "🎯", true],
-  ["logline", "故事线 Logline", "🧭", true],
-  ["genreTone", "题材 / 基调", "🎨", false],
-  ["world", "世界观", "🌐", false],
+  ["premise", "前提 Premise", "🎯", true],
+  ["logline", "主线 Logline", "🧭", true],
   ["centralConflict", "核心冲突", "⚔", false],
-  ["storyArc", "故事弧", "📈", false],
-  ["ending", "结局方向", "🏁", false],
+  ["storyArc", "Story Arc 故事弧", "📈", false],
+  ["climax", "高潮", "🔥", false],
+  ["ending", "Ending 结局", "🏁", false],
+  ["genreTone", "题材 / 基调", "🎨", false],
+  ["world", "世界观（概述）", "🌐", false],
 ];
 
 function pipeline(m) {
@@ -34,11 +38,9 @@ function pipeline(m) {
     `<div class="flow">` +
     step(m.hasIdea ? "✓ 创意" : "创意", s1) +
     `<span class="arr">→</span>` +
-    step(m.outlineCount ? `故事发展 · ${m.outlineCount} 版` : "故事发展", m.outlineCount ? "done" : "") +
+    step(m.approved ? `✓ 故事大纲 v${m.approved.v}` : m.outlineCount ? `故事大纲 · ${m.outlineCount} 版` : "故事大纲", s2) +
     `<span class="arr">→</span>` +
-    step(m.approved ? `✓ 故事大纲 v${m.approved.v}` : "故事大纲", s2) +
-    `<span class="arr">→</span>` +
-    step(m.confirmed ? `✓ 剧集规划 v${m.confirmed.v}` : "剧集规划", s3) +
+    step(m.confirmed ? `✓ 分集规划 v${m.confirmed.v}` : "分集规划", s3) +
     `<span class="arr">→</span>` +
     step("分集剧本", s4) +
     `</div>`
@@ -114,9 +116,21 @@ function outlineCards(ctx, m, ui) {
       `</div></div>`
     : "";
 
+  // 「Based on Creative Brief v2」 — lightweight upstream provenance, read off
+  // the version's own launch-time link. No DAG here (ADR-0054 §8/§11).
+  const src = briefForOutline(doc, m.active);
+  const basedOn = src
+    ? `<span class="chip" title="本版大纲是基于该创意版本发展出来的">Based on 创意 v${src.v}</span>`
+    : `<span class="chip mute" title="这一版大纲没有记录所依据的创意版本">未记录所依据的创意版本</span>`;
+  const standing = m.active.v === doc.versions.length
+    ? m.active.v === doc.approved
+      ? `<span class="chip ok">当前正式版本</span>`
+      : `<span class="chip gate">最新版本 · 未批准</span>`
+    : `<span class="chip mute">正在查看历史版本</span>`;
+
   return (
-    `<div class="st-sec"><h3>故事大纲 · v${m.active.v}${m.active.v === doc.approved ? "（已批准）" : ""}</h3>` +
-    `<div class="acts"><div class="row tight">${versions}</div>` +
+    `<div class="st-sec"><h3>Story Outline v${m.active.v}${m.active.v === doc.approved ? "（已批准）" : ""}</h3>` +
+    `<div class="acts">${standing}${basedOn}<div class="row tight">${versions}</div>` +
     (ui.storyEdit ? "" : `<button class="btn sm" data-st-editon>✎ 编辑</button>`) +
     approve + `</div></div>` +
     editor +
@@ -173,10 +187,24 @@ function planCards(ctx, m) {
 }
 
 export function renderStoryWs(ctx, ui) {
-  const m = storyModel(ctx.story.doc());
+  const doc = ctx.story.doc();
+  const m = storyModel(doc);
+  // The Creative Brief has its OWN workspace, so this is a read-only summary
+  // with a link across — never a second editor for the same canonical field.
+  const brief = ctx.story.activeBrief();
   const idea =
-    `<div class="story-card wide"><div class="hd"><span class="ic">💡</span><h4>创意 · Idea</h4></div>` +
-    `<textarea class="field brieftext pm-brieftext" rows="2" spellcheck="false" placeholder="一句话创意，例如：深夜酒吧的女招待发现每个客人都在讲述同一个她不记得的夜晚">${esc(m.idea)}</textarea></div>`;
+    `<div class="story-card wide"><div class="hd"><span class="ic">💡</span><h4>创意</h4>` +
+    (brief ? `<span class="chip ok">创意 v${brief.v}</span>` : `<span class="chip mute">工作草稿</span>`) +
+    `<span class="push"></span><button class="btn sm" data-goto="brief">✎ 去创意工作区</button></div>` +
+    (m.hasIdea ? `<div class="tx lead">${esc(m.idea)}</div>` : `<div class="none">（还没有核心创意 — 先在「创意」写一句）</div>`) +
+    (brief
+      ? `<div class="row tight">${[["类型", brief.fields.genre], ["基调", brief.fields.tone], ["形式", brief.fields.form],
+        ["目标集数", brief.fields.targetEpisodes ? `${brief.fields.targetEpisodes} 集` : ""], ["单集时长", brief.fields.episodeDuration]]
+        .filter(([, v]) => v)
+        .map(([k, v]) => `<span class="chip">${esc(k)}：${esc(v)}</span>`)
+        .join("")}</div>`
+      : "") +
+    `</div>`;
 
   const body = m.active
     ? outlineCards(ctx, m, ui)
@@ -190,7 +218,7 @@ export function renderStoryWs(ctx, ui) {
         );
 
   return (
-    head("故事", "项目级 · 创意 → 故事发展 → 故事大纲 → 剧集规划 → 分集剧本") +
+    head("故事大纲", "项目级 · 持久版本链；AI 只出提案，应用后才成为新版本") +
     pipeline(m) +
     `<div class="story-grid">${idea}</div>` +
     proposalPanel(m) +
@@ -204,8 +232,6 @@ export function renderStoryWs(ctx, ui) {
 export function bindStoryWs(root, ctx, ui, rerender) {
   const on = (sel, fn) =>
     root.querySelectorAll(sel).forEach((el) => (el.onclick = (ev) => { ev.stopPropagation(); fn(el); }));
-  const brief = root.querySelector(".pm-brieftext");
-  if (brief) brief.oninput = () => ctx.story.setIdea(brief.value);
   on("[data-st-develop]", () => ctx.story.develop("outline", ""));
   on("[data-st-apply]", () => ctx.story.applyProposal());
   on("[data-st-discard]", () => ctx.story.discardProposal());
@@ -233,10 +259,8 @@ export function bindStoryWs(root, ctx, ui, rerender) {
     // only changes the fields that were actually edited
     ctx.story.applyManualOutline(buffer);
   });
-  on("[data-ep-open]", (el) => {
-    if (ctx.story.openEpisodeScript(el.dataset.epOpen)) {
-      const nav = root.querySelector('[data-mod="script"]');
-      if (nav) nav.click();
-    }
-  });
+  // NOTE: [data-ep-open] is deliberately NOT wired here. Entering an episode is
+  // a SHELL decision (switch the active episode AND open one of its stages), and
+  // the shell owns it — see enterEpisode in ui/production.js, which binds this
+  // attribute after every workspace's own bindings.
 }

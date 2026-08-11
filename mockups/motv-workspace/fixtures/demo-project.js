@@ -21,6 +21,7 @@ import { mintId } from "../src/workflow/identity.js";
 import * as proddoc from "../src/workflow/proddoc.js";
 import * as bibledoc from "../src/workflow/bibledoc.js";
 import * as storydoc from "../src/workflow/storydoc.js";
+import * as canondoc from "../src/workflow/canondoc.js";
 import * as scriptdoc from "../src/workflow/scriptdoc.js";
 import * as mediaref from "../src/workflow/mediaref.js";
 import * as genlib from "../src/workflow/genlib.js";
@@ -69,6 +70,90 @@ const OUTLINE_V2 = {
     "失忆日常（EP01）→ 讲述之间的矛盾（EP02）→ 主动追查旧案（EP03）→ 发现自己在场（EP04）→ 与陈默正面对峙（EP05）→ 记忆归位与选择（EP06）。",
   ending: "天台雨夜，林晚把那卷录音交给陈默。雨停，她记起了一切，也再没有可以退回的位置。",
 };
+
+// ---------------------------------------------------------------------------
+// Creative Brief · World Setting · Relationships · Episode beats (TASK-057)
+// ---------------------------------------------------------------------------
+
+const BRIEF = {
+  genre: "都市悬疑 / 心理惊悚",
+  tone: "潮湿、克制、低饱和。冷蓝雨夜与酒吧钠灯暖橘对冲。",
+  form: "竖屏短剧，每集一个「讲述」，主线在讲述之间的矛盾里推进。",
+  targetEpisodes: 6,
+  episodeDuration: "6–8 分钟",
+  totalDuration: "全 6 集约 40 分钟",
+  notes: "不靠反转堆叠，靠同一个夜晚被反复重述时的偏差。禁忌：把林晚写成受害者叙事。",
+};
+
+const WORLD = {
+  era: "当代，南方港城的雨季。故事集中在连续十一个雨夜。",
+  rules:
+    "1) 记忆只能被他人的讲述唤起，林晚自己无法主动回忆。2) 每一次唤起都有代价：她离「在场」更近一步。" +
+    "3) 录音是这个世界里唯一不会改口的证物。",
+  society: "老街等待拆迁，住户陆续搬离；旧案属于没人愿意重开的档案，警方内部也希望它继续沉默。",
+  regions: "老街（酒吧「沉默」所在）· 市立医院旧楼 · 城郊的档案仓库",
+  places: "创作方向：一条街 + 三个内景就够；不扩张地图，让空间反复出现产生压迫感。",
+  visualTone: "手持、浅景深、低饱和。雨水与玻璃反光是常驻元素。",
+  atmosphere: "每一集结束时，观众应该比林晚多知道一点，却比她更不安。",
+};
+
+const RELATIONSHIPS = [
+  {
+    a: "linwan", b: "chenmo",
+    profile: {
+      basis: "三年前的旧关系，从未说明白；现在是唯一还在查这桩案子的刑警与唯一的目击者。",
+      aToB: "林晚知道只有陈默不会把她当疯子，但也清楚他随时可以把她变成嫌疑人。",
+      bToA: "陈默想还她一个清白，又怕查到底会证明相反的事。他一直没说自己那天也在场。",
+      coreConflict: "两人都想要真相，但真相对彼此的代价方向相反。",
+      tension: "长期的克制。互相递东西时会避免碰到手。",
+      power: "陈默掌握案卷与传唤权；林晚掌握那卷录音。权力随录音归属反转。",
+      history: "三年前那个雨夜之后，陈默主动申请调离，没有解释。",
+      secrets: "陈默隐瞒了自己当晚出现在老街；林晚隐瞒录音里有第二个人的声音。",
+      direction: "从各自防守，走到必须共同承担同一个结论。",
+      arc: "戒备 → 有限合作 → 信任 → 决裂 → 再选择",
+      forbidden: "不可以写成救赎式爱情；陈默不能变成无条件保护她的人。",
+    },
+  },
+  {
+    a: "linwan", b: "suwan",
+    profile: {
+      basis: "雇主与雇员，也是林晚失忆后唯一持续照顾她的人。",
+      aToB: "林晚依赖苏婉的日常庇护，同时察觉她在回避某些问题。",
+      bToA: "苏婉把林晚当成需要被留在原地的人——留在酒吧，就不会想起来。",
+      coreConflict: "苏婉的善意，恰好是林晚恢复记忆的最大阻力。",
+      tension: "越亲近越不敢问。",
+      power: "苏婉掌握老街的关系网与那晚的部分事实；她用「为你好」行使权力。",
+      history: "命案后是苏婉把林晚留下来的，也是她替林晚处理了那件外套。",
+      secrets: "苏婉知道老周当晚在场，一直没说。",
+      direction: "从庇护，走到不得不承认自己也在隐瞒。",
+      arc: "庇护 → 阻挠 → 摊牌 → 有保留的和解",
+      forbidden: "苏婉不能沦为反派；她的隐瞒必须始终出于保护。",
+    },
+  },
+];
+
+/** What each episode actually ADVANCES (Episode-level records; the project's
+ *  canon above is never edited by these). Keyed by plan position. */
+const EPISODE_BEATS = [
+  {
+    plot: ["第一位客人讲述雨夜", "林晚在自己手机里发现陌生录音"],
+    character: { linwan: "从被动听讲述，到第一次意识到自己可能在场。" },
+    relationship: [],
+    world: ["建立规则：记忆只能被他人的讲述唤起。"],
+  },
+  {
+    plot: ["第二个版本与第一个矛盾", "林晚开始逐条记录差异"],
+    character: { linwan: "由记录者转为追查者。", suwan: "第一次出手阻止追问。" },
+    relationship: [{ a: "linwan", b: "suwan", start: "被照顾者", event: "苏婉锁上后门、明确劝退", end: "察觉庇护里有隐瞒" }],
+    world: ["讲述不可靠：同一个夜晚存在互相矛盾的版本。"],
+  },
+  {
+    plot: ["林晚找到旧案卷宗的线索", "陈默出现在老街"],
+    character: { linwan: "第一次主动越界取证。", chenmo: "决定重开一桩没人想碰的旧案。" },
+    relationship: [{ a: "linwan", b: "chenmo", start: "利益合作", event: "陈默替林晚承担了擅自取证的风险", end: "有限信任" }],
+    world: ["揭示：录音是唯一不会改口的证物。"],
+  },
+];
 
 const PLAN_EPISODES = [
   {
@@ -162,6 +247,11 @@ const CHARACTERS = [
     name: "林晚",
     role: "主角",
     profile: {
+      identity: "酒吧「沉默」的女招待，命案唯一目击者（她自己并不知道）。",
+      desire: "拿回被切断的那一夜——即使代价是把自己交出去。",
+      weakness: "无法主动回忆；只能等别人开口，因此永远比对方晚一步。",
+      coreConflict: "每恢复一块记忆，她与凶案的距离就近一分：真相与自我保全彻底对立。",
+      arc: "被动接受讲述 → 记录矛盾 → 主动追查 → 承认自己在场 → 交出录音",
       appearance: "26 岁，女。1.66m，偏瘦。黑色齐肩发常束成低马尾，左眉尾一道浅疤。眼神安静，很少直视人。",
       costume: "深灰针织衫 + 黑色围裙（工作）；旧军绿防水外套 + 帆布鞋（外出）。",
       personality: "克制、警觉、习惯性观察细节。不解释自己，也不轻易相信解释。",
@@ -180,6 +270,11 @@ const CHARACTERS = [
     name: "陈默",
     role: "男主 / 刑警",
     profile: {
+      identity: "负责旧案的刑警，也是那一夜的另一个在场者。",
+      desire: "还林晚一个清白，同时把自己从案卷里摘出去。",
+      weakness: "对林晚的旧情让他一再延后该做的事。",
+      coreConflict: "查到底，会证明他最想证伪的那件事。",
+      arc: "回避 → 重启旧案 → 替她担责 → 与她对峙 → 接过录音",
       appearance: "34 岁，男。1.82m，肩宽。短发，右手虎口有旧疤。表情克制到近乎冷淡。",
       costume: "深蓝衬衫 + 黑色风衣（便装）；制服（出勤）。",
       personality: "沉默、精确、习惯先听完再说。对林晚有明显的保护性偏差。",
@@ -196,6 +291,11 @@ const CHARACTERS = [
     name: "苏婉",
     role: "配角 / 酒吧老板娘",
     profile: {
+      identity: "酒吧老板娘，老街最后的守门人。",
+      desire: "让林晚永远留在吧台后面，不要想起来。",
+      weakness: "把隐瞒当成保护，因此永远无法被完全信任。",
+      coreConflict: "她的善意，正是林晚恢复记忆的最大阻力。",
+      arc: "庇护 → 阻挠 → 摊牌 → 有保留的和解",
       appearance: "48 岁，女。烫过的短卷发，右耳一只金色耳钉。手上常年有洗杯子留下的裂口。",
       costume: "酒红色衬衫 + 黑围裙。",
       personality: "热络的外壳，警惕的内里。所有回答都比问题短。",
@@ -209,6 +309,11 @@ const CHARACTERS = [
     name: "老周",
     role: "配角 / 老街住户",
     profile: {
+      identity: "老街最后的住户，命案当晚的另一个在场者。",
+      desire: "在拆迁前，把知道的事交给一个会听的人。",
+      weakness: "记性时好时坏，说出来的话没人当证词。",
+      coreConflict: "他想说，但没有人相信一个即将搬走的老人。",
+      arc: "沉默 → 试探 → 说出关键细节 → 离开老街",
       appearance: "61 岁，男。瘦，背微驼。常年戴一顶褪色棒球帽。",
       costume: "灰蓝夹克，袖口磨白。",
       personality: "话多但绕，真正关键的事只说一遍。",
@@ -448,8 +553,15 @@ function addMedia(map, key, { origin, version, url, shotId }) {
  * caller can install it on the scriptgen node + ctx.project.draftShots.
  */
 export function seedDemoProject({ story, production, scripts, assets, generations, timelines }) {
-  // -- Story: idea → two outline versions (v2 approved) → confirmed plan -----
+  // -- Creative Brief: a working draft, committed as ONE formal revision -----
+  // (TASK-057) The demo shows the version rule in action: the draft is edited
+  // freely, and exactly one explicit commit creates 创意 v1 — the revision the
+  // outline below records as its 「Based on」.
   storydoc.setIdea(story, IDEA);
+  storydoc.editBriefDraft(story, BRIEF);
+  storydoc.commitBrief(story, "manual", "");
+
+  // -- Story: two outline versions (v2 approved) → confirmed plan -----------
   storydoc.applyManualOutline(story, OUTLINE_V1);
   storydoc.applyManualOutline(story, OUTLINE_V2);
   storydoc.approveOutline(story, 2);
@@ -512,6 +624,41 @@ export function seedDemoProject({ story, production, scripts, assets, generation
       }
     }
   }
+
+  // -- Project-level canon: World Setting + first-class Relationships -------
+  // (TASK-057) Both are confirmed as ONE revision each, so every episode below
+  // can be stamped against real upstream versions.
+  canondoc.updateWorld(production, WORLD);
+  const relId = {};
+  for (const r of RELATIONSHIPS) {
+    const rec = canondoc.addRelationship(production, charId[r.a], charId[r.b]);
+    if (!rec) continue;
+    relId[`${r.a}:${r.b}`] = rec.relationshipId;
+    canondoc.updateRelationship(production, rec.relationshipId, r.profile);
+  }
+  canondoc.confirmCanon(production, "characters");
+  canondoc.confirmCanon(production, "relationships");
+  canondoc.confirmCanon(production, "world");
+
+  // -- Episode beats + the upstream stamp -----------------------------------
+  // Beats record what each episode ACTUALLY advances; the stamp records which
+  // upstream versions it was built on. Only the first three episodes are
+  // written — the later ones honestly show "还没有记录", exactly as a real
+  // project in progress would.
+  EPISODE_BEATS.forEach((b, i) => {
+    const epId = episodeIds[i];
+    if (!epId) return;
+    canondoc.setEpisodeTextBeats(production, epId, "plot", b.plot);
+    canondoc.setEpisodeTextBeats(production, epId, "world", b.world);
+    for (const [key, beat] of Object.entries(b.character)) {
+      canondoc.setEpisodeCharacterBeat(production, epId, charId[key], beat);
+    }
+    for (const r of b.relationship) {
+      const id = relId[`${r.a}:${r.b}`];
+      if (id) canondoc.setEpisodeRelationshipBeat(production, epId, id, r);
+    }
+    canondoc.stampEpisodeUpstream(production, epId, story);
+  });
 
   // -- Bible reference images (real Assets in the registry, referenced by id) --
   // The chosen reference of each entity/state is remembered here so the image

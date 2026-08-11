@@ -28,17 +28,26 @@ test("createProduction: fresh document has ONE active default episode", () => {
 });
 
 test("createProduction: persisted ids survive verbatim (never re-minted)", () => {
+  // TASK-057: episodes additionally carry `beats` + the `basedOn` upstream
+  // stamp, and the document carries the project-level canon (relationships /
+  // world / revision counters) — all part of the durable round-trip.
+  const noBeats = { plot: [], character: [], relationship: [], world: [] };
+  const noStamp = { brief: 0, outline: 0, characters: 0, relationships: 0, world: 0 };
   const saved = {
     activeEpisodeId: "ep-x",
     episodes: [
       {
         episodeId: "ep-x", title: "上集", bgmAssetId: null,
         scenes: [{ sceneId: "scene-1", title: "大殿", shotIds: ["shot-a"], characterRefs: [], locationRef: null, ambienceAssetId: null, bgmAssetId: null }],
+        beats: noBeats, basedOn: noStamp,
       },
-      { episodeId: "ep-mig-1", title: "第 1 集", scenes: [], bgmAssetId: null },
+      { episodeId: "ep-mig-1", title: "第 1 集", scenes: [], bgmAssetId: null, beats: noBeats, basedOn: noStamp },
     ],
     characters: [],
     locations: [],
+    relationships: [],
+    world: { era: "", rules: "", society: "", regions: "", places: "", visualTone: "", atmosphere: "" },
+    canon: { characters: 0, relationships: 0, world: 0 },
   };
   const p = pd.createProduction(structuredClone(saved));
   assert.deepEqual(pd.serialize(p), saved);
@@ -248,9 +257,19 @@ test("v5→v6 mints exactly the deterministic default single episode, nothing el
   assert.equal(res.doc.v, CANVAS_SCHEMA_VERSION);
   assert.deepEqual(res.doc.production, {
     activeEpisodeId: "ep-mig-1",
-    episodes: [{ episodeId: "ep-mig-1", title: "第 1 集", scenes: [], bgmAssetId: null }], // v9 adds the BGM ref
+    episodes: [{
+      episodeId: "ep-mig-1", title: "第 1 集", scenes: [], bgmAssetId: null, // v9 adds the BGM ref
+      // v10 adds the Arc beats + the upstream stamp. Both empty/zero: the
+      // versions a legacy episode was built on were never recorded.
+      beats: { plot: [], character: [], relationship: [], world: [] },
+      basedOn: { brief: 0, outline: 0, characters: 0, relationships: 0, world: 0 },
+    }],
     characters: [], // v6→v7 continues the chain with an empty bible
     locations: [],
+    // v10 project-level canon, all empty — canon is never fabricated
+    relationships: [],
+    world: { era: "", rules: "", society: "", regions: "", places: "", visualTone: "", atmosphere: "" },
+    canon: { characters: 0, relationships: 0, world: 0 },
   });
   // deterministic: same input → identical output
   assert.deepEqual(migrateToCurrent(v5Doc()).doc, migrateToCurrent(v5Doc()).doc);
@@ -258,7 +277,16 @@ test("v5→v6 mints exactly the deterministic default single episode, nothing el
   // adds the empty story chain + per-episode scripts map)
   const { production: _p, story: _s, scripts: _sc, timelines: _tl, ...rest } = res.doc;
   assert.deepEqual(_tl, {}); // v9: empty timelines map
-  assert.deepEqual(_s, { idea: "", versions: [], active: 0, approved: 0, plans: [], activePlan: 0, confirmedPlan: 0 });
+  assert.deepEqual(_s, {
+    idea: "", versions: [], active: 0, approved: 0, plans: [], activePlan: 0, confirmedPlan: 0,
+    // v10: the Creative Brief starts as an EMPTY working draft with ZERO
+    // revisions — a migration never mints a version the creator did not confirm
+    brief: {
+      draft: { genre: "", tone: "", form: "", episodeDuration: "", totalDuration: "", notes: "", targetEpisodes: null },
+      versions: [],
+      active: 0,
+    },
+  });
   assert.deepEqual(_sc, {});
   const expected = { ...v5Doc(), v: CANVAS_SCHEMA_VERSION };
   delete expected.scriptDoc; // null scriptDoc carries nothing durable

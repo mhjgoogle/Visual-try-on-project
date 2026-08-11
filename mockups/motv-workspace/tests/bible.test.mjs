@@ -312,7 +312,12 @@ function v7Doc() {
   doc.production.characters = [{
     characterId: "char-1",
     name: "李昭",
-    profile: { appearance: "", costume: "", personality: "", visualInstruction: "" },
+    tier: "formal", // TASK-057: a v10 character carries its tier
+    profile: {
+      appearance: "", costume: "", personality: "", visualInstruction: "",
+      // TASK-057 creative layer (身份 / 欲望 / 弱点 / 核心矛盾 / Character Arc)
+      identity: "", desire: "", weakness: "", coreConflict: "", arc: "",
+    },
     referenceAssetIds: ["asset-1"],
     activeReferenceAssetId: "asset-1",
     voice: { voiceId: "zh_CN-huayan", description: "", performance: {} },

@@ -18,9 +18,10 @@
 //   outcome overwrite the stored document.
 
 import { MAX_CLIP_START, MAX_CLIP_FADE } from "../workflow/timeline.js";
+import { pairKey } from "../workflow/canondoc.js";
 
 /** Authoritative CURRENT canvas schema version. Saves must emit exactly this. */
-export const CANVAS_SCHEMA_VERSION = 9;
+export const CANVAS_SCHEMA_VERSION = 10;
 
 /**
  * v1 → v2 (checkpoint M2): stable creator identity + minimal provenance.
@@ -722,9 +723,81 @@ function migrateV8ToV9(doc) {
   return doc;
 }
 
+/**
+ * v9 → v10 (TASK-057 / ADR-0054): the Production UPSTREAM workspace's canon.
+ * Purely ADDITIVE — no existing field is renamed, removed or reinterpreted:
+ *
+ * 1. `story.brief` (NEW) — the Creative Brief as a WORKING DRAFT plus an
+ *    append-only revision chain. Introduced with ZERO revisions: a migration
+ *    must not mint a "v1" the creator never confirmed (Autosave != Version).
+ *    The draft starts EMPTY of brief facets — genre/tone/form/duration were
+ *    never persisted before, so inventing them from the idea text would be
+ *    fabrication. `story.idea` stays exactly where it is: the one canonical
+ *    home of the core idea (决策 2).
+ * 2. `production.relationships` (NEW, empty) — first-class relationships are
+ *    creator canon and are NEVER derived from co-appearance in a scene.
+ * 3. `production.world` (NEW, empty profile) — the World Setting. Deliberately
+ *    NOT seeded from `story.versions[].outline.world`: that is the outline's
+ *    own prose, owned by the (versioned, approvable) outline chain, and copying
+ *    it would create the second source of truth §12 forbids.
+ * 4. `production.canon` (NEW) — one revision counter per canon surface, all 0:
+ *    nothing has been explicitly confirmed yet.
+ * 5. every character += `tier: "formal"` — an existing character was confirmed
+ *    by the creator (manually or through 剧本拆解), so `formal` is the honest
+ *    reading; only a NEW character can be created as a bit part.
+ * 6. every episode += empty `beats` and an ALL-ZERO `basedOn` — the upstream
+ *    versions an old episode was built on were never recorded, so the stamp
+ *    stays honestly empty ("未记录上游版本") instead of claiming the episode is
+ *    current with canon it has never seen.
+ *
+ * Pre-existing values under these names are hand-crafted junk (the fields are
+ * born here), so they are REPLACED by the deterministic default — the same
+ * posture as the v5 generations / v6 production / v7 bible backfills.
+ */
+function migrateV9ToV10(doc) {
+  const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
+  if (isObj(doc.story)) {
+    // 7. every outline version += `climax: ""` — 高潮 becomes its own outline
+    //    facet at v10. Left EMPTY, never extracted from the storyArc prose:
+    //    splitting a creator's sentence is a guess, not a migration.
+    for (const x of Array.isArray(doc.story.versions) ? doc.story.versions : []) {
+      if (isObj(x) && isObj(x.outline) && typeof x.outline.climax !== "string") x.outline.climax = "";
+    }
+    doc.story.brief = {
+      draft: { genre: "", tone: "", form: "", episodeDuration: "", totalDuration: "", notes: "", targetEpisodes: null },
+      versions: [],
+      active: 0,
+    };
+  }
+  if (isObj(doc.production)) {
+    doc.production.relationships = [];
+    doc.production.world = { era: "", rules: "", society: "", regions: "", places: "", visualTone: "", atmosphere: "" };
+    doc.production.canon = { characters: 0, relationships: 0, world: 0 };
+    // 8. every character += `tier` and the CREATIVE-layer profile facets
+    //    (身份 / 欲望 / 弱点 / 核心矛盾 / Character Arc), all empty: they were
+    //    never persisted, and slicing them out of the existing 性格 prose would
+    //    be invention. `tier` is "formal" — an existing character was confirmed
+    //    by the creator, so demoting it to a bit part is the lossy reading.
+    for (const c of Array.isArray(doc.production.characters) ? doc.production.characters : []) {
+      if (!isObj(c)) continue;
+      c.tier = "formal";
+      if (!isObj(c.profile)) c.profile = {};
+      for (const k of ["identity", "desire", "weakness", "coreConflict", "arc"]) {
+        if (typeof c.profile[k] !== "string") c.profile[k] = "";
+      }
+    }
+    for (const e of Array.isArray(doc.production.episodes) ? doc.production.episodes : []) {
+      if (!isObj(e)) continue;
+      e.beats = { plot: [], character: [], relationship: [], world: [] };
+      e.basedOn = { brief: 0, outline: 0, characters: 0, relationships: 0, world: 0 };
+    }
+  }
+  return doc;
+}
+
 /** Sequential migration steps: { [fromVersion]: (doc) => docAtFromVersion+1 }.
  *  Extended one real step at a time, never speculatively. */
-export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7, 7: migrateV7ToV8, 8: migrateV8ToV9 };
+export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7, 7: migrateV7ToV8, 8: migrateV8ToV9, 9: migrateV9ToV10 };
 
 /** Read the schema version of a raw persisted document.
  *  Returns a positive integer, or null if the marker is malformed.
@@ -791,6 +864,9 @@ export function validateCanvasDoc(doc) {
   // since v3. Both new fields are always emitted by the serializer; a
   // truncated save missing either must fail safe, not restore empty.
   const atV8 = Number.isInteger(doc.v) && doc.v >= 8;
+  // TASK-057 / ADR-0054: the Production upstream canon (Creative Brief,
+  // relationships, World Setting, canon revisions, episode beats + basedOn).
+  const atV10 = Number.isInteger(doc.v) && doc.v >= 10;
   if (atV8 && doc.scriptDoc !== undefined) {
     return "v8 document retains scriptDoc (scripts are per-episode since v8)";
   }
@@ -853,6 +929,10 @@ export function validateCanvasDoc(doc) {
         if (!isPlainObject(x.outline)) return `${where} has no outline object`;
         for (const k of OUTLINE_FIELDS) {
           if (typeof x.outline[k] !== "string") return `${where} outline ${k} is missing or not a string`;
+        }
+        // `climax` is born at v10 (a v8/v9 outline legitimately has none)
+        if (atV10 && typeof x.outline.climax !== "string") {
+          return `${where} outline climax is missing or not a string`;
         }
         if (!Array.isArray(x.outline.characterConcepts)
           || x.outline.characterConcepts.some((s) => typeof s !== "string" || !s.trim())) {
@@ -918,6 +998,63 @@ export function validateCanvasDoc(doc) {
         const cp = st.plans.find((x) => x.v === st.confirmedPlan);
         if (cp && cp.episodes.some((e) => e.episodeId === null)) {
           return "confirmed episode plan has an entry with no linked episode";
+        }
+      }
+    }
+    // Since v10 the Creative Brief lives here: a WORKING DRAFT (autosaved,
+    // unversioned) plus an append-only revision chain. Strict on every known
+    // field for the same reason as the outline/plan chains above — anything
+    // hydration would coerce or renumber is rejected instead, so an accepted
+    // save never loses brief content on the load→save round-trip.
+    if (atV10) {
+      if (!isPlainObject(st.brief)) return "v10 story is missing its creative brief";
+      const b = st.brief;
+      const BRIEF_FIELDS = ["genre", "tone", "form", "episodeDuration", "totalDuration", "notes"];
+      const epCount = (n) => n === null || (Number.isInteger(n) && n > 0 && n <= 50);
+      const checkFields = (o, where) => {
+        for (const k of BRIEF_FIELDS) {
+          if (typeof o[k] !== "string") return `${where} ${k} is missing or not a string`;
+        }
+        if (!epCount(o.targetEpisodes)) return `${where} targetEpisodes is not null or an integer in 1..50`;
+        return null;
+      };
+      if (!isPlainObject(b.draft)) return "creative brief draft is not an object";
+      const draftErr = checkFields(b.draft, "creative brief draft");
+      if (draftErr) return draftErr;
+      if (!Array.isArray(b.versions)) return "creative brief versions is not an array";
+      const cbIds = new Set();
+      for (let i = 0; i < b.versions.length; i++) {
+        const x = b.versions[i];
+        const where = `creative brief v${i + 1}`;
+        if (!isPlainObject(x)) return "creative brief versions contains a non-object entry";
+        if (typeof x.id !== "string" || !x.id) return `${where} has no id`;
+        if (cbIds.has(x.id)) return `duplicate creative brief id ${x.id}`;
+        cbIds.add(x.id);
+        if (x.v !== i + 1) return `${where} is not densely numbered`;
+        // a revision is IMMUTABLE and self-contained: it carries the idea it
+        // was taken with, so a downstream "based on brief vN" means one thing
+        if (typeof x.idea !== "string") return `${where} idea is missing or not a string`;
+        if (!isPlainObject(x.fields)) return `${where} has no fields object`;
+        const fErr = checkFields(x.fields, where);
+        if (fErr) return fErr;
+        if (!["manual", "developed"].includes(x.origin)) return `${where} has invalid origin`;
+        if (typeof x.instruction !== "string") return `${where} instruction is not a string`;
+      }
+      // 0 is always legal: a working draft with no formal revision yet
+      if (!(b.active === 0 || (Number.isInteger(b.active) && b.versions.some((x) => x.v === b.active)))) {
+        return "creative brief active pointer has no matching revision";
+      }
+      // every outline version's brief link is SHAPE-checked and, when set, must
+      // resolve: it is an INTERNAL reference (same document), so a dangling one
+      // is corrupt — unlike shot refs, which legitimately point outside.
+      for (const x of Array.isArray(st.versions) ? st.versions : []) {
+        if (!isPlainObject(x)) continue;
+        if (x.briefVersionId === null || x.briefVersionId === undefined) continue;
+        if (typeof x.briefVersionId !== "string" || !x.briefVersionId) {
+          return `story outline v${x.v} briefVersionId is invalid`;
+        }
+        if (!cbIds.has(x.briefVersionId)) {
+          return `story outline v${x.v} references unknown creative brief ${x.briefVersionId}`;
         }
       }
     }
@@ -1225,6 +1362,12 @@ export function validateCanvasDoc(doc) {
         if (typeof c.characterId !== "string" || !c.characterId) return "a character has no characterId";
         if (charStates.has(c.characterId)) return `duplicate characterId ${c.characterId}`;
         if (typeof c.name !== "string") return `character ${c.characterId} has no name string`;
+        // v10: 正式角色 / 临时角色. Hydration coerces an unknown tier to
+        // "formal", so an invalid persisted value is rejected instead — a
+        // silently promoted bit part is a data change.
+        if (atV10 && c.tier !== "formal" && c.tier !== "bit") {
+          return `character ${c.characterId} has invalid tier`;
+        }
         if (!isPlainObject(c.profile)) return `character ${c.characterId} has no profile object`;
         if (!isPlainObject(c.voice)) return `character ${c.characterId} has no voice profile`;
         if (c.voice.voiceId !== null && (typeof c.voice.voiceId !== "string" || !c.voice.voiceId)) {
@@ -1232,7 +1375,13 @@ export function validateCanvasDoc(doc) {
         }
         if (typeof c.voice.description !== "string") return `character ${c.characterId} voice description is missing or not a string`;
         if (!isPlainObject(c.voice.performance)) return `character ${c.characterId} voice performance is missing or not an object`;
-        const err = checkProfile(c, `character ${c.characterId}`, ["appearance", "costume", "personality", "visualInstruction"])
+        // v10 adds the creative-layer facets (身份 / 欲望 / 弱点 / 核心矛盾 /
+        // Character Arc) — none of them state-overridable, so CHAR_FACETS is
+        // deliberately unchanged: a state is the same person.
+        const PROFILE_FIELDS = atV10
+          ? ["appearance", "costume", "personality", "visualInstruction", "identity", "desire", "weakness", "coreConflict", "arc"]
+          : ["appearance", "costume", "personality", "visualInstruction"];
+        const err = checkProfile(c, `character ${c.characterId}`, PROFILE_FIELDS)
           || checkRefs(c, `character ${c.characterId}`)
           || checkStates(c, `character ${c.characterId}`, CHAR_FACETS);
         if (err) return err;
@@ -1250,6 +1399,58 @@ export function validateCanvasDoc(doc) {
           || checkStates(l, `location ${l.locationId}`, LOC_FACETS);
         if (err) return err;
         locStates.set(l.locationId, new Set(l.states.map((s) => s.stateId)));
+      }
+    }
+    // Since v10 the production document also owns project-level CANON:
+    // relationships between characters, the World Setting, and one revision
+    // number per canon surface. Validated BEFORE the episode loop so episode
+    // beats can be checked against real relationship ids.
+    const relIds = new Set();
+    if (atV10) {
+      const RELATIONSHIP_FIELDS = ["basis", "aToB", "bToA", "coreConflict", "tension", "power", "history", "secrets", "direction", "arc", "forbidden"];
+      const WORLD_FIELDS = ["era", "rules", "society", "regions", "places", "visualTone", "atmosphere"];
+      if (!Array.isArray(p.relationships)) return "production.relationships is missing or not an array";
+      const pairs = new Set();
+      for (const r of p.relationships) {
+        if (!isPlainObject(r)) return "production.relationships contains a non-object entry";
+        if (typeof r.relationshipId !== "string" || !r.relationshipId) return "a relationship has no relationshipId";
+        if (relIds.has(r.relationshipId)) return `duplicate relationshipId ${r.relationshipId}`;
+        relIds.add(r.relationshipId);
+        // EXACTLY two distinct, EXISTING characters — hydration drops anything
+        // else, so an accepted save must not carry a relationship that would
+        // vanish (or silently change shape) on the next load
+        if (!Array.isArray(r.characterIds) || r.characterIds.length !== 2) {
+          return `relationship ${r.relationshipId} does not link exactly two characters`;
+        }
+        const [a, b] = r.characterIds;
+        for (const id of [a, b]) {
+          if (typeof id !== "string" || !id) return `relationship ${r.relationshipId} has a non-string character id`;
+          if (!charStates.has(id)) return `relationship ${r.relationshipId} references unknown character ${JSON.stringify(id)}`;
+        }
+        if (a === b) return `relationship ${r.relationshipId} links a character to itself`;
+        // one definition per unordered pair: 林照×沈既白 and 沈既白×林照 are the
+        // same relationship, and two records would fight over the same canon.
+        // The key comes from the DOMAIN (canondoc.pairKey), not a local join:
+        // a characterId is an arbitrary string, so a delimiter-joined key would
+        // collide on ids containing that delimiter and REJECT a document
+        // hydration accepts — blocking a legitimate save. Shared for the same
+        // reason MAX_CLIP_* is imported above: validation must never disagree
+        // with the rule the domain actually applies.
+        const key = pairKey(a, b);
+        if (pairs.has(key)) return `duplicate relationship for the same character pair (${r.relationshipId})`;
+        pairs.add(key);
+        if (!isPlainObject(r.profile)) return `relationship ${r.relationshipId} has no profile object`;
+        for (const k of RELATIONSHIP_FIELDS) {
+          if (typeof r.profile[k] !== "string") return `relationship ${r.relationshipId} profile ${k} is missing or not a string`;
+        }
+      }
+      if (!isPlainObject(p.world)) return "production.world is missing or not an object";
+      for (const k of WORLD_FIELDS) {
+        if (typeof p.world[k] !== "string") return `production.world ${k} is missing or not a string`;
+      }
+      if (!isPlainObject(p.canon)) return "production.canon is missing or not an object";
+      for (const k of ["characters", "relationships", "world"]) {
+        if (!Number.isInteger(p.canon[k]) || p.canon[k] < 0) return `production.canon.${k} is not a non-negative integer`;
       }
     }
     if (atV6) {
@@ -1274,6 +1475,50 @@ export function validateCanvasDoc(doc) {
         // v9: episode BGM reference — SHAPE only vs the audio registry (a
         // music asset legitimately outlives its bytes, like bible refs)
         if (atV9 && !assetRefOk(e.bgmAssetId)) return `episode ${e.episodeId} bgmAssetId is invalid`;
+        // v10: the episode as an ARC unit — beats + the upstream version stamp.
+        // Beat references are INTERNAL (same document) so they must resolve;
+        // hydration drops dangling ones, so an accepted save must not have any.
+        if (atV10) {
+          if (!isPlainObject(e.beats)) return `episode ${e.episodeId} is missing its beats`;
+          for (const k of ["plot", "world"]) {
+            if (!Array.isArray(e.beats[k])) return `episode ${e.episodeId} beats.${k} is not an array`;
+            for (const t of e.beats[k]) {
+              if (typeof t !== "string") return `episode ${e.episodeId} beats.${k} has a non-string entry`;
+            }
+          }
+          if (!Array.isArray(e.beats.character)) return `episode ${e.episodeId} beats.character is not an array`;
+          const beatChars = new Set();
+          for (const b of e.beats.character) {
+            if (!isPlainObject(b)) return `episode ${e.episodeId} beats.character has a non-object entry`;
+            if (typeof b.characterId !== "string" || !charStates.has(b.characterId)) {
+              return `episode ${e.episodeId} character beat references unknown character ${JSON.stringify(b.characterId)}`;
+            }
+            // hydration keeps the LAST write per character, so two beats for one
+            // character would silently lose one — reject instead
+            if (beatChars.has(b.characterId)) return `episode ${e.episodeId} has two beats for character ${b.characterId}`;
+            beatChars.add(b.characterId);
+            if (typeof b.beat !== "string") return `episode ${e.episodeId} character beat is not a string`;
+          }
+          if (!Array.isArray(e.beats.relationship)) return `episode ${e.episodeId} beats.relationship is not an array`;
+          const beatRels = new Set();
+          for (const b of e.beats.relationship) {
+            if (!isPlainObject(b)) return `episode ${e.episodeId} beats.relationship has a non-object entry`;
+            if (typeof b.relationshipId !== "string" || !relIds.has(b.relationshipId)) {
+              return `episode ${e.episodeId} relationship beat references unknown relationship ${JSON.stringify(b.relationshipId)}`;
+            }
+            if (beatRels.has(b.relationshipId)) return `episode ${e.episodeId} has two beats for relationship ${b.relationshipId}`;
+            beatRels.add(b.relationshipId);
+            for (const k of ["start", "event", "end"]) {
+              if (typeof b[k] !== "string") return `episode ${e.episodeId} relationship beat ${k} is not a string`;
+            }
+          }
+          if (!isPlainObject(e.basedOn)) return `episode ${e.episodeId} is missing its basedOn stamp`;
+          for (const k of ["brief", "outline", "characters", "relationships", "world"]) {
+            if (!Number.isInteger(e.basedOn[k]) || e.basedOn[k] < 0) {
+              return `episode ${e.episodeId} basedOn.${k} is not a non-negative integer`;
+            }
+          }
+        }
         if (!Array.isArray(e.scenes)) return `episode ${e.episodeId} scenes is not an array`;
         for (const s of e.scenes) {
           if (!isPlainObject(s)) return `episode ${e.episodeId} scenes contains a non-object entry`;

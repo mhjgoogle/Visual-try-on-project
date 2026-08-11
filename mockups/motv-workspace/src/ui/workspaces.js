@@ -138,6 +138,19 @@ export function settingsModel(pd) {
   // M8: episode appearances are DERIVED from Scene references (characterRefs
   // / locationRef) — never a manually maintained list.
   const appearances = derivedAppearances(prod);
+  // TASK-057: a character's KEY RELATIONSHIP SUMMARY, derived from the
+  // first-class Relationship objects — the character record never stores a
+  // second copy of the relationship.
+  const byChar = new Map(prod.characters.map((c) => [c.characterId, c]));
+  const relSummary = (characterId) =>
+    (prod.relationships || [])
+      .filter((r) => r.characterIds.includes(characterId))
+      .map((r) => {
+        const otherId = r.characterIds.find((id) => id !== characterId);
+        const other = byChar.get(otherId);
+        const basis = r.profile.basis.trim();
+        return `${other ? other.name : otherId}${basis ? ` · ${basis}` : ""}`;
+      });
   return {
     empty: false,
     assets,
@@ -146,9 +159,12 @@ export function settingsModel(pd) {
     characters: prod.characters.map((c) => ({
       characterId: c.characterId,
       name: c.name,
+      // 正式 / 临时 (TASK-057) — hydration guarantees one of the two
+      tier: c.tier,
       profile: c.profile,
       voice: c.voice,
       episodes: (appearances.characters.get(c.characterId) || []).map((x) => x.title),
+      relationships: relSummary(c.characterId),
       refs: refView(c.referenceAssetIds, c.activeReferenceAssetId),
       states: c.states.map((s) => {
         const resolved = resolveCharacter(c, s.stateId);
@@ -423,12 +439,13 @@ function head(title, meta) {
 
 export const OUTLINE_LABELS = [
   ["premise", "前提（Premise）"],
-  ["logline", "故事线（Logline）"],
-  ["genreTone", "题材 / 基调"],
-  ["world", "世界观"],
+  ["logline", "主线（Logline）"],
   ["centralConflict", "核心冲突"],
-  ["storyArc", "故事弧"],
-  ["ending", "结局方向"],
+  ["storyArc", "故事弧（Story Arc）"],
+  ["climax", "高潮"],
+  ["ending", "结局（Ending）"],
+  ["genreTone", "题材 / 基调"],
+  ["world", "世界观（概述）"],
   ["durationNote", "每集时长预期"],
 ];
 
@@ -725,13 +742,25 @@ export function bibleFields(m) {
     const appear = c.episodes.length
       ? `<div class="ws-kv">出现于：${c.episodes.map((t) => `<span class="ws-tag">📺 ${esc(t)}</span>`).join(" ")}（由场景引用派生）</div>`
       : `<div class="ws-desc">尚未在任何场景出场 — 在「剧集」的场景里添加出场角色后自动显示</div>`;
+    // TASK-057 creative layer: who the character IS. None of these is
+    // state-overridable — a state is the same person — so they sit above the
+    // presentation facets rather than inside the state blocks.
+    const creative =
+      `<div class="ws-lab">创作层（人物是谁 — 状态不可覆盖）</div>` +
+      profField("chprof", c.characterId, "identity", "身份", c.profile.identity) +
+      profField("chprof", c.characterId, "personality", "性格", c.profile.personality) +
+      profField("chprof", c.characterId, "desire", "欲望 / 目标", c.profile.desire) +
+      profField("chprof", c.characterId, "weakness", "弱点", c.profile.weakness) +
+      profField("chprof", c.characterId, "coreConflict", "核心矛盾", c.profile.coreConflict) +
+      profField("chprof", c.characterId, "arc", "Character Arc", c.profile.arc);
     const body =
       appear +
       `<div class="ws-epbtns"><button class="nrun ghost" data-b-chrename="${esc(c.characterId)}">重命名</button><button class="nrun ghost" data-b-chdel="${esc(c.characterId)}">删除</button></div>` +
+      creative +
+      `<div class="ws-lab">表现层（状态可覆盖）</div>` +
       profField("chprof", c.characterId, "appearance", "外貌", c.profile.appearance) +
       profField("chprof", c.characterId, "costume", "服装", c.profile.costume) +
-      profField("chprof", c.characterId, "personality", "性格（状态不可覆盖）", c.profile.personality) +
-      profField("chprof", c.characterId, "visualInstruction", "画面指令", c.profile.visualInstruction) +
+      profField("chprof", c.characterId, "visualInstruction", "基础视觉方向 / 画面指令", c.profile.visualInstruction) +
       `<label class="ws-lab">基础声音（角色唯一声音身份；状态只能调表现，不能换声音）</label>` +
       `<input class="ws-bibleinput" data-b-voice="${esc(c.characterId)}" data-field="voiceId" placeholder="声音标识（如 piper 声音名，可留空）" value="${esc(c.voice.voiceId || "")}">` +
       `<input class="ws-bibleinput" data-b-voice="${esc(c.characterId)}" data-field="description" placeholder="声音描述（音色/年龄感/语气）" value="${esc(c.voice.description)}">` +

@@ -16,7 +16,9 @@ import * as sd from "../src/workflow/scriptdoc.js";
 const OUTLINE = {
   premise: "社畜穿越盛唐", logline: "每一次开口都是生死赌局", genreTone: "古装爽剧",
   world: "架空盛唐", characterConcepts: ["李昭：急智诗人"], centralConflict: "求生欲 VS 皇权",
-  storyArc: "登场→成名→抉择", ending: "离席诗换自由", episodeCount: 4, durationNote: "每集 60-90 秒",
+  // `climax` is a v10 outline facet (TASK-057)
+  storyArc: "登场→成名→抉择", climax: "殿前当众抗旨", ending: "离席诗换自由",
+  episodeCount: 4, durationNote: "每集 60-90 秒",
 };
 const PLAN = [
   { epNumber: 1, title: "殿前成诗", synopsis: "三步成诗保命", purpose: "建立", hook: "拖拽上殿", endingBeat: "再来一首", duration: "60-90 秒" },

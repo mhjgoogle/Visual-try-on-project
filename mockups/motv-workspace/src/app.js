@@ -38,6 +38,7 @@ import * as storydoc from "./workflow/storydoc.js";
 import * as proddoc from "./workflow/proddoc.js";
 import * as timeline from "./workflow/timeline.js";
 import * as bibledoc from "./workflow/bibledoc.js";
+import * as canondoc from "./workflow/canondoc.js";
 import * as breakdown from "./workflow/breakdown.js";
 import { seedDemoProject, DEMO_PROJECT_NAME } from "../fixtures/demo-project.js";
 
@@ -683,7 +684,7 @@ const ctx = {
   // refused ops (false/null) change nothing. State transitions live in
   // workflow/bibledoc.js.
   bible: {
-    addCharacter: (name) => prodNew(bibledoc.addCharacter(productionDoc, name)),
+    addCharacter: (name, tier) => prodNew(bibledoc.addCharacter(productionDoc, name, tier)),
     renameCharacter: (id, name) => prodOp(bibledoc.renameCharacter(productionDoc, id, name)),
     removeCharacter: (id) => prodOp(bibledoc.removeCharacter(productionDoc, id)),
     updateCharacterProfile: (id, fields) => prodOp(bibledoc.updateCharacterProfile(productionDoc, id, fields)),
@@ -692,6 +693,9 @@ const ctx = {
     renameCharacterState: (id, sid, name) => prodOp(bibledoc.renameCharacterState(productionDoc, id, sid, name)),
     removeCharacterState: (id, sid) => prodOp(bibledoc.removeCharacterState(productionDoc, id, sid)),
     setCharacterStateOverrides: (id, sid, o) => prodOp(bibledoc.setCharacterStateOverrides(productionDoc, id, sid, o)),
+    // TASK-057: a character may be created as a formal or a temporary (bit)
+    // one, and promoted later without losing its identity or references
+    setCharacterTier: (id, tier) => prodOp(bibledoc.setCharacterTier(productionDoc, id, tier)),
     addLocation: (name) => prodNew(bibledoc.addLocation(productionDoc, name)),
     renameLocation: (id, name) => prodOp(bibledoc.renameLocation(productionDoc, id, name)),
     removeLocation: (id) => prodOp(bibledoc.removeLocation(productionDoc, id)),
@@ -708,6 +712,46 @@ const ctx = {
     removeSceneCharacter: (sceneId, cid) => prodOp(bibledoc.removeSceneCharacter(productionDoc, sceneId, cid)),
     setSceneLocation: (sceneId, lid, sid) => prodOp(bibledoc.setSceneLocation(productionDoc, sceneId, lid, sid)),
   },
+  // Project-level CANON controller (TASK-057 / ADR-0054): Relationships,
+  // World Setting, canon revisions, Episode beats and the upstream version
+  // stamp. Same posture as ctx.production / ctx.bible: the ONLY write path,
+  // every accepted op persists + re-renders, a refused op changes nothing.
+  // Transitions live in workflow/canondoc.js.
+  canon: {
+    // --- Relationship (first-class, exactly two characters) ---------------- //
+    addRelationship: (a, b) => prodNew(canondoc.addRelationship(productionDoc, a, b)),
+    removeRelationship: (id) => prodOp(canondoc.removeRelationship(productionDoc, id)),
+    updateRelationship: (id, fields) => prodOp(canondoc.updateRelationship(productionDoc, id, fields)),
+    // --- World Setting ------------------------------------------------------ //
+    updateWorld: (fields) => prodOp(canondoc.updateWorld(productionDoc, fields)),
+    // --- explicit canon REVISIONS (the only thing that bumps a version) ---- //
+    confirm: (surface) => {
+      const v = canondoc.confirmCanon(productionDoc, surface);
+      if (!v) return 0;
+      ctx.persist();
+      refreshProductionView();
+      toast(`已确认${canondoc.UPSTREAM_LABEL[surface] || surface}设定 v${v} — 下游剧集会显示「上游变化」，但不会被自动改写`);
+      return v;
+    },
+    // --- Episode beats (Arc progression records) ---------------------------- //
+    setTextBeats: (epId, kind, list) => prodOp(canondoc.setEpisodeTextBeats(productionDoc, epId, kind, list)),
+    setCharacterBeat: (epId, cid, beat) => prodOp(canondoc.setEpisodeCharacterBeat(productionDoc, epId, cid, beat)),
+    setRelationshipBeat: (epId, rid, rec) => prodOp(canondoc.setEpisodeRelationshipBeat(productionDoc, epId, rid, rec)),
+    // --- upstream dependency truth ----------------------------------------- //
+    /** Stamp this episode as based on the CURRENT upstream versions. Explicit:
+     *  an upstream revision never re-stamps (or rewrites) an episode. */
+    stamp: (epId) => {
+      const ok = canondoc.stampEpisodeUpstream(productionDoc, epId, storyDoc);
+      if (ok) {
+        ctx.persist();
+        refreshProductionView();
+        toast("已记录本集所基于的上游版本");
+      }
+      return ok;
+    },
+    versions: () => canondoc.upstreamVersions(storyDoc, productionDoc),
+    impact: (epId) => canondoc.episodeImpact(productionDoc, epId, storyDoc),
+  },
   agentShotsDraft: (script) => query.generateShotsDraft(script),
   // Story development controller (M9): Idea → Outline (versioned, approved) →
   // Episode Plan (versioned, confirmed). The ONLY write path into the story
@@ -718,6 +762,26 @@ const ctx = {
   story: {
     doc: () => storyDoc,
     setIdea: (t) => { storydoc.setIdea(storyDoc, t); ctx.persist(); },
+    // --- Creative Brief (TASK-057) ------------------------------------------ //
+    // AUTOSAVE != VERSION: editing the brief only persists the WORKING DRAFT.
+    // A formal revision exists solely because the creator asked for one.
+    editBrief: (fields) => { storydoc.editBriefDraft(storyDoc, fields); ctx.persist(); },
+    briefIsDirty: () => storydoc.briefIsDirty(storyDoc),
+    activeBrief: () => storydoc.activeBrief(storyDoc),
+    commitBrief: () => {
+      const rec = storydoc.commitBrief(storyDoc, "manual", "");
+      if (!rec) { toast("与当前版本没有差异 — 未创建新版本"); return null; }
+      ctx.persist();
+      refreshProductionView();
+      toast(`已创建创意版本 v${rec.v}（旧版本保留；下游剧集会显示「上游变化」）`);
+      return rec;
+    },
+    setActiveBrief: (v) => prodOp(storydoc.setActiveBrief(storyDoc, v)),
+    restoreBriefDraft: (v) => {
+      const ok = storydoc.restoreBriefDraft(storyDoc, v);
+      if (ok) toast(`已把 v${v} 的内容取回工作草稿（版本链未改动；确认后才成为新版本）`);
+      return prodOp(ok);
+    },
     develop: (kind, instruction) => developStoryRun(kind, instruction),
     cancel: () => { storydoc.cancelDevelop(storyDoc); refreshProductionView(); },
     applyProposal: () => {
@@ -766,9 +830,26 @@ const ctx = {
         && productionDoc.episodes[0].title === "第 1 集"
         && !plan.episodes.some((e) => e.episodeId === productionDoc.episodes[0].episodeId)
         && !scriptdoc.currentText(scriptForEpisode(productionDoc.episodes[0].episodeId)).trim()
+        // TASK-057: recorded Arc beats are real creative content too. An episode
+        // carrying them is NOT pristine — adopting it would retitle the
+        // creator's work, and (see the baseline rule below) stamping it would
+        // claim those beats are consistent with canon they never saw.
+        && !Object.values(productionDoc.episodes[0].beats).some((x) => x.length)
           ? productionDoc.episodes[0]
           : null;
       let adopted = false;
+      // TASK-057: confirming the plan is the creator's explicit act, so it MAY
+      // record the upstream baseline (ADR-0054 决策 6) — but only for episodes
+      // whose baseline is a PROVABLE fact right now:
+      //  - one this confirmation just created: it is born from the current
+      //    upstream, so "based on today's versions" is true by construction;
+      //  - the pristine default episode this plan adopts: it carries no scenes,
+      //    no script text and no beats, so there is no prior content that could
+      //    have been built on anything else.
+      // An episode that already existed keeps whatever baseline it had —
+      // stamping it would assert it is consistent with canon it may never have
+      // seen, i.e. exactly the guess 决策 6 / 要求 4 forbids.
+      const baseline = [];
       for (const e of plan.episodes) {
         const existing = e.episodeId ? proddoc.findEpisode(productionDoc, e.episodeId) : null;
         if (existing) {
@@ -777,12 +858,19 @@ const ctx = {
           adopted = true;
           e.episodeId = pristine.episodeId;
           if (e.title.trim()) proddoc.renameEpisode(productionDoc, pristine.episodeId, e.title);
+          baseline.push(pristine.episodeId);
         } else {
           const ep = proddoc.addEpisode(productionDoc, e.title);
           e.episodeId = ep.episodeId; // explicit identity join, stamped once
+          baseline.push(ep.episodeId);
         }
       }
       storydoc.confirmPlan(storyDoc, v);
+      // stamped once the confirmation is complete, so the baseline is taken from
+      // fully-applied state (the five recorded surfaces do not include the plan
+      // pointer, so the order is not load-bearing — it is just the honest point
+      // at which "this episode was established" is true)
+      for (const id of baseline) canondoc.stampEpisodeUpstream(productionDoc, id, storyDoc);
       // defensive: none of the episode ops above moves the active pointer
       // today (addEpisode only appends), but the script alias must be correct
       // no matter how they evolve — resyncing is idempotent

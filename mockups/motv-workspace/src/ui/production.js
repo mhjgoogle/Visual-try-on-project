@@ -1,8 +1,14 @@
-// Production studio shell — the creator-facing production environment:
-// LEFT rail (project · episode selector · this episode's stages) · CENTER
-// media-first workspace · RIGHT persistent AI Director. The workflow node
-// canvas stays available under the 工作流 top-level mode but is not the
-// primary creator experience.
+// Production studio shell — the UPSTREAM workspace where the creative
+// foundation of the whole work is built (ADR-0054):
+//
+//   LEFT rail    作品开发（创意 · 故事大纲 · 作品设定 · 分集规划）+ Episodes
+//   CENTER       the active workspace
+//   RIGHT        the persistent AI Director
+//
+// Production stops at 分集规划. An episode's own production stages (剧本 / 场景 /
+// 分镜 / 画面 / 视频 / 音频 / 剪辑) are reached by ENTERING an episode — they are
+// Production's exit, never its main navigation. The workflow node canvas stays
+// available under the 工作流 top-level mode.
 //
 // PURE PRESENTATION over the domain documents (story / scriptDoc / production
 // / bible / Asset & Generation registries) through ctx controllers — the shell
@@ -17,9 +23,13 @@ import { renderTimelineWs, bindTimelineWs } from "./timelinews.js";
 import { renderStorageWs, bindStorageWs } from "./storagews.js";
 import { renderStoryWs, bindStoryWs } from "./storyws.js";
 import { renderBibleWs, bindBibleWs } from "./biblews.js";
+import { renderBriefWs, bindBriefWs } from "./briefws.js";
+import { renderRelWs, bindRelWs } from "./relws.js";
+import { renderWorldWs, bindWorldWs } from "./worldws.js";
+import { renderEpPlanWs, bindEpPlanWs } from "./epplanws.js";
 import { renderImageWs, bindImageWs, renderVideoWs, bindVideoWs } from "./mediaws.js";
 import { directorModel, renderDirector, bindDirector } from "./director.js";
-import { NAV, MODULE_LABEL, renderRail, renderCrumb, episodeLabels, head } from "./shell.js";
+import { NAV, EPISODE_MODULES, MODULE_LABEL, renderRail, renderCrumb, episodeLabels, head } from "./shell.js";
 
 export { NAV };
 
@@ -53,15 +63,35 @@ export function navBadges(doc, pd) {
   const bibleCount = prod && Array.isArray(prod.characters) && Array.isArray(prod.locations)
     ? prod.characters.length + prod.locations.length
     : 0;
+  const brief = pd.story && pd.story.brief ? pd.story.brief : null;
   return {
+    // TASK-057: the brief badge reflects the REVISION standing (a formal
+    // revision > a working draft with content > nothing)
+    brief: brief
+      ? brief.active ? `✓v${brief.active}` : pd.story.idea.trim() ? "草稿" : ""
+      : "",
     // M9: the story badge reflects the OUTLINE standing (approved > drafted > idea)
     story: pd.story
       ? pd.story.approved ? `✓v${pd.story.approved}` : pd.story.versions.length ? `v${pd.story.active}` : pd.story.idea.trim() ? "…" : ""
       : "",
     // M7: real persisted bible entities (characters + locations)
     settings: bibleCount ? String(bibleCount) : "",
+    // counts, and NOTHING when there is nothing — a "0" badge is noise, not
+    // information (same rule as the 作品设定 badge above)
+    characters: prod && Array.isArray(prod.characters) && prod.characters.length
+      ? String(prod.characters.length)
+      : "",
+    // TASK-057: real persisted Relationship definitions
+    relationships: prod && Array.isArray(prod.relationships) && prod.relationships.length
+      ? String(prod.relationships.length)
+      : "",
+    // TASK-057: the World Setting's confirmed revision, else its fill standing
+    world: prod && prod.world && prod.canon
+      ? prod.canon.world ? `✓v${prod.canon.world}` : Object.values(prod.world).some((v) => typeof v === "string" && v.trim()) ? "草稿" : ""
+      : "",
     // M6: real persisted Episode entities — the count is honest domain data
     episodes: prod && Array.isArray(prod.episodes) ? String(prod.episodes.length) : "",
+    scenes: "",
     script: st.versions ? `v${st.active}` : "草稿",
     shots: shots.empty ? "" : String(shots.shots.length),
     frames: frames.empty ? "" : `${frames.done}/${frames.total}`,
@@ -107,8 +137,11 @@ export function episodeStages(pd) {
 
 export function createProduction(getCtx) {
   const root = $("#production");
-  // transient view state — NEVER persisted, never on canvas nodes
-  let activeModule = "shots";
+  // transient view state — NEVER persisted, never on canvas nodes.
+  // Production OPENS on the upstream (ADR-0054 决策 1): the creative foundation
+  // is what this space is for, and a downstream media stage must not be the
+  // first thing a creator lands on.
+  let activeModule = "brief";
   // the last PRODUCTION module (never the top-level asset library) — returning
   // from 资产 to 制作 restores where the creator actually was
   let lastProdModule = activeModule;
@@ -228,9 +261,12 @@ export function createProduction(getCtx) {
     }
     const showSel = ["shots", "frames", "video", "audio"].includes(activeModule);
     const tail = ep && eps.length > 1 ? `共 ${eps.length} 集` : "";
+    // upstream modules are PROJECT-level: showing an episode crumb there would
+    // claim the creator is inside an episode when they are not
+    const inEpisode = EPISODE_MODULES.includes(activeModule);
     return renderCrumb({
       project: (ctx.project && ctx.project.name) || "未命名项目",
-      episode: ep ? ep.code : null,
+      episode: inEpisode && ep ? ep.code : null,
       scene: showSel ? scene : null,
       shot: showSel ? shot : null,
       module: MODULE_LABEL[activeModule] || "",
@@ -261,9 +297,18 @@ export function createProduction(getCtx) {
   }
 
   const WORKSPACES = {
+    // --- 作品开发 (project-level upstream) --------------------------------- //
+    brief: (ctx) => renderBriefWs(ctx, ui),
     story: (ctx) => renderStoryWs(ctx, ui),
+    characters: (ctx) => renderBibleWs(ctx, ui),
+    // `settings` is the legacy key for the bible workspace, kept working so
+    // every existing jump target (Director blockers, empty states) still lands
     settings: (ctx) => renderBibleWs(ctx, ui),
-    episodes: (ctx) => ws.renderEpisodes(ctx),
+    relationships: (ctx) => renderRelWs(ctx, ui),
+    world: (ctx) => renderWorldWs(ctx, ui),
+    episodes: (ctx) => renderEpPlanWs(ctx, ui),
+    // --- 本集制作 (inside ONE episode) ------------------------------------- //
+    scenes: (ctx) => ws.renderEpisodes(ctx),
     shots: (ctx) => renderStoryboard(ctx, ui),
     frames: (ctx) => renderImageWs(ctx, ui),
     video: (ctx) => renderVideoWs(ctx, ui),
@@ -297,11 +342,20 @@ export function createProduction(getCtx) {
     // own standing (a stage listed under "this episode" must count this episode)
     const stages = episodeStages(pd);
     const badges = { ...navBadges(ctx.script.doc(), pd), ...stages.badges };
+    // TASK-057: per-episode count of upstream surfaces the episode is behind —
+    // the deterministic dependency truth from ctx.canon, computed nowhere else
+    const upstream = {};
+    for (const e of pd.production.episodes) {
+      const im = ctx.canon.impact(e.episodeId);
+      if (im && im.count) upstream[e.episodeId] = im.count;
+    }
     const rail = renderRail({
       activeModule,
       badges,
       episodes: episodeLabels(pd.production),
       ratios: stages.ratios,
+      episodeMode: EPISODE_MODULES.includes(activeModule),
+      upstream,
     });
     const main =
       activeModule === "script"
@@ -326,36 +380,69 @@ export function createProduction(getCtx) {
     if (k !== "assets") lastProdModule = k;
     vmenuOpen = false; // in their documents and survive this switch untouched
     ui.bibleOpen = null;
+    ui.relOpen = null;
+    // beatsOpen / impactOpen are keyed by episodeId and only render inside
+    // 分集规划 — deliberately NOT reset here, so the AI Director can point the
+    // creator at one episode's Impact Review and then navigate there.
     render();
+  }
+
+  /** Switch the active episode and (optionally) open one of ITS stages —
+   *  Production's exit. `module` null means: stay where you are if you are
+   *  already inside an episode, otherwise enter at 剧本. Refused while a shot
+   *  detail has unsaved edits, because the buffer belongs to the episode being
+   *  left. */
+  function enterEpisode(episodeId, module) {
+    const ctx = getCtx();
+    if (ui.dirty && !window.confirm("镜头详情有未保存的修改，切换剧集将丢弃？")) return;
+    ui.dirty = false;
+    ui.buffer = {};
+    ui.shotEdit = false;
+    ui.selectedShotId = null;
+    if (!ctx.production.setActiveEpisode(episodeId)) return;
+    const target = module || (EPISODE_MODULES.includes(activeModule) ? activeModule : "script");
+    if (target !== activeModule) {
+      activeModule = target;
+      lastProdModule = target;
+      vmenuOpen = false;
+    }
+    render(); // setActiveEpisode already re-rendered, but the module may have moved
   }
 
   function bind(ctx) {
     // left rail — every module opens; selection is visually .on
     root.querySelectorAll("[data-mod]").forEach((b) => (b.onclick = () => setModule(b.dataset.mod)));
-    // episode selector — switches the subject of the 本集制作 group
-    root.querySelectorAll("[data-ep]").forEach((b) => (b.onclick = () => {
-      if (ui.dirty && !window.confirm("镜头详情有未保存的修改，切换剧集将丢弃？")) return;
-      ui.dirty = false;
-      ui.buffer = {};
-      ui.selectedShotId = null;
-      if (ctx.production.setActiveEpisode(b.dataset.ep)) render();
-    }));
+    // episode rows — ENTER an episode (Production's exit). Selecting one always
+    // switches the active episode; when the creator is still upstream it also
+    // opens the episode's first stage, because that is what "进入本集" means.
+    root.querySelectorAll("[data-ep]").forEach((b) => (b.onclick = () => enterEpisode(b.dataset.ep, null)));
     // cross-module jumps (empty states, director) — EVERY [data-goto] wires
     root.querySelectorAll("[data-goto]").forEach((j) => (j.onclick = () => setModule(j.dataset.goto)));
+    if (activeModule === "brief") bindBriefWs(root, ctx, ui, render);
     if (activeModule === "story") bindStoryWs(root, ctx, ui, render);
+    if (activeModule === "relationships") bindRelWs(root, ctx, ui, render);
+    if (activeModule === "world") bindWorldWs(root, ctx, ui);
     if (activeModule === "episodes") {
+      // the plan proposal/apply/confirm path stays the shared one
       ws.bindEpisodes(root, ctx);
-      root.querySelectorAll("[data-ep-open]").forEach((b) => (b.onclick = () => {
-        if (ctx.story.openEpisodeScript(b.dataset.epOpen)) setModule("script");
-      }));
+      bindEpPlanWs(root, ctx, ui, render);
     }
-    if (activeModule === "settings") bindBibleWs(root, ctx, ui, render);
+    if (activeModule === "scenes") ws.bindEpisodes(root, ctx);
+    if (activeModule === "characters" || activeModule === "settings") bindBibleWs(root, ctx, ui, render);
     if (activeModule === "shots") bindStoryboard(root, ctx, ui, render);
     if (activeModule === "frames") bindImageWs(root, ctx, ui, render);
     if (activeModule === "video") bindVideoWs(root, ctx, ui, render);
     if (activeModule === "audio") bindAudioWs(root, ctx, ui, render);
     if (activeModule === "edit") bindTimelineWs(root, ctx, ui, render);
     if (activeModule === "storage" || activeModule === "assets") bindStorageWs(root, ctx, ui, render);
+    // "进入本集" — bound LAST, and centrally: entering an episode is a SHELL
+    // decision (switch the active episode AND open one of its stages), so it
+    // must not be re-implemented per workspace. Binding after the workspaces
+    // means a workspace that also wires the attribute cannot shadow it.
+    root.querySelectorAll("[data-ep-enter],[data-ep-open]").forEach((b) => (b.onclick = (ev) => {
+      ev.stopPropagation();
+      enterEpisode(b.dataset.epEnter || b.dataset.epOpen, "script");
+    }));
     // AI Director (non-script modules) — real dispatches only
     if (activeModule !== "script") {
       bindDirector(root, ctx, ui, render);
