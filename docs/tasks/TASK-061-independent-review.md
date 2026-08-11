@@ -3,7 +3,9 @@
 - 审查者：TASK-057 会话（独立审查角色，AGENTS.md 规则 15）
 - 实施者：TASK-061 会话（唯一实施 Agent，规则 14）
 - 审查基线：`38f1168`（已提交部分）
-- 结论：**已提交的基础不存在阻塞缺陷**；27 项真实行为验证全部通过，1 项 P3 记录在案。
+- 结论：**已提交的基础不存在阻塞缺陷**；27 项真实行为验证全部通过。
+  发现 1 项 P3（F1）与 1 项 **P1 阻塞**（F2，在未提交的 `assetusage.js` 里，
+  当前正在让全量 pytest 失败）。
 
 本文件是 TASK-061 的伴生审查记录，**不写进
 [TASK-061 任务卡](TASK-061-asset-library-and-episode-production-ui.md)本体**：那份卡
@@ -71,6 +73,36 @@
   一个会静默生效的陷阱，建议在新增调用点之前收口。
 - **附带**：审查脚本本身就踩了这个坑（先用了 `"succeeded"`，静默变成
   `generating`，断言仍然通过）——这正说明它有多容易被忽略。
+
+### F2（P1，阻塞）`assetusage.js` 含字面 NUL 字节 → 全库测试失败且该文件无法被审查
+
+- **位置**：`mockups/motv-workspace/src/workflow/assetusage.js:75`（第 3204 字节）
+
+      ].join("\x00");   // ← 字面 NUL 作为复合 key 的分隔符
+
+- **复现**：
+
+      python -c "print(open('mockups/motv-workspace/src/workflow/assetusage.js','rb').read().count(b'\x00'))"
+      # → 1
+      git diff --no-index --stat /dev/null mockups/motv-workspace/src/workflow/assetusage.js
+      # → Bin 0 -> 10088 bytes
+
+- **两个后果**：
+  1. **该文件永远不会出现在任何 diff 里**。git 把含 NUL 的文件判定为 binary，
+     10088 字节全部被排除——`codex-review-loop` / 人工 review 都看不到一行代码。
+     TASK-057 正是踩了这个坑：`canondoc.js` 的 410 行因为 `pairKey` 用 NUL 连接，
+     连续多轮审查里**一次都没有被看到**。所以仓库里才有那条守卫测试。
+  2. **`tests/test_motv_upstream_task057.py::test_no_source_file_contains_a_nul_byte`
+     失败 → 全量 pytest 失败 → pre-commit gate 会拦住 TASK-061 自己的提交**
+     （本审查记录的提交也被同一条测试拦下，见文件末尾）。
+- **期望**：复合 key 用 `JSON.stringify([...])`，与 `canondoc.js` 的 `pairKey` 一致：
+
+      const key = JSON.stringify([place.episodeId || "", place.sceneId || "",
+                                  place.shotId || "", place.extra || ""]);
+
+  这既保持「同一处只报一次」的去重语义（风险区 6 的 double count 防线正好建立在
+  这一行上），又不会让文件变成 binary。
+- **不由审查者修**：`assetusage.js` 是 TASK-061 声明 ownership 的文件（规则 14/15）。
 
 ## 4. 本轮未审（留给最终 integrated review）
 

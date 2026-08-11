@@ -15,7 +15,7 @@
 // owns nothing durable; the only writes it triggers go through ctx controllers.
 
 import { esc } from "../util/dom.js";
-import { head, empty, mediaBox } from "./shell.js";
+import { head, empty, mediaBox, nameWithVersion } from "./shell.js";
 import { SHOT_STAGE_LABEL } from "../workflow/shotprod.js";
 import { REFERENCE_ROLES } from "../workflow/geninput.js";
 
@@ -122,7 +122,7 @@ export function episodeModel(ctx) {
 
 function refChips(refs) {
   if (!refs.length) return `<span class="ep-noref">未绑定参考</span>`;
-  return refs.map((r) => `<span class="ep-refchip" title="${esc(r.name)} v${r.version}">${esc(r.name)}</span>`).join("");
+  return refs.map((r) => `<span class="ep-refchip" title="${esc(r.name)}">${nameWithVersion(r.name, r.version)}</span>`).join("");
 }
 
 function shotRow(c, openId) {
@@ -227,7 +227,7 @@ function refPanel(ctx, ui) {
   const p = ctx.episode.pickerModel(ui.epShotId);
   const row = (r, action) =>
     `<li>${r.url ? `<img class="rp-thumb sm" src="${esc(r.url)}" alt="">` : `<span class="rp-thumb sm rp-none">⃠</span>`}` +
-    `<span class="ep-pickname">${esc(r.name)} <span class="chip">v${r.version}</span></span>${action}</li>`;
+    `<span class="ep-pickname">${nameWithVersion(r.name, r.version)}</span>${action}</li>`;
   return (
     `<div class="ep-panel"><div class="ep-panelhead"><b>为这个镜头选择参考</b>` +
     `<button class="btn" data-ep-close>关闭</button></div>` +
@@ -260,7 +260,7 @@ function genPanel(ctx, ui) {
     const rs = set.references[role] || [];
     return (
       `<dt>${esc(label)}</dt><dd>${rs.length
-        ? rs.map((r) => `<span class="ep-refchip">${esc(r.name)} v${r.version}</span>`).join(" ")
+        ? rs.map((r) => `<span class="ep-refchip">${nameWithVersion(r.name, r.version)}</span>`).join(" ")
         : `<span class="muted">—</span>`}</dd>`
     );
   }).join("");

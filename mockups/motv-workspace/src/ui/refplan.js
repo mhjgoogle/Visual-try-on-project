@@ -21,7 +21,7 @@
 // Pure derivation over the canonical documents — no writes.
 
 import { esc } from "../util/dom.js";
-import { head, empty } from "./shell.js";
+import { head, empty, nameWithVersion } from "./shell.js";
 import { REFERENCE_ROLES } from "../workflow/geninput.js";
 import { derivedLabel } from "../workflow/assetreg.js";
 
@@ -163,7 +163,7 @@ function refCard(r, shotName) {
     : `<div class="rp-thumb rp-none">⃠</div>`;
   return (
     `<div class="rp-card">${thumb}<div class="rp-body">` +
-    `<div class="rp-name">${esc(r.name)} <span class="chip">v${r.version}</span></div>` +
+    `<div class="rp-name">${nameWithVersion(r.name, r.version)}</div>` +
     `<div class="rp-shots">${shots.length ? `${shots.length} 个镜头共用：${esc(shots.join("、"))}` : "尚未绑定到任何镜头"}</div>` +
     `</div></div>`
   );

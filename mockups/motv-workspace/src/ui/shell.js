@@ -186,6 +186,20 @@ export function empty(icon, title, hint, action = "") {
   );
 }
 
+/** An asset's name plus its version chip — WITHOUT saying the version twice.
+ *
+ *  `assetreg.derivedLabel` falls back to 「人物参考 v1」 when the creator has not
+ *  named the asset, so a version chip printed beside it read 「人物参考 v1 v1」.
+ *  Once named 「林晚 Ref」 the chip is the only place the version appears and is
+ *  needed. Deciding from the label itself keeps both cases right without a
+ *  second labelling API for callers to pick the wrong one of. */
+export function nameWithVersion(name, version) {
+  const n = String(name || "");
+  return n.endsWith(`v${version}`)
+    ? esc(n)
+    : `${esc(n)} <span class="chip">v${esc(String(version))}</span>`;
+}
+
 /** A media box: real thumbnail, or an honest placeholder that says WHY. */
 export function mediaBox(url, { alt = "", missing = "还没有画面", icon = "🎞", cls = "" } = {}) {
   return url
