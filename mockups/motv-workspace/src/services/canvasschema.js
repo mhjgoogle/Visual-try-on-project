@@ -19,9 +19,10 @@
 
 import { MAX_CLIP_START, MAX_CLIP_FADE } from "../workflow/timeline.js";
 import { pairKey } from "../workflow/canondoc.js";
+import { ASSET_KINDS, KIND_DOMAIN, LINK_KEYS } from "../workflow/assetreg.js";
 
 /** Authoritative CURRENT canvas schema version. Saves must emit exactly this. */
-export const CANVAS_SCHEMA_VERSION = 10;
+export const CANVAS_SCHEMA_VERSION = 11;
 
 /**
  * v1 → v2 (checkpoint M2): stable creator identity + minimal provenance.
@@ -795,9 +796,153 @@ function migrateV9ToV10(doc) {
   return doc;
 }
 
+/**
+ * v10 → v11 (checkpoint CP2 / ADR-0055): every durable Asset record gains its
+ * DECLARATION — kind / displayName / originalFilename / links / tags / reusable
+ * / needsReview.
+ *
+ * Purely additive, and deliberately MINIMAL about what it claims. `kind` is
+ * back-filled ONLY where the document ALREADY records the fact:
+ *
+ *   finals                                  → final       (origin is compose)
+ *   character.referenceAssetIds hit         → character-reference + characterId
+ *   location.referenceAssetIds hit          → location-reference  + locationId
+ *   audio key voice-* / sfx-* / amb-* /
+ *     bgm-* / music-main                    → dialogue / sfx / ambience / bgm
+ *                                             (these prefixes are written BY
+ *                                             this system — a convention we own,
+ *                                             not a guess about a filename)
+ *   scene.ambienceAssetId / bgmAssetId,
+ *     episode.bgmAssetId                    → ambience / bgm + scene/episode link
+ *   image record with a proven creativeShotId → shot-image + shotId
+ *   video record with a proven creativeShotId → shot-video + shotId
+ *
+ * Everything else becomes `kind: null, needsReview: true`. That is the honest
+ * outcome: the studio never recorded what those files were, and inventing a
+ * classification (every png in `images` is a 镜头图片) would put a fabricated
+ * answer where the creator's real one belongs.
+ *
+ * `originalFilename` and `displayName` are ALWAYS null after migration. Neither
+ * was ever persisted, and deriving one from the url would present a
+ * system-generated name (`assets-slot-3_v2.png`) as the creator's own.
+ */
+function migrateV10ToV11(doc) {
+  const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
+  const str = (x) => (typeof x === "string" && x ? x : null);
+  if (!isObj(doc.assets)) return doc;
+  const reg = doc.assets;
+  const prod = isObj(doc.production) ? doc.production : null;
+
+  // --- the facts the document ALREADY holds, collected once ---------------- //
+  const declared = new Map(); // assetId → { kind, links }
+  const claim = (assetId, kind, links) => {
+    if (typeof assetId !== "string" || !assetId || declared.has(assetId)) return;
+    declared.set(assetId, { kind, links });
+  };
+  if (prod) {
+    for (const c of Array.isArray(prod.characters) ? prod.characters : []) {
+      if (!isObj(c)) continue;
+      const cid = str(c.characterId);
+      const own = [
+        ...(Array.isArray(c.referenceAssetIds) ? c.referenceAssetIds : []),
+        // a state's override list is the SAME character's reference material
+        ...(Array.isArray(c.states) ? c.states : []).flatMap((st) =>
+          isObj(st) && isObj(st.overrides) && Array.isArray(st.overrides.referenceAssetIds)
+            ? st.overrides.referenceAssetIds
+            : []),
+      ];
+      for (const id of own) claim(id, "character-reference", { characterId: cid });
+    }
+    for (const l of Array.isArray(prod.locations) ? prod.locations : []) {
+      if (!isObj(l)) continue;
+      const lid = str(l.locationId);
+      const own = [
+        ...(Array.isArray(l.referenceAssetIds) ? l.referenceAssetIds : []),
+        ...(Array.isArray(l.states) ? l.states : []).flatMap((st) =>
+          isObj(st) && isObj(st.overrides) && Array.isArray(st.overrides.referenceAssetIds)
+            ? st.overrides.referenceAssetIds
+            : []),
+      ];
+      for (const id of own) claim(id, "location-reference", { locationId: lid });
+    }
+    for (const ep of Array.isArray(prod.episodes) ? prod.episodes : []) {
+      if (!isObj(ep)) continue;
+      const epId = str(ep.episodeId);
+      claim(ep.bgmAssetId, "bgm", { episodeId: epId });
+      for (const sc of Array.isArray(ep.scenes) ? ep.scenes : []) {
+        if (!isObj(sc)) continue;
+        const scId = str(sc.sceneId);
+        claim(sc.ambienceAssetId, "ambience", { episodeId: epId, sceneId: scId });
+        claim(sc.bgmAssetId, "bgm", { episodeId: epId, sceneId: scId });
+      }
+    }
+  }
+
+  // audio KEY prefixes this system writes itself (app.js / audiows.js): a
+  // convention we own, so reading it back is recall, not inference
+  const audioKindForKey = (key) => {
+    if (typeof key !== "string") return null;
+    if (key.startsWith("voice-")) return "dialogue";
+    if (key.startsWith("sfx-")) return "sfx";
+    if (key.startsWith("amb-")) return "ambience";
+    if (key.startsWith("bgm-") || key === "music-main" || key.startsWith("music-")) return "bgm";
+    return null;
+  };
+
+  const stamp = (rec, kind, links) => {
+    if (!isObj(rec)) return;
+    rec.kind = kind || null;
+    rec.displayName = null; // never persisted before — not invented now
+    rec.originalFilename = null;
+    const l = {};
+    for (const k of LINK_KEYS) l[k] = null;
+    if (isObj(links)) {
+      for (const k of LINK_KEYS) if (str(links[k])) l[k] = links[k];
+    }
+    rec.links = l;
+    rec.tags = [];
+    rec.reusable = false; // only an EXPLICIT creator mark ever sets this
+    rec.needsReview = !rec.kind;
+  };
+
+  for (const domain of ["images", "videos", "audio"]) {
+    const m = reg[domain];
+    if (!isObj(m)) continue;
+    for (const key of Object.keys(m)) {
+      const e = m[key];
+      if (!isObj(e) || !Array.isArray(e.history)) continue;
+      for (const r of e.history) {
+        if (!isObj(r)) continue;
+        const known = declared.get(str(r.assetId));
+        if (known) {
+          stamp(r, known.kind, known.links);
+          continue;
+        }
+        if (domain === "audio") {
+          const k = audioKindForKey(key);
+          // a `voice-<slot>` take belongs to the shot the slot belongs to, and
+          // that relation is only PROVEN when the record carries the id
+          stamp(r, k, k === "dialogue" || k === "sfx" ? { shotId: str(r.creativeShotId) } : null);
+          continue;
+        }
+        const shotId = str(r.creativeShotId);
+        if (shotId) {
+          stamp(r, domain === "images" ? "shot-image" : "shot-video", { shotId });
+          continue;
+        }
+        stamp(r, null, null); // unclassified — kept, visible, and asking
+      }
+    }
+  }
+  for (const f of Array.isArray(reg.finals) ? reg.finals : []) stamp(f, "final", null);
+  // firstFrames ALIAS an image Asset (same assetId) — the alias carries no
+  // second declaration, so it is deliberately left alone.
+  return doc;
+}
+
 /** Sequential migration steps: { [fromVersion]: (doc) => docAtFromVersion+1 }.
  *  Extended one real step at a time, never speculatively. */
-export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7, 7: migrateV7ToV8, 8: migrateV8ToV9, 9: migrateV9ToV10 };
+export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7, 7: migrateV7ToV8, 8: migrateV8ToV9, 9: migrateV9ToV10, 10: migrateV10ToV11 };
 
 /** Read the schema version of a raw persisted document.
  *  Returns a positive integer, or null if the marker is malformed.
@@ -1068,6 +1213,56 @@ export function validateCanvasDoc(doc) {
   // the next save; fail safe instead.
   const atV3 = Number.isInteger(doc.v) && doc.v >= 3;
   const atV5 = Number.isInteger(doc.v) && doc.v >= 5;
+  const atV11 = Number.isInteger(doc.v) && doc.v >= 11;
+  // v11 declaration invariants (ADR-0055). A malformed declaration is rejected
+  // rather than repaired on load: hydration WOULD normalize it, and a normalize
+  // that silently drops a creator's tags / reusable mark / context links is the
+  // same class of quiet loss the registry exists to prevent. `kind: null` is
+  // valid and expected — unclassified is a real state, not a defect.
+  const ASSET_KIND_SET = new Set(ASSET_KINDS);
+  const LINK_KEY_SET = new Set(LINK_KEYS);
+  const declarationError = (r, where, domain) => {
+    if (r.kind !== null && r.kind !== undefined && !ASSET_KIND_SET.has(r.kind)) {
+      return `assets ${where} has unknown kind ${JSON.stringify(r.kind)}`;
+    }
+    if (r.kind === undefined) return `assets ${where} has no kind field at v11`;
+    // a declaration must be writable into the domain it lives in, or every
+    // type filter downstream reports something the media cannot be. An
+    // `external-reference` is domain-free among the MEDIA domains only —
+    // `finals` is this project's composed output, never somebody else's
+    // reference.
+    if (r.kind && domain) {
+      if (r.kind === "external-reference") {
+        if (domain === "finals") return `assets ${where} declares external-reference inside finals`;
+      } else {
+        const want = KIND_DOMAIN[r.kind];
+        if (want && want !== domain) return `assets ${where} declares ${r.kind} inside ${domain}`;
+      }
+    }
+    for (const k of ["displayName", "originalFilename"]) {
+      if (r[k] !== null && typeof r[k] !== "string") return `assets ${where} ${k} is not a string or null`;
+    }
+    if (!isPlainObject(r.links)) return `assets ${where} links is not an object`;
+    // EVERY canonical key must be present. Consumers read `links.sceneId` and
+    // treat null as "not known"; a MISSING key reads as `undefined`, which is a
+    // second, undeclared flavour of unknown that filters and comparisons handle
+    // differently. Hydration always writes the full set, so requiring it here
+    // rejects no genuine save.
+    for (const k of LINK_KEYS) {
+      if (!(k in r.links)) return `assets ${where} links is missing ${k}`;
+    }
+    for (const k of Object.keys(r.links)) {
+      if (!LINK_KEY_SET.has(k)) return `assets ${where} links has unknown key ${k}`;
+      const v = r.links[k];
+      if (v !== null && (typeof v !== "string" || !v)) return `assets ${where} links.${k} is not a non-empty string or null`;
+    }
+    if (!Array.isArray(r.tags) || r.tags.some((t) => typeof t !== "string" || !t)) {
+      return `assets ${where} tags is not a list of non-empty strings`;
+    }
+    if (typeof r.reusable !== "boolean") return `assets ${where} reusable is not a boolean`;
+    if (typeof r.needsReview !== "boolean") return `assets ${where} needsReview is not a boolean`;
+    return null;
+  };
   const STORAGE_STATES = new Set(["local", "archived", "missing", "deleted"]);
   if (atV3 && !isPlainObject(doc.assets)) {
     return "v3 document is missing its assets registry";
@@ -1144,6 +1339,10 @@ export function validateCanvasDoc(doc) {
             // from identity (the url stays as the last-known location even when
             // bytes are archived/missing/deleted).
             if (atV5 && !STORAGE_STATES.has(r.storageState)) return `assets.${k}[${slot}] history record has invalid storageState`;
+            if (atV11) {
+              const derr = declarationError(r, `${k}[${slot}] history record`, k);
+              if (derr) return derr;
+            }
           }
           // the current pointer must resolve to a real version in the chain
           if (!e.history.some((r) => isPlainObject(r) && r.version === e.current)) {
@@ -1160,6 +1359,10 @@ export function validateCanvasDoc(doc) {
         // "final" is inaccessible dead data
         if (typeof f.url !== "string" || !f.url) return "assets.finals record has no url";
         if (atV5 && !STORAGE_STATES.has(f.storageState)) return "assets.finals record has invalid storageState";
+        if (atV11) {
+          const derr = declarationError(f, "finals record", "finals");
+          if (derr) return derr;
+        }
       }
       const ff = doc.assets.firstFrames;
       // standalone (non-image-alias) first-frame ids ARE durable Assets a video

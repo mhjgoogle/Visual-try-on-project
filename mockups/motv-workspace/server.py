@@ -33,6 +33,7 @@ Host-guarded, strict same-origin CSP. This backend is deliberately kept OUT of
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import math
@@ -2774,11 +2775,26 @@ class _App:
                             indent=2,
                         ).encode("utf-8")
                     )
+                # ADR-0055 决策 5: the project's shape exists from the start —
+                # studio/ (canvas.json) and media/ (every media byte). Both were
+                # already created lazily on first write; creating them here means
+                # a freshly-made project SHOWS its structure instead of looking
+                # empty. Deliberately NO physical classification subfolders: the
+                # Asset Registry is the classification source of truth, and a
+                # second, physical one could only ever disagree with it.
+                for sub in ("studio", "media"):
+                    (target / sub).mkdir(exist_ok=True)
             except OSError as exc:
                 # Same rule as the registry rollback below: never leave a partial
                 # project behind, or every retry is rejected as "already exists".
                 try:
                     (target / "project.json").unlink(missing_ok=True)
+                    # the scaffolded subfolders are OURS too — an rmdir that
+                    # trips over them would leave the half-made project behind
+                    # and make every retry fail as "already exists"
+                    for sub in ("studio", "media"):
+                        with contextlib.suppress(OSError):
+                            (target / sub).rmdir()
                     if made_dir:
                         target.rmdir()
                 except OSError:
@@ -2802,6 +2818,12 @@ class _App:
                 # still unregistered and invisible after a restart.
                 try:
                     (target / "project.json").unlink(missing_ok=True)
+                    # the scaffolded subfolders are OURS too — an rmdir that
+                    # trips over them would leave the half-made project behind
+                    # and make every retry fail as "already exists"
+                    for sub in ("studio", "media"):
+                        with contextlib.suppress(OSError):
+                            (target / sub).rmdir()
                     if made_dir:
                         target.rmdir()
                 except OSError:

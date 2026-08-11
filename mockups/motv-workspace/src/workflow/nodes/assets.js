@@ -2,6 +2,7 @@
 // batch wizard; on generate it flips to done and guides to video/audio.
 import { nx, bindSlots, vbadge } from "./shared.js";
 import { slotUrl, addVersion, refFromResponse } from "../mediaref.js";
+import { declare } from "../assetreg.js";
 import { esc } from "../../util/dom.js";
 
 function labels(ctx) {
@@ -171,6 +172,14 @@ export default {
         const res = await ctx.paidImage(`${node.type}-${s.slot}`, prompt, PRICE);
         // the draft shot in hand carries its M2 identity — provable association
         const ref = refFromResponse(s.slot, "paid-image", res, s.shotId ?? null);
+        // CP2: a paid image generated FOR this shot is that shot's 镜头图片
+        declare(ref, "images", {
+          kind: "shot-image",
+          links: {
+            ...(ctx.contextOfShot ? ctx.contextOfShot(s.shotId ?? null) : { shotId: s.shotId ?? null }),
+            generationId: gen ? gen.generationId : null,
+          },
+        });
         addVersion(node, s.slot, ref);
         if (gen) ctx.completeGeneration(gen.generationId, [ref.assetId]);
         ctx.toast(`设定图已生成 v${res.version || 1}（$${res.usd} 已扣，旧版本保留；见 data/paid-image-log.jsonl）`);

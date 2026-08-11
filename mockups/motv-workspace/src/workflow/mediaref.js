@@ -14,6 +14,7 @@
 // 本模块是所有读写槽位代码的唯一入口，读侧对两种形态透明。
 
 import { mintId } from "./identity.js";
+import { ensureDeclaration } from "./assetreg.js";
 
 /** 安全写入一个可能名为 `__proto__` 的槽位键：普通对象上 `obj["__proto__"]=x`
  *  会改写原型（污染），而 slot 是外部/可损坏数据里的任意字符串。以 own 属性
@@ -88,6 +89,11 @@ export function addVersion(node, k, ref) {
   if (typeof ref.assetId !== "string" || !ref.assetId) ref.assetId = mintId("asset");
   // M5 storage lifecycle: a freshly written version's bytes are present locally.
   if (typeof ref.storageState !== "string" || !ref.storageState) ref.storageState = "local";
+  // CP2/ADR-0055: every registered Asset carries a declaration. A caller that
+  // declared one (assetreg.declare) keeps it verbatim; one that did not gets an
+  // honestly UNCLASSIFIED record — so 「文件落盘却没有资产记录」 cannot happen
+  // through any write path, present or future.
+  ensureDeclaration(ref);
   node.uploads = node.uploads || {};
   const e = normalizeEntry(k, node.uploads[k]) || { current: 0, history: [] };
   // 同版本号重复追加（例如重放）时以新记录为准，但绝不丢历史其它版本

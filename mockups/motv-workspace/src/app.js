@@ -31,6 +31,7 @@ import { renderStepbar } from "./ui/stepbar.js";
 import { renderQueueBar, hasInflight } from "./ui/paidqueue.js";
 import * as mediaref from "./workflow/mediaref.js";
 import * as assetlib from "./workflow/assetlib.js";
+import * as assetreg from "./workflow/assetreg.js";
 import * as genlib from "./workflow/genlib.js";
 import { buildShotSlotIndex, slotForShotId, shotIdForSlot, resolveAdoptTarget } from "./workflow/shotmap.js";
 import * as scriptdoc from "./workflow/scriptdoc.js";
@@ -98,6 +99,48 @@ function timelineSourceSig(clips) {
  *  restore and on every active-episode switch. */
 function syncActiveScript() {
   scriptDoc = scriptForEpisode(productionDoc.activeEpisodeId);
+}
+
+/** The Episode / Scene a Shot PROVABLY belongs to, from the production
+ *  document's own scene→shotIds assignment (CP2 asset context links).
+ *
+ *  A shot that is not assigned to any scene resolves to `{episodeId: null,
+ *  sceneId: null}` — the unassigned pool is a real, honest state, and picking
+ *  "probably the active episode" would stamp a fabricated context onto every
+ *  asset imported while an unassigned shot happened to be selected. */
+function contextOfShot(shotId) {
+  const out = { episodeId: null, sceneId: null, shotId: strOrNullId(shotId) };
+  if (!out.shotId) return out;
+  for (const ep of productionDoc.episodes || []) {
+    for (const sc of ep.scenes || []) {
+      if (Array.isArray(sc.shotIds) && sc.shotIds.includes(out.shotId)) {
+        out.episodeId = ep.episodeId;
+        out.sceneId = sc.sceneId;
+        return out;
+      }
+    }
+  }
+  return out;
+}
+
+const strOrNullId = (x) => (typeof x === "string" && x ? x : null);
+
+/** Which registry domain a picked File belongs in — from its MIME type, which
+ *  is also what the upload endpoint validates against (and magic-byte checks).
+ *  Deliberately NOT from the file extension: the extension is user-controlled
+ *  text, and CP2's rule is that semantics never come from a name. */
+function mediaDomainOfFile(file) {
+  const t = String((file && file.type) || "").toLowerCase();
+  if (t.startsWith("image/")) return "images";
+  if (t.startsWith("video/")) return "videos";
+  if (t.startsWith("audio/")) return "audio";
+  return "";
+}
+
+/** The upload slug prefix each domain uses (the namespace the media files
+ *  already live in — unchanged, so nothing has to be moved). */
+function domainSlugPrefix(domain) {
+  return domain === "videos" ? "video" : domain === "audio" ? "audio" : "assets";
 }
 // Project Asset Registry (M3) — the ONE durable owner of creator media.
 // Node uploads/firstFrames are ALIAS views over these maps (attachAssetViews),
@@ -1129,10 +1172,23 @@ const ctx = {
     // shared audio-import core: same upload endpoint + slug namespace as the
     // audio node (`audio-<key>`), mediaref appends a version, and an
     // intent-carrying import records REAL Generation provenance
-    importKey: async (key, shotId, file, intent) => {
+    importKey: async (key, shotId, file, intent, kind = null) => {
       if (!CONNECTED) throw new Error("演示模式无后端，无法导入文件");
+      // CHECK BEFORE UPLOADING: a declaration refused after the bytes are on
+      // disk would leave exactly the orphan file this checkpoint forbids.
+      const pre = assetreg.checkDeclaration("audio", { kind });
+      if (pre) throw new Error(`登记被拒绝，未上传：${pre}`);
       const res = await query.uploadAssetImage(PROJECT_NAME, `audio-${key}`, file);
       const ref = mediaref.refFromResponse(key, "upload", res, shotId ?? null);
+      // CP2: the caller states the audio KIND (对白 / 环境音 / 音效 / BGM). It is
+      // not inferred from the key text — the key is an addressing detail, and
+      // a caller that genuinely does not know passes null (→ needs review).
+      const decl = assetreg.declare(ref, "audio", {
+        kind,
+        originalFilename: (file && file.name) || null,
+        links: contextOfShot(shotId),
+      });
+      if (!decl.ok) throw new Error(`登记失败：${decl.error}`);
       mediaref.addVersion({ uploads: assetRegistry.audio }, key, ref);
       if (intent && intent.prompt) {
         const gen = ctx.startGeneration({
@@ -1144,7 +1200,10 @@ const ctx = {
           parameters: { providerMode: intent.providerMode || "import" },
           status: "generating",
         });
-        if (gen) ctx.completeGeneration(gen.generationId, [ref.assetId]);
+        if (gen) {
+          ctx.completeGeneration(gen.generationId, [ref.assetId]);
+          ref.links.generationId = gen.generationId;
+        }
       }
       ctx.refreshType("audio");
       ctx.persist();
@@ -1152,10 +1211,13 @@ const ctx = {
       toast(`已导入音频 · v${res.version || 1}（旧版本保留）${intent && intent.prompt ? " · 已记录生成溯源" : ""}`);
       return ref;
     },
-    // mint a NEW pool chain and import its first take (ambience/BGM pools)
+    // mint a NEW pool chain and import its first take (ambience/BGM pools).
+    // The POOL the creator opened states the kind — amb-… is 环境音, bgm-… is
+    // BGM — so the declaration is what they asked for, not a name lookup.
     importPool: async (prefix, file, intent) => {
       const key = mintId(prefix); // e.g. amb-<uuid> / bgm-<uuid>
-      return ctx.audio.importKey(key, null, file, intent);
+      const kind = prefix === "amb" ? "ambience" : prefix === "bgm" ? "bgm" : null;
+      return ctx.audio.importKey(key, null, file, intent, kind);
     },
     // REAL local dialogue TTS (piper, ADR-0043 — the local_subscription mode):
     // fits the shot's video length when a clip exists, registers the take as
@@ -1173,6 +1235,12 @@ const ctx = {
       // matching local piper model when present (else honest default fallback)
       const res = await query.ttsGenerate(PROJECT_NAME, `audio-${key}`, text, fitSlug || undefined, voiceMeta && voiceMeta.voiceId ? voiceMeta.voiceId : undefined);
       const ref = mediaref.refFromResponse(key, "tts", res, shotId ?? null);
+      // CP2: a TTS take IS 对白, and its speaker is the character just verified
+      // to have a fixed base voice — both facts, recorded at the write.
+      assetreg.declare(ref, "audio", {
+        kind: "dialogue",
+        links: { ...contextOfShot(shotId), characterId: voiceMeta.characterId },
+      });
       mediaref.addVersion({ uploads: assetRegistry.audio }, key, ref);
       const gen = ctx.startGeneration({
         type: "audio",
@@ -1192,7 +1260,10 @@ const ctx = {
         },
         status: "generating",
       });
-      if (gen) ctx.completeGeneration(gen.generationId, [ref.assetId]);
+      if (gen) {
+        ctx.completeGeneration(gen.generationId, [ref.assetId]);
+        ref.links.generationId = gen.generationId;
+      }
       ctx.refreshType("audio");
       ctx.persist();
       refreshProductionView();
@@ -1324,7 +1395,8 @@ const ctx = {
         });
       }
       const res = await query.renderEpisode(PROJECT_NAME, clips, t.settings);
-      const rec = assetlib.addFinal(assetRegistry, res.url);
+      // CP2: the Final belongs to the episode whose timeline was just rendered
+      const rec = assetlib.addFinal(assetRegistry, res.url, productionDoc.activeEpisodeId);
       const gen = ctx.startGeneration({
         type: "render",
         targetType: null,
@@ -1340,7 +1412,10 @@ const ctx = {
         },
         status: "generating",
       });
-      if (gen && rec) ctx.completeGeneration(gen.generationId, [rec.assetId]);
+      if (gen && rec) {
+        ctx.completeGeneration(gen.generationId, [rec.assetId]);
+        rec.links.generationId = gen.generationId;
+      }
       ctx.refreshType("edit");
       ctx.persist();
       refreshProductionView();
@@ -1350,6 +1425,141 @@ const ctx = {
   // read-only registry view for the storage workspace (writes stay on the
   // ctx.storage / mediaref paths)
   assetRegistryView: () => assetRegistry,
+  // ---------------------------------------------------------------------- //
+  // Asset Registration controller (CP2 / ADR-0055) — the ONE import path.
+  //
+  // 上传 ≠ 保存文件。Every page that produces or receives media calls
+  // `ctx.assets.import*`: the file is written by the existing upload endpoint
+  // (collision-safe `<slug>_v<N>.<ext>`), DECLARED in the same call, registered
+  // through the M3 single media write path, and immediately visible everywhere.
+  // No page implements its own upload logic, so no page can forget a step.
+  // ---------------------------------------------------------------------- //
+  assets: {
+    KINDS: assetreg.ASSET_KINDS,
+    KIND_LABEL: assetreg.ASSET_KIND_LABEL,
+    /** Every registered Asset, flattened (the asset library / picker / Director
+     *  all read this one derivation). */
+    list: () => assetreg.listAssets(assetRegistry),
+    /** The canonical References — one entry per `ref-…` chain at its CURRENT
+     *  version. This is the unit many shots SHARE; never copied per shot. */
+    references: () => assetreg.listReferences(assetRegistry),
+    find: (assetId) => assetlib.findAssetById(assetRegistry, assetId),
+
+    /** Import a file as a NEW canonical Reference (人物 / 场景 / 道具 / 风格 /
+     *  外部). Mints its own `ref-…` chain so later takes of the SAME reference
+     *  append as v2, v3 … rather than becoming unrelated assets. */
+    importReference: async ({ kind, file, links, displayName, tags } = {}) => {
+      if (!CONNECTED) throw new Error("演示模式无后端，无法上传参考图");
+      if (!assetreg.isReferenceKind(kind)) throw new Error(`不是参考类型：${kind}`);
+      if (!file) throw new Error("没有选择文件");
+      const key = assetreg.mintReferenceKey();
+      const domain = mediaDomainOfFile(file);
+      // An unresolvable domain must FAIL HERE. Falling through would hand
+      // addVersion a `{uploads: undefined}` map, which quietly creates a throw-
+      // away object: the upload would succeed on disk and be gone after reload.
+      // (The server would refuse the write anyway — its type allow-list reads
+      // the same MIME — so this is the honest error, not a new restriction.)
+      if (!domain) {
+        throw new Error("无法识别文件类型：请上传 png/jpg/webp、mp4/webm 或 mp3/wav");
+      }
+      if (domain !== "images" && kind !== "external-reference") {
+        throw new Error("人物 / 场景 / 道具 / 风格参考需要图片文件");
+      }
+      // checked BEFORE the upload — see ctx.audio.importKey
+      const pre = assetreg.checkDeclaration(domain, { kind });
+      if (pre) throw new Error(`登记被拒绝，未上传：${pre}`);
+      const res = await query.uploadAssetImage(PROJECT_NAME, `${domainSlugPrefix(domain)}-${key}`, file);
+      const ref = mediaref.refFromResponse(key, "upload", res, null);
+      const decl = assetreg.declare(ref, domain, {
+        kind,
+        displayName: displayName || null,
+        originalFilename: file.name || null,
+        links,
+        tags,
+      });
+      if (!decl.ok) throw new Error(`登记失败：${decl.error}`);
+      mediaref.addVersion({ uploads: assetRegistry[domain] }, key, ref);
+      ctx.refreshType("assets");
+      ctx.persist();
+      refreshProductionView();
+      toast(`已登记参考资产「${assetreg.derivedLabel({ ...ref, version: ref.version })}」`);
+      return { key, ref };
+    },
+
+    /** Append a NEW VERSION to an existing canonical Reference — 林照 Ref v2,
+     *  v3 … The chain, its kind and its links are the reference's; only the
+     *  bytes are new. Every shot pointing at this reference follows the
+     *  chain's current pointer, so nothing has to be re-pointed by hand. */
+    importReferenceVersion: async (key, file) => {
+      if (!CONNECTED) throw new Error("演示模式无后端，无法上传参考图");
+      if (!assetreg.isReferenceKey(key)) throw new Error("不是参考资产");
+      const chain = mediaref.slotEntry(assetRegistry.images, key)
+        || mediaref.slotEntry(assetRegistry.videos, key)
+        || mediaref.slotEntry(assetRegistry.audio, key);
+      if (!chain) throw new Error("参考资产不存在");
+      const head = chain.history[chain.history.length - 1] || {};
+      const domain = mediaDomainOfFile(file);
+      if (!domain) {
+        throw new Error("无法识别文件类型：请上传 png/jpg/webp、mp4/webm 或 mp3/wav");
+      }
+      if (!assetRegistry[domain] || !mediaref.slotEntry(assetRegistry[domain], key)) {
+        throw new Error("新版本的媒体类型与该参考资产不一致");
+      }
+      // checked BEFORE the upload — see ctx.audio.importKey
+      const pre = assetreg.checkDeclaration(domain, { kind: head.kind || null });
+      if (pre) throw new Error(`登记被拒绝，未上传：${pre}`);
+      const res = await query.uploadAssetImage(PROJECT_NAME, `${domainSlugPrefix(domain)}-${key}`, file);
+      const ref = mediaref.refFromResponse(key, "upload", res, null);
+      const decl = assetreg.declare(ref, domain, {
+        kind: head.kind || null,
+        displayName: head.displayName || null,
+        originalFilename: file.name || null,
+        links: head.links,
+        tags: head.tags,
+        reusable: head.reusable === true,
+      });
+      if (!decl.ok) throw new Error(`登记失败：${decl.error}`);
+      mediaref.addVersion({ uploads: assetRegistry[domain] }, key, ref);
+      ctx.refreshType("assets");
+      ctx.persist();
+      refreshProductionView();
+      toast(`参考资产已新增 v${ref.version}（旧版本保留，可回切）`);
+      return ref;
+    },
+
+    /** Edit an Asset's CREATOR metadata. Always an explicit user action —
+     *  nothing in the system reclassifies an asset on its own. */
+    update: (assetId, fields) => {
+      const hit = assetlib.findAssetById(assetRegistry, assetId);
+      // the record's OWN domain gates a kind change — the same rule declare()
+      // applies at import, so the edit path cannot mint an invalid document
+      if (!hit || !assetreg.updateDeclaration(hit.record, fields, hit.domain)) return false;
+      ctx.persist();
+      refreshProductionView();
+      return true;
+    },
+    addTag: (assetId, tag) => {
+      const hit = assetlib.findAssetById(assetRegistry, assetId);
+      if (!hit || !assetreg.addTag(hit.record, tag)) return false;
+      ctx.persist();
+      refreshProductionView();
+      return true;
+    },
+    removeTag: (assetId, tag) => {
+      const hit = assetlib.findAssetById(assetRegistry, assetId);
+      if (!hit || !assetreg.removeTag(hit.record, tag)) return false;
+      ctx.persist();
+      refreshProductionView();
+      return true;
+    },
+    /** Mark / unmark 可复用. EXPLICIT only: "used many times" is never taken as
+     *  consent to call something reusable (ADR-0055 决策 1). */
+    setReusable: (assetId, on) => ctx.assets.update(assetId, { reusable: on === true }),
+    /** Switch a chain's CURRENT version — the Active variant everything reads. */
+    setCurrent: (domain, key, version) => ctx.media.setCurrent(
+      domain === "images" ? "image" : domain === "videos" ? "video" : "audio", key, version,
+    ),
+  },
   // Storage-management controller (M11-D): built on the EXISTING M5
   // storageState lifecycle — no second state system. Byte removal keeps the
   // assetId, metadata, provenance and every reference (shown unavailable);
@@ -1437,9 +1647,24 @@ const ctx = {
         throw new Error("演示模式无后端，无法导入文件（复制提示词仍可用）");
       }
       const slug = kind === "image" ? `assets-${slot}` : `video-${slot}`;
+      const domain = kind === "image" ? "images" : "videos";
+      const declKind = kind === "image" ? "shot-image" : "shot-video";
+      // checked BEFORE the upload — see ctx.audio.importKey
+      const pre = assetreg.checkDeclaration(domain, { kind: declKind });
+      if (pre) throw new Error(`登记被拒绝，未上传：${pre}`);
       const res = await query.uploadAssetImage(PROJECT_NAME, slug, file);
       const map = kind === "image" ? assetRegistry.images : assetRegistry.videos;
       const ref = mediaref.refFromResponse(slot, "upload", res, shotId ?? null);
+      // CP2/ADR-0055: the import declares WHAT this is and WHERE it belongs, in
+      // the same call that writes it — the shot is known, so its episode/scene
+      // context is a provable fact, not a guess.
+      const decl = assetreg.declare(ref, domain, {
+        kind: declKind,
+        displayName: null,
+        originalFilename: (file && file.name) || null,
+        links: contextOfShot(shotId),
+      });
+      if (!decl.ok) throw new Error(`登记失败：${decl.error}`);
       mediaref.addVersion({ uploads: map }, slot, ref);
       if (intent && intent.prompt && intent.shotId === shotId) {
         const gen = ctx.startGeneration({
@@ -1451,7 +1676,13 @@ const ctx = {
           parameters: null,
           status: "generating",
         });
-        if (gen) ctx.completeGeneration(gen.generationId, [ref.assetId]);
+        if (gen) {
+          ctx.completeGeneration(gen.generationId, [ref.assetId]);
+          // the asset's own back-link to the Generation that produced it — the
+          // Generation already records the result, this closes the loop so an
+          // asset opened from the library can name its origin without a scan
+          ref.links.generationId = gen.generationId;
+        }
       }
       ctx.refreshType(kind === "image" ? "assets" : "video");
       ctx.persist();
@@ -1557,6 +1788,10 @@ const ctx = {
   // M3 — Asset Registry helpers:
   // the M2 shotId a media key PROVABLY belongs to (unique across all drafts),
   // else null; write sites stamp it on new Assets, never guessed by index
+  // the Episode/Scene a shot PROVABLY belongs to — the context every asset
+  // registration stamps into its links (CP2). Unassigned shots resolve to
+  // nulls; the active episode is never substituted as a stand-in.
+  contextOfShot: (shotId) => contextOfShot(shotId),
   shotIdForKey: (key, domain) =>
     assetlib.shotIdForKey(
       engine.nodes.filter((n) => n.type === "scriptgen").map((n) => n.versions || []),
@@ -1942,6 +2177,11 @@ async function adoptPaidIntoSlot(serverShotId, taskId) {
     // slot's owning shot (both provable, never guessed positionally)
     const cid = before.creativeShotId ?? ownerBefore;
     const ref = mediaref.refFromResponse(before.slot, "adopted", res, cid ?? null);
+    // CP2/ADR-0055: an adopted paid clip IS this shot's video — declared here,
+    // where the owning shot has just been PROVEN stable across the await.
+    // the FULL provable context (episode + scene + shot) — recording only part
+    // of what the document proves would hide the clip from scene-scoped views
+    assetreg.declare(ref, "videos", { kind: "shot-video", links: contextOfShot(cid ?? null) });
     mediaref.addVersion({ uploads: assetRegistry.videos }, before.slot, ref);
     // a task that once failed to resolve (recorded unresolved) has now adopted —
     // clear its stale marker so it isn't reported unresolved forever (M4d)

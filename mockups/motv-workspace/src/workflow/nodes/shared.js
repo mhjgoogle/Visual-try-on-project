@@ -1,5 +1,6 @@
 // Shared helpers for node bodies.
 import { addVersion, refFromResponse, slotEntry } from "../mediaref.js";
+import { declare, checkDeclaration } from "../assetreg.js";
 
 /** Render "下一步：X →" guidance chips. Each button carries data-next (+ data-dy
  *  for vertical offset of the spawned node); app.js binds them to ctx.addNext. */
@@ -47,14 +48,29 @@ export function bindSlots(node, el, ctx, { accept, getPrompt, copiedMsg, uploade
       const file = input.files && input.files[0];
       if (!file) return;
       if (!ctx.uploadMedia) { ctx.toast("演示模式暂不支持上传（需连接后端）"); return; }
+      // pass the DOMAIN (node type) so the slot is read correctly, never
+      // guessed from a voice-/music-/sfx- prefix on the key text
+      const domain = node.type === "assets" ? "images" : node.type === "video" ? "videos" : "audio";
+      // CP2/ADR-0055: the node type says what the media IS (画面节点 → 镜头图片,
+      // 视频节点 → 镜头视频); the AUDIO node's slots carry several kinds, so it
+      // honestly declares nothing and the take lands as unclassified rather
+      // than mislabelled.
+      const kind = domain === "images" ? "shot-image" : domain === "videos" ? "shot-video" : null;
+      // CHECKED BEFORE THE UPLOAD: a declaration refused afterwards would leave
+      // bytes on disk that no Asset record points at.
+      const pre = checkDeclaration(domain, { kind });
+      if (pre) { ctx.toast(`登记被拒绝，未上传：${pre}`); return; }
       try {
         const res = await ctx.uploadMedia(`${node.type}-${k}`, file);
-        // stamp the PROVABLE shot association (null when ambiguous — M3);
-        // pass the DOMAIN (node type) so the slot is read correctly, never
-        // guessed from a voice-/music-/sfx- prefix on the key text
-        const domain = node.type === "assets" ? "images" : node.type === "video" ? "videos" : "audio";
+        // stamp the PROVABLE shot association (null when ambiguous — M3)
         const shotId = ctx.shotIdForKey ? ctx.shotIdForKey(k, domain) : null;
-        addVersion(node, k, refFromResponse(k, "upload", res, shotId));
+        const ref = refFromResponse(k, "upload", res, shotId);
+        declare(ref, domain, {
+          kind,
+          originalFilename: file.name || null,
+          links: ctx.contextOfShot ? ctx.contextOfShot(shotId) : { shotId },
+        });
+        addVersion(node, k, ref);
         // M3: node.uploads aliases the shared project registry, so a duplicate
         // node of the same type shows this slot too — refresh them all, not
         // just the initiating node, or the sibling would display stale media.

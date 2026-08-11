@@ -26,6 +26,7 @@ import * as scriptdoc from "../src/workflow/scriptdoc.js";
 import * as mediaref from "../src/workflow/mediaref.js";
 import * as genlib from "../src/workflow/genlib.js";
 import * as assetlib from "../src/workflow/assetlib.js";
+import * as assetreg from "../src/workflow/assetreg.js";
 import * as timelinedoc from "../src/workflow/timeline.js";
 import { placeholderFrame, placeholderWave } from "./demo-media.js";
 
@@ -529,8 +530,11 @@ const SCENES = [
 // ---------------------------------------------------------------------------
 
 /** Register one placeholder media version through the SINGLE media write path
- *  (mediaref.addVersion writes straight into the Asset Registry). */
-function addMedia(map, key, { origin, version, url, shotId }) {
+ *  (mediaref.addVersion writes straight into the Asset Registry), DECLARING
+ *  what it is exactly as a real import would (CP2 / ADR-0055). A seed that
+ *  skipped the declaration would render every demo asset as 待分类 and
+ *  misrepresent the feature it is meant to demonstrate. */
+function addMedia(map, key, { origin, version, url, shotId, kind = null, links = null, displayName = null, domain = "images" }) {
   const holder = { uploads: map };
   const ref = {
     slot_id: key,
@@ -541,6 +545,12 @@ function addMedia(map, key, { origin, version, url, shotId }) {
     creativeShotId: shotId || null,
     storageState: "local",
   };
+  const decl = assetreg.declare(ref, domain, {
+    kind,
+    displayName,
+    links: { ...(links || {}), ...(shotId ? { shotId } : {}) },
+  });
+  if (!decl.ok) throw new Error(`demo seed declaration refused: ${decl.error}`);
   mediaref.addVersion(holder, key, ref);
   return ref;
 }
@@ -669,7 +679,7 @@ export function seedDemoProject({ story, production, scripts, assets, generation
   const charStateRef = {};    // `charKey:state` → assetId
   const activeLocRef = {};    // locKey         → assetId
   let refVersion = 0;
-  const addRefImage = (entityId, label, sub, kind) => {
+  const addRefImage = (entityId, label, sub, kind, declKind, links) => {
     refVersion += 1;
     const key = `ref-${entityId}-${refVersion}`;
     const ref = addMedia(assets.images, key, {
@@ -677,6 +687,9 @@ export function seedDemoProject({ story, production, scripts, assets, generation
       version: 1,
       url: placeholderFrame({ label, sub, kind, w: 720, h: 960 }),
       shotId: null,
+      kind: declKind,
+      displayName: `${label} ${sub}`,
+      links,
     });
     bibledoc.addReferenceAsset(production, entityId, ref.assetId);
     return ref.assetId;
@@ -684,11 +697,11 @@ export function seedDemoProject({ story, production, scripts, assets, generation
   for (const c of CHARACTERS) {
     const id = charId[c.key];
     const ids = [
-      addRefImage(id, c.name, "Reference v1 · 正面", "portrait"),
-      addRefImage(id, c.name, "Reference v2 · 侧光", "portrait"),
+      addRefImage(id, c.name, "Reference v1 · 正面", "portrait", "character-reference", { characterId: id }),
+      addRefImage(id, c.name, "Reference v2 · 侧光", "portrait", "character-reference", { characterId: id }),
     ];
     // 林晚 is the lead: a third, chosen reference makes "Reference v3" real
-    if (c.key === "linwan") ids.push(addRefImage(id, c.name, "Reference v3 · 定妆", "portrait"));
+    if (c.key === "linwan") ids.push(addRefImage(id, c.name, "Reference v3 · 定妆", "portrait", "character-reference", { characterId: id }));
     bibledoc.setActiveReferenceAsset(production, id, ids[ids.length - 1]);
     activeCharRef[c.key] = ids[ids.length - 1];
     // one state carries its own look reference
@@ -701,6 +714,9 @@ export function seedDemoProject({ story, production, scripts, assets, generation
         version: 1,
         url: placeholderFrame({ label: `${c.name} · 黑化`, sub: "State Reference v1", kind: "portrait", w: 720, h: 960 }),
         shotId: null,
+        kind: "character-reference",
+        displayName: `${c.name} · 黑化 Reference v1`,
+        links: { characterId: id },
       });
       bibledoc.setCharacterStateOverrides(production, id, darkState, {
         referenceAssetIds: [r.assetId],
@@ -712,8 +728,8 @@ export function seedDemoProject({ story, production, scripts, assets, generation
   for (const l of LOCATIONS) {
     const id = locId[l.key];
     const ids = [
-      addRefImage(id, l.name, "Reference v1", "location"),
-      addRefImage(id, l.name, "Reference v2", "location"),
+      addRefImage(id, l.name, "Reference v1", "location", "location-reference", { locationId: id }),
+      addRefImage(id, l.name, "Reference v2", "location", "location-reference", { locationId: id }),
     ];
     bibledoc.setActiveReferenceAsset(production, id, ids[1]);
     activeLocRef[l.key] = ids[1];
@@ -742,6 +758,10 @@ export function seedDemoProject({ story, production, scripts, assets, generation
         version: 1,
         url: placeholderWave({ label: `ambience:${sc.key}`, tone: "#6fcf9a" }),
         shotId: null,
+        domain: "audio",
+        kind: "ambience",
+        displayName: `${sc.title} · 环境音`,
+        links: { episodeId: ep01, sceneId: scene.sceneId },
       });
       proddoc.setSceneAmbience(production, scene.sceneId, aref.assetId);
     }
@@ -788,6 +808,8 @@ export function seedDemoProject({ story, production, scripts, assets, generation
           version: v,
           url: placeholderFrame({ label: `EP01 · ${sc.key.toUpperCase()} · SHOT ${nn}`, sub: `${s.shotSize} · ${s.duration}s · Image v${v}`, kind: "frame" }),
           shotId,
+          kind: "shot-image",
+          links: { episodeId: ep01, sceneId: scene.sceneId },
         });
         imageAssetIds.push(ref.assetId);
         if (origin === "paid-image") {
@@ -836,6 +858,9 @@ export function seedDemoProject({ story, production, scripts, assets, generation
           version: v,
           url: placeholderFrame({ label: `EP01 · ${sc.key.toUpperCase()} · SHOT ${nn}`, sub: `Video v${v} · ${s.duration}s`, kind: "video" }),
           shotId,
+          domain: "videos",
+          kind: "shot-video",
+          links: { episodeId: ep01, sceneId: scene.sceneId },
         });
         genlib.startGeneration(generations, {
           type: "video",
@@ -865,6 +890,9 @@ export function seedDemoProject({ story, production, scripts, assets, generation
           version: 1,
           url: placeholderWave({ label: `voice:${slot}`, tone: "#f0b23f" }),
           shotId,
+          domain: "audio",
+          kind: "dialogue",
+          links: { episodeId: ep01, sceneId: scene.sceneId },
         });
         genlib.startGeneration(generations, {
           type: "audio",
@@ -935,6 +963,10 @@ export function seedDemoProject({ story, production, scripts, assets, generation
     version: 1,
     url: placeholderWave({ label: "bgm:ep01", tone: "#b98ce0" }),
     shotId: null,
+    domain: "audio",
+    kind: "bgm",
+    displayName: "EP01 主题音乐",
+    links: { episodeId: ep01 },
   });
   proddoc.setEpisodeBgm(production, ep01, bgm.assetId);
 

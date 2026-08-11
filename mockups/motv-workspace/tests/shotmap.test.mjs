@@ -71,12 +71,17 @@ test("v3→current is non-destructive: assetId/url/slot/version/current/history 
   const a = res.doc.assets;
   // undo the ADDITIVE later migrations (M4a rename, M5 storageState/generations)
   // and the original v3 media must be byte-identical — nothing destroyed:
+  // v11 (CP2) additive declaration fields
+  const stripDecl = (r) => {
+    for (const k of ["kind", "displayName", "originalFilename", "links", "tags", "reusable", "needsReview"]) delete r[k];
+  };
   const strip = (r) => {
     r.shot_id = "creativeShotId" in r ? r.creativeShotId : r.shot_id;
     delete r.creativeShotId;
     delete r.storageState; // M5 additive per-Asset field
+    stripDecl(r);
   };
-  const stripStorage = (r) => { if (r) delete r.storageState; };
+  const stripStorage = (r) => { if (r) { delete r.storageState; stripDecl(r); } };
   for (const dom of ["images", "videos", "audio"]) for (const k of Object.keys(a[dom])) a[dom][k].history.forEach(strip);
   for (const k of Object.keys(a.firstFrames)) strip(a.firstFrames[k]);
   for (const f of Array.isArray(a.finals) ? a.finals : []) stripStorage(f); // M5 additive

@@ -20,6 +20,7 @@ and guards the wiring contract:
 from __future__ import annotations
 
 import importlib.util
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -74,8 +75,12 @@ def test_story_is_a_dedicated_domain_module() -> None:
 
 def test_scripts_are_per_episode_since_v8() -> None:
     schema = (_SRC / "services" / "canvasschema.js").read_text("utf-8")
-    # v10 (TASK-057) is current; the v8 per-episode-scripts mechanics stay pinned
-    assert "CANVAS_SCHEMA_VERSION = 10" in schema
+    # the schema has moved past v8 (v10 = TASK-057 upstream canon, v11+ = later
+    # migrations); this test pins the v8 per-episode-scripts mechanics, NOT the
+    # current version number, so a legitimate later migration cannot break it
+    match = re.search(r"CANVAS_SCHEMA_VERSION = (\d+)", schema)
+    assert match is not None
+    assert int(match.group(1)) >= 8
     assert "function migrateV7ToV8" in schema
     assert "7: migrateV7ToV8" in schema
     assert "missing its scripts map" in schema

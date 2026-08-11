@@ -23,6 +23,7 @@
 // today: content integrity, not business identity.
 import { migrateUploads } from "./mediaref.js";
 import { mintId } from "./identity.js";
+import { sanitizeRegistryDeclarations, ensureDeclaration } from "./assetreg.js";
 
 const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
 
@@ -53,6 +54,10 @@ export function createRegistry(saved) {
   migrateUploads(reg.images);
   migrateUploads(reg.videos);
   migrateUploads(reg.audio);
+  // CP2/ADR-0055: normalize every record's declaration on the way in, so the
+  // whole app reads one shape regardless of which build wrote the save (the
+  // legacy-string adapter above can also mint records that never had one).
+  sanitizeRegistryDeclarations(reg);
   return reg;
 }
 
@@ -120,11 +125,17 @@ export function finalUrls(reg) {
  *  Guards the url: a malformed compose response (no/empty url) must NOT write a
  *  record that v3 validation would reject on the next load — returns null so
  *  the caller can surface the failure instead. */
-export function addFinal(reg, url) {
+export function addFinal(reg, url, episodeId = null) {
   if (typeof url !== "string" || !url) return null;
   // storageState 'local' (M5): a freshly composed final's bytes are present, and
   // v5 validation requires the field on every durable Asset record.
-  const rec = { assetId: mintId("asset"), url, origin: "compose", storageState: "local" };
+  // CP2: a composed final IS a 成片 by construction — we are the compose caller,
+  // so declaring `final` here is recall, not a guess. `links.episodeId` is left
+  // to the caller (ctx.addFinal), which knows which episode was rendered.
+  const rec = ensureDeclaration({
+    assetId: mintId("asset"), url, origin: "compose", storageState: "local", kind: "final",
+    links: { ...(episodeId ? { episodeId } : {}) },
+  });
   reg.finals.push(rec);
   return rec;
 }

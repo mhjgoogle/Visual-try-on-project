@@ -1088,7 +1088,9 @@ test("v9→v10 is purely additive and mints NO version the creator did not make"
   assert.equal(res.status, "ok");
   assert.deepEqual(input, snapshot); // the caller's object is never mutated
   const d = res.doc;
-  assert.equal(d.v, 10);
+  // the chain now runs past v10 (CP2 adds v11) — what this test pins is that the
+  // v10 STEP invents no creative content, so it reads the fields, not the marker
+  assert.equal(d.v, CANVAS_SCHEMA_VERSION);
   // the Creative Brief: an EMPTY working draft, ZERO revisions
   assert.deepEqual(d.story.brief, {
     draft: { genre: "", tone: "", form: "", episodeDuration: "", totalDuration: "", notes: "", targetEpisodes: null },

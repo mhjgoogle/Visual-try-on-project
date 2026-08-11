@@ -199,7 +199,9 @@ def _seed_legacy(scratch, name, *, canvas=True, media=True):
 def test_a_legacy_project_is_readable_but_not_writable(backend):
     base, _tmp, scratch, account = backend
     proj = _make_project(base, account, "旧项目")
-    (proj / "studio").exists() and None  # nothing migrated yet
+    # ADR-0055 决策 5: creation scaffolds studio/ + media/, so their EXISTENCE
+    # no longer distinguishes "migrated" from "not migrated" — emptiness does.
+    assert list((proj / "studio").iterdir()) == []  # nothing migrated yet
     _seed_legacy(scratch, "旧项目")
 
     # readable, and flagged so the UI can offer migration
@@ -218,8 +220,10 @@ def test_a_legacy_project_is_readable_but_not_writable(backend):
     )
     assert status == 409
     assert body["error"]["category"] == "migration_required"
-    # and nothing was created in the project NOR in the scratch
-    assert not (proj / "studio").exists()
+    # and nothing was WRITTEN in the project NOR in the scratch (the scaffolded
+    # studio/ + media/ folders stay empty — a refused write creates no file)
+    assert list((proj / "studio").iterdir()) == []
+    assert list((proj / "media").iterdir()) == []
     assert not (scratch / "uploads" / "旧项目" / "new.png").exists()
 
 
@@ -286,7 +290,7 @@ def test_after_migration_the_legacy_tree_is_invisible(backend):
 def test_migration_never_overwrites_media_already_in_the_project(backend):
     base, _tmp, scratch, account = backend
     proj = _make_project(base, account, "旧项目")
-    (proj / "media").mkdir()
+    # media/ is scaffolded at creation (ADR-0055 决策 5) — no mkdir needed
     (proj / "media" / "old01.png").write_bytes(b"mine, not the legacy one")
     _seed_legacy(scratch, "旧项目")
 
@@ -422,6 +426,9 @@ def test_a_symlinked_studio_dir_cannot_capture_the_canvas(backend, tmp_path):
     proj = _make_project(base, account, "雨夜")
     outside = tmp / "elsewhere"
     outside.mkdir()
+    # creation scaffolds a REAL studio/ (ADR-0055 决策 5); the attack this test
+    # models is that directory being swapped for a link, so remove it first
+    (proj / "studio").rmdir()
     symlink_or_skip(proj / "studio", outside, target_is_directory=True)
 
     status, _ = _req(base, "/api/canvas/雨夜", method="PUT", body={"v": 9, "x": 1})
@@ -434,6 +441,7 @@ def test_a_symlinked_media_dir_cannot_capture_uploads(backend, tmp_path):
     proj = _make_project(base, account, "雨夜")
     outside = tmp / "elsewhere"
     outside.mkdir()
+    (proj / "media").rmdir()  # swap the scaffolded real folder for a link
     symlink_or_skip(proj / "media", outside, target_is_directory=True)
 
     status, _ = _req(

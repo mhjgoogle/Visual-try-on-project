@@ -260,15 +260,24 @@ def test_canonical_domain_only_no_second_copies() -> None:
 
 
 def test_schema_v10_migration_is_additive_and_scoped() -> None:
-    """v9→v10 纯追加；不顺手做无关的 asset URL 迁移。"""
+    """v9→v10 纯追加；不顺手做无关的 asset URL 迁移。
+
+    这里**不锁定当前版本号**：v10 是 Production 上游 canon 的迁移步，后续迁移
+    （asset URL / project-relative path 等）按约定使用 v11+，把当前号写死会让
+    合法的后续迁移误报失败。要守住的是 v10 这一步存在、已注册、且只做上游追加。
+    """
     schema = _read("services", "canvasschema.js")
-    assert "CANVAS_SCHEMA_VERSION = 10" in schema
+    match = re.search(r"CANVAS_SCHEMA_VERSION = (\d+)", schema)
+    assert match is not None
+    assert int(match.group(1)) >= 10, "v10 (TASK-057) must not be renumbered away"
     assert "function migrateV9ToV10" in schema
     assert "9: migrateV9ToV10" in schema
     code = _code("services", "canvasschema.js")
-    mig = code[
-        code.index("function migrateV9ToV10") : code.index("export const MIGRATIONS")
-    ]
+    # bound the slice by the NEXT migration function, not by MIGRATIONS: a later
+    # v10→v11 step legitimately sits between them and is not ours to police
+    body = code[code.index("function migrateV9ToV10") :]
+    end = body.find("\nfunction migrate", 1)
+    mig = body[: end if end != -1 else body.index("export const MIGRATIONS")]
     # it adds the new canon and nothing else — media/assets are untouched
     for forbidden in ("assets", "generations", "timelines", "url", "uploads"):
         assert forbidden not in mig, f"the v10 migration must not touch {forbidden}"

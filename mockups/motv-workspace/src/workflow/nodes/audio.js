@@ -3,6 +3,7 @@
 // free AUTOMATIC route is planned behind its own ADR. Feeds 剪辑合成.
 import { nx, bindSlots, vbadge } from "./shared.js";
 import { slotUrl, slotStem, addVersion, refFromResponse } from "../mediaref.js";
+import { declare } from "../assetreg.js";
 import { esc } from "../../util/dom.js";
 
 export default {
@@ -90,6 +91,15 @@ export default {
         const res = await ctx.agentTts(`${node.type}-${k}`, s.description, fit);
         // the draft shot in hand carries its M2 identity — provable association
         const ref = refFromResponse(k, "tts", res, s.shotId ?? null);
+        // CP2: a TTS take from the audio node is 对白 by construction (it
+        // synthesizes the shot's spoken line)
+        declare(ref, "audio", {
+          kind: "dialogue",
+          links: {
+            ...(ctx.contextOfShot ? ctx.contextOfShot(s.shotId ?? null) : { shotId: s.shotId ?? null }),
+            generationId: gen ? gen.generationId : null,
+          },
+        });
         addVersion(node, k, ref);
         if (gen) ctx.completeGeneration(gen.generationId, [ref.assetId]);
       } catch (err) {
