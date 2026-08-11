@@ -28,6 +28,16 @@ const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
 const arr = (x) => (Array.isArray(x) ? x : []);
 const str = (x) => (typeof x === "string" ? x : "");
 
+/** The text a script document currently holds — the same rule the workspace
+ *  shows: the manual buffer when there is one, else the active version. Read
+ *  here rather than imported so this module stays dependency-free. */
+function scriptTextOf(doc) {
+  if (!isObj(doc)) return "";
+  if (typeof doc.workingText === "string" && doc.workingText.trim()) return doc.workingText;
+  const av = arr(doc.versions).find((x) => isObj(x) && x.v === doc.active);
+  return av && typeof av.content === "string" ? av.content : "";
+}
+
 /** Node id namespaces. Ids are derived from the SOURCE record's own id, so the
  *  same node keeps its identity across rebuilds (focus/selection survives). */
 export const nodeIds = {
@@ -36,6 +46,14 @@ export const nodeIds = {
   // a Prompt node belongs to the Generation whose snapshot froze it: there is
   // no Prompt Library in this system, so the snapshot IS the prompt's identity
   prompt: (generationId) => `prompt:${generationId}`,
+  // CP7/ADR-0058 — the CREATIVE SPINE the media hangs off. These are not
+  // generated things: they are the canonical documents that decided what to
+  // generate, and the graph is incomplete without them. A creator asking
+  // "where did this frame come from" means the shot and the scene, not only
+  // the prompt string.
+  script: (episodeId) => `script:${episodeId}`,
+  scene: (sceneId) => `scene:${sceneId}`,
+  shot: (shotId) => `shot:${shotId}`,
 };
 
 const MEDIA_DOMAINS = ["images", "videos", "audio"];
@@ -235,11 +253,12 @@ function walkAssets(assets) {
  * @param {object}  src.production   production document
  * @param {object}  src.timelines    episodeId → timeline
  * @param {Array}   src.draftShots   current storyboard draft
+ * @param {object}  src.scripts      episodeId → script document (CP7 spine)
  * @returns {{nodes: Map, edges: Array, order: Array, warnings: Array}}
  *   `nodes` is id → node; `edges` are {from, to, kind}; `order` is the node ids
  *   in a deterministic left→right layered order.
  */
-export function buildProvenanceGraph({ assets, generations, production, timelines, draftShots } = {}) {
+export function buildProvenanceGraph({ assets, generations, production, timelines, draftShots, scripts } = {}) {
   const shots = shotIndex({ production, draftShots });
   const roles = assetRoles({ production, assets });
   const nodes = new Map();
@@ -250,6 +269,67 @@ export function buildProvenanceGraph({ assets, generations, production, timeline
     if (!from || !to || from === to) return;
     edges.push({ from, to, kind, id: `${from}→${to}:${kind}` });
   };
+
+  // ---- the creative spine: Script → Scene → Shot -------------------------- //
+  // These come from the canonical documents, so they exist whether or not
+  // anything was ever generated: a shot with no image is still a real shot, and
+  // showing it is how the graph says "nothing has been made for this yet".
+  // A script node exists only where an episode HAS script text — an empty
+  // episode gets no node rather than an empty one (§14: unknown stays unknown).
+  for (const ep of arr(isObj(production) ? production.episodes : [])) {
+    const doc = isObj(scripts) ? scripts[ep.episodeId] : null;
+    const text = scriptTextOf(doc);
+    let scriptNodeId = null;
+    if (text) {
+      scriptNodeId = nodeIds.script(ep.episodeId);
+      nodes.set(scriptNodeId, {
+        id: scriptNodeId,
+        type: "script",
+        kind: "script",
+        kindLabel: "剧本",
+        episodeId: ep.episodeId,
+        sceneId: null,
+        shotId: null,
+        title: str(ep.title),
+        text,
+        version: isObj(doc) && Number.isInteger(doc.active) && doc.active > 0 ? doc.active : null,
+      });
+    }
+    for (const sc of arr(ep.scenes)) {
+      const sceneNodeId = nodeIds.scene(sc.sceneId);
+      nodes.set(sceneNodeId, {
+        id: sceneNodeId,
+        type: "scene",
+        kind: "scene",
+        kindLabel: "场景",
+        episodeId: ep.episodeId,
+        sceneId: sc.sceneId,
+        shotId: null,
+        title: str(sc.title),
+        shotCount: arr(sc.shotIds).length,
+      });
+      addEdge(scriptNodeId, sceneNodeId, "scene");
+      for (const shotId of arr(sc.shotIds)) {
+        const s = shots.get(shotId);
+        const shotNodeId = nodeIds.shot(shotId);
+        nodes.set(shotNodeId, {
+          id: shotNodeId,
+          type: "shot",
+          kind: "shot",
+          kindLabel: "镜头",
+          episodeId: ep.episodeId,
+          sceneId: sc.sceneId,
+          shotId,
+          shot: s || null,
+          title: s ? str(s.title) : "",
+          // a scene owning a shot the draft no longer holds is a REAL state:
+          // the node stays and says so, it is never quietly dropped
+          dangling: !s || s.dangling === true,
+        });
+        addEdge(sceneNodeId, shotNodeId, "shot");
+      }
+    }
+  }
 
   // ---- asset nodes -------------------------------------------------------- //
   for (const a of walkAssets(assets)) {
@@ -368,6 +448,48 @@ export function buildProvenanceGraph({ assets, generations, production, timeline
       // answer "generated by" without re-scanning the registry
       const n = nodes.get(aid);
       if (n && !n.producedBy) n.producedBy = g.generationId;
+    }
+  }
+
+  // ---- the shot a generation was made FOR ---------------------------------- //
+  // The Generation already records its target; drawing it makes the spine
+  // continuous, so a frame can be traced back past its prompt to the shot,
+  // the scene and the script that asked for it.
+  for (const n of nodes.values()) {
+    if (n.type !== "generation" || !n.shotId) continue;
+    const sid = nodeIds.shot(n.shotId);
+    if (nodes.has(sid)) addEdge(sid, n.id, "target");
+  }
+
+  // ---- shared canonical References (CP4 bindings) --------------------------- //
+  // ONE node per Reference, however many shots use it. The whole reason a
+  // Reference is canonical is that 林晚 Ref is a single thing ten shots point
+  // at; drawing ten copies would say the opposite, and would hide the fact
+  // that re-pointing the chain moves all ten at once.
+  //
+  // The binding names the CHAIN; the node is the chain's CURRENT version,
+  // because that is what a generation launched today would actually receive.
+  if (isObj(production) && isObj(production.shotProduction) && isObj(production.shotProduction.references)) {
+    const currentOfChain = new Map();
+    for (const a of walkAssets(assets)) {
+      if (!a.isCurrent) continue;
+      if (!currentOfChain.has(a.key)) currentOfChain.set(a.key, a.assetId);
+    }
+    const map = production.shotProduction.references;
+    for (const shotId of Object.keys(map)) {
+      const sid = nodeIds.shot(shotId);
+      if (!nodes.has(sid)) continue; // an unassigned shot has no spine node
+      for (const chainKey of arr(map[shotId])) {
+        const assetId = currentOfChain.get(chainKey);
+        if (!assetId) {
+          // the binding survives a deleted reference; the graph reports the
+          // dangling binding instead of drawing a link to nothing
+          warnings.push({ kind: "danglingReference", shotId, referenceKey: chainKey });
+          continue;
+        }
+        const aid = nodeIds.asset(assetId);
+        if (nodes.has(aid)) addEdge(sid, aid, "binds");
+      }
     }
   }
 
@@ -500,31 +622,47 @@ export function layerOrder(nodes, edges) {
   // source frame and the video it produced would sit in the same column and the
   // wire between them (drawn only left→right) would be dropped entirely.
   const framedBy = new Map();
+  // shot → the canonical References it binds (CP7). One reference node can be
+  // bound by many shots, so its column is set by the RIGHTMOST of them — that
+  // keeps the wires forward-only for every shot sharing it.
+  const boundBy = new Map();
   for (const id of nodes.keys()) feeders.set(id, []);
   for (const e of edges) {
     if (!nodes.has(e.from) || !nodes.has(e.to)) continue;
     if (e.kind === "result") producer.set(e.to, e.from);
     else if (e.kind === "prompt") promptOf.set(e.to, e.from);
     else if (e.kind === "firstFrame") framedBy.set(e.to, e.from);
-    else feeders.get(e.to).push(e.from);
+    else if (e.kind === "binds") {
+      if (!boundBy.has(e.to)) boundBy.set(e.to, []);
+      boundBy.get(e.to).push(e.from);
+    } else feeders.get(e.to).push(e.from);
   }
 
   const rank = new Map();
   const visiting = new Set();
+  const maxOf = (ids, base) => {
+    let r = base;
+    for (const f of ids) r = Math.max(r, rankOf(f));
+    return r;
+  };
   const rankOf = (id) => {
     if (rank.has(id)) return rank.get(id);
     if (visiting.has(id)) return 0; // corrupt cycle — stop, do not hang
     visiting.add(id);
     const n = nodes.get(id);
     let r = 0;
-    if (n.type === "generation") {
+    if (n.type === "script") {
+      r = 0; // the spine starts at the document that decided everything else
+    } else if (n.type === "scene" || n.type === "shot") {
+      // one column per step of the spine; an episode with no script text has
+      // no script node, and its scenes simply start the chain instead
+      r = maxOf(feeders.get(id), -1) + 1;
+    } else if (n.type === "generation") {
       // -1, not -2: an inputless generation (a dialogue take, a text-only
       // image) still needs its Prompt column to its left. Clamping both to 0
       // co-locates them, and the forward-only wire renderer then drops the one
       // edge that explains the generation.
-      let base = -1;
-      for (const f of feeders.get(id)) base = Math.max(base, rankOf(f));
-      r = base + 2;
+      r = maxOf(feeders.get(id), -1) + 2;
     } else if (n.type === "prompt") {
       // always immediately left of the generation it froze
       const gen = [...promptOf.entries()].find(([, p]) => p === id);
@@ -535,6 +673,9 @@ export function layerOrder(nodes, edges) {
       r = p ? rankOf(p) + 1 : 0;
       // a first-framed import lands one column right of the frame it came from
       if (f) r = Math.max(r, rankOf(f) + 1);
+      // a shared Reference sits right of the shots that bind it
+      const b = boundBy.get(id);
+      if (b) r = Math.max(r, maxOf(b, -1) + 1);
     }
     visiting.delete(id);
     rank.set(id, r);
@@ -589,6 +730,13 @@ export function scopeGraph(graph, scope) {
   // an in-scope generation's results always belong with it
   for (const e of edges) {
     if (e.kind === "result" && keep.has(e.from)) keep.add(e.to);
+  }
+  // …and so do the canonical References an in-scope shot binds. A Reference is
+  // project-level (林晚 Ref belongs to 林晚, not to one episode), so ownership
+  // alone would drop it from every scope — which is precisely the node a
+  // creator narrowing to one shot most wants to see.
+  for (const e of edges) {
+    if (e.kind === "binds" && keep.has(e.from)) keep.add(e.to);
   }
 
   const sub = new Map();
@@ -654,6 +802,13 @@ export function searchText(n) {
   } else if (n.type === "prompt") {
     bits.push(n.kindLabel, n.text, n.userInstruction, n.provider);
     if (n.shot) bits.push(n.shot.title, seqLabel(n.shot));
+  } else if (n.type === "script") {
+    // the script's TEXT is searchable: "他不会来了" should find the episode it
+    // was written in, which is the whole point of putting it in the graph
+    bits.push(n.kindLabel, n.title, n.text);
+  } else if (n.type === "scene" || n.type === "shot") {
+    bits.push(n.kindLabel, n.title);
+    if (n.shot) bits.push(n.shot.sceneTitle, n.shot.episodeTitle, seqLabel(n.shot));
   }
   return bits.filter(Boolean).join(" ").toLowerCase();
 }
@@ -758,8 +913,19 @@ export function explainNode(graph, nodeId) {
     producedBy: inbound.filter((e) => e.kind === "result").map((e) => get(e.from)).filter(Boolean)[0] || null,
     results: outbound.filter((e) => e.kind === "result").map((e) => get(e.to)).filter(Boolean),
     usedBy: outbound.filter((e) => e.kind === "input" || e.kind === "reference" || e.kind === "firstFrame").map((e) => get(e.to)).filter(Boolean),
+    // CP7 — the creative spine around this node
+    boundReferences: outbound.filter((e) => e.kind === "binds").map((e) => get(e.to)).filter(Boolean),
+    boundByShots: inbound.filter((e) => e.kind === "binds").map((e) => get(e.from)).filter(Boolean),
+    madeFor: inbound.filter((e) => e.kind === "target").map((e) => get(e.from)).filter(Boolean)[0] || null,
+    generations: outbound.filter((e) => e.kind === "target").map((e) => get(e.to)).filter(Boolean),
+    partOf: inbound.filter((e) => e.kind === "scene" || e.kind === "shot").map((e) => get(e.from)).filter(Boolean)[0] || null,
+    contains: outbound.filter((e) => e.kind === "scene" || e.kind === "shot").map((e) => get(e.to)).filter(Boolean),
   };
-  if (n.type === "asset" && !story.producedBy) {
+  if (n.type === "script" || n.type === "scene" || n.type === "shot") {
+    // the spine is authored, not generated — saying "import" would be as wrong
+    // as saying "generated"
+    story.provenance = "authored";
+  } else if (n.type === "asset" && !story.producedBy) {
     // §14: be honest. An imported asset has no generation and no prompt.
     story.provenance = n.missing ? "missing" : "import";
   } else {

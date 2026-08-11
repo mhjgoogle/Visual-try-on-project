@@ -179,6 +179,30 @@
 .wg-k-final { width: 214px; }
 .wg-k-final .wg-thumb { border-color: var(--accent-line); }
 
+/* the episode's SCRIPT, at the head of the chain (CP7). A wide, quiet row —
+   it is one thing, above everything, not a card competing with the frames. */
+.wg-scriptrow {
+  display: flex; align-items: center; gap: var(--s3); width: 100%; text-align: left;
+  padding: var(--s2) var(--s3); margin-bottom: var(--s2); cursor: pointer;
+  background: var(--panel); color: var(--text); font-family: inherit;
+  border: 1px solid var(--line); border-left: 3px solid var(--accent-line); border-radius: var(--r2);
+}
+.wg-scriptrow:hover { background: var(--panel-2); }
+.wg-scriptrow.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.wg-scriptname { font-size: var(--t-xs); font-weight: 700; white-space: nowrap; }
+.wg-scriptline { font-size: var(--t-xs); color: var(--text-dim); flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* creative spine (CP7) — Script / Scene / Shot. Documents, not media: flat,
+   text-first, and visibly a different class of thing from the frames they
+   explain. Dressing them as thumbnails would imply the graph produced them. */
+.wg-spine { width: 152px; gap: 3px; background: var(--bg); border-style: solid; }
+.wg-sk { font-size: var(--t-micro); letter-spacing: .1em; font-weight: 700; color: var(--text-faint); }
+.wg-s-script { border-left: 3px solid var(--accent-line); }
+.wg-s-scene { border-left: 3px solid var(--line-2); }
+.wg-s-shot { border-left: 3px solid var(--text-faint); }
+.wg-spine.is-missing { border-style: dashed; opacity: .8; }
+
 /* prompt node — text, violet, never a picture */
 .wg-prompt {
   background: var(--prompt-soft); border-color: color-mix(in srgb, var(--prompt) 34%, var(--line));

@@ -395,13 +395,16 @@ test("a first-frame link advances a column, so its wire can be drawn", () => {
 test("layout ranks flow left to right: reference < prompt < gen < result < render", () => {
   const g = build();
   const r = (id) => g.nodes.get(id).rank;
-  // the prompt gets its own column, immediately before the generation it drove
-  assert.equal(r(aid("ref-lin-1")), 0);
-  assert.equal(r(pid("g-img2")), 1);
-  assert.equal(r(gid("g-img2")), 2);
-  assert.equal(r(aid("img3-v2")), 3);
-  assert.equal(r(pid("g-vid1")), 4);
-  assert.equal(r(gid("g-vid1")), 5);
+  // The prompt gets its own column, IMMEDIATELY before the generation it drove.
+  // Pinned as a relation, not as an absolute column number: since CP7 the
+  // creative spine (script → scene → shot) occupies the columns to the left, so
+  // an absolute pin here would only be re-recording how many spine columns
+  // happen to exist in this fixture.
+  assert.equal(r(aid("ref-lin-1")), 0, "a bible reference no shot binds starts the chain");
+  assert.equal(r(gid("g-img2")) - r(pid("g-img2")), 1);
+  assert.equal(r(aid("img3-v2")) - r(gid("g-img2")), 1);
+  assert.equal(r(gid("g-vid1")) - r(pid("g-vid1")), 1);
+  assert.ok(r(pid("g-vid1")) > r(aid("img3-v2")), "the video prompt sits right of its source frame");
   assert.ok(r(aid("ref-lin-1")) < r(gid("g-img2")));
   assert.ok(r(pid("g-img2")) < r(gid("g-img2")));
   assert.ok(r(gid("g-img2")) < r(aid("img3-v2")));
@@ -474,9 +477,11 @@ test("an inputless generation still gets its own PROMPT column", () => {
   // the wires are drawn forward-only; a prompt sharing a column with its
   // generation would silently lose the edge that explains it
   const g = build();
-  assert.equal(g.nodes.get(gid("g-dlg")).rank, 1, "no inputs, but not column 0");
-  assert.equal(g.nodes.get(pid("g-dlg")).rank, 0);
-  assert.ok(g.nodes.get(pid("g-dlg")).rank < g.nodes.get(gid("g-dlg")).rank);
+  // the invariant is the GAP, not the column number (see the layout test)
+  assert.equal(
+    g.nodes.get(gid("g-dlg")).rank - g.nodes.get(pid("g-dlg")).rank, 1,
+    "no inputs, but the prompt still gets the column to its left",
+  );
 });
 
 test("a missing asset is never given a guessed media type", () => {

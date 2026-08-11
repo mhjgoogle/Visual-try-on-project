@@ -44,6 +44,12 @@ const FILTERS = [
   ["failed", "失败"],
 ];
 
+/** The creative spine (CP7). Filtering by media KIND narrows what media is
+ *  shown; it must not sever the chain that explains it, so a spine node is kept
+ *  whenever something downstream of it survived the filter — and dropped when
+ *  nothing did, so 「失败」 shows the three failures and not every shot. */
+const SPINE = new Set(["script", "scene", "shot"]);
+
 const STATUS_LABEL = {
   success: "成功", failed: "失败", cancelled: "已取消",
   generating: "生成中", queued: "排队中",
@@ -58,7 +64,12 @@ function columnTitle(nodes, rank) {
   if (types.size === 1) {
     if (types.has("prompt")) return "PROMPT";
     if (types.has("generation")) return "GENERATION";
+    if (types.has("script")) return "SCRIPT";
+    if (types.has("scene")) return "SCENE";
+    if (types.has("shot")) return "SHOT";
   }
+  // a column shared by the spine and the references it binds is honestly both
+  if (types.has("shot") && types.has("asset")) return "SHOT / REFERENCES";
   const kinds = new Set(nodes.filter((n) => n.type === "asset").map((n) => n.kind));
   if (kinds.has("final")) return "FINAL";
   if (rank === 0) {
@@ -66,6 +77,57 @@ function columnTitle(nodes, rank) {
   }
   if (types.has("asset")) return "RESULT";
   return "";
+}
+
+/**
+ * Restrict a scoped graph to one media kind.
+ *
+ * TWO RULES, and the second is the one that matters:
+ *
+ *   1. Filtering hides nodes; it NEVER rewrites an edge. A hidden middle step
+ *      leaves a visible gap, never a fabricated shortcut from A straight to C —
+ *      「过滤不能破坏 lineage truth」.
+ *   2. The creative spine (script → scene → shot) is kept for exactly as long
+ *      as something downstream of it survived. 图片 then still shows WHICH shot
+ *      each frame belongs to, and 失败 still shows three failures rather than
+ *      every shot in the episode.
+ *
+ * Exported so the rule is testable on its own, without a DOM.
+ */
+export function filterGraph(scoped, filter) {
+  if (!filter || filter === "all") return scoped;
+  const keep = (n) => {
+    if (SPINE.has(n.type)) return false; // decided below, by what survives
+    if (filter === "failed") {
+      return n.type === "generation" && (n.status === "failed" || n.status === "cancelled");
+    }
+    if (n.type === "generation" || n.type === "prompt") return n.kind === filter;
+    if (filter === "image") return n.kind === "shotImage" || n.kind === "characterRef" || n.kind === "locationRef";
+    if (filter === "video") return n.kind === "shotVideo";
+    if (filter === "audio") return ["dialogue", "sfx", "bgm", "ambience", "audio"].includes(n.kind);
+    if (filter === "render") return n.kind === "final";
+    return true;
+  };
+  const ids = new Set(scoped.order.filter((id) => keep(scoped.nodes.get(id))));
+  // walk the spine BACKWARDS from what survived: a shot whose image is showing
+  // stays, and the scene and script above it stay with it
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const e of scoped.edges) {
+      if (!ids.has(e.to) || ids.has(e.from)) continue;
+      const from = scoped.nodes.get(e.from);
+      if (from && SPINE.has(from.type)) { ids.add(e.from); grew = true; }
+    }
+  }
+  const nodes = new Map();
+  for (const id of scoped.order) if (ids.has(id)) nodes.set(id, scoped.nodes.get(id));
+  return {
+    ...scoped,
+    nodes,
+    edges: scoped.edges.filter((e) => ids.has(e.from) && ids.has(e.to)),
+    order: scoped.order.filter((id) => ids.has(id)),
+  };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -137,9 +199,27 @@ function generationCard(n) {
   );
 }
 
+/** A spine card (CP7). Deliberately flat and text-first: these are documents,
+ *  not media, and dressing them up as thumbnails would suggest the graph made
+ *  them. A shot the draft no longer holds says so on its face. */
+function spineCard(n) {
+  const sub =
+    n.type === "script" ? `${String(n.text || "").trim().split("\n").length} 行${n.version ? ` · v${n.version}` : ""}`
+      : n.type === "scene" ? `${n.shotCount} 个镜头`
+        : n.dangling ? "草稿中已不存在" : seqLabel(n.shot) || "";
+  return (
+    `<button class="wg-node wg-spine wg-s-${n.type}${n.dangling ? " is-missing" : ""}" data-node="${esc(n.id)}" type="button">` +
+    `<span class="wg-sk">${esc(n.kindLabel)}</span>` +
+    `<span class="wg-nt">${esc(n.title || "未命名")}</span>` +
+    (sub ? `<span class="wg-nk">${esc(sub)}</span>` : "") +
+    `</button>`
+  );
+}
+
 function nodeCard(n) {
   if (n.type === "prompt") return promptCard(n);
   if (n.type === "generation") return generationCard(n);
+  if (n.type === "script" || n.type === "scene" || n.type === "shot") return spineCard(n);
   return assetCard(n);
 }
 
@@ -179,12 +259,11 @@ export function createWorkflowGraph(getCtx) {
       production: d.production,
       timelines: d.timelines,
       draftShots: d.draftShots,
+      scripts: d.scripts,
     });
   }
 
-  /** The graph after scope + filter. Filtering hides nodes but NEVER rewrites
-   *  an edge: a hidden middle step leaves a visible gap rather than a
-   *  fabricated shortcut. */
+  /** The graph after scope + filter. */
   function currentGraph() {
     const d = pd();
     const g = fullGraph();
@@ -193,29 +272,7 @@ export function createWorkflowGraph(getCtx) {
     if (view.scopeKind === "episode") scope = { kind: "episode", id: epId };
     else if (view.scopeKind === "scene") scope = { kind: "scene", id: view.sceneId };
     else if (view.scopeKind === "shot") scope = { kind: "shot", id: view.shotId };
-    const scoped = scopeGraph(g, scope);
-    if (view.filter === "all") return scoped;
-    const keep = (n) => {
-      if (view.filter === "failed") {
-        return n.type === "generation" && (n.status === "failed" || n.status === "cancelled");
-      }
-      const k = view.filter;
-      if (n.type === "generation" || n.type === "prompt") return n.kind === k;
-      if (k === "image") return n.kind === "shotImage" || n.kind === "characterRef" || n.kind === "locationRef";
-      if (k === "video") return n.kind === "shotVideo";
-      if (k === "audio") return ["dialogue", "sfx", "bgm", "ambience", "audio"].includes(n.kind);
-      if (k === "render") return n.kind === "final";
-      return true;
-    };
-    const ids = new Set(scoped.order.filter((id) => keep(scoped.nodes.get(id))));
-    const nodes = new Map();
-    for (const id of scoped.order) if (ids.has(id)) nodes.set(id, scoped.nodes.get(id));
-    return {
-      ...scoped,
-      nodes,
-      edges: scoped.edges.filter((e) => ids.has(e.from) && ids.has(e.to)),
-      order: scoped.order.filter((id) => ids.has(id)),
-    };
+    return filterGraph(scopeGraph(g, scope), view.filter);
   }
 
   /* ---- header ----------------------------------------------------------- */
@@ -327,7 +384,28 @@ export function createWorkflowGraph(getCtx) {
         `</div>`
       );
     }).join("");
-    return `<div class="wg-scenes">${cards}</div>${finalCard(g)}`;
+    return scriptRow(g, epId) + `<div class="wg-scenes">${cards}</div>${finalCard(g)}`;
+  }
+
+  /** The episode's SCRIPT, at the head of the chain (CP7). The scene and shot
+   *  rows below already ARE the spine's other two levels — this is the one link
+   *  that had nowhere to live, and it is what everything under it descends
+   *  from. An episode with no script text simply has no row: the graph says
+   *  「还没有剧本」 by not claiming there is one. */
+  function scriptRow(g, epId) {
+    const id = nodeIds.script(epId);
+    const n = g.nodes.get(id);
+    if (!n) return "";
+    const line = String(n.text || "").split("\n").find((l) => l.trim()) || "";
+    const preview = line.length > 60 ? `${line.slice(0, 60)}…` : line;
+    return (
+      `<button class="wg-scriptrow${view.selected === id ? " sel" : ""}" data-node="${esc(id)}">` +
+      `<span class="wg-sk">剧本</span>` +
+      `<span class="wg-scriptname">${esc(n.title)}${n.version ? ` · v${n.version}` : ""}</span>` +
+      `<span class="wg-scriptline">“${esc(preview)}”</span>` +
+      `<span class="wg-scounts"><i>行 <b>${String(n.text || "").trim().split("\n").length}</b></i></span>` +
+      `</button>`
+    );
   }
 
   function sceneBody(g, sceneId, focus) {
@@ -533,6 +611,11 @@ export function createWorkflowGraph(getCtx) {
       steps.push(`→ <b>${esc(name(n))}</b>`);
     } else if (n.type === "asset") {
       steps.push(n.missing ? "媒体记录已删除，只保留了链路。" : "这是一次导入：没有生成记录，也没有可引用的 Prompt。");
+    } else if (n.type === "script" || n.type === "scene" || n.type === "shot") {
+      // authored, not generated — there is no chain ABOVE it to recite
+      steps.push(`这是创作文档，不是生成物：它没有来源链，它<b>是</b>来源。`);
+      if (story.contains.length) steps.push(`→ 它展开为 <b>${story.contains.length}</b> 个${esc(story.contains[0].kindLabel)}`);
+      if (story.generations.length) steps.push(`→ 为它做过 <b>${story.generations.length}</b> 次生成`);
     } else if (n.type === "generation") {
       const gs = explainNode(g, n.id);
       const feed = gs.references.concat(gs.inputs);
@@ -615,6 +698,25 @@ export function createWorkflowGraph(getCtx) {
         `<div class="wg-isec"><div class="wg-ilabel">产出</div>${miniRow(story.results, n.status === "failed" || n.status === "cancelled" ? "这次尝试没有产出（记录保留）" : "还没有产出")}</div>` +
         (p ? `<details class="wg-tech"><summary>技术详情</summary><pre class="wg-pre">${esc(JSON.stringify({ generationId: n.generationId, parameters: p }, null, 2))}</pre></details>`
           : `<details class="wg-tech"><summary>技术详情</summary><pre class="wg-pre">${esc(n.generationId)}</pre></details>`);
+    } else if (n.type === "script" || n.type === "scene" || n.type === "shot") {
+      // The creative spine (CP7). It was AUTHORED — it has no prompt, no
+      // provider and no producing generation, and saying so is the point.
+      body =
+        (n.type === "script"
+          ? `<div class="wg-isec"><div class="wg-ilabel">剧本${n.version ? ` v${n.version}` : ""}</div><pre class="wg-pre">${esc(n.text)}</pre></div>`
+          : kv("名称", esc(n.title || "未命名"))) +
+        (n.type === "scene" ? kv("镜头数", String(n.shotCount)) : "") +
+        (n.type === "shot" && n.dangling ? kv("状态", "当前分镜草稿里已不存在这个镜头（记录保留）") : "") +
+        (story.partOf ? `<div class="wg-isec"><div class="wg-ilabel">属于</div>${miniRow([story.partOf], "")}</div>` : "") +
+        (story.contains.length ? `<div class="wg-isec"><div class="wg-ilabel">包含</div>${miniRow(story.contains, "")}</div>` : "") +
+        (story.boundReferences.length
+          ? `<div class="wg-isec"><div class="wg-ilabel">绑定的参考</div>${miniRow(story.boundReferences, "")}</div>`
+          : n.type === "shot" ? `<div class="wg-isec"><div class="wg-ilabel">绑定的参考</div><div class="wg-none">还没有绑定任何参考</div></div>` : "") +
+        (story.generations.length
+          ? `<div class="wg-isec"><div class="wg-ilabel">为它做过的生成</div>${miniRow(story.generations, "")}</div>`
+          : n.type === "shot" ? `<div class="wg-isec"><div class="wg-ilabel">为它做过的生成</div><div class="wg-none">还没有为这个镜头生成过任何东西</div></div>` : "") +
+        `<div class="wg-isec"><div class="wg-ilabel">来源</div><div class="wg-ivalue">创作文档 — 它不是被生成出来的，没有 Prompt 可引用</div></div>` +
+        (n.shotId ? `<div class="wg-acts"><button class="wg-btn" data-goshot="${esc(n.shotId)}">在制作中打开</button></div>` : "");
     } else {
       const origin = story.provenance === "import"
         ? (n.missing ? "媒体记录已删除，只剩链路" : "外部导入 · 没有生成记录")
