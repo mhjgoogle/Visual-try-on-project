@@ -20,6 +20,7 @@ import { renderStoryboard, bindStoryboard, defaultShotId, isSelectableShot } fro
 import { episodeStageCounts } from "./prodplan.js";
 import { renderAudioWs, bindAudioWs } from "./audiows.js";
 import { renderTimelineWs, bindTimelineWs } from "./timelinews.js";
+import { renderDailies, bindDailies } from "./dailies.js";
 import { renderStorageWs, bindStorageWs } from "./storagews.js";
 import { renderStoryWs, bindStoryWs } from "./storyws.js";
 import { renderBibleWs, bindBibleWs } from "./biblews.js";
@@ -97,6 +98,7 @@ export function navBadges(doc, pd) {
     frames: frames.empty ? "" : `${frames.done}/${frames.total}`,
     video: video.empty ? "" : `${video.done}/${video.total}`,
     audio: audio.empty ? "" : `${audio.done}/${audio.total}`,
+    dailies: "",
     edit: edit.finals ? `✓v${edit.finals}` : "",
     storage: "", // stats live in the workspace; no fabricated badge
     assets: "",
@@ -167,6 +169,9 @@ export function createProduction(getCtx) {
     dirOpen: {},
     // Story: which outline version is being read
     storyTab: "outline",
+    // Dailies: which shot the review pass is on (transient — a review position
+    // is not a decision, so it is never persisted)
+    dailiesShotId: null,
   };
 
   function vmenuHtml(d) {
@@ -313,6 +318,7 @@ export function createProduction(getCtx) {
     frames: (ctx) => renderImageWs(ctx, ui),
     video: (ctx) => renderVideoWs(ctx, ui),
     audio: (ctx) => renderAudioWs(ctx, ui),
+    dailies: (ctx) => renderDailies(ctx, ui),
     edit: (ctx) => renderTimelineWs(ctx, ui),
     storage: (ctx) => renderStorageWs(ctx, ui),
     assets: (ctx) => renderStorageWs(ctx, ui),
@@ -341,7 +347,17 @@ export function createProduction(getCtx) {
     // project-wide badges, with the 本集制作 stages overridden by the episode's
     // own standing (a stage listed under "this episode" must count this episode)
     const stages = episodeStages(pd);
-    const badges = { ...navBadges(ctx.script.doc(), pd), ...stages.badges };
+    // CP4: the 审片 badge is the episode's REVIEW standing — approved / total,
+    // derived (nothing but the approvals themselves is stored)
+    const dailies = ctx.dailies.model();
+    const badges = {
+      ...navBadges(ctx.script.doc(), pd),
+      ...stages.badges,
+      dailies: dailies.total ? `${dailies.approved}/${dailies.total}` : "",
+    };
+    const ratios = dailies.total
+      ? { ...stages.ratios, dailies: { done: dailies.approved, total: dailies.total } }
+      : stages.ratios;
     // TASK-057: per-episode count of upstream surfaces the episode is behind —
     // the deterministic dependency truth from ctx.canon, computed nowhere else
     const upstream = {};
@@ -353,7 +369,7 @@ export function createProduction(getCtx) {
       activeModule,
       badges,
       episodes: episodeLabels(pd.production),
-      ratios: stages.ratios,
+      ratios,
       episodeMode: EPISODE_MODULES.includes(activeModule),
       upstream,
     });
@@ -433,6 +449,7 @@ export function createProduction(getCtx) {
     if (activeModule === "frames") bindImageWs(root, ctx, ui, render);
     if (activeModule === "video") bindVideoWs(root, ctx, ui, render);
     if (activeModule === "audio") bindAudioWs(root, ctx, ui, render);
+    if (activeModule === "dailies") bindDailies(root, ctx, ui, render);
     if (activeModule === "edit") bindTimelineWs(root, ctx, ui, render);
     if (activeModule === "storage" || activeModule === "assets") bindStorageWs(root, ctx, ui, render);
     // "进入本集" — bound LAST, and centrally: entering an episode is a SHELL

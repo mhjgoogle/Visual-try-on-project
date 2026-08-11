@@ -341,7 +341,11 @@ def test_a_proposal_is_not_a_canonical_write() -> None:
     ):
         assert forbidden not in runs
     app = _code("app.js")
-    section = app.split("skills: {", 1)[1].split("\n  assetRegistryView", 1)[0]
+    # bounded at the NEXT controller, not at assetRegistryView: later
+    # checkpoints add controllers in between, and they legitimately READ the
+    # canonical documents to build their own view models
+    section = app.split("skills: {", 1)[1].split("\n  shot: {", 1)[0]
+    section = section.split("\n  assetRegistryView", 1)[0]
     assert "skillrun.acceptRun" in section
     # Accepting MARKS the run; applying the proposal to canon is the caller's,
     # through the normal domain controllers. (Reading the canonical documents to
@@ -377,12 +381,19 @@ def test_failure_is_recorded_as_failure_never_as_content() -> None:
 
 
 def test_schema_v12_registry_is_additive_and_empty() -> None:
+    """Pins the v11→v12 STEP, not the current version: later checkpoints add
+    v13, v14… and must not break this."""
     schema = _read("services", "canvasschema.js")
-    assert "CANVAS_SCHEMA_VERSION = 12" in schema
+    match = re.search(r"CANVAS_SCHEMA_VERSION = (\d+)", schema)
+    assert match is not None
+    assert int(match.group(1)) >= 12, "v12 (TASK-059) must not be renumbered away"
     assert "function migrateV11ToV12" in schema
     assert "11: migrateV11ToV12" in schema
+    # bounded by the NEXT migration function, not by MIGRATIONS: a later
+    # v12→v13 step legitimately sits between them and is not ours to police
     step = schema.split("function migrateV11ToV12", 1)[1]
-    body = step.split("\n/** Sequential migration steps")[0]
+    end = step.find("\n/**", 1)  # the next migration's doc comment starts here
+    body = step[: end if end != -1 else len(step)]
     assert "doc.skillRuns = []" in body
     # the step touches nothing else
     for forbidden in ("assets", "generations", "production", "story", "timelines"):

@@ -932,3 +932,28 @@
 /* a relationship SUMMARY is prose, so it must ellipsize rather than clip
    mid-character when it does not fit its card */
 .bcard .rw .chip, .drawer-b .row .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* --- Dailies: continuous review of an episode (CP4 / ADR-0057) ----------- */
+.dl-wrap { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr); gap: 16px; align-items: start; }
+.dl-stage { background: #0b0d12; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; min-height: 240px; display: grid; place-items: center; }
+.dl-video { width: 100%; max-height: 62vh; display: block; background: #000; }
+.dl-novideo { display: grid; gap: 6px; place-items: center; padding: 48px 16px; color: var(--muted); text-align: center; }
+.dl-novideo .ic { font-size: 30px; opacity: .65; }
+.dl-novideo .hh { font-size: 12px; opacity: .8; }
+.dl-meta { display: grid; gap: 10px; align-content: start; }
+.dl-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; }
+.dl-scene { font-size: 12px; color: var(--muted); }
+.dl-scene.muted { opacity: .7; }
+.dl-desc { margin: 0; font-size: 13px; line-height: 1.6; }
+.dl-design { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: 12px; }
+.dl-design dt { color: var(--muted); }
+.dl-design dd { margin: 0; }
+.dl-nodesign { font-size: 12px; color: var(--muted); }
+.dl-strip { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.dl-chip { min-width: 30px; height: 26px; padding: 0 7px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--fg); font-size: 12px; cursor: pointer; }
+.dl-chip.on { border-color: var(--acc); box-shadow: inset 0 0 0 1px var(--acc); }
+.dl-chip.ok { background: color-mix(in srgb, var(--ok) 22%, transparent); border-color: var(--ok); }
+.dl-chip.novideo { opacity: .5; border-style: dashed; }
+@media (max-width: 1100px) { .dl-wrap { grid-template-columns: minmax(0, 1fr); } }
+
+.dl-stale { font-size: 12px; line-height: 1.55; color: var(--gate); border: 1px solid color-mix(in srgb, var(--gate) 40%, var(--line)); background: color-mix(in srgb, var(--gate) 8%, transparent); border-radius: 8px; padding: 8px 10px; }

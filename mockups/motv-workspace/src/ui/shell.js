@@ -42,6 +42,10 @@ export const EPISODE_NAV = [
   ["frames", "🖼", "画面"],
   ["video", "▶", "视频"],
   ["audio", "🎵", "音频"],
+  // CP4/ADR-0057: 审片 sits between the media stages and the cut, because that
+  // is where it belongs in the work — you review what was generated before you
+  // assemble it. 生成成功 != 镜头完成.
+  ["dailies", "👁", "审片"],
   ["edit", "✂", "剪辑"],
 ];
 
@@ -52,7 +56,7 @@ export const EPISODE_MODULES = EPISODE_NAV.map(([k]) => k);
 /** Stage keys that carry a completion ratio — the rail draws their progress
  *  bar. Keyed to the same badge model so the bar can never disagree with the
  *  number printed beside it. */
-export const STAGE_KEYS = ["frames", "video", "audio"];
+export const STAGE_KEYS = ["frames", "video", "audio", "dailies"];
 
 export const MODULE_LABEL = {
   brief: "创意", story: "故事大纲", characters: "人物", relationships: "人物关系",
@@ -62,7 +66,7 @@ export const MODULE_LABEL = {
   // workspaces' empty states — keeps landing somewhere real.
   settings: "作品设定", storage: "存储", assets: "资产库",
   script: "剧本", scenes: "场景", shots: "分镜", frames: "画面", video: "视频",
-  audio: "音频", edit: "剪辑",
+  audio: "音频", dailies: "审片", edit: "剪辑",
 };
 
 /** Episode short label: EP01, EP02… derived from position, with the planned

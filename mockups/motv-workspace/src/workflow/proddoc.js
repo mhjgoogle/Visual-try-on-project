@@ -30,6 +30,7 @@ import {
   sanitizeRelationships, sanitizeWorld, sanitizeCanon, sanitizeBeats, sanitizeBasedOn,
   defaultWorld, defaultCanon, defaultBeats, defaultBasedOn,
 } from "./canondoc.js";
+import { defaultShotProduction, sanitizeShotProduction } from "./shotprod.js";
 
 const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
 const nonEmpty = (x) => typeof x === "string" && x !== "";
@@ -52,6 +53,9 @@ function defaultProduction() {
     relationships: [],
     world: defaultWorld(),
     canon: defaultCanon(),
+    // CP4 shot production state: review approvals + shared Reference bindings,
+    // keyed by creativeShotId (see workflow/shotprod.js)
+    shotProduction: defaultShotProduction(),
   };
 }
 
@@ -138,6 +142,7 @@ export function createProduction(saved) {
     relationships,
     world: sanitizeWorld(saved.world),
     canon: sanitizeCanon(saved.canon),
+    shotProduction: sanitizeShotProduction(saved.shotProduction),
   };
 }
 
@@ -151,6 +156,7 @@ export function serialize(prod) {
     relationships: prod.relationships,
     world: prod.world,
     canon: prod.canon,
+    shotProduction: prod.shotProduction,
   };
 }
 

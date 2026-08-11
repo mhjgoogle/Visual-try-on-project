@@ -26,6 +26,7 @@ import { createShotEditor, normalizeShots, nextDraftVersion } from "./ui/shotedi
 import { mintId } from "./workflow/identity.js";
 import { createViews } from "./ui/landing.js";
 import { createProduction } from "./ui/production.js";
+import { dailiesModel } from "./ui/dailies.js";
 import { createWorkflowGraph } from "./ui/wfgraph.js";
 import { renderStepbar } from "./ui/stepbar.js";
 import { renderQueueBar, hasInflight } from "./ui/paidqueue.js";
@@ -43,6 +44,7 @@ import * as proddoc from "./workflow/proddoc.js";
 import * as timeline from "./workflow/timeline.js";
 import * as bibledoc from "./workflow/bibledoc.js";
 import * as canondoc from "./workflow/canondoc.js";
+import * as shotprod from "./workflow/shotprod.js";
 import * as breakdown from "./workflow/breakdown.js";
 import { seedDemoProject, DEMO_PROJECT_NAME } from "../fixtures/demo-project.js";
 
@@ -1611,6 +1613,91 @@ const ctx = {
       return r;
     },
   },
+  // ---------------------------------------------------------------------- //
+  // Shot production controller (CP4 / ADR-0057) — review approval + the
+  // canonical References a shot uses. The ONLY write path for both.
+  //
+  // 生成成功 != 镜头完成: nothing here is set by a successful generation. A shot
+  // reaches 已通过 because a human said so, and for no other reason.
+  // ---------------------------------------------------------------------- //
+  shot: {
+    /** The DERIVED production stage of one shot (待设计 … 已通过). */
+    stage: (shot) => shotprod.shotStage(productionDoc, shot, ctx.shot.mediaOf(shot)),
+    stageCounts: (shots) => shotprod.stageCounts(productionDoc, shots, (s) => ctx.shot.mediaOf(s)),
+    /** Whether a shot HAS a current image / video Asset — resolved through the
+     *  proven shotId→slot index, never by position. */
+    mediaOf: (shot) => {
+      const slot = ctx.shot._slotOf(shot);
+      if (!slot) return { image: false, video: false, videoAssetId: null };
+      const vid = mediaref.currentRef(assetRegistry.videos, slot);
+      return {
+        image: !!mediaref.currentRef(assetRegistry.images, slot),
+        video: !!vid,
+        // WHICH video is current — an approval is bound to this exact take, so
+        // switching the variant or adding a newer one retires the approval
+        videoAssetId: vid && vid.assetId ? vid.assetId : null,
+      };
+    },
+    _slotOf: (shot) => {
+      const draft = ctx.project.draftShots || [];
+      const shotId = shot && typeof shot.shotId === "string" ? shot.shotId : null;
+      return shotId ? slotForShotId(buildShotSlotIndex(draft), shotId) : null;
+    },
+    isApproved: (shotId) => shotprod.isApproved(productionDoc, shotId),
+    review: (shotId) => shotprod.reviewOf(productionDoc, shotId),
+    /** The shot entry for a creativeShotId in the CURRENT draft, or null. */
+    find: (shotId) => (ctx.project.draftShots || []).find(
+      (s) => s && typeof s.shotId === "string" && s.shotId === shotId,
+    ) || null,
+    /** Record 「通过」. REFUSED without a current video: 审片 is a judgement about
+     *  the shot as it will be seen, so approving one with nothing to watch would
+     *  record a review that never happened. Enforced HERE, in the sole write
+     *  path — a UI-only guard leaves every other caller free to bypass it. */
+    approve: (shotId, note) => {
+      const shot = ctx.shot.find(shotId);
+      const media = shot ? ctx.shot.mediaOf(shot) : null;
+      if (!media || !media.video || !media.videoAssetId) {
+        toast("这个镜头还没有视频，无法通过审片——先生成或导入视频");
+        return false;
+      }
+      const ok = shotprod.approveShot(productionDoc, shotId, media.videoAssetId, new Date().toISOString(), note || "");
+      if (ok) { ctx.persist(); refreshProductionView(); }
+      return ok;
+    },
+    unapprove: (shotId) => prodOp(shotprod.unapproveShot(productionDoc, shotId)),
+    // --- shared canonical References ---------------------------------------- //
+    references: (shotId) => shotprod.referencesOfShot(productionDoc, shotId),
+    addReference: (shotId, key) => prodOp(shotprod.addShotReference(productionDoc, shotId, key)),
+    removeReference: (shotId, key) => prodOp(shotprod.removeShotReference(productionDoc, shotId, key)),
+    /** Which shots share one Reference — 「SH01 / SH02 / SH05 → 林照 Ref v3」. */
+    shotsUsingReference: (key) => shotprod.shotsUsingReference(productionDoc, key),
+    /** Drop bindings to references that no longer exist, so no phantom chip
+     *  survives a deletion. */
+    pruneReferences: () => {
+      const live = new Set(assetreg.listReferences(assetRegistry).map((r) => r.key));
+      const removed = shotprod.pruneShotReferences(productionDoc, live);
+      if (removed) { ctx.persist(); refreshProductionView(); }
+      return removed;
+    },
+  },
+  // Dailies read model (CP4) — the active episode's review sequence, in
+  // CANONICAL order. Derived on every render; only the approval is persisted.
+  dailies: {
+    model: () => {
+      const ep = proddoc.activeEpisode(productionDoc);
+      const draft = ctx.project.draftShots || [];
+      const view = ep ? proddoc.episodeView(productionDoc, ep.episodeId, draft) : null;
+      return dailiesModel({
+        prod: productionDoc,
+        view,
+        mediaOf: (s) => ctx.shot.mediaOf(s),
+        urlOf: (s) => {
+          const slot = ctx.shot._slotOf(s);
+          return slot ? mediaref.slotUrl(assetRegistry.videos, slot) : "";
+        },
+      });
+    },
+  },
   // read-only registry view for the storage workspace (writes stay on the
   // ctx.storage / mediaref paths)
   assetRegistryView: () => assetRegistry,
@@ -1797,12 +1884,25 @@ const ctx = {
       if (!hit) throw new Error("资产不存在");
       await query.deleteAssetFile(PROJECT_NAME, String(hit.record.url || "").split("/").pop());
       assetlib.removeAssetRecord(assetRegistry, assetId);
+      // CP4/ADR-0057 决策 5: removing the LAST version of a canonical Reference
+      // removes its chain, and any shot still bound to that key would render a
+      // chip that points at nothing. Prune here — this is the one place a
+      // reference actually ceases to exist. (Generation provenance is NOT
+      // pruned: a dangling `referenceAssetIds` link is by design, because it
+      // records the historical fact that this asset WAS used.)
+      const prunedRefs = shotprod.pruneShotReferences(
+        productionDoc,
+        new Set(assetreg.listReferences(assetRegistry).map((r) => r.key)),
+      );
       ctx.refreshType("assets");
       ctx.refreshType("video");
       ctx.refreshType("audio");
       ctx.persist();
       refreshProductionView();
-      toast(`已永久删除资产（溯源记录保留${refs.provenance ? `，${refs.provenance} 条生成记录的链接将悬空——按设计如实保留` : ""}）`);
+      toast(
+        `已永久删除资产（溯源记录保留${refs.provenance ? `，${refs.provenance} 条生成记录的链接将悬空——按设计如实保留` : ""}` +
+        `${prunedRefs ? `；已清理 ${prunedRefs} 处镜头参考绑定` : ""}）`,
+      );
       return true;
     },
   },

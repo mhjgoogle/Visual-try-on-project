@@ -28,7 +28,7 @@ import { RUN_STATUSES } from "../workflow/skillrun.js";
 const SKILL_RUN_STATUS_SET = new Set(RUN_STATUSES);
 
 /** Authoritative CURRENT canvas schema version. Saves must emit exactly this. */
-export const CANVAS_SCHEMA_VERSION = 12;
+export const CANVAS_SCHEMA_VERSION = 13;
 
 /**
  * v1 → v2 (checkpoint M2): stable creator identity + minimal provenance.
@@ -959,9 +959,29 @@ function migrateV11ToV12(doc) {
   return doc;
 }
 
+/**
+ * v12 → v13 (checkpoint CP4 / ADR-0057): shot production state.
+ *
+ * `production.shotProduction = { reviews: {}, references: {} }` — the two
+ * things about a Shot's production that cannot be derived: the creator's
+ * 「通过」 and which canonical References the shot uses.
+ *
+ * Both start EMPTY. A migration cannot know which existing shots the creator
+ * would have approved — and marking a shot approved because it happens to have
+ * a video would be the exact confusion 「生成成功 != 镜头完成」 forbids. Existing
+ * shots therefore show as 待审片, which is the truth: nobody has reviewed them.
+ */
+function migrateV12ToV13(doc) {
+  const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
+  if (isObj(doc.production) && !isObj(doc.production.shotProduction)) {
+    doc.production.shotProduction = { reviews: {}, references: {} };
+  }
+  return doc;
+}
+
 /** Sequential migration steps: { [fromVersion]: (doc) => docAtFromVersion+1 }.
  *  Extended one real step at a time, never speculatively. */
-export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7, 7: migrateV7ToV8, 8: migrateV8ToV9, 9: migrateV9ToV10, 10: migrateV10ToV11, 11: migrateV11ToV12 };
+export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7, 7: migrateV7ToV8, 8: migrateV8ToV9, 9: migrateV9ToV10, 10: migrateV10ToV11, 11: migrateV11ToV12, 12: migrateV12ToV13 };
 
 /** Read the schema version of a raw persisted document.
  *  Returns a positive integer, or null if the marker is malformed.
@@ -1658,6 +1678,48 @@ export function validateCanvasDoc(doc) {
           || checkStates(l, `location ${l.locationId}`, LOC_FACETS);
         if (err) return err;
         locStates.set(l.locationId, new Set(l.states.map((s) => s.stateId)));
+      }
+    }
+    // Since v13 the production document owns SHOT PRODUCTION state: the
+    // creator's review approvals and the canonical References each shot uses.
+    // Both are keyed by creativeShotId; both are deliberately sparse (only
+    // shots with something recorded appear).
+    const atV13 = Number.isInteger(doc.v) && doc.v >= 13;
+    if (atV13) {
+      const sp = p.shotProduction;
+      if (!isPlainObject(sp)) return "production.shotProduction is missing or not an object";
+      if (!isPlainObject(sp.reviews)) return "production.shotProduction.reviews is not an object";
+      if (!isPlainObject(sp.references)) return "production.shotProduction.references is not an object";
+      for (const shotId of Object.keys(sp.reviews)) {
+        const r = sp.reviews[shotId];
+        if (!isPlainObject(r)) return `shot review ${shotId} is not an object`;
+        // ONLY approvals are stored. `approved: false` would claim the creator
+        // actively rejected the shot, which is a different (unrecorded) thing —
+        // "not approved" is the ABSENCE of a record.
+        if (r.approved !== true) return `shot review ${shotId} is not an approval`;
+        // an approval must say WHICH video it was given for, or it could only
+        // ever be applied to footage nobody reviewed
+        if (typeof r.assetId !== "string" || !r.assetId) {
+          return `shot review ${shotId} does not name the video it approved`;
+        }
+        if (r.approvedAt !== null && typeof r.approvedAt !== "string") {
+          return `shot review ${shotId} has an invalid approvedAt`;
+        }
+        if (typeof r.note !== "string") return `shot review ${shotId} has no note string`;
+      }
+      for (const shotId of Object.keys(sp.references)) {
+        const list = sp.references[shotId];
+        if (!Array.isArray(list) || !list.length) {
+          return `shot references ${shotId} is not a non-empty array`;
+        }
+        const seen = new Set();
+        for (const k of list) {
+          if (typeof k !== "string" || !k) return `shot references ${shotId} has an empty key`;
+          // a duplicated key would render the same reference chip twice and
+          // double-count the reference's usage
+          if (seen.has(k)) return `shot references ${shotId} repeats ${k}`;
+          seen.add(k);
+        }
       }
     }
     // Since v10 the production document also owns project-level CANON:
