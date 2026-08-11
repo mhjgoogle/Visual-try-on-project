@@ -223,7 +223,9 @@ function v10Doc() {
 }
 
 test("the migration chain reaches v11 and v10→v11 is registered", () => {
-  assert.equal(CANVAS_SCHEMA_VERSION, 11);
+  // pins the STEP, not the current version: later checkpoints legitimately add
+  // v12, v13… and must not break this
+  assert.ok(CANVAS_SCHEMA_VERSION >= 11);
   assert.equal(typeof MIGRATIONS[10], "function");
 });
 

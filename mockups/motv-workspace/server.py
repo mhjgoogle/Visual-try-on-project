@@ -39,10 +39,13 @@ import json
 import math
 import os
 import re
+import shutil
+import signal
 import socket
 import subprocess
 import tempfile
 import threading
+import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -525,6 +528,402 @@ def _run_claude(prompt: str, timeout: int = 180) -> str:
     return text
 
 
+# --- Local AI Runtime (CP3 / ADR-0056) -------------------------------------
+#
+# A Film AI Runtime is a TEXT / STRUCTURED REASONING executor. It is NOT a code
+# modification agent, and this module is where that is enforced:
+#
+#   * tools are disabled / the sandbox is read-only — the executor can only emit
+#     text, so a crafted prompt cannot make the locally-authenticated CLI read
+#     or exfiltrate anything;
+#   * argv arrays, never a shell;
+#   * a NEUTRAL cwd — never the project folder, never the repository;
+#   * output is bounded at the source and a watchdog enforces the timeout;
+#   * NO PATH is ever passed. The project context is inlined in the prompt as
+#     data, which is also why nothing here has to translate between Windows and
+#     WSL path conventions: no path crosses the boundary.
+#
+# Executor resolution order (ADR-0056 决策 3):
+#   1. MOTV_RUNTIME_<NAME>_BIN — the executor's ABSOLUTE path in whatever
+#      environment it lives in, optionally with
+#      MOTV_RUNTIME_<NAME>_LAUNCHER — a PURE-TRANSPORT argv prefix saying how to
+#      get there (e.g. ["wsl","-e","/home/u/.nvm/.../bin/node"]). WE own every
+#      argument after the binary, so no configuration can drop `--tools ""` /
+#      `--sandbox read-only`. A shell in the prefix is refused: it would swallow
+#      the arguments we append.
+#   2. shutil.which(<name>)    — ADR-0049: resolve, never invoke by bare name.
+#   3. neither → `unavailable`, reported honestly. Never a fabricated "ready".
+_SKILL_OUTPUT_CAP = 512_000
+_SKILL_TIMEOUT_DEFAULT = 240
+_SKILL_TIMEOUT_MAX = 900
+_SKILL_PROMPT_MAX = 200_000
+# Transport ceiling for /api/skill/run, enforced BEFORE the body is read. A
+# prompt is UTF-8 text (up to 4 bytes/char) plus a small JSON envelope; this
+# leaves generous headroom while keeping an oversized request from ever being
+# buffered.
+_SKILL_BODY_MAX = _SKILL_PROMPT_MAX * 4 + 8_192
+
+# name → (env var, default argv tail appended after the resolved binary).
+# The tail is what makes each CLI headless AND tool-free.
+_EXECUTORS: dict[str, dict] = {
+    "claude-code": {
+        "bin": "claude",
+        "launcher_env": "MOTV_RUNTIME_CLAUDE_LAUNCHER",
+        "bin_env": "MOTV_RUNTIME_CLAUDE_BIN",
+        # --tools "" disables every tool (same control as ADR-0042's _run_claude).
+        # `-p` with no inline argument reads the prompt from stdin — see the
+        # stdin note below for why the prompt never travels on argv.
+        "args": ["-p", "--tools", ""],
+        "probe": ["--version"],
+    },
+    "codex-cli": {
+        "bin": "codex",
+        "launcher_env": "MOTV_RUNTIME_CODEX_LAUNCHER",
+        "bin_env": "MOTV_RUNTIME_CODEX_BIN",
+        # `exec` is codex's non-interactive mode and `--sandbox read-only`
+        # prevents WRITES — but codex has no tool-free mode, so the model can
+        # still READ local files and echo them back in its answer. Our prompts
+        # embed user-authored script text, which is exactly an injection vector,
+        # so this executor is gated (see reads_filesystem below).
+        "args": [
+            "exec",
+            "--sandbox",
+            "read-only",
+            "--skip-git-repo-check",
+            "-",  # read the prompt from stdin
+        ],
+        "probe": ["--version"],
+        "reads_filesystem": True,
+    },
+}
+
+# Executors that CANNOT be made tool-free are OFF unless the operator opts in.
+#
+# `claude -p --tools ""` genuinely has no tools: it can only emit text. `codex
+# exec --sandbox read-only` only blocks writes — the agent may still read
+# absolute paths and return their contents. Since a Film Skill prompt inlines
+# user-authored script text, a crafted script could ask a read-capable executor
+# to read a local secret and put it in the answer.
+#
+# The ADR-0056 posture is fail-closed, so such an executor is `unavailable` by
+# default and the honest reason is reported. Setting this variable is an
+# explicit, informed decision by whoever runs the backend.
+_FS_READER_OPT_IN = "MOTV_RUNTIME_ALLOW_FS_READING_EXECUTORS"
+
+# Concurrency cap for skill runs. Each run launches a real local CLI; without a
+# cap, a page that can reach the backend could start an unbounded number of them
+# and exhaust the machine (and the subscription). Exceeding the cap is a 429 —
+# an honest "busy", never a silent queue that looks like a hang.
+_SKILL_RUN_MAX_CONCURRENT = 2
+# A custom header a cross-origin page cannot set without a CORS preflight this
+# server never answers — the CSRF guard for the one route that starts a real
+# local CLI (see _skill_run).
+_SKILL_RUN_HEADER = "X-Motv-Runtime"
+
+# Probes spawn `--version` subprocesses. The answer changes only when someone
+# installs or reconfigures a CLI, so it is cached: an authorized page polling
+# the runtime panel must not spawn a process per poll. (The route ALSO requires
+# the custom header, so a hostile page cannot reach it at all — the cache is the
+# second line, bounding cost even for legitimate callers.)
+_PROBE_TTL_SECONDS = 30.0
+_PROBE_CACHE: dict[str, tuple[float, dict]] = {}
+_PROBE_LOCK = threading.Lock()
+_SKILL_RUN_SLOTS = threading.BoundedSemaphore(_SKILL_RUN_MAX_CONCURRENT)
+
+
+def _fs_readers_allowed() -> bool:
+    return os.environ.get(_FS_READER_OPT_IN, "").strip().lower() in {"1", "true", "yes"}
+
+
+# Programs that REINTERPRET the arguments handed to them. A launcher prefix
+# must be pure TRANSPORT (`wsl -e …`, `docker exec …`): if a shell sits between
+# us and the CLI, our safety arguments become `$0 $1 …` of a `-c` script instead
+# of the executor's flags, and a prompt-injected agent runs with its tools on
+# while we believe they are off.
+_SHELLS = frozenset({
+    "sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh",
+    "cmd", "powershell", "pwsh",
+})
+_SHELL_FLAGS = frozenset({"-c", "-lc", "-ic", "-lic", "--command", "/c", "/k"})
+
+
+def _launcher_error(argv: list[str]) -> str | None:
+    """Reject a launcher prefix that is not pure transport."""
+    for a in argv:
+        base = a.replace("\\", "/").rsplit("/", 1)[-1].lower()
+        if base.endswith(".exe"):
+            base = base[: -len(".exe")]
+        if base in _SHELLS:
+            return (
+                f"启动前缀里不能出现 shell（{a}）：shell 会把我们追加的安全参数"
+                "当成脚本的位置参数吞掉，执行器就会带着工具运行。"
+                "请用纯传输前缀（如 [\"wsl\",\"-e\"]）加上可执行体的绝对路径。"
+            )
+        if a.lower() in _SHELL_FLAGS:
+            return f"启动前缀里不能出现 shell 命令参数（{a}）"
+    return None
+
+
+def _executor_argv(name: str) -> tuple[list[str] | None, str]:
+    """Resolve an executor to a full argv, or (None, reason).
+
+    STRUCTURED, not string-matched. The operator supplies at most two things:
+
+        MOTV_RUNTIME_<NAME>_LAUNCHER  a pure-transport argv PREFIX, e.g.
+                                      ["wsl","-e","/home/u/.../bin/node"]
+        MOTV_RUNTIME_<NAME>_BIN       the executor's ABSOLUTE path in that
+                                      environment
+
+    and WE own every argument after the binary. That is what makes the mandatory
+    safety flags un-droppable: there is no free-form command string to inspect,
+    so there is nothing to get wrong. The prefix is checked for shells, because
+    a shell between us and the CLI would swallow the arguments we append.
+    """
+    spec = _EXECUTORS.get(name)
+    if spec is None:
+        return None, f"unknown executor {name}"
+    if spec.get("reads_filesystem") and not _fs_readers_allowed():
+        return None, (
+            f"{spec['bin']} 没有「完全无工具」模式："
+            "它仍可读取本机文件并把内容写进回答。"
+            "提示词里内嵌了用户撰写的剧本文本（注入面），因此默认停用。"
+            f"确认接受这一风险后，设置 {_FS_READER_OPT_IN}=1 启用。"
+        )
+    launcher: list[str] = []
+    raw_launcher = os.environ.get(spec["launcher_env"], "").strip()
+    if raw_launcher:
+        try:
+            launcher = json.loads(raw_launcher)
+        except ValueError:
+            return None, f"{spec['launcher_env']} is not a JSON array"
+        if not isinstance(launcher, list) or not all(
+            isinstance(a, str) and a for a in launcher
+        ):
+            return None, f"{spec['launcher_env']} must be an array of non-empty strings"
+        bad = _launcher_error(launcher)
+        if bad:
+            return None, bad
+    configured_bin = os.environ.get(spec["bin_env"], "").strip()
+    if configured_bin:
+        # An absolute path INSIDE the launcher's environment. It is not resolved
+        # here — the file lives over there, not on this host's filesystem.
+        absolute = configured_bin.startswith("/") or re.fullmatch(
+            r"[A-Za-z]:[\\/].*", configured_bin
+        )
+        if not absolute:
+            return None, f"{spec['bin_env']} 必须是绝对路径"
+        return [*launcher, configured_bin, *spec["args"]], "configured"
+    if launcher:
+        return None, (
+            f"设置了 {spec['launcher_env']} 但没有 {spec['bin_env']}："
+            "启动前缀只说明「怎么过去」，还需要可执行体在那边的绝对路径。"
+        )
+    exe = shutil.which(spec["bin"])
+    if exe is None:
+        return None, (
+            f"{spec['bin']} not on PATH — set {spec['bin_env']} (absolute path) "
+            f"and, when it lives in another environment, {spec['launcher_env']} "
+            '(a pure-transport prefix such as ["wsl","-e","/abs/path/to/node"])'
+        )
+    return [exe, *spec["args"]], "path"
+
+
+def _run_executor(name: str, prompt: str, timeout: int) -> tuple[str, str | None]:
+    """Run one executor on a prompt and return (text, model).
+
+    Raises FileNotFoundError (unavailable), subprocess.TimeoutExpired (timeout)
+    or OSError (execution error) — three distinct failures, because the creator's
+    next action differs for each and collapsing them hides which one happened.
+    """
+    argv, _why = _executor_argv(name)
+    if argv is None:
+        raise FileNotFoundError(_why)
+    # THE PROMPT ALWAYS TRAVELS ON STDIN, never on argv. A real skill prompt
+    # inlines the episode script, the scenes and the shots; on native Windows the
+    # command line is capped around 32 KB, so an argv-borne prompt would make
+    # perfectly valid contexts fail with an opaque spawn error. stdin has no such
+    # limit and is uniform across executors.
+    # A genuinely NEUTRAL working directory: a fresh EMPTY temp folder, created
+    # per run and removed afterwards. The repository (and MOCKUP_DIR inside it)
+    # is not neutral — a prompt-injected executor whose cwd is the repo can read
+    # and echo back source, which is exactly the exfiltration the tool-free
+    # posture exists to prevent. An empty folder has nothing to read.
+    workdir = tempfile.mkdtemp(prefix="motv-skill-")
+    try:
+        proc = subprocess.Popen(  # noqa: S603 - argv array, no shell
+            argv,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # one bounded stream, no drain deadlock
+            cwd=workdir,
+            # POSIX: own session, so _kill_tree can signal the whole group
+            **({} if os.name == "nt" else {"start_new_session": True}),
+        )
+    except OSError:
+        # the spawn itself failed (a bad configured launcher, most likely) — the
+        # temp folder is ours and must not be left behind on every retry
+        shutil.rmtree(workdir, ignore_errors=True)
+        raise
+    timed_out = False
+
+    def _on_timeout() -> None:
+        nonlocal timed_out
+        timed_out = True
+        _kill_tree(proc)  # the CLI behind a WSL/bash launcher too, not just it
+
+    timer = threading.Timer(timeout, _on_timeout)
+    timer.start()
+    try:
+        try:
+            proc.stdin.write(prompt.encode("utf-8"))
+        except OSError:
+            pass  # the child may have exited already; the read below reports
+        try:
+            proc.stdin.close()
+        except OSError:
+            pass
+        out = proc.stdout.read(_SKILL_OUTPUT_CAP + 1)
+    finally:
+        timer.cancel()
+        # stops the child emitting once the cap is hit, and reaches a launcher's
+        # forwarded grandchild the same way the timeout path does
+        _kill_tree(proc)
+        proc.stdout.close()
+        proc.wait()
+        shutil.rmtree(workdir, ignore_errors=True)
+    if timed_out:
+        raise subprocess.TimeoutExpired(argv[:1], timeout)
+    text = out[:_SKILL_OUTPUT_CAP].decode("utf-8", "replace")
+    if len(out) > _SKILL_OUTPUT_CAP:
+        raise OSError("executor output exceeded size cap")
+    if proc.returncode != 0:
+        # An auth failure is its own actionable state — "log in" is a different
+        # fix from "retry" or "reconfigure", so it must not collapse into a
+        # generic execution error.
+        if _looks_unauthenticated(text):
+            raise PermissionError(f"{name} is not logged in: {text.strip()[:300]}")
+        raise OSError(f"{name} exited {proc.returncode}: {text.strip()[:300]}")
+    # The model is whatever the executor reports. We do not know it, and we do
+    # NOT guess: an unreported model stays null rather than being filled in with
+    # what we hoped was running.
+    return text, None
+
+
+def _kill_tree(proc: subprocess.Popen) -> None:
+    """Kill the executor AND everything it spawned.
+
+    `proc.kill()` only reaches the process we launched. The documented WSL
+    bridge launches `wsl.exe` → `bash` → the actual CLI, so killing the direct
+    child on a timeout would leave the CLI running: still burning local
+    resources and subscription capacity long after we reported 504.
+
+    Windows: `taskkill /T /F` walks the tree. POSIX: the child is started in its
+    own session (``start_new_session``) so the whole group can be signalled at
+    once. Both paths are best-effort — a kill that fails must not mask the
+    timeout the caller is already reporting.
+    """
+    try:
+        if os.name == "nt":
+            taskkill = shutil.which("taskkill")
+            if taskkill:
+                subprocess.run(  # noqa: S603 - fixed argv, no shell
+                    [taskkill, "/T", "/F", "/PID", str(proc.pid)],
+                    capture_output=True,
+                    timeout=15,
+                    check=False,
+                )
+        else:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except (OSError, subprocess.SubprocessError, ProcessLookupError):
+        pass
+    try:
+        proc.kill()  # the direct child, in case the tree kill did not reach it
+    except OSError:
+        pass
+
+
+def _looks_unauthenticated(blob: str) -> bool:
+    """Does this output read as a login problem rather than a crash?"""
+    low = (blob or "").lower()
+    return any(
+        w in low
+        for w in (
+            "not logged in",
+            "please log in",
+            "please login",
+            "unauthenticated",
+            "unauthorized",
+            "authentication",
+            "auth required",
+            "run `codex login`",
+            "run `claude login`",
+            "invalid api key",
+            "no credentials",
+        )
+    )
+
+
+def _probe_executor_cached(name: str) -> dict:
+    """`_probe_executor` behind a short TTL cache + a single-flight lock, so a
+    burst of requests costs at most one subprocess per executor per window."""
+    now = time.monotonic()
+    with _PROBE_LOCK:
+        hit = _PROBE_CACHE.get(name)
+        if hit and now - hit[0] < _PROBE_TTL_SECONDS:
+            return hit[1]
+        res = _probe_executor(name)
+        _PROBE_CACHE[name] = (now, res)
+        return res
+
+
+def _probe_executor(name: str) -> dict:
+    """What we can PROVE about one executor. Read-only, no side effects.
+
+    Deliberately NOT a readiness claim. A `--version` call succeeds on an
+    installed-but-logged-out CLI, so reporting `ready` from it would assert
+    something we did not check — and the creator would only discover the real
+    state when a run failed. `installed` says exactly what was verified;
+    `unauthenticated` is reported when a RUN actually comes back saying so.
+    """
+    spec = _EXECUTORS[name]
+    argv, why = _executor_argv(name)
+    if argv is None:
+        return {"state": "unavailable", "detail": why}
+    # A configured launcher's shape is ours to prefix but not to introspect
+    # A configured executor IS probed: the contract is structured now (a
+    # transport prefix + an absolute binary), so the version call is just that
+    # argv with `--version` in place of our run arguments. Reporting `installed`
+    # without trying would present a typo'd path or an unreachable WSL distro as
+    # runnable, and the creator would only find out when a run failed.
+    probe_argv = (
+        [*argv[: -len(spec["args"])], *spec["probe"]]
+        if why == "configured"
+        else [argv[0], *spec["probe"]]
+    )
+    try:
+        proc = subprocess.run(  # noqa: S603 - argv array, no shell
+            probe_argv,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            cwd=tempfile.gettempdir(),  # neutral, like the run path
+        )
+    except subprocess.TimeoutExpired:
+        return {"state": "error", "detail": "版本探测超时"}
+    except OSError as exc:
+        return {"state": "error", "detail": str(exc)[:200]}
+    blob = f"{proc.stdout}\n{proc.stderr}"
+    if proc.returncode != 0:
+        if _looks_unauthenticated(blob):
+            return {"state": "unauthenticated", "detail": "执行器已安装但未登录"}
+        return {"state": "error", "detail": (proc.stderr or proc.stdout).strip()[:200]}
+    return {
+        "state": "installed",
+        "detail": "已安装（登录状态需一次真实运行才能确认）",
+        "version": proc.stdout.strip()[:120],
+    }
+
+
 def _parse_shots(text: str) -> list[dict]:
     """Strictly parse the agent's output into a validated shot-draft list.
 
@@ -850,7 +1249,7 @@ class _App:
         )
 
     # -- GET routing ------------------------------------------------------
-    def handle(self, raw_path: str):
+    def handle(self, raw_path: str, headers=None):
         path = urlsplit(raw_path).path
         if path in ("/", "/index.html"):
             return self._static("index.html")
@@ -864,6 +1263,34 @@ class _App:
                     "account_root": str(self.account_root)
                     if self.account_root
                     else None,
+                },
+            )
+        if path == "/api/runtimes":
+            # CP3/ADR-0056: honest availability. An executor that is not
+            # installed and not configured is reported `unavailable` with the
+            # exact env var that would wire it — never a fabricated "ready".
+            #
+            # Guarded by the SAME custom header as /api/skill/run (codex review,
+            # round 8): this route spawns `--version` subprocesses, so a
+            # cross-origin page must not be able to trigger them at all. Results
+            # are cached besides, bounding the cost for legitimate callers.
+            if (headers or {}).get(_SKILL_RUN_HEADER) != "1":
+                return _json(
+                    403,
+                    {
+                        "error": {
+                            "category": "forbidden",
+                            "detail": f"{_SKILL_RUN_HEADER}: 1 required",
+                        }
+                    },
+                )
+            return _json(
+                200,
+                {
+                    "executors": {
+                        name: _probe_executor_cached(name)
+                        for name in sorted(_EXECUTORS)
+                    }
                 },
             )
         if path == "/api/fs/default":
@@ -929,7 +1356,7 @@ class _App:
         )
 
     # -- POST (Gateway write path, ADR-0041/0047) ---------------------------
-    def handle_post(self, raw_path: str, body: bytes):
+    def handle_post(self, raw_path: str, body: bytes, headers=None):
         path = urlsplit(raw_path).path
         # Agent routes carry small JSON envelopes only; the Gateway
         # preflight/command routes may inline first-frame data URLs
@@ -963,6 +1390,8 @@ class _App:
                 and self._migration_required(project)
             ):
                 return _migration_required_json()
+        if path == "/api/skill/run":
+            return self._skill_run(body, headers)
         if path == "/api/agent/shots-draft":
             return self._agent_shots_draft(body)
         if path == "/api/agent/bible-breakdown":
@@ -1195,6 +1624,141 @@ class _App:
         return _json(200, {"shots": shots})
 
     # -- creative agent: shots draft (ADR-0042) ----------------------------
+    def _skill_run(self, body: bytes, headers=None):
+        """POST /api/skill/run — run ONE compiled Skill prompt on ONE executor.
+
+        Takes a prompt, returns text. It takes no project name, no path and no
+        file list, and it writes nothing: this route cannot modify the canvas,
+        the project, or the repository even if the model asks it to (ADR-0056
+        决策 2). The four failure kinds are reported distinctly so the client can
+        say something actionable instead of a generic error.
+
+        CSRF: `_guard_origin` lets a request through when it carries NO Origin
+        header, which is the right baseline for the read-only API but too weak
+        for a route that starts a real local CLI and consumes subscription
+        capacity. This route additionally requires a CUSTOM header: a
+        cross-origin page cannot set one without a preflight, and this server
+        answers no CORS preflight, so a hostile page cannot reach it at all.
+        """
+        if (headers or {}).get(_SKILL_RUN_HEADER) != "1":
+            return _json(
+                403,
+                {
+                    "error": {
+                        "category": "forbidden",
+                        "detail": f"{_SKILL_RUN_HEADER}: 1 required",
+                    }
+                },
+            )
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            return _json(
+                400, {"error": {"category": "bad_json", "detail": "invalid JSON body"}}
+            )
+        if not isinstance(payload, dict):
+            return _json(
+                400, {"error": {"category": "bad_json", "detail": "expected an object"}}
+            )
+        name = payload.get("executor")
+        prompt = payload.get("prompt")
+        if not isinstance(name, str) or name not in _EXECUTORS:
+            return _json(
+                400,
+                {
+                    "error": {
+                        "category": "unavailable",
+                        "detail": "unknown executor",
+                    }
+                },
+            )
+        if not isinstance(prompt, str) or not prompt.strip():
+            return _json(
+                400,
+                {"error": {"category": "invalid_output", "detail": "prompt is empty"}},
+            )
+        if len(prompt) > _SKILL_PROMPT_MAX:
+            return _json(
+                413,
+                {
+                    "error": {
+                        "category": "invalid_output",
+                        "detail": f"prompt exceeds {_SKILL_PROMPT_MAX} characters",
+                    }
+                },
+            )
+        raw_timeout = payload.get("timeout")
+        timeout = _SKILL_TIMEOUT_DEFAULT
+        # `math.isfinite` before `int()`: Python's json accepts `Infinity` and
+        # `NaN`, and int(float("inf")) raises OverflowError — a crafted body must
+        # not become an unhandled 500.
+        if (
+            isinstance(raw_timeout, (int, float))
+            and not isinstance(raw_timeout, bool)
+            and math.isfinite(raw_timeout)
+            and raw_timeout > 0
+        ):
+            # floor at 1 second: `int(0.5)` is 0, which would kill the child
+            # instantly and report a timeout for a request that asked for half
+            # a second — a valid ask turned into an immediate failure.
+            timeout = max(1, min(int(raw_timeout), _SKILL_TIMEOUT_MAX))
+        # One local CLI per slot. A caller that finds every slot busy is told so
+        # immediately rather than being parked in an invisible queue.
+        if not _SKILL_RUN_SLOTS.acquire(blocking=False):
+            return _json(
+                429,
+                {
+                    "error": {
+                        "category": "execution_error",
+                        "detail": (
+                            f"已有 {_SKILL_RUN_MAX_CONCURRENT} 个能力运行在进行中，"
+                            "请等一个结束后再试"
+                        ),
+                    }
+                },
+            )
+        try:
+            text, model = _run_executor(name, prompt, timeout)
+        except FileNotFoundError as exc:
+            return _json(
+                503, {"error": {"category": "unavailable", "detail": str(exc)[:300]}}
+            )
+        except PermissionError as exc:
+            return _json(
+                401,
+                {
+                    "error": {
+                        "category": "unauthenticated",
+                        "detail": str(exc)[:300],
+                    }
+                },
+            )
+        except subprocess.TimeoutExpired:
+            return _json(
+                504,
+                {
+                    "error": {
+                        "category": "timeout",
+                        "detail": f"executor exceeded {timeout}s",
+                    }
+                },
+            )
+        except OSError as exc:
+            return _json(
+                502,
+                {
+                    "error": {
+                        "category": "execution_error",
+                        "detail": str(exc)[:300],
+                    }
+                },
+            )
+        finally:
+            # released on EVERY path, including the exception returns above —
+            # a leaked slot would permanently shrink the runtime's capacity
+            _SKILL_RUN_SLOTS.release()
+        return _json(200, {"ok": True, "text": text, "model": model})
+
     def _agent_shots_draft(self, body: bytes):
         """Turn the user's canvas script into a structured shot-list DRAFT.
 
@@ -4289,12 +4853,12 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
         if not self._guard_host():
             return
-        self._write(self._app.handle(self.path))
+        self._write(self._app.handle(self.path, self.headers))
 
     def do_HEAD(self):  # noqa: N802
         if not self._guard_host():
             return
-        self._write(self._app.handle(self.path), body=False)
+        self._write(self._app.handle(self.path, self.headers), body=False)
 
     def _route_body_cap(self) -> int:
         """Per-route transport ceiling, enforced BEFORE the body is read: only
@@ -4308,6 +4872,12 @@ class _Handler(BaseHTTPRequestHandler):
             ("/preflight", "/command")
         ):
             return _COMMAND_BODY_MAX
+        if path == "/api/skill/run":
+            # A skill body is one prompt plus a tiny envelope. Bounding it HERE
+            # means an oversized request is refused at transport, before the
+            # body is buffered and parsed — the prompt-length check inside the
+            # handler runs too late to protect memory (codex review, round 9).
+            return _SKILL_BODY_MAX
         return _GATEWAY_BODY_MAX
 
     def do_PUT(self):  # noqa: N802
@@ -4402,7 +4972,7 @@ class _Handler(BaseHTTPRequestHandler):
             )
             return
         body = self.rfile.read(length) if length else b""
-        self._write(self._app.handle_post(self.path, body))
+        self._write(self._app.handle_post(self.path, body, self.headers))
 
     do_PATCH = _reject  # noqa: N815
     do_DELETE = _reject  # noqa: N815

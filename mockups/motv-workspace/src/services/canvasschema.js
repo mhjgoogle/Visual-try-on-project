@@ -20,9 +20,15 @@
 import { MAX_CLIP_START, MAX_CLIP_FADE } from "../workflow/timeline.js";
 import { pairKey } from "../workflow/canondoc.js";
 import { ASSET_KINDS, KIND_DOMAIN, LINK_KEYS } from "../workflow/assetreg.js";
+import { RUN_STATUSES } from "../workflow/skillrun.js";
+
+/** The Skill Run states, reused from the domain rather than re-listed here —
+ *  a forked copy is how a validator starts rejecting documents the domain
+ *  legitimately produces (the v10 pair-key defect, twice over). */
+const SKILL_RUN_STATUS_SET = new Set(RUN_STATUSES);
 
 /** Authoritative CURRENT canvas schema version. Saves must emit exactly this. */
-export const CANVAS_SCHEMA_VERSION = 11;
+export const CANVAS_SCHEMA_VERSION = 12;
 
 /**
  * v1 → v2 (checkpoint M2): stable creator identity + minimal provenance.
@@ -940,9 +946,22 @@ function migrateV10ToV11(doc) {
   return doc;
 }
 
+/**
+ * v11 → v12 (checkpoint CP3 / ADR-0056): the Skill Run registry.
+ *
+ * One added top-level field, `skillRuns: []`. Purely additive and deliberately
+ * EMPTY: no AI run has ever been recorded before this version, and minting
+ * plausible history for the runs that produced existing drafts would fabricate
+ * provenance for work whose actual origin the document never captured.
+ */
+function migrateV11ToV12(doc) {
+  if (!Array.isArray(doc.skillRuns)) doc.skillRuns = [];
+  return doc;
+}
+
 /** Sequential migration steps: { [fromVersion]: (doc) => docAtFromVersion+1 }.
  *  Extended one real step at a time, never speculatively. */
-export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7, 7: migrateV7ToV8, 8: migrateV8ToV9, 9: migrateV9ToV10, 10: migrateV10ToV11 };
+export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7, 7: migrateV7ToV8, 8: migrateV8ToV9, 9: migrateV9ToV10, 10: migrateV10ToV11, 11: migrateV11ToV12 };
 
 /** Read the schema version of a raw persisted document.
  *  Returns a positive integer, or null if the marker is malformed.
@@ -1275,6 +1294,43 @@ export function validateCanvasDoc(doc) {
   }
   if (doc.generations !== undefined && !Array.isArray(doc.generations)) {
     return "generations is not an array";
+  }
+  // v12 (CP3): the Skill Run registry. Same posture as `generations` — a v12
+  // save always emits it, so an absent one is a truncated document that would
+  // restore empty and cement the loss of every recorded AI run.
+  const atV12 = Number.isInteger(doc.v) && doc.v >= 12;
+  if (atV12 && !Array.isArray(doc.skillRuns)) {
+    return "v12 document is missing its skillRuns registry";
+  }
+  if (doc.skillRuns !== undefined && !Array.isArray(doc.skillRuns)) {
+    return "skillRuns is not an array";
+  }
+  for (const r of Array.isArray(doc.skillRuns) ? doc.skillRuns : []) {
+    if (!isPlainObject(r)) return "skillRuns contains a non-object entry";
+    if (typeof r.skillRunId !== "string" || !r.skillRunId) return "a skill run has no skillRunId";
+    if (typeof r.skillId !== "string" || !r.skillId) return `skill run ${r.skillRunId} has no skillId`;
+    // the VERSION is what makes a run comparable later — a run that cannot say
+    // which definition produced it is unusable as evidence for a revision
+    if (!Number.isInteger(r.skillVersion) || r.skillVersion < 1) {
+      return `skill run ${r.skillRunId} has no valid skillVersion`;
+    }
+    if (!SKILL_RUN_STATUS_SET.has(r.status)) return `skill run ${r.skillRunId} has invalid status`;
+    // The status↔proposal invariant, BOTH ways. The domain transitions can only
+    // produce these pairings, and a document that carries another one misreports
+    // what the creator actually saw and decided:
+    //
+    //   running   no proposal yet — nothing has come back
+    //   proposed  a proposal, awaiting the creator's decision
+    //   accepted  the proposal they accepted
+    //   rejected  the proposal they rejected (kept: it is the most informative)
+    //   failed    no proposal — a failure never becomes content
+    const wantsProposal = r.status === "proposed" || r.status === "accepted" || r.status === "rejected";
+    if (wantsProposal && r.proposal == null) {
+      return `skill run ${r.skillRunId} is ${r.status} but carries no proposal`;
+    }
+    if (!wantsProposal && r.proposal != null) {
+      return `skill run ${r.skillRunId} is ${r.status} but carries a proposal`;
+    }
   }
   if (doc.assets !== undefined) {
     if (!isPlainObject(doc.assets)) return "assets is not an object";

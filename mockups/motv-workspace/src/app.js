@@ -33,6 +33,9 @@ import * as mediaref from "./workflow/mediaref.js";
 import * as assetlib from "./workflow/assetlib.js";
 import * as assetreg from "./workflow/assetreg.js";
 import * as genlib from "./workflow/genlib.js";
+import * as skills from "./workflow/skills.js";
+import * as skillrun from "./workflow/skillrun.js";
+import * as runtime from "./services/runtime.js";
 import { buildShotSlotIndex, slotForShotId, shotIdForSlot, resolveAdoptTarget } from "./workflow/shotmap.js";
 import * as scriptdoc from "./workflow/scriptdoc.js";
 import * as storydoc from "./workflow/storydoc.js";
@@ -151,6 +154,10 @@ let assetRegistry = assetlib.createRegistry(null);
 // provenance, top-level and parallel to the asset registry. Decoupled from
 // media bytes: a Generation record outlives its result Asset's local copy.
 let generationRegistry = genlib.createGenerationRegistry(null);
+// Skill Run Registry (CP3) — the durable record of every AI capability run:
+// which skill at which version, on which runtime/executor, and how the creator
+// judged the result. Provenance, NOT chat history, and never a data owner.
+let skillRunRegistry = skillrun.createSkillRunRegistry(null);
 // Production domain document (M6) — Project → Episodes → Scenes → Shots
 // structure. Scenes reference shots by canonical creativeShotId; shot content
 // stays on the scriptgen draft, media/provenance stay in their registries.
@@ -1422,6 +1429,188 @@ const ctx = {
       return { ...res, assetId: rec ? rec.assetId : null };
     },
   },
+  // ---------------------------------------------------------------------- //
+  // Film Skill controller (CP3 / ADR-0056) — the ONE way a capability runs.
+  //
+  //   Domain context → Skill → Runtime → structured Proposal
+  //     → AI Director review → user Accept → canonical controller write
+  //
+  // The runtime NEVER writes canon. This controller records the run and holds
+  // the Proposal; `accept()` marks it, and the caller then applies it through
+  // the normal domain controllers. Nothing here can modify a document, so a
+  // model's answer cannot become project data without a human decision.
+  // ---------------------------------------------------------------------- //
+  skills: {
+    catalog: () => skills.SKILLS,
+    find: (skillId) => skills.findSkill(skillId),
+    runtimes: () => runtime.RUNTIMES,
+    executors: () => runtime.EXECUTORS,
+    probe: () => runtime.probeExecutors(),
+    configurationHint: (executorId) => runtime.configurationHint(executorId),
+    runs: () => skillRunRegistry,
+    stats: (skillId) => skillrun.skillStats(skillRunRegistry, skillId),
+
+    /** The domain context for a skill, assembled from the CANONICAL documents.
+     *  Read-only: this builds the prompt's data, it never reaches back. */
+    context: (skillId, extra = {}) => {
+      const skill = skills.findSkill(skillId);
+      if (!skill) return {};
+      const prod = productionDoc;
+      const ep = proddoc.activeEpisode(prod);
+      const draft = ctx.project.draftShots || [];
+      const view = ep ? proddoc.episodeView(prod, ep.episodeId, draft) : null;
+      const available = {
+        brief: storydoc.activeBrief(storyDoc) || storyDoc.brief.draft,
+        outline: (storydoc.approvedOutline(storyDoc) || storydoc.activeOutline(storyDoc) || {}).outline || null,
+        characters: prod.characters,
+        relationships: prod.relationships,
+        world: prod.world,
+        episodePlan: (() => {
+          const plan = storydoc.confirmedPlan(storyDoc);
+          const entry = plan && ep ? plan.episodes.find((e) => e.episodeId === ep.episodeId) : null;
+          return entry || null;
+        })(),
+        episodeScript: scriptdoc.currentText(scriptDoc),
+        scenes: view ? view.scenes.map((s) => ({ sceneId: s.sceneId, title: s.title, shotIds: s.shotIds })) : [],
+        shots: draft,
+        references: assetreg.listReferences(assetRegistry).map((r) => ({
+          key: r.key, kind: r.kind, name: assetreg.derivedLabel(r), version: r.version, links: r.links,
+        })),
+        assets: assetreg.listAssets(assetRegistry).map((a) => ({
+          assetId: a.assetId, kind: a.kind, name: assetreg.derivedLabel(a),
+          tags: a.tags, reusable: a.reusable, links: a.links,
+        })),
+        generations: generationRegistry,
+      };
+      const out = {};
+      for (const k of [...skill.inputs, ...skill.optionalInputs]) {
+        if (k in extra) { out[k] = extra[k]; continue; }
+        if (k in available) out[k] = available[k];
+      }
+      return out;
+    },
+
+    /** The full task prompt — IDENTICAL for every runtime. Copying this into a
+     *  web chat and running it locally ask exactly the same question. */
+    prompt: (skillId, extra = {}) => {
+      const skill = skills.findSkill(skillId);
+      if (!skill) return "";
+      return skills.compilePrompt(skill, ctx.skills.context(skillId, extra));
+    },
+
+    /** Which required inputs are missing. A skill with missing inputs REFUSES
+     *  to run — an AI asked to storyboard with no scene produces something
+     *  plausible and unrelated, which is worse than an honest refusal. */
+    missing: (skillId, extra = {}) => {
+      const skill = skills.findSkill(skillId);
+      if (!skill) return [];
+      return skills.missingInputs(skill, ctx.skills.context(skillId, extra));
+    },
+
+    /**
+     * Run a Skill and record the run. `executor` "manual" only OPENS the run
+     * (the creator pastes the answer back via `submitManual`); a local executor
+     * runs it now.
+     */
+    run: async (skillId, { executor = "manual", extra = {}, summary = null } = {}) => {
+      const skill = skills.findSkill(skillId);
+      if (!skill) return { ok: false, error: `未知能力 ${skillId}` };
+      const context = ctx.skills.context(skillId, extra);
+      const missing = skills.missingInputs(skill, context);
+      if (missing.length) {
+        return {
+          ok: false,
+          error: `缺少必要输入：${missing.map((k) => skills.SKILL_INPUTS[k] || k).join("、")}`,
+        };
+      }
+      const exec = runtime.EXECUTOR_BY_ID.get(executor);
+      const rec = skillrun.startRun(skillRunRegistry, {
+        skillId: skill.skillId,
+        skillVersion: skill.version,
+        runtime: exec ? exec.runtime : "manual",
+        executor,
+        inputKeys: Object.keys(context),
+        inputSummary: summary,
+        createdAt: new Date().toISOString(),
+      });
+      if (!rec) return { ok: false, error: "无法建立运行记录" };
+      ctx.persist();
+      const prompt = skills.compilePrompt(skill, context);
+      if (executor === "manual") {
+        // the run stays OPEN until the creator brings an answer back
+        return { ok: true, run: rec, prompt, manual: true };
+      }
+      const res = await runtime.runOnExecutor({ executor, prompt });
+      if (!res.ok) {
+        skillrun.failRun(skillRunRegistry, rec.skillRunId, res.kind, res.detail);
+        ctx.persist();
+        refreshProductionView();
+        return { ok: false, error: res.detail, kind: res.kind, run: rec };
+      }
+      return ctx.skills._land(rec, skill, res.text, res.model);
+    },
+
+    /** Bring a MANUAL answer back. Same skill, same schema, same gate — only
+     *  the executor differed. */
+    submitManual: (skillRunId, text) => {
+      const rec = skillrun.findRun(skillRunRegistry, skillRunId);
+      if (!rec) return { ok: false, error: "运行记录不存在" };
+      // A run that has ALREADY landed is not open for another answer. Without
+      // this, pasting a second (malformed) answer into a run that already holds
+      // a good proposal would fail it and wipe the creator's result.
+      if (rec.status !== "running") {
+        return { ok: false, error: `这次运行已经是「${rec.status}」，不能再提交结果` };
+      }
+      // …and a LOCAL run is not a manual one. Pasting an answer into a run that
+      // a local executor is still working on creates a race: whichever lands
+      // second fails validation and clears the one that landed first.
+      if (rec.executor !== "manual") {
+        return { ok: false, error: `这次运行由「${rec.executor}」执行，不能手工提交结果` };
+      }
+      const skill = skills.findSkill(rec.skillId);
+      if (!skill) return { ok: false, error: `未知能力 ${rec.skillId}` };
+      return ctx.skills._land(rec, skill, text, null);
+    },
+
+    /** Validate an answer and land it as a Proposal — or as an honest failure.
+     *  A non-conforming answer NEVER becomes a partially-kept proposal. */
+    _land: (rec, skill, text, model) => {
+      const read = skills.readSkillAnswer(skill, text);
+      if (!read.ok) {
+        skillrun.failRun(skillRunRegistry, rec.skillRunId, "invalid_output", read.error);
+        ctx.persist();
+        refreshProductionView();
+        return { ok: false, error: read.error, kind: "invalid_output", run: rec };
+      }
+      // proposeRun REFUSES a run that is not `running`. Ignoring that refusal
+      // would report success for a proposal that was never recorded, and the UI
+      // would render something the document does not contain.
+      const landed = skillrun.proposeRun(skillRunRegistry, rec.skillRunId, read.value, { model });
+      if (!landed) {
+        return { ok: false, error: `这次运行已经是「${rec.status}」，结果未记录`, kind: "execution_error", run: rec };
+      }
+      ctx.persist();
+      refreshProductionView();
+      return { ok: true, run: rec, proposal: read.value };
+    },
+
+    /** The creator ACCEPTS. This marks the run only — applying the proposal to
+     *  canon is the caller's, through the normal domain controllers. */
+    accept: (skillRunId) => {
+      const r = skillrun.acceptRun(skillRunRegistry, skillRunId, new Date().toISOString());
+      if (!r) return null;
+      ctx.persist();
+      refreshProductionView();
+      return r;
+    },
+    reject: (skillRunId, reason) => {
+      const r = skillrun.rejectRun(skillRunRegistry, skillRunId, new Date().toISOString(), reason);
+      if (!r) return null;
+      ctx.persist();
+      refreshProductionView();
+      return r;
+    },
+  },
   // read-only registry view for the storage workspace (writes stay on the
   // ctx.storage / mediaref paths)
   assetRegistryView: () => assetRegistry,
@@ -2550,6 +2739,8 @@ function serializeGraph() {
     // Generation provenance (M5) — top-level, parallel to assets, durable
     // independent of media bytes.
     generations: generationRegistry,
+    // Skill Run provenance (CP3) — top-level, parallel to generations.
+    skillRuns: skillRunRegistry,
     // Production structure (M6) — episodes/scenes owning shot REFERENCES only.
     production: proddoc.serialize(productionDoc),
     // Per-episode timelines (M11) — asset REFERENCES only, never media bytes.
@@ -2589,6 +2780,8 @@ function restoreGraph(data) {
   assetRegistry = assetlib.createRegistry((data && data.assets) || null);
   // Generation Registry (M5): hydrate from the same save (durable provenance).
   generationRegistry = genlib.createGenerationRegistry((data && data.generations) || null);
+  // Skill Run Registry (CP3): hydrate from the same save.
+  skillRunRegistry = skillrun.createSkillRunRegistry((data && data.skillRuns) || null);
   // Production structure (M6): existing episode/scene ids survive verbatim; a
   // fresh/legacy canvas starts with the default single active episode.
   productionDoc = proddoc.createProduction((data && data.production) || null);
@@ -2760,6 +2953,7 @@ async function enterCanvas(name, opts = {}) {
     seeded = false;
     assetRegistry = assetlib.createRegistry(null);
     generationRegistry = genlib.createGenerationRegistry(null);
+    skillRunRegistry = skillrun.createSkillRunRegistry(null);
     productionDoc = proddoc.createProduction(null);
     seedDemoGraph();
   } else {

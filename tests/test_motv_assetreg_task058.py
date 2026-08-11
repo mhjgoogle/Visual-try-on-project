@@ -210,11 +210,16 @@ def test_project_folder_shape_is_created_without_physical_classification() -> No
         assert forbidden not in server
 
 
-def test_schema_version_is_eleven_with_the_full_chain() -> None:
+def test_schema_chain_reaches_v11_and_stays_unbroken() -> None:
+    """Pins the v10→v11 STEP, not the current version: later checkpoints add
+    v12, v13… and must not break this (the same lesson TASK-057's pin taught)."""
     schema = _read("services", "canvasschema.js")
-    assert "CANVAS_SCHEMA_VERSION = 11" in schema
+    match = re.search(r"CANVAS_SCHEMA_VERSION = (\d+)", schema)
+    assert match is not None
+    current = int(match.group(1))
+    assert current >= 11, "v11 (TASK-058) must not be renumbered away"
     compact = schema.replace(" ", "")
-    for n in range(1, 11):
+    for n in range(1, current):
         assert f"{n}:migrateV{n}To" in compact, f"migration step {n} is missing"
 
 
