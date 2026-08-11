@@ -25,6 +25,7 @@ import importlib.util
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -32,6 +33,10 @@ import pytest
 from tests.test_lock_gateway_command import _draft_shot, _setup_project
 
 _MOCKUP_DIR = Path(__file__).resolve().parents[1] / "mockups" / "motv-workspace"
+# server.py imports its sibling `rootadmit`; without this the module only
+# loads when some OTHER test file happens to put the mockup dir on sys.path
+if str(_MOCKUP_DIR) not in sys.path:
+    sys.path.insert(0, str(_MOCKUP_DIR))
 _SERVER_PATH = _MOCKUP_DIR / "server.py"
 
 # Minimal bodies that pass the magic-byte sniff (content beyond the header is
@@ -53,11 +58,35 @@ def server_module():
 
 @pytest.fixture()
 def data_dir(server_module, tmp_path: Path, monkeypatch) -> Path:
-    """Redirect the mockup's DATA_DIR (upload scratch) into tmp."""
-    d = tmp_path / "mockdata"
-    d.mkdir()
-    monkeypatch.setattr(server_module, "DATA_DIR", d)
-    return d
+    """Media now lives at ``<ProjectRoot>/media/`` (ADR-0053).
+
+    Returns the ACCOUNT root; `_updir()` resolves a project's media folder
+    under it. The legacy scratch is still redirected into tmp so nothing can
+    touch the real repo directory.
+    """
+    monkeypatch.setattr(server_module, "DATA_DIR", tmp_path / "mockdata")
+    (tmp_path / "mockdata").mkdir()
+    account = tmp_path / "account"
+    account.mkdir()
+    return account
+
+
+def _updir(account: Path, project: str) -> Path:
+    """Where this project's media lives on disk."""
+    return account / project / "media"
+
+
+def _mkapp(server_module, account: Path, *projects: str):
+    """An app that knows about `projects` (discovery needs the query service,
+    which these unit-level tests do not spin up)."""
+    app = server_module._App(account)
+    for name in projects or ("proj",):
+        (account / name).mkdir(parents=True, exist_ok=True)
+        meta = account / name / "project.json"
+        if not meta.exists():  # never clobber a project a fixture already staged
+            meta.write_text(json.dumps({"project_id": name, "name": name}), "utf-8")
+        app._projects[name] = account / name
+    return app
 
 
 def _get(app, path: str):
@@ -79,7 +108,7 @@ def _post(app, path: str, payload: dict) -> tuple[int, dict]:
 
 
 def test_same_slot_uploads_append_three_versions(server_module, data_dir) -> None:
-    app = server_module._App(None, None)
+    app = _mkapp(server_module, data_dir)
     bodies = [PNG, PNG2, JPG]
     ctypes = ["image/png", "image/png", "image/jpeg"]
     urls = []
@@ -90,7 +119,7 @@ def test_same_slot_uploads_append_three_versions(server_module, data_dir) -> Non
         assert j["sha256"] == hashlib.sha256(body).hexdigest()
         urls.append(j["url"])
     # three version files coexist — nothing was deleted or overwritten
-    updir = data_dir / "uploads" / "proj"
+    updir = _updir(data_dir, "proj")
     names = sorted(p.name for p in updir.iterdir())
     assert names == ["assets-v1-1_v1.png", "assets-v1-1_v2.png", "assets-v1-1_v3.jpg"]
     # every version stays servable with its original bytes (回切-able)
@@ -101,11 +130,11 @@ def test_same_slot_uploads_append_three_versions(server_module, data_dir) -> Non
 
 
 def test_legacy_unsuffixed_file_counts_as_v1(server_module, data_dir) -> None:
-    updir = data_dir / "uploads" / "proj"
+    updir = _updir(data_dir, "proj")
     updir.mkdir(parents=True)
     legacy = updir / "video-v1-3.mp4"
     legacy.write_bytes(MP4)
-    app = server_module._App(None, None)
+    app = _mkapp(server_module, data_dir)
     status, j = _put(app, "/api/uploads/proj/video-v1-3", MP4, "video/mp4")
     assert status == 200
     assert j["version"] == 2  # legacy file occupies v1
@@ -114,7 +143,7 @@ def test_legacy_unsuffixed_file_counts_as_v1(server_module, data_dir) -> None:
 
 
 def test_versioned_and_reserved_slugs_refused(server_module, data_dir) -> None:
-    app = server_module._App(None, None)
+    app = _mkapp(server_module, data_dir)
     # a slug ending in _v<N> would collide with the version namespace
     status, j = _put(app, "/api/uploads/proj/sneaky_v2", PNG, "image/png")
     assert status == 400
@@ -125,13 +154,13 @@ def test_versioned_and_reserved_slugs_refused(server_module, data_dir) -> None:
     # magic sniff still enforced on the versioned path
     status, _ = _put(app, "/api/uploads/proj/slot-a", b"not-a-png", "image/png")
     assert status == 400
-    assert not (data_dir / "uploads" / "proj").exists() or not any(
-        (data_dir / "uploads" / "proj").iterdir()
+    assert not (_updir(data_dir, "proj")).exists() or not any(
+        (_updir(data_dir, "proj")).iterdir()
     )
 
 
 def test_versioned_filenames_are_gettable_and_capped(server_module, data_dir) -> None:
-    app = server_module._App(None, None)
+    app = _mkapp(server_module, data_dir)
     long_slug = "s" * 64  # max slug length must still resolve once versioned
     status, j = _put(app, f"/api/uploads/proj/{long_slug}", PNG, "image/png")
     assert status == 200
@@ -144,7 +173,9 @@ def test_adopt_paid_appends_versions_never_overwrites(
     server_module, data_dir, tmp_path: Path
 ) -> None:
     project, _catalog = _setup_project(tmp_path)
-    app = server_module._App(tmp_path, None)
+    # _setup_project put the real project under tmp_path, so THAT is the
+    # account root here; its media folder lives inside it (ADR-0053)
+    app = _mkapp(server_module, tmp_path, "project-a", "project-b")
     staging = project / "staging" / "shots"
     staging.mkdir(parents=True, exist_ok=True)
     clip1 = MP4 + b"take-one"
@@ -160,7 +191,7 @@ def test_adopt_paid_appends_versions_never_overwrites(
     status, j2 = _post(app, "/api/agent/adopt-paid", payload)
     assert status == 200
     assert j2["version"] == 2
-    updir = data_dir / "uploads" / "project-a"
+    updir = _updir(tmp_path, "project-a")
     assert (updir / "video-v1-1_v1.mp4").read_bytes() == clip1
     assert (updir / "video-v1-1_v2.mp4").read_bytes() == clip2
 
@@ -172,7 +203,9 @@ def test_lock_first_frame_sha_matches_uploaded_asset(
     server_module, data_dir, tmp_path: Path
 ) -> None:
     project, _catalog = _setup_project(tmp_path)
-    app = server_module._App(tmp_path, None)
+    # _setup_project put the real project under tmp_path, so THAT is the
+    # account root here; its media folder lives inside it (ADR-0053)
+    app = _mkapp(server_module, tmp_path, "project-a", "project-b")
     # 1. the asset image lands in the slot (manual/paid route equivalent)
     status, up = _put(app, "/api/uploads/project-a/assets-v1-6", PNG, "image/png")
     assert status == 200

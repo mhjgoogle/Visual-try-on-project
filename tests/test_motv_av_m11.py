@@ -34,8 +34,13 @@ from pathlib import Path
 import pytest
 
 from tests._scan import core_files_containing
+from tests.symlink_support import symlink_or_skip
 
 _MOCKUP_DIR = Path(__file__).resolve().parents[1] / "mockups" / "motv-workspace"
+# server.py imports its sibling `rootadmit`; without this the module only
+# loads when some OTHER test file happens to put the mockup dir on sys.path
+if str(_MOCKUP_DIR) not in sys.path:
+    sys.path.insert(0, str(_MOCKUP_DIR))
 _SERVER_PATH = _MOCKUP_DIR / "server.py"
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"png-payload"
@@ -51,10 +56,26 @@ def server_module():
 
 @pytest.fixture()
 def data_dir(server_module, tmp_path: Path, monkeypatch) -> Path:
+    """Legacy scratch redirected into tmp; media now lives per project."""
     d = tmp_path / "mockdata"
     d.mkdir()
     monkeypatch.setattr(server_module, "DATA_DIR", d)
-    return d
+    account = tmp_path / "account"
+    account.mkdir()
+    return account
+
+
+def _mkapp(server_module, account: Path, name: str = "proj"):
+    """An app that knows about `name`, whose media is <account>/<name>/media
+    (ADR-0053). Discovery needs the query service, which this unit-level suite
+    does not spin up, so the mapping is registered directly."""
+    (account / name).mkdir(parents=True, exist_ok=True)
+    meta = account / name / "project.json"
+    if not meta.exists():
+        meta.write_text(json.dumps({"project_id": name, "name": name}), "utf-8")
+    app = server_module._App(account)
+    app._projects[name] = account / name
+    return app
 
 
 def _post(app, path: str, payload) -> tuple[int, dict]:
@@ -129,7 +150,7 @@ def test_render_rejects_bad_payloads(server_module, data_dir, monkeypatch) -> No
     import shutil as _sh
 
     monkeypatch.setattr(_sh, "which", lambda _n: "/bin/false")
-    app = server_module._App(None, None)
+    app = _mkapp(server_module, data_dir)
     status, j = _post(app, "/api/agent/render-episode", b"{not json")
     assert status == 400
     status, j = _post(
@@ -162,10 +183,10 @@ def test_render_rejects_over_one_hour_total(
     # ffmpeg suffices (files must exist to pass resolution).
     import shutil as _sh
 
-    updir = data_dir / "uploads" / "proj"
+    updir = data_dir / "proj" / "media"
     _make_media(updir)
     monkeypatch.setattr(_sh, "which", lambda _n: "/bin/false")
-    app = server_module._App(None, None)
+    app = _mkapp(server_module, data_dir)
     status, j = _post(
         app,
         "/api/agent/render-episode",
@@ -247,12 +268,12 @@ def test_render_refuses_traversal_and_symlinked_clip_files(
     import shutil as _sh
 
     monkeypatch.setattr(_sh, "which", lambda _n: "/bin/false")
-    updir = data_dir / "uploads" / "proj"
+    updir = data_dir / "proj" / "media"
     updir.mkdir(parents=True)
     secret = data_dir / "secret.mp4"
     secret.write_bytes(b"\x00\x00\x00\x18ftypisom" + b"\x00" * 16)
-    (updir / "link.mp4").symlink_to(secret)
-    app = server_module._App(None, None)
+    symlink_or_skip(updir / "link.mp4", secret)
+    app = _mkapp(server_module, data_dir)
     for name in (
         "../secret.mp4",
         "/etc/passwd",
@@ -274,12 +295,12 @@ def test_render_refuses_traversal_and_symlinked_clip_files(
 
 
 def test_render_honest_503_without_ffmpeg(server_module, data_dir, monkeypatch) -> None:
-    updir = data_dir / "uploads" / "proj"
+    updir = data_dir / "proj" / "media"
     updir.mkdir(parents=True)
     import shutil as _sh
 
     monkeypatch.setattr(_sh, "which", lambda _n: None)
-    app = server_module._App(None, None)
+    app = _mkapp(server_module, data_dir)
     status, j = _post(
         app,
         "/api/agent/render-episode",
@@ -299,9 +320,9 @@ def test_render_honest_503_without_ffmpeg(server_module, data_dir, monkeypatch) 
 def test_real_render_versions_atomically_and_never_overwrites(
     server_module, data_dir
 ) -> None:
-    updir = data_dir / "uploads" / "proj"
+    updir = data_dir / "proj" / "media"
     _make_media(updir)
-    app = server_module._App(None, None)
+    app = _mkapp(server_module, data_dir)
     payload = {
         "project": "proj",
         "settings": {"width": 160, "height": 90, "fps": 10, "format": "mp4"},
@@ -354,9 +375,9 @@ def test_render_forces_planned_segment_length_keeping_av_in_sync(
     """A video trimmed BEYOND its 1s source must still occupy its full planned
     window (tpad clones the last frame) so concat placement matches the audio
     delays — no A/V desync after short clips (M11 review)."""
-    updir = data_dir / "uploads" / "proj"
+    updir = data_dir / "proj" / "media"
     _make_media(updir)  # video-a_v1.mp4 is exactly 1s
-    app = server_module._App(None, None)
+    app = _mkapp(server_module, data_dir)
     payload = {
         "project": "proj",
         "settings": {"width": 160, "height": 90, "fps": 10, "format": "mp4"},
@@ -425,7 +446,7 @@ def test_tts_voice_param_validated_and_falls_back_honestly(
     import shutil as _sh
 
     monkeypatch.setattr(_sh, "which", lambda n: str(fake) if n == "piper" else None)
-    app = server_module._App(None, None)
+    app = _mkapp(server_module, data_dir)
     # a bad voice name is refused (no path traversal into the model dir)
     status, j = _post(
         app,
@@ -471,14 +492,14 @@ def test_tts_voice_param_validated_and_falls_back_honestly(
 
 
 def test_delete_file_bytes_only_with_containment(server_module, data_dir) -> None:
-    updir = data_dir / "uploads" / "proj"
+    updir = data_dir / "proj" / "media"
     updir.mkdir(parents=True)
     target = updir / "audio-d1_v1.wav"
     target.write_bytes(b"RIFFxxxxWAVE")
     outside = data_dir / "outside.wav"
     outside.write_bytes(b"RIFFxxxxWAVE")
-    (updir / "esc.wav").symlink_to(outside)
-    app = server_module._App(None, None)
+    symlink_or_skip(updir / "esc.wav", outside)
+    app = _mkapp(server_module, data_dir)
     # traversal / symlink / bad names refused
     for name in ("../outside.wav", "esc.wav", "no-extension", "x.exe"):
         status, j = _post(
@@ -503,7 +524,7 @@ def test_delete_file_bytes_only_with_containment(server_module, data_dir) -> Non
 
 
 def test_render_output_namespace_reserved_for_uploads(server_module, data_dir) -> None:
-    app = server_module._App(None, None)
+    app = _mkapp(server_module, data_dir)
     resp = app.handle_put("/api/uploads/proj/render-ep-extra", PNG, "image/png")
     assert resp.status == 400
 

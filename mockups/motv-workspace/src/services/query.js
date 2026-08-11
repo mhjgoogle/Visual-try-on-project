@@ -81,6 +81,17 @@ export function createProject(name, root, confirm) {
   });
 }
 
+/** Copy a project's legacy repo-scratch canvas + media into the project folder
+ *  (ADR-0053). Explicit by design: the studio refuses to edit an unmigrated
+ *  project rather than half-migrating it. The legacy files are kept. */
+export function migrateLegacy(project) {
+  return _call("/api/projects/migrate-legacy", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ project }),
+  });
+}
+
 /** One read-only query (plan/status/budget/cost/problems/approvals) as JSON. */
 export async function getQuery(name, q) {
   const r = await fetch(`/api/projects/${encodeURIComponent(name)}/${q}`);

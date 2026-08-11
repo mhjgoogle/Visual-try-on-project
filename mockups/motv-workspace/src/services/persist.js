@@ -38,10 +38,22 @@ const _loadChain = new Map();
 // Anything else in a loaded document is carried through saves untouched.
 const OWNED_FIELDS = ["v", "project", "scriptDoc", "story", "scripts", "assets", "generations", "production", "timelines", "nodes", "edges", "pan"];
 
-function _dispatch(name, raw) {
+function _dispatch(name, raw, { legacy = false } = {}) {
   const res = migrateToCurrent(raw);
   if (res.status === "ok") {
-    _blocked.delete(name);
+    // ADR-0053: a document served out of the legacy repo scratch is READ-ONLY
+    // until the creator migrates the project. Loading it is right — they need
+    // to see what they have before deciding — but every save the server would
+    // refuse with 409 must be blocked here too, or the studio autosaves into
+    // a void and reports nothing.
+    if (legacy) {
+      _blocked.set(name, {
+        reason: "legacy_unmigrated",
+        detail: "画布与媒体还在旧的仓库 scratch 目录，迁移到项目目录后才能编辑",
+      });
+    } else {
+      _blocked.delete(name);
+    }
     // null prototype so an unknown `__proto__` field is stored as a plain own
     // key (and later spread back into the save) instead of mutating the
     // prototype and silently vanishing.
@@ -50,7 +62,7 @@ function _dispatch(name, raw) {
       if (!OWNED_FIELDS.includes(k)) extras[k] = res.doc[k];
     }
     _extras.set(name, extras);
-    return { status: "ok", doc: res.doc, fromVersion: res.fromVersion };
+    return { status: "ok", doc: res.doc, fromVersion: res.fromVersion, legacy };
   }
   if (res.status === "empty") {
     _blocked.delete(name);
@@ -110,7 +122,12 @@ async function _loadCanvasInner(name) {
     const ctype = (r.headers && r.headers.get && r.headers.get("content-type")) || "";
     backend = ctype.includes("application/json");
     if (backend) {
-      if (r.ok) return _dispatch(name, await r.json());
+      if (r.ok) {
+        const doc = await r.json();
+        // the server marks a document it served from the legacy scratch
+        const legacy = !!(doc && doc._legacy);
+        return _dispatch(name, doc, { legacy });
+      }
       // The backend answered but refused: the stored file exists yet cannot
       // be served as a document (corrupt JSON → 409, read failure → 5xx).
       // Do NOT fall through to localStorage — the server copy is

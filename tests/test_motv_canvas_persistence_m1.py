@@ -25,12 +25,17 @@ import importlib.util
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 _MOCKUP_DIR = Path(__file__).resolve().parents[1] / "mockups" / "motv-workspace"
 _SERVER_PATH = _MOCKUP_DIR / "server.py"
+# server.py imports its sibling `rootadmit`; without this the module only loads
+# when some OTHER test file happens to have put the mockup dir on sys.path first
+if str(_MOCKUP_DIR) not in sys.path:
+    sys.path.insert(0, str(_MOCKUP_DIR))
 
 
 @pytest.fixture(scope="module")
@@ -43,10 +48,35 @@ def server_module():
 
 @pytest.fixture()
 def data_dir(server_module, tmp_path: Path, monkeypatch) -> Path:
-    d = tmp_path / "mockdata"
+    """The canvas now lives at ``<ProjectRoot>/studio/canvas.json`` (ADR-0053),
+    so these persistence guarantees are exercised against a REAL project root.
+    The returned directory is that project's ``studio/`` folder — the same
+    place the old ``data/<name>.json`` used to be, one layer in."""
+    legacy = tmp_path / "mockdata"
+    legacy.mkdir()
+    monkeypatch.setattr(server_module, "DATA_DIR", legacy)
+    account = tmp_path / "account"
+    (account / "p1").mkdir(parents=True)
+    (account / "p1" / "project.json").write_text(
+        json.dumps({"project_id": "p1", "name": "p1"}), "utf-8"
+    )
+    (account / "nosuch-not-created").mkdir(parents=True, exist_ok=True)
+    d = account / "p1" / "studio"
     d.mkdir()
-    monkeypatch.setattr(server_module, "DATA_DIR", d)
     return d
+
+
+def _app(server_module, data_dir: Path):
+    """An app that knows about project ``p1``.
+
+    Project discovery needs the workspace query service, which is not loaded in
+    this unit-level suite, so the mapping discovery WOULD produce is registered
+    directly — the canvas path is derived from it either way (ADR-0053).
+    """
+    account = data_dir.parents[1]
+    app = server_module._App(account)
+    app._projects["p1"] = account / "p1"
+    return app
 
 
 def _get(app, name: str):
@@ -73,15 +103,24 @@ V1_DOC = {
 
 
 def test_get_absent_canvas_is_empty_object(server_module, data_dir):
-    app = server_module._App(None, None)
-    status, body = _get(app, "nosuch")
+    """A KNOWN project with nothing saved yet is an empty document."""
+    app = _app(server_module, data_dir)
+    status, body = _get(app, "p1")
     assert status == 200
     assert body == {}
 
 
+def test_get_canvas_of_an_unknown_project_is_404(server_module, data_dir):
+    """ADR-0053: there is no scratch file to fall back to — an unknown project
+    must not resolve to one."""
+    app = _app(server_module, data_dir)
+    status, _ = _get(app, "nosuch")
+    assert status == 404
+
+
 def test_get_valid_v1_canvas_roundtrips(server_module, data_dir):
-    (data_dir / "p1.json").write_text(json.dumps(V1_DOC), "utf-8")
-    app = server_module._App(None, None)
+    (data_dir / "canvas.json").write_text(json.dumps(V1_DOC), "utf-8")
+    app = _app(server_module, data_dir)
     status, body = _get(app, "p1")
     assert status == 200
     assert body == V1_DOC
@@ -92,30 +131,31 @@ def test_get_valid_v1_canvas_roundtrips(server_module, data_dir):
 
 def test_get_corrupt_canvas_is_409_with_idempotent_backup(server_module, data_dir):
     corrupt = b'{"v": 1, "nodes": [truncated'
-    (data_dir / "p1.json").write_bytes(corrupt)
-    app = server_module._App(None, None)
+    (data_dir / "canvas.json").write_bytes(corrupt)
+    app = _app(server_module, data_dir)
 
     status, body = _get(app, "p1")
     assert status == 409
     assert body["error"]["category"] == "corrupt_save"
 
     # original untouched, digest-named backup created exactly once
-    assert (data_dir / "p1.json").read_bytes() == corrupt
-    backups = sorted(data_dir.glob("p1.json.corrupt-*"))
+    assert (data_dir / "canvas.json").read_bytes() == corrupt
+    backups = sorted(data_dir.glob("canvas.json.corrupt-*"))
     assert len(backups) == 1
     assert backups[0].read_bytes() == corrupt
 
     # repeated GETs (page reloads) do not accumulate backups
     status, _ = _get(app, "p1")
     assert status == 409
-    assert len(sorted(data_dir.glob("p1.json.corrupt-*"))) == 1
+    assert len(sorted(data_dir.glob("canvas.json.corrupt-*"))) == 1
 
 
 def test_backup_name_cannot_be_served_as_a_canvas(server_module, data_dir):
     # names disallow dots, so ``p1.json.corrupt-xxx`` is unreachable via the API
-    app = server_module._App(None, None)
+    app = _app(server_module, data_dir)
     status, body = _get(app, "p1.json.corrupt-abc")
-    assert status == 400
+    # not a known project, so it cannot be served at all
+    assert status == 404
 
 
 # --- PUT: overwriting a corrupt save secures the backup first ----------------
@@ -123,27 +163,27 @@ def test_backup_name_cannot_be_served_as_a_canvas(server_module, data_dir):
 
 def test_put_over_corrupt_canvas_backs_up_then_writes(server_module, data_dir):
     corrupt = b"not json at all"
-    (data_dir / "p1.json").write_bytes(corrupt)
-    app = server_module._App(None, None)
+    (data_dir / "canvas.json").write_bytes(corrupt)
+    app = _app(server_module, data_dir)
 
     status, body = _put(app, "p1", json.dumps(V1_DOC).encode("utf-8"))
     assert status == 200
     assert body == {"ok": True}
 
-    backups = sorted(data_dir.glob("p1.json.corrupt-*"))
+    backups = sorted(data_dir.glob("canvas.json.corrupt-*"))
     assert len(backups) == 1
     assert backups[0].read_bytes() == corrupt  # recoverable copy preserved
-    assert json.loads((data_dir / "p1.json").read_text("utf-8")) == V1_DOC
+    assert json.loads((data_dir / "canvas.json").read_text("utf-8")) == V1_DOC
 
 
 def test_put_over_valid_canvas_creates_no_backup(server_module, data_dir):
-    (data_dir / "p1.json").write_text(json.dumps(V1_DOC), "utf-8")
-    app = server_module._App(None, None)
+    (data_dir / "canvas.json").write_text(json.dumps(V1_DOC), "utf-8")
+    app = _app(server_module, data_dir)
     status, _ = _put(
         app, "p1", json.dumps({**V1_DOC, "pan": {"x": 5, "y": 5}}).encode("utf-8")
     )
     assert status == 200
-    assert list(data_dir.glob("p1.json.corrupt-*")) == []
+    assert list(data_dir.glob("canvas.json.corrupt-*")) == []
 
 
 # --- source-level guards ------------------------------------------------------

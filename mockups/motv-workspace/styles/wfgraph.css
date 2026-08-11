@@ -305,3 +305,18 @@
   background: var(--panel-2); border: 1px solid var(--line); border-left: 2px solid var(--accent);
   border-radius: var(--r1); padding: var(--s3);
 }
+
+/* --- legacy (pre-ADR-0053) project banner --------------------------------- */
+/* A project whose canvas/media still live in the repo scratch opens read-only.
+   The bar is deliberately loud: nothing the creator types will be saved until
+   they migrate, and silence there would look like data loss. */
+.legacy-bar {
+  position: absolute; inset: 52px 0 auto 0; z-index: 6;
+  display: flex; align-items: center; gap: var(--s4);
+  padding: var(--s3) var(--s5);
+  background: color-mix(in srgb, var(--gate) 16%, var(--panel));
+  border-bottom: 1px solid var(--accent-line);
+  font-size: var(--t-sm); color: var(--text);
+}
+.legacy-bar[hidden] { display: none; }
+.legacy-bar .lb-t { flex: 1 1 auto; line-height: 1.5; }

@@ -383,6 +383,37 @@ _QUERIES = {
     "approvals": "approval_audit",
 }
 
+# POST routes that create, replace or delete a project's MEDIA (ADR-0053).
+# Each carries the project name as `project` in its JSON envelope.
+_MEDIA_WRITE_ROUTES = frozenset(
+    {
+        "/api/agent/tts",
+        "/api/agent/compose",
+        "/api/agent/image-gen",
+        "/api/agent/adopt-paid",
+        "/api/agent/render-episode",
+        "/api/assets/delete-file",
+    }
+)
+
+
+def _migration_required_json():
+    """One refusal, used by every write path, so the message never drifts."""
+    return _json(
+        409,
+        {
+            "error": {
+                "category": "migration_required",
+                "detail": (
+                    "这个项目的画布/媒体还在旧的仓库 scratch 目录里。"
+                    "先迁移到项目目录（studio/canvas.json + media/）再编辑，"
+                    "否则会出现「画布已迁移、媒体仍在仓库里」的半迁移状态。"
+                ),
+            }
+        },
+    )
+
+
 _CTYPE = {
     ".html": "text/html; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",
@@ -888,6 +919,8 @@ class _App:
         if path.startswith("/api/uploads/"):
             rest = unquote(path[len("/api/uploads/") :])
             project, _, slug = rest.partition("/")
+            if self._migration_required(project):
+                return _migration_required_json()
             return self._upload_put(project, slug, ctype, body)
         return _json(
             404,
@@ -914,6 +947,21 @@ class _App:
                     }
                 },
             )
+        # ADR-0053: every route below that WRITES project media is refused while
+        # the project still has unmigrated legacy data. Gating here rather than
+        # in each handler means a new media-writing route cannot forget it and
+        # silently strand bytes in a project whose canvas is still legacy.
+        if path in _MEDIA_WRITE_ROUTES:
+            try:
+                project = json.loads(body.decode("utf-8")).get("project")
+            except (ValueError, UnicodeDecodeError, AttributeError):
+                project = None
+            if (
+                isinstance(project, str)
+                and project
+                and self._migration_required(project)
+            ):
+                return _migration_required_json()
         if path == "/api/agent/shots-draft":
             return self._agent_shots_draft(body)
         if path == "/api/agent/bible-breakdown":
@@ -938,6 +986,8 @@ class _App:
             return self._agent_adopt_paid(body)
         if path == "/api/projects":
             return self._create_project(body)
+        if path == "/api/projects/migrate-legacy":
+            return self._migrate_legacy(body)
         if not path.startswith("/api/projects/"):
             return _json(
                 404,
@@ -2086,15 +2136,126 @@ class _App:
                 },
             )
 
-    # -- canvas persistence (mockup-local scratch) -----------------------
+    # -- studio persistence, rooted in the PROJECT (ADR-0053) --------------
+    #
+    # <ProjectRoot>/
+    #   project.json      core, unchanged — no second project schema
+    #   studio/canvas.json  the studio's creative domain (story, bible,
+    #                       episodes/scenes/shots, Asset + Generation
+    #                       Registries, timelines)
+    #   media/            every uploaded / generated project media file
+    #
+    # The old location (mockups/motv-workspace/data/) is READ-ONLY legacy:
+    # connected mode never writes there again. A legacy project must be
+    # explicitly migrated before it can be edited, so a half-migrated state —
+    # canvas in the project, media still in the repo scratch — cannot exist.
+
+    def _project_root(self, name: str):
+        """The admitted root of a known project, or None.
+
+        Containment here comes from the REGISTRY, not from the name's
+        character set: the name is only ever a dictionary key, and the path is
+        built from the admitted root it maps to, so nothing a caller types can
+        become a path segment. That matters because project names are real
+        creator-facing titles — `_NAME_RE` is ASCII-only, so requiring it would
+        make every project with a Chinese name unopenable even though project
+        creation accepts one.
+        """
+        if not isinstance(name, str) or not name:
+            return None
+        return self._projects.get(name)
+
+    @staticmethod
+    def _contained(root: Path, *parts: str):
+        """`root/parts...`, but only if it is STILL inside `root` once resolved.
+
+        The tail is a constant here, so this is not about traversal in the
+        request — it is about the directory itself being a link. `studio` or
+        `media` replaced by a symlink/junction would otherwise let a canvas
+        write or a media read land anywhere on disk, because `resolve()`
+        FOLLOWS the link (which is exactly what made the first version of this
+        check vacuous). A path that does not exist yet resolves to where it
+        would be created, so this also refuses to create through a link.
+        """
+        try:
+            root_r = root.resolve()
+            target = root_r
+            for part in parts:
+                target = target / part
+            resolved = target.resolve()
+        except OSError:
+            return None
+        if root_r not in resolved.parents:
+            return None
+        return resolved
+
     def _canvas_path(self, name: str):
-        if not _NAME_RE.fullmatch(name):
+        """Where this project's studio document lives NOW (project-rooted).
+
+        None when the project is unknown, or when `studio/` has been replaced
+        by a link pointing out of the project — the caller turns that into a
+        404/400 rather than reading or writing outside the admitted root.
+        """
+        root = self._project_root(name)
+        if root is None:
+            return None
+        return self._contained(root, "studio", "canvas.json")
+
+    @staticmethod
+    def _legacy_safe(name: str) -> bool:
+        """A name that can be used as ONE path segment under the legacy scratch.
+
+        Unlike `_NAME_RE` this allows non-ASCII (real project titles are
+        Chinese here); what it refuses is anything that could leave the
+        directory or break the path call itself.
+        """
+        return (
+            isinstance(name, str)
+            and bool(name)
+            and name not in {".", ".."}
+            and not any(c in name for c in ("/", "\\", "\x00"))
+        )
+
+    def _legacy_canvas_path(self, name: str):
+        """The pre-ADR-0053 scratch save, read-only."""
+        if not self._legacy_safe(name):
             return None
         p = (DATA_DIR / f"{name}.json").resolve()
-        # strict containment: must live directly under DATA_DIR
-        if p.parent != DATA_DIR.resolve():
+        if p.parent != DATA_DIR.resolve():  # strict containment, unchanged
             return None
         return p
+
+    def _legacy_upload_dir(self, project: str):
+        """The pre-ADR-0053 media scratch, read-only."""
+        if not self._legacy_safe(project):
+            return None
+        d = (DATA_DIR / "uploads" / project).resolve()
+        if DATA_DIR.resolve() not in d.parents:
+            return None
+        return d
+
+    def _legacy_state(self, name: str):
+        """(has_legacy, migrated) for a project.
+
+        `migrated` is decided by the PROJECT canvas existing: once it does, the
+        legacy tree is ignored completely. That is what makes a half-migrated
+        state impossible — reads never mix the two."""
+        p = self._canvas_path(name)
+        migrated = bool(p and p.is_file())
+        if migrated:
+            return (False, True)
+        legacy_canvas = self._legacy_canvas_path(name)
+        legacy_media = self._legacy_upload_dir(name)
+        has_legacy = bool(
+            (legacy_canvas and legacy_canvas.is_file())
+            or (legacy_media and legacy_media.is_dir() and any(legacy_media.iterdir()))
+        )
+        return (has_legacy, False)
+
+    def _migration_required(self, name: str) -> bool:
+        """A write must be refused while unmigrated legacy data exists."""
+        has_legacy, migrated = self._legacy_state(name)
+        return has_legacy and not migrated
 
     def _backup_corrupt_canvas(self, p) -> bool:
         """Copy an unparseable canvas file aside (never move/delete the
@@ -2115,10 +2276,44 @@ class _App:
     def _canvas_get(self, name: str):
         p = self._canvas_path(name)
         if p is None:
+            # unknown project — never fall back to a repo-scratch file
             return _json(
-                400, {"error": {"category": "bad_request", "detail": "invalid name"}}
+                404, {"error": {"category": "not_found", "detail": "unknown project"}}
             )
         if not p.is_file():
+            # Not migrated yet: serve the legacy save READ-ONLY so the creator
+            # can look at it and decide to migrate. Writes stay refused until
+            # they do (see _canvas_put) — the studio must never end up with its
+            # canvas here and its media still in the repo scratch.
+            legacy = self._legacy_canvas_path(name)
+            if legacy and legacy.is_file():
+                try:
+                    payload = json.loads(legacy.read_text("utf-8"))
+                except OSError:
+                    return _json(
+                        500,
+                        {
+                            "error": {
+                                "category": "read_failed",
+                                "detail": "could not read legacy canvas",
+                            }
+                        },
+                    )
+                except ValueError:
+                    self._backup_corrupt_canvas(legacy)
+                    return _json(
+                        409,
+                        {
+                            "error": {
+                                "category": "corrupt_save",
+                                "detail": "stored canvas is not valid JSON "
+                                "(kept on disk, backup created)",
+                            }
+                        },
+                    )
+                if isinstance(payload, dict):
+                    payload = {**payload, "_legacy": True}
+                return _json(200, payload)
             return _json(200, {})
         try:
             return _json(200, json.loads(p.read_text("utf-8")))
@@ -2151,9 +2346,12 @@ class _App:
     def _canvas_put(self, name: str, body: bytes):
         p = self._canvas_path(name)
         if p is None:
+            # unknown project — never fall back to a repo-scratch file
             return _json(
-                400, {"error": {"category": "bad_request", "detail": "invalid name"}}
+                404, {"error": {"category": "not_found", "detail": "unknown project"}}
             )
+        if self._migration_required(name):
+            return _migration_required_json()
         # Canvas JSON keeps its original 2 MB bound (transport now allows 8 MB
         # for image uploads only).
         if len(body) > _CANVAS_BODY_MAX:
@@ -2211,14 +2409,28 @@ class _App:
                         }
                     },
                 )
-        DATA_DIR.mkdir(exist_ok=True)
+        # The studio document lives in the PROJECT now, so the temp file must be
+        # created there too: os.replace is only atomic within one filesystem,
+        # and the project root can easily be on a different volume than the repo.
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return _json(
+                500,
+                {
+                    "error": {
+                        "category": "write_failed",
+                        "detail": "could not create the project's studio/ folder",
+                    }
+                },
+            )
         # A unique temp file per write so concurrent saves for the same project
-        # (multiple tabs) can't collide on a shared ``<name>.json.tmp``.
-        fd, tmpname = tempfile.mkstemp(dir=str(DATA_DIR), suffix=".tmp")
+        # (multiple tabs) can't collide on a shared ``canvas.json.tmp``.
+        fd, tmpname = tempfile.mkstemp(dir=str(p.parent), suffix=".tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(json.dumps(payload, ensure_ascii=False))
-            os.replace(tmpname, p)  # atomic, mockup-local only
+            os.replace(tmpname, p)  # atomic within the project's own volume
         except OSError:
             try:
                 os.unlink(tmpname)
@@ -2228,6 +2440,114 @@ class _App:
                 500, {"error": {"category": "write_failed", "detail": "could not save"}}
             )
         return _json(200, {"ok": True})
+
+    # -- legacy → project migration (ADR-0053) ------------------------------
+
+    def _migrate_legacy(self, body: bytes):
+        """Copy a project's legacy scratch into the project folder, ALL of it.
+
+        Canvas and media move together or not at all: a project whose canvas
+        had been migrated while its media still resolved out of the repo would
+        render broken media the moment the legacy tree was cleaned up, and the
+        creator would have no way to tell which half they were looking at.
+
+        The legacy tree is COPIED, never moved or deleted — it stays as the
+        read-only original until the creator removes it themselves (AGENTS.md
+        §13: nothing of theirs is destroyed on our initiative).
+        """
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid JSON"}}
+            )
+        name = payload.get("project") if isinstance(payload, dict) else None
+        if not isinstance(name, str) or not name:
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid name"}}
+            )
+        root = self._project_root(name)
+        if root is None:
+            return _json(
+                404, {"error": {"category": "not_found", "detail": "unknown project"}}
+            )
+        has_legacy, migrated = self._legacy_state(name)
+        if migrated:
+            return _json(
+                200,
+                {"ok": True, "migrated": False, "detail": "已经在项目目录里"},
+            )
+        if not has_legacy:
+            return _json(
+                404,
+                {
+                    "error": {
+                        "category": "not_found",
+                        "detail": "这个项目没有可迁移的旧数据",
+                    }
+                },
+            )
+
+        canvas_src = self._legacy_canvas_path(name)
+        media_src = self._legacy_upload_dir(name)
+        canvas_dst = self._canvas_path(name)
+        media_dst = self._upload_dir(name)
+        copied: list[Path] = []
+        with _REGISTRY_LOCK:
+            try:
+                # media first: if anything fails we can still leave the project
+                # unmigrated, which keeps the write gate closed and the legacy
+                # tree authoritative
+                if media_src and media_src.is_dir():
+                    media_dst.mkdir(parents=True, exist_ok=True)
+                    for entry in sorted(media_src.iterdir()):
+                        if entry.is_symlink() or not entry.is_file():
+                            continue  # never follow a link out of the scratch
+                        if not _UPLOAD_FILE_RE.fullmatch(entry.name):
+                            continue
+                        target = media_dst / entry.name
+                        if target.exists():
+                            continue  # never overwrite media already in the project
+                        target.write_bytes(entry.read_bytes())
+                        copied.append(target)
+                # The project canvas existing is exactly what marks this project
+                # migrated, so it is written LAST (never before its media) and
+                # ALWAYS — a legacy project with media but no saved canvas would
+                # otherwise stay "unmigrated" forever and be permanently
+                # write-blocked despite a successful migration. An empty
+                # document is the honest state there: nothing was ever saved.
+                canvas_dst.parent.mkdir(parents=True, exist_ok=True)
+                if canvas_src and canvas_src.is_file():
+                    canvas_dst.write_bytes(canvas_src.read_bytes())
+                else:
+                    canvas_dst.write_text("{}", encoding="utf-8")
+                copied.append(canvas_dst)
+            except OSError as exc:
+                for made in reversed(copied):
+                    try:
+                        made.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                return _json(
+                    500,
+                    {
+                        "error": {
+                            "category": "write_failed",
+                            "detail": f"迁移失败，已回滚：{exc}",
+                        }
+                    },
+                )
+        return _json(
+            200,
+            {
+                "ok": True,
+                "migrated": True,
+                "files": len(copied),
+                "canvas": str(canvas_dst),
+                "media": str(media_dst),
+                "legacy_kept": True,
+            },
+        )
 
     # -- project browse + creation (ADR-0051) -------------------------------
 
@@ -3727,14 +4047,28 @@ class _App:
             result["warning"] = log_warning
         return _json(200, result)
 
-    # -- manual image uploads (prototype-local scratch, data/uploads/) ------
+    # -- project media (ADR-0053: <ProjectRoot>/media/) ---------------------
+    # EVERY write path — manual upload, TTS, image generation, paid adoption,
+    # compose and episode render — resolves its directory through here, so this
+    # is the single place that decides where a project's media lives.
     def _upload_dir(self, project: str):
-        if not _NAME_RE.fullmatch(project):
+        root = self._project_root(project)
+        if root is None:
             return None
-        d = (DATA_DIR / "uploads" / project).resolve()
-        base = DATA_DIR.resolve()
-        if base not in d.parents:
+        # `.resolve()` alone would FOLLOW a symlinked media/ straight out of the
+        # project; containment has to be re-checked against the root
+        return self._contained(root, "media")
+
+    def _read_upload_dir(self, project: str):
+        """Where to READ a media file from: the project's own media/ folder, or
+        the legacy scratch while the project is still unmigrated. Never both —
+        once migrated the legacy tree is invisible, so a file can never resolve
+        half in the project and half in the repo."""
+        d = self._upload_dir(project)
+        if d is None:
             return None
+        if self._migration_required(project):
+            return self._legacy_upload_dir(project)
         return d
 
     def _upload_put(self, project: str, slug: str, ctype: str, body: bytes):
@@ -3818,7 +4152,7 @@ class _App:
         )
 
     def _upload_get(self, project: str, fname: str):
-        d = self._upload_dir(project)
+        d = self._read_upload_dir(project)
         if d is None or not _UPLOAD_FILE_RE.fullmatch(fname):
             return _json(
                 400, {"error": {"category": "bad_request", "detail": "invalid name"}}

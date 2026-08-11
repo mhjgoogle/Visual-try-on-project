@@ -18,6 +18,8 @@ expected to REFUSE is still asserted normally once the fixture exists.
 from __future__ import annotations
 
 import errno
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -58,4 +60,27 @@ def symlink_or_skip(
         if not unsupported:
             raise  # a broken fixture, not a missing capability
         pytest.skip(f"{SKIP_REASON}: {exc}")
+    return Path(link)
+
+
+def junction_or_skip(link: Path, target: Path) -> Path:
+    """Create a Windows directory JUNCTION, or skip (non-Windows / failure).
+
+    Junctions need NO elevation, so on the very platform ADR-0049 targets this
+    actually runs where `symlink_or_skip` can only skip — which matters,
+    because a skipped containment test proves nothing. Python reports a
+    junction as ``is_symlink() == False`` while ``resolve()`` still follows it,
+    so it is also the sharper test of a containment check.
+    """
+    if os.name != "nt":
+        pytest.skip("junctions are Windows-only; the symlink variant covers POSIX")
+    # NOT text=True: cmd writes its banner in the OEM codepage, and letting
+    # subprocess decode it as UTF-8 raises inside its reader thread.
+    res = subprocess.run(  # noqa: S603 - fixed argv, no shell interpolation
+        ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+        capture_output=True,
+    )
+    if res.returncode != 0:
+        out = (res.stdout + res.stderr).decode("utf-8", "replace")
+        pytest.skip(f"could not create a junction: {out}")
     return Path(link)

@@ -1667,6 +1667,36 @@ function prodNew(rec) {
  *  Production and Assets are both the studio shell — Assets simply opens the
  *  shell on its asset-library module — so only the workflow canvas is a
  *  genuinely different surface. */
+// ADR-0053 — a project still living in the legacy repo scratch. It opens
+// read-only; this banner is the ONLY way it becomes editable, and the creator
+// has to press it: migration copies files on their disk.
+let legacyProject = null;
+function showLegacyBanner(name) {
+  const bar = $("#legacy-bar");
+  if (!bar) return;
+  bar.hidden = !name;
+  if (!name) return;
+  bar.innerHTML =
+    `<span class="lb-t">「${esc(name)}」的画布与媒体还在旧的仓库 scratch 目录里，` +
+    `当前为只读。迁移到项目目录后才能编辑（旧文件会保留，不会删除）。</span>` +
+    `<button class="btn sm primary" id="legacy-go">迁移到项目目录</button>`;
+  const go = $("#legacy-go");
+  go.onclick = async () => {
+    go.disabled = true;
+    go.textContent = "迁移中…";
+    try {
+      const r = await query.migrateLegacy(name);
+      toast(`已迁移 ${r.files} 个文件到项目目录，正在重新载入…`);
+      legacyProject = null;
+      await enterCanvas(name, {}); // reload from the project-rooted copy
+    } catch (e) {
+      go.disabled = false;
+      go.textContent = "迁移到项目目录";
+      toast(`迁移失败：${e.message}`);
+    }
+  };
+}
+
 // Which Workflow view is showing: the provenance graph (default) or the node
 // canvas. Both are Workflow — the graph explains what WAS generated, the canvas
 // is where generation is executed (ADR-0052). Neither replaces the other.
@@ -2418,6 +2448,11 @@ async function enterCanvas(name, opts = {}) {
           : "画布存档无法读取，已停用自动保存以保护原始数据（存档未被修改）",
       );
     }
+    // ADR-0053: the document came from the legacy repo scratch. It opens
+    // READ-ONLY — offer the one action that makes it editable, and never
+    // migrate on our own initiative (it copies files on the creator's disk).
+    if (res.legacy) legacyProject = name;
+    showLegacyBanner(res.legacy ? name : null);
   }
   // DEMO ONLY: seed the example script into a VIRGIN document (never typed,
   // no versions) so what the textarea shows is real, consumable content —
