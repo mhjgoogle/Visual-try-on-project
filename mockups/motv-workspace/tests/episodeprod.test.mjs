@@ -16,7 +16,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { scriptSlices, episodeModel, renderEpisodeWs } from "../src/ui/episodews.js";
-import { referencePlan, renderRefPlan } from "../src/ui/refplan.js";
+import { referencePlan, renderRefPlan, bindRefPlan } from "../src/ui/refplan.js";
 import { buildInputSet, missingForGeneration, generationSeedFrom, REFERENCE_ROLES } from "../src/workflow/geninput.js";
 import * as pd from "../src/workflow/proddoc.js";
 import * as shotprod from "../src/workflow/shotprod.js";
@@ -49,6 +49,30 @@ function production() {
   sc1.characterRefs = [{ characterId: "ch-lin", stateId: null }];
   sc1.locationRef = { locationId: "lo-bar", stateId: null };
   return { p, ep, s1: s1.sceneId, s2: s2.sceneId };
+}
+
+/** The smallest DOM the bind functions actually use: elements found by a
+ *  `[data-*]` selector, each carrying its dataset and an assignable `onclick`.
+ *  Enough to prove the WIRING — which handler is attached to which element and
+ *  what it does with that element's data — without a real DOM. */
+function fakeRoot(html) {
+  const els = [];
+  for (const tag of html.match(/<[a-z]+[^>]*>/g) || []) {
+    const dataset = {};
+    for (const [, name, value] of tag.matchAll(/data-([a-z-]+)="([^"]*)"/g)) {
+      dataset[name.replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = value;
+    }
+    if (Object.keys(dataset).length) els.push({ dataset, onclick: null, tag });
+  }
+  const matches = (el, sel) => {
+    const m = /^\[data-([a-z-]+)\]$/.exec(sel.trim());
+    if (!m) return false;
+    return m[1].replace(/-([a-z])/g, (_, c) => c.toUpperCase()) in el.dataset;
+  };
+  return {
+    querySelectorAll: (sel) => els.filter((e) => sel.split(",").some((s) => matches(e, s))),
+    find: (sel) => els.find((e) => matches(e, sel)) || null,
+  };
 }
 
 /** A reference chain as `assetreg.listReferences` returns it. */
@@ -299,8 +323,31 @@ test("参考统筹 renders 已存在 / 建议复用 / 缺失, and binds to the e
   assert.match(html, /吧台特写/);
   // the reuse action binds the EXISTING key onto the shots that lack it
   assert.match(html, /data-rp-bind="ref-lin" data-rp-shots="sh02"/);
-  // the gap action uploads FOR the named subject — never a blind "new asset"
-  assert.match(html, /data-rp-create="location-reference" data-rp-subject="lo-bar"/);
+  // the gap action uploads FOR the named subject — never a blind "new asset" —
+  // and carries the shots whose gap it is, so filling it FINISHES the job
+  // (codex review, TASK-061 round A3: the returned key was discarded, leaving
+  // those shots unbound and the next generation still without the reference)
+  assert.match(html, /data-rp-create="location-reference" data-rp-subject="lo-bar" data-rp-shots="sh01,sh02"/);
+});
+
+test("filling a gap binds the new reference to exactly the shots whose gap it was", () => {
+  const { p } = production();
+  const bound = [];
+  const ctx = {
+    refplan: {
+      model: () => plan(p, { references: [] }),
+      shotName: (id) => id,
+      uploadFor: async () => "ref-new",
+    },
+    shot: { addReference: (shotId, key) => bound.push([shotId, key]) },
+  };
+  const root = fakeRoot(renderRefPlan(ctx, {}));
+  bindRefPlan(root, ctx, {}, () => {});
+  const btn = root.find("[data-rp-create]");
+  assert.ok(btn, "the gap row offers an upload action");
+  return btn.onclick().then(() => {
+    assert.deepEqual(bound.sort(), [["sh01", "ref-new"], ["sh02", "ref-new"]]);
+  });
 });
 
 test("no shots → the plan says so instead of showing an empty scaffold", () => {

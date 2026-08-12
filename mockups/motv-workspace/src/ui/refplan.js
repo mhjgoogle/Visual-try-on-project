@@ -202,7 +202,7 @@ export function renderRefPlan(ctx, ui) {
     action + `</li>`;
   const missingHtml = m.missing.length
     ? `<ul class="rp-list">${m.missing.map((x) => gapRow(x,
-        `<button class="btn" data-rp-create="${esc(x.kind)}" data-rp-subject="${esc(x.subjectId)}">上传参考</button>`)).join("")}</ul>`
+        `<button class="btn" data-rp-create="${esc(x.kind)}" data-rp-subject="${esc(x.subjectId)}" data-rp-shots="${esc(x.shotIds.join(","))}">上传参考</button>`)).join("")}</ul>`
     : `<div class="rp-empty">没有缺口。</div>`;
   const reuseHtml = m.reuse.length
     ? `<ul class="rp-list">${m.reuse.map((x) => gapRow(x,
@@ -217,15 +217,21 @@ export function renderRefPlan(ctx, ui) {
 }
 
 export function bindRefPlan(root, ctx, ui, render) {
+  const shotsOf = (b) => (b.dataset.rpShots || "").split(",").filter(Boolean);
+  const bindAll = (key, shotIds) => {
+    for (const shotId of shotIds) ctx.shot.addReference(shotId, key);
+  };
   root.querySelectorAll("[data-rp-bind]").forEach((b) => (b.onclick = () => {
-    const key = b.dataset.rpBind;
-    for (const shotId of (b.dataset.rpShots || "").split(",").filter(Boolean)) {
-      ctx.shot.addReference(shotId, key);
-    }
+    bindAll(b.dataset.rpBind, shotsOf(b));
     render();
   }));
+  // Filling a gap FINISHES the job: the new reference is bound to exactly the
+  // shots whose gap it was. Uploading and stopping there left those shots still
+  // unbound — the row stayed on screen and the next generation still went out
+  // without the reference the creator had just supplied for it.
   root.querySelectorAll("[data-rp-create]").forEach((b) => (b.onclick = async () => {
-    await ctx.refplan.uploadFor(b.dataset.rpCreate, b.dataset.rpSubject);
+    const key = await ctx.refplan.uploadFor(b.dataset.rpCreate, b.dataset.rpSubject);
+    if (key) bindAll(key, shotsOf(b));
     render();
   }));
 }
