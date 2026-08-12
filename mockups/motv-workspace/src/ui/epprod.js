@@ -1,21 +1,26 @@
-// CENTER column of 剧集制作 — the Production Workspace (ADR-0061 决策 2).
+// CENTER column of 剧集制作 — the Production Workspace (ADR-0061 决策 2,
+// simplified in TASK-064 Phase 1b).
 //
-//   Episode Selector (EP01 ▾)   ·   Focus Filter   ·   工作台 / 阶段 / 生成溯源
+//   Episode Selector (EP01 ▾)                              工作区 ▾
 //   ────────────────────────────────────────────────────────────────────────
-//   Scene 01
-//     SH01  SH02  SH03
-//   Scene 02
-//     SH04  [SH05]                     ← the selected shot
-//   ────────────────────────────────────────────────────────────────────────
-//   SH05 的生产卡片：参考 · Prompt · 生成 · 画面 · 视频 · 音频
+//   Generation Provenance — the generation graph, full bleed
+//
+// The GRAPH is this space's centre. Entering 剧集制作 shows what has actually been
+// made for this episode and what it was made from; clicking any node makes the
+// LEFT inspector that object's operating panel. That is the primary path to
+// 参考 / Prompt / 生成 / 画面 / 视频 / 音频 / 审片 now.
+//
+// WHAT CHANGED AND WHY. This centre used to open on a large Shot Card workbench
+// under a strip of ELEVEN same-level tabs (工作台 / 本集总览 / 场景 / 分镜 / 参考统筹 /
+// 画面 / 视频 / 音频 / 审片 / 剪辑 / 生成溯源). Eleven peers is not an information
+// architecture — it is a list of everything the system can do, and it made the
+// creator find 「生成溯源」 by hunting rather than by arriving. The stage
+// workspaces all still exist, unchanged, behind one secondary 「工作区」 entry.
 //
 // The creator never has to answer 「我现在是镜头模式还是场景模式？」: Scene and
-// Shot are LEVELS inside one episode, not competing page modes. That is what
-// replacing the old 剧集/场景/镜头/全项目 scope tabs with an episode selector buys.
+// Shot are LEVELS inside one episode, not competing page modes.
 //
-// Clicking any production card sets the shell's `ui.inspect` selection, and the
-// LEFT Production Inspector becomes that object's operating panel. This module
-// therefore renders no operating controls of its own — it is the map, not the
+// This module renders no operating controls of its own — it is the map, not the
 // workbench drawer.
 //
 // PURE PRESENTATION over ctx read models (`episodeModel` from episodews.js is
@@ -24,7 +29,9 @@
 
 import { esc } from "../util/dom.js";
 import { episodeModel } from "./episodews.js";
-import { episodeLabels, episodeTitleBeside, EPISODE_NAV, MODULE_LABEL } from "./shell.js";
+import {
+  episodeLabels, episodeTitleBeside, EPISODE_DEFAULT, EPISODE_WORKSPACES, MODULE_LABEL,
+} from "./shell.js";
 import { ROLE_LABEL } from "../workflow/geninput.js";
 
 /** The Focus Filters (TASK-064 §7). They narrow WHICH shots are shown by what
@@ -105,7 +112,13 @@ export function workbenchModel(ctx, ui) {
 /* render                                                                     */
 /* -------------------------------------------------------------------------- */
 
-function topBar(m, ui) {
+/** The centre's ONE persistent header: which episode, and the way out to a stage
+ *  workspace. The focus filter is drawn only where it filters something — see
+ *  `showsFocus`.
+ *
+ *  It carries no stage tab strip. The graph is the centre; a workspace is a
+ *  detour, and a detour announces itself as one. */
+function topBar(m, ui, { stage, showFocus }) {
   const ep = m.episodes.find((e) => e.active) || m.episodes[0] || null;
   const selector = m.episodes.length
     ? `<div class="ep-sel">` +
@@ -118,23 +131,44 @@ function topBar(m, ui) {
         : "") +
       `</div>`
     : `<span class="chip gate">还没有剧集</span>`;
-  const focus = `<div class="ep-focus">${FOCUS_FILTERS.map(([k, label]) =>
-    `<button class="ep-fbtn${m.focus === k ? " on" : ""}" data-ep-focus="${k}">${esc(label)}</button>`).join("")}</div>`;
-  return (
-    `<div class="ep-top">${selector}${focus}` +
-    `<span class="ep-topnote">${m.focus === "all"
-      ? `${m.shots} 个镜头`
-      : `${m.shown} / ${m.shots} 个镜头符合当前聚焦`}</span></div>`
-  );
+  // The focus filter narrows SHOT CARDS. On the graph it would be a second
+  // filter vocabulary sitting next to the graph's own 全部/图片/视频/音频/渲染/失败
+  // chips, and two filter rows that mean different things is worse than one.
+  const focus = showFocus
+    ? `<div class="ep-focus">${FOCUS_FILTERS.map(([k, label]) =>
+        `<button class="ep-fbtn${m.focus === k ? " on" : ""}" data-ep-focus="${k}">${esc(label)}</button>`).join("")}</div>`
+    : "";
+  const note = showFocus
+    ? `<span class="ep-topnote">${m.focus === "all"
+        ? `${m.shots} 个镜头`
+        : `${m.shown} / ${m.shots} 个镜头符合当前聚焦`}</span>`
+    : "";
+  return `<div class="ep-top">${selector}${focus}${note}${wsMenu(stage, ui)}</div>`;
 }
 
-function stageTabs(active) {
+/** The secondary 「工作区」 entry: every stage workspace, one click away, and
+ *  visibly NOT a peer of the centre. When one is open the entry says so and
+ *  offers the way back to the graph — a detour the creator can always leave. */
+function wsMenu(stage, ui) {
+  const onWs = stage !== EPISODE_DEFAULT;
+  const cur = EPISODE_WORKSPACES.find(([k]) => k === stage) || null;
   return (
-    `<nav class="ep-tabs">` +
-    EPISODE_NAV.map(([k, icon, label]) =>
-      `<button class="ep-tab${k === active ? " on" : ""}" data-mod="${esc(k)}">` +
-      `<span class="ic">${icon}</span>${esc(label)}</button>`).join("") +
-    `</nav>`
+    `<div class="ep-ws">` +
+    (onWs
+      ? `<button class="ep-wsback" data-mod="${esc(EPISODE_DEFAULT)}" title="回到生成溯源">← 生成溯源</button>`
+      : "") +
+    `<button class="ep-wsbtn${onWs ? " on" : ""}" data-ep-wsopen>` +
+    `<span class="ic">${cur ? cur[1] : "🗂"}</span>${esc(cur ? cur[2] : "工作区")}<span class="cv">▾</span></button>` +
+    (ui.epWsOpen
+      ? `<div class="ep-wsmenu">` +
+        `<div class="ep-wshd">工作区 — 逐个阶段做完一件事</div>` +
+        EPISODE_WORKSPACES.map(([k, icon, label]) =>
+          `<button class="${k === stage ? "cur" : ""}" data-ep-ws="${esc(k)}">` +
+          `<span class="ic">${icon}</span>${esc(label)}</button>`).join("") +
+        `<div class="ep-wsnote">这些能力也都能从中央生成溯源图上点节点、在左栏直接操作。</div>` +
+        `</div>`
+      : "") +
+    `</div>`
   );
 }
 
@@ -192,16 +226,19 @@ function sceneBlock(s, selectedId, inspectKind, focus) {
   );
 }
 
-/** The 剧集制作 CENTER. `stage` is the active centre tab; `workbench` is the
- *  unified map and every other value is one of the existing stage workspaces,
+/** Does this centre stage have shot cards for the focus filter to filter? */
+export const showsFocus = (stage) => stage === "workbench";
+
+/** The 剧集制作 CENTER. `stage` defaults to the space's own centre — the
+ *  generation graph. Every other value is one of the existing stage workspaces,
  *  which this module does not re-implement — it only frames them. */
-export function renderEpProd(ctx, ui, { stage = "workbench", inner = "" } = {}) {
+export function renderEpProd(ctx, ui, { stage = EPISODE_DEFAULT, inner = "" } = {}) {
   const m = workbenchModel(ctx, ui);
+  const showFocus = showsFocus(stage);
   if (m.empty) {
     return (
       `<div class="ep-center">` +
-      topBar({ episodes: m.episodes, focus: "all", shots: 0, shown: 0 }, ui) +
-      stageTabs(stage) +
+      topBar({ episodes: m.episodes, focus: "all", shots: 0, shown: 0 }, ui, { stage, showFocus }) +
       `<div class="st-empty"><div class="ic">📺</div><div class="tt">还没有剧集</div>` +
       `<div class="hh">剧集制作需要一集来做。先在「故事开发 · 分集规划」确认规划，剧集就会建立。</div>` +
       `<button class="btn primary" data-ep-tostory>去故事开发</button></div></div>`
@@ -230,10 +267,9 @@ export function renderEpProd(ctx, ui, { stage = "workbench", inner = "" } = {}) 
     : "";
   return (
     `<div class="ep-center">` +
-    topBar(m, ui) +
-    stageTabs(stage) +
+    topBar(m, ui, { stage, showFocus }) +
     (stage === "workbench" ? summary : "") +
-    `<div class="ep-body${stage === "provenance" ? " full" : ""}">${body}</div>` +
+    `<div class="ep-body${stage === EPISODE_DEFAULT ? " full" : ""}">${body}</div>` +
     `</div>`
   );
 }
@@ -259,6 +295,15 @@ export function bindEpProd(root, ctx, ui, render, { enterEpisode, setStage, goSt
     if (goStory) goStory();
   }));
 
+  // 工作区 — the secondary entry to a stage workspace. Opening the menu is view
+  // state; picking one navigates through the SHELL, which owns the module.
+  on("[data-ep-wsopen]", () => { ui.epWsOpen = !ui.epWsOpen; render(); });
+  root.querySelectorAll("[data-ep-ws]").forEach((b) => (b.onclick = () => {
+    ui.epWsOpen = false;
+    if (setStage) setStage(b.dataset.epWs);
+    else render();
+  }));
+
   // A card SELECTS the shot; a sub-card additionally chooses which of its objects
   // the LEFT inspector operates on. Both are pure view state.
   root.querySelectorAll("[data-ep-select]").forEach((b) => (b.onclick = () => {
@@ -279,6 +324,7 @@ export function bindEpProd(root, ctx, ui, render, { enterEpisode, setStage, goSt
     render();
   }));
   root.querySelectorAll("[data-mod]").forEach((b) => (b.onclick = () => {
+    ui.epWsOpen = false;
     if (setStage) setStage(b.dataset.mod);
   }));
 }

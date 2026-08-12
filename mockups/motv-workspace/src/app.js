@@ -3084,7 +3084,11 @@ ctx.shotEditor = createShotEditor({ toast });
 // Both are views over the SAME state (scriptDoc + engine graph) — switching
 // only toggles display and re-renders the surface being entered, so nothing
 // is ever lost. Production is the default creator-facing area.
-const production = createProduction(() => ctx);
+// `onNavigate` keeps the top bar honest: the shell reports its own space after
+// every render, so an in-shell move (「进入剧集制作 →」, an empty state's jump, a
+// provenance hand-off) can never leave 故事开发 highlighted while 剧集制作 is on
+// screen. The bar never derives the active space itself — there is one owner.
+const production = createProduction(() => ctx, { onNavigate: () => syncTopBar() });
 // Workflow · 生成溯源 — a READ-ONLY view over the same registries (TASK-054).
 // It derives its graph fresh on every render, so it can never hold a stale or
 // second copy of provenance.

@@ -73,6 +73,7 @@ function columnTitle(nodes, rank) {
     if (types.has("canon")) return "CANON";
     if (types.has("skillRun")) return "SKILL RUN";
     if (types.has("proposal")) return "PROPOSAL";
+    if (types.has("review")) return "REVIEW";
   }
   // a column shared by the spine and the references it binds is honestly both
   if (types.has("shot") && types.has("asset")) return "SHOT / REFERENCES";
@@ -104,6 +105,8 @@ export function filterGraph(scoped, filter) {
   if (!filter || filter === "all") return scoped;
   const keep = (n) => {
     if (SPINE.has(n.type)) return false; // decided below, by what survives
+    // an approval is decided by its TAKE, forward — see below
+    if (n.type === "review") return false;
     if (filter === "failed") {
       return n.type === "generation" && (n.status === "failed" || n.status === "cancelled");
     }
@@ -115,6 +118,13 @@ export function filterGraph(scoped, filter) {
     return true;
   };
   const ids = new Set(scoped.order.filter((id) => keep(scoped.nodes.get(id))));
+  // An approval belongs to the take it approved and to nothing else: it survives
+  // exactly when that take does. Keeping it under 图片 would attach a video's
+  // 审片通过 to a frame nobody reviewed; dropping it under 视频 would hide the one
+  // step of the chain no generation record implies.
+  for (const e of scoped.edges) {
+    if (e.kind === "review" && ids.has(e.from)) ids.add(e.to);
+  }
   // walk the spine BACKWARDS from what survived: a shot whose image is showing
   // stays, and the scene and script above it stay with it
   let grew = true;
@@ -249,6 +259,19 @@ function askCard(n) {
       `</button>`
     );
   }
+  if (n.type === "review") {
+    // 生成成功 != 镜头完成 — this card is the human decision, and it says WHEN it
+    // was made. It never prints the asset id: the take is the edge beside it.
+    const when = n.approvedAt ? String(n.approvedAt).slice(0, 16).replace("T", " ") : "";
+    return (
+      `<button class="wg-node wg-spine wg-s-review" data-node="${esc(n.id)}" type="button">` +
+      `<span class="wg-sk">${esc(n.kindLabel)}</span>` +
+      `<span class="wg-nt">${esc(n.title || "这个镜头")}</span>` +
+      `<span class="wg-nk">${esc(when || "通过时间未记录")}</span>` +
+      (n.note ? `<span class="wg-nk">${esc(n.note)}</span>` : "") +
+      `</button>`
+    );
+  }
   const decided = n.decision === "accepted" ? "已接受" : n.decision === "rejected" ? "已拒绝" : "待决定";
   return (
     `<button class="wg-node wg-spine wg-s-proposal" data-node="${esc(n.id)}" type="button">` +
@@ -262,7 +285,7 @@ function nodeCard(n) {
   if (n.type === "prompt") return promptCard(n);
   if (n.type === "generation") return generationCard(n);
   if (n.type === "script" || n.type === "scene" || n.type === "shot") return spineCard(n);
-  if (n.type === "canon" || n.type === "skillRun" || n.type === "proposal") return askCard(n);
+  if (n.type === "canon" || n.type === "skillRun" || n.type === "proposal" || n.type === "review") return askCard(n);
   return assetCard(n);
 }
 
@@ -486,7 +509,10 @@ export function createWorkflowGraph(getCtx) {
         `<span class="wg-shname">${esc(s.label)}</span>` +
         (on ? "" : shotStrip(g, s.shotId)) +
         `<span class="wg-scounts"><i>图 <b>${s.images}</b></i><i>视频 <b>${s.videos}</b></i><i>对白 <b>${s.audio}</b></i>` +
-        (s.failed ? `<i class="bad">未成功 <b>${s.failed}</b></i>` : "") + `</span>` +
+        (s.failed ? `<i class="bad">未成功 <b>${s.failed}</b></i>` : "") +
+        // the creator's own decision — a collapsed row must not hide it, and no
+        // count above it implies it (生成成功 != 镜头完成)
+        (s.approved ? `<i class="ok">已通过</i>` : "") + `</span>` +
         `<span class="wg-caret">${on ? "收起" : "展开生成链"}</span></button>` +
         (on ? `<div class="wg-shotlane">${columns(scopeGraph(g, { kind: "shot", id: s.shotId }), focus)}</div>` : "") +
         `</div>`
@@ -627,7 +653,9 @@ export function createWorkflowGraph(getCtx) {
         ? `${n.roleLabel || n.kindLabel}${n.version != null ? ` v${n.version}` : ""}`
         : n.type === "skillRun" || n.type === "proposal"
           ? `${n.kindLabel} · ${n.skillId}`
-          : n.kindLabel;
+          : n.type === "review"
+            ? `${n.kindLabel}${n.title ? ` · ${n.title}` : ""}`
+            : n.kindLabel;
       const thumb = n.type === "asset" && n.url ? `<img src="${esc(n.url)}" alt="">` : "";
       return `<button class="wg-minirow" data-node="${esc(n.id)}">${thumb}<span>${esc(label)}</span></button>`;
     }).join("")}</div>`;
@@ -685,6 +713,11 @@ export function createWorkflowGraph(getCtx) {
           : `这是一份提案，等待或已经得到创作者的判断。`);
       if (story.proposal) steps.push(`→ 产出 <b>${esc(story.proposal.kindLabel)}</b>`);
       if (story.launched.length) steps.push(`→ 发起了 <b>${story.launched.length}</b> 次生成`);
+    } else if (n.type === "review") {
+      steps.push(story.approved
+        ? `创作者通过了 <b>${esc(name(story.approved))}</b>。`
+        : `这是一次审片通过，但它指向的媒体已不在登记表里。`);
+      steps.push(`→ 这是人的判断，不是任何一次生成的结果。`);
     } else if (n.type === "script" || n.type === "scene" || n.type === "shot") {
       // authored, not generated — there is no chain ABOVE it to recite
       steps.push(`这是创作文档，不是生成物：它没有来源链，它<b>是</b>来源。`);
@@ -831,6 +864,17 @@ export function createWorkflowGraph(getCtx) {
           ? `<div class="wg-isec"><div class="wg-ilabel">为它做过的生成</div>${miniRow(story.generations, "")}</div>`
           : n.type === "shot" ? `<div class="wg-isec"><div class="wg-ilabel">为它做过的生成</div><div class="wg-none">还没有为这个镜头生成过任何东西</div></div>` : "") +
         `<div class="wg-isec"><div class="wg-ilabel">来源</div><div class="wg-ivalue">创作文档 — 它不是被生成出来的，没有 Prompt 可引用</div></div>` +
+        (n.shotId ? `<div class="wg-acts"><button class="wg-btn" data-goshot="${esc(n.shotId)}">在制作中打开</button></div>` : "");
+    } else if (n.type === "review") {
+      // CP4/ADR-0057. A decision, not an artefact: it has no prompt, no provider
+      // and no media of its own — what it HAS is the take it was given for.
+      body =
+        kv("镜头", esc(n.shot ? `${n.shot.sceneTitle} · ${seqLabel(n.shot)} ${n.shot.title}` : n.title || "未记录")) +
+        kv("通过时间", esc(n.approvedAt || "未记录")) +
+        (n.note ? kv("备注", esc(n.note)) : "") +
+        `<div class="wg-isec"><div class="wg-ilabel">通过的是这一条</div>${miniRow(story.approved ? [story.approved] : [], "这条通过记录指向的媒体已不在登记表里")}</div>` +
+        `<div class="wg-isec"><div class="wg-ilabel">来源</div>` +
+        `<div class="wg-ivalue">创作者的判断 — 生成成功不等于镜头完成，没有任何生成会自动写出它</div></div>` +
         (n.shotId ? `<div class="wg-acts"><button class="wg-btn" data-goshot="${esc(n.shotId)}">在制作中打开</button></div>` : "");
     } else {
       const origin = story.provenance === "import"

@@ -29,6 +29,64 @@ export const INSPECT_KINDS = [
   "shot", "reference", "prompt", "generation", "image", "video", "audio", "node",
 ];
 
+/** The audio node kinds a shot-level audio panel can honestly speak for. Scene
+ *  ambience and episode BGM are NOT a shot's audio — they belong to the
+ *  production document, so a node for one opens the read-only provenance body
+ *  rather than a panel that would claim the wrong owner. */
+const SHOT_AUDIO_KINDS = new Set(["dialogue", "sfx"]);
+
+/**
+ * Which operating panel a PROVENANCE NODE opens (TASK-064 Phase 1b).
+ *
+ * This is the mapping that makes 「点节点 → 左栏操作」 the primary path to the
+ * production capabilities: before it, clicking 画面 on the graph gave a read-only
+ * list of that frame's inputs, and the only way to actually replace it, switch its
+ * version or approve it was to leave the graph for a stage workspace.
+ *
+ * Returns `null` for nodes with no per-shot operating panel — a scene, a script,
+ * a canon baseline, a skill run, a proposal, a final render, a review decision, a
+ * project-level asset with no shot anywhere in its records. Those keep the honest
+ * read-only provenance body. Guessing a shot for them would point the creator's
+ * next write at an object the records never connected.
+ *
+ * `fallbackShotId` is the shot the creator is already standing on; it is used ONLY
+ * for a reference, which is genuinely project-level and is always operated on in
+ * the context of some shot.
+ *
+ * Pure — exported for tests.
+ */
+export function inspectFromNode(node, story, fallbackShotId = null) {
+  if (!node || typeof node !== "object") return null;
+  const n = node;
+  const shotOf = (x) => (x && typeof x.shotId === "string" && x.shotId ? x.shotId : null);
+  if (n.type === "prompt" || n.type === "generation") {
+    const shotId = shotOf(n);
+    if (!shotId) return null; // an episode render has no shot to operate on
+    return { kind: n.type, shotId, genKind: n.kind === "video" ? "video" : "image" };
+  }
+  if (n.type === "shot") {
+    const shotId = shotOf(n);
+    return shotId ? { kind: "shot", shotId } : null;
+  }
+  if (n.type !== "asset") return null;
+  // a REFERENCE is project-level: the shot comes from the records that use it,
+  // and only then from wherever the creator already is
+  if (n.kind === "characterRef" || n.kind === "locationRef") {
+    if (!n.chainKey) return null; // no chain key ⇒ nothing the picker can address
+    const used = (story && Array.isArray(story.boundByShots) ? story.boundByShots : [])
+      .map(shotOf).find(Boolean)
+      || (story && Array.isArray(story.usedBy) ? story.usedBy : []).map(shotOf).find(Boolean)
+      || fallbackShotId;
+    return used ? { kind: "reference", shotId: used, refKey: n.chainKey } : null;
+  }
+  const shotId = shotOf(n);
+  if (!shotId) return null;
+  if (n.kind === "shotImage") return { kind: "image", shotId };
+  if (n.kind === "shotVideo") return { kind: "video", shotId };
+  if (SHOT_AUDIO_KINDS.has(n.kind)) return { kind: "audio", shotId };
+  return null; // final / ambience / bgm / deleted media — no shot-level panel
+}
+
 const UNRECORDED = `<span class="muted">未记录</span>`;
 
 /** Normalize the shell's transient selection. Never invents a shot: a selection
@@ -223,7 +281,16 @@ function shotBody(ctx, m) {
 
 function referenceBody(ctx, m) {
   const p = ctx.episode.pickerModel(m.sel.shotId);
-  const one = m.sel.refKey ? p.bound.find((r) => r.key === m.sel.refKey) || p.library.find((r) => r.key === m.sel.refKey) || null : null;
+  // ALL THREE picker lists, because the picker partitions the library into three
+  // disjoint ones: 已绑定 / 本集推荐 / 从资产库选择. Searching only two of them made a
+  // 本集推荐 reference unopenable — it fell through to the list view, so clicking
+  // 林晚 Ref on the provenance graph showed the picker instead of that reference.
+  const one = m.sel.refKey
+    ? p.bound.find((r) => r.key === m.sel.refKey)
+      || p.suggested.find((r) => r.key === m.sel.refKey)
+      || p.library.find((r) => r.key === m.sel.refKey)
+      || null
+    : null;
   if (!one) {
     // the LIST view: bound / suggested / library / upload — the shot's inputs
     // ADR-0061 决策 4 made a Reference able to be a video or an audio take, so the
@@ -566,6 +633,37 @@ function nodeName(n) {
   return n.kindLabel || n.type || "";
 }
 
+const PROV_LABEL = {
+  authored: "创作者写的（不是生成的）",
+  generated: "由一次生成产出",
+  import: "外部导入 —— 没有生成记录，来源如实记为未知",
+  missing: "字节不在本地（记录仍在）",
+};
+
+/** The 溯源 facts of the selected graph node, as a section that can sit UNDER an
+ *  operating panel. Same derived story the graph draws — it can never state a
+ *  link the graph does not show, and it states nothing where there is no record. */
+function provenanceSec(story) {
+  if (!story || !story.node) return "";
+  const n = story.node;
+  const row = (list, none) => (list && list.length
+    ? `<div class="pi-chips">${list.map((x) => `<button class="pi-refchip" data-pi-node="${esc(x.id)}">${esc(nodeName(x))}</button>`).join("")}</div>`
+    : `<div class="pi-none">${esc(none)}</div>`);
+  const lines = [
+    story.producedBy ? ["由谁生成", row([story.producedBy], "")] : null,
+    story.launchedBy ? ["从哪份提案发起", row([story.launchedBy], "")] : null,
+    story.approval ? ["审片", row([story.approval], "")] : null,
+    ["输入", row(story.inputs, "没有记录输入")],
+    ["下游", row(story.usedBy, "还没有被任何后续生成使用")],
+  ].filter(Boolean);
+  return (
+    `<details class="pi-prov" open><summary>溯源 · ${esc(PROV_LABEL[story.provenance] || "")}</summary>` +
+    lines.map(([k, v]) => `<div class="pi-provrow"><span class="lab">${esc(k)}</span>${v}</div>`).join("") +
+    `</details>` +
+    techBlock([["nodeId", n.id], ["assetId", n.assetId], ["generationId", n.generationId]])
+  );
+}
+
 function nodeBody(ctx, story, mode) {
   if (!story || !story.node) {
     return (
@@ -575,26 +673,29 @@ function nodeBody(ctx, story, mode) {
     );
   }
   const n = story.node;
-  const row = (list, none) => list.length
+  const row = (list, none) => (list && list.length
     ? `<div class="pi-chips">${list.map((x) => `<button class="pi-refchip" data-pi-node="${esc(x.id)}">${esc(nodeName(x))}</button>`).join("")}</div>`
-    : `<div class="pi-none">${esc(none)}</div>`;
-  const PROV = {
-    authored: "创作者写的（不是生成的）",
-    generated: "由一次生成产出",
-    import: "外部导入 —— 没有生成记录，来源如实记为未知",
-    missing: "字节不在本地（记录仍在）",
-  };
+    : `<div class="pi-none">${esc(none)}</div>`);
   return (
-    head(nodeName(n), PROV[story.provenance] || "") +
+    head(nodeName(n), PROV_LABEL[story.provenance] || "") +
+    (n.type === "review"
+      ? sec("审片通过", kv([
+          ["镜头", n.title ? esc(n.title) : ""],
+          ["时间", n.approvedAt ? esc(String(n.approvedAt).slice(0, 16).replace("T", " ")) : ""],
+          ["备注", n.note ? esc(n.note) : ""],
+        ]) + `<div class="meta">生成成功 ≠ 镜头完成：这条记录是人的判断，且绑定到具体那一条 take。</div>`)
+      : "") +
     (story.prompt ? sec("Prompt 快照", `<pre class="pi-pre">${esc(story.prompt.text || "")}</pre>`) : "") +
     (story.producedBy ? sec("由谁生成", row([story.producedBy], "")) : "") +
     (story.launchedBy ? sec("从哪份提案发起", row([story.launchedBy], "")) : "") +
-    sec("参考", row(story.references || [], "没有记录参考")) +
-    sec("输入", row(story.inputs || [], "没有记录输入")) +
-    sec("产出", row(story.results || [], "还没有产出")) +
-    sec("下游", row(story.usedBy || [], "还没有被任何后续生成使用")) +
+    (story.approved ? sec("通过的是这一条", row([story.approved], "")) : "") +
+    sec("参考", row(story.references, "没有记录参考")) +
+    sec("输入", row(story.inputs, "没有记录输入")) +
+    sec("产出", row(story.results, "还没有产出")) +
+    sec("下游", row(story.usedBy, "还没有被任何后续生成使用")) +
+    (story.approval ? sec("审片", row([story.approval], "")) : "") +
     (n.shotId
-      ? sec("动作", `<div class="pi-acts"><button class="btn" data-pi-goshot="${esc(n.shotId)}">在工作台打开这个镜头</button></div>`)
+      ? sec("动作", `<div class="pi-acts"><button class="btn" data-pi-selshot="${esc(n.shotId)}">在左栏打开这个镜头</button></div>`)
       : "") +
     relationsBlock(mode) +
     techBlock([["nodeId", n.id], ["assetId", n.assetId], ["generationId", n.generationId]])
@@ -605,16 +706,54 @@ function nodeBody(ctx, story, mode) {
 /* render + bind                                                              */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * WHAT THIS COLUMN IS OPERATING ON — the single source of truth for both
+ * `renderInspector` and `bindInspector`.
+ *
+ * It MUST be shared. Deriving the selection inside render only (as this first
+ * shipped) renders shot B's panel while every binding still resolves the shell's
+ * own `ui.inspect`, i.e. shot A: 审片通过, 上传生成结果, 保存 Prompt and 绑定参考
+ * would all land on the shot the creator was standing on BEFORE they clicked the
+ * node — a wrong-target write with a panel that says otherwise. The same applies
+ * within one shot, where a VIDEO PROMPT node would save into the IMAGE prompt
+ * (codex review round 1).
+ *
+ *   mode "derived"  a graph node that HAS an operating panel, and it resolves
+ *   mode "node"     a graph node with no per-shot panel → read-only provenance
+ *   mode "own"      no node: the shell's own selection
+ *
+ * Pure. Exported for tests.
+ */
+export function inspectorTarget(ctx, ui, node) {
+  const own = normalizeSelection(ui.inspect, { shotId: ui.selectedShotId || null });
+  if (node && node.node) {
+    const d = inspectFromNode(node.node, node, ui.selectedShotId || null);
+    // The derived selection must actually RESOLVE against the documents. A shot
+    // recorded on a generation but dropped from the current draft would otherwise
+    // put the column into an operating panel for an object that is not there.
+    if (d && !inspectorModel(ctx, d).empty) return { mode: "derived", sel: normalizeSelection(d) };
+    return { mode: "node", sel: own };
+  }
+  if (own.kind === "node") return { mode: "node", sel: own };
+  return { mode: "own", sel: own };
+}
+
 /** `node` is the provenance graph's selected-node story, passed in ONLY while the
  *  centre is showing 生成溯源. When one is selected it IS the current object, so it
  *  wins over the shot: the creator just clicked it. With none selected the column
  *  falls back to the shot, which keeps the relations controls (§11) reachable
- *  instead of leaving the column empty. */
+ *  instead of leaving the column empty.
+ *
+ *  A selected node opens that object's OPERATING panel wherever one exists
+ *  (`inspectFromNode`) with its 溯源 facts underneath — clicking 画面 on the graph
+ *  has to give the creator the version list, Set Active and the upload, not a
+ *  read-only description of a frame they cannot touch. Nodes with no per-shot
+ *  panel keep the read-only provenance body. */
 export function renderInspector(ctx, ui, { node = null, traceMode = "full" } = {}) {
-  const s = normalizeSelection(ui.inspect, { shotId: ui.selectedShotId || null });
-  if (node || s.kind === "node") {
-    return `<aside class="pi">${nodeBody(ctx, node, traceMode)}</aside>`;
-  }
+  const t = inspectorTarget(ctx, ui, node);
+  if (t.mode === "node") return `<aside class="pi">${nodeBody(ctx, node, traceMode)}</aside>`;
+  const s = t.sel;
+  const prov = t.mode === "derived" ? provenanceSec(node) : "";
   const m = inspectorModel(ctx, s);
   if (m.empty) {
     return (
@@ -640,14 +779,30 @@ export function renderInspector(ctx, ui, { node = null, traceMode = "full" } = {
       { shot: "镜头", reference: "参考", prompt: "Prompt", generation: "生成", image: "画面", video: "视频", audio: "音频" }[k]
     }</button>`)
     .join("");
-  return `<aside class="pi"><nav class="pi-tabs">${tabs}</nav>${body}</aside>`;
+  return `<aside class="pi"><nav class="pi-tabs">${tabs}</nav>${body}${prov}</aside>`;
 }
 
-export function bindInspector(root, ctx, ui, render) {
-  const sel = () => normalizeSelection(ui.inspect, { shotId: ui.selectedShotId || null });
+/** `node` is the SAME provenance-node story `renderInspector` was given. Both must
+ *  resolve the target through `inspectorTarget`, or every action here would be
+ *  bound to a different object than the panel above it shows — see that function.
+ *
+ *  When the target came from a node, an explicit choice made in this column also
+ *  has to RELEASE that node: otherwise the very next render re-derives the panel
+ *  from the node and the creator's own click — a tab, a reference, a genKind —
+ *  appears to do nothing. */
+export function bindInspector(root, ctx, ui, render, { node = null } = {}) {
+  const target = () => inspectorTarget(ctx, ui, node);
+  const sel = () => target().sel;
+  const fromNode = () => target().mode === "derived";
   const setInspect = (patch) => {
     ui.inspect = { ...sel(), ...patch };
     ui.piPrompt = null;
+    if (fromNode() && ctx.focusProvenanceNode) {
+      // clearing the graph selection re-renders through the graph's own
+      // selection-change path, so this must not render a second time
+      ctx.focusProvenanceNode(null);
+      return;
+    }
     render();
   };
 
@@ -701,6 +856,13 @@ export function bindInspector(root, ctx, ui, render) {
   }));
   root.querySelectorAll("[data-pi-goshot]").forEach((b) => (b.onclick = () => {
     if (ctx.openShotInProduction) ctx.openShotInProduction(b.dataset.piGoshot);
+  }));
+  // 「在左栏打开这个镜头」 — stay on the graph and move only this column. Navigating
+  // to a stage workspace instead would pull the creator off the map they were
+  // reading, which is the opposite of what the graph-first centre is for.
+  root.querySelectorAll("[data-pi-selshot]").forEach((b) => (b.onclick = () => {
+    ui.selectedShotId = b.dataset.piSelshot;
+    setInspect({ kind: "shot", shotId: b.dataset.piSelshot, refKey: null });
   }));
 
   // --- prompt -------------------------------------------------------------- //

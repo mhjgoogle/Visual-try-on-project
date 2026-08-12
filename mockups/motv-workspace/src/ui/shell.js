@@ -37,12 +37,30 @@ export const NAV = [
   },
 ];
 
-/** The EPISODE's own production stages — the CENTER stage tabs of the 剧集制作
- *  space (ADR-0061 决策 2), no longer a rail nested under an episode row.
- *  `workbench` is the unified creator surface that leads them: Scene → Shot →
- *  that shot's References / Prompt / Generation / Image / Video / Audio. The
- *  per-stage workspaces below it are how you work THROUGH one stage. */
+/** The 剧集制作 space's DEFAULT centre (TASK-064 Phase 1b).
+ *
+ *  The generation graph IS this space's centre, not one of eleven tabs on it.
+ *  Entering 剧集制作 lands here: the creator sees what has actually been made for
+ *  this episode and what it was made from, and clicks a node to operate on it in
+ *  the LEFT inspector. Making them cross a large Shot Card workbench first and
+ *  then go hunting for 「生成溯源」 inverted that. */
+export const EPISODE_DEFAULT = "provenance";
+
+/** The EPISODE's own production stages (ADR-0061 决策 2), no longer a rail nested
+ *  under an episode row — and no longer eleven same-level tabs either.
+ *
+ *  `provenance` leads because it is the space's centre (see EPISODE_DEFAULT).
+ *  Everything after it is a WORKSPACE for working through one stage: still
+ *  reachable, still unmodified, but reached from one secondary 「工作区」 entry
+ *  instead of competing with the graph for the creator's attention. The primary
+ *  path to all of these capabilities is now: graph node → LEFT inspector.
+ *
+ *  Nothing was deleted. 参考 / Prompt / 生成 / 画面 / 视频 / 音频 / 审片 all keep
+ *  their full workspace AND gained a node entrance. */
 export const EPISODE_NAV = [
+  // ADR-0061 决策 1: 生成溯源 is a VIEW of this space, not a second workflow
+  // model. 流程画布 is deliberately absent from every creator path.
+  ["provenance", "🕸", "生成溯源"],
   ["workbench", "🎬", "工作台"],
   ["episode", "📺", "本集总览"],
   ["scenes", "🗂", "场景"],
@@ -55,16 +73,18 @@ export const EPISODE_NAV = [
   // is where it belongs in the work — you review what was generated before you
   // assemble it. 生成成功 != 镜头完成.
   ["dailies", "👁", "审片"],
-  // 剪辑 stays a centre tab of this space. ADR-0061 决策 6 moves the CUT into a
+  // 剪辑 stays reachable in this space. ADR-0061 决策 6 moves the CUT into a
   // Post Production Console at the bottom of 剧集制作, but that console is not
-  // built yet — dropping the tab before it exists would leave the working
+  // built yet — dropping the entry before it exists would leave the working
   // timeline workspace unreachable and `spaceOf("edit")` answering 「故事开发」,
   // which is a regression, not a migration (codex review round 1).
   ["edit", "✂", "剪辑"],
-  // ADR-0061 决策 1: 生成溯源 is a VIEW of this space, not a second workflow
-  // model. 流程画布 is deliberately absent from every creator path.
-  ["provenance", "🕸", "生成溯源"],
 ];
+
+/** The stage workspaces behind the secondary 「工作区」 entry — EPISODE_NAV minus
+ *  the space's own centre. Derived, so a stage can never be listed twice or be
+ *  forgotten by one of the two surfaces. */
+export const EPISODE_WORKSPACES = EPISODE_NAV.filter(([k]) => k !== EPISODE_DEFAULT);
 
 /** The 资产库 space's rail (ADR-0061 决策 1): 「我有什么可以复用？」 — media
  *  categories, never production navigation. Episode / Scene / Shot survive here
@@ -185,9 +205,16 @@ export function renderRail({ activeModule, badges, episodes, ratios, upstream })
     return `<div class="st-railsec">${esc(grp.sec)}</div>${rows}`;
   }).join("");
 
-  // Episodes — story development's EXIT. A row selects the episode whose script
-  // is being written; 「进入剧集制作 →」 leaves for the production space. No
-  // production stage is nested here: 剧集制作 is a space, not a sub-tree.
+  // Episodes — story development's EXIT.
+  //
+  // TWO DIFFERENT ACTIONS, and conflating them was the bug. A ROW only SELECTS:
+  // it makes that episode the one whose script is being written and expands it,
+  // and it leaves the creator exactly where they are. 「进入剧集制作 →」 is the
+  // ONE explicit cross-space entrance. A row that silently switched workspace
+  // meant the creator could not look at EP02 without being moved out of 故事开发,
+  // and the top bar then disagreed about where they were.
+  //
+  // No production stage is nested here: 剧集制作 is a space, not a sub-tree.
   const epRows = episodes.length
     ? episodes
         .map((e) => {
@@ -195,10 +222,12 @@ export function renderRail({ activeModule, badges, episodes, ratios, upstream })
             ? `<span class="bdg gate" title="上游已变化，本集仍基于另一个版本">${upstream[e.episodeId]} 变化</span>`
             : "";
           return (
-            `<button class="st-navitem st-eprow${e.active ? " on" : ""}" data-ep="${esc(e.episodeId)}" title="${esc(e.title)}">` +
+            `<button class="st-navitem st-eprow${e.active ? " on" : ""}" data-ep-choose="${esc(e.episodeId)}" ` +
+            `title="${esc(e.title)} — 选中并展开这一集（不会离开故事开发）">` +
             `<span class="ic">${e.active ? "▾" : "▸"}</span><span class="nm">${esc(e.code)} ${esc(e.title)}</span>${flag}</button>` +
             (e.active
-              ? `<button class="st-navitem st-subitem st-epexit" data-ep-produce="${esc(e.episodeId)}">` +
+              ? `<button class="st-navitem st-subitem st-epexit" data-ep-produce="${esc(e.episodeId)}" ` +
+                `title="带着 ${esc(e.code)} 切换到「剧集制作」">` +
                 `<span class="ic">🎬</span><span class="nm">进入剧集制作 →</span></button>`
               : "")
           );

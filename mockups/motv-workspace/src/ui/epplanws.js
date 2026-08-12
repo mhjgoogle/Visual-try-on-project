@@ -234,7 +234,7 @@ function impactReview(ep) {
     `<div class="dir-unavail">◌ ${esc(im.semantic.reason)}</div>` +
     `<div class="meta">上游变化<b>不会</b>自动改写本集。确认这一集仍然成立后，可把它记录为基于当前上游版本。</div>` +
     `<div class="row"><button class="btn primary sm" data-stamp="${esc(ep.episodeId)}">✔ 本集已复核 · 记录为基于当前版本</button>` +
-    `<button class="btn sm" data-ep-enter="${esc(ep.episodeId)}">进入本集</button></div>` +
+    `<button class="btn sm" data-ep-enter="${esc(ep.episodeId)}">进入剧集制作 →</button></div>` +
     `</div>`
   );
 }
@@ -258,7 +258,7 @@ export function renderEpPlanWs(ctx, ui) {
         basedOnLine(ep) +
         beatsBlock(m, ep, openBeats) +
         (openImpact ? impactReview(ep) : "") +
-        `<div class="ft"><button class="btn sm" data-ep-enter="${esc(ep.episodeId)}">进入本集 →</button>` +
+        `<div class="ft"><button class="btn sm" data-ep-enter="${esc(ep.episodeId)}">进入剧集制作 →</button>` +
         `<span class="meta">${ep.sceneCount} 个场景</span></div>` +
         `</div></div>`
       );

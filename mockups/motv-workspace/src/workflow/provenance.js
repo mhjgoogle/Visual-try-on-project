@@ -40,7 +40,12 @@ const nonEmpty = (x) => typeof x === "string" && x !== "";
  *  documents, including absent and truncated ones, and must not throw on one. */
 function scriptTextOf(doc) {
   if (!isObj(doc)) return "";
-  return currentText({ workingText: doc.workingText, versions: arr(doc.versions), active: doc.active });
+  // `str()` is not paranoia: `currentText` returns the active version's `content`
+  // verbatim, and a hand-edited or partially-written save can hold a version
+  // record without one. The graph is handed raw persisted documents, so an
+  // undefined here would throw on the caller's `.trim()` and blank the whole page
+  // instead of showing the episode with no script text.
+  return str(currentText({ workingText: doc.workingText, versions: arr(doc.versions), active: doc.active }));
 }
 
 /** Node id namespaces. Ids are derived from the SOURCE record's own id, so the
@@ -66,6 +71,10 @@ export const nodeIds = {
   canon: (episodeId) => `canon:${episodeId}`,
   skillRun: (skillRunId) => `skillrun:${skillRunId}`,
   proposal: (proposalId) => `proposal:${proposalId}`,
+  // The creator's 「审片通过」 — a human decision recorded against ONE take. Keyed
+  // by the shot because `shotProduction.reviews` holds at most one approval per
+  // shot; the take it approved is the node's edge, not part of its identity.
+  review: (shotId) => `review:${shotId}`,
 };
 
 const MEDIA_DOMAINS = ["images", "videos", "audio"];
@@ -214,10 +223,37 @@ function audioKind(key) {
   return "audio";
 }
 
-/** Every Asset record in the registry as a graph node seed. */
+/** Every Asset record in the registry as a graph node seed.
+ *
+ *  THREE sources, in this precedence order: the media chains, `finals`, and the
+ *  recorded first frames. The last one is easy to forget and is the reason a real
+ *  production chain read as broken: `firstFrames[slot]` is a FULL media record
+ *  (assetId, url, version, origin, storageState, creativeShotId) for the frame a
+ *  video was launched from, and that frame is frequently NOT in any chain — a paid
+ *  image route records the result as the slot's first frame without appending it
+ *  to the image chain. Walking only the chains left that image absent, so the
+ *  video's own recorded input resolved to 「已删除的媒体」 and the whole
+ *  Image Prompt → Image Generation → Image Result → Video… chain looked severed
+ *  when every record needed to draw it was on disk.
+ *
+ *  A first-frame record is NEVER reported as a chain's current version: it is not
+ *  in the chain, so `isCurrent` is false and the chain's own record wins on
+ *  conflict. Registering it says 「this media exists」, not 「this is selected」.
+ *
+ *  And it only says that where the record can BACK it: a first-frame entry naming
+ *  an assetId with no url describes nothing — the recorded link is real but the
+ *  media it points at is not there, which is what 「已删除的媒体」 means. Those are
+ *  left to `ensureAsset`, so a stub keeps saying 已删除 rather than being dressed
+ *  up as a frame nobody can open. Unknown stays unknown. */
 function walkAssets(assets) {
   const out = [];
   if (!isObj(assets)) return out;
+  const seen = new Set();
+  const push = (rec) => {
+    if (seen.has(rec.assetId)) return;
+    seen.add(rec.assetId);
+    out.push(rec);
+  };
   for (const domain of MEDIA_DOMAINS) {
     const m = assets[domain];
     if (!isObj(m)) continue;
@@ -226,7 +262,7 @@ function walkAssets(assets) {
       if (!isObj(chain) || !Array.isArray(chain.history)) continue;
       for (const r of chain.history) {
         if (!isObj(r) || typeof r.assetId !== "string" || !r.assetId) continue;
-        out.push({
+        push({
           assetId: r.assetId,
           domain,
           key,
@@ -244,11 +280,31 @@ function walkAssets(assets) {
   }
   for (const f of arr(assets.finals)) {
     if (!isObj(f) || typeof f.assetId !== "string" || !f.assetId) continue;
-    out.push({
+    push({
       assetId: f.assetId, domain: "finals", key: null, version: null,
       url: str(f.url), origin: str(f.origin), storageState: str(f.storageState) || "local",
       creativeShotId: null, isCurrent: true, chainCurrent: null,
     });
+  }
+  if (isObj(assets.firstFrames)) {
+    for (const slot of Object.keys(assets.firstFrames)) {
+      const r = assets.firstFrames[slot];
+      if (!isObj(r) || typeof r.assetId !== "string" || !r.assetId) continue;
+      if (!nonEmpty(r.url)) continue; // a record with no media proves no media
+      push({
+        assetId: r.assetId,
+        domain: "images",
+        key: slot,
+        version: typeof r.version === "number" ? r.version : null,
+        url: str(r.url),
+        origin: str(r.origin),
+        storageState: str(r.storageState) || "local",
+        creativeShotId: typeof r.creativeShotId === "string" ? r.creativeShotId : null,
+        // not in the chain, therefore never the chain's current version
+        isCurrent: false,
+        chainCurrent: null,
+      });
+    }
   }
   return out;
 }
@@ -768,6 +824,74 @@ export function buildProvenanceGraph({ assets, generations, production, timeline
     if (n.type === "prompt" && n.shot) { n.episodeId = n.shot.episodeId; n.sceneId = n.shot.sceneId; }
   }
 
+  // ---- the creator's review decision (CP4/ADR-0057) ------------------------ //
+  // 生成成功 != 镜头完成: an approval is a HUMAN decision, recorded against one
+  // specific take. It is the last real link in a shot's chain and it was missing
+  // from the graph entirely, so a shot the creator had already passed looked
+  // unreviewed here.
+  //
+  // Placed AFTER the asset shot-derivation pass above, because the check below
+  // needs each take's FINAL shot: a media record can get its shot from the
+  // generation that produced it rather than from its own `creativeShotId`, and
+  // checking before that resolves would reject real approvals.
+  //
+  // THREE things must hold before an approval is drawn, and each rejection is
+  // reported rather than worked around:
+  //
+  //   1. the record is a real approval carrying the take's assetId
+  //      (`sanitizeShotProduction` already enforces this on load)
+  //   2. that take is actually in the graph — an approval naming media the
+  //      registry no longer holds is reported, never drawn against a substitute
+  //   3. THE TAKE BELONGS TO THE SHOT THAT WAS APPROVED. A stale or corrupt
+  //      record pointing at another shot's take would otherwise render that take
+  //      as 已通过 for a shot nobody reviewed it for — a fabricated approval, and
+  //      「生成成功 != 镜头完成」 is exactly the claim that must not be faked.
+  //      Same discipline as the skillRun context check and the proposal origin
+  //      pair above: a record that contradicts the documents is reported whole,
+  //      and nothing is drawn from the half of it that happens to resolve.
+  //      A take whose own shot is UNKNOWN cannot be checked at all, so it is not
+  //      "consistent by absence" either (codex review round 2).
+  if (isObj(production) && isObj(production.shotProduction) && isObj(production.shotProduction.reviews)) {
+    const reviews = production.shotProduction.reviews;
+    for (const shotId of Object.keys(reviews)) {
+      const r = reviews[shotId];
+      if (!isObj(r) || r.approved !== true || !nonEmpty(r.assetId)) continue;
+      const aid = nodeIds.asset(r.assetId);
+      const take = nodes.get(aid) || null;
+      if (!take) {
+        warnings.push({ kind: "danglingReview", shotId, assetId: r.assetId });
+        continue;
+      }
+      if (take.shotId !== shotId) {
+        warnings.push({
+          kind: "reviewShotMismatch",
+          shotId,
+          assetId: r.assetId,
+          assetShotId: take.shotId || null,
+        });
+        continue;
+      }
+      const s = shots.get(shotId) || null;
+      const rid = nodeIds.review(shotId);
+      nodes.set(rid, {
+        id: rid,
+        type: "review",
+        kind: "review",
+        kindLabel: "审片通过",
+        shotId,
+        shot: s,
+        episodeId: s ? s.episodeId : null,
+        sceneId: s ? s.sceneId : null,
+        title: s ? str(s.title) : "",
+        // the take it was given for — the approval means nothing without it
+        assetId: r.assetId,
+        approvedAt: str(r.approvedAt),
+        note: str(r.note),
+      });
+      addEdge(aid, rid, "review");
+    }
+  }
+
   return { nodes, edges, order: layerOrder(nodes, edges), warnings, shots };
 }
 
@@ -829,6 +953,9 @@ export function layerOrder(nodes, edges) {
     let r = 0;
     if (n.type === "canon") {
       r = 0; // the chain starts where the work started: the baseline
+    } else if (n.type === "review") {
+      // an approval sits immediately right of the take it approved
+      r = maxOf(feeders.get(id), -1) + 1;
     } else if (n.type === "script" || n.type === "scene" || n.type === "shot"
       || n.type === "skillRun" || n.type === "proposal") {
       // one column per step of the spine; an episode with no script text has
@@ -994,6 +1121,11 @@ export function searchText(n) {
     bits.push(n.kindLabel, n.skillId, n.runtime, n.executor, n.model, n.status, n.inputSummary);
   } else if (n.type === "proposal") {
     bits.push(n.kindLabel, n.skillId, n.decision, n.status);
+  } else if (n.type === "review") {
+    // searchable by what the creator would type: 「审片」/「已通过」, the shot, the
+    // note they left. Never by the raw assetId.
+    bits.push(n.kindLabel, "已通过", n.title, n.note);
+    if (n.shot) bits.push(n.shot.sceneTitle, n.shot.episodeTitle, seqLabel(n.shot));
   }
   return bits.filter(Boolean).join(" ").toLowerCase();
 }
@@ -1064,6 +1196,9 @@ export function shotGroups(graph, production, sceneId) {
       audio: of((n) => n.type === "asset" && n.kind === "dialogue"),
       generations: of((n) => n.type === "generation"),
       failed: of((n) => n.type === "generation" && (n.status === "failed" || n.status === "cancelled")),
+      // the creator's own 审片 decision, so a collapsed row does not hide it —
+      // it is the ONE fact about a shot that no generation count implies
+      approved: nodeIdsHere.some((id) => graph.nodes.get(id).type === "review"),
     });
   }
   out.sort((a, b) => {
@@ -1112,8 +1247,14 @@ export function explainNode(graph, nodeId) {
     fromRun: inbound.filter((e) => e.kind === "proposal").map((e) => get(e.from)).filter(Boolean)[0] || null,
     launched: outbound.filter((e) => e.kind === "origin").map((e) => get(e.to)).filter(Boolean),
     launchedBy: inbound.filter((e) => e.kind === "origin").map((e) => get(e.from)).filter(Boolean)[0] || null,
+    // CP4/ADR-0057 — the human decision at the end of a take's chain
+    approval: outbound.filter((e) => e.kind === "review").map((e) => get(e.to)).filter(Boolean)[0] || null,
+    approved: inbound.filter((e) => e.kind === "review").map((e) => get(e.from)).filter(Boolean)[0] || null,
   };
-  if (n.type === "canon" || n.type === "skillRun" || n.type === "proposal") {
+  if (n.type === "review") {
+    // a decision is authored by the creator: it is neither generated nor imported
+    story.provenance = "authored";
+  } else if (n.type === "canon" || n.type === "skillRun" || n.type === "proposal") {
     // a baseline is canon, a run is a record of asking, a proposal is an answer
     // awaiting judgement — none of the three is a generated artefact
     story.provenance = "authored";

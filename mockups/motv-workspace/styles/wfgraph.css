@@ -100,6 +100,7 @@
 .wg-scounts i { font-style: normal; }
 .wg-scounts b { color: var(--text-dim); font-variant-numeric: tabular-nums; }
 .wg-scounts .bad, .wg-scounts .bad b { color: var(--bad); }
+.wg-scounts .ok { color: var(--ok, var(--accent)); font-weight: 700; }
 .wg-caret { font-size: var(--t-xs); color: var(--text-faint); min-width: 74px; text-align: right; }
 
 .wg-shots { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
@@ -184,6 +185,10 @@
 .wg-s-canon { border-left: 3px solid var(--accent); }
 .wg-s-skillrun { border-left: 3px solid var(--gen); }
 .wg-s-proposal { border-left: 3px solid var(--prompt); }
+/* 审片通过 (CP4/ADR-0057) — the human decision at the end of a take's chain. It is
+   not media and not a generation, so it wears the spine treatment; the good-state
+   rule is the one thing that separates it at a glance. */
+.wg-s-review { border-left: 3px solid var(--ok, var(--accent)); }
 .wg-spine.wg-st-failed { border-color: color-mix(in srgb, var(--bad) 55%, var(--line)); }
 .wg-unknown { color: var(--text-faint); font-style: italic; }
 .wg-baseline {

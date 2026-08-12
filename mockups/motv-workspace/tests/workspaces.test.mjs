@@ -20,7 +20,8 @@ import {
 } from "../src/ui/workspaces.js";
 import { navBadges, NAV } from "../src/ui/production.js";
 import {
-  EPISODE_NAV, EPISODE_MODULES, ASSET_NAV, spaceOf, renderAssetRail,
+  EPISODE_NAV, EPISODE_MODULES, EPISODE_DEFAULT, EPISODE_WORKSPACES,
+  ASSET_NAV, spaceOf, renderAssetRail,
 } from "../src/ui/shell.js";
 import * as sd from "../src/workflow/scriptdoc.js";
 
@@ -428,15 +429,20 @@ test("NAV: the rail is 故事开发 and it ENDS at the episode script (ADR-0061 
   for (const k of ["scenes", "shots", "refplan", "frames", "video", "audio", "dailies", "edit", "workbench", "provenance"]) {
     assert.ok(!NAV.some((g) => g.items.some((i) => i[0] === k)), `${k} must not be in the story rail`);
   }
-  // 剧集制作's own centre tabs lead with the unified workbench and include the
-  // provenance VIEW — and deliberately NOT a second flow model (流程画布).
+  // 剧集制作's centre is the GENERATION GRAPH (TASK-064 Phase 1b): it leads, and
+  // every stage workspace stays reachable behind the secondary 「工作区」 entry.
+  // Deliberately still NOT a second flow model (流程画布).
   const epKeys = EPISODE_NAV.map((i) => i[0]);
-  assert.equal(epKeys[0], "workbench", "the unified workbench leads the space");
-  for (const k of ["scenes", "shots", "refplan", "frames", "video", "audio", "dailies", "provenance"]) {
+  assert.equal(EPISODE_DEFAULT, "provenance");
+  assert.equal(epKeys[0], EPISODE_DEFAULT, "the generation graph IS this space's centre");
+  for (const k of ["scenes", "shots", "refplan", "frames", "video", "audio", "dailies", "workbench", "edit", "episode"]) {
     assert.ok(epKeys.includes(k), `剧集制作 is missing ${k}`);
   }
   assert.ok(!epKeys.includes("canvas"), "流程画布 must not be on a creator path");
   assert.deepEqual(EPISODE_MODULES, epKeys);
+  // the secondary menu is EPISODE_NAV minus the centre — derived, so a stage can
+  // never be listed twice nor be missing from both surfaces
+  assert.deepEqual(EPISODE_WORKSPACES.map((i) => i[0]), epKeys.filter((k) => k !== EPISODE_DEFAULT));
   // storage/assets left the rail: 资产库 is a top-level SPACE with its own rail
   // of media categories (TASK-064 §15), not a per-project rail item here
   assert.ok(!NAV.some((g) => g.items.some((i) => i[0] === "storage" || i[0] === "assets")));

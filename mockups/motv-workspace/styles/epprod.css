@@ -123,6 +123,19 @@
 
 .pi-tech { font-size: var(--t-xs); color: var(--text-faint); }
 .pi-tech summary { cursor: pointer; }
+
+/* 溯源 — the selected graph node's recorded facts, UNDER the operating panel.
+   Clicking 画面 on the graph gives the version list and the upload first; where
+   that frame came from is right below it, not instead of it. */
+.pi-prov {
+  border-top: 1px solid var(--line); padding-top: var(--s3);
+  font-size: var(--t-xs); color: var(--text-faint);
+}
+.pi-prov > summary { cursor: pointer; font-weight: 700; color: var(--text-dim); }
+.pi-provrow { display: flex; flex-direction: column; gap: 3px; margin-top: var(--s2); }
+.pi-provrow > .lab {
+  font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint);
+}
 .pi-implbl { position: relative; overflow: hidden; }
 
 /* ========================================================================== */
@@ -169,20 +182,44 @@
 }
 .ep-fbtn:hover { color: var(--text-dim); border-color: var(--line-2); }
 .ep-fbtn.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-.ep-topnote { margin-left: auto; font-size: var(--t-xs); color: var(--text-faint); }
+.ep-topnote { font-size: var(--t-xs); color: var(--text-faint); }
 
-.ep-tabs {
-  display: flex; gap: 2px; overflow-x: auto; padding: var(--s2) var(--s5);
-  border-bottom: 1px solid var(--line); background: var(--panel);
-}
-.ep-tab {
-  display: inline-flex; align-items: center; gap: var(--s1); flex: none;
+/* 工作区 — the SECONDARY entry to a stage workspace. Deliberately quiet and
+   right-aligned: it is a detour off the centre, not a peer of it. The eleven
+   same-level .ep-tab buttons it replaces are gone (TASK-064 Phase 1b). */
+.ep-ws { position: relative; margin-left: auto; display: flex; align-items: center; gap: var(--s2); }
+.ep-wsback {
   font: inherit; font-size: var(--t-xs); font-weight: 700; cursor: pointer;
-  padding: 5px var(--s3); border: 1px solid transparent; border-radius: var(--r1);
-  background: none; color: var(--text-faint); white-space: nowrap;
+  padding: 4px var(--s3); border: 1px solid var(--accent-line); border-radius: var(--r1);
+  background: var(--accent-soft); color: var(--accent); white-space: nowrap;
 }
-.ep-tab:hover { color: var(--text-dim); background: var(--panel-2); }
-.ep-tab.on { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-line); }
+.ep-wsbtn {
+  display: inline-flex; align-items: center; gap: var(--s2); flex: none;
+  font: inherit; font-size: var(--t-xs); font-weight: 700; cursor: pointer;
+  padding: 5px var(--s3); border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--canvas); color: var(--text-faint); white-space: nowrap;
+}
+.ep-wsbtn:hover { color: var(--text-dim); border-color: var(--line-2); }
+.ep-wsbtn.on { color: var(--text); background: var(--elev); border-color: var(--line-2); }
+.ep-wsbtn .cv { color: var(--text-faint); }
+.ep-wsmenu {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 40; min-width: 216px;
+  display: flex; flex-direction: column; padding: var(--s1);
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r2);
+  box-shadow: 0 10px 28px #0006;
+}
+.ep-wshd, .ep-wsnote {
+  padding: var(--s2) var(--s3); font-size: var(--t-xs); color: var(--text-faint);
+}
+.ep-wshd { font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+.ep-wsnote { border-top: 1px solid var(--line); line-height: 1.5; }
+.ep-wsmenu button {
+  display: flex; align-items: center; gap: var(--s2);
+  font: inherit; font-size: var(--t-sm); text-align: left; cursor: pointer;
+  padding: 6px var(--s3); border: 0; border-radius: var(--r1); background: none; color: var(--text-dim);
+}
+.ep-wsmenu button:hover { background: var(--panel-2); color: var(--text); }
+.ep-wsmenu button.cur { color: var(--accent); font-weight: 700; }
 
 .ep-summary { padding: var(--s3) var(--s5) 0; font-size: var(--t-xs); color: var(--text-faint); }
 .ep-body {

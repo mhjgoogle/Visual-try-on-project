@@ -37,7 +37,7 @@ import { renderEpProd, bindEpProd } from "./epprod.js";
 import { renderInspector, bindInspector } from "./prodinspector.js";
 import { skillPanelModel, renderSkillPanel, bindSkillPanel } from "./skillpanel.js";
 import {
-  NAV, EPISODE_MODULES, MODULE_LABEL, SPACE_LABEL, spaceOf,
+  NAV, EPISODE_MODULES, EPISODE_DEFAULT, MODULE_LABEL, SPACE_LABEL, spaceOf,
   renderRail, renderAssetRail, renderCrumb, episodeLabels, head,
 } from "./shell.js";
 
@@ -150,7 +150,18 @@ export function episodeStages(pd) {
   };
 }
 
-export function createProduction(getCtx) {
+/**
+ * @param getCtx           () => the app context
+ * @param onNavigate       called after EVERY render with (space, module) — the
+ *                         shell's own state, so the top bar reports where the
+ *                         creator IS rather than where they last clicked. Without
+ *                         it, anything that moved the creator from inside the
+ *                         shell (「进入剧集制作 →」, an empty state's jump) left
+ *                         「故事开发」 highlighted while 剧集制作 was on screen.
+ *                         Notifying from render() rather than from each mover is
+ *                         what makes that impossible to forget.
+ */
+export function createProduction(getCtx, { onNavigate = null } = {}) {
   const root = $("#production");
   // transient view state — NEVER persisted, never on canvas nodes.
   // Production OPENS on the upstream (ADR-0054 决策 1): the creative foundation
@@ -197,6 +208,8 @@ export function createProduction(getCtx) {
     piPrompt: null,
     epFocus: "all",
     epSelOpen: false,
+    // 剧集制作 · 工作区: is the secondary stage-workspace menu open? View state.
+    epWsOpen: false,
     // AI Director · 能力: which Skill is open, on which executor
     skillId: null,
     skillExecutor: "manual",
@@ -209,6 +222,10 @@ export function createProduction(getCtx) {
   // the panel renders as 「未探测」 — never as available.
   let execProbe = null;
   let execProbing = false;
+  // The provenance node the LEFT column is standing on for THIS render — set by
+  // render(), read by bind(). Transient, never persisted; null whenever the centre
+  // is not the graph or nothing is selected on it.
+  let provNode = null;
 
   function vmenuHtml(d) {
     const label = { generated: "AI 生成", revision: "AI 修订", manual: "手工" };
@@ -421,7 +438,11 @@ export function createProduction(getCtx) {
    *  to avoid. A selection that no longer resolves (draft regenerated, episode
    *  switched) falls back the same way — it is never left dangling. */
   function ensureShotSelection(pd) {
-    if (!["workbench", "shots", "frames", "video"].includes(activeModule)) return;
+    // EPISODE_DEFAULT is in this list because the graph is now what the creator
+    // LANDS on: with no selection the LEFT column would greet them empty, and
+    // 左边管当前对象 has to mean something the moment they arrive. A node click
+    // immediately overrides it — this is only the starting object.
+    if (![EPISODE_DEFAULT, "workbench", "shots", "frames", "video"].includes(activeModule)) return;
     // scoped to the ACTIVE episode PLUS the unassigned pool: the previous
     // episode's shot still exists in the project-wide draft, so a draft-wide
     // check would keep it selected under the episode just switched to — but the
@@ -463,19 +484,27 @@ export function createProduction(getCtx) {
     // CSS decides from ONE class so no two rules can disagree about which
     // space is on screen.
     root.className = `space-${space}`;
+    // recomputed below only where the graph is the centre; cleared here so a
+    // previous render's node can never be read by this one's bind()
+    provNode = null;
     const main =
       activeModule === "script"
         ? scriptMain(ctx)
         : (WORKSPACES[activeModule] || (() => ""))(ctx);
 
     if (space === "episode") {
-      // LEFT = the Production Inspector; CENTER = the production workspace with
-      // its episode selector, focus filters and stage tabs; RIGHT = the AI
-      // Director. 左边管输入和当前对象，中间管生产执行，右边管 AI 导演。
+      // LEFT = the Production Inspector; CENTER = the generation graph (or the
+      // stage workspace the creator stepped into); RIGHT = the AI Director.
+      // 左边管输入和当前对象，中间管生产执行，右边永远属于 AI 导演。
+      //
+      // Resolved ONCE and shared with bind(): render and bind must agree about
+      // whether this column is standing on a graph node, or the bindings would
+      // release a selection the panel is still derived from (or fail to).
+      provNode = activeModule === EPISODE_DEFAULT ? ctx.provenanceSelection() : null;
       root.innerHTML =
         crumb(ctx) +
         renderInspector(ctx, ui, {
-          node: activeModule === "provenance" ? ctx.provenanceSelection() : null,
+          node: provNode,
           traceMode: ctx.relationsMode ? ctx.relationsMode() : "full",
         }) +
         `<main class="st-main prod-main ep-main">` +
@@ -483,6 +512,7 @@ export function createProduction(getCtx) {
         `</main>` +
         aiDirector(ctx);
       bind(ctx);
+      notify();
       return;
     }
 
@@ -493,6 +523,7 @@ export function createProduction(getCtx) {
         `<main class="st-main prod-main">${main}</main>` +
         aiDirector(ctx);
       bind(ctx);
+      notify();
       return;
     }
 
@@ -509,6 +540,14 @@ export function createProduction(getCtx) {
       `<main class="st-main prod-main">${main}</main>` +
       aiDirector(ctx);
     bind(ctx);
+    notify();
+  }
+
+  /** Tell the top bar where the creator now is. Called at the END of every
+   *  render path, from the shell's own state — never from the callers that move
+   *  it, so a new mover cannot forget to sync the bar. */
+  function notify() {
+    if (onNavigate) onNavigate(spaceOf(activeModule), activeModule);
   }
 
   /** Per-category counts for the 资产库 rail. Derived from the SAME library read
@@ -549,30 +588,57 @@ export function createProduction(getCtx) {
     render();
   }
 
-  /** Switch the active episode and (optionally) open one of ITS stages —
-   *  Production's exit. `module` null means: stay where you are if you are
-   *  already inside an episode, otherwise enter at 剧本. Refused while a shot
-   *  detail has unsaved edits, because the buffer belongs to the episode being
-   *  left. */
-  function enterEpisode(episodeId, module) {
-    const ctx = getCtx();
-    if (ui.dirty && !window.confirm("镜头详情有未保存的修改，切换剧集将丢弃？")) return;
+  /** Drop the transient per-episode selection state. Shared by the two paths
+   *  below so selecting and entering can never disagree about what a switch
+   *  invalidates. Returns false when the creator refused (unsaved shot edit),
+   *  in which case NOTHING was touched. */
+  function releaseEpisodeState() {
+    if (ui.dirty && !window.confirm("镜头详情有未保存的修改，切换剧集将丢弃？")) return false;
     ui.dirty = false;
     ui.buffer = {};
     ui.shotEdit = false;
     ui.selectedShotId = null;
+    return true;
+  }
+
+  /** SELECT an episode without going anywhere.
+   *
+   *  This is what an episode ROW in the 故事开发 rail does, and the distinction is
+   *  the whole point: looking at EP02 must not move the creator out of the space
+   *  they are working in. The row still switches which episode is active (the
+   *  script workspace, the badges and the plan all follow it) — it simply does not
+   *  navigate. 「进入剧集制作 →」 is the one thing that navigates. */
+  function selectEpisode(episodeId) {
+    const ctx = getCtx();
+    // Re-clicking the row of the episode already selected changes NOTHING, so it
+    // must not prompt about unsaved shot edits or drop the shot selection. The
+    // row is the select affordance now, so clicking the current one is a normal
+    // thing to do.
+    if (ctx.prodData().production.activeEpisodeId === episodeId) return;
+    if (!releaseEpisodeState()) return;
+    // setActiveEpisode re-renders on success; on failure nothing moved, but the
+    // cleared selection still needs painting
+    if (!ctx.production.setActiveEpisode(episodeId)) render();
+  }
+
+  /** ENTER an episode: switch the active episode AND open one of ITS stages —
+   *  story development's explicit exit. `module` null means: stay where you are
+   *  if you are already inside 剧集制作, otherwise open the space's own centre.
+   *  Refused while a shot detail has unsaved edits, because the buffer belongs to
+   *  the episode being left. */
+  function enterEpisode(episodeId, module) {
+    const ctx = getCtx();
+    if (!releaseEpisodeState()) return;
     if (!ctx.production.setActiveEpisode(episodeId)) return;
-    // staying on the stage you were already on when switching episodes; from
-    // upstream, entering an episode opens 本集制作 — the view of the whole
-    // episode,
-    // which is what "进入本集" means now that one exists
-    // Entering an episode from 故事开发 lands on the 剧集制作 WORKBENCH — the
-    // unified map of the episode (ADR-0061 决策 2), which is what 「进入剧集制作」
-    // says it does. Already inside the space, the stage you were on is kept.
-    const target = module || (EPISODE_MODULES.includes(activeModule) ? activeModule : "workbench");
+    // Entering from 故事开发 lands on 剧集制作's own centre — the generation graph
+    // (EPISODE_DEFAULT), which is what 「进入剧集制作」 means: see what has been
+    // made for this episode and what it came from. Already inside the space, the
+    // stage the creator was on is kept.
+    const target = module || (EPISODE_MODULES.includes(activeModule) ? activeModule : EPISODE_DEFAULT);
     if (target !== activeModule) {
       activeModule = target;
       lastProdModule = target;
+      lastOf[spaceOf(target)] = target;
       vmenuOpen = false;
     }
     render(); // setActiveEpisode already re-rendered, but the module may have moved
@@ -581,10 +647,10 @@ export function createProduction(getCtx) {
   function bind(ctx) {
     // left rail — every module opens; selection is visually .on
     root.querySelectorAll("[data-mod]").forEach((b) => (b.onclick = () => setModule(b.dataset.mod)));
-    // episode rows — ENTER an episode (Production's exit). Selecting one always
-    // switches the active episode; when the creator is still upstream it also
-    // opens the episode's first stage, because that is what "进入本集" means.
-    root.querySelectorAll("[data-ep]").forEach((b) => (b.onclick = () => enterEpisode(b.dataset.ep, null)));
+    // episode rows in the 故事开发 rail — SELECT ONLY. A row switches which episode
+    // is active and expands it; it never changes workspace. The row used to also
+    // navigate, which made 「看一下 EP02」 indistinguishable from 「开始做 EP02」.
+    root.querySelectorAll("[data-ep-choose]").forEach((b) => (b.onclick = () => selectEpisode(b.dataset.epChoose)));
     // cross-module jumps (empty states, director) — EVERY [data-goto] wires
     root.querySelectorAll("[data-goto]").forEach((j) => (j.onclick = () => setModule(j.dataset.goto)));
     if (activeModule === "brief") bindBriefWs(root, ctx, ui, render);
@@ -612,7 +678,8 @@ export function createProduction(getCtx) {
     }
     // --- 剧集制作 (ADR-0061 决策 2): LEFT inspector + CENTER workspace -------- //
     if (spaceOf(activeModule) === "episode") {
-      bindInspector(root, ctx, ui, render);
+      // the SAME node story render() resolved — bind must never re-derive it
+      bindInspector(root, ctx, ui, render, { node: provNode });
       bindEpProd(root, ctx, ui, render, {
         enterEpisode: (id) => enterEpisode(id, null),
         setStage: (k) => setModule(k),
@@ -623,22 +690,35 @@ export function createProduction(getCtx) {
       // graph at a DOM node — its view state (selection, trace mode, scope)
       // lives in its own closure and survives, which is what lets the LEFT
       // inspector keep showing the selected node across a shell re-render.
-      if (activeModule === "provenance") {
+      if (activeModule === EPISODE_DEFAULT) {
         const box = root.querySelector("#ep-graph");
-        if (box && ctx.mountProvenance) ctx.mountProvenance(box, render);
+        // The rerender callback fires ONLY when the graph's selection actually
+        // changed, so it is exactly the point at which the object this column
+        // operates on moves. The unsaved Prompt buffer belongs to the object it
+        // was typed against: carrying it across would offer shot B the text
+        // written for shot A and save it there. Every other selection path
+        // (`setInspect`, a shot card) already drops it for the same reason.
+        if (box && ctx.mountProvenance) {
+          ctx.mountProvenance(box, () => { ui.piPrompt = null; render(); });
+        }
       }
     }
-    // "进入本集" — bound LAST, and centrally: entering an episode is a SHELL
-    // decision (switch the active episode AND open one of its stages), so it
-    // must not be re-implemented per workspace. Binding after the workspaces
-    // means a workspace that also wires the attribute cannot shadow it.
+    // The CROSS-SPACE entrances — bound LAST, and centrally: entering an episode
+    // is a SHELL decision (switch the active episode AND open one of its stages),
+    // so it must not be re-implemented per workspace. Binding after the
+    // workspaces means a workspace that also wires the attribute cannot shadow it.
     //
-    // The two entrances land where their LABEL says they land: 「进入本集」opens
-    // 本集制作, 「进入本集剧本」opens 剧本. One shared target would have made one
-    // of the two buttons lie about where it goes.
+    // 「进入剧集制作 →」 (the rail's exit, and 分集规划's row buttons) is the ONE
+    // way into 剧集制作, and it lands on that space's own centre.
+    // 「进入本集剧本 →」 stays inside 故事开发: 本集剧本 is story development's last
+    // step, so it is not a cross-space jump at all.
+    root.querySelectorAll("[data-ep-produce]").forEach((b) => (b.onclick = (ev) => {
+      ev.stopPropagation();
+      enterEpisode(b.dataset.epProduce, EPISODE_DEFAULT);
+    }));
     root.querySelectorAll("[data-ep-enter]").forEach((b) => (b.onclick = (ev) => {
       ev.stopPropagation();
-      enterEpisode(b.dataset.epEnter, "episode");
+      enterEpisode(b.dataset.epEnter, EPISODE_DEFAULT);
     }));
     root.querySelectorAll("[data-ep-open]").forEach((b) => (b.onclick = (ev) => {
       ev.stopPropagation();
@@ -682,8 +762,9 @@ export function createProduction(getCtx) {
 
   // The module each SPACE opens on when the creator switches into it from the top
   // bar. Remembered per space, so returning to 剧集制作 lands where they were
-  // rather than resetting to the workbench every time (ADR-0061 决策 1).
-  const lastOf = { story: "brief", episode: "workbench", assets: "assets" };
+  // rather than resetting every time (ADR-0061 决策 1). 剧集制作's own default is
+  // its centre — the generation graph.
+  const lastOf = { story: "brief", episode: EPISODE_DEFAULT, assets: "assets" };
 
   return {
     render,
