@@ -109,9 +109,24 @@ def test_origin_is_recorded_only_where_the_caller_named_it() -> None:
 
     app = _code("app.js")
     imp = app.split("importResult: async", 1)[1].split("\n    },", 1)[0]
-    assert "fromSkillRunId ? ctx.skills.originOf(fromSkillRunId) : null" in imp, (
-        "an import that names no run has no origin"
+    # ADR-0061 决策 3 added a SECOND way for the creator to name the run: pressing
+    # 「用于生成」 on a proposal. Both branches are an explicit human statement —
+    # what stays forbidden is INFERRING one, and `pendingOriginFor` refuses to:
+    # it returns only what 「用于生成」 recorded, scoped to that run's own shot.
+    assert "ctx.skills.originOf(fromSkillRunId)" in imp, (
+        "a named run is still the primary origin"
     )
+    assert "ctx.skills.pendingOriginFor(shotId)" in imp, (
+        "the 「用于生成」 intent is the only other source of an origin"
+    )
+    # an import with NEITHER has no origin — the fallback chain must bottom out in
+    # a lookup that can answer null, never in a search for a plausible proposal
+    skills_block = app.split("pendingOriginFor:", 1)[1].split("\n    },", 1)[0]
+    assert "if (!pendingOrigin) return null;" in skills_block, (
+        "no explicit 「用于生成」 → no origin"
+    )
+    for guess in ("nearest", "createdAt >", "slice(-1)"):
+        assert guess not in skills_block, f"{guess} would infer an origin"
 
 
 def test_the_recorded_episode_is_the_one_the_prompt_actually_read() -> None:

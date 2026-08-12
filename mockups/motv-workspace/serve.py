@@ -18,6 +18,7 @@ This is the DEMO (backend-less) launcher. For the connected/paid backend use
 from __future__ import annotations
 
 import argparse
+import sys
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -49,6 +50,25 @@ class _Handler(SimpleHTTPRequestHandler):
         return _MIME.get(ext, "application/octet-stream")
 
 
+def _banner(text: str) -> None:
+    """Print `text` without ever raising on a narrow console encoding.
+
+    `print` on a Windows console encodes through the active code page, and a
+    cp932 / cp1252 console cannot represent this banner's ⚪ or its Chinese. The
+    server has nothing to do with that text, so a failure to display it must not
+    reach `serve_forever`.
+    """
+    stream = sys.stdout
+    encoding = getattr(stream, "encoding", None) or "ascii"
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        # keep every character the console CAN show; mark the rest rather than
+        # dropping them silently, so the line is still recognisable
+        safe = text.encode(encoding, errors="replace")
+        print(safe.decode(encoding, errors="replace"))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="motv-workspace demo static server")
     ap.add_argument("--port", type=int, default=8000)
@@ -57,7 +77,13 @@ def main() -> None:
     root = Path(__file__).resolve().parent
     handler = partial(_Handler, directory=str(root))
     httpd = ThreadingHTTPServer((args.host, args.port), handler)
-    print(f"motv demo (⚪ 演示模式) → http://{args.host}:{args.port}/  (Ctrl+C 退出)")
+    # ADR-0049 makes native Windows a supported RUN target, and a Windows console
+    # is not necessarily UTF-8: on a cp932 (Japanese) console this banner used to
+    # raise UnicodeEncodeError before `serve_forever`, so the demo server died at
+    # startup with a traceback instead of serving. The banner is a courtesy, so it
+    # must never be able to stop the server: print what the console can encode and
+    # replace the rest.
+    _banner(f"motv demo (⚪ 演示模式) → http://{args.host}:{args.port}/  (Ctrl+C 退出)")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

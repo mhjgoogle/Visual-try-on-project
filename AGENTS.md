@@ -68,20 +68,31 @@ L0–S7 阶段/步骤的逻辑输入输出基线见
 ## 2. 技术与环境约束
 
 1. Python 是主要开发语言。
-2. 权威开发/构建/CI/agent 环境为 WSL2 Ubuntu（Windows 宿主机）。自 ADR-0049 起，
-   原生 Windows 是受支持的**运行+测试**目标（流水线、CLI、motv 原型的演示/连接/
-   FFmpeg 渲染、测试套件），文件系统限 NTFS 同卷。
-3. 流水线代码与 agent 工作流只使用 Linux/POSIX 语义的路径与命令；跨平台代码用
-   pathlib/stdlib，不硬编码分隔符或平台专属 syscall（面向 Windows 用户的启动器与
-   运行文档除外，见规则 4 与 ADR-0049）。
-4. 流水线代码与 agent 工作流内不使用 PowerShell、CMD 或 Windows 路径（如
-   `C:\Users\...`）。**例外**：ADR-0049 允许为 Windows 用户提供 `.ps1`/`.bat` 启动器
-   与 PowerShell/CMD 运行文档作为产品入口。
-5. 权威仓库保留在 Ubuntu 文件系统 `/home` 下；未经用户明确要求，不得将活动仓库放在
-   `/mnt/c` 下。（Windows 用户在本机 NTFS 上运行 V1 属 ADR-0049 支持范围。）
-6. 权威开发中 Git、Python、FFmpeg、Claude Code、Codex 在 Ubuntu 内运行；不得假设
-   Windows 侧安装的工具在 Ubuntu 内可用。所有外部工具（ffmpeg/ffprobe/piper/claude）
-   一律经 `shutil.which` 解析、失败即 fail-closed，不得裸名调用（ADR-0049）。
+2. 自 [ADR-0062](docs/adr/ADR-0062-windows-authoritative-environment.md) 起，
+   **权威开发/构建/CI/agent 环境为原生 Windows + NTFS**；Ubuntu / WSL2 与 Linux CI
+   runner 是**受支持目标**。「权威」的含义是**行为差异的裁决者**：两个环境结论不一致
+   时以 Windows 为准；Ubuntu 上的失败仍然是缺陷，只是不再是裁决基准。文件系统限
+   NTFS 同卷（ADR-0049）。
+3. **平台中立，不是 POSIX。** 路径一律走 pathlib/stdlib；**不得硬编码分隔符**，也不得
+   硬编码 `C:\Users\...` 或 `/home/...`；不得使用平台专属 syscall。
+   反转的是权威归属，**不是**「代码可以开始关心自己跑在哪」（ADR-0062 决策 2）。
+   注意：权威环境从 Linux 换成 Windows 后，「权威是 Linux」这个天然的可移植性执行者
+   消失了——**因此受支持目标的 Ubuntu CI job 必须绿这一点比以前更重要，不是更不重要。**
+4. **流水线与产品代码**内不使用 PowerShell、CMD 或平台专属路径——这一条不变。
+   变的是 **agent 工装**：`.claude/hooks/`、skill 脚本及其 settings 接线以 PowerShell
+   (`.ps1`) 为**权威实现**，对应 `.sh` 变体保留以服务 Ubuntu 目标，两者共享 ADR-0050
+   决策 1 的同一行为合同表，必须给出相同判定（ADR-0062 决策 3）。面向 Windows 用户的
+   `.ps1`/`.bat` 启动器就是主入口，不再是「例外」。
+5. 权威仓库位于 Windows NTFS（当前 `D:\02_Work\04_video-work\Visual-try-on-project`）。
+   在 WSL 内对该仓库执行 git 时**必须对齐行尾语义**，否则 diff 完全失真（实测
+   149,986 行 vs 1,918 行）：
+   `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.autocrlf GIT_CONFIG_VALUE_0=true`。
+   不改共享配置。
+6. 所有外部工具（ffmpeg/ffprobe/piper/claude/codex/node）一律经 `shutil.which`
+   解析、**失败即 fail-closed**，不得裸名调用（ADR-0049 / ADR-0062 决策 2）。
+   Windows 权威下这条更容易被触发且**必须如实报告**：安装器改了 PATH，但早于安装
+   启动的进程（agent shell、commit gate 的 hook）看不到新 PATH——正确处理是重启会话，
+   不是让代码去猜路径。
 7. Python 依赖必须安装在项目虚拟环境（venv）内，不污染系统环境。
 
 ## 3. 架构约束
@@ -113,9 +124,25 @@ pause/cancel/skip 状态。
 ## 5. 质量规则
 
 19. 新功能必须有测试。
-20. 每个任务完成后必须运行格式化、静态检查和测试，并确保全部通过。
-21. 重大设计变更必须创建 ADR（Architecture Decision Record，存放于 `docs/adr/`）。
+20. 测试按**风险分级**运行，规模与改动风险匹配，不是每次改动都跑全量：
 
+    | 风险 | 改动内容 | 运行 |
+    | --- | --- | --- |
+    | 低 | CSS、布局、间距、排版、纯展示组件组合、静态文案 | 相关前端测试 + 手动 smoke |
+    | 中 | 交互、导航、read model、派生视图状态、筛选/排序/选择 | 受影响的前端/单元测试 + 必要时定向 pytest |
+    | 高 | 持久化、schema/迁移、资产登记、生成登记、时间线、渲染/文件操作、存储生命周期、Windows 可移植性/安全 | **全量 pytest + 全量前端 + ruff + Codex 独立审查** |
+
+    本地 commit gate 按 [ADR-0060](docs/adr/ADR-0060-risk-based-local-commit-gate.md)
+    的保守 allowlist 选择检查；高风险与无法分类的改动必须跑全量。全量测试仍是
+    有意义的 checkpoint、合并前 CI 与高风险代码变更的硬门槛。
+    UI 迭代不得每次触发 2800+ 项 pytest（一轮约 6.5 分钟，纯粹浪费用户时间）。
+
+    **真实 Connected Project 是主要验收环境**（2026-08-11 起）：demo seed 与 SVG
+    占位素材不再作为主要验收依据——它们会掩盖只有真实媒体才暴露的缺陷（实例见
+    [TASK-055 §5](docs/tasks/TASK-055-project-rooted-storage.md)：保存镜头会静默
+    丢失景别/角度/情绪、视频资产被放进 `<img>`）。发现真实数据问题时**优先如实
+    报告，不得用 mock 绕过**。
+21. 重大设计变更必须创建 ADR（Architecture Decision Record，存放于 `docs/adr/`）。
 ## 6. Git 与安全规则
 
 22. 未经用户明确要求，不得 `commit`、`push` 或 `merge`。

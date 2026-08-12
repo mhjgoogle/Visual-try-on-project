@@ -77,15 +77,25 @@ def test_production_rail_is_upstream_only() -> None:
         assert key in nav, f"upstream rail is missing {key}"
     for key in ('"frames"', '"video"', '"audio"', '"edit"', '"shots"'):
         assert key not in nav, f"downstream stage {key} must not be in the project rail"
-    assert '"作品开发"' in nav
-    # the episode stages exist, nested under the entered episode
+    # ADR-0061 决策 1 renamed this space 故事开发 (「把故事写出来」) and extended it to
+    # end at 本集剧本 — media production moved out to the 剧集制作 space entirely.
+    assert '"故事开发"' in nav
+    assert '"script"' in nav, "story development ends at the episode script"
+    # The episode's production stages are the 剧集制作 space's centre tabs
+    # (ADR-0061 决策 2) rather than a sub-tree nested under an episode row.
     episode_nav = shell[
-        shell.index("export const EPISODE_NAV") : shell.index(
-            "export const EPISODE_MODULES"
-        )
+        shell.index("export const EPISODE_NAV") : shell.index("export const ASSET_NAV")
     ]
-    for key in ('"script"', '"shots"', '"frames"', '"video"', '"audio"', '"edit"'):
+    for key in ('"shots"', '"frames"', '"video"', '"audio"', '"edit"'):
         assert key in episode_nav
+    # 剧本 is NOT here: story development ends at the episode script, and 剧集制作
+    # begins FROM it. Both spaces claiming it is exactly the overlap ADR-0061 removed.
+    assert '"script"' not in episode_nav, "本集剧本 belongs to 故事开发, not 剧集制作"
+    # the unified workbench leads, and the provenance VIEW is part of this space
+    assert '"workbench"' in episode_nav
+    assert '"provenance"' in episode_nav
+    # …and no second flow model on any creator path
+    assert '"canvas"' not in episode_nav
 
 
 def test_creative_brief_lives_in_the_existing_story_document() -> None:

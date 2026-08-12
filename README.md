@@ -18,25 +18,62 @@ The logical input/output contract for every Project/L0/S1-S7 step is in
 
 ## Development Setup
 
-WSL2 Ubuntu is the authoritative development/build environment. Run these
-commands from the repository root:
+Since [ADR-0062](docs/adr/ADR-0062-windows-authoritative-environment.md),
+**native Windows on NTFS is the authoritative development/build/CI/agent
+environment**; Ubuntu / WSL2 is a **supported target**, verified by the
+`ubuntu-latest` CI job. A local WSL install is optional convenience, not a
+requirement — nothing in daily development needs it.
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
+"Authoritative" means *tie-breaker*: when the two disagree, Windows decides. A
+failure on Ubuntu is still a defect — and its CI job matters **more** than it
+did before, because Linux is no longer automatically punishing Windows-only
+assumptions (AGENTS.md §3).
+
+In PowerShell from the repository root:
+
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 python -c "import ai_video_workflow; print(ai_video_workflow.__name__)"
 python -m ruff format --check .
 python -m ruff check .
 python -m pytest
+node --test mockups/motv-workspace/tests/*.test.mjs
 ```
 
-### Native Windows (run + test target, ADR-0049)
+Node (for the motv frontend units) and FFmpeg/ffprobe (for render) must be on
+`PATH`. Every external tool is resolved through `shutil.which` and fails closed,
+so a missing one is reported rather than guessed at — note that a process started
+*before* an installer changed `PATH` will not see the new entry, and the fix is to
+restart the shell, not to hard-code a path (AGENTS.md §6).
 
-Since [ADR-0049](docs/adr/ADR-0049-native-windows-run-and-test-target.md),
-native Windows (Windows Python, no WSL) is a **supported run and test target**
-on **NTFS**. In PowerShell from the repository root:
+### Ubuntu / WSL2 (supported target)
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+python -m ruff check .
+python -m pytest
+```
+
+Running `git` against this NTFS checkout **from inside WSL** must align the
+line-ending semantics, or every text file reads as wholly modified (measured:
+149,986 diff lines instead of 1,918):
+
+```bash
+GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.autocrlf GIT_CONFIG_VALUE_0=true git diff
+```
+
+`wsl --shutdown` releases its memory when you are done (measured 1.05 GB → 0.03 GB).
+
+### Windows specifics (ADR-0049)
+
+The V1 baseline runs natively on **NTFS**, same volume. In PowerShell from the
+repository root:
 
 ```powershell
 py -3 -m venv .venv
@@ -59,10 +96,25 @@ Or use the launcher (creates the venv, installs deps, opens the demo studio):
 ```
 
 FFmpeg/ffprobe (real render/probe) and, optionally, Piper (local TTS) must be
-installed and on `PATH` (e.g. `choco install ffmpeg`); there is no `apt`. The
-bash AI-agent dev tooling (commit-gate hook, codex-review-loop) is not ported
-and remains WSL2/Ubuntu-only. Windows CI (`.github/workflows/ci.yml`) is the
-verification of record for this target.
+installed and on `PATH` (e.g. `choco install ffmpeg`); there is no `apt`.
+Windows CI (`.github/workflows/ci.yml`) is the verification of record for this
+target.
+
+The AI-agent dev tooling (commit-gate hook, codex-review-loop) has
+PowerShell-native equivalents for a Windows agent host —
+[`.claude/hooks/gate.ps1`](.claude/hooks/gate.ps1) and
+[`run-review.ps1`](.claude/skills/codex-review-loop/scripts/run-review.ps1),
+per [ADR-0050](docs/adr/ADR-0050-powershell-native-agent-dev-tooling.md). Since
+[ADR-0062](docs/adr/ADR-0062-windows-authoritative-environment.md) **the `.ps1`
+side is the authoritative implementation** and the `.sh` side serves the Ubuntu
+target; both share one behaviour contract and must reach the same verdict. Both
+are registered as hooks and each stands down off its own platform, so a fresh
+checkout is gated either way.
+
+Tests whose fixture needs a real symlink skip on a Windows host without
+symlink-creation privilege; enable **Developer Mode** (Settings → System → For
+developers) to run them locally. They always run on Linux and in Windows CI,
+which stays the verification of record for those guards.
 
 ## Minimal Loop (M1)
 
