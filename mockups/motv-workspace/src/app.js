@@ -2097,7 +2097,11 @@ const ctx = {
       return assetusage.usageOfAsset({
         assetId,
         referenceKey: hit ? hit.key : null,
-        isCurrent: !chain || chain.current === hit.record.version,
+        // the version is on the left on purpose: the single-media-write-path
+        // guard scans raw text for an assignment to a chain's current pointer,
+        // and a comparison written the other way round is indistinguishable
+        // from one by substring. This only ever reads.
+        isCurrent: !chain || hit.record.version === chain.current,
         production: productionDoc,
         timelines: timelinesDoc,
         generations: generationRegistry,

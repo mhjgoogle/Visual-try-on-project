@@ -275,8 +275,12 @@ def test_the_provenance_spine_exists_and_is_authored_not_generated() -> None:
     for maker in ("script:", "scene:", "shot:"):
         assert maker in prov
     assert 'story.provenance = "authored"' in prov
-    # an episode with no script gets NO node rather than an empty one
-    assert "if (text) {" in prov
+    # an episode with no script — including one whose draft was CLEARED — gets
+    # NO node rather than an empty one (codex review 轮 B2/B3)
+    assert "if (text.trim()) {" in prov
+    # …and the text itself follows scriptdoc.currentText exactly, so the graph
+    # can never show script the workspace beside it no longer has
+    assert 'if (typeof doc.workingText === "string") return doc.workingText;' in prov
     # a shot the draft no longer holds is kept and flagged, never dropped
     assert "dangling: !s || s.dangling === true" in prov
 
