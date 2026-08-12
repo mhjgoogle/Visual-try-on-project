@@ -83,15 +83,25 @@ export function referencePlan({ view, bindings, references, sceneOf, names }) {
   for (const { shot } of shots) {
     const scene = sceneOf(shot.shotId);
     if (!scene) continue;
-    const bound = new Set(bindings(shot.shotId) || []);
-    const kindsBound = new Set(
-      [...bound].map((k) => (byKey.get(k) || {}).kind).filter(Boolean),
-    );
+    // What this shot is bound to, BY SUBJECT — not merely by kind. Asking only
+    // "does it have a character reference" made one bound reference cover every
+    // character in the scene: bind 林晚's reference to a two-hander and 陈默's
+    // gap silently disappeared, which is the exact question this page exists to
+    // answer. The same holds for a location: a reference for a DIFFERENT
+    // location is not this location's reference.
+    const boundChars = new Set();
+    const boundLocs = new Set();
+    for (const k of bindings(shot.shotId) || []) {
+      const ref = byKey.get(k);
+      if (!ref || !ref.links) continue;
+      if (ref.kind === "character-reference" && ref.links.characterId) boundChars.add(ref.links.characterId);
+      if (ref.kind === "location-reference" && ref.links.locationId) boundLocs.add(ref.links.locationId);
+    }
     for (const cid of scene.characterIds || []) {
       const need = `character:${cid}:${shot.shotId}`;
       if (seenNeed.has(need)) continue;
       seenNeed.add(need);
-      if (kindsBound.has("character-reference")) continue;
+      if (boundChars.has(cid)) continue;
       // an existing reference already covers this character → suggest REUSE
       const existing = [...byKey.values()].find(
         (r) => r.kind === "character-reference" && r.links.characterId === cid,
@@ -110,7 +120,7 @@ export function referencePlan({ view, bindings, references, sceneOf, names }) {
       const need = `location:${scene.locationId}:${shot.shotId}`;
       if (!seenNeed.has(need)) {
         seenNeed.add(need);
-        if (!kindsBound.has("location-reference")) {
+        if (!boundLocs.has(scene.locationId)) {
           const existing = [...byKey.values()].find(
             (r) => r.kind === "location-reference" && r.links.locationId === scene.locationId,
           );

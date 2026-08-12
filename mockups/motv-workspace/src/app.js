@@ -1765,6 +1765,10 @@ const ctx = {
       const all = assetreg.listReferences(assetRegistry).map((r) => ({
         key: r.key, kind: r.kind, name: assetreg.derivedLabel(r),
         version: r.version, assetId: r.assetId, url: r.url, links: r.links,
+        // carried so the picker can say 已归档 / 字节已移除 instead of
+        // rendering a broken image — the reference still exists and is still
+        // bindable; only its bytes are away
+        storageState: r.storageState || "local",
       }));
       const owner = proddoc.sceneOfShot(productionDoc, shotId);
       const wantChar = new Set((owner ? owner.scene.characterRefs || [] : []).map((r) => r.characterId));
@@ -2230,6 +2234,23 @@ const ctx = {
       const slug = kind === "image" ? `assets-${slot}` : `video-${slot}`;
       const domain = kind === "image" ? "images" : "videos";
       const declKind = kind === "image" ? "shot-image" : "shot-video";
+      // The DECLARED kind comes from which entry the creator used; the FILE has
+      // to agree with it. A file input's `accept` is a hint the picker can be
+      // told to ignore, so without this an mp4 chosen under 「图片」 would be
+      // registered into the images chain as a `shot-image` — a registration
+      // that states something the bytes contradict, and the one thing CP2's
+      // rules exist to prevent. Checked BEFORE the upload, so a refusal never
+      // leaves a file on disk.
+      const fileDomain = mediaDomainOfFile(file);
+      if (!fileDomain) {
+        throw new Error("无法识别文件类型：请上传 png/jpg/webp 或 mp4/webm");
+      }
+      if (fileDomain !== domain) {
+        throw new Error(
+          `这是${fileDomain === "videos" ? "视频" : fileDomain === "audio" ? "音频" : "图片"}文件，` +
+          `但当前是「${kind === "image" ? "图片" : "视频"}」入口——切换到对应的入口再导入`,
+        );
+      }
       // checked BEFORE the upload — see ctx.audio.importKey
       const pre = assetreg.checkDeclaration(domain, { kind: declKind });
       if (pre) throw new Error(`登记被拒绝，未上传：${pre}`);

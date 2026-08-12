@@ -236,6 +236,41 @@ test("a gap is a QUESTION: the scene names a subject with no reference bound", (
   assert.equal(m.have.length, 0);
 });
 
+test("a bound reference covers ITS subject only — never every character in the scene", () => {
+  // codex review, TASK-061 round A: asking only "does this shot have SOME
+  // character reference" made one binding cover a whole two-hander — bind 林晚's
+  // reference and 陈默's gap silently disappeared, which is the exact question
+  // this page exists to answer.
+  const { p, s1 } = production();
+  p.characters.push({
+    characterId: "ch-chen", name: "陈默", tier: "formal", profile: {}, states: [],
+    referenceAssetIds: [], activeReferenceAssetId: null,
+    voice: { voiceId: null, description: "", performance: {} },
+  });
+  pd.findScene(p, s1).scene.characterRefs = [
+    { characterId: "ch-lin", stateId: null }, { characterId: "ch-chen", stateId: null },
+  ];
+  const lin = ref("ref-lin", "character-reference", "林晚 Ref", { characterId: "ch-lin" });
+  const m = plan(p, { bindings: { sh01: ["ref-lin"], sh02: ["ref-lin"] }, references: [lin] });
+  // 林晚 is covered on both shots…
+  assert.equal(m.missing.some((x) => x.subjectId === "ch-lin"), false);
+  assert.equal(m.reuse.some((x) => x.subjectId === "ch-lin"), false);
+  // …and 陈默 is still missing on both, which is the whole point
+  const chen = m.missing.find((x) => x.subjectId === "ch-chen");
+  assert.ok(chen, "the other character's gap must survive");
+  assert.deepEqual(chen.shotIds.sort(), ["sh01", "sh02"]);
+});
+
+test("a bound reference for ANOTHER location does not cover this scene's location", () => {
+  const { p } = production();
+  const elsewhere = ref("ref-roof", "location-reference", "天台 Ref", { locationId: "lo-roof" });
+  const m = plan(p, { bindings: { sh01: ["ref-roof"] }, references: [elsewhere] });
+  const loc = m.missing.find((x) => x.kind === "location-reference");
+  assert.ok(loc, "夜班酒吧 still has no reference of its own");
+  assert.equal(loc.subjectId, "lo-bar");
+  assert.ok(loc.shotIds.includes("sh01"));
+});
+
 test("when a reference for the subject already exists, the plan says REUSE, not create", () => {
   const { p } = production();
   const lin = ref("ref-lin", "character-reference", "林晚 Ref", { characterId: "ch-lin" });
@@ -382,6 +417,25 @@ test("the picker offers 已绑定 / 本集推荐 / 资产库 / 临时上传, and
   // an upload entrance for each role, all going through the SAME registration
   for (const [role] of REFERENCE_ROLES) assert.match(html, new RegExp(`data-ep-upload="${role}"`));
   assert.match(html, /绝不产生孤立文件/);
+});
+
+test("an archived reference is named as archived — never drawn as a broken image", () => {
+  // codex review, TASK-061 round A2: a broken-image glyph says "something went
+  // wrong" when the truth is "these bytes were deliberately put away", and the
+  // creator cannot tell those apart. The reference still exists and is still
+  // bindable — only its bytes are elsewhere.
+  const { p } = production();
+  const away = { ...barRef, storageState: "archived" };
+  const ctx = fakeCtx({ prod: p });
+  ctx.episode.pickerModel = () => ({
+    bound: [], suggested: [{ ...linRef, storageState: "local" }], library: [away],
+  });
+  const html = renderEpisodeWs(ctx, { epShotId: "sh01", epPanel: "refs" });
+  assert.match(html, /已归档/);
+  assert.ok(!html.includes(`src="${away.url}"`), "no <img> is pointed at bytes that are away");
+  assert.match(html, new RegExp(`src="${linRef.url}"`), "…while a local one still shows its picture");
+  // it is still offered for binding: storage state is a fact about the file
+  assert.match(html, new RegExp(`data-ep-bind="${away.key}"`));
 });
 
 test("the generation panel shows the input set and admits what it does not know", () => {

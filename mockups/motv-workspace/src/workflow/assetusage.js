@@ -79,11 +79,20 @@ export function usageOfAsset({
     // nothing here. `kind` stays part of the key — a Character's reference
     // material and a Shot's binding are different KINDS of dependency on the
     // same asset, and collapsing them would under-report real usage.
+    //
+    // The key must name the SUBJECT too. A bible reference has no episode,
+    // scene or shot — every field but `kind` is empty — so one photo used as
+    // both 林晚's and 陈默's reference material collapsed into a single place
+    // and the library reported it as depended on half as much as it is. That is
+    // the same under-reporting this de-duplication exists to prevent, from the
+    // other direction.
     const key = JSON.stringify([
       place.kind,
       place.episodeId || "",
       place.sceneId || "",
       place.shotId || "",
+      place.characterId || "",
+      place.locationId || "",
       place.extra || "",
     ]);
     if (seen.has(key)) return; // the same place is reported ONCE (see header)

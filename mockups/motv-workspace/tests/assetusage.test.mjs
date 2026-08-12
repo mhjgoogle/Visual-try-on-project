@@ -90,6 +90,31 @@ test("usage is DE-DUPLICATED: the same place is never counted twice", () => {
   assert.deepEqual(tl.map((x) => x.shotId).sort(), ["sh01", "sh02"]);
 });
 
+test("de-duplication names the SUBJECT: two characters using one photo are two places", () => {
+  // codex review, TASK-061 round A2: a bible reference has no episode, scene or
+  // shot, so a key built only from those collapsed 林晚's and 陈默's shared
+  // reference into ONE place — the library then reported it as depended on half
+  // as much as it really is, which is the same under-reporting the de-dup rule
+  // exists to prevent, from the other direction.
+  const { p } = production();
+  p.characters.push({
+    characterId: "ch-chen", name: "陈默", tier: "formal", profile: {}, states: [],
+    referenceAssetIds: ["a-charref"], activeReferenceAssetId: "a-charref",
+    voice: { voiceId: null, description: "", performance: {} },
+  });
+  p.locations.push({
+    locationId: "lo-roof", name: "天台", profile: {}, states: [],
+    referenceAssetIds: ["a-charref"], activeReferenceAssetId: "a-charref",
+  });
+  const u = usageOfAsset({ assetId: "a-charref", production: p, timelines: {}, generations: [] });
+  const chars = u.places.filter((x) => x.kind === "character-ref");
+  assert.equal(chars.length, 2, "林晚 and 陈默 are two distinct dependencies");
+  assert.deepEqual(chars.map((x) => x.characterId).sort(), ["ch-chen", "ch-lin"]);
+  // …and a location using the same photo is a third, different kind of place
+  assert.equal(u.places.filter((x) => x.kind === "location-ref").length, 1);
+  assert.equal(u.count, 3);
+});
+
 // --- 3. scene / episode audio -------------------------------------------------
 
 test("scene ambience and episode BGM are found and named", () => {

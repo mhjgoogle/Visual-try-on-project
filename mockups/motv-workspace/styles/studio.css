@@ -950,8 +950,8 @@
 .dl-design dd { margin: 0; }
 .dl-nodesign { font-size: 12px; color: var(--text-faint); }
 .dl-strip { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
-.dl-chip { min-width: 30px; height: 26px; padding: 0 7px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--fg); font-size: 12px; cursor: pointer; }
-.dl-chip.on { border-color: var(--acc); box-shadow: inset 0 0 0 1px var(--acc); }
+.dl-chip { min-width: 30px; height: 26px; padding: 0 7px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--text); font-size: 12px; cursor: pointer; }
+.dl-chip.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .dl-chip.ok { background: color-mix(in srgb, var(--ok) 22%, transparent); border-color: var(--ok); }
 .dl-chip.novideo { opacity: .5; border-style: dashed; }
 @media (max-width: 1100px) { .dl-wrap { grid-template-columns: minmax(0, 1fr); } }
@@ -960,21 +960,22 @@
 
 /* --- Asset Library: visual-first Production Memory (CP5 / ADR-0058) ------- */
 .al-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
-.al-tab { padding: 5px 11px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--fg); font-size: 12px; cursor: pointer; }
-.al-tab.on { border-color: var(--acc); background: color-mix(in srgb, var(--acc) 14%, transparent); }
+.al-tab { padding: 5px 11px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--text); font-size: 12px; cursor: pointer; }
+.al-tab.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .al-tab b { opacity: .6; font-weight: 600; margin-left: 3px; }
 .al-bar2 { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
 .al-search { flex: 1 1 240px; min-width: 180px; }
-.al-sel { background: var(--panel, #14161d); color: var(--fg); border: 1px solid var(--line); border-radius: 7px; padding: 5px 8px; font-size: 12px; }
+.al-sel { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 5px 8px; font-size: 12px; }
 .al-toggle { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-faint); }
 .al-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
 .al-tagchip { padding: 3px 9px; border: 1px dashed var(--line); border-radius: 999px; background: transparent; color: var(--text-faint); font-size: 11px; cursor: pointer; }
-.al-tagchip.on { border-style: solid; border-color: var(--acc); color: var(--fg); }
+.al-tagchip.on { border-style: solid; border-color: var(--accent); color: var(--text); }
 .al-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0fr); gap: 16px; align-items: start; }
 .al-body:has(.al-insp) { grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); }
 .al-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 12px; }
-.al-card { display: flex; flex-direction: column; gap: 0; padding: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--panel, #14161d); overflow: hidden; cursor: pointer; text-align: left; color: var(--fg); }
-.al-card:hover { border-color: var(--acc); }
+/* the card is an <article>; only its caption is the button (see card()) */
+.al-card { display: flex; flex-direction: column; gap: 0; padding: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); overflow: hidden; text-align: left; color: var(--text); }
+.al-card:hover { border-color: var(--line-2); }
 .al-card.needs { border-style: dashed; }
 .al-media { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; display: block; background: #0b0d12; }
 .al-insp-media .al-media { aspect-ratio: auto; max-height: 42vh; object-fit: contain; }
@@ -982,12 +983,14 @@
 .al-wave .ic { font-size: 20px; opacity: .7; }
 .al-wave audio { width: 100%; height: 30px; }
 .al-gone { display: grid; place-items: center; gap: 4px; color: var(--text-faint); font-size: 12px; }
-.al-cap { padding: 8px 10px; display: grid; gap: 5px; }
+.al-cap { padding: 8px 10px; display: grid; gap: 5px; width: 100%; text-align: left;
+  background: none; border: 0; color: inherit; font: inherit; cursor: pointer; }
+.al-cap:hover { background: var(--panel-2); }
 .al-name { font-size: 12.5px; font-weight: 600; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .al-sub { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 11px; }
 .al-use { color: var(--text-faint); }
 .al-use.muted { opacity: .6; }
-.al-insp { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: var(--panel, #14161d); display: grid; gap: 10px; align-content: start; position: sticky; top: 8px; max-height: calc(100vh - 90px); overflow: auto; }
+.al-insp { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: var(--panel); display: grid; gap: 10px; align-content: start; position: sticky; top: 8px; max-height: calc(100vh - 90px); overflow: auto; }
 .al-insp-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .al-insp h4 { margin: 6px 0 0; font-size: 12px; color: var(--text-faint); font-weight: 600; }
 .al-info { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: 12px; }

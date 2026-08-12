@@ -225,9 +225,22 @@ export function renderEpisodeWs(ctx, ui) {
 /** The Reference picker — three entrances, exactly as specified. */
 function refPanel(ctx, ui) {
   const p = ctx.episode.pickerModel(ui.epShotId);
+  // A reference whose bytes are archived or removed still EXISTS and can still
+  // be bound — its storage state is a fact about the file, not about the
+  // reference. But it must not be rendered as a picture: a broken-image glyph
+  // says "something went wrong here" when the truth is "these bytes were
+  // deliberately put away", and the creator cannot tell those apart.
+  const STATE_LABEL = { archived: "已归档", removed: "字节已移除", missing: "字节不在" };
+  const thumb = (r) =>
+    r.url && r.storageState === "local"
+      ? `<img class="rp-thumb sm" src="${esc(r.url)}" alt="">`
+      : `<span class="rp-thumb sm rp-none" title="${esc(STATE_LABEL[r.storageState] || "没有可预览的画面")}">⃠</span>`;
   const row = (r, action) =>
-    `<li>${r.url ? `<img class="rp-thumb sm" src="${esc(r.url)}" alt="">` : `<span class="rp-thumb sm rp-none">⃠</span>`}` +
-    `<span class="ep-pickname">${nameWithVersion(r.name, r.version)}</span>${action}</li>`;
+    `<li>${thumb(r)}<span class="ep-pickname">${nameWithVersion(r.name, r.version)}` +
+    (r.storageState && r.storageState !== "local"
+      ? ` <span class="chip">${esc(STATE_LABEL[r.storageState] || r.storageState)}</span>`
+      : "") +
+    `</span>${action}</li>`;
   return (
     `<div class="ep-panel"><div class="ep-panelhead"><b>为这个镜头选择参考</b>` +
     `<button class="btn" data-ep-close>关闭</button></div>` +
@@ -266,8 +279,21 @@ function genPanel(ctx, ui) {
   }).join("");
   const frame = (f, label) =>
     `<dt>${esc(label)}</dt><dd>${f ? `${esc(f.name)}` : `<span class="muted">—</span>`}</dd>`;
+  // Gaps in the input set are shown BEFORE the actions, not under them: a list
+  // of what is missing printed below an equally-ready-looking button is a note
+  // nobody reads until afterwards.
+  //
+  // They do NOT disable the import. A creator who already generated the video
+  // elsewhere has a real take for this shot; refusing to register it because
+  // this system never saw a first frame would lose real work and push them onto
+  // a path with WORSE provenance. What we record instead is the truth — an
+  // input the records do not prove is left empty, never invented. The one
+  // refusal is structural and lives in the controller: a shot whose identity
+  // cannot be resolved has nowhere to put the media at all.
   const blockers = g.missing.length
-    ? `<ul class="ep-blockers">${g.missing.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`
+    ? `<div class="ep-blockers"><b>输入集合还缺：</b>` +
+      `<ul>${g.missing.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` +
+      `<span>仍然可以导入已经在外部生成好的结果——缺的部分会如实记为「未记录」，不会被补全成看起来合理的值。</span></div>`
     : "";
   return (
     `<div class="ep-panel"><div class="ep-panelhead"><b>生成任务 · ${esc(set.design ? set.design.title : "")}</b>` +
@@ -287,12 +313,12 @@ function genPanel(ctx, ui) {
     `</dl>` +
     `<h4>Prompt</h4>` +
     `<textarea class="field ep-prompt" rows="8" spellcheck="false">${esc(g.prompt)}</textarea>` +
+    blockers +
     `<div class="ep-acts">` +
     `<button class="btn" data-ep-copy>复制 Prompt</button>` +
     `<button class="btn" data-ep-recompile>重新编译</button>` +
-    `<label class="btn primary ep-importlbl">上传外部生成结果<input type="file" class="ep-import" accept="${(ui.epGenKind || "image") === "image" ? "image/*" : "video/*"}" hidden></label>` +
+    `<label class="btn primary ep-importlbl">上传外部生成结果<input type="file" class="ep-import" accept="${(ui.epGenKind || "image") === "image" ? "image/png,image/jpeg,image/webp" : "video/mp4,video/webm"}" hidden></label>` +
     `</div>` +
-    blockers +
     `<p class="rp-note">上传后会立刻登记为 Asset、绑定到这个镜头、冻结当前 Prompt 与参考输入，并出现在 Workflow 溯源里。</p>` +
     `</div>`
   );

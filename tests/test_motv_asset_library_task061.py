@@ -92,11 +92,18 @@ def test_the_library_is_visual_first_and_ids_are_not_the_main_surface() -> None:
     """path / assetId / storageState 退到 Inspector 的技术详情折叠区。"""
     lib = _code("ui", "assetlibws.js")
     card = lib.split("\nfunction card(a)", 1)[1].split("\nfunction ", 1)[0]
-    # the id may be the CLICK TARGET, but it must never be rendered as text
+    # the id may be a CLICK TARGET, but it must never be rendered as text
     assert 'data-al-open="${esc(a.assetId)}"' in card
     for id_ish in ("a.storageState", "a.path", "a.url}", "a.key"):
         assert id_ish not in card, f"{id_ish} must not be on the card face"
-    assert card.count("a.assetId") == 1, "assetId appears only as the click target"
+    # every mention of the id is inside a data- attribute, never in the markup's
+    # text (there are two: the article opens the asset, the caption is the
+    # keyboard-reachable button — see card())
+    assert card.count("a.assetId") == card.count(
+        'data-al-card="${esc(a.assetId)}"'
+    ) + card.count('data-al-open="${esc(a.assetId)}"'), (
+        "assetId may only appear as a data- click target"
+    )
     # the card shows real media, and says what the creator recognises it by
     assert "preview(a)" in card
     assert "a.name" in card
@@ -166,6 +173,61 @@ def test_the_manual_route_records_the_same_generation_shape() -> None:
     assert "intent.seed" in media
     # …and the older prompt-only entry keeps working (no route was broken)
     assert "promptSnapshot: intent.prompt" in media
+
+
+def test_the_declared_kind_must_agree_with_the_file() -> None:
+    """codex review 轮 A：`accept` 只是提示，选择器可以被要求忽略它。若不校验，
+    在「图片」入口选一个 mp4 会把视频登记成 shot-image——一条被字节反驳的登记，
+    正是 CP2 规则要防的那件事。"""
+    app = _code("app.js")
+    media = app.split("importShotMedia: async", 1)[1].split("useAsFirstFrame:", 1)[0]
+    assert "mediaDomainOfFile(file)" in media
+    assert "fileDomain !== domain" in media
+    # …and it is checked BEFORE the upload, so a refusal leaves nothing on disk
+    upload_at = media.index("query.uploadAssetImage")
+    assert media.index("fileDomain !== domain") < upload_at, (
+        "the mismatch must be refused before any byte is written"
+    )
+
+
+def test_a_bound_reference_covers_its_own_subject_only() -> None:
+    """codex review 轮 A：只问「有没有某类参考」会让一个绑定覆盖整场戏的所有
+    角色——绑定林晚的参考，陈默的缺口就静默消失了。"""
+    plan = _code("ui", "refplan.js")
+    assert "boundChars" in plan and "boundLocs" in plan
+    assert "boundChars.has(cid)" in plan
+    assert "boundLocs.has(scene.locationId)" in plan
+    # the old kind-only test must be gone, not merely supplemented
+    assert 'kindsBound.has("character-reference")' not in plan
+    assert 'kindsBound.has("location-reference")' not in plan
+
+
+def test_no_interactive_control_is_nested_inside_a_button() -> None:
+    """codex review 轮 A：`<audio controls>` 套在卡片的外层 <button> 里是无效
+    HTML，浏览器可能把播放键的点击路由给外层按钮——按播放却打开了 Inspector。"""
+    lib = _code("ui", "assetlibws.js")
+    card = lib.split("\nfunction card(a)", 1)[1].split("\nfunction ", 1)[0]
+    assert "<article" in card, "the card is an article; only its caption is a button"
+    assert card.count("<button") == 1
+    # the preview (which may carry <audio>/<video> controls) sits OUTSIDE it
+    assert card.index("preview(a)") < card.index("<button")
+
+
+def test_every_css_custom_property_is_defined() -> None:
+    """自查发现的一整类缺陷：`--card` / `--muted` / `--warn` / `--acc` / `--fg`
+    从未在 tokens.css 里定义过，所以每个 background 都是透明的、每个 color 都
+    继承了正文色。一个拼错的 token 不会报错，它只是安静地什么都不做。"""
+    styles = _MOCKUP_DIR / "styles"
+    defined = set(
+        re.findall(r"(--[a-z0-9-]+)\s*:", (styles / "tokens.css").read_text("utf-8"))
+    )
+    for name in ("studio.css", "wfgraph.css"):
+        css = (styles / name).read_text("utf-8")
+        local = set(re.findall(r"(--[a-z0-9-]+)\s*:", css))
+        # a var() WITH a fallback is a deliberate optional; a bare one is a bug
+        used = set(re.findall(r"var\((--[a-z0-9-]+)\s*\)", css))
+        missing = sorted(used - defined - local)
+        assert not missing, f"{name} uses undefined tokens: {missing}"
 
 
 def test_the_provenance_spine_exists_and_is_authored_not_generated() -> None:

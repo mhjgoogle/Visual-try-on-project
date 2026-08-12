@@ -170,19 +170,30 @@ function preview(a, { big = false } = {}) {
   return `<div class="al-media al-gone"><span class="ic">?</span><span>未知媒体</span></div>`;
 }
 
+/** A library card.
+ *
+ *  An <article> with a <button> caption, NOT one big <button>: an audio card
+ *  carries `<audio controls>`, and a control nested inside a button is invalid
+ *  HTML whose clicks the browser may route to the outer button — pressing play
+ *  opened the inspector instead of playing.
+ *
+ *  The whole card still opens the asset, but through a click handler on the
+ *  article that ignores clicks landing inside a media control (see
+ *  bindAssetLibrary). The caption stays a real <button> so the card is
+ *  reachable and operable from the keyboard, which a bare click handler is not. */
 function card(a) {
   const use = a.usage.count;
   return (
-    `<button class="al-card${a.needsReview ? " needs" : ""}" data-al-open="${esc(a.assetId)}">` +
+    `<article class="al-card${a.needsReview ? " needs" : ""}" data-al-card="${esc(a.assetId)}">` +
     preview(a) +
-    `<div class="al-cap">` +
-    `<div class="al-name">${esc(a.name)}</div>` +
-    `<div class="al-sub">` +
+    `<button class="al-cap" data-al-open="${esc(a.assetId)}">` +
+    `<span class="al-name">${esc(a.name)}</span>` +
+    `<span class="al-sub">` +
     `<span class="chip">${esc(a.kindLabel)}</span>` +
     (a.reusable ? `<span class="chip ok">可复用</span>` : "") +
     (a.current ? "" : `<span class="chip">历史 v${a.version}</span>`) +
     (use ? `<span class="al-use">用于 ${use} 处</span>` : `<span class="al-use muted">未被使用</span>`) +
-    `</div></div></button>`
+    `</span></button></article>`
   );
 }
 
@@ -284,6 +295,16 @@ export function bindAssetLibrary(root, ctx, ui, render) {
   })));
   root.querySelectorAll("[data-al-open]").forEach((b) => (b.onclick = () => {
     ui.alOpen = b.dataset.alOpen;
+    render();
+  }));
+  // The whole card opens the asset, but a click that lands on a media control
+  // belongs to that control: pressing play on an audio card must play it, not
+  // navigate away from it. (The <audio>/<video> element cannot live inside the
+  // caption button at all — nested interactive content is invalid HTML and the
+  // browser is free to route the click to the outer button.)
+  root.querySelectorAll("[data-al-card]").forEach((el) => (el.onclick = (ev) => {
+    if (ev.target.closest("audio,video,button")) return;
+    ui.alOpen = el.dataset.alCard;
     render();
   }));
   const on = (sel, ev, fn) => {
