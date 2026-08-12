@@ -446,6 +446,24 @@ test("the manual route records the SAME Generation shape as any other", () => {
   assert.equal("seed" in seed.parameters, false, "an unknown seed is absent, not null-in-parameters");
 });
 
+test("a prompt the creator CLEARED is recorded as cleared, not silently restored", () => {
+  // codex review, TASK-061 round A5: `promptSnapshot || set.prompt` replaced an
+  // explicitly emptied prompt with the compiled one, so the record claimed a
+  // prompt that never drove anything.
+  const set = buildInputSet({
+    shot: SHOTS[0], context: { shotId: "sh01" }, references: [],
+    prompt: "【画面】编译出来的原文",
+  });
+  // not supplied → the set's compiled prompt
+  assert.equal(generationSeedFrom(set, { type: "image" }).promptSnapshot, "【画面】编译出来的原文");
+  assert.equal(generationSeedFrom(set, { type: "image", promptSnapshot: null }).promptSnapshot, "【画面】编译出来的原文");
+  // explicitly cleared → recorded as having none
+  assert.equal(generationSeedFrom(set, { type: "image", promptSnapshot: "" }).promptSnapshot, null);
+  assert.equal(generationSeedFrom(set, { type: "image", promptSnapshot: "   " }).promptSnapshot, null);
+  // edited → the creator's own words, verbatim
+  assert.equal(generationSeedFrom(set, { type: "image", promptSnapshot: "我改过的" }).promptSnapshot, "我改过的");
+});
+
 // --- 7. the picker's three entrances ----------------------------------------
 
 test("the picker offers 已绑定 / 本集推荐 / 资产库 / 临时上传, and never orphans media", () => {

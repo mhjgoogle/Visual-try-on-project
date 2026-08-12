@@ -1879,10 +1879,9 @@ const ctx = {
     importResult: async (shotId, kind, file, promptText) => {
       const g = ctx.episode.genModel(shotId, kind);
       if (!g.slot) { toast("镜头身份未解析：无法定位媒体槽位"); return null; }
-      const seed = geninput.generationSeedFrom(g.set, {
-        type: kind,
-        promptSnapshot: promptText || g.prompt,
-      });
+      // the creator's own text wins verbatim, including when they cleared it —
+      // only a caller that has no field at all (null) falls back to the set
+      const seed = geninput.generationSeedFrom(g.set, { type: kind, promptSnapshot: promptText });
       const ref = await ctx.media.importShotMedia(kind, g.slot, shotId, file, {
         shotId,
         prompt: seed.promptSnapshot,

@@ -103,8 +103,15 @@ export function missingForGeneration(set, { kind = "image" } = {}) {
 /** The Generation-record seed this set becomes when a generation is launched.
  *  The SAME shape for every route, so a manual run and a local run record the
  *  same kind of lineage — only the values differ, and the ones a route cannot
- *  know stay null. */
-export function generationSeedFrom(set, { type, promptSnapshot = null, status = "generating" } = {}) {
+ *  know stay null.
+ *
+ *  `promptSnapshot` distinguishes NOT SUPPLIED from EXPLICITLY EMPTY, because
+ *  they mean opposite things. Omitting it (undefined/null) says "use whatever
+ *  the set compiled"; passing a string — including "" — is the caller's own
+ *  answer and is recorded verbatim. Falling back on an empty string replaced a
+ *  prompt the creator had deliberately cleared with the compiled one, and the
+ *  record then claimed a prompt that never drove anything. */
+export function generationSeedFrom(set, { type, promptSnapshot, status = "generating" } = {}) {
   const refAssetIds = [];
   for (const [role] of REFERENCE_ROLES) {
     for (const r of set.references[role] || []) if (nonEmpty(r.assetId)) refAssetIds.push(r.assetId);
@@ -118,7 +125,11 @@ export function generationSeedFrom(set, { type, promptSnapshot = null, status = 
     targetId: set.shotId,
     inputAssetIds: inputs,
     referenceAssetIds: refAssetIds,
-    promptSnapshot: promptSnapshot || set.prompt,
+    // …and a prompt of nothing but whitespace drove nothing either, so it is
+    // recorded as no prompt rather than as three spaces
+    promptSnapshot: promptSnapshot === undefined || promptSnapshot === null
+      ? set.prompt
+      : strOrNull(String(promptSnapshot).trim()),
     provider: set.source,
     model: set.model,
     parameters: {

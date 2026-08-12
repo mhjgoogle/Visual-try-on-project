@@ -372,7 +372,10 @@ export function bindEpisodeWs(root, ctx, ui, render) {
       const file = imp.files && imp.files[0];
       if (!file) return;
       ctx.episode
-        .importResult(ui.epShotId, ui.epGenKind || "image", file, prompt ? prompt.value : "")
+        // the field's CURRENT text, verbatim — an empty box means the creator
+        // cleared it, which is an answer. `null` (no field at all) is the only
+        // "I have nothing to say", and only that falls back to the compiled one.
+        .importResult(ui.epShotId, ui.epGenKind || "image", file, prompt ? prompt.value : null)
         .then(render)
         .catch((e) => ctx.toast(`导入失败：${e.message}`));
     };
