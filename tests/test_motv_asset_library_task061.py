@@ -199,19 +199,20 @@ def test_a_generation_is_recorded_because_it_WAS_one_not_because_it_had_a_prompt
     assert "ref.links.generationId = gen.generationId" in branch
 
 
-def test_the_file_picker_always_settles() -> None:
-    """codex review 轮 A4：`cancel` 不是每个浏览器都会触发。调用方永远 await
-    下去就永远不会重新渲染——创作者关掉对话框，页面对这个动作彻底没有反应，
-    也没有任何错误可以解释。"""
+def test_the_file_picker_never_guesses_at_cancellation() -> None:
+    """codex review 轮 A4 → B4：先加了 focus 计时兜底当第二个取消信号，B4 指出
+    它的代价——页面可以在选择器仍打开时重获焦点，计时器于是把这次操作判成取消，
+    而随后真实的选择再也无法翻案，静默丢掉创作者确实选中的文件。
+
+    两种失败不对等：在不触发 `cancel` 的浏览器上挂起，只是让一个什么都没改变的
+    手势结束，屏幕上不留下任何过期内容；丢掉已选中的文件丢的是真实工作。所以
+    只信浏览器自己的 `cancel`。"""
     app = _code("app.js")
     picker = app.split("function pickFile(accept)", 1)[1].split("\n}", 1)[0]
     assert "input.oncancel" in picker
-    assert 'window.addEventListener("focus"' in picker, (
-        "focus returning is the second, universal cancel signal"
-    )
-    # …and a real `change` must still win the race
-    assert "setTimeout" in picker
-    assert "if (settled) return" in picker
+    assert "input.onchange" in picker
+    for guess in ('addEventListener("focus"', "setTimeout"):
+        assert guess not in picker, f"{guess} would guess at cancellation"
 
 
 def test_the_declared_kind_must_agree_with_the_file() -> None:

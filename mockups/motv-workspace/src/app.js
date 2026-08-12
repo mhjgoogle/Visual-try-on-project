@@ -147,37 +147,25 @@ function mediaDomainOfFile(file) {
   return "";
 }
 
-/** Ask the creator for ONE file. ALWAYS settles — resolving to null when they
- *  cancel — so every caller can `if (!file) return` instead of awaiting a
- *  promise that never comes back.
+/** Ask the creator for ONE file. Resolves to the file, or to null when they
+ *  cancel, so every caller can `if (!file) return`.
  *
- *  `cancel` is the clean signal but not every browser fires it, and a caller
- *  left awaiting forever never re-renders: the creator dismisses the dialog and
- *  the page simply stops responding to that action with no error to explain it.
- *  So the window regaining focus is treated as a second, universal signal —
- *  delayed just enough for a real `change` (which lands shortly after focus
- *  returns) to win the race and deliver the file. */
+ *  ONLY the browser's own `cancel` event ends it. A focus-return timer was
+ *  tried as a second signal and removed again: the page can regain focus while
+ *  the chooser is still open, and the timer then settles the promise as a
+ *  cancellation that a later, real selection can no longer undo — it silently
+ *  drops a file the creator did choose. The two failures are not equal. On a
+ *  browser that never fires `cancel`, the promise stays pending and the gesture
+ *  simply ends, having changed nothing and left nothing stale on screen; losing
+ *  a chosen file loses real work. (`cancel` is supported by every browser this
+ *  loopback prototype runs in.) */
 function pickFile(accept) {
   return new Promise((resolve) => {
-    let settled = false;
-    const finish = (file) => {
-      if (settled) return;
-      settled = true;
-      resolve(file);
-    };
     const input = document.createElement("input");
     input.type = "file";
     input.accept = accept;
-    input.oncancel = () => finish(null);
-    input.onchange = () => finish((input.files && input.files[0]) || null);
-    window.addEventListener("focus", () => setTimeout(() => {
-      // …but only when nothing was actually chosen. The file list is populated
-      // when the dialog is accepted, BEFORE `change` dispatches, so checking it
-      // removes the race entirely: a slow `change` can no longer lose to this
-      // timer and silently turn a real pick into a cancellation.
-      if (input.files && input.files.length) return;
-      finish(null);
-    }, 500), { once: true });
+    input.oncancel = () => resolve(null);
+    input.onchange = () => resolve((input.files && input.files[0]) || null);
     input.click();
   });
 }
