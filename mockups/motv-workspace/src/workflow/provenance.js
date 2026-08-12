@@ -503,7 +503,9 @@ export function buildProvenanceGraph({ assets, generations, production, timeline
   // sceneId → the episode that owns it, so a run's recorded context can be
   // checked against itself rather than trusted a field at a time
   const sceneEpisode = new Map();
+  const episodeIds = new Set();
   for (const ep of arr(isObj(production) ? production.episodes : [])) {
+    episodeIds.add(ep.episodeId);
     for (const sc of arr(ep.scenes)) sceneEpisode.set(sc.sceneId, ep.episodeId);
   }
 
@@ -519,12 +521,16 @@ export function buildProvenanceGraph({ assets, generations, production, timeline
     // does the context agree with itself? (a shot's real home episode/scene is
     // in `shots`; a scene's episode is in the production document)
     const home = c && c.shotId ? shots.get(c.shotId) || null : null;
+    // A named id that resolves to NOTHING is not "consistent by absence" — the
+    // record cannot be checked at all, so nothing may be drawn from it. Same
+    // for a scene the production document does not have.
     const consistent = !c || (
-      (!c.shotId || !home || (
-        (!c.episodeId || home.episodeId === c.episodeId)
+      (!c.shotId || (home
+        && (!c.episodeId || home.episodeId === c.episodeId)
         && (!c.sceneId || home.sceneId === c.sceneId)))
-      && (!c.sceneId || !c.episodeId || sceneEpisode.get(c.sceneId) === undefined
-        || sceneEpisode.get(c.sceneId) === c.episodeId)
+      && (!c.sceneId || (sceneEpisode.has(c.sceneId)
+        && (!c.episodeId || sceneEpisode.get(c.sceneId) === c.episodeId)))
+      && (!c.episodeId || episodeIds.has(c.episodeId))
     );
     nodes.set(rid, {
       id: rid,

@@ -119,6 +119,7 @@ export function productionModel(sources = {}, scope = {}) {
   // shot→scene step of the traceability this checkpoint exists for.
   const context = { episodeId: episodeId || null, sceneId: homeScene ? homeScene.sceneId : null, shotId };
   const scenes = homeScene ? [homeScene] : allScenes;
+  const narrowed = !!(shotId || homeScene);
   const scopeShotIds = shotId
     ? new Set([shotId])
     : homeScene
@@ -212,13 +213,17 @@ export function productionModel(sources = {}, scope = {}) {
     referenceKeys,
     skillRuns: scopedRuns,
     generations: scopedGenerations,
-    assetCount: countAssets(sources.assets),
+    // Counted WITHIN the claimed context. A whole-project number presented
+    // beside a shot-scoped context would be evidence from somewhere else.
+    assetCount: countAssets(sources.assets, narrowed ? scopeShotIds : null),
     qc,
     approved: qc.filter((q) => q.approved).length,
     timeline: timeline
       ? { clips: arr(timeline.clips).length, sourceSig: str(timeline.sourceSig) || null }
       : null,
-    finals: finals.map((f) => ({ assetId: isObj(f) ? str(f.assetId) || null : null })),
+    // a Final is the EPISODE's; like a targetless render it is only in scope
+    // when nothing narrower was asked for
+    finals: narrowed ? [] : finals.map((f) => ({ assetId: isObj(f) ? str(f.assetId) || null : null })),
   };
 
   function episodeOf(g) {
@@ -275,16 +280,28 @@ function scriptStanding(scripts, episodeId) {
   };
 }
 
-function countAssets(assets) {
+/** How many Asset records the context holds. `shotIds` narrows it to the
+ *  records that name one of those shots; passing null counts the project.
+ *  An asset with no recorded shot belongs to no shot, so a narrowed count
+ *  never includes it — that is the honest reading of "in this context". */
+function countAssets(assets, shotIds = null) {
   if (!isObj(assets)) return 0;
+  const owns = (rec) => {
+    if (!shotIds) return true;
+    const id = isObj(rec)
+      ? rec.creativeShotId || (isObj(rec.links) ? rec.links.shotId : null)
+      : null;
+    return !!id && shotIds.has(id);
+  };
   let n = 0;
   for (const domain of ["images", "videos", "audio"]) {
     const m = assets[domain];
     if (!isObj(m)) continue;
     for (const key of Object.keys(m)) {
       const e = m[key];
-      if (isObj(e) && Array.isArray(e.history)) n += e.history.length;
+      if (isObj(e) && Array.isArray(e.history)) n += e.history.filter(owns).length;
     }
   }
-  return n + arr(assets.finals).length;
+  // finals belong to the episode, never to one shot
+  return n + (shotIds ? 0 : arr(assets.finals).length);
 }

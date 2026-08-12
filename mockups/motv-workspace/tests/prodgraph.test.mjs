@@ -596,3 +596,29 @@ test("an origin pointing at a proposal that was never accepted is not drawn", ()
   );
   assert.ok(g.warnings.some((w) => w.kind === "danglingOrigin" && w.generationId === gen.generationId));
 });
+
+test("a narrowed model counts only ITS assets, and claims no episode final", () => {
+  // codex review round 9: a whole-project number beside a shot-scoped context
+  // is evidence from somewhere else.
+  const { src, sceneId } = fullChain();
+  const whole = productionModel(src);
+  assert.ok(whole.assetCount >= 3);
+  assert.equal(whole.finals.length, 1);
+  const shotScoped = productionModel(src, { shotId: "sh01" });
+  // only the records that name sh01 — and a Final is the episode's, not a shot's
+  assert.ok(shotScoped.assetCount < whole.assetCount);
+  assert.deepEqual(shotScoped.finals, []);
+  assert.deepEqual(productionModel(src, { sceneId }).finals, []);
+});
+
+test("a context naming a shot that does not exist cannot be verified — nothing is drawn", () => {
+  // codex review round 9: `!home` treated an unresolvable shot as "consistent
+  // by absence", and the canon edge was still drawn.
+  const { src, run } = fullChain();
+  src.skillRuns.find((r) => r.skillRunId === run.skillRunId).context =
+    { episodeId: src.production.episodes[0].episodeId, sceneId: null, shotId: "sh-deleted" };
+  const g = buildProvenanceGraph(src);
+  const n = g.nodes.get(nodeIds.skillRun(run.skillRunId));
+  assert.equal(n.contextInconsistent, true);
+  assert.equal(g.edges.some((e) => e.to === n.id), false);
+});
