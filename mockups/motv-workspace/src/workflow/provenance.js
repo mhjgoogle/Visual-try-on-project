@@ -606,7 +606,11 @@ export function buildProvenanceGraph({ assets, generations, production, timeline
     // generation at somebody else's answer and have it drawn as real lineage —
     // the pair is one fact, so it is checked as one.
     const pnode = nonEmpty(g.origin.proposalId) ? nodes.get(nodeIds.proposal(g.origin.proposalId)) : null;
-    if (pnode && pnode.skillRunId === g.origin.skillRunId) {
+    // …and the proposal's own record has to say it was ACCEPTED. 「从这份提案
+    // 发起」 is only true of an answer the creator took; a record pointing at a
+    // pending or rejected one contradicts the run it names, and drawing it
+    // would present that contradiction as a launch.
+    if (pnode && pnode.skillRunId === g.origin.skillRunId && pnode.status === "accepted") {
       addEdge(nodeIds.proposal(g.origin.proposalId), gid, "origin");
     } else {
       // No fall-back to the run alone. An origin always carries BOTH ids, so a

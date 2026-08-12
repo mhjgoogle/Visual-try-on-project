@@ -582,3 +582,17 @@ test("a consistent context still draws its edges", () => {
   assert.ok(g.edges.some((e) => e.from === nodeIds.shot("sh01") && e.to === n.id && e.kind === "asked"));
   assert.ok(g.edges.some((e) => e.from === nodeIds.canon(epId) && e.to === n.id));
 });
+
+test("an origin pointing at a proposal that was never accepted is not drawn", () => {
+  // codex review round 8: 「从这份提案发起」 is only true of an answer the
+  // creator took. A record naming a pending or rejected proposal contradicts
+  // the run it points at.
+  const { src, gen, run } = fullChain();
+  src.skillRuns.find((r) => r.skillRunId === run.skillRunId).status = "rejected";
+  const g = buildProvenanceGraph(src);
+  assert.equal(
+    g.edges.some((e) => e.kind === "origin" && e.to === nodeIds.generation(gen.generationId)),
+    false,
+  );
+  assert.ok(g.warnings.some((w) => w.kind === "danglingOrigin" && w.generationId === gen.generationId));
+});
