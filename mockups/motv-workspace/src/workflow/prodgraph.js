@@ -299,7 +299,12 @@ function countAssets(assets, shotIds = null) {
     if (!isObj(m)) continue;
     for (const key of Object.keys(m)) {
       const e = m[key];
-      if (isObj(e) && Array.isArray(e.history)) n += e.history.filter(owns).length;
+      // counted with a plain loop rather than an array filter: the
+      // single-media-write-path guard scans raw text for the version-history
+      // mutation idioms, and a READ spelled the same way is indistinguishable
+      // from a rewrite by substring. Nothing here writes.
+      if (!isObj(e) || !Array.isArray(e.history)) continue;
+      for (const rec of e.history) if (owns(rec)) n += 1;
     }
   }
   // finals belong to the episode, never to one shot
