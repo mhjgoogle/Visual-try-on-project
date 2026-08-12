@@ -586,8 +586,14 @@ function generationBody(m) {
   return gen + history;
 }
 
-/** Render the panel. `open` is the shell's transient per-section override. */
-export function renderDirector(m, instruction, open = {}) {
+/** Render the panel.
+ *
+ *  `open` is the shell's transient per-section override. `extra` is a section the
+ *  shell supplies (the Skill panel, ADR-0061 决策 3); it is placed immediately
+ *  after 导演 rather than appended at the bottom, because 「运行一个能力」 is a
+ *  first-class Director action and a section below four collapsibles is a section
+ *  nobody finds. */
+export function renderDirector(m, instruction, open = {}, extra = "") {
   const isOpen = (key, dflt) => (key in open ? !!open[key] : dflt);
   const secs = [];
 
@@ -668,6 +674,7 @@ export function renderDirector(m, instruction, open = {}) {
       open: isOpen("director", true),
       surfaced: m.surfaced === "director",
     }) +
+    extra +
     secs.map((s) => s.html(isOpen(s.key, s.dflt))).join("")
   );
 }

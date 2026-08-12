@@ -120,7 +120,7 @@ function _abortInflight(name) {
 
 // Top-level fields the app serializer owns (see serializeGraph in app.js).
 // Anything else in a loaded document is carried through saves untouched.
-const OWNED_FIELDS = ["v", "project", "scriptDoc", "story", "scripts", "assets", "generations", "skillRuns", "production", "timelines", "nodes", "edges", "pan"];
+const OWNED_FIELDS = ["v", "project", "scriptDoc", "story", "scripts", "assets", "generations", "skillRuns", "production", "timelines", "prompts", "nodes", "edges", "pan"];
 
 function _dispatch(name, raw, { legacy = false } = {}) {
   const res = migrateToCurrent(raw);

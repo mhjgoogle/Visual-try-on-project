@@ -291,6 +291,9 @@ export function createWorkflowGraph(getCtx) {
   let root = null;
   let onSelect = null;
   let resizeObs = null;
+  // ADR-0061 决策 2: true while this graph is the 剧集制作 space's CENTER tab, in
+  // which case the node detail is rendered by the shell's LEFT inspector.
+  let embedded = false;
 
   const pd = () => getCtx().prodData();
 
@@ -879,9 +882,13 @@ export function createWorkflowGraph(getCtx) {
     const hitNote = hits
       ? `<div class="wg-hits">${hits.size ? `找到 <b>${hits.size}</b> 个匹配节点，其余已淡出` : "没有匹配的节点"}</div>`
       : "";
+    // EMBEDDED (ADR-0061 决策 2): inside 剧集制作 the node detail belongs to the
+    // shell's LEFT Production Inspector, and the RIGHT column stays the AI
+    // Director. Rendering this aside there too would put the same object in two
+    // places and re-create exactly the crowding the consolidation removes.
     root.innerHTML =
-      `<div class="wg-root">${header(g)}` +
-      `<div class="wg-body"><div class="wg-canvas">${hitNote}${main}</div>${inspector(g)}</div></div>`;
+      `<div class="wg-root${embedded ? " embedded" : ""}">${header(g)}` +
+      `<div class="wg-body"><div class="wg-canvas">${hitNote}${main}</div>${embedded ? "" : inspector(g)}</div></div>`;
     wire(g);
     // wires need real geometry, and the placeholder frames are images: redraw
     // once after layout and again as each one lands, or the curves would point
@@ -1011,11 +1018,26 @@ export function createWorkflowGraph(getCtx) {
      *  the project documents do not exist yet, and deriving a graph from them
      *  would throw before the shell is even up. The first render happens when
      *  Workflow is actually opened. */
-    mount(el, { onSelectionChange } = {}) {
+    mount(el, { onSelectionChange, embedded: emb = false } = {}) {
       root = el;
       onSelect = onSelectionChange || null;
+      embedded = !!emb;
     },
     render,
+    /** The relations filter (仅看上游 / 仅看下游 / 完整链路). Owned here because
+     *  the graph is what dims and lights up, but DRIVEN from the shell's LEFT
+     *  Production Inspector when embedded (ADR-0061 决策 2 / TASK-064 §11).
+     *  An unknown mode is refused rather than stored — a mode the tracer does
+     *  not implement would silently show the full graph while the button claims
+     *  a narrowed one. */
+    setTraceMode(mode) {
+      if (!["up", "down", "full"].includes(mode)) return false;
+      view.traceMode = mode;
+      render();
+      return true;
+    },
+    /** Which node the graph currently has selected, or null. Read-only. */
+    selectedId: () => view.selected || null,
     /** The current selection's provenance story — what the AI Director reads.
      *  It is the SAME derived record set the page draws, so the panel cannot
      *  describe a link the graph does not show. */

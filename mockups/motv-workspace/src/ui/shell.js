@@ -8,20 +8,21 @@
 // selection lives on the shell in production.js (transient), never persisted.
 import { esc } from "../util/dom.js";
 
-/** The rail's PRIMARY navigation: 作品开发 — building the creative foundation of
- *  the whole work (ADR-0054 决策 1). The downstream production stages
- *  (画面 / 视频 / 音频 / 剪辑) are deliberately NOT here: they belong to ONE
- *  episode, so they live under the episode the creator entered (EPISODE_NAV),
- *  never in the project-level rail. `assets` is the top bar's 资产 mode and is
- *  absent from the rail entirely. Exported for tests.
+/** The rail's PRIMARY navigation: 故事开发 — writing the story (ADR-0061 决策 1).
+ *  Its end point is每一集的 Episode Script; from there the creator leaves for
+ *  剧集制作. The media production stages (画面 / 视频 / 音频 / 审片 / 剪辑) are
+ *  deliberately NOT here and no longer nest under the episode row either: they
+ *  belong to the 剧集制作 space, which is a top-level space of its own.
+ *  `assets` is the top bar's 资产库 space and is absent from the rail entirely.
+ *  Exported for tests.
  *
  *  An item is `[key, icon, label]`, optionally followed by `{ under }` — the
  *  sub-heading it is grouped beneath (作品设定 groups 人物 / 人物关系 / 世界观).
- *  These four steps are a creative WORKSPACE, not a wizard: every one is
- *  reachable at any time, in any order. */
+ *  These steps are a creative WORKSPACE, not a wizard: every one is reachable at
+ *  any time, in any order. */
 export const NAV = [
   {
-    sec: "作品开发",
+    sec: "故事开发",
     items: [
       ["brief", "💡", "创意"],
       ["story", "📖", "故事大纲"],
@@ -29,20 +30,21 @@ export const NAV = [
       ["relationships", "🔗", "人物关系", { under: "作品设定" }],
       ["world", "🌐", "世界观", { under: "作品设定" }],
       ["episodes", "📺", "分集规划"],
+      // 剧本 is the LAST step of story development: story development ends at
+      // each episode's script, and 剧集制作 begins from it (ADR-0061 决策 1).
+      ["script", "📄", "本集剧本"],
     ],
   },
 ];
 
-/** The EPISODE's own production stages. Shown nested under the episode the
- *  creator has entered — Production's exit, not its main navigation. */
+/** The EPISODE's own production stages — the CENTER stage tabs of the 剧集制作
+ *  space (ADR-0061 决策 2), no longer a rail nested under an episode row.
+ *  `workbench` is the unified creator surface that leads them: Scene → Shot →
+ *  that shot's References / Prompt / Generation / Image / Video / Audio. The
+ *  per-stage workspaces below it are how you work THROUGH one stage. */
 export const EPISODE_NAV = [
-  // CP6/ADR-0058: 本集制作 leads, because it IS the work — one creative context
-  // holding this episode's script, its scenes, and every scene's shots with the
-  // picture each one currently has. The stage modules below it stay exactly as
-  // they were: they are how you work THROUGH one stage, not how you see the
-  // episode.
-  ["episode", "🎬", "本集制作"],
-  ["script", "📄", "剧本"],
+  ["workbench", "🎬", "工作台"],
+  ["episode", "📺", "本集总览"],
   ["scenes", "🗂", "场景"],
   ["shots", "🎞", "分镜"],
   ["refplan", "🖼", "参考统筹"],
@@ -53,12 +55,47 @@ export const EPISODE_NAV = [
   // is where it belongs in the work — you review what was generated before you
   // assemble it. 生成成功 != 镜头完成.
   ["dailies", "👁", "审片"],
+  // 剪辑 stays a centre tab of this space. ADR-0061 决策 6 moves the CUT into a
+  // Post Production Console at the bottom of 剧集制作, but that console is not
+  // built yet — dropping the tab before it exists would leave the working
+  // timeline workspace unreachable and `spaceOf("edit")` answering 「故事开发」,
+  // which is a regression, not a migration (codex review round 1).
   ["edit", "✂", "剪辑"],
+  // ADR-0061 决策 1: 生成溯源 is a VIEW of this space, not a second workflow
+  // model. 流程画布 is deliberately absent from every creator path.
+  ["provenance", "🕸", "生成溯源"],
 ];
 
-/** Modules that belong to ONE episode. The rail renders the episode context
- *  exactly when one of these is active — no extra shell state to keep in sync. */
+/** The 资产库 space's rail (ADR-0061 决策 1): 「我有什么可以复用？」 — media
+ *  categories, never production navigation. Episode / Scene / Shot survive here
+ *  only as FILTERS, which the asset workspace owns. */
+export const ASSET_NAV = [
+  ["assets", "📦", "全部资产"],
+  ["assets:reference", "🖼", "References"],
+  ["assets:image", "🎨", "Images"],
+  ["assets:video", "▶", "Videos"],
+  ["assets:audio", "🎵", "Audio"],
+  ["assets:final", "🎬", "Final"],
+  ["assets:collection", "🏷", "Collections"],
+  ["storage", "💾", "存储管理"],
+];
+
+/** Stage keys that belong to ONE episode — the 剧集制作 space's centre tabs. */
 export const EPISODE_MODULES = EPISODE_NAV.map(([k]) => k);
+
+/** Which top-level SPACE a module belongs to (ADR-0061 决策 1). One function,
+ *  so the top bar, the rail and the breadcrumb can never disagree about where
+ *  the creator is. */
+export const SPACES = ["story", "episode", "assets"];
+
+export function spaceOf(module) {
+  if (typeof module !== "string" || !module) return "story";
+  if (module === "storage" || module === "assets" || module.startsWith("assets:")) return "assets";
+  if (EPISODE_MODULES.includes(module)) return "episode";
+  return "story";
+}
+
+export const SPACE_LABEL = { story: "故事开发", episode: "剧集制作", assets: "资产库" };
 
 /** Stage keys that carry a completion ratio — the rail draws their progress
  *  bar. Keyed to the same badge model so the bar can never disagree with the
@@ -71,8 +108,12 @@ export const MODULE_LABEL = {
   // `settings` stays a working module key (the bible workspace behind 人物) so
   // every existing jump target — the Director's blocker fixes, the shot
   // workspaces' empty states — keeps landing somewhere real.
-  settings: "作品设定", storage: "存储", assets: "资产库",
-  episode: "本集制作", script: "剧本", scenes: "场景", shots: "分镜",
+  settings: "作品设定", storage: "存储管理", assets: "资产库",
+  "assets:reference": "References", "assets:image": "Images",
+  "assets:video": "Videos", "assets:audio": "Audio",
+  "assets:final": "Final", "assets:collection": "Collections",
+  workbench: "工作台", provenance: "生成溯源",
+  episode: "本集总览", script: "本集剧本", scenes: "场景", shots: "分镜",
   refplan: "参考统筹", frames: "画面", video: "视频",
   audio: "音频", dailies: "审片", edit: "剪辑",
 };
@@ -88,17 +129,30 @@ export function episodeLabels(prod) {
   }));
 }
 
-/** The rail's HTML.
+/** The title to print BESIDE the code, without saying the code twice.
  *
- *  Two levels, in this order (ADR-0054 决策 1):
- *    作品开发   the project-level upstream — always the primary navigation
- *    Episodes  the episode list, Production's EXIT; the entered episode
- *              expands to show ITS production stages, nested
+ *  A planned title very often already begins with 「EP01」 (the plan writes it
+ *  that way), and 「EP01 EP01 沉默酒吧」 is the result of printing both blindly.
+ *  The code is still derived from POSITION and still authoritative — this only
+ *  drops a duplicate prefix from the display, and never rewrites the stored
+ *  title. */
+export function episodeTitleBeside(code, title) {
+  const t = String(title || "").trim();
+  if (!t.startsWith(code)) return t;
+  return t.slice(code.length).replace(/^[\s·:：|-]+/, "");
+}
+
+/** The 故事开发 rail's HTML.
  *
- *  `ratios` maps a stage key to {done,total} where known; `episodeMode` is
- *  simply "the active module belongs to an episode", so there is no separate
- *  navigation state that could disagree with what is on screen. */
-export function renderRail({ activeModule, badges, episodes, ratios, episodeMode, upstream }) {
+ *  Two levels, in this order (ADR-0061 决策 1):
+ *    故事开发   creative brief → outline → 作品设定 → 分集规划 → 本集剧本
+ *    Episodes  the episode list — story development's EXIT. A row switches the
+ *              active episode; its 「进入剧集制作 →」 leaves for that space.
+ *              The production stages are NOT nested here any more: they belong
+ *              to the 剧集制作 space, which is a top-level space of its own.
+ *
+ *  `ratios` maps a stage key to {done,total} where known. */
+export function renderRail({ activeModule, badges, episodes, ratios, upstream }) {
   const item = ([k, icon, label], cls = "") => {
     const b = badges[k];
     const r = ratios[k];
@@ -131,19 +185,22 @@ export function renderRail({ activeModule, badges, episodes, ratios, episodeMode
     return `<div class="st-railsec">${esc(grp.sec)}</div>${rows}`;
   }).join("");
 
-  // Episodes — the exit. Every episode is a row (code + planned title); the one
-  // being worked in carries the nested 本集制作 stages.
+  // Episodes — story development's EXIT. A row selects the episode whose script
+  // is being written; 「进入剧集制作 →」 leaves for the production space. No
+  // production stage is nested here: 剧集制作 is a space, not a sub-tree.
   const epRows = episodes.length
     ? episodes
         .map((e) => {
-          const open = episodeMode && e.active;
           const flag = upstream && upstream[e.episodeId]
             ? `<span class="bdg gate" title="上游已变化，本集仍基于另一个版本">${upstream[e.episodeId]} 变化</span>`
             : "";
           return (
             `<button class="st-navitem st-eprow${e.active ? " on" : ""}" data-ep="${esc(e.episodeId)}" title="${esc(e.title)}">` +
-            `<span class="ic">${open ? "▾" : "▸"}</span><span class="nm">${esc(e.code)} ${esc(e.title)}</span>${flag}</button>` +
-            (open ? EPISODE_NAV.map((it) => item(it, "st-subitem")).join("") : "")
+            `<span class="ic">${e.active ? "▾" : "▸"}</span><span class="nm">${esc(e.code)} ${esc(e.title)}</span>${flag}</button>` +
+            (e.active
+              ? `<button class="st-navitem st-subitem st-epexit" data-ep-produce="${esc(e.episodeId)}">` +
+                `<span class="ic">🎬</span><span class="nm">进入剧集制作 →</span></button>`
+              : "")
           );
         })
         .join("")
@@ -154,6 +211,21 @@ export function renderRail({ activeModule, badges, episodes, ratios, episodeMode
     `<div class="st-railsec">Episodes</div>` +
     epRows
   );
+}
+
+/** The 资产库 rail. Media categories only — no production navigation, which is
+ *  exactly what 资产库 IA cleanup means (ADR-0061 决策 1 / TASK-064 §15). */
+export function renderAssetRail({ activeModule, counts = {} }) {
+  const rows = ASSET_NAV.map(([k, icon, label]) => {
+    const n = counts[k];
+    return (
+      `<button class="st-navitem${k === activeModule ? " on" : ""}" data-mod="${esc(k)}">` +
+      `<span class="ic">${icon}</span><span class="nm">${esc(label)}</span>` +
+      (n ? `<span class="bdg">${esc(String(n))}</span>` : "") +
+      `</button>`
+    );
+  }).join("");
+  return `<div class="st-railsec">当前项目</div>${rows}`;
 }
 
 /** The persistent breadcrumb: Project › Episode › Scene › Shot › Module. Only

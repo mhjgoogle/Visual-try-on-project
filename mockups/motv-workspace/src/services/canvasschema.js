@@ -19,7 +19,7 @@
 
 import { MAX_CLIP_START, MAX_CLIP_FADE } from "../workflow/timeline.js";
 import { pairKey } from "../workflow/canondoc.js";
-import { ASSET_KINDS, KIND_DOMAIN, LINK_KEYS } from "../workflow/assetreg.js";
+import { ASSET_KINDS, declarationDomainError, LINK_KEYS } from "../workflow/assetreg.js";
 import { RUN_STATUSES } from "../workflow/skillrun.js";
 
 /** The Skill Run states, reused from the domain rather than re-listed here —
@@ -1301,17 +1301,14 @@ export function validateCanvasDoc(doc) {
     }
     if (r.kind === undefined) return `assets ${where} has no kind field at v11`;
     // a declaration must be writable into the domain it lives in, or every
-    // type filter downstream reports something the media cannot be. An
-    // `external-reference` is domain-free among the MEDIA domains only —
-    // `finals` is this project's composed output, never somebody else's
-    // reference.
+    // type filter downstream reports something the media cannot be. The rule is
+    // asked of `assetreg` rather than re-derived here: a multi-domain kind
+    // (`external-reference`, and the ADR-0061 directing references, which may be
+    // a clip OR a still) has its own allowed SET, and duplicating that logic in
+    // the validator is how the two come to disagree.
     if (r.kind && domain) {
-      if (r.kind === "external-reference") {
-        if (domain === "finals") return `assets ${where} declares external-reference inside finals`;
-      } else {
-        const want = KIND_DOMAIN[r.kind];
-        if (want && want !== domain) return `assets ${where} declares ${r.kind} inside ${domain}`;
-      }
+      const bad = declarationDomainError(r.kind, domain);
+      if (bad) return `assets ${where} declares ${r.kind} inside ${domain}`;
     }
     for (const k of ["displayName", "originalFilename"]) {
       if (r[k] !== null && typeof r[k] !== "string") return `assets ${where} ${k} is not a string or null`;

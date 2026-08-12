@@ -42,6 +42,9 @@ import { referencePlan } from "./ui/refplan.js";
 import * as genlib from "./workflow/genlib.js";
 import * as skills from "./workflow/skills.js";
 import * as skillrun from "./workflow/skillrun.js";
+import * as skillapply from "./workflow/skillapply.js";
+import * as actions from "./workflow/actions.js";
+import * as promptdoc from "./workflow/promptdoc.js";
 import * as runtime from "./services/runtime.js";
 import { buildShotSlotIndex, slotForShotId, shotIdForSlot, resolveAdoptTarget } from "./workflow/shotmap.js";
 import * as scriptdoc from "./workflow/scriptdoc.js";
@@ -136,6 +139,11 @@ function contextOfShot(shotId) {
 
 const strOrNullId = (x) => (typeof x === "string" && x ? x : null);
 
+/** Action Layer result shape from a controller that answers true/false. A refusal
+ *  carries the REASON: a dispatcher that reports `{ok:false}` with nothing to say
+ *  leaves the caller reporting "failed" and the creator with no next step. */
+const bool = (ok, reason) => (ok ? { ok: true } : { ok: false, error: reason });
+
 /** Which registry domain a picked File belongs in — from its MIME type, which
  *  is also what the upload endpoint validates against (and magic-byte checks).
  *  Deliberately NOT from the file extension: the extension is user-controlled
@@ -173,6 +181,20 @@ function pickFile(accept) {
 
 /** The upload slug prefix each domain uses (the namespace the media files
  *  already live in — unchanged, so nothing has to be moved). */
+/** The file-picker `accept` list for one declared Asset kind — derived from the
+ *  domains that kind may legally be registered in (ADR-0061 决策 4), so a picker
+ *  can never offer a file type the declaration would then refuse. */
+function acceptForKind(kind) {
+  const domains = new Set(assetreg.domainsForKind(kind));
+  const parts = [];
+  if (domains.has("images")) parts.push("image/png,image/jpeg,image/webp");
+  if (domains.has("videos")) parts.push("video/mp4,video/webm");
+  if (domains.has("audio")) parts.push("audio/mpeg,audio/wav");
+  // An unknown kind gets images rather than everything: fail narrow, and let the
+  // declaration check produce the honest refusal.
+  return parts.length ? parts.join(",") : "image/png,image/jpeg,image/webp";
+}
+
 function domainSlugPrefix(domain) {
   return domain === "videos" ? "video" : domain === "audio" ? "audio" : "assets";
 }
@@ -195,10 +217,19 @@ let skillRunRegistry = skillrun.createSkillRunRegistry(null);
 let productionDoc = proddoc.createProduction(null);
 // Per-episode timelines (M11) — clips referencing assets by id, never bytes.
 let timelinesDoc = timeline.createTimelines(null);
+// Per-shot Prompt OVERRIDES (ADR-0061 决策 5). Only shots whose prompt the
+// creator (or an applied Skill proposal) actually wrote live here; everything
+// else uses the compiled prompt, which is a derivation and not stored.
+let promptsDoc = promptdoc.createPrompts(null);
 // 剧本拆解提案 (M8) — TRANSIENT review state, per session, never persisted:
 // null | { status: "running"|"ready"|"failed", cards, error, source }.
 // A reload lands on the confirmed bible; proposals are re-derivable any time.
 let bibleProposals = null;
+// The 「用于生成」 intent (ADR-0061 决策 3): `{ skillRunId, proposalId, shotId }`
+// set ONLY when the creator presses that button, consumed by the next generation
+// for that shot. Session-scoped and deliberately NOT derived — see
+// ctx.skills.pendingOriginFor for why deriving it fabricated lineage.
+let pendingOrigin = null;
 
 // --- budget readout (real in CONNECTED, fixture otherwise) ---
 function renderBudget() {
@@ -1710,6 +1741,150 @@ const ctx = {
       return { skillRunId: r.skillRunId, proposalId };
     },
 
+    /**
+     * 「应用」 — write a proposal back to canon (ADR-0061 决策 3).
+     *
+     * The plan comes from `skillapply.planApply`, which knows WHICH canonical
+     * surface each skill's answer belongs to and refuses the ones that have
+     * none. Every action is then performed through the ORDINARY controller for
+     * that surface, so a proposal cannot reach a document through a path that
+     * skips the guards a hand edit goes through.
+     *
+     * The run is marked accepted only AFTER the write succeeds: a run marked
+     * accepted with nothing applied would claim a decision took effect when it
+     * did not.
+     */
+    applyProposal: (skillRunId, scope = {}) => {
+      const run = skillrun.findRun(skillRunRegistry, skillRunId);
+      if (!run) return { ok: false, error: "运行记录不存在" };
+      if (run.status !== "proposed") {
+        return { ok: false, error: `这次运行是「${run.status}」，没有待应用的提案` };
+      }
+      // The SCOPE the run recorded wins over whatever is selected now: applying
+      // a shot-scoped proposal to a different shot than the one the run read
+      // would attribute the answer to a context it never saw (ADR-0059).
+      const recorded = run.context || {};
+      const merged = {
+        shotId: recorded.shotId || scope.shotId || null,
+        genKind: scope.genKind === "video" ? "video" : "image",
+      };
+      const plan = skillapply.planApply(run.skillId, run.proposal, merged);
+      if (!plan.ok) return plan;
+      // EVERY action is attempted, and the outcome of each is reported.
+      //
+      // Aborting on the first failure was wrong in a way that only showed on a
+      // retry: a multi-reference proposal would bind two references, fail on the
+      // third, and leave the run un-accepted — so pressing 应用 again failed
+      // immediately on the two bindings that had already landed, and the
+      // remaining ones could never be applied at all (codex review round 1).
+      //
+      // So: an action that is ALREADY SATISFIED counts as done rather than as an
+      // error (applying a proposal twice must be safe), a genuine failure is
+      // collected and reported, and the run is accepted when anything landed.
+      const done = [];
+      const already = [];
+      const failed = [];
+      for (const act of plan.actions) {
+        const res = ctx.actions.dispatch(act, {
+          skillRunId: run.skillRunId,
+          proposalId: skillrun.proposalIdOf(run),
+        });
+        if (res.ok) { done.push(act.action); continue; }
+        if (res.satisfied) { already.push(act.action); continue; }
+        failed.push(`${act.action}：${res.error}`);
+      }
+      if (!done.length && !already.length) {
+        return { ok: false, error: failed.length ? failed.join("；") : "提案里没有任何可应用的内容" };
+      }
+      const parts = [];
+      if (done.length) parts.push(`${done.length} 项已应用（${[...new Set(done)].join("、")}）`);
+      if (already.length) parts.push(`${already.length} 项本来就已满足`);
+      // The run is accepted ONLY when the proposal fully landed.
+      //
+      // Round 1 aborted on the first failure, which stranded the rest. The fix
+      // for that swung too far and accepted the run whenever ANYTHING landed —
+      // and `applyProposal` refuses a run that is no longer `proposed`, so the
+      // failed items could never be retried once their prerequisite was fixed
+      // (codex review round 2). A partial apply therefore leaves the run
+      // PROPOSED: the actions that succeeded are idempotent (they now report
+      // `satisfied`), so pressing 应用 again finishes the job instead of
+      // re-doing it.
+      if (failed.length) {
+        return {
+          ok: true,
+          partial: true,
+          detail: `${parts.join("；")}；${failed.length} 项失败，提案仍待处理（修好后可再按「应用」重试）：${failed.join("；")}`,
+          failed,
+        };
+      }
+      ctx.skills.accept(skillRunId);
+      return { ok: true, partial: false, detail: parts.join("；"), failed };
+    },
+
+    /**
+     * 「用于生成」 — accept the proposal and hand back the origin stamp the next
+     * generation will carry (ADR-0061 决策 3 / TASK-064 §74).
+     *
+     * This is the half that makes the button real rather than decorative: the
+     * accepted run's `{skillRunId, proposalId}` is remembered as the PENDING
+     * ORIGIN, and the next generation launched for that shot freezes it into its
+     * record — so the provenance graph can show that this generation was in fact
+     * started from this proposal.
+     */
+    useForGeneration: (skillRunId) => {
+      const run = skillrun.findRun(skillRunRegistry, skillRunId);
+      if (!run) return { ok: false, error: "运行记录不存在" };
+      if (run.status !== "proposed" && run.status !== "accepted") {
+        return { ok: false, error: `这次运行是「${run.status}」，没有可用于生成的提案` };
+      }
+      if (run.status === "proposed" && !ctx.skills.accept(skillRunId)) {
+        return { ok: false, error: "无法标记为已接受" };
+      }
+      const origin = ctx.skills.originOf(skillRunId);
+      if (!origin) {
+        return { ok: false, error: "这份提案没有可引用的身份（proposalId 未记录）" };
+      }
+      // The intent is remembered EXPLICITLY, keyed to the run the creator pressed
+      // it on. See `pendingOriginFor` for why it is not derived.
+      pendingOrigin = { ...origin, shotId: (run.context && run.context.shotId) || null };
+      ctx.persist();
+      refreshProductionView();
+      return { ok: true, origin, shotId: pendingOrigin.shotId };
+    },
+
+    /**
+     * The origin stamp a generation for `shotId` should carry, or null.
+     *
+     * ONLY an explicit 「用于生成」 produces one. An earlier revision derived it
+     * instead — "the newest accepted run nobody has claimed" — which silently
+     * included runs accepted by 应用 (a canon write, not a generation intent), so
+     * an unrelated later generation could be stamped with a proposal that never
+     * launched it (codex review round 1). That is a fabricated lineage, and a
+     * fabricated lineage is worse than none because it looks like a record.
+     *
+     * Bound to the run's OWN recorded shot: a proposal accepted for SH03 must not
+     * stamp a generation launched for SH07. A run whose scope genuinely was wider
+     * than one shot (no recorded shotId) can stamp any shot's generation —
+     * narrowing that would invent a limit the record does not state.
+     *
+     * KNOWN LIMIT, deliberately accepted: this intent is session-scoped, so a
+     * reload between 「用于生成」 and the upload loses it and the creator presses
+     * the button again. Persisting it would need its own schema field with its own
+     * "was this consumed" bookkeeping; a lost convenience is a far smaller cost
+     * than a wrong provenance record.
+     */
+    pendingOriginFor: (shotId) => {
+      if (!pendingOrigin) return null;
+      if (pendingOrigin.shotId && pendingOrigin.shotId !== shotId) return null;
+      // A generation that already carries this origin has consumed it — an origin
+      // describes ONE launch.
+      const claimed = generationRegistry.some(
+        (g) => g && g.origin && g.origin.skillRunId === pendingOrigin.skillRunId,
+      );
+      if (claimed) { pendingOrigin = null; return null; }
+      return { skillRunId: pendingOrigin.skillRunId, proposalId: pendingOrigin.proposalId };
+    },
+
     /** The creator ACCEPTS. This marks the run only — applying the proposal to
      *  canon is the caller's, through the normal domain controllers. */
     accept: (skillRunId) => {
@@ -1727,6 +1902,138 @@ const ctx = {
       return r;
     },
   },
+  // ---------------------------------------------------------------------- //
+  // Per-shot Prompt versions (ADR-0061 决策 5).
+  //
+  // A shot with no entry has NO prompt of its own and the compiled one is in
+  // force — which is the honest default, not a value someone typed. The moment
+  // the creator edits, or an applied Skill proposal writes, a real version is
+  // recorded and every later one appends beside it.
+  // ---------------------------------------------------------------------- //
+  prompt: {
+    /** The effective prompt + where it came from. `compiled` is passed in by the
+     *  caller (it is a derivation of the shot design, which this module does not
+     *  own) so there is one compiler, not two. */
+    effective: (shotId, kind, compiled) => promptdoc.effectivePrompt(promptsDoc, shotId, kind, compiled),
+    entry: (shotId, kind) => promptdoc.entryOf(promptsDoc, shotId, kind),
+    /** Record a new version. Returns the version number, or 0 when refused
+     *  (a LOCKED prompt refuses everything that is not a manual edit — 决策 5). */
+    save: (shotId, kind, text, opts = {}) => {
+      const v = promptdoc.addVersion(promptsDoc, shotId, kind, {
+        text,
+        origin: opts.origin || "manual",
+        at: new Date().toISOString(),
+        skillRunId: opts.skillRunId || null,
+        proposalId: opts.proposalId || null,
+      });
+      if (v) { ctx.persist(); refreshProductionView(); }
+      return v;
+    },
+    setActive: (shotId, kind, version) => prodOp(promptdoc.setActive(promptsDoc, shotId, kind, version)),
+    /** 「回到自动编译」 — the saved versions stay, they are just not in force. */
+    useCompiled: (shotId, kind) => prodOp(promptdoc.useCompiled(promptsDoc, shotId, kind)),
+    setLocked: (shotId, kind, on) => prodOp(promptdoc.setLocked(promptsDoc, shotId, kind, on)),
+  },
+
+  // ---------------------------------------------------------------------- //
+  // The Action Layer dispatcher (ADR-0061 决策 9 / TASK-064 §52).
+  //
+  // ONE name per mutation, and every name maps to the ORDINARY controller for
+  // that surface. The UI and the AI Director call the same dispatcher, so there
+  // is no second implementation of any mutation to drift from the first.
+  //
+  // An action this checkpoint has not wired reports 「未接线」 honestly rather
+  // than returning ok — a dispatcher that silently no-ops is worse than a
+  // missing button, because the caller reports success.
+  // ---------------------------------------------------------------------- //
+  actions: {
+    NAMES: actions.ACTION_NAMES,
+    LEVEL: actions.CURRENT_LEVEL,
+    /** Dispatch one action envelope. `meta.origin` is "user" (default) or "ai";
+     *  the gate is `actions.allowedAt`, which at the level in force refuses every
+     *  AI-origin mutation. */
+    dispatch: (envelope, meta = {}) => {
+      const bad = actions.validate(envelope);
+      if (bad) return { ok: false, error: bad };
+      const gate = actions.allowedAt(envelope.action, {
+        origin: meta.origin || "user",
+        confirmed: meta.confirmed === true,
+      });
+      if (!gate.ok) return { ok: false, error: gate.reason };
+      const a = envelope;
+      switch (a.action) {
+        case "setActiveVersion":
+          return bool(ctx.media.setCurrent(a.domain, a.key, a.version), "版本不在历史里");
+        case "replaceReference": {
+          // ALREADY BOUND is not a failure — it is the requested end state. Told
+          // apart from 「参考不存在」 by asking the document first, because the
+          // write path returns false for both and a caller cannot tell a
+          // satisfied action from a broken one by the return value alone.
+          const bound = ctx.shot.references(a.shotId) || [];
+          if (bound.includes(a.referenceKey)) return { ok: false, satisfied: true, error: "这个参考已经绑定在这个镜头上" };
+          const exists = assetreg.listReferences(assetRegistry).some((r) => r.key === a.referenceKey);
+          if (!exists) return { ok: false, error: `参考 ${a.referenceKey} 不存在（可能已删除）` };
+          return bool(ctx.shot.addReference(a.shotId, a.referenceKey), "无法绑定到这个镜头（镜头身份可能已失效）");
+        }
+        case "removeReference": {
+          const bound = ctx.shot.references(a.shotId) || [];
+          if (!bound.includes(a.referenceKey)) return { ok: false, satisfied: true, error: "这个镜头本来就没有绑定该参考" };
+          return bool(ctx.shot.removeReference(a.shotId, a.referenceKey), "无法移除该绑定");
+        }
+        case "updatePrompt":
+          return bool(
+            ctx.prompt.save(a.shotId, a.kind, a.text, {
+              origin: meta.skillRunId ? "skill" : "manual",
+              skillRunId: meta.skillRunId || null,
+              proposalId: meta.proposalId || null,
+            }) > 0,
+            "Prompt 已锁定：先解锁再写入",
+          );
+        case "approveShot":
+          // Approving an already-approved shot is the requested end state, not a
+          // failure — and re-approving would move the review timestamp for no
+          // reason (the approval is bound to a take, and that take has not
+          // changed).
+          if (ctx.shot.isApproved(a.shotId)) return { ok: false, satisfied: true, error: "这个镜头已经通过" };
+          return bool(ctx.shot.approve(a.shotId, a.note || ""), "这个镜头还没有视频");
+        case "unapproveShot":
+          if (!ctx.shot.isApproved(a.shotId)) return { ok: false, satisfied: true, error: "这个镜头本来就没有通过记录" };
+          return bool(ctx.shot.unapprove(a.shotId), "无法撤销通过");
+        case "replaceShotDraft":
+          return bool(ctx.shots.saveEdit(a.shots), "没有可写入的分镜草稿版本");
+        case "patchShots": {
+          const draft = (ctx.project.draftShots || []).map((s) => ({ ...s }));
+          if (!draft.length) return { ok: false, error: "当前没有分镜草稿" };
+          const byId = new Map(draft.map((s) => [s.shotId, s]));
+          let n = 0;
+          const skipped = [];
+          for (const p of a.patches) {
+            const target = byId.get(p.shotId);
+            // A patch naming a shot that is not in the CURRENT draft is skipped
+            // and reported, never applied to a neighbour: applying it by position
+            // is how 「Shot 3 的运镜」 lands on a different shot after any edit.
+            if (!target) { skipped.push(p.shotId); continue; }
+            Object.assign(target, p.fields);
+            n += 1;
+          }
+          if (!n) return { ok: false, error: `提案里的镜头都不在当前草稿里（${skipped.length} 条已跳过）` };
+          const ok = ctx.shots.saveEdit(draft);
+          return ok
+            ? { ok: true, detail: skipped.length ? `${n} 个镜头已更新，${skipped.length} 条跳过` : `${n} 个镜头已更新` }
+            : { ok: false, error: "无法保存新的草稿版本" };
+        }
+        case "proposeOutline":
+          return { ok: false, error: "大纲提案的写回路径尚未接线（本检查点只接了分镜 / 参考 / Prompt / 审片）" };
+        case "proposeScript":
+          return { ok: false, error: "剧本提案的写回路径尚未接线（本检查点只接了分镜 / 参考 / Prompt / 审片）" };
+        case "proposeBible":
+          return { ok: false, error: "人物 / 场景地提案请走「作品设定」的剧本拆解确认门" };
+        default:
+          return { ok: false, error: `动作「${a.action}」尚未接线` };
+      }
+    },
+  },
+
   // ---------------------------------------------------------------------- //
   // Shot production controller (CP4 / ADR-0057) — review approval + the
   // canonical References a shot uses. The ONLY write path for both.
@@ -1844,11 +2151,26 @@ const ctx = {
           assetId: r.assetId,
           url: r.url,
           storageState: r.storageState,
+          // ADR-0061 决策 4: a Reference can be a video or an audio take, so the
+          // renderer must be told WHICH element to use. Deriving it from the
+          // kind would be wrong for the multi-domain directing references.
+          domain: r.domain,
         }));
     },
     mediaUrl: (shot, domain) => {
       const slot = ctx.shot._slotOf(shot);
       return slot ? mediaref.slotUrl(assetRegistry[domain], slot) : "";
+    },
+    /** Does this shot have a voice take of its own?
+     *
+     *  Deliberately NOT "does the episode have any audio": scene ambience and
+     *  episode BGM belong to the scene and the episode, and counting them here
+     *  would report every shot in a scored episode as having audio — which is the
+     *  opposite of what a creator looking for missing dialogue needs to see. */
+    hasShotAudio: (shotId) => {
+      const shot = ctx.shot.find(shotId);
+      const slot = shot ? ctx.shot._slotOf(shot) : null;
+      return !!(slot && mediaref.currentRef(assetRegistry.audio, `voice-${slot}`));
     },
     /** The Reference picker's three entrances: what this shot already has,
      *  what THIS episode suggests (a reference for a character/location that
@@ -1859,6 +2181,7 @@ const ctx = {
       const all = assetreg.listReferences(assetRegistry).map((r) => ({
         key: r.key, kind: r.kind, name: assetreg.derivedLabel(r),
         version: r.version, assetId: r.assetId, url: r.url, links: r.links,
+        domain: r.domain,
         // carried so the picker can say 已归档 / 字节已移除 instead of
         // rendering a broken image — the reference still exists and is still
         // bindable; only its bytes are away
@@ -1932,7 +2255,12 @@ const ctx = {
      *  then bound to the shot. There is no path here that leaves media
      *  unregistered. */
     uploadReference: async (shotId, kind) => {
-      const file = await pickFile("image/png,image/jpeg,image/webp");
+      // ADR-0061 决策 4: the picker offers exactly the media types this reference
+      // KIND is allowed to be. It used to ask for images unconditionally, so the
+      // four directing references (motion / camera / performance / video style)
+      // had visible upload buttons that could not accept a clip — an advertised
+      // control that cannot do what it says (codex review round 3).
+      const file = await pickFile(acceptForKind(kind));
       if (!file) return null;
       const owner = proddoc.sceneOfShot(productionDoc, shotId);
       const links = {};
@@ -1964,9 +2292,13 @@ const ctx = {
       // only a caller that has no field at all (null) falls back to the set
       const seed = geninput.generationSeedFrom(g.set, { type: kind, promptSnapshot: promptText });
       // ADR-0059: an origin is recorded ONLY when the caller names the run this
-      // was launched from. An import that names none has none — no search for
-      // "the proposal that was probably behind this".
-      const origin = fromSkillRunId ? ctx.skills.originOf(fromSkillRunId) : null;
+      // was launched from, OR when the creator explicitly pressed 「用于生成」 on
+      // a proposal for THIS shot (ADR-0061 决策 3). Both are statements the
+      // creator made; neither is a search for "the proposal that was probably
+      // behind this".
+      const origin = fromSkillRunId
+        ? ctx.skills.originOf(fromSkillRunId)
+        : ctx.skills.pendingOriginFor(shotId);
       const ref = await ctx.media.importShotMedia(kind, g.slot, shotId, file, {
         shotId,
         prompt: seed.promptSnapshot,
@@ -2083,8 +2415,17 @@ const ctx = {
       if (!domain) {
         throw new Error("无法识别文件类型：请上传 png/jpg/webp、mp4/webm 或 mp3/wav");
       }
-      if (domain !== "images" && kind !== "external-reference") {
-        throw new Error("人物 / 场景 / 道具 / 风格参考需要图片文件");
+      // The kind's OWN allowed domains decide (ADR-0061 决策 4), rather than
+      // 「images unless external」: a motion reference is legitimately a clip, and
+      // a performance reference is legitimately a line read. The declaration
+      // check below re-verifies this, so the guarantee does not rest on this
+      // message being right.
+      const allowed = assetreg.domainsForKind(kind);
+      if (!allowed.includes(domain)) {
+        const zh = { images: "图片", videos: "视频", audio: "音频" };
+        throw new Error(
+          `${assetreg.ASSET_KIND_LABEL[kind] || kind} 只能是 ${allowed.map((d) => zh[d] || d).join(" / ")}`,
+        );
       }
       // checked BEFORE the upload — see ctx.audio.importKey
       const pre = assetreg.checkDeclaration(domain, { kind });
@@ -2146,6 +2487,53 @@ const ctx = {
       refreshProductionView();
       toast(`参考资产已新增 v${ref.version}（旧版本保留，可回切）`);
       return ref;
+    },
+
+    /** Pick a file and append it as a new version of an existing Reference.
+     *  Thin wrapper so the Production Inspector never opens its own upload path
+     *  (ADR-0055: 上传 ≠ 保存文件 — one entrance, one registration). */
+    uploadReferenceVersion: async (key) => {
+      if (!assetreg.isReferenceKey(key)) throw new Error("不是参考资产");
+      const chain = mediaref.slotEntry(assetRegistry.images, key)
+        || mediaref.slotEntry(assetRegistry.videos, key)
+        || mediaref.slotEntry(assetRegistry.audio, key);
+      if (!chain) throw new Error("参考资产不存在");
+      const head = chain.history[chain.history.length - 1] || {};
+      // Only the domains this reference's KIND is allowed in — a picker that
+      // offers an mp3 for a 人物参考 invites a refusal the creator cannot
+      // predict. `accept` follows the declaration, not the other way round.
+      const domains = new Set(assetreg.domainsForKind(head.kind || null));
+      const accept = [
+        domains.has("images") ? "image/png,image/jpeg,image/webp" : "",
+        domains.has("videos") ? "video/mp4,video/webm" : "",
+        domains.has("audio") ? "audio/mpeg,audio/wav" : "",
+      ].filter(Boolean).join(",") || "image/png,image/jpeg,image/webp";
+      const file = await pickFile(accept);
+      if (!file) return null;
+      return ctx.assets.importReferenceVersion(key, file);
+    },
+
+    /** One chain's full version list, for the version block in the Production
+     *  Inspector. Read-only; the switch itself goes through ctx.media.setCurrent
+     *  so there is still exactly one write path for an active pointer. */
+    chainOf: (key) => {
+      for (const domain of ["images", "videos", "audio"]) {
+        const e = mediaref.slotEntry(assetRegistry[domain], key);
+        if (!e) continue;
+        return {
+          domain,
+          current: e.current,
+          list: e.history.map((r) => ({
+            version: r.version,
+            url: r.url || "",
+            origin: r.origin || "",
+            assetId: r.assetId || null,
+            current: r.version === e.current,
+            storageState: r.storageState || "local",
+          })),
+        };
+      }
+      return null;
     },
 
     /** Edit an Asset's CREATOR metadata. Always an explicit user action —
@@ -2719,9 +3107,50 @@ ctx.openShotInProduction = (shotId) => {
   if (owner && owner.episode.episodeId !== productionDoc.activeEpisodeId) {
     ctx.production.setActiveEpisode(owner.episode.episodeId);
   }
-  setTopMode("prod");
-  if (!production.openShot(shotId, "shots")) setTopMode("wf"); // refused — stay put
+  // A shot's home is 剧集制作 (ADR-0061 决策 2). `openShot` opens the space AND
+  // selects the shot; a refusal (unsaved edit) leaves the creator exactly where
+  // they were rather than moving them somewhere they did not ask for.
+  production.openShot(shotId, "workbench");
+  syncTopBar();
 };
+/** Mount the provenance graph into the 剧集制作 centre column (ADR-0061 决策 2).
+ *
+ *  `embedded` suppresses the graph's own node-detail aside: that detail is the
+ *  LEFT inspector's job now, so rendering it here too would put one object in two
+ *  places. The shell re-renders so the LEFT column can follow the graph's
+ *  selection — but ONLY when the selection actually changed.
+ *
+ *  That guard is load-bearing, not defensive: the shell's render mounts the graph,
+ *  mounting renders the graph, and the graph reports its selection back to the
+ *  shell. Re-rendering unconditionally on that report is an infinite loop. What
+ *  the LEFT column needs is the CHANGE, so the change is what it is told about.
+ */
+let provSelected = null;
+ctx.mountProvenance = (box, rerender) => {
+  wfGraph.mount(box, {
+    embedded: true,
+    onSelectionChange: () => {
+      const id = wfGraph.selectedId();
+      if (id === provSelected) return;
+      provSelected = id;
+      // The LEFT inspector shows the selected node when there IS one, and the
+      // shot when there is not — so a selection change is what moves that column.
+      if (rerender) rerender();
+    },
+  });
+  wfGraph.render();
+};
+// ADR-0061 决策 2 / TASK-064 §11: the relations filter (上游 / 下游 / 完整链路)
+// belongs to the LEFT Production Inspector now, but what it filters is the
+// provenance graph. The graph stays its owner — the inspector only drives it —
+// so there is still ONE trace mode rather than a copy in the shell that could
+// disagree with what the graph is actually dimming.
+ctx.relationsMode = () => wfGraph.state.traceMode;
+ctx.setRelationsMode = (mode) => wfGraph.setTraceMode(mode);
+ctx.focusProvenanceNode = (nodeId) => wfGraph.focusNode(nodeId);
+/** The selected provenance node's story — what the LEFT inspector renders when
+ *  the centre is showing 生成溯源. Null when nothing is selected. */
+ctx.provenanceSelection = () => wfGraph.selection();
 /** Whether the Production shell holds an unsaved shot edit (read-only probe for
  *  surfaces that can change what it is looking at). */
 ctx.hasUnsavedShotEdit = () => production.hasUnsavedShotEdit();
@@ -2784,56 +3213,68 @@ function showLegacyBanner(name) {
   };
 }
 
-// Which Workflow view is showing: the provenance graph (default) or the node
-// canvas. Both are Workflow — the graph explains what WAS generated, the canvas
-// is where generation is executed (ADR-0052). Neither replaces the other.
-let wfView = "graph";
-function showWorkflowCanvas(on) {
+// ADR-0061 决策 1: the node canvas is a DIAGNOSTIC surface, not one of the
+// creator's three spaces. It is reachable only at `?canvas=1` (or from the
+// diagnostic bar itself) — Production is already the workflow, and the
+// provenance graph explains what was generated from inside 剧集制作.
+const CANVAS_DIAGNOSTIC = (() => {
+  try {
+    return new URLSearchParams(window.location.search).get("canvas") === "1";
+  } catch {
+    return false;
+  }
+})();
+
+function showDiagnosticCanvas(on) {
   $("#viewport").style.display = on ? "block" : "none";
   $("#wf-hint").hidden = !on;
-  $("#wfgraph").hidden = on;
-  $("#wf-tab-graph").classList.toggle("on", !on);
-  $("#wf-tab-canvas").classList.toggle("on", on);
+  $("#wf-tabs").hidden = !on;
+  $("#wfgraph").hidden = true;
   if (on) {
+    production.hide();
     renderStepbar(engine, $("#stepbar"), $("#entrybar")); // restores bar visibility
     ctx.refreshType("script"); // node summaries pick up workspace edits
   } else {
     $("#entrybar").style.display = "none";
     $("#stepbar").style.display = "none";
-    wfGraph.render();
   }
 }
-function setTopMode(mode) {
-  const highlight = (m) => {
-    for (const [id, k] of [["#seg-prod", "prod"], ["#seg-wf", "wf"], ["#seg-assets", "assets"]]) {
-      $(id).classList.toggle("on", k === m);
+
+/** Top-level SPACE switch: 故事开发 | 剧集制作 | 资产库. All three are the studio
+ *  shell — they differ in which rail/inspector the left column carries and which
+ *  workspace the centre shows — so there is one surface and one navigation state
+ *  rather than three pages that can disagree about where the creator is. */
+function setTopMode(space) {
+  const highlight = (s) => {
+    for (const [id, k] of [["#seg-story", "story"], ["#seg-episode", "episode"], ["#seg-assets", "assets"]]) {
+      const el = $(id);
+      if (el) el.classList.toggle("on", k === s);
     }
   };
-  if (mode === "wf") {
-    highlight("wf");
-    production.hide();
-    $("#wf-tabs").hidden = false;
-    showWorkflowCanvas(wfView === "canvas");
-    return;
-  }
-  $("#viewport").style.display = "none";
-  $("#wf-hint").hidden = true;
-  $("#wf-tabs").hidden = true;
-  $("#wfgraph").hidden = true;
-  $("#entrybar").style.display = "none";
-  $("#stepbar").style.display = "none";
+  showDiagnosticCanvas(false);
   // the shell may REFUSE the switch (unsaved shot edits) — highlight what it
   // actually landed on, never what we asked for
-  const landed = production.show(mode === "assets" ? "assets" : null);
-  highlight(landed === "assets" ? "assets" : "prod");
+  highlight(production.show(space));
 }
-function goProduction() { setTopMode("prod"); }
-function goWorkflow() { setTopMode("wf"); }
-$("#seg-prod").onclick = goProduction;
-$("#seg-wf").onclick = goWorkflow;
+/** Re-highlight the top bar from the shell's OWN state. Used after something
+ *  outside the bar moved the creator (a provenance jump, an episode entrance) —
+ *  the bar must report where they are, not where they last clicked. */
+function syncTopBar() {
+  const s = production.space();
+  for (const [id, k] of [["#seg-story", "story"], ["#seg-episode", "episode"], ["#seg-assets", "assets"]]) {
+    const el = $(id);
+    if (el) el.classList.toggle("on", k === s);
+  }
+}
+function goProduction() { setTopMode("story"); }
+function goWorkflow() { setTopMode("episode"); }
+$("#seg-story").onclick = () => setTopMode("story");
+$("#seg-episode").onclick = () => setTopMode("episode");
 $("#seg-assets").onclick = () => setTopMode("assets");
-$("#wf-tab-graph").onclick = () => { wfView = "graph"; showWorkflowCanvas(false); };
-$("#wf-tab-canvas").onclick = () => { wfView = "canvas"; showWorkflowCanvas(true); };
+const wfExit = $("#wf-tab-exit");
+if (wfExit) wfExit.onclick = () => setTopMode("episode");
+const wfCanvasTab = $("#wf-tab-canvas");
+if (wfCanvasTab) wfCanvasTab.onclick = () => showDiagnosticCanvas(true);
 $("#proj-switch").onclick = () => views.goHome();
 
 // Every locked plan a paid op could have been minted under: each scriptgen
@@ -3320,6 +3761,10 @@ function serializeGraph() {
     production: proddoc.serialize(productionDoc),
     // Per-episode timelines (M11) — asset REFERENCES only, never media bytes.
     timelines: timeline.serialize(timelinesDoc),
+    // Per-shot Prompt OVERRIDES (ADR-0061 决策 5). Only shots whose prompt was
+    // really written appear here; the compiled prompt is a derivation and is
+    // deliberately never stored, so it cannot go stale in the document.
+    prompts: promptdoc.serialize(promptsDoc),
     nodes: engine.nodes.map((n) => ({
       id: n.id, type: n.type, x: n.x, y: n.y, state: n.state,
       text: n.text, versions: n.versions, cur: n.cur, pickSingle: n.pickSingle,
@@ -3362,6 +3807,8 @@ function restoreGraph(data) {
   productionDoc = proddoc.createProduction((data && data.production) || null);
   // Per-episode timelines (M11).
   timelinesDoc = timeline.createTimelines((data && data.timelines) || null);
+  // Per-shot Prompt overrides (ADR-0061 决策 5).
+  promptsDoc = promptdoc.createPrompts((data && data.prompts) || null);
   // Breakdown proposals are PER-PROJECT transient review state: cards derived
   // from another project's script must never be appliable here, and a switch
   // mid-run must not leave a stuck "running" guard. (The in-flight run's
@@ -3484,6 +3931,7 @@ async function enterCanvas(name, opts = {}) {
   scriptDoc = scriptdoc.createDoc();
   storyDoc = storydoc.createStory(null);
   timelinesDoc = timeline.createTimelines(null);
+  promptsDoc = promptdoc.createPrompts(null);
   const known = projects.loadRegistry(window.localStorage).find((p) => p.name === name);
   ctx.project = {
     ...FIX,
@@ -3561,9 +4009,11 @@ async function enterCanvas(name, opts = {}) {
   }
   canvasActive = true;
   if (PAID) ctx.loadPaidOps(); // 生成情况 projection for the video node
-  // Default creator-facing view: Production (Script workspace). The workflow
-  // canvas keeps its full state behind the ⛓ 工作流 toggle.
-  goProduction();
+  // Default creator-facing space: 故事开发 (ADR-0061 决策 1) — the work starts by
+  // writing the story. `?canvas=1` opens the diagnostic node canvas instead; it
+  // is not one of the creator's three spaces and has no top-bar entry.
+  if (CANVAS_DIAGNOSTIC) showDiagnosticCanvas(true);
+  else goProduction();
 }
 
 // --- global bits ---

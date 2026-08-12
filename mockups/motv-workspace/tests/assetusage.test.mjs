@@ -228,7 +228,12 @@ test("type tabs group by what the creator means, and count honestly", () => {
   const assets = listAssets(reg);
   const m = libraryModel({ assets, usage: new Map(), names: NAMES, filters: {} });
   const n = (id) => m.counts.find((c) => c.id === id).n;
-  assert.deepEqual(TYPE_FILTERS.map((t) => t[0]), ["all", "reference", "shot-image", "shot-video", "audio", "final"]);
+  // ADR-0061 决策 1 added `collection` — 资产库's Collections tab, which is the
+  // EXPLICIT 可复用 mark and nothing else (never "used more than once").
+  assert.deepEqual(
+    TYPE_FILTERS.map((t) => t[0]),
+    ["all", "reference", "shot-image", "shot-video", "audio", "final", "collection"],
+  );
   assert.equal(n("reference"), 2, "both versions of the reference chain are references");
   assert.equal(n("audio"), 1);
   assert.equal(n("shot-video"), 0, "an empty group is honestly zero, not hidden");

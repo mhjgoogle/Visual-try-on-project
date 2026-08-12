@@ -1516,23 +1516,23 @@ test("the demo seed produces a document that VALIDATES at the current schema", a
 /* Information architecture                                                  */
 /* ========================================================================= */
 
-test("IA: Production's rail is upstream-only; episode stages sit under Episodes", () => {
-  assert.deepEqual(NAV.map((g) => g.sec), ["作品开发"]);
+test("IA: 故事开发's rail ends at the episode script; media stages are their own space", () => {
+  assert.deepEqual(NAV.map((g) => g.sec), ["故事开发"]);
   assert.deepEqual(NAV[0].items.map((i) => i[0]), [
-    "brief", "story", "characters", "relationships", "world", "episodes",
+    "brief", "story", "characters", "relationships", "world", "episodes", "script",
   ]);
-  // 分集规划 is the LAST upstream step — Production's exit
-  assert.equal(NAV[0].items[NAV[0].items.length - 1][0], "episodes");
-  // the four downstream stages the spec names are NOT in the project rail
-  for (const k of ["frames", "video", "audio", "edit"]) {
+  // ADR-0061 决策 1: 本集剧本 is the LAST step of 故事开发 — story development ends
+  // at每一集 Episode Script, and 剧集制作 begins FROM it.
+  assert.equal(NAV[0].items[NAV[0].items.length - 1][0], "script");
+  // the media stages are NOT in the story rail; they belong to 剧集制作
+  for (const k of ["frames", "video", "audio", "dailies"]) {
     assert.ok(!NAV.some((g) => g.items.some((i) => i[0] === k)));
     assert.ok(EPISODE_MODULES.includes(k));
   }
-  // the episode context contains these stages (a later checkpoint may add more)
   const epKeys = EPISODE_NAV.map((i) => i[0]);
-  for (const k of ["script", "scenes", "shots", "frames", "video", "audio", "edit"]) {
-    assert.ok(epKeys.includes(k), `episode context is missing ${k}`);
+  for (const k of ["workbench", "scenes", "shots", "frames", "video", "audio", "dailies", "provenance"]) {
+    assert.ok(epKeys.includes(k), `剧集制作 is missing ${k}`);
   }
-  // every module the rail can open has a human label
+  // every module either space can open has a human label
   for (const [k] of [...NAV[0].items, ...EPISODE_NAV]) assert.equal(typeof MODULE_LABEL[k], "string");
 });

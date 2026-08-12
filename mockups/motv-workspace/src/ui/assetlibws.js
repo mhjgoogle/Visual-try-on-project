@@ -15,7 +15,10 @@
 
 import { esc } from "../util/dom.js";
 import { head, empty } from "./shell.js";
-import { ASSET_KIND_LABEL, derivedLabel, isReferenceKey } from "../workflow/assetreg.js";
+import {
+  ASSET_KIND_LABEL, ASSET_KINDS, KIND_DOMAIN, REFERENCE_KINDS as REF_KINDS,
+  derivedLabel, isReferenceKey,
+} from "../workflow/assetreg.js";
 import { USAGE_KIND_LABEL, isUnused } from "../workflow/assetusage.js";
 
 /** Media class → how a card presents itself. Visual-first means the DOMAIN
@@ -36,19 +39,38 @@ export const TYPE_FILTERS = [
   ["shot-video", "镜头视频"],
   ["audio", "音频"],
   ["final", "成片"],
+  ["collection", "可复用"],
 ];
 
-const REFERENCE_KINDS = new Set([
-  "character-reference", "location-reference", "prop-reference",
-  "style-reference", "external-reference",
-]);
-const AUDIO_KINDS = new Set(["dialogue", "ambience", "sfx", "bgm"]);
+/** 资产库 rail key → the type filter it stands for (ADR-0061 决策 1). The rail is
+ *  media CATEGORIES; production navigation is deliberately absent from it. */
+export const RAIL_TYPE = {
+  assets: "all",
+  "assets:reference": "reference",
+  "assets:image": "shot-image",
+  "assets:video": "shot-video",
+  "assets:audio": "audio",
+  "assets:final": "final",
+  "assets:collection": "collection",
+};
+
+// Imported, never re-listed: a second copy of "which kinds are references" is
+// exactly how the library came to hide the ADR-0061 directing references while
+// the shot workspaces bound them (a filter that lies about what exists).
+const REFERENCE_KINDS = new Set(REF_KINDS);
+const AUDIO_KINDS = new Set(
+  ASSET_KINDS.filter((k) => KIND_DOMAIN[k] === "audio"),
+);
 
 function matchesType(a, type) {
   if (type === "all") return true;
   if (type === "reference") return REFERENCE_KINDS.has(a.kind) || isReferenceKey(a.key);
   if (type === "audio") return AUDIO_KINDS.has(a.kind) || a.domain === "audio";
   if (type === "final") return a.kind === "final" || a.domain === "finals";
+  // 资产库's Collections tab (ADR-0061 决策 1): assets the creator EXPLICITLY
+  // marked reusable. Never "used more than once" — that inference is what
+  // ADR-0055 决策 1 refuses.
+  if (type === "collection") return a.reusable === true;
   return a.kind === type;
 }
 

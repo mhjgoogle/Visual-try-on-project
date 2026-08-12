@@ -54,13 +54,29 @@ export const ASSET_KINDS = [
   "location-reference",
   "prop-reference",
   "style-reference",
+  // ADR-0061 决策 4: a Reference is not image-only. These four are how a
+  // director actually says what they want, and they are USEFUL even when the
+  // media model cannot ingest them — a Skill reads them and compiles camera
+  // language / motion rhythm / performance into the Prompt.
+  "video-style-reference",
+  "motion-reference",
+  "camera-reference",
+  "performance-reference",
   "external-reference",
   "shot-image",
   "shot-video",
   "dialogue",
   "ambience",
   "sfx",
+  // ADR-0061 决策 6: 拟音 and 旁白 are their own tracks in the shot mix, so they
+  // are their own declared kinds — folding them into `sfx`/`dialogue` would make
+  // every track filter lie about what it is showing.
+  "foley",
+  "vo",
   "bgm",
+  // A Shot Mix is a DERIVED audio asset (ADR-0061 决策 6): its sources are all
+  // still registered separately and are never replaced by it.
+  "shot-mix",
   "final",
 ];
 
@@ -71,27 +87,63 @@ export const ASSET_KIND_LABEL = {
   "location-reference": "场景参考",
   "prop-reference": "道具参考",
   "style-reference": "风格参考",
+  "video-style-reference": "视频风格参考",
+  "motion-reference": "运动参考",
+  "camera-reference": "机位参考",
+  "performance-reference": "表演参考",
   "external-reference": "外部参考",
   "shot-image": "镜头图片",
   "shot-video": "镜头视频",
   dialogue: "对白",
   ambience: "环境音",
   sfx: "音效",
+  foley: "拟音",
+  vo: "旁白",
   bgm: "BGM",
+  "shot-mix": "镜头混音",
   final: "成片",
 };
 
-/** The four REFERENCE kinds that live on their own `ref-<uuid>` chain rather
- *  than on a shot slot — a canonical reference many shots share (ADR-0055
- *  决策 3). Keeping them in the images map means the slot namespace, the
- *  version chain and the M3 write path all keep working unchanged. */
+/** The REFERENCE kinds that live on their own `ref-<uuid>` chain rather than on
+ *  a shot slot — a canonical reference many shots share (ADR-0055 决策 3).
+ *  Keeping them in the media maps means the slot namespace, the version chain
+ *  and the M3 write path all keep working unchanged.
+ *
+ *  ADR-0061 决策 4 added the four directing references. They are references in
+ *  exactly the same sense — shared, versioned, bound to many shots — so they
+ *  belong on the same chain mechanism, not in a parallel one. */
 export const REFERENCE_KINDS = [
   "character-reference",
   "location-reference",
   "prop-reference",
   "style-reference",
+  "video-style-reference",
+  "motion-reference",
+  "camera-reference",
+  "performance-reference",
   "external-reference",
 ];
+
+/** The reference kinds whose value to a generation is INTERPRETIVE: today's
+ *  media models do not ingest a motion clip, but a Skill reading it can turn it
+ *  into camera language, motion rhythm, action language and performance notes
+ *  that go into the Prompt (ADR-0061 决策 4).
+ *
+ *  This is a statement about HOW a reference is used, not about what file type
+ *  it is — which is exactly why it is a separate list from KIND_DOMAIN.
+ *  「Video Reference ≠ 必须直接传入 Video API」. */
+export const INTERPRETATION_KINDS = [
+  "video-style-reference",
+  "motion-reference",
+  "camera-reference",
+  "performance-reference",
+];
+
+const INTERPRETATION_SET = new Set(INTERPRETATION_KINDS);
+
+/** True when this kind reaches a generation through AI interpretation rather
+ *  than as direct model input. */
+export const isInterpretationKind = (k) => INTERPRETATION_SET.has(k);
 
 const REFERENCE_KIND_SET = new Set(REFERENCE_KINDS);
 
@@ -111,9 +163,35 @@ export const KIND_DOMAIN = {
   dialogue: "audio",
   ambience: "audio",
   sfx: "audio",
+  foley: "audio",
+  vo: "audio",
   bgm: "audio",
+  "shot-mix": "audio",
   final: "finals",
 };
+
+/** Kinds that legitimately live in MORE THAN ONE media domain, with the exact
+ *  set they are allowed in. Absent from `KIND_DOMAIN` on purpose: a single-value
+ *  mapping cannot express 「这可以是视频，也可以是一张图」 without lying about one
+ *  of the two.
+ *
+ *  A motion / camera / performance reference is usually a video clip but a still
+ *  frame is a perfectly good camera reference, so both are allowed. `finals` is
+ *  in NO set: this project's composed output re-declared as somebody's reference
+ *  would misreport the one asset the whole pipeline exists to produce. */
+export const KIND_DOMAINS = {
+  "external-reference": ["images", "videos", "audio"],
+  "video-style-reference": ["videos", "images"],
+  "motion-reference": ["videos", "images"],
+  "camera-reference": ["videos", "images"],
+  // A performance reference can also be an audio take (a line read) — that is a
+  // real directing reference, not a stretch of the concept.
+  "performance-reference": ["videos", "images", "audio"],
+};
+
+const KIND_DOMAIN_SETS = new Map(
+  Object.entries(KIND_DOMAINS).map(([k, v]) => [k, new Set(v)]),
+);
 
 /** The canonical objects an Asset can be declared to belong to. One flat list so
  *  the sanitizer, the migration and the read models can never disagree about
@@ -231,27 +309,35 @@ export function isReferenceKey(key) {
   return typeof key === "string" && key.startsWith("ref-");
 }
 
-/** The media domains an `external-reference` may live in. It is domain-FREE
- *  among real media (it can be an image, a video or an audio clip) — but
- *  `finals` is not a media domain, it is this project's composed output. A
- *  final re-declared as somebody else's reference would misreport the one asset
- *  the whole pipeline exists to produce. */
-const EXTERNAL_REFERENCE_DOMAINS = new Set(["images", "videos", "audio"]);
-
 /** Validate that a declaration may be written into `domain`. Returns null when
  *  acceptable, else a reason string. `null` (unclassified) is acceptable
- *  everywhere — it asserts nothing. */
+ *  everywhere — it asserts nothing.
+ *
+ *  A multi-domain kind is checked against its OWN allowed set (KIND_DOMAINS), not
+ *  waved through: 「可以是视频也可以是图」 is not 「可以是任何东西」, and an mp3
+ *  declared a camera reference would make every media filter wrong. A kind in
+ *  neither map is refused rather than accepted unchecked — fail closed. */
 export function declarationDomainError(kind, domain) {
   if (kind == null) return null;
   if (!KIND_SET.has(kind)) return `未知的资产类型 ${kind}`;
-  if (kind === "external-reference") {
-    return EXTERNAL_REFERENCE_DOMAINS.has(domain)
-      ? null
-      : `外部参考不能登记到 ${domain} 域`;
+  const many = KIND_DOMAIN_SETS.get(kind);
+  if (many) {
+    return many.has(domain) ? null : `${ASSET_KIND_LABEL[kind]} 不能登记到 ${domain} 域`;
   }
   const want = KIND_DOMAIN[kind];
-  if (want && want !== domain) return `${ASSET_KIND_LABEL[kind]} 不能登记到 ${domain} 域`;
+  if (!want) return `${ASSET_KIND_LABEL[kind] || kind} 没有声明允许的媒体域`;
+  if (want !== domain) return `${ASSET_KIND_LABEL[kind]} 不能登记到 ${domain} 域`;
   return null;
+}
+
+/** Every media domain a kind may be registered in — one answer for both the
+ *  single- and multi-domain cases, so callers (upload pickers, validators) never
+ *  have to know which map a kind is in. */
+export function domainsForKind(kind) {
+  const many = KIND_DOMAIN_SETS.get(kind);
+  if (many) return [...many];
+  const one = KIND_DOMAIN[kind];
+  return one ? [one] : [];
 }
 
 /** Fill DEFAULTS for any declaration field a record does not already carry.

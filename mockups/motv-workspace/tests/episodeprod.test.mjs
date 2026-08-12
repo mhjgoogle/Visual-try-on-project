@@ -17,7 +17,10 @@ import assert from "node:assert/strict";
 
 import { scriptSlices, episodeModel, renderEpisodeWs } from "../src/ui/episodews.js";
 import { referencePlan, renderRefPlan, bindRefPlan } from "../src/ui/refplan.js";
-import { buildInputSet, missingForGeneration, generationSeedFrom, REFERENCE_ROLES } from "../src/workflow/geninput.js";
+import {
+  buildInputSet, missingForGeneration, generationSeedFrom,
+  REFERENCE_ROLES, ROLE_USE, isInterpretationRole,
+} from "../src/workflow/geninput.js";
 import * as pd from "../src/workflow/proddoc.js";
 import * as shotprod from "../src/workflow/shotprod.js";
 
@@ -379,9 +382,23 @@ test("the input set groups references by ROLE and keeps the shot design", () => 
     prompt: "【画面】雨水顺着玻璃滑下",
     runtime: { source: "手工外部生成" },
   });
+  // ADR-0061 决策 4: WHAT is in frame, then HOW it is shot and played. The last
+  // four are DIRECTING references — they reach a generation through AI
+  // interpretation rather than as direct model input, which is a fact about the
+  // role and is stated once (geninput.ROLE_USE), not guessed per call site.
   assert.deepEqual(REFERENCE_ROLES.map((r) => r[0]), [
     "character-reference", "location-reference", "prop-reference", "style-reference",
+    "video-style-reference", "motion-reference", "camera-reference", "performance-reference",
   ]);
+  assert.deepEqual(
+    REFERENCE_ROLES.filter((r) => isInterpretationRole(r[0])).map((r) => r[0]),
+    ["video-style-reference", "motion-reference", "camera-reference", "performance-reference"],
+  );
+  // 「Video Reference ≠ 必须直接传入 Video API」: an interpretation role is still a
+  // real input, so it is still grouped and still counted.
+  for (const [role] of REFERENCE_ROLES) {
+    assert.ok(Array.isArray(set.references[role]), `role ${role} must have a group`);
+  }
   assert.deepEqual(set.references["character-reference"].map((r) => r.name), ["林晚 Ref"]);
   assert.deepEqual(set.references["prop-reference"], [], "an empty role is empty, not absent");
   assert.equal(set.referenceCount, 2);

@@ -11,6 +11,9 @@
     <link rel="stylesheet" href="styles/studio.css" />
     <!-- the Workflow provenance surface owns its own sheet (TASK-054) -->
     <link rel="stylesheet" href="styles/wfgraph.css" />
+    <!-- 剧集制作's three-column space owns its own sheet (TASK-064 / ADR-0061);
+         it loads last because it chooses the shell grid per space. -->
+    <link rel="stylesheet" href="styles/epprod.css" />
   </head>
   <body>
     <!-- ===================== LANDING ===================== -->
@@ -76,10 +79,12 @@
         <button class="st-proj" id="proj-switch" title="切换项目">
           <span class="nm" id="proj-name">—</span><span class="cv">▾</span>
         </button>
+        <!-- ADR-0061 决策 1: three spaces, named after the creative object each
+             one is about — not after the system's internal layering. -->
         <div class="st-modes">
-          <button id="seg-prod" class="on" title="制作：按创作对象工作（故事/设定/分镜/画面/视频/音频/剪辑）">制作</button>
-          <button id="seg-wf" title="工作流：生产流程地图">工作流</button>
-          <button id="seg-assets" title="资产库：项目全部媒体资产">资产</button>
+          <button id="seg-story" class="on" title="故事开发：把故事写出来（创意 → 大纲 → 设定 → 分集规划 → 本集剧本）">故事开发</button>
+          <button id="seg-episode" title="剧集制作：把这一集做出来（镜头 → 参考 → Prompt → 画面 → 视频 → 音频 → 审片 → 剪辑 → 成片）">剧集制作</button>
+          <button id="seg-assets" title="资产库：我有什么可以复用">资产库</button>
         </div>
         <div class="st-sp"></div>
         <span class="modebadge" id="modebadge2"></span><div class="budget" id="budget2"></div>
@@ -87,13 +92,18 @@
       </div>
       <!-- ADR-0053：项目仍在旧的仓库 scratch 目录时的只读提示 + 迁移入口 -->
       <div class="legacy-bar" id="legacy-bar" hidden></div>
-      <!-- 工作流的两个视图：默认「生成溯源」（谁生成了谁），以及原有的
-           「流程画布」（节点执行面，仍然是生成真正发生的地方）。ADR-0052 -->
+      <!-- ADR-0061 决策 1: 生成溯源 is a VIEW inside 剧集制作, not a top-level
+           space, and 流程画布 is no longer on any creator path — Production is
+           already the workflow, and a second flow model only invites the
+           question 「哪一个才是真的流程？」. The node canvas stays reachable at
+           `?canvas=1` as a diagnostic surface; this bar is what drives it. -->
       <div class="wf-tabs" id="wf-tabs" hidden>
-        <button id="wf-tab-graph" class="on">生成溯源</button>
-        <button id="wf-tab-canvas">流程画布</button>
-        <span class="wf-tabnote">溯源图只读：它显示已经发生过的生成，不发起生成。</span>
+        <button id="wf-tab-canvas" class="on">流程画布 · 诊断</button>
+        <span class="wf-tabnote">诊断视图：节点执行面。创作路径在「剧集制作」，生成溯源在那里。</span>
+        <button class="btn sm" id="wf-tab-exit">← 回到剧集制作</button>
       </div>
+      <!-- the provenance graph now mounts INSIDE 剧集制作's centre column; this
+           container stays for the diagnostic canvas route only -->
       <div id="wfgraph" hidden></div>
       <span class="hintbar" id="wf-hint" hidden>拖端口连线（仅相邻步骤）· 连线可多选(Shift)后 Del 删除</span>
       <!-- 全局付费队列条（只读投影：排队/生成中/已入账/失败，自动轮询刷新） -->

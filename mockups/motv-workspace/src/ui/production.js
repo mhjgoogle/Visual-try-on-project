@@ -23,7 +23,7 @@ import { renderTimelineWs, bindTimelineWs } from "./timelinews.js";
 import { renderDailies, bindDailies } from "./dailies.js";
 import { renderEpisodeWs, bindEpisodeWs } from "./episodews.js";
 import { renderRefPlan, bindRefPlan } from "./refplan.js";
-import { renderAssetLibrary, bindAssetLibrary } from "./assetlibws.js";
+import { renderAssetLibrary, bindAssetLibrary, RAIL_TYPE } from "./assetlibws.js";
 import { renderStorageWs, bindStorageWs } from "./storagews.js";
 import { renderStoryWs, bindStoryWs } from "./storyws.js";
 import { renderBibleWs, bindBibleWs } from "./biblews.js";
@@ -33,7 +33,13 @@ import { renderWorldWs, bindWorldWs } from "./worldws.js";
 import { renderEpPlanWs, bindEpPlanWs } from "./epplanws.js";
 import { renderImageWs, bindImageWs, renderVideoWs, bindVideoWs } from "./mediaws.js";
 import { directorModel, renderDirector, bindDirector } from "./director.js";
-import { NAV, EPISODE_MODULES, MODULE_LABEL, renderRail, renderCrumb, episodeLabels, head } from "./shell.js";
+import { renderEpProd, bindEpProd } from "./epprod.js";
+import { renderInspector, bindInspector } from "./prodinspector.js";
+import { skillPanelModel, renderSkillPanel, bindSkillPanel } from "./skillpanel.js";
+import {
+  NAV, EPISODE_MODULES, MODULE_LABEL, SPACE_LABEL, spaceOf,
+  renderRail, renderAssetRail, renderCrumb, episodeLabels, head,
+} from "./shell.js";
 
 export { NAV };
 
@@ -182,7 +188,27 @@ export function createProduction(getCtx) {
     // Asset Library: filters + the open inspector (transient view state)
     alFilters: {},
     alOpen: null,
+    // --- 剧集制作 (ADR-0061 决策 2) ---------------------------------------- //
+    // Which object the LEFT Production Inspector is operating on. Transient:
+    // an inspector selection is a place to stand, not a decision.
+    inspect: null,
+    // the Prompt Inspector's UNSAVED edit buffer — null means "showing the
+    // effective prompt", which is not the same as "the creator cleared it"
+    piPrompt: null,
+    epFocus: "all",
+    epSelOpen: false,
+    // AI Director · 能力: which Skill is open, on which executor
+    skillId: null,
+    skillExecutor: "manual",
+    skillPromptOpen: false,
+    skillPromptText: "",
   };
+
+  // The executor availability probe (ADR-0056): a SERVER round trip, so it is
+  // fetched once per shell and cached here. `null` means not probed yet, which
+  // the panel renders as 「未探测」 — never as available.
+  let execProbe = null;
+  let execProbing = false;
 
   function vmenuHtml(d) {
     const label = { generated: "AI 生成", revision: "AI 修订", manual: "手工" };
@@ -254,12 +280,42 @@ export function createProduction(getCtx) {
       // observation can be traced back to the canon it actually saw.
       production: ctx.prodgraph.model({ shotId: ui.selectedShotId || null }),
     });
+    // ADR-0061 决策 3: the Director now has a real Skill entrance. It is a
+    // collapsible section like the others, and it leads when the creator opened
+    // it — running a capability is the one thing the Director could not do.
+    const skillOpen = ui.dirOpen && ui.dirOpen.skills === true;
+    const sk = skillPanelModel(ctx, ui, execProbe);
+    const skillSummary = sk.pending
+      ? `<span class="chip gate">有提案待决定</span>`
+      : sk.open
+        ? `<span class="chip gen">运行中</span>`
+        : `<span class="chip">${sk.skills.length} 个能力</span>`;
+    const skillSec =
+      `<section class="dir-sec${skillOpen ? " open" : ""}${sk.pending ? " surfaced" : ""}">` +
+      `<button class="dir-sec-h" data-dsec="skills">` +
+      `<span class="tw">${skillOpen ? "▾" : "▸"}</span><span class="ti">能力</span>` +
+      `<span class="su">${skillSummary}</span></button>` +
+      (skillOpen ? `<div class="dir-sec-b">${renderSkillPanel(sk, ui)}</div>` : "") +
+      `</section>`;
     return (
       `<aside class="st-dir prod-ai">` +
-      `<div class="dir-head"><span class="av">🎬</span>AI 导演</div>` +
-      renderDirector(m, ui.directorText, ui.dirOpen) +
+      `<div class="dir-head"><span class="av">🎬</span>AI 导演` +
+      `<span class="dir-space">${esc(SPACE_LABEL[spaceOf(activeModule)] || "")}</span></div>` +
+      renderDirector(m, ui.directorText, ui.dirOpen, skillSec) +
       `</aside>`
     );
+  }
+
+  /** Probe the local executors once, then re-render so the Skill panel reports
+   *  real availability. Never awaited by render(): a panel that blocks on a
+   *  server probe would leave the whole shell blank while it runs. */
+  function ensureProbe(ctx) {
+    if (execProbe || execProbing) return;
+    execProbing = true;
+    Promise.resolve(ctx.skills.probe())
+      .then((p) => { execProbe = p; })
+      .catch(() => { execProbe = {}; }) // a failed probe is "nothing is known", not "available"
+      .finally(() => { execProbing = false; render(); });
   }
 
   /** Everything the breadcrumb needs, resolved from real domain state. */
@@ -278,11 +334,13 @@ export function createProduction(getCtx) {
         if (sc) { scene = sc.title.split(" ")[0] || sc.title; break; }
       }
     }
-    const showSel = ["shots", "frames", "video", "audio"].includes(activeModule);
+    const inEpisode = EPISODE_MODULES.includes(activeModule);
+    // Inside 剧集制作 the scene/shot crumb is always meaningful — Scene and Shot
+    // are LEVELS of that space, not a per-stage extra (ADR-0061 决策 2).
+    const showSel = inEpisode || ["shots", "frames", "video", "audio"].includes(activeModule);
     const tail = ep && eps.length > 1 ? `共 ${eps.length} 集` : "";
     // upstream modules are PROJECT-level: showing an episode crumb there would
     // claim the creator is inside an episode when they are not
-    const inEpisode = EPISODE_MODULES.includes(activeModule);
     return renderCrumb({
       project: (ctx.project && ctx.project.name) || "未命名项目",
       episode: inEpisode && ep ? ep.code : null,
@@ -316,7 +374,7 @@ export function createProduction(getCtx) {
   }
 
   const WORKSPACES = {
-    // --- 作品开发 (project-level upstream) --------------------------------- //
+    // --- 故事开发 (project-level upstream) --------------------------------- //
     brief: (ctx) => renderBriefWs(ctx, ui),
     story: (ctx) => renderStoryWs(ctx, ui),
     characters: (ctx) => renderBibleWs(ctx, ui),
@@ -326,11 +384,14 @@ export function createProduction(getCtx) {
     relationships: (ctx) => renderRelWs(ctx, ui),
     world: (ctx) => renderWorldWs(ctx, ui),
     episodes: (ctx) => renderEpPlanWs(ctx, ui),
-    // --- 本集制作 (inside ONE episode) ------------------------------------- //
-    // CP6/ADR-0058: 本集制作 is the unified creative context — the episode's
-    // script, its scenes, and each scene's shots with their current picture,
-    // in ONE place. The per-stage workspaces below stay exactly as they are;
-    // this is where the work is done, they are where a stage is worked through.
+    // --- 剧集制作 (inside ONE episode) ------------------------------------- //
+    // ADR-0061 决策 2: `workbench` is this space's own unified map (Scene → Shot
+    // → that shot's production objects) and is rendered by ui/epprod.js, not
+    // here — it frames the stage workspaces below rather than being one of them.
+    // `provenance` is a VIEW of this space: the graph mounts into a container the
+    // shell hands it, so the node detail can live in the LEFT inspector.
+    workbench: () => "",
+    provenance: () => `<div class="ep-graph" id="ep-graph"></div>`,
     episode: (ctx) => renderEpisodeWs(ctx, ui),
     refplan: (ctx) => renderRefPlan(ctx, ui),
     scenes: (ctx) => ws.renderEpisodes(ctx),
@@ -340,10 +401,19 @@ export function createProduction(getCtx) {
     audio: (ctx) => renderAudioWs(ctx, ui),
     dailies: (ctx) => renderDailies(ctx, ui),
     edit: (ctx) => renderTimelineWs(ctx, ui),
-    // 存储 stays the storage MANAGER (archive / remove bytes / delete);
-    // 资产 is now the visual-first Production Memory Library (CP5).
+    // 存储管理 stays the storage MANAGER (archive / remove bytes / delete);
+    // 资产库 is the visual-first Production Memory Library (CP5). ADR-0061 决策 1
+    // gives it a rail of media CATEGORIES: each key simply presets the library's
+    // own type filter, so there is one library and one filter vocabulary rather
+    // than seven near-identical workspaces.
     storage: (ctx) => renderStorageWs(ctx, ui),
     assets: (ctx) => renderAssetLibrary(ctx, ui),
+    "assets:reference": (ctx) => renderAssetLibrary(ctx, ui),
+    "assets:image": (ctx) => renderAssetLibrary(ctx, ui),
+    "assets:video": (ctx) => renderAssetLibrary(ctx, ui),
+    "assets:audio": (ctx) => renderAssetLibrary(ctx, ui),
+    "assets:final": (ctx) => renderAssetLibrary(ctx, ui),
+    "assets:collection": (ctx) => renderAssetLibrary(ctx, ui),
   };
 
   /** Shot workspaces open on a real shot: an empty centre column next to a
@@ -351,7 +421,7 @@ export function createProduction(getCtx) {
    *  to avoid. A selection that no longer resolves (draft regenerated, episode
    *  switched) falls back the same way — it is never left dangling. */
   function ensureShotSelection(pd) {
-    if (!["shots", "frames", "video"].includes(activeModule)) return;
+    if (!["workbench", "shots", "frames", "video"].includes(activeModule)) return;
     // scoped to the ACTIVE episode PLUS the unassigned pool: the previous
     // episode's shot still exists in the project-wide draft, so a draft-wide
     // check would keep it selected under the episode just switched to — but the
@@ -387,24 +457,75 @@ export function createProduction(getCtx) {
       const im = ctx.canon.impact(e.episodeId);
       if (im && im.count) upstream[e.episodeId] = im.count;
     }
+    const space = spaceOf(activeModule);
+    ensureProbe(ctx);
+    // The grid differs per space (a 220px rail vs a 300px inspector), and the
+    // CSS decides from ONE class so no two rules can disagree about which
+    // space is on screen.
+    root.className = `space-${space}`;
+    const main =
+      activeModule === "script"
+        ? scriptMain(ctx)
+        : (WORKSPACES[activeModule] || (() => ""))(ctx);
+
+    if (space === "episode") {
+      // LEFT = the Production Inspector; CENTER = the production workspace with
+      // its episode selector, focus filters and stage tabs; RIGHT = the AI
+      // Director. 左边管输入和当前对象，中间管生产执行，右边管 AI 导演。
+      root.innerHTML =
+        crumb(ctx) +
+        renderInspector(ctx, ui, {
+          node: activeModule === "provenance" ? ctx.provenanceSelection() : null,
+          traceMode: ctx.relationsMode ? ctx.relationsMode() : "full",
+        }) +
+        `<main class="st-main prod-main ep-main">` +
+        renderEpProd(ctx, ui, { stage: activeModule, inner: main }) +
+        `</main>` +
+        aiDirector(ctx);
+      bind(ctx);
+      return;
+    }
+
+    if (space === "assets") {
+      root.innerHTML =
+        crumb(ctx) +
+        `<nav class="st-rail prod-nav">${renderAssetRail({ activeModule, counts: assetRailCounts(ctx) })}</nav>` +
+        `<main class="st-main prod-main">${main}</main>` +
+        aiDirector(ctx);
+      bind(ctx);
+      return;
+    }
+
     const rail = renderRail({
       activeModule,
       badges,
       episodes: episodeLabels(pd.production),
       ratios,
-      episodeMode: EPISODE_MODULES.includes(activeModule),
       upstream,
     });
-    const main =
-      activeModule === "script"
-        ? scriptMain(ctx)
-        : WORKSPACES[activeModule](ctx);
     root.innerHTML =
       crumb(ctx) +
       `<nav class="st-rail prod-nav">${rail}</nav>` +
       `<main class="st-main prod-main">${main}</main>` +
       aiDirector(ctx);
     bind(ctx);
+  }
+
+  /** Per-category counts for the 资产库 rail. Derived from the SAME library read
+   *  model the workspace renders, so a rail badge cannot claim assets the list
+   *  does not show. */
+  function assetRailCounts(ctx) {
+    const rows = ctx.assets.library({ type: "all", variant: "all" }).rows;
+    const n = (fn) => rows.filter(fn).length || 0;
+    return {
+      assets: rows.length,
+      "assets:reference": n((r) => r.isReference),
+      "assets:image": n((r) => r.domain === "images" && !r.isReference),
+      "assets:video": n((r) => r.domain === "videos" && !r.isReference),
+      "assets:audio": n((r) => r.domain === "audio" && !r.isReference),
+      "assets:final": n((r) => r.domain === "finals"),
+      "assets:collection": n((r) => r.reusable),
+    };
   }
 
   function setModule(k) {
@@ -415,7 +536,10 @@ export function createProduction(getCtx) {
     ui.buffer = {};
     ui.shotEdit = false;
     activeModule = k; // UI navigation state only — domain edits/proposals live
-    if (k !== "assets") lastProdModule = k;
+    if (spaceOf(k) !== "assets") lastProdModule = k;
+    // A 资产库 rail row simply presets the library's OWN type filter — the rail
+    // and the in-page filter chips are two entrances to one vocabulary.
+    if (k in RAIL_TYPE) ui.alFilters = { ...(ui.alFilters || {}), type: RAIL_TYPE[k] };
     vmenuOpen = false; // in their documents and survive this switch untouched
     ui.bibleOpen = null;
     ui.relOpen = null;
@@ -442,7 +566,10 @@ export function createProduction(getCtx) {
     // upstream, entering an episode opens 本集制作 — the view of the whole
     // episode,
     // which is what "进入本集" means now that one exists
-    const target = module || (EPISODE_MODULES.includes(activeModule) ? activeModule : "episode");
+    // Entering an episode from 故事开发 lands on the 剧集制作 WORKBENCH — the
+    // unified map of the episode (ADR-0061 决策 2), which is what 「进入剧集制作」
+    // says it does. Already inside the space, the stage you were on is kept.
+    const target = module || (EPISODE_MODULES.includes(activeModule) ? activeModule : "workbench");
     if (target !== activeModule) {
       activeModule = target;
       lastProdModule = target;
@@ -480,7 +607,27 @@ export function createProduction(getCtx) {
     if (activeModule === "dailies") bindDailies(root, ctx, ui, render);
     if (activeModule === "edit") bindTimelineWs(root, ctx, ui, render);
     if (activeModule === "storage") bindStorageWs(root, ctx, ui, render);
-    if (activeModule === "assets") bindAssetLibrary(root, ctx, ui, render);
+    if (spaceOf(activeModule) === "assets" && activeModule !== "storage") {
+      bindAssetLibrary(root, ctx, ui, render);
+    }
+    // --- 剧集制作 (ADR-0061 决策 2): LEFT inspector + CENTER workspace -------- //
+    if (spaceOf(activeModule) === "episode") {
+      bindInspector(root, ctx, ui, render);
+      bindEpProd(root, ctx, ui, render, {
+        enterEpisode: (id) => enterEpisode(id, null),
+        setStage: (k) => setModule(k),
+        goStory: () => setModule("episodes"),
+      });
+      // The provenance graph mounts into the container the centre just rendered.
+      // Re-mounting per render is safe and deliberate: `mount` only points the
+      // graph at a DOM node — its view state (selection, trace mode, scope)
+      // lives in its own closure and survives, which is what lets the LEFT
+      // inspector keep showing the selected node across a shell re-render.
+      if (activeModule === "provenance") {
+        const box = root.querySelector("#ep-graph");
+        if (box && ctx.mountProvenance) ctx.mountProvenance(box, render);
+      }
+    }
     // "进入本集" — bound LAST, and centrally: entering an episode is a SHELL
     // decision (switch the active episode AND open one of its stages), so it
     // must not be re-implemented per workspace. Binding after the workspaces
@@ -497,9 +644,11 @@ export function createProduction(getCtx) {
       ev.stopPropagation();
       enterEpisode(b.dataset.epOpen, "script");
     }));
-    // AI Director (non-script modules) — real dispatches only
+    // AI Director (non-script modules) — real dispatches only. The Skill panel
+    // is part of the Director now, so it binds wherever the Director does.
     if (activeModule !== "script") {
       bindDirector(root, ctx, ui, render);
+      bindSkillPanel(root, ctx, ui, render);
       return;
     }
     // --- script workspace bindings (unchanged behavior) ---
@@ -531,33 +680,48 @@ export function createProduction(getCtx) {
       }));
   }
 
+  // The module each SPACE opens on when the creator switches into it from the top
+  // bar. Remembered per space, so returning to 剧集制作 lands where they were
+  // rather than resetting to the workbench every time (ADR-0061 决策 1).
+  const lastOf = { story: "brief", episode: "workbench", assets: "assets" };
+
   return {
     render,
-    /** Open the shell on a module. `"assets"` is the top bar's 资产 mode;
-     *  `null` means 制作 — which must LEAVE the asset library, restoring the
-     *  last production module rather than silently staying on assets. */
-    show(module) {
-      const next = module === "assets"
-        ? "assets"
-        : module && (WORKSPACES[module] || module === "script")
-          ? module
-          : activeModule === "assets" ? lastProdModule : activeModule;
+    /**
+     * Open the shell on a SPACE — "story" | "episode" | "assets" — or on a
+     * specific module. `null` means "stay where you are".
+     *
+     * Returns the space actually landed on, which is NOT always the one asked
+     * for: an unsaved shot edit refuses the switch, and a caller must never
+     * claim a move that did not happen.
+     */
+    show(target) {
+      let next = activeModule;
+      if (target === "story" || target === "episode" || target === "assets") {
+        next = spaceOf(activeModule) === target ? activeModule : lastOf[target];
+      } else if (target && (WORKSPACES[target] || target === "script")) {
+        next = target;
+      }
       if (next !== activeModule) {
         if (ui.dirty && !window.confirm("镜头详情有未保存的修改，切换将丢弃？")) {
           root.style.display = "grid";
           render();
-          return activeModule; // rejected — the caller must not claim the switch
+          return spaceOf(activeModule); // rejected — do not claim the switch
         }
         ui.dirty = false;
         ui.buffer = {};
         ui.shotEdit = false;
         activeModule = next;
       }
-      if (activeModule !== "assets") lastProdModule = activeModule;
+      lastOf[spaceOf(activeModule)] = activeModule;
+      if (spaceOf(activeModule) !== "assets") lastProdModule = activeModule;
       root.style.display = "grid";
       render();
-      return activeModule;
+      return spaceOf(activeModule);
     },
+    /** Which space is on screen — what the top bar highlights. */
+    space: () => spaceOf(activeModule),
+    module: () => activeModule,
     hide() { root.style.display = "none"; vmenuOpen = false; },
     isVisible: () => root.style.display === "grid",
     /** True while a shot detail has unsaved edits. Anything OUTSIDE this shell
@@ -583,14 +747,18 @@ export function createProduction(getCtx) {
      *  context out from under them. Returns false when the selection was
      *  refused (unsaved shot edits), so the caller never claims a jump that
      *  did not happen. */
-    openShot(shotId, module = "shots") {
+    openShot(shotId, module = "workbench") {
       if (typeof shotId !== "string" || !shotId) return false;
       if (ui.dirty && !window.confirm("镜头详情有未保存的修改，切换将丢弃？")) return false;
       ui.dirty = false;
       ui.buffer = {};
       ui.shotEdit = false;
       ui.selectedShotId = shotId;
-      activeModule = WORKSPACES[module] || module === "script" ? module : "shots";
+      // A shot opens in 剧集制作, and its own object opens in the LEFT inspector:
+      // that is where a shot is worked on now (ADR-0061 决策 2).
+      activeModule = WORKSPACES[module] || module === "script" ? module : "workbench";
+      ui.inspect = { ...(ui.inspect || {}), kind: (ui.inspect && ui.inspect.kind) || "shot", shotId };
+      lastOf[spaceOf(activeModule)] = activeModule;
       lastProdModule = activeModule;
       root.style.display = "grid";
       render();

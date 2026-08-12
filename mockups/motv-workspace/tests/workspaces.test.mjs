@@ -19,7 +19,9 @@ import {
   renderFrames,
 } from "../src/ui/workspaces.js";
 import { navBadges, NAV } from "../src/ui/production.js";
-import { EPISODE_NAV, EPISODE_MODULES } from "../src/ui/shell.js";
+import {
+  EPISODE_NAV, EPISODE_MODULES, ASSET_NAV, spaceOf, renderAssetRail,
+} from "../src/ui/shell.js";
 import * as sd from "../src/workflow/scriptdoc.js";
 
 /** The default production structure a fresh project carries (M6/M7). */
@@ -406,13 +408,13 @@ test("navBadges: counts reflect state; empty modules still get a badge-less item
 
 // --- M2.5 最终信息架构 ----------------------------------------------------- //
 
-test("NAV: the rail is the UPSTREAM 作品开发; episode stages are NOT in it (TASK-057)", () => {
-  // ADR-0054 决策 1: Production is the upstream workspace. Its primary
-  // navigation is building the whole work's foundation — 创意 → 故事大纲 →
-  // 作品设定（人物 / 人物关系 / 世界观）→ 分集规划.
-  assert.deepEqual(NAV.map((g) => g.sec), ["作品开发"]);
+test("NAV: the rail is 故事开发 and it ENDS at the episode script (ADR-0061 决策 1)", () => {
+  // ADR-0061 决策 1: the first space is 故事开发 — 把故事写出来 — and its end
+  // point is每一集的 Episode Script. 创意 → 故事大纲 → 作品设定（人物 / 人物关系 /
+  // 世界观）→ 分集规划 → 本集剧本.
+  assert.deepEqual(NAV.map((g) => g.sec), ["故事开发"]);
   assert.deepEqual(NAV[0].items.map((i) => i[0]), [
-    "brief", "story", "characters", "relationships", "world", "episodes",
+    "brief", "story", "characters", "relationships", "world", "episodes", "script",
   ]);
   // 人物 / 人物关系 / 世界观 are grouped under one 作品设定 sub-heading rather
   // than being a dozen first-level pages
@@ -420,21 +422,61 @@ test("NAV: the rail is the UPSTREAM 作品开发; episode stages are NOT in it (
     NAV[0].items.filter((i) => i[3] && i[3].under === "作品设定").map((i) => i[0]),
     ["characters", "relationships", "world"],
   );
-  // the DOWNSTREAM production stages left the project rail entirely: they
-  // belong to ONE episode and are reached by entering it
-  for (const k of ["shots", "frames", "video", "audio", "edit", "script", "scenes"]) {
-    assert.ok(!NAV.some((g) => g.items.some((i) => i[0] === k)), `${k} must not be in the project rail`);
+  // The MEDIA production stages left the story rail entirely: they belong to
+  // 剧集制作, which is a top-level SPACE now rather than a sub-tree under an
+  // episode row (TASK-064 §4).
+  for (const k of ["scenes", "shots", "refplan", "frames", "video", "audio", "dailies", "edit", "workbench", "provenance"]) {
+    assert.ok(!NAV.some((g) => g.items.some((i) => i[0] === k)), `${k} must not be in the story rail`);
   }
-  // the episode context CONTAINS these stages; a later checkpoint may add more
-  // (dailies, …) and that is not this test's subject
+  // 剧集制作's own centre tabs lead with the unified workbench and include the
+  // provenance VIEW — and deliberately NOT a second flow model (流程画布).
   const epKeys = EPISODE_NAV.map((i) => i[0]);
-  for (const k of ["script", "scenes", "shots", "frames", "video", "audio", "edit"]) {
-    assert.ok(epKeys.includes(k), `episode context is missing ${k}`);
+  assert.equal(epKeys[0], "workbench", "the unified workbench leads the space");
+  for (const k of ["scenes", "shots", "refplan", "frames", "video", "audio", "dailies", "provenance"]) {
+    assert.ok(epKeys.includes(k), `剧集制作 is missing ${k}`);
   }
+  assert.ok(!epKeys.includes("canvas"), "流程画布 must not be on a creator path");
   assert.deepEqual(EPISODE_MODULES, epKeys);
-  // storage/assets left the rail: the asset library is a top-level mode in the
-  // studio top bar (TASK-051 §11), not a per-project rail item
+  // storage/assets left the rail: 资产库 is a top-level SPACE with its own rail
+  // of media categories (TASK-064 §15), not a per-project rail item here
   assert.ok(!NAV.some((g) => g.items.some((i) => i[0] === "storage" || i[0] === "assets")));
+});
+
+test("spaceOf: every module belongs to exactly one space (ADR-0061 决策 1)", () => {
+  // ONE function decides, so the top bar, the rail and the breadcrumb cannot
+  // disagree about where the creator is.
+  for (const k of ["brief", "story", "characters", "relationships", "world", "episodes", "script", "settings"]) {
+    assert.equal(spaceOf(k), "story", k);
+  }
+  for (const k of EPISODE_MODULES) assert.equal(spaceOf(k), "episode", k);
+  for (const k of ["assets", "assets:reference", "assets:image", "assets:video", "assets:audio", "assets:final", "assets:collection", "storage"]) {
+    assert.equal(spaceOf(k), "assets", k);
+  }
+  // an unknown module lands in 故事开发 rather than throwing: a navigation state
+  // that cannot be placed must still render somewhere real
+  assert.equal(spaceOf("nonesuch"), "story");
+  assert.equal(spaceOf(null), "story");
+});
+
+test("ASSET_NAV is media categories only — no production navigation (TASK-064 §15)", () => {
+  const keys = ASSET_NAV.map((i) => i[0]);
+  for (const k of ["script", "scenes", "shots", "frames", "video", "audio", "dailies", "edit", "workbench"]) {
+    assert.ok(!keys.includes(k), `${k} is production navigation and must not pollute 资产库`);
+  }
+  for (const k of ["assets:reference", "assets:image", "assets:video", "assets:audio", "assets:final", "assets:collection"]) {
+    assert.ok(keys.includes(k), `资产库 is missing ${k}`);
+  }
+});
+
+test("renderAssetRail marks the active row and prints only real counts", () => {
+  const html = renderAssetRail({ activeModule: "assets:video", counts: { "assets:video": 3, "assets:audio": 0 } });
+  assert.ok(html.includes("当前项目"));
+  assert.ok(/data-mod="assets:video"[^>]*/.test(html));
+  assert.ok(html.includes('class="st-navitem on" data-mod="assets:video"'));
+  // a zero count prints NOTHING: a 「0」 badge is noise, not information (the
+  // same rule the story rail's badges follow)
+  assert.ok(html.includes(">3<"));
+  assert.ok(!/data-mod="assets:audio"[\s\S]*?>0</.test(html));
 });
 
 /** An empty story document (M9 default shape). */

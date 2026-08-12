@@ -25,15 +25,59 @@ const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
 const nonEmpty = (x) => typeof x === "string" && x !== "";
 const strOrNull = (x) => (nonEmpty(x) ? x : null);
 
-/** The four reference roles a generation can be given, in the order a creator
- *  thinks about them. `external` is deliberately absent: an external reference
- *  is material the creator collected, not a role in THIS shot's generation. */
+/** The reference roles a generation can be given, in the order a creator thinks
+ *  about them: WHAT is in frame, then HOW it is shot and played.
+ *  `external` is deliberately absent: an external reference is material the
+ *  creator collected, not a role in THIS shot's generation.
+ *
+ *  ADR-0061 决策 4: the last four are directing references. They reach the
+ *  generation through AI INTERPRETATION rather than as direct model input — see
+ *  `isInterpretationRole`. Being un-ingestible by today's video API does not make
+ *  them decoration: a Skill reads them and compiles运镜 / 节奏 / 表演 into the
+ *  Prompt, which is a real contribution to the result. */
 export const REFERENCE_ROLES = [
   ["character-reference", "人物参考"],
   ["location-reference", "场景参考"],
   ["prop-reference", "道具参考"],
   ["style-reference", "风格参考"],
+  ["video-style-reference", "视频风格参考"],
+  ["motion-reference", "运动参考"],
+  ["camera-reference", "机位参考"],
+  ["performance-reference", "表演参考"],
 ];
+
+/** role → label, for the many callers that only need the word. */
+export const ROLE_LABEL = Object.fromEntries(REFERENCE_ROLES);
+
+/** How a role reaches the generation (ADR-0061 决策 4):
+ *
+ *    model-input        the media model ingests it directly, where supported
+ *    ai-interpretation  a Skill reads it and compiles it INTO the prompt
+ *
+ *  This is a fact about the ROLE, not about a provider's current feature list,
+ *  which is why it is stated once here instead of being guessed per call site. */
+export const ROLE_USE = {
+  "character-reference": "model-input",
+  "location-reference": "model-input",
+  "prop-reference": "model-input",
+  "style-reference": "model-input",
+  "video-style-reference": "ai-interpretation",
+  "motion-reference": "ai-interpretation",
+  "camera-reference": "ai-interpretation",
+  "performance-reference": "ai-interpretation",
+};
+
+export const ROLE_USE_LABEL = {
+  "model-input": "模型直接输入",
+  "ai-interpretation": "AI 解读输入",
+};
+
+export const isInterpretationRole = (role) => ROLE_USE[role] === "ai-interpretation";
+
+/** The roles that are direct model input, and the roles that are interpreted —
+ *  derived from ROLE_USE so a new role cannot be forgotten by one of the two. */
+export const MODEL_INPUT_ROLES = REFERENCE_ROLES.filter(([r]) => !isInterpretationRole(r)).map(([r]) => r);
+export const INTERPRETATION_ROLES = REFERENCE_ROLES.filter(([r]) => isInterpretationRole(r)).map(([r]) => r);
 
 /**
  * Assemble the input set for one shot's generation.
