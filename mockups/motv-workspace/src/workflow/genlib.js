@@ -52,6 +52,15 @@ export const GENERATION_STATUSES = STATUSES;
 const strOrNull = (x) => (typeof x === "string" && x ? x : null);
 const idArray = (x) => (Array.isArray(x) ? x.filter((s) => typeof s === "string" && s) : []);
 
+/** The launching Proposal, normalised (ADR-0059). Null when the caller named
+ *  neither id: a generation started from the workspace has no proposal behind
+ *  it, and an object of two nulls would claim otherwise. */
+function originOf(raw) {
+  if (!isObj(raw)) return null;
+  const o = { skillRunId: strOrNull(raw.skillRunId), proposalId: strOrNull(raw.proposalId) };
+  return o.skillRunId || o.proposalId ? o : null;
+}
+
 // Keys that must NOT be persisted into durable provenance — a provider params
 // object could carry a credential/token, and the Generation Registry is written
 // to the canvas save. Matched case-insensitively as a whole word / sub-token.
@@ -169,6 +178,13 @@ export function startGeneration(reg, entry) {
     model: strOrNull(entry.model),
     parameters,
 
+    // WHERE this generation came from (ADR-0059) — the skill run and proposal
+    // that launched it, frozen at launch like every other input above.
+    //
+    // Written ONLY when the caller genuinely launched from a proposal. Nothing
+    // infers it from "a proposal was accepted for this shot recently": a
+    // guessed lineage is worse than none, because it reads as a record.
+    origin: originOf(entry.origin),
     status: entry.status == null ? "generating" : entry.status, // validated above
     resultAssetIds: idArray(entry.resultAssetIds),
     createdAt: strOrNull(entry.createdAt),

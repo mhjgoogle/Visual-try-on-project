@@ -28,7 +28,7 @@ import { RUN_STATUSES } from "../workflow/skillrun.js";
 const SKILL_RUN_STATUS_SET = new Set(RUN_STATUSES);
 
 /** Authoritative CURRENT canvas schema version. Saves must emit exactly this. */
-export const CANVAS_SCHEMA_VERSION = 13;
+export const CANVAS_SCHEMA_VERSION = 14;
 
 /**
  * v1 → v2 (checkpoint M2): stable creator identity + minimal provenance.
@@ -979,9 +979,44 @@ function migrateV12ToV13(doc) {
   return doc;
 }
 
+/**
+ * v13 → v14 (checkpoint CP8 / ADR-0059): the production graph's identity
+ * contract — three additive fields that let the existing layers be traced
+ * through as ONE chain.
+ *
+ *   skillRun.context   { episodeId, sceneId, shotId }  — WHICH canon a run read
+ *   skillRun.proposal  gains `proposalId`              — so it can be referenced
+ *   generation.origin  { skillRunId, proposalId }      — WHICH proposal launched it
+ *
+ * EVERY ONE OF THEM STARTS null ON EXISTING RECORDS, and that is the point.
+ * The document never captured this linkage, so there is nothing to restore:
+ * back-filling `context` from "the episode that was active when the run was
+ * saved" would invent a fact, and attributing a Generation to the nearest
+ * Proposal by timestamp would invent a lineage — which is worse than none,
+ * because it looks like a record. Old runs and old generations therefore read
+ * 「未记录」 in the UI, which is exactly what is true about them.
+ *
+ * Purely additive: nothing is moved, renamed or dropped, so a v13 document
+ * loses nothing by coming forward.
+ */
+function migrateV13ToV14(doc) {
+  const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
+  for (const r of Array.isArray(doc.skillRuns) ? doc.skillRuns : []) {
+    if (!isObj(r)) continue;
+    if (r.context === undefined) r.context = null;
+    // a proposal that predates the id carries none — it is still a real
+    // proposal, it simply cannot be pointed at
+    if (isObj(r.proposal) && r.proposal.proposalId === undefined) r.proposal.proposalId = null;
+  }
+  for (const g of Array.isArray(doc.generations) ? doc.generations : []) {
+    if (isObj(g) && g.origin === undefined) g.origin = null;
+  }
+  return doc;
+}
+
 /** Sequential migration steps: { [fromVersion]: (doc) => docAtFromVersion+1 }.
  *  Extended one real step at a time, never speculatively. */
-export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7, 7: migrateV7ToV8, 8: migrateV8ToV9, 9: migrateV9ToV10, 10: migrateV10ToV11, 11: migrateV11ToV12, 12: migrateV12ToV13 };
+export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7, 7: migrateV7ToV8, 8: migrateV8ToV9, 9: migrateV9ToV10, 10: migrateV10ToV11, 11: migrateV11ToV12, 12: migrateV12ToV13, 13: migrateV13ToV14 };
 
 /** Read the schema version of a raw persisted document.
  *  Returns a positive integer, or null if the marker is malformed.
@@ -1350,6 +1385,31 @@ export function validateCanvasDoc(doc) {
     }
     if (!wantsProposal && r.proposal != null) {
       return `skill run ${r.skillRunId} is ${r.status} but carries a proposal`;
+    }
+    // v14 (ADR-0059): the run's target context. `null` is VALID and means the
+    // document never captured it — but a present context must be an object of
+    // ids, because a malformed one would be rendered as a real provenance link.
+    if (r.context !== undefined && r.context !== null && !isPlainObject(r.context)) {
+      return `skill run ${r.skillRunId} has a non-object context`;
+    }
+    for (const k of ["episodeId", "sceneId", "shotId"]) {
+      const v = isPlainObject(r.context) ? r.context[k] : undefined;
+      if (v !== undefined && v !== null && (typeof v !== "string" || !v)) {
+        return `skill run ${r.skillRunId} has an invalid context.${k}`;
+      }
+    }
+  }
+  // v14: a Generation's ORIGIN — which proposal launched it. `null`/absent is
+  // valid (nothing recorded it, or it was not launched from one); a present
+  // origin must name a real-looking run, because the graph draws an edge from it.
+  for (const g of Array.isArray(doc.generations) ? doc.generations : []) {
+    if (!isPlainObject(g) || g.origin === undefined || g.origin === null) continue;
+    if (!isPlainObject(g.origin)) return `generation ${g.generationId} has a non-object origin`;
+    for (const k of ["skillRunId", "proposalId"]) {
+      const v = g.origin[k];
+      if (v !== undefined && v !== null && (typeof v !== "string" || !v)) {
+        return `generation ${g.generationId} has an invalid origin.${k}`;
+      }
     }
   }
   if (doc.assets !== undefined) {

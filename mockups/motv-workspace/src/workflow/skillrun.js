@@ -37,6 +37,20 @@ import { mintId } from "./identity.js";
 const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
 const strOrNull = (x) => (typeof x === "string" && x ? x : null);
 
+/** The three canon levels a run can be scoped to (ADR-0059). Normalised to a
+ *  fixed shape so every consumer reads the same three keys, and to `null` when
+ *  the caller named no level at all — an object of three nulls would claim the
+ *  context was recorded and simply empty, which is a different statement. */
+function contextOf(raw) {
+  if (!isObj(raw)) return null;
+  const c = {
+    episodeId: strOrNull(raw.episodeId),
+    sceneId: strOrNull(raw.sceneId),
+    shotId: strOrNull(raw.shotId),
+  };
+  return c.episodeId || c.sceneId || c.shotId ? c : null;
+}
+
 /** Terminal and non-terminal run states. */
 export const RUN_STATUSES = ["running", "proposed", "failed", "accepted", "rejected"];
 
@@ -78,6 +92,14 @@ export function startRun(reg, entry) {
     model: strOrNull(entry.model),
     inputKeys: Array.isArray(entry.inputKeys) ? entry.inputKeys.filter((k) => typeof k === "string" && k) : [],
     inputSummary: strOrNull(entry.inputSummary),
+    // WHICH canon this run read, as ids (ADR-0059). `inputSummary` above stays —
+    // it is what a person reads — but a string cannot be traced, and "which
+    // episode did this run look at" is a question the graph has to answer.
+    //
+    // A null level is a FACT, not a gap: an episode-wide continuity check has
+    // no shotId. A run whose context was never captured carries `null`, and
+    // says so rather than being attached to whatever episode is active now.
+    context: contextOf(entry.context),
     status: "running",
     proposal: null,
     directorReview: null,
@@ -106,8 +128,23 @@ export function proposeRun(reg, skillRunId, proposal, { model = null } = {}) {
   if (!r || r.status !== "running") return null;
   r.status = "proposed";
   r.proposal = proposal === undefined ? null : proposal;
+  // ADR-0059: the proposal gets an IDENTITY the moment it exists, so a
+  // production action launched from it can point back at exactly this answer —
+  // not at the run (a run has one proposal, but the id is what an origin
+  // record can carry). Minted here rather than at accept: a rejected proposal
+  // is still a real thing that was shown, and it keeps its id.
+  if (isObj(r.proposal) && !strOrNull(r.proposal.proposalId)) {
+    r.proposal.proposalId = mintId("proposal");
+  }
   if (strOrNull(model)) r.model = model; // what ACTUALLY answered, if reported
   return r;
+}
+
+/** The proposal's id, or null when this run has none — an older run whose
+ *  proposal predates the id, or a run that never produced one. Callers use it
+ *  to stamp `generation.origin`; a null must stay null there. */
+export function proposalIdOf(run) {
+  return isObj(run) && isObj(run.proposal) ? strOrNull(run.proposal.proposalId) : null;
 }
 
 /** Record an honest failure. The reason is one of RUN_ERROR_KINDS so the UI can
