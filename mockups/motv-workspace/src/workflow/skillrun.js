@@ -129,13 +129,15 @@ export function proposeRun(reg, skillRunId, proposal, { model = null } = {}) {
   r.status = "proposed";
   r.proposal = proposal === undefined ? null : proposal;
   // ADR-0059: the proposal gets an IDENTITY the moment it exists, so a
-  // production action launched from it can point back at exactly this answer —
-  // not at the run (a run has one proposal, but the id is what an origin
-  // record can carry). Minted here rather than at accept: a rejected proposal
-  // is still a real thing that was shown, and it keeps its id.
-  if (isObj(r.proposal) && !strOrNull(r.proposal.proposalId)) {
-    r.proposal.proposalId = mintId("proposal");
-  }
+  // production action launched from it can point back at exactly this answer.
+  // Minted here rather than at accept: a rejected proposal is still a real
+  // thing that was shown, and it keeps its id.
+  //
+  // ALWAYS MINTED, never read out of the payload. `proposal` is model OUTPUT —
+  // an answer carrying its own `proposalId` would put an identity under the
+  // control of generated content, and a duplicate would collide with another
+  // proposal's graph node and misattribute the generations pointing at it.
+  if (isObj(r.proposal)) r.proposal.proposalId = mintId("proposal");
   if (strOrNull(model)) r.model = model; // what ACTUALLY answered, if reported
   return r;
 }

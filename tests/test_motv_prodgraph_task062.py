@@ -90,8 +90,10 @@ def test_a_proposal_gets_an_id_when_it_exists_and_keeps_it() -> None:
     run = _code("workflow", "skillrun.js")
     prop = run.split("export function proposeRun", 1)[1].split("export function", 1)[0]
     assert 'mintId("proposal")' in prop
-    # only when absent: a re-proposal must not renumber an id already pointed at
-    assert "!strOrNull(r.proposal.proposalId)" in prop
+    # MINTED, never read out of the payload: `proposal` is model output, and an
+    # answer carrying its own id would put an identity under content's control
+    # (codex review 轮 6)
+    assert "if (isObj(r.proposal)) r.proposal.proposalId = mintId(" in prop
     assert "export function proposalIdOf" in run
 
 

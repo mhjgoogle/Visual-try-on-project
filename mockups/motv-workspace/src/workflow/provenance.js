@@ -581,11 +581,11 @@ export function buildProvenanceGraph({ assets, generations, production, timeline
     const pnode = nonEmpty(g.origin.proposalId) ? nodes.get(nodeIds.proposal(g.origin.proposalId)) : null;
     if (pnode && pnode.skillRunId === g.origin.skillRunId) {
       addEdge(nodeIds.proposal(g.origin.proposalId), gid, "origin");
-    } else if (!pnode && nonEmpty(g.origin.skillRunId) && nodes.has(nodeIds.skillRun(g.origin.skillRunId))) {
-      // the run is recorded but its proposal is not referenceable — still a
-      // real link, drawn from the run itself rather than dropped
-      addEdge(nodeIds.skillRun(g.origin.skillRunId), gid, "origin");
     } else {
+      // No fall-back to the run alone. An origin always carries BOTH ids, so a
+      // missing proposal node means the document cannot complete the link it
+      // claims; drawing 「这次运行发起了它」 anyway would present an unverifiable
+      // assertion as lineage. It is reported instead.
       warnings.push({ kind: "danglingOrigin", generationId: g.generationId, origin: g.origin });
     }
   }

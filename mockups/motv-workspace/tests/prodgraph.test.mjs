@@ -527,3 +527,34 @@ test("an origin's proposal must BELONG to the run it names", () => {
   );
   assert.ok(g.warnings.some((w) => w.kind === "danglingOrigin" && w.generationId === gen.generationId));
 });
+
+test("a proposal's id is MINTED, never taken from the answer's payload", () => {
+  // codex review round 6: `proposal` is model output. An answer carrying its
+  // own proposalId would put an identity under the control of generated
+  // content, and a duplicate would collide with another proposal's node.
+  const reg = [];
+  const a = startRun(reg, { skillId: "s", skillVersion: 1, createdAt: "t0" });
+  const b = startRun(reg, { skillId: "s", skillVersion: 1, createdAt: "t0" });
+  proposeRun(reg, a.skillRunId, { shots: [], proposalId: "proposal-forged" });
+  proposeRun(reg, b.skillRunId, { shots: [], proposalId: "proposal-forged" });
+  assert.notEqual(proposalIdOf(a), "proposal-forged");
+  assert.notEqual(proposalIdOf(b), "proposal-forged");
+  assert.notEqual(proposalIdOf(a), proposalIdOf(b), "two proposals never share an id");
+});
+
+test("an origin whose proposal node is missing is REPORTED, not drawn from the run", () => {
+  // codex review round 6: an origin always carries both ids, so a missing
+  // proposal node means the document cannot complete the link it claims.
+  // Drawing 「这次运行发起了它」 anyway would present an unverifiable assertion
+  // as lineage.
+  const { src, gen, run } = fullChain();
+  // the run is real; its proposal record is gone
+  src.skillRuns.find((r) => r.skillRunId === run.skillRunId).proposal = null;
+  const g = buildProvenanceGraph(src);
+  assert.ok(g.nodes.has(nodeIds.skillRun(run.skillRunId)));
+  assert.equal(
+    g.edges.some((e) => e.kind === "origin" && e.to === nodeIds.generation(gen.generationId)),
+    false,
+  );
+  assert.ok(g.warnings.some((w) => w.kind === "danglingOrigin" && w.generationId === gen.generationId));
+});
