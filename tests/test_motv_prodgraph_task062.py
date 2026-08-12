@@ -128,6 +128,12 @@ def test_the_recorded_episode_is_the_one_the_prompt_actually_read() -> None:
     assert "const owns = (sceneId, shotId)" in scope
     assert "narrow ? wantScene : null" in scope
     assert "narrow ? wantShot : null" in scope
+    # …and a LEVEL is recorded only when the skill actually reads that level:
+    # a skill given only the outline never saw a shot (codex review 轮 10)
+    assert 'const readsScene = keys.has("scenes");' in scope
+    assert 'const readsShot = keys.has("shots");' in scope
+    assert "readsScene && typeof s.sceneId" in scope
+    assert "readsShot && typeof s.shotId" in scope
 
 
 def test_scene_and_shot_are_validated_TOGETHER() -> None:

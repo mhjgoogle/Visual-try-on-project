@@ -1563,8 +1563,14 @@ const ctx = {
         }
         return true;
       };
-      const wantScene = typeof s.sceneId === "string" && s.sceneId ? s.sceneId : null;
-      const wantShot = typeof s.shotId === "string" && s.shotId ? s.shotId : null;
+      // A LEVEL is recorded only when the skill actually reads that level. A
+      // skill given only the outline never saw a shot, so recording one would
+      // assert shot-level lineage the prompt cannot support — the same rule as
+      // the episode above, one step down.
+      const readsScene = keys.has("scenes");
+      const readsShot = keys.has("shots");
+      const wantScene = readsScene && typeof s.sceneId === "string" && s.sceneId ? s.sceneId : null;
+      const wantShot = readsShot && typeof s.shotId === "string" && s.shotId ? s.shotId : null;
       const narrow = owns(wantScene, wantShot);
       const out = {
         episodeId,
