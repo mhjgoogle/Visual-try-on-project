@@ -175,6 +175,35 @@ def test_the_manual_route_records_the_same_generation_shape() -> None:
     assert "promptSnapshot: intent.prompt" in media
 
 
+def test_a_generation_is_recorded_because_it_WAS_one_not_because_it_had_a_prompt() -> (
+    None
+):
+    """codex review 轮 A4：以 prompt 为门槛，会让「从参考图与首帧出发、没有
+    prompt 的外部生成」变成一次普通导入——它的参考与首帧是真实的溯源，被整个
+    丢掉了。没有 intent 的导入仍然如实是普通导入。"""
+    app = _code("app.js")
+    media = app.split("importShotMedia: async", 1)[1].split("useAsFirstFrame:", 1)[0]
+    assert "intent.shotId === shotId && (intent.seed || intent.prompt)" in media
+    assert "intent && intent.prompt && intent.shotId" not in media, (
+        "the prompt must not be the gate"
+    )
+
+
+def test_the_file_picker_always_settles() -> None:
+    """codex review 轮 A4：`cancel` 不是每个浏览器都会触发。调用方永远 await
+    下去就永远不会重新渲染——创作者关掉对话框，页面对这个动作彻底没有反应，
+    也没有任何错误可以解释。"""
+    app = _code("app.js")
+    picker = app.split("function pickFile(accept)", 1)[1].split("\n}", 1)[0]
+    assert "input.oncancel" in picker
+    assert 'window.addEventListener("focus"' in picker, (
+        "focus returning is the second, universal cancel signal"
+    )
+    # …and a real `change` must still win the race
+    assert "setTimeout" in picker
+    assert "if (settled) return" in picker
+
+
 def test_the_declared_kind_must_agree_with_the_file() -> None:
     """codex review 轮 A：`accept` 只是提示，选择器可以被要求忽略它。若不校验，
     在「图片」入口选一个 mp4 会把视频登记成 shot-image——一条被字节反驳的登记，

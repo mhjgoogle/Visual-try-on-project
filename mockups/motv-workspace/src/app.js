@@ -147,17 +147,30 @@ function mediaDomainOfFile(file) {
   return "";
 }
 
-/** Ask the creator for ONE file. Resolves to null when they cancel — so every
- *  caller can `if (!file) return` instead of hanging on a promise that never
- *  settles. (`cancel` is not fired by older browsers; the picker is
- *  single-shot, so an unresolved cancel simply ends that gesture.) */
+/** Ask the creator for ONE file. ALWAYS settles — resolving to null when they
+ *  cancel — so every caller can `if (!file) return` instead of awaiting a
+ *  promise that never comes back.
+ *
+ *  `cancel` is the clean signal but not every browser fires it, and a caller
+ *  left awaiting forever never re-renders: the creator dismisses the dialog and
+ *  the page simply stops responding to that action with no error to explain it.
+ *  So the window regaining focus is treated as a second, universal signal —
+ *  delayed just enough for a real `change` (which lands shortly after focus
+ *  returns) to win the race and deliver the file. */
 function pickFile(accept) {
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = (file) => {
+      if (settled) return;
+      settled = true;
+      resolve(file);
+    };
     const input = document.createElement("input");
     input.type = "file";
     input.accept = accept;
-    input.oncancel = () => resolve(null);
-    input.onchange = () => resolve((input.files && input.files[0]) || null);
+    input.oncancel = () => finish(null);
+    input.onchange = () => finish((input.files && input.files[0]) || null);
+    window.addEventListener("focus", () => setTimeout(() => finish(null), 500), { once: true });
     input.click();
   });
 }
@@ -2268,7 +2281,14 @@ const ctx = {
       });
       if (!decl.ok) throw new Error(`登记失败：${decl.error}`);
       mediaref.addVersion({ uploads: map }, slot, ref);
-      if (intent && intent.prompt && intent.shotId === shotId) {
+      // A Generation is recorded whenever this import CAME FROM a generation —
+      // which is what an `intent` means. It is NOT gated on there being a
+      // prompt: an external run started from reference images and a first frame
+      // with no prompt at all is still a generation, and its inputs are still
+      // real lineage. Gating on the prompt threw all of that away and left the
+      // result looking like a plain import (codex review, round A4). An import
+      // with no intent at all stays a plain import — honestly, and by design.
+      if (intent && intent.shotId === shotId && (intent.seed || intent.prompt)) {
         // CP6: when the caller assembled a Generation Input Set, the record is
         // built FROM it — so the references and first frame the creator was
         // actually given are frozen into the lineage, not lost because the
