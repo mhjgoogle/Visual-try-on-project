@@ -100,7 +100,7 @@ def test_origin_is_recorded_only_where_the_caller_named_it() -> None:
     gen = _code("workflow", "genlib.js")
     assert "origin: originOf(entry.origin)" in gen
     assert "function originOf(raw)" in gen
-    assert "o.skillRunId || o.proposalId ? o : null" in gen
+    assert "return { skillRunId, proposalId: strOrNull(raw.proposalId) };" in gen
     # nothing in the generation registry searches for a nearby proposal
     for guess in ("skillRuns", "findRun", "nearest", "createdAt >"):
         assert guess not in gen, f"{guess} would infer an origin"
@@ -110,6 +110,39 @@ def test_origin_is_recorded_only_where_the_caller_named_it() -> None:
     assert "fromSkillRunId ? ctx.skills.originOf(fromSkillRunId) : null" in imp, (
         "an import that names no run has no origin"
     )
+
+
+def test_the_recorded_episode_is_the_one_the_prompt_actually_read() -> None:
+    """codex review：`ctx.skills.context` 只从 ACTIVE 剧集组装输入，因此接受
+    调用方传入的 episodeId 会记录一个 prompt 从未读过的上下文——一条长得和
+    溯源一模一样的谎。场景/镜头可以缩小范围，但必须属于那一集。"""
+    app = _code("app.js")
+    scope = app.split("scopeOf: (skillId, scope = null)", 1)[1].split("\n    },", 1)[0]
+    assert "const episodeId = ep ? ep.episodeId : null;" in scope
+    assert "s.episodeId" not in scope, (
+        "the caller must not be able to re-point the episode"
+    )
+    # a scene/shot from another episode is dropped, not recorded
+    assert "const owns = (sceneId, shotId)" in scope
+    assert "narrow ? wantScene : null" in scope
+    assert "narrow ? wantShot : null" in scope
+
+
+def test_an_origin_is_only_stamped_for_an_ACCEPTED_proposal() -> None:
+    """codex review：等待中的运行还没有答案，被拒绝的提案没有发起任何东西，
+    没有 id 的提案无法被指向。给它们盖章就是让生成声称一份记录不支持的来历。"""
+    app = _code("app.js")
+    origin = app.split("originOf: (skillRunId)", 1)[1].split("\n    },", 1)[0]
+    assert 'r.status !== "accepted" || !proposalId' in origin
+    assert "return null" in origin
+
+
+def test_an_origin_without_its_run_is_refused() -> None:
+    """proposalId 单独存在时，没有任何记录说明谁被问过——无法解析的链接被画成
+    链接，比没有更糟。"""
+    gen = _code("workflow", "genlib.js")
+    fn = gen.split("function originOf(raw)", 1)[1].split("\n}", 1)[0]
+    assert "if (!skillRunId) return null;" in fn
 
 
 def test_the_graph_places_a_run_only_by_the_context_it_recorded() -> None:

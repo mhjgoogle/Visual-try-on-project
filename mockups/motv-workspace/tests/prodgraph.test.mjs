@@ -140,6 +140,17 @@ test("a Generation with no recorded origin has null — nothing is inferred", ()
   assert.deepEqual(partial.origin, { skillRunId: "run-9", proposalId: null });
 });
 
+test("an origin naming ONLY a proposal is refused — nothing could resolve it", () => {
+  // codex review, TASK-062: a proposalId with no run names an answer with no
+  // record of who was asked. An unresolvable link that renders as a link is
+  // worse than none.
+  const reg = [];
+  const g = startGeneration(reg, {
+    type: "image", createdAt: "t0", origin: { proposalId: "proposal-1" },
+  });
+  assert.equal(g.origin, null);
+});
+
 // --- 4. the graph joins the whole chain -------------------------------------
 
 /** The real chain, end to end: baseline → run → proposal → generation → asset

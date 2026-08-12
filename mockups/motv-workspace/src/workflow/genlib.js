@@ -53,12 +53,20 @@ const strOrNull = (x) => (typeof x === "string" && x ? x : null);
 const idArray = (x) => (Array.isArray(x) ? x.filter((s) => typeof s === "string" && s) : []);
 
 /** The launching Proposal, normalised (ADR-0059). Null when the caller named
- *  neither id: a generation started from the workspace has no proposal behind
- *  it, and an object of two nulls would claim otherwise. */
+ *  no run: a generation started from the workspace has no proposal behind it,
+ *  and an object of two nulls would claim otherwise.
+ *
+ *  The RUN is required, not merely one of the two ids. A `proposalId` on its
+ *  own names an answer with no record of who was asked — nothing can resolve
+ *  it, and an unresolvable link that renders as a link is worse than none.
+ *  The pair's consistency is the caller's to establish (ctx.skills.originOf
+ *  reads both off ONE run); what this refuses is a shape that could never be
+ *  consistent. */
 function originOf(raw) {
   if (!isObj(raw)) return null;
-  const o = { skillRunId: strOrNull(raw.skillRunId), proposalId: strOrNull(raw.proposalId) };
-  return o.skillRunId || o.proposalId ? o : null;
+  const skillRunId = strOrNull(raw.skillRunId);
+  if (!skillRunId) return null;
+  return { skillRunId, proposalId: strOrNull(raw.proposalId) };
 }
 
 // Keys that must NOT be persisted into durable provenance — a provider params

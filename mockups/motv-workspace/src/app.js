@@ -1539,12 +1539,30 @@ const ctx = {
       if (!skill) return null;
       const keys = new Set([...skill.inputs, ...skill.optionalInputs]);
       const readsEpisode = ["episodePlan", "episodeScript", "scenes", "shots"].some((k) => keys.has(k));
+      // The EPISODE is not the caller's to choose. `ctx.skills.context` builds
+      // its inputs from the ACTIVE episode and nothing else, so honouring a
+      // caller-supplied episodeId would record a context the prompt never read
+      // — a lie that looks exactly like provenance.
       const ep = readsEpisode ? proddoc.activeEpisode(productionDoc) : null;
+      const episodeId = ep ? ep.episodeId : null;
       const s = scope != null && typeof scope === "object" && !Array.isArray(scope) ? scope : {};
+      // A caller may NARROW within that episode. A scene or shot belonging to a
+      // different one is dropped rather than recorded: the same inconsistency,
+      // one level down.
+      const owns = (sceneId, shotId) => {
+        if (!ep) return false;
+        const scenes = ep.scenes || [];
+        if (sceneId && !scenes.some((sc) => sc.sceneId === sceneId)) return false;
+        if (shotId && !scenes.some((sc) => (sc.shotIds || []).includes(shotId))) return false;
+        return true;
+      };
+      const wantScene = typeof s.sceneId === "string" && s.sceneId ? s.sceneId : null;
+      const wantShot = typeof s.shotId === "string" && s.shotId ? s.shotId : null;
+      const narrow = owns(wantScene, wantShot);
       const out = {
-        episodeId: (typeof s.episodeId === "string" && s.episodeId) || (ep ? ep.episodeId : null),
-        sceneId: (typeof s.sceneId === "string" && s.sceneId) || null,
-        shotId: (typeof s.shotId === "string" && s.shotId) || null,
+        episodeId,
+        sceneId: narrow ? wantScene : null,
+        shotId: narrow ? wantShot : null,
       };
       return out.episodeId || out.sceneId || out.shotId ? out : null;
     },
@@ -1670,7 +1688,13 @@ const ctx = {
     originOf: (skillRunId) => {
       const r = skillrun.findRun(skillRunRegistry, skillRunId);
       if (!r) return null;
-      return { skillRunId: r.skillRunId, proposalId: skillrun.proposalIdOf(r) };
+      const proposalId = skillrun.proposalIdOf(r);
+      // 「从这份提案发起」 requires a proposal the creator ACCEPTED. A run still
+      // waiting for an answer has none; a rejected one launched nothing; and a
+      // proposal with no id cannot be pointed at. Stamping any of those would
+      // let a generation claim a provenance the records never support.
+      if (r.status !== "accepted" || !proposalId) return null;
+      return { skillRunId: r.skillRunId, proposalId };
     },
 
     /** The creator ACCEPTS. This marks the run only — applying the proposal to

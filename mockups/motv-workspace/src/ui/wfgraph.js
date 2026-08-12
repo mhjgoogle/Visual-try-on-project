@@ -426,7 +426,7 @@ export function createWorkflowGraph(getCtx) {
         `</div>`
       );
     }).join("");
-    return scriptRow(g, epId) + `<div class="wg-scenes">${cards}</div>${finalCard(g)}`;
+    return canonRow(g, epId) + scriptRow(g, epId) + `<div class="wg-scenes">${cards}</div>${finalCard(g)}`;
   }
 
   /** The episode's SCRIPT, at the head of the chain (CP7). The scene and shot
@@ -434,6 +434,22 @@ export function createWorkflowGraph(getCtx) {
    *  that had nowhere to live, and it is what everything under it descends
    *  from. An episode with no script text simply has no row: the graph says
    *  「还没有剧本」 by not claiming there is one. */
+  /** The episode's CANON BASELINE, above its script (CP8/ADR-0059). The chain
+   *  starts where the work started, so the default episode view has to show it
+   *  — not only the wide project layout. An episode that was never stamped has
+   *  no row: 「基于当前 canon」 would be an invention, not a default. */
+  function canonRow(g, epId) {
+    const n = g.nodes.get(nodeIds.canon(epId));
+    if (!n) return "";
+    const items = (n.items || []).map((i) => `${i.label} ${i.value}`).join(" · ");
+    return (
+      `<button class="wg-scriptrow wg-canonrow${view.selected === n.id ? " sel" : ""}" data-node="${esc(n.id)}">` +
+      `<span class="wg-sk">作品基线</span>` +
+      `<span class="wg-scriptname">${esc(n.title)}</span>` +
+      `<span class="wg-scriptline">${esc(items)}</span></button>`
+    );
+  }
+
   function scriptRow(g, epId) {
     const id = nodeIds.script(epId);
     const n = g.nodes.get(id);

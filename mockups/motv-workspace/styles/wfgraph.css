@@ -203,6 +203,7 @@
 }
 .wg-scriptrow:hover { background: var(--panel-2); }
 .wg-scriptrow.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.wg-canonrow { border-left-color: var(--accent); }
 .wg-scriptname { font-size: var(--t-xs); font-weight: 700; white-space: nowrap; }
 .wg-scriptline { font-size: var(--t-xs); color: var(--text-dim); flex: 1; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
