@@ -206,9 +206,11 @@ def test_the_graph_places_a_run_only_by_the_context_it_recorded() -> None:
         "for (const g of arr(generations))", 1
     )[0]
     assert "contextRecorded: !!c" in block
-    assert "if (c && c.episodeId) addEdge(" in block, (
-        "edges only where context names one"
-    )
+    # edges are drawn only from a context that both EXISTS and agrees with
+    # itself (codex review 轮 7 moved the episode edge inside that guard)
+    assert "if (c && !consistent) {" in block
+    assert "} else if (c) {" in block
+    assert "if (c.episodeId) addEdge(" in block
     for guess in ("activeEpisodeId", "episodes[0]"):
         assert guess not in block, (
             f"{guess} would attribute a run to an episode it never named"
