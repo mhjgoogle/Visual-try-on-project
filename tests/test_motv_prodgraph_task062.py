@@ -215,6 +215,16 @@ def test_the_graph_places_a_run_only_by_the_context_it_recorded() -> None:
     assert 'kind: "danglingOrigin"' in prov
 
 
+def test_every_edge_connects_nodes_that_exist() -> None:
+    """codex review 轮 4：`canon:<episodeId>` 这样的 id 随时可以拼出来，但它
+    并不证明那个节点被创建过。没有 basedOn stamp 的剧集没有基线节点，指向它的
+    边会画出一条文档从未记录的血缘。在 addEdge 这一层收口，任何将来新增的边
+    都不可能再引入这一类。"""
+    prov = _code("workflow", "provenance.js")
+    fn = prov.split("const addEdge = (from, to, kind)", 1)[1].split("};", 1)[0]
+    assert "if (!nodes.has(from) || !nodes.has(to)) return;" in fn
+
+
 def test_the_unified_read_model_returns_the_context_it_read() -> None:
     """一个不能被追溯到上下文的判断是意见，不是观察（要求 1 + 9）。"""
     pg = _code("workflow", "prodgraph.js")

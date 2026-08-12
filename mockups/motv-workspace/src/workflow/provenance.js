@@ -277,8 +277,18 @@ export function buildProvenanceGraph({ assets, generations, production, timeline
   const edges = [];
   const warnings = [];
 
+  // An edge exists only BETWEEN NODES THAT EXIST. Constructing an id like
+  // `canon:<episodeId>` proves nothing about whether that node was created —
+  // an episode with no baseline stamp has no canon node, and an edge into it
+  // would draw a lineage the documents never recorded. Enforced here rather
+  // than at each call site so no future edge can reintroduce the class.
+  //
+  // (Every node this module creates is added before the pass that edges it,
+  // and a Generation's assets are materialised by `ensureAsset` first — so a
+  // refusal here always means a genuinely absent endpoint.)
   const addEdge = (from, to, kind) => {
     if (!from || !to || from === to) return;
+    if (!nodes.has(from) || !nodes.has(to)) return;
     edges.push({ from, to, kind, id: `${from}→${to}:${kind}` });
   };
 

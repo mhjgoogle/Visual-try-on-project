@@ -480,3 +480,22 @@ test("validation refuses a context that names nothing, and an origin with no run
   emptyOrigin.generations[0].origin = {};
   assert.match(validateCanvasDoc(emptyOrigin), /half origin/);
 });
+
+test("a run in an episode with NO baseline gets no canon edge — the node does not exist", () => {
+  // codex review round 4: the id `canon:<episodeId>` can always be constructed;
+  // that proves nothing about whether the node was created. An episode with no
+  // basedOn stamp has no baseline, and an edge into it would draw a lineage the
+  // documents never recorded. (This is exactly the state 夜班沉默 was in before
+  // its baseline was stamped.)
+  const { src, epId, run } = fullChain();
+  src.production.episodes[0].basedOn = { brief: 0, outline: 0, characters: 0, relationships: 0, world: 0 };
+  const g = buildProvenanceGraph(src);
+  assert.equal(g.nodes.has(nodeIds.canon(epId)), false, "no stamp → no canon node");
+  // the run is still there, still placed by its own context…
+  assert.ok(g.nodes.has(nodeIds.skillRun(run.skillRunId)));
+  // …and EVERY edge in the graph connects two nodes that exist
+  for (const e of g.edges) {
+    assert.ok(g.nodes.has(e.from), `edge ${e.id} starts at a node that does not exist`);
+    assert.ok(g.nodes.has(e.to), `edge ${e.id} ends at a node that does not exist`);
+  }
+});
