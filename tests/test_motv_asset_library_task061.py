@@ -163,7 +163,7 @@ def test_the_manual_route_records_the_same_generation_shape() -> None:
     """手工路线第一次拥有与自动路线同等的溯源：它走同一个唯一写路径，
     并把输入集合冻结进 Generation 记录。"""
     app = _code("app.js")
-    imp = app.split("importResult: async (shotId, kind, file, promptText)", 1)[1].split(
+    imp = app.split("importResult: async (shotId, kind, file, promptText", 1)[1].split(
         "\n    },", 1
     )[0]
     assert "generationSeedFrom" in imp
@@ -279,9 +279,12 @@ def test_the_provenance_spine_exists_and_is_authored_not_generated() -> None:
     # an episode with no script — including one whose draft was CLEARED — gets
     # NO node rather than an empty one (codex review 轮 B2/B3)
     assert "if (text.trim()) {" in prov
-    # …and the text itself follows scriptdoc.currentText exactly, so the graph
-    # can never show script the workspace beside it no longer has
-    assert 'if (typeof doc.workingText === "string") return doc.workingText;' in prov
+    # …and the text itself follows scriptdoc's rule exactly, so the graph can
+    # never show script the workspace beside it no longer has. Since CP8 the
+    # rule is IMPORTED rather than restated — the duplicate that drifted here
+    # is gone, which is the strongest form of this guarantee.
+    assert 'import { currentText } from "./scriptdoc.js";' in prov
+    assert "return currentText({ workingText: doc.workingText" in prov
     # a shot the draft no longer holds is kept and flagged, never dropped
     assert "dangling: !s || s.dangling === true" in prov
 

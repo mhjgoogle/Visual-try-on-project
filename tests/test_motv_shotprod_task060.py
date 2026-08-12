@@ -207,11 +207,16 @@ def test_dailies_is_reachable_from_the_episode_navigation() -> None:
 
 def test_schema_v13_migration_is_additive_and_empty() -> None:
     schema = _read("services", "canvasschema.js")
-    assert "CANVAS_SCHEMA_VERSION = 13" in schema
+    # v13 is where THIS checkpoint's step landed; later checkpoints keep adding
+    # steps, so pin the floor rather than re-recording the current version
+    m = re.search(r"CANVAS_SCHEMA_VERSION = (\d+)", schema)
+    assert m and int(m.group(1)) >= 13
     assert "function migrateV12ToV13" in schema
     assert "12: migrateV12ToV13" in schema
     step = schema.split("function migrateV12ToV13", 1)[1]
-    body = step.split("\n/** Sequential migration steps")[0]
+    # bounded by the NEXT migration's doc comment, so a later step's body can
+    # never be read as this one's
+    body = step.split("\n/**")[0]
     assert "{ reviews: {}, references: {} }" in body
     # a migration cannot know which shots the creator would have approved
     assert "approved" not in body, "the migration must not approve anything"
