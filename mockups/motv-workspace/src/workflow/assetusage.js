@@ -65,6 +65,12 @@ export const USAGE_KIND_LABEL = {
 export function usageOfAsset({
   assetId,
   referenceKey = null,
+  // Whether this asset is the CHAIN's current version. A Shot binds the chain,
+  // and the chain resolves to exactly one version — so a superseded take is not
+  // in use by those shots, however many of them point at the chain. Counting it
+  // showed 林晚 Ref v1 as 「用于 3 处」 the moment v2 replaced it, and
+  // "used a lot" is how a creator decides what is safe to clean up.
+  isCurrent = true,
   production,
   timelines,
   generations,
@@ -170,7 +176,7 @@ export function usageOfAsset({
     }
 
     // --- shots that point at this canonical Reference (by KEY) -------------- //
-    if (nonEmpty(referenceKey) && isObj(prod.shotProduction)) {
+    if (nonEmpty(referenceKey) && isCurrent && isObj(prod.shotProduction)) {
       const map = prod.shotProduction.references || {};
       for (const shotId of Object.keys(map)) {
         const list = Array.isArray(map[shotId]) ? map[shotId] : [];
@@ -249,6 +255,7 @@ export function usageIndex({ assets, production, timelines, generations }) {
       usageOfAsset({
         assetId: a.assetId,
         referenceKey: a.key || null,
+        isCurrent: a.current !== false,
         production,
         timelines,
         generations,

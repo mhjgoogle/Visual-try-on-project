@@ -125,11 +125,14 @@ export function generationSeedFrom(set, { type, promptSnapshot, status = "genera
     targetId: set.shotId,
     inputAssetIds: inputs,
     referenceAssetIds: refAssetIds,
-    // …and a prompt of nothing but whitespace drove nothing either, so it is
-    // recorded as no prompt rather than as three spaces
+    // Whitespace decides EMPTINESS but is never edited out of the text itself:
+    // a prompt of nothing but spaces drove nothing and is recorded as none,
+    // while a real prompt is frozen exactly as the creator wrote it — indent,
+    // line breaks and all. Trimming what we store would quietly rewrite the
+    // thing this field exists to preserve verbatim.
     promptSnapshot: promptSnapshot === undefined || promptSnapshot === null
       ? set.prompt
-      : strOrNull(String(promptSnapshot).trim()),
+      : (String(promptSnapshot).trim() ? String(promptSnapshot) : null),
     provider: set.source,
     model: set.model,
     parameters: {

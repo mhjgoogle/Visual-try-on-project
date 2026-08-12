@@ -2082,9 +2082,15 @@ const ctx = {
     }),
     usageOf: (assetId) => {
       const hit = assetlib.findAssetById(assetRegistry, assetId);
+      // a Shot binds the CHAIN, which resolves to one version — so shot usage
+      // belongs to the current take only, never to the ones it superseded
+      const chain = hit && hit.key && assetRegistry[hit.domain]
+        ? mediaref.slotEntry(assetRegistry[hit.domain], hit.key)
+        : null;
       return assetusage.usageOfAsset({
         assetId,
         referenceKey: hit ? hit.key : null,
+        isCurrent: !chain || chain.current === hit.record.version,
         production: productionDoc,
         timelines: timelinesDoc,
         generations: generationRegistry,

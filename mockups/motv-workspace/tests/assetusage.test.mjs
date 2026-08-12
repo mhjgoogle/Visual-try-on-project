@@ -115,6 +115,21 @@ test("de-duplication names the SUBJECT: two characters using one photo are two p
   assert.equal(u.count, 3);
 });
 
+test("a SUPERSEDED reference version is not credited with the chain's shot usage", () => {
+  // codex review, TASK-061 round A6: a Shot binds the chain, and the chain
+  // resolves to exactly one version — so v1 stopped being in use by those shots
+  // the moment v2 replaced it. Crediting it showed 林晚 Ref v1 as 「用于 3 处」,
+  // and "used a lot" is how a creator decides what is safe to clean up.
+  const { p } = production();
+  for (const s of ["sh01", "sh02", "sh05"]) addShotReference(p, s, "ref-lin");
+  const args = { referenceKey: "ref-lin", production: p, timelines: {}, generations: [] };
+  const current = usageOfAsset({ assetId: "a-lin-v2", isCurrent: true, ...args });
+  const old = usageOfAsset({ assetId: "a-lin-v1", isCurrent: false, ...args });
+  assert.equal(current.places.filter((x) => x.kind === "shot-reference").length, 3);
+  assert.equal(old.places.filter((x) => x.kind === "shot-reference").length, 0);
+  assert.equal(isUnused(old), true, "the superseded take is honestly unused");
+});
+
 // --- 3. scene / episode audio -------------------------------------------------
 
 test("scene ambience and episode BGM are found and named", () => {

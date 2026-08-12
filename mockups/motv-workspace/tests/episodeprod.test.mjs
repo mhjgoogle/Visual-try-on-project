@@ -460,8 +460,12 @@ test("a prompt the creator CLEARED is recorded as cleared, not silently restored
   // explicitly cleared → recorded as having none
   assert.equal(generationSeedFrom(set, { type: "image", promptSnapshot: "" }).promptSnapshot, null);
   assert.equal(generationSeedFrom(set, { type: "image", promptSnapshot: "   " }).promptSnapshot, null);
-  // edited → the creator's own words, verbatim
+  // edited → the creator's own words, VERBATIM. Whitespace decides emptiness
+  // but is never edited out of a real prompt: indentation and line breaks are
+  // part of what was actually sent (codex review, round A6).
   assert.equal(generationSeedFrom(set, { type: "image", promptSnapshot: "我改过的" }).promptSnapshot, "我改过的");
+  const spaced = "  【画面】雨水\n\n  【要求】16:9  ";
+  assert.equal(generationSeedFrom(set, { type: "image", promptSnapshot: spaced }).promptSnapshot, spaced);
 });
 
 // --- 7. the picker's three entrances ----------------------------------------
