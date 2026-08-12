@@ -1425,8 +1425,8 @@ export function validateCanvasDoc(doc) {
     // answer with no record of who was asked, and an empty origin claims a
     // launch that names nothing at all — both would render as lineage. `null`
     // remains the way to say there was none.
-    if (!g.origin.skillRunId) {
-      return `generation ${g.generationId} has an origin with no skillRunId (use null for 未记录)`;
+    if (!g.origin.skillRunId || !g.origin.proposalId) {
+      return `generation ${g.generationId} has a half origin (both ids, or null for 未记录)`;
     }
   }
   if (doc.assets !== undefined) {

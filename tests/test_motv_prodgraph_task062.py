@@ -100,7 +100,7 @@ def test_origin_is_recorded_only_where_the_caller_named_it() -> None:
     gen = _code("workflow", "genlib.js")
     assert "origin: originOf(entry.origin)" in gen
     assert "function originOf(raw)" in gen
-    assert "return { skillRunId, proposalId: strOrNull(raw.proposalId) };" in gen
+    assert "if (!skillRunId || !proposalId) return null;" in gen
     # nothing in the generation registry searches for a nearby proposal
     for guess in ("skillRuns", "findRun", "nearest", "createdAt >"):
         assert guess not in gen, f"{guess} would infer an origin"
@@ -139,10 +139,11 @@ def test_scene_and_shot_are_validated_TOGETHER() -> None:
 
 
 def test_the_read_model_reports_only_ids_that_RESOLVE() -> None:
-    """codex review 轮 2：把请求的 id 原样抄进 context，会让导演引用一份它
-    根本没有打开过的记录。"""
+    """codex review 轮 2/3：把请求的 id 原样抄进 context，会让导演引用一份它
+    根本没有打开过的记录——剧集这一层同样如此。"""
     pg = _code("workflow", "prodgraph.js")
-    assert "const scene = wantScene ? scenes.find" in pg
+    assert "const episodeId = episode ? episode.episodeId : null;" in pg
+    assert "const scene = wantScene ? allScenes.find" in pg
     assert "scene ? scene.shotIds.includes(wantShot) : ownedShotIds.has(wantShot)" in pg
 
 
@@ -151,8 +152,23 @@ def test_narrowing_actually_narrows_the_generations() -> None:
     渲染，都会让一次针对某个场景的观察建立在别处的历史上。"""
     pg = _code("workflow", "prodgraph.js")
     assert "const scopeShotIds = shotId" in pg
-    assert "new Set(scene.shotIds)" in pg
+    assert "new Set(homeScene.shotIds)" in pg
     assert "return !sceneId && !shotId && episodeOf(g) === episodeId;" in pg
+    # …and the shots/QC/references the model reports narrow with it (轮 3)
+    assert "const shots = [...scopeShotIds]" in pg
+    assert "const scenes = homeScene ? [homeScene] : allScenes;" in pg
+
+
+def test_the_director_reads_its_shot_from_the_model_it_cites() -> None:
+    """codex review 轮 3：独立地从 sel 取 shotId，会让面板为一份并未产生上面
+    那段文字的上下文作证——被模型判定为过期或跨集的选择仍会被印成依据。"""
+    d = _code("ui", "director.js")
+    head = d.split("export function directorModel", 1)[1].split("let primary", 1)[0]
+    assert "production.context.shotId" in head, (
+        "the shot must come from the model whose ids are shown as the evidence"
+    )
+    # the independent read is the fallback, not the source
+    assert head.index("production.context.shotId") < head.index("sel.selectedShotId")
 
 
 def test_the_validator_refuses_an_empty_context_or_runless_origin() -> None:
@@ -160,7 +176,7 @@ def test_the_validator_refuses_an_empty_context_or_runless_origin() -> None:
     「未记录」这个状态；只有 proposalId 的 origin 无法被解析。"""
     schema = _code("services", "canvasschema.js")
     assert "has a context naming nothing" in schema
-    assert "has an origin with no skillRunId" in schema
+    assert "has a half origin" in schema
 
 
 def test_an_origin_is_only_stamped_for_an_ACCEPTED_proposal() -> None:
@@ -172,12 +188,13 @@ def test_an_origin_is_only_stamped_for_an_ACCEPTED_proposal() -> None:
     assert "return null" in origin
 
 
-def test_an_origin_without_its_run_is_refused() -> None:
-    """proposalId 单独存在时，没有任何记录说明谁被问过——无法解析的链接被画成
-    链接，比没有更糟。"""
+def test_an_origin_missing_either_half_is_refused() -> None:
+    """codex review 轮 2/3：origin 的含义是「从这份提案发起」。没有提案的运行
+    什么也没发起；没有运行的提案名指一个答案，却没有任何记录说明谁被问过。
+    任何一半单独存在都会被画成一条无法解析的链接。"""
     gen = _code("workflow", "genlib.js")
     fn = gen.split("function originOf(raw)", 1)[1].split("\n}", 1)[0]
-    assert "if (!skillRunId) return null;" in fn
+    assert "if (!skillRunId || !proposalId) return null;" in fn
 
 
 def test_the_graph_places_a_run_only_by_the_context_it_recorded() -> None:

@@ -65,8 +65,13 @@ const idArray = (x) => (Array.isArray(x) ? x.filter((s) => typeof s === "string"
 function originOf(raw) {
   if (!isObj(raw)) return null;
   const skillRunId = strOrNull(raw.skillRunId);
-  if (!skillRunId) return null;
-  return { skillRunId, proposalId: strOrNull(raw.proposalId) };
+  const proposalId = strOrNull(raw.proposalId);
+  // BOTH or neither. `origin` means "launched from this proposal": a run with
+  // no proposal launched nothing, and a proposal with no run names an answer
+  // with no record of who was asked. Either half alone renders as a link that
+  // nothing can resolve, which is worse than recording no origin at all.
+  if (!skillRunId || !proposalId) return null;
+  return { skillRunId, proposalId };
 }
 
 // Keys that must NOT be persisted into durable provenance — a provider params

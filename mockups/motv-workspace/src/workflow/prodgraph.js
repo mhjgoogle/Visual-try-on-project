@@ -78,18 +78,21 @@ export function productionModel(sources = {}, scope = {}) {
   const skillRuns = arr(sources.skillRuns);
 
   const episodes = arr(prod ? prod.episodes : []);
-  const episodeId = str(scope.episodeId) || (prod ? str(prod.activeEpisodeId) : "") || null;
-  const episode = episodes.find((e) => e.episodeId === episodeId) || null;
+  const wantEpisode = str(scope.episodeId) || (prod ? str(prod.activeEpisodeId) : "") || null;
+  const episode = episodes.find((e) => e.episodeId === wantEpisode) || null;
+  // …reported only once it RESOLVES. An id that names no episode would have the
+  // Director cite one that does not exist.
+  const episodeId = episode ? episode.episodeId : null;
 
   // --- scenes & shots of the scoped episode --------------------------------- //
-  const scenes = arr(episode ? episode.scenes : []).map((sc) => ({
+  const allScenes = arr(episode ? episode.scenes : []).map((sc) => ({
     sceneId: sc.sceneId,
     title: str(sc.title),
     shotIds: arr(sc.shotIds),
     characterIds: arr(sc.characterRefs).map((r) => r && r.characterId).filter(Boolean),
     locationId: isObj(sc.locationRef) ? sc.locationRef.locationId || null : null,
   }));
-  const ownedShotIds = new Set(scenes.flatMap((s) => s.shotIds));
+  const ownedShotIds = new Set(allScenes.flatMap((s) => s.shotIds));
 
   // --- the context this model ACTUALLY READ --------------------------------- //
   // A requested id is only reported once it RESOLVES against the documents: a
@@ -99,7 +102,7 @@ export function productionModel(sources = {}, scope = {}) {
   // context it claims are always the same thing.
   const wantScene = str(scope.sceneId) || null;
   const wantShot = str(scope.shotId) || null;
-  const scene = wantScene ? scenes.find((s) => s.sceneId === wantScene) || null : null;
+  const scene = wantScene ? allScenes.find((s) => s.sceneId === wantScene) || null : null;
   const sceneId = scene ? scene.sceneId : null;
   // a shot must belong to the scoped scene when there is one, and to the
   // episode otherwise — the pair is checked together, never independently
@@ -108,8 +111,19 @@ export function productionModel(sources = {}, scope = {}) {
     : null;
   const context = { episodeId: episodeId || null, sceneId, shotId };
 
+  // EVERYTHING the model reports is within the context it claims. Narrowing to
+  // a scene or a shot narrows the scenes, shots, QC and references too — a
+  // judgment labelled 「这个镜头」 must not be built from the rest of the episode.
+  const homeScene = scene || (shotId ? allScenes.find((s) => s.shotIds.includes(shotId)) || null : null);
+  const scenes = homeScene ? [homeScene] : allScenes;
+  const scopeShotIds = shotId
+    ? new Set([shotId])
+    : homeScene
+      ? new Set(homeScene.shotIds)
+      : ownedShotIds;
+
   const byShotId = new Map(draft.filter((s) => isObj(s) && s.shotId).map((s) => [s.shotId, s]));
-  const shots = [...ownedShotIds].map((id) => {
+  const shots = [...scopeShotIds].map((id) => {
     const raw = byShotId.get(id) || null;
     const scene = scenes.find((s) => s.shotIds.includes(id)) || null;
     return {
@@ -151,11 +165,6 @@ export function productionModel(sources = {}, scope = {}) {
   // generations, or a shot-scoped one that swept in the episode's targetless
   // renders, would let an observation about ONE scene be built from history
   // that belongs elsewhere.
-  const scopeShotIds = shotId
-    ? new Set([shotId])
-    : scene
-      ? new Set(scene.shotIds)
-      : ownedShotIds;
   const scopedGenerations = generations.filter((g) => {
     if (!isObj(g)) return false;
     // a targetless generation (an episode render) belongs to the EPISODE, so it

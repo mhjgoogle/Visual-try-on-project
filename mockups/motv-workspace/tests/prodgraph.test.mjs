@@ -135,12 +135,12 @@ test("a Generation with no recorded origin has null — nothing is inferred", ()
     const g = startGeneration(reg, { type: "image", targetId: "sh01", createdAt: "t0", origin });
     assert.equal(g.origin, null);
   }
-  // and a run recorded without a referenceable proposal keeps the half it has
+  // BOTH ids or neither: a run with no proposal launched nothing
   const partial = startGeneration(reg, { type: "image", createdAt: "t0", origin: { skillRunId: "run-9" } });
-  assert.deepEqual(partial.origin, { skillRunId: "run-9", proposalId: null });
+  assert.equal(partial.origin, null);
 });
 
-test("an origin naming ONLY a proposal is refused — nothing could resolve it", () => {
+test("an origin missing either half is refused — nothing could resolve it", () => {
   // codex review, TASK-062: a proposalId with no run names an answer with no
   // record of who was asked. An unresolvable link that renders as a link is
   // worse than none.
@@ -470,9 +470,13 @@ test("validation refuses a context that names nothing, and an origin with no run
   // an origin with only a proposalId names an answer with no record of the ask
   const halfOrigin = base();
   halfOrigin.generations[0].origin = { proposalId: "proposal-1" };
-  assert.match(validateCanvasDoc(halfOrigin), /no skillRunId/);
+  assert.match(validateCanvasDoc(halfOrigin), /half origin/);
+
+  const runOnly = base();
+  runOnly.generations[0].origin = { skillRunId: "run-1" };
+  assert.match(validateCanvasDoc(runOnly), /half origin/);
 
   const emptyOrigin = base();
   emptyOrigin.generations[0].origin = {};
-  assert.match(validateCanvasDoc(emptyOrigin), /no skillRunId/);
+  assert.match(validateCanvasDoc(emptyOrigin), /half origin/);
 });

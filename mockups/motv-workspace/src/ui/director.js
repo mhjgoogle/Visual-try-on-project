@@ -270,7 +270,14 @@ export function canonModel({ story, pd }) {
 export function directorModel({ module, doc, story, pd, sel, production = null }) {
   const st = scriptStatus(doc);
   const approved = story ? story.versions.find((x) => x.v === story.approved) || null : null;
-  const shotId = sel && sel.selectedShotId ? sel.selectedShotId : null;
+  // The SHOT this reading is about comes from the unified model when one was
+  // passed — the same object whose ids are shown as the evidence. Taking it
+  // from `sel` independently would let the panel attest to a context that did
+  // not produce what is written above it: a selection the model rejected as
+  // stale or cross-episode would still be printed as the basis (ADR-0059 要求 1).
+  const shotId = production
+    ? production.context.shotId
+    : (sel && sel.selectedShotId ? sel.selectedShotId : null);
   const shot = shotId ? (pd.draftShots || []).find((s) => s && s.shotId === shotId) || null : null;
 
   // the ONE primary action this module really has today
