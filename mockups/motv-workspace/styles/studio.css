@@ -1084,3 +1084,10 @@
   border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
 .rp-list li .rp-shots { flex: 1; }
 .rp-empty { font-size: 13px; color: var(--text-faint); }
+
+/* the Director's evidence block (CP8) — which real ids this reading used */
+.dir-trace { margin: 0 0 10px; font-size: 12px; color: var(--text-faint); }
+.dir-trace summary { cursor: pointer; }
+.dir-trace > div { display: flex; gap: 8px; align-items: baseline; padding: 2px 0 0 12px; }
+.dir-trace span { min-width: 34px; }
+.dir-trace code { font-size: 11px; word-break: break-all; }

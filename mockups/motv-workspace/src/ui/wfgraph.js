@@ -44,11 +44,14 @@ const FILTERS = [
   ["failed", "失败"],
 ];
 
-/** The creative spine (CP7). Filtering by media KIND narrows what media is
- *  shown; it must not sever the chain that explains it, so a spine node is kept
- *  whenever something downstream of it survived the filter — and dropped when
- *  nothing did, so 「失败」 shows the three failures and not every shot. */
-const SPINE = new Set(["script", "scene", "shot"]);
+/** The creative spine (CP7, extended CP8). Filtering by media KIND narrows what
+ *  media is shown; it must not sever the chain that explains it, so a spine node
+ *  is kept whenever something downstream of it survived the filter — and dropped
+ *  when nothing did, so 「失败」 shows the three failures and not every shot.
+ *
+ *  `canon` / `skillRun` / `proposal` join it at CP8: they are equally not media,
+ *  and equally the explanation of the media that is showing. */
+const SPINE = new Set(["script", "scene", "shot", "canon", "skillRun", "proposal"]);
 
 const STATUS_LABEL = {
   success: "成功", failed: "失败", cancelled: "已取消",
@@ -67,6 +70,9 @@ function columnTitle(nodes, rank) {
     if (types.has("script")) return "SCRIPT";
     if (types.has("scene")) return "SCENE";
     if (types.has("shot")) return "SHOT";
+    if (types.has("canon")) return "CANON";
+    if (types.has("skillRun")) return "SKILL RUN";
+    if (types.has("proposal")) return "PROPOSAL";
   }
   // a column shared by the spine and the references it binds is honestly both
   if (types.has("shot") && types.has("asset")) return "SHOT / REFERENCES";
@@ -216,10 +222,45 @@ function spineCard(n) {
   );
 }
 
+/** Canon / skill run / proposal (CP8). Same flat, text-first treatment as the
+ *  rest of the spine — and each says the one thing that matters about it: what
+ *  the baseline was, who answered, what the creator decided. */
+function askCard(n) {
+  if (n.type === "canon") {
+    const items = (n.items || []).map((i) => `${i.label} ${i.value}`).join(" · ");
+    return (
+      `<button class="wg-node wg-spine wg-s-canon" data-node="${esc(n.id)}" type="button">` +
+      `<span class="wg-sk">${esc(n.kindLabel)}</span>` +
+      `<span class="wg-nt">${esc(n.title || "未命名")}</span>` +
+      `<span class="wg-nk">${esc(items)}</span></button>`
+    );
+  }
+  if (n.type === "skillRun") {
+    // the runtime is WHO answered; an unrecorded model stays unrecorded
+    const who = [n.executor || n.runtime, n.model].filter(Boolean).join(" · ");
+    return (
+      `<button class="wg-node wg-spine wg-s-skillrun wg-st-${esc(n.status)}" data-node="${esc(n.id)}" type="button">` +
+      `<span class="wg-sk">${esc(n.kindLabel)}</span>` +
+      `<span class="wg-nt">${esc(n.skillId)}${n.skillVersion ? ` <b>v${n.skillVersion}</b>` : ""}</span>` +
+      `<span class="wg-nk">${esc(who || "来源未记录")}</span>` +
+      (n.contextRecorded ? "" : `<span class="wg-nk wg-unknown">未记录上下文</span>`) +
+      `</button>`
+    );
+  }
+  const decided = n.decision === "accepted" ? "已接受" : n.decision === "rejected" ? "已拒绝" : "待决定";
+  return (
+    `<button class="wg-node wg-spine wg-s-proposal" data-node="${esc(n.id)}" type="button">` +
+    `<span class="wg-sk">${esc(n.kindLabel)}</span>` +
+    `<span class="wg-nt">${esc(n.skillId)}</span>` +
+    `<span class="wg-nk">${esc(decided)}</span></button>`
+  );
+}
+
 function nodeCard(n) {
   if (n.type === "prompt") return promptCard(n);
   if (n.type === "generation") return generationCard(n);
   if (n.type === "script" || n.type === "scene" || n.type === "shot") return spineCard(n);
+  if (n.type === "canon" || n.type === "skillRun" || n.type === "proposal") return askCard(n);
   return assetCard(n);
 }
 
@@ -260,6 +301,7 @@ export function createWorkflowGraph(getCtx) {
       timelines: d.timelines,
       draftShots: d.draftShots,
       scripts: d.scripts,
+      skillRuns: d.skillRuns,
     });
   }
 
@@ -562,7 +604,9 @@ export function createWorkflowGraph(getCtx) {
     return `<div class="wg-mini">${list.map((n) => {
       const label = n.type === "asset"
         ? `${n.roleLabel || n.kindLabel}${n.version != null ? ` v${n.version}` : ""}`
-        : n.kindLabel;
+        : n.type === "skillRun" || n.type === "proposal"
+          ? `${n.kindLabel} · ${n.skillId}`
+          : n.kindLabel;
       const thumb = n.type === "asset" && n.url ? `<img src="${esc(n.url)}" alt="">` : "";
       return `<button class="wg-minirow" data-node="${esc(n.id)}">${thumb}<span>${esc(label)}</span></button>`;
     }).join("")}</div>`;
@@ -611,6 +655,15 @@ export function createWorkflowGraph(getCtx) {
       steps.push(`→ <b>${esc(name(n))}</b>`);
     } else if (n.type === "asset") {
       steps.push(n.missing ? "媒体记录已删除，只保留了链路。" : "这是一次导入：没有生成记录，也没有可引用的 Prompt。");
+    } else if (n.type === "canon" || n.type === "skillRun" || n.type === "proposal") {
+      // the ask-and-answer layer is authored/recorded, never generated
+      steps.push(n.type === "canon"
+        ? `这是本集建立时的作品基线：它<b>是</b>来源。`
+        : n.type === "skillRun"
+          ? `这是一次能力运行的记录${n.contextRecorded ? "" : "（未记录上下文）"}。`
+          : `这是一份提案，等待或已经得到创作者的判断。`);
+      if (story.proposal) steps.push(`→ 产出 <b>${esc(story.proposal.kindLabel)}</b>`);
+      if (story.launched.length) steps.push(`→ 发起了 <b>${story.launched.length}</b> 次生成`);
     } else if (n.type === "script" || n.type === "scene" || n.type === "shot") {
       // authored, not generated — there is no chain ABOVE it to recite
       steps.push(`这是创作文档，不是生成物：它没有来源链，它<b>是</b>来源。`);
@@ -698,6 +751,45 @@ export function createWorkflowGraph(getCtx) {
         `<div class="wg-isec"><div class="wg-ilabel">产出</div>${miniRow(story.results, n.status === "failed" || n.status === "cancelled" ? "这次尝试没有产出（记录保留）" : "还没有产出")}</div>` +
         (p ? `<details class="wg-tech"><summary>技术详情</summary><pre class="wg-pre">${esc(JSON.stringify({ generationId: n.generationId, parameters: p }, null, 2))}</pre></details>`
           : `<details class="wg-tech"><summary>技术详情</summary><pre class="wg-pre">${esc(n.generationId)}</pre></details>`);
+    } else if (n.type === "canon" || n.type === "skillRun" || n.type === "proposal") {
+      // CP8/ADR-0059. Everything here is AUTHORED or RECORDED, never generated,
+      // and anything the document did not capture says so instead of guessing.
+      const unknown = `<span class="wg-none">未记录</span>`;
+      if (n.type === "canon") {
+        body =
+          `<div class="wg-isec"><div class="wg-ilabel">本集建立时的作品基线</div>` +
+          `<dl class="wg-baseline">${(n.items || []).map((i) =>
+            `<dt>${esc(i.label)}</dt><dd>${esc(String(i.value))}</dd>`).join("")}</dl></div>` +
+          `<div class="wg-isec"><div class="wg-ilabel">向下</div>${miniRow(story.contains, "")}</div>` +
+          `<div class="wg-isec"><div class="wg-ilabel">读取过它的能力运行</div>${miniRow(story.skillRuns, "还没有能力运行读过这个基线")}</div>`;
+      } else if (n.type === "skillRun") {
+        body =
+          kv("能力", `${esc(n.skillId)}${n.skillVersion ? ` v${n.skillVersion}` : ""}`) +
+          kv("运行时", esc(n.runtime || "未记录")) +
+          kv("执行器", esc(n.executor || "未记录")) +
+          // the model is reported BY the runtime — unreported stays unreported
+          kv("模型", n.model ? esc(n.model) : unknown) +
+          kv("状态", esc(STATUS_LABEL[n.status] || n.status || "")) +
+          kv("时间", esc(n.createdAt || "未记录")) +
+          `<div class="wg-isec"><div class="wg-ilabel">读取的上下文</div>` +
+          (n.contextRecorded
+            ? `<div class="wg-ivalue">${esc([n.episodeId && "剧集", n.sceneId && "场景", n.shotId && "镜头"].filter(Boolean).join(" / "))}</div>`
+            : `<div class="wg-none">这条记录没有捕获上下文——它早于 ADR-0059，不会被归到任何一集</div>`) +
+          `</div>` +
+          (n.inputSummary ? `<div class="wg-isec"><div class="wg-ilabel">输入摘要</div><div class="wg-ivalue">${esc(n.inputSummary)}</div></div>` : "") +
+          `<div class="wg-isec"><div class="wg-ilabel">提案</div>${miniRow(story.proposal ? [story.proposal] : [], "这次运行没有产出提案")}</div>`;
+      } else {
+        const decided = n.decision === "accepted" ? "已接受" : n.decision === "rejected" ? "已拒绝" : "待决定";
+        body =
+          kv("能力", esc(n.skillId)) +
+          kv("创作者的决定", esc(decided)) +
+          kv("时间", esc(n.decidedAt || "未记录")) +
+          `<div class="wg-isec"><div class="wg-ilabel">来自</div>${miniRow(story.fromRun ? [story.fromRun] : [], "")}</div>` +
+          `<div class="wg-isec"><div class="wg-ilabel">由它发起的生成</div>` +
+          `${miniRow(story.launched, "没有生成记录说自己来自这份提案")}</div>`;
+      }
+      body += `<div class="wg-isec"><div class="wg-ilabel">来源</div>` +
+        `<div class="wg-ivalue">创作文档 / 运行记录 — 它不是被生成出来的</div></div>`;
     } else if (n.type === "script" || n.type === "scene" || n.type === "shot") {
       // The creative spine (CP7). It was AUTHORED — it has no prompt, no
       // provider and no producing generation, and saying so is the point.

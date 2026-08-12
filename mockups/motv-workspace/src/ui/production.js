@@ -249,6 +249,10 @@ export function createProduction(getCtx) {
       story: ctx.story.doc(),
       pd: ctx.prodData(),
       sel: ui,
+      // CP8/ADR-0059 要求 1+9: the ONE production read model the Director's
+      // observation is built from — and the context ids it read, so that
+      // observation can be traced back to the canon it actually saw.
+      production: ctx.prodgraph.model({ shotId: ui.selectedShotId || null }),
     });
     return (
       `<aside class="st-dir prod-ai">` +

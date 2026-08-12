@@ -179,6 +179,20 @@
 .wg-k-final { width: 214px; }
 .wg-k-final .wg-thumb { border-color: var(--accent-line); }
 
+/* canon / skill run / proposal (CP8) — the ask-and-answer layer. Same flat
+   spine treatment; the left rule colour says which of the three it is. */
+.wg-s-canon { border-left: 3px solid var(--accent); }
+.wg-s-skillrun { border-left: 3px solid var(--gen); }
+.wg-s-proposal { border-left: 3px solid var(--prompt); }
+.wg-spine.wg-st-failed { border-color: color-mix(in srgb, var(--bad) 55%, var(--line)); }
+.wg-unknown { color: var(--text-faint); font-style: italic; }
+.wg-baseline {
+  display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px var(--s3);
+  margin: 0; font-size: var(--t-xs);
+}
+.wg-baseline dt { color: var(--text-faint); }
+.wg-baseline dd { margin: 0; font-variant-numeric: tabular-nums; }
+
 /* the episode's SCRIPT, at the head of the chain (CP7). A wide, quiet row —
    it is one thing, above everything, not a card competing with the frames. */
 .wg-scriptrow {

@@ -24,21 +24,23 @@
 //
 // Pure functions: no DOM, no clock, no fetch, no writes.
 
+import { currentText } from "./scriptdoc.js";
+import { canonBaselineOf } from "./prodgraph.js";
+
 const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
 const arr = (x) => (Array.isArray(x) ? x : []);
 const str = (x) => (typeof x === "string" ? x : "");
+const nonEmpty = (x) => typeof x === "string" && x !== "";
 
-/** The text a script document currently holds — EXACTLY the rule
- *  `scriptdoc.currentText` uses, so the graph can never show something the
- *  workspace does not: any string buffer wins, including an empty one. Treating
- *  a cleared buffer as "no buffer" made the graph fall back to the last version
- *  and go on showing script the creator had just deleted. (Read here rather
- *  than imported only so this module stays dependency-free.) */
+/** The text a script document currently holds.
+ *
+ *  The RULE is `scriptdoc`'s and is IMPORTED, not restated — a second copy of
+ *  it drifted once already and left the graph showing script the creator had
+ *  just deleted. Only the tolerance is local: the graph is handed raw persisted
+ *  documents, including absent and truncated ones, and must not throw on one. */
 function scriptTextOf(doc) {
   if (!isObj(doc)) return "";
-  if (typeof doc.workingText === "string") return doc.workingText;
-  const av = arr(doc.versions).find((x) => isObj(x) && x.v === doc.active);
-  return av && typeof av.content === "string" ? av.content : "";
+  return currentText({ workingText: doc.workingText, versions: arr(doc.versions), active: doc.active });
 }
 
 /** Node id namespaces. Ids are derived from the SOURCE record's own id, so the
@@ -57,6 +59,13 @@ export const nodeIds = {
   script: (episodeId) => `script:${episodeId}`,
   scene: (sceneId) => `scene:${sceneId}`,
   shot: (shotId) => `shot:${shotId}`,
+  // CP8/ADR-0059 — everything to the LEFT of the script: the canon baseline an
+  // episode was built on, the skill runs that read it, and the proposals they
+  // produced. A creator asking "why does this frame look like this" is
+  // ultimately asking about these.
+  canon: (episodeId) => `canon:${episodeId}`,
+  skillRun: (skillRunId) => `skillrun:${skillRunId}`,
+  proposal: (proposalId) => `proposal:${proposalId}`,
 };
 
 const MEDIA_DOMAINS = ["images", "videos", "audio"];
@@ -261,7 +270,7 @@ function walkAssets(assets) {
  *   `nodes` is id → node; `edges` are {from, to, kind}; `order` is the node ids
  *   in a deterministic left→right layered order.
  */
-export function buildProvenanceGraph({ assets, generations, production, timelines, draftShots, scripts } = {}) {
+export function buildProvenanceGraph({ assets, generations, production, timelines, draftShots, scripts, skillRuns } = {}) {
   const shots = shotIndex({ production, draftShots });
   const roles = assetRoles({ production, assets });
   const nodes = new Map();
@@ -280,6 +289,26 @@ export function buildProvenanceGraph({ assets, generations, production, timeline
   // A script node exists only where an episode HAS script text — an empty
   // episode gets no node rather than an empty one (§14: unknown stays unknown).
   for (const ep of arr(isObj(production) ? production.episodes : [])) {
+    // The CANON baseline this episode was built on (CP8/ADR-0059). It reports
+    // the episode's own `basedOn` stamp — versions and counts, never content —
+    // so the chain starts where the work started. An episode carrying no stamp
+    // gets no node: "based on the current canon" would be an invention.
+    const baseline = canonBaselineOf(ep);
+    let canonNodeId = null;
+    if (baseline) {
+      canonNodeId = nodeIds.canon(ep.episodeId);
+      nodes.set(canonNodeId, {
+        id: canonNodeId,
+        type: "canon",
+        kind: "canon",
+        kindLabel: "作品基线",
+        episodeId: ep.episodeId,
+        sceneId: null,
+        shotId: null,
+        title: str(ep.title),
+        items: baseline.items,
+      });
+    }
     const doc = isObj(scripts) ? scripts[ep.episodeId] : null;
     const text = scriptTextOf(doc);
     let scriptNodeId = null;
@@ -299,7 +328,12 @@ export function buildProvenanceGraph({ assets, generations, production, timeline
         text,
         version: isObj(doc) && Number.isInteger(doc.active) && doc.active > 0 ? doc.active : null,
       });
+      addEdge(canonNodeId, scriptNodeId, "baseline");
     }
+    // an episode with a baseline but no script text still hangs its scenes off
+    // the baseline — the chain must not lose its head because the script is
+    // still empty
+    const episodeHeadId = scriptNodeId || canonNodeId;
     for (const sc of arr(ep.scenes)) {
       const sceneNodeId = nodeIds.scene(sc.sceneId);
       nodes.set(sceneNodeId, {
@@ -313,7 +347,7 @@ export function buildProvenanceGraph({ assets, generations, production, timeline
         title: str(sc.title),
         shotCount: arr(sc.shotIds).length,
       });
-      addEdge(scriptNodeId, sceneNodeId, "scene");
+      addEdge(episodeHeadId, sceneNodeId, "scene");
       for (const shotId of arr(sc.shotIds)) {
         const s = shots.get(shotId);
         const shotNodeId = nodeIds.shot(shotId);
@@ -453,6 +487,91 @@ export function buildProvenanceGraph({ assets, generations, production, timeline
       // answer "generated by" without re-scanning the registry
       const n = nodes.get(aid);
       if (n && !n.producedBy) n.producedBy = g.generationId;
+    }
+  }
+
+  // ---- skill runs and the proposals they produced (CP8/ADR-0059) ----------- //
+  // A run is placed by the CONTEXT IT RECORDED — nothing else. A run whose
+  // context was never captured still appears (it is real history), but it hangs
+  // off nothing: attaching it to the active episode would be exactly the
+  // invented attribution this checkpoint exists to prevent.
+  for (const r of arr(skillRuns)) {
+    if (!isObj(r) || !nonEmpty(r.skillRunId)) continue;
+    const rid = nodeIds.skillRun(r.skillRunId);
+    const c = isObj(r.context) ? r.context : null;
+    nodes.set(rid, {
+      id: rid,
+      type: "skillRun",
+      kind: str(r.skillId) || "skill",
+      kindLabel: "能力运行",
+      skillRunId: r.skillRunId,
+      skillId: str(r.skillId),
+      skillVersion: Number.isInteger(r.skillVersion) ? r.skillVersion : null,
+      runtime: str(r.runtime),
+      executor: str(r.executor),
+      model: str(r.model),                 // unknown stays "" — never guessed
+      status: str(r.status),
+      inputSummary: str(r.inputSummary),
+      createdAt: str(r.createdAt),
+      // null when the document never captured it — the UI says 「未记录」
+      contextRecorded: !!c,
+      episodeId: c ? c.episodeId || null : null,
+      sceneId: c ? c.sceneId || null : null,
+      shotId: c ? c.shotId || null : null,
+    });
+    // the baseline it read, when its context names an episode that has one
+    if (c && c.episodeId) addEdge(nodeIds.canon(c.episodeId), rid, "baseline");
+    // …and the shot/scene it was scoped to, so a shot can show what was asked
+    // about it. Drawn only where the spine node actually exists.
+    if (c && c.shotId && nodes.has(nodeIds.shot(c.shotId))) {
+      addEdge(nodeIds.shot(c.shotId), rid, "asked");
+    } else if (c && c.sceneId && nodes.has(nodeIds.scene(c.sceneId))) {
+      addEdge(nodeIds.scene(c.sceneId), rid, "asked");
+    }
+
+    // The PROPOSAL. It exists only where one was actually produced, and only
+    // carries an id when it was minted (older proposals predate the id and are
+    // shown as unreferenceable rather than given a fresh one — a new id would
+    // claim a link nothing recorded).
+    const pid = isObj(r.proposal) && nonEmpty(r.proposal.proposalId)
+      ? nodeIds.proposal(r.proposal.proposalId)
+      : null;
+    if (pid) {
+      nodes.set(pid, {
+        id: pid,
+        type: "proposal",
+        kind: str(r.skillId) || "proposal",
+        kindLabel: "提案",
+        proposalId: r.proposal.proposalId,
+        skillRunId: r.skillRunId,
+        skillId: str(r.skillId),
+        // the creator's decision is the thing worth seeing at a glance
+        decision: str(r.decision) || (r.status === "accepted" || r.status === "rejected" ? r.status : null),
+        status: str(r.status),
+        decidedAt: str(r.decidedAt),
+        episodeId: c ? c.episodeId || null : null,
+        sceneId: c ? c.sceneId || null : null,
+        shotId: c ? c.shotId || null : null,
+      });
+      addEdge(rid, pid, "proposal");
+    }
+  }
+
+  // ---- the proposal a generation was launched FROM -------------------------- //
+  // Written only where the launching path recorded it. A generation with no
+  // origin simply has nothing to its left here — an honest blank, not a break.
+  for (const g of arr(generations)) {
+    if (!isObj(g) || !isObj(g.origin) || !nonEmpty(g.generationId)) continue;
+    const gid = nodeIds.generation(g.generationId);
+    if (!nodes.has(gid)) continue;
+    if (nonEmpty(g.origin.proposalId) && nodes.has(nodeIds.proposal(g.origin.proposalId))) {
+      addEdge(nodeIds.proposal(g.origin.proposalId), gid, "origin");
+    } else if (nonEmpty(g.origin.skillRunId) && nodes.has(nodeIds.skillRun(g.origin.skillRunId))) {
+      // the run is recorded but its proposal is not referenceable — still a
+      // real link, drawn from the run itself rather than dropped
+      addEdge(nodeIds.skillRun(g.origin.skillRunId), gid, "origin");
+    } else {
+      warnings.push({ kind: "danglingOrigin", generationId: g.generationId, origin: g.origin });
     }
   }
 
@@ -656,9 +775,10 @@ export function layerOrder(nodes, edges) {
     visiting.add(id);
     const n = nodes.get(id);
     let r = 0;
-    if (n.type === "script") {
-      r = 0; // the spine starts at the document that decided everything else
-    } else if (n.type === "scene" || n.type === "shot") {
+    if (n.type === "canon") {
+      r = 0; // the chain starts where the work started: the baseline
+    } else if (n.type === "script" || n.type === "scene" || n.type === "shot"
+      || n.type === "skillRun" || n.type === "proposal") {
       // one column per step of the spine; an episode with no script text has
       // no script node, and its scenes simply start the chain instead
       r = maxOf(feeders.get(id), -1) + 1;
@@ -814,6 +934,14 @@ export function searchText(n) {
   } else if (n.type === "scene" || n.type === "shot") {
     bits.push(n.kindLabel, n.title);
     if (n.shot) bits.push(n.shot.sceneTitle, n.shot.episodeTitle, seqLabel(n.shot));
+  } else if (n.type === "canon") {
+    bits.push(n.kindLabel, n.title, ...(n.items || []).map((i) => `${i.label} ${i.value}`));
+  } else if (n.type === "skillRun") {
+    // searchable by what the creator would type: the skill, who ran it, and
+    // the human summary of what it was given
+    bits.push(n.kindLabel, n.skillId, n.runtime, n.executor, n.model, n.status, n.inputSummary);
+  } else if (n.type === "proposal") {
+    bits.push(n.kindLabel, n.skillId, n.decision, n.status);
   }
   return bits.filter(Boolean).join(" ").toLowerCase();
 }
@@ -923,10 +1051,21 @@ export function explainNode(graph, nodeId) {
     boundByShots: inbound.filter((e) => e.kind === "binds").map((e) => get(e.from)).filter(Boolean),
     madeFor: inbound.filter((e) => e.kind === "target").map((e) => get(e.from)).filter(Boolean)[0] || null,
     generations: outbound.filter((e) => e.kind === "target").map((e) => get(e.to)).filter(Boolean),
-    partOf: inbound.filter((e) => e.kind === "scene" || e.kind === "shot").map((e) => get(e.from)).filter(Boolean)[0] || null,
-    contains: outbound.filter((e) => e.kind === "scene" || e.kind === "shot").map((e) => get(e.to)).filter(Boolean),
+    partOf: inbound.filter((e) => e.kind === "scene" || e.kind === "shot" || e.kind === "baseline").map((e) => get(e.from)).filter(Boolean)[0] || null,
+    contains: outbound.filter((e) => e.kind === "scene" || e.kind === "shot" || e.kind === "baseline").map((e) => get(e.to)).filter(Boolean),
+    // CP8/ADR-0059 — the ask → answer → action layer
+    askedBy: inbound.filter((e) => e.kind === "asked").map((e) => get(e.from)).filter(Boolean)[0] || null,
+    skillRuns: outbound.filter((e) => e.kind === "asked").map((e) => get(e.to)).filter(Boolean),
+    proposal: outbound.filter((e) => e.kind === "proposal").map((e) => get(e.to)).filter(Boolean)[0] || null,
+    fromRun: inbound.filter((e) => e.kind === "proposal").map((e) => get(e.from)).filter(Boolean)[0] || null,
+    launched: outbound.filter((e) => e.kind === "origin").map((e) => get(e.to)).filter(Boolean),
+    launchedBy: inbound.filter((e) => e.kind === "origin").map((e) => get(e.from)).filter(Boolean)[0] || null,
   };
-  if (n.type === "script" || n.type === "scene" || n.type === "shot") {
+  if (n.type === "canon" || n.type === "skillRun" || n.type === "proposal") {
+    // a baseline is canon, a run is a record of asking, a proposal is an answer
+    // awaiting judgement — none of the three is a generated artefact
+    story.provenance = "authored";
+  } else if (n.type === "script" || n.type === "scene" || n.type === "shot") {
     // the spine is authored, not generated — saying "import" would be as wrong
     // as saying "generated"
     story.provenance = "authored";

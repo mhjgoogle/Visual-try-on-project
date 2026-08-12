@@ -36,6 +36,7 @@ import * as mediaref from "./workflow/mediaref.js";
 import * as assetlib from "./workflow/assetlib.js";
 import * as assetreg from "./workflow/assetreg.js";
 import * as assetusage from "./workflow/assetusage.js";
+import * as prodgraph from "./workflow/prodgraph.js";
 import * as geninput from "./workflow/geninput.js";
 import { referencePlan } from "./ui/refplan.js";
 import * as genlib from "./workflow/genlib.js";
@@ -1520,6 +1521,34 @@ const ctx = {
       return out;
     },
 
+    /**
+     * WHICH canon a run of this skill reads, as ids (ADR-0059 要求 2).
+     *
+     * Derived from the SAME state `ctx.skills.context` assembles its inputs
+     * from, so the recorded context and the prompt can never name different
+     * episodes. A caller narrows it by passing `scope` (a shot-scoped action
+     * passes its shotId); everything it does not name stays null.
+     *
+     * The episode is taken from the production document's ACTIVE episode
+     * because that is genuinely what the context builder read — not as a guess.
+     * A skill that reads no episode-level input at all (a project-wide one)
+     * records no episode: it did not look at one.
+     */
+    scopeOf: (skillId, scope = null) => {
+      const skill = skills.findSkill(skillId);
+      if (!skill) return null;
+      const keys = new Set([...skill.inputs, ...skill.optionalInputs]);
+      const readsEpisode = ["episodePlan", "episodeScript", "scenes", "shots"].some((k) => keys.has(k));
+      const ep = readsEpisode ? proddoc.activeEpisode(productionDoc) : null;
+      const s = scope != null && typeof scope === "object" && !Array.isArray(scope) ? scope : {};
+      const out = {
+        episodeId: (typeof s.episodeId === "string" && s.episodeId) || (ep ? ep.episodeId : null),
+        sceneId: (typeof s.sceneId === "string" && s.sceneId) || null,
+        shotId: (typeof s.shotId === "string" && s.shotId) || null,
+      };
+      return out.episodeId || out.sceneId || out.shotId ? out : null;
+    },
+
     /** The full task prompt — IDENTICAL for every runtime. Copying this into a
      *  web chat and running it locally ask exactly the same question. */
     prompt: (skillId, extra = {}) => {
@@ -1542,7 +1571,7 @@ const ctx = {
      * (the creator pastes the answer back via `submitManual`); a local executor
      * runs it now.
      */
-    run: async (skillId, { executor = "manual", extra = {}, summary = null } = {}) => {
+    run: async (skillId, { executor = "manual", extra = {}, summary = null, scope = null } = {}) => {
       const skill = skills.findSkill(skillId);
       if (!skill) return { ok: false, error: `未知能力 ${skillId}` };
       const context = ctx.skills.context(skillId, extra);
@@ -1561,6 +1590,12 @@ const ctx = {
         executor,
         inputKeys: Object.keys(context),
         inputSummary: summary,
+        // WHICH canon this run read, as ids (ADR-0059). Taken from the same
+        // place `ctx.skills.context` read it from, so the record and the prompt
+        // can never describe different episodes. A caller may narrow it (a
+        // shot-scoped skill passes its shotId); anything it does not name stays
+        // null, because a null level is a fact about the run's scope.
+        context: ctx.skills.scopeOf(skillId, scope),
         createdAt: new Date().toISOString(),
       });
       if (!rec) return { ok: false, error: "无法建立运行记录" };
@@ -1622,6 +1657,20 @@ const ctx = {
       ctx.persist();
       refreshProductionView();
       return { ok: true, run: rec, proposal: read.value };
+    },
+
+    /**
+     * The origin stamp a production action carries when it is launched FROM a
+     * run's proposal (ADR-0059 要求 3). Returns null for anything else.
+     *
+     * The caller must name the run — nothing here searches for "the proposal
+     * that was probably behind this". A generation attributed by proximity
+     * would read as a record of something that never happened.
+     */
+    originOf: (skillRunId) => {
+      const r = skillrun.findRun(skillRunRegistry, skillRunId);
+      if (!r) return null;
+      return { skillRunId: r.skillRunId, proposalId: skillrun.proposalIdOf(r) };
     },
 
     /** The creator ACCEPTS. This marks the run only — applying the proposal to
@@ -1871,17 +1920,21 @@ const ctx = {
      *  back, is registered as an Asset on this shot, and the Generation record
      *  freezes the prompt and the reference/frame inputs it was made from — so
      *  the Workflow graph can show the whole chain afterwards. */
-    importResult: async (shotId, kind, file, promptText) => {
+    importResult: async (shotId, kind, file, promptText, fromSkillRunId = null) => {
       const g = ctx.episode.genModel(shotId, kind);
       if (!g.slot) { toast("镜头身份未解析：无法定位媒体槽位"); return null; }
       // the creator's own text wins verbatim, including when they cleared it —
       // only a caller that has no field at all (null) falls back to the set
       const seed = geninput.generationSeedFrom(g.set, { type: kind, promptSnapshot: promptText });
+      // ADR-0059: an origin is recorded ONLY when the caller names the run this
+      // was launched from. An import that names none has none — no search for
+      // "the proposal that was probably behind this".
+      const origin = fromSkillRunId ? ctx.skills.originOf(fromSkillRunId) : null;
       const ref = await ctx.media.importShotMedia(kind, g.slot, shotId, file, {
         shotId,
         prompt: seed.promptSnapshot,
         entry: "manual",
-        seed,
+        seed: origin ? { ...seed, origin } : seed,
       });
       return ref;
     },
@@ -1926,6 +1979,32 @@ const ctx = {
         return null;
       }
     },
+  },
+  // ---------------------------------------------------------------------- //
+  // Unified Production read model (CP8 / ADR-0059 要求 9).
+  //
+  // ONE model over Story · Episode · Scene/Shot · References · Skill runs ·
+  // Generations · Assets · QC/review · Final — and it returns the CONTEXT IDS
+  // it read, so anything the AI Director observes or decides can be traced
+  // back to exactly the canon it was looking at.
+  //
+  // Read-only. It writes nothing and copies no story content (要求 8).
+  // ---------------------------------------------------------------------- //
+  prodgraph: {
+    model: (scope = {}) => prodgraph.productionModel({
+      story: storyDoc,
+      scripts: scriptDocs,
+      production: productionDoc,
+      draftShots: ctx.project.draftShots || [],
+      assets: assetRegistry,
+      generations: generationRegistry,
+      skillRuns: skillRunRegistry,
+      timelines: timelinesDoc,
+      finals: assetRegistry.finals,
+    }, scope),
+    /** Runs whose context the document never captured. Real history that
+     *  belongs to no episode — surfaced, never swept into the active one. */
+    runsWithoutContext: () => prodgraph.runsWithoutContext(skillRunRegistry),
   },
   // read-only registry view for the storage workspace (writes stay on the
   // ctx.storage / mediaref paths)
@@ -2502,6 +2581,9 @@ const ctx = {
       // start where the work actually starts. READ-ONLY, like every other
       // registry here — writes stay on ctx.script.
       scripts: scriptDocs,
+      // CP8/ADR-0059: the skill-run registry, so the graph can show what was
+      // ASKED of the canon and what came back. READ-ONLY; writes via ctx.skills.
+      skillRuns: skillRunRegistry,
       // TASK-051A: the AI Director's Production Plan / Asset Inbox DERIVE from
       // existing state and own nothing. They need the whole Asset Registry
       // (finals/displaced/unresolvedPaid, not just the chain maps) and the

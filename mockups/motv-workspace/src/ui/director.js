@@ -267,7 +267,7 @@ export function canonModel({ story, pd }) {
   };
 }
 
-export function directorModel({ module, doc, story, pd, sel }) {
+export function directorModel({ module, doc, story, pd, sel, production = null }) {
   const st = scriptStatus(doc);
   const approved = story ? story.versions.find((x) => x.v === story.approved) || null : null;
   const shotId = sel && sel.selectedShotId ? sel.selectedShotId : null;
@@ -359,6 +359,13 @@ export function directorModel({ module, doc, story, pd, sel }) {
   return {
     context: ctxOf.lines,
     contextHtml: ctxOf.html,
+    // CP8/ADR-0059 要求 1: the REAL ids this observation was built from. The
+    // lines above are what a person reads; these are what makes the reading
+    // traceable — an observation you cannot tie to a context is an opinion.
+    // Null when no unified model was passed: absent, not invented.
+    contextIds: production ? production.context : null,
+    // 要求 9: the one model this Director reads the production through.
+    production,
     note: directorNote({ module, story: story || { idea: "", versions: [], approved: 0 }, doc, pd, shotId }),
     primary,
     pending,
@@ -634,9 +641,21 @@ export function renderDirector(m, instruction, open = {}) {
       `<button class="btn sm" data-goto="${esc(m.currentBlockers[0].fix)}">${esc(m.currentBlockers[0].fixLabel)}</button></div>`
     : "";
 
+  // CP8/ADR-0059 要求 1: name the REAL context this reading was built from.
+  // A `<details>` because it is evidence, not headline — but it is one click
+  // away, and it is the actual ids, not a restatement of the lines above.
+  const ids = m.contextIds;
+  const traced = ids && (ids.episodeId || ids.sceneId || ids.shotId)
+    ? `<details class="dir-trace"><summary>本次判断的依据</summary>` +
+      [["剧集", ids.episodeId], ["场景", ids.sceneId], ["镜头", ids.shotId]]
+        .map(([k, v]) => `<div><span>${k}</span><code>${v ? esc(v) : "—"}</code></div>`).join("") +
+      `</details>`
+    : "";
+
   return (
     `<div class="lab">当前上下文</div>` +
     m.contextHtml +
+    traced +
     blockerBanner +
     section("director", "导演", "", directorBody(m, instruction), {
       open: isOpen("director", true),
