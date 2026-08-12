@@ -499,3 +499,31 @@ test("a run in an episode with NO baseline gets no canon edge — the node does 
     assert.ok(g.nodes.has(e.to), `edge ${e.id} ends at a node that does not exist`);
   }
 });
+
+test("a shot-only scope still reports the scene it resolved", () => {
+  // codex review round 5: the UI narrows by shot alone, and the model resolves
+  // its owning scene to do the narrowing. Leaving it out of the evidence drops
+  // a context id the model demonstrably read.
+  const { src, epId, sceneId } = fullChain();
+  assert.deepEqual(productionModel(src, { shotId: "sh01" }).context,
+    { episodeId: epId, sceneId, shotId: "sh01" });
+});
+
+test("an origin's proposal must BELONG to the run it names", () => {
+  // codex review round 5: matching on the proposal id alone would let a
+  // tampered record point a generation at somebody else's answer.
+  const { src, gen } = fullChain();
+  const other = startRun(src.skillRuns, { skillId: "s2", skillVersion: 1, context: { episodeId: "ep-x" }, createdAt: "t0" });
+  proposeRun(src.skillRuns, other.skillRunId, { x: 1 });
+  const otherProposalId = proposalIdOf(other);
+  // a generation claiming ANOTHER run's proposal
+  const forged = src.generations.find((x) => x.generationId === gen.generationId);
+  forged.origin = { skillRunId: forged.origin.skillRunId, proposalId: otherProposalId };
+  const g = buildProvenanceGraph(src);
+  assert.equal(
+    g.edges.some((e) => e.kind === "origin" && e.from === nodeIds.proposal(otherProposalId)),
+    false,
+    "the mismatched pair must not be drawn",
+  );
+  assert.ok(g.warnings.some((w) => w.kind === "danglingOrigin" && w.generationId === gen.generationId));
+});

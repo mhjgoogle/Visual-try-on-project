@@ -109,12 +109,15 @@ export function productionModel(sources = {}, scope = {}) {
   const shotId = wantShot && (scene ? scene.shotIds.includes(wantShot) : ownedShotIds.has(wantShot))
     ? wantShot
     : null;
-  const context = { episodeId: episodeId || null, sceneId, shotId };
-
   // EVERYTHING the model reports is within the context it claims. Narrowing to
   // a scene or a shot narrows the scenes, shots, QC and references too — a
   // judgment labelled 「这个镜头」 must not be built from the rest of the episode.
   const homeScene = scene || (shotId ? allScenes.find((s) => s.shotIds.includes(shotId)) || null : null);
+  // …and the context REPORTS that scene. The UI narrows by shot alone, and the
+  // model resolves its owning scene to do the narrowing — leaving it out of the
+  // evidence would drop a context id the model demonstrably read, which is the
+  // shot→scene step of the traceability this checkpoint exists for.
+  const context = { episodeId: episodeId || null, sceneId: homeScene ? homeScene.sceneId : null, shotId };
   const scenes = homeScene ? [homeScene] : allScenes;
   const scopeShotIds = shotId
     ? new Set([shotId])

@@ -574,9 +574,14 @@ export function buildProvenanceGraph({ assets, generations, production, timeline
     if (!isObj(g) || !isObj(g.origin) || !nonEmpty(g.generationId)) continue;
     const gid = nodeIds.generation(g.generationId);
     if (!nodes.has(gid)) continue;
-    if (nonEmpty(g.origin.proposalId) && nodes.has(nodeIds.proposal(g.origin.proposalId))) {
+    // The proposal must BELONG to the run the origin names. Matching on the
+    // proposal id alone would let a tampered or corrupt record point a
+    // generation at somebody else's answer and have it drawn as real lineage —
+    // the pair is one fact, so it is checked as one.
+    const pnode = nonEmpty(g.origin.proposalId) ? nodes.get(nodeIds.proposal(g.origin.proposalId)) : null;
+    if (pnode && pnode.skillRunId === g.origin.skillRunId) {
       addEdge(nodeIds.proposal(g.origin.proposalId), gid, "origin");
-    } else if (nonEmpty(g.origin.skillRunId) && nodes.has(nodeIds.skillRun(g.origin.skillRunId))) {
+    } else if (!pnode && nonEmpty(g.origin.skillRunId) && nodes.has(nodeIds.skillRun(g.origin.skillRunId))) {
       // the run is recorded but its proposal is not referenceable — still a
       // real link, drawn from the run itself rather than dropped
       addEdge(nodeIds.skillRun(g.origin.skillRunId), gid, "origin");
