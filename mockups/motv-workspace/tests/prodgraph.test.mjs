@@ -402,3 +402,77 @@ test("the graph persists no topology: rebuilding from the same records is identi
   assert.equal("nodes" in src.production, false);
   assert.equal(src.skillRuns.every((r) => !("rank" in r) && !("edges" in r)), true);
 });
+
+// --- 8. narrowing must actually narrow, and a scope must RESOLVE -------------
+// (codex review round 2 — five findings of one family: a record claiming a
+//  relationship the documents do not establish.)
+
+test("a requested scope id is reported ONLY once it resolves", () => {
+  const { src, epId, sceneId } = fullChain();
+  // a scene from another episode, or a stale one, is dropped — the Director
+  // must never cite evidence whose records it did not open
+  const bogus = productionModel(src, { sceneId: "scene-from-another-episode" });
+  assert.deepEqual(bogus.context, { episodeId: epId, sceneId: null, shotId: null });
+  // …and a shot that does not belong to the scoped scene is dropped with it
+  const mixed = productionModel(src, { sceneId, shotId: "sh-not-here" });
+  assert.equal(mixed.context.sceneId, sceneId);
+  assert.equal(mixed.context.shotId, null);
+  // a real pair resolves
+  const real = productionModel(src, { sceneId, shotId: "sh01" });
+  assert.deepEqual(real.context, { episodeId: epId, sceneId, shotId: "sh01" });
+});
+
+test("narrowing to a shot excludes the episode's targetless renders", () => {
+  const { src, sceneId, epId } = fullChain();
+  src.generations.push({
+    generationId: "g-render", type: "render", targetType: null, targetId: null,
+    inputAssetIds: [], referenceAssetIds: [], resultAssetIds: ["final-1"],
+    parameters: { episodeId: epId }, status: "success", createdAt: "t8",
+  });
+  // episode scope: the render belongs here
+  assert.ok(productionModel(src).generations.some((g) => g.generationId === "g-render"));
+  // scene scope: it does not — an episode render is not that scene's history
+  assert.equal(productionModel(src, { sceneId }).generations.some((g) => g.generationId === "g-render"), false);
+  // shot scope: only that shot's own generations
+  const shotScoped = productionModel(src, { shotId: "sh01" }).generations;
+  assert.ok(shotScoped.length >= 1);
+  assert.ok(shotScoped.every((g) => g.targetId === "sh01"));
+});
+
+test("a scene-scoped model does not sweep in the episode's other shots", () => {
+  const { src, sceneId } = fullChain();
+  src.generations.push({
+    generationId: "g-elsewhere", type: "image", targetType: "shot", targetId: "sh99",
+    inputAssetIds: [], referenceAssetIds: [], resultAssetIds: [],
+    status: "success", createdAt: "t7",
+  });
+  const scoped = productionModel(src, { sceneId }).generations;
+  assert.equal(scoped.some((g) => g.generationId === "g-elsewhere"), false);
+});
+
+test("validation refuses a context that names nothing, and an origin with no run", () => {
+  const base = () => ({
+    v: CANVAS_SCHEMA_VERSION, nodes: [], edges: [], scripts: {}, story: STORY,
+    assets: EMPTY_ASSETS, timelines: {}, production: emptyProduction(),
+    skillRuns: [{ skillRunId: "r1", skillId: "s", skillVersion: 1, status: "running", proposal: null, context: null }],
+    generations: [{
+      generationId: "g1", type: "image", targetType: null, targetId: null,
+      inputAssetIds: [], referenceAssetIds: [], promptSnapshot: null,
+      provider: null, model: null, parameters: null,
+      status: "success", resultAssetIds: [], createdAt: "t0", origin: null,
+    }],
+  });
+  // an all-null context object would render as "recorded" and hide 未记录
+  const emptyCtx = base();
+  emptyCtx.skillRuns[0].context = { episodeId: null, sceneId: null, shotId: null };
+  assert.match(validateCanvasDoc(emptyCtx), /naming nothing/);
+
+  // an origin with only a proposalId names an answer with no record of the ask
+  const halfOrigin = base();
+  halfOrigin.generations[0].origin = { proposalId: "proposal-1" };
+  assert.match(validateCanvasDoc(halfOrigin), /no skillRunId/);
+
+  const emptyOrigin = base();
+  emptyOrigin.generations[0].origin = {};
+  assert.match(validateCanvasDoc(emptyOrigin), /no skillRunId/);
+});

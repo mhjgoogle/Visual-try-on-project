@@ -128,6 +128,41 @@ def test_the_recorded_episode_is_the_one_the_prompt_actually_read() -> None:
     assert "narrow ? wantShot : null" in scope
 
 
+def test_scene_and_shot_are_validated_TOGETHER() -> None:
+    """codex review 轮 2：分别验证会让「S01 的场景 + S02 的镜头」两项独立检查
+    都通过，于是记录下一个并不存在的场景/镜头配对。"""
+    app = _code("app.js")
+    scope = app.split("scopeOf: (skillId, scope = null)", 1)[1].split("\n    },", 1)[0]
+    owns = scope.split("const owns = (sceneId, shotId)", 1)[1].split("};", 1)[0]
+    assert "const home = scene ||" in owns, "the shot must live in the scoped scene"
+    assert "home.shotIds || []).includes(shotId)" in owns
+
+
+def test_the_read_model_reports_only_ids_that_RESOLVE() -> None:
+    """codex review 轮 2：把请求的 id 原样抄进 context，会让导演引用一份它
+    根本没有打开过的记录。"""
+    pg = _code("workflow", "prodgraph.js")
+    assert "const scene = wantScene ? scenes.find" in pg
+    assert "scene ? scene.shotIds.includes(wantShot) : ownedShotIds.has(wantShot)" in pg
+
+
+def test_narrowing_actually_narrows_the_generations() -> None:
+    """codex review 轮 2：场景范围返回整集镜头的生成、镜头范围扫进整集的无目标
+    渲染，都会让一次针对某个场景的观察建立在别处的历史上。"""
+    pg = _code("workflow", "prodgraph.js")
+    assert "const scopeShotIds = shotId" in pg
+    assert "new Set(scene.shotIds)" in pg
+    assert "return !sceneId && !shotId && episodeOf(g) === episodeId;" in pg
+
+
+def test_the_validator_refuses_an_empty_context_or_runless_origin() -> None:
+    """codex review 轮 2：全 null 的 context 会被图当作「已记录」，从而抹掉
+    「未记录」这个状态；只有 proposalId 的 origin 无法被解析。"""
+    schema = _code("services", "canvasschema.js")
+    assert "has a context naming nothing" in schema
+    assert "has an origin with no skillRunId" in schema
+
+
 def test_an_origin_is_only_stamped_for_an_ACCEPTED_proposal() -> None:
     """codex review：等待中的运行还没有答案，被拒绝的提案没有发起任何东西，
     没有 id 的提案无法被指向。给它们盖章就是让生成声称一份记录不支持的来历。"""

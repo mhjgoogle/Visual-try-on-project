@@ -1398,6 +1398,16 @@ export function validateCanvasDoc(doc) {
         return `skill run ${r.skillRunId} has an invalid context.${k}`;
       }
     }
+    // …and a context object naming NOTHING is refused. The domain normaliser
+    // collapses that case to `null` precisely so 「未记录」 stays distinguishable
+    // from 「记录了，但是空的」; a document carrying the empty object instead
+    // would render as a recorded context and silently suppress the unrecorded
+    // state. Nothing this app writes produces it — only a corrupt or foreign
+    // document can, and that is exactly what validation is for.
+    if (isPlainObject(r.context)
+      && !r.context.episodeId && !r.context.sceneId && !r.context.shotId) {
+      return `skill run ${r.skillRunId} has a context naming nothing (use null for 未记录)`;
+    }
   }
   // v14: a Generation's ORIGIN — which proposal launched it. `null`/absent is
   // valid (nothing recorded it, or it was not launched from one); a present
@@ -1410,6 +1420,13 @@ export function validateCanvasDoc(doc) {
       if (v !== undefined && v !== null && (typeof v !== "string" || !v)) {
         return `generation ${g.generationId} has an invalid origin.${k}`;
       }
+    }
+    // The RUN is what anchors an origin. A proposal id with no run names an
+    // answer with no record of who was asked, and an empty origin claims a
+    // launch that names nothing at all — both would render as lineage. `null`
+    // remains the way to say there was none.
+    if (!g.origin.skillRunId) {
+      return `generation ${g.generationId} has an origin with no skillRunId (use null for 未记录)`;
     }
   }
   if (doc.assets !== undefined) {

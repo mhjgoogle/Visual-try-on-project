@@ -81,11 +81,6 @@ export function productionModel(sources = {}, scope = {}) {
   const episodeId = str(scope.episodeId) || (prod ? str(prod.activeEpisodeId) : "") || null;
   const episode = episodes.find((e) => e.episodeId === episodeId) || null;
 
-  // --- the context this model READ, so anything built on it can be traced --- //
-  const sceneId = str(scope.sceneId) || null;
-  const shotId = str(scope.shotId) || null;
-  const context = { episodeId: episodeId || null, sceneId, shotId };
-
   // --- scenes & shots of the scoped episode --------------------------------- //
   const scenes = arr(episode ? episode.scenes : []).map((sc) => ({
     sceneId: sc.sceneId,
@@ -95,6 +90,24 @@ export function productionModel(sources = {}, scope = {}) {
     locationId: isObj(sc.locationRef) ? sc.locationRef.locationId || null : null,
   }));
   const ownedShotIds = new Set(scenes.flatMap((s) => s.shotIds));
+
+  // --- the context this model ACTUALLY READ --------------------------------- //
+  // A requested id is only reported once it RESOLVES against the documents: a
+  // stale selection, or one from another episode, would otherwise have the
+  // Director cite evidence whose records it never opened. What does not resolve
+  // is dropped, and the model is scoped by what remains — so the data and the
+  // context it claims are always the same thing.
+  const wantScene = str(scope.sceneId) || null;
+  const wantShot = str(scope.shotId) || null;
+  const scene = wantScene ? scenes.find((s) => s.sceneId === wantScene) || null : null;
+  const sceneId = scene ? scene.sceneId : null;
+  // a shot must belong to the scoped scene when there is one, and to the
+  // episode otherwise — the pair is checked together, never independently
+  const shotId = wantShot && (scene ? scene.shotIds.includes(wantShot) : ownedShotIds.has(wantShot))
+    ? wantShot
+    : null;
+  const context = { episodeId: episodeId || null, sceneId, shotId };
+
   const byShotId = new Map(draft.filter((s) => isObj(s) && s.shotId).map((s) => [s.shotId, s]));
   const shots = [...ownedShotIds].map((id) => {
     const raw = byShotId.get(id) || null;
@@ -134,10 +147,22 @@ export function productionModel(sources = {}, scope = {}) {
   const referenceKeys = [...new Set(shots.flatMap((s) => arr(bindings[s.shotId])))];
 
   // --- generations & skill runs, scoped ------------------------------------- //
-  const inScopeShot = (id) => (shotId ? id === shotId : ownedShotIds.has(id));
-  const scopedGenerations = generations.filter(
-    (g) => isObj(g) && (g.targetId ? inScopeShot(g.targetId) : episodeOf(g) === episodeId),
-  );
+  // Narrowing has to narrow. A scene-scoped model that returned every shot's
+  // generations, or a shot-scoped one that swept in the episode's targetless
+  // renders, would let an observation about ONE scene be built from history
+  // that belongs elsewhere.
+  const scopeShotIds = shotId
+    ? new Set([shotId])
+    : scene
+      ? new Set(scene.shotIds)
+      : ownedShotIds;
+  const scopedGenerations = generations.filter((g) => {
+    if (!isObj(g)) return false;
+    // a targetless generation (an episode render) belongs to the EPISODE, so it
+    // is in scope only when nothing narrower was asked for
+    if (!g.targetId) return !sceneId && !shotId && episodeOf(g) === episodeId;
+    return scopeShotIds.has(g.targetId);
+  });
   const scopedRuns = skillRuns.filter((r) => isObj(r) && runInScope(r, { episodeId, sceneId, shotId }));
 
   // --- final -------------------------------------------------------------- //

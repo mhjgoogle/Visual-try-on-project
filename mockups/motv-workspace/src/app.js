@@ -1549,11 +1549,18 @@ const ctx = {
       // A caller may NARROW within that episode. A scene or shot belonging to a
       // different one is dropped rather than recorded: the same inconsistency,
       // one level down.
+      // Checked TOGETHER, not one at a time: a scene from S01 plus a shot from
+      // S02 passes two independent membership tests and records a scene/shot
+      // pairing that does not exist.
       const owns = (sceneId, shotId) => {
         if (!ep) return false;
         const scenes = ep.scenes || [];
-        if (sceneId && !scenes.some((sc) => sc.sceneId === sceneId)) return false;
-        if (shotId && !scenes.some((sc) => (sc.shotIds || []).includes(shotId))) return false;
+        const scene = sceneId ? scenes.find((sc) => sc.sceneId === sceneId) || null : null;
+        if (sceneId && !scene) return false;
+        if (shotId) {
+          const home = scene || scenes.find((sc) => (sc.shotIds || []).includes(shotId));
+          if (!home || !(home.shotIds || []).includes(shotId)) return false;
+        }
         return true;
       };
       const wantScene = typeof s.sceneId === "string" && s.sceneId ? s.sceneId : null;
