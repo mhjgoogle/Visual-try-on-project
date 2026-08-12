@@ -2293,7 +2293,12 @@ const ctx = {
       // real lineage. Gating on the prompt threw all of that away and left the
       // result looking like a plain import (codex review, round A4). An import
       // with no intent at all stays a plain import — honestly, and by design.
-      if (intent && intent.shotId === shotId && (intent.seed || intent.prompt)) {
+      //
+      // `intent.entry` counts as well as a seed or a prompt: the entry names
+      // WHICH generation route this came back from, so an intent carrying one
+      // is a generation even if its prompt happens to be empty. Keying only on
+      // text made "was this generated" depend on whether anything was typed.
+      if (intent && intent.shotId === shotId && (intent.seed || intent.entry || intent.prompt)) {
         // CP6: when the caller assembled a Generation Input Set, the record is
         // built FROM it — so the references and first frame the creator was
         // actually given are frozen into the lineage, not lost because the

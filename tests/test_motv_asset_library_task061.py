@@ -183,10 +183,20 @@ def test_a_generation_is_recorded_because_it_WAS_one_not_because_it_had_a_prompt
     丢掉了。没有 intent 的导入仍然如实是普通导入。"""
     app = _code("app.js")
     media = app.split("importShotMedia: async", 1)[1].split("useAsFirstFrame:", 1)[0]
-    assert "intent.shotId === shotId && (intent.seed || intent.prompt)" in media
+    assert (
+        "intent.shotId === shotId && (intent.seed || intent.entry || intent.prompt)"
+        in media
+    )
     assert "intent && intent.prompt && intent.shotId" not in media, (
         "the prompt must not be the gate"
     )
+    # …and the record is COMPLETED with its result in the same call — a record
+    # left at 生成中 with no result would be worse than none (codex review 轮 A7
+    # read the literal alone and reported exactly that; these two lines are why
+    # the real acceptance run records status=success with a resultAssetId)
+    branch = media.split("ctx.startGeneration(", 1)[1]
+    assert "ctx.completeGeneration(gen.generationId, [ref.assetId])" in branch
+    assert "ref.links.generationId = gen.generationId" in branch
 
 
 def test_the_file_picker_always_settles() -> None:
