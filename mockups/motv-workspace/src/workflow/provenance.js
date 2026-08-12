@@ -28,12 +28,15 @@ const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
 const arr = (x) => (Array.isArray(x) ? x : []);
 const str = (x) => (typeof x === "string" ? x : "");
 
-/** The text a script document currently holds — the same rule the workspace
- *  shows: the manual buffer when there is one, else the active version. Read
- *  here rather than imported so this module stays dependency-free. */
+/** The text a script document currently holds — EXACTLY the rule
+ *  `scriptdoc.currentText` uses, so the graph can never show something the
+ *  workspace does not: any string buffer wins, including an empty one. Treating
+ *  a cleared buffer as "no buffer" made the graph fall back to the last version
+ *  and go on showing script the creator had just deleted. (Read here rather
+ *  than imported only so this module stays dependency-free.) */
 function scriptTextOf(doc) {
   if (!isObj(doc)) return "";
-  if (typeof doc.workingText === "string" && doc.workingText.trim()) return doc.workingText;
+  if (typeof doc.workingText === "string") return doc.workingText;
   const av = arr(doc.versions).find((x) => isObj(x) && x.v === doc.active);
   return av && typeof av.content === "string" ? av.content : "";
 }
@@ -280,7 +283,9 @@ export function buildProvenanceGraph({ assets, generations, production, timeline
     const doc = isObj(scripts) ? scripts[ep.episodeId] : null;
     const text = scriptTextOf(doc);
     let scriptNodeId = null;
-    if (text) {
+    // whitespace is not a script: an emptied draft gets no node, exactly as an
+    // episode that never had one doesn't
+    if (text.trim()) {
       scriptNodeId = nodeIds.script(ep.episodeId);
       nodes.set(scriptNodeId, {
         id: scriptNodeId,

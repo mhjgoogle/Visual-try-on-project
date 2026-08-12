@@ -152,6 +152,24 @@ test("an episode with no script text gets NO script node — never an empty one"
   assert.equal(g.nodes.has(sceneId("sc2")), true);
 });
 
+test("a CLEARED draft shows as cleared — the graph never falls back to the old version", () => {
+  // codex review, TASK-061 round B2: treating an empty buffer as "no buffer"
+  // made the graph keep showing script the creator had just deleted, while the
+  // workspace beside it showed an empty box. Two truths, and the graph's was
+  // the stale one.
+  const src = fixture();
+  src.scripts.ep1.workingText = "";
+  assert.equal(buildProvenanceGraph(src).nodes.has(scriptId("ep1")), false);
+  // whitespace is not a script either
+  src.scripts.ep1.workingText = "  \n ";
+  assert.equal(buildProvenanceGraph(src).nodes.has(scriptId("ep1")), false);
+  // …and an edited buffer wins over the active version, exactly as it does in
+  // the workspace
+  src.scripts.ep1.workingText = "改写后的剧本";
+  const g = buildProvenanceGraph(src);
+  assert.equal(g.nodes.get(scriptId("ep1")).text, "改写后的剧本");
+});
+
 test("a scene owning a shot the draft no longer holds keeps it, and says so", () => {
   const g = build();
   const gone = g.nodes.get(shotId("shot-gone"));

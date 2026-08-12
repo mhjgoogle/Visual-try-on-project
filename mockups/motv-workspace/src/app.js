@@ -170,7 +170,14 @@ function pickFile(accept) {
     input.accept = accept;
     input.oncancel = () => finish(null);
     input.onchange = () => finish((input.files && input.files[0]) || null);
-    window.addEventListener("focus", () => setTimeout(() => finish(null), 500), { once: true });
+    window.addEventListener("focus", () => setTimeout(() => {
+      // …but only when nothing was actually chosen. The file list is populated
+      // when the dialog is accepted, BEFORE `change` dispatches, so checking it
+      // removes the race entirely: a slow `change` can no longer lose to this
+      // timer and silently turn a real pick into a cancellation.
+      if (input.files && input.files.length) return;
+      finish(null);
+    }, 500), { once: true });
     input.click();
   });
 }
