@@ -243,7 +243,9 @@ function askCard(n) {
       `<span class="wg-sk">${esc(n.kindLabel)}</span>` +
       `<span class="wg-nt">${esc(n.skillId)}${n.skillVersion ? ` <b>v${n.skillVersion}</b>` : ""}</span>` +
       `<span class="wg-nk">${esc(who || "来源未记录")}</span>` +
-      (n.contextRecorded ? "" : `<span class="wg-nk wg-unknown">未记录上下文</span>`) +
+      (n.contextRecorded
+        ? (n.contextInconsistent ? `<span class="wg-nk wg-unknown">上下文自相矛盾</span>` : "")
+        : `<span class="wg-nk wg-unknown">未记录上下文</span>`) +
       `</button>`
     );
   }
@@ -788,9 +790,11 @@ export function createWorkflowGraph(getCtx) {
           kv("状态", esc(STATUS_LABEL[n.status] || n.status || "")) +
           kv("时间", esc(n.createdAt || "未记录")) +
           `<div class="wg-isec"><div class="wg-ilabel">读取的上下文</div>` +
-          (n.contextRecorded
-            ? `<div class="wg-ivalue">${esc([n.episodeId && "剧集", n.sceneId && "场景", n.shotId && "镜头"].filter(Boolean).join(" / "))}</div>`
-            : `<div class="wg-none">这条记录没有捕获上下文——它早于 ADR-0059，不会被归到任何一集</div>`) +
+          (!n.contextRecorded
+            ? `<div class="wg-none">这条记录没有捕获上下文——它早于 ADR-0059，不会被归到任何一集</div>`
+            : n.contextInconsistent
+              ? `<div class="wg-none">这条记录的上下文与文档不一致（它命名的剧集与那个镜头/场景真正所属的不是同一个），因此不据它连任何线</div>`
+              : `<div class="wg-ivalue">${esc([n.episodeId && "剧集", n.sceneId && "场景", n.shotId && "镜头"].filter(Boolean).join(" / "))}</div>`) +
           `</div>` +
           (n.inputSummary ? `<div class="wg-isec"><div class="wg-ilabel">输入摘要</div><div class="wg-ivalue">${esc(n.inputSummary)}</div></div>` : "") +
           `<div class="wg-isec"><div class="wg-ilabel">提案</div>${miniRow(story.proposal ? [story.proposal] : [], "这次运行没有产出提案")}</div>`;

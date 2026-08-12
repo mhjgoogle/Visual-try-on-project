@@ -500,6 +500,13 @@ export function buildProvenanceGraph({ assets, generations, production, timeline
     }
   }
 
+  // sceneId → the episode that owns it, so a run's recorded context can be
+  // checked against itself rather than trusted a field at a time
+  const sceneEpisode = new Map();
+  for (const ep of arr(isObj(production) ? production.episodes : [])) {
+    for (const sc of arr(ep.scenes)) sceneEpisode.set(sc.sceneId, ep.episodeId);
+  }
+
   // ---- skill runs and the proposals they produced (CP8/ADR-0059) ----------- //
   // A run is placed by the CONTEXT IT RECORDED — nothing else. A run whose
   // context was never captured still appears (it is real history), but it hangs
@@ -509,6 +516,16 @@ export function buildProvenanceGraph({ assets, generations, production, timeline
     if (!isObj(r) || !nonEmpty(r.skillRunId)) continue;
     const rid = nodeIds.skillRun(r.skillRunId);
     const c = isObj(r.context) ? r.context : null;
+    // does the context agree with itself? (a shot's real home episode/scene is
+    // in `shots`; a scene's episode is in the production document)
+    const home = c && c.shotId ? shots.get(c.shotId) || null : null;
+    const consistent = !c || (
+      (!c.shotId || !home || (
+        (!c.episodeId || home.episodeId === c.episodeId)
+        && (!c.sceneId || home.sceneId === c.sceneId)))
+      && (!c.sceneId || !c.episodeId || sceneEpisode.get(c.sceneId) === undefined
+        || sceneEpisode.get(c.sceneId) === c.episodeId)
+    );
     nodes.set(rid, {
       id: rid,
       type: "skillRun",
@@ -525,18 +542,28 @@ export function buildProvenanceGraph({ assets, generations, production, timeline
       createdAt: str(r.createdAt),
       // null when the document never captured it — the UI says 「未记录」
       contextRecorded: !!c,
+      contextInconsistent: !!c && !consistent,
       episodeId: c ? c.episodeId || null : null,
       sceneId: c ? c.sceneId || null : null,
       shotId: c ? c.shotId || null : null,
     });
-    // the baseline it read, when its context names an episode that has one
-    if (c && c.episodeId) addEdge(nodeIds.canon(c.episodeId), rid, "baseline");
-    // …and the shot/scene it was scoped to, so a shot can show what was asked
-    // about it. Drawn only where the spine node actually exists.
-    if (c && c.shotId && nodes.has(nodeIds.shot(c.shotId))) {
-      addEdge(nodeIds.shot(c.shotId), rid, "asked");
-    } else if (c && c.sceneId && nodes.has(nodeIds.scene(c.sceneId))) {
-      addEdge(nodeIds.scene(c.sceneId), rid, "asked");
+    // A recorded context has to be SELF-CONSISTENT against the documents. A
+    // record naming one episode and a shot that really lives in another is
+    // internally contradictory; drawing the half that resolves would attach the
+    // run to a shot its own record disagrees with. The whole context is
+    // reported as inconsistent instead, and nothing is drawn from it.
+    if (c && !consistent) {
+      warnings.push({ kind: "inconsistentContext", skillRunId: r.skillRunId, context: c });
+    } else if (c) {
+      // the baseline it read, when its context names an episode that has one
+      if (c.episodeId) addEdge(nodeIds.canon(c.episodeId), rid, "baseline");
+      // …and the shot/scene it was scoped to, so a shot can show what was asked
+      // about it. Drawn only where the spine node actually exists.
+      if (c.shotId && nodes.has(nodeIds.shot(c.shotId))) {
+        addEdge(nodeIds.shot(c.shotId), rid, "asked");
+      } else if (c.sceneId && nodes.has(nodeIds.scene(c.sceneId))) {
+        addEdge(nodeIds.scene(c.sceneId), rid, "asked");
+      }
     }
 
     // The PROPOSAL. It exists only where one was actually produced, and only

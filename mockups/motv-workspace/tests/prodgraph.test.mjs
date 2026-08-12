@@ -558,3 +558,27 @@ test("an origin whose proposal node is missing is REPORTED, not drawn from the r
   );
   assert.ok(g.warnings.some((w) => w.kind === "danglingOrigin" && w.generationId === gen.generationId));
 });
+
+test("a context that contradicts itself is reported, and nothing is drawn from it", () => {
+  // codex review round 7: a record naming one episode and a shot that really
+  // lives in another is internally contradictory. Drawing the half that
+  // resolves would attach the run to a shot its own record disagrees with.
+  const { src, run } = fullChain();
+  const r = src.skillRuns.find((x) => x.skillRunId === run.skillRunId);
+  r.context = { episodeId: "ep-somewhere-else", sceneId: null, shotId: "sh01" };
+  const g = buildProvenanceGraph(src);
+  const n = g.nodes.get(nodeIds.skillRun(run.skillRunId));
+  assert.equal(n.contextRecorded, true, "it DID record a context — that is the problem");
+  assert.equal(n.contextInconsistent, true);
+  assert.equal(g.edges.some((e) => e.to === n.id), false, "no edge is drawn from a contradictory context");
+  assert.ok(g.warnings.some((w) => w.kind === "inconsistentContext" && w.skillRunId === run.skillRunId));
+});
+
+test("a consistent context still draws its edges", () => {
+  const { src, run, epId } = fullChain();
+  const g = buildProvenanceGraph(src);
+  const n = g.nodes.get(nodeIds.skillRun(run.skillRunId));
+  assert.equal(n.contextInconsistent, false);
+  assert.ok(g.edges.some((e) => e.from === nodeIds.shot("sh01") && e.to === n.id && e.kind === "asked"));
+  assert.ok(g.edges.some((e) => e.from === nodeIds.canon(epId) && e.to === n.id));
+});

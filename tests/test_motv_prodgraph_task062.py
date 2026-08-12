@@ -215,6 +215,10 @@ def test_the_graph_places_a_run_only_by_the_context_it_recorded() -> None:
         )
     # a dangling origin is REPORTED, not drawn to nothing
     assert 'kind: "danglingOrigin"' in prov
+    # …and a context that contradicts itself (one episode named, a shot that
+    # really lives in another) draws nothing at all (codex review 轮 7)
+    assert 'kind: "inconsistentContext"' in prov
+    assert "contextInconsistent: !!c && !consistent" in prov
 
 
 def test_every_edge_connects_nodes_that_exist() -> None:
