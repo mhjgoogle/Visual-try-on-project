@@ -81,6 +81,13 @@ L0–S7 阶段/步骤的逻辑输入输出基线见
 页面**；每项功能只有一个归属页面；Agent 不得静默覆盖、静默定稿、静默付费或替用户
 完成审美决策。
 
+自 [ADR-0067](docs/adr/ADR-0067-product-skill-package.md) 起，**Skill 是产品资产
+而不是源码常量**：一个 Skill 是 `manifest.json` + `prompt.md` +
+`output.schema.json` 三件套，从项目 → 用户 → 内置三个来源按优先级加载，Run 记录
+`skillDigest` 使版本指向确定的内容；已被历史 Run 引用的版本**不得原地覆盖**；
+Skill 只产生提案，**不得定稿、锁定、付费或导出**；加载或校验失败一律 fail-closed。
+实施见 [TASK-075](docs/tasks/TASK-075-product-skill-package.md)。
+
 ## 2. 技术与环境约束
 
 1. Python 是主要开发语言。
