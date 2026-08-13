@@ -1,0 +1,50 @@
+{
+  "type": "object",
+  "required": [
+    "episodes"
+  ],
+  "fields": {
+    "episodes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "of": {
+        "type": "object",
+        "required": [
+          "epNumber",
+          "title",
+          "synopsis"
+        ],
+        "fields": {
+          "epNumber": {
+            "type": "number"
+          },
+          "title": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "synopsis": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "purpose": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "hook": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "endingBeat": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "duration": {
+            "type": "string",
+            "nonEmpty": false
+          }
+        }
+      }
+    }
+  }
+}

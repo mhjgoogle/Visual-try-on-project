@@ -1,0 +1,23 @@
+{
+  "skillId": "episode-planner",
+  "skillVersion": 1,
+  "work": "creative",
+  "role": "制片规划",
+  "title": "Episode Planner",
+  "purpose": "把已批准的故事大纲规划成逐集分集：每集的戏剧功能、钩子与结尾拍。",
+  "inputs": [
+    "outline"
+  ],
+  "optionalInputs": [
+    "brief",
+    "characters",
+    "world"
+  ],
+  "reviewCriteria": [
+    "每集的戏剧功能是否真的不同，而不是把同一件事讲了 N 遍",
+    "结尾拍是否给出下一集的动力，而不是「未完待续」这类空话",
+    "集数是否尊重大纲里的 episodeCount，而不是自行改写规模",
+    "梗概是否只用大纲里已有的设定，没有新发明人物或转折"
+  ],
+  "recommendedRuntime": "local_subscription"
+}

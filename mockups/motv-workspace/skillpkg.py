@@ -688,6 +688,18 @@ def _js_join(values: Sequence) -> str:
     return " | ".join(parts)
 
 
+def embed_data(text: str) -> str:
+    """Make every ASCII closing tag inside embedded user content inert.
+
+    Mirrors ``_data_embed`` in ``server.py``: a payload containing a literal
+    ``</`` could close the data fence early and have everything after it read as
+    instructions. The fullwidth look-alike keeps the text readable and the fence
+    intact. ``src/workflow/skills.js`` does the same, character for character.
+    """
+
+    return text.replace("</", "＜/")
+
+
 def _inline(value: object) -> str:
     if isinstance(value, str):
         return value
@@ -726,7 +738,16 @@ def compile_prompt(
         # `SKILL_INPUTS[key] || key` in JS: an EMPTY label falls back to the key
         # too, so an empty string does not render a bare `### ` header.
         parts.append(f"### {labels.get(key) or key}")
-        parts.append(body)
+        # DELIMITED AND NEUTRALISED (TASK-075 §3c, decision A obligation 2).
+        # A header sentence saying "the following is data" is weaker than the
+        # five legacy endpoints were: they fenced user text inside
+        # `<剧本>…</剧本>` and rewrote `</` so the content could not close the
+        # fence and continue as instructions. The creator's own script is the
+        # injection surface, so replacing that with a sentence would have been a
+        # security REGRESSION dressed up as a migration.
+        parts.append(f'<数据 键="{key}">')
+        parts.append(embed_data(body))
+        parts.append("</数据>")
         parts.append("")
     parts.append("## 输出要求")
     parts.append(

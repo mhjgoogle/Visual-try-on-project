@@ -1269,6 +1269,16 @@ export function describeSchema(spec, indent = 0) {
  *  The domain context is INLINED as data. No file path is ever passed, which is
  *  why the runtime needs no filesystem access and there is nothing to translate
  *  between Windows and WSL path conventions. */
+/** Make every ASCII closing tag inside embedded user content inert.
+ *
+ *  Mirrors `_data_embed` in server.py and `embed_data` in skillpkg.py: a
+ *  payload containing a literal `</` could close the data fence early and have
+ *  everything after it read as instructions. The fullwidth look-alike keeps the
+ *  text readable and the fence intact. */
+export function embedData(text) {
+  return String(text).replace(/<\//g, "＜/");
+}
+
 export function compilePrompt(skill, context) {
   if (!skill) return "";
   const ctx = isObj(context) ? context : {};
@@ -1284,7 +1294,16 @@ export function compilePrompt(skill, context) {
     const body = typeof v === "string" ? v : JSON.stringify(v, null, 2);
     if (!String(body).trim()) continue;
     parts.push(`### ${label}`);
-    parts.push(body);
+    // DELIMITED AND NEUTRALISED (TASK-075 §3c, decision A obligation 2). A
+    // header sentence saying "this is data" is weaker than the five legacy
+    // /api/agent/* endpoints were: they fenced user text inside `<剧本>…</剧本>`
+    // and rewrote `</` so the content could not close the fence and continue as
+    // instructions. The creator's own script IS the injection surface, so
+    // dropping that would have been a security regression dressed up as a
+    // migration. skillpkg.py does the same, character for character.
+    parts.push(`<数据 键="${key}">`);
+    parts.push(embedData(body));
+    parts.push("</数据>");
     parts.push("");
   }
   parts.push("## 输出要求");
