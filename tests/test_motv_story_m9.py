@@ -51,6 +51,7 @@ def test_frontend_story_units_via_node() -> None:
         cwd=str(_MOCKUP_DIR),
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=120,
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr

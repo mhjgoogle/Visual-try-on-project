@@ -68,6 +68,7 @@ def test_frontend_skill_units_via_node() -> None:
         cwd=str(_MOCKUP_DIR),
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=180,
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
@@ -156,16 +157,26 @@ def test_a_timeout_kills_the_whole_process_TREE() -> None:
 
 
 def test_concurrent_skill_runs_are_capped_and_the_slot_is_always_released() -> None:
-    """codex review, TASK-059 round 4: each run launches a real local CLI."""
+    """codex review, TASK-059 round 4: each run launches a real local CLI.
+
+    TASK-072 批次一 moved the pool into the Run registry so that the synchronous
+    route, the async route and the five agent endpoints all draw from ONE pool —
+    a second semaphore beside it let mixed traffic run twice the configured
+    number of CLIs (codex review, round 11). The CAP is unchanged; only its owner
+    moved, and the synchronous route still refuses rather than queueing.
+    """
     src = _server()
-    assert "_SKILL_RUN_SLOTS" in src
-    assert "BoundedSemaphore" in src
+    assert "_SKILL_RUN_MAX_CONCURRENT" in src
     body = src.split("def _skill_run", 1)[1].split("\n    def _agent_shots_draft")[0]
-    assert "_SKILL_RUN_SLOTS.acquire(blocking=False)" in body
+    assert "runs().try_acquire_slot()" in body
     assert "429" in body, "a busy runtime says so instead of queueing invisibly"
     # released on EVERY path — a leaked slot permanently shrinks capacity
     assert "finally:" in body
-    assert "_SKILL_RUN_SLOTS.release()" in body
+    assert "runs().release_slot()" in body
+    # …and the pool itself is the registry's, counted alongside running runs
+    store = (_MOCKUP_DIR / "runstore.py").read_text("utf-8")
+    assert "def try_acquire_slot" in store
+    assert "self._external_slots" in store
 
 
 def test_the_skill_run_route_needs_a_header_a_hostile_page_cannot_set() -> None:
@@ -211,9 +222,20 @@ def test_skill_run_route_takes_no_project_and_writes_nothing() -> None:
     # it accepts exactly a prompt + an executor + a timeout
     assert 'payload.get("prompt")' in body
     assert 'payload.get("executor")' in body
-    assert 'payload.get("project")' not in body, (
-        "the skill route must not take a project"
+    # TASK-072 §1.3a: the async path DOES take a project — but only as the run's
+    # OWNER, never as a path. Cross-project isolation is impossible without it
+    # (creator-system-contract §5.5), and a backend that guessed "the current
+    # project" would file runs under whoever happened to be active.
+    #
+    # 决策 2 is unchanged and is what this test still guards: the project name
+    # never becomes a filesystem path, and the route writes nothing.
+    assert 'project_id=payload.get("project")' in body, (
+        "the async path records the run's owner"
     )
+    for forbidden in ("_project_root", "_canvas_path", "Path(", "/ project"):
+        assert forbidden not in body, (
+            f"the skill route must never turn a project name into a path ({forbidden})"
+        )
     # and it writes nothing at all
     for forbidden in ("open(", "write_text", "write_bytes", "mkdir", "os.replace"):
         assert forbidden not in body, f"the skill route must not {forbidden}"
@@ -330,7 +352,10 @@ def test_skill_definitions_are_immutable_constants() -> None:
 def test_a_proposal_is_not_a_canonical_write() -> None:
     """Domain context → Skill → Runtime → Proposal → review → ACCEPT → write."""
     runs = _code("workflow", "skillrun.js")
-    assert "proposed" in runs and "accepted" in runs
+    # v15: the two questions have their own fields. 「the run finished」 is
+    # `succeeded`; 「I took the answer」 is `disposition: accepted` (ADR-0066 决策 8).
+    assert "succeeded" in runs and "accepted" in runs
+    assert "PROPOSAL_DISPOSITIONS" in runs
     # the module has no access to any canonical document
     for forbidden in (
         "productionDoc",

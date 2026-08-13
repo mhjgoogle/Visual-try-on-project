@@ -20,15 +20,23 @@
 import { MAX_CLIP_START, MAX_CLIP_FADE, TRACKS as TIMELINE_TRACKS } from "../workflow/timeline.js";
 import { pairKey } from "../workflow/canondoc.js";
 import { ASSET_KINDS, declarationDomainError, LINK_KEYS } from "../workflow/assetreg.js";
-import { RUN_STATUSES } from "../workflow/skillrun.js";
+import { RUN_STATUSES, PROPOSAL_DISPOSITIONS } from "../workflow/skillrun.js";
 
 /** The Skill Run states, reused from the domain rather than re-listed here —
  *  a forked copy is how a validator starts rejecting documents the domain
  *  legitimately produces (the v10 pair-key defect, twice over). */
 const SKILL_RUN_STATUS_SET = new Set(RUN_STATUSES);
+/** …and the same rule for the second axis. */
+const SKILL_RUN_DISPOSITION_SET = new Set(PROPOSAL_DISPOSITIONS);
+
+/** The pre-v15 vocabulary, kept so a v12–v14 document can still be validated as
+ *  what it is. The v14→v15 migration is what turns these into the two axes. */
+const LEGACY_SKILL_RUN_STATUSES = new Set([
+  "running", "proposed", "failed", "accepted", "rejected",
+]);
 
 /** Authoritative CURRENT canvas schema version. Saves must emit exactly this. */
-export const CANVAS_SCHEMA_VERSION = 14;
+export const CANVAS_SCHEMA_VERSION = 15;
 
 /**
  * v1 → v2 (checkpoint M2): stable creator identity + minimal provenance.
@@ -1014,9 +1022,91 @@ function migrateV13ToV14(doc) {
   return doc;
 }
 
+/**
+ * v14 → v15 (TASK-072 批次一 / ADR-0066 决策 8): the Skill Run status splits into
+ * TWO axes, and the record grows the fields the contract requires.
+ *
+ * The old enum answered two questions with one field:
+ *
+ *   running   -> running        (still going)          … or awaiting_input
+ *   proposed  -> succeeded + disposition "pending"
+ *   accepted  -> succeeded + disposition "accepted"
+ *   rejected  -> succeeded + disposition "rejected"
+ *   failed    -> failed
+ *
+ * `running` SPLITS, and the branch is read off a field the document already
+ * carries — `executor` — so the migration stays deterministic (no clock, no
+ * randomness, no guessing):
+ *
+ *   executor "manual"  -> awaiting_input   the creator may still bring an answer
+ *   any local executor -> failed(interrupted)
+ *
+ * The second branch is not pessimism, it is arithmetic: the process that owned
+ * that run belonged to a backend that no longer exists, so it can never produce
+ * a result. Leaving it `running` forever is the zombie TASK-067 补记 2 fixed once
+ * already.
+ *
+ * EVERY OTHER NEW FIELD IS null OR DERIVED FROM AN EXISTING ONE. `runId` is the
+ * run's own `skillRunId` (one id, a new name — not a new identity); `taskType`
+ * is `"skill." + skillId`. `provider` / `cost` / `progress` / timings stay empty
+ * because the document never captured them, and back-filling them would be
+ * fabricating provenance for work whose real origin nobody recorded.
+ */
+function migrateV14ToV15(doc) {
+  const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
+  for (const r of Array.isArray(doc.skillRuns) ? doc.skillRuns : []) {
+    if (!isObj(r)) continue;
+    const was = r.status;
+    if (was === "running") {
+      r.status = r.executor === "manual" ? "awaiting_input" : "failed";
+      if (r.status === "failed") {
+        r.failureReason = {
+          category: "interrupted",
+          detail: "运行中断：这次运行的后端进程已不存在（v14→v15 迁移时发现）",
+        };
+      }
+    } else if (was === "proposed" || was === "accepted" || was === "rejected") {
+      r.status = "succeeded";
+      const disposition = was === "proposed" ? "pending" : was;
+      // The disposition lives ON the proposal (系统合同 §5.3).
+      //
+      // A hand-corrupted NON-OBJECT proposal (`proposal: []`, a bare string…)
+      // cannot carry the field. An earlier draft left those alone; the result
+      // was a `succeeded` record whose proposal can never be recognised as
+      // pending, accepted or rejected — accepted by the validator and useless to
+      // every reader (codex review, rounds 4–7).
+      //
+      // So it is WRAPPED rather than ignored or dropped: the original value is
+      // kept verbatim under `payload`, and the record becomes usable. Nothing
+      // this app writes takes this branch — only a foreign or damaged document —
+      // and for those, preserving the bytes while restoring the invariant is
+      // strictly better than either discarding them or storing them unusable.
+      if (isObj(r.proposal)) {
+        r.proposal.disposition = disposition;
+      } else if (r.proposal !== null && r.proposal !== undefined) {
+        r.proposal = { payload: r.proposal, disposition, proposalId: null };
+      }
+    }
+    if (r.runId === undefined) r.runId = r.skillRunId || null;
+    if (r.kind === undefined) r.kind = "skill";
+    if (r.taskType === undefined) {
+      r.taskType = typeof r.skillId === "string" && r.skillId ? `skill.${r.skillId}` : null;
+    }
+    for (const [k, v] of [
+      ["projectId", null], ["provider", null], ["target", null],
+      ["outputs", null], ["outputVersions", null], ["progress", null],
+      ["cost", null], ["startedAt", null], ["endedAt", null],
+      ["failureReason", null], ["confirmation", null],
+    ]) {
+      if (r[k] === undefined) r[k] = v;
+    }
+  }
+  return doc;
+}
+
 /** Sequential migration steps: { [fromVersion]: (doc) => docAtFromVersion+1 }.
  *  Extended one real step at a time, never speculatively. */
-export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7, 7: migrateV7ToV8, 8: migrateV8ToV9, 9: migrateV9ToV10, 10: migrateV10ToV11, 11: migrateV11ToV12, 12: migrateV12ToV13, 13: migrateV13ToV14 };
+export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7, 7: migrateV7ToV8, 8: migrateV8ToV9, 9: migrateV9ToV10, 10: migrateV10ToV11, 11: migrateV11ToV12, 12: migrateV12ToV13, 13: migrateV13ToV14, 14: migrateV14ToV15 };
 
 /** Read the schema version of a raw persisted document.
  *  Returns a positive integer, or null if the marker is malformed.
@@ -1351,6 +1441,7 @@ export function validateCanvasDoc(doc) {
   // save always emits it, so an absent one is a truncated document that would
   // restore empty and cement the loss of every recorded AI run.
   const atV12 = Number.isInteger(doc.v) && doc.v >= 12;
+  const atV15 = Number.isInteger(doc.v) && doc.v >= 15;
   if (atV12 && !Array.isArray(doc.skillRuns)) {
     return "v12 document is missing its skillRuns registry";
   }
@@ -1366,22 +1457,65 @@ export function validateCanvasDoc(doc) {
     if (!Number.isInteger(r.skillVersion) || r.skillVersion < 1) {
       return `skill run ${r.skillRunId} has no valid skillVersion`;
     }
-    if (!SKILL_RUN_STATUS_SET.has(r.status)) return `skill run ${r.skillRunId} has invalid status`;
-    // The status↔proposal invariant, BOTH ways. The domain transitions can only
-    // produce these pairings, and a document that carries another one misreports
-    // what the creator actually saw and decided:
+    // A document is judged by ITS OWN version's vocabulary. A v12–v14 save
+    // legitimately holds `proposed` / `accepted` / `rejected`, and a caller that
+    // validates before migrating must not have those rejected as corruption
+    // (codex review, round 22). v15 documents get the v15 set, and only that.
+    const allowed = atV15 ? SKILL_RUN_STATUS_SET : LEGACY_SKILL_RUN_STATUSES;
+    if (!allowed.has(r.status)) return `skill run ${r.skillRunId} has invalid status`;
+    // The status↔proposal invariant, BOTH ways (v15). The domain transitions can
+    // only produce these pairings, and a document carrying another one
+    // misreports what the creator actually saw and decided:
     //
-    //   running   no proposal yet — nothing has come back
-    //   proposed  a proposal, awaiting the creator's decision
-    //   accepted  the proposal they accepted
-    //   rejected  the proposal they rejected (kept: it is the most informative)
-    //   failed    no proposal — a failure never becomes content
-    const wantsProposal = r.status === "proposed" || r.status === "accepted" || r.status === "rejected";
+    //   succeeded  carries a proposal + a disposition — the answer landed
+    //   failed     no proposal — a failure never becomes content
+    //   cancelled  no proposal — the creator stopped it before an answer landed
+    //   anything else (queued / running / awaiting_* / cancelling): not finished
+    // The v15 pairing rules describe v15 records. A caller validating a v12–v14
+    // document BEFORE migrating it would otherwise have its perfectly good
+    // `proposed` / `accepted` / `rejected` runs rejected (codex review, round 22).
+    if (!atV15) continue;
+    const wantsProposal = r.status === "succeeded";
     if (wantsProposal && r.proposal == null) {
       return `skill run ${r.skillRunId} is ${r.status} but carries no proposal`;
     }
     if (!wantsProposal && r.proposal != null) {
+      // `cancelled` is included, deliberately (codex review, round 4). An earlier
+      // draft exempted it — the reasoning was that a run finishing DURING
+      // cancellation keeps what it produced. That is true, but that output lives
+      // on the BACKEND record (`runs.json`), not in the canvas as a Proposal:
+      // a Proposal is something offered to the creator for a decision, and a
+      // cancelled run is offering nothing. Exempting it let a document assert
+      // both "I stopped this" and "here is its answer to judge".
       return `skill run ${r.skillRunId} is ${r.status} but carries a proposal`;
+    }
+    // The DISPOSITION is the second axis (ADR-0066 决策 8) and is REQUIRED on a
+    // succeeded run. The proposal must therefore be a plain object — a
+    // `proposal: []` carries no disposition, so nothing downstream can tell
+    // whether the creator accepted it, and accepting such a record would store a
+    // proposal that can never be acted on (codex review, rounds 4–7). The v15
+    // migration wraps any non-object proposal precisely so this holds.
+    if (wantsProposal) {
+      if (!isPlainObject(r.proposal)) {
+        return `skill run ${r.skillRunId} has a non-object proposal`;
+      }
+      if (!SKILL_RUN_DISPOSITION_SET.has(r.proposal.disposition)) {
+        return `skill run ${r.skillRunId} has invalid proposal.disposition`;
+      }
+    }
+    // v15 identity: `runId` is the same value as `skillRunId` (one id, a new
+    // name). A DIFFERENT value would mean two identities for one run, and every
+    // provenance edge would then be ambiguous.
+    //
+    // At v15 it is REQUIRED, not optional (codex review, round 17): the whole
+    // point of the field is that the backend can be asked about this run, and
+    // the migration sets it on every record — so a current-schema document
+    // missing it is malformed, not merely old.
+    if (atV15 && r.runId !== r.skillRunId) {
+      return `skill run ${r.skillRunId} has a missing or conflicting runId`;
+    }
+    if (r.runId !== undefined && r.runId !== null && r.runId !== r.skillRunId) {
+      return `skill run ${r.skillRunId} has a conflicting runId`;
     }
     // v14 (ADR-0059): the run's target context. `null` is VALID and means the
     // document never captured it — but a present context must be an object of

@@ -247,11 +247,15 @@ test("proposed ≠ accepted: a proposal is not a decision", () => {
   const reg = createSkillRunRegistry(null);
   const r = startRun(reg, { skillId: "script-doctor", skillVersion: 1 });
   proposeRun(reg, r.skillRunId, { findings: [] }, { model: "claude-opus-5" });
-  assert.equal(r.status, "proposed");
+  // v15: the two questions finally have their own fields. The EXECUTION
+  // succeeded; the ANSWER is still undecided.
+  assert.equal(r.status, "succeeded");
+  assert.equal(r.proposal.disposition, "pending");
   assert.equal(r.model, "claude-opus-5"); // what ACTUALLY answered
   assert.equal(r.decision, null);
   acceptRun(reg, r.skillRunId, "2026-08-12T01:00:00Z");
-  assert.equal(r.status, "accepted");
+  assert.equal(r.status, "succeeded", "accepting does not re-run anything");
+  assert.equal(r.proposal.disposition, "accepted");
   assert.equal(r.decision, "accepted");
   assert.equal(r.decidedAt, "2026-08-12T01:00:00Z");
   // a decided run cannot be re-proposed or re-decided
@@ -271,12 +275,13 @@ test("a landed run is CLOSED — a second answer can never wipe the first", () =
   // proposeRun refuses a run that is no longer `running`…
   assert.equal(proposeRun(reg, r.skillRunId, { findings: [] }), null);
   assert.equal(r.proposal, kept);
-  // …and failRun cannot retroactively clear a landed proposal either
-  failRun(reg, r.skillRunId, "invalid_output", "second answer was junk");
-  assert.equal(r.status, "failed");
-  // a failed run carries no proposal by design — which is exactly why the
-  // caller must refuse the second submission BEFORE reaching failRun
-  assert.equal(r.proposal, null);
+  // …and v15 makes this STRUCTURAL rather than a caller's duty: failRun now
+  // refuses a terminal run outright, so a late error cannot destroy a result
+  // the creator already saw. (Before, it succeeded and cleared the proposal,
+  // and only the caller's own check stood between that and data loss.)
+  assert.equal(failRun(reg, r.skillRunId, "invalid_output", "second answer was junk"), null);
+  assert.equal(r.status, "succeeded");
+  assert.equal(r.proposal, kept, "the landed answer survives a late failure");
 });
 
 test("a rejected run is KEPT — it is the most informative kind", () => {
@@ -284,7 +289,8 @@ test("a rejected run is KEPT — it is the most informative kind", () => {
   const r = startRun(reg, { skillId: "script-doctor", skillVersion: 1 });
   proposeRun(reg, r.skillRunId, { findings: [] });
   rejectRun(reg, r.skillRunId, "2026-08-12T01:00:00Z", "全是空话");
-  assert.equal(r.status, "rejected");
+  assert.equal(r.status, "succeeded");
+  assert.equal(r.proposal.disposition, "rejected");
   assert.equal(r.rejectionReason, "全是空话");
   assert.equal(reg.length, 1, "the record must survive rejection");
 });
@@ -296,6 +302,7 @@ test("failure kinds stay distinct and never carry a proposal", () => {
     failRun(reg, r.skillRunId, kind, "detail here");
     assert.equal(r.status, "failed");
     assert.equal(r.error.kind, kind);
+    assert.equal(r.failureReason.category, kind, "the same fact in v15 vocabulary");
     assert.equal(r.proposal, null, "a failed run never becomes content");
   }
   // an unknown kind degrades to execution_error rather than being stored raw
@@ -309,7 +316,8 @@ test("failure kinds stay distinct and never carry a proposal", () => {
   proposeRun(reg2, r2.skillRunId, { approach: "a", perShot: [] });
   acceptRun(reg2, r2.skillRunId, "t");
   assert.equal(failRun(reg2, r2.skillRunId, "timeout", "late"), null);
-  assert.equal(r2.status, "accepted");
+  assert.equal(r2.status, "succeeded");
+  assert.equal(r2.proposal.disposition, "accepted");
 });
 
 test("the Director review is attached only when a real check ran", () => {
@@ -431,10 +439,10 @@ test("v12 validation rejects a run that misreports what the creator saw", () => 
   const withRun = (mutate) => {
     const doc = migrateToCurrent(v11Doc()).doc;
     const r = {
-      skillRunId: "sr-1", skillId: "script-doctor", skillVersion: 1,
+      skillRunId: "sr-1", runId: "sr-1", skillId: "script-doctor", skillVersion: 1,
       runtime: "manual", executor: "manual", model: null,
-      inputKeys: [], inputSummary: null, status: "proposed",
-      proposal: { findings: [] }, directorReview: null, error: null,
+      inputKeys: [], inputSummary: null, status: "succeeded",
+      proposal: { findings: [], disposition: "pending" }, directorReview: null, error: null,
       decision: null, decidedAt: null, createdAt: null,
     };
     mutate(r, doc);
@@ -447,18 +455,23 @@ test("v12 validation rejects a run that misreports what the creator saw", () => 
   assert.ok(withRun((r) => { r.skillVersion = 0; }));
   assert.ok(withRun((r) => { r.skillVersion = "1"; }));
   assert.ok(withRun((r) => { r.status = "made-up"; }));
-  // a proposed/accepted run with NO proposal, or a failed one WITH one, would
-  // misreport what the creator actually saw and decided
+  // a succeeded run with NO proposal, or a failed one WITH one, would misreport
+  // what the creator actually saw and decided
   assert.ok(withRun((r) => { r.proposal = null; }));
-  assert.ok(withRun((r) => { r.status = "accepted"; r.proposal = null; }));
   assert.ok(withRun((r) => { r.status = "failed"; }));
   assert.equal(withRun((r) => { r.status = "failed"; r.proposal = null; }), null);
   // codex review, round 9: the invariant holds BOTH ways — the domain cannot
-  // produce a `running` run with a proposal, nor a `rejected` one without.
+  // produce a `running` run with a proposal.
   assert.ok(withRun((r) => { r.status = "running"; }));
   assert.equal(withRun((r) => { r.status = "running"; r.proposal = null; }), null);
-  assert.ok(withRun((r) => { r.status = "rejected"; r.proposal = null; }));
-  assert.equal(withRun((r) => { r.status = "rejected"; }), null);
+  // v15: the DISPOSITION is required wherever it can live, because it is the
+  // half of the old fused status that says what the creator decided
+  assert.ok(withRun((r) => { delete r.proposal.disposition; }));
+  assert.ok(withRun((r) => { r.proposal.disposition = "made-up"; }));
+  // …and the pre-v15 statuses no longer exist
+  for (const gone of ["proposed", "accepted", "rejected"]) {
+    assert.ok(withRun((r) => { r.status = gone; }), gone);
+  }
   // a truncated v12 document (registry dropped) must not restore empty
   const doc = migrateToCurrent(v11Doc()).doc;
   delete doc.skillRuns;
@@ -469,10 +482,10 @@ test("every RUN_STATUS the domain can produce is accepted by the validator", () 
   for (const status of RUN_STATUSES) {
     const doc = migrateToCurrent(v11Doc()).doc;
     doc.skillRuns.push({
-      skillRunId: "sr-1", skillId: "script-doctor", skillVersion: 1,
+      skillRunId: "sr-1", runId: "sr-1", skillId: "script-doctor", skillVersion: 1,
       status,
       // shaped to satisfy the proposal/status invariant for each state
-      proposal: ["proposed", "accepted", "rejected"].includes(status) ? { findings: [] } : null,
+      proposal: status === "succeeded" ? { findings: [], disposition: "pending" } : null,
     });
     assert.equal(validateCanvasDoc(doc), null, `status ${status} was rejected`);
   }

@@ -28,14 +28,35 @@ import { esc } from "../util/dom.js";
 import { SKILL_INPUTS } from "../workflow/skills.js";
 import { EXECUTOR_STATE_LABEL, isRunnable } from "../services/runtime.js";
 import { applicability } from "../workflow/skillapply.js";
+import { isPending, isOpen, dispositionOf } from "../workflow/skillrun.js";
 
+/** What the creator sees. Two axes, so the label is picked from both: a
+ *  `succeeded` run reads as 「有提案」 / 「已接受」 / 「已忽略」 depending on what
+ *  they did with the answer, which is the distinction the old single enum lost. */
 const RUN_STATUS_LABEL = {
+  awaiting_confirmation: "待确认",
+  queued: "排队中",
   running: "进行中",
-  proposed: "有提案",
+  awaiting_input: "等你交结果", // manual: the system is waiting for a PERSON
+  cancelling: "取消中",
+  cancelled: "已取消",
+  succeeded: "已完成",
   failed: "失败",
+};
+
+const DISPOSITION_LABEL = {
+  pending: "有提案",
   accepted: "已接受",
   rejected: "已忽略",
+  superseded: "已被取代",
 };
+
+function runLabel(r) {
+  if (r && r.status === "succeeded") {
+    return DISPOSITION_LABEL[dispositionOf(r)] || RUN_STATUS_LABEL.succeeded;
+  }
+  return RUN_STATUS_LABEL[r && r.status] || (r && r.status) || "";
+}
 
 const ERROR_HINT = {
   unavailable: "这个执行器在本机不可用——换手工运行，或按下面的说明配置它。",
@@ -100,7 +121,8 @@ export function skillPanelModel(ctx, ui, probe) {
         .map((r) => ({
           skillRunId: r.skillRunId,
           status: r.status,
-          statusLabel: RUN_STATUS_LABEL[r.status] || r.status,
+          statusLabel: runLabel(r),
+          disposition: dispositionOf(r),
           runtime: r.runtime,
           executor: r.executor,
           model: r.model,
@@ -116,8 +138,14 @@ export function skillPanelModel(ctx, ui, probe) {
   // proposed run of this skill and nothing else: a panel that surfaces several
   // at once makes the creator choose which decision to make first, which is not
   // a decision they asked for.
-  const pending = history.find((r) => r.status === "proposed") || null;
-  const open = history.find((r) => r.status === "running") || null;
+  const pending = history.find(isPending) || null;
+  // "still going" now spans the states an execution can legitimately sit in,
+  // including `awaiting_input` where a MANUAL run waits for the creator
+  // EVERY non-terminal state counts as open. Listing them by hand left
+  // `awaiting_confirmation` and `cancelling` out, so the panel treated an
+  // unfinished run as absent and offered actions that conflict with it
+  // (codex review, round 5). The domain already knows what "still open" means.
+  const open = history.find(isOpen) || null;
   return {
     skills,
     selected: selected ? skills.find((s) => s.skillId === selected.skillId) : null,
@@ -253,7 +281,7 @@ export function renderSkillPanel(m, ui) {
     (m.history.length
       ? `<div class="lab">运行记录</div><ul class="sk-hist">` +
         m.history.map((r) =>
-          `<li><span class="chip${r.status === "accepted" ? " ok" : r.status === "failed" ? " bad" : ""}">${esc(r.statusLabel)}</span>` +
+          `<li><span class="chip${r.disposition === "accepted" ? " ok" : r.status === "failed" ? " bad" : ""}">${esc(r.statusLabel)}</span>` +
           `<span class="sk-hm">v${r.skillVersion} · ${esc(r.executor || "—")}</span>` +
           `<span class="sk-ht">${esc(String(r.createdAt || "").slice(5, 16).replace("T", " "))}</span>` +
           (r.error ? `<div class="sk-err">${esc(ERROR_HINT[r.error.kind] || "")} ${esc(r.error.detail || "")}</div>` : "") +

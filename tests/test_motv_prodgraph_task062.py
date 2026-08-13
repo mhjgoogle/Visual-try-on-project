@@ -45,6 +45,7 @@ def test_frontend_prodgraph_units_via_node() -> None:
         cwd=str(_MOCKUP_DIR),
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=180,
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
@@ -224,7 +225,9 @@ def test_an_origin_is_only_stamped_for_an_ACCEPTED_proposal() -> None:
     没有 id 的提案无法被指向。给它们盖章就是让生成声称一份记录不支持的来历。"""
     app = _code("app.js")
     origin = app.split("originOf: (skillRunId)", 1)[1].split("\n    },", 1)[0]
-    assert 'r.status !== "accepted" || !proposalId' in origin
+    # v15: 「the creator accepted this」 is a DISPOSITION on the proposal, not a
+    # status on the run — the execution succeeded either way (ADR-0066 决策 8).
+    assert "!skillrun.isAccepted(r) || !proposalId" in origin
     assert "return null" in origin
 
 

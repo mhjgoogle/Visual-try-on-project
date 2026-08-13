@@ -1,8 +1,12 @@
 """motv mockup tests for the Idea → Script vertical slice.
 
 Drives the mockup backend (``mockups/motv-workspace/server.py`` ``_App``)
-directly — no sockets, no browser, STRICTLY OFFLINE, no spend. The Claude CLI
-is stubbed at ``_run_claude``.
+directly — no sockets, no browser, STRICTLY OFFLINE, no spend.
+
+The RUNTIME LAYER is stubbed (``_run_executor`` / ``_executor_argv``), not a CLI:
+since TASK-072 §1.8 the endpoint no longer spawns ``claude`` itself, so there is
+no ``_run_claude`` left to stub. The endpoint's RESPONSE contract is unchanged,
+which is what these tests still guard.
 
 Covers:
 
@@ -29,14 +33,33 @@ _MOCKUP_DIR = Path(__file__).resolve().parents[1] / "mockups" / "motv-workspace"
 _SERVER_PATH = _MOCKUP_DIR / "server.py"
 
 
-@pytest.fixture(scope="module")
-def server_module():
+@pytest.fixture()
+def server_module(tmp_path, monkeypatch):
     spec = importlib.util.spec_from_file_location(
         "motv_server_script_slice", _SERVER_PATH
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    # an isolated run journal per test: the endpoint now records real Runs
+    monkeypatch.setattr(module, "_RUNS_PATH", tmp_path / "runs.json")
+    monkeypatch.setattr(module, "_RUNS", None)
+    # make the preferred executor resolvable so the default is chosen
+    monkeypatch.setattr(module, "_executor_argv", lambda n: (["fake", n], "path"))
     return module
+
+
+def _stub_runtime(module, monkeypatch, answer=None, raises=None):
+    """Replace the RUNTIME LAYER. Records every prompt it is handed."""
+    seen: list[str] = []
+
+    def fake(name, prompt, timeout, on_spawn=None):
+        seen.append(prompt)
+        if raises is not None:
+            raise raises
+        return answer, None
+
+    monkeypatch.setattr(module, "_run_executor", fake)
+    return seen
 
 
 def _post(app, path: str, payload: dict) -> tuple[int, dict]:
@@ -46,15 +69,12 @@ def _post(app, path: str, payload: dict) -> tuple[int, dict]:
 
 @pytest.fixture()
 def prompts(server_module, monkeypatch):
-    """Stub the Claude CLI; capture every prompt, answer with a canned script."""
-    seen: list[str] = []
-
-    def fake_run_claude(prompt: str, timeout: int = 180) -> str:
-        seen.append(prompt)
-        return "<剧本输出>\n【金銮殿·日】\n生成的剧本正文。\n</剧本输出>"
-
-    monkeypatch.setattr(server_module, "_run_claude", fake_run_claude)
-    return seen
+    """Stub the RUNTIME LAYER; capture every prompt, answer with a canned script."""
+    return _stub_runtime(
+        server_module,
+        monkeypatch,
+        answer="<剧本输出>\n【金銮殿·日】\n生成的剧本正文。\n</剧本输出>",
+    )
 
 
 # --- initial mode (创意 → 剧本) ----------------------------------------------
@@ -64,11 +84,15 @@ def test_initial_idea_returns_script_draft(server_module, prompts) -> None:
     app = server_module._App(None, None)
     status, j = _post(app, "/api/agent/script-draft", {"idea": "社畜穿越盛唐"})
     assert status == 200, j
-    assert j == {
-        "script": "【金銮殿·日】\n生成的剧本正文。",
-        "draft": True,
-        "source": "claude -p",
-    }
+    assert j["script"] == "【金銮殿·日】\n生成的剧本正文。"
+    assert j["draft"] is True
+    # `source` KEEPS its established value: these endpoints always ran `claude -p`,
+    # and the compatibility promise is additive-only, so an existing value may not
+    # change under callers that compare or display it (codex review round 1).
+    # `run_id` / `executor` / `model` are the additions.
+    assert j["source"] == "claude -p"
+    assert j["executor"] == "claude-code"
+    assert j["run_id"].startswith("run-")
     # the idea travels inside the data-framed <创意> tag
     assert "<创意>\n社畜穿越盛唐\n</创意>" in prompts[0]
     assert "纯数据素材" in prompts[0]
@@ -77,12 +101,10 @@ def test_initial_idea_returns_script_draft(server_module, prompts) -> None:
 def test_wrapper_prose_outside_output_block_is_discarded(
     server_module, monkeypatch
 ) -> None:
-    monkeypatch.setattr(
+    _stub_runtime(
         server_module,
-        "_run_claude",
-        lambda *a, **k: (
-            "好的，剧本如下：\n```\n<剧本输出>\n剧本正文\n</剧本输出>\n```\n希望你满意。"
-        ),
+        monkeypatch,
+        answer="好的，剧本如下：\n```\n<剧本输出>\n剧本正文\n</剧本输出>\n```\n希望你满意。",
     )
     app = server_module._App(None, None)
     status, j = _post(app, "/api/agent/script-draft", {"idea": "x"})
@@ -101,7 +123,7 @@ def test_multiple_or_malformed_output_blocks_are_rejected(
         "</剧本输出>噪声<剧本输出>正文",
     ]
     for out in cases:
-        monkeypatch.setattr(server_module, "_run_claude", lambda *a, o=out, **k: o)
+        _stub_runtime(server_module, monkeypatch, answer=out)
         status, j = _post(app, "/api/agent/script-draft", {"idea": "x"})
         assert status == 502, out
         assert j["error"]["category"] == "agent_bad_output"
@@ -110,9 +132,7 @@ def test_multiple_or_malformed_output_blocks_are_rejected(
 def test_output_without_block_is_rejected_not_passed_through(
     server_module, monkeypatch
 ) -> None:
-    monkeypatch.setattr(
-        server_module, "_run_claude", lambda *a, **k: "这是一段没有标签的解释性文字。"
-    )
+    _stub_runtime(server_module, monkeypatch, answer="这是一段没有标签的解释性文字。")
     app = server_module._App(None, None)
     status, j = _post(app, "/api/agent/script-draft", {"idea": "x"})
     assert status == 502
@@ -190,10 +210,7 @@ def test_missing_fields_and_size_caps(server_module, prompts) -> None:
 
 
 def test_cli_missing_maps_to_503(server_module, monkeypatch) -> None:
-    def boom(*a, **k):
-        raise FileNotFoundError("claude")
-
-    monkeypatch.setattr(server_module, "_run_claude", boom)
+    _stub_runtime(server_module, monkeypatch, raises=FileNotFoundError("claude"))
     app = server_module._App(None, None)
     status, j = _post(app, "/api/agent/script-draft", {"idea": "x"})
     assert status == 503
@@ -201,10 +218,9 @@ def test_cli_missing_maps_to_503(server_module, monkeypatch) -> None:
 
 
 def test_cli_timeout_maps_to_504(server_module, monkeypatch) -> None:
-    def boom(*a, **k):
-        raise subprocess.TimeoutExpired(["claude", "-p"], 180)
-
-    monkeypatch.setattr(server_module, "_run_claude", boom)
+    _stub_runtime(
+        server_module, monkeypatch, raises=subprocess.TimeoutExpired(["claude"], 180)
+    )
     app = server_module._App(None, None)
     status, j = _post(app, "/api/agent/script-draft", {"idea": "x"})
     assert status == 504
@@ -212,9 +228,7 @@ def test_cli_timeout_maps_to_504(server_module, monkeypatch) -> None:
 
 
 def test_empty_output_is_bad_output_not_fabricated(server_module, monkeypatch) -> None:
-    monkeypatch.setattr(
-        server_module, "_run_claude", lambda *a, **k: "<剧本输出>   \n</剧本输出>"
-    )
+    _stub_runtime(server_module, monkeypatch, answer="<剧本输出>   \n</剧本输出>")
     app = server_module._App(None, None)
     status, j = _post(app, "/api/agent/script-draft", {"idea": "x"})
     assert status == 502
@@ -223,7 +237,7 @@ def test_empty_output_is_bad_output_not_fabricated(server_module, monkeypatch) -
 
 def test_oversized_output_is_rejected(server_module, monkeypatch) -> None:
     big = "<剧本输出>" + "字" * (server_module._SCRIPT_DRAFT_MAX + 1) + "</剧本输出>"
-    monkeypatch.setattr(server_module, "_run_claude", lambda *a, **k: big)
+    _stub_runtime(server_module, monkeypatch, answer=big)
     app = server_module._App(None, None)
     status, j = _post(app, "/api/agent/script-draft", {"idea": "x"})
     assert status == 502
@@ -241,6 +255,7 @@ def test_scriptdoc_units_via_node() -> None:
         cwd=str(_MOCKUP_DIR),
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=120,
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr

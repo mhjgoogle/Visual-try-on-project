@@ -25,6 +25,7 @@
 // Pure functions: no DOM, no clock, no fetch, no writes.
 
 import { currentText } from "./scriptdoc.js";
+import { dispositionOf } from "./skillrun.js";
 import { canonBaselineOf } from "./prodgraph.js";
 
 const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
@@ -645,7 +646,9 @@ export function buildProvenanceGraph({ assets, generations, production, timeline
         skillRunId: r.skillRunId,
         skillId: str(r.skillId),
         // the creator's decision is the thing worth seeing at a glance
-        decision: str(r.decision) || (r.status === "accepted" || r.status === "rejected" ? r.status : null),
+        // The DISPOSITION is where the creator's decision lives now (系统合同
+        // §5.3); `decision` remains as the pre-v15 compatibility field.
+        decision: dispositionOf(r) || str(r.decision) || null,
         status: str(r.status),
         decidedAt: str(r.decidedAt),
         episodeId: c ? c.episodeId || null : null,
@@ -672,7 +675,7 @@ export function buildProvenanceGraph({ assets, generations, production, timeline
     // 发起」 is only true of an answer the creator took; a record pointing at a
     // pending or rejected one contradicts the run it names, and drawing it
     // would present that contradiction as a launch.
-    if (pnode && pnode.skillRunId === g.origin.skillRunId && pnode.status === "accepted") {
+    if (pnode && pnode.skillRunId === g.origin.skillRunId && pnode.decision === "accepted") {
       addEdge(nodeIds.proposal(g.origin.proposalId), gid, "origin");
     } else {
       // No fall-back to the run alone. An origin always carries BOTH ids, so a

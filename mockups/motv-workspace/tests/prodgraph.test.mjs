@@ -369,7 +369,7 @@ test("v14 validation refuses a malformed context or origin, accepts null", () =>
   const base = () => ({
     v: CANVAS_SCHEMA_VERSION, nodes: [], edges: [], scripts: {}, story: STORY, assets: EMPTY_ASSETS, timelines: {},
     production: emptyProduction(),
-    skillRuns: [{ skillRunId: "r1", skillId: "s", skillVersion: 1, status: "running", proposal: null, context: null }],
+    skillRuns: [{ skillRunId: "r1", runId: "r1", skillId: "s", skillVersion: 1, status: "running", proposal: null, context: null }],
     generations: [{
       generationId: "g1", type: "image", targetType: null, targetId: null,
       inputAssetIds: [], referenceAssetIds: [], promptSnapshot: null,
@@ -454,7 +454,7 @@ test("validation refuses a context that names nothing, and an origin with no run
   const base = () => ({
     v: CANVAS_SCHEMA_VERSION, nodes: [], edges: [], scripts: {}, story: STORY,
     assets: EMPTY_ASSETS, timelines: {}, production: emptyProduction(),
-    skillRuns: [{ skillRunId: "r1", skillId: "s", skillVersion: 1, status: "running", proposal: null, context: null }],
+    skillRuns: [{ skillRunId: "r1", runId: "r1", skillId: "s", skillVersion: 1, status: "running", proposal: null, context: null }],
     generations: [{
       generationId: "g1", type: "image", targetType: null, targetId: null,
       inputAssetIds: [], referenceAssetIds: [], promptSnapshot: null,
@@ -588,7 +588,11 @@ test("an origin pointing at a proposal that was never accepted is not drawn", ()
   // creator took. A record naming a pending or rejected proposal contradicts
   // the run it points at.
   const { src, gen, run } = fullChain();
-  src.skillRuns.find((r) => r.skillRunId === run.skillRunId).status = "rejected";
+  // v15: 「the creator rejected it」 is a DISPOSITION on the proposal, not a
+  // status on the run — the execution succeeded either way.
+  const rec = src.skillRuns.find((r) => r.skillRunId === run.skillRunId);
+  rec.status = "succeeded";
+  rec.proposal.disposition = "rejected";
   const g = buildProvenanceGraph(src);
   assert.equal(
     g.edges.some((e) => e.kind === "origin" && e.to === nodeIds.generation(gen.generationId)),

@@ -33,6 +33,7 @@
 import { esc } from "../util/dom.js";
 import { EXECUTOR_STATE_LABEL, isRunnable, suggestExecutor } from "../services/runtime.js";
 import { applicabilityFor } from "../workflow/skillapply.js";
+import { isPending, isOpen } from "../workflow/skillrun.js";
 
 /**
  * The operations §2 asks for, in the order a shot actually gets made.
@@ -214,8 +215,12 @@ export function shotDirectorModel(ctx, ui, probe) {
       unavailable,
       available: !unavailable,
       missing,
-      open: mine.find((r) => r.status === "running") || null,
-      pending: mine.find((r) => r.status === "proposed") || null,
+      // "still going" = every NON-TERMINAL state, taken from the domain rather
+      // than re-listed here. Hand-listing them left `awaiting_confirmation` out,
+      // so a run waiting for the creator's approval read as absent and the panel
+      // offered actions that conflict with it (codex review, round 7).
+      open: mine.find(isOpen) || null,
+      pending: mine.find(isPending) || null,
       last: mine[0] || null,
       // a REMEMBERED conclusion, with honest staleness (§15)
       cached: cached ? { stale: cached.stale, at: cached.at, value: cached.value } : null,
@@ -744,9 +749,12 @@ export function bindShotDirector(root, ctx, ui, render, { shotId, onOpenNode } =
       el.textContent = "复制失败";
     }
   });
-  all("[data-sd-abandon]", (el) => {
-    const res = ctx.skills.abandon(el.dataset.sdAbandon);
-    ctx.toast(res.ok ? "已放弃这次运行（记录保留为「失败」，不是删掉）" : res.error);
+  all("[data-sd-abandon]", async (el) => {
+    // AWAITED: abandoning may have to reach the backend to stop a run it owns
+    // (codex review, round 20). Treating it as synchronous would report success
+    // from a pending promise and leave the two sides disagreeing.
+    const res = await ctx.skills.abandon(el.dataset.sdAbandon);
+    ctx.toast(res.ok ? "已放弃这次运行（记录保留为「已取消」，不是删掉）" : res.error);
     render();
   });
   all("[data-sd-submit]", (el) => {

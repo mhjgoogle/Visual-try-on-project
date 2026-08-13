@@ -2634,7 +2634,10 @@ const ctx = {
       // A run that has ALREADY landed is not open for another answer. Without
       // this, pasting a second (malformed) answer into a run that already holds
       // a good proposal would fail it and wipe the creator's result.
-      if (rec.status !== "running") {
+      // A manual run waits in `awaiting_input` — nothing is running, the system
+      // is waiting for a person. `running` is still accepted so a record written
+      // before v15 (and not yet migrated in memory) can still be answered.
+      if (rec.status !== "awaiting_input" && rec.status !== "running") {
         return { ok: false, error: `这次运行已经是「${rec.status}」，不能再提交结果` };
       }
       // …and a LOCAL run is not a manual one. Pasting an answer into a run that
@@ -2661,7 +2664,10 @@ const ctx = {
       // proposeRun REFUSES a run that is not `running`. Ignoring that refusal
       // would report success for a proposal that was never recorded, and the UI
       // would render something the document does not contain.
-      const landed = skillrun.proposeRun(skillRunRegistry, rec.skillRunId, read.value, { model });
+      const landed = skillrun.proposeRun(skillRunRegistry, rec.skillRunId, read.value, {
+        model,
+        at: new Date().toISOString(),
+      });
       if (!landed) {
         return { ok: false, error: `这次运行已经是「${rec.status}」，结果未记录`, kind: "execution_error", run: rec };
       }
@@ -2686,7 +2692,7 @@ const ctx = {
       // waiting for an answer has none; a rejected one launched nothing; and a
       // proposal with no id cannot be pointed at. Stamping any of those would
       // let a generation claim a provenance the records never support.
-      if (r.status !== "accepted" || !proposalId) return null;
+      if (!skillrun.isAccepted(r) || !proposalId) return null;
       return { skillRunId: r.skillRunId, proposalId };
     },
 
@@ -2706,7 +2712,7 @@ const ctx = {
     applyProposal: (skillRunId, scope = {}) => {
       const run = skillrun.findRun(skillRunRegistry, skillRunId);
       if (!run) return { ok: false, error: "运行记录不存在" };
-      if (run.status !== "proposed") {
+      if (!skillrun.isPending(run)) {
         return { ok: false, error: `这次运行是「${run.status}」，没有待应用的提案` };
       }
       // The SCOPE the run recorded wins over whatever is selected now: applying
@@ -2791,10 +2797,10 @@ const ctx = {
     useForGeneration: (skillRunId) => {
       const run = skillrun.findRun(skillRunRegistry, skillRunId);
       if (!run) return { ok: false, error: "运行记录不存在" };
-      if (run.status !== "proposed" && run.status !== "accepted") {
+      if (!skillrun.isPending(run) && !skillrun.isAccepted(run)) {
         return { ok: false, error: `这次运行是「${run.status}」，没有可用于生成的提案` };
       }
-      if (run.status === "proposed" && !ctx.skills.accept(skillRunId)) {
+      if (skillrun.isPending(run) && !ctx.skills.accept(skillRunId)) {
         return { ok: false, error: "无法标记为已接受" };
       }
       const origin = ctx.skills.originOf(skillRunId);
@@ -2874,13 +2880,65 @@ const ctx = {
      * would leave only the flattering half of the history — the same rule that keeps
      * rejected proposals (ADR-0056 决策 6).
      */
-    abandon: (skillRunId, reason = "创作者放弃了这次运行") => {
+    abandon: async (skillRunId, reason = "创作者放弃了这次运行") => {
       const r = skillrun.findRun(skillRunRegistry, skillRunId);
       if (!r) return { ok: false, error: "运行记录不存在" };
-      if (r.status !== "running") {
+      if (!skillrun.isOpen(r)) {
         return { ok: false, error: `这次运行已经是「${r.status}」，不需要放弃` };
       }
-      skillrun.failRun(skillRunRegistry, skillRunId, "execution_error", reason);
+      // ABANDON IS A CANCEL, not a failure (系统合同 §5.2 迁移表). Nothing went
+      // wrong — the creator chose to stop. Recording it as `failed` put a real
+      // decision into the same bucket as a crashed executor.
+      // ONLY runs this page owns. A run executed by a local executor is owned
+      // by the BACKEND, and stopping it means terminating a real process — which
+      // only `POST /api/runs/<id>/cancel` can do. Marking it `cancelled` here
+      // would put 「已取消」 on screen while the executor keeps running and
+      // keeps spending (codex review, round 7).
+      if (r.executor && r.executor !== "manual") {
+        return {
+          ok: false,
+          error: `这次运行由「${r.executor}」执行，请用「取消运行」终止它——放弃只用于手工运行`,
+        };
+      }
+      // A MANUAL RUN CAN STILL BE THE BACKEND'S. The manual fallback creates a
+      // durable Run in `awaiting_input`, so settling it only on the canvas left
+      // the two sides permanently disagreeing — and reconciliation would then
+      // read the backend's still-open state (codex review, round 20).
+      //
+      // So the backend is asked first. A 404 means it never knew this run
+      // (local/demo mode, or a purely front-end record), which is the case the
+      // canvas genuinely owns; anything else must succeed there before it is
+      // recorded here.
+      // WHO OWNS THIS RUN is decided from what we know, not from a 404 (codex
+      // review, round 23). A record that never reached the backend has no
+      // `runId` of the backend's minting; anything else must be settled THERE
+      // first, because only the backend can stop a real process.
+      // A BACKEND-MINTED id starts with `run-`; the front end's own runs carry
+      // a `skillrun-` id it minted itself and the backend has never heard of.
+      // That is the knowable difference — not a 404.
+      if (typeof r.runId === "string" && r.runId.startsWith("run-")) {
+        const backend = await runtime.cancelRun(r.runId, r.projectId || null);
+        if (!backend.ok && !backend.unknown) {
+          return { ok: false, error: `后端未能取消这次运行：${backend.detail}` };
+        }
+      }
+      const at = new Date().toISOString();
+      skillrun.cancelRun(skillRunRegistry, skillRunId, at, reason);
+      // …AND IT MUST REACH A TERMINAL STATE HERE.
+      //
+      // `cancelRun` parks a `running` record in `cancelling`, which is correct
+      // when a real process has to be signalled and confirmed dead. This path
+      // has no such process: these are runs the FRONT END owns (a manual run
+      // waiting for an answer, or one whose page was closed mid-flight), so
+      // nothing would ever arrive to complete the transition and the run would
+      // sit in `cancelling` forever — reintroducing the exact stuck-open run
+      // this control was added to clear (codex review, round 1).
+      //
+      // Confirming here is not the pretence §5.4 rule 3 forbids: that rule is
+      // about claiming a SUBPROCESS died without checking. A backend-owned run
+      // is cancelled through `POST /api/runs/<id>/cancel`, which does the real
+      // termination and only then reports `cancelled`.
+      skillrun.confirmCancelled(skillRunRegistry, skillRunId, at);
       ctx.persist();
       refreshProductionView();
       return { ok: true };

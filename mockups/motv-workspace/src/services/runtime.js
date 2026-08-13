@@ -201,6 +201,66 @@ export async function probeExecutors() {
 }
 
 /**
+ * Ask the backend to cancel a Run it owns.
+ *
+ * Returns `{ ok }` when the backend settled it, or `{ unknown: true }` when it
+ * has no such run — which is a REAL answer, not a failure: local/demo mode and
+ * purely front-end records genuinely belong to the canvas, and only then may the
+ * page settle them itself (contract §5.5).
+ */
+export async function cancelRun(runId, project = null) {
+  if (typeof runId !== "string" || !runId) return { unknown: true };
+  let r;
+  try {
+    r = await fetch(`/api/runs/${encodeURIComponent(runId)}/cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Motv-Runtime": "1" },
+      body: JSON.stringify(project ? { project } : {}),
+    });
+  } catch (e) {
+    // A network failure is NOT "it does not exist" — refusing here keeps the
+    // page from declaring a run cancelled that may still be running.
+    return { ok: false, detail: e && e.message ? e.message : "请求失败" };
+  }
+  if (r.status === 404) {
+    // A 404 IS NOT PROOF. The lookup is project-scoped, so a stale or missing
+    // project id produces the same answer as a genuinely unknown run — and
+    // retrying with `null` does not help, because `null` is itself a scope (the
+    // project-less runs). Believing it would mark the canvas cancelled while a
+    // real backend run and its subprocess carry on (codex review, rounds 22-23).
+    //
+    // The ONLY case the caller may treat as frontend-owned is a run the backend
+    // was never told about, and the caller knows that without asking: see
+    // `ctx.skills.abandon`.
+    return { ok: false, notFound: true, detail: "后端没有找到这次运行（可能是项目归属不符）" };
+  }
+  if (!r.ok) {
+    const j = await r.json().catch(() => null);
+    const err = isObj(j) && isObj(j.error) ? j.error : {};
+    return { ok: false, detail: err.detail || `HTTP ${r.status}` };
+  }
+  const j = await r.json().catch(() => null);
+  // ONLY `cancelled` is a cancellation. `cancelling` means the kill was not
+  // confirmed; `succeeded` / `failed` mean the run finished before the request
+  // landed — and reporting either as success let the canvas overwrite a real
+  // outcome with 「已取消」 (codex review, round 21).
+  const status = isObj(j) ? j.status : null;
+  if (status === "cancelled") return { ok: true, run: j };
+  if (status === "cancelling") {
+    return {
+      ok: false,
+      detail: (j.cancelFailure && j.cancelFailure.detail) || "子进程尚未确认退出",
+    };
+  }
+  return {
+    ok: false,
+    finished: true,
+    detail: `这次运行已经是「${status || "未知"}」，没有被取消`,
+    run: j,
+  };
+}
+
+/**
  * Run one compiled Skill prompt on a local executor.
  *
  * Returns { ok: true, text, model } or { ok: false, kind, detail } where `kind`

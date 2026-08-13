@@ -52,8 +52,80 @@ function contextOf(raw) {
   return c.episodeId || c.sceneId || c.shotId ? c : null;
 }
 
-/** Terminal and non-terminal run states. */
-export const RUN_STATUSES = ["running", "proposed", "failed", "accepted", "rejected"];
+/**
+ * The Run lifecycle — EIGHT states, one axis (ADR-0066 决策 8 / 系统合同 §5.2).
+ *
+ * The old five (`running/proposed/failed/accepted/rejected`) crammed TWO
+ * questions into one field: "how did the execution go" and "what did the creator
+ * do with the answer". Those move independently — a run can succeed and sit
+ * undecided for a week — so they are now two fields, and `disposition` below is
+ * the second one.
+ *
+ * Order matters here: it is the happy path, not the alphabet.
+ */
+export const RUN_STATUSES = [
+  // shown the cost/impact, waiting for the user. Deliberately BEFORE `queued`:
+  // an unapproved task must not be holding an execution slot.
+  "awaiting_confirmation",
+  "queued",
+  "running",
+  // MANUAL execution: nothing is running, the system is waiting for a person.
+  // Saying `running` here was a lie that made the restart sweep treat healthy
+  // manual work as a zombie.
+  "awaiting_input",
+  "cancelling",
+  "cancelled",
+  "succeeded",
+  "failed",
+];
+
+/** What the creator did with the answer — the SECOND axis. */
+export const PROPOSAL_DISPOSITIONS = ["pending", "accepted", "rejected", "superseded"];
+
+/** Once written, never rewritten. A late answer must not overwrite a decision. */
+export const TERMINAL_RUN_STATUSES = ["cancelled", "succeeded", "failed"];
+
+const TERMINAL_SET = new Set(TERMINAL_RUN_STATUSES);
+/** States a run may be OPENED in. Terminal states are reached by transition,
+ *  never by construction. */
+const OPENABLE_STATUSES = new Set(
+  // `cancelling` is excluded too: it means "a cancel is being delivered to a
+  // real process", and a run being CREATED has neither a process nor a pending
+  // cancel — opening one there would strand it in a valid non-terminal state
+  // nothing can move (codex review, round 14).
+  RUN_STATUSES.filter((s) => !TERMINAL_SET.has(s) && s !== "cancelling"),
+);
+const DISPOSITION_SET = new Set(PROPOSAL_DISPOSITIONS);
+
+/** Is this run still going to change by itself? `awaiting_input` counts: the
+ *  creator can still bring an answer back. */
+export function isOpen(run) {
+  return isObj(run) && !TERMINAL_SET.has(run.status);
+}
+
+/** The proposal's disposition, or null when there is no proposal (or it is a
+ *  hand-corrupted non-object one, which cannot carry the field). */
+export function dispositionOf(run) {
+  if (!isObj(run) || !isObj(run.proposal)) return null;
+  return DISPOSITION_SET.has(run.proposal.disposition) ? run.proposal.disposition : null;
+}
+
+/** A finished run whose answer is still waiting on the creator. This is what
+ *  the old `status === "proposed"` meant, now stated as the two facts it was. */
+export function isPending(run) {
+  return isObj(run) && run.status === "succeeded" && dispositionOf(run) === "pending";
+}
+
+/** The creator accepted this answer (the old `status === "accepted"`). */
+export function isAccepted(run) {
+  return isObj(run) && run.status === "succeeded" && dispositionOf(run) === "accepted";
+}
+
+/** The creator rejected it (the old `status === "rejected"`). Kept, not deleted:
+ *  a rejected run is the most informative kind for revising a Skill. */
+export function isRejected(run) {
+  return isObj(run) && run.status === "succeeded" && dispositionOf(run) === "rejected";
+}
 
 /** Why a run failed. Kept apart from each other because the creator's next
  *  action differs: configure the executor / retry / fix the skill. */
@@ -125,14 +197,48 @@ export function startRun(reg, entry) {
     // Only manual runs carry it: a local run consumes its prompt immediately, so
     // storing one per run would be a durable copy of something nobody can re-read.
     promptText: strOrNull(entry.promptText),
-    status: "running",
+    // A caller may open a run in any NON-TERMINAL state (queued / awaiting_*).
+    // A terminal one is refused: this function always sets `proposal: null`, and
+    // a `succeeded` record with no proposal is rejected by the v15 validator —
+    // i.e. the caller would build a document that cannot be saved (codex review,
+    // round 3). Reaching a terminal state is what the transitions below are for.
+    status: OPENABLE_STATUSES.has(entry.status) ? entry.status : "running",
     proposal: null,
     directorReview: null,
     error: null,
     decision: null,
     decidedAt: null,
     createdAt: strOrNull(entry.createdAt),
+    // --- 系统合同 §5.0 / §5.3 的持久化字段 ---------------------------------- //
+    // `runId` is the ONE identity; `skillRunId` above is the same value under
+    // its historical name, kept as a compatibility alias until TASK-074.
+    runId: strOrNull(entry.skillRunId) || null,
+    kind: strOrNull(entry.kind) || "skill",
+    // A STABLE MACHINE KEY, never the display name: `taskName` changes with copy
+    // and language, and using it as a persisted key loses history on a rewrite.
+    taskType: strOrNull(entry.taskType) || `skill.${skillId}`,
+    projectId: strOrNull(entry.projectId),
+    provider: strOrNull(entry.provider),
+    target: isObj(entry.target) ? entry.target : null,
+    // `contextTrace` above IS the input-version record (ADR-0064 决策 2); this
+    // does not create a second copy of it.
+    outputs: null,
+    outputVersions: null,
+    progress: 0,
+    // subscription work costs 0 AND SAYS SO. An absent cost reads as
+    // "we don't know", which is a different (and wrong) statement.
+    cost: isObj(entry.cost) ? entry.cost : { currency: "USD", amount: 0, basis: "subscription" },
+    // WHEN IT STARTED RUNNING — null until it does. Seeding it with the
+    // creation time folded queueing, confirmation and manual waiting into the
+    // execution duration, so every derived timing was wrong and the field
+    // claimed execution had begun when it had not (codex review, round 10).
+    startedAt: null,
+    endedAt: null,
+    failureReason: null,
+    confirmation: null,
   };
+  // runId defaults to whatever id was actually minted for this run
+  rec.runId = rec.runId || rec.skillRunId;
   reg.push(rec);
   return rec;
 }
@@ -148,11 +254,34 @@ export function findRun(reg, skillRunId) {
  *  written, and the creator can still reject it. A run already in a terminal
  *  state is not resurrected — a late answer must not overwrite a decision the
  *  creator already made. */
-export function proposeRun(reg, skillRunId, proposal, { model = null } = {}) {
+export function proposeRun(reg, skillRunId, proposal, { model = null, at = null } = {}) {
   const r = findRun(reg, skillRunId);
-  if (!r || r.status !== "running") return null;
-  r.status = "proposed";
+  // `awaiting_input` is where a MANUAL run waits, so it is the state a pasted
+  // answer lands from — the old code accepted only `running`, which is what a
+  // manual run used to (incorrectly) sit in.
+  if (!r || (r.status !== "running" && r.status !== "awaiting_input")) return null;
+  // A PROPOSAL MUST BE AN OBJECT. v15 requires a `succeeded` run to carry a
+  // plain-object proposal with a disposition, so landing anything else would
+  // move the run to a state the canvas validator rejects — i.e. produce a
+  // document that can no longer be saved (codex review, round 9). Refusing here
+  // keeps the failure where it can still be reported.
+  //
+  // This does NOT block list-shaped products (codex review, round 17 asked):
+  // every proposal on the live path comes from `readSkillAnswer`, whose parser
+  // only ever returns a top-level OBJECT — a shot list arrives as
+  // `{ shots: [...] }`, never as a bare array. The v15 migration wraps bare
+  // values because a DAMAGED historical document may contain one; nothing in
+  // the running system can produce one.
+  if (!isObj(proposal)) return null;
+  // The execution SUCCEEDED; what the creator does with the answer is the other
+  // axis, and it starts undecided.
+  r.status = "succeeded";
+  // WHEN it finished. `r.endedAt || null` recorded nothing at all, so every
+  // successful canvas-owned run had no end time and its duration could not be
+  // derived (codex review, round 16). No clock in here — the caller passes it.
+  r.endedAt = strOrNull(at) || r.endedAt || null;
   r.proposal = proposal === undefined ? null : proposal;
+  if (isObj(r.proposal)) r.proposal.disposition = "pending";
   // ADR-0059: the proposal gets an IDENTITY the moment it exists, so a
   // production action launched from it can point back at exactly this answer.
   // Minted here rather than at accept: a rejected proposal is still a real
@@ -179,13 +308,61 @@ export function proposalIdOf(run) {
  *  becomes content. */
 export function failRun(reg, skillRunId, kind, detail) {
   const r = findRun(reg, skillRunId);
-  if (!r || r.status === "accepted" || r.status === "rejected") return null;
+  // A TERMINAL run is never re-failed: whatever really happened is already
+  // written down, and a late error must not erase a result the creator saw.
+  if (!r || TERMINAL_SET.has(r.status)) return null;
   r.status = "failed";
   r.proposal = null;
   r.error = {
     kind: ERROR_SET.has(kind) ? kind : "execution_error",
     detail: strOrNull(detail),
   };
+  // the same fact in the contract's vocabulary; `error` stays for the existing
+  // readers rather than being renamed under them
+  r.failureReason = { category: r.error.kind, detail: r.error.detail };
+  return r;
+}
+
+/** Move a run to `awaiting_input` — it is being executed BY A PERSON.
+ *  Separate from `running` because nothing is running, and because the backend's
+ *  restart sweep must not treat a creator's in-flight work as a zombie. */
+export function awaitInput(reg, skillRunId) {
+  const r = findRun(reg, skillRunId);
+  if (!r || (r.status !== "queued" && r.status !== "running")) return null;
+  r.status = "awaiting_input";
+  return r;
+}
+
+/** The creator asked to stop.
+ *
+ *  Pre-execution states cancel AT ONCE — they own no process, so there is
+ *  nothing to deliver a signal to. Only `running` goes through `cancelling`,
+ *  because killing a real process tree takes time and can fail. */
+export function cancelRun(reg, skillRunId, at, reason) {
+  const r = findRun(reg, skillRunId);
+  if (!r || TERMINAL_SET.has(r.status)) return null;
+  // WHY they stopped is recorded on BOTH branches. It used to be written only
+  // on the pre-execution one, so a `running` run — the case where the reason is
+  // most informative — lost it silently (codex review, round 5).
+  if (strOrNull(reason)) r.cancelReason = reason;
+  if (r.status === "running" || r.status === "cancelling") {
+    r.status = "cancelling";
+    r.cancelRequestedAt = strOrNull(at);
+    return r;
+  }
+  r.status = "cancelled";
+  r.endedAt = strOrNull(at);
+  return r;
+}
+
+/** The backend confirmed the process is gone. Only from `cancelling`: claiming
+ *  `cancelled` without that confirmation is exactly the pretence the contract
+ *  forbids (§5.4 rule 3). */
+export function confirmCancelled(reg, skillRunId, at) {
+  const r = findRun(reg, skillRunId);
+  if (!r || r.status !== "cancelling") return null;
+  r.status = "cancelled";
+  r.endedAt = strOrNull(at);
   return r;
 }
 
@@ -197,7 +374,7 @@ export function failRun(reg, skillRunId, kind, detail) {
  *  verdict, ADR-0054 决策 6). */
 export function reviewRun(reg, skillRunId, review) {
   const r = findRun(reg, skillRunId);
-  if (!r || r.status !== "proposed" || !isObj(review)) return null;
+  if (!r || !isPending(r) || !isObj(review)) return null;
   r.directorReview = {
     verdict: strOrNull(review.verdict),
     notes: Array.isArray(review.notes) ? review.notes.filter((n) => typeof n === "string" && n) : [],
@@ -211,9 +388,12 @@ export function reviewRun(reg, skillRunId, review) {
  *  touches canon, so an accept can never itself corrupt a document. */
 export function acceptRun(reg, skillRunId, at) {
   const r = findRun(reg, skillRunId);
-  if (!r || r.status !== "proposed") return null;
-  r.status = "accepted";
-  r.decision = "accepted";
+  if (!r || !isPending(r)) return null;
+  // The STATUS does not move: the execution already succeeded. What changes is
+  // the creator's disposition of the answer — which is the whole reason these
+  // are two fields now.
+  r.proposal.disposition = "accepted";
+  r.decision = "accepted"; // compatibility field, removed in TASK-074
   r.decidedAt = strOrNull(at);
   return r;
 }
@@ -223,11 +403,32 @@ export function acceptRun(reg, skillRunId, at) {
  *  leave only the flattering half of the history. */
 export function rejectRun(reg, skillRunId, at, reason) {
   const r = findRun(reg, skillRunId);
-  if (!r || r.status !== "proposed") return null;
-  r.status = "rejected";
-  r.decision = "rejected";
+  if (!r || !isPending(r)) return null;
+  r.proposal.disposition = "rejected";
+  r.decision = "rejected"; // compatibility field, removed in TASK-074
   r.decidedAt = strOrNull(at);
   if (strOrNull(reason)) r.rejectionReason = reason;
+  return r;
+}
+
+/**
+ * This proposal has been REPLACED by a newer answer for the same thing.
+ *
+ * Distinct from `rejected`: the creator did not judge it, it simply stopped
+ * being the current one. Recorded rather than deleted, so a later revision can
+ * still see what was offered and superseded.
+ *
+ * NOTHING calls this automatically in TASK-072 批次一, and that is deliberate:
+ * the panel shows every open proposal and lets the creator compare them, so
+ * auto-superseding would remove a real capability. It is here because the
+ * disposition set is frozen (ADR-0066 决策 8) and because TASK-073's proposal
+ * replacement is the caller it is waiting for.
+ */
+export function supersedeRun(reg, skillRunId, at) {
+  const r = findRun(reg, skillRunId);
+  if (!r || !isPending(r)) return null;
+  r.proposal.disposition = "superseded";
+  r.decidedAt = strOrNull(at);
   return r;
 }
 
@@ -246,10 +447,16 @@ export function skillStats(reg, skillId) {
   return {
     skillId,
     total: runs.length,
-    accepted: count("accepted"),
-    rejected: count("rejected"),
+    // read off the DISPOSITION axis now, not off `status` — the two questions
+    // finally have their own fields
+    accepted: runs.filter(isAccepted).length,
+    rejected: runs.filter(isRejected).length,
     failed: count("failed"),
-    pending: count("running") + count("proposed"),
+    // still open: either still executing, or waiting on the creator's decision
+    pending:
+      count("queued") + count("running") + count("awaiting_input")
+      + count("awaiting_confirmation") + count("cancelling")
+      + runs.filter(isPending).length,
     // deliberately NOT a "quality score": accept/reject counts are evidence a
     // human reads, not a number the system may act on by itself
   };

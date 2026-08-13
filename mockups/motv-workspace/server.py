@@ -33,6 +33,7 @@ Host-guarded, strict same-origin CSP. This backend is deliberately kept OUT of
 from __future__ import annotations
 
 import argparse
+import atexit
 import contextlib
 import hashlib
 import json
@@ -43,6 +44,7 @@ import shutil
 import signal
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -51,7 +53,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from rootadmit import RootRejected, admit_root
+# Sibling modules. This file is loaded BOTH as a script and by path (tests use
+# `spec_from_file_location`), and the second way does not put its directory on
+# `sys.path` — so it is stated here rather than being inherited from whoever
+# happened to import something else first.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import runstore  # noqa: E402 - needs the path line above
+from rootadmit import RootRejected, admit_root  # noqa: E402 - same
 
 MOCKUP_DIR = Path(__file__).resolve().parent
 REPO_ROOT = MOCKUP_DIR.parents[1]
@@ -471,69 +480,15 @@ _IMAGE_PROMPT_MAX = 1_500
 _IMAGE_LOG = DATA_DIR / "paid-image-log.jsonl"
 
 
-def _run_claude(prompt: str, timeout: int = 180) -> str:
-    """Run the locally authenticated Claude Code CLI headless and return stdout.
-
-    Argument-array invocation (no shell). Output is BOUNDED AT THE SOURCE: stdout
-    and stderr are merged into one pipe and read up to a hard byte cap; the moment
-    the cap is exceeded the child is killed, so a runaway or malicious CLI can
-    never grow output without bound in memory OR on disk (an earlier temp-file
-    approach still let the child fill the disk before the read cap applied). A
-    watchdog timer enforces ``timeout`` by killing the child, surfaced to the
-    caller as ``TimeoutExpired``. The CLI's own login session carries the
-    credential — this app never sees a key.
-
-    Tools are DISABLED (empty available set): the prompt embeds untrusted,
-    user-authored script text, so a crafted script could otherwise instruct the
-    locally-authenticated CLI to read/exfiltrate local data. With no tools
-    available the agent can only emit text — this app's agent use is draft-domain
-    only (ADR-0042), so it never needs tool access. This is the primary control;
-    the prompt-level "treat as data" framing is defense in depth.
-    """
-    cap = _CLAUDE_OUTPUT_CAP
-    # Resolve the CLI on PATH rather than invoking it by bare name: on Windows
-    # the Claude Code CLI is `claude.cmd`, which CreateProcess (shell=False) does
-    # NOT resolve from a bare "claude" — shutil.which honors PATHEXT and returns
-    # the full path (ADR-0049). Absent CLI raises FileNotFoundError (caller maps
-    # it to a fail-closed error), same as before.
-    import shutil as _shutil
-
-    claude_exe = _shutil.which("claude")
-    if claude_exe is None:
-        raise FileNotFoundError("claude CLI not found on PATH")
-    # FileNotFoundError here (claude absent) propagates unchanged to the caller.
-    proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
-        [claude_exe, "-p", prompt, "--tools", ""],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,  # merge: one bounded stream, no drain deadlock
-        cwd=str(MOCKUP_DIR),  # neutral cwd: no repo project context
-    )
-    timed_out = False
-
-    def _on_timeout() -> None:
-        nonlocal timed_out
-        timed_out = True
-        proc.kill()
-
-    timer = threading.Timer(timeout, _on_timeout)
-    timer.start()
-    try:
-        # Reads at most cap+1 bytes then stops — never buffers more than the cap
-        # anywhere, regardless of how much the child tries to emit.
-        out = proc.stdout.read(cap + 1)
-    finally:
-        timer.cancel()
-        proc.kill()  # no-op if already exited; stops it emitting once cap is hit
-        proc.stdout.close()
-        proc.wait()
-    if timed_out:
-        raise subprocess.TimeoutExpired(["claude", "-p"], timeout)
-    text = out[:cap].decode("utf-8", "replace")
-    if len(out) > cap:
-        raise OSError("claude output exceeded size cap")
-    if proc.returncode != 0:
-        raise OSError(f"claude exited {proc.returncode}: {text.strip()[:300]}")
-    return text
+# `_run_claude` REMOVED (TASK-072 §1.8 / ADR-0065 决策 1).
+#
+# It was the second way to start an AI process: a hard-wired `claude` spawn with
+# no executor choice, no manual fallback, no concurrency cap, no Skill Run and no
+# provenance. Everything that used it now goes through the Runtime layer
+# (`_run_executor`) and the Run registry, so there is exactly ONE path again.
+#
+# Deleted rather than left unused: a dormant second launcher is an invitation to
+# call it, and the whole point of this change is that it cannot be called.
 
 
 # --- Local AI Runtime (CP3 / ADR-0056) -------------------------------------
@@ -578,7 +533,7 @@ _EXECUTORS: dict[str, dict] = {
         "bin": "claude",
         "launcher_env": "MOTV_RUNTIME_CLAUDE_LAUNCHER",
         "bin_env": "MOTV_RUNTIME_CLAUDE_BIN",
-        # --tools "" disables every tool (same control as ADR-0042's _run_claude).
+        # --tools "" disables every tool (the ADR-0042 control, now the only one).
         # `-p` with no inline argument reads the prompt from stdin — see the
         # stdin note below for why the prompt never travels on argv.
         "args": ["-p", "--tools", ""],
@@ -636,7 +591,10 @@ _SKILL_RUN_HEADER = "X-Motv-Runtime"
 _PROBE_TTL_SECONDS = 30.0
 _PROBE_CACHE: dict[str, tuple[float, dict]] = {}
 _PROBE_LOCK = threading.Lock()
-_SKILL_RUN_SLOTS = threading.BoundedSemaphore(_SKILL_RUN_MAX_CONCURRENT)
+# The concurrency cap lives in the Run registry now (`RunStore.max_concurrent`),
+# so that the synchronous route, the async route and the agent endpoints all draw
+# from ONE pool. A second semaphore here would let mixed traffic run twice the
+# configured number of local CLIs (codex review, round 11).
 
 
 def _fs_readers_allowed() -> bool:
@@ -747,12 +705,19 @@ def _executor_argv(name: str) -> tuple[list[str] | None, str]:
     return [exe, *spec["args"]], "path"
 
 
-def _run_executor(name: str, prompt: str, timeout: int) -> tuple[str, str | None]:
+def _run_executor(
+    name: str, prompt: str, timeout: int, on_spawn=None
+) -> tuple[str, str | None]:
     """Run one executor on a prompt and return (text, model).
 
     Raises FileNotFoundError (unavailable), subprocess.TimeoutExpired (timeout)
     or OSError (execution error) — three distinct failures, because the creator's
     next action differs for each and collapsing them hides which one happened.
+
+    ``on_spawn(proc)`` is handed the live Popen the moment it exists, so the Run
+    registry can terminate a real process TREE on cancel or shutdown. It is a
+    callback rather than a return value because the process must be reachable
+    while this function is still blocked reading its output (TASK-072 §1.3).
     """
     argv, _why = _executor_argv(name)
     if argv is None:
@@ -767,6 +732,11 @@ def _run_executor(name: str, prompt: str, timeout: int) -> tuple[str, str | None
     # is not neutral — a prompt-injected executor whose cwd is the repo can read
     # and echo back source, which is exactly the exfiltration the tool-free
     # posture exists to prevent. An empty folder has nothing to read.
+    # Create the job BEFORE the first child of the process, on EVERY path that
+    # spawns one. Hanging it off the Run registry's construction missed the
+    # synchronous `/api/skill/run`, which spawns without ever touching the
+    # registry — and job membership is not retroactive (codex review, round 10).
+    _windows_job()
     workdir = tempfile.mkdtemp(prefix="motv-skill-")
     try:
         proc = subprocess.Popen(  # noqa: S603 - argv array, no shell
@@ -775,7 +745,17 @@ def _run_executor(name: str, prompt: str, timeout: int) -> tuple[str, str | None
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,  # one bounded stream, no drain deadlock
             cwd=workdir,
-            # POSIX: own session, so _kill_tree can signal the whole group
+            # POSIX: own session, so _kill_tree can signal the whole group.
+            #
+            # NOT `preexec_fn` (codex review, round 2). A `preexec_fn` runs
+            # Python — including imports — in the forked child of a MULTITHREADED
+            # server, where locks inherited from other threads can be held by
+            # threads that do not exist after the fork. That deadlocks between
+            # fork and exec, and a hung `Popen` would stall the run and every
+            # queued run behind it. An occasional orphan on a `kill -9`ed Linux
+            # backend is a far smaller problem than a spawn path that can hang,
+            # and — unlike a deadlock — it is one we REPORT rather than hide
+            # (`childExitVerified: false`, contract §5.9a).
             **({} if os.name == "nt" else {"start_new_session": True}),
         )
     except OSError:
@@ -783,6 +763,28 @@ def _run_executor(name: str, prompt: str, timeout: int) -> tuple[str, str | None
         # temp folder is ours and must not be left behind on every retry
         shutil.rmtree(workdir, ignore_errors=True)
         raise
+    # Register BEFORE the first blocking read: a cancel that arrives while we are
+    # waiting on stdout must still find something to kill. Registration also puts
+    # the child in the shutdown guard where that is possible; where it is NOT,
+    # the return value says so rather than letting us assume protection.
+    proc.motv_kill_on_close = _guard_child(proc)
+    if os.name != "nt":
+        # Captured NOW, while the child is certainly alive: after it is reaped
+        # `os.getpgid` raises and the whole group becomes unreachable.
+        try:
+            proc.motv_pgid = os.getpgid(proc.pid)
+        except OSError:
+            # `start_new_session=True` makes the child its own session AND group
+            # leader, so its pgid IS its pid. Falling back to that keeps the
+            # group reachable even when the leader exited before this lookup —
+            # which is precisely the case where descendants are left behind
+            # (codex review, round 9). `None` would have made them unkillable.
+            proc.motv_pgid = proc.pid
+    if on_spawn is not None:
+        try:
+            on_spawn(proc)
+        except Exception:  # noqa: BLE001 - bookkeeping must not kill the run
+            pass
     timed_out = False
 
     def _on_timeout() -> None:
@@ -805,10 +807,21 @@ def _run_executor(name: str, prompt: str, timeout: int) -> tuple[str, str | None
     finally:
         timer.cancel()
         # stops the child emitting once the cap is hit, and reaches a launcher's
-        # forwarded grandchild the same way the timeout path does
-        _kill_tree(proc)
+        # forwarded grandchild the same way the timeout path does.
+        #
+        # This is ALSO the only reap: `_kill_tree` waits and marks the process
+        # under `_REAP_LOCK`, so cleanup never frees the pid behind a concurrent
+        # cancel's back (codex review, round 19).
+        tree_gone = _kill_tree(proc)
         proc.stdout.close()
-        proc.wait()
+        # Registered only while a later kill could still DO something. Once the
+        # direct child is reaped no future attempt can signal it, so holding the
+        # record would just accumulate dead `Popen` objects for the life of the
+        # server (codex review, round 22) — while discarding an unconfirmed,
+        # still-reachable tree would hide it from shutdown (round 21).
+        if tree_gone or getattr(proc, "motv_tree_reaped", False):
+            with _JOB_LOCK:
+                _LIVE_CHILDREN.discard(proc)
         shutil.rmtree(workdir, ignore_errors=True)
     if timed_out:
         raise subprocess.TimeoutExpired(argv[:1], timeout)
@@ -828,7 +841,254 @@ def _run_executor(name: str, prompt: str, timeout: int) -> tuple[str, str | None
     return text, None
 
 
-def _kill_tree(proc: subprocess.Popen) -> None:
+# --- shutdown guard: children must not outlive this process ----------------- #
+#
+# The cheapest way to guarantee "no orphans after a restart" is to make orphans
+# IMPOSSIBLE, rather than to hunt them down afterwards (contract §5.9a):
+#
+#   Windows  a Job Object with KILL_ON_JOB_CLOSE — when this process dies, for
+#            ANY reason including a hard kill, the whole job dies with it;
+#   POSIX    the exit hook signals each child's process group.
+#
+# THE POSIX GUARANTEE IS WEAKER, and saying so is the point. `atexit` covers only
+# an orderly exit; `start_new_session` gives the child its own group (so `killpg`
+# can target the tree without hitting us) but does NOT make it die with us. A
+# `kill -9` of a Linux backend can therefore orphan an executor tree.
+#
+# We do NOT close that gap with `PR_SET_PDEATHSIG`, because the only way to set
+# it is a `preexec_fn`, which runs Python in the forked child of a multithreaded
+# server and can deadlock on inherited locks before `exec` (codex review round 2).
+# A spawn path that can hang is worse than an orphan we honestly report. Closing
+# it properly needs a cgroup or PID namespace, which is out of scope here.
+#
+# The residual gap is therefore RECORDED, not papered over: the sweep reports
+# `childExitVerified: false` rather than claiming the child is gone.
+#
+# The sweep deliberately kills NOTHING: a pid from a previous process may have
+# been reused by an unrelated program, and killing on a stale pid is the one
+# operation here that could hurt something innocent.
+_JOB_HANDLE = None
+#: Whether THIS process is in the job. When it is, every descendant inherits
+#: membership from birth and there is no assignment race; when it is not, each
+#: child must be assigned individually and a fast launcher can outrun us.
+_JOB_INHERITED = False
+_JOB_LOCK = threading.Lock()
+_LIVE_CHILDREN: set[subprocess.Popen] = set()
+#: Set once shutdown starts. A worker already inside `_run_executor` can spawn
+#: AFTER the children have been snapshotted and killed, and on POSIX that child
+#: escapes the only cleanup there is (codex review, round 9). Registration checks
+#: this flag and kills such a latecomer immediately.
+_SHUTTING_DOWN = threading.Event()
+#: Serialises "is this process still ours to signal?" with the reap that answers
+#: it. Without it, cleanup can reap the child (freeing its pid) between the guard
+#: check and the `taskkill`/`killpg`, and the signal lands on whatever inherited
+#: that number (codex review, round 20).
+_REAP_LOCK = threading.RLock()
+
+
+def _kernel32():
+    """kernel32 with the signatures DECLARED (codex review, round 3).
+
+    ctypes defaults every return value to C `int`. A Win64 `HANDLE` is a 64-bit
+    pointer, so the default TRUNCATES it: `CreateJobObjectW` and `OpenProcess`
+    hand back a mangled handle, the assignment fails, and the backend silently
+    loses the kill-on-close guarantee it believes it has. Declaring the types is
+    what makes the guarantee real rather than probable.
+    """
+    import ctypes  # noqa: PLC0415 - Windows-only path
+    from ctypes import wintypes  # noqa: PLC0415
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
+    k32.CreateJobObjectW.restype = wintypes.HANDLE
+    k32.SetInformationJobObject.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+    ]
+    k32.SetInformationJobObject.restype = wintypes.BOOL
+    k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k32.OpenProcess.restype = wintypes.HANDLE
+    k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    k32.AssignProcessToJobObject.restype = wintypes.BOOL
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    k32.CloseHandle.restype = wintypes.BOOL
+    k32.GetCurrentProcess.argtypes = []
+    k32.GetCurrentProcess.restype = wintypes.HANDLE
+    k32.IsProcessInJob.argtypes = [
+        wintypes.HANDLE,
+        wintypes.HANDLE,
+        ctypes.POINTER(wintypes.BOOL),
+    ]
+    k32.IsProcessInJob.restype = wintypes.BOOL
+    return k32
+
+
+def _windows_job():
+    """A kill-on-close Job Object, or None when it cannot be created."""
+    global _JOB_HANDLE
+    if os.name != "nt":
+        return None
+    with _JOB_LOCK:
+        if _JOB_HANDLE is not None:
+            return _JOB_HANDLE or None
+        try:
+            import ctypes  # noqa: PLC0415 - Windows-only path
+            from ctypes import wintypes  # noqa: PLC0415
+
+            k32 = _kernel32()
+            job = k32.CreateJobObjectW(None, None)
+            if not job:
+                _JOB_HANDLE = False
+                return None
+
+            class _LIMIT(ctypes.Structure):
+                _fields_ = [
+                    ("PerProcessUserTimeLimit", ctypes.c_int64),
+                    ("PerJobUserTimeLimit", ctypes.c_int64),
+                    ("LimitFlags", wintypes.DWORD),
+                    ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t),
+                    ("ActiveProcessLimit", wintypes.DWORD),
+                    ("Affinity", ctypes.POINTER(ctypes.c_ulong)),
+                    ("PriorityClass", wintypes.DWORD),
+                    ("SchedulingClass", wintypes.DWORD),
+                ]
+
+            class _IO(ctypes.Structure):
+                _fields_ = [
+                    ("ReadOperationCount", ctypes.c_uint64),
+                    ("WriteOperationCount", ctypes.c_uint64),
+                    ("OtherOperationCount", ctypes.c_uint64),
+                    ("ReadTransferCount", ctypes.c_uint64),
+                    ("WriteTransferCount", ctypes.c_uint64),
+                    ("OtherTransferCount", ctypes.c_uint64),
+                ]
+
+            class _EXT(ctypes.Structure):
+                _fields_ = [
+                    ("BasicLimitInformation", _LIMIT),
+                    ("IoInfo", _IO),
+                    ("ProcessMemoryLimit", ctypes.c_size_t),
+                    ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                    ("PeakJobMemoryUsed", ctypes.c_size_t),
+                ]
+
+            info = _EXT()
+            info.BasicLimitInformation.LimitFlags = 0x2000  # KILL_ON_JOB_CLOSE
+            if not k32.SetInformationJobObject(
+                job, 9, ctypes.byref(info), ctypes.sizeof(info)
+            ):
+                _JOB_HANDLE = False
+                return None
+            # PUT THIS PROCESS IN THE JOB. Job membership is INHERITED, so every
+            # descendant — including one a fast launcher spawns before we could
+            # have assigned it ourselves — is in the job from the instant it
+            # exists. Assigning each child after `Popen` returns leaves exactly
+            # that race open (codex review, round 6).
+            #
+            # Killing the job therefore also kills this process, which is the
+            # correct semantic: the job closes when the backend's last handle
+            # goes away, i.e. when the backend is already gone.
+            # CHECK IT. If this process could not join the job, membership is
+            # not inherited, and publishing the job as active would claim a
+            # protection that does not exist (codex review, round 10). The job is
+            # still kept — per-child assignment remains a real (if racier)
+            # mechanism — but `_JOB_INHERITED` records which one we actually have,
+            # and `_guard_child` reports the truth per child.
+            global _JOB_INHERITED
+            _JOB_INHERITED = bool(
+                k32.AssignProcessToJobObject(job, k32.GetCurrentProcess())
+            )
+            _JOB_HANDLE = job
+            return job
+        except Exception:  # noqa: BLE001 - no job object is a degraded, honest mode
+            _JOB_HANDLE = False
+            return None
+
+
+def _guard_child(proc: subprocess.Popen) -> bool:
+    """Put a freshly spawned child under the shutdown guard.
+
+    Returns whether the KILL-ON-CLOSE guarantee is actually in force for this
+    child. A failed job assignment used to be swallowed, which left the backend
+    claiming shutdown protection it did not have (codex review, round 2) — and
+    that claim is exactly what the honesty rules in §5.9a are about.
+    """
+    with _JOB_LOCK:
+        _LIVE_CHILDREN.add(proc)
+    if _SHUTTING_DOWN.is_set():
+        # It was spawned after the shutdown sweep. Kill it here, where we still
+        # have the handle, rather than leaving it to a sweep that already ran.
+        _kill_tree(proc)
+        return False
+    if os.name != "nt":
+        return False  # POSIX: only the exit hook, and it does not survive SIGKILL
+    job = _windows_job()
+    if not job:
+        return False
+    if _JOB_INHERITED:
+        # It was in the job from birth; nothing to assign and no race to lose.
+        return True
+    # The child is ALREADY in the job by inheritance (this process is in it), so
+    # this call is a confirmation rather than the mechanism. It is kept because
+    # an explicit success is what lets the caller distinguish "protected" from
+    # "we hope so", and a nested-job refusal shows up here rather than silently.
+    try:
+        k32 = _kernel32()  # signatures declared: a Win64 HANDLE is not an int
+        handle = k32.OpenProcess(0x001F0FFF, False, proc.pid)
+        if not handle:
+            return False
+        try:
+            if k32.AssignProcessToJobObject(job, handle):
+                return True
+            # The assignment failed — ASK whether it is in our job rather than
+            # inferring it from the error code. `ERROR_ACCESS_DENIED` also comes
+            # back when the process belongs to a DIFFERENT, non-breakaway job, and
+            # treating that as success would report protection we do not have
+            # (codex review, round 8).
+            import ctypes  # noqa: PLC0415 - Windows-only path
+            from ctypes import wintypes  # noqa: PLC0415
+
+            inside = wintypes.BOOL()
+            if k32.IsProcessInJob(handle, job, ctypes.byref(inside)):
+                return bool(inside.value)
+            return False
+        finally:
+            k32.CloseHandle(handle)
+    except Exception:  # noqa: BLE001 - the exit hook remains as the fallback
+        return False
+
+
+def _kill_all_children() -> None:
+    """Exit hook: terminate every child we started, tree and all.
+
+    Runs BEFORE the Run records are finalised (see `_RUNS.close`): writing the
+    records first and then dying mid-shutdown would leave "record says finished,
+    process still running" — a lying journal plus a process still consuming
+    subscription capacity.
+    """
+    _SHUTTING_DOWN.set()
+    # Sweep REPEATEDLY: a worker that was mid-`Popen` when the flag went up may
+    # register right after a pass. `_guard_child` also kills latecomers itself,
+    # so this converges immediately in practice.
+    for _ in range(3):
+        with _JOB_LOCK:
+            children = list(_LIVE_CHILDREN)
+            _LIVE_CHILDREN.clear()
+        if not children:
+            break
+        for proc in children:
+            # No `poll()` gate (codex review, round 18): the direct child exiting
+            # is precisely when its descendants are the thing still running, and
+            # on POSIX the captured process group is how they are reached.
+            # `_kill_tree` has its own tried-once guard.
+            _kill_tree(proc)
+
+
+def _kill_tree(proc: subprocess.Popen) -> bool:
     """Kill the executor AND everything it spawned.
 
     `proc.kill()` only reaches the process we launched. The documented WSL
@@ -840,25 +1100,112 @@ def _kill_tree(proc: subprocess.Popen) -> None:
     own session (``start_new_session``) so the whole group can be signalled at
     once. Both paths are best-effort — a kill that fails must not mask the
     timeout the caller is already reporting.
+
+    THE GROUP ID IS THE ONE CAPTURED AT SPAWN (codex review, round 7). Deriving
+    it here with `os.getpgid(proc.pid)` fails once the leader has been reaped —
+    and that is exactly the case that matters: the leader exits, its descendants
+    do not, `getpgid` raises, the error is swallowed, and the grandchildren
+    (the real CLI behind a wsl/node bridge) live on. A pgid recorded while the
+    child was definitely alive stays usable afterwards.
     """
+    # NEVER SIGNAL A PID WE HAVE ALREADY REAPED. Once `Popen` has collected the
+    # exit status the number is free, and `taskkill /T /F` on it can terminate
+    # something completely unrelated (codex review, round 16) — the very hazard
+    # §5.9a bans for the restart sweep, reached here by a different road because
+    # shutdown calls this twice (`_kill_all_children`, then `RunStore.close`).
+    #
+    # The first call's verdict is remembered on the object, so the second call
+    # neither re-kills nor downgrades a confirmed kill to "unverified".
+    # A CONFIRMED kill is remembered forever: there is nothing left to signal,
+    # and re-running would risk a reaped pid.
+    if getattr(proc, "motv_tree_killed", False) is True:
+        return True
+    _REAP_LOCK.acquire()
+    held = True
+    # A FAILED one is not (codex review, round 18). Caching the failure made
+    # every later cancel attempt return immediately without retrying, so a
+    # transient failure left the run permanently `cancelling` with descendants
+    # possibly alive. Retry is allowed while the process is still ours to
+    # signal, and refused once `Popen` has reaped it — after that the pid may
+    # belong to something else entirely (§5.9a).
+    if getattr(proc, "motv_tree_reaped", False):
+        _REAP_LOCK.release()
+        return False
+    tree_killed = False
     try:
         if os.name == "nt":
             taskkill = shutil.which("taskkill")
             if taskkill:
-                subprocess.run(  # noqa: S603 - fixed argv, no shell
+                done = subprocess.run(  # noqa: S603 - fixed argv, no shell
                     [taskkill, "/T", "/F", "/PID", str(proc.pid)],
                     capture_output=True,
                     timeout=15,
                     check=False,
                 )
+                # ONLY rc 0 counts (codex review, round 12). rc 128 is "no such
+                # process" — which happens when the direct child has already
+                # exited, and that is precisely the case where taskkill could
+                # NOT walk its tree: any descendant has been re-parented and is
+                # still running. Reading 128 as success turned "we could not
+                # check" into a durable `childExitVerified: true`.
+                #
+                # A process that finished normally therefore reports UNVERIFIED
+                # here, which is the honest answer: nobody looked at its
+                # descendants. Only the cancel and shutdown paths consult this
+                # verdict, and there the child is alive, so taskkill returns 0.
+                tree_killed = done.returncode == 0
         else:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-    except (OSError, subprocess.SubprocessError, ProcessLookupError):
+            pgid = getattr(proc, "motv_pgid", None)
+            if pgid is None:
+                pgid = os.getpgid(proc.pid)
+            os.killpg(pgid, signal.SIGKILL)
+            tree_killed = True
+    except ProcessLookupError:
+        tree_killed = True  # the whole group is already gone
+    except (OSError, subprocess.SubprocessError):
         pass
     try:
         proc.kill()  # the direct child, in case the tree kill did not reach it
     except OSError:
         pass
+    # DID IT ACTUALLY DIE? The kill paths above swallow their own errors on
+    # purpose (a failed kill must not mask the timeout the caller is already
+    # reporting), so "no exception" proves nothing. The caller needs a real
+    # answer, because it writes `childExitVerified` into a durable record
+    # (codex review, round 9).
+    try:
+        proc.wait(timeout=5)
+    except (subprocess.TimeoutExpired, OSError):
+        if held:
+            _REAP_LOCK.release()
+        return False  # still alive: a later attempt may still succeed
+    # From here the direct child has been reaped, so its pid must not be
+    # signalled again by a later attempt.
+    proc.motv_tree_reaped = True
+    if held:
+        _REAP_LOCK.release()
+        held = False
+    if not tree_killed:
+        # The direct child is gone but the TREE kill did not report success, so
+        # a grandchild (the real CLI behind a wsl/node bridge) may still be
+        # running. Verifying only `proc` and returning True here was how a
+        # partially-failed termination became a durable `childExitVerified: true`
+        # (codex review, round 11).
+        return False
+    if os.name != "nt":
+        # …and on POSIX we can actually CHECK the group rather than trust it.
+        pgid = getattr(proc, "motv_pgid", None) or proc.pid
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            proc.motv_tree_killed = True
+            return True  # nothing left in the group
+        except OSError:
+            proc.motv_tree_killed = True
+            return True  # not ours to signal any more
+        return False  # something in the group is still alive
+    proc.motv_tree_killed = True
+    return True
 
 
 def _looks_unauthenticated(blob: str) -> bool:
@@ -941,6 +1288,400 @@ def _probe_executor(name: str) -> dict:
         "detail": "已安装（登录状态需一次真实运行才能确认）",
         "version": proc.stdout.strip()[:120],
     }
+
+
+# --- the Run registry (TASK-072 批次一 / contract §5.0–§5.9) ----------------- #
+#
+# ONE registry for every long task. `runstore` owns the state machine, the queue,
+# persistence and the cancel protocol and knows nothing about HTTP; this file owns
+# the only thing it must not know — how to actually start and kill a process.
+#
+# WHERE IT LIVES (contract §5.5): beside `projects.json`, because it is the same
+# CLASS of thing — account-level, cross-project, not source. It moves to the app
+# data directory together with `projects.json` under TASK-056; it deliberately
+# does NOT go into a project folder, because the restart sweep has to finish
+# before any project is opened, and because project-less legacy runs exist.
+_RUNS_PATH = DATA_DIR / "runs.json"
+
+#: Which capability each legacy `/api/agent/*` creative endpoint IS. A STABLE
+#: MACHINE KEY (contract §5.3) — deliberately not the user-facing task name,
+#: which changes with copy and language. `skill.episode-plan` has no catalog
+#: entry yet on purpose: the key is decoupled from that undecided design choice
+#: (contract §5.9b), so TASK-073 can settle it without renaming history.
+_AGENT_TASK_TYPES = {
+    "story-develop": "skill.story-development",
+    "episode-plan": "skill.episode-plan",
+    "script-draft": "skill.script-writer",
+    "shots-draft": "skill.storyboard-director",
+    "bible-breakdown": "skill.script-breakdown",
+}
+
+#: Preference order when the caller names no executor. Creative work goes to
+#: Claude Code; codex is NEVER defaulted into the creative seat (ADR-0065 决策 3).
+_CREATIVE_EXECUTOR_ORDER = ("claude-code",)
+
+#: Opt-in header for the async contract. A header rather than a new URL, so the
+#: five legacy endpoints keep BOTH their path and their response shape for every
+#: caller that has not migrated (contract §5.9c).
+_ASYNC_HEADER = "X-Motv-Async"
+
+
+def _str(value, default, prefix=""):
+    """A non-empty string, optionally namespaced — else the default."""
+    if isinstance(value, str) and value.strip():
+        return f"{prefix}{value.strip()}" if prefix else value.strip()
+    return default
+
+
+def _run_view(run: dict) -> dict:
+    """What a caller is told about a Run.
+
+    `queuePosition` is present but DERIVED (contract §5.6) — the store computes
+    it on read, because a stored position is wrong the moment another run ends.
+    """
+    return {
+        "run_id": run["runId"],
+        "status": run["status"],
+        "queuePosition": run.get("queuePosition"),
+        "kind": run.get("kind"),
+        "taskType": run.get("taskType"),
+        "projectId": run.get("projectId"),
+        "executor": run.get("executor"),
+        "provider": run.get("provider"),
+        "model": run.get("model"),
+        "progress": run.get("progress"),
+        "cost": run.get("cost"),
+        "sideEffect": run.get("sideEffect"),
+        "outputs": run.get("outputs"),
+        "startedAt": run.get("startedAt"),
+        "endedAt": run.get("endedAt"),
+        "createdAt": run.get("createdAt"),
+        "failureReason": run.get("failureReason"),
+        "cancelFailure": run.get("cancelFailure"),
+        "cancelNote": run.get("cancelNote"),
+        "confirmation": run.get("confirmation"),
+        "retryOfRunId": run.get("retryOfRunId"),
+        "note": run.get("note"),
+    }
+
+
+#: Run fields the BACKEND owns (contract §5.5). The canvas may carry a snapshot
+#: of them for offline display, but it is never their source of truth.
+#: Canvas-side terminal states. Reconciliation never moves a record out of one.
+_CANVAS_TERMINAL_STATUSES = frozenset({"cancelled", "succeeded", "failed"})
+
+_RUN_LIFECYCLE_FIELDS = (
+    "status",
+    "progress",
+    "startedAt",
+    "endedAt",
+    "failureReason",
+    "cost",
+    "sideEffect",
+    "outputs",
+    "queueSeq",
+)
+
+
+def _reconcile_skill_runs(payload: dict, project: str | None = None) -> None:
+    """Stop a canvas save from overwriting live Run progress.
+
+    The page holds the state it LAST READ, while the task kept moving — so a
+    perfectly ordinary save would write `running 60%` back to `running 20%`, or
+    resurrect a finished run as `running`.
+
+    The fix is ownership, not conflict detection: for any run the backend knows,
+    its lifecycle fields are taken from the registry and the client's copy is
+    dropped. Note what does NOT happen — the PUT is not REFUSED. The page was
+    never the owner of these fields, and rejecting a legitimate canvas save would
+    turn an ownership question into the user's problem (contract §5.5 rule 1).
+
+    A run the backend does not know (local/demo mode, a purely front-end manual
+    run) is left completely alone: there, the canvas IS the only truth.
+    """
+    store = None
+    if _RUNS is not None:
+        store = _RUNS
+    elif _RUNS_PATH.exists():
+        # A journal exists but nothing has touched the registry yet. Initialising
+        # it HERE is what runs the restart sweep; returning early let the first
+        # canvas save after a restart write stale lifecycle state back and skip
+        # the sweep entirely (codex review, round 8).
+        store = runs()
+    if store is None:
+        return  # no registry and no journal: the document is the only record
+    records = payload.get("skillRuns")
+    if not isinstance(records, list):
+        return
+    for rec in records:
+        if not isinstance(rec, dict):
+            continue
+        run_id = rec.get("runId") or rec.get("skillRunId")
+        if not isinstance(run_id, str) or not run_id:
+            continue
+        try:
+            # SCOPED TO THE CANVAS'S OWN PROJECT. Looking the id up globally
+            # would let a canvas that names another project's run id pull that
+            # project's lifecycle fields — INCLUDING `outputs` — straight into
+            # this document. Cross-project isolation is not only a read-API rule
+            # (contract §5.5); it has to hold on every path that copies data.
+            authoritative = store.get(run_id, project=project)
+        except runstore.RunStoreError:
+            continue  # not ours (or not this project's) -> not ours to correct
+        for field in _RUN_LIFECYCLE_FIELDS:
+            if (
+                field == "status"
+                and rec.get("status") in _CANVAS_TERMINAL_STATUSES
+                and authoritative.get("executor") == "manual"
+            ):
+                # A terminal canvas state stands ONLY for a run the front end
+                # owns — a manual one, which the creator can settle by abandoning
+                # it (codex review, round 13). For anything a local executor is
+                # running, the backend is the authority (contract §5.5): honouring
+                # a client-supplied terminal state there would let a save report
+                # 「已取消」 while the executor keeps running and keeps spending
+                # (codex review, round 14).
+                continue
+            if field == "status":
+                # THE CANVAS HAS ITS OWN INVARIANT, and reconciliation must not
+                # push a record into a state that breaks it (codex review round 5).
+                #
+                # v15 requires `succeeded` to carry a proposal and the other
+                # terminal states to carry none. The proposal is the FRONT END's
+                # to write — it lands when the page reads `outputs` — so copying
+                # a backend `succeeded` onto a record that has no proposal yet
+                # would produce a document the validator rejects, i.e. a canvas
+                # that can no longer be saved.
+                #
+                # The status is simply left for the page to advance. Everything
+                # else (progress, outputs, timings, cost…) is copied regardless,
+                # so nothing is lost — only the transition waits for its other half.
+                nxt = authoritative.get("status")
+                has_proposal = rec.get("proposal") is not None
+                if nxt == "succeeded" and not has_proposal:
+                    continue
+                if nxt in ("failed", "cancelled") and has_proposal:
+                    continue
+                rec[field] = nxt
+            elif field in authoritative:
+                rec[field] = authoritative[field]
+
+
+def _await_run(run_id: str, timeout: float = _SKILL_TIMEOUT_MAX + 60):
+    """Block until a Run settles. Used ONLY by the synchronous compatibility
+    path — the async path never waits.
+
+    THE DEADLINE DOES NOT INCLUDE QUEUE TIME (codex review, round 2). A fixed
+    wall-clock budget measured from submit means that with enough full-length
+    runs ahead, the caller gets a 502 while its run is still queued — and then
+    the run executes anyway. That is the worst of both: a reported failure AND
+    the work happening, which for a paid kind is a charge nobody expects.
+
+    So the clock starts when the run actually starts. Time spent waiting for a
+    slot is not time the executor was given.
+    """
+    started = None
+    while True:
+        run = runs().get(run_id)
+        if run["status"] in runstore.TERMINAL_STATUSES:
+            return run
+        if run["status"] == "running" and started is None:
+            started = time.monotonic()
+        if started is not None and time.monotonic() - started > timeout:
+            return run
+        time.sleep(0.05)
+
+
+#: Failure category -> the HTTP status the five legacy endpoints have always
+#: returned for it. Preserved exactly: the compatibility promise is about the
+#: RESPONSE CONTRACT, not about the code path behind it.
+_AGENT_STATUS_BY_CATEGORY = {
+    "unavailable": (503, "agent_unavailable"),
+    "unauthenticated": (503, "agent_unavailable"),
+    "timeout": (504, "agent_timeout"),
+    "invalid_output": (502, "agent_bad_output"),
+    "execution_error": (502, "agent_failed"),
+}
+
+
+def _agent_sync_response(run: dict, key: str):
+    """Render a settled Run in the pre-TASK-072 response shape."""
+    if run["status"] == "succeeded":
+        outputs = run.get("outputs") or {}
+        executor = run.get("executor")
+        body = {
+            key: outputs.get(key),
+            "draft": True,
+            # `source` KEEPS ITS ESTABLISHED VALUE for the case that used to be
+            # the only case. These endpoints always ran `claude -p`, so a caller
+            # that compares or displays that string must keep seeing it — the
+            # compatibility promise is additive-only, and silently changing an
+            # existing value is not an addition (codex review, round 1).
+            #
+            # When some OTHER executor actually answered, the old string would be
+            # a lie, so the real one is reported instead. `executor` below is the
+            # precise field; `source` is the legacy one.
+            "source": "claude -p" if executor == "claude-code" else executor,
+            # additive, so an un-migrated caller ignores them harmlessly
+            "run_id": run["runId"],
+            "executor": executor,
+            "model": run.get("model"),
+        }
+        return _json(200, body)
+    if run["status"] == "cancelled":
+        return _json(
+            409,
+            {
+                "error": {
+                    "category": "cancelled",
+                    "detail": "这次运行已被取消",
+                    "run_id": run["runId"],
+                }
+            },
+        )
+    reason = run.get("failureReason") or {}
+    status, category = _AGENT_STATUS_BY_CATEGORY.get(
+        reason.get("category"), (502, "agent_failed")
+    )
+    detail = reason.get("detail") or "运行失败"
+    error = {"category": category, "detail": detail, "run_id": run["runId"]}
+    # `raw_excerpt` is an EXISTING field of the bad-output response and callers
+    # show it to the creator — dropping it would take away the only clue about
+    # what the model actually said (codex review, round 1). The runner packs the
+    # excerpt after a separator; it is split back out here rather than being left
+    # buried in `detail`.
+    if category == "agent_bad_output" and _EXCERPT_SEP in detail:
+        error["detail"], _, error["raw_excerpt"] = detail.partition(_EXCERPT_SEP)
+    return _json(status, {"error": error})
+
+
+def _resolve_creative_executor(requested):
+    """Which executor runs a creative task, or (None, reason).
+
+    An explicit choice always wins (ADR-0056 决策 1). Otherwise the first
+    RUNNABLE local one; `manual` is never auto-selected because it would silently
+    turn "run this" into "here is a prompt, go do it yourself" — that has to be
+    the creator's decision, and it is offered as a fallback instead.
+    """
+    if isinstance(requested, str) and requested:
+        if not runstore.is_valid_executor(requested):
+            return None, f"unknown executor {requested}"
+        return requested, "explicit"
+    for name in _CREATIVE_EXECUTOR_ORDER:
+        argv, why = _executor_argv(name)
+        if argv is not None:
+            return name, why
+    # Nobody is available. Report the REAL reason for the preferred executor
+    # rather than a generic "unavailable" — "not on PATH, set X" is actionable.
+    _argv, why = _executor_argv(_CREATIVE_EXECUTOR_ORDER[0])
+    return None, why
+
+
+#: Separates the human reason from the bounded raw excerpt inside a single
+#: failure detail string, so `_agent_sync_response` can restore the legacy
+#: `error.raw_excerpt` field the endpoints have always returned.
+_EXCERPT_SEP = "｜原始输出片段："
+
+
+class _BadAgentOutput(ValueError):
+    """The executor answered, but not in the shape the contract requires.
+
+    Its own type so the registry can classify it as `invalid_output` — "the model
+    said something unusable" and "the process crashed" call for different next
+    actions from the creator (fix/retry the prompt vs. fix the environment).
+
+    The marker (rather than the type) is what the registry classifies on: an
+    incidental ValueError from anywhere else in the runner must NOT be relabelled
+    as bad model output, nor have its message forwarded.
+    """
+
+    motv_invalid_output = True
+
+
+def _execute_run(run: dict, on_spawn, is_cancelled):
+    """Execute one Run on a local executor. Injected into the registry.
+
+    Returns ``(outputs, model)`` or raises — the registry turns both into a
+    record. The prompt lives in `params` because it is an INPUT to this run, not
+    a piece of durable canon.
+    """
+    params = run.get("params") or {}
+    prompt = params.get("prompt") or ""
+    timeout = params.get("timeout") or _SKILL_TIMEOUT_DEFAULT
+    executor = run.get("executor")
+    text, model = _run_executor(executor, prompt, timeout, on_spawn=on_spawn)
+    parser = _AGENT_PARSERS.get(run.get("taskType"))
+    if parser is None:
+        return {"text": text}, model
+    # The async and the sync response carry the SAME key for the same thing
+    # (contract §5.9c rule 2): one thing under two names is the next parse bug.
+    key, fn = parser
+    try:
+        value = fn(text)
+    except ValueError as exc:
+        # A non-conforming answer is a FAILURE, never a partially-kept result.
+        # The bounded excerpt travels with it because "it didn't parse" without
+        # a sample of what came back is not actionable.
+        raise _BadAgentOutput(f"{exc}{_EXCERPT_SEP}{text[:600]}") from exc
+    return {key: value, "draft": True, "source": executor}, model
+
+
+def _terminate_run(proc) -> bool:
+    """How the registry kills something. The whole TREE, not the direct child:
+    the documented WSL bridge is wsl.exe -> node -> CLI, so killing the bridge
+    leaves the CLI running and still consuming subscription capacity.
+
+    Returns whether the process was CONFIRMED gone — the registry records that
+    verdict, so a guess would become a durable false claim.
+    """
+    return bool(proc is not None and _kill_tree(proc))
+
+
+_RUNS: runstore.RunStore | None = None
+_RUNS_INIT_LOCK = threading.Lock()
+
+
+def runs() -> runstore.RunStore:
+    """The process-wide registry, created on first use.
+
+    Lazy so that importing this module (which the test suite does a lot) does not
+    write a journal file as a side effect of the import itself.
+    """
+    global _RUNS
+    if _RUNS is None:
+        with _RUNS_INIT_LOCK:
+            if _RUNS is None:
+                # Create the job BEFORE anything can be spawned. Job membership
+                # is inherited but NOT retroactive: a job created after the first
+                # `Popen` never covers the descendants that launcher already made
+                # (codex review, round 8).
+                _windows_job()
+                _RUNS = runstore.RunStore(
+                    _RUNS_PATH,
+                    max_concurrent=_SKILL_RUN_MAX_CONCURRENT,
+                    runner=_execute_run,
+                    terminator=_terminate_run,
+                )
+    return _RUNS
+
+
+def _shutdown_runs() -> None:
+    """Stop accepting, THEN kill, THEN finalise the records (contract §5.9a).
+
+    The first step is not optional (codex review, round 6): killing the current
+    snapshot of children while the queue is still being pumped lets a worker that
+    finishes in between start the NEXT queued run — and that brand-new child was
+    never in the snapshot, so it outlives the backend. Close the intake first and
+    there is nothing left to start.
+    """
+    if _RUNS is not None:
+        _RUNS.stop_accepting()
+    _kill_all_children()
+    if _RUNS is not None:
+        _RUNS.close()
+
+
+atexit.register(_shutdown_runs)
 
 
 def _parse_shots(text: str) -> list[dict]:
@@ -1123,6 +1864,26 @@ def _parse_script_text(text: str) -> str:
     if len(out) > _SCRIPT_DRAFT_MAX:
         raise ValueError("agent output exceeds script size cap")
     return out
+
+
+# taskType -> (response key, strict parser). Defined here, after the parsers, and
+# consulted by `_execute_run` at call time.
+#
+# THE KEY IS THE SAME on both paths (contract §5.9c rule 2): the synchronous
+# response says `{"shots": …}` and `GET /api/runs/<id>.outputs` says `{"shots": …}`.
+# Two names for one thing is how the next parsing bug gets written.
+#: Product keys whose contract IS free text rather than a structure. Only these
+#: may be submitted manually without going through a parser — everything else is
+#: a JSON shape and is validated as one (codex review, round 19).
+_TEXT_PRODUCT_KEYS = frozenset({"script"})
+
+_AGENT_PARSERS = {
+    "skill.storyboard-director": ("shots", _parse_shots),
+    "skill.script-breakdown": ("breakdown", _parse_bible_breakdown),
+    "skill.story-development": ("outline", _parse_story_outline),
+    "skill.episode-plan": ("episodes", _parse_episode_plan),
+    "skill.script-writer": ("script", _parse_script_text),
+}
 
 
 def _host_is_loopback(host_header):
@@ -1312,6 +2073,20 @@ class _App:
                     }
                 },
             )
+        if path == "/api/runs" or path.startswith("/api/runs/"):
+            # Same custom-header guard as the rest of the runtime surface: these
+            # routes report on (and can cancel) real local processes.
+            if (headers or {}).get(_SKILL_RUN_HEADER) != "1":
+                return _json(
+                    403,
+                    {
+                        "error": {
+                            "category": "forbidden",
+                            "detail": f"{_SKILL_RUN_HEADER}: 1 required",
+                        }
+                    },
+                )
+            return self._runs_get(raw_path)
         if path == "/api/fs/default":
             return _json(
                 200,
@@ -1411,14 +2186,26 @@ class _App:
                 return _migration_required_json()
         if path == "/api/skill/run":
             return self._skill_run(body, headers)
+        if path.startswith("/api/runs/"):
+            if (headers or {}).get(_SKILL_RUN_HEADER) != "1":
+                return _json(
+                    403,
+                    {
+                        "error": {
+                            "category": "forbidden",
+                            "detail": f"{_SKILL_RUN_HEADER}: 1 required",
+                        }
+                    },
+                )
+            return self._runs_post(raw_path, body)
         if path == "/api/agent/shots-draft":
-            return self._agent_shots_draft(body)
+            return self._agent_shots_draft(body, headers)
         if path == "/api/agent/bible-breakdown":
-            return self._agent_bible_breakdown(body)
+            return self._agent_bible_breakdown(body, headers)
         if path == "/api/agent/story-develop":
-            return self._agent_story_develop(body)
+            return self._agent_story_develop(body, headers)
         if path == "/api/agent/episode-plan":
-            return self._agent_episode_plan(body)
+            return self._agent_episode_plan(body, headers)
         if path == "/api/agent/render-episode":
             return self._agent_render_episode(body)
         if path == "/api/agent/mix-shot":
@@ -1426,7 +2213,7 @@ class _App:
         if path == "/api/assets/delete-file":
             return self._assets_delete_file(body)
         if path == "/api/agent/script-draft":
-            return self._agent_script_draft(body)
+            return self._agent_script_draft(body, headers)
         if path == "/api/agent/tts":
             return self._agent_tts(body)
         if path == "/api/agent/compose":
@@ -1723,9 +2510,47 @@ class _App:
             # instantly and report a timeout for a request that asked for half
             # a second — a valid ask turned into an immediate failure.
             timeout = max(1, min(int(raw_timeout), _SKILL_TIMEOUT_MAX))
-        # One local CLI per slot. A caller that finds every slot busy is told so
-        # immediately rather than being parked in an invisible queue.
-        if not _SKILL_RUN_SLOTS.acquire(blocking=False):
+        # --- ASYNC path (contract §5.9c): identity now, result later --------- #
+        #
+        # Opt-in by header so the synchronous contract every current caller
+        # depends on is untouched. Over the cap this QUEUES instead of 429-ing:
+        # the caller already holds a `run_id`, so waiting costs it nothing.
+        if (headers or {}).get(_ASYNC_HEADER) == "1":
+            try:
+                run = runs().create(
+                    kind="skill",
+                    task_type=_str(
+                        payload.get("skillId"), "skill.unknown", prefix="skill."
+                    ),
+                    executor=name,
+                    project_id=payload.get("project"),
+                    legacy_no_project=not isinstance(payload.get("project"), str)
+                    or not payload.get("project"),
+                    skill_id=payload.get("skillId"),
+                    command_id=payload.get("commandId"),
+                    idempotency_key=payload.get("idempotencyKey"),
+                    retry_of_run_id=payload.get("retryOfRunId"),
+                    context=payload.get("context"),
+                    params={"prompt": prompt, "timeout": timeout},
+                    provider="local_subscription",
+                )
+            except runstore.RunStoreError as exc:
+                return _json(
+                    400,
+                    {"error": {"category": exc.category, "detail": exc.detail}},
+                )
+            return _json(202, _run_view(run))
+        # --- SYNC path: unchanged, including the 429 ------------------------- #
+        #
+        # One local CLI per slot. A synchronous caller that finds every slot busy
+        # is told so IMMEDIATELY rather than having its connection held open:
+        # parking it would be the opposite promise from "returns right away", and
+        # the caller has no run_id to come back to. Queueing belongs to the async
+        # path (TASK-072 §1.3 rule 2).
+        # ONE pool, shared with the async path and the agent endpoints. A
+        # separate semaphore here let mixed traffic run twice the configured
+        # number of executors (codex review, round 11).
+        if not runs().try_acquire_slot():
             return _json(
                 429,
                 {
@@ -1777,10 +2602,308 @@ class _App:
         finally:
             # released on EVERY path, including the exception returns above —
             # a leaked slot would permanently shrink the runtime's capacity
-            _SKILL_RUN_SLOTS.release()
+            runs().release_slot()
         return _json(200, {"ok": True, "text": text, "model": model})
 
-    def _agent_shots_draft(self, body: bytes):
+    # -- Run registry API (TASK-072 §1.3) ----------------------------------- #
+
+    def _runs_get(self, raw_path: str):
+        """GET /api/runs?project=… and GET /api/runs/<run_id>?project=…
+
+        `project` is REQUIRED on the list route. "No project means everything" is
+        precisely the path that lets another project's runs appear on this
+        project's board (contract §5.5), so it is refused rather than defaulted.
+        """
+        path = urlsplit(raw_path).path
+        params = parse_qs(urlsplit(raw_path).query)
+        project = (params.get("project") or [None])[0]
+        rest = path[len("/api/runs") :].strip("/")
+        if not rest:
+            # The legacy, project-less runs. ⚙ diagnostics only — they belong to
+            # no project, so they appear on no project page.
+            #
+            # A SEPARATE PARAMETER, not a magic project name (codex review round
+            # 2): `_valid_project_name` would happily accept a project literally
+            # called `__unowned__`, and then that project's ordinary run-list
+            # request would return every project-less run in the backend.
+            # A sentinel that a user can type is not a sentinel.
+            if (params.get("scope") or [None])[0] == "unowned":
+                unowned = runs().list_unowned()
+                return _json(200, {"runs": [_run_view(r) for r in unowned]})
+            if not project:
+                return _json(
+                    400,
+                    {
+                        "error": {
+                            "category": "bad_request",
+                            "detail": "project is required — 运行列表必须按项目隔离",
+                        }
+                    },
+                )
+            status = (params.get("status") or [None])[0]
+            task_type = (params.get("taskType") or [None])[0]
+            found = runs().list(project=project, status=status, task_type=task_type)
+            return _json(200, {"runs": [_run_view(r) for r in found]})
+        try:
+            run = runs().get(unquote(rest), project=project)
+        except runstore.RunNotFound:
+            # 404 even when it exists but belongs elsewhere: 403 would confirm
+            # the id is real, which is itself the leak.
+            return _json(
+                404, {"error": {"category": "not_found", "detail": "unknown run"}}
+            )
+        return _json(200, _run_view(run))
+
+    def _manual_outputs(self, run_id: str, outputs: dict, project):
+        """Validate a manual answer and return the NORMALISED outputs, or an
+        error response.
+
+        The parser's return value is what gets stored (codex review, round 9).
+        Keeping the raw submission meant valid JSON handed over as a *string*
+        was accepted and then persisted as a string, where every consumer
+        expects the parsed object — a durable result nothing can read.
+        """
+        """Hold a manual answer to the SAME output contract as a local one.
+
+        A pasted result that does not carry the task's product key would be
+        stored as a durable `succeeded` and then break every consumer that goes
+        looking for `outline` / `shots` / … (codex review, round 6). The local
+        path fails closed on a non-conforming answer; the manual path is the same
+        capability run somewhere else, so it fails closed the same way — that is
+        the whole promise of the fallback (ADR-0065 决策 2: 「走同一道输出契约」).
+        """
+        try:
+            run = runs().get(run_id, project=project)
+        except runstore.RunStoreError:
+            return outputs, None  # the caller's own lookup will report it
+        parser = _AGENT_PARSERS.get(run.get("taskType"))
+        if parser is None:
+            return outputs, None  # no declared product shape for this task type
+        key, fn = parser
+        value = outputs.get(key)
+        if value in (None, "", [], {}):
+            return outputs, _json(
+                400,
+                {
+                    "error": {
+                        "category": "bad_request",
+                        "detail": (
+                            f"这个任务的产物键是「{key}」，提交的内容里没有它"
+                            "（或者是空的）——手工结果走的是同一道输出契约"
+                        ),
+                    }
+                },
+            )
+        # …and the VALUE goes through the SAME parser the local path uses
+        # (codex review, round 7). Checking only that the key is non-empty let
+        # `{"shots": 1}` become a durable `succeeded`, which every consumer then
+        # chokes on. 「走同一道输出契约」 (ADR-0065 决策 2) means the same
+        # validation, not a similar one.
+        #
+        # EXCEPT for a TEXT product (codex review, round 18). `_parse_script_text`
+        # exists to pull a script out of a MODEL'S REPLY — it requires the
+        # `<剧本输出>` wrapper that only a model emits. A creator submitting the
+        # advertised product (`{"script": "…"}`) has no wrapper to give, so
+        # running that parser rejected exactly the correct submission. For a text
+        # product the contract IS the text, and it is checked as such.
+        # …and ONLY for a key whose product really is text (codex review, round
+        # 19). Exempting every string let a string-valued `outline` or `shots`
+        # skip its parser entirely and be stored as a durable `succeeded`.
+        if key in _TEXT_PRODUCT_KEYS and isinstance(value, str):
+            text = value.strip()
+            if not text:
+                # stripped FIRST: a whitespace-only submission passed the
+                # emptiness check above and became an empty successful result
+                return outputs, _json(
+                    400,
+                    {
+                        "error": {
+                            "category": "bad_request",
+                            "detail": f"产物「{key}」是空白内容",
+                        }
+                    },
+                )
+            if len(text) > _SCRIPT_DRAFT_MAX:
+                return outputs, _json(
+                    400,
+                    {
+                        "error": {
+                            "category": "too_large",
+                            "detail": f"产物超过 {_SCRIPT_DRAFT_MAX} 字上限",
+                        }
+                    },
+                )
+            return {**outputs, key: text}, None
+        try:
+            as_text = json.dumps(value, ensure_ascii=False)
+            normalised = fn(as_text)
+        except ValueError as exc:
+            return outputs, _json(
+                400,
+                {
+                    "error": {
+                        "category": "bad_request",
+                        "detail": f"产物不符合这个任务的输出契约：{exc}",
+                    }
+                },
+            )
+        return {**outputs, key: normalised}, None
+
+    def _runs_post(self, raw_path: str, body: bytes):
+        """POST /api/runs/<run_id>/{cancel,confirm,submit}."""
+        path = urlsplit(raw_path).path
+        rest = path[len("/api/runs/") :].strip("/")
+        run_id, _, action = rest.partition("/")
+        run_id = unquote(run_id)
+        payload = {}
+        if body:
+            try:
+                loaded = json.loads(body.decode("utf-8"))
+                payload = loaded if isinstance(loaded, dict) else {}
+            except (ValueError, UnicodeDecodeError):
+                return _json(
+                    400, {"error": {"category": "bad_json", "detail": "invalid JSON"}}
+                )
+        project = payload.get("project")
+        try:
+            if action == "cancel":
+                run = runs().cancel(run_id, project=project)
+            elif action == "confirm":
+                run = runs().confirm(
+                    run_id, project=project, digest=payload.get("digest")
+                )
+            elif action == "submit":
+                # The manual route home: an answer produced in an external tool
+                # comes back through the SAME contract as a local run.
+                #
+                # AN EMPTY SUBMISSION IS NOT A RESULT. Coercing a missing,
+                # falsey or non-object payload to `{}` turned a malformed request
+                # into a durable, permanent "success" carrying nothing (codex
+                # review, round 4) — the same fail-closed rule the local path
+                # applies to a model answer that does not parse.
+                outputs = payload.get("outputs")
+                if not isinstance(outputs, dict) or not outputs:
+                    return _json(
+                        400,
+                        {
+                            "error": {
+                                "category": "bad_request",
+                                "detail": "outputs 必须是一个非空对象——空提交不是结果",
+                            }
+                        },
+                    )
+                outputs, bad = self._manual_outputs(run_id, outputs, project)
+                if bad is not None:
+                    return bad
+                run = runs().submit_input(run_id, outputs, project=project)
+            else:
+                return _json(
+                    404,
+                    {
+                        "error": {
+                            "category": "not_found",
+                            "detail": "unknown run action",
+                        }
+                    },
+                )
+        except runstore.RunNotFound:
+            return _json(
+                404, {"error": {"category": "not_found", "detail": "unknown run"}}
+            )
+        except runstore.RunStoreError as exc:
+            return _json(
+                409, {"error": {"category": exc.category, "detail": exc.detail}}
+            )
+        return _json(200, _run_view(run))
+
+    def _creative_agent(self, slug: str, prompt: str, payload: dict, headers=None):
+        """The ONE execution path for the five legacy creative endpoints.
+
+        ADR-0065 决策 1 / TASK-072 §1.8: they no longer spawn `claude` themselves.
+        They now get, for free, everything the Runtime layer already had —
+        executor resolution, the concurrency cap, a real process-tree kill, and a
+        durable Run with provenance. `_run_claude` is gone; there is no second
+        way to start an AI process any more.
+
+        COMPATIBILITY (contract §5.9c): by default this stays SYNCHRONOUS and
+        returns the OLD response keys. `run_id` / `executor` / `model` are pure
+        additions, so a caller that has not migrated is unaffected. With
+        `X-Motv-Async: 1` it returns `202 {run_id}` and NO product keys — the
+        product arrives via `GET /api/runs/<id>`, under the same key.
+        """
+        task_type = _AGENT_TASK_TYPES[slug]
+        key, _parser = _AGENT_PARSERS[task_type]
+        project = payload.get("project")
+        has_project = isinstance(project, str) and bool(project)
+        requested = payload.get("executor")
+        executor, why = _resolve_creative_executor(requested)
+        # An EXPLICIT `manual` is the same situation as "no runtime available":
+        # the work is going to be done by a person, so there is nothing to wait
+        # for. Falling through would park the run in `awaiting_input` and then
+        # block the HTTP request on `_await_run` — which never times out for that
+        # state, so the request would hang forever (codex review, round 4).
+        if executor == "manual":
+            executor, why = None, "创作者选择了手工执行"
+        if executor is None:
+            # No runtime. This is NOT a dead end (ADR-0065 决策 2): the compiled
+            # prompt is handed back so the creator can run it in any external
+            # model and bring the answer to `/api/runs/<id>/submit`.
+            try:
+                run = runs().create(
+                    kind="skill",
+                    task_type=task_type,
+                    executor="manual",
+                    project_id=project if has_project else None,
+                    legacy_no_project=not has_project,
+                    params={"prompt": prompt},
+                    provider=None,
+                )
+                runs().await_input(run["runId"])
+            except runstore.RunStoreError as exc:
+                return _json(
+                    400, {"error": {"category": exc.category, "detail": exc.detail}}
+                )
+            return _json(
+                503,
+                {
+                    "error": {
+                        "category": "agent_unavailable",
+                        "detail": why,
+                        # the manual route, spelled out rather than implied
+                        "manual_fallback": {
+                            "run_id": run["runId"],
+                            "prompt": prompt,
+                            "submit": f"/api/runs/{run['runId']}/submit",
+                        },
+                    }
+                },
+            )
+        try:
+            run = runs().create(
+                kind="skill",
+                task_type=task_type,
+                executor=executor,
+                project_id=project if has_project else None,
+                legacy_no_project=not has_project,
+                command_id=payload.get("commandId"),
+                idempotency_key=payload.get("idempotencyKey"),
+                retry_of_run_id=payload.get("retryOfRunId"),
+                params={"prompt": prompt, "timeout": _SKILL_TIMEOUT_DEFAULT},
+                provider="local_subscription",
+            )
+        except runstore.RunStoreError as exc:
+            return _json(
+                400, {"error": {"category": exc.category, "detail": exc.detail}}
+            )
+        if (headers or {}).get(_ASYNC_HEADER) == "1":
+            return _json(202, _run_view(run))
+        # Synchronous compatibility: wait for THIS run to settle, then answer in
+        # the old shape. The work still went through the registry, so a refresh
+        # mid-flight can still recover it — which is the whole point.
+        settled = _await_run(run["runId"])
+        return _agent_sync_response(settled, key)
+
+    def _agent_shots_draft(self, body: bytes, headers=None):
         """Turn the user's canvas script into a structured shot-list DRAFT.
 
         Runs the locally authenticated Claude Code CLI headless
@@ -1829,54 +2952,9 @@ class _App:
             '可直接用作视频生成提示词）", "duration_seconds": 6}。'
             "duration_seconds 只能取 6 或 10。\n\n<剧本>\n" + script + "\n</剧本>"
         )
-        try:
-            out = _run_claude(prompt)
-        except FileNotFoundError:
-            return _json(
-                503,
-                {
-                    "error": {
-                        "category": "agent_unavailable",
-                        "detail": "claude CLI not found — install/login Claude Code",
-                    }
-                },
-            )
-        except subprocess.TimeoutExpired:
-            return _json(
-                504,
-                {
-                    "error": {
-                        "category": "agent_timeout",
-                        "detail": "claude -p timed out",
-                    }
-                },
-            )
-        except OSError as exc:
-            return _json(
-                502,
-                {
-                    "error": {
-                        "category": "agent_failed",
-                        "detail": f"unexpected {type(exc).__name__}",
-                    }
-                },
-            )
-        try:
-            shots = _parse_shots(out)
-        except ValueError as exc:
-            return _json(
-                502,
-                {
-                    "error": {
-                        "category": "agent_bad_output",
-                        "detail": str(exc),
-                        "raw_excerpt": out[:600],
-                    }
-                },
-            )
-        return _json(200, {"shots": shots, "draft": True, "source": "claude -p"})
+        return self._creative_agent("shots-draft", prompt, payload, headers)
 
-    def _agent_bible_breakdown(self, body: bytes):
+    def _agent_bible_breakdown(self, body: bytes, headers=None):
         """Script breakdown → Production Bible PROPOSALS (M8).
 
         Same posture as shots-draft (ADR-0042): local ``claude -p``, free,
@@ -1927,56 +3005,9 @@ class _App:
             "只提取剧本中真实出现的角色与场景地；状态只在剧情有明确阶段/环境变化时提出。"
             "\n\n<剧本>\n" + _data_embed(script) + "\n</剧本>"
         )
-        try:
-            out = _run_claude(prompt)
-        except FileNotFoundError:
-            return _json(
-                503,
-                {
-                    "error": {
-                        "category": "agent_unavailable",
-                        "detail": "claude CLI not found — install/login Claude Code",
-                    }
-                },
-            )
-        except subprocess.TimeoutExpired:
-            return _json(
-                504,
-                {
-                    "error": {
-                        "category": "agent_timeout",
-                        "detail": "claude -p timed out",
-                    }
-                },
-            )
-        except OSError as exc:
-            return _json(
-                502,
-                {
-                    "error": {
-                        "category": "agent_failed",
-                        "detail": f"unexpected {type(exc).__name__}",
-                    }
-                },
-            )
-        try:
-            breakdown = _parse_bible_breakdown(out)
-        except ValueError as exc:
-            return _json(
-                502,
-                {
-                    "error": {
-                        "category": "agent_bad_output",
-                        "detail": str(exc),
-                        "raw_excerpt": out[:600],
-                    }
-                },
-            )
-        return _json(
-            200, {"breakdown": breakdown, "draft": True, "source": "claude -p"}
-        )
+        return self._creative_agent("bible-breakdown", prompt, payload, headers)
 
-    def _agent_story_develop(self, body: bytes):
+    def _agent_story_develop(self, body: bytes, headers=None):
         """Idea (+ optional current outline + instruction) → Story-Outline
         PROPOSAL (M9). Same posture as the other agent endpoints (ADR-0042):
         local ``claude -p``, free, draft-domain, fail-closed, zero writes."""
@@ -2040,54 +3071,9 @@ class _App:
             + current_block
             + instruction_block
         )
-        try:
-            out = _run_claude(prompt)
-        except FileNotFoundError:
-            return _json(
-                503,
-                {
-                    "error": {
-                        "category": "agent_unavailable",
-                        "detail": "claude CLI not found — install/login Claude Code",
-                    }
-                },
-            )
-        except subprocess.TimeoutExpired:
-            return _json(
-                504,
-                {
-                    "error": {
-                        "category": "agent_timeout",
-                        "detail": "claude -p timed out",
-                    }
-                },
-            )
-        except OSError as exc:
-            return _json(
-                502,
-                {
-                    "error": {
-                        "category": "agent_failed",
-                        "detail": f"unexpected {type(exc).__name__}",
-                    }
-                },
-            )
-        try:
-            outline = _parse_story_outline(out)
-        except ValueError as exc:
-            return _json(
-                502,
-                {
-                    "error": {
-                        "category": "agent_bad_output",
-                        "detail": str(exc),
-                        "raw_excerpt": out[:600],
-                    }
-                },
-            )
-        return _json(200, {"outline": outline, "draft": True, "source": "claude -p"})
+        return self._creative_agent("story-develop", prompt, payload, headers)
 
-    def _agent_episode_plan(self, body: bytes):
+    def _agent_episode_plan(self, body: bytes, headers=None):
         """Approved Story Outline → Episode-Plan PROPOSAL (M9). Same agent
         posture: local ``claude -p``, fail-closed, zero writes."""
         if len(body) > 100_000:
@@ -2138,54 +3124,9 @@ class _App:
             + "\n</大纲>"
             + instruction_block
         )
-        try:
-            out = _run_claude(prompt)
-        except FileNotFoundError:
-            return _json(
-                503,
-                {
-                    "error": {
-                        "category": "agent_unavailable",
-                        "detail": "claude CLI not found — install/login Claude Code",
-                    }
-                },
-            )
-        except subprocess.TimeoutExpired:
-            return _json(
-                504,
-                {
-                    "error": {
-                        "category": "agent_timeout",
-                        "detail": "claude -p timed out",
-                    }
-                },
-            )
-        except OSError as exc:
-            return _json(
-                502,
-                {
-                    "error": {
-                        "category": "agent_failed",
-                        "detail": f"unexpected {type(exc).__name__}",
-                    }
-                },
-            )
-        try:
-            episodes = _parse_episode_plan(out)
-        except ValueError as exc:
-            return _json(
-                502,
-                {
-                    "error": {
-                        "category": "agent_bad_output",
-                        "detail": str(exc),
-                        "raw_excerpt": out[:600],
-                    }
-                },
-            )
-        return _json(200, {"episodes": episodes, "draft": True, "source": "claude -p"})
+        return self._creative_agent("episode-plan", prompt, payload, headers)
 
-    def _agent_script_draft(self, body: bytes):
+    def _agent_script_draft(self, body: bytes, headers=None):
         """Idea → Script (and Script + instruction → revised Script) DRAFTS.
 
         Two modes, decided by the payload:
@@ -2288,52 +3229,7 @@ class _App:
                 "标签外不要有任何其它文字、解释或 markdown 代码围栏。\n\n"
                 "<创意>\n" + _data_embed(idea.strip()) + "\n</创意>"
             )
-        try:
-            out = _run_claude(prompt)
-        except FileNotFoundError:
-            return _json(
-                503,
-                {
-                    "error": {
-                        "category": "agent_unavailable",
-                        "detail": "claude CLI not found — install/login Claude Code",
-                    }
-                },
-            )
-        except subprocess.TimeoutExpired:
-            return _json(
-                504,
-                {
-                    "error": {
-                        "category": "agent_timeout",
-                        "detail": "claude -p timed out",
-                    }
-                },
-            )
-        except OSError as exc:
-            return _json(
-                502,
-                {
-                    "error": {
-                        "category": "agent_failed",
-                        "detail": f"unexpected {type(exc).__name__}",
-                    }
-                },
-            )
-        try:
-            script = _parse_script_text(out)
-        except ValueError as exc:
-            return _json(
-                502,
-                {
-                    "error": {
-                        "category": "agent_bad_output",
-                        "detail": str(exc),
-                        "raw_excerpt": out[:600],
-                    }
-                },
-            )
-        return _json(200, {"script": script, "draft": True, "source": "claude -p"})
+        return self._creative_agent("script-draft", prompt, payload, headers)
 
     # -- local TTS draft voice-over (ADR-0043) ------------------------------
     def _agent_tts(self, body: bytes):
@@ -2966,6 +3862,9 @@ class _App:
                     }
                 },
             )
+        # A canvas save must never roll a running task backwards (contract §5.5),
+        # and must never import another project's results either.
+        _reconcile_skill_runs(payload, project=name)
         # Overwriting an unparseable existing save would destroy the only copy
         # of possibly-recoverable creator data — secure a backup first, and
         # refuse the write if the backup cannot be created.
