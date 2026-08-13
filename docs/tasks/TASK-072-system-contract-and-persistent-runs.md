@@ -4,12 +4,22 @@
 - 负责 Agent：单一实施 Agent（AGENTS.md 第 14 条）
 - 依据：[ADR-0066](../adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)、
   [创作者系统合同](../design/creator-system-contract.md)
-- 前置：**已满足** —— ADR-0066 Accepted（含撤销 ADR-0063 决策 4 / 5）；
-  ADR-0064 / ADR-0065 已收口转 Accepted；TASK-064～071 全部标记已验收
-- 实施基线：**`ae0a54a`**（唯一基线；它是混合提交，理由与代价见 ADR-0066 §0.2）
+- 前置：**已满足**
+  - ADR-0066 Accepted（含撤销 ADR-0063 决策 4 / 5）；ADR-0064 / ADR-0065 已收口转 Accepted；
+  - **TASK-064 / 065 / 066 / 067 / 069 / 070 / 071 已验收**（产品负责人 2026-08-13
+    随 ADR-0066 批准一并收口）；
+  - **[TASK-068](TASK-068-legacy-agent-endpoints-to-runtime.md) 并入本卡 §1.8，
+    不再单独实施** —— 它保留为该项的详细规格，不是一张待排期的卡。
+- **代码基线：`ae0a54a`**（唯一代码基线；它是混合提交，理由与代价见 ADR-0066 §0.2）
+- **合同基线：`870f043`**（两轮 docs-only 合同收口之后的当前权威；
+  实施以此为准，不以 `ae0a54a` 里的文档为准）
 - 提交纪律：**文档提交与业务代码提交分开**，**每个批次单独提交**（ADR-0066 §0.2，
   2026-08-13 校正，原为「每个交付项单独提交」）
 - 后续：[TASK-073](TASK-073-fixed-ia-and-contextual-agent.md)（前端 IA）依赖本卡的合同落地
+
+> **两个基线是两件事**，不要合并成一个：`ae0a54a` 说「代码从哪儿开始改」，
+> `870f043` 说「按哪一版合同改」。`ae0a54a` 里携带的那一版文档已经被两轮校正
+> 取代（ADR-0066 §6 / §6.1），照着它实施会实现掉已经被撤回的合同。
 
 ## 0. 本轮边界
 
@@ -105,6 +115,17 @@
    **不得永久停在 `running`**——那正是 TASK-067 补记 2 修过的那类僵死。
    **清扫跳过 `awaiting_input` / `awaiting_confirmation`**：它们的宿主是创作者，
    后端重启没有夺走它们的任何东西，打成 `failed` 才是丢失在途工作。
+
+   **但只改记录是不够的**（系统合同 §5.9a）：把 Run 标成 `failed` 而 CLI 还在跑，
+   得到的是一个说谎的记录加一个吃订阅额度的孤儿。本批次必须同时落地：
+   - **退出时先杀干净再改记录**（顺序不可交换）；
+   - **首选让子进程自己跟着死**：Windows Job Object + `KILL_ON_JOB_CLOSE`，
+     POSIX 新会话 + 退出钩子 `killpg`。这样 `kill -9` / 崩溃 / 断电之后也没有孤儿；
+   - **绝不凭旧 PID 盲杀**：PID 会被复用，那个号码现在可能是用户的浏览器。
+     Run 记 `{ pid, createdAt, sessionId/jobId, argv0 }`，
+     **三项同时匹配**才允许终止；对不上就**不杀**并如实记录；
+     拿不到进程创建时间的平台路径**一律不杀**；
+   - **无法确认残留是否退出 → `sideEffect = "unknown"`**，因此**禁止自动重试**。
 4. `render-episode` / `mix-shot` / `compose` / `tts` / `image-gen` 等长任务
    **共用同一套 run 语义**，不各造一套。全表（endpoint → kind → taskType → executor）
    见系统合同 §5.9b；本批次只落地表中标「一」的六个端点，其余**只登记不改造**。
@@ -118,7 +139,27 @@
 
 后端 `runs.json` 是运行生命周期的**唯一权威**；canvas 的 `skillRuns[]` 拥有创作者的
 决定与输入指纹。完整的所有权表、Canvas PUT 规则与并发规则见系统合同 §5.5。
-本批次必须落地的三条：
+
+**存储位置（冻结）**：`mockups/motv-workspace/data/runs.json`，与 `projects.json`
+**同址同类**（账户级、跨项目、非源码），并随 [TASK-056](TASK-056-app-storage-location.md)
+一起迁到应用数据目录。**不新增第三个存储位置**，也**不**放进 `<ProjectRoot>/studio/`
+（重启清扫要在任何项目被打开之前跑完；且存在没有项目的 Run）。理由全文见合同 §5.5。
+
+**项目归属与跨项目隔离（冻结）**：Run 增加 `projectId`。
+
+| 调用 | `projectId` |
+| --- | --- |
+| 旧 `/api/skill/run`（不带 project） | `null` + `origin: "legacy_no_project"`，**不属于任何项目** |
+| 新调用（异步路径、五个 `/api/agent/*`、一切生成 / 渲染 / 导出） | **必填**，缺失即 `400`，**不猜「当前项目」** |
+
+- `GET /api/runs` **必须带 `project=`**；**不带就返回全部是被禁止的**——
+  那正是让别的项目的运行混进当前项目页面的那条路径。
+- `projectId = null` 的 Run **不出现在任何项目页面**，只在 ⚙ 存储与诊断的
+  「无项目归属的运行」里可见。
+- `GET /api/runs/<run_id>` 与 `cancel` **都要校验归属**，不一致返回 **`404`**
+  （不是 403 —— 403 会泄露「这个 id 存在」）。
+
+本批次必须落地的三条（存储边界）：
 
 1. **`canvas_put` 忽略 `skillRuns[].<生命周期字段>`**（`status` / `progress` /
    `startedAt` / `endedAt` / `failureReason` / `cost` / `sideEffect` / `outputs` /
@@ -303,6 +344,10 @@ ADR-0066 Accepted
 | 4j | 一 | 长任务端点全表（§5.9b）与代码一致 | 守卫测试：路由表 ↔ `kind`/`taskType` 映射表逐行比对，缺一行即红 |
 | 4k | 一 | 异步响应**不含产物键**；`outputs` 用与同步响应相同的键 | 端点契约测试（五个端点 × 两种 header） |
 | 4l | 一 | `queuePosition` **不出现在持久化文件里** | `runs.json` 快照断言 + 派生值随其它运行结束而变化 |
+| 4m | 一 | **跨项目隔离**：`GET /api/runs` 不带 `project=` 被拒；A 项目的 Run 不出现在 B 项目；跨项目取 / 取消返回 **404** | 两项目并存的隔离守卫测试 |
+| 4n | 一 | `executor` 封闭枚举，**合同 §5.3 与 §5.9b 两张表逐行一致** | 表 ↔ 表比对测试，多一个少一个即红 |
+| 4o | 一 | **后端退出 / 重启后没有孤儿后代进程** | **真进程测试**：起父→子进程树 → 正常退出 **与** `kill -9` 两条路 → 按 `pid + 创建时间` 断言全部后代不存在 |
+| 4p | 一 | 无法确认残留退出时 `sideEffect === "unknown"`，且**没有任何自动重试路径** | 注入「确认不了」的清扫测试 |
 | 5 | 二 | 后端 500 时 UI 模型是 error 而不是 empty | 注入失败的守卫测试 |
 | 6 | 三 | 三层 Issue 的 category 互不相交 | 常量守卫测试 |
 | 7 | 三 | `ReviewDecision.by` 只能是 `user` | 领域守卫测试 |
@@ -325,6 +370,9 @@ ADR-0066 Accepted
 | 后端端点契约 | `tests/test_motv_runs_api_task072.py` | `/api/skill/run` 同步 / 异步两条路 · 五个 `/api/agent/*` 两种 header × 响应形状 · `/api/runs/<id>` · `/api/runs?filter=` · `/api/runs/<id>/cancel` · §5.9b 路由↔映射表逐行比对 |
 | 后端存储边界 | 同上 | §1.3a 三条：60% 快照回写 · `succeeded` 被写回 `running` · 本地模式仍可读 |
 | 取消真实子进程 | 同上（标记 slow） | 起一个真实可控的长进程 → 取消 → **进程表验证**整棵树消失；再起一个「杀不掉」的 → 停 `cancelling` + 真实原因 |
+| **退出 / 重启不留孤儿**（真进程） | `tests/test_motv_run_lifecycle_task072.py` | 起 **父→子** 两层进程树 → 记录全部后代 pid + **创建时间** → 分别测「正常退出」与「`kill -9`」→ 断言**全部后代不存在** → Run 落 `failed(backend_restarted)`，确认不了时 `sideEffect="unknown"`。**pid 存在性单独判断不够**：复用的 pid 会造成假阴性，恰好退出的无关进程会造成假阳性，必须核对创建时间 |
+| 跨项目隔离 | `tests/test_motv_runs_api_task072.py` | 两个项目各起一个 Run → 互相看不见；`GET /api/runs` 不带 `project=` 被拒；跨项目 GET / cancel 返回 **404** |
+| 封闭枚举一致性 | 同上 | 合同 §5.3 executor 枚举 ↔ §5.9b 端点表**逐行比对**，多一个少一个即红 |
 | 前端领域单测 | `mockups/motv-workspace/tests/runs.test.mjs` | `skillrun.js` 八态转换 · `disposition` 四态 · v14→v15 迁移（含 `running` 按 executor 两路分支）· canvasschema 校验器新旧 both-ways |
 | 前端既有单测更新 | `tests/skills.test.mjs` 等 | 状态枚举变更的连带更新 |
 

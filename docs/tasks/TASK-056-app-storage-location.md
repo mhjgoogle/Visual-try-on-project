@@ -11,10 +11,11 @@ ADR-0053 把创作域与媒体搬进了 `<ProjectRoot>\`，但还剩一处：
 
 ```
 mockups/motv-workspace/data/projects.json     # 已知项目 + 已确认的根
+mockups/motv-workspace/data/runs.json         # 运行注册表（TASK-072 批次一新增）
 ```
 
-它跨项目，所以放不进任何单个项目；它也不是源码。这是**应用级**数据，最终产品
-不应该一直把它写在仓库里。
+两者都跨项目，所以放不进任何单个项目；它们也不是源码。这是**应用级**数据，
+最终产品不应该一直把它写在仓库里。
 
 ## 目标
 
@@ -32,7 +33,11 @@ D:\MotvData\projects.json
 
 ## 范围（刻意做小）
 
-- 只搬 `projects.json`（含 `confirmedRoots`）。
+- 搬 `projects.json`（含 `confirmedRoots`）**与 `runs.json`**
+  （运行注册表，[TASK-072](TASK-072-system-contract-and-persistent-runs.md) 批次一新增）。
+  两者同类：跨项目、非源码、属于这台机器上的这个后端；
+  合同依据见[创作者系统合同](../design/creator-system-contract.md) §5.5。
+  **它们一起搬**——把应用级数据分散到两个位置，正是本卡要消除的东西。
 - 位置可配置：命令行参数 / 环境变量二选一，默认 `%LOCALAPPDATA%\motv\`
   （POSIX 上用 `$XDG_DATA_HOME` 或 `~/.local/share/motv/`）。
 - 旧位置**只读回退 + 一次性显式迁移**，与 ADR-0053 的 legacy 处理同构：

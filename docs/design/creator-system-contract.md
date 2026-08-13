@@ -340,6 +340,7 @@ run.proposal.disposition   pending | accepted | rejected | superseded
 | --- | --- |
 | `runId` | 后端签发；**长任务立即返回它**。v15 起等于历史 `skillRunId`（§5.0） |
 | `kind` | `skill` / `image-gen` / `video-gen` / `tts` / `ffmpeg` / `render` / `export` |
+| `projectId` | 这次运行属于哪个项目。`null` **只**对兼容层的无项目调用合法（§5.5） |
 | `taskType` | **稳定机器标识**（如 `skill.story-development` / `generation.image`）。**不是** `taskName`，不随文案与语言变化 |
 | `queueSeq` | 单调递增整数，入队时分配。**排队位置由它派生，不持久化**（§5.6）|
 | `commandId` | 触发这次运行的 Command（ADR-0033 Envelope）；无 Command 触发时 `null` |
@@ -350,7 +351,7 @@ run.proposal.disposition   pending | accepted | rejected | superseded
 | `context` | `{ episodeId, sceneId, shotId }`（ADR-0059 身份契约，不变） |
 | `skillId` / `skillVersion` *(skill)* | 能力与版本 |
 | `provider` / `model` | 真实探测结果；未知即 `null`，**不猜** |
-| `executor` | claude-code / codex-cli / manual |
+| `executor` | **封闭枚举**（见下）：`claude-code` · `codex-cli` · `manual` · `local-piper` · `local-ffmpeg` · `provider:<providerId>` |
 | `inputs` / `inputVersions` | 输入及**输入版本**（`contextTrace`，ADR-0064 决策 2） |
 | `params` | 参数 |
 | `outputs` / `outputVersions` | 输出及**输出版本** |
@@ -360,6 +361,27 @@ run.proposal.disposition   pending | accepted | rejected | superseded
 | `failureReason` | 失败原因（分类 + 可读说明） |
 | `confirmation` | 用户确认记录：`{ by, at, kind, digest }` |
 | `proposal` | `{ proposalId, disposition, payload }` |
+
+#### `executor` 的封闭枚举（冻结）
+
+| 值 | 是什么 | 用在哪些 `kind` |
+| --- | --- | --- |
+| `claude-code` | 本地订阅 Claude Code CLI | `skill` |
+| `codex-cli` | 本地订阅 Codex CLI（审阅位；fail-closed，见 ADR-0065 决策 5） | `skill` |
+| `manual` | **人工**：创作者在外部工具里跑，把结果交回来 → `awaiting_input` | 任意 `kind` |
+| `local-piper` | 本机 Piper TTS（离线、免费） | `tts` |
+| `local-ffmpeg` | 本机 FFmpeg（混音 / 合成 / 渲染 / 导出） | `ffmpeg` · `render` · `export` |
+| `provider:<providerId>` | 外部付费 Provider，`providerId` 是目录里的稳定 id（如 `provider:minimax`） | `image-gen` · `video-gen` |
+
+三条规则：
+
+1. **这是封闭集合。** 新增执行器必须同时改这张表和 §5.9b 的端点表；
+   两张表**必须完全一致**，由守卫测试逐行比对（TASK-072 §4 第 4j 条）。
+2. **`manual` 横跨全部 `kind`**，因为手工兜底是产品级要求（IA §6.4），
+   不是某一类任务的特权。它永远可用，因此在 `suggestExecutor` 里永远是最后一名。
+3. **`provider:` 前缀是有意义的**：它把「本机跑的」和「花钱跑的」在**类型层面**
+   分开。一个 `provider:` 执行器意味着可能产生外部副作用，因此 §5.8 的
+   `sideEffect` 判定对它是必需的，对本机执行器则恒为 `none` / `applied`。
 
 ### 5.4 四条硬要求
 
@@ -385,11 +407,56 @@ run.proposal.disposition   pending | accepted | rejected | superseded
 #### 权威在后端
 
 ```
-后端  runs.json                ← 运行生命周期的唯一权威
+后端  <应用数据目录>/runs.json   ← 运行生命周期的唯一权威
        （单一写入者：运行注册表模块；原子替换；进程内单锁）
-canvas <project>/studio/canvas.json  skillRuns[]
+canvas <ProjectRoot>/studio/canvas.json  skillRuns[]
        ← 创作者的决定与运行的输入指纹；生命周期字段只是 SNAPSHOT
 ```
+
+#### `runs.json` 放在哪（冻结）
+
+**与 `projects.json` 同址、同类**：今天是 `mockups/motv-workspace/data/runs.json`，
+并**随 [TASK-056](../tasks/TASK-056-app-storage-location.md) 一起**迁到应用数据目录
+（Windows `%LOCALAPPDATA%\motv\`，POSIX `$XDG_DATA_HOME` / `~/.local/share/motv/`）。
+**不新增第三个存储位置。**
+
+为什么**不**放进 `<ProjectRoot>/studio/`：
+
+1. **重启清扫必须在任何项目被打开之前跑完**（§5.4 第 4 条）。放进项目目录，
+   清扫就得先枚举所有项目根才能开始——而「有哪些项目」本身来自 `projects.json`，
+   于是启动路径多了一层它不需要的依赖。
+2. **存在没有项目的 Run**：旧 `/api/skill/run` 不带 project（ADR-0056 决策 2 刻意
+   如此：没有路径跨越 runtime 边界）。它们放不进任何一个项目目录。
+3. **ADR-0053 不冲突**：该 ADR 把 `data/` 降为**项目画布与媒体**的只读 legacy，
+   同时明确把**账户级**的 `projects.json` 留在原处并归 TASK-056。
+   `runs.json` 是同一类东西——跨项目、非源码、属于这台机器上的这个后端。
+4. 放进项目目录还要各自带一次迁移，正是 ADR-0053 警告过的**半迁移**状态。
+
+**`outputs` 是投递缓冲，不是归档**：异步产物在这里停留到被消费，或到达保留上限
+（条数 / 时长）后清除。归档在 canvas 与项目媒体里——运行注册表不得变成第二份内容库。
+
+#### Run 的项目归属与跨项目隔离（冻结）
+
+Run 增加 **`projectId`**。它可以是 `null`，而 `null` 是一个**真实的值**，不是缺省：
+
+| 调用 | `projectId` | 说明 |
+| --- | --- | --- |
+| 旧 `/api/skill/run`（不带 project） | **`null`** | 兼容层。同时记 `origin: "legacy_no_project"`，它**不属于任何项目** |
+| 新调用（异步路径、五个 `/api/agent/*`、一切生成 / 渲染 / 导出） | **必填** | 缺失即 `400`，**不猜「当前项目」**——后端没有「当前项目」这个概念，猜出来的归属会把运行记到别人账上 |
+
+隔离规则（四条，缺一不可）：
+
+1. **`GET /api/runs` 必须带 `project=`**，只返回该项目的 Run。
+   **不带 project 就返回全部是被禁止的**——那正是让别的项目的运行混进当前项目页面
+   的那条路径。
+2. **`projectId = null` 的 Run 不出现在任何项目页面**。它们只在
+   ⚙ 项目设置 · 存储与诊断的「无项目归属的运行」里可见，并标明它们来自兼容层。
+3. **`GET /api/runs/<run_id>` 必须校验归属**：调用方声明的 project 与 Run 的
+   `projectId` 不一致 → **`404`**，不是 `403`。403 会告诉调用方「这个 id 存在」，
+   而它本来就不该知道别的项目有哪些运行。
+4. **取消同样校验归属**：不能取消别的项目的运行。
+
+看板、镜头制作、生成记录读到的运行集合，因此**永远只有本项目的**。
 
 | 字段 | 权威方 | 另一方的副本算什么 |
 | --- | --- | --- |
@@ -511,6 +578,76 @@ Windows 走 `taskkill /T /F`，POSIX 走进程组信号（子进程以 `start_ne
 **唯一的仲裁者是状态机，不是时序**：状态迁移在注册表模块的同一把锁内完成，
 终态一旦写下不再改写。
 
+### 5.9a 后端退出与重启合同（冻结，2026-08-13 补）
+
+§5.4 第 4 条只说了**记录**该变成什么。那不够：把一条 Run 标成 `failed` 而实际的
+CLI 还在跑，得到的是**一个说谎的记录加一个吃着订阅额度的孤儿进程**——比什么都不做
+更糟，因为看板会说这里已经没有任务了。
+
+#### 退出时：先杀干净，再改记录
+
+后端**正常退出**（Ctrl-C / SIGTERM / 服务停止）必须：
+
+1. 拒绝新的运行受理；
+2. **主动终止自己启动的每一棵进程树**（同 §5.9 的树终止方式）；
+3. 确认退出后，才把受影响的 Run 落到终态并落盘。
+
+顺序不可交换：先改记录再杀进程，中途崩溃就留下「记录已终态、进程仍在跑」的分叉。
+
+#### 首选机制：让子进程**自己**跟着死
+
+最可靠的清理不是退出时去杀，而是让残留**不可能存在**：
+
+| 平台 | 机制 |
+| --- | --- |
+| Windows | **Job Object + `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`**：后端进程消失，整个 job 里的进程一并终止 |
+| POSIX | 子进程以 `start_new_session` 起在自己的进程组；退出钩子 `killpg` 整组 |
+
+有了它，**后端被 `kill -9`、崩溃、断电重启之后也不会有孤儿**，重启清扫面对的是一张
+干净的桌子。退出钩子是第二道防线，不是唯一一道。
+
+#### 绝不凭旧 PID 盲杀
+
+重启后**不得**读出上次记录的 pid 直接 `taskkill` / `kill`。**PID 会被复用**：
+那个号码现在可能是编辑器、是数据库、是用户的浏览器。凭一个隔了一次重启的 pid
+去杀进程，是本合同里唯一一处可能伤到无关程序的操作。
+
+因此 Run 记录的不是 pid，而是**足以唯一识别一个进程的元组**：
+
+```
+run.process = { pid, createdAt(进程创建时间), sessionId/jobId, argv0 }
+```
+
+重启后要终止残留，**三项必须同时匹配**（pid + 进程创建时间 + argv0）才允许下手；
+任何一项对不上 → **不杀**，并如实记录「无法确认残留进程」。
+拿不到进程创建时间的平台路径 → **一律不杀**。
+
+#### 重启清扫的判定
+
+| 情形 | Run 落到 | `sideEffect` |
+| --- | --- | --- |
+| 残留进程树被确认终止 | `failed`，`failureReason.category = "backend_restarted"` | 按已知情况：本机执行器 `none` |
+| 无法确认残留是否退出（元组对不上 / 平台拿不到创建时间） | `failed`，`failureReason` 里**如实写明「未能确认子进程已退出」** | **`unknown`**（§5.8）→ **禁止自动重试** |
+| `kind` 会调用外部 Provider，且请求已发出 | 同上 | **`unknown`**：上游可能已执行、已计费（§5.8） |
+| `awaiting_input` / `awaiting_confirmation` | **不动**（§5.4 第 4 条） | 不变 |
+
+「不知道它死没死」和「确认它死了」是两个不同的结论，记录里必须能分辨——
+把前者写成后者，下一次自动重试就会在一个仍在运行的任务旁边再起一个。
+
+#### 必须有的真实测试（不是代码检查）
+
+一条**真的起进程**的测试，因为这条合同的全部价值就在于进程是否真的没了：
+
+1. 启动后端，发起一个会 spawn **父 → 子** 两层进程树的运行；
+2. 记录整棵树的 pid 集合（含后代）；
+3. **终止 / 重启后端**（分别测正常退出与 `kill -9` 两条路径）；
+4. **断言全部后代进程都不存在**（按 pid + 创建时间核对，避免 PID 复用造成的假阴性）；
+5. 断言受影响的 Run 落到 `failed(backend_restarted)`，
+   且无法确认时 `sideEffect === "unknown"`。
+
+第 4 步用「pid 存在性」单独判断是不够的：一个被复用的 pid 会让测试**误判为失败**，
+一个恰好退出的无关进程会让它**误判为通过**。核对创建时间是这条测试成立的前提。
+
 ### 5.9b 长任务端点全表：endpoint → kind → taskType → executor（冻结）
 
 **这张表是封闭的。** 一个会让用户等待的端点，必须在这里有一行；新增长任务端点
@@ -532,6 +669,9 @@ Windows 走 `taskkill /T /F`，POSIX 走进程组信号（子进程以 `start_ne
 | `POST /api/agent/render-episode` | `render` | `render.roughcut` | `local-ffmpeg` | 四 |
 | （TASK-074 新增）导出成片 | `export` | `export.delivery` | `local-ffmpeg` | 四 |
 | 手工视频生成（原 M1 VideoProvider） | `video-gen` | `generation.video.manual` | `manual` → `awaiting_input` | 待定（TASK-074）|
+
+**executor 列的取值必须来自 §5.3 的封闭枚举，一个不多一个不少**——两张表由同一条
+守卫测试逐行比对。一张表里出现另一张表没有的执行器，就是一个没有合同的执行路径。
 
 **不是 Run 的写路径**（同步、无等待语义，不进运行注册表）：
 `PUT /api/canvas/<name>` · `PUT /api/uploads/<project>/<slug>` ·
