@@ -22,6 +22,10 @@
 
 ### 1.1 后期交付页补全（IA §4 ⑩）
 
+Delivery 的生命周期（候选 → 质检 → 用户确认导出 → Final）已由**系统合同 §6.5**
+冻结，本卡按它实施；§1.2 是其中的「质检」一步。
+
+
 TASK-073 已把七个分区搭起来，本轮补齐真实能力：
 
 | 分区 | 补齐内容 |
@@ -99,6 +103,7 @@ demo seed 与 SVG 占位素材不作为主要验收依据）：
 | `/api/skill/run` 同步分支 | 前端已全部走 `run_id` 路径 |
 | `/api/agent/*` 五个创作端点 | ADR-0065 / TASK-068 收口完成 |
 | `services/query.js` 的写函数 re-export | 无调用点 |
+| `run.skillRunId` 兼容别名 | 全部读写已改用 `runId`（系统合同 §5.0） |
 | `approveShot` 旧布尔标记 | 迁移完成 |
 | 只服务旧入口的 UI 模块 | **逐个确认无引用后**再删；有疑问就保留 |
 | `ui/shotgraphview.js` / `workflow/shotgraph.js` | **保留**——它们是「生成记录」与诊断视图的实现（ADR-0066 §4） |

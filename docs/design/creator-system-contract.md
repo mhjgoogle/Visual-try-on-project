@@ -39,7 +39,9 @@ Project
            └─ ArtifactVersion（final）
 
 Asset（媒体，跨集复用）  ←─ Binding ─→ Shot / Canon 对象
-Skill（能力定义，不可变）  ←─ SkillRun ─→ 目标对象 + Proposal
+Skill（能力定义，不可变）  ←─ Run(kind=skill) ─→ 目标对象 + Proposal
+Run（统一运行对象）        ←──────────────────→ 目标对象 + 输出
+     kind = skill | image-gen | video-gen | tts | ffmpeg | render | export
 ```
 
 ### 1.1 对象定义表
@@ -54,7 +56,8 @@ Skill（能力定义，不可变）  ←─ SkillRun ─→ 目标对象 + Propo
 | `ArtifactVersion` | `(ownerType, ownerId, kind, version)` | 任意对象 | 否 | 见 §3 |
 | `Binding` | `(shotId, referenceKey)` / `(canonId, assetId)` | Shot / Canon 对象 | 否 | 带 `role` 与 `use` |
 | `Skill` | `(skillId, skillVersion)` | 全局，**不可变** | 否 | 删除定义会让历史 Run 指空 |
-| `SkillRun` | `skillRunId` | Project | 否 | 见 §5 |
+| `Run` | `runId` | Project | 否 | **一切长任务共用**，`kind` 区分；见 §5.0 |
+| ┗ `SkillRun` | 同上（`kind="skill"`） | Project | 否 | Run 的专业化，**不是第二份记录**；见 §5 |
 | `ReviewIssue` | `issueId` | Shot / Episode / Delivery | 否 | 见 §6 |
 | `ReviewDecision` | `decisionId` | Shot / Episode / Delivery | 否 | 见 §6 |
 | `Timeline` | `timelineId` | Episode | 否 | Clip 必须 pin 到 `(shotId, assetId)` |
@@ -112,7 +115,10 @@ Binding {
 
 ---
 
-## 3. ArtifactVersion 状态机（冻结）
+## 3. ArtifactVersion 状态机（冻结 —— **六态**）
+
+`deprecated` 是这六态之一，不是状态之外的一个标记：一个 `deprecated` 版本仍然可查、
+可恢复、可被历史记录指向。「五态 + deprecated」的旧口径已作废（ADR-0066 §6 校正 6）。
 
 ```
                 ┌──────────────────────────────────────────┐
@@ -178,7 +184,47 @@ draft ──→ suggested ──→ candidate ──→ confirmed ──→ lock
 
 ---
 
-## 5. Skill 与 Skill Run 合同
+## 5. Run 与 Skill Run 合同
+
+### 5.0 统一运行身份（冻结）
+
+**系统里只有一种运行记录。** 一次 Skill 运行、一次图片生成、一次视频生成、一次 TTS、
+一次 FFmpeg 混音、一次粗剪渲染、一次成片导出——七件事在用户眼里是同一件事
+（「一个需要等待、可能失败、可以取消、要记成本的任务」），因此在系统里也是同一个对象：
+
+```
+Run {
+  runId        *** 唯一运行标识，后端签发，长任务立即返回它 ***
+  kind         "skill" | "image-gen" | "video-gen" | "tts" | "ffmpeg" | "render" | "export"
+  taskType     稳定机器标识（见下）
+  status       §5.2 的七态，所有 kind 共用
+  …            §5.3 的持久化字段，所有 kind 共用
+}
+```
+
+`SkillRun` = `Run` 且 `kind === "skill"`，它额外携带 `skillId` / `skillVersion` /
+`proposal`。**它不是第二张表**：两份运行记录必然漂移，而「本集现在有哪些任务在跑、
+哪些失败了、一共花了多少」这个看板问题（IA §4 ⑥）只能由一份记录回答。
+
+#### `taskType` 是机器标识，不是显示名
+
+| 字段 | 谁读 | 会不会变 | 例 |
+| --- | --- | --- | --- |
+| `taskType` | 系统（筛选 / 聚合 / 看板分组 / 迁移） | **不变** | `skill.story-development` · `generation.image` · `render.roughcut` · `export.delivery` |
+| `Skill.taskName` | 普通用户 | 随文案与语言变 | 「为这一镜写画面提示词」 |
+
+把可翻译文案当成持久化键，改一次文案就丢一批历史。两者**不得互相推导**。
+
+#### `runId` 与既有 `skillRunId` 的关系
+
+| 阶段 | 状态 |
+| --- | --- |
+| v14 及更早 | 只有 `skillRunId`，且只有 Skill 有运行记录 |
+| **v15（TASK-072 批次一）** | 迁移为每条 run 增加 `runId`，值**等于**原 `skillRunId`；`skillRunId` 保留为**兼容别名**并标 deprecated |
+| TASK-074 | 删除 `skillRunId` 别名，只留 `runId` |
+
+迁移是**确定性**的：同一个 id 换一个字段名，不新建身份，不重排，不用时钟。
+新签发的 id 一律走 `runId`；任何代码不得再新增对 `skillRunId` 的写入。
 
 ### 5.1 Skill（能力定义）
 
@@ -201,19 +247,36 @@ Skill {
 - **新增 Skill 不得要求新增页面**：一个 Skill 通过 `scope` 归属到某个对象，
   该对象所在页面的「让 Agent 处理」自动列出它。这是 §5.5 的验收方式。
 
-### 5.2 Skill Run 状态机（冻结 —— 这是一次真实的合同变更）
+### 5.2 Run 状态机（冻结 —— 这是一次真实的合同变更）
+
+**所有 `kind` 共用这一个状态机。** 一次视频生成和一次 Skill 运行不需要两套状态词汇。
 
 ```
-queued ──→ awaiting_confirmation ──→ running ──→ succeeded
-   │                │                    │    └──→ failed
-   │                │                    └──→ cancelling ──→ cancelled
-   └────────────────┴──→ cancelled
+需要用户确认：
+   awaiting_confirmation ──→ queued ──→ running ──→ succeeded
+                                            │    └──→ failed
+                                            └──→ cancelling ──→ cancelled
+不需要确认：
+                             queued ──→ running ──→ （同上）
+
+取消入口有三个，终点只有一个：
+   awaiting_confirmation ──→ cancelled     （用户不批准，什么都没跑）
+   queued                ──→ cancelled     （还没拿到槽，无子进程可杀）
+   running               ──→ cancelling ──→ cancelled   （必须终止真实子进程）
 ```
+
+**确认在排队之前**（2026-08-13 校正，原文顺序为 `queued → awaiting_confirmation`）。
+先展示理解 / 输入 / 产物 / 影响 / 成本 / 耗时，用户点确认之后才去占执行槽——反过来
+会让一个用户可能根本不批准的任务先占住并发额度，而并发额度正是这台机器的稀缺资源。
+
+`awaiting_confirmation` 与 `queued` 的取消**是即时的**：它们没有子进程，
+所以直接落 `cancelled`，不经过 `cancelling`。只有 `running` 需要 `cancelling`
+这个中间态，因为杀一个子进程需要时间，而且**可能失败**（§5.4）。
 
 | 状态 | 含义 | 谁触发 |
 | --- | --- | --- |
-| `queued` | 已受理，等待执行槽 | 系统 |
-| `awaiting_confirmation` | 展示了理解 / 输入 / 产物 / 影响 / 成本 / 耗时，等用户点确认 | 系统 |
+| `awaiting_confirmation` | 展示了理解 / 输入 / 产物 / 影响 / 成本 / 耗时，等用户点确认。**还没占执行槽** | 系统 |
+| `queued` | 已受理（必要时已获确认），等待执行槽；Run 上可见**排队位置** | 系统 |
 | `running` | 后台任务真在跑 | 系统 |
 | `cancelling` | 用户已请求取消，取消正在传递到后台任务 | 用户 |
 | `cancelled` | 后台任务确认已终止 | 系统 |
@@ -235,20 +298,33 @@ run.proposal.disposition   pending | accepted | rejected | superseded
 | `accepted` | `succeeded` | `accepted` |
 | `rejected` | `succeeded` | `rejected` |
 | `failed` | `failed` | — |
-| （新） | `queued` / `awaiting_confirmation` / `cancelling` / `cancelled` | — |
+| （新） | `awaiting_confirmation` / `queued` / `cancelling` / `cancelled` | — |
+
+同一次迁移补齐身份与分类，同样是确定性的：
+
+| 新字段 | v14 文档的取值 |
+| --- | --- |
+| `runId` | **等于**该条 run 已有的 `skillRunId`（不新建身份） |
+| `kind` | `"skill"` —— v14 只有 Skill 有运行记录 |
+| `taskType` | `"skill." + skillId` —— 从已有字段推导，不猜 |
+| `provider` / `model` / `cost` / `progress` / `startedAt` / `endedAt` / `outputs` … | `null`（`model` 若已记录则保留）——文档从未捕获它们，**回填即伪造** |
 
 迁移是**确定性**的：不需要时钟，不需要猜测。`ctx.skills.abandon`
 （TASK-067 补记 2 引入）映射到 `cancelled`。
 
-### 5.3 Skill Run 必须持久化的字段（冻结）
+### 5.3 Run 必须持久化的字段（冻结）
+
+标 *(skill)* 的字段只在 `kind === "skill"` 时有意义；其余字段**所有 kind 共用**。
 
 | 字段 | 说明 |
 | --- | --- |
-| `skillRunId` | 后端签发；**长任务立即返回它** |
-| `taskType` | 任务类型（= Skill 的 `taskName` 归类） |
+| `runId` | 后端签发；**长任务立即返回它**。v15 起等于历史 `skillRunId`（§5.0） |
+| `kind` | `skill` / `image-gen` / `video-gen` / `tts` / `ffmpeg` / `render` / `export` |
+| `taskType` | **稳定机器标识**（如 `skill.story-development` / `generation.image`）。**不是** `taskName`，不随文案与语言变化 |
+| `queuePosition` | `queued` 时的排队位置；其余状态为 `null` |
 | `target` | `{ ownerType, ownerId }` 目标对象 |
 | `context` | `{ episodeId, sceneId, shotId }`（ADR-0059 身份契约，不变） |
-| `skillId` / `skillVersion` | 能力与版本 |
+| `skillId` / `skillVersion` *(skill)* | 能力与版本 |
 | `provider` / `model` | 真实探测结果；未知即 `null`，**不猜** |
 | `executor` | claude-code / codex-cli / manual |
 | `inputs` / `inputVersions` | 输入及**输入版本**（`contextTrace`，ADR-0064 决策 2） |
@@ -261,13 +337,19 @@ run.proposal.disposition   pending | accepted | rejected | superseded
 | `confirmation` | 用户确认记录：`{ by, at, kind, digest }` |
 | `proposal` | `{ proposalId, disposition, payload }` |
 
-### 5.4 两条硬要求
+### 5.4 四条硬要求
 
 1. **刷新可恢复。** 页面刷新后必须能通过后端记录恢复任务状态。
    今天 `skillRuns` 已持久化在 canvas 文档，但后端进程无身份
    （`/api/skill/run` 同步阻塞、无 `run_id`）——刷新即丢失那次运行。TASK-072 修复。
 2. **取消是真取消。** `cancelling` 必须传递到实际后台任务（终止子进程），
    然后落到 `cancelled`。**只清空前端状态不算取消。**
+3. **取消失败要说取消失败。** 子进程没死就**停在 `cancelling`** 并显示真实原因，
+   不得伪装成 `cancelled`。一个还在烧订阅额度的进程被报告成「已取消」，
+   比报告「取消中，未确认退出」危险得多。
+4. **后端重启不留僵尸。** 后端进程重启后，任何停在 `queued` / `running` /
+   `cancelling` 的 Run 必须落到 `failed`，`failureReason.category = "backend_restarted"`。
+   **不得永久停在 `running`**——那正是 TASK-067 补记 2 修过的那类僵死。
 
 ### 5.5 「新增 Skill 不需要新增页面」的执行方式
 
@@ -354,6 +436,33 @@ G3 的触发点是**领域层**，不是 UI：任何走 Action 层的相关写�
   显示为「已定稿的不是当前版本」。
 - **不新增布尔字段**：定稿与否由 §4 派生。
 
+### 6.5 Delivery 的生命周期（冻结，2026-08-13 补）
+
+「一次导出尝试 = 一个 Delivery」此前没有写死候选与 Final 的关系，导致
+「质检通过」「已导出」「Final 是哪一版」三件事没有唯一答案。冻结为一条链：
+
+```
+① 生成 Delivery 候选     exportDelivery(dryRun) 或 buildDelivery
+      ↓                   → final ArtifactVersion(candidate)，Delivery.state = "candidate"
+② 运行交付质检           runDeliveryQc → QCReport(ReviewIssue*，层 3)
+      ↓                   Delivery.state = "qc_passed" | "qc_blocked"
+③ 用户确认导出           exportDelivery（**用户确认**；G4 拦阻断问题）
+      ↓
+④ Final 版本             final ArtifactVersion(confirmed) + 导出记录
+```
+
+| 规则 | 内容 |
+| --- | --- |
+| 顺序不可跳 | 没有 QCReport 的候选**不可**进入 ③；`runDeliveryQc` 未跑过 = 未知，不是通过 |
+| G4 | `qcReport.issues.some(blocking && open)` → ③ 拒绝执行并列出问题 |
+| G5 | ①③ 一律 **append 新版本**；`final` 绝不覆盖，代码里不存在覆盖分支 |
+| 谁能 `confirmed` | 只有用户（§3.1 不变量 1）。质检通过**不等于**定稿——它只是解除阻断 |
+| 失败 | 渲染失败保留已产出的部分并说明；Delivery 记 `failed`，不删除 |
+| 重跑质检 | 候选变化后旧 QCReport 失效，Delivery 回落 `candidate`（与 G3 同一条道理） |
+
+**归属**：本节由 TASK-074 §1.1 / §1.2 实施，TASK-072 与 TASK-073 只需保证
+`exportDelivery` / `runDeliveryQc` 的 Command 名与风险等级（§8.1）不被改动。
+
 ---
 
 ## 7. 前后端交互原则（冻结）
@@ -392,11 +501,12 @@ Skill / Provider / Repository
 
 | 差距 | 现状 | 目标 | 承接 |
 | --- | --- | --- | --- |
-| Query 与 Command 混在一个模块 | `services/query.js` 里 `getQuery` 与 `renderEpisode` / `ttsGenerate` / `generateScriptDraft` 并列 | 拆为 `query.js` / `command.js`，共用 `apiclient.js` | TASK-072 |
-| 长任务同步阻塞 | `/api/skill/run` 阻塞返回，无 `run_id` | 立即返回 `run_id` + `/api/runs/<id>` 轮询 + `/api/runs/<id>/cancel` | TASK-072 |
-| 取消不可达 | 无取消路径 | `cancelling` → 终止子进程 → `cancelled` | TASK-072 |
-| AI 路径二选一 | `/api/agent/*` 与 `/api/skill/run` 并存 | 全部经 Runtime 层 | TASK-068（已有卡）+ TASK-072 |
-| 多个 fetch 出口 | 5 个模块 | 1 个 | TASK-072 |
+| Query 与 Command 混在一个模块 | `services/query.js` 里 `getQuery` 与 `renderEpisode` / `ttsGenerate` / `generateScriptDraft` 并列 | 拆为 `query.js` / `command.js`，共用 `apiclient.js` | TASK-072 **批次二** |
+| 长任务同步阻塞 | `/api/skill/run` 阻塞返回，无 `run_id` | 立即返回 `run_id` + `/api/runs/<id>` 轮询 + `/api/runs/<id>/cancel` | TASK-072 **批次一** |
+| 取消不可达 | 无取消路径 | `cancelling` → 终止子进程 → `cancelled` | TASK-072 **批次一** |
+| 运行记录只有 Skill 有 | 生成 / 渲染 / 导出各自记账，看板无法统一回答 | 一个 `Run` + `kind`（§5.0） | TASK-072 **批次一** |
+| AI 路径二选一 | `/api/agent/*` 与 `/api/skill/run` 并存 | 全部经 Runtime 层 | TASK-068（规格）并入 TASK-072 **批次一** |
+| 多个 fetch 出口 | 5 个模块 | 1 个 | TASK-072 **批次二** |
 
 ---
 
@@ -461,7 +571,7 @@ Skill / Provider / Repository
 | `assets.search(filter)` | 统一资产查询（对象类 / 媒体类 / 范围 / 状态） | ⑪ + 抽屉 |
 | `assets.usage(assetId)` | 「在哪被用」反查 | ⑪ ⚙ |
 | `agent.context(page, objectId)` | Agent 面板七项模型 | 全部 |
-| `runs.list(filter)` / `runs.get(runId)` | Skill Run 状态与进度 | ⑥ ⑧ |
+| `runs.list(filter)` / `runs.get(runId)` | **全部 kind** 的 Run 状态、进度、排队位置与失败原因（§5.0） | ⑥ ⑧ ⑨ ⑩ |
 | `runtime.status` | 执行器真实探测结果 | ⚙ |
 | `storage.overview` | 存储生命周期 | ⚙ |
 
@@ -542,7 +652,8 @@ Skill / Provider / Repository
 | 层 | 现状 | 目标 | 迁移方式 | 阶段 |
 | --- | --- | --- | --- | --- |
 | canvas schema | v14 | v15 | 确定性迁移：`skillRuns[].status` 拆两字段（§5.2 映射表）；新增 `reviewIssues` / `reviewDecisions` / `deliveries` 三个 registry，默认空数组 | 二 |
-| ArtifactVersion 状态 | 各文档各自的 `versions/active/locked` | 统一五态 + deprecated | 派生映射（§3.2），**不改存储结构** | 二 |
+| ArtifactVersion 状态 | 各文档各自的 `versions/active/locked` | 统一**六态**（含 `deprecated`） | 派生映射（§3.2），**不改存储结构** | 二（批次三）|
+| 运行身份 | `skillRunId`（只有 Skill 有运行记录） | `runId` + `kind`，生成 / 渲染 / 导出共用 | v15 起 `runId === skillRunId`，旧名保留一版别名（§5.0） | 二（批次一）→ 四 |
 | `approveShot` | 布尔标记 | 层 1 Decision | 迁移为 Decision；旧标记保留一版做对照 | 二 |
 | `/api/skill/run` | 同步阻塞 | `run_id` + 轮询 + 取消 | 新端点并存 → 前端切换 → 旧端点下线 | 二 → 四 |
 | `/api/agent/*` 五个创作端点 | 直连 `claude` | 经 Runtime 层 | ADR-0065 / TASK-068 | 二 |

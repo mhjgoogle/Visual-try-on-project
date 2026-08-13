@@ -7,6 +7,13 @@
   [TASK-072](TASK-072-system-contract-and-persistent-runs.md) §1.8 —— 五个端点的收口
   与 §1.3 的 `run_id` / 取消语义改造触及同一批调用点，分两次做会让同一段代码被改两遍。
   本卡保留为该项的**详细规格**，不单独排期。
+  **归 TASK-072 批次一，与 §1.3 同一个提交**（ADR-0066 §0.2；TASK-072 §2 已校正
+  原依赖图里「§1.8 独立、可并行」的错误）。
+- **§2 的二选一已定**（2026-08-13，实施前定）：采用**改造端点内部**这一条 ——
+  五个端点保留 URL 与响应键，内部改由 Runtime 层解析并执行执行器。
+  理由：另一条（前端直接改走 `ctx.skills.run`）会同时改动四个前端控制器的调用形状，
+  那是 TASK-073 的范围；在批次一里做等于把 IA 重构提前，而本卡的目标只是
+  「让这五个动作走同一条运行链路」。
 - 负责 Agent：待定（单一实施 Agent）
 - 前置：[TASK-067](TASK-067-ai-director-operationalization.md) 已实施完成
 - 依据：[ADR-0065](../adr/ADR-0065-every-ai-action-through-the-runtime-layer.md)
