@@ -1,6 +1,6 @@
 # TASK-072：第二阶段 —— 后端合同、持久化任务、版本管理与兼容层
 
-- 状态：**已解锁，可开工** —— ADR-0066 已于 2026-08-13 转 Accepted
+- 状态：**批次一已完成并提交**（`70dab40`）；批次二 / 三未开始
 - 负责 Agent：单一实施 Agent（AGENTS.md 第 14 条）
 - 依据：[ADR-0066](../adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)、
   [创作者系统合同](../design/creator-system-contract.md)
@@ -412,3 +412,77 @@ ADR-0066 Accepted
 
 全量 pytest + 全量前端（`node --test`）+ ruff + **Codex 独立审查**，
 且 §4 中标「一」的验收项全绿。**一项不过就不提交，也不进入批次二。**
+
+---
+
+## 6. 批次一实施记录（2026-08-13，提交 `70dab40`）
+
+`.claude/tmp/` 是 gitignored 的临时区，所以审查结论留档在这里 —— 与 TASK-064
+同一做法。完整逐条报告见实施当时的 `.claude/tmp/last-review.md`（不入库）。
+
+### 6.1 交付
+
+| 项 | 落点 |
+| --- | --- |
+| 运行注册表（独立模块，§0.1） | `mockups/motv-workspace/runstore.py` |
+| Run 八态 + `proposal.disposition` 两个轴 | `runstore.py`、`src/workflow/skillrun.js` |
+| canvas v14 → v15 确定性迁移 | `src/services/canvasschema.js` `migrateV14ToV15` |
+| `run_id` / 排队 / 真实取消 / 重启清扫 | `runstore.py`、`server.py` `/api/runs*` |
+| 五个 `/api/agent/*` 收口，`_run_claude` 删除 | `server.py` `_creative_agent` |
+| Canvas PUT 所有权 | `server.py` `_reconcile_skill_runs` |
+| 跨项目隔离（`projectId`、404-not-403） | `runstore.py`、`server.py` `_runs_get` |
+
+### 6.2 测试
+
+新增 4 个文件（约 130 用例）：`test_motv_runstore_task072.py`（模块单测，
+无 HTTP / 无子进程）、`test_motv_runs_api_task072.py`（端点契约 + 隔离 + 所有权）、
+`test_motv_run_lifecycle_task072.py`（**真父子进程树**的退出 / 硬杀 / 重启）、
+`mockups/.../tests/runs.test.mjs`（v15 域与迁移）。连带更新 8 个既有测试文件。
+
+提交时：全量 pytest **3039 passed / 56 skipped / 0 failed**、
+全量前端 **929 passed / 0 failed**、ruff check + format 全绿。
+
+### 6.3 Codex 独立审查：23 轮，71 个 blocking 已修，2 个已驳回
+
+代表性类别（每一类都不止一处）：
+
+1. **跨项目泄漏** —— 幂等键未按 project / kind / taskType / executor / target 限定；
+   `_reconcile_skill_runs` 全局查 runId 导致 canvas 保存可导入他项目的 `outputs`；
+   `__unowned__` 用可被用户输入的项目名当哨兵。
+2. **重复扣费** —— `sideEffect=unknown` 不阻止重放；`retryOfRunId` 只判真值且可无限
+   重放；付费运行无幂等键时毫无保护；付费 `cost` 默认成 0；承载花费的历史被裁剪。
+3. **持久化一致性** —— 状态先改内存后落盘且失败不回滚（create / pump / confirm /
+   land 全部）；终态写盘失败回滚成 `running` 永久占槽；裁剪先于写盘成功；
+   读 journal 的 OSError 被当成损坏而清空历史。
+4. **并发与子进程生命周期** —— 同步与异步各持一个并发池（可跑两倍执行器）；
+   `preexec_fn` 在多线程服务里 fork 后可死锁；Windows Job Object 的 ctypes HANDLE
+   截断 / 赋值失败被吞 / 创建晚于首个子进程；`_kill_tree` 只验直接子进程、
+   把 `taskkill` rc 128 当成功、对已回收 pid 动手。
+5. **契约与兼容层** —— `source` 变值、`raw_excerpt` 丢失、手工提交空对象或错形状
+   变成永久成功、显式 `manual` 让 HTTP 请求永久挂起、`_await_run` 超时含排队时间。
+6. **信息泄漏** —— CLI 的 stdout/stderr（本地绝对路径）进入 HTTP 响应与持久记录。
+
+**驳回两条**（留档以免下一轮重复报）：
+
+- `_JOB_LOCK` 嵌套死锁 —— `_guard_child` 的 `with` 块在调用 `_windows_job()`
+  **之前**就已退出，两处是顺序不是嵌套。经代码核对为误报。
+- `proposeRun` 拒绝数组提案 —— 活路径的提案全部来自 `readSkillAnswer`，其解析器
+  只返回顶层**对象**（分镜表以 `{shots: [...]}` 到达）。v15 迁移之所以包装裸值，
+  是因为**受损的历史文档**里可能有；运行中的系统产生不了。
+
+### 6.4 范围裁定：进程树的可证明性（第 23 轮）
+
+第 19–23 轮的发现**全部是同一个主题**：如何**证明**一棵进程树已经死了。这个问题
+在通用情况下没有廉价的完整答案（pid 回收、僵尸、跨平台），因此每修一处就暴露一个
+更窄的变体 —— 典型的 whack-a-mole。按 codex-review-loop 的「尽早做范围裁定」，
+第 23 轮起停止追变体，改为把能力边界写进**系统合同 §5.9a**（「能证明什么，
+不能证明什么」），同时仍修掉其中有真实危害的三条。
+
+**这一裁定的代价如实记在这里**：本该在第 20 轮左右做出，晚了约四轮。
+
+### 6.5 两个未闭合项（交接给后续）
+
+| # | 内容 | 归属 |
+| --- | --- | --- |
+| 1 | 第 23 轮的 3 个修复**未经 codex 复审**（第 24 轮 `ENV_ERROR: codex unavailable`，`claude` 回退未安装）。三处均有定向测试且全绿：确认 kill 后终结卡住的 `cancelling`、404 不再当作所有权证明、测试清理需身份才发信号 | codex 恢复后补跑一轮复审 |
+| 2 | POSIX 下后端被 `SIGKILL` 仍可能留下孤儿。关闭它需要 cgroup 或 PID namespace | 另立 ADR；当前一律记 `childExitVerified: false`，绝不声称已清理 |
