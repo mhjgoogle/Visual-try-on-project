@@ -197,7 +197,7 @@ Run {
   runId        *** 唯一运行标识，后端签发，长任务立即返回它 ***
   kind         "skill" | "image-gen" | "video-gen" | "tts" | "ffmpeg" | "render" | "export"
   taskType     稳定机器标识（见下）
-  status       §5.2 的七态，所有 kind 共用
+  status       §5.2 的八态，所有 kind 共用
   …            §5.3 的持久化字段，所有 kind 共用
 }
 ```
@@ -245,7 +245,7 @@ Skill {
 - **`taskName` 是新增字段**，因为 §6.3 要求普通用户看到任务名称而不是 `skillId`。
 - **不删除任何既有 Skill 定义**：历史 Run 按 `(skillId, skillVersion)` 引用它。
 - **新增 Skill 不得要求新增页面**：一个 Skill 通过 `scope` 归属到某个对象，
-  该对象所在页面的「让 Agent 处理」自动列出它。这是 §5.5 的验收方式。
+  该对象所在页面的「让 Agent 处理」自动列出它。这是 §5.10 的验收方式。
 
 ### 5.2 Run 状态机（冻结 —— 这是一次真实的合同变更）
 
@@ -259,25 +259,38 @@ Skill {
 不需要确认：
                              queued ──→ running ──→ （同上）
 
-取消入口有三个，终点只有一个：
+人工执行（executor = manual：外部模型跑 Prompt、外部工具出视频）：
+                             queued ──→ awaiting_input ──→ succeeded | failed
+                                        （等创作者把结果粘回 / 上传回来）
+
+取消入口有四个，终点只有一个：
    awaiting_confirmation ──→ cancelled     （用户不批准，什么都没跑）
    queued                ──→ cancelled     （还没拿到槽，无子进程可杀）
-   running               ──→ cancelling ──→ cancelled   （必须终止真实子进程）
+   awaiting_input        ──→ cancelled     （创作者不再打算交结果 —— 今天的 abandon）
+   running               ──→ cancelling ──→ cancelled   （必须终止真实进程树）
 ```
 
 **确认在排队之前**（2026-08-13 校正，原文顺序为 `queued → awaiting_confirmation`）。
 先展示理解 / 输入 / 产物 / 影响 / 成本 / 耗时，用户点确认之后才去占执行槽——反过来
 会让一个用户可能根本不批准的任务先占住并发额度，而并发额度正是这台机器的稀缺资源。
 
-`awaiting_confirmation` 与 `queued` 的取消**是即时的**：它们没有子进程，
-所以直接落 `cancelled`，不经过 `cancelling`。只有 `running` 需要 `cancelling`
-这个中间态，因为杀一个子进程需要时间，而且**可能失败**（§5.4）。
+`awaiting_confirmation` / `queued` / `awaiting_input` 的取消**是即时的**：它们没有
+本机进程，所以直接落 `cancelled`，不经过 `cancelling`。只有 `running` 需要
+`cancelling` 这个中间态，因为杀一棵进程树需要时间，而且**可能失败**（§5.4）。
+
+**`awaiting_input` 为什么必须是一个状态。** 手工路线是第一等公民，不是降级模式：
+外部模型跑 Prompt、外部网页工具出视频（原 M1 的手工 VideoProvider）都属于它。
+今天这类运行**停在 `running`** —— 那是一句假话：没有任何东西在跑，系统在等人。
+后果是真实的：后端重启清扫会把它们当僵尸打成 `failed`（§5.4 第 4 条），
+而它们其实完全健康；看板的「运行中」数字也把「机器在忙」和「等你交作业」混成一个数。
+`awaiting_input` 让这两件事分开，代价只是一个枚举值。
 
 | 状态 | 含义 | 谁触发 |
 | --- | --- | --- |
 | `awaiting_confirmation` | 展示了理解 / 输入 / 产物 / 影响 / 成本 / 耗时，等用户点确认。**还没占执行槽** | 系统 |
-| `queued` | 已受理（必要时已获确认），等待执行槽；Run 上可见**排队位置** | 系统 |
+| `queued` | 已受理（必要时已获确认），等待执行槽；排队位置**读时派生**（§5.6） | 系统 |
 | `running` | 后台任务真在跑 | 系统 |
+| `awaiting_input` | **人工执行中**：任务已受理，等创作者把外部结果交回来（粘贴 Prompt 回答 / 上传视频文件） | 系统 |
 | `cancelling` | 用户已请求取消，取消正在传递到后台任务 | 用户 |
 | `cancelled` | 后台任务确认已终止 | 系统 |
 | `succeeded` | 输出通过 outputSchema 校验 | 系统 |
@@ -293,12 +306,19 @@ run.proposal.disposition   pending | accepted | rejected | superseded
 
 | 现有 `status` | 目标 `status` | 目标 `proposal.disposition` |
 | --- | --- | --- |
-| `running` | `running` | — |
+| `running` 且 `executor === "manual"` | **`awaiting_input`** | — |
+| `running` 且 executor 是本机执行器 | **`failed`**，`failureReason.category = "interrupted"` | — |
 | `proposed` | `succeeded` | `pending` |
 | `accepted` | `succeeded` | `accepted` |
 | `rejected` | `succeeded` | `rejected` |
 | `failed` | `failed` | — |
 | （新） | `awaiting_confirmation` / `queued` / `cancelling` / `cancelled` | — |
+
+`running` 拆成两条**是确定性的**：分支条件是文档里已经记录的 `executor` 字段，
+不是猜测。两条都在说真话——一次手工运行还在等创作者交结果；一次本机运行的宿主
+进程早已不存在，它**永远不会**再有结果，让它继续显示 `running` 才是编造。
+`interrupted` 与 `backend_restarted` 分开：前者是「迁移时发现的历史中断」，
+后者是「本次重启清扫的结果」，两者的可信度与可操作性不同。
 
 同一次迁移补齐身份与分类，同样是确定性的：
 
@@ -321,7 +341,11 @@ run.proposal.disposition   pending | accepted | rejected | superseded
 | `runId` | 后端签发；**长任务立即返回它**。v15 起等于历史 `skillRunId`（§5.0） |
 | `kind` | `skill` / `image-gen` / `video-gen` / `tts` / `ffmpeg` / `render` / `export` |
 | `taskType` | **稳定机器标识**（如 `skill.story-development` / `generation.image`）。**不是** `taskName`，不随文案与语言变化 |
-| `queuePosition` | `queued` 时的排队位置；其余状态为 `null` |
+| `queueSeq` | 单调递增整数，入队时分配。**排队位置由它派生，不持久化**（§5.6）|
+| `commandId` | 触发这次运行的 Command（ADR-0033 Envelope）；无 Command 触发时 `null` |
+| `idempotencyKey` | 幂等键（§5.7）。同一个键不得重复产生付费副作用 |
+| `retryOfRunId` | 这是哪一次运行的重试；首次运行为 `null`（§5.7） |
+| `sideEffect` | `none` / `applied` / **`unknown`** —— 外部 Provider 是否已执行（§5.8） |
 | `target` | `{ ownerType, ownerId }` 目标对象 |
 | `context` | `{ episodeId, sceneId, shotId }`（ADR-0059 身份契约，不变） |
 | `skillId` / `skillVersion` *(skill)* | 能力与版本 |
@@ -351,7 +375,196 @@ run.proposal.disposition   pending | accepted | rejected | superseded
    `cancelling` 的 Run 必须落到 `failed`，`failureReason.category = "backend_restarted"`。
    **不得永久停在 `running`**——那正是 TASK-067 补记 2 修过的那类僵死。
 
-### 5.5 「新增 Skill 不需要新增页面」的执行方式
+   **`awaiting_input` 不在清扫范围内**，而且这不是例外，是同一条规则：清扫的对象是
+   「宿主进程消失后不可能再有结果的运行」。一次手工运行的宿主是**创作者**，
+   后端重启没有夺走它的任何东西——把它打成 `failed` 才是丢失用户的在途工作。
+   `awaiting_confirmation` 同理保留。
+
+### 5.5 运行状态的存储与唯一写入边界（冻结，2026-08-13 补）
+
+#### 权威在后端
+
+```
+后端  runs.json                ← 运行生命周期的唯一权威
+       （单一写入者：运行注册表模块；原子替换；进程内单锁）
+canvas <project>/studio/canvas.json  skillRuns[]
+       ← 创作者的决定与运行的输入指纹；生命周期字段只是 SNAPSHOT
+```
+
+| 字段 | 权威方 | 另一方的副本算什么 |
+| --- | --- | --- |
+| `status` · `progress` · `startedAt` / `endedAt` · `failureReason` · `cost` · `sideEffect` · `provider` / `model` · `outputs` · `queueSeq` | **后端 `runs.json`** | canvas 里是**最后一次已知快照**，只用于离线 / 无后端时显示 |
+| `proposal`（`proposalId` / `disposition` / `payload`）· `contextTrace` · `inputSummary` · `promptText` · `context` · `target` | **canvas 文档** | 后端不存、不读、不判断 |
+
+分界线的理由：**「跑得怎么样」只有跑它的那个进程知道；「我怎么处置这个提案」只有
+创作者知道。** 让两边各自拥有自己真正知道的那一半，就没有需要仲裁的字段。
+
+#### Canvas PUT 不得覆盖后台 Run 进度
+
+`PUT /api/canvas/<name>` 是前端整份文档写回。前端持有的是它**上次读到**的运行状态，
+而后台任务在这期间还在推进——所以一次正常的画布保存会把 `running / 60%` 写回成
+`running / 20%`，甚至把一个已经 `succeeded` 的运行写回 `running`。
+
+规则（三条，缺一不可）：
+
+1. **后端在 `canvas_put` 时忽略 `skillRuns[].<生命周期字段>`**：这些字段**不写入**
+   `runs.json`，也**不因为不一致而让 PUT 失败**——前端本来就不是它们的所有者，
+   拒绝一次合法的画布保存是把所有权问题变成用户的问题。
+2. **后端不在 `canvas_get` 时注入运行状态**：注入会制造第二条读路径，而读运行状态
+   只有一条 —— `GET /api/runs`。
+3. **前端不得用 canvas 里的快照覆盖从 `/api/runs` 读到的状态**。冲突时**后端赢**。
+
+#### 后端不认识的 Run
+
+本地 / demo 模式没有后端，手工运行也可能完全发生在前端。**后端 `runs.json` 里不存在
+的 runId，canvas 就是它的唯一真相**——这不是例外，是同一条规则的下半句：
+谁真的知道，谁就是权威。
+
+#### 并发更新规则
+
+| 规则 | 内容 |
+| --- | --- |
+| 单一写入者 | 只有运行注册表模块写 `runs.json`；HTTP 层、canvas 层、任何 handler 都不直接写 |
+| 串行化 | 模块内单锁；读改写在锁内完成，**不做「读→改→写」的无锁往返** |
+| 原子落盘 | 临时文件 + 原子替换；进程被杀不会留下半个文件 |
+| 崩溃语义 | 落盘失败 = 状态变更失败，如实报告；**不允许内存与文件分叉** |
+| 边界 | 该模块不认识 HTTP、不认识路由、不 import `server`（TASK-072 §0.1） |
+
+### 5.6 排队位置是派生的，不是事实
+
+`queuePosition` **不持久化**。持久化的是入队序号 `queueSeq`（单调递增整数）；
+位置在**读时**算出来：
+
+```
+queuePosition(run) = 1 + count(其它 run : status == "queued" 且 queueSeq < run.queueSeq)
+```
+
+理由：位置在**别的运行结束的那一刻**就变了，而那一刻没有人在写这条 run。
+一个持久化的位置从写下的下一秒起就是错的，而它看起来像事实。
+用序号（而不是时间戳）定序：整数没有并列，也不依赖时钟。
+
+### 5.7 幂等：同一个命令不得重复花钱
+
+三个字段一起工作：
+
+| 字段 | 作用 |
+| --- | --- |
+| `commandId` | 哪一次 Command 触发了它（ADR-0033 Envelope），把运行接回命令链 |
+| `idempotencyKey` | **同一个意图的稳定指纹**：`commandId` 存在时取它；否则由 `taskType + target + 输入摘要 + 参数摘要` 计算 |
+| `retryOfRunId` | 这是哪一次运行的重试。**重试是新 Run**，不是旧 Run 复活 |
+
+规则：
+
+1. **非终态去重**：已存在同 `idempotencyKey` 且非终态的 Run → **不新建**，
+   返回那一个的 `run_id`。重复点击、断线重发、双标签页都落到同一次运行上。
+2. **付费 kind 的终态去重**：已成功的付费运行，同键再来 → **拒绝**并指向已有结果。
+   要再花一次钱，必须**显式重试**（带 `retryOfRunId`），那是一次新的用户决定。
+3. **免费 kind** 允许同键重跑（本地渲染重来一次不花钱），但仍记 `retryOfRunId`。
+4. **重试不继承副作用**：新 Run 从 `sideEffect = none` 开始，成本单独记账。
+   §9.1 第 3 条不变——已花的钱如实记账，两次就是两笔。
+
+### 5.8 `side_effect_unknown`：不知道就不许自动重试
+
+外部 Provider 调用失败时，**「请求被拒绝」和「请求可能已经执行」是两件事**。
+超时、5xx、连接中断都发生在**已经把请求发出去之后**——上游可能已经生成、已经计费。
+
+```
+run.sideEffect   none      确定没有发生外部副作用（请求在发出前被拒）
+                 applied   确定发生了（拿到了结果）
+                 unknown   *** 无法确认 ***
+```
+
+判定沿用 `paidImageGenerate` 已有的做法并把它升为合同：**只有一小撮 4xx**
+（400 / 401 / 403 / 404 / 422）算「确定未执行」；**其余全部**（408 / 409 / 425 / 429 /
+所有 5xx / 网络中断 / 超时）落 `unknown`。
+
+`unknown` 的三条硬规则：
+
+1. **禁止自动重试。** 任何自动重试逻辑遇到 `unknown` 一律停下。
+2. **必须由用户显式决定**，且决定前要看到「这次可能已经计费但没拿到产物」。
+3. **成本如实记账**，Run 上注明「已计费但未产出」（§9.1 第 3 条）。
+
+自动重试一个 `unknown` 是本合同里最贵的一种「乐观」：它把一次不确定的扣费
+变成两次确定的扣费，而用户看到的只有一次失败。
+
+### 5.9 取消：完整进程树 + 竞态的确定性结果
+
+#### 必须杀干净
+
+取消 `running` 必须终止**整棵进程树**，不是直接子进程：文档中的 WSL 桥是
+`wsl.exe → node → CLI`，杀掉桥留下 CLI 继续烧订阅额度。
+Windows 走 `taskkill /T /F`，POSIX 走进程组信号（子进程以 `start_new_session` 启动）。
+
+#### 取消与完成的竞态（确定性判定表）
+
+取消请求和子进程结束**必然会**撞在一起。结果不能取决于谁先被调度：
+
+| 情形 | 结果 | 理由 |
+| --- | --- | --- |
+| 取消到达时 Run 已是 `succeeded` / `failed` / `cancelled` | **保持原终态**，取消返回「已结束，未取消」 | 终态不可逆；把一个已完成的运行改写成 `cancelled` 是篡改历史 |
+| 已置 `cancelling`，随后子进程**正常退出且输出完整** | 落 **`cancelled`**；输出**记入 `outputs` 但不作为产物应用**，并注明「取消传递期间已完成」 | 用户已表达停止，产物不得被静默采纳；但也不销毁已产生的数据（尤其付费产物） |
+| 已置 `cancelling`，子进程被杀 | 落 `cancelled` | 正常路径 |
+| 已置 `cancelling`，宽限期内进程树仍存活 | **停在 `cancelling`**，记 `cancelFailure`（真实原因 + 残留 PID） | §5.4 第 3 条：不得伪装成功 |
+| `awaiting_confirmation` / `queued` / `awaiting_input` 被取消 | 直接 `cancelled` | 无进程，无竞态 |
+| 取消请求重复到达 | 幂等：已 `cancelling` 则再试一次终止，状态不变；已 `cancelled` 则直接返回 | 重试取消必须安全 |
+
+**唯一的仲裁者是状态机，不是时序**：状态迁移在注册表模块的同一把锁内完成，
+终态一旦写下不再改写。
+
+### 5.9b 长任务端点全表：endpoint → kind → taskType → executor（冻结）
+
+**这张表是封闭的。** 一个会让用户等待的端点，必须在这里有一行；新增长任务端点
+必须同时新增一行，否则它就是一个没有运行身份的任务——正是本轮要消灭的东西。
+
+| endpoint | `kind` | `taskType` | executor | 落地批次 |
+| --- | --- | --- | --- | --- |
+| `POST /api/skill/run` | `skill` | `skill.<skillId>`（调用方给出；缺失则 `skill.unknown`） | `claude-code` / `codex-cli` / `manual` | 一 |
+| `POST /api/agent/story-develop` | `skill` | `skill.story-development` | 同上 | 一 |
+| `POST /api/agent/episode-plan` | `skill` | `skill.episode-plan` | 同上 | 一 |
+| `POST /api/agent/script-draft` | `skill` | `skill.script-writer` | 同上 | 一 |
+| `POST /api/agent/shots-draft` | `skill` | `skill.storyboard-director` | 同上 | 一 |
+| `POST /api/agent/bible-breakdown` | `skill` | `skill.script-breakdown` | 同上 | 一 |
+| `POST /api/agent/tts` | `tts` | `generation.tts.piper` | `local-piper` | 四 |
+| `POST /api/agent/image-gen` | `image-gen` | `generation.image.minimax` | `provider:minimax` | 四 |
+| `POST /api/agent/adopt-paid` | `image-gen` | `generation.image.adopt` | `manual` | 四 |
+| `POST /api/agent/mix-shot` | `ffmpeg` | `post.mix.shot` | `local-ffmpeg` | 四 |
+| `POST /api/agent/compose` | `ffmpeg` | `post.compose.draft` | `local-ffmpeg` | 四 |
+| `POST /api/agent/render-episode` | `render` | `render.roughcut` | `local-ffmpeg` | 四 |
+| （TASK-074 新增）导出成片 | `export` | `export.delivery` | `local-ffmpeg` | 四 |
+| 手工视频生成（原 M1 VideoProvider） | `video-gen` | `generation.video.manual` | `manual` → `awaiting_input` | 待定（TASK-074）|
+
+**不是 Run 的写路径**（同步、无等待语义，不进运行注册表）：
+`PUT /api/canvas/<name>` · `PUT /api/uploads/<project>/<slug>` ·
+`POST /api/assets/delete-file` · `POST /api/projects*` ·
+`POST /api/projects/<name>/{preflight,command}`。
+
+关于 `skill.episode-plan`：Skill 目录里今天**没有**与它精确对应的能力
+（TASK-068 §3 风险 2）。`taskType` 是**端点能力**的标识，与目录条目解耦，
+所以「给 `story-development` 加 plan 分支」还是「新增 `episode-planner`」这个设计
+决定可以留到 TASK-073，**而这个 key 不会因为那个决定而改变**。
+这正是 `taskType` 与 `taskName` / `skillId` 分开的价值。
+
+### 5.9c 接口迁移：新旧两条路怎么并存（冻结）
+
+| 调用方式 | 请求 | 响应 | 谁用 |
+| --- | --- | --- | --- |
+| `POST /api/skill/run`，**带 `X-Motv-Async: 1`** | 同今天 + 可选 `skillId` / `commandId` / `idempotencyKey` | **`202 { run_id, status, queuePosition }`** | **新 UI**（TASK-073 起） |
+| `POST /api/skill/run`，无该头 | 同今天 | 同今天：`200 { ok, text, model }`；槽满仍 **429** | 兼容层，TASK-074 下线 |
+| `POST /api/agent/*` 五个创作端点，**默认（无 async 头）** | **不变** | **不变**：`{ shots \| script \| breakdown \| outline \| episodes, draft, source }` + **新增** `run_id` / `executor` / `model`（加法） | 现有前端，不改也能工作 |
+| `POST /api/agent/*` 五个，**带 `X-Motv-Async: 1`** | 不变 | **`202 { run_id, status, queuePosition }`**，**不含**产物键 | 新 UI |
+
+三条约束：
+
+1. **默认同步 + 旧响应结构不变**，但**内部一律走 Runtime 层**（执行器解析、并发槽、
+   进程树终止、运行注册表）。「行为不变」指的是**响应契约**，不是实现路径。
+2. **异步响应里没有产物。** 产物只在 `GET /api/runs/<run_id>` 的 `outputs` 里，
+   且**用与同步响应完全相同的键**（`shots` / `script` / …）——同一件东西两个名字，
+   是下一次解析错误的来源。
+3. **同步路径不排队。** 无 async 头时槽满就是 429（旧行为），**不把调用方挂起**：
+   一个同步调用方的连接被无限期占住，与「立即返回 run_id」是相反的两种承诺。
+   排队只发生在异步路径上。
+
+### 5.10 「新增 Skill 不需要新增页面」的执行方式
 
 | 机制 | 保证 |
 | --- | --- |

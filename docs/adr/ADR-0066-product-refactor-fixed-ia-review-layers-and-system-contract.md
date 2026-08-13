@@ -269,10 +269,15 @@ v15 迁移后 `run.runId` 与 `run.skillRunId` 指向**同一个值**，`skillRu
 需要用户确认：  awaiting_confirmation ──→ queued ──→ running ──→ succeeded | failed
 不需要确认：                             queued ──→ running ──→ succeeded | failed
                                                         └──→ cancelling ──→ cancelled
-awaiting_confirmation 与 queued 均可直接取消 ──────────────────────→ cancelled
+人工执行：                               queued ──→ awaiting_input ──→ succeeded | failed
+awaiting_confirmation / queued / awaiting_input 均可直接取消 ──────→ cancelled
 
 run.proposal.disposition   pending | accepted | rejected | superseded
 ```
+
+`awaiting_input` 是**人工执行**的状态（外部模型跑 Prompt、外部工具出视频）。
+今天这类运行停在 `running` —— 那是假话，系统在等人，不是在跑；后果是重启清扫
+会把健康的手工运行当僵尸打成 `failed`。八态见系统合同 §5.2。
 
 2026-08-13 校正：原文写作 `queued → awaiting_confirmation → running`，顺序是反的。
 **确认发生在排队之前**——先展示理解 / 输入 / 产物 / 影响 / 成本 / 耗时并等用户点确认，
@@ -282,7 +287,13 @@ run.proposal.disposition   pending | accepted | rejected | superseded
 
 `Run` 必须持久化：`kind`、**任务类型（`taskType`）**、目标对象、Skill 与版本
 （`kind=skill` 时）、Provider 与模型、输入及输入版本、参数、输出及输出版本、进度、
-成本、开始与结束时间、失败原因、用户确认记录。
+成本、开始与结束时间、失败原因、用户确认记录，以及
+**`commandId` / `idempotencyKey` / `retryOfRunId` / `sideEffect` / `queueSeq`**
+（§6.1 第 3 / 4 / 9 条）。
+
+**权威在后端**：`runs.json` 是运行生命周期的唯一真相，canvas 里的同名字段只是快照，
+**Canvas PUT 不得覆盖后台 Run 进度**（系统合同 §5.5）。
+**`queuePosition` 是派生值，不持久化**（§5.6）。
 
 **`taskType` 是稳定的机器标识，不是可翻译的显示名**（2026-08-13 校正：原文写作
 「= Skill 的 `taskName` 归类」，那会把一个会随文案与语言变化的字符串当成持久化键）。
@@ -414,3 +425,20 @@ TASK-065 / 066 实施完成的决策，本 ADR 在其落地次日提出撤销。
 | 后端模块化边界未约束 | TASK-072 §0.1 |
 | `app.js` 体量（6000+ 行）未约束 | TASK-073 §1.8 |
 | 四个遗留领域缺陷（首帧槽位校验 / `frames` 输入来源 / 参考解读 stale / 删除视频片段与锁定音频） | TASK-072 §1.9（批次三） |
+
+### 6.1 第二轮校正（同日，批次一开工前）
+
+第二次审查在上述修订稿上又发现十处需要收口的地方。同样在写代码之前改掉：
+
+| # | 收口 | 落在 |
+| --- | --- | --- |
+| 1 | **后端 `runs.json` 是运行生命周期的唯一权威**，单一写入者 / 原子落盘 / 单锁串行；**Canvas PUT 不得覆盖后台 Run 进度**（服务端忽略这些字段且不因此失败），`canvas_get` 不注入运行状态；后端不认识的 runId 由 canvas 拥有 | 系统合同 §5.5；TASK-072 §1.3a |
+| 2 | 新增状态 **`awaiting_input`**（人工执行：等创作者粘回答案 / 上传视频）。今天这类运行停在 `running` 是假话，会被重启清扫当僵尸打成 `failed`；**清扫必须跳过它与 `awaiting_confirmation`** | 系统合同 §5.2 / §5.4；TASK-072 §1.1 |
+| 3 | Run 增加 **`commandId` / `idempotencyKey` / `retryOfRunId`**：同键非终态不新建；付费 kind 已成功同键**拒绝**；再花钱必须是显式重试 | 系统合同 §5.7 |
+| 4 | 增加 **`sideEffect` = `none` / `applied` / `unknown`**：只有 400/401/403/404/422 算「确定未执行」，其余（超时 / 5xx / 断连）落 `unknown`；**`unknown` 禁止任何自动重试** | 系统合同 §5.8 |
+| 5 | 接口迁移写死形状：新 UI 用 `/api/skill/run` + `X-Motv-Async: 1`；五个 `/api/agent/*` **默认同步且旧响应结构不变**（新增字段为加法），内部统一走 Runtime；带 async 头时返回 `202 {run_id,…}` 且**不含产物键**，产物在 `/api/runs/<id>.outputs` 用**同名键** | 系统合同 §5.9c；TASK-072 §1.3b |
+| 6 | 取消必须终止**完整进程树**；**cancel / completion 竞态给出确定性判定表**（终态不可逆；取消期间正常完成 → `cancelled` 且输出记录但不作为产物应用；杀不掉 → 停 `cancelling` + 真实原因） | 系统合同 §5.9 |
+| 7 | §1.9 四条按 TASK-064 原始记录**校正**：绑定前校验镜头与槽位且**失败不得写入**；首帧顺序为**显式绑定 → `assets.firstFrames[slot]` → 当前图片**；参考解读记录素材 ID 与版本 / 摘要、素材变化即失效；音频缺陷的真实方向是**删除未锁定视频会连带删除已锁定音频**（不是「不级联」） | TASK-072 §1.9 |
+| 8 | **枚举全部长任务端点 → `kind` → `taskType` → executor**，并声明这是封闭表：新增长任务端点必须同时新增一行 | 系统合同 §5.9b |
+| 9 | **`queuePosition` 改为派生**，持久化的是入队序号 `queueSeq`。持久化的位置从写下的下一秒起就是错的，而它看起来像事实 | 系统合同 §5.6 |
+| 10 | TASK-064 §4d–§4m 转记的 **18 条**发现全部分配：**13 条** → TASK-072 §1.9 批次三（同族合并为 10 行）、**4 条**（`mix-shot` 端点）→ TASK-074 §1.1b、**1 条**（§4e）已驳回留档。**不留无主项** | TASK-064 §4z；TASK-072 §1.9；TASK-074 §1.1b |
