@@ -12,6 +12,7 @@ from ai_video_workflow.orchestration import (
     PersistenceExecutionError,
 )
 from ai_video_workflow.orchestration.layout import _LayoutResolver, _StateLayout
+from tests.symlink_support import symlink_or_skip
 
 RUNNING_AS_ROOT = hasattr(os, "geteuid") and os.geteuid() == 0
 
@@ -178,7 +179,7 @@ class TestStateTargetSymlinkSafety:
         (root / "records").mkdir()
         outside = tmp_path / "outside"
         outside.mkdir()
-        os.symlink(outside, root / "records/generation-tasks")
+        symlink_or_skip(root / "records/generation-tasks", outside)
         resolver = _LayoutResolver(root)
         with pytest.raises(PersistenceExecutionError):
             resolver.resolve_state_layout("task-1")
@@ -190,7 +191,7 @@ class TestStateTargetSymlinkSafety:
         root = tmp_path / "project"
         root.mkdir()
         (root / "real-records").mkdir()
-        os.symlink(root / "real-records", root / "records")
+        symlink_or_skip(root / "records", root / "real-records")
         resolver = _LayoutResolver(root)
         layout = resolver.resolve_state_layout("task-1")
         assert layout.task_id == "task-1"
@@ -318,9 +319,9 @@ class TestArtifactComparison:
         root.mkdir()
         (root / "records/orchestration").mkdir(parents=True)
         (root / "staging").mkdir()
-        os.symlink(
-            root / "records/orchestration",
+        symlink_or_skip(
             root / "staging/alias",
+            root / "records/orchestration",
         )
         resolver = _LayoutResolver(root)
         with pytest.raises(PersistenceExecutionError):
@@ -378,7 +379,7 @@ class TestArtifactComparison:
         (root / "manifests").mkdir()
         (root / "tasks/instructions").mkdir(parents=True)
         (root / "staging").mkdir()
-        os.symlink(root / link_target, root / "staging/link")
+        symlink_or_skip(root / "staging/link", root / link_target)
         resolver = _LayoutResolver(root)
         with pytest.raises(PersistenceExecutionError):
             resolver.resolve_local_artifact_comparison(reference, is_local=True)
@@ -390,7 +391,7 @@ class TestArtifactComparison:
         root = tmp_path / "project"
         root.mkdir()
         (root / "staging").mkdir()
-        os.symlink(root / "staging/loop", root / "staging/loop")
+        symlink_or_skip(root / "staging/loop", root / "staging/loop")
         resolver = _LayoutResolver(root)
         with pytest.raises(PersistenceExecutionError) as exc_info:
             resolver.resolve_local_artifact_comparison(
@@ -419,7 +420,7 @@ class TestArtifactComparison:
         (root / "staging").mkdir()
         outside = tmp_path / "outside"
         outside.mkdir()
-        os.symlink(outside, root / "staging/out")
+        symlink_or_skip(root / "staging/out", outside)
         resolver = _LayoutResolver(root)
         result = resolver.resolve_local_artifact_comparison(
             "staging/out/newfile.mp4",
@@ -435,9 +436,9 @@ class TestArtifactComparison:
         root.mkdir()
         (root / "records/orchestration").mkdir(parents=True)
         (root / "staging").mkdir()
-        os.symlink(
-            root / "records/orchestration/task-1.json",
+        symlink_or_skip(
             root / "staging/leaf.json",
+            root / "records/orchestration/task-1.json",
         )
         resolver = _LayoutResolver(root)
         with pytest.raises(PersistenceExecutionError):
@@ -454,9 +455,9 @@ class TestArtifactComparison:
         root.mkdir()
         (root / "staging").mkdir()
         # Dangling: target does not exist yet, still resolves lexically.
-        os.symlink(
-            root / "manifests/generation-task-1.json",
+        symlink_or_skip(
             root / "staging/dangling.json",
+            root / "manifests/generation-task-1.json",
         )
         resolver = _LayoutResolver(root)
         with pytest.raises(PersistenceExecutionError):

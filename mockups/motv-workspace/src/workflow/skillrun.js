@@ -6,6 +6,7 @@
 //     skillRunId, skillId, skillVersion,
 //     runtime, executor, model,        // WHO answered (never conflated)
 //     inputKeys, inputSummary,         // WHAT it was given (reproducible)
+//     contextTrace,                    // …and the CONTENT fingerprint of it
 //     status, proposal, error,
 //     directorReview,                  // present only if a real check ran
 //     decision, decidedAt,             // accept / reject — the creator's call
@@ -100,6 +101,30 @@ export function startRun(reg, entry) {
     // no shotId. A run whose context was never captured carries `null`, and
     // says so rather than being attached to whatever episode is active now.
     context: contextOf(entry.context),
+    // TASK-067 §3 / ADR-0064 决策 2: WHAT the run read, as a content fingerprint —
+    // which references at which version serving which side, which reading of each,
+    // which frames, which selected takes, which prompt versions, which neighbours.
+    //
+    // DISTINCT FROM `context` ABOVE, deliberately. `context` is the ADR-0059 identity
+    // contract (which level of canon this run belongs to); this is the projection it
+    // was actually handed. 「读了 EP01 / S01 / SH02」 and 「读到的是 SH02 的哪一版内容」
+    // are different questions, and only the second one can tell you whether a
+    // conclusion still applies.
+    //
+    // Null is a FACT: a project-wide capability read no single shot's projection, so
+    // it has no trace, and manufacturing one would claim a precision it lacks.
+    contextTrace: isObj(entry.contextTrace) ? entry.contextTrace : null,
+    // THE QUESTION THIS RUN ACTUALLY ASKED, frozen at launch (manual runs only).
+    //
+    // A manual run stays open until the creator brings an answer back, and they get
+    // the prompt by pressing 复制任务 Prompt. Recompiling it at copy time reads LIVE
+    // state: edit the shot after starting the run and the copied prompt no longer
+    // matches the `contextTrace` the record claims the answer came from — the record
+    // would describe inputs the answer never saw (codex review round 4).
+    //
+    // Only manual runs carry it: a local run consumes its prompt immediately, so
+    // storing one per run would be a durable copy of something nobody can re-read.
+    promptText: strOrNull(entry.promptText),
     status: "running",
     proposal: null,
     directorReview: null,

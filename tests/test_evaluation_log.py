@@ -32,6 +32,7 @@ from ai_video_workflow.evaluation import (
     read_records,
     record_from_envelope,
 )
+from tests.symlink_support import symlink_or_skip
 
 _AT = datetime(2026, 8, 3, 12, 0, 0, tzinfo=timezone.utc)
 _DIGEST = "a" * 64
@@ -306,7 +307,7 @@ def test_read_refuses_symlinked_log(tmp_path: Path):
     events_dir.mkdir(parents=True, exist_ok=True)
     outside = tmp_path.parent / "outside-read.jsonl"
     outside.write_text('{"leaked": true}\n', encoding="utf-8")
-    (events_dir / "log.jsonl").symlink_to(outside)
+    symlink_or_skip(events_dir / "log.jsonl", outside)
     with pytest.raises(AiVideoWorkflowError):
         read_records(tmp_path)
 
@@ -415,7 +416,7 @@ def test_open_append_contained_refuses_symlinked_intermediate_dir(tmp_path: Path
     import ai_video_workflow.evaluation.log as log_mod
 
     # 'evaluation' is a symlink to a would-be outside location
-    (tmp_path / "evaluation").symlink_to(tmp_path.parent / "outside-eval")
+    symlink_or_skip(tmp_path / "evaluation", tmp_path.parent / "outside-eval")
     with pytest.raises(EvaluationLogError):
         log_mod._open_append_contained(tmp_path, ("evaluation", "events", "log.jsonl"))
     assert not (tmp_path.parent / "outside-eval").exists()
@@ -433,7 +434,7 @@ def test_append_refuses_symlinked_log_file(tmp_path: Path):
     events_dir = tmp_path / "evaluation" / "events"
     events_dir.mkdir(parents=True, exist_ok=True)
     outside = tmp_path.parent / "evade.jsonl"
-    (events_dir / "log.jsonl").symlink_to(outside)
+    symlink_or_skip(events_dir / "log.jsonl", outside)
     with pytest.raises(AiVideoWorkflowError):
         append_record(tmp_path, _evaluation("e-1"))
     assert not outside.exists()  # nothing created/written through the symlink

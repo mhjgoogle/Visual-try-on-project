@@ -80,7 +80,10 @@ def test_ai_paths_record_generations_with_frozen_snapshot() -> None:
     # complete it on adopt (link the produced video Asset); M10 adds the
     # manual-entry import path (promptSnapshot from the copied prompt); M11
     # adds audio entry-import + local TTS + the ffmpeg render provenance
-    assert app.count("ctx.startGeneration") == 6
+    # 7 since TASK-064 Phase 3: a Shot Mix is a DERIVED audio asset produced from
+    # real inputs, so it records a real Generation like every other producer —
+    # that is what puts it on the provenance graph with its sources.
+    assert app.count("ctx.startGeneration") == 7
     assert app.count("ctx.completeGeneration") >= 6
     assert "promptSnapshot" in assets and "promptSnapshot" in audio
     # an AMBIGUOUS submit exception must NOT mark the video generation failed

@@ -15,8 +15,10 @@ import assert from "node:assert/strict";
 
 import {
   EPISODE_NAV, EPISODE_MODULES, EPISODE_DEFAULT, EPISODE_WORKSPACES,
-  renderRail, spaceOf,
+  renderRail, spaceOf, episodeEntryModule,
 } from "../src/ui/shell.js";
+import { renderShotSelect, bindShotSelect } from "../src/ui/shotselect.js";
+import * as pdoc from "../src/workflow/proddoc.js";
 import { renderEpProd, showsFocus, FOCUS_FILTERS } from "../src/ui/epprod.js";
 import { inspectFromNode, inspectorTarget } from "../src/ui/prodinspector.js";
 import { buildProvenanceGraph, explainNode, nodeIds, shotGroups, scopeGraph } from "../src/workflow/provenance.js";
@@ -79,11 +81,17 @@ test("the exit lands in 剧集制作, and 本集剧本 is NOT a cross-space jump
 /* 2 · 剧集制作 is graph-first, not eleven peers                              */
 /* ========================================================================= */
 
-test("the generation graph IS the centre; the stage workspaces are secondary", () => {
-  assert.equal(EPISODE_DEFAULT, "provenance");
+test("制作台 IS the centre; the stage workspaces (incl. 生成溯源) are secondary", () => {
+  // A DELIBERATE contract change (TASK-065 §5 / §9). TASK-064 Phase 1b made the
+  // episode-wide provenance graph the centre; that answered 「这个东西是怎么来的」
+  // first, which matters AFTER something exists. The creator entering 剧集制作 is
+  // here to make the next shot, so the centre is now the CURRENT SHOT's production
+  // graph. 生成溯源 lost nothing — it is a workspace with a permanent 「完整溯源 ↗」
+  // entrance in the centre header (§14).
+  assert.equal(EPISODE_DEFAULT, "workbench");
   assert.equal(EPISODE_NAV[0][0], EPISODE_DEFAULT);
-  // nothing was deleted: every stage is still addressable
-  for (const k of ["workbench", "episode", "scenes", "shots", "refplan", "frames", "video", "audio", "dailies", "edit"]) {
+  // nothing was deleted: every stage is still addressable, provenance included
+  for (const k of ["provenance", "episode", "scenes", "shots", "refplan", "frames", "video", "audio", "dailies", "edit"]) {
     assert.ok(EPISODE_MODULES.includes(k), `${k} must stay reachable`);
     assert.ok(EPISODE_WORKSPACES.some(([x]) => x === k), `${k} must be in the 工作区 menu`);
   }
@@ -148,17 +156,77 @@ test("a stage workspace announces itself as a detour and offers the way back", (
   assert.ok(onStage.includes("<i>frames</i>"), "the stage workspace itself is still framed, unchanged");
 });
 
-test("the focus filter is drawn only where it filters something", () => {
-  // 「全部 / 图片 / 视频 / 音频 / 失败」 filters SHOT CARDS. On the graph it would sit
-  // beside the graph's own filter chips meaning something different — two filter
-  // vocabularies on one screen is worse than one.
-  assert.equal(showsFocus("workbench"), true);
-  assert.equal(showsFocus(EPISODE_DEFAULT), false);
+test("the focus filter lives where the shot is CHOSEN, not on the centre header", () => {
+  // TASK-066 §2 — a DELIBERATE move. The chips used to filter a wall of shot cards in
+  // the centre; that wall became the Shot dropdown, so chips left in the centre header
+  // would have had nothing to filter. A control that does nothing is worse than a
+  // missing one, so they moved INTO the Shot picker (ui/shotselect.js), above the list
+  // they narrow.
+  assert.equal(showsFocus(EPISODE_DEFAULT), true, "the 制作台 is where a shot is chosen");
+  assert.equal(showsFocus("provenance"), false);
+  assert.equal(showsFocus("frames"), false, "a stage workspace has no shot picker");
   const ctx = epCtx();
-  assert.ok(!renderEpProd(ctx, { epFocus: "all" }, { stage: EPISODE_DEFAULT }).includes("data-ep-focus"));
-  assert.ok(renderEpProd(ctx, { epFocus: "all" }, { stage: "workbench" }).includes("data-ep-focus"));
+  const centre = renderEpProd(ctx, { epFocus: "all" }, { stage: EPISODE_DEFAULT });
+  assert.ok(!centre.includes("data-ep-focus"), "no dead chips on the centre header");
   // and it is still the same five filters — nothing was dropped
   assert.deepEqual(FOCUS_FILTERS.map((f) => f[0]), ["all", "image", "video", "audio", "failed"]);
+});
+
+test("the shot picker offers the five filters and honours them", () => {
+  const m = {
+    empty: false,
+    episodes: [{ episodeId: "ep1", code: "EP01", title: "EP01 迷雾入城", active: true }],
+    scenes: [{
+      sceneId: "s1",
+      title: "S01",
+      shots: [
+        { shotId: "a", seq: 1, title: "有画面", hasImage: true, hasVideo: true, approved: false },
+        { shotId: "b", seq: 2, title: "缺画面", hasImage: false, hasVideo: false, approved: false },
+      ],
+    }],
+    unassigned: [],
+    unassignedTotal: 0,
+    focus: "image",
+    all: [],
+  };
+  const place = { scene: m.scenes[0], shot: m.scenes[0].shots[1], shots: m.scenes[0].shots };
+  const html = renderShotSelect({}, { ssOpen: "shot" }, m, place);
+  for (const [k] of FOCUS_FILTERS) assert.ok(html.includes(`data-ss-focus="${k}"`), `${k} is offered`);
+  // focus `image` means 「还缺图片」 — so only the shot WITHOUT one is listed…
+  assert.ok(html.includes(`data-id="b"`));
+  assert.ok(!html.includes(`data-id="a"`));
+  // …and the ones held back are COUNTED rather than silently dropped
+  assert.ok(/1 个不在聚焦内/.test(html));
+});
+
+test("picking a SCENE honours the focus filter when it chooses that scene's shot", () => {
+  // codex review round 2 (TASK-066): taking `pool[0]` blindly could select a shot the
+  // picker does not list under the current focus — the creator would be standing on
+  // something absent from the list they just used.
+  const shots = [
+    { shotId: "a", seq: 1, title: "有画面", hasImage: true, hasVideo: false, approved: false },
+    { shotId: "b", seq: 2, title: "缺画面", hasImage: false, hasVideo: false, approved: false },
+  ];
+  const m = {
+    empty: false,
+    episodes: [{ episodeId: "ep1", code: "EP01", title: "EP01", active: true }],
+    scenes: [{ sceneId: "s1", title: "S01", shots }],
+    unassigned: [], unassignedTotal: 0, focus: "image", all: [],
+  };
+  const place = { scene: null, shot: null, shots: [] };
+  const picked = [];
+  // a minimal root: capture the handler `bindShotSelect` attaches to the scene row
+  let onScenePick = null;
+  const root = {
+    querySelectorAll: (q) => (q === "[data-ss-pick]"
+      ? [{ dataset: { ssPick: "scene", id: "s1" }, set onclick(f) { onScenePick = f; } }]
+      : []),
+    querySelector: () => null,
+  };
+  bindShotSelect(root, {}, {}, () => {}, { selectShot: (id) => picked.push(id), m, place });
+  onScenePick({ stopPropagation() {} });
+  // focus `image` means 「还缺图片」 → shot "b", NOT pool[0] which is "a"
+  assert.deepEqual(picked, ["b"]);
 });
 
 /* ========================================================================= */
@@ -492,4 +560,49 @@ test("an approval survives filtering with its take, and only with its take", () 
   assert.ok(filterGraph(scoped, "video").nodes.has(rv), "the take is showing, so its approval is");
   assert.ok(!filterGraph(scoped, "image").nodes.has(rv), "a frame nobody reviewed must not wear 已通过");
   assert.ok(!filterGraph(scoped, "audio").nodes.has(rv));
+});
+
+/* ========================================================================= */
+/* TASK-071 · 进入剧集制作先落在分镜，定好之后才是逐镜制作                      */
+/* ========================================================================= */
+
+test("「进入剧集制作」lands on 分镜 until the shot list exists", () => {
+  // 产品 2026-08-13：「点击进入该剧的剧集制作就要有分镜的生成…定好分镜之后再对各个分镜
+  // 做详细制作」。An episode with no draft has nothing to produce yet — the 制作台 would
+  // open on 「先选一个镜头」 with no shots to select.
+  assert.equal(episodeEntryModule(false), "shots");
+  assert.equal(episodeEntryModule(true), EPISODE_DEFAULT);
+  assert.equal(EPISODE_DEFAULT, "workbench", "…and the 制作台 is still where per-shot work happens");
+  // both targets are real stages of this space, so neither landing can be a dead end
+  assert.ok(EPISODE_MODULES.includes("shots"));
+  assert.ok(EPISODE_MODULES.includes(EPISODE_DEFAULT));
+});
+
+test("the entry counts THIS episode's shots, not the project's (codex round 2, P1)", () => {
+  // The failure this pins: EP01 has shots, EP02 has none. Asking whether the
+  // project-wide `draftShots` list is empty answered 「这个作品有没有分镜」, so entering
+  // the empty EP02 landed on the 制作台 — 「先选一个镜头」 with no shots for that
+  // episode, which is the dead end the rule exists to avoid.
+  const prod = pdoc.createProduction(null);
+  const ep1 = prod.episodes[0];
+  const ep2 = pdoc.addEpisode(prod, "EP02");
+  const sc1 = pdoc.addScene(prod, ep1.episodeId, "S01");
+  pdoc.assignShot(prod, sc1.sceneId, "sh-1");
+  const draft = [{ shotId: "sh-1", sequence: 1, title: "有分镜的那一集" }];
+
+  const shotsOf = (episodeId) => {
+    const v = pdoc.episodeView(prod, episodeId, draft);
+    return v ? v.scenes.reduce((n, sc) => n + sc.shots.filter((x) => !x.dangling).length, 0) : 0;
+  };
+  assert.equal(shotsOf(ep1.episodeId), 1);
+  assert.equal(shotsOf(ep2.episodeId), 0, "EP02 has none of its own");
+  assert.equal(episodeEntryModule(shotsOf(ep1.episodeId) > 0), EPISODE_DEFAULT);
+  assert.equal(episodeEntryModule(shotsOf(ep2.episodeId) > 0), "shots",
+    "…so entering EP02 must land on 分镜, even though the project has shots elsewhere");
+  // a DANGLING reference (a scene naming a shot the draft no longer holds) is not a
+  // shot: an episode whose only shotIds dangle still has nothing to produce
+  const sc2 = pdoc.addScene(prod, ep2.episodeId, "S01");
+  pdoc.assignShot(prod, sc2.sceneId, "sh-gone");
+  assert.equal(shotsOf(ep2.episodeId), 0);
+  assert.equal(episodeEntryModule(shotsOf(ep2.episodeId) > 0), "shots");
 });

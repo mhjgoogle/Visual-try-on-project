@@ -223,6 +223,21 @@ export async function renderEpisode(project, clips, settings) {
   return j;
 }
 
+/** Shot Mix (ADR-0061 决策 6): one shot's audio clips → ONE derived audio file.
+ *  `clips` carry `{ file, in, out, start, gainDb, fadeInMs, fadeOutMs, muted }`
+ *  — gain in dB, the unit workflow/shotaudio.js stores, so the conversion lives
+ *  in exactly one place (ffmpeg's `volume=…dB`). The SOURCES are untouched. */
+export async function mixShotAudio(project, slug, clips) {
+  const r = await fetch("/api/agent/mix-shot", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ project, slug, clips }),
+  });
+  const j = await r.json().catch(() => null);
+  if (!r.ok) throw new Error((j && j.error && j.error.detail) || `mix ${r.status}`);
+  return j;
+}
+
 /** Delete ONE uploaded media file's bytes (M11 storage management). The
  *  caller owns the registry semantics; this only removes bytes. */
 export async function deleteAssetFile(project, file) {

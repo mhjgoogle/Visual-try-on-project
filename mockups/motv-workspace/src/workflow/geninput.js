@@ -89,14 +89,20 @@ export const INTERPRETATION_ROLES = REFERENCE_ROLES.filter(([r]) => isInterpreta
  * `frames`      { start, end } — resolved first/last frame refs or null
  * `prompt`      the effective prompt text (or null when not compiled yet)
  * `runtime`     { source, model, parameters, seed } — anything unknown is null
+ * `interpretation`  refinterp.interpretationInputs() for the interpretation
+ *               references — each carries `axes` and `read`. An UNREAD one is
+ *               kept in the set: the panel has to be able to show 「你绑了运动
+ *               参考，但还没有人读过它」, and dropping it would make the set claim
+ *               a complete picture it does not have.
  */
-export function buildInputSet({ shot, context, references, frames, prompt, runtime } = {}) {
+export function buildInputSet({ shot, context, references, frames, prompt, runtime, interpretation } = {}) {
   const refs = Array.isArray(references) ? references.filter(isObj) : [];
   const byRole = {};
   for (const [role] of REFERENCE_ROLES) byRole[role] = refs.filter((r) => r.kind === role);
   const f = isObj(frames) ? frames : {};
   const rt = isObj(runtime) ? runtime : {};
   const ctx = isObj(context) ? context : {};
+  const interp = Array.isArray(interpretation) ? interpretation.filter(isObj) : [];
   return {
     shotId: strOrNull(ctx.shotId) || (isObj(shot) ? strOrNull(shot.shotId) : null),
     sceneId: strOrNull(ctx.sceneId),
@@ -120,6 +126,16 @@ export function buildInputSet({ shot, context, references, frames, prompt, runti
       : null,
     references: byRole,
     referenceCount: refs.length,
+    // THE TWO GROUPS, formally (ADR-0061 决策 4 / §4). Derived from ROLE_USE
+    // rather than listed twice, so a role cannot end up in both or in neither —
+    // and the panel renders 「模型直接输入」 / 「AI 解读输入」 from exactly this.
+    modelInputs: MODEL_INPUT_ROLES.flatMap((role) => byRole[role] || []),
+    // the interpretation SIDE carries its reading, not just the file: that is
+    // the whole difference between the two groups
+    interpretationInputs: interp,
+    // bound-but-unread references, so a caller can report the gap without
+    // re-filtering (and so 「已解读 2/3」 is one derivation, not three)
+    interpretationUnread: interp.filter((i) => !i.read),
     // a video generation is framed by real image Assets; an image generation
     // has neither, and says so rather than inventing a frame
     startFrame: isObj(f.start) ? f.start : null,
@@ -163,6 +179,19 @@ export function generationSeedFrom(set, { type, promptSnapshot, status = "genera
   const inputs = [];
   if (set.startFrame && nonEmpty(set.startFrame.assetId)) inputs.push(set.startFrame.assetId);
   if (set.endFrame && nonEmpty(set.endFrame.assetId)) inputs.push(set.endFrame.assetId);
+  const interpRefs = (Array.isArray(set.interpretationInputs) ? set.interpretationInputs : [])
+    .filter((i) => isObj(i) && i.read && nonEmpty(i.key))
+    .map((i) => ({
+      referenceKey: i.key,
+      kind: i.kind || null,
+      readingVersion: Number.isInteger(i.readingVersion) ? i.readingVersion : null,
+      readingOrigin: strOrNull(i.readingOrigin),
+    }));
+  // NOTE: the interpretation references' own assetIds are already in
+  // `refAssetIds` — REFERENCE_ROLES covers all eight roles, and an interpretation
+  // reference IS a reference input (the words it produced went into the prompt).
+  // `interpretedReferences` below adds WHICH READING was used, which the asset id
+  // alone cannot say.
   return {
     type,
     targetType: set.shotId ? "shot" : null,
@@ -186,6 +215,13 @@ export function generationSeedFrom(set, { type, promptSnapshot, status = "genera
       // be placed after a draft is regenerated
       ...(set.episodeId ? { episodeId: set.episodeId } : {}),
       ...(set.sceneId ? { sceneId: set.sceneId } : {}),
+      // WHICH READING of each interpretation reference drove this run. The text
+      // is already frozen in `promptSnapshot`; this records the reading's
+      // identity so a later 「这段运镜是哪一版解读来的」 has an answer, and so a
+      // re-read of the same reference does not make this record look like it
+      // used the new one. Only READ references are listed — a bound-but-unread
+      // reference contributed nothing and must not appear as an input.
+      ...(interpRefs.length ? { interpretedReferences: interpRefs } : {}),
     },
     status,
   };

@@ -2,6 +2,13 @@
 
 - Status: Accepted
 - Date: 2026-08-10
+
+> **Superseded in part by
+> [ADR-0050](ADR-0050-powershell-native-agent-dev-tooling.md) (2026-08-10):**
+> the statement that the bash AI-agent dev tooling is *not* ported (Consequences
+> bullet 4 and Not Decided Here item 1) no longer holds. PowerShell-native
+> equivalents of `gate.sh` and `run-review.sh` now exist beside the bash ones.
+> Every other decision in this ADR is unchanged.
 - Scope: Host-platform support for running and testing the pipeline, CLI, the
   motv-workspace prototype, and FFmpeg composition; supersedes the WSL2-only
   platform scope in ADR-0001 and amends the environment constraints in
@@ -87,15 +94,21 @@ that shells out to `grep`/`/bin/sh`.
   are unchanged.
 - README (repo + motv-workspace) gains native-Windows setup/run sections
   alongside the existing WSL2 instructions.
-- The bash AI-agent dev tooling (`.claude/hooks/gate.sh`, the
+- ~~The bash AI-agent dev tooling (`.claude/hooks/gate.sh`, the
   `codex-review-loop` skill scripts) is **not** ported; it remains part of the
-  authoritative Ubuntu dev environment (see Not Decided Here).
+  authoritative Ubuntu dev environment (see Not Decided Here).~~ Superseded by
+  [ADR-0050](ADR-0050-powershell-native-agent-dev-tooling.md): the bash scripts
+  stay authoritative on Ubuntu, and PowerShell-native equivalents
+  (`gate.ps1`, `run-review.ps1`) serve a Windows agent host.
 
 ## Not Decided Here
 
-- Porting the bash AI-agent dev tooling (commit-gate hook, codex-review-loop)
+- ~~Porting the bash AI-agent dev tooling (commit-gate hook, codex-review-loop)
   to native Windows. These are the Ubuntu-authoritative development harness, not
-  the product; they stay bash/coreutils-only.
+  the product; they stay bash/coreutils-only.~~ **Decided by
+  [ADR-0050](ADR-0050-powershell-native-agent-dev-tooling.md)**: PowerShell-native
+  equivalents are added beside the bash scripts, which stay authoritative on
+  Ubuntu.
 - FAT/exFAT/network-share support for the create-only publish primitive
   (Decision 2 keeps these out of scope).
 - macOS support (not requested; much of the cross-platform work would also

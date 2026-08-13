@@ -44,7 +44,52 @@ export const SKILL_INPUTS = {
   references: "参考资产",
   assets: "资产清单",
   generations: "生成记录",
+  // ADR-0061 决策 6 / TASK-064 Phase 3: the POST-PRODUCTION context. A post
+  // skill that could not see the cut, the shot's audio arrangement or the
+  // subtitle track would be reasoning about a film it has never watched — so
+  // these are first-class inputs, resolved by the caller from the canonical
+  // documents exactly like the others.
+  timeline: "本集剪辑时间线",
+  shotAudio: "镜头音频编排",
+  subtitles: "字幕轨",
+  // --- TASK-067 §3 / §15 (ADR-0064 决策 1) --------------------------------- //
+  //
+  // THE SHOT-SCOPED INPUTS. `shotContext` is `workflow/shotctx.js`'s projection:
+  // canon → episode → scene → shot → references → frames → media → prompts →
+  // neighbour summaries, and NOTHING else. It exists so a shot-scoped capability
+  // stops being handed every draft shot, every reference and every generation in
+  // the project just to answer a question about one shot.
+  //
+  // These are separate keys rather than fields of `shotContext` because
+  // `missingInputs` gates on them individually: 「没有已选定的主帧图」 must make
+  // Video Prompt Director REFUSE TO RUN, and that only works if the selected image
+  // is its own required input.
+  shotContext: "当前 Shot 上下文",
+  assetCandidates: "资产库候选参考",
+  selectedShotImage: "已选定的主帧图",
+  promptUnderReview: "待审核的 Prompt",
+  neighbourShots: "前后镜连续性摘要",
 };
+
+/**
+ * The inputs that can only be resolved FOR ONE SHOT (TASK-067 §3).
+ *
+ * Declared here rather than at the resolver, so the catalog and the thing that
+ * routes context are reading one list. A skill that names any of these is
+ * shot-scoped by construction: without a shot there is nothing to resolve, and
+ * `missingInputs` therefore refuses the run instead of quietly answering about
+ * whichever shot happened to be selected.
+ */
+export const SHOT_SCOPED_INPUTS = [
+  "shotContext", "assetCandidates", "selectedShotImage", "promptUnderReview", "neighbourShots",
+];
+
+/** Does this skill read one shot? Used to decide which context builder serves it. */
+export function isShotScoped(skill) {
+  if (!skill) return false;
+  const keys = [...(skill.inputs || []), ...(skill.optionalInputs || [])];
+  return SHOT_SCOPED_INPUTS.some((k) => keys.includes(k));
+}
 
 /** The runtime KINDS a skill can run on (never a concrete executor). */
 export const RUNTIME_KINDS = ["local_subscription", "manual"];
@@ -209,12 +254,28 @@ function deepFreeze(x) {
 // --- the v1 catalog ---------------------------------------------------------- //
 
 /**
- * Ten capabilities. Each is `Object.freeze`d: a Skill Run can read one and
+ * Twenty capabilities. Each is `Object.freeze`d: a Skill Run can read one and
  * record its version, but nothing can mutate it at run time.
+ *
+ * TASK-064 added the four the post-production console needed a real crew for:
+ * Reference Interpreter (Phase 2) plus Editing Director / Sound Designer /
+ * Subtitle Reviewer (Phase 3). Continuity Reviewer already existed and is reused
+ * as-is rather than duplicated into a 「post」 variant.
+ *
+ * TASK-067 added the five that make a SHOT's visual production actually assisted:
+ * Shot Asset Recommender / Image Prompt Director / Video Prompt Director /
+ * Prompt Reviewer / Shot Continuity Reviewer. All five read `shotContext` — the
+ * minimal projection in `workflow/shotctx.js` — instead of the whole project.
+ *
+ * `prompt-director` (v1) is DELIBERATELY KEPT. Existing Skill Runs reference it by
+ * `skillId + skillVersion`, and definitions are immutable (决策 6): removing it
+ * would point real provenance records at a capability that no longer exists. It is
+ * simply no longer the shot workbench's entrance.
  */
 export const SKILLS = [
   {
     skillId: "story-development",
+    work: "creative",
     version: 1,
     role: "编剧",
     title: "Story Development",
@@ -245,6 +306,7 @@ export const SKILLS = [
   },
   {
     skillId: "script-writer",
+    work: "creative",
     version: 1,
     role: "编剧",
     title: "Script Writer",
@@ -268,6 +330,7 @@ export const SKILLS = [
   },
   {
     skillId: "script-doctor",
+    work: "review",
     version: 1,
     role: "剧本医生",
     title: "Script Doctor",
@@ -301,6 +364,7 @@ export const SKILLS = [
   },
   {
     skillId: "script-breakdown",
+    work: "creative",
     version: 1,
     role: "制片",
     title: "Script Breakdown",
@@ -347,6 +411,7 @@ export const SKILLS = [
   },
   {
     skillId: "storyboard-director",
+    work: "creative",
     version: 1,
     role: "分镜导演",
     title: "Storyboard Director",
@@ -388,6 +453,7 @@ export const SKILLS = [
   },
   {
     skillId: "cinematography",
+    work: "creative",
     version: 1,
     role: "摄影指导",
     title: "Cinematography",
@@ -422,6 +488,7 @@ export const SKILLS = [
   },
   {
     skillId: "reference-planner",
+    work: "creative",
     version: 1,
     role: "美术",
     title: "Reference Planner",
@@ -461,6 +528,7 @@ export const SKILLS = [
   },
   {
     skillId: "prompt-director",
+    work: "creative",
     version: 1,
     role: "Prompt 导演",
     title: "Prompt Director",
@@ -488,7 +556,73 @@ export const SKILLS = [
     recommendedRuntime: "local_subscription",
   },
   {
+    // TASK-065 §2. 人物关系 already exists as canon; what was missing is a
+    // capability that READS the story and proposes relationships, because the
+    // pairs a script implies are exactly what a creator forgets to write down.
+    //
+    // PROPOSALS ONLY (§2 的硬约束: AI 只负责建议，不能未经确认修改 Canon). The output
+    // addresses characters BY ID — a proposal naming 「那个女警察」 cannot be applied
+    // without guessing which character that is, and a guess here would write
+    // relationship canon onto the wrong person.
+    skillId: "relationship-director",
+    work: "creative",
+    version: 1,
+    role: "编剧",
+    title: "Relationship Director",
+    purpose: "从大纲与剧本里读出人物之间的关系，提出关系提案（基础关系 / 核心矛盾 / 张力 / 走向）。",
+    inputs: ["characters"],
+    optionalInputs: ["relationships", "outline", "episodeScript", "world", "scenes"],
+    instruction:
+      "你是编剧。给定这部作品的人物、已有的关系定义以及大纲/剧本，" +
+      "找出**剧情里真实存在但还没有被定义**的人物关系，以及已有定义里明显与剧情不符的地方。" +
+      "每条提案必须用给定的 characterId 指名两个人物，不要用名字或描述指人。" +
+      "只写你在给定材料里真的能读到的东西：读不出核心矛盾就省略那个字段，" +
+      "不要为了填满字段而编造。已经定义得很好的关系不要重复提案。" +
+      "没有可提的就返回空列表。",
+    outputSchema: {
+      type: "object",
+      required: ["proposals"],
+      fields: {
+        proposals: {
+          type: "array",
+          of: {
+            type: "object",
+            // both sides must be ADDRESSABLE, or the proposal has no target
+            required: ["aCharacterId", "bCharacterId"],
+            fields: {
+              aCharacterId: str(),
+              bCharacterId: str(),
+              // "create" | "revise" — stated by the skill, verified by the
+              // applier against the documents (a claim is not a permission)
+              intent: optStr(),
+              basis: optStr(),
+              aToB: optStr(),
+              bToA: optStr(),
+              coreConflict: optStr(),
+              tension: optStr(),
+              power: optStr(),
+              history: optStr(),
+              secrets: optStr(),
+              direction: optStr(),
+              arc: optStr(),
+              forbidden: optStr(),
+              reason: optStr(),
+            },
+          },
+        },
+      },
+    },
+    reviewCriteria: [
+      "两个 characterId 是否都指向真实存在的人物，且不是同一个人",
+      "提案里的关系是否真的能在大纲/剧本里读到，而不是套路化的推断",
+      "是否重复提案了已经定义清楚的关系",
+      "没有可提的关系时是否老实返回空列表",
+    ],
+    recommendedRuntime: "local_subscription",
+  },
+  {
     skillId: "continuity-reviewer",
+    work: "review",
     version: 1,
     role: "场记",
     title: "Continuity Reviewer",
@@ -525,7 +659,494 @@ export const SKILLS = [
     recommendedRuntime: "local_subscription",
   },
   {
+    // ADR-0061 决策 4 / TASK-064 Phase 2 §21–§22. THE capability that makes a
+    // video / motion / camera / performance reference do something: it READS the
+    // reference and states what it says along six axes, which the Prompt compiler
+    // then carries (workflow/promptc.js). Without this, 「AI 解读输入」 would be a
+    // label on a file nobody read.
+    skillId: "reference-interpreter",
+    work: "creative",
+    version: 1,
+    role: "摄影指导",
+    title: "Reference Interpreter",
+    purpose: "把视频风格 / 运动 / 机位 / 表演参考读成运镜、运动、表演、构图、光线、节奏。",
+    inputs: ["references"],
+    optionalInputs: ["shots", "world", "scenes", "characters"],
+    instruction:
+      "你是摄影指导。给定的参考素材，模型无法直接吃进去，所以你的工作是把它们「读」出来：" +
+      "对每一个参考，说明它在运镜、运动、表演、构图、光线、节奏这六个轴上表达了什么。" +
+      "**只描述你在这份参考的描述/元数据里真实能看到的东西**；看不出来的轴就省略那个字段，" +
+      "不要为了填满六个轴而编造。每条都要具体到能写进提示词，不要「更有电影感」这类空话。",
+    outputSchema: {
+      type: "object",
+      required: ["readings"],
+      fields: {
+        readings: {
+          type: "array",
+          minItems: 1,
+          of: {
+            type: "object",
+            // the reference must be ADDRESSABLE, or the reading has nowhere to go
+            required: ["referenceKey"],
+            fields: {
+              referenceKey: str(),
+              cameraLanguage: optStr(),
+              movement: optStr(),
+              performance: optStr(),
+              composition: optStr(),
+              lighting: optStr(),
+              pacing: optStr(),
+              reason: optStr(),
+            },
+          },
+        },
+      },
+    },
+    reviewCriteria: [
+      "每个轴是否具体到能直接写进提示词，而不是形容词堆叠",
+      "是否为了填满六个轴而编造了参考里看不出来的东西",
+      "referenceKey 是否指向真实存在的参考",
+    ],
+    recommendedRuntime: "local_subscription",
+  },
+  {
+    // ADR-0061 决策 6 / §55. 剪辑指导 — proposes concrete edit adjustments on the
+    // EPISODE timeline. Every proposal addresses a clip by its clipId: a
+    // suggestion 「把第三个镜头剪短一点」 cannot be applied without guessing which
+    // clip that is after any reorder.
+    skillId: "editing-director",
+    work: "creative",
+    version: 1,
+    role: "剪辑指导",
+    title: "Editing Director",
+    purpose: "在已有的初剪上提出具体的剪辑调整：修剪、顺序、换版本、转场。",
+    inputs: ["timeline"],
+    optionalInputs: ["shots", "scenes", "episodeScript", "subtitles"],
+    instruction:
+      "你是剪辑指导。基于给定的本集时间线，提出具体的剪辑调整。" +
+      "每条调整必须用 clipId 定位，并且只使用时间线里真实存在的 assetId。" +
+      "修剪用毫秒；不要提出重新生成素材，也不要提出时间线里没有的素材。" +
+      "没有需要改的就返回空列表——「都很好」比编造一条调整有用。",
+    outputSchema: {
+      type: "object",
+      required: ["edits"],
+      fields: {
+        edits: {
+          type: "array",
+          of: {
+            type: "object",
+            required: ["clipId", "reason"],
+            fields: {
+              clipId: str(),
+              reason: str(),
+              // trim is expressed as the NEW in/out in milliseconds, absolute on
+              // the source — a delta would depend on the current value the model
+              // saw, which may already have changed
+              trimInMs: { type: "number" },
+              trimOutMs: { type: "number" },
+              index: { type: "number" },
+              replaceWithAssetId: optStr(),
+              transition: optStr(),      // cut | dissolve | dip
+              transitionMs: { type: "number" },
+              remove: { type: "boolean" },
+            },
+          },
+        },
+        note: optStr(),
+      },
+    },
+    reviewCriteria: [
+      "每条调整是否用 clipId 定位到了具体片段",
+      "换版本是否指向时间线上下文里真实列出的 assetId",
+      "是否提出了「重新生成」这类不属于剪辑的动作",
+      "没有问题时是否老实返回空列表",
+    ],
+    recommendedRuntime: "local_subscription",
+  },
+  {
+    // ADR-0061 决策 6 / §55. 声音设计 — gain / offset / fade, on either layer.
+    // `layer` is REQUIRED because the two clip namespaces are different documents:
+    // a shot's audio arrangement and the episode timeline. A proposal that did not
+    // say which one it meant would be applied by whichever lookup happened to hit.
+    skillId: "sound-designer",
+    work: "creative",
+    version: 1,
+    role: "声音设计",
+    title: "Sound Designer",
+    purpose: "调整音量、对位与淡入淡出：镜头音频编排或本集时间线。",
+    inputs: ["shotAudio"],
+    optionalInputs: ["timeline", "shots", "scenes", "episodeScript"],
+    instruction:
+      "你是声音设计。基于给定的音频编排提出具体调整。每条必须写明 layer（shot 或 episode）与 clipId。" +
+      "音量一律用 gainDb（相对当前值的分贝增减，负数是压低）；对位用 offsetMs（正数是延后）。" +
+      "不要提出新增素材；不要改动 layer 里不存在的片段。没有需要改的就返回空列表。",
+    outputSchema: {
+      type: "object",
+      required: ["adjustments"],
+      fields: {
+        adjustments: {
+          type: "array",
+          of: {
+            type: "object",
+            required: ["layer", "clipId", "reason"],
+            fields: {
+              layer: str(),   // shot | episode
+              clipId: str(),
+              reason: str(),
+              gainDb: { type: "number" },
+              offsetMs: { type: "number" },
+              fadeInMs: { type: "number" },
+              fadeOutMs: { type: "number" },
+              muted: { type: "boolean" },
+            },
+          },
+        },
+        note: optStr(),
+      },
+    },
+    reviewCriteria: [
+      "layer 是否明确，且 clipId 真的属于那一层",
+      "gainDb 是否是相对增减，而不是绝对值混着用",
+      "对位建议是否说明了它在对哪一个事件",
+      "没有问题时是否老实返回空列表",
+    ],
+    recommendedRuntime: "local_subscription",
+  },
+  {
+    // ADR-0061 决策 6 / §55. 字幕校对 — text, timing, speaker, merge.
+    skillId: "subtitle-reviewer",
+    work: "review",
+    version: 1,
+    role: "字幕校对",
+    title: "Subtitle Reviewer",
+    purpose: "校对字幕：断行、可读时长、说话人、错别字与重叠。",
+    inputs: ["subtitles"],
+    optionalInputs: ["episodeScript", "shots", "characters", "timeline"],
+    instruction:
+      "你是字幕校对。基于给定的字幕轨提出具体修正，每条用 cueId 定位。" +
+      "可以改文本、起止时间（毫秒）、说话人，或建议与下一条合并。" +
+      "不要重写剧本台词；字幕是给观众读的，剧本是给演的。没有问题就返回空列表。",
+    outputSchema: {
+      type: "object",
+      required: ["fixes"],
+      fields: {
+        fixes: {
+          type: "array",
+          of: {
+            type: "object",
+            required: ["cueId", "reason"],
+            fields: {
+              cueId: str(),
+              reason: str(),
+              text: optStr(),
+              startMs: { type: "number" },
+              endMs: { type: "number" },
+              speaker: optStr(),
+              mergeWithNext: { type: "boolean" },
+            },
+          },
+        },
+        note: optStr(),
+      },
+    },
+    reviewCriteria: [
+      "每条修正是否用 cueId 定位",
+      "是否把剧本台词改写成了别的意思（字幕不是重写台词的地方）",
+      "时长建议是否真的可读（过短的 cue 等于没有）",
+      "没有问题时是否老实返回空列表",
+    ],
+    recommendedRuntime: "local_subscription",
+  },
+  {
+    // TASK-067 §4 / ADR-0064 决策 4. 「AI 导演能不能针对这一镜检索资产库」 —— 能，但
+    // 检索这一半不是模型做的。`assetCandidates` 是 shotctx.candidatesFor 从注册表里
+    // 按本场出场人物 / 场景地 / 镜头描述真实检索出来的，每条都带真实 referenceKey 与
+    // assetId 和「为什么它是候选」的证据。
+    //
+    // 这个能力只做排序与理由。它**只能引用候选集里出现过的 referenceKey** ——
+    // 因此它无法发明一个不存在的资产，也不需要看整个资产库。applier 落地前还会再
+    // 校验一次 key，指向不存在资产的条目会被丢弃并如实报数。
+    skillId: "shot-asset-recommender",
+    work: "creative",
+    version: 1,
+    role: "美术",
+    title: "Shot Asset Recommender",
+    purpose: "为当前 Shot 从已有资产库里挑出该绑定的参考，并指出真正缺的那几项。",
+    inputs: ["shotContext", "assetCandidates"],
+    optionalInputs: ["characters", "world"],
+    instruction:
+      "你是美术指导。给定这一个镜头的上下文，以及一份**已经从资产库检索出来的候选参考清单**，" +
+      "为这一镜挑出应该绑定哪些参考。" +
+      "**你只能引用候选清单里出现过的 referenceKey，一个字都不能改，也不能发明新的。**" +
+      "候选清单里没有合适的，就在 missing 里说明还需要什么样的参考——那是「要去做一张新的」，" +
+      "不是「随便挑一个凑上」。" +
+      "每条推荐都要写出理由，理由必须建立在候选自带的 evidence 与这一镜的上下文上；" +
+      "已经绑在这一镜上的参考不要重复推荐。没有可推荐的就返回空列表。",
+    outputSchema: {
+      type: "object",
+      required: ["recommendations"],
+      fields: {
+        recommendations: {
+          type: "array",
+          of: {
+            type: "object",
+            // ADDRESSABLE, or it cannot be applied to anything
+            required: ["referenceKey", "reason"],
+            fields: {
+              referenceKey: str(),
+              reason: str(),
+              // "image" | "video" | "both" — which prompt this binding should serve
+              use: optStr(),
+              // the reference this one should REPLACE, when the recommendation is a
+              // swap rather than an addition
+              replacesKey: optStr(),
+              confidence: optStr(),
+            },
+          },
+        },
+        missing: {
+          type: "array",
+          of: {
+            type: "object",
+            required: ["kind", "reason"],
+            fields: { kind: str(), subject: optStr(), reason: str() },
+          },
+        },
+        note: optStr(),
+      },
+    },
+    reviewCriteria: [
+      "每个 referenceKey 是否真的出现在给定的候选清单里（发明的一律无效）",
+      "理由是否建立在候选自带的 evidence 上，而不是套路化的推断",
+      "是否重复推荐了已经绑在这一镜上的参考",
+      "missing 里的条目是否真的被这一镜需要，而不是把候选清单缺的东西列一遍",
+    ],
+    recommendedRuntime: "local_subscription",
+  },
+  {
+    // TASK-067 §7. 与旧的泛用 `prompt-director` 的区别：输入是 shotctx 的最小上下文
+    // （不是整个项目），输出除 prompt 本身还要求 assumptions / missingInputs ——
+    // 「我在哪里替你做了假设」和「我还缺什么」是创作者判断这段 Prompt 能不能用的依据，
+    // 藏起来它们会让一段编造得很流畅的 Prompt 看起来和一段有据可依的完全一样。
+    skillId: "image-prompt-director",
+    work: "creative",
+    version: 1,
+    role: "Prompt 导演",
+    title: "Image Prompt Director",
+    purpose: "为当前 Shot 写出这次出图真正要用的 Image Prompt。",
+    inputs: ["shotContext"],
+    optionalInputs: ["characters", "world", "assetCandidates"],
+    instruction:
+      "你是 Prompt 导演，负责这一镜的**单帧画面**。基于给定的镜头上下文" +
+      "（作品视觉方向、场景与场景地状态、出场人物与其状态、已绑定的参考及其解读、" +
+      "首帧连续性、镜头规格与画面内容），写出这次出图要用的有效提示词。" +
+      "提示词必须**自足**：外部工具看不到我们的项目数据，所以不要出现只有本项目才知道的" +
+      "内部名字或 id；人物与场景要用外貌/服装/环境的实际描述来写。" +
+      "不得与已绑定的参考矛盾，也不得偷偷改变镜头设计（景别 / 角度 / 画面内容是给定的）。" +
+      "**你在哪里做了假设，就在 assumptions 里写出来；还缺什么就写进 missingInputs。**" +
+      "不要为了让提示词完整而编造上下文里没有的设定。",
+    outputSchema: {
+      type: "object",
+      required: ["prompt"],
+      fields: {
+        prompt: str(),
+        negativePrompt: optStr(),
+        // WHERE the answer went beyond what it was given — the creator's main
+        // handle on whether this prompt is grounded
+        assumptions: { type: "array", of: str() },
+        missingInputs: { type: "array", of: str() },
+        referenceNotes: optStr(),
+        rationale: optStr(),
+      },
+    },
+    reviewCriteria: [
+      "提示词是否自足（没有只有本项目才知道的名字或 id）",
+      "是否与已绑定的参考矛盾",
+      "是否偷偷改变了镜头设计（景别 / 角度 / 画面内容）",
+      "assumptions 是否老实列出了它自己补的东西，而不是把编造当成既定事实",
+    ],
+    recommendedRuntime: "local_subscription",
+  },
+  {
+    // TASK-067 §8. `selectedShotImage` 是**必要输入**，不是 UI 上一个灰掉的按钮：
+    // 没有选定主帧图时这个能力缺必要输入，因此在能力层就拒绝运行并说明原因
+    // （ADR-0064 决策 5）。视频是从那一帧长出来的；没有那一帧，写出来的编排是无根的。
+    skillId: "video-prompt-director",
+    work: "creative",
+    version: 1,
+    role: "Prompt 导演",
+    title: "Video Prompt Director",
+    purpose: "在已选定主帧图之后，为当前 Shot 写出视频编排 Prompt。",
+    inputs: ["shotContext", "selectedShotImage"],
+    optionalInputs: ["neighbourShots", "characters", "world"],
+    instruction:
+      "你是 Prompt 导演，负责这一镜**动起来之后**的样子。给定的已选定主帧图就是第 1 帧，" +
+      "视频必须从它长出来——人物、服装、场景与光线一律以它为准，不得漂移。" +
+      "**你看不到那张图本身**（这里只传文字）：`selectedShotImage.fromPrompt` 是它当初" +
+      "被生成时用的提示词，那是关于它长什么样的唯一可靠依据；若为空（外部导入、无生成" +
+      "记录），就只依据镜头设计与参考来保持一致，**不要假装知道画面细节**。" +
+      "基于镜头的动作、台词语境、时长、机位 / 运动 / 视频风格 / 表演参考的**解读**、" +
+      "首尾帧与前后镜连续性，写出视频生成要用的提示词，并分别说明：" +
+      "动作序列、运镜、表演、环境运动、节奏、连续性要求、以及需要特别防止的视觉漂移。" +
+      "参考素材本身模型吃不进去，所以只使用上下文里已经给出的**解读文字**；" +
+      "没有解读的参考就当作没有这条信息，不要凭名字猜它是什么。" +
+      "时长是给定的，不要改。",
+    outputSchema: {
+      type: "object",
+      required: ["prompt"],
+      fields: {
+        prompt: str(),
+        negativePrompt: optStr(),
+        // §8 的输出重点，逐项拆开：一段糊在一起的散文没法逐条审核
+        actionSequence: optStr(),
+        cameraMotion: optStr(),
+        performance: optStr(),
+        environmentMotion: optStr(),
+        pacing: optStr(),
+        continuity: optStr(),
+        visualStability: optStr(),
+        assumptions: { type: "array", of: str() },
+        missingInputs: { type: "array", of: str() },
+        rationale: optStr(),
+      },
+    },
+    reviewCriteria: [
+      "是否真的以已选定的主帧图为第 1 帧，而不是另起一个画面",
+      "运镜是否与机位参考的解读一致，而不是与它冲突",
+      "是否只使用了已有解读的参考（没有解读的参考不得被凭名字发挥）",
+      "时长是否被改动",
+      "连续性要求是否指向前后镜真实存在的事实",
+    ],
+    recommendedRuntime: "local_subscription",
+  },
+  {
+    // TASK-067 §9 / ADR-0064 决策 6. 一个能力覆盖 image / video 两侧：输出契约完全
+    // 相同，两套检查清单由 instruction 携带，`promptUnderReview` 说明本次审的是哪一侧。
+    //
+    // 只读结论 + 逐条建议。`suggestedText` 是**建议**，不是写入：应用要经创作者逐条
+    // 确认，走 updatePrompt。直接覆盖会让一次审核变成一次静默改写。
+    skillId: "prompt-reviewer",
+    work: "review",
+    version: 1,
+    role: "AI 导演",
+    title: "Prompt Reviewer",
+    purpose: "审核当前 Shot 的 Image / Video Prompt，指出问题并给出具体修改建议。",
+    inputs: ["shotContext", "promptUnderReview"],
+    optionalInputs: ["neighbourShots", "characters", "world"],
+    instruction:
+      "你是 AI 导演，负责审核一段即将用于生成的提示词。`promptUnderReview` 里的 `kind` " +
+      "说明这次审的是 image 还是 video；**只检查那一侧的清单**。\n" +
+      "image：人物一致性 / 场景一致性 / 服装与 CharacterState / 构图 / 光影 / " +
+      "是否遗漏了镜头的关键内容。\n" +
+      "video：动作逻辑 / 运镜是否与机位参考冲突 / 运动与表演 / 时长是否合理 / " +
+      "前后镜连续性 / 是否包含不必要的视觉漂移风险。\n" +
+      "每条问题都要指出**它在提示词里的哪一处**，以及为什么它是问题（对照上下文里的事实）。" +
+      "只有当你能给出具体改法时才写 suggestedText，并且给的是**整段改写后的提示词**，" +
+      "不是一句片段——创作者要能直接对比取用。" +
+      "没有问题就返回空列表：「这段可以用」比编造一条问题有价值得多。" +
+      "不要把风格偏好写成问题。",
+    outputSchema: {
+      type: "object",
+      required: ["issues"],
+      fields: {
+        // an overall read: "ok" | "minor" | "problems" — stated, not inferred by
+        // counting issues, because one blocking issue outranks five nitpicks
+        verdict: optStr(),
+        issues: {
+          type: "array",
+          of: {
+            type: "object",
+            required: ["where", "problem"],
+            fields: {
+              where: str(),
+              problem: str(),
+              severity: optStr(),   // blocking | major | minor
+              fix: optStr(),
+            },
+          },
+        },
+        // the WHOLE rewritten prompt, when the reviewer can offer one
+        suggestedText: optStr(),
+        strengths: { type: "array", of: str() },
+      },
+    },
+    reviewCriteria: [
+      "每条问题是否定位到了提示词的具体一处，而不是笼统的评价",
+      "问题是否对照上下文里的真实事实，而不是审阅者自己的审美偏好",
+      "suggestedText 如果给了，是否是可直接取用的整段提示词",
+      "没有问题时是否老实返回空列表",
+    ],
+    recommendedRuntime: "local_subscription",
+  },
+  {
+    // TASK-067 §10. 只做**视觉 Shot Production 范围**：不扩到后期音频。
+    // 与既有的整集 `continuity-reviewer` 并存而不是替换它 —— 那一个读整集的镜头序列，
+    // 这一个读一镜及其前后镜的视觉事实，两者问的不是同一个问题。
+    //
+    // 没有「连续性」这份 canonical 文档，所以它没有写回路径（skillapply 里 can:false），
+    // 是一份只读结论。跑不了就是失败态，绝不产生一条「通过」。
+    skillId: "shot-continuity-reviewer",
+    work: "review",
+    version: 1,
+    role: "场记",
+    title: "Shot Continuity Reviewer",
+    purpose: "检查这一镜与前后镜的视觉连续性：人物、状态、服装、场景、时间天气、道具、画面方向、首尾帧。",
+    inputs: ["shotContext", "neighbourShots"],
+    optionalInputs: ["characters", "world", "episodeScript"],
+    instruction:
+      "你是场记，只负责**画面上的连续性**。给定这一镜的上下文与前后镜的摘要，检查：" +
+      "人物身份、CharacterState、服装、场景地与其状态、时间与天气、道具、画面方向" +
+      "（越轴 / 视线方向 / 运动方向）、以及首帧与上一镜尾帧的衔接。\n" +
+      "**不要检查对白、音效、配乐或字幕**——那些不属于这个范围。\n" +
+      "每条问题必须指出涉及的两处（这一镜的哪一项 vs 前/后镜的哪一项），以及冲突到底是什么。" +
+      "只根据给定的事实判断：摘要里没有说明的东西就是**你不知道**，" +
+      "把不知道写成 unknown，不要写成通过。" +
+      "没有发现问题就返回空列表。",
+    outputSchema: {
+      type: "object",
+      required: ["issues"],
+      fields: {
+        issues: {
+          type: "array",
+          of: {
+            type: "object",
+            required: ["kind", "detail", "where"],
+            fields: {
+              // character-identity | character-state | costume | location |
+              // time-weather | prop | screen-direction | frame-continuity
+              kind: str(),
+              detail: str(),
+              where: { type: "array", of: str() },
+              severity: optStr(),
+              suggestion: optStr(),
+            },
+          },
+        },
+        // WHAT COULD NOT BE JUDGED, and why. This is the field that makes 「没问题」
+        // trustworthy: a reviewer that had no costume information must say so
+        // rather than let an empty issue list imply the costume was checked.
+        unknown: {
+          type: "array",
+          of: {
+            type: "object",
+            required: ["kind", "reason"],
+            fields: { kind: str(), reason: str() },
+          },
+        },
+        checked: { type: "array", of: str() },
+      },
+    },
+    reviewCriteria: [
+      "每条问题是否指出了具体冲突的两处",
+      "是否把创作选择误报为连续性错误",
+      "无法判断的项是否老实进了 unknown，而不是被当成通过",
+      "是否越界检查了对白 / 音频 / 字幕",
+    ],
+    recommendedRuntime: "local_subscription",
+  },
+  {
     skillId: "asset-librarian",
+    work: "review",
     version: 1,
     role: "资产管理",
     title: "Asset Librarian",

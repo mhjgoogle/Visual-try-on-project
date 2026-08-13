@@ -40,7 +40,11 @@ test("image prompt composes state-resolved facets + tone + shot visual", () => {
   assert.ok(text.includes("【角色画面指令】冷色调"));
   assert.ok(text.includes("【画面】李昭跪于大殿中央"));
   assert.ok(text.includes("16:9"));
-  assert.deepEqual(missing, []);
+  // TASK-064 Phase 2 §21: a scene WITH characters and NO character reference bound
+  // is a real consistency gap, and the compiler now says so. Deliberate contract
+  // change — the same sentence the Prompt inspector already showed, now reported
+  // where the prompt itself is compiled.
+  assert.deepEqual(missing, ["出场角色还没有绑定人物参考图（一致性会明显不稳 — 在左栏「参考」里绑定）"]);
 });
 
 test("image prompt reports honest gaps and never invents absent facets", () => {
@@ -129,7 +133,9 @@ test("shotDetailModel compiles prompts from the scene's STATE-resolved bible ref
   assert.ok(!d.prompts.image.text.includes("青衫束发"));
   assert.ok(d.prompts.image.text.includes("【场景】太极殿：金砖白玉阶"));
   assert.ok(d.prompts.image.text.includes("【风格】古装爽剧")); // approved outline tone
-  assert.deepEqual(d.prompts.image.missing, []);
+  // the fixture binds no canonical character reference, which is now reported
+  // (see the compileImagePrompt test above) — the scene context itself is complete
+  assert.deepEqual(d.prompts.image.missing, ["出场角色还没有绑定人物参考图（一致性会明显不稳 — 在左栏「参考」里绑定）"]);
   // the shot HAS a current image → the video prompt binds it as frame 1
   assert.ok(d.prompts.video.text.includes("【首帧】"));
   assert.ok(d.prompts.video.text.includes("【动作】缓缓抬头"));

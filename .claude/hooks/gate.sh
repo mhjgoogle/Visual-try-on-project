@@ -22,6 +22,15 @@ if [ -z "$ROOT" ]; then
 fi
 PY="$ROOT/.venv/bin/python"
 
+# A Windows virtualenv means gate.ps1 owns this repo's gate (ADR-0050). Both
+# hooks are registered in settings.json and run in parallel, so this one must
+# stand down here: a bash on a Windows host (Git Bash, or WSL reaching in over
+# /mnt) cannot run .venv/Scripts/python.exe and would otherwise block every
+# commit on an interpreter it was never meant to use.
+if [ ! -x "$PY" ] && [ -f "$ROOT/.venv/Scripts/python.exe" ]; then
+  exit 0
+fi
+
 # --- extract the intercepted command ---------------------------------------
 # Prefer a proper JSON parse (python is guaranteed present in this project);
 # fall back to a raw grep only if parsing fails.
@@ -39,8 +48,27 @@ if [ -z "$CMD" ]; then
 fi
 
 # --- only gate real `git commit` invocations --------------------------------
-if ! printf '%s' "$CMD" | grep -qE '(^|[^[:alnum:]_-])git[[:space:]]+commit([[:space:]]|$)'; then
+# TWO INDEPENDENT TOKEN TESTS, deliberately NOT a parse of git's argument
+# grammar. A regex cannot reliably parse a shell command line -- quoted paths
+# containing spaces, substitutions, chained commands -- and every form the
+# parse fails to recognise is a commit that silently skips every check. So:
+# does the command name git at all, and does a bare `commit` token appear
+# anywhere in it? Over-gating costs one check run; a miss costs an unverified
+# commit.
+if ! printf '%s' "$CMD" | grep -qiE '(^|[^[:alnum:]_-])git(\.exe)?([[:space:]]|$)' \
+  || ! printf '%s' "$CMD" | grep -qiE '(^|[[:space:]])commit([[:space:]]|$)'; then
   exit 0
+fi
+
+# ...but every check below runs in THIS repository. A commit redirected
+# elsewhere by -C / --git-dir / --work-tree would get a verdict computed from a
+# tree the gate never inspected, so fail closed rather than vouch for code it
+# did not check. This match is case-SENSITIVE (no -i): git's `-c key=value` is
+# a harmless config override while `-C path` changes directory, and a
+# case-insensitive test cannot tell the two apart.
+if printf '%s' "$CMD" | grep -qE '(^|[[:space:]])(-C([[:space:]]|$)|--git-dir(=|[[:space:]]|$)|--work-tree(=|[[:space:]]|$))'; then
+  echo "gate.sh: this commit redirects git to another repository (-C / --git-dir / --work-tree), but the quality checks only cover '$ROOT'. Run the commit from that repository's own working directory so its gate can verify it." >&2
+  exit 2
 fi
 
 if [ ! -x "$PY" ]; then
@@ -48,19 +76,50 @@ if [ ! -x "$PY" ]; then
   exit 2
 fi
 
+POLICY="$ROOT/.claude/hooks/commit_gate_policy.py"
+if [ ! -f "$POLICY" ]; then
+  echo "gate.sh: $POLICY not found; cannot classify commit risk." >&2
+  exit 2
+fi
+
+# Classify exactly what this commit writes.  A normal commit writes the index,
+# so unrelated experiments in the worktree cannot turn a docs commit into a
+# full suite.  `git commit -a/--all` stages tracked worktree changes during the
+# commit itself, so use HEAD for that form.  Deletions stay in either input.
+POLICY_DIFF_ARGS=(diff --cached --name-only --no-renames -z)
+if printf '%s' "$CMD" | grep -qE '(^|[[:space:]])(-a|--all)([[:space:]]|$)'; then
+  POLICY_DIFF_ARGS=(diff --name-only --no-renames -z HEAD)
+fi
+if ! POLICY_JSON="$(cd "$ROOT" && git "${POLICY_DIFF_ARGS[@]}" | "$PY" "$POLICY")"; then
+  echo "gate.sh: could not classify changed paths; refusing unchecked commit." >&2
+  exit 2
+fi
+POLICY_TIER="$(printf '%s' "$POLICY_JSON" | "$PY" -c 'import json,sys; print(json.load(sys.stdin)["tier"])')"
+if [ -z "$POLICY_TIER" ]; then
+  echo "gate.sh: risk classifier returned no tier; refusing unchecked commit." >&2
+  exit 2
+fi
+mapfile -t POLICY_PYTEST_TARGETS < <(
+  printf '%s' "$POLICY_JSON" | "$PY" -c 'import json,sys; print(*json.load(sys.stdin)["pytest_targets"], sep="\n")'
+)
+
 # --- run every configured quality check ------------------------------------
 # Each check has a bounded timeout so a hung command cannot stall the commit.
-# The per-check budget sums to <170s (15+15+120+8+8 = 166s) so it stays inside
-# the PreToolUse hook cap (settings.json timeout=170s): a genuinely hung check
-# is killed by ITS OWN timeout with a clear message, before the outer harness
-# kills the whole hook ambiguously.
+# The per-check budget sums to 346s (15+15+300+8+8) and the hook cap in
+# settings.json is 380s. That 34s of slack must cover the worst case where a
+# hung check is only killed 10s after its own timeout (`--kill-after=10`), so
+# this script always reaches its own `exit 2`. If the outer harness times the
+# hook out first, the failure is reported as a NON-BLOCKING hook error and the
+# commit proceeds unchecked -- a hung check must never fail open. Within that
+# envelope a hung check is killed by ITS OWN timeout with a clear message,
+# before the outer harness kills the whole hook ambiguously.
 #
 # The full suite runs in ~110-150s (2719 tests) because the repo-root
 # conftest.py routes pytest's tmp tree onto tmpfs (/dev/shm) — without that it
-# is ~39 min of fsync wait on the WSL2 disk and CANNOT gate a commit. The 220s
-# pytest budget leaves ~47% headroom for CPU contention and growth. If the
-# suite grows past ~200s, raise the pytest budget here AND the hook timeout in
-# settings.json together (keep hook timeout ≈ budget-sum + 4s).
+# is ~39 min of fsync wait on the WSL2 disk and CANNOT gate a commit. The 300s
+# pytest budget leaves headroom for suite growth. If the suite grows past
+# ~270s, raise the pytest budget here AND the hook timeout in
+# settings.json together (keep hook timeout ≥ budget-sum + 24s).
 FAIL_LABEL=""
 FAIL_OUT=""
 
@@ -84,12 +143,33 @@ run_check() {
 
 # 1. ruff format --check
 # 2. ruff check (lint / static analysis)
-# 3. pytest
+# 3. risk-selected test suite (or no test suite for docs-only commits)
 # 4. git diff --check          (whitespace / conflict markers in working tree)
 # 5. git diff --cached --check (whitespace / conflict markers in staged content)
 run_check "ruff format --check"   15 "$PY" -m ruff format --check . \
-  && run_check "ruff check"         15 "$PY" -m ruff check . \
-  && run_check "pytest"            220 "$PY" -m pytest \
+  && run_check "ruff check"        15 "$PY" -m ruff check .
+
+if [ -z "$FAIL_LABEL" ]; then
+  case "$POLICY_TIER" in
+    full)
+      run_check "pytest (full)" 300 "$PY" -m pytest
+      ;;
+    workspace|pytest-targeted|motv-server)
+      run_check "pytest ($POLICY_TIER)" 120 "$PY" -m pytest "${POLICY_PYTEST_TARGETS[@]}"
+      ;;
+    frontend)
+      run_check "frontend tests" 90 node --test "$ROOT"/mockups/motv-workspace/tests/*.test.mjs
+      ;;
+    lint)
+      ;;
+    *)
+      FAIL_LABEL="commit-risk-policy"
+      FAIL_OUT="unsupported risk tier: $POLICY_TIER"
+      ;;
+  esac
+fi
+
+[ -z "$FAIL_LABEL" ] \
   && run_check "git diff --check"    8 git diff --check \
   && run_check "git diff --cached --check" 8 git diff --cached --check
 

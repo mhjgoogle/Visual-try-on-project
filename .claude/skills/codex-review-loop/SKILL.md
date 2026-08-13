@@ -8,7 +8,7 @@ description: >-
   claude session (fallback). DO NOT invoke for: answering questions, explaining
   code, pure documentation-only changes, or while an implementation is still in
   progress / incomplete.
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash(bash *), Bash(git diff *), Bash(git status *)
+allowed-tools: Read, Write, Edit, Glob, Grep, Bash(bash *), Bash(git diff *), Bash(git status *), PowerShell(powershell *), PowerShell(git diff *), PowerShell(git status *)
 ---
 
 # codex-review-loop
@@ -28,18 +28,31 @@ that independence was degraded.
 
 For each round:
 
-1. Run the review script from the repo root, ALWAYS as a background task
-   (Bash tool with `run_in_background: true`), and ALWAYS with
-   `REVIEW_TASK=<task id>` (e.g. `TASK-026`; use the branch or feature name
-   when there is no task card) so every status-log line names the task under
-   review:
-   - uncommitted changes: `REVIEW_TASK=TASK-0XX bash .claude/skills/codex-review-loop/scripts/run-review.sh`
-   - branch vs a base: `REVIEW_TASK=TASK-0XX bash .claude/skills/codex-review-loop/scripts/run-review.sh <base-branch>`
+1. Run the review script from the repo root, ALWAYS as a background task, and
+   ALWAYS with `REVIEW_TASK=<task id>` (e.g. `TASK-026`; use the branch or
+   feature name when there is no task card) so every status-log line names the
+   task under review.
+
+   Pick the script for the host you are running on (ADR-0050 — both have the
+   same contract; never run the `.sh` one on Windows, its `.venv/bin/python`
+   path does not exist there):
+
+   - Ubuntu/WSL2 — Bash tool, `run_in_background: true`:
+     - uncommitted changes: `REVIEW_TASK=TASK-0XX bash .claude/skills/codex-review-loop/scripts/run-review.sh`
+     - branch vs a base: `REVIEW_TASK=TASK-0XX bash .claude/skills/codex-review-loop/scripts/run-review.sh <base-branch>`
+   - Native Windows — PowerShell tool, `run_in_background: true`:
+     - uncommitted changes: `$env:REVIEW_TASK='TASK-0XX'; powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/codex-review-loop/scripts/run-review.ps1`
+     - branch vs a base: `$env:REVIEW_TASK='TASK-0XX'; powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/codex-review-loop/scripts/run-review.ps1 <base-branch>`
+
+     On Windows, `codex` and `claude` are often installed per-user and NOT on
+     `PATH`. If the script reports `ENV_ERROR: neither codex nor claude is
+     installed`, point it at the executables directly with
+     `$env:REVIEW_CODEX_BIN` / `$env:REVIEW_CLAUDE_BIN` before launching.
 
    Background is mandatory, not optional: a real review takes 6–10+ minutes
-   per reviewer, while a foreground Bash call is capped at 600 s — running it
-   in the foreground WILL produce a "Command timed out" tool error that looks
-   like an API failure. Do not poll while waiting; do other pending work or
+   per reviewer, while a foreground Bash/PowerShell call is capped at 600 s —
+   running it in the foreground WILL produce a "Command timed out" tool error
+   that looks like an API failure. Do not poll while waiting; do other pending work or
    simply wait for the task-completion notification.
 
    The script also mirrors its full output to
@@ -128,7 +141,11 @@ watches that file to tell normal slow progress from a failure. The controller
 MUST add its loop-level events to the same file, one line each, and every
 line MUST carry the same task id passed as `REVIEW_TASK` — the log is useless
 to the user if it does not say which task the work belongs to. Format:
-`bash -c "echo \"[$(date '+%F %T')] [TASK-0XX] <message>\" >> .claude/tmp/review-status.log"`:
+
+- Ubuntu/WSL2:
+  `bash -c "echo \"[$(date '+%F %T')] [TASK-0XX] <message>\" >> .claude/tmp/review-status.log"`
+- Native Windows:
+  `Add-Content -Encoding utf8 .claude/tmp/review-status.log "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [TASK-0XX] <message>"`
 
 - when a round starts: `round N launched`
 - after grading: `round N verdict=<pass|fail>: X P1, X P2, X P3, X P4`
@@ -141,6 +158,8 @@ Keep each line short; this journal is for the user, not a data store.
 For a LONG background run (test suite, review), launch it with a heartbeat so
 the journal shows liveness instead of a silent gap — wrap the command like:
 
+Ubuntu/WSL2:
+
 ```
 ( while sleep 300; do echo "[$(date '+%F %T')] [TASK-0XX] <step> still running…" \
     >> .claude/tmp/review-status.log; done ) & HB=$!
@@ -148,6 +167,18 @@ the journal shows liveness instead of a silent gap — wrap the command like:
 kill "$HB" 2>/dev/null
 echo "[$(date '+%F %T')] [TASK-0XX] <step> finished (exit $RC)" >> .claude/tmp/review-status.log
 exit $RC
+```
+
+Native Windows (`&&`/`||` do not exist in PowerShell 5.1; use `;`):
+
+```
+$log = '.claude/tmp/review-status.log'
+$hb = Start-Job { while ($true) { Start-Sleep 300
+    Add-Content -Encoding utf8 $using:log "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [TASK-0XX] <step> still running..." } }
+<long command>; $rc = $LASTEXITCODE
+Stop-Job $hb; Remove-Job $hb
+Add-Content -Encoding utf8 $log "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [TASK-0XX] <step> finished (exit $rc)"
+exit $rc
 ```
 
 ## Phase 2 — report

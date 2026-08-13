@@ -9,6 +9,8 @@
 - 范围: 全仓库运行时可移植性（`src/`、`mockups/motv-workspace/`）、Windows 启动器
   与文档、测试套件跨平台化、Windows CI。**不含** bash agent 工具链移植（gate.sh /
   codex-review-loop 保持 Ubuntu-only，见 ADR-0049 Not Decided Here）。
+  > 该排除项仅限本任务：agent 工装的 PowerShell 原生版已由 ADR-0050 / TASK-050
+  > 单独承接，不改变本任务的范围与验收。
 
 ## 背景
 
@@ -79,6 +81,60 @@ Windows 上不可靠的 `st_nlink`），并在站点注明降级的符号链接�
 - ADR-0049 Accepted；AGENTS.md §2 已修订；ADR-0001 有 superseded-by 注记。
 - Linux 全量测试零回归；Windows CI job 绿。
 - codex-review-loop 覆盖数据/状态/文件操作变更并 PASS。
+
+## 补充（2026-08-10，本机原生 Windows 首次跑全量后补齐）
+
+Windows CI 之外首次在**真实开发者机器**上跑全量（TASK-050 的提交闸门要求
+suite 全绿），暴露 3 处 CI 覆盖不到的缺口，均属本任务范围：
+
+1. **symlink fixture 需要特权**：33 个用例用 `symlink_to` / `os.symlink`
+   构造 fixture，本机无开发者模式时 `WinError 1314`，测试还没跑就失败。新增
+   [tests/symlink_support.py](../../tests/symlink_support.py)：
+   `symlink_or_skip()` 建不出链接就 skip（沿用 `test_windows_portability.py`
+   既有约定）。只守 fixture 构造，被测代码「必须拒绝 symlink」的断言不变；
+   Linux 与 Windows CI（runner 有该特权）照常执行，验证记录不受影响。
+2. **Windows 换行翻译破坏摘要**：`test_wfm1_e2e.py::test_fault_matrix` 用
+   `read_text` / `write_text` 篡改并还原 `planning/brief_v1.json`，Windows 上
+   还原写回把 `\n` 变成 `\r\n`，审批摘要永久失配，后续 (c)(d) 段全部走错分支。
+   改为字节读写（摘要就是按字节算的）。
+3. **遗漏的 `grep` 子进程**：`test_motv_assets_m3.py` /
+   `test_motv_shot_bridge_m4c.py` 仍直接 `subprocess.run(["grep", ...])`，
+   Windows 上 `grep` 不在 PATH。改用本任务已引入的可移植扫描
+   `tests/_scan.py::core_files_containing`（其余 10 处早已改用它）。
+4. **Windows 上「拒绝写动词」会把响应打掉（真实产品缺陷，非测试问题）**：
+   `src/workspace_shell/server.py::_reject_write` 从不读取声明的请求体就
+   `close_connection`。Windows 上关闭仍有未接收数据的 socket 是 **abortive
+   close（RST）**，会连带丢弃已发出的 405，客户端只看到
+   `ConnectionAbortedError`（WinError 10053），而不是状态码——
+   `test_write_verbs_and_loopback_over_real_socket` 因此间歇性失败（前 3 次全量
+   都碰巧通过，第 4 次才暴露）。新增 `_discard_body()`：先按 `Content-Length`
+   有界丢弃请求体（上限 `_MAX_BODY_BYTES`，chunked / 超限不读），再回响应并
+   关闭；同一类问题的跨源 403 路径一并修。修后该用例连跑 8 次全过。
+
+## 待处理：codex 在 TASK-065 审查中对 `_discard_body()` 的发现（范围外转入）
+
+2026-08-12，TASK-065 的 codex 审查扫到了本任务的 `_discard_body()`（当时它还在
+working tree 里未提交），报了一条 **P1**：
+
+> `src/workspace_shell/server.py:112` — 客户端声明一个合法大小的 `Content-Length`
+> 之后停住不发，`rfile.read()` 会一直阻塞在 405 之前 → 未认证客户端可以占住
+> handler 线程，形成拒绝服务。
+
+这条**属于本任务（TASK-049 §4 的修法），不属于 TASK-065**，按 AGENTS.md 第 17 条
+（不顺手改范围外代码）原样转记在这里，未在 TASK-065 中修改。
+
+判断与建议（供实施时参考，尚未实施）：
+
+- 缺陷是真的：`_discard_body()` 有**字节上界**（`_MAX_BODY_BYTES`）但**没有时间
+  上界**，而 `BaseHTTPRequestHandler` 是每连接一线程。慢速客户端（slowloris 风格）
+  声明 1 MB 然后每 30 秒发 1 字节，就能长期占住一个线程。
+- 威胁模型需要一并判断：这个 shell server 是**本机只读工作视窗**，默认绑
+  loopback。若确认只绑 127.0.0.1 且不接受外部连接，攻击者必须已经能在本机跑代码
+  —— 那时整个进程都归他，这条的净收益有限。**但**「只绑 loopback」这件事必须去
+  代码里确认，而不是假定。
+- 若要修：给 socket 设 `timeout`（`self.connection.settimeout(...)`）并在
+  `_discard_body()` 里捕获超时，超时即放弃丢弃、直接关闭（退回 RST 也比挂住线程
+  好）；同时确认 `ThreadingHTTPServer` 的 `daemon_threads` 设置。
 
 ## 非目标（明确排除）
 

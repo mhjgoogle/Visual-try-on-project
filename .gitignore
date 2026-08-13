@@ -30,6 +30,14 @@ secrets.json
 *.temp
 *.tmp
 *~
+# Chromium/Playwright crash-handler log, dropped into the repo root by the
+# acceptance scripts. Not ours, never useful in history.
+debug.log
+
+# Agent acceptance scratch. The scripts here drive the REAL Connected Project, so
+# the directory accumulates screenshots and JSON dumps of the user's own creative
+# work — generated media that AGENTS.md 第 23 条 keeps out of Git.
+mockups/motv-workspace/_agent-tools/
 
 # Generated media
 *.avi

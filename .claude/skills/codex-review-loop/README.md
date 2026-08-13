@@ -16,7 +16,10 @@
 | [.claude/tmp/last-review-output.txt](../../tmp/last-review-output.txt) | 最近一次审查器的原始输出（REVIEWER / VERDICT / 逐条发现） | 每次审查结束时整体写入 |
 | [.claude/tmp/last-review.md](../../tmp/last-review.md) | 最终审查报告（轮数、结论、修了什么、遗留 P3/P4） | 整个循环结束时写入 |
 
-想在终端里盯实时状态也可以：`tail -f .claude/tmp/review-status.log`。
+想在终端里盯实时状态也可以：
+
+- Ubuntu/WSL2：`tail -f .claude/tmp/review-status.log`
+- 原生 Windows：`Get-Content -Wait .claude/tmp/review-status.log`
 
 ## 正常运行是什么样的（不要误判为卡死）
 
@@ -33,7 +36,9 @@
 ## 出问题怎么停掉进程
 
 在任意终端执行（只会杀审查相关子进程，**不影响你正在用的 Claude Code
-会话本身**）：
+会话本身**）。
+
+Ubuntu/WSL2：
 
 ```bash
 pkill -f 'run-review\.sh'   # 审查脚本本体
@@ -47,10 +52,50 @@ pkill -f 'claude -p'        # 正在运行的 claude 回退审查
 pgrep -af 'run-review\.sh|codex exec|claude -p'
 ```
 
+原生 Windows（PowerShell）：
+
+```powershell
+# 先看有没有残留（脚本本体 / 正在跑的审查器）
+Get-CimInstance Win32_Process |
+  Where-Object { $_.CommandLine -match 'run-review\.ps1|codex .*exec|claude .*-p' } |
+  Select-Object ProcessId, Name, CommandLine
+
+# 确认后按 ProcessId 连子进程一起杀掉
+taskkill /T /F /PID <ProcessId>
+```
+
 如果审查是作为 Claude Code 后台任务启动的，也可以直接在对话里说
 「停掉审查任务」，由会话调用 TaskStop 结束它。
 
-## 可调参数（环境变量，运行前 export）
+## 两套脚本（ADR-0050）
+
+同一套行为合同有两个实现，按 agent 宿主平台选：
+
+| 宿主 | 提交闸门 | 审查脚本 |
+|---|---|---|
+| Ubuntu/WSL2（权威开发环境） | `.claude/hooks/gate.sh` | `scripts/run-review.sh` |
+| 原生 Windows | `.claude/hooks/gate.ps1` | `scripts/run-review.ps1` |
+
+`.claude/settings.json` 里**两个闸门都注册**，各自在非本平台自动让位：
+Windows 上 `gate.sh` 检测到 Windows venv 立即 exit 0，Ubuntu 上 `powershell`
+不存在只会产生一条非阻塞提示（PreToolUse 只有 exit 2 才阻塞）。因此任何一个
+平台上全新 clone 都是被闸门保护的，不需要手工配置。
+
+审查脚本要**按宿主平台手动选**：**不要在 Windows 上跑 `.sh` 版**——它写死了
+`.venv/bin/python`，Windows 上不存在该路径。
+
+Windows 上提交闸门里的 pytest 预算是 600 秒（实测整套跑绿 328 秒，无 tmpfs），
+所以一次提交前检查约需 6 分钟，属正常。
+
+**闸门会宁可多拦不可漏拦**：它只看命令文本，凡是同时出现 `git` 和独立的
+`commit` 词就跑全套检查——包括只是「提到」提交的命令（例如往文件里写一段讲
+提交的说明）。这是故意的：用正则解析 shell 命令行必然漏掉某些写法（带空格的
+引号路径等），而漏掉一次就等于那次提交完全没被检查。多拦一次只多花 6 分钟。
+命令里出现 `-C` / `--git-dir` / `--work-tree` 时会直接拒绝并说明原因——检查只
+覆盖本仓库，闸门不为没看过的代码背书。用 Edit/Write 工具改文件不受影响（闸门
+只挂在 Bash / PowerShell 上）。
+
+## 可调参数（环境变量，运行前 export / `$env:` 赋值）
 
 | 变量 | 默认 | 作用 |
 |---|---|---|
@@ -61,9 +106,14 @@ pgrep -af 'run-review\.sh|codex exec|claude -p'
 | `REVIEW_OUT_FILE` | `.claude/tmp/last-review-output.txt` | 原始输出落盘位置 |
 | `REVIEW_STATUS_FILE` | `.claude/tmp/review-status.log` | 实时状态日志位置 |
 | `REVIEW_TASK` | 空 | 任务标识（如 `TASK-026`）；设置后状态日志每行都带 `[TASK-026]` 前缀，标明这次审查属于哪个任务 |
+| `REVIEW_CODEX_BIN` | 空 | **仅 `.ps1` 版**：codex 可执行文件绝对路径（Windows 上 codex 常装在用户目录、不在 `PATH`）；路径不存在时视为「未安装」 |
+| `REVIEW_CLAUDE_BIN` | 空 | **仅 `.ps1` 版**：claude 可执行文件绝对路径，同上 |
 
 ## 已知环境事实
 
 - codex 有周配额；配额耗尽时会自动回退 claude，属预期降级，不是故障。
+- Windows 上 `codex` / `claude` 通常不在 `PATH`（VS Code 扩展自带的二进制、
+  带哈希的安装目录）。若脚本报 `ENV_ERROR: neither codex nor claude is
+  installed`，用上面两个 `REVIEW_*_BIN` 变量直接指向可执行文件即可。
 - 审查结果全部落盘，Claude Code 会话即使中途断流（API error），重连后
   也能从上面三个文件恢复结论，不需要重跑审查。

@@ -17,7 +17,7 @@
 //   version markers are rejected ("invalid"). Callers must not let either
 //   outcome overwrite the stored document.
 
-import { MAX_CLIP_START, MAX_CLIP_FADE } from "../workflow/timeline.js";
+import { MAX_CLIP_START, MAX_CLIP_FADE, TRACKS as TIMELINE_TRACKS } from "../workflow/timeline.js";
 import { pairKey } from "../workflow/canondoc.js";
 import { ASSET_KINDS, declarationDomainError, LINK_KEYS } from "../workflow/assetreg.js";
 import { RUN_STATUSES } from "../workflow/skillrun.js";
@@ -1463,12 +1463,15 @@ export function validateCanvasDoc(doc) {
     // A save violating this would load identity-less/colliding assets; reject it.
     if (atV3) {
       const ids = new Set();
-      const imageById = new Map(); // assetId → {slot, version, url, digest} — legit reuse targets
+      // assetId → {slot, version, url, digest, kind} — legit reuse targets.
+      // `kind` is carried because a `derived-frame` (TASK-064 §7) is allowed to be
+      // bound as a first frame on a DIFFERENT slot; see the firstFrames check.
+      const imageById = new Map();
       const claim = (id, where, rec, slot) => {
         if (typeof id !== "string" || !id) return `assets ${where} has no assetId`;
         if (ids.has(id)) return `assets ${where} has duplicate assetId ${id}`;
         ids.add(id);
-        if (rec) imageById.set(id, { slot, version: rec.version, url: rec.url, digest: rec.digest });
+        if (rec) imageById.set(id, { slot, version: rec.version, url: rec.url, digest: rec.digest, kind: rec.kind });
         return null;
       };
       for (const k of ["images", "videos", "audio"]) {
@@ -1548,7 +1551,21 @@ export function validateCanvasDoc(doc) {
               typeof r.digest === "string" && r.digest &&
               typeof src.digest === "string" && src.digest && r.digest !== src.digest;
             const slotIdConflict = r.slot_id !== undefined && r.slot_id !== slot;
-            if (src.slot !== slot || r.version !== src.version || r.url !== src.url || digestConflict || slotIdConflict) {
+            // TASK-064 Phase 2 §7 introduced a SECOND legitimate origin for a
+            // first frame: a `derived-frame` cut out of ANOTHER shot's video
+            // (上一镜尾帧 → 下一镜首帧). Such an image lives on its own
+            // `frame-<uuid>` chain by construction, so requiring `src.slot === slot`
+            // refused it — and because this validator fails the whole document,
+            // binding one made the entire canvas unloadable and blocked saving.
+            //
+            // The rule this check exists for is unchanged: an image must not have
+            // its identity glued onto DIFFERENT bytes. So every media check still
+            // applies (version, url, digest, the frame's own slot_id) — only the
+            // same-slot requirement is waived, and only for the one declared kind
+            // whose entire purpose is to be bound to a different shot.
+            const isDerivedFrame = src.kind === "derived-frame";
+            const slotMismatch = !isDerivedFrame && src.slot !== slot;
+            if (slotMismatch || r.version !== src.version || r.url !== src.url || digestConflict || slotIdConflict) {
               return `assets.firstFrames[${slot}] reuses image id ${r.assetId} but does not match its slot/media`;
             }
             continue;
@@ -1990,7 +2007,11 @@ export function validateCanvasDoc(doc) {
   if (atV9top && !isPlainObject(doc.timelines)) return "v9 document is missing its timelines map";
   if (doc.timelines !== undefined) {
     if (!isPlainObject(doc.timelines)) return "timelines is not an object";
-    const TRACKS = new Set(["video", "dialogue", "ambience", "sfx", "bgm"]);
+    // IMPORTED, not re-listed. A second copy of the track vocabulary was one
+    // edit away from rejecting a document the domain had just written — which is
+    // the worst failure mode this validator has, because it blocks the save
+    // rather than the load. TASK-064 Phase 3 added `foley` and `vo`.
+    const TRACKS = new Set(TIMELINE_TRACKS);
     const num = (v) => typeof v === "number" && Number.isFinite(v);
     for (const k of Object.keys(doc.timelines)) {
       if (typeof k !== "string" || !k) return "timelines has an empty episode key";
@@ -2029,6 +2050,17 @@ export function validateCanvasDoc(doc) {
         if (typeof c.muted !== "boolean") return `clip ${c.clipId} muted is not a boolean`;
         if (!num(c.fadeIn) || c.fadeIn < 0 || c.fadeIn > MAX_CLIP_FADE) return `clip ${c.clipId} fadeIn is invalid`;
         if (!num(c.fadeOut) || c.fadeOut < 0 || c.fadeOut > MAX_CLIP_FADE) return `clip ${c.clipId} fadeOut is invalid`;
+        // TASK-064 Phase 3 fields. Each is checked only when PRESENT: a v14
+        // document written before this checkpoint carries none of them, and
+        // requiring them would refuse to load every existing save. The domain
+        // sanitizer supplies the defaults on hydrate.
+        if (c.assetVersion !== undefined && c.assetVersion !== null && !Number.isInteger(c.assetVersion)) {
+          return `clip ${c.clipId} assetVersion is invalid`;
+        }
+        if (c.removed !== undefined && typeof c.removed !== "boolean") return `clip ${c.clipId} removed is not a boolean`;
+        if (c.origin !== undefined && c.origin !== "auto" && c.origin !== "manual") {
+          return `clip ${c.clipId} origin is invalid`;
+        }
       }
     }
   }

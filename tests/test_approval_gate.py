@@ -18,6 +18,7 @@ from ai_video_workflow.approval import (
 )
 from ai_video_workflow.digests import file_sha256
 from ai_video_workflow.security.paths import PathEscapeError
+from tests.symlink_support import symlink_or_skip
 
 STAGE = "concept_lock"
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -136,7 +137,7 @@ def test_symlinked_approval_component_rejected(tmp_path: Path) -> None:
     outside.mkdir()
     root = tmp_path / "root"
     root.mkdir()
-    (root / "approval").symlink_to(outside, target_is_directory=True)
+    symlink_or_skip(root / "approval", outside, target_is_directory=True)
     with pytest.raises(PathEscapeError):
         require_stage_approved(root, STAGE)
 

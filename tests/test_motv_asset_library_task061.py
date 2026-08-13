@@ -284,7 +284,13 @@ def test_the_provenance_spine_exists_and_is_authored_not_generated() -> None:
     # rule is IMPORTED rather than restated — the duplicate that drifted here
     # is gone, which is the strongest form of this guarantee.
     assert 'import { currentText } from "./scriptdoc.js";' in prov
-    assert "return currentText({ workingText: doc.workingText" in prov
+    # `str(...)`-wrapped since TASK-064 Phase 1b: `currentText` returns the active
+    # version's `content` verbatim, and a hand-edited save can hold a version
+    # record without one — an undefined here threw on the caller's `.trim()` and
+    # blanked the whole page. The RULE this guard exists for is unchanged (the
+    # text follows scriptdoc's, imported rather than restated); only the safe
+    # coercion was added around it.
+    assert "return str(currentText({ workingText: doc.workingText" in prov
     # a shot the draft no longer holds is kept and flagged, never dropped
     assert "dangling: !s || s.dangling === true" in prov
 

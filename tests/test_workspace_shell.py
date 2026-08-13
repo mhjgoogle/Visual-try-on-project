@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.symlink_support import symlink_or_skip
 from tests.test_wfm1_e2e import _paid_all_shots, _run, _setup
 from workspace_shell.app import WorkspaceApp
 from workspace_shell.server import _host_is_loopback, build_server
@@ -225,7 +226,7 @@ def test_artifact_serves_inside_project_only(tmp_path, monkeypatch):
 
     # a symlink inside a project pointing outside it is refused
     link = root / "sneaky.json"
-    link.symlink_to(outside)
+    symlink_or_skip(link, outside)
     assert _app(account).handle(f"/artifact?path={root.name}/sneaky.json").status == 403
 
 

@@ -52,6 +52,11 @@ EXCLUDES=(
 
 # --- temp files -------------------------------------------------------------
 ERRFILE="$(mktemp)"
+# The untracked-file list needs a FILE, not a variable: `git ls-files -z`
+# separates paths with NUL, and bash command substitution silently discards NUL
+# bytes ("ignored null byte in input"), which would fuse several paths into one
+# unopenable name and drop every one of them from the review.
+LISTFILE="$(mktemp)"
 
 # --- persist all output ------------------------------------------------------
 # Mirror everything printed to a file so the verdict survives even if the
@@ -64,7 +69,7 @@ if mkdir -p "$(dirname "$OUT_FILE")" 2>/dev/null; then
 fi
 
 cleanup() {
-  rm -f "$ERRFILE"
+  rm -f "$ERRFILE" "$LISTFILE"
   # Close stdout and wait for tee so the last line (often the VERDICT) is
   # fully flushed to $OUT_FILE before the script exits.
   if [ -n "$TEE_PID" ]; then
@@ -99,21 +104,81 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 
 # --- compute the diff -------------------------------------------------------
-# Untracked (never-committed) files are invisible to `git diff HEAD`, so a
-# freshly implemented module would silently escape review. Emit each one as an
-# added-file diff via --no-index. Respects .gitignore and the same EXCLUDES.
-untracked_diff() {
-  local f
-  while IFS= read -r f; do
-    [ -f "$f" ] || continue                          # skip dirs/sockets
-    if [ -s "$f" ] && ! grep -Iq '' "$f" 2>/dev/null; then
-      continue                                       # non-empty binary → skip
-    fi
-    git diff -U"$CTX" --no-index -- /dev/null "$f" || true  # exits 1 on diff
-  done < <(git ls-files --others --exclude-standard -- . "${EXCLUDES[@]}")
+DIFF=""
+
+# Append `git "$@"` output to $DIFF, failing CLOSED. A failed git here returns
+# empty output, which would silently degrade into "NO_CHANGES" or a review of a
+# partial diff -- i.e. a clean bill of health for code nobody looked at.
+#
+# Both helpers run in the CURRENT shell and append to $DIFF rather than echoing
+# into a command substitution: inside `$(...)` an `exit 0` would only end the
+# subshell, and the caller would carry on with an empty diff -- reintroducing
+# the very failure this guards against.
+#
+# Every append goes through append_chunk, which restores the trailing newline
+# that `$(...)` strips. Without it the last line of one chunk and the first line
+# of the next are glued into one bogus line ("+X = 1diff --git a/...") and the
+# reviewer receives a malformed diff.
+append_chunk() {
+  [ -n "$1" ] || return 0
+  DIFF="${DIFF}${1}
+"
 }
 
-DIFF=""
+append_diff() {
+  local out rc
+  set +e
+  out="$(git "$@" 2>"$ERRFILE")"
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    status "ENV_ERROR: 'git $*' failed (exit $rc)"
+    echo "ENV_ERROR: 'git $*' failed (exit $rc); refusing to review a diff that may be incomplete. $(tr '\n' ' ' <"$ERRFILE" | cut -c1-200)"
+    exit 0
+  fi
+  append_chunk "$out"
+}
+
+# Untracked (never-tracked) files are invisible to `git diff HEAD`, so a freshly
+# implemented module would silently escape review. Emit each one as an
+# added-file diff via --no-index. Respects .gitignore and the same EXCLUDES.
+append_untracked_diff() {
+  local f out rc
+  # -z: NUL-separated and never C-quoted. Without it git quotes any path with
+  # non-ASCII or special characters, which then fails the -f test and drops a
+  # brand-new source file out of the review silently. The list goes to a FILE
+  # because command substitution would eat the NUL separators (see $LISTFILE).
+  set +e
+  git ls-files -z --others --exclude-standard -- . "${EXCLUDES[@]}" \
+    >"$LISTFILE" 2>"$ERRFILE"
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    status "ENV_ERROR: 'git ls-files' failed (exit $rc)"
+    echo "ENV_ERROR: 'git ls-files' failed (exit $rc); refusing to review a diff that may omit untracked files. $(tr '\n' ' ' <"$ERRFILE" | cut -c1-200)"
+    exit 0
+  fi
+  while IFS= read -r -d '' f; do
+    [ -f "$f" ] || continue                          # skip dirs/sockets
+    if [ -s "$f" ] && ! grep -Iq '' "$f" 2>/dev/null; then
+      continue                                       # non-empty binary -> skip
+    fi
+    set +e
+    out="$(git diff -U"$CTX" --no-index -- /dev/null "$f" 2>"$ERRFILE")"
+    rc=$?
+    set -e
+    # exit 1 means "the files differ", the normal case here. Anything above
+    # that is a real failure, and dropping the file would remove a brand-new
+    # module from the review unnoticed.
+    if [ "$rc" -gt 1 ]; then
+      status "ENV_ERROR: diffing untracked '$f' failed (exit $rc)"
+      echo "ENV_ERROR: diffing untracked file '$f' failed (exit $rc); refusing to review a diff that would silently omit it."
+      exit 0
+    fi
+    append_chunk "$out"
+  done <"$LISTFILE"
+}
+
 if [ -n "$BASE" ]; then
   if ! git rev-parse --verify -q "$BASE" >/dev/null 2>&1; then
     status "ENV_ERROR: base ref '$BASE' not found"
@@ -122,15 +187,18 @@ if [ -n "$BASE" ]; then
   fi
   # Changes introduced on HEAD since it diverged from BASE, plus untracked
   # working-tree files (they are part of the work under review either way).
-  DIFF="$(git diff -U"$CTX" "$BASE"...HEAD -- . "${EXCLUDES[@]}"; untracked_diff)"
+  append_diff diff -U"$CTX" "$BASE"...HEAD -- . "${EXCLUDES[@]}"
+  append_untracked_diff
 else
   # Uncommitted changes vs HEAD: staged + unstaged + untracked.
   if git rev-parse --verify -q HEAD >/dev/null 2>&1; then
-    DIFF="$(git diff -U"$CTX" HEAD -- . "${EXCLUDES[@]}"; untracked_diff)"
+    append_diff diff -U"$CTX" HEAD -- . "${EXCLUDES[@]}"
   else
-    # No commits yet: combine unstaged, staged, and untracked.
-    DIFF="$(git diff -U"$CTX" -- . "${EXCLUDES[@]}"; git diff -U"$CTX" --cached -- . "${EXCLUDES[@]}"; untracked_diff)"
+    # No prior snapshot yet: combine unstaged, staged, and untracked.
+    append_diff diff -U"$CTX" -- . "${EXCLUDES[@]}"
+    append_diff diff -U"$CTX" --cached -- . "${EXCLUDES[@]}"
   fi
+  append_untracked_diff
 fi
 
 if [ -z "${DIFF//[[:space:]]/}" ]; then
@@ -188,6 +256,12 @@ PROMPT="${INSTRUCTIONS}
 ${DIFF}"
 
 # --- reviewer helpers -------------------------------------------------------
+# A completed review is one that states a decision, anchored to line start so a
+# quoted mention inside prose cannot satisfy it.
+# The trailing check is whitespace-or-end, NOT "any non-alphanumeric": the
+# latter accepts the literal template line 'VERDICT: pass|fail' (the '|' passes
+# it), so an echoed or truncated prompt would count as a finished review.
+VERDICT_PATTERN='^[[:space:]]*VERDICT:[[:space:]]*(pass|fail)([[:space:]]|$)'
 have_codex=0
 have_claude=0
 command -v codex  >/dev/null 2>&1 && have_codex=1
@@ -211,8 +285,11 @@ run_codex() {
   if [ "$rc" -ne 0 ]; then
     return 1
   fi
-  if ! printf '%s' "$out" | grep -q 'VERDICT:'; then
-    echo "codex produced no VERDICT line" >>"$ERRFILE"
+  # A DECISION is required, not merely the word VERDICT: a refusal or a
+  # truncated answer that echoes the template ("VERDICT: unknown") must count
+  # as a failed review and fall through, never be reported as a completed one.
+  if ! printf '%s' "$out" | grep -qE "$VERDICT_PATTERN"; then
+    echo "codex produced no 'VERDICT: pass|fail' line" >>"$ERRFILE"
     return 1
   fi
   printf '%s\n' "$out"
@@ -234,8 +311,8 @@ run_claude() {
   if [ "$rc" -ne 0 ]; then
     return 1
   fi
-  if ! printf '%s' "$out" | grep -q 'VERDICT:'; then
-    echo "claude produced no VERDICT line" >>"$ERRFILE"
+  if ! printf '%s' "$out" | grep -qE "$VERDICT_PATTERN"; then
+    echo "claude produced no 'VERDICT: pass|fail' line" >>"$ERRFILE"
     return 1
   fi
   printf '%s\n' "$out"
@@ -245,7 +322,7 @@ run_claude() {
 # --- reviewer selection: codex first, claude fallback -----------------------
 status "review started: ${DIFF_LINES}-line diff (${BASE:-uncommitted}); per-reviewer cap ${REVIEW_TIMEOUT}s"
 
-verdict_of() { printf '%s' "$1" | grep -m1 'VERDICT:' || echo 'VERDICT: (none)'; }
+verdict_of() { printf '%s' "$1" | grep -m1 -E "$VERDICT_PATTERN" || echo 'VERDICT: (none)'; }
 
 if [ "$have_codex" -eq 1 ]; then
   status "codex reviewing… (normal duration 6-10 min; this is NOT hung)"

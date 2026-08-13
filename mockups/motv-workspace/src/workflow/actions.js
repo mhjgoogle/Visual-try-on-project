@@ -35,9 +35,44 @@
 export const ACTIONS = {
   // --- versions & selection (决策 5) ------------------------------------- //
   setActiveVersion: { args: ["domain", "key", "version"], risk: "pointer" },
-  replaceReference: { args: ["shotId", "referenceKey"], risk: "edit" },
+  // TASK-067 §12 — THREE distinct reference mutations, because a Proposal has to be
+  // able to say which one it means.
+  //
+  // `addReference` is new, and `replaceReference` changed meaning. Before this round
+  // `replaceReference` only ever ADDED (already-bound reported `satisfied`), so the
+  // word 「替换」 in the vocabulary was false: no proposal could express 「把 A 换成
+  // B」 at all. Now `addReference` is the add and `replaceReference` genuinely swaps,
+  // carrying the reference's use-side over to the new binding.
+  addReference: { args: ["shotId", "referenceKey"], risk: "edit" },
+  replaceReference: { args: ["shotId", "referenceKey", "replacesKey"], risk: "edit" },
   removeReference: { args: ["shotId", "referenceKey"], risk: "edit" },
   updatePrompt: { args: ["shotId", "kind", "text"], risk: "edit" },
+  // TASK-066 §5: which side of the chain a reference binding serves. It moves no
+  // media and creates no version — it re-points which prompt reads this reference,
+  // so it is a POINTER-class change, like Set Active.
+  setReferenceUse: { args: ["shotId", "referenceKey", "use"], risk: "pointer" },
+  // --- reference interpretation (决策 4 / §21–§22) ------------------------- //
+  // The reading of a directing reference is a WRITE like any other: the same
+  // dispatcher, the same lock, the same provenance. A Skill that could write it
+  // through a private path would be able to overwrite a locked reading.
+  updateInterpretation: { args: ["referenceKey", "axes"], risk: "edit" },
+  // --- frames (§7) --------------------------------------------------------- //
+  // extractFrame produces a new derived Image Asset out of a video take; it
+  // writes bytes, so it is an edit rather than a pointer move.
+  extractFrame: { args: ["shotId", "timecodeMs"], risk: "edit" },
+  bindStartFrame: { args: ["targetShotId", "assetId"], risk: "edit" },
+  unbindFrame: { args: ["targetShotId", "bindingType"], risk: "edit" },
+  // TASK-067 §12. ONE name for 「接上一镜的尾帧」, because that is one decision the
+  // creator makes and one thing a Proposal has to be able to point at. Underneath it
+  // is the shot's own end-frame binding resolved to its asset and bound as this
+  // shot's start frame — through the same guards `bindStartFrame` goes through.
+  //
+  // It does NOT extract: extraction writes bytes and is asynchronous (see the
+  // `extractFrame` case), so this action requires the previous shot to ALREADY have
+  // a bound end frame and refuses otherwise, with the reason. A proposal that
+  // silently kicked off an async extraction would report success before anything
+  // landed.
+  usePreviousShotEndFrame: { args: ["shotId"], risk: "edit" },
   // --- skills & proposals (决策 3) --------------------------------------- //
   runSkill: { args: ["skillId", "executor", "scope"], risk: "edit" },
   applyProposal: { args: ["skillRunId"], risk: "edit" },
@@ -53,13 +88,19 @@ export const ACTIONS = {
   setFade: { args: ["shotId", "clipId", "fadeInMs", "fadeOutMs"], risk: "edit" },
   addAudioClip: { args: ["shotId", "clip"], risk: "edit" },
   removeAudioClip: { args: ["shotId", "clipId"], risk: "edit" },
+  setAudioMuted: { args: ["shotId", "clipId", "muted"], risk: "edit" },
+  autoArrangeShotAudio: { args: ["shotId"], risk: "edit" },
   mixShotAudio: { args: ["shotId"], risk: "heavy" },
   // --- episode timeline (决策 6) ------------------------------------------ //
   replaceTimelineAsset: { args: ["clipId", "assetId"], risk: "edit" },
   trimTimelineClip: { args: ["clipId", "inMs", "outMs"], risk: "edit" },
   moveTimelineClip: { args: ["clipId", "index"], risk: "edit" },
   removeTimelineClip: { args: ["clipId"], risk: "edit" },
+  restoreTimelineClip: { args: ["clipId"], risk: "edit" },
+  setTimelineVolume: { args: ["clipId", "volume"], risk: "edit" },
+  setTransition: { args: ["clipId", "kind", "durationMs"], risk: "edit" },
   updateSubtitle: { args: ["cueId", "fields"], risk: "edit" },
+  buildSubtitles: { args: ["episodeId"], risk: "edit" },
   buildRoughCut: { args: ["episodeId"], risk: "edit" },
   renderEpisode: { args: ["episodeId"], risk: "heavy" },
   // --- lock (决策 5 / §50) ------------------------------------------------ //
@@ -71,6 +112,14 @@ export const ACTIONS = {
   proposeOutline: { args: ["proposal"], risk: "edit" },
   proposeScript: { args: ["text"], risk: "edit" },
   proposeBible: { args: ["proposal"], risk: "edit" },
+  // --- 人物关系 (TASK-065 §2) ---------------------------------------------- //
+  // Create-or-revise, ONE name. Two names ("addRelationship" / "editRelationship")
+  // would force every caller to first find out which one applies, and a caller
+  // that guessed wrong would silently do nothing. The dispatcher resolves the pair
+  // against the documents and refuses when either character does not exist.
+  upsertRelationship: { args: ["aCharacterId", "bCharacterId", "fields"], risk: "edit" },
+  removeRelationship: { args: ["relationshipId"], risk: "edit" },
+  swapRelationshipDirection: { args: ["relationshipId"], risk: "pointer" },
 };
 
 export const ACTION_NAMES = Object.keys(ACTIONS);

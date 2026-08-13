@@ -68,10 +68,17 @@ def test_import_reuses_single_write_paths_and_records_provenance() -> None:
 
 
 def test_api_entry_is_an_honest_future_note() -> None:
-    sb = (_SRC / "ui" / "storyboard.js").read_text("utf-8")
-    assert "API 自动生成（未来/可选）" in sb
-    # no fake API button — the note is a pa-unavail div, not an action
-    assert "data-gp-api" not in sb
+    # TASK-051 moved the generation entry out of the storyboard's centre column
+    # into the AI Director (ui/genentry.js); the honesty rule is unchanged.
+    ge = (_SRC / "ui" / "genentry.js").read_text("utf-8")
+    assert "API 自动生成" in ge
+    assert "未来" in ge
+    # no fake API button — the unwired provider renders as a chip/note, and the
+    # only wired actions are copy-and-open plus import
+    assert "data-gp-api" not in ge
+    assert 'data-gp-prov="api"' not in ge
+    for wired in ("data-gp-go", "data-gp-import"):
+        assert wired in ge
 
 
 def test_core_contracts_untouched_by_m10() -> None:

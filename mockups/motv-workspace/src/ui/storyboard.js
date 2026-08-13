@@ -20,6 +20,11 @@ import { episodeView, sceneOfShot, activeEpisode } from "../workflow/proddoc.js"
 import { findCharacter, findLocation, resolveCharacter, resolveLocation } from "../workflow/bibledoc.js";
 import { outlineForPlan } from "../workflow/storydoc.js";
 import { compileImagePrompt, compileVideoPrompt } from "../workflow/promptc.js";
+import { referencesOfShot } from "../workflow/shotprod.js";
+import { listReferences, derivedLabel, INTERPRETATION_KINDS } from "../workflow/assetreg.js";
+import { interpretationInputs } from "../workflow/refinterp.js";
+import * as refuse from "../workflow/refuse.js";
+import { bindingOf, describeBinding } from "../workflow/framebind.js";
 
 
 const ORIGIN_ZH = {
@@ -151,6 +156,114 @@ function promptInputs(pd, shotId) {
   return { characters, location, tone };
 }
 
+/**
+ * The shot's REFERENCE context for prompt compilation (TASK-064 Phase 2 §21–§23).
+ *
+ * Resolved HERE rather than at each caller, because `shotDetailModel` is the ONE
+ * prompt compiler in the studio: the Inspector, the Generation Input Set, the
+ * import path and the legacy media workspaces all read its `prompts`. A second
+ * reference-aware compiler beside it is exactly the drift this codebase keeps
+ * paying for — two call sites disagreeing about what the effective prompt is.
+ *
+ * Returns `{ references, interpretation }`. A binding whose reference no longer
+ * exists is dropped (never rendered as a phantom); a bound interpretation
+ * reference with no reading is KEPT with `read: false`, so the compiler can
+ * report it as a gap instead of silently omitting a reference the creator
+ * attached on purpose.
+ */
+function referenceInputs(pd, shotId) {
+  const prod = pd.production;
+  if (!prod || !pd.assets) {
+    return { references: [], interpretation: [], imageReferences: [], videoReferences: [] };
+  }
+  const byKey = new Map(listReferences(pd.assets).map((r) => [r.key, r]));
+  const references = referencesOfShot(prod, shotId)
+    .map((key) => byKey.get(key))
+    .filter(Boolean)
+    .map((r) => ({
+      key: r.key,
+      kind: r.kind,
+      name: derivedLabel(r),
+      version: r.version,
+      assetId: r.assetId,
+      domain: r.domain,
+    }));
+  // TASK-066 §4/§5: WHICH SIDE each binding serves. The creator's per-card choice
+  // wins; with no choice the role's own side applies, which is exactly the behaviour
+  // that shipped before this document existed — so an untouched project compiles
+  // byte-identical prompts.
+  //
+  // THIS IS WHERE THE CHOICE BECOMES REAL. The menu on the card would be decoration
+  // if the compilers kept reading the full list: 「用于主要画面」 has to change what
+  // the Image Prompt says, or it changes nothing at all.
+  const doc = pd.refUse || null;
+  const imageReferences = references.filter((r) => refuse.feedsImage(doc, shotId, r.key, r.kind));
+  const videoReferences = references.filter((r) => refuse.feedsVideo(doc, shotId, r.key, r.kind));
+  return {
+    references,
+    imageReferences,
+    videoReferences,
+    // the readings follow their own reference to whichever side it serves
+    interpretation: interpretationInputs(pd.refInterp || null, references, INTERPRETATION_KINDS),
+    imageInterpretation: interpretationInputs(pd.refInterp || null, imageReferences, INTERPRETATION_KINDS),
+    videoInterpretation: interpretationInputs(pd.refInterp || null, videoReferences, INTERPRETATION_KINDS),
+  };
+}
+
+/**
+ * The shot's START / END frame for prompt compilation and the Input Set (§7).
+ *
+ * The EFFECTIVE start frame is the explicit BINDING when there is one, else the
+ * shot's own current image. Both are returned with `from` — where the picture came
+ * from — because 「以所附图片为第 1 帧」 without naming which picture is how the
+ * wrong one gets attached.
+ *
+ * `nameOfShot` resolves a source shot id to a human name; a shot that no longer
+ * exists stays unnamed rather than being printed as a raw id.
+ */
+function frameInputs(pd, shotId, slot, imageCurrent, nameOfShot) {
+  const b = bindingOf(pd.frameBindings || null, shotId, "startFrame");
+  const eb = bindingOf(pd.frameBindings || null, shotId, "endFrame");
+  const resolve = (assetId) => {
+    if (!assetId || !pd.assets) return null;
+    for (const domain of ["images", "videos", "audio"]) {
+      const m = pd.assets[domain];
+      if (!m || typeof m !== "object") continue;
+      for (const key of Object.keys(m)) {
+        const chain = m[key];
+        if (!chain || !Array.isArray(chain.history)) continue;
+        const hit = chain.history.find((r) => r && r.assetId === assetId);
+        if (hit) return { assetId, url: hit.url || "", version: hit.version ?? null, storageState: hit.storageState || "local" };
+      }
+    }
+    return null;
+  };
+  const bound = (binding) => {
+    if (!binding) return null;
+    const hit = resolve(binding.derivedImageAssetId);
+    if (!hit) return null; // a binding whose asset is gone states nothing
+    return {
+      assetId: hit.assetId,
+      url: hit.url,
+      version: hit.version,
+      name: `已绑定的${binding.bindingType === "endFrame" ? "尾帧" : "首帧"}`,
+      from: describeBinding(binding, { shotName: typeof nameOfShot === "function" ? nameOfShot(binding.sourceShotId) : null }),
+      binding,
+    };
+  };
+  const start = bound(b) || (imageCurrent
+    ? {
+      assetId: imageCurrent.assetId,
+      url: imageCurrent.url,
+      version: imageCurrent.version,
+      name: `本镜头画面 v${imageCurrent.version}`,
+      from: "本镜头画面",
+      binding: null,
+    }
+    : null);
+  return { start, end: bound(eb), slot };
+}
+
 /** Everything the detail panel needs for ONE selected shot: creative fields,
  *  its scene's bible context, its media variants (image/video), first-frame
  *  lineage, voice standing, paid-op status and per-shot generations. */
@@ -214,12 +327,41 @@ export function shotDetailModel(pd, shotId) {
     videoSources[v.version] = src;
   }
   const ctxIn = promptInputs(pd, shotId);
+  // TASK-064 Phase 2: the references the shot is bound to, their READINGS, and
+  // the explicit start/end frame bindings. Resolved once and fed to the ONE
+  // compiler, so 「参考真正进了 Prompt」 is a property of every caller.
+  const refIn = referenceInputs(pd, shotId);
+  const nameOfShot = (sid) => {
+    const x = sid ? draft.find((y) => y && y.shotId === sid) : null;
+    return x ? (x.title || `镜头 ${x.sequence}`) : null;
+  };
+  const frames = frameInputs(pd, shotId, slot, images.list.find((r) => r.current) || null, nameOfShot);
   return {
     // M10: compiled generation prompts + honest gaps
+    // Each compiler is given the references that serve ITS side (TASK-066 §5), not
+    // the whole bound list. `references`/`interpretation` are named explicitly rather
+    // than spread, so a future field on `refIn` cannot silently re-widen a prompt's
+    // inputs back to everything.
     prompts: {
-      image: compileImagePrompt({ shot: s, ...ctxIn }),
-      video: compileVideoPrompt({ shot: s, hasImage: images.list.some((r) => r.current) }),
+      image: compileImagePrompt({
+        shot: s,
+        ...ctxIn,
+        references: refIn.imageReferences,
+        interpretation: refIn.imageInterpretation,
+      }),
+      video: compileVideoPrompt({
+        shot: s,
+        hasImage: images.list.some((r) => r.current),
+        startFrame: frames.start,
+        endFrame: frames.end,
+        references: refIn.videoReferences,
+        interpretation: refIn.videoInterpretation,
+      }),
     },
+    // carried so the Generation Input Set and the Inspector read the SAME
+    // resolution the prompt was compiled from
+    refInputs: refIn,
+    frames,
     shot: {
       shotId,
       seq: s.sequence,
@@ -377,10 +519,22 @@ function detailHtml(ctx, d, ui) {
       : `<div class="meta">这个镜头还没有生成记录。</div>`;
   }
 
-  const editor = ui.shotEdit
-    ? `<div class="card pad"><div class="st-sec"><h3>编辑镜头</h3><div class="acts">` +
-      `<button class="btn primary sm" data-shot-save>保存为新草稿版本</button>` +
-      `<button class="btn sm" data-shot-editoff>取消</button></div></div>` +
+  // DIRECTLY EDITABLE (产品 2026-08-13: 「这些分镜生成也要可以修改编辑的」).
+  //
+  // No 「✎ 编辑镜头」 mode: the fields are the fields, click and type. Typing goes into
+  // the transient buffer; 「保存为新草稿版本」 is what commits, because a shot draft is
+  // a versioned document exactly like the Prompt and the Episode Plan — an edit must
+  // not silently rewrite the version the generations already point at.
+  const editor =
+      `<div class="card pad"><div class="st-sec"><h3>镜头内容</h3><div class="acts">` +
+      // updated IN PLACE while typing (see bindShotDetail): a re-render per keystroke
+      // would move the caret out of the field being typed in, but a stale bar would
+      // tell the creator their edit was not registered and 保存 unavailable
+      `<span class="chip gate" data-shot-flag${ui.dirty ? "" : " hidden"}>已修改（未保存为版本）</span>` +
+      `<span class="chip mute" data-shot-clean${ui.dirty ? " hidden" : ""}>与草稿版本一致</span>` +
+      `<button class="btn primary sm" data-shot-save${ui.dirty ? "" : " disabled"}>保存为新草稿版本</button>` +
+      `<button class="btn sm" data-shot-editoff${ui.dirty ? "" : " hidden"}>放弃修改</button>` +
+      `</div></div>` +
       `<div class="editgrid">` +
       `<div class="kv full"><label class="lab">镜头名</label><input class="field" data-sf="title" maxlength="80" value="${esc(val("title", d.shot.title))}"></div>` +
       `<div class="kv full"><label class="lab">画面内容</label><textarea class="field" rows="3" spellcheck="false" data-sf="description">${esc(val("description", d.shot.description))}</textarea></div>` +
@@ -391,17 +545,12 @@ function detailHtml(ctx, d, ui) {
         const dur = "duration" in buf ? +buf.duration : d.shot.duration;
         return `<option value="6"${dur === 10 ? "" : " selected"}>6s</option><option value="10"${dur === 10 ? " selected" : ""}>10s</option>`;
       })()}</select></div>` +
-      `</div></div>`
-    : "";
+      `</div></div>`;
 
   return (
     `<div class="stack">` +
     hero +
     renderLineage(d) +
-    // the shot's name already reads off the hero — this row is the actions
-    `<div class="st-sec"><h3>镜头信息</h3><div class="acts">` +
-    (ui.shotEdit ? "" : `<button class="btn sm" data-shot-editon>✎ 编辑镜头</button>`) +
-    `</div></div>` +
     editor +
     renderShotMeta(d.shot) +
     `<div class="variants">${renderVariantTabs(tab, counts)}` +
@@ -411,7 +560,7 @@ function detailHtml(ctx, d, ui) {
 }
 
 /** The whole Storyboard workspace. `ui` is the shell's transient state:
- *  { selectedShotId, variantTab, shotEdit } — selection only, nothing
+ *  { selectedShotId, variantTab } — selection only, nothing
  *  persisted. */
 export function renderStoryboard(ctx, ui) {
   const pd = ctx.prodData();
@@ -529,7 +678,6 @@ export function bindShotSelection(root, ctx, ui, rerender) {
     if (ui.dirty && !window.confirm("镜头详情有未保存的修改，切换将丢弃？")) return;
     ui.dirty = false;
     ui.buffer = {};
-    ui.shotEdit = false;
     ui.selectedShotId = shotId;
     rerender();
   };
@@ -553,15 +701,28 @@ export function bindShotEditor(root, ctx, ui, rerender) {
     const el = root.querySelector(sel);
     if (el) el.onclick = fn;
   };
-  on("[data-shot-editon]", () => { ui.shotEdit = true; rerender(); });
-  on("[data-shot-editoff]", () => { ui.shotEdit = false; ui.dirty = false; ui.buffer = {}; rerender(); });
+  // 放弃修改 — the fields are always editable now, so there is no mode to leave;
+  // this drops the unsaved buffer and puts the saved draft version back on screen.
+  on("[data-shot-editoff]", () => { ui.dirty = false; ui.buffer = {}; rerender(); });
   // the buffer lives on the SHELL's ui state (not this binding closure), so a
   // re-render — media variant switch, generation completion — re-renders the
   // buffered values instead of discarding unsaved edits
   const buffer = ui.buffer || (ui.buffer = {});
+  // reflect the dirty state on the bar WITHOUT a re-render, so the caret stays where
+  // the creator is typing while 「已修改」 and the enabled 保存 appear immediately
+  const flag = root.querySelector("[data-shot-flag]");
+  const clean = root.querySelector("[data-shot-clean]");
+  const save = root.querySelector("[data-shot-save]");
+  const discard = root.querySelector("[data-shot-editoff]");
+  const syncBar = () => {
+    if (flag) flag.hidden = !ui.dirty;
+    if (clean) clean.hidden = !!ui.dirty;
+    if (discard) discard.hidden = !ui.dirty;
+    if (save) { if (ui.dirty) save.removeAttribute("disabled"); else save.setAttribute("disabled", ""); }
+  };
   root.querySelectorAll("[data-sf]").forEach((el) => {
-    el.oninput = () => { buffer[el.dataset.sf] = el.value; ui.dirty = true; };
-    if (el.tagName === "SELECT") el.onchange = () => { buffer[el.dataset.sf] = el.value; ui.dirty = true; };
+    el.oninput = () => { buffer[el.dataset.sf] = el.value; ui.dirty = true; syncBar(); };
+    if (el.tagName === "SELECT") el.onchange = () => { buffer[el.dataset.sf] = el.value; ui.dirty = true; syncBar(); };
   });
   on("[data-shot-save]", () => {
     const draft = ctx.prodData().draftShots || [];
@@ -587,7 +748,6 @@ export function bindShotEditor(root, ctx, ui, rerender) {
     if (ctx.shots.saveEdit(items)) {
       ui.dirty = false;
       ui.buffer = {};
-      ui.shotEdit = false;
       ctx.toast("已保存为新草稿版本（旧版本保留，可在工作流节点回切）");
       rerender();
     } else {

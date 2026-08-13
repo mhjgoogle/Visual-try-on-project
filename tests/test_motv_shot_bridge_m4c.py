@@ -25,6 +25,8 @@ from pathlib import Path
 
 import pytest
 
+from tests._scan import core_files_containing
+
 _MOCKUP_DIR = Path(__file__).resolve().parents[1] / "mockups" / "motv-workspace"
 _SERVER_PATH = _MOCKUP_DIR / "server.py"
 _SRC = _MOCKUP_DIR / "src"
@@ -157,9 +159,4 @@ def test_paid_op_join_uses_the_bridge_not_sequence() -> None:
 
 def test_core_contracts_untouched_by_m4c() -> None:
     core = Path(__file__).resolve().parents[1] / "src" / "ai_video_workflow"
-    hits = subprocess.run(  # noqa: S603 - fixed argv, no shell
-        ["grep", "-rl", "creativeShotId", str(core)],
-        capture_output=True,
-        text=True,
-    )
-    assert hits.stdout.strip() == ""
+    assert core_files_containing("creativeShotId", core) == []

@@ -33,6 +33,7 @@ from ai_video_workflow.providers.models import (
     ArtifactReference,
 )
 from tests.media_fakes import FakeMediaInspector
+from tests.symlink_support import symlink_or_skip
 
 T0 = datetime(2026, 7, 29, 8, 0, 0, tzinfo=timezone.utc)
 
@@ -293,7 +294,7 @@ def test_symlink_escape_fails_path_allowed(tmp_path) -> None:
     outside.write_bytes(b"secret")
     staged = project / staged_relative_path(task)
     staged.parent.mkdir(parents=True, exist_ok=True)
-    staged.symlink_to(outside)
+    symlink_or_skip(staged, outside)
     report = _run(project, probe=_good_probe(), task=task)
     assert _status(report, ValidationCheckType.PATH_ALLOWED) is (
         ValidationCheckStatus.FAILED

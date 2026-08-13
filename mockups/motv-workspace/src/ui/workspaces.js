@@ -1184,9 +1184,29 @@ export function renderPlanPanel(ctx, m) {
     const confirmBtn = confirmed
       ? `<span class="ws-tag ok">✓ 已确认 — 每集可进入剧本</span>`
       : `<button class="nrun" data-pl-confirm="${sm.plan.v}">✔ 确认规划 v${sm.plan.v}（建立/联结剧集，然后逐集写剧本）</button>`;
+    // THE CONTENT IS NOT RENDERED HERE (产品 2026-08-13).
+    //
+    // This panel used to repeat every episode's 梗概 / 戏剧功能 / 钩子 / 结尾拍 / 时长
+    // read-only, directly above the cards that own them. Once those cards became
+    // editable, the same content existed twice on one screen and only the lower copy
+    // could be typed in — so 「编辑不了剧集规划的内容」 was the literal experience of
+    // clicking the upper one. A panel is the VERSION control; the cards are the content.
+    // INTEGRITY STAYS HERE even though the content left. A confirmed plan entry whose
+    // Episode entity was deleted has no card below (the cards are built from the
+    // entities), so without this line it would be invisible — the plan would claim
+    // episodes that no longer exist and nothing would say so.
+    const orphans = confirmed
+      ? sm.plan.episodes.filter((e) => !e.episodeId || !m.episodes.some((x) => x.episodeId === e.episodeId))
+      : [];
+    const orphanLine = orphans.length
+      ? `<div class="bd-f"><span class="ws-tag gate">⚠ 剧集实体缺失</span>` +
+        `${orphans.map((e) => `EP${e.epNumber} ${esc(e.title)}`).join("、")}` +
+        `（已被删除；下面没有它们的卡片）</div>`
+      : "";
     return (
       `<div class="bd-panel"><div class="bd-h">📋 剧集规划 · v${sm.plan.v}${confirmed ? "（已确认）" : "（未确认）"}<span class="ws-desc"> 版本：${vchips}</span></div>` +
-      sm.plan.episodes.map((e) => epCard(e, { confirmed })).join("") +
+      `<div class="ws-desc">${sm.plan.episodes.length} 集 · 每一集的内容概要在下面的卡片里，直接点就能改。</div>` +
+      orphanLine +
       `<div class="bd-actions">${confirmBtn}<button class="nrun ghost" data-pl-develop>🪄 重新规划（新提案）</button></div></div>`
     );
   }

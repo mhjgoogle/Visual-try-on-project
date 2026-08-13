@@ -65,6 +65,22 @@ L0–S7 阶段/步骤的逻辑输入输出基线见
 [工作层级输入输出合同](docs/design/workflow-stage-step-io-contract.md)；实现任务只能
 细化获批 schema/路径，不能删除输入绑定、输出身份或人工 Gate。
 
+### 创作者 Studio（`mockups/motv-workspace`）
+
+自 [ADR-0066](docs/adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)
+起，创作者 Studio 的界面归属与系统边界由两份文档冻结，它们是该范围的**唯一权威**：
+
+- [创作者产品信息架构](docs/design/creator-product-information-architecture.md)
+  —— 三空间 / 十一页的**封闭集合**、完整用户流程、三层检查、页面职责、
+  现状→目标映射、Agent 协作与权限边界。
+- [创作者系统合同](docs/design/creator-system-contract.md)
+  —— 核心对象、Artifact 版本状态机、Skill Run 状态与持久化字段、
+  Command / Query 名录、「界面—命令—任务—输出—确认」矩阵、前后端交互原则。
+
+实施分四阶段（ADR-0066 决策 10 / TASK-072～074）：**新增 Skill 不得新增一级或二级
+页面**；每项功能只有一个归属页面；Agent 不得静默覆盖、静默定稿、静默付费或替用户
+完成审美决策。
+
 ## 2. 技术与环境约束
 
 1. Python 是主要开发语言。

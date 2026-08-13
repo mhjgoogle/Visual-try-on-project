@@ -17,6 +17,7 @@ from ai_video_workflow.profile import (
     write_project_profile,
 )
 from ai_video_workflow.security.paths import PathEscapeError
+from tests.symlink_support import symlink_or_skip
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE = (
@@ -109,6 +110,6 @@ def test_symlinked_profile_dir_rejected(tmp_path: Path) -> None:
     outside.mkdir()
     root = tmp_path / "root"
     root.mkdir()
-    (root / "profile").symlink_to(outside, target_is_directory=True)
+    symlink_or_skip(root / "profile", outside, target_is_directory=True)
     with pytest.raises(PathEscapeError):
         write_project_profile(root, parse_project_profile(_raw()))

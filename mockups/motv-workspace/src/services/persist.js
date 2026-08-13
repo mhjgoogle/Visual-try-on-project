@@ -120,7 +120,24 @@ function _abortInflight(name) {
 
 // Top-level fields the app serializer owns (see serializeGraph in app.js).
 // Anything else in a loaded document is carried through saves untouched.
-const OWNED_FIELDS = ["v", "project", "scriptDoc", "story", "scripts", "assets", "generations", "skillRuns", "production", "timelines", "prompts", "nodes", "edges", "pan"];
+const OWNED_FIELDS = [
+  "v", "project", "scriptDoc", "story", "scripts", "assets", "generations", "skillRuns",
+  "production", "timelines", "prompts",
+  // TASK-064 Phase 2 / Phase 3. A field the serializer writes must be listed
+  // here so it is not ALSO captured as a foreign "extra" — the save merges
+  // `{...extras, ...data}`, so the serializer's value still wins, but an
+  // unlisted field would be kept in a second, permanently stale copy that the
+  // next load would re-read and carry forward forever.
+  "refInterp", "frameBindings", "locks", "shotAudio", "subtitles",
+  // TASK-066 §5: which side of the chain each reference binding serves. Absent =
+  // derived from the role, which is why an existing document needs no migration.
+  "refUse",
+  // TASK-067 §15: cached derived conclusions (asset recommendation / continuity
+  // summary / prompt review), each keyed by the revision of the context it came
+  // from. A conclusion ABOUT canon, never a copy of it.
+  "ctxCache",
+  "nodes", "edges", "pan",
+];
 
 function _dispatch(name, raw, { legacy = false } = {}) {
   const res = migrateToCurrent(raw);

@@ -142,6 +142,24 @@ WFM2 在 WFM1 gate 之后补齐两份顶层需求仍缺少的完整创意、多�
 逐项需求归属与完成层级以
 [端到端需求追踪矩阵](design/end-to-end-requirements-traceability.md) 为准。
 
+### 创作者 Studio 产品重构路线（ADR-0066，2026-08-13 起）
+
+创作者 Studio（`mockups/motv-workspace`）的 IA、Agent 协作与系统合同由
+[ADR-0066](adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)
+冻结，分四个阶段推进。**第一阶段只改文档，不改任何业务代码。**
+
+| 阶段 | 任务 | 内容 | 依赖 | 状态 |
+| --- | --- | --- | --- | --- |
+| 一 | ADR-0066 + 两份设计文档 | 需求 / 界面 / Agent 协作 / 系统合同定稿 | TASK-064～071 已实施 | **文档已定稿，ADR 待 Accepted** |
+| 二 | [TASK-072](tasks/TASK-072-system-contract-and-persistent-runs.md) | 后端合同、持久化任务（run_id / 取消）、版本管理、兼容层 | ADR-0066 Accepted | 已规划 |
+| 三 | [TASK-073](tasks/TASK-073-fixed-ia-and-contextual-agent.md) | 前端信息架构、页面重构、上下文 Agent 交互 | TASK-072 | 已规划 |
+| 四 | [TASK-074](tasks/TASK-074-delivery-migration-and-legacy-retirement.md) | 后期交付、旧数据迁移、旧页面与旧接口清理、真实项目验收 | TASK-073 | 已规划 |
+
+界面归属与用户流程以
+[创作者产品信息架构](design/creator-product-information-architecture.md) 为准；
+对象、状态机、Command / Query、Skill Run 与操作矩阵以
+[创作者系统合同](design/creator-system-contract.md) 为准。
+
 注：implementation_plan 阶段 2 原列出的 QCD 原始事件采集
 （`task_created`、`task_status_changed`、`manual_attempt_recorded`）
 在 TASK-003/004 中被显式排除，现归属：事件日志基础设施 →

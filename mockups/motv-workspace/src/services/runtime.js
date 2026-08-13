@@ -36,6 +36,17 @@ export const RUNTIMES = [
 
 /** The executors a local_subscription run can use. Availability is NOT decided
  *  here — the server probes it, because only the server can resolve a binary. */
+/** The two kinds of work a capability does. Used to SUGGEST an executor, never to
+ *  bind one (ADR-0056 决策 1).
+ *
+ *    creative  produces new content — a story, a shot list, a Prompt
+ *    review    produces findings ABOUT existing content — issues, conflicts, gaps
+ *
+ *  This is a fact about the WORK, stated on the Skill; which executor suits which
+ *  kind is a separate fact stated on the executor below. Keeping them apart is what
+ *  lets the creator pair them any way they like. */
+export const WORK_KINDS = ["creative", "review"];
+
 export const EXECUTORS = [
   {
     id: "claude-code",
@@ -43,12 +54,19 @@ export const EXECUTORS = [
     runtime: "local_subscription",
     // a hint the UI shows; the creator can still pick anything
     goodAt: "创作型工作（故事 / 剧本 / 分镜 / Prompt）",
+    // WHAT IT IS SUGGESTED FOR — a default, not a restriction. Every executor can
+    // run every capability; this only decides which radio starts selected.
+    suits: ["creative"],
   },
   {
     id: "codex-cli",
     title: "Codex CLI",
     runtime: "local_subscription",
     goodAt: "独立复核 / 结构化检查 / 第二意见",
+    // TASK-067 §14 「不要把 Codex 默认当 Creative Director」 — it is suggested for
+    // REVIEW only. A creator who wants it to write a Prompt still can; the point is
+    // that nothing defaults it into the creative seat.
+    suits: ["review"],
     // codex has no tool-free mode: `--sandbox read-only` blocks WRITES but the
     // agent can still READ local files and echo them into its answer. Our
     // prompts inline user-authored script text, so that is a live injection
@@ -61,8 +79,33 @@ export const EXECUTORS = [
     title: "手工（外部网页）",
     runtime: "manual",
     goodAt: "任何能力 — 由你在外部工具里跑",
+    // suits BOTH, and it is the last resort in `suggestExecutor`: it always works,
+    // so it must never win over a local runtime that is actually available.
+    suits: ["creative", "review"],
   },
 ];
+
+/**
+ * Which executor should START SELECTED for a capability doing `work`.
+ *
+ * A SUGGESTION with three rules, in order:
+ *   1. the creator's own current choice always wins — this never overrides them
+ *   2. otherwise the first RUNNABLE executor that suits this kind of work
+ *   3. otherwise manual, which needs nothing installed
+ *
+ * `isRunnableFor` is passed in rather than read here, because availability is the
+ * server's probe result and this module never assumes it.
+ */
+export function suggestExecutor(work, isRunnableFor, current = null) {
+  if (current && isRunnableFor(current)) return current;
+  const wanted = WORK_KINDS.includes(work) ? work : "creative";
+  for (const e of EXECUTORS) {
+    if (e.id === "manual") continue; // last resort, considered below
+    if (!Array.isArray(e.suits) || !e.suits.includes(wanted)) continue;
+    if (isRunnableFor(e.id)) return e.id;
+  }
+  return "manual";
+}
 
 export const EXECUTOR_BY_ID = new Map(EXECUTORS.map((e) => [e.id, e]));
 

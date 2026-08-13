@@ -65,6 +65,12 @@ export const ASSET_KINDS = [
   "external-reference",
   "shot-image",
   "shot-video",
+  // TASK-064 Phase 2 §7: a frame CUT OUT of a video take — 上一镜的尾帧 becoming
+  // 下一镜的首帧. It is its own kind rather than a `shot-image`, because it is not
+  // a picture generated FOR a shot: it is a still lifted out of one, its
+  // provenance is a video + a timecode (workflow/framebind.js), and filing it as
+  // a shot image would make 「这个镜头有几版画面」 count frames nobody designed.
+  "derived-frame",
   "dialogue",
   "ambience",
   "sfx",
@@ -77,6 +83,15 @@ export const ASSET_KINDS = [
   // A Shot Mix is a DERIVED audio asset (ADR-0061 决策 6): its sources are all
   // still registered separately and are never replaced by it.
   "shot-mix",
+  // TASK-065 §1: a character's BASE VOICE sample — 「林婉听起来是这样」. Its own kind
+  // rather than a `dialogue` take, because it is not a line from a shot: it belongs
+  // to a Character, it is reused across every episode, and filing it as dialogue
+  // would make 「这一集有几条对白」 count voice samples nobody wrote a line for.
+  //
+  // Deliberately NOT in REFERENCE_KINDS: those are the `ref-…` chains the SHOT
+  // reference picker offers, and a base voice is bound to a character, not to a
+  // shot. Putting it there would list it in every shot's 「从资产库选择」.
+  "voice-reference",
   "final",
 ];
 
@@ -94,6 +109,7 @@ export const ASSET_KIND_LABEL = {
   "external-reference": "外部参考",
   "shot-image": "镜头图片",
   "shot-video": "镜头视频",
+  "derived-frame": "派生帧",
   dialogue: "对白",
   ambience: "环境音",
   sfx: "音效",
@@ -101,6 +117,7 @@ export const ASSET_KIND_LABEL = {
   vo: "旁白",
   bgm: "BGM",
   "shot-mix": "镜头混音",
+  "voice-reference": "基础声音",
   final: "成片",
 };
 
@@ -160,6 +177,7 @@ export const KIND_DOMAIN = {
   "style-reference": "images",
   "shot-image": "images",
   "shot-video": "videos",
+  "derived-frame": "images",
   dialogue: "audio",
   ambience: "audio",
   sfx: "audio",
@@ -167,6 +185,7 @@ export const KIND_DOMAIN = {
   vo: "audio",
   bgm: "audio",
   "shot-mix": "audio",
+  "voice-reference": "audio",
   final: "finals",
 };
 

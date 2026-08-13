@@ -26,8 +26,13 @@ export const NAV = [
     items: [
       ["brief", "💡", "创意"],
       ["story", "📖", "故事大纲"],
+      // TASK-065 §2 / §4: TWO entries, not four. 人物关系 is a TAB inside 人物 (a
+      // relationship connects two characters and has no meaning without them), and
+      // 场景地 moved into 世界观 (a location is not a person). `relationships` and
+      // `settings` stay working MODULE KEYS — every existing jump target still
+      // lands somewhere real, it just lands on the right tab of the right
+      // workspace (see ui/production.js `setModule`).
       ["characters", "👤", "人物", { under: "作品设定" }],
-      ["relationships", "🔗", "人物关系", { under: "作品设定" }],
       ["world", "🌐", "世界观", { under: "作品设定" }],
       ["episodes", "📺", "分集规划"],
       // 剧本 is the LAST step of story development: story development ends at
@@ -37,14 +42,20 @@ export const NAV = [
   },
 ];
 
-/** The 剧集制作 space's DEFAULT centre (TASK-064 Phase 1b).
+/** The 剧集制作 space's DEFAULT centre (TASK-065 §5 / §9).
  *
- *  The generation graph IS this space's centre, not one of eleven tabs on it.
- *  Entering 剧集制作 lands here: the creator sees what has actually been made for
- *  this episode and what it was made from, and clicks a node to operate on it in
- *  the LEFT inspector. Making them cross a large Shot Card workbench first and
- *  then go hunting for 「生成溯源」 inverted that. */
-export const EPISODE_DEFAULT = "provenance";
+ *  制作台 — 「我现在在做哪一个镜头，它怎么被做出来」. A light Scene → Shot picker over
+ *  the CURRENT SHOT's production graph.
+ *
+ *  WHY IT MOVED OFF `provenance`. TASK-064 Phase 1b made the episode-wide generation
+ *  graph the centre, which fixed a real problem (eleven same-level tabs) but
+ *  answered the wrong question first: provenance is 「这个东西是怎么来的」, which
+ *  matters AFTER something exists. A creator entering 剧集制作 is here to make the
+ *  next shot, and an episode-wide graph buries that shot in everything else.
+ *
+ *  生成溯源 lost nothing: it is a workspace with a permanent 「完整溯源 ↗」 entrance in
+ *  the centre header (§14). */
+export const EPISODE_DEFAULT = "workbench";
 
 /** The EPISODE's own production stages (ADR-0061 决策 2), no longer a rail nested
  *  under an episode row — and no longer eleven same-level tabs either.
@@ -58,10 +69,13 @@ export const EPISODE_DEFAULT = "provenance";
  *  Nothing was deleted. 参考 / Prompt / 生成 / 画面 / 视频 / 音频 / 审片 all keep
  *  their full workspace AND gained a node entrance. */
 export const EPISODE_NAV = [
+  // 制作台 leads because it is the space's centre (see EPISODE_DEFAULT). It is the
+  // only entry that is NOT in the 工作区 menu — you cannot take a detour to the
+  // place you are already standing.
+  ["workbench", "🎬", "制作台"],
   // ADR-0061 决策 1: 生成溯源 is a VIEW of this space, not a second workflow
   // model. 流程画布 is deliberately absent from every creator path.
   ["provenance", "🕸", "生成溯源"],
-  ["workbench", "🎬", "工作台"],
   ["episode", "📺", "本集总览"],
   ["scenes", "🗂", "场景"],
   ["shots", "🎞", "分镜"],
@@ -85,6 +99,21 @@ export const EPISODE_NAV = [
  *  the space's own centre. Derived, so a stage can never be listed twice or be
  *  forgotten by one of the two surfaces. */
 export const EPISODE_WORKSPACES = EPISODE_NAV.filter(([k]) => k !== EPISODE_DEFAULT);
+
+/**
+ * WHERE 「进入剧集制作 →」 lands (产品 2026-08-13).
+ *
+ *   没有分镜 → 分镜      generate the shot list, edit it, settle it
+ *   已有分镜 → 制作台    work shot by shot
+ *
+ * 「定好分镜之后再对各个分镜做详细制作」 — an episode with no shot draft has nothing
+ * to produce yet, and the 制作台 would open on 「先选一个镜头」 with no shots to
+ * select. Exported (and pure) so the rule is one line with a guard on it, rather
+ * than a condition buried in a shell closure that only a browser can reach.
+ */
+export function episodeEntryModule(hasShots) {
+  return hasShots ? EPISODE_DEFAULT : "shots";
+}
 
 /** The 资产库 space's rail (ADR-0061 决策 1): 「我有什么可以复用？」 — media
  *  categories, never production navigation. Episode / Scene / Shot survive here
@@ -132,7 +161,7 @@ export const MODULE_LABEL = {
   "assets:reference": "References", "assets:image": "Images",
   "assets:video": "Videos", "assets:audio": "Audio",
   "assets:final": "Final", "assets:collection": "Collections",
-  workbench: "工作台", provenance: "生成溯源",
+  workbench: "制作台", provenance: "生成溯源",
   episode: "本集总览", script: "本集剧本", scenes: "场景", shots: "分镜",
   refplan: "参考统筹", frames: "画面", video: "视频",
   audio: "音频", dailies: "审片", edit: "剪辑",

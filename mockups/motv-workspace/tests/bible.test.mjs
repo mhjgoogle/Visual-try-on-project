@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import * as pd from "../src/workflow/proddoc.js";
 import * as bd from "../src/workflow/bibledoc.js";
 import { CANVAS_SCHEMA_VERSION, migrateToCurrent } from "../src/services/canvasschema.js";
+import { renderBibleWs } from "../src/ui/biblews.js";
 
 function prodWithScene() {
   const p = pd.createProduction(null);
@@ -391,4 +392,98 @@ test("v7 validation: bible asset references are SHAPE-only (may outlive the Asse
   doc.production.characters[0].referenceAssetIds = ["asset-that-no-longer-exists"];
   doc.production.characters[0].activeReferenceAssetId = "asset-that-no-longer-exists";
   assert.equal(migrateToCurrent(doc).status, "ok");
+});
+
+/* ========================================================================= */
+/* TASK-070 · 初始人物从故事大纲的主要角色概念来                                */
+/* ========================================================================= */
+
+test("a concept splits into a suggested name and 身份 — and the split is a GUESS", () => {
+  assert.deepEqual(bd.splitCharacterConcept("林晚 —— 夜班调酒师，不肯交出录音"),
+    { name: "林晚", identity: "夜班调酒师，不肯交出录音" });
+  assert.deepEqual(bd.splitCharacterConcept("陈默：来要录音的人"),
+    { name: "陈默", identity: "来要录音的人" });
+  assert.deepEqual(bd.splitCharacterConcept("Lin Wan - the bartender"),
+    { name: "Lin Wan", identity: "the bartender" });
+  // 「——」 must not be split by the single 「—」 it contains
+  assert.equal(bd.splitCharacterConcept("A —— B").identity, "B");
+  // a bare name carries no identity, rather than inventing one
+  assert.deepEqual(bd.splitCharacterConcept("林晚"), { name: "林晚", identity: "" });
+  // a separator at position 0 would leave an empty name — not a split
+  assert.deepEqual(bd.splitCharacterConcept("：只有描述"), { name: "：只有描述", identity: "" });
+  assert.equal(bd.splitCharacterConcept("   "), null);
+  assert.equal(bd.splitCharacterConcept(null), null);
+});
+
+test("seeds are joined against the cast that already exists, by name", () => {
+  const prod = pd.createProduction(null);
+  bd.addCharacter(prod, "林晚");
+  const rows = bd.characterSeedsFromConcepts(prod, [
+    "林晚 —— 夜班调酒师",
+    "陈默：来要录音的人",
+    "林晚 —— 夜班调酒师",   // the same concept twice is one character
+    "  ",                    // blank
+  ]);
+  assert.equal(rows.length, 2, "duplicates and blanks are dropped");
+  const lin = rows.find((r) => r.name === "林晚");
+  assert.equal(lin.exists, true, "already in the cast — offered as 已有, never created twice");
+  assert.ok(lin.characterId);
+  const chen = rows.find((r) => r.name === "陈默");
+  assert.equal(chen.exists, false);
+  assert.equal(chen.identity, "来要录音的人");
+  assert.equal(chen.concept, "陈默：来要录音的人", "the concept is carried VERBATIM for display");
+  // no concepts at all ⇒ nothing to offer, not an error
+  assert.deepEqual(bd.characterSeedsFromConcepts(prod, []), []);
+  assert.deepEqual(bd.characterSeedsFromConcepts(prod, null), []);
+});
+
+test("seeding does not write anything by itself", () => {
+  const prod = pd.createProduction(null);
+  const before = (prod.characters || []).length;
+  bd.characterSeedsFromConcepts(prod, ["林晚 —— 调酒师", "陈默：客人"]);
+  assert.equal((prod.characters || []).length, before,
+    "deriving what COULD be created must not create it — the outline never writes canon by itself");
+});
+
+test("the seeding panel renders the concept verbatim with an EDITABLE name", () => {
+  const prod = pd.createProduction(null);
+  bd.addCharacter(prod, "林晚");
+  const seeds = {
+    version: 3, approved: true,
+    rows: bd.characterSeedsFromConcepts(prod, ["林晚 —— 调酒师", "陈默：来要录音的人"]),
+  };
+  const ctx = {
+    prodData: () => ({
+      production: prod,
+      assets: { images: {}, videos: {}, audio: {} },
+      assetUploads: {},
+      media: { video: {}, audio: {} },
+      draftShots: [], generations: [], firstFrames: {},
+    }),
+    bible: { conceptSeeds: () => seeds },
+    baseAssets: { model: () => ({ empty: true }) },
+    prodgraph: { model: () => ({ context: {} }) },
+    locks: { is: () => false },
+    // renderBreakdownPanel reads the 剧本拆解 proposal state; 「没有在跑」 is null-shaped
+    breakdown: { state: () => null },
+    script: { hasContent: () => false },
+  };
+  const html = renderBibleWs(ctx, { bibleTab: "characters" });
+  // the concept is shown as written — the creator judges the guess against it
+  assert.match(html, /陈默：来要录音的人/);
+  // …and the NAME is an editable field, prefilled with the split
+  assert.match(html, /data-seed-name="0"[^>]*value="陈默"/);
+  assert.match(html, /data-seed-identity="0"[^>]*value="来要录音的人"/);
+  assert.match(html, /data-seed-add="0"/);
+  assert.match(html, /大纲 v3 · 已批准/);
+  // 林晚 already exists ⇒ offered once as a row? No — not offered at all
+  assert.ok(!/data-seed-name="1"/.test(html), "only the MISSING concepts are offered");
+  // every concept already in the cast ⇒ a note, not an empty box
+  const allThere = { version: 3, approved: true, rows: bd.characterSeedsFromConcepts(prod, ["林晚 —— 调酒师"]) };
+  const html2 = renderBibleWs({ ...ctx, bible: { conceptSeeds: () => allThere } }, { bibleTab: "characters" });
+  assert.match(html2, /都已经在人物表里了/);
+  assert.ok(!/data-seed-add/.test(html2));
+  // no concepts at all ⇒ no panel (a panel offering nothing is noise)
+  const none = renderBibleWs({ ...ctx, bible: { conceptSeeds: () => ({ version: 0, approved: false, rows: [] }) } }, { bibleTab: "characters" });
+  assert.ok(!/seedbox/.test(none));
 });

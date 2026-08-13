@@ -249,6 +249,86 @@ export function scenesReferencingLocation(prod, locationId, stateId = null) {
   return out;
 }
 
+/* ---- seeding the cast from the outline (TASK-070) --------------------------- */
+//
+// 人物设定 sits BETWEEN 故事大纲 and 分集规划 in the creative spine, but until now
+// the only way to get a character was 剧本拆解 — which reads an episode SCRIPT, two
+// steps LATER. So the one place the cast belongs could not be filled until after the
+// place that depends on it. The outline already carries 主要角色概念
+// (`outline.characterConcepts`); this turns them into the初始 cast.
+//
+// BOTH PATHS COEXIST (产品 2026-08-13): this seeds the INITIAL cast from the
+// outline; 剧本拆解 keeps refining and adding as the scripts get written. Neither
+// replaces the other.
+//
+// A PROPOSAL, NOT A WRITE. This function only DERIVES what could be created; the
+// creator confirms each row. That keeps M9 rule 8's intent intact — the outline
+// still never writes canon by itself, a person does.
+
+/** Separators a concept line uses between the NAME and the rest. Ordered longest
+ *  first so 「——」 is not split by the single 「—」. */
+const CONCEPT_SEPARATORS = ["——", "：", ":", " - ", "—", "、", "，", ",", "|"];
+
+/**
+ * Split one concept string into a suggested name and the rest.
+ *
+ * 「林晚 —— 夜班调酒师，不肯交出录音」 → { name: "林晚", identity: "夜班调酒师，不肯交出录音" }
+ *
+ * A GUESS, and treated as one: the caller shows the name in an EDITABLE field so
+ * the creator corrects it before anything is created. Silently naming a character
+ * from a heuristic is exactly what this codebase refuses to do — showing the guess
+ * and letting a person approve it is not the same thing.
+ *
+ * A concept with no separator is a bare name and carries no identity text.
+ */
+export function splitCharacterConcept(concept) {
+  const raw = str(concept).trim();
+  if (!raw) return null;
+  for (const sep of CONCEPT_SEPARATORS) {
+    const i = raw.indexOf(sep);
+    // a separator at position 0 would leave an empty name
+    if (i > 0) {
+      const name = raw.slice(0, i).trim();
+      const identity = raw.slice(i + sep.length).trim();
+      if (name) return { name, identity };
+    }
+  }
+  return { name: raw, identity: "" };
+}
+
+/**
+ * What the outline's character concepts could seed, joined against the cast that
+ * already exists.
+ *
+ * `exists` is matched by NAME, trimmed — the only join two independently written
+ * lists can honestly have. A concept whose name is already in the bible is reported
+ * as `exists` rather than being offered again, so pressing 创建 twice cannot produce
+ * a duplicate 林晚.
+ */
+export function characterSeedsFromConcepts(prod, concepts) {
+  const have = new Map(
+    ((prod && prod.characters) || []).map((c) => [str(c.name).trim(), c.characterId]),
+  );
+  const seen = new Set();
+  const out = [];
+  for (const c of Array.isArray(concepts) ? concepts : []) {
+    const split = splitCharacterConcept(c);
+    if (!split) continue;
+    // the same concept twice in one outline is one character
+    const key = `${split.name}|${split.identity}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      concept: str(c).trim(),
+      name: split.name,
+      identity: split.identity,
+      exists: have.has(split.name),
+      characterId: have.get(split.name) || null,
+    });
+  }
+  return out;
+}
+
 // ---- character transitions -------------------------------------------------- //
 
 /** Add a Character. `tier` defaults to a FORMAL character; pass "bit" for a

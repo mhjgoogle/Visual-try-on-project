@@ -22,6 +22,7 @@ from ai_video_workflow.release import (
 )
 from tests.media_fakes import FakeMediaInspector
 from tests.paid_fakes import FakeProvider
+from tests.symlink_support import symlink_or_skip
 from tests.test_paid_lifecycle import TASK, _paid_submit, _seed_project, _use_fakes
 
 AT = "2026-08-02T12:00:00+00:00"
@@ -323,7 +324,7 @@ def test_archive_refuses_symlinks(tmp_path: Path, monkeypatch) -> None:
 
     secret = tmp_path / "outside-secret.mp4"
     secret.write_bytes(b"outside-the-project")
-    (root / "outputs" / "final_v9.mp4").symlink_to(secret)
+    symlink_or_skip(root / "outputs" / "final_v9.mp4", secret)
     with pytest.raises(ArchiveError, match="refusing to archive symlink"):
         archive_project(root, _load_project_data(root))
     # nothing was written and the outside content leaked into no manifest

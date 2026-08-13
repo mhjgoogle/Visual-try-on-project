@@ -411,13 +411,16 @@ def test_fault_matrix(tmp_path: Path, monkeypatch) -> None:
     # (a) stale approval: tamper an approved target -> zero provider calls
     # (a transitively-stale prerequisite blocks the packet-gated entry)
     brief = root / "planning" / "brief_v1.json"
-    original = brief.read_text(encoding="utf-8")
-    brief.write_text(original.replace("kindness", "KINDNESS"), encoding="utf-8")
+    # Bytes, not text: the approval digest is over the file's exact bytes, and
+    # text mode would rewrite every "\n" as "\r\n" on Windows, so the "restore"
+    # below would leave a permanently stale approval and break sections (c)+.
+    original = brief.read_bytes()
+    brief.write_bytes(original.replace(b"kindness", b"KINDNESS"))
     calls = fake.total_calls
     assert _packet_submit(root, catalog_dir, "task-shot-1-1", "shot-1", "op-stale") == 1
     assert fake.total_calls == calls  # approval gate: zero calls
     assert list_reservations(root) == ()  # and zero reservations
-    brief.write_text(original, encoding="utf-8")  # restore
+    brief.write_bytes(original)  # restore
 
     # (b) budget denial: a pre-existing hold near the episode cap -> zero calls
     hold_reservation(

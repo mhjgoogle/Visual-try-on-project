@@ -21,7 +21,7 @@ import {
 import { navBadges, NAV } from "../src/ui/production.js";
 import {
   EPISODE_NAV, EPISODE_MODULES, EPISODE_DEFAULT, EPISODE_WORKSPACES,
-  ASSET_NAV, spaceOf, renderAssetRail,
+  ASSET_NAV, spaceOf, renderAssetRail, MODULE_LABEL,
 } from "../src/ui/shell.js";
 import * as sd from "../src/workflow/scriptdoc.js";
 
@@ -414,28 +414,38 @@ test("NAV: the rail is 故事开发 and it ENDS at the episode script (ADR-0061 
   // point is每一集的 Episode Script. 创意 → 故事大纲 → 作品设定（人物 / 人物关系 /
   // 世界观）→ 分集规划 → 本集剧本.
   assert.deepEqual(NAV.map((g) => g.sec), ["故事开发"]);
+  // TASK-065 §2 / §4 — a DELIBERATE contract change: TWO 作品设定 entries, not
+  // three. 人物关系 is a TAB inside 人物 (a relationship connects two characters and
+  // has no meaning without them) and 场景地 is a TAB inside 世界观 (a location is not
+  // a person). Fewer entrances for the same subject is the whole point.
   assert.deepEqual(NAV[0].items.map((i) => i[0]), [
-    "brief", "story", "characters", "relationships", "world", "episodes", "script",
+    "brief", "story", "characters", "world", "episodes", "script",
   ]);
-  // 人物 / 人物关系 / 世界观 are grouped under one 作品设定 sub-heading rather
-  // than being a dozen first-level pages
   assert.deepEqual(
     NAV[0].items.filter((i) => i[3] && i[3].under === "作品设定").map((i) => i[0]),
-    ["characters", "relationships", "world"],
+    ["characters", "world"],
   );
+  // …and `relationships` is NOT a rail row any more, while still being a working
+  // module key: several existing jump targets use it, and `setModule` routes it to
+  // 人物 on the relationship tab. A jump target that resolves to nothing would be a
+  // regression, not a migration.
+  assert.ok(!NAV.some((g) => g.items.some((i) => i[0] === "relationships")));
+  assert.equal(MODULE_LABEL.relationships, "人物关系");
+  assert.equal(spaceOf("relationships"), "story");
   // The MEDIA production stages left the story rail entirely: they belong to
   // 剧集制作, which is a top-level SPACE now rather than a sub-tree under an
   // episode row (TASK-064 §4).
   for (const k of ["scenes", "shots", "refplan", "frames", "video", "audio", "dailies", "edit", "workbench", "provenance"]) {
     assert.ok(!NAV.some((g) => g.items.some((i) => i[0] === k)), `${k} must not be in the story rail`);
   }
-  // 剧集制作's centre is the GENERATION GRAPH (TASK-064 Phase 1b): it leads, and
-  // every stage workspace stays reachable behind the secondary 「工作区」 entry.
-  // Deliberately still NOT a second flow model (流程画布).
+  // 剧集制作's centre is the 制作台 — the CURRENT SHOT's production graph (TASK-065
+  // §9): it leads, and every stage workspace (生成溯源 included) stays reachable
+  // behind the secondary 「工作区」 entry. Deliberately still NOT a second flow model
+  // (流程画布).
   const epKeys = EPISODE_NAV.map((i) => i[0]);
-  assert.equal(EPISODE_DEFAULT, "provenance");
-  assert.equal(epKeys[0], EPISODE_DEFAULT, "the generation graph IS this space's centre");
-  for (const k of ["scenes", "shots", "refplan", "frames", "video", "audio", "dailies", "workbench", "edit", "episode"]) {
+  assert.equal(EPISODE_DEFAULT, "workbench");
+  assert.equal(epKeys[0], EPISODE_DEFAULT, "the 制作台 IS this space's centre");
+  for (const k of ["scenes", "shots", "refplan", "frames", "video", "audio", "dailies", "provenance", "edit", "episode"]) {
     assert.ok(epKeys.includes(k), `剧集制作 is missing ${k}`);
   }
   assert.ok(!epKeys.includes("canvas"), "流程画布 must not be on a creator path");

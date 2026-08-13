@@ -300,6 +300,79 @@ export function updateRelationship(prod, relationshipId, fields) {
   return true;
 }
 
+/**
+ * Swap which character is A and which is B — 「改方向」 in the relationship graph
+ * (TASK-065 §2).
+ *
+ * A relationship is stored as an unordered PAIR (`pairKey` is order-independent,
+ * so 林照×沈既白 and 沈既白×林照 are one relationship), but two of its facets are
+ * DIRECTIONAL: `aToB` and `bToA` are written about the sides in `characterIds`
+ * order. So reversing the arrow has to carry those two with it, or the graph
+ * would flip the arrowhead and leave 「A 怎么看 B」 describing the other direction —
+ * a silent corruption of text the creator wrote, which is worse than no arrow.
+ *
+ * Nothing else moves: the pair is the same pair, every episode beat still points
+ * at the same relationshipId, and no version is created (this is a presentation
+ * decision about an existing definition, not a new definition).
+ */
+export function swapRelationshipDirection(prod, relationshipId) {
+  const r = findRelationship(prod, relationshipId);
+  if (!r) return false;
+  r.characterIds = [r.characterIds[1], r.characterIds[0]];
+  const aToB = r.profile.aToB;
+  r.profile.aToB = r.profile.bToA;
+  r.profile.bToA = aToB;
+  return true;
+}
+
+/**
+ * 当前关系 — where this relationship actually stands as of one episode.
+ *
+ * DERIVED, never stored. The project-level definition (`profile.arc`) says where
+ * the relationship GOES; the Episode Relationship Beats say what has happened so
+ * far. 当前 is therefore the newest beat at or before `episodeId`: its `end` when
+ * that episode recorded one, else its `start`.
+ *
+ * Episodes are ordered by their position in `prod.episodes` — the same ordering
+ * every EP code is derived from — so 「到本集为止」 means the same thing here as it
+ * does in the rail.
+ *
+ * Returns `{ text, from, code }`, or null when no episode up to this one has
+ * recorded a beat. Null is the honest answer: a relationship whose definition is
+ * written but which no episode has advanced has no current state yet, and
+ * printing `profile.basis` here would present the作品级 definition as if an
+ * episode had reached it.
+ */
+export function relationshipCurrentState(prod, relationshipId, episodeId = null) {
+  if (!findRelationship(prod, relationshipId)) return null;
+  const eps = prod.episodes || [];
+  // AN UNRESOLVABLE episodeId RETURNS null — it does NOT fall back to the last
+  // episode (codex review round 3). A stale or deleted episode selection would
+  // otherwise scan the whole series and print the FINALE's relationship state, i.e.
+  // spoil where the relationship ends up while the creator believes they are looking
+  // at 「到本集为止」. 「不知道站在哪一集」 must read as unknown, never as the ending.
+  // Only an ABSENT episodeId means 「到目前最后一集为止」.
+  let last = eps.length - 1;
+  if (episodeId) {
+    last = eps.findIndex((e) => e.episodeId === episodeId);
+    if (last < 0) return null;
+  }
+  for (let i = last; i >= 0; i--) {
+    const beat = ((eps[i].beats && eps[i].beats.relationship) || [])
+      .find((b) => b.relationshipId === relationshipId);
+    if (!beat) continue;
+    const text = str(beat.end).trim() || str(beat.start).trim();
+    if (!text) continue;
+    return {
+      text,
+      from: str(beat.end).trim() ? "end" : "start",
+      code: `EP${String(i + 1).padStart(2, "0")}`,
+      episodeId: eps[i].episodeId,
+    };
+  }
+  return null;
+}
+
 /** Every episode that records a beat for this relationship. */
 export function episodesWithRelationshipBeat(prod, relationshipId) {
   return (prod.episodes || []).filter((e) =>

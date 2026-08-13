@@ -1,0 +1,644 @@
+/* 剧集制作 · Shot 工作台 (TASK-066) — the five regions.
+ *
+ *   TOP     .ss    EP ▼ / Scene ▼ / SH ▼ + 当前 Shot 摘要
+ *   LEFT    .sr    当前 Shot 参考输入（两组 + ⋮ 关系菜单）
+ *   CENTER  .sg-*  制作流程图（参考输入簇 + 卡片内联动作）
+ *   BOTTOM  .rs    参考素材库（当前 Shot）
+ *   FOOTER  .ep-foot  Shot 进度
+ *
+ * Loads AFTER epprod.css and owns only these surfaces — nothing here restyles an
+ * existing workspace. The GRID that places them lives in epprod.css, next to the
+ * other per-space grid choices, so there is one place that decides layout.
+ */
+
+/* ========================================================================== */
+/* TOP — EP ▼ / Scene ▼ / SH ▼ + 摘要 (§2)                                    */
+/* ========================================================================== */
+
+.ss {
+  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  padding: var(--s3) var(--s5); border-bottom: 1px solid var(--line);
+  background: var(--panel-2); min-width: 0;
+}
+.ss-sel { position: relative; flex: none; }
+.ss-btn {
+  display: inline-flex; align-items: baseline; gap: var(--s2); max-width: 300px;
+  font: inherit; font-size: var(--t-sm); cursor: pointer;
+  padding: 5px var(--s3); border: 1px solid var(--line); border-radius: var(--r2);
+  background: var(--elev); color: var(--text);
+}
+.ss-btn > b { font-size: var(--t-md); font-weight: 800; flex: none; }
+.ss-btn .nm { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ss-btn .cv { color: var(--text-faint); flex: none; }
+.ss-btn:hover { border-color: var(--accent-line); }
+.ss-sel.open .ss-btn { border-color: var(--accent); }
+.ss-menu {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 60;
+  min-width: 260px; max-width: 420px; max-height: 380px; overflow-y: auto;
+  display: flex; flex-direction: column; padding: var(--s1);
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r2);
+  box-shadow: 0 12px 32px #0007;
+}
+.ss-menu button {
+  display: flex; align-items: baseline; gap: var(--s2);
+  font: inherit; font-size: var(--t-sm); text-align: left; cursor: pointer;
+  padding: 6px var(--s3); border: 0; border-radius: var(--r1);
+  background: none; color: var(--text-dim); min-width: 0;
+}
+.ss-menu button:hover { background: var(--panel-2); color: var(--text); }
+.ss-menu button.cur { color: var(--accent); font-weight: 700; }
+.ss-menu button .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ss-menu button .note { margin-left: auto; flex: none; font-size: var(--t-micro); color: var(--text-faint); }
+.ss-none { padding: var(--s3); font-size: var(--t-xs); color: var(--text-faint); }
+
+.ss-step { display: inline-flex; gap: 2px; flex: none; }
+.ss-nav {
+  font: inherit; font-size: var(--t-xs); cursor: pointer; line-height: 1;
+  padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--canvas); color: var(--text-faint);
+}
+.ss-nav:hover:not([disabled]) { color: var(--accent); border-color: var(--accent-line); }
+.ss-nav[disabled] { opacity: .35; cursor: not-allowed; }
+
+.ss-sum {
+  display: flex; flex-direction: column; gap: 2px; min-width: 0;
+  padding-left: var(--s4); margin-left: var(--s2); border-left: 1px solid var(--line-2);
+}
+.ss-sumt { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.ss-sumt > b { font-size: var(--t-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ss-edit {
+  font: inherit; font-size: var(--t-xs); cursor: pointer; line-height: 1;
+  padding: 2px 5px; border: 1px solid transparent; border-radius: var(--r1);
+  background: none; color: var(--text-faint); flex: none;
+}
+.ss-edit:hover { color: var(--accent); border-color: var(--accent-line); }
+.ss-facets { display: flex; gap: var(--s4); flex-wrap: wrap; font-size: var(--t-xs); }
+.ss-facet { color: var(--text-dim); }
+.ss-facet > i { font-style: normal; color: var(--text-faint); margin-right: 5px; }
+/* 未记录 is stated, never styled as if it were a value */
+.ss-facet > u { text-decoration: none; color: var(--text-faint); opacity: .8; }
+
+/* ========================================================================== */
+/* LEFT — 当前 Shot 参考输入 (§4 / §5 / §6)                                    */
+/* ========================================================================== */
+
+.sr {
+  border-right: 1px solid var(--line); background: var(--panel);
+  overflow-y: auto; padding: var(--s3) var(--s4) var(--s6);
+  display: flex; flex-direction: column; gap: var(--s4); min-width: 0;
+}
+.sr > * { flex: none; }
+.sr-hd { display: flex; align-items: center; gap: var(--s2); }
+.sr-hd > b { font-size: var(--t-md); }
+.sr-hd .push, .sr-grp .push { flex: 1; }
+.sr-none { font-size: var(--t-xs); color: var(--text-faint); line-height: 1.6; }
+
+.sr-grp { display: flex; flex-direction: column; gap: var(--s2); position: relative; }
+.sr-grp > header { display: flex; align-items: center; gap: var(--s2); }
+.sr-grp > header > b { font-size: var(--t-sm); font-weight: 800; }
+.sr-i, .sg-i, .ep-i { color: var(--text-faint); font-size: var(--t-xs); cursor: help; }
+.sr-n, .sg-n { font-size: var(--t-micro); color: var(--text-faint); }
+
+.sr-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s2); }
+.sr-card {
+  position: relative; display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s2); border: 1px solid var(--line); border-radius: var(--r2);
+  background: var(--canvas);
+}
+.sr-card.menuopen { border-color: var(--accent); z-index: 30; }
+.sr-card.frame { border-style: dashed; }
+.sr-th {
+  width: 44px; height: 44px; flex: none; object-fit: contain; border-radius: var(--r1);
+  background: #0003; display: grid; place-items: center;
+  font-size: var(--t-xs); color: var(--text-faint);
+}
+.sr-meta {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;
+  font: inherit; text-align: left; background: none; border: 0; padding: 0;
+  color: inherit; cursor: pointer;
+}
+.sr-meta.static { cursor: default; }
+.sr-meta:not(.static):hover > b { color: var(--accent); }
+.sr-meta > b { font-size: var(--t-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sr-sub {
+  font-size: var(--t-micro); color: var(--text-faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sr-dots {
+  flex: none; font: inherit; font-size: var(--t-sm); cursor: pointer; line-height: 1;
+  padding: 4px 6px; border: 1px solid transparent; border-radius: var(--r1);
+  background: none; color: var(--text-faint);
+}
+.sr-dots:hover { color: var(--text); background: var(--panel-2); border-color: var(--line); }
+
+.sr-menu {
+  position: absolute; top: calc(100% - 4px); right: var(--s2); z-index: 40;
+  min-width: 216px; display: flex; flex-direction: column; padding: var(--s1);
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r2);
+  box-shadow: 0 12px 32px #0007;
+}
+/* the 「+ 添加参考」 popover flows in place: it belongs to the GROUP, not to one card,
+   and an absolutely-positioned one would cover the list it is adding to */
+.sr-menu.add { position: static; box-shadow: none; margin-top: var(--s1); }
+.sr-menu button {
+  font: inherit; font-size: var(--t-xs); text-align: left; cursor: pointer;
+  padding: 6px var(--s3); border: 0; border-radius: var(--r1);
+  background: none; color: var(--text-dim);
+  display: flex; align-items: baseline; gap: var(--s2);
+}
+.sr-menu button:hover { background: var(--panel-2); color: var(--text); }
+.sr-menu button.cur { color: var(--accent); font-weight: 700; }
+.sr-menu button.cur::after { content: "✓"; margin-left: auto; }
+.sr-menu button.bad:hover { color: var(--bad); }
+.sr-menu button .note { margin-left: auto; font-size: var(--t-micro); color: var(--text-faint); }
+.sr-mhd {
+  padding: var(--s2) var(--s3) 3px; font-size: var(--t-micro); font-weight: 800;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint);
+}
+.sr-mnote { padding: var(--s2) var(--s3); font-size: var(--t-micro); color: var(--text-faint); line-height: 1.55; }
+
+/* ========================================================================== */
+/* CENTER — 制作流程图 (§8 / §10)                                              */
+/* ========================================================================== */
+
+.ep-title { font-size: var(--t-md); font-weight: 800; }
+.ep-top .push { flex: 1; }
+.ep-layout { display: inline-flex; gap: 2px; }
+.ep-lbtn, .ep-full {
+  font: inherit; font-size: var(--t-xs); font-weight: 700; cursor: pointer;
+  padding: 4px var(--s3); border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--canvas); color: var(--text-faint); white-space: nowrap;
+}
+.ep-lbtn.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.ep-lbtn:hover, .ep-full:hover { color: var(--text-dim); border-color: var(--line-2); }
+
+.sg-flow {
+  position: relative; display: grid; grid-template-columns: 236px minmax(0, 1fr);
+  gap: var(--s5); align-items: start;
+}
+/* 手动布局: the reference clusters spread out side by side instead of stacking in a
+   narrow gutter — for a shot with many references, which is when the auto column runs
+   out of room. Same cards, same actions; only the arrangement differs. */
+.sg-root.layout-manual .sg-flow { grid-template-columns: minmax(0, 1fr); }
+.sg-root.layout-manual .sg-col.left { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); }
+.sg-col { display: flex; flex-direction: column; gap: var(--s4); min-width: 0; }
+.sg-col.chain { gap: var(--s5); }
+
+.sg-cluster {
+  border: 1px dashed color-mix(in srgb, var(--ok) 40%, var(--line-2));
+  border-radius: var(--r3); padding: var(--s2) var(--s3) var(--s3);
+  background: color-mix(in srgb, var(--ok) 5%, transparent);
+  display: flex; flex-direction: column; gap: var(--s2); position: relative; z-index: 1;
+}
+.sg-band-directing.sg-cluster {
+  border-color: color-mix(in srgb, var(--prompt) 42%, var(--line-2));
+  background: var(--prompt-soft);
+}
+.sg-cluster > header { display: flex; align-items: center; gap: var(--s2); }
+.sg-refs { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: var(--s2); }
+.sg-ref {
+  display: flex; flex-direction: column; gap: 3px; padding: 0;
+  font: inherit; cursor: pointer; text-align: left; min-width: 0;
+  background: none; border: 1px solid transparent; border-radius: var(--r2);
+}
+.sg-ref:hover { border-color: var(--accent-line); }
+.sg-ref.sel { border-color: var(--accent); }
+/* a bound-but-unread directing reference is NOT ready: it contributes nothing to the
+   prompt yet, and the colour says so */
+.sg-ref.partial .nm { color: var(--gate); }
+.sg-rt {
+  width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radius: var(--r1);
+  background: #0003; display: grid; place-items: center; color: var(--text-faint);
+}
+.sg-ref .nm {
+  font-size: var(--t-micro); color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.sg-card {
+  position: relative; z-index: 1; display: flex; flex-direction: column; gap: var(--s2);
+  padding: var(--s3); border: 1px solid var(--line-2); border-radius: var(--r3);
+  background: var(--panel); max-width: 340px;
+}
+.sg-card > header { display: flex; align-items: center; gap: var(--s2); }
+.sg-card > header > b { font-size: var(--t-sm); }
+.sg-card > header .push { flex: 1; }
+.sg-card.sg-prompt { background: var(--prompt-soft); border-color: color-mix(in srgb, var(--prompt) 34%, var(--line)); }
+.sg-card.sg-image { border-color: color-mix(in srgb, var(--gen) 40%, var(--line)); }
+.sg-card.sg-video { border-color: var(--accent); }
+.sg-card.sg-end { border-style: dashed; max-width: 240px; }
+.sg-card.st-gap { border-style: dashed; }
+.sg-dots {
+  flex: none; font: inherit; font-size: var(--t-sm); cursor: pointer; line-height: 1;
+  padding: 2px 6px; border: 1px solid transparent; border-radius: var(--r1);
+  background: none; color: var(--text-faint);
+}
+.sg-dots:hover { color: var(--text); background: var(--canvas); border-color: var(--line); }
+.sg-menu {
+  position: absolute; top: 34px; right: var(--s2); z-index: 40; min-width: 210px;
+  display: flex; flex-direction: column; padding: var(--s1);
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r2);
+  box-shadow: 0 12px 32px #0007;
+}
+.sg-menu button {
+  font: inherit; font-size: var(--t-xs); text-align: left; cursor: pointer;
+  padding: 6px var(--s3); border: 0; border-radius: var(--r1); background: none; color: var(--text-dim);
+}
+.sg-menu button:hover { background: var(--panel-2); color: var(--text); }
+.sg-ptext {
+  margin: 0; font-size: var(--t-xs); line-height: 1.6; color: var(--text-dim);
+  max-height: 4.9em; overflow: hidden;
+}
+.sg-shot {
+  width: 100%; aspect-ratio: 16 / 9; object-fit: contain; border-radius: var(--r2);
+  background: #000; display: grid; place-items: center; gap: 4px;
+  color: var(--text-faint); font-size: var(--t-lg);
+}
+.sg-shot.sm { max-height: 92px; }
+.sg-shot.none { border: 1px dashed var(--line-2); }
+.sg-shot.none .t { font-size: var(--t-xs); }
+.sg-meta { font-size: var(--t-micro); color: var(--text-faint); }
+.sg-miss { font-size: var(--t-xs); color: var(--gate); }
+.sg-acts { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.sg-hist {
+  font: inherit; font-size: var(--t-micro); text-align: left; cursor: pointer;
+  padding: 0; border: 0; background: none; color: var(--text-faint);
+}
+.sg-hist:hover { color: var(--accent); }
+
+/* ========================================================================== */
+/* BOTTOM — 参考素材库（当前 Shot）(§7)                                        */
+/* ========================================================================== */
+
+.rs {
+  border-top: 1px solid var(--line-2); background: var(--panel);
+  display: flex; flex-direction: column; min-width: 0; max-height: 34vh;
+}
+.rs.collapsed { max-height: none; }
+.rs-bar {
+  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  padding: var(--s2) var(--s5); background: var(--panel-2); border-bottom: 1px solid var(--line);
+}
+.rs-bar .push { flex: 1; }
+.rs-toggle {
+  font: inherit; font-size: var(--t-xs); cursor: pointer; line-height: 1;
+  padding: 3px 7px; border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--canvas); color: var(--text-faint);
+}
+.rs-title { font-size: var(--t-sm); font-weight: 800; }
+.rs-q {
+  flex: 1; min-width: 220px; max-width: 420px;
+  font: inherit; font-size: var(--t-xs); padding: 5px var(--s3);
+  background: var(--canvas); color: var(--text);
+  border: 1px solid var(--line); border-radius: var(--r2);
+}
+.rs-q:focus { outline: none; border-color: var(--accent-line); }
+.rs-chips {
+  display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
+  padding: var(--s2) var(--s5) 0; font-size: var(--t-xs);
+}
+.rs-chips .lb { color: var(--text-faint); }
+.rs-chip {
+  font: inherit; font-size: var(--t-xs); cursor: pointer;
+  padding: 3px var(--s3); border: 1px solid var(--line); border-radius: 999px;
+  background: var(--canvas); color: var(--text-faint);
+}
+.rs-chip.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.rs-chip .ct { margin-left: 4px; opacity: .75; }
+.rs-note { margin-left: auto; color: var(--text-faint); }
+.rs-strip {
+  display: flex; gap: var(--s3); overflow-x: auto; overflow-y: hidden;
+  padding: var(--s3) var(--s5);
+}
+.rs-card {
+  flex: none; width: 132px; margin: 0; display: flex; flex-direction: column; gap: var(--s2);
+  padding: var(--s2); border: 1px solid var(--line); border-radius: var(--r2);
+  background: var(--canvas);
+}
+.rs-card.on { border-color: var(--ok); }
+.rs-open { padding: 0; border: 0; background: none; cursor: pointer; }
+.rs-th {
+  width: 100%; aspect-ratio: 3 / 4; object-fit: contain; border-radius: var(--r1);
+  background: #0003; display: grid; place-items: center; color: var(--text-faint);
+}
+.rs-card figcaption { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.rs-card figcaption > b { font-size: var(--t-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rs-sub {
+  font-size: var(--t-micro); color: var(--text-faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rs-act { display: flex; }
+.rs-act > * { flex: 1; }
+.rs-none, .rs-foot { padding: var(--s3) var(--s5); font-size: var(--t-xs); color: var(--text-faint); line-height: 1.6; }
+.rs-foot { border-top: 1px solid var(--line); }
+
+/* ========================================================================== */
+/* FOOTER — Shot 进度 (§9)                                                     */
+/* ========================================================================== */
+
+.ep-foot {
+  display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap;
+  padding: var(--s2) var(--s5); border-top: 1px solid var(--line-2);
+  background: var(--panel-2); font-size: var(--t-xs);
+}
+.ep-foot .lb { font-weight: 800; color: var(--text-faint); }
+.ep-foot .push { flex: 1; }
+.ep-footnote { color: var(--text-faint); }
+.sg-stages { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.sg-stage {
+  display: inline-flex; align-items: center; gap: var(--s2);
+  font: inherit; font-size: var(--t-xs); cursor: pointer;
+  padding: 3px var(--s3); border: 1px solid transparent; border-radius: 999px;
+  background: none; color: var(--text-faint);
+}
+.sg-stage .n {
+  display: grid; place-items: center; width: 15px; height: 15px; flex: none;
+  border-radius: 999px; background: var(--elev); font-size: 9px; font-weight: 800;
+}
+.sg-stage.st-done { color: var(--ok); }
+.sg-stage.st-done .n { background: color-mix(in srgb, var(--ok) 30%, var(--elev)); }
+.sg-stage.st-doing { color: var(--accent); font-weight: 700; }
+.sg-stage.st-doing .n { background: var(--accent); color: var(--accent-ink); }
+.sg-stage.on { border-color: var(--accent-line); background: var(--accent-soft); }
+.sg-stage:hover { border-color: var(--line-2); }
+.sg-steplink { width: 26px; height: 1px; background: var(--line-2); flex: none; }
+
+/* the focus filter lives in the SHOT picker now — above the list it narrows */
+.ss-focus {
+  display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
+  padding: var(--s2) var(--s3); margin-bottom: var(--s1);
+  border-bottom: 1px solid var(--line); font-size: var(--t-xs);
+}
+.ss-focus .lb { color: var(--text-faint); }
+.ss-fbtn {
+  font: inherit; font-size: var(--t-micro); cursor: pointer;
+  padding: 2px var(--s2); border: 1px solid var(--line); border-radius: 999px;
+  background: var(--canvas); color: var(--text-faint);
+}
+.ss-fbtn.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.ss-focus .note { margin-left: auto; color: var(--text-faint); font-size: var(--t-micro); }
+
+/* RIGHT — 当前状态 checklist (§14) */
+.dir-state { display: flex; flex-direction: column; gap: 3px; }
+.dir-strow { display: flex; align-items: baseline; gap: var(--s2); font-size: var(--t-xs); }
+.dir-strow .mk { flex: none; width: 13px; text-align: center; }
+.dir-strow.ok .mk { color: var(--ok); }
+.dir-strow.gap .mk { color: var(--gate); }
+.dir-strow .k { color: var(--text-faint); }
+.dir-strow .v { margin-left: auto; color: var(--text-dim); font-weight: 600; }
+
+/* ==========================================================================
+   RIGHT — AI 导演作为操作入口 (TASK-067 §2 / §6 / §18 / §19)
+   ==========================================================================
+   Creator First (§18): the verdict, the gaps and the next step are the surface;
+   runtime / model / ids / context snapshot live inside <details>. Nothing here
+   is decorative — every row the panel draws is something the creator can act on.
+*/
+.sd { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
+/* nothing in this column may push it wider than the column: the panel lives in a fixed
+   ~300px track, and a single unbreakable id or filename would otherwise clip every row */
+.sd, .sd * { min-width: 0; }
+
+/* 当前判断 — the one sentence the panel exists to say */
+.sd-verdict {
+  padding: var(--s2) var(--s3); border-radius: var(--r2);
+  background: var(--accent-soft); border: 1px solid var(--accent-line);
+}
+.sd-verdict .sd-shot { font-size: var(--t-micro); color: var(--text-faint); }
+.sd-verdict .sd-v { font-size: var(--t-sm); font-weight: 700; line-height: 1.4; }
+
+/* 已匹配 / 缺少 — two lists, one shape, different marks */
+.sd-have, .sd-miss, .sd-recs, .sd-iss, .sd-unk, .sd-asm {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.sd-have li, .sd-miss li {
+  display: flex; align-items: baseline; gap: var(--s2);
+  font-size: var(--t-xs); line-height: 1.45;
+  /* a flex ITEM defaults to min-width:auto, so one long word (an asset filename is
+     often 40+ characters with no break opportunity) refuses to shrink and pushes the
+     row past the column edge. min-width:0 lets the shrinkable half actually shrink. */
+  min-width: 0;
+}
+.sd-have .mk, .sd-miss .mk { flex: none; width: 13px; text-align: center; font-weight: 700; }
+.sd-have .mk.ok { color: var(--ok); }
+/* THE LABEL NEVER SHRINKS. 「人物参考」 crushed to one character per line — which is
+   what happened when a long filename in .dt won the space fight — tells the creator
+   nothing, while a truncated filename still tells them which kind is present. */
+.sd-have .nm { flex: none; color: var(--text-faint); }
+.sd-have .dt {
+  margin-left: auto; color: var(--text-dim); font-weight: 600; text-align: right;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* the gap TEXT is the part that wraps, and it wraps mid-word if it has to rather than
+   overflowing the 300px column */
+.sd-miss .tx { flex: 1; min-width: 0; color: var(--text-dim); overflow-wrap: anywhere; }
+/* SEVERITY is a real distinction: a blocker stops the chain, a gap only weakens it */
+.sd-miss .sv-blocking .mk { color: var(--bad); }
+.sd-miss .sv-gap .mk { color: var(--gate); }
+.sd-miss .sv-soft .mk { color: var(--text-faint); }
+.sd-miss li .btn { flex: none; }
+
+/* 下一步 — one primary, the rest in chain order */
+.sd-ops { display: flex; flex-direction: column; gap: var(--s1); }
+.sd-op {
+  font: inherit; font-size: var(--t-xs); cursor: pointer; text-align: left;
+  display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s2) var(--s3); border-radius: var(--r2);
+  border: 1px solid var(--line); background: var(--elev); color: inherit;
+}
+.sd-op:hover { border-color: var(--line-2); }
+.sd-op .nm { font-weight: 600; overflow-wrap: anywhere; }
+.sd-op.primary {
+  background: var(--accent); border-color: var(--accent); color: var(--accent-ink);
+  font-weight: 700;
+}
+.sd-op[disabled] { opacity: .6; cursor: progress; }
+/* an UNAVAILABLE operation is a stated reason, never a button that pretends (§2) */
+.sd-op.off {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  cursor: default; background: transparent; border-style: dashed;
+}
+.sd-op.off .nm { color: var(--text-faint); font-weight: 600; }
+.sd-op.off .why { font-size: var(--t-micro); color: var(--text-faint); }
+
+/* PROPOSAL — presented as what it proposes, with the JSON one click away */
+.sd-prop {
+  padding: var(--s2) var(--s3); border-radius: var(--r2);
+  border: 1px solid var(--prompt); background: var(--prompt-soft);
+  display: flex; flex-direction: column; gap: var(--s2);
+}
+.sd-proph { display: flex; align-items: center; gap: var(--s2); font-size: var(--t-xs); }
+.sd-acts { display: flex; gap: var(--s2); flex-wrap: wrap; }
+.sd-pre {
+  margin: 0; padding: var(--s2); border-radius: var(--r1);
+  background: var(--canvas); border: 1px solid var(--line);
+  font-size: var(--t-micro); line-height: 1.5;
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 220px; overflow: auto;
+}
+.sd-axis { font-size: var(--t-micro); line-height: 1.45; color: var(--text-dim); }
+.sd-axis b { color: var(--text-faint); margin-right: var(--s2); font-weight: 600; }
+.sd-recs li, .sd-iss li, .sd-unk li {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s2);
+  font-size: var(--t-micro); line-height: 1.45;
+  padding-bottom: 3px; border-bottom: 1px dotted var(--line);
+}
+.sd-recs .rz, .sd-iss .tx, .sd-unk li { color: var(--text-dim); overflow-wrap: anywhere; }
+.sd-recs li b { overflow-wrap: anywhere; }
+.sd-iss .fx { color: var(--ok); }
+.sd-iss .sv-blocking b { color: var(--bad); }
+.sd-iss .sv-major b { color: var(--gate); }
+.sd-asm li {
+  font-size: var(--t-micro); line-height: 1.45; color: var(--text-dim);
+  padding-left: var(--s3); position: relative;
+}
+.sd-asm li::before { content: "·"; position: absolute; left: var(--s1); color: var(--text-faint); }
+
+/* the MANUAL runtime's two halves — copy the prompt, bring the answer back */
+.sd-open {
+  padding: var(--s2) var(--s3); border-radius: var(--r2);
+  border: 1px dashed var(--line-2); background: var(--panel-2);
+  display: flex; flex-direction: column; gap: var(--s2); font-size: var(--t-xs);
+}
+.sd-answer { font-size: var(--t-micro); }
+
+/* ADVANCED (§18) — runtime, model, context snapshot, ids */
+.sd-det { font-size: var(--t-micro); }
+.sd-det > summary {
+  cursor: pointer; color: var(--text-faint); padding: 2px 0;
+  font-size: var(--t-micro);
+}
+.sd-det[open] > summary { color: var(--text-dim); }
+.sd-det > *:not(summary) { margin-top: var(--s1); }
+.sd-execs { display: flex; flex-direction: column; gap: 2px; }
+.sd-exec {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center;
+  gap: var(--s2); padding: var(--s1) var(--s2);
+  border: 1px solid var(--line); border-radius: var(--r1); cursor: pointer;
+  font-size: var(--t-micro);
+}
+.sd-exec.on { border-color: var(--accent-line); background: var(--accent-soft); }
+.sd-exec .nm { font-weight: 600; }
+.sd-exec .ga { grid-column: 2 / -1; color: var(--text-faint); }
+.sd-kv {
+  display: grid; grid-template-columns: 8.5em 1fr; gap: var(--s2);
+  align-items: baseline; padding: 1px 0;
+}
+.sd-kv span { color: var(--text-faint); }
+.sd-kv code {
+  font-size: var(--t-micro); color: var(--text-dim);
+  word-break: break-all; line-height: 1.4;
+}
+.sd-hint > summary { cursor: pointer; color: var(--text-faint); }
+.sd-sec .dir-sec-b { display: flex; flex-direction: column; gap: var(--s2); }
+
+/* WHO RUNS IT — the executor name on each operation button (TASK-067 §14).
+   Claude Code 执行 / Codex 审阅 has to be readable BEFORE the press: a click spends
+   a real subscription, and which one is not something to discover afterwards. */
+.sd-op .ex {
+  margin-left: auto; font-size: var(--t-micro); font-weight: 400;
+  color: var(--text-faint); white-space: nowrap;
+}
+.sd-op.primary .ex { color: var(--accent-ink); opacity: .75; }
+
+/* ==========================================================================
+   分集规划 · 手工修改 (TASK-069)
+   ==========================================================================
+   Typing writes an unversioned DRAFT; a plan version happens only on an explicit
+   save. The bar has to make that difference visible, because a plan version is
+   what every Episode records itself as 「Based on」. */
+.planbar {
+  padding: var(--s2) var(--s3); margin-bottom: var(--s2);
+  border: 1px solid var(--line); border-radius: var(--r2); background: var(--elev);
+}
+.planbar .btn[disabled] { opacity: .45; cursor: default; }
+.planedit { display: flex; flex-direction: column; gap: var(--s2); }
+.kv.edit { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.kv.edit > .k {
+  font-size: var(--t-micro); color: var(--text-faint); letter-spacing: .04em;
+}
+.kv.edit .ws-bibleinput, .kv.edit .ws-bibletext { width: 100%; }
+
+/* `hidden` alone is not enough here: `.chip` sets its own `display`, and an author
+   rule beats the UA's `[hidden] { display: none }`. Without this the bar showed
+   「已手工修改（未版本化）」 on a plan nobody had touched — caught by the TASK-069
+   Connected acceptance. Attribute+attribute specificity (0,2,0) beats `.chip`. */
+[data-plan-flag][hidden],
+[data-plan-clean][hidden],
+[data-plan-discard][hidden] { display: none; }
+
+/* 从故事大纲的主要角色概念播种初始人物 (TASK-070) */
+.seedbox {
+  padding: var(--s2) var(--s3); margin-bottom: var(--s3);
+  border: 1px dashed var(--line-2); border-radius: var(--r2); background: var(--panel-2);
+  display: flex; flex-direction: column; gap: var(--s2);
+}
+.seedbox > .hd { display: flex; align-items: center; gap: var(--s2); font-size: var(--t-sm); }
+.seedrow {
+  display: flex; align-items: center; gap: var(--s2);
+  font-size: var(--t-xs); min-width: 0;
+}
+/* the concept is shown VERBATIM and may be long — it truncates rather than pushing
+   the editable name field out of reach */
+.seedrow .cpt {
+  flex: 1; min-width: 0; color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.seedrow .ws-bibleinput { flex: none; width: 10em; }
+
+/* 分集规划 = 每集要表达的内容概要 (产品 2026-08-13)。内容占主位，四个要素紧凑成行，
+   上游基线与进入制作退到 <details>。 */
+.kv.edit.lead > .k { font-size: var(--t-xs); color: var(--text-dim); font-weight: 600; }
+.ws-bibletext.lead { font-size: var(--t-sm); line-height: 1.6; }
+.planfacets {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--s2);
+}
+.epmore { margin-top: var(--s2); font-size: var(--t-micro); }
+.epmore > summary { cursor: pointer; color: var(--text-faint); padding: 2px 0; }
+.epmore[open] > summary { color: var(--text-dim); }
+.epmore > *:not(summary) { margin-top: var(--s2); }
+
+/* WHOLE PICTURE, NOT A CROP (产品 2026-08-13: 「添加图片会被截断」).
+   Content thumbnails switched from `cover` to `contain`: the box keeps its size and
+   the image is fitted inside it, so a portrait reference or a 4:3 still is seen in
+   full instead of having its head cut off. The letterboxing needs a deliberate
+   ground, or `contain` reads as a rendering bug rather than as the whole image.
+   Small identity chips (22–40px) stay `cover` — a letterboxed 22px chip shows
+   nothing at all, which is worse than a crop. */
+.sr-th, .rs-th, .sg-shot, .pi-preview, .ep-cardth,
+.sc-thumb, .sb-thumb, .sb-vthumb {
+  background-color: #0b0d12;
+}
+
+/* ONE BOX to fill (产品 2026-08-13). The label tells the creator what to cover; the
+   four framing facets fold away so planning an episode is one field, not six. */
+.kv.edit.lead > .hint {
+  font-size: var(--t-micro); color: var(--text-faint); line-height: 1.5;
+  margin-bottom: 2px;
+}
+.planfacets-fold { margin-top: var(--s2); font-size: var(--t-micro); }
+.planfacets-fold > summary {
+  cursor: pointer; color: var(--text-faint); padding: 2px 0;
+  display: flex; align-items: center; gap: var(--s2);
+}
+.planfacets-fold[open] > summary { color: var(--text-dim); margin-bottom: var(--s2); }
+
+/* the four framing facets read as TEXT until you click to edit them — so an
+   already-planned episode is one box to fill, not five */
+.planfacets-fold > summary .facetsum {
+  display: flex; flex-wrap: wrap; gap: var(--s2) var(--s3); flex: 1; min-width: 0;
+}
+.planfacets-fold > summary .fc {
+  font-size: var(--t-micro); color: var(--text-dim); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 22em;
+}
+.planfacets-fold > summary .fc > i {
+  font-style: normal; color: var(--text-faint); margin-right: 4px;
+}
+.planfacets-fold > summary .more { color: var(--accent); flex: none; }
+
+/* same `hidden` specificity fix as the plan bar — `.chip` and `.btn` carry their own
+   `display`, which beats the UA's `[hidden] { display: none }` */
+[data-shot-flag][hidden], [data-shot-clean][hidden], [data-shot-editoff][hidden] { display: none; }

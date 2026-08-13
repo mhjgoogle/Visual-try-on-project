@@ -2,12 +2,12 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|PowerShell",
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/gate.sh",
-            "timeout": 270
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/gate_dispatch.py\"",
+            "timeout": 1000
           }
         ]
       }

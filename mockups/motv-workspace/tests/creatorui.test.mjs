@@ -232,9 +232,14 @@ test("reference-planner emits one binding action per reference", () => {
     bindings: [{ shotId: "sh-1", referenceKeys: ["ref-a", "ref-b"] }, { shotId: "", referenceKeys: ["ref-c"] }],
   });
   assert.ok(plan.ok);
+  // TASK-067 §12 — a DELIBERATE rename, not a behaviour change. The old
+  // `replaceReference` only ever ADDED (already-bound reported `satisfied`), so the
+  // vocabulary had no way to express a real swap at all. `addReference` is what this
+  // caller always did; `replaceReference` now genuinely replaces and requires
+  // `replacesKey`.
   assert.deepEqual(plan.actions, [
-    { action: "replaceReference", shotId: "sh-1", referenceKey: "ref-a" },
-    { action: "replaceReference", shotId: "sh-1", referenceKey: "ref-b" },
+    { action: "addReference", shotId: "sh-1", referenceKey: "ref-a" },
+    { action: "addReference", shotId: "sh-1", referenceKey: "ref-b" },
   ]);
 });
 

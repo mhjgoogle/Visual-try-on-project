@@ -89,12 +89,42 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._write(self._app.handle(self.path), body=False)
 
+    def _discard_body(self) -> None:
+        """Read and throw away a declared request body before refusing it.
+
+        The body is never PROCESSED, but it must leave the socket before the
+        connection closes. Closing a socket that still holds unreceived data is
+        an ABORTIVE close: Windows sends RST, which discards the refusal
+        response the client has not read yet (the client then sees
+        ``ConnectionAbortedError`` WinError 10053 instead of the status). Draining
+        first also unblocks a client still writing a large body, which would
+        otherwise never get round to reading our answer.
+
+        Bounded by ``_MAX_BODY_BYTES`` so an inflated ``Content-Length`` cannot
+        make this read forever; a chunked or oversized body is left alone (its
+        length is unknown or too large to drain) and only the close is abrupt.
+        """
+        if self.headers.get("Transfer-Encoding"):
+            return
+        try:
+            remaining = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return
+        if remaining <= 0 or remaining > _MAX_BODY_BYTES:
+            return
+        while remaining > 0:
+            chunk = self.rfile.read(min(remaining, 65536))
+            if not chunk:
+                break  # client closed early; nothing left to drain
+            remaining -= len(chunk)
+
     def _reject_write(self) -> None:
         # No write endpoint exists; every mutating verb is refused outright.
-        # The declared request body is never read, so the connection must be
-        # closed after the 405 — otherwise HTTP/1.1 keep-alive would parse
-        # the leftover body bytes as the start of the next request.
+        # The declared body is drained but never processed, and the connection
+        # is closed after the 405 — otherwise HTTP/1.1 keep-alive would parse
+        # any leftover body bytes as the start of the next request.
         self.close_connection = True
+        self._discard_body()
         self._write(
             Response(
                 405,
@@ -131,6 +161,7 @@ class _Handler(BaseHTTPRequestHandler):
         if same_origin:
             return True
         self.close_connection = True
+        self._discard_body()  # same abortive-close hazard as _reject_write
         self._write(
             Response(
                 403,

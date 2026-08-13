@@ -45,6 +45,18 @@ import * as skillrun from "./workflow/skillrun.js";
 import * as skillapply from "./workflow/skillapply.js";
 import * as actions from "./workflow/actions.js";
 import * as promptdoc from "./workflow/promptdoc.js";
+// TASK-064 Phase 2 / Phase 3 documents. Each is a pure domain module with its
+// own sanitize/serialize pair; this file owns the instances, the persistence and
+// the controllers, exactly like promptdoc above.
+import * as refinterp from "./workflow/refinterp.js";
+import * as refuse from "./workflow/refuse.js";
+import * as shotctx from "./workflow/shotctx.js";
+import * as ctxcache from "./workflow/ctxcache.js";
+import * as framebind from "./workflow/framebind.js";
+import * as locksdoc from "./workflow/locks.js";
+import * as shotaudio from "./workflow/shotaudio.js";
+import * as subtitle from "./workflow/subtitle.js";
+import * as roughcut from "./workflow/roughcut.js";
 import * as runtime from "./services/runtime.js";
 import { buildShotSlotIndex, slotForShotId, shotIdForSlot, resolveAdoptTarget } from "./workflow/shotmap.js";
 import * as scriptdoc from "./workflow/scriptdoc.js";
@@ -55,6 +67,12 @@ import * as bibledoc from "./workflow/bibledoc.js";
 import * as canondoc from "./workflow/canondoc.js";
 import * as shotprod from "./workflow/shotprod.js";
 import * as breakdown from "./workflow/breakdown.js";
+// TASK-065: the creator-object-first surfaces. All three are PURE read models over
+// documents this file already owns — none of them introduces a store.
+import * as baseassets from "./workflow/baseassets.js";
+import * as relgraph from "./workflow/relgraph.js";
+import * as shotgraph from "./workflow/shotgraph.js";
+import { compileEntityBasePrompt } from "./workflow/promptc.js";
 import { seedDemoProject, DEMO_PROJECT_NAME } from "../fixtures/demo-project.js";
 
 // --- register node types (the extension list) ---
@@ -184,6 +202,69 @@ function pickFile(accept) {
 /** The file-picker `accept` list for one declared Asset kind — derived from the
  *  domains that kind may legally be registered in (ADR-0061 决策 4), so a picker
  *  can never offer a file type the declaration would then refuse. */
+/**
+ * Grab ONE frame out of a video url and return it as a PNG File (TASK-064 §7).
+ *
+ * `pick: "last"` seeks to the very end of the clip; `"at"` seeks to
+ * `timecodeMs`. Both are clamped to the clip's real duration — asking for 8.4 s
+ * of a 6 s clip must produce the last frame, not a blank canvas.
+ *
+ * WHY THE CLIENT DOES THIS. The bytes are already in the browser (the creator is
+ * looking at the clip), a `<video>` + `<canvas>` needs no ffmpeg on PATH, and the
+ * result goes through the ORDINARY upload + registration path — so the frame is a
+ * declared Asset like every other, on every machine the studio already runs on.
+ *
+ * Returns `{ file, timecodeMs, width, height }`. It REJECTS rather than returning
+ * a blank image: a black frame silently registered as 「SH01 的尾帧」 would be
+ * indistinguishable from a real one.
+ */
+function grabVideoFrame(url, { timecodeMs = null, pick = "last" } = {}) {
+  return new Promise((resolve, reject) => {
+    const v = document.createElement("video");
+    v.preload = "auto";
+    v.muted = true;
+    v.playsInline = true;
+    // same-origin (/api/uploads/…), so the canvas stays untainted and toBlob works
+    v.crossOrigin = "anonymous";
+    let settled = false;
+    const done = (fn, arg) => { if (settled) return; settled = true; clearTimeout(timer); v.src = ""; fn(arg); };
+    const timer = setTimeout(() => done(reject, new Error("读取视频超时：无法提取帧")), 20000);
+    v.onerror = () => done(reject, new Error("无法读取这条视频（文件可能已不在本地）"));
+    v.onloadedmetadata = () => {
+      const dur = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : null;
+      if (!dur) { done(reject, new Error("这条视频没有可用的时长信息，无法定位帧")); return; }
+      // the LAST frame is not `duration` exactly: seeking there lands past the
+      // final sample in most containers and decodes nothing. One frame back at a
+      // conservative 30 fps is the usual "last valid frame".
+      const want = pick === "at" && Number.isFinite(timecodeMs)
+        ? Math.min(Math.max(0, timecodeMs / 1000), Math.max(0, dur - 0.001))
+        : Math.max(0, dur - 1 / 30);
+      v.currentTime = want;
+    };
+    v.onseeked = () => {
+      try {
+        const w = v.videoWidth;
+        const h = v.videoHeight;
+        if (!w || !h) { done(reject, new Error("这条视频没有可读的画面尺寸")); return; }
+        const cv = document.createElement("canvas");
+        cv.width = w;
+        cv.height = h;
+        cv.getContext("2d").drawImage(v, 0, 0, w, h);
+        const at = Math.round(v.currentTime * 1000);
+        cv.toBlob((blob) => {
+          if (!blob) { done(reject, new Error("帧编码失败")); return; }
+          const file = new File([blob], `frame-${at}ms.png`, { type: "image/png" });
+          done(resolve, { file, timecodeMs: at, width: w, height: h });
+        }, "image/png");
+      } catch (e) {
+        // a tainted canvas throws here; report it rather than registering nothing
+        done(reject, new Error(`无法读取画面像素：${e && e.message ? e.message : e}`));
+      }
+    };
+    v.src = url;
+  });
+}
+
 function acceptForKind(kind) {
   const domains = new Set(assetreg.domainsForKind(kind));
   const parts = [];
@@ -221,10 +302,37 @@ let timelinesDoc = timeline.createTimelines(null);
 // creator (or an applied Skill proposal) actually wrote live here; everything
 // else uses the compiled prompt, which is a derivation and not stored.
 let promptsDoc = promptdoc.createPrompts(null);
+// --- TASK-064 Phase 2 / Phase 3 documents ---------------------------------- //
+// Reference READINGS (ADR-0061 决策 4): what a video-style / motion / camera /
+// performance reference says along six axes, so the prompt compiler can carry it.
+// Keyed by referenceKey — a canonical Reference is one shared thing.
+let refInterpDoc = refinterp.createInterpretations(null);
+// TASK-066 §5: which SIDE of the chain each reference binding serves. Keyed by
+// shot + referenceKey; ABSENT means 「按类型推导」, which is why an existing document
+// needs no migration and compiles byte-identical prompts until a menu is touched.
+let refUseDoc = refuse.createRefUse(null);
+// Frame BINDINGS (§7): 上一镜尾帧 → 下一镜首帧, with the full source provenance.
+// The EFFECTIVE start frame stays `assets.firstFrames[slot]`; this records where
+// it came from, which that slot-level pointer never held.
+let frameBindingsDoc = framebind.createFrameBindings(null);
+// LOCKS (§50) for the objects with nowhere to put a flag of their own. Prompt /
+// audio clip / frame binding locks live on their own documents — see locks.js.
+let locksDoc = locksdoc.createLocks(null);
+// Per-shot MULTI-TRACK audio (决策 6): dialogue / vo / ambience / sfx / foley /
+// bgm clips with timing, gain and fades, plus the derived Shot Mix pointer.
+let shotAudioDoc = shotaudio.createShotAudio(null);
+// The per-episode SUBTITLE track (决策 6). Cues, not a rendered file.
+let subtitlesDoc = subtitle.createSubtitles(null);
 // 剧本拆解提案 (M8) — TRANSIENT review state, per session, never persisted:
 // null | { status: "running"|"ready"|"failed", cards, error, source }.
 // A reload lands on the confirmed bible; proposals are re-derivable any time.
 let bibleProposals = null;
+// --- TASK-067 documents (ADR-0064) ----------------------------------------- //
+// Cached DERIVED CONCLUSIONS (§15 / 决策 3): asset recommendations, continuity
+// summaries and prompt reviews, each keyed by the REVISION of the shot context it
+// was drawn from. Never a copy of canon — only conclusions about it, which is why
+// an entry can be checked for staleness instead of being trusted.
+let ctxCacheDoc = ctxcache.createCache(null);
 // The 「用于生成」 intent (ADR-0061 决策 3): `{ skillRunId, proposalId, shotId }`
 // set ONLY when the creator presses that button, consumed by the next generation
 // for that shot. Session-scoped and deliberately NOT derived — see
@@ -796,6 +904,44 @@ const ctx = {
   // refused ops (false/null) change nothing. State transitions live in
   // workflow/bibledoc.js.
   bible: {
+    /**
+     * 从故事大纲的「主要角色概念」播下初始人物 (TASK-070).
+     *
+     * WHY IT EXISTS: 人物设定 sits between 故事大纲 and 分集规划 in the creative
+     * spine, but the only route into it was 剧本拆解 — which reads an episode SCRIPT,
+     * two steps later. The cast could not be filled until after the thing that
+     * depends on it. 产品 2026-08-13: 「初始的时候是从故事大纲获取的」, and 剧本拆解
+     * keeps refining afterwards — both paths, not one instead of the other.
+     *
+     * READ-ONLY derivation. `seedCharacter` below is the write, one row at a time,
+     * after the creator confirms — so the outline still never writes canon by itself.
+     */
+    conceptSeeds: () => {
+      const o = storydoc.approvedOutline(storyDoc) || storydoc.activeOutline(storyDoc) || null;
+      const concepts = o && o.outline ? o.outline.characterConcepts : [];
+      return {
+        // WHICH outline version they came from — the creator is entitled to know
+        // whether they are seeding from the approved one or a later draft
+        version: o ? o.v : 0,
+        approved: !!(o && storyDoc.approved === o.v),
+        rows: bibledoc.characterSeedsFromConcepts(productionDoc, concepts),
+      };
+    },
+    /** Create ONE character from a concept row. The name is what the creator
+     *  confirmed in the field, not the heuristic split — the split only prefills. */
+    seedCharacter: (name, identity) => {
+      const n = String(name || "").trim();
+      if (!n) { toast("先给这个角色一个名字"); return null; }
+      const rec = bibledoc.addCharacter(productionDoc, n);
+      if (!rec) return null;
+      if (String(identity || "").trim()) {
+        bibledoc.updateCharacterProfile(productionDoc, rec.characterId, { identity: String(identity).trim() });
+      }
+      ctx.persist();
+      refreshProductionView();
+      toast(`已从故事大纲创建角色「${n}」——档案可以继续补，剧本拆解之后还会自动补充`);
+      return rec;
+    },
     addCharacter: (name, tier) => prodNew(bibledoc.addCharacter(productionDoc, name, tier)),
     renameCharacter: (id, name) => prodOp(bibledoc.renameCharacter(productionDoc, id, name)),
     removeCharacter: (id) => prodOp(bibledoc.removeCharacter(productionDoc, id)),
@@ -834,6 +980,14 @@ const ctx = {
     addRelationship: (a, b) => prodNew(canondoc.addRelationship(productionDoc, a, b)),
     removeRelationship: (id) => prodOp(canondoc.removeRelationship(productionDoc, id)),
     updateRelationship: (id, fields) => prodOp(canondoc.updateRelationship(productionDoc, id, fields)),
+    /** 改方向 — swap which side is A. The two DIRECTIONAL facets travel with it
+     *  (canondoc), so flipping the arrow can never leave 「A 怎么看 B」 describing
+     *  the other direction. */
+    swapDirection: (id) => prodOp(canondoc.swapRelationshipDirection(productionDoc, id)),
+    /** 当前关系 — derived from the Episode Relationship Beats up to `episodeId`
+     *  (default: the active episode). Never stored; see canondoc. */
+    currentState: (id, episodeId = null) =>
+      canondoc.relationshipCurrentState(productionDoc, id, episodeId || productionDoc.activeEpisodeId || null),
     // --- World Setting ------------------------------------------------------ //
     updateWorld: (fields) => prodOp(canondoc.updateWorld(productionDoc, fields)),
     // --- explicit canon REVISIONS (the only thing that bumps a version) ---- //
@@ -864,6 +1018,361 @@ const ctx = {
     versions: () => canondoc.upstreamVersions(storyDoc, productionDoc),
     impact: (epId) => canondoc.episodeImpact(productionDoc, epId, storyDoc),
   },
+
+  // ---------------------------------------------------------------------- //
+  // 人物关系图 (TASK-065 §2) — READ ONLY. Nodes are real Characters resolved on
+  // every derivation, so a rename in 人物 cannot leave a stale label on the graph
+  // and nothing here can copy a character.
+  // ---------------------------------------------------------------------- //
+  relgraph: {
+    model: (opts = {}) => relgraph.relationshipGraph(ctx.prodData(), opts),
+  },
+
+  // ---------------------------------------------------------------------- //
+  // 基础生图 Prompt (TASK-065 §1 / §4) — a bible entity's own image prompt.
+  //
+  // REUSES promptdoc under a NAMESPACED key (`base:<kind>:<id>[|<stateId>]`, see
+  // workflow/baseassets.js). Same append-only versions, same active pointer, same
+  // 「回到自动编译」, same Lock — one implementation, so a base prompt cannot end up
+  // with weaker version rules than a shot prompt.
+  //
+  // The COMPILED default comes from the one compiler (workflow/promptc.js), fed by
+  // the one resolver (bibledoc.resolve*), so an entity's own card and the shot that
+  // uses it can never describe the character differently.
+  // ---------------------------------------------------------------------- //
+  basePrompt: {
+    key: (kind, entityId, stateId = null) => baseassets.basePromptKey(kind, entityId, stateId),
+    /** The compiled prompt for one entity (optionally in one state). Returns
+     *  `{ text, missing }`; `{ text: "", missing: [...] }` when the entity is gone. */
+    compiled: (kind, entityId, stateId = null) => {
+      const entity = kind === "character"
+        ? bibledoc.findCharacter(productionDoc, entityId)
+        : bibledoc.findLocation(productionDoc, entityId);
+      if (!entity) return { text: "", missing: ["这个对象已不存在"] };
+      const resolved = kind === "character"
+        ? bibledoc.resolveCharacter(entity, stateId)
+        : bibledoc.resolveLocation(entity, stateId);
+      return compileEntityBasePrompt({
+        kind,
+        entity: resolved,
+        tone: confirmedGenreTone(),
+        // a location's look is a statement about the world before it is about the
+        // place — the World Setting's 视觉基调 is a real input, not decoration
+        worldTone: kind === "location" ? (productionDoc.world.visualTone || "") : "",
+      });
+    },
+    /** The EFFECTIVE prompt + where it came from — a stored version overrides the
+     *  compiled default, exactly like a shot prompt. */
+    effective: (kind, entityId, stateId = null) => {
+      const key = baseassets.basePromptKey(kind, entityId, stateId);
+      const compiled = ctx.basePrompt.compiled(kind, entityId, stateId);
+      if (!key) return { ...compiled, source: "compiled", version: 0, locked: false, compiled: compiled.text, key: null };
+      const eff = promptdoc.effectivePrompt(promptsDoc, key, "image", compiled.text);
+      return { ...eff, missing: compiled.missing, compiled: compiled.text, key };
+    },
+    entry: (kind, entityId, stateId = null) => {
+      const key = baseassets.basePromptKey(kind, entityId, stateId);
+      return key ? promptdoc.entryOf(promptsDoc, key, "image") : null;
+    },
+    save: (kind, entityId, stateId, text) => {
+      const key = baseassets.basePromptKey(kind, entityId, stateId);
+      if (!key) return 0;
+      return ctx.prompt.save(key, "image", text, { origin: "manual" });
+    },
+    setActive: (kind, entityId, stateId, version) => {
+      const key = baseassets.basePromptKey(kind, entityId, stateId);
+      return !!key && ctx.prompt.setActive(key, "image", version);
+    },
+    useCompiled: (kind, entityId, stateId = null) => {
+      const key = baseassets.basePromptKey(kind, entityId, stateId);
+      return !!key && ctx.prompt.useCompiled(key, "image");
+    },
+    setLocked: (kind, entityId, stateId, on) => {
+      const key = baseassets.basePromptKey(kind, entityId, stateId);
+      return !!key && ctx.prompt.setLocked(key, "image", on);
+    },
+  },
+
+  // ---------------------------------------------------------------------- //
+  // 基础资产 (TASK-065 §1 / §4) — the ONE controller for a bible entity's
+  // long-lived reusable media.
+  //
+  // EVERY WRITE GOES THROUGH AN EXISTING PATH: `ctx.assets.importReference` for
+  // registration (上传 ≠ 保存文件 — ADR-0055) and `ctx.bible.*` for attachment. This
+  // controller adds no store and opens no second upload path; it only decides WHICH
+  // entity (or state) the registered asset is attached to.
+  // ---------------------------------------------------------------------- //
+  baseAssets: {
+    model: () => baseassets.baseAssetsModel(ctx.prodData(), {
+      promptOf: (kind, entityId, stateId) => ctx.basePrompt.effective(kind, entityId, stateId),
+    }),
+    one: (kind, entityId) => {
+      const m = ctx.baseAssets.model();
+      return baseassets.findBaseAssets(m, entityId);
+    },
+    /** The name to OFFER for a reference about to be registered — derived from the
+     *  entity and the state the creator uploaded under (workflow/baseassets.js
+     *  explains why this is a derivation and not a model call). */
+    suggestName: (kind, entityId, stateId = null) => {
+      const entity = kind === "character"
+        ? bibledoc.findCharacter(productionDoc, entityId)
+        : bibledoc.findLocation(productionDoc, entityId);
+      if (!entity) return "";
+      const st = stateId ? (entity.states || []).find((x) => x.stateId === stateId) : null;
+      return baseassets.suggestReferenceName({
+        entityName: entity.name,
+        stateName: st ? st.name : null,
+      });
+    },
+    /**
+     * Register an uploaded file as this entity's (or state's) reference.
+     *
+     * `displayName` is what the creator CONFIRMED — the suggestion is offered by
+     * the caller and may have been edited or replaced. Nothing is registered under
+     * a name nobody accepted.
+     *
+     * ATTACHMENT IS PART OF THE SAME CALL. A registered asset that never reached
+     * the character would be exactly the orphan the registration rule exists to
+     * prevent — visible in the library, attached to nothing, and looking to the
+     * creator like the upload failed.
+     */
+    uploadReference: async (kind, entityId, stateId, { file, displayName } = {}) => {
+      const refKind = baseassets.BASE_REFERENCE_KIND[kind];
+      if (!refKind) throw new Error(`未知对象类型：${kind}`);
+      const picked = file || await pickFile("image/png,image/jpeg,image/webp");
+      if (!picked) return null;
+      // CHECK THE TARGET BEFORE THE BYTES GO ANYWHERE, and again after.
+      //
+      // The file dialog is open for as long as the creator takes, and the entity or
+      // the state can be deleted in the meantime. Registering first and attaching
+      // afterwards then leaves a registered upload attached to nothing — exactly the
+      // orphan ADR-0055 exists to prevent, and exactly what the comment above this
+      // controller claims cannot happen. Same rule as `importReference` itself,
+      // which validates its declaration BEFORE uploading rather than after.
+      //
+      // The second check is not redundant: the first one closes the file-dialog
+      // window, and the upload is itself a server round trip during which the same
+      // deletion can land. It fails LOUDLY — the asset is registered and real, so
+      // the honest report is 「已登记但没能挂上」 plus where to find it, never silence.
+      const bad = missingBaseTarget(kind, entityId, stateId);
+      if (bad) throw new Error(bad);
+      const links = kind === "character" ? { characterId: entityId } : { locationId: entityId };
+      const { ref } = await ctx.assets.importReference({
+        kind: refKind,
+        file: picked,
+        links,
+        displayName: displayName || null,
+      });
+      const gone = missingBaseTarget(kind, entityId, stateId);
+      if (gone || !ctx.baseAssets.attach(kind, entityId, stateId, ref.assetId, { active: true })) {
+        throw new Error(
+          `${gone || "无法挂到这个对象上"}——文件已经登记为资产（${assetreg.derivedLabel(ref)}），` +
+          "可以在「资产库」里找到它并手工绑定，没有丢失。",
+        );
+      }
+      return ref;
+    },
+    /**
+     * Attach an ALREADY REGISTERED asset (从资产库选择).
+     *
+     * A STATE'S references live in the state's own `overrides.referenceAssetIds`.
+     * The state list is SELF-CONTAINED by domain rule (bibledoc sanitizes an active
+     * pointer against the state's own list), so attaching to a state seeds the list
+     * from what the state currently shows — otherwise the first state-level upload
+     * would silently drop the inherited base references.
+     */
+    attach: (kind, entityId, stateId, assetId, { active = false } = {}) => {
+      if (!assetId) return false;
+      if (!stateId) {
+        if (!ctx.bible.addReferenceAsset(entityId, assetId)) return false;
+        if (active) ctx.bible.setActiveReferenceAsset(entityId, assetId);
+        return true;
+      }
+      const cur = stateRefs(kind, entityId, stateId);
+      if (!cur) return false;
+      const ids = cur.ids.includes(assetId) ? cur.ids : [...cur.ids, assetId];
+      return setStateRefs(kind, entityId, stateId, ids, active ? assetId : cur.active);
+    },
+    /** Move the ACTIVE pointer — 主图. Never deletes anything. */
+    setActive: (kind, entityId, stateId, assetId) => {
+      if (!stateId) return ctx.bible.setActiveReferenceAsset(entityId, assetId);
+      const cur = stateRefs(kind, entityId, stateId);
+      if (!cur || !cur.ids.includes(assetId)) return false;
+      return setStateRefs(kind, entityId, stateId, cur.ids, assetId);
+    },
+    /** Detach a reference from this entity (or state). The ASSET is untouched: it
+     *  stops being USED as this character's reference; it does not stop BEING a
+     *  character reference (ADR-0055's declared-vs-derived rule). */
+    detach: (kind, entityId, stateId, assetId) => {
+      if (!stateId) return ctx.bible.removeReferenceAsset(entityId, assetId);
+      const cur = stateRefs(kind, entityId, stateId);
+      if (!cur) return false;
+      const ids = cur.ids.filter((x) => x !== assetId);
+      return setStateRefs(kind, entityId, stateId, ids, cur.active === assetId ? null : cur.active);
+    },
+    /** Release a state's own reference list so it INHERITS the character's again.
+     *  Distinct from an empty list: 「跟基础设定一致」 and 「这个状态没有参考图」 are
+     *  different facts and must not be reachable only by one of them. */
+    inheritRefs: (kind, entityId, stateId) => {
+      const entity = kind === "character"
+        ? bibledoc.findCharacter(productionDoc, entityId)
+        : bibledoc.findLocation(productionDoc, entityId);
+      const st = entity && (entity.states || []).find((x) => x.stateId === stateId);
+      if (!st) return false;
+      const next = { ...st.overrides };
+      delete next.referenceAssetIds;
+      delete next.activeReferenceAssetId;
+      return kind === "character"
+        ? ctx.bible.setCharacterStateOverrides(entityId, stateId, next)
+        : ctx.bible.setLocationStateOverrides(entityId, stateId, next);
+    },
+    /**
+     * Upload a BASE VOICE sample for a character.
+     *
+     * It becomes an ordinary registered audio Asset declared `voice-reference` and
+     * LINKED to the character. It deliberately does NOT touch `voice.voiceId`: that
+     * field is the identity string local TTS passes to the engine, and overwriting
+     * it with a media key would break dialogue generation for this character.
+     */
+    uploadVoice: async (characterId) => {
+      if (!bibledoc.findCharacter(productionDoc, characterId)) throw new Error("这个人物不存在");
+      const file = await pickFile("audio/mpeg,audio/wav");
+      if (!file) return null;
+      // CHECK AGAIN AFTER THE PICKER, BEFORE THE BYTES MOVE. The check above closes
+      // nothing on its own: the dialog is open for as long as the creator takes, and
+      // deleting the character during it made `importKey` register an audio asset
+      // linked to nobody — an orphan, created by the very controller that promises
+      // there are none (codex review round 4; the first fix only added a check
+      // AFTER the upload, which reports the orphan instead of preventing it).
+      if (!bibledoc.findCharacter(productionDoc, characterId)) throw new Error("这个人物已不存在——没有上传任何文件");
+      const key = mintId("basevoice");
+      const ref = await ctx.audio.importKey(key, null, file, null, "voice-reference");
+      // SAME RULE AS uploadReference: the character can be deleted while the file
+      // dialog is open or while the upload is in flight, and a sample linked to
+      // nobody is an orphan. The take is real and registered by this point, so the
+      // failure is reported with where to find it rather than swallowed.
+      //
+      // The LINK is stamped through `ctx.assets.update`, the ONE declaration-edit
+      // path (it resolves the record and lets the record's own domain gate the
+      // change), never by writing the registry record directly.
+      if (!bibledoc.findCharacter(productionDoc, characterId)
+        || !ctx.assets.update(ref.assetId, { links: { characterId } })) {
+        throw new Error(
+          "这个人物已不存在——音频已经登记为资产，可以在「资产库」里找到它，没有丢失。",
+        );
+      }
+      return ref;
+    },
+    /**
+     * Every registered audio asset that could serve as a base voice — for 「从资产库
+     * 选择」.
+     *
+     * A take already linked to ANOTHER character is listed but marked `takenBy`, and
+     * the panel offers no button for it. `links.characterId` is single-valued, so
+     * pointing this character at it would REMOVE the other character's only
+     * discoverable sample — a silent destruction of somebody else's base voice.
+     * Sharing one sample between two characters would need a multi-valued link, i.e.
+     * a schema change and a migration, which ADR-0063 declined for the same reason it
+     * declined `links.stateId`. So the honest behaviour is: show it, name its owner,
+     * and refuse — never take it away and never pretend it can be shared.
+     */
+    voiceOptions: (forCharacterId = null) => {
+      const out = [];
+      for (const key of Object.keys(assetRegistry.audio)) {
+        const e = mediaref.slotEntry(assetRegistry.audio, key);
+        if (!e) continue;
+        for (const r of e.history) {
+          if (!r || !r.assetId) continue;
+          if (r.kind !== "voice-reference" && r.kind !== "dialogue" && r.kind !== "vo") continue;
+          const owner = (r.links && r.links.characterId) || null;
+          const takenBy = owner && owner !== forCharacterId ? owner : null;
+          out.push({
+            assetId: r.assetId,
+            key,
+            version: r.version,
+            url: r.url || "",
+            kind: r.kind,
+            characterId: owner,
+            takenBy,
+            takenByName: takenBy ? nameOfChar(takenBy) : null,
+            label: `${assetreg.derivedLabel(r)} · ${key} v${r.version}`,
+            storageState: r.storageState || "local",
+          });
+        }
+      }
+      return out;
+    },
+    /**
+     * Point a character at an EXISTING audio asset as its base voice.
+     *
+     * Re-declares it `voice-reference` and links it to the character. Returns
+     * `{ ok, error }` rather than a bare boolean so the caller can say WHY.
+     *
+     * REFUSED when the take already belongs to a different character (see
+     * `voiceOptions`) — re-linking would strip that character's only sample. Also
+     * refused when the asset does not live in the audio domain: `ctx.assets.update`
+     * gates the kind change against the record's own domain, so a picture can never
+     * be declared somebody's voice.
+     */
+    useVoiceAsset: (characterId, assetId) => {
+      if (!bibledoc.findCharacter(productionDoc, characterId)) {
+        return { ok: false, error: "这个人物已不存在" };
+      }
+      const hit = assetlib.findAssetById(assetRegistry, assetId);
+      if (!hit) return { ok: false, error: "这个资产已不存在" };
+      const owner = (hit.record.links && hit.record.links.characterId) || null;
+      if (owner && owner !== characterId) {
+        return {
+          ok: false,
+          error: `这条样本已经是「${nameOfChar(owner)}」的基础声音。一条样本只能属于一个人物——` +
+            "改挂过来会让那个人物失去它。请另外上传一条，或先在那边解除。",
+        };
+      }
+      const ok = ctx.assets.update(assetId, { kind: "voice-reference", links: { characterId } });
+      return ok ? { ok: true } : { ok: false, error: "只有音频资产可以作为基础声音" };
+    },
+    /** Every registered image reference of a KIND — 「从资产库选择」 for a character
+     *  or a location. Already-attached ones are marked rather than hidden, because a
+     *  reference can legitimately serve two entities. */
+    referenceOptions: (kind) => {
+      const want = baseassets.BASE_REFERENCE_KIND[kind];
+      return assetreg.listReferences(assetRegistry)
+        .filter((r) => r.kind === want || r.kind === "external-reference")
+        .map((r) => ({
+          key: r.key,
+          assetId: r.assetId,
+          version: r.version,
+          url: r.url || "",
+          label: assetreg.derivedLabel(r),
+          kind: r.kind,
+          links: r.links,
+          storageState: r.storageState || "local",
+        }));
+    },
+  },
+
+  // ---------------------------------------------------------------------- //
+  // 当前 Shot Production Graph (TASK-065 §9) — READ ONLY, and built from the SAME
+  // `shotDetailModel` the LEFT inspector reads, so the picture and the panel beside
+  // it cannot name different references, frames or prompts.
+  // ---------------------------------------------------------------------- //
+  shotgraph: {
+    model: (shotId) => {
+      const pd = ctx.prodData();
+      const detail = shotId ? shotDetailModel(pd, shotId) : null;
+      // `review` and `nextShot` are the model's two CONTROLLER-backed inputs, and they
+      // have to be supplied here — the model is pure and cannot reach for them.
+      // Forgetting `nextShot` left every End Frame card with `nextShot: null`, so the
+      // 「接给下一镜」 action could never appear: a feature that looked implemented and
+      // was dead (codex review round 2). The 「built but no caller」 shape this codebase
+      // keeps catching, in reverse.
+      return shotgraph.shotProductionGraph(pd, shotId, detail, {
+        review: shotId ? ctx.shot.review(shotId) : null,
+        nextShot: shotId && ctx.frames.nextShotOf ? ctx.frames.nextShotOf(shotId) : null,
+      });
+    },
+  },
+
   agentShotsDraft: (script) => query.generateShotsDraft(script),
   // Story development controller (M9): Idea → Outline (versioned, approved) →
   // Episode Plan (versioned, confirmed). The ONLY write path into the story
@@ -887,6 +1396,40 @@ const ctx = {
       refreshProductionView();
       toast(`已创建创意版本 v${rec.v}（旧版本保留；下游剧集会显示「上游变化」）`);
       return rec;
+    },
+    // --- 分集规划 手工修改 (TASK-069) --------------------------------------- //
+    //
+    // The same shape as the Creative Brief above, and for the same reason:
+    // AUTOSAVE ≠ VERSION. Typing writes an unversioned DRAFT (persisted, so a
+    // refresh mid-sentence loses nothing); a new plan version exists solely
+    // because the creator asked for one.
+    //
+    // A plan version is immutable canon that every Episode records itself as
+    // 「Based on 规划 vN」, so editing one in place would leave that baseline
+    // pointing at content it no longer describes (ADR-0054 决策 6).
+    planEntries: () => storydoc.effectivePlanEpisodes(storyDoc),
+    planEditBase: () => storydoc.planEditBase(storyDoc),
+    planDirty: () => storydoc.planDirty(storyDoc),
+    nextPlanVersion: () => storydoc.nextPlanVersion(storyDoc),
+    editPlanEntry: (episodeId, field, value) => {
+      const ok = storydoc.editPlanEntry(storyDoc, episodeId, field, value);
+      if (ok) ctx.persist();
+      return ok;
+    },
+    savePlanDraft: () => {
+      const v = storydoc.savePlanDraft(storyDoc);
+      if (!v) { toast("与当前版本没有差异 — 未创建新版本"); return 0; }
+      ctx.persist();
+      refreshProductionView();
+      // Deliberately explicit about what did NOT happen: the confirm pointer is
+      // the gate that binds episodes, and a hand edit must not walk through it.
+      toast(`已保存为规划 v${v}（手工修改）。旧版本保留；要让下游剧集改用它，还需在上面「确认」这一版`);
+      return v;
+    },
+    discardPlanDraft: () => {
+      const ok = storydoc.discardPlanDraft(storyDoc);
+      if (ok) { ctx.persist(); refreshProductionView(); toast("已放弃手工修改，回到已保存的版本"); }
+      return ok;
     },
     setActiveBrief: (v) => prodOp(storydoc.setActiveBrief(storyDoc, v)),
     restoreBriefDraft: (v) => {
@@ -1355,7 +1898,11 @@ const ctx = {
     },
     doc: () => {
       const t = timeline.timelineFor(timelinesDoc, productionDoc.activeEpisodeId);
-      if (!t.edited) {
+      // A timeline the Rough Cut built is no longer a mirror of the source, even
+      // with no hand edit on it — so the legacy auto-sync must leave it alone.
+      // Checked here rather than by marking it `edited`, because `edited` means
+      // 「有人工调整」 and is printed in the Final Render's provenance.
+      if (!t.edited && !t.roughCutVersion) {
         const rows = ctx.timeline.gatherRows();
         const hasVideo = rows.some((r) => r.videoAssetId);
         if ((t.clips.length && ctx.timeline.sourceStale(t)) || (!t.clips.length && hasVideo)) {
@@ -1388,21 +1935,130 @@ const ctx = {
         const r = key ? mediaref.currentRef(map, key) : null;
         return r && r.assetId ? r.assetId : null;
       };
+      // …and its VERSION, so a clip can be PINNED (§48). Same lookup, second
+      // field — reading the version separately would let the two disagree.
+      const curRef = (map, key) => (key ? mediaref.currentRef(map, key) : null);
+      // the version of an asset addressed by ID rather than by chain key (scene
+      // ambience / episode BGM are stored as asset ids on the production doc)
+      const verOfAsset = (assetId) => {
+        const hit = assetId ? assetlib.findAssetById(assetRegistry, assetId) : null;
+        return hit && Number.isInteger(hit.record.version) ? hit.record.version : null;
+      };
       return ordered.map(({ shot, sceneId }) => {
         const slot = shot.shotId ? slotForShotId(idx, shot.shotId) : null;
         const scene = sceneId ? proddoc.findScene(productionDoc, sceneId) : null;
         const bgm = ep ? proddoc.effectiveBgm(productionDoc, ep.episodeId, sceneId) : null;
+        const vref = curRef(assetRegistry.videos, slot);
+        const dref = curRef(assetRegistry.audio, slot ? `voice-${slot}` : null);
         return {
           shotId: shot.shotId || null,
           duration: shot.duration_seconds === 10 ? 10 : 6,
-          videoAssetId: cur(assetRegistry.videos, slot),
-          dialogueAssetId: cur(assetRegistry.audio, slot ? `voice-${slot}` : null),
+          videoAssetId: vref && vref.assetId ? vref.assetId : null,
+          videoAssetVersion: vref && Number.isInteger(vref.version) ? vref.version : null,
+          dialogueAssetId: dref && dref.assetId ? dref.assetId : null,
+          dialogueAssetVersion: dref && Number.isInteger(dref.version) ? dref.version : null,
           sfxAssetId: cur(assetRegistry.audio, slot ? `sfx-${slot}` : null),
+          // 拟音 / 旁白 reach the cut as themselves (§37)
+          foleyAssetId: cur(assetRegistry.audio, slot ? `foley-${slot}` : null),
+          voAssetId: cur(assetRegistry.audio, slot ? `vo-${slot}` : null),
           sceneId,
           ambienceAssetId: scene ? scene.scene.ambienceAssetId : null,
           bgmAssetId: bgm ? bgm.assetId : null,
+          // …and EVERY track's version, so every clip the Rough Cut places can be
+          // pinned (§48). Supplying it only for video and dialogue left the other
+          // five tracks with `assetVersion: null`, which `clipStanding` reports as
+          // UNKNOWN — so drift on a sound effect or a BGM could never be seen.
+          // Scene ambience and BGM are stored as ASSET IDS on the production
+          // document, so their version is looked up from the registry record.
+          sfxAssetVersion: verOfAsset(cur(assetRegistry.audio, slot ? `sfx-${slot}` : null)),
+          foleyAssetVersion: verOfAsset(cur(assetRegistry.audio, slot ? `foley-${slot}` : null)),
+          voAssetVersion: verOfAsset(cur(assetRegistry.audio, slot ? `vo-${slot}` : null)),
+          ambienceAssetVersion: verOfAsset(scene ? scene.scene.ambienceAssetId : null),
+          bgmAssetVersion: verOfAsset(bgm ? bgm.assetId : null),
         };
       });
+    },
+    /** The rows in the shape `roughcut.planRoughCut` takes — the SAME source data
+     *  as `gatherRows`, re-shaped rather than re-derived, so the automatic cut and
+     *  the legacy auto-sync can never disagree about what the episode contains. */
+    roughRows: () => ctx.timeline.gatherRows().map((r) => {
+      const shot = r.shotId ? ctx.shot.find(r.shotId) : null;
+      const v = (assetId, version) => (assetId ? { assetId, version: version ?? null } : null);
+      return {
+        shotId: r.shotId,
+        duration: r.duration,
+        dialogueText: shot && typeof shot.dialogue === "string" ? shot.dialogue : "",
+        video: v(r.videoAssetId, r.videoAssetVersion),
+        dialogue: v(r.dialogueAssetId, r.dialogueAssetVersion),
+        vo: v(r.voAssetId, r.voAssetVersion),
+        sfx: v(r.sfxAssetId, r.sfxAssetVersion),
+        foley: v(r.foleyAssetId, r.foleyAssetVersion),
+        ambience: v(r.ambienceAssetId, r.ambienceAssetVersion),
+        bgm: v(r.bgmAssetId, r.bgmAssetVersion),
+      };
+    }),
+    /** WHAT this shot currently has ACTIVE on a track — the other half of the
+     *  drift check (§48). Returns `{ assetId, version }` or null. */
+    activeFor: (shotId, trackType) => {
+      // AMBIENCE and BGM are NOT per-shot chains: they are assets the SCENE and
+      // the EPISODE point at by id (proddoc). Looking them up as
+      // `ambience-<slot>` always missed, so drift on a scene's ambience or the
+      // episode's score was permanently 「未记录」 and could never be reported.
+      if (trackType === "ambience" || trackType === "bgm") {
+        const owner = proddoc.sceneOfShot(productionDoc, shotId);
+        if (!owner) return null;
+        const assetId = trackType === "ambience"
+          ? owner.scene.ambienceAssetId
+          : (proddoc.effectiveBgm(productionDoc, owner.episode.episodeId, owner.scene.sceneId) || {}).assetId;
+        if (!assetId) return null;
+        const hit = assetlib.findAssetById(assetRegistry, assetId);
+        return { assetId, version: hit && Number.isInteger(hit.record.version) ? hit.record.version : null };
+      }
+      const shot = ctx.shot.find(shotId);
+      const slot = shot ? ctx.shot._slotOf(shot) : null;
+      if (!slot) return null;
+      const map = trackType === "video" ? assetRegistry.videos : assetRegistry.audio;
+      const key = trackType === "video"
+        ? slot
+        : trackType === "dialogue" ? `voice-${slot}` : `${trackType}-${slot}`;
+      const r = mediaref.currentRef(map, key);
+      return r && r.assetId ? { assetId: r.assetId, version: Number.isInteger(r.version) ? r.version : null } : null;
+    },
+    /** Clips whose pinned version has drifted from the shot's active one. The
+     *  console renders these with 保持 / 替换 / 对比 — nothing is auto-replaced. */
+    drift: () => timeline.driftedClips(
+      timeline.timelineFor(timelinesDoc, productionDoc.activeEpisodeId),
+      (shotId, trackType) => ctx.timeline.activeFor(shotId, trackType),
+    ),
+    /**
+     * BUILD (or rebuild) the Episode Rough Cut (§41).
+     *
+     * `roughcut.applyRoughCut` preserves every locked and hand-placed clip, so
+     * re-running it after tuning is safe — that is what makes 「AI Draft → Human
+     * Tune → Lock → AI Continue」 a working loop rather than a slogan.
+     */
+    buildRoughCut: () => {
+      const t = timeline.timelineFor(timelinesDoc, productionDoc.activeEpisodeId);
+      const rows = ctx.timeline.roughRows();
+      if (!roughcut.canBuild(rows)) {
+        return { ok: false, error: "这一集还没有任何镜头视频——初剪需要真实素材，不会生成空时间线" };
+      }
+      const plan = roughcut.planRoughCut(rows);
+      const res = roughcut.applyRoughCut(t, plan, {
+        isLocked: (clipId) => ctx.locks.is("timelineClip", clipId),
+        at: new Date().toISOString(),
+      });
+      // An automatic pass is NOT a hand edit. `t.edited` means 「有人工调整」 —
+      // the console prints it and the Final Render freezes it — so setting it
+      // here made every render claim human tuning that never happened.
+      //
+      // The legacy auto-sync must still not overwrite this cut, and
+      // `roughCutVersion` already says a rough cut exists; `ctx.timeline.doc()`
+      // consults BOTH, so the protection is kept without the false claim.
+      t.sourceSig = timelineSourceSig(timeline.buildFromRows(ctx.timeline.gatherRows()));
+      ctx.persist();
+      refreshProductionView();
+      return { ok: true, ...res, summary: roughcut.summarize(res), version: t.roughCutVersion };
     },
     // Has the SOURCE (shots / current media / scene audio) changed since this
     // timeline was last built from it? Compares the current source's default
@@ -1438,9 +2094,13 @@ const ctx = {
     render: async () => {
       if (!CONNECTED) throw new Error("演示模式无后端，无法渲染（需连接模式 + 本地 ffmpeg）");
       const t = timeline.timelineFor(timelinesDoc, productionDoc.activeEpisodeId);
-      if (!t.clips.some((c) => c.trackType === "video")) throw new Error("时间线没有视频 clip");
+      // REMOVED clips are not in the cut (§46) — `liveClips` is the one definition
+      // of that, shared with the layout and the duration, so the render can never
+      // include a shot the console shows as taken out.
+      const live = timeline.liveClips(t);
+      if (!live.some((c) => c.trackType === "video")) throw new Error("时间线没有视频 clip");
       const clips = [];
-      for (const c of t.clips) {
+      for (const c of live) {
         // a muted / zero-volume AUDIO clip contributes nothing and the backend
         // skips it — drop it here too so an unavailable (deleted) asset on such
         // a clip never blocks a render it wouldn't participate in anyway
@@ -1466,18 +2126,63 @@ const ctx = {
       const res = await query.renderEpisode(PROJECT_NAME, clips, t.settings);
       // CP2: the Final belongs to the episode whose timeline was just rendered
       const rec = assetlib.addFinal(assetRegistry, res.url, productionDoc.activeEpisodeId);
+      // §57: THE FINAL MUST BE REPRODUCIBLE. Everything below is what a creator
+      // asking 「这条成片到底是什么做出来的」 needs, and each field is read from
+      // real state at render time rather than re-derived later (the timeline moves
+      // afterwards; the record must keep describing THIS render).
+      const subTrack = subtitle.trackFor(subtitlesDoc, productionDoc.activeEpisodeId);
+      // ONLY the Shot Mixes that ACTUALLY FED THIS RENDER — i.e. whose asset is
+      // on a clip in the cut. A shot can have a mix that is not in the timeline
+      // at all (the episode render mixes the individual tracks itself), and
+      // listing those as inputs claimed a lineage that did not happen: the mix
+      // was never sent to ffmpeg. A provenance record that overstates what went
+      // in is worse than one that says less, because it is believed.
+      const renderedAssetIds = new Set(live.map((c) => c.assetId));
+      const shotMixes = [];
+      for (const shotId of new Set(live.map((c) => c.shotId).filter(Boolean))) {
+        const mix = shotaudio.mixOf(shotAudioDoc, shotId);
+        if (!mix || !renderedAssetIds.has(mix.assetId)) continue;
+        shotMixes.push({ shotId, assetId: mix.assetId, at: mix.at, sources: mix.sources, settings: mix.settings });
+      }
       const gen = ctx.startGeneration({
         type: "render",
         targetType: null,
         targetId: null,
-        inputAssetIds: [...new Set(t.clips.map((c) => c.assetId))],
+        inputAssetIds: [...new Set(live.map((c) => c.assetId))],
         promptSnapshot: null,
         provider: "ffmpeg-local",
         parameters: {
           providerMode: "local",
           settings: { ...t.settings },
           episodeId: productionDoc.activeEpisodeId,
-          clips: t.clips.map((c) => ({ clipId: c.clipId, trackType: c.trackType, assetId: c.assetId, startTime: c.startTime, trimIn: c.trimIn, trimOut: c.trimOut, volume: c.volume, muted: c.muted, fadeIn: c.fadeIn, fadeOut: c.fadeOut })),
+          // WHICH timeline: the automatic-pass counter plus whether a human edited
+          // it afterwards. 「时间线版本」 with no edited flag would describe two
+          // different cuts identically.
+          timelineVersion: Number.isInteger(t.roughCutVersion) ? t.roughCutVersion : 0,
+          timelineEdited: t.edited === true,
+          roughCutAt: t.roughCutAt || null,
+          // per-clip: WHICH asset AND WHICH VERSION played, plus its transition
+          clips: live.map((c) => ({
+            clipId: c.clipId, trackType: c.trackType, shotId: c.shotId,
+            assetId: c.assetId, assetVersion: c.assetVersion,
+            startTime: c.startTime, trimIn: c.trimIn, trimOut: c.trimOut,
+            volume: c.volume, muted: c.muted, fadeIn: c.fadeIn, fadeOut: c.fadeOut,
+            ...(c.trackType === "video" ? { transition: c.transition, transitionMs: c.transitionMs } : {}),
+          })),
+          // the Shot Mixes that fed it, each with its own frozen source list
+          shotMixes,
+          // WHICH subtitle version, and the honest statement that it was not
+          // burned into the picture this round — a `subtitleVersion` with no such
+          // note would imply the MP4 carries it
+          subtitleVersion: Number.isInteger(subTrack.version) ? subTrack.version : 0,
+          subtitleCues: subTrack.cues.length,
+          subtitleBurnedIn: false,
+          // LOCKS in force at render time: 「这条成片里哪些是人定死的」
+          // EVERY lock in force, from the one counter the console also prints —
+          // `locksdoc.count` alone omits prompt / audio-clip / frame-binding /
+          // reading locks, and a provenance field that under-reports protections
+          // is a wrong number in a record meant to be reproducible.
+          locksInForce: ctx.locks.count(),
         },
         status: "generating",
       });
@@ -1511,10 +2216,27 @@ const ctx = {
     configurationHint: (executorId) => runtime.configurationHint(executorId),
     runs: () => skillRunRegistry,
     stats: (skillId) => skillrun.skillStats(skillRunRegistry, skillId),
+    /** An input key's human label. Here rather than in each panel so 「缺少必要输入」
+     *  reads the same wherever it is reported. */
+    inputLabel: (key) => skills.SKILL_INPUTS[key] || key,
 
-    /** The domain context for a skill, assembled from the CANONICAL documents.
-     *  Read-only: this builds the prompt's data, it never reaches back. */
-    context: (skillId, extra = {}) => {
+    /**
+     * The domain context for a skill, assembled from the CANONICAL documents.
+     * Read-only: this builds the prompt's data, it never reaches back.
+     *
+     * TASK-067 §15 / ADR-0064 决策 1: a skill that declares any SHOT-SCOPED input
+     * (`shotContext` / `assetCandidates` / `selectedShotImage` / `neighbourShots` /
+     * `promptUnderReview`) is served from `ctx.shotctx` — the minimal projection of
+     * ONE shot — rather than from the project-wide bag below. That is the whole of
+     * this round's context-cost strategy: those capabilities never see every draft
+     * shot, every reference, every asset and every generation just to answer a
+     * question about one shot.
+     *
+     * `scope.shotId` names WHICH shot. Absent, the shot-scoped keys are absent too,
+     * and `missingInputs` refuses the run — a shot-scoped capability run against no
+     * shot would answer about whatever happened to be selected.
+     */
+    context: (skillId, extra = {}, scope = null) => {
       const skill = skills.findSkill(skillId);
       if (!skill) return {};
       const prod = productionDoc;
@@ -1537,13 +2259,157 @@ const ctx = {
         shots: draft,
         references: assetreg.listReferences(assetRegistry).map((r) => ({
           key: r.key, kind: r.kind, name: assetreg.derivedLabel(r), version: r.version, links: r.links,
+          // ADR-0061 决策 4: Reference Interpreter needs to see what has ALREADY
+          // been read, or it re-reads references the creator settled on — and it
+          // needs to know a reading is LOCKED, because proposing one that will be
+          // refused wastes the run.
+          interpretation: (() => {
+            const reading = refinterp.activeReading(refInterpDoc, r.key);
+            return reading ? { axes: reading.axes, version: reading.version, locked: reading.locked } : null;
+          })(),
         })),
         assets: assetreg.listAssets(assetRegistry).map((a) => ({
           assetId: a.assetId, kind: a.kind, name: assetreg.derivedLabel(a),
           tags: a.tags, reusable: a.reusable, links: a.links,
         })),
         generations: generationRegistry,
+        // --- POST-PRODUCTION context (ADR-0061 决策 6 / §55) ----------------- //
+        // A post skill must address a CLIP or a CUE by id, so the context carries
+        // the ids — an editing note that cannot be addressed cannot be applied,
+        // and would come back as prose the creator has to re-do by hand.
+        timeline: (() => {
+          const t = timeline.timelineFor(timelinesDoc, productionDoc.activeEpisodeId);
+          const nameOf = (sid) => {
+            const s = ctx.shot.find(sid);
+            return s ? (s.title || `镜头 ${s.sequence}`) : null;
+          };
+          return {
+            episodeId: productionDoc.activeEpisodeId,
+            settings: t.settings,
+            durationSeconds: timeline.timelineDuration(t),
+            clips: timeline.liveClips(t).map((c) => ({
+              clipId: c.clipId,
+              trackType: c.trackType,
+              shotId: c.shotId,
+              shotTitle: c.shotId ? nameOf(c.shotId) : null,
+              assetId: c.assetId,
+              assetVersion: c.assetVersion,
+              startMs: Math.round(c.startTime * 1000),
+              inMs: Math.round(c.trimIn * 1000),
+              outMs: Math.round(c.trimOut * 1000),
+              volume: c.volume,
+              muted: c.muted,
+              ...(c.trackType === "video" ? { transition: c.transition, transitionMs: c.transitionMs } : {}),
+              locked: ctx.locks.is("timelineClip", c.clipId),
+              // the OTHER takes it could be replaced with, so 「换成 v3」 can name
+              // a real assetId rather than a version number nothing resolves
+              alternatives: c.shotId
+                ? (ctx.assets.chainOf(ctx.shot._slotOf(ctx.shot.find(c.shotId) || {}) || "") || { list: [] })
+                  .list.filter((v) => v.assetId && v.assetId !== c.assetId)
+                  .map((v) => ({ assetId: v.assetId, version: v.version }))
+                : [],
+            })),
+          };
+        })(),
+        shotAudio: (() => {
+          const out2 = [];
+          for (const shotId of Object.keys(shotAudioDoc)) {
+            const resolved = ctx.shotAudio.resolved(shotId);
+            if (!resolved.length) continue;
+            const s = ctx.shot.find(shotId);
+            out2.push({
+              shotId,
+              shotTitle: s ? (s.title || `镜头 ${s.sequence}`) : null,
+              anchors: ctx.shotAudio.anchors(shotId),
+              clips: resolved.map((c) => ({
+                clipId: c.clipId, trackType: c.trackType, assetId: c.assetId,
+                startMs: c.startMs, endMs: c.endMs, anchor: c.anchor, offsetMs: c.offsetMs,
+                gainDb: c.gain, fadeInMs: c.fadeInMs, fadeOutMs: c.fadeOutMs,
+                muted: c.muted, unresolved: c.unresolved, locked: c.locked,
+              })),
+            });
+          }
+          return out2;
+        })(),
+        subtitles: (() => {
+          const t = subtitle.trackFor(subtitlesDoc, productionDoc.activeEpisodeId);
+          return {
+            episodeId: productionDoc.activeEpisodeId,
+            version: t.version,
+            style: t.style,
+            generatedFrom: t.generatedFrom,
+            overlaps: subtitle.overlaps(t),
+            cues: t.cues.map((c) => ({
+              cueId: c.cueId, startMs: c.startMs, endMs: c.endMs, text: c.text,
+              speaker: c.speaker, shotId: c.shotId, origin: c.origin,
+              locked: ctx.locks.is("subtitle", c.cueId),
+            })),
+          };
+        })(),
       };
+
+      // --- the SHOT-SCOPED half (TASK-067 §3, ADR-0064 决策 1) ------------- //
+      //
+      // Built ONLY when this skill declares a shot-scoped input, and only when the
+      // caller named a shot. `build` is called at most once even though four keys
+      // read from it, because it resolves the whole shot detail model.
+      const shotId = scope && typeof scope === "object" && typeof scope.shotId === "string"
+        ? scope.shotId
+        : null;
+      if (skills.isShotScoped(skill) && shotId) {
+        const built = ctx.shotctx.build(shotId);
+        const c = built.context;
+        if (c) {
+          available.shotContext = c;
+          available.neighbourShots = (c.neighbours.previous || c.neighbours.next) ? c.neighbours : null;
+          // `describedAs` is present whenever an image is: the required-input gate
+          // judges by CONTENT, and `{assetId, version}` is all identity — an object
+          // of nothing but ids would read as empty and make Video Prompt Director
+          // refuse a shot that really does have a selected main frame.
+          // WHAT THE FIRST FRAME LOOKS LIKE, in the only form this runtime can carry.
+          //
+          // The runtime sends TEXT and receives TEXT (ADR-0056 决策 2) — the picture
+          // itself goes to the external image/video tool, not to the model writing the
+          // prompt. But 「以所附图片为第 1 帧，保持完全一致」 is an assertion about an
+          // image the writer has never seen (codex review round 3), and there IS a
+          // textual answer on file: the prompt that produced that exact take.
+          //
+          // Honestly null for an imported frame with no generation record — we do not
+          // describe a picture nobody wrote a prompt for.
+          available.selectedShotImage = c.media.selectedShotImage
+            ? (() => {
+                const sel = c.media.selectedShotImage;
+                const gen = sel.assetId
+                  ? (generationRegistry || []).find(
+                    (g) => g && Array.isArray(g.resultAssetIds) && g.resultAssetIds.includes(sel.assetId),
+                  )
+                  : null;
+                const fromPrompt = gen && typeof gen.promptSnapshot === "string" && gen.promptSnapshot.trim()
+                  ? gen.promptSnapshot
+                  : null;
+                return {
+                  ...sel,
+                  describedAs: `主帧图 v${sel.version}${sel.origin ? `（${sel.origin}）` : ""}`,
+                  // the frozen prompt this take was generated from — what the picture
+                  // was MADE to look like
+                  fromPrompt,
+                  ...(fromPrompt ? {} : { appearanceNote: "这一版主帧图没有生成记录（外部导入），无从描述它的实际画面——只能依据镜头设计与参考保持一致" }),
+                };
+              })()
+            : null;
+          const cand = ctx.shotctx.candidates(shotId);
+          available.assetCandidates = cand;
+          // WHICH prompt is under review is the caller's statement (`extra`), not a
+          // guess: reviewing 「whichever one is non-empty」 would silently review the
+          // image prompt when the creator asked about the video one.
+          const reviewKind = extra && extra.reviewKind === "video" ? "video" : "image";
+          const under = c.prompts[reviewKind];
+          available.promptUnderReview = under && under.text
+            ? { kind: reviewKind, version: under.version, text: under.text }
+            : null;
+        }
+      }
+
       const out = {};
       for (const k of [...skill.inputs, ...skill.optionalInputs]) {
         if (k in extra) { out[k] = extra[k]; continue; }
@@ -1569,14 +2435,34 @@ const ctx = {
       const skill = skills.findSkill(skillId);
       if (!skill) return null;
       const keys = new Set([...skill.inputs, ...skill.optionalInputs]);
-      const readsEpisode = ["episodePlan", "episodeScript", "scenes", "shots"].some((k) => keys.has(k));
+      // TASK-064: the post-production inputs are EPISODE-level by construction —
+      // a timeline, a subtitle track and a shot-audio arrangement all belong to
+      // one episode — so a run that reads any of them really did read an episode.
+      // Leaving them out made an Editing Director run record no episode at all,
+      // which is a run the provenance graph cannot place.
+      //
+      // TASK-067: a SHOT-SCOPED input is episode-level for the same reason —
+      // `shotContext` projects the active episode's scene and shot, so a run that
+      // read one really did read that episode. Omitting it here would leave every
+      // Image Prompt Director run unplaceable on the provenance graph.
+      const readsEpisode = ["episodePlan", "episodeScript", "scenes", "shots", "timeline", "subtitles", "shotAudio"]
+        .some((k) => keys.has(k)) || skills.isShotScoped(skill);
       // The EPISODE is not the caller's to choose. `ctx.skills.context` builds
       // its inputs from the ACTIVE episode and nothing else, so honouring a
       // caller-supplied episodeId would record a context the prompt never read
       // — a lie that looks exactly like provenance.
-      const ep = readsEpisode ? proddoc.activeEpisode(productionDoc) : null;
-      const episodeId = ep ? ep.episodeId : null;
       const s = scope != null && typeof scope === "object" && !Array.isArray(scope) ? scope : {};
+      // For a SHOT-SCOPED run the episode is the one that OWNS the shot — the same
+      // derivation `ctx.shotctx.build` uses. Reading the active pointer here while
+      // the context builder read the shot's own episode is exactly the disagreement
+      // between record and prompt ADR-0059 exists to prevent (codex review).
+      const shotOwner = skills.isShotScoped(skill) && typeof s.shotId === "string" && s.shotId
+        ? proddoc.sceneOfShot(productionDoc, s.shotId)
+        : null;
+      const ep = shotOwner
+        ? shotOwner.episode
+        : readsEpisode ? proddoc.activeEpisode(productionDoc) : null;
+      const episodeId = ep ? ep.episodeId : null;
       // A caller may NARROW within that episode. A scene or shot belonging to a
       // different one is dropped rather than recorded: the same inconsistency,
       // one level down.
@@ -1598,34 +2484,52 @@ const ctx = {
       // skill given only the outline never saw a shot, so recording one would
       // assert shot-level lineage the prompt cannot support — the same rule as
       // the episode above, one step down.
-      const readsScene = keys.has("scenes");
-      const readsShot = keys.has("shots");
+      const readsScene = keys.has("scenes") || skills.isShotScoped(skill);
+      // `shotAudio` is per-shot data, so a run given it genuinely can be narrowed
+      // to one shot — which is what makes a Sound Designer proposal for SH03
+      // recorded as being about SH03 rather than about the whole episode. A
+      // shot-scoped input is per-shot by definition (TASK-067).
+      const readsShot = keys.has("shots") || keys.has("shotAudio") || skills.isShotScoped(skill);
       const wantScene = readsScene && typeof s.sceneId === "string" && s.sceneId ? s.sceneId : null;
       const wantShot = readsShot && typeof s.shotId === "string" && s.shotId ? s.shotId : null;
       const narrow = owns(wantScene, wantShot);
+      // A SHOT-SCOPED run really did read the shot's own scene — `shotContext`
+      // projects it — so the scene is DERIVED from the shot rather than left null.
+      // Derived, not guessed: it is the scene that actually owns this shot, and a
+      // shot the episode does not own has already been dropped by `owns`.
+      const derivedScene = narrow && !wantScene && wantShot && skills.isShotScoped(skill) && ep
+        ? ((ep.scenes || []).find((sc) => (sc.shotIds || []).includes(wantShot)) || {}).sceneId || null
+        : null;
       const out = {
         episodeId,
-        sceneId: narrow ? wantScene : null,
+        sceneId: narrow ? (wantScene || derivedScene) : null,
         shotId: narrow ? wantShot : null,
       };
       return out.episodeId || out.sceneId || out.shotId ? out : null;
     },
 
     /** The full task prompt — IDENTICAL for every runtime. Copying this into a
-     *  web chat and running it locally ask exactly the same question. */
-    prompt: (skillId, extra = {}) => {
+     *  web chat and running it locally ask exactly the same question.
+     *
+     *  `scope` must be the SAME one the run will use: a preview compiled without
+     *  the shot would show the creator a different question from the one asked. */
+    prompt: (skillId, extra = {}, scope = null) => {
       const skill = skills.findSkill(skillId);
       if (!skill) return "";
-      return skills.compilePrompt(skill, ctx.skills.context(skillId, extra));
+      return skills.compilePrompt(skill, ctx.skills.context(skillId, extra, scope));
     },
 
     /** Which required inputs are missing. A skill with missing inputs REFUSES
      *  to run — an AI asked to storyboard with no scene produces something
-     *  plausible and unrelated, which is worse than an honest refusal. */
-    missing: (skillId, extra = {}) => {
+     *  plausible and unrelated, which is worse than an honest refusal.
+     *
+     *  For a shot-scoped capability this is also the gate §8 relies on: with no
+     *  selected main frame, `selectedShotImage` is absent and Video Prompt Director
+     *  reports it as missing rather than writing an ungrounded prompt. */
+    missing: (skillId, extra = {}, scope = null) => {
       const skill = skills.findSkill(skillId);
       if (!skill) return [];
-      return skills.missingInputs(skill, ctx.skills.context(skillId, extra));
+      return skills.missingInputs(skill, ctx.skills.context(skillId, extra, scope));
     },
 
     /**
@@ -1636,7 +2540,17 @@ const ctx = {
     run: async (skillId, { executor = "manual", extra = {}, summary = null, scope = null } = {}) => {
       const skill = skills.findSkill(skillId);
       if (!skill) return { ok: false, error: `未知能力 ${skillId}` };
-      const context = ctx.skills.context(skillId, extra);
+      // A shot-scoped capability with no shot has nothing to read. Refused HERE with
+      // the reason, rather than letting it run on an empty projection and answer
+      // about a shot nobody named (TASK-067 §3).
+      const shotScoped = skills.isShotScoped(skill);
+      const scopeShotId = scope && typeof scope === "object" && typeof scope.shotId === "string"
+        ? scope.shotId
+        : null;
+      if (shotScoped && !scopeShotId) {
+        return { ok: false, error: "这个能力只针对一个镜头运行——先选一个镜头" };
+      }
+      const context = ctx.skills.context(skillId, extra, scope);
       const missing = skills.missingInputs(skill, context);
       if (missing.length) {
         return {
@@ -1651,22 +2565,57 @@ const ctx = {
         runtime: exec ? exec.runtime : "manual",
         executor,
         inputKeys: Object.keys(context),
-        inputSummary: summary,
+        inputSummary: summary || (shotScoped && context.shotContext
+          ? shotctx.summarize(context.shotContext)
+          : null),
         // WHICH canon this run read, as ids (ADR-0059). Taken from the same
         // place `ctx.skills.context` read it from, so the record and the prompt
         // can never describe different episodes. A caller may narrow it (a
         // shot-scoped skill passes its shotId); anything it does not name stays
         // null, because a null level is a fact about the run's scope.
         context: ctx.skills.scopeOf(skillId, scope),
+        // TASK-067 §3 / ADR-0064 决策 2: WHAT this run read, not just which level.
+        // Taken from the very context object compiled into the prompt below, so the
+        // record cannot describe a projection the prompt did not carry. Null for a
+        // project-wide capability — it read no single shot, and inventing a trace
+        // would claim a precision the run does not have.
+        //
+        // WHICH PROMPT A REVIEW READ is part of that trace, and it is the only place
+        // it can live: the reviewer's answer does not restate it, and reading the
+        // creator's currently-open tab at apply time would let an image review be
+        // written into the video prompt.
+        contextTrace: shotScoped && context.shotContext
+          ? {
+              ...shotctx.traceOf(context.shotContext, {
+                // WHICH candidates this run was allowed to pick from (决策 4). Recorded
+                // at launch, because that is when the permission was fixed — and the
+                // applier checks against it rather than against a fresh retrieval.
+                candidateKeys: context.assetCandidates && Array.isArray(context.assetCandidates.candidates)
+                  ? context.assetCandidates.candidates.map((c) => c.referenceKey)
+                  : null,
+              }),
+              ...(context.promptUnderReview
+                ? {
+                    reviewedPromptKind: context.promptUnderReview.kind,
+                    reviewedPromptVersion: context.promptUnderReview.version,
+                  }
+                : {}),
+            }
+          : null,
         createdAt: new Date().toISOString(),
       });
       if (!rec) return { ok: false, error: "无法建立运行记录" };
-      ctx.persist();
       const prompt = skills.compilePrompt(skill, context);
       if (executor === "manual") {
+        // FREEZE the question. The creator copies it later — possibly after editing
+        // the shot — and recompiling then would hand them a prompt that no longer
+        // matches the context this run recorded (codex review round 4).
+        rec.promptText = prompt;
+        ctx.persist();
         // the run stays OPEN until the creator brings an answer back
         return { ok: true, run: rec, prompt, manual: true };
       }
+      ctx.persist();
       const res = await runtime.runOnExecutor({ executor, prompt });
       if (!res.ok) {
         skillrun.failRun(skillRunRegistry, rec.skillRunId, res.kind, res.detail);
@@ -1764,9 +2713,17 @@ const ctx = {
       // a shot-scoped proposal to a different shot than the one the run read
       // would attribute the answer to a context it never saw (ADR-0059).
       const recorded = run.context || {};
+      const trace = run.contextTrace || {};
       const merged = {
         shotId: recorded.shotId || scope.shotId || null,
         genKind: scope.genKind === "video" ? "video" : "image",
+        // TASK-067: which prompt a REVIEW was about comes from what the run really
+        // read, never from what is on screen now (see `contextTrace` in `run`).
+        reviewKind: trace.reviewedPromptKind === "video" ? "video" : "image",
+        // …and WHICH references this run was allowed to recommend (ADR-0064 决策 4).
+        // From the run's own record, so the permission is the one that was in force
+        // when the answer was produced — not whatever a fresh retrieval returns now.
+        candidateKeys: Array.isArray(trace.candidateKeys) ? trace.candidateKeys : null,
       };
       const plan = skillapply.planApply(run.skillId, run.proposal, merged);
       if (!plan.ok) return plan;
@@ -1901,6 +2858,33 @@ const ctx = {
       refreshProductionView();
       return r;
     },
+
+    /**
+     * ABANDON a run that is still `running` (TASK-067).
+     *
+     * WHY THIS HAS TO EXIST: a manual run stays open until an answer comes back, and
+     * an answer does not always come back — the creator changes their mind, or the
+     * page is closed mid-run. Nothing could then move that run out of `running`, so it
+     * sat in the panel's open-run slot forever and every later answer was matched
+     * against it instead of against the operation just pressed. Found on the real
+     * project, which had accumulated several.
+     *
+     * Recorded as a REAL terminal state (`execution_error` with the creator's reason),
+     * not deleted: the run happened, it was asked, and it produced nothing. Deleting it
+     * would leave only the flattering half of the history — the same rule that keeps
+     * rejected proposals (ADR-0056 决策 6).
+     */
+    abandon: (skillRunId, reason = "创作者放弃了这次运行") => {
+      const r = skillrun.findRun(skillRunRegistry, skillRunId);
+      if (!r) return { ok: false, error: "运行记录不存在" };
+      if (r.status !== "running") {
+        return { ok: false, error: `这次运行已经是「${r.status}」，不需要放弃` };
+      }
+      skillrun.failRun(skillRunRegistry, skillRunId, "execution_error", reason);
+      ctx.persist();
+      refreshProductionView();
+      return { ok: true };
+    },
   },
   // ---------------------------------------------------------------------- //
   // Per-shot Prompt versions (ADR-0061 决策 5).
@@ -1936,6 +2920,803 @@ const ctx = {
   },
 
   // ---------------------------------------------------------------------- //
+  // Reference INTERPRETATION (ADR-0061 决策 4 / TASK-064 Phase 2 §21–§22).
+  //
+  // 「AI 解读输入」 stops being a label the moment a reading exists: the Prompt
+  // compiler reads these and writes them into the effective prompt. Nothing here
+  // infers a reading from a file — a reading has a human or a named Skill Run
+  // behind it, always.
+  // ---------------------------------------------------------------------- //
+  refInterp: {
+    reading: (refKey) => refinterp.activeReading(refInterpDoc, refKey),
+    entry: (refKey) => refinterp.entryOf(refInterpDoc, refKey),
+    /** Record a reading. Returns the version, or 0 when refused (a LOCKED
+     *  reading refuses everything that is not a manual edit). */
+    save: (refKey, axes, opts = {}) => {
+      const v = refinterp.addReading(refInterpDoc, refKey, {
+        axes,
+        origin: opts.origin || "manual",
+        at: new Date().toISOString(),
+        skillRunId: opts.skillRunId || null,
+        proposalId: opts.proposalId || null,
+      });
+      if (v) { ctx.persist(); refreshProductionView(); }
+      return v;
+    },
+    setActive: (refKey, version) => prodOp(refinterp.setActive(refInterpDoc, refKey, version)),
+    setLocked: (refKey, on) => prodOp(refinterp.setLocked(refInterpDoc, refKey, on)),
+    /** The interpretation inputs for a shot — its bound INTERPRETATION-kind
+     *  references, each with its active reading (or `read: false`). ONE
+     *  derivation, shared by the prompt compiler, the Generation Input Set and
+     *  the Inspector, so those three cannot disagree about what has been read. */
+    forShot: (shotId) => refinterp.interpretationInputs(
+      refInterpDoc,
+      ctx.episode.referencesOfShot(shotId),
+      assetreg.INTERPRETATION_KINDS,
+    ),
+  },
+
+  // ---------------------------------------------------------------------- //
+  // 参考用途 (TASK-066 §4 / §5) — 「这个参考服务主要画面，还是视频编排，还是两者」.
+  //
+  // The card's `⋮` menu writes here, and `referenceInputs` (ui/storyboard.js) reads
+  // it when it splits the bound list for the two compilers — so a choice made in the
+  // menu really changes what the Prompt says. Without that read it would be a
+  // control that does nothing, which is the empty promise this codebase keeps
+  // catching itself at.
+  //
+  // A choice equal to the role's own default is stored as NOTHING (see refuse.setUse):
+  // 「按类型推导」 and 「恰好选了同一边」 must stay distinguishable.
+  // ---------------------------------------------------------------------- //
+  refUse: {
+    USES: refuse.USES,
+    USE_LABEL: refuse.USE_LABEL,
+    USE_CHIP: refuse.USE_CHIP,
+    /** Which sides this role may serve — from what the COMPILERS read, so the menu
+     *  can never offer a switch the prompt compiler ignores (§5 「语义允许时」). */
+    allowed: (role) => refuse.allowedUses(role),
+    /** `{ use, source }` — `source` is "creator" or "role", so the card can say
+     *  whether the creator set it or it was derived. */
+    effective: (shotId, refKey, role) => refuse.effectiveUse(refUseDoc, shotId, refKey, role),
+    /** The two groups the LEFT column renders. A `both` reference is in BOTH. */
+    groups: (shotId) => refuse.groupsForShot(refUseDoc, shotId, ctx.episode.referencesOfShot(shotId)),
+    set: (shotId, refKey, use, role) => prodOp(refuse.setUse(refUseDoc, shotId, refKey, use, role)),
+    clear: (shotId, refKey) => prodOp(refuse.clearUse(refUseDoc, shotId, refKey)),
+  },
+
+  // ---------------------------------------------------------------------- //
+  // Shot CONTEXT (TASK-067 §3 / §15 / ADR-0064 决策 1–4) — the minimal, traceable
+  // context a shot-scoped capability reads, plus the deterministic candidate set a
+  // recommender is allowed to pick from.
+  //
+  // THE POINT OF THIS CONTROLLER: it is the ONLY place a shot-scoped Skill's
+  // context comes from. `ctx.skills.context` routes those capabilities here rather
+  // than handing them the whole project, which is the entirety of this round's
+  // token-cost strategy — there is no second knob.
+  //
+  // READ-ONLY except for the conclusion cache, which stores derivations ABOUT
+  // canon and never canon itself.
+  // ---------------------------------------------------------------------- //
+  shotctx: {
+    SCOPES: ctxcache.SCOPES,
+    READINESS_ROLES: shotctx.READINESS_ROLES,
+
+    /**
+     * `{ context, trace }` for one shot, or `{ context: null, trace: null }`.
+     *
+     * Every input is resolved from the SAME views the prompt compilers read
+     * (`shotDetailModel`, the bible resolvers, the registry), so this projection
+     * and the effective prompt can never disagree about what the shot contains.
+     */
+    build: (shotId) => {
+      if (!shotId) return { context: null, trace: null };
+      const pd = ctx.prodData();
+      const detail = shotDetailModel(pd, shotId);
+      if (!detail) return { context: null, trace: null };
+      const prod = productionDoc;
+      const owner = prod ? proddoc.sceneOfShot(prod, shotId) : null;
+      // THE EPISODE COMES FROM THE SHOT, not from the active pointer.
+      //
+      // Taking it from `activeEpisode` paired this shot's scene with whatever
+      // episode happened to be selected — so a shot belonging to EP03 was described
+      // to the capability as EP01, with EP01's code, title and plan note, while the
+      // scene and the neighbours came from EP03. The prompt would then be about a
+      // canon that does not exist, and the recorded provenance would name the wrong
+      // episode (codex review, TASK-069 round 2).
+      //
+      // `sceneOfShot` already resolves the owning episode, so this is derived, never
+      // guessed. A shot no episode owns has NO episode — stated as null rather than
+      // borrowed from the pointer.
+      const ep = owner ? owner.episode : null;
+      const epIndex = ep && prod ? prod.episodes.findIndex((e) => e.episodeId === ep.episodeId) : -1;
+      // the outline's genre/tone and the world's visual tone — the visual
+      // DIRECTION only. The full bible is not a shot's context.
+      const plan = storydoc.confirmedPlan(storyDoc);
+      const outline = storydoc.approvedOutline(storyDoc) || storydoc.activeOutline(storyDoc) || null;
+      const planEntry = plan && ep ? plan.episodes.find((e) => e.episodeId === ep.episodeId) || null : null;
+      const world = (prod && prod.world) || {};
+      const compiled = ctx.episode.genModel(shotId, "image");
+      const compiledVideo = ctx.episode.genModel(shotId, "video");
+      const promptOf = (kind, compiledText) => {
+        const eff = ctx.prompt.effective(shotId, kind, compiledText);
+        const entry = ctx.prompt.entry(shotId, kind);
+        return {
+          // `version` is null when the effective prompt is the COMPILED one: it has
+          // no version because it is a derivation, and `effectivePrompt` reports v0
+          // for exactly that case. Passing 0 through would imply a saved version.
+          version: eff && eff.version > 0 ? eff.version : null,
+          text: eff ? eff.text : null,
+          locked: !!(entry && entry.locked),
+        };
+      };
+      // NEIGHBOURS, scoped to the shot's own scene — the same rule
+      // `ctx.frames.nextShotOf` follows: a cut across a scene boundary is a jump
+      // somewhere else, and treating it as continuity would assert the opposite of
+      // what the structure says.
+      const ids = owner ? owner.scene.shotIds || [] : [];
+      const i = ids.indexOf(shotId);
+      const prevId = i > 0 ? ids[i - 1] : null;
+      const nextId = i >= 0 && i + 1 < ids.length ? ids[i + 1] : null;
+      const prev = prevId ? shotDetailModel(pd, prevId) : null;
+      const next = nextId ? shotDetailModel(pd, nextId) : null;
+      // WHAT THE PREVIOUS SHOT CAN HAND OVER: its bound end frame if it has one,
+      // else nothing. Its own selected image is NOT an end frame — offering that as
+      // 「上一镜的尾帧」 would name a picture that is not the last frame of anything.
+      const prevEnd = prev && prev.frames && prev.frames.end && prev.frames.end.binding
+        ? prev.frames.end.assetId
+        : null;
+      return shotctx.buildShotContext({
+        detail,
+        place: {
+          episodeId: ep ? ep.episodeId : null,
+          episodeCode: epIndex >= 0 ? `EP${String(epIndex + 1).padStart(2, "0")}` : null,
+          episodeTitle: ep ? ep.title : null,
+          sceneId: owner ? owner.scene.sceneId : null,
+          sceneTitle: owner ? owner.scene.title : null,
+        },
+        canon: {
+          genreTone: outline && outline.outline ? outline.outline.genreTone : null,
+          worldVisualTone: world.visualTone || null,
+          worldRules: world.rules || null,
+          // the episode's own PURPOSE in one line — hook / 作用 / 结尾拍. Not the
+          // whole plan entry: a shot does not need the episode's duration budget.
+          episodePlanNote: planEntry
+            ? [planEntry.hook, planEntry.purpose, planEntry.endingBeat]
+              .map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean).join(" / ") || null
+            : null,
+        },
+        refUseOf: (refKey) => {
+          const rec = assetreg.listReferences(assetRegistry).find((r) => r.key === refKey);
+          const eff = ctx.refUse.effective(shotId, refKey, rec ? rec.kind : null);
+          return eff ? eff.use : null;
+        },
+        prompts: {
+          image: promptOf("image", compiled.prompt),
+          video: promptOf("video", compiledVideo.prompt),
+        },
+        neighbours: { prev, next },
+        neighbourFrames: { prevEndFrameAssetId: prevEnd },
+      });
+    },
+
+    /** 已有 / 缺少 for one shot (§6) — derived, never hard-coded demo copy. */
+    readiness: (shotId) => {
+      const { context } = ctx.shotctx.build(shotId);
+      return context ? shotctx.shotReadiness(context) : null;
+    },
+
+    /**
+     * The DETERMINISTIC candidate set a recommender may pick from (决策 4).
+     *
+     * Retrieved from the registry here, with real `referenceKey` + `assetId` and the
+     * evidence for each. A model is never shown the library and never invents an id.
+     */
+    candidates: (shotId, opts = {}) => {
+      const { context } = ctx.shotctx.build(shotId);
+      if (!context) return { candidates: [], byRole: {}, bound: [], truncated: 0 };
+      const refs = assetreg.listReferences(assetRegistry).map((r) => ({
+        key: r.key,
+        kind: r.kind,
+        name: assetreg.derivedLabel(r),
+        version: r.version,
+        assetId: r.assetId,
+        links: r.links,
+        reusable: r.reusable === true,
+      }));
+      return shotctx.candidatesFor(context, refs, opts);
+    },
+
+    /**
+     * The cache baseline for one conclusion about one shot.
+     *
+     * `assetRecommendation` MUST be fingerprinted with the candidate set, exactly as
+     * the run recorded it (决策 4): registering or removing a character reference
+     * changes what could have been recommended, so a conclusion drawn from the old
+     * set is stale even though the shot itself never moved.
+     *
+     * Computing the LIVE side without it — while `remember` stamps the baseline from
+     * a run trace that HAS it — makes the two digests differ by construction, so every
+     * cached recommendation is reported stale the instant it is written and the cache
+     * never returns anything (codex review round 6). The retrieval is deterministic
+     * (`candidatesFor` is pure), so re-deriving it here yields the same set the run saw
+     * whenever the references have not changed — which is precisely the question being
+     * asked.
+     */
+    revision: (shotId, scope) => {
+      const { context, trace } = ctx.shotctx.build(shotId);
+      if (!trace) return null;
+      if (scope !== "assetRecommendation") return shotctx.contextRevision(trace, scope);
+      const cand = ctx.shotctx.candidates(shotId);
+      return shotctx.contextRevision(
+        shotctx.traceOf(context, {
+          candidateKeys: cand && Array.isArray(cand.candidates)
+            ? cand.candidates.map((c) => c.referenceKey)
+            : null,
+        }),
+        scope,
+      );
+    },
+
+    /** A cached conclusion + whether it still applies. `stale: true` is returned,
+     *  never hidden and never auto-refreshed — a re-run spends tokens. */
+    cached: (scope, shotId, variant = null) => ctxcache.get(ctxCacheDoc, {
+      scope,
+      shotId,
+      variant,
+      currentRevision: ctx.shotctx.revision(shotId, scope),
+    }),
+
+    /**
+     * Record a conclusion against the revision of the context it was ACTUALLY drawn
+     * from.
+     *
+     * When a `skillRunId` is given, the baseline comes from THAT RUN's recorded
+     * `contextTrace` — not from the live context. A manual run's answer can come back
+     * minutes later, after the creator has edited the shot; stamping it with the
+     * current revision would mark a conclusion drawn from the old inputs as fresh
+     * forever, which is precisely the fabricated freshness ADR-0064 决策 3 exists to
+     * prevent. Falls back to the live context only when there is no run to read
+     * (a conclusion nobody can attribute has no better baseline available).
+     */
+    remember: (scope, shotId, value, { skillRunId = null, proposalId = null, variant = null } = {}) => {
+      const run = skillRunId ? skillrun.findRun(skillRunRegistry, skillRunId) : null;
+      const rev = run && run.contextTrace
+        ? shotctx.contextRevision(run.contextTrace, scope)
+        : ctx.shotctx.revision(shotId, scope);
+      if (!rev) return null;
+      const e = ctxcache.put(ctxCacheDoc, {
+        scope, shotId, variant, baselineRevision: rev, value,
+        at: new Date().toISOString(), skillRunId, proposalId,
+      });
+      if (e) ctx.persist();
+      return e;
+    },
+
+    forget: (scope, shotId, variant = null) => {
+      const ok = ctxcache.forget(ctxCacheDoc, { scope, shotId, variant });
+      if (ok) ctx.persist();
+      return ok;
+    },
+  },
+
+  // ---------------------------------------------------------------------- //
+  // LOCK (ADR-0061 决策 5 / §50) — 「这个我定了」.
+  //
+  // One predicate (`is`) that every automated writer consults. The three locks
+  // that live on their own documents (prompt / audio clip / frame binding) are
+  // routed here too, so a caller has ONE lock API and cannot reach half of them.
+  // ---------------------------------------------------------------------- //
+  locks: {
+    SCOPES: locksdoc.SCOPES,
+    is: (scope, id) => {
+      if (scope === "prompt") {
+        // a prompt lock is keyed by shot+kind and stored on promptdoc
+        const [shotId, kind] = String(id || "").split("|");
+        const e = promptdoc.entryOf(promptsDoc, shotId, kind === "video" ? "video" : "image");
+        return !!(e && e.locked === true);
+      }
+      if (scope === "audioClip") {
+        const hit = findShotAudioClip(id);
+        return !!(hit && hit.clip.locked === true);
+      }
+      if (scope === "frameBinding") {
+        const [shotId, type] = String(id || "").split("|");
+        const b = framebind.bindingOf(frameBindingsDoc, shotId, type);
+        return !!(b && b.locked === true);
+      }
+      return locksdoc.isLocked(locksDoc, scope, id);
+    },
+    /** Lock / unlock. Routed to whichever document owns that scope's flag, so a
+     *  UI toggle never has to know which of the four stores it is talking to. */
+    set: (scope, id, on) => {
+      let ok = false;
+      if (scope === "prompt") {
+        const [shotId, kind] = String(id || "").split("|");
+        ok = promptdoc.setLocked(promptsDoc, shotId, kind === "video" ? "video" : "image", on === true);
+      } else if (scope === "audioClip") {
+        const hit = findShotAudioClip(id);
+        ok = !!hit && shotaudio.setLocked(shotAudioDoc, hit.shotId, id, on === true);
+      } else if (scope === "frameBinding") {
+        const [shotId, type] = String(id || "").split("|");
+        ok = framebind.setLocked(frameBindingsDoc, shotId, type, on === true);
+      } else {
+        ok = locksdoc.set(locksDoc, scope, id, on === true, { at: new Date().toISOString() });
+      }
+      return prodOp(ok);
+    },
+    /** EVERY lock in force, across all four stores.
+     *
+     *  Counting only `locksDoc` under-reported: a locked Prompt, a locked audio
+     *  clip and a locked frame binding are locks the creator set and automation
+     *  obeys, and the console's 「锁定 N 项」 and the Final Render's
+     *  `locksInForce` both print this number. A count that silently omits three
+     *  of the eight scopes is a wrong number in a provenance record. */
+    count: () => {
+      let n = locksdoc.count(locksDoc);
+      for (const shotId of Object.keys(promptsDoc)) {
+        for (const kind of promptdoc.PROMPT_KINDS) {
+          const e = promptdoc.entryOf(promptsDoc, shotId, kind);
+          if (e && e.locked === true) n += 1;
+        }
+      }
+      for (const shotId of Object.keys(shotAudioDoc)) {
+        for (const c of shotaudio.clipsOf(shotAudioDoc, shotId)) if (c.locked) n += 1;
+      }
+      for (const shotId of Object.keys(frameBindingsDoc)) {
+        for (const t of framebind.BINDING_TYPES) {
+          const b = framebind.bindingOf(frameBindingsDoc, shotId, t);
+          if (b && b.locked === true) n += 1;
+        }
+      }
+      // …and the reference READINGS, which carry their own lock too
+      for (const key of Object.keys(refInterpDoc)) {
+        const e = refinterp.entryOf(refInterpDoc, key);
+        if (e && e.locked === true) n += 1;
+      }
+      return n;
+    },
+    list: (scope) => locksdoc.listScope(locksDoc, scope),
+  },
+
+  // ---------------------------------------------------------------------- //
+  // FRAMES (TASK-064 Phase 2 §7) — 上一镜尾帧 → 下一镜首帧.
+  //
+  //   SH01 Video v3 ──[提取 t]──▶ 派生 Image Asset ──▶ SH02 Start Frame
+  //
+  // NOT A SECOND FRAME SYSTEM. The EFFECTIVE start frame is still
+  // `assets.firstFrames[slot]` — the pointer the paid route, the draft lock and
+  // the provenance graph already read. `bind` writes that pointer AND the
+  // provenance record in the same call, so they cannot drift apart.
+  // ---------------------------------------------------------------------- //
+  frames: {
+    bindings: (shotId) => framebind.bindingsOf(frameBindingsDoc, shotId),
+    binding: (shotId, type) => framebind.bindingOf(frameBindingsDoc, shotId, type),
+    /** The ACTIVE video version of a shot, or null. Passed to
+     *  `framebind.frameNotice` so drift is measured against real state. */
+    activeVideoVersion: (shotId) => {
+      const shot = ctx.shot.find(shotId);
+      const slot = shot ? ctx.shot._slotOf(shot) : null;
+      const ref = slot ? mediaref.currentRef(assetRegistry.videos, slot) : null;
+      return ref && Number.isInteger(ref.version) ? ref.version : null;
+    },
+    /** 「上游视频已有新版本」 — the notice and its three choices, or null. */
+    notice: (shotId, type) => framebind.frameNotice(
+      framebind.bindingOf(frameBindingsDoc, shotId, type),
+      (sid) => ctx.frames.activeVideoVersion(sid),
+    ),
+    /**
+     * EXTRACT one frame out of a shot's current video take and register it as a
+     * derived Image Asset. Returns `{ assetId, url, version, key, source }`.
+     *
+     * `pick` is the creator's INTENT and is stored: "last" re-seeks to the end of
+     * whatever video it is re-extracted from, "at" re-seeks to the same
+     * millisecond. `timecodeMs` null with `pick: "last"` means 「最后一帧」.
+     *
+     * The bytes are read from the video element the browser already has; nothing
+     * server-side is needed beyond the ordinary upload endpoint, so this works on
+     * exactly the machines the rest of the studio works on.
+     */
+    extract: async (sourceShotId, { timecodeMs = null, pick = "last" } = {}) => {
+      if (!CONNECTED) throw new Error("演示模式无后端，无法登记提取出来的帧");
+      const shot = ctx.shot.find(sourceShotId);
+      const slot = shot ? ctx.shot._slotOf(shot) : null;
+      const ref = slot ? mediaref.currentRef(assetRegistry.videos, slot) : null;
+      if (!ref || !ref.url) throw new Error("这个镜头还没有视频，无法提取帧");
+      if (ref.storageState && ref.storageState !== "local") {
+        throw new Error("这条视频的字节不在本地（记录仍在）——先恢复本地副本再提取");
+      }
+      const grabbed = await grabVideoFrame(ref.url, { timecodeMs, pick });
+      // its own chain key: a derived frame is not a version of the target shot's
+      // 画面 (that would make 「这个镜头有几版画面」 count frames nobody designed)
+      const key = mintId("frame");
+      const pre = assetreg.checkDeclaration("images", { kind: "derived-frame" });
+      if (pre) throw new Error(`登记被拒绝，未上传：${pre}`);
+      const res = await query.uploadAssetImage(PROJECT_NAME, `assets-${key}`, grabbed.file);
+      // creativeShotId is the SOURCE shot: that is the shot these pixels provably
+      // came from. WHERE the frame is USED is the binding's `targetShotId`, and
+      // conflating the two would file the frame under a shot it was not cut from.
+      const mref = mediaref.refFromResponse(key, "upload", res, sourceShotId);
+      const decl = assetreg.declare(mref, "images", {
+        kind: "derived-frame",
+        displayName: `${(shot && shot.title) || "镜头"} 视频 v${ref.version} 的${pick === "last" ? "尾帧" : `${(grabbed.timecodeMs / 1000).toFixed(2)}s 帧`}`,
+        originalFilename: null,
+        links: contextOfShot(sourceShotId),
+      });
+      if (!decl.ok) throw new Error(`登记失败：${decl.error}`);
+      mediaref.addVersion({ uploads: assetRegistry.images }, key, mref);
+      ctx.refreshType("assets");
+      ctx.persist();
+      refreshProductionView();
+      return {
+        key,
+        assetId: mref.assetId,
+        url: mref.url,
+        version: mref.version,
+        source: {
+          sourceShotId,
+          sourceVideoAssetId: ref.assetId || null,
+          sourceVideoVersion: Number.isInteger(ref.version) ? ref.version : null,
+          sourceTimecodeMs: grabbed.timecodeMs,
+          sourceFrame: null, // fps is not knowable from a <video> element — unknown stays unknown
+          pick,
+        },
+      };
+    },
+    /**
+     * BIND a derived (or any registered) image as a shot's start / end frame.
+     *
+     * `startFrame` additionally moves `assets.firstFrames[slot]`, which is what
+     * the video generation route actually reads — the binding record alone would
+     * be provenance for a frame nothing used.
+     */
+    /**
+     * The shot that FOLLOWS this one in canonical order, or null.
+     *
+     * Scoped to the shot's own SCENE: 「下一镜」 across a scene boundary is a cut
+     * to somewhere else, and continuing its last frame into it would be a claim
+     * about continuity the structure contradicts. A shot at the end of its scene
+     * honestly has no next shot here.
+     */
+    nextShotOf: (shotId) => {
+      const owner = proddoc.sceneOfShot(productionDoc, shotId);
+      if (!owner) return null;
+      const ids = owner.scene.shotIds || [];
+      const i = ids.indexOf(shotId);
+      if (i < 0 || i + 1 >= ids.length) return null;
+      const nextId = ids[i + 1];
+      const s = ctx.shot.find(nextId);
+      return s ? { shotId: nextId, title: s.title || `镜头 ${s.sequence}` } : null;
+    },
+    /**
+     * BIND an image as a shot's start / end frame.
+     *
+     * `source` (an object) is the extraction provenance and makes the binding
+     * `extracted`. `sourceKind` names the non-extracted cases explicitly — a
+     * binding must SAY where it came from, and defaulting everything without a
+     * source object to 「upload」 would file the shot's own picture as an upload.
+     */
+    bind: (targetShotId, bindingType, { assetId, source = null, sourceKind = "upload", force = false } = {}) => {
+      const hit = assetId ? assetlib.findAssetById(assetRegistry, assetId) : null;
+      if (!hit || hit.domain !== "images") { toast("只能绑定已登记的图片资产作为首/尾帧"); return null; }
+      const b = framebind.bind(frameBindingsDoc, targetShotId, bindingType, {
+        derivedImageAssetId: assetId,
+        source: source ? "extracted" : sourceKind,
+        ...(source || {}),
+        at: new Date().toISOString(),
+      }, { force });
+      if (!b) { toast("这个帧槽位已锁定：先解锁再绑定"); return null; }
+      if (bindingType === "startFrame") {
+        const shot = ctx.shot.find(targetShotId);
+        const slot = shot ? ctx.shot._slotOf(shot) : null;
+        if (!slot) { toast("目标镜头的槽位无法解析：已记录绑定，但视频生成仍会用本镜头当前画面"); }
+        else {
+          mediaref.putKey(assetRegistry.firstFrames, slot, {
+            ...hit.record, slot_id: slot, digest: hit.record.digest || null,
+          });
+          ctx.refreshType("video");
+        }
+      }
+      ctx.persist();
+      refreshProductionView();
+      return b;
+    },
+    /** 解除绑定. The derived Asset is NOT deleted — it is a registered asset with
+     *  its own provenance, and unbinding is a statement about this shot only. */
+    unbind: (targetShotId, bindingType) => {
+      const ok = framebind.unbind(frameBindingsDoc, targetShotId, bindingType);
+      if (!ok) { toast("这个帧槽位已锁定或本来就没有绑定"); return false; }
+      if (bindingType === "startFrame") {
+        const shot = ctx.shot.find(targetShotId);
+        const slot = shot ? ctx.shot._slotOf(shot) : null;
+        // clear the EFFECTIVE pointer too, or the generation would keep using a
+        // frame the record no longer claims
+        if (slot && assetRegistry.firstFrames && Object.prototype.hasOwnProperty.call(assetRegistry.firstFrames, slot)) {
+          delete assetRegistry.firstFrames[slot];
+          ctx.refreshType("video");
+        }
+      }
+      ctx.persist();
+      refreshProductionView();
+      return true;
+    },
+    /** 从当前版本重新提取 — extract again from the source shot's ACTIVE take and
+     *  re-bind, repeating the creator's stored intent (`pick`). */
+    reextract: async (targetShotId, bindingType) => {
+      const b = framebind.bindingOf(frameBindingsDoc, targetShotId, bindingType);
+      if (!b || b.source !== "extracted" || !b.sourceShotId) {
+        toast("这个帧不是从视频里提取的，没有可重新提取的来源");
+        return null;
+      }
+      const out = await ctx.frames.extract(b.sourceShotId, {
+        timecodeMs: b.pick === "at" ? b.sourceTimecodeMs : null,
+        pick: b.pick,
+      });
+      return ctx.frames.bind(targetShotId, bindingType, {
+        assetId: out.assetId, source: out.source, force: true,
+      });
+    },
+  },
+
+  // ---------------------------------------------------------------------- //
+  // Per-shot MULTI-TRACK AUDIO (ADR-0061 决策 6 / §37–§39).
+  //
+  //   Dialogue · VO · Ambience · SFX · Foley · BGM
+  //     → clips with absolute or ANCHORED timing, trim, gain, fades
+  //     → internal mix (local ffmpeg)
+  //     → ONE derived Shot Mixed Audio Asset — sources untouched, always
+  // ---------------------------------------------------------------------- //
+  shotAudio: {
+    TRACKS: shotaudio.TRACKS,
+    TRACK_LABEL: shotaudio.TRACK_LABEL,
+    clips: (shotId) => shotaudio.clipsOf(shotAudioDoc, shotId),
+    mix: (shotId) => shotaudio.mixOf(shotAudioDoc, shotId),
+    /**
+     * The ANCHORS a shot's clips may sync to, resolved to milliseconds.
+     *
+     * Derived from what the documents really hold, so an anchor either resolves
+     * or is reported unresolved — never placed at zero:
+     *
+     *   shot:start / shot:end        the shot's own bounds
+     *   dialogue:<shotId>            where this shot's line sits (its start)
+     *   action:<name>                a named beat the creator declared on the
+     *                                shot (`shot.audioAnchors`), in ms
+     *
+     * 「AI 以后可以提出 event，但不能直接偷偷改 canonical timeline」 (§35): a Skill
+     * proposes an OFFSET against one of these; it cannot mint an anchor.
+     */
+    anchors: (shotId) => {
+      const shot = ctx.shot.find(shotId);
+      const durMs = Math.round(((shot && shot.duration_seconds === 10) ? 10 : 6) * 1000);
+      const out = { "shot:start": 0, "shot:end": durMs };
+      if (shot && typeof shot.dialogue === "string" && shot.dialogue.trim()) out[`dialogue:${shotId}`] = 0;
+      // creator-declared beats live on the draft shot as `audioAnchors`
+      const declared = shot && shot.audioAnchors;
+      if (declared && typeof declared === "object" && !Array.isArray(declared)) {
+        for (const name of Object.keys(declared)) {
+          const v = declared[name];
+          if (Number.isFinite(v)) out[`action:${name}`] = Math.max(0, Math.round(v));
+        }
+      }
+      return out;
+    },
+    /** Source durations, where the registry knows them. Unknown stays unknown —
+     *  `resolveClips` then reports `endMs: null` rather than a guessed length. */
+    durations: () => ({}),
+    resolved: (shotId) => shotaudio.resolveClips(shotaudio.clipsOf(shotAudioDoc, shotId), {
+      anchors: ctx.shotAudio.anchors(shotId),
+      durations: ctx.shotAudio.durations(),
+    }),
+    byTrack: (shotId) => shotaudio.byTrack(ctx.shotAudio.resolved(shotId)),
+    standing: (shotId) => shotaudio.mixStanding(shotAudioDoc, shotId, ctx.shotAudio.resolved(shotId)),
+    add: (shotId, clip) => prodNew(shotaudio.addClip(shotAudioDoc, shotId, clip)),
+    remove: (shotId, clipId) => prodOp(shotaudio.removeClip(shotAudioDoc, shotId, clipId)),
+    move: (shotId, clipId, timing, opts) => prodOp(shotaudio.moveClip(shotAudioDoc, shotId, clipId, timing, opts)),
+    trim: (shotId, clipId, inMs, outMs, opts) => prodOp(shotaudio.trimClip(shotAudioDoc, shotId, clipId, inMs, outMs, opts)),
+    setGain: (shotId, clipId, gain, opts) => prodOp(shotaudio.setGain(shotAudioDoc, shotId, clipId, gain, opts)),
+    setFade: (shotId, clipId, fi, fo, opts) => prodOp(shotaudio.setFade(shotAudioDoc, shotId, clipId, fi, fo, opts)),
+    setMuted: (shotId, clipId, on, opts) => prodOp(shotaudio.setMuted(shotAudioDoc, shotId, clipId, on, opts)),
+    replaceAsset: (shotId, clipId, assetId, opts) => prodOp(
+      shotaudio.replaceClipAsset(shotAudioDoc, shotId, clipId, assetId, opts),
+    ),
+    /** The AUTOMATIC first arrangement (§41): the shot's dialogue take, its
+     *  scene's ambience, the episode's BGM. It invents nothing and never touches
+     *  a locked or hand-placed clip. */
+    autoArrange: (shotId) => {
+      const shot = ctx.shot.find(shotId);
+      const slot = shot ? ctx.shot._slotOf(shot) : null;
+      const owner = proddoc.sceneOfShot(productionDoc, shotId);
+      const dialogue = slot ? mediaref.currentRef(assetRegistry.audio, `voice-${slot}`) : null;
+      // scene ambience and the effective BGM are stored as ASSET IDS on the
+      // production document (proddoc), not as chain keys — they are references to
+      // one reusable recording that many scenes share
+      const bgm = owner
+        ? proddoc.effectiveBgm(productionDoc, owner.episode.episodeId, owner.scene.sceneId)
+        : null;
+      const res = shotaudio.autoArrange(shotAudioDoc, shotId, {
+        dialogue: dialogue ? dialogue.assetId : null,
+        ambience: owner && owner.scene.ambienceAssetId ? owner.scene.ambienceAssetId : null,
+        bgm: bgm ? bgm.assetId : null,
+        durationMs: Math.round(((shot && shot.duration_seconds === 10) ? 10 : 6) * 1000),
+      });
+      if (res.added.length) { ctx.persist(); refreshProductionView(); }
+      return res;
+    },
+    /**
+     * MIX the shot's audio into ONE derived Asset (§38).
+     *
+     * The sources are read and left completely alone; the mix is a new
+     * `shot-mix` Asset on its own chain, and its provenance snapshot records
+     * every source assetId, version, timing, anchor, offset, gain and fade it was
+     * made with — frozen, so it keeps describing what it IS after the clips move.
+     */
+    mixNow: async (shotId) => {
+      if (!CONNECTED) throw new Error("演示模式无后端，无法混音");
+      const shot = ctx.shot.find(shotId);
+      const slot = shot ? ctx.shot._slotOf(shot) : null;
+      if (!slot) throw new Error("镜头身份未解析：无法定位混音槽位");
+      const resolved = ctx.shotAudio.resolved(shotId);
+      const audible = resolved.filter((c) => !c.muted && !c.unresolved);
+      if (!audible.length) throw new Error("这个镜头没有可混的音频片段（全部静音或对位未解析）");
+      const clips = [];
+      for (const c of audible) {
+        const hit = assetlib.findAssetById(assetRegistry, c.assetId);
+        if (!hit || !hit.record.url) throw new Error(`片段引用的素材不存在或字节已移除：${c.assetId}`);
+        if (hit.record.storageState && hit.record.storageState !== "local") {
+          throw new Error(`片段素材的字节不在本地：${assetreg.derivedLabel({ ...hit.record, key: hit.key })}`);
+        }
+        const base = String(hit.record.url).split("/").pop();
+        clips.push({
+          file: base,
+          in: c.sourceInMs / 1000,
+          // THREE cases, and they mean different things:
+          //
+          //   no out point        「到素材结束」 — the server resolves the real
+          //                       duration with ffprobe. Substituting
+          //                       `sourceInMs + 1000` here truncated every
+          //                       un-trimmed clip to one second and still
+          //                       reported success.
+          //   AUTO clip's out     a CAP the arranger derived from the shot's
+          //                       length, not a request for that much audio. A
+          //                       4-second ambience bed under a 6-second shot is
+          //                       not an error — sent as `maxOut`, which clamps.
+          //   MANUAL clip's out   the creator's own trim. Sent as `out`, and the
+          //                       server REFUSES it if the file is shorter:
+          //                       they asked for audio that does not exist.
+          ...(c.sourceOutMs != null
+            ? (c.origin === "auto"
+              ? { maxOut: c.sourceOutMs / 1000 }
+              : { out: c.sourceOutMs / 1000 })
+            : {}),
+          start: (c.startMs || 0) / 1000,
+          gainDb: c.gain,
+          fadeInMs: c.fadeInMs,
+          fadeOutMs: c.fadeOutMs,
+        });
+      }
+      const key = `mix-${slot}`;
+      const res = await query.mixShotAudio(PROJECT_NAME, key, clips);
+      const ref = mediaref.refFromResponse(key, "mix", res, shotId);
+      const decl = assetreg.declare(ref, "audio", {
+        kind: "shot-mix",
+        displayName: `${(shot && shot.title) || "镜头"} 混音 v${res.version}`,
+        originalFilename: null,
+        links: contextOfShot(shotId),
+      });
+      if (!decl.ok) throw new Error(`登记失败：${decl.error}`);
+      mediaref.addVersion({ uploads: assetRegistry.audio }, key, ref);
+      // the mix is a DERIVED result of real inputs, so it is a Generation like any
+      // other — that is what puts it on the provenance graph with its sources
+      const prov = shotaudio.mixProvenance(resolved, {
+        settings: { format: "mp3", sampleRate: 44100, bitrate: "192k" },
+        versionOf: (assetId) => {
+          const h = assetlib.findAssetById(assetRegistry, assetId);
+          return h && Number.isInteger(h.record.version) ? h.record.version : null;
+        },
+      });
+      const gen = ctx.startGeneration({
+        type: "audio",
+        targetType: "shot",
+        targetId: shotId,
+        inputAssetIds: prov.sources.map((s) => s.assetId),
+        referenceAssetIds: [],
+        promptSnapshot: null,
+        provider: "shot-mix",
+        parameters: { mix: prov.settings, sources: prov.sources, unresolved: prov.unresolved },
+        status: "generating",
+      });
+      if (gen) ctx.completeGeneration(gen.generationId, [ref.assetId]);
+      shotaudio.setMix(shotAudioDoc, shotId, {
+        assetId: ref.assetId,
+        at: new Date().toISOString(),
+        provenance: prov,
+      });
+      ctx.refreshType("audio");
+      ctx.persist();
+      refreshProductionView();
+      toast(`镜头混音 v${res.version} 已生成（${prov.sources.length} 条源素材全部保留）`);
+      return ref;
+    },
+  },
+
+  // ---------------------------------------------------------------------- //
+  // SUBTITLE track (ADR-0061 决策 6 / §44–§45) — automatic by default.
+  // ---------------------------------------------------------------------- //
+  subtitles: {
+    ADAPTERS: subtitle.ADAPTERS,
+    STYLE_PRESETS: subtitle.STYLE_PRESETS,
+    track: () => subtitle.trackFor(subtitlesDoc, productionDoc.activeEpisodeId),
+    overlaps: () => subtitle.overlaps(ctx.subtitles.track()),
+    /** Case A: dialogue text + the CUT's timing → cues. The timing comes from the
+     *  timeline because that is what the viewer sees; using the shot's nominal
+     *  duration would drift from the picture the moment anything was trimmed. */
+    generate: () => {
+      const t = timeline.timelineFor(timelinesDoc, productionDoc.activeEpisodeId);
+      const rows = [];
+      for (const c of timeline.clipsOf(t, "video")) {
+        if (!c.shotId) continue;
+        const shot = ctx.shot.find(c.shotId);
+        if (!shot) continue;
+        rows.push({
+          shotId: c.shotId,
+          startMs: Math.round(c.startTime * 1000),
+          endMs: Math.round((c.startTime + (c.trimOut - c.trimIn)) * 1000),
+          dialogue: shot.dialogue || "",
+          // WHO speaks, ONLY where the shot itself names a speaker. Falling back
+          // to the scene's first character would print a name nobody said — and a
+          // subtitle attributing a line to the wrong character is worse than an
+          // unattributed one, because it reads as a fact.
+          speaker: typeof shot.speaker === "string" && shot.speaker ? shot.speaker : null,
+        });
+      }
+      const track = ctx.subtitles.track();
+      const res = subtitle.generateFromDialogue(track, rows, {
+        at: new Date().toISOString(),
+        isLocked: (cueId) => ctx.locks.is("subtitle", cueId),
+      });
+      if (res.added.length) { ctx.persist(); refreshProductionView(); }
+      return res;
+    },
+    /** An unavailable adapter answers with its real reason — no fake ASR (§45). */
+    tryAdapter: (id) => subtitle.adapterUnavailable(id),
+    update: (cueId, fields) => {
+      const track = ctx.subtitles.track();
+      const ok = fields && fields.mergeWithNext === true
+        ? subtitle.mergeCue(track, cueId, { at: new Date().toISOString(), isLocked: (id) => ctx.locks.is("subtitle", id) })
+        : subtitle.updateCue(track, cueId, fields, {
+          at: new Date().toISOString(),
+          force: true, // the creator's own edit of a cue they locked
+          isLocked: (id) => ctx.locks.is("subtitle", id),
+        });
+      return prodOp(ok);
+    },
+    /** A SKILL's edit of a cue — same write path, but the lock is enforced. */
+    applyFix: (cueId, fields, meta = {}) => {
+      const track = ctx.subtitles.track();
+      const ok = fields && fields.mergeWithNext === true
+        ? subtitle.mergeCue(track, cueId, { at: new Date().toISOString(), isLocked: (id) => ctx.locks.is("subtitle", id) })
+        : subtitle.updateCue(track, cueId, fields, {
+          at: new Date().toISOString(),
+          force: false,
+          isLocked: (id) => ctx.locks.is("subtitle", id),
+          origin: meta.skillRunId ? "skill" : "manual",
+        });
+      return prodOp(ok);
+    },
+    add: (cue) => prodNew(subtitle.addCue(ctx.subtitles.track(), cue)),
+    remove: (cueId) => prodOp(subtitle.removeCue(ctx.subtitles.track(), cueId, {
+      isLocked: (id) => ctx.locks.is("subtitle", id),
+    })),
+    split: (cueId, atMs, splitAtChar) => prodOp(subtitle.splitCue(ctx.subtitles.track(), cueId, atMs, {
+      splitAtChar, at: new Date().toISOString(), isLocked: (id) => ctx.locks.is("subtitle", id),
+    })),
+    setStyle: (style) => prodOp(subtitle.setStyle(ctx.subtitles.track(), style)),
+    /** SRT for the current track. Subtitles are NOT burned into the picture this
+     *  round; an SRT beside the MP4 is the honest form of 「字幕交付」 without
+     *  claiming a burn-in that did not happen. */
+    srt: () => subtitle.toSRT(ctx.subtitles.track()),
+  },
+
+  // ---------------------------------------------------------------------- //
   // The Action Layer dispatcher (ADR-0061 决策 9 / TASK-064 §52).
   //
   // ONE name per mutation, and every name maps to the ORDINARY controller for
@@ -1964,7 +3745,7 @@ const ctx = {
       switch (a.action) {
         case "setActiveVersion":
           return bool(ctx.media.setCurrent(a.domain, a.key, a.version), "版本不在历史里");
-        case "replaceReference": {
+        case "addReference": {
           // ALREADY BOUND is not a failure — it is the requested end state. Told
           // apart from 「参考不存在」 by asking the document first, because the
           // write path returns false for both and a caller cannot tell a
@@ -1974,6 +3755,78 @@ const ctx = {
           const exists = assetreg.listReferences(assetRegistry).some((r) => r.key === a.referenceKey);
           if (!exists) return { ok: false, error: `参考 ${a.referenceKey} 不存在（可能已删除）` };
           return bool(ctx.shot.addReference(a.shotId, a.referenceKey), "无法绑定到这个镜头（镜头身份可能已失效）");
+        }
+        case "replaceReference": {
+          // A REAL SWAP (TASK-067 §12): unbind the old, bind the new, and carry the
+          // creator's use-side choice across so 「用于视频编排」 does not silently
+          // revert to the role default just because the asset changed.
+          const bound = ctx.shot.references(a.shotId) || [];
+          if (!bound.includes(a.replacesKey)) {
+            return { ok: false, error: `这个镜头没有绑定参考 ${a.replacesKey}，没有可替换的对象` };
+          }
+          if (a.referenceKey === a.replacesKey) {
+            return { ok: false, satisfied: true, error: "新旧参考是同一个，无需替换" };
+          }
+          if (bound.includes(a.referenceKey)) {
+            return { ok: false, error: `参考 ${a.referenceKey} 已经绑在这个镜头上——用「解除关联」移除旧的即可` };
+          }
+          const all = assetreg.listReferences(assetRegistry);
+          const incoming = all.find((r) => r.key === a.referenceKey);
+          if (!incoming) return { ok: false, error: `参考 ${a.referenceKey} 不存在（可能已删除）` };
+          const outgoing = all.find((r) => r.key === a.replacesKey) || null;
+          // read the OLD side BEFORE unbinding — `removeReference` forgets it
+          const prevUse = ctx.refUse.effective(a.shotId, a.replacesKey, outgoing ? outgoing.kind : null);
+          const carry = prevUse && prevUse.source === "creator" ? prevUse.use : null;
+          // BIND FIRST, then unbind. The other order leaves the shot with neither
+          // reference if the bind fails, which is strictly worse than leaving it
+          // with the old one — a failed swap must not lose what was there.
+          if (!ctx.shot.addReference(a.shotId, a.referenceKey)) {
+            return { ok: false, error: "无法绑定新参考（镜头身份可能已失效）——旧参考保持不变" };
+          }
+          if (!ctx.shot.removeReference(a.shotId, a.replacesKey)) {
+            return {
+              ok: true,
+              partial: true,
+              detail: "新参考已绑定，但旧参考没能解除——两个都还在，请手动解除旧的",
+            };
+          }
+          // carry the explicit side over, but only where the NEW role can serve it:
+          // a creator's 「用于视频编排」 on a motion reference is meaningless on a
+          // character reference, and forcing it would store a use no compiler reads
+          if (carry && refuse.allowedUses(incoming.kind).includes(carry)) {
+            ctx.refUse.set(a.shotId, a.referenceKey, carry, incoming.kind);
+          }
+          return { ok: true, detail: `已用 ${assetreg.derivedLabel(incoming)} 替换` };
+        }
+        // --- 接上一镜的尾帧 (TASK-067 §12) ------------------------------------ //
+        case "usePreviousShotEndFrame": {
+          const owner = proddoc.sceneOfShot(productionDoc, a.shotId);
+          if (!owner) return { ok: false, error: "这个镜头还没有归入场景，所以没有「上一镜」" };
+          const ids = owner.scene.shotIds || [];
+          const i = ids.indexOf(a.shotId);
+          if (i <= 0) return { ok: false, error: "这是本场的第一个镜头，没有上一镜可以接" };
+          const prevId = ids[i - 1];
+          // the PREVIOUS shot's own END-FRAME BINDING is the only thing that is
+          // actually its last frame. Its selected image is a picture from the middle
+          // of the take, and offering that as 「上一镜的尾帧」 would name a frame that
+          // is not the end of anything.
+          const prevDetail = shotDetailModel(ctx.prodData(), prevId);
+          const end = prevDetail && prevDetail.frames ? prevDetail.frames.end : null;
+          if (!end || !end.binding || !end.assetId) {
+            return {
+              ok: false,
+              error: "上一镜还没有绑定尾帧——先在它的视频卡片上「提取尾帧」（提取会写入字节，是一个独立的动作）",
+            };
+          }
+          const cur = (shotDetailModel(ctx.prodData(), a.shotId) || {}).frames || {};
+          if (cur.start && cur.start.binding && cur.start.assetId === end.assetId) {
+            return { ok: false, satisfied: true, error: "这一镜的首帧已经是上一镜的尾帧" };
+          }
+          const bound = ctx.frames.bind(a.shotId, "startFrame", {
+            assetId: end.assetId,
+            source: end.binding && typeof end.binding === "object" ? end.binding : null,
+          });
+          return bool(!!bound, "无法绑定首帧（槽位可能已锁定——先解锁）");
         }
         case "removeReference": {
           const bound = ctx.shot.references(a.shotId) || [];
@@ -2022,6 +3875,252 @@ const ctx = {
             ? { ok: true, detail: skipped.length ? `${n} 个镜头已更新，${skipped.length} 条跳过` : `${n} 个镜头已更新` }
             : { ok: false, error: "无法保存新的草稿版本" };
         }
+        // --- 参考用途 (TASK-066 §5) ------------------------------------------ //
+        case "setReferenceUse": {
+          const bound = ctx.shot.references(a.shotId) || [];
+          if (!bound.includes(a.referenceKey)) {
+            return { ok: false, error: `这个镜头没有绑定参考 ${a.referenceKey}` };
+          }
+          // the ROLE decides which sides are even meaningful, so it is resolved from
+          // the registry here rather than trusted from the caller
+          const rec = assetreg.listReferences(assetRegistry).find((r) => r.key === a.referenceKey);
+          if (!rec) return { ok: false, error: `参考 ${a.referenceKey} 不存在（可能已删除）` };
+          const allowed = refuse.allowedUses(rec.kind);
+          if (!allowed.includes(a.use)) {
+            return {
+              ok: false,
+              error: `${assetreg.ASSET_KIND_LABEL[rec.kind] || rec.kind} 不能「${refuse.USE_LABEL[a.use] || a.use}」` +
+                `——没有编译器会读它，改了也不会进 Prompt`,
+            };
+          }
+          const changed = ctx.refUse.set(a.shotId, a.referenceKey, a.use, rec.kind);
+          // already on that side is the requested END STATE, not a failure
+          return changed
+            ? { ok: true, detail: refuse.USE_LABEL[a.use] }
+            : { ok: false, satisfied: true, error: "这个参考已经是这个用途了" };
+        }
+        // --- reference interpretation (§21–§22) ----------------------------- //
+        case "updateInterpretation": {
+          const exists = assetreg.listReferences(assetRegistry).some((r) => r.key === a.referenceKey);
+          if (!exists) return { ok: false, error: `参考 ${a.referenceKey} 不存在（可能已删除）` };
+          return bool(
+            ctx.refInterp.save(a.referenceKey, a.axes, {
+              origin: meta.skillRunId ? "skill" : "manual",
+              skillRunId: meta.skillRunId || null,
+              proposalId: meta.proposalId || null,
+            }) > 0,
+            "解读已锁定：先解锁再写入（或提案里没有任何有内容的轴）",
+          );
+        }
+        // --- frames (§7) ---------------------------------------------------- //
+        case "extractFrame":
+          // ASYNC, and deliberately not awaited through the dispatcher: every
+          // other action here is synchronous, and making one of them return a
+          // promise would let a caller report success before the upload landed.
+          // The UI calls ctx.frames.extract directly and reports the real result.
+          return { ok: false, error: "提取帧是异步动作：请通过左栏「提取尾帧」执行（它会等待登记完成后再报告）" };
+        case "bindStartFrame":
+          return bool(!!ctx.frames.bind(a.targetShotId, "startFrame", { assetId: a.assetId }), "无法绑定首帧");
+        case "unbindFrame":
+          return bool(ctx.frames.unbind(a.targetShotId, a.bindingType || "startFrame"), "无法解除绑定（可能已锁定）");
+        // --- shot audio (决策 6 / 决策 7) ----------------------------------- //
+        // `shotId` may be null on a Skill proposal: a proposal addresses a CLIP,
+        // and clip ids are minted unique, so the owning shot is a lookup rather
+        // than something the proposal has to get right. A proposal that named the
+        // wrong shot would otherwise be applied to a clip inside it.
+        case "moveAudioClip": {
+          const hit = findShotAudioClip(a.clipId);
+          if (!hit) return { ok: false, error: `音频片段 ${a.clipId} 不存在` };
+          const t = a.timing || {};
+          // an OFFSET DELTA is stated against the clip's current timing, which
+          // only this layer knows — the proposal states the shift, not the result
+          const timing = Number.isFinite(t.offsetDeltaMs)
+            ? (hit.clip.anchor
+              ? { anchor: hit.clip.anchor, offsetMs: hit.clip.offsetMs + t.offsetDeltaMs }
+              : { startTimeMs: Math.max(0, (hit.clip.startTimeMs || 0) + t.offsetDeltaMs) })
+            : t;
+          return bool(
+            ctx.shotAudio.move(a.shotId || hit.shotId, a.clipId, timing),
+            "无法移动（片段已锁定，或 timing 既没有绝对时间也没有可解析的 anchor）",
+          );
+        }
+        case "trimAudioClip": {
+          const hit = findShotAudioClip(a.clipId);
+          if (!hit) return { ok: false, error: `音频片段 ${a.clipId} 不存在` };
+          return bool(ctx.shotAudio.trim(a.shotId || hit.shotId, a.clipId, a.sourceIn, a.sourceOut), "无法修剪（片段可能已锁定）");
+        }
+        case "setGain": {
+          const hit = findShotAudioClip(a.clipId);
+          if (!hit) return { ok: false, error: `音频片段 ${a.clipId} 不存在` };
+          // a Skill proposes a DELTA in dB; a UI slider sets an absolute value
+          const next = a.gainIsDelta === true ? hit.clip.gain + a.gain : a.gain;
+          return bool(ctx.shotAudio.setGain(a.shotId || hit.shotId, a.clipId, next), "无法调整音量（片段可能已锁定）");
+        }
+        case "setFade": {
+          const hit = findShotAudioClip(a.clipId);
+          if (!hit) return { ok: false, error: `音频片段 ${a.clipId} 不存在` };
+          return bool(
+            ctx.shotAudio.setFade(
+              a.shotId || hit.shotId, a.clipId,
+              a.fadeInMs == null ? hit.clip.fadeInMs : a.fadeInMs,
+              a.fadeOutMs == null ? hit.clip.fadeOutMs : a.fadeOutMs,
+            ),
+            "无法调整淡入淡出（片段可能已锁定）",
+          );
+        }
+        case "setAudioMuted": {
+          const hit = findShotAudioClip(a.clipId);
+          if (!hit) return { ok: false, error: `音频片段 ${a.clipId} 不存在` };
+          if (hit.clip.muted === (a.muted === true)) return { ok: false, satisfied: true, error: "这个片段本来就是这个状态" };
+          return bool(ctx.shotAudio.setMuted(a.shotId || hit.shotId, a.clipId, a.muted), "无法静音/取消静音（片段可能已锁定）");
+        }
+        case "addAudioClip":
+          return bool(!!ctx.shotAudio.add(a.shotId, a.clip), "片段无效（需要 assetId、轨道，以及恰好一种 timing）");
+        case "removeAudioClip":
+          return bool(ctx.shotAudio.remove(a.shotId, a.clipId), "无法移除（片段可能已锁定）");
+        case "autoArrangeShotAudio": {
+          const res = ctx.shotAudio.autoArrange(a.shotId);
+          return res.added.length
+            ? { ok: true, detail: `自动排入 ${res.added.length} 条，跳过 ${res.skipped.length} 条` }
+            : { ok: false, error: res.skipped.length ? res.skipped.map((s) => s.reason).join("；") : "这个镜头没有可自动排入的音频素材" };
+        }
+        case "mixShotAudio":
+          return { ok: false, error: "混音是异步动作：请在下方「后期控制台」执行（它会等待 ffmpeg 完成后再报告）" };
+        // --- episode timeline (决策 6 / §46 / §48) --------------------------- //
+        case "replaceTimelineAsset": {
+          const t = timeline.timelineFor(timelinesDoc, productionDoc.activeEpisodeId);
+          const clip = timeline.findClip(t, a.clipId);
+          if (!clip) return { ok: false, error: `时间线片段 ${a.clipId} 不存在` };
+          if (ctx.locks.is("timelineClip", a.clipId)) return { ok: false, error: "这个片段已锁定：先解锁再替换" };
+          const hit = assetlib.findAssetById(assetRegistry, a.assetId);
+          if (!hit) return { ok: false, error: `资产 ${a.assetId} 不存在（可能已删除）` };
+          if (clip.assetId === a.assetId) return { ok: false, satisfied: true, error: "这个片段已经在用这条素材" };
+          // THE TRACK DECIDES WHAT MAY GO ON IT. Without this, an Editing
+          // Director proposal naming the wrong assetId puts an image or an audio
+          // take on the picture track — and the timeline persists, valid-looking,
+          // until the render fails on it. Refused here, in the one write path.
+          const want = clip.trackType === "video" ? "videos" : "audio";
+          if (hit.domain !== want) {
+            const zh = { images: "图片", videos: "视频", audio: "音频", finals: "成片" };
+            return {
+              ok: false,
+              error: `「${timeline.TRACK_LABEL[clip.trackType] || clip.trackType}」轨只能放${want === "videos" ? "视频" : "音频"}，` +
+                `这条素材是${zh[hit.domain] || hit.domain}`,
+            };
+          }
+          const v = Number.isInteger(hit.record.version) ? hit.record.version : null;
+          return bool(ctx.timeline.op("replaceClipAsset", a.clipId, a.assetId, v), "无法替换素材");
+        }
+        case "trimTimelineClip": {
+          if (ctx.locks.is("timelineClip", a.clipId)) return { ok: false, error: "这个片段已锁定：先解锁再修剪" };
+          // the timeline stores SECONDS; the action vocabulary speaks ms so a
+          // proposal cannot be off by a factor of 1000 depending on which layer
+          // it was written for
+          return bool(ctx.timeline.op("trimClip", a.clipId, a.inMs / 1000, a.outMs / 1000), "无法修剪（out 必须大于 in）");
+        }
+        case "moveTimelineClip":
+          if (ctx.locks.is("timelineClip", a.clipId)) return { ok: false, error: "这个片段已锁定：先解锁再移动" };
+          return bool(ctx.timeline.op("moveVideoClipTo", a.clipId, a.index), "无法移动（只有画面轨可以重排顺序）");
+        case "removeTimelineClip": {
+          const t = timeline.timelineFor(timelinesDoc, productionDoc.activeEpisodeId);
+          const clip = timeline.findClip(t, a.clipId);
+          if (!clip) return { ok: false, error: `时间线片段 ${a.clipId} 不存在` };
+          if (clip.removed === true) return { ok: false, satisfied: true, error: "这个片段本来就已移出成片" };
+          return bool(
+            ctx.timeline.op("setClipRemoved", a.clipId, true, { isLocked: (id) => ctx.locks.is("timelineClip", id) }),
+            "无法移出（片段可能已锁定）",
+          );
+        }
+        case "restoreTimelineClip":
+          return bool(
+            ctx.timeline.op("setClipRemoved", a.clipId, false, { isLocked: (id) => ctx.locks.is("timelineClip", id) }),
+            "无法恢复（片段可能已锁定，或本来就在成片里）",
+          );
+        case "setTimelineVolume": {
+          const t = timeline.timelineFor(timelinesDoc, productionDoc.activeEpisodeId);
+          const clip = timeline.findClip(t, a.clipId);
+          if (!clip) return { ok: false, error: `时间线片段 ${a.clipId} 不存在` };
+          if (ctx.locks.is("timelineClip", a.clipId)) return { ok: false, error: "这个片段已锁定：先解锁再调整音量" };
+          // a Skill proposes dB; the timeline stores LINEAR volume. The single
+          // conversion lives in dbToLinear — see skillapply.collectSoundAdjustments.
+          const next = Number.isFinite(a.gainDb) ? dbToLinear(clip.volume, a.gainDb) : a.volume;
+          return bool(ctx.timeline.op("setClipVolume", a.clipId, next), "无法调整音量");
+        }
+        case "setTransition":
+          if (ctx.locks.is("timelineClip", a.clipId)) return { ok: false, error: "这个片段已锁定：先解锁再改转场" };
+          return bool(ctx.timeline.op("setTransition", a.clipId, a.kind, a.durationMs), "无法设置转场（只有画面轨有转场）");
+        // --- subtitles (§44–§45) -------------------------------------------- //
+        case "updateSubtitle": {
+          const track = subtitle.trackFor(subtitlesDoc, productionDoc.activeEpisodeId);
+          if (!subtitle.findCue(track, a.cueId)) return { ok: false, error: `字幕 ${a.cueId} 不存在` };
+          if (ctx.locks.is("subtitle", a.cueId)) return { ok: false, error: "这条字幕已锁定：先解锁再修改" };
+          return bool(ctx.subtitles.applyFix(a.cueId, a.fields, meta), "无法修改这条字幕（时间可能无效）");
+        }
+        case "buildSubtitles": {
+          const res = ctx.subtitles.generate();
+          return res.added.length
+            ? { ok: true, detail: `生成 ${res.added.length} 条字幕，保留 ${res.kept.length} 条，跳过 ${res.skipped.length} 处` }
+            : { ok: false, error: res.skipped.length ? res.skipped.map((s) => s.reason).join("；") : "没有可用来生成字幕的台词与时间线时长" };
+        }
+        // --- rough cut + render (§41 / §57) --------------------------------- //
+        case "buildRoughCut": {
+          const res = ctx.timeline.buildRoughCut();
+          return res.ok ? { ok: true, detail: res.summary } : res;
+        }
+        case "renderEpisode":
+          return { ok: false, error: "渲染是异步动作：请在下方「后期控制台 · 成片」执行（它会等待 ffmpeg 完成后再报告）" };
+        // --- lock (§50) ------------------------------------------------------ //
+        case "lockItem":
+          if (ctx.locks.is(a.scope, a.id)) return { ok: false, satisfied: true, error: "这一项本来就已锁定" };
+          return bool(ctx.locks.set(a.scope, a.id, true), "无法锁定（这个对象可能不存在）");
+        case "unlockItem":
+          if (!ctx.locks.is(a.scope, a.id)) return { ok: false, satisfied: true, error: "这一项本来就没有锁定" };
+          return bool(ctx.locks.set(a.scope, a.id, false), "无法解锁");
+        case "prepareGeneration": {
+          const g = ctx.episode.genModel(a.shotId, a.kind === "video" ? "video" : "image");
+          return g && g.slot
+            ? { ok: true, detail: g.missing.length ? `可以发起，但还缺：${g.missing.join("；")}` : "输入集合已就绪" }
+            : { ok: false, error: "镜头身份未解析：无法组装生成输入" };
+        }
+        // --- 人物关系 (TASK-065 §2) ----------------------------------------- //
+        //
+        // CREATE-OR-REVISE, resolved HERE against the documents. The proposal only
+        // claims a pair; whether that pair exists as a relationship, and whether
+        // both characters exist at all, is a question about state that only this
+        // layer can answer. A skill that got to decide would be able to create a
+        // relationship for a character that was deleted.
+        case "upsertRelationship": {
+          const chars = productionDoc.characters || [];
+          const missing = [a.aCharacterId, a.bCharacterId]
+            .filter((id) => !chars.some((c) => c.characterId === id));
+          if (missing.length) {
+            return { ok: false, error: `人物不存在（已跳过）：${missing.join("、")}` };
+          }
+          if (a.aCharacterId === a.bCharacterId) {
+            return { ok: false, error: "一段关系必须连接两个不同的人物" };
+          }
+          const existing = canondoc.relationshipBetween(productionDoc, a.aCharacterId, a.bCharacterId);
+          if (existing) {
+            // A REVISION NEVER BLANKS A FACET. Only the fields the proposal really
+            // carries are written (skillapply already dropped the empty ones), so
+            // 「补一条核心矛盾」 cannot erase the arc a creator wrote by hand.
+            const ok = ctx.canon.updateRelationship(existing.relationshipId, a.fields);
+            return ok
+              ? { ok: true, detail: `已修改「${nameOfChar(a.aCharacterId)} × ${nameOfChar(a.bCharacterId)}」的 ${Object.keys(a.fields).length} 个字段` }
+              : { ok: false, error: "无法修改这段关系" };
+          }
+          const rec = ctx.canon.addRelationship(a.aCharacterId, a.bCharacterId);
+          if (!rec) return { ok: false, error: "无法建立这段关系" };
+          ctx.canon.updateRelationship(rec.relationshipId, a.fields);
+          return { ok: true, detail: `已建立「${nameOfChar(a.aCharacterId)} × ${nameOfChar(a.bCharacterId)}」` };
+        }
+        case "removeRelationship":
+          return bool(
+            ctx.canon.removeRelationship(a.relationshipId),
+            "仍有剧集记录了这段关系的推进：先在「分集规划」移除该集的 Relationship Beat",
+          );
+        case "swapRelationshipDirection":
+          return bool(ctx.canon.swapDirection(a.relationshipId), "这段关系不存在");
         case "proposeOutline":
           return { ok: false, error: "大纲提案的写回路径尚未接线（本检查点只接了分镜 / 参考 / Prompt / 审片）" };
         case "proposeScript":
@@ -2089,7 +4188,17 @@ const ctx = {
     // --- shared canonical References ---------------------------------------- //
     references: (shotId) => shotprod.referencesOfShot(productionDoc, shotId),
     addReference: (shotId, key) => prodOp(shotprod.addShotReference(productionDoc, shotId, key)),
-    removeReference: (shotId, key) => prodOp(shotprod.removeShotReference(productionDoc, shotId, key)),
+    /** Unbind, and FORGET the per-binding side override with it (TASK-066 §5).
+     *
+     *  Leaving the override behind would resurrect a stale choice the next time the
+     *  same reference is bound to the same shot — the creator would get a side they
+     *  set once, long ago, on a binding they had since removed. The order matters:
+     *  the override is cleared only when the unbind really happened. */
+    removeReference: (shotId, key) => {
+      const ok = shotprod.removeShotReference(productionDoc, shotId, key);
+      if (ok) refuse.forget(refUseDoc, shotId, key);
+      return prodOp(ok);
+    },
     /** Which shots share one Reference — 「SH01 / SH02 / SH05 → 林照 Ref v3」. */
     shotsUsingReference: (key) => shotprod.shotsUsingReference(productionDoc, key),
     /** Drop bindings to references that no longer exist, so no phantom chip
@@ -2211,10 +4320,11 @@ const ctx = {
         (e) => owner && e.episodeId === owner.episode.episodeId,
       );
       const compiled = d ? (kind === "video" ? d.prompts.video : d.prompts.image) : { text: "", missing: [] };
-      // the first frame is a real image Asset when this shot has one — the
-      // video route is framed by it, the image route honestly has neither
-      const slot = shot ? ctx.shot._slotOf(shot) : null;
-      const frameRef = slot ? mediaref.currentRef(assetRegistry.images, slot) : null;
+      // The frames come from the SAME resolution the prompt was compiled from
+      // (shotDetailModel.frames): an explicit start-frame BINDING when there is
+      // one — 上一镜的尾帧 — else the shot's own current image. Re-deriving them
+      // here is how the Input Set ends up naming a different picture than the
+      // prompt it sits beside (§7 / §4).
       const set = geninput.buildInputSet({
         shot,
         context: {
@@ -2225,9 +4335,15 @@ const ctx = {
           episodeCode: epIndex >= 0 ? `EP${String(epIndex + 1).padStart(2, "0")}` : null,
         },
         references: ctx.episode.referencesOfShot(shotId),
-        frames: kind === "video" && frameRef
-          ? { start: { assetId: frameRef.assetId, name: `本镜头画面 v${frameRef.version}`, url: frameRef.url }, end: null }
+        // FRAMES ARE A VIDEO INPUT. An image generation is framed by neither —
+        // its prompt compiles no frame and its request attaches none — so
+        // carrying the end frame into an image set made `generationSeedFrom`
+        // record it in `inputAssetIds`, and the lineage then claimed an asset
+        // that contributed nothing to that image.
+        frames: d && kind === "video"
+          ? { start: d.frames.start, end: d.frames.end }
           : null,
+        interpretation: d ? d.refInputs.interpretation : [],
         prompt: compiled.text,
         // A manual external run reports NOTHING about the model it used, so
         // model/parameters/seed stay null until an import tells us otherwise.
@@ -3016,6 +5132,18 @@ const ctx = {
       // registries above — no second copy, no new document.
       assets: assetRegistry,
       timelines: timelinesDoc,
+      // TASK-064 Phase 2 / Phase 3 documents, READ-ONLY here exactly like the
+      // registries above — writes stay on ctx.refInterp / ctx.frames / ctx.locks /
+      // ctx.shotAudio / ctx.subtitles. `shotDetailModel` needs refInterp and
+      // frameBindings to compile a reference-aware prompt, and it is the ONE
+      // compiler, so they belong in the read model rather than being fetched
+      // separately by each caller.
+      refInterp: refInterpDoc,
+      refUse: refUseDoc,
+      frameBindings: frameBindingsDoc,
+      shotAudio: shotAudioDoc,
+      subtitles: subtitlesDoc,
+      locks: locksDoc,
     };
   },
   // paid-op status projection (生成情况) — refreshed after paid actions AND
@@ -3168,6 +5296,107 @@ ctx.discardShotEdit = () => production.discardShotEdit();
 function refreshProductionView() {
   if (production.isVisible()) production.render();
 }
+/** WHICH shot owns a shot-audio clip. Clip ids are minted unique, so this
+ *  lookup is deterministic — and it is what lets a Skill proposal name a clip
+ *  without also having to name the shot it happens to be under (a proposal that
+ *  named the wrong shot would otherwise be applied to a clip in it).
+ *  Returns `{ shotId, clip }` or null. */
+function findShotAudioClip(clipId) {
+  if (typeof clipId !== "string" || !clipId) return null;
+  for (const shotId of Object.keys(shotAudioDoc)) {
+    const clip = shotaudio.findClip(shotAudioDoc, shotId, clipId);
+    if (clip) return { shotId, clip };
+  }
+  return null;
+}
+
+/** A character's NAME for a message about it. Falls back to the id rather than to
+ *  「某个人物」: a report the creator cannot match to a row is not a report. */
+function nameOfChar(characterId) {
+  const c = bibledoc.findCharacter(productionDoc, characterId);
+  return c && c.name ? c.name : String(characterId || "");
+}
+
+/** The 题材/基调 of the CONFIRMED plan's outline, or "" when there is none.
+ *
+ *  Resolved through storydoc exactly the way `promptInputs` (ui/storyboard.js) does
+ *  for a shot prompt, so an entity's base prompt and the shots that use it carry
+ *  the same style line — two derivations of 「这部作品什么调子」 would be two answers. */
+function confirmedGenreTone() {
+  if (!storyDoc) return "";
+  const plan = (storyDoc.plans || []).find((x) => x.v === storyDoc.confirmedPlan) || null;
+  const o = storydoc.outlineForPlan(storyDoc, plan);
+  return o ? o.outline.genreTone || "" : "";
+}
+
+/**
+ * Why a base-asset target cannot be written to, or "" when it can.
+ *
+ * ONE predicate, consulted before a long-running upload starts AND again after it
+ * lands, because the window in between (a file dialog plus a server round trip) is
+ * long enough for the entity or the state to be deleted. Returning the REASON rather
+ * than a boolean is what lets the caller tell the creator which of the two vanished.
+ */
+function missingBaseTarget(kind, entityId, stateId) {
+  const entity = kind === "character"
+    ? bibledoc.findCharacter(productionDoc, entityId)
+    : bibledoc.findLocation(productionDoc, entityId);
+  if (!entity) return kind === "character" ? "这个人物已不存在" : "这个场景地已不存在";
+  if (stateId && !(entity.states || []).some((s) => s.stateId === stateId)) {
+    return `「${entity.name}」已经没有这个状态了`;
+  }
+  return "";
+}
+
+/** A STATE's own reference list + active pointer, or null when the state is gone.
+ *
+ *  `ids` is what the state currently SHOWS: its own override list when it has one,
+ *  else the entity's — so seeding a state's first own reference does not silently
+ *  drop the inherited ones (bibledoc keeps a state's active pointer inside the
+ *  state's own list, so the two have to be written together). */
+function stateRefs(kind, entityId, stateId) {
+  const entity = kind === "character"
+    ? bibledoc.findCharacter(productionDoc, entityId)
+    : bibledoc.findLocation(productionDoc, entityId);
+  const st = entity && (entity.states || []).find((x) => x.stateId === stateId);
+  if (!st) return null;
+  const resolved = kind === "character"
+    ? bibledoc.resolveCharacter(entity, stateId)
+    : bibledoc.resolveLocation(entity, stateId);
+  return {
+    entity,
+    state: st,
+    own: "referenceAssetIds" in (st.overrides || {}),
+    ids: [...resolved.referenceAssetIds],
+    active: resolved.activeReferenceAssetId,
+  };
+}
+
+/** Write a state's reference list + active pointer through the ordinary overrides
+ *  path. Every OTHER override the state carries is preserved: a reference edit must
+ *  not blank the state's 外貌 / 服装 / 画面指令. */
+function setStateRefs(kind, entityId, stateId, ids, active) {
+  const cur = stateRefs(kind, entityId, stateId);
+  if (!cur) return false;
+  const next = {
+    ...cur.state.overrides,
+    referenceAssetIds: ids,
+    activeReferenceAssetId: active && ids.includes(active) ? active : null,
+  };
+  return kind === "character"
+    ? ctx.bible.setCharacterStateOverrides(entityId, stateId, next)
+    : ctx.bible.setLocationStateOverrides(entityId, stateId, next);
+}
+
+/** dB → the LINEAR volume the episode timeline stores. The two layers use
+ *  different units (shotaudio: dB, timeline: 0..2 linear), so the conversion
+ *  exists exactly once — here — and every caller goes through it. */
+function dbToLinear(currentLinear, deltaDb) {
+  const base = Number.isFinite(currentLinear) ? currentLinear : 1;
+  const next = base * 10 ** (deltaDb / 20);
+  return Math.min(2, Math.max(0, next));
+}
+
 function prodOp(ok) {
   if (ok) {
     ctx.persist();
@@ -3769,6 +5998,22 @@ function serializeGraph() {
     // really written appear here; the compiled prompt is a derivation and is
     // deliberately never stored, so it cannot go stale in the document.
     prompts: promptdoc.serialize(promptsDoc),
+    // TASK-064 Phase 2 / Phase 3. All five are ADDITIVE and optional: a document
+    // written before this checkpoint simply carries none of them and hydrates
+    // empty, which is why no schema migration is needed — there is nothing to
+    // back-fill, and inventing a reading / a binding / a lock the creator never
+    // made would be exactly the fabricated record this codebase refuses.
+    refInterp: refinterp.serialize(refInterpDoc),
+    refUse: refuse.serialize(refUseDoc),
+    frameBindings: framebind.serialize(frameBindingsDoc),
+    locks: locksdoc.serialize(locksDoc),
+    shotAudio: shotaudio.serialize(shotAudioDoc),
+    subtitles: subtitle.serialize(subtitlesDoc),
+    // TASK-067 §15: cached DERIVED CONCLUSIONS, each with the revision of the shot
+    // context it was drawn from. Persisted so a reload does not silently re-spend
+    // tokens re-deriving what is still valid — and so a conclusion that HAS gone
+    // stale is still shown as stale rather than vanishing.
+    ctxCache: ctxcache.serialize(ctxCacheDoc),
     nodes: engine.nodes.map((n) => ({
       id: n.id, type: n.type, x: n.x, y: n.y, state: n.state,
       text: n.text, versions: n.versions, cur: n.cur, pickSingle: n.pickSingle,
@@ -3813,6 +6058,16 @@ function restoreGraph(data) {
   timelinesDoc = timeline.createTimelines((data && data.timelines) || null);
   // Per-shot Prompt overrides (ADR-0061 决策 5).
   promptsDoc = promptdoc.createPrompts((data && data.prompts) || null);
+  // TASK-064 Phase 2 / Phase 3 documents (additive; absent → empty).
+  refInterpDoc = refinterp.createInterpretations((data && data.refInterp) || null);
+  refUseDoc = refuse.createRefUse((data && data.refUse) || null);
+  frameBindingsDoc = framebind.createFrameBindings((data && data.frameBindings) || null);
+  locksDoc = locksdoc.createLocks((data && data.locks) || null);
+  shotAudioDoc = shotaudio.createShotAudio((data && data.shotAudio) || null);
+  subtitlesDoc = subtitle.createSubtitles((data && data.subtitles) || null);
+  // TASK-067 §15 (additive; absent → empty). Entries whose baseline no longer
+  // matches hydrate fine and simply read as stale — that is the point.
+  ctxCacheDoc = ctxcache.createCache((data && data.ctxCache) || null);
   // Breakdown proposals are PER-PROJECT transient review state: cards derived
   // from another project's script must never be appliable here, and a switch
   // mid-run must not leave a stuck "running" guard. (The in-flight run's
@@ -3936,6 +6191,19 @@ async function enterCanvas(name, opts = {}) {
   storyDoc = storydoc.createStory(null);
   timelinesDoc = timeline.createTimelines(null);
   promptsDoc = promptdoc.createPrompts(null);
+  // …and the Phase 2 / Phase 3 documents. Cleared HERE too, not only in
+  // restoreGraph: entering a project whose canvas is empty never calls restore,
+  // so anything left here would carry the PREVIOUS project's readings, frame
+  // bindings, locks, audio arrangement and subtitles into it.
+  refInterpDoc = refinterp.createInterpretations(null);
+  refUseDoc = refuse.createRefUse(null);
+  frameBindingsDoc = framebind.createFrameBindings(null);
+  locksDoc = locksdoc.createLocks(null);
+  shotAudioDoc = shotaudio.createShotAudio(null);
+  subtitlesDoc = subtitle.createSubtitles(null);
+  // …and the conclusion cache. Carrying it across a project switch would show one
+  // project's asset recommendations under another project's shot ids.
+  ctxCacheDoc = ctxcache.createCache(null);
   const known = projects.loadRegistry(window.localStorage).find((p) => p.name === name);
   ctx.project = {
     ...FIX,

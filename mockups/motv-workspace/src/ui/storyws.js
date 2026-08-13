@@ -142,50 +142,6 @@ function outlineCards(ctx, m, ui) {
   );
 }
 
-function planCards(ctx, m) {
-  const plan = m.confirmed || m.plan;
-  if (!plan) {
-    return (
-      `<div class="st-sec"><h3>剧集规划</h3></div>` +
-      empty(
-        "📺",
-        m.approved ? "从已批准的大纲生成分集规划" : "先批准一版故事大纲",
-        m.approved
-          ? "AI 会把大纲拆成每集的标题 / 梗概 / 戏剧功能 / 开场钩子 / 结尾拍 / 时长——以提案呈现，确认后才建立剧集实体。"
-          : "剧集规划以「已批准」的大纲版本为准，所以先批准上面的大纲。",
-        m.approved ? `<button class="btn primary" data-goto="episodes">→ 去剧集规划</button>` : "",
-      )
-    );
-  }
-  const cards = plan.episodes
-    .map((e) => {
-      const code = `EP${String(e.epNumber).padStart(2, "0")}`;
-      return (
-        `<div class="epcard"><div class="top"><span class="no">${code}</span><span class="ti">${esc(e.title)}</span>` +
-        (e.duration ? `<span class="chip mute push">${esc(e.duration)}</span>` : "") +
-        `</div><div class="bd">` +
-        (e.synopsis ? `<div class="sy">${esc(e.synopsis)}</div>` : "") +
-        `<div class="kvrow">` +
-        (e.purpose ? `<div class="kv"><span class="k">戏剧功能</span><span class="v">${esc(e.purpose)}</span></div>` : "") +
-        (e.hook ? `<div class="kv"><span class="k">开场钩子</span><span class="v">${esc(e.hook)}</span></div>` : "") +
-        (e.endingBeat ? `<div class="kv"><span class="k">结尾拍</span><span class="v">${esc(e.endingBeat)}</span></div>` : "") +
-        `</div>` +
-        `<div class="ft">` +
-        (e.episodeId
-          ? `<button class="btn sm" data-ep-open="${esc(e.episodeId)}">进入本集剧本 →</button>`
-          : `<span class="chip mute">未联结剧集</span>`) +
-        `</div></div></div>`
-      );
-    })
-    .join("");
-  return (
-    `<div class="st-sec"><h3>剧集规划 · v${plan.v}</h3>` +
-    `<div class="acts">${m.confirmed ? `<span class="chip ok">✓ 已确认</span>` : `<span class="chip gate">未确认</span>`}` +
-    `<button class="btn sm" data-goto="episodes">在「剧集」管理</button></div></div>` +
-    `<div class="epgrid">${cards}</div>`
-  );
-}
-
 export function renderStoryWs(ctx, ui) {
   const doc = ctx.story.doc();
   const m = storyModel(doc);
@@ -222,8 +178,12 @@ export function renderStoryWs(ctx, ui) {
     pipeline(m) +
     `<div class="story-grid">${idea}</div>` +
     proposalPanel(m) +
-    body +
-    planCards(ctx, m)
+    body
+    // 分集规划 does NOT belong under 故事大纲 (产品 2026-08-13). The outline
+    // workspace ends at the outline; the plan is its own step in the rail
+    // (创意 → 故事大纲 → 人物 / 世界观 → 分集规划 → 本集剧本), and rendering its
+    // episode cards here made the same content live in two places — the duplication
+    // this codebase keeps paying for. The plan workspace (ui/epplanws.js) owns it.
   );
 }
 

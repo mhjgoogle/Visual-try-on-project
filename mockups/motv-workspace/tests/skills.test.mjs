@@ -28,7 +28,13 @@ import { CANVAS_SCHEMA_VERSION, MIGRATIONS, migrateToCurrent, validateCanvasDoc 
 // --- 1. the four layers stay separate ---------------------------------------
 
 test("no Skill names a concrete executor — only a recommended RUNTIME KIND", () => {
-  assert.equal(SKILLS.length, 10);
+  // TASK-064 grew the catalog from ten to fourteen: Reference Interpreter
+  // (Phase 2) plus Editing Director / Sound Designer / Subtitle Reviewer
+  // (Phase 3). TASK-065 §2 added the fifteenth, Relationship Director.
+  // TASK-067 §4/§7/§8/§9/§10 added the five that make a SHOT's visual production
+  // actually assisted. Each is a DELIBERATE contract change, asserted so an
+  // accidental one still fails.
+  assert.equal(SKILLS.length, 20);
   for (const s of SKILLS) {
     assert.ok(RUNTIME_KINDS.includes(s.recommendedRuntime), `${s.skillId} recommends an unknown runtime`);
     const blob = JSON.stringify(s);
@@ -38,12 +44,26 @@ test("no Skill names a concrete executor — only a recommended RUNTIME KIND", (
   }
 });
 
-test("the v1 catalog is the ten agreed capabilities, each fully specified", () => {
+test("the catalog is the twenty agreed capabilities, each fully specified", () => {
   const ids = SKILLS.map((s) => s.skillId);
   assert.deepEqual(ids.slice().sort(), [
     "asset-librarian", "cinematography", "continuity-reviewer", "prompt-director",
     "reference-planner", "script-breakdown", "script-doctor", "script-writer",
     "storyboard-director", "story-development",
+    // TASK-064: the reference reader (Phase 2) and the post-production crew
+    // (Phase 3). Continuity Reviewer above is REUSED for post rather than
+    // duplicated into a second 「post」 variant.
+    "reference-interpreter", "editing-director", "sound-designer", "subtitle-reviewer",
+    // TASK-065 §2: reads the story and PROPOSES relationships. Proposals only —
+    // its write-back goes through `upsertRelationship`, which resolves both
+    // characterIds against the documents before anything is written.
+    "relationship-director",
+    // TASK-067: the SHOT-SCOPED five. `prompt-director` above is deliberately KEPT
+    // rather than replaced — existing Skill Runs reference it by skillId+version and
+    // definitions are immutable, so removing it would point real provenance records
+    // at a capability that no longer exists (ADR-0064 决策 5).
+    "shot-asset-recommender", "image-prompt-director", "video-prompt-director",
+    "prompt-reviewer", "shot-continuity-reviewer",
   ].sort());
   for (const s of SKILLS) {
     assert.equal(typeof s.title, "string");

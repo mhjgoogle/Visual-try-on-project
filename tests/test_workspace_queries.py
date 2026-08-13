@@ -22,6 +22,7 @@ from ai_video_workflow.workspace import (
     WorkspaceQueryService,
     discover_projects,
 )
+from tests.symlink_support import symlink_or_skip
 from tests.test_wfm1_e2e import (
     SHOTS,
     _approve,
@@ -552,7 +553,7 @@ def test_symlink_escape_in_records_fails_closed(tmp_path, monkeypatch):
     outside = tmp_path / "outside-secret.json"
     outside.write_text('{"secret": "leak"}', encoding="utf-8")
     shots_dir = root / "records" / "shots"
-    (shots_dir / "shot-evil.json").symlink_to(outside)
+    symlink_or_skip(shots_dir / "shot-evil.json", outside)
     svc = _service(tmp_path)
     # loading the project snapshot routes through resolve_within_root, which
     # rejects the symlinked component -> a structured problem, never a leak

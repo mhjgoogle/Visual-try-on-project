@@ -1,43 +1,36 @@
-// CENTER column of 剧集制作 — the Production Workspace (ADR-0061 决策 2,
-// simplified in TASK-064 Phase 1b).
+// CENTER of 剧集制作 — the Shot 制作流程图 (TASK-066 §8 / §9).
 //
-//   Episode Selector (EP01 ▾)                              工作区 ▾
-//   ────────────────────────────────────────────────────────────────────────
-//   Generation Provenance — the generation graph, full bleed
+//   SH05 制作流程图 ⓘ            ⊙ 自动布局 | 手动布局   ⛶ 全屏   完整溯源 ↗  工作区 ▾
+//   ────────────────────────────────────────────────────────────────────────────
+//   ┌ 参考输入 ────┐
+//   │ ▢ ▢ ▢ ▢ ▢    │→ Image Prompt → 主帧图 → Video Prompt → 最终视频 → End Frame
+//   └ 视频编排参考 ┘
 //
-// The GRAPH is this space's centre. Entering 剧集制作 shows what has actually been
-// made for this episode and what it was made from; clicking any node makes the
-// LEFT inspector that object's operating panel. That is the primary path to
-// 参考 / Prompt / 生成 / 画面 / 视频 / 音频 / 审片 now.
+// WHAT THIS COLUMN OWNS. The picture of how the CURRENT shot gets made, and nothing
+// else. The Episode / Scene / Shot selectors moved to the shared top bar
+// (ui/shotselect.js) because they belong to the whole space; the reference list moved
+// to the left column (ui/shotrefs.js); the per-object operations moved onto the
+// cards themselves (ui/shotgraphview.js §10). What is left here is the frame around
+// the picture: what it is, how it is laid out, and the ways out of it.
 //
-// WHAT CHANGED AND WHY. This centre used to open on a large Shot Card workbench
-// under a strip of ELEVEN same-level tabs (工作台 / 本集总览 / 场景 / 分镜 / 参考统筹 /
-// 画面 / 视频 / 音频 / 审片 / 剪辑 / 生成溯源). Eleven peers is not an information
-// architecture — it is a list of everything the system can do, and it made the
-// creator find 「生成溯源」 by hunting rather than by arriving. The stage
-// workspaces all still exist, unchanged, behind one secondary 「工作区」 entry.
+// 完整溯源 stays one click away and unchanged — it answers 「这个东西是怎么来的」, which
+// is a different question from 「这一镜怎么做出来」 and still worth its own view.
 //
-// The creator never has to answer 「我现在是镜头模式还是场景模式？」: Scene and
-// Shot are LEVELS inside one episode, not competing page modes.
-//
-// This module renders no operating controls of its own — it is the map, not the
-// workbench drawer.
-//
-// PURE PRESENTATION over ctx read models (`episodeModel` from episodews.js is
-// reused verbatim, so this surface and 本集总览 can never disagree about what the
-// episode contains).
+// PURE PRESENTATION over ctx read models (`episodeModel` from episodews.js is reused
+// verbatim, so this surface and 本集总览 can never disagree about what the episode
+// contains; the graph comes from `ctx.shotgraph`, built from the same
+// `shotDetailModel` every other consumer reads).
 
 import { esc } from "../util/dom.js";
 import { episodeModel } from "./episodews.js";
 import {
   episodeLabels, episodeTitleBeside, EPISODE_DEFAULT, EPISODE_WORKSPACES, MODULE_LABEL,
 } from "./shell.js";
-import { ROLE_LABEL } from "../workflow/geninput.js";
 
-/** The Focus Filters (TASK-064 §7). They narrow WHICH shots are shown by what
- *  each one currently has — a view filter, never a mode. `失败` reads the real
- *  generation registry: a shot whose latest generation failed is a shot that
- *  needs attention, and there is no other way to find it in one look. */
+/** The Focus Filters (TASK-064 §7). They narrow WHICH shots the shot strip offers by
+ *  what each one currently has — a view filter, never a mode. `失败` reads the real
+ *  generation registry: a shot whose latest generation failed is a shot that needs
+ *  attention, and there is no other way to find it in one look. */
 export const FOCUS_FILTERS = [
   ["all", "全部"],
   ["image", "图片"],
@@ -105,57 +98,95 @@ export function workbenchModel(ctx, ui) {
     shown: scenes.reduce((n, s) => n + s.visible.length, 0) + unassigned.filter((c) => passesFocus(c, focus)).length,
     episodes: episodeLabels(pd.production),
     focus,
+    all,
   };
+}
+
+/**
+ * Which SCENE the creator is standing in, and which SHOT.
+ *
+ * DERIVED FROM THE SELECTED SHOT, not stored separately. A second piece of state
+ * saying 「当前场景」 could disagree with 「当前镜头」 the moment either moves, and the
+ * creator would then be looking at a shot filed under a scene it is not in.
+ *
+ * Exported so a unit test can assert the derivation without a DOM.
+ */
+export function currentPlace(m, selectedShotId) {
+  if (m.empty) return { scene: null, shot: null, shots: [] };
+  for (const s of m.scenes) {
+    const hit = s.shots.find((c) => c.shotId === selectedShotId);
+    if (hit) return { scene: s, shot: hit, shots: s.shots };
+  }
+  const free = (m.unassigned || []).find((c) => c.shotId === selectedShotId)
+    || (m.all || []).find((c) => c.shotId === selectedShotId);
+  if (free) {
+    const pool = m.scenes.some((s) => s.shots.includes(free))
+      ? m.scenes.find((s) => s.shots.includes(free)).shots
+      : m.unassigned;
+    return { scene: null, shot: free, shots: pool };
+  }
+  // nothing selected yet — offer the first scene so the strip is never blank
+  const first = m.scenes.find((s) => s.shots.length) || null;
+  return { scene: first, shot: null, shots: first ? first.shots : m.unassigned };
 }
 
 /* -------------------------------------------------------------------------- */
 /* render                                                                     */
 /* -------------------------------------------------------------------------- */
 
-/** The centre's ONE persistent header: which episode, and the way out to a stage
- *  workspace. The focus filter is drawn only where it filters something — see
- *  `showsFocus`.
+/** The centre's ONE persistent header: which episode, the way to the full
+ *  provenance graph, and the way out to a stage workspace.
  *
- *  It carries no stage tab strip. The graph is the centre; a workspace is a
- *  detour, and a detour announces itself as one. */
-function topBar(m, ui, { stage, showFocus }) {
-  const ep = m.episodes.find((e) => e.active) || m.episodes[0] || null;
-  const selector = m.episodes.length
-    ? `<div class="ep-sel">` +
-      `<button class="ep-selbtn" data-ep-selopen>${esc(ep ? ep.code : "—")}` +
-      `<span class="nm">${esc(ep ? episodeTitleBeside(ep.code, ep.title) : "")}</span><span class="cv">▾</span></button>` +
-      (ui.epSelOpen
-        ? `<div class="ep-selmenu">${m.episodes.map((e) =>
-            `<button class="${e.active ? "cur" : ""}" data-ep-pick="${esc(e.episodeId)}">` +
-            `<b>${esc(e.code)}</b> ${esc(episodeTitleBeside(e.code, e.title))}</button>`).join("")}</div>`
-        : "") +
-      `</div>`
-    : `<span class="chip gate">还没有剧集</span>`;
-  // The focus filter narrows SHOT CARDS. On the graph it would be a second
-  // filter vocabulary sitting next to the graph's own 全部/图片/视频/音频/渲染/失败
-  // chips, and two filter rows that mean different things is worse than one.
-  const focus = showFocus
-    ? `<div class="ep-focus">${FOCUS_FILTERS.map(([k, label]) =>
-        `<button class="ep-fbtn${m.focus === k ? " on" : ""}" data-ep-focus="${k}">${esc(label)}</button>`).join("")}</div>`
+ *  It carries no stage tab strip (§8). 「先选功能再找对象」 is exactly what this
+ *  round removed. */
+function topBar(m, ui, { stage, showFocus, place }) {
+  // THE EPISODE / SCENE / SHOT SELECTORS MOVED UP (TASK-066 §2): they belong to the
+  // whole space, not to the centre column, so they live in the shared top bar
+  // (ui/shotselect.js). What is left here is what the centre itself owns: what this
+  // picture is, how it is laid out, and the ways out of it.
+  const title = place && place.shot
+    ? `${esc(place.shot.title || `镜头 ${place.shot.seq}`)} 制作流程图`
+    : "制作流程图";
+  // NO FOCUS CHIPS HERE. They used to filter the shot-card wall; the wall became the
+  // Shot dropdown (§2), so chips in this header would filter nothing — a control that
+  // does nothing is worse than a missing one. They moved INTO the Shot picker, where
+  // they narrow the list the creator is choosing from (ui/shotselect.js).
+  const focus = "";
+  // 完整溯源 — §14 of the previous round still holds: provenance keeps its job and its
+  // own workspace, and the entrance is one click from the shot being made.
+  const prov = stage === "provenance"
+    ? `<button class="ep-wsback" data-mod="${esc(EPISODE_DEFAULT)}">← 回到制作台</button>`
+    : `<button class="ep-prov" data-mod="provenance" title="整集的生成溯源：这个东西是怎么来的">完整溯源 ↗</button>`;
+  const layout = stage === EPISODE_DEFAULT
+    ? `<div class="ep-layout">` +
+      ["auto", "manual"].map((k) =>
+        `<button class="ep-lbtn${(ui.sgLayout || "auto") === k ? " on" : ""}" data-ep-layout="${k}" ` +
+        `title="${k === "auto" ? "按制作顺序自动排布" : "把参考并排铺开，适合参考很多的镜头"}">` +
+        `${k === "auto" ? "⊙ 自动布局" : "手动布局"}</button>`).join("") +
+      `</div>` +
+      `<button class="ep-full" data-ep-full title="${ui.sgFull ? "退出全屏" : "全屏看这张图"}">` +
+      `${ui.sgFull ? "⛶ 退出全屏" : "⛶ 全屏"}</button>`
     : "";
-  const note = showFocus
-    ? `<span class="ep-topnote">${m.focus === "all"
-        ? `${m.shots} 个镜头`
-        : `${m.shown} / ${m.shots} 个镜头符合当前聚焦`}</span>`
-    : "";
-  return `<div class="ep-top">${selector}${focus}${note}${wsMenu(stage, ui)}</div>`;
+  return (
+    `<div class="ep-top">` +
+    `<b class="ep-title">${esc(title)}</b>` +
+    `<span class="ep-i" title="这一镜从参考到最终视频的真实关系；线只画记录里存在的关联">ⓘ</span>` +
+    focus +
+    `<span class="push"></span>` +
+    layout + prov + wsMenu(stage, ui) +
+    `</div>`
+  );
 }
 
 /** The secondary 「工作区」 entry: every stage workspace, one click away, and
- *  visibly NOT a peer of the centre. When one is open the entry says so and
- *  offers the way back to the graph — a detour the creator can always leave. */
+ *  visibly NOT a peer of the centre. */
 function wsMenu(stage, ui) {
   const onWs = stage !== EPISODE_DEFAULT;
   const cur = EPISODE_WORKSPACES.find(([k]) => k === stage) || null;
   return (
     `<div class="ep-ws">` +
-    (onWs
-      ? `<button class="ep-wsback" data-mod="${esc(EPISODE_DEFAULT)}" title="回到生成溯源">← 生成溯源</button>`
+    (onWs && stage !== "provenance"
+      ? `<button class="ep-wsback" data-mod="${esc(EPISODE_DEFAULT)}" title="回到制作台">← 制作台</button>`
       : "") +
     `<button class="ep-wsbtn${onWs ? " on" : ""}" data-ep-wsopen>` +
     `<span class="ic">${cur ? cur[1] : "🗂"}</span>${esc(cur ? cur[2] : "工作区")}<span class="cv">▾</span></button>` +
@@ -165,111 +196,74 @@ function wsMenu(stage, ui) {
         EPISODE_WORKSPACES.map(([k, icon, label]) =>
           `<button class="${k === stage ? "cur" : ""}" data-ep-ws="${esc(k)}">` +
           `<span class="ic">${icon}</span>${esc(label)}</button>`).join("") +
-        `<div class="ep-wsnote">这些能力也都能从中央生成溯源图上点节点、在左栏直接操作。</div>` +
+        `<div class="ep-wsnote">这些能力也都能从制作台的图上点节点、在左栏直接操作 —— 工作区只是「一次做完一整个阶段」的绕路。</div>` +
         `</div>`
       : "") +
     `</div>`
   );
 }
 
-/** One shot card. Its SUB-CARDS are the production objects — clicking one opens
- *  that object in the LEFT inspector, which is the whole point of the layout. */
-function shotCard(c, selectedId, inspectKind) {
-  const on = c.shotId === selectedId;
-  const thumb = c.hasVideo
-    ? `<video class="ep-cardth" src="${esc(c.videoUrl)}" preload="metadata" muted playsinline></video>`
-    : c.hasImage
-      ? `<img class="ep-cardth" src="${esc(c.imageUrl)}" alt="" loading="lazy">`
-      : `<div class="ep-cardth none">🎞</div>`;
-  const sub = (kind, label, state) =>
-    `<button class="ep-sub ${state}${on && inspectKind === kind ? " on" : ""}" ` +
-    `data-ep-card="${esc(c.shotId)}" data-ep-kind="${kind}">${esc(label)}</button>`;
-  const refState = c.references.length ? "ok" : "none";
-  return (
-    `<div class="ep-card${on ? " on" : ""}${c.approved ? " ok" : ""}" data-ep-select="${esc(c.shotId)}">` +
-    `<div class="ep-cardhead">${thumb}` +
-    `<div class="ep-cardmeta"><div class="ep-cardt">${esc(c.title)}</div>` +
-    `<div class="ep-cards">${[c.shotSize, c.angle, c.duration ? `${c.duration}s` : ""].filter(Boolean).map(esc).join(" · ")}</div>` +
-    `<div class="ep-cardchips"><span class="chip${c.approved ? " ok" : ""}">${esc(c.stageLabel)}</span>` +
-    (c.lastGenerationFailed ? `<span class="chip bad">上次生成失败</span>` : "") +
-    `</div></div></div>` +
-    (c.references.length
-      ? `<div class="ep-cardrefs">${c.references.map((r) =>
-          `<span class="ep-refchip" title="${esc(ROLE_LABEL[r.kind] || r.kind || "")}">${esc(r.name)}</span>`).join("")}</div>`
-      : "") +
-    `<div class="ep-subs">` +
-    sub("reference", `参考 ${c.references.length || ""}`.trim(), refState) +
-    sub("prompt", "Prompt", "ok") +
-    sub("generation", "生成", c.lastGenerationFailed ? "bad" : "ok") +
-    sub("image", "画面", c.hasImage ? "ok" : "none") +
-    sub("video", "视频", c.hasVideo ? "ok" : "none") +
-    sub("audio", "音频", c.hasAudio ? "ok" : "none") +
-    `</div></div>`
-  );
-}
+/** Does this stage have a SHOT PICKER for the focus filter to narrow?
+ *
+ *  Only the 制作台 does — that is where a shot is chosen. On a stage workspace the
+ *  filter would have no list to act on, and on the provenance graph it would sit
+ *  beside that graph's own filter chips meaning something different. */
+export const showsFocus = (stage) => stage === EPISODE_DEFAULT;
 
-function sceneBlock(s, selectedId, inspectKind, focus) {
-  const hidden = s.shots.length - s.visible.length;
-  return (
-    `<section class="ep-scenesec">` +
-    `<header class="ep-scenehd"><h3>${esc(s.title)}</h3>` +
-    `<span class="ep-scenen">${s.shots.length} 个镜头</span>` +
-    (hidden ? `<span class="chip mute">${hidden} 个不在当前聚焦</span>` : "") +
-    `</header>` +
-    (s.visible.length
-      ? `<div class="ep-cards">${s.visible.map((c) => shotCard(c, selectedId, inspectKind)).join("")}</div>`
-      : `<div class="ep-none">这个场景没有镜头符合当前聚焦。</div>`) +
-    (s.dangling
-      ? `<div class="ep-dangling">${s.dangling} 个镜头引用在当前草稿里找不到（草稿可能被重新生成）</div>`
-      : "") +
-    `</section>`
-  );
-}
-
-/** Does this centre stage have shot cards for the focus filter to filter? */
-export const showsFocus = (stage) => stage === "workbench";
-
-/** The 剧集制作 CENTER. `stage` defaults to the space's own centre — the
- *  generation graph. Every other value is one of the existing stage workspaces,
- *  which this module does not re-implement — it only frames them. */
-export function renderEpProd(ctx, ui, { stage = EPISODE_DEFAULT, inner = "" } = {}) {
+/**
+ * The 剧集制作 CENTER.
+ *
+ * `stage` defaults to the space's own centre — the 制作台. Every other value is one
+ * of the existing stage workspaces, which this module does not re-implement — it
+ * only frames them.
+ *
+ * `graph` is the current shot's production graph (already rendered HTML), passed in
+ * rather than built here so the shell can hand the same model to `bindShotGraph`
+ * and `drawShotEdges` without deriving it twice.
+ */
+export function renderEpProd(ctx, ui, { stage = EPISODE_DEFAULT, inner = "", graph = null } = {}) {
   const m = workbenchModel(ctx, ui);
+  const isCentre = stage === EPISODE_DEFAULT;
   const showFocus = showsFocus(stage);
   if (m.empty) {
     return (
       `<div class="ep-center">` +
-      topBar({ episodes: m.episodes, focus: "all", shots: 0, shown: 0 }, ui, { stage, showFocus }) +
+      topBar({ episodes: m.episodes, focus: "all", shots: 0, shown: 0 }, ui, { stage, showFocus: false, place: null }) +
       `<div class="st-empty"><div class="ic">📺</div><div class="tt">还没有剧集</div>` +
       `<div class="hh">剧集制作需要一集来做。先在「故事开发 · 分集规划」确认规划，剧集就会建立。</div>` +
       `<button class="btn primary" data-ep-tostory>去故事开发</button></div></div>`
     );
   }
-  const body = stage === "workbench"
-    ? (m.shots
-        ? m.scenes.map((s) => sceneBlock(s, ui.selectedShotId, (ui.inspect && ui.inspect.kind) || "shot", m.focus)).join("") +
-          (m.unassigned.length
-            ? `<section class="ep-scenesec"><header class="ep-scenehd"><h3>未分配到场景</h3>` +
-              `<span class="ep-scenen">${m.unassignedTotal} 个镜头</span></header>` +
-              `<div class="ep-cards">${m.unassigned.map((c) => shotCard(c, ui.selectedShotId, (ui.inspect && ui.inspect.kind) || "shot")).join("")}</div></section>`
-            : "")
-        : m.hasScript
-          ? `<div class="st-empty"><div class="ic">🎞</div><div class="tt">剧本有了，还没有拆成镜头</div>` +
-            `<div class="hh">在「分镜」里把本集剧本拆成带景别、运镜和时长的镜头草稿。</div>` +
-            `<button class="btn primary" data-mod="shots">去分镜</button></div>`
-          : `<div class="st-empty"><div class="ic">📄</div><div class="tt">这一集还没有剧本</div>` +
-            `<div class="hh">剧集制作从 Episode Script 开始。剧本在「故事开发」里写完，再回到这里。</div>` +
-            `<button class="btn primary" data-ep-tostory>去故事开发</button></div>`)
-    : inner;
-  const c = m.counts;
-  const summary = m.shots
-    ? `<div class="ep-summary">${esc(m.episodeTitle)} · 已通过 ${c.approved} · 待审 ${c["todo-review"]} · ` +
-      `已生成 ${c.generated} · 待生成 ${c["todo-generate"]} · 待设计 ${c["todo-design"]}</div>`
-    : "";
+  const place = currentPlace(m, ui.selectedShotId);
+  let body;
+  if (!isCentre) {
+    body = inner;
+  } else if (!m.shots) {
+    body = m.hasScript
+      ? `<div class="st-empty"><div class="ic">🎞</div><div class="tt">剧本有了，还没有拆成镜头</div>` +
+        `<div class="hh">在「分镜」里把本集剧本拆成带景别、运镜和时长的镜头草稿。</div>` +
+        `<button class="btn primary" data-mod="shots">去分镜</button></div>`
+      : `<div class="st-empty"><div class="ic">📄</div><div class="tt">这一集还没有剧本</div>` +
+        `<div class="hh">剧集制作从 Episode Script 开始。剧本在「故事开发」里写完，再回到这里。</div>` +
+        `<button class="btn primary" data-ep-tostory>去故事开发</button></div>`;
+  } else if (graph) {
+    body = graph;
+  } else {
+    // The episode HAS shots but none of them resolves to a selectable one (every
+    // shotId in its scenes is missing from the current draft — the draft was
+    // regenerated under it). An empty centre here would read as 「坏了」; the truth is
+    // that the scenes point at shots that no longer exist, and 分镜 is where that is
+    // fixed.
+    body =
+      `<div class="st-empty"><div class="ic">🎞</div><div class="tt">这一集的镜头都不在当前草稿里</div>` +
+      `<div class="hh">场景引用的镜头在当前分镜草稿里找不到——草稿可能被重新生成过。` +
+      `在「分镜」里确认草稿版本，或重新把镜头分配到场景。</div>` +
+      `<button class="btn primary" data-mod="shots">去分镜</button></div>`;
+  }
   return (
     `<div class="ep-center">` +
-    topBar(m, ui, { stage, showFocus }) +
-    (stage === "workbench" ? summary : "") +
-    `<div class="ep-body${stage === EPISODE_DEFAULT ? " full" : ""}">${body}</div>` +
+    topBar(m, ui, { stage, showFocus, place }) +
+    `<div class="ep-body${isCentre ? " full" : ""}">${body}</div>` +
     `</div>`
   );
 }
@@ -278,7 +272,7 @@ export function renderEpProd(ctx, ui, { stage = EPISODE_DEFAULT, inner = "" } = 
 /* bind                                                                       */
 /* -------------------------------------------------------------------------- */
 
-export function bindEpProd(root, ctx, ui, render, { enterEpisode, setStage, goStory } = {}) {
+export function bindEpProd(root, ctx, ui, render, { enterEpisode, setStage, goStory, selectShot } = {}) {
   const on = (q, fn) => { const el = root.querySelector(q); if (el) el.onclick = fn; };
 
   on("[data-ep-selopen]", () => { ui.epSelOpen = !ui.epSelOpen; render(); });
@@ -304,25 +298,34 @@ export function bindEpProd(root, ctx, ui, render, { enterEpisode, setStage, goSt
     else render();
   }));
 
-  // A card SELECTS the shot; a sub-card additionally chooses which of its objects
-  // the LEFT inspector operates on. Both are pure view state.
-  root.querySelectorAll("[data-ep-select]").forEach((b) => (b.onclick = () => {
-    const id = b.dataset.epSelect;
-    if (ui.selectedShotId === id) return;
-    ui.selectedShotId = id;
-    ui.inspect = { ...(ui.inspect || {}), kind: (ui.inspect && ui.inspect.kind) || "shot", shotId: id };
-    ui.piPrompt = null;
+  // A SCENE chip moves the current shot to that scene's FIRST shot — a scene is not
+  // a thing you produce, so standing on one with no shot selected would leave the
+  // centre with nothing to draw. Picking the scene the current shot is already in
+  // changes nothing.
+  const m = workbenchModel(ctx, ui);
+  root.querySelectorAll("[data-ep-scene]").forEach((b) => (b.onclick = () => {
+    const sceneId = b.dataset.epScene;
+    const pool = sceneId
+      ? (m.scenes.find((s) => s.sceneId === sceneId) || { shots: [] }).shots
+      : m.unassigned;
+    const focused = pool.filter((c) => passesFocus(c, m.focus));
+    const next = (focused[0] || pool[0] || null);
+    if (next && selectShot) selectShot(next.shotId);
+    else render();
+  }));
+  root.querySelectorAll("[data-ep-shot]").forEach((b) => (b.onclick = () => {
+    if (selectShot) selectShot(b.dataset.epShot);
+    else render();
+  }));
+
+  // 自动布局 / 手动布局 + 全屏 (§8). Both are VIEW state: how the picture is arranged
+  // is not a creative decision, so neither is persisted.
+  root.querySelectorAll("[data-ep-layout]").forEach((b) => (b.onclick = () => {
+    ui.sgLayout = b.dataset.epLayout;
     render();
   }));
-  root.querySelectorAll("[data-ep-card]").forEach((b) => (b.onclick = (ev) => {
-    ev.stopPropagation();
-    const shotId = b.dataset.epCard;
-    const kind = b.dataset.epKind;
-    ui.selectedShotId = shotId;
-    ui.inspect = { ...(ui.inspect || {}), kind, shotId };
-    ui.piPrompt = null;
-    render();
-  }));
+  on("[data-ep-full]", () => { ui.sgFull = !ui.sgFull; render(); });
+
   root.querySelectorAll("[data-mod]").forEach((b) => (b.onclick = () => {
     ui.epWsOpen = false;
     if (setStage) setStage(b.dataset.mod);
@@ -330,5 +333,5 @@ export function bindEpProd(root, ctx, ui, render, { enterEpisode, setStage, goSt
 }
 
 /** Human label for a centre tab — used by the breadcrumb so the crumb and the
- *  tab strip cannot print different names for the same place. */
+ *  workspace menu cannot print different names for the same place. */
 export const stageLabel = (k) => MODULE_LABEL[k] || k;

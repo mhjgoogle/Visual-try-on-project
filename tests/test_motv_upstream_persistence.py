@@ -146,6 +146,9 @@ def test_the_persisted_document_carries_every_upstream_surface() -> None:
     # unknown extras rather than saved state)
     persist = _code("services", "persist.js")
     owned = persist[persist.index("const OWNED_FIELDS") :]
-    owned = owned[: owned.index("\n")]
+    # the WHOLE declaration, not just its first line: TASK-064 added five fields
+    # and wrapped the list across several lines, and a first-line-only slice then
+    # reported every field below the break as unowned.
+    owned = owned[: owned.index("];") + 2]
     for field in ("story", "production", "scripts"):
         assert f'"{field}"' in owned, f"persist must own the {field} field"

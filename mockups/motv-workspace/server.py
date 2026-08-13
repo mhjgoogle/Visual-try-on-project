@@ -175,10 +175,14 @@ _UPLOAD_TYPES = {
     "audio/wav": ".wav",
     "audio/x-wav": ".wav",
 }
+# Images are the ONE媒体 a creator inserts by hand all day, and 8MB rejected
+# ordinary camera / AI-generator output (产品 2026-08-13). Named once so the
+# manual-upload table and the generated-image check below cannot drift apart.
+_IMAGE_MAX = 20_000_000
 _UPLOAD_MAX = {
-    ".png": 8_000_000,
-    ".jpg": 8_000_000,
-    ".webp": 8_000_000,
+    ".png": _IMAGE_MAX,
+    ".jpg": _IMAGE_MAX,
+    ".webp": _IMAGE_MAX,
     ".mp4": 60_000_000,
     ".webm": 60_000_000,
     ".mp3": 20_000_000,
@@ -191,7 +195,10 @@ _UPLOAD_FILE_RE = re.compile(r"[A-Za-z0-9_-]{1,76}\.(?:png|jpg|webp|mp4|webm|mp3
 # (manual upload / TTS / paid image) may claim it — otherwise an upload could
 # silently replace a composed deliverable, and the same-slug other-extension
 # cleanup in TTS/image-gen could even delete one.
-_RESERVED_SLUG_PREFIXES = ("final-cut", "render-ep")
+# `mix-` joined in TASK-064 Phase 3: a Shot Mix is a DERIVED deliverable written
+# by _agent_mix_shot, and a manual upload allowed to claim its slug could
+# silently replace a mix (or have the same-slug cleanup delete one).
+_RESERVED_SLUG_PREFIXES = ("final-cut", "render-ep", "mix-")
 
 # Episode render is CPU/disk heavy: allow only ONE at a time (a second caller
 # gets a busy response, never a pile-up), and bound the total output work by a
@@ -396,6 +403,7 @@ _MEDIA_WRITE_ROUTES = frozenset(
         "/api/agent/image-gen",
         "/api/agent/adopt-paid",
         "/api/agent/render-episode",
+        "/api/agent/mix-shot",
         "/api/assets/delete-file",
     }
 )
@@ -640,10 +648,21 @@ def _fs_readers_allowed() -> bool:
 # us and the CLI, our safety arguments become `$0 $1 …` of a `-c` script instead
 # of the executor's flags, and a prompt-injected agent runs with its tools on
 # while we believe they are off.
-_SHELLS = frozenset({
-    "sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh",
-    "cmd", "powershell", "pwsh",
-})
+_SHELLS = frozenset(
+    {
+        "sh",
+        "bash",
+        "zsh",
+        "dash",
+        "ksh",
+        "fish",
+        "csh",
+        "tcsh",
+        "cmd",
+        "powershell",
+        "pwsh",
+    }
+)
 _SHELL_FLAGS = frozenset({"-c", "-lc", "-ic", "-lic", "--command", "/c", "/k"})
 
 
@@ -657,7 +676,7 @@ def _launcher_error(argv: list[str]) -> str | None:
             return (
                 f"启动前缀里不能出现 shell（{a}）：shell 会把我们追加的安全参数"
                 "当成脚本的位置参数吞掉，执行器就会带着工具运行。"
-                "请用纯传输前缀（如 [\"wsl\",\"-e\"]）加上可执行体的绝对路径。"
+                '请用纯传输前缀（如 ["wsl","-e"]）加上可执行体的绝对路径。'
             )
         if a.lower() in _SHELL_FLAGS:
             return f"启动前缀里不能出现 shell 命令参数（{a}）"
@@ -1402,6 +1421,8 @@ class _App:
             return self._agent_episode_plan(body)
         if path == "/api/agent/render-episode":
             return self._agent_render_episode(body)
+        if path == "/api/agent/mix-shot":
+            return self._agent_mix_shot(body)
         if path == "/api/assets/delete-file":
             return self._assets_delete_file(body)
         if path == "/api/agent/script-draft":
@@ -3798,6 +3819,379 @@ class _App:
                 return rp
         return None
 
+    def _agent_mix_shot(self, body: bytes):
+        """Shot Mix (ADR-0061 决策 6 / TASK-064 Phase 3 §38): one shot's audio
+        clips → ONE derived audio file with LOCAL ffmpeg.
+
+        Each clip is trimmed, volume-shaped (gain in dB, the unit the client
+        stores), faded, delayed to its resolved start and mixed. Output
+        ``mix-<slot>_v<N>.mp3`` — versioned atomically, never overwrites.
+
+        THE SOURCES ARE NEVER TOUCHED. This endpoint reads them and writes a new
+        file; the dialogue take, the ambience bed and every effect stay exactly
+        where they were, which is the invariant the whole mix design rests on.
+
+        Fail-closed at every step; never a fabricated success. Shares
+        ``_RENDER_LOCK`` with the episode render on purpose — both are ffmpeg
+        jobs on the same machine, and letting a mix start under a render is how
+        a prototype box runs out of CPU."""
+        if len(body) > 200_000:
+            return _json(
+                413, {"error": {"category": "too_large", "detail": "request too large"}}
+            )
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid JSON"}}
+            )
+        if not isinstance(payload, dict):
+            return _json(
+                400,
+                {"error": {"category": "bad_request", "detail": "body must be object"}},
+            )
+        project = payload.get("project")
+        slug = payload.get("slug")
+        clips = payload.get("clips")
+        if not isinstance(project, str):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid name"}}
+            )
+        d = self._upload_dir(project)
+        if d is None:
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid name"}}
+            )
+        # the output basename stem — same slug discipline as every other write
+        if not isinstance(slug, str) or not _NAME_RE.fullmatch(slug):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid slug"}}
+            )
+        if not isinstance(clips, list) or not (1 <= len(clips) <= 60):
+            return _json(
+                400,
+                {"error": {"category": "bad_request", "detail": "1-60 clips required"}},
+            )
+
+        import shutil as _shutil
+
+        ffmpeg = _shutil.which("ffmpeg")
+        # ffprobe is REQUIRED, not optional. Every clip's requested window is
+        # checked against the source's real duration, because ffmpeg silently
+        # shortens (or drops) a clip whose trim runs past the end of the file --
+        # the mix would then disagree with the frozen provenance and still report
+        # success. Same requirement as _agent_compose.
+        ffprobe = _shutil.which("ffprobe")
+        if ffmpeg is None or ffprobe is None:
+            return _json(
+                503,
+                {
+                    "error": {
+                        "category": "mix_unavailable",
+                        "detail": "ffmpeg/ffprobe 缺失：请安装并加入 PATH",
+                    }
+                },
+            )
+
+        def _probe_duration(path):
+            """The real duration of an audio file, or None when it cannot be
+            determined. NEVER a guess: a clip whose length cannot be read is
+            refused, because substituting a default silently truncates the mix
+            and still reports success."""
+            try:
+                pr = subprocess.run(  # noqa: S603 - fixed argv, validated path
+                    [
+                        ffprobe,
+                        "-v",
+                        "error",
+                        "-show_entries",
+                        "format=duration",
+                        "-of",
+                        "default=noprint_wrappers=1:nokey=1",
+                        str(path),
+                    ],
+                    capture_output=True,
+                    timeout=30,
+                )
+            except (subprocess.TimeoutExpired, OSError):
+                return None
+            if pr.returncode != 0:
+                return None
+            try:
+                d = float((pr.stdout or b"").decode("utf-8", "replace").strip())
+            except ValueError:
+                return None
+            return d if math.isfinite(d) and d > 0 else None
+
+        # resolve + validate EVERY clip before any work (fail-closed)
+        auds = []
+        for i, c in enumerate(clips, start=1):
+            if not isinstance(c, dict):
+                return _json(
+                    400,
+                    {"error": {"category": "bad_request", "detail": f"clip {i} bad"}},
+                )
+
+            def _num(key, lo, hi, default, c=c, i=i):
+                v = c.get(key)
+                if v is None:
+                    return default, None
+                if (
+                    isinstance(v, (int, float))
+                    and not isinstance(v, bool)
+                    and math.isfinite(v)
+                    and lo <= v <= hi
+                ):
+                    return float(v), None
+                return None, f"clip {i}: bad {key}"
+
+            tin, e = _num("in", 0.0, 36000.0, 0.0)
+            if e:
+                return _json(400, {"error": {"category": "bad_request", "detail": e}})
+            # An ABSENT `out` means 「到素材结束」, not a one-second clip. It is
+            # resolved from the file itself below, after the file is validated;
+            # `_num` would otherwise default it to tin+1.0 and silently truncate.
+            open_end = c.get("out") is None
+            # `maxOut` is a CAP, not a request (see app.js mixNow): the Rough Cut
+            # arranger derives it from the SHOT's length, so a bed shorter than
+            # the shot is normal and must clamp rather than refuse. A creator's
+            # own trim arrives as `out` and is held to the file.
+            max_out, e = _num("maxOut", 0.0, 36000.0, None)
+            if e:
+                return _json(400, {"error": {"category": "bad_request", "detail": e}})
+            tout, e = _num("out", 0.0, 36000.0, tin + 1.0)
+            if e:
+                return _json(400, {"error": {"category": "bad_request", "detail": e}})
+            if not open_end and not (tin < tout):
+                return _json(
+                    400,
+                    {
+                        "error": {
+                            "category": "bad_request",
+                            "detail": f"clip {i}: bad trim",
+                        }
+                    },
+                )
+            start, e = _num("start", 0.0, 3600.0, 0.0)
+            if e:
+                return _json(400, {"error": {"category": "bad_request", "detail": e}})
+            # GAIN IS dB here — the unit workflow/shotaudio.js stores. Converting
+            # on the client and sending a linear multiplier would put the
+            # conversion in two places; ffmpeg takes dB directly.
+            gain, e = _num("gainDb", -60.0, 12.0, 0.0)
+            if e:
+                return _json(400, {"error": {"category": "bad_request", "detail": e}})
+            fade_in, e = _num("fadeInMs", 0.0, 30000.0, 0.0)
+            if e:
+                return _json(400, {"error": {"category": "bad_request", "detail": e}})
+            fade_out, e = _num("fadeOutMs", 0.0, 30000.0, 0.0)
+            if e:
+                return _json(400, {"error": {"category": "bad_request", "detail": e}})
+            if c.get("muted") is True:
+                continue  # a muted clip is not IN the mix — skipped, not silenced
+            f = self._resolve_upload_file(d, c.get("file"), (".mp3", ".wav"))
+            if f is None:
+                return _json(
+                    400,
+                    {
+                        "error": {
+                            "category": "bad_request",
+                            "detail": f"clip {i}: audio file missing",
+                        }
+                    },
+                )
+            # EVERY clip is checked against the source's real length, not only the
+            # open-ended ones: an explicit out point past the end of the file is
+            # exactly as silent a truncation, and it arrives with a frozen
+            # provenance record that says otherwise.
+            dur = _probe_duration(f)
+            if dur is None:
+                return _json(
+                    502,
+                    {
+                        "error": {
+                            "category": "mix_failed",
+                            "detail": f"clip {i}: 无法读取素材时长（ffprobe 失败）",
+                        }
+                    },
+                )
+            if tin >= dur:
+                return _json(
+                    400,
+                    {
+                        "error": {
+                            "category": "bad_request",
+                            "detail": f"clip {i}: 入点已超过素材长度",
+                        }
+                    },
+                )
+            if open_end:
+                tout = min(dur, 36000.0)
+                if max_out is not None:
+                    if max_out <= tin:
+                        return _json(
+                            400,
+                            {
+                                "error": {
+                                    "category": "bad_request",
+                                    "detail": f"clip {i}: 上限早于入点",
+                                }
+                            },
+                        )
+                    tout = min(tout, max_out)
+            elif tout > dur + 0.05:
+                # a 50 ms tolerance absorbs container/decoder rounding; anything
+                # beyond that is audio the caller asked for and the file does not
+                # have, so it is refused rather than quietly shortened
+                return _json(
+                    400,
+                    {
+                        "error": {
+                            "category": "bad_request",
+                            "detail": (
+                                f"clip {i}: 出点 {tout:.3f}s 超过素材时长 {dur:.3f}s"
+                            ),
+                        }
+                    },
+                )
+            else:
+                tout = min(tout, dur)
+            auds.append(
+                {
+                    "f": f,
+                    "in": tin,
+                    "out": tout,
+                    "start": start,
+                    "db": gain,
+                    "fi": fade_in / 1000.0,
+                    "fo": fade_out / 1000.0,
+                }
+            )
+        if not auds:
+            return _json(
+                400,
+                {"error": {"category": "bad_request", "detail": "no audible clips"}},
+            )
+        total = max(a["start"] + (a["out"] - a["in"]) for a in auds)
+        if total > 3600:
+            return _json(
+                400,
+                {
+                    "error": {
+                        "category": "bad_request",
+                        "detail": "混音总时长超过 1 小时上限",
+                    }
+                },
+            )
+
+        args = [ffmpeg, "-y", "-nostdin"]
+        for a in auds:
+            args += ["-i", str(a["f"])]
+        parts = []
+        for j, a in enumerate(auds):
+            dur = a["out"] - a["in"]
+            fades = ""
+            if a["fi"] > 0:
+                fades += f",afade=t=in:st=0:d={min(a['fi'], dur):.3f}"
+            if a["fo"] > 0:
+                fo_st = max(0.0, dur - a["fo"])
+                fades += f",afade=t=out:st={fo_st:.3f}:d={min(a['fo'], dur):.3f}"
+            delay_ms = int(round(a["start"] * 1000))
+            parts.append(
+                f"[{j}:a]atrim=start={a['in']:.3f}:end={a['out']:.3f},asetpts=PTS-STARTPTS,"
+                f"volume={a['db']:.3f}dB{fades},aresample=44100,adelay={delay_ms}:all=1[a{j}]"
+            )
+        parts.append(
+            "".join(f"[a{j}]" for j in range(len(auds)))
+            + f"amix=inputs={len(auds)}:duration=longest:normalize=0[aout]"
+        )
+        args += ["-filter_complex", ";".join(parts), "-map", "[aout]"]
+        args += ["-t", f"{total:.3f}"]
+        args += ["-c:a", "libmp3lame", "-b:a", "192k", "-ar", "44100"]
+
+        if not _RENDER_LOCK.acquire(blocking=False):
+            return _json(
+                503,
+                {
+                    "error": {
+                        "category": "render_busy",
+                        "detail": "已有渲染/混音在进行中，请稍后再试",
+                    }
+                },
+            )
+        work = None
+        try:
+            work = Path(tempfile.mkdtemp(prefix="motv-mix-", dir=str(d)))
+            out_tmp = work / "out.mp3"
+            try:
+                proc = subprocess.run(  # noqa: S603 - fixed argv, validated paths
+                    args + [str(out_tmp)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    timeout=300,
+                )
+            except subprocess.TimeoutExpired:
+                return _json(
+                    504,
+                    {
+                        "error": {
+                            "category": "mix_timeout",
+                            "detail": "ffmpeg timed out",
+                        }
+                    },
+                )
+            if proc.returncode != 0 or not out_tmp.is_file():
+                detail = (proc.stderr or b"")[-400:].decode("utf-8", "replace")
+                return _json(
+                    502,
+                    {
+                        "error": {
+                            "category": "mix_failed",
+                            "detail": f"ffmpeg failed: {detail}",
+                        }
+                    },
+                )
+            # atomic versioned claim — two concurrent mixes can never share N
+            n = 1
+            while True:
+                target = d / f"{slug}_v{n}.mp3"
+                try:
+                    os.close(os.open(str(target), os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+                    break
+                except FileExistsError:
+                    n += 1
+            try:
+                os.replace(out_tmp, target)
+            except OSError:
+                try:
+                    os.unlink(target)  # release the claimed slot on failure
+                except OSError:
+                    pass
+                raise
+            h = hashlib.sha256()
+            with open(target, "rb") as fh:
+                for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                    h.update(chunk)
+            sha = h.hexdigest()
+        except OSError:
+            return _json(
+                502, {"error": {"category": "mix_failed", "detail": "mix failed"}}
+            )
+        finally:
+            if work is not None:
+                _shutil.rmtree(work, ignore_errors=True)
+            _RENDER_LOCK.release()
+        return _json(
+            200,
+            {
+                "ok": True,
+                "url": f"/api/uploads/{project}/{slug}_v{n}.mp3",
+                "version": n,
+                "sha256": sha,
+                "clips": len(auds),
+            },
+        )
+
     def _agent_render_episode(self, body: bytes):
         """Lightweight episode render (M11): timeline clips → ONE MP4/WebM
         with LOCAL ffmpeg. Video track = sequential trimmed clips (scaled/
@@ -3954,7 +4348,11 @@ class _App:
                         },
                     )
                 vids.append({"f": f, "in": tin, "out": tout})
-            elif track in ("dialogue", "ambience", "sfx", "bgm"):
+            # TASK-064 Phase 3: `foley` and `vo` are their own tracks all the way
+            # through (workflow/timeline.js TRACKS). Mapping them onto sfx /
+            # dialogue here would make the render's own record disagree with the
+            # timeline that produced it.
+            elif track in ("dialogue", "vo", "ambience", "sfx", "foley", "bgm"):
                 if c.get("muted") is True or vol <= 0:
                     continue  # a muted clip contributes nothing — skipped
                 f = self._resolve_upload_file(d, c.get("file"), (".mp3", ".wav"))
@@ -4560,10 +4958,15 @@ class _App:
                     }
                 },
             )
-        if len(img) > 8_000_000:
+        if len(img) > _IMAGE_MAX:
             return _json(
                 502,
-                {"error": {"category": "too_large", "detail": "image exceeds 8MB"}},
+                {
+                    "error": {
+                        "category": "too_large",
+                        "detail": f"image exceeds {_IMAGE_MAX // 1_000_000}MB",
+                    }
+                },
             )
         ext = next(
             (e for e in (".png", ".jpg", ".webp") if _media_magic_ok(e, img)), None

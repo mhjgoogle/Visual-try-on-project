@@ -26,7 +26,10 @@ import {
   CANVAS_SCHEMA_VERSION, MIGRATIONS, migrateToCurrent, validateCanvasDoc,
 } from "../src/services/canvasschema.js";
 import { briefModel, renderBriefWs } from "../src/ui/briefws.js";
-import { relationshipsModel } from "../src/ui/relws.js";
+// TASK-065 §2: 人物关系 is a GRAPH now, and its derivation moved out of the UI into
+// `workflow/relgraph.js`. `relationshipsModel` is gone rather than kept as a second
+// read model of the same records — two of them would drift.
+import { relationshipGraph } from "../src/workflow/relgraph.js";
 import { worldModel } from "../src/ui/worldws.js";
 import { episodePlanModel, renderEpPlanWs } from "../src/ui/epplanws.js";
 import { canonModel, directorNote, surfacedSection, directorModel, renderDirector } from "../src/ui/director.js";
@@ -1329,26 +1332,62 @@ test("briefModel: reports the draft, the revision and the dirty standing", () =>
   assert.deepEqual(m.versions, [{ v: 1, id: m.active.id, origin: "manual", isActive: true }]);
 });
 
-test("relationshipsModel: pairs, completeness and the episodes that advance it", () => {
+test("relationshipGraph: real character nodes, a directed edge, and 当前关系", () => {
   const { prod, chars } = prodWithChars(["林照", "沈既白", "医生"]);
   const rec = cd.addRelationship(prod, chars[0].characterId, chars[1].characterId);
   cd.updateRelationship(prod, rec.relationshipId, { basis: "搭档", arc: "戒备 → 合作" });
   cd.setEpisodeRelationshipBeat(prod, prod.episodes[0].episodeId, rec.relationshipId, {
     start: "利益合作", event: "承担风险", end: "有限信任",
   });
-  const m = relationshipsModel(snap(prod));
-  assert.equal(m.empty, false);
-  assert.equal(m.items.length, 1);
-  const it = m.items[0];
-  assert.equal(it.a.name, "林照");
-  assert.equal(it.b.name, "沈既白");
-  assert.equal(it.filled, 2);
-  assert.equal(it.total, cd.RELATIONSHIP_FIELDS.length);
-  assert.deepEqual(it.beats.map((b) => b.code), ["EP01"]);
+  const g = relationshipGraph(snap(prod), { episodeId: prod.episodes[0].episodeId });
+  assert.equal(g.empty, false);
+  // NODES ARE THE REAL CAST, laid out deterministically — no copies, no random
+  assert.deepEqual(g.nodes.map((n) => n.name), ["林照", "沈既白", "医生"]);
+  assert.ok(g.nodes.every((n) => Number.isFinite(n.x) && Number.isFinite(n.y)));
+  assert.equal(g.edges.length, 1);
+  const e = g.edges[0];
+  assert.equal(e.a.name, "林照");
+  assert.equal(e.b.name, "沈既白");
+  assert.equal(e.type, "搭档"); // 关系类型 IS the basis in this domain
+  assert.equal(e.filled, 2);
+  // 当前关系 is DERIVED from the beat — the episode's `end`, not the作品级 arc
+  assert.equal(e.current.text, "有限信任");
+  assert.equal(e.current.from, "end");
+  assert.equal(e.current.code, "EP01");
   // remaining undefined pairs are offered, the defined one is not
-  assert.equal(m.pairs.length, 2);
-  assert.ok(!m.pairs.some((p) => p.label === "林照 × 沈既白"));
-  assert.equal(relationshipsModel(snap(null)).empty, true);
+  assert.equal(g.pairs.length, 2);
+  assert.ok(!g.pairs.some((p) => p.label === "林照 × 沈既白"));
+  assert.equal(relationshipGraph(snap(null)).empty, true);
+});
+
+test("relationshipGraph: 改方向 carries aToB / bToA with it", () => {
+  const { prod, chars } = prodWithChars(["林照", "沈既白"]);
+  const rec = cd.addRelationship(prod, chars[0].characterId, chars[1].characterId);
+  cd.updateRelationship(prod, rec.relationshipId, { aToB: "把他当对手", bToA: "把她当变数" });
+  assert.equal(cd.swapRelationshipDirection(prod, rec.relationshipId), true);
+  const g = relationshipGraph(snap(prod));
+  assert.equal(g.edges[0].a.name, "沈既白");
+  assert.equal(g.edges[0].b.name, "林照");
+  // the DIRECTIONAL facets travelled with the arrow: 「A 怎么看 B」 still describes
+  // the side the arrow now starts from
+  const r = prod.relationships[0];
+  assert.equal(r.profile.aToB, "把她当变数");
+  assert.equal(r.profile.bToA, "把他当对手");
+  assert.equal(cd.swapRelationshipDirection(prod, "rel-nope"), false);
+});
+
+test("relationshipCurrentState: no beat up to this episode means NO current state", () => {
+  const { prod, chars } = prodWithChars(["林照", "沈既白"]);
+  const rec = cd.addRelationship(prod, chars[0].characterId, chars[1].characterId);
+  cd.updateRelationship(prod, rec.relationshipId, { basis: "搭档", arc: "戒备 → 合作" });
+  // a written definition is NOT a current state: printing `basis` here would present
+  // the作品级 definition as if an episode had reached it
+  assert.equal(cd.relationshipCurrentState(prod, rec.relationshipId), null);
+  // a beat with only a START falls back to it rather than reporting nothing
+  cd.setEpisodeRelationshipBeat(prod, prod.episodes[0].episodeId, rec.relationshipId, { start: "戒备" });
+  const cur = cd.relationshipCurrentState(prod, rec.relationshipId);
+  assert.equal(cur.text, "戒备");
+  assert.equal(cur.from, "start");
 });
 
 test("worldModel: fill standing + the separate Location domain count", () => {
@@ -1518,8 +1557,10 @@ test("the demo seed produces a document that VALIDATES at the current schema", a
 
 test("IA: 故事开发's rail ends at the episode script; media stages are their own space", () => {
   assert.deepEqual(NAV.map((g) => g.sec), ["故事开发"]);
+  // TASK-065 §2 / §4: 人物关系 is a tab of 人物, 场景地 a tab of 世界观 — see the same
+  // assertion in tests/workspaces.test.mjs for why this shrank.
   assert.deepEqual(NAV[0].items.map((i) => i[0]), [
-    "brief", "story", "characters", "relationships", "world", "episodes", "script",
+    "brief", "story", "characters", "world", "episodes", "script",
   ]);
   // ADR-0061 决策 1: 本集剧本 is the LAST step of 故事开发 — story development ends
   // at每一集 Episode Script, and 剧集制作 begins FROM it.

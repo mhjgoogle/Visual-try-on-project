@@ -12,6 +12,7 @@ from ai_video_workflow.composition.ffmpeg import _concat_quote
 from ai_video_workflow.qcd.events import build_task_created_event
 from ai_video_workflow.qcd.log import append_event, log_path
 from ai_video_workflow.security import PathEscapeError, resolve_within_root
+from tests.symlink_support import symlink_or_skip
 
 T0 = datetime(2026, 7, 29, 8, 0, 0, tzinfo=timezone.utc)
 
@@ -37,7 +38,7 @@ def test_resolve_within_root_rejects_symlinked_component(tmp_path) -> None:
     root = tmp_path / "project"
     root.mkdir()
     # a subdirectory of the project root is a symlink pointing outside
-    (root / "qcd").symlink_to(outside, target_is_directory=True)
+    symlink_or_skip(root / "qcd", outside, target_is_directory=True)
     with pytest.raises(PathEscapeError):
         resolve_within_root(root, "qcd/events/log.jsonl")
 
@@ -47,7 +48,7 @@ def test_resolve_within_root_allows_symlinked_ancestor_of_root(tmp_path) -> None
     real = tmp_path / "real"
     real.mkdir()
     link = tmp_path / "link"
-    link.symlink_to(real, target_is_directory=True)
+    symlink_or_skip(link, real, target_is_directory=True)
     target = resolve_within_root(link, "reports/x.json")
     assert target == link / "reports" / "x.json"
 
@@ -57,7 +58,7 @@ def test_qcd_append_refuses_symlinked_log_dir(tmp_path) -> None:
     outside.mkdir()
     root = tmp_path / "project"
     root.mkdir()
-    (root / "qcd").symlink_to(outside, target_is_directory=True)
+    symlink_or_skip(root / "qcd", outside, target_is_directory=True)
     event = build_task_created_event(
         project_id="proj-1",
         shot_id="shot-1",
@@ -88,8 +89,8 @@ def test_bootstrap_refuses_symlinked_records_dir(tmp_path) -> None:
     outside.mkdir()
     root = tmp_path / "project"
     (root / "records").mkdir(parents=True)
-    (root / "records" / "generation-tasks").symlink_to(
-        outside, target_is_directory=True
+    symlink_or_skip(
+        root / "records" / "generation-tasks", outside, target_is_directory=True
     )
     data = ProjectData(
         project=Project("proj-1", "Demo", T0),

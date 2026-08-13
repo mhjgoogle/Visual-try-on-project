@@ -301,6 +301,294 @@ Phase 2 / Phase 3 不动。
    与产品代码无关。
 4. Playwright 在本机没有浏览器缓存，需先 `python -m playwright install chromium`。
 
+## 4c. Phase 2 收尾 + Phase 3 全部（2026-08-12）
+
+### 交付：Phase 2 收尾
+
+| 交付 | 位置 |
+| --- | --- |
+| 参考「解读」文档（六轴 · 版本 · Lock） | `src/workflow/refinterp.js`、`ctx.refInterp` |
+| Prompt 编译器真正读参考 + 解读 | `src/workflow/promptc.js`（image/video/dialogue 三个编译器）|
+| 唯一编译器接线（参考 / 解读 / 首尾帧一次解析） | `src/ui/storyboard.js` `referenceInputs` / `frameInputs` → `shotDetailModel` |
+| Generation Input Set 按用途分组 | `src/workflow/geninput.js`（`modelInputs` / `interpretationInputs`）+ `prodinspector.js` `inputSetSec` |
+| 尾帧 → 下一镜首帧（全字段溯源 + 五态漂移 + 三个出口） | `src/workflow/framebind.js`、`ctx.frames`、`prodinspector.js` `extractSec` |
+| 客户端抽帧（`<video>`+`<canvas>` → 登记为 `derived-frame`） | `src/app.js` `grabVideoFrame`、`ctx.frames.extract` |
+| Lock 域（八个 scope，其中四个由各自文档持有） | `src/workflow/locks.js`、`ctx.locks` |
+| `environmentMotion` 作为独立视频输入 | `promptc.compileVideoPrompt`、`shoteditor.normalizeShots` |
+
+### 交付：Phase 3
+
+| 交付 | 位置 |
+| --- | --- |
+| 后期控制台（镜头音频 / 剧集剪辑 / 成片） | `src/ui/postconsole.js`，dock 挂在剧集制作下方，`edit` 模块是同一组件的全屏形态 |
+| 镜头多轨音频 UI（六轨 · 绝对/事件对位 · gain/fade/mute/换素材） | `postconsole.js` + `ctx.shotAudio` |
+| Shot Mix（真实 ffmpeg，派生资产，源全保留） | `server.py` `_agent_mix_shot`、`ctx.shotAudio.mixNow` |
+| 字幕轨（台词 → 字幕 Case A，编辑/合并/拆分/样式/SRT 导出） | `src/workflow/subtitle.js`、`ctx.subtitles` |
+| 自动初剪（不发明、pin 版本、不覆盖人工） | `src/workflow/roughcut.js`、`ctx.timeline.buildRoughCut` |
+| 时间线：foley/vo 轨 · 版本 pin · 五态漂移 · remove/restore · 转场 | `src/workflow/timeline.js` |
+| Action Layer 扩到 24 个后期动作 | `src/workflow/actions.js` + `ctx.actions.dispatch` |
+| 四个真实后期 Skill + 写回路径 | `src/workflow/skills.js`、`skillapply.js` |
+| Final Render 可复现溯源 | `ctx.timeline.render` 的 `parameters` |
+
+### 本轮的关键判断
+
+1. **不另造 Frame 系统**：生效的首帧仍是 `assets.firstFrames[slot]`（付费路线 /
+   draft lock / 溯源图都读它），`frameBindings` 只补它从来没有的「来自哪里」。
+   两者在同一次调用里写，不可能各自漂移。
+2. **`剪辑` 工作区被控制台取代**，不是并存：`ui/timelinews.js` 已不再挂载
+   （读模型的单元测试保留）。否则同一条时间线会有两处实现、两套 guard。
+3. **转场记录但本轮不渲染**：本地渲染器仍按硬切拼接。UI 与成片溯源都明说这一点
+   —— 让「叠化」看起来生效而实际是硬切，就是这套代码一直在拒绝的假承诺。
+4. **字幕不烧入画面**，提供 SRT 导出；ASR / 强制对齐留适配点并显式标注不可用。
+
+### 验证结果
+
+- 全量 pytest：**2959 passed / 56 skipped / 0 failed**
+- 前端：**792 passed / 0 failed**（740 → 792；新增 `tests/postprod.test.mjs` 52 项）
+- ruff：**All checks passed**
+- Connected（真实项目 `夜班沉默`，真实 server.py + 真实 ffmpeg）：
+  **75 项断言全过，0 JS 异常 / 0 失败请求**（`_agent-tools/accept-phase23.mjs`）
+- 演示项目补测真实数据够不到的两条路径（多镜头 reorder、台词→字幕）：
+  **7 项全过**（`_agent-tools/accept-demo-gaps.mjs`）
+- Codex 独立审查 **9 轮**，修掉 **14 个 P1**，1 条假阳性经浏览器实测推翻；
+  逐条见 `.claude/tmp/last-review.md`
+
+### 五个既有 pytest 守卫被更新（都是本轮有意的改动，行为未变）
+
+`test_motv_generation_m5`（混音是第 7 个真实 generation）、
+`test_motv_prodgraph_task062`（`shotAudio` 也是 per-shot 输入）、
+`test_motv_skills_task059`（切片边界改为真正的下一个 controller）、
+`test_motv_upstream_persistence`（OWNED_FIELDS 现在跨多行）、
+`test_motv_asset_library_task061`（Phase 1b 的 `str()` 包装 —— **这一条在本轮开始前
+就已经是红的**，Phase 1b 只跑了前端与浏览器，没跑全量 pytest）。
+
+### 一个只有截图能抓到的缺陷
+
+控制台第一版**在 DOM 里、handler 全绑好、每条行为断言都过，但创作者看不见**：
+`.st-main` 是滚动 flex 列且给每个子元素 `flex: none`，而 `.ep-center` 自称
+`height: 100%`，于是追加在它后面的控制台被排到视口外。
+浏览器驱动的断言查的是 DOM 与行为，抓不到这一类。修法是让中央列自己拥有高度
+（`styles/epprod.css` `.ep-main`），并给验收脚本加了一条**测量 boundingBox 的
+可见性断言**，让这一类不可能再静默复发。
+
+### 已知的真实限制（不是绕过，是如实记录）
+
+1. **转场不渲染**（见上）。
+2. **字幕不烧入画面**，只导出 SRT。
+3. **`夜班沉默` 只有 SH01 有视频**，且该镜头没有台词 → Connected 上
+   「多镜头 reorder」与「台词→字幕」无法在真实数据上演示，已在演示项目补测并
+   在验收脚本里如实标注为「未在 Connected 上演示」，不是绿勾。
+4. **旧时间线片段是 `manual`**，自动初剪按设计不动它们，因此拿不到版本 pin。
+   控制台新增「按当前素材重建…」作为唯一的显式出口（会覆盖手工调整，有确认）。
+5. **Shot Mix 需要 ffprobe**：无出点或出点超长时靠它解析真实时长，缺失即 503。
+
+## 4f. 待处理：codex 在 TASK-069 审查中对 Phase 3 字幕生成的发现（范围外转入）
+
+2026-08-13，TASK-069（分集规划手工修改）的 codex 审查在**本任务 Phase 3** 的代码上报了
+一条 blocking，按 AGENTS.md 第 17 条原样转记，**未在 TASK-069 中修改**：
+
+> `mockups/motv-workspace/src/app.js`（`ctx.subtitles.generate`）— 生成字幕时遍历
+> `timeline.clipsOf(..., "video")` 而不是 **live clips** → 会给标记为已移除的片段生成
+> cue，而这些片段并不在最终渲染里 → **交付的 SRT 会给成片里不存在的镜头配字幕**。
+
+判断（供实施时参考，尚未实施）：
+
+- 缺陷可信且影响是**交付物级别**的：`liveClips` 正是为「排除已移除片段」而存在的，
+  时间线渲染与时长计算都用它，只有字幕生成这一处用了 `clipsOf`。
+- 修法应当极小：把那一处换成 `timeline.liveClips(t)`，并补一条守卫测试
+  「移除一个片段后重新生成字幕，不再为它产生 cue」。
+- 之所以不在 TASK-069 里顺手改：字幕属于 TASK-064 Phase 3 的交付面，本轮的范围是
+  故事开发的分集规划，两者没有交集（AGENTS.md 第 17 条）。
+
+## 4g. 待处理：codex 在 TASK-067–071 批量审查中的两条 Phase 3 发现（范围外转入）
+
+2026-08-13，TASK-067–071 批量审查在**本任务 Phase 3** 的代码上报了两条 non-blocking，
+按 AGENTS.md 第 17 条原样转记，**未在那一批里修改**：
+
+1. `workflow/skillapply.js` `collectSubtitleFixes` + `ctx.subtitles.applyFix` —— 一条
+   字幕修正同时带 `mergeWithNext` 和 text / 时间字段时，dispatcher 把「合并」当成**互斥**
+   分支：合并成功，而同一条里请求的其它修正被**静默丢弃**。要么把两者都执行，要么明确
+   拒绝并说明，不能默默只做一半。
+2. `src/app.js` `ctx.skills.context` 的 `timeline` 投影 —— `alternatives` 无论 clip 的
+   `trackType` 是什么，一律去查**该镜头的视频链**：音频片段因此被投影出一串视频版本作为
+   「可替换项」，Editing Director 依此提的提案会在域校验处失败。应按 `trackType` 取对应
+   的链，音频取音频。
+
+（第 1 条的 `collectSubtitleFixes` 虽然在 TASK-067 编辑过的文件里，但那个函数本身是
+Phase 3 的交付面，本批次未改动它。）
+
+## 4h. 待处理：codex 在批量审查 round 2 中对 Phase 3 `mix-shot` 端点的两条发现（范围外转入）
+
+2026-08-13，按 AGENTS.md 第 17 条原样转记，**未在那一批里修改**：
+
+1. **（blocking）`server.py` `_agent_mix_shot`** —— 输出 basename 只校验 `_NAME_RE`，
+   **没有强制 `mix-` 保留前缀**。而 `mix-` 正是 ADR-0044/TASK-064 为「合成产物」预留的
+   命名空间：一个构造过的请求可以用别的 slug 占用属于对白 / 音效音频链的带版本文件名，
+   造成命名空间抢占与资产混淆。其它写入路径（手工上传 / TTS / 付费生图）都已经用
+   `_slug_reserved` 挡住反向情况，这一处是同一条纪律的缺口。
+
+2. **（non-blocking）`server.py` 开放式片段的边界** —— `in == 36000` 被允许，而 `out`
+   被夹到 `36000`：超过十小时的音频会产生一个**零长度片段**，混音时失败，或者在还有其它
+   片段时**静默消失**。两端应当用同一个上界判定，越界即拒绝并说明。
+
+## 4i. 待处理：codex 在批量审查 round 3 的两条 Phase 3 发现（范围外转入）
+
+2026-08-13，按 AGENTS.md 第 17 条原样转记，**未在那一批里修改**：
+
+1. **（blocking）`server.py` mix 端点的数值校验** —— `math.isfinite(v)` 对于**大到无法转
+   float 的 JSON 整数**会抛 `OverflowError`：一个体积完全合法的构造请求能让 handler
+   **崩掉**，而不是返回 400。校验应当先判类型与范围，再做 isfinite。
+
+2. **（blocking）`src/app.js` dispatcher `replaceTimelineAsset`** —— 只要是同 domain 的
+   已登记资产就接受，**不校验它是否出现在那次运行看到的 `alternatives` 里**：一份被注入
+   或产生幻觉的提案可以把某个片段换成**项目里任意一段无关媒体**。
+
+   > 这与 TASK-067 round 1 在 `shot-asset-recommender` 上修掉的是**同一类**缺陷（提案
+   > 绑定了运行当时没有看到的东西）。那边的修法可以照搬：把运行看到的候选集记进
+   > `contextTrace`，应用时按它过滤，**没有记录就拒绝**（fail-closed，不要 fail-open）。
+
+## 4m. 待处理：codex 批量审查 round 7 对字幕生成的发现（范围外转入）
+
+`src/app.js` 字幕生成遍历的是 `timeline.clipsOf` 而不是 `timeline.liveClips`：**已经被
+移出成片的片段仍然会生成字幕行**。字幕于是描述了观众根本看不到的画面，而且行号与
+实际剪辑对不上。
+
+## 4l. 待处理：codex 批量审查 round 6 对 Sound Designer 应用的发现（范围外转入）
+
+`src/workflow/skillapply.js` 的音频提案落地：`setFade` **只在 `layer === "shot"` 时**发出，
+于是一份只调 episode 层淡入淡出的合法 Sound Designer 提案会被**静默忽略**——界面显示
+已应用，实际什么都没改。要么支持 episode 层的 fade，要么在无法应用时如实拒绝并说明；
+不能两者都不做。
+
+## 4k. 待处理：codex 批量审查 round 5 的两条发现（范围外转入，2026-08-13）
+
+1. **（blocking）`server.py` mix：ffprobe 在拿 `_RENDER_LOCK` 之前跑** —— 每个请求最多
+   会在**锁外**起 60 个 `ffprobe` 进程。并发请求因此可以在一次 render/mix 正在进行时
+   叠加出大量子进程：既是资源耗尽风险，也让「作业串行化」这个保证名存实亡。探测应当
+   移到锁内，或者对锁外探测本身限流。
+
+2. **（blocking）`src/app.js` `frames.bind` 先落库再校验** —— 它在确认目标 shot 有可解析
+   的 slot（`_slotOf`）之前就持久化并返回绑定。`_slotOf` 失败时，Prompt 上显示的是新绑
+   的帧，而生成实际仍在用上一帧：画面与溯源都对不上。应当先解析 slot，解析不出就
+   拒绝绑定（fail-closed），不要留下一个只在界面上成立的绑定。
+
+## 4j. 待处理：codex 批量审查 round 4 对帧提取的发现（范围外转入，未确认）
+
+`src/app.js` 的 `"at"` 帧提取：把 `currentTime` 设到 **0 ms** 时，若视频本来就停在 0，
+`currentTime` 不发生变化，而浏览器**并不保证**此时一定派发 `seeked`——于是抓第一帧会
+走到超时，而不是抓到画面。codex 自己标了 uncertain，我也没有在真实项目里复现过；
+处理前应先实测，不要凭报告改。
+
+## 4e. 待处理：codex 在 TASK-067 审查中对 Phase 2 `ctx.frames.reextract` 的发现（范围外转入）
+
+2026-08-13，TASK-067 的 codex 审查（本任务的 Phase 2/3 仍在 working tree 未提交，因此
+一并进了那次 diff）在**本任务**的代码上报了一条 blocking，按 AGENTS.md 第 17 条原样转记
+在这里，**未在 TASK-067 中修改**：
+
+> `mockups/motv-workspace/src/app.js:3274`（`ctx.frames.reextract`）— 无条件传
+> `force: true` 调用 `ctx.frames.bind` → 重新提取会覆盖一条**已锁定**的帧绑定，
+> 绕过本该要求的解锁。
+
+**这是 TASK-065 审查里已经被驳回过的同一条**（见 TASK-065 报告的「驳回（false
+positive）」一节），理由未变，一并记在这里以免下一轮再花一次审查配额：
+
+- `framebind.bind` 的文档明确 `force` 只由**创作者自己的动作**传入 —— Auto Rough Cut
+  与 Skill 提案都不传，`usePreviousShotEndFrame`（TASK-067 新增）也不传。
+- `framebind.js` 第 155 行 `next.locked = true` 让锁在重新绑定后继续存在。
+- 锁保护的是**自动化**，不是创作者本人 —— 与 Prompt 锁、解读锁同一套语义
+  （ADR-0061 决策 5）。
+
+**若产品要改变这条语义**（让锁也拦住创作者自己的重新提取），那是一次 ADR-0061 决策 5
+的语义变更，应在本任务卡内立项，而不是在一次审查循环里顺手改掉。
+
+## 4d. 待处理：codex 在 TASK-065 审查中对 Phase 2 `ctx.frames` 的发现（范围外转入）
+
+2026-08-12，TASK-065 的 codex 审查（本任务的 Phase 2/3 当时仍在 working tree 未提交，
+因此一并进了那次 diff）在**本任务**的代码上报了一条，按 AGENTS.md 第 17 条原样转记
+在这里，**未在 TASK-065 中修改**：
+
+> `mockups/motv-workspace/src/app.js`（`ctx.frames.bind`）— 记录绑定之前没有校验
+> `targetShotId` 是否解析到真实镜头 → 目标镜头已删除时会持久化一条悬空的
+> frame binding，并报告成功。
+
+判断（供实施时参考，尚未实施）：
+
+- 缺陷可信：`framebind.bind` 只检查 `targetShotId` 是非空字符串，不检查它在当前
+  draft 里存在。`ctx.frames.bind` 也没有补这一层。
+- 影响有限但真实：读侧 `frameInputs` 只为它渲染的镜头解析绑定，所以一条属于已删除
+  镜头的绑定不会被画出来；但它会**留在 `frameBindings` 文档里**，并且写入时报告成功。
+  与本任务自己的纪律（「写入目标必须真实存在」，见 §4b Codex 轮 1）不一致。
+- 建议修法与 TASK-065 的 `missingBaseTarget` 同一形状：绑定前用 `ctx.shot.find`
+  校验目标镜头，解析不到就拒绝并说明原因（而不是静默写入并报成功）。
+
+### 第二条（TASK-065 审查轮 6）：解读按 chain key 取，不按媒体版本
+
+> `mockups/motv-workspace/src/app.js`（`ctx.skills.context` 的
+> `references[].interpretation`，以及 `ctx.refInterp` 全部读路径）—— 参考解读只按
+> **稳定的 `r.key`** 取，不带 asset / 媒体版本。给某个运动 / 风格 / 机位参考上传
+> **新的媒体版本**之后，Prompt 会把它标成新版本（`refName` 带 `v2`），而编译进去的
+> 六轴文字仍是**读 v1 时写的** → 过期的导演指令，以及 generation provenance 里
+> 「用了 v2 的解读」这个不成立的说法。
+
+判断（供实施时参考，尚未实施）：
+
+- 缺陷可信，而且是**本任务 Phase 2 的设计选择**：`refinterp` 的文档形状是
+  `refInterp[refKey]`，一条链一份解读历史，没有把解读绑到具体媒体版本。
+- 影响真实但有边界：只有「同一个参考换了新媒体版本，且没有重新解读」时才发生。
+  换版本本来就是创作者的显式动作，所以**可修的方向是提示而不是猜**：
+  与 `mediadep` / `framebind` 已有的「上游已变化」五态提示同一套做法 ——
+  记下解读是针对哪一版媒体做的，媒体版本前进后把该解读标成 `stale`，
+  在 Prompt 的 `missing` 里如实报「这条解读是针对 v1 写的，当前是 v2」，
+  并给三个出口（保持 / 重新解读 / 解除），**绝不自动改写创作者写过的文字**。
+- 不在 TASK-065 范围内（那一轮没有触碰 `refinterp` 的读写路径），按 AGENTS.md
+  第 17 条原样转记。
+
+### 第三 / 第四条（TASK-066 审查轮 1）：Phase 3 的锁与 Phase 2 的槽位校验
+
+> 1. `src/workflow/timeline.js`（`setClipRemoved`）—— 移除一个片段时会连带移除**同一
+>    镜头的音频片段**，但不检查它们各自的 `locked`。于是移除一条未锁定的画面片段
+>    （包括通过 Skill 动作移除）会**静默移除已锁定的对白 / 音效**。
+> 2. `src/app.js`（`ctx.frames.bind`）—— 接受任意图片资产并写进 `assets.firstFrames`，
+>    即使它属于**另一个槽位**且不是 `derived-frame`。canvas 校验器会拒绝这样保存的
+>    文档 → **绑定之后项目打不开**。
+
+两条都属于本任务（Phase 2 / Phase 3），不属于 TASK-066，按 AGENTS.md 第 17 条转记，
+未在 TASK-066 中修改。
+
+判断（供实施时参考，尚未实施）：
+
+- 第 1 条与 Phase 3 自己的纪律直接冲突：锁的语义是「自动化不覆盖它」，而级联移除
+  正是一次没有经过创作者对那条音频做决定的写入。建议修法：级联时**逐条检查锁**，
+  锁定的保留并**如实报告**「N 条已锁定的音频没有跟着移除」，而不是静默处理。
+- 第 2 条是**会导致文档无法加载**的严重缺陷，优先级高于第 1 条。`firstFrames[slot]`
+  的校验合同要求写入的资产属于该槽位且类型正确；`ctx.frames.bind` 应在写入前用
+  同一套规则校验（`assetreg` 的 kind + 槽位归属），不满足即拒绝并说明原因 ——
+  与 TASK-065 的 `missingBaseTarget`、`importReference` 的「登记前校验」同一形状。
+
+### 第五条（TASK-066 审查轮 3）：`frameInputs` 不读既有的 `firstFrames[slot]`
+
+> `src/ui/storyboard.js`（`frameInputs`）—— 只有当 `frameBindings` 里有记录时才把首帧
+> 当作「显式选择」；否则一律回落成「本镜头当前画面」。于是**已经存在的显式首帧选择**
+> （付费出图路线写入的、或创作者按过「用作视频首帧」的 `assets.firstFrames[slot]`）
+> 在 Prompt 与 Generation Input Set 里被**当前画面顶替** → 生成用的输入与记录下来的
+> 溯源互相矛盾。
+
+这条与**本任务自己写下的设计**直接冲突（§4c「生效的首帧仍是 `assets.firstFrames[slot]`
+…两者在同一次调用里写，不可能各自漂移」）：写侧确实一起写，但**读侧 `frameInputs`
+只看 `frameBindings`**，所以任何**在 frameBindings 存在之前**就已经写进 `firstFrames`
+的选择（旧项目、付费路线）都读不出来。
+
+建议修法：`frameInputs` 的 `start` 回落顺序改为
+**显式 binding → `firstFrames[slot]`（解析得到的资产，`from` 如实标为「已记录的首帧
+（没有来源记录）」）→ 本镜头当前画面**。中间那一层现在整个缺失。
+
+同一轮还报了 `ctx.frames.reextract` 传 `force: true` 会「覆盖创作者锁定的帧」。
+**这条是假阳性**：`framebind.bind` 的文档明确写了 `force` 只由创作者自己的动作传入
+（Auto Rough Cut 与 Skill 提案都不传），并且第 155 行 `next.locked = true` 让锁在
+创作者自己的重新绑定后**继续存在**。锁保护的是自动化，不是创作者本人 —— 与 Prompt
+锁「锁定后自动化不会覆盖它」是同一套语义。已在 TASK-065 的审查记录里作为 rebuttal
+留档，无需修改。
+
 ## 5. 明确不做
 
 Image / Video API Provider、Global Shared Asset Library、项目改名/移动/导出、

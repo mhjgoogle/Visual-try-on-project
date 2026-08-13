@@ -18,9 +18,14 @@ import { esc } from "../util/dom.js";
 import { nameWithVersion, mediaBox } from "./shell.js";
 import { shotDetailModel } from "./storyboard.js";
 import { SHOT_STAGE_LABEL } from "../workflow/shotprod.js";
-import { REFERENCE_ROLES, ROLE_LABEL, isInterpretationRole } from "../workflow/geninput.js";
+import {
+  REFERENCE_ROLES, ROLE_LABEL, isInterpretationRole,
+  MODEL_INPUT_ROLES, INTERPRETATION_ROLES, ROLE_USE_LABEL,
+} from "../workflow/geninput.js";
 import { domainsForKind } from "../workflow/assetreg.js";
 import { videoDependencies, upstreamNotice, DEP } from "../workflow/mediadep.js";
+import { AXES, AXIS_LABEL } from "../workflow/refinterp.js";
+import { BINDING_LABEL, describeBinding } from "../workflow/framebind.js";
 
 /** The object kinds this column can operate on. A selection naming anything
  *  else falls back to the shot — an inspector that renders nothing is worse
@@ -279,7 +284,161 @@ function shotBody(ctx, m) {
   );
 }
 
-function referenceBody(ctx, m) {
+/**
+ * 解读 — the six axes of ONE directing reference (ADR-0061 决策 4 / §21–§22).
+ *
+ * THIS IS WHAT MAKES 「AI 解读输入」 REAL. A motion reference the media model
+ * cannot ingest still reaches the generation, because what it SAYS is compiled
+ * into the prompt. The words come from a human here, or from the Reference
+ * Interpreter skill — never from the file name, and never from an inference
+ * about pixels nobody looked at.
+ *
+ * An axis nobody answered stays EMPTY rather than being filled with a plausible
+ * default: an unanswered axis and an answered one must not read the same in the
+ * prompt, because only one of them is a directing decision.
+ */
+function interpretationSec(ctx, one, ui) {
+  const entry = ctx.refInterp.entry(one.key);
+  const reading = ctx.refInterp.reading(one.key);
+  const buf = ui.piAxes && ui.piAxes.key === one.key ? ui.piAxes.axes : null;
+  const value = (k) => (buf ? (buf[k] || "") : (reading ? (reading.axes[k] || "") : ""));
+  const dirty = !!buf && AXES.some(([k]) => value(k) !== (reading ? (reading.axes[k] || "") : ""));
+  const fields = AXES.map(([k, label]) =>
+    `<label class="pi-axis"><span class="lab">${esc(label)}</span>` +
+    `<input class="field pi-axisin" data-pi-axis="${esc(k)}" value="${esc(value(k))}" ` +
+    `placeholder="${esc(reading ? "" : "未记录")}"></label>`).join("");
+  const versions = entry
+    ? `<ul class="pi-vlist">` + entry.versions.slice().sort((a, b) => b.v - a.v).map((v) =>
+      `<li class="${v.v === entry.active ? "cur" : ""}">` +
+      `<span class="pi-vmeta"><b>v${v.v}</b><span class="pi-vorigin">` +
+      `${esc(v.origin === "skill" ? "来自 Skill 提案" : "手工写的")}` +
+      `${v.at ? ` · ${esc(String(v.at).slice(0, 16).replace("T", " "))}` : ""}</span></span>` +
+      (v.v === entry.active
+        ? `<span class="chip ok">ACTIVE</span>`
+        : `<button class="btn sm" data-pi-iver="${v.v}">设为当前</button>`) +
+      `</li>`).join("") + `</ul>`
+    : "";
+  return sec("解读（六个轴）",
+    fields +
+    `<div class="pi-acts">` +
+    `<button class="btn primary" data-pi-isave${dirty ? "" : " disabled"}>保存为新版本</button>` +
+    `<button class="btn" data-pi-ilock>${reading && reading.locked ? "解锁" : "锁定"}</button>` +
+    `<button class="btn" data-pi-iskill>让 AI 读一遍…</button>` +
+    `</div>` +
+    versions +
+    `<div class="meta">${reading
+      ? `当前生效 v${reading.version}${reading.locked ? " · 已锁定：Skill 提案不会覆盖它" : ""}。这些文字会被编译进这个镜头的 Prompt。`
+      : "还没有人读过这个参考。没有解读时，它<b>不会</b>凭空出现在 Prompt 里——Prompt 会明确报「还没有被解读」。"}</div>`);
+}
+
+/** A reference row's thumbnail. ADR-0061 决策 4 made a Reference able to be a video
+ *  or an audio take, so the element follows the reference's DOMAIN. Rendering
+ *  everything as `<img>` gave the four directing references a broken-image glyph —
+ *  which reads as 「这里出错了」 when the truth is 「这是一段视频」. */
+function refThumb(r) {
+  if (!r.url || r.storageState !== "local") {
+    return `<span class="pi-vth none" title="字节不在本地">⃠</span>`;
+  }
+  if (r.domain === "videos") {
+    return `<video class="pi-vth" src="${esc(r.url)}" preload="metadata" muted playsinline></video>`;
+  }
+  if (r.domain === "audio") return `<span class="pi-vth none" title="音频参考">🎵</span>`;
+  return `<img class="pi-vth" src="${esc(r.url)}" alt="" loading="lazy">`;
+}
+
+/**
+ * 这个镜头用哪些 Reference — the Generation Input, CHECKABLE (TASK-065 §11).
+ *
+ * THE RULE THIS SHAPE EXISTS FOR: 「不能把系统推荐偷偷变成不可见输入」. Every reference
+ * that could reach this generation is on ONE list with a checkbox that says whether
+ * it will. A recommendation is an UNCHECKED row — visible, one click from being an
+ * input, and never silently one already.
+ *
+ * Grouped by ROLE rather than by 已绑定/推荐/库, because the creator's question is
+ * 「这一镜的人物参考是哪张」, not 「这张是从哪个列表来的」. Where a row came from is
+ * still stated on the row.
+ *
+ * The whole asset library for a role sits behind a per-role 展开 rather than in the
+ * flat list: a project with sixty references would otherwise bury the two that
+ * matter under fifty-eight that do not.
+ */
+function referencePicker(ctx, m, p) {
+  const boundKeys = new Set(p.bound.map((r) => r.key));
+  const suggestedKeys = new Set(p.suggested.map((r) => r.key));
+  const zh = { images: "图", videos: "视频", audio: "音频" };
+  const origin = (r) =>
+    boundKeys.has(r.key) ? "已在用"
+      : suggestedKeys.has(r.key) ? "本集推荐（还没启用）"
+        : "资产库";
+  const row = (r, { checked }) => {
+    const interp = isInterpretationRole(r.kind);
+    const reading = interp && ctx.refInterp.reading(r.key);
+    return (
+      `<li class="pi-refrow${checked ? " on" : ""}">` +
+      `<label class="pi-check"><input type="checkbox" ${checked ? "checked" : ""} ` +
+      `data-pi-toggle="${esc(r.key)}" data-on="${checked ? "1" : "0"}"><span></span></label>` +
+      refThumb(r) +
+      `<button class="pi-vmeta as-link" data-pi-ref="${esc(r.key)}" data-pi-open="reference">` +
+      `${nameWithVersion(r.name, r.version)}` +
+      `<span class="pi-vorigin">${esc(origin(r))}` +
+      (interp
+        ? reading ? ` · 已解读 v${esc(String(reading.version))}` : ` · <b>尚未解读</b>`
+        : "") +
+      `</span></button>` +
+      `<span class="pi-refacts">` +
+      `<button class="btn sm" data-pi-refver="${esc(r.key)}" title="上传这个参考的新版本">新版本</button>` +
+      `</span></li>`
+    );
+  };
+  const section = (role, label) => {
+    const bound = p.bound.filter((r) => r.kind === role);
+    const suggested = p.suggested.filter((r) => r.kind === role);
+    const library = p.library.filter((r) => r.kind === role);
+    const kinds = domainsForKind(role).map((d) => zh[d] || d).join("/");
+    const head2 =
+      `<div class="pi-refhd"><b>${esc(label)}</b>` +
+      `<span class="chip${bound.length ? " ok" : " mute"}">${bound.length} 个启用</span>` +
+      `<span class="push"></span>` +
+      // The button SAYS what it takes. A control offering 「运动参考」 that only
+      // accepts a png is a control that lies about itself.
+      `<button class="btn sm" data-pi-upref="${esc(role)}" title="接受 ${esc(kinds)}">` +
+      `上传 <span class="pi-vorigin">${esc(kinds)}</span></button></div>`;
+    const listed = [...bound.map((r) => row(r, { checked: true })), ...suggested.map((r) => row(r, { checked: false }))];
+    const body = listed.length
+      ? `<ul class="pi-vlist">${listed.join("")}</ul>`
+      : `<div class="pi-none">这一镜没有${esc(label)}${library.length ? "" : "，资产库里也还没有"}。</div>`;
+    const more = library.length
+      ? `<details class="pi-reflib"><summary>从资产库选择（${library.length}）</summary>` +
+        `<ul class="pi-vlist">${library.map((r) => row(r, { checked: false })).join("")}</ul></details>`
+      : "";
+    return `<section class="pi-sec pi-refsec">${head2}${body}${more}</section>`;
+  };
+  // FRAMES are inputs too, and §11's list shows them beside the references. They
+  // are read-only here: a frame is bound and re-extracted from the VIDEO panel,
+  // which owns those operations — offering them twice is the duplicate entrance the
+  // whole round is removing.
+  const fr = m.detail.frames || {};
+  const frameRow = (f, label) =>
+    `<li class="pi-refrow${f ? " on" : ""}">` +
+    `<label class="pi-check"><input type="checkbox" ${f ? "checked" : ""} disabled><span></span></label>` +
+    (f && f.url ? `<img class="pi-vth" src="${esc(f.url)}" alt="" loading="lazy">` : `<span class="pi-vth none">⃠</span>`) +
+    `<span class="pi-vmeta"><b>${esc(label)}</b><span class="pi-vorigin">` +
+    (f ? esc(f.from || "已绑定") : "还没有") + `</span></span>` +
+    `<span class="pi-refacts"><button class="btn sm" data-pi-open="video">在视频里改</button></span></li>`;
+  return (
+    head("生成输入 · 参考", `${p.bound.length} 个启用 · 勾选的才会进入这一镜的生成`) +
+    `<div class="meta">勾上＝这次生成真的会用它；不勾＝系统只是推荐。` +
+    `系统的推荐不会偷偷变成看不见的输入。</div>` +
+    REFERENCE_ROLES.map(([role, label]) => section(role, label)).join("") +
+    sec("首帧 / 尾帧", `<ul class="pi-vlist">${frameRow(fr.start, "首帧")}${frameRow(fr.end, "尾帧")}</ul>`) +
+    `<div class="meta">上传即登记：文件落盘的同一次调用里声明它是什么、属于谁，绝不产生孤立媒体。` +
+    `视频风格 / 运动 / 机位 / 表演参考可以是视频（表演也可以是一段念白）——` +
+    `媒体模型不吃它们时，Skill 会读它们并把运镜 / 节奏 / 表演编译进 Prompt。</div>` +
+    relationsBlock(ctx.relationsMode ? ctx.relationsMode() : "full")
+  );
+}
+
+function referenceBody(ctx, m, ui) {
   const p = ctx.episode.pickerModel(m.sel.shotId);
   // ALL THREE picker lists, because the picker partitions the library into three
   // disjoint ones: 已绑定 / 本集推荐 / 从资产库选择. Searching only two of them made a
@@ -291,56 +450,7 @@ function referenceBody(ctx, m) {
       || p.library.find((r) => r.key === m.sel.refKey)
       || null
     : null;
-  if (!one) {
-    // the LIST view: bound / suggested / library / upload — the shot's inputs
-    // ADR-0061 决策 4 made a Reference able to be a video or an audio take, so the
-    // thumbnail follows the reference's DOMAIN. Rendering everything as <img> gave
-    // the four new directing references a broken-image glyph — which reads as
-    // 「这里出错了」 when the truth is 「这是一段视频」 (codex review round 1).
-    const thumb = (r) => {
-      if (!r.url || r.storageState !== "local") {
-        return `<span class="pi-vth none" title="字节不在本地">⃠</span>`;
-      }
-      if (r.domain === "videos") {
-        return `<video class="pi-vth" src="${esc(r.url)}" preload="metadata" muted playsinline></video>`;
-      }
-      if (r.domain === "audio") return `<span class="pi-vth none" title="音频参考">🎵</span>`;
-      return `<img class="pi-vth" src="${esc(r.url)}" alt="" loading="lazy">`;
-    };
-    const row = (r, action) =>
-      `<li>` + thumb(r) +
-      `<button class="pi-vmeta as-link" data-pi-ref="${esc(r.key)}" data-pi-open="reference">` +
-      `${nameWithVersion(r.name, r.version)}<span class="pi-vorigin">${esc(ROLE_LABEL[r.kind] || r.kind || "未分类")}</span></button>` +
-      action +
-      `</li>`;
-    return (
-      head("参考", `${p.bound.length} 个已绑定 · 这个镜头的创作输入`) +
-      sec("已绑定", p.bound.length
-        ? `<ul class="pi-vlist">${p.bound.map((r) => row(r, `<button class="btn sm" data-pi-unbind="${esc(r.key)}">移除</button>`)).join("")}</ul>`
-        : `<div class="pi-none">还没有绑定任何参考。</div>`) +
-      sec("本集推荐", p.suggested.length
-        ? `<ul class="pi-vlist">${p.suggested.map((r) => row(r, `<button class="btn sm primary" data-pi-bind="${esc(r.key)}">绑定</button>`)).join("")}</ul>`
-        : `<div class="pi-none">这一集的场景里没有还缺参考的对象。</div>`) +
-      sec("从资产库选择", p.library.length
-        ? `<ul class="pi-vlist">${p.library.map((r) => row(r, `<button class="btn sm" data-pi-bind="${esc(r.key)}">绑定</button>`)).join("")}</ul>`
-        : `<div class="pi-none">资产库里还没有可绑定的参考资产。</div>`) +
-      sec("上传新参考",
-        `<div class="pi-acts">` +
-        REFERENCE_ROLES.map(([role, label]) => {
-          // The button SAYS what it takes. A control offering 「运动参考」 that
-          // only accepts a png is a control that lies about itself.
-          const zh = { images: "图", videos: "视频", audio: "音频" };
-          const kinds = domainsForKind(role).map((d) => zh[d] || d).join("/");
-          return `<button class="btn sm" data-pi-upref="${esc(role)}" title="接受 ${esc(kinds)}">` +
-            `${esc(label)}<span class="pi-vorigin"> ${esc(kinds)}</span></button>`;
-        }).join("") +
-        `</div>` +
-        `<div class="meta">上传即登记：文件落盘的同一次调用里声明它是什么、属于谁，绝不产生孤立媒体。` +
-        `视频风格 / 运动 / 机位 / 表演参考可以是视频（表演也可以是一段念白）——` +
-        `媒体模型不吃它们时，Skill 会读它们并把运镜 / 节奏 / 表演编译进 Prompt。</div>`) +
-      relationsBlock(ctx.relationsMode ? ctx.relationsMode() : "full")
-    );
-  }
+  if (!one) return referencePicker(ctx, m, p);
   // ONE reference
   const users = ctx.shot.shotsUsingReference(one.key) || [];
   const chain = ctx.assets.chainOf ? ctx.assets.chainOf(one.key) : null;
@@ -362,6 +472,7 @@ function referenceBody(ctx, m) {
     sec("用途", interp
       ? `<div class="pi-text">AI 解读输入 —— 当前媒体模型不吃这类参考，Skill 读它并提炼成运镜 / 节奏 / 表演语言，再编译进 Prompt。</div>`
       : `<div class="pi-text">模型直接输入 —— 支持时直接作为 Generation Input 传入。</div>`) +
+    (interp ? interpretationSec(ctx, one, ui) : "") +
     sec("使用情况", users.length
       ? `<div class="pi-chips">${users.map((sid) => `<button class="pi-refchip" data-pi-goshot="${esc(sid)}">${esc(ctx.refplan.shotName(sid) || sid.slice(0, 8))}</button>`).join("")}</div>`
       : `<div class="pi-none">还没有镜头使用这个参考。</div>`) +
@@ -473,17 +584,63 @@ function promptBody(ctx, m, ui) {
   );
 }
 
+/** The Generation Input Set, formally grouped (ADR-0061 决策 4 / §4).
+ *
+ *   模型直接输入   the model ingests the file, where supported
+ *   AI 解读输入     a Skill's READING of it is compiled into the prompt
+ *
+ * Both groups are derived from `ROLE_USE` rather than listed by hand, so a role
+ * cannot end up in both or in neither. An interpretation reference with no
+ * reading is shown as 「尚未解读」 — LISTED, because the creator attached it on
+ * purpose and a set that dropped it would claim a completeness it does not have.
+ */
+function inputSetSec(set) {
+  const chips = (role) => (set.references[role] || [])
+    .map((r) => `<span class="pi-refchip static">${nameWithVersion(r.name, r.version)}</span>`).join(" ");
+  const modelRows = MODEL_INPUT_ROLES.map((role) => [ROLE_LABEL[role], chips(role)]);
+  const readingOf = (key) => (set.interpretationInputs || []).find((i) => i.key === key) || null;
+  const interpRows = INTERPRETATION_ROLES.map((role) => {
+    const rs = set.references[role] || [];
+    if (!rs.length) return [ROLE_LABEL[role], ""];
+    return [ROLE_LABEL[role], rs.map((r) => {
+      const i = readingOf(r.key);
+      return `<span class="pi-refchip static">${nameWithVersion(r.name, r.version)}` +
+        (i && i.read
+          ? `<span class="chip ok">已解读 v${esc(String(i.readingVersion))}</span>`
+          : `<span class="chip gate">尚未解读</span>`) + `</span>`;
+    }).join(" ")];
+  });
+  const readCount = (set.interpretationInputs || []).filter((i) => i.read).length;
+  const total = (set.interpretationInputs || []).length;
+  return (
+    sec("上下文", kv([
+      ["剧集", set.episodeCode ? esc(set.episodeCode) : ""],
+      ["场景", set.sceneTitle ? esc(set.sceneTitle) : ""],
+      ["镜头", set.design ? esc(set.design.title || "") : ""],
+    ])) +
+    sec(`${ROLE_USE_LABEL["model-input"]}`, kv(modelRows) +
+      `<div class="meta">支持的模型直接吃这些文件；不支持时它们仍然在记录里，作为这次生成的输入被冻结。</div>`) +
+    sec(`${ROLE_USE_LABEL["ai-interpretation"]}`, kv(interpRows) +
+      (total
+        ? `<div class="meta">${readCount}/${total} 个已解读。已解读的会被编译进 Prompt；` +
+          `没解读的<b>不会</b>凭空进 Prompt——它会被如实报成缺口。</div>`
+        : `<div class="meta">这个镜头还没有绑定视频风格 / 运动 / 机位 / 表演参考。</div>`)) +
+    sec("首帧 / 尾帧", kv([
+      ["首帧", set.startFrame
+        ? `${esc(set.startFrame.name)}${set.startFrame.from ? `<span class="pi-vorigin"> · ${esc(set.startFrame.from)}</span>` : ""}`
+        : ""],
+      ["尾帧", set.endFrame
+        ? `${esc(set.endFrame.name)}${set.endFrame.from ? `<span class="pi-vorigin"> · ${esc(set.endFrame.from)}</span>` : ""}`
+        : ""],
+    ]))
+  );
+}
+
 function generationBody(ctx, m, ui) {
   const kind = m.sel.genKind;
   const eff = effectivePromptOf(ctx, m.sel.shotId, kind);
   const g = { prompt: eff.text, set: eff.set, missing: eff.missing };
   const set = g.set;
-  const refRows = REFERENCE_ROLES.map(([role, label]) => {
-    const rs = set.references[role] || [];
-    return [label, rs.length
-      ? rs.map((r) => `<span class="pi-refchip static">${nameWithVersion(r.name, r.version)}</span>`).join(" ")
-      : ""];
-  });
   const last = (m.detail.generations || [])[0] || null;
   return (
     head("生成任务", `${kind === "video" ? "视频" : "图片"} · ${m.shot.title || `镜头 ${m.shot.seq}`}`) +
@@ -491,12 +648,7 @@ function generationBody(ctx, m, ui) {
       ["image", "video"].map((k) =>
         `<button class="pi-seg${kind === k ? " on" : ""}" data-pi-genkind="${k}">${k === "image" ? "图片" : "视频"}</button>`).join("") +
       `</div>`) +
-    sec("输入集合", kv([
-      ["镜头", `${esc(set.episodeCode || "")} ${esc(set.sceneTitle || "未分配场景")}`],
-      ...refRows,
-      ["首帧", set.startFrame ? esc(set.startFrame.name) : ""],
-      ["尾帧", set.endFrame ? esc(set.endFrame.name) : ""],
-    ])) +
+    inputSetSec(set) +
     sec("Prompt 快照", `<pre class="pi-pre">${esc(ui.piPrompt == null ? g.prompt : ui.piPrompt)}</pre>` +
       `<div class="meta">导入结果时冻结的就是这一段文本，逐字保存。当前来源：` +
       `${esc(PROMPT_SOURCE_LABEL[eff.source] || eff.source)}${eff.version ? ` v${eff.version}` : ""}。</div>`) +
@@ -505,7 +657,8 @@ function generationBody(ctx, m, ui) {
       ["模型", set.model ? esc(set.model) : ""],
       ["参数", set.parameters ? esc(JSON.stringify(set.parameters)) : ""],
       ["seed", set.seed !== null && set.seed !== undefined ? esc(String(set.seed)) : ""],
-    ])) +
+    ]) + `<div class="meta">手工外部生成不会告诉我们它用了什么模型、什么参数、什么 seed——` +
+      `这些如实显示为「未记录」，绝不填成看起来合理的值。</div>`) +
     sec("状态", last
       ? kv([["最近一次", `${esc(last.type)} · ${esc(last.status)}`], ["时间", esc(String(last.createdAt || "").slice(0, 16).replace("T", " "))]])
       : `<div class="pi-none">这个镜头还没有生成记录。</div>`) +
@@ -552,6 +705,54 @@ function imageBody(ctx, m) {
   );
 }
 
+/**
+ * 提取帧 → 下一镜首帧 (TASK-064 Phase 2 §7).
+ *
+ * NO NEW PAGE. This is the Video node's own operating panel, which is where the
+ * creator already is when they decide 「这一镜的最后一帧应该是下一镜的第一帧」.
+ *
+ * The next shot is CANONICAL ORDER, not 「随便下一个」: it is the shot that follows
+ * this one inside its scene, and where there is none the panel says so instead of
+ * offering a target it made up. The creator can still pick another shot from the
+ * list, which is an explicit choice rather than a default.
+ */
+function extractSec(ctx, m, cur) {
+  if (!cur) return "";
+  const next = ctx.frames.nextShotOf ? ctx.frames.nextShotOf(m.sel.shotId) : null;
+  const bound = ctx.frames.binding(m.sel.shotId, "startFrame");
+  const notice = ctx.frames.notice(m.sel.shotId, "startFrame");
+  return sec("帧",
+    // what THIS shot's own start frame is, and whether its source has moved on
+    (bound
+      ? `<div class="pi-text">本镜头首帧：${esc(describeBinding(bound, { shotName: ctx.refplan.shotName(bound.sourceShotId) }))}</div>` +
+        (notice
+          ? `<div class="pi-warn"><b>上游视频已有新版本</b>` +
+            `<div>当前 Start Frame 来源：${esc(ctx.refplan.shotName(notice.sourceShotId) || "未记录镜头")} ` +
+            `视频 v${esc(String(notice.sourceVideoVersion))}；该镜头当前是 ` +
+            (notice.activeSourceVersion != null ? `v${esc(String(notice.activeSourceVersion))}` : "未记录") + `。</div>` +
+            `<div class="pi-acts">` +
+            notice.resolutions.map((r) =>
+              r.action === "reextract"
+                ? `<button class="btn sm primary" data-pi-frreextract>${esc(r.label)}</button>`
+                : r.action === "unbind"
+                  ? `<button class="btn sm" data-pi-frunbind="startFrame">${esc(r.label)}</button>`
+                  : `<button class="btn sm" data-pi-frkeep>${esc(r.label)}</button>`).join("") +
+            `</div>` +
+            `<div class="meta">首帧<b>不会</b>被自动替换——三个出口都由你选。</div></div>`
+          : "")
+      : `<div class="pi-none">本镜头首帧用的是它自己的当前画面（没有显式绑定）。</div>`) +
+    // …and extracting one OUT of this video, for the next shot
+    `<div class="pi-acts">` +
+    `<button class="btn" data-pi-extract="last">提取尾帧</button>` +
+    `<button class="btn" data-pi-extract="at">提取指定时间点…</button>` +
+    (next
+      ? `<button class="btn primary" data-pi-extractbind="${esc(next.shotId)}">提取尾帧 → 设为「${esc(next.title)}」首帧</button>`
+      : `<span class="pi-none">这个场景里没有下一个镜头可以接。</span>`) +
+    `</div>` +
+    `<div class="meta">提取出来的帧会成为一个独立登记的「派生帧」资产，记录它来自哪一镜、哪一版视频、哪一个时间点；` +
+    `绑定为下一镜首帧后，那一镜的视频生成就以它为第 1 帧。上游视频换版本时不会自动重提。</div>`);
+}
+
 function videoBody(ctx, m) {
   const d = m.detail;
   const cur = d.videos.list.find((r) => r.current) || null;
@@ -587,6 +788,7 @@ function videoBody(ctx, m) {
     sec("来源", src && src.proven
       ? kv([["源画面", `v${src.version}`], ["依赖状态", dep ? esc(dep.label) : ""]])
       : `<div class="pi-none">没有生成记录说明它的源画面——这是一次导入，来源如实记为未记录。</div>`) +
+    extractSec(ctx, m, cur) +
     sec("动作",
       `<div class="pi-acts">` +
       `<label class="btn pi-implbl">上传新版本<input type="file" class="pi-import" accept="video/mp4,video/webm" hidden></label>` +
@@ -767,19 +969,32 @@ export function renderInspector(ctx, ui, { node = null, traceMode = "full" } = {
     );
   }
   const body =
-    s.kind === "reference" ? referenceBody(ctx, m)
+    s.kind === "reference" ? referenceBody(ctx, m, ui)
     : s.kind === "prompt" ? promptBody(ctx, m, ui)
     : s.kind === "generation" ? generationBody(ctx, m, ui)
     : s.kind === "image" ? imageBody(ctx, m)
     : s.kind === "video" ? videoBody(ctx, m)
     : s.kind === "audio" ? audioBody(ctx, m)
     : shotBody(ctx, m);
-  const tabs = ["shot", "reference", "prompt", "generation", "image", "video", "audio"]
-    .map((k) => `<button class="pi-tab${s.kind === k ? " on" : ""}" data-pi-open="${k}">${
-      { shot: "镜头", reference: "参考", prompt: "Prompt", generation: "生成", image: "画面", video: "视频", audio: "音频" }[k]
-    }</button>`)
-    .join("");
-  return `<aside class="pi"><nav class="pi-tabs">${tabs}</nav>${body}${prov}</aside>`;
+  // WHERE YOU ARE, NOT WHICH FUNCTION TO PICK (TASK-065 §8).
+  //
+  // This used to be a seven-button strip — 镜头 / 参考 / Prompt / 生成 / 画面 / 视频 /
+  // 音频 — i.e. 「先选功能，再找对象」. The object is chosen in the CENTRE now (a node
+  // on the shot's production graph), and this column is that object's panel. So the
+  // header states the object path and offers exactly one move: back up to the shot.
+  //
+  // It is a PATH, not a tab strip: it lists where the creator is, never the six
+  // other things they could have clicked instead.
+  const OBJ = {
+    shot: "镜头", reference: "参考", prompt: "Prompt", generation: "生成任务",
+    image: "画面", video: "视频", audio: "音频",
+  };
+  const where = s.kind === "shot"
+    ? `<nav class="pi-where"><span class="cur">${esc(m.shot.title || `镜头 ${m.shot.seq}`)}</span></nav>`
+    : `<nav class="pi-where">` +
+      `<button class="up" data-pi-open="shot">${esc(m.shot.title || `镜头 ${m.shot.seq}`)}</button>` +
+      `<span class="sep">›</span><span class="cur">${esc(OBJ[s.kind] || s.kind)}</span></nav>`;
+  return `<aside class="pi">${where}${body}${prov}</aside>`;
 }
 
 /** `node` is the SAME provenance-node story `renderInspector` was given. Both must
@@ -797,6 +1012,10 @@ export function bindInspector(root, ctx, ui, render, { node = null } = {}) {
   const setInspect = (patch) => {
     ui.inspect = { ...sel(), ...patch };
     ui.piPrompt = null;
+    // the unsaved AXIS buffer belongs to the reference it was typed against —
+    // carrying it across would offer reference B the reading written for A and
+    // save it there. Same rule as `piPrompt`, for the same reason.
+    ui.piAxes = null;
     if (fromNode() && ctx.focusProvenanceNode) {
       // clearing the graph selection re-renders through the graph's own
       // selection-change path, so this must not render a second time
@@ -836,6 +1055,21 @@ export function bindInspector(root, ctx, ui, render, { node = null } = {}) {
   // --- references ---------------------------------------------------------- //
   root.querySelectorAll("[data-pi-bind]").forEach((b) => (b.onclick = () => {
     ctx.shot.addReference(sel().shotId, b.dataset.piBind);
+    render();
+  }));
+  // 启用 / 禁用 one reference for this shot (§11). `data-on` carries the state the
+  // row was RENDERED with rather than reading `checkbox.checked`: the browser has
+  // already flipped the box by the time this fires, so trusting it would invert the
+  // action whenever a re-render lands between the click and the handler.
+  root.querySelectorAll("[data-pi-toggle]").forEach((c) => (c.onchange = () => {
+    const key = c.dataset.piToggle;
+    const wasOn = c.dataset.on === "1";
+    const shotId = sel().shotId;
+    const ok = wasOn ? ctx.shot.removeReference(shotId, key) : ctx.shot.addReference(shotId, key);
+    if (!ok) {
+      ctx.toast(wasOn ? "无法移除这个参考" : "无法启用这个参考（可能已删除）");
+      c.checked = wasOn; // the document refused; the box must not claim otherwise
+    }
     render();
   }));
   root.querySelectorAll("[data-pi-unbind]").forEach((b) => (b.onclick = () => {
@@ -932,13 +1166,128 @@ export function bindInspector(root, ctx, ui, render, { node = null } = {}) {
   });
   on("[data-pi-dismiss]", () => { ui.piDismissUpstream = sel().shotId; render(); });
 
+  // --- reference INTERPRETATION (§21–§22) ---------------------------------- //
+  root.querySelectorAll("[data-pi-axis]").forEach((inp) => (inp.oninput = () => {
+    const key = sel().refKey;
+    if (!key) return;
+    const prev = ui.piAxes && ui.piAxes.key === key ? ui.piAxes.axes : {};
+    ui.piAxes = { key, axes: { ...prev, [inp.dataset.piAxis]: inp.value } };
+    // Enable 保存 AS THE CREATOR TYPES, without re-rendering (a re-render here
+    // would move the caret out of the field they are in). Without this the
+    // button stayed disabled from the initial render and a hand-written reading
+    // could never be saved at all — the control existed and did nothing.
+    const save = root.querySelector("[data-pi-isave]");
+    if (!save) return;
+    const cur = ctx.refInterp.reading(key);
+    const dirty = AXES.some(([k]) => {
+      const typed = ui.piAxes.axes[k];
+      const was = cur ? (cur.axes[k] || "") : "";
+      return typed !== undefined && typed !== was;
+    });
+    if (dirty) save.removeAttribute("disabled");
+    else save.setAttribute("disabled", "");
+  }));
+  on("[data-pi-isave]", (ev) => {
+    if (ev && ev.currentTarget && ev.currentTarget.hasAttribute("disabled")) return;
+    const key = sel().refKey;
+    if (!key || !ui.piAxes || ui.piAxes.key !== key) { ctx.toast("没有未保存的修改"); return; }
+    // the buffer holds only the fields TOUCHED, so the reading is composed from
+    // the active one plus the edits — otherwise typing in one axis would blank
+    // the other five
+    const cur = ctx.refInterp.reading(key);
+    const merged = { ...(cur ? cur.axes : {}), ...ui.piAxes.axes };
+    const v = ctx.refInterp.save(key, merged, { origin: "manual" });
+    if (!v) { ctx.toast("保存失败：六个轴全为空，或这条解读已锁定"); return; }
+    ui.piAxes = null;
+    ctx.toast(`已保存为解读 v${v}（旧版本保留，可回切）`);
+    render();
+  });
+  root.querySelectorAll("[data-pi-iver]").forEach((b) => (b.onclick = () => {
+    const key = sel().refKey;
+    if (key && ctx.refInterp.setActive(key, +b.dataset.piIver)) ui.piAxes = null;
+    render();
+  }));
+  on("[data-pi-ilock]", () => {
+    const key = sel().refKey;
+    const cur = key ? ctx.refInterp.reading(key) : null;
+    if (!cur) { ctx.toast("先保存一版解读，才有可锁定的对象"); return; }
+    ctx.refInterp.setLocked(key, !cur.locked);
+    render();
+  });
+  on("[data-pi-iskill]", () => {
+    ui.dirOpen = { ...(ui.dirOpen || {}), skills: true };
+    ui.skillId = "reference-interpreter";
+    ctx.toast("在右侧「AI 导演 · 能力」里运行 Reference Interpreter：它出提案，你决定用不用");
+    render();
+  });
+
   // --- review -------------------------------------------------------------- //
   on("[data-pi-approve]", () => { ctx.shot.approve(sel().shotId, ""); render(); });
   on("[data-pi-unapprove]", () => { ctx.shot.unapprove(sel().shotId); render(); });
   on("[data-pi-firstframe]", () => {
-    const m = inspectorModel(ctx, sel());
+    const s = sel();
+    const m = inspectorModel(ctx, s);
     if (m.empty || !m.detail.slot) { ctx.toast("这个镜头的槽位无法解析"); return; }
-    ctx.media.useAsFirstFrame(m.detail.slot);
+    const cur = m.activeImage;
+    if (!cur || !cur.assetId) { ctx.toast("这个镜头还没有画面"); return; }
+    // routed through ctx.frames so the binding is RECORDED, not just pointed:
+    // `firstFrames[slot]` alone cannot say where the frame came from, which is
+    // the whole gap §7 exists to close
+    ctx.frames.bind(s.shotId, "startFrame", { assetId: cur.assetId, sourceKind: "shot-image" });
+    render();
+  });
+
+  // --- frames: extract a tail frame, bind it to the next shot (§7) ---------- //
+  root.querySelectorAll("[data-pi-extract]").forEach((b) => (b.onclick = async () => {
+    const s = sel();
+    const pick = b.dataset.piExtract;
+    let timecodeMs = null;
+    if (pick === "at") {
+      const want = window.prompt("从第几秒提取？（例如 3.5）", "0");
+      const v = Number(want);
+      if (!Number.isFinite(v) || v < 0) return;
+      timecodeMs = Math.round(v * 1000);
+    }
+    b.disabled = true;
+    try {
+      const out = await ctx.frames.extract(s.shotId, { timecodeMs, pick });
+      ctx.toast(`已提取并登记为派生帧（来自视频 v${out.source.sourceVideoVersion ?? "?"} · ${(out.source.sourceTimecodeMs / 1000).toFixed(2)}s）`);
+    } catch (e) {
+      ctx.toast(`提取失败：${e.message}`);
+    }
+    render();
+  }));
+  root.querySelectorAll("[data-pi-extractbind]").forEach((b) => (b.onclick = async () => {
+    const s = sel();
+    const target = b.dataset.piExtractbind;
+    b.disabled = true;
+    try {
+      const out = await ctx.frames.extract(s.shotId, { pick: "last" });
+      const bound = ctx.frames.bind(target, "startFrame", { assetId: out.assetId, source: out.source });
+      ctx.toast(bound
+        ? "已提取尾帧并设为下一镜首帧（来源已记录：镜头 / 视频版本 / 时间点）"
+        : "帧已登记，但下一镜的首帧槽位已锁定——先解锁再绑定");
+    } catch (e) {
+      ctx.toast(`提取失败：${e.message}`);
+    }
+    render();
+  }));
+  on("[data-pi-frreextract]", async () => {
+    const s = sel();
+    try {
+      const b2 = await ctx.frames.reextract(s.shotId, "startFrame");
+      ctx.toast(b2 ? "已从上游当前版本重新提取并重新绑定" : "重新提取未完成");
+    } catch (e) {
+      ctx.toast(`重新提取失败：${e.message}`);
+    }
+    render();
+  });
+  root.querySelectorAll("[data-pi-frunbind]").forEach((b) => (b.onclick = () => {
+    ctx.frames.unbind(sel().shotId, b.dataset.piFrunbind);
+    render();
+  }));
+  on("[data-pi-frkeep]", () => {
+    ctx.toast("保持当前首帧：绑定不变，提示会一直在，直到你重新提取或解除绑定");
   });
 
   // --- unified upload (§23): every entrance registers, none orphans -------- //

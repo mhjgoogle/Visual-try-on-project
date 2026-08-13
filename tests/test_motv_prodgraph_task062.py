@@ -141,12 +141,29 @@ def test_the_recorded_episode_is_the_one_the_prompt_actually_read() -> None:
     )
     # a scene/shot from another episode is dropped, not recorded
     assert "const owns = (sceneId, shotId)" in scope
-    assert "narrow ? wantScene : null" in scope
+    # TASK-067: a shot-scoped run's scene is DERIVED from the shot rather than left
+    # null — `shotContext` really does project the shot's own scene, so recording
+    # null would under-report what the prompt read. The rule below is unchanged: a
+    # scene/shot the episode does not own is still dropped by `narrow`.
+    assert "narrow ? (wantScene || derivedScene) : null" in scope
     assert "narrow ? wantShot : null" in scope
+    # …and the derived scene is LOOKED UP in that episode, never guessed
+    assert (
+        "(ep.scenes || []).find((sc) => (sc.shotIds || []).includes(wantShot))" in scope
+    )
     # …and a LEVEL is recorded only when the skill actually reads that level:
     # a skill given only the outline never saw a shot (codex review 轮 10)
-    assert 'const readsScene = keys.has("scenes");' in scope
-    assert 'const readsShot = keys.has("shots");' in scope
+    assert (
+        'const readsScene = keys.has("scenes") || skills.isShotScoped(skill);' in scope
+    )
+    # TASK-064 Phase 3: `shotAudio` is per-shot data too, so a Sound Designer run
+    # given it can honestly be narrowed to one shot. TASK-067: a shot-scoped input
+    # is per-shot BY DEFINITION. The RULE is unchanged — a level is recorded only
+    # when the skill actually reads that level.
+    assert (
+        'const readsShot = keys.has("shots") || keys.has("shotAudio") '
+        "|| skills.isShotScoped(skill);"
+    ) in scope
     assert "readsScene && typeof s.sceneId" in scope
     assert "readsShot && typeof s.shotId" in scope
 

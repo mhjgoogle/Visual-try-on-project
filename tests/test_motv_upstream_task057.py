@@ -70,11 +70,16 @@ def test_production_rail_is_upstream_only() -> None:
         '"brief"',
         '"story"',
         '"characters"',
-        '"relationships"',
         '"world"',
         '"episodes"',
     ):
         assert key in nav, f"upstream rail is missing {key}"
+    # TASK-065 §2: 人物关系 is a TAB inside 人物, not a rail row — a relationship
+    # connects two characters and has no meaning without them, so two entrances for
+    # one subject was the 「少入口」 violation. The MODULE KEY still resolves (several
+    # existing jump targets use it); it is simply not a first-level row any more.
+    assert '"relationships"' not in nav, "人物关系 merged into 人物 (TASK-065 §2)"
+    assert "relationships: " in shell, "…but the module key must still carry a label"
     for key in ('"frames"', '"video"', '"audio"', '"edit"', '"shots"'):
         assert key not in nav, f"downstream stage {key} must not be in the project rail"
     # ADR-0061 决策 1 renamed this space 故事开发 (「把故事写出来」) and extended it to

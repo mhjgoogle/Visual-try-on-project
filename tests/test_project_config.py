@@ -17,6 +17,7 @@ from ai_video_workflow.config import (
 from ai_video_workflow.config.project_config import _canonical_json, _config_to_dict
 from ai_video_workflow.errors import OverwriteRefusedError
 from ai_video_workflow.security.paths import PathEscapeError
+from tests.symlink_support import symlink_or_skip
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE_CONFIG = (
@@ -121,7 +122,7 @@ def test_symlinked_config_component_rejected(tmp_path: Path) -> None:
     outside.mkdir()
     root = tmp_path / "root"
     root.mkdir()
-    (root / "config").symlink_to(outside, target_is_directory=True)
+    symlink_or_skip(root / "config", outside, target_is_directory=True)
     with pytest.raises(PathEscapeError):
         write_project_config(root, _config_object())
     with pytest.raises(PathEscapeError):

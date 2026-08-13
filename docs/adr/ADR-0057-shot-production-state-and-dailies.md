@@ -5,6 +5,10 @@
 - 关联：[ADR-0052](ADR-0052-workflow-page-as-derived-provenance-graph.md)、
   [ADR-0055](ADR-0055-unified-asset-registration.md)、
   [TASK-060](../tasks/TASK-060-shot-production-and-dailies.md)
+- **被 [ADR-0066](ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)
+  拆分**：本 ADR 的单层「审片」拆成三层 —— 逐镜通过归「镜头制作 · 对比候选并选定」
+  （检查层 1），整集连播归新的「粗剪审片」页（检查层 2），并新增「交付质检」
+  （检查层 3）。派生优先、`生成成功 != 镜头完成`、无视频不可通过等规则全部保留。
 
 ## 背景
 

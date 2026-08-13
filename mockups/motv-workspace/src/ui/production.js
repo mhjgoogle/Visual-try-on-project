@@ -16,10 +16,14 @@
 // drawers), never persisted, never on canvas nodes.
 import { $, esc } from "../util/dom.js";
 import * as ws from "./workspaces.js";
-import { renderStoryboard, bindStoryboard, defaultShotId, isSelectableShot } from "./storyboard.js";
+import { renderStoryboard, bindStoryboard, defaultShotId, isSelectableShot, shotDetailModel } from "./storyboard.js";
 import { episodeStageCounts } from "./prodplan.js";
 import { renderAudioWs, bindAudioWs } from "./audiows.js";
-import { renderTimelineWs, bindTimelineWs } from "./timelinews.js";
+// NOTE: `ui/timelinews.js` is no longer mounted. ADR-0061 决策 6 replaced the
+// 剪辑 workspace with the Post Production Console, and Phase 3 built it — so the
+// old workspace would be a SECOND place the same timeline is edited, with its
+// own handlers and its own guards to drift from. The module is left in the tree
+// (its read model is still unit-tested) but nothing renders it.
 import { renderDailies, bindDailies } from "./dailies.js";
 import { renderEpisodeWs, bindEpisodeWs } from "./episodews.js";
 import { renderRefPlan, bindRefPlan } from "./refplan.js";
@@ -28,17 +32,27 @@ import { renderStorageWs, bindStorageWs } from "./storagews.js";
 import { renderStoryWs, bindStoryWs } from "./storyws.js";
 import { renderBibleWs, bindBibleWs } from "./biblews.js";
 import { renderBriefWs, bindBriefWs } from "./briefws.js";
-import { renderRelWs, bindRelWs } from "./relws.js";
 import { renderWorldWs, bindWorldWs } from "./worldws.js";
 import { renderEpPlanWs, bindEpPlanWs } from "./epplanws.js";
 import { renderImageWs, bindImageWs, renderVideoWs, bindVideoWs } from "./mediaws.js";
 import { directorModel, renderDirector, bindDirector } from "./director.js";
-import { renderEpProd, bindEpProd } from "./epprod.js";
+import { renderEpProd, bindEpProd, workbenchModel, currentPlace } from "./epprod.js";
+import { renderShotGraph, bindShotGraph, drawShotEdges, renderStages } from "./shotgraphview.js";
+import { inspectFromShotNode } from "../workflow/shotgraph.js";
+import { derivedLabel } from "../workflow/assetreg.js";
+// TASK-066: the five regions of 剧集制作. Each owns ONE question, and the shell is the
+// only thing that knows they are on the same screen.
+import { renderShotSelect, bindShotSelect } from "./shotselect.js";
+import { renderShotRefs, bindShotRefs } from "./shotrefs.js";
+import { renderRefSearch, bindRefSearch, searchModel } from "./refsearch.js";
 import { renderInspector, bindInspector } from "./prodinspector.js";
+import { renderPostConsole, bindPostConsole } from "./postconsole.js";
 import { skillPanelModel, renderSkillPanel, bindSkillPanel } from "./skillpanel.js";
+import { shotDirectorModel, renderShotDirector, bindShotDirector, runOperation } from "./directorshot.js";
+import { episodeView } from "../workflow/proddoc.js";
 import {
   NAV, EPISODE_MODULES, EPISODE_DEFAULT, MODULE_LABEL, SPACE_LABEL, spaceOf,
-  renderRail, renderAssetRail, renderCrumb, episodeLabels, head,
+  renderRail, renderAssetRail, renderCrumb, episodeLabels, head, episodeEntryModule,
 } from "./shell.js";
 
 export { NAV };
@@ -185,9 +199,40 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     bibleOpen: null,
     bibleTab: "characters",
     bibleState: {},
+    // --- TASK-065 -------------------------------------------------------- //
+    // 人物关系图: which relationship's detail is open, and the FIRST node of a
+    // click-two-people-to-connect gesture (transient — the first click writes
+    // nothing, so a mis-click on a portrait cannot create canon)
+    relOpen: null,
+    relSelectA: null,
+    // 世界观: which half is showing and which location's drawer is open
+    worldTab: "world",
+    worldOpen: null,
+    // 基础资产面板: the UNSAVED base-prompt buffer `{key, text}` (null = showing the
+    // effective prompt, which is not the same as「创作者清空了它」), and which
+    // library picker is expanded. All three are keyed/cleared on entity change so
+    // a buffer typed for one entity can never be saved onto another.
+    bpText: null,
+    baRefPick: null,
+    baVoicePick: null,
+    // 当前 Shot Production Graph: which node the creator last opened, which card's
+    // ⋮ menu is open, the layout mode, and whether the picture is full-screen
+    sgNode: null,
+    sgMenu: null,
+    sgLayout: "auto",
+    sgFull: false,
+    // TASK-066 TOP: which of the three cascading selectors is open
+    ssOpen: null,
+    // TASK-066 LEFT: which reference card's ⋮ menu is open, and which group's
+    // 「+ 添加参考」 popover
+    srMenu: null,
+    srAdd: null,
+    // TASK-066 BOTTOM: the reference searcher's query / type filter / expanded state
+    rsQuery: "",
+    rsType: "all",
+    rsOpen: true,
     // Storyboard/Image/Video: which variant tab is showing
     variantTab: "image",
-    shotEdit: false,
     // AI Director: per-section collapse overrides (transient; the default is
     // derived contextually from what most needs attention)
     dirOpen: {},
@@ -215,6 +260,19 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     skillExecutor: "manual",
     skillPromptOpen: false,
     skillPromptText: "",
+    // --- 后期控制台 (ADR-0061 决策 6 / Phase 3) ----------------------------- //
+    // Which face of the console is showing, whether the dock is expanded, and
+    // whether the preview player is open. All three are view state: a console tab
+    // is a place to stand, not a decision.
+    postTab: "edit",
+    // STARTS COLLAPSED (TASK-065 §16 / §18-8). 上面负责制作镜头，下面负责把镜头剪成
+    // 一集 — the console is the LATER step, and expanded it takes 46vh, which on a
+    // 1000px viewport left the current shot's production graph with ~200px and
+    // pushed most of the chain below the fold. Collapsed it still shows its whole
+    // bar (title, all three tabs, 初剪 standing, 展开 ↗), and clicking any tab
+    // expands it — so nothing is hidden, only deferred to when it is the work.
+    postOpen: false,
+    postPreview: false,
   };
 
   // The executor availability probe (ADR-0056): a SERVER round trip, so it is
@@ -226,6 +284,22 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
   // render(), read by bind(). Transient, never persisted; null whenever the centre
   // is not the graph or nothing is selected on it.
   let provNode = null;
+  // The CURRENT SHOT's production graph for THIS render — set by render(), read by
+  // bind() and by the edge painter. Transient; null whenever the centre is not the
+  // 制作台 or no shot is selected.
+  let shotGraph = null;
+  // The LEFT column's and BOTTOM strip's models for THIS render — resolved by render(),
+  // read by bind(). Deriving them twice is how a picture and its handlers end up
+  // describing different shots.
+  let shotRefs = null;
+  let refSearch = null;
+  // The RIGHT column's operational model for THIS render (TASK-067) — resolved by
+  // aiDirector(), read by bind(). Non-null only on the shot workbench with a shot
+  // selected, which is exactly where its ten operations mean anything.
+  let shotDirector = null;
+  // …and whether this render IS that surface. Set once in render() and read by
+  // aiDirector(), so the two cannot disagree about which panel is showing.
+  let onShotBench = false;
 
   function vmenuHtml(d) {
     const label = { generated: "AI 生成", revision: "AI 修订", manual: "手工" };
@@ -314,10 +388,60 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       `<span class="su">${skillSummary}</span></button>` +
       (skillOpen ? `<div class="dir-sec-b">${renderSkillPanel(sk, ui)}</div>` : "") +
       `</section>`;
+    // TASK-067 §2 / §6 / §18 / §19 — the AI Director as a real OPERATION ENTRANCE.
+    //
+    // On the shot workbench this REPLACES the old 当前状态 checklist rather than
+    // sitting beside it. Two checklists of the same shot, derived two ways, is the
+    // duplicate this codebase keeps paying for: `shotDirectorModel` reads
+    // `shotctx.shotReadiness`, which is the same derivation the capability layer
+    // gates on, so the panel and the buttons can never disagree about whether this
+    // shot is ready. The 能力 catalog below stays reachable — nothing was removed.
+    shotDirector = onShotBench ? shotDirectorModel(ctx, ui, execProbe) : null;
+    const shotDirSec = shotDirector
+      ? `<section class="dir-sec open sd-sec"><div class="dir-sec-h static">` +
+        `<span class="ti">这一镜现在怎么办</span></div>` +
+        `<div class="dir-sec-b">${renderShotDirector(shotDirector, ui)}</div></section>`
+      : "";
+    // 当前状态 (TASK-066 §14) — kept for the stage workspaces, where the operational
+    // panel above is not rendered. DERIVED from the same graph the centre draws, so
+    // the checklist and the picture cannot disagree about what exists.
+    const stateSec = shotGraph && !shotDirector
+      ? `<section class="dir-sec open"><div class="dir-sec-h static"><span class="ti">当前状态</span></div>` +
+        `<div class="dir-sec-b"><div class="dir-state">` +
+        [
+          ["主要画面参考", shotGraph.bands.find((b) => b.key === "refs").nodes.length, "个"],
+          ["视频编排参考", shotGraph.bands.find((b) => b.key === "directing").nodes.length, "个"],
+        ].map(([k, n, unit]) =>
+          `<div class="dir-strow ${n ? "ok" : "gap"}"><span class="mk">${n ? "✓" : "!"}</span>` +
+          `<span class="k">${esc(k)}</span><span class="v">${n} ${esc(unit)}</span></div>`).join("") +
+        [
+          ["Image Prompt", shotGraph.nodes.find((n) => n.id === "prompt:image")],
+          ["主帧图", shotGraph.nodes.find((n) => n.id === "image:selected")],
+          ["Video Prompt", shotGraph.nodes.find((n) => n.id === "prompt:video")],
+          ["最终视频", shotGraph.nodes.find((n) => n.id === "video:selected")],
+        ].map(([k, n]) => {
+          if (!n) return "";
+          // the WORDS are the truth of each state, never a generic 「就绪」: 「还缺 2 项」
+          // and 「已就绪」 are different facts and the creator acts on them differently
+          const done = n.state === "ready" || n.state === "active";
+          const what = n.type === "prompt"
+            ? (n.missing && n.missing.length ? `还缺 ${n.missing.length} 项` : "已就绪")
+            : n.version != null ? `已选定 v${n.version}` : "待生成";
+          return `<div class="dir-strow ${done ? "ok" : "gap"}"><span class="mk">${done ? "✓" : "!"}</span>` +
+            `<span class="k">${esc(k)}</span><span class="v">${esc(what)}</span></div>`;
+        }).join("") +
+        `</div>` +
+        (shotGraph.done
+          ? `<div class="pi-ok">这一镜已经有选定的最终视频。</div>`
+          : `<div class="meta">剧集制作的终点是「选定的最终 Shot Video」。</div>`) +
+        `</div></section>`
+      : "";
     return (
       `<aside class="st-dir prod-ai">` +
       `<div class="dir-head"><span class="av">🎬</span>AI 导演` +
       `<span class="dir-space">${esc(SPACE_LABEL[spaceOf(activeModule)] || "")}</span></div>` +
+      shotDirSec +
+      stateSec +
       renderDirector(m, ui.directorText, ui.dirOpen, skillSec) +
       `</aside>`
     );
@@ -398,17 +522,27 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // `settings` is the legacy key for the bible workspace, kept working so
     // every existing jump target (Director blockers, empty states) still lands
     settings: (ctx) => renderBibleWs(ctx, ui),
-    relationships: (ctx) => renderRelWs(ctx, ui),
+    // TASK-065 §2: 人物关系 is a TAB of 人物 now, but the module KEY stays working —
+    // the Director's blocker fixes and several empty states jump to it, and a jump
+    // target that resolves to nothing is a regression, not a migration. `setModule`
+    // opens 人物 on the relationship tab; this entry is what it renders.
+    relationships: (ctx) => renderBibleWs(ctx, ui),
     world: (ctx) => renderWorldWs(ctx, ui),
     episodes: (ctx) => renderEpPlanWs(ctx, ui),
     // --- 剧集制作 (inside ONE episode) ------------------------------------- //
-    // ADR-0061 决策 2: `workbench` is this space's own unified map (Scene → Shot
-    // → that shot's production objects) and is rendered by ui/epprod.js, not
-    // here — it frames the stage workspaces below rather than being one of them.
+    // TASK-065 §9: `workbench` (制作台) is this space's CENTRE — a light Scene → Shot
+    // picker over the CURRENT shot's production graph. It is rendered by
+    // ui/epprod.js + ui/shotgraphview.js, not here, and its graph HTML is passed in
+    // by render() so bind() can hand the SAME model to the edge painter.
     // `provenance` is a VIEW of this space: the graph mounts into a container the
     // shell hands it, so the node detail can live in the LEFT inspector.
     workbench: () => "",
     provenance: () => `<div class="ep-graph" id="ep-graph"></div>`,
+    // ADR-0061 决策 6 / TASK-064 Phase 3: 剪辑 IS the Post Production Console,
+    // full-size. The dock under the centre and this are the SAME component in two
+    // sizes — 「展开 ↗」 must not open a different tool than the strip it came from,
+    // and there must be exactly one implementation of any post operation.
+    edit: (ctx) => renderPostConsole(ctx, ui, { mode: "full" }),
     episode: (ctx) => renderEpisodeWs(ctx, ui),
     refplan: (ctx) => renderRefPlan(ctx, ui),
     scenes: (ctx) => ws.renderEpisodes(ctx),
@@ -417,7 +551,6 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     video: (ctx) => renderVideoWs(ctx, ui),
     audio: (ctx) => renderAudioWs(ctx, ui),
     dailies: (ctx) => renderDailies(ctx, ui),
-    edit: (ctx) => renderTimelineWs(ctx, ui),
     // 存储管理 stays the storage MANAGER (archive / remove bytes / delete);
     // 资产库 is the visual-first Production Memory Library (CP5). ADR-0061 决策 1
     // gives it a rail of media CATEGORIES: each key simply presets the library's
@@ -438,11 +571,11 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
    *  to avoid. A selection that no longer resolves (draft regenerated, episode
    *  switched) falls back the same way — it is never left dangling. */
   function ensureShotSelection(pd) {
-    // EPISODE_DEFAULT is in this list because the graph is now what the creator
-    // LANDS on: with no selection the LEFT column would greet them empty, and
-    // 左边管当前对象 has to mean something the moment they arrive. A node click
-    // immediately overrides it — this is only the starting object.
-    if (![EPISODE_DEFAULT, "workbench", "shots", "frames", "video"].includes(activeModule)) return;
+    // EPISODE_DEFAULT (制作台) leads this list because the whole centre IS the
+    // current shot now: with no selection there is no graph to draw and the LEFT
+    // column would greet the creator empty. A scene/shot chip immediately overrides
+    // it — this is only the starting object.
+    if (![EPISODE_DEFAULT, "provenance", "shots", "frames", "video"].includes(activeModule)) return;
     // scoped to the ACTIVE episode PLUS the unassigned pool: the previous
     // episode's shot still exists in the project-wide draft, so a draft-wide
     // check would keep it selected under the episode just switched to — but the
@@ -487,31 +620,92 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // recomputed below only where the graph is the centre; cleared here so a
     // previous render's node can never be read by this one's bind()
     provNode = null;
+    shotGraph = null;
+    shotRefs = null;
+    refSearch = null;
+    shotDirector = null;
+    onShotBench = false;
     const main =
       activeModule === "script"
         ? scriptMain(ctx)
         : (WORKSPACES[activeModule] || (() => ""))(ctx);
 
     if (space === "episode") {
-      // LEFT = the Production Inspector; CENTER = the generation graph (or the
-      // stage workspace the creator stepped into); RIGHT = the AI Director.
-      // 左边管输入和当前对象，中间管生产执行，右边永远属于 AI 导演。
+      // TASK-066 §17 — FIVE REGIONS, each answering ONE question:
       //
-      // Resolved ONCE and shared with bind(): render and bind must agree about
-      // whether this column is standing on a graph node, or the bindings would
-      // release a selection the panel is still derived from (or fail to).
-      provNode = activeModule === EPISODE_DEFAULT ? ctx.provenanceSelection() : null;
+      //   TOP     Episode / Scene / Shot  —— 我在做哪一个 Shot
+      //   LEFT    参考输入                —— 这个 Shot 引用了哪些视觉资产
+      //   CENTER  制作流程图              —— 它怎么被做出来
+      //   RIGHT   AI 导演                 —— 还缺什么，下一步是什么
+      //   BOTTOM  参考素材库              —— 已有的视觉素材，一键加入这个 Shot
+      //   FOOTER  Shot 进度               —— 做到哪一步了
+      //
+      // Everything is resolved ONCE here and handed down, so no two regions can
+      // disagree about which shot is current.
+      const wm = workbenchModel(ctx, ui);
+      const place = currentPlace(wm, ui.selectedShotId);
+      const onCentre = activeModule === EPISODE_DEFAULT;
+      // TASK-067: the shot workbench = the centre WITH a shot chosen. The AI
+      // Director's operations are all about one shot, so anywhere else they would be
+      // buttons with no subject.
+      onShotBench = onCentre && !!ui.selectedShotId;
+      provNode = activeModule === "provenance" ? ctx.provenanceSelection() : null;
+      shotGraph = onCentre && ui.selectedShotId
+        ? ctx.shotgraph.model(ui.selectedShotId)
+        : null;
+      // the LEFT column's own model: the two reference groups, what is still
+      // addable per group, and the frame standing
+      shotRefs = onCentre && ui.selectedShotId ? shotRefsModel(ctx, ui.selectedShotId) : null;
+      // the BOTTOM searcher, filtered to VISUAL assets only (§16)
+      refSearch = onCentre
+        ? searchModel(
+            ctx.assets.library({ type: "all", variant: "all" }).rows,
+            new Set(ui.selectedShotId ? ctx.shot.references(ui.selectedShotId) || [] : []),
+            { query: ui.rsQuery, type: ui.rsType },
+          )
+        : null;
+      // ADR-0061 决策 6 / TASK-066 §15: the Post Production Console is NO LONGER
+      // docked under this centre — audio, subtitles and the cut belong to 后期制作,
+      // and this space ends at 「选定的最终 Shot Video」. NOTHING was deleted: the
+      // console keeps its full-size form as the `剪辑` module, one click away in
+      // 工作区 ▾, and the bottom strip is the reference searcher instead.
+      const isConsole = activeModule === "edit";
       root.innerHTML =
         crumb(ctx) +
-        renderInspector(ctx, ui, {
-          node: provNode,
-          traceMode: ctx.relationsMode ? ctx.relationsMode() : "full",
+        (onCentre ? renderShotSelect(ctx, ui, wm, place) : "") +
+        (onCentre
+          ? renderShotRefs(ctx, ui, shotRefs)
+          : renderInspector(ctx, ui, {
+              node: provNode,
+              traceMode: ctx.relationsMode ? ctx.relationsMode() : "full",
+            })) +
+        `<main class="st-main prod-main ep-main${ui.sgFull ? " full" : ""}">` +
+        renderEpProd(ctx, ui, {
+          stage: activeModule,
+          inner: main,
+          graph: shotGraph
+            ? renderShotGraph(shotGraph, {
+                selectedId: ui.sgNode,
+                layout: ui.sgLayout || "auto",
+                menuOpen: ui.sgMenu,
+              })
+            : null,
         }) +
-        `<main class="st-main prod-main ep-main">` +
-        renderEpProd(ctx, ui, { stage: activeModule, inner: main }) +
         `</main>` +
-        aiDirector(ctx);
+        aiDirector(ctx) +
+        (onCentre && !ui.sgFull ? renderRefSearch(ctx, ui, refSearch) : "") +
+        (onCentre && shotGraph
+          ? `<footer class="ep-foot"><span class="lb">Shot 进度</span>` +
+            renderStages(shotGraph, (shotGraph.stages.find((x) => x.state === "doing") || {}).key) +
+            `<span class="push"></span>` +
+            `<span class="ep-footnote">${shotGraph.done
+              ? "这一镜已经有选定的最终视频 —— 剧集制作对它的工作完成了"
+              : "剧集制作的终点是「选定的最终 Shot Video」；音频与剪辑属于后期制作"}</span>` +
+            `</footer>`
+          : "") +
+        (isConsole ? "" : "");
       bind(ctx);
+      if (shotGraph) drawShotEdges(root, shotGraph);
       notify();
       return;
     }
@@ -550,6 +744,198 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     if (onNavigate) onNavigate(spaceOf(activeModule), activeModule);
   }
 
+  /**
+   * Open a card on the centre graph (from the left column's 查看资产 / frame rows).
+   *
+   * A REFERENCE is a thumbnail in a cluster, not a card with a `⋮` menu — so setting
+   * `sgMenu` for one made 「查看资产」 visibly do nothing (codex review round 2). For a
+   * reference, 查看 means SHOW THE ASSET: it opens the lightbox, which is what the word
+   * says, and highlights it on the graph so the creator can see where it sits.
+   */
+  function openShotCard(ctx, want) {
+    if (!shotGraph) return;
+    const n = shotGraph.nodes.find((x) =>
+      (want.type === "reference" && x.refKey === want.refKey)
+      || (want.type !== "reference" && x.type === want.type));
+    if (!n) { ctx.toast("这一镜的关系图里还没有这个对象"); return; }
+    ui.sgNode = n.id;
+    if (n.type === "reference") {
+      ui.sgMenu = null;
+      if (n.assetId && ctx.lightbox) ctx.lightbox(n.assetId);
+      else if (!n.assetId) ctx.toast("这个参考的字节不在本地（记录仍在），没有可预览的内容");
+      render();
+      return;
+    }
+    // a CARD has a menu, so opening it is the right move
+    ui.sgMenu = n.id;
+    render();
+  }
+
+  /**
+   * A CARD ACTION (TASK-066 §10). Three verbs on every media card — 上传 / 自动生成 /
+   * 修改 — plus the prompt cards' 查看/修改/复制 and the frame card's 提取.
+   *
+   * 自动生成 IS HONEST ABOUT WHAT IS CONNECTED (§11):
+   *
+   *   a PROMPT   really runs the Prompt Director skill. That capability exists, it
+   *              produces a recorded proposal, and applying it is a separate click.
+   *   a MEDIA    has NO provider wired. So it says exactly that and hands over the
+   *              route that works — copy the Prompt + references, generate outside,
+   *              upload back. A button that pretended to generate would leave the
+   *              creator waiting for something that is never coming, which is the
+   *              worst lie this UI could tell.
+   */
+  function cardAction(ctx, act, n, g) {
+    const shotId = g.shotId;
+    const genKind = n.type === "video" || n.id === "prompt:video" ? "video" : "image";
+    if (act === "view" || act === "edit") {
+      // 修改 opens the object's editing surface. For a prompt that is the prompt
+      // editor; for media it is the version list + upload, which is the inspector's
+      // panel — reached as a focused drawer rather than as a permanent column.
+      ui.inspect = n.type === "prompt"
+        ? { kind: "prompt", shotId, genKind }
+        : { kind: n.type === "video" ? "video" : "image", shotId };
+      ui.sgMenu = null;
+      setModule(n.type === "prompt" ? "refplan" : n.type === "video" ? "video" : "frames");
+      return;
+    }
+    if (act === "copy") {
+      const eff = ctx.prompt.effective(shotId, genKind, ctx.episode.genModel(shotId, genKind).prompt);
+      ctx.episode.copyPrompt(eff.text);
+      ui.sgMenu = null;
+      render();
+      return;
+    }
+    if (act === "generate") {
+      ui.sgMenu = null;
+      if (n.type === "prompt") {
+        // TASK-067 §7 / §8: really run the Image / Video Prompt Director for THIS
+        // shot. Which one is decided by the card, not by a tab — an Image Prompt
+        // card must never run the video capability.
+        //
+        // Before this round the button selected the generic `prompt-director` in the
+        // capability catalog and asked the creator to press run themselves.
+        runOperation(ctx, ui, genKind === "video" ? "videoPrompt" : "imagePrompt", shotId)
+          .then((res) => {
+            if (!res.ok) ctx.toast(`未能生成：${res.error}`);
+            else if (res.manual) ctx.toast("已建立运行记录——在右侧「AI 导演」复制任务 Prompt，跑完把结果粘回来");
+            else ctx.toast("提案已生成——在右侧「AI 导演」里「应用」后才写进 Prompt 版本");
+            render();
+          });
+        return;
+      }
+      // NO MEDIA PROVIDER. Say so, and give the route that works.
+      const eff = ctx.prompt.effective(shotId, genKind, ctx.episode.genModel(shotId, genKind).prompt);
+      ctx.episode.copyPrompt(eff.text);
+      ctx.toast(
+        `还没有接入生图 / 生视频的 API —— Prompt 已复制。` +
+        `拿它和左栏的参考去外部工具生成，回来用「上传新版」传回这张卡片，` +
+        `系统会自动登记资产、记下版本与溯源。`,
+      );
+      render();
+      return;
+    }
+    if (act === "upload") {
+      ui.sgMenu = null;
+      // ONE import path (ADR-0055): the file becomes an Asset on this shot AND freezes
+      // the prompt + reference inputs it was made from, so the provenance is real.
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = n.type === "video" ? "video/mp4,video/webm" : "image/png,image/jpeg,image/webp";
+      input.onchange = () => {
+        const file = input.files && input.files[0];
+        if (!file) return;
+        const eff = ctx.prompt.effective(shotId, genKind, ctx.episode.genModel(shotId, genKind).prompt);
+        ctx.episode
+          .importResult(shotId, genKind, file, eff.text)
+          .then(() => {
+            ctx.toast("已上传并登记：成为这一镜的新版本，并自动成为当前选定");
+            render();
+          })
+          .catch((e) => ctx.toast(`上传失败：${e.message}`));
+      };
+      input.click();
+      return;
+    }
+    if (act === "history") {
+      ui.inspect = { kind: n.type === "video" ? "video" : "image", shotId };
+      ui.sgMenu = null;
+      setModule(n.type === "video" ? "video" : "frames");
+      return;
+    }
+    if (act === "provenance") {
+      ui.sgMenu = null;
+      setModule("provenance");
+      return;
+    }
+    if (act === "extract" || act === "extractbind") {
+      ui.sgMenu = null;
+      const target = act === "extractbind" && n.nextShot ? n.nextShot.shotId : null;
+      ctx.frames
+        .extract(shotId, { pick: "last" })
+        .then((out) => {
+          if (!target) {
+            ctx.toast(`已提取尾帧并登记为派生帧（来自视频 v${out.source.sourceVideoVersion ?? "?"}）`);
+            render();
+            return;
+          }
+          const bound = ctx.frames.bind(target, "startFrame", { assetId: out.assetId, source: out.source });
+          ctx.toast(bound
+            ? "已提取尾帧并设为下一镜的首帧（来源已记录：镜头 / 视频版本 / 时间点）"
+            : "帧已登记，但下一镜的首帧槽位已锁定——先解锁再绑定");
+          render();
+        })
+        .catch((e) => { ctx.toast(`提取失败：${e.message}`); render(); });
+      return;
+    }
+    ctx.toast(`「${act}」还没有接线`);
+  }
+
+  /**
+   * The LEFT column's model (TASK-066 §4 / §6).
+   *
+   * `groups` is `ctx.refUse.groups` — the SAME split the two prompt compilers were
+   * given, so a card cannot claim a side the prompt did not get. `library` is what is
+   * still addable per group, so 「+ 添加参考」 never offers something already bound.
+   * `frames` carries the continuity standing including drift, because a start frame
+   * whose upstream video moved on is the one thing a creator must not miss.
+   */
+  function shotRefsModel(ctx, shotId) {
+    const groups = ctx.refUse.groups(shotId);
+    const boundKeys = new Set((ctx.shot.references(shotId) || []));
+    const all = ctx.assets.references();
+    const forGroup = (roles) => all
+      .filter((r) => roles.includes(r.kind) && !boundKeys.has(r.key))
+      .map((r) => ({ key: r.key, kind: r.kind, name: derivedLabel(r), version: r.version }));
+    const d = ctx.prodData();
+    const detail = shotDetailModel(d, shotId);
+    const notice = ctx.frames.notice(shotId, "startFrame");
+    const frames = detail
+      ? {
+          start: detail.frames.start
+            ? {
+                ...detail.frames.start,
+                drift: notice
+                  ? `来源 ${ctx.refplan.shotName(notice.sourceShotId) || "未记录镜头"} 视频 v${notice.sourceVideoVersion}；` +
+                    `该镜头当前是 ${notice.activeSourceVersion != null ? `v${notice.activeSourceVersion}` : "未记录"}`
+                  : null,
+              }
+            : null,
+          end: detail.frames.end,
+        }
+      : { start: null, end: null };
+    return {
+      empty: !detail,
+      shotId,
+      groups,
+      library: {
+        image: forGroup(["character-reference", "location-reference", "prop-reference", "style-reference"]),
+        video: forGroup(["video-style-reference", "motion-reference", "camera-reference", "performance-reference"]),
+      },
+      frames,
+    };
+  }
+
   /** Per-category counts for the 资产库 rail. Derived from the SAME library read
    *  model the workspace renders, so a rail badge cannot claim assets the list
    *  does not show. */
@@ -567,13 +953,45 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     };
   }
 
-  function setModule(k) {
-    if (!WORKSPACES[k] && k !== "script") return;
-    if (k === activeModule) return; // staying put must not touch unsaved edits
+  /** Make `shotId` the shot the whole 剧集制作 space is standing on.
+   *
+   *  ONE function, because the shot chips, the scene chips and 「在左栏打开这个镜头」
+   *  must all release the same transient state. The unsaved Prompt / axis / base
+   *  prompt buffers belong to the object they were typed against; the graph node
+   *  selection belongs to the shot whose graph it was on. Carrying either across a
+   *  shot change is how a write lands on the wrong object. */
+  function selectShot(shotId) {
+    if (!shotId || ui.selectedShotId === shotId) return;
+    ui.selectedShotId = shotId;
+    ui.sgNode = null;
+    ui.piPrompt = null;
+    ui.piAxes = null;
+    ui.inspect = { kind: (ui.inspect && ui.inspect.kind) || "shot", shotId };
+    render();
+  }
+
+  function setModule(want) {
+    if (!WORKSPACES[want] && want !== "script") return;
+    // TASK-065 §2 / §4: 人物关系 is a TAB of 人物, and 场景地 is a TAB of 世界观.
+    //
+    // The merged keys are RESOLVED HERE, once, rather than at each caller: every
+    // existing jump target (`data-goto="relationships"`, the Director's blocker
+    // fixes, an empty state's button) keeps working and lands on the right tab of
+    // the right workspace. A caller that has not heard about the merge cannot land
+    // on a rail row that no longer exists — which would leave the rail with nothing
+    // highlighted and the creator unsure where they are.
+    let k = want;
+    if (want === "relationships") { k = "characters"; ui.bibleTab = "relationships"; }
+    else if (want === "characters" && ui.bibleTab === "relationships") ui.bibleTab = "characters";
+    if (k === activeModule) {
+      // the module key did not move, but the TAB may have — repaint so
+      // 「在关系图里编辑」 from inside 人物 actually shows the graph
+      render();
+      return;
+    }
     if (ui.dirty && !window.confirm("镜头详情有未保存的修改，离开将丢弃？")) return;
     ui.dirty = false;
     ui.buffer = {};
-    ui.shotEdit = false;
     activeModule = k; // UI navigation state only — domain edits/proposals live
     if (spaceOf(k) !== "assets") lastProdModule = k;
     // A 资产库 rail row simply presets the library's OWN type filter — the rail
@@ -582,6 +1000,14 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     vmenuOpen = false; // in their documents and survive this switch untouched
     ui.bibleOpen = null;
     ui.relOpen = null;
+    ui.relSelectA = null;
+    ui.worldOpen = null;
+    // the UNSAVED base-prompt buffer belongs to the entity it was typed against, and
+    // the open library pickers belong to the drawer that opened them — both are
+    // released with the workspace, for the same reason `ui.piPrompt` is
+    ui.bpText = null;
+    ui.baRefPick = null;
+    ui.baVoicePick = null;
     // beatsOpen / impactOpen are keyed by episodeId and only render inside
     // 分集规划 — deliberately NOT reset here, so the AI Director can point the
     // creator at one episode's Impact Review and then navigate there.
@@ -596,8 +1022,11 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     if (ui.dirty && !window.confirm("镜头详情有未保存的修改，切换剧集将丢弃？")) return false;
     ui.dirty = false;
     ui.buffer = {};
-    ui.shotEdit = false;
     ui.selectedShotId = null;
+    // the graph node and the buffers typed against it belong to the shot being left
+    ui.sgNode = null;
+    ui.piPrompt = null;
+    ui.piAxes = null;
     return true;
   }
 
@@ -630,11 +1059,29 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     const ctx = getCtx();
     if (!releaseEpisodeState()) return;
     if (!ctx.production.setActiveEpisode(episodeId)) return;
-    // Entering from 故事开发 lands on 剧集制作's own centre — the generation graph
-    // (EPISODE_DEFAULT), which is what 「进入剧集制作」 means: see what has been
-    // made for this episode and what it came from. Already inside the space, the
-    // stage the creator was on is kept.
-    const target = module || (EPISODE_MODULES.includes(activeModule) ? activeModule : EPISODE_DEFAULT);
+    // WHERE 「进入剧集制作」 LANDS (产品 2026-08-13: 「点击进入该剧的剧集制作就要有分镜
+    // 的生成…定好分镜之后再对各个分镜做详细制作」).
+    //
+    // An episode with no shot draft has nothing to produce yet: the 制作台 would open
+    // on 「先选一个镜头」 with no shots to select. So it lands on 分镜 — generate the
+    // shot list, edit it, and only then work shot by shot. Once a draft exists the
+    // landing is the 制作台 again, because that is where the work then is.
+    //
+    // Already inside the space, the stage the creator was on is kept.
+    //
+    // COUNTED ON THE EPISODE BEING ENTERED, not on the project. `draftShots` is the
+    // project-wide draft list, so asking whether IT is empty answered 「这个作品有没有
+    // 分镜」 — and an empty EP02 then landed on the 制作台 just because EP01 had shots,
+    // which is exactly the 「先选一个镜头」 dead end this rule exists to avoid
+    // (codex review round 2). A shot belongs to an episode through its scenes.
+    const view = episodeView(ctx.production.doc(), episodeId, ctx.project.draftShots || []);
+    const epShots = view
+      ? view.scenes.reduce((n, sc) => n + sc.shots.filter((x) => !x.dangling).length, 0)
+      : 0;
+    const entry = episodeEntryModule(epShots > 0);
+    const target = module === EPISODE_DEFAULT
+      ? entry                                   // 「进入剧集制作」 asked for the space's entry
+      : module || (EPISODE_MODULES.includes(activeModule) ? activeModule : entry);
     if (target !== activeModule) {
       activeModule = target;
       lastProdModule = target;
@@ -655,8 +1102,10 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     root.querySelectorAll("[data-goto]").forEach((j) => (j.onclick = () => setModule(j.dataset.goto)));
     if (activeModule === "brief") bindBriefWs(root, ctx, ui, render);
     if (activeModule === "story") bindStoryWs(root, ctx, ui, render);
-    if (activeModule === "relationships") bindRelWs(root, ctx, ui, render);
-    if (activeModule === "world") bindWorldWs(root, ctx, ui);
+    // 人物关系 binds as part of 人物 (bindBibleWs dispatches to it when the
+    // relationship tab is showing) — binding it here as well would attach two
+    // handlers to the same buttons.
+    if (activeModule === "world") bindWorldWs(root, ctx, ui, render);
     if (activeModule === "episodes") {
       // the plan proposal/apply/confirm path stays the shared one
       ws.bindEpisodes(root, ctx);
@@ -671,35 +1120,59 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     if (activeModule === "episode") bindEpisodeWs(root, ctx, ui, render);
     if (activeModule === "refplan") bindRefPlan(root, ctx, ui, render);
     if (activeModule === "dailies") bindDailies(root, ctx, ui, render);
-    if (activeModule === "edit") bindTimelineWs(root, ctx, ui, render);
     if (activeModule === "storage") bindStorageWs(root, ctx, ui, render);
     if (spaceOf(activeModule) === "assets" && activeModule !== "storage") {
       bindAssetLibrary(root, ctx, ui, render);
     }
     // --- 剧集制作 (ADR-0061 决策 2): LEFT inspector + CENTER workspace -------- //
     if (spaceOf(activeModule) === "episode") {
-      // the SAME node story render() resolved — bind must never re-derive it
-      bindInspector(root, ctx, ui, render, { node: provNode });
+      const onCentre = activeModule === EPISODE_DEFAULT;
+      const wm = workbenchModel(ctx, ui);
+      const place = currentPlace(wm, ui.selectedShotId);
+      if (onCentre) {
+        // TOP — the three cascading selectors (§2)
+        bindShotSelect(root, ctx, ui, render, {
+          selectShot,
+          enterEpisode: (id) => enterEpisode(id, null),
+          m: wm,
+          place,
+        });
+        // LEFT — reference configuration (§4 / §5 / §6)
+        if (shotRefs) {
+          bindShotRefs(root, ctx, ui, render, {
+            shotId: ui.selectedShotId,
+            onOpenNode: (n) => openShotCard(ctx, n),
+          });
+        }
+        // BOTTOM — the visual reference searcher (§7)
+        bindRefSearch(root, ctx, ui, render, { shotId: ui.selectedShotId });
+      } else {
+        // a stage workspace still gets the object Inspector: those surfaces have no
+        // cards of their own, so removing their only operating panel would strand them
+        bindInspector(root, ctx, ui, render, { node: provNode });
+      }
+      // 剪辑 IS the Post Production Console at full size (§15: nothing deleted, it
+      // simply no longer takes room in the Shot workbench).
+      if (activeModule === "edit") bindPostConsole(root, ctx, ui, render);
       bindEpProd(root, ctx, ui, render, {
         enterEpisode: (id) => enterEpisode(id, null),
         setStage: (k) => setModule(k),
         goStory: () => setModule("episodes"),
+        selectShot: (shotId) => selectShot(shotId),
       });
-      // The provenance graph mounts into the container the centre just rendered.
-      // Re-mounting per render is safe and deliberate: `mount` only points the
-      // graph at a DOM node — its view state (selection, trace mode, scope)
-      // lives in its own closure and survives, which is what lets the LEFT
-      // inspector keep showing the selected node across a shell re-render.
-      if (activeModule === EPISODE_DEFAULT) {
+      // CENTER — the cards carry their own actions now (§10)
+      if (shotGraph) {
+        bindShotGraph(root, shotGraph, {
+          onOpen: (n) => { ui.sgNode = n.id; ui.sgMenu = null; render(); },
+          onMenu: (id) => { ui.sgMenu = ui.sgMenu === id ? null : id; render(); },
+          onStage: (key) => { ui.sgStage = key; render(); },
+          onAct: (act, n) => cardAction(ctx, act, n, shotGraph),
+        });
+      }
+      if (activeModule === "provenance") {
         const box = root.querySelector("#ep-graph");
-        // The rerender callback fires ONLY when the graph's selection actually
-        // changed, so it is exactly the point at which the object this column
-        // operates on moves. The unsaved Prompt buffer belongs to the object it
-        // was typed against: carrying it across would offer shot B the text
-        // written for shot A and save it there. Every other selection path
-        // (`setInspect`, a shot card) already drops it for the same reason.
         if (box && ctx.mountProvenance) {
-          ctx.mountProvenance(box, () => { ui.piPrompt = null; render(); });
+          ctx.mountProvenance(box, () => { ui.piPrompt = null; ui.piAxes = null; render(); });
         }
       }
     }
@@ -729,6 +1202,16 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     if (activeModule !== "script") {
       bindDirector(root, ctx, ui, render);
       bindSkillPanel(root, ctx, ui, render);
+      // TASK-067: the shot workbench's operational panel. Bound only where it was
+      // rendered — `shotDirector` is null everywhere else, and binding against a
+      // panel that is not on screen would attach handlers carrying the PREVIOUS
+      // shot's id.
+      if (shotDirector) {
+        bindShotDirector(root, ctx, ui, render, {
+          shotId: shotDirector.shotId,
+          onOpenNode: (node) => openShotCard(ctx, node),
+        });
+      }
       return;
     }
     // --- script workspace bindings (unchanged behavior) ---
@@ -791,7 +1274,6 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
         }
         ui.dirty = false;
         ui.buffer = {};
-        ui.shotEdit = false;
         activeModule = next;
       }
       lastOf[spaceOf(activeModule)] = activeModule;
@@ -819,7 +1301,6 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     discardShotEdit() {
       ui.dirty = false;
       ui.buffer = {};
-      ui.shotEdit = false;
     },
     /** Open a specific shot in a shot workspace — the hand-off the Workflow
      *  provenance page uses for 「在制作中打开」. It only SELECTS; it does not
@@ -828,16 +1309,19 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
      *  context out from under them. Returns false when the selection was
      *  refused (unsaved shot edits), so the caller never claims a jump that
      *  did not happen. */
-    openShot(shotId, module = "workbench") {
+    openShot(shotId, module = EPISODE_DEFAULT) {
       if (typeof shotId !== "string" || !shotId) return false;
       if (ui.dirty && !window.confirm("镜头详情有未保存的修改，切换将丢弃？")) return false;
       ui.dirty = false;
       ui.buffer = {};
-      ui.shotEdit = false;
       ui.selectedShotId = shotId;
-      // A shot opens in 剧集制作, and its own object opens in the LEFT inspector:
-      // that is where a shot is worked on now (ADR-0061 决策 2).
-      activeModule = WORKSPACES[module] || module === "script" ? module : "workbench";
+      // the graph node and the unsaved buffers belong to the shot being left
+      ui.sgNode = null;
+      ui.piPrompt = null;
+      ui.piAxes = null;
+      // A shot opens in 剧集制作 on the 制作台, and its own object opens in the LEFT
+      // inspector: that is where a shot is worked on now (TASK-065 §9 / §12).
+      activeModule = WORKSPACES[module] || module === "script" ? module : EPISODE_DEFAULT;
       ui.inspect = { ...(ui.inspect || {}), kind: (ui.inspect && ui.inspect.kind) || "shot", shotId };
       lastOf[spaceOf(activeModule)] = activeModule;
       lastProdModule = activeModule;

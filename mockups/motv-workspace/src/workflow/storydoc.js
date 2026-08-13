@@ -248,6 +248,11 @@ export function createStory(saved) {
     plans: [],
     activePlan: 0,
     confirmedPlan: 0,
+    // TASK-069: UNVERSIONED hand edits of the plan, keyed by the plan version they
+    // were typed over. Persisted like the episode script's `workingText` — a refresh
+    // mid-sentence must not lose one — and turned into a version only by an explicit
+    // save. Keyed by base so switching versions cannot silently discard one.
+    planDrafts: {},
     pending: null, // transient — never persisted
     _seq: 0,
   };
@@ -262,6 +267,23 @@ export function createStory(saved) {
   const pOk = (v) => Number.isInteger(v) && doc.plans.some((x) => x.v === v);
   doc.activePlan = pOk(saved.activePlan) ? saved.activePlan : doc.plans.length;
   doc.confirmedPlan = pOk(saved.confirmedPlan) ? saved.confirmedPlan : 0;
+  // TASK-069: the unversioned hand edits. A draft is kept only when it names a plan
+  // version that still exists — one whose base is gone cannot be compared against
+  // anything, so keeping it would make 「已修改」 permanent and unresolvable.
+  const saveDrafts = isObj(saved.planDrafts) ? saved.planDrafts : null;
+  if (saveDrafts) {
+    for (const k of Object.keys(saveDrafts)) {
+      const v = Number(k);
+      if (!pOk(v) || !Array.isArray(saveDrafts[k])) continue;
+      const eps = sanitizePlanEpisodes(saveDrafts[k]);
+      if (eps.length) doc.planDrafts[String(v)] = eps;
+    }
+  } else if (isObj(saved.planDraft) && pOk(saved.planDraft.basedOn)) {
+    // a document written by the FIRST shape of this feature (one draft, keyed by
+    // `basedOn`). Migrated rather than dropped — it is the creator's unsaved work.
+    const eps = sanitizePlanEpisodes(saved.planDraft.episodes);
+    if (eps.length) doc.planDrafts[String(saved.planDraft.basedOn)] = eps;
+  }
   return doc;
 }
 
@@ -276,6 +298,7 @@ export function serialize(doc) {
     plans: doc.plans,
     activePlan: doc.activePlan,
     confirmedPlan: doc.confirmedPlan,
+    planDrafts: doc.planDrafts,
   };
 }
 
@@ -285,6 +308,187 @@ export function activeOutline(doc) {
 
 export function approvedOutline(doc) {
   return doc.versions.find((x) => x.v === doc.approved) || null;
+}
+
+/* -------------------------------------------------------------------------- */
+/* MANUAL plan editing (TASK-069)                                             */
+/* -------------------------------------------------------------------------- */
+//
+// 分集规划 used to be AI-only: the six facets of each episode (title / synopsis /
+// purpose / hook / endingBeat / duration) could be produced by a proposal and
+// confirmed, but never typed. This is the hand-editing half.
+//
+// WHY A DRAFT AND NOT AN IN-PLACE EDIT. A plan version is IMMUTABLE canon, and
+// every Episode records which version it was built on (`canondoc` stamps it, and
+// 分集规划 renders it as 「Based on … 规划 vN」). Editing a confirmed version in
+// place would leave that chip saying vN while its content had been replaced —
+// the baseline would be a lie, and the Impact Review that rests on it (ADR-0054
+// 决策 6) would be reporting about something that no longer exists.
+//
+// So a hand edit lands in a DRAFT, exactly like the episode script's
+// `workingText`: persisted (a refresh mid-sentence must not lose it), visible as
+// 「已手工修改（未版本化）」, and turned into a real version only by an explicit
+// save. Confirming that version stays a separate act, so downstream episodes are
+// never carried along by an edit still in progress.
+
+/**
+ * The plan version on screen, and therefore the one a hand edit starts from:
+ * the ACTIVE one, falling back to the confirmed one.
+ *
+ * ACTIVE, not confirmed — that is the plan panel's own convention (it renders
+ * `story.activePlan` and switches it with 「查看 v2」). Basing edits on the
+ * confirmed version instead made the just-saved version vanish from the screen:
+ * saving sets `activePlan` to the new version, but the cards kept re-reading the
+ * confirmed one, so the creator's edit appeared to be discarded.
+ *
+ * Null when there is no plan at all — there is nothing to edit yet.
+ */
+export function planEditBase(doc) {
+  return activePlan(doc) || confirmedPlan(doc) || null;
+}
+
+/** The unsaved hand edit OF THE VERSION ON SCREEN, or null.
+ *
+ *  Drafts are kept PER BASE VERSION. A single draft could not survive the plan
+ *  panel's 「查看 v2」: it would still be displayed while the panel said v2, and
+ *  the next keystroke would re-seed it from v2 and take the unsaved v1 edits with
+ *  it — silent data loss, found by codex review. Keyed by base, switching away and
+ *  back returns to exactly what was typed. */
+export function planDraftFor(doc, v) {
+  const d = doc.planDrafts ? doc.planDrafts[String(v)] : null;
+  return Array.isArray(d) ? d : null;
+}
+
+/** The entries currently on screen: the draft FOR THIS VERSION when one exists,
+ *  else the version's own. ONE derivation, so the editor and the reader cannot
+ *  disagree — and it can never show one version's text under another's number. */
+export function effectivePlanEpisodes(doc) {
+  const base = planEditBase(doc);
+  if (!base) return [];
+  return planDraftFor(doc, base.v) || base.episodes;
+}
+
+/** Is the version on screen edited but unsaved? Compared by CONTENT against that
+ *  version, so re-typing a value back to what it was clears the flag rather than
+ *  leaving a permanent 「已修改」 the creator cannot get rid of. */
+/** The version number `savePlanDraft` WILL create — always one past the newest plan,
+ *  never `base + 1`. Editing an older base does not overwrite the versions after it
+ *  (canon is append-only), so predicting `base + 1` in the UI told the creator a
+ *  version number the save would never produce (codex review round 4). */
+export function nextPlanVersion(doc) {
+  return (doc && Array.isArray(doc.plans) ? doc.plans.length : 0) + 1;
+}
+
+export function planDirty(doc) {
+  const base = planEditBase(doc);
+  if (!base) return false;
+  const a = planDraftFor(doc, base.v);
+  if (!a) return false;
+  const b = base.episodes;
+  if (a.length !== b.length) return true;
+  return a.some((e, i) => PLAN_FIELDS.some((k) => str(e[k]) !== str(b[i][k])));
+}
+
+/** Does this version's stored draft actually DIFFER from it? */
+function draftDiffers(doc, v) {
+  const base = doc.plans.find((x) => x.v === v) || null;
+  const a = planDraftFor(doc, v);
+  if (!base || !a) return false;
+  if (a.length !== base.episodes.length) return true;
+  return a.some((e, i) => PLAN_FIELDS.some((k) => str(e[k]) !== str(base.episodes[i][k])));
+}
+
+/**
+ * Every version that has an unsaved edit — so the UI can say that a draft is
+ * waiting on a version the creator is not currently looking at, instead of it
+ * being invisible until they happen to switch back.
+ *
+ * BY CONTENT, not by mere existence. Typing a value and then typing it back leaves
+ * a stored draft that is identical to its version; reporting that would warn about
+ * 「另有未保存的修改」 that are not modifications at all — and `discardPlanDraft`
+ * only reaches the version on screen, so the creator could not clear the warning
+ * from where they were standing (codex review, non-blocking → fixed).
+ */
+export function planDraftVersions(doc) {
+  if (!doc.planDrafts) return [];
+  return Object.keys(doc.planDrafts)
+    .map((k) => Number(k))
+    .filter((v) => Number.isInteger(v) && draftDiffers(doc, v))
+    .sort((a, b) => a - b);
+}
+
+/**
+ * Type one facet of one episode's plan entry.
+ *
+ * Addressed by `episodeId` — never by index. An index would move under any
+ * re-order and silently write 「EP03 的钩子」 onto EP02.
+ *
+ * Returns false when there is nothing to edit (no plan) or the episode / field
+ * is not part of the plan — a refusal, never a silent no-op that reports success.
+ */
+export function editPlanEntry(doc, episodeId, field, value) {
+  if (!PLAN_FIELDS.includes(field)) return false;
+  if (typeof episodeId !== "string" || !episodeId) return false;
+  const base = planEditBase(doc);
+  if (!base) return false;
+  // CHECK BEFORE SEEDING. Validating after would leave a draft behind for an edit
+  // that was refused — state created by an operation that reported failure.
+  if (!base.episodes.some((e) => e.episodeId === episodeId)) return false;
+  if (!doc.planDrafts) doc.planDrafts = {};
+  const key = String(base.v);
+  if (!Array.isArray(doc.planDrafts[key])) {
+    // seed THIS VERSION's draft from it, deep enough that editing cannot mutate
+    // the immutable version it came from. Other versions' drafts are untouched.
+    doc.planDrafts[key] = base.episodes.map((e) => ({ ...e }));
+  }
+  const entry = doc.planDrafts[key].find((e) => e.episodeId === episodeId);
+  if (!entry) return false;
+  entry[field] = str(value);
+  return true;
+}
+
+/**
+ * Turn the draft into the next plan version (`origin: "manual"`).
+ *
+ * Returns the new version number, or 0 when there is nothing to save. Pointers
+ * do NOT move: `activePlan` follows the new version (it is what the creator is
+ * now looking at), but `confirmedPlan` stays where it was — confirming is the
+ * gate that instantiates/links episodes, and a hand edit must not walk through
+ * it by itself.
+ */
+export function savePlanDraft(doc) {
+  if (!planDirty(doc)) return 0;
+  const base = planEditBase(doc);
+  const rec = {
+    id: mintId("plan"),
+    v: doc.plans.length + 1,
+    episodes: sanitizePlanEpisodes(planDraftFor(doc, base.v)),
+    origin: "manual",
+    instruction: "",
+    // the same launch-time provenance link a proposed version carries, so a
+    // hand-edited plan can still say which outline it belongs to
+    outlineVersionId: base ? base.outlineVersionId ?? null : null,
+    // WHICH version was typed over. A proposed version records its instruction;
+    // a manual one records its parent, which is the only honest answer to
+    // 「这一版是从哪一版改出来的」.
+    basedOn: base ? base.v : null,
+  };
+  if (!rec.episodes.length) return 0; // sanitizer dropped everything — nothing to save
+  doc.plans.push(rec);
+  doc.activePlan = rec.v;
+  // only THIS version's draft is consumed — an edit waiting on another version is
+  // still waiting, and saving one must not throw the other away
+  delete doc.planDrafts[String(base.v)];
+  return rec.v;
+}
+
+/** Throw away the hand edit ON THE VERSION ON SCREEN and go back to it as filed.
+ *  Drafts on other versions are untouched — 放弃 means 「放弃我正在看的这一版的修改」. */
+export function discardPlanDraft(doc) {
+  const base = planEditBase(doc);
+  if (!base || !planDraftFor(doc, base.v)) return false;
+  delete doc.planDrafts[String(base.v)];
+  return true;
 }
 
 export function activePlan(doc) {

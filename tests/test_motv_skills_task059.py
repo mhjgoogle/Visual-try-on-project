@@ -343,8 +343,15 @@ def test_a_proposal_is_not_a_canonical_write() -> None:
     app = _code("app.js")
     # bounded at the NEXT controller, not at assetRegistryView: later
     # checkpoints add controllers in between, and they legitimately READ the
-    # canonical documents to build their own view models
-    section = app.split("skills: {", 1)[1].split("\n  shot: {", 1)[0]
+    # canonical documents to build their own view models.
+    #
+    # `\n  shot: {` was the wrong boundary — it is not the next controller, so
+    # every controller added between skills and shot fell inside the window.
+    # TASK-064's refInterp / locks / frames / shotAudio / subtitles controllers
+    # legitimately READ proddoc to build their view models, and that tripped a
+    # guard about what ACCEPTING A PROPOSAL may WRITE. The rule is unchanged; the
+    # slice now names the boundary it always meant.
+    section = app.split("skills: {", 1)[1].split("\n  prompt: {", 1)[0]
     section = section.split("\n  assetRegistryView", 1)[0]
     assert "skillrun.acceptRun" in section
     # Accepting MARKS the run; applying the proposal to canon is the caller's,

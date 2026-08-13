@@ -5,6 +5,10 @@
 - Scope tasks: TASK-054
 - 关联：ADR-0007（WFM1 文档基线）、M3 资产登记、M5 生成登记、M10 Prompt 编译器、
   M11 时间线与渲染、[ADR-0049](ADR-0049-native-windows-run-and-test-target.md)
+- **被 [ADR-0066](ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)
+  降级（不撤销）**：本 ADR 的「溯源图是派生的、不是第二套流程模型」全部继续有效；
+  变的只是它在产品里的**位置** —— 不再是创作者主界面，改为具体结果旁的「生成记录」
+  与项目设置下的诊断视图。
 
 ## Context
 

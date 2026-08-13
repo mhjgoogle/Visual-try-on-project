@@ -45,6 +45,7 @@ from ai_video_workflow.providers.models import (
     ProviderResult,
     ProviderStatus,
 )
+from tests.symlink_support import symlink_or_skip
 
 T0 = datetime(2026, 7, 26, 9, 0, 0, tzinfo=timezone.utc)
 T1 = datetime(2026, 7, 26, 10, 0, 0, tzinfo=timezone.utc)
@@ -1096,7 +1097,7 @@ class TestSymlinkTargetRejection:
         (project / "records/orchestration").mkdir(parents=True)
         outside = project / "outside-record.json"
         outside.write_bytes(b"{}")
-        os.symlink(outside, project / "records/orchestration/task-1.json")
+        symlink_or_skip(project / "records/orchestration/task-1.json", outside)
         with pytest.raises(PersistenceExecutionError):
             executor.read_project_state("task-1")
 
@@ -1109,7 +1110,7 @@ class TestSymlinkTargetRejection:
         (project / "tasks/instructions").mkdir(parents=True)
         outside = project / "outside-instruction.md"
         outside.write_bytes(b"seed\n")
-        os.symlink(outside, project / "tasks/instructions/task-1.md")
+        symlink_or_skip(project / "tasks/instructions/task-1.md", outside)
         with pytest.raises(PersistenceExecutionError):
             executor.commit_apply(plan)
 
@@ -1559,7 +1560,7 @@ class TestParentComponentContainment:
         outside.mkdir()
         # replace the `records` parent component with a symlink out of root
         shutil.rmtree(project / "records")
-        os.symlink(outside, project / "records")
+        symlink_or_skip(project / "records", outside)
         with pytest.raises(PersistenceExecutionError):
             executor.create_approved_parents(layout)
         assert not (outside / "orchestration").exists()
@@ -1586,7 +1587,7 @@ class TestParentComponentContainment:
             outside / "generation-tasks/task-1.json",
         )
         shutil.rmtree(project / "records")
-        os.symlink(outside, project / "records")
+        symlink_or_skip(project / "records", outside)
         assert not layout.task_path.is_symlink()
         with pytest.raises(PersistenceExecutionError):
             executor._read_state_file(layout.task_path, "task", required=True)
@@ -1600,7 +1601,7 @@ class TestParentComponentContainment:
         outside = project / "outside.bin"
         outside.write_bytes(b"seed")
         target = project / "records/orchestration/probe.bin"
-        os.symlink(outside, target)
+        symlink_or_skip(target, outside)
         with pytest.raises(PersistenceExecutionError):
             executor._atomic_write_bytes(target, b"payload")
         assert outside.read_bytes() == b"seed"
