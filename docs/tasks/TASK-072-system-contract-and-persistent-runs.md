@@ -416,7 +416,8 @@ ADR-0066 Accepted
 **批次二起改用连续修改链节奏**（[ADR-0068](../adr/ADR-0068-continuous-modification-chain.md)，
 产品负责人 2026-08-13 授权）：批次二 / 批次三的提交为**中间提交** ——
 实现 → 定向测试 → Codex review loop → 修复时定向回归 → Codex 通过 → 立即独立
-commit，**不跑**全量 pytest 与全量前端（`MOTV_CONTINUOUS_CHAIN=1`，逐次设置）。
+commit，**不跑**全量 pytest 与全量前端（把 `MOTV_CONTINUOUS_CHAIN=1` 逐次写在
+提交命令最前面；**不是环境变量**，见 ADR-0068 决策 7 补记）。
 **最终检查点在批次三之后**：统一跑一次全量 pytest + 全量前端 + ruff + §4 全部
 验收项。批次一已按原规则跑完全量，不受影响。
 

@@ -22,6 +22,18 @@ if [ -z "$ROOT" ]; then
 fi
 PY="$ROOT/.venv/bin/python"
 
+# Force UTF-8 on every python child's stdio, exactly as gate.ps1 does before its
+# own checks. Without this, a non-UTF-8 locale (zh_CN.GB18030, ja_JP.eucJP, any
+# ISO-8859-*) made the notice extraction die on one Chinese character; the
+# failure was swallowed by `set -uo pipefail` (no `-e`), the notice came back
+# EMPTY, and the skip warning was never printed at all — while gate.ps1, which
+# does set these, printed it. Same input, different output: the platform
+# divergence ADR-0062 决策 3 forbids (independent review, round 3).
+# PEP 540's automatic UTF-8 mode covers only the C/POSIX locale, so it does not
+# cover this.
+export PYTHONIOENCODING=utf-8
+export PYTHONUTF8=1
+
 # A Windows virtualenv means gate.ps1 owns this repo's gate (ADR-0050). Both
 # hooks are registered in settings.json and run in parallel, so this one must
 # stand down here: a bash on a Windows host (Git Bash, or WSL reaching in over
@@ -90,7 +102,11 @@ POLICY_DIFF_ARGS=(diff --cached --name-only --no-renames -z)
 if printf '%s' "$CMD" | grep -qE '(^|[[:space:]])(-a|--all)([[:space:]]|$)'; then
   POLICY_DIFF_ARGS=(diff --name-only --no-renames -z HEAD)
 fi
-if ! POLICY_JSON="$(cd "$ROOT" && git "${POLICY_DIFF_ARGS[@]}" | "$PY" "$POLICY")"; then
+# ADR-0068 opt-in. The command is HANDED OVER; this script does not decide.
+# Each shell matching the token itself is how the two platforms came to
+# disagree (PowerShell's -like is case-insensitive, grep -F is not), and how a
+# commit MESSAGE containing the token could switch the gate off.
+if ! POLICY_JSON="$(cd "$ROOT" && git "${POLICY_DIFF_ARGS[@]}" | "$PY" "$POLICY" --command "$CMD")"; then
   echo "gate.sh: could not classify changed paths; refusing unchecked commit." >&2
   exit 2
 fi
@@ -162,6 +178,17 @@ if [ -z "$FAIL_LABEL" ]; then
       ;;
     lint)
       ;;
+    continuous-chain)
+      # ADR-0068: the whole-suite run is deferred to the end of an authorised
+      # chain. Announced below, never silent.
+      ;;
+    chain-conflict)
+      # ADR-0068 决策 6: the opt-in cannot ride along with a push/merge in the
+      # same command. Decided in the policy module, like every other
+      # command-derived verdict.
+      FAIL_LABEL="continuous-chain"
+      FAIL_OUT="$(printf '%s' "$POLICY_JSON" | "$PY" -c 'import json,sys; sys.stdout.buffer.write(json.load(sys.stdin)["reason"].encode("utf-8"))')"
+      ;;
     *)
       FAIL_LABEL="commit-risk-policy"
       FAIL_OUT="unsupported risk tier: $POLICY_TIER"
@@ -180,6 +207,39 @@ if [ -n "$FAIL_LABEL" ]; then
     echo "=== fix the above, then commit again ==="
   } >&2
   exit 2
+fi
+
+# --- announce a deferred whole-suite run (ADR-0068) --------------------------
+# ONLY on the allow path, and only via JSON. PLAIN stdout from a PreToolUse hook
+# that exits 0 is DISCARDED: it is not shown to the user and not given to the
+# model, so the previous `echo` announced the skip to nobody — while gate.ps1
+# carried a comment claiming the opposite (independent review, round 3,
+# confirmed against the hooks documentation).
+#
+# `systemMessage` alone is the documented pass-through: the message is shown to
+# the user and, with `hookSpecificOutput` omitted, NO permission decision is
+# made — an allowlisted commit stays allowlisted and nothing is auto-approved.
+# `json.dumps` defaults to ensure_ascii, so what reaches the console is pure
+# ASCII whatever its codepage.
+#
+# Keyed on the NOTICE, exactly like gate.ps1's `if ($policy.notice)`. Keying
+# this side on the tier instead was equivalent today and divergent tomorrow: the
+# first tier that carries a notice would be announced on Windows and silent on
+# Ubuntu — the class ADR-0062 决策 3 forbids, and nothing would have caught it.
+if ! NOTICE_JSON="$(printf '%s' "$POLICY_JSON" | "$PY" -c 'import json,sys
+notice = (json.load(sys.stdin).get("notice") or "").strip()
+if notice:
+    sys.stdout.write(json.dumps({"systemMessage": "gate.sh: " + notice}))')"; then
+  # A skip that cannot be announced is exactly the invisible skip ADR-0068
+  # 决策 7 exists to prevent, so refuse it rather than grant it silently. This
+  # blocks a commit that passed every check, which is the correct trade: the
+  # gate could not parse its own policy output.
+  echo "gate.sh: could not emit the continuous-chain notice; refusing to grant a skip nobody would see." >&2
+  exit 2
+fi
+if [ -n "$NOTICE_JSON" ]; then
+  # newline-terminated, like gate.ps1's WriteLine
+  printf '%s\n' "$NOTICE_JSON"
 fi
 
 exit 0

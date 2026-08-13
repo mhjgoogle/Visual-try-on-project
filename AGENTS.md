@@ -163,7 +163,10 @@ pause/cancel/skip 状态。
     经用户**明确授权**、且任务卡已写下任务/批次清单与最终检查点的连续实施，其
     **中间**提交按「实现 → 定向测试 → Codex review loop → 修复时定向回归 →
     Codex 通过 → 立即独立 commit」执行，中间提交**不跑**全量 pytest 与全量前端
-    （仍跑 ruff 与 diff 检查），由 `MOTV_CONTINUOUS_CHAIN=1` 逐次显式启用。
+    （仍跑 ruff 与 diff 检查），由写在**提交命令最前面**的
+    `MOTV_CONTINUOUS_CHAIN=1` 逐次显式启用（**不是环境变量**，也不得持久化；
+    PowerShell 写成首行注释 `# MOTV_CONTINUOUS_CHAIN=1` 再换行写命令；同一条
+    命令里带 push / merge 一律拒绝提交。见 ADR-0068 决策 7 补记）。
     整条链结束后**统一跑一次**全量 pytest + 全量前端 + ruff + 最终验收；
     最终全量失败则「修复 → 定向测试 → Codex 复审 → 修复提交 → 重新跑全量」。
     **push / merge / 交接 / 人工验收之前必须完成最终全量。**

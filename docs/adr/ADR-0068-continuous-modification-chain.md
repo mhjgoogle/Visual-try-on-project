@@ -80,23 +80,61 @@ commit gate 的 diff 检查——它们是秒级的，没有任何理由推迟�
 这四件事任何一件之前，最终全量必须已经跑完并全绿。**未完成最终全量的链不得交付**
 ——它的状态是「中间态」，而中间态不进入别人的视野。
 
-### 决策 7：`MOTV_CONTINUOUS_CHAIN=1`，且没有永久开关
+### 决策 7：`MOTV_CONTINUOUS_CHAIN=1` 写在提交命令的最前面，且没有永久开关
 
-规则必须真实生效，因此 commit gate 认一个**显式环境变量**：
+规则必须真实生效，因此 commit gate 认一个**逐次显式写出的令牌**：
 
 | 项 | 内容 |
 | --- | --- |
-| 变量 | `MOTV_CONTINUOUS_CHAIN=1` |
+| 令牌 | `MOTV_CONTINUOUS_CHAIN=1`，**必须在提交命令最前面**，**大小写敏感**，**只认精确值 `1`** |
+| 写法（Bash） | `MOTV_CONTINUOUS_CHAIN=1 git commit -m "…"`（对 git 本身是惰性赋值，不影响提交行为） |
+| 写法（PowerShell，**权威平台**） | 首行注释 `# MOTV_CONTINUOUS_CHAIN=1`，换行后再写 `git commit …`。PowerShell 5.1 **没有内联赋值语法**，Bash 那种写法在这里会直接 CommandNotFoundException |
+| 同一条命令里 push / merge | **拒绝提交**（决策 6）：中间提交没跑全量，不能顺着 `&&` 被推出去 |
 | 何时可用 | **仅**用户已授权的连续修改链的**中间**提交 |
 | 效果 | 跳过全量 pytest / 全量前端；**仍跑** ruff 与 diff 检查 |
-| 最终检查点 | **不设**该变量 → 恢复 ADR-0060 的原高风险 full gate |
+| 最终检查点 | **不写**该令牌 → 恢复 ADR-0060 的原高风险 full gate |
 | 平台 | PowerShell 与 Bash gate **行为必须一致**（ADR-0062 决策 3） |
 | 单元测试 | `commit_gate_policy` 必须有覆盖该模式的单测 |
-| **不提供** | **任何永久关闭测试的全局开关**——变量是**逐次**设置的，不写进 settings，不写进 profile |
+| **不提供** | **任何永久关闭测试的全局开关**——令牌**逐次**写出，不写进 settings，不写进 profile |
 
 最后一条是本决策的要点。一个可以永久设置的「跳过测试」开关，一周之内就会变成
-默认状态，然后没有人记得它开着。逐次设置意味着每一次跳过都是一个**当场的、
+默认状态，然后没有人记得它开着。逐次写出意味着每一次跳过都是一个**当场的、
 可见的决定**。
+
+#### 补记（2026-08-13，TASK-076 实施期间的独立审查）
+
+本决策原文写的是「gate 读一个**显式环境变量**」。实施时发现**那个机制根本无法
+成立**，如实记录，不掩盖：
+
+- gate 是 **PreToolUse hook**，由 Claude Code 派生，**不是被拦截的 `git commit`
+  的子进程**。所以 `MOTV_CONTINUOUS_CHAIN=1 git commit …` 这种逐次内联赋值
+  **永远到不了 hook 自己的环境**。
+- 唯一真的能到达 hook 的环境通道是 session 级或 settings 级变量——**那正是本决策
+  第 9 行禁止的持久开关**，而且会静默作用于其后每一次提交。
+
+因此实现改为**从被拦截的命令文本里读同一个令牌**：它必须每次重新写、在命令行与
+transcript 里都看得见、且无处可持久化——**恰好是本决策原本要的三条性质**。
+令牌必须**在最前面**且**大小写敏感**，否则
+`git commit -m "文档里提到 MOTV_CONTINUOUS_CHAIN=1"` 会把闸门关掉，而
+PowerShell 的 `-like` 大小写不敏感、Bash 的 `grep -F` 敏感，两个平台会给出不同
+结论（ADR-0062 决策 3 禁止）。判定只在 `commit_gate_policy.py` 里做一次，两个
+shell **只负责把命令交出去**。
+
+第三轮独立审查又纠正了三处，一并记下：
+
+1. **权威平台根本打不出原来的写法。** `NAME=value cmd` 是 Bash 语法；
+   PowerShell 5.1 没有内联赋值，会报 CommandNotFoundException。所以补充了
+   **首行注释**写法 `# MOTV_CONTINUOUS_CHAIN=1`，两个 shell 都合法，且仍然
+   逐次、可见、无处持久化。
+2. **`&&` 一下就绕开了决策 6。** `MOTV_CONTINUOUS_CHAIN=1 git commit … && git push`
+   会把一个没跑过全量的提交推出去。现在同一条命令里出现 push / merge 一律
+   **拒绝提交**。闸门不解析 shell 引号（它从来不解析），所以提交信息里出现
+   push/merge 字样会被多拦一次——去掉令牌重提交即可，代价是一次重打。
+3. **跳过警告其实谁都看不见。** PreToolUse hook 退出 0 时，**纯文本 stdout 会被
+   丢弃**（不给用户、也不给模型）。改为输出 `{"systemMessage": …}`：这是文档给出的
+   pass-through 形式，只显示警告，**不做任何权限决策**（`permissionDecision`
+   要么自动放行、要么在用户已放行的命令上强行弹窗，两者都不可接受）。
+   一个连警告都发不出去的跳过**直接拒绝**，因为那正是本决策要防的隐形跳过。
 
 ## 后果
 

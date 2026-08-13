@@ -251,8 +251,13 @@ $diffArgs = @('diff', '--cached', '--name-only', '--no-renames')
 if ($cmd -match '(^|\s)(-a|--all)(\s|$)') {
     $diffArgs = @('diff', '--name-only', '--no-renames', 'HEAD')
 }
-$pathsResult = Invoke-Bounded -FilePath $gitExe -Arguments $diffArgs `
-    -TimeoutSeconds 15 -WorkingDirectory $root
+try {
+    $pathsResult = Invoke-Bounded -FilePath $gitExe -Arguments $diffArgs `
+        -TimeoutSeconds 15 -WorkingDirectory $root
+}
+catch {
+    Write-Block -Label 'commit-risk-policy' -Output "could not list changed paths: $($_.Exception.Message)"
+}
 if ($pathsResult.ExitCode -ne 0) {
     $out = $pathsResult.Output
     if ($pathsResult.TimedOut) { $out = "$out`n[timed out after 15s]" }
@@ -261,8 +266,35 @@ if ($pathsResult.ExitCode -ne 0) {
 $changedPaths = @(
     $pathsResult.Output -split "`r?`n" | Where-Object { $_ -and $_.Trim() }
 )
-$policyResult = Invoke-Bounded -FilePath $py -Arguments (@($policyPath) + $changedPaths) `
-    -TimeoutSeconds 15 -WorkingDirectory $root
+# ADR-0068 opt-in. The command is HANDED OVER; this script does not decide.
+# Matching the token here was wrong twice over: PowerShell's -like is
+# case-INSENSITIVE while gate.sh's grep -F is not (so the platforms disagreed),
+# and an unanchored match let a commit MESSAGE switch the gate off.
+# `--` ends the flags so a changed file named like one stays a path.
+$policyArgs = @($policyPath, '--command', $cmd, '--')
+# FAIL CLOSED on a spawn that never starts. This call now carries $cmd -- the
+# whole intercepted command, commit message included -- into the same 32767-char
+# command-line budget as the changed-path list, so a long message plus a wide
+# change set can push Process.Start over it. With $ErrorActionPreference='Stop'
+# and no catch, that terminating error exited the SCRIPT with 1, which
+# PreToolUse reads as a NON-BLOCKING hook error: the commit then proceeded with
+# ZERO checks run (independent review, round 3, measured: OK at 30125 chars,
+# Win32Exception at 40125). Truncating $cmd instead would hide a trailing
+# `&& git push` from the ADR-0068 decision 6 scan, so bound the failure, not the input.
+try {
+    $policyResult = Invoke-Bounded -FilePath $py -Arguments ($policyArgs + $changedPaths) `
+        -TimeoutSeconds 15 -WorkingDirectory $root
+}
+catch {
+    Write-Block -Label 'commit-risk-policy' -Output @"
+could not run the risk classifier: $($_.Exception.Message)
+
+If this says the filename or extension is too long, the commit command itself is
+too long to hand over (git's 32767-char command-line budget covers the message
+AND the changed-path list). Put the message in a file and use -F, or stage fewer
+paths per commit. The gate refuses to vouch for code it could not classify.
+"@
+}
 if ($policyResult.ExitCode -ne 0) {
     $out = $policyResult.Output
     if ($policyResult.TimedOut) { $out = "$out`n[timed out after 15s]" }
@@ -298,17 +330,40 @@ switch ($policy.tier) {
         if (-not $node) {
             Write-Block -Label 'frontend tests' -Output 'node was not found on PATH.'
         }
-        $nodeTests = @(
-            Get-ChildItem -LiteralPath (Join-Path $root 'mockups\motv-workspace\tests') -Filter '*.test.mjs' |
-                Sort-Object Name |
-                ForEach-Object FullName
-        )
+        # FAIL CLOSED, like every other spawn in Phase B. With
+        # $ErrorActionPreference='Stop' a missing test directory is a TERMINATING
+        # error, and an unhandled one exits the script with 1 -- which PreToolUse
+        # reads as a non-blocking hook error, so the commit lands with ZERO
+        # checks run (not even ruff, since this switch runs before the check
+        # loop). A commit that MOVES mockups/motv-workspace/tests/ classifies as
+        # `frontend` and hits exactly this (independent review, round 4); the
+        # `-eq 0` guard below is dead in that case because the throw comes first.
+        try {
+            $nodeTests = @(
+                Get-ChildItem -LiteralPath (Join-Path $root 'mockups\motv-workspace\tests') -Filter '*.test.mjs' |
+                    Sort-Object Name |
+                    ForEach-Object FullName
+            )
+        }
+        catch {
+            Write-Block -Label 'frontend tests' -Output "could not list frontend test files: $($_.Exception.Message)"
+        }
         if ($nodeTests.Count -eq 0) {
             Write-Block -Label 'frontend tests' -Output 'no frontend test files were found.'
         }
         $checks += @{ Label = 'frontend tests'; Timeout = 90; File = $node.Source; Args = @('--test') + $nodeTests }
     }
     'lint' { }
+    'continuous-chain' {
+        # ADR-0068: the whole-suite run is deferred to the end of an authorised
+        # chain. Announced below, never silent.
+    }
+    'chain-conflict' {
+        # ADR-0068 decision 6: the opt-in cannot ride along with a push/merge in the
+        # same command. Blocking here (not in the shells' own token scan) keeps
+        # every command-derived decision in the policy module.
+        Write-Block -Label 'continuous-chain' -Output $policy.reason
+    }
     default {
         Write-Block -Label 'commit-risk-policy' -Output "unsupported risk tier: $($policy.tier)"
     }
@@ -332,6 +387,47 @@ foreach ($check in $checks) {
         $out = $result.Output
         if ($result.TimedOut) { $out = "$out`n[timed out after $($check.Timeout)s]" }
         Write-Block -Label $check.Label -Output $out
+    }
+}
+
+# --- announce a deferred whole-suite run (ADR-0068) --------------------------
+# ONLY on the allow path, and only via JSON. PLAIN stdout from a PreToolUse hook
+# that exits 0 is DISCARDED: not shown to the user, not given to the model -- so
+# the previous [Console]::Out.WriteLine announced the skip to nobody, and the
+# comment that justified the stream choice had it backwards (independent review,
+# round 3, confirmed against the hooks documentation).
+#
+# `systemMessage` alone is the documented pass-through: shown to the user, and
+# with `hookSpecificOutput` omitted NO permission decision is made -- an
+# allowlisted commit stays allowlisted and nothing is auto-approved.
+# The payload is forced to pure ASCII before it is written. PowerShell 5.1's
+# ConvertTo-Json does NOT escape non-ASCII (measured: 308 chars, 308 != UTF-8
+# byte count), so the notice's Chinese lines would be emitted in the CONSOLE's
+# codepage -- cp932 bytes that the harness, which reads UTF-8, cannot parse. The
+# result would be an unparseable-JSON hook error instead of the warning. Python's
+# json.dumps escapes by default, which is why gate.sh needs no equivalent; this
+# is the same output, reached the other way.
+# Trim BEFORE the test, like gate.sh's `.strip()` before its `if notice:`.
+# Testing first and trimming second differs only for an all-whitespace notice --
+# gate.ps1 would announce an empty message where gate.sh stays silent. Equivalent
+# today, divergent tomorrow, which is the whole reason this block is keyed on the
+# notice in both shells.
+$noticeText = "$($policy.notice)".Trim()
+if ($noticeText) {
+    try {
+        $payload = @{ systemMessage = "gate.ps1: $noticeText" } | ConvertTo-Json -Compress
+        $payload = [regex]::Replace(
+            $payload, '[^\x20-\x7E]',
+            { param($m) '\u{0:x4}' -f [int][char]$m.Value })
+        # INSIDE the try, or the one statement that does the announcing is the
+        # one statement whose failure is not caught -- and this block's own
+        # comment says an unannounceable skip must be refused, not granted.
+        [Console]::Out.WriteLine($payload)
+    }
+    catch {
+        # A skip that cannot be announced is the invisible skip ADR-0068 decision 7
+        # exists to prevent: refuse it rather than grant it silently.
+        Write-Block -Label 'continuous-chain' -Output "could not emit the skip notice: $($_.Exception.Message)"
     }
 }
 

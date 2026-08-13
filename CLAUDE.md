@@ -29,6 +29,9 @@
   **停下并如实报告**，不得以「测试全绿」替代独立审查。
 - 连续修改链（[ADR-0068](docs/adr/ADR-0068-continuous-modification-chain.md)）：
   经用户明确授权后，中间批次以定向测试 + Codex 审查收口并立即独立提交，
-  中间提交用 `MOTV_CONTINUOUS_CHAIN=1` 跳过全量（仍跑 ruff 与 diff 检查）；
-  链尾统一跑一次全量 pytest + 全量前端 + ruff + 最终验收。
-  **该变量逐次设置，不得写进 settings 或 profile。**
+  中间提交把 `MOTV_CONTINUOUS_CHAIN=1` **写在提交命令最前面**跳过全量
+  （仍跑 ruff 与 diff 检查）；链尾统一跑一次全量 pytest + 全量前端 + ruff +
+  最终验收。**该令牌逐次写出，不是环境变量，不得写进 settings 或 profile**
+  （gate 是 PreToolUse hook，读的是被拦截的命令文本；见 ADR-0068 决策 7 补记）。
+  PowerShell 没有内联赋值语法，写成首行注释 `# MOTV_CONTINUOUS_CHAIN=1` 再换行
+  写 `git commit …`。**同一条命令里不得带 push / merge**，否则闸门拒绝提交。
