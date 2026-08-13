@@ -1,0 +1,22 @@
+{
+  "skillId": "asset-librarian",
+  "skillVersion": 1,
+  "work": "review",
+  "role": "资产管理",
+  "title": "Asset Librarian",
+  "purpose": "为未分类资产提出分类 / 标签 / 可复用建议，并指出重复或相似资产。",
+  "inputs": [
+    "assets"
+  ],
+  "optionalInputs": [
+    "characters",
+    "scenes",
+    "generations"
+  ],
+  "reviewCriteria": [
+    "分类建议是否有清单里能看到的依据",
+    "是否把 CharacterId / ShotId 当成标签复制了一份",
+    "可复用建议是否只是「用过很多次」（那不算依据）"
+  ],
+  "recommendedRuntime": "local_subscription"
+}

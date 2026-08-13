@@ -1,0 +1,585 @@
+"""TASK-075 / ADR-0067: Skill packages are product assets, loaded and validated.
+
+The acceptance that matters most is #1: the migration must be VERBATIM. The
+snapshot fixture was captured from `src/workflow/skills.js` BEFORE the
+definitions moved, so these tests compare against what the product actually
+asked models yesterday — not against a re-derivation of it.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+import shutil
+import sys
+from pathlib import Path
+
+import pytest
+
+_REPO = Path(__file__).resolve().parents[1]
+_MOCKUP = _REPO / "mockups" / "motv-workspace"
+_BUILTIN = _REPO / "product-skills" / "builtin"
+_INPUTS = _REPO / "product-skills" / "skill-inputs.json"
+_SNAPSHOT = _MOCKUP / "tests" / "fixtures" / "skill-prompt-snapshots.json"
+
+_SPEC = importlib.util.spec_from_file_location("skillpkg", _MOCKUP / "skillpkg.py")
+assert _SPEC and _SPEC.loader
+skillpkg = importlib.util.module_from_spec(_SPEC)
+sys.modules[_SPEC.name] = skillpkg
+_SPEC.loader.exec_module(skillpkg)
+
+
+@pytest.fixture(scope="module")
+def catalog():
+    return skillpkg.load_catalog([("builtin", _BUILTIN)])
+
+
+@pytest.fixture(scope="module")
+def labels():
+    return skillpkg.load_input_labels(_INPUTS)
+
+
+@pytest.fixture(scope="module")
+def snapshot():
+    return json.loads(_SNAPSHOT.read_bytes().decode("utf-8"))
+
+
+def _package(tmp_path: Path, skill_id: str = "story-development") -> Path:
+    """A writable copy of a real builtin package."""
+    root = tmp_path / "skills"
+    root.mkdir(parents=True, exist_ok=True)
+    target = root / skill_id
+    shutil.copytree(_BUILTIN / skill_id, target)
+    return root
+
+
+def _edit_manifest(package: Path, **changes) -> None:
+    path = package / "manifest.json"
+    data = json.loads(path.read_bytes().decode("utf-8"))
+    for key, value in changes.items():
+        if value is None:
+            data.pop(key, None)
+        else:
+            data[key] = value
+    path.write_bytes(json.dumps(data, indent=2).encode("utf-8"))
+
+
+# --- 1. the migration is verbatim ------------------------------------------ #
+
+
+def test_every_migrated_prompt_is_byte_identical_to_the_pre_migration_one(
+    catalog, labels, snapshot
+) -> None:
+    """Acceptance #1. One byte of drift here means a capability now asks a
+    different question than the Runs already recorded against it."""
+    expected = snapshot["prompts"]
+    context = snapshot["context"]
+    assert len(expected) == 20
+
+    for skill_id, want in expected.items():
+        skill = catalog.skills.get(skill_id)
+        assert skill is not None, f"{skill_id} did not survive the migration"
+        got = skillpkg.compile_prompt(skill, context, labels)
+        assert got == want, f"{skill_id}: compiled prompt changed"
+
+
+def test_every_manifest_field_survived_the_migration(catalog, snapshot) -> None:
+    # a truncated fixture would otherwise pass this vacuously
+    assert len(snapshot["catalog"]) == 20
+    for entry in snapshot["catalog"]:
+        skill = catalog.skills[entry["skillId"]]
+        assert skill.version == entry["version"]
+        assert skill.work == entry["work"]
+        assert skill.role == entry["role"]
+        assert skill.title == entry["title"]
+        assert skill.purpose == entry["purpose"]
+        assert list(skill.inputs) == entry["inputs"]
+        assert list(skill.optional_inputs) == entry["optionalInputs"]
+        assert list(skill.review_criteria) == entry["reviewCriteria"]
+        assert skill.recommended_runtime == entry["recommendedRuntime"]
+
+
+def test_the_shared_label_map_matches_the_frontend_copy() -> None:
+    """TASK-075 §4.3: two hand-maintained label maps would drift, and the drift
+    would only show up as two runtimes being asked different questions."""
+    labels = skillpkg.load_input_labels(_INPUTS)
+    js = (_MOCKUP / "src" / "workflow" / "skills.js").read_text("utf-8")
+    body = js.split("export const SKILL_INPUTS = {", 1)[1].split("\n};", 1)[0]
+
+    # the LABELS, not just the key set: comparing `sorted(keys) == sorted(dict)`
+    # compared keys to keys, so changing 「创意 Brief」 to 「Brief」 on one side
+    # passed while every backend-compiled prompt differed from the page's
+    # (independent review)
+    pairs = {}
+    for line in body.splitlines():
+        text = line.strip()
+        if not text or text.startswith("//") or ":" not in text:
+            continue
+        key, _, value = text.partition(":")
+        pairs[key.strip()] = json.loads(value.strip().rstrip(",").replace("'", '"'))
+    assert pairs == labels, "SKILL_INPUTS and skill-inputs.json diverged"
+
+    # the other two shared lists travel in the same file and must match too
+    shared = json.loads(_INPUTS.read_bytes().decode("utf-8"))
+    for name, const in (
+        ("shotScopedInputs", "SHOT_SCOPED_INPUTS"),
+        ("runtimeKinds", "RUNTIME_KINDS"),
+    ):
+        declared = js.split(f"export const {const} = [", 1)[1].split("]", 1)[0]
+        want = [v.strip().strip('",') for v in declared.split(",") if v.strip()]
+        assert shared[name] == want, name
+
+
+# --- 2. priority and wholesale override ------------------------------------ #
+
+
+def test_project_beats_user_beats_builtin_and_overrides_wholesale(tmp_path) -> None:
+    """ADR-0067 决策 2. Wholesale: a project skill must never end up as a
+    half-overridden builtin whose prompt and schema came from different places."""
+    project = _package(tmp_path / "p")
+    user = _package(tmp_path / "u")
+    (project / "story-development" / "prompt.md").write_bytes("项目版指令".encode())
+    (user / "story-development" / "prompt.md").write_bytes("用户版指令".encode())
+
+    catalog = skillpkg.load_catalog(
+        [("project", project), ("user", user), ("builtin", _BUILTIN)]
+    )
+    skill = catalog.skills["story-development"]
+    assert skill.source == "project"
+    assert skill.instruction == "项目版指令"
+    # …and the builtin's other 19 are still there
+    assert len(catalog.skills) == 20
+
+    without_project = skillpkg.load_catalog([("user", user), ("builtin", _BUILTIN)])
+    assert without_project.skills["story-development"].source == "user"
+
+
+def test_a_broken_high_priority_package_does_not_fall_back(tmp_path) -> None:
+    """ADR-0067 决策 7. Falling back would run a DIFFERENT capability than the
+    one the creator is looking at, under the same name."""
+    project = _package(tmp_path / "p")
+    (project / "story-development" / "output.schema.json").write_bytes(b"{ not json")
+
+    catalog = skillpkg.load_catalog([("project", project), ("builtin", _BUILTIN)])
+    assert "story-development" not in catalog.skills
+    assert len(catalog.skills) == 19
+    problem = next(p for p in catalog.problems if p.skill_id == "story-development")
+    assert problem.source == "project"
+    assert "output.schema.json" in problem.reason
+
+
+def test_one_broken_package_does_not_take_unrelated_overrides_down_with_it(
+    tmp_path,
+) -> None:
+    """The shape the single-problem test could not reach.
+
+    A per-source set was built as `{p.source: {every problem's id}}`, so any id
+    broken ANYWHERE counted as broken in EVERY source that had a problem: with a
+    broken `cinematography` in the project and a broken builtin
+    `story-development`, the user's perfectly valid `story-development`
+    disappeared — and nothing in `problems` named it. Unavailable with no
+    attributable reason is the one direction fail-closed does not cover
+    (independent review).
+    """
+    project = _package(tmp_path / "p", "cinematography")
+    user = _package(tmp_path / "u", "story-development")
+    builtin = _package(tmp_path / "b", "story-development")
+    (project / "cinematography" / "manifest.json").write_bytes(b"{ broken")
+    (builtin / "story-development" / "manifest.json").write_bytes(b"{ broken")
+
+    catalog = skillpkg.load_catalog(
+        [("project", project), ("user", user), ("builtin", builtin)]
+    )
+
+    assert catalog.skills["story-development"].source == "user"
+    assert "cinematography" not in catalog.skills
+    # every unavailable id is accounted for by a problem naming it
+    broken = {p.skill_id for p in catalog.problems}
+    assert broken == {"cinematography", "story-development"}
+
+
+def test_a_duplicate_source_is_rejected_rather_than_silently_dropped(tmp_path) -> None:
+    package = _package(tmp_path)
+    with pytest.raises(ValueError, match="duplicate"):
+        skillpkg.load_catalog([("project", package), ("project", package)])
+
+
+# --- 3. digest and no in-place overwrite ----------------------------------- #
+
+
+def test_the_digest_ignores_platform_path_and_file_order(tmp_path) -> None:
+    """A digest that moved with the checkout's line endings would make the
+    Windows host reject every package the Ubuntu target wrote."""
+    lf = {"manifest.json": '{\n  "a": 1\n}\n', "prompt.md": "一\n二\n"}
+    crlf = {"prompt.md": "一\r\n二\r\n", "manifest.json": '{\r\n  "a": 1\r\n}\r\n'}
+    assert skillpkg.compute_digest(lf) == skillpkg.compute_digest(crlf)
+
+    # …but real content changes still move it, including a change that only
+    # moves bytes ACROSS files
+    assert skillpkg.compute_digest(lf) != skillpkg.compute_digest(
+        {"manifest.json": '{\n  "a": 2\n}\n', "prompt.md": "一\n二\n"}
+    )
+    assert skillpkg.compute_digest({"a": "xy", "b": ""}) != skillpkg.compute_digest(
+        {"a": "x", "b": "y"}
+    )
+
+    # the same package under a different root digests identically
+    copied = _package(tmp_path)
+    here = skillpkg.load_package(copied / "story-development", "project")
+    there = skillpkg.load_package(_BUILTIN / "story-development", "builtin")
+    assert here.digest == there.digest
+
+
+def test_changing_a_package_without_raising_its_version_is_refused(tmp_path) -> None:
+    """TASK-075 §1.2. Historical Runs claim to have used that exact version; if
+    the bytes may move underneath them, provenance is a guess."""
+    project = _package(tmp_path)
+    original = skillpkg.load_package(project / "story-development", "project")
+    history = {("story-development", 1): original.digest}
+
+    # unchanged content still loads
+    ok = skillpkg.load_catalog([("project", project)], known_digests=history)
+    assert "story-development" in ok.skills
+
+    (project / "story-development" / "prompt.md").write_bytes("改了".encode())
+    refused = skillpkg.load_catalog([("project", project)], known_digests=history)
+    assert "story-development" not in refused.skills
+    reason = refused.problems[0].reason
+    assert "skillVersion" in reason and original.digest in reason
+
+    # …and raising the version makes it loadable again, WITHOUT invalidating the
+    # 历史 Run, which still points at v1's digest
+    _edit_manifest(project / "story-development", skillVersion=2)
+    accepted = skillpkg.load_catalog([("project", project)], known_digests=history)
+    assert accepted.skills["story-development"].version == 2
+    assert accepted.skills["story-development"].digest != original.digest
+
+
+# --- 4. fail closed, per corruption class ---------------------------------- #
+
+
+@pytest.mark.parametrize("missing", skillpkg.PACKAGE_FILES)
+def test_a_missing_file_makes_the_skill_unavailable(tmp_path, missing) -> None:
+    package = _package(tmp_path)
+    (package / "story-development" / missing).unlink()
+    catalog = skillpkg.load_catalog([("project", package)])
+    assert catalog.skills == {}
+    assert missing in catalog.problems[0].reason
+
+
+@pytest.mark.parametrize(
+    "changes, expected",
+    [
+        ({"skillId": None}, "skillId"),
+        ({"skillVersion": 0}, "skillVersion"),
+        ({"skillVersion": True}, "skillVersion"),
+        ({"skillVersion": "1"}, "skillVersion"),
+        ({"inputs": []}, "inputs"),
+        ({"inputs": "brief"}, "inputs"),
+        ({"title": "   "}, "title"),
+        ({"deprecated": "yes"}, "deprecated"),
+        ({"skillId": "something-else"}, "目录名"),
+        ({"nonsense": 1}, "无法识别"),
+    ],
+)
+def test_each_invalid_manifest_is_refused_with_a_readable_reason(
+    tmp_path, changes, expected
+) -> None:
+    package = _package(tmp_path)
+    _edit_manifest(package / "story-development", **changes)
+    catalog = skillpkg.load_catalog([("project", package)])
+    assert catalog.skills == {}
+    assert expected in catalog.problems[0].reason
+
+
+@pytest.mark.parametrize(
+    "schema, expected",
+    [
+        ({"type": "anything"}, "type"),
+        ({"type": "array"}, "of"),
+        ({"type": "object", "required": ["a"], "fields": {}}, "没有字段定义"),
+        ({"type": "object", "fields": {"a": {"type": "nope"}}}, "fields.a"),
+    ],
+)
+def test_a_malformed_output_contract_is_caught_at_load_time(
+    tmp_path, schema, expected
+) -> None:
+    """Catching it here attributes the fault to the package. Catching it later
+    surfaces as 'your answer is invalid' while a creator waits for a proposal."""
+    package = _package(tmp_path)
+    (package / "story-development" / "output.schema.json").write_bytes(
+        json.dumps(schema).encode("utf-8")
+    )
+    catalog = skillpkg.load_catalog([("project", package)])
+    assert catalog.skills == {}
+    assert expected in catalog.problems[0].reason
+
+
+def test_a_prompt_that_is_not_utf8_is_refused(tmp_path) -> None:
+    package = _package(tmp_path)
+    (package / "story-development" / "prompt.md").write_bytes(b"\xff\xfe not utf8")
+    catalog = skillpkg.load_catalog([("project", package)])
+    assert catalog.skills == {}
+    assert "UTF-8" in catalog.problems[0].reason
+
+
+def test_an_empty_prompt_is_refused(tmp_path) -> None:
+    package = _package(tmp_path)
+    (package / "story-development" / "prompt.md").write_bytes(b"   \n\n")
+    catalog = skillpkg.load_catalog([("project", package)])
+    assert catalog.skills == {}
+    assert "prompt.md" in catalog.problems[0].reason
+
+
+def test_a_missing_source_directory_is_not_an_error(tmp_path) -> None:
+    """Most projects have no `studio/skills/` at all."""
+    catalog = skillpkg.load_catalog(
+        [("project", tmp_path / "nope"), ("user", None), ("builtin", _BUILTIN)]
+    )
+    assert len(catalog.skills) == 20
+    assert catalog.problems == ()
+
+
+# --- 4b. the JS mirrors -------------------------------------------------- #
+
+
+def test_normalisation_is_one_function_so_the_digest_still_identifies_the_prompt(
+    tmp_path,
+) -> None:
+    """The digest folded lone `\\r` and the instruction did not, so a prompt in
+    classic-Mac line endings digested IDENTICALLY while sending different text
+    to the executor (independent review)."""
+    package = _package(tmp_path)
+    lf = skillpkg.load_package(package / "story-development", "project")
+
+    prompt = package / "story-development" / "prompt.md"
+    prompt.write_bytes(lf.instruction.replace("\n", "\r").encode("utf-8") + b"\r")
+    cr = skillpkg.load_package(package / "story-development", "project")
+
+    assert cr.instruction == lf.instruction
+    assert cr.digest == lf.digest
+
+
+@pytest.mark.parametrize("name", skillpkg.PACKAGE_FILES)
+def test_a_bom_is_ignored_uniformly_and_never_reaches_the_prompt(
+    tmp_path, name
+) -> None:
+    """PowerShell 5.1 writes one, and `studio/skills/*/prompt.md` is authored by
+    creators on this host. It used to be prepended to every compiled prompt for
+    prompt.md while being rejected outright in the two JSON files."""
+    package = _package(tmp_path)
+    target = package / "story-development" / name
+    clean = skillpkg.load_package(package / "story-development", "project")
+    target.write_bytes(b"\xef\xbb\xbf" + target.read_bytes())
+
+    loaded = skillpkg.load_package(package / "story-development", "project")
+    assert not loaded.instruction.startswith("﻿")
+    assert loaded.instruction == clean.instruction
+    # …and the identity of a package does not depend on the author's editor
+    assert loaded.digest == clean.digest
+
+
+def test_normalisation_is_idempotent_so_a_doubled_bom_cannot_make_it_lie(
+    tmp_path,
+) -> None:
+    """The text goes through `normalise_text` twice — read, then digest. With
+    `removeprefix` a DOUBLED BOM left U+FEFF in the instruction while the digest
+    matched the BOM-free package exactly: two prompts, one digest. That was
+    introduced BY the fix that removed the single BOM (independent review)."""
+    for sample in ("﻿﻿x", "﻿x", "x", "﻿﻿﻿一\r\n二"):
+        once = skillpkg.normalise_text(sample)
+        assert skillpkg.normalise_text(once) == once
+        assert not once.startswith("﻿")
+
+    package = _package(tmp_path)
+    prompt = package / "story-development" / "prompt.md"
+    clean = skillpkg.load_package(package / "story-development", "project")
+    prompt.write_bytes(b"\xef\xbb\xbf\xef\xbb\xbf" + prompt.read_bytes())
+    doubled = skillpkg.load_package(package / "story-development", "project")
+    assert doubled.instruction == clean.instruction
+    assert doubled.digest == clean.digest
+
+
+def test_an_unreadable_skill_directory_is_reported_not_silently_empty(
+    tmp_path, monkeypatch
+) -> None:
+    """A source that is NOT INSTALLED is fine. A source that exists but cannot
+    be read is 决策 7's exact harm: every project override silently resolves to
+    the builtin skill, unattributably (independent review)."""
+    unreadable = tmp_path / "skills"
+    unreadable.mkdir()
+
+    def deny(self):
+        raise PermissionError(13, "access denied")
+
+    monkeypatch.setattr(Path, "iterdir", deny)
+    catalog = skillpkg.load_catalog([("project", unreadable)])
+
+    assert catalog.skills == {}
+    assert len(catalog.problems) == 1
+    assert catalog.problems[0].source == "project"
+    assert "无法读取" in catalog.problems[0].reason
+
+
+def test_a_bom_only_prompt_is_still_empty(tmp_path) -> None:
+    package = _package(tmp_path)
+    (package / "story-development" / "prompt.md").write_bytes(b"\xef\xbb\xbf\n")
+    catalog = skillpkg.load_catalog([("project", package)])
+    assert catalog.skills == {}
+    assert "prompt.md" in catalog.problems[0].reason
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        (1.0, "1"),
+        (-0.0, "0"),
+        (2.5, "2.5"),
+        (1e-7, "1e-7"),
+        (1e21, "1e+21"),
+        (10**30, "1e+30"),
+        (2**53, "9007199254740992"),
+        (True, "true"),
+        (None, "null"),
+    ],
+)
+def test_numbers_are_rendered_the_way_javascript_renders_them(value, expected) -> None:
+    """`json.dumps` is not `JSON.stringify`: 1.0 -> "1.0" vs "1", 1e-7 ->
+    "1e-07" vs "1e-7". Every one of these lands in the prompt an executor is
+    sent, where the page and the endpoints must agree (independent review)."""
+    assert skillpkg._js_stringify(value) == expected
+
+
+_FUZZ_JSON = """
+[0, 1, -1, 1.0, -0.0, 2.5, 0.1, 0.0001, 0.00001, 0.000001, 1e-7, 1.2e-5, 1.2e-6,
+ -1e-5, 1e20, 1e21, 9007199254740992, 12345678901234567890, 9.999999999999999e20,
+ 1e-323, 1.7976931348623157e308, 123.456, -273.15,
+ [], {}, [[]], [{}], {"a": []}, {"a": {}},
+ {"2": 1, "1": 2, "b": 3, "a": 4}, {"0": 1, "01": 2, "-1": 3, "1.5": 4, "": 5},
+ {"4294967294": 1, "4294967295": 2, "10": 3, "z": 4},
+ {"z": 1, "4294967295": 2}, {"z": 1, "4294967294": 2},
+ "lone high \\ud800 surrogate", "lone low \\udc00 surrogate", {"\\ud800": 1},
+ "", "plain", "中文", "emoji 😀 astral", "quote\\" backslash\\\\ slash/",
+ "tab\\t newline\\n cr\\r formfeed\\f backspace\\b", "\\u0000\\u001f control",
+ {"volume": 0.8, "durationSeconds": 6, "transitionMs": 250, "assetVersion": 3},
+ [{"shotId": "s-1", "n": 1.0}, {"shotId": "s-2", "n": 2.50}],
+ {"deep": {"a": [{"b": [1, {"c": [true, false, null]}]}]}},
+ [true, false, null], {"t": true, "f": false, "n": null}]
+"""
+
+
+def test_the_serialiser_matches_real_node_value_by_value(tmp_path) -> None:
+    """A differential test against the ACTUAL JS engine.
+
+    The byte-identity snapshot cannot cover this: every value in its context is
+    a plain string, so the serialiser is never invoked by it (independent
+    review). These are the shapes a real `ctx.skills.context()` carries —
+    `volume`, `durationSeconds`, `transitionMs`, `assetVersion`.
+    """
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed; the JS side of the mirror cannot run")
+
+    script = tmp_path / "stringify.mjs"
+    script.write_text(
+        "import {readFileSync} from 'node:fs';\n"
+        "const cases = JSON.parse(readFileSync(process.argv[2], 'utf8'));\n"
+        "process.stdout.write(JSON.stringify("
+        "cases.map((c) => JSON.stringify(c, null, 2))));\n",
+        encoding="utf-8",
+    )
+    payload = tmp_path / "cases.json"
+    payload.write_text(_FUZZ_JSON, encoding="utf-8")
+
+    out = subprocess.run(
+        [node, str(script), str(payload)], capture_output=True, check=True
+    ).stdout
+    expected = json.loads(out.decode("utf-8"))
+    cases = json.loads(_FUZZ_JSON)
+
+    mismatches = [
+        (case, want, skillpkg._js_stringify(case))
+        for case, want in zip(cases, expected, strict=True)
+        if skillpkg._js_stringify(case) != want
+    ]
+    assert mismatches == [], mismatches
+
+
+def test_object_key_order_follows_javascript_not_insertion(tmp_path) -> None:
+    assert skillpkg._js_stringify({"2": 1, "1": 2, "b": 3, "a": 4}) == (
+        '{\n  "1": 2,\n  "2": 1,\n  "b": 3,\n  "a": 4\n}'
+    )
+    assert skillpkg._js_stringify({}) == "{}"
+    assert skillpkg._js_stringify([]) == "[]"
+    assert skillpkg._js_stringify({"a": []}) == '{\n  "a": []\n}'
+
+
+def test_enumerated_values_are_joined_the_way_javascript_joins(tmp_path) -> None:
+    """`str(v)` printed `True` / `None` into a prompt that tells a model exactly
+    what the contract accepts."""
+    spec = {
+        "type": "object",
+        "required": ["a"],
+        "fields": {"a": {"type": "number", "values": [6, 10]}},
+    }
+    assert '"a": number (6 | 10)' in skillpkg.describe_schema(spec)
+    assert skillpkg._js_join([True, False]) == "true | false"
+    assert skillpkg._js_join([None]) == ""
+    assert skillpkg._js_join([1.0, 2.5]) == "1 | 2.5"
+
+
+def test_describe_schema_treats_an_empty_spec_like_javascript_does() -> None:
+    """`{}` is falsy in Python and truthy in JS; `not spec` made the mirrors
+    disagree."""
+    assert skillpkg.describe_schema(None) == ""
+    assert skillpkg.describe_schema({}) != ""
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        {"type": "object", "requiredd": ["p"], "fields": {"p": {"type": "string"}}},
+        {"type": "object", "fields": {"p": {"type": "string", "nonEmpy": True}}},
+        {"type": "array", "of": {"type": "string"}, "maxItem": 3},
+        {"type": "number", "values": []},
+        {"type": "number", "values": "6"},
+    ],
+)
+def test_a_typo_in_the_output_contract_cannot_silently_disable_a_check(
+    tmp_path, schema
+) -> None:
+    """`requiredd` left the real `required` empty, so the contract accepted `{}`
+    as a valid answer; `nonEmpy` switched off the non-empty check. Both loaded
+    clean while this module claims there is no way to express 'accept
+    anything' (independent review)."""
+    package = _package(tmp_path)
+    (package / "story-development" / "output.schema.json").write_bytes(
+        json.dumps(schema).encode("utf-8")
+    )
+    catalog = skillpkg.load_catalog([("project", package)])
+    assert catalog.skills == {}
+    assert catalog.problems[0].reason
+
+
+# --- 5. deprecation and the catalog view ----------------------------------- #
+
+
+def test_prompt_director_is_loadable_but_never_listed(catalog) -> None:
+    """ADR-0067 决策 5: removing it would point real provenance records at a
+    capability that no longer exists."""
+    assert catalog.skills["prompt-director"].deprecated is True
+    listed = [s.skill_id for s in catalog.available()]
+    assert "prompt-director" not in listed
+    assert len(listed) == 19
+    assert [s["skillId"] for s in catalog.public()["skills"]] == listed
+
+
+def test_the_public_shape_keeps_the_field_name_call_sites_read(catalog) -> None:
+    """§1.4: the package speaks `skillVersion` because a Run RECORD does; the
+    in-memory object keeps `version`, so no existing call site changes."""
+    entry = catalog.public()["skills"][0]
+    assert "version" in entry and "skillVersion" not in entry
+    assert entry["skillDigest"].startswith("sha256:")

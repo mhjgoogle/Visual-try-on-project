@@ -1,0 +1,52 @@
+{
+  "type": "object",
+  "required": [
+    "readings"
+  ],
+  "fields": {
+    "readings": {
+      "type": "array",
+      "minItems": 1,
+      "of": {
+        "type": "object",
+        "required": [
+          "referenceKey"
+        ],
+        "fields": {
+          "referenceKey": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "cameraLanguage": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "movement": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "performance": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "composition": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "lighting": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "pacing": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "reason": {
+            "type": "string",
+            "nonEmpty": false
+          }
+        }
+      }
+    }
+  }
+}

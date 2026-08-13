@@ -1,0 +1,25 @@
+{
+  "skillId": "video-prompt-director",
+  "skillVersion": 1,
+  "work": "creative",
+  "role": "Prompt 导演",
+  "title": "Video Prompt Director",
+  "purpose": "在已选定主帧图之后，为当前 Shot 写出视频编排 Prompt。",
+  "inputs": [
+    "shotContext",
+    "selectedShotImage"
+  ],
+  "optionalInputs": [
+    "neighbourShots",
+    "characters",
+    "world"
+  ],
+  "reviewCriteria": [
+    "是否真的以已选定的主帧图为第 1 帧，而不是另起一个画面",
+    "运镜是否与机位参考的解读一致，而不是与它冲突",
+    "是否只使用了已有解读的参考（没有解读的参考不得被凭名字发挥）",
+    "时长是否被改动",
+    "连续性要求是否指向前后镜真实存在的事实"
+  ],
+  "recommendedRuntime": "local_subscription"
+}

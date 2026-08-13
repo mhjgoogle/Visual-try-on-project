@@ -1,0 +1,49 @@
+{
+  "type": "object",
+  "required": [
+    "approach",
+    "perShot"
+  ],
+  "fields": {
+    "approach": {
+      "type": "string",
+      "nonEmpty": true
+    },
+    "palette": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "lighting": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "perShot": {
+      "type": "array",
+      "of": {
+        "type": "object",
+        "required": [
+          "shotId",
+          "note"
+        ],
+        "fields": {
+          "shotId": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "note": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "lighting": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "lens": {
+            "type": "string",
+            "nonEmpty": false
+          }
+        }
+      }
+    }
+  }
+}

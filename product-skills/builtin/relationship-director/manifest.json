@@ -1,0 +1,25 @@
+{
+  "skillId": "relationship-director",
+  "skillVersion": 1,
+  "work": "creative",
+  "role": "编剧",
+  "title": "Relationship Director",
+  "purpose": "从大纲与剧本里读出人物之间的关系，提出关系提案（基础关系 / 核心矛盾 / 张力 / 走向）。",
+  "inputs": [
+    "characters"
+  ],
+  "optionalInputs": [
+    "relationships",
+    "outline",
+    "episodeScript",
+    "world",
+    "scenes"
+  ],
+  "reviewCriteria": [
+    "两个 characterId 是否都指向真实存在的人物，且不是同一个人",
+    "提案里的关系是否真的能在大纲/剧本里读到，而不是套路化的推断",
+    "是否重复提案了已经定义清楚的关系",
+    "没有可提的关系时是否老实返回空列表"
+  ],
+  "recommendedRuntime": "local_subscription"
+}

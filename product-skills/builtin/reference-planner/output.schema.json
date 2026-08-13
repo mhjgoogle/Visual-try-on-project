@@ -1,0 +1,48 @@
+{
+  "type": "object",
+  "required": [
+    "items"
+  ],
+  "fields": {
+    "items": {
+      "type": "array",
+      "of": {
+        "type": "object",
+        "required": [
+          "kind",
+          "subject",
+          "status"
+        ],
+        "fields": {
+          "kind": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "subject": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "status": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "referenceKey": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "shotIds": {
+            "type": "array",
+            "of": {
+              "type": "string",
+              "nonEmpty": true
+            }
+          },
+          "reason": {
+            "type": "string",
+            "nonEmpty": false
+          }
+        }
+      }
+    }
+  }
+}

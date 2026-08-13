@@ -1,0 +1,40 @@
+{
+  "type": "object",
+  "required": [
+    "issues"
+  ],
+  "fields": {
+    "issues": {
+      "type": "array",
+      "of": {
+        "type": "object",
+        "required": [
+          "kind",
+          "detail",
+          "where"
+        ],
+        "fields": {
+          "kind": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "detail": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "where": {
+            "type": "array",
+            "of": {
+              "type": "string",
+              "nonEmpty": true
+            }
+          },
+          "suggestion": {
+            "type": "string",
+            "nonEmpty": false
+          }
+        }
+      }
+    }
+  }
+}

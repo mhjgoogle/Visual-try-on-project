@@ -1,0 +1,24 @@
+{
+  "skillId": "prompt-reviewer",
+  "skillVersion": 1,
+  "work": "review",
+  "role": "AI 导演",
+  "title": "Prompt Reviewer",
+  "purpose": "审核当前 Shot 的 Image / Video Prompt，指出问题并给出具体修改建议。",
+  "inputs": [
+    "shotContext",
+    "promptUnderReview"
+  ],
+  "optionalInputs": [
+    "neighbourShots",
+    "characters",
+    "world"
+  ],
+  "reviewCriteria": [
+    "每条问题是否定位到了提示词的具体一处，而不是笼统的评价",
+    "问题是否对照上下文里的真实事实，而不是审阅者自己的审美偏好",
+    "suggestedText 如果给了，是否是可直接取用的整段提示词",
+    "没有问题时是否老实返回空列表"
+  ],
+  "recommendedRuntime": "local_subscription"
+}

@@ -1,0 +1,49 @@
+{
+  "type": "object",
+  "required": [
+    "fixes"
+  ],
+  "fields": {
+    "fixes": {
+      "type": "array",
+      "of": {
+        "type": "object",
+        "required": [
+          "cueId",
+          "reason"
+        ],
+        "fields": {
+          "cueId": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "reason": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "text": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "startMs": {
+            "type": "number"
+          },
+          "endMs": {
+            "type": "number"
+          },
+          "speaker": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "mergeWithNext": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "note": {
+      "type": "string",
+      "nonEmpty": false
+    }
+  }
+}

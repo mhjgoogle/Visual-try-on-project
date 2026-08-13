@@ -1,0 +1,23 @@
+{
+  "skillId": "story-development",
+  "skillVersion": 1,
+  "work": "creative",
+  "role": "编剧",
+  "title": "Story Development",
+  "purpose": "把创意发展成有主线、核心冲突、Arc、高潮与结局的故事大纲。",
+  "inputs": [
+    "brief"
+  ],
+  "optionalInputs": [
+    "outline",
+    "characters",
+    "world"
+  ],
+  "reviewCriteria": [
+    "主线与核心冲突是否真的互为因果，而不是两段并列描述",
+    "Arc 是否有可演的转折点，而不是情绪形容词的堆叠",
+    "结局是否回应了 premise 提出的问题",
+    "是否偷偷改变了 Brief 里已确定的类型 / 基调 / 形式"
+  ],
+  "recommendedRuntime": "local_subscription"
+}

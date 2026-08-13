@@ -1,0 +1,80 @@
+{
+  "type": "object",
+  "required": [
+    "proposals"
+  ],
+  "fields": {
+    "proposals": {
+      "type": "array",
+      "of": {
+        "type": "object",
+        "required": [
+          "aCharacterId",
+          "bCharacterId"
+        ],
+        "fields": {
+          "aCharacterId": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "bCharacterId": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "intent": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "basis": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "aToB": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "bToA": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "coreConflict": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "tension": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "power": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "history": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "secrets": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "direction": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "arc": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "forbidden": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "reason": {
+            "type": "string",
+            "nonEmpty": false
+          }
+        }
+      }
+    }
+  }
+}

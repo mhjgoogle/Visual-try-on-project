@@ -1,0 +1,24 @@
+{
+  "skillId": "editing-director",
+  "skillVersion": 1,
+  "work": "creative",
+  "role": "剪辑指导",
+  "title": "Editing Director",
+  "purpose": "在已有的初剪上提出具体的剪辑调整：修剪、顺序、换版本、转场。",
+  "inputs": [
+    "timeline"
+  ],
+  "optionalInputs": [
+    "shots",
+    "scenes",
+    "episodeScript",
+    "subtitles"
+  ],
+  "reviewCriteria": [
+    "每条调整是否用 clipId 定位到了具体片段",
+    "换版本是否指向时间线上下文里真实列出的 assetId",
+    "是否提出了「重新生成」这类不属于剪辑的动作",
+    "没有问题时是否老实返回空列表"
+  ],
+  "recommendedRuntime": "local_subscription"
+}

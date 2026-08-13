@@ -1,0 +1,51 @@
+{
+  "type": "object",
+  "required": [
+    "issues"
+  ],
+  "fields": {
+    "verdict": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "issues": {
+      "type": "array",
+      "of": {
+        "type": "object",
+        "required": [
+          "where",
+          "problem"
+        ],
+        "fields": {
+          "where": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "problem": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "severity": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "fix": {
+            "type": "string",
+            "nonEmpty": false
+          }
+        }
+      }
+    },
+    "suggestedText": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "strengths": {
+      "type": "array",
+      "of": {
+        "type": "string",
+        "nonEmpty": true
+      }
+    }
+  }
+}

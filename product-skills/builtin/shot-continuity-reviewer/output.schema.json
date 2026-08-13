@@ -1,0 +1,71 @@
+{
+  "type": "object",
+  "required": [
+    "issues"
+  ],
+  "fields": {
+    "issues": {
+      "type": "array",
+      "of": {
+        "type": "object",
+        "required": [
+          "kind",
+          "detail",
+          "where"
+        ],
+        "fields": {
+          "kind": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "detail": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "where": {
+            "type": "array",
+            "of": {
+              "type": "string",
+              "nonEmpty": true
+            }
+          },
+          "severity": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "suggestion": {
+            "type": "string",
+            "nonEmpty": false
+          }
+        }
+      }
+    },
+    "unknown": {
+      "type": "array",
+      "of": {
+        "type": "object",
+        "required": [
+          "kind",
+          "reason"
+        ],
+        "fields": {
+          "kind": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "reason": {
+            "type": "string",
+            "nonEmpty": true
+          }
+        }
+      }
+    },
+    "checked": {
+      "type": "array",
+      "of": {
+        "type": "string",
+        "nonEmpty": true
+      }
+    }
+  }
+}

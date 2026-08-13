@@ -1,0 +1,20 @@
+{
+  "skillId": "cinematography",
+  "skillVersion": 1,
+  "work": "creative",
+  "role": "摄影指导",
+  "title": "Cinematography",
+  "purpose": "为一组镜头给出统一的光线 / 色彩 / 镜头语言方案。",
+  "inputs": [
+    "shots"
+  ],
+  "optionalInputs": [
+    "world",
+    "scenes"
+  ],
+  "reviewCriteria": [
+    "逐镜方案是否服从同一个总方案，而不是各说各话",
+    "是否与世界观的视觉基调冲突"
+  ],
+  "recommendedRuntime": "local_subscription"
+}

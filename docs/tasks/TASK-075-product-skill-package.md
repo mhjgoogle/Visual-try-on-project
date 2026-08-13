@@ -43,16 +43,38 @@
 **因此本卡的实施顺序改为：后端加载器优先**（§1.6 提前到 §1.3 之后），
 前端加载器是它的消费者。
 
+### 1.0b 实施中定下的两件小事（ADR-0067 同样未写明）
+
+**① `skillVersion`（包）↔ `version`（内存对象）。** 包里叫 `skillVersion`，因为
+**Run 记录说的就是这个词**（`skillId` + `skillVersion` + `skillDigest`）；而现有
+调用点读的是 `skill.version`（`app.js:2564`、`directorshot.js:210`）。加载器在
+**唯一一处**做这个映射，§1.4「调用点不改」因此成立。
+
+**② digest 必须先规范化行尾。** 本仓库以 `core.autocrlf=true` 检出，**同一个
+commit** 在 Ubuntu 目标上是 LF、在权威 Windows 上是 CRLF。按原始字节做散列会让
+两个平台互相拒绝对方写出的包——digest 冲突报警在一个「不是差异的差异」上触发。
+因此散列前把 `\r\n` / `\r` 规范化为 `\n`，并按文件名排序、带长度前缀，
+做到与平台、路径、文件顺序无关（§1.2 的原话）。
+
 ### 1.1 包格式与目录
 
 ```
 product-skills/builtin/<skill-id>/
-  manifest.json        skillId · skillVersion · taskName · work · scope
-                       · inputs · optionalInputs · cost · produces
+  manifest.json        skillId · skillVersion · work · role · title · purpose
+                       · inputs · optionalInputs · reviewCriteria
                        · recommendedRuntime · deprecated?
   prompt.md            指令正文
   output.schema.json   输出契约
 ```
+
+**字段表已按实现更正**（独立审查指出原表不可用）。原文照抄 ADR-0067 决策 1 的
+草图，写的是 `taskName · scope · cost · produces`，但**现有二十个定义里根本没有
+这四个字段**，而 `role` / `title` / `purpose` 是 `compilePrompt` 的第一行就要用的
+——照原表写清单，逐字迁移直接做不成。加载器对未识别字段是**拒绝**（与 manifest
+其余校验同一姿态：拼错的键要么让真键静默留空、要么让作者以为某个能力生效了），
+所以按原表写出来的 manifest 会被明确拒绝，而不是被悄悄忽略。
+`taskName` 不在包里：`taskType` 是稳定机器键，由运行链路持有（合同 §5.9b），
+不由 Skill 包定义。
 
 三个来源，**加载优先级：项目 → 用户 → 内置**（ADR-0067 决策 2）：
 
@@ -147,6 +169,104 @@ ADR-0067 Accepted
 
 **风险等级：高**（新增加载路径 + 迁移 + 溯源身份）→ AGENTS.md 第 20 条：
 **全量 pytest + 全量前端 + ruff + Codex 独立审查**。
+
+## 3b. 实施记录
+
+### 批次 A（本次提交）：包格式 + 迁移 + 后端加载器
+
+| 落点 | 内容 |
+| --- | --- |
+| `product-skills/builtin/<id>/` | 二十个包 × 三件套（60 个文件），由一次性脚本从 `SKILLS[]` **逐字**导出；LF、无 BOM；`prompt-director` 标 `deprecated: true` |
+| `product-skills/skill-inputs.json` | 两个加载器共用的输入标签表（§4.3），守卫测试比对 `skills.js` 的 `SKILL_INPUTS` |
+| `mockups/motv-workspace/skillpkg.py` | 后端加载器：发现 / 校验 / digest / 优先级合并 / fail-closed，外加 `describe_schema` + `compile_prompt`（JS 编译器的镜像） |
+| `mockups/motv-workspace/tests/fixtures/skill-prompt-snapshots.json` | **迁移前**从旧代码抓取的二十份编译结果 —— 验收 #1 的比对基准 |
+| `tests/test_motv_skillpkg_task075.py` | 29 项 |
+
+**没有任何现有行为改变**：这一批只新增文件，还没有调用方。运行链路、IA、
+五个端点、前端全部未动。
+
+验收对照：#1 ✅（二十份 prompt 逐字节相同）、#2 ✅、#3 ✅、#5 ✅（逐类损坏）、
+#6 ✅（高优先级损坏不回退）、#9 ✅。#7 / #8 / #10 / #11 属批次 B。
+
+**#4「两版并存」需要澄清合同**（独立审查指出原文不可实现）：包目录名就是
+`skillId`，所以**磁盘上一个 skillId 只能有一个版本**。真正成立的是：历史 Run 记录
+自己那一组 `(skillId, skillVersion, skillDigest)`，**不因为磁盘升版而改变**，
+且升版后旧 digest 不再匹配磁盘、加载器也不会假装它还在。要让两个版本同时可加载，
+需要 `<skillId>@<version>/` 这样的目录格式——**超出本卡范围，不在这里发明**。
+本卡按这个澄清验收，测试也只断言到这里。
+
+**digest 对 JSON 空白敏感**（如实记录）：散列的是文件文本，只规范化行尾与 BOM。
+因此把 `manifest.json` 重新格式化一次（编辑器保存时缩进变了）会触发
+「内容已改变但版本号没变」，尽管语义没变。选择这样是因为反过来更糟——按解析后的
+语义散列，就得为「什么算语义」再定一套规则，而那套规则的漏洞会变成可以静默改内容
+的口子。代价是偶尔要为一次纯格式改动升版本。
+
+### 批次 A 的独立审查（降级模式，1 轮 fail → 已修）
+
+审查者独立（不经本卡测试）比对了二十个包与当前 `skills.js`：**逐字节无差异**，
+并重新推导了二十份 prompt 与 snapshot 相符——即 fixture 不是「同一个错误的两份
+拷贝」。发现并已修复：
+
+| 级别 | 问题 |
+| --- | --- |
+| **P1** | `broken_by_source` 的字典推导把**所有**来源的问题 id union 到每个来源下：项目里一个包坏了，会让**另一个**来源的**有效**同名包一起消失，而 `problems` 里没有任何一条说明它为什么不见了——「不可用但说不出原因」正是 fail-closed 没覆盖的那个方向 |
+| P2 | `instruction` 只折 `\r\n`，digest 还折单个 `\r`：用老 Mac 行尾重写 prompt 会 digest 相同而实际发给执行器的文本不同——**digest 不再标识 prompt** |
+| P2 | schema 只校验 `type`，不校验**键名**：`requiredd` 让 `required` 变空、`nonEmpy` 关掉非空检查，两者都**静默通过**，而本模块自称「没有办法表达『接受任何东西』」 |
+| P2 | `json.dumps` 不是 `JSON.stringify`：`1.0`→`1` vs `1.0`、`1e-7` vs `1e-07`、大整数、`-0.0`、整数键顺序全都不同——这些差异会直接落进发给执行器的 prompt（验收 #7 的前提） |
+| P2 | `describe_schema` 用 `str(v)` 拼枚举值：`True` / `None` 被写进「合同接受什么」的说明里 |
+| P2 | 标签守卫测试只比了**键集合**（`sorted(dict)` 给的是键）：改标签文案照样通过 |
+| P2 | `prompt.md` 的 BOM 被接受并**拼进每一份 prompt**，而同样的 BOM 在两个 JSON 文件里被拒——三个文件三种行为，且 PowerShell 5.1 正是会写 BOM 的那个工具 |
+| P3 | 同一 source 传两次会静默丢弃前一个；`{}` 在 Python 里 falsy 而 JS 里 truthy；空标签回退 |
+
+修法：`normalise_text()` 成为**唯一**的规范化入口（行尾 + BOM，三个文件一视同仁，
+散列前也走它）；`_js_stringify` / `_js_number` / `_js_join` 按 JS 语义重写；
+schema 键名白名单；标签测试改为比对**完整映射**并覆盖另外两张共享表；新增
+「一个坏包不得连累其他来源的有效包」的多问题跨来源测试——**那正是原来的单问题
+测试碰不到的形状**。测试 29 → 53 项。
+
+**第二轮：pass（无 P1/P2）**，独立复核了六项修复并确认二十份 prompt 仍与**当前
+`skills.js` 现算**的结果一致。其中一条 P3 是**上一轮修复自己引入的**，一并收口：
+
+- `normalise_text` 用 `removeprefix` 只去**一个** BOM，而这个函数会被走两次
+  （读一次、散列时再一次）。于是**双 BOM** 的 prompt：instruction 里留着 U+FEFF，
+  digest 却与无 BOM 版本完全相同——**两份不同的 prompt，一个 digest**，正是
+  digest 唯一不该做的事。改为 `lstrip` 并断言**幂等**。
+- `_js_number` 只改对了指数**补零**，没改对指数**阈值**：Python 在 1e-4 以下转科学
+  计数法，JS 在 1e-6 以下，所以 `0.00001` 一边是 `1e-05` 一边是 `0.00001`；
+  超过 2^53 的整型 double 也不同（JS 打最短往返十进制，`str(int(x))` 打的是二进制
+  精确展开）。改为按 ECMA-262 `Number::toString` 实现，并新增**对真实 node 的
+  差分测试**（40+ 个取值，覆盖真实 context 里的 `volume` / `durationSeconds` /
+  `transitionMs` / `assetVersion` 这类数字）——原来的逐字节快照覆盖不到序列化器，
+  因为它的 context **全是字符串**。
+- `_package_dirs` 把 `PermissionError` 和「目录不存在」一样静默吞掉：项目的
+  `studio/skills/` 因 ACL / OneDrive 占位 / 断开的网络路径读不了时，**所有项目覆盖
+  静默回退到内置**——决策 7 明写要避免的那件事，而且无从归因。现在会记一条 problem。
+- 另修：JS 数组索引键上界 2^32−2 与 `int()` 拒绝的 `isdigit` 字符（原会抛
+  `ValueError`）；孤立代理字符按 JS 转义（否则该字符串**连 UTF-8 都编码不出来**）；
+  `describe_schema` 的字段顺序与「缺 type 打 `undefined`」。
+
+测试 53 → 56 项。**批次 A 仍然没有调用方**，因此这些差异今天都还是潜在的；
+它们必须在批次 B 接上五个端点**之前**修好，那时验收 #7 才有意义。
+
+**第三轮：pass（无 P1/P2）。** 审查者自建差分工装攻 `_js_number`：把 21 万个取值
+**按位精确**送进 node 比对（含两个指数阈值的双向边界、全部次正规数下限、
+`5e-324`、`2**53±k`、`10**400` 溢出路径）——**零处不一致**；`_js_string`
+4028 份文档、`_js_keys` 与真实 node 键序、`describe_schema` 对**真实
+`describeSchema`** 的 35 份 schema，也都一致。
+
+它同时指出一件我该自己想到的事：**这一轮新加的两处修复没有回归守卫**。
+用变异测试证明——去掉数组索引上界、或去掉孤立代理转义，**56 项测试全绿**。
+原因是 fixture 里那个键序用例是退化的（`4294967295` 恰好在两种实现下同序），
+而整个测试文件里**没有出现过一个代理字符**。已补 `{"z":1,"4294967295":2}`
+与三条孤立代理用例，并用「打补丁 → 跑测试 → 还原」确认两处**现在都会红**。
+另修 P4：`describe_schema` 的**字段行**在缺 `type` 时仍打 `None`——上一轮只改了
+叶子返回，而字段行才是真正会渲染到的地方。
+
+**留给批次 B 的一条**：目录不可读时记录的 problem 其 `skillId` 为空串，
+`/api/skills` 接到列表视图时会渲染成一行无名条目——需要在批次 B 处理展示。
+
+**批次 B（未做）**：`/api/skills`、`skills.js` 降为消费方、`episode-planner`、
+五个端点共用同一批包。
 
 ## 4. 已知风险
 

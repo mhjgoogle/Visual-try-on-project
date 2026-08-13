@@ -1,0 +1,52 @@
+{
+  "type": "object",
+  "required": [
+    "adjustments"
+  ],
+  "fields": {
+    "adjustments": {
+      "type": "array",
+      "of": {
+        "type": "object",
+        "required": [
+          "layer",
+          "clipId",
+          "reason"
+        ],
+        "fields": {
+          "layer": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "clipId": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "reason": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "gainDb": {
+            "type": "number"
+          },
+          "offsetMs": {
+            "type": "number"
+          },
+          "fadeInMs": {
+            "type": "number"
+          },
+          "fadeOutMs": {
+            "type": "number"
+          },
+          "muted": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "note": {
+      "type": "string",
+      "nonEmpty": false
+    }
+  }
+}

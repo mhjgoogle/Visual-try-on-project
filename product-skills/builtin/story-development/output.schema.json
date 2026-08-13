@@ -1,0 +1,59 @@
+{
+  "type": "object",
+  "required": [
+    "premise",
+    "logline",
+    "centralConflict",
+    "storyArc",
+    "climax",
+    "ending"
+  ],
+  "fields": {
+    "premise": {
+      "type": "string",
+      "nonEmpty": true
+    },
+    "logline": {
+      "type": "string",
+      "nonEmpty": true
+    },
+    "genreTone": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "world": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "centralConflict": {
+      "type": "string",
+      "nonEmpty": true
+    },
+    "storyArc": {
+      "type": "string",
+      "nonEmpty": true
+    },
+    "climax": {
+      "type": "string",
+      "nonEmpty": true
+    },
+    "ending": {
+      "type": "string",
+      "nonEmpty": true
+    },
+    "characterConcepts": {
+      "type": "array",
+      "of": {
+        "type": "string",
+        "nonEmpty": true
+      }
+    },
+    "episodeCount": {
+      "type": "number"
+    },
+    "durationNote": {
+      "type": "string",
+      "nonEmpty": false
+    }
+  }
+}

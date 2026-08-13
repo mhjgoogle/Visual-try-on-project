@@ -1,0 +1,105 @@
+{
+  "type": "object",
+  "required": [
+    "characters",
+    "locations"
+  ],
+  "fields": {
+    "characters": {
+      "type": "array",
+      "of": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "fields": {
+          "name": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "appearance": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "costume": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "personality": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "visualInstruction": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "voiceDescription": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "states": {
+            "type": "array",
+            "of": {
+              "type": "object",
+              "required": [
+                "name"
+              ],
+              "fields": {
+                "name": {
+                  "type": "string",
+                  "nonEmpty": true
+                },
+                "reason": {
+                  "type": "string",
+                  "nonEmpty": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "locations": {
+      "type": "array",
+      "of": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "fields": {
+          "name": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "description": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "visualInstruction": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "states": {
+            "type": "array",
+            "of": {
+              "type": "object",
+              "required": [
+                "name"
+              ],
+              "fields": {
+                "name": {
+                  "type": "string",
+                  "nonEmpty": true
+                },
+                "reason": {
+                  "type": "string",
+                  "nonEmpty": false
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

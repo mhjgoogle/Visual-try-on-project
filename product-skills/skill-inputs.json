@@ -1,0 +1,36 @@
+{
+  "note": "Shared by BOTH loaders. src/workflow/skills.js keeps the JS copy; a guard test asserts they are equal.",
+  "inputs": {
+    "brief": "创意 Brief",
+    "outline": "故事大纲",
+    "characters": "人物",
+    "relationships": "人物关系",
+    "world": "世界观",
+    "episodePlan": "本集规划",
+    "episodeScript": "本集剧本",
+    "scenes": "场景",
+    "shots": "分镜",
+    "references": "参考资产",
+    "assets": "资产清单",
+    "generations": "生成记录",
+    "timeline": "本集剪辑时间线",
+    "shotAudio": "镜头音频编排",
+    "subtitles": "字幕轨",
+    "shotContext": "当前 Shot 上下文",
+    "assetCandidates": "资产库候选参考",
+    "selectedShotImage": "已选定的主帧图",
+    "promptUnderReview": "待审核的 Prompt",
+    "neighbourShots": "前后镜连续性摘要"
+  },
+  "shotScopedInputs": [
+    "shotContext",
+    "assetCandidates",
+    "selectedShotImage",
+    "promptUnderReview",
+    "neighbourShots"
+  ],
+  "runtimeKinds": [
+    "local_subscription",
+    "manual"
+  ]
+}

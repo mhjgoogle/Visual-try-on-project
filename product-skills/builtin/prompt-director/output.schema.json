@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "required": [
+    "prompt"
+  ],
+  "fields": {
+    "prompt": {
+      "type": "string",
+      "nonEmpty": true
+    },
+    "negativePrompt": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "referenceNotes": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "rationale": {
+      "type": "string",
+      "nonEmpty": false
+    }
+  }
+}

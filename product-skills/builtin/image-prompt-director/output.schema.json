@@ -1,0 +1,38 @@
+{
+  "type": "object",
+  "required": [
+    "prompt"
+  ],
+  "fields": {
+    "prompt": {
+      "type": "string",
+      "nonEmpty": true
+    },
+    "negativePrompt": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "assumptions": {
+      "type": "array",
+      "of": {
+        "type": "string",
+        "nonEmpty": true
+      }
+    },
+    "missingInputs": {
+      "type": "array",
+      "of": {
+        "type": "string",
+        "nonEmpty": true
+      }
+    },
+    "referenceNotes": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "rationale": {
+      "type": "string",
+      "nonEmpty": false
+    }
+  }
+}

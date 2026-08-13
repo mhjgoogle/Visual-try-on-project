@@ -1,0 +1,19 @@
+{
+  "skillId": "script-breakdown",
+  "skillVersion": 1,
+  "work": "creative",
+  "role": "制片",
+  "title": "Script Breakdown",
+  "purpose": "从剧本拆出人物 / 场景地 / 状态，作为作品设定的提案。",
+  "inputs": [
+    "episodeScript"
+  ],
+  "optionalInputs": [
+    "characters"
+  ],
+  "reviewCriteria": [
+    "是否只包含剧本里真实出现的人物与地点",
+    "状态是否由剧情事件支撑，而不是凭空的氛围词"
+  ],
+  "recommendedRuntime": "local_subscription"
+}

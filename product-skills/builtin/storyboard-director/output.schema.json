@@ -1,0 +1,65 @@
+{
+  "type": "object",
+  "required": [
+    "shots"
+  ],
+  "fields": {
+    "shots": {
+      "type": "array",
+      "minItems": 1,
+      "of": {
+        "type": "object",
+        "required": [
+          "title",
+          "description",
+          "duration_seconds"
+        ],
+        "fields": {
+          "title": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "description": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "shotSize": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "angle": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "cameraMotion": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "action": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "expression": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "emotion": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "dialogue": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "duration_seconds": {
+            "type": "number",
+            "values": [
+              6,
+              10
+            ]
+          }
+        }
+      }
+    }
+  }
+}

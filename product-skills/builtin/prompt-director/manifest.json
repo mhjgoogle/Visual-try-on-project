@@ -1,0 +1,24 @@
+{
+  "skillId": "prompt-director",
+  "skillVersion": 1,
+  "work": "creative",
+  "role": "Prompt 导演",
+  "title": "Prompt Director",
+  "purpose": "把 canonical 上下文 + 镜头 + 参考，编译成一次生成真正要用的 Prompt。",
+  "inputs": [
+    "shots"
+  ],
+  "optionalInputs": [
+    "references",
+    "characters",
+    "world",
+    "scenes"
+  ],
+  "reviewCriteria": [
+    "提示词是否自足（不依赖只有本项目才知道的名字）",
+    "是否与所选参考图矛盾",
+    "是否偷偷改变了镜头设计"
+  ],
+  "recommendedRuntime": "local_subscription",
+  "deprecated": true
+}

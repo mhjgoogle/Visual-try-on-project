@@ -1,0 +1,62 @@
+{
+  "type": "object",
+  "required": [
+    "prompt"
+  ],
+  "fields": {
+    "prompt": {
+      "type": "string",
+      "nonEmpty": true
+    },
+    "negativePrompt": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "actionSequence": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "cameraMotion": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "performance": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "environmentMotion": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "pacing": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "continuity": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "visualStability": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "assumptions": {
+      "type": "array",
+      "of": {
+        "type": "string",
+        "nonEmpty": true
+      }
+    },
+    "missingInputs": {
+      "type": "array",
+      "of": {
+        "type": "string",
+        "nonEmpty": true
+      }
+    },
+    "rationale": {
+      "type": "string",
+      "nonEmpty": false
+    }
+  }
+}

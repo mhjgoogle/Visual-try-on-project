@@ -1,0 +1,55 @@
+{
+  "type": "object",
+  "required": [
+    "edits"
+  ],
+  "fields": {
+    "edits": {
+      "type": "array",
+      "of": {
+        "type": "object",
+        "required": [
+          "clipId",
+          "reason"
+        ],
+        "fields": {
+          "clipId": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "reason": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "trimInMs": {
+            "type": "number"
+          },
+          "trimOutMs": {
+            "type": "number"
+          },
+          "index": {
+            "type": "number"
+          },
+          "replaceWithAssetId": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "transition": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "transitionMs": {
+            "type": "number"
+          },
+          "remove": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "note": {
+      "type": "string",
+      "nonEmpty": false
+    }
+  }
+}
