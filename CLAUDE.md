@@ -25,3 +25,10 @@
   未产出前，不得向用户报告「已完成」。
 - codex 不可用时该 skill 会自动回退到独立的 claude 会话审查；此时独立性降级，
   必须在报告中如实注明。
+- 两者都不可用时（例如 codex 触到 workspace spend cap 且 claude CLI 未安装）：
+  **停下并如实报告**，不得以「测试全绿」替代独立审查。
+- 连续修改链（[ADR-0068](docs/adr/ADR-0068-continuous-modification-chain.md)）：
+  经用户明确授权后，中间批次以定向测试 + Codex 审查收口并立即独立提交，
+  中间提交用 `MOTV_CONTINUOUS_CHAIN=1` 跳过全量（仍跑 ruff 与 diff 检查）；
+  链尾统一跑一次全量 pytest + 全量前端 + ruff + 最终验收。
+  **该变量逐次设置，不得写进 settings 或 profile。**

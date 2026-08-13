@@ -158,6 +158,18 @@ pause/cancel/skip 状态。
     本地 commit gate 按 [ADR-0060](docs/adr/ADR-0060-risk-based-local-commit-gate.md)
     的保守 allowlist 选择检查；高风险与无法分类的改动必须跑全量。全量测试仍是
     有意义的 checkpoint、合并前 CI 与高风险代码变更的硬门槛。
+
+    **连续修改链例外**（[ADR-0068](docs/adr/ADR-0068-continuous-modification-chain.md)）：
+    经用户**明确授权**、且任务卡已写下任务/批次清单与最终检查点的连续实施，其
+    **中间**提交按「实现 → 定向测试 → Codex review loop → 修复时定向回归 →
+    Codex 通过 → 立即独立 commit」执行，中间提交**不跑**全量 pytest 与全量前端
+    （仍跑 ruff 与 diff 检查），由 `MOTV_CONTINUOUS_CHAIN=1` 逐次显式启用。
+    整条链结束后**统一跑一次**全量 pytest + 全量前端 + ruff + 最终验收；
+    最终全量失败则「修复 → 定向测试 → Codex 复审 → 修复提交 → 重新跑全量」。
+    **push / merge / 交接 / 人工验收之前必须完成最终全量。**
+    **Codex 独立审查在中间批次不放松**——那是敢于推迟全量的唯一理由；
+    审查者不可用时不得使用本节奏，回落 ADR-0060 原规则并如实报告。
+    **不存在永久关闭测试的全局开关。**
     UI 迭代不得每次触发 2800+ 项 pytest（一轮约 6.5 分钟，纯粹浪费用户时间）。
 
     **真实 Connected Project 是主要验收环境**（2026-08-11 起）：demo seed 与 SVG

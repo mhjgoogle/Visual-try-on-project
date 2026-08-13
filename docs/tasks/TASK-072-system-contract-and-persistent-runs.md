@@ -413,6 +413,13 @@ ADR-0066 Accepted
 全量 pytest + 全量前端（`node --test`）+ ruff + **Codex 独立审查**，
 且 §4 中标「一」的验收项全绿。**一项不过就不提交，也不进入批次二。**
 
+**批次二起改用连续修改链节奏**（[ADR-0068](../adr/ADR-0068-continuous-modification-chain.md)，
+产品负责人 2026-08-13 授权）：批次二 / 批次三的提交为**中间提交** ——
+实现 → 定向测试 → Codex review loop → 修复时定向回归 → Codex 通过 → 立即独立
+commit，**不跑**全量 pytest 与全量前端（`MOTV_CONTINUOUS_CHAIN=1`，逐次设置）。
+**最终检查点在批次三之后**：统一跑一次全量 pytest + 全量前端 + ruff + §4 全部
+验收项。批次一已按原规则跑完全量，不受影响。
+
 ---
 
 ## 6. 批次一实施记录（2026-08-13，提交 `70dab40`）

@@ -6,6 +6,11 @@
   必跑项或高风险改动的全量验收要求。
 - 覆盖：[ADR-0050](ADR-0050-powershell-native-agent-dev-tooling.md) 决策 1 中
   「checks + order」的无条件 `pytest` 部分。
+- **被 [ADR-0068](ADR-0068-continuous-modification-chain.md) 部分修订**
+  （2026-08-13）：本 ADR 的风险分级表与「高风险必须跑全量」**不变**，但在**经用户
+  明确授权的连续修改链**的**中间**提交上，全量 pytest / 全量前端**推迟到链尾**
+  统一执行（`MOTV_CONTINUOUS_CHAIN=1`，逐次显式设置）。ruff 与 diff 检查照旧。
+  最终检查点不设该变量，恢复本 ADR 的原 full gate。**不修改本 ADR 原文。**
 
 ## 背景
 
