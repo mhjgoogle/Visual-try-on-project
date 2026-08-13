@@ -1,6 +1,7 @@
 # TASK-074：第四阶段 —— 后期交付、旧数据迁移、旧页面与旧接口清理、真实项目验收
 
-- 状态：**已规划，未开始**
+- 状态：**已规划，未开始**（前置 TASK-073 未完成）
+- 实施基线：**`ae0a54a`** + TASK-072 / TASK-073 的交付
 - 负责 Agent：单一实施 Agent（AGENTS.md 第 14 条）
 - 依据：[ADR-0066](../adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)、
   [创作者系统合同](../design/creator-system-contract.md) §10
@@ -101,6 +102,7 @@ demo seed 与 SVG 占位素材不作为主要验收依据）：
 | `approveShot` 旧布尔标记 | 迁移完成 |
 | 只服务旧入口的 UI 模块 | **逐个确认无引用后**再删；有疑问就保留 |
 | `ui/shotgraphview.js` / `workflow/shotgraph.js` | **保留**——它们是「生成记录」与诊断视图的实现（ADR-0066 §4） |
+| `ui/wfgraph.js` / `workflow/provenance.js` | **保留**——ADR-0052 决策 1/2/3/5/6/7 仍然 Accepted；只删「工作流」顶层入口与画布的执行路径，读模型一行不动 |
 
 清理的三条规则：
 
@@ -110,9 +112,9 @@ demo seed 与 SVG 占位素材不作为主要验收依据）：
 
 ### 1.6 文档收口
 
-- ADR-0066 转 **Accepted**（若尚未）。
-- 在 ADR-0052 / 0057 / 0061 / 0063 / 0064 各自的文件里加一行指向 ADR-0066 的
-  「被 ADR-0066 修订」注记——**不修改原决策文字**（AGENTS.md 第 18 条）。
+- ADR-0052 / 0064 / 0065 / 0066 已于 2026-08-13 全部转 Accepted，
+  ADR-0057 / 0061 / 0063 的替代关系注记已加好（**未修改原决策文字**，
+  AGENTS.md 第 18 条）。**治理状态无残留项**，本轮只复查一遍注记是否与最终实现一致。
 - 更新 [端到端需求追踪矩阵](../design/end-to-end-requirements-traceability.md)。
 
 ## 2. 依赖

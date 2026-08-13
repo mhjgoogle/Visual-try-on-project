@@ -148,12 +148,68 @@ WFM2 在 WFM1 gate 之后补齐两份顶层需求仍缺少的完整创意、多�
 [ADR-0066](adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)
 冻结，分四个阶段推进。**第一阶段只改文档，不改任何业务代码。**
 
+**实施基线：`ae0a54a`**（唯一基线。它是混合提交，理由与代价见 ADR-0066 §0.2；
+自该记录起，**文档定稿提交与业务代码提交分开**）。
+
 | 阶段 | 任务 | 内容 | 依赖 | 状态 |
 | --- | --- | --- | --- | --- |
-| 一 | ADR-0066 + 两份设计文档 | 需求 / 界面 / Agent 协作 / 系统合同定稿 | TASK-064～071 已实施 | **文档已定稿，ADR 待 Accepted** |
-| 二 | [TASK-072](tasks/TASK-072-system-contract-and-persistent-runs.md) | 后端合同、持久化任务（run_id / 取消）、版本管理、兼容层 | ADR-0066 Accepted | 已规划 |
+| 一 | ADR-0066 + 两份设计文档 | 需求 / 界面 / Agent 协作 / 系统合同定稿 | TASK-064～071 已实施 | **已完成** —— ADR-0066 于 2026-08-13 **Accepted** |
+| 二 | [TASK-072](tasks/TASK-072-system-contract-and-persistent-runs.md) | 后端合同、持久化任务（run_id / 取消）、版本管理、兼容层、`/api/agent/*` 收口 | ADR-0066 Accepted | **已解锁，可开工** |
 | 三 | [TASK-073](tasks/TASK-073-fixed-ia-and-contextual-agent.md) | 前端信息架构、页面重构、上下文 Agent 交互 | TASK-072 | 已规划 |
 | 四 | [TASK-074](tasks/TASK-074-delivery-migration-and-legacy-retirement.md) | 后期交付、旧数据迁移、旧页面与旧接口清理、真实项目验收 | TASK-073 | 已规划 |
+
+#### 治理收口（2026-08-13）
+
+前序创作者 Studio 任务与 ADR 的状态在批准 ADR-0066 时一并收口：
+
+| 对象 | 收口后状态 |
+| --- | --- |
+| [TASK-064](tasks/TASK-064-creator-ui-consolidation.md) | 已验收；Phase 1b「溯源为中央」被 ADR-0066 决策 3 撤销 → TASK-073 |
+| [TASK-065](tasks/TASK-065-creator-object-first-ia.md) | 已验收；§5/§9「制作台为中央」被撤销 → TASK-073 |
+| [TASK-066](tasks/TASK-066-episode-production-shot-workbench.md) | 已验收；「五区工作台」被四步线性流程取代 → TASK-073 |
+| [TASK-067](tasks/TASK-067-ai-director-operationalization.md) | 已验收；仅「AI 导演常驻右栏」被取代 → TASK-073 |
+| [TASK-068](tasks/TASK-068-legacy-agent-endpoints-to-runtime.md) | 已解锁；**不单独排期**，并入 TASK-072 §1.8，本卡保留为详细规格 |
+| [TASK-069](tasks/TASK-069-manual-episode-plan-editing.md) / [TASK-070](tasks/TASK-070-cast-seeded-from-outline.md) / [TASK-071](tasks/TASK-071-storyboard-first-episode-entry.md) | 已验收；能力被新 IA 原样继承（TASK-071 仅落点改名） |
+| [ADR-0064](adr/ADR-0064-ai-director-operationalization.md) | **Accepted**（决策 1–7 + 追加决策 9）；决策 8 被 ADR-0066 决策 5 取代 |
+| [ADR-0065](adr/ADR-0065-every-ai-action-through-the-runtime-layer.md) | **Accepted**（决策 1–5 全部保留）；决策 1/2 尚未实施，由 TASK-072 §1.8 承接 |
+| [ADR-0066](adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md) | **Accepted** |
+| [ADR-0052](adr/ADR-0052-workflow-page-as-derived-provenance-graph.md) | **Accepted**（决策 1/2/3/5/6/7）；决策 4「工作流双视图 + 画布为执行面」被 ADR-0066 取代，溯源读模型完整保留并迁为「生成记录」+ 诊断视图 |
+| [TASK-054](tasks/TASK-054-workflow-provenance-graph.md) | **已验收并收口**；页面归属迁移交 TASK-073 §1.5 / TASK-074 §1.5 |
+
+同日一并收口**存储线**的两处同类状态漂移（实施卡早已交付、ADR 却滞留 Proposed）：
+
+| 对象 | 收口后状态 |
+| --- | --- |
+| [ADR-0051](adr/ADR-0051-per-project-asset-root-and-runtime-selection.md) | **Accepted**（决策 1–5 全部保留，无决策被取代）；仅呈现位置归 ⚙ 项目设置 · 项目 |
+| [TASK-053](tasks/TASK-053-choose-project-location.md) | **已验收并收口**；呈现位置迁移交 TASK-073 §1.7 |
+| [ADR-0053](adr/ADR-0053-project-rooted-studio-storage.md) | **Accepted**（决策 1–5 全部保留，无决策被取代）；仅呈现位置归 ⚙ 项目设置 · 存储与诊断 |
+| [TASK-055](tasks/TASK-055-project-rooted-storage.md) | **已验收并收口**；§4 三项已知剩余项按原裁定继续归属（① 暂不修 / ② → [TASK-056](tasks/TASK-056-app-storage-location.md) / ③ 低优先级），**不影响 ADR 验收** |
+
+#### 状态漂移扫描（2026-08-13 实测）
+
+**ADR 侧已完全收口**：`docs/adr/` 下**不再有任何 `Proposed` ADR**（收口前为
+ADR-0051 / 0052 / 0053 / 0064 / 0065 / 0066 六个，现全部 Accepted）。
+
+**任务卡侧仍有 9 张未收口**，其对应 ADR 均已 Accepted、代码亦已在 `ae0a54a` 中，
+属于同一类状态漂移，**但需要产品签字才能收口**（多数明写「待视觉验收 / 待截图验收」，
+那是本 Agent 无权代签的判断）：
+
+| 任务卡 | 现状态 | 对应 ADR |
+| --- | --- | --- |
+| [TASK-049](tasks/TASK-049-native-windows-run-target.md) | In Progress | ADR-0049 Accepted |
+| [TASK-051](tasks/TASK-051-production-studio-ui-convergence.md) | 进行中（第一批 5 个界面已交付，待视觉验收） | —— |
+| [TASK-051A](tasks/TASK-051A-ai-director-production-control-tower.md) | 进行中（分镜屏已交付，待截图验收） | —— |
+| [TASK-051B](tasks/TASK-051B-landing-and-new-project.md) | 进行中（已实现，待验收） | —— |
+| [TASK-057](tasks/TASK-057-production-upstream-workspace.md) | 进行中 | ADR-0054 Accepted |
+| [TASK-058](tasks/TASK-058-asset-registration-foundation.md) | 进行中 | ADR-0055 Accepted |
+| [TASK-059](tasks/TASK-059-local-ai-runtime-and-film-skills.md) | 进行中 | ADR-0056 Accepted |
+| [TASK-060](tasks/TASK-060-shot-production-and-dailies.md) | 进行中 | ADR-0057 Accepted |
+| [TASK-062](tasks/TASK-062-integration-production-graph.md) | 进行中 | ADR-0059 Accepted |
+
+这 9 张**不阻塞 TASK-072**：它们的决策已 Accepted、实现已在基线内，缺的只是签字。
+TASK-051 / 051A / 051B 的界面归属另有一层——它们大部分被
+[ADR-0066](adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)
+的固定 IA 取代，收口时应连同「被 TASK-073 取代」一并裁决，而不是简单标记已验收。
 
 界面归属与用户流程以
 [创作者产品信息架构](design/creator-product-information-architecture.md) 为准；

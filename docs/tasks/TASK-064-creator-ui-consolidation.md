@@ -1,6 +1,14 @@
 # TASK-064：创作者 IA 收口与自动初版剧集制作
 
-- 状态：进行中
+- 状态：**已验收**（产品负责人 2026-08-13 随 ADR-0066 批准一并收口）
+- 实施基线：`ae0a54a`
+- **后续归属**：Phase 1 的三空间 IA 由
+  [ADR-0066](../adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)
+  决策 1 保留并收敛为固定十一页；**Phase 1b 的「整集生成溯源图作为剧集制作中央」被
+  ADR-0066 决策 3 撤销**，改由「本集看板」承担默认入口，溯源降级为生成记录与诊断视图。
+  Phase 2 / Phase 3 的后期域（多轨音频、Shot Mix、字幕、自动初剪、Lock）**全部保留**，
+  由 [TASK-074](TASK-074-delivery-migration-and-legacy-retirement.md) 承接到「后期交付」页。
+  界面层的替代实施在 [TASK-073](TASK-073-fixed-ia-and-contextual-agent.md)。
 - 负责 Agent：Claude Code（单一实施 Agent）
 - 依据：[ADR-0061](../adr/ADR-0061-creator-ia-and-automated-episode-production.md)
 - 前置：TASK-062 / ADR-0059 已完成（生产图身份合同贯通，Codex `VERDICT: pass`）

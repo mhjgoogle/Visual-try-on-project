@@ -1,6 +1,12 @@
 # TASK-068：把旧 `/api/agent/*` 创作端点收进 Runtime 层
 
-- 状态：**规划中，未开工**（等 ADR-0065 Accepted）
+- 状态：**已解锁，待排期** —— [ADR-0065](../adr/ADR-0065-every-ai-action-through-the-runtime-layer.md)
+  已于 2026-08-13 转 Accepted，本卡的前置门槛消除
+- 实施基线：`ae0a54a`（ADR-0065 决策 3 / 4 / 5 已在此实施；决策 1 / 2 未实施）
+- **排期归属**：并入第二阶段
+  [TASK-072](TASK-072-system-contract-and-persistent-runs.md) §1.8 —— 五个端点的收口
+  与 §1.3 的 `run_id` / 取消语义改造触及同一批调用点，分两次做会让同一段代码被改两遍。
+  本卡保留为该项的**详细规格**，不单独排期。
 - 负责 Agent：待定（单一实施 Agent）
 - 前置：[TASK-067](TASK-067-ai-director-operationalization.md) 已实施完成
 - 依据：[ADR-0065](../adr/ADR-0065-every-ai-action-through-the-runtime-layer.md)

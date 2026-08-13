@@ -1,6 +1,13 @@
 # TASK-053 — 在界面里选任意路径，后端就往那儿写
 
-- 状态：进行中（已实现，待验收）
+- 状态：**已验收并收口**（2026-08-13，随 ADR-0051 一并收口）
+- 实施基线：`ae0a54a`
+- ADR：[ADR-0051](../adr/ADR-0051-per-project-asset-root-and-runtime-selection.md)
+  （**Accepted**，决策 1–5 全部保留，无决策被取代）
+- **后续归属**：能力完整保留。仅**呈现位置**迁移 —— 项目位置的选择与展示归
+  「⚙ 项目设置 · 项目」（[ADR-0066](../adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md) IA §4），
+  由 [TASK-073](TASK-073-fixed-ia-and-contextual-agent.md) §1.7 承接。
+  `rootadmit.py` 的准入策略与 containment 语义**不动**。
 - ADR：[ADR-0051](../adr/ADR-0051-per-project-asset-root-and-runtime-selection.md)（Proposed）
 - 前置：[TASK-051B](TASK-051B-landing-and-new-project.md)
 - 触发：用户明确要求——「我要的就是在界面里选任意路径、后端就往那儿写」；

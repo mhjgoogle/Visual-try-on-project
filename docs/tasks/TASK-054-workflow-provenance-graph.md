@@ -1,9 +1,18 @@
 # TASK-054 — 工作流页面重做：生成溯源图
 
-- 状态：进行中（已实现，待视觉验收）
-- ADR：[ADR-0052](../adr/ADR-0052-workflow-page-as-derived-provenance-graph.md)（Proposed）
+- 状态：**已验收并收口**（产品负责人 2026-08-13，随 ADR-0052 / ADR-0066 一并收口）
+- 实施基线：`ae0a54a`
+- ADR：[ADR-0052](../adr/ADR-0052-workflow-page-as-derived-provenance-graph.md)
+  （**Accepted**：决策 1/2/3/5/6/7 保留；决策 4 被 ADR-0066 取代）
+- **后续归属**：本卡交付的**读模型完整保留**（`workflow/provenance.js` 的派生规则、
+  确定性布局、渐进披露、AI 导演只复述）。**只有页面归属迁移**：顶层「工作流」双视图
+  取消，溯源改为呈现在**具体结果旁的「生成记录」**与**项目设置 · 存储与诊断的诊断视图**；
+  流程画布不再是执行入口（生成的唯一入口是「镜头制作」四步流程）。
+  迁移由 [TASK-073](TASK-073-fixed-ia-and-contextual-agent.md) §1.5 与
+  [TASK-074](TASK-074-delivery-migration-and-legacy-retirement.md) §1.5 承接；
+  `ui/wfgraph.js` / `workflow/provenance.js` **保留，不删**。
 - 前置：[TASK-051](TASK-051-production-studio-ui-convergence.md)、
-  [TASK-051A](TASK-051A-ai-director-control-tower.md)
+  [TASK-051A](TASK-051A-ai-director-production-control-tower.md)
 - 触发：用户规格「Workflow Page Redesign — Generation Provenance Graph」
 
 验收问题（用户原话）：

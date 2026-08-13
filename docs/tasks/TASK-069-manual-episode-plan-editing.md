@@ -1,8 +1,12 @@
 # TASK-069：分集规划可以手工修改
 
-- 状态：**已实施，待产品验收**
+- 状态：**已验收**（产品负责人 2026-08-13 随 ADR-0066 批准一并收口）
+- 实施基线：`ae0a54a`
+- **后续归属**：手工可编辑的分集规划由
+  [ADR-0066](../adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)
+  的「④ 分集规划」页**原样继承**，无替代、无撤销。
 - 负责 Agent：Claude Code（单一实施 Agent）
-- 依据：[ADR-0054](../adr/ADR-0054-production-canon-and-episode-arc.md) 决策 5 / 决策 6
+- 依据：[ADR-0054](../adr/ADR-0054-production-upstream-workspace.md) 决策 5 / 决策 6
   （规划是 Production 的出口；剧集记录自己基于哪一版）
 - 产品要求（2026-08-13）：「故事开发的剧集规划也要可以修改的」「我是说手动修改」
 - 产品确认：

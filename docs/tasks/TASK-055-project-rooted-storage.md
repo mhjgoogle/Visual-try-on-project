@@ -1,6 +1,13 @@
 # TASK-055 — Studio 数据与媒体落在项目目录内（high-risk checkpoint）
 
-- 状态：已实现，待验收
+- 状态：**已验收并收口**（2026-08-13，随 ADR-0053 一并收口）
+- 实施基线：`ae0a54a`
+- ADR：[ADR-0053](../adr/ADR-0053-project-rooted-studio-storage.md)
+  （**Accepted**，决策 1–5 全部保留，无决策被取代）
+- **后续归属**：能力完整保留。仅**呈现位置**迁移 —— 存储生命周期管理归
+  「⚙ 项目设置 · 存储与诊断」（[ADR-0066](../adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md) IA §4），
+  由 [TASK-073](TASK-073-fixed-ia-and-contextual-agent.md) §1.7 承接；双重确认与
+  引用阻断规则**不动**。§4 的已知剩余项按原裁定继续归属（见下），**不影响本卡验收**。
 - ADR：[ADR-0053](../adr/ADR-0053-project-rooted-studio-storage.md)（Proposed）
 - 前置：[ADR-0051 / TASK-053](TASK-053-choose-project-location.md)（项目位置可选）
 - 触发：用户要求把 Production Studio 变成**真正可用的连接式 UI**；本卡是其中
@@ -67,7 +74,9 @@
 
 ## 4. 已知剩余项（不在本卡）
 
-用户已就以下四项定过优先级（2026-08-11），按此执行，不要自行提前：
+用户已就以下四项定过优先级（2026-08-11），按此执行，不要自行提前。
+**2026-08-13 收口复核**：这四项是后续增量，不是本卡或 ADR-0053 决策的未完成部分，
+因此**不阻塞 ADR-0053 转 Accepted**；归属维持原裁定不变。
 
 | # | 项 | 优先级 | 决定 |
 | --- | --- | --- | --- |

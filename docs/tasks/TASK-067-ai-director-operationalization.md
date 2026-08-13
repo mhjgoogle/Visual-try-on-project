@@ -1,6 +1,13 @@
 # TASK-067：AI 导演 / Skill / Agent 的可操作化
 
-- 状态：规划完成，实施中
+- 状态：**已验收**（产品负责人 2026-08-13 随 ADR-0066 批准一并收口）
+- 实施基线：`ae0a54a`
+- **后续归属**：ADR-0064 决策 1～7 与追加决策 9 的交付**全部保留**（Shot Context、
+  `contextTrace`、缓存与 stale、检索式候选、双 Prompt 能力与硬前置、Prompt Review、
+  Proposal → Action 映射、两个订阅的分工）。**只有 §18 / §19 的「AI 导演常驻右栏」被
+  [ADR-0066](../adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)
+  决策 5 取代**，改为按需打开的上下文面板 + 结果旁的「生成记录」，替代实施在
+  [TASK-073](TASK-073-fixed-ia-and-contextual-agent.md) §1.4 / §1.5。
 - 负责 Agent：Claude Code（单一实施 Agent）
 - 前置：[TASK-066](TASK-066-episode-production-shot-workbench.md) 的五区工作台已落地
 - 依据：[ADR-0064](../adr/ADR-0064-ai-director-operationalization.md) +

@@ -1,6 +1,7 @@
 # TASK-073：第三阶段 —— 前端信息架构、页面重构与上下文 Agent 交互
 
-- 状态：**已规划，未开始**
+- 状态：**已规划，未开始**（前置 TASK-072 未完成）
+- 实施基线：**`ae0a54a`** + TASK-072 的交付
 - 负责 Agent：单一实施 Agent（AGENTS.md 第 14 条）
 - 依据：[ADR-0066](../adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)、
   [创作者产品信息架构](../design/creator-product-information-architecture.md)
@@ -96,7 +97,12 @@
 - 内容：Skill Run / Provider / Model / 输入及输入版本 / 参数 / 成本 /
   开始结束时间 / 失败原因 / **用户确认记录**。
 - 整集溯源图与流程画布移入 ⚙ 项目设置 · 存储与诊断的**诊断视图**。
-  ADR-0052 的派生规则与 ADR-0063 决策 5 的边规则**在此继续有效**。
+  ADR-0052 的派生规则（决策 1/2/3/5/6/7）与 ADR-0063 决策 5 的边规则
+  **在此继续有效**。
+- **流程画布不再是执行入口**（ADR-0052 决策 4 被 ADR-0066 取代）：生成的唯一入口是
+  ⑧ 镜头制作的四步流程。画布在诊断视图里是**只读**的。
+- `ui/wfgraph.js` / `workflow/provenance.js` **保留，不删** —— 它们就是「生成记录」
+  与诊断视图的实现。
 
 ### 1.6 资产库单页 + 抽屉（IA §4 ⑪）
 

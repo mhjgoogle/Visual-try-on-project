@@ -1,10 +1,13 @@
 # TASK-072：第二阶段 —— 后端合同、持久化任务、版本管理与兼容层
 
-- 状态：**已规划，未开始**（第一阶段只做文档定稿）
+- 状态：**已解锁，可开工** —— ADR-0066 已于 2026-08-13 转 Accepted
 - 负责 Agent：单一实施 Agent（AGENTS.md 第 14 条）
 - 依据：[ADR-0066](../adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)、
   [创作者系统合同](../design/creator-system-contract.md)
-- 前置：ADR-0066 **转 Accepted**（其中包含撤销 ADR-0063 决策 4 / 5，需产品负责人拍板）
+- 前置：**已满足** —— ADR-0066 Accepted（含撤销 ADR-0063 决策 4 / 5）；
+  ADR-0064 / ADR-0065 已收口转 Accepted；TASK-064～071 全部标记已验收
+- 实施基线：**`ae0a54a`**（唯一基线；它是混合提交，理由与代价见 ADR-0066 §0.2）
+- 提交纪律：**文档提交与业务代码提交分开**，每个交付项单独提交（ADR-0066 §0.2）
 - 后续：[TASK-073](TASK-073-fixed-ia-and-contextual-agent.md)（前端 IA）依赖本卡的合同落地
 
 ## 0. 本轮边界
@@ -93,9 +96,18 @@ services/command.js     只写；Envelope 构造 + preflight + submit
 - **不改存储结构**——这是一次映射，不是一次迁移。
 - 守卫：`confirmed` / `locked` 只能由 `origin=user` 的动作产生。
 
-### 1.8 `/api/agent/*` 收口（承接 ADR-0065 / TASK-068）
+### 1.8 `/api/agent/*` 收口（吸收 TASK-068）
 
-五个创作端点改由 Runtime 层承载。若 TASK-068 已单独完成，本卡只做回归验证。
+[TASK-068](TASK-068-legacy-agent-endpoints-to-runtime.md) **不单独排期**，其内容并入本项：
+`story-develop` / `script-draft` / `shots-draft` / `bible-breakdown` / `episode-plan`
+五个创作端点改由 Runtime 层承载（ADR-0065 决策 1），并各自获得手工兜底（决策 2）。
+
+合并的理由：这五个端点的调用点与 §1.3 的 `run_id` / 取消语义改造**是同一批代码**
+（`services/query.js` 的 `developStory` / `generateScriptDraft` / `generateShotsDraft` /
+`generateBibleBreakdown` / `planEpisodes`）。分两次做会让同一段代码被改两遍，
+第二遍还要拆掉第一遍刚建的兼容层。
+
+TASK-068 保留为该项的**详细规格**（旧端点行为、响应形状差异、迁移清单）。
 
 ## 2. 依赖
 

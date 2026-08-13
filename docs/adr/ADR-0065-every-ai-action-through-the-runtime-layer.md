@@ -1,8 +1,20 @@
 # ADR-0065：每一个 AI 动作都经 Runtime 层 —— 旧 `/api/agent/*` 直连路径的收口
 
-- 状态：Proposed
+- 状态：**Accepted（决策 1–5 全部保留）** —— 2026-08-13 由产品负责人在批准
+  ADR-0066 时一并收口
 - 日期：2026-08-13
-- 相关：[ADR-0042](ADR-0042-draft-domain-agent-usage.md)（草稿域 agent 用法，旧路径的来源）、
+- 实施状态（基线 `ae0a54a`）：**决策 3 已实施**（TASK-067：`skills.work` /
+  `EXECUTORS[].suits` / `suggestExecutor`）、**决策 5 已实施**
+  （`MOTV_RUNTIME_ALLOW_FS_READING_EXECUTORS` 默认关闭，`-AllowCodexReview` 显式开启）、
+  **决策 4 已实施**（PATH 修复留在 `run-windows.ps1`）；
+  **决策 1 与决策 2 未实施** —— 五个 `/api/agent/*` 创作端点仍直连 `claude`，
+  由 [TASK-068](../tasks/TASK-068-legacy-agent-endpoints-to-runtime.md) 承接，
+  并被 [TASK-072](../tasks/TASK-072-system-contract-and-persistent-runs.md) §1.8 纳入第二阶段。
+- **被 [ADR-0066](ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)
+  保留强化**：决策 1「每个 AI 动作都经 Runtime 层」升级为 ADR-0066 决策 9 的全局原则
+  「API 路由不得直接执行具体 Provider 或 CLI」；决策 2「每个 AI 动作都必须有手工兜底」
+  升级为 ADR-0066 §6.4 的产品级要求。**Accepted 意味着决策被批准，不等于已实施。**
+- 相关：[ADR-0042](ADR-0042-creative-agent-cli-integration.md)（草稿域 agent 用法，旧路径的来源）、
   [ADR-0049](ADR-0049-native-windows-run-and-test-target.md)（外部工具一律经解析、fail-closed）、
   [ADR-0056](ADR-0056-local-ai-runtime-and-film-skills.md)（Runtime / Executor / Skill 分层）、
   [ADR-0062](ADR-0062-windows-authoritative-environment.md)（Windows 权威）、

@@ -1,14 +1,41 @@
 # ADR-0052: 工作流页面改为派生的生成溯源图
 
-- Status: Proposed
-- Date: 2026-08-11
-- Scope tasks: TASK-054
+- Status: **Accepted（决策 1/2/3/5/6/7）；决策 4 被 ADR-0066 取代**
+  —— 2026-08-13 由产品负责人收口（TASK-054 早已交付，本 ADR 此前一直滞留在 Proposed）
+- Date: 2026-08-11（Accepted：2026-08-13）
+- Scope tasks: [TASK-054](../tasks/TASK-054-workflow-provenance-graph.md)（已验收并收口）
+- 实施基线：`ae0a54a`
 - 关联：ADR-0007（WFM1 文档基线）、M3 资产登记、M5 生成登记、M10 Prompt 编译器、
   M11 时间线与渲染、[ADR-0049](ADR-0049-native-windows-run-and-test-target.md)
-- **被 [ADR-0066](ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)
-  降级（不撤销）**：本 ADR 的「溯源图是派生的、不是第二套流程模型」全部继续有效；
-  变的只是它在产品里的**位置** —— 不再是创作者主界面，改为具体结果旁的「生成记录」
-  与项目设置下的诊断视图。
+
+### 收口裁决（2026-08-13，随 [ADR-0066](ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md) 一并）
+
+| 决策 | 裁决 | 说明 |
+| --- | --- | --- |
+| 1 溯源图是派生读模型，不是第二份事实 | **保留，Accepted** | 不持久化 / 边只来自记录 / 绝不从当前状态反推 / 未知就是未知 —— 四条全部继续有效 |
+| 2 Prompt 身份 = 生成的快照，不引入 Prompt 库 | **保留，Accepted** | 渲染有设置无提示词，因此没有 Prompt 节点 |
+| 3 `render` 进入生成类型词表 | **保留，Accepted** | 缺陷修复，已落盘 |
+| **4 工作流下分两个视图，画布不被删除** | **被 ADR-0066 决策 1 / 决策 3 取代** | 见下 |
+| 5 布局是确定性的分层，不是力导向 | **保留，Accepted** | 同一份图永远排出同样的版式 |
+| 6 渐进披露 | **保留，Accepted** | 场景摘要行 → 展开才给完整生成链 |
+| 7 AI 导演在此页面只做「复述」 | **保留，Accepted** | 不得提出图上没有的链接、不得推断原因、没有依据就不写 |
+
+**决策 4 被取代的具体内容：**
+
+- **不再保留顶层「工作流」空间及其双视图。** 顶层导航是且仅是
+  故事开发 / 剧集制作 / 资产库（ADR-0066 决策 1 的封闭集合）。
+- **流程画布不再是执行入口。** 决策 4 当时的理由是「删除画布会移除一个执行面」；
+  该理由已经消失 —— 生成的执行入口现在唯一归属「镜头制作」的四步流程
+  （ADR-0066 IA §5.2「一件事只有一个入口」）。画布代码保留在 `?canvas=1`，
+  作为**诊断**而非执行面。
+- **溯源读模型本身完整保留**（`workflow/provenance.js` 及决策 1/5/6/7 的全部规则），
+  迁移为两处呈现：**具体结果旁的「生成记录」** 与**项目设置 · 存储与诊断下的诊断视图**。
+  页面归属的迁移由 [TASK-073](../tasks/TASK-073-fixed-ia-and-contextual-agent.md) §1.5
+  与 [TASK-074](../tasks/TASK-074-delivery-migration-and-legacy-retirement.md) §1.5 承接
+  （`ui/wfgraph.js` / `workflow/provenance.js` **保留，不删**）。
+
+「溯源图是派生的、不是第二套流程模型」这一条**从未被撤销**，它现在是 ADR-0066
+决策 3 的直接依据。变的只是它在产品里的**位置**，不是它的实现方式。
 
 ## Context
 

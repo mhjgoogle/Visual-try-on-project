@@ -1,20 +1,31 @@
 # ADR-0064：AI 导演的可操作化 —— Shot Context、检索式推荐、Prompt 能力与审核
 
-- 状态：Proposed
-- 日期：2026-08-12
+- 状态：**Accepted（决策 1–7 与追加决策 9）；决策 8 被 ADR-0066 取代**
+  —— 2026-08-13 由产品负责人在批准 ADR-0066 时一并收口
+- 日期：2026-08-12（Accepted：2026-08-13）
+- 实施：TASK-067，已实施并提交于 `ae0a54a`
 - 相关：[ADR-0056](ADR-0056-local-ai-runtime-and-film-skills.md)（Skill / Runtime 分层）、
   [ADR-0058](ADR-0058-production-memory-library-and-episode-production.md)（Generation Input Set）、
   [ADR-0059](ADR-0059-production-graph-identity-contract.md)（身份与溯源契约）、
   [ADR-0061](ADR-0061-creator-ia-and-automated-episode-production.md)（Action Layer / 参考解读）、
   [ADR-0063](ADR-0063-creator-object-first-ia-and-shot-production-graph.md)（Shot 制作流程图）
 - 任务卡：[TASK-067](../tasks/TASK-067-ai-director-operationalization.md)
-- **被 [ADR-0066](ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)
-  部分修订**：决策 1～7（Shot Context Builder、`contextTrace`、以 baseline revision
-  为键的缓存与 stale、确定性检索候选 + AI 只排序、Image / Video 双 Prompt 能力与硬
-  前置、Prompt Review 与 Continuity 只读、Proposal → Action 映射）与追加决策 9
-  （Claude Code 执行 / Codex 审阅的建议式分工）**全部保留不变**；决策 8 的
-  **常驻右栏被撤销**，改为按需打开的上下文面板，且技术信息从 `<details>` 改为
-  统一进入结果旁的「生成记录」。
+- **收口裁决（2026-08-13，随 [ADR-0066](ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md) 批准）**：
+
+  | 决策 | 裁决 | 理由 |
+  | --- | --- | --- |
+  | 决策 1 Shot Context Builder | **保留，Accepted** | 最小上下文是 token 成本控制的全部实现方式 |
+  | 决策 2 `contextTrace` | **保留，Accepted** | ADR-0066 决策 8 的 `inputVersions` 直接复用它，不新建第二份 |
+  | 决策 3 缓存以 baseline revision 为键、stale 显式 | **保留，Accepted** | |
+  | 决策 4 确定性检索候选 + AI 只排序 | **保留，Accepted** | 「AI 无法发明 assetId」是 ADR-0066 决策 6 四条禁令的实现之一 |
+  | 决策 5 Image / Video 双 Prompt 能力 + 硬前置 | **保留，Accepted** | 硬前置迁入「镜头制作 · 步骤③」，仍在能力层拒绝而非 UI 置灰 |
+  | 决策 6 Prompt Review / Continuity 只读、跑不了就 unavailable | **保留，Accepted** | ADR-0066 决策 6「Agent 只产 Issue、不产 Decision」由它支撑 |
+  | 决策 7 Proposal → Action 词汇表映射 | **保留，Accepted** | ADR-0066 决策 9 的 Command 名录以此为基线 |
+  | **决策 8 AI 导演常驻右栏** | **被 ADR-0066 决策 5 取代** | 改为按需打开的上下文面板；技术信息从 `<details>` 升级为统一进入结果旁的「生成记录」 |
+  | 追加决策 9 Claude Code 执行 / Codex 审阅 | **保留，Accepted** | 建议式分工、创作者显式选择优先、Codex 绝不默认进创作位、Codex 缺席退回 manual —— 四条全部不变 |
+
+  「实施后补记」的三条证据修正（`applicabilityFor` / 最新待答运行 + `abandon` /
+  `reviewedPromptKind`）与 `referenceView` 的 `readingVersion` 修复**一并 Accepted**。
 
 ## 背景
 

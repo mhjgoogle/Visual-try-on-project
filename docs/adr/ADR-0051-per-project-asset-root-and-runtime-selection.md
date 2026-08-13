@@ -1,8 +1,25 @@
 # ADR-0051: 每项目资产根与运行时选择
 
-- Status: Proposed
-- Date: 2026-08-11
-- Scope tasks: TASK-053
+- Status: **Accepted（决策 1–5 全部保留）** —— 2026-08-13 收口
+  （TASK-053 早已交付，本 ADR 此前一直滞留在 Proposed）
+- Date: 2026-08-11（Accepted：2026-08-13）
+- Scope tasks: [TASK-053](../tasks/TASK-053-choose-project-location.md)（已验收并收口）
+- 实施基线：`ae0a54a`
+
+### 收口裁决（2026-08-13）
+
+| 决策 | 裁决 |
+| --- | --- |
+| 1 账户根从「单一启动常量」变为「每项目属性」 | **保留，Accepted** |
+| 2 ADR-0004 不变，只是按项目根施加 | **保留，Accepted** |
+| 3 新根的准入规则（拒绝清单 + 首次确认） | **保留，Accepted** |
+| 4 只读目录浏览接口 | **保留，Accepted** |
+| 5 项目脚手架 | **保留，Accepted** |
+
+**无决策被取代。** 与
+[ADR-0066](ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)
+的唯一交集是**呈现位置**：项目位置的选择与展示归「⚙ 项目设置 · 项目」，
+不属于三空间的十一个生产页面。准入规则、containment 与 fail-closed 语义**一条不改**。
 - 关联：ADR-0004（项目根 containment 与 symlink 策略）、ADR-0032（Workspace
   运行时与 loopback 拓扑）、ADR-0033（Command Gateway 合同）、ADR-0049（原生
   Windows 运行+测试目标）

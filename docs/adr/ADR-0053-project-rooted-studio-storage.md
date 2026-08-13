@@ -1,12 +1,35 @@
 # ADR-0053: Studio 数据与媒体落在项目目录内
 
-- Status: Proposed
-- Date: 2026-08-11
-- Scope tasks: TASK-055
+- Status: **Accepted（决策 1–5 全部保留）** —— 2026-08-13 收口
+  （TASK-055 早已交付，本 ADR 此前一直滞留在 Proposed）
+- Date: 2026-08-11（Accepted：2026-08-13）
+- Scope tasks: [TASK-055](../tasks/TASK-055-project-rooted-storage.md)（已验收并收口）
+- 实施基线：`ae0a54a`
+
+### 收口裁决（2026-08-13）
+
+| 决策 | 裁决 |
+| --- | --- |
+| 1 目标结构（创作域与媒体落在 `<ProjectRoot>/`） | **保留，Accepted** |
+| 2 单一收敛点 | **保留，Accepted** |
+| 3 containment 由**注册表**保证，不再由名字字符集保证 | **保留，Accepted** |
+| 4 旧路径只读，且迁移必须显式且完整 | **保留，Accepted** |
+| 5 原子写落在项目卷上 | **保留，Accepted** |
+
+**无决策被取代。** TASK-055 §4 登记的三项已知剩余项**不影响本 ADR 的验收**
+（它们是后续增量，不是本 ADR 决策的未完成部分）：
+① 资产 URL 仍带 project name → 维持「暂不修」原裁定，等项目改名 / 移动 / 打包导出时
+一并解决；② `data/projects.json` 仍在仓库内 → 归
+[TASK-056](../tasks/TASK-056-app-storage-location.md)；③ 旧 scratch 只保留不回收 →
+低优先级，保留原裁定。
+
+与 [ADR-0066](ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)
+的唯一交集是**呈现位置**：存储生命周期管理归「⚙ 项目设置 · 存储与诊断」，
+双重确认与引用阻断规则**一条不改**。
 - 关联：[ADR-0051](ADR-0051-per-project-asset-root-and-runtime-selection.md)（项目位置
-  可选 + 准入策略）、[ADR-0032](ADR-0032-workspace-runtime-and-loopback-topology.md)
+  可选 + 准入策略）、[ADR-0032](ADR-0032-workspace-runtime-and-ui-topology.md)
   （loopback 拓扑）、[ADR-0049](ADR-0049-native-windows-run-and-test-target.md)
-  （原生 Windows 运行目标）、[ADR-0004](ADR-0004-project-root-containment.md)
+  （原生 Windows 运行目标）、[ADR-0004](ADR-0004-project-root-containment-and-symlink-policy.md)
   （项目根 containment）
 
 ## Context

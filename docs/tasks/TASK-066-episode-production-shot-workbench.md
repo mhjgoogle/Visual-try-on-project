@@ -1,6 +1,13 @@
 # TASK-066：剧集制作 = 把每个 Shot 做成「选定的最终 Shot Video」
 
-- 状态：规划完成，实施中
+- 状态：**已验收**（产品负责人 2026-08-13 随 ADR-0066 批准一并收口）
+- 实施基线：`ae0a54a`
+- **后续归属**：§0 的产品定义（「剧集制作 = 把每个 Shot 做成用户选定的最终 Shot Video」）
+  被 [ADR-0066](../adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)
+  **完整继承**，成为「镜头制作」页的目标。**本卡的「五区工作台」布局被 ADR-0066 决策 3
+  的四步线性流程取代**（准备输入 → 制作主画面 → 制作视频 → 对比候选并选定）；
+  五个区的每一项能力都在四步里有归属，替代实施在
+  [TASK-073](TASK-073-fixed-ia-and-contextual-agent.md) §1.3。
 - 负责 Agent：Claude Code（单一实施 Agent）
 - 前置：[TASK-065](TASK-065-creator-object-first-ia.md) 已实施完成并通过 codex 审查
 - 依据：产品负责人 2026-08-12 下发的 §1–§20 规格 + 参考图
