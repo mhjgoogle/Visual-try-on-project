@@ -65,6 +65,18 @@ def test_single_media_write_path_is_mediaref() -> None:
         if p.name == "mediaref.js":
             continue
         text = p.read_text("utf-8")
+        if p.name == "artifactversion.js":
+            # READ-ONLY DERIVED VIEW (TASK-072 §1.7). It maps `versions/active/locked`
+            # into the six states and writes NOTHING — which is what makes introducing
+            # this vocabulary unable to corrupt what it derives. The needles below are
+            # a TEXT APPROXIMATION of "parallel write path"; `history.filter(isObj)`
+            # here guards against a null element in a legacy document, not a rewrite.
+            #
+            # The exemption is ASSERTED, not assumed: if a real writer ever appears in
+            # this module these lines fail, so the waiver cannot quietly cover one.
+            for writer in ("history.push", "history.sort", ".current =", "history ="):
+                assert writer not in text, f"artifactversion.js now writes: {writer}"
+            continue
         if p.name == "assetlib.js":
             # M11: removeAssetRecord is the ONE sanctioned non-mediaref
             # history writer (permanent-delete chain surgery, gated by the
