@@ -17,6 +17,8 @@
 // is also why there is nothing to translate between Windows and WSL path
 // conventions — no path ever crosses the boundary.
 
+import { attempt } from "./apiclient.js";
+
 const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
 
 /** The two runtime kinds. `manual` is a first-class peer, not a degraded mode:
@@ -173,31 +175,22 @@ export async function probeExecutors() {
     return out;
   };
   const VALID = new Set(Object.values(EXECUTOR_STATES));
-  try {
-    const r = await fetch("/api/runtimes", {
-      cache: "no-store",
-      // the probe route spawns `--version` subprocesses, so it carries the same
-      // custom-header guard as /api/skill/run
-      headers: { "X-Motv-Runtime": "1" },
-    });
-    const ctype = (r.headers && r.headers.get && r.headers.get("content-type")) || "";
-    if (!r.ok || !ctype.includes("application/json")) return fallback();
-    const j = await r.json();
-    if (!isObj(j) || !isObj(j.executors)) return fallback();
-    const out = fallback();
-    for (const id of Object.keys(j.executors)) {
-      const v = j.executors[id];
-      if (!isObj(v)) continue;
-      out[id] = {
-        state: VALID.has(v.state) ? v.state : EXECUTOR_STATES.ERROR,
-        detail: typeof v.detail === "string" ? v.detail : "",
-        version: typeof v.version === "string" ? v.version : null,
-      };
-    }
-    return out;
-  } catch {
-    return fallback();
+  // `attempt`, not `request`: EVERY failure here — offline, 403, HTML from a
+  // static host — has the same correct answer, and it is not an exception. It is
+  // "we could not probe", which the fallback states honestly per executor.
+  const res = await attempt("/api/runtimes", { headers: { "X-Motv-Runtime": "1" } });
+  if (!res.ok || !isObj(res.data) || !isObj(res.data.executors)) return fallback();
+  const out = fallback();
+  for (const id of Object.keys(res.data.executors)) {
+    const v = res.data.executors[id];
+    if (!isObj(v)) continue;
+    out[id] = {
+      state: VALID.has(v.state) ? v.state : EXECUTOR_STATES.ERROR,
+      detail: typeof v.detail === "string" ? v.detail : "",
+      version: typeof v.version === "string" ? v.version : null,
+    };
   }
+  return out;
 }
 
 /**

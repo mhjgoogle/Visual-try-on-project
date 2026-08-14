@@ -35,6 +35,15 @@ import * as storydoc from "../src/workflow/storydoc.js";
 import * as proddoc from "../src/workflow/proddoc.js";
 import * as assetlib from "../src/workflow/assetlib.js";
 
+
+// The catalog is INSTALLED, not imported: `skills.js` no longer carries
+// definitions (TASK-075 §1.4). These read the same packages the backend reads,
+// so a test can never be asserting against a third copy of a capability.
+import * as _skillsModule from "../src/workflow/skills.js";
+import { installBuiltinCatalog } from "./skillcatalog.mjs";
+
+installBuiltinCatalog(_skillsModule);
+
 /* ========================================================================== */
 /* 1. Reference interpretation (§21–§22)                                      */
 /* ========================================================================== */
@@ -744,17 +753,47 @@ test("the post-production skills have REAL write-back paths, expressed as action
   assert.equal(r.ok, true);
   assert.deepEqual(r.actions, [{ action: "updateInterpretation", referenceKey: "ref-1", axes: { cameraLanguage: "低机位" } }]);
 
-  const e = planApply("editing-director", {
+  // A version swap is bounded by the alternatives the RUN recorded seeing
+  // (TASK-072 §1.9 缺陷 8), so the scope carries them — exactly as
+  // `applyProposal` passes them from `run.contextTrace`.
+  const edits = {
     edits: [
       { clipId: "c1", reason: "太长", trimInMs: 0, trimOutMs: 4300 },
       { clipId: "c2", reason: "换版本", replaceWithAssetId: "asset-9" },
       { clipId: "c3", reason: "多余", remove: true, trimInMs: 0, trimOutMs: 1000 },
       { clipId: "", reason: "无处可写" },
     ],
+  };
+  const e = planApply("editing-director", edits, {
+    timelineAlternatives: { c2: ["asset-9", "asset-10"] },
   });
   assert.deepEqual(e.actions.map((a) => a.action),
     ["trimTimelineClip", "replaceTimelineAsset", "removeTimelineClip"]);
   assert.equal(e.actions[0].outMs, 4300);
+
+  // FAIL CLOSED with no recorded candidate set: a run whose permission cannot be
+  // checked is refused, not trusted. Without this the dispatcher's only remaining
+  // guard is 「资产存在且轨道对」, which happily accepts any video in the project.
+  const noTrace = planApply("editing-director", edits, {});
+  assert.equal(noTrace.ok, false);
+  assert.match(noTrace.error, /没有记录它当时看到的可替换版本/);
+
+  // An OFF-CANDIDATE swap is dropped and REPORTED; the other edits still apply.
+  const offCand = planApply("editing-director", edits, {
+    timelineAlternatives: { c2: ["asset-77"] },
+  });
+  assert.equal(offCand.ok, true);
+  assert.deepEqual(offCand.actions.map((a) => a.action),
+    ["trimTimelineClip", "removeTimelineClip"]);
+  assert.match(offCand.dropped, /不在这次运行看到的候选里/);
+
+  // Edits that name NO asset need no candidate set at all — trim / order /
+  // transition / remove cannot point at foreign media.
+  const noSwaps = planApply("editing-director", {
+    edits: [{ clipId: "c1", reason: "太长", trimInMs: 0, trimOutMs: 4300 }],
+  }, {});
+  assert.equal(noSwaps.ok, true);
+  assert.deepEqual(noSwaps.actions.map((a) => a.action), ["trimTimelineClip"]);
 
   const s = planApply("sound-designer", {
     adjustments: [

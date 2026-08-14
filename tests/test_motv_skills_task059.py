@@ -20,6 +20,7 @@ STRICTLY OFFLINE, no spend, no executor is launched. Runs the frontend units via
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess
@@ -328,14 +329,31 @@ def test_probe_never_fabricates_ready() -> None:
 
 
 def test_no_skill_hardwires_an_executor() -> None:
-    """决策 1 — Role ≠ Skill ≠ Runtime ≠ Executor ≠ Model."""
-    catalog = _read("workflow", "skills.js")
-    for executor in ("claude-code", "codex-cli", "claude_code", "codex_cli"):
-        # the module header explains the separation; the DEFINITIONS must not
-        # name an executor
-        body = catalog.split("export const SKILLS = [", 1)[1]
-        assert executor not in body, f"a Skill definition hard-wires {executor}"
-    assert "recommendedRuntime" in catalog
+    """决策 1 — Role ≠ Skill ≠ Runtime ≠ Executor ≠ Model.
+
+    The DEFINITIONS moved out of `skills.js` into packages (TASK-075 §1.3/§1.4),
+    so this reads them where they now live. Checking the JS module would now pass
+    vacuously — it contains no definitions to violate the rule.
+    """
+    builtin = Path(__file__).resolve().parents[1] / "product-skills" / "builtin"
+    packages = sorted(p for p in builtin.iterdir() if p.is_dir())
+    assert packages, "no builtin packages found — this guard would pass vacuously"
+    for pkg in packages:
+        # all three files: an executor named in the PROMPT binds just as hard as
+        # one named in the manifest, and the prompt is what reaches the model
+        for name in ("manifest.json", "prompt.md", "output.schema.json"):
+            text = (pkg / name).read_text("utf-8")
+            for executor in ("claude-code", "codex-cli", "claude_code", "codex_cli"):
+                assert executor not in text, (
+                    f"{pkg.name}/{name} hard-wires the executor {executor}"
+                )
+        manifest = json.loads((pkg / "manifest.json").read_text("utf-8"))
+        # a RUNTIME KIND is a hint and is allowed; an executor is not
+        assert manifest.get("recommendedRuntime") in (
+            "local_subscription",
+            "manual",
+            None,
+        ), pkg.name
 
 
 def test_skill_definitions_are_immutable_constants() -> None:

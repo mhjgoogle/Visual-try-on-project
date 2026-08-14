@@ -250,35 +250,50 @@ def test_every_manifest_field_survived_the_migration(catalog, snapshot) -> None:
         assert skill.recommended_runtime == entry["recommendedRuntime"]
 
 
-def test_the_shared_label_map_matches_the_frontend_copy() -> None:
-    """TASK-075 §4.3: two hand-maintained label maps would drift, and the drift
-    would only show up as two runtimes being asked different questions."""
-    labels = skillpkg.load_input_labels(_INPUTS)
+def test_the_shared_context_tables_have_exactly_one_source() -> None:
+    """TASK-075 §1.4: the drift this used to guard against is now IMPOSSIBLE
+    rather than merely detected — the page holds no copy at all.
+
+    So the invariant changed shape. Before, two hand-maintained maps had to be
+    compared. Now there must be exactly one: `skills.js` must declare no literal
+    table, and `GET /api/skills` must carry the shared file's tables, because the
+    page installs whatever arrives and nothing else.
+    """
     js = (_MOCKUP / "src" / "workflow" / "skills.js").read_text("utf-8")
-    body = js.split("export const SKILL_INPUTS = {", 1)[1].split("\n};", 1)[0]
 
-    # the LABELS, not just the key set: comparing `sorted(keys) == sorted(dict)`
-    # compared keys to keys, so changing 「创意 Brief」 to 「Brief」 on one side
-    # passed while every backend-compiled prompt differed from the page's
-    # (independent review)
-    pairs = {}
-    for line in body.splitlines():
-        text = line.strip()
-        if not text or text.startswith("//") or ":" not in text:
-            continue
-        key, _, value = text.partition(":")
-        pairs[key.strip()] = json.loads(value.strip().rstrip(",").replace("'", '"'))
-    assert pairs == labels, "SKILL_INPUTS and skill-inputs.json diverged"
+    # NO second copy. A re-introduced literal would make the page authoritative
+    # again for half the contract, and the old comparison test would not exist to
+    # catch the drift.
+    for const in ("SKILL_INPUTS", "SHOT_SCOPED_INPUTS"):
+        assert f"export const {const} =" not in js, (
+            f"{const} is a literal again — it must be installed from /api/skills"
+        )
+        assert f"export let {const} = " in js, f"{const} must be an installed binding"
 
-    # the other two shared lists travel in the same file and must match too
+    # ...and the payload the page installs really does carry them.
     shared = json.loads(_INPUTS.read_bytes().decode("utf-8"))
-    for name, const in (
-        ("shotScopedInputs", "SHOT_SCOPED_INPUTS"),
-        ("runtimeKinds", "RUNTIME_KINDS"),
-    ):
-        declared = js.split(f"export const {const} = [", 1)[1].split("]", 1)[0]
-        want = [v.strip().strip('",') for v in declared.split(",") if v.strip()]
-        assert shared[name] == want, name
+    catalog = skillpkg.load_catalog([("builtin", _BUILTIN)])
+    body = skillpkg.catalog_payload(catalog, _INPUTS)
+
+    # the LABELS, not just the key set: comparing key sets let 「创意 Brief」 →
+    # 「Brief」 pass while every backend-compiled prompt differed from the page's
+    # (independent review, batch A)
+    assert body["inputs"] == shared["inputs"]
+    assert body["shotScopedInputs"] == shared["shotScopedInputs"]
+
+    # every key a package declares must have a label, or the page renders a raw
+    # camelCase key at the creator
+    for skill in catalog.skills.values():
+        for key in (*skill.inputs, *skill.optional_inputs):
+            assert key in body["inputs"], f"{skill.skill_id} declares unlabelled {key}"
+
+
+def test_a_broken_shared_file_fails_the_whole_payload() -> None:
+    """Fail-closed (ADR-0067 决策 7): a catalog served WITHOUT its context tables
+    looks complete and silently strips every label and the shot-scoped routing."""
+    catalog = skillpkg.load_catalog([("builtin", _BUILTIN)])
+    with pytest.raises(skillpkg.SkillPackageError):
+        skillpkg.catalog_payload(catalog, _INPUTS.with_name("does-not-exist.json"))
 
 
 # --- 2. priority and wholesale override ------------------------------------ #

@@ -13,6 +13,8 @@
 //     多批次媒体全部保留，可回切当前版本，绝不静默覆盖。
 // 本模块是所有读写槽位代码的唯一入口，读侧对两种形态透明。
 
+import { request } from "../services/apiclient.js";
+
 import { mintId } from "./identity.js";
 import { ensureDeclaration } from "./assetreg.js";
 
@@ -132,8 +134,14 @@ export function refFromResponse(slotId, origin, res, shotId = null) {
 
 /** 取回同源 url 内容并计算 sha256（hex）——补齐旧条目缺失的 digest。 */
 export async function sha256OfUrl(url) {
-  const r = await fetch(url);
-  if (!r.ok) throw new Error(`读取媒体失败 ${r.status}`);
+  let r;
+  try {
+    // through the one transport (系统合同 §7): bytes, so `expect: "raw"`, and no
+    // read-sized deadline because a media file can be large
+    r = await request(url, { expect: "raw", timeoutMs: 0 });
+  } catch (e) {
+    throw new Error(`读取媒体失败 ${e.status || e.detail || ""}`.trim());
+  }
   const buf = await r.arrayBuffer();
   const hash = await crypto.subtle.digest("SHA-256", buf);
   return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");

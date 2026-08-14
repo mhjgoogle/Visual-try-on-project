@@ -1,12 +1,13 @@
 {
   "skillId": "script-reviser",
-  "skillVersion": 1,
+  "skillVersion": 2,
   "work": "creative",
   "role": "编剧",
   "title": "Script Reviser",
   "purpose": "按创作者的修改要求修订已有剧本，保留未被要求改动的部分。",
   "inputs": [
-    "episodeScript"
+    "episodeScript",
+    "revisionRequest"
   ],
   "optionalInputs": [
     "outline",

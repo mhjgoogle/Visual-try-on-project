@@ -10,43 +10,52 @@
 // Non-paid modes keep the harmless stub so the demo flows still narrate the
 // boundary without any write.
 
-async function _post(project, sub, payload) {
-  const r = await fetch(
-    `/api/projects/${encodeURIComponent(project)}/${sub}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    },
-  );
-  const j = await r.json().catch(() => null);
-  if (!r.ok) {
-    const detail = j && j.error ? j.error.detail : `${sub} ${r.status}`;
-    const err = new Error(detail);
-    err.category = j && j.error ? j.error.category : "error";
-    throw err;
+import { request } from "./apiclient.js";
+
+/** The gateway's error shape: `.category` is the BACKEND's, because the blockers
+ *  a preflight reports are keyed on it. */
+function _err(e, label) {
+  const backend = e.body && e.body.error ? e.body.error : null;
+  const err = new Error(e.detail || `${label} ${e.status || ""}`.trim());
+  err.category = backend && backend.category ? backend.category : "error";
+  err.status = e.status;
+  return err;
+}
+
+async function _get(path, label) {
+  try {
+    return await request(path);
+  } catch (e) {
+    throw _err(e, label);
   }
-  return j;
+}
+
+async function _post(project, sub, payload) {
+  try {
+    // NO transport retry (apiclient enforces this for every non-GET): `submit`
+    // may spend money, and a replay the user did not ask for is the failure
+    // 系统合同 §5.8 exists to prevent.
+    return await request(`/api/projects/${encodeURIComponent(project)}/${sub}`, {
+      method: "POST",
+      body: payload,
+      timeoutMs: 0, // a confirmed command can involve a provider call
+    });
+  } catch (e) {
+    throw _err(e, sub);
+  }
 }
 
 /** Read-only generation coordinates (target digest + suggested params). */
-export async function getGenerationTarget(project, shotId) {
-  const r = await fetch(
+export function getGenerationTarget(project, shotId) {
+  return _get(
     `/api/projects/${encodeURIComponent(project)}/generation-target?shot_id=${encodeURIComponent(shotId)}`,
+    "target",
   );
-  const j = await r.json().catch(() => null);
-  if (!r.ok) throw new Error(j && j.error ? j.error.detail : `target ${r.status}`);
-  return j;
 }
 
 /** Read-only lock coordinates (current shot-plan version + digest, ADR-0047). */
-export async function getLockTarget(project) {
-  const r = await fetch(
-    `/api/projects/${encodeURIComponent(project)}/lock-target`,
-  );
-  const j = await r.json().catch(() => null);
-  if (!r.ok) throw new Error(j && j.error ? j.error.detail : `lock-target ${r.status}`);
-  return j;
+export function getLockTarget(project) {
+  return _get(`/api/projects/${encodeURIComponent(project)}/lock-target`, "lock-target");
 }
 
 /** Step 1: read-only preflight — never spends, never writes. */
@@ -61,9 +70,7 @@ export function submit(project, envelope, confirmation) {
 
 /** Paid-op status projection (read-only; reservations + staging artifacts). */
 export async function paidOps(project) {
-  const r = await fetch(`/api/paid-ops/${encodeURIComponent(project)}`);
-  const j = await r.json().catch(() => null);
-  if (!r.ok) throw new Error(j && j.error ? j.error.detail : `ops ${r.status}`);
+  const j = await _get(`/api/paid-ops/${encodeURIComponent(project)}`, "ops");
   return j.ops || [];
 }
 
@@ -71,14 +78,15 @@ export async function paidOps(project) {
  *  An occupied slot gains a NEW version (TASK-048 — never overwritten).
  *  Returns {url, version, sha256}. */
 export async function adoptPaid(project, taskId, slug) {
-  const r = await fetch("/api/agent/adopt-paid", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ project, task_id: taskId, slug }),
-  });
-  const j = await r.json().catch(() => null);
-  if (!r.ok) throw new Error(j && j.error ? j.error.detail : `adopt ${r.status}`);
-  return j;
+  try {
+    return await request("/api/agent/adopt-paid", {
+      method: "POST",
+      body: { project, task_id: taskId, slug },
+      timeoutMs: 0, // copies bytes
+    });
+  } catch (e) {
+    throw _err(e, "adopt");
+  }
 }
 
 /** Demo stub (non-paid modes): logs and resolves, changes nothing. */

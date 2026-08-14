@@ -166,8 +166,21 @@ class Catalog:
         return [s for _, s in sorted(self.skills.items()) if not s.deprecated]
 
     def public(self) -> dict:
+        """What ``/api/skills`` serves.
+
+        TWO LISTS, because 决策 5 has two halves: a deprecated capability must
+        stay RESOLVABLE (a historical Run points at it by id, and the page has
+        to render that run) while never being LISTED as something a creator may
+        pick. Serving only the listable set made `findSkill("prompt-director")`
+        return null in the page, i.e. real provenance pointing at nothing.
+        """
+
+        listable = self.available()
         return {
-            "skills": [s.public() for s in self.available()],
+            "skills": [s.public() for s in listable],
+            "deprecated": [
+                s.public() for _, s in sorted(self.skills.items()) if s.deprecated
+            ],
             "problems": [p.public() for p in self.problems],
         }
 
@@ -484,6 +497,45 @@ def load_input_labels(path: Path) -> dict[str, str]:
     ):
         raise SkillPackageError(f"{path.name} 的 inputs 必须是字符串映射")
     return labels
+
+
+def load_shot_scoped_inputs(path: Path) -> list[str]:
+    """Which context keys can only be resolved FOR ONE SHOT.
+
+    From the same shared file as the labels, for the same reason: the page uses
+    this list to decide WHICH context builder serves a skill. A page that
+    installed an empty list would route every shot-scoped capability to the
+    episode-wide builder — it would still run, and it would answer about the
+    wrong thing, which is the failure mode `isShotScoped` exists to prevent.
+    """
+
+    try:
+        raw = json.loads(path.read_bytes().decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SkillPackageError(f"无法加载 {path.name}：{exc}") from exc
+    keys = raw.get("shotScopedInputs") if isinstance(raw, dict) else None
+    if not isinstance(keys, list) or not all(isinstance(k, str) for k in keys):
+        raise SkillPackageError(f"{path.name} 的 shotScopedInputs 必须是字符串数组")
+    return keys
+
+
+def catalog_payload(catalog: Catalog, inputs_path: Path) -> dict:
+    """The COMPLETE body of ``GET /api/skills``.
+
+    The catalog alone is not enough for the page to work: since §1.4 the browser
+    holds no copy of the shared context tables either, so the labels and the
+    shot-scoped key list have to arrive with it. Serving the skills without them
+    left the page installing an empty label map (every input rendered by its raw
+    key) and an empty shot-scoped list (shot skills served episode context).
+
+    Fail-closed like everything else here: if the shared file cannot be read the
+    error propagates rather than yielding a catalog that looks complete.
+    """
+
+    body = catalog.public()
+    body["inputs"] = load_input_labels(inputs_path)
+    body["shotScopedInputs"] = load_shot_scoped_inputs(inputs_path)
+    return body
 
 
 def describe_schema(spec: Mapping | None, indent: int = 0) -> str:

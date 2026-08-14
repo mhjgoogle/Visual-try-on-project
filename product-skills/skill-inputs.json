@@ -1,7 +1,8 @@
 {
-  "note": "Shared by BOTH loaders. src/workflow/skills.js keeps the JS copy; a guard test asserts they are equal.",
+  "note": "Shared by BOTH loaders and served to the page inside GET /api/skills (TASK-075 §1.4). src/workflow/skills.js installs these labels; it no longer keeps a copy.",
   "inputs": {
     "brief": "创意 Brief",
+    "revisionRequest": "修改要求",
     "outline": "故事大纲",
     "characters": "人物",
     "relationships": "人物关系",

@@ -28,21 +28,7 @@ import { esc } from "../util/dom.js";
 import { SKILL_INPUTS } from "../workflow/skills.js";
 import { EXECUTOR_STATE_LABEL, isRunnable } from "../services/runtime.js";
 import { applicability } from "../workflow/skillapply.js";
-import { isPending, isOpen, dispositionOf } from "../workflow/skillrun.js";
-
-/** What the creator sees. Two axes, so the label is picked from both: a
- *  `succeeded` run reads as 「有提案」 / 「已接受」 / 「已忽略」 depending on what
- *  they did with the answer, which is the distinction the old single enum lost. */
-const RUN_STATUS_LABEL = {
-  awaiting_confirmation: "待确认",
-  queued: "排队中",
-  running: "进行中",
-  awaiting_input: "等你交结果", // manual: the system is waiting for a PERSON
-  cancelling: "取消中",
-  cancelled: "已取消",
-  succeeded: "已完成",
-  failed: "失败",
-};
+import { isPending, isOpen, dispositionOf, RUN_STATUS_LABEL } from "../workflow/skillrun.js";
 
 const DISPOSITION_LABEL = {
   pending: "有提案",
@@ -76,6 +62,19 @@ const ERROR_HINT = {
  */
 export function skillPanelModel(ctx, ui, probe) {
   const catalog = ctx.skills.catalog();
+  // WHY the catalog might be empty (TASK-075 §1.4). Since the definitions moved
+  // into packages the backend loads, an empty list has two very different causes:
+  // "we could not load them" and "there are none". Rendering both as a blank list
+  // is the failure ADR-0064 决策 6 names — so the reason is carried into the model.
+  // A ctx without the accessor (older callers) reports no reason rather than
+  // inventing one; it never reports a catalog as loaded when it is not.
+  const state =
+    typeof ctx.skills.catalogState === "function" ? ctx.skills.catalogState() : null;
+  const catalogState = {
+    installed: state ? !!state.installed : catalog.length > 0,
+    detail: state && state.detail ? state.detail : "",
+    problems: state && Array.isArray(state.problems) ? state.problems : [],
+  };
   const shotId = ui.selectedShotId || null;
   const selected = catalog.find((s) => s.skillId === ui.skillId) || null;
   const runs = ctx.skills.runs();
@@ -157,6 +156,7 @@ export function skillPanelModel(ctx, ui, probe) {
     shotId,
     apply: selected ? applicability(selected.skillId) : null,
     probed: !!probe,
+    catalog: catalogState,
   };
 }
 
@@ -217,7 +217,43 @@ function openRunBody(r) {
   );
 }
 
+/** The catalog's own health, shown ABOVE the list.
+ *
+ *  Two separate facts, never merged: the catalog as a whole failed to load, or it
+ *  loaded and some individual packages did not. The second case must stay visible
+ *  — a capability that fails validation disappearing from the list looks identical
+ *  to one that was never written (§1.7), and only one of those is a problem the
+ *  creator can act on. */
+function catalogNotice(m) {
+  const c = m.catalog || { installed: true, detail: "", problems: [] };
+  const rows = [];
+  if (!c.installed) {
+    rows.push(
+      `<div class="dir-unavail">◌ 能力目录不可用${c.detail ? `：${esc(c.detail)}` : ""}</div>` +
+      `<div class="meta">这不是「没有能力」，是没能把能力包读进来。Skill 包在磁盘上，只有后端能读它们` +
+      `（项目 → 用户 → 内置三个来源）；静态 demo 没有后端，所以这里如实显示不可用。</div>`,
+    );
+  }
+  if (c.problems.length) {
+    rows.push(
+      `<details class="sk-hint"><summary>${c.problems.length} 个能力包没能加载</summary>` +
+      c.problems
+        .map(
+          (p) =>
+            `<div class="meta"><b>${esc(p.skillId || "（未能读出能力 ID）")}</b>` +
+            (p.source ? `<span class="chip mute">${esc(p.source)}</span>` : "") +
+            `<br>${esc(p.detail || p.reason || "没有给出原因")}</div>`,
+        )
+        .join("") +
+      `<div class="meta">加载失败的能力不会被降级使用，也不会回退到同名的低优先级包` +
+      `（ADR-0067 决策 7）——修好它或升一版，它才会重新出现。</div></details>`,
+    );
+  }
+  return rows.join("");
+}
+
 export function renderSkillPanel(m, ui) {
+  const notice = catalogNotice(m);
   const list = m.skills
     .map((s) =>
       `<button class="sk-row${m.selected && s.skillId === m.selected.skillId ? " on" : ""}" data-sk-pick="${esc(s.skillId)}">` +
@@ -229,9 +265,12 @@ export function renderSkillPanel(m, ui) {
   if (!m.selected) {
     return (
       `<div class="lab">能力</div>` +
+      notice +
       `<div class="sk-list">${list}</div>` +
-      `<div class="meta">这些是系统里真实存在的 Film Skill。选一个：我会用当前 canon 组装它的输入，` +
-      `按它自己的输出契约校验答案，然后交给你决定要不要用。</div>`
+      (m.catalog && !m.catalog.installed
+        ? ""
+        : `<div class="meta">这些是系统里真实存在的 Film Skill，由后端从 Skill 包加载。选一个：` +
+          `我会用当前 canon 组装它的输入，按它自己的输出契约校验答案，然后交给你决定要不要用。</div>`)
     );
   }
   const s = m.selected;
@@ -253,6 +292,7 @@ export function renderSkillPanel(m, ui) {
         : null;
   return (
     `<div class="lab">能力</div>` +
+    notice +
     `<div class="sk-list">${list}</div>` +
     `<div class="sk-detail">` +
     `<div class="sk-dh"><b>${esc(s.title)}</b><span class="chip mute">v${s.version}</span>` +

@@ -217,6 +217,21 @@ _RESERVED_SLUG_PREFIXES = ("final-cut", "render-ep", "mix-")
 _RENDER_LOCK = threading.Lock()
 _RENDER_PIXEL_SECONDS_MAX = 1920 * 1080 * 30 * 3600
 
+# ffprobe runs OUTSIDE _RENDER_LOCK, and it has to: every clip's requested window is
+# validated against the source's real duration BEFORE any encoding starts, and holding
+# the render lock across that validation would serialise callers behind work that
+# produces no output. But a mix accepts up to 60 clips, so an unbounded probe phase let
+# ONE request spawn 60 subprocesses — and several concurrent requests multiply it, which
+# is resource exhaustion and makes 「作业串行化」 true only of the encode
+# (TASK-074 §1.1b d). This bounds the probe phase itself, process-wide.
+#
+# A SEMAPHORE rather than the render lock: probes are cheap, read-only and safe to run a
+# few at a time; the point is a ceiling, not exclusivity. It is acquired with a timeout
+# so a saturated queue answers 503 instead of hanging the request forever.
+_PROBE_MAX_CONCURRENT = 4
+_PROBE_SEM = threading.BoundedSemaphore(_PROBE_MAX_CONCURRENT)
+_PROBE_WAIT_SECONDS = 20
+
 
 def _slug_reserved(slug: str) -> bool:
     return slug.startswith(_RESERVED_SLUG_PREFIXES)
@@ -1347,13 +1362,16 @@ _CONTEXT_CAPS = {
     # than the endpoint ever promised to (independent review).
     "outline": 20_000,
     "instruction": 2_000,
+    # the same 2 000 the legacy `instruction` steer carried; renaming the context
+    # key must not raise a cap, so the number travels with it
+    "revisionRequest": 2_000,
 }
 
 #: Per-endpoint overrides, because two endpoints admitted different amounts of
 #: the SAME context key: `script-draft` validates `instruction` up to 4 000 and
 #: then silently had it cut to 2 000 (independent review).
 _ENDPOINT_CONTEXT_CAPS = {
-    "script-draft": {"instruction": 4_000},
+    "script-draft": {"revisionRequest": 4_000},
     # episode-plan admits a 30 000-char outline and spliced it WHOLE; capping it
     # at story-develop's 20 000 truncated legal input mid-string (independent
     # review). One key, two endpoints, two numbers — that is what this table is.
@@ -1935,7 +1953,14 @@ _PAYLOAD_TO_CONTEXT = {
         # told to keep everything the creator did not ask about, and the base
         # script is its DOMAIN CONTEXT, not a steer — so it goes through the
         # shared compiler's fence like any other context value.
-        {"episodeScript": p.get("base_script")}
+        # The revision REQUEST is a declared input too (§1.4 blocker): while it
+        # lived in `_EXTRA_FENCED` it existed only on this endpoint, so the same
+        # capability offered in the page compiled a revision prompt with nothing
+        # to revise toward. Declared means `missingInputs` refuses instead.
+        {
+            "episodeScript": p.get("base_script"),
+            "revisionRequest": p.get("instruction"),
+        }
         if _is_revision(p)
         else {"brief": p.get("idea"), "episodePlan": p.get("episode")}
     ),
@@ -1986,10 +2011,15 @@ def _skill_id_for(slug: str, payload: dict) -> str:
 _EXTRA_FENCED = {
     "story-develop": (("instruction", "修改要求"),),
     "episode-plan": (("instruction", "修改要求"),),
-    # `base_script` is NOT here: it is the reviser's declared input, so it goes
-    # through `compile_prompt`'s fence, which has behavioural coverage. The
-    # hand-rolled steer fence did not (independent review).
-    "script-draft": (("instruction", "修改要求"),),
+    # `script-draft` is NOT here. Both of its steers are now DECLARED inputs of
+    # the reviser (`episodeScript` + `revisionRequest`), so both travel through
+    # `compile_prompt`'s fence, which has behavioural coverage — and the capability
+    # states what it needs, so the page can offer it without silently producing a
+    # revision instruction that asks for no revision.
+    #
+    # Safe to drop entirely because `_is_revision` is DEFINED on a non-empty
+    # `instruction`: a script-draft request carrying one is always revision mode,
+    # so the initial-draft branch never had a steer to lose.
 }
 
 #: taskType -> the Skill package that answers it (inverse of the slug map).
@@ -2351,7 +2381,18 @@ class _App:
                     )
                 root = self._project_root(name)
             catalog = _load_skill_catalog(root)
-            return _json(200, catalog.public())
+            try:
+                body = skillpkg.catalog_payload(catalog, _SKILL_INPUTS_PATH)
+            except skillpkg.SkillPackageError as exc:
+                # The shared context tables are part of the contract the page
+                # installs. Serving the catalog without them would look like a
+                # success and quietly strip every input label and the shot-scoped
+                # routing list, so this fails loudly instead (ADR-0067 决策 7).
+                return _json(
+                    503,
+                    {"error": {"category": "unavailable", "detail": str(exc)}},
+                )
+            return _json(200, body)
         if path == "/api/fs/default":
             return _json(
                 200,
@@ -5067,6 +5108,25 @@ class _App:
             return _json(
                 400, {"error": {"category": "bad_request", "detail": "invalid slug"}}
             )
+        # …AND IT MUST STAY INSIDE ITS OWN NAMESPACE (TASK-074 §1.1b a).
+        #
+        # `mix-` is a RESERVED prefix (`_RESERVED_SLUG_PREFIXES`) precisely so a
+        # manual upload cannot claim a mix's versioned filename. Every other write
+        # path checks `_slug_reserved` to keep OUT of the namespace; this one writes
+        # INTO it and never checked that it stays there. So a crafted request could
+        # name its output `voice-shot-1` or `sfx-shot-1` and take over a filename
+        # belonging to the dialogue or effects chain — namespace squatting in the
+        # one direction nothing guarded.
+        if not slug.startswith("mix-"):
+            return _json(
+                400,
+                {
+                    "error": {
+                        "category": "bad_request",
+                        "detail": "混音产物的名字必须以 mix- 开头（保留命名空间）",
+                    }
+                },
+            )
         if not isinstance(clips, list) or not (1 <= len(clips) <= 60):
             return _json(
                 400,
@@ -5097,7 +5157,16 @@ class _App:
             """The real duration of an audio file, or None when it cannot be
             determined. NEVER a guess: a clip whose length cannot be read is
             refused, because substituting a default silently truncates the mix
-            and still reports success."""
+            and still reports success.
+
+            Bounded by ``_PROBE_SEM`` (TASK-074 §1.1b d): at most
+            ``_PROBE_MAX_CONCURRENT`` probes run process-wide, so a 60-clip request —
+            or several at once — cannot spawn an unbounded pile of subprocesses. A
+            saturated queue returns None (reported as a mix failure with a reason),
+            never an assumed duration.
+            """
+            if not _PROBE_SEM.acquire(timeout=_PROBE_WAIT_SECONDS):
+                return None
             try:
                 pr = subprocess.run(  # noqa: S603 - fixed argv, validated path
                     [
@@ -5115,6 +5184,10 @@ class _App:
                 )
             except (subprocess.TimeoutExpired, OSError):
                 return None
+            finally:
+                # released on EVERY path, including the early `return None` above —
+                # a leaked permit would permanently shrink the cap until restart
+                _PROBE_SEM.release()
             if pr.returncode != 0:
                 return None
             try:
@@ -5139,8 +5212,16 @@ class _App:
                 if (
                     isinstance(v, (int, float))
                     and not isinstance(v, bool)
-                    and math.isfinite(v)
+                    # RANGE FIRST (TASK-074 §1.1b c). ``math.isfinite`` converts its
+                    # argument to a float, and a JSON integer too large for a float
+                    # raises OverflowError there — so a legitimately-sized request
+                    # body carrying 10**400 CRASHED the handler instead of getting a
+                    # 400. Comparing an arbitrarily large int against a float is
+                    # safe, and it already rejects NaN and ±inf (all of whose
+                    # comparisons are False). ``isfinite`` is kept after it as an
+                    # explicit statement of intent, now that it can no longer throw.
                     and lo <= v <= hi
+                    and math.isfinite(v)
                 ):
                     return float(v), None
                 return None, f"clip {i}: bad {key}"
@@ -5162,6 +5243,25 @@ class _App:
             tout, e = _num("out", 0.0, 36000.0, tin + 1.0)
             if e:
                 return _json(400, {"error": {"category": "bad_request", "detail": e}})
+            # BOTH ENDS SHARE ONE BOUND (TASK-074 §1.1b b). `in` was admitted up to
+            # 36000 INCLUSIVE while `out` was CLAMPED to 36000, so `in == 36000` with
+            # no `out` produced a ZERO-LENGTH clip — which either fails the mix or
+            # vanishes from it silently. Checked HERE, before the file is resolved,
+            # because it depends only on the request: an input problem should not
+            # wait behind a media read to be reported.
+            if open_end and tin >= 36000.0:
+                return _json(
+                    400,
+                    {
+                        "error": {
+                            "category": "bad_request",
+                            "detail": (
+                                f"clip {i}: 入点 {tin:.3f}s 已到上限 36000s，"
+                                "开放式片段会变成零长度"
+                            ),
+                        }
+                    },
+                )
             if not open_end and not (tin < tout):
                 return _json(
                     400,
@@ -5227,6 +5327,19 @@ class _App:
                 )
             if open_end:
                 tout = min(dur, 36000.0)
+                if tout <= tin:
+                    return _json(
+                        400,
+                        {
+                            "error": {
+                                "category": "bad_request",
+                                "detail": (
+                                    f"clip {i}: 素材只有 {dur:.3f}s，入点 {tin:.3f}s "
+                                    "之后没有内容"
+                                ),
+                            }
+                        },
+                    )
                 if max_out is not None:
                     if max_out <= tin:
                         return _json(
@@ -5501,8 +5614,16 @@ class _App:
                 if (
                     isinstance(v, (int, float))
                     and not isinstance(v, bool)
-                    and math.isfinite(v)
+                    # RANGE FIRST (TASK-074 §1.1b c). ``math.isfinite`` converts its
+                    # argument to a float, and a JSON integer too large for a float
+                    # raises OverflowError there — so a legitimately-sized request
+                    # body carrying 10**400 CRASHED the handler instead of getting a
+                    # 400. Comparing an arbitrarily large int against a float is
+                    # safe, and it already rejects NaN and ±inf (all of whose
+                    # comparisons are False). ``isfinite`` is kept after it as an
+                    # explicit statement of intent, now that it can no longer throw.
                     and lo <= v <= hi
+                    and math.isfinite(v)
                 ):
                     return float(v), None
                 return None, f"clip {i}: bad {key}"

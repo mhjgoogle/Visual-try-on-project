@@ -1,0 +1,193 @@
+// The WRITE seam (系统合同 §7 / TASK-072 §1.4).
+//
+// Everything that changes state, spends a subscription slot, spends money, or starts
+// a subprocess lives here. Everything that only READS lives in query.js. The split is
+// not tidiness — it is so that a reader can answer 「这一次调用会不会改东西」 by
+// looking at which module it came from, and so a future automation level can be
+// enforced at one seam instead of at thirty call sites.
+//
+// WHAT THIS MODULE DOES NOT DO:
+//
+//   - it never retries. `apiclient` refuses to retry any non-GET, because a request
+//     that may already have been applied must not be replayed by a transport that
+//     cannot know whether it took effect (系统合同 §5.8: `sideEffect: unknown`
+//     forbids automatic retry, and that rule is worthless if a layer underneath
+//     retries anyway). A retry is a user decision, carried by an idempotency key.
+//   - it never decides whether an operation is ALLOWED. Automation level, locks and
+//     the two ⚙ hard gates are domain concerns and are checked before a call reaches
+//     here; a transport that also enforced policy would be a second place to keep
+//     that policy correct.
+//   - it never turns a failure into a value. Every function here throws a classified
+//     error, because a write that silently 「did nothing」 is the worst outcome of all.
+import { request, legacyError } from "./apiclient.js";
+
+/** POST JSON, throwing the app's legacy-shaped error on failure. */
+async function post(path, body, label, { timeoutMs } = {}) {
+  try {
+    return await request(path, { method: "POST", body, ...(timeoutMs === undefined ? {} : { timeoutMs }) });
+  } catch (e) {
+    throw legacyError(e, label);
+  }
+}
+
+/** Uniform {ok, status, data, error} for the callers that branch instead of throwing
+ *  — project creation reports a 409 the creator must confirm, not an exception. */
+async function call(path, opts) {
+  try {
+    const data = await request(path, opts);
+    return { ok: true, status: 200, data: data || {} };
+  } catch (e) {
+    const backend = e && e.body && e.body.error ? e.body.error : null;
+    return {
+      ok: false,
+      status: e && e.status,
+      error: backend || { category: (e && e.category) || "error", detail: (e && e.detail) || "请求失败" },
+    };
+  }
+}
+
+/* --- project lifecycle ----------------------------------------------------- */
+
+/** Create a project folder at `root`. A location never used before comes back 409
+ *  `root_unconfirmed`; re-send with confirm=true. */
+export function createProject(name, root, confirm) {
+  return call("/api/projects", { method: "POST", body: { name, root, confirm: !!confirm } });
+}
+
+/** Copy a project's legacy repo-scratch canvas + media into the project folder
+ *  (ADR-0053). Explicit by design: the studio refuses to edit an unmigrated project
+ *  rather than half-migrating it. The legacy files are kept. */
+export function migrateLegacy(project) {
+  return call("/api/projects/migrate-legacy", { method: "POST", body: { project } });
+}
+
+/* --- creative agents (ADR-0065 五个创作端点) ------------------------------- */
+//
+// These SPEND: each one starts a local CLI on the creator's subscription. They are
+// writes even though they return text, which is exactly why they belong here and not
+// beside `getShots`.
+//
+// `timeoutMs: 0` — no read-sized deadline. A model answering a full episode script
+// legitimately takes minutes, and cutting it off at 20s would report a timeout for a
+// run that was working.
+
+export async function generateShotsDraft(script) {
+  const j = await post("/api/agent/shots-draft", { script }, "agent", { timeoutMs: 0 });
+  return j.shots || [];
+}
+
+export async function generateScriptDraft({ idea, baseScript, instruction }) {
+  const j = await post(
+    "/api/agent/script-draft",
+    instruction ? { base_script: baseScript, instruction } : { idea },
+    "agent",
+    { timeoutMs: 0 },
+  );
+  return j.script || "";
+}
+
+export async function generateBibleBreakdown(script) {
+  const j = await post("/api/agent/bible-breakdown", { script }, "agent", { timeoutMs: 0 });
+  return j.breakdown || { characters: [], locations: [] };
+}
+
+export async function developStory({ idea, current, instruction }) {
+  const j = await post(
+    "/api/agent/story-develop",
+    { idea, current: current || null, instruction: instruction || "" },
+    "agent",
+    { timeoutMs: 0 },
+  );
+  return j.outline || {};
+}
+
+export async function planEpisodes({ outline, instruction }) {
+  const j = await post(
+    "/api/agent/episode-plan",
+    { outline, instruction: instruction || "" },
+    "agent",
+    { timeoutMs: 0 },
+  );
+  return j.episodes || [];
+}
+
+/* --- local media production (ffmpeg / piper) ------------------------------- */
+
+export function renderEpisode(project, clips, settings) {
+  return post("/api/agent/render-episode", { project, clips, settings }, "render", { timeoutMs: 0 });
+}
+
+export function mixShotAudio(project, slug, clips) {
+  return post("/api/agent/mix-shot", { project, slug, clips }, "mix", { timeoutMs: 0 });
+}
+
+export function composeFinal(project, spec) {
+  return post("/api/agent/compose", { project, ...spec }, "compose", { timeoutMs: 0 });
+}
+
+export function ttsGenerate(project, slug, text, fitSlug, voice) {
+  return post(
+    "/api/agent/tts",
+    {
+      project,
+      slug,
+      text,
+      ...(fitSlug ? { fit_slug: fitSlug } : {}),
+      // the character's FIXED base voiceId: the server renders with a matching local
+      // piper model when present, else honest fallback (M11 voice rule)
+      ...(voice ? { voice } : {}),
+    },
+    "tts",
+    { timeoutMs: 0 },
+  );
+}
+
+/* --- asset bytes ----------------------------------------------------------- */
+
+/** Delete ONE uploaded media file's bytes. The caller owns the registry semantics;
+ *  this only removes bytes. */
+export function deleteAssetFile(project, file) {
+  return post("/api/assets/delete-file", { project, file }, "delete");
+}
+
+/** Upload a creator-generated media file for a slot. Same slot re-uploads APPEND a
+ *  new version (TASK-048 / ADR-0048), never replace. */
+export async function uploadAssetImage(project, slug, file) {
+  try {
+    return await request(
+      `/api/uploads/${encodeURIComponent(project)}/${encodeURIComponent(slug)}`,
+      // a File is a Blob: it goes through as-is with its own content type, and a
+      // large upload gets no read-sized deadline
+      { method: "PUT", body: file, headers: { "Content-Type": file.type }, timeoutMs: 0 },
+    );
+  } catch (e) {
+    throw legacyError(e, "upload");
+  }
+}
+
+/* --- paid (ADR-0045) ------------------------------------------------------- */
+
+/**
+ * Paid image generation. `confirmUsd` echoes the catalog price the creator just
+ * confirmed — the server 409s on any mismatch, so a stale price cannot be spent.
+ *
+ * `definitiveReject` marks the SMALL allowlist of 4xx codes that prove nothing was
+ * generated and nothing was billed. Everything else — timing / conflict / rate codes,
+ * all 5xx, every network failure — stays AMBIGUOUS, and the caller must not record a
+ * clean failure for a possibly-billed image. This is also why no write is ever
+ * retried by the transport.
+ */
+export async function paidImageGenerate(project, slug, prompt, confirmUsd) {
+  try {
+    return await request("/api/agent/image-gen", {
+      method: "POST",
+      body: { project, slug, prompt, confirm_usd: confirmUsd },
+      timeoutMs: 0,
+    });
+  } catch (e) {
+    const err = legacyError(e, "image");
+    const DEFINITIVE_REJECT = new Set([400, 401, 403, 404, 422]);
+    if (DEFINITIVE_REJECT.has(e && e.status)) err.definitiveReject = true;
+    throw err;
+  }
+}

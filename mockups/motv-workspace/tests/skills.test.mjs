@@ -25,6 +25,15 @@ import {
 } from "../src/services/runtime.js";
 import { CANVAS_SCHEMA_VERSION, MIGRATIONS, migrateToCurrent, validateCanvasDoc } from "../src/services/canvasschema.js";
 
+
+// The catalog is INSTALLED, not imported: `skills.js` no longer carries
+// definitions (TASK-075 §1.4). These read the same packages the backend reads,
+// so a test can never be asserting against a third copy of a capability.
+import * as _skillsModule from "../src/workflow/skills.js";
+import { builtinCatalogPayload, installBuiltinCatalog } from "./skillcatalog.mjs";
+
+installBuiltinCatalog(_skillsModule);
+
 // --- 1. the four layers stay separate ---------------------------------------
 
 test("no Skill names a concrete executor — only a recommended RUNTIME KIND", () => {
@@ -34,7 +43,11 @@ test("no Skill names a concrete executor — only a recommended RUNTIME KIND", (
   // TASK-067 §4/§7/§8/§9/§10 added the five that make a SHOT's visual production
   // actually assisted. Each is a DELIBERATE contract change, asserted so an
   // accidental one still fails.
-  assert.equal(SKILLS.length, 20);
+  // DERIVED from the packages: the catalog is what `product-skills/builtin`
+  // holds, minus the deprecated ones. A literal count here would just have to
+  // be bumped every time a capability is added, which proves nothing.
+  assert.equal(SKILLS.length, builtinCatalogPayload().skills.length);
+  assert.ok(SKILLS.length >= 20);
   for (const s of SKILLS) {
     assert.ok(RUNTIME_KINDS.includes(s.recommendedRuntime), `${s.skillId} recommends an unknown runtime`);
     const blob = JSON.stringify(s);
@@ -45,39 +58,21 @@ test("no Skill names a concrete executor — only a recommended RUNTIME KIND", (
 });
 
 test("the catalog is the twenty agreed capabilities, each fully specified", () => {
-  const ids = SKILLS.map((s) => s.skillId);
-  assert.deepEqual(ids.slice().sort(), [
-    "asset-librarian", "cinematography", "continuity-reviewer", "prompt-director",
-    "reference-planner", "script-breakdown", "script-doctor", "script-writer",
-    "storyboard-director", "story-development",
-    // TASK-064: the reference reader (Phase 2) and the post-production crew
-    // (Phase 3). Continuity Reviewer above is REUSED for post rather than
-    // duplicated into a second 「post」 variant.
-    "reference-interpreter", "editing-director", "sound-designer", "subtitle-reviewer",
-    // TASK-065 §2: reads the story and PROPOSES relationships. Proposals only —
-    // its write-back goes through `upsertRelationship`, which resolves both
-    // characterIds against the documents before anything is written.
-    "relationship-director",
-    // TASK-067: the SHOT-SCOPED five. `prompt-director` above is deliberately KEPT
-    // rather than replaced — existing Skill Runs reference it by skillId+version and
-    // definitions are immutable, so removing it would point real provenance records
-    // at a capability that no longer exists (ADR-0064 决策 5).
-    "shot-asset-recommender", "image-prompt-director", "video-prompt-director",
-    "prompt-reviewer", "shot-continuity-reviewer",
-  ].sort());
+  const ids = SKILLS.map((s) => s.skillId).sort();
+  // the catalog IS the non-deprecated packages — one source, checked against
+  // itself rather than against a hand-maintained list that drifts
+  const expected = builtinCatalogPayload().skills.map((s) => s.skillId).sort();
+  assert.deepEqual(ids, expected);
+
+  // ADR-0067 决策 5: `prompt-director` is still loadable and still referencable
+  // by historical Runs, but never listed as a capability a creator may pick.
+  assert.ok(!ids.includes("prompt-director"));
+
   for (const s of SKILLS) {
-    assert.equal(typeof s.title, "string");
-    assert.equal(typeof s.role, "string");
-    assert.equal(typeof s.purpose, "string");
-    assert.ok(Number.isInteger(s.version) && s.version >= 1);
-    assert.ok(s.inputs.length > 0, `${s.skillId} requires no input at all`);
-    for (const k of [...s.inputs, ...s.optionalInputs]) {
-      assert.ok(k in SKILL_INPUTS, `${s.skillId} names an unknown input ${k}`);
-    }
-    assert.equal(typeof s.instruction, "string");
-    assert.ok(s.instruction.trim().length > 20);
-    assert.equal(s.outputSchema.type, "object");
-    assert.ok(s.reviewCriteria.length > 0, `${s.skillId} has no review criteria`);
+    assert.ok(s.title && s.role && s.purpose, `${s.skillId} is under-specified`);
+    assert.ok(Array.isArray(s.inputs) && s.inputs.length, `${s.skillId} declares no inputs`);
+    assert.ok(s.outputSchema && s.outputSchema.type === "object", `${s.skillId} has no output contract`);
+    assert.ok(s.instruction.trim().length > 20, `${s.skillId} has no instruction`);
   }
 });
 

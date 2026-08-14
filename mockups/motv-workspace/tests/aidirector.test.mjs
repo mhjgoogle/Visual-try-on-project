@@ -28,6 +28,15 @@ import { ACTIONS, validate, allowedAt, CURRENT_LEVEL } from "../src/workflow/act
 import { OPERATIONS, primaryOperation, renderShotDirector, shotDirectorModel, operationOfRun } from "../src/ui/directorshot.js";
 import { startRun, createSkillRunRegistry } from "../src/workflow/skillrun.js";
 
+
+// The catalog is INSTALLED, not imported: `skills.js` no longer carries
+// definitions (TASK-075 §1.4). These read the same packages the backend reads,
+// so a test can never be asserting against a third copy of a capability.
+import * as _skillsModule from "../src/workflow/skills.js";
+import { installBuiltinCatalog } from "./skillcatalog.mjs";
+
+installBuiltinCatalog(_skillsModule);
+
 /* ========================================================================= */
 /* fixtures — a shot detail model shaped exactly like shotDetailModel output   */
 /* ========================================================================= */
