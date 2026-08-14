@@ -93,6 +93,10 @@ function sanitizeVersion(v) {
     at: strOrNull(v.at),
     skillRunId: strOrNull(v.skillRunId),
     proposalId: strOrNull(v.proposalId),
+    // survives the round-trip; absent in a legacy record and stays absent, which
+    // reads as `unknown` rather than as drift (TASK-072 §1.9 缺陷 3)
+    basedOnAssetId: strOrNull(v.basedOnAssetId),
+    basedOnVersion: Number.isInteger(v.basedOnVersion) ? v.basedOnVersion : null,
   };
 }
 
@@ -141,6 +145,10 @@ export function activeReading(doc, refKey) {
     at: v.at,
     skillRunId: v.skillRunId,
     proposalId: v.proposalId,
+    // WHAT it was read against — carried through the projection, or `readingStanding`
+    // could never tell a fresh reading from a stale one (TASK-072 §1.9 缺陷 3)
+    basedOnAssetId: v.basedOnAssetId ?? null,
+    basedOnVersion: Number.isInteger(v.basedOnVersion) ? v.basedOnVersion : null,
     locked: e.locked === true,
   };
 }
@@ -150,7 +158,18 @@ export function activeReading(doc, refKey) {
  *
  *  REFUSED when the entry is LOCKED and the write is not the creator's own
  *  (决策 5): a Skill re-run must not overwrite a reading a human settled on. */
-export function addReading(doc, refKey, { axes, origin = "manual", at = null, skillRunId = null, proposalId = null } = {}) {
+/**
+ * Append a reading.
+ *
+ * `basedOnAssetId` / `basedOnVersion` record WHAT WAS READ (TASK-072 §1.9 缺陷 3).
+ * Without them a reading is a statement about 「这个参考」 with no way to tell which
+ * version of it — so swapping in a new media version left the prompt labelling the
+ * reference `v2` while the six axes were still the words someone wrote while looking
+ * at `v1`: an out-of-date directing note carried by a provenance claim that is not
+ * true. They are OPTIONAL, and absent stays absent: a legacy reading genuinely does
+ * not know, and `unknown` is not `stale` (§3.1 不变量 5).
+ */
+export function addReading(doc, refKey, { axes, origin = "manual", at = null, skillRunId = null, proposalId = null, basedOnAssetId = null, basedOnVersion = null } = {}) {
   if (!isObj(doc) || typeof refKey !== "string" || !refKey) return 0;
   const clean = sanitizeAxes(axes);
   if (!Object.keys(clean).length) return 0;
@@ -169,6 +188,10 @@ export function addReading(doc, refKey, { axes, origin = "manual", at = null, sk
     at: strOrNull(at),
     skillRunId: strOrNull(skillRunId),
     proposalId: strOrNull(proposalId),
+    // WHICH material this reading was made against. Null = unknown (legacy), which
+    // must never be reported as stale.
+    basedOnAssetId: strOrNull(basedOnAssetId),
+    basedOnVersion: Number.isInteger(basedOnVersion) ? basedOnVersion : null,
   });
   e.active = v;
   return v;
@@ -219,9 +242,54 @@ export function interpretationInputs(doc, refs, only) {
       readingVersion: reading ? reading.version : null,
       readingOrigin: reading ? reading.origin : null,
       locked: reading ? reading.locked : false,
+      ...readingStanding(reading, r),
     });
   }
   return out;
+}
+
+/**
+ * Is this reading still ABOUT the material in force (TASK-072 §1.9 缺陷 3)?
+ *
+ *   "fresh"    it was made against the version currently active
+ *   "stale"    it was made against an older version — 「这条解读是针对 v1 写的，
+ *              当前是 v2」
+ *   "unknown"  the reading did not record what it read (legacy), or the current
+ *              version is unreadable
+ *   "none"     there is no reading yet
+ *
+ * `unknown` IS NOT `stale`. A legacy reading is not evidence of drift, and marking it
+ * stale would ask the creator to re-do work that may be perfectly current — the same
+ * rule `basedOn = 0` follows for media dependencies (§3.1 不变量 5).
+ *
+ * THE THREE EXITS ARE DATA, not a dialog: 保持 / 重新解读 / 解除. Nothing here
+ * rewrites the creator's own words — a stale reading stays exactly as written until
+ * they choose.
+ */
+export function readingStanding(reading, ref) {
+  if (!isObj(reading)) return { staleness: "none", staleDetail: null, resolutions: [] };
+  const cur = isObj(ref) && Number.isInteger(ref.version) ? ref.version : null;
+  const was = Number.isInteger(reading.basedOnVersion) ? reading.basedOnVersion : null;
+  if (was === null || cur === null) {
+    return {
+      staleness: "unknown",
+      staleDetail: was === null
+        ? "这条解读没有记录它当时读的是哪一版素材（旧记录）——不据此判断它是否过期"
+        : "读不出这个参考当前的版本，无法判断解读是否过期",
+      resolutions: [],
+    };
+  }
+  if (was === cur) return { staleness: "fresh", staleDetail: null, resolutions: [] };
+  return {
+    staleness: "stale",
+    staleDetail: `这条解读是针对 v${was} 写的，当前是 v${cur}`,
+    // exactly the three §1.9 requires; this module picks none of them
+    resolutions: [
+      { action: "keep", label: `保持这条解读（仍按 v${was} 的理解）` },
+      { action: "reread", label: `基于 v${cur} 重新解读` },
+      { action: "unbind", label: "解除这个参考" },
+    ],
+  };
 }
 
 /** MERGE several readings into one per-axis statement, keeping WHO said what.
@@ -256,6 +324,10 @@ export function serialize(doc) {
       versions: e.versions.map((v) => ({
         v: v.v, axes: { ...v.axes }, origin: v.origin, at: v.at,
         skillRunId: v.skillRunId, proposalId: v.proposalId,
+        // WHAT was read (TASK-072 §1.9 缺陷 3). Persisted, or staleness would reset
+        // to `unknown` on every reload and the drift would become unreportable.
+        basedOnAssetId: v.basedOnAssetId ?? null,
+        basedOnVersion: Number.isInteger(v.basedOnVersion) ? v.basedOnVersion : null,
       })),
     });
   }
