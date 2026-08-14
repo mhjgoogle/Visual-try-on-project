@@ -255,21 +255,37 @@ async function once(path, opts) {
  *   expect    `"raw"` to get the Response itself (blobs, data URLs)
  */
 export async function request(path, opts = {}) {
+  const r = await withRetry(path, opts);
+  // `once` returns `{__status, data}` for JSON so `attempt` can report the REAL
+  // status; `request`'s contract is the BODY, so it is unwrapped here — once —
+  // rather than at every call site. A raw read returns the Response untouched.
+  return isObj(r) && "__status" in r ? r.data : r;
+}
+
+/**
+ * The retry loop, shared by BOTH entry points.
+ *
+ * It lives here rather than inside `request` because `attempt` needs it too: an
+ * earlier revision had `attempt` call `once` directly to get at the real status, and
+ * that silently dropped the retry for every one of its callers — `detectMode`,
+ * `fetchSkillCatalog`, `fsDefault`/`fsList`, `probeExecutors`. The worst of those is
+ * `detectMode`: ONE transient fault on `/api/meta` then flips the whole session into
+ * `{mode:"local"}` permanently, i.e. a backend fault rendered as 「按设计没有后端」 —
+ * exactly the class of failure this module exists to remove (independent review,
+ * batch 1 round 2).
+ */
+async function withRetry(path, opts) {
   const method = opts.method || "GET";
   // A write is never retried here. See RETRYABLE.
   const budget = method === "GET" ? Math.max(0, opts.retries ?? 1) : 0;
-  let attempt = 0;
+  let tries = 0;
   for (;;) {
     try {
-      const r = await once(path, opts);
-      // `once` returns `{__status, data}` for JSON so `attempt` can report the REAL
-      // status; `request`'s contract is the BODY, so it is unwrapped here — once —
-      // rather than at every call site. A raw read returns the Response untouched.
-      return isObj(r) && "__status" in r ? r.data : r;
+      return await once(path, opts);
     } catch (e) {
       const retryable = e instanceof ApiError && RETRYABLE.has(e.category);
-      if (!retryable || attempt >= budget) throw e;
-      attempt++;
+      if (!retryable || tries >= budget) throw e;
+      tries++;
     }
   }
 }
@@ -286,7 +302,8 @@ export async function request(path, opts = {}) {
  */
 export async function attempt(path, opts = {}) {
   try {
-    const r = await once(path, opts);
+    // THROUGH THE RETRY LOOP, like `request` — see `withRetry`.
+    const r = await withRetry(path, opts);
     // the REAL status, not a hardcoded 200: `query.js:_call` callers branch on it,
     // and 201/204 are legitimately different answers from 200
     const raw = isObj(r) && "__status" in r;

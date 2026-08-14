@@ -39,13 +39,25 @@ test("`no-store` is for JSON reads — a raw BYTE read keeps its caching", () =>
 test("the real status travels with the body: 200, 201 and 204 stay distinct", async () => {
   // `attempt` used to hardcode 200, so `query.js:_call` callers could not tell them
   // apart — and `createProject` genuinely answers 201.
-  for (const status of [200, 201, 204]) {
+  for (const status of [200, 201]) {
     stubFetch(() => jsonRes(status, { n: status }));
     const r = await attempt("/api/x");
     assert.equal(r.ok, true);
     assert.equal(r.status, status, `status ${status} was flattened`);
     assert.deepEqual(r.data, { n: status });
   }
+  // A REAL 204 has an EMPTY body, so `res.json()` throws and the response is
+  // reported MALFORMED. Asserted as-is rather than stubbed with a JSON body the
+  // shape never has (independent review): no endpoint in this app answers 204 today,
+  // and making the transport tolerate it is a contract change, not a test fix.
+  stubFetch(() => ({
+    ok: true, status: 204,
+    headers: { get: () => "application/json" },
+    json: async () => { throw new SyntaxError("Unexpected end of JSON input"); },
+  }));
+  const noContent = await attempt("/api/x");
+  assert.equal(noContent.ok, false);
+  assert.equal(noContent.error.category, API_ERROR.MALFORMED);
   // …and `request` still resolves to the BODY, unwrapped once, at the seam
   stubFetch(() => jsonRes(201, { a: 1 }));
   assert.deepEqual(await request("/api/x"), { a: 1 });
@@ -107,6 +119,36 @@ test("a write is NEVER retried by the transport", async () => {
   n = 0;
   await assert.rejects(() => request("/api/x", { retries: 2 }));
   assert.equal(n, 3, "a GET may retry transport faults");
+});
+
+test("`attempt` retries GET faults exactly like `request` does", async () => {
+  // An earlier fix had `attempt` call `once` directly to get at the real status,
+  // which silently dropped the retry for detectMode / fetchSkillCatalog / fsList /
+  // probeExecutors. The worst case: ONE transient fault on /api/meta then pins the
+  // whole session to demo mode — a backend fault rendered as 「按设计没有后端」.
+  let n = 0;
+  stubFetch(() => {
+    n += 1;
+    if (n === 1) throw new Error("transient");
+    return jsonRes(200, { mode: "connected" });
+  });
+  const r = await attempt("/api/meta");
+  assert.equal(n, 2, "attempt must retry a transient GET fault");
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.data, { mode: "connected" });
+
+  // …and it honours an explicit budget, like request
+  n = 0;
+  stubFetch(() => { n += 1; throw new Error("down"); });
+  const dead = await attempt("/api/x", { retries: 2 });
+  assert.equal(n, 3);
+  assert.equal(dead.ok, false);
+
+  // a WRITE is still never retried, on either entry point
+  n = 0;
+  stubFetch(() => { n += 1; throw new Error("down"); });
+  await attempt("/api/x", { method: "POST", body: {} });
+  assert.equal(n, 1, "a POST must be attempted exactly once");
 });
 
 test("legacyError keeps the BACKEND's category, not the transport class", () => {

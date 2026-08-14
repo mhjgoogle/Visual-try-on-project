@@ -1254,3 +1254,8 @@
 .al-dx { margin-left: auto; appearance: none; cursor: pointer; background: none; border: none; color: var(--text-faint); }
 .al-dx:hover { color: var(--text); }
 .al-add { width: 100%; margin-top: var(--s2); }
+
+/* The landing note when the project list could NOT be read (TASK-072 §1.4 验收 #5).
+   Without this rule the fault rendered in the same muted hint style as the normal
+   note, which is precisely the 「故障读起来像故障」 goal not being met. */
+#landing-note.bad { color: var(--bad); font-weight: 600; }

@@ -6685,8 +6685,11 @@ async function boot() {
       projectsError = e;
       REAL_NAMES = [];
     }
-    DEFAULT_NAME = REAL_NAMES[0] || "draft";
-    if (REAL_NAMES[0]) {
+    // A FAULT IS NOT AN EMPTY ACCOUNT. With no list read, there is no default
+    // project to speak of — naming one anyway lets a later action target a project
+    // the backend never listed (independent review, batch 1 round 2).
+    DEFAULT_NAME = projectsError ? null : REAL_NAMES[0] || "draft";
+    if (!projectsError && REAL_NAMES[0]) {
       PROJECT_NAME = REAL_NAMES[0];
       try { REAL_STANDING = realmap.mapStanding(await query.getQuery(REAL_NAMES[0], "budget")); } catch { REAL_STANDING = null; }
     }
