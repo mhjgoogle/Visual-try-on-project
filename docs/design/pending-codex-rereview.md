@@ -2,6 +2,17 @@
 
 - 依据：[ADR-0068 补记](../adr/ADR-0068-continuous-modification-chain.md#补记降级审查模式2026-08-13--2026-08-18)
 - 起因：codex 触到 workspace spend cap，2026-08-18 之前不可用；`claude` CLI 未安装
+- **更新（2026-08-14 实测）**：
+  - codex 仍是**硬 spend cap**，非速率限制。原文：
+    `ERROR: You hit your spend cap set by the owner of your workspace.
+    Ask an owner to increase your spend cap to continue.`
+    → **要么由 workspace owner 提高上限，要么等到 2026-08-18。本清单在那之前
+    无法清空，因此「不得 push / merge / 交接」这条继续生效。**
+    （当日 round 1/2 还能用、round 3 就断了，说明那两轮把余额用尽。）
+  - **`claude` CLI 已安装**（2.1.232，`C:\Users\MO\AppData\Roaming\npm\`），
+    订阅凭据已存在，`claude -p` 实测可用 → 降级审查者**现在始终存在**，
+    「两者都不可用」的死锁场景已消除（ADR-0069 决策 6 的配套要求）。
+    但它与实施者同模型族，**不能**用来清掉本清单里要求跨模型复审的条目。
 - 规则：**本清单清空之前，不得 push / merge / 交接 / 宣告最终验收**
 
 ## 怎么用
