@@ -270,6 +270,25 @@ export function readingStanding(reading, ref) {
   if (!isObj(reading)) return { staleness: "none", staleDetail: null, resolutions: [] };
   const cur = isObj(ref) && Number.isInteger(ref.version) ? ref.version : null;
   const was = Number.isInteger(reading.basedOnVersion) ? reading.basedOnVersion : null;
+  // THE ASSET IDENTITY COMES FIRST (independent review). Comparing only the version
+  // reported a reading as `fresh` after the refKey was rebound to a DIFFERENT asset
+  // whose version number happened to coincide — precisely the false provenance claim
+  // 缺陷 3 exists to remove. An unrecorded id stays `unknown`, never `stale`.
+  const wasId = typeof reading.basedOnAssetId === "string" && reading.basedOnAssetId
+    ? reading.basedOnAssetId
+    : null;
+  const curId = isObj(ref) && typeof ref.assetId === "string" && ref.assetId ? ref.assetId : null;
+  if (wasId && curId && wasId !== curId) {
+    return {
+      staleness: "stale",
+      staleDetail: "这条解读读的是另一个素材（这个参考后来被换成了别的资产）",
+      resolutions: [
+        { action: "keep", label: "保持这条解读（仍按旧素材的理解）" },
+        { action: "reread", label: "基于当前素材重新解读" },
+        { action: "unbind", label: "解除这个参考" },
+      ],
+    };
+  }
   if (was === null || cur === null) {
     return {
       staleness: "unknown",

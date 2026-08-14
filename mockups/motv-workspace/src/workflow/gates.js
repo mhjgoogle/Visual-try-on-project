@@ -56,7 +56,7 @@ export function g1FormalReview(shots) {
  * cut version currently active. A pass on an older cut is not a pass on this one —
  * that is the whole reason `basedOnVersion` exists.
  */
-export function g2LockPicture(decisions, { episodeId, activeRoughCutVersion }) {
+export function g2LockPicture(decisions, { episodeId, activeRoughCutVersion } = {}) {
   const d = latestDecision(decisions, { layer: "episode", targetId: episodeId });
   if (!d) return { ok: false, reason: "这一集还没有审片结论，不能锁定画面（门槛 G2）" };
   if (d.verdict !== "passed") {
@@ -79,8 +79,11 @@ export function g2LockPicture(decisions, { episodeId, activeRoughCutVersion }) {
 /**
  * G3 — the structural changes that RETIRE a review (§6.3).
  *
- * Exactly the four the contract names. Anything else is not a structural change, and
- * widening this set silently would make every volume tweak demand a re-review.
+ * Exactly what §6.3 names: Shot 增删 (two triggers), Shot 的 confirmed video 版本变更,
+ * TimelineClip 顺序变更, TimelineClip 入出点变更 — five triggers for the contract's
+ * four bullet points, because 增 and 删 are separate events. Anything else is not a
+ * structural change, and widening this set silently would make every volume tweak
+ * demand a re-review.
  */
 export const G3_TRIGGERS = Object.freeze([
   "shotAdded",
@@ -122,7 +125,7 @@ export function g3TriggerFor(actionName) {
  * Idempotent: applying it to an already-retired decision changes nothing, so a burst
  * of structural edits does not produce a burst of notices.
  */
-export function g3Retire(decisions, { episodeId, trigger, at }) {
+export function g3Retire(decisions, { episodeId, trigger, at } = {}) {
   if (!G3_TRIGGERS.includes(trigger)) {
     return { changed: false, reason: `「${trigger}」不是结构变更，不触发回退` };
   }
@@ -148,7 +151,10 @@ export function g3Retire(decisions, { episodeId, trigger, at }) {
  * export waved through on an unknown is how a broken file ships.
  */
 export function g4Export(qcReport) {
-  if (!isObj(qcReport)) {
+  // `{}` IS NOT A REPORT (independent review, batch 2). Accepting any object let a
+  // never-run or malformed report through the one gate whose stated purpose is
+  // 「未跑过 = 未知，不是通过」. A real report always carries an `issues` array.
+  if (!isObj(qcReport) || !Array.isArray(qcReport.issues)) {
     return { ok: false, reason: "还没有跑交付质检——没跑不等于通过，先跑质检再导出（门槛 G4）" };
   }
   const blockers = openIssues(qcReport.issues, { layer: "delivery" })

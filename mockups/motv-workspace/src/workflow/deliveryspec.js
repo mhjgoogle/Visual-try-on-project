@@ -181,10 +181,29 @@ export function checkRetryAllowed(spec, attemptsSoFar) {
  * probe could not read, is an unknown — and an export blocked on an unknown is
  * correct, while one waved through on an unknown is how a wrong file ships.
  */
+/** How close a MEASURED value has to be to count as matching the spec.
+ *
+ *  Strict equality was wrong for everything ffprobe measures: it reports 30000/1001
+ *  (29.97) for a 30 fps render and a bitrate that never lands exactly on the target,
+ *  so a perfectly correct export produced a `blocking` 规格 failure and G4 refused it
+ *  (independent review, batch 2). Resolution and container stay EXACT — they are
+ *  discrete, and a 1080x1920 file is either that or it is not. */
+export const SPEC_TOLERANCE = Object.freeze({
+  fps: 0.01, // relative: 29.97 vs 30
+  videoBitrateKbps: 0.1, // relative: encoders overshoot/undershoot the target
+  audioBitrateKbps: 0.1,
+});
+
 export function checkRenderedAgainstSpec(spec, probed) {
   const src = isObj(spec) ? spec : {};
   const got = isObj(probed) ? probed : {};
   const rows = [];
+  const near = (key, a, b) => {
+    const tol = SPEC_TOLERANCE[key];
+    if (tol === undefined || !isNum(a) || !isNum(b)) return a === b;
+    if (b === 0) return a === 0;
+    return Math.abs(a - b) / Math.abs(b) <= tol;
+  };
   const cmp = (key, actual, expected, fmt = (v) => String(v)) => {
     if (expected === null || expected === undefined || expected === "") {
       rows.push({ key, state: "unavailable", detail: `规格里没有设置${SPEC_FIELD_BY_KEY[key].label}` });
@@ -194,7 +213,7 @@ export function checkRenderedAgainstSpec(spec, probed) {
       rows.push({ key, state: "unavailable", detail: `没能读出成片的${SPEC_FIELD_BY_KEY[key].label}` });
       return;
     }
-    const ok = actual === expected;
+    const ok = near(key, actual, expected);
     rows.push({
       key,
       state: ok ? "pass" : "fail",

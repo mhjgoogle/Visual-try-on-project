@@ -199,7 +199,7 @@ export function openIssues(issues, { layer = null, targetId = null } = {}) {
 
 /** The LATEST decision for a target at a layer, or null. `at` is compared as a
  *  string, which is correct for ISO-8601 and needs no clock here. */
-export function latestDecision(decisions, { layer, targetId }) {
+export function latestDecision(decisions, { layer, targetId } = {}) {
   const mine = (Array.isArray(decisions) ? decisions : []).filter(
     (d) => isObj(d) && d.layer === layer && d.targetId === targetId,
   );
@@ -220,7 +220,7 @@ export function latestDecision(decisions, { layer, targetId }) {
  * read the current version is exactly the fabricated reassurance ADR-0064 决策 6
  * forbids.
  */
-export function decisionStanding(decisions, { layer, targetId, currentVersion }) {
+export function decisionStanding(decisions, { layer, targetId, currentVersion } = {}) {
   const d = latestDecision(decisions, { layer, targetId });
   if (!d) return { state: "none", decision: null };
   if (!Number.isInteger(currentVersion)) return { state: "unknown", decision: d };

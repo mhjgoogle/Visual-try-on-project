@@ -30,8 +30,10 @@ const isNum = (x) => typeof x === "number" && Number.isFinite(x);
 export const QC_CHECKS = Object.freeze([
   { key: "av_sync", label: "音画同步", severity: "blocking" },
   { key: "subtitle", label: "字幕", severity: "warning" },
-  // loudness is a warning; CLIPPING is blocking — two findings from one probe
+  // loudness is a warning; CLIPPING is blocking — two findings from one probe, and
+  // two distinct KEYS so a consumer keying rows by `key` cannot collide them
   { key: "loudness", label: "音量", severity: "warning" },
+  { key: "clipping", label: "削波", severity: "blocking", category: "loudness" },
   { key: "black_frame", label: "黑帧", severity: "warning" },
   { key: "dropped_frame", label: "缺帧", severity: "blocking" },
   { key: "spec", label: "规格", severity: "blocking" },
@@ -78,7 +80,13 @@ export function checkAvSync(probe) {
 }
 
 /** 字幕 — existence, timing inside the film, no empty cues. */
-export function checkSubtitles(track, { durationMs = null } = {}) {
+export function checkSubtitles(track, { durationMs = null, subtitleMode = null } = {}) {
+  // 「本片不做字幕」 is a legitimate delivery spec, not a missing check. Without this
+  // such a delivery stayed permanently `unavailable`, so `passed` could never become
+  // true for it (independent review).
+  if (subtitleMode === "none") {
+    return row("subtitle", "pass", "本片规格声明不做字幕");
+  }
   if (!isObj(track) || !Array.isArray(track.cues)) {
     return unavailable("subtitle", "没有字幕轨可检查");
   }
@@ -89,17 +97,19 @@ export function checkSubtitles(track, { durationMs = null } = {}) {
   if (empty.length) problems.push(`${empty.length} 条空字幕`);
   const inverted = cues.filter((c) => !(isNum(c.startMs) && isNum(c.endMs) && c.endMs > c.startMs));
   if (inverted.length) problems.push(`${inverted.length} 条时间无效（结束不晚于开始）`);
+  const real = problems.slice();
   if (isNum(durationMs)) {
     const past = cues.filter((c) => isNum(c.endMs) && c.endMs > durationMs + 1);
-    if (past.length) problems.push(`${past.length} 条超出成片时长`);
-  } else {
-    // stated, not silently skipped: the check ran WITHOUT this sub-check
-    problems.push("（未提供成片时长，没有检查越界）");
+    if (past.length) real.push(`${past.length} 条超出成片时长`);
   }
-  const real = problems.filter((p) => !p.startsWith("（"));
-  return real.length
-    ? row("subtitle", "fail", problems.join("；"))
-    : row("subtitle", "pass", problems.length ? problems.join("；") : `${cues.length} 条，未发现问题`);
+  if (real.length) return row("subtitle", "fail", real.join("；"));
+  // AN UNPERFORMED SUB-CHECK IS NOT A PASS (independent review). Reporting `pass`
+  // with the caveat buried in `detail` is the same claim this module's headline rule
+  // bans — so a missing duration makes the whole row `unavailable`.
+  if (!isNum(durationMs)) {
+    return unavailable("subtitle", "没有提供成片时长，无法检查字幕是否越界——未检查不等于通过");
+  }
+  return row("subtitle", "pass", `${cues.length} 条，未发现问题`);
 }
 
 /** 音量 — integrated loudness (warning) and clipping (BLOCKING). Two findings. */
@@ -117,10 +127,20 @@ export function checkLoudness(probe) {
   }
   // CLIPPING IS BLOCKING even though loudness is a warning: a clipped master is
   // damaged audio, not a preference.
-  if (isObj(probe) && isNum(probe.truePeakDbtp)) {
-    if (probe.truePeakDbtp > QC_THRESHOLDS.clipThresholdDbtp) {
-      out.push(row("loudness", "fail", `真峰值 ${probe.truePeakDbtp} dBTP 超过 ${QC_THRESHOLDS.clipThresholdDbtp} dBTP（削波）`, { severity: "blocking" }));
-    }
+  //
+  // AND AN UNMEASURED TRUE PEAK IS `unavailable`, NOT ABSENT (independent review).
+  // Emitting no row at all let a probe that measured LUFS but not true peak produce
+  // `passed: true` with `unavailable: []` — G4 would then export a clipped master.
+  // That is the exact 「工具缺失被当成通过」 this file's headline rule forbids.
+  //
+  // Its own key, so a consumer keying rows by `key` cannot collide with the loudness
+  // row (both used to be `loudness`).
+  if (!isObj(probe) || !isNum(probe.truePeakDbtp)) {
+    out.push(unavailable("clipping", "没有测到真峰值（需要 ffmpeg ebur128 的 True Peak）"));
+  } else if (probe.truePeakDbtp > QC_THRESHOLDS.clipThresholdDbtp) {
+    out.push(row("clipping", "fail", `真峰值 ${probe.truePeakDbtp} dBTP 超过 ${QC_THRESHOLDS.clipThresholdDbtp} dBTP（削波）`, { severity: "blocking" }));
+  } else {
+    out.push(row("clipping", "pass", `真峰值 ${probe.truePeakDbtp} dBTP`));
   }
   return out;
 }
@@ -195,7 +215,10 @@ export function runDeliveryQc(input, { issueIdFor } = {}) {
   } = isObj(input) ? input : {};
   const rows = [
     checkAvSync(probe),
-    checkSubtitles(subtitleTrack, { durationMs }),
+    checkSubtitles(subtitleTrack, {
+      durationMs,
+      subtitleMode: isObj(spec) ? spec.subtitleMode : null,
+    }),
     ...checkLoudness(probe),
     checkBlackFrames(probe),
     checkDroppedFrames(probe),
@@ -211,7 +234,10 @@ export function runDeliveryQc(input, { issueIdFor } = {}) {
       targetType: "delivery",
       targetId: (isObj(input) && input.deliveryId) || "delivery",
       locatedShotId: null,
-      category: r.key,
+      // the layer-3 CATEGORY, which is not always the row key: `clipping` is a
+      // second finding of the 音量 check and files under `loudness` (§6.1's category
+      // set is closed, and a row key is a UI concern)
+      category: (QC_CHECKS.find((c) => c.key === r.key) || {}).category || r.key,
       severity: r.severity || "warning",
       source: "agent", // a MEASUREMENT is an observation, never a decision (§6.2)
       text: `${r.label}：${r.detail || "不合格"}`,

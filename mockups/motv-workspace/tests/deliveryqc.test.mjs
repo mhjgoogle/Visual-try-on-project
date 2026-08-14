@@ -22,14 +22,14 @@ const GOOD_PROBE = {
 const GOOD_SUBS = { cues: [{ text: "你好", startMs: 0, endMs: 900 }] };
 const GOOD_ASSETS = [{ assetId: "a1", origin: "upload" }];
 
-test("the seven checks are exactly 检查层 3's category set", () => {
-  assert.equal(QC_CHECKS.length, 7);
-  // every check IS a layer-3 category, and covers the layer completely — a check
-  // whose category belonged to another layer would break §6.1's disjointness
-  assert.deepEqual(
-    QC_CHECKS.map((c) => c.key).slice().sort(),
-    ISSUE_CATEGORIES.delivery.slice().sort(),
-  );
+test("the checks cover 检查层 3's category set exactly", () => {
+  // A ROW KEY is a UI concern; a CATEGORY is §6.1's closed set. `clipping` is a
+  // SECOND row of the 音量 check (so a consumer keying by row cannot collide the
+  // two) that files under the `loudness` category — hence 8 rows, 7 categories.
+  const categories = [...new Set(QC_CHECKS.map((c) => c.category || c.key))];
+  assert.deepEqual(categories.slice().sort(), ISSUE_CATEGORIES.delivery.slice().sort());
+  // every row key is unique, or two findings would overwrite each other
+  assert.equal(new Set(QC_CHECKS.map((c) => c.key)).size, QC_CHECKS.length);
 });
 
 test("a clean file passes all seven", () => {
@@ -79,14 +79,18 @@ test("字幕: empty cues, inverted timing and out-of-range are all caught", () =
     checkSubtitles({ cues: [{ text: "a", startMs: 0, endMs: 9999 }] }, { durationMs: 1000 }).detail,
     /超出成片时长/,
   );
-  // WITHOUT a duration the sub-check is skipped — and says so rather than passing
-  // silently on a check it did not perform
+  // WITHOUT a duration the out-of-range sub-check cannot run, so the whole row is
+  // UNAVAILABLE. Reporting `pass` with the caveat buried in `detail` was the same
+  // 「未执行 = 通过」 claim this module bans (independent review, batch 2).
   const noDur = checkSubtitles(GOOD_SUBS);
-  assert.equal(noDur.state, "pass");
-  assert.match(noDur.detail, /未提供成片时长/);
+  assert.equal(noDur.state, "unavailable");
+  assert.match(noDur.detail, /未检查不等于通过/);
+  // …and a delivery whose spec says 「不做字幕」 passes rather than being stuck
+  // unavailable forever
+  assert.equal(checkSubtitles(null, { subtitleMode: "none" }).state, "pass");
 });
 
-test("音量: loudness warns, CLIPPING blocks — two findings from one probe", () => {
+test("音量: loudness warns, CLIPPING blocks — two findings, always two rows", () => {
   const off = checkLoudness({ lufs: -10, truePeakDbtp: -3 });
   assert.equal(off[0].state, "fail");
   assert.equal(off[0].severity, "warning", "loudness alone is a preference");
@@ -94,8 +98,18 @@ test("音量: loudness warns, CLIPPING blocks — two findings from one probe", 
   assert.equal(clipped[0].state, "pass");
   assert.equal(clipped[1].state, "fail");
   assert.equal(clipped[1].severity, "blocking", "a clipped master is damaged audio");
-  assert.equal(checkLoudness({}).length, 1);
-  assert.equal(checkLoudness({})[0].state, "unavailable");
+
+  // AN UNMEASURED TRUE PEAK EMITS A ROW (independent review, batch 2). Emitting
+  // nothing let a probe that measured LUFS but not true peak produce `passed: true`
+  // with `unavailable: []` — and G4 would export a clipped master.
+  const noPeak = checkLoudness({ lufs: -16 });
+  assert.equal(noPeak.length, 2);
+  assert.equal(noPeak[0].state, "pass");
+  assert.equal(noPeak[1].key, "clipping");
+  assert.equal(noPeak[1].state, "unavailable");
+  const nothing = checkLoudness({});
+  assert.equal(nothing.length, 2);
+  assert.ok(nothing.every((r) => r.state === "unavailable"));
 });
 
 test("黑帧 / 缺帧", () => {

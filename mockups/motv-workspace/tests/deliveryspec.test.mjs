@@ -80,6 +80,26 @@ test("HARD GATE 重试上限: at the cap it stops, and an unset cap stops it too
   assert.equal(checkRetryAllowed(spec, null).ok, false);
 });
 
+test("MEASURED values get a tolerance; DISCRETE ones stay exact", () => {
+  // ffprobe reports 30000/1001 for a 30 fps render and a bitrate that never lands
+  // exactly on target — strict equality made every real export a blocking 规格
+  // failure and G4 refused it (independent review, batch 2).
+  const spec = {
+    resolution: "1080x1920", fps: 30, container: "mp4",
+    videoBitrateKbps: 6000, audioBitrateKbps: 128,
+  };
+  const probed = {
+    resolution: "1080x1920", fps: 29.97, container: "mp4",
+    videoBitrateKbps: 5987, audioBitrateKbps: 127,
+  };
+  assert.equal(checkRenderedAgainstSpec(spec, probed).passed, true);
+  // …but a genuinely wrong frame rate still fails
+  assert.equal(checkRenderedAgainstSpec(spec, { ...probed, fps: 25 }).passed, false);
+  // resolution and container are DISCRETE — a 1080x1920 file is that or it is not
+  assert.equal(checkRenderedAgainstSpec(spec, { ...probed, resolution: "1920x1080" }).blocking, true);
+  assert.equal(checkRenderedAgainstSpec(spec, { ...probed, container: "webm" }).blocking, true);
+});
+
 test("TASK-074 §1.2 规格 check: `unavailable` never counts as a pass", () => {
   const spec = {
     resolution: "1080x1920", fps: 25, container: "mp4",

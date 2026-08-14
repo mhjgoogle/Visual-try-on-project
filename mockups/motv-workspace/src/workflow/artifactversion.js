@@ -101,7 +101,10 @@ export function promptVersionStates(entry) {
   if (!isObj(entry) || !Array.isArray(entry.versions)) return [];
   const active = Number.isInteger(entry.active) ? entry.active : 0;
   const locked = entry.locked === true;
-  return entry.versions.map((v) => ({
+  // FILTERED like every sibling module (independent review, batch 2): a null or
+  // primitive element in a stored/legacy document threw a TypeError and took down the
+  // entire derived view rather than degrading to "this one version is unreadable".
+  return entry.versions.filter(isObj).map((v) => ({
     version: Number.isInteger(v.v) ? v.v : null,
     origin: v.origin || null,
     at: v.at || null,
@@ -119,7 +122,7 @@ export function promptVersionStates(entry) {
 export function chainVersionStates(chain, { locked = false } = {}) {
   if (!isObj(chain) || !Array.isArray(chain.history)) return [];
   const current = Number.isInteger(chain.current) ? chain.current : 0;
-  return chain.history.map((r) => ({
+  return chain.history.filter(isObj).map((r) => ({
     version: Number.isInteger(r.version) ? r.version : null,
     assetId: r.assetId || null,
     origin: r.origin || null,

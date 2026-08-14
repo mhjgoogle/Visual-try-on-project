@@ -46,6 +46,23 @@ test("THE THREE EXITS are data, and nothing rewrites the creator's words", () =>
   assert.equal(JSON.stringify(activeReading(doc, "ref-1").axes), before);
 });
 
+test("a DIFFERENT asset is stale even when the version number coincides", () => {
+  // Comparing only the version reported `fresh` after the refKey was rebound to
+  // another asset that happened to be at the same version — precisely the false
+  // provenance claim 缺陷 3 exists to remove (independent review, batch 2).
+  const reading = activeReading(docWith(1), "ref-1"); // basedOnAssetId: asset-9
+  const other = readingStanding(reading, { version: 1, assetId: "asset-OTHER" });
+  assert.equal(other.staleness, "stale");
+  assert.match(other.staleDetail, /另一个素材/);
+  assert.equal(other.resolutions.length, 3);
+  // the SAME asset at the same version is still fresh
+  assert.equal(readingStanding(reading, { version: 1, assetId: "asset-9" }).staleness, "fresh");
+  // an unrecorded id cannot prove a mismatch — it stays version-based, never invented
+  const legacy = activeReading(docWith(1), "ref-1");
+  delete legacy.basedOnAssetId;
+  assert.equal(readingStanding(legacy, { version: 1, assetId: "asset-OTHER" }).staleness, "fresh");
+});
+
 test("UNKNOWN is not STALE — a legacy reading is not evidence of drift", () => {
   // §3.1 不变量 5 / the same rule `basedOn = 0` follows for media dependencies
   const legacy = activeReading(docWith(null), "ref-1");

@@ -182,6 +182,31 @@ test("G4: an open blocking issue refuses the export, and NO report also refuses"
   assert.match(noReport.reason, /没跑不等于通过/);
 });
 
+test("G4: `{}` is NOT a report — 未跑过 = 未知，不是通过", () => {
+  // Accepting any object let a never-run or malformed report through the one gate
+  // whose stated purpose is that (independent review, batch 2).
+  for (const bogus of [{}, { issues: null }, { issues: "none" }, [], null, undefined]) {
+    const r = g4Export(bogus);
+    assert.equal(r.ok, false, JSON.stringify(bogus));
+    assert.match(r.reason, /没跑不等于通过/);
+  }
+  // a REAL report with no blockers passes
+  assert.equal(g4Export({ issues: [] }).ok, true);
+});
+
+test("the gates fail closed on a missing argument instead of throwing", () => {
+  // `is()`-style predicates are consulted on every write path; a TypeError there
+  // takes the path down rather than refusing one check (independent review, batch 2).
+  assert.doesNotThrow(() => g2LockPicture([]));
+  assert.equal(g2LockPicture([]).ok, false);
+  assert.doesNotThrow(() => g3Retire([]));
+  assert.equal(g3Retire([]).changed, false);
+  assert.doesNotThrow(() => latestDecision([]));
+  assert.equal(latestDecision([]), null);
+  assert.doesNotThrow(() => decisionStanding([]));
+  assert.equal(decisionStanding([]).state, "none");
+});
+
 test("G5: versions only APPEND, and only forward", () => {
   assert.deepEqual(g5Append([1, 2, 3], 4), { ok: true, version: 4 });
   assert.equal(g5Append([1, 2, 3], 3).ok, false, "an existing version is never overwritten");
