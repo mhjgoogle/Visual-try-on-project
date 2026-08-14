@@ -1127,6 +1127,40 @@ class RunStore:
             out.sort(key=lambda r: _as_int(r.get("queueSeq")), reverse=True)
             return out[: max(1, int(limit))]
 
+    def skill_digests(self) -> dict[tuple[str, int], str]:
+        """Which ``(skillId, skillVersion)`` the history already points at.
+
+        DELIBERATELY NOT `list()` with the project filter removed. A package's
+        identity is global — the same `story-development@1` is the same bytes in
+        every project — but a RUN belongs to one project, and "no project means
+        everything" is the exact path that puts another project's runs on this
+        project's board (§5.5). So this returns package identities only: no run
+        ids, no params, no products, nothing that could leak across.
+        """
+
+        out: dict[tuple[str, int], str] = {}
+        with self._lock:
+            for run in self._runs:
+                params = run.get("params") or {}
+                # `get(key, default)` is WRONG here: the record already carries
+                # `skillId` / `skillVersion` keys whose value is None until a
+                # run fills them, so the default would never be reached and the
+                # whole history read as empty — which silently disarms the
+                # digest-conflict rule rather than failing it.
+                skill_id = run.get("skillId") or params.get("skillId")
+                version = run.get("skillVersion")
+                if version is None:
+                    version = params.get("skillVersion")
+                digest = run.get("skillDigest") or params.get("skillDigest")
+                if not (isinstance(skill_id, str) and skill_id):
+                    continue
+                if isinstance(version, bool) or not isinstance(version, int):
+                    continue
+                if not (isinstance(digest, str) and digest):
+                    continue
+                out[(skill_id, version)] = digest
+        return out
+
     def list_unowned(self, limit=100) -> list[dict]:
         """The legacy, project-less runs. They appear ONLY in ⚙ diagnostics —
         never on a project page, because they belong to no project."""

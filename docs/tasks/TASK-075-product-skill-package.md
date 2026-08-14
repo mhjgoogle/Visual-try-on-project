@@ -378,6 +378,131 @@ Prompt，接线是 B2。
 换接线时必须把这些上限带过去；② `<数据 键="…">` 里的 `key` 是唯一未转义的插值，
 来自 manifest 的 `inputs`（项目/用户包由创作者撰写，见 §4 风险 2）。
 
+### 批次 B2（本次提交）：五个端点跑在 Skill 包上
+
+| 落点 | 内容 |
+| --- | --- |
+| `GET /api/skills` | 目录 + **problems**（加载失败的能力要「可见地不可用并带原因」，不是从列表里消失）。`?project=` 走注册表，未知项目 **404 而非 403** |
+| `_skill_prompt` | 端点按包编 Prompt：payload → 能力声明的 context 键 → 共享编译器。**旧端点的输入上限逐条带过来**（`episodeScript` 50 000 / `outline` 30 000 / `instruction` 2 000） |
+| `_skill_answer` + 五个适配器 | 用包的 `output.schema.json` 判答案，再映射回**原响应键**。适配器**复用既有 sanitizer**（补 `sequence`、6/10 秒、截断、条数上限），所以「响应契约不变」是复用出来的，不是重写出来的 |
+| `runstore.skill_digests()` | 让 §1.2 真正可达：不记 `skillDigest` 的话，digest 冲突规则**永远比对不到任何东西** |
+| 五个 `_agent_*` | **自带的 Prompt 全部删除**（69 行）。留着就是 ADR-0067 要消除的第二份真相 |
+
+**逐端点的行为变更**（决策 A 义务 1，如实列出）：
+
+| 端点 | 以前问什么 / 答什么 | 现在 |
+| --- | --- | --- |
+| shots-draft | 「你是短剧分镜师…」→ JSON **数组** | `storyboard-director` 的 prompt → `{shots:[…]}`；响应仍是旧的 `shots` 列表 |
+| script-draft | `<剧本输出>` 标签块 → 纯文本 | `script-writer` → `{script, notes?}`；响应仍是 `script` 字符串 |
+| episode-plan | 只要求非空 `title` | `episode-planner` 还要求 `epNumber`（数字）与 `synopsis`——**会拒绝今天能通过的答案** |
+| story-develop / bible-breakdown | 自带 prompt | 对应包；答案形状本就相近，响应键不变 |
+
+**实施中发现并修掉的两个真问题**（不是测试问题）：
+
+1. **修订模式会丢失基准剧本。** `base_script` 不在 `script-writer` 声明的输入里，
+   `compile_prompt` 于是**静默丢弃**它——修订会在看不见原稿的情况下进行。改为
+   把「每轮的引导」（`base_script` / `instruction`）**用同一套围栏追加**：不塞进
+   声明输入里，因为 `missingInputs` 正是按声明输入来拦截的，伪造键会让那道门
+   对「这个能力到底需要什么」说谎。
+2. **`skill_digests()` 恒为空。** 记录里本来就有值为 `None` 的顶层
+   `skillVersion` 键，于是 `get(key, default)` 永远拿不到 params 里的回退值——
+   digest 冲突规则会**静默失效**而不是报错。
+
+**一处按守卫让步**：`_skill_prompt` **不解析项目根**。
+`tests/test_motv_skills_task059.py` 有一条守卫「该路由绝不能把项目名变成路径」，
+所以五个端点只按 用户 + 内置 两个来源解析；项目级包对它们暂不生效
+（`GET /api/skills?project=` 走注册表，不受这条限制）。**这是真实的能力缺口**，
+留给后续：要让端点也吃项目级包，得先把那条路径安全问题单独定下来。
+
+#### B2 的独立审查（1 轮 fail → 已修）
+
+三个 P1 都是真的，其中一个正是**我自己新加的守卫没用到那个端点上**：
+
+1. **`script-draft` 仍自带 Prompt。** 它有**两个** prompt 构造块（初稿 / 修订），
+   删除脚本按锚点只删掉了一个，剩下 13 行死代码——而 §3b 原文写的是「五个端点
+   自带 Prompt 全部删除」。新加的 `assert "prompt = (" not in handler` 恰好加在
+   了另外三个端点上，唯独没加在会抓到它的这个。已删除并补齐守卫。
+2. **修订模式不再要求「修订」。** `script-writer` 的 prompt 说的是「写出本集
+   剧本」，于是「五千字原稿 + 结尾加一个反转」会换回一份**全新编造的剧本**，
+   还被当作修订稿呈现。旧 prompt 里那句「保留未被要求修改的部分」在新结构里
+   **无处安放**。已新增 `script-reviser` 包（修订是另一个能力，不是同一个能力的
+   另一种用法），`base_script` 成为它的**声明输入**、走共享编译器的围栏。
+3. **手工提交路径 200 → 400。** `_normalise_manual_outputs` 交给适配器的是**旧
+   产物**（`shots` 是一个列表），而适配器要求模型那层 `{shots:[…]}` 包裹。这正是
+   ADR-0065 决策 2 的「没有运行时也能干活」通道：创作者拿到 prompt、去别处跑完，
+   回来却提交不了。已让适配器同时接受旧产物形状。
+
+P2 也已修：`instruction` 在 script-draft 上被**别的端点的上限**截断
+（4 000 → 2 000）；超限的对象输入原本抛 `SkillPackageError` → 503「能力不可用」，
+把**客户端输入问题说成能力故障**，改回旧行为（截断）。
+
+#### 第二轮（又一次 fail → 已修）
+
+第一轮的修复自己带出了新问题，如实记：
+
+- **`prompt = (` 守卫仍然没覆盖 `script-draft`**，而卡里已经写了「已补齐守卫」。
+  审查者把那段死 prompt **重新插回去**，六个测试文件**全绿**——上一轮溜过去的
+  缺陷可以原样再溜一次。已改为**一次覆盖五个端点**的守卫（顺带断言没有端点自己
+  调 `_data_embed`、且都走 `_skill_prompt`）。
+- **`outline` 上限「取小者」是错的。** episode-plan 从来**不截断**——它在
+  30 000 以上直接 400。取 20 000 之后，一份合法的 25 000 字大纲会被**从字符串
+  中间切断**，模型收到的是**不闭合的 JSON**，而 HTTP 仍是 200、没有任何提示。
+  已用本批自己建的 `_ENDPOINT_CONTEXT_CAPS` 给 episode-plan 单列 30 000。
+- **手工提交的 `outline` 仍然 200 → 400。** 上一轮只给两个列表形状的产物开了口子，
+  而且判据是「文本以 `[` 开头」——这既没覆盖 `outline`，又让**模型**答案只要以
+  `[` 开头就**整个绕过 Skill 契约**（episode-plan 的收紧被悄悄还原）。已改为
+  **按调用点区分**：手工提交走产物 sanitizer（`_MANUAL_SANITISERS`），模型答案走
+  Skill 契约。调用点知道自己是哪条路，文本不知道。
+- **「修订模式」有两个定义**：处理函数按 `instruction` 判，选包按 `base_script` 判。
+  于是 `{idea, base_script}` 走初稿分支、却跑修订能力，且提示词里没有任何修改要求。
+  已收敛到一个 `_is_revision()`。
+
+四个变异（端点自带 prompt、episode-plan 上限、每轮引导的围栏、每轮引导的截断）
+现已全部会红（实测）。
+
+#### 第三轮（再次 fail → 部分已修，其余如实登记为债务）
+
+**已修的两项**：
+
+- **「一次覆盖五个端点」的守卫仍然是文本守卫，仍可绕。** 审查者把一句
+  `prompt = "…"`（没有括号）配 `skillpkg.embed_data`（不是 `_data_embed`）塞进
+  `bible-breakdown`——**完全替换掉包的 prompt**，而 `-k motv` 445 项全绿。而且
+  塞进去的正是**唯一没有行为断言**的那个端点。已改为**行为守卫**：五个端点逐个
+  断言「包自己的 `prompt.md` 正文出现在真正发出去的 prompt 里」，换名字绕不过。
+- **上限量在了错的序列化器上。** 判定用紧凑 `json.dumps`，实际内联的是缩进两格的
+  形式，于是一个「没超限」的值可能比端点承诺的**多送 ~80% 的创作者文本**——正是
+  这张表自己的注释反对的事。已改为量 `_inline(value)`，即真正被嵌入的那串。
+
+**如实登记为债务（本卡未修）**，都由第三轮独立审查发现：
+
+1. **手工提交与模型答案现在不是同一道契约。** 01c005a 时两条路走同一个
+   `_parse_*`；B2 让模型走 Skill 契约、手工走产物 sanitizer，于是缺 `climax` 的
+   大纲**手工提交 200、模型作答 502**。ADR-0065 决策 2 写的是「走同一道输出契约」，
+   `_manual_outputs` 的 docstring 至今还引着这句话。正确解法是让手工提交也走 Skill
+   契约、只补上「产物形状 → 答案形状」的包裹，但那要逐 taskType 定包裹规则，
+   **不在本批范围内硬做**。
+2. `_skill_answer` 按 taskType 取包，所以 `script-reviser` 的答案是用
+   `script-writer` 的 schema 判的（今天两份 schema 逐字节相同，但没有测试守住）。
+3. `script-reviser` 会出现在 `/api/skills` 列表里，而它的「修改要求」只存在于端点侧
+   的 `_EXTRA_FENCED`——§1.4 之后创作者若独立选它，会拿到一份**没有修改要求**的
+   修订指令。§1.4 落地前必须先处理。
+4. `/api/skills` 是唯一没有 `X-Motv-Runtime` 守卫的运行时相关 GET。
+5. `_parse_script_text`（24 行）已无调用方。
+6. `_is_revision` 只收敛了原本不一致的两处，`_agent_script_draft` 里还内联着第三份
+   同样的判据。
+7. 深层嵌套 payload 会在纯 Python 递归里更早触发 `RecursionError` 且未被捕获
+   （01c005a 走的是 C 的 json 编码器）。
+
+**仍待办（记录，未修）**：`parse_skill_output` / `validate_output` 与 JS 侧在
+`NaN`/`Infinity`（Python `json` 收、`JSON.parse` 不收）与 `strip()` vs `trim()`
+的空白集合上不完全等价；provenance 走的是 `params` 而不是 `runstore.create` 已有的
+`skill_id` / `skill_version` 形参；`story-development` 现在要求 `climax`、
+`script-breakdown` 要求两个键都在，都属同一类收紧，会拒绝今天能通过的答案。
+
+**未做（§1.4）**：`skills.js` 仍自带 `SKILLS` 数组，尚未降为 `/api/skills` 的
+消费方。因此**前端仍是第二份定义**——后端已经统一，前端未统一。这是本卡剩下的
+最后一块，单独一批做。
+
 ## 4. 已知风险
 
 1. **迁移与修订必须分开。** 本轮逐字搬运；任何措辞改动另起一次修订。

@@ -36,7 +36,10 @@ _RUNTIME_HEADERS = {"X-Motv-Runtime": "1"}
 #: "found nothing" is a failed extraction, not a valid proposal.
 _BREAKDOWN_ANSWER = '{"characters":[{"name":"阿澈"}],"locations":[]}'
 _ASYNC_HEADERS = {"X-Motv-Runtime": "1", "X-Motv-Async": "1"}
-_SHOTS_ANSWER = '[{"sequence":1,"title":"t","description":"d","duration_seconds":6}]'
+#: The SKILL's shape (TASK-075 §1.6): an object holding `shots`, not a bare
+#: array. The endpoint's RESPONSE key is still `shots` — only what the model
+#: is asked for changed.
+_SHOTS_ANSWER = '{"shots":[{"title":"t","description":"d","duration_seconds":6}]}'
 #: A TEXT product as a creator would submit it — no model wrapper, because a
 #: person has none to give.
 _SCRIPT_TEXT = "【金銮殿·日】\n正文"
@@ -63,7 +66,7 @@ def srv(tmp_path, monkeypatch):
 def stub_executor(srv, monkeypatch):
     """Replace the RUNTIME LAYER, not the CLI: there is no `_run_claude` to stub
     any more, which is exactly the point of TASK-072 §1.8."""
-    seen = {"prompts": [], "answer": '{"premise":"p","logline":"l"}'}
+    seen = {"prompts": [], "answer": _OUTLINE_ANSWER}
 
     def fake(name, prompt, timeout, on_spawn=None):
         seen["prompts"].append(prompt)
@@ -134,14 +137,23 @@ def test_every_creative_endpoint_produces_a_durable_run(srv, stub_executor) -> N
         ),
         (
             "/api/agent/episode-plan",
-            {"outline": {"premise": "p"}},
-            '{"episodes":[{"title":"第一集"}]}',
+            {
+                "outline": {
+                    "premise": "p",
+                    "logline": "l",
+                    "centralConflict": "c",
+                    "storyArc": "a",
+                    "climax": "x",
+                    "ending": "e",
+                }
+            },
+            '{"episodes":[{"epNumber":1,"title":"第一集","synopsis":"梗概"}]}',
             "skill.episode-plan",
         ),
         (
             "/api/agent/script-draft",
             {"idea": "创意"},
-            "<剧本输出>正文</剧本输出>",
+            '{"script":"正文"}',
             "skill.script-writer",
         ),
         (
@@ -213,7 +225,19 @@ def test_a_missing_runtime_offers_the_manual_route_instead_of_a_dead_end(
     status, j2 = _post(
         app,
         f"/api/runs/{fallback['run_id']}/submit",
-        {"project": "P1", "outputs": {"outline": {"premise": "p"}}},
+        {
+            "project": "P1",
+            "outputs": {
+                "outline": {
+                    "premise": "p",
+                    "logline": "l",
+                    "centralConflict": "c",
+                    "storyArc": "a",
+                    "climax": "x",
+                    "ending": "e",
+                }
+            },
+        },
         _RUNTIME_HEADERS,
     )
     assert status == 200
@@ -558,7 +582,19 @@ def test_an_empty_manual_submission_is_refused_not_stored_as_success(srv) -> Non
     status, _ = _post(
         app,
         f"/api/runs/{run['runId']}/submit",
-        {"project": "P1", "outputs": {"outline": {"premise": "p"}}},
+        {
+            "project": "P1",
+            "outputs": {
+                "outline": {
+                    "premise": "p",
+                    "logline": "l",
+                    "centralConflict": "c",
+                    "storyArc": "a",
+                    "climax": "x",
+                    "ending": "e",
+                }
+            },
+        },
         _RUNTIME_HEADERS,
     )
     assert status == 200
@@ -572,7 +608,20 @@ def test_reconciliation_never_writes_a_canvas_state_the_validator_rejects(srv) -
     run = store.create(
         kind="skill", task_type="skill.x", executor="manual", project_id="P1"
     )
-    store.submit_input(run["runId"], {"outline": {"premise": "p"}}, project="P1")
+    store.submit_input(
+        run["runId"],
+        {
+            "outline": {
+                "premise": "p",
+                "logline": "l",
+                "centralConflict": "c",
+                "storyArc": "a",
+                "climax": "x",
+                "ending": "e",
+            }
+        },
+        project="P1",
+    )
     doc = {
         "skillRuns": [{"runId": run["runId"], "status": "running", "proposal": None}]
     }
@@ -581,7 +630,16 @@ def test_reconciliation_never_writes_a_canvas_state_the_validator_rejects(srv) -
     # the status waits for the page to land the proposal
     assert rec["status"] == "running"
     # …everything that does NOT threaten the invariant is still reconciled
-    assert rec["outputs"] == {"outline": {"premise": "p"}}
+    assert rec["outputs"] == {
+        "outline": {
+            "premise": "p",
+            "logline": "l",
+            "centralConflict": "c",
+            "storyArc": "a",
+            "climax": "x",
+            "ending": "e",
+        }
+    }
     assert rec["progress"] == 100
     # …and once the page HAS a proposal, the transition is copied
     rec["proposal"] = {"disposition": "pending"}

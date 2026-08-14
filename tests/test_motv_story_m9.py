@@ -132,7 +132,12 @@ def test_agent_endpoints_are_fail_closed_and_write_free() -> None:
     for name in ("_agent_story_develop", "_agent_episode_plan"):
         handler = src[src.index(f"def {name}") :]
         handler = handler[: handler.index("\n    def ")]
-        assert "_data_embed" in handler
+        # The endpoint no longer fences user text itself: it compiles its prompt
+        # from the Skill package, and `compile_prompt` puts every context value
+        # inside `<数据 键="…">` with `</` neutralised (TASK-075 §3c decision A).
+        # One fence for every runtime instead of one per endpoint.
+        assert "_skill_prompt" in handler
+        assert "prompt = (" not in handler, "the endpoint must not carry its own prompt"
         assert "open(" not in handler and ".write(" not in handler
 
 

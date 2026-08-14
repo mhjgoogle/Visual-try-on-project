@@ -116,7 +116,12 @@ def test_breakdown_endpoint_is_fail_closed_and_write_free() -> None:
         src.index("def _agent_bible_breakdown") : src.index("def _agent_script_draft")
     ]
     # the endpoint writes nothing server-side and embeds the script as data
-    assert "_data_embed" in handler
+    # The endpoint no longer fences user text itself: it compiles its prompt
+    # from the Skill package, and `compile_prompt` puts every context value
+    # inside `<数据 键="…">` with `</` neutralised (TASK-075 §3c decision A).
+    # One fence for every runtime instead of one per endpoint.
+    assert "_skill_prompt" in handler
+    assert "prompt = (" not in handler, "the endpoint must not carry its own prompt"
     assert "open(" not in handler and ".write(" not in handler
 
 

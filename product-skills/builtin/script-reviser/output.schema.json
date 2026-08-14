@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "required": [
+    "script"
+  ],
+  "fields": {
+    "script": {
+      "type": "string",
+      "nonEmpty": true
+    },
+    "notes": {
+      "type": "string",
+      "nonEmpty": false
+    }
+  }
+}

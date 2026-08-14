@@ -72,8 +72,15 @@ _SCHEMA_KEYS = {
 }
 
 
-class SkillPackageError(Exception):
-    """A package that must not be loaded, with a reason a human can act on."""
+class SkillPackageError(ValueError):
+    """A package or answer that must not be accepted, with an actionable reason.
+
+    A ``ValueError`` on purpose: the five endpoints already report a bad answer
+    as ``bad_output`` by catching ``ValueError`` from their parsers, and the
+    Skill contract failing is the SAME event from the caller's side. Inheriting
+    keeps every one of those handlers — and their historical status codes —
+    working unchanged (TASK-075 §1.6 「响应契约不变」).
+    """
 
 
 @dataclass(frozen=True)
@@ -686,6 +693,132 @@ def _js_join(values: Sequence) -> str:
         else:
             parts.append(str(v))
     return " | ".join(parts)
+
+
+def _json_candidates(text: str) -> list[str]:
+    """Every balanced top-level ``{…}`` span, in order.
+
+    STRING-AWARE, like the JS mirror: a `}` inside a JSON string literal must
+    not close the object, and a `\\"` inside that string must not end it.
+    Counting raw braces truncates any answer whose prose contains one.
+    """
+
+    spans: list[str] = []
+    depth = 0
+    start = -1
+    in_str = False
+    escaped = False
+    for i, ch in enumerate(text):
+        if in_str:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}" and depth > 0:
+            depth -= 1
+            if depth == 0 and start >= 0:
+                spans.append(text[start : i + 1])
+                start = -1
+    return spans
+
+
+def parse_skill_output(text: str) -> dict:
+    """Extract the answer object from an executor's output. Mirror of
+    ``parseSkillOutput``.
+
+    THE LAST parseable top-level object wins. Real executors print things before
+    their answer — `codex exec` prints a banner AND echoes the prompt, which
+    itself contains the requested JSON shape, so "first `{` to last `}`" spans
+    the echo plus the answer and parses as nothing at all.
+
+    No key repair, no trailing-comma fixing, no partial object: repairing a
+    malformed answer means guessing what the model meant and then presenting the
+    guess as its output.
+    """
+
+    if not isinstance(text, str) or not text.strip():
+        raise SkillPackageError("输出为空")
+    spans = _json_candidates(text)
+    if not spans:
+        raise SkillPackageError("输出里没有 JSON 对象")
+    last_error = None
+    for span in reversed(spans):
+        try:
+            value = json.loads(span)
+        except json.JSONDecodeError as exc:
+            last_error = last_error or str(exc)
+            continue
+        if isinstance(value, dict):
+            return value
+    raise SkillPackageError(f"JSON 解析失败：{last_error or '没有可解析的顶层对象'}")
+
+
+def validate_output(schema: Mapping, value: object, path: str = "") -> None:
+    """Check one answer against a Skill's output contract. Mirror of
+    ``typeError`` in ``src/workflow/skills.js``.
+
+    FAIL CLOSED: a non-conforming answer is a FAILURE, never a partially-kept
+    proposal — half a validated structure is exactly the kind of plausible
+    wrongness that ends up written into canon.
+    """
+
+    at = path or "输出"
+    kind = schema.get("type")
+    if kind == "string":
+        if not isinstance(value, str):
+            raise SkillPackageError(f"{at} 应为字符串")
+        if schema.get("nonEmpty") and not value.strip():
+            raise SkillPackageError(f"{at} 不能为空")
+        return
+    if kind == "number":
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise SkillPackageError(f"{at} 应为数字")
+        if value != value or value in (float("inf"), float("-inf")):
+            raise SkillPackageError(f"{at} 应为数字")
+        values = schema.get("values")
+        if isinstance(values, list) and value not in values:
+            allowed = " 或 ".join(_js_number(v) for v in values)
+            got = _js_number(value)
+            raise SkillPackageError(f"{at} 只能是 {allowed}（收到 {got}）")
+        return
+    if kind == "boolean":
+        if not isinstance(value, bool):
+            raise SkillPackageError(f"{at} 应为布尔值")
+        return
+    if kind == "array":
+        if not isinstance(value, list):
+            raise SkillPackageError(f"{at} 应为数组")
+        minimum = schema.get("minItems")
+        maximum = schema.get("maxItems")
+        if minimum and len(value) < minimum:
+            raise SkillPackageError(f"{at} 至少需要 {minimum} 项")
+        if maximum and len(value) > maximum:
+            raise SkillPackageError(f"{at} 最多 {maximum} 项")
+        for index, item in enumerate(value):
+            validate_output(schema["of"], item, f"{at}[{index}]")
+        return
+    if kind == "object":
+        # `isObj` in the mirror: a LIST is not an object, and neither is None
+        if not isinstance(value, Mapping):
+            raise SkillPackageError(f"{at} 应为对象")
+        for key in schema.get("required", []):
+            if key not in value:
+                raise SkillPackageError(f"{at} 缺少字段 {key}")
+        for key, sub in (schema.get("fields") or {}).items():
+            if key not in value:
+                continue  # optional fields may be absent
+            validate_output(sub, value[key], f"{at}.{key}")
+        return
+    raise SkillPackageError(f"{at} 的 schema 类型未知（{kind}）")
 
 
 def embed_data(text: str) -> str:
