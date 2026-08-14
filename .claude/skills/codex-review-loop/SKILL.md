@@ -2,12 +2,17 @@
 name: codex-review-loop
 description: >-
   Run an automated read-only code review of the current diff and fix only the
-  blocking findings. INVOKE after finishing any implementation task (feat, fix,
-  refactor, perf, etc.) — i.e. once code has actually changed and the change is
-  complete. The reviewer is codex when available, otherwise an independent
-  claude session (fallback). DO NOT invoke for: answering questions, explaining
-  code, pure documentation-only changes, or while an implementation is still in
-  progress / incomplete.
+  blocking findings, within a risk-tiered round budget (Medium 1 round, High 2).
+  INVOKE after finishing a **Medium- or High-risk** implementation task — i.e.
+  once code has actually changed and the change is complete. The reviewer is
+  codex when available, otherwise an independent claude session (fallback).
+  DO NOT invoke for: **Low-risk changes** (CSS, layout, spacing, copy, purely
+  presentational composition, or a localized bug whose fix touches none of the
+  Medium/High categories — these ship on targeted tests alone), answering
+  questions, explaining code, pure documentation-only changes, or while an
+  implementation is still in progress / incomplete. The highest tier a change
+  touches always wins: a one-line fix inside persistence, identity, security,
+  file operations, or a cross-layer contract is High, however obvious its cause.
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash(bash *), Bash(git diff *), Bash(git status *), PowerShell(powershell *), PowerShell(git diff *), PowerShell(git status *)
 ---
 
@@ -24,7 +29,31 @@ back to an independent `claude -p` session**. Fallback loses cross-model
 independence — when the report shows a `claude (fallback…)` reviewer, record
 that independence was degraded.
 
-## Phase 1 — review loop (until pass; no fixed round cap)
+## Phase 0 — classify the change, then set the round budget
+
+Do this BEFORE launching any review. The budget is decided once, from the risk
+of the change, and stated in the report.
+
+| Risk | What the change touches | Round budget |
+| --- | --- | --- |
+| **Low** | CSS, layout, spacing, copy, pure presentational composition, or a single localized bug whose fix touches **none** of the Medium/High categories below | **0 — do not run this skill.** Targeted tests + ship. |
+| **Medium** | interaction, navigation, read model, derived view state, filtering/sorting/selection, business logic inside one layer | **1 round** |
+| **High** | persistence, schema/migration, identity, asset or generation registration, timeline, render/file operations, storage lifecycle, paid operations, concurrency/async state, security, Windows portability, cross-layer contract | **2 rounds** (a 3rd is allowed ONLY if round 2 still reports a **P1** — see budget exhaustion) |
+
+**Precedence: the highest tier the change touches wins.** Classify by category,
+never by how small or how obvious the change is. A one-line fix with a perfectly
+obvious cause is still **High** if it lands in persistence, schema/migration,
+identity, registration, render/file operations, storage lifecycle, paid
+operations, concurrency, security, Windows portability, or a cross-layer
+contract. "Obvious cause" and "small diff" are never grounds to drop a tier —
+they only describe how fast the FIX is, not what it can break.
+
+If a change cannot be classified, treat it as High.
+
+The budget counts **review rounds**, not findings. Reaching it is a normal,
+expected outcome — not a failure.
+
+## Phase 1 — review loop (bounded by the Phase 0 round budget)
 
 For each round:
 
@@ -83,10 +112,21 @@ For each round:
    - **P3** — suggested improvement → do NOT fix, record only.
    - **P4** — nitpick → do NOT fix, record only.
 
-4. Act on the grades:
-   - Any P1 or P2 present → fix them (minimally — see Ironclad rules), then run
-     the next round to re-review.
-   - Only P3/P4 present → do not fix anything; go to Phase 2.
+4. Act on the grades — **only P1 buys another round**:
+   - **P1 present** → fix (minimally — see Ironclad rules). If the round budget
+     still has a round left, run the next round to re-review. If not, see
+     budget exhaustion below.
+   - **P2 present, no P1** → fix the P2s minimally, run the **targeted tests**
+     covering them, and go to Phase 2. Do **NOT** spend a round re-reviewing a
+     P2 fix. Note the fixes in the report as reviewed-once.
+   - **Only P3/P4** → do not fix anything; record them as follow-ups; go to
+     Phase 2.
+
+   Rationale: re-reviewing every P2 is what turned TASK-061 into 13 rounds and
+   TASK-062 into 10 rounds, including a round-B4 revert of a round-A4 fix. A
+   reviewer can always find a narrower P2 variant, so P2-triggered re-review
+   does not converge. P1 (correctness / bug / security) is the only severity
+   worth the cost of another full round.
 
 ### Converge fast — do NOT let the loop turn into round-by-round whack-a-mole
 
@@ -116,23 +156,36 @@ habits cut the round count hard; apply both every round:
 
 ### Hard stop conditions (hit any one → stop immediately, state why)
 
-The loop runs **until the verdict is pass** (or only P3/P4 remain). There is
-NO fixed round cap — an unreviewed fix must never be the loop's final state.
-What bounds the loop instead is **progress**:
+The loop is bounded by **both** the Phase 0 round budget and by progress.
+Whichever binds first, stops it:
 
 a. A finding is a false positive or does not apply → do NOT fix it; record the
    rebuttal (why it is wrong/inapplicable) and continue grading the rest.
-b. **No progress**: this round surfaced no new fixable P1/P2 — every finding
-   is one already fixed, already rebutted, or previously recorded as P3/P4 at
-   the same severity → the loop is spinning; do NOT fix again; stop and
+b. **No progress**: this round surfaced no new fixable P1 — every finding
+   is one already fixed, already rebutted, or previously recorded as P2/P3/P4
+   at the same severity → the loop is spinning; do NOT fix again; stop and
    report the unresolved findings honestly. (A previously recorded
-   non-blocking finding that the reviewer NEWLY escalates to blocking counts
-   as new — grade it fresh.)
+   non-blocking finding that the reviewer NEWLY escalates to P1 counts as new
+   — grade it fresh.)
 c. The reviewer becomes unavailable mid-loop (quota exhausted with no
    fallback, ENV_ERROR) → stop and report which fixes remain unreviewed.
+d. **Budget exhausted** — the Phase 0 round budget is spent. Do NOT silently
+   start another round. Choose exactly one and state it in the report:
+   - **ship** — no P1 outstanding → done, with any P2/P3/P4 recorded as
+     follow-ups.
+   - **fix P1 only** — a P1 is outstanding on a High-risk change → spend the
+     one permitted extra round on the P1s alone (hard ceiling: 3 rounds).
+   - **escalate** — a P1 is outstanding and the fix would exceed the task's
+     scope, or the same P1 theme survived the extra round → stop, do not
+     widen scope, and report it to the user as a blocking finding with a
+     follow-up task.
 
-Every continuing round must therefore fix at least one new P1/P2 — the loop
-always terminates, bounded by real progress rather than an arbitrary count.
+**`VERDICT: pass` is not the release gate.** The gate is: user acceptance
+criteria satisfied + relevant tests pass + no outstanding P1. Chasing a
+zero-findings verdict past the budget is explicitly out of policy.
+
+An unreviewed **P1 fix** must never be the loop's final state. An unreviewed
+P2 fix, covered by targeted tests, is an accepted outcome.
 
 ## Status journal (user-visible progress)
 
