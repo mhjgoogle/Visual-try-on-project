@@ -6423,19 +6423,40 @@ function landingThumb(kind, name) {
   return `<div class="thumb" style="background:${grad}"><span style="font-size:30px;opacity:.75">${ic}</span></div>`;
 }
 
-/** Sticky for the session: a redraw of the landing screen must not erase the fact
- *  that the project list could not be read. Every other `renderLanding(REAL_NAMES)`
- *  call passes no error, and without this the note reverted to 「已连接后端」 over a
- *  still-empty grid (independent review, batch 2 round 2). */
+/**
+ * The outcome of the LAST `listProjects()` call, or null when it succeeded.
+ *
+ * IT BELONGS TO THE FETCH, NOT TO THE RENDER. Three review rounds went into this one
+ * flag because the lifetime kept being managed inside `renderLanding`:
+ *   round 1 — no flag: a redraw reverted the note to 「已连接后端」 over an empty grid;
+ *   round 2 — sticky for the session: a later redraw WITH projects still showed the
+ *             fault, turning 「瞬时错误被抹掉」 into 「错误永久显示」;
+ *   round 3 — cleared whenever `realNames` was non-empty: creating one project after
+ *             the failure flipped the note to success while the list was still
+ *             unreadable — exactly the 「你没有项目」 misreading it exists to prevent.
+ *
+ * Every one of those is the same mistake: a RENDER deciding the truth of a FETCH.
+ * A redraw learns nothing new about the backend, and locally adding a project does
+ * not make the list readable. So only `fetchProjectList` writes this, and
+ * `renderLanding` merely reads it.
+ */
 let LIST_ERROR = null;
 
-function renderLanding(realNames, projectsError = undefined) {
-  if (projectsError !== undefined) LIST_ERROR = projectsError;
-  // …and any redraw that DOES have projects clears it. Keeping the note pinned for
-  // the whole session inverted「瞬时错误被抹掉」into「错误永久显示」, which is the
-  // same class of wrong answer in the other direction (independent review, round 3).
-  if (Array.isArray(realNames) && realNames.length) LIST_ERROR = null;
-  projectsError = LIST_ERROR;
+/** The ONE place the project list is fetched, and therefore the one place its
+ *  outcome is recorded. Returns the names; the error travels in `LIST_ERROR`. */
+async function fetchProjectList() {
+  try {
+    const names = await query.listProjects();
+    LIST_ERROR = null; // a successful READ is the only thing that clears it
+    return names;
+  } catch (e) {
+    LIST_ERROR = e;
+    return [];
+  }
+}
+
+function renderLanding(realNames) {
+  const projectsError = LIST_ERROR;
   const grid = $("#projgrid");
   [...grid.querySelectorAll(".pcard")].forEach((c) => c.remove());
   const local = projects.loadRegistry(window.localStorage);
@@ -6689,26 +6710,20 @@ async function boot() {
   // caught HERE rather than in the seam because the decision is a product one: a
   // backend fault must read AS A FAULT (not 「你没有项目」), and it must not take the
   // whole bootstrap down before the landing screen is ever drawn.
-  let projectsError = null;
   if (CONNECTED) {
-    try {
-      REAL_NAMES = await query.listProjects();
-    } catch (e) {
-      projectsError = e;
-      REAL_NAMES = [];
-    }
+    REAL_NAMES = await fetchProjectList();
     // A FAULT IS NOT AN EMPTY ACCOUNT. With no list read, there is no default
     // project to speak of — naming one anyway lets a later action target a project
     // the backend never listed (independent review, batch 1 round 2).
-    DEFAULT_NAME = projectsError ? null : REAL_NAMES[0] || "draft";
-    if (!projectsError && REAL_NAMES[0]) {
+    DEFAULT_NAME = LIST_ERROR ? null : REAL_NAMES[0] || "draft";
+    if (!LIST_ERROR && REAL_NAMES[0]) {
       PROJECT_NAME = REAL_NAMES[0];
       try { REAL_STANDING = realmap.mapStanding(await query.getQuery(REAL_NAMES[0], "budget")); } catch { REAL_STANDING = null; }
     }
   } else {
     DEFAULT_NAME = "local-draft";
   }
-  renderLanding(REAL_NAMES, projectsError);
+  renderLanding(REAL_NAMES);
   renderBudget();
 }
 // LAST RESORT. `boot()` is async and was invoked bare, so ANY rejection inside it

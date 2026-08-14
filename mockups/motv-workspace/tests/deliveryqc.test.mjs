@@ -151,6 +151,30 @@ test("素材权限: an unmarked source blocks", () => {
   assert.equal(checkRights([]).state, "unavailable");
 });
 
+test("`unavailableRows` resolves against the CLOSED category set, or says null", () => {
+  // `decl.category || decl.key` re-emitted the very unresolvable key the field exists
+  // to translate (independent review, batch 2 round 4), and nothing pinned the shape.
+  const r = runDeliveryQc({ spec: SPEC, assets: GOOD_ASSETS });
+  const rows = r.unavailableRows;
+  assert.ok(rows.length, "an unmeasured file has unavailable rows");
+  for (const row of rows) {
+    assert.ok(row.key, "every row names its key");
+    assert.ok(row.detail, "…and says why");
+    if (row.category !== null) {
+      assert.ok(
+        ISSUE_CATEGORIES.delivery.includes(row.category),
+        `${row.key} resolved to ${row.category}, which is not a layer-3 category`,
+      );
+    }
+  }
+  // `clipping` is a ROW key that files under the `loudness` CATEGORY
+  const clip = rows.find((x) => x.key === "clipping");
+  assert.ok(clip, "an unmeasured true peak is an unavailable row");
+  assert.equal(clip.category, "loudness");
+  // …and the two lists correspond one-to-one
+  assert.deepEqual(rows.map((x) => x.key), r.unavailable);
+});
+
 test("the report's issues are layer-3, agent-sourced, and feed G4", () => {
   const r = runDeliveryQc({
     probe: { ...GOOD_PROBE, avOffsetMs: 500 },

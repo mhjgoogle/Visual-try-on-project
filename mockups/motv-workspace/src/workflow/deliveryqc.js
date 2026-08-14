@@ -66,6 +66,24 @@ function unavailable(key, why) {
   return row(key, "unavailable", why);
 }
 
+/** The layer-3 CATEGORY a row key files under, or null when the key is not one.
+ *
+ *  A row key is a UI concern and the category set is closed (§6.1): `clipping` is a
+ *  second row of 音量 and files under `loudness`. Returning the row key for anything
+ *  else would hand a caller a value the closed set cannot resolve. */
+function categoryOf(key) {
+  const decl = QC_CHECKS.find((c) => c.key === key);
+  if (!decl) return null;
+  return decl.category || (DELIVERY_CATEGORIES.has(decl.key) ? decl.key : null);
+}
+
+/** The closed layer-3 set, mirrored here so this module can resolve against it
+ *  without importing the review module's whole vocabulary. A guard test asserts the
+ *  two agree. */
+const DELIVERY_CATEGORIES = new Set([
+  "av_sync", "subtitle", "loudness", "black_frame", "dropped_frame", "spec", "rights",
+]);
+
 /* --- the seven ------------------------------------------------------------- */
 
 /** 音画同步 — dialogue anchors vs the video time base. */
@@ -254,7 +272,7 @@ export function runDeliveryQc(input, { issueIdFor } = {}) {
       // the layer-3 CATEGORY, which is not always the row key: `clipping` is a
       // second finding of the 音量 check and files under `loudness` (§6.1's category
       // set is closed, and a row key is a UI concern)
-      category: (QC_CHECKS.find((c) => c.key === r.key) || {}).category || r.key,
+      category: categoryOf(r.key) || r.key,
       severity: r.severity || "warning",
       source: "agent", // a MEASUREMENT is an observation, never a decision (§6.2)
       text: `${r.label}：${r.detail || "不合格"}`,
@@ -274,16 +292,16 @@ export function runDeliveryQc(input, { issueIdFor } = {}) {
     // `|| key` fallback re-emitted the very unresolvable key it existed to translate
     // (independent review, batch 2 round 3).
     unavailable: unknowns.map((r) => r.key),
-    unavailableRows: unknowns.map((r) => {
-      const decl = QC_CHECKS.find((c) => c.key === r.key);
-      return {
-        key: r.key,
-        // null, not the row key: a caller resolving through the CLOSED layer-3 set
-        // must be able to tell 「这个 key 不是一个 category」 from a real one
-        category: decl ? decl.category || decl.key : null,
-        detail: r.detail,
-      };
-    }),
+    unavailableRows: unknowns.map((r) => ({
+      key: r.key,
+      // The layer-3 category this row files under, or null when the row key is not
+      // itself one. `decl.category || decl.key` was wrong: only `clipping` declares a
+      // `category`, so every other key fell back to the row key and re-emitted the
+      // very unresolvable value this field exists to translate (independent review,
+      // batch 2 round 4). Resolved against the CLOSED set instead.
+      category: categoryOf(r.key),
+      detail: r.detail,
+    })),
     // NEVER true while anything is unknown (§1.2 / ADR-0064 决策 6)
     passed: rows.every((r) => r.state === "pass"),
     blocking: issues.some((i) => i.severity === "blocking"),

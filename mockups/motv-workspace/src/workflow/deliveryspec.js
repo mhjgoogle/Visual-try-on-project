@@ -195,12 +195,13 @@ export const SPEC_TOLERANCE = Object.freeze({
   // relies on (independent review, batch 2 round 2). 3% absorbs ordinary VBR drift
   // without admitting a wrong encode.
   videoBitrateKbps: 0.03,
-  // audio needs a wider band than video: 3% of a 128 kbps spec is ±3.8 kbps, below
-  // ordinary AAC/VBR drift, and 规格 is a BLOCKING row — so a correctly encoded
-  // master got refused at G4, the exact false-fail this tolerance exists to remove
-  // (independent review, batch 2 round 3). 10% of 128 is ±12.8 kbps, which still
-  // catches a wrong target (64 or 192) but not routine variance.
-  audioBitrateKbps: 0.1,
+  // Audio needs an ABSOLUTE floor, not a wider relative band. 3% of 128 kbps is
+  // ±3.8 kbps — below ordinary AAC/VBR drift, so a correct master got refused; but
+  // 10% accepts 172.8–211.2 against a 192 spec, which lets the ADJACENT ladder target
+  // (176 or 208) pass a `blocking` row (independent review, batch 2 rounds 3 and 4).
+  // No single ratio serves both. ±8 kbps absorbs VBR drift at every common target
+  // while the nearest wrong rung (112/160 at 128, 176/208 at 192) still fails.
+  audioBitrateKbps: { abs: 8 },
 });
 
 export function checkRenderedAgainstSpec(spec, probed) {
@@ -210,6 +211,8 @@ export function checkRenderedAgainstSpec(spec, probed) {
   const near = (key, a, b) => {
     const tol = SPEC_TOLERANCE[key];
     if (tol === undefined || !isNum(a) || !isNum(b)) return a === b;
+    // an ABSOLUTE band where a ratio cannot serve every target (see audioBitrateKbps)
+    if (isObj(tol)) return Math.abs(a - b) <= tol.abs;
     if (b === 0) return a === 0;
     return Math.abs(a - b) / Math.abs(b) <= tol;
   };

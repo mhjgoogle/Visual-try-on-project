@@ -100,6 +100,25 @@ test("MEASURED values get a tolerance; DISCRETE ones stay exact", () => {
   assert.equal(checkRenderedAgainstSpec(spec, { ...probed, container: "webm" }).blocking, true);
 });
 
+test("the audio band is ABSOLUTE, so it works at every ladder target", () => {
+  // No single RATIO serves both 128 and 192: 3% of 128 is ±3.8 kbps (below ordinary
+  // VBR drift, refusing a correct master) while 10% of 192 accepts 176 and 208 — the
+  // adjacent ladder targets — through a BLOCKING row (independent review, rounds 3+4).
+  const at = (spec, actual) => checkRenderedAgainstSpec(
+    { resolution: "1080x1920", fps: 25, container: "mp4", videoBitrateKbps: 6000, audioBitrateKbps: spec },
+    { resolution: "1080x1920", fps: 25, container: "mp4", videoBitrateKbps: 6000, audioBitrateKbps: actual },
+  ).passed;
+  // routine drift passes at both targets
+  assert.equal(at(128, 127), true);
+  assert.equal(at(128, 122), true);
+  assert.equal(at(192, 187), true);
+  // …and the nearest WRONG rung fails at both
+  assert.equal(at(128, 112), false, "112 is a different target, not drift");
+  assert.equal(at(128, 160), false);
+  assert.equal(at(192, 176), false, "176 is the adjacent ladder rung");
+  assert.equal(at(192, 208), false);
+});
+
 test("TASK-074 §1.2 规格 check: `unavailable` never counts as a pass", () => {
   const spec = {
     resolution: "1080x1920", fps: 25, container: "mp4",
