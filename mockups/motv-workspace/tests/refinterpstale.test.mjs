@@ -46,18 +46,30 @@ test("THE THREE EXITS are data, and nothing rewrites the creator's words", () =>
   assert.equal(JSON.stringify(activeReading(doc, "ref-1").axes), before);
 });
 
-test("a DIFFERENT asset is stale even when the version number coincides", () => {
-  // Comparing only the version reported `fresh` after the refKey was rebound to
-  // another asset that happened to be at the same version — precisely the false
-  // provenance claim 缺陷 3 exists to remove (independent review, batch 2).
+test("asset identity is a TIE-BREAK at equal versions, never a precedence", () => {
+  // `assetId` is PER VERSION, so a plain v1→v2 bump changes it. An earlier fix
+  // compared ids FIRST, which fired on that common path and claimed 「换成了别的
+  // 素材」 for an ordinary new version — a false provenance statement, and it
+  // shadowed the version-drift branch entirely (independent review, batch 2 round 2).
   const reading = activeReading(docWith(1), "ref-1"); // basedOnAssetId: asset-9
-  const other = readingStanding(reading, { version: 1, assetId: "asset-OTHER" });
-  assert.equal(other.staleness, "stale");
-  assert.match(other.staleDetail, /另一个素材/);
-  assert.equal(other.resolutions.length, 3);
-  // the SAME asset at the same version is still fresh
+
+  // v1 → v2 with a new per-version id: this is DRIFT, not substitution, and the
+  // message must be the version one (with its v-numbered exits)
+  const bumped = readingStanding(reading, { version: 2, assetId: "asset-v2" });
+  assert.equal(bumped.staleness, "stale");
+  assert.match(bumped.staleDetail, /针对 v1 写的，当前是 v2/);
+  assert.match(bumped.resolutions[1].label, /v2/);
+
+  // SAME version, DIFFERENT asset — the only case the id can prove, and the case
+  // round 1 named
+  const swapped = readingStanding(reading, { version: 1, assetId: "asset-OTHER" });
+  assert.equal(swapped.staleness, "stale");
+  assert.match(swapped.staleDetail, /素材已被换过/);
+  assert.equal(swapped.resolutions.length, 3);
+
+  // same version, same asset → fresh
   assert.equal(readingStanding(reading, { version: 1, assetId: "asset-9" }).staleness, "fresh");
-  // an unrecorded id cannot prove a mismatch — it stays version-based, never invented
+  // an unrecorded id cannot prove anything — it stays version-based, never invented
   const legacy = activeReading(docWith(1), "ref-1");
   delete legacy.basedOnAssetId;
   assert.equal(readingStanding(legacy, { version: 1, assetId: "asset-OTHER" }).staleness, "fresh");

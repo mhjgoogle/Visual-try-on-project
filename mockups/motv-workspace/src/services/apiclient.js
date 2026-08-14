@@ -196,7 +196,12 @@ async function once(path, opts) {
         // turned a deadline that fired mid-body into 「响应不是可解析的 JSON」 —
         // pointing the creator at the backend's data when the real fact is that we
         // stopped waiting. Only a genuine parse failure falls through to `null`.
-        if (e && e.name === "AbortError") {
+        // `AbortError` is the browser's name for it; Node/undici rejects an aborted
+        // body read as `TypeError: terminated`. Checking only the name reported a
+        // timeout as MALFORMED on the Node path — the same confusion this block
+        // removes for the browser (independent review, batch 2 round 2). The
+        // controller's own signal is the authoritative fact.
+        if ((e && e.name === "AbortError") || controller.signal.aborted) {
           throw new ApiError(
             signal && signal.aborted ? API_ERROR.ABORTED : API_ERROR.TIMEOUT,
             { path },
@@ -306,8 +311,11 @@ export async function attempt(path, opts = {}) {
     const r = await withRetry(path, opts);
     // the REAL status, not a hardcoded 200: `query.js:_call` callers branch on it,
     // and 201/204 are legitimately different answers from 200
-    const raw = isObj(r) && "__status" in r;
-    return { ok: true, status: raw ? r.__status : 200, data: raw ? r.data : r, error: null };
+    const wrapped = isObj(r) && "__status" in r;
+    // a RAW read returns the Response itself, whose own `status` is the real one —
+    // reporting 200 for it flattened 206/304 (independent review, batch 2 round 2)
+    const status = wrapped ? r.__status : (r && Number.isInteger(r.status) ? r.status : 200);
+    return { ok: true, status, data: wrapped ? r.data : r, error: null };
   } catch (e) {
     const err = e instanceof ApiError ? e : new ApiError(API_ERROR.SERVER, { detail: String(e) });
     return { ok: false, status: err.status, data: null, error: err };

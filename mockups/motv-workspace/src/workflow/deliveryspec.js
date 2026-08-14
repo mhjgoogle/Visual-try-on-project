@@ -190,8 +190,12 @@ export function checkRetryAllowed(spec, attemptsSoFar) {
  *  discrete, and a 1080x1920 file is either that or it is not. */
 export const SPEC_TOLERANCE = Object.freeze({
   fps: 0.01, // relative: 29.97 vs 30
-  videoBitrateKbps: 0.1, // relative: encoders overshoot/undershoot the target
-  audioBitrateKbps: 0.1,
+  // 10% was too loose: it accepted 5400–6600 kbps against a 6000 spec, so a genuinely
+  // mis-encoded master — including one over a platform cap — passed the check G4
+  // relies on (independent review, batch 2 round 2). 3% absorbs ordinary VBR drift
+  // without admitting a wrong encode.
+  videoBitrateKbps: 0.03,
+  audioBitrateKbps: 0.03,
 });
 
 export function checkRenderedAgainstSpec(spec, probed) {

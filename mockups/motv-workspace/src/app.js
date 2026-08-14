@@ -6423,7 +6423,15 @@ function landingThumb(kind, name) {
   return `<div class="thumb" style="background:${grad}"><span style="font-size:30px;opacity:.75">${ic}</span></div>`;
 }
 
-function renderLanding(realNames, projectsError = null) {
+/** Sticky for the session: a redraw of the landing screen must not erase the fact
+ *  that the project list could not be read. Every other `renderLanding(REAL_NAMES)`
+ *  call passes no error, and without this the note reverted to 「已连接后端」 over a
+ *  still-empty grid (independent review, batch 2 round 2). */
+let LIST_ERROR = null;
+
+function renderLanding(realNames, projectsError = undefined) {
+  if (projectsError !== undefined) LIST_ERROR = projectsError;
+  projectsError = LIST_ERROR;
   const grid = $("#projgrid");
   [...grid.querySelectorAll(".pcard")].forEach((c) => c.remove());
   const local = projects.loadRegistry(window.localStorage);

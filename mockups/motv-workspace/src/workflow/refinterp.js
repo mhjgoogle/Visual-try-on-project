@@ -270,25 +270,24 @@ export function readingStanding(reading, ref) {
   if (!isObj(reading)) return { staleness: "none", staleDetail: null, resolutions: [] };
   const cur = isObj(ref) && Number.isInteger(ref.version) ? ref.version : null;
   const was = Number.isInteger(reading.basedOnVersion) ? reading.basedOnVersion : null;
-  // THE ASSET IDENTITY COMES FIRST (independent review). Comparing only the version
-  // reported a reading as `fresh` after the refKey was rebound to a DIFFERENT asset
-  // whose version number happened to coincide — precisely the false provenance claim
-  // 缺陷 3 exists to remove. An unrecorded id stays `unknown`, never `stale`.
+  // ASSET IDENTITY IS A TIE-BREAK, NOT A PRECEDENCE (independent review, batch 2
+  // rounds 1 and 2 — the first fix over-corrected).
+  //
+  // `assetId` here is PER VERSION: a reference row carries the current version's id,
+  // so an ordinary v1→v2 bump changes it. Comparing ids first therefore fired on the
+  // COMMON path and told the creator 「这个参考后来被换成了别的资产」 when they had
+  // merely added a version — a false provenance statement, which is the very thing
+  // 缺陷 3 exists to remove, and it shadowed the version-drift branch entirely.
+  //
+  // The version comparison already covers every case where the number moved. What it
+  // CANNOT see is the case round 1 named: the chain was replaced and the new material
+  // happens to sit at the same version number. That is exactly when the id is
+  // decisive — same version, different asset — so the check belongs there and only
+  // there.
   const wasId = typeof reading.basedOnAssetId === "string" && reading.basedOnAssetId
     ? reading.basedOnAssetId
     : null;
   const curId = isObj(ref) && typeof ref.assetId === "string" && ref.assetId ? ref.assetId : null;
-  if (wasId && curId && wasId !== curId) {
-    return {
-      staleness: "stale",
-      staleDetail: "这条解读读的是另一个素材（这个参考后来被换成了别的资产）",
-      resolutions: [
-        { action: "keep", label: "保持这条解读（仍按旧素材的理解）" },
-        { action: "reread", label: "基于当前素材重新解读" },
-        { action: "unbind", label: "解除这个参考" },
-      ],
-    };
-  }
   if (was === null || cur === null) {
     return {
       staleness: "unknown",
@@ -298,7 +297,22 @@ export function readingStanding(reading, ref) {
       resolutions: [],
     };
   }
-  if (was === cur) return { staleness: "fresh", staleDetail: null, resolutions: [] };
+  if (was === cur) {
+    // same version number — the ONLY situation where the per-version id can prove a
+    // substitution rather than merely reflect a bump
+    if (wasId && curId && wasId !== curId) {
+      return {
+        staleness: "stale",
+        staleDetail: `这条解读读的是另一个素材（版本号同为 v${cur}，但素材已被换过）`,
+        resolutions: [
+          { action: "keep", label: "保持这条解读（仍按旧素材的理解）" },
+          { action: "reread", label: `基于当前 v${cur} 重新解读` },
+          { action: "unbind", label: "解除这个参考" },
+        ],
+      };
+    }
+    return { staleness: "fresh", staleDetail: null, resolutions: [] };
+  }
   return {
     staleness: "stale",
     staleDetail: `这条解读是针对 v${was} 写的，当前是 v${cur}`,

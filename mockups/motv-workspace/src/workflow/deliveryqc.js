@@ -87,6 +87,14 @@ export function checkSubtitles(track, { durationMs = null, subtitleMode = null }
   if (subtitleMode === "none") {
     return row("subtitle", "pass", "本片规格声明不做字幕");
   }
+  // `burned` subtitles are rendered INTO the picture and carry no separate cue
+  // track, so requiring one left that delivery permanently `unavailable` — the same
+  // defect as `none` (independent review, batch 2 round 2). With no track supplied
+  // there is nothing to check here; whether the burn-in actually happened is the
+  // render's business, not this row's.
+  if (subtitleMode === "burned" && (!isObj(track) || !Array.isArray(track.cues))) {
+    return row("subtitle", "pass", "本片规格为烧录字幕，没有独立字幕轨可检查");
+  }
   if (!isObj(track) || !Array.isArray(track.cues)) {
     return unavailable("subtitle", "没有字幕轨可检查");
   }
@@ -249,7 +257,13 @@ export function runDeliveryQc(input, { issueIdFor } = {}) {
   return {
     rows,
     issues,
+    // ROW keys, which are not all layer-3 CATEGORIES (`clipping` is a second row of
+    // 音量). Callers resolving these through the closed category set would fail to
+    // label it, so the category is carried alongside.
     unavailable: unknowns.map((r) => r.key),
+    unavailableCategories: [...new Set(unknowns.map(
+      (r) => (QC_CHECKS.find((c) => c.key === r.key) || {}).category || r.key,
+    ))],
     // NEVER true while anything is unknown (§1.2 / ADR-0064 决策 6)
     passed: rows.every((r) => r.state === "pass"),
     blocking: issues.some((i) => i.severity === "blocking"),
