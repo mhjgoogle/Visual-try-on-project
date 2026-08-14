@@ -6431,6 +6431,10 @@ let LIST_ERROR = null;
 
 function renderLanding(realNames, projectsError = undefined) {
   if (projectsError !== undefined) LIST_ERROR = projectsError;
+  // …and any redraw that DOES have projects clears it. Keeping the note pinned for
+  // the whole session inverted「瞬时错误被抹掉」into「错误永久显示」, which is the
+  // same class of wrong answer in the other direction (independent review, round 3).
+  if (Array.isArray(realNames) && realNames.length) LIST_ERROR = null;
   projectsError = LIST_ERROR;
   const grid = $("#projgrid");
   [...grid.querySelectorAll(".pcard")].forEach((c) => c.remove());

@@ -195,7 +195,12 @@ export const SPEC_TOLERANCE = Object.freeze({
   // relies on (independent review, batch 2 round 2). 3% absorbs ordinary VBR drift
   // without admitting a wrong encode.
   videoBitrateKbps: 0.03,
-  audioBitrateKbps: 0.03,
+  // audio needs a wider band than video: 3% of a 128 kbps spec is ±3.8 kbps, below
+  // ordinary AAC/VBR drift, and 规格 is a BLOCKING row — so a correctly encoded
+  // master got refused at G4, the exact false-fail this tolerance exists to remove
+  // (independent review, batch 2 round 3). 10% of 128 is ±12.8 kbps, which still
+  // catches a wrong target (64 or 192) but not routine variance.
+  audioBitrateKbps: 0.1,
 });
 
 export function checkRenderedAgainstSpec(spec, probed) {

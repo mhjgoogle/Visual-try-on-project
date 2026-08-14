@@ -88,6 +88,13 @@ test("字幕: empty cues, inverted timing and out-of-range are all caught", () =
   // …and a delivery whose spec says 「不做字幕」 passes rather than being stuck
   // unavailable forever
   assert.equal(checkSubtitles(null, { subtitleMode: "none" }).state, "pass");
+  // BUT `burned` IS NOT LIKE `none`: it expects PIXELS, and nothing in this codebase
+  // verifies the burn-in happened. Passing it let a render that silently dropped the
+  // subtitles reach `passed: true` and G4 would export a film with none at all
+  // (independent review, batch 2 round 3 — the round-2 fix broke this file's own rule).
+  const burned = checkSubtitles(null, { subtitleMode: "burned" });
+  assert.equal(burned.state, "unavailable");
+  assert.match(burned.detail, /未检查不等于通过/);
 });
 
 test("音量: loudness warns, CLIPPING blocks — two findings, always two rows", () => {

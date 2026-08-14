@@ -87,13 +87,22 @@ export function checkSubtitles(track, { durationMs = null, subtitleMode = null }
   if (subtitleMode === "none") {
     return row("subtitle", "pass", "本片规格声明不做字幕");
   }
-  // `burned` subtitles are rendered INTO the picture and carry no separate cue
-  // track, so requiring one left that delivery permanently `unavailable` — the same
-  // defect as `none` (independent review, batch 2 round 2). With no track supplied
-  // there is nothing to check here; whether the burn-in actually happened is the
-  // render's business, not this row's.
+  // `burned` IS NOT LIKE `none` (independent review, batch 2 round 3 — the round-2
+  // fix broke this file's own rule 20 lines below).
+  //
+  // `none` is safe to pass because NOTHING is expected. `burned` expects PIXELS, and
+  // nothing here — or anywhere in this codebase — verifies that the burn-in actually
+  // happened. Passing it unconditionally meant a render that silently dropped the
+  // subtitles produced `subtitle: pass` with `unavailable: []`, so `passed` was true
+  // and G4 would export a film with no subtitles at all.
+  //
+  // So it is UNAVAILABLE: an honest 「没检查」, which keeps `passed` false without
+  // blocking the export — the creator decides.
   if (subtitleMode === "burned" && (!isObj(track) || !Array.isArray(track.cues))) {
-    return row("subtitle", "pass", "本片规格为烧录字幕，没有独立字幕轨可检查");
+    return unavailable(
+      "subtitle",
+      "本片规格为烧录字幕：字幕在画面里，本检查无法验证它是否真的烧进去了——未检查不等于通过",
+    );
   }
   if (!isObj(track) || !Array.isArray(track.cues)) {
     return unavailable("subtitle", "没有字幕轨可检查");
@@ -260,10 +269,21 @@ export function runDeliveryQc(input, { issueIdFor } = {}) {
     // ROW keys, which are not all layer-3 CATEGORIES (`clipping` is a second row of
     // 音量). Callers resolving these through the closed category set would fail to
     // label it, so the category is carried alongside.
+    // ONE list of PAIRS rather than two lists that drift out of correspondence: the
+    // de-duplicated second array no longer matched `unavailable` by index, and its
+    // `|| key` fallback re-emitted the very unresolvable key it existed to translate
+    // (independent review, batch 2 round 3).
     unavailable: unknowns.map((r) => r.key),
-    unavailableCategories: [...new Set(unknowns.map(
-      (r) => (QC_CHECKS.find((c) => c.key === r.key) || {}).category || r.key,
-    ))],
+    unavailableRows: unknowns.map((r) => {
+      const decl = QC_CHECKS.find((c) => c.key === r.key);
+      return {
+        key: r.key,
+        // null, not the row key: a caller resolving through the CLOSED layer-3 set
+        // must be able to tell 「这个 key 不是一个 category」 from a real one
+        category: decl ? decl.category || decl.key : null,
+        detail: r.detail,
+      };
+    }),
     // NEVER true while anything is unknown (§1.2 / ADR-0064 决策 6)
     passed: rows.every((r) => r.state === "pass"),
     blocking: issues.some((i) => i.severity === "blocking"),
