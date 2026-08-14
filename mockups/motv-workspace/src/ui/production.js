@@ -47,15 +47,57 @@ import { renderShotRefs, bindShotRefs } from "./shotrefs.js";
 import { renderRefSearch, bindRefSearch, searchModel } from "./refsearch.js";
 import { renderInspector, bindInspector } from "./prodinspector.js";
 import { renderPostConsole, bindPostConsole } from "./postconsole.js";
+// TASK-073 §1.3: 状态 / 耗时 / 成本 / 失败原因 / 重试 / 真实取消, in one place
+import { taskRowModel, renderTaskRows, bindTaskRows } from "./taskrow.js";
+// TASK-073 §1.4: the contextual Agent panel — two entrances, seven items
+import { agentPanelModel, renderAgentPanel, bindAgentPanel } from "./agentpanel.js";
+// TASK-073 §1.7: the fourteen spec fields + the two hard gates (domain)
+import { specStanding, SPEC_FIELD_BY_KEY } from "../workflow/deliveryspec.js";
 import { skillPanelModel, renderSkillPanel, bindSkillPanel } from "./skillpanel.js";
 import { shotDirectorModel, renderShotDirector, bindShotDirector, runOperation } from "./directorshot.js";
 import { episodeView } from "../workflow/proddoc.js";
 import {
-  NAV, EPISODE_MODULES, EPISODE_DEFAULT, MODULE_LABEL, SPACE_LABEL, spaceOf,
+  NAV, EPISODE_MODULES, EPISODE_DEFAULT, LEGACY_EPISODE_CENTRE, MODULE_LABEL, SPACE_LABEL, spaceOf,
   renderRail, renderAssetRail, renderCrumb, episodeLabels, head, episodeEntryModule,
+  // TASK-073 §1.1: the fixed page set, the old-key resolver and the section tables
+  resolveModule, PAGE_SECTIONS, SECTION_LABEL, PROJECT_SETTINGS, empty,
 } from "./shell.js";
 
 export { NAV };
+
+/**
+ * WHERE A MISSING INPUT GETS FIXED (TASK-073 §1.4 / IA §6.3 item 3).
+ *
+ * 「缺失输入」 has to be clickable 「点到能修它的地方」 — a list that only tells the
+ * creator they are stuck is the blank-space failure in list form. Keyed on the shared
+ * context-key vocabulary (`product-skills/skill-inputs.json`), valued with the ELEVEN
+ * pages, so a key with no home renders as 「没有可跳转的位置」 instead of a dead link.
+ */
+const MODULE_ALIAS_GOTO = Object.freeze({
+  brief: "brief",
+  outline: "story",
+  characters: "settings",
+  relationships: "settings",
+  world: "settings",
+  episodePlan: "episodes",
+  episodeScript: "script",
+  scenes: "storyboard",
+  shots: "storyboard",
+  // the shot-scoped inputs are all prepared in ⑧, at the step that produces them
+  references: "shotwork",
+  assetCandidates: "shotwork",
+  selectedShotImage: "shotwork",
+  shotContext: "shotwork",
+  neighbourShots: "shotwork",
+  promptUnderReview: "shotwork",
+  // post-production surfaces
+  timeline: "delivery",
+  shotAudio: "delivery",
+  subtitles: "delivery",
+  // library + diagnostics
+  assets: "assets",
+  generations: PROJECT_SETTINGS,
+});
 
 /** Pure view-model of the script document for the shell (unit-tested):
  *  version standing + exactly one of the transient generation states. */
@@ -514,14 +556,207 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     );
   }
 
+  /** The section in force on a page (TASK-073 §1.1 / §1.2).
+   *
+   *  FRONT-END ONLY and never persisted (§3 迁移方案): which section a creator has
+   *  open is a view state, not a fact about the project. Defaults to the page's
+   *  first declared section, so a page always renders something real. */
+  function sectionOf(module) {
+    const list = PAGE_SECTIONS[module];
+    if (!list || !list.length) return null;
+    const want = ui.sections && ui.sections[module];
+    return list.includes(want) ? want : list[0];
+  }
+
+  /** ⚙ 成片规格 / 预算与限制 (TASK-073 §1.7).
+   *
+   *  READ-ONLY THIS ROUND, and it says so. The fourteen fields, their validation and
+   *  the two hard gates are settled in `workflow/deliveryspec.js`; what is NOT
+   *  settled is where a project-level spec is stored, which is a persistence
+   *  decision (a new canvas field means a schema version and a migration). Rendering
+   *  editable controls over a store that does not exist would be a page that looks
+   *  finished and silently forgets everything typed into it.
+   *
+   *  Every field therefore reads 「还没有设置」 — which is the honest answer, and the
+   *  same one TASK-074 §1.2's 规格 check will consume: 「取不到某一项 → 该项
+   *  unavailable，绝不判定为通过」. */
+  function renderSpecSection(ctx, group) {
+    const spec = typeof ctx.deliverySpec === "function" ? ctx.deliverySpec() : null;
+    const st = specStanding(spec);
+    const rows = st.fields.filter((f) => f.group === group);
+    /** One editable field. The control follows the DECLARED kind, so a value can
+     *  never be typed in a shape the validator will then reject silently. */
+    const control = (f) => {
+      const decl = SPEC_FIELD_BY_KEY[f.key];
+      const cur = f.value === null ? "" : String(f.value);
+      if (decl.kind === "enum") {
+        return (
+          `<select class="ds-in" data-spec="${esc(f.key)}">` +
+          `<option value=""${cur === "" ? " selected" : ""}>还没有设置</option>` +
+          decl.values
+            .map((v) => `<option value="${esc(v)}"${v === cur ? " selected" : ""}>${esc(v)}</option>`)
+            .join("") +
+          `</select>`
+        );
+      }
+      const step = decl.kind === "money" ? ' step="0.01"' : ' step="1"';
+      return (
+        `<input class="ds-in" type="number" data-spec="${esc(f.key)}" ` +
+        `value="${esc(cur)}" min="${decl.min}" max="${decl.max}"${step} placeholder="还没有设置">`
+      );
+    };
+    const cell = (f) =>
+      `<tr${f.state === "invalid" ? ' class="bad"' : ""}>` +
+      `<td class="ds-k">${esc(f.label)}${f.gate ? `<span class="chip gate">硬闸</span>` : ""}</td>` +
+      `<td class="ds-v">${control(f)}` +
+      (f.state === "invalid" ? `<div class="ds-err">${esc(f.detail)}</div>` : "") +
+      `</td></tr>`;
+    const gatesNote = group === "budget"
+      ? `<div class="meta">两个硬闸<b>fail closed</b>：上限没设置时，付费生成与自动重试` +
+        `<b>一律不执行</b>——「没有上限」不等于「不限」。超过上限即拒绝并说明，` +
+        `不是弹一句「确定吗」。</div>`
+      : "";
+    return (
+      head(
+        group === "spec" ? "成片规格" : "预算与限制",
+        group === "spec"
+          ? "成片规格与预算的唯一编辑入口就是这一页（IA §4 ⚙）；① 项目与创意只读展示。"
+          : "「单次生成上限」与「重试上限」是硬闸，交付质检的「规格」项也读这一页。",
+        `<span class="chip${st.complete ? " ok" : " gate"}">` +
+        `${st.complete ? "全部已设置" : `${st.missing.length} 项还没有设置`}</span>`,
+      ) +
+      `<table class="ds-tbl">${rows.map(cell).join("")}</table>` +
+      `<div class="meta">留空 = 「还没有设置」，而不是 0：交付质检读到未设置的项会判 ` +
+      `<code>unavailable</code>，<b>绝不判定为通过</b>。清空一个已填的值也是合法操作。</div>` +
+      gatesNote
+    );
+  }
+
+  /** The page-level 「询问 Agent」 entrance + the panel itself (TASK-073 §1.4).
+   *
+   *  TWO ENTRANCES ONLY (IA §6.1): this fixed one, and the object-level 「让 Agent
+   *  处理」 a card renders. Closed, the panel occupies NO layout — it is opened on
+   *  demand, not a standing sidebar, so an occasional feature does not narrow every
+   *  page permanently.
+   *
+   *  The model is assembled from REAL state: the capability's own missing-input
+   *  check and the executor probe decide whether the primary action exists at all,
+   *  so 「不可用」 always carries the actual reason (IA §6.4). */
+  function agentEntrance(ctx) {
+    const open = ui.agentOpen === true;
+    const btn =
+      `<button class="ag-open${open ? " on" : ""}" data-agent-open="1" ` +
+      `title="就当前页面问 Agent（面板按需打开，关闭后不占布局）">🤖 询问 Agent</button>`;
+    if (!open) return btn;
+    const skillId = ui.skillId || null;
+    const skill = skillId ? ctx.skills.find(skillId) : null;
+    const cat = ctx.skills.catalogState ? ctx.skills.catalogState() : { installed: true, detail: "" };
+    // WHY it may or may not run — from the catalog, the inputs and the probe, never
+    // from an assumption that it does
+    const missingKeys = skill ? ctx.skills.missing(skillId) || [] : [];
+    const available = !cat.installed
+      ? { ok: false, reason: cat.detail || "能力目录不可用" }
+      : !skill
+        ? { ok: false, reason: "还没有选择要做什么——在左侧能力面板里选一个" }
+        : { ok: true };
+    const runs = (ctx.skills.runs() || []).filter((r) => r && r.skillId === skillId);
+    const last = runs.length ? runs[runs.length - 1] : null;
+    const model = agentPanelModel({
+      scope: { kind: "page", label: MODULE_LABEL[activeModule] || null },
+      taskName: skill ? skill.title : null,
+      understanding: skill
+        ? [
+          `任务：${skill.title}（${skill.role}）`,
+          ui.selectedShotId ? "范围：当前选中的镜头" : "范围：本集",
+        ]
+        : [],
+      // problems come from the SAME checks the rest of the page uses
+      problems: missingKeys.length
+        ? [{ text: `有 ${missingKeys.length} 项必要输入还没有准备好`, severity: "blocking" }]
+        : [],
+      missing: missingKeys.map((k) => ({
+        key: k,
+        label: ctx.skills.inputLabel(k),
+        gotoModule: MODULE_ALIAS_GOTO[k] || null,
+      })),
+      nextSteps: skill && missingKeys.length
+        ? ["先补齐缺失输入", "再回到这里执行"]
+        : skill
+          ? ["可以执行了", "执行后在结果旁看「生成记录」确认它读了什么"]
+          : [],
+      available,
+      results: last && last.proposal
+        ? [{ label: "最近一次提案", version: last.skillVersion || null }]
+        : [],
+      manualFallback: { can: true },
+    });
+    return btn + renderAgentPanel(model);
+  }
+
+  /** The task rows for the shot being made (TASK-073 §1.3).
+   *
+   *  Below the step's own workspace, because they are ABOUT that shot's production
+   *  rather than part of the step's controls: 状态 / 耗时 / 成本 / 失败原因 / 重试 /
+   *  真实取消, for every run this shot has. Scoped to the selected shot — a
+   *  project-wide run log here would bury the one row that needs a decision.
+   *
+   *  `Date.now()` is read HERE and passed in, so `taskRowModel` stays pure. */
+  function shotTaskRows(ctx) {
+    const shotId = ui.selectedShotId || null;
+    if (!shotId) return "";
+    const runs = ctx.skills.runs() || [];
+    const mine = runs.filter((r) => r && r.context && r.context.shotId === shotId);
+    const models = mine
+      .slice()
+      .reverse()
+      .slice(0, 8)
+      .map((r) => taskRowModel(r, { nowMs: Date.now() }));
+    return (
+      `<div class="tk-block">` +
+      `<div class="lab">这个镜头的任务</div>` +
+      renderTaskRows(models, { emptyText: "这个镜头还没有发起过任务" }) +
+      `</div>`
+    );
+  }
+
+  /** The in-page section nav. For ⑧ 镜头制作 this IS the four-step flow bar (§1.3),
+   *  which is why the steps are numbered in `SECTION_LABEL` rather than here — one
+   *  list, so the bar and the resolver cannot disagree about what step ② is. */
+  function sectionNav(module) {
+    const list = PAGE_SECTIONS[module];
+    if (!list || list.length < 2) return "";
+    const cur = sectionOf(module);
+    const cls = module === "shotwork" ? "st-steps" : "st-secnav";
+    return (
+      `<nav class="${cls}">` +
+      list
+        .map(
+          (k) =>
+            `<button class="st-secitem${k === cur ? " on" : ""}" data-sec="${esc(k)}">` +
+            `${esc(SECTION_LABEL[k] || k)}</button>`,
+        )
+        .join("") +
+      `</nav>`
+    );
+  }
+
   const WORKSPACES = {
     // --- 故事开发 (project-level upstream) --------------------------------- //
     brief: (ctx) => renderBriefWs(ctx, ui),
     story: (ctx) => renderStoryWs(ctx, ui),
     characters: (ctx) => renderBibleWs(ctx, ui),
-    // `settings` is the legacy key for the bible workspace, kept working so
-    // every existing jump target (Director blockers, empty states) still lands
-    settings: (ctx) => renderBibleWs(ctx, ui),
+    // ③ 作品设定 (TASK-073 §1.1) — ONE page whose three sections are the surfaces
+    // that used to be three rail rows. `settings` was already this workspace's
+    // legacy key, so every existing jump target keeps landing here; what is new is
+    // that 世界观 is now a SECTION of it instead of a page of its own.
+    settings: (ctx) => {
+      const sec = sectionOf("settings");
+      if (sec === "world") return sectionNav("settings") + renderWorldWs(ctx, ui);
+      // the bible workspace's own tab follows the section, so 人物关系 as a SECTION
+      // and 人物关系 as a TAB (TASK-065 §2) stay one thing rather than two
+      ui.bibleTab = sec === "relationships" ? "relationships" : "characters";
+      return sectionNav("settings") + renderBibleWs(ctx, ui);
+    },
     // TASK-065 §2: 人物关系 is a TAB of 人物 now, but the module KEY stays working —
     // the Director's blocker fixes and several empty states jump to it, and a jump
     // target that resolves to nothing is a regression, not a migration. `setModule`
@@ -529,6 +764,66 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     relationships: (ctx) => renderBibleWs(ctx, ui),
     world: (ctx) => renderWorldWs(ctx, ui),
     episodes: (ctx) => renderEpPlanWs(ctx, ui),
+
+    // --- TASK-073 §1.1/§1.2: the FIVE 剧集制作 pages ------------------------ //
+    //
+    // COMPOSED FROM THE EXISTING WORKSPACES, never rewritten (§0 的贯穿规则:
+    // 「组件复用优先于重写」). Each page is a section nav over the components that
+    // already implement those capabilities, so this round changes WHERE a thing is
+    // reached, not what it does. Deleting the old entrance is TASK-074's job.
+    //
+    // ⑥ 本集看板 — the episode's own status view.
+    board: (ctx) => sectionNav("board") + renderEpisodeWs(ctx, ui),
+    // ⑦ 分镜设计 — scenes list and shot list, two sections of one page.
+    storyboard: (ctx) =>
+      sectionNav("storyboard") +
+      (sectionOf("storyboard") === "scenes" ? ws.renderEpisodes(ctx) : renderStoryboard(ctx, ui)),
+    // ⑧ 镜头制作 — the FOUR STEPS of one shot's production (§1.3). Each step is the
+    // workspace that already did that step; the flow bar is the section nav.
+    shotwork: (ctx) => {
+      const step = sectionOf("shotwork");
+      const inner = step === "image"
+        ? renderImageWs(ctx, ui)
+        : step === "video"
+          ? renderVideoWs(ctx, ui)
+          // ④ 对比候选并选定 IS 检查层 1 (§1.3): the same dailies component, on one
+          // shot. No separate review page is created.
+          : step === "pick"
+            ? renderDailies(ctx, ui)
+            : renderRefPlan(ctx, ui);
+      // STEP ① also opens the asset drawer (§1.1 落点表: `refplan` → ⑧ 步骤①「并打开
+      // 资产抽屉」). It is the SAME component as ⑪ 资产库, at drawer size (§1.6).
+      const drawer = step === "prepare" && ui.alDrawer === true
+        ? renderAssetLibrary(ctx, ui, { mode: "drawer", shotId: ui.selectedShotId || null })
+        : "";
+      const drawerBtn = step === "prepare"
+        ? `<button class="btn sm al-dopen" data-al-drawer-open="1">` +
+          `${ui.alDrawer ? "收起参考抽屉" : "+ 添加参考（打开资产抽屉）"}</button>`
+        : "";
+      return sectionNav("shotwork") + drawerBtn + drawer + inner + shotTaskRows(ctx);
+    },
+    // ⑨ 粗剪审片 — the episode-wide playback + issue marking (检查层 2).
+    cutreview: (ctx) => renderDailies(ctx, ui),
+    // ⑩ 后期交付 — the post console at full size, with its seven sections.
+    delivery: (ctx) => sectionNav("delivery") + renderPostConsole(ctx, ui, { mode: "full" }),
+    // ⚙ 项目设置 — its own route key, NOT `settings` (§1.7). Only the 存储与诊断
+    // section has an implementation today (`storagews`, plus the provenance
+    // diagnostic view); the other three are declared and honestly empty rather
+    // than pretending to be elsewhere.
+    [PROJECT_SETTINGS]: (ctx) => {
+      const sec = sectionOf(PROJECT_SETTINGS);
+      const nav = sectionNav(PROJECT_SETTINGS);
+      if (sec === "storage") return nav + renderStorageWs(ctx, ui);
+      if (sec === "spec" || sec === "budget") return nav + renderSpecSection(ctx, sec);
+      return (
+        nav +
+        empty(
+          "⚙",
+          "项目信息还没有接线",
+          "本轮搭好了 ⚙ 的分区与路由、成片规格与预算的字段清单，以及两个硬闸的领域实现。",
+        )
+      );
+    },
     // --- 剧集制作 (inside ONE episode) ------------------------------------- //
     // TASK-065 §9: `workbench` (制作台) is this space's CENTRE — a light Scene → Shot
     // picker over the CURRENT shot's production graph. It is rendered by
@@ -571,11 +866,17 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
    *  to avoid. A selection that no longer resolves (draft regenerated, episode
    *  switched) falls back the same way — it is never left dangling. */
   function ensureShotSelection(pd) {
-    // EPISODE_DEFAULT (制作台) leads this list because the whole centre IS the
+    // The 制作台 leads this list because the whole centre IS the
     // current shot now: with no selection there is no graph to draw and the LEFT
     // column would greet the creator empty. A scene/shot chip immediately overrides
     // it — this is only the starting object.
-    if (![EPISODE_DEFAULT, "provenance", "shots", "frames", "video"].includes(activeModule)) return;
+    // TASK-073: ⑧ 镜头制作 and ⑦ 分镜设计 are added because they are where per-shot
+    // work now happens — a shot page opening on 「先选一个镜头」 with a selection that
+    // silently failed to resolve is the blank-centre failure this guards.
+    if (![
+      LEGACY_EPISODE_CENTRE, "provenance", "shots", "frames", "video",
+      "shotwork", "storyboard",
+    ].includes(activeModule)) return;
     // scoped to the ACTIVE episode PLUS the unassigned pool: the previous
     // episode's shot still exists in the project-wide draft, so a draft-wide
     // check would keep it selected under the episode just switched to — but the
@@ -625,10 +926,14 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     refSearch = null;
     shotDirector = null;
     onShotBench = false;
+    // EVERY page carries the page-level Agent entrance at its top-right (IA §6.1).
+    // Prepended to the workspace rather than injected per page, so the entrance is
+    // 「每页顶部右侧固定位」 by construction and cannot be forgotten by a new page.
     const main =
-      activeModule === "script"
+      agentEntrance(ctx) +
+      (activeModule === "script"
         ? scriptMain(ctx)
-        : (WORKSPACES[activeModule] || (() => ""))(ctx);
+        : (WORKSPACES[activeModule] || (() => ""))(ctx));
 
     if (space === "episode") {
       // TASK-066 §17 — FIVE REGIONS, each answering ONE question:
@@ -644,7 +949,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       // disagree about which shot is current.
       const wm = workbenchModel(ctx, ui);
       const place = currentPlace(wm, ui.selectedShotId);
-      const onCentre = activeModule === EPISODE_DEFAULT;
+      const onCentre = activeModule === LEGACY_EPISODE_CENTRE;
       // TASK-067: the shot workbench = the centre WITH a shot chosen. The AI
       // Director's operations are all about one shot, so anywhere else they would be
       // buttons with no subject.
@@ -669,7 +974,8 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       // and this space ends at 「选定的最终 Shot Video」. NOTHING was deleted: the
       // console keeps its full-size form as the `剪辑` module, one click away in
       // 工作区 ▾, and the bottom strip is the reference searcher instead.
-      const isConsole = activeModule === "edit";
+      // ⑩ 后期交付 is the post console at full size, and so was the legacy 剪辑 key
+      const isConsole = activeModule === "edit" || activeModule === "delivery";
       root.innerHTML =
         crumb(ctx) +
         (onCentre ? renderShotSelect(ctx, ui, wm, place) : "") +
@@ -983,6 +1289,24 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     let k = want;
     if (want === "relationships") { k = "characters"; ui.bibleTab = "relationships"; }
     else if (want === "characters" && ui.bibleTab === "relationships") ui.bibleTab = "characters";
+    // TASK-073 §1.1: …and the SAME rule for the eleven-page collapse. A historical
+    // key resolves to its new page AND opens the section that holds what it used to
+    // show — landing on a page that does not contain the thing is the same failure
+    // as landing nowhere (ADR-0063 决策 1). Legacy keys that still have their own
+    // renderer (`characters`, `frames`, …) are left on it: this round deletes
+    // entrances, so the old workspace must stay reachable until TASK-074.
+    const hit = resolveModule(k);
+    if (hit.resolved && hit.filter) {
+      ui.alFilters = { ...(ui.alFilters || {}), type: hit.filter };
+      k = hit.module;
+    } else if (hit.resolved && hit.module !== k) {
+      // The redirect is SAFE because the destination section renders the very same
+      // component the old key rendered — `frames` → ⑧ step ② is `renderImageWs`
+      // either way. What changes is the entrance, which is exactly this round's
+      // scope. The old WORKSPACES entry stays in the file (TASK-074 deletes it).
+      ui.sections = { ...(ui.sections || {}), [hit.module]: hit.section };
+      k = hit.module;
+    }
     if (k === activeModule) {
       // the module key did not move, but the TAB may have — repaint so
       // 「在关系图里编辑」 from inside 人物 actually shows the graph
@@ -1094,6 +1418,31 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
   function bind(ctx) {
     // left rail — every module opens; selection is visually .on
     root.querySelectorAll("[data-mod]").forEach((b) => (b.onclick = () => setModule(b.dataset.mod)));
+    // the Agent panel: open / close / run / manual / jump-to-fix (TASK-073 §1.4)
+    root.querySelectorAll("[data-agent-open]").forEach((b) => (b.onclick = () => {
+      ui.agentOpen = ui.agentOpen !== true;
+      render();
+    }));
+    bindAgentPanel(root, {
+      onClose: () => { ui.agentOpen = false; render(); },
+      onGoto: (mod) => setModule(mod),
+      onRun: () => {
+        // The panel does not implement running — it points at the ONE place that
+        // does, so there is a single run path with a single set of guards.
+        ctx.toast("在左侧能力面板按「运行」执行——面板与这里用的是同一条运行路径");
+      },
+      onManual: () => {
+        ctx.toast("在左侧能力面板选「手工」运行：复制 Prompt → 到别处跑 → 粘回来，走同一道契约");
+      },
+    });
+    // in-page section nav — and for ⑧ 镜头制作 this is the four-step flow bar
+    // (TASK-073 §1.1/§1.3). Front-end state only: a section is never persisted.
+    root.querySelectorAll("[data-sec]").forEach((b) => (b.onclick = () => {
+      const list = PAGE_SECTIONS[activeModule];
+      if (!list || !list.includes(b.dataset.sec)) return; // never open a section this page does not have
+      ui.sections = { ...(ui.sections || {}), [activeModule]: b.dataset.sec };
+      render();
+    }));
     // episode rows in the 故事开发 rail — SELECT ONLY. A row switches which episode
     // is active and expands it; it never changes workspace. The row used to also
     // navigate, which made 「看一下 EP02」 indistinguishable from 「开始做 EP02」.
@@ -1121,12 +1470,96 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     if (activeModule === "refplan") bindRefPlan(root, ctx, ui, render);
     if (activeModule === "dailies") bindDailies(root, ctx, ui, render);
     if (activeModule === "storage") bindStorageWs(root, ctx, ui, render);
+    // --- TASK-073 §1.1/§1.2: the new pages bind the SAME components ---------- //
+    //
+    // Dispatched by page + section, mirroring WORKSPACES exactly. A page that
+    // rendered a component but did not bind it would look finished and do nothing —
+    // the failure mode 「界面显示已应用」 exists to prevent.
+    if (activeModule === "settings") {
+      const sec = sectionOf("settings");
+      if (sec === "world") bindWorldWs(root, ctx, ui, render);
+      else bindBibleWs(root, ctx, ui, render);
+    }
+    if (activeModule === "board") bindEpisodeWs(root, ctx, ui, render);
+    if (activeModule === "storyboard") {
+      if (sectionOf("storyboard") === "scenes") ws.bindEpisodes(root, ctx);
+      else bindStoryboard(root, ctx, ui, render);
+    }
+    if (activeModule === "shotwork") {
+      const step = sectionOf("shotwork");
+      if (step === "image") bindImageWs(root, ctx, ui, render);
+      else if (step === "video") bindVideoWs(root, ctx, ui, render);
+      else if (step === "pick") bindDailies(root, ctx, ui, render);
+      else bindRefPlan(root, ctx, ui, render);
+      // 「真实取消」 (验收 #7) — `ctx.skills.cancel` calls the backend and refuses to
+      // record a cancellation it did not confirm. Deliberately NOT a local state
+      // reset: that would print 「已取消」 over a still-running executor.
+      if (step === "prepare") {
+        root.querySelectorAll("[data-al-drawer-open]").forEach((b) => (b.onclick = () => {
+          ui.alDrawer = ui.alDrawer !== true;
+          render();
+        }));
+        root.querySelectorAll("[data-al-drawer-close]").forEach((b) => (b.onclick = () => {
+          ui.alDrawer = false;
+          render();
+        }));
+        // the drawer shares the library's own filter handlers — one implementation
+        if (ui.alDrawer === true) bindAssetLibrary(root, ctx, ui, render);
+        root.querySelectorAll("[data-al-add]").forEach((b) => (b.onclick = () => {
+          const shotId = ui.selectedShotId || null;
+          if (!shotId) { ctx.toast("先选一个镜头，再把参考加进去"); return; }
+          // through the ORDINARY action, so the drawer cannot bypass a guard the
+          // reference panel goes through
+          const res = ctx.actions.dispatch({
+            action: "addReference", shotId, referenceKey: b.dataset.alAdd,
+          });
+          ctx.toast(res.ok ? "已加入这一镜的参考" : res.error);
+          render();
+        }));
+      }
+      bindTaskRows(root, {
+        onCancel: async (runId) => {
+          const run = (ctx.skills.runs() || []).find(
+            (r) => r && (r.runId === runId || r.skillRunId === runId),
+          );
+          if (!run) { ctx.toast("找不到这次运行的记录"); render(); return; }
+          const res = await ctx.skills.cancel(run.skillRunId);
+          if (!res.ok) ctx.toast(res.error);
+          render();
+        },
+        onRetry: (runId) => {
+          const run = (ctx.skills.runs() || []).find(
+            (r) => r && (r.runId === runId || r.skillRunId === runId),
+          );
+          // A retry is a NEW run of the same capability, never a re-open of this
+          // record — the old one keeps its outcome (系统合同 §5.7 显式重试).
+          ctx.toast(run && run.skillId
+            ? `重试请在能力面板重新发起「${run.taskName || run.skillId}」——旧记录会保留`
+            : "这条记录没有可重试的能力");
+        },
+      });
+    }
+    if (activeModule === "cutreview") bindDailies(root, ctx, ui, render);
+    if (activeModule === PROJECT_SETTINGS) {
+      const sec = sectionOf(PROJECT_SETTINGS);
+      if (sec === "storage") bindStorageWs(root, ctx, ui, render);
+      // ⚙ 成片规格 / 预算与限制 — the ONLY editing entrance (§1.7). `change`, not
+      // `input`: a half-typed number is not a decision, and validating on every
+      // keystroke would reject 「1」 on the way to 「10」.
+      root.querySelectorAll("[data-spec]").forEach((el) => (el.onchange = () => {
+        const res = ctx.setDeliverySpecField(el.dataset.spec, el.value);
+        // A REFUSAL IS REPORTED AND THE FIELD SNAPS BACK. Leaving the rejected text
+        // in the box would show a value the project does not have.
+        if (!res.ok) { ctx.toast(res.error); }
+        render();
+      }));
+    }
     if (spaceOf(activeModule) === "assets" && activeModule !== "storage") {
       bindAssetLibrary(root, ctx, ui, render);
     }
     // --- 剧集制作 (ADR-0061 决策 2): LEFT inspector + CENTER workspace -------- //
     if (spaceOf(activeModule) === "episode") {
-      const onCentre = activeModule === EPISODE_DEFAULT;
+      const onCentre = activeModule === LEGACY_EPISODE_CENTRE;
       const wm = workbenchModel(ctx, ui);
       const place = currentPlace(wm, ui.selectedShotId);
       if (onCentre) {
@@ -1153,7 +1586,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       }
       // 剪辑 IS the Post Production Console at full size (§15: nothing deleted, it
       // simply no longer takes room in the Shot workbench).
-      if (activeModule === "edit") bindPostConsole(root, ctx, ui, render);
+      if (activeModule === "edit" || activeModule === "delivery") bindPostConsole(root, ctx, ui, render);
       bindEpProd(root, ctx, ui, render, {
         enterEpisode: (id) => enterEpisode(id, null),
         setStage: (k) => setModule(k),
@@ -1309,7 +1742,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
      *  context out from under them. Returns false when the selection was
      *  refused (unsaved shot edits), so the caller never claims a jump that
      *  did not happen. */
-    openShot(shotId, module = EPISODE_DEFAULT) {
+    openShot(shotId, module = "shotwork") {
       if (typeof shotId !== "string" || !shotId) return false;
       if (ui.dirty && !window.confirm("镜头详情有未保存的修改，切换将丢弃？")) return false;
       ui.dirty = false;

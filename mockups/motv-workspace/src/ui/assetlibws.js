@@ -39,7 +39,10 @@ export const TYPE_FILTERS = [
   ["shot-video", "镜头视频"],
   ["audio", "音频"],
   ["final", "成片"],
-  ["collection", "可复用"],
+  // §1.6: Collections became 「已保存筛选」 — it was never a second container, only
+  // a filter the creator had marked. Naming it a collection implied a place to put
+  // things into, which it never was.
+  ["collection", "已保存筛选"],
 ];
 
 /** 资产库 rail key → the type filter it stands for (ADR-0061 决策 1). The rail is
@@ -203,7 +206,7 @@ function preview(a, { big = false } = {}) {
  *  article that ignores clicks landing inside a media control (see
  *  bindAssetLibrary). The caption stays a real <button> so the card is
  *  reachable and operable from the keyboard, which a bare click handler is not. */
-function card(a) {
+function card(a, { drawer = false } = {}) {
   const use = a.usage.count;
   return (
     `<article class="al-card${a.needsReview ? " needs" : ""}" data-al-card="${esc(a.assetId)}">` +
@@ -215,7 +218,10 @@ function card(a) {
     (a.reusable ? `<span class="chip ok">可复用</span>` : "") +
     (a.current ? "" : `<span class="chip">历史 v${a.version}</span>`) +
     (use ? `<span class="al-use">用于 ${use} 处</span>` : `<span class="al-use muted">未被使用</span>`) +
-    `</span></button></article>`
+    `</span></button>` +
+    // the ONE affordance the drawer adds: it exists to put this asset on a shot
+    (drawer ? `<button class="btn sm al-add" data-al-add="${esc(a.assetId)}">+ 加入</button>` : "") +
+    `</article>`
   );
 }
 
@@ -266,14 +272,35 @@ function inspector(a, prov) {
   );
 }
 
-export function renderAssetLibrary(ctx, ui) {
+/**
+ * ⑪ 资产库 — ONE implementation, TWO SIZES (TASK-073 §1.6).
+ *
+ * `mode: "page"`   the full ⑪ 资产库 page
+ * `mode: "drawer"` the 「添加参考」 drawer, opened beside a shot
+ *
+ * §1.6: 「『添加参考』抽屉与资产库页是**同一个组件的两种尺寸**——一份实现，两个触发
+ * 点（与 postconsole 的 dock/full 是同一条教训）」. That lesson is worth restating:
+ * two implementations of one library drift, and the drift shows up as a filter
+ * vocabulary that means one thing on the page and another in the drawer — so the
+ * creator's 「只看可复用」 stops being one idea.
+ *
+ * The DRAWER differs only in chrome and in one added affordance: each card gets
+ * 「+ 加入」 (`data-al-add`), because that is the whole point of opening it beside a
+ * shot. Same filters, same counts, same cards, same inspector.
+ */
+export function renderAssetLibrary(ctx, ui, { mode = "page", shotId = null } = {}) {
+  const drawer = mode === "drawer";
   const m = ctx.assets.library(ui.alFilters || {});
   const f = ui.alFilters || {};
   if (!m.total) {
-    return (
-      head("资产库", "你现在有什么可以复用") +
-      empty("🗂", "还没有任何资产", "在镜头里生成/导入媒体，或上传一张参考图，它们会自动登记到这里")
+    const emptyBody = empty(
+      "🗂",
+      "还没有任何资产",
+      "在镜头里生成/导入媒体，或上传一张参考图，它们会自动登记到这里",
     );
+    return drawer
+      ? `<div class="al-drawer">${drawerTop(shotId)}${emptyBody}</div>`
+      : head("资产库", "你现在有什么可以复用") + emptyBody;
   }
   const tabs = m.counts
     .map((c) => `<button class="al-tab${(f.type || "all") === c.id ? " on" : ""}" data-al-type="${c.id}">${esc(c.label)} <b>${c.n}</b></button>`)
@@ -287,8 +314,13 @@ export function renderAssetLibrary(ctx, ui) {
       .join("")}</select>`;
   const opts = ctx.assets.filterOptions();
   const open = ui.alOpen ? m.rows.find((r) => r.assetId === ui.alOpen) || ctx.assets.libraryOne(ui.alOpen) : null;
-  return (
-    head("资产库", `${m.shown} / ${m.total} 个资产 · ${m.unusedCount} 个未被使用${m.needsReview ? ` · ${m.needsReview} 个待分类` : ""}`) +
+  const heading = drawer
+    ? drawerTop(shotId)
+    : head(
+      "资产库",
+      `${m.shown} / ${m.total} 个资产 · ${m.unusedCount} 个未被使用${m.needsReview ? ` · ${m.needsReview} 个待分类` : ""}`,
+    );
+  const body =
     `<div class="al-bar">${tabs}</div>` +
     `<div class="al-bar2">` +
     `<input class="field al-search" placeholder="搜索名称 / 标签 / 人物 / 场景 / 剧集…" value="${esc(f.search || "")}">` +
@@ -302,9 +334,26 @@ export function renderAssetLibrary(ctx, ui) {
     `</div>` +
     (tagChips ? `<div class="al-tags">${tagChips}</div>` : "") +
     `<div class="al-body">` +
-    `<div class="al-grid">${m.rows.length ? m.rows.map(card).join("") : `<div class="al-none">没有符合条件的资产。</div>`}</div>` +
-    (open ? inspector(open, ctx.assets.provenanceOf(open.assetId)) : "") +
-    `</div>`
+    `<div class="al-grid">${m.rows.length
+      ? m.rows.map((a) => card(a, { drawer })).join("")
+      : `<div class="al-none">没有符合条件的资产。</div>`}</div>` +
+    // the inspector is page-only: a drawer is opened to PICK something, and a full
+    // provenance panel inside it would compete with the one decision it exists for
+    (!drawer && open ? inspector(open, ctx.assets.provenanceOf(open.assetId)) : "") +
+    `</div>`;
+  return drawer ? `<div class="al-drawer">${heading}${body}</div>` : heading + body;
+}
+
+/** The drawer's own header. Says WHICH shot it will add to — a picker that does not
+ *  name its target is how a reference lands on the wrong shot. */
+function drawerTop(shotId) {
+  return (
+    `<div class="al-dtop"><b>添加参考</b>` +
+    (shotId
+      ? `<span class="al-dscope">加入到 ${esc(shotId)}</span>`
+      : `<span class="al-dscope warn">还没有选中镜头——先选一个镜头再加入</span>`) +
+    `<button class="al-dx" data-al-drawer-close="1" title="关闭">✕</button></div>` +
+    `<div class="meta">这就是 ⑪ 资产库本身，只是换了尺寸：同一套筛选、同一批卡片。</div>`
   );
 }
 

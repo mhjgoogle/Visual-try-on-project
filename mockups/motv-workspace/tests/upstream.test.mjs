@@ -1557,10 +1557,10 @@ test("the demo seed produces a document that VALIDATES at the current schema", a
 
 test("IA: 故事开发's rail ends at the episode script; media stages are their own space", () => {
   assert.deepEqual(NAV.map((g) => g.sec), ["故事开发"]);
-  // TASK-065 §2 / §4: 人物关系 is a tab of 人物, 场景地 a tab of 世界观 — see the same
-  // assertion in tests/workspaces.test.mjs for why this shrank.
+  // TASK-073 §1.1: 人物 / 人物关系 / 世界观 became three SECTIONS of ③ 作品设定 — see
+  // the same assertion in tests/workspaces.test.mjs for why this shrank again.
   assert.deepEqual(NAV[0].items.map((i) => i[0]), [
-    "brief", "story", "characters", "world", "episodes", "script",
+    "brief", "story", "settings", "episodes", "script",
   ]);
   // ADR-0061 决策 1: 本集剧本 is the LAST step of 故事开发 — story development ends
   // at每一集 Episode Script, and 剧集制作 begins FROM it.
@@ -1570,9 +1570,12 @@ test("IA: 故事开发's rail ends at the episode script; media stages are their
     assert.ok(!NAV.some((g) => g.items.some((i) => i[0] === k)));
     assert.ok(EPISODE_MODULES.includes(k));
   }
+  // 剧集制作 is FIVE pages now; the eleven legacy stages remain addressable as
+  // sections of them (TASK-073 §1.1 落点表), which EPISODE_MODULES still spans.
   const epKeys = EPISODE_NAV.map((i) => i[0]);
+  assert.deepEqual(epKeys, ["board", "storyboard", "shotwork", "cutreview", "delivery"]);
   for (const k of ["workbench", "scenes", "shots", "frames", "video", "audio", "dailies", "provenance"]) {
-    assert.ok(epKeys.includes(k), `剧集制作 is missing ${k}`);
+    assert.ok(EPISODE_MODULES.includes(k), `${k} must stay addressable in 剧集制作`);
   }
   // every module either space can open has a human label
   for (const [k] of [...NAV[0].items, ...EPISODE_NAV]) assert.equal(typeof MODULE_LABEL[k], "string");

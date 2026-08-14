@@ -22,6 +22,7 @@ import { navBadges, NAV } from "../src/ui/production.js";
 import {
   EPISODE_NAV, EPISODE_MODULES, EPISODE_DEFAULT, EPISODE_WORKSPACES,
   ASSET_NAV, spaceOf, renderAssetRail, MODULE_LABEL,
+  LEGACY_EPISODE_STAGES, PROJECT_SETTINGS, PAGES, PAGE_SECTIONS, resolveModule, NAV as NAV_PAGES,
 } from "../src/ui/shell.js";
 import * as sd from "../src/workflow/scriptdoc.js";
 
@@ -418,18 +419,21 @@ test("NAV: the rail is 故事开发 and it ENDS at the episode script (ADR-0061 
   // three. 人物关系 is a TAB inside 人物 (a relationship connects two characters and
   // has no meaning without them) and 场景地 is a TAB inside 世界观 (a location is not
   // a person). Fewer entrances for the same subject is the whole point.
+  // TASK-073 §1.1 went one step further: 人物 / 人物关系 / 世界观 are now three
+  // SECTIONS of one page (③ 作品设定), so the rail carries five rows, not six. The
+  // sub-heading disappeared with them — there is nothing left to group.
   assert.deepEqual(NAV[0].items.map((i) => i[0]), [
-    "brief", "story", "characters", "world", "episodes", "script",
+    "brief", "story", "settings", "episodes", "script",
   ]);
-  assert.deepEqual(
-    NAV[0].items.filter((i) => i[3] && i[3].under === "作品设定").map((i) => i[0]),
-    ["characters", "world"],
-  );
-  // …and `relationships` is NOT a rail row any more, while still being a working
-  // module key: several existing jump targets use it, and `setModule` routes it to
-  // 人物 on the relationship tab. A jump target that resolves to nothing would be a
-  // regression, not a migration.
-  assert.ok(!NAV.some((g) => g.items.some((i) => i[0] === "relationships")));
+  assert.equal(NAV[0].items.filter((i) => i[3] && i[3].under).length, 0);
+  // …and `characters` / `relationships` / `world` are NOT rail rows any more, while
+  // still being working module keys: several existing jump targets use them, and
+  // `setModule` routes each to its section of 作品设定. A jump target that resolves
+  // to nothing would be a regression, not a migration.
+  for (const k of ["characters", "relationships", "world"]) {
+    assert.ok(!NAV.some((g) => g.items.some((i) => i[0] === k)), `${k} left the rail`);
+    assert.equal(resolveModule(k).module, "settings", k);
+  }
   assert.equal(MODULE_LABEL.relationships, "人物关系");
   assert.equal(spaceOf("relationships"), "story");
   // The MEDIA production stages left the story rail entirely: they belong to
@@ -442,17 +446,25 @@ test("NAV: the rail is 故事开发 and it ENDS at the episode script (ADR-0061 
   // §9): it leads, and every stage workspace (生成溯源 included) stays reachable
   // behind the secondary 「工作区」 entry. Deliberately still NOT a second flow model
   // (流程画布).
+  // TASK-073 §1.1 froze this space at FIVE pages. The eleven old stages are not
+  // gone — they are sections of these five, reached through `resolveModule`, which
+  // a dedicated test below checks key by key.
   const epKeys = EPISODE_NAV.map((i) => i[0]);
-  assert.equal(EPISODE_DEFAULT, "workbench");
-  assert.equal(epKeys[0], EPISODE_DEFAULT, "the 制作台 IS this space's centre");
-  for (const k of ["scenes", "shots", "refplan", "frames", "video", "audio", "dailies", "provenance", "edit", "episode"]) {
-    assert.ok(epKeys.includes(k), `剧集制作 is missing ${k}`);
-  }
+  assert.deepEqual(epKeys, ["board", "storyboard", "shotwork", "cutreview", "delivery"]);
+  assert.equal(EPISODE_DEFAULT, "board", "the space opens on 本集看板");
+  assert.equal(epKeys[0], EPISODE_DEFAULT);
   assert.ok(!epKeys.includes("canvas"), "流程画布 must not be on a creator path");
-  assert.deepEqual(EPISODE_MODULES, epKeys);
-  // the secondary menu is EPISODE_NAV minus the centre — derived, so a stage can
-  // never be listed twice nor be missing from both surfaces
-  assert.deepEqual(EPISODE_WORKSPACES.map((i) => i[0]), epKeys.filter((k) => k !== EPISODE_DEFAULT));
+  // EPISODE_MODULES still spans the legacy keys, or a bookmark to one episode's
+  // shots would report 故事开发 in the top bar
+  for (const k of ["scenes", "shots", "refplan", "frames", "video", "audio", "dailies", "provenance", "edit", "episode", "workbench"]) {
+    assert.ok(EPISODE_MODULES.includes(k), `${k} must still resolve inside 剧集制作`);
+  }
+  // the legacy 「工作区」 menu is derived from the LEGACY stage list minus its own
+  // centre — kept working this round; TASK-074 removes the entrance
+  assert.deepEqual(
+    EPISODE_WORKSPACES.map((i) => i[0]),
+    LEGACY_EPISODE_STAGES.map((i) => i[0]).filter((k) => k !== "workbench"),
+  );
   // storage/assets left the rail: 资产库 is a top-level SPACE with its own rail
   // of media categories (TASK-064 §15), not a per-project rail item here
   assert.ok(!NAV.some((g) => g.items.some((i) => i[0] === "storage" || i[0] === "assets")));
@@ -465,13 +477,90 @@ test("spaceOf: every module belongs to exactly one space (ADR-0061 决策 1)", (
     assert.equal(spaceOf(k), "story", k);
   }
   for (const k of EPISODE_MODULES) assert.equal(spaceOf(k), "episode", k);
-  for (const k of ["assets", "assets:reference", "assets:image", "assets:video", "assets:audio", "assets:final", "assets:collection", "storage"]) {
+  for (const k of ["assets", "assets:reference", "assets:image", "assets:video", "assets:audio", "assets:final", "assets:collection"]) {
     assert.equal(spaceOf(k), "assets", k);
   }
+  // `storage` and `provenance` now land in ⚙ 项目设置 (TASK-073 §1.1), which belongs
+  // to NO space — it reports 故事开发 only so the shell has a rail to draw
+  assert.equal(spaceOf("storage"), "story");
+  assert.equal(spaceOf(PROJECT_SETTINGS), "story");
   // an unknown module lands in 故事开发 rather than throwing: a navigation state
   // that cannot be placed must still render somewhere real
   assert.equal(spaceOf("nonesuch"), "story");
   assert.equal(spaceOf(null), "story");
+});
+
+test("TASK-073 §1.1 验收 #1: the IA is a CLOSED set — 三空间 / 十一页", () => {
+  // ADR-0066 决策 10: 「新增 Skill 不得新增一级或二级页面」. That is only enforceable
+  // if the count is asserted, so this is the enforcement.
+  assert.equal(NAV_PAGES.length, 1, "故事开发 is one rail section");
+  assert.deepEqual(NAV_PAGES[0].items.map((i) => i[0]),
+    ["brief", "story", "settings", "episodes", "script"]);
+  assert.equal(PAGES.length, 11, `expected eleven pages, got ${PAGES.join(" ")}`);
+  // ⚙ 项目设置 is NOT one of the eleven — it is not a page of any space (§1.7)
+  assert.ok(!PAGES.includes(PROJECT_SETTINGS));
+  // every page with sections declares only sections it can actually render
+  for (const [page, secs] of Object.entries(PAGE_SECTIONS)) {
+    assert.ok(secs.length >= 1, `${page} declares no section`);
+    assert.equal(new Set(secs).size, secs.length, `${page} lists a section twice`);
+  }
+  // ⑧ 镜头制作's sections ARE the four steps of §1.3, in order
+  assert.deepEqual(PAGE_SECTIONS.shotwork, ["prepare", "image", "video", "pick"]);
+});
+
+test("TASK-073 §1.1 验收 #2 + #12: every OLD key resolves to a real page + section", () => {
+  // 「落到一个没有该内容的页面」 and 「落空」 are the same failure (ADR-0063 决策 1),
+  // so each key must name a page AND a section that page really declares.
+  const expected = {
+    characters: ["settings", "characters"],
+    relationships: ["settings", "relationships"],
+    world: ["settings", "world"],
+    episode: ["board", "overview"],
+    scenes: ["storyboard", "scenes"],
+    shots: ["storyboard", "shots"],
+    // dispatched by WHAT THEY DID, not to the nearest-looking page
+    workbench: ["shotwork", "prepare"],
+    refplan: ["shotwork", "prepare"],
+    frames: ["shotwork", "image"],
+    video: ["shotwork", "video"],
+    dailies: ["shotwork", "pick"],
+    audio: ["delivery", "voice"],
+    edit: ["delivery", "timeline"],
+    provenance: [PROJECT_SETTINGS, "storage"],
+    storage: [PROJECT_SETTINGS, "storage"],
+  };
+  for (const [key, [page, section]] of Object.entries(expected)) {
+    const hit = resolveModule(key);
+    assert.equal(hit.resolved, true, `${key} did not resolve`);
+    assert.equal(hit.module, page, `${key} landed on ${hit.module}`);
+    assert.equal(hit.section, section, `${key} opened section ${hit.section}`);
+    assert.ok(
+      PAGE_SECTIONS[page].includes(section),
+      `${key} names section ${section}, which ${page} does not render`,
+    );
+  }
+  // the seven asset rows became PRESET FILTERS on the single ⑪ 资产库 page
+  for (const [key, filter] of Object.entries({
+    "assets:reference": "reference", "assets:image": "image", "assets:video": "video",
+    "assets:audio": "audio", "assets:final": "final", "assets:collection": "collection",
+  })) {
+    const hit = resolveModule(key);
+    assert.equal(hit.module, "assets", key);
+    assert.equal(hit.filter, filter, key);
+  }
+  // 验收 #12 — the collision that would read as correct: ③ 作品设定 and ⚙ 项目设置
+  // must be DIFFERENT pages, or every old deep link lands on the wrong one
+  assert.notEqual(resolveModule("settings").module, resolveModule(PROJECT_SETTINGS).module);
+  assert.equal(resolveModule("settings").module, "settings");
+  assert.equal(resolveModule(PROJECT_SETTINGS).module, PROJECT_SETTINGS);
+  // every resolvable key has a LABEL, or the breadcrumb renders blank
+  for (const k of [...Object.keys(expected), ...PAGES, PROJECT_SETTINGS]) {
+    assert.ok(MODULE_LABEL[k], `${k} has no label`);
+  }
+  // an unknown key still lands somewhere real, and says it was not resolved
+  const miss = resolveModule("no-such-module");
+  assert.equal(miss.resolved, false);
+  assert.ok(PAGES.includes(miss.module));
 });
 
 test("ASSET_NAV is media categories only — no production navigation (TASK-064 §15)", () => {

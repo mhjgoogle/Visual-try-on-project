@@ -91,7 +91,7 @@ def test_shot_usage_is_found_by_reference_KEY_not_by_assetId() -> None:
 def test_the_library_is_visual_first_and_ids_are_not_the_main_surface() -> None:
     """path / assetId / storageState 退到 Inspector 的技术详情折叠区。"""
     lib = _code("ui", "assetlibws.js")
-    card = lib.split("\nfunction card(a)", 1)[1].split("\nfunction ", 1)[0]
+    card = lib.split("\nfunction card(", 1)[1].split("\nfunction ", 1)[0]
     # the id may be a CLICK TARGET, but it must never be rendered as text
     assert 'data-al-open="${esc(a.assetId)}"' in card
     for id_ish in ("a.storageState", "a.path", "a.url}", "a.key"):
@@ -99,10 +99,13 @@ def test_the_library_is_visual_first_and_ids_are_not_the_main_surface() -> None:
     # every mention of the id is inside a data- attribute, never in the markup's
     # text (there are two: the article opens the asset, the caption is the
     # keyboard-reachable button — see card())
-    assert card.count("a.assetId") == card.count(
-        'data-al-card="${esc(a.assetId)}"'
-    ) + card.count('data-al-open="${esc(a.assetId)}"'), (
-        "assetId may only appear as a data- click target"
+    # Matched by PATTERN, not by enumerating the known attributes: the card gained a
+    # third data- target with the drawer's 「+ 加入」 (TASK-073 §1.6), and a hard-coded
+    # list would fail that while a fourth one rendered as TEXT — the actual defect —
+    # would still slip through if someone updated the list without thinking.
+    as_data_target = len(re.findall(r'data-[a-z-]+="\$\{esc\(a\.assetId\)\}"', card))
+    assert card.count("a.assetId") == as_data_target, (
+        "assetId may only appear as a data- click target, never as rendered text"
     )
     # the card shows real media, and says what the creator recognises it by
     assert "preview(a)" in card
@@ -246,9 +249,24 @@ def test_no_interactive_control_is_nested_inside_a_button() -> None:
     """codex review 轮 A：`<audio controls>` 套在卡片的外层 <button> 里是无效
     HTML，浏览器可能把播放键的点击路由给外层按钮——按播放却打开了 Inspector。"""
     lib = _code("ui", "assetlibws.js")
-    card = lib.split("\nfunction card(a)", 1)[1].split("\nfunction ", 1)[0]
+    card = lib.split("\nfunction card(", 1)[1].split("\nfunction ", 1)[0]
     assert "<article" in card, "the card is an article; only its caption is a button"
-    assert card.count("<button") == 1
+    # THE INVARIANT IS NON-NESTING, not a button COUNT. The card legitimately gained a
+    # second, SIBLING button — the drawer's 「+ 加入」 (TASK-073 §1.6) — and counting
+    # buttons would have failed that for the wrong reason while still not catching an
+    # actual nesting. So the depth is tracked instead.
+    depth = 0
+    for tok in re.findall(r"<button|</button>|<audio|<video", card):
+        if tok == "<button":
+            depth += 1
+            assert depth <= 1, "a <button> is nested inside another <button>"
+        elif tok == "</button>":
+            depth -= 1
+        else:
+            # this is the defect the test exists for: a media control whose click the
+            # browser may route to an enclosing button
+            assert depth == 0, f"{tok} sits inside a <button>"
+    assert depth == 0, "unbalanced <button> tags in the card"
     # the preview (which may carry <audio>/<video> controls) sits OUTSIDE it
     assert card.index("preview(a)") < card.index("<button")
 

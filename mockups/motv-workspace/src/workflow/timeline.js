@@ -481,17 +481,34 @@ export function driftedClips(t, activeOf) {
 /** REMOVE / RESTORE a clip without losing it (§46). Removing a VIDEO clip also
  *  removes the audio ANCHORED to its shot, for the same reason the hard delete
  *  does: with the picture out, its anchored audio has no anchor and would play
- *  over later footage. Restoring puts them all back together. */
-export function setClipRemoved(t, clipId, on, { isLocked = null } = {}) {
+ *  over later footage. Restoring puts them all back together.
+ *
+ *  THE CASCADE RESPECTS LOCKS (TASK-072 §1.9 缺陷 4). The lock used to be checked
+ *  for the clip NAMED in the call and for nothing else, so removing an unlocked
+ *  video clip silently removed the locked audio anchored to the same shot — a lock
+ *  defeated by touching a different object. Locked clips are now LEFT ALONE, and
+ *  the ones skipped are reported through `skipped` so the caller can say
+ *  「N 条已锁定的音频没有跟着移除」 instead of leaving the creator to discover it.
+ *
+ *  @param {string[]} [opts.skipped] out-param: clipIds the cascade refused to touch. */
+export function setClipRemoved(t, clipId, on, { isLocked = null, skipped = null } = {}) {
   const target = findClip(t, clipId);
   if (!target) return false;
-  if (typeof isLocked === "function" && isLocked(clipId) === true) return false;
+  const locked = (id) => (typeof isLocked === "function" ? isLocked(id) === true : false);
+  if (locked(clipId)) return false;
   const want = on === true;
   if (target.removed === want) return false;
   target.removed = want;
   if (target.trackType === "video" && target.shotId) {
     for (const c of t.clips) {
       if (c.trackType === "video" || c.shotId !== target.shotId) continue;
+      // Neither direction may override a lock: removing a locked audio clip loses
+      // it from the cut, and restoring one puts back something the creator pinned
+      // out. Both are decisions about THAT clip, and this call is about the picture.
+      if (locked(c.clipId)) {
+        if (Array.isArray(skipped)) skipped.push(c.clipId);
+        continue;
+      }
       // a clip the creator removed BY ITSELF stays removed when the picture comes
       // back: restoring the shot must not undo a separate decision about its
       // dialogue. Only clips this same call took out are put back, which is what

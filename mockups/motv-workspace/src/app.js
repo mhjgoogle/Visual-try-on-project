@@ -15,6 +15,8 @@ import * as budget from "./services/budget.js";
 import * as gw from "./services/gateway.js";
 import { submitCommand } from "./services/gateway.js";
 import * as query from "./services/query.js";
+// TASK-072 §1.4: writes live in command.js; query.js keeps deprecated re-exports
+import * as command from "./services/command.js";
 import * as projects from "./services/projects.js";
 import * as persist from "./services/persist.js";
 import { CANVAS_SCHEMA_VERSION } from "./services/canvasschema.js";
@@ -52,6 +54,14 @@ import * as refinterp from "./workflow/refinterp.js";
 import * as refuse from "./workflow/refuse.js";
 import * as shotctx from "./workflow/shotctx.js";
 import * as ctxcache from "./workflow/ctxcache.js";
+// TASK-073 §1.7: the fourteen ⚙ fields, their validation, and the two hard gates
+import { SPEC_FIELD_BY_KEY, validateField } from "./workflow/deliveryspec.js";
+// TASK-073 §1.8: controllers extracted from this file, one per domain
+import { createLockController } from "./controllers/lockctl.js";
+import { createTimelineController } from "./controllers/timelinectl.js";
+// TASK-072 §1.5/§1.6: the three review layers and the five gates, as domain
+import * as review from "./workflow/review.js";
+import { g3TriggerFor, g3Retire } from "./workflow/gates.js";
 import * as framebind from "./workflow/framebind.js";
 import * as locksdoc from "./workflow/locks.js";
 import * as shotaudio from "./workflow/shotaudio.js";
@@ -97,6 +107,11 @@ let REAL_STANDING = null;
 // the backend's project list, kept so the landing/new-project dialog can
 // re-render and name-check without refetching
 let REAL_NAMES = [];
+// Why the capability catalog is not loaded, and the per-package load failures the
+// backend reported (TASK-075 §1.4 / §1.7). Both are shown verbatim: a capability
+// that failed to load must be VISIBLY unavailable with a reason, not absent.
+let CATALOG_DETAIL = "能力目录尚未加载";
+let CATALOG_PROBLEMS = [];
 let canvasActive = false;
 let seeded = false;
 // Script DOMAIN documents — PER EPISODE since M9 (schema v8 `scripts` map).
@@ -333,6 +348,14 @@ let bibleProposals = null;
 // was drawn from. Never a copy of canon — only conclusions about it, which is why
 // an entry can be checked for staleness instead of being trusted.
 let ctxCacheDoc = ctxcache.createCache(null);
+/** The fourteen ⚙ fields (TASK-073 §1.7). Empty until the creator sets them —
+ *  every field absent is the honest state, and an absent field is never defaulted
+ *  into a value that then passes a check. */
+let deliverySpecDoc = {};
+/** Review issues + decisions (系统合同 §6 / TASK-072 §1.5). Additive and optional,
+ *  exactly like refInterp / frameBindings / ctxCache: a document written before this
+ *  carries none of it and hydrates empty, so no schema version and no migration. */
+let reviewsDoc = { issues: [], decisions: [] };
 // The 「用于生成」 intent (ADR-0061 决策 3): `{ skillRunId, proposalId, shotId }`
 // set ONLY when the creator presses that button, consumed by the next generation
 // for that shot. Session-scoped and deliberately NOT derived — see
@@ -1889,313 +1912,11 @@ const ctx = {
   // nothing hand-made can be lost); after the first manual edit a stale
   // source shows a banner and re-sync is an EXPLICIT confirmed action
   // (a hand-edited timeline is never silently overwritten).
-  timeline: {
-    // sync a timeline from rows AND stamp the source fingerprint used by
-    // sourceStale — the ONE place both fields move together
-    _sync: (t, rows) => {
-      timeline.syncFromRows(t, rows);
-      t.sourceSig = timelineSourceSig(t.clips);
-    },
-    doc: () => {
-      const t = timeline.timelineFor(timelinesDoc, productionDoc.activeEpisodeId);
-      // A timeline the Rough Cut built is no longer a mirror of the source, even
-      // with no hand edit on it — so the legacy auto-sync must leave it alone.
-      // Checked here rather than by marking it `edited`, because `edited` means
-      // 「有人工调整」 and is printed in the Final Render's provenance.
-      if (!t.edited && !t.roughCutVersion) {
-        const rows = ctx.timeline.gatherRows();
-        const hasVideo = rows.some((r) => r.videoAssetId);
-        if ((t.clips.length && ctx.timeline.sourceStale(t)) || (!t.clips.length && hasVideo)) {
-          ctx.timeline._sync(t, rows);
-          ctx.persist();
-        }
-      }
-      return t;
-    },
-    // the DEFAULT rows the timeline mirrors: active episode's scenes in
-    // order (then unassigned draft shots), each shot's CURRENT video/voice/
-    // sfx assets + the scene's ambience + effective BGM
-    gatherRows: () => {
-      const draft = ctx.project.draftShots || [];
-      const idx = buildShotSlotIndex(draft);
-      const ep = proddoc.activeEpisode(productionDoc);
-      const view = ep ? proddoc.episodeView(productionDoc, ep.episodeId, draft) : null;
-      const ordered = [];
-      if (view) {
-        for (const sc of view.scenes) {
-          for (const x of sc.shots) if (x.shot) ordered.push({ shot: x.shot, sceneId: sc.sceneId });
-        }
-        for (const s of view.unassigned) ordered.push({ shot: s, sceneId: null });
-      }
-      // the CURRENT asset regardless of byte availability: a clip must keep
-      // REFERENCING an archived/removed asset (the timeline UI shows it as
-      // unavailable and render refuses honestly) — filtering non-local here
-      // would let the unedited auto-sync silently DROP those references
-      const cur = (map, key) => {
-        const r = key ? mediaref.currentRef(map, key) : null;
-        return r && r.assetId ? r.assetId : null;
-      };
-      // …and its VERSION, so a clip can be PINNED (§48). Same lookup, second
-      // field — reading the version separately would let the two disagree.
-      const curRef = (map, key) => (key ? mediaref.currentRef(map, key) : null);
-      // the version of an asset addressed by ID rather than by chain key (scene
-      // ambience / episode BGM are stored as asset ids on the production doc)
-      const verOfAsset = (assetId) => {
-        const hit = assetId ? assetlib.findAssetById(assetRegistry, assetId) : null;
-        return hit && Number.isInteger(hit.record.version) ? hit.record.version : null;
-      };
-      return ordered.map(({ shot, sceneId }) => {
-        const slot = shot.shotId ? slotForShotId(idx, shot.shotId) : null;
-        const scene = sceneId ? proddoc.findScene(productionDoc, sceneId) : null;
-        const bgm = ep ? proddoc.effectiveBgm(productionDoc, ep.episodeId, sceneId) : null;
-        const vref = curRef(assetRegistry.videos, slot);
-        const dref = curRef(assetRegistry.audio, slot ? `voice-${slot}` : null);
-        return {
-          shotId: shot.shotId || null,
-          duration: shot.duration_seconds === 10 ? 10 : 6,
-          videoAssetId: vref && vref.assetId ? vref.assetId : null,
-          videoAssetVersion: vref && Number.isInteger(vref.version) ? vref.version : null,
-          dialogueAssetId: dref && dref.assetId ? dref.assetId : null,
-          dialogueAssetVersion: dref && Number.isInteger(dref.version) ? dref.version : null,
-          sfxAssetId: cur(assetRegistry.audio, slot ? `sfx-${slot}` : null),
-          // 拟音 / 旁白 reach the cut as themselves (§37)
-          foleyAssetId: cur(assetRegistry.audio, slot ? `foley-${slot}` : null),
-          voAssetId: cur(assetRegistry.audio, slot ? `vo-${slot}` : null),
-          sceneId,
-          ambienceAssetId: scene ? scene.scene.ambienceAssetId : null,
-          bgmAssetId: bgm ? bgm.assetId : null,
-          // …and EVERY track's version, so every clip the Rough Cut places can be
-          // pinned (§48). Supplying it only for video and dialogue left the other
-          // five tracks with `assetVersion: null`, which `clipStanding` reports as
-          // UNKNOWN — so drift on a sound effect or a BGM could never be seen.
-          // Scene ambience and BGM are stored as ASSET IDS on the production
-          // document, so their version is looked up from the registry record.
-          sfxAssetVersion: verOfAsset(cur(assetRegistry.audio, slot ? `sfx-${slot}` : null)),
-          foleyAssetVersion: verOfAsset(cur(assetRegistry.audio, slot ? `foley-${slot}` : null)),
-          voAssetVersion: verOfAsset(cur(assetRegistry.audio, slot ? `vo-${slot}` : null)),
-          ambienceAssetVersion: verOfAsset(scene ? scene.scene.ambienceAssetId : null),
-          bgmAssetVersion: verOfAsset(bgm ? bgm.assetId : null),
-        };
-      });
-    },
-    /** The rows in the shape `roughcut.planRoughCut` takes — the SAME source data
-     *  as `gatherRows`, re-shaped rather than re-derived, so the automatic cut and
-     *  the legacy auto-sync can never disagree about what the episode contains. */
-    roughRows: () => ctx.timeline.gatherRows().map((r) => {
-      const shot = r.shotId ? ctx.shot.find(r.shotId) : null;
-      const v = (assetId, version) => (assetId ? { assetId, version: version ?? null } : null);
-      return {
-        shotId: r.shotId,
-        duration: r.duration,
-        dialogueText: shot && typeof shot.dialogue === "string" ? shot.dialogue : "",
-        video: v(r.videoAssetId, r.videoAssetVersion),
-        dialogue: v(r.dialogueAssetId, r.dialogueAssetVersion),
-        vo: v(r.voAssetId, r.voAssetVersion),
-        sfx: v(r.sfxAssetId, r.sfxAssetVersion),
-        foley: v(r.foleyAssetId, r.foleyAssetVersion),
-        ambience: v(r.ambienceAssetId, r.ambienceAssetVersion),
-        bgm: v(r.bgmAssetId, r.bgmAssetVersion),
-      };
-    }),
-    /** WHAT this shot currently has ACTIVE on a track — the other half of the
-     *  drift check (§48). Returns `{ assetId, version }` or null. */
-    activeFor: (shotId, trackType) => {
-      // AMBIENCE and BGM are NOT per-shot chains: they are assets the SCENE and
-      // the EPISODE point at by id (proddoc). Looking them up as
-      // `ambience-<slot>` always missed, so drift on a scene's ambience or the
-      // episode's score was permanently 「未记录」 and could never be reported.
-      if (trackType === "ambience" || trackType === "bgm") {
-        const owner = proddoc.sceneOfShot(productionDoc, shotId);
-        if (!owner) return null;
-        const assetId = trackType === "ambience"
-          ? owner.scene.ambienceAssetId
-          : (proddoc.effectiveBgm(productionDoc, owner.episode.episodeId, owner.scene.sceneId) || {}).assetId;
-        if (!assetId) return null;
-        const hit = assetlib.findAssetById(assetRegistry, assetId);
-        return { assetId, version: hit && Number.isInteger(hit.record.version) ? hit.record.version : null };
-      }
-      const shot = ctx.shot.find(shotId);
-      const slot = shot ? ctx.shot._slotOf(shot) : null;
-      if (!slot) return null;
-      const map = trackType === "video" ? assetRegistry.videos : assetRegistry.audio;
-      const key = trackType === "video"
-        ? slot
-        : trackType === "dialogue" ? `voice-${slot}` : `${trackType}-${slot}`;
-      const r = mediaref.currentRef(map, key);
-      return r && r.assetId ? { assetId: r.assetId, version: Number.isInteger(r.version) ? r.version : null } : null;
-    },
-    /** Clips whose pinned version has drifted from the shot's active one. The
-     *  console renders these with 保持 / 替换 / 对比 — nothing is auto-replaced. */
-    drift: () => timeline.driftedClips(
-      timeline.timelineFor(timelinesDoc, productionDoc.activeEpisodeId),
-      (shotId, trackType) => ctx.timeline.activeFor(shotId, trackType),
-    ),
-    /**
-     * BUILD (or rebuild) the Episode Rough Cut (§41).
-     *
-     * `roughcut.applyRoughCut` preserves every locked and hand-placed clip, so
-     * re-running it after tuning is safe — that is what makes 「AI Draft → Human
-     * Tune → Lock → AI Continue」 a working loop rather than a slogan.
-     */
-    buildRoughCut: () => {
-      const t = timeline.timelineFor(timelinesDoc, productionDoc.activeEpisodeId);
-      const rows = ctx.timeline.roughRows();
-      if (!roughcut.canBuild(rows)) {
-        return { ok: false, error: "这一集还没有任何镜头视频——初剪需要真实素材，不会生成空时间线" };
-      }
-      const plan = roughcut.planRoughCut(rows);
-      const res = roughcut.applyRoughCut(t, plan, {
-        isLocked: (clipId) => ctx.locks.is("timelineClip", clipId),
-        at: new Date().toISOString(),
-      });
-      // An automatic pass is NOT a hand edit. `t.edited` means 「有人工调整」 —
-      // the console prints it and the Final Render freezes it — so setting it
-      // here made every render claim human tuning that never happened.
-      //
-      // The legacy auto-sync must still not overwrite this cut, and
-      // `roughCutVersion` already says a rough cut exists; `ctx.timeline.doc()`
-      // consults BOTH, so the protection is kept without the false claim.
-      t.sourceSig = timelineSourceSig(timeline.buildFromRows(ctx.timeline.gatherRows()));
-      ctx.persist();
-      refreshProductionView();
-      return { ok: true, ...res, summary: roughcut.summarize(res), version: t.roughCutVersion };
-    },
-    // Has the SOURCE (shots / current media / scene audio) changed since this
-    // timeline was last built from it? Compares the current source's default
-    // build to the sourceSig STAMPED at the last sync — NOT to the (possibly
-    // hand-edited) clip list, so trim/reorder/volume edits never false-report
-    // "source changed". The signature carries shotId + startTime so reordering
-    // equal-duration shots that reuse one asset is still detected.
-    sourceStale: (t) => timelineSourceSig(timeline.buildFromRows(ctx.timeline.gatherRows())) !== (t.sourceSig || ""),
-    resync: () => {
-      const t = timeline.timelineFor(timelinesDoc, productionDoc.activeEpisodeId);
-      ctx.timeline._sync(t, ctx.timeline.gatherRows());
-      ctx.persist();
-      refreshProductionView();
-      toast("时间线已按当前镜头/音频重建（此前的手工调整被本次同步覆盖）");
-    },
-    op: (fn, ...args) => {
-      const t = timeline.timelineFor(timelinesDoc, productionDoc.activeEpisodeId);
-      const ok = timeline[fn](t, ...args);
-      if (ok) { ctx.persist(); refreshProductionView(); }
-      return ok;
-    },
-    setSettings: (s) => {
-      const t = timeline.timelineFor(timelinesDoc, productionDoc.activeEpisodeId);
-      timeline.setSettings(t, s);
-      ctx.persist();
-      return true;
-    },
-    // FINAL RENDER (local FFmpeg): resolve every clip's asset to its exact
-    // uploaded file (bytes must be local — missing media fails honestly, it
-    // is never skipped), render server-side, register the Final Asset and a
-    // durable RENDER provenance record (type "render", provider ffmpeg-local,
-    // inputs = clip assetIds, parameters = settings + clip snapshot).
-    render: async () => {
-      if (!CONNECTED) throw new Error("演示模式无后端，无法渲染（需连接模式 + 本地 ffmpeg）");
-      const t = timeline.timelineFor(timelinesDoc, productionDoc.activeEpisodeId);
-      // REMOVED clips are not in the cut (§46) — `liveClips` is the one definition
-      // of that, shared with the layout and the duration, so the render can never
-      // include a shot the console shows as taken out.
-      const live = timeline.liveClips(t);
-      if (!live.some((c) => c.trackType === "video")) throw new Error("时间线没有视频 clip");
-      const clips = [];
-      for (const c of live) {
-        // a muted / zero-volume AUDIO clip contributes nothing and the backend
-        // skips it — drop it here too so an unavailable (deleted) asset on such
-        // a clip never blocks a render it wouldn't participate in anyway
-        const silentAudio = c.trackType !== "video" && (c.muted === true || c.volume <= 0);
-        if (silentAudio) continue;
-        const hit = assetlib.findAssetById(assetRegistry, c.assetId);
-        if (!hit) throw new Error(`clip 引用的资产已不存在（${c.trackType} · ${c.assetId}）`);
-        if ((hit.record.storageState || "local") !== "local") {
-          throw new Error(`clip 的媒体不可用（${c.trackType} · ${hit.record.storageState}）— 请恢复或替换后再渲染`);
-        }
-        clips.push({
-          track: c.trackType,
-          file: String(hit.record.url || "").split("/").pop(),
-          start: c.startTime,
-          in: c.trimIn,
-          out: c.trimOut,
-          volume: c.volume,
-          muted: c.muted,
-          fadeIn: c.fadeIn,
-          fadeOut: c.fadeOut,
-        });
-      }
-      const res = await query.renderEpisode(PROJECT_NAME, clips, t.settings);
-      // CP2: the Final belongs to the episode whose timeline was just rendered
-      const rec = assetlib.addFinal(assetRegistry, res.url, productionDoc.activeEpisodeId);
-      // §57: THE FINAL MUST BE REPRODUCIBLE. Everything below is what a creator
-      // asking 「这条成片到底是什么做出来的」 needs, and each field is read from
-      // real state at render time rather than re-derived later (the timeline moves
-      // afterwards; the record must keep describing THIS render).
-      const subTrack = subtitle.trackFor(subtitlesDoc, productionDoc.activeEpisodeId);
-      // ONLY the Shot Mixes that ACTUALLY FED THIS RENDER — i.e. whose asset is
-      // on a clip in the cut. A shot can have a mix that is not in the timeline
-      // at all (the episode render mixes the individual tracks itself), and
-      // listing those as inputs claimed a lineage that did not happen: the mix
-      // was never sent to ffmpeg. A provenance record that overstates what went
-      // in is worse than one that says less, because it is believed.
-      const renderedAssetIds = new Set(live.map((c) => c.assetId));
-      const shotMixes = [];
-      for (const shotId of new Set(live.map((c) => c.shotId).filter(Boolean))) {
-        const mix = shotaudio.mixOf(shotAudioDoc, shotId);
-        if (!mix || !renderedAssetIds.has(mix.assetId)) continue;
-        shotMixes.push({ shotId, assetId: mix.assetId, at: mix.at, sources: mix.sources, settings: mix.settings });
-      }
-      const gen = ctx.startGeneration({
-        type: "render",
-        targetType: null,
-        targetId: null,
-        inputAssetIds: [...new Set(live.map((c) => c.assetId))],
-        promptSnapshot: null,
-        provider: "ffmpeg-local",
-        parameters: {
-          providerMode: "local",
-          settings: { ...t.settings },
-          episodeId: productionDoc.activeEpisodeId,
-          // WHICH timeline: the automatic-pass counter plus whether a human edited
-          // it afterwards. 「时间线版本」 with no edited flag would describe two
-          // different cuts identically.
-          timelineVersion: Number.isInteger(t.roughCutVersion) ? t.roughCutVersion : 0,
-          timelineEdited: t.edited === true,
-          roughCutAt: t.roughCutAt || null,
-          // per-clip: WHICH asset AND WHICH VERSION played, plus its transition
-          clips: live.map((c) => ({
-            clipId: c.clipId, trackType: c.trackType, shotId: c.shotId,
-            assetId: c.assetId, assetVersion: c.assetVersion,
-            startTime: c.startTime, trimIn: c.trimIn, trimOut: c.trimOut,
-            volume: c.volume, muted: c.muted, fadeIn: c.fadeIn, fadeOut: c.fadeOut,
-            ...(c.trackType === "video" ? { transition: c.transition, transitionMs: c.transitionMs } : {}),
-          })),
-          // the Shot Mixes that fed it, each with its own frozen source list
-          shotMixes,
-          // WHICH subtitle version, and the honest statement that it was not
-          // burned into the picture this round — a `subtitleVersion` with no such
-          // note would imply the MP4 carries it
-          subtitleVersion: Number.isInteger(subTrack.version) ? subTrack.version : 0,
-          subtitleCues: subTrack.cues.length,
-          subtitleBurnedIn: false,
-          // LOCKS in force at render time: 「这条成片里哪些是人定死的」
-          // EVERY lock in force, from the one counter the console also prints —
-          // `locksdoc.count` alone omits prompt / audio-clip / frame-binding /
-          // reading locks, and a provenance field that under-reports protections
-          // is a wrong number in a record meant to be reproducible.
-          locksInForce: ctx.locks.count(),
-        },
-        status: "generating",
-      });
-      if (gen && rec) {
-        ctx.completeGeneration(gen.generationId, [rec.assetId]);
-        rec.links.generationId = gen.generationId;
-      }
-      ctx.refreshType("edit");
-      ctx.persist();
-      refreshProductionView();
-      return { ...res, assetId: rec ? rec.assetId : null };
-    },
-  },
+  // TIMELINE — MOVED to src/controllers/timelinectl.js (TASK-073 §1.8).
+  // Attached after this literal (`ctx.timeline = …`), with documents and session
+  // values passed as GETTERS: they are module-level `let`s that project loading
+  // reassigns, so capturing their values would leave the controller operating on the
+  // previous project's timeline.
   // ---------------------------------------------------------------------- //
   // Film Skill controller (CP3 / ADR-0056) — the ONE way a capability runs.
   //
@@ -2209,6 +1930,16 @@ const ctx = {
   // ---------------------------------------------------------------------- //
   skills: {
     catalog: () => skills.SKILLS,
+    /** Is a catalog loaded, and if not, why (TASK-075 §1.4)?
+     *
+     *  A panel must distinguish "the backend could not give us the packages"
+     *  from "there are no capabilities". The first is a system state with a
+     *  cause; the second would be a lie told with an empty list. */
+    catalogState: () => ({
+      installed: skills.catalogInstalled(),
+      detail: CATALOG_DETAIL,
+      problems: CATALOG_PROBLEMS,
+    }),
     find: (skillId) => skills.findSkill(skillId),
     runtimes: () => runtime.RUNTIMES,
     executors: () => runtime.EXECUTORS,
@@ -2303,11 +2034,22 @@ const ctx = {
               locked: ctx.locks.is("timelineClip", c.clipId),
               // the OTHER takes it could be replaced with, so 「换成 v3」 can name
               // a real assetId rather than a version number nothing resolves
-              alternatives: c.shotId
-                ? (ctx.assets.chainOf(ctx.shot._slotOf(ctx.shot.find(c.shotId) || {}) || "") || { list: [] })
-                  .list.filter((v) => v.assetId && v.assetId !== c.assetId)
-                  .map((v) => ({ assetId: v.assetId, version: v.version }))
-                : [],
+              //
+              // BY TRACK TYPE (TASK-072 §1.9 缺陷 7). This used to look up the
+              // shot's slot with no regard for the track, so an AUDIO clip was
+              // handed the shot's VIDEO version chain — and `ctx.assets.chainOf`
+              // searches images first, so a video clip could be offered its
+              // first-frame IMAGE versions. Either way the Editing Director
+              // proposes `replaceTimelineAsset` with an asset of the wrong domain
+              // and the write is refused at domain validation, every time. The key
+              // rules here are the SAME ones `ctx.timeline.activeFor` uses.
+              alternatives: (() => {
+                const entry = _clipChain(c.shotId, c.trackType);
+                if (!entry) return [];
+                return entry.history
+                  .filter((v) => v.assetId && v.assetId !== c.assetId)
+                  .map((v) => ({ assetId: v.assetId, version: v.version }));
+              })(),
             })),
           };
         })(),
@@ -2584,7 +2326,27 @@ const ctx = {
         // it can live: the reviewer's answer does not restate it, and reading the
         // creator's currently-open tab at apply time would let an image review be
         // written into the video prompt.
-        contextTrace: shotScoped && context.shotContext
+        contextTrace: !shotScoped
+          // TASK-072 §1.9 缺陷 8: an EPISODE-wide run needs a trace too. The
+          // Editing Director is handed each clip's `alternatives`; without
+          // recording them, `replaceTimelineAsset` accepted any registered asset of
+          // the right domain, so an injected or hallucinated proposal could swap a
+          // clip for ANY unrelated media in the project. Same shape and same
+          // fail-closed rule as `candidateKeys` above — recorded at launch, because
+          // that is when the permission was fixed.
+          ? (context.timeline && Array.isArray(context.timeline.clips)
+            ? {
+                timelineAlternatives: Object.fromEntries(
+                  context.timeline.clips.map((c) => [
+                    c.clipId,
+                    (Array.isArray(c.alternatives) ? c.alternatives : [])
+                      .map((v) => v.assetId)
+                      .filter((id) => typeof id === "string" && id),
+                  ]),
+                ),
+              }
+            : null)
+          : context.shotContext
           ? {
               ...shotctx.traceOf(context.shotContext, {
                 // WHICH candidates this run was allowed to pick from (决策 4). Recorded
@@ -2730,6 +2492,16 @@ const ctx = {
         // From the run's own record, so the permission is the one that was in force
         // when the answer was produced — not whatever a fresh retrieval returns now.
         candidateKeys: Array.isArray(trace.candidateKeys) ? trace.candidateKeys : null,
+        // …and WHICH takes this run was allowed to swap each clip to
+        // (TASK-072 §1.9 缺陷 8). Same rule, other surface: the alternatives the run
+        // actually saw, not a fresh lookup — a version added since would otherwise
+        // become retroactively "allowed".
+        timelineAlternatives:
+          trace.timelineAlternatives != null
+          && typeof trace.timelineAlternatives === "object"
+          && !Array.isArray(trace.timelineAlternatives)
+            ? trace.timelineAlternatives
+            : null,
       };
       const plan = skillapply.planApply(run.skillId, run.proposal, merged);
       if (!plan.ok) return plan;
@@ -2880,6 +2652,63 @@ const ctx = {
      * would leave only the flattering half of the history — the same rule that keeps
      * rejected proposals (ADR-0056 决策 6).
      */
+    /**
+     * REAL CANCEL — terminate a run the BACKEND owns (TASK-073 §1.3 / 验收 #7).
+     *
+     * `abandon` already told the creator to 「用『取消运行』终止它」 for anything not
+     * executed manually, but no such entry point existed: the sentence pointed at
+     * nothing. This is it.
+     *
+     * IT NEVER SETTLES THE RECORD ITSELF. A local executor is a real process, and
+     * only `POST /api/runs/<id>/cancel` can prove it died. This calls that, and then
+     * records ONLY what the backend confirmed:
+     *
+     *   cancelled   → the process tree is gone; mark it cancelled here too
+     *   cancelling  → the kill was NOT confirmed; the run stays open and the real
+     *                 reason (including any residual pid) is reported verbatim
+     *   finished    → it completed before the request landed; the real outcome
+     *                 stands and nothing is overwritten with 「已取消」
+     *
+     * Writing `cancelled` on an unconfirmed kill is exactly what 系统合同 §5.4
+     * rule 3 forbids: it puts 「已取消」 on screen while the executor keeps running
+     * and keeps spending.
+     */
+    cancel: async (skillRunId) => {
+      const r = skillrun.findRun(skillRunRegistry, skillRunId);
+      if (!r) return { ok: false, error: "运行记录不存在" };
+      if (!skillrun.isOpen(r)) {
+        return { ok: false, error: `这次运行已经是「${r.status}」，没有可取消的东西` };
+      }
+      // A run the FRONT END owns has no process to kill — that is `abandon`'s job,
+      // and routing it here would ask the backend about an id it never minted.
+      const backendOwned = typeof r.runId === "string" && r.runId.startsWith("run-");
+      if (!backendOwned) return ctx.skills.abandon(skillRunId, "创作者取消了这次运行");
+      const at = new Date().toISOString();
+      // park it in `cancelling` FIRST, so the row stops offering 「取消」 twice while
+      // the request is in flight
+      skillrun.cancelRun(skillRunRegistry, skillRunId, at, "创作者取消了这次运行");
+      ctx.persist();
+      refreshProductionView();
+      const res = await runtime.cancelRun(r.runId, r.projectId || null);
+      if (res.ok) {
+        skillrun.confirmCancelled(skillRunRegistry, skillRunId, new Date().toISOString());
+        ctx.persist();
+        refreshProductionView();
+        return { ok: true };
+      }
+      // NOT cancelled. The record stays open and says why — never a fabricated
+      // terminal state. `finished` is not a failure of the cancel: the run simply
+      // produced its real result first, and that result is the truth.
+      ctx.persist();
+      refreshProductionView();
+      return {
+        ok: false,
+        error: res.finished
+          ? res.detail
+          : `未能确认终止：${res.detail}。这次运行仍停在「取消中」，不会被标成已取消。`,
+        finished: !!res.finished,
+      };
+    },
     abandon: async (skillRunId, reason = "创作者放弃了这次运行") => {
       const r = skillrun.findRun(skillRunRegistry, skillRunId);
       if (!r) return { ok: false, error: "运行记录不存在" };
@@ -2991,12 +2820,23 @@ const ctx = {
     /** Record a reading. Returns the version, or 0 when refused (a LOCKED
      *  reading refuses everything that is not a manual edit). */
     save: (refKey, axes, opts = {}) => {
+      // WHAT IS BEING READ, recorded with the reading (TASK-072 §1.9 缺陷 3).
+      // Resolved HERE from the registry rather than trusted from the caller: the
+      // whole point is that the record describes the material that actually existed
+      // at the moment of reading, so a later version swap can be reported as drift
+      // instead of silently relabelling an old note as a new one.
+      const chain = ctx.assets.chainOf(refKey);
+      const cur = chain && Array.isArray(chain.list)
+        ? chain.list.find((x) => x.current) || null
+        : null;
       const v = refinterp.addReading(refInterpDoc, refKey, {
         axes,
         origin: opts.origin || "manual",
         at: new Date().toISOString(),
         skillRunId: opts.skillRunId || null,
         proposalId: opts.proposalId || null,
+        basedOnAssetId: cur && cur.assetId ? cur.assetId : null,
+        basedOnVersion: cur && Number.isInteger(cur.version) ? cur.version : null,
       });
       if (v) { ctx.persist(); refreshProductionView(); }
       return v;
@@ -3260,81 +3100,12 @@ const ctx = {
   // ---------------------------------------------------------------------- //
   // LOCK (ADR-0061 决策 5 / §50) — 「这个我定了」.
   //
-  // One predicate (`is`) that every automated writer consults. The three locks
-  // that live on their own documents (prompt / audio clip / frame binding) are
-  // routed here too, so a caller has ONE lock API and cannot reach half of them.
+  // MOVED to src/controllers/lockctl.js (TASK-073 §1.8). Documents are handed over
+  // as GETTERS, because they are module-level `let`s reassigned on project load — a
+  // factory capturing their values would keep writing to the previous project's
+  // documents. Assigned AFTER this literal (see below `ctx.locks = …`), since the
+  // factory needs `ctx`-adjacent helpers that only exist once it is built.
   // ---------------------------------------------------------------------- //
-  locks: {
-    SCOPES: locksdoc.SCOPES,
-    is: (scope, id) => {
-      if (scope === "prompt") {
-        // a prompt lock is keyed by shot+kind and stored on promptdoc
-        const [shotId, kind] = String(id || "").split("|");
-        const e = promptdoc.entryOf(promptsDoc, shotId, kind === "video" ? "video" : "image");
-        return !!(e && e.locked === true);
-      }
-      if (scope === "audioClip") {
-        const hit = findShotAudioClip(id);
-        return !!(hit && hit.clip.locked === true);
-      }
-      if (scope === "frameBinding") {
-        const [shotId, type] = String(id || "").split("|");
-        const b = framebind.bindingOf(frameBindingsDoc, shotId, type);
-        return !!(b && b.locked === true);
-      }
-      return locksdoc.isLocked(locksDoc, scope, id);
-    },
-    /** Lock / unlock. Routed to whichever document owns that scope's flag, so a
-     *  UI toggle never has to know which of the four stores it is talking to. */
-    set: (scope, id, on) => {
-      let ok = false;
-      if (scope === "prompt") {
-        const [shotId, kind] = String(id || "").split("|");
-        ok = promptdoc.setLocked(promptsDoc, shotId, kind === "video" ? "video" : "image", on === true);
-      } else if (scope === "audioClip") {
-        const hit = findShotAudioClip(id);
-        ok = !!hit && shotaudio.setLocked(shotAudioDoc, hit.shotId, id, on === true);
-      } else if (scope === "frameBinding") {
-        const [shotId, type] = String(id || "").split("|");
-        ok = framebind.setLocked(frameBindingsDoc, shotId, type, on === true);
-      } else {
-        ok = locksdoc.set(locksDoc, scope, id, on === true, { at: new Date().toISOString() });
-      }
-      return prodOp(ok);
-    },
-    /** EVERY lock in force, across all four stores.
-     *
-     *  Counting only `locksDoc` under-reported: a locked Prompt, a locked audio
-     *  clip and a locked frame binding are locks the creator set and automation
-     *  obeys, and the console's 「锁定 N 项」 and the Final Render's
-     *  `locksInForce` both print this number. A count that silently omits three
-     *  of the eight scopes is a wrong number in a provenance record. */
-    count: () => {
-      let n = locksdoc.count(locksDoc);
-      for (const shotId of Object.keys(promptsDoc)) {
-        for (const kind of promptdoc.PROMPT_KINDS) {
-          const e = promptdoc.entryOf(promptsDoc, shotId, kind);
-          if (e && e.locked === true) n += 1;
-        }
-      }
-      for (const shotId of Object.keys(shotAudioDoc)) {
-        for (const c of shotaudio.clipsOf(shotAudioDoc, shotId)) if (c.locked) n += 1;
-      }
-      for (const shotId of Object.keys(frameBindingsDoc)) {
-        for (const t of framebind.BINDING_TYPES) {
-          const b = framebind.bindingOf(frameBindingsDoc, shotId, t);
-          if (b && b.locked === true) n += 1;
-        }
-      }
-      // …and the reference READINGS, which carry their own lock too
-      for (const key of Object.keys(refInterpDoc)) {
-        const e = refinterp.entryOf(refInterpDoc, key);
-        if (e && e.locked === true) n += 1;
-      }
-      return n;
-    },
-    list: (scope) => locksdoc.listScope(locksDoc, scope),
-  },
 
   // ---------------------------------------------------------------------- //
   // FRAMES (TASK-064 Phase 2 §7) — 上一镜尾帧 → 下一镜首帧.
@@ -3454,8 +3225,36 @@ const ctx = {
      * source object to 「upload」 would file the shot's own picture as an upload.
      */
     bind: (targetShotId, bindingType, { assetId, source = null, sourceKind = "upload", force = false } = {}) => {
+      // EVERY check runs BEFORE the first write (TASK-072 §1.9 缺陷 1). This used
+      // to record the binding, then discover the problem, then report success:
+      //   ① `targetShotId` was never resolved → a binding pointing at no shot,
+      //      reported as applied;
+      //   ② any image asset was accepted → an asset belonging to ANOTHER slot and
+      //      not declared `derived-frame` fails `validateCanvasDoc`, and that
+      //      validator rejects the WHOLE document — so binding one made the
+      //      project unopenable (and unsaveable) afterwards;
+      //   ③ the slot was resolved AFTER `framebind.bind` had already persisted →
+      //      the prompt showed the new frame while generation still used the old.
+      // Nothing is written unless all of them pass.
       const hit = assetId ? assetlib.findAssetById(assetRegistry, assetId) : null;
       if (!hit || hit.domain !== "images") { toast("只能绑定已登记的图片资产作为首/尾帧"); return null; }
+      const shot = ctx.shot.find(targetShotId);
+      if (!shot) { toast("目标镜头不存在：没有绑定任何帧"); return null; }
+      let slot = null;
+      if (bindingType === "startFrame") {
+        slot = ctx.shot._slotOf(shot);
+        // ③ refuse rather than record a binding whose effective pointer cannot be
+        // written: 「已记录绑定，但生成仍用旧画面」 is a binding that lies.
+        if (!slot) { toast("目标镜头的槽位无法解析：没有绑定任何帧"); return null; }
+        // ② the exact rule `validateCanvasDoc` enforces on assets.firstFrames:
+        // an image may be bound to a DIFFERENT slot only when it is the one kind
+        // whose whole purpose is that (上一镜尾帧 → 下一镜首帧). Checked here so a
+        // refusal is a sentence now, instead of an unloadable document later.
+        if (hit.record.kind !== "derived-frame" && hit.key !== slot) {
+          toast("这张图属于另一个镜头的画面，且不是提取出来的帧——不能用作本镜头的首帧");
+          return null;
+        }
+      }
       const b = framebind.bind(frameBindingsDoc, targetShotId, bindingType, {
         derivedImageAssetId: assetId,
         source: source ? "extracted" : sourceKind,
@@ -3463,16 +3262,11 @@ const ctx = {
         at: new Date().toISOString(),
       }, { force });
       if (!b) { toast("这个帧槽位已锁定：先解锁再绑定"); return null; }
-      if (bindingType === "startFrame") {
-        const shot = ctx.shot.find(targetShotId);
-        const slot = shot ? ctx.shot._slotOf(shot) : null;
-        if (!slot) { toast("目标镜头的槽位无法解析：已记录绑定，但视频生成仍会用本镜头当前画面"); }
-        else {
-          mediaref.putKey(assetRegistry.firstFrames, slot, {
-            ...hit.record, slot_id: slot, digest: hit.record.digest || null,
-          });
-          ctx.refreshType("video");
-        }
+      if (slot) {
+        mediaref.putKey(assetRegistry.firstFrames, slot, {
+          ...hit.record, slot_id: slot, digest: hit.record.digest || null,
+        });
+        ctx.refreshType("video");
       }
       ctx.persist();
       refreshProductionView();
@@ -3710,7 +3504,13 @@ const ctx = {
     generate: () => {
       const t = timeline.timelineFor(timelinesDoc, productionDoc.activeEpisodeId);
       const rows = [];
-      for (const c of timeline.clipsOf(t, "video")) {
+      // `liveClips`, NOT `clipsOf` (TASK-072 §1.9 缺陷 5). `clipsOf` excludes
+      // removed clips by default TODAY, but the cut's definition of 「in the
+      // picture」 is `liveClips` — one definition, so the SRT, the render and the
+      // duration cannot disagree. Generating cues for a clip the viewer will never
+      // see ships a subtitle describing a shot that is not in the film.
+      for (const c of timeline.liveClips(t)) {
+        if (c.trackType !== "video") continue;
         if (!c.shotId) continue;
         const shot = ctx.shot.find(c.shotId);
         if (!shot) continue;
@@ -3736,30 +3536,15 @@ const ctx = {
     },
     /** An unavailable adapter answers with its real reason — no fake ASR (§45). */
     tryAdapter: (id) => subtitle.adapterUnavailable(id),
-    update: (cueId, fields) => {
-      const track = ctx.subtitles.track();
-      const ok = fields && fields.mergeWithNext === true
-        ? subtitle.mergeCue(track, cueId, { at: new Date().toISOString(), isLocked: (id) => ctx.locks.is("subtitle", id) })
-        : subtitle.updateCue(track, cueId, fields, {
-          at: new Date().toISOString(),
-          force: true, // the creator's own edit of a cue they locked
-          isLocked: (id) => ctx.locks.is("subtitle", id),
-        });
-      return prodOp(ok);
-    },
+    update: (cueId, fields) => prodOp(_writeCue(cueId, fields, { force: true })),
     /** A SKILL's edit of a cue — same write path, but the lock is enforced. */
-    applyFix: (cueId, fields, meta = {}) => {
-      const track = ctx.subtitles.track();
-      const ok = fields && fields.mergeWithNext === true
-        ? subtitle.mergeCue(track, cueId, { at: new Date().toISOString(), isLocked: (id) => ctx.locks.is("subtitle", id) })
-        : subtitle.updateCue(track, cueId, fields, {
-          at: new Date().toISOString(),
+    applyFix: (cueId, fields, meta = {}) =>
+      prodOp(
+        _writeCue(cueId, fields, {
           force: false,
-          isLocked: (id) => ctx.locks.is("subtitle", id),
           origin: meta.skillRunId ? "skill" : "manual",
-        });
-      return prodOp(ok);
-    },
+        }),
+      ),
     add: (cue) => prodNew(subtitle.addCue(ctx.subtitles.track(), cue)),
     remove: (cueId) => prodOp(subtitle.removeCue(ctx.subtitles.track(), cueId, {
       isLocked: (id) => ctx.locks.is("subtitle", id),
@@ -3791,7 +3576,48 @@ const ctx = {
     /** Dispatch one action envelope. `meta.origin` is "user" (default) or "ai";
      *  the gate is `actions.allowedAt`, which at the level in force refuses every
      *  AI-origin mutation. */
+    /**
+     * Dispatch, then apply G3 (系统合同 §6.3 / TASK-072 §1.6 验收 #9).
+     *
+     * WRAPPED HERE rather than repeated in each case: §6.3 says the trigger is the
+     * DOMAIN, 「任何走 Action 层的相关写入都触发它」. A retirement checked inside one
+     * page is bypassed by the next page that performs the same operation — which is
+     * how 「审片通过」 survives a shot reorder in the first place.
+     *
+     * Only on SUCCESS: a refused edit changed no structure, so it must not retire a
+     * review. And the note is appended to the result, so the creator is told the
+     * lock was released instead of discovering it later.
+     */
     dispatch: (envelope, meta = {}) => {
+      const res = ctx.actions._dispatchRaw(envelope, meta);
+      if (!res || res.ok !== true) return res;
+      const trigger = g3TriggerFor(envelope && envelope.action);
+      if (!trigger) return res;
+      const episodeId = productionDoc.activeEpisodeId;
+      if (!episodeId) return res;
+      const g3 = g3Retire(reviewsDoc.decisions, {
+        episodeId,
+        trigger,
+        at: new Date().toISOString(),
+      });
+      if (!g3.changed) return res;
+      reviewsDoc = {
+        ...reviewsDoc,
+        decisions: reviewsDoc.decisions.map((d) => (d.decisionId === g3.decisionId ? g3.next : d)),
+      };
+      // THE PICTURE LOCK IS NOT RELEASED HERE, and that is stated rather than
+      // silently skipped: there is no `pictureEdit` scope in `workflow/locks.js`
+      // yet — 画面锁定 arrives with `lockPictureEdit` (合同 §6.3 G2 / TASK-073 §1.7
+      // 表), which is not implemented. Calling `ctx.locks.set` with an undeclared
+      // scope would write a lock nothing reads and report success.
+      const lockNote = g3.unlockPicture
+        ? "（画面锁定本身还未实现，所以没有锁需要解除）"
+        : "";
+      ctx.persist();
+      refreshProductionView();
+      return { ...res, note: [res.note, g3.reason + lockNote].filter(Boolean).join("；") };
+    },
+    _dispatchRaw: (envelope, meta = {}) => {
       const bad = actions.validate(envelope);
       if (bad) return { ok: false, error: bad };
       const gate = actions.allowedAt(envelope.action, {
@@ -4084,16 +3910,10 @@ const ctx = {
           const clip = timeline.findClip(t, a.clipId);
           if (!clip) return { ok: false, error: `时间线片段 ${a.clipId} 不存在` };
           if (clip.removed === true) return { ok: false, satisfied: true, error: "这个片段本来就已移出成片" };
-          return bool(
-            ctx.timeline.op("setClipRemoved", a.clipId, true, { isLocked: (id) => ctx.locks.is("timelineClip", id) }),
-            "无法移出（片段可能已锁定）",
-          );
+          return _setRemoved(a.clipId, true, "无法移出（片段可能已锁定）");
         }
         case "restoreTimelineClip":
-          return bool(
-            ctx.timeline.op("setClipRemoved", a.clipId, false, { isLocked: (id) => ctx.locks.is("timelineClip", id) }),
-            "无法恢复（片段可能已锁定，或本来就在成片里）",
-          );
+          return _setRemoved(a.clipId, false, "无法恢复（片段可能已锁定，或本来就在成片里）");
         case "setTimelineVolume": {
           const t = timeline.timelineFor(timelinesDoc, productionDoc.activeEpisodeId);
           const clip = timeline.findClip(t, a.clipId);
@@ -4103,6 +3923,28 @@ const ctx = {
           // conversion lives in dbToLinear — see skillapply.collectSoundAdjustments.
           const next = Number.isFinite(a.gainDb) ? dbToLinear(clip.volume, a.gainDb) : a.volume;
           return bool(ctx.timeline.op("setClipVolume", a.clipId, next), "无法调整音量");
+        }
+        case "setTimelineFade": {
+          const t = timeline.timelineFor(timelinesDoc, productionDoc.activeEpisodeId);
+          const clip = timeline.findClip(t, a.clipId);
+          if (!clip) return { ok: false, error: `时间线片段 ${a.clipId} 不存在` };
+          if (ctx.locks.is("timelineClip", a.clipId)) {
+            return { ok: false, error: "这个片段已锁定：先解锁再调整淡入淡出" };
+          }
+          // A proposal states MILLIseconds; the timeline stores seconds. One
+          // conversion, here, for the same reason dbToLinear exists — and `null`
+          // means 「这一端不动」, so it keeps the clip's current value rather than
+          // resetting the other end to zero.
+          const secs = (ms, cur) => (Number.isFinite(ms) ? ms / 1000 : cur);
+          return bool(
+            ctx.timeline.op(
+              "setClipFades",
+              a.clipId,
+              secs(a.fadeInMs, clip.fadeIn),
+              secs(a.fadeOutMs, clip.fadeOut),
+            ),
+            "无法调整淡入淡出",
+          );
         }
         case "setTransition":
           if (ctx.locks.is("timelineClip", a.clipId)) return { ok: false, error: "这个片段已锁定：先解锁再改转场" };
@@ -5146,6 +4988,10 @@ const ctx = {
   persist: () => {
     if (canvasActive && PROJECT_NAME) persist.saveCanvas(PROJECT_NAME, serializeGraph());
   },
+  // ⚙ 项目设置 (TASK-073 §1.7). `deliverySpec` is read by ⚙ and by 交付质检's 规格
+  // check; `setDeliverySpecField` is the ONLY write path and refuses invalid values.
+  deliverySpec,
+  setDeliverySpecField,
   // READ-ONLY snapshot of current workflow/node state for the Production
   // workspaces (this checkpoint: expose, don't migrate). Ownership stays on
   // the nodes / project mirrors — same merge pattern as collectMedia().
@@ -5228,6 +5074,51 @@ const ctx = {
     schedulePaidPolling();
   },
 };
+
+// --- controllers extracted from the literal above (TASK-073 §1.8) ------------- //
+//
+// Attached AFTER `ctx` rather than inside the literal: the factories take `ctx`-level
+// helpers (`prodOp`, `findShotAudioClip`) and, for some, `ctx` itself, which cannot be
+// referenced while the literal is still being evaluated. Nothing in the literal calls
+// these during evaluation — every property there is a function body — so the order is
+// safe, and a test asserts the controller is present on `ctx`.
+//
+// Documents are passed as GETTERS. They are module-level `let`s that project loading
+// REASSIGNS, so handing over their current values would leave a controller writing to
+// the previous project's documents forever.
+ctx.timeline = createTimelineController({
+  docs: {
+    timelines: () => timelinesDoc,
+    production: () => productionDoc,
+    assets: () => assetRegistry,
+    shotAudio: () => shotAudioDoc,
+    subtitles: () => subtitlesDoc,
+  },
+  session: {
+    projectName: () => PROJECT_NAME,
+    connected: () => CONNECTED,
+  },
+  modules: { timeline, roughcut, proddoc, mediaref, assetlib, shotaudio, subtitle, command },
+  helpers: {
+    timelineSourceSig, buildShotSlotIndex, slotForShotId, toast, refreshProductionView,
+    now: () => new Date().toISOString(),
+  },
+  getCtx: () => ctx,
+});
+
+ctx.locks = createLockController({
+  docs: {
+    locks: () => locksDoc,
+    prompts: () => promptsDoc,
+    shotAudio: () => shotAudioDoc,
+    frameBindings: () => frameBindingsDoc,
+    refInterp: () => refInterpDoc,
+  },
+  modules: { locksdoc, promptdoc, shotaudio, framebind, refinterp },
+  findShotAudioClip,
+  prodOp,
+  now: () => new Date().toISOString(),
+});
 
 // --- paid-op auto polling + global queue bar (TASK-048 第2步, read-only) ---
 // While a paid generation is running (reservation held) or the batch loop is
@@ -5453,6 +5344,137 @@ function dbToLinear(currentLinear, deltaDb) {
   const base = Number.isFinite(currentLinear) ? currentLinear : 1;
   const next = base * 10 ** (deltaDb / 20);
   return Math.min(2, Math.max(0, next));
+}
+
+/** The project's delivery spec — read (TASK-073 §1.7).
+ *
+ *  A plain copy: callers render it and compare against it, never mutate it. The one
+ *  write path is `ctx.setDeliverySpecField` below. */
+function deliverySpec() {
+  return { ...deliverySpecDoc };
+}
+
+/**
+ * Set ONE ⚙ field — the ONLY write path (§1.7: 「唯一编辑入口」).
+ *
+ * Validated through the domain module, so a bad value is REFUSED rather than
+ * coerced: `fps: "25"` silently becoming 25 would mean the stored spec and what the
+ * creator typed are two different things, and only one of them was checked.
+ *
+ * An empty string CLEARS the field back to 「还没有设置」 — which must stay reachable,
+ * or a mistyped cap could never be un-set, only replaced.
+ */
+function setDeliverySpecField(key, raw) {
+  const field = SPEC_FIELD_BY_KEY[key];
+  if (!field) return { ok: false, error: `未知的规格字段 ${key}` };
+  if (raw === "" || raw === null || raw === undefined) {
+    const next = { ...deliverySpecDoc };
+    delete next[key];
+    deliverySpecDoc = next;
+    ctx.persist();
+    refreshProductionView();
+    return { ok: true, cleared: true };
+  }
+  // parse by DECLARED kind, never by guessing from the text
+  let value = raw;
+  if (field.kind === "int") {
+    value = /^-?\d+$/.test(String(raw).trim()) ? Number(String(raw).trim()) : raw;
+  } else if (field.kind === "money") {
+    const t = String(raw).trim();
+    value = /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : raw;
+  }
+  const err = validateField(key, value);
+  if (err) return { ok: false, error: err };
+  deliverySpecDoc = { ...deliverySpecDoc, [key]: value };
+  ctx.persist();
+  refreshProductionView();
+  return { ok: true };
+}
+
+/** Remove / restore a timeline clip, REPORTING what the cascade left alone.
+ *
+ *  Removing a video clip takes its shot's anchored audio with it, but a LOCKED
+ *  audio clip is not taken (TASK-072 §1.9 缺陷 4). That is the right behaviour and
+ *  it must be visible: an unexplained audio clip still sitting in the cut after the
+ *  picture left is exactly as confusing as one that silently vanished. */
+function _setRemoved(clipId, on, failReason) {
+  const skipped = [];
+  const ok = ctx.timeline.op("setClipRemoved", clipId, on, {
+    isLocked: (id) => ctx.locks.is("timelineClip", id),
+    skipped,
+  });
+  if (!ok) return { ok: false, error: failReason };
+  if (!skipped.length) return { ok: true };
+  return {
+    ok: true,
+    note: on
+      ? `${skipped.length} 条已锁定的音频没有跟着移出（先解锁才会一起移出）`
+      : `${skipped.length} 条已锁定的音频没有跟着恢复（先解锁才会一起恢复）`,
+  };
+}
+
+/** The version chain a timeline clip could be replaced FROM — the right one for
+ *  its track (TASK-072 §1.9 缺陷 7).
+ *
+ *  Reads the SAME map + key vocabulary as `ctx.timeline.activeFor`, so 「这条片段
+ *  当前是哪一版」 and 「它还能换成哪几版」 cannot disagree. Deliberately NOT
+ *  `ctx.assets.chainOf`, which guesses the domain by searching images → videos →
+ *  audio and therefore returns the first-frame IMAGE chain for a video slot.
+ *
+ *  `ambience` / `bgm` return null: they are owned by the scene / episode, not by a
+ *  per-shot chain, so there is no shot-level alternative list to offer. An empty
+ *  list is the honest answer — a wrong one invites a proposal that cannot apply. */
+function _clipChain(shotId, trackType) {
+  if (!shotId) return null;
+  const shot = ctx.shot.find(shotId);
+  const slot = shot ? ctx.shot._slotOf(shot) : null;
+  if (!slot) return null;
+  const key = trackType === "video"
+    ? slot
+    : trackType === "dialogue"
+      ? `voice-${slot}`
+      : trackType === "sfx"
+        ? `sfx-${slot}`
+        : null;
+  if (!key) return null;
+  const map = trackType === "video" ? assetRegistry.videos : assetRegistry.audio;
+  return mediaref.slotEntry(map, key) || null;
+}
+
+/** Write one subtitle cue: a merge, a field edit, or BOTH (TASK-072 §1.9 缺陷 6).
+ *
+ *  The two used to be exclusive branches — `mergeWithNext === true` took the merge
+ *  path and every other field in the same fix (`text`, `startMs`, `endMs`,
+ *  `speaker`) was SILENTLY DROPPED while the surface reported success. A Subtitle
+ *  Reviewer that says 「合并这两条，并把文字改成…」 is one fix, not two, and half of
+ *  it landing is worse than none: the creator sees 已应用 and the text they were
+ *  shown is not what is in the track.
+ *
+ *  BOTH OR NEITHER. The merge runs first (the field edit describes the merged
+ *  window), and if the edit is then refused — a lock, a bad value — the merge is
+ *  ROLLED BACK from a snapshot so the track never keeps half a fix. */
+function _writeCue(cueId, fields, { force = false, origin = null } = {}) {
+  const track = ctx.subtitles.track();
+  if (!track || fields == null || typeof fields !== "object") return false;
+  const at = new Date().toISOString();
+  const isLocked = (id) => ctx.locks.is("subtitle", id);
+  const opts = { at, force, isLocked, ...(origin ? { origin } : {}) };
+  const rest = {};
+  for (const k of Object.keys(fields)) {
+    if (k !== "mergeWithNext") rest[k] = fields[k];
+  }
+  const hasRest = Object.keys(rest).length > 0;
+  if (fields.mergeWithNext !== true) {
+    return !!subtitle.updateCue(track, cueId, rest, opts);
+  }
+  const snapshot = track.cues.slice();
+  if (!subtitle.mergeCue(track, cueId, { at, isLocked })) return false;
+  if (!hasRest) return true;
+  if (!subtitle.updateCue(track, cueId, rest, opts)) {
+    track.cues = snapshot; // refuse whole, keep nothing
+    return false;
+  }
+  return true;
 }
 
 function prodOp(ok) {
@@ -6072,6 +6094,13 @@ function serializeGraph() {
     // tokens re-deriving what is still valid — and so a conclusion that HAS gone
     // stale is still shown as stale rather than vanishing.
     ctxCache: ctxcache.serialize(ctxCacheDoc),
+    // TASK-073 §1.7 / canvas v16: the PROJECT-level delivery spec (成片规格 +
+    // 预算与限制). Deliberately separate from `timelines[].settings`, which is one
+    // EPISODE's render settings — a render can legitimately differ from the delivery
+    // target, and folding them together would make changing one change the other.
+    deliverySpec: { ...deliverySpecDoc },
+    // §6: issues an Agent may raise + decisions only the creator may make
+    reviews: { issues: [...reviewsDoc.issues], decisions: [...reviewsDoc.decisions] },
     nodes: engine.nodes.map((n) => ({
       id: n.id, type: n.type, x: n.x, y: n.y, state: n.state,
       text: n.text, versions: n.versions, cur: n.cur, pickSingle: n.pickSingle,
@@ -6126,6 +6155,16 @@ function restoreGraph(data) {
   // TASK-067 §15 (additive; absent → empty). Entries whose baseline no longer
   // matches hydrate fine and simply read as stale — that is the point.
   ctxCacheDoc = ctxcache.createCache((data && data.ctxCache) || null);
+  // TASK-073 §1.7: absent → an EMPTY spec, never a guessed one. A historical document
+  // recorded none of these fields and back-filling them would be fabrication
+  // (TASK-074 §1.3 同规).
+  deliverySpecDoc = (data && data.deliverySpec && typeof data.deliverySpec === "object"
+    && !Array.isArray(data.deliverySpec)) ? { ...data.deliverySpec } : {};
+  const rv = data && data.reviews;
+  reviewsDoc = {
+    issues: rv && Array.isArray(rv.issues) ? [...rv.issues] : [],
+    decisions: rv && Array.isArray(rv.decisions) ? [...rv.decisions] : [],
+  };
   // Breakdown proposals are PER-PROJECT transient review state: cards derived
   // from another project's script must never be appliable here, and a switch
   // mid-run must not leave a stuck "running" guard. (The in-flight run's
@@ -6262,6 +6301,8 @@ async function enterCanvas(name, opts = {}) {
   // …and the conclusion cache. Carrying it across a project switch would show one
   // project's asset recommendations under another project's shot ids.
   ctxCacheDoc = ctxcache.createCache(null);
+  deliverySpecDoc = {};
+  reviewsDoc = { issues: [], decisions: [] };
   const known = projects.loadRegistry(window.localStorage).find((p) => p.name === name);
   ctx.project = {
     ...FIX,
@@ -6589,12 +6630,41 @@ document.addEventListener("keydown", (e) => {
   inspector.close();
 });
 
+/** Load the capability catalog from the backend (TASK-075 §1.4).
+ *
+ *  FAIL CLOSED (ADR-0067 决策 7): if the payload is rejected, NOTHING installs
+ *  and the recorded reason is the loader's own message. A partially installed
+ *  catalog would offer capabilities whose output contract never arrived — the
+ *  page would let a creator run one and then have no way to judge the answer. */
+async function installSkillCatalog() {
+  const res = await query.fetchSkillCatalog();
+  if (!res.ok) {
+    CATALOG_DETAIL = res.detail;
+    CATALOG_PROBLEMS = [];
+    return;
+  }
+  // Load failures travel WITH the catalog: `problems[]` is how a broken package
+  // stays visible instead of silently vanishing from the list (§1.7). Entries
+  // whose skillId could not be read carry an empty id — kept, and labelled, so a
+  // list view never renders a nameless row (批次 A 交接项).
+  CATALOG_PROBLEMS = (Array.isArray(res.payload.problems) ? res.payload.problems : []).map(
+    (p) => ({ ...p, skillId: p && p.skillId ? p.skillId : "（未能读出能力 ID）" }),
+  );
+  try {
+    skills.installCatalog(res.payload);
+    CATALOG_DETAIL = "";
+  } catch (e) {
+    CATALOG_DETAIL = `能力目录无法安装：${e.message}`;
+  }
+}
+
 // --- async bootstrap ---
 async function boot() {
   const m = await query.detectMode();
   CONNECTED = m.mode === "connected";
   PAID = CONNECTED && m.paid === true;
   setModeBadge();
+  await installSkillCatalog();
   REAL_NAMES = [];
   if (CONNECTED) {
     REAL_NAMES = await query.listProjects();

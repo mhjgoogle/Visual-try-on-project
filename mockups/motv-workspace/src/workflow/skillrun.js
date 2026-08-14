@@ -83,6 +83,26 @@ export const RUN_STATUSES = [
 export const PROPOSAL_DISPOSITIONS = ["pending", "accepted", "rejected", "superseded"];
 
 /** Once written, never rewritten. A late answer must not overwrite a decision. */
+/** What the creator sees for each status.
+ *
+ *  HERE, beside `RUN_STATUSES`, and not in a panel: TASK-073 §1.3 puts task rows on
+ *  ⑧ 镜头制作 as well as in the skill panel, and two copies of this table would let
+ *  one surface say 「进行中」 while the other says 「running」 for the same run.
+ *
+ *  The disposition axis (有提案 / 已接受 / 已忽略) is a SECOND axis and stays with
+ *  the panel that renders proposals — a `succeeded` run reads differently depending
+ *  on what the creator did with the answer. */
+export const RUN_STATUS_LABEL = {
+  awaiting_confirmation: "待确认",
+  queued: "排队中",
+  running: "进行中",
+  awaiting_input: "等你交结果", // manual: the system is waiting for a PERSON
+  cancelling: "取消中",
+  cancelled: "已取消",
+  succeeded: "已完成",
+  failed: "失败",
+};
+
 export const TERMINAL_RUN_STATUSES = ["cancelled", "succeeded", "failed"];
 
 const TERMINAL_SET = new Set(TERMINAL_RUN_STATUSES);

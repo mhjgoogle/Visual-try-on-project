@@ -98,6 +98,12 @@ export const ACTIONS = {
   removeTimelineClip: { args: ["clipId"], risk: "edit" },
   restoreTimelineClip: { args: ["clipId"], risk: "edit" },
   setTimelineVolume: { args: ["clipId", "volume"], risk: "edit" },
+  // TASK-072 §1.9 缺陷 9: the episode timeline has had `fadeIn` / `fadeOut` since
+  // M11, but no action addressed them — so a Sound Designer's episode-layer fade
+  // was collected, dropped, and reported as applied. Fades are stated in MILLI-
+  // seconds like every other proposal duration; the timeline stores seconds and
+  // the dispatcher converts, exactly as it does for dB → linear volume.
+  setTimelineFade: { args: ["clipId", "fadeInMs", "fadeOutMs"], risk: "edit" },
   setTransition: { args: ["clipId", "kind", "durationMs"], risk: "edit" },
   updateSubtitle: { args: ["cueId", "fields"], risk: "edit" },
   buildSubtitles: { args: ["episodeId"], risk: "edit" },

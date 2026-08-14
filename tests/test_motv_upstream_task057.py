@@ -69,17 +69,20 @@ def test_production_rail_is_upstream_only() -> None:
     for key in (
         '"brief"',
         '"story"',
-        '"characters"',
-        '"world"',
+        # TASK-073 §1.1: 人物 / 人物关系 / 世界观 collapsed into ③ 作品设定, whose
+        # formal key is `settings`. Three rail rows became three SECTIONS of one page.
+        '"settings"',
         '"episodes"',
     ):
         assert key in nav, f"upstream rail is missing {key}"
-    # TASK-065 §2: 人物关系 is a TAB inside 人物, not a rail row — a relationship
-    # connects two characters and has no meaning without them, so two entrances for
-    # one subject was the 「少入口」 violation. The MODULE KEY still resolves (several
-    # existing jump targets use it); it is simply not a first-level row any more.
-    assert '"relationships"' not in nav, "人物关系 merged into 人物 (TASK-065 §2)"
-    assert "relationships: " in shell, "…but the module key must still carry a label"
+    # …and none of the three is a first-level row any more, while all three still
+    # RESOLVE (several existing jump targets use them) — TASK-073 §1.1 落点表.
+    for merged in ('"characters"', '"relationships"', '"world"'):
+        assert merged not in nav, f"{merged} merged into 作品设定 (TASK-073 §1.1)"
+    for merged in ("characters:", "relationships:", "world:"):
+        assert merged in shell, f"…but {merged} must still carry a label"
+    assert "MODULE_ALIAS" in shell, "the 落点表 must exist as code, not as a comment"
+    assert "export function resolveModule" in shell
     for key in ('"frames"', '"video"', '"audio"', '"edit"', '"shots"'):
         assert key not in nav, f"downstream stage {key} must not be in the project rail"
     # ADR-0061 决策 1 renamed this space 故事开发 (「把故事写出来」) and extended it to
@@ -88,19 +91,26 @@ def test_production_rail_is_upstream_only() -> None:
     assert '"script"' in nav, "story development ends at the episode script"
     # The episode's production stages are the 剧集制作 space's centre tabs
     # (ADR-0061 决策 2) rather than a sub-tree nested under an episode row.
-    episode_nav = shell[
-        shell.index("export const EPISODE_NAV") : shell.index("export const ASSET_NAV")
-    ]
+    ep_start = shell.index("export const EPISODE_NAV")
+    ep_end = shell.index("export const PROJECT_SETTINGS")
+    episode_nav = shell[ep_start:ep_end]
+    # TASK-073 §1.1: FIVE pages. The eleven legacy stages are kept (this round deletes
+    # entrances, not abilities) in LEGACY_EPISODE_STAGES, and every one of them still
+    # resolves into one of the five through MODULE_ALIAS.
+    for key in ('"board"', '"storyboard"', '"shotwork"', '"cutreview"', '"delivery"'):
+        assert key in episode_nav, f"剧集制作 is missing {key}"
+    legacy = shell[shell.index("export const LEGACY_EPISODE_STAGES") :]
     for key in ('"shots"', '"frames"', '"video"', '"audio"', '"edit"'):
-        assert key in episode_nav
+        assert key in legacy, f"{key} must stay addressable"
     # 剧本 is NOT here: story development ends at the episode script, and 剧集制作
     # begins FROM it. Both spaces claiming it is exactly the overlap ADR-0061 removed.
     assert '"script"' not in episode_nav, "本集剧本 belongs to 故事开发, not 剧集制作"
     # the unified workbench leads, and the provenance VIEW is part of this space
-    assert '"workbench"' in episode_nav
-    assert '"provenance"' in episode_nav
+    assert '"workbench"' in legacy
+    assert '"provenance"' in legacy
     # …and no second flow model on any creator path
     assert '"canvas"' not in episode_nav
+    assert '"canvas"' not in legacy
 
 
 def test_creative_brief_lives_in_the_existing_story_document() -> None:

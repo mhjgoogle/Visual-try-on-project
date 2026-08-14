@@ -563,8 +563,14 @@ export function bindPostConsole(root, ctx, ui, render) {
    *  does nothing is how a lock looks like a bug. */
   const act = (envelope, okMsg) => {
     const res = ctx.actions.dispatch(envelope);
-    if (res.ok) { if (okMsg) ctx.toast(okMsg); }
-    else if (!res.satisfied) ctx.toast(res.error);
+    if (res.ok) {
+      // A success can still have something the creator must know: a cascade that
+      // deliberately LEFT SOMETHING ALONE (a locked audio clip under a removed
+      // picture). Reporting only `okMsg` would make that decision invisible, which
+      // is the same silence the lock fix exists to remove.
+      const msg = res.note ? (okMsg ? `${okMsg}；${res.note}` : res.note) : okMsg;
+      if (msg) ctx.toast(msg);
+    } else if (!res.satisfied) ctx.toast(res.error);
     render();
     return res;
   };

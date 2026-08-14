@@ -326,6 +326,46 @@ export function planApply(skillId, proposal, scope = {}) {
   if (skillId === "editing-director") {
     const acts = collectEdits(proposal);
     if (!acts.length) return { ok: false, error: "提案里没有可应用的剪辑调整（每条都要有 clipId 和至少一项改动）" };
+    // A VERSION SWAP IS BOUNDED BY WHAT THE RUN SAW (TASK-072 §1.9 缺陷 8).
+    //
+    // The dispatcher only checks that the asset exists and suits the track, so
+    // without this an injected or hallucinated `replaceWithAssetId` could put ANY
+    // registered video in the project onto any clip — a different scene's take,
+    // another episode's footage — and it would apply cleanly and persist.
+    //
+    // The permission is the alternatives list this run was actually given, read
+    // from its own recorded trace. FAIL CLOSED, for the same reason
+    // `candidateKeys` does: a run whose permission cannot be checked (a legacy
+    // record, a malformed trace) is refused rather than trusted, and re-running is
+    // cheap. Non-swap edits (trim / order / transition / remove) name no asset and
+    // are unaffected.
+    const swaps = acts.filter((x) => x.action === "replaceTimelineAsset");
+    if (swaps.length) {
+      const allowed = scope.timelineAlternatives;
+      if (allowed == null || typeof allowed !== "object" || Array.isArray(allowed)) {
+        return {
+          ok: false,
+          error: "这次运行没有记录它当时看到的可替换版本，无法校验「换成哪一版」是否越界"
+            + "——重新运行一次「剪辑导演」再应用",
+        };
+      }
+      const ok = (x) => {
+        const list = Object.prototype.hasOwnProperty.call(allowed, x.clipId) ? allowed[x.clipId] : null;
+        return Array.isArray(list) && list.includes(x.assetId);
+      };
+      const kept = acts.filter((x) => x.action !== "replaceTimelineAsset" || ok(x));
+      const dropped = swaps.length - kept.filter((x) => x.action === "replaceTimelineAsset").length;
+      if (!kept.length) {
+        return {
+          ok: false,
+          error: `提案要换的 ${swaps.length} 条素材都不在这次运行看到的可替换版本里——不予替换`,
+        };
+      }
+      // DROPPED ITEMS ARE REPORTED, never silently omitted.
+      return dropped
+        ? { ok: true, actions: kept, dropped: `${dropped} 条版本替换不在这次运行看到的候选里，已跳过` }
+        : { ok: true, actions: kept };
+    }
     return { ok: true, actions: acts };
   }
   if (skillId === "sound-designer") {
@@ -469,7 +509,12 @@ function collectSoundAdjustments(proposal) {
     if (Number.isFinite(a.fadeInMs) || Number.isFinite(a.fadeOutMs)) {
       const fi = Number.isFinite(a.fadeInMs) ? a.fadeInMs : null;
       const fo = Number.isFinite(a.fadeOutMs) ? a.fadeOutMs : null;
-      if (layer === "shot") out.push({ action: "setFade", shotId: null, clipId, fadeInMs: fi, fadeOutMs: fo });
+      // BOTH LAYERS (TASK-072 §1.9 缺陷 9). Only the shot layer was emitted, so a
+      // perfectly legal episode-layer fade — 「本集 BGM 结尾淡出 2 秒」 — was
+      // silently discarded while the surface reported the proposal applied.
+      out.push(layer === "shot"
+        ? { action: "setFade", shotId: null, clipId, fadeInMs: fi, fadeOutMs: fo }
+        : { action: "setTimelineFade", clipId, fadeInMs: fi, fadeOutMs: fo });
     }
     if (Number.isFinite(a.offsetMs) && layer === "shot") {
       // an offset is only meaningful against the clip's CURRENT timing, which

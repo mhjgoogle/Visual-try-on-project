@@ -2198,6 +2198,56 @@ export function validateCanvasDoc(doc) {
       }
     }
   }
+  // --- v16: the project-level delivery spec (TASK-073 §1.7) ---------------- //
+  //
+  // Validated STRUCTURALLY only: it must be an object, and any field it does carry
+  // must be one of the fourteen with a value of the right shape. It is NOT required
+  // to be complete — an empty spec is the honest state of every project that has not
+  // been configured, and rejecting the document for that would make a brand-new
+  // project unloadable.
+  // NO SCHEMA BUMP. `deliverySpec` is purely ADDITIVE and OPTIONAL, exactly like
+  // refInterp / refUse / frameBindings / locks / shotAudio / subtitles / ctxCache: a
+  // document written before it simply carries none of it and hydrates empty, so there
+  // is nothing to back-fill and no migration to run. An earlier draft of this made it
+  // a required v16 field, which would have rejected every hand-written and historical
+  // document that omits it — a breaking change bought for nothing.
+  if (doc.deliverySpec !== undefined && doc.deliverySpec !== null) {
+    if (!isPlainObject(doc.deliverySpec)) return "deliverySpec is not an object";
+    const ENUMS = {
+      platform: ["douyin", "kuaishou", "bilibili", "youtube", "other"],
+      aspect: ["9:16", "16:9", "1:1", "4:5"],
+      resolution: ["1080x1920", "720x1280", "1920x1080", "1280x720"],
+      subtitleMode: ["srt", "burned", "none"],
+      subtitleLang: ["zh", "en", "zh+en", "none"],
+      container: ["mp4", "webm"],
+    };
+    const INTS = {
+      fps: [1, 60], episodeSeconds: [1, 36000], episodeTarget: [1, 999],
+      videoBitrateKbps: [100, 200000], audioBitrateKbps: [32, 512], retryCap: [0, 100],
+    };
+    const MONEY = { budgetTotalUsd: [0, 1000000], perGenerationCapUsd: [0, 100000] };
+    for (const k of Object.keys(doc.deliverySpec)) {
+      const v = doc.deliverySpec[k];
+      if (v === null) continue; // explicitly 「未设置」
+      if (ENUMS[k]) {
+        if (!ENUMS[k].includes(v)) return `deliverySpec.${k} is not one of its allowed values`;
+      } else if (INTS[k]) {
+        if (!Number.isInteger(v) || v < INTS[k][0] || v > INTS[k][1]) {
+          return `deliverySpec.${k} is out of range`;
+        }
+      } else if (MONEY[k]) {
+        if (typeof v !== "number" || !Number.isFinite(v) || v < MONEY[k][0] || v > MONEY[k][1]) {
+          return `deliverySpec.${k} is out of range`;
+        }
+      } else {
+        // An UNRECOGNISED key is kept, not rejected: a future build's field must not
+        // make this build refuse the whole document (the same posture `extras` takes
+        // in persist.js). It is simply not interpreted here.
+        continue;
+      }
+    }
+  }
+
   return null;
 }
 

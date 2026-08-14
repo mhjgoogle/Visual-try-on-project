@@ -24,16 +24,13 @@ export const NAV = [
   {
     sec: "故事开发",
     items: [
-      ["brief", "💡", "创意"],
+      // TASK-073 §1.1 / IA §1–§2: the FIXED set — 三空间 / 十一页. This space holds
+      // five of the eleven. 人物 / 人物关系 / 世界观 collapse into ONE page (③ 作品
+      // 设定) whose sections they become; every old key still resolves, through
+      // `resolveModule` rather than through a rail row of its own.
+      ["brief", "💡", "项目与创意"],
       ["story", "📖", "故事大纲"],
-      // TASK-065 §2 / §4: TWO entries, not four. 人物关系 is a TAB inside 人物 (a
-      // relationship connects two characters and has no meaning without them), and
-      // 场景地 moved into 世界观 (a location is not a person). `relationships` and
-      // `settings` stay working MODULE KEYS — every existing jump target still
-      // lands somewhere real, it just lands on the right tab of the right
-      // workspace (see ui/production.js `setModule`).
-      ["characters", "👤", "人物", { under: "作品设定" }],
-      ["world", "🌐", "世界观", { under: "作品设定" }],
+      ["settings", "🎭", "作品设定"],
       ["episodes", "📺", "分集规划"],
       // 剧本 is the LAST step of story development: story development ends at
       // each episode's script, and 剧集制作 begins from it (ADR-0061 决策 1).
@@ -55,7 +52,7 @@ export const NAV = [
  *
  *  生成溯源 lost nothing: it is a workspace with a permanent 「完整溯源 ↗」 entrance in
  *  the centre header (§14). */
-export const EPISODE_DEFAULT = "workbench";
+export const EPISODE_DEFAULT = "board";
 
 /** The EPISODE's own production stages (ADR-0061 决策 2), no longer a rail nested
  *  under an episode row — and no longer eleven same-level tabs either.
@@ -69,36 +66,84 @@ export const EPISODE_DEFAULT = "workbench";
  *  Nothing was deleted. 参考 / Prompt / 生成 / 画面 / 视频 / 音频 / 审片 all keep
  *  their full workspace AND gained a node entrance. */
 export const EPISODE_NAV = [
-  // 制作台 leads because it is the space's centre (see EPISODE_DEFAULT). It is the
-  // only entry that is NOT in the 工作区 menu — you cannot take a detour to the
-  // place you are already standing.
-  ["workbench", "🎬", "制作台"],
-  // ADR-0061 决策 1: 生成溯源 is a VIEW of this space, not a second workflow
-  // model. 流程画布 is deliberately absent from every creator path.
-  ["provenance", "🕸", "生成溯源"],
-  ["episode", "📺", "本集总览"],
-  ["scenes", "🗂", "场景"],
-  ["shots", "🎞", "分镜"],
-  ["refplan", "🖼", "参考统筹"],
-  ["frames", "🎨", "画面"],
-  ["video", "▶", "视频"],
-  ["audio", "🎵", "音频"],
-  // CP4/ADR-0057: 审片 sits between the media stages and the cut, because that
-  // is where it belongs in the work — you review what was generated before you
-  // assemble it. 生成成功 != 镜头完成.
-  ["dailies", "👁", "审片"],
-  // 剪辑 stays reachable in this space. ADR-0061 决策 6 moves the CUT into a
-  // Post Production Console at the bottom of 剧集制作, but that console is not
-  // built yet — dropping the entry before it exists would leave the working
-  // timeline workspace unreachable and `spaceOf("edit")` answering 「故事开发」,
-  // which is a regression, not a migration (codex review round 1).
-  ["edit", "✂", "剪辑"],
+  // TASK-073 §1.1: FIVE pages, down from eleven same-level tabs. This is a
+  // regrouping, NOT a removal — every capability behind the old eleven keys is
+  // still reachable, as a SECTION of one of these five (see MODULE_ALIAS). What
+  // was deleted is the entrance, never the ability (§0 的 一条贯穿全卡的规则).
+  ["board", "📋", "本集看板"],
+  ["storyboard", "🎞", "分镜设计"],
+  ["shotwork", "🎬", "镜头制作"],
+  ["cutreview", "👁", "粗剪审片"],
+  ["delivery", "✂", "后期交付"],
 ];
 
-/** The stage workspaces behind the secondary 「工作区」 entry — EPISODE_NAV minus
- *  the space's own centre. Derived, so a stage can never be listed twice or be
- *  forgotten by one of the two surfaces. */
-export const EPISODE_WORKSPACES = EPISODE_NAV.filter(([k]) => k !== EPISODE_DEFAULT);
+/** ⚙ 项目设置 — its OWN route key, deliberately not `settings` (§1.7).
+ *
+ *  `settings` is already the formal key of ③ 作品设定. Sharing one key between
+ *  them would send every existing deep link and bookmark to the wrong page, so
+ *  the two are separate keys that resolve to separate pages — asserted by a
+ *  guard test, because this is the kind of collision that reads as correct.
+ *
+ *  Not part of any space's rail (§1.7): it is reached from the project header. */
+export const PROJECT_SETTINGS = "projectsettings";
+
+/**
+ * WHERE EVERY OLD MODULE KEY LANDS (§1.1 落点表).
+ *
+ * Each entry is `[page, section]`. A key that resolved to something before this
+ * refactor must still resolve to a REAL page AND a section that is actually
+ * rendered — 「落到一个没有该内容的页面」 and 「落空」 are the same failure
+ * (ADR-0063 决策 1), which is why `workbench` and `provenance` are dispatched by
+ * WHAT THEY DID rather than to the nearest-looking page:
+ *
+ *   workbench   made ONE shot          → ⑧ 镜头制作
+ *   provenance  an episode-wide graph  → ⚙ 存储与诊断 (a diagnostic, not a
+ *                                        production page)
+ */
+export const MODULE_ALIAS = Object.freeze({
+  // ③ 作品设定 — three creator surfaces became three sections of one page
+  characters: ["settings", "characters"],
+  relationships: ["settings", "relationships"],
+  world: ["settings", "world"],
+  // ⑥ 本集看板
+  episode: ["board", "overview"],
+  // ⑦ 分镜设计
+  scenes: ["storyboard", "scenes"],
+  shots: ["storyboard", "shots"],
+  // ⑧ 镜头制作 — the four steps of one shot's production
+  workbench: ["shotwork", "prepare"],
+  refplan: ["shotwork", "prepare"],
+  frames: ["shotwork", "image"],
+  video: ["shotwork", "video"],
+  // 审片 defaults to the SINGLE-SHOT step ④; the episode-wide playback lives in
+  // ⑨ and is reached from there (§1.1: 「按来源上下文决定」 — the default is the
+  // shot, because that is what the old 审片 workspace opened on)
+  dailies: ["shotwork", "pick"],
+  // ⑩ 后期交付
+  audio: ["delivery", "voice"],
+  edit: ["delivery", "timeline"],
+  // ⚙ 项目设置
+  provenance: [PROJECT_SETTINGS, "storage"],
+  storage: [PROJECT_SETTINGS, "storage"],
+});
+
+/** The asset-library rail is no longer the ENTRANCE (§1.1: `ASSET_NAV` 删除 means
+ *  the rail stops being navigation). Its seven entries were seven near-identical
+ *  workspaces over one library; they are now PRESET FILTER VALUES on the single
+ *  ⑪ 资产库 page. The keys still resolve — to the library with its type filter set,
+ *  which is what those rows always did.
+ *
+ *  `ASSET_NAV` / `renderAssetRail` themselves are KEPT below: removing the export
+ *  in this round would break every current caller, and this card deletes entrances,
+ *  not code (TASK-074 §1.5 does the deletion, after real-project acceptance). */
+export const ASSET_FILTER_ALIAS = Object.freeze({
+  "assets:reference": "reference",
+  "assets:image": "image",
+  "assets:video": "video",
+  "assets:audio": "audio",
+  "assets:final": "final",
+  "assets:collection": "collection",
+});
 
 /**
  * WHERE 「进入剧集制作 →」 lands (产品 2026-08-13).
@@ -112,12 +157,144 @@ export const EPISODE_WORKSPACES = EPISODE_NAV.filter(([k]) => k !== EPISODE_DEFA
  * than a condition buried in a shell closure that only a browser can reach.
  */
 export function episodeEntryModule(hasShots) {
-  return hasShots ? EPISODE_DEFAULT : "shots";
+  // TASK-073 §1.1 keeps the RULE and moves its two targets onto the new pages, via
+  // the same 落点表 every other key follows: 分镜 → ⑦ 分镜设计, 制作台 → ⑧ 镜头制作.
+  // `EPISODE_DEFAULT` (本集看板) is deliberately NOT the answer here — it is where
+  // the space opens when nothing more specific is known, while this function is the
+  // explicit 「进入剧集制作」 landing, which is about doing the next piece of work.
+  return hasShots ? "shotwork" : "storyboard";
 }
 
-/** The 资产库 space's rail (ADR-0061 决策 1): 「我有什么可以复用？」 — media
- *  categories, never production navigation. Episode / Scene / Shot survive here
- *  only as FILTERS, which the asset workspace owns. */
+/**
+ * The ELEVEN old episode stages — KEPT (TASK-073 §0 / §3: this round deletes
+ * ENTRANCES, never abilities; deleting files is TASK-074's job, and 验收 #11
+ * requires `git diff --stat` to show no removed file).
+ *
+ * `epprod.js` still renders the 制作台 + 「工作区」 menu from this list. The五页 rail
+ * above is the new entrance; this is the old one, still working, until TASK-074
+ * retires it. Both resolve through `resolveModule`, so they cannot disagree about
+ * where a key goes.
+ */
+export const LEGACY_EPISODE_STAGES = [
+  ["workbench", "🎬", "制作台"],
+  ["provenance", "🕸", "生成溯源"],
+  ["episode", "📺", "本集总览"],
+  ["scenes", "🗂", "场景"],
+  ["shots", "🎞", "分镜"],
+  ["refplan", "🖼", "参考统筹"],
+  ["frames", "🎨", "画面"],
+  ["video", "▶", "视频"],
+  ["audio", "🎵", "音频"],
+  ["dailies", "👁", "审片"],
+  ["edit", "✂", "剪辑"],
+];
+
+/** The legacy centre of 剧集制作. Still `workbench`: `EPISODE_DEFAULT` moved to
+ *  `board`, but the 制作台 shell is what `epprod.js` is built around, and changing
+ *  both in one step would leave that component with no centre. */
+export const LEGACY_EPISODE_CENTRE = "workbench";
+
+/** The stage workspaces behind the secondary 「工作区」 entry — the LEGACY stage list
+ *  minus its own centre. Derived, so a stage can never be listed twice or be
+ *  forgotten by one of the two surfaces.
+ *
+ *  Derived from the legacy list, not from the new five pages: those five are not
+ *  「detours from the 制作台」, they are the space itself. TASK-074 removes this
+ *  menu; until then it must keep working (§3 迁移方案). */
+export const EPISODE_WORKSPACES = LEGACY_EPISODE_STAGES.filter(
+  ([k]) => k !== LEGACY_EPISODE_CENTRE,
+);
+
+/** Stage keys that belong to ONE episode — the 剧集制作 space's five pages PLUS the
+ *  legacy stages, because a legacy key must still report `episode` (a key that
+ *  lands on one episode's shots while the top bar says 故事开发 is a regression). */
+export const EPISODE_MODULES = [
+  ...EPISODE_NAV.map(([k]) => k),
+  ...LEGACY_EPISODE_STAGES.map(([k]) => k),
+];
+
+/** The ELEVEN pages, as a closed set (IA §1–§2). ⚙ 项目设置 is deliberately not
+ *  among them: it is not one of the three spaces' pages.
+ *
+ *  Exported so a guard test can assert the count rather than trusting a comment —
+ *  「新增 Skill 不得新增一级或二级页面」 (ADR-0066 决策 10) is only enforceable if
+ *  something checks it. */
+export const PAGES = Object.freeze([
+  ...NAV[0].items.map(([k]) => k),
+  ...EPISODE_NAV.map(([k]) => k),
+  "assets",
+]);
+
+/**
+ * Resolve ANY module key — current or historical — to a real page + section.
+ *
+ * Returns `{ module, section }`. `section` is null when the page has no sections
+ * or the key names the page itself. An unknown key resolves to the first page
+ * rather than to nothing: a dead deep link is a worse answer than a landing page,
+ * and it is reported as unresolved so the caller can say so.
+ *
+ * ONE function, so the rail, the breadcrumb, the deep-link reader and every
+ * `data-goto` in the tree can never disagree about where a key goes.
+ */
+export function resolveModule(key) {
+  const k = typeof key === "string" ? key : "";
+  if (Object.prototype.hasOwnProperty.call(MODULE_ALIAS, k)) {
+    const [module, section] = MODULE_ALIAS[k];
+    return { module, section, resolved: true };
+  }
+  if (Object.prototype.hasOwnProperty.call(ASSET_FILTER_ALIAS, k)) {
+    return { module: "assets", section: null, filter: ASSET_FILTER_ALIAS[k], resolved: true };
+  }
+  if (k === PROJECT_SETTINGS) return { module: PROJECT_SETTINGS, section: "info", resolved: true };
+  if (PAGES.includes(k)) return { module: k, section: null, resolved: true };
+  return { module: PAGES[0], section: null, resolved: false };
+}
+
+/** The sections each page really renders. `resolveModule` may only name one of
+ *  these, which is what makes 「解析到一个真实分区」 checkable instead of hopeful. */
+export const PAGE_SECTIONS = Object.freeze({
+  settings: ["characters", "relationships", "world"],
+  board: ["overview"],
+  storyboard: ["scenes", "shots"],
+  // the four steps of §1.3, in order
+  shotwork: ["prepare", "image", "video", "pick"],
+  cutreview: ["review"],
+  delivery: ["timeline", "voice", "ambience", "subtitle", "preview", "qc", "export"],
+  [PROJECT_SETTINGS]: ["info", "spec", "budget", "storage"],
+});
+
+/** Which top-level SPACE a module belongs to (ADR-0061 决策 1). One function,
+ *  so the top bar, the rail and the breadcrumb can never disagree about where
+ *  the creator is. */
+export const SPACES = ["story", "episode", "assets"];
+
+export function spaceOf(module) {
+  if (typeof module !== "string" || !module) return "story";
+  // ⚙ 项目设置 belongs to NO space (§1.7). It reports `story` only so the shell has
+  // a rail to draw; the top bar highlights nothing, because the creator is not in
+  // one of the three spaces.
+  if (module === PROJECT_SETTINGS) return "story";
+  if (module === "assets" || module.startsWith("assets:")) return "assets";
+  // `storage` is a historical key that now lands in ⚙ 存储与诊断
+  if (module === "storage") return "story";
+  if (EPISODE_MODULES.includes(module)) return "episode";
+  // a historical episode key still belongs to 剧集制作, even though it is no longer
+  // a page of its own — otherwise the top bar says 故事开发 while the creator is
+  // looking at one episode's shots
+  const alias = MODULE_ALIAS[module];
+  if (alias && EPISODE_MODULES.includes(alias[0])) return "episode";
+  return "story";
+}
+
+export const SPACE_LABEL = { story: "故事开发", episode: "剧集制作", assets: "资产库" };
+
+/** Stage keys that carry a completion ratio — the rail draws their progress
+ *  bar. Keyed to the same badge model so the bar can never disagree with the
+ *  number printed beside it. */
+export const STAGE_KEYS = ["frames", "video", "audio", "dailies"];
+
+/** The 资产库 rail (ADR-0061 决策 1), KEPT for its current callers — see the note on
+ *  `ASSET_FILTER_ALIAS`. Media categories only, never production navigation. */
 export const ASSET_NAV = [
   ["assets", "📦", "全部资产"],
   ["assets:reference", "🖼", "References"],
@@ -129,42 +306,41 @@ export const ASSET_NAV = [
   ["storage", "💾", "存储管理"],
 ];
 
-/** Stage keys that belong to ONE episode — the 剧集制作 space's centre tabs. */
-export const EPISODE_MODULES = EPISODE_NAV.map(([k]) => k);
-
-/** Which top-level SPACE a module belongs to (ADR-0061 决策 1). One function,
- *  so the top bar, the rail and the breadcrumb can never disagree about where
- *  the creator is. */
-export const SPACES = ["story", "episode", "assets"];
-
-export function spaceOf(module) {
-  if (typeof module !== "string" || !module) return "story";
-  if (module === "storage" || module === "assets" || module.startsWith("assets:")) return "assets";
-  if (EPISODE_MODULES.includes(module)) return "episode";
-  return "story";
-}
-
-export const SPACE_LABEL = { story: "故事开发", episode: "剧集制作", assets: "资产库" };
-
-/** Stage keys that carry a completion ratio — the rail draws their progress
- *  bar. Keyed to the same badge model so the bar can never disagree with the
- *  number printed beside it. */
-export const STAGE_KEYS = ["frames", "video", "audio", "dailies"];
-
+/** Labels for the eleven pages, ⚙, AND every historical key (§1.1 requires the old
+ *  keys stay resolvable, and a resolvable key with no label renders blank in the
+ *  breadcrumb). The old labels are kept verbatim so a bookmark still reads the way
+ *  the creator remembers it. */
 export const MODULE_LABEL = {
-  brief: "创意", story: "故事大纲", characters: "人物", relationships: "人物关系",
-  world: "世界观", episodes: "分集规划",
-  // `settings` stays a working module key (the bible workspace behind 人物) so
-  // every existing jump target — the Director's blocker fixes, the shot
-  // workspaces' empty states — keeps landing somewhere real.
-  settings: "作品设定", storage: "存储管理", assets: "资产库",
+  // the eleven
+  brief: "项目与创意", story: "故事大纲", settings: "作品设定",
+  episodes: "分集规划", script: "本集剧本",
+  board: "本集看板", storyboard: "分镜设计", shotwork: "镜头制作",
+  cutreview: "粗剪审片", delivery: "后期交付",
+  assets: "资产库",
+  // ⚙ — its own key, never `settings`
+  [PROJECT_SETTINGS]: "项目设置",
+  // historical keys, still resolvable
+  characters: "人物", relationships: "人物关系", world: "世界观",
+  storage: "存储与诊断",
   "assets:reference": "References", "assets:image": "Images",
   "assets:video": "Videos", "assets:audio": "Audio",
   "assets:final": "Final", "assets:collection": "Collections",
   workbench: "制作台", provenance: "生成溯源",
-  episode: "本集总览", script: "本集剧本", scenes: "场景", shots: "分镜",
+  episode: "本集总览", scenes: "场景", shots: "分镜",
   refplan: "参考统筹", frames: "画面", video: "视频",
   audio: "音频", dailies: "审片", edit: "剪辑",
+};
+
+/** Section labels, for the in-page section navs. */
+export const SECTION_LABEL = {
+  characters: "人物", relationships: "人物关系", world: "世界观",
+  overview: "本集总览",
+  scenes: "场景", shots: "分镜",
+  prepare: "① 准备输入", image: "② 制作主画面", video: "③ 制作视频", pick: "④ 对比候选并选定",
+  review: "整集连播与问题标记",
+  timeline: "时间线与粗剪调整", voice: "配音", ambience: "环境音 / 音效 / 音乐",
+  subtitle: "字幕", preview: "成片预览", qc: "交付质检", export: "导出及导出记录",
+  info: "项目信息", spec: "成片规格", budget: "预算与限制", storage: "存储与诊断",
 };
 
 /** Episode short label: EP01, EP02… derived from position, with the planned

@@ -14,7 +14,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  EPISODE_NAV, EPISODE_MODULES, EPISODE_DEFAULT, EPISODE_WORKSPACES,
+  EPISODE_NAV, EPISODE_MODULES, EPISODE_DEFAULT, LEGACY_EPISODE_CENTRE, EPISODE_WORKSPACES,
   renderRail, spaceOf, episodeEntryModule,
 } from "../src/ui/shell.js";
 import { renderShotSelect, bindShotSelect } from "../src/ui/shotselect.js";
@@ -88,7 +88,10 @@ test("制作台 IS the centre; the stage workspaces (incl. 生成溯源) are sec
   // here to make the next shot, so the centre is now the CURRENT SHOT's production
   // graph. 生成溯源 lost nothing — it is a workspace with a permanent 「完整溯源 ↗」
   // entrance in the centre header (§14).
-  assert.equal(EPISODE_DEFAULT, "workbench");
+  // TASK-073 §1.1 split these two apart: the 制作台 shell still has its own centre
+  // (`LEGACY_EPISODE_CENTRE`), while the SPACE now opens on ⑥ 本集看板.
+  assert.equal(LEGACY_EPISODE_CENTRE, "workbench");
+  assert.equal(EPISODE_DEFAULT, "board");
   assert.equal(EPISODE_NAV[0][0], EPISODE_DEFAULT);
   // nothing was deleted: every stage is still addressable, provenance included
   for (const k of ["provenance", "episode", "scenes", "shots", "refplan", "frames", "video", "audio", "dailies", "edit"]) {
@@ -96,7 +99,7 @@ test("制作台 IS the centre; the stage workspaces (incl. 生成溯源) are sec
     assert.ok(EPISODE_WORKSPACES.some(([x]) => x === k), `${k} must be in the 工作区 menu`);
   }
   // …and the centre is not also listed as a detour from itself
-  assert.ok(!EPISODE_WORKSPACES.some(([k]) => k === EPISODE_DEFAULT));
+  assert.ok(!EPISODE_WORKSPACES.some(([k]) => k === LEGACY_EPISODE_CENTRE));
 });
 
 /** A ctx stub for renderEpProd. It renders from the SAME read models the real
@@ -129,7 +132,7 @@ function epCtx() {
 }
 
 test("the centre renders no stage TAB STRIP — one secondary 工作区 entry instead", () => {
-  const html = renderEpProd(epCtx(), { epFocus: "all" }, { stage: EPISODE_DEFAULT, inner: "" });
+  const html = renderEpProd(epCtx(), { epFocus: "all" }, { stage: LEGACY_EPISODE_CENTRE, inner: "" });
   assert.ok(!html.includes(`class="ep-tabs"`), "the eleven same-level tabs are gone");
   assert.ok(!/class="ep-tab[ "]/.test(html), "no stage tab buttons on the centre");
   assert.ok(html.includes("data-ep-wsopen"), "the secondary 工作区 entry is there");
@@ -137,22 +140,22 @@ test("the centre renders no stage TAB STRIP — one secondary 工作区 entry in
 
 test("the 工作区 menu lists every stage workspace once, and only when opened", () => {
   const ctx = epCtx();
-  const closed = renderEpProd(ctx, { epFocus: "all" }, { stage: EPISODE_DEFAULT });
+  const closed = renderEpProd(ctx, { epFocus: "all" }, { stage: LEGACY_EPISODE_CENTRE });
   assert.ok(!closed.includes("data-ep-ws="), "a closed menu renders no items");
-  const open = renderEpProd(ctx, { epFocus: "all", epWsOpen: true }, { stage: EPISODE_DEFAULT });
+  const open = renderEpProd(ctx, { epFocus: "all", epWsOpen: true }, { stage: LEGACY_EPISODE_CENTRE });
   for (const [k] of EPISODE_WORKSPACES) {
     assert.ok(open.includes(`data-ep-ws="${k}"`), `${k} must be pickable`);
   }
-  assert.ok(!open.includes(`data-ep-ws="${EPISODE_DEFAULT}"`), "the centre is not one of its own detours");
+  assert.ok(!open.includes(`data-ep-ws="${LEGACY_EPISODE_CENTRE}"`), "the centre is not one of its own detours");
 });
 
 test("a stage workspace announces itself as a detour and offers the way back", () => {
   const ctx = epCtx();
-  const onGraph = renderEpProd(ctx, { epFocus: "all" }, { stage: EPISODE_DEFAULT });
+  const onGraph = renderEpProd(ctx, { epFocus: "all" }, { stage: LEGACY_EPISODE_CENTRE });
   assert.ok(!onGraph.includes("ep-wsback"), "no way back needed from the centre itself");
   const onStage = renderEpProd(ctx, { epFocus: "all" }, { stage: "frames", inner: "<i>frames</i>" });
   assert.ok(onStage.includes("ep-wsback"), "a detour must be leavable");
-  assert.ok(onStage.includes(`data-mod="${EPISODE_DEFAULT}"`), "…back to the graph");
+  assert.ok(onStage.includes(`data-mod="${LEGACY_EPISODE_CENTRE}"`), "…back to the graph");
   assert.ok(onStage.includes("<i>frames</i>"), "the stage workspace itself is still framed, unchanged");
 });
 
@@ -162,11 +165,11 @@ test("the focus filter lives where the shot is CHOSEN, not on the centre header"
   // would have had nothing to filter. A control that does nothing is worse than a
   // missing one, so they moved INTO the Shot picker (ui/shotselect.js), above the list
   // they narrow.
-  assert.equal(showsFocus(EPISODE_DEFAULT), true, "the 制作台 is where a shot is chosen");
+  assert.equal(showsFocus(LEGACY_EPISODE_CENTRE), true, "the 制作台 is where a shot is chosen");
   assert.equal(showsFocus("provenance"), false);
   assert.equal(showsFocus("frames"), false, "a stage workspace has no shot picker");
   const ctx = epCtx();
-  const centre = renderEpProd(ctx, { epFocus: "all" }, { stage: EPISODE_DEFAULT });
+  const centre = renderEpProd(ctx, { epFocus: "all" }, { stage: LEGACY_EPISODE_CENTRE });
   assert.ok(!centre.includes("data-ep-focus"), "no dead chips on the centre header");
   // and it is still the same five filters — nothing was dropped
   assert.deepEqual(FOCUS_FILTERS.map((f) => f[0]), ["all", "image", "video", "audio", "failed"]);
@@ -570,12 +573,12 @@ test("「进入剧集制作」lands on 分镜 until the shot list exists", () =>
   // 产品 2026-08-13：「点击进入该剧的剧集制作就要有分镜的生成…定好分镜之后再对各个分镜
   // 做详细制作」。An episode with no draft has nothing to produce yet — the 制作台 would
   // open on 「先选一个镜头」 with no shots to select.
-  assert.equal(episodeEntryModule(false), "shots");
-  assert.equal(episodeEntryModule(true), EPISODE_DEFAULT);
-  assert.equal(EPISODE_DEFAULT, "workbench", "…and the 制作台 is still where per-shot work happens");
-  // both targets are real stages of this space, so neither landing can be a dead end
-  assert.ok(EPISODE_MODULES.includes("shots"));
-  assert.ok(EPISODE_MODULES.includes(EPISODE_DEFAULT));
+  // TASK-073 §1.1: same rule, targets moved onto the new pages via the 落点表.
+  assert.equal(episodeEntryModule(false), "storyboard");
+  assert.equal(episodeEntryModule(true), "shotwork", "…and ⑧ 镜头制作 is where per-shot work happens");
+  // both targets are real pages of this space, so neither landing can be a dead end
+  assert.ok(EPISODE_MODULES.includes("storyboard"));
+  assert.ok(EPISODE_MODULES.includes("shotwork"));
 });
 
 test("the entry counts THIS episode's shots, not the project's (codex round 2, P1)", () => {
@@ -596,13 +599,13 @@ test("the entry counts THIS episode's shots, not the project's (codex round 2, P
   };
   assert.equal(shotsOf(ep1.episodeId), 1);
   assert.equal(shotsOf(ep2.episodeId), 0, "EP02 has none of its own");
-  assert.equal(episodeEntryModule(shotsOf(ep1.episodeId) > 0), EPISODE_DEFAULT);
-  assert.equal(episodeEntryModule(shotsOf(ep2.episodeId) > 0), "shots",
+  assert.equal(episodeEntryModule(shotsOf(ep1.episodeId) > 0), "shotwork");
+  assert.equal(episodeEntryModule(shotsOf(ep2.episodeId) > 0), "storyboard",
     "…so entering EP02 must land on 分镜, even though the project has shots elsewhere");
   // a DANGLING reference (a scene naming a shot the draft no longer holds) is not a
   // shot: an episode whose only shotIds dangle still has nothing to produce
   const sc2 = pdoc.addScene(prod, ep2.episodeId, "S01");
   pdoc.assignShot(prod, sc2.sceneId, "sh-gone");
   assert.equal(shotsOf(ep2.episodeId), 0);
-  assert.equal(episodeEntryModule(shotsOf(ep2.episodeId) > 0), "shots");
+  assert.equal(episodeEntryModule(shotsOf(ep2.episodeId) > 0), "storyboard");
 });

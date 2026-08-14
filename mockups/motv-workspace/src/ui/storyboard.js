@@ -251,7 +251,33 @@ function frameInputs(pd, shotId, slot, imageCurrent, nameOfShot) {
       binding,
     };
   };
-  const start = bound(b) || (imageCurrent
+  /** The EFFECTIVE pointer already written to `assets.firstFrames[slot]`.
+   *
+   *  THE MISSING MIDDLE LAYER (TASK-072 §1.9 缺陷 2). This used to fall straight
+   *  from 「显式 binding」 to 「本镜头当前画面」, so a first frame that really had
+   *  been recorded — by the paid image route, or by the creator pressing 「用作视频
+   *  首帧」 before `frameBindings` existed — was displayed as the shot's current
+   *  picture while GENERATION read `firstFrames[slot]`. The clipboard said one
+   *  thing and the generator received another.
+   *
+   *  `from` says exactly what is known: it is a recorded frame, with no provenance
+   *  record behind it. Inventing a source would be worse than admitting there is
+   *  none. */
+  const recorded = () => {
+    const map = pd.assets && typeof pd.assets.firstFrames === "object" ? pd.assets.firstFrames : null;
+    if (!map || !slot || !Object.prototype.hasOwnProperty.call(map, slot)) return null;
+    const r = map[slot];
+    if (!r || typeof r !== "object" || typeof r.url !== "string" || !r.url) return null;
+    return {
+      assetId: r.assetId || null,
+      url: r.url,
+      version: Number.isInteger(r.version) ? r.version : null,
+      name: "已记录的首帧",
+      from: "已记录的首帧（没有来源记录）",
+      binding: null,
+    };
+  };
+  const start = bound(b) || recorded() || (imageCurrent
     ? {
       assetId: imageCurrent.assetId,
       url: imageCurrent.url,

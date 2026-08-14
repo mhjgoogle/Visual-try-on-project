@@ -24,7 +24,7 @@
 import { esc } from "../util/dom.js";
 import { episodeModel } from "./episodews.js";
 import {
-  episodeLabels, episodeTitleBeside, EPISODE_DEFAULT, EPISODE_WORKSPACES, MODULE_LABEL,
+  episodeLabels, episodeTitleBeside, LEGACY_EPISODE_CENTRE, EPISODE_WORKSPACES, MODULE_LABEL,
 } from "./shell.js";
 
 /** The Focus Filters (TASK-064 §7). They narrow WHICH shots the shot strip offers by
@@ -155,9 +155,9 @@ function topBar(m, ui, { stage, showFocus, place }) {
   // 完整溯源 — §14 of the previous round still holds: provenance keeps its job and its
   // own workspace, and the entrance is one click from the shot being made.
   const prov = stage === "provenance"
-    ? `<button class="ep-wsback" data-mod="${esc(EPISODE_DEFAULT)}">← 回到制作台</button>`
+    ? `<button class="ep-wsback" data-mod="${esc(LEGACY_EPISODE_CENTRE)}">← 回到制作台</button>`
     : `<button class="ep-prov" data-mod="provenance" title="整集的生成溯源：这个东西是怎么来的">完整溯源 ↗</button>`;
-  const layout = stage === EPISODE_DEFAULT
+  const layout = stage === LEGACY_EPISODE_CENTRE
     ? `<div class="ep-layout">` +
       ["auto", "manual"].map((k) =>
         `<button class="ep-lbtn${(ui.sgLayout || "auto") === k ? " on" : ""}" data-ep-layout="${k}" ` +
@@ -181,12 +181,12 @@ function topBar(m, ui, { stage, showFocus, place }) {
 /** The secondary 「工作区」 entry: every stage workspace, one click away, and
  *  visibly NOT a peer of the centre. */
 function wsMenu(stage, ui) {
-  const onWs = stage !== EPISODE_DEFAULT;
+  const onWs = stage !== LEGACY_EPISODE_CENTRE;
   const cur = EPISODE_WORKSPACES.find(([k]) => k === stage) || null;
   return (
     `<div class="ep-ws">` +
     (onWs && stage !== "provenance"
-      ? `<button class="ep-wsback" data-mod="${esc(EPISODE_DEFAULT)}" title="回到制作台">← 制作台</button>`
+      ? `<button class="ep-wsback" data-mod="${esc(LEGACY_EPISODE_CENTRE)}" title="回到制作台">← 制作台</button>`
       : "") +
     `<button class="ep-wsbtn${onWs ? " on" : ""}" data-ep-wsopen>` +
     `<span class="ic">${cur ? cur[1] : "🗂"}</span>${esc(cur ? cur[2] : "工作区")}<span class="cv">▾</span></button>` +
@@ -208,7 +208,7 @@ function wsMenu(stage, ui) {
  *  Only the 制作台 does — that is where a shot is chosen. On a stage workspace the
  *  filter would have no list to act on, and on the provenance graph it would sit
  *  beside that graph's own filter chips meaning something different. */
-export const showsFocus = (stage) => stage === EPISODE_DEFAULT;
+export const showsFocus = (stage) => stage === LEGACY_EPISODE_CENTRE;
 
 /**
  * The 剧集制作 CENTER.
@@ -221,9 +221,9 @@ export const showsFocus = (stage) => stage === EPISODE_DEFAULT;
  * rather than built here so the shell can hand the same model to `bindShotGraph`
  * and `drawShotEdges` without deriving it twice.
  */
-export function renderEpProd(ctx, ui, { stage = EPISODE_DEFAULT, inner = "", graph = null } = {}) {
+export function renderEpProd(ctx, ui, { stage = LEGACY_EPISODE_CENTRE, inner = "", graph = null } = {}) {
   const m = workbenchModel(ctx, ui);
-  const isCentre = stage === EPISODE_DEFAULT;
+  const isCentre = stage === LEGACY_EPISODE_CENTRE;
   const showFocus = showsFocus(stage);
   if (m.empty) {
     return (

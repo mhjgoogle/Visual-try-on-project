@@ -1091,3 +1091,166 @@
 .dir-trace > div { display: flex; gap: 8px; align-items: baseline; padding: 2px 0 0 12px; }
 .dir-trace span { min-width: 34px; }
 .dir-trace code { font-size: 11px; word-break: break-all; }
+
+/* ======================================================================== */
+/* TASK-073 §1.1/§1.2 · in-page section nav, and ⑧'s four-step flow bar     */
+/* ======================================================================== */
+/*
+ * ONE component, two looks. The eleven old episode tabs became five pages whose
+ * sub-parts are SECTIONS; this is how a creator moves between them. The 镜头制作
+ * variant renders as a numbered flow (①→④) because there the sections are ordered
+ * STEPS of one shot's production (§1.3) — everywhere else they are peers.
+ *
+ * Visual language is unchanged (ADR-0066 §5 / 验收 #10): the same tokens, the same
+ * accent for the active item, the same radii as .st-navitem.
+ */
+.st-secnav,
+.st-steps {
+  display: flex; gap: var(--s2); align-items: center; flex-wrap: wrap;
+  padding: var(--s3) 0 var(--s4);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: var(--s4);
+}
+.st-secitem {
+  appearance: none; cursor: pointer;
+  font: inherit; font-size: var(--t-sm); color: var(--text-dim);
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: var(--r2); padding: var(--s2) var(--s4);
+  transition: color .12s, border-color .12s, background .12s;
+}
+.st-secitem:hover { color: var(--text); border-color: var(--line-2); }
+.st-secitem.on {
+  color: var(--accent-strong); font-weight: 700;
+  background: var(--accent-soft); border-color: var(--accent-line);
+}
+/* the flow bar draws the ORDER between steps — a section nav has no order to draw */
+.st-steps .st-secitem + .st-secitem { position: relative; margin-left: var(--s4); }
+.st-steps .st-secitem + .st-secitem::before {
+  content: "→"; position: absolute; left: calc(var(--s4) * -1); top: 50%;
+  transform: translate(-2px, -50%);
+  color: var(--text-faint); font-size: var(--t-sm); pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) { .st-secitem { transition: none; } }
+
+/* --- TASK-073 §1.3 · task rows: 状态 耗时 成本 失败原因 重试 真实取消 -------- */
+.tk-block { margin-top: var(--s6); border-top: 1px solid var(--line); padding-top: var(--s4); }
+.tk-list { display: flex; flex-direction: column; gap: var(--s2); }
+.tk-row {
+  border: 1px solid var(--line); border-radius: var(--r2);
+  background: var(--panel-2); padding: var(--s3) var(--s4);
+}
+.tk-row.open { border-color: color-mix(in srgb, var(--gen) 40%, var(--line)); }
+.tk-row.bad { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+.tk-main { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.tk-name { font-size: var(--t-sm); font-weight: 700; color: var(--text); margin-right: var(--s2); }
+/* the failure REASON gets its own line: a truncated reason is not a reason */
+.tk-fail {
+  margin-top: var(--s2); font-size: var(--t-xs); line-height: 1.6;
+  color: var(--bad); word-break: break-word;
+}
+.tk-bar {
+  margin-top: var(--s2); height: 3px; border-radius: 2px;
+  background: var(--line); overflow: hidden;
+}
+.tk-bar > i { display: block; height: 100%; background: var(--gen); }
+.tk-acts { display: flex; gap: var(--s2); margin-top: var(--s3); }
+.tk-acts:empty { display: none; }
+.tk-empty { font-size: var(--t-xs); color: var(--text-faint); padding: var(--s3) 0; }
+
+/* --- TASK-073 §1.7 · ⚙ spec / budget table ------------------------------- */
+.ds-tbl { width: 100%; border-collapse: collapse; margin: var(--s3) 0 var(--s4); }
+.ds-tbl td { padding: var(--s2) var(--s3); border-bottom: 1px solid var(--line); font-size: var(--t-sm); }
+.ds-k { color: var(--text-dim); width: 46%; }
+.ds-k .chip { margin-left: var(--s2); }
+.ds-v { color: var(--text); font-variant-numeric: tabular-nums; }
+/* 「还没有设置」 is printed in the faint tone: visibly an absence, not a value */
+.ds-v.un { color: var(--text-faint); }
+.ds-in {
+  width: 100%; max-width: 260px; font: inherit; font-size: var(--t-sm);
+  color: var(--text); background: var(--panel); border: 1px solid var(--line-2);
+  border-radius: var(--r1); padding: var(--s1) var(--s2);
+}
+.ds-in:focus { outline: none; border-color: var(--accent-line); }
+.ds-tbl tr.bad .ds-in { border-color: var(--bad); }
+.ds-err { color: var(--bad); font-size: var(--t-xs); margin-top: 2px; }
+
+/* ======================================================================== */
+/* TASK-073 §1.4 · the contextual Agent panel (IA §6)                       */
+/* ======================================================================== */
+/*
+ * OPENED ON DEMAND. Closed, only `.ag-open` exists — the panel is not in the layout
+ * at all, which is the difference between 「按需打开的面板」 and a standing sidebar
+ * that narrows every page for a feature used occasionally.
+ */
+.ag-open {
+  float: right; appearance: none; cursor: pointer;
+  font: inherit; font-size: var(--t-sm); color: var(--text-dim);
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: var(--r2); padding: var(--s2) var(--s4); margin-bottom: var(--s3);
+}
+.ag-open:hover { color: var(--text); border-color: var(--line-2); }
+.ag-open.on { color: var(--accent-strong); background: var(--accent-soft); border-color: var(--accent-line); }
+.ag-panel {
+  clear: both; margin-bottom: var(--s5);
+  border: 1px solid var(--accent-line); border-radius: var(--r3);
+  background: var(--panel); box-shadow: var(--shadow-sm);
+  padding: var(--s4);
+}
+.ag-top { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s3); }
+.ag-scope { font-size: var(--t-xs); color: var(--text-dim); }
+.ag-x {
+  margin-left: auto; appearance: none; cursor: pointer; background: none;
+  border: none; color: var(--text-faint); font-size: var(--t-md);
+}
+.ag-x:hover { color: var(--text); }
+/* the seven sections, visually equal — none of them is a hierarchy */
+.ag-sec + .ag-sec { margin-top: var(--s4); padding-top: var(--s3); border-top: 1px solid var(--line); }
+.ag-h { font-size: var(--t-micro); font-weight: 700; letter-spacing: .06em; color: var(--text-faint); margin-bottom: var(--s2); }
+.ag-none { font-size: var(--t-xs); color: var(--text-faint); line-height: 1.6; }
+.ag-task { font-size: var(--t-md); font-weight: 700; color: var(--text); }
+.ag-probs, .ag-read, .ag-miss, .ag-steps, .ag-res { margin: 0; padding-left: var(--s5); font-size: var(--t-sm); line-height: 1.7; }
+.ag-probs { list-style: none; padding-left: 0; }
+.ag-probs .chip { margin-right: var(--s2); }
+.ag-tgt { margin-left: var(--s2); font-size: var(--t-xs); color: var(--text-dim); }
+.ag-miss { list-style: none; padding-left: 0; }
+.ag-goto {
+  appearance: none; cursor: pointer; font: inherit; font-size: var(--t-sm);
+  color: var(--link); background: none; border: none; padding: 0; text-align: left;
+}
+.ag-goto:hover { color: var(--link-glow); text-decoration: underline; }
+/* the primary action stands alone; alternatives are folded so they cannot compete */
+.ag-run { margin-right: var(--s3); }
+.ag-alt > summary { cursor: pointer; font-size: var(--t-sm); color: var(--text-dim); }
+.ag-diff { font-size: var(--t-xs); color: var(--text-dim); }
+
+/* --- TASK-073 §1.5 · 生成记录, beside every result ------------------------ */
+.gr { margin-top: var(--s3); border-top: 1px solid var(--line); padding-top: var(--s2); }
+.gr > summary { cursor: pointer; font-size: var(--t-xs); color: var(--text-dim); }
+.gr > summary:hover { color: var(--text); }
+.gr-tbl { width: 100%; border-collapse: collapse; margin: var(--s2) 0; }
+.gr-tbl td { padding: 2px var(--s2); font-size: var(--t-xs); border-bottom: 1px solid var(--line); }
+.gr-k { color: var(--text-faint); width: 40%; }
+.gr-v { color: var(--text); word-break: break-all; }
+/* 未记录 is faint — visibly an absence rather than a value */
+.gr-v.un { color: var(--text-faint); font-style: italic; }
+.gr-sec { font-size: var(--t-micro); font-weight: 700; letter-spacing: .06em; color: var(--text-faint); margin-top: var(--s3); }
+.gr-in { margin: var(--s1) 0 0; padding-left: var(--s5); font-size: var(--t-xs); line-height: 1.7; }
+.gr-in .chip { margin-left: var(--s2); }
+.gr-pre { margin: var(--s1) 0 0; font-size: var(--t-xs); background: var(--panel-2); border-radius: var(--r1); padding: var(--s2); overflow-x: auto; }
+.gr-none { font-size: var(--t-xs); color: var(--text-faint); line-height: 1.6; }
+.gr-ok { font-size: var(--t-xs); color: var(--ok); }
+
+/* --- TASK-073 §1.6 · the asset drawer: the SAME library, at drawer size ---- */
+.al-dopen { margin-bottom: var(--s3); }
+.al-drawer {
+  margin-bottom: var(--s5); padding: var(--s4);
+  border: 1px solid var(--line-2); border-radius: var(--r3);
+  background: var(--panel-2);
+  max-height: 46vh; overflow-y: auto;
+}
+.al-dtop { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s2); }
+.al-dscope { font-size: var(--t-xs); color: var(--text-dim); }
+.al-dscope.warn { color: var(--gate); }
+.al-dx { margin-left: auto; appearance: none; cursor: pointer; background: none; border: none; color: var(--text-faint); }
+.al-dx:hover { color: var(--text); }
+.al-add { width: 100%; margin-top: var(--s2); }
