@@ -2,7 +2,8 @@
 name: codex-review-loop
 description: >-
   Run an automated read-only code review of the current diff and fix only the
-  blocking findings, within a risk-tiered round budget (Medium 1 round, High 2).
+  blocking findings, within a risk-tiered round budget (Medium 1 round, High 2;
+  every tier gets one extra round while a P1 is still outstanding).
   INVOKE after finishing a **Medium- or High-risk** implementation task — i.e.
   once code has actually changed and the change is complete. The reviewer is
   codex when available, otherwise an independent claude session (fallback).
@@ -38,7 +39,13 @@ of the change, and stated in the report.
 | --- | --- | --- |
 | **Low** | CSS, layout, spacing, copy, pure presentational composition, or a single localized bug whose fix touches **none** of the Medium/High categories below | **0 — do not run this skill.** Targeted tests + ship. |
 | **Medium** | interaction, navigation, read model, derived view state, filtering/sorting/selection, business logic inside one layer | **1 round** |
-| **High** | persistence, schema/migration, identity, asset or generation registration, timeline, render/file operations, storage lifecycle, paid operations, concurrency/async state, security, Windows portability, cross-layer contract | **2 rounds** (a 3rd is allowed ONLY if round 2 still reports a **P1** — see budget exhaustion) |
+| **High** | persistence, schema/migration, identity, asset or generation registration, timeline, render/file operations, storage lifecycle, paid operations, concurrency/async state, security, Windows portability, cross-layer contract | **2 rounds** |
+
+**Every tier gets `budget + 1` when a P1 is still outstanding** — fix the P1s
+alone and spend that one extra round re-reviewing just that fix (Medium: 1 → 2,
+High: 2 → 3). An outstanding P1 always buys the round it needs; the budget
+bounds polishing, never the closing of a real defect. There is no tier at which
+a P1 can dead-end the workflow.
 
 **Precedence: the highest tier the change touches wins.** Classify by category,
 never by how small or how obvious the change is. A one-line fix with a perfectly
@@ -116,9 +123,14 @@ For each round:
    - **P1 present** → fix (minimally — see Ironclad rules). If the round budget
      still has a round left, run the next round to re-review. If not, see
      budget exhaustion below.
-   - **P2 present, no P1** → fix the P2s minimally, run the **targeted tests**
-     covering them, and go to Phase 2. Do **NOT** spend a round re-reviewing a
-     P2 fix. Note the fixes in the report as reviewed-once.
+   - **P2 present, no P1** → fix the P2s minimally and run the **targeted tests**
+     covering them. Then split by tier:
+     - **Low / Medium** → go to Phase 2. Do **NOT** spend a round re-reviewing a
+       P2 fix. Note the fixes in the report as reviewed-once.
+     - **High** → if the budget still has a round left, **spend it** re-reviewing
+       the P2 fixes. Persistence / schema / identity / security code must not
+       ship a fix no reviewer has seen; the second round exists for exactly this.
+       Skip it only when the budget is already spent, and say so in the report.
    - **Only P3/P4** → do not fix anything; record them as follow-ups; go to
      Phase 2.
 
@@ -173,8 +185,12 @@ d. **Budget exhausted** — the Phase 0 round budget is spent. Do NOT silently
    start another round. Choose exactly one and state it in the report:
    - **ship** — no P1 outstanding → done, with any P2/P3/P4 recorded as
      follow-ups.
-   - **fix P1 only** — a P1 is outstanding on a High-risk change → spend the
-     one permitted extra round on the P1s alone (hard ceiling: 3 rounds).
+   - **fix P1 only** — a P1 is outstanding → fix the P1s (nothing else) and
+     spend ONE extra round re-reviewing just that fix. This applies at **every**
+     tier: a Medium-risk change whose single round found a P1 gets that round
+     (2 total), a High-risk change gets a 3rd. Hard ceiling: **tier budget + 1**.
+     An outstanding P1 always buys the round it needs — the budget bounds
+     polishing, never the closing of a real defect.
    - **escalate** — a P1 is outstanding and the fix would exceed the task's
      scope, or the same P1 theme survived the extra round → stop, do not
      widen scope, and report it to the user as a blocking finding with a

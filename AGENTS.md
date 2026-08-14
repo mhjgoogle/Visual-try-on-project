@@ -173,19 +173,29 @@ pause/cancel/skip 状态。
     **发布闸门 = 用户验收标准满足 + 相关测试通过 + 无未闭合 P1**，
     而不是零发现 + 全量测试 + 完美架构。`VERDICT: pass` 不是闸门。
 
-    **全量 pytest 是两阶段并行跑**（2026-08-14 起，`pytest-xdist` 已进
-    `[project.optional-dependencies].dev`，是全量提交的硬依赖）：
+    **全量 pytest 改为两阶段并行跑**：
 
-    1. `pytest -n 8 -m "not serial"` —— 并行，约 3180 项
-    2. `pytest -m serial` —— 串行，真实进程树测试
+    1. `pytest -n 8 -m "not serial"` —— 并行，3186 项
+    2. `pytest -m serial` —— 串行，5 项（真实进程树）
 
-    原生 Windows 实测：串行 328s（2815 项，2026-08-10）→ 两阶段 147s + 11s。
+    **唯一权威基线**（原生 Windows，同一台主机，2026-08-14 同口径实测，
+    3191 项）：**串行 469s → 两阶段 179s（并行 132s + 串行 47s），2.6×**。
+    历史参考数字 328s / 2815 项（2026-08-10，gate.ps1 注释）测的是**更少的
+    测试**，不可与上面的数字混用来判断是否回归。
+
     收益来自 fsync I/O 重叠，因为 Windows 没有 `/dev/shm`，
     根 `conftest.py` 的 tmpfs 路由在这里是 no-op。`-n 8` 是实测值，
     不用 `auto`（12）——fsync 主导后更多 worker 不再付费。
     `serial` marker 只给**断言真实 OS 进程状态**的测试用
     （当前仅 `tests/test_motv_run_lifecycle_task072.py`），
-    不是绕开并行的通用逃生口。两个 commit gate 与 CI 的两个 job 用同一套拆分。
+    不是绕开并行的通用逃生口。
+
+    > **状态（2026-08-14）：本节描述的是已验证但尚未提交的行为。**
+    > `pytest-xdist` 进 `[dev]`、两个 commit gate 与 CI 两个 job 的两阶段拆分
+    > 都在工作区待提交（被并发在制品锁死，见
+    > [待提交记录](docs/design/pending-speedup-and-gate-fix.md)）。
+    > **在那批落地之前**：干净环境按本节跑 `pytest -n 8` 会因缺 xdist 失败，
+    > 且 gate 与 CI 实际仍是单阶段串行。落地后删除本提示框。
 
     **连续修改链例外**（[ADR-0068](docs/adr/ADR-0068-continuous-modification-chain.md)）：
     经用户**明确授权**、且任务卡已写下任务/批次清单与最终检查点的连续实施，其
