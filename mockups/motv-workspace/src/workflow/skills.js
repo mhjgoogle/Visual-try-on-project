@@ -283,9 +283,20 @@ export function installCatalog(payload) {
   // DEPRECATED capabilities are resolvable but never listed (ADR-0067 决策 5):
   // a historical Run points at one by id and the page still has to render it,
   // but nothing may offer it as a choice. So they join the lookup, not SKILLS.
-  const retired = (Array.isArray(payload.deprecated) ? payload.deprecated : []).map(
-    (s) => deepFreeze({ ...s, optionalInputs: s.optionalInputs || [] }),
-  );
+  // VALIDATED THE SAME WAY (independent review). Skipping the checks here let a
+  // malformed retired entry register under the key `undefined` in BY_ID — the
+  // opposite of fail-closed, and on the one path whose entire purpose is that a
+  // historical Run can still resolve its capability.
+  const retired = (Array.isArray(payload.deprecated) ? payload.deprecated : []).map((s) => {
+    if (!s || typeof s.skillId !== "string" || !s.skillId) {
+      throw new Error("能力目录无效：已停用条目缺少 skillId");
+    }
+    if (!isObj(s.outputSchema)) throw new Error(`已停用能力 ${s.skillId} 缺少输出契约`);
+    if (typeof s.instruction !== "string" || !s.instruction.trim()) {
+      throw new Error(`已停用能力 ${s.skillId} 缺少指令正文`);
+    }
+    return deepFreeze({ ...s, optionalInputs: s.optionalInputs || [] });
+  });
   const labels = isObj(payload.inputs) ? payload.inputs : {};
   SKILLS = Object.freeze(next);
   SKILL_INPUTS = deepFreeze({ ...labels });

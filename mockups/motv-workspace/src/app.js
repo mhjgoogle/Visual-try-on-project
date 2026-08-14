@@ -6423,7 +6423,7 @@ function landingThumb(kind, name) {
   return `<div class="thumb" style="background:${grad}"><span style="font-size:30px;opacity:.75">${ic}</span></div>`;
 }
 
-function renderLanding(realNames) {
+function renderLanding(realNames, projectsError = null) {
   const grid = $("#projgrid");
   [...grid.querySelectorAll(".pcard")].forEach((c) => c.remove());
   const local = projects.loadRegistry(window.localStorage);
@@ -6437,9 +6437,15 @@ function renderLanding(realNames) {
   const note = $("#landing-note");
   if (note) {
     const m = query.meta();
-    note.textContent = CONNECTED
-      ? `已连接后端 · 资产根目录 ${m && m.account_root ? m.account_root : "未知"}`
-      : "演示模式（无后端）· 画布与项目列表保存在本机浏览器";
+    // A FAULT READS AS A FAULT (验收 #5). An empty project grid caused by a 500 is
+    // indistinguishable from an account with no projects, and only one of them is
+    // something the creator can act on.
+    note.classList.toggle("bad", !!projectsError);
+    note.textContent = projectsError
+      ? `读取项目列表失败：${projectsError.message || projectsError}——这不是「你没有项目」，是后端没能给出列表`
+      : CONNECTED
+        ? `已连接后端 · 资产根目录 ${m && m.account_root ? m.account_root : "未知"}`
+        : "演示模式（无后端）· 画布与项目列表保存在本机浏览器";
   }
   for (const c of cards) {
     const b = document.createElement("button");
@@ -6666,8 +6672,19 @@ async function boot() {
   setModeBadge();
   await installSkillCatalog();
   REAL_NAMES = [];
+  // TASK-072 §1.4 验收 #5. `listProjects` now THROWS a classified error instead of
+  // swallowing a fault into `[]` — so this, its only caller, has to handle it. It is
+  // caught HERE rather than in the seam because the decision is a product one: a
+  // backend fault must read AS A FAULT (not 「你没有项目」), and it must not take the
+  // whole bootstrap down before the landing screen is ever drawn.
+  let projectsError = null;
   if (CONNECTED) {
-    REAL_NAMES = await query.listProjects();
+    try {
+      REAL_NAMES = await query.listProjects();
+    } catch (e) {
+      projectsError = e;
+      REAL_NAMES = [];
+    }
     DEFAULT_NAME = REAL_NAMES[0] || "draft";
     if (REAL_NAMES[0]) {
       PROJECT_NAME = REAL_NAMES[0];
@@ -6676,7 +6693,17 @@ async function boot() {
   } else {
     DEFAULT_NAME = "local-draft";
   }
-  renderLanding(REAL_NAMES);
+  renderLanding(REAL_NAMES, projectsError);
   renderBudget();
 }
-boot();
+// LAST RESORT. `boot()` is async and was invoked bare, so ANY rejection inside it
+// became an unhandled rejection and left a blank page with nothing on screen to
+// explain it. A boot that cannot finish must still say so.
+boot().catch((e) => {
+  const note = $("#landing-note");
+  if (note) {
+    note.textContent = `启动失败：${(e && e.message) || e}——页面没有加载完，请刷新或检查后端`;
+    note.classList.add("bad");
+  }
+  console.error("motv: boot failed", e);
+});

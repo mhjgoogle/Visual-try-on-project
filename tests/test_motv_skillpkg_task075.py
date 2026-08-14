@@ -287,6 +287,13 @@ def test_the_shared_context_tables_have_exactly_one_source() -> None:
         for key in (*skill.inputs, *skill.optional_inputs):
             assert key in body["inputs"], f"{skill.skill_id} declares unlabelled {key}"
 
+    # `runtimeKinds` is the ONE table skills.js still keeps as a literal (RUNTIME_KINDS
+    # is not served in the payload), so it is the one pair that CAN still drift — and
+    # the rewrite of this test dropped its comparison. Restored (independent review).
+    js_kinds = js.split("export const RUNTIME_KINDS = [", 1)[1].split("]", 1)[0]
+    want = [v.strip().strip('",') for v in js_kinds.split(",") if v.strip()]
+    assert shared["runtimeKinds"] == want, "runtimeKinds and RUNTIME_KINDS diverged"
+
 
 def test_a_broken_shared_file_fails_the_whole_payload() -> None:
     """Fail-closed (ADR-0067 决策 7): a catalog served WITHOUT its context tables

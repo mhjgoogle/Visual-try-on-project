@@ -133,78 +133,112 @@ async function once(path, opts) {
   // what the caller asked for.
   const bounded = Number.isFinite(timeoutMs) && timeoutMs > 0;
   const timer = bounded ? setTimeout(() => controller.abort(), timeoutMs) : null;
-  let res;
+  const wantsRaw = expect === "raw";
+  // THE DEADLINE COVERS THE BODY TOO. `fetch` resolves as soon as the HEADERS
+  // arrive; releasing the timer and the caller's abort listener there left
+  // `.json()` / `.blob()` unbounded and no longer cancellable — a slow body could
+  // hang forever despite a timeout being set. So everything below runs inside one
+  // try, and both are released only in its `finally`.
+  //
+  // A RAW read is the exception: its body is consumed by the CALLER after this
+  // function returns, so the deadline cannot cover it and the timer is released
+  // before returning the Response.
   try {
-    const init = { method, cache: "no-store", signal: controller.signal };
-    const hdrs = { ...(headers || {}) };
-    if (body !== undefined) {
-      // Pass BINARY AND PRE-ENCODED bodies through untouched. `JSON.stringify` of
-      // a File yields `"{}"` — an upload that silently transmits nothing while
-      // reporting success — and FormData carries its own multipart boundary that
-      // an added Content-Type would break.
-      if (isRawBody(body)) {
-        init.body = body;
-        // only what the caller explicitly set (e.g. a File's own MIME type)
-      } else {
-        hdrs["Content-Type"] = hdrs["Content-Type"] || "application/json";
-        init.body = JSON.stringify(body);
+    let res;
+    try {
+      // `no-store` belongs on JSON reads (a stale project list is a wrong answer),
+      // NOT on raw BYTE reads: `fetchAsDataUrl` and `sha256OfUrl` pull whole media
+      // files, and forcing a re-download on every preview/hash is pure waste. Those
+      // pass `expect: "raw"`, so they keep the default caching they had before.
+      const init = { method, signal: controller.signal };
+      if (!wantsRaw) init.cache = "no-store";
+      const hdrs = { ...(headers || {}) };
+      if (body !== undefined) {
+        // Pass BINARY AND PRE-ENCODED bodies through untouched. `JSON.stringify` of
+        // a File yields `"{}"` — an upload that silently transmits nothing while
+        // reporting success — and FormData carries its own multipart boundary that
+        // an added Content-Type would break.
+        if (isRawBody(body)) {
+          init.body = body;
+          // only what the caller explicitly set (e.g. a File's own MIME type)
+        } else {
+          hdrs["Content-Type"] = hdrs["Content-Type"] || "application/json";
+          init.body = JSON.stringify(body);
+        }
+      }
+      if (Object.keys(hdrs).length) init.headers = hdrs;
+      res = await fetch(path, init);
+    } catch (e) {
+      // AbortError has two causes and they are NOT the same fact: the caller
+      // cancelled, or we ran out of patience. Reporting a timeout as a
+      // cancellation hides a real backend fault.
+      if (e && e.name === "AbortError") {
+        throw new ApiError(signal && signal.aborted ? API_ERROR.ABORTED : API_ERROR.TIMEOUT, {
+          path,
+        });
+      }
+      throw new ApiError(API_ERROR.OFFLINE, { path, detail: (e && e.message) || "" });
+    }
+
+    const ctype = (res.headers && res.headers.get && res.headers.get("content-type")) || "";
+    const isJson = ctype.includes("application/json");
+    // Parsed even on failure: this project's errors carry `{error:{category,detail}}`
+    // and dropping it would replace a precise reason with a bare status code.
+    //
+    // NOT parsed for a successful raw read: a body can only be consumed once, so
+    // reading it here would leave the caller's `.blob()` with nothing.
+    let parsed = null;
+    if (isJson && !(wantsRaw && res.ok)) {
+      try {
+        parsed = await res.json();
+      } catch (e) {
+        // AN ABORTED BODY IS NOT A MALFORMED ONE. A blanket `.catch(() => null)`
+        // turned a deadline that fired mid-body into 「响应不是可解析的 JSON」 —
+        // pointing the creator at the backend's data when the real fact is that we
+        // stopped waiting. Only a genuine parse failure falls through to `null`.
+        if (e && e.name === "AbortError") {
+          throw new ApiError(
+            signal && signal.aborted ? API_ERROR.ABORTED : API_ERROR.TIMEOUT,
+            { path },
+          );
+        }
+        parsed = null;
       }
     }
-    if (Object.keys(hdrs).length) init.headers = hdrs;
-    res = await fetch(path, init);
-  } catch (e) {
-    // AbortError has two causes and they are NOT the same fact: the caller
-    // cancelled, or we ran out of patience. Reporting a timeout as a
-    // cancellation hides a real backend fault.
-    if (e && e.name === "AbortError") {
-      throw new ApiError(signal && signal.aborted ? API_ERROR.ABORTED : API_ERROR.TIMEOUT, {
+
+    if (!res.ok) {
+      const err = isObj(parsed) && isObj(parsed.error) ? parsed.error : null;
+      throw new ApiError(classify(res.status), {
+        status: res.status,
+        // the backend's own wording wins — it knows which of the several 403s this is
+        detail: (err && err.detail) || `HTTP ${res.status}`,
+        path,
+        body: parsed,
+      });
+    }
+    if (wantsRaw) return res;
+    if (!isJson) {
+      // A 200 of HTML is the signature of a dev server or proxy serving index.html
+      // for an unknown /api path. Treating it as data yields nonsense downstream.
+      throw new ApiError(API_ERROR.MALFORMED, {
+        status: res.status,
+        detail: `期望 JSON，收到 ${ctype || "未声明类型"}`,
         path,
       });
     }
-    throw new ApiError(API_ERROR.OFFLINE, { path, detail: (e && e.message) || "" });
+    if (parsed === null) {
+      throw new ApiError(API_ERROR.MALFORMED, {
+        status: res.status,
+        detail: "响应不是可解析的 JSON",
+        path,
+      });
+    }
+    // the REAL status travels with the body, so a caller can tell 200 from 201/204
+    return { __status: res.status, data: parsed };
   } finally {
     if (timer) clearTimeout(timer);
     if (signal) signal.removeEventListener("abort", onAbort);
   }
-
-  const ctype = (res.headers && res.headers.get && res.headers.get("content-type")) || "";
-  const isJson = ctype.includes("application/json");
-  // Parsed even on failure: this project's errors carry `{error:{category,detail}}`
-  // and dropping it would replace a precise reason with a bare status code.
-  //
-  // NOT parsed for a successful raw read: a body can only be consumed once, so
-  // reading it here would leave the caller's `.blob()` with nothing.
-  const wantsRaw = expect === "raw";
-  const parsed = isJson && !(wantsRaw && res.ok) ? await res.json().catch(() => null) : null;
-
-  if (!res.ok) {
-    const err = isObj(parsed) && isObj(parsed.error) ? parsed.error : null;
-    throw new ApiError(classify(res.status), {
-      status: res.status,
-      // the backend's own wording wins — it knows which of the several 403s this is
-      detail: (err && err.detail) || `HTTP ${res.status}`,
-      path,
-      body: parsed,
-    });
-  }
-  if (expect === "raw") return res;
-  if (!isJson) {
-    // A 200 of HTML is the signature of a dev server or proxy serving index.html
-    // for an unknown /api path. Treating it as data yields nonsense downstream.
-    throw new ApiError(API_ERROR.MALFORMED, {
-      status: res.status,
-      detail: `期望 JSON，收到 ${ctype || "未声明类型"}`,
-      path,
-    });
-  }
-  if (parsed === null) {
-    throw new ApiError(API_ERROR.MALFORMED, {
-      status: res.status,
-      detail: "响应不是可解析的 JSON",
-      path,
-    });
-  }
-  return parsed;
 }
 
 /**
@@ -227,7 +261,11 @@ export async function request(path, opts = {}) {
   let attempt = 0;
   for (;;) {
     try {
-      return await once(path, opts);
+      const r = await once(path, opts);
+      // `once` returns `{__status, data}` for JSON so `attempt` can report the REAL
+      // status; `request`'s contract is the BODY, so it is unwrapped here — once —
+      // rather than at every call site. A raw read returns the Response untouched.
+      return isObj(r) && "__status" in r ? r.data : r;
     } catch (e) {
       const retryable = e instanceof ApiError && RETRYABLE.has(e.category);
       if (!retryable || attempt >= budget) throw e;
@@ -248,8 +286,11 @@ export async function request(path, opts = {}) {
  */
 export async function attempt(path, opts = {}) {
   try {
-    const data = await request(path, opts);
-    return { ok: true, status: 200, data, error: null };
+    const r = await once(path, opts);
+    // the REAL status, not a hardcoded 200: `query.js:_call` callers branch on it,
+    // and 201/204 are legitimately different answers from 200
+    const raw = isObj(r) && "__status" in r;
+    return { ok: true, status: raw ? r.__status : 200, data: raw ? r.data : r, error: null };
   } catch (e) {
     const err = e instanceof ApiError ? e : new ApiError(API_ERROR.SERVER, { detail: String(e) });
     return { ok: false, status: err.status, data: null, error: err };
