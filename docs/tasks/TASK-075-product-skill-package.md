@@ -503,6 +503,60 @@ P2 也已修：`instruction` 在 script-draft 上被**别的端点的上限**截
 消费方。因此**前端仍是第二份定义**——后端已经统一，前端未统一。这是本卡剩下的
 最后一块，单独一批做。
 
+### 批次 C（§1.4，本次实施）：`skills.js` 降为消费方
+
+| 落点 | 内容 |
+| --- | --- |
+| `src/workflow/skills.js` | `SKILLS` / `SKILL_INPUTS` / `SHOT_SCOPED_INPUTS` 由 `const` 字面量改为 `export let` + `installCatalog(payload)`。ES module 活绑定使 `skills.SKILLS` 的既有读者无需改动，§1.4「调用点不改」由此成立；`deprecated` 进查找表而不进列表（决策 5 两半） |
+| `skillpkg.catalog_payload()` | **新增**。`Catalog.public()` 只给三个列表，`inputs` / `shotScopedInputs` 现在随目录一起送 |
+| `server.py` `/api/skills` | 改用 `catalog_payload`；共享表读不出来时 **503**，不再返回一个「看起来完整」的目录 |
+| `app.js` `installSkillCatalog()` | 启动时加载；失败记原因，**不安装任何东西**（决策 7）。无 ID 的 problem 渲染成「（未能读出能力 ID）」，收口批次 A 的交接项 |
+| `ui/skillpanel.js` | 能力面板新增目录健康区：整体不可用（带原因）与**逐包加载失败**（带来源与原因）分开显示 |
+| `tests/skillcatalog.mjs` | 前端测试从**同一批包**装载目录，不引入第三份定义 |
+
+**实施中发现并修掉的一个真问题（不是测试问题）**：`/api/skills` **不送**
+`inputs` 与 `shotScopedInputs`。§1.4 之后前端连这两张表也不再自带，于是页面会装上
+**空的**标签表与**空的** shot-scoped 列表——前者让每个输入以裸 camelCase 键显示，
+后者让 `isShotScoped()` 对所有能力返回 `false`，**五个 shot 级能力全部被送去
+整集上下文构建器**。它们仍然会运行，只是在回答另一个问题。这正是
+「功能之间互相影响」的形状：改的是目录加载，坏的是镜头上下文路由。
+
+**§1.4 的前置债务（B2 第三轮债务 3）已修**：`script-reviser` 的「修改要求」原先
+只活在端点侧的 `_EXTRA_FENCED` 里，因此它一旦出现在 `/api/skills` 列表中，创作者
+独立选它就会拿到一份**没有修改要求**的修订指令。修法是把它变成**声明输入**
+`revisionRequest`（共享表新增标签「修改要求」），于是：
+
+- 两侧都走 `compile_prompt` / `compilePrompt` 的同一道围栏（有行为覆盖）；
+- `missingInputs` 按声明输入拦截，缺修改要求即**拒绝运行**，而不是静默做一次空修订；
+- `_EXTRA_FENCED["script-draft"]` **整条删除**——安全的前提是 `_is_revision()`
+  本身就定义在「`instruction` 非空」上，所以初稿分支从来没有 steer 可丢；
+- 上限随键名走（`revisionRequest` 2 000，`script-draft` 覆盖为 4 000），
+  **改名不得顺手抬高上限**；
+- `script-reviser` 升到 **v2**（inputs 变了就是内容变了，§1.2 不许原地覆盖）。
+
+**两处守卫按新的归属重写，不是放宽**：
+
+- `test_the_shared_label_map_matches_the_frontend_copy` 的旧不变量（比对两份手写
+  表）已经不可表达——前端没有副本了。改为
+  `test_the_shared_context_tables_have_exactly_one_source`：断言 `skills.js`
+  **不得**再出现 `export const SKILL_INPUTS` / `SHOT_SCOPED_INPUTS` 字面量，且
+  `catalog_payload` 真的带着共享文件的两张表，且**每个包声明的键都有标签**。
+  另加一条：共享文件读不出来时整个 payload 失败。
+- `test_no_skill_hardwires_an_executor`（TASK-059）原来 split `skills.js` 的
+  `SKILLS` 数组——现在那里没有定义，这条守卫会**空转通过**。改为扫
+  `product-skills/builtin/` 的**三个文件**（prompt.md 里写死执行器与 manifest 里
+  写死同样有约束力，而 prompt 才是真正发给模型的那份）。
+
+验收对照：#9 ✅（deprecated 可解析不列出，两侧）、#11 ✅（导航快照未变）。
+
+测试：`test_motv_skillpkg_task075.py` 60 → 61 项；全量前端 **929 通过**；
+`-k motv` **451 通过 / 14 跳过**；ruff check + format 全绿。
+
+**本批未做（如实登记）**：新增的 `installSkillCatalog` 与目录健康区**没有专门的
+自动化测试**（产品负责人本次明确要求去掉测试与审查环节以换取进度）。因此
+「后端 503 → 面板显示不可用带原因」目前只有代码保证，没有守卫。这一条与 B2 遗留的
+七项债务一起等 codex 复审。
+
 ## 4. 已知风险
 
 1. **迁移与修订必须分开。** 本轮逐字搬运；任何措辞改动另起一次修订。

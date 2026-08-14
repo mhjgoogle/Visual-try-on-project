@@ -70,7 +70,13 @@ def test_generations_are_project_level_persisted_not_node_owned() -> None:
 def test_ai_paths_record_generations_with_frozen_snapshot() -> None:
     assets = (_SRC / "workflow" / "nodes" / "assets.js").read_text("utf-8")
     audio = (_SRC / "workflow" / "nodes" / "audio.js").read_text("utf-8")
-    app = (_SRC / "app.js").read_text("utf-8")
+    # app.js PLUS the controllers extracted from it (TASK-073 §1.8). The invariant is
+    # 「系统里有七条会记录 Generation 的产出路径」, not 「app.js 这个文件里有七处」 —
+    # anchoring it to one file makes every extraction fail this guard for the wrong
+    # reason (the ffmpeg render moved to controllers/timelinectl.js).
+    app = (_SRC / "app.js").read_text("utf-8") + "".join(
+        f.read_text("utf-8") for f in sorted((_SRC / "controllers").glob("*.js"))
+    )
     # image + audio launch a generation and complete/fail it
     for src in (assets, audio):
         assert "ctx.startGeneration" in src

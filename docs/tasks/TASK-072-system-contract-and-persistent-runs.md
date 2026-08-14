@@ -494,3 +494,135 @@ commit，**不跑**全量 pytest 与全量前端（把 `MOTV_CONTINUOUS_CHAIN=1`
 | --- | --- | --- |
 | 1 | 第 23 轮的 3 个修复**未经 codex 复审**（第 24 轮 `ENV_ERROR: codex unavailable`，`claude` 回退未安装）。三处均有定向测试且全绿：确认 kill 后终结卡住的 `cancelling`、404 不再当作所有权证明、测试清理需身份才发信号 | codex 恢复后补跑一轮复审 |
 | 2 | POSIX 下后端被 `SIGKILL` 仍可能留下孤儿。关闭它需要 cgroup 或 PID namespace | 另立 ADR；当前一律记 `childExitVerified: false`，绝不声称已清理 |
+
+---
+
+## 7. 批次二实施记录（2026-08-14，**部分完成**）
+
+产品负责人当日要求「所有任务做完、去掉测试与审查环节」。如实记下**做到哪里**。
+
+### 7.1 已完成：统一 API Client（§1.4 的第一件）
+
+新增 `src/services/apiclient.js` —— 页面与后端之间的**唯一 fetch 出口**：
+
+| 能力 | 内容 |
+| --- | --- |
+| 错误分类 | 封闭集合 `API_ERROR`：offline / timeout / aborted / malformed / client / unauthorized / forbidden / not_found / conflict / unavailable / server |
+| 两种形态 | `request()` **抛** 分类后的 `ApiError`；`attempt()` 返回 `{ok,status,data,error}`。**没有第三种「失败时返回一个值」的形态**——回退是产品决策，属于调用点，不属于传输层 |
+| 超时 | 默认 20s；`timeoutMs: 0` 表示**无期限**，给 ffmpeg / piper / provider 调用 |
+| 重试 | **只重试 GET** 的传输故障。写请求一律不重试：传输层无法知道它是否已生效，而 §5.8「`sideEffect: unknown` 禁止自动重试」这条规则如果下层偷偷重放就等于没有 |
+| 内容类型 | 200 + 非 JSON → `malformed`。静态 host 用 index.html 应答未知 `/api` 路径正是这个形状，当成数据会在下游变成乱码 |
+
+**改造前每个 service 自己伸手拿 fetch，各有一套「什么算失败」**：`catch → return []`、
+`catch → return fixture`、`!r.ok → return null`、以及**完全不检查 content-type** 的
+`await r.json()`。其中三种会把后端故障变成**看起来合理的空**——页面显示「没有项目」
+「没有资产」，创作者无法把它和真的空区分开。这正是验收 #5 要挡的。
+
+### 7.2 已完成：24 / 30 个 fetch 调用点改经 apiclient
+
+| 模块 | 结果 |
+| --- | --- |
+| `services/query.js` | 19 → 0（五个 agent 端点的重复错误构造收敛成一个 `_post`） |
+| `services/gateway.js` | 5 → 0 |
+| `services/runtime.js` | 3 → 2（`probeExecutors` 已改） |
+| `workflow/mediaref.js` | 1 → 0 |
+| `services/persist.js` | 2 → 2（**未改**） |
+
+`listProjects` / `getShots` 的 `catch → []` 已删除：后端 500 现在传播成分类错误，
+不再变成「你没有项目 / 这一集没有镜头」。
+
+**两处 apiclient 自己的缺陷在实施中发现并修掉**（都会静默损坏功能）：
+① `timeoutMs: 0` 会被 `setTimeout` 在下一个 tick 触发 → **立刻 abort**，与调用方
+要表达的「不设期限」正好相反；② `File` / `Blob` body 会被 `JSON.stringify` 成
+`"{}"` → **上传成功但一个字节都没送出去**。
+
+### 7.2b Query / Command 拆分 —— 完成（2026-08-15）
+
+| 落点 | 内容 |
+| --- | --- |
+| `services/command.js` | **新增**。十四个写操作全部搬入：建项目 / 迁移旧项目 / 五个创作端点 / render / mix / compose / tts / 删除字节 / 上传 / 付费出图 |
+| `services/query.js` | 只剩读：`detectMode` `listProjects` `fsDefault` `fsList` `getQuery` `getShots` `fetchSkillCatalog` `fetchAsDataUrl` `fixtureProject` |
+| 兼容层 | 十四个名字在 `query.js` **re-export**（标 deprecated，TASK-074 §1.5 删）。是 re-export 而不是重新实现，所以每个写只有**一份**实现，兼容层不可能与它漂移 —— `q[n] === c[n]` 已实测 |
+| `apiclient.legacyError` | 两侧共用同一个错误转换，`.category` 保持**后端的**分类（面板的提示表以 `unavailable` / `unauthenticated` / `invalid_output` 为键；换成传输层分类会让那些提示全部变空） |
+
+拆分的意义不是整齐：读者现在能靠「这个调用来自哪个模块」回答「它会不会改东西」，
+而未来的自动化级别可以在**一个接缝**上强制，而不是三十个调用点。
+
+**验收 #5 已实证**（不是推理）：把 `fetch` 打成 connected + 500，`listProjects` /
+`getShots` / `getQuery` 三条读路径**全部抛出**带后端 `category` 的分类错误，
+不再退化成空数组。
+
+**实施中自己造成并修掉的一个真问题**：删除写函数的正则连带删掉了 `_err`，
+而三条读路径还在调它 —— 运行时 `ReferenceError`。已改用共享的 `legacyError`，
+并**逐条跑通了错误分支**来确认（不是靠读代码确认）。
+
+### 7.3 未完成（明确不算做完）
+
+| 项 | 状态与理由 |
+| --- | --- |
+| Envelope 构造 + preflight / submit 归位 | **未做**。`gateway.js` 仍持有那条两步写路径；本次只完成了读写分离与统一传输层 |
+| `services/persist.js` 改经 apiclient | **未做，有意保留**。它靠 **content-type 嗅探**区分「后端在」与「静态 host」，并自带 keepalive 的 64 KiB 聚合字节记账、写序列化与 AbortController 竞态处理。apiclient 现在把「200 非 JSON」归成 `malformed` 抛出，正好**吃掉**它依赖的那个区分。要改需要先让 apiclient 表达 keepalive 与「这是不是后端在说话」，那是单独一轮的事 —— 而这是全树里推理最密的文件，赶工改它就是 B2 那三次「守卫没守住」的复现条件 |
+| `services/runtime.js` 的 `cancelRun` / `runOnExecutor` | **未做，有意保留**。两者的契约是**状态码形状**的（「404 不是证明」、非 2xx 时仍要读 body 里的 `kind`），且这些分支写的是 codex 第 22–23 轮的结论 |
+| 验收 #5 的守卫测试 | **未做**（本次按要求跳过测试环节）。「后端 500 时 UI 模型是 error 而不是 empty」目前只有代码保证 |
+
+测试现状：全量前端 **929 通过**、`-k motv` **451 通过 / 14 跳过**、ruff 全绿。
+**未做 Codex 独立审查**（本次按产品负责人要求跳过；codex 亦在 spend cap 内不可用）。
+
+---
+
+## 8. 批次三实施记录（2026-08-14，**部分完成**）
+
+### 8.1 §1.7 ArtifactVersion 六态派生视图 —— 完成
+
+新增 `src/workflow/artifactversion.js`，**纯读**：`stateOfVersion` /
+`promptVersionStates` / `chainVersionStates` / `activeVersion` /
+`stateAllowedFrom`。**不改任何存储结构**（§1.7 原话），所以引入这套词汇本身
+不可能损坏任何文档。
+
+固定下来的几条判定，都不是新规则而是既有事实的统一表达：
+
+- `deprecated` 从任何状态都可达，因此**优先于**其它状态（含 active + locked），
+  它是六态之一而不是状态外的标记（ADR-0066 §6 校正 6）；
+- 条目上的 `locked` 只让**active 那一版**变成 `locked`——锁说的是「当前生效的这版
+  不许被覆盖」，把历史每一版都报成 locked 会声称创作者钉住了他从没看过的东西；
+- **`active: 0` 是真状态**（promptdoc 的「回到自动编译，但保留我写过的版本」），
+  此时**没有任何**存储版本是 `confirmed`。回退成「最新那版算 confirmed」会把创作者
+  明确离开的那一版报成生效版本；
+- `storageState` **保持正交**（§3.2）：「字节在不在」不是「这版行不行」，
+  归档过的 confirmed 仍然是 confirmed；
+- 空文本版本是 `draft` 而不是 `candidate`——把它列成候选等于请创作者挑一个空的。
+
+守卫：`tests/artifactversion.test.mjs`（8 项）。含验收 #10 —— `confirmed` /
+`locked` 传 `origin: "ai"` 一律拒绝**且给出原因**。
+
+### 8.2 §1.9 遗留领域缺陷 —— 6 / 10 已修
+
+| # | 状态 | 落点与修法 |
+| --- | --- | --- |
+| 1 | ✅ | `ctx.frames.bind`：**全部校验前移到任何写入之前**。原来是先写后查再报成功，三个洞一起收：① `targetShotId` 从不解析 → 悬空绑定报成功；② 任意图片资产可写进 `firstFrames` → 不是 `derived-frame` 又属于别的槽位时 `validateCanvasDoc` **拒绝整个文档**，绑一次之后项目打不开也存不了；③ 槽位在 `framebind.bind` 已落盘之后才解析 → Prompt 显示新帧、生成用旧帧。判据直接对齐 `canvasschema.js:1702` 的原话，不另发明规则 |
+| 2 | ✅ | `frameInputs` 补回**中间那一层**：显式 binding → `assets.firstFrames[slot]` → 本镜头当前画面。原来从第一层直落第三层，于是**已经写进 `firstFrames`** 的首帧（付费出图路线写的、创作者按过「用作视频首帧」的）被当前画面顶替，而生成读的是 `firstFrames`——清单说一套、生成器收到另一套。`from` 如实写「已记录的首帧（没有来源记录）」，不伪造来源 |
+| 3 | ❌ 未做 | 参考解读的素材版本 stale 标记 + 三个出口。需要新的 stale 机制并改多处读路径，本轮没做 |
+| 4 | ✅ | `timeline.setClipRemoved`：**级联逐条看锁**。锁原来只查了调用点名的那一个片段，于是移除一个未锁定的视频片段会静默移除同镜头**已锁定**的音频——一把锁被「动另一个对象」绕过。跳过的条数经新增的 `skipped` 出参上报，`postconsole` 的 `act()` 现在会把成功里的 `note` 一起 toast（否则这个决定仍然是不可见的） |
+| 5 | ✅ | `ctx.subtitles.generate` 改用 `liveClips`：不再给已移出成片的片段生成 cue |
+| 6 | ✅ | 新增 `_writeCue`：`mergeWithNext` 与其余字段**要么都做要么都不做**。原来是互斥分支，同一条修正里的 text / 时间被静默丢弃而界面报已应用。合并先跑，字段编辑随后；编辑被拒则**从快照回滚合并**，轨道上不留半条修正 |
+| 7 | ✅ | `timeline.alternatives` 改**按 trackType 取链**（新增 `_clipChain`，与 `ctx.timeline.activeFor` 同一套 map+key 规则）。原来不看轨道，音频片段拿到视频版本链；而 `ctx.assets.chainOf` 先搜 images，视频片段还会拿到自己的首帧**图片**版本。两种都让提案在域校验处必然失败 |
+| 8 | ✅ | `replaceTimelineAsset` 的**候选集围栏**（blocking）。运行启动时把每个 clip 的 `alternatives` 记进 `contextTrace.timelineAlternatives`（非 shot 级运行此前**根本没有** trace），应用时按它过滤，**没有记录就拒绝**（fail-closed，与 `candidateKeys` 同一姿态）。此前 dispatcher 只校验「资产存在且轨道对」，被注入或幻觉的 `replaceWithAssetId` 可以把片段换成项目里**任意**无关视频且干净落盘。非换版编辑（修剪/顺序/转场/移除）不点名资产，不受影响；越界条数如实上报 |
+| 9 | ✅ | episode 层 fade **真正接线**（不是只报错）：新增 `setTimelineFade` 动作 + dispatcher（ms → 秒转换，与 dB → 线性同一个理由；`null` 表示该端不动），`collectSoundAdjustments` 两层都发。时间线自 M11 就有 `fadeIn/fadeOut`，缺的只是一个动作名——所以合法的「本集 BGM 结尾淡出 2 秒」被收集、丢弃、报成已应用 |
+| 10 | ❌ 未做 | `"at"` 帧提取的 `seeked` 超时，codex 自标 uncertain。卡里写明**必须先在真实项目里实测**，需要真实媒体，无法在此判定 |
+
+既有测试改动一处：`postprod.test.mjs` 的 editing-director 用例原来不传 scope，
+新围栏因此 fail-closed。**按新归属重写而不是放宽**——现在覆盖三件事：允许的换版
+通过、**无 trace 时拒绝**（`/没有记录它当时看到的可替换版本/`）、越界条被丢弃并
+上报；另加一条「不含换版的编辑不需要候选集」。
+
+### 8.3 批次三未完成
+
+| 项 | 状态 |
+| --- | --- |
+| §1.5 Review 三层（`workflow/review.js`） | **未做** |
+| §1.6 门槛 G1–G5 | **未做** |
+| §1.9 缺陷 3 / 10 | **未做**（10 需真实项目实测） |
+
+验证：全量 pytest **3135 通过 / 56 跳过 / 0 失败**、全量前端 **937 通过**、
+ruff 全绿。**未做 Codex 独立审查**——按产品负责人本次要求跳过，风险等级为高，
+已登记待复审。

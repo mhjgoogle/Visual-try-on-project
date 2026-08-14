@@ -198,3 +198,278 @@ TASK-072 全部验收
 
 **真实 Connected Project 是主要验收环境**（AGENTS.md 第 20 条）：
 demo seed 与 SVG 占位素材不作为主要验收依据。
+
+---
+
+## 5. 实施记录（2026-08-14，**§1.1 + §1.2 骨架完成，其余未做**）
+
+前置未满足即开工：产品负责人 2026-08-14 明确要求「72-74 全部马上做」。
+如实记下这一点，以及**前置 TASK-072 批次二/三仍只是部分完成**。
+
+### 5.1 §1.1 导航收敛 —— 完成
+
+| 落点 | 内容 |
+| --- | --- |
+| `NAV[0].items` | 6 → **5**：`brief`(项目与创意) `story` `settings`(作品设定) `episodes` `script`。人物 / 人物关系 / 世界观 成为 ③ 的三个分区，`作品设定` 子标题随之消失（没有东西要分组了） |
+| `EPISODE_NAV` | 11 → **5**：`board` `storyboard` `shotwork` `cutreview` `delivery` |
+| `EPISODE_DEFAULT` | `workbench` → **`board`** |
+| `PROJECT_SETTINGS` | 新增独立 route key `projectsettings`，**不复用 `settings`** |
+| `MODULE_ALIAS` + `resolveModule()` | §1.1 落点表变成**可执行的一张表**，所有旧 key 经它解析 |
+| `PAGES` / `PAGE_SECTIONS` | 十一页的**封闭集合**与各页真实分区，供守卫断言 |
+
+**`ASSET_NAV` / `renderAssetRail` / 旧 11 个 stage 全部保留**。本卡 §0 写的是
+「不删旧页面与旧接口」，验收 #11 要求 `git diff --stat` 无删除文件 —— 删除是
+TASK-074 §1.5 的事。实施中我一度真的删掉了 `ASSET_NAV` / `EPISODE_WORKSPACES`，
+而 `epprod.js`、`production.js` 与两个测试文件仍在 import 它们，**整个前端会加载
+失败**；已加回并新增 `LEGACY_EPISODE_STAGES` / `LEGACY_EPISODE_CENTRE` 承载旧语义。
+
+**一个必须分开的语义**：`EPISODE_DEFAULT` 原来同时表示「空间入口」和「制作台」。
+改成 `board` 之后，`epprod.js`（制作台外壳）与 `production.js` 里三处
+`onCentre` 判定会把**本集看板当成制作台**渲染（三级选择器 + shot graph）。已把
+「制作台」语义的用法全部改指 `LEGACY_EPISODE_CENTRE`，「空间入口」语义保留
+`EPISODE_DEFAULT`。`episodeEntryModule` 同理保留规则、把两个落点搬到新页
+（无分镜 → ⑦ 分镜设计；有分镜 → ⑧ 镜头制作）。
+
+### 5.2 §1.2 五页重构 —— 骨架完成（复用，未重写）
+
+五个新页都由**现有组件组合**而成（§0 贯穿规则），渲染与 bind 逐分区对齐：
+
+| 页面 | 分区 → 复用的组件 |
+| --- | --- |
+| ⑥ 本集看板 | `renderEpisodeWs` / `bindEpisodeWs` |
+| ⑦ 分镜设计 | `scenes` → `ws.renderEpisodes`；`shots` → `renderStoryboard` |
+| ⑧ 镜头制作 | **四步流程条**：① `renderRefPlan` ② `renderImageWs` ③ `renderVideoWs` ④ `renderDailies`（④ 即检查层 1，不另建审片页） |
+| ⑨ 粗剪审片 | `renderDailies`（整集连播） |
+| ⑩ 后期交付 | `renderPostConsole(mode:"full")` + 七分区导航 |
+| ⚙ 项目设置 | `storage` → `renderStorageWs`；其余三个分区**诚实显示未接线**，不假装在别处 |
+
+分区状态存 `ui.sections[module]`，**只存前端、不持久化**（§3 迁移方案）。
+样式新增 `.st-secnav` / `.st-steps`（studio.css），沿用既有 token 与配色
+（ADR-0066 §5 / 验收 #10 视觉不变）。
+
+### 5.3 守卫（新增 2 项，改写 4 项）
+
+- 验收 **#1**：`NAV[0].items` 恰好 5、`PAGES` 恰好 **11**、`projectsettings`
+  **不在**十一页内、`PAGE_SECTIONS.shotwork` 恰好是四步且有序。
+  这条就是 ADR-0066 决策 10「新增 Skill 不得新增页面」的**执行点**。
+- 验收 **#2 + #12**：15 个旧 key 逐个断言「解析到预期页 + 预期分区，且该分区
+  真的在 `PAGE_SECTIONS` 里」；6 个 `assets:*` 断言解析成资产库 + 预置筛选；
+  `settings` 与 `projectsettings` 断言**解析到不同页**；每个可解析 key 都有标签；
+  未知 key 落到真实页且 `resolved: false`。
+- 改写（不是放宽）：`workspaces.test.mjs` 的 NAV / EPISODE_NAV / spaceOf /
+  `ASSET_NAV` 段、`creatornav.test.mjs` 的制作台段（`EPISODE_DEFAULT` →
+  `LEGACY_EPISODE_CENTRE`）、`upstream.test.mjs` 的 IA 段。
+
+测试：全量前端 **939 通过 / 0 失败**；定向 pytest 14 通过。
+
+### 5.4 本卡未做
+
+| 项 | 状态 |
+| --- | --- |
+| §1.3 四步流程的任务行 | ✅ **完成**（见 5.5） |
+| §1.7 的字段清单 + 校验 + 两个硬闸 + 编辑与持久化 | ✅ **完成**（见 5.6） |
+| §1.4 上下文 Agent 面板 | ✅ **完成**（见 5.7） |
+| §1.5 生成记录 | ✅ **完成**（见 5.7） |
+| §1.6 资产库单页 + 抽屉 | ✅ **完成**（见 5.8） |
+| §1.8 `app.js` 拆分 | 🟡 **已开工：验证手段已建立，两个控制器已搬出**（见 5.9 / 5.10） |
+
+### 5.7 §1.4 Agent 面板 + §1.5 生成记录 —— 完成（2026-08-15）
+
+两项一起做，因为 §1.4 的「隐藏技术字段」要求它们有地方去，那个地方就是 §1.5。
+
+`src/ui/agentpanel.js`：**两类入口**（页面级「询问 Agent」固定在每页顶部右侧、
+对象级「让 Agent 处理」），**七项固定内容**，按需打开、关闭后不占布局。
+入口渲染**前置**在所有 workspace 之前，所以「每页顶部右侧固定位」是构造出来的，
+新增页面不可能漏掉它。
+
+`src/ui/genrecord.js`：挂在每个结果旁的折叠区，承载 §6.3 从主界面移除的全部字段
+（Skill / 版本 / Runtime / Executor / Provider / Model / 内部任务 ID）+ 输入及其
+版本 + 参数 + 成本 + 起止 + 失败原因 + **用户确认记录**。
+
+三条硬规则都被守卫：
+
+- **验收 #5**：把 `skillId` / `runtime` / `executor` / `provider` / `model` /
+  `runId` / `contextTrace` 全部喂进面板模型，断言渲染结果里**一个都不出现**，
+  且模型对象本身不含这些键。创作者看到的是**任务名称**。
+- **一个主要执行按钮**：`data-agent-run` 恰好出现一次；不可用时**渲染 0 个按钮**
+  并给出真实原因（缺失输入列出具体名字、无执行器给执行器的话）。未判定的能力
+  **fail closed**（不是「可用」）。
+- **缺失输入逐项可点**：`MODULE_ALIAS_GOTO` 把输入 key 映射到能修它的页面；
+  没有落点的输入显示「没有可跳转的位置」，不渲染死链接。
+- **生成记录里「未记录」是打印出来的**：历史运行真的没有 provider / cost / 时间，
+  回填一个像样的值就是伪造。手工导入的产物 `empty: true`，明说「不会编一个来源
+  出来」。「还没有人确认这一版——生成成功不等于定稿」。
+
+守卫：`tests/agentpanel.test.mjs`（9 项）。
+
+### 5.8 §1.6 资产库单页 + 抽屉 —— 完成（2026-08-15）
+
+`renderAssetLibrary(ctx, ui, { mode })` —— **一份实现，两种尺寸**，与
+`postconsole` 的 dock/full 同一个模式（卡明确说是「同一条教训」）。
+抽屉只多一件事：每张卡的「+ 加入」，因为那正是它被打开的理由。
+`Collections` 改名 **「已保存筛选」**（它从来不是第二个容器，只是创作者标记过的
+筛选；旧名字暗示了一个「可以往里放东西的地方」，而它不是）。
+
+⑧ 步骤① 挂上抽屉（§1.1 落点表：`refplan` → 步骤①「并打开资产抽屉」），
+「+ 加入」走**普通 action** `addReference`，所以抽屉绕不过参考面板走的那道守卫。
+
+守卫：`tests/assetdrawer.test.mjs`（5 项）—— 逐个断言**十个筛选钩子在两种尺寸里
+完全一致**（这才是「一份实现」的可检验形式）、抽屉恰好多一个 affordance、
+抽屉**点名它要加到哪个镜头**（不点名就是参考落到错镜头的原因）、没选镜头时
+明说、Inspector 只在页面尺寸出现（抽屉是用来挑的，不该和自己的目的竞争）。
+
+### 5.9 §1.8 `app.js` 拆分 —— 未做，理由
+
+`app.js` 现在 **6992 行**（本轮还因为 §1.9 修复与 §1.7 接线略有增长）。
+卡要求「按领域控制器切分」且「拆分是**纯搬运**：一次提交只移动代码不改行为」。
+
+**做不到纯搬运。** 这些控制器不是独立函数，它们闭包捕获了模块级的
+`skillRunRegistry` / `productionDoc` / `assetRegistry` / `ctx` /
+`refreshProductionView` 等十余个 `let` 变量。搬出去必须改成
+`createXxxController(deps)` 并显式传依赖 —— 那是**改变变量捕获方式**，
+不是搬运，风险与「一次提交只移动代码」的前提冲突。
+
+**而且它是本轮唯一无法验证的改动。** 没有任何测试导入 `app.js`（它需要 DOM），
+所以一次 850 行的 `skills` 控制器搬迁，我既没有独立审查（codex spend cap），
+也没有任何自动化能告诉我搬坏了没有。卡自己的底线写着「具体行数不写死——
+**一个凑数的阈值只会催生为过线而做的坏切分**」；在无审查、无覆盖的条件下强行
+拆分，正是那种坏切分。
+
+**本轮实际做的减法**是另一个方向且是真的：新增的五个领域模块
+（`review.js` / `gates.js` / `deliveryspec.js` / `deliveryqc.js` /
+`artifactversion.js`）与三个 UI 模块（`taskrow.js` / `genrecord.js` /
+`agentpanel.js`）都是**本来会被写进 `app.js` 的逻辑**，它们现在在 `app.js` 之外
+并各自带守卫。这不满足 §1.8 的验收 #14，如实记为未完成。
+
+**前置条件**：要做 §1.8，先要有 (a) 可用的独立审查，(b) 至少一条能加载装配后
+`ctx` 的测试（jsdom 或等价物），否则搬运的正确性无从证明。
+
+### 5.9b 更正：验证手段换了一个方向，§1.8 因此开工了
+
+上面那个「(b) 需要能加载 `app.js` 的测试」是**错的方向**。给 `app.js` 造 DOM stub
+会极其脆弱（它在模块顶层做大量 `$("#…").onclick` 绑定），而且那条路只验证「装配
+没炸」，验证不了搬运是否等价。
+
+**正确的验证手段是让搬出去的控制器自己可构造。** 工厂接显式依赖，测试就能用假文档
+直接构造它并断言行为 —— 可测性本身就是验证手段，而且它是净收益：这些控制器
+在 `app.js` 里**从来没有过任何测试**。
+
+### 5.10 §1.8 已搬出的两个控制器（2026-08-15）
+
+| 控制器 | 落点 | 行数 | 守卫 |
+| --- | --- | --- | --- |
+| `ctx.locks` | `src/controllers/lockctl.js` | 78 | `tests/lockctl.test.mjs`（8 项） |
+| `ctx.timeline` | `src/controllers/timelinectl.js` | 307 | `tests/timelinectl.test.mjs`（9 项） |
+
+`app.js` **6992 → 6682 行**（−310）。这不是 §1.8 验收 #14 所说的「显著小于基线」，
+如实记为进行中。
+
+**为什么不是「纯搬运」，以及这件事本身就是一个发现。** 这些控制器闭包捕获了
+`timelinesDoc` / `productionDoc` / `assetRegistry` / `locksDoc` / `PROJECT_NAME` /
+`CONNECTED` 等模块级 `let`，而**加载项目时 restore 会整个重新赋值**它们。工厂若在
+构造时捕获它们的**值**，控制器就会永远读写**上一个项目**的文档 —— 静默的。所以
+文档一律以 **getter** 传入（闭包读 `let` 本来也是调用时求值，语义完全一致）。
+`tests/timelinectl.test.mjs` 里有一条专门测这个：换掉整个 production 文档，
+`gatherRows()` 必须跟着变。
+
+**自引用改成对象内部引用**：原来 `ctx.timeline.doc()` 内部调
+`ctx.timeline.gatherRows()`；因为 `ctx.timeline` 就是这个对象，改成 `api.gatherRows()`
+—— 同一个函数，少一次绕行，依赖也变得可见。
+
+#### 搬运时被测试发现的两个既有缺陷（**本轮未修**，§1.8 纪律：只搬不改）
+
+1. **`buildRoughCut` 会把 `t.edited` 置为 `true`，而它的注释说自己不会。**
+   注释原话是「An automatic pass is NOT a hand edit… so setting it here made every
+   render claim human tuning that never happened」，但 `roughcut.applyRoughCut` 通过
+   `timeline.addClip` 放置片段，而 `addClip` 调 `touched()`，`touched()` 就是
+   `t.edited = true`。于是**每次自动初剪之后，Final Render 的 provenance 都记
+   `timelineEdited: true`** —— 声称了从未发生的人工调整，正是那段注释想避免的事。
+   已在 `tests/timelinectl.test.mjs` 里以 `PRE-EXISTING` 钉住实际行为。
+2. **`ctx.locks.is("prompt", "s1")`（不带 `|kind`）被读成 image 锁。**
+   原码是 `kind === "video" ? "video" : "image"`，所以裸 id 解析成 image ——
+   `is()` 回答了调用方没有指名的那把锁。已在 `tests/lockctl.test.mjs` 里钉住。
+
+两条都需要独立审查后再改：#1 改动的是 provenance 的真实性，#2 有真实调用点可能
+依赖裸形式。
+
+#### 连带更新的两个既有守卫（不是放宽）
+
+- `test_ai_paths_record_generations_with_frozen_snapshot` 原来断言
+  `app.js` 里 `ctx.startGeneration` **恰好 7 次**。ffmpeg render 搬走后变 6。
+  不变量是「**系统里**有七条会记录 Generation 的产出路径」，不是「这个文件里有七处」，
+  所以改为统计 `app.js` + `src/controllers/*.js` —— 否则后续每搬一个控制器都会
+  以错误的理由撞红它。顺带把 `timelinectl.js` 注释里的 `ctx.startGeneration`
+  改写掉：**注释不该污染文本计数守卫**。
+- 资产卡的两个守卫（TASK-061）用 `function card(a)` 的**精确签名**定位函数体，
+  加参数后定位失效；且其中一个用「按钮数量 == 1」近似「没有嵌套」。已改为按
+  **函数名**定位 + 真正的**嵌套深度**检查（数量近似既误报兄弟按钮，又抓不到真嵌套）。
+
+#### 剩余控制器与建议顺序
+
+按「依赖清晰 → 收益大」排：`refInterp`(41) · `subtitles`(77) · `shotAudio`(176) ·
+`assets`(270) · `frames`(200) · `actions`(470) · `skills`(853)。
+`skills` 与 `actions` 最好留到最后：它们跨控制器引用最多，且 `actions` 现在还包着
+G3，搬它等于同时动质量门。
+
+### 5.5 §1.3 任务行 —— 完成（2026-08-15）
+
+新增 `src/ui/taskrow.js`（纯读模型 + 渲染 + 绑定）与
+`ctx.skills.cancel`（app.js）。一行必带六项：**状态 · 耗时 · 成本 · 失败原因 ·
+重试 · 真实取消**。挂在 ⑧ 镜头制作，按当前镜头过滤。
+
+诚实规则（每一条都对应本仓库踩过的坑）：
+
+- **未知就是未知**：没开始 → 没有耗时（不是 `0.0s`）；没记录成本 → 「成本未记录」
+  （不是 `$0.00`）。「不知道」和「不花钱」是两个答案，而创作者要靠这个差别决定
+  是否重试。订阅内的运行显示「订阅内（不额外计费）」。
+- **失败原因是后端自己的话**，单独一行、不截断。
+- **重试只在终态提供**，否则重试会与被重试的运行竞态。重试是**新的一次运行**，
+  旧记录保留（合同 §5.7 显式重试）。
+- **验收 #7 的核心**：`ctx.skills.cancel` 调 `POST /api/runs/<id>/cancel`，
+  并且**只记录后端确认过的东西** —— 确认终止 → `cancelled`；**未确认终止 → 停在
+  `cancelling` 并原样报出原因（含残留 pid），绝不标成已取消**；运行已先完成 →
+  保留真实结果，不用「已取消」覆盖它。行上按钮还会区分「取消运行」（后端铸的
+  `run-*` id，真有进程可杀）与「放弃」（前端持有的记录）—— 对后者承诺「终止进程」
+  是一个没人能兑现的承诺。
+
+**这个入口此前根本不存在**：`ctx.skills.abandon` 早就写着「请用『取消运行』终止
+它」，而那句话指向的东西没有实现。
+
+守卫：`tests/artifactversion` 之外新增 `tests/taskrow.test.mjs`（7 项），覆盖六项
+齐备、未知不编造、终态无取消按钮、非终态无重试、后端/前端两种取消承诺。
+另把 `RUN_STATUS_LABEL` 从 `ui/skillpanel.js` 提到 `workflow/skillrun.js`：
+两个面板各写一份状态文案，迟早一个说「进行中」另一个说「running」。
+
+### 5.6 §1.7 ⚙ 成片规格与预算 —— 完成（2026-08-15）
+
+| 落点 | 内容 |
+| --- | --- |
+| `workflow/deliveryspec.js` | **新增**。IA §4 ⚙ 的**十四个字段**封闭清单 + 逐项校验 + `specStanding()` + **两个硬闸** + `checkRenderedAgainstSpec()`（TASK-074 §1.2 的「规格」项直接用它，不必再推导一遍） |
+| `canvasschema.js` | `deliverySpec` 作为**可选加法字段**校验：存在且类型错 → 拒绝；**缺失 → 就是「还没有设置」** |
+| `app.js` | 序列化 / 水合 / 新项目重置；`ctx.deliverySpec`（读）与 `ctx.setDeliverySpecField`（**唯一写路径**） |
+| ⚙ 的 spec / budget 分区 | 十四个字段**可编辑**：enum 用下拉、int/money 用数字框；留空 = 清回「还没有设置」 |
+
+**两个硬闸是闸，不是确认框**（§1.7 原话「不是弹窗问一句『确定吗』」）：
+`checkGenerationCost` 没有任何 `confirm` 参数可以越过它。并且**fail closed** ——
+上限没设置时，付费生成与自动重试**一律不执行**：「没有上限」不等于「不限」。
+免费（订阅内）操作照常通过，因为没有东西要限。
+
+**校验拒绝、不强转**：`fps: "25"` 被悄悄变成 `25`，意味着存下来的规格和创作者
+键入的是两个东西，而只有一个被校验过。被拒绝的输入会**弹回**，不会把项目
+没有的值留在框里。
+
+**一次被我自己撤回的过度设计（如实记）**：我先把 `deliverySpec` 做成**必须存在**
+的 canvas **v16** 字段，还写了迁移。跑测试时 6 个用例红了 —— 因为那会让所有
+手写文档和历史文档（它们都没有这个字段）**整份被拒绝**，是一次白买的破坏性变更。
+`deliverySpec` 与 `refInterp` / `frameBindings` / `ctxCache` 完全同类：纯加法、
+可选、缺失即空，本仓库那几个**都没有升版本**。已撤回 v16、删掉迁移，版本回到 15。
+
+守卫：`tests/deliveryspec.test.mjs`（6 项），含十四字段清单、present-but-wrong 被
+拒、三态（set / unavailable / invalid）、两个硬闸的边界与 fail-closed、以及
+「`unavailable` 绝不算通过」。
+| §1.5 生成记录（挂在每个结果旁） | **未做** |
+| §1.6 资产库单页 + 抽屉（同一组件两个尺寸） | **未做** —— 仍是旧 rail + 库页 |
+| §1.7 ⚙ 的 14 个字段与两个硬闸 | **未做** —— 只搭好路由与分区 |
+| §1.8 `app.js` 拆分 | **未做** —— `app.js` 反而因 §1.9 修复略有增长 |
+| 删除「工作区 ▾」菜单等旧入口 | **未做**，且按 §0/#11 本轮本就不该删文件 |
+| Codex 独立审查 | **未做**（reviewer 不可用，见 `.claude/tmp/last-review-task072-075.md`） |
