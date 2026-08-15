@@ -61,7 +61,9 @@ import * as refuse from "./workflow/refuse.js";
 import * as shotctx from "./workflow/shotctx.js";
 import * as ctxcache from "./workflow/ctxcache.js";
 // TASK-073 §1.7: the fourteen ⚙ fields, their validation, and the two hard gates
-import { SPEC_FIELD_BY_KEY, validateField } from "./workflow/deliveryspec.js";
+import {
+  SPEC_FIELD_BY_KEY, validateField, specCheckForCut,
+} from "./workflow/deliveryspec.js";
 // TASK-073 §1.8: controllers extracted from this file, one per domain
 import { createLockController } from "./controllers/lockctl.js";
 import { createReferenceController } from "./controllers/refctl.js";
@@ -120,7 +122,7 @@ let DEFAULT_NAME = "local-draft";
 // new cut is composed the numbers are about the wrong file. Storing them would
 // make stale measurements look current on the delivery screen — worse than
 // having none, because 未检查 at least tells the truth.
-let DELIVERY_PROBE = { name: null, probe: null, error: null, running: false };
+let DELIVERY_PROBE = { assetId: null, name: null, probe: null, error: null, running: false };
 let REAL_STANDING = null;
 // the backend's project list, kept so the landing/new-project dialog can
 // re-render and name-check without refetching
@@ -4041,38 +4043,53 @@ const ctx = {
    * Deterministic issue ids: keyed on the episode and the row, never on a clock, so
    * re-running the report does not mint a second copy of the same finding.
    */
-  /** The newest composed cut, or null. Finals have no chain (assetreg §492), so
-   *  the newest is simply the last one registered — and its name is SHOWN in the
-   *  panel, because a measurement that does not say which file it measured is
-   *  not a measurement the creator can act on. */
-  _latestCut: () => {
-    const finals = ctx.assets.list().filter((a) => a && a.kind === "final" && a.url);
-    if (!finals.length) return null;
-    const cut = finals[finals.length - 1];
-    const name = String(cut.url).split("/").filter(Boolean).pop() || "";
-    return name ? { name, url: cut.url } : null;
+  /** Every registered cut, oldest first. Finals have no chain (assetreg §492),
+   *  so registration order IS version order. */
+  _cuts: () =>
+    ctx.assets
+      .list()
+      .filter((a) => a && a.kind === "final" && a.url)
+      .map((a) => ({
+        assetId: a.assetId,
+        url: a.url,
+        name: String(a.url).split("/").filter(Boolean).pop() || "",
+      }))
+      .filter((c) => c.name),
+
+  /** The cut a measurement applies to: an explicitly chosen one, else the newest.
+   *
+   *  A measurement that does not say WHICH file it measured is not actionable,
+   *  so the name travels with the probe everywhere it is shown. */
+  _selectedCut: (assetId = null) => {
+    const cuts = ctx._cuts();
+    if (!cuts.length) return null;
+    if (assetId) return cuts.find((c) => c.assetId === assetId) || null;
+    return cuts[cuts.length - 1];
   },
 
-  /** Run the REAL probe against the newest cut (TASK-074 §1.2 接线).
+  /** Run the REAL probe (TASK-074 §1.2 接线). Pass an `assetId` to measure a
+   *  SPECIFIC cut — that is what makes 「哪一版」 a real choice on the 成片 tab
+   *  rather than an implicit 「最后那条」 (§1.1 成片预览).
    *
    *  Failures are kept and shown rather than thrown away: 「没跑成」 and
    *  「没跑过」 send the creator to different places, and a silent catch would
    *  make a 503「装个 ffmpeg」 look identical to never pressing the button. */
-  runDeliveryProbe: async () => {
+  runDeliveryProbe: async (assetId = null) => {
     if (!CONNECTED) {
-      DELIVERY_PROBE = { name: null, probe: null, error: "演示模式无后端，无法跑真实探测", running: false };
+      DELIVERY_PROBE = { assetId: null, name: null, probe: null, error: "演示模式无后端，无法跑真实探测", running: false };
       return DELIVERY_PROBE;
     }
-    const cut = ctx._latestCut();
+    const cut = ctx._selectedCut(assetId);
     if (!cut) {
-      DELIVERY_PROBE = { name: null, probe: null, error: "还没有成片可测：先合成一版成片", running: false };
+      DELIVERY_PROBE = { assetId: null, name: null, probe: null, error: "还没有成片可测：先渲染一版成片", running: false };
       return DELIVERY_PROBE;
     }
-    DELIVERY_PROBE = { name: cut.name, probe: null, error: null, running: true };
+    DELIVERY_PROBE = { assetId: cut.assetId, name: cut.name, probe: null, error: null, running: true };
     const res = await query.deliveryProbe(PROJECT_NAME, cut.name);
     DELIVERY_PROBE = res.ok
-      ? { name: cut.name, probe: (res.data && res.data.probe) || null, error: null, running: false }
+      ? { assetId: cut.assetId, name: cut.name, probe: (res.data && res.data.probe) || null, error: null, running: false }
       : {
+        assetId: cut.assetId,
         name: cut.name,
         probe: null,
         error: (res.error && res.error.detail) || (res.error && res.error.category) || "探测失败",
@@ -4080,6 +4097,24 @@ const ctx = {
       };
     return DELIVERY_PROBE;
   },
+
+  /** THIS cut measured against ⚙ 成片规格 (§1.1 成片预览「与规格对照」).
+   *
+   *  Returns null unless the probe on record is for THIS cut: showing v1's
+   *  numbers on v2's row would be a comparison of two different files, and the
+   *  creator has no way to see that from the screen. Re-measuring is one click.
+   */
+  cutSpecCheck: (assetId) =>
+    specCheckForCut(assetId, DELIVERY_PROBE, { ...deliverySpecDoc }),
+
+  /** What the probe last did, for any surface that shows it. */
+  probeState: () => ({
+    assetId: DELIVERY_PROBE.assetId,
+    name: DELIVERY_PROBE.name,
+    running: DELIVERY_PROBE.running,
+    error: DELIVERY_PROBE.error,
+    measured: DELIVERY_PROBE.probe !== null,
+  }),
 
   deliveryQc: () => {
     const ep = (productionDoc && productionDoc.activeEpisodeId) || "delivery";
@@ -4107,13 +4142,8 @@ const ctx = {
       // ffmpeg rows say 未检查 in three different situations — never pressed,
       // pressed and failed, pressed and still running — and the creator cannot
       // tell which.
-      probe: {
-        name: DELIVERY_PROBE.name,
-        running: DELIVERY_PROBE.running,
-        error: DELIVERY_PROBE.error,
-        measured: DELIVERY_PROBE.probe !== null,
-      },
-      hasCut: ctx._latestCut() !== null,
+      probe: ctx.probeState(),
+      hasCut: ctx._cuts().length > 0,
     };
   },
   assets: {

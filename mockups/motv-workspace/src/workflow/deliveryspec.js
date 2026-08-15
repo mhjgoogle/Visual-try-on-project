@@ -247,3 +247,24 @@ export function checkRenderedAgainstSpec(spec, probed) {
     unknown: unknown.length > 0,
   };
 }
+
+/**
+ * The spec comparison for ONE cut — but only when the measurement on record was
+ * taken from THAT cut (TASK-074 §1.1 成片预览「与规格对照」).
+ *
+ * `probeRecord` is `{assetId, probe}`: the ffprobe result together with the cut
+ * it came from. Returns null when there is no measurement for this cut, which
+ * the UI renders as 「还没测过这一版」.
+ *
+ * WHY THE OWNERSHIP CHECK IS THE POINT: only one probe is kept at a time, so
+ * after measuring v1 the numbers are still in hand when v2's row renders.
+ * Showing them there would compare two DIFFERENT FILES with nothing on screen
+ * saying so — a wrong verdict that looks exactly like a right one. Re-measuring
+ * is one click; guessing is not recoverable.
+ */
+export function specCheckForCut(assetId, probeRecord, spec) {
+  if (!assetId || !isObj(probeRecord)) return null;
+  if (probeRecord.assetId !== assetId) return null;
+  if (!isObj(probeRecord.probe)) return null;
+  return checkRenderedAgainstSpec(spec, probeRecord.probe);
+}

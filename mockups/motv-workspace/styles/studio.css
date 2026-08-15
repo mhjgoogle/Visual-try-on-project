@@ -1305,3 +1305,16 @@
 .qc-gate-warn { background: color-mix(in srgb, var(--gate) 12%, transparent); color: var(--gate); }
 .qc-gate-block { background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--bad); }
 .qc-gate-ids { margin-top: var(--s2); font-size: var(--t-micro); opacity: .85; }
+
+/* 成片「与规格对照」（TASK-074 §1.1）。未测 / 不符 / 一致是三种状态，颜色只给
+   后两种：没测过是一个待答的问题，涂成绿或红都会变成一个它没做过的判断。 */
+.pc-specchk { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; margin-top: var(--s2); }
+.pc-specv { font-size: var(--t-micro); font-weight: 700; }
+.pc-specv-ok { color: var(--ok); }
+.pc-specv-bad { color: var(--bad); }
+.pc-specv-unk { color: var(--text-faint); }
+.pc-specerr { color: var(--bad); font-size: var(--t-micro); }
+.pc-specrows { list-style: none; margin: 0; padding: 0; width: 100%; display: flex; flex-wrap: wrap; gap: var(--s2) var(--s3); }
+.pc-specrow { display: flex; gap: var(--s2); font-size: var(--t-micro); color: var(--text-faint); }
+.pc-specrow-fail .pc-specd { color: var(--bad); }
+.pc-speck { font-weight: 600; }

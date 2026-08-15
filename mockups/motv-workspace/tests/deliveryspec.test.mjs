@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 
 import {
   SPEC_FIELDS, validateField, specStanding,
-  checkGenerationCost, checkRetryAllowed, checkRenderedAgainstSpec,
+  checkGenerationCost, checkRetryAllowed, checkRenderedAgainstSpec, specCheckForCut,
 } from "../src/workflow/deliveryspec.js";
 
 test("the field list is IA §4 ⚙'s frozen fourteen", () => {
@@ -146,4 +146,65 @@ test("TASK-074 §1.2 规格 check: `unavailable` never counts as a pass", () => 
   const unset = checkRenderedAgainstSpec({}, { resolution: "1080x1920" });
   assert.equal(unset.passed, false);
   assert.equal(unset.unknown, true);
+});
+
+// --- TASK-074 §1.1 成片预览「与规格对照」 ------------------------------- //
+//
+// 只保存一份测量。所以「这份测量是从哪一版量的」必须被检查——否则量完 v1 再看
+// v2 的行，会拿 v1 的数字给 v2 下判断，而屏幕上没有任何东西说明这一点。
+
+const SPEC = {
+  resolution: "1920x1080", fps: 25, container: "mp4",
+  videoBitrateKbps: 4000, audioBitrateKbps: 128,
+};
+const V1_PROBE = {
+  resolution: "1920x1080", fps: 25, container: "mp4",
+  videoBitrateKbps: 4000, audioBitrateKbps: 128,
+};
+
+test("a cut with no measurement of its own compares to nothing", () => {
+  assert.equal(specCheckForCut("asset-v2", null, SPEC), null);
+  assert.equal(specCheckForCut("asset-v2", {}, SPEC), null);
+  assert.equal(
+    specCheckForCut("asset-v2", { assetId: "asset-v2", probe: null }, SPEC), null,
+    "a probe that RAN but produced nothing is still no measurement",
+  );
+});
+
+test("v1's numbers must NOT be shown under v2 — the核心 guard", () => {
+  const record = { assetId: "asset-v1", probe: V1_PROBE };
+  assert.notEqual(specCheckForCut("asset-v1", record, SPEC), null, "v1 has its own");
+  assert.equal(
+    specCheckForCut("asset-v2", record, SPEC), null,
+    "v2 was never measured; borrowing v1's numbers would compare two files",
+  );
+});
+
+test("an id is required — a blank one must not match a blank record", () => {
+  assert.equal(specCheckForCut(null, { assetId: null, probe: V1_PROBE }, SPEC), null);
+  assert.equal(specCheckForCut("", { assetId: "", probe: V1_PROBE }, SPEC), null);
+});
+
+test("its own measurement produces the ordinary comparison", () => {
+  const ok = specCheckForCut("asset-v1", { assetId: "asset-v1", probe: V1_PROBE }, SPEC);
+  assert.equal(ok.passed, true);
+  assert.equal(ok.blocking, false);
+
+  const off = specCheckForCut(
+    "asset-v1",
+    { assetId: "asset-v1", probe: { ...V1_PROBE, fps: 30 } },
+    SPEC,
+  );
+  assert.equal(off.blocking, true, "25 vs 30 fps is a real mismatch");
+  assert.equal(off.rows.find((r) => r.key === "fps").state, "fail");
+});
+
+test("an unmeasured FIELD stays unknown rather than passing", () => {
+  const partial = specCheckForCut(
+    "asset-v1",
+    { assetId: "asset-v1", probe: { resolution: "1920x1080" } },
+    SPEC,
+  );
+  assert.equal(partial.passed, false, "unknown rows must not read as 合格");
+  assert.equal(partial.unknown, true);
 });

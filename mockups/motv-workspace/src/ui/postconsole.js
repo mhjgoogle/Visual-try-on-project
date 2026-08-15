@@ -31,6 +31,9 @@ import { TRACK_LABEL as SHOT_TRACK_LABEL, TRACKS as SHOT_TRACKS, GAIN_MIN_DB, GA
 import { AUDIO_TRACKS, TRACK_LABEL as TL_TRACK_LABEL, TRANSITIONS, TRANSITION_LABEL } from "../workflow/timeline.js";
 import { DEP } from "../workflow/mediadep.js";
 import { STYLE_PRESETS } from "../workflow/subtitle.js";
+// the SAME labels ⚙ 成片规格 uses — a second copy here would drift, and the two
+// screens would name the same field differently
+import { SPEC_FIELD_BY_KEY } from "../workflow/deliveryspec.js";
 
 /** The console's three faces. Deliberately three, and deliberately INSIDE one
  *  console rather than three top-level pages (§32 / the UX constraint): they are
@@ -435,6 +438,54 @@ function finalBody(ctx, m) {
 /** ONE final's provenance — §57: 「Final 必须可复现」. Every line comes from the
  *  render's own frozen record, not from the timeline as it stands now (which has
  *  moved since). A field the record does not hold prints 未记录. */
+/** THIS cut against ⚙ 成片规格 (§1.1 成片预览「与规格对照」).
+ *
+ *  The numbers come from a real ffprobe run, so the row is only shown for the
+ *  cut that was actually measured — v1's measurements under v2 would be a
+ *  comparison of two different files with nothing on screen saying so.
+ *
+ *  「未测」 is a state of its own, distinct from 「不合格」: an unmeasured cut is
+ *  an open question, and painting it either way would be the fabricated-verdict
+ *  failure §1.2 exists to prevent.
+ */
+function finalSpecRow(ctx, f) {
+  const st = ctx.probeState();
+  const mine = st.assetId === f.assetId;
+  if (mine && st.running) {
+    return `<div class="pc-specchk"><span class="pc-sub">正在探测这一版…</span></div>`;
+  }
+  if (mine && st.error) {
+    return (
+      `<div class="pc-specchk">` +
+      `<span class="pc-specerr">探测失败：${esc(st.error)}</span>` +
+      `<button class="btn sm" data-pc-probe="${esc(f.assetId)}">重试</button>` +
+      `</div>`
+    );
+  }
+  const chk = ctx.cutSpecCheck(f.assetId);
+  if (!chk) {
+    return (
+      `<div class="pc-specchk">` +
+      `<span class="pc-sub">还没测过这一版的实际规格</span>` +
+      `<button class="btn sm" data-pc-probe="${esc(f.assetId)}">对照规格</button>` +
+      `</div>`
+    );
+  }
+  const cls = chk.passed ? "ok" : chk.blocking ? "bad" : "unk";
+  const head = chk.passed ? "与成片规格一致" : chk.blocking ? "与成片规格不符" : "部分项未能对照";
+  return (
+    `<div class="pc-specchk">` +
+    `<span class="pc-specv pc-specv-${cls}">${head}</span>` +
+    `<button class="btn sm" data-pc-probe="${esc(f.assetId)}">重新对照</button>` +
+    `<ul class="pc-specrows">` +
+    chk.rows.map((r) =>
+      `<li class="pc-specrow pc-specrow-${esc(r.state)}">` +
+      `<span class="pc-speck">${esc((SPEC_FIELD_BY_KEY[r.key] || {}).label || r.key)}</span>` +
+      `<span class="pc-specd">${esc(r.detail || "")}</span></li>`).join("") +
+    `</ul></div>`
+  );
+}
+
 function finalRow(ctx, f) {
   const prov = ctx.assets.provenanceOf(f.assetId);
   const p = prov && prov.generation && prov.generation.parameters ? prov.generation.parameters : null;
@@ -471,6 +522,7 @@ function finalRow(ctx, f) {
         `<dt>锁定项</dt><dd>${Number.isInteger(p.locksInForce) ? `${p.locksInForce} 项` : NONE}</dd>` +
         `</dl></details>`
       : `<div class="pc-note">这条成片没有渲染记录（可能来自更早的构建）——来源如实记为未知。</div>`) +
+    finalSpecRow(ctx, f) +
     `</div></li>`
   );
 }
@@ -671,6 +723,16 @@ export function bindPostConsole(root, ctx, ui, render) {
   });
   on("[data-pc-preview]", () => { ui.postPreview = true; render(); });
   on("[data-pc-pvclose]", () => { ui.postPreview = false; render(); });
+  // 对照规格：measure THIS cut (§1.1 成片预览). Two renders — one so the row
+  // says 正在探测 before ffmpeg starts, one for the result; a whole episode's
+  // decode with no feedback looks like a dead button.
+  all("data-pc-probe", (b) => (b.onclick = async () => {
+    const pending = ctx.runDeliveryProbe(b.dataset.pcProbe);
+    render();
+    const st = await pending;
+    if (st && st.error) ctx.toast(st.error);
+    render();
+  }));
   all("data-pc-vmove", (b) => (b.onclick = () => {
     const clipId = b.dataset.pcVmove;
     const m = postModel(ctx, ui);
