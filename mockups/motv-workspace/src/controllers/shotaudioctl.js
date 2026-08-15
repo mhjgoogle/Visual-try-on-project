@@ -109,11 +109,10 @@ export function createShotAudioController({
      *  a locked or hand-placed clip. */
     autoArrange: (shotId) => {
       const production = docs.production();
-      const registry = docs.registry();
       const shot = findShot(shotId);
       const slot = shot ? slotOf(shot) : null;
       const owner = proddoc.sceneOfShot(production, shotId);
-      const dialogue = slot ? mediaref.currentRef(registry.audio, `voice-${slot}`) : null;
+      const dialogue = slot ? mediaref.currentRef(docs.registry().audio, `voice-${slot}`) : null;
       // scene ambience and the effective BGM are stored as ASSET IDS on the
       // production document (proddoc), not as chain keys — they are references to
       // one reusable recording that many scenes share
@@ -140,7 +139,13 @@ export function createShotAudioController({
      */
     mixNow: async (shotId) => {
       if (!session.connected()) throw new Error("演示模式无后端，无法混音");
-      const registry = docs.registry();
+      // READ AT EACH USE, never hoisted across the `await` below. In app.js this was
+      // the bare identifier `assetRegistry`, resolved every time — so the writes that
+      // happen AFTER the backend returns land in whatever registry is current then.
+      // Hoisting it to a const changed that: a project loaded mid-mix would take the
+      // new version into the ABANDONED registry while the mix pointer persisted into
+      // the new project, leaving a saved assetId that exists in no registry
+      // (independent review). The getter is cheap; the hoist was not a saving.
       const shot = findShot(shotId);
       const slot = shot ? slotOf(shot) : null;
       if (!slot) throw new Error("镜头身份未解析：无法定位混音槽位");
@@ -149,7 +154,7 @@ export function createShotAudioController({
       if (!audible.length) throw new Error("这个镜头没有可混的音频片段（全部静音或对位未解析）");
       const clips = [];
       for (const c of audible) {
-        const hit = assetlib.findAssetById(registry, c.assetId);
+        const hit = assetlib.findAssetById(docs.registry(), c.assetId);
         if (!hit || !hit.record.url) throw new Error(`片段引用的素材不存在或字节已移除：${c.assetId}`);
         if (hit.record.storageState && hit.record.storageState !== "local") {
           throw new Error(`片段素材的字节不在本地：${assetreg.derivedLabel({ ...hit.record, key: hit.key })}`);
@@ -193,13 +198,13 @@ export function createShotAudioController({
         links: contextOfShot(shotId),
       });
       if (!decl.ok) throw new Error(`登记失败：${decl.error}`);
-      mediaref.addVersion({ uploads: registry.audio }, key, ref);
+      mediaref.addVersion({ uploads: docs.registry().audio }, key, ref);
       // the mix is a DERIVED result of real inputs, so it is a Generation like any
       // other — that is what puts it on the provenance graph with its sources
       const prov = shotaudio.mixProvenance(resolved, {
         settings: { format: "mp3", sampleRate: 44100, bitrate: "192k" },
         versionOf: (assetId) => {
-          const h = assetlib.findAssetById(registry, assetId);
+          const h = assetlib.findAssetById(docs.registry(), assetId);
           return h && Number.isInteger(h.record.version) ? h.record.version : null;
         },
       });

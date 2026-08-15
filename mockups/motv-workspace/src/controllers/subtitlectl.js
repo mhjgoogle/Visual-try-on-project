@@ -27,11 +27,22 @@ export function createSubtitleController({
   const track = () => subtitle.trackFor(docs.subtitles(), docs.production().activeEpisodeId);
 
   /**
-   * The ONE write path for a cue edit, including the merge-and-edit transaction.
+   * Write one subtitle cue: a merge, a field edit, or BOTH (TASK-072 §1.9 缺陷 6).
    *
-   * `mergeWithNext` plus other fields is TWO domain operations, and a half-applied
-   * pair leaves the track in a state the creator never asked for. So the merge runs
-   * first, and a refused follow-up edit rolls the whole thing back.
+   * The two used to be exclusive branches — `mergeWithNext === true` took the merge
+   * path and every other field in the same fix (`text`, `startMs`, `endMs`,
+   * `speaker`) was SILENTLY DROPPED while the surface reported success. A Subtitle
+   * Reviewer that says 「合并这两条，并把文字改成…」 is one fix, not two, and half of
+   * it landing is worse than none: the creator sees 已应用 and the text they were
+   * shown is not what is in the track.
+   *
+   * BOTH OR NEITHER. The merge runs first (the field edit describes the merged
+   * window), and if the edit is then refused — a lock, a bad value — the merge is
+   * ROLLED BACK from a snapshot so the track never keeps half a fix.
+   *
+   * (The doc block travelled with the function. Left behind in app.js it came to sit
+   * above `prodOp`, attributing this transaction to a helper that performs no part
+   * of it — independent review.)
    */
   function writeCue(cueId, fields, { force = false, origin = null } = {}) {
     const t = track();

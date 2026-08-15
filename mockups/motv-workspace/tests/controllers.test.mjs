@@ -9,6 +9,8 @@ import assert from "node:assert/strict";
 import { createReferenceController } from "../src/controllers/refctl.js";
 import { createSubtitleController } from "../src/controllers/subtitlectl.js";
 import { createShotAudioController } from "../src/controllers/shotaudioctl.js";
+import { createFrameController } from "../src/controllers/framectl.js";
+import * as framebind from "../src/workflow/framebind.js";
 import * as refinterp from "../src/workflow/refinterp.js";
 import * as refuse from "../src/workflow/refuse.js";
 import * as assetreg from "../src/workflow/assetreg.js";
@@ -161,7 +163,7 @@ function audioCtl(shot) {
     docs: {
       shotAudio: () => doc,
       production: () => ({ activeEpisodeId: "ep-1", episodes: [] }),
-      registry: () => assetreg.createRegistry(null),
+      registry: () => assetlib.createRegistry(null),
     },
     modules: { shotaudio, proddoc, mediaref, assetreg, assetlib },
     findShot: () => shot,
@@ -208,4 +210,166 @@ test("mixing refuses BEFORE any write when there is nothing audible", async () =
   const ctl = audioCtl({ shotId: "s1", duration_seconds: 6 });
   // demo mode has no backend at all, and that is the first thing checked
   await assert.rejects(() => ctl.mixNow("s1"), /演示模式无后端/);
+});
+
+/* --- a binding either takes effect COMPLETELY or is refused with a sentence -- */
+
+function frameCtl({ shot = null, slot = "v1-1", images = {} } = {}) {
+  const doc = framebind.createFrameBindings(null);
+  const registry = assetlib.createRegistry(null);
+  registry.images = images;
+  registry.firstFrames = {};
+  const said = [];
+  const refreshed = [];
+  const ctl = createFrameController({
+    docs: {
+      frameBindings: () => doc,
+      registry: () => registry,
+      production: () => ({ activeEpisodeId: "ep-1", episodes: [] }),
+    },
+    modules: { framebind, mediaref, assetreg, assetlib, proddoc },
+    findShot: () => shot,
+    slotOf: () => slot,
+    contextOfShot: () => ({}),
+    session: { connected: () => true, projectName: () => "p" },
+    uploadAssetImage: async () => ({ version: 1, url: "/u/f.png" }),
+    grabVideoFrame: async () => ({ file: null, timecodeMs: 0 }),
+    mintId: (p) => `${p}-1`,
+    refreshType: (t) => refreshed.push(t),
+    persist: noop,
+    refresh: noop,
+    toast: (m) => said.push(m),
+    now: () => AT,
+  });
+  return { ctl, doc, registry, said, refreshed };
+}
+
+/** A registry holding one declared image on chain `key` at v1. */
+function imagesWith(key, { kind, assetId }) {
+  return {
+    [key]: {
+      current: 1,
+      history: [{ slot_id: key, key, assetId, version: 1, url: "/u/a.png", kind, origin: "upload" }],
+    },
+  };
+}
+
+test("bind refuses BEFORE the first write, and says which check failed", () => {
+  // The earlier order (write → discover → report success) produced three distinct
+  // silent failures: a binding pointing at no shot; an asset that made the whole
+  // document fail validation so the project could no longer be opened; and an
+  // effective pointer that was never written, so the prompt showed the new frame
+  // while generation still used the old one (TASK-072 §1.9 缺陷 1).
+  const images = imagesWith("v1-2", { kind: "image", assetId: "img-other" });
+
+  // ① unknown asset
+  const a = frameCtl({ shot: { shotId: "s1" }, images });
+  assert.equal(a.ctl.bind("s1", "startFrame", { assetId: "nope" }), null);
+  assert.match(a.said[0], /只能绑定已登记的图片资产/);
+  assert.deepEqual(a.ctl.bindings("s1"), {}, "nothing was written");
+
+  // ② the target shot does not exist
+  const b = frameCtl({ shot: null, images });
+  assert.equal(b.ctl.bind("s1", "startFrame", { assetId: "img-other" }), null);
+  assert.match(b.said[0], /目标镜头不存在/);
+
+  // ③ the slot cannot be resolved → a binding whose pointer can never be written
+  const c = frameCtl({ shot: { shotId: "s1" }, slot: null, images });
+  assert.equal(c.ctl.bind("s1", "startFrame", { assetId: "img-other" }), null);
+  assert.match(c.said[0], /槽位无法解析/);
+
+  // ④ an image belonging to ANOTHER shot that is not an extracted frame — this is
+  // the one that used to make the saved document unloadable
+  const d = frameCtl({ shot: { shotId: "s1" }, slot: "v1-1", images });
+  assert.equal(d.ctl.bind("s1", "startFrame", { assetId: "img-other" }), null);
+  assert.match(d.said[0], /属于另一个镜头/);
+  assert.deepEqual(d.registry.firstFrames, {}, "the effective pointer stayed empty");
+});
+
+test("a DERIVED frame may cross slots — that is the whole point of one", () => {
+  // 上一镜尾帧 → 下一镜首帧 is exactly the case the cross-slot rule exists to allow
+  const images = imagesWith("frame-1", { kind: "derived-frame", assetId: "img-frame" });
+  const { ctl, registry, refreshed } = frameCtl({ shot: { shotId: "s2" }, slot: "v1-2", images });
+  const b = ctl.bind("s2", "startFrame", { assetId: "img-frame", sourceKind: "upload" });
+  assert.ok(b, "the binding was recorded");
+  // …and the EFFECTIVE pointer moved with it: a record without this is provenance
+  // for a frame nothing uses
+  assert.equal(registry.firstFrames["v1-2"].assetId, "img-frame");
+  assert.ok(refreshed.includes("video"));
+
+  // unbinding clears BOTH, or generation keeps using a frame the record disowns
+  assert.equal(ctl.unbind("s2", "startFrame"), true);
+  assert.equal("v1-2" in registry.firstFrames, false);
+});
+
+test("re-extract refuses when the binding did not come from a video", async () => {
+  const { ctl, said } = frameCtl({ shot: { shotId: "s1" } });
+  assert.equal(await ctl.reextract("s1", "startFrame"), null);
+  assert.match(said[0], /不是从视频里提取的/);
+});
+
+test("a project loaded MID-MIX does not split the write across two registries", async () => {
+  // The refactor hoisted `docs.registry()` to a const before the `await`. In app.js
+  // it was the bare identifier `assetRegistry`, resolved at each use — so everything
+  // written AFTER the backend returns lands in whatever registry is current then.
+  // Hoisting meant the new audio version went into the ABANDONED registry while the
+  // mix pointer persisted into the NEW project, leaving a saved assetId that exists
+  // in no registry at all (independent review).
+  let registry = assetlib.createRegistry(null);
+  const doc = shotaudio.createShotAudio(null);
+  const shot = { shotId: "s1", title: "跪殿", duration_seconds: 6 };
+
+  // one audible clip pointing at a local source in the CURRENT registry
+  registry.audio["voice-v1-1"] = {
+    current: 1,
+    history: [{
+      slot_id: "voice-v1-1", key: "voice-v1-1", assetId: "aud-1", version: 1,
+      url: "/u/voice.wav", origin: "upload", storageState: "local",
+    }],
+  };
+  // `trackType` / `startTimeMs` — `sanitizeClip` returns null for anything else, and
+  // a fixture that silently produced no clip would make this test pass by mixing
+  // nothing at all (the hollow-test failure this file already caught once)
+  assert.ok(shotaudio.addClip(doc, "s1", {
+    clipId: "c1", trackType: "dialogue", assetId: "aud-1", startTimeMs: 0, origin: "manual",
+  }), "the fixture clip must actually be accepted");
+
+  let switched = null;
+  const ctl = createShotAudioController({
+    docs: {
+      shotAudio: () => doc,
+      production: () => ({ activeEpisodeId: "ep-1", episodes: [] }),
+      registry: () => registry, // ← read at each use, like the original binding
+    },
+    modules: { shotaudio, proddoc, mediaref, assetreg, assetlib },
+    findShot: () => shot,
+    slotOf: () => "v1-1",
+    contextOfShot: () => ({}),
+    session: { connected: () => true, projectName: () => "p" },
+    mixShotAudio: async () => {
+      // THE PROJECT SWITCH, in flight
+      switched = assetlib.createRegistry(null);
+      registry = switched;
+      return { version: 1, url: "/u/mix-v1-1.mp3" };
+    },
+    generations: { start: () => null, complete: noop },
+    refreshType: noop,
+    prodOp: pass,
+    prodNew: pass,
+    persist: noop,
+    refresh: noop,
+    toast: noop,
+    now: () => AT,
+  });
+
+  const ref = await ctl.mixNow("s1");
+  assert.ok(ref && ref.assetId);
+  // the new version landed in the registry that is CURRENT — the same one the mix
+  // pointer was written against, so the saved assetId resolves
+  assert.ok(switched.audio["mix-v1-1"], "the version went to the live registry");
+  assert.equal(
+    switched.audio["mix-v1-1"].history[0].assetId,
+    shotaudio.mixOf(doc, "s1").assetId,
+    "the mix pointer and the registered asset are the same one",
+  );
 });

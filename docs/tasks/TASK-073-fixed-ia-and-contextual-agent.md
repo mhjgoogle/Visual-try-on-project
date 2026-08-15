@@ -424,10 +424,11 @@ G3，搬它等于同时动质量门。
 | 参考解读 + 参考用途 | `controllers/refctl.js` | 同一个域的两面（「读出了什么」/「服务哪一边」），键相同、由同一份绑定列表派生、被同两个编译器消费。拆开就是两个模块各持一半 |
 | 字幕 | `controllers/subtitlectl.js` | `_writeCue` 跟着搬 —— 它在 app.js 里只被这个控制器用，且持有「合并+编辑要么整体生效」这条事务规则 |
 | 镜头音频 | `controllers/shotaudioctl.js` | 依赖列表全组最长，正是它该被显式列出来的理由：`mixNow` 读登记、调后端、登记 Asset、记 Generation、写混音指针 |
+| 首/尾帧 | `controllers/framectl.js` | `grabVideoFrame` 用**注入**而不是 import —— 它读 `<video>` 元素，是这里唯一真正绑定浏览器的一步；注入它，其余部分才能在测试里被构造 |
 
-`app.js` 6912 → 6640 行。
+`app.js` 6912 → 6473 行。
 
-**仍在 `app.js` 里**：`frames`(200) · `assets`(270) · `actions`(470) · `skills`(853)。
+**仍在 `app.js` 里**：`assets`(270) · `actions`(470) · `skills`(853)。
 守卫（`test_ai_paths_record_generations_with_frozen_snapshot`）已扩到扫描
 `app.js` + `src/controllers/*.js`，所以搬出去不会绕过快照断言。
 
@@ -526,3 +527,21 @@ import 得了 `app.js`（它在模块作用域碰 DOM）。
 写这批测试时抓到一个我自己造的空壳测试：`subtitle.addCue` 自己铸 cueId，
 调用方传的被忽略，所以按 `"c1"` 写的合并测试是**什么都没合并**地通过的。
 改成用返回的真实 id，并加了一个 `twoCues` 辅助把这件事写在注释里。
+
+### 5.14 搬运不是零风险：一次真回归（2026-08-15）
+
+独立审查在 `shotaudioctl.js` 抓到一条**由搬运本身引入**的缺陷：我把
+`docs.registry()` 提到了 `await mixShotAudio(...)` 之前存成 const。在 `app.js` 里
+那是裸标识符 `assetRegistry`，**每次使用时**解析 —— 后端返回之后的写入，落在
+那一刻当前的登记上。提成 const 之后，混音途中若加载了别的项目，新版本会写进
+**被抛弃**的登记，而混音指针被持久化进**新**项目，留下一个在任何登记里都不存在
+的 `assetId`。
+
+这条记在这里，因为它反驳「纯搬运没有风险」这个直觉：**闭包读的是绑定，const
+读的是值**，两者只在有 `await` 的地方才分得出来。现在这三处一律在使用点读
+getter，并有一条在 `mixShotAudio` 里换掉登记的回归测试。
+
+同轮还抓到两条我造成的问题：`_writeCue` 的 JSDoc 没跟着函数走，留在 `app.js` 里
+变成了 `prodOp` 的文档；以及测试里用了不存在的 `assetreg.createRegistry`
+（真身在 `assetlib`），因为当时没有测试碰到那个 getter，所以它「看起来对」。
+两条都已修。

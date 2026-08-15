@@ -67,6 +67,7 @@ import { createLockController } from "./controllers/lockctl.js";
 import { createReferenceController } from "./controllers/refctl.js";
 import { createSubtitleController } from "./controllers/subtitlectl.js";
 import { createShotAudioController } from "./controllers/shotaudioctl.js";
+import { createFrameController } from "./controllers/framectl.js";
 import { createTimelineController } from "./controllers/timelinectl.js";
 // TASK-072 §1.5/§1.6: the three review layers and the five gates, as domain
 import * as review from "./workflow/review.js";
@@ -3058,198 +3059,6 @@ const ctx = {
   // the provenance graph already read. `bind` writes that pointer AND the
   // provenance record in the same call, so they cannot drift apart.
   // ---------------------------------------------------------------------- //
-  frames: {
-    bindings: (shotId) => framebind.bindingsOf(frameBindingsDoc, shotId),
-    binding: (shotId, type) => framebind.bindingOf(frameBindingsDoc, shotId, type),
-    /** The ACTIVE video version of a shot, or null. Passed to
-     *  `framebind.frameNotice` so drift is measured against real state. */
-    activeVideoVersion: (shotId) => {
-      const shot = ctx.shot.find(shotId);
-      const slot = shot ? ctx.shot._slotOf(shot) : null;
-      const ref = slot ? mediaref.currentRef(assetRegistry.videos, slot) : null;
-      return ref && Number.isInteger(ref.version) ? ref.version : null;
-    },
-    /** 「上游视频已有新版本」 — the notice and its three choices, or null. */
-    notice: (shotId, type) => framebind.frameNotice(
-      framebind.bindingOf(frameBindingsDoc, shotId, type),
-      (sid) => ctx.frames.activeVideoVersion(sid),
-    ),
-    /**
-     * EXTRACT one frame out of a shot's current video take and register it as a
-     * derived Image Asset. Returns `{ assetId, url, version, key, source }`.
-     *
-     * `pick` is the creator's INTENT and is stored: "last" re-seeks to the end of
-     * whatever video it is re-extracted from, "at" re-seeks to the same
-     * millisecond. `timecodeMs` null with `pick: "last"` means 「最后一帧」.
-     *
-     * The bytes are read from the video element the browser already has; nothing
-     * server-side is needed beyond the ordinary upload endpoint, so this works on
-     * exactly the machines the rest of the studio works on.
-     */
-    extract: async (sourceShotId, { timecodeMs = null, pick = "last" } = {}) => {
-      if (!CONNECTED) throw new Error("演示模式无后端，无法登记提取出来的帧");
-      const shot = ctx.shot.find(sourceShotId);
-      const slot = shot ? ctx.shot._slotOf(shot) : null;
-      const ref = slot ? mediaref.currentRef(assetRegistry.videos, slot) : null;
-      if (!ref || !ref.url) throw new Error("这个镜头还没有视频，无法提取帧");
-      if (ref.storageState && ref.storageState !== "local") {
-        throw new Error("这条视频的字节不在本地（记录仍在）——先恢复本地副本再提取");
-      }
-      const grabbed = await grabVideoFrame(ref.url, { timecodeMs, pick });
-      // its own chain key: a derived frame is not a version of the target shot's
-      // 画面 (that would make 「这个镜头有几版画面」 count frames nobody designed)
-      const key = mintId("frame");
-      const pre = assetreg.checkDeclaration("images", { kind: "derived-frame" });
-      if (pre) throw new Error(`登记被拒绝，未上传：${pre}`);
-      const res = await query.uploadAssetImage(PROJECT_NAME, `assets-${key}`, grabbed.file);
-      // creativeShotId is the SOURCE shot: that is the shot these pixels provably
-      // came from. WHERE the frame is USED is the binding's `targetShotId`, and
-      // conflating the two would file the frame under a shot it was not cut from.
-      const mref = mediaref.refFromResponse(key, "upload", res, sourceShotId);
-      const decl = assetreg.declare(mref, "images", {
-        kind: "derived-frame",
-        displayName: `${(shot && shot.title) || "镜头"} 视频 v${ref.version} 的${pick === "last" ? "尾帧" : `${(grabbed.timecodeMs / 1000).toFixed(2)}s 帧`}`,
-        originalFilename: null,
-        links: contextOfShot(sourceShotId),
-      });
-      if (!decl.ok) throw new Error(`登记失败：${decl.error}`);
-      mediaref.addVersion({ uploads: assetRegistry.images }, key, mref);
-      ctx.refreshType("assets");
-      ctx.persist();
-      refreshProductionView();
-      return {
-        key,
-        assetId: mref.assetId,
-        url: mref.url,
-        version: mref.version,
-        source: {
-          sourceShotId,
-          sourceVideoAssetId: ref.assetId || null,
-          sourceVideoVersion: Number.isInteger(ref.version) ? ref.version : null,
-          sourceTimecodeMs: grabbed.timecodeMs,
-          sourceFrame: null, // fps is not knowable from a <video> element — unknown stays unknown
-          pick,
-        },
-      };
-    },
-    /**
-     * BIND a derived (or any registered) image as a shot's start / end frame.
-     *
-     * `startFrame` additionally moves `assets.firstFrames[slot]`, which is what
-     * the video generation route actually reads — the binding record alone would
-     * be provenance for a frame nothing used.
-     */
-    /**
-     * The shot that FOLLOWS this one in canonical order, or null.
-     *
-     * Scoped to the shot's own SCENE: 「下一镜」 across a scene boundary is a cut
-     * to somewhere else, and continuing its last frame into it would be a claim
-     * about continuity the structure contradicts. A shot at the end of its scene
-     * honestly has no next shot here.
-     */
-    nextShotOf: (shotId) => {
-      const owner = proddoc.sceneOfShot(productionDoc, shotId);
-      if (!owner) return null;
-      const ids = owner.scene.shotIds || [];
-      const i = ids.indexOf(shotId);
-      if (i < 0 || i + 1 >= ids.length) return null;
-      const nextId = ids[i + 1];
-      const s = ctx.shot.find(nextId);
-      return s ? { shotId: nextId, title: s.title || `镜头 ${s.sequence}` } : null;
-    },
-    /**
-     * BIND an image as a shot's start / end frame.
-     *
-     * `source` (an object) is the extraction provenance and makes the binding
-     * `extracted`. `sourceKind` names the non-extracted cases explicitly — a
-     * binding must SAY where it came from, and defaulting everything without a
-     * source object to 「upload」 would file the shot's own picture as an upload.
-     */
-    bind: (targetShotId, bindingType, { assetId, source = null, sourceKind = "upload", force = false } = {}) => {
-      // EVERY check runs BEFORE the first write (TASK-072 §1.9 缺陷 1). This used
-      // to record the binding, then discover the problem, then report success:
-      //   ① `targetShotId` was never resolved → a binding pointing at no shot,
-      //      reported as applied;
-      //   ② any image asset was accepted → an asset belonging to ANOTHER slot and
-      //      not declared `derived-frame` fails `validateCanvasDoc`, and that
-      //      validator rejects the WHOLE document — so binding one made the
-      //      project unopenable (and unsaveable) afterwards;
-      //   ③ the slot was resolved AFTER `framebind.bind` had already persisted →
-      //      the prompt showed the new frame while generation still used the old.
-      // Nothing is written unless all of them pass.
-      const hit = assetId ? assetlib.findAssetById(assetRegistry, assetId) : null;
-      if (!hit || hit.domain !== "images") { toast("只能绑定已登记的图片资产作为首/尾帧"); return null; }
-      const shot = ctx.shot.find(targetShotId);
-      if (!shot) { toast("目标镜头不存在：没有绑定任何帧"); return null; }
-      let slot = null;
-      if (bindingType === "startFrame") {
-        slot = ctx.shot._slotOf(shot);
-        // ③ refuse rather than record a binding whose effective pointer cannot be
-        // written: 「已记录绑定，但生成仍用旧画面」 is a binding that lies.
-        if (!slot) { toast("目标镜头的槽位无法解析：没有绑定任何帧"); return null; }
-        // ② the exact rule `validateCanvasDoc` enforces on assets.firstFrames:
-        // an image may be bound to a DIFFERENT slot only when it is the one kind
-        // whose whole purpose is that (上一镜尾帧 → 下一镜首帧). Checked here so a
-        // refusal is a sentence now, instead of an unloadable document later.
-        if (hit.record.kind !== "derived-frame" && hit.key !== slot) {
-          toast("这张图属于另一个镜头的画面，且不是提取出来的帧——不能用作本镜头的首帧");
-          return null;
-        }
-      }
-      const b = framebind.bind(frameBindingsDoc, targetShotId, bindingType, {
-        derivedImageAssetId: assetId,
-        source: source ? "extracted" : sourceKind,
-        ...(source || {}),
-        at: new Date().toISOString(),
-      }, { force });
-      if (!b) { toast("这个帧槽位已锁定：先解锁再绑定"); return null; }
-      if (slot) {
-        mediaref.putKey(assetRegistry.firstFrames, slot, {
-          ...hit.record, slot_id: slot, digest: hit.record.digest || null,
-        });
-        ctx.refreshType("video");
-      }
-      ctx.persist();
-      refreshProductionView();
-      return b;
-    },
-    /** 解除绑定. The derived Asset is NOT deleted — it is a registered asset with
-     *  its own provenance, and unbinding is a statement about this shot only. */
-    unbind: (targetShotId, bindingType) => {
-      const ok = framebind.unbind(frameBindingsDoc, targetShotId, bindingType);
-      if (!ok) { toast("这个帧槽位已锁定或本来就没有绑定"); return false; }
-      if (bindingType === "startFrame") {
-        const shot = ctx.shot.find(targetShotId);
-        const slot = shot ? ctx.shot._slotOf(shot) : null;
-        // clear the EFFECTIVE pointer too, or the generation would keep using a
-        // frame the record no longer claims
-        if (slot && assetRegistry.firstFrames && Object.prototype.hasOwnProperty.call(assetRegistry.firstFrames, slot)) {
-          delete assetRegistry.firstFrames[slot];
-          ctx.refreshType("video");
-        }
-      }
-      ctx.persist();
-      refreshProductionView();
-      return true;
-    },
-    /** 从当前版本重新提取 — extract again from the source shot's ACTIVE take and
-     *  re-bind, repeating the creator's stored intent (`pick`). */
-    reextract: async (targetShotId, bindingType) => {
-      const b = framebind.bindingOf(frameBindingsDoc, targetShotId, bindingType);
-      if (!b || b.source !== "extracted" || !b.sourceShotId) {
-        toast("这个帧不是从视频里提取的，没有可重新提取的来源");
-        return null;
-      }
-      const out = await ctx.frames.extract(b.sourceShotId, {
-        timecodeMs: b.pick === "at" ? b.sourceTimecodeMs : null,
-        pick: b.pick,
-      });
-      return ctx.frames.bind(targetShotId, bindingType, {
-        assetId: out.assetId, source: out.source, force: true,
-      });
-    },
-  },
-
   // ---------------------------------------------------------------------- //
   // Per-shot MULTI-TRACK AUDIO (ADR-0061 决策 6 / §37–§39).
   //
@@ -5016,6 +4825,30 @@ ctx.shotAudio = createShotAudioController({
   now: () => new Date().toISOString(),
 });
 
+// TASK-073 §1.8: 首/尾帧。grabVideoFrame 用注入而不是 import —— 它读的是
+// <video> 元素，是这里唯一真正绑定浏览器的一步；把它注入进来，这个模块的其余部分
+// 才能在测试里被构造出来。
+ctx.frames = createFrameController({
+  docs: {
+    frameBindings: () => frameBindingsDoc,
+    registry: () => assetRegistry,
+    production: () => productionDoc,
+  },
+  modules: { framebind, mediaref, assetreg, assetlib, proddoc },
+  findShot: (shotId) => ctx.shot.find(shotId),
+  slotOf: (shot) => ctx.shot._slotOf(shot),
+  contextOfShot,
+  session: { connected: () => CONNECTED, projectName: () => PROJECT_NAME },
+  uploadAssetImage: (project, key, file) => command.uploadAssetImage(project, key, file),
+  grabVideoFrame,
+  mintId,
+  refreshType: (t) => ctx.refreshType(t),
+  persist: () => ctx.persist(),
+  refresh: () => refreshProductionView(),
+  toast,
+  now: () => new Date().toISOString(),
+});
+
 ctx.locks = createLockController({
   docs: {
     locks: () => locksDoc,
@@ -5351,18 +5184,9 @@ function _clipChain(shotId, trackType) {
   return mediaref.slotEntry(map, key) || null;
 }
 
-/** Write one subtitle cue: a merge, a field edit, or BOTH (TASK-072 §1.9 缺陷 6).
- *
- *  The two used to be exclusive branches — `mergeWithNext === true` took the merge
- *  path and every other field in the same fix (`text`, `startMs`, `endMs`,
- *  `speaker`) was SILENTLY DROPPED while the surface reported success. A Subtitle
- *  Reviewer that says 「合并这两条，并把文字改成…」 is one fix, not two, and half of
- *  it landing is worse than none: the creator sees 已应用 and the text they were
- *  shown is not what is in the track.
- *
- *  BOTH OR NEITHER. The merge runs first (the field edit describes the merged
- *  window), and if the edit is then refused — a lock, a bad value — the merge is
- *  ROLLED BACK from a snapshot so the track never keeps half a fix. */
+/** Persist + refresh on a truthy result, and return it. The landing every
+ *  controller's write goes through, so 「写成功了但界面没更新」 cannot happen in one
+ *  place and not another. */
 function prodOp(ok) {
   if (ok) {
     ctx.persist();
