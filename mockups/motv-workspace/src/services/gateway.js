@@ -1,104 +1,19 @@
-// Command Gateway seam.
+// Command Gateway seam — COMPATIBILITY LAYER, deprecated (TASK-072 §1.4).
 //
-// PAID mode (backend started with --enable-paid): the REAL two-step write path
-// per ADR-0033/0041 — POST preflight (read-only: estimated_cost + blockers +
-// preflight_digest) → human confirmation → POST command with
-// confirmation=preflight_digest → receipt. The backend forces actor="user" and
-// routes through the Command Gateway → approved coordinator; the browser never
-// touches a Provider.
+// The implementation moved to the two seams the 系统合同 §7 names:
 //
-// Non-paid modes keep the harmless stub so the demo flows still narrate the
-// boundary without any write.
-
-import { request } from "./apiclient.js";
-
-/** The gateway's error shape: `.category` is the BACKEND's, because the blockers
- *  a preflight reports are keyed on it. */
-function _err(e, label) {
-  const backend = e.body && e.body.error ? e.body.error : null;
-  const err = new Error(e.detail || `${label} ${e.status || ""}`.trim());
-  err.category = backend && backend.category ? backend.category : "error";
-  err.status = e.status;
-  return err;
-}
-
-async function _get(path, label) {
-  try {
-    return await request(path);
-  } catch (e) {
-    throw _err(e, label);
-  }
-}
-
-async function _post(project, sub, payload) {
-  try {
-    // NO transport retry (apiclient enforces this for every non-GET): `submit`
-    // may spend money, and a replay the user did not ask for is the failure
-    // 系统合同 §5.8 exists to prevent.
-    return await request(`/api/projects/${encodeURIComponent(project)}/${sub}`, {
-      method: "POST",
-      body: payload,
-      timeoutMs: 0, // a confirmed command can involve a provider call
-    });
-  } catch (e) {
-    throw _err(e, sub);
-  }
-}
-
-/** Read-only generation coordinates (target digest + suggested params). */
-export function getGenerationTarget(project, shotId) {
-  return _get(
-    `/api/projects/${encodeURIComponent(project)}/generation-target?shot_id=${encodeURIComponent(shotId)}`,
-    "target",
-  );
-}
-
-/** Read-only lock coordinates (current shot-plan version + digest, ADR-0047). */
-export function getLockTarget(project) {
-  return _get(`/api/projects/${encodeURIComponent(project)}/lock-target`, "lock-target");
-}
-
-/** Step 1: read-only preflight — never spends, never writes. */
-export function preflight(project, envelope) {
-  return _post(project, "preflight", envelope);
-}
-
-/** Step 2: confirmed submit — the actual HIGH-risk write (may spend). */
-export function submit(project, envelope, confirmation) {
-  return _post(project, "command", { ...envelope, confirmation });
-}
-
-/** Paid-op status projection (read-only; reservations + staging artifacts). */
-export async function paidOps(project) {
-  const j = await _get(`/api/paid-ops/${encodeURIComponent(project)}`, "ops");
-  return j.ops || [];
-}
-
-/** Adopt a paid staging clip into a canvas upload slot (copy; no spend).
- *  An occupied slot gains a NEW version (TASK-048 — never overwritten).
- *  Returns {url, version, sha256}. */
-export async function adoptPaid(project, taskId, slug) {
-  try {
-    return await request("/api/agent/adopt-paid", {
-      method: "POST",
-      body: { project, task_id: taskId, slug },
-      timeoutMs: 0, // copies bytes
-    });
-  } catch (e) {
-    throw _err(e, "adopt");
-  }
-}
-
-/** Demo stub (non-paid modes): logs and resolves, changes nothing. */
-export function submitCommand(cmd) {
-  const envelope = {
-    command_id: "cmd-" + Math.round(performance.now()),
-    name: cmd.name,
-    actor: "user",
-    target: cmd.target || null,
-    params: cmd.params || {},
-  };
-  // eslint-disable-next-line no-console
-  console.info("[gateway:stub] submit", envelope);
-  return { status: "accepted", command: envelope, note: "prototype stub — no real write" };
-}
+//   services/command.js   buildEnvelope · preflight · submit · adoptPaid · submitCommand
+//   services/query.js     getGenerationTarget · getLockTarget · paidOps
+//
+// WHY IT MOVED. This file was the one write path that can SPEND money, and it was
+// also the one write path outside the module whose stated rules are 「不重试、不静默
+// 吞错、不自己判断允不允许」. A reader asking 「这一次调用会不会改东西」 had to know
+// that gateway.js contained both kinds. Now the answer is the module name.
+//
+// Re-exported rather than reimplemented: exactly ONE implementation of each call
+// exists, so this layer cannot drift from it. TASK-074 §1.5 deletes the file once
+// nothing imports it.
+export {
+  buildEnvelope, preflight, submit, adoptPaid, submitCommand,
+} from "./command.js";
+export { getGenerationTarget, getLockTarget, paidOps } from "./query.js";

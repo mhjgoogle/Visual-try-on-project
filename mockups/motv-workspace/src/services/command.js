@@ -191,3 +191,106 @@ export async function paidImageGenerate(project, slug, prompt, confirmUsd) {
     throw err;
   }
 }
+
+/* --------------------------------------------------------------------------- */
+/* THE COMMAND GATEWAY's two-step write path (ADR-0033 / ADR-0041)             */
+/* --------------------------------------------------------------------------- */
+//
+// Moved here from services/gateway.js (TASK-072 §1.4 落点表: 「command.js 只写；
+// Envelope 构造 + preflight + submit」). It lived in a module of its own for
+// historical reasons, which meant the one write path that can SPEND money was the
+// only write not covered by this module's rules — exactly the seam §1.4 exists to
+// close.
+//
+// `preflight` is read-only by contract, and it is still here rather than in query.js:
+// it is step 1 of a WRITE, its digest is what authorises step 2, and splitting the two
+// halves across two modules is how a caller ends up submitting against a digest from a
+// different envelope.
+
+/** A monotonic suffix for `command_id`, so two envelopes built in the same
+ *  millisecond cannot collide. `Date.now()` alone did, in the batch path. */
+let _cmdSeq = 0;
+
+/**
+ * Build the Command Envelope (系统合同 §7).
+ *
+ * ONE construction site, because the four fields are a contract with the backend's
+ * Command Gateway and a missing `target` does not fail loudly — it fails as a command
+ * the gateway cannot locate, after the creator has already confirmed a cost.
+ *
+ * `actor` is deliberately NOT set here: the backend forces `actor="user"` and a value
+ * sent from the browser would be a claim the browser is not entitled to make.
+ */
+export function buildEnvelope(name, target, params, commandId) {
+  if (typeof name !== "string" || !name) throw new Error("命令信封缺少 name");
+  if (target === undefined || target === null || target === "") {
+    throw new Error(`命令信封 ${name} 缺少 target —— 网关无法定位要改的东西`);
+  }
+  if (params !== undefined && params !== null && typeof params !== "object") {
+    throw new Error(`命令信封 ${name} 的 params 必须是对象`);
+  }
+  return {
+    command_id: commandId || `cmd-${Date.now().toString(36)}-${++_cmdSeq}`,
+    name,
+    params: params && typeof params === "object" ? params : {},
+    target,
+  };
+}
+
+/** Step 1: read-only preflight — never spends, never writes. Returns the
+ *  `preflight_digest` step 2 must be confirmed against. */
+export function preflight(project, envelope) {
+  return post(
+    `/api/projects/${encodeURIComponent(project)}/preflight`,
+    envelope,
+    "preflight",
+    { timeoutMs: 0 },
+  );
+}
+
+/** Step 2: the confirmed submit — the actual HIGH-risk write (may spend).
+ *
+ *  `confirmation` is the digest step 1 returned FOR THIS ENVELOPE. Passing a digest
+ *  from a different preflight is refused by the backend, which is the whole point of
+ *  the two steps: the thing the creator confirmed and the thing that runs are proven
+ *  to be the same thing. */
+export async function submit(project, envelope, confirmation) {
+  // `async`, so the guard REJECTS rather than throwing synchronously: every other
+  // call in this module returns a promise, and a caller writing `submit(…).catch(…)`
+  // would meet a sync throw as an uncaught exception instead of its handler.
+  if (!confirmation) throw new Error("submit 缺少 preflight 确认摘要 —— 未经确认的命令不提交");
+  return post(
+    `/api/projects/${encodeURIComponent(project)}/command`,
+    { ...envelope, confirmation },
+    "command",
+    { timeoutMs: 0 }, // a confirmed command can involve a provider call
+  );
+}
+
+/** Adopt a paid staging clip into a canvas upload slot (copy; no spend).
+ *  An occupied slot gains a NEW version (TASK-048 — never overwritten).
+ *  Returns {url, version, sha256}. */
+export function adoptPaid(project, taskId, slug) {
+  return post(
+    "/api/agent/adopt-paid",
+    { project, task_id: taskId, slug },
+    "adopt",
+    { timeoutMs: 0 }, // copies bytes
+  );
+}
+
+/** Demo stub (non-paid modes): logs and resolves, changes nothing.
+ *
+ *  It stays a WRITE-module export even though it writes nothing: it stands where the
+ *  real command goes, and moving it to the read module would make the demo path and
+ *  the real path differ in which seam they come from. */
+export function submitCommand(cmd) {
+  const envelope = buildEnvelope(
+    cmd.name,
+    cmd.target || "demo",
+    cmd.params || {},
+  );
+  // eslint-disable-next-line no-console
+  console.info("[gateway:stub] submit", { ...envelope, actor: "user" });
+  return { status: "accepted", command: envelope, note: "prototype stub — no real write" };
+}

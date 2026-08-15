@@ -7,6 +7,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { request, attempt, ApiError, API_ERROR, legacyError } from "../src/services/apiclient.js";
+import { buildEnvelope, preflight, submit } from "../src/services/command.js";
+import * as gateway from "../src/services/gateway.js";
+import * as command from "../src/services/command.js";
+import * as query from "../src/services/query.js";
 
 /** Install a fake fetch and record what it was called with. */
 function stubFetch(handler) {
@@ -174,4 +178,69 @@ test("a 200 of HTML is MALFORMED, not data", async () => {
     () => request("/api/x"),
     (e) => e.category === API_ERROR.MALFORMED,
   );
+});
+
+/* --- §1.4 落点表: Envelope 构造 + preflight + submit 归位 ------------------- */
+
+test("the Envelope has ONE constructor, and it refuses an unlocatable command", () => {
+  const e = buildEnvelope("lock-draft-plan", { digest: "d1" }, { shots: [] });
+  assert.equal(e.name, "lock-draft-plan");
+  assert.deepEqual(e.target, { digest: "d1" });
+  assert.deepEqual(e.params, { shots: [] });
+  assert.match(e.command_id, /^cmd-/);
+  // `actor` is the BACKEND's to set — a browser-sent one is a claim it cannot make
+  assert.equal("actor" in e, false);
+
+  // a missing target does not fail loudly at the call site; it fails as a command the
+  // gateway cannot locate, AFTER the creator confirmed a cost
+  for (const bad of [null, undefined, ""]) {
+    assert.throws(() => buildEnvelope("x", bad, {}), /缺少 target/);
+  }
+  assert.throws(() => buildEnvelope("", { d: 1 }, {}), /缺少 name/);
+  assert.throws(() => buildEnvelope("x", { d: 1 }, "not-an-object"), /params 必须是对象/);
+});
+
+test("two envelopes built in the same millisecond get DIFFERENT command ids", () => {
+  // the batch path builds one per shot in a tight loop; `Date.now()` alone collided,
+  // and two commands sharing an id is indistinguishable from a replay
+  const ids = new Set();
+  for (let i = 0; i < 50; i++) ids.add(buildEnvelope("n", { d: 1 }, {}).command_id);
+  assert.equal(ids.size, 50);
+  // an explicit id (correlated with operation_id) is honoured verbatim
+  assert.equal(buildEnvelope("n", { d: 1 }, {}, "cmd-op-7").command_id, "cmd-op-7");
+});
+
+test("submit REFUSES to fire without the preflight digest it was confirmed against", async () => {
+  const calls = stubFetch(() => jsonRes(200, { preflight_digest: "pf-1" }));
+  await preflight("p", buildEnvelope("n", { d: 1 }, {}));
+  assert.match(calls[0].path, /\/api\/projects\/p\/preflight$/);
+  assert.equal(calls[0].init.method, "POST");
+  // step 2 without step 2's authorisation is not a write we are willing to attempt
+  for (const missing of [undefined, null, ""]) {
+    await assert.rejects(() => submit("p", buildEnvelope("n", { d: 1 }, {}), missing), /确认摘要/);
+  }
+  assert.equal(calls.length, 1, "no request may leave for an unconfirmed submit");
+  const receipt = await submit("p", buildEnvelope("n", { d: 1 }, {}), "pf-1");
+  assert.equal(JSON.parse(calls[1].init.body).confirmation, "pf-1");
+  assert.ok(receipt);
+});
+
+test("the write path and the read coordinates now come from the seam that names them", () => {
+  // 「这一次调用会不会改东西」 must be answerable from the module, which is the whole
+  // point of the split — so this asserts WHERE each one lives, not just that it exists.
+  for (const w of ["buildEnvelope", "preflight", "submit", "adoptPaid", "submitCommand"]) {
+    assert.equal(typeof command[w], "function", `${w} must be a WRITE`);
+    assert.equal(w in query, false, `${w} writes — it must not be reachable from query.js`);
+  }
+  for (const r of ["getGenerationTarget", "getLockTarget", "paidOps"]) {
+    assert.equal(typeof query[r], "function", `${r} must be a READ`);
+    assert.equal(r in command, false, `${r} only reads — it must not sit in command.js`);
+  }
+  // the deprecated shim re-exports rather than reimplementing, so it cannot drift
+  for (const k of ["buildEnvelope", "preflight", "submit", "adoptPaid", "submitCommand"]) {
+    assert.equal(gateway[k], command[k], `gateway.${k} must BE command.${k}`);
+  }
+  for (const k of ["getGenerationTarget", "getLockTarget", "paidOps"]) {
+    assert.equal(gateway[k], query[k], `gateway.${k} must BE query.${k}`);
+  }
 });

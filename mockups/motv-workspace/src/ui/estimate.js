@@ -4,7 +4,7 @@
 // Mirrors the S3/S4 P50/P90 preflight + reservation-hold discipline.
 import { $, esc } from "../util/dom.js";
 import * as budget from "../services/budget.js";
-import { submitCommand } from "../services/gateway.js";
+import { submitCommand } from "../services/command.js";
 
 export function createEstimate({ renderBudget, toast }) {
   const scrim = $("#es-scrim");

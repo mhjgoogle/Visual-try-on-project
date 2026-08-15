@@ -12,11 +12,13 @@ import { $, $$, toast, esc } from "./util/dom.js";
 import { GraphEngine } from "./graph/engine.js";
 import * as registry from "./graph/registry.js";
 import * as budget from "./services/budget.js";
-import * as gw from "./services/gateway.js";
-import { submitCommand } from "./services/gateway.js";
 import * as query from "./services/query.js";
 // TASK-072 §1.4: writes live in command.js; query.js keeps deprecated re-exports
 import * as command from "./services/command.js";
+// TASK-072 §1.4: the gateway's two-step write path came with them; the READ
+// coordinates it used to sit beside (`getGenerationTarget` / `getLockTarget` /
+// `paidOps`) are in query.js, because the split is 「会不会改东西」, not 「同一个流程」.
+const { submitCommand } = command;
 import * as projects from "./services/projects.js";
 import * as persist from "./services/persist.js";
 import { CANVAS_SCHEMA_VERSION } from "./services/canvasschema.js";
@@ -412,14 +414,14 @@ function setModeBadge() {
 // --- REAL paid generation (ADR-0041 two-step: preflight → confirm → submit) ---
 async function paidGenerate(shotId) {
   try {
-    const tgt = await gw.getGenerationTarget(PROJECT_NAME, shotId);
+    const tgt = await query.getGenerationTarget(PROJECT_NAME, shotId);
     const opId = "op-ui-" + Date.now().toString(36);
-    const envelope = {
-      command_id: "cmd-" + opId,
-      name: "submit-video-generation",
-      params: { ...tgt.params, operation_id: opId },
-      target: tgt.target,
-    };
+    const envelope = command.buildEnvelope(
+      "submit-video-generation",
+      tgt.target,
+      { ...tgt.params, operation_id: opId },
+      "cmd-" + opId,
+    );
     // M5: SNAPSHOT this video generation's provenance now, at envelope-build
     // time — these are the inputs the submitted job uses. Resolving at confirm
     // time instead would record whatever the draft looked like AFTER any edit
@@ -441,7 +443,7 @@ async function paidGenerate(shotId) {
       model: p && p.model ? String(p.model) : null,
       parameters: { ...(p || {}), operation_id: opId, task_id: envelope.params.task_id },
     };
-    const pf = await gw.preflight(PROJECT_NAME, envelope);
+    const pf = await command.preflight(PROJECT_NAME, envelope);
     est.openReal(pf, {
       onConfirm: async (digest) => {
         toast("已确认，真实生成中（约 1–2 分钟，请勿关闭页面）…");
@@ -454,7 +456,7 @@ async function paidGenerate(shotId) {
         const gen = ctx.startGeneration({ ...genSeed, status: "generating" });
         const genId = gen && gen.generationId;
         try {
-          const receipt = await gw.submit(PROJECT_NAME, envelope, digest);
+          const receipt = await command.submit(PROJECT_NAME, envelope, digest);
           const oc = receipt.outcome || {};
           if (receipt.status === "completed" && oc.kind === "success") {
             toast(
@@ -547,24 +549,23 @@ async function lockDraftPlan(node) {
         first_frame_image: frame,
       });
     }
-    const tgt = await gw.getLockTarget(PROJECT_NAME);
+    const tgt = await query.getLockTarget(PROJECT_NAME);
     // M4c bridge: send each shot's CREATIVE identity as a PARALLEL array (in
     // draft order), separate from the shot payload core consumes. The server
     // strips it before core and echoes it back onto each official record —
     // core's contract is untouched, the bridge is additive.
     const creativeShotIds = draft.map((s) => (typeof s.shotId === "string" && s.shotId ? s.shotId : null));
-    const envelope = {
-      command_id: "cmd-lock-" + Date.now().toString(36),
-      name: "lock-draft-plan",
-      params: { ...tgt.params, shots, creativeShotIds },
-      target: tgt.target,
-    };
-    const pf = await gw.preflight(PROJECT_NAME, envelope);
+    const envelope = command.buildEnvelope(
+      "lock-draft-plan",
+      tgt.target,
+      { ...tgt.params, shots, creativeShotIds },
+    );
+    const pf = await command.preflight(PROJECT_NAME, envelope);
     est.openLock(pf, {
       onConfirm: async (digest) => {
         toast("已确认，正在发布正式分镜（新版本，不覆盖旧版）…");
         try {
-          const receipt = await gw.submit(PROJECT_NAME, envelope, digest);
+          const receipt = await command.submit(PROJECT_NAME, envelope, digest);
           const oc = receipt.outcome || {};
           if (receipt.status === "completed") {
             curV.locked = { plan_version: oc.plan_version, shots: oc.shots || [] };
@@ -5057,7 +5058,7 @@ const ctx = {
   loadPaidOps: async () => {
     if (!CONNECTED) return;
     try {
-      const ops = await gw.paidOps(PROJECT_NAME);
+      const ops = await query.paidOps(PROJECT_NAME);
       ctx.paidOpsAll = ops;
       ctx.paidOps = {};
       ops.forEach((o) => {
@@ -5671,7 +5672,7 @@ async function adoptPaidIntoSlot(serverShotId, taskId) {
     // an occupied slot gains a NEW version (origin=adopted) — never overwrites
     // an earlier take (TASK-048 第3步; the anti-double-pay guard stays on the
     // submit side, unchanged)
-    res = await gw.adoptPaid(PROJECT_NAME, taskId, `video-${before.slot}`);
+    res = await command.adoptPaid(PROJECT_NAME, taskId, `video-${before.slot}`);
   } catch {
     return { adopted: false }; // artifact may not be fetched yet — status view still shows it
   }
@@ -5751,14 +5752,14 @@ async function batchPaidGenerate(node) {
     let gen = null; // recorded just before this shot's submit; failed in catch
     try {
       const shotId = ctx.lockedShotId(s.sequence);
-      const tgt = await gw.getGenerationTarget(PROJECT_NAME, shotId);
+      const tgt = await query.getGenerationTarget(PROJECT_NAME, shotId);
       const opId = "op-ui-" + Date.now().toString(36) + s.sequence;
-      const envelope = {
-        command_id: "cmd-" + opId,
-        name: "submit-video-generation",
-        params: { ...tgt.params, operation_id: opId },
-        target: tgt.target,
-      };
+      const envelope = command.buildEnvelope(
+        "submit-video-generation",
+        tgt.target,
+        { ...tgt.params, operation_id: opId },
+        "cmd-" + opId,
+      );
       // M5: SNAPSHOT provenance at envelope-build time — the draft shot in hand
       // carries its canonical creativeShotId (s.shotId, never the slot) and its
       // proven first-frame input Asset; these are the inputs the job will use.
@@ -5774,7 +5775,7 @@ async function batchPaidGenerate(node) {
         model: bp && bp.model ? String(bp.model) : null,
         parameters: { ...(bp || {}), operation_id: opId, task_id: envelope.params.task_id },
       };
-      const pf = await gw.preflight(PROJECT_NAME, envelope);
+      const pf = await command.preflight(PROJECT_NAME, envelope);
       const p = pf.preview || {};
       const cost = p.estimated_cost;
       const blockers = p.blockers || [];
@@ -5791,7 +5792,7 @@ async function batchPaidGenerate(node) {
       // still leaves a durable record (failed in catch), and the snapshot is
       // launch-time, not completion-time
       gen = ctx.startGeneration({ ...genSeed, status: "generating" });
-      await gw.submit(PROJECT_NAME, envelope, pf.preflight_digest);
+      await command.submit(PROJECT_NAME, envelope, pf.preflight_digest);
       done++;
       const r = await adoptPaidIntoSlot(shotId, envelope.params.task_id);
       // adopt reconciles the record BY TASK on success; ONLY the preserved-

@@ -142,6 +142,44 @@ export function fixtureProject() {
 }
 
 /* --------------------------------------------------------------------------- */
+/* Command-Gateway READ coordinates (moved from services/gateway.js, §1.4)      */
+/* --------------------------------------------------------------------------- */
+//
+// These three only READ. They sat in gateway.js beside `preflight`/`submit` because
+// they serve the same flow, but 「同一个流程」 is not the split the contract asks for:
+// the split is 「这一次调用会不会改东西」, and these do not.
+
+/** Read-only generation coordinates (target digest + suggested params). */
+export function getGenerationTarget(project, shotId) {
+  return _read(
+    `/api/projects/${encodeURIComponent(project)}/generation-target?shot_id=${encodeURIComponent(shotId)}`,
+    "target",
+  );
+}
+
+/** Read-only lock coordinates (current shot-plan version + digest, ADR-0047). */
+export function getLockTarget(project) {
+  return _read(`/api/projects/${encodeURIComponent(project)}/lock-target`, "lock-target");
+}
+
+/** Paid-op status projection (read-only; reservations + staging artifacts). */
+export async function paidOps(project) {
+  const j = await _read(`/api/paid-ops/${encodeURIComponent(project)}`, "ops");
+  return j.ops || [];
+}
+
+/** GET, throwing the app's legacy-shaped error. Not folded into an existing helper:
+ *  these three must NEVER fall back to a fixture the way the demo-mode reads do — a
+ *  fabricated preflight target would send a real command at a made-up digest. */
+async function _read(path, label) {
+  try {
+    return await request(path);
+  } catch (e) {
+    throw legacyError(e, label);
+  }
+}
+
+/* --------------------------------------------------------------------------- */
 /* COMPATIBILITY LAYER — deprecated (系统合同 §7 / TASK-072 §1.4)               */
 /* --------------------------------------------------------------------------- */
 //
