@@ -558,3 +558,55 @@ def test_no_persistent_switch_exists_anywhere_in_the_repo() -> None:
         if "MOTV_CONTINUOUS_CHAIN" in text:
             offenders.append(str(path.relative_to(root)))
     assert offenders == [], f"a persistent opt-in is stored in: {offenders}"
+
+
+def test_a_literal_backslash_in_a_path_forces_the_full_tier() -> None:
+    r"""codex 跨模型复审 2026-08-16。
+
+    `_normalise` 把每个 `\` 换成 `/`，好让 Windows 写法与 git 写法分到同一类。
+    但在 Linux 上反斜杠是**文件名里的合法字符**，于是一个真名叫
+    `docs\payload.py` 的单个文件被规范化成 `docs/payload.py`，拿到「仅文档」
+    档位——一个 Python 文件就这样整个跳过了 pytest。
+
+    gate.sh 传 `-z`，这种名字会原样、不加引号地送进来，所以这条路是**可达的**，
+    不是理论问题。fail-closed：不去猜它到底想表达斜杠的哪一边，直接给全量。
+    """
+    decision = _POLICY.classify([r"docs\payload.py"])
+    assert decision.tier == "full", "带字面反斜杠的路径不得取便宜档"
+    assert "backslash" in decision.reason
+
+    # 同一条对高风险伪装成文档同样有效
+    assert (
+        _POLICY.classify([r"docs\..\src\ai_video_workflow\persistence.py"]).tier
+        == "full"
+    )
+
+    # …而真正的文档改动仍然走轻档（这条修复不是把所有东西都推到 full）
+    assert _POLICY.classify(["docs/adr/ADR-0001-foo.md"]).tier == "lint"
+    assert _POLICY.classify(["AGENTS.md", "CLAUDE.md"]).tier == "lint"
+
+
+def test_both_shells_ask_git_for_NUL_separated_paths() -> None:
+    """codex 跨模型复审：gate.sh 一直传 `-z`，gate.ps1 没传。
+
+    不传 `-z` 时 git 会把含非 ASCII 或特殊字符的路径**加引号并转义**输出
+    （`"docs/\344\270\255\346\226\207.md"`），分类器读到的就不是那个路径了
+    ——单是开头那个引号就让所有前缀判断落空，于是高风险文件可能拿到便宜档。
+
+    仓库今天没有非 ASCII 路径，这正是它一直看不见的原因：第一个中文文件名就会
+    掀翻一道没人盯着的闸。
+    """
+    root = Path(__file__).resolve().parents[1] / ".claude" / "hooks"
+    sh = (root / "gate.sh").read_text("utf-8")
+    ps1 = (root / "gate.ps1").read_text("utf-8")
+
+    assert "--no-renames -z)" in sh or " -z)" in sh or " -z " in sh
+    # ps1 的两条**分类用** diff（--cached 与 -a/--all 两种形态）都必须带 -z。
+    # 只看 `$diffArgs =` 那两行：`git diff --check` 是另一回事，它不解析路径。
+    diff_lines = [ln for ln in ps1.splitlines() if ln.strip().startswith("$diffArgs =")]
+    assert len(diff_lines) == 2, f"两种 diff 形态都要检查，找到 {len(diff_lines)} 条"
+    for ln in diff_lines:
+        assert "'-z'" in ln, f"缺少 -z: {ln.strip()}"
+    # …而且真的按 NUL 切，不是按换行（否则 -z 等于没加）
+    assert '-split "`0"' in ps1, "有 -z 就必须按 NUL 切"
+    assert '-split "`r?`n"' not in ps1.split("$changedPaths", 1)[1][:200]

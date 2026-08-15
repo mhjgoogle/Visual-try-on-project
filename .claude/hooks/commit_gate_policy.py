@@ -282,9 +282,28 @@ def classify(paths: list[str], *, chain_mode: bool = False) -> Decision:
 
 
 def _classify(paths: list[str]) -> Decision:
-    changed = tuple(sorted({_normalise(path) for path in paths if path.strip()}))
+    raw = tuple(path for path in paths if path.strip())
+    changed = tuple(sorted({_normalise(path) for path in raw}))
     if not changed:
         return Decision("full", _REASON_NO_PATHS)
+
+    # A LITERAL BACKSLASH IN A PATH FORCES THE FULL TIER (codex 跨模型复审,
+    # 2026-08-16). `_normalise` turns every `\` into `/` so that a Windows-style
+    # path classifies the same as its git form — but on Linux a backslash is a
+    # legal character IN A FILENAME, so a single file literally named
+    # `docs\payload.py` normalised to `docs/payload.py` and took the
+    # documentation-only tier: a Python file that skipped pytest entirely.
+    #
+    # gate.sh passes `-z`, so such a name arrives raw and unquoted — this was
+    # reachable, not theoretical. Refusing the cheap tier (rather than trying to
+    # decide which side of the slash it meant) is the fail-closed answer: git
+    # itself never emits a backslash as a SEPARATOR, so a path containing one is
+    # either an odd filename or a non-git caller, and both deserve the full run.
+    if any("\\" in path for path in raw):
+        return Decision(
+            "full",
+            "a path contains a literal backslash — cannot be classified safely",
+        )
 
     non_docs = tuple(path for path in changed if not _is_docs(path))
     if not non_docs:

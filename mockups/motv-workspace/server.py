@@ -5344,6 +5344,33 @@ class _App:
                 502, {"error": {"category": "probe_failed", "detail": "probe failed"}}
             )
 
+        # THE SCAN'S EXIT CODE DECIDES WHETHER ITS OUTPUT MEANS ANYTHING
+        # (codex 跨模型复审, 2026-08-16). `subprocess.run` without `check=True`
+        # raises nothing on a non-zero exit, so a decode that died half-way —
+        # corrupt file, unsupported codec, disk error — still left `scan.stderr`
+        # holding the ebur128/blackdetect lines it had printed so far, and this
+        # returned them as `200 {"ok": true}`.
+        #
+        # That is worse than failing, and it is the exact inverse of this
+        # feature's rule 「测不出即缺席」: a PARTIAL measurement is
+        # indistinguishable from a complete one, and `blackSpans: []` from an
+        # aborted scan reads as 「没有黑帧」 rather than 「没扫完」. The QC gate
+        # then passes on it.
+        #
+        # ffprobe above already checked its own `returncode`; this one did not.
+        if scan.returncode != 0:
+            return _json(
+                502,
+                {
+                    "error": {
+                        "category": "probe_failed",
+                        "detail": (
+                            f"ffmpeg 扫描未正常结束（exit {scan.returncode}）"
+                            "——本次测量不完整，不予采用"
+                        ),
+                    }
+                },
+            )
         probe = _build_delivery_probe(info, scan.stderr or "")
         return _json(200, {"ok": True, "probe": probe, "name": f.name})
 

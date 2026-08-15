@@ -247,9 +247,21 @@ if (-not (Test-Path -LiteralPath $policyPath -PathType Leaf)) {
 # so unrelated experiments in the worktree cannot turn a docs commit into a
 # full suite.  `git commit -a/--all` stages tracked worktree changes during the
 # commit itself, so use HEAD for that form.  Deletions stay in either input.
-$diffArgs = @('diff', '--cached', '--name-only', '--no-renames')
+# `-z`: NUL-separated and NEVER C-quoted, matching gate.sh (cross-model review,
+# 2026-08-16 -- gate.sh already passed it, this shell did not). Without it git
+# wraps any path holding non-ASCII or special characters in quotes and escapes
+# it ("docs/\344\270\255\346\226\207.md"), and the classifier then reads a
+# string that is not the path: the leading quote alone makes every prefix test
+# miss, so a high-risk file could take a cheap tier. The repository has no
+# non-ASCII tracked path TODAY, which is exactly why this stayed invisible --
+# the first non-ASCII filename would have flipped a gate nobody was watching.
+# Same defect class run-review.ps1's Get-UntrackedDiff already documents.
+#
+# (This file must stay ASCII: it has no BOM, so a non-ASCII byte can be decoded
+# wrongly and make the gate fail OPEN. A guard test pins that.)
+$diffArgs = @('diff', '--cached', '--name-only', '--no-renames', '-z')
 if ($cmd -match '(^|\s)(-a|--all)(\s|$)') {
-    $diffArgs = @('diff', '--name-only', '--no-renames', 'HEAD')
+    $diffArgs = @('diff', '--name-only', '--no-renames', '-z', 'HEAD')
 }
 try {
     $pathsResult = Invoke-Bounded -FilePath $gitExe -Arguments $diffArgs `
@@ -263,8 +275,10 @@ if ($pathsResult.ExitCode -ne 0) {
     if ($pathsResult.TimedOut) { $out = "$out`n[timed out after 15s]" }
     Write-Block -Label 'commit-risk-policy' -Output "could not list changed paths:`n$out"
 }
+# Split on NUL, not on newlines: with `-z` above that is the record separator,
+# and it is also what makes a path CONTAINING a newline stay one path.
 $changedPaths = @(
-    $pathsResult.Output -split "`r?`n" | Where-Object { $_ -and $_.Trim() }
+    $pathsResult.Output -split "`0" | Where-Object { $_ -and $_.Trim() }
 )
 # ADR-0068 opt-in. The command is HANDED OVER; this script does not decide.
 # Matching the token here was wrong twice over: PowerShell's -like is
