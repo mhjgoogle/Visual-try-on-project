@@ -1080,9 +1080,24 @@ class RunStore:
                         run.get("status") == "cancelling"
                         and run_id not in self._threads
                     ):
-                        run["status"] = "cancelled"
-                        run["endedAt"] = _now_iso(self._clock)
+                        # THROUGH `_commit_locked`, like every other transition in
+                        # this module (codex 跨模型复审 2026-08-16). This one place
+                        # assigned `status` directly, so it was the single
+                        # transition that did NOT persist: memory said `cancelled`
+                        # while `runs.json` still said `cancelling`, and a restart
+                        # read back a stuck non-terminal run — the exact state this
+                        # branch exists to clear. It also skipped `_pump_locked`,
+                        # so the slot this run had just released woke nothing:
+                        # queued runs sat until some unrelated activity pumped.
+                        self._commit_locked(
+                            run,
+                            {
+                                "status": "cancelled",
+                                "endedAt": _now_iso(self._clock),
+                            },
+                        )
                         self._handles.pop(run_id, None)
+                        self._pump_locked()
                 elif handle is not None and run.get("cancelKillVerified") is not True:
                     run["cancelKillVerified"] = False
         deadline = self._clock() + max(0.0, grace_seconds)

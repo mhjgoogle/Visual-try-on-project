@@ -18,6 +18,7 @@ So identity is (pid, creation time), and the creation time is read from the OS.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -387,3 +388,58 @@ def _force_kill(parent, child_pid, created=None):
         parent.wait(timeout=10)
     except subprocess.TimeoutExpired:
         pass
+
+
+def test_the_kill_verified_finish_PERSISTS_like_every_other_transition(tmp_path):
+    """codex 跨模型复审 2026-08-16。
+
+    `_commit_locked` 的 docstring 写着「Every transition in this module goes
+    through here」——内存和文件一起动，或者都不动。取消路径里却有**一处**例外：
+    kill 已确认、且 worker 恰好在锁外先跑完时，那个分支直接写
+    `run["status"] = "cancelled"`，于是它是全模块唯一不落盘的状态转换。
+
+    后果两个，都只在重启之后才看得见：
+
+    · `runs.json` 仍停在 `cancelling`，重启读回一个卡住的非终态——正是这个分支
+      本来要清掉的那种状态；
+    · 没有 `_pump_locked()`，刚释放的槽位不唤醒任何人，排队的 run 要等某个不相干
+      的活动来 pump。
+
+    断言直接读 **journal 文件**，不经过 `RunStore`：重建会跑 restart sweep，它会
+    把没有活进程的 `cancelling` 正确地判成 `failed`，那是对的行为，但会盖住这里
+    要测的东西。
+    """
+    journal = tmp_path / "runs.json"
+    store = runstore.RunStore(
+        journal,
+        max_concurrent=1,
+        # kill 报告「确认死了」，这正是那条分支的入口条件
+        terminator=lambda handle: True,
+    )
+    run = store.create(
+        kind="skill", task_type="skill.x", executor="claude-code", project_id="P1"
+    )
+    rid = run["runId"]
+
+    # `running`、有 handle（`_terminate` 只在 handle 存在时才问 terminator），
+    # 且 `_threads` 里没有它 —— 正是 worker 已在锁外结束的那一刻
+    with store._lock:  # noqa: SLF001 - 构造那一刻的内部状态
+        rec = store._find_locked(rid)
+        rec["status"] = "running"
+        store._handles[rid] = object()
+        store._persist_locked()
+
+    store.cancel(rid, project="P1", grace_seconds=0)
+
+    in_memory = store.get(rid, project="P1")["status"]
+    on_disk = next(
+        r["status"]
+        for r in json.loads(journal.read_text("utf-8"))["runs"]
+        if r["runId"] == rid
+    )
+    assert in_memory == "cancelled", (
+        f"kill 已确认，内存应为 cancelled，实为 {in_memory}"
+    )
+    assert on_disk == in_memory, (
+        f"落盘 {on_disk} 与内存 {in_memory} 不一致——重启会读回一个卡住的非终态"
+    )
