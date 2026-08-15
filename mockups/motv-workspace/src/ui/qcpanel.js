@@ -138,6 +138,7 @@ export function renderQcPanel(vm) {
       `</div>`
     );
   }
+  const note = (vm && vm.note) || qcNote(report);
   const declared = QC_CHECKS.length;
   const measured = report.rows.filter((r) => r.state !== "unavailable").length;
   return (
@@ -151,9 +152,7 @@ export function renderQcPanel(vm) {
     `<table class="qc-table"><thead><tr>` +
     `<th>检查项</th><th>结果</th><th>说明</th>` +
     `</tr></thead><tbody>${report.rows.map(qcRow).join("")}</tbody></table>` +
-    ((vm && vm.note) || qcNote(report)
-      ? `<div class="qc-note">${esc((vm && vm.note) || qcNote(report))}</div>`
-      : "") +
+    (note ? `<div class="qc-note">${esc(note)}</div>` : "") +
     g4Line(vm && vm.g4, report) +
     `</div>`
   );

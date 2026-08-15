@@ -4483,18 +4483,22 @@ const ctx = {
    *  one is what this check is about. */
   _cutAssets: () => {
     const t = ctx.timeline && ctx.timeline.doc ? ctx.timeline.doc() : null;
-    if (!t) return null;
+    if (!t) return null; // no timeline at all — nothing to read
     const live = timeline.liveClips(t);
-    if (!live.length) return null;
     const byId = new Map();
     for (const c of live) {
       const id = typeof c.assetId === "string" ? c.assetId : "";
       if (!id || byId.has(id)) continue;
       const hit = assetlib.findAssetById(assetRegistry, id);
-      if (!hit || !hit.record) return null; // incomplete → unknown, never a verdict
+      // The list is INCOMPLETE. `null` is the only value that says so, and saying so
+      // matters more than the verdict does: every branch here ends in `unavailable`
+      // either way, but 「清单没拿全」 and 「这条片子还没用到素材」 send the creator
+      // to different places (independent review, round 3).
+      if (!hit || !hit.record) return null;
       byId.set(id, { assetId: id, origin: hit.record.origin || "" });
     }
-    return byId.size ? [...byId.values()] : null;
+    // A cut that exists and uses no assets is an EMPTY list, not an unreadable one.
+    return [...byId.values()];
   },
 
   /** The CUT's duration in ms, or null when there is no cut yet.

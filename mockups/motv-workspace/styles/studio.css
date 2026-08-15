@@ -1273,7 +1273,7 @@
 .qc-empty { color: var(--text-faint); padding: var(--s4) 0; }
 .qc-note { color: var(--text-faint); font-size: var(--t-micro); line-height: 1.7; }
 
-.qc-table { width: 100%; border-collapse: collapse; font-size: var(--t-small); }
+.qc-table { width: 100%; border-collapse: collapse; font-size: var(--t-sm); }
 .qc-table th {
   text-align: left; font-size: var(--t-micro); font-weight: 700; letter-spacing: .06em;
   color: var(--text-faint); border-bottom: 1px solid var(--line); padding: var(--s2);

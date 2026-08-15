@@ -148,6 +148,16 @@ test("素材权限 judges THE FILM's assets, and an incomplete list is unknown",
   const noList = browserReport({ assets: null });
   const row = noList.rows.find((r) => r.key === "rights");
   assert.equal(row.state, "unavailable");
+  assert.match(row.detail, /没有拿到/, "…and it says the list could not be READ");
+
+  // an EMPTY list is a different statement: the cut exists and uses no assets. Both
+  // end in `unavailable` — the verdict was never the problem — but they send the
+  // creator to different places (independent review, round 3).
+  const emptyList = browserReport({ assets: [] });
+  const emptyRow = emptyList.rows.find((r) => r.key === "rights");
+  assert.equal(emptyRow.state, "unavailable");
+  assert.match(emptyRow.detail, /清单是空的/);
+  assert.notEqual(emptyRow.detail, row.detail);
   assert.equal(g4Export(noList).ok, true, "an unknown must not block the export…");
   assert.equal(noList.passed, false, "…and must not pass it either");
 });
