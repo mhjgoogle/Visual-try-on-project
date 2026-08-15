@@ -560,7 +560,7 @@ commit，**不跑**全量 pytest 与全量前端（把 `MOTV_CONTINUOUS_CHAIN=1`
 
 | 项 | 状态与理由 |
 | --- | --- |
-| Envelope 构造 + preflight / submit 归位 | **未做**。`gateway.js` 仍持有那条两步写路径；本次只完成了读写分离与统一传输层 |
+| Envelope 构造 + preflight / submit 归位 | **已完成（2026-08-15）**。见下方 §Envelope 归位 |
 | `services/persist.js` 改经 apiclient | **未做，有意保留**。它靠 **content-type 嗅探**区分「后端在」与「静态 host」，并自带 keepalive 的 64 KiB 聚合字节记账、写序列化与 AbortController 竞态处理。apiclient 现在把「200 非 JSON」归成 `malformed` 抛出，正好**吃掉**它依赖的那个区分。要改需要先让 apiclient 表达 keepalive 与「这是不是后端在说话」，那是单独一轮的事 —— 而这是全树里推理最密的文件，赶工改它就是 B2 那三次「守卫没守住」的复现条件 |
 | `services/runtime.js` 的 `cancelRun` / `runOnExecutor` | **未做，有意保留**。两者的契约是**状态码形状**的（「404 不是证明」、非 2xx 时仍要读 body 里的 `kind`），且这些分支写的是 codex 第 22–23 轮的结论 |
 | 验收 #5 的守卫测试 | **未做**（本次按要求跳过测试环节）。「后端 500 时 UI 模型是 error 而不是 empty」目前只有代码保证 |
@@ -626,3 +626,37 @@ commit，**不跑**全量 pytest 与全量前端（把 `MOTV_CONTINUOUS_CHAIN=1`
 验证：全量 pytest **3135 通过 / 56 跳过 / 0 失败**、全量前端 **937 通过**、
 ruff 全绿。**未做 Codex 独立审查**——按产品负责人本次要求跳过，风险等级为高，
 已登记待复审。
+
+## Envelope 归位与审片接线（2026-08-15）
+
+### §1.4 收尾 —— Envelope 构造 + preflight + submit
+
+落点表要求 `command.js` 持有 Envelope 构造与两步写路径，`gateway.js` 一直留着它。
+搬家的理由不是整洁：`gateway.js` 是**唯一可能花钱**的写路径，同时又是唯一不在
+`command.js`「不重试、不静默吞错、不自己判断允不允许」三条规则之下的写路径。
+
+- `command.js` ← `buildEnvelope` / `preflight` / `submit` / `adoptPaid` /
+  `submitCommand` / `newOperationId`
+- `query.js` ← `getGenerationTarget` / `getLockTarget` / `paidOps`（只读）
+- `gateway.js` 只剩 re-export 兼容层，零实现，因此不可能与真身漂移；
+  TASK-074 §1.5 在无人 import 时删除
+
+`preflight` 留在 `command.js` 而非 `query.js`：它按合同只读，但它是一次写的第一步，
+它的 digest 才是第二步的授权；两半分居两个模块正是「拿着另一个信封的 digest
+去提交」的来源。
+
+集中之后才暴露、并已修的两个问题：`command_id` 用 `Date.now()` 在批量路径同一
+毫秒内会重号；`submit` 的守卫同步 throw 而模块其余部分返回 Promise。
+
+### §1.5 收尾 —— approveShot 成为层 1 Decision
+
+此前只建了领域模块，**接线没做**：`approveShot` 仍然只写旧标记。现在：
+
+- 通过审片先建 Decision 再写旧标记（顺序有守卫断言）；
+- Decision 必须记录审的是哪一版，`mediaOf` 因此同时给出 `videoVersion`；
+  读不出版本就**拒绝通过**，而不是记一条说不清审了什么的结论；
+- 撤销通过是**追加**一条 `needs_rework`（判定同一版），不删除原结论；
+- `decisionId` 由 `review.newDecisionId` 铸造（单调），`Date.now()` 在
+  approve → unapprove → approve 落在同一毫秒时会铸出重复主键。
+
+旧标记按 §1.5 保留一版做对照，TASK-074 §1.3 删除。

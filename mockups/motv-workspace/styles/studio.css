@@ -1259,3 +1259,42 @@
    Without this rule the fault rendered in the same muted hint style as the normal
    note, which is precisely the 「故障读起来像故障」 goal not being met. */
 #landing-note.bad { color: var(--bad); font-weight: 600; }
+
+/* ⑩ 后期交付 · 交付质检 (TASK-074 §1.2).
+
+   THE COLOURS CARRY THE HONESTY RULE. `unavailable` is neither green nor red: it is
+   an open question, and painting it either way would make a screen that measured two
+   of eight checks read as a verdict on all eight. */
+.qc-wrap { display: flex; flex-direction: column; gap: var(--s3); }
+.qc-head { display: flex; align-items: baseline; gap: var(--s3); }
+.qc-count { color: var(--text-faint); font-size: var(--t-micro); }
+.qc-ok { color: var(--ok); font-weight: 700; }
+.qc-notyet { color: var(--gate); font-weight: 700; }
+.qc-empty { color: var(--text-faint); padding: var(--s4) 0; }
+.qc-note { color: var(--text-faint); font-size: var(--t-micro); line-height: 1.7; }
+
+.qc-table { width: 100%; border-collapse: collapse; font-size: var(--t-small); }
+.qc-table th {
+  text-align: left; font-size: var(--t-micro); font-weight: 700; letter-spacing: .06em;
+  color: var(--text-faint); border-bottom: 1px solid var(--line); padding: var(--s2);
+}
+.qc-table td { padding: var(--s2); border-bottom: 1px solid var(--line); vertical-align: top; }
+.qc-table .qc-k { font-weight: 600; white-space: nowrap; }
+.qc-table .qc-s { white-space: nowrap; }
+.qc-table .qc-d { color: var(--text-faint); line-height: 1.6; }
+.qc-pass .qc-s { color: var(--ok); }
+.qc-fail .qc-s { color: var(--bad); }
+/* deliberately the MUTED tone, not a success or a failure tone */
+.qc-unknown .qc-s { color: var(--pending); }
+.qc-sev {
+  margin-left: var(--s2); padding: 0 var(--s2); border-radius: 3px;
+  font-size: var(--t-micro); font-weight: 700;
+}
+.qc-sev-blocking { background: var(--bad); color: #fff; }
+.qc-sev-warning { background: var(--gate); color: #fff; }
+
+.qc-gate { padding: var(--s3); border-radius: 4px; line-height: 1.7; }
+.qc-gate-ok { background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--ok); }
+.qc-gate-warn { background: color-mix(in srgb, var(--gate) 12%, transparent); color: var(--gate); }
+.qc-gate-block { background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--bad); }
+.qc-gate-ids { margin-top: var(--s2); font-size: var(--t-micro); opacity: .85; }

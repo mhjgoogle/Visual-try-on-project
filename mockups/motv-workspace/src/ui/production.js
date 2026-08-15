@@ -56,6 +56,7 @@ import { specStanding, SPEC_FIELD_BY_KEY } from "../workflow/deliveryspec.js";
 import { skillPanelModel, renderSkillPanel, bindSkillPanel } from "./skillpanel.js";
 import { shotDirectorModel, renderShotDirector, bindShotDirector, runOperation } from "./directorshot.js";
 import { episodeView } from "../workflow/proddoc.js";
+import { renderQcPanel } from "./qcpanel.js";
 import {
   NAV, EPISODE_MODULES, EPISODE_DEFAULT, LEGACY_EPISODE_CENTRE, MODULE_LABEL, SPACE_LABEL, spaceOf,
   renderRail, renderAssetRail, renderCrumb, episodeLabels, head, episodeEntryModule,
@@ -805,7 +806,15 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // ⑨ 粗剪审片 — the episode-wide playback + issue marking (检查层 2).
     cutreview: (ctx) => renderDailies(ctx, ui),
     // ⑩ 后期交付 — the post console at full size, with its seven sections.
-    delivery: (ctx) => sectionNav("delivery") + renderPostConsole(ctx, ui, { mode: "full" }),
+    delivery: (ctx) => {
+      // 交付质检 is a section of its OWN (§1.2 新增), not a corner of the post
+      // console: it is the only place that answers 「这条片子能不能导出」, and G4's
+      // verdict has to be readable next to the rows it came from.
+      if (sectionOf("delivery") === "qc") {
+        return sectionNav("delivery") + renderQcPanel(ctx.deliveryQc());
+      }
+      return sectionNav("delivery") + renderPostConsole(ctx, ui, { mode: "full" });
+    },
     // ⚙ 项目设置 — its own route key, NOT `settings` (§1.7). Only the 存储与诊断
     // section has an implementation today (`storagews`, plus the provenance
     // diagnostic view); the other three are declared and honestly empty rather

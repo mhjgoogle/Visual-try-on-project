@@ -67,7 +67,8 @@ import { createLockController } from "./controllers/lockctl.js";
 import { createTimelineController } from "./controllers/timelinectl.js";
 // TASK-072 §1.5/§1.6: the three review layers and the five gates, as domain
 import * as review from "./workflow/review.js";
-import { g3TriggerFor, g3Retire } from "./workflow/gates.js";
+import { g3TriggerFor, g3Retire, g4Export } from "./workflow/gates.js";
+import * as deliveryqc from "./workflow/deliveryqc.js";
 import * as framebind from "./workflow/framebind.js";
 import * as locksdoc from "./workflow/locks.js";
 import * as shotaudio from "./workflow/shotaudio.js";
@@ -4466,6 +4467,63 @@ const ctx = {
   // through the M3 single media write path, and immediately visible everywhere.
   // No page implements its own upload logic, so no page can forget a step.
   // ---------------------------------------------------------------------- //
+  /** The CUT's duration in ms, or null when there is no cut yet.
+   *
+   *  `timelineDuration` counts seconds and returns 0 for an empty timeline. A 0
+   *  handed to the QC would mark every cue as running past the end of the film, so
+   *  「还没有剪辑」 is reported as UNKNOWN instead — the same rule 「没跑不等于通过」
+   *  follows, in the other direction. */
+  _cutDurationMs: () => {
+    const t = ctx.timeline && ctx.timeline.doc ? ctx.timeline.doc() : null;
+    if (!t) return null;
+    const secs = timeline.timelineDuration(t);
+    return typeof secs === "number" && secs > 0 ? Math.round(secs * 1000) : null;
+  },
+
+  /**
+   * ⑩ 交付质检 (TASK-074 §1.2) — the layer-3 report, and G4's verdict on it.
+   *
+   * WHAT IS AND IS NOT MEASURED, and why the difference is visible. A browser cannot
+   * run ffmpeg, so `probe` is null and the five probe-based checks answer
+   * `unavailable` WITH the reason. That is the requirement, not a shortfall:
+   * 「检测能力缺失时该项显示 unavailable + 原因，绝不产生一条『通过』的结论」
+   * (§1.2 / ADR-0064 决策 6). Feeding them a fabricated probe to make the screen
+   * look complete is the exact failure the rule exists to prevent.
+   *
+   * `durationMs` comes from the CUT, not from the file and not from ⚙. The rendered
+   * file's duration needs a probe; ⚙'s `episodeSeconds` is a target, and checking
+   * cues against a target answers a different question. The timeline is the thing the
+   * cues were authored against, so 「这条字幕跑到片子外面去了」 is answerable from it
+   * — and an empty timeline yields null (unknown), never 0, because a 0 would mark
+   * every cue as out of range.
+   *
+   * Deterministic issue ids: keyed on the episode and the row, never on a clock, so
+   * re-running the report does not mint a second copy of the same finding.
+   */
+  deliveryQc: () => {
+    const ep = (productionDoc && productionDoc.activeEpisodeId) || "delivery";
+    const report = deliveryqc.runDeliveryQc(
+      {
+        probe: null,
+        subtitleTrack: ctx.subtitles.track(),
+        spec: { ...deliverySpecDoc },
+        assets: ctx.assets.list(),
+        durationMs: ctx._cutDurationMs(),
+        deliveryId: ep,
+      },
+      { issueIdFor: (k, n) => `qc-${ep}-${k}-${n}` },
+    );
+    return {
+      report,
+      // ONE decision point: the panel renders this verdict, it does not re-derive it
+      g4: g4Export(report),
+      note:
+        "音画同步 · 音量 · 削波 · 黑帧 · 缺帧需要对成片文件做 ffprobe/ffmpeg 探测，" +
+        "浏览器里跑不了，所以它们如实显示「未检查」——没跑不等于通过。" +
+        "「规格」缺的是设置本身，去 ⚙ 项目设置 · 成片规格 填完就能判。" +
+        "字幕越界按当前剪辑的时长判，不是按成片文件——成片还没渲染出来。",
+    };
+  },
   assets: {
     KINDS: assetreg.ASSET_KINDS,
     KIND_LABEL: assetreg.ASSET_KIND_LABEL,

@@ -411,6 +411,17 @@ TASK-074 §1.5 的事。实施中我一度真的删掉了 `ASSET_NAV` / `EPISODE
 `skills` 与 `actions` 最好留到最后：它们跨控制器引用最多，且 `actions` 现在还包着
 G3，搬它等于同时动质量门。
 
+### 5.12 §1.8 拆分现状与仍未搬的控制器（2026-08-15）
+
+已搬出：`controllers/lockctl.js`（78 行）、`controllers/timelinectl.js`（307 行），
+用「工厂 + getter 注入」模式，因为文档是会被重新赋值的 `let`，直接传值会让控制器
+永远拿着切换项目前的那一份。
+
+**仍在 `app.js` 里**：`refInterp`(41) · `subtitles`(77) · `shotAudio`(176) ·
+`frames`(200) · `assets`(270) · `actions`(470) · `skills`(853)。
+守卫（`test_ai_paths_record_generations_with_frozen_snapshot`）已扩到扫描
+`app.js` + `src/controllers/*.js`，所以搬出去不会绕过快照断言。
+
 ### 5.11 §1.1 落点表未落地的两项（2026-08-15，独立审查批 3 发现）
 
 落点表把 `workbench` → ⑧ 镜头制作、`provenance` → ⚙ 存储与诊断。第一次实现只
