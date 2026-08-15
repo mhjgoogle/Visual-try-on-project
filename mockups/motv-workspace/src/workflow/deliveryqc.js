@@ -116,7 +116,14 @@ export function checkSubtitles(track, { durationMs = null, subtitleMode = null }
   //
   // So it is UNAVAILABLE: an honest 「没检查」, which keeps `passed` false without
   // blocking the export — the creator decides.
-  if (subtitleMode === "burned" && (!isObj(track) || !Array.isArray(track.cues))) {
+  //
+  // AND IT IS UNCONDITIONAL. The first attempt fired only when the cue track was
+  // missing, so the NORMAL case — a burned delivery that has an authored track — fell
+  // straight through to the checks below and returned `pass`, i.e. exactly the
+  // 「没有证据说明烧录发生了，却报告通过」 this block exists to prevent (independent
+  // review, batch 4). An authored track proves the cues were WRITTEN; it proves
+  // nothing about whether the renderer burned them into the pixels.
+  if (subtitleMode === "burned") {
     return unavailable(
       "subtitle",
       "本片规格为烧录字幕：字幕在画面里，本检查无法验证它是否真的烧进去了——未检查不等于通过",

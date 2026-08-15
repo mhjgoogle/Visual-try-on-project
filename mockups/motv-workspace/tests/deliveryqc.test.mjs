@@ -203,3 +203,21 @@ test("the report's issues are layer-3, agent-sourced, and feed G4", () => {
   assert.equal(g4Export(warn).ok, true, "a warning must not block the export");
   assert.equal(warn.passed, false, "…but it is still not a clean pass");
 });
+
+test("`burned` is unavailable even WITH a cue track — the normal case", () => {
+  // The guard first fired only on a missing track, so an ordinary burned delivery
+  // (cues authored, then rendered into the picture) returned `pass` with nothing
+  // having verified the burn-in — G4 would export a film whose subtitles may have
+  // been silently dropped (independent review, batch 4). Third time this case has
+  // been wrong; it is now asserted from both directions.
+  const track = { cues: [{ startMs: 0, endMs: 1000, text: "陛下" }] };
+  for (const t of [track, null, { cues: null }, {}]) {
+    const r = checkSubtitles(t, { durationMs: 60_000, subtitleMode: "burned" });
+    assert.equal(r.state, "unavailable", JSON.stringify(t));
+    assert.match(r.detail, /未检查不等于通过/);
+  }
+  // …and a perfectly valid track under any OTHER mode still passes normally
+  assert.equal(checkSubtitles(track, { durationMs: 60_000, subtitleMode: "sidecar" }).state, "pass");
+  // 「不做字幕」 stays the one mode that legitimately passes with nothing to check
+  assert.equal(checkSubtitles(null, { subtitleMode: "none" }).state, "pass");
+});
