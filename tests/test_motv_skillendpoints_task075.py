@@ -373,3 +373,89 @@ def test_the_input_caps_survived_the_migration(srv, monkeypatch) -> None:
     )
     assert status == 200
     assert "改" * 2_001 not in seen[0], "the steer cap is not applied"
+
+
+# --- 一集有多少个镜头（2026-08-15 真实项目缺陷） ---------------------------- #
+
+
+def _shots_answer(n: int) -> str:
+    """The Skill package's declared shape: `{"shots":[…]}`, no `sequence`."""
+    return json.dumps(
+        {
+            "shots": [
+                {"title": f"S1-{i:02d}", "description": "描述", "duration_seconds": 6}
+                for i in range(1, n + 1)
+            ]
+        },
+        ensure_ascii=False,
+    )
+
+
+def test_a_real_episode_length_shot_list_is_accepted(srv, monkeypatch) -> None:
+    """真实项目「照见未明rev2」2026-08-15：3 463 字的一集剧本拆出 30–60 个镜头，
+    而解析器的上限是 fixture 时代的 **20**。于是 `storyboard-director` 连续 5 次
+    每次真跑了 3–5 分钟、模型每次都答对了，结果全部在最后一步被丢弃——创作者
+    只看到「分镜生成失败」，合理地以为这个功能根本没启动。
+
+    这条钉住的是「一整集长度的分镜必须能过」，不是某个具体数字。
+    """
+    app = srv._App(None, None)
+    _stub(srv, monkeypatch, _shots_answer(45))
+    status, body = _post(app, "/api/agent/shots-draft", {"script": "一集剧本"})
+    assert status == 200, body
+    assert len(body["shots"]) == 45
+    # sequence 由解析器补齐（包的 schema 不要求模型给）
+    assert [s["sequence"] for s in body["shots"]] == list(range(1, 46))
+
+
+def test_too_many_shots_says_TOO_MANY_rather_than_naming_the_shape(
+    srv, monkeypatch
+) -> None:
+    """三种失败以前共用一句「expected a JSON array of 1-20 shots」——正是它让
+    真正的缺陷难以看见：模型答得完全正确，只是**比 fixture 时代的上限长**，
+    而错误信息说的是形状。「太多了」和「形状不对」是两个不同的答案。"""
+    app = srv._App(None, None)
+    over = srv._MAX_SHOTS_PER_EPISODE + 1
+    _stub(srv, monkeypatch, _shots_answer(over))
+    status, body = _post(app, "/api/agent/shots-draft", {"script": "一集剧本"})
+    assert status != 200
+    detail = json.dumps(body, ensure_ascii=False)
+    assert str(over) in detail, "报出实际数量，创作者才知道要删到多少"
+    assert "exceeds" in detail
+    assert "JSON array" not in detail, "数量超限不得被报成形状错误"
+
+    # …而形状真的不对时报的是形状。这一条由**包的 schema** 先拦下（中文、更具体），
+    # 因为 `output.schema.json` 声明了 `shots` 是数组——所以两层各司其职：
+    # 形状归包的 schema，一集能有多少个镜头归解析器（包里没有 maxItems）。
+    _stub(srv, monkeypatch, '{"shots":"不是数组"}')
+    status, body = _post(app, "/api/agent/shots-draft", {"script": "一集剧本"})
+    assert status != 200
+    assert "应为数组" in json.dumps(body, ensure_ascii=False)
+
+
+def test_the_ceiling_is_ONE_constant_shared_with_the_compose_route(srv) -> None:
+    """两处曾经各写一个字面量 `20`。只抬高其中一个，会做出一份分镜草稿、把整集
+    的媒体都生成完，最后在合成那一步被拒——失败落在最贵的位置。"""
+    source = (_MOCKUP / "server.py").read_text("utf-8")
+    assert source.count("_MAX_SHOTS_PER_EPISODE") >= 4, (
+        "解析器与合成路径必须共用同一个常量，而不是各写一个字面量"
+    )
+    body = source.split("def _parse_shots", 1)[1].split("\ndef ", 1)[0]
+    assert "_MAX_SHOTS_PER_EPISODE" in body
+    assert "<= 20" not in source, "写死的 20 不得残留"
+
+
+def test_an_empty_shot_list_is_still_refused(srv, monkeypatch) -> None:
+    """抬高上限不是取消下限：一份空分镜不是成功。
+
+    这一条由**包的 schema**（`minItems: 1`）拦下，解析器的 `no shots` 是它后面
+    的第二道。两道都要在——包可以被项目层替换掉，解析器不能。
+    """
+    app = srv._App(None, None)
+    _stub(srv, monkeypatch, '{"shots":[]}')
+    status, body = _post(app, "/api/agent/shots-draft", {"script": "一集剧本"})
+    assert status != 200
+    assert "至少需要 1 项" in json.dumps(body, ensure_ascii=False)
+    # …解析器自己那一道也真的在（包被替换掉时它就是唯一的一道）
+    with pytest.raises(ValueError, match="no shots"):
+        srv._parse_shots("[]")

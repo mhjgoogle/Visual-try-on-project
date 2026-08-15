@@ -676,6 +676,25 @@ _SKILL_PROMPT_MAX = 200_000
 # buffered.
 _SKILL_BODY_MAX = _SKILL_PROMPT_MAX * 4 + 8_192
 
+# How many shots ONE EPISODE may hold. Enforced in two places that must agree —
+# the shot-draft parser and the final-compose route — so the constant is shared
+# rather than written twice (they were both `20`, and drifting them apart is how
+# 「分镜生成通过了但合成拒绝」 would appear).
+#
+# WHY IT IS NOT 20 (2026-08-15, real project 「照见未明rev2」). 20 was a fixture-era
+# number, and it silently made the product's MAIN path fail on real content: a
+# 3 463-character episode script draws 30–60 shots, so `_parse_shots` rejected
+# every single run. Five consecutive runs of `storyboard-director` burned 3–5
+# minutes each and were all discarded AFTER the model had answered correctly —
+# the creator saw only 「分镜生成失败」 and reasonably concluded the feature never
+# started (it did, every time).
+#
+# 120 is derived, not guessed: an episode runs 5–10 minutes and every shot is
+# 6 or 10 seconds, so 10 min ÷ 6 s ≈ 100 shots is the honest ceiling for one
+# episode, plus ~20% headroom. It stays a REAL bound — a model that returns 500
+# shots is still refused, which is what this check is for.
+_MAX_SHOTS_PER_EPISODE = 120
+
 # name → (env var, default argv tail appended after the resolved binary).
 # The tail is what makes each CLI headless AND tool-free.
 _EXECUTORS: dict[str, dict] = {
@@ -1884,9 +1903,18 @@ atexit.register(_shutdown_runs)
 def _parse_shots(text: str) -> list[dict]:
     """Strictly parse the agent's output into a validated shot-draft list.
 
-    Accepts optional markdown fences / prose around ONE JSON array; every item
-    must carry the four draft fields with sane types. Raises ValueError with a
-    precise reason otherwise (fail-closed — the caller reports, never invents).
+    Accepts optional markdown fences / prose around ONE JSON array — including
+    the `{"shots": [...]}` envelope the Skill package declares, because slicing
+    from the first `[` to the last `]` lands on that array either way. Every item
+    must carry the draft fields with sane types. Raises ValueError with a precise
+    reason otherwise (fail-closed — the caller reports, never invents).
+
+    THE THREE FAILURES ARE REPORTED SEPARATELY (2026-08-15). They used to share
+    one message, 「expected a JSON array of 1-20 shots」, which is what made the
+    real defect so hard to see: the model was answering perfectly and the output
+    was simply LONGER than a fixture-era cap, but the error named the shape.
+    「太多了」 and 「形状不对」 are different answers and the creator acts on them
+    differently.
     """
     start = text.find("[")
     end = text.rfind("]")
@@ -1896,8 +1924,15 @@ def _parse_shots(text: str) -> list[dict]:
         data = json.loads(text[start : end + 1])
     except ValueError as exc:
         raise ValueError(f"agent output is not valid JSON: {exc}") from exc
-    if not isinstance(data, list) or not (1 <= len(data) <= 20):
-        raise ValueError("expected a JSON array of 1-20 shots")
+    if not isinstance(data, list):
+        raise ValueError("expected a JSON array of shots")
+    if not data:
+        raise ValueError("agent returned no shots")
+    if len(data) > _MAX_SHOTS_PER_EPISODE:
+        raise ValueError(
+            f"{len(data)} shots exceeds the {_MAX_SHOTS_PER_EPISODE}-shot "
+            "ceiling for one episode"
+        )
     shots: list[dict] = []
     for i, item in enumerate(data, start=1):
         if not isinstance(item, dict):
@@ -4862,10 +4897,21 @@ class _App:
             return _json(
                 400, {"error": {"category": "bad_request", "detail": "invalid name"}}
             )
-        if not isinstance(shots, list) or not (1 <= len(shots) <= 20):
+        # SAME ceiling as the shot-draft parser, from the same constant. When
+        # these were two literal `20`s, raising one without the other would have
+        # produced a draft the compose route then refused — the failure would
+        # land at the very end, after all the media had been made.
+        if not isinstance(shots, list) or not (
+            1 <= len(shots) <= _MAX_SHOTS_PER_EPISODE
+        ):
             return _json(
                 400,
-                {"error": {"category": "bad_request", "detail": "1-20 shots required"}},
+                {
+                    "error": {
+                        "category": "bad_request",
+                        "detail": f"1-{_MAX_SHOTS_PER_EPISODE} shots required",
+                    }
+                },
             )
         import shutil as _shutil
 
