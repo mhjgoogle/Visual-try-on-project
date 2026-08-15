@@ -578,7 +578,19 @@ def test_an_unreadable_skill_directory_is_reported_not_silently_empty(
 ) -> None:
     """A source that is NOT INSTALLED is fine. A source that exists but cannot
     be read is 决策 7's exact harm: every project override silently resolves to
-    the builtin skill, unattributably (independent review)."""
+    the builtin skill, unattributably (independent review).
+
+    THIS TEST USED TO PASS WITHOUT TESTING THAT (codex 跨模型复审 2026-08-16).
+    It loaded a catalog from ONE source, so 「回落到 builtin」 could not happen
+    in the fixture no matter what the code did — the docstring named the harm
+    and the construction never built it. The real defect was live underneath:
+    the root-level problem carries `skill_id=""`, `broken_by_source` is keyed BY
+    skill id, and no real id equals `""`, so an unreadable project source
+    shadowed nothing at all.
+
+    The lower source is now present, which is the only way this assertion means
+    anything.
+    """
     unreadable = tmp_path / "skills"
     unreadable.mkdir()
 
@@ -592,6 +604,39 @@ def test_an_unreadable_skill_directory_is_reported_not_silently_empty(
     assert len(catalog.problems) == 1
     assert catalog.problems[0].source == "project"
     assert "无法读取" in catalog.problems[0].reason
+
+
+def test_an_unreadable_source_does_not_fall_through_to_the_one_below_it(
+    tmp_path, monkeypatch
+) -> None:
+    """决策 7, with the lower source actually present.
+
+    An unreadable source is NOT 「a source with no packages」: we cannot know
+    WHICH ids it would have overridden, so every id must stay unavailable rather
+    than being answered by the builtin package. The creator asked for their
+    project's version of that capability; silently running a different one
+    answers a different question than the one on screen.
+    """
+    unreadable = tmp_path / "skills"
+    unreadable.mkdir()
+    real_dirs = skillpkg._package_dirs
+
+    def deny(directory):
+        if directory == unreadable:
+            return [], "无法读取 Skill 目录：access denied"
+        return real_dirs(directory)
+
+    monkeypatch.setattr(skillpkg, "_package_dirs", deny)
+    catalog = skillpkg.load_catalog([("project", unreadable), ("builtin", _BUILTIN)])
+
+    assert catalog.skills == {}, (
+        "项目源不可读时必须整源 shadow——回落到 builtin 正是决策 7 要禁止的"
+    )
+    assert [(p.skill_id, p.source) for p in catalog.problems] == [("", "project")]
+
+    # …而一个源「没安装」（None）与「不可读」是两回事：前者照常用下层
+    ok = skillpkg.load_catalog([("project", None), ("builtin", _BUILTIN)])
+    assert ok.skills, "未安装的源不得把下层一起挡掉"
 
 
 def test_a_bom_only_prompt_is_still_empty(tmp_path) -> None:
@@ -756,3 +801,44 @@ def test_the_public_shape_keeps_the_field_name_call_sites_read(catalog) -> None:
     entry = catalog.public()["skills"][0]
     assert "version" in entry and "skillVersion" not in entry
     assert entry["skillDigest"].startswith("sha256:")
+
+
+@pytest.mark.parametrize(
+    ("label", "field"),
+    [
+        (
+            "minItems 是字符串",
+            {"type": "array", "minItems": "1", "of": {"type": "string"}},
+        ),
+        (
+            "minItems 是布尔",
+            {"type": "array", "minItems": True, "of": {"type": "string"}},
+        ),
+        (
+            "maxItems 小于 minItems",
+            {"type": "array", "minItems": 5, "maxItems": 2, "of": {"type": "string"}},
+        ),
+        ("nonEmpty 是字符串", {"type": "string", "nonEmpty": "yes"}),
+    ],
+)
+def test_a_wrongly_typed_constraint_fails_at_LOAD_not_at_answer_time(label, field):
+    """codex 跨模型复审 2026-08-16。
+
+    约束值的类型必须是校验器将来会去比较的那个类型。`"minItems": "1"` 过了加载，
+    然后在 `validate_output` 里炸成**未捕获的** `TypeError`（`len(value) < "1"`）
+    ——而那一刻创作者正在等一个提案。在 HTTP handler 里那是 500，不是拒绝，
+    而 ADR-0067 决策 7 要求校验失败必须在**加载时** fail-closed、且可归因。
+
+    `bool` 单独排除：`isinstance(True, int)` 为真，`minItems: True` 会被当成 1。
+    """
+    schema = {"type": "object", "required": ["x"], "fields": {"x": field}}
+    with pytest.raises(skillpkg.SkillPackageError) as exc:
+        skillpkg._check_schema(schema)
+    assert "outputSchema.fields.x" in str(exc.value), f"{label}：错误必须指到具体字段"
+
+
+def test_the_constraint_check_does_not_reject_legitimate_schemas():
+    """抬高严格度不能误伤：内置的二十来个包必须全部照常加载。"""
+    catalog = skillpkg.load_catalog([("builtin", _BUILTIN)])
+    assert catalog.skills, "内置包必须仍然可加载"
+    assert [p for p in catalog.problems] == []

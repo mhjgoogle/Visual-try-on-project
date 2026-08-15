@@ -497,3 +497,48 @@ def test_an_empty_shot_list_is_still_refused(srv, monkeypatch) -> None:
     # …解析器自己那一道也真的在（包被替换掉时它就是唯一的一道）
     with pytest.raises(ValueError, match="no shots"):
         srv._parse_shots("[]")
+
+
+def test_the_answer_is_judged_by_the_package_that_ACTUALLY_answered(
+    srv, monkeypatch
+) -> None:
+    """codex 跨模型复审 2026-08-16。
+
+    `script-draft` 是唯一一个**在请求时才决定用哪个包**的入口：修订模式跑
+    `script-reviser`，初稿跑 `script-writer`。但 `taskType` 两种情况都是
+    `skill.script-writer`，而 adapter 从 taskType 反推包——于是修订运行的答案
+    被**另一个从未被问过的包**的 schema 判定。
+
+    今天两个内置包的 output schema 恰好一样，所以什么都没坏；用户层放一个自己的
+    `script-reviser`（ADR-0067 决策 2 的正题）就会让它变成活的：合法答案被拒，
+    或非法答案被当成产品返回。
+
+    这条钉的是「判定用的包 == 真正回答的包」，靠的是 run 记录里的 skillId。
+    """
+    app = srv._App(None, None)
+
+    seen: list[str] = []
+    real = srv._skill_answer
+
+    def spy(task_type, text, skill_id=None):
+        seen.append(skill_id or f"<derived:{task_type}>")
+        return real(task_type, text, skill_id)
+
+    monkeypatch.setattr(srv, "_skill_answer", spy)
+
+    # 修订模式：base_script + instruction
+    _stub(srv, monkeypatch, '{"script":"修订稿"}')
+    status, _ = _post(
+        app, "/api/agent/script-draft", {"base_script": "v1", "instruction": "改结尾"}
+    )
+    assert status == 200
+    assert seen == ["script-reviser"], (
+        f"修订的答案必须由 script-reviser 的 schema 判定，实为 {seen}"
+    )
+
+    # 初稿模式：仍然是 script-writer
+    seen.clear()
+    _stub(srv, monkeypatch, '{"script":"初稿"}')
+    status, _ = _post(app, "/api/agent/script-draft", {"idea": "一个想法"})
+    assert status == 200
+    assert seen == ["script-writer"], f"初稿仍归 script-writer，实为 {seen}"

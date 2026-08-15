@@ -266,6 +266,7 @@ def _check_schema(spec: object, path: str = "outputSchema") -> None:
     values = spec.get("values")
     if values is not None and (not isinstance(values, list) or not values):
         raise SkillPackageError(f"{path}.values 必须是非空数组")
+    _check_constraint_types(spec, path)
     if kind == "object":
         fields = spec.get("fields", {})
         if not isinstance(fields, dict):
@@ -286,6 +287,37 @@ def _check_schema(spec: object, path: str = "outputSchema") -> None:
         if "of" not in spec:
             raise SkillPackageError(f"{path}.of 缺失")
         _check_schema(spec["of"], f"{path}.of")
+
+
+def _check_constraint_types(spec: dict, path: str) -> None:
+    """The CONSTRAINT VALUES must have the types the validator will compare with.
+
+    codex 跨模型复审 2026-08-16: `"minItems": "1"` passed load and then blew up
+    inside `validate_output` as an UNCAUGHT `TypeError` — `len(value) < "1"` —
+    at the moment a creator was waiting for a proposal. In an HTTP handler that
+    is a 500, not a refusal, and ADR-0067 决策 7 says a package that fails
+    validation must fail CLOSED at load time, attributably.
+
+    `bool` is excluded explicitly because `isinstance(True, int)` is true, and a
+    `minItems: true` would otherwise compare as 1.
+    """
+
+    for key in ("minItems", "maxItems"):
+        val = spec.get(key)
+        if val is None:
+            continue
+        if isinstance(val, bool) or not isinstance(val, int) or val < 0:
+            raise SkillPackageError(f"{path}.{key} 必须是非负整数，实为 {val!r}")
+    lo, hi = spec.get("minItems"), spec.get("maxItems")
+    if (
+        isinstance(lo, int)
+        and isinstance(hi, int)
+        and not isinstance(lo, bool)
+        and hi < lo
+    ):
+        raise SkillPackageError(f"{path}.maxItems({hi}) 小于 minItems({lo})")
+    if "nonEmpty" in spec and not isinstance(spec["nonEmpty"], bool):
+        raise SkillPackageError(f"{path}.nonEmpty 必须是布尔值")
 
 
 def _read_manifest(raw: object) -> dict:
@@ -405,6 +437,9 @@ def load_catalog(
     known = dict(known_digests or {})
     by_source: dict[str, dict[str, Skill]] = {}
     problems: list[SkillProblem] = []
+    #: Sources whose ROOT could not be read. Distinct from a broken package: we do
+    #: not know which ids they hold, so they shadow EVERY id below them.
+    unreadable_sources: set[str] = set()
 
     for source, directory in roots:
         if source not in SOURCE_ORDER:
@@ -420,6 +455,19 @@ def load_catalog(
         entries, unreadable = _package_dirs(directory)
         if unreadable:
             problems.append(SkillProblem("", source, str(directory), unreadable))
+            # …AND THE WHOLE SOURCE IS SHADOWED, not just one id (codex 跨模型
+            # 复审 2026-08-16). The problem above records `skill_id=""` because a
+            # root-level failure names no package — but `broken_by_source` is keyed
+            # BY skill id, and no real id equals "", so nothing was ever shadowed:
+            # an unreadable project `studio/skills/` still resolved every
+            # capability to the builtin package. That is 决策 7's exact harm, and
+            # it is what the docstring on `_package_dirs` claims to prevent — the
+            # guard was written but never connected.
+            #
+            # An unreadable source is not "a source with no packages": we cannot
+            # know WHICH ids it would have overridden, so every id must stay
+            # unavailable from lower sources. Fail-closed, at source granularity.
+            unreadable_sources.add(source)
         for entry in entries:
             try:
                 skill = load_package(entry, source)
@@ -461,7 +509,9 @@ def load_catalog(
             # creator asked for their project's version of this capability, and
             # silently running the builtin one instead would answer a different
             # question than the one on screen.
-            if _shadowed_by_broken(skill_id, source, broken_by_source):
+            if _shadowed_by_broken(
+                skill_id, source, broken_by_source, unreadable_sources
+            ):
                 continue
             merged[skill_id] = skill
 
@@ -469,11 +519,27 @@ def load_catalog(
 
 
 def _shadowed_by_broken(
-    skill_id: str, source: str, broken: Mapping[str, Iterable[str]]
+    skill_id: str,
+    source: str,
+    broken: Mapping[str, Iterable[str]],
+    unreadable_sources: Iterable[str] = (),
 ) -> bool:
+    """Is this id unavailable because a HIGHER-priority source failed?
+
+    Two different failures, two granularities:
+
+    * ONE PACKAGE failed to load there -> that id alone is shadowed;
+    * THE SOURCE ROOT could not be read -> EVERY id is shadowed, because we
+      cannot know which ones it would have overridden. Keying that case by
+      skill id was the defect: the problem carries `skill_id=""`, no real id
+      equals `""`, so an unreadable source shadowed nothing at all.
+    """
+    unreadable = set(unreadable_sources)
     for higher in SOURCE_ORDER:
         if higher == source:
             return False
+        if higher in unreadable:
+            return True
         if skill_id in broken.get(higher, ()):
             return True
     return False

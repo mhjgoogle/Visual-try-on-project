@@ -1833,7 +1833,11 @@ def _execute_run(run: dict, on_spawn, is_cancelled):
     # (contract §5.9c rule 2): one thing under two names is the next parse bug.
     key, fn = parser
     try:
-        value = fn(text)
+        # WHICH PACKAGE ANSWERED, from the run's own record — not re-derived from
+        # `taskType`, which cannot tell a revision from a first draft (codex
+        # 跨模型复审 2026-08-16). `params.skillId` was already written at launch
+        # for exactly this class of question.
+        value = fn(text, params.get("skillId"))
     except ValueError as exc:
         # A non-conforming answer is a FAILURE, never a partially-kept result.
         # The bounded excerpt travels with it because "it didn't parse" without
@@ -2197,15 +2201,28 @@ _TASK_TYPE_SKILL_IDS = {
 }
 
 
-def _skill_answer(task_type: str, text: str) -> dict:
+def _skill_answer(task_type: str, text: str, skill_id: str | None = None) -> dict:
     """Parse an executor's answer and hold it to the SKILL's own contract.
 
     TASK-075 §1.6 / decision A: the endpoints ask the package's question now, so
     the package's `output.schema.json` is what judges the answer. One definition
     of each capability instead of two.
+
+    `skill_id` NAMES THE PACKAGE THAT ACTUALLY ANSWERED (codex 跨模型复审
+    2026-08-16). Deriving it from `task_type` alone was wrong for the one slug
+    that picks its package at request time: a REVISION runs `script-reviser`,
+    while `task_type` stays `skill.script-writer` — so the answer was judged by
+    a schema belonging to a package that was never asked. The two builtin
+    schemas happen to be identical today, which is why nothing failed; a
+    user-level `script-reviser` (the whole point of ADR-0067 决策 2) makes it
+    live, and then a valid answer is rejected or an invalid one is returned as
+    the product.
+
+    Falls back to the task-type mapping when the caller does not know — a run
+    recorded before `skillId` was carried has nothing better to offer.
     """
 
-    skill_id = _TASK_TYPE_SKILL_IDS.get(task_type)
+    skill_id = skill_id or _TASK_TYPE_SKILL_IDS.get(task_type)
     skill = _load_skill_catalog().skills.get(skill_id) if skill_id else None
     if skill is None:
         # fail closed: without the package there is no contract to judge by, and
@@ -2216,7 +2233,7 @@ def _skill_answer(task_type: str, text: str) -> dict:
     return value
 
 
-def _adapt_shots(text: str) -> list[dict]:
+def _adapt_shots(text: str, skill_id: str | None = None) -> list[dict]:
     """`{shots:[…]}` -> the legacy shot-draft list.
 
     The legacy sanitiser is REUSED rather than reimplemented: it caps the list,
@@ -2224,26 +2241,26 @@ def _adapt_shots(text: str) -> list[dict]:
     the response contract is defined by exactly those rules (§1.6 「响应契约不变」).
     """
 
-    answer = _skill_answer("skill.storyboard-director", text)
+    answer = _skill_answer("skill.storyboard-director", text, skill_id)
     return _parse_shots(json.dumps(answer["shots"], ensure_ascii=False))
 
 
-def _adapt_breakdown(text: str) -> dict:
-    answer = _skill_answer("skill.script-breakdown", text)
+def _adapt_breakdown(text: str, skill_id: str | None = None) -> dict:
+    answer = _skill_answer("skill.script-breakdown", text, skill_id)
     return _parse_bible_breakdown(json.dumps(answer, ensure_ascii=False))
 
 
-def _adapt_outline(text: str) -> dict:
-    answer = _skill_answer("skill.story-development", text)
+def _adapt_outline(text: str, skill_id: str | None = None) -> dict:
+    answer = _skill_answer("skill.story-development", text, skill_id)
     return _parse_story_outline(json.dumps(answer, ensure_ascii=False))
 
 
-def _adapt_episodes(text: str) -> list[dict]:
-    answer = _skill_answer("skill.episode-plan", text)
+def _adapt_episodes(text: str, skill_id: str | None = None) -> list[dict]:
+    answer = _skill_answer("skill.episode-plan", text, skill_id)
     return _parse_episode_plan(json.dumps(answer, ensure_ascii=False))
 
 
-def _adapt_script(text: str) -> str:
+def _adapt_script(text: str, skill_id: str | None = None) -> str:
     """`{script, notes?}` -> the legacy script string.
 
     The `<剧本输出>` block is gone — the Skill answers JSON — so the block
@@ -2251,7 +2268,7 @@ def _adapt_script(text: str) -> str:
     size cap, empty is a failure) are kept exactly.
     """
 
-    answer = _skill_answer("skill.script-writer", text)
+    answer = _skill_answer("skill.script-writer", text, skill_id)
     out = answer["script"].strip()
     if not out:
         raise ValueError("agent output is empty")
