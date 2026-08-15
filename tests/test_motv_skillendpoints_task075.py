@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -433,16 +434,53 @@ def test_too_many_shots_says_TOO_MANY_rather_than_naming_the_shape(
     assert "应为数组" in json.dumps(body, ensure_ascii=False)
 
 
+def _strip_py_comments(source: str) -> str:
+    """行注释剥掉——一条规则不能被「描述它的注释」满足。"""
+    return "\n".join(ln.split("#")[0] for ln in source.splitlines())
+
+
 def test_the_ceiling_is_ONE_constant_shared_with_the_compose_route(srv) -> None:
-    """两处曾经各写一个字面量 `20`。只抬高其中一个，会做出一份分镜草稿、把整集
-    的媒体都生成完，最后在合成那一步被拒——失败落在最贵的位置。"""
-    source = (_MOCKUP / "server.py").read_text("utf-8")
-    assert source.count("_MAX_SHOTS_PER_EPISODE") >= 4, (
+    """三处曾经各写一个字面量 `20`。只抬高其中一部分，会做出一份分镜草稿、把
+    整集的媒体都生成完，最后在合成那一步被拒——失败落在最贵的位置。
+
+    统计只在**剥掉注释后的代码**上做：这一版新增的注释里就多次提到这个常量名，
+    数注释会让「有人把某一处换回字面量」照样绿（独立审查，2026-08-15）。
+    """
+    code = _strip_py_comments((_MOCKUP / "server.py").read_text("utf-8"))
+    # 1 处定义 + 解析器 1 处 + 解析器错误信息 1 处 + 合成路径 2 处
+    assert code.count("_MAX_SHOTS_PER_EPISODE") >= 5, (
         "解析器与合成路径必须共用同一个常量，而不是各写一个字面量"
     )
-    body = source.split("def _parse_shots", 1)[1].split("\ndef ", 1)[0]
+    body = code.split("def _parse_shots", 1)[1].split("\ndef ", 1)[0]
     assert "_MAX_SHOTS_PER_EPISODE" in body
-    assert "<= 20" not in source, "写死的 20 不得残留"
+    # 「还有没有残留的镜头数字面量」只看**镜头数的比较**，不做子串匹配：
+    # `"<= 20" not in source` 会被将来任何一个无关的 `<= 200` / `<= 2000` 撞红，
+    # 而且报的是「写死的 20 不得残留」——一条误导的假失败（独立审查）。
+    leftovers = re.findall(r"len\((?:data|shots)\)\s*<=\s*(\d+)", code)
+    assert leftovers == [], f"镜头数上限仍有写死的字面量：{leftovers}"
+
+
+def test_the_editor_ceiling_EQUALS_the_backends(srv) -> None:
+    """第三处 `20` 在分镜编辑器里，前两处抬高时被漏掉了（独立审查发现）。
+
+    后果是一句自相矛盾的话：真实一集的草稿有 ~42 个镜头，按「+ 添加镜头」却被
+    「最多 20 个镜头」拒绝——那个上限，眼前的列表早就越过了。
+
+    Python 和 JS 共享不了常量，所以这条约定**钉住**而不是指望它自觉。
+    """
+    js = (_MOCKUP / "src" / "ui" / "shoteditor.js").read_text("utf-8")
+    js_code = "\n".join(ln.split("//")[0] for ln in js.splitlines())
+    py_code = _strip_py_comments((_MOCKUP / "server.py").read_text("utf-8"))
+
+    js_max = re.search(r"MAX_SHOTS_PER_EPISODE\s*=\s*(\d+)", js_code)
+    py_max = re.search(r"_MAX_SHOTS_PER_EPISODE\s*=\s*(\d+)", py_code)
+    assert js_max and py_max, "两侧都必须是具名常量"
+    assert int(js_max.group(1)) == int(py_max.group(1)) == srv._MAX_SHOTS_PER_EPISODE
+
+    # …而且编辑器真的用了它，没有把字面量留在判断里
+    add = js_code.split("se-add", 1)[1].split("se-save", 1)[0]
+    assert "MAX_SHOTS_PER_EPISODE" in add
+    assert not re.search(r"items\.length\s*>=\s*\d", add), "判断里不得再有字面量"
 
 
 def test_an_empty_shot_list_is_still_refused(srv, monkeypatch) -> None:

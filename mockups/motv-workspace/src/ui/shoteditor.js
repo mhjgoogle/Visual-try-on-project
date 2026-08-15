@@ -5,6 +5,21 @@
 import { $, esc } from "../util/dom.js";
 import { mintId } from "../workflow/identity.js";
 
+/** How many shots ONE EPISODE may hold.
+ *
+ *  MUST EQUAL `_MAX_SHOTS_PER_EPISODE` in `server.py`, and a guard test pins the
+ *  two together — they cannot share a constant across Python and JS, so the
+ *  agreement is enforced rather than hoped for.
+ *
+ *  This was the THIRD hard-coded `20` (independent review, 2026-08-15). The
+ *  other two were raised together and this one was missed, which produced a
+ *  self-contradiction the creator would hit immediately: a real episode draft
+ *  holds ~42 shots, and pressing 「+ 添加镜头」 on it refused with 「最多 20 个
+ *  镜头」 — a limit the list in front of them had already passed. That is the
+ *  whole reason a shared ceiling has to be one NAMED value with a guard, not a
+ *  literal repeated wherever a check happens to be needed. */
+export const MAX_SHOTS_PER_EPISODE = 120;
+
 /** Normalize edited shots for a NEW immutable draft version (pure — used by
  *  the save handler, exported for tests). Identity semantics (M2):
  *  - a surviving shot keeps its `shotId` no matter how its fields changed or
@@ -94,8 +109,8 @@ export function createShotEditor({ toast }) {
   $("#se-x") && ($("#se-x").onclick = close);
   $("#se-cancel").onclick = close;
   $("#se-add").onclick = () => {
-    if (items.length >= 20) {
-      toast("最多 20 个镜头");
+    if (items.length >= MAX_SHOTS_PER_EPISODE) {
+      toast(`最多 ${MAX_SHOTS_PER_EPISODE} 个镜头`);
       return;
     }
     items.push({ sequence: items.length + 1, title: "", description: "", duration_seconds: 6, slot: null });
