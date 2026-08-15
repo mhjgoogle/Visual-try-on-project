@@ -262,9 +262,29 @@ ffprobe 会大方地给出 `N/A`、省略 `nb_frames`；任何一处填默认值
 `tests/qcpanel.test.mjs` 6 项新增（三种「未检查」状态必须可区分、探测必须说出它测的是
 哪个成片）。全量：pytest 3153 + 5，前端 1061，ruff 全绿。
 
-**未接线的一处**：`compose` 端点前端仍无调用方，所以成片目前来自资产登记里
-`kind === "final"` 的条目（取最后登记的一条，界面显示其文件名）。多版成片时由创作者
-选哪一版来测，属 §1.1「成片预览」的范围。
+**成片从哪来（这条链跨五个模块，断了只表现为「按钮不亮」，所以写全）**：
+
+```
+时间线「渲染本集」 → command.renderEpisode → 后端 _agent_render_episode
+  → render-ep-v<N>.mp4（uploads 目录，版本化不覆盖）
+  → timelinectl.js:280 assetlib.addFinal(...) 登记为 kind="final" 资产
+  → assetreg.listAssets 把 reg.finals 扁平出来
+  → app.js _latestCut() 取最后一条、从 url 提取文件名
+  → POST /api/delivery/probe → _resolve_upload_file 过上传白名单正则
+  → ffprobe + ffmpeg → probe → 五项真判
+```
+
+最脆的一环是**文件名白名单**：两条产出路径命名不同
+（`render-ep-v<N>` / `final-cut-v<N>`），而单元测试拿假名字跑得好好的；正则一旦
+收窄，界面上只显示「探测失败」，没人会想到是白名单。
+`test_the_probe_accepts_the_names_the_render_paths_really_produce` 用**真实产出的
+名字**钉住它，并配一条反例测试防止有人顺手放宽（`../secret.mp4` / `a/b.mp4` /
+`.exe` / 带空格）。
+
+**`compose` 端点前端仍无调用方**（`ctx.composeFinal` 存在但没有 UI 入口）——它是
+agent 直接从镜头视频合成的另一条路径，与上面这条并行。不影响本轮：成片由时间线
+渲染产出。多版成片时由创作者选哪一版来测，属 §1.1「成片预览」的范围；当前取最后
+登记的一条并在界面显示其文件名。
 
 ### §1.2 交付质检 —— 领域层 + 界面完成
 

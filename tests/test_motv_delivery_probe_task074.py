@@ -165,3 +165,27 @@ def test_garbage_input_yields_an_empty_probe_rather_than_raising() -> None:
     「什么都没测出来」，而不是 500。"""
     for junk in (None, [], "nope", {"streams": "not a list"}, {"format": 7}):
         assert srv._build_delivery_probe(junk, None) == {}
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "render-ep-v1.mp4",  # 时间线渲染（_agent_render_episode）
+        "render-ep-v12.webm",
+        "final-cut-v2.mp4",  # agent 合成（_agent_compose）
+    ],
+)
+def test_the_probe_accepts_the_names_the_render_paths_really_produce(name) -> None:
+    """探测端点用 `_resolve_upload_file` 解析文件名，它先过上传白名单正则。
+
+    这一条钉的是**集成点**：两条成片产出路径各有自己的命名，而单元测试拿假名字
+    跑得好好的。正则一旦收窄，界面上的表现只是「探测失败」，没人会想到是文件名
+    白名单——所以真实产出的名字必须在测试里出现。
+    """
+    assert srv._UPLOAD_FILE_RE.fullmatch(name)
+
+
+def test_a_traversal_or_odd_name_is_still_refused_by_that_whitelist() -> None:
+    """放宽白名单是这条链最容易被顺手做掉的事，所以反例一并钉住。"""
+    for bad in ("../secret.mp4", "a/b.mp4", "final-cut-v1.exe", "final cut.mp4"):
+        assert srv._UPLOAD_FILE_RE.fullmatch(bad) is None
