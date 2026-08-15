@@ -217,7 +217,7 @@ TASK-073 全部验收
 
 | 项 | 状态 |
 | --- | --- |
-| §1.1 后期交付页七分区的真实能力（配音对齐 / BGM 轨 / 字幕 Case B/C / 成片预览） | **未做** |
+| §1.1 后期交付页七分区的真实能力（配音对齐 / BGM 轨 / 字幕 Case B/C / 成片预览） | **已完成**（2026-08-15 逐项核实，见 §4.3）——其中只有「与规格对照」是本轮新做的，其余四项此前就已实现，卡片状态过时 |
 | §1.2 的**接线**（跑 ffmpeg 真实探测 → 填 probe → 展示 QCReport） | **已完成**（2026-08-15，见 §4.2） |
 | §1.3 旧数据迁移 | **未做** |
 | §1.4 真实项目全流程验收（八个边界情况） | **做不到** —— 需要产品负责人用真实素材跑完整一集 |
@@ -226,6 +226,25 @@ TASK-073 全部验收
 | Codex 独立审查 | **未做**（reviewer 不可用） |
 
 ## 实施记录（2026-08-15）
+
+### §4.3 §1.1 逐项核实：四项本来就有，只缺一项（2026-08-15）
+
+准备实施 §1.1 时逐项去读代码，发现**四项已经实现**，卡片的「未做」是过时状态。
+如实记下核实证据，因为差一点就把已有功能重做一遍：
+
+| §1.1 要求 | 实际状态 | 证据 |
+| --- | --- | --- |
+| 配音 · 对白轨按镜头对齐 | **已有** | `ttsDialogue`（app.js）注释与实现：「fits the shot's video length when a clip exists」，`fitSlug` 即该机制 |
+| 配音 · 本地 TTS | **已有** | `ttsDialogue` → `query.ttsGenerate` → 后端 piper（ADR-0043 local_subscription） |
+| 配音 · Base Voice 关联 | **已有** | `mintId("basevoice")`；生成前强制校验 `voiceMeta.characterId` 与 `voiceMeta.voiceId`，未设基础声音直接拒绝 |
+| 环境音/音效/音乐 · Episode 级 BGM 轨 | **已有** | `timeline.TRACKS` 含 `bgm`，`AUDIO_TRACKS` 由它派生；`postconsole.js:138` 遍历 `AUDIO_TRACKS` 渲染每一条音轨，BGM 与其它音轨一视同仁。时间线本身就是 episode 级的 |
+| 字幕 Case B/C 显示 not available，绝不伪造听写 | **已有** | `subtitle.ADAPTERS` 里 `alignment` / `asr` 标 `available:false` 并写明理由；点击走 `adapterUnavailable` 弹出理由且**不产出任何 cue**；守卫在 `postprod.test.mjs:321-326` |
+| 成片预览 · 完整播放 | **已有** | `finalRow` 的 `<video controls preload="metadata">` |
+| 成片预览 · **与规格对照** | **本轮新做** | 见下面 §4.2 与提交 `d43ea8c` |
+
+**教训记在这里而不是散在提交信息里**：任务卡的「状态」行会比代码老。开工前先读
+代码再读卡片，否则会重做已有功能——本轮四项都躲过去了，靠的是先去 grep 而不是
+先动手。
 
 ### §4.2 §1.2 的接线 —— 五项从「未检查」变成真判（2026-08-15）
 
