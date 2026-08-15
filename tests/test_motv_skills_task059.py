@@ -384,19 +384,19 @@ def test_a_proposal_is_not_a_canonical_write() -> None:
         "storydoc",
     ):
         assert forbidden not in runs
-    app = _code("app.js")
-    # bounded at the NEXT controller, not at assetRegistryView: later
-    # checkpoints add controllers in between, and they legitimately READ the
-    # canonical documents to build their own view models.
+    # TASK-073 §1.8 第四批 moved the whole skill controller out of app.js into
+    # `controllers/skillctl.js`, so the slice is now the FILE — which is what the
+    # two hand-tuned boundaries below were always trying to approximate.
     #
-    # `\n  shot: {` was the wrong boundary — it is not the next controller, so
-    # every controller added between skills and shot fell inside the window.
-    # TASK-064's refInterp / locks / frames / shotAudio / subtitles controllers
-    # legitimately READ proddoc to build their view models, and that tripped a
-    # guard about what ACCEPTING A PROPOSAL may WRITE. The rule is unchanged; the
-    # slice now names the boundary it always meant.
-    section = app.split("skills: {", 1)[1].split("\n  prompt: {", 1)[0]
-    section = section.split("\n  assetRegistryView", 1)[0]
+    # (History, kept because it is the reason those boundaries existed: the window
+    # used to be bounded inside the app.js object literal, first at `\n  shot: {`
+    # — the wrong boundary, since it is not the next controller, so every
+    # controller added between skills and shot fell inside it. TASK-064's
+    # refInterp / locks / frames / shotAudio / subtitles controllers legitimately
+    # READ proddoc to build their view models, and that tripped a guard about what
+    # ACCEPTING A PROPOSAL may WRITE. The rule is unchanged; the file boundary is
+    # now exact rather than approximate.)
+    section = _code("controllers", "skillctl.js")
     assert "skillrun.acceptRun" in section
     # Accepting MARKS the run; applying the proposal to canon is the caller's,
     # through the normal domain controllers. (Reading the canonical documents to

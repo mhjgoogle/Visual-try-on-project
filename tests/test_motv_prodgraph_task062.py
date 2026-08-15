@@ -122,7 +122,15 @@ def test_origin_is_recorded_only_where_the_caller_named_it() -> None:
     )
     # an import with NEITHER has no origin — the fallback chain must bottom out in
     # a lookup that can answer null, never in a search for a plausible proposal
-    skills_block = app.split("pendingOriginFor:", 1)[1].split("\n    },", 1)[0]
+    #
+    # SCANNED IN `controllers/skillctl.js`: TASK-073 §1.8 第四批 moved the skill
+    # controller (and the `pendingOrigin` intent with it) out of app.js. The
+    # invariant is about that method, not about which file it lives in — so the
+    # scan follows the code rather than being relaxed. (A slice that no longer
+    # finds its anchor raises here, which is why this failed loudly rather than
+    # passing vacuously.)
+    skillctl = _code("controllers", "skillctl.js")
+    skills_block = skillctl.split("pendingOriginFor:", 1)[1].split("\n    },", 1)[0]
     assert "if (!pendingOrigin) return null;" in skills_block, (
         "no explicit 「用于生成」 → no origin"
     )
@@ -134,8 +142,13 @@ def test_the_recorded_episode_is_the_one_the_prompt_actually_read() -> None:
     """codex review：`ctx.skills.context` 只从 ACTIVE 剧集组装输入，因此接受
     调用方传入的 episodeId 会记录一个 prompt 从未读过的上下文——一条长得和
     溯源一模一样的谎。场景/镜头可以缩小范围，但必须属于那一集。"""
-    app = _code("app.js")
-    scope = app.split("scopeOf: (skillId, scope = null)", 1)[1].split("\n    },", 1)[0]
+    # `scopeOf` moved to controllers/skillctl.js with the rest of the skill
+    # controller (TASK-073 §1.8 第四批); the rule is unchanged.
+    scope = (
+        _code("controllers", "skillctl.js")
+        .split("scopeOf: (skillId, scope = null)", 1)[1]
+        .split("\n    },", 1)[0]
+    )
     assert "const episodeId = ep ? ep.episodeId : null;" in scope
     assert "s.episodeId" not in scope, (
         "the caller must not be able to re-point the episode"
@@ -172,8 +185,11 @@ def test_the_recorded_episode_is_the_one_the_prompt_actually_read() -> None:
 def test_scene_and_shot_are_validated_TOGETHER() -> None:
     """codex review 轮 2：分别验证会让「S01 的场景 + S02 的镜头」两项独立检查
     都通过，于是记录下一个并不存在的场景/镜头配对。"""
-    app = _code("app.js")
-    scope = app.split("scopeOf: (skillId, scope = null)", 1)[1].split("\n    },", 1)[0]
+    scope = (
+        _code("controllers", "skillctl.js")
+        .split("scopeOf: (skillId, scope = null)", 1)[1]
+        .split("\n    },", 1)[0]
+    )
     owns = scope.split("const owns = (sceneId, shotId)", 1)[1].split("};", 1)[0]
     assert "const home = scene ||" in owns, "the shot must live in the scoped scene"
     assert "home.shotIds || []).includes(shotId)" in owns
@@ -223,8 +239,11 @@ def test_the_validator_refuses_an_empty_context_or_runless_origin() -> None:
 def test_an_origin_is_only_stamped_for_an_ACCEPTED_proposal() -> None:
     """codex review：等待中的运行还没有答案，被拒绝的提案没有发起任何东西，
     没有 id 的提案无法被指向。给它们盖章就是让生成声称一份记录不支持的来历。"""
-    app = _code("app.js")
-    origin = app.split("originOf: (skillRunId)", 1)[1].split("\n    },", 1)[0]
+    origin = (
+        _code("controllers", "skillctl.js")
+        .split("originOf: (skillRunId)", 1)[1]
+        .split("\n    },", 1)[0]
+    )
     # v15: 「the creator accepted this」 is a DISPOSITION on the proposal, not a
     # status on the run — the execution succeeded either way (ADR-0066 决策 8).
     assert "!skillrun.isAccepted(r) || !proposalId" in origin

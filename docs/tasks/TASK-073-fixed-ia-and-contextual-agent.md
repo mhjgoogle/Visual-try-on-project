@@ -441,8 +441,8 @@ G3，搬它等于同时动质量门。
 
 `app.js` 6552 → 6314 行。搬迁顺带修掉一条会被「搬空」的守卫，见下。
 
-**仍在 `app.js` 里**：`actions`(470) · `skills`(853)。开工前先量了依赖面，
-两者的性价比差别很大：
+开工前先量了两块剩余控制器的依赖面，性价比差别很大（`skills` 已按此判断搬走，
+见 §5.15；`actions` 按此判断**不搬**）：
 
 | 控制器 | 行数 | 文档 | **写入文档** | `ctx.*` 依赖 | 判断 |
 | --- | --- | --- | --- | --- | --- |
@@ -470,6 +470,86 @@ G3，搬它等于同时动质量门。
 失效时的表现是「测试仍然通过但什么都没断言」——比直接失败更危险。
 守卫（`test_ai_paths_record_generations_with_frozen_snapshot`）已扩到扫描
 `app.js` + `src/controllers/*.js`，所以搬出去不会绕过快照断言。
+
+### 5.15 第四批：`skills` 搬出，§1.8 到此收口（2026-08-15）
+
+| 控制器 | 文件 | 依赖面 | 守卫 |
+| --- | --- | --- | --- |
+| Film Skill | `controllers/skillctl.js`（957 行） | 10 份文档全读、0 写；12 个 `ctx.*` | `tests/skillctl.test.mjs`（26 项） |
+
+`app.js` **6314 → 5492 行**（−822）。累计 6992 → 5492（−1500，−21%）。
+`node --test` 1079 → **1105** 全通过；`pytest -k motv` 478 全通过；ruff 通过。
+
+一次性搬完并提交，没有留「搬一半」的中间状态——这一点在 §5.12 里就写明是这一块
+的主要风险。
+
+#### 这一块的失效方向和前几批**相反**，测试因此换了个断言对象
+
+前几批要防的是「写进上一个项目的文档」。这一块 **0 处写入**，那条路本来就不存在。
+但镜像的一半仍然在：**读到过期文档**会把一份 prompt 从未携带过的 context 记进
+运行记录 —— 那是一条伪造的溯源，而伪造的溯源**长得和真的一模一样**（ADR-0059
+存在的理由）。所以文档照样以 getter 传入，第一条测试断言的是
+`scopeOf()` 在整份 production 文档被换掉之后记录**新**剧集。
+
+`CATALOG_DETAIL` / `CATALOG_PROBLEMS` 也必须是 getter，而且它们比文档更容易被
+漏掉：它们是**启动时安装能力目录才被赋值**的模块级 `let`，捕获值的后果不是记错
+项目，而是面板永远显示「能力目录尚未加载」——旁边挂着一份已经装好的目录。
+
+#### 跟着一起搬的两样东西，以及为什么
+
+- **`_clipChain`**（原 `app.js` 模块级函数）：只有一个调用方（`context` 的
+  timeline 那一半），且它持有「一个片段的可换版本来自**它自己那条轨**的链」这条
+  规则（TASK-072 §1.9 缺陷 7）。理由与 `_writeCue` 跟着字幕控制器走完全相同。
+- **`pendingOrigin`**（原模块级 `let`）：它是**会话意图**，不是文档，只被
+  `useForGeneration` 写、被 `pendingOriginFor` 读，此外无人碰。搬成控制器私有
+  状态之后，这个控制器**唯一**的可变状态和管着它的那两条规则在同一个文件里。
+  行为不变：控制器只构造一次，与模块级 `let` 的生命周期一致。
+
+#### `await` 两侧的绑定语义：这次是**照原样保留**，并钉住
+
+§5.14 的教训在这里也适用，但结论方向不同。`run()` / `cancel()` / `abandon()` 在
+`await` 之后都要再碰运行登记，`app.js` 里那是裸标识符、**每次使用时**解析；提成
+const 会变成另一个程序。两者的差别恰好可观察：
+
+> 执行中途切项目 → 失败回来时，**被抛弃**的那个项目的记录保持 `running`
+> （因为查的是新登记，查不到）。若 hoist 成 const，被抛弃项目的记录**会**被结掉。
+
+`tests/skillctl.test.mjs` 有一条专门分辨这两者的测试，标为 **PRE-EXISTING**：
+§1.8 是搬运轮，保留行为。真正的修法是**拒绝跨项目落盘**，与 §5.14 的 follow-up
+同一条，一并记录不顺手改（AGENTS.md 第 17 条）。
+
+#### 三个跟着代码走的守卫（**没有一个下调断言**）
+
+这一批全部是**按文件切片**的守卫，切片锚点消失时会直接 `IndexError`——所以它们
+是响亮地失败，不是静默通过。三条一律**把扫描对象换成 `controllers/skillctl.js`**：
+
+| 守卫 | 原切片 | 改法 |
+| --- | --- | --- |
+| `test_a_proposal_is_not_a_canonical_write` | `app.js` 里 `skills: {` → `\n  prompt: {` → `\n  assetRegistryView` | 切片**就是这个文件**——这正是那两个手调边界一直在近似的东西，现在精确了 |
+| `test_the_recorded_episode_is_the_one_the_prompt_actually_read`、`test_scene_and_shot_are_validated_TOGETHER` | `app.js` 的 `scopeOf` 段 | `skillctl.js` 的 `scopeOf` 段 |
+| `test_origin_is_recorded_only_where_the_caller_named_it`、`test_an_origin_is_only_stamped_for_an_ACCEPTED_proposal` | `app.js` 的 `pendingOriginFor` / `originOf` 段 | `skillctl.js` 的对应段（同一测试里 `importResult` 那半仍扫 `app.js`——它没搬） |
+
+`test_every_media_write_path_declares_at_the_write` 与
+`test_ai_paths_record_generations_with_frozen_snapshot` 不受影响：这一块既不调
+`checkDeclaration` 也不调 `startGeneration`，而且它们已经扫 `controllers/*.js`。
+
+#### 新测试做了变异验证，不是「写完就绿」
+
+三条最关键的断言逐条做了变异（改坏实现看它是否变红）：
+
+1. 把 production 文档在构造时冻成 const → 第一条 getter 测试**红**；
+2. 把运行登记在 `await` 之前 hoist 成 const → §5.14 那条**红**；
+3. 把 `_clipChain` 改回缺陷 7 的形状（按 slot 找、images 优先）→ 轨道那条**红**。
+
+第一次给 (3) 写的变异**没有抓到**（我造的假 bug 与真 bug 形状不同：对白轨的键是
+`voice-s1`，images 里没有这个键，于是自动落回音频）。换成真实缺陷形状后才变红。
+**这一步本身值得记**：变异没抓到时，先怀疑变异写得不像真 bug，再怀疑测试。
+
+#### `actions`(470) 仍留在 `app.js`，这是结论不是遗留
+
+理由见上表：17 个 `ctx` 依赖 + 写 `reviewsDoc`，是所有写操作的分发中枢。把它的
+依赖显式列出来不是解耦，只是把同样的耦合换个文件放；搬出去后测它要 mock 整个
+世界，可测性收益接近零。**搬迁的收益标准是「搬完能不能写出真测试」。**
 
 ### 5.11 §1.1 落点表未落地的两项（2026-08-15，独立审查批 3 发现）
 
