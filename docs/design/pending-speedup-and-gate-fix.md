@@ -78,6 +78,49 @@
    **gate 分类与路径规范化属安全边界，已登记
    [待复审清单](pending-codex-rereview.md)，push / merge 前须补审。**
 
+## 落地后的独立审查（2026-08-15，claude fallback）
+
+对已提交的 `9b35806` 审查：**VERDICT: pass，0 blocking**。独立性降级
+（审查者与实施者同模型族），跨模型的 codex 复审仍欠着。七条 non-blocking 中
+四条已处理、三条记录：
+
+**已修（本批）**
+
+1. **路径穿越回流**：新的 docs 判定只做前缀+后缀匹配，`.claude/../../x.md`
+   会被判为文档走 lint tier——而这正是本批 `_normalise` 修复要保住的语义。
+   `_is_docs` 现在先拒绝任何含 `..` 的路径。
+   （实现该加固时漏了 `PurePosixPath` 的 import，会让 gate 抛 `NameError`；
+   gate 是 PreToolUse hook，那会让**所有提交失败且报错指不到原因**。
+   提交前验证时发现并修掉。）
+2. **`gate.sh` 预算注释过时且危险**：写着「合计 346s / hook cap 380s /
+   保持 cap ≥ 合计+24s」，实际已是 406s(15+15+240+120+8+8)、cap 1000s。
+   照旧注释调参会把 cap 调回 380，**正好触发该注释自己描述的 fail-open**
+   （外层超时被当作非阻塞 hook error，提交零检查通过）。已更新。
+3. **`gate.ps1` 收益注释混口径**：用「147s 并行 vs 328s 串行」作依据，而 328s
+   是 2815 项的旧口径。已改为同口径的 469s → 179s（3191 项），并写明不可混用
+   的理由——否则将来有人会把「套件长大了」读成「性能回归了」。
+4. **allowlist 收窄**（产品负责人 2026-08-15 同意）：移除
+   `Bash(... -m pytest *)`——前缀放行等于免确认执行任意代码（`-p <module>`
+   加载任意插件、`-c` 换配置、`--rootdir` 换 conftest）；一并移除
+   `PowerShell(Get-CimInstance *)`（通配是否连带放行同行追加命令未验证，
+   用量仅 7 次不值得赌）。只留 ruff 的 `check` / `format --check`。
+
+**记录不修**
+
+- **Ubuntu CI 上 `-n 8` + `/dev/shm` 是首次组合且未验证**：8 个 worker 并发把
+  fixture 媒体临时文件写进 tmpfs 可能 ENOSPC，让唯一的可移植性守卫 job 偶发红。
+  所有实测都在 Windows（那里 tmpfs 路由是 no-op）。**第一次 CI 跑会给出答案**；
+  若出现 ENOSPC，缓解方案是 Linux 侧降低 `-n` 或让 conftest 在 xdist 下跳过
+  tmpfs 路由。不预先改，因为两个 job 的步骤必须保持一致。
+- **`pytest -m serial` 在无匹配测试时退出码 5**：若
+  `test_motv_run_lifecycle_task072.py` 被改名/删除或去掉 `pytestmark`，每个
+  full tier 提交都会被闸门拦下。判为 P3：触发条件罕见，且 pytest 输出里
+  `no tests ran` 已相当明确；引入「容忍退出码 5」的分支会让闸门多一条可能
+  静默通过的路径，代价高于收益。
+- **两壳预算不对称**（Ubuntu 240s vs Windows 600s）：套件继续长大时会先出现
+  「Ubuntu 判红、Windows 判绿」。已在 `gate.sh` 注释里写明这是 tmpfs 造成的
+  真实成本差、以及要警惕的失败模式。
+
 ## 需要产品负责人**亲自做一次**的一个动作（Agent 做不到）
 
 `.claude/settings.json` 里那 7 条 `permissions.allow` **当前完全没生效**：

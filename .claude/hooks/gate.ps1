@@ -316,10 +316,16 @@ switch ($policy.tier) {
     'full' {
         # Two phases (see pyproject.toml [tool.pytest.ini_options].markers):
         # everything parallel under xdist, then the serial process-tree tests.
-        # Measured 2026-08-14 on this host: 147s for the parallel phase at -n 8
-        # vs 328s serial -- the win is I/O overlap, since native Windows has no
-        # /dev/shm and every persist fsyncs to NTFS. -n 8 (not `auto`=12) is the
-        # measured setting; more workers stop paying once fsync dominates.
+        # Measured 2026-08-14 on this host, SAME 3191 tests both ways:
+        # serial 469s -> two-phase 179s (132s parallel + 47s serial), 2.6x.
+        # Do NOT compare against the older 328s/2815-tests figure elsewhere in
+        # this file's history -- that ran FEWER tests, so mixing the two reads a
+        # suite that grew as a performance regression (AGENTS.md keeps both
+        # numbers with their test counts for exactly this reason).
+        # The win is I/O overlap: native Windows has no /dev/shm, so the
+        # repo-root conftest.py tmpfs route is a no-op here and every persist
+        # fsyncs to NTFS. -n 8 (not `auto`=12) is the measured setting; more
+        # workers stop paying once fsync dominates.
         $checks += @{ Label = 'pytest (full, parallel)'; Timeout = 600; File = $py; Args = @('-m', 'pytest', '-n', '8', '-m', 'not serial') }
         $checks += @{ Label = 'pytest (full, serial)';   Timeout = 180; File = $py; Args = @('-m', 'pytest', '-m', 'serial') }
     }

@@ -11,7 +11,7 @@ import json
 import re
 import sys
 from dataclasses import asdict, dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 _DOC_PREFIXES = ("docs/",)
 #: CLAUDE.md was missing here, so every edit to it fell through to the
@@ -146,6 +146,14 @@ def _normalise(path: str) -> str:
 
 
 def _is_docs(path: str) -> bool:
+    # A path containing `..` never takes a cheap tier. `git diff --name-only`
+    # does not emit one today, so this is unreachable through the normal entry
+    # point -- but the whole point of the `_normalise` fix above is to STOP
+    # eating traversal markers, and a prefix+suffix test that accepts
+    # `.claude/../../x.md` as documentation would hand that back on the docs
+    # path (independent review, 2026-08-15).
+    if ".." in PurePosixPath(path).parts:
+        return False
     if path in _DOC_FILES or path.startswith(_DOC_PREFIXES):
         return True
     return path.startswith(_AGENT_DOC_PREFIX) and path.endswith(_AGENT_DOC_SUFFIX)

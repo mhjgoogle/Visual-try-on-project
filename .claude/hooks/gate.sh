@@ -121,8 +121,8 @@ mapfile -t POLICY_PYTEST_TARGETS < <(
 
 # --- run every configured quality check ------------------------------------
 # Each check has a bounded timeout so a hung command cannot stall the commit.
-# The per-check budget sums to 346s (15+15+300+8+8) and the hook cap in
-# settings.json is 380s. That 34s of slack must cover the worst case where a
+# The per-check budget sums to 406s (15+15+240+120+8+8) and the hook cap in
+# settings.json is 1000s. That slack must cover the worst case where a
 # hung check is only killed 10s after its own timeout (`--kill-after=10`), so
 # this script always reaches its own `exit 2`. If the outer harness times the
 # hook out first, the failure is reported as a NON-BLOCKING hook error and the
@@ -130,12 +130,24 @@ mapfile -t POLICY_PYTEST_TARGETS < <(
 # envelope a hung check is killed by ITS OWN timeout with a clear message,
 # before the outer harness kills the whole hook ambiguously.
 #
-# The full suite runs in ~110-150s (2719 tests) because the repo-root
-# conftest.py routes pytest's tmp tree onto tmpfs (/dev/shm) — without that it
-# is ~39 min of fsync wait on the WSL2 disk and CANNOT gate a commit. The 300s
-# pytest budget leaves headroom for suite growth. If the suite grows past
-# ~270s, raise the pytest budget here AND the hook timeout in
-# settings.json together (keep hook timeout ≥ budget-sum + 24s).
+# The full suite is TWO phases here too (ADR-0069 decision 7): parallel
+# `-n 8 -m "not serial"` at 240s, then serial `-m serial` at 120s.
+#
+# The budgets are SMALLER than gate.ps1's 600+180 on purpose, and that asymmetry
+# is not a portability bug: this shell has /dev/shm, so the repo-root
+# conftest.py routes pytest's tmp tree onto tmpfs and the suite was already
+# ~110-150s (2719 tests) even serially -- without that route it is ~39 min of
+# fsync wait on the WSL2 disk and CANNOT gate a commit. Native Windows has no
+# tmpfs, every persist fsyncs to NTFS, and the same suite needs far longer. The
+# SPLIT is identical across both shells because ADR-0062 decision 3 requires the
+# same verdict from the same input; the BUDGETS differ because the same work
+# costs different wall-clock on each. Watch for the failure mode this creates:
+# once the suite grows enough, Ubuntu hits 240s while Windows still passes at
+# 600s -- a red/green disagreement whose cause is the budget, not the code.
+#
+# If either phase grows past ~80% of its budget, raise THAT phase here AND the
+# hook timeout in settings.json together (keep hook timeout >= budget-sum + 24s;
+# today that is 1000s against 406s, so there is ample room).
 FAIL_LABEL=""
 FAIL_OUT=""
 
