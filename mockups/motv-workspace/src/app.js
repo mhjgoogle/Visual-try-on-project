@@ -6230,7 +6230,11 @@ function restoreGraph(data) {
     && !Array.isArray(data.deliverySpec)) ? { ...data.deliverySpec } : {};
   const rv = data && data.reviews;
   reviewsDoc = {
-    issues: rv && Array.isArray(rv.issues) ? [...rv.issues] : [],
+    // TASK-074 §1.3: a stored layer-2 issue with no `locatedShotId` is MARKED, never
+    // dropped and never repaired by guessing a shot. `issue()` refuses to create one,
+    // but the restore path used to take stored issues verbatim, so any that got in
+    // another way made layer 2 quietly stop being 「必须定位到具体镜头」.
+    issues: review.relocateLegacyIssues(rv && rv.issues),
     decisions: rv && Array.isArray(rv.decisions) ? [...rv.decisions] : [],
   };
   // Breakdown proposals are PER-PROJECT transient review state: cards derived

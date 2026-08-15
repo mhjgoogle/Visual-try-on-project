@@ -248,7 +248,9 @@ def test_approving_a_shot_records_a_layer_1_decision_that_names_the_take() -> No
     # millisecond minted the same decisionId twice, and a duplicate primary key makes
     # an append-only log ambiguous
     assert 'review.newDecisionId("shot", shotId)' in approve
-    assert "Date.now()" not in approve
+    # narrowly: no id may be minted from the clock. A blanket ban on `Date.now()`
+    # over the whole slice would also fail a legitimate `decidedAt` timestamp later
+    assert "decisionId: `dec-" not in approve
     # …and if that version cannot be read, the approval is REFUSED rather than
     # recorded without saying what it approved
     assert "if (!dec.ok)" in approve
@@ -258,6 +260,10 @@ def test_approving_a_shot_records_a_layer_1_decision_that_names_the_take() -> No
     # the approval happened, on a take that existed (G5 只追加)
     undo = app.split("unapprove: (shotId) => {", 1)[1]
     undo = undo.split("references: (shotId)", 1)[0]
+    # the undo site mints its id the same way — pinned separately, or a regression
+    # that reverted only this half would pass every suite
+    assert 'review.newDecisionId("shot", shotId)' in undo
+    assert "decisionId: `dec-" not in undo
     assert 'verdict: "needs_rework"' in undo
     assert "prev.basedOnVersion" in undo
     # only APPENDED to — a withdrawn approval that vanished would make the history

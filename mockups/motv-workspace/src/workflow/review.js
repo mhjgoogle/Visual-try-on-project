@@ -123,15 +123,42 @@ export function issue(input) {
 }
 
 /**
- * Build a ReviewDecision, or refuse.
+ * TASK-074 §1.3 迁移：历史存档里没有 `locatedShotId` 的整集问题。
  *
- * `by` is ALWAYS "user" (§6.2). This is the system-level enforcement of
- * 「不得静默定稿」: an AI origin reaching a passing verdict is refused here, in the
- * domain, whatever the automation level says.
+ * `issue()` refuses to CREATE one (§1.5 验收 #8) — but the restore path takes stored
+ * issues verbatim, so an issue that got in before that rule, or through any other
+ * door, survives silently and layer 2 quietly stops being 「整集问题必须定位到具体
+ * 镜头」.
  *
- * `openIssueIds` records what was still open at the moment of the decision — so a
- * 「通过」 taken over three open warnings stays auditable instead of looking clean.
+ * The card's rule is 不丢弃. So this MARKS, and marks only:
+ *
+ *   - `needsRelocation: true` is ADDED; `state` is left exactly as it was. Overwriting
+ *     `state` would take an OPEN blocking issue out of `openIssues`, and G4 would then
+ *     let an export through that a real problem was blocking — a migration that
+ *     silently unblocks a gate is worse than the drift it repairs.
+ *   - anything that is not a layer-2 issue, and anything already marked, is returned
+ *     UNCHANGED (same object), so re-running the migration is a no-op.
+ *   - entries that are not objects are passed through untouched rather than dropped.
+ *
+ * Deterministic by construction: no clock, no randomness, no guessing which shot it
+ * meant — 「哪个镜头」 is the creator's answer to give, and inventing one here would
+ * be fabricating the very datum the migration exists to admit is missing.
  */
+export function relocateLegacyIssues(issues) {
+  if (!Array.isArray(issues)) return [];
+  return issues.map((it) => {
+    if (!isObj(it)) return it;
+    if (str(it.layer) !== "episode") return it;
+    if (str(it.locatedShotId)) return it;
+    if (it.needsRelocation === true) return it;
+    return {
+      ...it,
+      needsRelocation: true,
+      relocationNote: "历史记录没有说明这是哪个镜头的问题——请指认后再处理",
+    };
+  });
+}
+
 /** A decision id that cannot collide with one minted in the same millisecond.
  *
  *  `dec-<target>-<Date.now()>` collided on approve → unapprove → approve inside one
@@ -141,13 +168,27 @@ export function issue(input) {
  *  exact property §6.2 exists for (independent review; the same class as the paid
  *  path's `newOperationId`, which this round fixed there and not here).
  *
- *  A COUNTER, not a random: an id that changes between two runs of the same
- *  migration would make the schema migration non-deterministic (TASK-074 §1.3). */
+ *  A COUNTER rather than a random suffix, but note what that does and does not buy:
+ *  the id still embeds `Date.now()`, so re-minting one is NOT reproducible and this
+ *  must never be used inside a schema migration, which TASK-074 §1.3 requires to be
+ *  deterministic. What the counter guarantees is uniqueness WITHIN a session — which
+ *  is the property an append-only log needs. `relocateLegacyIssues` above mints no
+ *  ids at all, for exactly this reason. */
 let _decSeq = 0;
 export function newDecisionId(layer, targetId) {
   return `dec-${layer}-${targetId}-${Date.now().toString(36)}-${++_decSeq}`;
 }
 
+/**
+ * Build a ReviewDecision, or refuse.
+ *
+ * `by` is ALWAYS "user" (§6.2). This is the system-level enforcement of
+ * 「不得静默定稿」: an AI origin reaching a passing verdict is refused here, in the
+ * domain, whatever the automation level says.
+ *
+ * `openIssueIds` records what was still open at the moment of the decision — so a
+ * 「通过」 taken over three open warnings stays auditable instead of looking clean.
+ */
 export function decision(input) {
   if (!isObj(input)) return { ok: false, error: "决定必须是一个对象" };
   const layer = str(input.layer);

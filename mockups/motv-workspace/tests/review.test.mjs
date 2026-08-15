@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 
 import {
   LAYERS, ISSUE_CATEGORIES, issue, decision, ignoreIssue,
-  openIssues, latestDecision, decisionStanding, layerOfCategory, newDecisionId,
+  openIssues, latestDecision, decisionStanding, layerOfCategory, newDecisionId, relocateLegacyIssues,
 } from "../src/workflow/review.js";
 import {
   g1FormalReview, g2LockPicture, g3Retire, g3TriggerFor, G3_TRIGGERS,
@@ -232,4 +232,36 @@ test("two decisions on the SAME target in one millisecond get different ids", ()
   assert.match(newDecisionId("episode", "ep1"), /^dec-episode-ep1-/);
   // a COUNTER, not a random: a migration that re-ran must produce the same shape
   assert.equal(/[0-9a-z]+-\d+$/.test(newDecisionId("shot", "s1")), true);
+});
+
+test("TASK-074 §1.3: a legacy un-located episode issue is MARKED, never dropped", () => {
+  const legacy = {
+    issueId: "i-old", layer: "episode", category: "pacing", severity: "blocking",
+    source: "agent", targetId: "ep1", text: "第二场太慢", state: "open",
+  };
+  const located = { ...legacy, issueId: "i-ok", locatedShotId: "s3" };
+  const shotLevel = { ...legacy, issueId: "i-shot", layer: "shot", category: "action" };
+  const out = relocateLegacyIssues([legacy, located, shotLevel, "junk", null]);
+
+  assert.equal(out.length, 5, "不丢弃 — nothing is removed, not even junk");
+  assert.equal(out[0].needsRelocation, true);
+  assert.match(out[0].relocationNote, /请指认/);
+  // …and its STATE is untouched: taking an open blocking issue out of `openIssues`
+  // would let G4 pass an export that a real problem was blocking
+  assert.equal(out[0].state, "open");
+  assert.equal(openIssues(out, { layer: "episode" }).length, 2);
+
+  // already-located, other layers and non-objects come back UNCHANGED (same object)
+  assert.equal(out[1], located);
+  assert.equal(out[2], shotLevel);
+  assert.equal(out[3], "junk");
+  assert.equal(out[4], null);
+
+  // idempotent: re-running the migration changes nothing further
+  const twice = relocateLegacyIssues(out);
+  assert.equal(twice[0], out[0]);
+  assert.deepEqual(twice, out);
+  // no clock, no randomness — two runs of the same input are identical
+  assert.deepEqual(relocateLegacyIssues([legacy]), relocateLegacyIssues([legacy]));
+  assert.deepEqual(relocateLegacyIssues(null), []);
 });
