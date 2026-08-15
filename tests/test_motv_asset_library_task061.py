@@ -94,8 +94,18 @@ def test_the_library_is_visual_first_and_ids_are_not_the_main_surface() -> None:
     card = lib.split("\nfunction card(", 1)[1].split("\nfunction ", 1)[0]
     # the id may be a CLICK TARGET, but it must never be rendered as text
     assert 'data-al-open="${esc(a.assetId)}"' in card
-    for id_ish in ("a.storageState", "a.path", "a.url}", "a.key"):
+    for id_ish in ("a.storageState", "a.path", "a.url}"):
         assert id_ish not in card, f"{id_ish} must not be on the card face"
+    # `a.key` is the SAME case as assetId and gets the same rule rather than a blanket
+    # ban: the drawer's 「+ 加入」 must send the reference KEY, because that is what
+    # `addReference` binds on — sending `assetId` there bound nothing (independent
+    # review, batch 3). So it may be a data- target or a presence guard, never text.
+    key_ok = len(re.findall(r'data-[a-z-]+="\$\{esc\(a\.key\)\}"', card)) + len(
+        re.findall(r"&&\s*a\.key\b", card)
+    )
+    assert card.count("a.key") == key_ok, (
+        "a.key must appear only as a data- target or a presence guard, never as text"
+    )
     # every mention of the id is inside a data- attribute, never in the markup's
     # text (there are two: the article opens the asset, the caption is the
     # keyboard-reachable button — see card())

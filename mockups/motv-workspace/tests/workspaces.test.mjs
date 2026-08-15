@@ -22,7 +22,7 @@ import { navBadges, NAV } from "../src/ui/production.js";
 import {
   EPISODE_NAV, EPISODE_MODULES, EPISODE_DEFAULT, EPISODE_WORKSPACES,
   ASSET_NAV, spaceOf, renderAssetRail, MODULE_LABEL,
-  LEGACY_EPISODE_STAGES, PROJECT_SETTINGS, PAGES, PAGE_SECTIONS, resolveModule, NAV as NAV_PAGES,
+  LEGACY_EPISODE_STAGES, LEGACY_EPISODE_CENTRE, PROJECT_SETTINGS, PAGES, PAGE_SECTIONS, resolveModule, NAV as NAV_PAGES,
 } from "../src/ui/shell.js";
 import * as sd from "../src/workflow/scriptdoc.js";
 
@@ -519,14 +519,12 @@ test("TASK-073 §1.1 验收 #2 + #12: every OLD key resolves to a real page + se
     scenes: ["storyboard", "scenes"],
     shots: ["storyboard", "shots"],
     // dispatched by WHAT THEY DID, not to the nearest-looking page
-    workbench: ["shotwork", "prepare"],
     refplan: ["shotwork", "prepare"],
     frames: ["shotwork", "image"],
     video: ["shotwork", "video"],
     dailies: ["shotwork", "pick"],
     audio: ["delivery", "voice"],
     edit: ["delivery", "timeline"],
-    provenance: [PROJECT_SETTINGS, "storage"],
     storage: [PROJECT_SETTINGS, "storage"],
   };
   for (const [key, [page, section]] of Object.entries(expected)) {
@@ -557,6 +555,25 @@ test("TASK-073 §1.1 验收 #2 + #12: every OLD key resolves to a real page + se
   for (const k of [...Object.keys(expected), ...PAGES, PROJECT_SETTINGS]) {
     assert.ok(MODULE_LABEL[k], `${k} has no label`);
   }
+  // `workbench` and `provenance` are NOT aliased yet, and that is asserted rather
+  // than hidden: ⑧ does not contain the 制作台's graph and ⚙ does not mount the
+  // provenance graph, so redirecting them produced the 「落到一个没有该内容的页面」
+  // failure this very test exists to prevent (independent review, batch 3). They keep
+  // their own page until the CONTENT moves — TASK-073 §5.11.
+  //
+  // `resolved: false` is what KEEPS them working: production.js `setModule` only
+  // rewrites the key when `hit.resolved` is true, so an unaliased key passes through
+  // to its own renderer untouched. They must therefore still be listed as legacy
+  // stages — an unaliased key with no workspace of its own WOULD land nowhere.
+  const legacyKeys = LEGACY_EPISODE_STAGES.map(([k]) => k);
+  for (const notYet of ["workbench", "provenance"]) {
+    assert.equal(resolveModule(notYet).resolved, false, `${notYet} must not be redirected yet`);
+    assert.equal(legacyKeys.includes(notYet), true, `${notYet} must keep its own workspace`);
+  }
+  // and the centre the 「工作区」 back-navigation compares against is one of them
+  assert.equal(resolveModule(LEGACY_EPISODE_CENTRE).resolved, false,
+    "redirecting the centre makes `activeModule === LEGACY_EPISODE_CENTRE`永远为假");
+
   // an unknown key still lands somewhere real, and says it was not resolved
   const miss = resolveModule("no-such-module");
   assert.equal(miss.resolved, false);

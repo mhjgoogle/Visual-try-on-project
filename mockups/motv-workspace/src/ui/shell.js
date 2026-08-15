@@ -100,6 +100,23 @@ export const PROJECT_SETTINGS = "projectsettings";
  *   provenance  an episode-wide graph  → ⚙ 存储与诊断 (a diagnostic, not a
  *                                        production page)
  */
+/**
+ * NOT YET ALIASED, and this is a REAL GAP in §1.1's 落点表 — recorded rather than
+ * papered over (independent review, batch 3):
+ *
+ *   `workbench`   → the table says ⑧ 镜头制作. But ⑧'s four steps do not contain the
+ *                   制作台's shot-production graph, and redirecting it made
+ *                   `activeModule === LEGACY_EPISODE_CENTRE` permanently false, which
+ *                   killed the centre, `showsFocus`, `onCentre` and the whole
+ *                   「工作区」 back-navigation.
+ *   `provenance`  → the table says ⚙ 存储与诊断. But the graph MOUNTS inside the
+ *                   episode-space branch of `render()`, and ⚙ reports `story`, so the
+ *                   redirect landed 「完整溯源 ↗」 on 存储管理 with no graph at all.
+ *
+ * Both are the exact 「落到一个没有该内容的页面」 failure ADR-0063 决策 1 forbids, so
+ * they keep their own renderer and their own entrance until the content moves with
+ * them. TASK-073 §5.11 tracks the remaining work.
+ */
 export const MODULE_ALIAS = Object.freeze({
   // ③ 作品设定 — three creator surfaces became three sections of one page
   characters: ["settings", "characters"],
@@ -111,7 +128,6 @@ export const MODULE_ALIAS = Object.freeze({
   scenes: ["storyboard", "scenes"],
   shots: ["storyboard", "shots"],
   // ⑧ 镜头制作 — the four steps of one shot's production
-  workbench: ["shotwork", "prepare"],
   refplan: ["shotwork", "prepare"],
   frames: ["shotwork", "image"],
   video: ["shotwork", "video"],
@@ -123,7 +139,6 @@ export const MODULE_ALIAS = Object.freeze({
   audio: ["delivery", "voice"],
   edit: ["delivery", "timeline"],
   // ⚙ 项目设置
-  provenance: [PROJECT_SETTINGS, "storage"],
   storage: [PROJECT_SETTINGS, "storage"],
 });
 

@@ -5467,7 +5467,12 @@ function _writeCue(cueId, fields, { force = false, origin = null } = {}) {
   if (fields.mergeWithNext !== true) {
     return !!subtitle.updateCue(track, cueId, rest, opts);
   }
-  const snapshot = track.cues.slice();
+  // A DEEP snapshot. `slice()` copies the ARRAY but not the cues in it, and
+  // `mergeCue` mutates the surviving cue in place (text, endMs, speaker) — so
+  // restoring the array put back the next cue while the merged one KEPT its merged
+  // text, producing duplicated/overlapping subtitles: exactly the half-applied fix
+  // this function exists to prevent (independent review, batch 3).
+  const snapshot = track.cues.map((c) => ({ ...c }));
   if (!subtitle.mergeCue(track, cueId, { at, isLocked })) return false;
   if (!hasRest) return true;
   if (!subtitle.updateCue(track, cueId, rest, opts)) {
@@ -6676,7 +6681,18 @@ document.addEventListener("keydown", (e) => {
  *  catalog would offer capabilities whose output contract never arrived — the
  *  page would let a creator run one and then have no way to judge the answer. */
 async function installSkillCatalog() {
-  const res = await query.fetchSkillCatalog();
+  // A REJECTION must not abort the bootstrap. Only `res.ok === false` was handled, so
+  // any throw out of `fetchSkillCatalog` propagated through `await` in `boot()` and
+  // left a blank app instead of a stated 「能力目录不可用」 (independent review,
+  // batch 3) — the same shape as the batch-1 `listProjects` defect.
+  let res;
+  try {
+    res = await query.fetchSkillCatalog();
+  } catch (e) {
+    CATALOG_DETAIL = `能力目录不可达：${(e && e.message) || e}`;
+    CATALOG_PROBLEMS = [];
+    return;
+  }
   if (!res.ok) {
     CATALOG_DETAIL = res.detail;
     CATALOG_PROBLEMS = [];

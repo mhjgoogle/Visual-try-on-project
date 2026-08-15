@@ -220,7 +220,15 @@ function card(a, { drawer = false } = {}) {
     (use ? `<span class="al-use">用于 ${use} 处</span>` : `<span class="al-use muted">未被使用</span>`) +
     `</span></button>` +
     // the ONE affordance the drawer adds: it exists to put this asset on a shot
-    (drawer ? `<button class="btn sm al-add" data-al-add="${esc(a.assetId)}">+ 加入</button>` : "") +
+    // THE REFERENCE KEY, not the assetId (independent review, batch 3): `addReference`
+    // binds by chain key, and passing an asset id either resolved nothing or bound a
+    // bogus reference while the toast reported 「已加入」. A row with no key cannot be
+    // added at all, so it says so rather than offering a button that lies.
+    (drawer
+      ? (a.isReference && a.key
+        ? `<button class="btn sm al-add" data-al-add="${esc(a.key)}">+ 加入</button>`
+        : `<span class="al-noadd" title="只有参考类资产能绑定到镜头">不可加入</span>`)
+      : "") +
     `</article>`
   );
 }

@@ -29,7 +29,8 @@ function ctxWith(rows) {
 // shaped like a real `ctx.assets.library()` row — the inspector reads `tags` and
 // `displayName`, so a fixture missing them would fail for the wrong reason
 const ROW = {
-  assetId: "a1", name: "雨夜街景", displayName: "雨夜街景", kindLabel: "场景参考",
+  assetId: "a1", key: "ref-rainy-street", isReference: true,
+  name: "雨夜街景", displayName: "雨夜街景", kindLabel: "场景参考",
   reusable: true, current: true, version: 1, tags: ["雨夜"],
   usage: { count: 0, places: [] }, needsReview: false,
   url: "", domain: "images", originalFilename: null,
@@ -58,7 +59,11 @@ test("the drawer adds exactly ONE affordance, and the page has none of it", () =
   const ctx = ctxWith([ROW]);
   const page = renderAssetLibrary(ctx, {}, { mode: "page" });
   const drawer = renderAssetLibrary(ctx, {}, { mode: "drawer", shotId: "SH03" });
-  assert.ok(drawer.includes('data-al-add="a1"'), "the drawer exists to add to a shot");
+  // THE REFERENCE KEY, not the assetId: `addReference` binds by chain key, and the
+  // assetId either resolved nothing or bound a bogus reference while the toast said
+  // 「已加入」 (independent review, batch 3).
+  assert.ok(drawer.includes('data-al-add="ref-rainy-street"'), "the drawer adds BY KEY");
+  assert.ok(!drawer.includes('data-al-add="a1"'), "never the assetId");
   assert.ok(!page.includes("data-al-add"), "the page is not a picker");
   // the drawer NAMES its target — a picker that does not say where it adds is how a
   // reference lands on the wrong shot
@@ -76,6 +81,13 @@ test("the inspector is page-only: a drawer is opened to PICK", () => {
   const drawer = renderAssetLibrary(ctx, { alOpen: "a1" }, { mode: "drawer", shotId: "SH03" });
   assert.ok(page.includes("al-info"), "the page carries the inspector");
   assert.ok(!drawer.includes("al-info"), "…the drawer must not compete with its own purpose");
+});
+
+test("a non-reference asset offers no add button, rather than one that fails", () => {
+  const ctx = ctxWith([{ ...ROW, isReference: false }]);
+  const drawer = renderAssetLibrary(ctx, {}, { mode: "drawer", shotId: "SH03" });
+  assert.ok(!drawer.includes("data-al-add"), "no button that would be refused");
+  assert.match(drawer, /不可加入/);
 });
 
 test("§1.6: Collections became 「已保存筛选」", () => {
