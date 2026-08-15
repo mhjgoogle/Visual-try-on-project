@@ -113,14 +113,23 @@ def test_every_media_write_path_declares_at_the_write() -> None:
         if "addVersion(" not in src:
             continue
         assert "declare(" in src, f"{'/'.join(mod)} writes media without declaring it"
-    # …and the app's upload paths CHECK the declaration before spending bytes,
-    # so a refused declaration can never leave an unregistered file behind
     # …and every path that SPENDS BYTES pre-checks its declaration first, so a
-    # refused declaration can never leave an unregistered file behind. app.js's
-    # four import controllers each check; `ctx.uploadMedia` is the raw transport
-    # and its one caller (nodes/shared.js) checks before calling it.
-    app = _code("app.js")
-    assert app.count("assetreg.checkDeclaration(") >= 4, (
+    # refused declaration can never leave an unregistered file behind. The four
+    # import controllers each check; `ctx.uploadMedia` is the raw transport and
+    # its one caller (nodes/shared.js) checks before calling it.
+    #
+    # SCANNED ACROSS app.js AND src/controllers/*.js, because TASK-073 §1.8 is
+    # moving these controllers out of app.js one at a time (`assetctl.js` took
+    # two of the four with it). Counting only app.js would let this guard drop
+    # to a passing-but-empty state exactly when the code it protects moves —
+    # the same failure §5.12 records for the generation-snapshot guard. The
+    # NUMBER must never be lowered to match a move: it is 「四条上传路径各自
+    # 预检」, not 「app.js 里还剩几处」.
+    controllers = sorted((_SRC / "controllers").glob("*.js"))
+    app_and_controllers = "\n".join(
+        [_code("app.js")] + [_code("controllers", p.name) for p in controllers]
+    )
+    assert app_and_controllers.count("assetreg.checkDeclaration(") >= 4, (
         "an app-level import path uploads before checking its declaration"
     )
     node_upload = _code("workflow", "nodes", "shared.js")

@@ -70,6 +70,7 @@ import { createReferenceController } from "./controllers/refctl.js";
 import { createSubtitleController } from "./controllers/subtitlectl.js";
 import { createShotAudioController } from "./controllers/shotaudioctl.js";
 import { createFrameController } from "./controllers/framectl.js";
+import { createAssetController } from "./controllers/assetctl.js";
 import { createTimelineController } from "./controllers/timelinectl.js";
 // TASK-072 §1.5/§1.6: the three review layers and the five gates, as domain
 import * as review from "./workflow/review.js";
@@ -4146,272 +4147,6 @@ const ctx = {
       hasCut: ctx._cuts().length > 0,
     };
   },
-  assets: {
-    KINDS: assetreg.ASSET_KINDS,
-    KIND_LABEL: assetreg.ASSET_KIND_LABEL,
-    /** Every registered Asset, flattened (the asset library / picker / Director
-     *  all read this one derivation). */
-    list: () => assetreg.listAssets(assetRegistry),
-    /** The canonical References — one entry per `ref-…` chain at its CURRENT
-     *  version. This is the unit many shots SHARE; never copied per shot. */
-    references: () => assetreg.listReferences(assetRegistry),
-    find: (assetId) => assetlib.findAssetById(assetRegistry, assetId),
-
-    /** Import a file as a NEW canonical Reference (人物 / 场景 / 道具 / 风格 /
-     *  外部). Mints its own `ref-…` chain so later takes of the SAME reference
-     *  append as v2, v3 … rather than becoming unrelated assets. */
-    importReference: async ({ kind, file, links, displayName, tags } = {}) => {
-      if (!CONNECTED) throw new Error("演示模式无后端，无法上传参考图");
-      if (!assetreg.isReferenceKind(kind)) throw new Error(`不是参考类型：${kind}`);
-      if (!file) throw new Error("没有选择文件");
-      const key = assetreg.mintReferenceKey();
-      const domain = mediaDomainOfFile(file);
-      // An unresolvable domain must FAIL HERE. Falling through would hand
-      // addVersion a `{uploads: undefined}` map, which quietly creates a throw-
-      // away object: the upload would succeed on disk and be gone after reload.
-      // (The server would refuse the write anyway — its type allow-list reads
-      // the same MIME — so this is the honest error, not a new restriction.)
-      if (!domain) {
-        throw new Error("无法识别文件类型：请上传 png/jpg/webp、mp4/webm 或 mp3/wav");
-      }
-      // The kind's OWN allowed domains decide (ADR-0061 决策 4), rather than
-      // 「images unless external」: a motion reference is legitimately a clip, and
-      // a performance reference is legitimately a line read. The declaration
-      // check below re-verifies this, so the guarantee does not rest on this
-      // message being right.
-      const allowed = assetreg.domainsForKind(kind);
-      if (!allowed.includes(domain)) {
-        const zh = { images: "图片", videos: "视频", audio: "音频" };
-        throw new Error(
-          `${assetreg.ASSET_KIND_LABEL[kind] || kind} 只能是 ${allowed.map((d) => zh[d] || d).join(" / ")}`,
-        );
-      }
-      // checked BEFORE the upload — see ctx.audio.importKey
-      const pre = assetreg.checkDeclaration(domain, { kind });
-      if (pre) throw new Error(`登记被拒绝，未上传：${pre}`);
-      const res = await query.uploadAssetImage(PROJECT_NAME, `${domainSlugPrefix(domain)}-${key}`, file);
-      const ref = mediaref.refFromResponse(key, "upload", res, null);
-      const decl = assetreg.declare(ref, domain, {
-        kind,
-        displayName: displayName || null,
-        originalFilename: file.name || null,
-        links,
-        tags,
-      });
-      if (!decl.ok) throw new Error(`登记失败：${decl.error}`);
-      mediaref.addVersion({ uploads: assetRegistry[domain] }, key, ref);
-      ctx.refreshType("assets");
-      ctx.persist();
-      refreshProductionView();
-      toast(`已登记参考资产「${assetreg.derivedLabel({ ...ref, version: ref.version })}」`);
-      return { key, ref };
-    },
-
-    /** Append a NEW VERSION to an existing canonical Reference — 林照 Ref v2,
-     *  v3 … The chain, its kind and its links are the reference's; only the
-     *  bytes are new. Every shot pointing at this reference follows the
-     *  chain's current pointer, so nothing has to be re-pointed by hand. */
-    importReferenceVersion: async (key, file) => {
-      if (!CONNECTED) throw new Error("演示模式无后端，无法上传参考图");
-      if (!assetreg.isReferenceKey(key)) throw new Error("不是参考资产");
-      const chain = mediaref.slotEntry(assetRegistry.images, key)
-        || mediaref.slotEntry(assetRegistry.videos, key)
-        || mediaref.slotEntry(assetRegistry.audio, key);
-      if (!chain) throw new Error("参考资产不存在");
-      const head = chain.history[chain.history.length - 1] || {};
-      const domain = mediaDomainOfFile(file);
-      if (!domain) {
-        throw new Error("无法识别文件类型：请上传 png/jpg/webp、mp4/webm 或 mp3/wav");
-      }
-      if (!assetRegistry[domain] || !mediaref.slotEntry(assetRegistry[domain], key)) {
-        throw new Error("新版本的媒体类型与该参考资产不一致");
-      }
-      // checked BEFORE the upload — see ctx.audio.importKey
-      const pre = assetreg.checkDeclaration(domain, { kind: head.kind || null });
-      if (pre) throw new Error(`登记被拒绝，未上传：${pre}`);
-      const res = await query.uploadAssetImage(PROJECT_NAME, `${domainSlugPrefix(domain)}-${key}`, file);
-      const ref = mediaref.refFromResponse(key, "upload", res, null);
-      const decl = assetreg.declare(ref, domain, {
-        kind: head.kind || null,
-        displayName: head.displayName || null,
-        originalFilename: file.name || null,
-        links: head.links,
-        tags: head.tags,
-        reusable: head.reusable === true,
-      });
-      if (!decl.ok) throw new Error(`登记失败：${decl.error}`);
-      mediaref.addVersion({ uploads: assetRegistry[domain] }, key, ref);
-      ctx.refreshType("assets");
-      ctx.persist();
-      refreshProductionView();
-      toast(`参考资产已新增 v${ref.version}（旧版本保留，可回切）`);
-      return ref;
-    },
-
-    /** Pick a file and append it as a new version of an existing Reference.
-     *  Thin wrapper so the Production Inspector never opens its own upload path
-     *  (ADR-0055: 上传 ≠ 保存文件 — one entrance, one registration). */
-    uploadReferenceVersion: async (key) => {
-      if (!assetreg.isReferenceKey(key)) throw new Error("不是参考资产");
-      const chain = mediaref.slotEntry(assetRegistry.images, key)
-        || mediaref.slotEntry(assetRegistry.videos, key)
-        || mediaref.slotEntry(assetRegistry.audio, key);
-      if (!chain) throw new Error("参考资产不存在");
-      const head = chain.history[chain.history.length - 1] || {};
-      // Only the domains this reference's KIND is allowed in — a picker that
-      // offers an mp3 for a 人物参考 invites a refusal the creator cannot
-      // predict. `accept` follows the declaration, not the other way round.
-      const domains = new Set(assetreg.domainsForKind(head.kind || null));
-      const accept = [
-        domains.has("images") ? "image/png,image/jpeg,image/webp" : "",
-        domains.has("videos") ? "video/mp4,video/webm" : "",
-        domains.has("audio") ? "audio/mpeg,audio/wav" : "",
-      ].filter(Boolean).join(",") || "image/png,image/jpeg,image/webp";
-      const file = await pickFile(accept);
-      if (!file) return null;
-      return ctx.assets.importReferenceVersion(key, file);
-    },
-
-    /** One chain's full version list, for the version block in the Production
-     *  Inspector. Read-only; the switch itself goes through ctx.media.setCurrent
-     *  so there is still exactly one write path for an active pointer. */
-    chainOf: (key) => {
-      for (const domain of ["images", "videos", "audio"]) {
-        const e = mediaref.slotEntry(assetRegistry[domain], key);
-        if (!e) continue;
-        return {
-          domain,
-          current: e.current,
-          list: e.history.map((r) => ({
-            version: r.version,
-            url: r.url || "",
-            origin: r.origin || "",
-            assetId: r.assetId || null,
-            current: r.version === e.current,
-            storageState: r.storageState || "local",
-          })),
-        };
-      }
-      return null;
-    },
-
-    /** Edit an Asset's CREATOR metadata. Always an explicit user action —
-     *  nothing in the system reclassifies an asset on its own. */
-    update: (assetId, fields) => {
-      const hit = assetlib.findAssetById(assetRegistry, assetId);
-      // the record's OWN domain gates a kind change — the same rule declare()
-      // applies at import, so the edit path cannot mint an invalid document
-      if (!hit || !assetreg.updateDeclaration(hit.record, fields, hit.domain)) return false;
-      ctx.persist();
-      refreshProductionView();
-      return true;
-    },
-    addTag: (assetId, tag) => {
-      const hit = assetlib.findAssetById(assetRegistry, assetId);
-      if (!hit || !assetreg.addTag(hit.record, tag)) return false;
-      ctx.persist();
-      refreshProductionView();
-      return true;
-    },
-    removeTag: (assetId, tag) => {
-      const hit = assetlib.findAssetById(assetRegistry, assetId);
-      if (!hit || !assetreg.removeTag(hit.record, tag)) return false;
-      ctx.persist();
-      refreshProductionView();
-      return true;
-    },
-    /** Mark / unmark 可复用. EXPLICIT only: "used many times" is never taken as
-     *  consent to call something reusable (ADR-0055 决策 1). */
-    setReusable: (assetId, on) => ctx.assets.update(assetId, { reusable: on === true }),
-    /** Switch a chain's CURRENT version — the Active variant everything reads. */
-    setCurrent: (domain, key, version) => ctx.media.setCurrent(
-      domain === "images" ? "image" : domain === "videos" ? "video" : "audio", key, version,
-    ),
-
-    // --- Asset Library read models (CP5) ----------------------------------- //
-    // All DERIVED per render: the library owns no state, so it cannot disagree
-    // with what the project actually holds.
-    /** Where every asset is used — one pass over the canonical documents. */
-    usage: () => assetusage.usageIndex({
-      assets: assetreg.listAssets(assetRegistry),
-      production: productionDoc,
-      timelines: timelinesDoc,
-      generations: generationRegistry,
-    }),
-    usageOf: (assetId) => {
-      const hit = assetlib.findAssetById(assetRegistry, assetId);
-      // a Shot binds the CHAIN, which resolves to one version — so shot usage
-      // belongs to the current take only, never to the ones it superseded
-      const chain = hit && hit.key && assetRegistry[hit.domain]
-        ? mediaref.slotEntry(assetRegistry[hit.domain], hit.key)
-        : null;
-      return assetusage.usageOfAsset({
-        assetId,
-        referenceKey: hit ? hit.key : null,
-        // the version is on the left on purpose: the single-media-write-path
-        // guard scans raw text for an assignment to a chain's current pointer,
-        // and a comparison written the other way round is indistinguishable
-        // from one by substring. This only ever reads.
-        isCurrent: !chain || hit.record.version === chain.current,
-        production: productionDoc,
-        timelines: timelinesDoc,
-        generations: generationRegistry,
-      });
-    },
-    library: (filters) => assetlibws.libraryModel({
-      assets: assetreg.listAssets(assetRegistry),
-      usage: ctx.assets.usage(),
-      names: ctx.assets.names(),
-      filters,
-    }),
-    /** One asset in the library's shape, even when the current filters hide it
-     *  — an inspector that closes because you ticked a filter is maddening. */
-    libraryOne: (assetId) => ctx.assets.library({ type: "all", variant: "all" })
-      .rows.find((r) => r.assetId === assetId) || null,
-    /** id → human name, so search and filters work on what the creator SEES. */
-    names: () => {
-      const prod = productionDoc;
-      const ch = new Map((prod.characters || []).map((c) => [c.characterId, c.name]));
-      const lo = new Map((prod.locations || []).map((l) => [l.locationId, l.name]));
-      const ep = new Map();
-      const sc = new Map();
-      (prod.episodes || []).forEach((e, i) => {
-        ep.set(e.episodeId, `EP${String(i + 1).padStart(2, "0")} ${e.title}`);
-        for (const s of e.scenes || []) sc.set(s.sceneId, s.title);
-      });
-      const sh = new Map((ctx.project.draftShots || []).map((s) => [s.shotId, s.title || ""]));
-      const get = (m) => (id) => (id && m.get(id)) || "";
-      return { character: get(ch), location: get(lo), episode: get(ep), scene: get(sc), shot: get(sh) };
-    },
-    /** The dropdown options — only canonical objects that really exist. */
-    filterOptions: () => {
-      const prod = productionDoc;
-      const sources = [...new Set(assetreg.listAssets(assetRegistry).map((a) => a.origin).filter(Boolean))];
-      return {
-        characters: (prod.characters || []).map((c) => ({ id: c.characterId, name: c.name })),
-        locations: (prod.locations || []).map((l) => ({ id: l.locationId, name: l.name })),
-        episodes: (prod.episodes || []).map((e, i) => ({ id: e.episodeId, name: `EP${String(i + 1).padStart(2, "0")} ${e.title}` })),
-        sources: sources.map((s) => ({ id: s, name: s })),
-      };
-    },
-    /** The Generation that produced this asset, with its frozen inputs resolved
-     *  to names. Honest null when nothing recorded producing it. */
-    provenanceOf: (assetId) => {
-      const gen = generationRegistry.find(
-        (g) => g && Array.isArray(g.resultAssetIds) && g.resultAssetIds.includes(assetId),
-      );
-      if (!gen) return null;
-      const nameOf = (id) => {
-        const hit = assetlib.findAssetById(assetRegistry, id);
-        if (!hit) return `${id}（已删除）`;
-        return assetreg.derivedLabel({ ...hit.record, version: hit.record.version, key: hit.key });
-      };
-      return {
-        generation: gen,
-        references: [...(gen.referenceAssetIds || []), ...(gen.inputAssetIds || [])].map(nameOf),
-      };
-    },
-  },
   // Storage-management controller (M11-D): built on the EXISTING M5
   // storageState lifecycle — no second state system. Byte removal keeps the
   // assetId, metadata, provenance and every reference (shown unavailable);
@@ -4935,6 +4670,33 @@ ctx.frames = createFrameController({
   refresh: () => refreshProductionView(),
   toast,
   now: () => new Date().toISOString(),
+});
+
+// TASK-073 §1.8 第三批。Documents as GETTERS: `assetRegistry` / `productionDoc` /
+// `timelinesDoc` / `generationRegistry` are module-level `let`s reassigned on
+// project load, so a controller that captured their VALUES would keep reading
+// and WRITING the previous project's registry (§5.10).
+ctx.assets = createAssetController({
+  docs: {
+    registry: () => assetRegistry,
+    production: () => productionDoc,
+    timelines: () => timelinesDoc,
+    generations: () => generationRegistry,
+  },
+  modules: { assetreg, assetlib, mediaref, assetusage, assetlibws },
+  session: { connected: () => CONNECTED, projectName: () => PROJECT_NAME },
+  uploadAssetImage: (project, key, file) => query.uploadAssetImage(project, key, file),
+  pickFile,
+  mediaDomainOfFile,
+  domainSlugPrefix,
+  // the ONE active-pointer write path stays where it was — this controller
+  // delegates instead of re-implementing it
+  setCurrentVersion: (domainWord, key, version) => ctx.media.setCurrent(domainWord, key, version),
+  draftShots: () => ctx.project.draftShots,
+  refreshType: (t) => ctx.refreshType(t),
+  persist: () => ctx.persist(),
+  refresh: () => refreshProductionView(),
+  toast,
 });
 
 ctx.locks = createLockController({
