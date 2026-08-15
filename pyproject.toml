@@ -17,6 +17,10 @@ ai-video-workflow = "ai_video_workflow.cli:main"
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    # Both commit gates run the whole suite as `pytest -n 8` (see gate.ps1 /
+    # gate.sh), so this is a hard requirement for a full-tier commit, not an
+    # optimisation: without it the gate fails closed on an unknown `-n` flag.
+    "pytest-xdist>=3.8",
     "ruff>=0.8",
 ]
 
@@ -38,3 +42,16 @@ line-ending = "auto"
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"
 testpaths = ["tests"]
+markers = [
+    # Tests that must NOT run under pytest-xdist parallelism. Reserve this for
+    # tests whose subject is real OS process state — spawning a real process
+    # tree and asserting every descendant is gone cannot tolerate sibling
+    # xdist workers spawning and killing their own trees concurrently.
+    # Measured 2026-08-14: the full suite under `-n 8` failed only
+    # test_motv_run_lifecycle_task072.py (passes in 10.8s when run serially),
+    # so this marker's scope is that file, not a general escape hatch.
+    # The whole-suite run is therefore two phases — see AGENTS.md §20:
+    #   1. pytest -n 8 -m "not serial"   (parallel, the other ~3180 tests)
+    #   2. pytest -m serial              (serial, the process-tree tests)
+    "serial: must run serially, never under xdist (real OS process-tree assertions)",
+]

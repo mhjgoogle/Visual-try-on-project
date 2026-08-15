@@ -1,4 +1,15 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(.venv/Scripts/python.exe -m ruff check *)",
+      "Bash(.venv/Scripts/python.exe -m ruff format --check *)",
+      "Bash(.venv/Scripts/python.exe -m pytest *)",
+      "Bash(.venv/bin/python -m ruff check *)",
+      "Bash(.venv/bin/python -m ruff format --check *)",
+      "Bash(.venv/bin/python -m pytest *)",
+      "PowerShell(Get-CimInstance *)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {

@@ -45,8 +45,13 @@ jobs:
         run: ruff check .
       - name: Ruff format check
         run: ruff format --check .
-      - name: Pytest
-        run: python -m pytest -q
+      # Two phases, same split as both commit gates (pyproject.toml markers):
+      # the suite runs under xdist except the real-process-tree tests, which
+      # cannot tolerate sibling workers killing their own trees.
+      - name: Pytest (parallel)
+        run: python -m pytest -q -n 8 -m "not serial"
+      - name: Pytest (serial process-tree tests)
+        run: python -m pytest -q -m serial
       - name: Frontend unit tests (motv mockup)
         run: node --test mockups/motv-workspace/tests/*.test.mjs
 
@@ -75,7 +80,12 @@ jobs:
         run: ruff check .
       - name: Ruff format check
         run: ruff format --check .
-      - name: Pytest
-        run: python -m pytest -q
+      # Two phases, same split as both commit gates (pyproject.toml markers):
+      # the suite runs under xdist except the real-process-tree tests, which
+      # cannot tolerate sibling workers killing their own trees.
+      - name: Pytest (parallel)
+        run: python -m pytest -q -n 8 -m "not serial"
+      - name: Pytest (serial process-tree tests)
+        run: python -m pytest -q -m serial
       - name: Frontend unit tests (motv mockup)
         run: node --test mockups/motv-workspace/tests/*.test.mjs

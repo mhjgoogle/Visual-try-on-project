@@ -314,7 +314,14 @@ $checks = @(
 
 switch ($policy.tier) {
     'full' {
-        $checks += @{ Label = 'pytest (full)'; Timeout = 900; File = $py; Args = @('-m', 'pytest') }
+        # Two phases (see pyproject.toml [tool.pytest.ini_options].markers):
+        # everything parallel under xdist, then the serial process-tree tests.
+        # Measured 2026-08-14 on this host: 147s for the parallel phase at -n 8
+        # vs 328s serial -- the win is I/O overlap, since native Windows has no
+        # /dev/shm and every persist fsyncs to NTFS. -n 8 (not `auto`=12) is the
+        # measured setting; more workers stop paying once fsync dominates.
+        $checks += @{ Label = 'pytest (full, parallel)'; Timeout = 600; File = $py; Args = @('-m', 'pytest', '-n', '8', '-m', 'not serial') }
+        $checks += @{ Label = 'pytest (full, serial)';   Timeout = 180; File = $py; Args = @('-m', 'pytest', '-m', 'serial') }
     }
     'workspace' {
         $checks += @{ Label = 'pytest (workspace)'; Timeout = 120; File = $py; Args = @('-m', 'pytest') + @($policy.pytest_targets) }

@@ -168,7 +168,13 @@ run_check "ruff format --check"   15 "$PY" -m ruff format --check . \
 if [ -z "$FAIL_LABEL" ]; then
   case "$POLICY_TIER" in
     full)
-      run_check "pytest (full)" 300 "$PY" -m pytest
+      # Two phases, same split as gate.ps1 (ADR-0062 decision 3 -- both shells
+      # must reach the same verdict). See pyproject.toml markers: the serial
+      # phase is the real-process-tree suite, which cannot run under xdist.
+      # Budgets stay well under the WSL2 serial baseline because /dev/shm
+      # already makes this shell the fast one.
+      run_check "pytest (full, parallel)" 240 "$PY" -m pytest -n 8 -m "not serial" \
+        && run_check "pytest (full, serial)" 120 "$PY" -m pytest -m serial
       ;;
     workspace|pytest-targeted|motv-server)
       run_check "pytest ($POLICY_TIER)" 120 "$PY" -m pytest "${POLICY_PYTEST_TARGETS[@]}"

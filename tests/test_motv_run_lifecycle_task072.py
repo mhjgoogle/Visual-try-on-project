@@ -24,6 +24,14 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+
+# Real process trees cannot be asserted about while sibling xdist workers spawn
+# and kill their own. Under `-n 8` the clean-shutdown test failed here while
+# passing in 10.8s serially (measured 2026-08-14), so this whole module opts out
+# of parallelism; the whole-suite run picks it up in its serial phase.
+pytestmark = pytest.mark.serial
+
 _MOCKUP_DIR = Path(__file__).resolve().parents[1] / "mockups" / "motv-workspace"
 sys.path.insert(0, str(_MOCKUP_DIR))
 

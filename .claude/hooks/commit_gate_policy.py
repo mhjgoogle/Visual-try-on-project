@@ -14,7 +14,16 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 _DOC_PREFIXES = ("docs/",)
-_DOC_FILES = {"AGENTS.md", "README.md", "LICENSE"}
+#: CLAUDE.md was missing here, so every edit to it fell through to the
+#: no-mapping fallback and ran the WHOLE suite -- a pure-prose governance file
+#: costing a full pytest + full frontend run (measured 2026-08-14).
+_DOC_FILES = {"AGENTS.md", "CLAUDE.md", "README.md", "LICENSE"}
+#: Agent tooling under .claude/ is prose ONLY when it is Markdown: SKILL.md and
+#: friends are instructions for an agent, covered by no test. Everything else
+#: there (gate.ps1/.sh, commit_gate_policy.py, the review scripts) is executable
+#: and must NOT be reclassified as documentation.
+_AGENT_DOC_PREFIX = ".claude/"
+_AGENT_DOC_SUFFIX = ".md"
 _WORKSPACE_PREFIXES = (
     "src/ai_video_workflow/workspace/",
     "src/workspace_shell/",
@@ -129,11 +138,17 @@ class Decision:
 
 
 def _normalise(path: str) -> str:
-    return path.replace("\\", "/").lstrip("./")
+    # `lstrip("./")` strips a CHARACTER SET, not a prefix: it turned
+    # `.claude/skills/x.md` into `claude/skills/x.md` and `../evil` into `evil`,
+    # silently eating dot-directories and path-traversal markers alike. Only the
+    # single leading `./` that git can emit should go.
+    return path.replace("\\", "/").removeprefix("./")
 
 
 def _is_docs(path: str) -> bool:
-    return path in _DOC_FILES or path.startswith(_DOC_PREFIXES)
+    if path in _DOC_FILES or path.startswith(_DOC_PREFIXES):
+        return True
+    return path.startswith(_AGENT_DOC_PREFIX) and path.endswith(_AGENT_DOC_SUFFIX)
 
 
 def _is_workspace_path(path: str) -> bool:

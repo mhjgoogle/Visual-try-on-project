@@ -1,12 +1,20 @@
-# 待提交：测试提速 + commit gate 分类修复（2026-08-14，暂停中）
+# 测试提速 + commit gate 分类修复
 
-**状态：已实现、已验证、未提交。等 TASK-072 批次二 / TASK-073 收口后再提交
-（产品负责人 2026-08-14 决定：「等那边的 task 全部完成再做」）。**
+**状态：已落地（2026-08-15）。** 2026-08-14 实现并验证；因工作区被并发在制品
+锁死（任何 `full` tier 提交都要跑全量，而 TASK-073 的半成品让全量红着）而暂缓，
+产品负责人当日决定「等那边的 task 全部完成再做」。TASK-072/073/074 于
+2026-08-15 收口后本批提交。
 
-已提交的部分是 `a187cc8`（流程规则，纯文档，lint tier 过闸）。以下是**还在
-工作区**的那批。
+同批交付的其余部分：流程规则 `a187cc8`、ADR-0069 `deb8a52`、
+待复审清单状态 `77c8e9f`。
 
-## 工作区里属于这批的文件
+**落地前复测（2026-08-15，在 TASK-072/073/074 的新代码上）**：两阶段
+**3137 + 5 = 3142 passed / 56 skipped / 0 failed**（并行 155s + 串行 55s），
+与那批自己的链尾全量数字一致；`tests/test_commit_gate_policy.py` 24 passed；
+`ruff check` + `ruff format --check` 全绿（501 files）。
+**并行安全性在新代码上重新证明过**——没有出现新的并行不安全测试。
+
+## 本批文件
 
 | 文件 | 改了什么 |
 | --- | --- |
@@ -45,7 +53,7 @@
   dot 目录与路径穿越标记一起被静默吃掉。改为 `removeprefix("./")`。
 - 验证：`tests/test_commit_gate_policy.py` 24 passed；ruff check + format 全绿。
 
-## 为什么没提交：工作区被锁死
+## 当时为什么提交不了：工作区被锁死（已解除，留作记录）
 
 `full` tier 提交要跑全量，而工作区里 TASK-073 的半成品让全量红着：
 
@@ -58,15 +66,17 @@
 因此**批次 C（已完成）与本批（已验证）都过不了闸**。唯一能过的是纯 Markdown
 （lint tier），这也是 `a187cc8` 能落地的原因。
 
-## 恢复步骤（TASK-073 / TASK-072 收口之后）
+## 落地时实际执行的步骤（2026-08-15，1–4 已完成）
 
-1. `.venv/Scripts/python.exe -m pytest -n 8 -m "not serial" -q` 与
-   `-m serial -q` 各跑一次，确认两阶段仍全绿
-2. `.venv/Scripts/python.exe -m pytest tests/test_commit_gate_policy.py -q`（应 24 passed）
-3. `ruff check` + `ruff format --check`
-4. 提交上表七个文件（提交信息草稿见本文件的「内容」两节）
-5. **补一次 codex 独立审查**：本批未经独立审查（codex 触到 workspace spend cap，
-   `claude` CLI 未安装故 fallback 不存在）。gate 分类改动属安全边界，值得补审。
+1. ✅ `pytest -n 8 -m "not serial" -q` + `pytest -m serial -q` —— 3142 passed / 0 failed
+2. ✅ `pytest tests/test_commit_gate_policy.py -q` —— 24 passed
+3. ✅ `ruff check` + `ruff format --check` —— 全绿
+4. ✅ 提交本批七个文件
+5. ⏳ **仍欠一次 codex 独立审查**：codex 全程 workspace spend cap（实测是硬 cap，
+   非速率限制，需 owner 提额或等 2026-08-18）；`claude` fallback 虽已安装可用，
+   但与实施者同模型族，不能提供本项所需的跨模型独立性。
+   **gate 分类与路径规范化属安全边界，已登记
+   [待复审清单](pending-codex-rereview.md)，push / merge 前须补审。**
 
 ## 需要产品负责人**亲自做一次**的一个动作（Agent 做不到）
 

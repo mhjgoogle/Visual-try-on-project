@@ -183,6 +183,11 @@ pause/cancel/skip 状态。
     历史参考数字 328s / 2815 项（2026-08-10，gate.ps1 注释）测的是**更少的
     测试**，不可与上面的数字混用来判断是否回归。
 
+    2026-08-15 在 TASK-072/073/074 那批新代码上复测两阶段：3198 项
+    **210s**（并行 155s / 3137 项 + 串行 55s / 5 项），0 失败——并行安全性在
+    新代码上重新证明过，没有新的并行不安全测试。该轮**未重测串行基线**，
+    因此 2.6× 这个倍数仍以 2026-08-14 的同口径数字为准。
+
     收益来自 fsync I/O 重叠，因为 Windows 没有 `/dev/shm`，
     根 `conftest.py` 的 tmpfs 路由在这里是 no-op。`-n 8` 是实测值，
     不用 `auto`（12）——fsync 主导后更多 worker 不再付费。
@@ -190,12 +195,7 @@ pause/cancel/skip 状态。
     （当前仅 `tests/test_motv_run_lifecycle_task072.py`），
     不是绕开并行的通用逃生口。
 
-    > **状态（2026-08-14）：本节描述的是已验证但尚未提交的行为。**
-    > `pytest-xdist` 进 `[dev]`、两个 commit gate 与 CI 两个 job 的两阶段拆分
-    > 都在工作区待提交（被并发在制品锁死，见
-    > [待提交记录](docs/design/pending-speedup-and-gate-fix.md)）。
-    > **在那批落地之前**：干净环境按本节跑 `pytest -n 8` 会因缺 xdist 失败，
-    > 且 gate 与 CI 实际仍是单阶段串行。落地后删除本提示框。
+    实施记录见[提速与 gate 修复](docs/design/pending-speedup-and-gate-fix.md)。
 
     **连续修改链例外**（[ADR-0068](docs/adr/ADR-0068-continuous-modification-chain.md)）：
     经用户**明确授权**、且任务卡已写下任务/批次清单与最终检查点的连续实施，其
