@@ -15,10 +15,14 @@ import * as budget from "./services/budget.js";
 import * as query from "./services/query.js";
 // TASK-072 §1.4: writes live in command.js; query.js keeps deprecated re-exports
 import * as command from "./services/command.js";
+import { submitCommand } from "./services/command.js";
 // TASK-072 §1.4: the gateway's two-step write path came with them; the READ
 // coordinates it used to sit beside (`getGenerationTarget` / `getLockTarget` /
 // `paidOps`) are in query.js, because the split is 「会不会改东西」, not 「同一个流程」.
-const { submitCommand } = command;
+// A NAMED import, not `const { submitCommand } = command`: the destructure snapshots
+// the namespace property at module-eval time, so an import cycle would make it
+// silently `undefined` where the named binding throws a TDZ error instead
+// (independent review).
 import * as projects from "./services/projects.js";
 import * as persist from "./services/persist.js";
 import { CANVAS_SCHEMA_VERSION } from "./services/canvasschema.js";
@@ -415,7 +419,7 @@ function setModeBadge() {
 async function paidGenerate(shotId) {
   try {
     const tgt = await query.getGenerationTarget(PROJECT_NAME, shotId);
-    const opId = "op-ui-" + Date.now().toString(36);
+    const opId = command.newOperationId();
     const envelope = command.buildEnvelope(
       "submit-video-generation",
       tgt.target,
@@ -4057,6 +4061,10 @@ const ctx = {
         // WHICH video is current — an approval is bound to this exact take, so
         // switching the variant or adding a newer one retires the approval
         videoAssetId: vid && vid.assetId ? vid.assetId : null,
+        // …and WHICH VERSION of it, because a layer-1 Decision is invalid without
+        // it (系统合同 §6.2): a decision that cannot say which take it judged can
+        // never go stale, so 「已定稿的不是当前版本」 becomes unanswerable (§6.4).
+        videoVersion: vid && Number.isInteger(vid.version) ? vid.version : null,
       };
     },
     _slotOf: (shot) => {
@@ -4081,11 +4089,65 @@ const ctx = {
         toast("这个镜头还没有视频，无法通过审片——先生成或导入视频");
         return false;
       }
-      const ok = shotprod.approveShot(productionDoc, shotId, media.videoAssetId, new Date().toISOString(), note || "");
-      if (ok) { ctx.persist(); refreshProductionView(); }
+      // 系统合同 §6.4 / TASK-072 §1.5: an approval IS a layer-1 ReviewDecision.
+      // Built FIRST, because it is the record that must exist — the legacy marker
+      // below is kept for one version as a comparison surface (TASK-074 §1.3 deletes
+      // it), and writing the marker while failing to record the decision would leave
+      // the two disagreeing with the weaker one winning.
+      const at = new Date().toISOString();
+      const dec = review.decision({
+        decisionId: `dec-shot-${shotId}-${Date.now().toString(36)}`,
+        layer: "shot",
+        targetId: shotId,
+        verdict: "passed",
+        by: "user",
+        basedOnVersion: media.videoVersion,
+        at,
+        note: note || "",
+      });
+      if (!dec.ok) {
+        // FAIL CLOSED rather than approve without saying which take was approved.
+        toast(`无法记录审片结论：${dec.error}`);
+        return false;
+      }
+      const ok = shotprod.approveShot(productionDoc, shotId, media.videoAssetId, at, note || "");
+      if (ok) {
+        reviewsDoc = { ...reviewsDoc, decisions: [...reviewsDoc.decisions, dec.value] };
+        ctx.persist();
+        refreshProductionView();
+      }
       return ok;
     },
-    unapprove: (shotId) => prodOp(shotprod.unapproveShot(productionDoc, shotId)),
+    /** Withdraw an approval. The legacy marker is REMOVED (「没有记录通过」 is the
+     *  state, not 「approved: false」), but the Decision is APPENDED to, never
+     *  deleted: it happened, on a take that existed. G5 「只追加」 applies to the
+     *  review log too — a withdrawn approval that vanished would make the history
+     *  claim the creator never approved it. */
+    unapprove: (shotId) => {
+      if (!shotprod.isApproved(productionDoc, shotId)) return false;
+      const prev = review.latestDecision(reviewsDoc.decisions, { layer: "shot", targetId: shotId });
+      const undo = review.decision({
+        decisionId: `dec-shot-${shotId}-${Date.now().toString(36)}`,
+        layer: "shot",
+        targetId: shotId,
+        verdict: "needs_rework",
+        by: "user",
+        // the SAME version the withdrawn approval judged: this decision is about
+        // that take, and inventing a current version here would misdate it
+        basedOnVersion: prev && Number.isInteger(prev.basedOnVersion) ? prev.basedOnVersion : null,
+        at: new Date().toISOString(),
+        note: "撤销通过",
+      });
+      const ok = prodOp(shotprod.unapproveShot(productionDoc, shotId));
+      // A legacy approval carries no version, so no valid Decision can be written for
+      // it. The withdrawal still takes effect — refusing it would strand the shot —
+      // and the missing counterpart is honest: there was never a Decision to retire.
+      if (ok && undo.ok) {
+        reviewsDoc = { ...reviewsDoc, decisions: [...reviewsDoc.decisions, undo.value] };
+        ctx.persist();
+      }
+      return ok;
+    },
     // --- shared canonical References ---------------------------------------- //
     references: (shotId) => shotprod.referencesOfShot(productionDoc, shotId),
     addReference: (shotId, key) => prodOp(shotprod.addShotReference(productionDoc, shotId, key)),
@@ -5753,7 +5815,7 @@ async function batchPaidGenerate(node) {
     try {
       const shotId = ctx.lockedShotId(s.sequence);
       const tgt = await query.getGenerationTarget(PROJECT_NAME, shotId);
-      const opId = "op-ui-" + Date.now().toString(36) + s.sequence;
+      const opId = command.newOperationId(`op-ui-${s.sequence}-`);
       const envelope = command.buildEnvelope(
         "submit-video-generation",
         tgt.target,

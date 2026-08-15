@@ -7,7 +7,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { request, attempt, ApiError, API_ERROR, legacyError } from "../src/services/apiclient.js";
-import { buildEnvelope, preflight, submit } from "../src/services/command.js";
+import { buildEnvelope, preflight, submit, newOperationId, submitCommand } from "../src/services/command.js";
 import * as gateway from "../src/services/gateway.js";
 import * as command from "../src/services/command.js";
 import * as query from "../src/services/query.js";
@@ -243,4 +243,35 @@ test("the write path and the read coordinates now come from the seam that names 
   for (const k of ["getGenerationTarget", "getLockTarget", "paidOps"]) {
     assert.equal(gateway[k], query[k], `gateway.${k} must BE query.${k}`);
   }
+});
+
+test("the MONEY paths get their uniqueness from the operation id, not the envelope", () => {
+  // both paid paths correlate the two ids by construction (`cmd-${opId}`) and so pass
+  // an EXPLICIT command id — which means buildEnvelope's own suffix never applied to
+  // them, and only the lock path benefited from it (independent review).
+  const ids = new Set();
+  for (let i = 0; i < 50; i++) ids.add(newOperationId());
+  assert.equal(ids.size, 50);
+  assert.match(newOperationId(), /^op-ui-/);
+  assert.match(newOperationId("op-ui-3-"), /^op-ui-3-/);
+  // and the derived command ids inherit that uniqueness
+  const cmds = new Set();
+  for (let i = 0; i < 50; i++) {
+    cmds.add(buildEnvelope("submit-video-generation", { d: 1 }, {}, "cmd-" + newOperationId()).command_id);
+  }
+  assert.equal(cmds.size, 50);
+});
+
+test("the demo stub represents 「没有目标」 instead of inventing one", () => {
+  // routing it through `buildEnvelope` meant substituting a made-up target, because
+  // refusing a missing target is exactly what the real constructor is for
+  const r = submitCommand({ name: "generate", params: { kind: "image" } });
+  assert.equal(r.status, "accepted");
+  assert.equal(r.command.target, null);
+  assert.equal(r.command.actor, "user");
+  assert.deepEqual(r.command.params, { kind: "image" });
+  assert.notEqual(
+    submitCommand({ name: "a" }).command.command_id,
+    submitCommand({ name: "a" }).command.command_id,
+  );
 });

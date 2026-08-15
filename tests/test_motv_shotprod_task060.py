@@ -230,3 +230,37 @@ def test_core_contracts_untouched_by_cp4() -> None:
         if "shotProduction" in p.read_text("utf-8", errors="ignore")
     ]
     assert hits == [], f"core modules must not know about the mockup state: {hits}"
+
+
+def test_approving_a_shot_records_a_layer_1_decision_that_names_the_take() -> None:
+    """TASK-072 §1.5 / 系统合同 §6.4：通过 = 一条层 1 ReviewDecision，不只是旧标记。"""
+    app = _code("app.js")
+    approve = app.split("approve: (shotId, note)", 1)[1].split("unapprove:", 1)[0]
+    # the Decision is built BEFORE the legacy marker: writing the marker while failing
+    # to record the decision leaves the two disagreeing, with the weaker one winning
+    assert approve.index("review.decision(") < approve.index("shotprod.approveShot(")
+    assert 'layer: "shot"' in approve
+    assert 'verdict: "passed"' in approve
+    assert 'by: "user"' in approve
+    # WHICH take — a decision with no version can never go stale (§6.4)
+    assert "basedOnVersion: media.videoVersion" in approve
+    # …and if that version cannot be read, the approval is REFUSED rather than
+    # recorded without saying what it approved
+    assert "if (!dec.ok)" in approve
+    assert "return false" in approve.split("if (!dec.ok)", 1)[1][:200]
+
+    # withdrawal APPENDS a needs_rework decision judged against the SAME version —
+    # the approval happened, on a take that existed (G5 只追加)
+    undo = app.split("unapprove: (shotId) => {", 1)[1]
+    undo = undo.split("references: (shotId)", 1)[0]
+    assert 'verdict: "needs_rework"' in undo
+    assert "prev.basedOnVersion" in undo
+    # only APPENDED to — a withdrawn approval that vanished would make the history
+    # claim the creator never approved it
+    assert "decisions: [...reviewsDoc.decisions, undo.value]" in undo
+    assert "reviewsDoc.decisions.filter" not in undo
+
+    # the version the decision is bound to comes from the media registry, not invented
+    media_of = app.split("mediaOf: (shot) =>", 1)[1].split("_slotOf:", 1)[0]
+    want = "videoVersion: vid && Number.isInteger(vid.version) ? vid.version : null"
+    assert want in media_of

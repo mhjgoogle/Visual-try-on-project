@@ -279,18 +279,36 @@ export function adoptPaid(project, taskId, slug) {
   );
 }
 
+/** An operation id that cannot collide with one started in the same millisecond.
+ *
+ *  The paid paths correlate `command_id` with `operation_id` by construction
+ *  (`cmd-${opId}`), so they pass an EXPLICIT command id — which means
+ *  `buildEnvelope`'s own anti-collision suffix never applies to them and only the
+ *  lock path benefited from it (independent review). The uniqueness has to be in the
+ *  operation id itself, which is what this is for. */
+export function newOperationId(prefix = "op-ui-") {
+  return `${prefix}${Date.now().toString(36)}-${++_cmdSeq}`;
+}
+
 /** Demo stub (non-paid modes): logs and resolves, changes nothing.
  *
  *  It stays a WRITE-module export even though it writes nothing: it stands where the
  *  real command goes, and moving it to the read module would make the demo path and
- *  the real path differ in which seam they come from. */
+ *  the real path differ in which seam they come from.
+ *
+ *  It builds its envelope ITSELF rather than through `buildEnvelope`, because it must
+ *  be able to represent 「这个演示命令没有目标」 — and refusing exactly that is the
+ *  real constructor's job. Routing it through anyway meant substituting a made-up
+ *  `"demo"` target, i.e. the stub narrating a target it does not have. */
 export function submitCommand(cmd) {
-  const envelope = buildEnvelope(
-    cmd.name,
-    cmd.target || "demo",
-    cmd.params || {},
-  );
+  const envelope = {
+    command_id: `cmd-${Date.now().toString(36)}-${++_cmdSeq}`,
+    name: cmd.name,
+    actor: "user",
+    target: cmd.target || null,
+    params: cmd.params || {},
+  };
   // eslint-disable-next-line no-console
-  console.info("[gateway:stub] submit", { ...envelope, actor: "user" });
+  console.info("[gateway:stub] submit", envelope);
   return { status: "accepted", command: envelope, note: "prototype stub — no real write" };
 }

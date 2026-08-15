@@ -216,6 +216,18 @@ test("`burned` is unavailable even WITH a cue track — the normal case", () => 
     assert.equal(r.state, "unavailable", JSON.stringify(t));
     assert.match(r.detail, /未检查不等于通过/);
   }
+  // …but a BROKEN cue track is still named as a failure. `unavailable` does not
+  // block the export the way `fail` does, so reporting it as 「没检查」 made a burned
+  // delivery with zero cues exportable with no defect ever stated. What cannot be
+  // verified is the burn-in; the cue data is right here.
+  assert.equal(checkSubtitles({ cues: [] }, { subtitleMode: "burned" }).state, "fail");
+  const inverted = { cues: [{ startMs: 900, endMs: 100, text: "陛下" }] };
+  assert.equal(checkSubtitles(inverted, { subtitleMode: "burned" }).state, "fail");
+  const past = { cues: [{ startMs: 0, endMs: 90_000, text: "陛下" }] };
+  assert.equal(checkSubtitles(past, { durationMs: 60_000, subtitleMode: "burned" }).state, "fail");
+  // and a valid track under burned is still unavailable, not pass
+  assert.equal(checkSubtitles(track, { durationMs: 60_000, subtitleMode: "burned" }).state, "unavailable");
+
   // …and a perfectly valid track under any OTHER mode still passes normally
   assert.equal(checkSubtitles(track, { durationMs: 60_000, subtitleMode: "sidecar" }).state, "pass");
   // 「不做字幕」 stays the one mode that legitimately passes with nothing to check

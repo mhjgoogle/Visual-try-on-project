@@ -123,7 +123,16 @@ export function checkSubtitles(track, { durationMs = null, subtitleMode = null }
   // 「没有证据说明烧录发生了，却报告通过」 this block exists to prevent (independent
   // review, batch 4). An authored track proves the cues were WRITTEN; it proves
   // nothing about whether the renderer burned them into the pixels.
+  //
+  // …but it returns unavailable ONLY when the cue data itself is sound. Returning
+  // early in every case swapped a `fail` for an `unavailable` on an empty or
+  // malformed track, and `unavailable` does not block the export the way `fail`
+  // does — so a burned delivery with zero cues became exportable with no defect
+  // ever named (independent review, next round). What cannot be verified is the
+  // BURN-IN; the cue data is right here and is still checkable.
   if (subtitleMode === "burned") {
+    const authored = checkSubtitles(track, { durationMs, subtitleMode: null });
+    if (authored.state === "fail") return authored;
     return unavailable(
       "subtitle",
       "本片规格为烧录字幕：字幕在画面里，本检查无法验证它是否真的烧进去了——未检查不等于通过",
