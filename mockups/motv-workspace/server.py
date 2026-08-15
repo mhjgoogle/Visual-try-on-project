@@ -653,7 +653,21 @@ _IMAGE_LOG = DATA_DIR / "paid-image-log.jsonl"
 #   2. shutil.which(<name>)    — ADR-0049: resolve, never invoke by bare name.
 #   3. neither → `unavailable`, reported honestly. Never a fabricated "ready".
 _SKILL_OUTPUT_CAP = 512_000
-_SKILL_TIMEOUT_DEFAULT = 240
+# 240s was too short for this product's MAIN use (2026-08-15, real project):
+# 「AI 生成本集剧本」 on a 48-episode work failed with 「执行器超过 240 秒未返回」.
+# Long-form generation — an episode script, an outline, a breakdown — is the
+# normal case here, not the exception, so the DEFAULT has to cover it.
+#
+# The cost of a larger default is only paid by a run that is going to fail
+# anyway: the creator waits longer for the error. That is the better trade —
+# waiting 10 minutes for a script beats being told at 4 minutes that the thing
+# which was still working has 「failed」.
+#
+# No caller currently passes an explicit `timeout`, so this value IS the timeout
+# for every skill run (`skillctl.js` calls `runOnExecutor` without one). The MAX
+# stays where it is: it bounds what a request may ask for, and nothing in the
+# UI asks.
+_SKILL_TIMEOUT_DEFAULT = 600
 _SKILL_TIMEOUT_MAX = 900
 _SKILL_PROMPT_MAX = 200_000
 # Transport ceiling for /api/skill/run, enforced BEFORE the body is read. A

@@ -20,6 +20,7 @@ STRICTLY OFFLINE, no spend, no executor is launched. Runs the frontend units via
 
 from __future__ import annotations
 
+import inspect
 import json
 import re
 import shutil
@@ -569,3 +570,30 @@ def test_a_configured_launch_command_must_be_a_json_argv_array() -> None:
             os.environ.pop("MOTV_RUNTIME_ALLOW_FS_READING_EXECUTORS", None)
         else:
             os.environ["MOTV_RUNTIME_ALLOW_FS_READING_EXECUTORS"] = old_gate
+
+
+def test_the_three_skill_timeouts_stay_consistent_with_each_other() -> None:
+    """三个超时必须互相协调，改一个忘了另一个会**静默**失效。
+
+    · DEFAULT ≤ MAX —— 否则默认值会被 `min(raw, MAX)` 夹掉，「默认」名存实亡；
+    · `_await_run` 的等待 > MAX —— 否则最长的一次运行会在等待层先超时，
+      创作者看到的是「没返回」而不是执行器自己的超时原因。
+
+    DEFAULT 本身就是实际生效值：`skillctl.js` 调 `runOnExecutor` 时不传 timeout，
+    所以没有任何调用方会覆盖它。2026-08-15 真实项目上 240s 不够用——48 集作品的
+    「AI 生成本集剧本」报「执行器超过 240 秒未返回」——因此提到 600s；长文本生成
+    在这个产品里是常态而不是例外。
+    """
+    sys.path.insert(0, str(_MOCKUP_DIR))
+
+    import server as srv  # noqa: PLC0415 - path injected above
+
+    assert srv._SKILL_TIMEOUT_DEFAULT <= srv._SKILL_TIMEOUT_MAX
+    assert srv._SKILL_TIMEOUT_DEFAULT >= 600, (
+        "长文本生成是常态：低于 600s 会让正常的剧本/大纲生成被判成失败"
+    )
+    sig = inspect.signature(srv._await_run)
+    await_default = sig.parameters["timeout"].default
+    assert await_default > srv._SKILL_TIMEOUT_MAX, (
+        "等待层必须比执行器超时更长，否则超时原因会被它自己盖掉"
+    )
