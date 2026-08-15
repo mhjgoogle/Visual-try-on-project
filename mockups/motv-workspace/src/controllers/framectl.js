@@ -1,4 +1,12 @@
-// FRAME controller (ADR-0061 决策 7 / TASK-066) — 首帧 / 尾帧的提取、绑定与重提取.
+// FRAME controller (ADR-0061 决策 7 / TASK-064 Phase 2 §7 / TASK-066) —
+// 上一镜尾帧 → 下一镜首帧.
+//
+//   SH01 Video v3 ──[提取 t]──▶ 派生 Image Asset ──▶ SH02 Start Frame
+//
+// NOT A SECOND FRAME SYSTEM. The EFFECTIVE start frame is still
+// `assets.firstFrames[slot]` — the pointer the paid route, the draft lock and the
+// provenance graph already read. `bind` writes that pointer AND the provenance
+// record in the same call, so they cannot drift apart.
 //
 // TASK-073 §1.8, same pattern as `lockctl.js`: documents arrive as GETTERS because
 // the bindings are module-level `let`s reassigned on project load.

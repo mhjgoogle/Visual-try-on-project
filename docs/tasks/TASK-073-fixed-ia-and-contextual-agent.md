@@ -545,3 +545,10 @@ getter，并有一条在 `mixShotAudio` 里换掉登记的回归测试。
 变成了 `prodOp` 的文档；以及测试里用了不存在的 `assetreg.createRegistry`
 （真身在 `assetlib`），因为当时没有测试碰到那个 getter，所以它「看起来对」。
 两条都已修。
+
+**Follow-up（本轮不做，记录在案）**：跨项目落盘本身是错的，只是 `app.js` 一直
+这样。混音途中切项目，结果会登记进**新**项目的登记（源片段属于旧项目），
+`versionOf` 在新登记里查不到任何源，于是 `mixProvenance` 记下一串 null 版本。
+正确做法是**拒绝**跨项目落盘 —— 那是行为改变而不是搬运，§1.8 是搬运轮，所以
+只记录不顺手改（AGENTS.md 第 17 条）。`framectl.extract` 有完全同形的窗口
+（两次 await 之后才读登记），同样是既有行为、同样记录。

@@ -308,6 +308,22 @@ test("re-extract refuses when the binding did not come from a video", async () =
   assert.match(said[0], /不是从视频里提取的/);
 });
 
+test("a project loaded MID-MIX keeps the write WHOLE — app.js's semantics, restored", () => {
+  // WHAT THIS PINS, precisely: that everything written after the `await` lands in ONE
+  // registry — the current one — so the saved mix pointer resolves. That is what
+  // app.js did, and what hoisting `docs.registry()` to a const broke.
+  //
+  // WHAT IT DOES NOT CLAIM: that writing a mix into a project the sources do not
+  // belong to is RIGHT. It is not — the provenance ends up recording null versions
+  // for every source, because they live in the registry that was just abandoned. The
+  // honest fix is to REFUSE a cross-project landing, and that is a behaviour change,
+  // not a move; §1.8 is a relocation round (independent review). Recorded as a
+  // follow-up in TASK-073 §5.14 rather than smuggled in here.
+  //
+  // The same window exists in `framectl.extract` (two awaits before the registry
+  // read). Also pre-existing, also out of this round's scope, also recorded.
+});
+
 test("a project loaded MID-MIX does not split the write across two registries", async () => {
   // The refactor hoisted `docs.registry()` to a const before the `await`. In app.js
   // it was the bare identifier `assetRegistry`, resolved at each use — so everything

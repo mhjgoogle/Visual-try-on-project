@@ -3052,12 +3052,10 @@ const ctx = {
   // ---------------------------------------------------------------------- //
   // FRAMES (TASK-064 Phase 2 §7) — 上一镜尾帧 → 下一镜首帧.
   //
-  //   SH01 Video v3 ──[提取 t]──▶ 派生 Image Asset ──▶ SH02 Start Frame
-  //
-  // NOT A SECOND FRAME SYSTEM. The EFFECTIVE start frame is still
-  // `assets.firstFrames[slot]` — the pointer the paid route, the draft lock and
-  // the provenance graph already read. `bind` writes that pointer AND the
-  // provenance record in the same call, so they cannot drift apart.
+  // MOVED to src/controllers/framectl.js (TASK-073 §1.8), where this section's
+  // explanation now lives with the code. Left here, it came to sit directly above
+  // the SHOT AUDIO header — the same misattribution as the `_writeCue` doc block
+  // that ended up documenting `prodOp` (independent review).
   // ---------------------------------------------------------------------- //
   // ---------------------------------------------------------------------- //
   // Per-shot MULTI-TRACK AUDIO (ADR-0061 决策 6 / §37–§39).
