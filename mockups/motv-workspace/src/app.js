@@ -64,6 +64,9 @@ import * as ctxcache from "./workflow/ctxcache.js";
 import { SPEC_FIELD_BY_KEY, validateField } from "./workflow/deliveryspec.js";
 // TASK-073 §1.8: controllers extracted from this file, one per domain
 import { createLockController } from "./controllers/lockctl.js";
+import { createReferenceController } from "./controllers/refctl.js";
+import { createSubtitleController } from "./controllers/subtitlectl.js";
+import { createShotAudioController } from "./controllers/shotaudioctl.js";
 import { createTimelineController } from "./controllers/timelinectl.js";
 // TASK-072 §1.5/§1.6: the three review layers and the five gates, as domain
 import * as review from "./workflow/review.js";
@@ -2820,74 +2823,6 @@ const ctx = {
   // infers a reading from a file — a reading has a human or a named Skill Run
   // behind it, always.
   // ---------------------------------------------------------------------- //
-  refInterp: {
-    reading: (refKey) => refinterp.activeReading(refInterpDoc, refKey),
-    entry: (refKey) => refinterp.entryOf(refInterpDoc, refKey),
-    /** Record a reading. Returns the version, or 0 when refused (a LOCKED
-     *  reading refuses everything that is not a manual edit). */
-    save: (refKey, axes, opts = {}) => {
-      // WHAT IS BEING READ, recorded with the reading (TASK-072 §1.9 缺陷 3).
-      // Resolved HERE from the registry rather than trusted from the caller: the
-      // whole point is that the record describes the material that actually existed
-      // at the moment of reading, so a later version swap can be reported as drift
-      // instead of silently relabelling an old note as a new one.
-      const chain = ctx.assets.chainOf(refKey);
-      const cur = chain && Array.isArray(chain.list)
-        ? chain.list.find((x) => x.current) || null
-        : null;
-      const v = refinterp.addReading(refInterpDoc, refKey, {
-        axes,
-        origin: opts.origin || "manual",
-        at: new Date().toISOString(),
-        skillRunId: opts.skillRunId || null,
-        proposalId: opts.proposalId || null,
-        basedOnAssetId: cur && cur.assetId ? cur.assetId : null,
-        basedOnVersion: cur && Number.isInteger(cur.version) ? cur.version : null,
-      });
-      if (v) { ctx.persist(); refreshProductionView(); }
-      return v;
-    },
-    setActive: (refKey, version) => prodOp(refinterp.setActive(refInterpDoc, refKey, version)),
-    setLocked: (refKey, on) => prodOp(refinterp.setLocked(refInterpDoc, refKey, on)),
-    /** The interpretation inputs for a shot — its bound INTERPRETATION-kind
-     *  references, each with its active reading (or `read: false`). ONE
-     *  derivation, shared by the prompt compiler, the Generation Input Set and
-     *  the Inspector, so those three cannot disagree about what has been read. */
-    forShot: (shotId) => refinterp.interpretationInputs(
-      refInterpDoc,
-      ctx.episode.referencesOfShot(shotId),
-      assetreg.INTERPRETATION_KINDS,
-    ),
-  },
-
-  // ---------------------------------------------------------------------- //
-  // 参考用途 (TASK-066 §4 / §5) — 「这个参考服务主要画面，还是视频编排，还是两者」.
-  //
-  // The card's `⋮` menu writes here, and `referenceInputs` (ui/storyboard.js) reads
-  // it when it splits the bound list for the two compilers — so a choice made in the
-  // menu really changes what the Prompt says. Without that read it would be a
-  // control that does nothing, which is the empty promise this codebase keeps
-  // catching itself at.
-  //
-  // A choice equal to the role's own default is stored as NOTHING (see refuse.setUse):
-  // 「按类型推导」 and 「恰好选了同一边」 must stay distinguishable.
-  // ---------------------------------------------------------------------- //
-  refUse: {
-    USES: refuse.USES,
-    USE_LABEL: refuse.USE_LABEL,
-    USE_CHIP: refuse.USE_CHIP,
-    /** Which sides this role may serve — from what the COMPILERS read, so the menu
-     *  can never offer a switch the prompt compiler ignores (§5 「语义允许时」). */
-    allowed: (role) => refuse.allowedUses(role),
-    /** `{ use, source }` — `source` is "creator" or "role", so the card can say
-     *  whether the creator set it or it was derived. */
-    effective: (shotId, refKey, role) => refuse.effectiveUse(refUseDoc, shotId, refKey, role),
-    /** The two groups the LEFT column renders. A `both` reference is in BOTH. */
-    groups: (shotId) => refuse.groupsForShot(refUseDoc, shotId, ctx.episode.referencesOfShot(shotId)),
-    set: (shotId, refKey, use, role) => prodOp(refuse.setUse(refUseDoc, shotId, refKey, use, role)),
-    clear: (shotId, refKey) => prodOp(refuse.clearUse(refUseDoc, shotId, refKey)),
-  },
-
   // ---------------------------------------------------------------------- //
   // Shot CONTEXT (TASK-067 §3 / §15 / ADR-0064 决策 1–4) — the minimal, traceable
   // context a shot-scoped capability reads, plus the deterministic candidate set a
@@ -3323,248 +3258,6 @@ const ctx = {
   //     → internal mix (local ffmpeg)
   //     → ONE derived Shot Mixed Audio Asset — sources untouched, always
   // ---------------------------------------------------------------------- //
-  shotAudio: {
-    TRACKS: shotaudio.TRACKS,
-    TRACK_LABEL: shotaudio.TRACK_LABEL,
-    clips: (shotId) => shotaudio.clipsOf(shotAudioDoc, shotId),
-    mix: (shotId) => shotaudio.mixOf(shotAudioDoc, shotId),
-    /**
-     * The ANCHORS a shot's clips may sync to, resolved to milliseconds.
-     *
-     * Derived from what the documents really hold, so an anchor either resolves
-     * or is reported unresolved — never placed at zero:
-     *
-     *   shot:start / shot:end        the shot's own bounds
-     *   dialogue:<shotId>            where this shot's line sits (its start)
-     *   action:<name>                a named beat the creator declared on the
-     *                                shot (`shot.audioAnchors`), in ms
-     *
-     * 「AI 以后可以提出 event，但不能直接偷偷改 canonical timeline」 (§35): a Skill
-     * proposes an OFFSET against one of these; it cannot mint an anchor.
-     */
-    anchors: (shotId) => {
-      const shot = ctx.shot.find(shotId);
-      const durMs = Math.round(((shot && shot.duration_seconds === 10) ? 10 : 6) * 1000);
-      const out = { "shot:start": 0, "shot:end": durMs };
-      if (shot && typeof shot.dialogue === "string" && shot.dialogue.trim()) out[`dialogue:${shotId}`] = 0;
-      // creator-declared beats live on the draft shot as `audioAnchors`
-      const declared = shot && shot.audioAnchors;
-      if (declared && typeof declared === "object" && !Array.isArray(declared)) {
-        for (const name of Object.keys(declared)) {
-          const v = declared[name];
-          if (Number.isFinite(v)) out[`action:${name}`] = Math.max(0, Math.round(v));
-        }
-      }
-      return out;
-    },
-    /** Source durations, where the registry knows them. Unknown stays unknown —
-     *  `resolveClips` then reports `endMs: null` rather than a guessed length. */
-    durations: () => ({}),
-    resolved: (shotId) => shotaudio.resolveClips(shotaudio.clipsOf(shotAudioDoc, shotId), {
-      anchors: ctx.shotAudio.anchors(shotId),
-      durations: ctx.shotAudio.durations(),
-    }),
-    byTrack: (shotId) => shotaudio.byTrack(ctx.shotAudio.resolved(shotId)),
-    standing: (shotId) => shotaudio.mixStanding(shotAudioDoc, shotId, ctx.shotAudio.resolved(shotId)),
-    add: (shotId, clip) => prodNew(shotaudio.addClip(shotAudioDoc, shotId, clip)),
-    remove: (shotId, clipId) => prodOp(shotaudio.removeClip(shotAudioDoc, shotId, clipId)),
-    move: (shotId, clipId, timing, opts) => prodOp(shotaudio.moveClip(shotAudioDoc, shotId, clipId, timing, opts)),
-    trim: (shotId, clipId, inMs, outMs, opts) => prodOp(shotaudio.trimClip(shotAudioDoc, shotId, clipId, inMs, outMs, opts)),
-    setGain: (shotId, clipId, gain, opts) => prodOp(shotaudio.setGain(shotAudioDoc, shotId, clipId, gain, opts)),
-    setFade: (shotId, clipId, fi, fo, opts) => prodOp(shotaudio.setFade(shotAudioDoc, shotId, clipId, fi, fo, opts)),
-    setMuted: (shotId, clipId, on, opts) => prodOp(shotaudio.setMuted(shotAudioDoc, shotId, clipId, on, opts)),
-    replaceAsset: (shotId, clipId, assetId, opts) => prodOp(
-      shotaudio.replaceClipAsset(shotAudioDoc, shotId, clipId, assetId, opts),
-    ),
-    /** The AUTOMATIC first arrangement (§41): the shot's dialogue take, its
-     *  scene's ambience, the episode's BGM. It invents nothing and never touches
-     *  a locked or hand-placed clip. */
-    autoArrange: (shotId) => {
-      const shot = ctx.shot.find(shotId);
-      const slot = shot ? ctx.shot._slotOf(shot) : null;
-      const owner = proddoc.sceneOfShot(productionDoc, shotId);
-      const dialogue = slot ? mediaref.currentRef(assetRegistry.audio, `voice-${slot}`) : null;
-      // scene ambience and the effective BGM are stored as ASSET IDS on the
-      // production document (proddoc), not as chain keys — they are references to
-      // one reusable recording that many scenes share
-      const bgm = owner
-        ? proddoc.effectiveBgm(productionDoc, owner.episode.episodeId, owner.scene.sceneId)
-        : null;
-      const res = shotaudio.autoArrange(shotAudioDoc, shotId, {
-        dialogue: dialogue ? dialogue.assetId : null,
-        ambience: owner && owner.scene.ambienceAssetId ? owner.scene.ambienceAssetId : null,
-        bgm: bgm ? bgm.assetId : null,
-        durationMs: Math.round(((shot && shot.duration_seconds === 10) ? 10 : 6) * 1000),
-      });
-      if (res.added.length) { ctx.persist(); refreshProductionView(); }
-      return res;
-    },
-    /**
-     * MIX the shot's audio into ONE derived Asset (§38).
-     *
-     * The sources are read and left completely alone; the mix is a new
-     * `shot-mix` Asset on its own chain, and its provenance snapshot records
-     * every source assetId, version, timing, anchor, offset, gain and fade it was
-     * made with — frozen, so it keeps describing what it IS after the clips move.
-     */
-    mixNow: async (shotId) => {
-      if (!CONNECTED) throw new Error("演示模式无后端，无法混音");
-      const shot = ctx.shot.find(shotId);
-      const slot = shot ? ctx.shot._slotOf(shot) : null;
-      if (!slot) throw new Error("镜头身份未解析：无法定位混音槽位");
-      const resolved = ctx.shotAudio.resolved(shotId);
-      const audible = resolved.filter((c) => !c.muted && !c.unresolved);
-      if (!audible.length) throw new Error("这个镜头没有可混的音频片段（全部静音或对位未解析）");
-      const clips = [];
-      for (const c of audible) {
-        const hit = assetlib.findAssetById(assetRegistry, c.assetId);
-        if (!hit || !hit.record.url) throw new Error(`片段引用的素材不存在或字节已移除：${c.assetId}`);
-        if (hit.record.storageState && hit.record.storageState !== "local") {
-          throw new Error(`片段素材的字节不在本地：${assetreg.derivedLabel({ ...hit.record, key: hit.key })}`);
-        }
-        const base = String(hit.record.url).split("/").pop();
-        clips.push({
-          file: base,
-          in: c.sourceInMs / 1000,
-          // THREE cases, and they mean different things:
-          //
-          //   no out point        「到素材结束」 — the server resolves the real
-          //                       duration with ffprobe. Substituting
-          //                       `sourceInMs + 1000` here truncated every
-          //                       un-trimmed clip to one second and still
-          //                       reported success.
-          //   AUTO clip's out     a CAP the arranger derived from the shot's
-          //                       length, not a request for that much audio. A
-          //                       4-second ambience bed under a 6-second shot is
-          //                       not an error — sent as `maxOut`, which clamps.
-          //   MANUAL clip's out   the creator's own trim. Sent as `out`, and the
-          //                       server REFUSES it if the file is shorter:
-          //                       they asked for audio that does not exist.
-          ...(c.sourceOutMs != null
-            ? (c.origin === "auto"
-              ? { maxOut: c.sourceOutMs / 1000 }
-              : { out: c.sourceOutMs / 1000 })
-            : {}),
-          start: (c.startMs || 0) / 1000,
-          gainDb: c.gain,
-          fadeInMs: c.fadeInMs,
-          fadeOutMs: c.fadeOutMs,
-        });
-      }
-      const key = `mix-${slot}`;
-      const res = await query.mixShotAudio(PROJECT_NAME, key, clips);
-      const ref = mediaref.refFromResponse(key, "mix", res, shotId);
-      const decl = assetreg.declare(ref, "audio", {
-        kind: "shot-mix",
-        displayName: `${(shot && shot.title) || "镜头"} 混音 v${res.version}`,
-        originalFilename: null,
-        links: contextOfShot(shotId),
-      });
-      if (!decl.ok) throw new Error(`登记失败：${decl.error}`);
-      mediaref.addVersion({ uploads: assetRegistry.audio }, key, ref);
-      // the mix is a DERIVED result of real inputs, so it is a Generation like any
-      // other — that is what puts it on the provenance graph with its sources
-      const prov = shotaudio.mixProvenance(resolved, {
-        settings: { format: "mp3", sampleRate: 44100, bitrate: "192k" },
-        versionOf: (assetId) => {
-          const h = assetlib.findAssetById(assetRegistry, assetId);
-          return h && Number.isInteger(h.record.version) ? h.record.version : null;
-        },
-      });
-      const gen = ctx.startGeneration({
-        type: "audio",
-        targetType: "shot",
-        targetId: shotId,
-        inputAssetIds: prov.sources.map((s) => s.assetId),
-        referenceAssetIds: [],
-        promptSnapshot: null,
-        provider: "shot-mix",
-        parameters: { mix: prov.settings, sources: prov.sources, unresolved: prov.unresolved },
-        status: "generating",
-      });
-      if (gen) ctx.completeGeneration(gen.generationId, [ref.assetId]);
-      shotaudio.setMix(shotAudioDoc, shotId, {
-        assetId: ref.assetId,
-        at: new Date().toISOString(),
-        provenance: prov,
-      });
-      ctx.refreshType("audio");
-      ctx.persist();
-      refreshProductionView();
-      toast(`镜头混音 v${res.version} 已生成（${prov.sources.length} 条源素材全部保留）`);
-      return ref;
-    },
-  },
-
-  // ---------------------------------------------------------------------- //
-  // SUBTITLE track (ADR-0061 决策 6 / §44–§45) — automatic by default.
-  // ---------------------------------------------------------------------- //
-  subtitles: {
-    ADAPTERS: subtitle.ADAPTERS,
-    STYLE_PRESETS: subtitle.STYLE_PRESETS,
-    track: () => subtitle.trackFor(subtitlesDoc, productionDoc.activeEpisodeId),
-    overlaps: () => subtitle.overlaps(ctx.subtitles.track()),
-    /** Case A: dialogue text + the CUT's timing → cues. The timing comes from the
-     *  timeline because that is what the viewer sees; using the shot's nominal
-     *  duration would drift from the picture the moment anything was trimmed. */
-    generate: () => {
-      const t = timeline.timelineFor(timelinesDoc, productionDoc.activeEpisodeId);
-      const rows = [];
-      // `liveClips`, NOT `clipsOf` (TASK-072 §1.9 缺陷 5). `clipsOf` excludes
-      // removed clips by default TODAY, but the cut's definition of 「in the
-      // picture」 is `liveClips` — one definition, so the SRT, the render and the
-      // duration cannot disagree. Generating cues for a clip the viewer will never
-      // see ships a subtitle describing a shot that is not in the film.
-      for (const c of timeline.liveClips(t)) {
-        if (c.trackType !== "video") continue;
-        if (!c.shotId) continue;
-        const shot = ctx.shot.find(c.shotId);
-        if (!shot) continue;
-        rows.push({
-          shotId: c.shotId,
-          startMs: Math.round(c.startTime * 1000),
-          endMs: Math.round((c.startTime + (c.trimOut - c.trimIn)) * 1000),
-          dialogue: shot.dialogue || "",
-          // WHO speaks, ONLY where the shot itself names a speaker. Falling back
-          // to the scene's first character would print a name nobody said — and a
-          // subtitle attributing a line to the wrong character is worse than an
-          // unattributed one, because it reads as a fact.
-          speaker: typeof shot.speaker === "string" && shot.speaker ? shot.speaker : null,
-        });
-      }
-      const track = ctx.subtitles.track();
-      const res = subtitle.generateFromDialogue(track, rows, {
-        at: new Date().toISOString(),
-        isLocked: (cueId) => ctx.locks.is("subtitle", cueId),
-      });
-      if (res.added.length) { ctx.persist(); refreshProductionView(); }
-      return res;
-    },
-    /** An unavailable adapter answers with its real reason — no fake ASR (§45). */
-    tryAdapter: (id) => subtitle.adapterUnavailable(id),
-    update: (cueId, fields) => prodOp(_writeCue(cueId, fields, { force: true })),
-    /** A SKILL's edit of a cue — same write path, but the lock is enforced. */
-    applyFix: (cueId, fields, meta = {}) =>
-      prodOp(
-        _writeCue(cueId, fields, {
-          force: false,
-          origin: meta.skillRunId ? "skill" : "manual",
-        }),
-      ),
-    add: (cue) => prodNew(subtitle.addCue(ctx.subtitles.track(), cue)),
-    remove: (cueId) => prodOp(subtitle.removeCue(ctx.subtitles.track(), cueId, {
-      isLocked: (id) => ctx.locks.is("subtitle", id),
-    })),
-    split: (cueId, atMs, splitAtChar) => prodOp(subtitle.splitCue(ctx.subtitles.track(), cueId, atMs, {
-      splitAtChar, at: new Date().toISOString(), isLocked: (id) => ctx.locks.is("subtitle", id),
-    })),
-    setStyle: (style) => prodOp(subtitle.setStyle(ctx.subtitles.track(), style)),
-    /** SRT for the current track. Subtitles are NOT burned into the picture this
-     *  round; an SRT beside the MP4 is the honest form of 「字幕交付」 without
-     *  claiming a burn-in that did not happen. */
-    srt: () => subtitle.toSRT(ctx.subtitles.track()),
-  },
-
   // ---------------------------------------------------------------------- //
   // The Action Layer dispatcher (ADR-0061 决策 9 / TASK-064 §52).
   //
@@ -5259,6 +4952,70 @@ ctx.timeline = createTimelineController({
   getCtx: () => ctx,
 });
 
+// TASK-073 §1.8: 参考解读 + 参考用途 —— 同一个域的两面（「这张参考读出了什么」与
+// 「它服务哪一边」），由同一份绑定列表派生，因此一起搬出去。旧的 `ctx.refInterp` /
+// `ctx.refUse` 保持原名指向控制器的两半，调用点一处不用改。
+ctx._refs = createReferenceController({
+  docs: { refInterp: () => refInterpDoc, refUse: () => refUseDoc },
+  modules: { refinterp, refuse, assetreg },
+  referencesOfShot: (shotId) => ctx.episode.referencesOfShot(shotId),
+  chainOf: (refKey) => ctx.assets.chainOf(refKey),
+  prodOp,
+  persist: () => ctx.persist(),
+  refresh: () => refreshProductionView(),
+  now: () => new Date().toISOString(),
+});
+ctx.refInterp = ctx._refs.interp;
+ctx.refUse = ctx._refs.use;
+
+// TASK-073 §1.8: 字幕控制器。`_writeCue` 跟着一起搬 —— 它是 app.js 里只被这个
+// 控制器的 update / applyFix 用到的模块级辅助，而且它持有那条容易写错两次的规则
+// （合并 + 编辑要么整体生效要么整体不生效）。把事务和它仅有的调用方留在两个文件里
+// 没有道理。
+ctx.subtitles = createSubtitleController({
+  docs: {
+    subtitles: () => subtitlesDoc,
+    production: () => productionDoc,
+    timelines: () => timelinesDoc,
+  },
+  modules: { subtitle, timeline },
+  findShot: (shotId) => ctx.shot.find(shotId),
+  isCueLocked: (cueId) => ctx.locks.is("subtitle", cueId),
+  prodOp,
+  prodNew,
+  persist: () => ctx.persist(),
+  refresh: () => refreshProductionView(),
+  now: () => new Date().toISOString(),
+});
+
+// TASK-073 §1.8: 镜头音频。这一个的依赖列表是全组里最长的 —— mixNow 要读登记、
+// 调后端、登记 Asset、记一条 Generation、再写混音指针。在 app.js 里这五件事是
+// 看不见的（它们只是作用域里的名字）。列出来才看得出它是音频面里波及最广的操作。
+ctx.shotAudio = createShotAudioController({
+  docs: {
+    shotAudio: () => shotAudioDoc,
+    production: () => productionDoc,
+    registry: () => assetRegistry,
+  },
+  modules: { shotaudio, proddoc, mediaref, assetreg, assetlib },
+  findShot: (shotId) => ctx.shot.find(shotId),
+  slotOf: (shot) => ctx.shot._slotOf(shot),
+  contextOfShot,
+  session: { connected: () => CONNECTED, projectName: () => PROJECT_NAME },
+  mixShotAudio: (project, key, clips) => command.mixShotAudio(project, key, clips),
+  generations: {
+    start: (entry) => ctx.startGeneration(entry),
+    complete: (id, ids) => ctx.completeGeneration(id, ids),
+  },
+  refreshType: (t) => ctx.refreshType(t),
+  prodOp,
+  prodNew,
+  persist: () => ctx.persist(),
+  refresh: () => refreshProductionView(),
+  toast,
+  now: () => new Date().toISOString(),
+});
+
 ctx.locks = createLockController({
   docs: {
     locks: () => locksDoc,
@@ -5606,35 +5363,6 @@ function _clipChain(shotId, trackType) {
  *  BOTH OR NEITHER. The merge runs first (the field edit describes the merged
  *  window), and if the edit is then refused — a lock, a bad value — the merge is
  *  ROLLED BACK from a snapshot so the track never keeps half a fix. */
-function _writeCue(cueId, fields, { force = false, origin = null } = {}) {
-  const track = ctx.subtitles.track();
-  if (!track || fields == null || typeof fields !== "object") return false;
-  const at = new Date().toISOString();
-  const isLocked = (id) => ctx.locks.is("subtitle", id);
-  const opts = { at, force, isLocked, ...(origin ? { origin } : {}) };
-  const rest = {};
-  for (const k of Object.keys(fields)) {
-    if (k !== "mergeWithNext") rest[k] = fields[k];
-  }
-  const hasRest = Object.keys(rest).length > 0;
-  if (fields.mergeWithNext !== true) {
-    return !!subtitle.updateCue(track, cueId, rest, opts);
-  }
-  // A DEEP snapshot. `slice()` copies the ARRAY but not the cues in it, and
-  // `mergeCue` mutates the surviving cue in place (text, endMs, speaker) — so
-  // restoring the array put back the next cue while the merged one KEPT its merged
-  // text, producing duplicated/overlapping subtitles: exactly the half-applied fix
-  // this function exists to prevent (independent review, batch 3).
-  const snapshot = track.cues.map((c) => ({ ...c }));
-  if (!subtitle.mergeCue(track, cueId, { at, isLocked })) return false;
-  if (!hasRest) return true;
-  if (!subtitle.updateCue(track, cueId, rest, opts)) {
-    track.cues = snapshot; // refuse whole, keep nothing
-    return false;
-  }
-  return true;
-}
-
 function prodOp(ok) {
   if (ok) {
     ctx.persist();
