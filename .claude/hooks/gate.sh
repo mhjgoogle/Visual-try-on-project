@@ -188,7 +188,7 @@ if [ -z "$FAIL_LABEL" ]; then
       run_check "pytest (full, parallel)" 240 "$PY" -m pytest -n 8 -m "not serial" \
         && run_check "pytest (full, serial)" 120 "$PY" -m pytest -m serial
       ;;
-    workspace|pytest-targeted|motv-server)
+    workspace|pytest-targeted)
       run_check "pytest ($POLICY_TIER)" 120 "$PY" -m pytest "${POLICY_PYTEST_TARGETS[@]}"
       ;;
     frontend)

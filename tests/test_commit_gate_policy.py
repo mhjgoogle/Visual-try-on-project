@@ -65,6 +65,23 @@ def test_persistence_and_mixed_surfaces_are_never_fast_laned() -> None:
     )
 
 
+def test_the_motv_backend_gets_the_whole_suite_not_its_own_tier() -> None:
+    """`server.py` 是 motv 后端的持久化 / schema 迁移 / 身份 / 付费路径所在。
+
+    它曾有一个专属的 `motv-server` tier（只跑 33 个 `test_motv_*.py`），理由纯粹
+    是当时全量太贵。2026-08-15 实测：那个 tier 121s（458 项），全量两阶段 179s
+    （3142 项）——58 秒换 2684 个测试，豁免不再划算，且 AGENTS.md 第 20 条本来
+    就把持久化 / schema 放在全量档。
+
+    这条守卫钉的是**分档结果**，不是当时的耗时数字：谁要把它改回定向档，
+    得先解释为什么持久化和 schema 迁移可以不跑全量。
+    """
+    decision = _POLICY.classify(["mockups/motv-workspace/server.py"])
+
+    assert decision.tier == "full"
+    assert decision.pytest_targets == ()
+
+
 def test_deleted_high_risk_path_is_not_hidden_from_full_validation() -> None:
     decision = _POLICY.classify(
         [

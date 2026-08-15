@@ -56,6 +56,15 @@ _HIGH_RISK_FILES = {
     "src/ai_video_workflow/serialization.py",
     "conftest.py",
     "pyproject.toml",
+    # The motv backend: persistence, schema migrations, identity and the paid
+    # paths all live in this one 6700-line file, which AGENTS.md rule 20 puts
+    # squarely in the whole-suite tier. It used to get its own `motv-server`
+    # tier (the 33 `tests/test_motv_*.py` files) purely because the full suite
+    # was too expensive to run on every edit. Measured 2026-08-15, after the
+    # two-phase parallel split (ADR-0069 decision 7): that tier is 121s (458
+    # tests) against 179s for the WHOLE suite (3142 tests) -- 58 seconds buys
+    # 2684 more tests, so the exemption no longer pays for itself.
+    "mockups/motv-workspace/server.py",
 }
 
 
@@ -188,15 +197,6 @@ def _test_for_source(path: str) -> str | None:
     return target if Path(target).is_file() else None
 
 
-def _motv_server_tests() -> tuple[str, ...]:
-    return tuple(
-        sorted(
-            str(path).replace("\\", "/")
-            for path in Path("tests").glob("test_motv_*.py")
-        )
-    )
-
-
 def chain_mode_from_command(command: str) -> bool:
     """Is the continuous-modification chain opt-in present in THIS commit command?
 
@@ -305,11 +305,6 @@ def _classify(paths: list[str]) -> Decision:
 
     if all(_is_pytest_file(path) for path in non_docs):
         return Decision("pytest-targeted", "test-only change", tuple(non_docs))
-
-    if non_docs == ("mockups/motv-workspace/server.py",):
-        return Decision(
-            "motv-server", "bounded motv server surface", _motv_server_tests()
-        )
 
     targets = tuple(
         sorted({target for path in non_docs if (target := _test_for_source(path))})

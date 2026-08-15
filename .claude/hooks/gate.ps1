@@ -335,9 +335,6 @@ switch ($policy.tier) {
     'pytest-targeted' {
         $checks += @{ Label = 'pytest (targeted)'; Timeout = 120; File = $py; Args = @('-m', 'pytest') + @($policy.pytest_targets) }
     }
-    'motv-server' {
-        $checks += @{ Label = 'pytest (motv-server)'; Timeout = 180; File = $py; Args = @('-m', 'pytest') + @($policy.pytest_targets) }
-    }
     'frontend' {
         $node = Get-Command node -ErrorAction SilentlyContinue
         if (-not $node) {
