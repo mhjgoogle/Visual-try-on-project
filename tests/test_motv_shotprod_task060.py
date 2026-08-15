@@ -244,6 +244,11 @@ def test_approving_a_shot_records_a_layer_1_decision_that_names_the_take() -> No
     assert 'by: "user"' in approve
     # WHICH take — a decision with no version can never go stale (§6.4)
     assert "basedOnVersion: media.videoVersion" in approve
+    # a MONOTONIC id, not `Date.now()`: approve → unapprove → approve inside one
+    # millisecond minted the same decisionId twice, and a duplicate primary key makes
+    # an append-only log ambiguous
+    assert 'review.newDecisionId("shot", shotId)' in approve
+    assert "Date.now()" not in approve
     # …and if that version cannot be read, the approval is REFUSED rather than
     # recorded without saying what it approved
     assert "if (!dec.ok)" in approve

@@ -4096,7 +4096,7 @@ const ctx = {
       // the two disagreeing with the weaker one winning.
       const at = new Date().toISOString();
       const dec = review.decision({
-        decisionId: `dec-shot-${shotId}-${Date.now().toString(36)}`,
+        decisionId: review.newDecisionId("shot", shotId),
         layer: "shot",
         targetId: shotId,
         verdict: "passed",
@@ -4127,7 +4127,7 @@ const ctx = {
       if (!shotprod.isApproved(productionDoc, shotId)) return false;
       const prev = review.latestDecision(reviewsDoc.decisions, { layer: "shot", targetId: shotId });
       const undo = review.decision({
-        decisionId: `dec-shot-${shotId}-${Date.now().toString(36)}`,
+        decisionId: review.newDecisionId("shot", shotId),
         layer: "shot",
         targetId: shotId,
         verdict: "needs_rework",

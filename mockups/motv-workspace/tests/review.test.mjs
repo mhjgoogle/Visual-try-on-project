@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 
 import {
   LAYERS, ISSUE_CATEGORIES, issue, decision, ignoreIssue,
-  openIssues, latestDecision, decisionStanding, layerOfCategory,
+  openIssues, latestDecision, decisionStanding, layerOfCategory, newDecisionId,
 } from "../src/workflow/review.js";
 import {
   g1FormalReview, g2LockPicture, g3Retire, g3TriggerFor, G3_TRIGGERS,
@@ -217,4 +217,19 @@ test("G5: versions only APPEND, and only forward", () => {
   assert.equal(nextVersionFor([]), 1);
   assert.equal(nextVersionFor([1, 5, 2]), 6);
   assert.equal(nextVersionFor(null), 1);
+});
+
+test("two decisions on the SAME target in one millisecond get different ids", () => {
+  // approve → unapprove → approve inside one ms (a script, a batch, a double click)
+  // minted the same `dec-shot-<id>-<Date.now()>` twice, and two decisions sharing an
+  // id make the append-only log ambiguous: a lookup BY id points at the wrong one and
+  // 「这条结论审的是哪一版」 stops being answerable (independent review).
+  const ids = new Set();
+  for (let i = 0; i < 50; i++) ids.add(newDecisionId("shot", "s1"));
+  assert.equal(ids.size, 50);
+  // the target is part of the id, so two shots never share one either
+  assert.notEqual(newDecisionId("shot", "s1"), newDecisionId("shot", "s2"));
+  assert.match(newDecisionId("episode", "ep1"), /^dec-episode-ep1-/);
+  // a COUNTER, not a random: a migration that re-ran must produce the same shape
+  assert.equal(/[0-9a-z]+-\d+$/.test(newDecisionId("shot", "s1")), true);
 });

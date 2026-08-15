@@ -132,6 +132,22 @@ export function issue(input) {
  * `openIssueIds` records what was still open at the moment of the decision — so a
  * 「通过」 taken over three open warnings stays auditable instead of looking clean.
  */
+/** A decision id that cannot collide with one minted in the same millisecond.
+ *
+ *  `dec-<target>-<Date.now()>` collided on approve → unapprove → approve inside one
+ *  millisecond (a script, a batch, a double click), and two decisions sharing an id
+ *  make the append-only log ambiguous: anything that looks a decision up BY id then
+ *  points at the wrong one, so 「这条结论审的是哪一版」 stops being answerable — the
+ *  exact property §6.2 exists for (independent review; the same class as the paid
+ *  path's `newOperationId`, which this round fixed there and not here).
+ *
+ *  A COUNTER, not a random: an id that changes between two runs of the same
+ *  migration would make the schema migration non-deterministic (TASK-074 §1.3). */
+let _decSeq = 0;
+export function newDecisionId(layer, targetId) {
+  return `dec-${layer}-${targetId}-${Date.now().toString(36)}-${++_decSeq}`;
+}
+
 export function decision(input) {
   if (!isObj(input)) return { ok: false, error: "决定必须是一个对象" };
   const layer = str(input.layer);
