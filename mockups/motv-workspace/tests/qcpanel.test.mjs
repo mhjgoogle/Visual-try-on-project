@@ -134,3 +134,38 @@ test("the verdict line states the REAL number of checks, not a stale literal", (
   assert.match(html, /8 项全部检查完毕且合格/);
   assert.equal(html.includes("七项"), false);
 });
+
+test("素材权限 judges THE FILM's assets, and an incomplete list is unknown", () => {
+  // the registry is the whole project — superseded versions, rejected takes, other
+  // episodes' material. Feeding it here made one unused old record with no `origin` a
+  // BLOCKING failure on an episode that never touched it, and a green row counted
+  // assets outside the cut (independent review).
+  const inCut = browserReport({ assets: [{ assetId: "a1", origin: "upload" }] });
+  assert.match(inCut.rows.find((r) => r.key === "rights").detail, /1 个素材都标注了来源/);
+
+  // a list that could not be built is UNKNOWN, not a rights failure: 「查不到这个
+  // 素材」 and 「这个素材没标来源」 are different findings
+  const noList = browserReport({ assets: null });
+  const row = noList.rows.find((r) => r.key === "rights");
+  assert.equal(row.state, "unavailable");
+  assert.equal(g4Export(noList).ok, true, "an unknown must not block the export…");
+  assert.equal(noList.passed, false, "…and must not pass it either");
+});
+
+test("the note is DERIVED, so it stops telling you to fill ⚙ once ⚙ is filled", () => {
+  const unset = renderQcPanel({ report: browserReport(), g4: null });
+  assert.match(unset, /去 ⚙ 项目设置/);
+
+  // ⚙ complete, but still no probe: the 规格 row now says it could not READ the file
+  const filled = browserReport({
+    spec: {
+      subtitleMode: "sidecar", resolution: "1080x1920", fps: 25, container: "mp4",
+      videoBitrateKbps: 6000, audioBitrateKbps: 128,
+    },
+  });
+  const html = renderQcPanel({ report: filled, g4: g4Export(filled) });
+  assert.equal(html.includes("去 ⚙ 项目设置"), false, "the setting is already filled");
+  assert.match(html, /要等成片渲染出来/);
+  // an explicit note still wins, for a caller that has something more specific to say
+  assert.match(renderQcPanel({ report: filled, g4: null, note: "自定义" }), /自定义/);
+});

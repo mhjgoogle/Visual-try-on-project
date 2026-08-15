@@ -83,13 +83,50 @@ function g4Line(g4, report) {
 }
 
 /**
+ * The explanation under the table, built from what the rows ACTUALLY say.
+ *
+ * A fixed sentence went stale the moment the state changed: it told the creator
+ * 「「规格」缺的是设置本身，去 ⚙ 填」 even after ⚙ was filled and the row had become
+ * 「读不出成片的分辨率」 — sending them to the wrong place (independent review). Each
+ * sentence here is conditional on the row it explains.
+ */
+function qcNote(report) {
+  const rows = (report && report.rows) || [];
+  const unavailableDetail = (k) => {
+    const r = rows.find((x) => x.key === k);
+    return r && r.state === "unavailable" ? r.detail || "" : "";
+  };
+  const parts = [];
+  const PROBED = ["av_sync", "loudness", "clipping", "black_frame", "dropped_frame"];
+  if (rows.some((r) => PROBED.includes(r.key) && r.state === "unavailable")) {
+    parts.push(
+      "音画同步 · 音量 · 削波 · 黑帧 · 缺帧需要对成片文件做 ffprobe/ffmpeg 探测，" +
+      "浏览器里跑不了，所以它们如实显示「未检查」——没跑不等于通过。",
+    );
+  }
+  const spec = unavailableDetail("spec");
+  if (spec.includes("没有设置")) {
+    parts.push("「规格」缺的是设置本身，去 ⚙ 项目设置 · 成片规格 填完就能判。");
+  } else if (spec) {
+    parts.push("「规格」要等成片渲染出来、能被探测之后才判得了。");
+  }
+  if (rows.some((r) => r.key === "rights" && r.state !== "unavailable")) {
+    parts.push("「素材权限」只看这条片子用到的素材，不看整个项目的资产库。");
+  }
+  if (rows.some((r) => r.key === "subtitle" && r.state !== "unavailable")) {
+    parts.push("字幕越界按当前剪辑的时长判，不是按成片文件——成片还没渲染出来。");
+  }
+  return parts.join("");
+}
+
+/**
  * Render the 交付质检 section.
  *
  * `vm` is `{ report, g4, ran, note }`:
  *   - `report` the QCReport from `runDeliveryQc`, or null when it has not been run
  *   - `g4`     the gate's verdict on that report
- *   - `ran`    whether a run happened at all (null report + ran=false reads as
- *              「还没跑」, which is a different statement from 「跑了，没结论」)
+ *   - `note`   an OVERRIDE for the derived explanation; omit it and the panel builds
+ *              one from the rows, which is what keeps it from going stale
  */
 export function renderQcPanel(vm) {
   const report = vm && vm.report;
@@ -114,7 +151,9 @@ export function renderQcPanel(vm) {
     `<table class="qc-table"><thead><tr>` +
     `<th>检查项</th><th>结果</th><th>说明</th>` +
     `</tr></thead><tbody>${report.rows.map(qcRow).join("")}</tbody></table>` +
-    (vm && vm.note ? `<div class="qc-note">${esc(vm.note)}</div>` : "") +
+    ((vm && vm.note) || qcNote(report)
+      ? `<div class="qc-note">${esc((vm && vm.note) || qcNote(report))}</div>`
+      : "") +
     g4Line(vm && vm.g4, report) +
     `</div>`
   );

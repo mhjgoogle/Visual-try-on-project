@@ -4467,6 +4467,36 @@ const ctx = {
   // through the M3 single media write path, and immediately visible everywhere.
   // No page implements its own upload logic, so no page can forget a step.
   // ---------------------------------------------------------------------- //
+  /** The assets THE FILM ACTUALLY USES, or null when that list cannot be built.
+   *
+   *  NOT `ctx.assets.list()`: that is the whole project registry — every history
+   *  entry of every domain, including superseded versions, rejected takes and other
+   *  episodes' material. `checkRights` is contracted as 「成片用到的素材清单」, so
+   *  feeding it the registry made one unused old record with no `origin` a BLOCKING
+   *  素材权限 failure on an episode that never touched it, while a green row counted
+   *  assets outside the cut and therefore said nothing about the film (independent
+   *  review).
+   *
+   *  A clip whose asset cannot be resolved makes the list INCOMPLETE, and an
+   *  incomplete list is reported as unknown rather than as a rights failure: 「查不到
+   *  这个素材」 and 「这个素材没标来源」 are different findings, and only the second
+   *  one is what this check is about. */
+  _cutAssets: () => {
+    const t = ctx.timeline && ctx.timeline.doc ? ctx.timeline.doc() : null;
+    if (!t) return null;
+    const live = timeline.liveClips(t);
+    if (!live.length) return null;
+    const byId = new Map();
+    for (const c of live) {
+      const id = typeof c.assetId === "string" ? c.assetId : "";
+      if (!id || byId.has(id)) continue;
+      const hit = assetlib.findAssetById(assetRegistry, id);
+      if (!hit || !hit.record) return null; // incomplete → unknown, never a verdict
+      byId.set(id, { assetId: id, origin: hit.record.origin || "" });
+    }
+    return byId.size ? [...byId.values()] : null;
+  },
+
   /** The CUT's duration in ms, or null when there is no cut yet.
    *
    *  `timelineDuration` counts seconds and returns 0 for an empty timeline. A 0
@@ -4507,7 +4537,7 @@ const ctx = {
         probe: null,
         subtitleTrack: ctx.subtitles.track(),
         spec: { ...deliverySpecDoc },
-        assets: ctx.assets.list(),
+        assets: ctx._cutAssets(),
         durationMs: ctx._cutDurationMs(),
         deliveryId: ep,
       },
@@ -4517,11 +4547,9 @@ const ctx = {
       report,
       // ONE decision point: the panel renders this verdict, it does not re-derive it
       g4: g4Export(report),
-      note:
-        "音画同步 · 音量 · 削波 · 黑帧 · 缺帧需要对成片文件做 ffprobe/ffmpeg 探测，" +
-        "浏览器里跑不了，所以它们如实显示「未检查」——没跑不等于通过。" +
-        "「规格」缺的是设置本身，去 ⚙ 项目设置 · 成片规格 填完就能判。" +
-        "字幕越界按当前剪辑的时长判，不是按成片文件——成片还没渲染出来。",
+      // The explanation under the table is DERIVED from the rows by the panel — a
+      // fixed sentence kept telling the creator to go fill ⚙ after they already had
+      // (independent review), and it is presentation, so it belongs there.
     };
   },
   assets: {
