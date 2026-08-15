@@ -434,6 +434,126 @@ _MEDIA_WRITE_ROUTES = frozenset(
 )
 
 
+# --- 交付质检探测（TASK-074 §1.2 接线）------------------------------------- #
+#
+# ffmpeg writes both summaries to STDERR in fixed shapes. Parsing here is
+# ALL-OR-NOTHING PER FIELD: a shape we do not recognise leaves that field absent,
+# so `deliveryqc` renders 未检查 and keeps `passed` false. Guessing a number
+# would turn 「我们没测」 into 「合格」 on the creator's screen — the exact failure
+# §1.2 / ADR-0064 决策 6 exist to prevent.
+_EBUR128_I_RE = re.compile(r"^\s*I:\s+(-?\d+(?:\.\d+)?)\s+LUFS\s*$", re.M)
+_EBUR128_PEAK_RE = re.compile(r"^\s*Peak:\s+(-?\d+(?:\.\d+)?)\s+dBFS\s*$", re.M)
+_BLACKDETECT_RE = re.compile(
+    r"black_start:\s*(\d+(?:\.\d+)?)\s+"
+    r"black_end:\s*(\d+(?:\.\d+)?)\s+"
+    r"black_duration:\s*(\d+(?:\.\d+)?)"
+)
+
+
+def _probe_float(value):
+    """A finite float, or None. ffprobe emits "N/A" and omits keys freely."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    return f if math.isfinite(f) else None
+
+
+def _probe_fps(rate):
+    """`r_frame_rate` is a RATIONAL string ("25/1", "30000/1001").
+
+    Dividing it out is the only way to get 29.97 instead of 30 — and the 缺帧
+    check multiplies fps by duration, so a rounded-up fps invents missing frames.
+    """
+    if not isinstance(rate, str) or "/" not in rate:
+        return _probe_float(rate)
+    num, _, den = rate.partition("/")
+    n, d = _probe_float(num), _probe_float(den)
+    if n is None or d is None or d == 0:
+        return None
+    return round(n / d, 3)
+
+
+def _build_delivery_probe(info, stderr):
+    """Assemble the `probe` object `workflow/deliveryqc.js` reads.
+
+    `info` is parsed ffprobe JSON, `stderr` the combined ebur128 + blackdetect
+    scan. Every field is OPTIONAL and omitted when it could not be measured.
+    """
+    streams = info.get("streams") if isinstance(info, dict) else None
+    streams = streams if isinstance(streams, list) else []
+    fmt = info.get("format") if isinstance(info, dict) else None
+    fmt = fmt if isinstance(fmt, dict) else {}
+    video = next((s for s in streams if s.get("codec_type") == "video"), None)
+    audio = next((s for s in streams if s.get("codec_type") == "audio"), None)
+    probe = {}
+
+    duration = _probe_float(fmt.get("duration"))
+    if duration is None and isinstance(video, dict):
+        duration = _probe_float(video.get("duration"))
+    if duration is not None and duration > 0:
+        probe["durationS"] = round(duration, 3)
+
+    if isinstance(video, dict):
+        fps = _probe_fps(video.get("r_frame_rate"))
+        if fps is not None and fps > 0:
+            probe["fps"] = fps
+        # `nb_frames` is absent in some containers. Counting frames for real
+        # means decoding the file a THIRD time, so an absent count stays absent
+        # and 缺帧 honestly reports 未检查.
+        frames = _probe_float(video.get("nb_frames"))
+        if frames is not None and frames > 0:
+            probe["frameCount"] = int(frames)
+        w, h = video.get("width"), video.get("height")
+        if isinstance(w, int) and isinstance(h, int) and w > 0 and h > 0:
+            probe["resolution"] = f"{w}x{h}"
+        vbr = _probe_float(video.get("bit_rate"))
+        if vbr is not None and vbr > 0:
+            probe["videoBitrateKbps"] = round(vbr / 1000)
+    if isinstance(audio, dict):
+        abr = _probe_float(audio.get("bit_rate"))
+        if abr is not None and abr > 0:
+            probe["audioBitrateKbps"] = round(abr / 1000)
+
+    # 音画同步：the CONTAINER-level start offset between the two streams.
+    #
+    # This is NOT lip-sync of the recorded content — ffmpeg has no reliable
+    # content-level detector, and claiming one would be the fabricated-number
+    # failure again. It IS the real failure mode for cuts we composed ourselves:
+    # a concat/mix step that lands the audio at the wrong offset shows up here.
+    # Both streams must report start_time, otherwise the field stays absent.
+    if isinstance(video, dict) and isinstance(audio, dict):
+        v0 = _probe_float(video.get("start_time"))
+        a0 = _probe_float(audio.get("start_time"))
+        if v0 is not None and a0 is not None:
+            probe["avOffsetMs"] = round((v0 - a0) * 1000)
+
+    text = stderr if isinstance(stderr, str) else ""
+    # LAST match, not first: ebur128 prints running values during the scan and
+    # the Summary block at the end. The final one is the integrated result.
+    loud = _EBUR128_I_RE.findall(text)
+    if loud:
+        probe["lufs"] = round(float(loud[-1]), 1)
+    peak = _EBUR128_PEAK_RE.findall(text)
+    if peak:
+        probe["truePeakDbtp"] = round(float(peak[-1]), 1)
+
+    # blackdetect prints one line per span and NOTHING when the video is clean.
+    # An empty list is therefore a real measurement (「未发现黑帧」), which is why
+    # it is only set when the video stream itself was present: with no video
+    # stream there was nothing to detect and the answer is 未检查, not 「干净」.
+    if isinstance(video, dict):
+        probe["blackSpans"] = [
+            {
+                "startS": round(float(m[0]), 3),
+                "endS": round(float(m[1]), 3),
+                "durationS": round(float(m[2]), 3),
+            }
+            for m in _BLACKDETECT_RE.findall(text)
+        ]
+    return probe
+
+
 def _migration_required_json():
     """One refusal, used by every write path, so the message never drifts."""
     return _json(
@@ -2524,6 +2644,8 @@ class _App:
             return self._agent_tts(body)
         if path == "/api/agent/compose":
             return self._agent_compose(body)
+        if path == "/api/delivery/probe":
+            return self._delivery_probe(body)
         if path == "/api/agent/image-gen":
             return self._agent_image(body)
         if path == "/api/agent/adopt-paid":
@@ -5043,6 +5165,127 @@ class _App:
                 "music": music is not None,
             },
         )
+
+    def _delivery_probe(self, body: bytes):
+        """Measure a rendered cut with REAL ffprobe/ffmpeg (TASK-074 §1.2 接线).
+
+        `workflow/deliveryqc.js` has judged 音画同步 / 音量 / 削波 / 黑帧 / 缺帧
+        since §1.2, but it never had numbers: a browser cannot run ffmpeg, so all
+        five rendered as 未检查. This endpoint supplies exactly the `probe` shape
+        that module reads, measured from the file itself.
+
+        READ-ONLY. It opens the cut and writes nothing, so it is deliberately NOT
+        in _MEDIA_WRITE_ROUTES.
+
+        **A measurement that did not happen is reported as ABSENT** — the field is
+        omitted, never guessed. `deliveryqc` renders a missing field as 未检查 and
+        keeps `passed` false; filling the screen green with invented numbers is
+        exactly what §1.2 / ADR-0064 决策 6 forbid. So every parse below is
+        all-or-nothing per field.
+
+        Fail-closed: missing ffmpeg/ffprobe → 503 (same as compose), unresolvable
+        file → 400, a failed/timed-out probe → 502/504.
+        """
+        if len(body) > 100_000:
+            return _json(413, {"error": {"category": "too_large", "detail": "body"}})
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid json"}}
+            )
+        if not isinstance(payload, dict):
+            return _json(
+                400,
+                {"error": {"category": "bad_request", "detail": "body must be object"}},
+            )
+        project = payload.get("project")
+        if not isinstance(project, str):
+            return _json(
+                400,
+                {"error": {"category": "bad_request", "detail": "project required"}},
+            )
+        d = self._upload_dir(project)
+        if d is None:
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "unknown project"}}
+            )
+        f = self._resolve_upload_file(d, payload.get("name"), (".mp4", ".webm"))
+        if f is None:
+            return _json(
+                400,
+                {"error": {"category": "bad_request", "detail": "成片文件无法解析"}},
+            )
+
+        # ADR-0049 / AGENTS.md 第 6 条：resolve, never invoke by bare name.
+        ffmpeg = shutil.which("ffmpeg")
+        ffprobe = shutil.which("ffprobe")
+        if ffmpeg is None or ffprobe is None:
+            return _json(
+                503,
+                {
+                    "error": {
+                        "category": "ffmpeg_missing",
+                        "detail": "ffmpeg/ffprobe 缺失：请安装并加入 PATH",
+                    }
+                },
+            )
+
+        try:
+            meta = subprocess.run(  # noqa: S603 - fixed argv, no shell
+                [
+                    ffprobe,
+                    "-v",
+                    "error",
+                    "-show_streams",
+                    "-show_format",
+                    "-of",
+                    "json",
+                    str(f),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if meta.returncode != 0:
+                return _json(
+                    502,
+                    {"error": {"category": "probe_failed", "detail": "ffprobe failed"}},
+                )
+            info = json.loads(meta.stdout or "{}")
+            # One decode pass produces BOTH loudness and black spans. Running the
+            # file twice would double the wall clock for no extra information.
+            scan = subprocess.run(  # noqa: S603 - fixed argv, no shell
+                [
+                    ffmpeg,
+                    "-nostdin",
+                    "-nostats",
+                    "-i",
+                    str(f),
+                    "-af",
+                    "ebur128=peak=true",
+                    "-vf",
+                    "blackdetect=d=0.5:pic_th=0.98",
+                    "-f",
+                    "null",
+                    "-",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=900,
+            )
+        except subprocess.TimeoutExpired:
+            return _json(
+                504,
+                {"error": {"category": "probe_timeout", "detail": "probe timed out"}},
+            )
+        except (OSError, json.JSONDecodeError):
+            return _json(
+                502, {"error": {"category": "probe_failed", "detail": "probe failed"}}
+            )
+
+        probe = _build_delivery_probe(info, scan.stderr or "")
+        return _json(200, {"ok": True, "probe": probe, "name": f.name})
 
     def _resolve_upload_file(self, d, name, exts):
         """Resolve an EXACT upload basename (incl. its ADR-0048 version

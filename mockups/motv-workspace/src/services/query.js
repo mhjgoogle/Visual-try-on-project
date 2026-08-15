@@ -78,6 +78,25 @@ async function _call(path, opts) {
   };
 }
 
+/** MEASURE a rendered cut with real ffprobe/ffmpeg (TASK-074 §1.2 接线).
+ *
+ *  A POST that writes NOTHING — the body carries the project and file name, and
+ *  the backend only reads them. It lives with the queries because a measurement
+ *  is an observation, not a command (ADR-0064 决策 6 / §6.2).
+ *
+ *  `timeoutMs: 0` — unbounded on purpose: ebur128 + blackdetect decode the whole
+ *  file, so the wall clock scales with the cut's length. The BACKEND owns the
+ *  real limit (900s, then 504); a 20s client timeout would abort every scan of a
+ *  full episode and report it as a network fault.
+ */
+export function deliveryProbe(project, name) {
+  return _call("/api/delivery/probe", {
+    method: "POST",
+    body: { project, name },
+    timeoutMs: 0,
+  });
+}
+
 /** The backend's default project location (its --account-root). */
 export function fsDefault() {
   return _call("/api/fs/default");

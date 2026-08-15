@@ -1526,6 +1526,17 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
           render();
         }));
       }
+      // 交付质检的真实探测（TASK-074 §1.2 接线）。Re-render TWICE: once so the
+      // button turns into 「正在探测…」 before the scan starts, once when the
+      // numbers (or the failure) come back. Without the first render an entire
+      // episode's decode looks like a dead button.
+      root.querySelectorAll("[data-qc-probe]").forEach((b) => (b.onclick = async () => {
+        const pending = ctx.runDeliveryProbe();
+        render();
+        const state = await pending;
+        if (state && state.error) ctx.toast(state.error);
+        render();
+      }));
       bindTaskRows(root, {
         onCancel: async (runId) => {
           const run = (ctx.skills.runs() || []).find(

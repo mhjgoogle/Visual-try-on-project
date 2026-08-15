@@ -114,6 +114,13 @@ let CONNECTED = false;
 let PAID = false; // backend --enable-paid: real Gateway write path available
 let PROJECT_NAME = "local-draft";
 let DEFAULT_NAME = "local-draft";
+// TASK-074 §1.2 接线：一次真实 ffprobe/ffmpeg 测量的结果，连同它测的是哪个成片。
+//
+// NOT persisted, deliberately. A probe describes ONE rendered file; the moment a
+// new cut is composed the numbers are about the wrong file. Storing them would
+// make stale measurements look current on the delivery screen — worse than
+// having none, because 未检查 at least tells the truth.
+let DELIVERY_PROBE = { name: null, probe: null, error: null, running: false };
 let REAL_STANDING = null;
 // the backend's project list, kept so the landing/new-project dialog can
 // re-render and name-check without refetching
@@ -4034,11 +4041,51 @@ const ctx = {
    * Deterministic issue ids: keyed on the episode and the row, never on a clock, so
    * re-running the report does not mint a second copy of the same finding.
    */
+  /** The newest composed cut, or null. Finals have no chain (assetreg §492), so
+   *  the newest is simply the last one registered — and its name is SHOWN in the
+   *  panel, because a measurement that does not say which file it measured is
+   *  not a measurement the creator can act on. */
+  _latestCut: () => {
+    const finals = ctx.assets.list().filter((a) => a && a.kind === "final" && a.url);
+    if (!finals.length) return null;
+    const cut = finals[finals.length - 1];
+    const name = String(cut.url).split("/").filter(Boolean).pop() || "";
+    return name ? { name, url: cut.url } : null;
+  },
+
+  /** Run the REAL probe against the newest cut (TASK-074 §1.2 接线).
+   *
+   *  Failures are kept and shown rather than thrown away: 「没跑成」 and
+   *  「没跑过」 send the creator to different places, and a silent catch would
+   *  make a 503「装个 ffmpeg」 look identical to never pressing the button. */
+  runDeliveryProbe: async () => {
+    if (!CONNECTED) {
+      DELIVERY_PROBE = { name: null, probe: null, error: "演示模式无后端，无法跑真实探测", running: false };
+      return DELIVERY_PROBE;
+    }
+    const cut = ctx._latestCut();
+    if (!cut) {
+      DELIVERY_PROBE = { name: null, probe: null, error: "还没有成片可测：先合成一版成片", running: false };
+      return DELIVERY_PROBE;
+    }
+    DELIVERY_PROBE = { name: cut.name, probe: null, error: null, running: true };
+    const res = await query.deliveryProbe(PROJECT_NAME, cut.name);
+    DELIVERY_PROBE = res.ok
+      ? { name: cut.name, probe: (res.data && res.data.probe) || null, error: null, running: false }
+      : {
+        name: cut.name,
+        probe: null,
+        error: (res.error && res.error.detail) || (res.error && res.error.category) || "探测失败",
+        running: false,
+      };
+    return DELIVERY_PROBE;
+  },
+
   deliveryQc: () => {
     const ep = (productionDoc && productionDoc.activeEpisodeId) || "delivery";
     const report = deliveryqc.runDeliveryQc(
       {
-        probe: null,
+        probe: DELIVERY_PROBE.probe,
         subtitleTrack: ctx.subtitles.track(),
         spec: { ...deliverySpecDoc },
         assets: ctx._cutAssets(),
@@ -4054,6 +4101,19 @@ const ctx = {
       // The explanation under the table is DERIVED from the rows by the panel — a
       // fixed sentence kept telling the creator to go fill ⚙ after they already had
       // (independent review), and it is presentation, so it belongs there.
+      //
+      // The probe's own state travels WITH the report: which file was measured,
+      // whether a scan is running, and why one failed. Without it the five
+      // ffmpeg rows say 未检查 in three different situations — never pressed,
+      // pressed and failed, pressed and still running — and the creator cannot
+      // tell which.
+      probe: {
+        name: DELIVERY_PROBE.name,
+        running: DELIVERY_PROBE.running,
+        error: DELIVERY_PROBE.error,
+        measured: DELIVERY_PROBE.probe !== null,
+      },
+      hasCut: ctx._latestCut() !== null,
     };
   },
   assets: {

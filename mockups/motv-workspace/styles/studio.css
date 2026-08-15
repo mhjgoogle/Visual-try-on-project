@@ -1273,6 +1273,13 @@
 .qc-empty { color: var(--text-faint); padding: var(--s4) 0; }
 .qc-note { color: var(--text-faint); font-size: var(--t-micro); line-height: 1.7; }
 
+/* 真实探测（TASK-074 §1.2 接线）。The state text sits NEXT TO the button, not in
+   the table: it says which cut was measured, and 「没跑过」/「跑失败了」/「正在跑」
+   are three different reasons the five ffmpeg rows read 未检查. */
+.qc-probe-bar { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+.qc-probe-state { color: var(--text-faint); font-size: var(--t-micro); }
+.qc-probe-err { color: var(--bad); }
+
 .qc-table { width: 100%; border-collapse: collapse; font-size: var(--t-sm); }
 .qc-table th {
   text-align: left; font-size: var(--t-micro); font-weight: 700; letter-spacing: .06em;

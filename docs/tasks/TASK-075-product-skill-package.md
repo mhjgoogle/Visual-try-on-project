@@ -1,6 +1,7 @@
 # TASK-075：Product Skill Package —— Skill 从源码常量变成可加载的产品资产
 
-- 状态：**已解锁，可开工**
+- 状态：**批次 A / B1 / B2 / C 均已实施并提交**（2026-08-13～15，见 §3b 实施记录）；
+  仍欠跨模型 codex 复审（见[待复审清单](../design/pending-codex-rereview.md)）
 - 负责 Agent：单一实施 Agent（AGENTS.md 第 14 条）
 - 依据：[ADR-0067](../adr/ADR-0067-product-skill-package.md)
 - 前置：**已满足** —— TASK-072 批次一已提交（`70dab40`），运行链路与

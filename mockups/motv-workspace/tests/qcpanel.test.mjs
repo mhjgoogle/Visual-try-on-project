@@ -179,3 +179,97 @@ test("the note is DERIVED, so it stops telling you to fill ⚙ once ⚙ is fille
   // an explicit note still wins, for a caller that has something more specific to say
   assert.match(renderQcPanel({ report: filled, g4: null, note: "自定义" }), /自定义/);
 });
+
+// --- TASK-074 §1.2 接线：真实探测的控制与状态 --------------------------- //
+//
+// 五个 ffmpeg 行读作「未检查」的原因有三种——没跑过、跑失败了、正在跑——
+// 光看表格分不出来。这一组钉的就是它们必须可区分，以及探测必须说出它测的是
+// 哪一个成片。
+
+test("the five ffmpeg rows stay 未检查 until a real probe supplies numbers", () => {
+  const r = browserReport();
+  const probed = ["av_sync", "loudness", "clipping", "black_frame", "dropped_frame"];
+  for (const key of probed) {
+    assert.equal(r.rows.find((x) => x.key === key).state, "unavailable");
+  }
+  assert.equal(r.passed, false, "未检查 keeps it from passing");
+});
+
+test("no cut yet: the button is disabled and says so, instead of failing on press", () => {
+  const html = renderQcPanel({
+    report: browserReport(), g4: null, hasCut: false,
+    probe: { name: null, running: false, error: null, measured: false },
+  });
+  assert.match(html, /还没有成片可测/);
+  assert.match(html, /disabled/);
+});
+
+test("a cut exists: the button is live and offers to run the real scan", () => {
+  const html = renderQcPanel({
+    report: browserReport(), g4: null, hasCut: true,
+    probe: { name: null, running: false, error: null, measured: false },
+  });
+  assert.match(html, /data-qc-probe/);
+  assert.match(html, /跑真实探测/);
+  assert.equal(/还没有成片可测/.test(html), false);
+});
+
+test("running, failed and measured are three DIFFERENT screens", () => {
+  const base = { report: browserReport(), g4: null, hasCut: true };
+  const running = renderQcPanel({
+    ...base, probe: { name: "final-cut-v2.mp4", running: true, error: null, measured: false },
+  });
+  const failed = renderQcPanel({
+    ...base,
+    probe: {
+      name: "final-cut-v2.mp4", running: false, measured: false,
+      error: "ffmpeg/ffprobe 缺失：请安装并加入 PATH",
+    },
+  });
+  const done = renderQcPanel({
+    ...base, probe: { name: "final-cut-v2.mp4", running: false, error: null, measured: true },
+  });
+
+  assert.match(running, /正在探测/);
+  assert.equal(/data-qc-probe/.test(running), false, "no second scan while one runs");
+  // the reason is shown VERBATIM: 「装个 ffmpeg」 and 「还没合成成片」 are different
+  // problems and send the creator to different places
+  assert.match(failed, /ffmpeg\/ffprobe 缺失/);
+  assert.match(failed, /qc-probe-err/);
+  assert.match(done, /已测量/);
+  assert.match(done, /重新探测/, "a re-scan must stay reachable after a run");
+});
+
+test("the panel always names the cut it measured", () => {
+  const html = renderQcPanel({
+    report: browserReport(), g4: null, hasCut: true,
+    probe: { name: "final-cut-v7.mp4", running: false, error: null, measured: true },
+  });
+  assert.match(html, /final-cut-v7\.mp4/);
+});
+
+test("with a probe the same five rows become real verdicts", () => {
+  const measured = runDeliveryQc({
+    probe: {
+      avOffsetMs: 0, lufs: -18.4, truePeakDbtp: -1.5, blackSpans: [],
+      frameCount: 250, durationS: 10, fps: 25,
+    },
+    subtitleTrack: { cues: [{ startMs: 0, endMs: 1200, text: "陛下" }] },
+    spec: { subtitleMode: "sidecar" },
+    assets: [{ assetId: "a1", origin: "upload" }],
+    durationMs: 60_000,
+    deliveryId: "ep-1",
+  }, { issueIdFor: (k, n) => `qc-ep-1-${k}-${n}` });
+
+  for (const key of ["av_sync", "loudness", "clipping", "black_frame", "dropped_frame"]) {
+    assert.notEqual(
+      measured.rows.find((x) => x.key === key).state, "unavailable",
+      `${key} should be judged once the probe supplied numbers`,
+    );
+  }
+  const html = renderQcPanel({
+    report: measured, g4: g4Export(measured), hasCut: true,
+    probe: { name: "final-cut-v1.mp4", running: false, error: null, measured: true },
+  });
+  assert.equal(/浏览器里跑不了/.test(html), false, "that note is for the un-probed state");
+});

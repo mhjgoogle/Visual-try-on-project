@@ -100,8 +100,9 @@ function qcNote(report) {
   const PROBED = ["av_sync", "loudness", "clipping", "black_frame", "dropped_frame"];
   if (rows.some((r) => PROBED.includes(r.key) && r.state === "unavailable")) {
     parts.push(
-      "音画同步 · 音量 · 削波 · 黑帧 · 缺帧需要对成片文件做 ffprobe/ffmpeg 探测，" +
-      "浏览器里跑不了，所以它们如实显示「未检查」——没跑不等于通过。",
+      "音画同步 · 音量 · 削波 · 黑帧 · 缺帧要对成片文件做 ffprobe/ffmpeg 探测。" +
+      "浏览器里跑不了，按上面的「跑真实探测」交给后端测；在那之前它们如实显示" +
+      "「未检查」——没跑不等于通过。",
     );
   }
   const spec = unavailableDetail("spec");
@@ -119,14 +120,44 @@ function qcNote(report) {
   return parts.join("");
 }
 
+/** The probe control + what it last did (TASK-074 §1.2 接线).
+ *
+ *  The five ffmpeg rows read 未检查 in three different situations — never run,
+ *  ran and failed, still running — and the table alone cannot tell them apart.
+ *  This bar is what makes them distinguishable, so it always says WHICH cut was
+ *  measured; a number with no file attached is not actionable.
+ */
+function probeBar(vm) {
+  const p = (vm && vm.probe) || {};
+  const hasCut = !!(vm && vm.hasCut);
+  const btn = p.running
+    ? `<button class="btn" type="button" disabled>正在探测…</button>`
+    : `<button class="btn" type="button" data-qc-probe${hasCut ? "" : " disabled"}>` +
+      `${p.measured ? "重新探测" : "跑真实探测"}</button>`;
+  let state = "";
+  if (p.running) {
+    state = `<span class="qc-probe-state">正在对 ${esc(p.name || "成片")} 跑 ffprobe/ffmpeg（整片解码，长片要等一会儿）</span>`;
+  } else if (p.error) {
+    // shown verbatim: 「装个 ffmpeg」 and 「还没合成成片」 are different problems
+    state = `<span class="qc-probe-state qc-probe-err">探测失败：${esc(p.error)}</span>`;
+  } else if (p.measured) {
+    state = `<span class="qc-probe-state">已测量：${esc(p.name || "")}</span>`;
+  } else if (!hasCut) {
+    state = `<span class="qc-probe-state">还没有成片可测——先合成一版成片</span>`;
+  }
+  return `<div class="qc-probe-bar">${btn}${state}</div>`;
+}
+
 /**
  * Render the 交付质检 section.
  *
- * `vm` is `{ report, g4, ran, note }`:
+ * `vm` is `{ report, g4, note, probe, hasCut }`:
  *   - `report` the QCReport from `runDeliveryQc`, or null when it has not been run
  *   - `g4`     the gate's verdict on that report
  *   - `note`   an OVERRIDE for the derived explanation; omit it and the panel builds
  *              one from the rows, which is what keeps it from going stale
+ *   - `probe`  `{name, running, error, measured}` — what the real ffmpeg scan did
+ *   - `hasCut` whether there is a composed cut to measure at all
  */
 export function renderQcPanel(vm) {
   const report = vm && vm.report;
@@ -134,6 +165,7 @@ export function renderQcPanel(vm) {
     return (
       `<div class="qc-wrap">` +
       `<div class="qc-empty">还没有跑过交付质检。</div>` +
+      probeBar(vm) +
       g4Line(vm && vm.g4, null) +
       `</div>`
     );
@@ -149,6 +181,7 @@ export function renderQcPanel(vm) {
       ? `<span class="qc-ok">全部合格</span>`
       : `<span class="qc-notyet">尚未全部合格</span>`) +
     `</div>` +
+    probeBar(vm) +
     `<table class="qc-table"><thead><tr>` +
     `<th>检查项</th><th>结果</th><th>说明</th>` +
     `</tr></thead><tbody>${report.rows.map(qcRow).join("")}</tbody></table>` +

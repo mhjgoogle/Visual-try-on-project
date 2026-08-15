@@ -1,6 +1,10 @@
 # TASK-072：第二阶段 —— 后端合同、持久化任务、版本管理与兼容层
 
-- 状态：**批次一已完成并提交**（`70dab40`）；批次二 / 三未开始
+- 状态：**批次一已完成并提交**（`70dab40`）；**批次二 / 三部分完成**（2026-08-14/15）
+  —— 批次二：§1.4 Query/Command 拆分 + `apiclient.js`（24/30 调用点）、§1.5 Review
+  三层、§1.6 门槛 G1–G5（G3 已接进 dispatcher）、§1.7 六态派生；
+  批次三：§1.9 十条缺陷中的七条（含 blocking #1 / #8）。**未做**：§1.9 缺陷 #10
+  （需真实素材）。真实进度以本卡「实施记录」小节与 `git log` 为准
 - 负责 Agent：单一实施 Agent（AGENTS.md 第 14 条）
 - 依据：[ADR-0066](../adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)、
   [创作者系统合同](../design/creator-system-contract.md)
