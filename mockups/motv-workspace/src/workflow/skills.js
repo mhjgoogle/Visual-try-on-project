@@ -253,6 +253,15 @@ export let SKILL_INPUTS = {};
 /** The shot-scoped subset, installed with the labels. */
 export let SHOT_SCOPED_INPUTS = [];
 
+/** The RETIRED capabilities, kept as a list of their own (TASK-080 §1.1).
+ *
+ *  `BY_ID` already held them so a historical Run could resolve its capability
+ *  (ADR-0067 决策 5), but a Map keyed by id cannot answer 「which ones are
+ *  retired」 — so the catalog page had no way to 「标出来，不与在用的混排」 and the
+ *  server's `deprecated[]` was received and dropped. Listing them is not offering
+ *  them: `SKILLS` is still the pickable set, and nothing here joins the two. */
+export let DEPRECATED = [];
+
 let BY_ID = new Map();
 let INSTALLED = false;
 
@@ -299,6 +308,7 @@ export function installCatalog(payload) {
   });
   const labels = isObj(payload.inputs) ? payload.inputs : {};
   SKILLS = Object.freeze(next);
+  DEPRECATED = Object.freeze(retired);
   SKILL_INPUTS = deepFreeze({ ...labels });
   SHOT_SCOPED_INPUTS = Object.freeze(
     Array.isArray(payload.shotScopedInputs) ? [...payload.shotScopedInputs] : [],

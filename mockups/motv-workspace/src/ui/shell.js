@@ -284,7 +284,11 @@ export const PAGE_SECTIONS = Object.freeze({
   shotwork: ["prepare", "image", "video", "pick"],
   cutreview: ["review"],
   delivery: ["timeline", "voice", "ambience", "subtitle", "preview", "qc", "export"],
-  [PROJECT_SETTINGS]: ["info", "spec", "budget", "storage"],
+  // TASK-080 §1.1: 能力目录 is a SECTION of ⚙, not a twelfth page — the eleven
+  // are a closed set with a guard test on the count, and ⚙ is deliberately
+  // outside them (§1.7). See the header of ui/skillcatalog.js for the full
+  // argument against ADR-0066 决策 10.
+  [PROJECT_SETTINGS]: ["info", "spec", "budget", "storage", "skills"],
 });
 
 /** Which top-level SPACE a module belongs to (ADR-0061 决策 1). One function,
@@ -365,6 +369,7 @@ export const SECTION_LABEL = {
   timeline: "时间线与粗剪调整", voice: "配音", ambience: "环境音 / 音效 / 音乐",
   subtitle: "字幕", preview: "成片预览", qc: "交付质检", export: "导出及导出记录",
   info: "项目信息", spec: "成片规格", budget: "预算与限制", storage: "存储与诊断",
+  skills: "能力目录",
 };
 
 /** Episode short label: EP01, EP02… derived from position, with the planned

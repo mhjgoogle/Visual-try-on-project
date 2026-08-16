@@ -56,6 +56,8 @@ import { agentPanelModel, renderAgentPanel, bindAgentPanel } from "./agentpanel.
 // TASK-073 §1.7: the fourteen spec fields + the two hard gates (domain)
 import { specStanding, SPEC_FIELD_BY_KEY } from "../workflow/deliveryspec.js";
 import { skillPanelModel, renderSkillPanel, bindSkillPanel } from "./skillpanel.js";
+// TASK-080 §1.1: 「这个系统一共能帮我做哪些事」, in one place
+import { skillCatalogModel, renderSkillCatalog, bindSkillCatalog } from "./skillcatalog.js";
 import { shotDirectorModel, renderShotDirector, bindShotDirector, runOperation } from "./directorshot.js";
 import { episodeView } from "../workflow/proddoc.js";
 import { renderQcPanel } from "./qcpanel.js";
@@ -879,6 +881,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       const nav = sectionNav(PROJECT_SETTINGS);
       if (sec === "storage") return nav + renderStorageWs(ctx, ui);
       if (sec === "spec" || sec === "budget") return nav + renderSpecSection(ctx, sec);
+      if (sec === "skills") return nav + renderSkillCatalog(skillCatalogModel(ctx, ui));
       return (
         nav +
         empty(
@@ -1548,6 +1551,29 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     render();
   }
 
+  /** Open ONE capability on the run surface, carrying the context the creator is
+   *  standing on (TASK-080 §1.1 「在当前上下文运行」).
+   *
+   *  It SELECTS and OPENS; it does not run. Running is a decision with an
+   *  executor behind it and a set of guards in `bindSkillPanel` — a second
+   *  invocation path here would be a second place to forget them. The scope the
+   *  run will record is whatever `ui.selectedShotId` says, which is exactly what
+   *  「当前上下文」 means. */
+  function openSkillRun(ctx, skillId) {
+    if (!skillId) return;
+    ui.skillId = skillId;
+    ui.skillPromptOpen = false;
+    ui.dirOpen = { ...(ui.dirOpen || {}), skills: true };
+    const s = ctx.skills.find(skillId);
+    const missing = ctx.skills.missing(skillId) || [];
+    ctx.toast(
+      missing.length
+        ? `「${s ? s.title : skillId}」还缺 ${missing.length} 项输入——右侧「能力」里写着缺哪些`
+        : `已在右侧「能力」里打开「${s ? s.title : skillId}」——选执行器后运行`,
+    );
+    render();
+  }
+
   function bind(ctx) {
     // left rail — every module opens; selection is visually .on
     root.querySelectorAll("[data-mod]").forEach((b) => (b.onclick = () => setModule(b.dataset.mod)));
@@ -1689,6 +1715,10 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     if (activeModule === PROJECT_SETTINGS) {
       const sec = sectionOf(PROJECT_SETTINGS);
       if (sec === "storage") bindStorageWs(root, ctx, ui, render);
+      // TASK-080 §1.1 — 「在当前上下文运行」 hands the choice to the ONE run path
+      // (the Director's 能力 panel) rather than opening a second one here. The
+      // catalog answers 「能做什么」; running stays where its guards already are.
+      if (sec === "skills") bindSkillCatalog(root, ctx, ui, render, { onRun: (id) => openSkillRun(ctx, id) });
       // ⚙ 成片规格 / 预算与限制 — the ONLY editing entrance (§1.7). `change`, not
       // `input`: a half-typed number is not a decision, and validating on every
       // keystroke would reject 「1」 on the way to 「10」.

@@ -101,6 +101,9 @@ export function createSkillController({
 
   const self = {
     catalog: () => skills.SKILLS,
+    /** The RETIRED capabilities (TASK-080 §1.1). Separate from `catalog()` on
+     *  purpose: they are resolvable and listable-as-retired, never pickable. */
+    deprecated: () => skills.DEPRECATED,
     /** Is a catalog loaded, and if not, why (TASK-075 §1.4)?
      *
      *  A panel must distinguish "the backend could not give us the packages"

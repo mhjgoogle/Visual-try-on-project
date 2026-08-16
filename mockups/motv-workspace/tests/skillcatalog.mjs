@@ -33,6 +33,10 @@ export function builtinCatalogPayload() {
           .replace(/\n+$/, ""),
         outputSchema: JSON.parse(readFileSync(join(dir, "output.schema.json"), "utf8")),
         deprecated: Boolean(manifest.deprecated),
+        // the backend stamps WHICH of the three sources a package came from; these
+        // really are the builtin ones, so saying so keeps the fixture the same
+        // shape as `GET /api/skills` rather than a shape only the tests see
+        source: "builtin",
       };
     })
     .sort((a, b) => (a.skillId < b.skillId ? -1 : 1));

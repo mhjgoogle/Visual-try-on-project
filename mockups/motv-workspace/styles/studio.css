@@ -1599,3 +1599,34 @@
   font: var(--t-micro)/1.7 var(--mono); white-space: pre-wrap; word-break: break-word;
 }
 .gc-fail-acts { display: flex; gap: var(--s2); flex-wrap: wrap; }
+
+/* ⚙ 能力目录（TASK-080 §1.1）—— 一屏答完「这个系统一共能帮我做哪些事」 */
+.sc-bar { display: flex; gap: var(--s4); align-items: center; flex-wrap: wrap; padding-bottom: var(--s3); }
+.sc-q { flex: 1 1 260px; min-width: 200px; }
+.sc-bar .st-secnav { border-bottom: 0; margin-bottom: 0; padding: 0; }
+.sc-grp { padding-top: var(--s4); }
+.sc-grp > .lab { color: var(--text-dim); font-size: var(--t-micro); font-weight: 700; }
+.sc-grid {
+  display: grid; gap: var(--s3); padding-top: var(--s3);
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+.sc-card {
+  display: flex; flex-direction: column; gap: var(--s2);
+  padding: var(--s4); border: 1px solid var(--line); border-radius: var(--r2);
+  background: var(--panel-2);
+}
+.sc-card.off { opacity: .68; border-style: dashed; }
+.sc-h { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.sc-role { color: var(--text-faint); font-size: var(--t-micro); }
+.sc-t { font-size: var(--t-sm); }
+.sc-p { margin: 0; color: var(--text-dim); font-size: var(--t-xs); line-height: 1.7; }
+.sc-chips, .sc-meta { display: flex; gap: var(--s2); flex-wrap: wrap; }
+.sc-acts { display: flex; gap: var(--s2); padding-top: var(--s2); }
+.sc-bad {
+  display: flex; flex-direction: column; gap: var(--s2);
+  padding: var(--s4); margin-bottom: var(--s4); border-radius: var(--r2);
+  border: 1px solid color-mix(in srgb, var(--bad) 35%, var(--line));
+  background: color-mix(in srgb, var(--bad) 6%, transparent);
+}
+.sc-bad > .lab { color: var(--bad); font-size: var(--t-micro); font-weight: 700; }
+.sc-badrow { display: flex; flex-direction: column; gap: 2px; }
