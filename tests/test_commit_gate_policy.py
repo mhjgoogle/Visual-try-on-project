@@ -6,6 +6,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 _POLICY_PATH = Path(__file__).parents[1] / ".claude" / "hooks" / "commit_gate_policy.py"
 _SPEC = importlib.util.spec_from_file_location("commit_gate_policy", _POLICY_PATH)
 assert _SPEC and _SPEC.loader
@@ -610,3 +612,52 @@ def test_both_shells_ask_git_for_NUL_separated_paths() -> None:
     # …而且真的按 NUL 切，不是按换行（否则 -z 等于没加）
     assert '-split "`0"' in ps1, "有 -z 就必须按 NUL 切"
     assert '-split "`r?`n"' not in ps1.split("$changedPaths", 1)[1][:200]
+
+
+@pytest.mark.parametrize(
+    "tail",
+    [
+        "git push",
+        'git "push"',
+        "git 'push'",
+        "git merge main",
+        "git pull",
+        "git rebase main",
+        "git cherry-pick abc123",
+    ],
+)
+def test_the_chain_token_refuses_every_way_of_moving_commits(tail) -> None:
+    """codex 跨模型复审 2026-08-16，两条都用分类器实跑确认过。
+
+    ADR-0068 决策 6：链尾全量跑完之前，不得把提交带出去或把别人的整合进来。
+    原来的扫描漏了两类，而且是**漏**不是过度阻塞——那段注释自己说过，漏掉一次
+    真实 push 的代价是「一个全量从未跑过的提交进了别人的视野」：
+
+    · 加一对引号，那个词就不再落在分隔符上，扫描直接跳过它；
+    · 动词表里只有两个，另外三种把提交带出去/整合进来的方式全部放行。
+    """
+    cmd = "MOTV_CONTINUOUS_CHAIN=1 git commit -m x && " + tail
+    decision = _POLICY.decide(["src/ai_video_workflow/persistence.py"], cmd)
+    assert decision.tier == "chain-conflict", (
+        tail + " 必须被拒绝，实为 " + decision.tier
+    )
+
+
+def test_the_token_must_not_be_triggered_from_the_commit_message() -> None:
+    """同一轮里 codex 还报了「提交信息里的令牌能开减档」——**实测不成立**，
+    锚定是有效的。这条留作反向守卫：它一旦真的成立，减档就成了任何人打一句
+    话就能打开的开关。"""
+    decision = _POLICY.decide(
+        ["src/ai_video_workflow/persistence.py"],
+        'git commit -m "note: MOTV_CONTINUOUS_CHAIN=1 was used earlier"',
+    )
+    assert decision.tier == "full", "提交信息里的令牌不得启用减档"
+
+
+def test_a_normal_chain_commit_still_gets_the_reduced_tier() -> None:
+    """扩大拒绝面不能把连续修改链本身也堵死。"""
+    decision = _POLICY.decide(
+        ["src/ai_video_workflow/persistence.py"],
+        "MOTV_CONTINUOUS_CHAIN=1 git commit -m x",
+    )
+    assert decision.tier == "continuous-chain"

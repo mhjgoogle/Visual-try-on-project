@@ -110,12 +110,34 @@ _CHAIN_RE = re.compile(r"^[ \t]*#?[ \t]*MOTV_CONTINUOUS_CHAIN=1(?=\s)")
 #:
 #: Nothing stopped `MOTV_CONTINUOUS_CHAIN=1 git commit -m "x" && git push` —
 #: one `&&` and the chain's own escape hatch pushed a commit whose full suite
-#: had never run (independent review, round 3). The token scan is deliberately
-#: crude, exactly like the `git` / `commit` / `-C` scans this gate already does:
+#: had never run (independent review, round 3). The scan is deliberately crude:
 #: a regex cannot parse a shell command line, so a commit MESSAGE containing the
 #: word "push" over-blocks. That costs one retype without the opt-in token;
 #: missing a real push costs an unverified push into someone else's view.
-_CHAIN_CONFLICT_RE = re.compile(r"(^|[\s;&|(])(push|merge)([\s;&|)]|$)")
+#:
+#: THE CRUDE VERSION WAS MISSING, NOT OVER-BLOCKING (codex 跨模型复审
+#: 2026-08-16, both confirmed by running the classifier):
+#:
+#:   * `git "push"` — one pair of quotes and the word no longer sat on a
+#:     delimiter, so the scan skipped it and the commit took the reduced tier.
+#:     Quotes are STRIPPED before matching now. That widens over-blocking (a
+#:     message mentioning push in quotes now blocks too), which is the side this
+#:     comment already said to prefer.
+#:   * `pull` / `rebase` / `cherry-pick` — the verb list held only push/merge,
+#:     so three other ways to integrate or move commits went through. 决策 6 is
+#:     about 「把提交带出去或把别人的整合进来」, and all five do that.
+#:
+#: NOT `shlex.split`: this text comes from two different shells whose quoting
+#: rules disagree (PowerShell vs POSIX), so a real tokeniser would be right for
+#: one and wrong for the other. Stripping quote characters is wrong in the
+#: SAFE direction for both.
+_CHAIN_CONFLICT_VERBS = ("push", "merge", "pull", "rebase", "cherry-pick")
+_CHAIN_CONFLICT_RE = re.compile(
+    r"(^|[\s;&|(])(" + "|".join(_CHAIN_CONFLICT_VERBS) + r")([\s;&|)]|$)"
+)
+#: Quote characters are removed before the scan — see above. Backticks included:
+#: PowerShell uses one as its escape character.
+_QUOTE_CHARS = str.maketrans("", "", "\"'`")
 
 #: Reasons are constants so the fail-closed set below cannot drift out of sync
 #: with the strings `_classify` actually produces (independent review, round 2).
@@ -217,7 +239,8 @@ def decide(paths: list[str], command: str = "") -> Decision:
 
     if not chain_mode_from_command(command):
         return classify(paths, chain_mode=False)
-    if _CHAIN_CONFLICT_RE.search(command):
+    # quotes stripped first: `git "push"` is a push (see _CHAIN_CONFLICT_RE)
+    if _CHAIN_CONFLICT_RE.search(command.translate(_QUOTE_CHARS)):
         return Decision(
             "chain-conflict",
             # ASCII first line, for the same reason the notice has one: this text
