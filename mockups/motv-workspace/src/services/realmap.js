@@ -98,6 +98,135 @@ export function mapStanding(budgetJson) {
   };
 }
 
+/**
+ * HOW MANY SOURCE PROBLEMS THIS PROJECT HAS — in ONE place (TASK-082 §1.1).
+ *
+ * The top bar's ⚠ and ⚙ 项目健康's problem list are the same fact at two sizes,
+ * and §1.1 requires they can never print two different numbers. They cannot,
+ * because both call this and neither counts anything itself.
+ *
+ * It counts the query ENVELOPE's `problems[]` — 「读这个项目的来源时出了什么问题」
+ * (a missing `config/wfm1.json`, an unreadable approval marker). That is a
+ * different fact from WQ-09's problem RECORDS (a failed validation, a failed QC
+ * check), which the health panel lists separately and labels separately.
+ */
+export function problemCount(...sources) {
+  return problemUnion(...sources).length;
+}
+
+/** One `problems[]` entry, normalised. Same shape `mapStanding` already produces,
+ *  so an envelope from any query and the budget's own list are one vocabulary. */
+export function mapProblemEnvelope(json) {
+  const list = Array.isArray(json && json.problems) ? json.problems : [];
+  return {
+    problems: list.filter(isObj).map((p) => ({
+      category: typeof p.category === "string" ? p.category : "",
+      detail: typeof p.detail === "string" ? p.detail : "",
+      source: isObj(p.context) && typeof p.context.source === "string" ? p.context.source : "",
+    })),
+  };
+}
+
+/**
+ * EVERY source problem this project has, across however many query envelopes are
+ * available — deduplicated.
+ *
+ * WHY IT TAKES SEVERAL. Each query carries its own `problems[]`, and they overlap
+ * heavily: a missing `config/wfm1.json` is reported by budget, plan, problems and
+ * approvals alike. Counting only the budget's envelope hid a failure that only
+ * another read could see; counting them all without dedup would multiply one
+ * failure by four (independent review, TASK-082 round 1). The identity of a
+ * problem is what it SAYS — category + detail + source — because that is all the
+ * envelope carries.
+ */
+export function problemUnion(...sources) {
+  const seen = new Map();
+  for (const s of sources) {
+    const list = s && Array.isArray(s.problems) ? s.problems : [];
+    for (const p of list) {
+      if (!isObj(p)) continue;
+      const row = {
+        category: typeof p.category === "string" ? p.category : "",
+        detail: typeof p.detail === "string" ? p.detail : "",
+        source: typeof p.source === "string"
+          ? p.source
+          : isObj(p.context) && typeof p.context.source === "string" ? p.context.source : "",
+      };
+      seen.set(`${row.category}|${row.detail}|${row.source}`, row);
+    }
+  }
+  return [...seen.values()];
+}
+
+/** WQ-01 project_plan → the L0–S7 steps, with each step's run standing.
+ *
+ *  `runStatus` keeps BOTH halves of its DTO field. Most steps are
+ *  `unavailable` because WFM1 does not execute them (owner ADR-0037…0039), and
+ *  flattening that to a status string would print a stage as 「未开始」 when the
+ *  truth is 「这个版本不跑这一步」 — the same lie `¥0` told about a budget. */
+export function mapPlan(planJson) {
+  const items = Array.isArray(planJson && planJson.items) ? planJson.items : [];
+  return {
+    total: items.length,
+    steps: items.map((it) => ({
+      id: val(it, "step_id"),
+      level: val(it, "level"),
+      title: val(it, "title"),
+      sequence: val(it, "sequence"),
+      execution: val(it, "execution"),
+      responsibility: val(it, "responsibility"),
+      gate: val(it, "gate") || null,
+      runStatus: field(it, "run_status"),
+      stale: val(it, "run_stale") === true,
+    })),
+  };
+}
+
+/** WQ-09 recent_problems → the problem RECORDS it found, most recent first.
+ *
+ *  Its own envelope `problems[]` is NOT merged in here: that is the source-read
+ *  fact `problemCount` owns, and merging the two would produce a third number
+ *  that agrees with neither surface. */
+export function mapProblemRows(json) {
+  const items = Array.isArray(json && json.items) ? json.items : [];
+  return {
+    rows: items.map((it) => ({
+      kind: val(it, "kind") || "未分类",
+      detail: val(it, "detail") || "",
+      // WHICH object — the DTO names it by whichever id that kind of problem has
+      entity: val(it, "entity_id") || val(it, "task_id") || val(it, "shot_id")
+        || val(it, "check_id") || null,
+      at: val(it, "occurred_at") || null,
+    })),
+  };
+}
+
+/** WQ-13 approval_audit → per-stage approval standing + the append-only trail.
+ *
+ *  ONE list arrives carrying two shapes (stage rows and audit entries); they are
+ *  told apart by which field is present rather than by position. */
+export function mapApprovals(json) {
+  const items = Array.isArray(json && json.items) ? json.items : [];
+  const stages = [];
+  const audit = [];
+  for (const it of items) {
+    if (!isObj(it)) continue;
+    if ("audit_entry" in it) { audit.push(val(it, "audit_entry")); continue; }
+    if (!("stage_id" in it)) continue;
+    stages.push({
+      stage: val(it, "stage_id"),
+      status: val(it, "status"),
+      stale: val(it, "stale") === true,
+      by: val(it, "approved_by") || null,
+      at: val(it, "approved_at") || null,
+      targets: val(it, "approved_targets") || [],
+      blockedBy: val(it, "blocked_by") || [],
+      reason: val(it, "reason") || null,
+    });
+  }
+  return { stages, audit };
+}
+
 /** WQ-02 project_status → stage list + scope summary. */
 export function mapStages(statusJson) {
   const sc = statusJson.scope || {};

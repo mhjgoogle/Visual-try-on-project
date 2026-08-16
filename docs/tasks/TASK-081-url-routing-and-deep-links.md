@@ -1,6 +1,6 @@
 # TASK-081：URL 即状态 —— 路由与深链接（Phase 2 下半 · 之一）
 
-- 状态：**未开工**
+- 状态：**已完成**（2026-08-16，提交 `3ca71e8`）
 - 负责 Agent：单一实施 Agent（AGENTS.md 第 14 条）
 - 依据：[UI Gap Audit](../../src/ui-gap-audit/) GAP-07，
   [ui-correction-plan.md](../../src/ui-gap-audit/reports/ui-correction-plan.md) Phase 2.3
@@ -88,5 +88,31 @@
 
 ## 5. 收口
 
-- `capture_current.py` 改为 URL 驱动；重跑，归档旧图，更新 manifest。
-- 标记闭合：GAP-07。
+- `capture_current.py` 改为 URL 驱动 —— **已做**：按 `#/<项目>/<空间>/<页面>` 跳页，
+  请求地址与落点地址都写进 `capture.json` 作为证据；落回落地页的情况记为 finding
+  而不是伪造一张截图。
+- 重跑、归档旧图、更新 manifest —— **受阻，未做**：真实 Connected Project
+  `照见未明rev2` 不在本机。留给人工验收那一次。
+- 标记闭合：GAP-07 —— 代码侧已闭合，**截图证据待补**。
+
+## 6. 实施记录
+
+- `src/services/route.js`：`formatRoute` / `parseRoute` / `sameRoute` +
+  上次所在页（localStorage）。纯函数；解析一律走 `resolveModule`，不写第二套映射。
+- `production.js`：`routeLeavesObject`（后退键与 `setModule` 共用的那**一个**判断）、
+  `guardsUnsavedEdit`、`route()`、`applyRoute()`；`setModule` 现在返回是否真的移动了。
+- `app.js`：`writeUrl` / `honourAddress` / `restoreUrl` / `clearUrl` +
+  popstate & hashchange；一次后退触发的两个事件用 `sameRoute` 吞掉第二个。
+- 另跑 Playwright 浏览器烟测 11 项，覆盖单元测试盖不到的部分。
+
+独立审查：codex 跨模型 3 轮，5 条 P1 全部已修：
+`applyRoute` 问了不问都照样清草稿 / popstate+hashchange 双发在拒绝后重跑 /
+只写 `?scene=` 绕过守卫把草稿挂到别的镜头 / 「返回项目列表」后按后退把人搁浅在
+落地页 / `sameRoute` 漏了 `filter` 把真导航当重复事件吞掉。
+最后一条因预算耗尽选择「只修 P1」未再复审，如实记在 `.claude/tmp/last-review.md`。
+
+### Follow-up
+
+- `honourAddress` 在等待项目加载期间会丢掉后续的 popstate/hashchange，快速连按
+  前进/后退可能被先到的那条路由覆盖（P3，审查轮 2 记录）。地址最终会被 `writeUrl`
+  规范成实际所在处，所以屏幕与地址不会不一致。

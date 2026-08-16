@@ -29,7 +29,11 @@ import { renderCutReview, bindCutReview } from "./cutreview.js";
 import { bindChainMenu } from "./chain.js";
 import { renderEpisodeWs, bindEpisodeWs } from "./episodews.js";
 import { renderRefPlan, bindRefPlan } from "./refplan.js";
-import { renderAssetLibrary, bindAssetLibrary, RAIL_TYPE } from "./assetlibws.js";
+import {
+  renderAssetLibrary, bindAssetLibrary, RAIL_TYPE,
+  // TASK-082 §1.2: the rail is a CONTENT tree now, not a second copy of the chips
+  assetTreeModel, renderAssetTree,
+} from "./assetlibws.js";
 import { renderStorageWs, bindStorageWs } from "./storagews.js";
 import { renderStoryWs, bindStoryWs } from "./storyws.js";
 import { renderBibleWs, bindBibleWs } from "./biblews.js";
@@ -58,6 +62,8 @@ import { specStanding, SPEC_FIELD_BY_KEY } from "../workflow/deliveryspec.js";
 import { skillPanelModel, renderSkillPanel, bindSkillPanel } from "./skillpanel.js";
 // TASK-080 §1.1: 「这个系统一共能帮我做哪些事」, in one place
 import { skillCatalogModel, renderSkillCatalog, bindSkillCatalog } from "./skillcatalog.js";
+// TASK-082 §1.1: 「这个项目整体在哪一步，有什么数据问题」
+import { healthModel, renderHealth, bindHealth } from "./healthws.js";
 // TASK-080 §1.2 批次 A: ONE persistent session whose context the creator states
 import {
   agentSessionModel, renderAgentSession, bindAgentSession, sessionState,
@@ -601,6 +607,20 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     ctx.mediaProbe.scanRegistry().then((changed) => { if (changed) render(); }).catch(() => {});
   }
 
+  /** Read the four project queries ONCE, when ⚙ 项目健康 is actually opened
+   *  (TASK-082 §1.1).
+   *
+   *  Same shape as `ensureProbe`: never awaited by render(), fires only on the
+   *  page that needs it, and only from `idle` — so a failed read stays failed
+   *  (with its reason on screen) instead of re-firing four requests every repaint
+   *  until the backend recovers. 「重新读取」 is the explicit retry. */
+  function ensureHealth(ctx) {
+    if (!ctx.health) return;
+    if (activeModule !== PROJECT_SETTINGS || sectionOf(PROJECT_SETTINGS) !== "health") return;
+    if (ctx.health.get().state !== "idle") return;
+    ctx.health.load();
+  }
+
   /** Turn ANY media element that fails to load into the honest placeholder.
    *
    *  ONE handler for the whole tree, keyed off `data-media-url`, so a surface
@@ -968,6 +988,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       if (sec === "storage") return nav + renderStorageWs(ctx, ui);
       if (sec === "spec" || sec === "budget") return nav + renderSpecSection(ctx, sec);
       if (sec === "skills") return nav + renderSkillCatalog(skillCatalogModel(ctx, ui));
+      if (sec === "health") return nav + renderHealth(healthModel(ctx.health ? ctx.health.get() : {}));
       return (
         nav +
         empty(
@@ -1068,6 +1089,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     const space = spaceOf(activeModule);
     ensureProbe(ctx);
     ensureMediaProbe(ctx);
+    ensureHealth(ctx);
     // The grid differs per space (a 220px rail vs a 300px inspector), and the
     // CSS decides from ONE class so no two rules can disagree about which
     // space is on screen.
@@ -1193,7 +1215,13 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     if (space === "assets") {
       root.innerHTML =
         crumb(ctx) +
-        `<nav class="st-rail prod-nav">${renderAssetRail({ activeModule, counts: assetRailCounts(ctx) })}</nav>` +
+        `<nav class="st-rail prod-nav">` +
+        renderAssetTree(
+          assetTreeModel(ctx.assets.library({ type: "all", variant: "all" }).rows, ctx.assets.names()),
+          ui.alFilters || {},
+        ) +
+        renderAssetRail({ activeModule, counts: assetRailCounts(ctx) }) +
+        `</nav>` +
         `<main class="st-main prod-main">${main}</main>` +
         aiDirector(ctx);
       bind(ctx);
@@ -1420,17 +1448,10 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
    *  model the workspace renders, so a rail badge cannot claim assets the list
    *  does not show. */
   function assetRailCounts(ctx) {
-    const rows = ctx.assets.library({ type: "all", variant: "all" }).rows;
-    const n = (fn) => rows.filter(fn).length || 0;
-    return {
-      assets: rows.length,
-      "assets:reference": n((r) => r.isReference),
-      "assets:image": n((r) => r.domain === "images" && !r.isReference),
-      "assets:video": n((r) => r.domain === "videos" && !r.isReference),
-      "assets:audio": n((r) => r.domain === "audio" && !r.isReference),
-      "assets:final": n((r) => r.domain === "finals"),
-      "assets:collection": n((r) => r.reusable),
-    };
+    // TASK-082 §1.2: the seven per-category counts went with the seven rows. The
+    // page's own chips carry those numbers (`libraryModel.counts`), and a second
+    // copy in the rail could only ever disagree with them.
+    return { assets: ctx.assets.library({ type: "all", variant: "all" }).rows.length };
   }
 
   /** Make `shotId` the shot the whole 剧集制作 space is standing on.
@@ -1854,6 +1875,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       // (the Director's 能力 panel) rather than opening a second one here. The
       // catalog answers 「能做什么」; running stays where its guards already are.
       if (sec === "skills") bindSkillCatalog(root, ctx, ui, render, { onRun: (id) => openSkillRun(ctx, id) });
+      if (sec === "health") bindHealth(root, { onReload: () => ctx.health && ctx.health.load() });
       // ⚙ 成片规格 / 预算与限制 — the ONLY editing entrance (§1.7). `change`, not
       // `input`: a half-typed number is not a decision, and validating on every
       // keystroke would reject 「1」 on the way to 「10」.
@@ -1867,6 +1889,21 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     }
     if (spaceOf(activeModule) === "assets" && activeModule !== "storage") {
       bindAssetLibrary(root, ctx, ui, render);
+      // TASK-082 §1.2 — the content tree sets the library's OWN ownership filters
+      // (`characterId` / `locationId` / `episodeId` / `unlinked`), which is what
+      // makes the tree a view of the library rather than a second library. It
+      // never touches the TYPE filter: the page's chips own that vocabulary, and
+      // clearing it here would silently undo a chip the creator just clicked.
+      root.querySelectorAll("[data-al-tree]").forEach((b) => (b.onclick = () => {
+        const key = b.dataset.alTree;
+        const id = b.dataset.alTreeId;
+        const next = { ...(ui.alFilters || {}) };
+        for (const k of ["characterId", "locationId", "episodeId", "unlinked"]) delete next[k];
+        if (key !== "all") next[key] = key === "unlinked" ? true : id;
+        ui.alFilters = next;
+        ui.alOpen = null; // an inspector opened on an asset the new filter hides
+        render();
+      }));
     }
     // --- 剧集制作 (ADR-0061 决策 2): LEFT inspector + CENTER workspace -------- //
     if (spaceOf(activeModule) === "episode") {

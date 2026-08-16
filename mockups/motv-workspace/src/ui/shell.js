@@ -288,7 +288,7 @@ export const PAGE_SECTIONS = Object.freeze({
   // are a closed set with a guard test on the count, and ⚙ is deliberately
   // outside them (§1.7). See the header of ui/skillcatalog.js for the full
   // argument against ADR-0066 决策 10.
-  [PROJECT_SETTINGS]: ["info", "spec", "budget", "storage", "skills"],
+  [PROJECT_SETTINGS]: ["info", "health", "spec", "budget", "storage", "skills"],
 });
 
 /** Which top-level SPACE a module belongs to (ADR-0061 决策 1). One function,
@@ -321,16 +321,24 @@ export const SPACE_LABEL = { story: "故事开发", episode: "剧集制作", ass
  *  number printed beside it. */
 export const STAGE_KEYS = ["frames", "video", "audio", "dailies"];
 
-/** The 资产库 rail (ADR-0061 决策 1), KEPT for its current callers — see the note on
- *  `ASSET_FILTER_ALIAS`. Media categories only, never production navigation. */
+/**
+ * The 资产库 rail — ENTRANCES ONLY (TASK-082 §1.2).
+ *
+ * The seven media-category rows are GONE. They were C-018: the same vocabulary
+ * offered twice, once as a rail and once as the page's own filter chips, so the
+ * creator had to learn that clicking 「Videos」 on the left and 「镜头视频」 in the
+ * page were one thing. TASK-073 §1.1 already decided this (`ASSET_NAV` 删除 →
+ * `ASSET_FILTER_ALIAS` preset filter values); the aliases landed and the rows
+ * were left behind for TASK-074, which is why the duplication survived.
+ *
+ * The keys keep working — `resolveModule` still resolves every `assets:*` to the
+ * library with its filter set, and the URL still carries them (TASK-081). What
+ * was deleted is an ENTRANCE, never an ability.
+ *
+ * 存储管理 STAYS: it is not a media category, it is a different page.
+ */
 export const ASSET_NAV = [
   ["assets", "📦", "全部资产"],
-  ["assets:reference", "🖼", "References"],
-  ["assets:image", "🎨", "Images"],
-  ["assets:video", "▶", "Videos"],
-  ["assets:audio", "🎵", "Audio"],
-  ["assets:final", "🎬", "Final"],
-  ["assets:collection", "🏷", "Collections"],
   ["storage", "💾", "存储管理"],
 ];
 
@@ -369,7 +377,7 @@ export const SECTION_LABEL = {
   timeline: "时间线与粗剪调整", voice: "配音", ambience: "环境音 / 音效 / 音乐",
   subtitle: "字幕", preview: "成片预览", qc: "交付质检", export: "导出及导出记录",
   info: "项目信息", spec: "成片规格", budget: "预算与限制", storage: "存储与诊断",
-  skills: "能力目录",
+  skills: "能力目录", health: "项目健康",
 };
 
 /** Episode short label: EP01, EP02… derived from position, with the planned

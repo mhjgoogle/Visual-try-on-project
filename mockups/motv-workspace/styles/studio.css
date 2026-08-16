@@ -1671,3 +1671,26 @@
 .as-rt { color: var(--text-faint); }
 .as-chip.sent { border-color: var(--accent-line); background: var(--accent-soft); }
 .as-nosend { border-left: 2px solid color-mix(in srgb, var(--bad) 45%, var(--line)); padding-left: var(--s2); }
+
+/* ⚙ 项目健康（TASK-082 §1.1）—— 只读投影，不知道的一律 —，绝不写 0 */
+.hz-sec { padding-top: var(--s5); }
+.hz-sec > .lab { color: var(--text-dim); font-size: var(--t-micro); font-weight: 700; }
+.hz-stats { display: flex; flex-wrap: wrap; gap: var(--s5); padding-top: var(--s3); }
+.hz-stat { display: flex; flex-direction: column; gap: 2px; }
+.hz-stat .k { color: var(--text-faint); font-size: var(--t-micro); }
+.hz-stat .v { font-size: var(--t-lg); font-weight: 700; }
+.hz-stat .v.unknown { color: var(--text-faint); font-weight: 400; }
+.hz-tbl { width: 100%; border-collapse: collapse; margin-top: var(--s3); font-size: var(--t-micro); }
+.hz-tbl th { text-align: left; color: var(--text-faint); font-weight: 400; padding: var(--s2); border-bottom: 1px solid var(--line); }
+.hz-tbl td { padding: var(--s2); border-bottom: 1px solid var(--line); vertical-align: top; }
+.hz-tbl tr.bad td { background: color-mix(in srgb, var(--bad) 6%, transparent); }
+.hz-seq, .hz-lv { color: var(--text-faint); white-space: nowrap; }
+.hz-t { color: var(--text); }
+.hz-t .chip { margin-left: var(--s2); }
+.hz-ex, .hz-ow { color: var(--text-dim); white-space: nowrap; }
+.hz-st { white-space: nowrap; }
+.hz-st.unknown { color: var(--text-faint); }
+.hz-probs { list-style: none; margin: var(--s3) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--s2); }
+.hz-probs li { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; font-size: var(--t-xs); }
+.hz-pd { color: var(--text-dim); }
+.hz-at { color: var(--text-faint); font-size: var(--t-micro); }

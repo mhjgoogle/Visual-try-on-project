@@ -410,3 +410,8 @@ video.athumb { background: #000; }
 .toast { position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%) translateY(16px); background: var(--text); color: var(--bg); padding: 11px 17px; border-radius: 10px; font-size: 13px; font-weight: 600; opacity: 0; pointer-events: none; transition: .2s; z-index: 90; box-shadow: var(--shadow); } .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* 项目卡：封面 + 进度（TASK-082 §1.3）—— 封面永远不是探针判定已丢失的文件 */
+.thumb-cover { padding: 0; overflow: hidden; }
+.thumb-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pcard .pstat { font-size: var(--t-micro); color: var(--text-dim); }

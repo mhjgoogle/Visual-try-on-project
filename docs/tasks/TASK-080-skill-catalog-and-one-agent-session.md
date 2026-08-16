@@ -1,6 +1,6 @@
 # TASK-080：能力可见 —— Skill 目录页 + 一个 Agent 会话（Phase 2 上半）
 
-- 状态：**未开工**
+- 状态：**已完成**（2026-08-16，三个批次三次提交）
 - 负责 Agent：单一实施 Agent（AGENTS.md 第 14 条）
 - 依据：[UI Gap Audit](../../src/ui-gap-audit/) GAP-04 / GAP-08，
   [ui-correction-plan.md](../../src/ui-gap-audit/reports/ui-correction-plan.md) Phase 2.1 / 2.2
@@ -36,6 +36,13 @@
 **每个 Skill 不得各占一页**，不是「Skill 目录不能有页」。一个目录页是
 **一页承载全部 21 个**，正是该约束想要的形状。**实施前在卡里写明这个论证**；
 若判断仍冲突，落到 ⚙ 项目设置的一个分区，**不要静默新增一级页**。
+
+**实施结论：落到 ⚙ 的一个分区。** 与决策 10 本身不冲突，上面的论证成立；真正
+冲突的是 IA 的另一半：`PAGES` 是**十一页的封闭集合**，`workspaces.test.mjs` 的
+「the IA is a CLOSED set」直接断言 `PAGES.length === 11`。靠改那个数字来通过测试，
+就是让一个「冻结集合」不再冻结。而 ⚙ 项目设置本来就在三空间十一页**之外**
+（shell.js `PROJECT_SETTINGS` / §1.7），所以目录落在 ⚙ 的一个分区里，两条规则
+都不用动——这正是本节事先写好的退路。完整论证在 `src/ui/skillcatalog.js` 头部。
 
 **要做**：
 - 分类 / 搜索 / 按 `work`（creative / review）分组
@@ -99,6 +106,25 @@
 
 ## 5. 收口
 
-- 重跑 `capture_current.py`，归档旧图，更新 manifest。
-- 标记闭合：GAP-04 / GAP-08。
-- Follow-up：Skill 的「上次跑出什么」历史视图（若本卡没做）。
+- 重跑 `capture_current.py`，归档旧图，更新 manifest
+  → **受阻，未做**：真实 Connected Project `照见未明rev2` 不在本机
+  （`capture.json` 记录的上次抓取是 commit `d546b4c`），后端起不起来就没有可抓的
+  界面。留给拿得到该项目与 account root 的那次人工验收。
+- 标记闭合：GAP-04 / GAP-08 —— 代码侧已闭合，**截图证据待补**（同上）。
+- Follow-up：Skill 的「上次跑出什么」历史视图（本卡未做；会话里有按能力过滤的
+  运行记录，但没有「这次跑出了什么」的内容视图）。
+- Follow-up：会话里的自由文字与非镜头 @ 引用目前**不进 Prompt**（Skill 的输入是
+  声明式的，ADR-0056 决策 6），界面已逐项明说。要让它们进去属于 ADR-0067 的范围。
+
+## 6. 实施记录
+
+| 批次 | 提交 | 内容 |
+| --- | --- | --- |
+| §1.1 | `e445e00` | ⚙ 能力目录：21 个能力 + 失败原因可见 + 已停用分列 |
+| §1.2 批次 A | `72ed7d8` | 一个常驻会话（`/` 能力 · `@` 六类对象 · 上下文可见可编辑），**四个旧面板一个没收** |
+| §1.2 批次 B | `30aa5bc` | 收「询问 Agent」这一个入口：面板整体搬进会话，动作一件不少 |
+
+独立审查：codex 跨模型。§1.1 零发现；批次 A 四轮修掉 3 条 P1（静默丢弃 / 多引用
+只送第一个却全标送出 / 未捕获 rejection），轮 4 那条 uncertain 带证据驳回；
+批次 B `VERDICT: pass`。批次 A 的轮次超出中风险 tier+1 上限，原因与取舍记在
+`.claude/tmp/last-review.md`。

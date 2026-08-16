@@ -137,6 +137,11 @@ export function libraryModel({ assets, usage, names, filters = {} }) {
     || a.usage.places.some((p) => p.sceneId === f.sceneId));
   if (f.shotId) rows = rows.filter((a) => a.links.shotId === f.shotId
     || a.usage.places.some((p) => p.shotId === f.shotId));
+  // TASK-082 §1.2: 「没有归属的素材」 — the content tree's own node, and the only
+  // way to reach an asset the registry never linked to anything.
+  if (f.unlinked) {
+    rows = rows.filter((a) => !a.links.characterId && !a.links.locationId && !a.links.episodeId);
+  }
   if (f.source) rows = rows.filter((a) => (a.origin || "") === f.source);
   if (f.reusable) rows = rows.filter((a) => a.reusable);
   if (f.tag) rows = rows.filter((a) => a.tags.includes(f.tag));
@@ -452,4 +457,98 @@ export function bindAssetLibrary(root, ctx, ui, render) {
     };
   }
   on("[data-al-reusable]", "onchange", (e) => { ctx.assets.setReusable(ui.alOpen, e.target.checked); render(); });
+}
+
+/* -------------------------------------------------------------------------- */
+/* 内容树 (TASK-082 §1.2)                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The 资产库 rail, as a CONTENT TREE — 角色 / 场景地 / 剧集 / 未归属.
+ *
+ * WHAT IT REPLACES. The rail used to be seven media-category rows that duplicated
+ * the page's own filter chips (C-018) — the same vocabulary twice, neither of
+ * which answered 「这个角色有哪些素材」. That question is what a left column over a
+ * library is FOR (T-030), and the answer was already in the data.
+ *
+ * NO SECOND OWNERSHIP RECORD. Every group comes from `asset.links`, the registry's
+ * own declaration — `assetreg.LINK_KEYS`. Nothing here infers ownership from a
+ * filename, a folder, a usage site or a name match: a tree that guessed would be a
+ * second, quieter answer to 「这个素材属于谁」, and the two would drift.
+ *
+ * `names` is `ctx.assets.names()` — the same id→name map the library's own search
+ * uses, so a node is labelled the way the creator sees that object named.
+ *
+ * PURE. Takes rows and names, returns data.
+ */
+export function assetTreeModel(rows, names = {}) {
+  const list = Array.isArray(rows) ? rows : [];
+  const nameOf = (kind) => (typeof names[kind] === "function" ? names[kind] : () => "");
+  const groups = [
+    { key: "characterId", kind: "character", label: "角色", icon: "👤" },
+    { key: "locationId", kind: "location", label: "场景地", icon: "📍" },
+    { key: "episodeId", kind: "episode", label: "剧集", icon: "📺" },
+  ].map((g) => {
+    const byId = new Map();
+    for (const r of list) {
+      const id = r && r.links ? r.links[g.key] : null;
+      if (!id) continue;
+      byId.set(id, (byId.get(id) || 0) + 1);
+    }
+    return {
+      ...g,
+      nodes: [...byId.entries()]
+        .map(([id, n]) => ({ id, n, label: nameOf(g.kind)(id) || id }))
+        .sort((a, b) => (a.label < b.label ? -1 : a.label > b.label ? 1 : 0)),
+    };
+  }).filter((g) => g.nodes.length);
+  // 未归属 IS A GROUP, NOT A GAP. An asset the registry never linked to anything is
+  // the one a creator cannot find any other way, so it gets a row of its own
+  // rather than being silently absent from a tree that claims to cover the library.
+  const orphans = list.filter(
+    (r) => !r || !r.links || (!r.links.characterId && !r.links.locationId && !r.links.episodeId),
+  ).length;
+  return { groups, orphans, total: list.length };
+}
+
+/** WHICH tree node the current filters correspond to — `{key, id}` or null.
+ *  Read from `ui.alFilters` so the highlight cannot disagree with the list. */
+export function activeTreeNode(filters = {}) {
+  for (const key of ["characterId", "locationId", "episodeId"]) {
+    if (filters && filters[key]) return { key, id: filters[key] };
+  }
+  return filters && filters.unlinked ? { key: "unlinked", id: "1" } : null;
+}
+
+export function renderAssetTree(m, filters = {}) {
+  const on = activeTreeNode(filters);
+  const isOn = (key, id) => !!on && on.key === key && on.id === id;
+  const row = (key, id, icon, label, n, cls = "") =>
+    `<button class="st-navitem${cls ? ` ${cls}` : ""}${isOn(key, id) ? " on" : ""}" ` +
+    `data-al-tree="${esc(key)}" data-al-tree-id="${esc(String(id))}">` +
+    `<span class="ic">${icon}</span><span class="nm">${esc(label)}</span>` +
+    (n ? `<span class="bdg">${esc(String(n))}</span>` : "") +
+    `</button>`;
+  if (!m.total) {
+    return (
+      `<div class="st-railsec">内容树</div>` +
+      `<div class="st-railnote">这个项目还没有登记任何资产。</div>`
+    );
+  }
+  const body = m.groups
+    .map((g) =>
+      `<div class="st-railsec">${esc(g.label)}</div>` +
+      g.nodes.map((nd) => row(g.key, nd.id, g.icon, nd.label, nd.n, "st-subitem")).join(""))
+    .join("");
+  return (
+    `<div class="st-railsec">内容树</div>` +
+    row("all", "1", "📦", "全部资产", m.total) +
+    body +
+    (m.orphans
+      ? `<div class="st-railsec">未归属</div>` +
+        row("unlinked", "1", "❔", "没有归属的素材", m.orphans, "st-subitem")
+      : "") +
+    `<div class="st-railnote">分组来自登记表里的归属声明（asset.links），` +
+    `不是从文件名或用法猜出来的。媒体类型的筛选在页面里的 chips 上。</div>`
+  );
 }

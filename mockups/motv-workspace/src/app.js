@@ -39,6 +39,8 @@ import { createWizard } from "./ui/wizard.js";
 import { createShotEditor, normalizeShots, nextDraftVersion } from "./ui/shoteditor.js";
 import { mintId } from "./workflow/identity.js";
 import { createViews } from "./ui/landing.js";
+// TASK-082 §1.3: the landing card finally says something about the film
+import { projectCardModel, pickCover, cardStats, renderCover } from "./ui/landingcard.js";
 import { createProduction } from "./ui/production.js";
 import { dailiesModel } from "./ui/dailies.js";
 import { reviewBoardModel } from "./ui/cutreview.js";
@@ -405,8 +407,20 @@ function renderBudget() {
       && s.remaining.value < s.total.value * 0.15;
     // …and the backend's `problems[]` finally gets a surface. The whole readout
     // already opens 真实项目数据; the ⚠ says there is something to read there.
-    const warn = s.problems.length
-      ? `<span class="bwarn" title="${esc(s.problems.map((p) => p.detail).join("\n"))}">⚠ ${s.problems.length}</span>`
+    // TASK-082 §1.1: the count comes from `realmap.problemCount`, which ⚙ 项目健康
+    // also calls — ONE counter, so the badge and its own drill-down panel can
+    // never print two different numbers from one source.
+    // …across EVERY envelope read so far, deduplicated — the same union
+    // ⚙ 项目健康 prints (TASK-082 §1.1). At boot only the budget's is available,
+    // which is why `loadHealth` calls `renderBudget()` when the rest arrive.
+    const envelopes = HEALTH.project === PROJECT_NAME ? HEALTH.envelopes : [];
+    const union = realmap.problemUnion(s, ...envelopes);
+    const nProblems = union.length;
+    const warn = nProblems
+      // THE TOOLTIP LISTS THE SAME UNION IT COUNTS. Listing only the budget's own
+      // problems while counting all four is the same defect one level down: the
+      // creator opens 「⚠ 2」 and is shown one line (independent review, round 2).
+      ? `<span class="bwarn" title="${esc(union.map((p) => p.detail).join("\n"))}">⚠ ${nProblems}</span>`
       : "";
     const html =
       `<span>已花 <b>${realmap.yenOf(s.spent)}</b></span><span class="sep">·</span>` +
@@ -423,6 +437,84 @@ function renderBudget() {
   const bal = budget.balance();
   const html = `<span>已花 <b>${y(budget.totalSpent())}</b></span><span class="sep">·</span><span>余额 <b class="bal" ${bal < 3000 ? 'style="color:var(--gate)"' : ""}>${y(bal)}</b></span><span class="sep">▾</span>`;
   $$("#budget1,#budget2").forEach((e) => { e.innerHTML = html; e.onclick = () => inspector.openCost(); });
+}
+
+/* -------------------------------------------------------------------------- */
+/* ⚙ 项目健康 (TASK-082 §1.1)                                                  */
+/* -------------------------------------------------------------------------- */
+//
+// FOUR READ-ONLY QUERIES THE FRONT END NEVER CALLED. `plan` / `problems` /
+// `approvals` were served by the backend and consumed by nothing; `status` was
+// only ever read for the cost drill-down. Fetched ONCE per project on demand and
+// cached here — the shell renders synchronously, so a panel that awaited would
+// blank the page while it ran (the same reason `ensureProbe` works this way).
+
+// KEYED BY PROJECT, and read back through the same key. A module-level cache with
+// no key showed project A's health under project B's name: `ensureHealth` saw
+// `state !== "idle"` and skipped the load (independent review, round 1). That is
+// the fabricated-observation failure this codebase keeps closing — so the key is
+// checked at READ time, not merely reset on switch, and a stale entry can never
+// be rendered even if some future path forgets to clear it.
+const HEALTH_EMPTY = {
+  project: null, state: "idle", status: null, plan: null,
+  problems: null, approvals: null, envelopes: [], error: null,
+};
+let HEALTH = { ...HEALTH_EMPTY };
+/** Which read is the CURRENT one. Two 「重新读取」 clicks race, and without this the
+ *  slower (older) response wins simply by finishing last — the panel and the ⚠
+ *  would then show data the creator已经 asked to replace (independent review,
+ *  round 2). The project name alone cannot tell them apart: both are for the same
+ *  project. */
+let HEALTH_GEN = 0;
+
+async function loadHealth() {
+  if (!CONNECTED) {
+    HEALTH = {
+      ...HEALTH_EMPTY, project: PROJECT_NAME, state: "error",
+      error: "演示模式没有后端——这四个查询由后端读项目目录得出，静态 demo 里不存在",
+    };
+    production.render();
+    return;
+  }
+  const gen = ++HEALTH_GEN;
+  HEALTH = { ...HEALTH_EMPTY, project: PROJECT_NAME, state: "loading" };
+  production.render();
+  const name = PROJECT_NAME;
+  /** Is this still the read whose answer anyone is waiting for? */
+  const current = () => gen === HEALTH_GEN && name === PROJECT_NAME;
+  try {
+    const [planJ, statusJ, problemsJ, approvalsJ] = await Promise.all([
+      query.getQuery(name, "plan"),
+      query.getQuery(name, "status"),
+      query.getQuery(name, "problems"),
+      query.getQuery(name, "approvals"),
+    ]);
+    // THE PROJECT MAY HAVE CHANGED WHILE THIS RAN. Writing another project's
+    // readings into the panel is the fabricated-observation failure this codebase
+    // keeps guarding against, so a late answer for a project we have left is
+    // dropped rather than displayed.
+    if (!current()) return;
+    HEALTH = {
+      project: name,
+      state: "ok",
+      plan: realmap.mapPlan(planJ),
+      status: realmap.mapStages(statusJ),
+      problems: realmap.mapProblemRows(problemsJ),
+      approvals: realmap.mapApprovals(approvalsJ),
+      // EVERY query's own `problems[]`. Only one of the four may have hit the
+      // source failure that matters, and the budget read — the only one the ⚠ had
+      // — is not necessarily that one (independent review, round 1).
+      envelopes: [planJ, statusJ, problemsJ, approvalsJ].map(realmap.mapProblemEnvelope),
+      error: null,
+    };
+  } catch (e) {
+    if (!current()) return;
+    HEALTH = { ...HEALTH_EMPTY, project: name, state: "error", error: (e && e.message) || String(e) };
+  }
+  production.render();
+  // …and the ⚠ now has more sources than it did at boot, so it is recomputed from
+  // the same union the panel prints.
+  renderBudget();
 }
 
 async function openRealProjectData() {
@@ -4014,6 +4106,18 @@ ctx.locks = createLockController({
 //
 // `CATALOG_DETAIL` / `CATALOG_PROBLEMS` 也是 getter：它们是启动时安装能力目录才
 // 被赋值的模块级 `let`，捕获它们的值会让面板永远报「能力目录尚未加载」。
+// ⚙ 项目健康 (TASK-082 §1.1) — READ ONLY, and cached per project. `standing` is
+// the SAME `REAL_STANDING` the top bar's ⚠ counts, handed over rather than
+// re-fetched, so the badge and its drill-down cannot describe two different reads.
+ctx.health = {
+  // A cache belonging to ANOTHER project reads as 「还没读」, never as that
+  // project's data — see the note on HEALTH_EMPTY.
+  get: () => (HEALTH.project === PROJECT_NAME
+    ? { ...HEALTH, standing: REAL_STANDING }
+    : { ...HEALTH_EMPTY, standing: REAL_STANDING }),
+  load: () => loadHealth(),
+};
+
 ctx.skills = createSkillController({
   docs: {
     runs: () => skillRunRegistry,
@@ -5353,6 +5457,10 @@ async function enterCanvas(name, opts = {}) {
   ctxCacheDoc = ctxcache.createCache(null);
   deliverySpecDoc = {};
   reviewsDoc = { issues: [], decisions: [] };
+  // …and the project-health cache, for the same reason every document above is
+  // cleared here: it describes the project being left.
+  HEALTH = { ...HEALTH_EMPTY };
+  HEALTH_GEN += 1; // any read still in flight is for the project being left
   const known = projects.loadRegistry(window.localStorage).find((p) => p.name === name);
   ctx.project = {
     ...FIX,
@@ -5511,6 +5619,52 @@ async function fetchProjectList() {
   }
 }
 
+/**
+ * project name → `{ model }` for the landing card (TASK-082 §1.3).
+ *
+ * Filled by `loadProjectCards`, read by `renderLanding`. A name that is absent
+ * has NOT been read yet, which is a different state from 「read and empty」 — the
+ * card shows no numbers at all for it rather than zeros.
+ */
+const CARD_INFO = new Map();
+
+/**
+ * Read each project's canvas once and derive its card.
+ *
+ * WHY IT IS SAFE TO READ THEM ALL. `loadCanvas` is the same read the studio does
+ * on entry and writes nothing; a project whose document is corrupt or too new
+ * comes back with a status and is recorded as unreadable rather than throwing the
+ * landing page away. The demo is skipped: it is re-seeded from scratch on every
+ * entry, so any cover or count derived from a previous seed is about a project
+ * that no longer exists.
+ *
+ * The cover is then PROBED before it is shown — a registered image whose bytes
+ * are gone must not become the face of the project (§1.3 「封面不是碎图」).
+ */
+async function loadProjectCards(names) {
+  const wanted = (Array.isArray(names) ? names : []).filter((n) => n && n !== DEMO_PROJECT_NAME);
+  if (!wanted.length) return;
+  const covers = [];
+  for (const name of wanted) {
+    try {
+      const res = await persist.loadCanvas(name);
+      const model = projectCardModel(res.status === "ok" ? res.doc : null);
+      CARD_INFO.set(name, { model });
+      covers.push(...model.coverCandidates);
+    } catch {
+      // an unreadable project is a FACT about it, recorded — never a reason to
+      // leave the whole landing page half-drawn
+      CARD_INFO.set(name, { model: projectCardModel(null) });
+    }
+  }
+  renderLanding(REAL_NAMES);
+  if (covers.length) {
+    try {
+      if (await mediaProbe.scan(covers)) renderLanding(REAL_NAMES);
+    } catch { /* a probe that cannot run leaves the <img> as the last word */ }
+  }
+}
+
 function renderLanding(realNames) {
   const projectsError = LIST_ERROR;
   const grid = $("#projgrid");
@@ -5545,10 +5699,21 @@ function renderLanding(realNames) {
       : c.assetRoot
         ? projects.assetPathFor(c.assetRoot, c.name)
         : "未记录资产位置";
+    // TASK-082 §1.3 — the card finally says something about the FILM. `CARD_INFO`
+    // is filled in by `loadProjectCards` after each canvas is read; until then the
+    // card is exactly what it was, and a project whose canvas cannot be read stays
+    // that way rather than printing zeros.
+    const info = CARD_INFO.get(c.name) || null;
+    const stats = info ? cardStats(info.model) : null;
+    const cover = info ? pickCover(info.model.coverCandidates, (u) => mediaProbe.isMissing(u)) : null;
     b.innerHTML =
-      landingThumb(c.kind, c.name) +
+      renderCover(cover, landingThumb(c.kind, c.name)) +
       `<div class="cap"><div class="nm">${esc(c.name)}</div>` +
-      `<div class="rw"><span class="chip${c.kind === "real" ? " ok" : c.kind === "demo" ? " gate" : ""}">${esc(tag)}</span></div>` +
+      `<div class="rw"><span class="chip${c.kind === "real" ? " ok" : c.kind === "demo" ? " gate" : ""}">${esc(tag)}</span>` +
+      (stats ? `<span class="pstat">${esc(stats)}</span>` : "") +
+      (info && !info.model.readable ? `<span class="chip bad">画布读不出来</span>` : "") +
+      `</div>` +
+      (c.openedAt ? `<div class="pt">上次打开 ${esc(String(c.openedAt).slice(0, 16).replace("T", " "))}</div>` : "") +
       `<div class="pt" title="${esc(where)}">${esc(where)}</div></div>`;
     b.onclick = () => {
       if (c.kind !== "demo") projects.touchProject(window.localStorage, c.name, new Date().toISOString());
@@ -5560,6 +5725,16 @@ function renderLanding(realNames) {
         route: c.kind === "demo" ? null : loadLastRoute(window.localStorage, c.name),
       });
     };
+    // A COVER THAT FAILS AT PAINT TIME IS RECORDED AND REPLACED. The probe's
+    // `HEAD` can be declined by a server that still serves `GET`, so the `<img>`
+    // is the last word — and when it says the bytes are unfetchable, the next
+    // candidate takes over instead of a broken glyph becoming the project's face.
+    const img = b.querySelector("[data-pcard-cover]");
+    if (img) {
+      img.onerror = () => {
+        if (mediaProbe.observe(img.dataset.mediaUrl, false)) renderLanding(realNames);
+      };
+    }
     grid.appendChild(b);
   }
 }
@@ -5798,6 +5973,9 @@ async function boot() {
   }
   renderLanding(REAL_NAMES);
   renderBudget();
+  // TASK-082 §1.3 — covers and counts arrive after the cards are already on
+  // screen, so a slow or unreadable canvas never delays the project list.
+  loadProjectCards(CONNECTED ? REAL_NAMES : projects.loadRegistry(window.localStorage).map((p) => p.name));
   // TASK-081 验收 #1 / #2 — a deep link is honoured on FIRST LOAD, which is the
   // whole point: a refresh and a pasted address are the same event to a browser,
   // and both used to land on the project list. Done last, so the landing page is

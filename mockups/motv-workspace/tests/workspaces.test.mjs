@@ -21,7 +21,7 @@ import {
 import { navBadges, NAV } from "../src/ui/production.js";
 import {
   EPISODE_NAV, EPISODE_MODULES, EPISODE_DEFAULT, EPISODE_WORKSPACES,
-  ASSET_NAV, spaceOf, renderAssetRail, MODULE_LABEL,
+  ASSET_NAV, ASSET_FILTER_ALIAS, spaceOf, renderAssetRail, MODULE_LABEL,
   LEGACY_EPISODE_STAGES, LEGACY_EPISODE_CENTRE, PROJECT_SETTINGS, PAGES, PAGE_SECTIONS, resolveModule, NAV as NAV_PAGES,
 } from "../src/ui/shell.js";
 import * as sd from "../src/workflow/scriptdoc.js";
@@ -580,25 +580,43 @@ test("TASK-073 §1.1 验收 #2 + #12: every OLD key resolves to a real page + se
   assert.ok(PAGES.includes(miss.module));
 });
 
-test("ASSET_NAV is media categories only — no production navigation (TASK-064 §15)", () => {
+test("资产库 rail 只剩入口：媒体分类七行已删，键仍解析（TASK-082 §1.2）", () => {
+  // THE RULE CHANGED, WITH A CARD BEHIND IT. TASK-064 §15 asked the rail to be
+  // media categories and nothing else; TASK-073 §1.1 then decided those seven
+  // categories ARE the page's own filter chips (`ASSET_FILTER_ALIAS`) and the
+  // rail rows are a duplicate of one vocabulary (C-018). TASK-082 §1.2 deletes
+  // the rows. So this test now asserts the NEW rule — it was not relaxed to let
+  // the code pass, it was rewritten to state what the rail is for.
   const keys = ASSET_NAV.map((i) => i[0]);
   for (const k of ["script", "scenes", "shots", "frames", "video", "audio", "dailies", "edit", "workbench"]) {
     assert.ok(!keys.includes(k), `${k} is production navigation and must not pollute 资产库`);
   }
+  // the seven media categories are GONE from the rail …
   for (const k of ["assets:reference", "assets:image", "assets:video", "assets:audio", "assets:final", "assets:collection"]) {
-    assert.ok(keys.includes(k), `资产库 is missing ${k}`);
+    assert.ok(!keys.includes(k), `${k} is a page filter chip now, not a rail row`);
   }
+  // … and are still fully RESOLVABLE, which is the half that must never change:
+  // a bookmark, a deep link and a jump target all go through `resolveModule`
+  for (const k of Object.keys(ASSET_FILTER_ALIAS)) {
+    const hit = resolveModule(k);
+    assert.equal(hit.resolved, true, `${k} must still resolve`);
+    assert.equal(hit.module, "assets");
+    assert.equal(hit.filter, ASSET_FILTER_ALIAS[k]);
+  }
+  // 存储管理 stays: it is an entrance to another page, not a media category
+  assert.ok(keys.includes("storage"));
+  assert.ok(keys.includes("assets"));
 });
 
 test("renderAssetRail marks the active row and prints only real counts", () => {
-  const html = renderAssetRail({ activeModule: "assets:video", counts: { "assets:video": 3, "assets:audio": 0 } });
+  const html = renderAssetRail({ activeModule: "assets", counts: { assets: 3, storage: 0 } });
   assert.ok(html.includes("当前项目"));
-  assert.ok(/data-mod="assets:video"[^>]*/.test(html));
-  assert.ok(html.includes('class="st-navitem on" data-mod="assets:video"'));
+  assert.ok(html.includes('class="st-navitem on" data-mod="assets"'));
+  assert.ok(/data-mod="storage"/.test(html));
   // a zero count prints NOTHING: a 「0」 badge is noise, not information (the
   // same rule the story rail's badges follow)
   assert.ok(html.includes(">3<"));
-  assert.ok(!/data-mod="assets:audio"[\s\S]*?>0</.test(html));
+  assert.ok(!/data-mod="storage"[\s\S]*?>0</.test(html));
 });
 
 /** An empty story document (M9 default shape). */
