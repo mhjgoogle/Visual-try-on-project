@@ -24,6 +24,11 @@ import { submitCommand } from "./services/command.js";
 // silently `undefined` where the named binding throws a TDZ error instead
 // (independent review).
 import * as projects from "./services/projects.js";
+// TASK-081: URL 即状态 — the address is written from the shell's own state and
+// read back through `resolveModule`, never through a second mapping table.
+import {
+  formatRoute, parseRoute, sameRoute, loadLastRoute, saveLastRoute,
+} from "./services/route.js";
 import * as persist from "./services/persist.js";
 import { CANVAS_SCHEMA_VERSION } from "./services/canvasschema.js";
 import * as realmap from "./services/realmap.js";
@@ -4100,7 +4105,12 @@ ctx.shotEditor = createShotEditor({ toast });
 // every render, so an in-shell move (「进入剧集制作 →」, an empty state's jump, a
 // provenance hand-off) can never leave 故事开发 highlighted while 剧集制作 is on
 // screen. The bar never derives the active space itself — there is one owner.
-const production = createProduction(() => ctx, { onNavigate: () => syncTopBar() });
+// …and, since TASK-081, it also writes the ADDRESS BAR from that same report.
+// Writing the URL from `render()` rather than from each mover is what makes
+// 「URL 说的就是你在哪」 true by construction: a new way to move cannot forget it.
+const production = createProduction(() => ctx, {
+  onNavigate: () => { syncTopBar(); writeUrl(); },
+});
 // Workflow · 生成溯源 — a READ-ONLY view over the same registries (TASK-054).
 // It derives its graph fresh on every render, so it can never hold a stale or
 // second copy of provenance.
@@ -4457,6 +4467,164 @@ function syncTopBar() {
     if (el) el.classList.toggle("on", k === s);
   }
 }
+/* -------------------------------------------------------------------------- */
+/* URL 即状态 (TASK-081)                                                       */
+/* -------------------------------------------------------------------------- */
+//
+// ONE DIRECTION EACH WAY. `writeUrl` is the only thing that writes the address,
+// and it is called from the shell's own post-render report; `honourAddress` is
+// the only thing that reads it, and it is the only caller of `applyRoute`. Two
+// writers, or a reader that also writes, is how an address bar and an application
+// start fighting each other over the back button.
+
+/** True while we are HONOURING the address bar. Everything written during that
+ *  window replaces the current history entry instead of pushing a new one —
+ *  otherwise going back would push a forward entry and the back button would
+ *  never actually go anywhere. */
+let routeApplying = false;
+/** The module the last write recorded, so 「换页」 (push) and 「同页内换分区 / 换
+ *  选中」 (replace) can be told apart. Without this, a section click would bury the
+ *  real previous page under a dozen history entries. */
+let lastUrlModule = null;
+/** WHERE THE APPLICATION ACTUALLY IS, as a route.
+ *
+ *  Kept so an incoming address can be compared against it. One back-press fires
+ *  BOTH `popstate` and `hashchange`, and re-applying the same route on the second
+ *  event would repaint and re-ask the unsaved-edit question the creator has just
+ *  answered — worse, after they DECLINE and the address is restored, the second
+ *  event would apply the restored route as if it were a new navigation. */
+let currentRoute = null;
+
+function writeUrl() {
+  if (!canvasActive || !production.isVisible()) return;
+  const r = production.route();
+  const url = formatRoute({ project: PROJECT_NAME, ...r });
+  // remembered per browser, never in canvas.json — 「上次在哪一页」 is not创作数据
+  saveLastRoute(window.localStorage, PROJECT_NAME, r);
+  // RECORDED BEFORE THE EARLY RETURN. An address that is already canonical is
+  // still where we are, and `lastUrlModule` is still the module we are on — not
+  // updating them made the NEXT same-page change look like a page change and push
+  // a history entry, adding a Back stop that goes nowhere (independent review,
+  // round 1, non-blocking).
+  currentRoute = { project: PROJECT_NAME, ...r };
+  const pageMoved = r.module !== lastUrlModule;
+  lastUrlModule = r.module;
+  if (url === window.location.hash) return;
+  try {
+    if (routeApplying || !pageMoved) window.history.replaceState({}, "", url);
+    else window.history.pushState({}, "", url);
+  } catch {
+    // a `file://` page refuses pushState. The studio must still work there —
+    // it simply loses deep links, which is exactly what it had before this card.
+  }
+}
+
+/** Put the address back where the application really is. Used when the creator
+ *  declines to leave: the browser has ALREADY moved, so leaving the URL alone
+ *  would leave it describing a page that is not on screen. */
+function restoreUrl() {
+  const r = production.route();
+  // the restored address IS where the application is — recorded, so the duplicate
+  // event that follows one back-press recognises it and does nothing
+  currentRoute = { project: PROJECT_NAME, ...r };
+  lastUrlModule = r.module;
+  try {
+    window.history.pushState({}, "", formatRoute({ project: PROJECT_NAME, ...r }));
+  } catch { /* see writeUrl */ }
+}
+
+/** Drop the address entirely — the landing page is not a place inside a project. */
+function clearUrl() {
+  lastUrlModule = null;
+  currentRoute = null;
+  try {
+    window.history.pushState({}, "", window.location.pathname + window.location.search);
+  } catch { /* see writeUrl */ }
+}
+
+/** Say WHY an address could not be opened, on the landing page itself. Set
+ *  directly rather than through `renderLanding`, which only runs at boot and
+ *  after project creation — and a redraw learns nothing new about this address. */
+function landingNote(msg) {
+  const note = $("#landing-note");
+  if (!note) return;
+  note.textContent = msg;
+  note.classList.add("bad");
+}
+
+/**
+ * Go where the address bar says.
+ *
+ * Bound to BOTH `popstate` and `hashchange`: the first fires for our own
+ * push/replace history entries, the second for an address typed or pasted into
+ * the bar, and a back-press between two hash-differing entries fires both. The
+ * `routeApplying` latch is what keeps that double event from being applied twice
+ * — and, much more importantly, from asking the unsaved-edit question twice for
+ * one press.
+ */
+async function honourAddress() {
+  if (routeApplying) return;
+  const want = parseRoute(window.location.hash);
+  // THE SECOND EVENT OF ONE PRESS DOES NOTHING. `popstate` and `hashchange` both
+  // fire for a back-press between two hash-differing entries, and applying the
+  // route twice would repaint and re-ask the unsaved-edit question — and after a
+  // DECLINE, `restoreUrl` has already put the address back, so the second event
+  // would read the restored address and apply it as a fresh navigation.
+  if (currentRoute && sameRoute(want, currentRoute)) return;
+  if (!want.ok || !want.project) {
+    // The address names nowhere. That IS the landing page — but it still goes
+    // through the unsaved-edit guard, because the back button reaching this state
+    // would otherwise discard a shot's edits with no question asked.
+    if (production.isVisible()) {
+      if (production.hasUnsavedShotEdit()
+        && !window.confirm("镜头详情有未保存的修改，离开将丢弃？")) { restoreUrl(); return; }
+      production.discardShotEdit();
+      production.hide();
+    }
+    views.goHome();
+    return;
+  }
+  routeApplying = true;
+  try {
+    if (want.project !== PROJECT_NAME || !canvasActive) {
+      // §1.2 第 3 条: never open a half-initialised workbench for a project the
+      // backend never listed. Say so on the landing page instead.
+      if (CONNECTED && !LIST_ERROR && REAL_NAMES.length && !REAL_NAMES.includes(want.project)) {
+        production.hide();
+        views.goHome();
+        landingNote(
+          `地址里的项目「${want.project}」不在这个后端的项目列表里`
+          + `——这不是「打不开」，是这个后端没有这个项目。`,
+        );
+        return;
+      }
+      await enterCanvas(want.project, {});
+    } else {
+      // THE VIEW MUST FOLLOW THE ADDRESS, not only the shell's module.
+      //
+      // 「返回项目列表」 hides `#canvas` but leaves the project LOADED, so pressing
+      // Back to an address inside it skipped `enterCanvas` entirely, re-rendered
+      // the studio into a hidden container and left the creator looking at the
+      // landing page with a URL that claimed otherwise — stranded (independent
+      // review, round 2). Showing the canvas here is the router doing its one
+      // job: make what is on screen match what the address says.
+      views.goCanvas();
+    }
+    // §1.2 第 2 条: an address this build does not understand lands somewhere real
+    // and SAYS SO. It is never swallowed.
+    if (want.reason) toast(want.reason);
+    if (want.module && !production.applyRoute(want)) { restoreUrl(); return; }
+  } finally {
+    routeApplying = false;
+  }
+  // normalise the address (derived space segment, dropped section) WITHOUT
+  // adding an entry — `lastUrlModule` is already current, so this replaces
+  writeUrl();
+}
+
+window.addEventListener("popstate", () => { honourAddress(); });
+window.addEventListener("hashchange", () => { honourAddress(); });
+
 function goProduction() { setTopMode("story"); }
 function goWorkflow() { setTopMode("episode"); }
 $("#seg-story").onclick = () => setTopMode("story");
@@ -4466,7 +4634,7 @@ const wfExit = $("#wf-tab-exit");
 if (wfExit) wfExit.onclick = () => setTopMode("episode");
 const wfCanvasTab = $("#wf-tab-canvas");
 if (wfCanvasTab) wfCanvasTab.onclick = () => showDiagnosticCanvas(true);
-$("#proj-switch").onclick = () => views.goHome();
+$("#proj-switch").onclick = () => { views.goHome(); clearUrl(); };
 
 // Every locked plan a paid op could have been minted under: each scriptgen
 // version keeps its own `locked` bridge, so a paid op from a PRIOR (re-locked)
@@ -5266,11 +5434,17 @@ async function enterCanvas(name, opts = {}) {
   // writing the story. `?canvas=1` opens the diagnostic node canvas instead; it
   // is not one of the creator's three spaces and has no top-bar entry.
   if (CANVAS_DIAGNOSTIC) showDiagnosticCanvas(true);
-  else goProduction();
+  else {
+    goProduction();
+    // TASK-081 §1.3 — and it is applied AFTER the default landing, not instead of
+    // it: `applyRoute` can refuse (an unsaved edit, a page that no longer exists),
+    // and refusing must leave the creator somewhere real rather than nowhere.
+    if (opts.route && opts.route.module) production.applyRoute(opts.route);
+  }
 }
 
 // --- global bits ---
-const views = createViews();
+const views = createViews({ onHome: clearUrl });
 
 // --- landing: my projects + new project ---------------------------------- //
 // The landing page shows exactly two things: the projects this creator has,
@@ -5378,7 +5552,13 @@ function renderLanding(realNames) {
       `<div class="pt" title="${esc(where)}">${esc(where)}</div></div>`;
     b.onclick = () => {
       if (c.kind !== "demo") projects.touchProject(window.localStorage, c.name, new Date().toISOString());
-      enterCanvas(c.name, c.kind === "demo" ? { seedDemo: true } : {});
+      // TASK-081 §1.3: back to where they LEFT OFF, not to a fixed first page.
+      // The demo is excluded on purpose — it is re-seeded from scratch on every
+      // entry, so a remembered shot id from a previous seed points at nothing.
+      enterCanvas(c.name, {
+        ...(c.kind === "demo" ? { seedDemo: true } : {}),
+        route: c.kind === "demo" ? null : loadLastRoute(window.localStorage, c.name),
+      });
     };
     grid.appendChild(b);
   }
@@ -5618,6 +5798,11 @@ async function boot() {
   }
   renderLanding(REAL_NAMES);
   renderBudget();
+  // TASK-081 验收 #1 / #2 — a deep link is honoured on FIRST LOAD, which is the
+  // whole point: a refresh and a pasted address are the same event to a browser,
+  // and both used to land on the project list. Done last, so the landing page is
+  // already drawn underneath if the address turns out to name nothing.
+  if (parseRoute(window.location.hash).ok) await honourAddress();
 }
 // LAST RESORT. `boot()` is async and was invoked bare, so ANY rejection inside it
 // became an unhandled rejection and left a blank page with nothing on screen to

@@ -58,13 +58,30 @@ def test_serializer_persists_registry_not_node_media() -> None:
     assert src.count("attachAssetViews(nd)") >= 2
 
 
+def _strip_browser_history_api(text: str) -> str:
+    """Remove the BROWSER History API before the needles run (TASK-081).
+
+    `window.history.pushState` / `replaceState` are hash routing — they have
+    nothing to do with a media version history — but the needle `history.push`
+    is a TEXT APPROXIMATION and matches `history.pushState` by substring. The
+    RULE is unchanged: only `mediaref.addVersion` may rewrite a version chain.
+    What is sharpened is the approximation, so it stops reporting the address
+    bar as a parallel media write path.
+
+    Deliberately narrow: only these two exact API names are removed, so an
+    actual `history.push(...)` anywhere — including in the same file — is still
+    caught.
+    """
+    return text.replace("history.pushState", "").replace("history.replaceState", "")
+
+
 def test_single_media_write_path_is_mediaref() -> None:
     """版本历史只能经 mediaref.addVersion 改写 — 不允许并行写路径。"""
     hits = []
     for p in _SRC.rglob("*.js"):
         if p.name == "mediaref.js":
             continue
-        text = p.read_text("utf-8")
+        text = _strip_browser_history_api(p.read_text("utf-8"))
         if p.name == "artifactversion.js":
             # READ-ONLY DERIVED VIEW (TASK-072 §1.7). It maps `versions/active/locked`
             # into the six states and writes NOTHING — which is what makes introducing

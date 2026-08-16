@@ -72,6 +72,8 @@ import {
   resolveModule, PAGE_SECTIONS, SECTION_LABEL, PROJECT_SETTINGS, empty,
   // TASK-077: the 剧集制作 rail, the honest missing-media box and the crumb scope rule
   renderEpisodeRail, mediaGoneInner, crumbScope,
+  // TASK-081: the asset type aliases, so a filtered library keeps its key in the URL
+  ASSET_FILTER_ALIAS,
 } from "./shell.js";
 
 export { NAV };
@@ -124,6 +126,29 @@ const MODULE_ALIAS_GOTO = Object.freeze({
  * buffer typed against one entity. Carrying any of them across is how a write
  * lands on the wrong object.
  */
+/**
+ * WOULD MOVING FROM `cur` TO `want` DISCARD AN UNSAVED SHOT EDIT? (TASK-081 §1.2 第 1 条)
+ *
+ * THE ONE GUARD, SHARED. `setModule` has always asked before leaving a page with
+ * a dirty shot buffer; `popstate` is a SECOND door into the same move, and a
+ * second door with its own rule is how the back button ends up discarding a
+ * creator's typing in silence. So the decision lives here, both callers ask it,
+ * and a test can assert they ask the same question.
+ *
+ * Only the three things that change WHAT IS BEING EDITED count: the page, the
+ * episode and the selected shot. A section change stays on the same shot and does
+ * not prompt — matching what `[data-sec]` already does today.
+ */
+export function routeLeavesObject(cur = {}, want = {}) {
+  const moved = (k) => want[k] != null && want[k] !== cur[k];
+  return moved("module") || moved("ep") || moved("shot");
+}
+
+export function guardsUnsavedEdit(ui, cur = {}, want = {}) {
+  if (!ui || ui.dirty !== true) return false;
+  return routeLeavesObject(cur, want);
+}
+
 export function releasePageState(ui) {
   ui.dirty = false;
   ui.buffer = {};
@@ -1425,8 +1450,11 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     render();
   }
 
+  /** Open a module. Returns whether the shell is now ON it — false means the move
+   *  was refused (unknown key, or the creator kept an unsaved edit), and a caller
+   *  must never claim a move that did not happen (TASK-081 §1.2 第 1 条). */
   function setModule(want) {
-    if (!WORKSPACES[want] && want !== "script") return;
+    if (!WORKSPACES[want] && want !== "script") return false;
     // TASK-065 §2 / §4: 人物关系 is a TAB of 人物, and 场景地 is a TAB of 世界观.
     //
     // The merged keys are RESOLVED HERE, once, rather than at each caller: every
@@ -1460,9 +1488,10 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       // the module key did not move, but the TAB may have — repaint so
       // 「在关系图里编辑」 from inside 人物 actually shows the graph
       render();
-      return;
+      return true;
     }
-    if (ui.dirty && !window.confirm("镜头详情有未保存的修改，离开将丢弃？")) return;
+    if (guardsUnsavedEdit(ui, { module: activeModule }, { module: k })
+      && !window.confirm("镜头详情有未保存的修改，离开将丢弃？")) return false;
     releasePageState(ui);
     activeModule = k; // UI navigation state only — domain edits/proposals live
     if (spaceOf(k) !== "assets") lastProdModule = k;
@@ -1474,6 +1503,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // 分集规划 — deliberately NOT reset here, so the AI Director can point the
     // creator at one episode's Impact Review and then navigate there.
     render();
+    return true;
   }
 
   /** Drop the transient per-episode selection state. Shared by the two paths
@@ -2076,6 +2106,140 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       root.style.display = "grid";
       render();
       return spaceOf(activeModule);
+    },
+    /**
+     * WHERE THE CREATOR IS, as a route (TASK-081 §1.1).
+     *
+     * Derived from the shell's own state at read time, so the address bar reports
+     * where they ARE rather than where something last tried to send them.
+     *
+     * The module is reported as the ASSET TYPE ALIAS when a type filter is in
+     * force, because that key is what resolves back to page + filter — writing
+     * plain `assets` would drop the filter on every refresh.
+     */
+    route() {
+      const ctx = getCtx();
+      const pd = ctx.prodData();
+      const prod = pd.production;
+      const shot = ui.selectedShotId || null;
+      // the SCENE is derived from the shot, never stored: the shell has no scene
+      // selection, and inventing one would be a second source of truth for
+      // something the document already answers
+      let scene = null;
+      if (shot && prod) {
+        for (const e of prod.episodes || []) {
+          const sc = (e.scenes || []).find((x) => (x.shotIds || []).includes(shot));
+          if (sc) { scene = sc.sceneId; break; }
+        }
+      }
+      const type = ui.alFilters && ui.alFilters.type;
+      const alias = activeModule === "assets" && type && type !== "all"
+        ? Object.keys(ASSET_FILTER_ALIAS).find((k) => ASSET_FILTER_ALIAS[k] === type)
+        : null;
+      return {
+        module: alias || activeModule,
+        section: sectionOf(activeModule),
+        ep: prod ? prod.activeEpisodeId || null : null,
+        scene,
+        shot,
+      };
+    },
+    /**
+     * Go where an address says. Returns false when the move was REFUSED, so the
+     * caller can put the address bar back rather than claiming a jump that did
+     * not happen.
+     *
+     * THE UNSAVED-EDIT QUESTION IS ASKED ONCE, HERE. One address can move the
+     * page, the episode and the shot at the same time, and each of the three
+     * paths below has its own prompt — so the guard runs first for all three and
+     * `releasePageState` then clears `ui.dirty`, which is what stops the creator
+     * being asked the same question three times for one back-press.
+     */
+    applyRoute(r) {
+      if (!r || !r.module) return false;
+      const ctx = getCtx();
+      const prod = ctx.prodData().production;
+      const cur = {
+        module: activeModule,
+        ep: prod ? prod.activeEpisodeId || null : null,
+        shot: ui.selectedShotId || null,
+      };
+      // THE TARGET SHOT IS RESOLVED BEFORE THE GUARD RUNS.
+      //
+      // A SCENE with no shot means 「open this scene」, and the only selection this
+      // shell has is a shot — so it opens the scene's first one. Resolving that
+      // AFTER the guard meant a `?scene=` address moved the selection while the
+      // guard had been told the shot was not changing: the unsaved buffer then
+      // belonged to one shot while the shell stood on another, which is worse than
+      // discarding it (independent review, round 2). The guard must see the shot
+      // the route will actually select, whichever way it was named.
+      //
+      // With a shot named, the scene is ignored: the shot already determines which
+      // scene it is in, and honouring both would let an address name a pair that
+      // does not exist.
+      let shot = r.shot || null;
+      if (!shot && r.scene && prod) {
+        for (const e of prod.episodes || []) {
+          const sc = (e.scenes || []).find((x) => x && x.sceneId === r.scene);
+          if (sc) { shot = (sc.shotIds || [])[0] || null; break; }
+        }
+      }
+      const want = { module: resolveModule(r.module).module, ep: r.ep, shot };
+      // ONE PREDICATE DECIDES BOTH THINGS: whether to ASK, and whether to RELEASE.
+      //
+      // They must be the same question. An earlier version asked with
+      // `guardsUnsavedEdit` and then released unconditionally, so a route that
+      // moves nothing but the section — which is correctly NOT worth a prompt —
+      // silently discarded the shot buffer anyway. That is the exact data loss
+      // §1.2 第 1 条 is about, arriving through the door the guard was supposed to
+      // close (independent review, round 1).
+      const leaves = routeLeavesObject(cur, want);
+      if (leaves && ui.dirty === true
+        && !window.confirm("镜头详情有未保存的修改，离开将丢弃？")) return false;
+      if (leaves) releasePageState(ui);
+      // A SELECTION THE PROJECT NO LONGER HAS IS REPORTED, NOT SWALLOWED (§1.2
+      // 第 2 条). A shared link ages: the episode it named can be gone, the shot
+      // can have been regenerated. Opening the page anyway is right — the address
+      // still says which page — but doing it in silence would leave the creator
+      // looking at a different shot than the one they were sent to, with nothing
+      // on screen to say so.
+      const dropped = [];
+      if (r.ep && prod && r.ep !== prod.activeEpisodeId) {
+        if ((prod.episodes || []).some((e) => e && e.episodeId === r.ep)) {
+          // the same transient state an episode switch always releases — the graph
+          // node and the buffers typed against it belong to the episode being left
+          ui.selectedShotId = null;
+          ui.sgNode = null;
+          ui.piPrompt = null;
+          ui.piAxes = null;
+          ctx.production.setActiveEpisode(r.ep);
+        } else {
+          dropped.push("剧集");
+        }
+      }
+      if (!setModule(r.module)) return false;
+      // An asset TYPE alias carries a filter; `setModule` already applies it when
+      // the key itself was passed, and this honours it when the caller resolved
+      // the key first — one address, one filter, either way in.
+      if (r.filter) ui.alFilters = { ...(ui.alFilters || {}), type: r.filter };
+      if (r.section && PAGE_SECTIONS[activeModule] && PAGE_SECTIONS[activeModule].includes(r.section)) {
+        ui.sections = { ...(ui.sections || {}), [activeModule]: r.section };
+      }
+      if (shot) {
+        if (isSelectableShot(ctx.prodData(), shot)) ui.selectedShotId = shot;
+        else dropped.push(r.shot ? "镜头" : "场景");
+      }
+      if (dropped.length) {
+        ctx.toast(
+          `地址里的${dropped.join("与")}在这个项目里已经找不到了——页面打开了，`
+          + `但没有按地址选中它。链接可能来自这个项目的另一个版本。`,
+        );
+      }
+      lastOf[spaceOf(activeModule)] = activeModule;
+      if (spaceOf(activeModule) !== "assets") lastProdModule = activeModule;
+      root.style.display = "grid";
+      render();
+      return true;
     },
     /** Which space is on screen — what the top bar highlights. */
     space: () => spaceOf(activeModule),

@@ -34,6 +34,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 from playwright.sync_api import sync_playwright
 
@@ -44,15 +45,23 @@ VIEWPORT = {"width": 1440, "height": 900}
 
 # (module key, space, filename stem, settle ms)
 #
-# `space` is the top-bar segment that must be active first — the Studio has no
-# URL routing, so a page is only reachable by clicking its way there (audit
-# finding IA-1, still open — that is Phase 2, not Phase 0).
+# IA-1 IS CLOSED (TASK-081). The Studio has hash routing now, so every page is
+# reached BY NAME — `#/<project>/<space>/<module>` — instead of by clicking a
+# path to it. That change is what makes this tool trustworthy: it used to guess
+# a route through `[data-mod]` rails and a 「工作区 ▾」 dropdown, so a page whose
+# ENTRANCE broke was recorded as 「unreachable」 exactly like a page that was
+# genuinely gone, and a page reached by an unexpected door was recorded as fine.
+# Now the address states the intent and the resulting hash is captured as
+# evidence beside the screenshot.
 #
-# IA-2 IS CLOSED (TASK-077 §1.5). 剧集制作 now renders the frozen IA's FIVE pages
-# as a `[data-mod]` rail of its own, exactly like the other two spaces, so the
-# five are captured first and by name. The ELEVEN legacy stage keys are kept
-# below because the 「工作区 ▾」 dropdown still offers them (TASK-074 retires it),
-# and a capture that stopped driving them would stop noticing if they broke.
+# `space` is still carried because it is part of the address a human reads; the
+# application derives it from the module, so a mismatch here cannot send the
+# capture to the wrong page.
+#
+# IA-2 IS CLOSED (TASK-077 §1.5). 剧集制作 renders the frozen IA's FIVE pages as a
+# rail of its own. The ELEVEN legacy stage keys are kept below because they must
+# stay resolvable (TASK-074 retires their entrance, never their address), and a
+# capture that stopped driving them would stop noticing if they broke.
 ROUTES = [
     ("brief", "story", "02-brief", 1200),
     ("story", "story", "03-story-outline", 1200),
@@ -81,21 +90,21 @@ ROUTES = [
     ("storage", "assets", "19-storage-diagnostics", 1600),
 ]
 
-SEG = {"story": "#seg-story", "episode": "#seg-episode", "assets": "#seg-assets"}
 
-# How to reach a module inside each space.
-CLICK_JS = """(m) => {
-    // 1. a rail row / any [data-mod] entry (故事开发, 资产库, 制作台 back button)
-    const b = document.querySelector(`[data-mod="${m}"]`);
-    if (b) { b.click(); return "data-mod"; }
-    // 2. 剧集制作's 「工作区 ▾」 dropdown — open it, then pick the stage
-    const open = document.querySelector('[data-ep-wsopen]');
-    if (open) {
-        if (!document.querySelector(`[data-ep-ws="${m}"]`)) open.click();
-        const s = document.querySelector(`[data-ep-ws="${m}"]`);
-        if (s) { s.click(); return "data-ep-ws"; }
-    }
-    return null;
+def route_hash(project: str, space: str, module: str) -> str:
+    """The address of one page — the same shape `services/route.js` writes."""
+    seg = "/".join(quote(s, safe="") for s in (project, space, module))
+    return f"#/{seg}"
+
+
+# Navigate by ADDRESS, not by clicking. Setting `location.hash` fires the
+# application's own `hashchange` listener, which runs the very code path a pasted
+# deep link takes — so this captures what a creator following a shared link sees,
+# not what a synthetic click sequence produces.
+GOTO_JS = """(h) => {
+    if (window.location.hash === h) return "already";
+    window.location.hash = h;
+    return "hash";
 }"""
 
 
@@ -134,50 +143,64 @@ def main() -> int:
         page.screenshot(path=str(OUT / "01-landing-project-home.png"))
         taken.append({"file": "01-landing-project-home.png", "module": "(landing)"})
 
-        clicked = page.evaluate(
-            """(name) => {
-                const b = [...document.querySelectorAll('#projgrid button')]
-                    .find((c) => c.textContent.includes(name));
-                if (!b) return false;
-                b.click();
-                return true;
-            }""",
-            args.project,
+        # Enter the project BY ADDRESS. A project the backend never listed lands
+        # back on the landing page with a stated reason (TASK-081 §1.2 第 3 条),
+        # which is exactly the check below.
+        page.evaluate(GOTO_JS, f"#/{quote(args.project, safe='')}")
+        page.wait_for_timeout(3500)
+        on_canvas_js = (
+            "() => document.querySelector('#canvas').style.display === 'block'"
         )
-        if not clicked:
+        if not page.evaluate(on_canvas_js):
+            # the landing note carries the REASON (§1.2 第 3 条) — report it rather
+            # than the tool's own guess about why
+            why = page.evaluate(
+                "() => { const n = document.querySelector('#landing-note');"
+                " return n ? n.textContent : ''; }"
+            )
             print(
-                f"ERROR: project {args.project!r} not on the landing page",
+                f"ERROR: project {args.project!r} did not open — {why}",
                 file=sys.stderr,
             )
             browser.close()
             return 2
-        page.wait_for_timeout(3500)
 
-        space_now = None
         for mod, space, stem, settle in ROUTES:
             if wanted and mod not in wanted:
                 continue
-            if space != space_now:
-                page.click(SEG[space])
-                page.wait_for_timeout(1500)
-                space_now = space
-            how = page.evaluate(CLICK_JS, mod)
-            if not how:
-                # An unreachable page is itself a finding — record it, do not
-                # fabricate a screenshot for it.
+            want = route_hash(args.project, space, mod)
+            page.evaluate(GOTO_JS, want)
+            page.wait_for_timeout(settle)
+            # WHERE IT ACTUALLY LANDED, recorded beside the screenshot. The
+            # application normalises the address it was given (the space segment is
+            # derived, a historical key resolves to the page it now lives on), so
+            # the landed hash is evidence rather than a failure — but a capture that
+            # bounced back to the landing page is a real finding and says so.
+            landed = page.evaluate("() => window.location.hash")
+            on_canvas = page.evaluate(on_canvas_js)
+            if not on_canvas:
                 taken.append(
                     {
                         "file": None,
                         "module": mod,
-                        "note": "unreachable: no entry in this space",
+                        "requested": want,
+                        "landed": landed,
+                        "note": "left the project: this address did not open a page",
                     }
                 )
-                print(f"  MISS {mod}: no entry", file=sys.stderr)
+                print(f"  MISS {mod}: bounced to the landing page", file=sys.stderr)
                 continue
-            page.wait_for_timeout(settle)
             page.screenshot(path=str(OUT / f"{stem}.png"))
-            taken.append({"file": f"{stem}.png", "module": mod, "reached_via": how})
-            print(f"  {stem}.png  (via {how})")
+            taken.append(
+                {
+                    "file": f"{stem}.png",
+                    "module": mod,
+                    "reached_via": "url",
+                    "requested": want,
+                    "landed": landed,
+                }
+            )
+            print(f"  {stem}.png  (url {landed})")
 
         browser.close()
 
