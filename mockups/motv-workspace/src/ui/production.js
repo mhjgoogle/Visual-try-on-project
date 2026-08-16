@@ -1527,6 +1527,27 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     render();
   }
 
+  /** 「交给 AI 导演诊断」 (TASK-079 §1.3) — hand ONE failed attempt to the
+   *  Director with what actually failed, in context.
+   *
+   *  Shell-level like 问 Agent, and for the same reason: it narrows the
+   *  Director's scope to this shot and opens the panel. The prefill carries the
+   *  recorded reason and the Run id, so the Director is asked about the failure
+   *  that happened rather than about failures in general. */
+  function diagnoseFailure(ctx, { shotId, kind, runId, model, why }) {
+    const shot = ctx.shot.find(shotId);
+    const name = shot ? (shot.title || `镜头 ${shot.sequence}`) : shotId;
+    const medium = kind === "video" ? "视频" : "画面";
+    ui.selectedShotId = shotId;
+    ui.agentOpen = true;
+    ui.directorText =
+      `「${name}」的${medium}生成失败了。Run ${runId || "未知"}` +
+      (model ? ` · 模型 ${model}` : "") +
+      `，报的原因是：${why || "（登记表里没有记录失败原因）"}。` +
+      `请判断这是 Prompt 的问题、参考的问题，还是别的，并说下一步该怎么改。`;
+    render();
+  }
+
   function bind(ctx) {
     // left rail — every module opens; selection is visually .on
     root.querySelectorAll("[data-mod]").forEach((b) => (b.onclick = () => setModule(b.dataset.mod)));
@@ -1761,6 +1782,19 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
         render();
       },
     });
+    // 「交给 AI 导演诊断」 (TASK-079 §1.3) — one FAILED attempt, handed over with
+    // what actually failed. Same shell-level reasoning as 问 Agent below; the
+    // facts ride on the button so this never reaches into the card's model.
+    root.querySelectorAll("[data-gc-diagnose]").forEach((b) => (b.onclick = (ev) => {
+      ev.stopPropagation();
+      diagnoseFailure(ctx, {
+        shotId: b.dataset.shot,
+        kind: b.dataset.kind,
+        runId: b.dataset.gcDiagnose,
+        model: b.dataset.model || null,
+        why: b.dataset.why || null,
+      });
+    }));
     // 「问 Agent」 (TASK-079 §1.1) — put THIS item into the AI Director's context.
     //
     // Shell-level for the same reason as the two above: it narrows the Director's

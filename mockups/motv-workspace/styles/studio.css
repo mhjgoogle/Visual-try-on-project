@@ -1580,3 +1580,22 @@
 .chain-item.off { color: var(--text-faint); cursor: not-allowed; }
 .chain-item.off:hover { background: none; }
 .chain-note { font-size: var(--t-micro); color: var(--text-faint); line-height: 1.5; }
+
+/* 失败工单（TASK-079 §1.3）—— 一次失败保留成可以重开的对象，不是一条错误消息 */
+.gc-fails { display: flex; flex-direction: column; gap: var(--s2); padding-top: var(--s3); border-top: 1px solid var(--line); }
+.gc-fails > .lab { color: var(--bad); font-size: var(--t-micro); font-weight: 700; }
+.gc-fail {
+  display: flex; flex-direction: column; gap: var(--s2);
+  padding: var(--s3); border-radius: var(--r2);
+  border: 1px solid color-mix(in srgb, var(--bad) 35%, var(--line));
+  background: color-mix(in srgb, var(--bad) 6%, transparent);
+}
+.gc-fail-h { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+.gc-fail-why { color: var(--bad); font-size: var(--t-xs); line-height: 1.7; }
+.gc-fail-p summary { cursor: pointer; color: var(--text-faint); font-size: var(--t-micro); }
+.gc-fail-p pre {
+  margin: var(--s2) 0 0; padding: var(--s2); max-height: 180px; overflow: auto;
+  background: var(--panel-2); border-radius: var(--r1);
+  font: var(--t-micro)/1.7 var(--mono); white-space: pre-wrap; word-break: break-word;
+}
+.gc-fail-acts { display: flex; gap: var(--s2); flex-wrap: wrap; }

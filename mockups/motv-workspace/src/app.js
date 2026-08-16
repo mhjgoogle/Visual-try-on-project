@@ -568,8 +568,13 @@ async function paidGenerate(shotId) {
               ctx.loadPaidOps();
             });
           } else {
-            // a DEFINITIVE server response saying not-success → mark failed
-            if (genId) ctx.failGeneration(genId, "failed");
+            // a DEFINITIVE server response saying not-success → mark failed,
+            // WITH what the server actually said (TASK-079 §1.3). 「失败了」 with
+            // no account of why is a dead end: the creator cannot tell a stale
+            // packet from a rejected prompt from an exhausted budget, so they
+            // cannot decide whether retrying unchanged is even sensible.
+            const why = [receipt.status, oc.kind, receipt.reason].filter(Boolean).join(" · ");
+            if (genId) ctx.failGeneration(genId, "failed", why || null);
             toast(`结果：${receipt.status} · ${oc.kind || receipt.reason || ""}`);
           }
           try {
@@ -3738,8 +3743,8 @@ const ctx = {
     ctx.persist();
     return g;
   },
-  failGeneration: (generationId, status) => {
-    const g = genlib.failGeneration(generationRegistry, generationId, status);
+  failGeneration: (generationId, status, reason = null) => {
+    const g = genlib.failGeneration(generationRegistry, generationId, status, reason);
     ctx.persist();
     return g;
   },

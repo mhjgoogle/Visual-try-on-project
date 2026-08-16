@@ -264,10 +264,21 @@ export function completeGenerationByTask(reg, taskId, resultAssetIds) {
 
 /** Mark a Generation failed/cancelled. Never overrides an already-successful
  *  record: a late failure signal must not erase a real success. */
-export function failGeneration(reg, generationId, status) {
+export function failGeneration(reg, generationId, status, reason) {
   const g = findGeneration(reg, generationId);
   if (!g) return null;
   if (g.status === "success") return g; // a real success is not undone
   g.status = status === "cancelled" ? "cancelled" : "failed";
+  // WHY IT FAILED (TASK-079 §1.3). The record already froze the inputs — prompt,
+  // model, parameters, references — so a failure was always re-openable in
+  // principle; what it could never say was what went wrong, which is the one
+  // thing a creator needs before deciding whether to retry the same way.
+  //
+  // Additive field, no migration: a record that never carried one simply has no
+  // `error`. And a LATER reasonless call cannot erase a reason already recorded
+  // — losing the only account of a failure to a bookkeeping call would be worse
+  // than never having stored it.
+  const text = strOrNull(reason);
+  if (text) g.error = text.slice(0, 500);
   return g;
 }

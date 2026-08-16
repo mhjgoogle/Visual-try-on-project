@@ -218,8 +218,11 @@ export function bindImageWs(root, ctx, ui, rerender) {
   bindShotSelection(root, ctx, ui, rerender);
   bindShotMedia(root, ctx, ui);
   if (ui.selectedShotId) {
+    const d = shotDetailModel(ctx.prodData(), ui.selectedShotId);
     bindGenCard(root, ctx, ui, rerender, {
       kind: "image", shotId: ui.selectedShotId, importMedia: importForShot(ctx, ui, rerender),
+      // the failure tickets need the SAME records the card rendered from
+      failures: d ? genCardModel(d, "image", {}).failures : [],
     });
     // 「以此生成 →」 is wired by the SHELL (ui/production.js), beside [data-goto]
     // and [data-ent-id]: every one of its branches ends in a page switch, and
@@ -319,8 +322,11 @@ export function bindVideoWs(root, ctx, ui, rerender) {
   bindShotSelection(root, ctx, ui, rerender);
   bindShotMedia(root, ctx, ui);
   if (ui.selectedShotId) {
+    const d = shotDetailModel(ctx.prodData(), ui.selectedShotId);
     bindGenCard(root, ctx, ui, rerender, {
       kind: "video", shotId: ui.selectedShotId, importMedia: importForShot(ctx, ui, rerender),
+      // the failure tickets need the SAME records the card rendered from
+      failures: d ? genCardModel(d, "video", {}).failures : [],
     });
     // 「以此生成 →」 is wired by the SHELL (ui/production.js), beside [data-goto]
     // and [data-ent-id]: every one of its branches ends in a page switch, and

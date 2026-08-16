@@ -75,7 +75,23 @@ export function genCardModel(d, kind, { paid = false, quote = null, promptEdit =
   const p = d.prompts[kind];
   const { chips, start } = referenceChips(d, kind);
   const edited = typeof promptEdit === "string" && promptEdit !== p.text;
+  // FAILURES ARE WORK ITEMS, NOT ERROR MESSAGES (TASK-079 §1.3). The registry
+  // already froze every input this attempt used; what it lacked was a surface
+  // that reopens it. Newest first — `shotDetailModel` already reversed the
+  // append-only registry.
+  const failures = ((d.generations) || [])
+    .filter((g) => g.type === kind && g.status === "failed")
+    .map((g) => ({
+      generationId: g.generationId,
+      model: g.model,
+      provider: g.provider,
+      createdAt: g.createdAt,
+      error: g.error,
+      prompt: g.promptSnapshot,
+      packetVersion: g.packetVersion,
+    }));
   return {
+    failures,
     kind,
     shotId: d.shot.shotId,
     label: KIND_LABEL[kind] || kind,
@@ -165,6 +181,82 @@ function quoteHtml(m) {
   );
 }
 
+/**
+ * The failure tickets (TASK-079 §1.3 / T-093).
+ *
+ * Each one states what that attempt WAS — model, provider, Run id, the exact
+ * prompt it was launched with — and why it stopped. Then three actions, all of
+ * which are things this product can genuinely do today:
+ *
+ *   重新提交       start a new paid generation for this shot, through the same
+ *                 preflight → 人工确认 → submit (it spends, so it can never be a
+ *                 silent re-run)
+ *   按这次的 Prompt 重试  load THAT attempt's frozen prompt into the editor, so the
+ *                 retry starts from what actually ran rather than from whatever
+ *                 the shot compiles to now
+ *   交给 AI 导演诊断  hand the failure text to the Director in context
+ *
+ * IT DOES NOT SAY 「同参数重试」 (codex round 1, P1). On the paid route every
+ * parameter comes from the compiled packet, and a resubmit runs against the
+ * CURRENT one — so after a re-lock the retry is a DIFFERENT job, and a button
+ * promising 「同参数」 would be charging for something it misdescribed. A genuine
+ * same-parameter redo is a domain operation this product has not defined (the
+ * Gateway refuses a second paid op on the same task and asks for a redo task),
+ * and inventing one here would be inventing paid semantics. So the ticket shows
+ * WHICH packet the failure ran against and says plainly what a resubmit will do.
+ *
+ * A failure with no recorded reason says so — 「失败了」 with an invented cause
+ * would be worse than the silence it replaces.
+ */
+function failuresHtml(m) {
+  if (!m.failures.length) return "";
+  return (
+    `<div class="gc-fails"><span class="lab">失败的生成 ${m.failures.length}</span>` +
+    m.failures.map((f) =>
+      `<div class="gc-fail" data-gc-failid="${esc(f.generationId)}">` +
+      `<div class="gc-fail-h">` +
+      `<span class="chip bad">失败</span>` +
+      `<span class="gc-kv"><span class="k">模型</span><span class="v">${esc(f.model || "未记录")}</span></span>` +
+      // the PROVIDER was collected and never shown (codex round 1, P2) — 「哪家
+      // 服务拒绝了它」 is half of what tells a creator whether to retry at all
+      `<span class="gc-kv"><span class="k">服务</span><span class="v">${esc(f.provider || "未记录")}</span></span>` +
+      (f.packetVersion != null
+        ? `<span class="gc-kv"><span class="k">packet</span><span class="v">v${esc(String(f.packetVersion))}</span></span>`
+        : "") +
+      `<span class="gc-kv"><span class="k">Run</span><span class="v mono">${esc(f.generationId)}</span></span>` +
+      (f.createdAt
+        ? `<span class="gc-kv"><span class="k">时间</span><span class="v">${esc(f.createdAt.slice(0, 16).replace("T", " "))}</span></span>`
+        : "") +
+      `</div>` +
+      `<div class="gc-fail-why">${f.error ? esc(f.error) : "没有记录失败原因（这次生成早于原因登记）"}</div>` +
+      (f.prompt
+        ? `<details class="gc-fail-p"><summary>当时发出的 Prompt</summary><pre>${esc(f.prompt)}</pre></details>`
+        : `<div class="gc-note">这次尝试没有留下 Prompt 快照。</div>`) +
+      `<div class="gc-fail-acts">` +
+      (m.canSubmit
+        ? `<button class="btn sm" data-gc-retry="${esc(f.generationId)}" ` +
+          `title="按当前已锁定的 packet 重新提交，仍要经过预检与人工确认">重新提交（按当前 packet）</button>`
+        : "") +
+      (f.prompt
+        ? `<button class="btn sm" data-gc-retry-edit="${esc(f.generationId)}">按这次的 Prompt 重试</button>`
+        : "") +
+      // WIRED BY THE SHELL (ui/production.js), like 问 Agent — it opens the
+      // Director panel and narrows its scope, which this component cannot do.
+      // The facts it needs ride on the button so the shell never has to reach
+      // back into this card's model for them.
+      `<button class="btn sm" data-gc-diagnose="${esc(f.generationId)}" ` +
+      `data-shot="${esc(m.shotId || "")}" data-kind="${esc(m.kind)}" ` +
+      `data-model="${esc(f.model || "")}" data-why="${esc(f.error || "")}">交给 AI 导演诊断</button>` +
+      `</div>` +
+      (m.canSubmit
+        ? `<div class="gc-note">重新提交走的是<b>当前</b>已锁定的 packet：如果这次失败之后你重新锁定过分镜，` +
+          `跑的就不是同一组参数了。真正的「同参数重放」需要一次 redo 任务，本产品还没有定义它。</div>`
+        : "") +
+      `</div>`).join("") +
+    `</div>`
+  );
+}
+
 export function renderGenCard(m) {
   const gaps = m.gaps.length
     ? `<div class="gc-gaps">` +
@@ -217,6 +309,7 @@ export function renderGenCard(m) {
     `<button class="btn sm" data-gc-reset>还原为编译结果</button></div>` +
     specHtml(m) +
     `<div class="gc-actions">${quoteHtml(m)}${submit}</div>` +
+    failuresHtml(m) +
     `<div class="gc-free"><span class="lab">免费路线</span>` +
     FREE_ENTRIES.map(([k, label]) =>
       `<button class="btn sm" data-gc-free="${esc(k)}">${k === "manual" ? "📋 " : "↗ "}${esc(label)}</button>`).join("") +
@@ -234,7 +327,7 @@ export function renderGenCard(m) {
  * only). `ui.gcQuote` holds the last quote. Neither is persisted: a prompt edit
  * that outlived the session would silently diverge from the compiled one.
  */
-export function bindGenCard(root, ctx, ui, rerender, { kind, shotId, importMedia }) {
+export function bindGenCard(root, ctx, ui, rerender, { kind, shotId, importMedia, failures = [] }) {
   const card = root.querySelector(`[data-gc="${kind}"]`);
   if (!card) return;
   const area = card.querySelector("[data-gc-prompt]");
@@ -330,4 +423,30 @@ export function bindGenCard(root, ctx, ui, rerender, { kind, shotId, importMedia
 
   const imp = card.querySelector("[data-gc-import]");
   if (imp && typeof importMedia === "function") imp.onclick = () => importMedia(kind, shotId);
+
+  // --- failure tickets (TASK-079 §1.3) -------------------------------------- //
+  const failureOf = (id) => (failures || []).find((f) => f.generationId === id) || null;
+
+  card.querySelectorAll("[data-gc-retry]").forEach((b) => (b.onclick = () => {
+    // SAME PARAMS, SAME GATE. A retry spends exactly like a first attempt, so it
+    // goes through the identical preflight → 人工确认 → submit. 「同参数」 is
+    // literally true on the paid route: the job is derived from the locked
+    // packet, which is what the failed attempt used too.
+    ctx.paidSubmit(shotId);
+  }));
+
+  card.querySelectorAll("[data-gc-retry-edit]").forEach((b) => (b.onclick = () => {
+    const f = failureOf(b.dataset.gcRetryEdit);
+    if (!f || !f.prompt) { ctx.toast("这次尝试没有留下 Prompt 快照，无法据它重试"); return; }
+    // Start from WHAT RAN, not from what the shot compiles to now — the shot may
+    // have been edited since, and retrying from the current compilation would be
+    // changing two things at once while calling it a retry.
+    ui.gcPrompt = ui.gcPrompt || {};
+    ui.gcPrompt[shotId] = ui.gcPrompt[shotId] || {};
+    ui.gcPrompt[shotId][kind] = f.prompt;
+    ctx.toast("已把那次失败的 Prompt 放回编辑框——改完用免费路线重试");
+    rerender();
+  }));
+
+  // 「交给 AI 导演诊断」 is bound by the shell — see the button's markup.
 }

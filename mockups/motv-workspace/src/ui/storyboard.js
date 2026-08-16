@@ -346,6 +346,17 @@ export function shotDetailModel(pd, shotId) {
       resultAssetIds: Array.isArray(g.resultAssetIds) ? g.resultAssetIds : [],
       // the failure's own reason, when the record carries one
       error: typeof g.error === "string" ? g.error : null,
+      // the EXACT prompt this attempt was launched with (TASK-079 §1.3), so a
+      // failure can be reopened as the thing it actually was rather than as
+      // whatever the shot compiles to now
+      promptSnapshot: typeof g.promptSnapshot === "string" ? g.promptSnapshot : null,
+      // WHICH compiled packet it ran against. The paid route derives everything
+      // (model, resolution, duration, prompt) from the packet, so this number is
+      // what 「参数」 actually means there — and it is the only way to see whether
+      // a retry today would run the same thing (codex round 1).
+      packetVersion: g.parameters && Number.isInteger(g.parameters.packet_version)
+        ? g.parameters.packet_version
+        : null,
     }))
     .reverse(); // registry is append-only → newest first
   const images = variants(pd.assetUploads);
