@@ -21,6 +21,9 @@ import { MAX_CLIP_START, MAX_CLIP_FADE, TRACKS as TIMELINE_TRACKS } from "../wor
 import { pairKey } from "../workflow/canondoc.js";
 import { ASSET_KINDS, declarationDomainError, LINK_KEYS } from "../workflow/assetreg.js";
 import { RUN_STATUSES, PROPOSAL_DISPOSITIONS } from "../workflow/skillrun.js";
+import {
+  LAYERS as REVIEW_LAYERS, ISSUE_CATEGORIES, SEVERITIES, ISSUE_STATES, VERDICTS,
+} from "../workflow/review.js";
 
 /** The Skill Run states, reused from the domain rather than re-listed here —
  *  a forked copy is how a validator starts rejecting documents the domain
@@ -28,6 +31,35 @@ import { RUN_STATUSES, PROPOSAL_DISPOSITIONS } from "../workflow/skillrun.js";
 const SKILL_RUN_STATUS_SET = new Set(RUN_STATUSES);
 /** …and the same rule for the second axis. */
 const SKILL_RUN_DISPOSITION_SET = new Set(PROPOSAL_DISPOSITIONS);
+
+/** The review vocabularies, imported for the same reason — the document is
+ *  validated against the domain's own sets, never a copy of them. */
+const REVIEW_LAYER_SET = new Set(REVIEW_LAYERS);
+const REVIEW_SEVERITY_SET = new Set(SEVERITIES);
+const REVIEW_ISSUE_STATE_SET = new Set(ISSUE_STATES);
+const REVIEW_VERDICT_SET = new Set(VERDICTS);
+const REVIEW_CATEGORY_SET = new Map(
+  REVIEW_LAYERS.map((layer) => [layer, new Set(ISSUE_CATEGORIES[layer])]),
+);
+
+/**
+ * THE RULE EVERY ADDITIVE TOP-LEVEL FIELD FOLLOWS. Named once so the fields that
+ * follow it cannot quietly follow two different rules.
+ *
+ * - ABSENT (or explicitly null) is legitimate and validates: a document written
+ *   before the field existed simply carries none of it, and rejecting that would
+ *   refuse every historical save — which is why none of these fields bumped the
+ *   schema version.
+ * - PRESENT-BUT-WRONG rejects the WHOLE document. A malformed additive field is
+ *   not "a field to ignore": it is read by something downstream, and dropping it
+ *   silently is how a document nobody can explain gets acted on.
+ *
+ * `deliverySpec` already worked this way; the top-level `reviews` did not, and
+ * two additive fields carrying two standards is what TASK-084 项 2 closes.
+ */
+function additivePresent(value) {
+  return value !== undefined && value !== null;
+}
 
 /** The pre-v15 vocabulary, kept so a v12–v14 document can still be validated as
  *  what it is. The v14→v15 migration is what turns these into the two axes. */
@@ -2211,7 +2243,7 @@ export function validateCanvasDoc(doc) {
   // is nothing to back-fill and no migration to run. An earlier draft of this made it
   // a required v16 field, which would have rejected every hand-written and historical
   // document that omits it — a breaking change bought for nothing.
-  if (doc.deliverySpec !== undefined && doc.deliverySpec !== null) {
+  if (additivePresent(doc.deliverySpec)) {
     if (!isPlainObject(doc.deliverySpec)) return "deliverySpec is not an object";
     const ENUMS = {
       platform: ["douyin", "kuaishou", "bilibili", "youtube", "other"],
@@ -2244,6 +2276,95 @@ export function validateCanvasDoc(doc) {
         // make this build refuse the whole document (the same posture `extras` takes
         // in persist.js). It is simply not interpreted here.
         continue;
+      }
+    }
+  }
+
+  // --- the top-level review record (系统合同 §6 / TASK-084 项 2) -------------- //
+  //
+  // THE SAME RULE `deliverySpec` FOLLOWS — see `additivePresent` above, which both
+  // fields now call rather than each spelling out its own version of it. Absent
+  // validates; present-but-wrong rejects the whole document.
+  //
+  // WHY THIS EXISTS. `production.shotProduction.reviews` (v13, above) was validated
+  // element by element from the start, but the TOP-LEVEL `reviews` was not validated
+  // at all: `restoreGraph` hydrated `decisions` behind a bare `Array.isArray` check
+  // and took every element verbatim. So a decision of ANY shape survived a load and
+  // was handed to G3 — the gate that decides whether an episode's approval still
+  // stands and whether the picture stays locked. `review.js` refuses to CREATE a
+  // decision whose `by` is not "user" (合同 §6.2 「不得静默定稿」); refusing it only
+  // at creation while accepting anything at load leaves the same door open from the
+  // other side, and a hand-edited or corrupted save is the exact way through it.
+  //
+  // WHAT IS DELIBERATELY NOT REQUIRED: an episode issue's `locatedShotId`. `issue()`
+  // requires it, but TASK-074 §1.3's migration exists precisely to ACCEPT stored
+  // issues that lack it and MARK them — validating it here would reject the documents
+  // that migration was written to repair, i.e. refuse to load a save because it needs
+  // the migration this build ships.
+  if (additivePresent(doc.reviews)) {
+    if (!isPlainObject(doc.reviews)) return "reviews is not an object";
+    const issues = doc.reviews.issues;
+    if (additivePresent(issues)) {
+      if (!Array.isArray(issues)) return "reviews.issues is not an array";
+      for (const it of issues) {
+        if (!isPlainObject(it)) return "reviews.issues contains a non-object entry";
+        if (typeof it.issueId !== "string" || !it.issueId) return "a review issue has no issueId";
+        if (!REVIEW_LAYER_SET.has(it.layer)) return `review issue ${it.issueId} has an unknown layer`;
+        // the layer OWNS its vocabulary (§6.1 disjointness): a delivery category on
+        // an episode issue would put the issue on a panel that never shows it
+        if (!REVIEW_CATEGORY_SET.get(it.layer).has(it.category)) {
+          return `review issue ${it.issueId} has a category that does not belong to its layer`;
+        }
+        if (!REVIEW_SEVERITY_SET.has(it.severity)) return `review issue ${it.issueId} has an unknown severity`;
+        if (!REVIEW_ISSUE_STATE_SET.has(it.state)) return `review issue ${it.issueId} has an unknown state`;
+        // WHO raised it decides what it may do: an agent-raised observation and a
+        // creator's own note are not interchangeable (§6.1/§6.2)
+        if (it.source !== "user" && it.source !== "agent") {
+          return `review issue ${it.issueId} does not say who raised it`;
+        }
+        if (typeof it.targetId !== "string" || !it.targetId) {
+          return `review issue ${it.issueId} does not point at an object`;
+        }
+        if (typeof it.text !== "string" || !it.text.trim()) {
+          return `review issue ${it.issueId} has no text`;
+        }
+        if (it.locatedShotId !== undefined && it.locatedShotId !== null
+          && typeof it.locatedShotId !== "string") {
+          return `review issue ${it.issueId} has an invalid locatedShotId`;
+        }
+      }
+    }
+    const decisions = doc.reviews.decisions;
+    if (additivePresent(decisions)) {
+      if (!Array.isArray(decisions)) return "reviews.decisions is not an array";
+      for (const d of decisions) {
+        if (!isPlainObject(d)) return "reviews.decisions contains a non-object entry";
+        if (typeof d.decisionId !== "string" || !d.decisionId) return "a review decision has no decisionId";
+        if (!REVIEW_LAYER_SET.has(d.layer)) return `review decision ${d.decisionId} has an unknown layer`;
+        if (!REVIEW_VERDICT_SET.has(d.verdict)) return `review decision ${d.decisionId} has an unknown verdict`;
+        // §6.2, enforced on the way IN as well as on the way out: only the creator
+        // reaches a verdict, so a stored decision that claims any other author is a
+        // 定稿 nobody made and G3 must never see it
+        if (d.by !== "user") return `review decision ${d.decisionId} was not made by the creator`;
+        if (typeof d.targetId !== "string" || !d.targetId) {
+          return `review decision ${d.decisionId} does not point at an object`;
+        }
+        // WHICH VERSION was judged (§6.4). Without it 「已定稿的不是当前版本」 is
+        // unanswerable and a stale approval reads as a current one.
+        if (!Number.isInteger(d.basedOnVersion)) {
+          return `review decision ${d.decisionId} does not record the version it judged`;
+        }
+        if (d.at !== undefined && d.at !== null && typeof d.at !== "string") {
+          return `review decision ${d.decisionId} has an invalid timestamp`;
+        }
+        if (d.openIssueIds !== undefined) {
+          if (!Array.isArray(d.openIssueIds)) {
+            return `review decision ${d.decisionId} has an invalid openIssueIds`;
+          }
+          if (d.openIssueIds.some((x) => typeof x !== "string" || !x)) {
+            return `review decision ${d.decisionId} has an empty openIssueId`;
+          }
+        }
       }
     }
   }
