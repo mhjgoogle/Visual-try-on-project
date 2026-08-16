@@ -468,20 +468,37 @@ def _redirects_the_repository(options: list[str]) -> bool:
     return any(option.split("=", 1)[0] in _GIT_REDIRECT_OPTIONS for option in options)
 
 
+#: `git commit` short options that consume the REST of their cluster as a VALUE.
+#: `-Salpha` is `-S alpha` (a signing key id), not the flags `-S -a -l -p -h -a`,
+#: and reading its value as flags found an `a` that is not there (codex review
+#: round 2). Same for `-mall` (a message) and `-uall` (untracked-files mode).
+_COMMIT_VALUE_SHORT_OPTIONS = frozenset("mFcCtSu")
+
+
 def _selects_all_tracked(token: str) -> bool:
-    """Is *token* `git commit`'s `-a` / `--all`, including inside `-am`?
+    """Is *token* `git commit`'s `-a` / `--all`, including inside a cluster?
 
     The text regex matched `-a` and `--all` only, so `git commit -am "x"` -- an
     ordinary way to write it -- was classified against the INDEX while the commit
-    actually wrote the worktree. Over-matching here only widens the diff, which
-    can only raise the tier.
+    actually wrote the worktree.
+
+    A cluster is scanned LEFT TO RIGHT and stops at the first option that takes a
+    value, because everything after it belongs to that option: `-ma` is `-m a`
+    (message "a"), NOT `-m -a`. Over-matching only widens the diff, which can
+    only raise the tier -- but it can still make a commit that stages clean paths
+    run the whole suite against unrelated broken worktree changes, so being right
+    is worth these six lines.
     """
     if token == "--all":
         return True
     if token.startswith("--") or not token.startswith("-"):
         return False
-    letters = token[1:]
-    return bool(letters) and letters.isalpha() and "a" in letters
+    for char in token[1:]:
+        if char == "a":
+            return True
+        if char in _COMMIT_VALUE_SHORT_OPTIONS or not char.isalpha():
+            return False
+    return False
 
 
 def inspect_command(
@@ -815,12 +832,7 @@ def main() -> int:
     # `--` ends the flags, so a changed file literally named `--chain-mode` is a
     # path and not a flag.
     argv = sys.argv[1:]
-    if "--intent" in argv:
-        payload = json.dumps(asdict(_run_intent_mode()), sort_keys=True)
-        sys.stdout.buffer.write(payload.encode("utf-8") + b"\n")
-        sys.stdout.buffer.flush()
-        return 0
-
+    intent_mode = False
     chain_mode = False
     rest: list[str] = []
     index = 0
@@ -829,6 +841,18 @@ def main() -> int:
         if arg == "--":
             rest.extend(argv[index + 1 :])
             break
+        if arg == "--intent":
+            # PARSED IN THIS LOOP, not by an `"--intent" in argv` membership test
+            # over the whole list. That test ignored the `--` separator the very
+            # next branch honours, so staging a file literally named `--intent`
+            # switched the CLASSIFIER call into intent mode: it then answered
+            # with an Intent object, the shell found no `tier` on it, and the
+            # commit was blocked with a nonsense message (codex review round 2).
+            # Fail-closed, but confusing -- and the `--chain-mode` case right
+            # below already had a passing guard, so the invariant was known.
+            intent_mode = True
+            index += 1
+            continue
         if arg == "--chain-mode" and index + 1 < len(argv):
             # EXACT "1". A switch that can be turned on vaguely gets turned on
             # vaguely, and this one removes a real check (ADR-0068 决策 7).
@@ -837,6 +861,13 @@ def main() -> int:
             continue
         rest.append(arg)
         index += 1
+
+    if intent_mode:
+        payload = json.dumps(asdict(_run_intent_mode()), sort_keys=True)
+        sys.stdout.buffer.write(payload.encode("utf-8") + b"\n")
+        sys.stdout.buffer.flush()
+        return 0
+
     if rest:
         paths = rest
     else:

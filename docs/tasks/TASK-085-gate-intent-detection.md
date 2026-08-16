@@ -70,7 +70,7 @@ TASK-084 §3 只出方案，因为这改的是**质量门本身**：判定错一
 | 间接形式仍绕过且写在代码注释里 | ✅ 注释在 `commit_gate_policy.py`，并由 `test_the_documented_bypasses_really_do_still_bypass` **钉成可执行断言** |
 | 两 shell 同 payload 同判定 | ✅ 实跑 `gate.ps1` 的切分函数比对，非源码字符串断言 |
 | 全量 pytest + 全量前端 + ruff | ✅ 见「最终检查」 |
-| 2 轮独立审查 | 见「审查」 |
+| 2 轮独立审查 | ✅ codex 跨模型 2 轮（预算 2/2，独立性未降级）。轮 1 `fail`：2 blocking → **1 成立已修**（`sudo -u builder git commit` 绕过，是本卡引入的倒退）+ **1 驳回**（`git -C/path` 贴写形式实测非法 git，exit 129）。轮 2 `pass`：0 blocking + 2 non-blocking，两条都成立都已修，**但未经复审**（预算用尽且轮 2 无 P1，按 CLAUDE.md 不得开第 3 轮）——已登记[待复审清单](../design/pending-codex-rereview.md)，push / merge 前补审。详见 [ADR-0070 审查记录](../adr/ADR-0070-commit-gate-intent-by-shell-parser.md#审查记录) |
 
 ### 一处澄清
 
@@ -112,6 +112,12 @@ TASK-084 §3 只出方案，因为这改的是**质量门本身**：判定错一
 
 ### 范围外，只记录不修（AGENTS.md 第 17 条）
 
+- **审查两轮共报 4 条，3 条成立、1 条驳回，而 3 条成立的**都不是「实现没写对」，
+  **是「我自己立的不变量只覆盖了一半」**：包装器拆解是为了不丢旧正则已有的覆盖面，
+  却在实现里以另一种形式丢掉了（`sudo -u`）；`--` 分隔符在 `--chain-mode` 上有
+  通过的守卫，在紧邻的 `--intent` 上没有；短选项簇的过度匹配被注释辩解成「只会
+  抬高档位」，而抬高档位并非无代价。变异验证抓住了**实现被改坏**，抓不住
+  **用例本身没覆盖到的形状**——这两轮审查买到的正是后者。
 - **`test_the_kill_verified_finish_PERSISTS_like_every_other_transition` 偶发失败。**
   本卡最终全量的串行阶段撞到一次：`runstore.py:363` 抛 `PersistFailed`，即
   `os.replace(tmp, self.path)` 收到 `OSError`。**单独重跑通过，整个串行阶段原样

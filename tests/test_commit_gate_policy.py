@@ -318,7 +318,13 @@ def test_the_cli_both_shells_actually_invoke_behaves_end_to_end() -> None:
         )
         # decoded as UTF-8 REGARDLESS of console encoding: the hook contract is
         # UTF-8 JSON and a cp932 console does not get a vote (round 3)
-        return json.loads(result.stdout.decode("utf-8"))
+        answer = json.loads(result.stdout.decode("utf-8"))
+        # …and it must be a DECISION, not an Intent. Asserting on `tier` alone
+        # could not tell them apart, because Intent carries a `tier` too — so a
+        # classifier call that silently ran in INTENT mode still looked right
+        # (变异验证 2026-08-16: that mutation survived until this line existed).
+        assert set(answer) == {"tier", "reason", "pytest_targets", "notice"}, answer
+        return answer
 
     assert run("1", high_risk)["tier"] == "continuous-chain"
     assert run("0", high_risk)["tier"] == "full"
@@ -329,8 +335,15 @@ def test_the_cli_both_shells_actually_invoke_behaves_end_to_end() -> None:
     assert run("1", "src/ai_video_workflow/validation.py")["tier"] == "pytest-targeted"
     assert run("1", "docs/x.md")["tier"] == "lint"
     assert run("1", "Makefile")["tier"] == "full"
-    # a changed file literally NAMED like the flag stays a path, because of `--`
-    assert run("1", "--chain-mode")["tier"] == "full"
+    # a changed file literally NAMED like a flag stays a path, because of `--`.
+    # `--intent` was NOT covered by this and used to be matched by a membership
+    # test over the whole argv, ignoring the separator its sibling honours: the
+    # CLASSIFIER call then answered with an Intent object, the shell found no
+    # `tier` on it, and the commit was blocked with a nonsense message (codex
+    # review round 2). Fail-closed, but a guard existing for one flag and not the
+    # one beside it is how the gap survived.
+    for staged_path in ("--chain-mode", "--intent", "--"):
+        assert run("1", staged_path)["tier"] == "full", staged_path
     # the notice survives the round trip intact, Chinese lines included
     notice = run("1", high_risk)["notice"]
     assert notice.splitlines()[0].isascii()
@@ -979,6 +992,20 @@ def test_dash_am_is_a_worktree_commit_and_must_be_diffed_against_HEAD() -> None:
     assert _POLICY.inspect_command("Bash", "git commit -m x").diff == "index"
     # `--amend` 不是 `--all`，`-m` 里没有 a
     assert _POLICY.inspect_command("Bash", "git commit --amend -m x").diff == "index"
+
+    # 簇里**取值的那个选项之后全是它的值**，不是更多 flag（codex 审查轮 2）：
+    # `-Salpha` 是签名密钥 `-S alpha`，不是 `-S -a -l -p -h -a`；把值当 flag 读
+    # 会找到一个根本不存在的 `a`，于是拿 HEAD 去 diff，把无关的未暂存改动一起
+    # 拖进档位判定——只暂存了干净路径的提交会被工作区里坏掉的东西拦下。
+    for token in ("-Salpha", "-mall", "-uall", "-Fa", "-ma", "-Cabc", "-tall"):
+        assert _POLICY.inspect_command("Bash", f"git commit {token}").diff == "index", (
+            token
+        )
+    # …而取值选项**之前**的 a 仍然算数
+    for token in ("-am", "-aS", "-qam"):
+        assert (
+            _POLICY.inspect_command("Bash", f"git commit {token} x").diff == "head"
+        ), token
 
 
 def test_a_commit_message_mentioning_push_is_no_longer_a_chain_conflict() -> None:
