@@ -2355,11 +2355,22 @@ def _load_skill_catalog(project_root: Path | None = None):
     """
 
     project_dir = None
+    contain_within = None
     if project_root is not None:
-        project_dir = Path(project_root) / "studio" / "skills"
+        # CONTAINED IN THE PROJECT (ADR-0067 补记 / TASK-084 项 4). A junction at
+        # `studio/skills` could point anywhere on the disk, and its packages then
+        # loaded as 「这一部作品的」 Skill — their prompt text is inlined into what
+        # is sent to the executor, and `source: "project"` is the field that
+        # decides override priority. Cross-project sharing is the USER source's
+        # job; it is not something a reparse point gets to arrange silently.
+        contain_within = Path(project_root)
+        project_dir = contain_within / "studio" / "skills"
     return skillpkg.load_catalog(
         [
-            ("project", project_dir),
+            ("project", project_dir, contain_within),
+            # The other two roots are OWNED BY THIS INSTALL, not by a project, so
+            # they are their own containment boundary: `_package_dirs` still
+            # requires every package to resolve inside the root it came from.
             ("user", _USER_SKILLS_DIR),
             ("builtin", _BUILTIN_SKILLS_DIR),
         ],

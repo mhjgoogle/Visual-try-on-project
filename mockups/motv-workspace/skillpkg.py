@@ -355,8 +355,42 @@ def load_package(directory: Path, source: str) -> Skill:
     """Load and validate ONE package. Raises ``SkillPackageError`` if unusable."""
 
     files: dict[str, str] = {}
+    # THE PACKAGE'S OWN FILES MUST ALSO STAY INSIDE IT (ADR-0067 补记 / TASK-084
+    # 项 4, cross-model review round 2). Containing the package DIRECTORY is not
+    # enough: `prompt.md` can itself be a symlink to anywhere on the disk, and the
+    # read below follows it — so the text inlined into what an executor is sent
+    # would come from outside the project while the package still reports
+    # `source: "project"`. That is the same defect the directory check closes,
+    # one level down, so it is closed here rather than waiting for it to be
+    # reported again as its own finding.
+    #
+    # `is_symlink()` is NOT the test (a Windows junction answers False), and a
+    # regular-file check alone would not catch a symlink to a regular file, so
+    # resolved containment is what decides.
+    #
+    # WHAT THIS DOES NOT CATCH, stated rather than implied: a HARD LINK has no
+    # target path — it resolves to the very name inside the package — so a hard
+    # link to an outside file passes this check. Closing that needs an inode
+    # comparison, which NTFS and POSIX express differently, and it buys nothing
+    # here: creating one already requires write access to the package directory,
+    # and anyone with that can simply write the bytes in.
+    try:
+        package_root = directory.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise SkillPackageError(f"无法解析包目录：{exc}") from exc
     for name in PACKAGE_FILES:
         target = directory / name
+        try:
+            resolved = target.resolve(strict=True)
+        except FileNotFoundError as exc:
+            raise SkillPackageError(f"缺少 {name}") from exc
+        except (OSError, RuntimeError) as exc:
+            raise SkillPackageError(f"无法读取 {name}：{exc}") from exc
+        if resolved.parent != package_root or not resolved.is_file():
+            raise SkillPackageError(
+                f"{name} 指向了包目录之外（{resolved}）——"
+                "Skill 包必须自成一体，不得把内容链接到别处"
+            )
         try:
             # Read BYTES and decode strictly: a file that is not valid UTF-8 is
             # a broken package, not a package with replacement characters
@@ -416,15 +450,18 @@ def load_package(directory: Path, source: str) -> Skill:
 
 
 def load_catalog(
-    roots: Sequence[tuple[str, Path | None]],
+    roots: Sequence[tuple[str, Path | None] | tuple[str, Path | None, Path | None]],
     *,
     known_digests: Mapping[tuple[str, int], str] | None = None,
 ) -> Catalog:
     """Discover every package under *roots* and merge them by priority.
 
-    *roots* is ``(source, directory)`` pairs; a ``None`` directory is a source
-    that does not apply (no project open, for instance). Sources are consulted
-    in ``SOURCE_ORDER``, and the FIRST one that has a given ``skillId`` wins
+    *roots* is ``(source, directory)`` pairs — or ``(source, directory,
+    contain_within)`` triples, which additionally require *directory* itself to
+    resolve inside *contain_within* (ADR-0067 补记: a project's `studio/skills/`
+    must stay inside that project). A ``None`` directory is a source that does
+    not apply (no project open, for instance). Sources are consulted in
+    ``SOURCE_ORDER``, and the FIRST one that has a given ``skillId`` wins
     outright.
 
     *known_digests* maps ``(skillId, skillVersion)`` to the digest history
@@ -441,7 +478,9 @@ def load_catalog(
     #: not know which ids they hold, so they shadow EVERY id below them.
     unreadable_sources: set[str] = set()
 
-    for source, directory in roots:
+    for root_spec in roots:
+        source, directory = root_spec[0], root_spec[1]
+        contain_within = root_spec[2] if len(root_spec) > 2 else None
         if source not in SOURCE_ORDER:
             raise ValueError(f"unknown skill source: {source}")
         if source in by_source:
@@ -452,7 +491,7 @@ def load_catalog(
         by_source[source] = found
         if directory is None:
             continue
-        entries, unreadable = _package_dirs(directory)
+        entries, unreadable = _package_dirs(directory, contain_within)
         if unreadable:
             problems.append(SkillProblem("", source, str(directory), unreadable))
             # …AND THE WHOLE SOURCE IS SHADOWED, not just one id (codex 跨模型
@@ -1010,7 +1049,9 @@ def compile_prompt(
     return "\n".join(parts)
 
 
-def _package_dirs(directory: Path) -> tuple[list[Path], str | None]:
+def _package_dirs(
+    directory: Path, contain_within: Path | None = None
+) -> tuple[list[Path], str | None]:
     """Package directories under *directory*, plus a reason if it was unusable.
 
     A source that is NOT INSTALLED is not an error — most projects have no
@@ -1019,11 +1060,73 @@ def _package_dirs(directory: Path) -> tuple[list[Path], str | None]:
     OneDrive placeholder, a disconnected network path) used to yield zero
     packages silently, so every project override resolved to the builtin skill —
     决策 7's exact harm, and unattributable on top (independent review).
+
+    CONTAINMENT (ADR-0067 补记 / TASK-084 项 4). A package must RESOLVE to a
+    location inside the source it claims to come from, and the source directory
+    itself must resolve inside *contain_within* when the caller supplies one (the
+    project root, for `<ProjectRoot>/studio/skills/`). Without this, a junction
+    pointed anywhere on the disk loaded as 「这一部作品的」 Skill: its prompt text
+    is inlined into what gets sent to the executor, and `source: "project"` — the
+    field that decides override priority — became a claim the layout did not
+    support. Cross-project sharing has a supported door already (the USER source);
+    this one is closed.
+
+    THE CHECK IS `resolve()` + CONTAINMENT, NOT `is_symlink()`. Measured on this
+    host (Windows 11 / NTFS, 2026-08-16): a junction created with `mklink /J`
+    reports `Path.is_symlink() == False`, so copying the upload path's symlink
+    guard verbatim would have missed the exact thing this closes. `resolve()`
+    follows junctions AND symlinks, so the containment comparison catches both.
     """
 
+    # A SYMLINK LOOP IS `RuntimeError`, NOT `OSError`, ON EVERY INTERPRETER THIS
+    # PROJECT SUPPORTS BUT THE NEWEST (cross-model review, 2026-08-16). CPython
+    # only made `Path.resolve()` raise OSError for loops in 3.13; `requires-python`
+    # is >=3.10 and the Ubuntu CI job pins 3.10, so on the supported target a
+    # cyclic Skill path would have crashed the whole catalog load instead of
+    # fail-closing with an attributed problem — an uncaught exception here is not
+    # a refusal, it is a 500 with no reason attached. Caught at all three resolve
+    # sites, not just the one the finding named.
     try:
-        return sorted(p for p in directory.iterdir() if p.is_dir()), None
+        root = directory.resolve(strict=True)
     except (FileNotFoundError, NotADirectoryError):
         return [], None
+    except (OSError, RuntimeError) as exc:
+        return [], f"无法读取 Skill 目录：{exc}"
+
+    if contain_within is not None:
+        try:
+            outer = Path(contain_within).resolve(strict=True)
+        except (OSError, RuntimeError) as exc:
+            return [], f"无法解析项目根目录：{exc}"
+        if root != outer and outer not in root.parents:
+            return [], (
+                f"Skill 目录指向了项目之外（{root}）。"
+                "跨项目共享请放进用户来源 <应用数据根>/skills/，"
+                "那才是「这台机器上的创作者」拥有的能力（ADR-0067 决策 2 / 补记）。"
+            )
+
+    entries: list[Path] = []
+    try:
+        candidates = sorted(p for p in directory.iterdir() if p.is_dir())
     except OSError as exc:
         return [], f"无法读取 Skill 目录：{exc}"
+
+    for p in candidates:
+        try:
+            resolved = p.resolve(strict=True)
+        except (OSError, RuntimeError) as exc:
+            # unresolvable is not 「skip it」: we cannot tell WHICH id it would
+            # have provided, so we cannot know what to shadow (below)
+            return [], f"无法解析 Skill 包目录 {p.name}：{exc}"
+        if root not in resolved.parents:
+            # THE WHOLE SOURCE, not just this entry. The id it would have carried
+            # is unknowable without reading the very content we are refusing, so
+            # precise shadowing is impossible — the same argument `load_catalog`
+            # already makes for an unreadable root, at the same granularity.
+            return [], (
+                f"Skill 包 {p.name} 指向了这个来源之外（{resolved}）。"
+                "跨项目共享请放进用户来源 <应用数据根>/skills/"
+                "（ADR-0067 决策 2 / 补记）。"
+            )
+        entries.append(p)
+    return entries, None

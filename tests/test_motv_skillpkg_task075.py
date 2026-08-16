@@ -645,10 +645,10 @@ def test_an_unreadable_source_does_not_fall_through_to_the_one_below_it(
     unreadable.mkdir()
     real_dirs = skillpkg._package_dirs
 
-    def deny(directory):
+    def deny(directory, contain_within=None):
         if directory == unreadable:
             return [], "无法读取 Skill 目录：access denied"
-        return real_dirs(directory)
+        return real_dirs(directory, contain_within)
 
     monkeypatch.setattr(skillpkg, "_package_dirs", deny)
     catalog = skillpkg.load_catalog([("project", unreadable), ("builtin", _BUILTIN)])
@@ -866,3 +866,241 @@ def test_the_constraint_check_does_not_reject_legitimate_schemas():
     catalog = skillpkg.load_catalog([("builtin", _BUILTIN)])
     assert catalog.skills, "内置包必须仍然可加载"
     assert [p for p in catalog.problems] == []
+
+
+# --- 5. containment: a source may not reach outside itself (TASK-084 项 4) -- #
+#
+# ADR-0067 补记. 「用 junction 把一份 skill 包共享给多个项目」是**不支持**的用法：
+# 跨项目共享的正路是用户来源。一个指向项目外的 junction 会让包报告
+# `source: "project"`（即「这一部作品拥有的」）而实际被 N 个项目共用，
+# 而 source 正是决定覆盖优先级的那个字段。
+
+
+def _junction(link: Path, target: Path) -> bool:
+    """Create a real NTFS junction, or return False where that is impossible."""
+    import subprocess
+
+    if not hasattr(Path, "is_junction"):  # pragma: no cover - Python < 3.12
+        return False
+    try:
+        subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+            check=True,
+            capture_output=True,
+        )
+    except (OSError, subprocess.CalledProcessError):  # pragma: no cover
+        return False
+    return link.is_junction()
+
+
+@pytest.mark.skipif(
+    not hasattr(Path, "is_junction"), reason="junctions need Python 3.12+ on Windows"
+)
+def test_a_junction_is_not_seen_as_a_symlink_at_all(tmp_path) -> None:
+    """THE TRAP THIS GUARD EXISTS FOR, pinned as a test rather than a comment.
+
+    Copying `_resolve_upload_file`'s `not p.is_symlink()` check would have missed
+    the exact case the finding reported: on Windows a junction reports
+    `is_symlink() == False`. Only `resolve()` + containment catches it, so if this
+    assertion ever flips, the guard below must be re-derived rather than trusted.
+    """
+    outside = tmp_path / "outside" / "story-development"
+    outside.mkdir(parents=True)
+    link = tmp_path / "link"
+    if not _junction(link, outside.parent):
+        pytest.skip("this filesystem does not support junctions")
+
+    assert link.is_symlink() is False  # <- the trap
+    assert link.is_junction() is True
+    assert link.resolve() == outside.parent.resolve()
+
+
+@pytest.mark.skipif(
+    not hasattr(Path, "is_junction"), reason="junctions need Python 3.12+ on Windows"
+)
+def test_a_project_skills_dir_junctioned_outside_the_project_is_refused(
+    tmp_path,
+) -> None:
+    """`studio/skills` itself pointing out of the project (the reported case)."""
+    elsewhere = _package(tmp_path / "elsewhere")  # a perfectly valid package…
+    project_root = tmp_path / "proj"
+    (project_root / "studio").mkdir(parents=True)
+    link = project_root / "studio" / "skills"
+    if not _junction(link, elsewhere):
+        pytest.skip("this filesystem does not support junctions")
+
+    catalog = skillpkg.load_catalog(
+        [("project", link, project_root), ("builtin", _BUILTIN)]
+    )
+    # fail-closed WITH attribution, and never silently as「这个项目没装 Skill」
+    assert catalog.problems, "越界的 Skill 目录必须被报出来"
+    assert "项目之外" in catalog.problems[0].reason
+    # …and 决策 7: the whole source is shadowed, so the id does NOT quietly
+    # resolve to the builtin one — that is what makes 「我的定制在生效」 a lie.
+    assert "story-development" not in catalog.skills
+
+
+@pytest.mark.skipif(
+    not hasattr(Path, "is_junction"), reason="junctions need Python 3.12+ on Windows"
+)
+def test_one_package_junctioned_outside_the_source_is_refused(tmp_path) -> None:
+    """A single package inside an otherwise legitimate `studio/skills/`."""
+    outside = _package(tmp_path / "outside")
+    project_root = tmp_path / "proj"
+    skills = project_root / "studio" / "skills"
+    skills.mkdir(parents=True)
+    if not _junction(skills / "shared", outside / "story-development"):
+        pytest.skip("this filesystem does not support junctions")
+
+    catalog = skillpkg.load_catalog(
+        [("project", skills, project_root), ("builtin", _BUILTIN)]
+    )
+    assert catalog.problems
+    assert "来源之外" in catalog.problems[0].reason
+    assert "story-development" not in catalog.skills
+
+
+def test_containment_does_not_reject_the_ordinary_layout(tmp_path) -> None:
+    """THE OTHER DIRECTION, and the one that would hurt every real project:
+    a plain `studio/skills/<pkg>/` must keep loading exactly as before."""
+    project_root = tmp_path / "proj"
+    skills = project_root / "studio" / "skills"
+    skills.mkdir(parents=True)
+    shutil.copytree(_BUILTIN / "story-development", skills / "story-development")
+
+    catalog = skillpkg.load_catalog(
+        [("project", skills, project_root), ("builtin", _BUILTIN)]
+    )
+    assert catalog.problems == ()
+    assert catalog.skills["story-development"].source == "project"
+    # a project with no skills dir at all is still not an error
+    empty = skillpkg.load_catalog(
+        [("project", project_root / "nope", project_root), ("builtin", _BUILTIN)]
+    )
+    assert empty.problems == ()
+    assert len(empty.skills) == _BUILTIN_COUNT
+
+
+def test_the_two_and_three_element_root_forms_agree(tmp_path) -> None:
+    """The containment root is OPTIONAL: user/builtin pass none and behave as
+    before, so adding it cannot change how this install's own sources load."""
+    package = _package(tmp_path)
+    two = skillpkg.load_catalog([("project", package)])
+    three = skillpkg.load_catalog([("project", package, tmp_path)])
+    assert two.problems == three.problems == ()
+    assert two.skills.keys() == three.skills.keys()
+    assert two.skills["story-development"].digest == (
+        three.skills["story-development"].digest
+    )
+
+
+def test_a_resolution_loop_fails_CLOSED_instead_of_crashing_the_load(
+    tmp_path, monkeypatch
+) -> None:
+    """A symlink loop raises RuntimeError, not OSError, below Python 3.13.
+
+    `requires-python` is >=3.10 and the Ubuntu CI job pins 3.10, so this is
+    reachable on a supported target (cross-model review, 2026-08-16). An uncaught
+    exception here is not a refusal — it is a crash with no attributed reason,
+    which is the opposite of 决策 7. Simulated rather than built from real
+    symlinks: Windows collapses a junction loop instead of raising, so a real one
+    could not exercise this on the authoritative platform.
+    """
+    skills = tmp_path / "proj" / "studio" / "skills"
+    skills.mkdir(parents=True)
+    real_resolve = Path.resolve
+
+    def looping(self, strict=False):
+        if self == skills:
+            raise RuntimeError("Symlink loop from " + str(self))
+        return real_resolve(self, strict=strict)
+
+    monkeypatch.setattr(Path, "resolve", looping)
+    catalog = skillpkg.load_catalog(
+        [("project", skills, tmp_path / "proj"), ("builtin", _BUILTIN)]
+    )
+    assert catalog.problems, "循环路径必须被报出来，而不是崩掉整个加载"
+    assert "无法读取 Skill 目录" in catalog.problems[0].reason
+    # …and 决策 7 still holds: the source is shadowed, not silently skipped
+    assert "story-development" not in catalog.skills
+
+
+def test_a_package_file_symlinked_outside_the_package_is_refused(tmp_path) -> None:
+    """Containing the DIRECTORY is not enough (cross-model review, round 2).
+
+    `prompt.md` can itself be a link to anywhere on the disk, and the loader
+    follows it — so the text inlined into what an executor is sent would come
+    from outside the project while the package still reports `source: "project"`.
+    Same defect as the directory check, one level down.
+    """
+    package = _package(tmp_path)
+    outside = tmp_path / "outside.md"
+    outside.write_bytes("外部指令".encode())
+
+    prompt = package / "story-development" / "prompt.md"
+    prompt.unlink()
+    try:
+        prompt.symlink_to(outside)
+    except (OSError, NotImplementedError):  # pragma: no cover - needs privilege
+        pytest.skip("this host cannot create symlinks without elevation")
+
+    with pytest.raises(skillpkg.SkillPackageError) as err:
+        skillpkg.load_package(package / "story-development", "project")
+    assert "包目录之外" in str(err.value)
+
+    # …and through the catalog it is an attributed problem, never a silent load
+    catalog = skillpkg.load_catalog([("project", package), ("builtin", _BUILTIN)])
+    assert any("包目录之外" in p.reason for p in catalog.problems)
+    assert catalog.skills["story-development"].source != "project"
+
+
+def test_an_ordinary_package_file_is_still_read_normally(tmp_path) -> None:
+    """The other direction: real packages must keep loading, links or not."""
+    package = _package(tmp_path)
+    skill = skillpkg.load_package(package / "story-development", "project")
+    assert skill.instruction.strip()
+    # every builtin package still loads (they are the ones a real user runs)
+    catalog = skillpkg.load_catalog([("builtin", _BUILTIN)])
+    assert len(catalog.skills) == _BUILTIN_COUNT
+    assert catalog.problems == ()
+
+
+def test_an_escaping_package_file_is_refused_even_where_symlinks_need_privilege(
+    tmp_path, monkeypatch
+) -> None:
+    """The same rule, exercised DETERMINISTICALLY on every host.
+
+    The symlink test above skips on a Windows host without the create-symlink
+    privilege — which is the authoritative platform, so on its own it would leave
+    this guard unexercised exactly where it is claimed to hold. Here the escape is
+    forced at the resolution boundary instead, so the refusal branch really runs.
+    """
+    package = _package(tmp_path)
+    entry = package / "story-development"
+    outside = tmp_path / "elsewhere" / "prompt.md"
+    outside.parent.mkdir(parents=True)
+    outside.write_bytes("外部指令".encode())
+    real_resolve = Path.resolve
+
+    def escaping(self, strict=False):
+        if self == entry / "prompt.md":
+            return real_resolve(outside, strict=strict)
+        return real_resolve(self, strict=strict)
+
+    monkeypatch.setattr(Path, "resolve", escaping)
+    with pytest.raises(skillpkg.SkillPackageError) as err:
+        skillpkg.load_package(entry, "project")
+    assert "包目录之外" in str(err.value)
+
+
+def test_a_package_file_that_is_not_a_regular_file_is_refused(tmp_path) -> None:
+    """A directory where `prompt.md` should be resolves fine and is still not a
+    file; reading it would fail later with a less answerable error."""
+    package = _package(tmp_path)
+    prompt = package / "story-development" / "prompt.md"
+    prompt.unlink()
+    prompt.mkdir()
+
+    with pytest.raises(skillpkg.SkillPackageError) as err:
+        skillpkg.load_package(package / "story-development", "project")
+    assert "包目录之外" in str(err.value)
