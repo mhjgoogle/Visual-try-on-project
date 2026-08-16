@@ -4,7 +4,7 @@
 import { $, el } from "../util/dom.js";
 import { stageOf } from "../workflow/contract.js";
 import * as budget from "../services/budget.js";
-import { yen } from "../services/realmap.js";
+import { yen, yenOf, UNKNOWN } from "../services/realmap.js";
 
 export function createInspector() {
   const insp = $("#insp"), scrim = $("#scrim"), tEl = $("#insp-t"), sEl = $("#insp-s"), bEl = $("#insp-b");
@@ -137,17 +137,53 @@ export function createInspector() {
     if (standing) {
       const s = el("div", "sec");
       s.appendChild(el("span", "eyebrow", "预算 · WQ-14（本集，JPY）"));
+      // TASK-077 §1.1: the same honesty as the top bar. This panel printed `¥0`
+      // for six unavailable fields, which is where a creator who clicked the bar
+      // to check would have had the lie confirmed.
       const rows = [
-        ["单集硬上限", yen(standing.total)],
-        ["已承诺", yen(standing.spent)],
-        ["未结算 hold", yen(standing.held)],
-        ["剩余", yen(standing.remaining)],
-        ["单集软上限", yen(standing.softCap)],
-        ["单镜上限", yen(standing.perShot)],
+        ["单集硬上限", standing.total],
+        ["已承诺", standing.spent],
+        ["未结算 hold", standing.held],
+        ["剩余", standing.remaining],
+        ["单集软上限", standing.softCap],
+        ["单镜上限", standing.perShot],
       ];
       const dl = el("dl", "kv");
-      rows.forEach(([k, v]) => { dl.appendChild(el("dt", null, k)); dl.appendChild(el("dd", "mono", v)); });
+      rows.forEach(([k, f]) => {
+        dl.appendChild(el("dt", null, k));
+        const dd = el("dd", "mono", yenOf(f));
+        // WHY it is unknown, on the row itself — 「—」 alone is honest but not useful
+        if (f && !f.available && f.note) dd.title = f.note;
+        dl.appendChild(dd);
+      });
       s.appendChild(dl);
+      if (!standing.complete) {
+        s.appendChild(el(
+          "div", "digest-note",
+          `${UNKNOWN} 表示这个项目没有可用的预算数据（不是 0）。数值只在真实来源可读时显示。`,
+        ));
+      }
+      bEl.appendChild(s);
+    }
+
+    // The backend has always returned `problems[]`; nothing ever showed it, so a
+    // corrupt/absent source looked identical to a project with no spending.
+    if (standing && standing.problems && standing.problems.length) {
+      const s = el("div", "sec");
+      s.appendChild(el("span", "eyebrow", `数据问题 · ${standing.problems.length} 条`));
+      standing.problems.forEach((p) => {
+        // textContent, not innerHTML: a `detail` is a backend-supplied path/message
+        const row = el("div", "step");
+        const st = el("div", "st");
+        st.appendChild(el("span", "nm", p.category || "problem"));
+        const ex = el("span", "ex", p.source || "");
+        ex.style.border = "none";
+        ex.style.color = "var(--gate)";
+        st.appendChild(ex);
+        row.appendChild(st);
+        row.appendChild(el("div", "io", p.detail || ""));
+        s.appendChild(row);
+      });
       bEl.appendChild(s);
     }
 

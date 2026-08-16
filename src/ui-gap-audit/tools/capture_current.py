@@ -14,7 +14,7 @@ serving:
 
 Then:
 
-    .venv/Scripts/python docs/ui-gap-audit/tools/capture_current.py \
+    .venv/Scripts/python src/ui-gap-audit/tools/capture_current.py \
         --port 8791 --project 照见未明rev2
 
 Fixed capture conditions, so two runs are comparable:
@@ -22,7 +22,7 @@ Fixed capture conditions, so two runs are comparable:
   order. Every shot is named `{order}-{workflow-step}-{state}.png` per the
   audit manifest.
 
-Output: docs/ui-gap-audit/screenshots/current/*.png plus a `capture.json`
+Output: src/ui-gap-audit/screenshots/current/*.png plus a `capture.json`
 sidecar recording port, project, commit and any page errors observed — a
 screenshot with a swallowed JS exception behind it is misleading evidence.
 """
@@ -38,30 +38,65 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 REPO = Path(__file__).resolve().parents[3]
-OUT = REPO / "docs" / "ui-gap-audit" / "screenshots" / "current"
+OUT = REPO / "src" / "ui-gap-audit" / "screenshots" / "current"
 
 VIEWPORT = {"width": 1440, "height": 900}
 
-# (order, module key, space, filename stem, settle ms)
-# `space` is the top-bar segment that must be active before the rail exposes
-# the module — the Studio has no URL routing, so a page is only reachable by
-# clicking its way there (see the audit report, IA-1).
+# (module key, space, filename stem, settle ms)
+#
+# `space` is the top-bar segment that must be active first — the Studio has no
+# URL routing, so a page is only reachable by clicking its way there (audit
+# finding IA-1, still open — that is Phase 2, not Phase 0).
+#
+# IA-2 IS CLOSED (TASK-077 §1.5). 剧集制作 now renders the frozen IA's FIVE pages
+# as a `[data-mod]` rail of its own, exactly like the other two spaces, so the
+# five are captured first and by name. The ELEVEN legacy stage keys are kept
+# below because the 「工作区 ▾」 dropdown still offers them (TASK-074 retires it),
+# and a capture that stopped driving them would stop noticing if they broke.
 ROUTES = [
-    ("02", "brief", "story", "02-brief", 1200),
-    ("03", "story", "story", "03-story-outline", 1200),
-    ("04", "settings", "story", "04-settings-bible", 1400),
-    ("05", "episodes", "story", "05-episode-plan", 1200),
-    ("06", "script", "story", "06-episode-script", 1400),
-    ("07", "board", "episode", "07-episode-board", 1600),
-    ("08", "storyboard", "episode", "08-storyboard", 1800),
-    ("09", "shotwork", "episode", "09-shot-workbench", 2200),
-    ("10", "cutreview", "episode", "10-cut-review", 1600),
-    ("11", "delivery", "episode", "11-delivery", 2000),
-    ("12", "assets", "assets", "12-asset-library", 1600),
-    ("13", "projectsettings", "story", "13-project-settings", 1400),
+    ("brief", "story", "02-brief", 1200),
+    ("story", "story", "03-story-outline", 1200),
+    ("settings", "story", "04-settings-bible", 1400),
+    ("episodes", "story", "05-episode-plan", 1200),
+    ("script", "story", "06-episode-script", 1400),
+    # the FIVE pages of the frozen IA, now that a rail draws them
+    ("board", "episode", "07a-episode-board", 1800),
+    ("storyboard", "episode", "07b-storyboard-design", 2000),
+    ("shotwork", "episode", "07c-shot-production", 2200),
+    ("cutreview", "episode", "07d-cut-review", 1800),
+    ("delivery", "episode", "07e-post-delivery", 2200),
+    # …and the legacy stage keys, still reachable behind 「工作区 ▾」
+    ("workbench", "episode", "07-episode-workbench", 2200),
+    ("provenance", "episode", "08-provenance-graph", 2000),
+    ("episode", "episode", "09-episode-overview", 1600),
+    ("scenes", "episode", "10-scenes", 1600),
+    ("shots", "episode", "11-storyboard-shots", 2000),
+    ("refplan", "episode", "12-reference-plan", 1800),
+    ("frames", "episode", "13-image-workspace", 2000),
+    ("video", "episode", "14-video-workspace", 2000),
+    ("audio", "episode", "15-audio-workspace", 2000),
+    ("dailies", "episode", "16-dailies-review", 1800),
+    ("edit", "episode", "17-edit-console", 2200),
+    ("assets", "assets", "18-asset-library", 1600),
+    ("storage", "assets", "19-storage-diagnostics", 1600),
 ]
 
 SEG = {"story": "#seg-story", "episode": "#seg-episode", "assets": "#seg-assets"}
+
+# How to reach a module inside each space.
+CLICK_JS = """(m) => {
+    // 1. a rail row / any [data-mod] entry (故事开发, 资产库, 制作台 back button)
+    const b = document.querySelector(`[data-mod="${m}"]`);
+    if (b) { b.click(); return "data-mod"; }
+    // 2. 剧集制作's 「工作区 ▾」 dropdown — open it, then pick the stage
+    const open = document.querySelector('[data-ep-wsopen]');
+    if (open) {
+        if (!document.querySelector(`[data-ep-ws="${m}"]`)) open.click();
+        const s = document.querySelector(`[data-ep-ws="${m}"]`);
+        if (s) { s.click(); return "data-ep-ws"; }
+    }
+    return null;
+}"""
 
 
 def _commit() -> str:
@@ -110,38 +145,39 @@ def main() -> int:
             args.project,
         )
         if not clicked:
-            print(f"ERROR: project {args.project!r} not on the landing page", file=sys.stderr)
+            print(
+                f"ERROR: project {args.project!r} not on the landing page",
+                file=sys.stderr,
+            )
             browser.close()
             return 2
         page.wait_for_timeout(3500)
 
         space_now = None
-        for _order, mod, space, stem, settle in ROUTES:
+        for mod, space, stem, settle in ROUTES:
             if wanted and mod not in wanted:
                 continue
             if space != space_now:
                 page.click(SEG[space])
                 page.wait_for_timeout(1500)
                 space_now = space
-            ok = page.evaluate(
-                """(m) => {
-                    const b = document.querySelector(`[data-mod="${m}"]`);
-                    if (!b) return false;
-                    b.click();
-                    return true;
-                }""",
-                mod,
-            )
-            if not ok:
+            how = page.evaluate(CLICK_JS, mod)
+            if not how:
                 # An unreachable page is itself a finding — record it, do not
                 # fabricate a screenshot for it.
-                taken.append({"file": None, "module": mod, "note": "no [data-mod] entry in this space's rail"})
-                print(f"  MISS {mod}: no rail entry", file=sys.stderr)
+                taken.append(
+                    {
+                        "file": None,
+                        "module": mod,
+                        "note": "unreachable: no entry in this space",
+                    }
+                )
+                print(f"  MISS {mod}: no entry", file=sys.stderr)
                 continue
             page.wait_for_timeout(settle)
             page.screenshot(path=str(OUT / f"{stem}.png"))
-            taken.append({"file": f"{stem}.png", "module": mod})
-            print(f"  {stem}.png")
+            taken.append({"file": f"{stem}.png", "module": mod, "reached_via": how})
+            print(f"  {stem}.png  (via {how})")
 
         browser.close()
 

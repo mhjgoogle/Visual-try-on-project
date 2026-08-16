@@ -21,11 +21,32 @@ import { SHOT_STAGE_LABEL } from "../workflow/shotprod.js";
 import {
   REFERENCE_ROLES, ROLE_LABEL, isInterpretationRole,
   MODEL_INPUT_ROLES, INTERPRETATION_ROLES, ROLE_USE_LABEL,
+  // TASK-077 §1.3: what the route in force can actually ingest
+  routeCapability, effectiveRoleUse, downgradedRoles, referenceRouteMatrix,
 } from "../workflow/geninput.js";
 import { domainsForKind } from "../workflow/assetreg.js";
 import { videoDependencies, upstreamNotice, DEP } from "../workflow/mediadep.js";
 import { AXES, AXIS_LABEL } from "../workflow/refinterp.js";
 import { BINDING_LABEL, describeBinding } from "../workflow/framebind.js";
+
+/** The generation ROUTE this project is on, as a capability (TASK-077 §1.3).
+ *  Read from the shell rather than assumed, and defaulting to the manual route
+ *  when the shell does not say — that is the route whose wording instructs a
+ *  human rather than promising an API behaviour. */
+const capOf = (ctx) => routeCapability(ctx && ctx.genRoute ? ctx.genRoute() : "manual");
+
+/** 「这几张参考到底会不会进模型」 — per route, with the one in force marked.
+ *  Replaces the unqualified 「模型直接输入」, which was true of the manual route and
+ *  false of the Gateway one and said neither. */
+const routeMatrixHtml = (ctx) =>
+  `<div class="pi-routes">` +
+  referenceRouteMatrix(capOf(ctx))
+    .map((r) =>
+      `<div class="pi-routerow${r.active ? " on" : ""}">` +
+      `<span class="mk">${r.sendsReferenceImages ? "✓" : "✗"}</span>` +
+      `<span class="tx">${r.note}${r.active ? "（当前路线）" : ""}</span></div>`)
+    .join("") +
+  `</div>`;
 
 /** The object kinds this column can operate on. A selection naming anything
  *  else falls back to the shot — an inspector that renders nothing is worse
@@ -431,6 +452,11 @@ function referencePicker(ctx, m, p) {
     `系统的推荐不会偷偷变成看不见的输入。</div>` +
     REFERENCE_ROLES.map(([role, label]) => section(role, label)).join("") +
     sec("首帧 / 尾帧", `<ul class="pi-vlist">${frameRow(fr.start, "首帧")}${frameRow(fr.end, "尾帧")}</ul>`) +
+    // TASK-077 §1.3 — WHICH of these actually reaches the model, per route. This
+    // panel is the 镜头制作 left column, so it is where 「模型直接输入」 was read.
+    `<div class="meta pi-route">人物 / 场景 / 道具 / 风格参考是<b>参考图</b>；` +
+    `它们会不会被送进模型，取决于走哪条生成路线：</div>` +
+    routeMatrixHtml(ctx) +
     `<div class="meta">上传即登记：文件落盘的同一次调用里声明它是什么、属于谁，绝不产生孤立媒体。` +
     `视频风格 / 运动 / 机位 / 表演参考可以是视频（表演也可以是一段念白）——` +
     `媒体模型不吃它们时，Skill 会读它们并把运镜 / 节奏 / 表演编译进 Prompt。</div>` +
@@ -469,9 +495,13 @@ function referenceBody(ctx, m, ui) {
           ? `<audio class="pi-audio" src="${esc(one.url)}" controls preload="metadata"></audio>`
           : `<img class="pi-preview" src="${esc(one.url)}" alt="">`
       : mediaBox("", { missing: one.storageState && one.storageState !== "local" ? "字节不在本地（记录仍在）" : "没有可预览的画面", icon: "🖼" })) +
+    // TASK-077 §1.3: the EFFECTIVE use on the route in force, not the declared
+    // one. 「模型直接输入」 was printed unconditionally, including on the Gateway
+    // route, where the request carries exactly one image and it is the first frame.
     sec("用途", interp
       ? `<div class="pi-text">AI 解读输入 —— 当前媒体模型不吃这类参考，Skill 读它并提炼成运镜 / 节奏 / 表演语言，再编译进 Prompt。</div>`
-      : `<div class="pi-text">模型直接输入 —— 支持时直接作为 Generation Input 传入。</div>`) +
+      : `<div class="pi-text">这是一张<b>参考图</b>。它会不会真的进模型，取决于走哪条路线：</div>` +
+        routeMatrixHtml(ctx)) +
     (interp ? interpretationSec(ctx, one, ui) : "") +
     sec("使用情况", users.length
       ? `<div class="pi-chips">${users.map((sid) => `<button class="pi-refchip" data-pi-goshot="${esc(sid)}">${esc(ctx.refplan.shotName(sid) || sid.slice(0, 8))}</button>`).join("")}</div>`
@@ -594,10 +624,15 @@ function promptBody(ctx, m, ui) {
  * reading is shown as 「尚未解读」 — LISTED, because the creator attached it on
  * purpose and a set that dropped it would claim a completeness it does not have.
  */
-function inputSetSec(set) {
+function inputSetSec(set, capability, routeMatrix = "") {
+  const cap = capability || routeCapability("manual");
   const chips = (role) => (set.references[role] || [])
     .map((r) => `<span class="pi-refchip static">${nameWithVersion(r.name, r.version)}</span>`).join(" ");
-  const modelRows = MODEL_INPUT_ROLES.map((role) => [ROLE_LABEL[role], chips(role)]);
+  // TASK-077 §1.3: grouped by EFFECTIVE use. On a route that carries only the
+  // first frame, the four attachment roles are not model input — the group they
+  // were printed under said they were, four times, with the files named.
+  const sent = MODEL_INPUT_ROLES.filter((role) => effectiveRoleUse(role, cap) === "model-input");
+  const notSent = downgradedRoles(cap);
   const readingOf = (key) => (set.interpretationInputs || []).find((i) => i.key === key) || null;
   const interpRows = INTERPRETATION_ROLES.map((role) => {
     const rs = set.references[role] || [];
@@ -610,6 +645,13 @@ function inputSetSec(set) {
           : `<span class="chip gate">尚未解读</span>`) + `</span>`;
     }).join(" ")];
   });
+  // A DOWNGRADED role is NOT given the 已解读 / 尚未解读 chips: a motion reference
+  // has a reading to compile, a character reference on the paid route has only
+  // whatever the prompt already says. Printing 「尚未解读」 on it would invent a
+  // gap the creator cannot close.
+  const notSentRows = notSent
+    .filter((role) => (set.references[role] || []).length)
+    .map((role) => [ROLE_LABEL[role], chips(role)]);
   const readCount = (set.interpretationInputs || []).filter((i) => i.read).length;
   const total = (set.interpretationInputs || []).length;
   return (
@@ -618,8 +660,16 @@ function inputSetSec(set) {
       ["场景", set.sceneTitle ? esc(set.sceneTitle) : ""],
       ["镜头", set.design ? esc(set.design.title || "") : ""],
     ])) +
-    sec(`${ROLE_USE_LABEL["model-input"]}`, kv(modelRows) +
-      `<div class="meta">支持的模型直接吃这些文件；不支持时它们仍然在记录里，作为这次生成的输入被冻结。</div>`) +
+    // 「模型直接输入」 as an UNQUALIFIED heading is gone: it was true of the manual
+    // route and false of the Gateway one, and the panel said neither. The group is
+    // named for what these files ARE, and the route matrix says what happens to them.
+    (sent.length
+      ? sec(`参考图 · ${cap.label}`, kv(sent.map((role) => [ROLE_LABEL[role], chips(role)])) + routeMatrix)
+      : "") +
+    (notSentRows.length
+      ? sec("不会进模型的参考", kv(notSentRows) + routeMatrix +
+        `<div class="meta">它们仍然在记录里，作为这次生成的输入被冻结。</div>`)
+      : sent.length ? "" : routeMatrix) +
     sec(`${ROLE_USE_LABEL["ai-interpretation"]}`, kv(interpRows) +
       (total
         ? `<div class="meta">${readCount}/${total} 个已解读。已解读的会被编译进 Prompt；` +
@@ -648,7 +698,7 @@ function generationBody(ctx, m, ui) {
       ["image", "video"].map((k) =>
         `<button class="pi-seg${kind === k ? " on" : ""}" data-pi-genkind="${k}">${k === "image" ? "图片" : "视频"}</button>`).join("") +
       `</div>`) +
-    inputSetSec(set) +
+    inputSetSec(set, capOf(ctx), routeMatrixHtml(ctx)) +
     sec("Prompt 快照", `<pre class="pi-pre">${esc(ui.piPrompt == null ? g.prompt : ui.piPrompt)}</pre>` +
       `<div class="meta">导入结果时冻结的就是这一段文本，逐字保存。当前来源：` +
       `${esc(PROMPT_SOURCE_LABEL[eff.source] || eff.source)}${eff.version ? ` v${eff.version}` : ""}。</div>`) +

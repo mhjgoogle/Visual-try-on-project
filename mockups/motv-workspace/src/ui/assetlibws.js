@@ -14,7 +14,7 @@
 // tags / reusable) write, and they go through the one declaration write path.
 
 import { esc } from "../util/dom.js";
-import { head, empty } from "./shell.js";
+import { head, empty, fileNameOf } from "./shell.js";
 import {
   ASSET_KIND_LABEL, ASSET_KINDS, KIND_DOMAIN, REFERENCE_KINDS as REF_KINDS,
   derivedLabel, isReferenceKey,
@@ -172,24 +172,41 @@ export function libraryModel({ assets, usage, names, filters = {} }) {
 /** The visual for one asset. REAL media, always — an image is its own
  *  thumbnail, a video gets a poster frame from its own first frame, audio gets
  *  a waveform block plus a player. A missing byte says so instead of showing a
- *  broken frame. */
-function preview(a, { big = false } = {}) {
-  const gone = a.storageState !== "local";
-  if (gone) {
+ *  broken frame.
+ *
+ *  TWO DIFFERENT ABSENCES, and conflating them was the audit's GAP-02:
+ *
+ *    storageState !== "local"   a DECLARED absence — archived, or the bytes were
+ *                               deliberately removed. The project knows.
+ *    gone (probe)               the record says 「local」 and the file is NOT there.
+ *                               Nobody knew until something looked.
+ *
+ *  The second used to render `<img src>` at a 404 and the creator got the
+ *  browser's broken-image glyph with the alt text hanging off it. */
+function preview(a, { big = false, gone = false } = {}) {
+  const declaredGone = a.storageState !== "local";
+  if (declaredGone) {
     return `<div class="al-media al-gone"><span class="ic">⃠</span><span>${esc(a.storageState === "archived" ? "已归档" : "本地字节不在")}</span></div>`;
   }
+  if (gone) {
+    return (
+      `<div class="al-media al-gone probed"><span class="ic">⃠</span>` +
+      `<span>媒体文件已不在磁盘上</span>` +
+      `<span class="al-gonefile">${esc(fileNameOf(a.url))}</span></div>`
+    );
+  }
   if (a.media === "image") {
-    return `<img class="al-media" src="${esc(a.url)}" alt="${esc(a.name)}" loading="lazy">`;
+    return `<img class="al-media" data-media-url="${esc(a.url)}" src="${esc(a.url)}" alt="${esc(a.name)}" loading="lazy">`;
   }
   if (a.media === "video") {
     return big
-      ? `<video class="al-media" src="${esc(a.url)}" controls preload="metadata"></video>`
-      : `<video class="al-media" src="${esc(a.url)}" preload="metadata" muted playsinline></video>`;
+      ? `<video class="al-media" data-media-url="${esc(a.url)}" src="${esc(a.url)}" controls preload="metadata"></video>`
+      : `<video class="al-media" data-media-url="${esc(a.url)}" src="${esc(a.url)}" preload="metadata" muted playsinline></video>`;
   }
   if (a.media === "audio") {
     return (
       `<div class="al-media al-wave"><span class="ic">🎵</span>` +
-      `<audio src="${esc(a.url)}" controls preload="metadata"></audio></div>`
+      `<audio data-media-url="${esc(a.url)}" src="${esc(a.url)}" controls preload="metadata"></audio></div>`
     );
   }
   return `<div class="al-media al-gone"><span class="ic">?</span><span>未知媒体</span></div>`;
@@ -206,11 +223,11 @@ function preview(a, { big = false } = {}) {
  *  article that ignores clicks landing inside a media control (see
  *  bindAssetLibrary). The caption stays a real <button> so the card is
  *  reachable and operable from the keyboard, which a bare click handler is not. */
-function card(a, { drawer = false } = {}) {
+function card(a, { drawer = false, gone = false } = {}) {
   const use = a.usage.count;
   return (
-    `<article class="al-card${a.needsReview ? " needs" : ""}" data-al-card="${esc(a.assetId)}">` +
-    preview(a) +
+    `<article class="al-card${a.needsReview ? " needs" : ""}${gone ? " al-cardgone" : ""}" data-al-card="${esc(a.assetId)}">` +
+    preview(a, { gone }) +
     `<button class="al-cap" data-al-open="${esc(a.assetId)}">` +
     `<span class="al-name">${esc(a.name)}</span>` +
     `<span class="al-sub">` +
@@ -236,7 +253,7 @@ function card(a, { drawer = false } = {}) {
 /** The Asset Inspector: Preview · Info · Usage · Provenance · Technical.
  *  Technical is LAST and collapsed — path/assetId/storageState are true and
  *  useful, and they are not what the creator recognises the asset by. */
-function inspector(a, prov) {
+function inspector(a, prov, { gone = false } = {}) {
   const info =
     `<dl class="al-info">` +
     `<dt>名称</dt><dd>${esc(a.displayName || "（未命名 · 显示为派生标签）")}</dd>` +
@@ -262,7 +279,11 @@ function inspector(a, prov) {
   return (
     `<div class="al-insp">` +
     `<div class="al-insp-head"><b>${esc(a.name)}</b><button class="btn" data-al-close>关闭</button></div>` +
-    `<div class="al-insp-media">${preview(a, { big: true })}</div>` +
+    `<div class="al-insp-media">${preview(a, { big: true, gone })}</div>` +
+    (gone
+      ? `<div class="al-gonenote">这条资产的登记状态仍是 <code>local</code>，但它的文件现在拿不到。` +
+        `本轮只做<b>探测与如实显示</b>，不会改写登记状态。</div>`
+      : "") +
     `<h4>信息</h4>${info}` +
     `<div class="al-edit">` +
     `<input class="field al-rename" placeholder="给它一个你认得的名字" value="${esc(a.displayName || "")}">` +
@@ -300,6 +321,9 @@ export function renderAssetLibrary(ctx, ui, { mode = "page", shotId = null } = {
   const drawer = mode === "drawer";
   const m = ctx.assets.library(ui.alFilters || {});
   const f = ui.alFilters || {};
+  // TASK-077 §1.2: DISPLAY-ONLY presence, never `storageState`. Absent probe
+  // (tests, offline) → nothing is claimed missing, which is the honest default.
+  const isGone = ctx.mediaProbe ? (url) => ctx.mediaProbe.isMissing(url) : () => false;
   if (!m.total) {
     const emptyBody = empty(
       "🗂",
@@ -322,11 +346,16 @@ export function renderAssetLibrary(ctx, ui, { mode = "page", shotId = null } = {
       .join("")}</select>`;
   const opts = ctx.assets.filterOptions();
   const open = ui.alOpen ? m.rows.find((r) => r.assetId === ui.alOpen) || ctx.assets.libraryOne(ui.alOpen) : null;
+  // Counted over the WHOLE library, not the current filter: 「有两个文件不在了」 is a
+  // fact about the project, and hiding it behind a filter is how it stayed
+  // invisible for a release.
+  const goneCount = m.rows.filter((a) => a.storageState === "local" && isGone(a.url)).length;
   const heading = drawer
     ? drawerTop(shotId)
     : head(
       "资产库",
-      `${m.shown} / ${m.total} 个资产 · ${m.unusedCount} 个未被使用${m.needsReview ? ` · ${m.needsReview} 个待分类` : ""}`,
+      `${m.shown} / ${m.total} 个资产 · ${m.unusedCount} 个未被使用${m.needsReview ? ` · ${m.needsReview} 个待分类` : ""}` +
+        (goneCount ? ` · ⚠ ${goneCount} 个媒体文件已不在磁盘上` : ""),
     );
   const body =
     `<div class="al-bar">${tabs}</div>` +
@@ -343,11 +372,13 @@ export function renderAssetLibrary(ctx, ui, { mode = "page", shotId = null } = {
     (tagChips ? `<div class="al-tags">${tagChips}</div>` : "") +
     `<div class="al-body">` +
     `<div class="al-grid">${m.rows.length
-      ? m.rows.map((a) => card(a, { drawer })).join("")
+      ? m.rows.map((a) => card(a, { drawer, gone: isGone(a.url) })).join("")
       : `<div class="al-none">没有符合条件的资产。</div>`}</div>` +
     // the inspector is page-only: a drawer is opened to PICK something, and a full
     // provenance panel inside it would compete with the one decision it exists for
-    (!drawer && open ? inspector(open, ctx.assets.provenanceOf(open.assetId)) : "") +
+    (!drawer && open
+      ? inspector(open, ctx.assets.provenanceOf(open.assetId), { gone: isGone(open.url) })
+      : "") +
     `</div>`;
   return drawer ? `<div class="al-drawer">${heading}${body}</div>` : heading + body;
 }

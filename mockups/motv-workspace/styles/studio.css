@@ -89,6 +89,19 @@
   background: repeating-linear-gradient(135deg, var(--canvas) 0 9px, var(--panel-2) 9px 18px);
 }
 .media-none .ic { font-size: 19px; opacity: .5; }
+/* TASK-077 §1.2 — 「登记了，但文件不在」 is NOT 「还没有画面」, and must not look like
+   it: one is a normal step of the work, the other is a fact about this project.
+   Gated colouring + the filename, so the creator knows what to go looking for. */
+.media-gone {
+  color: var(--gate); border: 1px dashed var(--gate);
+  background: repeating-linear-gradient(135deg, var(--canvas) 0 9px, var(--panel) 9px 18px);
+  padding: var(--s2); text-align: center;
+}
+.media-gone .ic { opacity: .8; }
+.media-gone .fn {
+  font-family: var(--mono, ui-monospace, monospace); font-size: var(--t-micro);
+  color: var(--text-faint); word-break: break-all; max-width: 100%;
+}
 
 /* ========================================================================== */
 /* 1b · landing — my projects, and nothing else                               */
@@ -983,6 +996,14 @@
 .al-wave .ic { font-size: 20px; opacity: .7; }
 .al-wave audio { width: 100%; height: 30px; }
 .al-gone { display: grid; place-items: center; gap: 4px; color: var(--text-faint); font-size: 12px; }
+/* TASK-077 §1.2 — the PROBED absence: the registry says `local`, the file is not
+   there. Distinct from `.al-gone` alone (archived / bytes deliberately removed),
+   because one is a decision the project made and the other is a surprise. */
+.al-gone.probed { color: var(--gate); padding: var(--s2); text-align: center; border: 1px dashed var(--gate); }
+.al-gonefile { font-family: var(--mono, ui-monospace, monospace); font-size: 10.5px; color: var(--text-faint); word-break: break-all; }
+.al-cardgone { outline: 1px solid var(--gate); outline-offset: -1px; }
+.al-gonenote { margin: var(--s2) 0; padding: var(--s2) var(--s3); border-left: 2px solid var(--gate); color: var(--text-dim); font-size: var(--t-xs); line-height: 1.5; }
+.al-gonenote code { font-family: var(--mono, ui-monospace, monospace); }
 .al-cap { padding: 8px 10px; display: grid; gap: 5px; width: 100%; text-align: left;
   background: none; border: 0; color: inherit; font: inherit; cursor: pointer; }
 .al-cap:hover { background: var(--panel-2); }

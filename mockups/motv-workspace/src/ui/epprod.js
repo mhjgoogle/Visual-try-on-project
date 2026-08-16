@@ -144,9 +144,22 @@ function topBar(m, ui, { stage, showFocus, place }) {
   // whole space, not to the centre column, so they live in the shared top bar
   // (ui/shotselect.js). What is left here is what the centre itself owns: what this
   // picture is, how it is laid out, and the ways out of it.
-  const title = place && place.shot
-    ? `${esc(place.shot.title || `镜头 ${place.shot.seq}`)} 制作流程图`
+  //
+  // TASK-077 §1.6 — THE TITLE FOLLOWS WHAT IS BELOW IT. `renderEpProd` frames every
+  // stage workspace, not just the 制作台, and the header printed 「SH05 制作流程图」
+  // over ALL of them: 视频工作区 and 后期交付 were labelled with a shot's flow chart
+  // they were not showing. The centre keeps its own title; every other stage takes
+  // the name of the page the creator actually opened.
+  // RAW here, escaped once at the render site below — the previous version escaped
+  // the shot title here and again there, so an ampersand in a title printed `&amp;`.
+  const centreTitle = place && place.shot
+    ? `${place.shot.title || `镜头 ${place.shot.seq}`} 制作流程图`
     : "制作流程图";
+  const isCentreStage = stage === LEGACY_EPISODE_CENTRE;
+  const title = isCentreStage ? centreTitle : (MODULE_LABEL[stage] || stage);
+  const hint = isCentreStage
+    ? "这一镜从参考到最终视频的真实关系；线只画记录里存在的关联"
+    : `当前页面：${MODULE_LABEL[stage] || stage}`;
   // NO FOCUS CHIPS HERE. They used to filter the shot-card wall; the wall became the
   // Shot dropdown (§2), so chips in this header would filter nothing — a control that
   // does nothing is worse than a missing one. They moved INTO the Shot picker, where
@@ -170,7 +183,7 @@ function topBar(m, ui, { stage, showFocus, place }) {
   return (
     `<div class="ep-top">` +
     `<b class="ep-title">${esc(title)}</b>` +
-    `<span class="ep-i" title="这一镜从参考到最终视频的真实关系；线只画记录里存在的关联">ⓘ</span>` +
+    `<span class="ep-i" title="${esc(hint)}">ⓘ</span>` +
     focus +
     `<span class="push"></span>` +
     layout + prov + wsMenu(stage, ui) +

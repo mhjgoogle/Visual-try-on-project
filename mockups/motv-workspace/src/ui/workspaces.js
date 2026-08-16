@@ -1205,7 +1205,14 @@ export function renderPlanPanel(ctx, m) {
       : "";
     return (
       `<div class="bd-panel"><div class="bd-h">📋 剧集规划 · v${sm.plan.v}${confirmed ? "（已确认）" : "（未确认）"}<span class="ws-desc"> 版本：${vchips}</span></div>` +
-      `<div class="ws-desc">${sm.plan.episodes.length} 集 · 每一集的内容概要在下面的卡片里，直接点就能改。</div>` +
+      // TASK-077 §1.6: 「12 集」 beside a page header saying 「48 集」 read as a
+      // contradiction. It is a different quantity — this VERSION's entries — and
+      // now says so, next to the count of episodes that actually exist.
+      `<div class="ws-desc">本版规划 ${sm.plan.episodes.length} 集` +
+      (m.episodes && m.episodes.length !== sm.plan.episodes.length
+        ? ` · 项目已建立 ${m.episodes.length} 集`
+        : "") +
+      ` · 每一集的内容概要在下面的卡片里，直接点就能改。</div>` +
       orphanLine +
       `<div class="bd-actions">${confirmBtn}<button class="nrun ghost" data-pl-develop>🪄 重新规划（新提案）</button></div></div>`
     );

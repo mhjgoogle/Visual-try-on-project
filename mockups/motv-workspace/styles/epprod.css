@@ -20,17 +20,23 @@
  * The AI Director spans rows 3–4 so its chat box sits at the bottom of the column,
  * which is what the reference layout shows and what makes the column feel like one
  * conversation rather than a panel that stops halfway. */
+/* TASK-077 §1.5 adds a FOURTH column at the far left: the五页 rail. The space had
+   no rail at all, so its five pages (`EPISODE_NAV`) had no entrance and ⑨ 粗剪审片
+   was unreachable outright. The rail is narrow on purpose — it names pages, it is
+   not a second inspector — and it stays visible in 全屏, because navigation is
+   exactly what a creator still needs when the picture is maximised. */
 #production.space-episode {
-  grid-template-columns: 316px minmax(0, 1fr) minmax(300px, 340px);
+  grid-template-columns: 152px 316px minmax(0, 1fr) minmax(300px, 340px);
   grid-template-rows: auto auto minmax(0, 1fr) auto auto;
 }
 #production.space-episode > .st-crumb { grid-column: 1 / -1; grid-row: 1; }
 #production.space-episode > .ss { grid-column: 1 / -1; grid-row: 2; }
+#production.space-episode > .prod-eprail { grid-column: 1; grid-row: 3 / 5; }
 #production.space-episode > .sr,
-#production.space-episode > .pi { grid-column: 1; grid-row: 3; }
-#production.space-episode > .ep-main { grid-column: 2; grid-row: 3; }
-#production.space-episode > .st-dir { grid-column: 3; grid-row: 3 / 5; }
-#production.space-episode > .rs { grid-column: 1 / 3; grid-row: 4; }
+#production.space-episode > .pi { grid-column: 2; grid-row: 3; }
+#production.space-episode > .ep-main { grid-column: 3; grid-row: 3; }
+#production.space-episode > .st-dir { grid-column: 4; grid-row: 3 / 5; }
+#production.space-episode > .rs { grid-column: 2 / 4; grid-row: 4; }
 #production.space-episode > .ep-foot { grid-column: 1 / -1; grid-row: 5; }
 /* 全屏: the picture takes the whole grid; the searcher and the columns step aside.
    The selectors and the progress bar STAY — 「我在做哪一个 Shot」 and 「做到哪一步」 are
@@ -38,10 +44,10 @@
 #production.space-episode:has(> .ep-main.full) > .sr,
 #production.space-episode:has(> .ep-main.full) > .pi,
 #production.space-episode:has(> .ep-main.full) > .st-dir { display: none; }
-#production.space-episode > .ep-main.full { grid-column: 1 / -1; grid-row: 3 / 5; }
+#production.space-episode > .ep-main.full { grid-column: 2 / -1; grid-row: 3 / 5; }
 #production.space-assets { grid-template-columns: 200px minmax(0, 1fr) minmax(300px, 340px); }
 @media (max-width: 1440px) {
-  #production.space-episode { grid-template-columns: 280px minmax(0, 1fr) minmax(280px, 312px); }
+  #production.space-episode { grid-template-columns: 132px 268px minmax(0, 1fr) minmax(268px, 300px); }
 }
 
 /* ========================================================================== */
@@ -80,6 +86,18 @@
 .pi-none { font-size: var(--t-xs); color: var(--text-faint); }
 .pi-ok { font-size: var(--t-xs); color: var(--ok); font-weight: 600; }
 .pi-text { font-size: var(--t-sm); color: var(--text-dim); line-height: 1.65; }
+/* TASK-077 §1.3 — 「这几张参考会不会进模型」, per route, with the one in force marked.
+   Two rows rather than one sentence, because the two routes give OPPOSITE answers
+   and an unqualified claim is what the audit found. */
+.pi-routes { display: grid; gap: 4px; margin-top: var(--s2); }
+.pi-routerow {
+  display: grid; grid-template-columns: 15px 1fr; gap: 6px; align-items: start;
+  font-size: var(--t-xs); line-height: 1.55; color: var(--text-faint);
+  padding: 5px 7px; border-radius: var(--r1); border: 1px solid transparent;
+}
+.pi-routerow.on { color: var(--text-dim); background: var(--panel-2); border-color: var(--line); }
+.pi-routerow .mk { font-weight: 700; text-align: center; color: var(--text-faint); }
+.pi-routerow.on .mk { color: var(--accent); }
 .pi-chips { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s2); }
 .pi-acts { display: flex; flex-wrap: wrap; gap: var(--s2); }
 

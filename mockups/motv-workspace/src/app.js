@@ -27,6 +27,7 @@ import * as projects from "./services/projects.js";
 import * as persist from "./services/persist.js";
 import { CANVAS_SCHEMA_VERSION } from "./services/canvasschema.js";
 import * as realmap from "./services/realmap.js";
+import * as mediaprobe from "./services/mediaprobe.js";
 import { createInspector } from "./ui/inspector.js";
 import { createEstimate } from "./ui/estimate.js";
 import { createWizard } from "./ui/wizard.js";
@@ -329,6 +330,11 @@ let generationRegistry = genlib.createGenerationRegistry(null);
 // which skill at which version, on which runtime/executor, and how the creator
 // judged the result. Provenance, NOT chat history, and never a data owner.
 let skillRunRegistry = skillrun.createSkillRunRegistry(null);
+// TASK-077 §1.2 — what is ACTUALLY on disk, as opposed to what the registry
+// DECLARES. Session-scoped and never serialized: it is an observation about this
+// moment, not a fact about the project, and writing it into the canvas would be
+// exactly the persistent-state change this card refuses to make.
+const mediaProbe = mediaprobe.createMediaProbe();
 // Production domain document (M6) — Project → Episodes → Scenes → Shots
 // structure. Scenes reference shots by canonical creativeShotId; shot content
 // stays on the scriptgen draft, media/provenance stay in their registries.
@@ -386,9 +392,25 @@ let reviewsDoc = { issues: [], decisions: [] };
 function renderBudget() {
   if (CONNECTED && REAL_STANDING) {
     const s = REAL_STANDING;
-    const low = s.remaining < s.total * 0.15;
-    const html = `<span>已花 <b>${realmap.yen(s.spent)}</b></span><span class="sep">·</span><span>余额 <b class="bal" ${low ? 'style="color:var(--gate)"' : ""}>${realmap.yen(s.remaining)}</b></span><span class="sep">▾</span>`;
-    $$("#budget1,#budget2").forEach((e) => { e.innerHTML = html; e.onclick = openRealProjectData; });
+    // TASK-077 §1.1: an UNAVAILABLE field prints `—`, never `¥0`. 「余额 ¥0」 on a
+    // project that merely has no `config/wfm1.json` is the one audit defect a
+    // creator could act wrongly on — it reads as 「我没钱了」.
+    const low = s.remaining.available && s.total.available && s.total.value > 0
+      && s.remaining.value < s.total.value * 0.15;
+    // …and the backend's `problems[]` finally gets a surface. The whole readout
+    // already opens 真实项目数据; the ⚠ says there is something to read there.
+    const warn = s.problems.length
+      ? `<span class="bwarn" title="${esc(s.problems.map((p) => p.detail).join("\n"))}">⚠ ${s.problems.length}</span>`
+      : "";
+    const html =
+      `<span>已花 <b>${realmap.yenOf(s.spent)}</b></span><span class="sep">·</span>` +
+      `<span>余额 <b class="bal" ${low ? 'style="color:var(--gate)"' : ""}>${realmap.yenOf(s.remaining)}</b></span>` +
+      warn + `<span class="sep">▾</span>`;
+    $$("#budget1,#budget2").forEach((e) => {
+      e.innerHTML = html;
+      e.title = s.complete ? "" : "这个项目没有可用的预算数据 — 点开看原因";
+      e.onclick = openRealProjectData;
+    });
     return;
   }
   const y = budget.yuan;
@@ -3125,6 +3147,19 @@ const ctx = {
   // read-only registry view for the storage workspace (writes stay on the
   // ctx.storage / mediaref paths)
   assetRegistryView: () => assetRegistry,
+  // TASK-077 §1.2 — DISPLAY-ONLY media presence. Deliberately NOT part of
+  // ctx.storage: everything on that controller WRITES, and this one is forbidden
+  // from writing. It never touches `storageState`; reconciling the declaration
+  // with the disk is a persistence decision and is a follow-up, not this card.
+  mediaProbe: {
+    isMissing: (url) => mediaProbe.isMissing(url),
+    isKnown: (url) => mediaProbe.isKnown(url),
+    observe: (url, present) => mediaProbe.observe(url, present),
+    /** Probe every URL the registry declares. Resolves true when something new
+     *  was learned, so the caller re-renders exactly once. */
+    scanRegistry: () => mediaProbe.scan(mediaprobe.registryUrls(assetRegistry)),
+    checked: () => mediaProbe.checked(),
+  },
   // ---------------------------------------------------------------------- //
   // Asset Registration controller (CP2 / ADR-0055) — the ONE import path.
   //
@@ -3509,6 +3544,16 @@ const ctx = {
     },
   },
   isPaid: () => PAID,
+  /** WHICH generation route the creator is on (TASK-077 §1.3).
+   *
+   *  `gateway` — the ADR-0041 write path is live, so a video generation is a real
+   *  submit and `cloud_minimax._payload` decides what the model receives: one
+   *  image, the first frame.
+   *  `manual`  — the creator copies the compiled Prompt into an external tool and
+   *  attaches the files, so every reference image really is model input.
+   *
+   *  Derived, never stored: it is a property of how the backend was started. */
+  genRoute: () => (PAID ? "gateway" : "manual"),
   // draft lock (ADR-0047): canvas draft → official versioned plan/records/
   // packets via the lock-draft-plan Gateway command (no spend, both modes)
   lockDraft: (node) => lockDraftPlan(node),
@@ -3649,6 +3694,10 @@ const ctx = {
       firstFrames: assetRegistry.firstFrames,
       finals: assetlib.finalUrls(assetRegistry),
       paidOps: ctx.paidOps || {},
+      // TASK-077 §1.3: WHICH route the compiled prompts are for. The Gateway
+      // route sends one image (the first frame), so a line promising 「作为参考图
+      // 一并提供」 would be describing something that does not happen.
+      route: PAID ? "gateway" : "manual",
       // M6: the production structure document (episodes/scenes/shot refs) —
       // read it only; writes go through ctx.production.
       production: productionDoc,

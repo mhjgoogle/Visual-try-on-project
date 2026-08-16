@@ -74,6 +74,119 @@ export const ROLE_USE_LABEL = {
 
 export const isInterpretationRole = (role) => ROLE_USE[role] === "ai-interpretation";
 
+/* -------------------------------------------------------------------------- */
+/* WHAT A ROUTE CAN ACTUALLY INGEST (TASK-077 §1.3)                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `ROLE_USE` above is the role's DECLARED use — what kind of contribution the
+ * reference makes, and therefore which prompt compiles it (workflow/refuse.js) and
+ * which side of the production graph it sits on (workflow/shotgraph.js). That is a
+ * fact about the role and it does not change.
+ *
+ * What it is NOT is a promise that the file reaches a model. On the paid route it
+ * does not:
+ *
+ *   shot.first_frame_image → packet.first_frame_image
+ *     → ProviderRequest.provider_parameters
+ *     → src/ai_video_workflow/providers/cloud_minimax.py `_payload`
+ *   body = { model, prompt, duration, resolution, first_frame_image? }
+ *
+ * `ProviderRequest` (src/ai_video_workflow/providers/models.py) carries no other
+ * image field, so exactly ONE image is submitted — the first frame. The panel
+ * nevertheless labelled 人物 / 场景 / 道具 / 风格参考 「模型直接输入」, which told the
+ * creator four files would be sent that never were.
+ *
+ * The fix is a SECOND, derived answer — the role's EFFECTIVE use on the route in
+ * force — not an edit to `ROLE_USE`. Flipping the declared table would move those
+ * references onto the video side of the prompt compiler and redraw the shot graph,
+ * which is a cross-layer change this card explicitly does not make.
+ */
+export const ROUTE_CAPABILITY = Object.freeze({
+  // Gateway 付费生成 (ADR-0041) — one image, and it is the first frame.
+  gateway: Object.freeze({
+    id: "gateway",
+    label: "Gateway 付费生成",
+    referenceImages: false,
+    imageInputs: Object.freeze(["first-frame"]),
+  }),
+  // 免费 / 手工路线 — the creator copies the Prompt into an external tool and
+  // attaches the files themselves, so every reference image really IS model input.
+  // This is why the manual prompt's 「作为参考图一并提供」 wording is correct and stays.
+  manual: Object.freeze({
+    id: "manual",
+    label: "免费 / 手工路线",
+    referenceImages: true,
+    imageInputs: Object.freeze(["first-frame", "reference"]),
+  }),
+});
+
+/** Unknown route → the MANUAL capability, deliberately: the manual route is the
+ *  one where the creator is holding the files, so its wording is the safe default
+ *  (it instructs a human rather than promising an API behaviour). */
+export const routeCapability = (route) =>
+  ROUTE_CAPABILITY[route] || ROUTE_CAPABILITY.manual;
+
+/**
+ * The role's EFFECTIVE use on one route.
+ *
+ * A `model-input` role on a route that cannot carry reference images reaches the
+ * generation the only way left to it — as words a Skill compiled into the Prompt.
+ * That is `ai-interpretation`, and saying so is the whole point: it is what
+ * actually happens, and it tells the creator that the reference still matters and
+ * how.
+ */
+export function effectiveRoleUse(role, capability) {
+  const declared = ROLE_USE[role];
+  if (!declared) return null;
+  const cap = capability && typeof capability === "object" ? capability : ROUTE_CAPABILITY.manual;
+  return declared === "model-input" && cap.referenceImages !== true
+    ? "ai-interpretation"
+    : declared;
+}
+
+/** Roles whose declared use is `model-input` but which this route will not send.
+ *  Named separately from the genuinely-interpreted roles because the two are NOT
+ *  the same thing: a motion reference has a reading to compile, while a character
+ *  reference on the paid route has only whatever the prompt already says about the
+ *  character. Labelling both 「已解读 / 尚未解读」 would invent a reading. */
+export function downgradedRoles(capability) {
+  return MODEL_INPUT_ROLES.filter((r) => effectiveRoleUse(r, capability) !== "model-input");
+}
+
+/** The route note a panel prints for ONE route. */
+export function referenceRouteNote(capability) {
+  const cap = capability && typeof capability === "object" ? capability : ROUTE_CAPABILITY.manual;
+  return cap.referenceImages
+    ? `${cap.label}：由你把文件附给外部工具，所以这些参考图真的会被模型看到。`
+    : `${cap.label}：请求只带一张图片（首帧）。人物 / 场景 / 道具 / 风格参考`
+      + "<b>不会进模型</b>——它们只会被 AI 解读成 Prompt 里的文字描述。";
+}
+
+/**
+ * BOTH routes' truths, always — the panel's replacement for the unqualified
+ * 「模型直接输入」 (TASK-077 §1.3).
+ *
+ * WHY BOTH AND NOT JUST THE ONE IN FORCE. This product offers two live routes at
+ * the same time: the creator can copy the compiled Prompt into an external tool
+ * TODAY, whether or not the Gateway write path is enabled. Printing only the
+ * active one would be honest about this minute and would still leave a creator
+ * planning a paid run believing four images will be sent. The claim that had to
+ * go was the UNQUALIFIED one; the fix is to say which route each fact belongs to.
+ *
+ * The route in force is marked, so 「我现在在哪条路上」 is still answered.
+ */
+export function referenceRouteMatrix(capability) {
+  const now = capability && typeof capability === "object" ? capability : ROUTE_CAPABILITY.manual;
+  return ["manual", "gateway"].map((id) => ({
+    id,
+    active: ROUTE_CAPABILITY[id] === now || id === now.id,
+    label: ROUTE_CAPABILITY[id].label,
+    sendsReferenceImages: ROUTE_CAPABILITY[id].referenceImages,
+    note: referenceRouteNote(ROUTE_CAPABILITY[id]),
+  }));
+}
+
 /** The roles that are direct model input, and the roles that are interpreted —
  *  derived from ROLE_USE so a new role cannot be forgotten by one of the two. */
 export const MODEL_INPUT_ROLES = REFERENCE_ROLES.filter(([r]) => !isInterpretationRole(r)).map(([r]) => r);

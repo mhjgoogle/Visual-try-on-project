@@ -59,9 +59,11 @@ import { episodeView } from "../workflow/proddoc.js";
 import { renderQcPanel } from "./qcpanel.js";
 import {
   NAV, EPISODE_MODULES, EPISODE_DEFAULT, LEGACY_EPISODE_CENTRE, MODULE_LABEL, SPACE_LABEL, spaceOf,
-  renderRail, renderAssetRail, renderCrumb, episodeLabels, head, episodeEntryModule,
+  renderRail, renderAssetRail, renderCrumb, episodeLabels, episodeTitleBeside, head, episodeEntryModule,
   // TASK-073 §1.1: the fixed page set, the old-key resolver and the section tables
   resolveModule, PAGE_SECTIONS, SECTION_LABEL, PROJECT_SETTINGS, empty,
+  // TASK-077: the 剧集制作 rail, the honest missing-media box and the crumb scope rule
+  renderEpisodeRail, mediaGoneInner, crumbScope,
 } from "./shell.js";
 
 export { NAV };
@@ -502,6 +504,50 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       .finally(() => { execProbing = false; render(); });
   }
 
+  /** Ask the disk what is really there, once, then re-render honestly
+   *  (TASK-077 §1.2).
+   *
+   *  Modelled on `ensureProbe` above and never awaited by render(): a page that
+   *  blocked on a media scan would leave the shell blank while it runs. Safe to
+   *  call every render — `scanRegistry` does no work when there is nothing new to
+   *  ask, and resolves false, so this cannot spin.
+   *
+   *  Scoped to the pages whose NUMBERS or THUMBNAILS depend on it. Probing the
+   *  whole registry from every page would fire dozens of requests for a screen
+   *  that shows no media. */
+  function ensureMediaProbe(ctx) {
+    if (!ctx.mediaProbe) return;
+    const m = activeModule;
+    const wants =
+      m === "assets" || m.startsWith("assets:") || m === "storage"
+      || (m === PROJECT_SETTINGS && sectionOf(PROJECT_SETTINGS) === "storage");
+    if (!wants) return;
+    ctx.mediaProbe.scanRegistry().then((changed) => { if (changed) render(); }).catch(() => {});
+  }
+
+  /** Turn ANY media element that fails to load into the honest placeholder.
+   *
+   *  ONE handler for the whole tree, keyed off `data-media-url`, so a surface
+   *  nobody remembered to make probe-aware still stops showing the browser's
+   *  broken-image glyph with the alt text hanging off it. The element is replaced
+   *  in place immediately AND the observation is recorded, so the next render (and
+   *  the storage page's count) agree with what the creator just saw. */
+  function bindMediaErrors(root2, ctx) {
+    root2.querySelectorAll("[data-media-url]").forEach((elm) => {
+      elm.onerror = () => {
+        const url = elm.dataset.mediaUrl;
+        const changed = ctx.mediaProbe ? ctx.mediaProbe.observe(url, false) : false;
+        // keep the element's own layout class (`media` / `al-media` / `pi-vth` …)
+        // so the placeholder occupies the same box the picture would have
+        const box = document.createElement("div");
+        box.className = `${elm.className || ""} media-none media-gone`.trim();
+        box.innerHTML = mediaGoneInner(url);
+        elm.replaceWith(box);
+        if (changed) render();
+      };
+    });
+  }
+
   /** Everything the breadcrumb needs, resolved from real domain state. */
   function crumb(ctx) {
     const pd = ctx.prodData();
@@ -519,9 +565,13 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       }
     }
     const inEpisode = EPISODE_MODULES.includes(activeModule);
-    // Inside 剧集制作 the scene/shot crumb is always meaningful — Scene and Shot
-    // are LEVELS of that space, not a per-stage extra (ADR-0061 决策 2).
-    const showSel = inEpisode || ["shots", "frames", "video", "audio"].includes(activeModule);
+    // TASK-077 §1.6: the crumb draws only the segments the CURRENT PAGE is really
+    // about. 「Scene and Shot are levels of 剧集制作」 is true of the space and false
+    // of its episode-level pages: 本集看板 / 粗剪审片 / 后期交付 printed
+    // 「… › EP01 › Shot 01 › 本集看板」, which claims a shot the page is not showing.
+    // The rule lives in `crumbScope` (shell.js) so it is one table with a test.
+    const scope = crumbScope(activeModule, sectionOf(activeModule));
+    const showSel = scope === "shot";
     const tail = ep && eps.length > 1 ? `共 ${eps.length} 集` : "";
     // upstream modules are PROJECT-level: showing an episode crumb there would
     // claim the creator is inside an episode when they are not
@@ -923,6 +973,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     }
     const space = spaceOf(activeModule);
     ensureProbe(ctx);
+    ensureMediaProbe(ctx);
     // The grid differs per space (a 220px rail vs a 300px inspector), and the
     // CSS decides from ONE class so no two rules can disagree about which
     // space is on screen.
@@ -985,9 +1036,26 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       // 工作区 ▾, and the bottom strip is the reference searcher instead.
       // ⑩ 后期交付 is the post console at full size, and so was the legacy 剪辑 key
       const isConsole = activeModule === "edit" || activeModule === "delivery";
+      // TASK-077 §1.5 — the space finally has a LEFT RAIL naming its five pages.
+      // Resolved first, so a legacy key (`frames`, `dailies`, …) highlights the page
+      // it now lands on; `workbench` / `provenance` resolve to nothing and highlight
+      // nothing, which is the honest answer for a surface the IA does not name.
+      const railHit = resolveModule(activeModule);
+      const epNow = wm.empty
+        ? (wm.episodes || []).find((e) => e.active) || null
+        : (wm.episodes || []).find((e) => e.episodeId === wm.episodeId) || null;
+      const epRail =
+        `<nav class="st-rail prod-nav prod-eprail">` +
+        renderEpisodeRail({
+          activeModule: railHit.resolved ? railHit.module : null,
+          episodeCode: epNow ? epNow.code : "",
+          episodeTitle: epNow ? episodeTitleBeside(epNow.code, epNow.title) : "",
+        }) +
+        `</nav>`;
       root.innerHTML =
         crumb(ctx) +
         (onCentre ? renderShotSelect(ctx, ui, wm, place) : "") +
+        epRail +
         (onCentre
           ? renderShotRefs(ctx, ui, shotRefs)
           : renderInspector(ctx, ui, {
@@ -1427,6 +1495,8 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
   function bind(ctx) {
     // left rail — every module opens; selection is visually .on
     root.querySelectorAll("[data-mod]").forEach((b) => (b.onclick = () => setModule(b.dataset.mod)));
+    // TASK-077 §1.2: a media file that will not load says so, everywhere, once.
+    bindMediaErrors(root, ctx);
     // the Agent panel: open / close / run / manual / jump-to-fix (TASK-073 §1.4)
     root.querySelectorAll("[data-agent-open]").forEach((b) => (b.onclick = () => {
       ui.agentOpen = ui.agentOpen !== true;

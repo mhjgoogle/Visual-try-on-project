@@ -382,6 +382,10 @@ export function shotDetailModel(pd, shotId) {
         endFrame: frames.end,
         references: refIn.videoReferences,
         interpretation: refIn.videoInterpretation,
+        // TASK-077 §1.3: the Gateway route sends one image; the manual route is
+        // the creator attaching files. Only the parenthetical differs, and an
+        // absent `pd.route` (tests, older callers) means the manual route.
+        route: pd.route === "gateway" ? "gateway" : "manual",
       }),
     },
     // carried so the Generation Input Set and the Inspector read the SAME
@@ -654,11 +658,28 @@ export function renderStoryboard(ctx, ui) {
     ? detailHtml(ctx, d, ui)
     : empty("🎞", "选一个镜头", "左侧点击任意镜头，这里会显示它的画面、变体与可直接修改的镜头信息。");
 
+  // TASK-077 §1.4 — 批量准备资产 BACK ON THE MAIN PATH.
+  //
+  // `ui/wizard.js` has implemented the whole 确认镜头 → 准备资产 → 合成提示词 →
+  // 批量生视频 pipeline since M-era, and its ONLY caller was `workflow/nodes/
+  // assets.js` — a node on the canvas that ADR-0061 demoted to the `?canvas=1`
+  // diagnostic view. The cockpit for every batch operation therefore existed and
+  // was unreachable from any creative path. This is the wire back; the node call
+  // site is deliberately left alone (this card removes dead ends, not abilities).
+  //
+  // Placed on ⑦ 分镜设计 because that is where a settled shot list lives, which is
+  // the wizard's own step ①. Offered whenever there IS a shot list — a locked plan
+  // makes it the obvious next action rather than the only time it is legal.
+  const wizardBtn = m.episodeTotal || m.total
+    ? `<button class="btn sm${m.lock ? " primary" : ""}" data-wz-open ` +
+      `title="确认镜头 → 准备资产 → 合成提示词 → 批量生视频">→ 准备资产</button>`
+    : "";
   return (
     head(
       m.episode ? m.episode.title : "分镜",
       meta,
       (m.episodeEmpty ? `<button class="btn sm" data-goto="episodes">→ 去剧集归入镜头</button>` : "") +
+        wizardBtn +
         `<button class="btn sm" data-sb-generate>↻ 重新生成（新版本）</button>`,
     ) +
     renderSceneStrip(m.scenes, selScene ? selScene.sceneId : null) +
@@ -689,6 +710,18 @@ export function bindStoryboard(root, ctx, ui, rerender) {
       ui.buffer = {};
       ui.selectedShotId = null; // the regenerated draft mints fresh shot ids
       if (!ctx.shots.generateDraft()) ctx.toast("已有一个生成在进行中");
+    };
+  // TASK-077 §1.4 — the batch pipeline's entrance. `ctx.wizard` is wired in
+  // app.js; a context without one (tests, embedded uses) says so rather than
+  // rendering a button that silently does nothing.
+  const wz = root.querySelector("[data-wz-open]");
+  if (wz)
+    wz.onclick = () => {
+      if (!ctx.wizard) { ctx.toast("批量准备资产在这个上下文里不可用"); return; }
+      // No node: the wizard's `node` is only the canvas node it used to mark
+      // done, and it already guards on it (`if (node)`). Opened from here the
+      // pipeline is the same, it just has no node to tick off.
+      ctx.wizard.open(null);
     };
   bindShotSelection(root, ctx, ui, rerender);
   bindShotEditor(root, ctx, ui, rerender);

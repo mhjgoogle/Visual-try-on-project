@@ -87,6 +87,16 @@ export function episodePlanModel(pd, story, impactOf) {
     empty: false,
     episodes,
     planVersion: story.confirmedPlan || 0,
+    // TASK-077 §1.6: THE TWO NUMBERS, named. One screen printed 48 / 48 集 / 12 集 /
+    // 47 集 with no statement of what each counted, so they read as four claims
+    // about one quantity that disagreed. They are two different quantities:
+    //   established  Episode ENTITIES that exist in the production document
+    //   planned      entries in the plan version currently on screen
+    // A confirmed plan usually has fewer entries than the project has episodes
+    // (older episodes predate it, or the plan covers one arc), and that difference
+    // is normal — it just has to be said.
+    establishedCount: episodes.length,
+    plannedCount: entries.length,
     // the version a hand edit is based on (0 = there is no plan to edit yet), and
     // whether that edit is currently unsaved
     planBaseVersion: base ? base.v : 0,
@@ -361,7 +371,17 @@ export function renderEpPlanWs(ctx, ui) {
     .join("");
 
   return (
-    head("分集规划", `${m.episodes.length} 集 · Production 的出口${m.planVersion ? ` · 规划 v${m.planVersion} 已确认` : ""}`) +
+    head(
+      "分集规划",
+      // TASK-077 §1.6 — every number says WHAT it counts, and when the two differ
+      // the screen says why instead of leaving the creator to reconcile them.
+      `已建立 ${m.establishedCount} 集` +
+      (m.plannedCount ? ` · 本版规划 ${m.plannedCount} 集` : " · 还没有规划条目") +
+      (m.plannedCount && m.plannedCount !== m.establishedCount
+        ? `（差 ${Math.abs(m.establishedCount - m.plannedCount)} 集：规划条目只覆盖本版规划的剧集，其余是更早建立的）`
+        : "") +
+      ` · Production 的出口${m.planVersion ? ` · 规划 v${m.planVersion} 已确认` : ""}`,
+    ) +
     renderPlanPanel(ctx, em) +
     (m.planBaseVersion
       ? planEditBar(ctx, m.planDirty, m.planBaseVersion, m.planBaseIsConfirmed, m.planOtherDrafts, m.nextPlanVersion)

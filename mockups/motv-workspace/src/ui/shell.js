@@ -70,6 +70,10 @@ export const EPISODE_NAV = [
   // regrouping, NOT a removal — every capability behind the old eleven keys is
   // still reachable, as a SECTION of one of these five (see MODULE_ALIAS). What
   // was deleted is the entrance, never the ability (§0 的 一条贯穿全卡的规则).
+  //
+  // TASK-077 §1.5: …and until now it had no entrance EITHER. This list was
+  // declared, asserted by two guard tests, and drawn by nothing — see
+  // `renderEpisodeRail`, which is the renderer that was missing.
   ["board", "📋", "本集看板"],
   ["storyboard", "🎞", "分镜设计"],
   ["shotwork", "🎬", "镜头制作"],
@@ -116,6 +120,11 @@ export const PROJECT_SETTINGS = "projectsettings";
  * Both are the exact 「落到一个没有该内容的页面」 failure ADR-0063 决策 1 forbids, so
  * they keep their own renderer and their own entrance until the content moves with
  * them. TASK-073 §5.11 tracks the remaining work.
+ *
+ * STILL TRUE after TASK-077 §1.5. The five-page rail now exists, and neither of
+ * these two keys is one of the five, so the rail highlights nothing while they are
+ * open — which is honest: the creator is on a legacy surface the IA does not name.
+ * `crumbScope` classifies both as shot-scoped, because that is what they show.
  */
 export const MODULE_ALIAS = Object.freeze({
   // ③ 作品设定 — three creator surfaces became three sections of one page
@@ -382,6 +391,87 @@ export function episodeTitleBeside(code, title) {
   return t.slice(code.length).replace(/^[\s·:：|-]+/, "");
 }
 
+/** ONE rail row. Shared by the 故事开发 rail and the 剧集制作 rail so the two can
+ *  never drift in markup, active-state class or badge rules. */
+function railItem([k, icon, label], { activeModule, badges = {}, ratios = {} }, cls = "") {
+  const b = badges[k];
+  const r = ratios[k];
+  const pct = r && r.total ? Math.round((r.done / r.total) * 100) : 0;
+  const bar = r && r.total
+    ? `<span class="bar${pct === 100 ? " done" : ""}"><i style="width:${pct}%"></i></span>`
+    : "";
+  return (
+    `<button class="st-navitem${bar ? " st-stage" : ""}${cls ? ` ${cls}` : ""}${k === activeModule ? " on" : ""}" data-mod="${k}">` +
+    `<span class="ic">${icon}</span><span class="nm">${esc(label)}</span>` +
+    (b ? `<span class="bdg${String(b).startsWith("✓") ? " ok" : ""}">${esc(b)}</span>` : "") +
+    bar +
+    `</button>`
+  );
+}
+
+/**
+ * The 剧集制作 rail — the five pages of `EPISODE_NAV` (TASK-077 §1.5).
+ *
+ * WHY THIS DID NOT EXIST. `EPISODE_NAV` was declared by TASK-073 and asserted by
+ * two guard tests, and no renderer ever drew it: the whole space had NO left rail,
+ * and its only navigation was the 制作台's 「工作区 ▾」 dropdown over the ELEVEN
+ * LEGACY stage keys. So the frozen IA's five pages were unreachable by name, and
+ * ⑨ 粗剪审片 (`cutreview`) had no entrance at all — a renderer and a binding for a
+ * module `activeModule` could never equal. The tests were right; the rendering was
+ * missing, which is why they are untouched by this card.
+ *
+ * `activeModule` is passed ALREADY RESOLVED (`resolveModule(...).module`), so a
+ * legacy key highlights the page it now lands on instead of highlighting nothing.
+ *
+ * NO BADGES, deliberately. The five pages have no badge model of their own, and
+ * this file already records why inventing one is worse than none: 「their own
+ * headers report the real numbers, and a second copy here could only ever disagree
+ * with them」. `railItem` accepts them so a real per-page model can be wired later.
+ */
+export function renderEpisodeRail({ activeModule, badges = {}, ratios = {}, episodeCode = "", episodeTitle = "" }) {
+  const heading = episodeCode
+    ? `${episodeCode}${episodeTitle ? ` ${episodeTitle}` : ""}`
+    : "本集制作";
+  return (
+    `<div class="st-railsec">${esc(heading)}</div>` +
+    EPISODE_NAV.map((it) => railItem(it, { activeModule, badges, ratios })).join("")
+  );
+}
+
+/**
+ * WHAT SCOPE a page is really about (TASK-077 §1.6) — "project" | "episode" | "shot".
+ *
+ * The breadcrumb used to show Scene › Shot for EVERY module inside 剧集制作,
+ * because Scene and Shot are levels of that space. But 本集看板 / 粗剪审片 /
+ * 后期交付 are EPISODE-level pages, and printing 「照见未明rev2 › EP01 › Shot 01 ›
+ * 本集看板」 claims the creator is standing on a shot while looking at the whole
+ * episode. A crumb segment that is not part of the current page's scope is a
+ * placeholder crumb, which `renderCrumb` already refuses to draw.
+ *
+ * Pure and exported, so the rule is one table with a test on it rather than a
+ * condition buried in a shell closure.
+ */
+export const SHOT_SCOPED_MODULES = Object.freeze([
+  // the five pages: only ⑧ 镜头制作 is about ONE shot
+  "shotwork",
+  // the legacy stages that were each about one shot
+  "workbench", "provenance", "shots", "frames", "video", "audio", "dailies", "refplan",
+]);
+
+export function crumbScope(module, section) {
+  if (module === "storyboard") {
+    // ⑦ 分镜设计 is two sections: 场景 is episode-level, 分镜 selects a shot
+    return section === "shots" ? "shot" : "episode";
+  }
+  if (SHOT_SCOPED_MODULES.includes(module)) return "shot";
+  if (EPISODE_MODULES.includes(module)) return "episode";
+  const alias = MODULE_ALIAS[module];
+  if (alias && EPISODE_MODULES.includes(alias[0])) {
+    return SHOT_SCOPED_MODULES.includes(alias[0]) ? "shot" : "episode";
+  }
+  return "project";
+}
+
 /** The 故事开发 rail's HTML.
  *
  *  Two levels, in this order (ADR-0061 决策 1):
@@ -393,21 +483,7 @@ export function episodeTitleBeside(code, title) {
  *
  *  `ratios` maps a stage key to {done,total} where known. */
 export function renderRail({ activeModule, badges, episodes, ratios, upstream }) {
-  const item = ([k, icon, label], cls = "") => {
-    const b = badges[k];
-    const r = ratios[k];
-    const pct = r && r.total ? Math.round((r.done / r.total) * 100) : 0;
-    const bar = r && r.total
-      ? `<span class="bar${pct === 100 ? " done" : ""}"><i style="width:${pct}%"></i></span>`
-      : "";
-    return (
-      `<button class="st-navitem${bar ? " st-stage" : ""}${cls ? ` ${cls}` : ""}${k === activeModule ? " on" : ""}" data-mod="${k}">` +
-      `<span class="ic">${icon}</span><span class="nm">${esc(label)}</span>` +
-      (b ? `<span class="bdg${String(b).startsWith("✓") ? " ok" : ""}">${esc(b)}</span>` : "") +
-      bar +
-      `</button>`
-    );
-  };
+  const item = (it, cls = "") => railItem(it, { activeModule, badges, ratios }, cls);
   // 作品开发, with 作品设定 as a sub-heading over its three creator surfaces
   let sub = null;
   const upstreamHtml = NAV.map((grp) => {
@@ -521,9 +597,42 @@ export function nameWithVersion(name, version) {
     : `${esc(n)} <span class="chip">v${esc(String(version))}</span>`;
 }
 
-/** A media box: real thumbnail, or an honest placeholder that says WHY. */
-export function mediaBox(url, { alt = "", missing = "还没有画面", icon = "🎞", cls = "" } = {}) {
+/** The FILE a URL points at, for an error message a creator can act on.
+ *  「媒体文件已不在磁盘上」 without the filename is a complaint; with it, it is a
+ *  thing they can go and look for. */
+export function fileNameOf(url) {
+  const u = String(url || "").split(/[?#]/)[0];
+  const last = u.slice(u.lastIndexOf("/") + 1);
+  try { return decodeURIComponent(last); } catch { return last; }
+}
+
+/** The honest 「文件不在了」 box (TASK-077 §1.2).
+ *
+ *  NOT the same state as 「还没有画面」 and never rendered as it: nothing generated
+ *  yet is a normal step in the work, while a registered asset whose bytes are
+ *  gone is a fact about this project the creator has to know about. The browser's
+ *  own broken-image glyph said neither. */
+export function mediaGoneInner(url, { reason = "媒体文件已不在磁盘上" } = {}) {
+  const name = fileNameOf(url);
+  return (
+    `<span class="ic">⃠</span><span>${esc(reason)}</span>` +
+    (name ? `<span class="fn">${esc(name)}</span>` : "")
+  );
+}
+
+export function mediaGoneBox(url, { cls = "", reason = "媒体文件已不在磁盘上" } = {}) {
+  return `<div class="media media-none media-gone ${cls}">${mediaGoneInner(url, { reason })}</div>`;
+}
+
+/** A media box: real thumbnail, or an honest placeholder that says WHY.
+ *
+ *  `gone` is the caller's probe result — 「登记了，但磁盘上没有」. The `data-media-url`
+ *  is what lets ONE central handler (production.js) turn a load failure anywhere
+ *  in the tree into that same honest box, so a surface nobody remembered to make
+ *  probe-aware still stops showing a broken glyph. */
+export function mediaBox(url, { alt = "", missing = "还没有画面", icon = "🎞", cls = "", gone = false } = {}) {
+  if (url && gone) return mediaGoneBox(url, { cls });
   return url
-    ? `<img class="media ${cls}" src="${esc(url)}" alt="${esc(alt)}" loading="lazy">`
+    ? `<img class="media ${cls}" data-media-url="${esc(url)}" src="${esc(url)}" alt="${esc(alt)}" loading="lazy">`
     : `<div class="media media-none ${cls}"><span class="ic">${icon}</span><span>${esc(missing)}</span></div>`;
 }

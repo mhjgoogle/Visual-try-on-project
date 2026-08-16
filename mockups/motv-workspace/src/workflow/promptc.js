@@ -54,11 +54,28 @@ function byKind(references) {
 
 /** The 【参考图】 line for one model-input kind, or "" when the shot has none.
  *  It says WHAT the attachment is for, because an external tool receives a pile
- *  of images with no roles and the prompt is the only place the roles exist. */
-function modelRefLine(m, kind, label) {
+ *  of images with no roles and the prompt is the only place the roles exist.
+ *
+ *  ROUTE-DEPENDENT, and only in its PARENTHETICAL (TASK-077 §1.3):
+ *
+ *    manual   「作为参考图一并提供，保持一致」 — an INSTRUCTION to the creator, who is
+ *             about to attach these files by hand. Correct, and kept verbatim.
+ *    gateway  the request carries one image (the first frame) and nothing else
+ *             (`cloud_minimax._payload`), so the same sentence would promise an
+ *             attachment that is never sent. The reference is still NAMED — the
+ *             model can be told to keep 林晚 consistent with 林晚 Ref v3 even when
+ *             it cannot see the file — but nothing is promised about sending it.
+ *
+ *  The names, versions and ordering are identical on both routes, so a project
+ *  compiled before this change produces byte-identical text on the manual route. */
+function modelRefLine(m, kind, label, route = "manual") {
   const rs = m.get(kind) || [];
   if (!rs.length) return "";
-  return `【${label}】${rs.map(refName).filter(Boolean).join("、")}（作为参考图一并提供，保持一致）`;
+  const names = rs.map(refName).filter(Boolean).join("、");
+  const how = route === "gateway"
+    ? "（图片不随本次提交发送，仅以此描述指定，保持一致）"
+    : "（作为参考图一并提供，保持一致）";
+  return `【${label}】${names}${how}`;
 }
 
 /**
@@ -300,7 +317,7 @@ export function compileDialoguePrompt({ dialogue, character = null, baseVoice = 
  *  @param interpretation  readings of its interpretation references */
 export function compileVideoPrompt({
   shot, hasImage = false, startFrame = null, endFrame = null,
-  references = [], interpretation = [],
+  references = [], interpretation = [], route = "manual",
 } = {}) {
   const missing = [];
   const parts = [];
@@ -325,7 +342,7 @@ export function compileVideoPrompt({
       `${s(endFrame.from) ? ` · 来源：${s(endFrame.from)}` : ""}）`,
     );
   }
-  const styleLine = modelRefLine(m, "style-reference", "风格参考");
+  const styleLine = modelRefLine(m, "style-reference", "风格参考", route);
   if (styleLine) parts.push(styleLine);
   if (s(shot.description)) parts.push(`【画面】${s(shot.description)}`);
   if (s(shot.action)) parts.push(`【动作】${s(shot.action)}`);

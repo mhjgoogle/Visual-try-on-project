@@ -117,8 +117,11 @@ def test_the_library_is_visual_first_and_ids_are_not_the_main_surface() -> None:
     assert card.count("a.assetId") == as_data_target, (
         "assetId may only appear as a data- click target, never as rendered text"
     )
-    # the card shows real media, and says what the creator recognises it by
-    assert "preview(a)" in card
+    # the card shows real media, and says what the creator recognises it by.
+    # Matched as a CALL, not as the exact spelling `preview(a)`: TASK-077 §1.2 gave
+    # `preview` a second argument (`{ gone }` — the media-presence probe result), and
+    # the invariant here is 「卡面渲染真实媒体」, not 「preview 只有一个参数」.
+    assert re.search(r"\bpreview\(a\b", card)
     assert "a.name" in card
     # …while the technical facts live LAST, in a collapsed section
     tech = lib.split('class="al-tech"', 1)[1]
@@ -277,8 +280,12 @@ def test_no_interactive_control_is_nested_inside_a_button() -> None:
             # browser may route to an enclosing button
             assert depth == 0, f"{tok} sits inside a <button>"
     assert depth == 0, "unbalanced <button> tags in the card"
-    # the preview (which may carry <audio>/<video> controls) sits OUTSIDE it
-    assert card.index("preview(a)") < card.index("<button")
+    # the preview (which may carry <audio>/<video> controls) sits OUTSIDE it.
+    # Located by CALL rather than by the exact spelling `preview(a)` — see the note in
+    # `test_the_library_is_visual_first_and_ids_are_not_the_main_surface`.
+    preview_call = re.search(r"\bpreview\(a\b", card)
+    assert preview_call, "the card must render the preview"
+    assert preview_call.start() < card.index("<button")
 
 
 def test_every_css_custom_property_is_defined() -> None:

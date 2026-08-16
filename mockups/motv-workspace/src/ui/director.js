@@ -155,7 +155,10 @@ export function directorNote({ module, story, doc, pd, shotId }) {
     if (!story.approved) return "分集规划要基于已批准的大纲。先在「故事大纲」批准一版，我再按它拆集。";
     if (!story.confirmedPlan) return "规划还没确认。确认之后才会建立剧集实体——在那之前我不会动任何一集。";
     const noBeat = eps.filter((e) => !e.beats || !(e.beats.plot.length || e.beats.relationship.length || e.beats.character.length || e.beats.world.length));
-    if (noBeat.length) return `${noBeat.length} 集还没有记录 Arc 推进。写下主线 / 人物 / 关系 / 世界揭示的 beat，我才能判断整部作品是否在前进。`;
+    // TASK-077 §1.6: 「47 集还没有…」 beside a header saying 「48 集」 read as a third
+    // number in the same argument. Stated as a RATIO of a named total, it reads as
+    // what it is — 已建立的 48 集里有 47 集缺 beat。
+    if (noBeat.length) return `已建立的 ${eps.length} 集里，${noBeat.length} 集还没有记录 Arc 推进。写下主线 / 人物 / 关系 / 世界揭示的 beat，我才能判断整部作品是否在前进。`;
     return "每集都有 Arc 推进记录。上游改版时我只会告诉你哪一集基于旧版本——绝不替你改写剧情。";
   }
   if (module === "settings" || module === "characters") {

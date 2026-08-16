@@ -9,8 +9,20 @@ import { esc } from "../util/dom.js";
 
 const DOMAIN_ZH = { images: "图片", videos: "视频", audio: "音频", finals: "成片", firstFrames: "首帧" };
 
-/** Pure stats + rows over the registry with reference awareness. */
-export function storageModel({ reg, referencesOf }) {
+/**
+ * Pure stats + rows over the registry with reference awareness.
+ *
+ * `probeMissing(url) → boolean` is the FRONT-END presence probe (TASK-077 §1.2).
+ * It is an OBSERVATION laid beside the DECLARATION, never merged into it: a row
+ * keeps its own `state` (what the registry claims) and gains `probedMissing`
+ * (what a HEAD request or a failed <img> found). Only 「媒体不可用」 counts both,
+ * because that chip answers 「有多少资产现在拿不到」 — and answering it from the
+ * declaration alone is how this page reported 0 while two files were gone.
+ *
+ * Omitting `probeMissing` (tests, nothing probed yet) claims nothing.
+ */
+export function storageModel({ reg, referencesOf, probeMissing }) {
+  const probed = typeof probeMissing === "function" ? probeMissing : () => false;
   const rows = [];
   const walkChain = (domain) => {
     const m = reg[domain] || {};
@@ -52,6 +64,10 @@ export function storageModel({ reg, referencesOf }) {
     r.blocking = refs.blocking;
     r.provenance = refs.provenance;
     r.referenced = refs.blocking.length > 0;
+    // Only a row that CLAIMS to be local can be contradicted: an archived or
+    // already-removed record is supposed to have no bytes, so a 404 on it is
+    // the declared state being true, not a new finding.
+    r.probedMissing = r.state === "local" && !!r.url && probed(r.url);
   }
   const stats = {
     total: rows.length,
@@ -59,26 +75,43 @@ export function storageModel({ reg, referencesOf }) {
     historical: rows.filter((r) => !r.active).length,
     unused: rows.filter((r) => !r.active && !r.referenced && r.state === "local").length,
     archived: rows.filter((r) => r.state === "archived").length,
-    missing: rows.filter((r) => r.state === "missing" || r.state === "deleted").length,
+    missing: rows.filter((r) => r.state === "missing" || r.state === "deleted" || r.probedMissing).length,
+    /** the OBSERVED half of 媒体不可用 — declared `local`, file not there */
+    probedMissing: rows.filter((r) => r.probedMissing).length,
   };
   return { rows, stats };
 }
 
 export function renderStorageWs(ctx, ui) {
-  const m = storageModel({ reg: ctx.assetRegistryView(), referencesOf: ctx.storage.referencesOf });
+  const m = storageModel({
+    reg: ctx.assetRegistryView(),
+    referencesOf: ctx.storage.referencesOf,
+    probeMissing: ctx.mediaProbe ? (url) => ctx.mediaProbe.isMissing(url) : null,
+  });
   const chip = (label, v) => `<span class="ws-stage"><span class="ws-stage-l">${esc(label)}</span><b>${v}</b></span>`;
   const stats =
     `<div class="ws-progress">` +
     chip("资产总数", m.stats.total) + chip("活跃（当前版本）", m.stats.active) +
     chip("历史变体", m.stats.historical) + chip("未使用", m.stats.unused) +
     chip("已归档", m.stats.archived) + chip("媒体不可用", m.stats.missing) +
-    `</div>`;
+    `</div>` +
+    // WHERE the number comes from, because it is now two different facts added
+    // together and a creator seeing 「2」 should know which kind they have.
+    (m.stats.probedMissing
+      ? `<div class="ws-kv gate">⚠ 其中 ${m.stats.probedMissing} 条登记为 <code>local</code>，` +
+        `但文件当前拿不到（前端探测）。本轮<b>只显示，不改写</b>登记状态。</div>`
+      : "");
   const showArchived = !!ui.stShowArchived;
   const rows = m.rows
     .filter((r) => showArchived || r.state !== "archived")
     .map((r) => {
       const stateTag = r.state === "local"
-        ? ""
+        ? (r.probedMissing
+          // The registry says local and it is not — stated as an OBSERVATION,
+          // with the word 「登记」 kept, so the row does not read as if the
+          // declared state had been changed (it has not been).
+          ? `<span class="ws-tag gate" title="${esc(r.url)}">登记 local · 文件拿不到（探测）</span>`
+          : "")
         : `<span class="ws-tag ${r.state === "archived" ? "" : "gate"}">${esc(r.state)}${r.state === "deleted" ? " · 字节已移除" : r.state === "missing" ? " · 检测缺失" : ""}</span>`;
       const refTag = r.referenced
         ? `<span class="ws-tag" title="${esc(r.blocking.join("；"))}">🔗 ${r.blocking.length} 处引用</span>`

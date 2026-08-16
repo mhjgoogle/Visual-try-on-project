@@ -16,6 +16,9 @@ button { font-family: inherit; cursor: pointer; }
 .spacer { flex: 1; }
 .budget { display: inline-flex; align-items: center; gap: 9px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 6px 13px; font-size: 12px; color: var(--text-dim); white-space: nowrap; cursor: pointer; }
 .budget b { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; } .budget .bal { color: var(--ok); } .budget .sep { color: var(--text-faint); }
+/* TASK-077 §1.1 — the backend's `problems[]`, finally visible. Clickable because
+   the whole readout is: it opens 真实项目数据, where the problems are listed. */
+.budget .bwarn { display: inline-flex; align-items: center; gap: 3px; font-weight: 700; color: var(--gate); background: var(--gate-soft, rgba(224,150,60,.14)); border: 1px solid var(--gate); border-radius: 999px; padding: 0 7px; line-height: 17px; font-size: 11px; }
 .brandbtn { display: inline-flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px; font-weight: 800; font-size: 15px; letter-spacing: -.01em; color: var(--text); }
 .brandbtn:hover { border-color: var(--line-2); } .brandbtn .mk { width: 22px; height: 18px; border-radius: 4px; background: linear-gradient(135deg, var(--accent), #e07b3a); display: grid; place-items: center; color: #1a1206; font-size: 11px; }
 .modebadge { font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 999px; white-space: nowrap; border: 1px solid var(--line); color: var(--text-dim); }

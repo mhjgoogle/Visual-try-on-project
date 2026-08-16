@@ -54,3 +54,13 @@ mockups/motv-workspace/_agent-tools/
 
 # motv mockup: local canvas persistence (prototype scratch, not a fixture)
 mockups/motv-workspace/data/
+
+# UI gap audit: the PIXELS stay local, the AUDIT stays in Git.
+# `current/` frames the user's own creative project and `target/` frames another
+# company's product — same reason `_agent-tools/` is ignored (AGENTS.md 第 23 条).
+# The manifest, the reports and the capture tool ARE tracked, so the audit is
+# reproducible from the repo; re-run `src/ui-gap-audit/tools/capture_current.py`
+# to regenerate the frames.
+src/ui-gap-audit/screenshots/**/*.png
+src/ui-gap-audit/screenshots/**/*.jpg
+src/ui-gap-audit/screenshots/**/capture.json
