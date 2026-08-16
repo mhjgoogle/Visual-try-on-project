@@ -695,6 +695,25 @@ _SKILL_BODY_MAX = _SKILL_PROMPT_MAX * 4 + 8_192
 # shots is still refused, which is what this check is for.
 _MAX_SHOTS_PER_EPISODE = 120
 
+#: The OPTIONAL directing facets a raw draft shot may carry, in the order
+#: `storyboard-director`'s output schema declares them (TASK-078 §1.b/§2.1).
+#:
+#: MUST STAY A SUPERSET of the schema's optional string fields, and it mirrors
+#: `ADDITIVE_SHOT_FIELDS` in `src/ui/shoteditor.js` — the client and the server
+#: have to agree on what an additive shot field IS, or one of them silently
+#: deletes what the other just saved. A guard test pins this list against the
+#: package's `output.schema.json` rather than trusting this comment.
+_SHOT_FACETS = (
+    "shotSize",
+    "angle",
+    "cameraMotion",
+    "lighting",
+    "action",
+    "expression",
+    "emotion",
+    "dialogue",
+)
+
 # name → (env var, default argv tail appended after the resolved binary).
 # The tail is what makes each CLI headless AND tool-free.
 _EXECUTORS: dict[str, dict] = {
@@ -1962,14 +1981,29 @@ def _parse_shots(text: str) -> list[dict]:
             raise ValueError(f"shot {i}: duration_seconds must be 6 or 10")
         if not isinstance(seq, int) or isinstance(seq, bool) or seq <= 0:
             seq = i
-        shots.append(
-            {
-                "sequence": seq,
-                "title": title.strip()[:80],
-                "description": desc.strip()[:500],
-                "duration_seconds": float(dur),
-            }
-        )
+        shot = {
+            "sequence": seq,
+            "title": title.strip()[:80],
+            "description": desc.strip()[:500],
+            "duration_seconds": float(dur),
+        }
+        # THE DIRECTING FACETS SURVIVE THE HTTP BOUNDARY (TASK-078 §1.b).
+        #
+        # This response was built from four keys, so every 景别 / 角度 / 运镜 /
+        # 动作 / 情绪 the model produced was DISCARDED here — before the canvas,
+        # before `normalizeShots`, before anything the frontend could preserve.
+        # That is the real reason the live project reads 0/60 on all of them:
+        # not only did the contract mark them optional, the transport dropped
+        # them even when they were answered.
+        #
+        # Additive and non-destructive, exactly like the client-side rule: a
+        # facet is carried when it is a non-empty string and OMITTED otherwise,
+        # so a shot that never had one is byte-identical to before.
+        for key in _SHOT_FACETS:
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                shot[key] = value.strip()[:500]
+        shots.append(shot)
     shots.sort(key=lambda s: s["sequence"])
     return shots
 

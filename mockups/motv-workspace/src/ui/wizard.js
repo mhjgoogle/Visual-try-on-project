@@ -2,8 +2,32 @@
 // prompts. Its "一键生成所有资产" runs the image budget preflight, then marks the
 // asset node done.
 import { $, $$, el, esc } from "../util/dom.js";
+import { buildEntityIndex, assetReadiness } from "../workflow/shotentity.js";
+import { buildPortraitIndex } from "./storyboard.js";
 
-export function createWizard({ estimate, getProject, refresh }) {
+/**
+ * 「这一批要准备多少资产，已经有多少」 — THE SAME derivation the storyboard table's
+ * 「准备资产 N/M」 uses (TASK-078 §2.3.3).
+ *
+ * It used to be `0/${draft.length}` — one 设定图 per SHOT, and the numerator hard-
+ * coded to zero. Both halves were wrong on a real project: 60 shots do not need
+ * 60 reference images, they need one per distinct character and place they name;
+ * and 「0 已生成」 was printed even when the bible already had six of them. Two
+ * surfaces answering one question with two numbers is worse than either number
+ * alone, so there is now one function and both call it.
+ *
+ * Exported for tests and for the guard that pins the two counts together.
+ */
+export function wizardReadiness(pd) {
+  const portraitFor = buildPortraitIndex(pd); // built ONCE — it walks every asset chain
+  return assetReadiness({
+    index: buildEntityIndex(pd && pd.production),
+    shots: Array.isArray(pd && pd.draftShots) ? pd.draftShots : [],
+    hasReferenceImage: (kind, id) => !!portraitFor(kind, id),
+  });
+}
+
+export function createWizard({ estimate, getProject, prodData, refresh }) {
   const scrim = $("#wz-scrim");
   let node = null;
   let genCount = 9; // asset count the "一键生成" estimate submits (draft-aware)
@@ -12,8 +36,11 @@ export function createWizard({ estimate, getProject, refresh }) {
   $("#wz-x").onclick = close;
   $("#wz-cancel").onclick = close;
   $("#wz-gen").onclick = () => {
-    close();
     const n = genCount;
+    // Nothing missing → nothing to generate. Opening a budget preflight for zero
+    // assets would ask the creator to confirm spending on an empty batch.
+    if (!n) { close(); return; }
+    close();
     estimate.open({
       cmd: `generate_assets · ${n} 个设定图`,
       kind: "图片",
@@ -50,23 +77,34 @@ export function createWizard({ estimate, getProject, refresh }) {
       // scenes (which would contradict the script). A draft is a shot list with
       // no structured characters/scenes yet, so render one 分镜 section and hide
       // the fixture 角色/场景 grids.
-      genCount = draft.length;
+      // 「准备资产」 IS ABOUT ENTITIES, not shots (TASK-078 §2.3.3). What step ②
+      // prepares is one reference image per distinct character / place the shot
+      // list names — which is also exactly what the storyboard table's header
+      // counts, from the same function.
+      const rd = prodData ? wizardReadiness(prodData()) : { entities: [], total: 0, ready: 0, missing: [] };
+      genCount = rd.missing.length;
       $("#wz-style").textContent = "未设定（分镜草稿 · 未锁定）";
-      if (grps[0]) grps[0].textContent = "分镜（草稿）";
+      if (grps[0]) grps[0].textContent = "分镜草稿点到的人物 / 场景地";
       if (grps[1]) grps[1].style.display = "none";
       scenes.style.display = "none";
       scenes.innerHTML = "";
       chars.innerHTML = "";
-      draft.forEach((s) => {
-        const seq = String(s.sequence).padStart(2, "0");
+      rd.entities.forEach((e) => {
         const d = el("div", "charcard");
-        d.innerHTML = `<div class="ph">生成或上传镜头设定图<span class="dots">···</span></div><div class="nm">${esc(seq)} ${esc(s.title)}</div><div class="ds">${esc(s.description)}（${esc(String(s.duration_seconds))}s）</div>`;
+        d.innerHTML =
+          `<div class="ph">${e.ready ? "已有参考图" : "生成或上传参考图"}<span class="dots">···</span></div>` +
+          `<div class="nm">${esc(e.kind === "character" ? "👤" : "📍")} ${esc(e.name)}</div>` +
+          `<div class="ds">${esc(String(e.shotIds.length))} 个镜头点到它${e.ready ? " · 参考图就绪" : " · 还没有参考图"}</div>`;
         chars.appendChild(d);
       });
       if (steps[0]) steps[0].textContent = `${draft.length} 个镜头已就绪`;
-      if (steps[1]) steps[1].textContent = `0/${draft.length} 已生成 · 差 ${draft.length} 个`;
+      if (steps[1]) steps[1].textContent = `${rd.ready}/${rd.total} 已生成 · 差 ${rd.missing.length} 个`;
       if (steps[2]) steps[2].textContent = `0/${draft.length} 已合成`;
-      if (warn) warn.textContent = `⚠ ${draft.length} 个镜头来自分镜草稿，均缺设定图，可手动上传或 AI 批量生成。`;
+      if (warn) {
+        warn.textContent = rd.total
+          ? `⚠ 分镜草稿点到 ${rd.total} 个人物 / 场景地，其中 ${rd.missing.length} 个还没有参考图，可手动上传或 AI 批量生成。`
+          : `⚠ ${draft.length} 个镜头的画面描述里没有点到任何已登记的人物 / 场景地——先在「作品设定」建立它们，或在描述里写上名字。`;
+      }
       scrim.classList.add("show");
       return;
     }

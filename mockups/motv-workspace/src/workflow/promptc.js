@@ -165,6 +165,10 @@ export function compileImagePrompt({ shot, characters = [], location = null, ton
   const spec = [
     ["景别", s(shot.shotSize)],
     ["机位角度", s(shot.angle)],
+    // 光影氛围 (TASK-078 §2.1) — an additive draft-shot field. A shot that never
+    // carried one compiles byte-identically to before, because the row is
+    // filtered out when empty like every other facet here.
+    ["光影氛围", s(shot.lighting)],
     ["情绪", s(shot.emotion)],
     ["表情", s(shot.expression)],
   ].filter(([, v]) => v);
@@ -353,6 +357,9 @@ export function compileVideoPrompt({
   // make a generated clip stop looking like a photograph being panned across,
   // and they are not the camera's motion nor the subject's action.
   if (s(shot.environmentMotion)) parts.push(`【环境运动】${s(shot.environmentMotion)}`);
+  // 光影氛围 also directs a video take (the light has to hold across the clip),
+  // so it is stated here too — and, like every optional facet, only when set.
+  if (s(shot.lighting)) parts.push(`【光影氛围】${s(shot.lighting)}`);
   if (s(shot.expression)) parts.push(`【表情】${s(shot.expression)}`);
   if (s(shot.emotion)) parts.push(`【情绪】${s(shot.emotion)}`);
   parts.push(`【时长】${shot.duration_seconds === 10 ? 10 : 6} 秒`);

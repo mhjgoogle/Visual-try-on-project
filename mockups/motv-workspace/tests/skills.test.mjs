@@ -160,7 +160,11 @@ test("an ENUMERATED number is enforced — a 7-second shot is refused", () => {
   // so a model answering 7 must fail the contract rather than reach canon and
   // break later at generation time.
   const s = findSkill("storyboard-director");
-  const shot = (d) => ({ shots: [{ title: "a", description: "b", duration_seconds: d }] });
+  // 景别 / 运镜 are REQUIRED since skillVersion 2 (TASK-078 §2.1), so a fixture
+  // that omits them would fail this test for the wrong reason.
+  const shot = (d) => ({
+    shots: [{ title: "a", description: "b", shotSize: "中近景", cameraMotion: "固定机位", duration_seconds: d }],
+  });
   assert.equal(validateOutput(s, shot(6)), null);
   assert.equal(validateOutput(s, shot(10)), null);
   assert.ok(validateOutput(s, shot(7)));
@@ -168,6 +172,26 @@ test("an ENUMERATED number is enforced — a 7-second shot is refused", () => {
   // …and the allowed values are stated IN THE PROMPT, so the model is asked for
   // exactly what will be accepted
   assert.ok(describeSchema(s.outputSchema).includes("(6 | 10)"));
+});
+
+test("storyboard-director v2 REFUSES a draft with no 景别 / 运镜", () => {
+  // The real project's 60-shot draft had shotSize 0/60 and cameraMotion 0/60 —
+  // not a model failure, a contract that marked both optional and a prompt that
+  // never insisted. Optional means the model may skip it, and it did, every time.
+  const s = findSkill("storyboard-director");
+  assert.equal(s.version, 2, "the contract changed, so the version must have (ADR-0067 决策 3)");
+  const base = { title: "a", description: "b", duration_seconds: 6 };
+  assert.ok(validateOutput(s, { shots: [{ ...base, cameraMotion: "推近" }] }), "缺 shotSize 必须拒绝");
+  assert.ok(validateOutput(s, { shots: [{ ...base, shotSize: "特写" }] }), "缺 cameraMotion 必须拒绝");
+  // …and an EMPTY string is not an answer either — 「」 would pass a mere
+  // presence check and land in canon as a blank facet, which is what this is for
+  assert.ok(validateOutput(s, { shots: [{ ...base, shotSize: "", cameraMotion: "推近" }] }));
+  // the prompt must ASK for what the gate enforces, or every run fails closed
+  const schema = describeSchema(s.outputSchema);
+  assert.ok(schema.includes('"shotSize":'), "required fields carry no `?`");
+  assert.ok(!schema.includes('"shotSize"?'));
+  assert.ok(!schema.includes('"cameraMotion"?'));
+  assert.ok(schema.includes('"lighting"?'), "光影氛围 is offered but not forced");
 });
 
 test("output validation is total and fails closed", () => {

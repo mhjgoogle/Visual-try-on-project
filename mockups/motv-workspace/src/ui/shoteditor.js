@@ -45,13 +45,29 @@ export function normalizeShots(items, slotPrefix) {
     // emotion are shown as the storyboard's compact metadata AND compiled into
     // the image prompt, so omitting them here meant editing ANY field silently
     // erased the shot's framing — the edit saved, the directing did not.
-    for (const k of ["action", "cameraMotion", "dialogue", "shotSize", "angle", "emotion"]) {
+    for (const k of ADDITIVE_SHOT_FIELDS) {
       const v = typeof s[k] === "string" ? s[k].trim().slice(0, 500) : "";
       if (v) out[k] = v;
     }
     return out;
   });
 }
+
+/** The OPTIONAL draft-shot fields that ride additively on a raw shot.
+ *
+ *  ONE list, because this is the third place that had to know it and the first
+ *  two disagreed: `normalizeShots` carried six of them while `open()` below
+ *  deep-copied only the base four, so passing a draft through the manual editor
+ *  ERASED 景别/角度/情绪 from every shot in it. A field is only additive if it
+ *  survives every save path, not just the one it was added for.
+ *
+ *  `expression` and `environmentMotion` are here because `workflow/promptc.js`
+ *  compiles them; `lighting` (光影氛围) and `color` (行标记) are TASK-078 §2.1/§2.2
+ *  additions. None of them is required and none triggers a migration. */
+export const ADDITIVE_SHOT_FIELDS = [
+  "action", "cameraMotion", "dialogue", "shotSize", "angle", "emotion",
+  "expression", "environmentMotion", "lighting", "color",
+];
 
 /** The next draft version number: max existing + 1 — NEVER length + 1. The
  *  connected restore filters non-draft versions, so surviving numbers can be
@@ -133,14 +149,28 @@ export function createShotEditor({ toast }) {
 
   function open(initial, opts = {}) {
     // Deep-copy so cancel never mutates the caller's version data.
-    items = (initial || []).map((s) => ({
-      shotId: typeof s.shotId === "string" && s.shotId ? s.shotId : null,
-      sequence: s.sequence,
-      title: s.title || "",
-      description: s.description || "",
-      duration_seconds: s.duration_seconds === 10 ? 10 : 6,
-      slot: s.slot || null,
-    }));
+    //
+    // THE ADDITIVE FIELDS COME ALONG (TASK-078 §2.1). This copy used to list six
+    // keys, which meant every field the storyboard added later — 景别 / 角度 /
+    // 情绪 / 光影 — was silently dropped the moment a draft passed through this
+    // modal, even if the creator only renamed one shot. The editor still shows
+    // and edits four of them; the rest are CARRIED, not shown, which is the
+    // difference between "this modal doesn't edit that" and "this modal deletes
+    // that".
+    items = (initial || []).map((s) => {
+      const copy = {
+        shotId: typeof s.shotId === "string" && s.shotId ? s.shotId : null,
+        sequence: s.sequence,
+        title: s.title || "",
+        description: s.description || "",
+        duration_seconds: s.duration_seconds === 10 ? 10 : 6,
+        slot: s.slot || null,
+      };
+      for (const k of ADDITIVE_SHOT_FIELDS) {
+        if (typeof s[k] === "string" && s[k]) copy[k] = s[k];
+      }
+      return copy;
+    });
     onSave = opts.onSave || null;
     slotPrefix = opts.slotPrefix || "m";
     sub.textContent = opts.subtitle || "";

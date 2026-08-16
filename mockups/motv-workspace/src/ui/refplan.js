@@ -156,6 +156,16 @@ export function referencePlan({ view, bindings, references, sceneOf, names }) {
     missing: group(missing),
     reuse: group(suggest),
     shots: shots.length,
+    // HOW MANY SHOTS THIS PAGE COULD SAY ANYTHING ABOUT (TASK-078 §2.3.4).
+    //
+    // Every need on this page is derived from a shot's SCENE — 「场景里有这个人物，
+    // 它有参考吗」. A shot belonging to no scene produces no needs, so on the real
+    // project (60 shots, none assigned) the 缺失 section rendered 「没有缺口」 while
+    // not one shot had a reference bound. That sentence was true about the
+    // derivation and false about the project, which is the worst kind of true.
+    // Counted here so the renderer can say WHY it is silent instead of implying
+    // an all-clear.
+    unscoped: shots.filter(({ shot }) => !sceneOf(shot.shotId)).length,
     // the reference material this episode has, grouped by role, for the summary
     byRole: REFERENCE_ROLES.map(([role, label]) => ({
       role, label, n: have.filter((r) => r.kind === role).length,
@@ -203,7 +213,16 @@ export function renderRefPlan(ctx, ui) {
   const missingHtml = m.missing.length
     ? `<ul class="rp-list">${m.missing.map((x) => gapRow(x,
         `<button class="btn" data-rp-create="${esc(x.kind)}" data-rp-subject="${esc(x.subjectId)}" data-rp-shots="${esc(x.shotIds.join(","))}">上传参考</button>`)).join("")}</ul>`
-    : `<div class="rp-empty">没有缺口。</div>`;
+    // 「没有缺口」 is only honest when this page could actually look. A shot in no
+    // scene contributes no needs, so with every shot unassigned the answer is
+    // 「无从判断」, not 「没问题」 — and it points at the surface that CAN answer it
+    // from the shot's own words (TASK-078 §2.3.4).
+    : m.unscoped === m.shots && m.shots
+      ? `<div class="rp-empty">无从判断：${m.shots} 个镜头都还没有归入场景，而这一页的「需要什么参考」是从镜头所在场景推出来的。` +
+        `<br>要按画面描述里点到的人物 / 场景地来看缺口，去 <button class="btn" data-goto="shots">⑦ 分镜设计 · 表格视图</button>。</div>`
+      : m.unscoped
+        ? `<div class="rp-empty">已归入场景的镜头没有缺口；另有 ${m.unscoped} 个镜头尚未归入场景，这一页对它们无从判断。</div>`
+        : `<div class="rp-empty">没有缺口。</div>`;
   const reuseHtml = m.reuse.length
     ? `<ul class="rp-list">${m.reuse.map((x) => gapRow(x,
         `<button class="btn primary" data-rp-bind="${esc(x.key)}" data-rp-shots="${esc(x.shotIds.join(","))}">绑定「${esc(x.name)}」</button>`)).join("")}</ul>`

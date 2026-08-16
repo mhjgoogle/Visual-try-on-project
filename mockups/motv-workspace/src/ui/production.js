@@ -1492,6 +1492,36 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     render(); // setActiveEpisode already re-rendered, but the module may have moved
   }
 
+  /** Open ONE bible entity's own card — 人物 or 场景地 — from anywhere.
+   *
+   *  `setModule` clears the drawer keys on every switch (it must: a drawer left
+   *  open across a navigation shows the previous page's selection), so the
+   *  selection is written AFTER it and the page repainted. A character on the
+   *  临时角色 tab opens THAT tab; landing on 人物 with the card nowhere in the grid
+   *  would be the 「落到一个没有该内容的页面」 failure in miniature. */
+  function openEntity(ctx, kind, entityId) {
+    if (!entityId) return;
+    const prod = ctx.prodData().production;
+    if (kind === "location") {
+      if (!(prod && (prod.locations || []).some((l) => l && l.locationId === entityId))) {
+        ctx.toast("这个场景地已经不在作品设定里了");
+        return;
+      }
+      setModule("world");
+      ui.worldOpen = entityId;
+      ui.bpText = null;
+      render();
+      return;
+    }
+    const c = (prod && (prod.characters || []).find((x) => x && x.characterId === entityId)) || null;
+    if (!c) { ctx.toast("这个人物已经不在作品设定里了"); return; }
+    setModule("characters");
+    ui.bibleTab = c.tier === "bit" ? "bits" : "characters";
+    ui.bibleOpen = `c:${entityId}`;
+    ui.bpText = null;
+    render();
+  }
+
   function bind(ctx) {
     // left rail — every module opens; selection is visually .on
     root.querySelectorAll("[data-mod]").forEach((b) => (b.onclick = () => setModule(b.dataset.mod)));
@@ -1699,6 +1729,42 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
         }
       }
     }
+    // 「画面描述里的实体是可点的」 (TASK-078 §2.3). Bound HERE, after the workspaces,
+    // for the same reason `[data-goto]` is: opening 林照's card is a SHELL move
+    // (switch page, switch section, open that drawer), and a workspace wiring its
+    // own version would either shadow this one or land on a page that does not
+    // contain the entity — ADR-0063 决策 1's failure.
+    //
+    // `stopPropagation` matters: these links sit INSIDE a cell whose own click
+    // opens the description for editing.
+    root.querySelectorAll("[data-ent-id]").forEach((b) => (b.onclick = (ev) => {
+      ev.stopPropagation();
+      openEntity(ctx, b.dataset.entKind, b.dataset.entId);
+    }));
+    // 「未填 · 去填写」 — the read-only facet displays now LAND ON THE CELL. Also
+    // shell-level, and for the same reason: it opens ⑦ 分镜设计, switches it to the
+    // table view and points at one row's one column, none of which the workspace
+    // showing the blank facet can do for itself.
+    root.querySelectorAll("[data-fillfacet]").forEach((b) => (b.onclick = (ev) => {
+      ev.stopPropagation();
+      // This is the OTHER door into the table view, so it carries the same rule
+      // as the 卡片/表格 toggle (codex round 3, P1): the card's unsaved buffer must
+      // not survive into the table, or a later card save writes stale facets over
+      // whatever the table committed in between. `setModule` clears it on a real
+      // page change but returns early when the page does not move — and 「未填 ·
+      // 去填写」 is reachable from ⑦'s own card view, which is exactly that case.
+      if (ui.dirty && !window.confirm("当前视图有未保存的修改，切换将丢弃？")) return;
+      ui.dirty = false;
+      ui.buffer = {};
+      ui.tableView = true;
+      ui.tableFocus = { shotId: b.dataset.shot || null, field: b.dataset.fillfacet };
+      // `shots`, not `storyboard`: the page has TWO sections and only one of them
+      // renders the shot list. Naming the page alone would leave whichever section
+      // was last open — 场景 — and the creator would arrive at a page that does not
+      // contain the cell they were sent to fill (ADR-0063 决策 1).
+      setModule("shots");
+      render();
+    }));
     // The CROSS-SPACE entrances — bound LAST, and centrally: entering an episode
     // is a SHELL decision (switch the active episode AND open one of its stages),
     // so it must not be re-implemented per workspace. Binding after the

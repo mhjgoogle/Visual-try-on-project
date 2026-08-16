@@ -118,9 +118,15 @@ export function renderImageWs(ctx, ui) {
         : `<div class="meta">镜头身份未解析 — 无法定位媒体槽位。</div>`) +
       `<div class="shotmeta">` +
       `<div class="kv full"><span class="k">画面内容</span><span class="v">${esc(d.shot.description || "（未填写）")}</span></div>` +
-      `<div class="kv"><span class="k">景别</span><span class="v">${esc(d.shot.shotSize || "未定")}</span></div>` +
-      `<div class="kv"><span class="k">角度</span><span class="v">${esc(d.shot.angle || "未定")}</span></div>` +
-      `<div class="kv"><span class="k">情绪</span><span class="v">${esc(d.shot.emotion || "未定")}</span></div>` +
+      // same rule as `renderShotMeta` (TASK-078 §2.1): an unfilled facet points at
+      // where it gets filled instead of just declaring itself unfilled
+      [["景别", "shotSize"], ["角度", "angle"], ["情绪", "emotion"], ["光影氛围", "lighting"]]
+        .map(([label, field]) =>
+          `<div class="kv"><span class="k">${esc(label)}</span>` +
+          (d.shot[field]
+            ? `<span class="v">${esc(d.shot[field])}</span>`
+            : `<button class="v todo" data-fillfacet="${esc(field)}" data-shot="${esc(d.shot.shotId || "")}">未填 · 去填写</button>`) +
+          `</div>`).join("") +
       `</div></div>`;
   }
 

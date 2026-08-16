@@ -39,7 +39,14 @@ _ASYNC_HEADERS = {"X-Motv-Runtime": "1", "X-Motv-Async": "1"}
 #: The SKILL's shape (TASK-075 §1.6): an object holding `shots`, not a bare
 #: array. The endpoint's RESPONSE key is still `shots` — only what the model
 #: is asked for changed.
-_SHOTS_ANSWER = '{"shots":[{"title":"t","description":"d","duration_seconds":6}]}'
+#: A VALID `storyboard-director` answer. 景别 / 运镜 became required at
+#: skillVersion 2 (TASK-078 §2.1), so a fixture without them is now refused by
+#: the package's own contract — which is the point of the change, not a quirk of
+#: this file.
+_SHOTS_ANSWER = (
+    '{"shots":[{"title":"t","description":"d",'
+    '"shotSize":"中近景","cameraMotion":"固定机位","duration_seconds":6}]}'
+)
 #: A TEXT product as a creator would submit it — no model wrapper, because a
 #: person has none to give.
 _SCRIPT_TEXT = "【金銮殿·日】\n正文"

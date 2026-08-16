@@ -121,9 +121,28 @@ def test_the_only_change_since_the_migration_was_proven_is_the_fence(
     )
     context = frozen["context"]
     assert len(frozen["prompts"]) == 20
+    frozen_version = {e["skillId"]: e["version"] for e in frozen["catalog"]}
 
+    # A DELIBERATE REVISION IS ALLOWED — AND ONLY WITH A VERSION BUMP.
+    #
+    # This test's real invariant is ADR-0067 决策 3: the prompt may change iff the
+    # author said so by raising `skillVersion`. Freezing the text forever would
+    # make every intended contract change look like drift, and pinning an
+    # exempt-skill list here would mean editing this file each time — so the
+    # exemption is derived from the packages themselves and is never silent.
+    # `storyboard-director` v2 is the first user of it (TASK-078 §2.1: 景别/运镜
+    # became required after the live project drafted 60 shots with neither).
+    revised = []
     for skill_id, before in frozen["prompts"].items():
         skill = catalog.skills[skill_id]
+        was = frozen_version[skill_id]
+        if skill.version != was:
+            assert skill.version > was, (
+                f"{skill_id}: skillVersion went BACKWARDS ({was} → {skill.version}) — "
+                "a historical Run points at the higher one"
+            )
+            revised.append(skill_id)
+            continue
         want = before
         for key in (*skill.inputs, *skill.optional_inputs):
             if key not in context or context[key] is None:
@@ -139,6 +158,11 @@ def test_the_only_change_since_the_migration_was_proven_is_the_fence(
             want = want.replace(plain, fenced, 1)
         got = skillpkg.compile_prompt(skill, context, labels)
         assert got == want, f"{skill_id}: something other than the fence changed"
+
+    # …and the exemption stays NARROW. If every package drifted onto a new
+    # version this test would pass while checking nothing, which is the vacuous
+    # -pass failure the rest of this file is careful about.
+    assert len(revised) < len(frozen["prompts"]) // 2, revised
 
 
 def test_the_two_compilers_agree_on_every_skill(catalog, labels, snapshot) -> None:

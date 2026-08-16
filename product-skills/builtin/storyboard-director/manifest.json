@@ -1,6 +1,6 @@
 {
   "skillId": "storyboard-director",
-  "skillVersion": 1,
+  "skillVersion": 2,
   "work": "creative",
   "role": "分镜导演",
   "title": "Storyboard Director",
@@ -17,6 +17,7 @@
   "reviewCriteria": [
     "镜头序列连起来是否真的讲完了这个场景",
     "每个镜头是否单独可生成（不依赖只有导演脑子里有的信息）",
+    "景别与运镜是否每一镜都写了，且不是「常规」这类等于没写的词",
     "时长是否只用 6 / 10 秒"
   ],
   "recommendedRuntime": "local_subscription"

@@ -18,7 +18,13 @@ import pytest
 _REPO = Path(__file__).resolve().parents[1]
 _MOCKUP = _REPO / "mockups" / "motv-workspace"
 
-_SHOTS = '{"shots":[{"title":"t","description":"d","duration_seconds":6}]}'
+#: A MINIMAL VALID answer for `storyboard-director`. 景别与运镜 became REQUIRED
+#: at skillVersion 2 (TASK-078 §2.1) — the real project drafted 60 shots with
+#: neither, because both were optional and the model duly skipped them.
+_SHOTS = (
+    '{"shots":[{"title":"t","description":"d",'
+    '"shotSize":"中近景","cameraMotion":"固定机位","duration_seconds":6}]}'
+)
 _OUTLINE = (
     '{"premise":"p","logline":"l","centralConflict":"c",'
     '"storyArc":"a","climax":"x","ending":"e"}'
@@ -200,12 +206,33 @@ def test_user_text_is_fenced_and_its_closing_tags_are_inert(srv, monkeypatch) ->
 def test_the_answer_is_judged_by_the_packages_contract(srv, monkeypatch) -> None:
     """The endpoint's own parser is gone: the Skill's `output.schema.json` is
     what an answer is held to, whoever produced it."""
-    _stub(srv, monkeypatch, '{"shots":[{"title":"t","description":"d"}]}')
+    _stub(
+        srv,
+        monkeypatch,
+        '{"shots":[{"title":"t","description":"d",'
+        '"shotSize":"中近景","cameraMotion":"固定机位"}]}',
+    )
     app = srv._App(None, None)
     status, body = _post(app, "/api/agent/shots-draft", {"script": "s"})
     assert status == 502
     assert body["error"]["category"] == "agent_bad_output"
     assert "duration_seconds" in body["error"]["detail"]
+
+
+def test_the_contract_that_is_enforced_is_the_one_on_disk(srv, monkeypatch) -> None:
+    """TASK-078 §2.1: 景别 / 运镜 are required by `output.schema.json`, and the
+    endpoint holds the answer to it — the same gate the page uses, not a second
+    lenient parser behind the HTTP boundary."""
+    _stub(
+        srv,
+        monkeypatch,
+        '{"shots":[{"title":"t","description":"d","duration_seconds":6}]}',
+    )
+    app = srv._App(None, None)
+    status, body = _post(app, "/api/agent/shots-draft", {"script": "s"})
+    assert status == 502
+    assert body["error"]["category"] == "agent_bad_output"
+    assert "shotSize" in body["error"]["detail"]
 
 
 def test_the_legacy_response_keys_are_unchanged(srv, monkeypatch) -> None:
@@ -217,7 +244,14 @@ def test_the_legacy_response_keys_are_unchanged(srv, monkeypatch) -> None:
     # the ADAPTER's job: the package answers `{shots: […]}`, the caller still
     # gets the legacy list under `shots`, with `sequence` filled in
     assert body["shots"] == [
-        {"sequence": 1, "title": "t", "description": "d", "duration_seconds": 6.0}
+        {
+            "sequence": 1,
+            "title": "t",
+            "description": "d",
+            "shotSize": "中近景",
+            "cameraMotion": "固定机位",
+            "duration_seconds": 6.0,
+        }
     ]
 
 
@@ -384,7 +418,13 @@ def _shots_answer(n: int) -> str:
     return json.dumps(
         {
             "shots": [
-                {"title": f"S1-{i:02d}", "description": "描述", "duration_seconds": 6}
+                {
+                    "title": f"S1-{i:02d}",
+                    "description": "描述",
+                    "shotSize": "中近景",
+                    "cameraMotion": "固定机位",
+                    "duration_seconds": 6,
+                }
                 for i in range(1, n + 1)
             ]
         },

@@ -12,6 +12,8 @@
         "required": [
           "title",
           "description",
+          "shotSize",
+          "cameraMotion",
           "duration_seconds"
         ],
         "fields": {
@@ -25,13 +27,17 @@
           },
           "shotSize": {
             "type": "string",
-            "nonEmpty": false
+            "nonEmpty": true
           },
           "angle": {
             "type": "string",
             "nonEmpty": false
           },
           "cameraMotion": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "lighting": {
             "type": "string",
             "nonEmpty": false
           },

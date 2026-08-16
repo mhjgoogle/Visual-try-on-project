@@ -25,12 +25,21 @@ import { listReferences, derivedLabel, INTERPRETATION_KINDS } from "../workflow/
 import { interpretationInputs } from "../workflow/refinterp.js";
 import * as refuse from "../workflow/refuse.js";
 import { bindingOf, describeBinding } from "../workflow/framebind.js";
+import { shotTableModel, renderShotTable, bindShotTable, tableDirty } from "./shottable.js";
 
 
 const ORIGIN_ZH = {
   upload: "手工上传", "paid-image": "付费生成", "paid-video": "付费生成",
   adopted: "付费入槽", tts: "本地 TTS", compose: "本地合成",
 };
+
+/** The draft-shot fields the detail editor writes. ONE list, used by the form,
+ *  by the save mapping AND by the 「有没有真的改动」 check — those three drifting
+ *  apart is how a field gets an input box that saves nothing (TASK-078 §2.1). */
+const DETAIL_FIELDS = [
+  "title", "description", "action", "cameraMotion", "dialogue",
+  "shotSize", "angle", "emotion", "lighting",
+];
 
 // ---------- pure view-models --------------------------------------------- //
 
@@ -407,6 +416,10 @@ export function shotDetailModel(pd, shotId) {
       shotSize: s.shotSize || "",
       angle: s.angle || "",
       emotion: s.emotion || "",
+      // 光影氛围 (TASK-078 §2.1) — new, additive, no migration. It is compiled
+      // into 【镜头规格】 alongside 景别/角度/情绪, so filling it changes the prompt
+      // rather than only the display.
+      lighting: s.lighting || "",
     },
     scene: owner
       ? { sceneId: owner.scene.sceneId, title: owner.scene.title, ...sceneRefsView(prod, owner.scene) }
@@ -482,6 +495,24 @@ export function buildPortraitIndex(pd) {
   for (const c of (prod && prod.characters) || []) add(c.characterId, c.activeReferenceAssetId, c.referenceAssetIds);
   for (const l of (prod && prod.locations) || []) add(l.locationId, l.activeReferenceAssetId, l.referenceAssetIds);
   return (kind, id) => out.get(id) || "";
+}
+
+/** The table view's model, with THIS module's compiler and portrait lookup
+ *  injected — so the table's 「提示词 · 缺 N」 column reports gaps for the exact
+ *  prompt the generation entry would send, and 「有参考图」 means what the bible
+ *  cards mean by it. */
+export function tableModel(pd, ui = {}) {
+  return shotTableModel(pd, {
+    buffer: ui.tbuf || {},
+    deleted: ui.tdel || [],
+    // `shots` is the draft WITH the unsaved buffer applied (codex round 1, P2).
+    // Compiling against `pd.draftShots` meant the 提示词 column reported the gap
+    // count of the text the creator had just replaced — 「运镜为空」 next to a 运镜
+    // they were looking at. Everything else about the read model is untouched:
+    // media, references, frames and provenance still come from `pd`.
+    detailOf: (shotId, shots) => shotDetailModel({ ...pd, draftShots: shots }, shotId),
+    portraitFor: buildPortraitIndex(pd),
+  });
 }
 
 /// ---------- render --------------------------------------------------------- //
@@ -570,6 +601,15 @@ function detailHtml(ctx, d, ui) {
       `<div class="kv full"><label class="lab">画面内容</label><textarea class="field" rows="3" spellcheck="false" data-sf="description">${esc(val("description", d.shot.description))}</textarea></div>` +
       `<div class="kv"><label class="lab">动作</label><textarea class="field" rows="2" spellcheck="false" data-sf="action" placeholder="例如：她抬手碰了一下纱布，随即放下">${esc(val("action", d.shot.action))}</textarea></div>` +
       `<div class="kv"><label class="lab">运镜</label><textarea class="field" rows="2" spellcheck="false" data-sf="cameraMotion" placeholder="例如：低角度缓慢推近至面部特写">${esc(val("cameraMotion", d.shot.cameraMotion))}</textarea></div>` +
+      // 景别 / 角度 / 情绪 / 光影氛围 — THE INPUTS THAT WERE MISSING (TASK-078 §2.1).
+      // All four were already displayed in four read-only places and compiled into
+      // the Image Prompt, and NONE of them had anywhere to be typed. That is the
+      // whole reason the real project reads 「未记录」 on every shot: not a model
+      // failure, a form with no field.
+      `<div class="kv"><label class="lab">景别</label><input class="field" maxlength="200" data-sf="shotSize" placeholder="例如：中近景 / 特写 / 全景" value="${esc(val("shotSize", d.shot.shotSize))}"></div>` +
+      `<div class="kv"><label class="lab">机位角度</label><input class="field" maxlength="200" data-sf="angle" placeholder="例如：低角度仰拍 / 俯视 / 过肩" value="${esc(val("angle", d.shot.angle))}"></div>` +
+      `<div class="kv"><label class="lab">情绪</label><input class="field" maxlength="200" data-sf="emotion" placeholder="例如：压抑、克制的紧张" value="${esc(val("emotion", d.shot.emotion))}"></div>` +
+      `<div class="kv"><label class="lab">光影氛围</label><input class="field" maxlength="200" data-sf="lighting" placeholder="例如：冷白顶光，屏幕反光打在脸侧" value="${esc(val("lighting", d.shot.lighting))}"></div>` +
       `<div class="kv"><label class="lab">台词 / 旁白</label><textarea class="field" rows="2" spellcheck="false" data-sf="dialogue" placeholder="例如：「你到底是谁？」">${esc(val("dialogue", d.shot.dialogue))}</textarea></div>` +
       `<div class="kv"><label class="lab">时长</label><select class="field" data-sf="duration">${(() => {
         const dur = "duration" in buf ? +buf.duration : d.shot.duration;
@@ -674,14 +714,25 @@ export function renderStoryboard(ctx, ui) {
     ? `<button class="btn sm${m.lock ? " primary" : ""}" data-wz-open ` +
       `title="确认镜头 → 准备资产 → 合成提示词 → 批量生视频">→ 准备资产</button>`
     : "";
+  // 卡片 ⇄ 表格 — BOTH, not one replacing the other (TASK-078 §2.2). The card
+  // view is how you look at ONE shot; the table is how you compare sixty. A
+  // storyboard needs both and the creator picks per task.
+  const viewToggle =
+    `<div class="segbtn">` +
+    `<button class="btn sm${ui.tableView ? "" : " primary"}" data-sb-view="cards">卡片</button>` +
+    `<button class="btn sm${ui.tableView ? " primary" : ""}" data-sb-view="table">表格</button>` +
+    `</div>`;
+  const header = head(
+    m.episode ? m.episode.title : "分镜",
+    meta,
+    (m.episodeEmpty ? `<button class="btn sm" data-goto="episodes">→ 去剧集归入镜头</button>` : "") +
+      viewToggle +
+      wizardBtn +
+      `<button class="btn sm" data-sb-generate>↻ 重新生成（新版本）</button>`,
+  );
+  if (ui.tableView) return header + renderShotTable(ctx, tableModel(pd, ui), ui);
   return (
-    head(
-      m.episode ? m.episode.title : "分镜",
-      meta,
-      (m.episodeEmpty ? `<button class="btn sm" data-goto="episodes">→ 去剧集归入镜头</button>` : "") +
-        wizardBtn +
-        `<button class="btn sm" data-sb-generate>↻ 重新生成（新版本）</button>`,
-    ) +
+    header +
     renderSceneStrip(m.scenes, selScene ? selScene.sceneId : null) +
     `<div class="wsplit">` +
     `<div class="listcol">${renderShotList(m.scenes, m.unassigned, selected)}</div>` +
@@ -705,9 +756,19 @@ export function bindStoryboard(root, ctx, ui, rerender) {
       if (!ctx.script.hasContent()) { ctx.toast("剧本为空：先在「剧本」工作区生成/输入剧本"); return; }
       // regeneration replaces the draft: unsaved edits would strand against
       // shots that no longer exist — same confirm-discard gate as switching
-      if (ui.dirty && !window.confirm("镜头详情有未保存的修改，重新生成将丢弃？")) return;
+      const pending = ui.dirty || tableDirty(ctx.prodData().draftShots || [], {
+        buffer: ui.tbuf || {}, deleted: ui.tdel || [],
+      });
+      if (pending && !window.confirm("镜头详情有未保存的修改，重新生成将丢弃？")) return;
       ui.dirty = false;
       ui.buffer = {};
+      // …and the TABLE's buffer too. A regenerated draft mints fresh shot ids, so
+      // every buffered row would key against a shot that no longer exists — kept,
+      // it is invisible edits that can never be saved and never be found.
+      ui.tbuf = {};
+      ui.tdel = [];
+      ui.tableEdit = null;
+      ui.tableDirty = false;
       ui.selectedShotId = null; // the regenerated draft mints fresh shot ids
       if (!ctx.shots.generateDraft()) ctx.toast("已有一个生成在进行中");
     };
@@ -723,6 +784,38 @@ export function bindStoryboard(root, ctx, ui, rerender) {
       // pipeline is the same, it just has no node to tick off.
       ctx.wizard.open(null);
     };
+  // 卡片 ⇄ 表格.
+  //
+  // AT MOST ONE DIRTY BUFFER, EVER (codex round 3, P1). The two views edit the
+  // SAME draft-shot fields through two separate buffers, and carrying both
+  // across a switch made this possible: edit 景别 on the card, switch, edit 景别
+  // in the table, save the table — then go back and change only the 镜头名. The
+  // card's save writes EVERY key still in its stale buffer, so the 景别 that was
+  // just committed is silently reverted by an edit the creator made to something
+  // else entirely. A change nobody asked for and nobody saw.
+  //
+  // So leaving a dirty view DISCARDS its buffer, behind the same confirm this
+  // file already uses for switching shots and for regenerating — one gate, one
+  // wording, and afterwards only one view can be holding unsaved work.
+  root.querySelectorAll("[data-sb-view]").forEach((el) => (el.onclick = () => {
+    const toTable = el.dataset.sbView === "table";
+    if (toTable === !!ui.tableView) return; // already there — nothing to discard
+    const leavingDirty = toTable
+      ? ui.dirty
+      : tableDirty(ctx.prodData().draftShots || [], { buffer: ui.tbuf || {}, deleted: ui.tdel || [] });
+    if (leavingDirty && !window.confirm("当前视图有未保存的修改，切换将丢弃？")) return;
+    if (toTable) {
+      ui.dirty = false;
+      ui.buffer = {};
+    } else {
+      ui.tbuf = {};
+      ui.tdel = [];
+      ui.tableEdit = null;
+    }
+    ui.tableView = toTable;
+    rerender();
+  }));
+  if (ui.tableView) { bindShotTable(root, ctx, ui, rerender); return; }
   bindShotSelection(root, ctx, ui, rerender);
   bindShotEditor(root, ctx, ui, rerender);
   bindShotMedia(root, ctx, ui);
@@ -789,7 +882,7 @@ export function bindShotEditor(root, ctx, ui, rerender) {
     const items = draft.map((s) => {
       if (!s || s.shotId !== ui.selectedShotId) return { ...s };
       const n = { ...s };
-      for (const k of ["title", "description", "action", "cameraMotion", "dialogue"]) {
+      for (const k of DETAIL_FIELDS) {
         if (k in buffer) n[k] = buffer[k];
       }
       if ("duration" in buffer) n.duration_seconds = +buffer.duration;
@@ -799,7 +892,7 @@ export function bindShotEditor(root, ctx, ui, rerender) {
     // no effective change → no version churn (an identical draft version would
     // only pollute the history)
     const after = items.find((s) => s.shotId === ui.selectedShotId);
-    const changed = ["title", "description", "action", "cameraMotion", "dialogue"]
+    const changed = DETAIL_FIELDS
       .some((k) => (after[k] || "") !== (before[k] || ""))
       || after.duration_seconds !== before.duration_seconds;
     if (!changed) { ctx.toast("没有修改 — 未创建新版本"); return; }

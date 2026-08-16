@@ -3998,7 +3998,15 @@ function updateQueueBar() {
     },
   );
 }
-ctx.wizard = createWizard({ estimate: { open: (o) => ctx.estimate(o) }, getProject: () => ctx.project, refresh: (n) => engine.refreshBody(n) });
+ctx.wizard = createWizard({
+  estimate: { open: (o) => ctx.estimate(o) },
+  getProject: () => ctx.project,
+  // TASK-078 §2.3.3: step ② counts ENTITIES with/without a reference image, which
+  // needs the production document and the asset registry — `ctx.project` holds
+  // neither. Same read model every workspace uses; the wizard writes nothing.
+  prodData: () => ctx.prodData(),
+  refresh: (n) => engine.refreshBody(n),
+});
 ctx.shotEditor = createShotEditor({ toast });
 
 // --- Production ⇄ Workflow views (creator-facing shell vs node canvas) ------

@@ -249,12 +249,21 @@ export function renderLineage(d) {
  *  with, never full-width form rows. */
 export function renderShotMeta(shot) {
   const kv = (k, v, cls = "") => (v ? `<div class="kv ${cls}"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>` : "");
+  // A BLANK FACET IS A TODO, NOT A FACT (TASK-078 §2.1). 「未定」 was a dead end:
+  // it told the creator something was missing and then gave them nowhere to put
+  // it — and for three of these fields there was, until this card, no input box
+  // anywhere in the product. The empty value now carries the way to fill it.
+  const fill = (k, field) =>
+    `<div class="kv"><span class="k">${esc(k)}</span>` +
+    `<button class="v todo" data-fillfacet="${esc(field)}" data-shot="${esc(shot.shotId || "")}">未填 · 去填写</button></div>`;
+  const facet = (k, v, field) => (v ? kv(k, v) : fill(k, field));
   return (
     `<div class="shotmeta">` +
-    kv("景别", shot.shotSize || "未定") +
-    kv("角度", shot.angle || "未定") +
+    facet("景别", shot.shotSize, "shotSize") +
+    facet("角度", shot.angle, "angle") +
     kv("时长", `${shot.duration}s`) +
-    kv("情绪", shot.emotion || "未定") +
+    facet("情绪", shot.emotion, "emotion") +
+    facet("光影氛围", shot.lighting, "lighting") +
     kv("运镜", shot.cameraMotion, "span2") +
     kv("动作", shot.action, "span2") +
     kv("画面内容", shot.description, "full") +

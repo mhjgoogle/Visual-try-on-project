@@ -1339,3 +1339,123 @@
 .pc-specrow { display: flex; gap: var(--s2); font-size: var(--t-micro); color: var(--text-faint); }
 .pc-specrow-fail .pc-specd { color: var(--bad); }
 .pc-speck { font-weight: 600; }
+
+/* ========================================================================= */
+/* 分镜表格视图（TASK-078 §2.2/§2.3）                                         */
+/*                                                                            */
+/* 一屏之内横向可比：60 行镜头，景别 / 光影 / 运镜 各成一列，缺的地方一眼就看  */
+/* 得见。卡片视图回答「这一个镜头是什么」，这张表回答「这一批对不对」，两者    */
+/* 并存而不是互相取代。                                                       */
+/* ========================================================================= */
+
+/* 卡片 ⇄ 表格 的分段切换 —— 两个按钮贴在一起，读作一个控件 */
+.segbtn { display: inline-flex; gap: 1px; }
+.segbtn .btn { border-radius: 0; }
+.segbtn .btn:first-child { border-radius: var(--r1) 0 0 var(--r1); }
+.segbtn .btn:last-child { border-radius: 0 var(--r1) var(--r1) 0; }
+
+/* 表头那一条：真实的「准备资产 N/M」，以及三个刻面的缺口计数 */
+.sbt-bar {
+  display: flex; align-items: baseline; gap: var(--s4); flex-wrap: wrap;
+  padding: var(--s3) var(--s4); margin-bottom: var(--s2);
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r2);
+}
+.sbt-stat { font-weight: 700; font-size: var(--t-md); color: var(--gate); }
+.sbt-stat.ok { color: var(--ok); }
+.sbt-note { color: var(--text-faint); font-size: var(--t-micro); line-height: 1.7; }
+
+.sbt-save {
+  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  padding: 0 var(--s2) var(--s3);
+}
+
+/* 宽内容自己横向滚，页面本体不横向滚 */
+.sbt-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r2); }
+.sbt { width: 100%; border-collapse: collapse; font-size: var(--t-sm); min-width: 1100px; }
+.sbt th {
+  position: sticky; top: 0; z-index: 1;
+  text-align: left; font-size: var(--t-micro); font-weight: 700; letter-spacing: .06em;
+  color: var(--text-faint); background: var(--panel-2);
+  border-bottom: 1px solid var(--line-2); padding: var(--s2) var(--s3); white-space: nowrap;
+}
+.sbt td { padding: var(--s2) var(--s3); border-bottom: 1px solid var(--line); vertical-align: top; }
+.sbt-row:hover td { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+
+.sbt-h-description, .sbt-descc { min-width: 260px; }
+.sbt-h-prompt, .sbt-promptc { min-width: 180px; }
+.sbt-h-seq, .sbt-seq { min-width: 120px; }
+
+.sbt-seq .mono { font-weight: 700; color: var(--text-dim); }
+.sbt-title { color: var(--text-faint); font-size: var(--t-micro); line-height: 1.5; margin-top: 2px; }
+
+/* 就地编辑：单元格看上去仍是单元格，点进去就能打字 */
+.sbt-in {
+  width: 100%; min-width: 90px; box-sizing: border-box;
+  background: transparent; color: var(--text);
+  border: 1px solid transparent; border-radius: var(--r1);
+  padding: 3px var(--s2); font: inherit;
+}
+.sbt-in:hover { border-color: var(--line-2); }
+.sbt-in:focus { border-color: var(--accent); background: var(--panel); outline: none; }
+.sbt-in::placeholder { color: var(--text-faint); opacity: .7; }
+/* 从「未填 · 去填写」跳过来的那一格 —— 只高亮这一次 */
+.sbt-focus { border-color: var(--accent); background: var(--accent-soft); }
+
+.sbt-area {
+  width: 100%; box-sizing: border-box; resize: vertical;
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--accent); border-radius: var(--r1);
+  padding: var(--s2); font: inherit; line-height: 1.6;
+}
+.sbt-desc { line-height: 1.7; cursor: text; }
+.sbt-fill {
+  background: none; border: 1px dashed var(--gate); color: var(--gate);
+  border-radius: var(--r1); padding: 2px var(--s2); font: inherit; cursor: pointer;
+}
+
+/* 描述里的实体 —— 是链接，不是高亮色块：点它去这个人物 / 场景地自己的卡片 */
+.sbt-ent {
+  background: none; border: none; padding: 0; font: inherit; cursor: pointer;
+  color: var(--link); border-bottom: 1px dashed var(--link);
+}
+.sbt-ent:hover { color: var(--link-glow); border-bottom-style: solid; }
+
+.sbt-prompt {
+  display: flex; align-items: center; gap: var(--s2); width: 100%;
+  background: none; border: none; padding: 0; font: inherit; cursor: pointer;
+  color: var(--text-dim); text-align: left;
+}
+.sbt-ptext {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--t-micro);
+}
+.sbt-prompt:hover .sbt-ptext { color: var(--text); }
+
+.sbt-mute { color: var(--text-faint); }
+.sbt-sfx { white-space: nowrap; }
+.sbt-mini {
+  background: none; border: 1px solid var(--line-2); color: var(--text-faint);
+  border-radius: var(--r1); padding: 1px var(--s2); font-size: var(--t-micro); cursor: pointer;
+}
+.sbt-mini:hover { color: var(--text); border-color: var(--line-3); }
+.sbt-danger:hover { color: var(--bad); border-color: var(--bad); }
+.sbt-ops { display: flex; flex-direction: column; gap: var(--s1); min-width: 110px; }
+.sbt-color { font-size: var(--t-micro); }
+
+/* 行标记：一条左边线，不给整行上色 —— 表格首先要好读 */
+.sbt-c-red    td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
+.sbt-c-amber  td:first-child { box-shadow: inset 3px 0 0 var(--gate); }
+.sbt-c-green  td:first-child { box-shadow: inset 3px 0 0 var(--ok); }
+.sbt-c-blue   td:first-child { box-shadow: inset 3px 0 0 var(--gen); }
+.sbt-c-violet td:first-child { box-shadow: inset 3px 0 0 var(--prompt); }
+
+/* 待删除：仍然在表上、仍然可撤销 —— 保存之前什么都没发生 */
+.sbt-del td { opacity: .45; text-decoration: line-through; }
+.sbt-del .sbt-mini { opacity: 1; text-decoration: none; }
+
+/* 「未填 · 去填写」在只读刻面显示处 */
+.shotmeta .v.todo {
+  background: none; border: 1px dashed var(--gate); color: var(--gate);
+  border-radius: var(--r1); padding: 1px var(--s2); font: inherit; cursor: pointer;
+}
+.shotmeta .v.todo:hover { background: color-mix(in srgb, var(--gate) 12%, transparent); }
