@@ -348,8 +348,11 @@ export function renderAssetLibrary(ctx, ui, { mode = "page", shotId = null } = {
   const open = ui.alOpen ? m.rows.find((r) => r.assetId === ui.alOpen) || ctx.assets.libraryOne(ui.alOpen) : null;
   // Counted over the WHOLE library, not the current filter: 「有两个文件不在了」 is a
   // fact about the project, and hiding it behind a filter is how it stayed
-  // invisible for a release.
-  const goneCount = m.rows.filter((a) => a.storageState === "local" && isGone(a.url)).length;
+  // invisible for a release. `m.rows` is the FILTERED set — counting that would
+  // report 0 the moment the creator picked 音频, which is the exact disappearing
+  // act this line exists to prevent.
+  const allRows = ctx.mediaProbe ? ctx.assets.library({ type: "all", variant: "all" }).rows : [];
+  const goneCount = allRows.filter((a) => a.storageState === "local" && isGone(a.url)).length;
   const heading = drawer
     ? drawerTop(shotId)
     : head(

@@ -22,7 +22,7 @@ import assert from "node:assert/strict";
 
 import { mapStanding, yenOf, UNKNOWN, money } from "../src/services/realmap.js";
 import {
-  createMediaProbe, registryUrls, isProbeable, MISSING, PRESENT,
+  createMediaProbe, registryUrls, isProbeable, MISSING, PRESENT, INCONCLUSIVE,
 } from "../src/services/mediaprobe.js";
 import { storageModel } from "../src/ui/storagews.js";
 import {
@@ -220,14 +220,34 @@ test("data:/blob: URLs are not probeable — the demo seed can never look 'missi
   assert.equal(isProbeable("data:image/svg+xml;base64,AAA"), false);
   assert.equal(isProbeable("blob:http://x/y"), false);
   assert.equal(isProbeable("/api/uploads/p/x.png"), true);
-  assert.equal(isProbeable("https://x/y.png"), true);
+  // TIGHTENED after codex rounds 1–2: an ABSOLUTE http(s) URL is no longer
+  // probeable either. Nothing in this app mints one (every registry url is
+  // `/api/uploads/…`), and allowing it is the same「stored data aims the browser」
+  // exposure as the protocol-relative spellings below, just spelled openly.
+  assert.equal(isProbeable("https://x/y.png"), false);
   assert.equal(registryUrls({ images: { a: { current: 1, history: [{ assetId: "A", version: 1, url: "data:image/png;base64,A" }] } } }).length, 0);
+});
+
+test("real project paths stay probeable — including CJK and query strings", () => {
+  for (const u of [
+    "/api/uploads/照见未明rev2/assets-ref-c6e26bfb_v1.png",
+    "/api/uploads/p/a b.png",
+    "/x.png?v=1#frag",
+    "/%5Cnot-a-host/x.png", // percent-encoded backslash is a PATH, not a host
+  ]) {
+    assert.equal(isProbeable(u), true, u);
+  }
 });
 
 test("the probe records what the server answered, and re-scans nothing", async () => {
   const asked = [];
   const probe = createMediaProbe({
-    fetchImpl: async (url) => { asked.push(url); return { ok: url !== GONE_A }; },
+    // a REAL server answer, status included: the missing file is a 404, which is
+    // the only kind of failure allowed to mean 「不在磁盘上」
+    fetchImpl: async (url) => {
+      asked.push(url);
+      return url === GONE_A ? { ok: false, status: 404 } : { ok: true, status: 200 };
+    },
   });
   assert.equal(await probe.scan([GONE_A, "/ok.png"]), true);
   assert.equal(probe.stateOf(GONE_A), MISSING);
@@ -237,6 +257,179 @@ test("the probe records what the server answered, and re-scans nothing", async (
   // calling it again from a render loop must not spin
   assert.equal(await probe.scan([GONE_A, "/ok.png"]), false);
   assert.deepEqual(asked, [GONE_A, "/ok.png"]);
+});
+
+test("ONLY a definitive answer says missing — a declined question does not (codex R1 P1)", async () => {
+  // The first version recorded EVERY non-2xx and every thrown error as MISSING,
+  // permanently. A server that serves GET but rejects HEAD (405/501), a 5xx blip,
+  // or one dropped request would then have labelled a file that is right there
+  // 「媒体文件已不在磁盘上」 until reload — the same untrue state this card removes,
+  // produced by the check meant to remove it.
+  const cases = [
+    [404, MISSING, "the server answered ABOUT THE RESOURCE"],
+    [410, MISSING, "gone is also an answer about the resource"],
+    [405, INCONCLUSIVE, "method not allowed is about the REQUEST"],
+    [501, INCONCLUSIVE, "HEAD unimplemented is about the REQUEST"],
+    [500, INCONCLUSIVE, "a server fault says nothing about the file"],
+    [403, INCONCLUSIVE, "forbidden is not absent"],
+  ];
+  for (const [status, want, why] of cases) {
+    const probe = createMediaProbe({ fetchImpl: async () => ({ ok: false, status }) });
+    await probe.scan(["/x.png"]);
+    assert.equal(probe.stateOf("/x.png"), want, `${status}: ${why}`);
+    assert.equal(probe.isMissing("/x.png"), want === MISSING, `${status} must not over-claim`);
+  }
+  // a thrown request (network down, CORS, abort) is not evidence about the file
+  const boom = createMediaProbe({ fetchImpl: async () => { throw new Error("network"); } });
+  await boom.scan(["/y.png"]);
+  assert.equal(boom.stateOf("/y.png"), INCONCLUSIVE);
+  assert.equal(boom.isMissing("/y.png"), false);
+  assert.deepEqual(boom.missingUrls(), []);
+});
+
+test("an inconclusive answer is recorded, so a render loop does not re-ask forever", async () => {
+  let asked = 0;
+  const probe = createMediaProbe({
+    fetchImpl: async () => { asked += 1; return { ok: false, status: 405 }; },
+  });
+  assert.equal(await probe.scan(["/x.png"]), true, "learning 「问不出来」 is still a change");
+  assert.equal(await probe.scan(["/x.png"]), false, "…and it is not asked again");
+  assert.equal(asked, 1);
+  assert.equal(probe.isKnown("/x.png"), true);
+});
+
+test("a browser LOAD failure may still say missing — it really tried to fetch the bytes", async () => {
+  // <img onerror> is evidence about the RESOURCE in a way a declined HEAD is not.
+  const probe = createMediaProbe({ fetchImpl: async () => ({ ok: false, status: 405 }) });
+  await probe.scan(["/x.png"]);
+  assert.equal(probe.isMissing("/x.png"), false);
+  assert.equal(probe.observe("/x.png", false), true, "the load failure overrides 「问不出来」");
+  assert.equal(probe.isMissing("/x.png"), true);
+});
+
+test("a non-positive batch size cannot wedge the scan loop (codex R1 P2)", async () => {
+  // `slice(i, i + 0)` is empty forever, so the loop never advances and the caller hangs.
+  for (const limit of [0, -3, NaN, "six", null]) {
+    const probe = createMediaProbe({ fetchImpl: async () => ({ ok: true }), limit });
+    assert.equal(await probe.scan(["/a.png", "/b.png", "/c.png"]), true, `limit=${String(limit)}`);
+    assert.equal(probe.stateOf("/c.png"), PRESENT);
+  }
+});
+
+test("NO spelling of another origin is ever probed — stored data must not aim the browser", () => {
+  // codex R1 flagged `//host`; `startsWith("//")` closed that ONE spelling and codex
+  // R2 immediately found `/\host`. Measured against Node's WHATWG parser, all five
+  // of these resolve to `http://evil.example` — which is why the check stopped
+  // matching prefixes and started asking the parser for the resolved origin.
+  const spellings = [
+    "//evil.example/x.png",
+    String.raw`/\evil.example/x.png`,
+    String.raw`/\/evil.example/x.png`,
+    String.raw`\\evil.example/x.png`,
+    String.raw`\/evil.example/x.png`,
+  ];
+  for (const u of spellings) {
+    assert.equal(
+      new URL(u, "http://localhost:8791/").origin, "http://evil.example",
+      `${JSON.stringify(u)} really does resolve off-origin — the test is testing the right thing`,
+    );
+    assert.equal(isProbeable(u), false, u);
+  }
+});
+
+test("…and none of them reaches fetch, the state map, or the scan list", async () => {
+  const evil = String.raw`/\evil.example/x.png`;
+  const asked = [];
+  const probe = createMediaProbe({ fetchImpl: async (u) => { asked.push(u); return { ok: true, status: 200 }; } });
+  await probe.scan([evil, "//evil.example/y.png", "/ok.png"]);
+  assert.deepEqual(asked, ["/ok.png"], "only the same-origin path was requested");
+  assert.equal(probe.observe(evil, false), false, "an <img> error on one cannot record it either");
+  assert.equal(probe.isMissing(evil), false);
+  assert.equal(registryUrls({
+    images: {
+      a: { current: 1, history: [{ assetId: "A", version: 1, url: evil }] },
+      b: { current: 1, history: [{ assetId: "B", version: 1, url: "//evil.example/y.png" }] },
+    },
+  }).length, 0, "a crafted registry contributes nothing to the scan list");
+});
+
+test("naming the validator's OWN sentinel host does not get you through (codex R3 P1)", () => {
+  // The single-base version accepted `//media-probe.invalid/x` — it resolved ONTO
+  // the sentinel, so the origin matched — while `fetch` would have resolved the raw
+  // string against the PAGE origin and gone out to the network. Validating against
+  // one base and fetching with another is the gap all three rounds lived in; the
+  // check is base-INDEPENDENCE now, so no host can be named, sentinel or otherwise.
+  for (const host of ["media-probe-a.invalid", "media-probe-b.invalid", "media-probe.invalid"]) {
+    assert.equal(isProbeable(`//${host}/x.png`), false, host);
+    assert.equal(isProbeable(`http://${host}/x.png`), false, host);
+    // a trailing backslash cannot end a String.raw template, so this one is escaped
+    assert.equal(isProbeable("/\\" + host + "/x.png"), false, host);
+  }
+  assert.equal(isProbeable("   "), false, "whitespace resolves to the base itself");
+  assert.equal(isProbeable(""), false);
+  assert.equal(isProbeable(null), false);
+  assert.equal(isProbeable(undefined), false);
+  assert.equal(isProbeable(42), false);
+});
+
+test("a value is probeable only if it names no host — the property, not a spelling list", () => {
+  // Stated as the PROPERTY the implementation checks, so a future parser change
+  // that invents a sixth spelling is caught by this test rather than by round 4.
+  const bases = ["http://alpha.example/", "https://beta.example:8443/deep/page"];
+  const baseIndependent = (u) => {
+    const origins = bases.map((b) => new URL(u, b).origin);
+    return origins.every((o, i) => o === new URL(bases[i]).origin);
+  };
+  for (const u of ["/api/uploads/p/x.png", "/x.png?v=1", "/%5Cnot-a-host/x.png"]) {
+    assert.equal(baseIndependent(u), true, `${u} is a real project path`);
+    assert.equal(isProbeable(u), true, u);
+  }
+  for (const u of [
+    "//evil.example/x", String.raw`/\evil.example/x`, String.raw`\\evil.example/x`,
+    String.raw`\/evil.example/x`, String.raw`/\/evil.example/x`, "//media-probe-a.invalid/x",
+  ]) {
+    assert.equal(baseIndependent(u), false, `${u} names a host`);
+    assert.equal(isProbeable(u), false, u);
+  }
+});
+
+test("a slow inconclusive HEAD cannot erase a proven load failure (codex R3 P1)", async () => {
+  // The scan is in flight while the page paints, so these two race by construction.
+  // The losing order was real: <img> fails → MISSING, then a 405 lands and wipes it,
+  // taking the honest placeholder and the storage count with it.
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const probe = createMediaProbe({
+    fetchImpl: async () => { await gate; return { ok: false, status: 405 }; },
+  });
+  const scanning = probe.scan(["/x.png"]);
+  assert.equal(probe.observe("/x.png", false), true, "the browser proved it cannot load");
+  assert.equal(probe.isMissing("/x.png"), true);
+  release();
+  await scanning;
+  assert.equal(probe.isMissing("/x.png"), true, "「问不出来」 must not overwrite 「试过，拿不到」");
+  assert.equal(probe.stateOf("/x.png"), MISSING);
+});
+
+test("…and the same protection covers a proven PRESENT", async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const probe = createMediaProbe({
+    fetchImpl: async () => { await gate; return { ok: false, status: 500 }; },
+  });
+  const scanning = probe.scan(["/y.png"]);
+  probe.observe("/y.png", true);
+  release();
+  await scanning;
+  assert.equal(probe.stateOf("/y.png"), PRESENT, "a 5xx blip must not un-prove a loaded image");
+});
+
+test("a DEFINITIVE answer still wins over an earlier inconclusive", async () => {
+  const probe = createMediaProbe({ fetchImpl: async () => ({ ok: false, status: 405 }) });
+  await probe.scan(["/z.png"]);
+  assert.equal(probe.stateOf("/z.png"), INCONCLUSIVE);
+  assert.equal(probe.observe("/z.png", false), true, "evidence may always replace a non-answer");
+  assert.equal(probe.stateOf("/z.png"), MISSING);
 });
 
 test("an unknown URL is NOT assumed present — three states, never two", () => {
@@ -502,6 +695,22 @@ function libCtx(rows, probe) {
     },
   };
 }
+
+test("the 「不在磁盘上」 count survives a filter — it is a fact about the project", () => {
+  // `m.rows` is the FILTERED set; counting it would report 0 the moment the creator
+  // picked 音频, and the whole point of the line is that this fact stops hiding.
+  const gone = LIB_ROW();
+  const other = LIB_ROW({ assetId: "a2", url: "/api/uploads/p/ok_v1.png", name: "别的" });
+  const ctx = libCtx([gone, other], { isMissing: (u) => u === GONE_A });
+  // simulate a filter that excludes the missing asset from the visible rows
+  ctx.assets.library = (f = {}) => ({
+    total: 2, shown: 1, unusedCount: 0, needsReview: 0,
+    counts: [{ id: "all", label: "全部", n: 2 }], tags: [],
+    rows: f.type === "all" && f.variant === "all" ? [gone, other] : [other],
+  });
+  const html = renderAssetLibrary(ctx, { alFilters: { type: "audio" } }, { mode: "page" });
+  assert.ok(html.includes("⚠ 1 个媒体文件已不在磁盘上"), "a filter must not hide it");
+});
 
 test("a card whose file is gone renders the honest placeholder, not <img src> at a 404", () => {
   const rows = [LIB_ROW()];

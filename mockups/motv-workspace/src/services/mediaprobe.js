@@ -19,15 +19,67 @@
 
 export const PRESENT = "present";
 export const MISSING = "missing";
+/** We ASKED and still do not know — the server refused the question (405/501),
+ *  failed (5xx), or the request itself blew up. Recorded so the scan does not ask
+ *  again on every render, and treated as NOT missing everywhere: a probe that
+ *  cannot tell must not be the thing that tells the creator their file is gone. */
+export const INCONCLUSIVE = "inconclusive";
 
-/** URLs this probe can ask a server about.
+/** Status codes that are a real ANSWER about the resource, not about the request.
+ *  Everything else is the server declining to answer. */
+const DEFINITELY_ABSENT = new Set([404, 410]);
+
+/** TWO hosts that cannot exist (`.invalid` is reserved, RFC 2606). Two, not one —
+ *  see `isProbeable`: a single sentinel can be named by the input. */
+const PROBE_BASE_A = "http://media-probe-a.invalid";
+const PROBE_BASE_B = "http://media-probe-b.invalid";
+
+/**
+ * URLs this probe can ask a server about: SAME-ORIGIN PROJECT PATHS ONLY.
  *
- *  `data:` / `blob:` carry their own bytes — there is nothing to be missing, and
- *  a `HEAD` against them either throws or is meaningless. The demo seed's inline
- *  SVG placeholders are exactly this case, which is also why the audit's defect
- *  is invisible under demo data. */
+ * `data:` / `blob:` carry their own bytes — there is nothing to be missing, and a
+ * `HEAD` against them either throws or is meaningless. The demo seed's inline SVG
+ * placeholders are exactly this case, which is also why the audit's defect is
+ * invisible under demo data.
+ *
+ * THE TEST IS BASE-INDEPENDENCE, NOT A LIST OF SPELLINGS (codex review rounds 1–3,
+ * all three blocking). The theme took three rounds because each fix was one notch
+ * too specific, and the notches are worth recording:
+ *
+ *   R1  `//host/path` accepted           → refused `startsWith("//")`
+ *   R2  `/\host/path` accepted           → browsers normalise `\` to `/`; FIVE
+ *                                          spellings escape a prefix check
+ *                                          (`//h` `/\h` `/\/h` `\\h` `\/h`)
+ *                                        → asked the URL parser for the origin
+ *   R3  `//media-probe.invalid/x` accepted → it resolves ONTO the sentinel, so the
+ *                                          single-base check passed — while `fetch`
+ *                                          would resolve it against the PAGE origin
+ *                                          and go out to the network
+ *
+ * R3 is the one that shows the real defect: validating against one base and then
+ * handing the RAW STRING to `fetch` (which resolves against another) leaves a gap,
+ * and every round was a different way to live in that gap. What actually
+ * characterises a safe value is that it does not depend on the base at all — a
+ * genuine project path lands on whatever origin it is resolved against, while any
+ * value that names a host lands on THAT host no matter the base.
+ *
+ * So it is resolved against two different impossible hosts and must come out on
+ * each. `/api/uploads/x.png` does; `//anything/x` cannot — including the sentinels
+ * themselves, which is what closes R3 without another special case.
+ */
 export function isProbeable(url) {
-  return typeof url === "string" && (url.startsWith("/") || /^https?:\/\//.test(url));
+  if (typeof url !== "string" || !url.trim()) return false;
+  // An explicit scheme is never a project path: `data:`/`blob:` carry their own
+  // bytes, `http(s)://…` names a host outright.
+  if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return false;
+  try {
+    const a = new URL(url, PROBE_BASE_A);
+    const b = new URL(url, PROBE_BASE_B);
+    // base-independent ⇒ it named no host of its own ⇒ it is a project path
+    return a.origin === PROBE_BASE_A && b.origin === PROBE_BASE_B && a.pathname === b.pathname;
+  } catch {
+    return false;
+  }
 }
 
 /** Every media URL the registry declares, deduped. Pure, so a test can state
@@ -66,35 +118,73 @@ export function registryUrls(reg) {
  *              check, not something a creator is waiting on.
  */
 export function createMediaProbe({ fetchImpl, limit = 6 } = {}) {
-  /** url → PRESENT | MISSING. Absent means NOT YET KNOWN, which is a third state
-   *  and is never collapsed into 「present」. */
+  /** url → PRESENT | MISSING | INCONCLUSIVE. Absent means NOT YET ASKED, which is
+   *  a fourth state and is never collapsed into 「present」. */
   const state = new Map();
   const inflight = new Set();
   const f = fetchImpl
     || (typeof fetch === "function" ? (url, init) => fetch(url, init) : null);
+  // A non-positive batch size makes the scan loop below never advance — `slice(i,
+  // i+0)` is empty forever (codex review round 1). Clamped rather than trusted.
+  const batch = Number.isFinite(limit) && limit >= 1 ? Math.floor(limit) : 6;
 
   const stateOf = (url) => state.get(url) || null;
 
-  /** Record an answer. Returns true when it CHANGED something, so a caller can
-   *  re-render exactly once instead of on every image error. */
-  function observe(url, present) {
+  /** Record a state. Returns true when it CHANGED something, so a caller can
+   *  re-render exactly once instead of on every image error.
+   *
+   *  A NON-ANSWER NEVER ERASES AN ANSWER (codex review round 3, blocking). The
+   *  `HEAD` and the `<img>` race by construction — the scan is in flight while the
+   *  page paints — and the losing order was real: `<img>` fails → `MISSING`; the
+   *  slow `HEAD` comes back 405 → `INCONCLUSIVE` overwrote it, and the honest
+   *  placeholder plus the storage count vanished *after* the browser had proved
+   *  the bytes were unfetchable. `INCONCLUSIVE` means 「问不出来」, which is only
+   *  news when nothing better is known. */
+  function record(url, next) {
     if (!isProbeable(url)) return false;
-    const next = present ? PRESENT : MISSING;
-    if (state.get(url) === next) return false;
+    const cur = state.get(url);
+    if (cur === next) return false;
+    if (next === INCONCLUSIVE && (cur === MISSING || cur === PRESENT)) return false;
     state.set(url, next);
     return true;
   }
 
+  /** Record a BROWSER-OBSERVED load result (an `<img>`/`<video>` that did or did
+   *  not render). This one may say MISSING on failure: the browser actually tried
+   *  to fetch the bytes and could not get them, which is evidence about the
+   *  resource — unlike a `HEAD` the server declined to answer. */
+  function observe(url, present) {
+    return record(url, present ? PRESENT : MISSING);
+  }
+
+  /**
+   * Ask the server about ONE url.
+   *
+   * ONLY A DEFINITIVE ANSWER MAY SAY MISSING (codex review round 1, blocking).
+   * The first version recorded every non-2xx AND every thrown error as MISSING,
+   * permanently — so a server that serves `GET` but rejects `HEAD` (405/501), a
+   * 5xx blip, or one dropped request would have labelled a file that is right
+   * there 「媒体文件已不在磁盘上」 until reload. That is the same species of untrue
+   * state this whole card exists to remove, produced by the check meant to remove it.
+   *
+   *   2xx            → PRESENT
+   *   404 / 410      → MISSING      the server answered ABOUT THE RESOURCE
+   *   anything else  → INCONCLUSIVE the server answered about the REQUEST, or
+   *                                 nothing answered at all
+   *
+   * INCONCLUSIVE is recorded (not left absent) so a render loop does not re-ask
+   * every frame, and it is `false` everywhere `isMissing` is consulted. A file
+   * whose bytes genuinely cannot be fetched is still caught — by the `<img>` that
+   * fails to load, which is a real attempt at the real bytes.
+   */
   async function head(url) {
     try {
       const res = await f(url, { method: "HEAD", cache: "no-store" });
-      // A 4xx/5xx is an ANSWER (the file is not being served); a thrown error is
-      // not — the network, not the file, may be what failed. Both land on
-      // MISSING here because both mean 「这个 URL 现在拿不到」, and the label the
-      // creator reads says exactly that rather than claiming the bytes are gone.
-      return observe(url, !!res && res.ok);
+      if (res && res.ok) return record(url, PRESENT);
+      const status = res && typeof res.status === "number" ? res.status : 0;
+      return record(url, DEFINITELY_ABSENT.has(status) ? MISSING : INCONCLUSIVE);
     } catch {
-      return observe(url, false);
+      return record(url, INCONCLUSIVE);
     }
   }
 
@@ -113,8 +203,8 @@ export function createMediaProbe({ fetchImpl, limit = 6 } = {}) {
     todo.forEach((u) => inflight.add(u));
     let changed = false;
     try {
-      for (let i = 0; i < todo.length; i += limit) {
-        const slice = todo.slice(i, i + limit);
+      for (let i = 0; i < todo.length; i += batch) {
+        const slice = todo.slice(i, i + batch);
         const results = await Promise.all(slice.map(head));
         if (results.some(Boolean)) changed = true;
       }
