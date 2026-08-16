@@ -18,8 +18,12 @@
   CLAUDE.md 实施纪律与 AGENTS.md 第 20 条同步。
 - 实施：本 ADR 的规则已随提交 `a187cc8` 落地到 CLAUDE.md / AGENTS.md /
   `.claude/skills/codex-review-loop/SKILL.md`；决策 7（测试提速）与配套的
-  commit gate 修复**已实现并验证但尚未提交**，完整记录见
-  [待提交记录](../design/pending-speedup-and-gate-fix.md)。
+  commit gate 修复**已于 2026-08-15 落地并提交**（`pyproject.toml` / `gate.ps1` /
+  `gate.sh` / `ci.yml`），完整记录见
+  [实施记录](../design/pending-speedup-and-gate-fix.md)。
+  （此行原写「已实现并验证但尚未提交」，落地后没跟着改，成了一条过期的
+  「尚未落地」警告——codex 跨模型复审 2026-08-16 的 non-blocking finding，
+  TASK-084 项 1。）
   （该记录原先放在 `.claude/tmp/`，被独立审查指出违反 AGENTS.md 第 18 条
   「持久性决策必须写入 docs/」——tmp 属临时产物，清理后决策与待办无处可查。
   已移入 `docs/design/`。）
