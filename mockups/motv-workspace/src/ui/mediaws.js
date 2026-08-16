@@ -20,6 +20,55 @@ import {
   videoSourceFrame,
   curVideoVersion,
 } from "./studioparts.js";
+import { genCardModel, renderGenCard, bindGenCard } from "./gencard.js";
+
+/** The ONE generation card for the shot on screen (TASK-078 §3).
+ *
+ *  Built here rather than in each workspace body so 画面 and 视频 cannot drift
+ *  into two different generation surfaces — which is the state this card exists
+ *  to end. A shot with no resolved identity gets nothing: a card whose submit
+ *  and import both refuse is worse than none. */
+function genCard(ctx, ui, d, kind) {
+  if (!d || !d.shot.shotId) return "";
+  const edit = ui.gcPrompt && ui.gcPrompt[d.shot.shotId]
+    ? ui.gcPrompt[d.shot.shotId][kind]
+    : null;
+  return renderGenCard(genCardModel(d, kind, {
+    paid: typeof ctx.isPaid === "function" ? ctx.isPaid() : false,
+    quote: ui.gcQuote || null,
+    promptEdit: edit,
+  }));
+}
+
+/** Import a generated file back onto this shot, with the provenance intent the
+ *  free route captured. Unchanged behaviour — the same round trip `genentry.js`
+ *  performs; only its entrance moved onto the card. */
+function importForShot(ctx, ui, rerender) {
+  return (kind, shotId) => {
+    const d = shotDetailModel(ctx.prodData(), shotId);
+    if (!d || !d.slot) { ctx.toast("镜头身份未解析：无法定位媒体槽位"); return; }
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = kind === "image" ? "image/png,image/jpeg,image/webp" : "video/mp4,video/webm";
+    input.onchange = async () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      // only an intent recorded FOR THIS SHOT counts: a stale one from another
+      // shot would attribute this file to a prompt it never came from
+      const intent = ui.genIntent && ui.genIntent[kind] && ui.genIntent[kind].shotId === shotId
+        ? ui.genIntent[kind]
+        : null;
+      try {
+        await ctx.media.importShotMedia(kind, d.slot, shotId, file, intent);
+        if (intent && ui.genIntent && ui.genIntent[kind] === intent) delete ui.genIntent[kind];
+        rerender();
+      } catch (err) {
+        ctx.toast("导入失败：" + err.message);
+      }
+    };
+    input.click();
+  };
+}
 
 /** Shared frame: header + scene strip + three columns. `centre`/`right` are
  *  built by the caller for the medium it owns. */
@@ -108,8 +157,9 @@ export function renderImageWs(ctx, ui) {
           d.shot.angle ? `<span class="chip">${esc(d.shot.angle)}</span>` : "",
         ].filter(Boolean),
         right: cur ? [`<span class="chip ok">Image v${cur.version}</span>`] : [],
-        missing: "这个镜头还没有画面 — 用右侧 AI 导演编译 Prompt 后生成或导入",
+        missing: "这个镜头还没有画面 — 用下面的生成卡生成或导入",
       }) +
+      genCard(ctx, ui, d, "image") +
       `<div class="st-sec"><h3>画面变体</h3><div class="acts">` +
       (cur ? `<button class="btn sm" data-useff="${esc(d.slot || "")}">🎬 用作视频首帧</button>` : "") +
       `<button class="btn sm" data-goto="video">去视频 →</button></div></div>` +
@@ -149,6 +199,11 @@ export function renderImageWs(ctx, ui) {
 export function bindImageWs(root, ctx, ui, rerender) {
   bindShotSelection(root, ctx, ui, rerender);
   bindShotMedia(root, ctx, ui);
+  if (ui.selectedShotId) {
+    bindGenCard(root, ctx, ui, rerender, {
+      kind: "image", shotId: ui.selectedShotId, importMedia: importForShot(ctx, ui, rerender),
+    });
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -194,6 +249,7 @@ export function renderVideoWs(ctx, ui) {
         missing: curImg ? "还没有视频 — 已有首帧图片，可从它生成" : "还没有视频，也还没有画面",
       }) +
       renderLineage(d) +
+      genCard(ctx, ui, d, "video") +
       `<div class="st-sec"><h3>运动设定</h3></div>` +
       `<div class="shotmeta">${motion}</div>` +
       `<div class="st-sec"><h3>视频变体</h3><div class="acts">` +
@@ -239,4 +295,9 @@ export function renderVideoWs(ctx, ui) {
 export function bindVideoWs(root, ctx, ui, rerender) {
   bindShotSelection(root, ctx, ui, rerender);
   bindShotMedia(root, ctx, ui);
+  if (ui.selectedShotId) {
+    bindGenCard(root, ctx, ui, rerender, {
+      kind: "video", shotId: ui.selectedShotId, importMedia: importForShot(ctx, ui, rerender),
+    });
+  }
 }

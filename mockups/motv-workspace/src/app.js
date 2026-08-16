@@ -451,29 +451,34 @@ function setModeBadge() {
   });
 }
 
-// --- REAL paid generation (ADR-0041 two-step: preflight → confirm → submit) ---
-async function paidGenerate(shotId) {
-  try {
-    const tgt = await query.getGenerationTarget(PROJECT_NAME, shotId);
-    const opId = command.newOperationId();
-    const envelope = command.buildEnvelope(
-      "submit-video-generation",
-      tgt.target,
-      { ...tgt.params, operation_id: opId },
-      "cmd-" + opId,
-    );
-    // M5: SNAPSHOT this video generation's provenance now, at envelope-build
-    // time — these are the inputs the submitted job uses. Resolving at confirm
-    // time instead would record whatever the draft looked like AFTER any edit
-    // made while the confirm dialog was open, diverging from the submitted job.
-    // The target is the canonical creativeShotId (never the slot); the input is
-    // the shot's proven first-frame Asset; the correlation ids travel with the
-    // frozen params so an adopt after reload can reconcile the record by task.
-    const launch = resolveAdoptSlot(shotId);
-    const launchSlot = launch && launch.slot ? launch.slot : null;
-    const frameRef = launchSlot ? assetRegistry.firstFrames[launchSlot] : null;
-    const p = tgt.params && typeof tgt.params === "object" ? tgt.params : null;
-    const genSeed = {
+/**
+ * Build the envelope + provenance seed for ONE shot's paid video generation.
+ *
+ * SPLIT OUT for TASK-078 §3 (the generation card): 「⚡报价」 needs exactly the
+ * same envelope the submit will use, because the preflight digest is bound to
+ * THAT envelope. Quoting from a differently-built envelope would either be
+ * rejected at submit or — worse — price one thing and run another.
+ *
+ * Read-only: it reaches the backend only for the generation target. Nothing is
+ * reserved, nothing is written, nothing is spent.
+ */
+async function preparePaidVideo(shotId) {
+  const tgt = await query.getGenerationTarget(PROJECT_NAME, shotId);
+  const opId = command.newOperationId();
+  const envelope = command.buildEnvelope(
+    "submit-video-generation",
+    tgt.target,
+    { ...tgt.params, operation_id: opId },
+    "cmd-" + opId,
+  );
+  const launch = resolveAdoptSlot(shotId);
+  const launchSlot = launch && launch.slot ? launch.slot : null;
+  const frameRef = launchSlot ? assetRegistry.firstFrames[launchSlot] : null;
+  const p = tgt.params && typeof tgt.params === "object" ? tgt.params : null;
+  return {
+    envelope,
+    opId,
+    genSeed: {
       type: "video",
       targetType: launch && launch.creativeShotId ? "shot" : null,
       targetId: (launch && launch.creativeShotId) || null,
@@ -482,7 +487,56 @@ async function paidGenerate(shotId) {
       provider: p && p.provider ? String(p.provider) : null,
       model: p && p.model ? String(p.model) : null,
       parameters: { ...(p || {}), operation_id: opId, task_id: envelope.params.task_id },
-    };
+    },
+  };
+}
+
+/**
+ * 「⚡报价」 — the READ-ONLY half of ADR-0041's two steps, surfaced on its own.
+ *
+ * The preflight already computes the model, resolution, duration and the
+ * locked-catalog price (`paid_gateway._preview`), and the UI has never shown any
+ * of it: the creator met the number for the first time inside the confirm
+ * dialog, one click from spending. This returns it so the card can put it next
+ * to the submit button.
+ *
+ * IT IS NOT CONSENT. The quote is informational and can go stale; 提交 always
+ * runs a FRESH preflight and shows the confirm dialog built from that one, so
+ * what the creator approves is never this cached number (see `paidGenerate`).
+ */
+async function paidVideoQuote(shotId) {
+  if (!PAID) throw new Error("付费模式未开启（--enable-paid）");
+  const { envelope } = await preparePaidVideo(shotId);
+  const pf = await command.preflight(PROJECT_NAME, envelope);
+  const p = pf.preview || {};
+  return {
+    shotId,
+    inputs: p.inputs || {},
+    cost: p.estimated_cost || null,
+    blockers: p.blockers || [],
+    at: new Date().toISOString(),
+  };
+}
+
+// --- REAL paid generation (ADR-0041 two-step: preflight → confirm → submit) ---
+async function paidGenerate(shotId) {
+  try {
+    const prepared = await preparePaidVideo(shotId);
+    const { envelope } = prepared;
+    // M5: SNAPSHOT this video generation's provenance now, at envelope-build
+    // time — these are the inputs the submitted job uses. Resolving at confirm
+    // time instead would record whatever the draft looked like AFTER any edit
+    // made while the confirm dialog was open, diverging from the submitted job.
+    // The target is the canonical creativeShotId (never the slot); the input is
+    // the shot's proven first-frame Asset; the correlation ids travel with the
+    // frozen params so an adopt after reload can reconcile the record by task.
+    //
+    // Built by `preparePaidVideo` above, so 「⚡报价」 and 提交 cannot disagree
+    // about what is being priced and what is being run (TASK-078 §3).
+    const genSeed = prepared.genSeed;
+    // ALWAYS A FRESH PREFLIGHT. The card may already be showing a quote, but a
+    // cached number is not consent: the dialog the creator approves is built
+    // from THIS response, so the price they confirm is the price in force now.
     const pf = await command.preflight(PROJECT_NAME, envelope);
     est.openReal(pf, {
       onConfirm: async (digest) => {
@@ -3544,6 +3598,18 @@ const ctx = {
     },
   },
   isPaid: () => PAID,
+  /** 「⚡报价」 for ONE shot's paid video generation (TASK-078 §3).
+   *
+   *  READ-ONLY and PRICE-HONEST: the number comes from the Gateway preflight's
+   *  locked-catalog quote, never from arithmetic in the browser. The card is
+   *  forbidden to compute a price from `config/providers` itself — that would be
+   *  a second pricing implementation, and the one that is wrong is always the one
+   *  the creator read before spending. */
+  paidQuote: (shotId) => paidVideoQuote(shotId),
+  /** The ADR-0041 two-step submit for ONE shot (preflight → 人工确认 → command).
+   *  Deliberately the SAME function the paid route already used: the card is a
+   *  new surface onto it, not a new write path. */
+  paidSubmit: (shotId) => paidGenerate(shotId),
   /** WHICH generation route the creator is on (TASK-077 §1.3).
    *
    *  `gateway` — the ADR-0041 write path is live, so a video generation is a real

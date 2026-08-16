@@ -1459,3 +1459,61 @@
   border-radius: var(--r1); padding: 1px var(--s2); font: inherit; cursor: pointer;
 }
 .shotmeta .v.todo:hover { background: color-mix(in srgb, var(--gate) 12%, transparent); }
+
+/* ========================================================================= */
+/* 生成卡（TASK-078 §3）                                                      */
+/*                                                                            */
+/* 一次生成需要的东西全在一张卡上：参考、Prompt、规格、报价、提交、免费路线。 */
+/* 报价挨着提交按钮，不再只在确认弹窗里出现一次。                             */
+/* ========================================================================= */
+
+.gc { display: flex; flex-direction: column; gap: var(--s3); }
+
+.gc-refs { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.gc-chip {
+  display: inline-flex; align-items: center; gap: var(--s2);
+  padding: 2px var(--s2) 2px 2px; border: 1px solid var(--line-2);
+  border-radius: var(--r3); font-size: var(--t-micro); color: var(--text-dim);
+}
+.gc-chip img { width: 26px; height: 26px; object-fit: cover; border-radius: var(--r1); }
+.gc-chip b {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 16px; height: 16px; padding: 0 4px; margin-left: 4px;
+  background: var(--accent); color: var(--accent-ink);
+  border-radius: 999px; font-size: var(--t-micro);
+}
+/* the first frame is not one reference among several — it IS the video's input */
+.gc-chip-frame { border-color: var(--accent-line); background: var(--accent-soft); }
+.gc-chip-frame b { background: var(--ok); color: #fff; }
+
+.gc-gaps { display: flex; gap: var(--s2); flex-wrap: wrap; }
+
+.gc-prompt {
+  width: 100%; box-sizing: border-box; resize: vertical;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--line); border-radius: var(--r2);
+  padding: var(--s3); font: var(--t-sm)/1.7 var(--mono);
+}
+.gc-prompt:focus { border-color: var(--prompt); outline: none; background: var(--panel); }
+
+.gc-spec { display: flex; gap: var(--s4); flex-wrap: wrap; align-items: baseline; }
+.gc-kv { display: inline-flex; gap: var(--s2); font-size: var(--t-xs); }
+.gc-kv .k { color: var(--text-faint); }
+.gc-kv .v { color: var(--text); font-weight: 600; }
+.gc-spec-unknown { flex-direction: column; align-items: flex-start; gap: var(--s1); }
+.gc-note { color: var(--text-faint); font-size: var(--t-micro); line-height: 1.7; }
+
+.gc-actions { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+/* 报价常驻在提交按钮旁 —— 这是本卡的要点，不是装饰 */
+.gc-price {
+  display: inline-flex; align-items: baseline; gap: var(--s2);
+  font-weight: 700; font-size: var(--t-md); color: var(--gate);
+}
+.gc-price-src { font-weight: 400; font-size: var(--t-micro); color: var(--text-faint); }
+.gc-block { color: var(--bad); font-size: var(--t-xs); }
+
+.gc-free {
+  display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
+  padding-top: var(--s3); border-top: 1px solid var(--line);
+}
+.gc-free .lab { color: var(--text-faint); font-size: var(--t-micro); }
