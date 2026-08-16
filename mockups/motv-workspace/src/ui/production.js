@@ -58,6 +58,10 @@ import { specStanding, SPEC_FIELD_BY_KEY } from "../workflow/deliveryspec.js";
 import { skillPanelModel, renderSkillPanel, bindSkillPanel } from "./skillpanel.js";
 // TASK-080 §1.1: 「这个系统一共能帮我做哪些事」, in one place
 import { skillCatalogModel, renderSkillCatalog, bindSkillCatalog } from "./skillcatalog.js";
+// TASK-080 §1.2 批次 A: ONE persistent session whose context the creator states
+import {
+  agentSessionModel, renderAgentSession, bindAgentSession, sessionState,
+} from "./agentsession.js";
 import { shotDirectorModel, renderShotDirector, bindShotDirector, runOperation } from "./directorshot.js";
 import { episodeView } from "../workflow/proddoc.js";
 import { renderQcPanel } from "./qcpanel.js";
@@ -105,6 +109,35 @@ const MODULE_ALIAS_GOTO = Object.freeze({
   assets: "assets",
   generations: PROJECT_SETTINGS,
 });
+
+/**
+ * EVERYTHING a page change releases from the shell's transient `ui` bag.
+ *
+ * Extracted and exported (TASK-080 §1.2 批次 A) because it is the ONLY thing a
+ * navigation does to `ui`, and 「换一个页面，会话不重置」 is therefore a property of
+ * this list rather than of a comment: what is not named here survives. A guard
+ * test asserts the Agent session survives it, which is checkable in a way
+ * 「setModule 不要清掉会话」 never was.
+ *
+ * The keys are exactly the ones whose value belongs to the surface being left:
+ * an unsaved shot buffer, the drawers a workspace opened, and the base-prompt
+ * buffer typed against one entity. Carrying any of them across is how a write
+ * lands on the wrong object.
+ */
+export function releasePageState(ui) {
+  ui.dirty = false;
+  ui.buffer = {};
+  ui.bibleOpen = null;
+  ui.relOpen = null;
+  ui.relSelectA = null;
+  ui.worldOpen = null;
+  // the UNSAVED base-prompt buffer belongs to the entity it was typed against, and
+  // the open library pickers belong to the drawer that opened them — both are
+  // released with the workspace, for the same reason `ui.piPrompt` is
+  ui.bpText = null;
+  ui.baRefPick = null;
+  ui.baVoicePick = null;
+}
 
 /** Pure view-model of the script document for the shell (unit-tested):
  *  version standing + exactly one of the transient generation states. */
@@ -400,11 +433,20 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
   /** The persistent right-side AI Director. Script gets the live assistant;
    *  every other module gets the contextual Director panel. */
   function aiDirector(ctx) {
+    // TASK-080 §1.2 批次 A — the ONE session, on EVERY page including 剧本.
+    //
+    // It leads the column deliberately: the context it operates on is the one the
+    // creator STATED, so it must be readable before anything derived from 「which
+    // page you are on」. Rendered here rather than per page, because a panel that
+    // exists on some pages is exactly the 「先导航到正确的页面」 burden this
+    // replaces. NOTHING below it was removed this round (§1.2 迁移纪律 4).
+    const session = renderAgentSession(agentSessionModel(ctx, ui));
     if (activeModule === "script") {
       const d = ctx.script.doc();
       return (
         `<aside class="st-dir prod-ai">` +
         `<div class="dir-head"><span class="av">🎬</span>AI 导演 · 剧本</div>` +
+        session +
         aiPane(ctx, d, scriptStatus(d)) +
         `</aside>`
       );
@@ -489,6 +531,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       `<aside class="st-dir prod-ai">` +
       `<div class="dir-head"><span class="av">🎬</span>AI 导演` +
       `<span class="dir-space">${esc(SPACE_LABEL[spaceOf(activeModule)] || "")}</span></div>` +
+      session +
       shotDirSec +
       stateSec +
       renderDirector(m, ui.directorText, ui.dirOpen, skillSec) +
@@ -1399,24 +1442,13 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       return;
     }
     if (ui.dirty && !window.confirm("镜头详情有未保存的修改，离开将丢弃？")) return;
-    ui.dirty = false;
-    ui.buffer = {};
+    releasePageState(ui);
     activeModule = k; // UI navigation state only — domain edits/proposals live
     if (spaceOf(k) !== "assets") lastProdModule = k;
     // A 资产库 rail row simply presets the library's OWN type filter — the rail
     // and the in-page filter chips are two entrances to one vocabulary.
     if (k in RAIL_TYPE) ui.alFilters = { ...(ui.alFilters || {}), type: RAIL_TYPE[k] };
     vmenuOpen = false; // in their documents and survive this switch untouched
-    ui.bibleOpen = null;
-    ui.relOpen = null;
-    ui.relSelectA = null;
-    ui.worldOpen = null;
-    // the UNSAVED base-prompt buffer belongs to the entity it was typed against, and
-    // the open library pickers belong to the drawer that opened them — both are
-    // released with the workspace, for the same reason `ui.piPrompt` is
-    ui.bpText = null;
-    ui.baRefPick = null;
-    ui.baVoicePick = null;
     // beatsOpen / impactOpen are keyed by episodeId and only render inside
     // 分集规划 — deliberately NOT reset here, so the AI Director can point the
     // creator at one episode's Impact Review and then navigate there.
@@ -1562,6 +1594,10 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
   function openSkillRun(ctx, skillId) {
     if (!skillId) return;
     ui.skillId = skillId;
+    // …and the SESSION's task, so 「在当前上下文运行」 from the catalog and `/` in the
+    // session are one choice rather than two that can disagree about what is
+    // selected (TASK-080 §1.2)
+    sessionState(ui).skillId = skillId;
     ui.skillPromptOpen = false;
     ui.dirOpen = { ...(ui.dirOpen || {}), skills: true };
     const s = ctx.skills.find(skillId);
@@ -1574,11 +1610,59 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     render();
   }
 
+  /** Run the session's chosen capability against the context the CREATOR STATED.
+   *
+   *  The scope comes from the session's own context (a `@` shot reference), not
+   *  from `ui.selectedShotId` — that is the whole difference between 「上下文由
+   *  用户显式给出」 and 「上下文由你在哪一页隐式决定」. The run itself still goes
+   *  through `ctx.skills.run`, the one path with the guards on it. */
+  function runSessionSkill(ctx, skillId) {
+    const m = agentSessionModel(ctx, ui);
+    if (!skillId || m.blocked) { ctx.toast(m.blocked || "先用 / 选一个能力"); return; }
+    // `.then(...)` INSIDE the chain, so a SYNCHRONOUS throw out of `ctx.skills.run`
+    // is caught too — `Promise.resolve(f())` evaluates `f()` first and would let it
+    // escape. A run that fails must say so; an unhandled rejection is a button that
+    // silently does nothing (independent review, batch A round 2).
+    Promise.resolve()
+      .then(() => ctx.skills.run(skillId, {
+        // ONLY what the run contract can really carry (agentsession.SENT_KINDS).
+        // `scopeOf` validates the scene against the run's own episode and drops a
+        // foreign one, so this can never record a scene the prompt did not read.
+        // The remaining references and the creator's prose are NOT sent, and the
+        // session says so on screen rather than dropping them quietly.
+        executor: ui.skillExecutor || "manual",
+        scope: m.scope.shotId || m.scope.sceneId
+          ? {
+            ...(m.scope.shotId ? { shotId: m.scope.shotId } : {}),
+            ...(m.scope.sceneId ? { sceneId: m.scope.sceneId } : {}),
+          }
+          : null,
+        summary: m.scope.shotId
+          ? "会话上下文里的镜头"
+          : m.scope.sceneId ? "会话上下文里的场景" : "本集范围",
+      }))
+      .then((res) => {
+        if (!res || !res.ok) ctx.toast(`运行失败：${(res && res.error) || "没有返回结果"}`);
+        else if (res.manual) ctx.toast("已建立运行记录——在下面「能力」里复制任务 Prompt，跑完把结果粘回来");
+        else ctx.toast("提案已生成——在下面「能力」里决定要不要用");
+        // point the capability panel at THIS run, so its proposal is one scroll away
+        ui.skillId = skillId;
+        ui.dirOpen = { ...(ui.dirOpen || {}), skills: true };
+      })
+      .catch((e) => { ctx.toast(`运行失败：${(e && e.message) || e}`); })
+      // ONE repaint, on both paths. A failure that does not repaint leaves the
+      // session showing the state it had before the attempt.
+      .then(() => render());
+  }
+
   function bind(ctx) {
     // left rail — every module opens; selection is visually .on
     root.querySelectorAll("[data-mod]").forEach((b) => (b.onclick = () => setModule(b.dataset.mod)));
     // TASK-077 §1.2: a media file that will not load says so, everywhere, once.
     bindMediaErrors(root, ctx);
+    // TASK-080 §1.2 批次 A — bound EARLY, because the script branch below returns
+    // before the other panels bind and the session is on that page too.
+    bindAgentSession(root, ctx, ui, render, { onRun: (id) => runSessionSkill(ctx, id) });
     // the Agent panel: open / close / run / manual / jump-to-fix (TASK-073 §1.4)
     root.querySelectorAll("[data-agent-open]").forEach((b) => (b.onclick = () => {
       ui.agentOpen = ui.agentOpen !== true;

@@ -1630,3 +1630,44 @@
 }
 .sc-bad > .lab { color: var(--bad); font-size: var(--t-micro); font-weight: 700; }
 .sc-badrow { display: flex; flex-direction: column; gap: 2px; }
+
+/* 一个常驻 Agent 会话（TASK-080 §1.2 批次 A）—— 上下文由创作者显式给出，看得见也改得动 */
+.as-sec { border-bottom: 1px solid var(--line); }
+.as-body { display: flex; flex-direction: column; gap: var(--s2); }
+.as-ctx { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.as-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px var(--s2); border-radius: var(--r1);
+  background: var(--elev); border: 1px solid var(--line);
+  font-size: var(--t-micro); color: var(--text);
+}
+.as-chip.gone { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); color: var(--text-dim); }
+.as-ci { opacity: .8; }
+.as-cx {
+  appearance: none; background: none; border: 0; cursor: pointer;
+  color: var(--text-faint); font: inherit; font-size: var(--t-micro); padding: 0 2px;
+}
+.as-cx:hover { color: var(--bad); }
+.as-task { display: flex; align-items: center; gap: var(--s2); }
+.as-input { width: 100%; resize: vertical; }
+.as-picker {
+  display: flex; flex-direction: column; gap: 1px; max-height: 240px; overflow: auto;
+  padding: var(--s2); border: 1px solid var(--line-2); border-radius: var(--r2);
+  background: var(--panel-2);
+}
+.as-pick {
+  display: grid; grid-template-columns: 16px 1fr auto; gap: var(--s2); align-items: center;
+  appearance: none; cursor: pointer; text-align: left;
+  background: none; border: 1px solid transparent; border-radius: var(--r1);
+  padding: var(--s2); font: inherit; font-size: var(--t-micro); color: var(--text-dim);
+}
+.as-pick:hover { background: var(--elev); color: var(--text); border-color: var(--line); }
+.as-pl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.as-ps { color: var(--text-faint); font-size: var(--t-micro); }
+.as-acts { display: flex; gap: var(--s2); }
+.as-runs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.as-runs li { display: flex; align-items: center; gap: var(--s2); font-size: var(--t-micro); }
+.as-rn { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
+.as-rt { color: var(--text-faint); }
+.as-chip.sent { border-color: var(--accent-line); background: var(--accent-soft); }
+.as-nosend { border-left: 2px solid color-mix(in srgb, var(--bad) 45%, var(--line)); padding-left: var(--s2); }
