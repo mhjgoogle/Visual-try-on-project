@@ -27,6 +27,7 @@ import {
   agentSessionModel, objectIndex, activeToken, stripToken, sessionState, SENT_KINDS,
   renderAgentSession, OBJECT_KINDS,
 } from "../src/ui/agentsession.js";
+import { agentPanelModel, renderAgentPanel } from "../src/ui/agentpanel.js";
 import { releasePageState } from "../src/ui/production.js";
 
 installBuiltinCatalog(skills);
@@ -407,7 +408,39 @@ test("换一个页面，会话不重置——releasePageState 是换页对 ui �
 });
 
 /* ------------------------------------------------------------------------- */
-/* 5 · 迁移守卫：四个旧面板的每个可执行动作仍被发出                               */
+/* 5 · 批次 B：收「询问 Agent」这个入口，但一件能力都不带走                        */
+/* ------------------------------------------------------------------------- */
+
+test("批次 B：页面级 Agent 面板整体搬进会话，七项与全部动作原样保留", () => {
+  const ctx = makeCtx();
+  const ui = {};
+  const m = agentSessionModel(ctx, ui);
+  // the panel arrives as HTML the session embeds — verbatim, not re-rendered
+  const panel = renderAgentPanel(
+    agentPanelModel({
+      scope: { kind: "page", label: "分镜设计" },
+      taskName: "为这一镜写画面提示词",
+      understanding: ["任务：写画面提示词"],
+      // deliberately RUNNABLE: a blocked panel renders its reason instead of the
+      // primary button, and the point here is that every action survives the move
+      nextSteps: ["可以执行了"],
+      available: { ok: true },
+      manualFallback: { can: true },
+    }),
+  );
+  const withPanel = renderAgentSession(m, { panel });
+  assert.match(withPanel, /这一页的诊断/);
+  assert.ok(withPanel.includes(panel), "the panel must be embedded verbatim, not paraphrased");
+  // its actions travel with it — this is what 「合并入口，不删能力」 means
+  for (const attr of PANEL_ACTIONS["agentpanel.js"]) {
+    assert.ok(withPanel.includes(attr), `${attr} was lost when the panel moved`);
+  }
+  // …and with nothing to embed, the session does not invent a heading for it
+  assert.ok(!renderAgentSession(m).includes("这一页的诊断"));
+});
+
+/* ------------------------------------------------------------------------- */
+/* 6 · 迁移守卫：四个旧面板的每个可执行动作仍被发出                               */
 /* ------------------------------------------------------------------------- */
 
 /**

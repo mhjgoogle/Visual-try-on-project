@@ -322,7 +322,17 @@ function pickerHtml(p) {
   return `<div class="as-picker"><div class="lab">${esc(head)}</div>${rows}</div>`;
 }
 
-export function renderAgentSession(m) {
+/**
+ * @param opts.panel  HTML of the page-level Agent panel (TASK-080 §1.2 批次 B).
+ *
+ *  IT MOVED HERE, IT DID NOT GO AWAY. 「询问 Agent」 used to open a SECOND panel in
+ *  the middle column — a fourth right-hand surface with its own scope, its own
+ *  close button and its own idea of what the Agent was looking at. The button
+ *  stays (IA §6.1 fixes it at each page's top right); what it opens is now this
+ *  one session, so there is one place that answers 「Agent 现在在看什么」.
+ *  Its seven items and every one of its actions are rendered verbatim.
+ */
+export function renderAgentSession(m, { panel = "" } = {}) {
   const chips = m.context.length
     ? m.context
         .map(
@@ -397,6 +407,7 @@ export function renderAgentSession(m) {
           .join("") +
         `</ul>`
       : `<div class="meta">这个会话还没有运行记录。</div>`) +
+    (panel ? `<div class="lab">这一页的诊断</div>${panel}` : "") +
     `</div></section>`
   );
 }

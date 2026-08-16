@@ -440,7 +440,11 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // page you are on」. Rendered here rather than per page, because a panel that
     // exists on some pages is exactly the 「先导航到正确的页面」 burden this
     // replaces. NOTHING below it was removed this round (§1.2 迁移纪律 4).
-    const session = renderAgentSession(agentSessionModel(ctx, ui));
+    const session = renderAgentSession(agentSessionModel(ctx, ui), {
+      // §1.2 批次 B — the page-level panel is a part OF the session now, not a
+      // second surface in the middle column
+      panel: agentPanelBlock(ctx),
+    });
     if (activeModule === "script") {
       const d = ctx.script.doc();
       return (
@@ -740,12 +744,26 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
    *  The model is assembled from REAL state: the capability's own missing-input
    *  check and the executor probe decide whether the primary action exists at all,
    *  so 「不可用」 always carries the actual reason (IA §6.4). */
-  function agentEntrance(ctx) {
+  function agentEntrance() {
     const open = ui.agentOpen === true;
-    const btn =
+    return (
       `<button class="ag-open${open ? " on" : ""}" data-agent-open="1" ` +
-      `title="就当前页面问 Agent（面板按需打开，关闭后不占布局）">🤖 询问 Agent</button>`;
-    if (!open) return btn;
+      `title="就当前页面问 Agent（在右栏的会话里打开）">🤖 询问 Agent</button>`
+    );
+  }
+
+  /**
+   * The page-level Agent panel — now rendered INSIDE the session (§1.2 批次 B).
+   *
+   * THE ENTRANCE IS WHAT WAS RETIRED, NOT THE PANEL. It used to open as a second
+   * surface in the middle column, with its own scope line and its own close
+   * button, while the right column showed a different Agent looking at something
+   * else. Returning its HTML for the session to embed keeps all seven items and
+   * every one of its actions (a guard test enumerates them) while leaving ONE
+   * place that answers 「Agent 现在在看什么」.
+   */
+  function agentPanelBlock(ctx) {
+    if (ui.agentOpen !== true) return "";
     const skillId = ui.skillId || null;
     const skill = skillId ? ctx.skills.find(skillId) : null;
     const cat = ctx.skills.catalogState ? ctx.skills.catalogState() : { installed: true, detail: "" };
@@ -788,7 +806,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
         : [],
       manualFallback: { can: true },
     });
-    return btn + renderAgentPanel(model);
+    return renderAgentPanel(model);
   }
 
   /** The task rows for the shot being made (TASK-073 §1.3).
@@ -1040,8 +1058,11 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // EVERY page carries the page-level Agent entrance at its top-right (IA §6.1).
     // Prepended to the workspace rather than injected per page, so the entrance is
     // 「每页顶部右侧固定位」 by construction and cannot be forgotten by a new page.
+    //
+    // §1.2 批次 B: the BUTTON is still here — what it opens is no longer a second
+    // panel in this column, but the one session in the right one.
     const main =
-      agentEntrance(ctx) +
+      agentEntrance() +
       (activeModule === "script"
         ? scriptMain(ctx)
         : (WORKSPACES[activeModule] || (() => ""))(ctx));
