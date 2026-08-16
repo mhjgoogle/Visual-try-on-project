@@ -211,7 +211,7 @@ def test_the_opt_in_cannot_ride_along_with_a_push_or_merge() -> None:
         "MOTV_CONTINUOUS_CHAIN=1 git commit -m x && git merge --ff-only main",
         "# MOTV_CONTINUOUS_CHAIN=1\ngit commit -m x\ngit push",
     ):
-        decision = _POLICY.decide(high_risk, cmd)
+        decision = _POLICY.decide(high_risk, cmd, tool_name="Bash")
         assert decision.tier == "chain-conflict", cmd
         assert "ADR-0068" in decision.reason
         assert decision.notice == "", cmd
@@ -225,7 +225,10 @@ def test_the_opt_in_cannot_ride_along_with_a_push_or_merge() -> None:
 
     # …and WITHOUT the opt-in the compound is none of this policy's business:
     # that commit ran its full suite, so pushing it is legitimate.
-    assert _POLICY.decide(high_risk, "git commit -m x && git push").tier == "full"
+    assert (
+        _POLICY.decide(high_risk, "git commit -m x && git push", tool_name="Bash").tier
+        == "full"
+    )
 
 
 def test_classify_never_consults_the_environment() -> None:
@@ -282,19 +285,33 @@ def test_the_skip_is_announced_and_survives_a_non_utf8_console() -> None:
 
 
 def test_the_cli_both_shells_actually_invoke_behaves_end_to_end() -> None:
-    """The tests above call `decide()` in-process; the gates call a SUBPROCESS
-    with `--command <cmd> -- <paths>`. Everything between those two — argument
-    parsing, the `--` separator, JSON encoding of a notice containing Chinese —
-    was untested (independent review, rounds 2 and 3)."""
+    """The tests above call the policy in-process; the gates call a SUBPROCESS.
+
+    Everything between those two — argument parsing, the `--` separator, JSON
+    encoding of a notice containing Chinese — was untested (independent review,
+    rounds 2 and 3).
+
+    TASK-085 replaced `--command <cmd>` with a resolved `--chain-mode 0|1`. The
+    command text no longer travels on this command line at all: it goes to the
+    `--intent` call ON A PIPE, which is what removed the 32767-char Windows
+    budget failure that let a long commit message spawn-fail the classifier into
+    a NON-BLOCKING hook error (i.e. zero checks run).
+    """
     import json
     import subprocess
 
-    token = "MOTV_CONTINUOUS_CHAIN=1"
     high_risk = "src/ai_video_workflow/persistence.py"
 
-    def run(command: str, *paths: str) -> dict:
+    def run(chain_mode: str, *paths: str) -> dict:
         result = subprocess.run(
-            [sys.executable, str(_POLICY_PATH), "--command", command, "--", *paths],
+            [
+                sys.executable,
+                str(_POLICY_PATH),
+                "--chain-mode",
+                chain_mode,
+                "--",
+                *paths,
+            ],
             capture_output=True,
             cwd=_POLICY_PATH.parents[2],
             check=True,
@@ -303,27 +320,93 @@ def test_the_cli_both_shells_actually_invoke_behaves_end_to_end() -> None:
         # UTF-8 JSON and a cp932 console does not get a vote (round 3)
         return json.loads(result.stdout.decode("utf-8"))
 
-    assert run(f"{token} git commit -m x", high_risk)["tier"] == "continuous-chain"
-    assert run("git commit -m x", high_risk)["tier"] == "full"
-    # the token inside the MESSAGE, and the wrong case, are both refused
-    assert run(f'git commit -m "see {token}"', high_risk)["tier"] == "full"
-    assert run(f"{token.lower()} git commit", high_risk)["tier"] == "full"
-    # a push riding along is refused
-    assert run(f"{token} git commit -m x && git push", high_risk)["tier"] == (
-        "chain-conflict"
-    )
+    assert run("1", high_risk)["tier"] == "continuous-chain"
+    assert run("0", high_risk)["tier"] == "full"
+    # EXACT "1": a switch that can be turned on vaguely gets turned on vaguely
+    for vague in ("true", "yes", "on", "01", ""):
+        assert run(vague, high_risk)["tier"] == "full", vague
     # targeted tiers survive the opt-in; docs stay lint; unknown paths stay full
-    assert run(f"{token} git commit", "src/ai_video_workflow/validation.py")[
-        "tier"
-    ] == ("pytest-targeted")
-    assert run(f"{token} git commit", "docs/x.md")["tier"] == "lint"
-    assert run(f"{token} git commit", "Makefile")["tier"] == "full"
+    assert run("1", "src/ai_video_workflow/validation.py")["tier"] == "pytest-targeted"
+    assert run("1", "docs/x.md")["tier"] == "lint"
+    assert run("1", "Makefile")["tier"] == "full"
     # a changed file literally NAMED like the flag stays a path, because of `--`
-    assert run(f"{token} git commit", "--command")["tier"] == "full"
+    assert run("1", "--chain-mode")["tier"] == "full"
     # the notice survives the round trip intact, Chinese lines included
-    notice = run(f"{token} git commit -m x", high_risk)["notice"]
+    notice = run("1", high_risk)["notice"]
     assert notice.splitlines()[0].isascii()
     assert "链尾" in notice
+
+
+def test_the_intent_cli_reads_the_hook_payload_off_the_pipe() -> None:
+    """The other half of the CLI contract: the gates pipe the PreToolUse payload
+    in and read one JSON object back.
+
+    gate.sh forwards the payload UNTOUCHED (so `tool_name` arrives intact);
+    gate.ps1 enriches it with the argv PowerShell's own parser produced.
+    """
+    import json
+    import subprocess
+
+    def run(payload) -> dict:
+        result = subprocess.run(
+            [sys.executable, str(_POLICY_PATH), "--intent"],
+            input=payload
+            if isinstance(payload, bytes)
+            else json.dumps(payload).encode(),
+            capture_output=True,
+            cwd=_POLICY_PATH.parents[2],
+            check=True,
+        )
+        return json.loads(result.stdout.decode("utf-8"))
+
+    # gate.sh's shape: the raw payload, forwarded verbatim
+    raw = {"tool_name": "Bash", "tool_input": {"command": 'git "commit" -m x'}}
+    assert run(raw)["gate"] == "check"
+    assert run({"tool_name": "Bash", "tool_input": {"command": "ls -la"}})["gate"] == (
+        "skip"
+    )
+
+    # gate.ps1's shape: command + the argv its splitter produced
+    assert (
+        run(
+            {
+                "tool_name": "PowerShell",
+                "command": "git commit -m x",
+                "argv": [["git", "commit", "-m", "x"]],
+            }
+        )["gate"]
+        == "check"
+    )
+    # a parse failure hands over argv=null, and that must FAIL CLOSED rather than
+    # read as "no commands, so not a commit"
+    failed = run(
+        {"tool_name": "PowerShell", "command": "git commit && git push", "argv": None}
+    )
+    assert failed["gate"] == "check" and failed["force_full"]
+
+    # …and so must a MALFORMED hand-over. This crosses a process boundary, so the
+    # argv is untrusted input like any other: a shape the judgements would trip
+    # over must fail closed, not raise inside a judgement and take the gate's
+    # `exit 0` path with it. (变异验证 2026-08-16: without this case, dropping
+    # the element-type check survived the whole suite.)
+    for malformed in (
+        "not-a-list",
+        [["git", "commit"], "flat"],
+        [["git", "commit"], ["bad", 1]],
+        [["git", "commit"], [None]],
+        {"not": "a list"},
+    ):
+        answer = run(
+            {"tool_name": "PowerShell", "command": "git commit -m x", "argv": malformed}
+        )
+        assert answer["gate"] == "check" and answer["force_full"], malformed
+
+    # an unreadable payload is "I cannot tell", never "not a commit". Matching the
+    # RAW payload text with regexes was the old fallback and is the very class
+    # this card removed.
+    for broken in (b"not json at all", b"[]", b"\xff\xfe\x00garbage"):
+        answer = run(broken)
+        assert answer["gate"] == "check" and answer["force_full"], broken
 
 
 def test_neither_shell_decides_the_opt_in_it_hands_the_command_over() -> None:
@@ -341,8 +424,8 @@ def test_neither_shell_decides_the_opt_in_it_hands_the_command_over() -> None:
     ps1 = (hooks / "gate.ps1").read_text("utf-8")
 
     # 1. each hands the intercepted command to the policy…
-    assert '--command "$CMD"' in sh
-    assert "'--command', $cmd" in ps1
+    assert "--intent" in sh and "--intent" in ps1
+    assert "--chain-mode" in sh and "--chain-mode" in ps1
     # …and neither contains the token at all, in code or in a comment: a comment
     # today is the template for a re-implementation tomorrow.
     for name, text in (("gate.sh", sh), ("gate.ps1", ps1)):
@@ -355,8 +438,11 @@ def test_neither_shell_decides_the_opt_in_it_hands_the_command_over() -> None:
     assert "pytest" not in sh_branch and "node" not in sh_branch
     ps1_branch = ps1.split("'continuous-chain' {", 1)[1].split("}", 1)[0]
     assert "pytest" not in ps1_branch and "node" not in ps1_branch
-    #    …and both BLOCK on chain-conflict rather than falling through
-    assert "chain-conflict)" in sh and "'chain-conflict'" in ps1
+    #    …and both refuse the chain/push conflict. TASK-085 moved that refusal
+    #    from a TIER (reached after ruff in one shell, before it in the other)
+    #    to the intent call, so both now block before anything runs.
+    for name, text in (("gate.sh", sh), ("gate.ps1", ps1)):
+        assert "block" in text, f"{name} must act on an intent of `block`"
 
     # 3. both announce the skip as JSON `systemMessage` — plain stdout from a
     #    PreToolUse hook that exits 0 is DISCARDED, so an `echo` announced the
@@ -637,7 +723,9 @@ def test_the_chain_token_refuses_every_way_of_moving_commits(tail) -> None:
     · 动词表里只有两个，另外三种把提交带出去/整合进来的方式全部放行。
     """
     cmd = "MOTV_CONTINUOUS_CHAIN=1 git commit -m x && " + tail
-    decision = _POLICY.decide(["src/ai_video_workflow/persistence.py"], cmd)
+    decision = _POLICY.decide(
+        ["src/ai_video_workflow/persistence.py"], cmd, tool_name="Bash"
+    )
     assert decision.tier == "chain-conflict", (
         tail + " 必须被拒绝，实为 " + decision.tier
     )
@@ -650,6 +738,7 @@ def test_the_token_must_not_be_triggered_from_the_commit_message() -> None:
     decision = _POLICY.decide(
         ["src/ai_video_workflow/persistence.py"],
         'git commit -m "note: MOTV_CONTINUOUS_CHAIN=1 was used earlier"',
+        tool_name="Bash",
     )
     assert decision.tier == "full", "提交信息里的令牌不得启用减档"
 
@@ -659,8 +748,465 @@ def test_a_normal_chain_commit_still_gets_the_reduced_tier() -> None:
     decision = _POLICY.decide(
         ["src/ai_video_workflow/persistence.py"],
         "MOTV_CONTINUOUS_CHAIN=1 git commit -m x",
+        tool_name="Bash",
     )
     assert decision.tier == "continuous-chain"
+
+
+# --- TASK-085 意图判定：不再从命令文本猜，改用每个 shell 自己的解析器 ------- #
+#
+# 这一段守卫的是**闸门自己**。判定错一次的代价不是一个小 bug，是一次零检查的提交。
+
+
+#: 待复审清单第 3 项列出的四条已知绕过。今天它们让 gate **整个不跑**。
+#: 任务卡把第四条简写成 `c""ommit`，指的是被拆开的**子命令**写法，
+#: 即 `git c""ommit`——单独一个 `c""ommit` 根本不是 git 命令，不该被 gate 拦。
+_KNOWN_BYPASSES = (
+    'git "commit" -m x',
+    'git "-C" /other commit -m y',
+    'g""it commit -m x',
+    'git c""ommit -m x',
+)
+
+
+def test_the_four_known_bypasses_are_no_longer_invisible() -> None:
+    """一对引号就能让 gate 静默不跑——这是本卡要消除的那一类。
+
+    这四条今天全部**逃过整个闸门**（`exit 0`，零检查通过）。它们不是四个拼写
+    遗漏，是「用正则读命令文本判断意图」这件事本身的必然结果：宽了误伤，窄了
+    漏掉，而 `g""it` 能骗过任何写得出来的 substring 预筛——**引号是 shell 的，
+    不是文本的**。
+    """
+    for command in _KNOWN_BYPASSES:
+        intent = _POLICY.inspect_command("Bash", command)
+        assert intent.gate != "skip", f"{command} 又一次静默绕过了闸门"
+
+    # 前三条走完整检查，第二条（重定向到别的仓库）必须直接拒绝：本仓库的检查
+    # 结论不能为另一个仓库的提交背书。
+    assert _POLICY.inspect_command("Bash", _KNOWN_BYPASSES[1]).gate == "block"
+    for command in (_KNOWN_BYPASSES[0], _KNOWN_BYPASSES[2], _KNOWN_BYPASSES[3]):
+        assert _POLICY.inspect_command("Bash", command).gate == "check", command
+
+
+def test_lowercase_c_is_a_config_override_not_a_repository_redirect() -> None:
+    """`-c key=value` 是无害的配置覆盖，`-C path` 才是换仓库。
+
+    旧实现靠**大小写敏感的正则**区分这两个，于是「两个 shell 的匹配必须在
+    大小写敏感性上一致」成了一条隐性约束——而 PowerShell 的 `-like` 天生
+    大小写不敏感，这正是两侧当初分叉的根。精确 token 比较把这条约束整个删掉。
+    """
+    assert _POLICY.inspect_command("Bash", "git -c core.hooksPath=x commit").gate == (
+        "check"
+    )
+    assert _POLICY.inspect_command("Bash", "git -C /other commit").gate == "block"
+
+    # …而 `git commit -C HEAD` 是**复用另一条提交的信息**，没有换任何仓库。
+    # 旧正则在整串文本上找 `-C`，把它误拦了；限定在**子命令之前的全局选项**
+    # 才是 git 真正的语法。
+    assert _POLICY.inspect_command("Bash", "git commit -C HEAD").gate == "check"
+
+
+def test_a_command_that_cannot_be_parsed_runs_everything() -> None:
+    """决策 4：「这不是 commit」和「我判断不出这是不是 commit」是两个答案。
+
+    旧实现 Phase A 任何异常一律 `exit 0`，理由是「坏掉的探测器不能拦住无关
+    命令」。听起来稳妥，实际后果是**探测器一坏，闸门就静默消失**。
+    """
+    unparseable = "echo don't"  # 引号不配对：bash 自己也跑不了
+    intent = _POLICY.inspect_command("Bash", unparseable)
+    assert intent.gate == "check", "判断不出来时必须当成可能是 commit"
+    assert intent.force_full, "而且不能相信暂存路径能描述它——直接跑全量"
+
+    # 关键的一半：**带着链令牌**的读不懂命令。令牌是文本位置判定（决策 3），
+    # 所以它照样匹配得上；如果 fail-closed 不把它压掉，就出现了最坏的组合——
+    # 一条读不懂的命令拿到了跳过全量的授权。fail-closed 必须能复合，否则
+    # 它不是 fail-closed。
+    # （变异验证 2026-08-16：只用不带令牌的命令测，这条会漏——那次变异存活。）
+    with_token = "MOTV_CONTINUOUS_CHAIN=1 git commit -m x && echo don't"
+    assert _POLICY.chain_mode_from_command(with_token), "前提：令牌本身是匹配的"
+    poisoned = _POLICY.inspect_command("Bash", with_token)
+    assert poisoned.force_full, with_token
+    assert not poisoned.chain_mode, "读不懂的命令绝不能顺带拿到跳过全量的令牌"
+
+
+def test_a_hash_inside_a_word_cannot_swallow_a_trailing_push() -> None:
+    """tokenizer 关掉了 `#` 的注释语义，这条钉住那个选择。
+
+    shlex 默认会把 `#` 之后的整行丢掉，**包括词中间的 `#`**（bash 那里它是普通
+    字符）。凡是被丢掉的东西，ADR-0068 决策 6 的扫描就再也看不见——一个
+    `-m x#1 && git push` 就能让真实的 push 隐形。
+
+    代价是反向的过度阻塞：真正写成注释的 `# ...` 里若出现 push 也会被拦。
+    那一侧只多花一次重打，另一侧是把没跑过全量的提交推给别人。
+    """
+    conflict = "MOTV_CONTINUOUS_CHAIN=1 git commit -m x#1 && git push"
+    assert (
+        _POLICY.decide(
+            ["src/ai_video_workflow/persistence.py"], conflict, tool_name="Bash"
+        ).tier
+        == "chain-conflict"
+    )
+
+
+@pytest.mark.parametrize("tool_name", [None, "", "PowerShell", "Write", "bash "])
+def test_an_unknown_tool_name_fails_closed(tool_name) -> None:
+    """`tool_name` 是本方案新增的那个输入：同一段文本在两种 grammar 下含义不同，
+    不知道用哪一种就等于判断不出来。
+
+    `PowerShell` 也在这张表里：只有 gate.ps1 能切分 PowerShell 语法，所以带着
+    PowerShell 文本却**没有** argv 的调用（例如 gate.sh 真的收到一份），只能
+    fail-closed。
+    """
+    intent = _POLICY.inspect_command(tool_name, "git commit -m x")
+    assert intent.gate == "check" and intent.force_full, tool_name
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'eval "git commit -m x"',
+        "bash -c 'git commit -m x'",
+        "$G commit -m x",
+        "$(echo git) commit -m x",
+        "make commit",
+        "./scripts/do-commit.sh",
+    ],
+)
+def test_the_documented_bypasses_really_do_still_bypass(command) -> None:
+    """**这条测试断言的是一个漏洞仍然存在**，而且这是故意的。
+
+    解析器解决的是**引号与转义**，解决不了**间接**：hook 拿到的是「将要交给
+    shell 的一段文本」，凡是文本本身不足以决定行为的写法，任何静态判定都得不出
+    结论。方案 §6 诚实列了这张表，这条测试把那张表**钉成可执行的**——将来谁
+    以为自己顺手堵死了其中一条，会先在这里看到红色，然后才去改文档，而不是
+    留下一份说「已覆盖」而其实没有的注释。
+
+    这个仓库已经四次栽在「守卫看起来加了，其实没接上」。反过来的守卫同样重要：
+    **不要假装堵死**。真正堵死要靠仓库自己的 `pre-commit` git hook（它在 git
+    进程内，无论谁怎么调起来都会跑），那是另一张卡。
+    """
+    assert _POLICY.inspect_command("Bash", command).gate == "skip", (
+        f"{command} 现在被抓到了——这是好事，但方案 §6 与源码里那张"
+        f"「已知漏洞边界」表必须同步更新，否则文档就在撒谎"
+    )
+
+
+def test_the_known_bypass_table_is_still_written_down_in_the_source() -> None:
+    """验收第 2 条：间接形式仍然绕过，**且这一点写在代码注释里**。
+
+    删掉这张表比删掉代码容易得多，而一旦删掉，下一个人读到的就是一个看起来
+    密不透风的闸门。
+    """
+    source = Path(_POLICY.__file__).read_text("utf-8")
+    table = source.split("KNOWN BYPASSES THAT REMAIN", 1)
+    assert len(table) == 2, "源码里必须留着那张「已知漏洞边界」表"
+    table = table[1].split("def ", 1)[0]
+    for form in ("eval", "-c '", "$(echo git)", "alias", "child process"):
+        assert form in table, f"漏洞表里少了 {form} 这一类"
+    assert "cannot" in table, "必须写明安全边界没有抬到「不可绕过」"
+
+
+def test_wrappers_keep_the_coverage_the_old_regex_already_had() -> None:
+    """`sudo git commit` 旧正则是**抓得到**的（文本里同时有 git 和 commit）。
+
+    换成 token 判定后，如果只看第一个 token，它会变成「命令名是 sudo，不是
+    git」——一次伪装成重写的**倒退**。包装器把真正的命令留在自己的 argv 里，
+    所以拆开它不是解析器的聪明，是不丢已有覆盖面。
+    """
+    for command in (
+        "sudo git commit -m x",
+        "env FOO=1 git commit -m x",
+        "nice git commit -m x",
+        "xargs git commit",
+        "xargs -n1 git commit",
+        "command git commit -m x",
+    ):
+        assert _POLICY.inspect_command("Bash", command).gate == "check", command
+
+
+def test_dash_am_is_a_worktree_commit_and_must_be_diffed_against_HEAD() -> None:
+    """`git commit -am "x"` 是完全普通的写法，旧正则只认 `-a` 和 `--all`。
+
+    于是它按 **index** 分类，而这条提交实际写的是 **worktree**：分类器看的是
+    一份不描述这次提交的路径清单。选错方向只会让 diff 变窄——也就是档位变低。
+    """
+    assert _POLICY.inspect_command("Bash", "git commit -am x").diff == "head"
+    assert _POLICY.inspect_command("Bash", "git commit -a -m x").diff == "head"
+    assert _POLICY.inspect_command("Bash", "git commit --all -m x").diff == "head"
+    assert _POLICY.inspect_command("Bash", "git commit -m x").diff == "index"
+    # `--amend` 不是 `--all`，`-m` 里没有 a
+    assert _POLICY.inspect_command("Bash", "git commit --amend -m x").diff == "index"
+
+
+def test_a_commit_message_mentioning_push_is_no_longer_a_chain_conflict() -> None:
+    """方案 §3 表里那条**误伤**：旧扫描去掉引号后在整串文本里找五个动词，
+    于是提交信息里写了 push 就被当成真的 push 拦下。
+
+    token 判定同时解决了漏和误伤两侧——`push` 是不是 git 的**子命令**，
+    和它有没有出现在某条信息里，是两个不同的问题。
+    """
+    token = "MOTV_CONTINUOUS_CHAIN=1"
+    high_risk = ["src/ai_video_workflow/persistence.py"]
+
+    allowed = _POLICY.decide(
+        high_risk, f'{token} git commit -m "say push here"', tool_name="Bash"
+    )
+    assert allowed.tier == "continuous-chain", "信息里提到 push 不该拦住链提交"
+
+    # …而真的 push 仍然拦，引号也救不了它
+    for tail in ("&& git push", '&& git "push"', "&& git cherry-pick abc"):
+        blocked = _POLICY.decide(
+            high_risk, f"{token} git commit -m x {tail}", tool_name="Bash"
+        )
+        assert blocked.tier == "chain-conflict", tail
+
+
+def test_the_two_cli_modes_together_reproduce_decide() -> None:
+    """`decide()` 是这份合同的**规格**，两个 CLI 模式合起来是它的**实现**。
+
+    分成两次调用是有原因的：意图必须在 `git diff` **之前**知道（它决定问 git
+    要哪一份 diff）。但那样一来 `decide()` 就成了一个没人实现的规格——本仓库
+    反复栽的正是这种「守卫看起来接上了其实没有」。这条测试是那根接线。
+    """
+    import json
+    import subprocess
+
+    token = "MOTV_CONTINUOUS_CHAIN=1"
+    high_risk = "src/ai_video_workflow/persistence.py"
+
+    def through_the_cli(command: str, *paths: str) -> str:
+        intent = json.loads(
+            subprocess.run(
+                [sys.executable, str(_POLICY_PATH), "--intent"],
+                input=json.dumps(
+                    {"tool_name": "Bash", "tool_input": {"command": command}}
+                ).encode("utf-8"),
+                capture_output=True,
+                cwd=_POLICY_PATH.parents[2],
+                check=True,
+            ).stdout.decode("utf-8")
+        )
+        if intent["gate"] == "skip":
+            return "skip"
+        if intent["gate"] == "block":
+            return intent["tier"]
+        if intent["force_full"]:
+            return "full"
+        return json.loads(
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(_POLICY_PATH),
+                    "--chain-mode",
+                    "1" if intent["chain_mode"] else "0",
+                    "--",
+                    *paths,
+                ],
+                capture_output=True,
+                cwd=_POLICY_PATH.parents[2],
+                check=True,
+            ).stdout.decode("utf-8")
+        )["tier"]
+
+    for command, paths in (
+        ("git commit -m x", (high_risk,)),
+        (f"{token} git commit -m x", (high_risk,)),
+        (f"{token} git commit -m x && git push", (high_risk,)),
+        ("git -C /other commit", (high_risk,)),
+        ("ls -la", ()),
+        ("echo don't", (high_risk,)),
+        (f"{token} git commit", ("docs/x.md",)),
+        (f"{token} git commit", ("src/ai_video_workflow/validation.py",)),
+        # 一个真名叫 `--chain-mode` 的改动文件仍然是路径，因为有 `--`
+        ("git commit", ("--chain-mode",)),
+    ):
+        expected = _POLICY.decide(list(paths), command, tool_name="Bash")
+        assert through_the_cli(command, *paths) == expected.tier, command
+
+
+def test_gate_ps1_splits_powershell_with_powershells_own_parser() -> None:
+    """跨 shell 一致性（ADR-0062 决策 3），**实跑 gate.ps1 自己那段切分**。
+
+    这条测试把 gate.ps1 里 BEGIN/END 之间的函数抠出来真的执行，而不是对源码
+    做字符串断言——本仓库此前的编码 bug 之所以能躲过整套测试，正是因为测试
+    只断言了源码文本。
+
+    只在有 powershell 的主机上跑。Windows 是权威环境（ADR-0062），而 Linux 上
+    根本不存在 PowerShell 工具，所以那半边由 fail-closed 覆盖，见下一条。
+    """
+    import json
+    import shutil
+    import subprocess
+    import tempfile
+
+    powershell = shutil.which("powershell") or shutil.which("pwsh")
+    if powershell is None:
+        pytest.skip(
+            "no powershell on this host (Ubuntu target: PowerShell tool 不存在)"
+        )
+
+    hooks = Path(__file__).resolve().parents[1] / ".claude" / "hooks"
+    ps1 = (hooks / "gate.ps1").read_text("utf-8")
+    body = ps1.split("# --- BEGIN GATE-ARGV-SPLITTER", 1)
+    assert len(body) == 2, "gate.ps1 里的切分函数必须留着可抠出的标记"
+    body = body[1].split("# --- END GATE-ARGV-SPLITTER", 1)[0]
+    body = body.split("\n", 1)[1]
+
+    driver = (
+        body
+        + """
+$reader = New-Object System.IO.StreamReader(
+    [Console]::OpenStandardInput(), (New-Object System.Text.UTF8Encoding($false)))
+$text = $reader.ReadToEnd()
+$split = ConvertTo-GateArgv -CommandText $text
+$payload = if ($split.Parsed) {
+    @{ commands = $split.Commands } | ConvertTo-Json -Depth 6 -Compress
+} else { '{"commands":null}' }
+$bytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
+$out = [Console]::OpenStandardOutput()
+$out.Write($bytes, 0, $bytes.Length)
+$out.Flush()
+"""
+    )
+
+    with tempfile.TemporaryDirectory() as workdir:
+        script = Path(workdir) / "split.ps1"
+        script.write_text(driver, encoding="utf-8")
+
+        def split(command: str):
+            result = subprocess.run(
+                [
+                    powershell,
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(script),
+                ],
+                input=command.encode("utf-8"),
+                capture_output=True,
+                check=True,
+            )
+            return json.loads(result.stdout.decode("utf-8"))["commands"]
+
+        # 引号形式在 PowerShell 侧同样必须被解开
+        for command in ('git "commit" -m x', 'g""it commit -m x', 'git c""ommit -m x'):
+            assert _POLICY.inspect_command(
+                "PowerShell", command, split(command)
+            ).gate == ("check"), command
+        assert (
+            _POLICY.inspect_command(
+                "PowerShell", 'git "-C" other commit', split('git "-C" other commit')
+            ).gate
+            == "block"
+        )
+        # `-c` 仍然不是 `-C`
+        assert (
+            _POLICY.inspect_command(
+                "PowerShell", "git -c core.x=1 commit", split("git -c core.x=1 commit")
+            ).gate
+            == "check"
+        )
+        # 非 commit 不受影响
+        assert (
+            _POLICY.inspect_command(
+                "PowerShell", "Get-ChildItem", split("Get-ChildItem")
+            ).gate
+            == "skip"
+        )
+        # 多条语句各自切开，链令牌 + push 仍然被拒
+        chained = "# MOTV_CONTINUOUS_CHAIN=1\ngit commit -m x\ngit push"
+        assert _POLICY.inspect_command("PowerShell", chained, split(chained)).gate == (
+            "block"
+        )
+        # 解析失败 -> $null -> 由策略 fail-closed（PowerShell 5.1 没有 `&&`）
+        assert split('git commit -m "x" && git push') is None
+
+
+def test_gate_sh_is_never_less_careful_than_gate_ps1_on_the_same_payload() -> None:
+    """ADR-0062 决策 3 要求同一输入同一判定。两侧唯一能不同的是 PowerShell
+    文本：只有 gate.ps1 能切分它。
+
+    诚实的表述不是「两边完全相同」，而是**能判定的地方完全相同，判定不了的
+    那一侧只会更保守，绝不会更宽松**。POSIX 切分在 Python 里共用同一份代码，
+    所以 Bash payload 两侧本就是同一次计算。
+    """
+    for command in ("git commit -m x", "ls -la", 'git "commit" -m x'):
+        # gate.sh 若真的收到 PowerShell payload：没有 argv -> fail-closed
+        as_gate_sh = _POLICY.inspect_command("PowerShell", command, None)
+        assert as_gate_sh.gate == "check" and as_gate_sh.force_full, command
+        # 而 fail-closed 永远是「跑得更多」，不是「跑得更少」
+        assert not as_gate_sh.chain_mode, command
+
+
+def test_both_shells_BOUND_the_intent_step_too() -> None:
+    """意图判定现在跑在**每一次** Bash/PowerShell 工具调用上。
+
+    它挂住而没有超时，触发的就是**外层 hook 超时**——PreToolUse 把那个读成
+    **非阻塞**错误，于是命令照跑。这正是分类器那一步 2026-08-16 被报出来的
+    同一个 fail-open，新加的一步不能重犯。
+    """
+    root = Path(__file__).resolve().parents[1] / ".claude" / "hooks"
+    sh = (root / "gate.sh").read_text("utf-8")
+    ps1 = (root / "gate.ps1").read_text("utf-8")
+
+    sh_segment = sh.split("INTENT_JSON=", 1)[1].split("\nfi", 1)[0]
+    assert "timeout --kill-after" in sh_segment, "gate.sh 的意图调用必须有超时"
+
+    ps_segment = ps1.split("$intentResult = Invoke-Bounded", 1)[1].split("\n}", 1)[0]
+    assert "-TimeoutSeconds 15" in ps_segment, "gate.ps1 的意图调用必须有超时"
+
+    import re as _re
+
+    assert {
+        int(m) for m in _re.findall(r"timeout --kill-after=\d+ (\d+)", sh_segment)
+    } == {15}
+
+
+def test_neither_shell_judges_intent_it_hands_the_payload_over() -> None:
+    """TASK-085 的核心结构约束：**切分可以在 shell 里，判定不行。**
+
+    gate.ps1 必须切 PowerShell 语法（只有 PowerShell 能），但它交出去的是
+    token，不是结论。一旦某个 shell 自己认起 `commit` / `-C` / 五个动词，
+    两侧就又有了各自漂移的空间——那正是它们上一次分叉的机制。
+    """
+    hooks = Path(__file__).resolve().parents[1] / ".claude" / "hooks"
+    sh = (hooks / "gate.sh").read_text("utf-8")
+    ps1 = (hooks / "gate.ps1").read_text("utf-8")
+
+    # 1. 两侧都调用意图模式，且都把判定结果原样用掉
+    for name, text in (("gate.sh", sh), ("gate.ps1", ps1)):
+        assert "--intent" in text, f"{name} 必须把意图问题交给策略"
+        assert "--chain-mode" in text, f"{name} 必须把已解析的链开关传下去"
+
+    # 2. 判定用的字面量只许出现在策略模块里。这些是「结论」，不是「切分」。
+    for name, text in (("gate.sh", sh), ("gate.ps1", ps1)):
+        for literal in (
+            "--git-dir",
+            "--work-tree",
+            "cherry-pick",
+            "MOTV_CONTINUOUS_CHAIN",
+        ):
+            assert literal not in text, f"{name} 不得自己实现意图判定：{literal}"
+
+    # 3. 旧的三处文本预筛必须真的删掉，而不是留在旁边
+    for name, text in (("gate.sh", sh), ("gate.ps1", ps1)):
+        assert "namesGit" not in text and "namesCommit" not in text, name
+        assert "--command" not in text, f"{name} 仍在用旧的 --command 合同"
+
+    # 4. gate.ps1 的切分函数只切分：它不认识任何一个判定词
+    splitter = ps1.split("function ConvertTo-GateArgv", 1)[1].split(
+        "# --- END GATE-ARGV-SPLITTER", 1
+    )[0]
+    for literal in ("git", "commit", "-C", "push"):
+        assert literal not in splitter, (
+            f"切分函数里出现了判定词 {literal!r}——它必须只认 AST 节点类型"
+        )
+
+    # 5. gate.ps1 依然是纯 ASCII：它没有 BOM，PowerShell 5.1 会用 ANSI 代码页
+    #    解码，一个落在引号里的非 ASCII 字符就是**解析错误**，退出码 1，而
+    #    PreToolUse 把 1 当成非阻塞错误——闸门 fail OPEN。
+    assert ps1.isascii(), "a BOM-less .ps1 must stay ASCII or it can fail open"
 
 
 def test_both_shells_BOUND_the_classifier_step() -> None:

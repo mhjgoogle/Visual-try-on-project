@@ -1,6 +1,8 @@
 # commit gate 的意图判定：从正则读命令文本，改成用每个 shell 自己的解析器
 
-- 状态：**方案（未实施）**。实施由 [TASK-085](../tasks/TASK-085-gate-intent-detection.md) 承接。
+- 状态：**已实施**（2026-08-16，[TASK-085](../tasks/TASK-085-gate-intent-detection.md)）。
+  决策已固化为 [ADR-0070](../adr/ADR-0070-commit-gate-intent-by-shell-parser.md)。
+  实施中与本方案的三处偏差已就地标注（§4 决策 4、§6），**以 ADR-0070 为准**。
 - 来源：[待复审清单](pending-codex-rereview.md)「仍然待办」第 3 项 → [TASK-084](../tasks/TASK-084-clear-the-push-gate.md) §3
 - 依据：[ADR-0050](../adr/ADR-0050-native-windows-commit-gate.md) 决策 1（两 shell 同一行为合同）、
   [ADR-0062](../adr/ADR-0062-windows-authoritative-environment.md) 决策 3（两实现必须给出相同判定）、
@@ -133,6 +135,16 @@ PowerShell 语法只能由 PowerShell 解析，所以那一段留在 `gate.ps1`�
 
 代价是偶尔多跑一次检查；今天的代价是**静默放行一次未检查的提交**。这两边不对等。
 
+**实施补充（TASK-085）**：fail-closed 必须**能复合**，本方案原文没写到这一层——
+
+- 读不懂的命令同时**丧失链令牌的减档授权**。令牌是文本位置判定（决策 3），
+  所以它在读不懂的命令上照样匹配得上；不压掉就会出现最坏组合：**一条读不懂的
+  命令拿到了跳过全量的授权**。（这一条首轮变异验证存活，是实打实的缺口。）
+- 读不懂时**不去问 `git diff`**，直接全量：暂存路径回答的是关于本仓库的问题，
+  而那条读不懂的命令未必是关于本仓库的。
+- 「分类器跑不起来」也算判断不出来，因此也 fail-closed。后果见
+  [ADR-0070 后果](../adr/ADR-0070-commit-gate-intent-by-shell-parser.md#后果)。
+
 ### 决策 5：Phase A 不再做文本预筛，直接交给 policy
 
 今天 gate 用两条正则决定「要不要往下走」。任何文本预筛都会**重新引入本方案要消除的
@@ -175,8 +187,23 @@ fail-closed，两边行为仍一致。
 | `eval "git commit -m x"` | token 是 `['eval', 'git commit -m x']`，commit 藏在字符串参数里 |
 | `bash -c 'git commit …'` / `powershell -c …` | 同上，嵌套一层新 grammar |
 | `$G commit`、`$(echo git) commit` | 变量与命令替换在**运行时**才展开，hook 早于运行时 |
-| `xargs git commit`、`make commit`、跑一个含提交的脚本 | 提交发生在 gate 看不见的子进程里 |
+| ~~`xargs git commit`~~、`make commit`、跑一个含提交的脚本 | 提交发生在 gate 看不见的子进程里 |
 | shell 函数 / alias / `~/.gitconfig` 的 alias | 名字与真实动作的映射不在这段文本里 |
+
+**实施偏差（2026-08-16，TASK-085）——这张表现在有两处不准，以此处为准：**
+
+1. **`xargs git commit` 已被抓到**，连同 `sudo` / `env` / `nice` / `nohup` /
+   `time` / `command` / `doas` / `stdbuf`。理由不是解析器变聪明，而是**旧正则
+   本来就抓得到 `sudo git commit`**（文本里同时有 git 和 commit）——不拆开包装器
+   会让这次改动对该写法成为一次伪装成重写的**倒退**。`make commit` 与脚本仍然
+   绕过（那才是真正的「子进程里」）。
+2. **`$G commit` 在 PowerShell 侧实际会 fail-closed**：它不是合法 PowerShell
+   （变量后跟裸词是 parse error，实测 errors=1），于是走决策 4 跑全量。
+   **这是运气，不是设计**——Bash 侧的 `$G commit` 照旧绕过。
+
+其余各行仍然成立，并已由 `test_the_documented_bypasses_really_do_still_bypass`
+钉成可执行断言：**那条测试断言的是漏洞仍然存在**，好让将来谁以为自己顺手堵死了
+其中一条，会先看到红色、再去改文档，而不是留下一份说「已覆盖」而其实没有的注释。
 
 这些**不是**换判定机制能修的：hook 拿到的是「将要交给 shell 的一段文本」，
 凡是文本本身不足以决定行为的写法，任何静态判定都得不出结论。

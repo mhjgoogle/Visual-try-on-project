@@ -77,7 +77,8 @@ function Invoke-Bounded {
         [Parameter(Mandatory = $true)][string]$FilePath,
         [string[]]$Arguments = @(),
         [Parameter(Mandatory = $true)][int]$TimeoutSeconds,
-        [Parameter(Mandatory = $true)][string]$WorkingDirectory
+        [Parameter(Mandatory = $true)][string]$WorkingDirectory,
+        [AllowEmptyString()][string]$StdinText = $null
     )
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -91,11 +92,28 @@ function Invoke-Bounded {
     $utf8 = New-Object System.Text.UTF8Encoding($false)
     $psi.StandardOutputEncoding = $utf8
     $psi.StandardErrorEncoding = $utf8
+    if ($null -ne $StdinText) { $psi.RedirectStandardInput = $true }
 
     $proc = [System.Diagnostics.Process]::Start($psi)
     try {
         $outTask = $proc.StandardOutput.ReadToEndAsync()
         $errTask = $proc.StandardError.ReadToEndAsync()
+
+        # Raw UTF-8 BYTES onto the base stream, not through the StreamWriter.
+        # ProcessStartInfo.StandardInputEncoding does not exist on the .NET
+        # Framework that PowerShell 5.1 runs on, so the writer would encode with
+        # the console codepage -- and this pipe carries the intercepted command,
+        # commit message included. On a cp932 host a Chinese message would reach
+        # the classifier as mojibake or die on encode. The hook contract is
+        # UTF-8; the console gets no vote (same rule as the notice on the way
+        # out). Drain tasks are started FIRST so a child that answers before it
+        # has read everything cannot deadlock against a full stdout buffer.
+        if ($null -ne $StdinText) {
+            $stdinBytes = [System.Text.Encoding]::UTF8.GetBytes($StdinText)
+            $proc.StandardInput.BaseStream.Write($stdinBytes, 0, $stdinBytes.Length)
+            $proc.StandardInput.BaseStream.Flush()
+            $proc.StandardInput.Close()
+        }
 
         $timedOut = $false
         if (-not $proc.WaitForExit($TimeoutSeconds * 1000)) {
@@ -122,18 +140,101 @@ function Invoke-Bounded {
     }
 }
 
+# --- BEGIN GATE-ARGV-SPLITTER ----------------------------------------------
+# Split a PowerShell command line into simple commands of already-dequoted
+# tokens, using PowerShell's OWN parser -- the same one that will execute the
+# command, not a second approximation of it.
+#
+# THIS FUNCTION SPLITS. IT NEVER JUDGES. It contains no notion of `git`, of
+# `commit`, of `-C`, or of the chain token: every verdict is reached in
+# commit_gate_policy.py, because two shells each matching their own tokens is
+# precisely how the two platforms came to disagree before (ADR-0062 decision 3).
+# The POSIX side needs no equivalent -- Python's `shlex` tokenises it inside the
+# policy, so that half is literally one implementation.
+#
+# Element kinds, all four measured 2026-08-16 on PowerShell 5.1.26100:
+#   StringConstantExpressionAst    `git`, `"commit"`, `g""it`, and ALSO `"-C"`
+#                                  and `--all` -- a quoted or double-dashed
+#                                  option arrives as a constant, not a parameter
+#   CommandParameterAst            `-m`, `-C`, `-am`; it has no .Value, and its
+#                                  .Extent.Text is the raw token we want
+#   ExpandableStringExpressionAst  `"fix $name"`; .Value keeps `$name` literal,
+#                                  which is right -- the expansion happens after
+#                                  this hook has already run
+#   anything else                  variables, sub-expressions, script blocks:
+#                                  the extent text, which can never equal a bare
+#                                  command name. That is the documented
+#                                  indirection hole, not an accident.
+#
+# A PARSE ERROR RETURNS $null, and the policy turns that into a full run
+# (decision 4). Note PowerShell 5.1 has no `&&`/`||`, so `git commit && git push`
+# IS a parse error here: it fails closed to the full suite rather than to a
+# chain skip, which keeps ADR-0068 decision 6's invariant intact by a different
+# route. Returned inside a PSCustomObject because PowerShell unwraps a
+# single-element array on return and the nesting is the whole point.
+function ConvertTo-GateArgv {
+    param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$CommandText)
+
+    $parseTokens = $null
+    $parseErrors = $null
+    $tree = [System.Management.Automation.Language.Parser]::ParseInput(
+        $CommandText, [ref]$parseTokens, [ref]$parseErrors)
+    if ($parseErrors -and $parseErrors.Count -gt 0) {
+        return [pscustomobject]@{ Parsed = $false; Commands = $null }
+    }
+
+    $simpleCommands = @()
+    $found = $tree.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.CommandAst]
+        }, $true)
+    foreach ($simple in $found) {
+        $words = @()
+        foreach ($element in $simple.CommandElements) {
+            if ($element -is [System.Management.Automation.Language.CommandParameterAst]) {
+                $words += [string]$element.Extent.Text
+            }
+            elseif ($element -is [System.Management.Automation.Language.StringConstantExpressionAst] -or
+                $element -is [System.Management.Automation.Language.ExpandableStringExpressionAst]) {
+                $words += [string]$element.Value
+            }
+            else {
+                $words += [string]$element.Extent.Text
+            }
+        }
+        $simpleCommands += , ([string[]]$words)
+    }
+    return [pscustomobject]@{ Parsed = $true; Commands = $simpleCommands }
+}
+# --- END GATE-ARGV-SPLITTER ------------------------------------------------
+
 # ---------------------------------------------------------------------------
-# Phase A -- decide whether this invocation is a `git commit` at all.
-# Any failure in this phase exits 0: a broken detector must never block
-# unrelated Bash commands.
+# Phase A -- work out what this invocation IS, by asking the policy.
+#
+# There is no text pre-filter here any more, and that removal is the point of
+# TASK-085. Two regexes used to decide whether to go on, and every form they
+# failed to recognise was a commit that ran ZERO checks -- `git "commit"` walked
+# straight through, and no pre-filter can be written that `g""it` cannot fool.
+# So the tokens go to the policy and the policy decides.
+#
+# The cost is one interpreter start (~126 ms, measured) on EVERY Bash/PowerShell
+# tool call, not just on commits. That is the accepted price; the thing it buys
+# back is a gate that cannot silently fail to run. If it ever needs reducing,
+# the direction is a resident classifier, NOT a pre-filter -- a pre-filter
+# reintroduces exactly the hole this removed.
+#
+# Failures split in two. "Not in a git repo / no git at all" still exits 0:
+# there is nothing to gate. "I could not reach the classifier" BLOCKS: that is
+# not knowing whether this was a commit, and the old blanket `exit 0` on any
+# Phase A error is how a broken detector silently became a disabled gate.
 # ---------------------------------------------------------------------------
 $gitExe = $null
 $root = $null
+$inputJson = ''
 try {
     # --- read hook input ---------------------------------------------------
     # Read stdin as raw UTF-8 bytes. Setting [Console]::InputEncoding throws
     # when stdin is a pipe, so decode the stream directly instead.
-    $inputJson = ''
     if ([Console]::IsInputRedirected) {
         $stdin = [Console]::OpenStandardInput()
         $reader = New-Object System.IO.StreamReader($stdin, (New-Object System.Text.UTF8Encoding($false)))
@@ -151,56 +252,16 @@ try {
         exit 0
     }
     $root = ([string]$root).Trim()
-
-    # --- extract the intercepted command -----------------------------------
-    # Prefer a proper JSON parse; fall back to the raw payload if it is not
-    # JSON (mirrors gate.sh's grep fallback).
-    $cmd = ''
-    if ($inputJson) {
-        try { $cmd = [string]($inputJson | ConvertFrom-Json).tool_input.command } catch { $cmd = '' }
-        if (-not $cmd) { $cmd = $inputJson }
-    }
-
-    # --- only gate real `git commit` invocations ---------------------------
-    # TWO INDEPENDENT TOKEN TESTS, deliberately NOT a parse of git's argument
-    # grammar. A regex cannot reliably parse a shell command line -- quoted
-    # paths with spaces (`git -C "D:\other repo" commit`), substitutions,
-    # chained commands -- and every form the parse fails to recognise is a
-    # commit that silently skips every check. So: does the command name git at
-    # all, and does a bare `commit` token appear anywhere in it? Over-gating
-    # costs one check run; a miss costs an unverified commit.
-    $namesGit = $cmd -match '(^|[^A-Za-z0-9_-])git(\.exe)?(\s|$)'
-    $namesCommit = $cmd -match '(^|\s)commit(\s|$)'
-    if (-not ($namesGit -and $namesCommit)) { exit 0 }
-
-    # ...but every check below runs in THIS repository. A commit redirected
-    # elsewhere (`git -C other commit`, `--git-dir`, `--work-tree`) would get a
-    # verdict computed from a tree the gate never inspected, so fail closed
-    # rather than vouch for code it did not check.
-    # -cmatch applies to the OPTION TOKEN ONLY, never to `git` itself (which
-    # may be capitalised): git's `-c key=value` is a harmless config override
-    # while `-C path` changes directory, and a case-insensitive test cannot
-    # tell the two apart.
-    $redirected = $cmd -cmatch '(^|\s)(-C(\s|$)|--git-dir(=|\s|$)|--work-tree(=|\s|$))'
 }
 catch {
     exit 0
 }
 
-if ($redirected) {
-    [Console]::Error.WriteLine(
-        'gate.ps1: this commit redirects git to another repository ' +
-        '(-C / --git-dir / --work-tree), but the quality checks only cover ' +
-        "'$root'. Run the commit from that repository's own working directory " +
-        'so its gate can verify it.')
-    exit 2
-}
+# Force UTF-8 on every python child's stdio, BEFORE the first one is started.
+# The classifier now runs in Phase A too, and it carries the commit message.
+$env:PYTHONIOENCODING = 'utf-8'
+$env:PYTHONUTF8 = '1'
 
-# ---------------------------------------------------------------------------
-# Phase B -- this IS a commit: run every quality check. From here on the gate
-# fails CLOSED: any unexpected error blocks the commit (exit 2) rather than
-# letting an unverified commit through.
-# ---------------------------------------------------------------------------
 function Write-Block {
     param([string]$Label, [string]$Output)
     [Console]::Error.WriteLine("=== commit blocked by gate.ps1: '$Label' failed ===")
@@ -210,6 +271,100 @@ function Write-Block {
 }
 
 $py = Join-Path $root '.venv\Scripts\python.exe'
+$policyPath = Join-Path $root '.claude\hooks\commit_gate_policy.py'
+
+# The classifier is stdlib-only, so ANY interpreter can answer the intent
+# question. Preferring the venv but falling back to PATH keeps a repo whose
+# .venv is not built yet from blocking every unrelated command -- only real
+# commits hit the venv requirement, in Phase B, exactly as before.
+$intentPy = $py
+if (-not (Test-Path -LiteralPath $intentPy -PathType Leaf)) {
+    $fallbackPy = Get-Command python -ErrorAction SilentlyContinue
+    $intentPy = if ($fallbackPy) { $fallbackPy.Source } else { $null }
+}
+if (-not $intentPy -or -not (Test-Path -LiteralPath $policyPath -PathType Leaf)) {
+    Write-Block -Label 'commit-intent' -Output @"
+gate.ps1 could not reach the risk classifier, so it cannot tell whether this
+command is a commit.
+  interpreter: $(if ($intentPy) { $intentPy } else { '<none found>' })
+  policy     : $policyPath
+Fail-closed on purpose (TASK-085): the alternative is a gate that silently stops
+running. Restore .claude/hooks/commit_gate_policy.py, or put a python on PATH.
+"@
+}
+
+# --- ask the policy what this command is ------------------------------------
+# PowerShell text can only be split by PowerShell, so THAT part happens here --
+# splitting only. `argv` stays null when the parse failed, which the policy
+# reads as "cannot tell" and answers with a full run.
+$toolName = ''
+$commandText = ''
+if ($inputJson) {
+    try {
+        $hookPayload = $inputJson | ConvertFrom-Json
+        $toolName = [string]$hookPayload.tool_name
+        $commandText = [string]$hookPayload.tool_input.command
+    }
+    catch {
+        # Leave both empty: an unreadable payload is "cannot tell", and the
+        # policy fails closed on it. Matching the RAW payload text with regexes
+        # was the old fallback and is the very thing this card removed.
+        $toolName = ''
+        $commandText = ''
+    }
+}
+
+$argvForPolicy = $null
+if ($toolName -eq 'PowerShell') {
+    try {
+        $split = ConvertTo-GateArgv -CommandText $commandText
+        if ($split.Parsed) { $argvForPolicy = $split.Commands }
+    }
+    catch {
+        $argvForPolicy = $null
+    }
+}
+
+try {
+    $intentJson = @{
+        tool_name = $toolName
+        command   = $commandText
+        argv      = $argvForPolicy
+    } | ConvertTo-Json -Depth 6 -Compress
+    $intentResult = Invoke-Bounded -FilePath $intentPy `
+        -Arguments @($policyPath, '--intent') -TimeoutSeconds 15 `
+        -WorkingDirectory $root -StdinText $intentJson
+}
+catch {
+    Write-Block -Label 'commit-intent' -Output "could not run the intent classifier: $($_.Exception.Message)"
+}
+if ($intentResult.ExitCode -ne 0) {
+    $out = $intentResult.Output
+    if ($intentResult.TimedOut) { $out = "$out`n[timed out after 15s]" }
+    Write-Block -Label 'commit-intent' -Output "could not classify this command:`n$out"
+}
+try {
+    $intent = $intentResult.Output | ConvertFrom-Json -ErrorAction Stop
+}
+catch {
+    Write-Block -Label 'commit-intent' -Output "invalid intent output: $($_.Exception.Message)"
+}
+
+if ($intent.gate -eq 'skip') { exit 0 }      # not a commit -> do nothing
+if ($intent.gate -eq 'block') {
+    [Console]::Error.WriteLine("gate.ps1: $($intent.reason)")
+    [Console]::Error.WriteLine("(the quality checks cover '$root')")
+    exit 2
+}
+if ($intent.gate -ne 'check') {
+    Write-Block -Label 'commit-intent' -Output "unsupported intent: $($intent.gate)"
+}
+
+# ---------------------------------------------------------------------------
+# Phase B -- this IS a commit: run every quality check. From here on the gate
+# fails CLOSED: any unexpected error blocks the commit (exit 2) rather than
+# letting an unverified commit through.
+# ---------------------------------------------------------------------------
 if (-not (Test-Path -LiteralPath $py -PathType Leaf)) {
     [Console]::Error.WriteLine("gate.ps1: $py not found; cannot run quality checks.")
     exit 2
@@ -233,15 +388,8 @@ if (-not (Test-Path -LiteralPath $py -PathType Leaf)) {
 # ~850s, raise the pytest budget here AND the hook timeout in settings.json
 # together (keep hook timeout ~ budget-sum + 4s).
 #
-# Force UTF-8 on Python's stdio so check output is decoded correctly on hosts
-# whose ANSI codepage is not UTF-8 (e.g. cp936).
-$env:PYTHONIOENCODING = 'utf-8'
-$env:PYTHONUTF8 = '1'
-
-$policyPath = Join-Path $root '.claude\hooks\commit_gate_policy.py'
-if (-not (Test-Path -LiteralPath $policyPath -PathType Leaf)) {
-    Write-Block -Label 'commit-risk-policy' -Output "policy file not found: $policyPath"
-}
+# (PYTHONIOENCODING / PYTHONUTF8 are set in Phase A, before the first python
+# child of all -- the intent classifier -- is started.)
 
 # Classify exactly what this commit writes.  A normal commit writes the index,
 # so unrelated experiments in the worktree cannot turn a docs commit into a
@@ -259,66 +407,81 @@ if (-not (Test-Path -LiteralPath $policyPath -PathType Leaf)) {
 #
 # (This file must stay ASCII: it has no BOM, so a non-ASCII byte can be decoded
 # wrongly and make the gate fail OPEN. A guard test pins that.)
-$diffArgs = @('diff', '--cached', '--name-only', '--no-renames', '-z')
-if ($cmd -match '(^|\s)(-a|--all)(\s|$)') {
-    $diffArgs = @('diff', '--name-only', '--no-renames', '-z', 'HEAD')
+#
+# WHICH diff comes from the intent, not from a second look at the command text.
+# Re-deriving `-a/--all` here with a regex is what let `git commit -am "x"` --
+# an entirely ordinary spelling -- be classified against the INDEX while the
+# commit actually wrote the WORKTREE.
+if ($intent.force_full) {
+    # The command could not be parsed, so the staged paths cannot be trusted to
+    # describe it either (decision 4). Skip the diff and run everything: asking
+    # git what is staged would answer a question about THIS repo that the
+    # unreadable command may not even have been about.
+    $policy = [pscustomobject]@{ tier = 'full'; pytest_targets = @(); notice = '' }
 }
-try {
-    $pathsResult = Invoke-Bounded -FilePath $gitExe -Arguments $diffArgs `
-        -TimeoutSeconds 15 -WorkingDirectory $root
-}
-catch {
-    Write-Block -Label 'commit-risk-policy' -Output "could not list changed paths: $($_.Exception.Message)"
-}
-if ($pathsResult.ExitCode -ne 0) {
-    $out = $pathsResult.Output
-    if ($pathsResult.TimedOut) { $out = "$out`n[timed out after 15s]" }
-    Write-Block -Label 'commit-risk-policy' -Output "could not list changed paths:`n$out"
-}
-# Split on NUL, not on newlines: with `-z` above that is the record separator,
-# and it is also what makes a path CONTAINING a newline stay one path.
-$changedPaths = @(
-    $pathsResult.Output -split "`0" | Where-Object { $_ -and $_.Trim() }
-)
-# ADR-0068 opt-in. The command is HANDED OVER; this script does not decide.
-# Matching the token here was wrong twice over: PowerShell's -like is
-# case-INSENSITIVE while gate.sh's grep -F is not (so the platforms disagreed),
-# and an unanchored match let a commit MESSAGE switch the gate off.
-# `--` ends the flags so a changed file named like one stays a path.
-$policyArgs = @($policyPath, '--command', $cmd, '--')
-# FAIL CLOSED on a spawn that never starts. This call now carries $cmd -- the
-# whole intercepted command, commit message included -- into the same 32767-char
-# command-line budget as the changed-path list, so a long message plus a wide
-# change set can push Process.Start over it. With $ErrorActionPreference='Stop'
-# and no catch, that terminating error exited the SCRIPT with 1, which
-# PreToolUse reads as a NON-BLOCKING hook error: the commit then proceeded with
-# ZERO checks run (independent review, round 3, measured: OK at 30125 chars,
-# Win32Exception at 40125). Truncating $cmd instead would hide a trailing
-# `&& git push` from the ADR-0068 decision 6 scan, so bound the failure, not the input.
-try {
-    $policyResult = Invoke-Bounded -FilePath $py -Arguments ($policyArgs + $changedPaths) `
-        -TimeoutSeconds 15 -WorkingDirectory $root
-}
-catch {
-    Write-Block -Label 'commit-risk-policy' -Output @"
+else {
+    $diffArgs = @('diff', '--cached', '--name-only', '--no-renames', '-z')
+    if ($intent.diff -eq 'head') {
+        $diffArgs = @('diff', '--name-only', '--no-renames', '-z', 'HEAD')
+    }
+    try {
+        $pathsResult = Invoke-Bounded -FilePath $gitExe -Arguments $diffArgs `
+            -TimeoutSeconds 15 -WorkingDirectory $root
+    }
+    catch {
+        Write-Block -Label 'commit-risk-policy' -Output "could not list changed paths: $($_.Exception.Message)"
+    }
+    if ($pathsResult.ExitCode -ne 0) {
+        $out = $pathsResult.Output
+        if ($pathsResult.TimedOut) { $out = "$out`n[timed out after 15s]" }
+        Write-Block -Label 'commit-risk-policy' -Output "could not list changed paths:`n$out"
+    }
+    # Split on NUL, not on newlines: with `-z` above that is the record separator,
+    # and it is also what makes a path CONTAINING a newline stay one path.
+    $changedPaths = @(
+        $pathsResult.Output -split "`0" | Where-Object { $_ -and $_.Trim() }
+    )
+    # ADR-0068 opt-in, ALREADY RESOLVED by the intent call. Deriving it a second
+    # time is how two implementations of one rule appear -- and matching it here
+    # was wrong twice over before: PowerShell's -like is case-INSENSITIVE while
+    # gate.sh's grep -F is not (so the platforms disagreed), and an unanchored
+    # match let a commit MESSAGE switch the gate off.
+    # `--` ends the flags so a changed file named like one stays a path.
+    $chainFlag = if ($intent.chain_mode) { '1' } else { '0' }
+    $policyArgs = @($policyPath, '--chain-mode', $chainFlag, '--')
+    # FAIL CLOSED on a spawn that never starts. The intercepted command no longer
+    # travels on this command line -- it goes to the intent call on a PIPE -- so
+    # the 32767-char budget is spent on changed paths alone now. It used to carry
+    # the commit MESSAGE as well, and a long message plus a wide change set pushed
+    # Process.Start over the limit; with $ErrorActionPreference='Stop' and no
+    # catch, that terminating error exited the SCRIPT with 1, which PreToolUse
+    # reads as a NON-BLOCKING hook error, so the commit proceeded with ZERO checks
+    # run (independent review, round 3; measured OK at 30125 chars, Win32Exception
+    # at 40125). The catch stays regardless: a change set can still be wide.
+    try {
+        $policyResult = Invoke-Bounded -FilePath $py -Arguments ($policyArgs + $changedPaths) `
+            -TimeoutSeconds 15 -WorkingDirectory $root
+    }
+    catch {
+        Write-Block -Label 'commit-risk-policy' -Output @"
 could not run the risk classifier: $($_.Exception.Message)
 
-If this says the filename or extension is too long, the commit command itself is
-too long to hand over (git's 32767-char command-line budget covers the message
-AND the changed-path list). Put the message in a file and use -F, or stage fewer
-paths per commit. The gate refuses to vouch for code it could not classify.
+If this says the filename or extension is too long, the changed-path list is too
+long to hand over (32767-char command-line budget). Stage fewer paths per commit.
+The gate refuses to vouch for code it could not classify.
 "@
-}
-if ($policyResult.ExitCode -ne 0) {
-    $out = $policyResult.Output
-    if ($policyResult.TimedOut) { $out = "$out`n[timed out after 15s]" }
-    Write-Block -Label 'commit-risk-policy' -Output "could not classify changed paths:`n$out"
-}
-try {
-    $policy = $policyResult.Output | ConvertFrom-Json -ErrorAction Stop
-}
-catch {
-    Write-Block -Label 'commit-risk-policy' -Output "invalid policy output: $($_.Exception.Message)"
+    }
+    if ($policyResult.ExitCode -ne 0) {
+        $out = $policyResult.Output
+        if ($policyResult.TimedOut) { $out = "$out`n[timed out after 15s]" }
+        Write-Block -Label 'commit-risk-policy' -Output "could not classify changed paths:`n$out"
+    }
+    try {
+        $policy = $policyResult.Output | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        Write-Block -Label 'commit-risk-policy' -Output "invalid policy output: $($_.Exception.Message)"
+    }
 }
 
 $checks = @(
@@ -382,13 +545,12 @@ switch ($policy.tier) {
         # ADR-0068: the whole-suite run is deferred to the end of an authorised
         # chain. Announced below, never silent.
     }
-    'chain-conflict' {
-        # ADR-0068 decision 6: the opt-in cannot ride along with a push/merge in the
-        # same command. Blocking here (not in the shells' own token scan) keeps
-        # every command-derived decision in the policy module.
-        Write-Block -Label 'continuous-chain' -Output $policy.reason
-    }
     default {
+        # ADR-0068 decision 6 (opt-in riding along with a push/merge) used to be a
+        # tier here. It is decided in Phase A now, because the intent call already
+        # has the tokens and blocking before the checks -- rather than after ruff,
+        # which is where gate.sh reached it -- makes the two shells agree on WHEN
+        # as well as on WHAT. Anything unexpected reaching this branch blocks.
         Write-Block -Label 'commit-risk-policy' -Output "unsupported risk tier: $($policy.tier)"
     }
 }

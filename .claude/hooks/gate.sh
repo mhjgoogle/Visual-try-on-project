@@ -43,54 +43,89 @@ if [ ! -x "$PY" ] && [ -f "$ROOT/.venv/Scripts/python.exe" ]; then
   exit 0
 fi
 
-# --- extract the intercepted command ---------------------------------------
-# Prefer a proper JSON parse (python is guaranteed present in this project);
-# fall back to a raw grep only if parsing fails.
-CMD=""
-if [ -x "$PY" ]; then
-  CMD="$(printf '%s' "$INPUT" | "$PY" -c 'import json,sys
-try:
-    d=json.load(sys.stdin)
-    print(d.get("tool_input",{}).get("command",""))
-except Exception:
-    pass' 2>/dev/null || true)"
-fi
-if [ -z "$CMD" ]; then
-  CMD="$INPUT"
-fi
+# --- work out what this command IS ------------------------------------------
+# THERE IS NO TEXT PRE-FILTER HERE ANY MORE, and that removal is the point of
+# TASK-085. Two regexes used to decide whether to go on -- 「does it name git」
+# and 「is there a bare `commit` token」 -- and every form they failed to
+# recognise was a commit that ran ZERO checks. `git "commit"` walked straight
+# through, and `git "-C" other commit` made this repo's checks vouch for a
+# commit into a different one. No pre-filter fixes that class: `g""it` fools any
+# substring test ever written, because the QUOTES ARE THE SHELL'S, not the text's.
+#
+# So the payload goes to the policy verbatim and the policy decides, tokenising
+# POSIX text with `shlex`. That is one implementation, shared with the Windows
+# side, which is the only arrangement ADR-0062 决策 3 cannot be violated by:
+# two shells each matching their own tokens is exactly how they diverged before.
+#
+# The cost is one interpreter start (~126 ms) per Bash tool call, commit or not.
+# If it ever needs reducing the direction is a resident classifier, NEVER a
+# pre-filter.
+POLICY="$ROOT/.claude/hooks/commit_gate_policy.py"
 
-# --- only gate real `git commit` invocations --------------------------------
-# TWO INDEPENDENT TOKEN TESTS, deliberately NOT a parse of git's argument
-# grammar. A regex cannot reliably parse a shell command line -- quoted paths
-# containing spaces, substitutions, chained commands -- and every form the
-# parse fails to recognise is a commit that silently skips every check. So:
-# does the command name git at all, and does a bare `commit` token appear
-# anywhere in it? Over-gating costs one check run; a miss costs an unverified
-# commit.
-if ! printf '%s' "$CMD" | grep -qiE '(^|[^[:alnum:]_-])git(\.exe)?([[:space:]]|$)' \
-  || ! printf '%s' "$CMD" | grep -qiE '(^|[[:space:]])commit([[:space:]]|$)'; then
-  exit 0
+# The classifier is stdlib-only, so any interpreter can answer the intent
+# question. Preferring the venv but falling back to PATH keeps a repo whose
+# .venv is not built yet from blocking every unrelated command -- only real
+# commits hit the venv requirement, below, exactly as before.
+PYX="$PY"
+if [ ! -x "$PYX" ]; then
+  PYX="$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)"
 fi
-
-# ...but every check below runs in THIS repository. A commit redirected
-# elsewhere by -C / --git-dir / --work-tree would get a verdict computed from a
-# tree the gate never inspected, so fail closed rather than vouch for code it
-# did not check. This match is case-SENSITIVE (no -i): git's `-c key=value` is
-# a harmless config override while `-C path` changes directory, and a
-# case-insensitive test cannot tell the two apart.
-if printf '%s' "$CMD" | grep -qE '(^|[[:space:]])(-C([[:space:]]|$)|--git-dir(=|[[:space:]]|$)|--work-tree(=|[[:space:]]|$))'; then
-  echo "gate.sh: this commit redirects git to another repository (-C / --git-dir / --work-tree), but the quality checks only cover '$ROOT'. Run the commit from that repository's own working directory so its gate can verify it." >&2
+if [ -z "$PYX" ] || [ ! -f "$POLICY" ]; then
+  # FAIL CLOSED, not `exit 0`. Not knowing whether this was a commit is not the
+  # same as knowing it was not, and a blanket `exit 0` on a broken detector is
+  # how a gate stops running without anyone noticing. This is unreachable in the
+  # wired setup -- gate_dispatch.py is itself a python program, so an
+  # interpreter demonstrably exists whenever this hook runs at all.
+  echo "gate.sh: cannot reach the risk classifier (interpreter='${PYX:-<none>}', policy='$POLICY'), so it cannot tell whether this command is a commit. Failing closed (TASK-085): restore the policy file or put a python on PATH." >&2
   exit 2
 fi
+
+# The payload is forwarded UNTOUCHED: `tool_name` is what tells the policy which
+# grammar the text is in, and this shell no longer looks at the command at all.
+if ! INTENT_JSON="$(printf '%s' "$INPUT" \
+  | timeout --kill-after=10 15 "$PYX" "$POLICY" --intent)"; then
+  echo "gate.sh: the intent classifier failed; refusing to guess whether this was a commit." >&2
+  exit 2
+fi
+# ONE python call for every field, not one per field: this runs on every Bash
+# tool call now, and four interpreter starts would be four times the ~126 ms
+# this card already spends. A MISSING field fails the whole extraction (KeyError
+# -> non-zero -> the refusal below) rather than coming back as an empty string
+# that a later `[ = "1" ]` would quietly read as "no".
+if ! INTENT_FIELDS="$(printf '%s' "$INTENT_JSON" | "$PYX" -c 'import json,sys
+d = json.load(sys.stdin)
+print(d["gate"])
+print(d["diff"])
+print(int(bool(d["chain_mode"])))
+print(int(bool(d["force_full"])))')"; then
+  echo "gate.sh: the intent classifier returned unreadable output; refusing unchecked commit." >&2
+  exit 2
+fi
+{
+  read -r INTENT_GATE
+  read -r INTENT_DIFF
+  read -r INTENT_CHAIN
+  read -r INTENT_FORCE_FULL
+} <<EOF
+$INTENT_FIELDS
+EOF
+
+case "$INTENT_GATE" in
+  skip)
+    exit 0 ;;                      # not a commit -> do nothing
+  block)
+    printf 'gate.sh: %s\n' "$(printf '%s' "$INTENT_JSON" | "$PYX" -c 'import json,sys; sys.stdout.buffer.write(json.load(sys.stdin)["reason"].encode("utf-8"))')" >&2
+    printf "(the quality checks cover '%s')\n" "$ROOT" >&2
+    exit 2 ;;
+  check)
+    ;;
+  *)
+    echo "gate.sh: unsupported intent '$INTENT_GATE'; refusing unchecked commit." >&2
+    exit 2 ;;
+esac
 
 if [ ! -x "$PY" ]; then
   echo "gate.sh: $PY not found or not executable; cannot run quality checks." >&2
-  exit 2
-fi
-
-POLICY="$ROOT/.claude/hooks/commit_gate_policy.py"
-if [ ! -f "$POLICY" ]; then
-  echo "gate.sh: $POLICY not found; cannot classify commit risk." >&2
   exit 2
 fi
 
@@ -98,30 +133,45 @@ fi
 # so unrelated experiments in the worktree cannot turn a docs commit into a
 # full suite.  `git commit -a/--all` stages tracked worktree changes during the
 # commit itself, so use HEAD for that form.  Deletions stay in either input.
-POLICY_DIFF_ARGS=(diff --cached --name-only --no-renames -z)
-if printf '%s' "$CMD" | grep -qE '(^|[[:space:]])(-a|--all)([[:space:]]|$)'; then
-  POLICY_DIFF_ARGS=(diff --name-only --no-renames -z HEAD)
-fi
-# ADR-0068 opt-in. The command is HANDED OVER; this script does not decide.
-# Each shell matching the token itself is how the two platforms came to
-# disagree (PowerShell's -like is case-insensitive, grep -F is not), and how a
-# commit MESSAGE containing the token could switch the gate off.
-# BOUNDED, like every other check in this file (cross-model review 2026-08-16).
-# This one step was not: gate.ps1 runs the classifier through `Invoke-Bounded
-# -TimeoutSeconds 15`, this shell ran it bare. A hang here never reaches the
-# `exit 2` below — the OUTER hook timeout fires first, PreToolUse reads that as
-# a NON-BLOCKING hook error, and the commit proceeds with ZERO checks. That is
-# precisely the fail-open this file's own budget comment says must never happen,
-# and it was the only step exempt from it. Same 15s as the other shell, so the
-# two still agree (ADR-0062 decision 3).
 #
-# `set -o pipefail` is on (line 11), so a timeout in EITHER half of the pipe
-# fails the whole thing and lands on the refusal below.
-if ! POLICY_JSON="$(cd "$ROOT" \
-  && timeout --kill-after=10 15 git "${POLICY_DIFF_ARGS[@]}" \
-  | timeout --kill-after=10 15 "$PY" "$POLICY" --command "$CMD")"; then
-  echo "gate.sh: could not classify changed paths; refusing unchecked commit." >&2
-  exit 2
+# WHICH diff comes from the intent, not from a second look at the command text.
+# Re-deriving `-a/--all` with a regex is what let `git commit -am "x"` -- an
+# entirely ordinary spelling -- be classified against the INDEX while the commit
+# actually wrote the WORKTREE.
+if [ "$INTENT_FORCE_FULL" = "1" ]; then
+  # The command could not be parsed, so the staged paths cannot be trusted to
+  # describe it either (决策 4). Skip the diff and run everything: asking git
+  # what is staged would answer a question about THIS repo that the unreadable
+  # command may not even have been about.
+  POLICY_JSON='{"tier": "full", "reason": "unreadable command", "pytest_targets": [], "notice": ""}'
+else
+  POLICY_DIFF_ARGS=(diff --cached --name-only --no-renames -z)
+  if [ "$INTENT_DIFF" = "head" ]; then
+    POLICY_DIFF_ARGS=(diff --name-only --no-renames -z HEAD)
+  fi
+  # ADR-0068 opt-in, ALREADY RESOLVED by the intent call above. Deriving it a
+  # second time is how two implementations of one rule appear -- and each shell
+  # matching the token itself is how the platforms came to disagree before
+  # (PowerShell's -like is case-insensitive, grep -F is not), and how a commit
+  # MESSAGE containing the token could switch the gate off.
+  CHAIN_FLAG="$INTENT_CHAIN"
+  # BOUNDED, like every other check in this file (cross-model review 2026-08-16).
+  # This one step was not: gate.ps1 runs the classifier through `Invoke-Bounded
+  # -TimeoutSeconds 15`, this shell ran it bare. A hang here never reaches the
+  # `exit 2` below — the OUTER hook timeout fires first, PreToolUse reads that as
+  # a NON-BLOCKING hook error, and the commit proceeds with ZERO checks. That is
+  # precisely the fail-open this file's own budget comment says must never happen,
+  # and it was the only step exempt from it. Same 15s as the other shell, so the
+  # two still agree (ADR-0062 decision 3).
+  #
+  # `set -o pipefail` is on (line 11), so a timeout in EITHER half of the pipe
+  # fails the whole thing and lands on the refusal below.
+  if ! POLICY_JSON="$(cd "$ROOT" \
+    && timeout --kill-after=10 15 git "${POLICY_DIFF_ARGS[@]}" \
+    | timeout --kill-after=10 15 "$PY" "$POLICY" --chain-mode "$CHAIN_FLAG")"; then
+    echo "gate.sh: could not classify changed paths; refusing unchecked commit." >&2
+    exit 2
+  fi
 fi
 POLICY_TIER="$(printf '%s' "$POLICY_JSON" | "$PY" -c 'import json,sys; print(json.load(sys.stdin)["tier"])')"
 if [ -z "$POLICY_TIER" ]; then
@@ -213,14 +263,11 @@ if [ -z "$FAIL_LABEL" ]; then
       # ADR-0068: the whole-suite run is deferred to the end of an authorised
       # chain. Announced below, never silent.
       ;;
-    chain-conflict)
-      # ADR-0068 决策 6: the opt-in cannot ride along with a push/merge in the
-      # same command. Decided in the policy module, like every other
-      # command-derived verdict.
-      FAIL_LABEL="continuous-chain"
-      FAIL_OUT="$(printf '%s' "$POLICY_JSON" | "$PY" -c 'import json,sys; sys.stdout.buffer.write(json.load(sys.stdin)["reason"].encode("utf-8"))')"
-      ;;
     *)
+      # ADR-0068 决策 6 (the opt-in riding along with a push/merge) used to be a
+      # tier here, reached AFTER ruff had already run. It is decided in the
+      # intent call now, before anything runs, so the two shells agree on WHEN
+      # as well as on WHAT. Anything unexpected reaching this branch blocks.
       FAIL_LABEL="commit-risk-policy"
       FAIL_OUT="unsupported risk tier: $POLICY_TIER"
       ;;

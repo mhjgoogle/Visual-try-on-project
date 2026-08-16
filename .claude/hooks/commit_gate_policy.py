@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
@@ -110,39 +111,42 @@ _CHAIN_RE = re.compile(r"^[ \t]*#?[ \t]*MOTV_CONTINUOUS_CHAIN=1(?=\s)")
 #:
 #: Nothing stopped `MOTV_CONTINUOUS_CHAIN=1 git commit -m "x" && git push` —
 #: one `&&` and the chain's own escape hatch pushed a commit whose full suite
-#: had never run (independent review, round 3). The scan is deliberately crude:
-#: a regex cannot parse a shell command line, so a commit MESSAGE containing the
-#: word "push" over-blocks. That costs one retype without the opt-in token;
-#: missing a real push costs an unverified push into someone else's view.
+#: had never run (independent review, round 3).
 #:
-#: THE CRUDE VERSION WAS MISSING, NOT OVER-BLOCKING (codex 跨模型复审
-#: 2026-08-16, both confirmed by running the classifier):
+#: The verb list is five wide, not two: 决策 6 is about 「把提交带出去或把别人的
+#: 整合进来」, and `pull` / `rebase` / `cherry-pick` all do that (codex 跨模型
+#: 复审 2026-08-16).
 #:
-#:   * `git "push"` — one pair of quotes and the word no longer sat on a
-#:     delimiter, so the scan skipped it and the commit took the reduced tier.
-#:     Quotes are STRIPPED before matching now. That widens over-blocking (a
-#:     message mentioning push in quotes now blocks too), which is the side this
-#:     comment already said to prefer.
-#:   * `pull` / `rebase` / `cherry-pick` — the verb list held only push/merge,
-#:     so three other ways to integrate or move commits went through. 决策 6 is
-#:     about 「把提交带出去或把别人的整合进来」, and all five do that.
-#:
-#: NOT `shlex.split`: this text comes from two different shells whose quoting
-#: rules disagree (PowerShell vs POSIX), so a real tokeniser would be right for
-#: one and wrong for the other. Stripping quote characters is wrong in the
-#: SAFE direction for both.
-_CHAIN_CONFLICT_VERBS = ("push", "merge", "pull", "rebase", "cherry-pick")
-_CHAIN_CONFLICT_RE = re.compile(
-    r"(^|[\s;&|(])(" + "|".join(_CHAIN_CONFLICT_VERBS) + r")([\s;&|)]|$)"
+#: TASK-085 moved the SCAN off the command text and onto tokens. The old regex
+#: had to strip quote characters to catch `git "push"`, and paid for it by
+#: over-blocking any commit MESSAGE containing the word — the comment here used
+#: to argue that was the right side to be wrong on, which was true only while
+#: the alternative was another regex. On tokens neither trade is needed: `push`
+#: is recognised as a git SUBCOMMAND, so `git "push"` is caught and
+#: `git commit -m "say push here"` is not.
+_CHAIN_CONFLICT_VERBS = frozenset({"push", "merge", "pull", "rebase", "cherry-pick"})
+
+#: ASCII first line, for the same reason the notice has one: this text goes to
+#: stderr, gate.ps1 writes stderr through [Console]::OutputEncoding, and on a
+#: Shift-JIS console every character of a Chinese-only message became an
+#: IRREVERSIBLE `?` (independent review, round 4, measured on this host). A block
+#: whose reason cannot be read is a block nobody can act on.
+_CHAIN_CONFLICT_REASON = (
+    "[chain-conflict] the continuous-chain token and a push/merge are in "
+    "the SAME command. A middle commit has not run the full suites, so it "
+    "must not be pushed. See ADR-0068.\n"
+    "ADR-0068 决策 6: 这条命令同时带着连续修改链令牌和 push / merge。"
+    "链的中间提交没有跑全量，push / merge / 交接 / 人工验收之前必须先跑完"
+    "链尾全量。请拆成两步：先不带令牌跑完全量再 push，或去掉 push/merge。"
 )
-#: Quote characters are removed before the scan — see above. Backticks included:
-#: PowerShell uses one as its escape character.
-_QUOTE_CHARS = str.maketrans("", "", "\"'`")
 
 #: Reasons are constants so the fail-closed set below cannot drift out of sync
 #: with the strings `_classify` actually produces (independent review, round 2).
 _REASON_NO_PATHS = "no changed paths were available"
 _REASON_NO_MAPPING = "path has no conservative targeted-test mapping"
+#: TASK-085 决策 4: 「this is not a commit」 and 「I could not tell WHETHER this is
+#: a commit」 are different answers, and only the first one may skip the checks.
+_REASON_UNPARSEABLE = "the command could not be parsed - cannot tell what it runs"
 
 #: Tiers whose whole point is a WHOLE-SUITE run. Those are what ADR-0068 defers
 #: to the end of the chain; the targeted tiers stay, because they ARE the
@@ -153,7 +157,387 @@ _WHOLE_SUITE_TIERS = frozenset({"full", "frontend"})
 #: "this is a genuine whole-suite change". They are fail-closed fallbacks, and
 #: deferring them would turn an UNKNOWN change into an untested one — the exact
 #: inversion of what a fail-closed default is for.
-_UNCLASSIFIED_REASONS = frozenset({_REASON_NO_PATHS, _REASON_NO_MAPPING})
+_UNCLASSIFIED_REASONS = frozenset(
+    {_REASON_NO_PATHS, _REASON_NO_MAPPING, _REASON_UNPARSEABLE}
+)
+
+
+# ===========================================================================
+# Intent detection (TASK-085): is this command a `git commit`, and which one?
+# ===========================================================================
+#
+# WHY THIS IS NOT A REGEX ANY MORE.
+#
+# Both gates used to answer 「is this a commit」 by matching the command TEXT.
+# That is unfixable by construction: widen it and a commit MESSAGE mentioning
+# `push` blocks a legitimate commit, narrow it and ONE PAIR OF QUOTES walks
+# straight through. Two live bypasses were found this way (待复审清单 第 3 项):
+#
+#     git "commit" -m x          -> the `commit` token test missed -> gate never
+#                                   ran, and the commit passed with ZERO checks
+#     git "-C" other commit      -> the redirect test missed -> this repo's
+#                                   checks vouched for a commit into ANOTHER one
+#
+# Each fix only moved the boundary out by one notch; the same lesson as TASK-077
+# (two spellings patched before anyone changed the KIND of test). The gate's own
+# comment had already conceded 「a regex cannot reliably parse a shell command
+# line」 — correct, and the wrong conclusion drawn from it. A regex cannot, but
+# THE SHELL ITSELF CAN, and the hook payload names which shell (`tool_name`).
+#
+# So the input to every judgement below is a list of SIMPLE COMMANDS, each a
+# list of already-dequoted tokens:
+#
+#     tool_name == "Bash"        -> tokenised here, by `shlex` (stdlib, POSIX)
+#     tool_name == "PowerShell"  -> split by gate.ps1 using PowerShell's OWN
+#                                   parser (System.Management.Automation.
+#                                   Language.Parser) and handed over as JSON;
+#                                   that shell SPLITS, it never JUDGES
+#     anything else / no argv    -> fail closed (决策 4)
+#
+# POSIX splitting lives HERE rather than in gate.sh for the reason ADR-0062
+# 决策 3 exists: one implementation cannot drift from itself. Two shells each
+# matching their own tokens is exactly how they came to disagree before
+# (`-like` is case-insensitive, `grep -F` is not).
+#
+# ---------------------------------------------------------------------------
+# KNOWN BYPASSES THAT REMAIN. THIS LIST IS HONEST ON PURPOSE - DO NOT DELETE IT.
+# ---------------------------------------------------------------------------
+# A parser solves QUOTING AND ESCAPING. It does not solve INDIRECTION: the hook
+# receives the text that is ABOUT to be handed to a shell, so any form whose
+# behaviour is not decidable from that text is not decidable here either.
+#
+#   eval "git commit -m x"        the tokens are ['eval', 'git commit -m x'] --
+#                                 the commit is inside a string argument
+#   bash -c '...' / pwsh -c '...' same, one nested grammar deeper
+#   $G commit, $(echo git) commit variables and command substitution expand at
+#                                 RUN time; the hook runs before that
+#                                 (note: in PowerShell `$G commit` happens to be
+#                                 a PARSE error, so that one fails closed here --
+#                                 by luck, not by design; the Bash form does not)
+#   make commit / ./do-commit.sh  the commit happens in a child process the gate
+#                                 never sees
+#   shell functions, aliases,     the mapping from name to action is not in this
+#   ~/.gitconfig aliases          text at all
+#
+# `xargs git commit` and `sudo git commit` USED to be on this list. They are
+# caught now (see _WRAPPER_COMMANDS) - not because a parser could see through
+# them, but because the wrapper's own argv still contains the real command, and
+# dropping coverage that the old regex HAD would have made this change a net
+# loss for `sudo git commit`.
+#
+# What this change actually buys: 「one pair of quotes bypasses the gate」 is
+# gone, and that was the dangerous class because it fires BY ACCIDENT on
+# ordinary typing. What is left requires DELIBERATE circumvention. The bar moved
+# from 「bypassed without meaning to」 to 「must mean to」 -- it did NOT move to
+# 「cannot」, and nothing here should be read as claiming it did.
+#
+# The layer that really closes it is a repository-side `pre-commit` git hook,
+# which runs inside the git process no matter who invoked it. That is a separate
+# card; this module does not pretend to cover it.
+# ---------------------------------------------------------------------------
+
+#: Separator tokens produced by `shlex(punctuation_chars=...)`. A run of these
+#: characters comes back as ONE token (`&&`, `||`, `;;`, `>&`), and newline is
+#: forced into this set too (see `_tokenise_posix`) -- without it
+#: `git commit -m x\ngit push` collapses into a single command and the ADR-0068
+#: 决策 6 scan stops seeing the push.
+_SEPARATOR_CHARS = frozenset(";&|()<>\n")
+
+#: `NAME=value` prefixes (Bash env assignments). `MOTV_CONTINUOUS_CHAIN=1 git
+#: commit` must still resolve to the command `git`.
+_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+#: Commands that RUN another command, whose argv therefore still holds the real
+#: one. Unwrapping them is not parser cleverness; it keeps coverage the text
+#: regex already had. `sudo git commit` matched 「names git」+「names commit」
+#: before this change, and losing it would have been a REGRESSION dressed up as
+#: a rewrite.
+_WRAPPER_COMMANDS = frozenset(
+    {"sudo", "doas", "env", "nice", "nohup", "time", "command", "xargs", "stdbuf"}
+)
+
+#: git's own name, after basename + `.exe` stripping. Compared case-INSENSITIVELY
+#: so both shells agree on `Git.exe` (ADR-0062 决策 3); over-matching costs one
+#: check run, under-matching costs an unchecked commit.
+_GIT_COMMAND_NAME = "git"
+
+#: git GLOBAL options that swallow the NEXT token as their value. Needed to find
+#: the subcommand: in `git -C /other commit` the first non-option token is
+#: `/other`, not `commit`, and without this table the commit is invisible.
+#:
+#: Being wrong here is not symmetric. An option MISSING from this list can only
+#: make an extra token look like the subcommand (over-gating, one wasted check
+#: run). An option wrongly IN it could swallow a real `commit` token -- so every
+#: entry below is a documented value-taking git global option, and the three
+#: that also redirect the repository are blocked outright anyway.
+_GIT_VALUE_OPTIONS = frozenset(
+    {
+        "-C",
+        "-c",
+        "--git-dir",
+        "--work-tree",
+        "--namespace",
+        "--exec-path",
+        "--super-prefix",
+        "--config-env",
+        "--attr-source",
+    }
+)
+
+#: Options that point git at a DIFFERENT repository. Every check this gate runs
+#: covers THIS one, so a commit carrying them would be vouched for by a tree the
+#: gate never inspected.
+#:
+#: Exact token comparison, which is what finally separates `-C` from `-c`: the
+#: old regex needed a case-SENSITIVE match to tell git's directory switch from
+#: its harmless `-c key=value` config override, and that trick is why the two
+#: shells' matchers had to agree on case-sensitivity in the first place.
+#:
+#: Scoped to GLOBAL options (before the subcommand) on purpose: `git commit -C
+#: HEAD` reuses another commit's MESSAGE and redirects nothing. The text regex
+#: blocked it; this does not.
+_GIT_REDIRECT_OPTIONS = frozenset({"-C", "--git-dir", "--work-tree"})
+
+_COMMIT_SUBCOMMAND = "commit"
+
+
+@dataclass(frozen=True)
+class Intent:
+    """What the intercepted command is, decided from tokens rather than text.
+
+    ``gate`` is the whole contract with both shells:
+
+    ``skip``   not a commit -> exit 0, run nothing (the common case).
+    ``block``  a commit this gate must refuse before running anything.
+    ``check``  a commit -> run the quality checks.
+    """
+
+    gate: str
+    reason: str = ""
+    #: Names WHY a `block` was issued. The shells never read it -- they only need
+    #: `gate` and `reason` -- but `decide()` reports it as the tier, so the two
+    #: kinds of refusal stay distinguishable in tests and in the record.
+    tier: str = ""
+    #: Which diff describes what this commit will WRITE. `git commit -a/--all`
+    #: stages tracked worktree changes as part of the commit itself, so that
+    #: form must be classified against HEAD rather than the index.
+    diff: str = "index"
+    #: ADR-0068 opt-in, already resolved so neither shell has to look at it.
+    chain_mode: bool = False
+    #: 决策 4: the command could not be parsed, so the paths cannot be trusted to
+    #: describe it either. The shells skip the diff entirely and run everything.
+    force_full: bool = False
+
+
+def _basename(token: str) -> str:
+    """Last path segment of *token*, lowercased, without a `.exe` suffix.
+
+    Splits on BOTH separators. On Linux a backslash is a legal filename
+    character, so `foo\\git` is one file and splitting it is technically wrong --
+    but it is wrong towards MORE gating, and a Windows-shaped path reaching the
+    POSIX side is far likelier than a file genuinely named that way.
+    """
+    tail = token.replace("\\", "/").rsplit("/", 1)[-1]
+    return tail.lower().removesuffix(".exe")
+
+
+def _tokenise_posix(command: str) -> list[list[str]] | None:
+    """Split a POSIX command line into simple commands of dequoted tokens.
+
+    Returns ``None`` when the text cannot be tokenised at all (an unbalanced
+    quote), which the caller turns into a fail-closed run. Such a command would
+    not run in bash either, so the cost is a wasted check run on something that
+    was already broken.
+    """
+    lexer = shlex.shlex(command, posix=True, punctuation_chars="();<>|&\n")
+    # Newline must be a SEPARATOR, not whitespace: `git commit -m x\ngit push`
+    # is two commands, and shlex's default whitespace set swallows the boundary.
+    # Quoted newlines are unaffected -- they are consumed inside the quote state,
+    # which is what keeps multi-line commit messages in one token.
+    lexer.whitespace = " \t\r"
+    # `#` is NOT a comment introducer here. shlex would drop the rest of the line
+    # at any `#`, including one inside an unquoted word, and anything dropped is
+    # something the ADR-0068 决策 6 scan can no longer see. Treating it as an
+    # ordinary character can only ever ADD tokens.
+    lexer.commenters = ""
+    lexer.whitespace_split = True
+    try:
+        tokens = list(lexer)
+    except ValueError:
+        return None
+
+    commands: list[list[str]] = [[]]
+    for token in tokens:
+        if token and all(char in _SEPARATOR_CHARS for char in token):
+            commands.append([])
+            continue
+        commands[-1].append(token)
+    return [command for command in commands if command]
+
+
+def _tokenise(
+    tool_name: str | None, command: str, argv: object = None
+) -> list[list[str]] | None:
+    """Simple commands for *command*, or ``None`` when it cannot be split."""
+
+    if argv is not None:
+        # Already split by the shell that owns the grammar (gate.ps1). Validated
+        # rather than trusted: a malformed hand-over must fail closed, not
+        # explode inside a judgement and take the whole gate's `exit 0` path.
+        if not isinstance(argv, list):
+            return None
+        commands = []
+        for entry in argv:
+            if not isinstance(entry, list) or not all(
+                isinstance(token, str) for token in entry
+            ):
+                return None
+            if entry:
+                commands.append(list(entry))
+        return commands
+    if isinstance(tool_name, str) and tool_name.lower() == "bash":
+        return _tokenise_posix(command)
+    # Unknown tool, or PowerShell text with no argv to go with it. 决策 4: not
+    # 「this is not a commit」 but 「I cannot tell」, and those must differ.
+    return None
+
+
+def _resolve_command_name(argv: list[str]) -> tuple[str | None, list[str]]:
+    """Return (command name, that command's own tokens) for one simple command.
+
+    Strips `NAME=value` prefixes and unwraps `sudo`/`env`/`xargs`-style runners.
+    """
+
+    tokens = list(argv)
+    while tokens:
+        head = tokens[0]
+        if _ASSIGNMENT_RE.match(head):
+            tokens.pop(0)
+            continue
+        name = _basename(head)
+        if name in _WRAPPER_COMMANDS:
+            tokens.pop(0)
+            # the wrapper's OWN options, e.g. `xargs -n1 git commit`
+            while tokens and tokens[0].startswith("-"):
+                tokens.pop(0)
+            continue
+        return name, tokens
+    return None, []
+
+
+def _git_subcommand(tokens: list[str]) -> tuple[str | None, list[str], list[str]]:
+    """Split a git invocation into (subcommand, global options, later args)."""
+
+    args = tokens[1:]
+    options: list[str] = []
+    index = 0
+    while index < len(args):
+        token = args[index]
+        if token == "--":
+            index += 1
+            break
+        if not token.startswith("-"):
+            break
+        options.append(token)
+        if "=" not in token and token in _GIT_VALUE_OPTIONS:
+            index += 2  # this option eats its value
+        else:
+            index += 1
+    if index >= len(args):
+        return None, options, []
+    return args[index], options, args[index + 1 :]
+
+
+def _redirects_the_repository(options: list[str]) -> bool:
+    return any(option.split("=", 1)[0] in _GIT_REDIRECT_OPTIONS for option in options)
+
+
+def _selects_all_tracked(token: str) -> bool:
+    """Is *token* `git commit`'s `-a` / `--all`, including inside `-am`?
+
+    The text regex matched `-a` and `--all` only, so `git commit -am "x"` -- an
+    ordinary way to write it -- was classified against the INDEX while the commit
+    actually wrote the worktree. Over-matching here only widens the diff, which
+    can only raise the tier.
+    """
+    if token == "--all":
+        return True
+    if token.startswith("--") or not token.startswith("-"):
+        return False
+    letters = token[1:]
+    return bool(letters) and letters.isalpha() and "a" in letters
+
+
+def inspect_command(
+    tool_name: str | None = None, command: str = "", argv: object = None
+) -> Intent:
+    """Decide what the intercepted command IS. The gates' Phase A, in one place.
+
+    This is the whole of TASK-085: every judgement below reads TOKENS, and the
+    only text-position test left is the continuous-chain opt-in -- deliberately,
+    see `_CHAIN_RE`. That token is an env-assignment prefix in Bash and a leading
+    COMMENT in PowerShell, and PowerShell's parser discards comments, so tokens
+    are the one representation in which it cannot be seen at all.
+    """
+
+    command = command if isinstance(command, str) else ""
+    commands = _tokenise(tool_name, command, argv)
+    if commands is None:
+        # 决策 4. Note chain_mode is forced OFF: a command we could not read must
+        # never be handed the opt-in that SKIPS the full suite. Fail-closed has
+        # to compose, or it is not fail-closed.
+        return Intent("check", _REASON_UNPARSEABLE, tier="full", force_full=True)
+
+    chain_mode = chain_mode_from_command(command)
+
+    commits: list[tuple[list[str], list[str]]] = []
+    conflicts = False
+    for argv_tokens in commands:
+        name, tokens = _resolve_command_name(argv_tokens)
+        if name is None:
+            continue
+        if name == _GIT_COMMAND_NAME:
+            subcommand, options, rest = _git_subcommand(tokens)
+            folded = subcommand.lower() if subcommand else ""
+            if folded == _COMMIT_SUBCOMMAND:
+                commits.append((options, rest))
+            elif folded in _CHAIN_CONFLICT_VERBS:
+                conflicts = True
+        elif name in _CHAIN_CONFLICT_VERBS:
+            # Fallback kept from the text scan: a bare `push` may well be a
+            # script or an alias that does exactly what 决策 6 forbids.
+            conflicts = True
+
+    if not commits:
+        return Intent("skip", "not a git commit")
+
+    if any(_redirects_the_repository(options) for options, _ in commits):
+        return Intent(
+            "block",
+            "this commit redirects git to another repository "
+            "(-C / --git-dir / --work-tree), but the quality checks only cover "
+            "this one. Run the commit from that repository's own working "
+            "directory so its gate can verify it.",
+            tier="redirected",
+        )
+
+    if chain_mode and conflicts:
+        return Intent(
+            "block", _CHAIN_CONFLICT_REASON, tier="chain-conflict", chain_mode=True
+        )
+
+    return Intent(
+        "check",
+        "git commit",
+        diff="head" if _commit_stages_the_worktree(commits) else "index",
+        chain_mode=chain_mode,
+    )
+
+
+def _commit_stages_the_worktree(commits: list[tuple[list[str], list[str]]]) -> bool:
+    return any(
+        any(_selects_all_tracked(token) for token in rest) for _, rest in commits
+    )
 
 
 @dataclass(frozen=True)
@@ -229,36 +613,31 @@ def chain_mode_from_command(command: str) -> bool:
     return isinstance(command, str) and bool(_CHAIN_RE.match(command))
 
 
-def decide(paths: list[str], command: str = "") -> Decision:
-    """The gates' single decision point: what must run for THIS commit command.
+def decide(
+    paths: list[str],
+    command: str = "",
+    tool_name: str | None = None,
+    argv: object = None,
+) -> Decision:
+    """End-to-end verdict for one intercepted command. THE SPECIFICATION.
 
-    Everything derived from the command text is decided here, so `gate.sh` and
-    `gate.ps1` only transport it (TASK-076 §1.2). Each shell matching the token
-    itself is how the two platforms came to disagree.
+    The gates do not call this: they call `inspect_command` first (before they
+    know the changed paths, because the intent decides WHICH diff to ask git
+    for) and `classify` second. This composes the same two steps in one place so
+    the contract can be stated and tested as one thing, and
+    `test_the_two_cli_modes_together_reproduce_decide` pins the CLI to it --
+    otherwise this would be a spec nothing implements, which is how a guard ends
+    up looking connected while it is not.
     """
 
-    if not chain_mode_from_command(command):
-        return classify(paths, chain_mode=False)
-    # quotes stripped first: `git "push"` is a push (see _CHAIN_CONFLICT_RE)
-    if _CHAIN_CONFLICT_RE.search(command.translate(_QUOTE_CHARS)):
-        return Decision(
-            "chain-conflict",
-            # ASCII first line, for the same reason the notice has one: this text
-            # goes to stderr, gate.ps1 writes stderr through
-            # [Console]::OutputEncoding, and on a Shift-JIS console every
-            # character of a Chinese-only message became an IRREVERSIBLE `?`
-            # (independent review, round 4, measured on this host). A block whose
-            # reason cannot be read is a block nobody can act on.
-            "[chain-conflict] the continuous-chain token and a push/merge are in "
-            "the SAME command. A middle commit has not run the full suites, so it "
-            "must not be pushed. See ADR-0068.\n"
-            "ADR-0068 决策 6: 这条命令同时带着连续修改链令牌和 push / merge。"
-            "链的中间提交没有跑全量，push / merge / 交接 / 人工验收之前必须先跑完"
-            "链尾全量。请拆成两步：先不带令牌跑完全量再 push，或去掉 push/merge。"
-            "（若这只是提交信息里出现了 push/merge 字样：去掉令牌重提交即可，"
-            "本闸门不解析 shell 引号，宁可多拦一次。）",
-        )
-    return classify(paths, chain_mode=True)
+    intent = inspect_command(tool_name, command, argv)
+    if intent.gate == "skip":
+        return Decision("skip", intent.reason)
+    if intent.gate == "block":
+        return Decision(intent.tier, intent.reason)
+    if intent.force_full:
+        return Decision("full", intent.reason)
+    return classify(paths, chain_mode=intent.chain_mode)
 
 
 def classify(paths: list[str], *, chain_mode: bool = False) -> Decision:
@@ -359,18 +738,74 @@ def _classify(paths: list[str]) -> Decision:
     return Decision("full", _REASON_NO_MAPPING)
 
 
+def _run_intent_mode() -> Intent:
+    """`--intent`: read the hook payload on stdin, answer 「what IS this?」.
+
+    STDIN, not argv, and that is not a style choice. The old CLI passed the whole
+    intercepted command as `--command <cmd>`, which put the commit MESSAGE into
+    the same 32767-character Windows command-line budget as the changed-path
+    list; a long message plus a wide change set made `Process.Start` throw, and
+    that terminating error exited gate.ps1 with 1 -- which PreToolUse reads as a
+    NON-BLOCKING hook error, i.e. the commit landed with ZERO checks run
+    (independent review, round 3; measured OK at 30125 chars, Win32Exception at
+    40125). Handing the payload over on a pipe removes the budget entirely, and
+    the tier call below no longer needs the command text at all.
+
+    Accepts the raw PreToolUse payload (`tool_name` + `tool_input.command`) so
+    gate.sh can forward it untouched, or gate.ps1's enrichment of it, which adds
+    the `argv` PowerShell's own parser produced.
+    """
+
+    raw = sys.stdin.buffer.read()
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("payload is not an object")
+    except (UnicodeDecodeError, ValueError):
+        # 决策 4 again: an unreadable payload is 「I cannot tell」, never 「not a
+        # commit」. The gates' previous fallback -- match the RAW payload text
+        # with the same regexes -- is exactly the class this card removed.
+        return Intent("check", _REASON_UNPARSEABLE, tier="full", force_full=True)
+
+    tool_input = payload.get("tool_input")
+    tool_input = tool_input if isinstance(tool_input, dict) else {}
+    command = payload.get("command")
+    if not isinstance(command, str):
+        command = tool_input.get("command")
+    tool_name = payload.get("tool_name")
+    return inspect_command(
+        tool_name if isinstance(tool_name, str) else None,
+        command if isinstance(command, str) else "",
+        payload.get("argv"),
+    )
+
+
 def main() -> int:
+    # TWO MODES, because the gates need two answers at two different times:
+    #
+    #   --intent                 what IS this command?  (before any git runs --
+    #                            the answer decides WHICH diff to ask git for)
+    #   --chain-mode 0|1 -- ...  given these changed paths, what must run?
+    #
+    # The second mode takes the chain opt-in as a resolved BOOLEAN rather than
+    # re-deriving it from the command text: deriving the same thing twice is how
+    # two implementations of one rule appear, and this module exists to stop
+    # that (TASK-076 §1.2). The gates never decide either answer.
+    #
     # Git supplies NUL-separated names on Bash.  PowerShell normalises its
     # pipeline input to newlines; accepting both formats is safe on supported
     # Windows filenames and keeps the two hook runners on one policy.
-    # THE GATES DO NOT DECIDE — they hand over the intercepted command and this
-    # module decides (TASK-076 1.2). Each shell re-implementing the match is how
-    # the two platforms came to disagree (independent review, round 2).
     #
-    # `--` ends the flags, so a changed file literally named `--command` is a
+    # `--` ends the flags, so a changed file literally named `--chain-mode` is a
     # path and not a flag.
     argv = sys.argv[1:]
-    command = ""
+    if "--intent" in argv:
+        payload = json.dumps(asdict(_run_intent_mode()), sort_keys=True)
+        sys.stdout.buffer.write(payload.encode("utf-8") + b"\n")
+        sys.stdout.buffer.flush()
+        return 0
+
+    chain_mode = False
     rest: list[str] = []
     index = 0
     while index < len(argv):
@@ -378,8 +813,10 @@ def main() -> int:
         if arg == "--":
             rest.extend(argv[index + 1 :])
             break
-        if arg == "--command" and index + 1 < len(argv):
-            command = argv[index + 1]
+        if arg == "--chain-mode" and index + 1 < len(argv):
+            # EXACT "1". A switch that can be turned on vaguely gets turned on
+            # vaguely, and this one removes a real check (ADR-0068 决策 7).
+            chain_mode = argv[index + 1] == "1"
             index += 2
             continue
         rest.append(arg)
@@ -392,7 +829,7 @@ def main() -> int:
         paths = [
             part.decode("utf-8", "surrogateescape") for part in raw.split(separator)
         ]
-    payload = json.dumps(asdict(decide(paths, command)), sort_keys=True)
+    payload = json.dumps(asdict(classify(paths, chain_mode=chain_mode)), sort_keys=True)
     # Write bytes, not `print`. `print` encodes the WHOLE string at once, so on a
     # non-UTF-8 stdout (cp932/cp936, or a zh_CN.GB18030 locale on the Ubuntu
     # target) one Chinese character in the notice raised UnicodeEncodeError, the
