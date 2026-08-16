@@ -417,7 +417,23 @@ def _resolve_command_name(argv: list[str]) -> tuple[str | None, list[str]]:
         name = _basename(head)
         if name in _WRAPPER_COMMANDS:
             tokens.pop(0)
-            # the wrapper's OWN options, e.g. `xargs -n1 git commit`
+            # A wrapper option may take a SEPARATE value -- `sudo -u user`,
+            # `nice -n 10`, `env -u NAME`, `xargs -n 1` -- and skipping only the
+            # dash-tokens then leaves the VALUE looking like the command name.
+            # `sudo -u builder git commit` resolved to the command `builder` and
+            # returned "not a commit": a bypass, and worse, one the text regex
+            # this card replaced did NOT have (codex review round 1, confirmed by
+            # running the classifier).
+            #
+            # Modelling each wrapper's option grammar would be a table to get
+            # wrong. Instead look for git ANYWHERE in what the wrapper was handed:
+            # one of those tokens IS the command it runs. Wrong towards MORE
+            # gating costs a check run (`sudo -u x apt install git` finds a
+            # trailing `git` with no subcommand after it -> still "not a commit");
+            # wrong the other way costs an unchecked commit.
+            for index, token in enumerate(tokens):
+                if _basename(token) == _GIT_COMMAND_NAME:
+                    return _GIT_COMMAND_NAME, tokens[index:]
             while tokens and tokens[0].startswith("-"):
                 tokens.pop(0)
             continue

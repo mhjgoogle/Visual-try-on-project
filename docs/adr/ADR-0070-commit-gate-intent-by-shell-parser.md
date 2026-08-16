@@ -6,7 +6,7 @@
   数据，由实施 Agent 自行 Accept 并写明理由。
 - 实施：[TASK-085](../tasks/TASK-085-gate-intent-detection.md)
 - 方案：[commit gate 的意图判定](../design/commit-gate-intent-detection.md)
-- 修订：[ADR-0050](ADR-0050-native-windows-commit-gate.md) 决策 1「两 shell 各自
+- 修订：[ADR-0050](ADR-0050-powershell-native-agent-dev-tooling.md) 决策 1「两 shell 各自
   匹配命令文本」的**实现约定**（行为合同本身不变，见「与 ADR-0050 的关系」）
 - 相关：[ADR-0062](ADR-0062-windows-authoritative-environment.md) 决策 3、
   [ADR-0068](ADR-0068-continuous-modification-chain.md) 决策 6/7、
@@ -175,5 +175,26 @@ ADR-0062 决策 3 因此从一条**需要人去维护两侧一致性**的纪律�
   而非 `None`、未知 `tool_name` 当成非 commit、关掉 `-a` 检测、`-C` 不吞掉它的
   值、去掉包装器拆解、清空动词表、换行不再分隔命令、`#` 恢复注释语义、接受畸形
   argv、fail-closed 不再强制全量、读不懂却保留链减档、切分函数不再去引号、切分
-  函数忽略 parse error）**全部被测试杀死，0 存活**。首轮有 3 个存活，已就地补上
-  对应用例——其中一条是真缺口：**带着链令牌的读不懂命令**此前不会被测出来。
+  函数忽略 parse error、包装器不再越过选项值找 git）**全部被测试杀死，0 存活**。
+  首轮有 3 个存活，已就地补上对应用例——其中一条是真缺口：**带着链令牌的读不懂
+  命令**此前不会被测出来。
+
+## 审查记录
+
+**轮 1（codex，跨模型，独立性未降级）：`VERDICT: fail`，2 条 blocking。**
+
+1. **`sudo -u builder git commit` 绕过 —— 成立，已修。** 包装器拆解只跳过 `-`
+   开头的 token，于是 `-u` 的**值** `builder` 被当成命令名，判定为「不是
+   commit」。这不只是新缺陷，而是**旧文本正则本来抓得到**的写法——一次伪装成
+   重写的倒退，正是决策 7 里加入包装器拆解要避免的那件事，却在实现里以另一种
+   形式复发。修法**修的是整个类**，不是 `sudo -u` 一个实例：不去逐个包装器建
+   选项表（那是一张迟早写错的表），而是在包装器拿到的 token 里**找 `git`**。
+   同类的 `nice -n 10`、`env -u NAME`、`xargs -I{}`、`sudo -H -u` 一并覆盖。
+2. **`git -C/path commit` 贴写重定向 —— 不成立，已驳回。** git 的全局选项由
+   `git.c` 的 `handle_options` 手工解析，`-C` 是**整 token 比较**，不接受贴着写
+   的值。实测：`git -C/nonexistent-xyz status` 报 `unknown option:
+   -C/nonexistent-xyz`（exit 129），与真正的未知选项 `-Z/nonexistent-xyz`
+   **报同一个错**。该命令在做任何事之前就失败了，没有提交发生在任何仓库里，
+   也就没有可绕过的东西。已留反向守卫
+   `test_an_attached_dash_C_value_is_not_valid_git_and_is_not_a_bypass`：
+   若哪天 git 接受了贴写形式，该测试变红。

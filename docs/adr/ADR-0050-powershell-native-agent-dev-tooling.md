@@ -54,7 +54,7 @@ two platforms.
 
    | Contract | Value |
    |---|---|
-   | gate: is this a commit? | two independent token tests (`git` named, bare `commit` token present) — NOT a parse of git's argument grammar, which cannot survive quoted paths and would fail OPEN |
+   | gate: is this a commit? | **由 [ADR-0070](ADR-0070-commit-gate-intent-by-shell-parser.md) 取代（2026-08-16）**：判定输入是 `(tool_name, 结构化 token)`，不再是命令文本。~~two independent token tests (`git` named, bare `commit` token present) — NOT a parse of git's argument grammar, which cannot survive quoted paths and would fail OPEN~~ |
    | gate: non-`git commit` command | exit 0, no output |
    | gate: all checks pass | exit 0 |
    | gate: a check fails or times out | exit 2, `=== commit blocked by … ===` block on stderr |
@@ -67,6 +67,21 @@ two platforms.
 
    A behavioural change to one implementation is incomplete until the other
    matches.
+
+   > **补记（2026-08-16，TASK-085 / [ADR-0070](ADR-0070-commit-gate-intent-by-shell-parser.md)）**
+   >
+   > 上表第一行的**实现约定**已被取代，**行为合同本身不变**（同样的输入 →
+   > 同样的判定、同样的退出码）。原文说「NOT a parse of git's argument grammar,
+   > which cannot survive quoted paths and would fail OPEN」——前半句是对的，
+   > 结论下反了：**正则解析不了 shell 命令行，但 shell 自己可以**，而 hook
+   > payload 里的 `tool_name` 正是当时缺的那个输入。旧写法实测有两条绕过
+   > （`git "commit"` 让闸门整个不跑、`git "-C" other commit` 让本仓库的检查
+   > 为别的仓库背书），恰恰是它自己担心的 fail OPEN。
+   >
+   > 「两个实现」这一条本身也随之弱化了：两个 shell 不再各自匹配命令文本，
+   > 而是各自**切分**、由 `commit_gate_policy.py` **单点判定**。因此
+   > ADR-0062 决策 3 从一条需要人去维护两侧一致的纪律，变成一条**结构上无法
+   > 违反**的性质——两侧根本没有各自的判定实现可供漂移。
 
 2. **`AGENTS.md` rule 4 carve-out is extended.** PowerShell may be used for the
    AI-agent development harness (hook scripts, skill scripts, and their

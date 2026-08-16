@@ -920,8 +920,51 @@ def test_wrappers_keep_the_coverage_the_old_regex_already_had() -> None:
         "xargs git commit",
         "xargs -n1 git commit",
         "command git commit -m x",
+        # 包装器的选项可能**带独立的值**，只跳过 `-` 开头的 token 会把那个**值**
+        # 当成命令名：`sudo -u builder git commit` 曾解析成命令 `builder` 并回答
+        # 「不是 commit」——一个绕过，而且是**旧文本正则没有的**绕过
+        # （codex 审查轮 1，实跑分类器确认）。逐个包装器建选项表是一张迟早写错
+        # 的表，所以改成在包装器拿到的 token 里**找 git**。
+        "sudo -u builder git commit -m x",
+        "sudo -H -u builder git commit -m x",
+        "nice -n 10 git commit -m x",
+        "env -u FOO git commit -m x",
+        "xargs -I{} git commit -m x",
+        "/usr/bin/sudo -u builder /usr/bin/git commit -m x",
     ):
         assert _POLICY.inspect_command("Bash", command).gate == "check", command
+
+    # …而「更多 gating」那一侧不会把无关命令拖进来：末尾那个 git 后面没有子命令
+    for command in (
+        "sudo -u builder apt install git",
+        "sudo -u builder ls",
+        "nice -n 10 make all",
+    ):
+        assert _POLICY.inspect_command("Bash", command).gate == "skip", command
+
+
+def test_an_attached_dash_C_value_is_not_valid_git_and_is_not_a_bypass() -> None:
+    """codex 审查轮 1 报 `git -C/path commit` 是重定向绕过——**实测不成立**。
+
+    git 的全局选项由 `git.c` 的 `handle_options` 手工解析，`-C` 是**整 token
+    比较**，不接受贴着写的值：
+
+        $ git -C/nonexistent-xyz status
+        unknown option: -C/nonexistent-xyz          (exit 129)
+        $ git -Z/nonexistent-xyz status
+        unknown option: -Z/nonexistent-xyz          (exit 129)   # 完全同一个错
+
+    两者报错一致，说明 `-C/path` 对 git 而言就是个**未知选项**，命令在做任何事
+    之前就失败了——没有提交发生在任何仓库里，也就没有可绕过的东西。
+
+    这条留作反向守卫：如果哪天 git 真的接受了贴着写的形式，本条会变红，届时
+    `_redirects_the_repository` 需要加前缀匹配（且必须大小写敏感，别把
+    `-c key=val` 一起吃进去）。
+    """
+    # 它仍然被认成一条 commit（走完整检查），只是不再被当成重定向
+    assert _POLICY.inspect_command("Bash", "git -C/other commit").gate == "check"
+    # 分隔写法才是真的重定向，照旧拒绝
+    assert _POLICY.inspect_command("Bash", "git -C /other commit").gate == "block"
 
 
 def test_dash_am_is_a_worktree_commit_and_must_be_diffed_against_HEAD() -> None:
