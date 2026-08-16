@@ -29,7 +29,56 @@ PYTHONIOENCODING=utf-8 .venv/Scripts/python src/ui-gap-audit/tools/capture_curre
 | Commit | 工作树 = `d546b4c` + TASK-077 的改动（提交后为 TASK-077 那一条） |
 | JS 异常 | **0**（`capture.json` 里逐次记录；带吞掉的异常的截图不算证据） |
 
-## Current — motv 创作者 Studio
+## Current — motv 创作者 Studio（**第三轮，2026-08-16 Phase 2 收口后**）
+
+**捕获条件**：viewport 1440×900 · Playwright Chromium · 真实项目 `照见未明rev2`
+（`--account-root D:_Work_video-work\MotvProjects --port 8791`）· **JS 异常 0**。
+
+**这一轮起按地址抓图**（TASK-081）：`capture_current.py` 用
+`#/<项目>/<空间>/<页面>` 直接跳页，不再点 `[data-mod]` 猜路径。
+请求地址与落点地址都写进 `capture.json` 作为证据。
+
+| ID | Screenshot | Route | 这一轮的变化 |
+| --- | --- | --- | --- |
+| C-101 | `01-landing-project-home.png` | 落地页 | **顶栏 `已花 — · 余额 — ⚠1`**（不再是 ¥0，TASK-077）；**项目卡有封面 + 「N 集 · N 镜 · N 已生成」**（TASK-082） |
+| C-102 | `02-brief.png` | `story/brief` | 右栏变成**一个常驻会话**（TASK-080） |
+| C-103 | `03-story-outline.png` | `story/story` | |
+| C-104 | `04-settings-bible.png` | `story/settings/characters` | |
+| C-105 | `05-episode-plan.png` | `story/episodes` | |
+| C-106 | `06-episode-script.png` | `story/script` | |
+| C-107 | `07a-episode-board.png` | `episode/board/overview` | **五页 rail 的第 ①**，按名字直达（TASK-077 §1.5） |
+| C-108 | `07b-storyboard-design.png` | `episode/storyboard/scenes` | 第 ②；分镜表格视图（TASK-078） |
+| C-109 | `07c-shot-production.png` | `episode/shotwork/prepare` | 第 ③；生成卡（TASK-078 批次 B） |
+| C-110 | `07d-cut-review.png` | `episode/cutreview/review` | 第 ④ —— **此前完全不可达**，现在是三列故事板（TASK-079） |
+| C-111 | `07e-post-delivery.png` | `episode/delivery/timeline` | 第 ⑤ |
+| ~~C-112~~ | ~~`07-episode-workbench.png`~~ | 请求 `episode/workbench` → **实际落到 `story/brief`** | ❌ **不是证据**：`workbench` 无别名，工具没检查 `resolved` 就截了图。见 [TASK-086 §1](../../../docs/tasks/TASK-086-address-truth-and-count-scope.md) |
+| ~~C-113~~ | ~~`08-provenance-graph.png`~~ | 请求 `episode/provenance` → **实际落到 `story/brief`** | ❌ 同上 |
+| C-114 | `09-episode-overview.png` | `episode/board/overview` | |
+| C-115 | `10-scenes.png` | `episode/storyboard/scenes` | |
+| C-116 | `11-storyboard-shots.png` | `episode/storyboard/shots` | |
+| C-117 | `12-reference-plan.png` | `episode/shotwork/prepare` | 别名 `refplan` → ⑧ 步骤① |
+| C-118 | `13-image-workspace.png` | `episode/shotwork/image` | 别名 `frames` → ⑧ 步骤② |
+| C-119 | `14-video-workspace.png` | `episode/shotwork/video` | 别名 `video` → ⑧ 步骤③ |
+| C-120 | `15-audio-workspace.png` | `episode/delivery/voice` | 别名 `audio` → ⑩ 配音 |
+| C-121 | `16-dailies-review.png` | `episode/shotwork/pick` | 别名 `dailies` → ⑧ 步骤④ |
+| C-122 | `17-edit-console.png` | `episode/delivery/timeline` | 别名 `edit` → ⑩ 时间线 |
+| C-123 | `18-asset-library.png` | `assets/assets` | 左栏七行分类删除，改**内容树**（TASK-082） |
+| C-124 | `19-storage-diagnostics.png` | `story/projectsettings/storage` | **「媒体不可用 2」**（此前是 0）+ 逐行「登记 local · 文件拿不到（探测）」+ 明说「本轮只显示，不改写登记状态」（TASK-077 §1.2）；⚙ 现有 **项目信息 / 项目健康 / 成片规格 / 预算与限制 / 存储与诊断 / 能力目录** 六个分区 |
+
+**本轮实测发现的两条**（已开 [TASK-086](../../../docs/tasks/TASK-086-address-truth-and-count-scope.md)）：
+
+1. C-112 / C-113 是**误导性证据** —— 工具不检查 `resolveModule().resolved`，
+   把 fallback 当成功。**这两个文件不得被引用为证据。**
+2. 项目卡写 `0 镜`，本集看板写 `60 个镜头` —— 同一项目、同一次运行。
+   前者数的是「场景真正拥有的镜头」（60 个全部未归组），后者数的是存在的镜头。
+
+---
+
+## Current — 第一轮（2026-08-16，commit `18fa281`，**已归档**）
+
+> 像素在 `screenshots/archive/2026-08-16-pre-phase2/`。
+> **数字口径**：这一轮写「38 镜」，那是当时的项目数据；现在是 60（TASK-078 §1.a）。
+> 保留是为了让 Before/After 可比，**不要拿它当现状证据**。
 
 **TASK-077 之后**。带 ✅ 的行是本轮闭合的 Gap；其余仍是待办（Phase 1/2/3）。
 
@@ -205,6 +254,7 @@ PYTHONIOENCODING=utf-8 .venv/Scripts/python src/ui-gap-audit/tools/capture_curre
 
 | 目录 | 内容 |
 | --- | --- |
+| `archive/2026-08-16-pre-phase2/` | **第一轮 24 张**（commit `18fa281`，Phase 0/1/2 之前）。Before/After 对比的基线 |
 | `archive/2026-08-16-pre-login/` | 登录前抓的 4 张 LibTV 页面（被「登录失效」弹窗遮挡 / 导航失败），保留作审计痕迹，不作为证据 |
 | `archive/2026-08-16-pre-task077/` | **TASK-077 之前**的第一轮 current（20 张 + `capture.json`，commit `18fa281`）。GAP-01/02/03/06/09/26/28 的原始证据在这里：顶栏 `¥0`、资产库两张碎图、存储页「媒体不可用 0」、五页无入口。**不要删** —— 报告里的 C-00x 断言是对着它写的 |
 
