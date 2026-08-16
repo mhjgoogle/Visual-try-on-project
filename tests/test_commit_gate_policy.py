@@ -661,3 +661,38 @@ def test_a_normal_chain_commit_still_gets_the_reduced_tier() -> None:
         "MOTV_CONTINUOUS_CHAIN=1 git commit -m x",
     )
     assert decision.tier == "continuous-chain"
+
+
+def test_both_shells_BOUND_the_classifier_step() -> None:
+    """跨模型复审 2026-08-16：只有这一步没有超时。
+
+    gate.ps1 用 `Invoke-Bounded -TimeoutSeconds 15` 跑分类器，gate.sh 是**裸调用**。
+    这里挂住永远到不了它下面那句 `exit 2`——先触发的是**外层 hook 超时**，而
+    PreToolUse 把那个读成**非阻塞**错误，于是提交在**零检查**的情况下通过。
+
+    这正是 gate.sh 自己那段预算注释说「a hung check must never fail open」要防的
+    事，而分类器是唯一漏掉的一步。两侧同为 15 秒，判定才不会分叉（ADR-0062 决策 3）。
+    """
+    root = Path(__file__).resolve().parents[1] / ".claude" / "hooks"
+    sh = (root / "gate.sh").read_text("utf-8")
+    ps1 = (root / "gate.ps1").read_text("utf-8")
+
+    # sh: 分类器那一段必须被 timeout 包住（两半都包，pipefail 才兜得住）
+    seg = sh.split("POLICY_JSON=", 1)[1].split("\nfi", 1)[0]
+    assert seg.count("timeout --kill-after") >= 2, (
+        "分类器管道的两半都要有超时，否则任一半挂住都会 fail open"
+    )
+
+    # ps1: 同一步必须走有界调用
+    # 锚到那次调用本身，不要用 "catch"——注释里就有这个词，切片会在它上面截断
+    seg2 = ps1.split("$policyArgs = @(", 1)[1].split("$policyResult.ExitCode", 1)[0]
+    assert "Invoke-Bounded" in seg2 and "-TimeoutSeconds" in seg2
+
+    # 两侧的秒数必须一致
+    import re as _re
+
+    sh_secs = {int(m) for m in _re.findall(r"timeout --kill-after=\d+ (\d+)", seg)}
+    ps_secs = {int(m) for m in _re.findall(r"-TimeoutSeconds (\d+)", seg2)}
+    assert sh_secs == ps_secs, (
+        f"两个 shell 的分类器超时必须相同：sh={sh_secs} ps1={ps_secs}"
+    )

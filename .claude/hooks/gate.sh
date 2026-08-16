@@ -106,7 +106,20 @@ fi
 # Each shell matching the token itself is how the two platforms came to
 # disagree (PowerShell's -like is case-insensitive, grep -F is not), and how a
 # commit MESSAGE containing the token could switch the gate off.
-if ! POLICY_JSON="$(cd "$ROOT" && git "${POLICY_DIFF_ARGS[@]}" | "$PY" "$POLICY" --command "$CMD")"; then
+# BOUNDED, like every other check in this file (cross-model review 2026-08-16).
+# This one step was not: gate.ps1 runs the classifier through `Invoke-Bounded
+# -TimeoutSeconds 15`, this shell ran it bare. A hang here never reaches the
+# `exit 2` below — the OUTER hook timeout fires first, PreToolUse reads that as
+# a NON-BLOCKING hook error, and the commit proceeds with ZERO checks. That is
+# precisely the fail-open this file's own budget comment says must never happen,
+# and it was the only step exempt from it. Same 15s as the other shell, so the
+# two still agree (ADR-0062 decision 3).
+#
+# `set -o pipefail` is on (line 11), so a timeout in EITHER half of the pipe
+# fails the whole thing and lands on the refusal below.
+if ! POLICY_JSON="$(cd "$ROOT" \
+  && timeout --kill-after=10 15 git "${POLICY_DIFF_ARGS[@]}" \
+  | timeout --kill-after=10 15 "$PY" "$POLICY" --command "$CMD")"; then
   echo "gate.sh: could not classify changed paths; refusing unchecked commit." >&2
   exit 2
 fi
