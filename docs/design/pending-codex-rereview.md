@@ -14,6 +14,10 @@
     「两者都不可用」的死锁场景已消除（ADR-0069 决策 6 的配套要求）。
     但它与实施者同模型族，**不能**用来清掉本清单里要求跨模型复审的条目。
 - 规则：**本清单清空之前，不得 push / merge / 交接 / 宣告最终验收**
+- **2026-08-16：codex 恢复，本清单的原始债务已清。** 实测 `codex exec` 可用
+  （无 spend cap）。九个条目全部经跨模型复审，共报 17 条 blocking，逐条验证后
+  **7 条为真（全部已修）、8 条驳回（均有代码证据）、2 条记录为 follow-up**。
+  详见下方「已补完」。**唯一未审的是 `a187cc8` 那一条**（纯文档规则）。
 
 ## 怎么用
 
@@ -35,6 +39,47 @@
 | `f05e477` + `ccee69b`（一集镜头数上限 20→120） | 三处写死的 `20` 统一成 `_MAX_SHOTS_PER_EPISODE=120`（解析器 / 合成路由 / 分镜编辑器）+ 三种失败分开报错 + 跨语言一致性守卫 | 中（阈值 + 单层业务逻辑；未改接口形状、文件操作或持久化） | 独立 Claude 会话 2 轮：轮 1 `fail` 报出 P1（第三处 `20`）与 2 条 P2（我自己引入的守卫缺陷），全部已修；轮 2 `pass` 且复审了这些修复（同模型族，**无跨模型独立性**） | **待 codex 复审**（范围：① 抬高上限后合成路径的资源包络——每镜 ffmpeg 300s、无聚合上限，单次请求最坏情况从 20×300s 变 120×300s；② `_parse_shots` 首个 `[`→末个 `]` 的切法在 `shots` 之后还有含 `]` 字段时会误报 JSON 语法错） |
 | `e833736` (TASK-073 §1.8 第四批) | `ctx.skills`（853 行）搬到 `src/controllers/skillctl.js`；`_clipChain` 与 `pendingOrigin` 随迁；五处按文件切片的守卫改扫新文件 | 高（跨层合同 + Skill Run / Proposal 身份与溯源） | 独立 Claude 会话 1 轮，`VERDICT: pass`、0 blocking（同模型族，**无跨模型独立性**）。4 条 non-blocking 已逐条处理：2 条驳回**并有变异/静态核对证据**、1 条核实启动顺序安全、1 条是 pre-existing P3 记录不修 | **待 codex 复审**（范围：**搬迁等价性**——尤其 `run`/`cancel`/`abandon` 在 `await` 之后重读运行登记的绑定语义是否与原 `app.js` 逐字等价，以及 `context()` 里被提成 const 的四个文档读取在无 await 的同步路径上是否确实等价） |
 
-## 已补完
+## 已补完（2026-08-16 codex 跨模型复审）
 
-（暂无）
+复审方式：不重放历史 diff（脚本硬编码 `$Base...HEAD`，且大批次会撞 4000 行上限），
+而是把清单里本来就写成具体问题的「范围」直接交给 codex 审**当前代码**——那些代码
+现在还在，后续提交可能已经动过它们，审「现在对不对」比审「当时的 diff 对不对」
+更有价值。
+
+| 原条目 | 复审批次 | 结果 |
+| --- | --- | --- |
+| `70dab40` TASK-072 批次一 | F（Run 注册表并发/持久化/进程树） | 报 3 条 → **1 真已修**（`runstore.py` 唯一一处不落盘的状态转换，绕过了 `_commit_locked` 自述的不变量）+ 2 条驳回（Windows Job Object 是 KILL_ON_JOB_CLOSE 内核级兜底） |
+| TASK-075 批次 A | E1 + E2 | 报 3 条 → **2 真已修**（不可读源仍回落 builtin —— 那个修复从未接上；约束类型不校验导致运行时未捕获 TypeError）+ 1 条记录 |
+| TASK-075 批次 B1/B2 | H | 报 1 条 → **1 真已修**（修订跑 `script-reviser` 却用 `script-writer` 的 schema 判定答案） |
+| 工作树那一大批 ①② | A（`_num` / `_PROBE_SEM` / 候选集围栏） | 报 2 条 → **全部驳回**（输入面决定围栏范围；`replacesKey` 在 dispatcher 第一行即被拒） |
+| 工作树那一大批 ③④⑤ | I（dispatcher G3 / 加法字段 / apiclient） | 报 1 条 → **待修**（顶层 `reviews` 无 schema 校验，见下） |
+| `c1edb00` TASK-076 | G（链令牌与冲突扫描） | 报 7 条 → **2 真已修**（引号形式绕过冲突扫描；动词表只有 push/merge）+ **1 真已修**（`gate.sh` 分类器无超时 = fail-open）+ 1 条驳回（提交信息里的令牌，实测锚定有效）+ 3 条待修（见下） |
+| `c12d5a0` TASK-074 §1.2 | B（交付质检探测） | 报 1 条 → **1 真已修**（ffmpeg 扫描退出码从不检查，部分测量冒充完整测量） |
+| pytest 两阶段 + gate 修复 | C | 报 2 条 → **1 真已修**（字面反斜杠骗过文档分类，Python 文件跳过 pytest）+ 1 条驳回（两 shell 超时预算差异是有意的平台耗时差异） |
+| `e833736` TASK-073 §1.8 | D（搬迁等价性） | **pass，0 blocking** ✅ |
+| `f05e477` + `ccee69b` 镜头数上限 | C 覆盖 gate 侧；本体为中风险且已 2 轮审 | 无新增 blocking |
+
+## 仍然待办
+
+| 项 | 状态 |
+| --- | --- |
+| `a187cc8` + 后续（ADR-0069 规则文档） | **未审**。纯文档（CLAUDE.md / AGENTS.md 的规则自洽性），范围：round 3 的那处 P1 修复 + 4 处 P2 |
+| 顶层 `reviews` 无 schema 校验 | **已确认，未修**。`canvasschema.js` 只校验 `production.shotProduction.reviews`；顶层 `reviews` 的 `decisions` 水合时只查「是不是数组」，元素形状不查，未校验的 decision 会喂给 G3。对照 `deliverySpec`——同为加法字段却是 present-but-wrong 即拒绝整份文档 |
+| gate 的命令文本判定（shell 层） | **已确认，未修**。`git "commit"` 引号形式检测不到（gate 直接不跑）、`git "-C"` 引号形式的重定向检测不到。与本轮已修的冲突扫描是同一个根：**靠正则匹配命令文本判断意图，宽了误伤、窄了漏掉，加变体不收敛**。真正的修法是换判定机制（拿结构化 argv 而非原始文本），属独立设计改动 |
+| `_load_skill_catalog` 的 `studio/skills` 无 containment | **已确认，未修**。junction 可指向项目根之外。与仓库既定纪律（`_resolve_upload_file` 有严格 symlink 检查）不一致，但需本地写权限；且改动会破坏「用 junction 共享 skill 包」这种可能合法的用法——先定这个再动 |
+| POSIX 缺 parent-death 机制 | **记录**。Windows 由 Job Object 兜底；POSIX 需新增 `PR_SET_PDEATHSIG`，且对孙进程无效 |
+
+### 本轮暴露的一个方法论问题（值得单独记）
+
+多条真缺陷的形状是**「守卫看起来加了，其实没接上」**：
+
+- `_package_dirs` 的注释把危害描述得很准确，代码却因为 `skill_id=""` 与按 id 索引
+  的屏蔽表对不上而从未生效；
+- 对应的既有测试**只传了一个 source**，下面没有 builtin，「回落到 builtin」在那个
+  fixture 里根本不可能发生——docstring 说对了危害，构造没造出那个危害；
+- `gate.sh` 的预算注释写着「a hung check must never fail open」，而分类器本身是
+  唯一没有超时的一步。
+
+共同教训：**一条守卫的价值等于它的构造能否让被防的那件事真的发生**，不等于它的
+注释说得多准确。新增/加强守卫时一律做变异验证（改坏实现看它是否变红），本轮每
+一条修复都做了。
