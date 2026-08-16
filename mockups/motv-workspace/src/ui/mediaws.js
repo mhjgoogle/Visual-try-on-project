@@ -21,6 +21,23 @@ import {
   curVideoVersion,
 } from "./studioparts.js";
 import { genCardModel, renderGenCard, bindGenCard } from "./gencard.js";
+import { chainOptions, renderChainMenu } from "./chain.js";
+
+/** 「以此生成 →」 for the shot on screen (TASK-079 §1.2). The options depend on
+ *  this shot's own context — whether it has a resolvable slot, and whether its
+ *  scene has a following shot — so they are derived here, per render. */
+function chainMenu(ctx, ui, d, kind) {
+  if (!d || !d.shot.shotId) return "";
+  const shotId = d.shot.shotId;
+  const nextShot = ctx.frames && typeof ctx.frames.nextShotOf === "function"
+    ? ctx.frames.nextShotOf(shotId)
+    : null;
+  return renderChainMenu(
+    kind,
+    chainOptions(kind, { nextShot, slot: d.slot, inScene: !!d.scene }),
+    { open: ui.chainOpen === kind, shotId },
+  );
+}
 
 /** The ONE generation card for the shot on screen (TASK-078 §3).
  *
@@ -161,6 +178,7 @@ export function renderImageWs(ctx, ui) {
       }) +
       genCard(ctx, ui, d, "image") +
       `<div class="st-sec"><h3>画面变体</h3><div class="acts">` +
+      (cur ? chainMenu(ctx, ui, d, "image") : "") +
       (cur ? `<button class="btn sm" data-useff="${esc(d.slot || "")}">🎬 用作视频首帧</button>` : "") +
       `<button class="btn sm" data-goto="video">去视频 →</button></div></div>` +
       (d.slot
@@ -203,6 +221,10 @@ export function bindImageWs(root, ctx, ui, rerender) {
     bindGenCard(root, ctx, ui, rerender, {
       kind: "image", shotId: ui.selectedShotId, importMedia: importForShot(ctx, ui, rerender),
     });
+    // 「以此生成 →」 is wired by the SHELL (ui/production.js), beside [data-goto]
+    // and [data-ent-id]: every one of its branches ends in a page switch, and
+    // that is a shell decision. Wiring it here too would attach two handlers to
+    // one button and the later one would silently win.
   }
 }
 
@@ -253,6 +275,7 @@ export function renderVideoWs(ctx, ui) {
       `<div class="st-sec"><h3>运动设定</h3></div>` +
       `<div class="shotmeta">${motion}</div>` +
       `<div class="st-sec"><h3>视频变体</h3><div class="acts">` +
+      (curVid ? chainMenu(ctx, ui, d, "video") : "") +
       `<button class="btn sm" data-goto="frames">← 回画面</button>` +
       `<button class="btn sm" data-goto="edit">去剪辑 →</button></div></div>` +
       (d.slot
@@ -299,5 +322,9 @@ export function bindVideoWs(root, ctx, ui, rerender) {
     bindGenCard(root, ctx, ui, rerender, {
       kind: "video", shotId: ui.selectedShotId, importMedia: importForShot(ctx, ui, rerender),
     });
+    // 「以此生成 →」 is wired by the SHELL (ui/production.js), beside [data-goto]
+    // and [data-ent-id]: every one of its branches ends in a page switch, and
+    // that is a shell decision. Wiring it here too would attach two handlers to
+    // one button and the later one would silently win.
   }
 }

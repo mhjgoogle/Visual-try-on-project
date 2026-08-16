@@ -1517,3 +1517,66 @@
   padding-top: var(--s3); border-top: 1px solid var(--line);
 }
 .gc-free .lab { color: var(--text-faint); font-size: var(--t-micro); }
+
+/* ========================================================================= */
+/* ⑨ 粗剪审片 · 故事板 + 「以此生成 →」链式（TASK-079）                        */
+/* ========================================================================= */
+
+.cr-filters { display: flex; gap: var(--s2); flex-wrap: wrap; margin-bottom: var(--s3); }
+.cr-head {
+  display: grid; grid-template-columns: minmax(240px, 1.4fr) 1fr 1.2fr; gap: var(--s4);
+  padding: 0 var(--s3) var(--s2);
+  font-size: var(--t-micro); font-weight: 700; letter-spacing: .06em; color: var(--text-faint);
+  border-bottom: 1px solid var(--line);
+}
+.cr-list { display: flex; flex-direction: column; }
+.cr-row {
+  display: grid; grid-template-columns: minmax(240px, 1.4fr) 1fr 1.2fr; gap: var(--s4);
+  padding: var(--s4) var(--s3); border-bottom: 1px solid var(--line);
+}
+.cr-row:hover { background: color-mix(in srgb, var(--accent) 4%, transparent); }
+/* 已通过 gets a quiet left edge, not a colour wash — the columns must stay readable */
+.cr-ok { box-shadow: inset 3px 0 0 var(--ok); }
+
+.cr-col { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
+.cr-title { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; font-weight: 600; }
+.cr-title .mono { color: var(--text-dim); }
+.cr-scene { font-size: var(--t-micro); color: var(--text-dim); }
+.cr-scene.muted { color: var(--text-faint); }
+.cr-desc { margin: 0; font-size: var(--t-xs); color: var(--text-dim); line-height: 1.7; }
+.cr-stale { font-size: var(--t-micro); color: var(--gate); line-height: 1.6; }
+.cr-fail { font-size: var(--t-micro); color: var(--bad); line-height: 1.6; }
+.cr-acts { display: flex; gap: var(--s2); flex-wrap: wrap; margin-top: auto; }
+
+.cr-thumb {
+  width: 100%; max-width: 240px; aspect-ratio: var(--thumb-ratio);
+  object-fit: cover; border-radius: var(--r2); background: var(--panel-2);
+}
+.cr-none {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-faint); font-size: var(--t-lg); border: 1px dashed var(--line-2);
+}
+.cr-meta { display: flex; flex-direction: column; gap: var(--s1); }
+.cr-kv { display: inline-flex; align-items: center; gap: var(--s2); font-size: var(--t-micro); }
+.cr-kv .k { color: var(--text-faint); }
+.cr-kv .v { color: var(--text-dim); }
+.cr-src { width: 32px; height: 18px; object-fit: cover; border-radius: 3px; }
+.cr-empty { padding: var(--s6); text-align: center; color: var(--text-faint); }
+
+/* 「以此生成 →」—— 不可用的组合灰掉并说明原因，绝不隐藏 */
+.chain { position: relative; display: inline-block; }
+.chain-menu {
+  position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 260px;
+  display: flex; flex-direction: column;
+  background: var(--elev); border: 1px solid var(--line-2); border-radius: var(--r2);
+  box-shadow: var(--shadow); overflow: hidden;
+}
+.chain-item {
+  display: flex; flex-direction: column; gap: 2px; align-items: flex-start;
+  padding: var(--s2) var(--s3); background: none; border: none; text-align: left;
+  font: inherit; font-size: var(--t-xs); color: var(--text); cursor: pointer;
+}
+.chain-item:hover { background: var(--elev-2); }
+.chain-item.off { color: var(--text-faint); cursor: not-allowed; }
+.chain-item.off:hover { background: none; }
+.chain-note { font-size: var(--t-micro); color: var(--text-faint); line-height: 1.5; }

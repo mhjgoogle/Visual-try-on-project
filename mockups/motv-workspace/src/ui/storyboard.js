@@ -339,6 +339,13 @@ export function shotDetailModel(pd, shotId) {
       status: g.status,
       createdAt: g.createdAt,
       provider: g.provider,
+      // WHICH MODEL made it (TASK-079 §1.1). Already on every Generation record
+      // and never surfaced — 「这一集各用了哪个模型」 was unanswerable from any
+      // screen even though the answer was in the registry all along.
+      model: g.model || null,
+      resultAssetIds: Array.isArray(g.resultAssetIds) ? g.resultAssetIds : [],
+      // the failure's own reason, when the record carries one
+      error: typeof g.error === "string" ? g.error : null,
     }))
     .reverse(); // registry is append-only → newest first
   const images = variants(pd.assetUploads);

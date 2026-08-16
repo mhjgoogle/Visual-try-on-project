@@ -36,6 +36,7 @@ import { mintId } from "./workflow/identity.js";
 import { createViews } from "./ui/landing.js";
 import { createProduction } from "./ui/production.js";
 import { dailiesModel } from "./ui/dailies.js";
+import { reviewBoardModel } from "./ui/cutreview.js";
 import { shotDetailModel } from "./ui/storyboard.js";
 import * as assetlibws from "./ui/assetlibws.js";
 import { createWorkflowGraph } from "./ui/wfgraph.js";
@@ -2936,6 +2937,17 @@ const ctx = {
     },
   },
   // ---------------------------------------------------------------------- //
+  // ⑨ 粗剪审片 · 故事板 (TASK-079 §1.1). DERIVED on every call from the dailies
+  // model (which owns the shot walk, including the unassigned pool) and the ONE
+  // shot detail model. No new state, no second status computation — this is a
+  // different SHAPE over the same standing the per-shot walk shows.
+  review: {
+    board: (filter) => reviewBoardModel(
+      ctx.dailies.model(),
+      (shotId) => shotDetailModel(ctx.prodData(), shotId),
+      { filter },
+    ),
+  },
   // Episode Production controller (CP6 / ADR-0058) — the read models behind
   // 本集制作 and 参考统筹, plus the manual generation round trip.
   //

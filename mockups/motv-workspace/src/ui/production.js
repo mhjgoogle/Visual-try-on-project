@@ -25,6 +25,8 @@ import { renderAudioWs, bindAudioWs } from "./audiows.js";
 // own handlers and its own guards to drift from. The module is left in the tree
 // (its read model is still unit-tested) but nothing renders it.
 import { renderDailies, bindDailies } from "./dailies.js";
+import { renderCutReview, bindCutReview } from "./cutreview.js";
+import { bindChainMenu } from "./chain.js";
 import { renderEpisodeWs, bindEpisodeWs } from "./episodews.js";
 import { renderRefPlan, bindRefPlan } from "./refplan.js";
 import { renderAssetLibrary, bindAssetLibrary, RAIL_TYPE } from "./assetlibws.js";
@@ -854,7 +856,10 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       return sectionNav("shotwork") + drawerBtn + drawer + inner + shotTaskRows(ctx);
     },
     // ⑨ 粗剪审片 — the episode-wide playback + issue marking (检查层 2).
-    cutreview: (ctx) => renderDailies(ctx, ui),
+    // ⑨ 粗剪审片 is the EPISODE-WIDE storyboard (TASK-079 §1.1); ⑧ step ④ keeps
+    // the per-shot walk. They were the same renderer, which is why 「看不过来」
+    // had no surface that could answer it.
+    cutreview: (ctx) => renderCutReview(ctx, ui),
     // ⑩ 后期交付 — the post console at full size, with its seven sections.
     delivery: (ctx) => {
       // 交付质检 is a section of its OWN (§1.2 新增), not a corner of the post
@@ -1659,7 +1664,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
         },
       });
     }
-    if (activeModule === "cutreview") bindDailies(root, ctx, ui, render);
+    if (activeModule === "cutreview") bindCutReview(root, ctx, ui, render);
     if (activeModule === PROJECT_SETTINGS) {
       const sec = sectionOf(PROJECT_SETTINGS);
       if (sec === "storage") bindStorageWs(root, ctx, ui, render);
@@ -1740,6 +1745,38 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     root.querySelectorAll("[data-ent-id]").forEach((b) => (b.onclick = (ev) => {
       ev.stopPropagation();
       openEntity(ctx, b.dataset.entKind, b.dataset.entId);
+    }));
+    // 「以此生成 →」 (TASK-079 §1.2) — every branch ends in a page switch WITH the
+    // item prefilled, so it belongs here with the other cross-page moves. `land`
+    // is `setModule`, which is the shell's own navigation and cannot be reached
+    // from a workspace module.
+    bindChainMenu(root, ctx, ui, render, {
+      land: (to, shotId) => {
+        // select FIRST, navigate second: the destination renders from
+        // `ui.selectedShotId`, so switching before selecting would paint the
+        // previous shot for one frame and, when nothing was selected, land on
+        // the empty state this feature exists to remove.
+        if (shotId) ui.selectedShotId = shotId;
+        setModule(to);
+        render();
+      },
+    });
+    // 「问 Agent」 (TASK-079 §1.1) — put THIS item into the AI Director's context.
+    //
+    // Shell-level for the same reason as the two above: it narrows the Director's
+    // scope (which follows `ui.selectedShotId`), opens the panel and prefills the
+    // question. The prefill names the real shot and the real medium — a generic
+    // 「帮我看看」 would be decoration.
+    root.querySelectorAll("[data-cr-ask]").forEach((b) => (b.onclick = (ev) => {
+      ev.stopPropagation();
+      const shotId = b.dataset.crAsk;
+      const kind = b.dataset.kind === "video" ? "视频" : "画面";
+      const shot = ctx.shot.find(shotId);
+      const name = shot ? (shot.title || `镜头 ${shot.sequence}`) : shotId;
+      ui.selectedShotId = shotId;
+      ui.agentOpen = true;
+      ui.directorText = `看一下「${name}」的${kind}：它现在的状态对不对，下一步该做什么？`;
+      render();
     }));
     // 「未填 · 去填写」 — the read-only facet displays now LAND ON THE CELL. Also
     // shell-level, and for the same reason: it opens ⑦ 分镜设计, switches it to the
