@@ -29,6 +29,7 @@ import { settingsModel, bibleFields, bindSettings } from "./workspaces.js";
 import { head, empty } from "./shell.js";
 import { bindField, restoreFieldFocus } from "./fieldsync.js";
 import { renderBaseAssetPanel, bindBaseAssetPanel } from "./baseassetpanel.js";
+import { runPageSkill, lastRunOf } from "./runskill.js";
 
 export const WORLD_TABS = [
   ["world", "世界设定"],
@@ -154,9 +155,27 @@ export function renderWorldWs(ctx, ui) {
     `<span class="push"></span><button class="btn sm" data-wtab="locations">→ 场景地（${m.locationCount}）</button></div>` +
     `<div class="tx">世界观是上游设定；可复用的具体场景地（含日/夜/雨夜等状态、参考图、基础生图 Prompt）` +
     `在旁边的「场景地」页签里。这里的「主要地点」只是创作方向，不是第二份地点数据库。</div></div>`;
+  // 「AI 帮助梳理世界观」 (产品负责人 2026-08-17 / TASK-090 §2.4). This page had a
+  // form and NO capability at all — the one surface in 作品设定 where 「AI 帮我梳理」
+  // was simply not on offer. `world-director` is new (ADR-0067 三件套) and single
+  // purpose: it reads world RULES out of the script and the uploaded assets, and it
+  // does not touch relationships (that is Relationship Director's job, and mixing
+  // them would dilute both — the stated reason for not extending that capability
+  // instead).
+  const last = lastRunOf(ctx, "world-director");
+  const aiRow =
+    `<div class="rg-ai">` +
+    `<button class="btn primary sm" data-world-ai>✨ AI 梳理世界观（按当前剧本 + 已上传资产）</button>` +
+    (last
+      ? `<span class="chip${last.status === "succeeded" ? " ok" : " mute"}">上次梳理：${esc(last.status)}${last.at ? ` · ${esc(String(last.at).slice(0, 16))}` : ""}</span>`
+      : `<span class="chip mute">还没有让 AI 梳理过</span>`) +
+    `<span class="meta">产出是<b>提案</b>：逐条确认后才写进这七项，<b>没被提到的项一个字都不动</b>。` +
+    `剧本推进之后可以再跑一次。</span>` +
+    `</div>`;
   return (
     head("世界观", "项目级 · 整部作品的世界 Canon；随时可回来修改", standing) +
     tabs +
+    aiRow +
     `<div class="meta cb-note">编辑即自动保存。只有「确认世界观版本」才会形成下游可依据的版本号 —— 已有剧集不会被自动改写，只会显示「上游变化」。` +
     `「视觉基调」会被编译进每个场景地的基础生图 Prompt。</div>` +
     `<div class="story-grid">${cards}${locNote}</div>`
@@ -219,6 +238,16 @@ export function bindWorldWs(root, ctx, ui, rerender = () => {}) {
   root.querySelectorAll("[data-canon-confirm]").forEach((b) => (b.onclick = (ev) => {
     ev.stopPropagation();
     ctx.canon.confirm(b.dataset.canonConfirm);
+  }));
+  // 「AI 梳理世界观」 — through the SHARED runner (ui/runskill.js), i.e. through
+  // `ctx.skills.run`, so this page adds no second run path and the proposal is
+  // reviewed where every other proposal is reviewed.
+  root.querySelectorAll("[data-world-ai]").forEach((b) => (b.onclick = (ev) => {
+    ev.stopPropagation();
+    runPageSkill(ctx, ui, "world-director", {
+      summary: "按当前剧本与已上传资产梳理世界观",
+      onDone: rerender,
+    });
   }));
   restoreFieldFocus(root, ui);
 }

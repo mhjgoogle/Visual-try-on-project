@@ -108,6 +108,10 @@ export const APPLY_TARGETS = {
     can: true, target: "relationships", label: "应用为人物关系",
     detail: "逐条建立 / 修改人物关系定义；指向不存在人物的条目会被跳过并报告。已锁定的关系不会被覆盖。",
   },
+  "world-director": {
+    can: true, target: "world", label: "应用为世界观",
+    detail: "逐条写入世界观档案的对应项（时代 / 规则 / 社会 / 区域 / 地点 / 视觉基调 / 氛围）。不认识的项会被跳过并报告；没有被提到的项一个字都不动。",
+  },
   "continuity-reviewer": {
     can: false,
     reason: "这是一份审阅结论，不是某个文档的新内容。没有「连续性」这份 canonical 文档可写——按条目自己去改对应的镜头或设定。",
@@ -323,6 +327,29 @@ export function planApply(skillId, proposal, scope = {}) {
     }
     return { ok: true, actions: props.map((p) => ({ action: "upsertRelationship", ...p })) };
   }
+
+  if (skillId === "world-director") {
+    const fields = collectWorldFields(proposal);
+    const skipped = unknownWorldFields(proposal);
+    if (!Object.keys(fields).length) {
+      return {
+        ok: false,
+        error: skipped.length
+          ? `提案里没有一条落在世界观档案的七项里（它写的是：${skipped.join("、")}）`
+          : "提案里没有可写入的世界观条目（每条都要写 field + value，且 field 必须是世界观档案的七项之一）",
+      };
+    }
+    // ONE ACTION, not one per facet: the seven facets are ONE canonical document,
+    // and七 separate writes would each re-render and each be separately
+    // revertible — a half-applied world setting is a state nobody asked for.
+    //
+    // `skipped` TRAVELS WITH THE PLAN so the caller can SAY what it dropped
+    // (codex review, 批次 F2 round 1). `collectWorldFields` silently ignores a facet
+    // name this document does not have — which is right, it must not reach canon —
+    // but silently is only acceptable if something downstream reports it. Without
+    // this the comment above claimed a report that no code produced.
+    return { ok: true, actions: [{ action: "updateWorldSetting", fields }], skipped };
+  }
   if (skillId === "editing-director") {
     const acts = collectEdits(proposal);
     if (!acts.length) return { ok: false, error: "提案里没有可应用的剪辑调整（每条都要有 clipId 和至少一项改动）" };
@@ -433,6 +460,49 @@ function collectRelationships(proposal) {
     for (const k of FACETS) if (typeof p[k] === "string" && p[k].trim()) fields[k] = p[k].trim();
     if (!Object.keys(fields).length) continue;
     out.push({ aCharacterId: a, bCharacterId: b, fields, reason: str(p.reason).trim() || null });
+  }
+  return out;
+}
+
+/**
+ * The world facets a `world-director` proposal really carries (TASK-090 §2.4).
+ *
+ * ONLY THE SEVEN THAT EXIST. An answer naming `magicSystem` is not a facet of this
+ * document, and writing it would put a key nothing reads into canon while the
+ * creator believed they had accepted a world rule. Unknown names are dropped here;
+ * the panel reports what it skipped, so a refused entry is visible rather than
+ * silently missing.
+ *
+ * LAST NON-EMPTY WINS per facet: two proposals for `rules` are two opinions about
+ * one field, and the alternative — concatenating them — would invent a value
+ * neither the model nor the creator wrote.
+ */
+function collectWorldFields(proposal) {
+  const FACETS = new Set([
+    "era", "rules", "society", "regions", "places", "visualTone", "atmosphere",
+  ]);
+  const fields = {};
+  for (const p of Array.isArray(proposal.proposals) ? proposal.proposals : []) {
+    if (!isObj(p)) continue;
+    const field = str(p.field).trim();
+    const value = str(p.value).trim();
+    if (!FACETS.has(field) || !value) continue;
+    fields[field] = value;
+  }
+  return fields;
+}
+
+/** Which facet names a world proposal named that this document does not have —
+ *  so the panel can SAY what it skipped instead of dropping it in silence. */
+export function unknownWorldFields(proposal) {
+  const FACETS = new Set([
+    "era", "rules", "society", "regions", "places", "visualTone", "atmosphere",
+  ]);
+  const out = [];
+  for (const p of Array.isArray(proposal && proposal.proposals) ? proposal.proposals : []) {
+    if (!isObj(p)) continue;
+    const field = str(p.field).trim();
+    if (field && !FACETS.has(field) && !out.includes(field)) out.push(field);
   }
   return out;
 }

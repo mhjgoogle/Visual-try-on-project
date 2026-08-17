@@ -1,0 +1,34 @@
+{
+  "type": "object",
+  "required": [
+    "proposals"
+  ],
+  "fields": {
+    "proposals": {
+      "type": "array",
+      "maxItems": 7,
+      "of": {
+        "type": "object",
+        "required": [
+          "field",
+          "value",
+          "basis"
+        ],
+        "fields": {
+          "field": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "value": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "basis": {
+            "type": "string",
+            "nonEmpty": true
+          }
+        }
+      }
+    }
+  }
+}

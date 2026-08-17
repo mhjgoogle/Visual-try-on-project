@@ -124,6 +124,11 @@ export const ACTIONS = {
   // that guessed wrong would silently do nothing. The dispatcher resolves the pair
   // against the documents and refuses when either character does not exist.
   upsertRelationship: { args: ["aCharacterId", "bCharacterId", "fields"], risk: "edit" },
+  // 世界观 canon, one facet at a time (TASK-090 §2.4 / TASK-094 批次 F2). `fields` is
+  // a partial: only the facets the proposal really carries are written, so
+  // accepting 「补一条世界规则」 can never blank the 视觉基调 a creator wrote by hand —
+  // the same rule `upsertRelationship` follows.
+  updateWorldSetting: { args: ["fields"], risk: "edit" },
   removeRelationship: { args: ["relationshipId"], risk: "edit" },
   swapRelationshipDirection: { args: ["relationshipId"], risk: "pointer" },
 };

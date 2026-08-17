@@ -3031,6 +3031,21 @@ const ctx = {
           ctx.canon.updateRelationship(rec.relationshipId, a.fields);
           return { ok: true, detail: `已建立「${nameOfChar(a.aCharacterId)} × ${nameOfChar(a.bCharacterId)}」` };
         }
+        // 世界观 canon (TASK-090 §2.4 / 批次 F2). A PARTIAL write by construction:
+        // `ctx.canon.updateWorld` merges, so the facets this proposal did not
+        // mention keep whatever the creator wrote — and `skillapply` already
+        // dropped any facet name this document does not have.
+        case "updateWorldSetting": {
+          const fields = a.fields;
+          if (!fields || typeof fields !== "object" || !Object.keys(fields).length) {
+            return { ok: false, error: "没有可写入的世界观条目" };
+          }
+          const keys = Object.keys(fields);
+          if (!ctx.canon.updateWorld(fields)) return { ok: false, error: "无法写入世界观" };
+          // WHAT CHANGED, named. 「已应用」 with no list leaves the creator to diff a
+          // seven-field document by eye to find out what they just accepted.
+          return { ok: true, detail: `已写入世界观的 ${keys.length} 项：${keys.join("、")}` };
+        }
         case "removeRelationship":
           return bool(
             ctx.canon.removeRelationship(a.relationshipId),

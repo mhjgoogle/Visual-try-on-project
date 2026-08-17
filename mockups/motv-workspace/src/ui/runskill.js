@@ -76,7 +76,12 @@ export function lastRunOf(ctx, skillId) {
   const last = mine[mine.length - 1];
   return {
     status: last.status || "",
-    at: last.finishedAt || last.startedAt || last.createdAt || "",
+    // THE FIELDS THIS DOMAIN ACTUALLY HAS (`workflow/skillrun.js`): `endedAt` when
+    // it finished, `startedAt` while it is running, `createdAt` for a run that has
+    // not started. The first draft read `finishedAt`, a name nothing in the domain
+    // emits — so a completed run silently fell through to its START time and the
+    // chip labelled that as when the tidy-up happened (codex review, 批次 F2 round 2).
+    at: last.endedAt || last.startedAt || last.createdAt || "",
     skillRunId: last.skillRunId || last.runId || "",
   };
 }

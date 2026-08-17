@@ -92,13 +92,18 @@ test("the page says whether AI has ever tidied the relationships", () => {
   assert.ok(never.includes("还没有让 AI 梳理过"),
     "「从来没跑过」和「跑过但没提出新关系」在什么都不显示的屏幕上长得一样");
 
+  // THE FIELD NAMES ARE THE DOMAIN'S (`workflow/skillrun.js`): `endedAt` when a run
+  // finished, `startedAt` while it runs. A fixture inventing `finishedAt` would let
+  // this test pass while the real chip showed nothing (codex review, 批次 F2 round 2).
   const ran = renderRelWs(
     ctxFor(prod, [
-      { skillId: "relationship-director", status: "succeeded", finishedAt: "2026-08-17T11:22:00Z", skillRunId: "r1" },
+      { skillId: "relationship-director", status: "succeeded", startedAt: "2026-08-17T10:00:00Z", endedAt: "2026-08-17T11:22:00Z", skillRunId: "r1" },
     ]),
     { dirOpen: {} },
   );
   assert.ok(ran.includes("上次梳理：succeeded"));
+  assert.ok(ran.includes("2026-08-17T11:22"), "显示的是结束时间，不是开始时间");
+  assert.ok(!ran.includes("2026-08-17T10:00"));
   assert.ok(!ran.includes("还没有让 AI 梳理过"));
 });
 
@@ -121,6 +126,17 @@ test("lastRunOf reads real history and never invents one", () => {
   assert.equal(lastRunOf(ctx, "world-director").status, "failed");
   assert.equal(lastRunOf(ctx, "script-doctor"), null);
   assert.equal(lastRunOf({}, "relationship-director"), null, "没有运行记录通道就是没有");
+});
+
+test("lastRunOf reads the timestamp fields the domain really writes", () => {
+  const at = (rec) => lastRunOf(ctxFor(pd.createProduction(null), [rec]), "world-director").at;
+  // a run that ENDED reports its end; one still running reports its start; one that
+  // never started reports when it was created — `skillrun.startRun` writes exactly
+  // these three and never a `finishedAt`
+  assert.equal(at({ skillId: "world-director", endedAt: "E", startedAt: "S", createdAt: "C" }), "E");
+  assert.equal(at({ skillId: "world-director", startedAt: "S", createdAt: "C" }), "S");
+  assert.equal(at({ skillId: "world-director", createdAt: "C" }), "C");
+  assert.equal(at({ skillId: "world-director" }), "", "没有时间就是没有，不编一个");
 });
 
 test("a relationship beat still resolves — the graph keeps its existing meaning", () => {

@@ -370,6 +370,27 @@ test("an action that is ALREADY SATISFIED counts as done — applying twice is s
   assert.match(res.detail, /本来就已满足/);
 });
 
+test("applying a world proposal SAYS which requested fields it skipped", () => {
+  // codex review, 批次 F2 round 1: `planApply` drops a facet the world document does
+  // not have — which is right, it must not reach canon — but the report that made
+  // that acceptable existed only as an unused helper. 「已应用」 with entries missing
+  // and nothing said is the same silence, one layer later.
+  const { ctl, state } = makeCtl({ dispatchAction: () => ({ ok: true }) });
+  const rec = seedProposedRun(state, {
+    skillId: "world-director",
+    proposal: {
+      proposals: [
+        { field: "rules", value: "不禁止尝试，只禁止成功" },
+        { field: "magicSystem", value: "六道源律" },
+      ],
+    },
+  });
+  const res = ctl.applyProposal(rec.skillRunId);
+  assert.equal(res.ok, true);
+  assert.match(res.detail, /1 项已应用/);
+  assert.match(res.detail, /不是这份档案的字段，已跳过（magicSystem）/);
+});
+
 test("applyProposal refuses a run with nothing pending", () => {
   const { ctl, state } = makeCtl();
   const rec = seedProposedRun(state);

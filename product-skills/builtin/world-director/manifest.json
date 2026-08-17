@@ -1,0 +1,26 @@
+{
+  "skillId": "world-director",
+  "skillVersion": 1,
+  "work": "creative",
+  "role": "编剧",
+  "title": "World Director",
+  "purpose": "从当前剧本与已上传资产里读出世界规则，提出世界观提案（时代 / 规则 / 社会 / 区域 / 地点 / 视觉基调 / 氛围）。",
+  "inputs": [
+    "episodeScript",
+    "world"
+  ],
+  "optionalInputs": [
+    "outline",
+    "characters",
+    "assets",
+    "scenes"
+  ],
+  "reviewCriteria": [
+    "每一条的依据（basis）是否真的指向剧本或资产里的某一处，而不是「符合世界观设定」这类空话",
+    "规则是否会真的影响剧情（谁能做什么、代价是什么），而不是百科式设定",
+    "与已确认档案不同的地方，是否给出了它为什么应该改",
+    "是否越界去写人物关系（那是 Relationship Director 的活）",
+    "没有可提的内容时是否老实返回空列表"
+  ],
+  "recommendedRuntime": "local_subscription"
+}

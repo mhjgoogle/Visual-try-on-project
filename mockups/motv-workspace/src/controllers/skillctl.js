@@ -723,6 +723,15 @@ export function createSkillController({
       const parts = [];
       if (done.length) parts.push(`${done.length} 项已应用（${[...new Set(done)].join("、")}）`);
       if (already.length) parts.push(`${already.length} 项本来就已满足`);
+      // WHAT THE PLAN REFUSED TO CARRY, said out loud. `planApply` drops entries it
+      // cannot map onto a real field of the target document — a `world-director`
+      // answer naming `magicSystem`, for instance — and dropping them is right,
+      // because a key nothing reads must not land in canon while the creator
+      // believes they accepted it. But 「已应用」 with those entries missing and
+      // nothing said is the same silence, one layer later (codex review, 批次 F2).
+      if (Array.isArray(plan.skipped) && plan.skipped.length) {
+        parts.push(`${plan.skipped.length} 项不是这份档案的字段，已跳过（${plan.skipped.join("、")}）`);
+      }
       // The run is accepted ONLY when the proposal fully landed.
       //
       // Round 1 aborted on the first failure, which stranded the rest. The fix
