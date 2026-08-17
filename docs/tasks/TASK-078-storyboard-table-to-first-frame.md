@@ -1,6 +1,6 @@
 # TASK-078：从分镜到第一张画面 —— UI Gap Audit Phase 1
 
-- 状态：**未开工**
+- 状态：**已完成**（2026-08-16，批次 A `db2781a` + 批次 B `f9d637f`，见 §8 实施记录）。状态头此前一直写着「未开工」而两个批次早已提交——一处过期的登记，2026-08-16 就地订正。
 - 负责 Agent：单一实施 Agent（AGENTS.md 第 14 条）
 - 依据：[UI Gap Audit](../../src/ui-gap-audit/)，
   [ui-correction-plan.md](../../src/ui-gap-audit/reports/ui-correction-plan.md) Phase 1
