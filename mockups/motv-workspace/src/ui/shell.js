@@ -30,11 +30,24 @@ export const NAV = [
       // `resolveModule` rather than through a rail row of its own.
       ["brief", "💡", "项目与创意"],
       ["story", "📖", "故事大纲"],
-      ["settings", "🎭", "作品设定"],
       ["episodes", "📺", "分集规划"],
-      // 剧本 is the LAST step of story development: story development ends at
-      // each episode's script, and 剧集制作 begins from it (ADR-0061 决策 1).
       ["script", "📄", "本集剧本"],
+      // 作品设定 IS LAST, and that is a product decision this card executes
+      // (产品负责人 2026-08-17, TASK-090 §0 / §2.1):
+      //
+      //   「作品设定的内容不应该在故事开发的时候准备。人物关系应该是随着剧情推进有
+      //     变化的。所以可能要放故事开发的最后。」
+      //
+      // It sat THIRD, i.e. before any script existed to derive it from — which is
+      // why it read as an empty form to fill in by hand. Derived content belongs
+      // after the thing it is derived from.
+      //
+      // ONLY THE ORDER MOVED. The member set is untouched, so the frozen
+      // `PAGES.length === 11` guard still holds; `resolveModule`, every address and
+      // every history key are unchanged (TASK-086 gave each key a stable address).
+      // The order assertion in `workspaces.test.mjs` is updated as part of this
+      // card because THE RULE CHANGED — not to make a test pass.
+      ["settings", "🎭", "作品设定"],
     ],
   },
 ];

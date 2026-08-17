@@ -422,8 +422,17 @@ test("NAV: the rail is 故事开发 and it ENDS at the episode script (ADR-0061 
   // TASK-073 §1.1 went one step further: 人物 / 人物关系 / 世界观 are now three
   // SECTIONS of one page (③ 作品设定), so the rail carries five rows, not six. The
   // sub-heading disappeared with them — there is nothing left to group.
+  // TASK-090 §2.1 / TASK-094 批次 F1 — 作品设定 MOVED TO LAST, by product decision
+  // (产品负责人 2026-08-17: 「作品设定的内容不应该在故事开发的时候准备…所以可能要放
+  // 故事开发的最后」). It used to sit third, before any script existed to derive it
+  // from. THE RULE CHANGED; this assertion follows it rather than the reverse.
   assert.deepEqual(NAV[0].items.map((i) => i[0]), [
-    "brief", "story", "settings", "episodes", "script",
+    "brief", "story", "episodes", "script", "settings",
+  ]);
+  // …and the MEMBER SET is what must not change: the frozen IA is a closed set of
+  // eleven pages, so a reorder may never smuggle a page in or out.
+  assert.deepEqual([...NAV[0].items.map((i) => i[0])].sort(), [
+    "brief", "episodes", "script", "settings", "story",
   ]);
   assert.equal(NAV[0].items.filter((i) => i[3] && i[3].under).length, 0);
   // …and `characters` / `relationships` / `world` are NOT rail rows any more, while
@@ -494,8 +503,12 @@ test("TASK-073 §1.1 验收 #1: the IA is a CLOSED set — 三空间 / 十一页
   // ADR-0066 决策 10: 「新增 Skill 不得新增一级或二级页面」. That is only enforceable
   // if the count is asserted, so this is the enforcement.
   assert.equal(NAV_PAGES.length, 1, "故事开发 is one rail section");
-  assert.deepEqual(NAV_PAGES[0].items.map((i) => i[0]),
-    ["brief", "story", "settings", "episodes", "script"]);
+  // THE SET, not the order (TASK-094 批次 F1 moved 作品设定 to last by product
+  // decision). What ADR-0066 决策 10 forbids is a page appearing or disappearing —
+  // so this asserts membership, and the ORDER is asserted once, in the NAV test
+  // that owns it.
+  assert.deepEqual([...NAV_PAGES[0].items.map((i) => i[0])].sort(),
+    ["brief", "episodes", "script", "settings", "story"]);
   assert.equal(PAGES.length, 11, `expected eleven pages, got ${PAGES.join(" ")}`);
   // ⚙ 项目设置 is NOT one of the eleven — it is not a page of any space (§1.7)
   assert.ok(!PAGES.includes(PROJECT_SETTINGS));

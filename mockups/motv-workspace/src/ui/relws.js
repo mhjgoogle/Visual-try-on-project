@@ -28,6 +28,7 @@ import { esc } from "../util/dom.js";
 import { RELATIONSHIP_FIELDS } from "../workflow/canondoc.js";
 import { empty } from "./shell.js";
 import { bindField, restoreFieldFocus } from "./fieldsync.js";
+import { runPageSkill, lastRunOf } from "./runskill.js";
 
 /** The definition facets, grouped the way a writer reads a relationship. */
 const FACETS = [
@@ -178,10 +179,29 @@ export function renderRelWs(ctx, ui) {
   const hint = sel
     ? `<span class="chip">已选中：${esc((g.nodes.find((n) => n.characterId === sel) || {}).name || "")} — 再点另一个人物建立关系</span>`
     : `<span class="meta">点一个人物再点另一个 = 建立关系；点连线 = 编辑这段关系。</span>`;
+  // 「AI 梳理关系（按当前剧本）」 — A PRIMARY ACTION THAT RUNS IT (TASK-090 §2.3).
+  //
+  // `relationship-director` has existed all along, with every input it needs; the
+  // only way to reach it was 「open the right-hand panel and pick it yourself」, which
+  // is why the product owner read it as having no entrance. Now the page runs it.
+  //
+  // AND THE PAGE SAYS WHETHER IT EVER RAN (§2.5): 「从来没跑过」 and 「跑过，没提出新
+  // 关系」 look identical on a screen that shows neither, and only one of them means
+  // 「去跑一次」.
+  const last = lastRunOf(ctx, "relationship-director");
+  const aiRow =
+    `<div class="rg-ai">` +
+    `<button class="btn primary sm" data-rel-ai>✨ AI 梳理关系（按当前剧本）</button>` +
+    (last
+      ? `<span class="chip${last.status === "succeeded" ? " ok" : " mute"}">上次梳理：${esc(last.status)}${last.at ? ` · ${esc(String(last.at).slice(0, 16))}` : ""}</span>`
+      : `<span class="chip mute">还没有让 AI 梳理过</span>`) +
+    `<span class="meta">产出是<b>提案</b>：逐条确认后才写进 Canon，已确认的关系不会被覆盖。` +
+    `剧本更新之后可以再跑一次 —— 关系是随剧情推进变化的。</span>` +
+    `</div>`;
   return (
     `<div class="rg">` +
-    `<div class="rg-bar">${add}${hint}<span class="push"></span>` +
-    `<button class="btn sm" data-rel-ai>🪄 让 AI 读剧本提关系…</button>${confirm}</div>` +
+    `<div class="rg-bar">${add}${hint}<span class="push"></span>${confirm}</div>` +
+    aiRow +
     (g.dangling.length
       ? `<div class="dir-unavail">${g.dangling.length} 段关系指向已不存在的人物，未画出（记录仍在）。</div>`
       : "") +
@@ -242,12 +262,16 @@ export function bindRelWs(root, ctx, ui, rerender) {
     else ctx.toast("仍有剧集记录了这段关系的推进：先在「分集规划」移除该集的 Relationship Beat");
   });
   all("[data-rel-ai]", () => {
-    // AI PROPOSES ONLY. This opens the Relationship Director in the right-hand
-    // Director; running it produces a Proposal, and 「应用」 there is what writes.
-    ui.dirOpen = { ...(ui.dirOpen || {}), skills: true };
-    ui.skillId = "relationship-director";
-    ctx.toast("在右侧「AI 导演 · 能力」里运行 Relationship Director：它出提案，你确认后才写进 Canon");
-    rerender();
+    // AI PROPOSES ONLY — but the page RUNS it now (TASK-090 §2.3). This used to
+    // only select the capability in the right-hand panel and tell the creator to
+    // run it there: an entrance that hands the work back. `runPageSkill` is the
+    // shared runner (ui/runskill.js); it goes through `ctx.skills.run`, so there is
+    // still exactly one run path with the guards on it, and 「应用」 in the panel is
+    // still the only thing that writes Canon.
+    runPageSkill(ctx, ui, "relationship-director", {
+      summary: "按当前剧本梳理人物关系",
+      onDone: rerender,
+    });
   });
   all("[data-canon-confirm]", (el) => ctx.canon.confirm(el.dataset.canonConfirm));
 

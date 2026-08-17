@@ -1781,3 +1781,10 @@
 }
 .rf-empty > .ti { font-weight: 700; }
 .rf-empty > .meta { max-width: 60ch; line-height: 1.7; }
+
+/* 人物关系 / 世界观：AI 梳理这一行（TASK-094 批次 F1 / F2） */
+.rg-ai {
+  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  padding: var(--s3) 0; border-bottom: 1px solid var(--line);
+}
+.rg-ai > .meta { flex: 1 1 24ch; line-height: 1.7; }

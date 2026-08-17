@@ -1560,11 +1560,24 @@ test("IA: 故事开发's rail ends at the episode script; media stages are their
   // TASK-073 §1.1: 人物 / 人物关系 / 世界观 became three SECTIONS of ③ 作品设定 — see
   // the same assertion in tests/workspaces.test.mjs for why this shrank again.
   assert.deepEqual(NAV[0].items.map((i) => i[0]), [
-    "brief", "story", "settings", "episodes", "script",
+    "brief", "story", "episodes", "script", "settings",
   ]);
-  // ADR-0061 决策 1: 本集剧本 is the LAST step of 故事开发 — story development ends
-  // at每一集 Episode Script, and 剧集制作 begins FROM it.
-  assert.equal(NAV[0].items[NAV[0].items.length - 1][0], "script");
+  // ADR-0061 决策 1 AND 产品负责人 2026-08-17 — two claims about two different things,
+  // which is why both can hold at once (TASK-094 批次 F1):
+  //
+  //   the PIPELINE ends at 本集剧本 — that is the forward chain 创意 → 大纲 → 分集规划
+  //     → 本集剧本, and 剧集制作 begins FROM the script. Still true, and asserted
+  //     below on the chain rather than on the rail's last row.
+  //   the RAIL ends at 作品设定 — because 作品设定 is DERIVED from the script and the
+  //     uploaded assets (「不应该在故事开发的时候准备」), so attending to it before a
+  //     script exists is what made it read as an empty form.
+  //
+  // So: the script is the last PRODUCING step, and 作品设定 sits after it as the
+  // 核对面 it became.
+  const items = NAV[0].items.map((i) => i[0]);
+  assert.equal(items[items.length - 1], "settings", "作品设定 在最后（产品负责人拍板）");
+  assert.deepEqual(items.filter((k) => k !== "settings"),
+    ["brief", "story", "episodes", "script"], "生产链本身仍然止于本集剧本");
   // the media stages are NOT in the story rail; they belong to 剧集制作
   for (const k of ["frames", "video", "audio", "dailies"]) {
     assert.ok(!NAV.some((g) => g.items.some((i) => i[0] === k)));
