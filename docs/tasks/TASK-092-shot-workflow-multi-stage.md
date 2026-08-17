@@ -8,6 +8,13 @@
 - **需要 ADR**：动 Shot 身份/状态的持久化形状 + 跨三个消费者的合同（AGENTS.md 第 21 条）
 - 验收环境：**真实 Connected Project `照见未明rev2`**
 
+
+> **位置（2026-08-17 锁定）**：本卡是
+> [TASK-095](TASK-095-episode-production-wizard.md) 那条向导的**状态层** ——
+> `storyboardStatus` / `keyframeStatus` 就是向导第 ④⑤ 步的进度，
+> 本卡那个闸门（`skipped` 或 `completed 且草图已 approved`）就是 ④→⑤ 之间那道门。
+> **因此本卡必须早于 TASK-095 落地**：否则那道门会被做成一根箭头，`skipped` 无处可存。
+
 ---
 
 ## 0. 产品负责人说了什么（原话）
