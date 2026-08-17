@@ -25,6 +25,7 @@
 // Pure render + bind; the model is derived from `shotDetailModel` output.
 
 import { esc } from "../util/dom.js";
+import { quoteView, specRows } from "../workflow/genspec.js";
 
 const KIND_LABEL = { image: "画面", video: "视频" };
 
@@ -113,11 +114,16 @@ export function genCardModel(d, kind, { paid = false, quote = null, promptEdit =
 
 /** The spec block. EVERY value comes from the preflight response; nothing here
  *  is guessed, and an unquoted card says so instead of showing plausible
- *  defaults. */
+ *  defaults.
+ *
+ *  READ THROUGH `genspec.specRows` (TASK-097 §2.1). The extraction used to live
+ *  here, which was fine while this was the only generation card; the chain adds
+ *  four more, and four more copies of 「从 preflight 里取模型/分辨率」 is four more
+ *  places that can quietly start filling in a plausible default. */
 function specHtml(m) {
   if (!m.canSubmit) return "";
-  const q = m.quote;
-  if (!q) {
+  const spec = specRows(m.quote);
+  if (!spec.known) {
     return (
       `<div class="gc-spec gc-spec-unknown">` +
       `<span class="lab">模型与规格</span>` +
@@ -129,10 +135,7 @@ function specHtml(m) {
     `<span class="gc-kv"><span class="k">${esc(k)}</span><span class="v">${esc(v || "—")}</span></span>`;
   return (
     `<div class="gc-spec">` +
-    row("模型", q.inputs.model) +
-    row("分辨率", q.inputs.resolution) +
-    row("时长", q.inputs.duration != null ? `${q.inputs.duration}s` : "") +
-    row("能力", q.inputs.capability) +
+    spec.rows.map(([k, v]) => row(k, v)).join("") +
     `</div>` +
     // THE HONEST HALF of 「模型与规格可见可选」 (§3 项 2). They are visible; they
     // are NOT selectable, because `submit-video-generation` is packet-only by
@@ -144,21 +147,21 @@ function specHtml(m) {
   );
 }
 
-/** The quote, sitting next to 提交 — not buried in the confirm dialog. */
+/** The quote, sitting next to 提交 — not buried in the confirm dialog.
+ *
+ *  The reading of the preflight is `genspec.quoteView` (TASK-097 §2.1): ONE
+ *  function, and one that cannot be handed a bare 「金额 × 数量」, so no generation
+ *  surface in this chain has a place to compute a price. */
 function quoteHtml(m) {
   if (!m.canSubmit) return "";
-  const q = m.quote;
-  if (!q) return `<button class="btn sm" data-gc-quote>⚡ 报价</button>`;
-  if (q.blockers.length) {
+  if (!m.quote) return `<button class="btn sm" data-gc-quote>⚡ 报价</button>`;
+  const q = quoteView(m.quote);
+  if (!q.available) {
     return (
-      `<span class="gc-block">⚠ 无法生成：${esc(q.blockers[0])}` +
+      `<span class="gc-block">⚠ ${q.blockers.length ? "无法生成：" : ""}${esc(q.reason)}` +
       (q.blockers.length > 1 ? ` 等 ${q.blockers.length} 项` : "") + `</span>` +
       `<button class="btn sm" data-gc-quote>↻ 重新报价</button>`
     );
-  }
-  if (!q.cost) {
-    return `<span class="gc-block">⚠ 报价不可用</span>` +
-      `<button class="btn sm" data-gc-quote>↻ 重新报价</button>`;
   }
   // JPY IS THE FIGURE, and it is the Gateway's own (`estimate.jpy`) — the same
   // number the budget guard admits or refuses the request against.
@@ -173,8 +176,8 @@ function quoteHtml(m) {
   return (
     `<span class="gc-price" title="来自 Gateway 预检的锁定目录报价，不是前端算的">` +
     `${esc(String(q.cost.jpy))} JPY` +
-    (q.cost.original_currency
-      ? `<span class="gc-price-src">原始计价 ${esc(q.cost.original_currency)}</span>`
+    (q.cost.originalCurrency
+      ? `<span class="gc-price-src">原始计价 ${esc(q.cost.originalCurrency)}</span>`
       : "") +
     `</span>` +
     `<button class="btn sm" data-gc-quote title="重新取一次报价">↻</button>`

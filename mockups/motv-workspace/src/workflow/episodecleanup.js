@@ -17,25 +17,12 @@
 // PURE. It takes the serialized canvas document (what `persist` writes) and returns
 // a verdict per episode. No clock, no writes, no DOM.
 
-/** Every JSON path at which this exact string appears, INCLUDING as an object key
- *  (`scripts[<episodeId>]` and `timelines[<episodeId>]` are references). */
-function findPaths(node, needle, path = "$", out = []) {
-  if (typeof node === "string") {
-    if (node === needle) out.push(path);
-    return out;
-  }
-  if (Array.isArray(node)) {
-    for (let i = 0; i < node.length; i++) findPaths(node[i], needle, `${path}[${i}]`, out);
-    return out;
-  }
-  if (node && typeof node === "object") {
-    for (const k of Object.keys(node)) {
-      if (k === needle) out.push(`${path}.${k}<key>`);
-      findPaths(node[k], needle, `${path}.${k}`, out);
-    }
-  }
-  return out;
-}
+// THE SCAN ITSELF NOW LIVES IN `refscan.js` (TASK-097 §2.6.1). It was written here
+// and it earned its keep here, but this chain has five more 「谁还引用着它」 questions
+// — 软删除 shot、新增 asset kind、QC 缺口、Keyframe 的输入、每个计数 — and each of
+// them is one hand-written checklist away from the defect this scan caught. Lifted
+// out unchanged; these tests are the proof it still behaves identically.
+import { foreignReferences } from "./refscan.js";
 
 /**
  * The two locations where an episodeId is EXPECTED, and which therefore prove
@@ -93,7 +80,7 @@ export function episodeCleanupReport(doc) {
     if (beatCount) blockers.push(`${beatCount} 条推进记录`);
     if (ep.bgmAssetId) blockers.push("绑定了本集 BGM");
     // 4. ANY other reference, anywhere in the document
-    const foreign = findPaths(doc, id).filter((p) => !isExpected(p));
+    const foreign = foreignReferences(doc, id, isExpected);
     if (foreign.length) blockers.push(`被引用于 ${foreign.join(" / ")}`);
     out.push({
       episodeId: id,
