@@ -1008,6 +1008,62 @@ def test_dash_am_is_a_worktree_commit_and_must_be_diffed_against_HEAD() -> None:
         ), token
 
 
+def test_a_dash_a_that_is_an_option_value_or_a_pathspec_is_not_the_all_flag() -> None:
+    """簇内不再过度匹配之后，**调用点**还在对每个 token 做成员测试（codex 补审）。
+
+    同一个错误类型只是上移了一层：选项的值和 `--` 之后的 pathspec 都被当成 flag。
+    下面每一条的 git 真实语义都实测过（git 2.55.0.windows.4）：
+
+    - `git commit -qm -a` / `--message -a` → `no changes added to commit`，
+      也就是 `-a` 是**消息**，这次提交只写 index；
+    - `git commit -m msg -- -a` → `error: pathspec '-a' did not match`，
+      也就是 `-a` 是**路径**；
+    - `git commit -mmsg -a` → `Changes to be committed`，值是贴着写的，
+      后面那个 `-a` 是真的 `--all`。
+
+    方向是过度匹配 → 拿 HEAD 去 diff → 档位偏高：只暂存了干净路径的提交，会被
+    工作区里无关的坏改动拦下。`_selects_all_tracked` 的 docstring 正是为了这个
+    代价才不肯过度匹配，那么调用点也不该把它退回去。
+    """
+    for command in (
+        "git commit -qm -a",
+        "git commit --message -a",
+        "git commit -m msg -- -a",
+        "git commit --file -a",
+        "git commit --template -a",
+        "git commit --unified -a",
+        # `--` 之后全是路径，哪怕长得像 `--all`
+        "git commit -m msg -- --all",
+    ):
+        assert _POLICY.inspect_command("Bash", command).diff == "index", command
+
+    for command in (
+        # 值贴着写，后面那个才是真 flag
+        "git commit -mmsg -a",
+        "git commit --message=msg -a",
+        # 布尔选项**不吃**下一个 token，否则真的 `-a` 会被当成它的值而漏掉
+        "git commit --amend -a",
+        "git commit --no-verify -a",
+        "git commit -q -a",
+        # 取值选项吃掉的是它自己的值，`-a` 在那之后仍然算数
+        "git commit -m msg -a",
+        "git commit --author x -a",
+        # **可选**值的选项只接受贴着写的值，所以下一个 token 不是它的：
+        # `git commit -S -a` 实测 `Changes to be committed`（`-a` 就是 `--all`），
+        # 而 `git commit -u all` 实测 `pathspec 'all' did not match`。
+        # 把它当成吃下一个 token，会把这里的 `-a` 藏掉、答成 index ——
+        # **漏检**方向：diff 变窄、档位变低（codex 补审轮 2 的 blocking）。
+        "git commit -S -a",
+        "git commit -u -a",
+        "git commit --gpg-sign -a",
+        "git commit --untracked-files -a",
+        "git commit -qS -a",
+        # `--` 之前的 `-a` 照旧算数
+        "git commit -a -- src/x.py",
+    ):
+        assert _POLICY.inspect_command("Bash", command).diff == "head", command
+
+
 def test_a_commit_message_mentioning_push_is_no_longer_a_chain_conflict() -> None:
     """方案 §3 表里那条**误伤**：旧扫描去掉引号后在整串文本里找五个动词，
     于是提交信息里写了 push 就被当成真的 push 拦下。

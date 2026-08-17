@@ -472,7 +472,52 @@ def _redirects_the_repository(options: list[str]) -> bool:
 #: `-Salpha` is `-S alpha` (a signing key id), not the flags `-S -a -l -p -h -a`,
 #: and reading its value as flags found an `a` that is not there (codex review
 #: round 2). Same for `-mall` (a message) and `-uall` (untracked-files mode).
-_COMMIT_VALUE_SHORT_OPTIONS = frozenset("mFcCtSu")
+#: `U` is `-U, --unified <n>`, which git's own `git commit` usage does list; no
+#: VALID invocation changes answer because of it (`-Ua` and `-U2a` are both
+#: rejected outright: 「switch `U' expects an integer value」), so it is here for
+#: completeness of the set, not to fix a behaviour (codex 补审, non-blocking).
+#:
+#: Split in two because 「ends the cluster」 and 「eats the NEXT token」 are not the
+#: same question, and answering them with one set was a real defect: `-S` and `-u`
+#: take their value only ATTACHED, so `git commit -S -a` stages the WORKTREE
+#: (measured: 「Changes to be committed」, while `git commit -u all` answers
+#: 「pathspec 'all' did not match」). Treating the following token as their value
+#: hid that `-a` and answered `index` -- the UNDER-matching direction, i.e. a
+#: narrower diff and a LOWER tier (codex 补审 round 2, blocking).
+_COMMIT_NEXT_TOKEN_SHORT_OPTIONS = frozenset("mFcCtU")
+_COMMIT_ATTACHED_VALUE_SHORT_OPTIONS = frozenset("Su")
+_COMMIT_VALUE_SHORT_OPTIONS = (
+    _COMMIT_NEXT_TOKEN_SHORT_OPTIONS | _COMMIT_ATTACHED_VALUE_SHORT_OPTIONS
+)
+
+#: `git commit` options whose value is the NEXT token, taken verbatim even when it
+#: starts with `-` (measured: `git commit -qm -a` and `git commit --message -a`
+#: both report 「no changes added to commit」 -- the `-a` was the MESSAGE).
+#:
+#: Optional-value options are deliberately ABSENT (`-S`/`--gpg-sign`,
+#: `-u`/`--untracked-files`): git only accepts their value ATTACHED, so the token
+#: after them is not theirs. Long-option ABBREVIATIONS are absent too, and that is
+#: safe in one direction only: an option we fail to recognise is not skipped, so
+#: its value is still examined -- which can only ADD an `-a` we did not need
+#: (wider diff, higher tier), never hide one.
+_COMMIT_VALUE_LONG_OPTIONS = frozenset(
+    {
+        "--file",
+        "--author",
+        "--date",
+        "--message",
+        "--reedit-message",
+        "--reuse-message",
+        "--fixup",
+        "--squash",
+        "--trailer",
+        "--template",
+        "--cleanup",
+        "--unified",
+        "--inter-hunk-context",
+        "--pathspec-from-file",
+    }
+)
 
 
 def _selects_all_tracked(token: str) -> bool:
@@ -567,10 +612,55 @@ def inspect_command(
     )
 
 
+def _takes_the_next_token(token: str) -> bool:
+    """Does *token* eat the FOLLOWING token as its value?
+
+    A cluster only eats it when a REQUIRED-value option is the cluster's LAST
+    character: `-qm x` is `-q -m x`, while `-mmsg` already carries its value
+    attached and `-S x` / `-u x` never take `x` at all (optional values must be
+    attached, so `x` is a pathspec).
+    """
+    if token.startswith("--"):
+        # `--message=x` is not in the set, so an attached value is handled by the
+        # membership test alone.
+        return token in _COMMIT_VALUE_LONG_OPTIONS
+    if len(token) < 2 or not token.startswith("-"):
+        return False
+    for position, char in enumerate(token[1:], start=2):
+        if char in _COMMIT_ATTACHED_VALUE_SHORT_OPTIONS:
+            return False
+        if char in _COMMIT_NEXT_TOKEN_SHORT_OPTIONS:
+            return position == len(token)
+        if not char.isalpha():
+            return False
+    return False
+
+
 def _commit_stages_the_worktree(commits: list[tuple[list[str], list[str]]]) -> bool:
-    return any(
-        any(_selects_all_tracked(token) for token in rest) for _, rest in commits
-    )
+    return any(_stages_the_worktree(rest) for _, rest in commits)
+
+
+def _stages_the_worktree(rest: list[str]) -> bool:
+    """Is `-a` / `--all` present as a FLAG among one commit's arguments?
+
+    Not a membership scan over every token: that was the very error class the
+    cluster scan in `_selects_all_tracked` removed one level down, still live one
+    level up (codex 补审 2026-08-17). `git commit -qm -a` and `git commit -- -a`
+    were both read as worktree commits -- measured, the first writes only the
+    INDEX (`-a` is the message) and the second commits a pathspec NAMED `-a`. That
+    errs toward the wider HEAD diff, i.e. a commit staging only clean paths judged
+    against whatever unrelated breakage sits in the worktree: fail-closed, but the
+    docstring below argues precisely that widening is not free.
+    """
+    index = 0
+    while index < len(rest):
+        token = rest[index]
+        if token == "--":
+            break  # everything after is a pathspec, not a flag
+        if _selects_all_tracked(token):
+            return True
+        index += 2 if _takes_the_next_token(token) else 1
+    return False
 
 
 @dataclass(frozen=True)

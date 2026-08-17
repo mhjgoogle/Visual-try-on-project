@@ -98,6 +98,39 @@ TASK-084 §3 只出方案，因为这改的是**质量门本身**：判定错一
 - **读不懂的命令仍保留链减档** → 这是**真缺口**：原用例用的是不带令牌的命令，
   根本没走到那条路径。补 `MOTV_CONTINUOUS_CHAIN=1 … && echo don't`。
 
+### 轮 2 那两处修复的补审（2026-08-17，codex 跨模型 3 轮）
+
+轮 2 的两处修复带着零审查进了 `c32e56d`（预算 2/2 用尽且轮 2 无 P1），已按
+[待复审清单](../design/pending-codex-rereview.md)补审。范围严格限定为 `c32e56d`
+的那两处，未重审整张卡，也未重审 `60b24e1` / `3d8cf75`（codex 已审过）。
+
+结论：**那两处修复本身没问题，但其中一处只修到一半**——同一个错误类型在
+**调用点**还活着。
+
+| 轮 | 结果 | 处置 |
+| --- | --- | --- |
+| 1 | `fail`：2 blocking + 1 non-blocking | ① `--al` 是 `--all` 的缩写 → **驳回**（实测 `git commit --al` / `--a` 都是 `error: ambiguous option`、exit 129，`--allow-empty` / `--allow-empty-message` 让每个真前缀都歧义；精确比较是对的）② `_commit_stages_the_worktree` 把选项值和 `--` 之后的 pathspec 当 flag → **成立已修** ③ `-U` 缺在取值集合 → **一半成立**：`-U, --unified <n>` 确实是 `git commit` 的选项，但它说的后果不成立（`-U2a` 已被非字母那步挡掉、`-Ua` 被 git 直接拒），已补进集合并注明是补全不是修行为 |
+| 2 | `fail`：1 blocking | 我修①时把**可选值**选项也算成「吃下一个 token」：`git commit -S -a` / `-u -a` 被答成 `index`——**漏检**方向，档位会变低。**成立已修**：拆成必需值（`mFcCtU`，吃下一个 token）与只接受贴写值（`Su`，不吃）两个集合 |
+| 3 | `pass`，0 blocking | 唯一 non-blocking（表里没覆盖 `--status` 这类布尔）**驳回**：表里已有 `--amend -a`、`--no-verify -a`、`-q -a` 三个布尔，且 M4 变异（把布尔 `--amend` 加进长取值集合）已把这个变异类杀死 |
+
+轮 2 那条 P1 的 git 语义全部实测过（git 2.55.0.windows.4，临时仓库）：
+`-S -a` / `-u -a` → `Changes to be committed`（`-a` 就是 `--all`）；
+`-u all` → `pathspec 'all' did not match`（可选值只接受贴着写）；
+`-qm -a` / `--message -a` → `no changes added to commit`（`-a` 是消息）；
+`-m msg -- -a` → `pathspec '-a' did not match`；`-mmsg -a` → 贴写值之后那个 `-a` 是真 flag。
+
+变异验证 6 个，**全部被杀死**：退回朴素成员扫描 / 去掉 `--` 分隔符 /
+取值选项无条件吃下一个 token / 把布尔 `--amend` 加进长取值集合 /
+把 `Su` 折回必需值集合 / 把 `--gpg-sign`、`--untracked-files` 加进长取值集合。
+**唯一杀不掉的是 `_COMMIT_VALUE_SHORT_OPTIONS` 里那个 `U`**——没有任何**合法**的
+`git commit` 写法会因为它而改变答案（`-Ua` / `-U2a` 都被 git 拒），所以它是集合的
+完整性，不是一条能被用例证明的行为。如实记在这里，不编一个断言非法命令的测试来
+充数。
+
+**方法论上和上面那条是同一件事**：轮 1 的 ② 和轮 2 的 P1 都不是「实现没写对」，
+是**同一个错误类型在相邻的一层继续活着**——簇内不再过度匹配了，调用点还在做成员
+测试；短选项的必需值/可选值区别在长选项那边写对了、短选项这边写漏了。
+
 ## 6. Follow-up
 
 - 每次 Bash/PowerShell 工具调用多 ~126 ms（policy 冷启动，实测）。若要压这个开销，
