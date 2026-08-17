@@ -1,9 +1,12 @@
 # ADR-0071：参考输入从「按角色写死的槽位」改为有序集合，Provider 声明它能吃几张
 
-- 状态：**Proposed** —— **技术部分已定稿，但有一处必须产品负责人拍板才能 Accept**：
-  多图之后**一次生成的报价怎么算**（见「决策 6」与「留给产品负责人的那一个问题」）。
-  CLAUDE.md：涉及**付费**的 ADR 仍须用户 Accept。其余部分（领域形状、Prompt 引用
-  语法、Provider 契约、fail-closed 降级）属技术范畴，本 ADR 已定并可直接实施。
+- 状态：**Accepted（2026-08-17，产品负责人）** —— 唯一悬着的那件事（多图之后
+  一次生成的报价怎么算）已由产品负责人拍板：**方案 C**。CLAUDE.md 要求涉及**付费**
+  的 ADR 由用户 Accept，这一条已满足。其余部分（领域形状、Prompt 引用语法、
+  Provider 契约、fail-closed 降级）本来就属技术范畴，已定。
+- **生效的报价口径（方案 C）**：**只支持「多图不额外计费」的 provider**；
+  其余在 catalog 里标 `max: 0` 并 **fail-closed 拒绝**，我们**不替 provider 算钱**。
+  可用面因此最窄 —— 这是产品负责人接受的代价。
 - 实施：[TASK-083](../tasks/TASK-083-phase3-adrs-first.md) ADR-A
 - 依据：[UI Gap Audit](../../src/ui-gap-audit/) GAP-27 / GAP-28
 - 相关：[ADR-0041](ADR-0041-paid-generation-write-path.md)（packet-only 两步提交）、
@@ -210,6 +213,20 @@ reference_images:
 **实施 Agent 的建议：C。** 理由：与本轮姿态一致（不确定就说不确定，不猜），
 且不需要我们承担「替 provider 算钱」这个必然会算错的责任。当某个 provider 的
 多图计费规则确实明确了，再把它从 C 挪进 A —— 那是加法，不是返工。
+
+### 产品负责人的答复（2026-08-17）
+
+> 「都按你的建议来。」
+
+**选定 C。** 因此实施时的硬约束：
+
+1. Gateway **不得**为「多图是否加价」做任何推断或估算。
+2. catalog 里没有明确声明「多图不额外计费」的 provider，其 `maxImages` 记 `0`
+   —— 即在该 provider 上多图路线**不可用**，界面如实说明原因（不隐藏、不静默降级）。
+3. 报价仍**只**来自 Gateway preflight（决策 6 的不变量），界面永不自算。
+4. 与 ADR-0041 的 packet-only 两步提交不冲突：C 收窄的是「哪些 provider 可走多图」，
+   不是提交流程。
+
 
 **这一处定下来之后，本 ADR 才能从 Proposed 转 Accepted。**
 
