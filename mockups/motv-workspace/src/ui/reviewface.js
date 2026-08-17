@@ -51,6 +51,11 @@ export function written(value) {
  */
 export function countNote(n, min, max, unit = "条") {
   const count = Number.isInteger(n) ? n : 0;
+  // NOTHING WRITTEN IS NOT 「TOO FEW」. An empty list already says 「AI 没有写这一项」;
+  // adding 「0 条 · 少于建议的 3～6 条」 beside it scolds the creator for an absence
+  // that has already been stated once, and reads as a validation error on a
+  // surface that deliberately blocks nothing.
+  if (count === 0) return null;
   const lo = Number.isInteger(min) ? min : null;
   const hi = Number.isInteger(max) ? max : null;
   // A ONE-SIDED range is legitimate (「至少 1 条」 has no upper bound), so the

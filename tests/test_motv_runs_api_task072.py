@@ -154,7 +154,12 @@ def test_every_creative_endpoint_produces_a_durable_run(srv, stub_executor) -> N
                     "ending": "e",
                 }
             },
-            '{"episodes":[{"epNumber":1,"title":"第一集","synopsis":"梗概"}]}',
+            # `episode-planner` v2 (TASK-088 §2.1): 本集核心目标 + 主要剧情 are
+            # REQUIRED now — the prose 梗概 that used to stand in for the whole
+            # episode is optional. This test is about the RUN being durable, so it
+            # only needs an answer the capability's contract accepts.
+            '{"episodes":[{"epNumber":1,"title":"第一集","coreGoal":"建立",'
+            '"keyEvents":["她救了人"]}]}',
             "skill.episode-plan",
         ),
         (

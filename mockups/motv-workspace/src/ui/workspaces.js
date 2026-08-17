@@ -1148,10 +1148,28 @@ export function renderEpisodes(ctx) {
 export function renderPlanPanel(ctx, m) {
   const sm = storyModel(ctx.story.doc());
   const epCard = (e, opts = {}) => {
+    // THE PROPOSAL PREVIEW SHOWS WHAT THE MODEL ACTUALLY ANSWERED (TASK-094 批次 B).
+    // `episode-planner` v2 answers the product owner's seven facets, so a preview
+    // built from the v1 field names alone would have shown 「开场钩子 / 结尾拍」 and
+    // nothing else — a full proposal that reads as an empty one, which is the
+    // 「界面说的和事实不符」 family this chain exists to remove. The legacy names stay
+    // for the four plan versions of the real project that are written in them.
+    const list = (label, items) => {
+      const kept = (Array.isArray(items) ? items : []).filter((x) => x && String(x).trim());
+      if (!kept.length) return "";
+      return `<div class="bd-f"><span>${esc(label)}</span>${kept.map((x) => esc(String(x))).join("；")}</div>`;
+    };
+    const beats = (Array.isArray(e.characterBeats) ? e.characterBeats : [])
+      .filter((b) => b && b.who && b.change)
+      .map((b) => `${b.who}：${b.change}${b.relationChange ? `（关系：${b.relationChange}）` : ""}`);
     const rows = [
-      ["梗概", e.synopsis], ["戏剧功能", e.purpose], ["开场钩子", e.hook],
-      ["结尾拍", e.endingBeat], ["时长", e.duration],
-    ].filter(([, v]) => v).map(([k, v]) => `<div class="bd-f"><span>${esc(k)}</span>${esc(v)}</div>`).join("");
+      ["本集核心目标", e.coreGoal], ["情绪曲线", e.emotionArc],
+      ["结尾拍", e.endingBeat], ["留下的悬念", e.hook], ["时长", e.duration],
+      // legacy, only when the new field is absent — never both saying the same thing
+      ...(e.coreGoal ? [] : [["戏剧功能（旧）", e.purpose]]),
+      ...((Array.isArray(e.keyEvents) && e.keyEvents.length) ? [] : [["梗概（旧）", e.synopsis]]),
+    ].filter(([, v]) => v).map(([k, v]) => `<div class="bd-f"><span>${esc(k)}</span>${esc(v)}</div>`).join("")
+      + list("主要剧情", e.keyEvents) + list("角色推进", beats) + list("信息揭示", e.reveals);
     const link = opts.confirmed
       ? e.episodeId && m.episodes.some((x) => x.episodeId === e.episodeId)
         ? `<button class="nrun ghost" data-ep-open="${esc(e.episodeId)}">→ 进入本集剧本</button>`

@@ -152,12 +152,21 @@ test("an all-blank list with an opened row is a row, not the 「没有写」 lin
 });
 
 test("a one-sided range reads as a range, not as 「1～null」", () => {
-  assert.match(countNote(0, 1, null).text, /少于建议的 1 以上 条/);
-  assert.doesNotMatch(countNote(0, 1, null).text, /null/);
+  assert.match(countNote(2, 3, null).text, /少于建议的 3 以上 条/);
+  assert.doesNotMatch(countNote(2, 3, null).text, /null/);
   assert.match(countNote(9, null, 6).text, /多于建议的 6 以内 条/);
   assert.doesNotMatch(countNote(9, null, 6).text, /null/);
   assert.equal(countNote(4, 1, null), null, "no upper bound → 4 is fine");
   assert.equal(countNote(4, null, 6), null, "no lower bound → 4 is fine");
+});
+
+test("an empty list is not reported as 「too few」 — the absence was already stated", () => {
+  // 「AI 没有写这一项」 + 「0 条 · 少于建议的 3～6 条」 said the same absence twice, the
+  // second time as what reads like a validation error (seen on 照见未明rev2, whose
+  // twelve legacy plan entries have no keyEvents at all).
+  assert.equal(countNote(0, 3, 6), null);
+  assert.equal(countChip(0, 3, 6), "");
+  assert.equal(countNote(1, 3, 6).state, "short", "写了一条但不够，仍然如实提示");
 });
 
 test("an EMPTY list says so — it does not pre-lay-out a row to fill in", () => {

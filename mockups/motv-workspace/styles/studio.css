@@ -1694,3 +1694,90 @@
 .hz-probs li { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; font-size: var(--t-xs); }
 .hz-pd { color: var(--text-dim); }
 .hz-at { color: var(--text-faint); font-size: var(--t-micro); }
+
+/* --- 分集规划：AI 写好、你逐格改（TASK-094 批次 B / TASK-088 §2.3） ---------- */
+/*
+ * ONE ROW PER EPISODE OF THE PLAN VERSION ON SCREEN. The shape follows the shot
+ * table (.sbt) deliberately — this project already had 「一张能打字的表」 and a
+ * second table idiom would be one more thing to keep consistent.
+ *
+ * 宽内容自己横向滚，页面本体不横向滚（与 .sbt-wrap 同一条规则）。
+ */
+.ept-counts { margin: var(--s3) 0 var(--s2); }
+.ept-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r2); }
+.ept { width: 100%; border-collapse: collapse; font-size: var(--t-sm); min-width: 1560px; }
+.ept th {
+  position: sticky; top: 0; z-index: 1;
+  text-align: left; font-size: var(--t-micro); font-weight: 700; letter-spacing: .06em;
+  color: var(--text-faint); background: var(--panel-2);
+  border-bottom: 1px solid var(--line-2); padding: var(--s2) var(--s3); white-space: nowrap;
+}
+.ept td { padding: var(--s2) var(--s3); border-bottom: 1px solid var(--line); vertical-align: top; }
+.ept-row:hover td { background: color-mix(in srgb, var(--accent) 4%, transparent); }
+.ept-row.on td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.ept-row.unlinked td { color: var(--text-dim); }
+
+.ept-h-ep, .ept-ep { min-width: 76px; }
+.ept-h-title, .ept-title { min-width: 150px; }
+.ept-h-coreGoal, .ept-goal { min-width: 190px; }
+.ept-h-keyEvents, .ept-events { min-width: 250px; }
+.ept-h-characterBeats, .ept-beats { min-width: 260px; }
+.ept-h-reveals, .ept-reveals { min-width: 190px; }
+.ept-h-emotionArc, .ept-arc { min-width: 140px; }
+.ept-h-ending, .ept-end { min-width: 220px; }
+.ept-h-ops, .ept-ops { min-width: 150px; }
+.ept-ep .mono { font-family: var(--mono); font-weight: 800; color: var(--accent); }
+.ept-ops { display: table-cell; }
+.ept-ops .btn { display: block; width: 100%; margin-bottom: var(--s2); }
+
+/* 旧字段（synopsis / purpose）：显示在新字段的位置上，并标明它是旧的 */
+.ept-legacy { margin-top: var(--s2); display: flex; flex-direction: column; gap: 4px; }
+
+/* 不在这一版规划里的剧集：折叠，但不隐瞒 */
+.ept-others { margin-top: var(--s4); border-top: 1px solid var(--line); padding-top: var(--s3); }
+.ept-others > summary { cursor: pointer; font-size: var(--t-sm); color: var(--text-dim); }
+.ept-other {
+  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  padding: var(--s2) 0; border-bottom: 1px solid var(--line);
+}
+.ept-other .mono { font-family: var(--mono); color: var(--text-faint); }
+.ept-other.on { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+
+/* --- 审阅面基元（src/ui/reviewface.js）------------------------------------- */
+/*
+ * AI 写了的正常显示、可编辑；AI 没写的一行说明，绝不预先摆空框。
+ */
+.rf-f { display: flex; flex-direction: column; gap: 4px; }
+.rf-f > .k, .rf-lh > .k { color: var(--text-faint); font-size: var(--t-micro); font-weight: 700; }
+.rf-f > .hint, .rf-lh > .hint { color: var(--text-faint); font-size: var(--t-micro); }
+.rf-i, .rf-t {
+  width: 100%; box-sizing: border-box;
+  background: transparent; color: var(--text);
+  border: 1px solid transparent; border-radius: var(--r1);
+  padding: 3px var(--s2); font: inherit; line-height: 1.6;
+}
+.rf-t { resize: vertical; }
+.rf-i:hover, .rf-t:hover { border-color: var(--line-2); }
+.rf-i:focus, .rf-t:focus { border-color: var(--accent); background: var(--panel); outline: none; }
+.rf-i::placeholder, .rf-t::placeholder { color: var(--text-faint); opacity: .7; }
+
+.rf-l { display: flex; flex-direction: column; gap: 4px; }
+.rf-lh { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; }
+.rf-row { display: flex; align-items: flex-start; gap: 4px; }
+.rf-row.beat { flex-wrap: wrap; }
+.rf-row.beat .rf-i { flex: 1 1 100%; }
+.rf-none { font-size: var(--t-micro); }
+.rf-add { align-self: flex-start; opacity: .75; }
+.rf-add:hover { opacity: 1; }
+.rf-count { white-space: nowrap; }
+
+.rf-absent { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; }
+.rf-absent > .k { color: var(--text-faint); font-size: var(--t-micro); font-weight: 700; }
+
+.rf-empty {
+  border: 1px dashed var(--line-2); border-radius: var(--r2);
+  padding: var(--s5); text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: var(--s3);
+}
+.rf-empty > .ti { font-weight: 700; }
+.rf-empty > .meta { max-width: 60ch; line-height: 1.7; }

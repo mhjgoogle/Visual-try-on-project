@@ -22,6 +22,7 @@ import { episodesModel, renderPlanPanel } from "./workspaces.js";
 import { UPSTREAM_STATE_LABEL } from "../workflow/canondoc.js";
 import { head, empty } from "./shell.js";
 import { bindField, restoreFieldFocus } from "./fieldsync.js";
+import { reviewText, reviewList, notRunYet, written } from "./reviewface.js";
 import { effectivePlanEpisodes, planEditBase, planDirty, planDraftVersions, nextPlanVersion } from "../workflow/storydoc.js";
 
 const code = (i) => `EP${String(i + 1).padStart(2, "0")}`;
@@ -62,6 +63,13 @@ export function episodePlanModel(pd, story, impactOf) {
         ? {
             epNumber: entry.epNumber, title: entry.title, synopsis: entry.synopsis,
             purpose: entry.purpose, hook: entry.hook, endingBeat: entry.endingBeat, duration: entry.duration,
+            // 产品负责人的七项（TASK-088 §2.1）. Carried through the model rather
+            // than read off the document in the renderer, so the table and any
+            // other reader see one derivation.
+            coreGoal: entry.coreGoal, emotionArc: entry.emotionArc,
+            keyEvents: Array.isArray(entry.keyEvents) ? entry.keyEvents : [],
+            reveals: Array.isArray(entry.reveals) ? entry.reveals : [],
+            characterBeats: Array.isArray(entry.characterBeats) ? entry.characterBeats : [],
           }
         : null,
       beats: {
@@ -83,9 +91,52 @@ export function episodePlanModel(pd, story, impactOf) {
       impact,
     };
   });
+  // THE TABLE IS THE PLAN VERSION (TASK-088 §2.3). One row per ENTRY of the
+  // version on screen, in the plan's own order — not one card per Episode entity.
+  //
+  // WHY THIS IS THE HONEST SHAPE. 分集规划 used to render `prod.episodes`, so the
+  // real project showed 48 rows for a 12-episode plan and the product owner read
+  // that as 「分集规划竟然设计了 48 集」. Those 48 entities are real (four confirmed
+  // versions created them, ADR-0072 背景), but they are not THIS plan — so the
+  // plan shows its own entries, and everything else is accounted for below in
+  // `others` rather than silently dropped.
+  const byEpisode = new Map(episodes.map((e) => [e.episodeId, e]));
+  const rows = entries.map((entry) => {
+    const ep = entry.episodeId ? byEpisode.get(entry.episodeId) || null : null;
+    return {
+      // the PLAN's own numbering: this row is 「本版第 N 集」, which is what the
+      // creator is reading and what the reviser is told to preserve
+      code: `EP${String(entry.epNumber).padStart(2, "0")}`,
+      epNumber: entry.epNumber,
+      episodeId: entry.episodeId || null,
+      // 「这一行还没有对应的剧集实体」 — an unconfirmed plan entry. It is NOT
+      // editable (every plan edit is addressed by episodeId) and it has nowhere to
+      // enter, so the row says so instead of offering controls that refuse.
+      linked: !!ep,
+      title: entry.title,
+      entity: ep,
+      plan: {
+        // `title` IS one of the editable facets — the 标题 cell reads it from here,
+        // and leaving it out rendered twelve rows whose title cell showed only a
+        // placeholder while the real title sat in the row header (caught by looking
+        // at the actual screen on 照见未明rev2, not by a test).
+        title: entry.title,
+        coreGoal: entry.coreGoal, emotionArc: entry.emotionArc,
+        endingBeat: entry.endingBeat, hook: entry.hook,
+        duration: entry.duration, synopsis: entry.synopsis, purpose: entry.purpose,
+        keyEvents: Array.isArray(entry.keyEvents) ? entry.keyEvents : [],
+        reveals: Array.isArray(entry.reveals) ? entry.reveals : [],
+        characterBeats: Array.isArray(entry.characterBeats) ? entry.characterBeats : [],
+      },
+    };
+  });
+  const inPlan = new Set(entries.map((e) => e.episodeId).filter(Boolean));
+  const others = episodes.filter((e) => !inPlan.has(e.episodeId));
   return {
     empty: false,
     episodes,
+    rows,
+    others,
     planVersion: story.confirmedPlan || 0,
     // TASK-077 §1.6: THE TWO NUMBERS, named. One screen printed 48 / 48 集 / 12 集 /
     // 47 集 with no statement of what each counted, so they read as four claims
@@ -97,6 +148,24 @@ export function episodePlanModel(pd, story, impactOf) {
     // is normal — it just has to be said.
     establishedCount: episodes.length,
     plannedCount: entries.length,
+    // THE THIRD NUMBER (TASK-094 §4). 创意 says 24 集, every plan version has 12
+    // entries, and 48 entities exist — three numbers that never checked each other,
+    // which is GAP-06's real form. The screen now states all three and FLAGS a
+    // mismatch. It does NOT block: a creator may legitimately be planning the
+    // first 12 of 24 (「做出来给用户看」——他看完不满意再改).
+    targetEpisodes: (() => {
+      const brief = story.brief && (story.brief.versions || []).find((x) => x.v === story.brief.active);
+      const fields = brief ? brief.fields : story.brief && story.brief.draft;
+      const n = fields ? fields.targetEpisodes : null;
+      return Number.isInteger(n) && n > 0 ? n : null;
+    })(),
+    // …and what the APPROVED outline asked for, which is what the planner is told
+    // to respect (`episode-planner` reviewCriteria: 集数是否尊重 episodeCount)
+    outlineEpisodeCount: (() => {
+      const o = (story.versions || []).find((x) => x.v === (story.approved || story.active));
+      const n = o && o.outline ? o.outline.episodeCount : null;
+      return Number.isInteger(n) && n > 0 ? n : null;
+    })(),
     // the version a hand edit is based on (0 = there is no plan to edit yet), and
     // whether that edit is currently unsaved
     planBaseVersion: base ? base.v : 0,
@@ -155,78 +224,6 @@ function basedOnLine(ep) {
   return `<div class="rw row tight"><span class="k">Based on</span>${parts.join("")}${flag}</div>`;
 }
 
-/** The six plan facets — DIRECTLY EDITABLE (TASK-069).
- *
- *  No edit mode: click a field and type. The first shape had a 「✎ 手工修改规划」
- *  toggle guarding them; the product could not find it, which is the whole argument
- *  against it — a control you have to discover before you can do the obvious thing
- *  is a control that should not exist.
- *
- *  Typing autosaves into the unversioned draft (`ctx.story.editPlanEntry`); a new
- *  plan version happens only when the creator presses 保存. That split is the same
- *  one the Creative Brief and the episode script already use, and it exists because
- *  a plan version is immutable canon every Episode records itself as based on —
- *  see storydoc's MANUAL plan editing note.
- *
- *  A facet with no value renders as an EMPTY FIELD rather than being hidden: the
- *  read-only version omitted empty facets, which made 「这一集没有钩子」 and
- *  「钩子这一栏不存在」 look identical and left nowhere to type one. */
-function planRows(ep) {
-  const p = ep.plan;
-  if (!p) {
-    return `<div class="meta">这一集还没有确认的规划条目 —— 在上方生成/确认剧集规划后，标题、梗概、戏剧功能、钩子、结尾拍与时长会显示在这里。</div>`;
-  }
-  const f = (field, label, ph, tag = "input") =>
-    `<div class="kv edit"><span class="k">${esc(label)}</span>` +
-    (tag === "textarea"
-      ? `<textarea class="ws-bibletext" rows="2" spellcheck="false" placeholder="${esc(ph)}" ` +
-        `data-plan-edit="${esc(ep.episodeId)}" data-field="${field}">${esc(p[field] || "")}</textarea>`
-      : `<input class="ws-bibleinput" placeholder="${esc(ph)}" ` +
-        `data-plan-edit="${esc(ep.episodeId)}" data-field="${field}" value="${esc(p[field] || "")}">`) +
-    `</div>`;
-  // ONE BOX (产品 2026-08-13: 「要填的框太多了。尽量统合到一个框填写。告诉我要填什么
-  // 就可以了」). 内容概要 is the box; the label says what to cover. The other four
-  // facets are OPTIONAL and folded away — they still exist (the script brief and the
-  // shot context read them), but nobody has to fill six fields to plan an episode.
-  //
-  // The title stays outside the fold because it is the episode's NAME, not a facet:
-  // the card header shows it and something has to be typeable there.
-  // The four framing facets are shown as TEXT in the summary and become inputs only
-  // when opened. Auto-opening them because they happen to be filled would put four
-  // more boxes on screen for someone who has nothing left to type there — which is
-  // the complaint this whole shape answers.
-  const FACETS = [["purpose", "戏剧功能"], ["hook", "开场钩子"], ["endingBeat", "结尾拍"], ["duration", "时长"]];
-  const filledFacets = FACETS.filter(([k]) => typeof p[k] === "string" && p[k].trim());
-  return (
-    `<div class="planedit">` +
-    f("title", "本集标题", "这一集叫什么") +
-    `<div class="kv edit lead"><span class="k">这一集要表达什么</span>` +
-    `<span class="hint">写清楚这一集讲了什么、想让观众感受到什么。` +
-    `剧本就是从这段细化出来的——写得具体一点，后面省很多事。</span>` +
-    `<textarea class="ws-bibletext lead" rows="6" spellcheck="false" ` +
-    `placeholder="例：打烊后的酒吧。陈默来要回那段录音，林晚没有交。两个人都不肯先开口，` +
-    `直到林晚把录音笔收进口袋、转身关灯——这一集要让观众意识到，录音已经成了筹码。" ` +
-    `data-plan-edit="${esc(ep.episodeId)}" data-field="synopsis">${esc(p.synopsis || "")}</textarea></div>` +
-    // the four framing facets: optional, and out of the way until wanted
-    `<details class="planfacets-fold"><summary>` +
-    (filledFacets.length
-      // already written: show the VALUES, not four empty-looking inputs. Clicking
-      // opens them for editing.
-      ? `<span class="facetsum">` +
-        filledFacets.map(([k, label]) =>
-          `<span class="fc"><i>${esc(label)}</i>${esc(p[k])}</span>`).join("") +
-        `</span><span class="more">改</span>`
-      : `更多要素（可选）：戏剧功能 / 开场钩子 / 结尾拍 / 时长`) +
-    `</summary><div class="planfacets">` +
-    f("purpose", "戏剧功能", "它在整部作品里承担什么") +
-    f("hook", "开场钩子", "开头用什么抓住观众") +
-    f("endingBeat", "结尾拍", "结尾停在哪一下") +
-    f("duration", "时长", "例如 8 分钟") +
-    `</div></details>` +
-    `</div>`
-  );
-}
-
 /** The bar that tells the creator what state their edit is in, and gets them out
  *  of it. Rendered only when there is a plan to edit. */
 function planEditBar(ctx, dirty, baseV, baseIsConfirmed, otherDrafts, nextV) {
@@ -259,43 +256,99 @@ function planEditBar(ctx, dirty, baseV, baseIsConfirmed, otherDrafts, nextV) {
  *  It is part of 「这一集要表达的内容」, not production machinery, so it does not hide
  *  behind a toggle. What DID move into 详情 is the dependency baseline and the entry
  *  into 剧集制作 — those are about how the episode gets MADE, not about what it says. */
-function beatsBlock(m, ep) {
+/*
+ *  `ep` IS THE VIEW MODEL, NOT THE DOCUMENT. `episodePlanModel` already resolves
+ *  each beat's `name` / `tier` / `label` against the bible (see `beats:` above), so
+ *  a row reads them straight off the entry. Handing the raw
+ *  `production.episodes[i]` in here would render nameless rows — asserted by
+ *  「a recorded canon beat is still shown and still editable」, which checks the
+ *  character's NAME reaches the row (this was reported as a defect by codex review,
+ *  批次 B round 2; it is not one, and the assertion is there so it cannot become
+ *  one).
+ */
+function beatsBlock(m, ep, ui = {}) {
   const list = (kind, label, ph) =>
     `<label class="ws-lab">${esc(label)}</label>` +
     `<textarea class="ws-bibletext" rows="3" spellcheck="false" placeholder="${esc(ph)}" data-beat-text="${esc(ep.episodeId)}" data-kind="${kind}">${esc((kind === "plot" ? ep.beats.plot : ep.beats.world).join("\n"))}</textarea>`;
 
-  const charRows = m.characterOptions
-    .map((c) => {
-      const cur = ep.beats.character.find((b) => b.characterId === c.characterId);
-      return (
-        `<div class="beatrow"><span class="chip${c.tier === "bit" ? " mute" : ""}">${esc(c.name)}${c.tier === "bit" ? " ·临时" : ""}</span>` +
-        `<input class="ws-bibleinput" placeholder="本集这个人物走了哪一步（留空＝本集不推进）" ` +
-        `data-beat-char="${esc(ep.episodeId)}" data-cid="${esc(c.characterId)}" value="${esc(cur ? cur.beat : "")}"></div>`
-      );
-    })
-    .join("");
-  const relRows = m.relationshipOptions.length
-    ? m.relationshipOptions
-        .map((r) => {
-          const cur = ep.beats.relationship.find((b) => b.relationshipId === r.relationshipId);
-          const f = (k, ph) =>
-            `<input class="ws-bibleinput sm" placeholder="${esc(ph)}" data-beat-rel="${esc(ep.episodeId)}" ` +
-            `data-rid="${esc(r.relationshipId)}" data-field="${k}" value="${esc(cur ? cur[k] : "")}">`;
-          return (
-            `<div class="beatrow rel"><span class="chip">${esc(r.label)}</span>` +
-            f("start", "start（本集开始时）") + f("event", "event（本集发生了什么）") + f("end", "end（本集结束时）") +
-            `</div>`
-          );
-        })
-        .join("")
-    : `<div class="meta">还没有人物关系 — 在「人物关系」建立后可在这里记录每集的推进。</div>`;
+  // ONLY THE PEOPLE THIS EPISODE ACTUALLY ADVANCES (TASK-088 §1.3 / §2.3).
+  //
+  // This used to lay out one input per CAST MEMBER: 6 characters × 48 episodes =
+  // 288 boxes in the real project, of which the capability produced exactly zero.
+  // 「为什么那么多重复的内容要写呢」 had a precise technical answer — 确实要他写.
+  //
+  // So a row exists for a character who HAS a beat here, plus one picker to add
+  // one. Nothing is removed: every character is still reachable through the
+  // picker, and an existing beat is still edited in place.
+  // A ROW EXISTS EITHER BECAUSE THERE IS A BEAT, OR BECAUSE THE CREATOR JUST
+  // PICKED THAT CHARACTER. The pick is SHELL state (`ui.beatOpen`) — it writes
+  // nothing. The first shape of this wrote a placeholder 「（这一集他走了哪一步）」
+  // through `setCharacterBeat` to make the row appear, which put a beat the
+  // creator never entered into canonical episode data and left it there if they
+  // walked away (codex review, 批次 B round 1, blocking). Scaffolding must never
+  // reach the document.
+  const opened = ui.beatOpen || {};
+  const isOpen = (id) => !!opened[`${ep.episodeId}:${id}`];
+  const withBeat = ep.beats.character.filter((b) => b.beat && b.beat.trim());
+  const charRow = (characterId, name, tier, beat) =>
+    `<div class="beatrow"><span class="chip${tier === "bit" ? " mute" : ""}">${esc(name)}${tier === "bit" ? " ·临时" : ""}</span>` +
+    `<input class="ws-bibleinput" placeholder="本集这个人物走了哪一步（清空＝本集不推进）" ` +
+    `data-beat-char="${esc(ep.episodeId)}" data-cid="${esc(characterId)}" value="${esc(beat || "")}"></div>`;
+  const charRows =
+    withBeat.map((b) => charRow(b.characterId, b.name, b.tier, b.beat)).join("") +
+    m.characterOptions
+      .filter((c) => isOpen(c.characterId) && !withBeat.some((b) => b.characterId === c.characterId))
+      .map((c) => charRow(c.characterId, c.name, c.tier, ""))
+      .join("");
+  const notYet = m.characterOptions.filter(
+    (c) => !withBeat.some((b) => b.characterId === c.characterId) && !isOpen(c.characterId),
+  );
+  const charAdd = notYet.length
+    ? `<select class="ws-assign" data-beat-add="${esc(ep.episodeId)}">` +
+      `<option value="">＋ 记一个人物的推进…</option>` +
+      notYet.map((c) => `<option value="${esc(c.characterId)}">${esc(c.name)}</option>`).join("") +
+      `</select>`
+    : "";
+  // …and the same rule for relationships, which had the same shape (2 × 48 × 3
+  // fields here). `relws.js` tells the creator to remove a Relationship Beat from
+  // THIS screen, so a recorded one must stay visible and editable.
+  const withRel = ep.beats.relationship.filter((b) => [b.start, b.event, b.end].some((x) => x && x.trim()));
+  const relRow = (relationshipId, label, cur) => {
+    const f = (k, ph) =>
+      `<input class="ws-bibleinput sm" placeholder="${esc(ph)}" data-beat-rel="${esc(ep.episodeId)}" ` +
+      `data-rid="${esc(relationshipId)}" data-field="${k}" value="${esc(cur && typeof cur[k] === "string" ? cur[k] : "")}">`;
+    return (
+      `<div class="beatrow rel"><span class="chip">${esc(label)}</span>` +
+      f("start", "start（本集开始时）") + f("event", "event（本集发生了什么）") + f("end", "end（本集结束时）") +
+      `</div>`
+    );
+  };
+  const relRows =
+    withRel.map((r) => relRow(r.relationshipId, r.label, r)).join("") +
+    m.relationshipOptions
+      .filter((r) => isOpen(r.relationshipId) && !withRel.some((b) => b.relationshipId === r.relationshipId))
+      .map((r) => relRow(r.relationshipId, r.label, null))
+      .join("");
+  const relNotYet = m.relationshipOptions.filter(
+    (r) => !withRel.some((b) => b.relationshipId === r.relationshipId) && !isOpen(r.relationshipId),
+  );
+  const relAdd = !m.relationshipOptions.length
+    ? `<div class="meta">还没有人物关系 — 在「人物关系」建立后可在这里记录每集的推进。</div>`
+    : relNotYet.length
+      ? `<select class="ws-assign" data-beat-reladd="${esc(ep.episodeId)}">` +
+        `<option value="">＋ 记一段关系的推进…</option>` +
+        relNotYet.map((r) => `<option value="${esc(r.relationshipId)}">${esc(r.label)}</option>`).join("") +
+        `</select>`
+      : "";
 
   return (
     `<div class="beatbox"><div class="hd"><b>本集要推进什么</b></div>` +
     `<div class="meta">这里记录<b>这一集实际发生了什么</b>；作品级的人物设定与关系定义不会因此改变。</div>` +
     list("plot", "Main Plot Beat 主线推进（每行一条）", "一行一条主线进展") +
-    `<label class="ws-lab">Character Beat 人物推进</label>${charRows}` +
-    `<label class="ws-lab">Relationship Beat 关系推进（Episode-level）</label>${relRows}` +
+    `<label class="ws-lab">Character Beat 人物推进</label>` +
+    (charRows || `<div class="meta">这一集还没有记录任何人物推进。</div>`) + charAdd +
+    `<label class="ws-lab">Relationship Beat 关系推进（Episode-level）</label>` +
+    (relRows || (m.relationshipOptions.length ? `<div class="meta">这一集还没有记录关系推进。</div>` : "")) + relAdd +
     list("world", "World Rule / Information Reveal 世界规则与信息揭示（每行一条）", "一行一条揭示") +
     `</div>`
   );
@@ -338,55 +391,268 @@ function impactReview(ep) {
   );
 }
 
+/** The nine columns of 分集规划. `label` is the product owner's own wording. */
+export const PLAN_COLUMNS = [
+  { key: "ep", label: "集" },
+  { key: "title", label: "标题" },
+  { key: "coreGoal", label: "本集核心目标" },
+  { key: "keyEvents", label: "主要剧情" },
+  { key: "characterBeats", label: "角色推进" },
+  { key: "reveals", label: "信息揭示" },
+  { key: "emotionArc", label: "情绪曲线" },
+  { key: "ending", label: "结尾钩子" },
+  { key: "ops", label: "" },
+];
+
+/** Which list rows the creator has explicitly opened for hand entry, per cell.
+ *  Transient shell state: `ui.planOpen["<episodeId>:<field>"] = [index, …]`. */
+function openedRows(ui, episodeId, field) {
+  const all = ui.planOpen || {};
+  const list = all[`${episodeId}:${field}`];
+  return Array.isArray(list) ? list : [];
+}
+
+/**
+ * THE LEGACY PROSE, still readable and still editable.
+ *
+ * The real project's four plan versions are written in `synopsis` / `purpose` —
+ * `episode-planner` v2's七项 did not exist when they were made. Rendering only the
+ * new fields would show the product owner twelve nearly-empty rows for a plan that
+ * is in fact full, which is the 「界面说的和事实不符」 family this whole chain is
+ * about. So the old value is shown where its replacement would go, labelled as
+ * what it is, and 「让 AI 改一次」 is what turns it into the structured form.
+ *
+ * SHOWN WHENEVER IT IS NON-EMPTY — not only while the new field is blank (codex
+ * review, 批次 B round 1). They are two DISTINCT stored values: hiding the old one
+ * as soon as the new one is filled left real content on disk that this screen
+ * could neither show nor clear, so a creator could not even delete it.
+ */
+function legacyNote(row, field, label) {
+  const value = row.plan[field];
+  if (typeof value !== "string" || !value.trim()) return "";
+  return (
+    `<div class="ept-legacy"><span class="chip mute" title="这一版规划写在旧字段里；让 AI 改一次就会拆成新的结构">${esc(label)}</span>` +
+    `<textarea class="rf-t" rows="3" spellcheck="false" ` +
+    `data-plan-edit="${esc(row.episodeId)}" data-field="${field}">${esc(value)}</textarea></div>`
+  );
+}
+
+/** One 主要剧情 / 信息揭示 cell: a review face over a string list. */
+function listCell(ui, row, field, opts) {
+  return reviewList(opts.label, row.plan[field], {
+    rowAttrs: (i) =>
+      `class="rf-i" data-plan-item="${esc(row.episodeId)}" data-field="${field}" data-i="${i}"`,
+    addAttrs: `data-rf-add="${esc(row.episodeId)}" data-field="${field}"`,
+    open: openedRows(ui, row.episodeId, field),
+    min: opts.min ?? null,
+    max: opts.max ?? null,
+    hint: opts.hint || "",
+    addLabel: opts.addLabel || "加一条",
+    placeholder: opts.placeholder || "",
+  });
+}
+
+/** 角色推进 — one row per character the AI actually advanced, never one per cast
+ *  member. This is the direct answer to 「为什么那么多重复的内容要写呢」: the old
+ *  surface laid out `characterOptions.length × episodes.length` inputs (6 × 48 =
+ *  288 in the real project) that no capability produced a single character of. */
+function beatsCell(m, ui, row) {
+  const beats = row.plan.characterBeats;
+  const known = new Set(m.characterOptions.map((c) => c.name));
+  const opened = openedRows(ui, row.episodeId, "characterBeats");
+  const rows = beats
+    .map((b, i) => ({ b, i }))
+    .filter(({ b, i }) => written(b) || opened.includes(i))
+    .map(({ b, i }) => {
+      const f = (key, ph) =>
+        `<input class="rf-i" data-plan-beat="${esc(row.episodeId)}" data-i="${i}" data-key="${key}" ` +
+        `placeholder="${esc(ph)}" value="${esc(typeof b[key] === "string" ? b[key] : "")}">`;
+      // A NAME THAT MATCHES NO CHARACTER IS FLAGGED, NOT DROPPED. The capability
+      // is told not to invent people; when it does anyway, silently discarding the
+      // row would leave the creator believing nothing was produced.
+      const unknown = b.who && b.who.trim() && !known.has(b.who.trim())
+        ? `<span class="chip gate" title="人物档案里没有这个名字 —— AI 不应发明人物；改成已有角色，或去「作品设定」建立他">未知人物</span>`
+        : "";
+      return (
+        `<div class="rf-row beat">${f("who", "谁")}${unknown}${f("change", "发生了什么变化")}` +
+        f("relationChange", "关系怎么变（可空）") +
+        `<button class="btn sm ghost" data-rf-del="${esc(row.episodeId)}" data-field="characterBeats" ` +
+        `data-i="${i}" title="移除这一行">✕</button></div>`
+      );
+    })
+    .join("");
+  return (
+    `<div class="rf-l" data-rf-list="角色推进">` +
+    (rows || `<div class="meta rf-none">AI 没有写这一项</div>`) +
+    `<button class="btn sm rf-add" data-rf-add="${esc(row.episodeId)}" data-field="characterBeats">＋ 加一个角色</button>` +
+    `</div>`
+  );
+}
+
+/** 结尾钩子 — TWO fields in ONE cell (TASK-088 §2.1). They are two different
+ *  things in the real data (`endingBeat` = what finally happened, `hook` = the
+ *  question left open), so merging them would lose one; showing them apart on the
+ *  table would read as two unrelated columns. */
+function endingCell(row) {
+  const f = (field, label, ph) =>
+    reviewText(label, row.plan[field], {
+      attrs: `data-plan-edit="${esc(row.episodeId)}" data-field="${field}"`,
+      rows: 2,
+      placeholder: ph,
+      force: true,
+    });
+  return f("endingBeat", "最后发生了什么", "这一集停在哪一下") + f("hook", "留下什么悬念", "推动下一集的那个问题");
+}
+
+/** One table row. Editable only when the entry is LINKED to an Episode entity —
+ *  every plan edit is addressed by episodeId, so an unconfirmed entry has nothing
+ *  to write to and says so rather than offering controls that refuse. */
+function planRow(m, ui, row) {
+  const ep = row.entity;
+  const cell = (field, ph, rows = 2) =>
+    reviewText("", row.plan[field], {
+      attrs: `data-plan-edit="${esc(row.episodeId)}" data-field="${field}"`,
+      rows,
+      placeholder: ph,
+      force: true,
+    });
+  if (!row.linked) {
+    return (
+      `<tr class="ept-row unlinked" data-eprow="${esc(String(row.epNumber))}">` +
+      `<td class="ept-ep"><span class="mono">${esc(row.code)}</span></td>` +
+      `<td colspan="${PLAN_COLUMNS.length - 1}"><b>${esc(row.title)}</b>` +
+      `<div class="meta">这一版还没确认，所以这一集还没有对应的剧集实体 ——` +
+      `上面「确认规划 v${esc(String(m.planBaseVersion))}」之后就能逐格修改，并进入这一集。</div></td>` +
+      `</tr>`
+    );
+  }
+  return (
+    `<tr class="ept-row${ep.active ? " on" : ""}" data-eprow="${esc(row.episodeId)}">` +
+    `<td class="ept-ep"><span class="mono">${esc(row.code)}</span>` +
+    (ep.active ? `<span class="chip ok" title="当前剧集">当前</span>` : "") +
+    (row.plan.duration ? `<div class="meta">${esc(row.plan.duration)}</div>` : "") +
+    `</td>` +
+    `<td class="ept-title">${cell("title", "这一集叫什么", 1)}</td>` +
+    `<td class="ept-goal">${cell("coreGoal", "这一集要完成的那一件事")}` +
+    legacyNote(row, "purpose", "旧字段 · 戏剧功能") +
+    `</td>` +
+    `<td class="ept-events">${listCell(ui, row, "keyEvents", {
+      label: "", min: 3, max: 6, addLabel: "加一条事件", placeholder: "一个动作或转折",
+    })}` +
+    legacyNote(row, "synopsis", "旧字段 · 梗概") +
+    `</td>` +
+    `<td class="ept-beats">${beatsCell(m, ui, row)}</td>` +
+    `<td class="ept-reveals">${listCell(ui, row, "reveals", {
+      label: "", addLabel: "加一条", placeholder: "观众这一集新知道了什么",
+    })}</td>` +
+    `<td class="ept-arc">${cell("emotionArc", "平静 → 紧张 → 冲突 → 转折", 2)}</td>` +
+    `<td class="ept-end">${endingCell(row)}</td>` +
+    `<td class="ept-ops">` +
+    `<button class="btn primary sm" data-ep-open="${esc(row.episodeId)}">去写剧本 →</button>` +
+    `<button class="btn sm" data-ep-enter="${esc(row.episodeId)}">进入剧集制作 →</button>` +
+    // …and the row's own fold remembers being opened, for the same reason: it holds
+    // 时长 and the beats editor, and adding a 主要剧情 row re-renders — which used to
+    // collapse the fold the creator was working inside.
+    `<details class="epmore"${ui.impactOpen === row.episodeId || (ui.epmoreOpen || {})[row.episodeId] ? " open" : ""}` +
+    ` data-epmore="${esc(row.episodeId)}">` +
+    `<summary>详情：时长 / 上游基线 / 本集实际推进</summary>` +
+    // 时长 is deliberately NOT a column: it derives from 创意's 单集时长方向 and is
+    // only written when THIS episode deviates (TASK-088 §2.1), so a column of it
+    // would be twelve boxes nobody needs to fill.
+    reviewText("时长（仅偏离时填）", row.plan.duration, {
+      attrs: `data-plan-edit="${esc(row.episodeId)}" data-field="duration"`,
+      placeholder: "例如 90 秒",
+      force: true,
+    }) +
+    basedOnLine(ep) +
+    (ui.impactOpen === row.episodeId ? impactReview(ep) : "") +
+    beatsBlock(m, ep, ui) +
+    `</details></td>` +
+    `</tr>`
+  );
+}
+
+/** 「另有 N 集不在这一版规划里」 — everything that EXISTS but is not part of the plan
+ *  on screen. Folded, because the table is the plan; present, because 36 real
+ *  Episode entities carrying real scripts must not vanish from the one screen that
+ *  used to list them (they are cleaned up by TASK-094 批次 G, not by hiding). */
+function othersFold(m, ui) {
+  if (!m.others.length) return "";
+  // OPEN WHEN THE CREATOR OPENED IT, **OR** WHEN WHAT THEY ASKED FOR IS INSIDE IT.
+  // `ui.othersOpen` is recorded by the fold's own `toggle` handler (`bindEpPlanWs`);
+  // without that, any re-render — including the one caused by clicking 「⚠ N 个上游
+  // 变化」 on an episode in here — collapsed the fold and hid the very review that
+  // click had just requested (codex review, 批次 B round 2, blocking).
+  const holdsImpact = m.others.some((e) => e.episodeId === ui.impactOpen);
+  return (
+    `<details class="ept-others"${ui.othersOpen || holdsImpact ? " open" : ""}><summary>` +
+    `另有 ${m.others.length} 集不在这一版规划里（更早的规划版本建立的）</summary>` +
+    `<div class="meta">它们仍然存在、仍然可以进入 —— 只是当前这一版规划没有引用它们。` +
+    `其中没有任何内容的空壳可以归档（ADR-0072 决策 4）。</div>` +
+    m.others
+      .map((ep) =>
+        `<div class="ept-other${ep.active ? " on" : ""}">` +
+        `<span class="mono">${esc(ep.code)}</span><b>${esc(ep.title)}</b>` +
+        `<span class="meta">${ep.sceneCount} 个场景 · ${ep.beatCount} 条推进记录</span>` +
+        basedOnLine(ep) +
+        // …and its Impact Review opens HERE. `basedOnLine` above renders the
+        // 「⚠ N 个上游变化」 button for these episodes too, and a button whose panel
+        // has nowhere to appear is a button that does nothing.
+        (ui.impactOpen === ep.episodeId ? impactReview(ep) : "") +
+        `<button class="btn sm" data-ep-enter="${esc(ep.episodeId)}">进入 →</button>` +
+        `</div>`)
+      .join("") +
+    `</details>`
+  );
+}
+
+/** The three numbers, and whether they agree (TASK-094 §4). PROMPTS, NEVER BLOCKS:
+ *  planning the first 12 of 24 episodes is a legitimate state, so a mismatch is
+ *  reported and the save path is untouched. */
+function countLine(m) {
+  const parts = [`本版规划 ${m.plannedCount} 集`, `已建立 ${m.establishedCount} 集`];
+  if (m.targetEpisodes) parts.push(`创意目标 ${m.targetEpisodes} 集`);
+  if (m.outlineEpisodeCount) parts.push(`大纲 ${m.outlineEpisodeCount} 集`);
+  const disagree = [m.targetEpisodes, m.outlineEpisodeCount]
+    .filter((n) => Number.isInteger(n) && n !== m.plannedCount);
+  const flag = m.plannedCount && disagree.length
+    ? `<span class="chip gate" title="这只是提示：先规划前几集是完全正常的，保存不受影响">` +
+      `条数与目标集数不一致</span>`
+    : "";
+  return `<div class="row tight ept-counts"><span class="meta">${esc(parts.join(" · "))}</span>${flag}</div>`;
+}
+
 export function renderEpPlanWs(ctx, ui) {
   const pd = ctx.prodData();
   const em = episodesModel(pd);
   if (em.empty) return head("分集规划", "项目级") + empty("📺", "剧集结构不可用", "生产域文档未加载。");
   const m = episodePlanModel(pd, ctx.story.doc(), (id) => ctx.canon.impact(id));
 
-  const cards = m.episodes
-    .map((ep) => {
-      const openImpact = ui.impactOpen === ep.episodeId;
-      return (
-        `<div class="epcard${ep.active ? " on" : ""}">` +
-        `<div class="top"><span class="no">${esc(ep.code)}</span><span class="ti">${esc(ep.title)}</span>` +
-        (ep.plan && ep.plan.duration ? `<span class="chip mute push">${esc(ep.plan.duration)}</span>` : `<span class="push"></span>`) +
-        `</div><div class="bd">` +
-        planRows(ep) +
-        beatsBlock(m, ep) +
-        // 「根据这个来细化剧本」 — the forward action of a PLAN is the script.
-        `<div class="ft"><button class="btn primary sm" data-ep-open="${esc(ep.episodeId)}">去写本集剧本 →</button>` +
-        `<span class="meta">${ep.sceneCount} 个场景</span></div>` +
-        // …and the production machinery: the dependency baseline, the impact review
-        // and the way into 剧集制作. Real and one click away, but not what this
-        // screen is about.
-        `<details class="epmore"${openImpact ? " open" : ""}><summary>详情：上游基线 / 进入剧集制作</summary>` +
-        basedOnLine(ep) +
-        (openImpact ? impactReview(ep) : "") +
-        `<div class="row tight"><button class="btn sm" data-ep-enter="${esc(ep.episodeId)}">进入剧集制作 →</button></div>` +
-        `</details>` +
-        `</div></div>`
+  const table = m.rows.length
+    ? `<div class="ept-wrap"><table class="ept">` +
+      `<thead><tr>${PLAN_COLUMNS.map((c) => `<th class="ept-h-${esc(c.key)}">${esc(c.label)}</th>`).join("")}</tr></thead>` +
+      `<tbody>${m.rows.map((r) => planRow(m, ui, r)).join("")}</tbody>` +
+      `</table></div>`
+    // NOT AN EMPTY FORM (TASK-094 §1.2). With no plan yet there is exactly one
+    // thing to do, and 「让 AI 规划」 lives in the panel above — so this states the
+    // situation instead of drawing a grid of blank cells to fill in by hand.
+    : notRunYet(
+        "还没有分集规划",
+        "AI 会按已批准的故事大纲规划逐集：集数 / 标题、本集核心目标、主要剧情、角色推进、信息揭示、情绪曲线、结尾钩子。上面「生成剧集规划提案」跑一次，这里就是一张可以逐格修改的表。",
       );
-    })
-    .join("");
 
   return (
     head(
       "分集规划",
-      // TASK-077 §1.6 — every number says WHAT it counts, and when the two differ
-      // the screen says why instead of leaving the creator to reconcile them.
-      `已建立 ${m.establishedCount} 集` +
-      (m.plannedCount ? ` · 本版规划 ${m.plannedCount} 集` : " · 还没有规划条目") +
-      (m.plannedCount && m.plannedCount !== m.establishedCount
-        ? `（差 ${Math.abs(m.establishedCount - m.plannedCount)} 集：规划条目只覆盖本版规划的剧集，其余是更早建立的）`
-        : "") +
-      ` · Production 的出口${m.planVersion ? ` · 规划 v${m.planVersion} 已确认` : ""}`,
+      `AI 写好、你逐格改${m.planVersion ? ` · 规划 v${m.planVersion} 已确认` : " · 还没有确认的版本"}`,
     ) +
     renderPlanPanel(ctx, em) +
     (m.planBaseVersion
       ? planEditBar(ctx, m.planDirty, m.planBaseVersion, m.planBaseIsConfirmed, m.planOtherDrafts, m.nextPlanVersion)
       : "") +
-    `<div class="epgrid wide">${cards}</div>`
+    countLine(m) +
+    table +
+    othersFold(m, ui)
   );
 }
 
@@ -420,6 +686,48 @@ export function bindEpPlanWs(root, ctx, ui, rerender) {
       syncBar();
     });
   });
+  // …and the LIST facets (主要剧情 / 信息揭示 / 角色推进). Same autosave-into-the-draft
+  // rule, same `syncBar` so 保存 arms without a re-render stealing the caret.
+  root.querySelectorAll("[data-plan-item]").forEach((el) => {
+    bindField(el, ui, (value) => {
+      ctx.story.editPlanItem(el.dataset.planItem, el.dataset.field, Number(el.dataset.i), value);
+      syncBar();
+    });
+  });
+  root.querySelectorAll("[data-plan-beat]").forEach((el) => {
+    bindField(el, ui, (value) => {
+      ctx.story.editPlanBeat(el.dataset.planBeat, Number(el.dataset.i), el.dataset.key, value);
+      syncBar();
+    });
+  });
+  // ADDING / REMOVING A ROW re-renders (a row appeared or vanished), unlike typing.
+  // The new row's index is remembered so `reviewface`'s blank-row filter renders
+  // it: a row the creator ASKED for is not an empty box nobody wanted.
+  on("[data-rf-add]", (el) => {
+    const episodeId = el.dataset.rfAdd;
+    const field = el.dataset.field;
+    const i = ctx.story.addPlanItem(episodeId, field);
+    if (i < 0) { ctx.toast("这一版还没有确认，暂时不能逐格修改"); return; }
+    if (!ui.planOpen) ui.planOpen = {};
+    const key = `${episodeId}:${field}`;
+    ui.planOpen[key] = [...(ui.planOpen[key] || []), i];
+    rerender();
+  });
+  on("[data-rf-del]", (el) => {
+    const episodeId = el.dataset.rfDel;
+    const field = el.dataset.field;
+    const index = Number(el.dataset.i);
+    if (!ctx.story.removePlanItem(episodeId, field, index)) return;
+    // the opened-row marks shift with the removal, or they would keep a row that
+    // is no longer there visible and hide the one that took its place
+    if (ui.planOpen) {
+      const key = `${episodeId}:${field}`;
+      ui.planOpen[key] = (ui.planOpen[key] || [])
+        .filter((i) => i !== index)
+        .map((i) => (i > index ? i - 1 : i));
+    }
+    rerender();
+  });
   on("[data-impact]", (el) => { ui.impactOpen = el.dataset.impact; rerender(); });
   on("[data-impact-close]", () => { ui.impactOpen = null; rerender(); });
   on("[data-stamp]", (el) => { if (ctx.canon.stamp(el.dataset.stamp)) { ui.impactOpen = null; rerender(); } });
@@ -449,6 +757,41 @@ export function bindEpPlanWs(root, ctx, ui, rerender) {
         start: get("start"), event: get("event"), end: get("end"),
       });
     });
+  });
+  // 「＋ 记一个人物的推进…」 — the picker that replaced the row-per-cast-member grid.
+  // Writing a SPACE would be a lie (that is not a beat); an empty beat is refused
+  // by the domain. So the pick only OPENS a row, by writing a placeholder the
+  // creator immediately types over — recorded on the shell, not in the document.
+  // 「＋ 记一个人物 / 一段关系的推进…」 — the pickers that replaced the row-per-cast-member
+  // grid. THEY WRITE NOTHING: the pick only opens a row on the shell, and the
+  // creator's first keystroke is what reaches canon through the bindings above.
+  // Writing a placeholder to make the row appear put a beat nobody entered into
+  // canonical episode data (codex review, 批次 B round 1).
+  root.querySelectorAll("[data-beat-add]").forEach((sel) => {
+    sel.onchange = () => {
+      if (!sel.value) return;
+      ui.beatOpen = { ...(ui.beatOpen || {}), [`${sel.dataset.beatAdd}:${sel.value}`]: true };
+      rerender();
+    };
+  });
+  root.querySelectorAll("[data-beat-reladd]").forEach((sel) => {
+    sel.onchange = () => {
+      if (!sel.value) return;
+      ui.beatOpen = { ...(ui.beatOpen || {}), [`${sel.dataset.beatReladd}:${sel.value}`]: true };
+      rerender();
+    };
+  });
+  // A FOLD THE CREATOR OPENED MUST SURVIVE THE NEXT RE-RENDER. `<details>` keeps its
+  // own state in the DOM, and this page rebuilds that DOM — so the state is recorded
+  // on the shell here rather than being silently lost (codex review, 批次 B round 2).
+  // `toggle` needs no re-render: the browser has already opened or closed it.
+  const others = root.querySelector(".ept-others");
+  if (others) others.ontoggle = () => { ui.othersOpen = others.open; };
+  root.querySelectorAll("[data-epmore]").forEach((el) => {
+    el.ontoggle = () => {
+      if (!ui.epmoreOpen) ui.epmoreOpen = {};
+      ui.epmoreOpen[el.dataset.epmore] = el.open;
+    };
   });
   restoreFieldFocus(root, ui);
 }
