@@ -867,14 +867,25 @@ function demoEpisodePlan(doc) {
       `第 ${i + 1} 集`, "剧情推进一步，埋下一个新钩子。", "推进",
       "上集结尾的钩子回收", "新的悬念落下",
     ];
+    // THE SEVEN FACETS, in demo mode too (TASK-088 §2.1). A template still
+    // producing only `synopsis`/`purpose` would make the demo walk-through look
+    // like the defect this batch removes — an episode row whose new columns are
+    // all empty. Everything stays labelled 演示模板, and no AI runs.
     return {
       epNumber: i + 1,
       title: b[0],
-      synopsis: `${b[1]}（演示模板）`,
-      purpose: b[2],
+      coreGoal: `${b[2]}（演示模板）`,
+      keyEvents: [`${b[1]}（演示模板）`, `${b[3]}`, `${b[4]}`],
+      characterBeats: [{ who: "李昭", change: `${b[2]}（演示模板）` }],
+      reveals: [`第 ${i + 1} 集的新信息（演示模板）`],
+      emotionArc: "平静 → 紧张 → 转折",
       hook: b[3],
       endingBeat: b[4],
       duration: "60-90 秒",
+      // kept so the demo also exercises the legacy-fallback path the real
+      // project's four existing plan versions take
+      synopsis: `${b[1]}（演示模板）`,
+      purpose: b[2],
     };
   });
 }
@@ -903,7 +914,23 @@ async function developStoryRun(kind, instruction) {
     let payload;
     if (CONNECTED) {
       payload = kind === "plan"
-        ? await query.planEpisodes({ outline: storydoc.approvedOutline(doc).outline, instruction })
+        ? await query.planEpisodes({
+            outline: storydoc.approvedOutline(doc).outline,
+            instruction,
+            // WHAT IS BEING REVISED (TASK-094 批次 A) — and ONLY when this run is
+            // a revision. `planRevisionBase` is the single predicate: the same one
+            // `beginDevelop` used to decide whether the new version continues
+            // these episodes, so what the model is shown and what the document
+            // links to cannot disagree. A fresh 「重新规划」 sends no plan at all,
+            // which is also how the backend selects `episode-planner`.
+            currentPlan: storydoc.planRevisionBase(doc, instruction)
+              ? storydoc.planForPrompt(storydoc.effectivePlanEpisodes(doc))
+              : null,
+            // …and the cast, so `characterBeats[].who` can name a real person
+            characters: productionDoc.characters.map((c) => ({
+              characterId: c.characterId, name: c.name, tier: c.tier,
+            })),
+          })
         : await query.developStory({
             idea: doc.idea,
             current: (storydoc.activeOutline(doc) || {}).outline || null,
@@ -1637,6 +1664,32 @@ const ctx = {
       if (ok) ctx.persist();
       return ok;
     },
+    // …and the list facets the product owner's seven added (TASK-088 §2.1).
+    // Same draft-then-version rule as above: every one of these writes the
+    // UNVERSIONED draft, so none of them can alter a plan version in place.
+    //
+    // 添加/删除 re-render (a row appeared or vanished); typing does NOT — it goes
+    // through ui/fieldsync.js, which must not re-render mid-sentence.
+    editPlanItem: (episodeId, field, index, value) => {
+      const ok = storydoc.editPlanItem(storyDoc, episodeId, field, index, value);
+      if (ok) ctx.persist();
+      return ok;
+    },
+    editPlanBeat: (episodeId, index, key, value) => {
+      const ok = storydoc.editPlanBeat(storyDoc, episodeId, index, key, value);
+      if (ok) ctx.persist();
+      return ok;
+    },
+    addPlanItem: (episodeId, field) => {
+      const i = storydoc.addPlanItem(storyDoc, episodeId, field);
+      if (i >= 0) { ctx.persist(); refreshProductionView(); }
+      return i;
+    },
+    removePlanItem: (episodeId, field, index) => {
+      const ok = storydoc.removePlanItem(storyDoc, episodeId, field, index);
+      if (ok) { ctx.persist(); refreshProductionView(); }
+      return ok;
+    },
     savePlanDraft: () => {
       const v = storydoc.savePlanDraft(storyDoc);
       if (!v) { toast("与当前版本没有差异 — 未创建新版本"); return 0; }
@@ -1665,9 +1718,26 @@ const ctx = {
       if (!rec) return null;
       ctx.persist();
       refreshProductionView();
-      toast(rec.outline
-        ? `已应用为故事大纲 v${rec.v}（旧版本保留；批准后才能规划分集）`
-        : `已应用为剧集规划 v${rec.v}（确认后才建立剧集）`);
+      if (rec.outline) {
+        toast(`已应用为故事大纲 v${rec.v}（旧版本保留；批准后才能规划分集）`);
+        return rec;
+      }
+      // SAY WHETHER THE EPISODES WERE CONTINUED OR ARE NEW (ADR-0072 决策 1).
+      // A revision normally inherits the base version's episode identities, so
+      // confirming it UPDATES those episodes. When the answer's own episode
+      // numbers were not a clean mapping the identities are deliberately NOT
+      // carried — and then confirming creates new episodes, which is exactly the
+      // 48-episode surprise this batch removes. Silence there would reproduce it.
+      const linked = rec.episodes.filter((e) => e.episodeId).length;
+      toast(
+        !rec.basedOn
+          ? `已应用为剧集规划 v${rec.v}（确认后才建立剧集）`
+          : linked === rec.episodes.length
+            ? `已应用为剧集规划 v${rec.v}（改的是 v${rec.basedOn} 的这 ${linked} 集；确认后更新它们，不新建）`
+            : linked
+              ? `已应用为剧集规划 v${rec.v}（${linked} 集沿用 v${rec.basedOn} 的剧集，${rec.episodes.length - linked} 集是新的）`
+              : `已应用为剧集规划 v${rec.v}：AI 的答案没有保持集号，无法判断每一条对应哪一集 —— 因此这一版不沿用任何已有剧集，确认后会新建 ${rec.episodes.length} 集`,
+      );
       return rec;
     },
     discardProposal: () => { storydoc.discardProposal(storyDoc); refreshProductionView(); },
@@ -1780,7 +1850,26 @@ const ctx = {
       if (o.outline.genreTone) parts.push(`题材/基调：${o.outline.genreTone}`);
     }
     if (entry) {
-      parts.push(`本集 EP${entry.epNumber}「${entry.title}」：${entry.synopsis}`);
+      // THE SEVEN FACETS REACH THE SCRIPT (TASK-094 批次 A). This read the prose
+      // `synopsis` only, so a plan written by `episode-planner` v2 — whose content
+      // lives in coreGoal / keyEvents / characterBeats / reveals / emotionArc —
+      // would have handed the script writer an EMPTY episode brief. Old versions
+      // still work: each line prefers the new field and falls back to the old one.
+      const goal = (entry.coreGoal || entry.purpose || "").trim();
+      const events = Array.isArray(entry.keyEvents) ? entry.keyEvents.filter((s) => s && s.trim()) : [];
+      parts.push(`本集 EP${entry.epNumber}「${entry.title}」`);
+      if (goal) parts.push(`本集核心目标：${goal}`);
+      if (events.length) parts.push(`主要剧情：\n${events.map((s, i) => `${i + 1}. ${s}`).join("\n")}`);
+      else if (entry.synopsis) parts.push(`本集梗概：${entry.synopsis}`);
+      const beats = Array.isArray(entry.characterBeats) ? entry.characterBeats : [];
+      if (beats.length) {
+        parts.push(`角色推进：\n${beats
+          .map((b) => `- ${b.who}：${b.change}${b.relationChange ? `（关系：${b.relationChange}）` : ""}`)
+          .join("\n")}`);
+      }
+      const reveals = Array.isArray(entry.reveals) ? entry.reveals.filter((s) => s && s.trim()) : [];
+      if (reveals.length) parts.push(`信息揭示：${reveals.join("；")}`);
+      if (entry.emotionArc) parts.push(`情绪曲线：${entry.emotionArc}`);
       if (entry.hook) parts.push(`开场钩子：${entry.hook}`);
       if (entry.endingBeat) parts.push(`结尾拍：${entry.endingBeat}`);
     }
@@ -2266,8 +2355,10 @@ const ctx = {
           worldRules: world.rules || null,
           // the episode's own PURPOSE in one line — hook / 作用 / 结尾拍. Not the
           // whole plan entry: a shot does not need the episode's duration budget.
+          // `coreGoal` is what `purpose` became at episode-planner v2 (TASK-088
+          // §2.1); the fallback keeps every plan written before that readable.
           episodePlanNote: planEntry
-            ? [planEntry.hook, planEntry.purpose, planEntry.endingBeat]
+            ? [planEntry.hook, planEntry.coreGoal || planEntry.purpose, planEntry.endingBeat]
               .map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean).join(" / ") || null
             : null,
         },

@@ -29,6 +29,14 @@ _OUTLINE = (
     '{"premise":"p","logline":"l","centralConflict":"c",'
     '"storyArc":"a","climax":"x","ending":"e"}'
 )
+#: A MINIMAL VALID answer for `episode-planner`. 本集核心目标 + 主要剧情 became
+#: REQUIRED at skillVersion 2 (TASK-088 §2.1): the product owner asked for seven
+#: facets per episode, and the prose `synopsis` that used to stand in for all of
+#: them is optional now.
+_EPISODES = (
+    '{"episodes":[{"epNumber":1,"title":"一",'
+    '"coreGoal":"确立规则","keyEvents":["她救了人"]}]}'
+)
 
 
 @pytest.fixture()
@@ -172,7 +180,7 @@ def test_what_each_endpoint_actually_sends_is_its_packages_prompt(
         "storyboard-director": _SHOTS,
         "script-breakdown": '{"characters":[{"name":"阿澈"}],"locations":[]}',
         "story-development": _OUTLINE,
-        "episode-planner": '{"episodes":[{"epNumber":1,"title":"一","synopsis":"梗"}]}',
+        "episode-planner": _EPISODES,
         "script-writer": '{"script":"正文"}',
     }
     seen = _stub(srv, monkeypatch, answers[skill_id])
@@ -366,8 +374,7 @@ def test_the_input_caps_survived_the_migration(srv, monkeypatch) -> None:
     equal themselves, and deleting the truncation entirely left it green
     (independent review). So measure what actually reaches the model.
     """
-    episodes = '{"episodes":[{"epNumber":1,"title":"一","synopsis":"梗概"}]}'
-    seen = _stub(srv, monkeypatch, episodes)
+    seen = _stub(srv, monkeypatch, _EPISODES)
     app = srv._App(None, None)
 
     # episode-plan REFUSED above 30 000 and spliced the outline whole; it never

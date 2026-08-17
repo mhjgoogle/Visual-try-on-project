@@ -144,14 +144,18 @@ def test_a_writer_mode_steer_is_still_fenced_and_a_reviser_one_is_not(srv) -> No
         del srv._EXTRA_FENCED["_probe"]
 
 
-def test_todays_two_steered_endpoints_still_fence_their_steer(srv) -> None:
-    """Regression guard for 批次 0 being a pure refactor: until 088 / 089 register
-    their revisers, `story-develop` and `episode-plan` behave exactly as before."""
-    for slug in ("story-develop", "episode-plan"):
-        assert srv._extra_fenced(slug, {"instruction": "改"}) == (
-            ("instruction", "修改要求"),
-        )
-        assert slug not in srv._TWO_MODES
+def test_story_develop_still_fences_its_steer(srv) -> None:
+    """Regression guard: `story-develop` gets its reviser in 批次 C, so until then
+    it behaves exactly as before.
+
+    (`episode-plan` was here too through 批次 0 and moved to
+    `test_motv_episode_plan_task094.py` when 批次 A registered its reviser — the
+    guard did its job: registering the endpoint made this assertion fail.)
+    """
+    assert srv._extra_fenced("story-develop", {"instruction": "改"}) == (
+        ("instruction", "修改要求"),
+    )
+    assert "story-develop" not in srv._TWO_MODES
 
 
 # --- and the endpoint behaviour is unchanged end-to-end ---------------------- #
@@ -177,10 +181,13 @@ def test_script_revision_still_carries_its_base_script_as_domain_context(
     assert seen[0].count("结尾加一个反转") == 1
 
 
-def test_a_plan_steer_still_reaches_the_prompt(srv, monkeypatch) -> None:
-    """episode-plan is untouched by 批次 0 — its steer still arrives."""
+def test_a_writer_mode_plan_steer_still_reaches_the_prompt(srv, monkeypatch) -> None:
+    """「🪄 重新规划」 sends a steer with NO current plan. That is writer mode, and the
+    steer must still arrive — this is exactly what `base_decides=True` protects."""
     seen = _stub(
-        srv, monkeypatch, '{"episodes":[{"epNumber":1,"title":"t","synopsis":"s"}]}'
+        srv,
+        monkeypatch,
+        '{"episodes":[{"epNumber":1,"title":"t","coreGoal":"g","keyEvents":["e"]}]}',
     )
     app = srv._App(None, None)
     status, body = _post(
@@ -190,3 +197,6 @@ def test_a_plan_steer_still_reaches_the_prompt(srv, monkeypatch) -> None:
     )
     assert status == 200, body
     assert "偏权谋" in seen[0]
+    assert srv._skill_id_for("episode-plan", {"instruction": "偏权谋"}) == (
+        "episode-planner"
+    )

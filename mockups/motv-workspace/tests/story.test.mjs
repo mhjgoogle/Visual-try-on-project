@@ -214,6 +214,22 @@ test("a well-formed v8 document validates ok; corruption rejected case by case",
     (d) => delete d.scripts["ep-1"].brief,
     // two plan entries mapped to ONE episode entity → shared script — reject
     (d) => (d.story.plans[0].episodes[1].episodeId = "ep-1"),
+    // THE PRODUCT OWNER'S SEVEN, additive (TASK-088 §2.1 / TASK-094 批次 A).
+    // Absent is legitimate; PRESENT-BUT-WRONG rejects the whole document,
+    // because hydration coerces these and accepting a malformed one would lose
+    // plan content on the load→save round-trip (`additivePresent`'s rule).
+    (d) => (d.story.plans[0].episodes[0].coreGoal = 7),
+    (d) => (d.story.plans[0].episodes[0].emotionArc = ["平静"]),
+    (d) => (d.story.plans[0].episodes[0].keyEvents = "不是列表"),
+    (d) => (d.story.plans[0].episodes[0].keyEvents = ["一", 7]),
+    (d) => (d.story.plans[0].episodes[0].keyEvents = ["一", "  "]), // blank → dropped
+    (d) => (d.story.plans[0].episodes[0].reveals = { a: 1 }),
+    (d) => (d.story.plans[0].episodes[0].characterBeats = "不是列表"),
+    (d) => (d.story.plans[0].episodes[0].characterBeats = ["不是对象"]),
+    (d) => (d.story.plans[0].episodes[0].characterBeats = [{ change: "无人" }]),
+    (d) => (d.story.plans[0].episodes[0].characterBeats = [{ who: "林照" }]),
+    (d) => (d.story.plans[0].episodes[0].characterBeats = [{ who: "林照", change: "越界", relationChange: 7 }]),
+    (d) => (d.story.plans[0].basedOn = "1"), // which version this was revised from
   ];
   for (const [i, mutate] of cases.entries()) {
     const doc = v8Doc();
@@ -230,6 +246,18 @@ test("a well-formed v8 document validates ok; corruption rejected case by case",
   doc2.story.confirmedPlan = 0;
   doc2.story.plans[0].episodes[1].episodeId = null;
   assert.equal(migrateToCurrent(doc2).status, "ok");
+
+  // A WELL-FORMED plan carrying the seven validates, and so does one carrying
+  // none of them — the whole point of an additive field is that a document
+  // written before it existed is still a valid document (no version bump).
+  const doc3 = v8Doc();
+  Object.assign(doc3.story.plans[0].episodes[0], {
+    coreGoal: "确立世界规则", emotionArc: "平静 → 冲突",
+    keyEvents: ["她救了人", "世界收走她"], reveals: ["抹除不等于死亡"],
+    characterBeats: [{ who: "林照", change: "越界", relationChange: "交易 → 同伴" }],
+  });
+  doc3.story.plans[0].basedOn = null;
+  assert.equal(migrateToCurrent(doc3).status, "ok");
 });
 
 test("a plan PROPOSAL never carries episode identities (agent smuggling stripped)", () => {

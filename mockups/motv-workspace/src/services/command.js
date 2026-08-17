@@ -101,10 +101,30 @@ export async function developStory({ idea, current, instruction }) {
   return j.outline || {};
 }
 
-export async function planEpisodes({ outline, instruction }) {
+/**
+ * 分集规划：写一版，或者**改**当前这一版。
+ *
+ * `currentPlan` IS THE POINT (TASK-088 §1.1 / TASK-094 批次 A). Without it the
+ * backend had nothing to revise, so 「用 AI 改」 wrote a brand-new plan every
+ * time — four versions of the real project came back with four different EP01
+ * titles, and each confirmation minted 12 more episodes.
+ *
+ * `characters` is what lets the plan name real people: `characterBeats[].who`
+ * must be an existing character, and the endpoint could not enforce that while
+ * it never sent the cast (the capability declared `characters` as an optional
+ * input all along and nothing ever supplied it).
+ */
+export async function planEpisodes({ outline, instruction, currentPlan, characters }) {
   const j = await post(
     "/api/agent/episode-plan",
-    { outline, instruction: instruction || "" },
+    {
+      outline,
+      instruction: instruction || "",
+      // omitted rather than sent as null/[]: an empty current plan is not a plan
+      // to revise, and the backend decides the mode on its presence
+      ...(Array.isArray(currentPlan) && currentPlan.length ? { current_plan: currentPlan } : {}),
+      ...(Array.isArray(characters) && characters.length ? { characters } : {}),
+    },
     "agent",
     { timeoutMs: 0 },
   );

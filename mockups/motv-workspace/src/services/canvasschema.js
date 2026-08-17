@@ -1256,6 +1256,14 @@ export function validateCanvasDoc(doc) {
       // renumber is rejected instead (accepted saves never lose data)
       const OUTLINE_FIELDS = ["premise", "logline", "genreTone", "world", "centralConflict", "storyArc", "ending", "durationNote"];
       const PLAN_FIELDS = ["title", "synopsis", "purpose", "hook", "endingBeat", "duration"];
+      // The product owner's seven (TASK-088 §2.1). ADDITIVE, and therefore
+      // validated by the rule `additivePresent` states: absent/null is a
+      // legitimate document written before the field existed, present-but-wrong
+      // rejects the WHOLE document — hydration coerces these, so accepting a
+      // malformed one would lose plan content on the load→save round-trip.
+      // No schema-version bump, exactly like every other additive field.
+      const PLAN_ADDED_STRINGS = ["coreGoal", "emotionArc"];
+      const PLAN_LIST_FIELDS = ["keyEvents", "reveals"];
       if (typeof st.idea !== "string") return "story idea is missing or not a string";
       if (!Array.isArray(st.versions)) return "story versions is not an array";
       const soIds = new Set();
@@ -1307,6 +1315,11 @@ export function validateCanvasDoc(doc) {
         if (!(x.outlineVersionId === null || (typeof x.outlineVersionId === "string" && x.outlineVersionId))) {
           return `${where} outlineVersionId is invalid`;
         }
+        // which version this one was revised from (ADR-0072 决策 1). Additive:
+        // absent on every version written before it, rejected when malformed.
+        if (additivePresent(x.basedOn) && !Number.isInteger(x.basedOn)) {
+          return `${where} basedOn is invalid`;
+        }
         if (!Array.isArray(x.episodes) || !x.episodes.length) return `${where} has no episodes`;
         const linked = new Set();
         for (let j = 0; j < x.episodes.length; j++) {
@@ -1318,6 +1331,32 @@ export function validateCanvasDoc(doc) {
             if (typeof e[k] !== "string") return `${ew} ${k} is missing or not a string`;
           }
           if (!e.title.trim()) return `${ew} has a blank title`;
+          for (const k of PLAN_ADDED_STRINGS) {
+            if (additivePresent(e[k]) && typeof e[k] !== "string") {
+              return `${ew} ${k} is not a string`;
+            }
+          }
+          for (const k of PLAN_LIST_FIELDS) {
+            if (!additivePresent(e[k])) continue;
+            if (!Array.isArray(e[k]) || e[k].some((s) => typeof s !== "string" || !s.trim())) {
+              return `${ew} ${k} is not a list of non-blank strings`;
+            }
+          }
+          if (additivePresent(e.characterBeats)) {
+            if (!Array.isArray(e.characterBeats)) return `${ew} characterBeats is not an array`;
+            for (let b = 0; b < e.characterBeats.length; b++) {
+              const beat = e.characterBeats[b];
+              const bw = `${ew} characterBeats[${b}]`;
+              if (!isPlainObject(beat)) return `${bw} is not an object`;
+              // `who` + `change` are what a 角色推进 row IS: the sanitizer drops a
+              // row missing either, so a saved half-row would be lost on reload
+              if (typeof beat.who !== "string" || !beat.who.trim()) return `${bw} has no who`;
+              if (typeof beat.change !== "string" || !beat.change.trim()) return `${bw} has no change`;
+              if (additivePresent(beat.relationChange) && typeof beat.relationChange !== "string") {
+                return `${bw} relationChange is not a string`;
+              }
+            }
+          }
           if (!(e.episodeId === null || (typeof e.episodeId === "string" && e.episodeId))) {
             return `${ew} episodeId is invalid`;
           }

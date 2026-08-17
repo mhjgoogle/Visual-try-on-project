@@ -36,7 +36,25 @@ const strList = (x) => (Array.isArray(x) ? x.filter((s) => typeof s === "string"
 export const OUTLINE_FIELDS = [
   "premise", "logline", "genreTone", "world", "centralConflict", "storyArc", "climax", "ending", "durationNote",
 ];
-export const PLAN_FIELDS = ["title", "synopsis", "purpose", "hook", "endingBeat", "duration"];
+// THE PRODUCT OWNER'S SEVEN (TASK-088 §2.1, 2026-08-17). `coreGoal` and
+// `emotionArc` join the string facets; `keyEvents` / `reveals` / `characterBeats`
+// are lists and live in the two lists below, because they cannot be compared or
+// coerced like a string.
+//
+// NOTHING WAS REMOVED. `synopsis` and `purpose` are what the seven REPLACE for
+// new content, but four plan versions of the real project are written in them and
+// two downstream readers (the script brief, the shot context) read them — so they
+// stay, optional, and the readers prefer the new field and fall back to the old
+// one. Deleting a field that is in use is the defect TASK-089 §2.2 names.
+export const PLAN_FIELDS = [
+  "title", "synopsis", "purpose", "hook", "endingBeat", "duration",
+  "coreGoal", "emotionArc",
+];
+/** Plan facets that are lists OF STRINGS: 主要剧情 / 信息揭示. */
+export const PLAN_LIST_FIELDS = ["keyEvents", "reveals"];
+/** 角色推进 — a list of `{who, change, relationChange?}`. Its own shape, because
+ *  `who` has to be an existing character and the other two are free text. */
+export const PLAN_BEAT_KEYS = ["who", "change", "relationChange"];
 
 // ---- Creative Brief (TASK-057) --------------------------------------------- //
 // The brief's own fields. The CORE IDEA is deliberately NOT one of them: it
@@ -178,8 +196,23 @@ export function sanitizeOutline(o) {
   return out;
 }
 
-/** Normalize a plan's episode entries: dense epNumber, string facets,
- *  episodeId carried verbatim when present (stamped at confirm time). */
+/** One 角色推进 row, normalized. A row without both `who` and `change` says
+ *  nothing ("someone changed" / "X did something"), so it is dropped rather than
+ *  kept as half a record. */
+function sanitizeBeat(b) {
+  if (!isObj(b)) return null;
+  const who = str(b.who).trim();
+  const change = str(b.change).trim();
+  if (!who || !change) return null;
+  const out = { who, change };
+  const rel = str(b.relationChange).trim();
+  if (rel) out.relationChange = rel;
+  return out;
+}
+
+/** Normalize a plan's episode entries: dense epNumber, string facets, the three
+ *  list facets, episodeId carried verbatim when present (stamped at confirm
+ *  time). */
 export function sanitizePlanEpisodes(list) {
   const out = [];
   for (const e of Array.isArray(list) ? list : []) {
@@ -187,10 +220,100 @@ export function sanitizePlanEpisodes(list) {
     const entry = { ...e, epNumber: out.length + 1 }; // unknown fields survive
     for (const k of PLAN_FIELDS) entry[k] = str(e[k]);
     if (!entry.title.trim()) continue; // an episode needs at least a title
+    // THE LIST FACETS ARE SANITIZED, NOT PASSED THROUGH. `{...e}` let unknown
+    // fields survive the round-trip, which is right for provenance — but these
+    // three now come from a MODEL ANSWER and land in studio/canvas.json, so an
+    // arbitrary nested structure must not reach the document under a key the
+    // renderer will iterate (TASK-094 批次 A).
+    for (const k of PLAN_LIST_FIELDS) entry[k] = strList(e[k]);
+    entry.characterBeats = (Array.isArray(e.characterBeats) ? e.characterBeats : [])
+      .map(sanitizeBeat)
+      .filter(Boolean);
     entry.episodeId = typeof e.episodeId === "string" && e.episodeId ? e.episodeId : null;
     out.push(entry);
   }
   return out;
+}
+
+/**
+ * The DRAFT's own hydration — blank rows survive.
+ *
+ * A draft is work in progress: 「＋ 添加一条」 appends an EMPTY row for the creator
+ * to type into, and it is persisted the moment it appears (a refresh mid-sentence
+ * must not lose anything). Running the strict sanitizer over a draft therefore
+ * did two bad things (codex review, 批次 A round 1, blocking):
+ *
+ *   1. an added row that had not been typed into yet VANISHED on reload;
+ *   2. worse, dropping a blank row RENUMBERED the ones after it — and every list
+ *      op addresses items BY INDEX, so the next keystroke would land on a
+ *      different item than the one on screen.
+ *
+ * Versions keep the strict rule (`savePlanDraft` runs `sanitizePlanEpisodes`), so
+ * a blank row can never become part of a plan VERSION. It only survives as the
+ * draft it is.
+ */
+export function sanitizePlanDraft(list) {
+  const out = [];
+  for (const e of Array.isArray(list) ? list : []) {
+    if (!isObj(e)) continue;
+    const entry = { ...e, epNumber: out.length + 1 };
+    for (const k of PLAN_FIELDS) entry[k] = str(e[k]);
+    if (!entry.title.trim()) continue; // an episode still needs a title
+    // the ITEMS are kept verbatim (blank included); only their TYPE is enforced,
+    // so nothing but a string can reach a text control
+    for (const k of PLAN_LIST_FIELDS) {
+      entry[k] = (Array.isArray(e[k]) ? e[k] : []).filter((s) => typeof s === "string");
+    }
+    entry.characterBeats = (Array.isArray(e.characterBeats) ? e.characterBeats : [])
+      .filter(isObj)
+      .map((b) => {
+        const row = { who: str(b.who), change: str(b.change) };
+        if (typeof b.relationChange === "string") row.relationChange = b.relationChange;
+        return row;
+      });
+    entry.episodeId = typeof e.episodeId === "string" && e.episodeId ? e.episodeId : null;
+    out.push(entry);
+  }
+  return out;
+}
+
+/** A deep-enough copy of one entry for the unversioned draft.
+ *
+ *  `{...e}` was enough while every facet was a string; the list facets made it
+ *  DANGEROUS — a shallow copy shares the arrays with the immutable plan version,
+ *  so typing in a draft's 主要剧情 would edit the confirmed version in place, and
+ *  every Episode's 「Based on 规划 vN」 chip would then point at content that had
+ *  been silently replaced (the exact reason drafts exist — see the MANUAL plan
+ *  editing note below). */
+function clonePlanEntry(e) {
+  const copy = { ...e };
+  for (const k of PLAN_LIST_FIELDS) copy[k] = [...(Array.isArray(e[k]) ? e[k] : [])];
+  copy.characterBeats = (Array.isArray(e.characterBeats) ? e.characterBeats : []).map((b) => ({ ...b }));
+  return copy;
+}
+
+/** The plan as the MODEL should see it: the creative facets, and nothing else.
+ *
+ *  `episodeId` is deliberately stripped. The model has no use for an internal
+ *  identity, and not sending it is what keeps 「the answer cannot name an
+ *  episode」 true at the transport as well as in `completeDevelop` — identity is
+ *  re-derived from the document (ADR-0072 决策 1), never read back out of an
+ *  answer. Unknown round-tripped fields are dropped too: they bound the payload
+ *  and mean nothing to the capability. */
+export function planForPrompt(entries) {
+  return (Array.isArray(entries) ? entries : []).map((e) => {
+    const out = { epNumber: e.epNumber };
+    for (const k of PLAN_FIELDS) if (str(e[k]).trim()) out[k] = e[k];
+    for (const k of PLAN_LIST_FIELDS) {
+      const list = strList(e[k]);
+      if (list.length) out[k] = list;
+    }
+    const beats = (Array.isArray(e.characterBeats) ? e.characterBeats : [])
+      .map(sanitizeBeat)
+      .filter(Boolean);
+    if (beats.length) out.characterBeats = beats;
+    return out;
+  });
 }
 
 function sanitizeVersions(list) {
@@ -231,6 +354,13 @@ function sanitizePlans(list) {
       origin: ["proposed", "manual"].includes(x.origin) ? x.origin : "proposed",
       instruction: str(x.instruction),
       outlineVersionId: typeof x.outlineVersionId === "string" && x.outlineVersionId ? x.outlineVersionId : null,
+      // WHICH version this one was revised from. A manual save has always
+      // recorded it; a proposed one does too since TASK-094 批次 A, because that
+      // link is what carried the episode identities forward (ADR-0072 决策 1) and
+      // a plan whose parent is unknown cannot be explained afterwards. Honestly
+      // null for versions written before it existed — never back-derived from
+      // `v - 1`, which would invent a provenance chain.
+      basedOn: Number.isInteger(x.basedOn) ? x.basedOn : null,
     });
   }
   return out;
@@ -275,13 +405,13 @@ export function createStory(saved) {
     for (const k of Object.keys(saveDrafts)) {
       const v = Number(k);
       if (!pOk(v) || !Array.isArray(saveDrafts[k])) continue;
-      const eps = sanitizePlanEpisodes(saveDrafts[k]);
+      const eps = sanitizePlanDraft(saveDrafts[k]);
       if (eps.length) doc.planDrafts[String(v)] = eps;
     }
   } else if (isObj(saved.planDraft) && pOk(saved.planDraft.basedOn)) {
     // a document written by the FIRST shape of this feature (one draft, keyed by
     // `basedOn`). Migrated rather than dropped — it is the creator's unsaved work.
-    const eps = sanitizePlanEpisodes(saved.planDraft.episodes);
+    const eps = sanitizePlanDraft(saved.planDraft.episodes);
     if (eps.length) doc.planDrafts[String(saved.planDraft.basedOn)] = eps;
   }
   return doc;
@@ -379,6 +509,31 @@ export function nextPlanVersion(doc) {
   return (doc && Array.isArray(doc.plans) ? doc.plans.length : 0) + 1;
 }
 
+/** Do two plan entries differ in ANY facet a creator can edit?
+ *
+ *  EVERY facet, not just the string ones (TASK-094 批次 A). While this compared
+ *  `PLAN_FIELDS` alone, editing 主要剧情 or 角色推进 left `planDirty` false — so
+ *  「已手工修改」 never appeared, 「保存为新版本」 stayed disabled, and the edit was
+ *  only ever a draft the creator could not turn into a version. */
+function entryDiffers(a, b) {
+  if (PLAN_FIELDS.some((k) => str(a[k]) !== str(b[k]))) return true;
+  for (const k of PLAN_LIST_FIELDS) {
+    const x = strList(a[k]);
+    const y = strList(b[k]);
+    if (x.length !== y.length || x.some((v, i) => v !== y[i])) return true;
+  }
+  // BY CONTENT, so a row the creator merely OPENED is not an edit yet. Comparing
+  // raw arrays reported 「已手工修改」 the instant 「＋ 添加一条」 appended a blank row,
+  // and 「保存为新版本」 then refused it (the strict sanitizer drops blanks, so the
+  // saved version would have been identical) — a dirty flag the creator could not
+  // clear. `strList` above already ignores blank items for the same reason.
+  const meaningful = (list) => (Array.isArray(list) ? list : []).map(sanitizeBeat).filter(Boolean);
+  const p = meaningful(a.characterBeats);
+  const q = meaningful(b.characterBeats);
+  if (p.length !== q.length) return true;
+  return p.some((beat, i) => PLAN_BEAT_KEYS.some((k) => str(beat[k]) !== str(q[i][k])));
+}
+
 export function planDirty(doc) {
   const base = planEditBase(doc);
   if (!base) return false;
@@ -386,7 +541,7 @@ export function planDirty(doc) {
   if (!a) return false;
   const b = base.episodes;
   if (a.length !== b.length) return true;
-  return a.some((e, i) => PLAN_FIELDS.some((k) => str(e[k]) !== str(b[i][k])));
+  return a.some((e, i) => entryDiffers(e, b[i]));
 }
 
 /** Does this version's stored draft actually DIFFER from it? */
@@ -395,7 +550,7 @@ function draftDiffers(doc, v) {
   const a = planDraftFor(doc, v);
   if (!base || !a) return false;
   if (a.length !== base.episodes.length) return true;
-  return a.some((e, i) => PLAN_FIELDS.some((k) => str(e[k]) !== str(base.episodes[i][k])));
+  return a.some((e, i) => entryDiffers(e, base.episodes[i]));
 }
 
 /**
@@ -428,22 +583,93 @@ export function planDraftVersions(doc) {
  */
 export function editPlanEntry(doc, episodeId, field, value) {
   if (!PLAN_FIELDS.includes(field)) return false;
-  if (typeof episodeId !== "string" || !episodeId) return false;
+  const entry = draftEntry(doc, episodeId);
+  if (!entry) return false;
+  entry[field] = str(value);
+  return true;
+}
+
+/**
+ * The draft row for one episode, seeding this version's draft on first touch.
+ *
+ * Shared by every plan edit op so 「先校验、再建草稿」 is stated once: validating
+ * after seeding would leave a draft behind for an edit that was refused, i.e.
+ * state created by an operation that reported failure.
+ */
+function draftEntry(doc, episodeId) {
+  if (typeof episodeId !== "string" || !episodeId) return null;
   const base = planEditBase(doc);
-  if (!base) return false;
-  // CHECK BEFORE SEEDING. Validating after would leave a draft behind for an edit
-  // that was refused — state created by an operation that reported failure.
-  if (!base.episodes.some((e) => e.episodeId === episodeId)) return false;
+  if (!base) return null;
+  if (!base.episodes.some((e) => e.episodeId === episodeId)) return null;
   if (!doc.planDrafts) doc.planDrafts = {};
   const key = String(base.v);
   if (!Array.isArray(doc.planDrafts[key])) {
     // seed THIS VERSION's draft from it, deep enough that editing cannot mutate
     // the immutable version it came from. Other versions' drafts are untouched.
-    doc.planDrafts[key] = base.episodes.map((e) => ({ ...e }));
+    doc.planDrafts[key] = base.episodes.map(clonePlanEntry);
   }
-  const entry = doc.planDrafts[key].find((e) => e.episodeId === episodeId);
-  if (!entry) return false;
-  entry[field] = str(value);
+  return doc.planDrafts[key].find((e) => e.episodeId === episodeId) || null;
+}
+
+/** The list living under `field` on one draft row, or null when that is not a
+ *  list facet / not an editable episode. */
+function draftList(doc, episodeId, field) {
+  const entry = draftEntry(doc, episodeId);
+  if (!entry) return null;
+  if (field === "characterBeats") {
+    if (!Array.isArray(entry.characterBeats)) entry.characterBeats = [];
+    return entry.characterBeats;
+  }
+  if (!PLAN_LIST_FIELDS.includes(field)) return null;
+  if (!Array.isArray(entry[field])) entry[field] = [];
+  return entry[field];
+}
+
+/**
+ * Type one item of a STRING list facet (主要剧情 / 信息揭示).
+ *
+ * Addressed by index WITHIN the addressed episode, and refused when the index
+ * does not exist — appending through an out-of-range write would let a stale
+ * render (an item another action removed) silently recreate it.
+ */
+export function editPlanItem(doc, episodeId, field, index, value) {
+  if (!PLAN_LIST_FIELDS.includes(field)) return false;
+  const list = draftList(doc, episodeId, field);
+  if (!list || !Number.isInteger(index) || index < 0 || index >= list.length) return false;
+  list[index] = str(value);
+  return true;
+}
+
+/** Append an EMPTY item and return its index (-1 = refused).
+ *
+ *  Empty on purpose: the creator asked for a row to type in, and the caller
+ *  marks it 「opened」 so `reviewface`'s blank-row filter renders it. Nothing is
+ *  invented on their behalf. */
+export function addPlanItem(doc, episodeId, field) {
+  const list = draftList(doc, episodeId, field);
+  if (!list) return -1;
+  list.push(field === "characterBeats" ? { who: "", change: "" } : "");
+  return list.length - 1;
+}
+
+/** Remove one item of a list facet. */
+export function removePlanItem(doc, episodeId, field, index) {
+  const list = draftList(doc, episodeId, field);
+  if (!list || !Number.isInteger(index) || index < 0 || index >= list.length) return false;
+  list.splice(index, 1);
+  return true;
+}
+
+/** Type one field of one 角色推进 row. `who` is a character NAME here (that is
+ *  what the capability answers with); the surface flags a name that matches no
+ *  character rather than dropping it — silently discarding the model's answer is
+ *  how a creator ends up believing nothing was produced. */
+export function editPlanBeat(doc, episodeId, index, key, value) {
+  if (!PLAN_BEAT_KEYS.includes(key)) return false;
+  const list = draftList(doc, episodeId, "characterBeats");
+  if (!list || !Number.isInteger(index) || index < 0 || index >= list.length) return false;
+  if (!isObj(list[index])) return false;
+  list[index][key] = str(value);
   return true;
 }
 
@@ -503,6 +729,33 @@ export function setIdea(doc, text) {
   doc.idea = String(text ?? "");
 }
 
+/**
+ * IS THIS PLAN RUN A REVISION, AND OF WHAT? Decided ONCE, here.
+ *
+ * 「用 AI 改这一版」 = a revision request against the plan on screen. 「🪄 重新规划」 =
+ * write a fresh one from the outline. The two mean opposite things for episode
+ * IDENTITY, so the answer must not be derived twice:
+ *
+ *   revision  → the new version continues these episodes (ADR-0072 决策 1)
+ *   fresh     → it is a different plan; its episodes are new
+ *
+ * Deriving it separately per layer is what went wrong: the backend selected the
+ * writer/reviser package from (current plan + instruction) while the document
+ * carried identity from `activePlan` alone — so a deliberately fresh replan
+ * inherited the old identities and confirming it would have silently retitled the
+ * existing episodes, leaving each script under a plan entry it was not written
+ * for (codex review, 批次 A round 2, blocking). Same predicate, one place, and the
+ * caller sends the model the base this returns.
+ *
+ * Returns the base plan version, or null.
+ */
+export function planRevisionBase(doc, instruction) {
+  const steer = typeof instruction === "string" ? instruction.trim() : "";
+  if (!steer) return null;
+  const base = planEditBase(doc);
+  return base && base.episodes.length ? base : null;
+}
+
 /** Start an AI development run. kind: "outline" (idea/current outline +
  *  instruction → outline proposal) | "plan" (approved outline → episode-plan
  *  proposal). Returns a call id (0 = refused: one already running, or an
@@ -519,7 +772,12 @@ export function beginDevelop(doc, kind, instruction) {
     kind, // "outline" | "plan"
     status: "generating",
     instruction: String(instruction || ""),
-    basedOn: kind === "outline" ? doc.active || null : doc.activePlan || null,
+    // For a PLAN this is the version being revised — null when the creator asked
+    // for a fresh one, because identity carry-over reads it (`planRevisionBase`).
+    basedOn:
+      kind === "outline"
+        ? doc.active || null
+        : (planRevisionBase(doc, instruction) || {}).v ?? null,
     // captured at LAUNCH, like outlineVersionId below: committing another brief
     // revision mid-review must not re-attribute this run
     briefVersionId: kind === "outline" ? (brief ? brief.id : null) : null,
@@ -531,6 +789,32 @@ export function beginDevelop(doc, kind, instruction) {
   return id;
 }
 
+/**
+ * A plan answer → proposal entries, each remembering WHICH episode it claims to be.
+ *
+ * Sanitized ONE AT A TIME so the claim can travel with the entry that survives:
+ * `sanitizePlanEpisodes` drops a titleless entry, so the payload's indices and the
+ * result's indices do not line up, and a claim matched back by position would be
+ * matched to the wrong entry — the very defect this exists to close.
+ */
+function planProposalEntries(payload) {
+  const out = [];
+  for (const item of Array.isArray(payload) ? payload : []) {
+    const [clean] = sanitizePlanEpisodes([item]);
+    if (!clean) continue;
+    const claimed = isObj(item) ? item.epNumber : null;
+    out.push({
+      ...clean,
+      // densified across the SURVIVORS, which is what the document requires
+      epNumber: out.length + 1,
+      episodeId: null,
+      claimedEpNumber:
+        Number.isInteger(claimed) && claimed > 0 && !Number.isNaN(claimed) ? claimed : null,
+    });
+  }
+  return out;
+}
+
 /** Land a finished development run as a PROPOSAL awaiting apply/discard. */
 export function completeDevelop(doc, id, payload) {
   const p = doc.pending;
@@ -538,8 +822,19 @@ export function completeDevelop(doc, id, payload) {
   // A PROPOSAL never carries episode identities: episodeId is stamped ONLY at
   // confirm time by the caller. Agent output smuggling an existing episodeId
   // must not be able to silently link/rename that episode on confirmation.
+  //
+  // WHICH EPISODE THE ANSWER SAYS EACH ENTRY IS, kept beside it (`claimedEpNumber`).
+  // `sanitizePlanEpisodes` DENSIFIES `epNumber` to the array position, so matching
+  // on it after sanitizing is matching on POSITION — and a reviser that returns
+  // the same 12 episodes in a different order would then hand EP01's identity to
+  // EP02's content, i.e. attach an existing script to the wrong episode (codex
+  // review, 批次 A round 1, blocking).
+  //
+  // It lives on the TRANSIENT pending only (`serialize` drops it and
+  // `carryEpisodeIdentity` strips it), so it never reaches the document: it is a
+  // claim being checked, not a fact being stored.
   const proposal = p.kind === "plan"
-    ? sanitizePlanEpisodes(payload).map((e) => ({ ...e, episodeId: null }))
+    ? planProposalEntries(payload)
     : sanitizeOutline(payload);
   if (p.kind === "plan" && !proposal.length) {
     doc.pending = { ...p, status: "failed", error: "规划提案为空（没有可用的分集）" };
@@ -560,6 +855,82 @@ export function cancelDevelop(doc) {
   doc.pending = null;
 }
 
+/**
+ * Give a revised plan the SAME episode identities as the version it revises
+ * (ADR-0072 决策 1).
+ *
+ * THE 48-EPISODE DEFECT. Every proposal arrives with `episodeId: null` (see
+ * `completeDevelop`), so `confirmPlan` created 12 fresh Episode entities for each
+ * confirmed version: 4 versions × 12 = the 48 the product owner found in a
+ * project whose target is 24. His rule — 「A『确认规划』时，已经存在的剧集该被
+ * 更新」 — needs the identities to survive the revision.
+ *
+ * THE IDENTITY COMES FROM THE DOCUMENT, NEVER FROM THE ANSWER. `basedOn` is the
+ * plan version recorded when the run was LAUNCHED, and the ids are read out of
+ * `doc.plans`. `completeDevelop` still strips every id the model sent, so the
+ * security property it was written for is untouched: a model answer cannot name,
+ * link or rename an episode.
+ *
+ * BY THE ANSWER'S OWN `epNumber` — NOT by array position. The reviser is told to
+ * keep every episode's number, and `sanitizePlanEpisodes` densifies `epNumber` to
+ * the array position, so the stored number cannot be the join key: an answer
+ * returning the same 12 episodes in a different order would hand EP01's identity
+ * to EP02's content and confirmation would attach an existing script to the wrong
+ * episode (codex review, 批次 A round 1, blocking).
+ *
+ * IF THE CLAIMS DO NOT FORM A CLEAN MAPPING, NOTHING IS CARRIED. A missing,
+ * duplicated or unmatched number means we cannot tell which base episode an entry
+ * continues — and the two possible mistakes are not symmetric:
+ *
+ *   linking the WRONG episode  →  a script silently belongs to another episode.
+ *                                 Irreversible in practice: nobody can tell.
+ *   linking NOTHING            →  a few new episodes get created. Visible, and
+ *                                 archivable (ADR-0072 决策 4).
+ *
+ * So an unclear answer degrades to 「these are new episodes」, all-or-nothing:
+ * a partially carried plan would be the worst of both — some rows continued, some
+ * duplicated, with nothing saying which.
+ *
+ * A revision that adds episodes leaves the new ones unlinked (they are genuinely
+ * new); one that drops episodes leaves those entities alone — they may already
+ * carry scripts, and deleting them would be irreversible (AGENTS.md 第 13 条).
+ */
+function carryEpisodeIdentity(doc, proposal, basedOnV) {
+  const strip = (e) => {
+    const { claimedEpNumber, ...rest } = e; // never reaches the document
+    return { ...rest, episodeId: null };
+  };
+  const base = Number.isInteger(basedOnV)
+    ? doc.plans.find((x) => x.v === basedOnV) || null
+    : null;
+  if (!base) return proposal.map(strip);
+
+  const claims = proposal.map((e) => e.claimedEpNumber);
+  const clean =
+    claims.every((n) => Number.isInteger(n) && n > 0) &&
+    new Set(claims).size === claims.length;
+  if (!clean) return proposal.map(strip);
+
+  const byNumber = new Map();
+  for (const b of base.episodes) {
+    // a base with duplicate numbers (hand-edited document) is not a mapping we
+    // can trust either — first wins, and the duplicate claim below finds nothing
+    if (!byNumber.has(b.epNumber)) byNumber.set(b.epNumber, b.episodeId || null);
+  }
+  const taken = new Set();
+  const linked = proposal.map((e) => {
+    const id = byNumber.get(e.claimedEpNumber) || null;
+    // ONE ENTITY PER ENTRY. Two entries sharing an episodeId would fight over the
+    // title on every confirmation and share one script — `canvasschema` rejects
+    // such a document outright.
+    if (!id || taken.has(id)) return strip(e);
+    taken.add(id);
+    const { claimedEpNumber, ...rest } = e;
+    return { ...rest, episodeId: id };
+  });
+  return linked;
+}
+
 /** Apply the pending proposal as the next immutable version of its chain.
  *  Every earlier version stays; approval/confirmation pointers do NOT move —
  *  a new outline version must be explicitly re-approved. */
@@ -571,10 +942,15 @@ export function applyProposal(doc) {
     rec = {
       id: mintId("plan"),
       v: doc.plans.length + 1,
-      episodes: p.proposal,
+      episodes: carryEpisodeIdentity(doc, p.proposal, p.basedOn),
       origin: "proposed",
       instruction: p.instruction,
       outlineVersionId: p.outlineVersionId ?? null, // captured at launch
+      // WHICH version this one was revised from. A manual save already records
+      // its parent; a proposed version recorded only its instruction, so
+      // 「这一版是从哪一版改出来的」 had no answer — and that answer is now
+      // load-bearing, because it is what `carryEpisodeIdentity` matched against.
+      basedOn: p.basedOn ?? null,
     };
     doc.plans.push(rec);
     doc.activePlan = rec.v;

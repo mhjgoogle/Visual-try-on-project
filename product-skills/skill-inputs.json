@@ -8,6 +8,7 @@
     "relationships": "人物关系",
     "world": "世界观",
     "episodePlan": "本集规划",
+    "currentPlan": "当前分集规划",
     "episodeScript": "本集剧本",
     "scenes": "场景",
     "shots": "分镜",

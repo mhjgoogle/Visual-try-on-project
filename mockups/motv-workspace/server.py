@@ -1543,6 +1543,12 @@ _CONTEXT_CAPS = {
     # the same 2 000 the legacy `instruction` steer carried; renaming the context
     # key must not raise a cap, so the number travels with it
     "revisionRequest": 2_000,
+    # TASK-094 批次 A. A 12-episode plan with the seven facets the product owner
+    # asked for is the biggest structure this endpoint sends, and it is bounded by
+    # the SAME number the endpoint already admits for the plan it receives back
+    # (`_agent_episode_plan`) — one plan-sized limit, not two that can drift.
+    "currentPlan": 60_000,
+    "characters": 30_000,
 }
 
 #: Per-endpoint overrides, because two endpoints admitted different amounts of
@@ -2160,7 +2166,26 @@ _PAYLOAD_TO_CONTEXT = {
     "shots-draft": lambda p: {"episodeScript": p.get("script")},
     "bible-breakdown": lambda p: {"episodeScript": p.get("script")},
     "story-develop": lambda p: {"brief": p.get("idea"), "outline": p.get("current")},
-    "episode-plan": lambda p: {"outline": p.get("outline")},
+    "episode-plan": lambda p: (
+        # TWO MODES, TWO CAPABILITIES — the same shape `script-draft` proved
+        # (TASK-088 §2.2). Until TASK-094 批次 A this endpoint sent the OUTLINE
+        # only, so 「用 AI 改规划」 handed the model no plan to change and it wrote a
+        # fresh one every time: four versions of the real project came back with
+        # four completely different EP01 titles, and every confirmation minted 12
+        # more episodes (4 × 12 = the 48 the product owner found).
+        #
+        # The current plan is DOMAIN CONTEXT, not a steer: a steer is dropped by
+        # `compile_prompt`, which is exactly how the script reviser silently lost
+        # its base script once already.
+        {
+            "currentPlan": p.get("current_plan"),
+            "revisionRequest": p.get("instruction"),
+            "outline": p.get("outline"),
+            "characters": p.get("characters"),
+        }
+        if _is_revision("episode-plan", p)
+        else {"outline": p.get("outline"), "characters": p.get("characters")}
+    ),
     "script-draft": lambda p: (
         # TWO MODES, TWO CAPABILITIES. Revising is not writing: the reviser is
         # told to keep everything the creator did not ask about, and the base
@@ -2223,6 +2248,16 @@ _TWO_MODES: dict[str, _TwoModes] = {
         steer_key="instruction",
         base_key="base_script",
         base_decides=False,
+    ),
+    # TASK-094 批次 A. `base_decides=True`: 「🪄 重新规划」 legitimately sends a steer
+    # with no current plan, and that request means 「write a fresh plan, in this
+    # direction」 — so an absent plan selects the PLANNER rather than failing.
+    "episode-plan": _TwoModes(
+        writer="episode-planner",
+        reviser="episode-plan-reviser",
+        steer_key="instruction",
+        base_key="current_plan",
+        base_decides=True,
     ),
 }
 
@@ -3768,8 +3803,14 @@ class _App:
 
     def _agent_episode_plan(self, body: bytes, headers=None):
         """Approved Story Outline → Episode-Plan PROPOSAL (M9). Same agent
-        posture: local ``claude -p``, fail-closed, zero writes."""
-        if len(body) > 100_000:
+        posture: local ``claude -p``, fail-closed, zero writes.
+
+        TWO MODES since TASK-094 批次 A: with a `current_plan` AND an
+        `instruction` this REVISES the plan it is given (`episode-plan-reviser`);
+        otherwise it plans a fresh one (`episode-planner`). `_TWO_MODES` decides,
+        so the choice is made in exactly one place.
+        """
+        if len(body) > 250_000:
             return _json(
                 413,
                 {
@@ -3795,6 +3836,59 @@ class _App:
         if len(outline_json) > 30_000:
             return _json(
                 400, {"error": {"category": "too_large", "detail": "outline too long"}}
+            )
+        # THE PLAN BEING REVISED IS VALIDATED LIKE ANY OTHER REQUEST FIELD
+        # (TASK-094 批次 A). Bounded HERE rather than relying on the context cap:
+        # the cap TRUNCATES to keep a request answerable, and a plan cut off
+        # mid-episode is a plan the reviser would 「keep」 a broken copy of. The
+        # entry ceiling is the same 50 the answer parser enforces, so the request
+        # and the response cannot admit different sizes.
+        current_plan = payload.get("current_plan")
+        if current_plan is not None:
+            if not isinstance(current_plan, list) or not all(
+                isinstance(x, dict) for x in current_plan
+            ):
+                return _json(
+                    400,
+                    {
+                        "error": {
+                            "category": "bad_request",
+                            "detail": "'current_plan' must be a list of plan entries",
+                        }
+                    },
+                )
+            if len(current_plan) > 50:
+                return _json(
+                    400,
+                    {
+                        "error": {
+                            "category": "too_large",
+                            "detail": "current_plan has more than 50 episodes",
+                        }
+                    },
+                )
+            if len(json.dumps(current_plan, ensure_ascii=False)) > _cap_for(
+                "episode-plan", "currentPlan"
+            ):
+                return _json(
+                    400,
+                    {
+                        "error": {
+                            "category": "too_large",
+                            "detail": "current_plan too long",
+                        }
+                    },
+                )
+        characters = payload.get("characters")
+        if characters is not None and not isinstance(characters, list):
+            return _json(
+                400,
+                {
+                    "error": {
+                        "category": "bad_request",
+                        "detail": "'characters' must be a list",
+                    }
+                },
             )
         try:
             prompt = self._skill_prompt("episode-plan", payload)

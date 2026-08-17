@@ -162,6 +162,16 @@ export function createSkillController({
           const entry = plan && ep ? plan.episodes.find((e) => e.episodeId === ep.episodeId) : null;
           return entry || null;
         })(),
+        // THE WHOLE PLAN, as `episode-plan-reviser` needs it (TASK-094 批次 A).
+        // Deliberately a different key from `episodePlan` above, which is ONE
+        // episode's entry: two shapes under one key is how a capability ends up
+        // being asked about 12 episodes while its prompt says 「本集规划」.
+        // `planForPrompt` strips episodeId — identity is re-derived from the
+        // document, never read back out of an answer (ADR-0072 决策 1).
+        currentPlan: (() => {
+          const entries = storydoc.planForPrompt(storydoc.effectivePlanEpisodes(storyDoc));
+          return entries.length ? entries : null;
+        })(),
         episodeScript: scriptdoc.currentText(docs.script()),
         scenes: view ? view.scenes.map((s) => ({ sceneId: s.sceneId, title: s.title, shotIds: s.shotIds })) : [],
         shots: draft,

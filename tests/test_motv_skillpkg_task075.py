@@ -231,9 +231,29 @@ def test_the_new_episode_planner_capability_exists_and_stays_usable(catalog) -> 
     # the DELIBERATE tightening over `_parse_episode_plan`, which requires only
     # a non-empty title (card §3b, decision A obligation 1). Asserted so the
     # documented change cannot be silently reverted — a plan with no episode
-    # number and no synopsis is not a plan anyone can produce from.
-    assert set(episodes["of"]["required"]) == {"epNumber", "title", "synopsis"}
+    # number and no core goal is not a plan anyone can produce from.
+    #
+    # `synopsis` WAS in this set at skillVersion 1. TASK-088 §2.1 replaced the
+    # prose 梗概 with the product owner's own seven facets, so the required set is
+    # now 「集数 / 标题 / 本集核心目标 / 主要剧情」 — this is a stated rule change
+    # (2026-08-17), not a relaxation: `coreGoal` + `keyEvents` are BOTH required,
+    # where before one paragraph could stand in for all of it. `synopsis` remains
+    # a readable optional field because four plan versions of the real project are
+    # written in it (TASK-089 §2.2: a field in use is never silently deleted).
+    assert set(episodes["of"]["required"]) == {
+        "epNumber",
+        "title",
+        "coreGoal",
+        "keyEvents",
+    }
     assert episodes["of"]["fields"]["epNumber"]["type"] == "number"
+    assert episodes["of"]["fields"]["synopsis"]["type"] == "string"
+    # 3～6 条 is GUIDANCE, so the contract must not enforce it: a model answering
+    # 2 key events for a short episode has to be shown and flagged, not rejected
+    # wholesale (TASK-088 §2.1 「不足/超出如实提示，不拦死」). The schema bounds only
+    # what is absurd.
+    key_events = episodes["of"]["fields"]["keyEvents"]
+    assert (key_events["minItems"], key_events["maxItems"]) == (1, 12)
 
 
 def test_user_content_cannot_break_out_of_its_data_fence(catalog, labels) -> None:

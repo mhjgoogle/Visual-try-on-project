@@ -1,0 +1,25 @@
+{
+  "skillId": "episode-plan-reviser",
+  "skillVersion": 1,
+  "work": "creative",
+  "role": "制片规划",
+  "title": "Episode Plan Reviser",
+  "purpose": "按创作者的修改要求修订已有的分集规划，保留未被要求改动的集与字段。",
+  "inputs": [
+    "currentPlan",
+    "revisionRequest"
+  ],
+  "optionalInputs": [
+    "outline",
+    "brief",
+    "characters",
+    "world"
+  ],
+  "reviewCriteria": [
+    "没有被要求改的集是否原样保留，而不是顺手重写了标题与梗概",
+    "集数与每一集的 epNumber 是否保持不变（除非修改要求本身就是增减集数）",
+    "修改是否只回应了修改要求本身，没有夹带别的改动",
+    "输出是否是完整的分集规划，而不是只给出被改动的那几集"
+  ],
+  "recommendedRuntime": "local_subscription"
+}
