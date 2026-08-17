@@ -48,6 +48,7 @@ import sys
 import tempfile
 import threading
 import time
+from collections import namedtuple
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -2173,23 +2174,84 @@ _PAYLOAD_TO_CONTEXT = {
             "episodeScript": p.get("base_script"),
             "revisionRequest": p.get("instruction"),
         }
-        if _is_revision(p)
+        if _is_revision("script-draft", p)
         else {"brief": p.get("idea"), "episodePlan": p.get("episode")}
     ),
 }
 
 
-def _is_revision(payload: dict) -> bool:
+#: One endpoint, TWO capabilities: writing something, and revising it.
+#:
+#: A `namedtuple`, NOT a dataclass. This module is loaded by
+#: `spec_from_file_location` in ~30 tests without being registered in
+#: `sys.modules`, and `@dataclass` resolves its string annotations (this file has
+#: `from __future__ import annotations`) through `sys.modules[cls.__module__]` —
+#: which is None under that loader, so a dataclass here fails at IMPORT time and
+#: takes every one of those tests with it. `namedtuple` evaluates no annotations.
+_TwoModes = namedtuple("_TwoModes", "writer reviser steer_key base_key base_decides")
+_TwoModes.__doc__ = """One endpoint, two capabilities: writing, and revising.
+
+    THE SHAPE, DECLARED ONCE (TASK-094 §1.1). `script-draft` discovered it the
+    hard way — 「Revising is not writing」, and the thing being revised is DOMAIN
+    CONTEXT rather than a steer, because a steer is dropped by `compile_prompt`
+    and the revision mode silently lost its base script until a test caught it.
+    Two more endpoints need the same shape now, so it is a table rather than
+    three copies of one `if`: three copies is how one of them ends up
+    disagreeing with the other two.
+
+    ``steer_key``  the payload key holding the creator's revision REQUEST
+    ``base_key``   the payload key holding WHAT IS BEING REVISED
+    ``base_decides``  whether an absent base means 「not a revision」.
+
+    WHY THAT LAST FLAG IS NOT THE SAME FOR EVERY ENDPOINT, stated rather than
+    smoothed over. On `script-draft` a non-empty instruction ALWAYS means
+    revision: the initial mode takes `idea`, so there is no legitimate 「write a
+    fresh script from an instruction」 request, and one arriving without a base
+    script must be REFUSED loudly (`missingInputs` does it) instead of quietly
+    writing a new script over the creator's draft. On the plan and outline
+    endpoints the very same payload legitimately means 「generate a fresh one,
+    with this steer」 — that is what 「重新规划」 sends today — so an absent base
+    selects the writer instead of failing.
+    """
+
+#: Which endpoints have two modes. Registered here, consumed by `_is_revision`,
+#: `_skill_id_for` and `_extra_fenced` — one rule, three readers.
+_TWO_MODES: dict[str, _TwoModes] = {
+    "script-draft": _TwoModes(
+        writer="script-writer",
+        reviser="script-reviser",
+        steer_key="instruction",
+        base_key="base_script",
+        base_decides=False,
+    ),
+}
+
+
+def _is_revision(slug: str, payload: dict) -> bool:
     """Revision mode, decided ONCE.
 
     `_agent_script_draft` branches on `instruction`; selecting the package on
     `base_script` instead meant a payload carrying BOTH took the initial branch
     and then ran the reviser with no revision requirement anywhere in the
     prompt (independent review). Two definitions of one mode is one too many.
+
+    An endpoint that is not in `_TWO_MODES` has no revision mode at all, so it
+    answers False rather than guessing from a key that happens to be present.
     """
 
-    steer = payload.get("instruction")
-    return isinstance(steer, str) and bool(steer.strip())
+    mode = _TWO_MODES.get(slug)
+    if mode is None:
+        return False
+    steer = payload.get(mode.steer_key)
+    if not (isinstance(steer, str) and steer.strip()):
+        return False
+    if not mode.base_decides:
+        return True
+    base = payload.get(mode.base_key)
+    if isinstance(base, str):
+        return bool(base.strip())
+    # a plan or an outline arrives as a STRUCTURE; an empty one is not a base
+    return bool(base)
 
 
 def _cap_for(slug: str, key: str) -> int:
@@ -2204,7 +2266,7 @@ def _cap_for(slug: str, key: str) -> int:
 def _skill_id_for(slug: str, payload: dict) -> str:
     """Which package answers THIS request.
 
-    Only `script-draft` is mode-dependent. Pointing revision mode at
+    Mode-dependent for every endpoint in `_TWO_MODES`. Pointing revision mode at
     `script-writer` asked the model to WRITE this episode's script while handing
     it the creator's draft — so a 5 000-word draft plus 「结尾加一个反转」 came
     back as a freshly invented script presented as the revision (independent
@@ -2212,14 +2274,20 @@ def _skill_id_for(slug: str, payload: dict) -> str:
     要求修改的部分」 —— had no home until this package existed.
     """
 
-    if slug == "script-draft" and _is_revision(payload):
-        return "script-reviser"
+    mode = _TWO_MODES.get(slug)
+    if mode is not None and _is_revision(slug, payload):
+        return mode.reviser
     return _AGENT_SKILL_IDS[slug]
 
 
 #: Per-run steers that are NOT domain context: they belong to this request, not
 #: to the capability, so they are appended in the same fence instead of being
 #: declared as inputs the capability would then appear to require.
+#:
+#: READ THROUGH `_extra_fenced`, NEVER DIRECTLY (TASK-094 §1.1): on a two-mode
+#: endpoint the same key is a fenced steer in WRITER mode and a declared input of
+#: the reviser in REVISION mode, and sending it twice would put the creator's
+#: revision request into the prompt under two different headings.
 _EXTRA_FENCED = {
     "story-develop": (("instruction", "修改要求"),),
     "episode-plan": (("instruction", "修改要求"),),
@@ -2233,6 +2301,26 @@ _EXTRA_FENCED = {
     # `instruction`: a script-draft request carrying one is always revision mode,
     # so the initial-draft branch never had a steer to lose.
 }
+
+
+def _extra_fenced(slug: str, payload: dict) -> tuple[tuple[str, str], ...]:
+    """The per-run steers to fence for THIS request.
+
+    A two-mode endpoint's steer changes ROLE with the mode: in writer mode it is
+    a per-run steer with no home among the writer's declared inputs (「重新规划，
+    偏权谋」), and in revision mode it IS a declared input of the reviser. Fencing
+    it in revision mode too would send the same creator text twice under two
+    headings — and dropping the table entry outright, which is what
+    `script-draft` could safely do, would silently discard the writer-mode steer
+    on the endpoints where that mode legitimately carries one.
+    """
+
+    spec = _EXTRA_FENCED.get(slug, ())
+    mode = _TWO_MODES.get(slug)
+    if mode is not None and _is_revision(slug, payload):
+        return tuple(x for x in spec if x[0] != mode.steer_key)
+    return spec
+
 
 #: taskType -> the Skill package that answers it (inverse of the slug map).
 _TASK_TYPE_SKILL_IDS = {
@@ -3429,7 +3517,7 @@ class _App:
         # input keys would be worse: a Skill's declared inputs are what
         # `missingInputs` gates on, and inventing keys there would make the gate
         # lie about what the capability needs.
-        for key, label in _EXTRA_FENCED.get(slug, ()):
+        for key, label in _extra_fenced(slug, payload):
             value = payload.get(key)
             if not isinstance(value, str) or not value.strip():
                 continue
