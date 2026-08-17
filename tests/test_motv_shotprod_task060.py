@@ -140,16 +140,34 @@ def test_approved_false_is_not_a_state() -> None:
 
 
 def test_every_other_stage_is_derived() -> None:
-    """决策 1 — a stored status would contradict the media registry."""
+    """决策 1 — a stored status would contradict the media registry.
+
+    ADR-0073 决策 2 KEEPS this rule and makes it sharper. The persisted shape
+    gained a third map, ``stages``, but it carries ONLY 「跳过」 decisions — the one
+    thing nothing can derive. ``completed`` / ``in_progress`` are still forbidden
+    on disk, for exactly the reason this test was written: a written-down 「做完了」
+    goes on saying so after the artifact is deleted.
+
+    So the assertion moved from 「有几个 map」 to 「持久化面里有没有状态字段」, which is
+    the invariant that actually matters and survives the next additive field.
+    """
     dom = _code("workflow", "shotprod.js")
     assert "export function shotStage" in dom
-    # the persisted shape carries exactly two maps — no status field anywhere
-    assert "return { reviews, references };" in dom
     hydrate = dom.split("export function sanitizeShotProduction")[1]
     hydrate = hydrate.split("export function")[0]
     for forbidden in ("stage:", "status:"):
         assert forbidden not in hydrate, (
             "the persisted shape must not carry a stage/status field"
+        )
+    # …and the module that owns `stages` refuses to persist anything but a skip.
+    stage_dom = _code("workflow", "shotstage.js")
+    sanitize = stage_dom.split("export function sanitizeShotStages")[1]
+    sanitize = sanitize.split("export function")[0]
+    assert "skipped" in sanitize
+    for forbidden in ("completed", "in_progress"):
+        assert forbidden not in sanitize, (
+            "sanitizeShotStages must keep ONLY skip decisions — a stored "
+            f"{forbidden} would outlive the evidence it claims"
         )
 
 

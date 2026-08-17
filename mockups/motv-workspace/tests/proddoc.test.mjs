@@ -49,8 +49,10 @@ test("createProduction: persisted ids survive verbatim (never re-minted)", () =>
     world: { era: "", rules: "", society: "", regions: "", places: "", visualTone: "", atmosphere: "" },
     canon: { characters: 0, relationships: 0, world: 0 },
     // CP4: shot production state (review approvals + shared Reference
-    // bindings) is part of the durable round-trip too
-    shotProduction: { reviews: {}, references: {} },
+    // bindings) is part of the durable round-trip too.
+    // ADR-0073 决策 8 adds `stages` — the ONLY persisted stage decision is 「跳过」,
+    // and it round-trips like everything else here.
+    shotProduction: { reviews: {}, references: {}, stages: {} },
   };
   const p = pd.createProduction(structuredClone(saved));
   assert.deepEqual(pd.serialize(p), saved);

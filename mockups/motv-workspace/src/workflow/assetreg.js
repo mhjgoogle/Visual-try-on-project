@@ -64,6 +64,16 @@ export const ASSET_KINDS = [
   "performance-reference",
   "external-reference",
   "shot-image",
+  // ADR-0073 决策 7 / TASK-092 §2.7: 草图与正式关键帧是两件事，`shot-image` 一个词
+  // 表达不了。没有它们，状态机眼里「一张低成本草图」与「一张正式关键帧」完全相同，
+  // 于是成本阶梯（便宜档确认 → 正式档花钱）没有状态可挂。
+  //
+  //   storyboard  ④ 低成本草图 —— 先把镜头设计画出来看一眼，便宜是它存在的理由
+  //   keyframe    ⑤ 由草图 + 角色设定图 + 场景设定图合成的正式画面，也就是视频首帧
+  //
+  // 加法，零迁移：真实项目只用了 `character-reference`。
+  "storyboard",
+  "keyframe",
   "shot-video",
   // TASK-064 Phase 2 §7: a frame CUT OUT of a video take — 上一镜的尾帧 becoming
   // 下一镜的首帧. It is its own kind rather than a `shot-image`, because it is not
@@ -108,6 +118,8 @@ export const ASSET_KIND_LABEL = {
   "performance-reference": "表演参考",
   "external-reference": "外部参考",
   "shot-image": "镜头图片",
+  storyboard: "分镜草图",
+  keyframe: "关键帧",
   "shot-video": "镜头视频",
   "derived-frame": "派生帧",
   dialogue: "对白",
@@ -156,6 +168,19 @@ export const INTERPRETATION_KINDS = [
   "performance-reference",
 ];
 
+/**
+ * 一个 SHOT 的画面，不管它处在成本阶梯的哪一档（ADR-0073 决策 7）。
+ *
+ * WHY A FAMILY AND NOT THREE STRINGS AT THE CALL SITE. 资产库's 「镜头图片」 filter
+ * matched `kind === "shot-image"` exactly, so the two kinds added above would have
+ * been登记得好好的、界面上一张也看不见 —— a new kind that no filter can find is
+ * invisible, and 「新增 kind 后哪些地方消费 kind」 is precisely the hand-written
+ * checklist TASK-097 §2.6.1 says will miss one. Declared here, consumed by the
+ * filter, and covered by a derived guard that walks `ASSET_KINDS` and requires
+ * every image-domain kind to be reachable by some filter.
+ */
+export const SHOT_PICTURE_KINDS = ["shot-image", "storyboard", "keyframe"];
+
 const INTERPRETATION_SET = new Set(INTERPRETATION_KINDS);
 
 /** True when this kind reaches a generation through AI interpretation rather
@@ -176,6 +201,8 @@ export const KIND_DOMAIN = {
   "prop-reference": "images",
   "style-reference": "images",
   "shot-image": "images",
+  storyboard: "images",
+  keyframe: "images",
   "shot-video": "videos",
   "derived-frame": "images",
   dialogue: "audio",

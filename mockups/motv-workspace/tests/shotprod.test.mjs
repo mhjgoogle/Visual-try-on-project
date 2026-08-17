@@ -173,7 +173,10 @@ test("hydration drops unusable bindings and de-duplicates", () => {
   assert.deepEqual(referencesOfShot(p, "sh01"), ["ref-a", "ref-b"]);
   assert.equal("sh02" in p.shotProduction.references, false);
   assert.equal("sh03" in p.shotProduction.references, false);
-  assert.deepEqual(defaultShotProduction(), { reviews: {}, references: {} });
+  // `stages` is ADDITIVE (ADR-0073 决策 8): a fresh document carries the container
+  // and no decisions. Asserted as a whole-shape equality on purpose — it is how a
+  // future field that quietly starts life non-empty gets noticed.
+  assert.deepEqual(defaultShotProduction(), { reviews: {}, references: {}, stages: {} });
 });
 
 test("a shotId literally named __proto__ stays an own key", () => {
@@ -215,7 +218,10 @@ test("v12→v13 adds an EMPTY shot-production map and approves nothing", () => {
   const res = migrateToCurrent(v12);
   assert.equal(res.status, "ok", res.detail);
   assert.deepEqual(v12, snapshot);
-  assert.deepEqual(res.doc.production.shotProduction, { reviews: {}, references: {} });
+  // v13 introduced the two maps; v16 (ADR-0073) added the third, empty. Migrating a
+  // v12 save now lands on the CURRENT schema, so the expectation is the current
+  // shape — and it must still approve nothing and record no stage decision.
+  assert.deepEqual(res.doc.production.shotProduction, { reviews: {}, references: {}, stages: {} });
   assert.equal(validateCanvasDoc(res.doc), null);
   // deterministic + idempotent
   assert.deepEqual(migrateToCurrent(structuredClone(res.doc)).doc, res.doc);

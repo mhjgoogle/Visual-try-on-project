@@ -20,6 +20,7 @@
 import { MAX_CLIP_START, MAX_CLIP_FADE, TRACKS as TIMELINE_TRACKS } from "../workflow/timeline.js";
 import { pairKey } from "../workflow/canondoc.js";
 import { ASSET_KINDS, declarationDomainError, LINK_KEYS } from "../workflow/assetreg.js";
+import { STAGES as SHOT_STAGES } from "../workflow/shotstage.js";
 import { RUN_STATUSES, PROPOSAL_DISPOSITIONS } from "../workflow/skillrun.js";
 import {
   LAYERS as REVIEW_LAYERS, ISSUE_CATEGORIES, SEVERITIES, ISSUE_STATES, VERDICTS,
@@ -68,7 +69,7 @@ const LEGACY_SKILL_RUN_STATUSES = new Set([
 ]);
 
 /** Authoritative CURRENT canvas schema version. Saves must emit exactly this. */
-export const CANVAS_SCHEMA_VERSION = 15;
+export const CANVAS_SCHEMA_VERSION = 16;
 
 /**
  * v1 → v2 (checkpoint M2): stable creator identity + minimal provenance.
@@ -1138,7 +1139,38 @@ function migrateV14ToV15(doc) {
 
 /** Sequential migration steps: { [fromVersion]: (doc) => docAtFromVersion+1 }.
  *  Extended one real step at a time, never speculatively. */
-export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7, 7: migrateV7ToV8, 8: migrateV8ToV9, 9: migrateV9ToV10, 10: migrateV10ToV11, 11: migrateV11ToV12, 12: migrateV12ToV13, 13: migrateV13ToV14, 14: migrateV14ToV15 };
+/**
+ * v15 → v16 (ADR-0073 决策 8): the Shot stage decision map.
+ *
+ * PURELY ADDITIVE, AND DELIBERATELY EMPTY. The only thing `stages` ever holds is
+ * 「这一步按设计不做」 — a human decision nothing can derive. Every other stage
+ * status is computed from evidence at read time (决策 2), so there is nothing to
+ * back-fill and back-filling would be the exact defect the ADR forbids: a written
+ * 「做完了」 goes on saying so after the artifact is deleted.
+ *
+ * The version bump is therefore NOT about moving data. It is about making an older
+ * build REFUSE a document that contains skip decisions: that build has no
+ * `skipped`, so it would render 「他决定不画」 as 「他还没画」 — the precise confusion
+ * the whole card exists to remove. Refusing to load beats loading a lie, and the
+ * old data is untouched either way (AGENTS.md 第 13 条: 迁移前留下可回滚的旧数据).
+ */
+function migrateV15ToV16(doc) {
+  const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
+  if (isObj(doc.production)) {
+    if (!isObj(doc.production.shotProduction)) {
+      doc.production.shotProduction = { reviews: {}, references: {}, stages: {} };
+    } else if (!isObj(doc.production.shotProduction.stages)) {
+      doc.production.shotProduction.stages = {};
+    }
+  }
+  // EVERY MIGRATION RETURNS THE DOCUMENT — `migrateToCurrent` treats a non-object
+  // return as a broken step and fails the whole load `invalid`, which is the right
+  // contract (a migration that silently returned nothing would hand the app a blank
+  // canvas whose next autosave overwrites the stored document).
+  return doc;
+}
+
+export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7, 7: migrateV7ToV8, 8: migrateV8ToV9, 9: migrateV9ToV10, 10: migrateV10ToV11, 11: migrateV11ToV12, 12: migrateV12ToV13, 13: migrateV13ToV14, 14: migrateV14ToV15, 15: migrateV15ToV16 };
 
 /** Read the schema version of a raw persisted document.
  *  Returns a positive integer, or null if the marker is malformed.
@@ -2055,6 +2087,32 @@ export function validateCanvasDoc(doc) {
       if (!isPlainObject(sp)) return "production.shotProduction is missing or not an object";
       if (!isPlainObject(sp.reviews)) return "production.shotProduction.reviews is not an object";
       if (!isPlainObject(sp.references)) return "production.shotProduction.references is not an object";
+      // ADR-0073 决策 8: `stages` from v16. It carries ONLY 「跳过」 decisions —
+      // a stored `completed` / `in_progress` is refused rather than tolerated,
+      // because a written-down 「做完了」 goes on saying so after the artifact is
+      // gone (决策 2). Validating it here means such a document never loads at all.
+      const atV16 = Number.isInteger(doc.v) && doc.v >= 16;
+      if (atV16) {
+        if (!isPlainObject(sp.stages)) return "production.shotProduction.stages is not an object";
+        for (const shotId of Object.keys(sp.stages)) {
+          const perShot = sp.stages[shotId];
+          if (!isPlainObject(perShot)) return `shot stages ${shotId} is not an object`;
+          for (const stage of Object.keys(perShot)) {
+            if (!SHOT_STAGES.includes(stage)) return `shot stages ${shotId} names unknown stage ${stage}`;
+            const entry = perShot[stage];
+            if (!isPlainObject(entry)) return `shot stage ${shotId}/${stage} is not an object`;
+            const keys = Object.keys(entry);
+            if (keys.length !== 1 || keys[0] !== "skipped") {
+              return `shot stage ${shotId}/${stage} stores something other than a skip decision`;
+            }
+            const d = entry.skipped;
+            if (!isPlainObject(d) || typeof d.at !== "string" || !d.at.trim()) {
+              return `shot stage ${shotId}/${stage} skip decision has no time`;
+            }
+            if (typeof d.reason !== "string") return `shot stage ${shotId}/${stage} skip reason is not a string`;
+          }
+        }
+      }
       for (const shotId of Object.keys(sp.reviews)) {
         const r = sp.reviews[shotId];
         if (!isPlainObject(r)) return `shot review ${shotId} is not an object`;

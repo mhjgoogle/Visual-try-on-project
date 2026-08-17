@@ -30,6 +30,8 @@
 //
 // Pure state + transitions — no fetch, no DOM, no clock (callers pass `now`).
 
+import { defaultShotStages, sanitizeShotStages, stageStatuses, summarizeStages } from "./shotstage.js";
+
 const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
 const nonEmpty = (x) => typeof x === "string" && x !== "";
 const strOrNull = (x) => (nonEmpty(x) ? x : null);
@@ -56,7 +58,9 @@ export const SHOT_STAGE_LABEL = {
 const DESIGN_FACETS = ["description", "shotSize", "angle", "cameraMotion", "action"];
 
 export function defaultShotProduction() {
-  return { reviews: {}, references: {} };
+  // `stages` (ADR-0073 决策 8) 是加法字段，只承载 `skipped` 决定。旧存档没有它时
+  // 按决策 2 派生，不写回填脚本 —— 回填一个可以算出来的值正是决策 2 要禁止的事。
+  return { reviews: {}, references: {}, stages: defaultShotStages() };
 }
 
 /** Safe own-property write: a creativeShotId is an arbitrary string and could
@@ -101,7 +105,9 @@ export function sanitizeShotProduction(saved) {
     }
     if (keys.length) putKey(references, shotId, keys);
   }
-  return { reviews, references };
+  // `sanitizeShotStages` 只认 `skipped`：任何被写进文档的 `completed` / `in_progress`
+  // 一律丢弃（ADR-0073 决策 2 —— 那种声明会在产物消失后继续说做完了）。
+  return { reviews, references, stages: sanitizeShotStages(src.stages) };
 }
 
 // ---- review ---------------------------------------------------------------- //
@@ -228,19 +234,46 @@ export function isDesigned(shot) {
  * Only a recorded human approval reaches the last stage.
  */
 export function shotStage(prod, shot, media) {
-  const shotId = isObj(shot) ? shot.shotId : null;
-  const m = isObj(media) ? media : {};
+  // NOW A SUMMARY OVER THE SIX STAGES (ADR-0073 决策 6). The five words and this
+  // signature are unchanged, and so is every answer it gives — what changed is
+  // that there is no longer a second place where a shot's standing is computed.
+  // The linear chain that used to live here WAS that second place: it read the
+  // media map directly, so the moment 六个 stage 出现，两者必然开始漂移。
+  //
   // An approval is only the CURRENT standing while the thing that was approved
   // is still there. Delete or switch away the video and the shot is no longer
   // 已通过 — it has an approval on record for footage that is gone, which is a
   // different (and less finished) situation. The RECORD is kept either way:
   // the creator really did approve something, and erasing that would destroy a
   // real decision. `staleApproval` is how the UI says so.
-  if (m.video && isApprovedFor(prod, shotId, m.videoAssetId)) return "approved";
-  if (m.video) return "todo-review";
-  if (m.image) return "generated";
-  if (isDesigned(shot)) return "todo-generate";
-  return "todo-design";
+  return summarizeStages(stagesFromMedia(prod, shot, media), { designed: isDesigned(shot) });
+}
+
+/**
+ * The six stages as far as a plain `{ image, video }` media map can answer them.
+ *
+ * WHY IT IS SEPARATE AND DELIBERATELY PARTIAL. `stageStatuses` wants real evidence
+ * — an in-flight Run, a probe verdict, an approval bound to an asset. The three
+ * legacy consumers hand over only what they always had, and inventing the rest
+ * would be exactly the 「声明当事实」 this ADR exists to stop. So this adapter says
+ * what the media map genuinely proves and nothing more: 有图 / 有视频 / 那条视频有没有
+ * 被批准。Storyboard / voice / sfx are honestly `not_started` here, and the surfaces
+ * that need the real answer (向导 / 画布 / QC) call `stageStatuses` with real
+ * evidence instead.
+ */
+export function stagesFromMedia(prod, shot, media) {
+  const shotId = isObj(shot) ? shot.shotId : null;
+  const m = isObj(media) ? media : {};
+  const stages = isObj(prod) && isObj(prod.shotProduction) ? prod.shotProduction.stages || {} : {};
+  return stageStatuses(stages, shotId, {
+    inflight: () => false, // a media map cannot know; never guessed as 「进行中」
+    artifact: (stage) => {
+      if (stage === "keyframe") return m.image ? { assetId: m.imageAssetId || null, present: true } : null;
+      if (stage === "video") return m.video ? { assetId: m.videoAssetId || null, present: true } : null;
+      return null;
+    },
+    approvedFor: (assetId) => isApprovedFor(prod, shotId, assetId),
+  });
 }
 
 /** True when a shot carries an approval that no longer describes what is on

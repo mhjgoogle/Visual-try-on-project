@@ -244,8 +244,11 @@ test("the migration is a pure function of the document (run it twice)", () => {
   assert.deepEqual(twice, once, "no clock, no randomness — same input, same output");
 });
 
-test("the current schema version is 15", () => {
-  assert.equal(CANVAS_SCHEMA_VERSION, 15);
+test("the current schema version is 16", () => {
+  // v16: ADR-0073 决策 8 adds `production.shotProduction.stages` (skip decisions
+  // only). A pinned number is the point — it forces whoever bumps the schema to
+  // come here and say what changed, which is how the migration list stays honest.
+  assert.equal(CANVAS_SCHEMA_VERSION, 16);
 });
 
 // --- validator -------------------------------------------------------------- //

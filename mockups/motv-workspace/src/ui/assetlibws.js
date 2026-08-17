@@ -16,7 +16,7 @@
 import { esc } from "../util/dom.js";
 import { head, empty, fileNameOf } from "./shell.js";
 import {
-  ASSET_KIND_LABEL, ASSET_KINDS, KIND_DOMAIN, REFERENCE_KINDS as REF_KINDS,
+  ASSET_KIND_LABEL, ASSET_KINDS, KIND_DOMAIN, REFERENCE_KINDS as REF_KINDS, SHOT_PICTURE_KINDS,
   derivedLabel, isReferenceKey,
 } from "../workflow/assetreg.js";
 import { USAGE_KIND_LABEL, isUnused } from "../workflow/assetusage.js";
@@ -64,11 +64,17 @@ const REFERENCE_KINDS = new Set(REF_KINDS);
 const AUDIO_KINDS = new Set(
   ASSET_KINDS.filter((k) => KIND_DOMAIN[k] === "audio"),
 );
+// Same rule as REFERENCE_KINDS above, for the same reason: 「镜头图片」 used to mean
+// the single kind `shot-image`, so ADR-0073's `storyboard` / `keyframe` would have
+// been registered correctly and shown nowhere (TASK-097 §2.6.1 —— 新增 kind 的消费者
+// 要派生，不要手写).
+const SHOT_PICTURES = new Set(SHOT_PICTURE_KINDS);
 
 function matchesType(a, type) {
   if (type === "all") return true;
   if (type === "reference") return REFERENCE_KINDS.has(a.kind) || isReferenceKey(a.key);
   if (type === "audio") return AUDIO_KINDS.has(a.kind) || a.domain === "audio";
+  if (type === "shot-image") return SHOT_PICTURES.has(a.kind);
   if (type === "final") return a.kind === "final" || a.domain === "finals";
   // 资产库's Collections tab (ADR-0061 决策 1): assets the creator EXPLICITLY
   // marked reusable. Never "used more than once" — that inference is what
