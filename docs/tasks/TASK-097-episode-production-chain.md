@@ -203,7 +203,7 @@ Storyboard 通过数 / Keyframe 通过数 / 视频完成数 —— 每一个都�
 
 | 批次 | 提交号 | 审查 | 备注 |
 | --- | --- | --- | --- |
-| 0 | `PENDING` | codex 6 轮（名义 3，超额已声明）：15 P1 + 3 P2 全真全修零驳回 | 五个纯模块 `refscan` / `refset` / `batchpay` / `counts` / `genspec`；`gencard` 改读 `genspec`，`episodecleanup` 改用 `refscan`。守卫 52 项，前端 1504 全绿。**第 6 轮 3 处修复未复审**，已登记[待复审清单](../design/pending-codex-rereview.md)——这两个模块今日零调用方，批次 2/4D/4F/4G/4E 会在真实调用语境复审 |
+| 0 | `35337e9` | codex 6 轮（名义 3，超额已声明）：15 P1 + 3 P2 全真全修零驳回 | 五个纯模块 `refscan` / `refset` / `batchpay` / `counts` / `genspec`；`gencard` 改读 `genspec`，`episodecleanup` 改用 `refscan`。守卫 52 项，前端 1504 全绿。**第 6 轮 3 处修复未复审**，已登记[待复审清单](../design/pending-codex-rereview.md)——这两个模块今日零调用方，批次 2/4D/4F/4G/4E 会在真实调用语境复审 |
 | 1 | | | |
 | 2 | | | |
 | 3 | | | |
