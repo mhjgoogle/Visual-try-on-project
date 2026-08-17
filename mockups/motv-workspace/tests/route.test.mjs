@@ -17,19 +17,50 @@ import assert from "node:assert/strict";
 
 import {
   PAGES, PAGE_SECTIONS, PROJECT_SETTINGS, MODULE_ALIAS, ASSET_FILTER_ALIAS,
-  resolveModule, spaceOf,
+  LEGACY_EPISODE_STAGES, resolveModule, spaceOf,
 } from "../src/ui/shell.js";
 import { formatRoute, parseRoute, sameRoute, loadLastRoute, saveLastRoute } from "../src/services/route.js";
 import { guardsUnsavedEdit, routeLeavesObject } from "../src/ui/production.js";
 
 const P = "照见未明rev2";
 
+/** EVERY key a creator can actually be sitting on — DERIVED, never hand-listed.
+ *
+ *  TASK-086 §2: the previous spelling of this set was
+ *  `MODULE_ALIAS ∪ ASSET_FILTER_ALIAS ∪ PAGES ∪ ⚙`, and `workbench` /
+ *  `provenance` are in NONE of them — they are live pages with their own
+ *  renderer and their own `[data-mod]` entrance in `epprod.js`. So the property
+ *  below held over a set that happened to exclude the two members that broke it:
+ *  the app wrote `#/…/episode/workbench` and read it back as `PAGES[0]`, and
+ *  「刷新页面还在那里」 quietly did not hold there.
+ *
+ *  Deriving the set from `LEGACY_EPISODE_STAGES` is the point. A future stage
+ *  that has a renderer but no alias joins this test by existing, instead of by
+ *  someone remembering to add it here. */
+const EVERY_LIVE_KEY = [...new Set([
+  ...Object.keys(MODULE_ALIAS),
+  ...Object.keys(ASSET_FILTER_ALIAS),
+  ...PAGES,
+  PROJECT_SETTINGS,
+  ...LEGACY_EPISODE_STAGES.map(([stage]) => stage),
+])];
+
 /* ------------------------------------------------------------------------- */
 /* 1 · 历史键 → 真实页面 + 真实分区                                             */
 /* ------------------------------------------------------------------------- */
 
+test("往返集合覆盖每一个活着的键，包括没有别名的那两个（TASK-086 §2）", () => {
+  // The guard on the guard: if this set ever stops containing a key that the
+  // episode space can open, the property test below goes vacuous for it again.
+  for (const stage of LEGACY_EPISODE_STAGES.map(([s]) => s)) {
+    assert.ok(EVERY_LIVE_KEY.includes(stage), `${stage} 不在往返测试的键集里`);
+  }
+  assert.ok(EVERY_LIVE_KEY.includes("workbench"));
+  assert.ok(EVERY_LIVE_KEY.includes("provenance"));
+});
+
 test("每一个历史模块键都能写成 URL 并读回真实页面 + 真实分区（ADR-0063 决策 1）", () => {
-  const keys = [...Object.keys(MODULE_ALIAS), ...Object.keys(ASSET_FILTER_ALIAS), ...PAGES, PROJECT_SETTINGS];
+  const keys = EVERY_LIVE_KEY;
   for (const key of keys) {
     const hit = resolveModule(key);
     assert.equal(hit.resolved, true, `${key} must resolve`);
@@ -38,12 +69,32 @@ test("每一个历史模块键都能写成 URL 并读回真实页面 + 真实分
     assert.equal(back.ok, true, `${key} → ${url} did not parse`);
     assert.equal(back.project, P);
     assert.equal(back.resolved, true, `${key} → ${url} lost its resolution`);
-    // a REAL page…
+    // …a REAL surface. Not「any string」: the address must land somewhere that
+    // actually holds the content (ADR-0063 决策 1).
+    //
+    // TASK-086 §2 SPLIT THIS IN TWO rather than widening it. The old spelling was
+    // `PAGES ∪ ⚙`, written when the key set could not contain a legacy stage; now
+    // that it does, blanket-allowing any legacy landing would let a NEW page slip
+    // in unnoticed. So the rule is stated per key:
+    //   • a legacy stage with no alias   → may land on ITSELF, and only itself
+    //   • everything else                → must land in the frozen eleven ∪ ⚙
+    // The eleven-page closed set is untouched (`PAGES.length === 11` still guards
+    // it in workspaces.test.mjs); this only says which keys are allowed to sit
+    // outside it, and names them from the stage list instead of by hand.
     assert.equal(back.module, hit.module, key);
-    assert.ok(
-      PAGES.includes(back.module) || back.module === PROJECT_SETTINGS,
-      `${key} landed on ${back.module}, which is not a page`,
-    );
+    const isLegacyStage = LEGACY_EPISODE_STAGES.some(([s]) => s === key);
+    const hasAlias = Object.prototype.hasOwnProperty.call(MODULE_ALIAS, key);
+    if (isLegacyStage && !hasAlias) {
+      assert.equal(
+        back.module, key,
+        `${key} 没有别名，地址必须读回它自己（不得落到 ${back.module}）`,
+      );
+    } else {
+      assert.ok(
+        PAGES.includes(back.module) || back.module === PROJECT_SETTINGS,
+        `${key} landed on ${back.module}, which is not a page`,
+      );
+    }
     // …and a REAL section of it, or none because the page has none
     const list = PAGE_SECTIONS[back.module];
     if (back.section) {

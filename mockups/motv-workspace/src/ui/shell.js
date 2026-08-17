@@ -125,6 +125,17 @@ export const PROJECT_SETTINGS = "projectsettings";
  * these two keys is one of the five, so the rail highlights nothing while they are
  * open — which is honest: the creator is on a legacy surface the IA does not name.
  * `crumbScope` classifies both as shot-scoped, because that is what they show.
+ *
+ * THEY ARE NOW ADDRESSABLE AS THEMSELVES (TASK-086 §2). Not aliased — that is
+ * still the thing this note refuses. Until TASK-081 they had no address at all,
+ * which was survivable; after it, `writeUrl` wrote `#/…/episode/workbench` while
+ * `parseRoute` read it back as `PAGES[0]`, so opening 制作台 and pressing refresh
+ * landed the creator on 项目与创意. TASK-081 验收 #1「刷新页面还在那里」 did not
+ * hold for these two, and its round-trip test could not see it: that test's key
+ * set is MODULE_ALIAS ∪ ASSET_FILTER_ALIAS ∪ PAGES ∪ ⚙, and these two are in
+ * none of them. Resolving them to THEMSELVES closes the round trip without
+ * moving any content — `spaceOf` already says `episode`, and neither declares a
+ * section, so no address can name one they do not have.
  */
 export const MODULE_ALIAS = Object.freeze({
   // ③ 作品设定 — three creator surfaces became three sections of one page
@@ -271,6 +282,15 @@ export function resolveModule(key) {
   }
   if (k === PROJECT_SETTINGS) return { module: PROJECT_SETTINGS, section: "info", resolved: true };
   if (PAGES.includes(k)) return { module: k, section: null, resolved: true };
+  // A LEGACY STAGE THAT NO ALIAS COVERS RESOLVES TO ITSELF (TASK-086 §2).
+  // Derived from the stage list, not spelled out: `workbench` / `provenance` are
+  // the two that fall through today, and a future key that also has a renderer
+  // but no landing place must not have to be remembered here a second time.
+  // Without this they resolved to `PAGES[0]`, so the address the app itself
+  // wrote could not be read back — see the note above.
+  if (LEGACY_EPISODE_STAGES.some(([stage]) => stage === k)) {
+    return { module: k, section: null, resolved: true };
+  }
   return { module: PAGES[0], section: null, resolved: false };
 }
 

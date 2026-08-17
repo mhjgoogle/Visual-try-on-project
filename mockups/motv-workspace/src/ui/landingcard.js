@@ -19,6 +19,7 @@
 // PURE. No fetch, no DOM, no clock.
 import { esc } from "../util/dom.js";
 import { listAssets } from "../workflow/assetreg.js";
+import { currentDraftShots } from "../workflow/shotmap.js";
 
 const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
 
@@ -49,6 +50,32 @@ export function projectCardModel(doc) {
       }
     }
   }
+  // …AND THE SHOTS THAT EXIST AT ALL (TASK-086 §3).
+  //
+  // Owning is not existing, and this card showed only the first. The live project
+  // 照见未明rev2 has 60 drafted shots, NONE of them claimed by a scene, so the card
+  // said 「0 镜」 while 本集看板 two clicks away said 「60 个镜头」. Both numbers were
+  // defined correctly and the creator has only one reading: a card saying 0 after
+  // you drafted 60 shots reads as 「我什么都没做」 or 「我的分镜没了」. That is the
+  // GAP-06 failure (one word, two meanings, no stated scope) on the first screen
+  // of the product.
+  //
+  // So the card carries the number a creator means by 「镜」 — the shots that
+  // exist — and says how many of them are grouped only when that is not all of
+  // them. `draftShots` is the same list ⑦ 分镜设计 and 本集看板 count.
+  // `currentDraftShots` is the ONE reader of a saved document's draft list —
+  // `draftShots` is a runtime field the hydrate pass fills, so a card reading the
+  // saved doc has to walk the nodes, and a second copy of that walk is exactly how
+  // two surfaces come to disagree about 「几镜」 in the first place.
+  const drafted = new Set(
+    currentDraftShots(doc)
+      .map((s) => (isObj(s) ? s.shotId || s.slot : null))
+      .filter(Boolean),
+  );
+  // A shot claimed by a scene but absent from the current draft still exists as
+  // far as the production doc is concerned, so the total is the union — never
+  // smaller than either half.
+  const allShots = new Set([...drafted, ...shotIds]);
   const assets = listAssets(doc.assets);
   // 已生成 = shots that have a SELECTED video. Counted by the shot the video
   // proves it belongs to (`creativeShotId`), falling back to its slot key — a
@@ -64,7 +91,17 @@ export function projectCardModel(doc) {
   const shots = assets.filter((a) => a.domain === "images" && a.current
     && !(typeof a.kind === "string" && a.kind.endsWith("-reference")));
   const coverCandidates = [...refs, ...shots].map((a) => a.url).filter(Boolean);
-  return { readable: true, episodes: episodes.length, shots: shotIds.size, generated, coverCandidates };
+  return {
+    readable: true,
+    episodes: episodes.length,
+    // `shots` is what the creator means by 「镜」; `grouped` is the narrower count
+    // this model used to publish as `shots`, kept because 「归组」 is real progress
+    // and ⑦ 分镜设计 reports it.
+    shots: allShots.size,
+    grouped: shotIds.size,
+    generated,
+    coverCandidates,
+  };
 }
 
 /**
@@ -80,13 +117,21 @@ export function pickCover(candidates, isMissing) {
   return (Array.isArray(candidates) ? candidates : []).find((u) => u && !gone(u)) || null;
 }
 
-/** 「48 集 · 38 镜 · 0 已生成」 — or an honest gap where a number is not known.
+/** 「48 集 · 60 镜 · 0 已生成」 — or an honest gap where a number is not known.
  *
  *  A project whose canvas could not be read prints NO numbers: 「0 集 · 0 镜」 for
- *  a project full of work is the same lie 「余额 ¥0」 was (TASK-077 §1.1). */
+ *  a project full of work is the same lie 「余额 ¥0」 was (TASK-077 §1.1).
+ *
+ *  WHEN NOT EVERY SHOT IS GROUPED, SAY SO (TASK-086 §3). 「60 镜」 alone would leave
+ *  a creator wondering why 本集看板 shows nothing under a scene; 「60 镜（0 已归组）」
+ *  states the scope of both numbers in the place they disagree. The parenthetical
+ *  is omitted when all shots are grouped, because then there is nothing to explain
+ *  — a note that never varies is noise, not information. */
 export function cardStats(m) {
   if (!m || !m.readable) return null;
-  return `${m.episodes} 集 · ${m.shots} 镜 · ${m.generated} 已生成`;
+  const grouped = typeof m.grouped === "number" ? m.grouped : m.shots;
+  const scope = m.shots > 0 && grouped !== m.shots ? `（${grouped} 已归组）` : "";
+  return `${m.episodes} 集 · ${m.shots} 镜${scope} · ${m.generated} 已生成`;
 }
 
 /** The card's picture: a real cover, or the gradient placeholder it has today. */

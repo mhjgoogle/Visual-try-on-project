@@ -624,8 +624,22 @@ test("exactly ONE row is marked active, and a legacy key highlights its new page
   const resolved = resolveModule("frames");
   assert.equal(resolved.module, "shotwork");
   assert.equal(on(renderEpisodeRail({ activeModule: resolved.module })), 1);
-  // …and a surface the IA does not name highlights nothing rather than lying
-  assert.equal(resolveModule("workbench").resolved, false);
+  // …and a surface the IA does not name highlights nothing rather than lying.
+  //
+  // TASK-086 §2 replaced the proxy here. This used to assert
+  // `resolveModule("workbench").resolved === false` as shorthand for 「the rail
+  // does not claim it」 — but `resolved` is about whether the key HAS AN ADDRESS,
+  // and once those two keys became addressable (their own address, no alias) the
+  // proxy went red while the property it stood for was untouched. So assert the
+  // property: render the rail WITH that module active and require zero rows lit.
+  // Strictly stronger than the old line, which never rendered the rail at all.
+  for (const outside of ["workbench", "provenance"]) {
+    assert.ok(!PAGES.includes(outside), `${outside} 不该是十一页之一`);
+    assert.equal(
+      on(renderEpisodeRail({ activeModule: outside })), 0,
+      `${outside} 不是五页之一，rail 必须一行都不高亮`,
+    );
+  }
   assert.equal(on(renderEpisodeRail({ activeModule: null })), 0);
 });
 

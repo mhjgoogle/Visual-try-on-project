@@ -34,7 +34,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 from playwright.sync_api import sync_playwright
 
@@ -91,10 +91,39 @@ ROUTES = [
 ]
 
 
+# Where a HISTORICAL key legitimately lands. `services/shell.js MODULE_ALIAS` is
+# the authority; this mirrors only the keys this file drives, and the guard below
+# fails loudly if the application ever lands somewhere else — including on
+# `PAGES[0]`, which is what an unresolvable key falls back to.
+LANDS_ON = {
+    "episode": "board",
+    "scenes": "storyboard",
+    "shots": "storyboard",
+    "refplan": "shotwork",
+    "frames": "shotwork",
+    "video": "shotwork",
+    "dailies": "shotwork",
+    "audio": "delivery",
+    "edit": "delivery",
+    "storage": "projectsettings",
+}
+
+
 def route_hash(project: str, space: str, module: str) -> str:
     """The address of one page — the same shape `services/route.js` writes."""
     seg = "/".join(quote(s, safe="") for s in (project, space, module))
     return f"#/{seg}"
+
+
+def _module_of(hash_: str) -> str:
+    """The module segment of `#/<project>/<space>/<module>[/<section>]?…`.
+
+    Returns `""` when the address names no module (a project-only address), which
+    the caller treats as a mismatch rather than as agreement with anything.
+    """
+    path = (hash_ or "").lstrip("#/").split("?", 1)[0]
+    parts = [unquote(p) for p in path.split("/") if p]
+    return parts[2] if len(parts) >= 3 else ""
 
 
 # Navigate by ADDRESS, not by clicking. Setting `location.hash` fires the
@@ -189,6 +218,43 @@ def main() -> int:
                     }
                 )
                 print(f"  MISS {mod}: bounced to the landing page", file=sys.stderr)
+                continue
+            # DID IT LAND ON THE PAGE THAT WAS ASKED FOR?
+            #
+            # This check is why the tool exists. The 2026-08-16 run wrote
+            # `07-episode-workbench.png` and `08-provenance-graph.png` containing
+            # 项目与创意, because `workbench` / `provenance` resolved to `PAGES[0]`
+            # and the loop only refused when the app bounced all the way back to
+            # the LANDING page. It landed on a page — just not that one — so the
+            # tool reported success and named the file after a screen it had not
+            # captured. An audit tool manufacturing the exact class of evidence
+            # this audit exists to catch is worse than a missing screenshot, so a
+            # mismatch is now a finding WITH NO FILE.
+            #
+            # The comparison is on the MODULE SEGMENT only: the app legitimately
+            # normalises the space segment (derived) and appends a page's default
+            # section, and an alias legitimately lands on the page it now lives on
+            # — so an expected landing is stated per route rather than assumed
+            # equal to the request.
+            landed_mod = _module_of(landed)
+            expect = LANDS_ON.get(mod, mod)
+            if landed_mod != expect:
+                taken.append(
+                    {
+                        "file": None,
+                        "module": mod,
+                        "requested": want,
+                        "landed": landed,
+                        "note": (
+                            f"address did not open this page: asked for {mod!r}, "
+                            f"landed on {landed_mod!r} — no screenshot was written"
+                        ),
+                    }
+                )
+                print(
+                    f"  MISS {mod}: landed on {landed_mod!r}, not {expect!r}",
+                    file=sys.stderr,
+                )
                 continue
             page.screenshot(path=str(OUT / f"{stem}.png"))
             taken.append(

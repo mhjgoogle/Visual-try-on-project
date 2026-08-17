@@ -16,6 +16,33 @@
 //
 // M4a ships the resolver ONLY — no existing join is rewired yet.
 
+/**
+ * The AUTHORITATIVE draft shot list inside a SAVED canvas document.
+ *
+ * `ctx.project.draftShots` is a RUNTIME field: the hydrate pass copies it out of
+ * the current scriptgen version's `raw[]` and it is never persisted at the top
+ * level. Anything reading a saved document therefore has to walk the nodes, and
+ * this is the one place that knows how — because TASK-086 §3 was two readers
+ * disagreeing about the same number, and a second copy of this walk is how that
+ * happens again. `app.js`'s hydrate uses it too.
+ *
+ * Returns `[]` for a document with no scriptgen node, no current version, or a
+ * version that carries no `raw` — 「没有草稿」 and 「读不出草稿」 are both empty here;
+ * the CALLER decides how to present that, and the card's `readable` flag already
+ * separates 「文档读不出来」 from 「文档里没有东西」.
+ *
+ * Pure: no DOM, no fetch, no mutation of the input.
+ */
+export function currentDraftShots(doc) {
+  if (doc == null || typeof doc !== "object") return [];
+  const nodes = Array.isArray(doc.nodes) ? doc.nodes : [];
+  const gen = nodes.find((n) => n && typeof n === "object" && n.type === "scriptgen");
+  if (!gen) return [];
+  const versions = Array.isArray(gen.versions) ? gen.versions : [];
+  const cur = versions.find((v) => v && typeof v === "object" && v.v === gen.cur);
+  return cur && Array.isArray(cur.raw) ? cur.raw : [];
+}
+
 /** Build a bidirectional shotId↔slot index from an authoritative draft's raw
  *  shots. A binding resolves ONLY when BOTH its shotId and its slot are
  *  unambiguous (each appears exactly once across the draft). If either side is

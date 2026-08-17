@@ -12,6 +12,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { projectCardModel, pickCover, cardStats, renderCover } from "../src/ui/landingcard.js";
+import { currentDraftShots } from "../src/workflow/shotmap.js";
 import { MISSING, PRESENT, createMediaProbe } from "../src/services/mediaprobe.js";
 
 const asset = (over) => ({
@@ -61,9 +62,77 @@ test("集 / 镜 / 已生成 都来自文档自己，镜按集合去重", () => {
   assert.equal(m.episodes, 2);
   // sh-1, sh-2, sh-3 — sh-2 appears in two scenes and is ONE shot
   assert.equal(m.shots, 3);
+  assert.equal(m.grouped, 3, "every shot here is claimed by a scene");
   // one shot with a selected video, not two takes
   assert.equal(m.generated, 1);
+  // all grouped → no parenthetical, because there is nothing to explain
   assert.equal(cardStats(m), "2 集 · 3 镜 · 1 已生成");
+});
+
+/* ------------------------------------------------------------------------- */
+/* TASK-086 §3 · 「镜」 means the shots that EXIST, and says how many are grouped */
+/* ------------------------------------------------------------------------- */
+
+/** The live project's shape: a drafted shot list, and NO scene claiming any of
+ *  it. `照见未明rev2` really is this — 60 drafted, 0 grouped — and the card said
+ *  「0 镜」 while 本集看板 said 「60 个镜头」. */
+const UNGROUPED = {
+  production: { episodes: [{ episodeId: "ep-1", scenes: [] }, { episodeId: "ep-2", scenes: [] }] },
+  nodes: [
+    { id: "n2", type: "scriptgen", cur: 1, versions: [
+      { v: 1, raw: [
+        { shotId: "sh-a", slot: "v1-1" },
+        { shotId: "sh-b", slot: "v1-2" },
+        { shotId: "sh-c", slot: "v1-3" },
+      ] },
+    ] },
+  ],
+  assets: { images: {}, videos: {}, audio: {}, firstFrames: {}, finals: [], displaced: [] },
+};
+
+test("草稿里的镜头算「镜」，哪怕一个场景都没归组（TASK-086 §3）", () => {
+  const m = projectCardModel(UNGROUPED);
+  assert.equal(m.shots, 3, "3 个草稿镜头存在，卡上不能写 0");
+  assert.equal(m.grouped, 0);
+  assert.equal(cardStats(m), "2 集 · 3 镜（0 已归组） · 0 已生成");
+});
+
+test("未全部归组时必须写出口径，不能只留一个数字", () => {
+  const stats = cardStats({ readable: true, episodes: 48, shots: 60, grouped: 0, generated: 0 });
+  assert.match(stats, /60 镜/);
+  assert.match(stats, /已归组/, "两个数字不一致的地方必须说明口径（GAP-06 同一族）");
+});
+
+test("归组数与草稿数取并集，永远不小于任何一半", () => {
+  // a shot a scene still claims but the CURRENT draft no longer lists: it exists
+  const doc = {
+    ...UNGROUPED,
+    production: { episodes: [{ episodeId: "ep-1", scenes: [{ sceneId: "sc-1", shotIds: ["sh-a", "sh-gone"] }] }] },
+  };
+  const m = projectCardModel(doc);
+  assert.equal(m.shots, 4, "sh-a/b/c 加上只有场景还记得的 sh-gone");
+  assert.equal(m.grouped, 2);
+});
+
+test("没有 scriptgen 节点时不抛异常，也不臆造镜头数", () => {
+  const m = projectCardModel({ production: { episodes: [] }, assets: {} });
+  assert.equal(m.readable, true);
+  assert.equal(m.shots, 0);
+  assert.equal(m.grouped, 0);
+});
+
+test("草稿读法只有一处：卡片与 hydrate 用的是同一个 currentDraftShots", () => {
+  // Not a spelling check — call it and require it to answer the same list the
+  // card counted. A second copy of that node walk is how two surfaces came to
+  // disagree about 「几镜」 in the first place.
+  assert.equal(currentDraftShots(UNGROUPED).length, 3);
+  assert.equal(currentDraftShots(null).length, 0);
+  assert.equal(currentDraftShots({ nodes: [] }).length, 0);
+  // a version that is not the current one is not the draft
+  assert.equal(
+    currentDraftShots({ nodes: [{ type: "scriptgen", cur: 2, versions: [{ v: 1, raw: [{ shotId: "x" }] }] }] }).length,
+    0,
+  );
 });
 
 test("画布读不出来时一个数字都不写，绝不写 0", () => {

@@ -561,18 +561,29 @@ test("TASK-073 §1.1 验收 #2 + #12: every OLD key resolves to a real page + se
   // failure this very test exists to prevent (independent review, batch 3). They keep
   // their own page until the CONTENT moves — TASK-073 §5.11.
   //
-  // `resolved: false` is what KEEPS them working: production.js `setModule` only
-  // rewrites the key when `hit.resolved` is true, so an unaliased key passes through
-  // to its own renderer untouched. They must therefore still be listed as legacy
-  // stages — an unaliased key with no workspace of its own WOULD land nowhere.
+  // WHAT KEEPS THEM WORKING IS `module === key`, NOT `resolved === false`.
+  //
+  // TASK-086 §2 replaced the proxy. `setModule` rewrites the key only in its two
+  // `hit.resolved && …` branches, and BOTH need `hit.module !== k` (or a filter) to
+  // fire — so a key that resolves TO ITSELF passes through untouched exactly like an
+  // unresolvable one did. `resolved` was never the load-bearing part; it only looked
+  // that way because these two keys used to answer `PAGES[0]`, which is also what an
+  // unknown key answers. That collision is the bug §2 fixed: the app wrote
+  // `#/…/episode/workbench` and read it back as `brief`.
+  //
+  // So assert the property — the identity mapping — plus the two things that
+  // genuinely must not change: they keep their own workspace, and they stay OUTSIDE
+  // the frozen eleven.
   const legacyKeys = LEGACY_EPISODE_STAGES.map(([k]) => k);
-  for (const notYet of ["workbench", "provenance"]) {
-    assert.equal(resolveModule(notYet).resolved, false, `${notYet} must not be redirected yet`);
-    assert.equal(legacyKeys.includes(notYet), true, `${notYet} must keep its own workspace`);
+  for (const own of ["workbench", "provenance"]) {
+    assert.equal(resolveModule(own).module, own, `${own} 必须解析到它自己，不得被重定向`);
+    assert.equal(legacyKeys.includes(own), true, `${own} must keep its own workspace`);
+    assert.ok(!PAGES.includes(own), `${own} 不得因为可寻址就挤进冻结的十一页`);
+    assert.equal(PAGE_SECTIONS[own], undefined, `${own} 没有分区，地址不得声明一个`);
   }
   // and the centre the 「工作区」 back-navigation compares against is one of them
-  assert.equal(resolveModule(LEGACY_EPISODE_CENTRE).resolved, false,
-    "redirecting the centre makes `activeModule === LEGACY_EPISODE_CENTRE`永远为假");
+  assert.equal(resolveModule(LEGACY_EPISODE_CENTRE).module, LEGACY_EPISODE_CENTRE,
+    "重定向中心会让 `activeModule === LEGACY_EPISODE_CENTRE` 永远为假");
 
   // an unknown key still lands somewhere real, and says it was not resolved
   const miss = resolveModule("no-such-module");

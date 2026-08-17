@@ -1,6 +1,7 @@
 # TASK-086：地址说真话，数字带口径
 
-- 状态：**未开工**
+- 状态：**已完成（2026-08-16）**。三条一次提交；codex 跨模型 1 轮 `pass`（0 blocking / 0 non-blocking）。
+  §2 的实际缺陷**比本卡写的严重**，见 §5 实施记录。
 - 负责 Agent：单一实施 Agent（AGENTS.md 第 14 条）
 - 依据：2026-08-16 Phase 2 收口后重抓截图时实测（本卡三条都是**当场撞出来的**，
   不是从报告里抄的）
@@ -112,3 +113,97 @@ TASK-081 让「每一页都有地址」，这两个是例外，而且是**静默
 - 更新 [manifest](../../src/ui-gap-audit/manifests/screenshots.md) 对应行。
 - `shell.js:104-119` 的注释与实际行为对齐。
 - 若选 §2 的 B：在 TASK-074 里登记「搬内容」这件事仍然欠着。
+
+
+---
+
+## 5. 实施记录（2026-08-16）
+
+### §2 的诊断要更正：不是「没有地址」，是**地址写出去读不回来**
+
+本卡 §2 建议方案 B（让 `resolveModule` 返回显式「无地址」）。开工实测发现前提就错了：
+
+```
+formatRoute({ module: 'workbench' })  →  #/P/episode/workbench
+parseRoute(那个地址)                   →  brief
+```
+
+**应用自己写出的地址，自己读不回来。** 于是：点制作台 → 地址栏写 `workbench` →
+刷新 → 落在**项目与创意**。**TASK-081 验收 #1「刷新页面还在那里」对这两页从来不成立**，
+而截图工具只是把这件事显影了出来。
+
+它的往返测试为什么没抓到：键集是
+`MODULE_ALIAS ∪ ASSET_FILTER_ALIAS ∪ PAGES ∪ ⚙`，`workbench` / `provenance`
+**两个都不在里面**。测试对它覆盖的集合完全正确 —— 那个集合恰好排除了坏掉的成员。
+这是本仓库「守卫看起来加了，其实没接上」的**第五次**
+（前四次：`_package_dirs` 屏蔽表对不上 id、`gate.sh` 分类器无超时、
+`is_symlink()` 抓不到 junction、探针把「问不出来」当「文件不见了」）。
+
+**所以选的不是 B，是「解析到自己」**：不是别名到别页（那才是 `shell.js:104-119`
+一直拒绝的事 —— 内容没搬走），而是让这两个键的地址读回它们自己。
+`spaceOf` 本来就说 `episode`，两者都不声明分区，所以没有地址能命名它们没有的分区。
+判定从 `LEGACY_EPISODE_STAGES` **派生**，不写死键名。
+
+**往返测试的键集也改成派生的** —— 下一个「有渲染器、没有别名」的键会
+**因为存在**而进测试，不靠谁记得加。
+
+### 两条旧断言被改写（不是为通过而改）
+
+`workspaces.test.mjs` 与 `honeststate.test.mjs` 都把 `resolved === false` 当**代理**用。
+实测它们真正在意的四条性质在改动后**全部成立**：
+
+| 性质 | 结果 |
+| --- | --- |
+| `module === key`（不被重定向） | ✓ workbench / provenance |
+| rail 高亮 0 行（IA 不命名的面不说谎） | 0 / 0 |
+| 不在冻结的十一页 | ✓ ✓（`PAGES.length` 仍 11） |
+| `LEGACY_EPISODE_CENTRE` 比较仍成立 | `workbench` |
+| 对照：五页之一仍高亮 1 行 | 1 |
+| 对照：未知键仍落 `PAGES[0]` 且 `resolved:false` | `brief` |
+
+于是把代理换成**性质本身**：渲染 rail 并要求 0 行高亮（原来那条**根本不渲染 rail**）、
+断言 `module === key` + 不得挤进十一页 + 不得声明分区。**比原来更难通过**，不是放宽。
+依据是本仓库自己的教训（TASK-077「断言性质，不要枚举写法」、TASK-084 的 `is_symlink()` 代理）。
+
+### §1 审计工具：变异验证过
+
+导航后核对落点 module 段；不符 → 记 finding、**不写文件**。
+故意把 `frames` 的预期落点改错：
+
+```
+MISS frames: landed on 'shotwork', not 'delivery'
+{"file": null, "requested": …, "landed": …, "note": "… — no screenshot was written"}
+```
+
+**磁盘上没有文件。** 恢复后重抓全套：**24 张 · 0 MISS · 0 JS 异常**，
+`07-episode-workbench` / `08-provenance-graph` 现在落在自己身上。
+
+### §3 项目卡：一处权威
+
+`draftShots` 是**运行期**字段（hydrate 从 `nodes[scriptgen].versions[cur].raw` 填），
+存档里没有 —— 所以读存档的卡片必须走**应用自己那条规则**。提成
+`shotmap.currentDraftShots()`，一处权威，两边都用；第二份 node 走查正是
+「两个界面对同一个数字给出不同答案」的成因。
+
+真实项目：
+
+```
+照见未明rev2   → 48 集 · 60 镜（0 已归组） · 0 已生成     ← 之前是「0 镜」
+夜班沉默       → 1 集 · 3 镜 · 1 已生成                  ← 全归组，不加括号
+读不出来       → null                                     ← 一个数字都不写
+```
+
+括号**只在两个数字不一致时出现** —— 一条永远不变的注记是噪音，不是信息。
+
+### 检查
+
+pytest 3233 + 6 串行 · 前端 1345 · ruff check + format 全过 ·
+codex 跨模型 1 轮 `pass`（0 blocking / 0 non-blocking，独立性未降级）。
+
+### Follow-up
+
+- `workbench` / `provenance` 的**内容搬迁**仍然欠着（TASK-073 §5.11 / TASK-074）。
+  本卡只让它们的地址说真话，没有搬内容 —— 那两页仍在 IA 的十一页之外，rail 不高亮。
+- `LANDS_ON` 是 `MODULE_ALIAS` 在抓图工具里的镜像。守卫会在应用落到别处时喊，
+  但两份表本身没有守卫比对；真正的修法是让工具从 `shell.js` 读，需要在 Python 里
+  解析 JS 或导出一份 JSON，本卡未做。
