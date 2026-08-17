@@ -240,6 +240,14 @@ body = { model, prompt, duration, resolution, first_frame_image? }
 - 在
   [ui-gap-analysis.md](../../src/ui-gap-audit/reports/ui-gap-analysis.md)
   把 GAP-01 / 02 / 03 / 06 / 09 / 26 / 28 标为已闭合（GAP-28 只闭合「如实标注」那半）。
+- ~~Follow-up：**CJK 项目名让 `server.py` 启动崩溃**~~ —— **已修（2026-08-16，插队）**：
+  `serve.py` 早有 `_banner()`（docstring 已写明 cp932 问题），`server.py` 从未用它，
+  四行横幅是裸 `print`，于是 `夜班沉默` 让进程死在 `serve_forever` 之前。改为复用
+  那**一个**实现 + `run-windows.ps1` 设 `PYTHONIOENCODING=utf-8`。
+  验收：不带该环境变量、cp932 控制台、注册表含 CJK 项目名，后端起得来（`/api/meta` 200）。
+  测试 `tests/test_motv_banner_narrow_console.py` 带**控制组**（裸 `print` 必须真的抛）
+  并做过变异验证。高风险档（Windows 可移植性）：全量绿 + codex 跨模型 1 轮 `pass`。
+  **代价已经付过两次**：两个会话被它绊住，其中一个据此判成「项目不在本机」。
 - Follow-up 登记：`storageState` 写入 `missing` 的持久化方案（高风险）、
   后端媒体探针路由、Provider 多图契约（Phase 3.1）。
 

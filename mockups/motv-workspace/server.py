@@ -63,6 +63,11 @@ import runstore  # noqa: E402 - needs the path line above
 import skillpkg  # noqa: E402 - same
 from rootadmit import RootRejected, admit_root  # noqa: E402 - same
 
+# `serve.py` already solved «a narrow console cannot print this banner» — reuse
+# THAT implementation rather than writing a second one. It is import-safe (module
+# level holds only constants and defs).
+from serve import _banner  # noqa: E402 - same path line
+
 MOCKUP_DIR = Path(__file__).resolve().parent
 REPO_ROOT = MOCKUP_DIR.parents[1]
 DATA_DIR = MOCKUP_DIR / "data"
@@ -7193,11 +7198,19 @@ def main(argv=None):
         mode += " — query package not importable; run inside the venv for real data"
     if app.paid:
         mode += " + PAID write path (Gateway; spend still needs key + confirmation)"
-    print(f"motv mockup backend → http://{args.host}:{args.port}/")
-    print(f"  mode: {mode}")
-    print(f"  account-root: {account_root}")
+    # EVERY banner line goes through `_banner`, not `print`. A project named
+    # 「夜班沉默」 or an account root with any CJK in it made this crash on a
+    # cp932 / cp1252 console — BEFORE `serve_forever`, so the backend never came
+    # up at all. Two sessions lost time to it, and one concluded from the crash
+    # that the project was not on the machine. The banner is decoration; it must
+    # never be able to stop the server.
+    _banner(f"motv mockup backend → http://{args.host}:{args.port}/")
+    _banner(f"  mode: {mode}")
+    _banner(f"  account-root: {account_root}")
     if app.connected:
-        print(f"  projects: {', '.join(sorted(app._projects)) or '(none discovered)'}")
+        _banner(
+            f"  projects: {', '.join(sorted(app._projects)) or '(none discovered)'}"
+        )
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

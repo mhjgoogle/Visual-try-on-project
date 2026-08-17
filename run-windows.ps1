@@ -140,6 +140,14 @@ function Resolve-CodexOnPath {
     Write-Host "  It stays a REVIEWER: no capability is bound to it, and creative work defaults to Claude Code."
 }
 
+# Belt to `_banner`'s braces. `_banner` keeps a narrow console from KILLING the
+# server; this makes the banner actually READABLE on one, because Python then
+# encodes its own output as UTF-8 instead of the console code page. On a
+# Japanese/Chinese Windows the active page is cp932/cp936, and a project named
+# 「夜班沉默」 is unprintable there. Set for every Python this launcher starts —
+# the backend, the demo server and the CLI all print project names.
+$env:PYTHONIOENCODING = "utf-8"
+
 if (-not (Test-Path ".venv")) {
     Write-Host "Creating virtual environment (.venv)..."
     Invoke-Expression "$py -m venv .venv"
