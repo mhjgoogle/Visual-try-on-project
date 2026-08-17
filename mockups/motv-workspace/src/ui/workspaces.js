@@ -112,7 +112,20 @@ export function imageAssetOptions(assetUploads) {
     if (!e) continue;
     for (const r of e.history) {
       if (r && typeof r.assetId === "string" && r.assetId) {
-        out.push({ assetId: r.assetId, label: `${slot} v${r.version}`, url: r.url || "" });
+        // `key` is the registry SLOT this version belongs to — the same identifier
+        // `script-breakdown` v2 is shown and answers `existingAssetKey` with, so a
+        // hint can be resolved instead of printed unchecked (批次 E). `current` marks
+        // the version the slot actually selects, so a hint resolves to what the
+        // creator would SEE rather than to whichever version came first in history.
+        // Additive: every existing reader takes `assetId` / `label` / `url`.
+        out.push({
+          assetId: r.assetId,
+          key: slot,
+          version: r.version,
+          current: r.version === e.current,
+          label: `${slot} v${r.version}`,
+          url: r.url || "",
+        });
       }
     }
   }
@@ -155,6 +168,26 @@ export function settingsModel(pd) {
   return {
     empty: false,
     assets,
+    // WHAT AN `existingAssetKey` HINT MAY RESOLVE TO (TASK-090 §2.2 / 批次 E).
+    // Carried on the model so the breakdown card can check the capability's claim
+    // against the real registry instead of printing whatever key it answered with.
+    // Empty when the page was given no upload registry — then a hint simply cannot
+    // be confirmed, and the card says so rather than assuming.
+    //
+    // ONE ENTRY PER SLOT, resolved to the version the slot SELECTS. Listing every
+    // historical version made the card's `find` return whichever came first — v1
+    // for a slot whose current version is v2 — so the creator would have gone and
+    // checked the AI's hint against an obsolete image (codex review, 批次 E round 1).
+    // The fallback for a corrupt `current` pointer is the highest version seen,
+    // which is the rule `assetreg.listReferences` already documents.
+    assetHints: [...assets.reduce((byKey, a) => {
+      const key = a.key || a.assetId;
+      const prev = byKey.get(key);
+      if (!prev || a.current || (!prev.current && (a.version || 0) > (prev.version || 0))) {
+        byKey.set(key, { key, name: a.label, version: a.version, current: a.current });
+      }
+      return byKey;
+    }, new Map()).values()],
     // a state's refs view is null when the state INHERITS the base list (no
     // referenceAssetIds override) — distinct from an explicit empty list
     characters: prod.characters.map((c) => ({
@@ -643,9 +676,24 @@ export function renderBreakdownPanel(ctx, m) {
       const states = (c.kind.startsWith("new-") ? p.states : c.changes.states)
         .map((s) => `<span class="ws-tag" title="${esc(s.reason || "")}">◈ ${esc(s.name)}</span>`)
         .join(" ");
+      // 「这个对象可能已经有参考图了」 (TASK-090 §2.2 / 批次 E). RESOLVED against the
+      // real registry, and only shown when it resolves: a key the capability
+      // invented must not appear as if it were a real asset — and a claim the
+      // creator cannot check is worse than no claim. Nothing is bound here; this is
+      // a clue on a proposal card.
+      const hinted = p.existingAssetKey
+        ? (m.assetHints || []).find((a) => a.key === p.existingAssetKey) || null
+        : null;
+      const assetHint = hinted
+        ? `<div class="bd-f"><span>疑似已有参考</span>${esc(hinted.name)}` +
+          `<span class="ws-tag" title="AI 认为已上传的这张素材就是它；添加后可在档案里挂上，这里不会自动绑定">待你确认</span></div>`
+        : p.existingAssetKey
+          ? `<div class="bd-f"><span>疑似已有参考</span>` +
+            `<span class="ws-tag gate" title="AI 给出的资产键在资产库里找不到 —— 当作没有这条线索">指向了不存在的素材</span></div>`
+          : "";
       return (
         `<div class="bd-card"><div class="bd-card-h"><span class="ws-tag">${badge}</span><b>${esc(p.name)}</b></div>` +
-        body + (states ? `<div class="bd-states">建议状态：${states}</div>` : "") +
+        body + assetHint + (states ? `<div class="bd-states">建议状态：${states}</div>` : "") +
         `<div class="bd-actions">${actions}</div></div>`
       );
     })

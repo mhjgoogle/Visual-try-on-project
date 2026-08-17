@@ -1,19 +1,22 @@
 {
   "skillId": "script-breakdown",
-  "skillVersion": 1,
+  "skillVersion": 2,
   "work": "creative",
   "role": "制片",
   "title": "Script Breakdown",
-  "purpose": "从剧本拆出人物 / 场景地 / 状态，作为作品设定的提案。",
+  "purpose": "从剧本拆出人物 / 场景地 / 状态，作为作品设定的提案；能连到已上传资产的就连，不提议重复条目。",
   "inputs": [
     "episodeScript"
   ],
   "optionalInputs": [
-    "characters"
+    "characters",
+    "assets"
   ],
   "reviewCriteria": [
     "是否只包含剧本里真实出现的人物与地点",
-    "状态是否由剧情事件支撑，而不是凭空的氛围词"
+    "状态是否由剧情事件支撑，而不是凭空的氛围词",
+    "已经有档案的人物/场景地，是否给的是更新而不是又提一个新的",
+    "已上传资产里已经有对应参考图时，是否指了出来（existingAssetKey），而不是当作全新对象"
   ],
   "recommendedRuntime": "local_subscription"
 }

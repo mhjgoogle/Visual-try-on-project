@@ -1961,7 +1961,19 @@ const ctx = {
       try {
         let raw;
         if (CONNECTED) {
-          raw = await query.generateBibleBreakdown(script);
+          // WHAT THE CREATOR ALREADY HAS (TASK-090 §2.2 / 批次 E): the uploaded
+          // assets, so the breakdown can point at an existing reference instead of
+          // proposing a duplicate object, and the cast, so an entity that already
+          // has a profile comes back as an update.
+          raw = await query.generateBibleBreakdown(script, {
+            assets: assetreg.listAssets(assetRegistry).map((a) => ({
+              key: a.key, kind: a.kind, name: assetreg.derivedLabel(a),
+              tags: a.tags, links: a.links,
+            })),
+            characters: productionDoc.characters.map((c) => ({
+              characterId: c.characterId, name: c.name, tier: c.tier,
+            })),
+          });
         } else {
           await new Promise((r) => setTimeout(r, 700)); // visible working state
           raw = demoBibleBreakdown();

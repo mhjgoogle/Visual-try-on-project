@@ -1549,6 +1549,8 @@ _CONTEXT_CAPS = {
     # (`_agent_episode_plan`) — one plan-sized limit, not two that can drift.
     "currentPlan": 60_000,
     "characters": 30_000,
+    # the asset list is names + keys + tags, never bytes (TASK-094 批次 E)
+    "assets": 30_000,
 }
 
 #: Per-endpoint overrides, because two endpoints admitted different amounts of
@@ -2169,7 +2171,16 @@ _TEXT_PRODUCT_KEYS = frozenset({"script"})
 #: the model changes — so the translation lives here rather than in the packages.
 _PAYLOAD_TO_CONTEXT = {
     "shots-draft": lambda p: {"episodeScript": p.get("script")},
-    "bible-breakdown": lambda p: {"episodeScript": p.get("script")},
+    # 「AI 需要根据现在的剧本和**已经上传的资产**来…」 (产品负责人 2026-08-17,
+    # TASK-090 §2.2). `script-breakdown` declared `assets` as an optional input at
+    # v2 and this is what supplies it: without the list, the capability cannot
+    # connect what it reads in the script to a reference the creator already
+    # uploaded, so it proposes a brand-new object every time.
+    "bible-breakdown": lambda p: {
+        "episodeScript": p.get("script"),
+        "characters": p.get("characters"),
+        "assets": p.get("assets"),
+    },
     "story-develop": lambda p: (
         # TWO MODES, the same shape as `script-draft` and `episode-plan`
         # (TASK-089 §2.4 / TASK-094 批次 C). This endpoint always carried the
@@ -3778,6 +3789,32 @@ class _App:
             return _json(
                 400, {"error": {"category": "too_large", "detail": "script too long"}}
             )
+        # The asset list and the cast are validated like any other request field
+        # (TASK-094 批次 E). Bounded HERE as well as by the context cap: the cap
+        # TRUNCATES, and a list cut off mid-entry would hand the model half an asset
+        # key to 「connect」 an entity to.
+        for key in ("assets", "characters"):
+            value = payload.get(key)
+            if value is None:
+                continue
+            ok = isinstance(value, list) and all(isinstance(x, dict) for x in value)
+            if not ok:
+                return _json(
+                    400,
+                    {
+                        "error": {
+                            "category": "bad_request",
+                            "detail": f"'{key}' must be a list of objects",
+                        }
+                    },
+                )
+            if len(json.dumps(value, ensure_ascii=False)) > _cap_for(
+                "bible-breakdown", key
+            ):
+                return _json(
+                    400,
+                    {"error": {"category": "too_large", "detail": f"{key} too long"}},
+                )
         try:
             prompt = self._skill_prompt("bible-breakdown", payload)
         except skillpkg.SkillPackageError as exc:

@@ -63,6 +63,12 @@ export function parseBreakdown(payload) {
         visualInstruction: str(c.visualInstruction),
         voiceDescription: str(c.voiceDescription),
         states: states(c.states),
+        // 「这个人可能已经有参考图了」 — `script-breakdown` v2's answer to the asset
+        // list it is now given (TASK-090 §2.2). A CLUE, not a binding: it is
+        // displayed on the proposal card and resolved against the registry there,
+        // so a wrong guess costs the creator a glance and nothing else. Attaching
+        // the asset is a separate, explicit act.
+        existingAssetKey: str(c.existingAssetKey),
       });
       if (characters.length >= 12) break;
     }
@@ -77,6 +83,7 @@ export function parseBreakdown(payload) {
         description: str(l.description),
         visualInstruction: str(l.visualInstruction),
         states: states(l.states),
+        existingAssetKey: str(l.existingAssetKey),
       });
       if (locations.length >= 12) break;
     }

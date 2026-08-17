@@ -86,8 +86,29 @@ export async function generateScriptDraft({ idea, baseScript, instruction }) {
   return j.script || "";
 }
 
-export async function generateBibleBreakdown(script) {
-  const j = await post("/api/agent/bible-breakdown", { script }, "agent", { timeoutMs: 0 });
+/**
+ * 剧本拆解 → 作品设定提案。
+ *
+ * `assets` IS THE POINT of `script-breakdown` v2 (TASK-090 §2.2): 产品负责人
+ * 「AI 需要根据现在的剧本和**已经上传的资产**来连接人物关系或者梳理世界观」.
+ * Without the list the capability cannot tell 「这个人已经有参考图了」 from 「这是一个
+ * 全新的对象」, so it proposes a duplicate every time. `characters` goes with it so
+ * an entity that already has a profile comes back as an UPDATE, not as a second
+ * copy of the same person.
+ */
+export async function generateBibleBreakdown(script, { assets, characters } = {}) {
+  const j = await post(
+    "/api/agent/bible-breakdown",
+    {
+      script,
+      // omitted rather than sent empty: 「没有上传任何资产」 and 「没告诉它有哪些资产」
+      // are different situations, and only the first is true of a fresh project
+      ...(Array.isArray(assets) && assets.length ? { assets } : {}),
+      ...(Array.isArray(characters) && characters.length ? { characters } : {}),
+    },
+    "agent",
+    { timeoutMs: 0 },
+  );
   return j.breakdown || { characters: [], locations: [] };
 }
 

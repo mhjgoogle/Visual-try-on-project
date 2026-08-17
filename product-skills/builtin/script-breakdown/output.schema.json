@@ -55,6 +55,10 @@
                 }
               }
             }
+          },
+          "existingAssetKey": {
+            "type": "string",
+            "nonEmpty": false
           }
         }
       }
@@ -97,6 +101,10 @@
                 }
               }
             }
+          },
+          "existingAssetKey": {
+            "type": "string",
+            "nonEmpty": false
           }
         }
       }

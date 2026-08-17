@@ -51,6 +51,14 @@ mockups/motv-workspace/_agent-tools/
 # Claude Code local settings; shared Agent directories remain trackable.
 .claude/settings.local.json
 .claude/tmp/
+# …AT ANY DEPTH. An agent shell whose working directory is a SUBDIRECTORY writes
+# its scratch to `<subdir>/.claude/tmp/` instead, and the repo grew one of those
+# (`mockups/motv-workspace/.claude/tmp/`, holding a stale review verdict from
+# 2026-08-16). Untracked scratch is harmless until it starts showing up in every
+# review diff as if it were part of the change — which is how a codex round came
+# back reporting a two-day-old 「VERDICT: fail」 for unrelated code (TASK-094 批次 E).
+# Ignored rather than deleted: it is not this task's file to remove.
+**/.claude/tmp/
 
 # motv mockup: local canvas persistence (prototype scratch, not a fixture)
 mockups/motv-workspace/data/

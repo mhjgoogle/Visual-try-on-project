@@ -54,7 +54,9 @@
 | 4.3 | **资产登记表没有像素尺寸、视频无实际时长** | TASK-079 §7 | 高（schema）或 中（只读探测） | 审片页那两列因此写「未记录」。两条路：登记时探测并存储（schema + 迁移），或照 `mediaprobe.js` 的先例做只读探测 |
 | 4.4 | **`nonEmpty` 拦不住占位词** | TASK-078 | 中 | Skill schema 的 `nonEmpty` 挡不住模型写「无」「常规」——非空但无信息 |
 | 4.5 | **`LANDS_ON` 与 `MODULE_ALIAS` 两份表无守卫比对** | TASK-086 §Follow-up | 低 | 抓图工具里镜像了一份别名表。守卫会在应用落到别处时喊，但两份表本身不比对。根治要让工具从 `shell.js` 读 |
-| 4.6 | 升版本后**历史 Run 的 Prompt 无法从磁盘复现** | TASK-078 | 中 | Run 记了 `skillDigest`，但那个版本的 `prompt.md` 已被新版本取代 |
+| 4.6 | 升版本后**历史 Run 的 Prompt 无法从磁盘复现** | TASK-078 · TASK-094 批次 A/C/E | 中 | Run 记了 `skillDigest`，但那个版本的 `prompt.md` 已被新版本取代。**本链又升了三个包**（`episode-planner` 2、`story-development` 2、`script-breakdown` 2），所以这条的暴露面从一个包变成四个。**不是运行期缺陷**：没有任何代码按 `(skillId, version)` 解析包（`findSkill` 只按 id），历史 Run 的产物早已存在文档里，所以不会 fail closed；丢的是**可复现性**。根治要给包一个带版本的磁盘布局（`<skillId>/v1/`…），那是 ADR-0067 的布局变更，需要单独一张卡 + ADR。codex 在批次 E 把它报成 blocking，已按此驳回并登记（ADR-0067 决策 3 给出的补救就是「升版本号」，它没有要求保留旧内容） |
+| 4.8 | **Prompt 漂移基线只覆盖 20 / 22 个内置包** | TASK-094 批次 A 实测 | 低 | `skill-prompt-snapshots.json` 里没有 `episode-planner` 与 `script-reviser`，所以批次 A 重写 `episode-planner/prompt.md` 时那个「漂移警报」**没有响**（改 `story-development` / `script-breakdown` 时响了）。守卫的成员集合应当**从目录派生**，让新包**因为存在**而进基线（TASK-087 §7 项 2 同一条）。新增的 `episode-plan-reviser` / `story-reviser` / `world-director` 同样不在里面 |
+| 4.9 | 拆解提案的 `existingAssetKey` **只显示、不绑定** | TASK-094 批次 E | 中 | 能力现在能说「这个人已经有参考图了」，卡片会**对着资产库核一遍**再显示（核不到就说核不到）。但「确认后把这张图挂到该档案上」还是手工的。自动绑定＝资产登记写路径，超出 TASK-090 §2.2 的范围（那一节只要求输入 + prompt + 端点），故未做 |
 | 4.7 | 规划版本的 `basedOn` **只校验「是整数」**，不校验它指向一个真实的更早版本 | TASK-094 批次 A · codex 复审非阻塞 | 中（持久化诚实性） | `0` / 负数 / 指向自己 / 指向未来版本都能存进文档，于是「这一版是从哪一版改出来的」可以是假话。**不阻塞**：身份继承读的是**瞬态** `pending.basedOn`，不是持久字段，所以畸形值最多让**溯源显示**不对，接不错集。收紧到 `1 <= basedOn < v` 是一行，但按 ADR-0069 的轮次预算，P1 未闭合的那一轮只修 P1；故登记在此。大纲链的 `basedOn` 有**同样**的宽松，一起收紧才有意义 |
 
 ## 5. IA 与交互的残留
