@@ -1287,6 +1287,75 @@ export function validateCanvasDoc(doc) {
           || x.outline.characterConcepts.some((s) => typeof s !== "string" || !s.trim())) {
           return `${where} characterConcepts is not a list of non-blank strings`;
         }
+        // THE PRODUCT OWNER'S EIGHT (TASK-089 §2.1), by the same additive rule as
+        // the plan's七项: absent/null is a document written before they existed;
+        // present-but-wrong rejects the WHOLE document, because hydration coerces
+        // them and accepting a malformed one would lose outline content on the
+        // load→save round-trip. No schema-version bump.
+        if (additivePresent(x.outline.storyCore) && typeof x.outline.storyCore !== "string") {
+          return `${where} storyCore is not a string`;
+        }
+        const OUTLINE_OBJECTS = {
+          protagonist: ["who", "initialWant"],
+          conflict: ["external", "internal"],
+          themeAndChange: ["theme", "protagonistBecomes"],
+          mainline: ["setup", "development", "midpointTurn", "climax", "ending"],
+        };
+        for (const [key, subkeys] of Object.entries(OUTLINE_OBJECTS)) {
+          const v = x.outline[key];
+          if (!additivePresent(v)) continue;
+          if (!isPlainObject(v)) return `${where} ${key} is not an object`;
+          for (const sub of subkeys) {
+            if (additivePresent(v[sub]) && typeof v[sub] !== "string") {
+              return `${where} ${key}.${sub} is not a string`;
+            }
+          }
+        }
+        if (additivePresent(x.outline.worldAndRules)) {
+          const w = x.outline.worldAndRules;
+          if (!isPlainObject(w)) return `${where} worldAndRules is not an object`;
+          if (additivePresent(w.where) && typeof w.where !== "string") {
+            return `${where} worldAndRules.where is not a string`;
+          }
+          if (additivePresent(w.rules)
+            && (!Array.isArray(w.rules) || w.rules.some((s) => typeof s !== "string" || !s.trim()))) {
+            return `${where} worldAndRules.rules is not a list of non-blank strings`;
+          }
+        }
+        if (additivePresent(x.outline.keyRelationships)) {
+          const list = x.outline.keyRelationships;
+          if (!Array.isArray(list)) return `${where} keyRelationships is not an array`;
+          for (let r = 0; r < list.length; r++) {
+            const rel = list[r];
+            const rw = `${where} keyRelationships[${r}]`;
+            if (!isPlainObject(rel)) return `${rw} is not an object`;
+            // BOTH names, or the row names no relationship at all — and the
+            // sanitizer drops such a row, so accepting it here would lose it
+            if (!Array.isArray(rel.between) || rel.between.length !== 2
+              || rel.between.some((s) => typeof s !== "string" || !s.trim())) {
+              return `${rw} between is not two non-blank names`;
+            }
+            if (typeof rel.nature !== "string" || !rel.nature.trim()) return `${rw} has no nature`;
+            if (additivePresent(rel.howItChanges) && typeof rel.howItChanges !== "string") {
+              return `${rw} howItChanges is not a string`;
+            }
+          }
+        }
+        if (additivePresent(x.outline.secretsAndReveals)) {
+          const list = x.outline.secretsAndReveals;
+          if (!Array.isArray(list)) return `${where} secretsAndReveals is not an array`;
+          for (let s = 0; s < list.length; s++) {
+            const sec = list[s];
+            const sw = `${where} secretsAndReveals[${s}]`;
+            if (!isPlainObject(sec)) return `${sw} is not an object`;
+            if (typeof sec.truth !== "string" || !sec.truth.trim()) return `${sw} has no truth`;
+            for (const k of ["whyNotUpfront", "revealAround"]) {
+              if (additivePresent(sec[k]) && typeof sec[k] !== "string") {
+                return `${sw} ${k} is not a string`;
+              }
+            }
+          }
+        }
         const n = x.outline.episodeCount;
         // 1..50, matching the plan endpoint's parser cap (hydration nulls
         // out-of-range values, so out-of-range is rejected here instead)

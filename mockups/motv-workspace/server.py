@@ -2061,8 +2061,14 @@ def _parse_story_outline(text: str) -> dict:
 
     ONE JSON object with the outline facets. Shape-only here (the client's
     storydoc module re-sanitizes every field; nothing is written server-side —
-    the result is a PROPOSAL payload). Requires at least a premise or logline
-    so an empty non-answer never reads as a valid outline.
+    the result is a PROPOSAL payload). Requires at least ONE one-line statement of
+    what the story is, so an empty non-answer never reads as a valid outline.
+
+    `storyCore` is that statement since `story-development` v2 (TASK-089 §2.1):
+    the product owner's first item. `premise` / `logline` stay accepted because
+    this parser is ALSO the manual-submission sanitiser — a creator pasting an
+    outline written in the old shape, and every outline already on disk, must keep
+    working (TASK-089 §2.2: a field in use is never silently dropped).
     """
     start = text.find("{")
     end = text.rfind("}")
@@ -2074,12 +2080,11 @@ def _parse_story_outline(text: str) -> dict:
         raise ValueError(f"agent output is not valid JSON: {exc}") from exc
     if not isinstance(data, dict):
         raise ValueError("expected a JSON object")
-    premise = data.get("premise")
-    logline = data.get("logline")
-    if not (isinstance(premise, str) and premise.strip()) and not (
-        isinstance(logline, str) and logline.strip()
+    if not any(
+        isinstance(data.get(key), str) and data[key].strip()
+        for key in ("storyCore", "premise", "logline")
     ):
-        raise ValueError("outline has neither premise nor logline")
+        raise ValueError("outline has no storyCore (nor a legacy premise/logline)")
     return data
 
 
@@ -2165,7 +2170,22 @@ _TEXT_PRODUCT_KEYS = frozenset({"script"})
 _PAYLOAD_TO_CONTEXT = {
     "shots-draft": lambda p: {"episodeScript": p.get("script")},
     "bible-breakdown": lambda p: {"episodeScript": p.get("script")},
-    "story-develop": lambda p: {"brief": p.get("idea"), "outline": p.get("current")},
+    "story-develop": lambda p: (
+        # TWO MODES, the same shape as `script-draft` and `episode-plan`
+        # (TASK-089 §2.4 / TASK-094 批次 C). This endpoint always carried the
+        # current outline, so 「AI 改」 was never as broken here as it was for the
+        # plan — but the revision REQUEST travelled as a fenced steer, which is a
+        # per-run add-on rather than something the capability declares it needs.
+        # As a declared input of the reviser, `missingInputs` can refuse a revision
+        # that asks for no revision.
+        {
+            "outline": p.get("current"),
+            "revisionRequest": p.get("instruction"),
+            "brief": p.get("idea"),
+        }
+        if _is_revision("story-develop", p)
+        else {"brief": p.get("idea"), "outline": p.get("current")}
+    ),
     "episode-plan": lambda p: (
         # TWO MODES, TWO CAPABILITIES — the same shape `script-draft` proved
         # (TASK-088 §2.2). Until TASK-094 批次 A this endpoint sent the OUTLINE
@@ -2257,6 +2277,16 @@ _TWO_MODES: dict[str, _TwoModes] = {
         reviser="episode-plan-reviser",
         steer_key="instruction",
         base_key="current_plan",
+        base_decides=True,
+    ),
+    # TASK-094 批次 C. `base_decides=True` for the same reason: 「AI 发展故事」 on a
+    # project that already has an outline legitimately means 「write a fresh one,
+    # in this direction」, and there is no outline at all on the first run.
+    "story-develop": _TwoModes(
+        writer="story-development",
+        reviser="story-reviser",
+        steer_key="instruction",
+        base_key="current",
         base_decides=True,
     ),
 }

@@ -1,0 +1,24 @@
+{
+  "skillId": "story-reviser",
+  "skillVersion": 1,
+  "work": "creative",
+  "role": "编剧",
+  "title": "Story Reviser",
+  "purpose": "按创作者的修改要求修订已有故事大纲，保留未被要求改动的部分。",
+  "inputs": [
+    "outline",
+    "revisionRequest"
+  ],
+  "optionalInputs": [
+    "brief",
+    "characters",
+    "world"
+  ],
+  "reviewCriteria": [
+    "未被要求修改的项是否原样保留，而不是顺手重写了整份大纲",
+    "修改是否只回应了修改要求本身，没有夹带别的改动",
+    "改动之后八项之间是否仍然自洽（改了结局就要看它是否还回应故事核心）",
+    "输出是否是完整的八项，而不是只给出被改动的那几项"
+  ],
+  "recommendedRuntime": "local_subscription"
+}

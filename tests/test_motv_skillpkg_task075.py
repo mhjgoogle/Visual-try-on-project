@@ -452,7 +452,12 @@ def test_changing_a_package_without_raising_its_version_is_refused(tmp_path) -> 
     the bytes may move underneath them, provenance is a guess."""
     project = _package(tmp_path)
     original = skillpkg.load_package(project / "story-development", "project")
-    history = {("story-development", 1): original.digest}
+    # DERIVED from the package, never hardcoded: this said `("story-development", 1)`
+    # and silently stopped testing anything the moment that package legitimately
+    # reached v2 (TASK-089 §2.1) — the history key no longer matched what was
+    # loaded, so nothing was refused and the assertions below were vacuous.
+    # (TASK-087 §7 项 2: a guard's keys must be derived so it cannot rot.)
+    history = {("story-development", original.version): original.digest}
 
     # unchanged content still loads
     ok = skillpkg.load_catalog([("project", project)], known_digests=history)
@@ -465,10 +470,10 @@ def test_changing_a_package_without_raising_its_version_is_refused(tmp_path) -> 
     assert "skillVersion" in reason and original.digest in reason
 
     # …and raising the version makes it loadable again, WITHOUT invalidating the
-    # 历史 Run, which still points at v1's digest
-    _edit_manifest(project / "story-development", skillVersion=2)
+    # 历史 Run, which still points at the older version's digest
+    _edit_manifest(project / "story-development", skillVersion=original.version + 1)
     accepted = skillpkg.load_catalog([("project", project)], known_digests=history)
-    assert accepted.skills["story-development"].version == 2
+    assert accepted.skills["story-development"].version == original.version + 1
     assert accepted.skills["story-development"].digest != original.digest
 
 

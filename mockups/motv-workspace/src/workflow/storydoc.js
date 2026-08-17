@@ -36,6 +36,36 @@ const strList = (x) => (Array.isArray(x) ? x.filter((s) => typeof s === "string"
 export const OUTLINE_FIELDS = [
   "premise", "logline", "genreTone", "world", "centralConflict", "storyArc", "climax", "ending", "durationNote",
 ];
+
+// THE PRODUCT OWNER'S EIGHT (TASK-089 §2.1, 2026-08-17). `storyCore` is a plain
+// string and joins the list above; the other seven are STRUCTURES, because the
+// point of each is that its parts are separate:
+//   protagonist     谁 + 最开始想要什么
+//   conflict        外部 + 内部（分开写，否则「核心冲突」又变回一段散文）
+//   worldAndRules   哪里 + 会直接影响剧情的规则（可枚举）
+//   mainline        开端 / 发展 / 中段转折 / 高潮 / 结局 —— 顺序本身是信息
+//   themeAndChange  主题 + 主角最后变成了谁
+//   keyRelationships[] / secretsAndReveals[]  列表
+//
+// NOTHING WAS REMOVED (§2.2). `premise` merges INTO `storyCore` for new content
+// while staying readable; `centralConflict` / `storyArc` / `climax` / `ending` /
+// `world` stay for the four outline versions of the real project that are written
+// in them, and for `promptc.js`, which compiles `genreTone` into every shot.
+export const OUTLINE_TEXT_FIELDS = [...OUTLINE_FIELDS, "storyCore"];
+/** The structured items: `{ key: [required subkeys] }`. Each subkey is a string. */
+export const OUTLINE_OBJECT_FIELDS = {
+  protagonist: ["who", "initialWant"],
+  conflict: ["external", "internal"],
+  themeAndChange: ["theme", "protagonistBecomes"],
+  mainline: ["setup", "development", "midpointTurn", "climax", "ending"],
+};
+/** `worldAndRules` is a string + a list, so it has its own shape. */
+export const OUTLINE_RULES_KEYS = ["where"];
+/** The two list-of-object items, and the subkeys each row must carry. */
+export const OUTLINE_LIST_FIELDS = {
+  keyRelationships: ["nature", "howItChanges"],
+  secretsAndReveals: ["truth", "revealAround"],
+};
 // THE PRODUCT OWNER'S SEVEN (TASK-088 §2.1, 2026-08-17). `coreGoal` and
 // `emotionArc` join the string facets; `keyEvents` / `reveals` / `characterBeats`
 // are lists and live in the two lists below, because they cannot be compared or
@@ -187,13 +217,62 @@ export function restoreBriefDraft(doc, v) {
 export function sanitizeOutline(o) {
   const src = isObj(o) ? o : {};
   const out = { ...src }; // unknown fields survive the round-trip
-  for (const k of OUTLINE_FIELDS) out[k] = str(src[k]);
+  for (const k of OUTLINE_TEXT_FIELDS) out[k] = str(src[k]);
   out.characterConcepts = strList(src.characterConcepts);
   const n = src.episodeCount;
   // 1..50 — the plan endpoint's parser rejects >50 episodes, so an outline
   // must not be able to request a count that compliant planning cannot serve
   out.episodeCount = Number.isInteger(n) && n > 0 && n <= 50 ? n : null;
+  // THE EIGHT ITEMS' STRUCTURES ARE SANITIZED, NOT PASSED THROUGH. `{...src}` is
+  // right for provenance, but these come from a MODEL ANSWER and land in
+  // studio/canvas.json — an arbitrary nested value must not reach the document
+  // under a key the renderer will iterate (TASK-094 批次 C, same rule as the plan's
+  // list facets).
+  for (const [key, subkeys] of Object.entries(OUTLINE_OBJECT_FIELDS)) {
+    const row = isObj(src[key]) ? src[key] : {};
+    out[key] = {};
+    for (const sub of subkeys) out[key][sub] = str(row[sub]);
+  }
+  const w = isObj(src.worldAndRules) ? src.worldAndRules : {};
+  out.worldAndRules = { where: str(w.where), rules: strList(w.rules) };
+  // A relationship row needs BOTH names to mean anything; a secret needs the truth
+  // and roughly when it surfaces. Half a row is dropped rather than kept as a
+  // record that says nothing (the same rule `sanitizeBeat` follows).
+  out.keyRelationships = (Array.isArray(src.keyRelationships) ? src.keyRelationships : [])
+    .map((r) => {
+      if (!isObj(r)) return null;
+      const between = strList(r.between).slice(0, 2);
+      const nature = str(r.nature).trim();
+      const howItChanges = str(r.howItChanges).trim();
+      if (between.length !== 2 || !nature) return null;
+      return { between, nature, howItChanges };
+    })
+    .filter(Boolean);
+  out.secretsAndReveals = (Array.isArray(src.secretsAndReveals) ? src.secretsAndReveals : [])
+    .map((s) => {
+      if (!isObj(s)) return null;
+      const truth = str(s.truth).trim();
+      if (!truth) return null;
+      return {
+        truth,
+        whyNotUpfront: str(s.whyNotUpfront),
+        revealAround: str(s.revealAround),
+      };
+    })
+    .filter(Boolean);
   return out;
+}
+
+/**
+ * 「故事核心」 for display: the new field, falling back to the legacy one-liner.
+ *
+ * `premise` MERGES INTO `storyCore` (TASK-089 §2.2) — additively: the old field is
+ * still read, still saved, and still editable, so the four outline versions of the
+ * real project keep saying what they say. Only what the AI WRITES changed.
+ */
+export function storyCoreOf(outline) {
+  if (!isObj(outline)) return "";
+  return str(outline.storyCore).trim() || str(outline.logline).trim() || str(outline.premise).trim();
 }
 
 /** One 角色推进 row, normalized. A row without both `who` and `change` says

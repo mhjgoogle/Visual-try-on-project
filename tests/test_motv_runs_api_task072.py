@@ -50,9 +50,17 @@ _SHOTS_ANSWER = (
 #: A TEXT product as a creator would submit it — no model wrapper, because a
 #: person has none to give.
 _SCRIPT_TEXT = "【金銮殿·日】\n正文"
+#: `story-development` v2 asks for the product owner's eight items (TASK-089 §2.1).
+#: This test is about the RUN being durable, so it needs only an answer the
+#: capability's own contract accepts.
 _OUTLINE_ANSWER = (
-    '{"premise":"p","logline":"l","centralConflict":"c",'
-    '"storyArc":"a","climax":"x","ending":"e"}'
+    '{"storyCore":"一句话的故事核心",'
+    '"protagonist":{"who":"林照","initialWant":"回家"},'
+    '"conflict":{"external":"源律","internal":"不肯放手"},'
+    '"worldAndRules":{"where":"终局世界","rules":["不禁止尝试，只禁止成功"]},'
+    '"mainline":{"setup":"a","development":"b","midpointTurn":"c",'
+    '"climax":"d","ending":"e"},'
+    '"themeAndChange":{"theme":"t","protagonistBecomes":"p"}}'
 )
 
 

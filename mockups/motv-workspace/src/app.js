@@ -836,16 +836,50 @@ function demoBibleBreakdown() {
 function demoStoryOutline(doc) {
   const idea = doc.idea.trim() || "社畜穿越盛唐，被逼当殿作诗";
   return {
-    premise: `${idea}（演示模板）`,
-    logline: "小人物身怀现代记忆闯入权力之巅，每一次开口都是生死赌局。",
+    // THE EIGHT ITEMS, in demo mode too (TASK-089 §2.1) — a template still writing
+    // only the v1 facets would make the offline walk-through look like the defect
+    // this batch removes: an outline surface whose new sections are all empty.
+    storyCore: `${idea}（演示模板）`,
+    protagonist: { who: "李昭", initialWant: "活过今天这场殿前对答" },
+    conflict: {
+      external: "皇权的猜忌：答得好会被留下，答不好会被处死",
+      internal: "他习惯了不出头 —— 每一次开口都在违背自己的生存本能",
+    },
+    worldAndRules: {
+      where: "架空盛唐，宫廷礼法森严",
+      rules: ["诗才即权力通行证", "当殿失仪者不得再入朝堂", "御前应答不得称『不知』"],
+    },
+    keyRelationships: [
+      { between: ["李昭", "皇帝"], nature: "被试探的臣与试探人心的君", howItChanges: "由生死拿捏转为互相利用" },
+      { between: ["李昭", "高内侍"], nature: "被守门人冷眼旁观", howItChanges: "由旁观转为暗中递话" },
+    ],
+    mainline: {
+      setup: "被拖上大殿，三步成诗保命",
+      development: "诗作传出宫墙，一夜成名，也被盯上",
+      midpointTurn: "嫉恨者设局，命题诗暗藏杀机",
+      climax: "以一首离席诗当众自证",
+      ending: "换得自由身，留下传世之名",
+    },
+    secretsAndReveals: [
+      { truth: "他的诗不是自己写的，是另一个时代的记忆", whyNotUpfront: "一开始揭穿就没有赌局了", revealAround: "中段转折前后" },
+    ],
+    themeAndChange: {
+      theme: "被逼出来的才华，也是才华",
+      protagonistBecomes: "从不肯出头的人，变成愿意为别人开口的人",
+    },
     genreTone: "古装爽剧 · 紧张中带黑色幽默",
-    world: "架空盛唐，宫廷礼法森严，诗才即权力通行证。",
     characterConcepts: ["李昭：怯懦社畜，被逼觉醒的急智诗人", "皇帝：威压难测，以诗试人心", "高内侍：冷眼旁观的宫廷守门人"],
-    centralConflict: "现代灵魂的求生欲 VS 皇权的猜忌与规训",
-    storyArc: "被迫登场 → 险中求胜 → 名动长安 → 树敌宫闱 → 抉择去留",
-    ending: "以一首『离席诗』换得自由身，留下传世之名。",
     episodeCount: 4,
     durationNote: "每集 60-90 秒",
+    // kept so the demo also exercises the legacy-fallback path every existing
+    // outline version of the real project takes
+    premise: `${idea}（演示模板）`,
+    logline: "小人物身怀现代记忆闯入权力之巅，每一次开口都是生死赌局。",
+    world: "架空盛唐，宫廷礼法森严，诗才即权力通行证。",
+    centralConflict: "现代灵魂的求生欲 VS 皇权的猜忌与规训",
+    storyArc: "被迫登场 → 险中求胜 → 名动长安 → 树敌宫闱 → 抉择去留",
+    climax: "殿前当众抗旨",
+    ending: "以一首『离席诗』换得自由身，留下传世之名。",
   };
 }
 function demoEpisodePlan(doc) {
@@ -1845,9 +1879,37 @@ const ctx = {
     const parts = [];
     if (storyDoc.idea.trim()) parts.push(`创意：${storyDoc.idea.trim()}`);
     if (o) {
-      if (o.outline.premise) parts.push(`前提：${o.outline.premise}`);
-      if (o.outline.logline) parts.push(`故事线：${o.outline.logline}`);
-      if (o.outline.genreTone) parts.push(`题材/基调：${o.outline.genreTone}`);
+      // THE EIGHT ITEMS REACH THE SCRIPT (TASK-089 §2.1 / TASK-094 批次 C). This read
+      // `premise` / `logline` only, so an outline written by `story-development` v2
+      // — whose content lives in storyCore / conflict / worldAndRules / mainline —
+      // would have handed the script writer almost nothing. Legacy outlines still
+      // work: each line prefers the new field and falls back to the old one.
+      const ol = o.outline;
+      const core = storydoc.storyCoreOf(ol);
+      if (core) parts.push(`故事核心：${core}`);
+      if (ol.premise && ol.premise !== core) parts.push(`前提：${ol.premise}`);
+      if (ol.protagonist && (ol.protagonist.who || ol.protagonist.initialWant)) {
+        parts.push(`主角与目标：${ol.protagonist.who}｜最初想要：${ol.protagonist.initialWant}`);
+      }
+      const cf = ol.conflict;
+      if (cf && (cf.external || cf.internal)) parts.push(`核心冲突：外部 ${cf.external}｜内部 ${cf.internal}`);
+      else if (ol.centralConflict) parts.push(`核心冲突：${ol.centralConflict}`);
+      const war = ol.worldAndRules;
+      if (war && (war.where || (war.rules || []).length)) {
+        parts.push(`世界与规则：${war.where}${(war.rules || []).length ? `｜${war.rules.join("；")}` : ""}`);
+      } else if (ol.world) parts.push(`世界观：${ol.world}`);
+      const ml = ol.mainline;
+      if (ml && Object.values(ml).some((v) => v && String(v).trim())) {
+        parts.push(
+          `故事主线：开端 ${ml.setup} → 发展 ${ml.development} → 中段转折 ${ml.midpointTurn}` +
+          ` → 高潮 ${ml.climax} → 结局 ${ml.ending}`,
+        );
+      } else if (ol.storyArc) parts.push(`故事线：${ol.storyArc}`);
+      const tc = ol.themeAndChange;
+      if (tc && (tc.theme || tc.protagonistBecomes)) {
+        parts.push(`主题与最终变化：${tc.theme}｜主角最后成为：${tc.protagonistBecomes}`);
+      }
+      if (ol.genreTone) parts.push(`题材/基调：${ol.genreTone}`);
     }
     if (entry) {
       // THE SEVEN FACETS REACH THE SCRIPT (TASK-094 批次 A). This read the prose

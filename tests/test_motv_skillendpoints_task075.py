@@ -25,9 +25,18 @@ _SHOTS = (
     '{"shots":[{"title":"t","description":"d",'
     '"shotSize":"中近景","cameraMotion":"固定机位","duration_seconds":6}]}'
 )
+#: A MINIMAL VALID answer for `story-development`. The product owner's EIGHT items
+#: became the contract at skillVersion 2 (TASK-089 §2.1); the v1 facets (premise /
+#: logline / centralConflict / storyArc / climax / ending) stay READABLE but no
+#: longer constitute an outline on their own.
 _OUTLINE = (
-    '{"premise":"p","logline":"l","centralConflict":"c",'
-    '"storyArc":"a","climax":"x","ending":"e"}'
+    '{"storyCore":"一句话的故事核心",'
+    '"protagonist":{"who":"林照","initialWant":"回家"},'
+    '"conflict":{"external":"源律","internal":"不肯放手"},'
+    '"worldAndRules":{"where":"终局世界","rules":["不禁止尝试，只禁止成功"]},'
+    '"mainline":{"setup":"a","development":"b","midpointTurn":"c",'
+    '"climax":"d","ending":"e"},'
+    '"themeAndChange":{"theme":"t","protagonistBecomes":"p"}}'
 )
 #: A MINIMAL VALID answer for `episode-planner`. 本集核心目标 + 主要剧情 became
 #: REQUIRED at skillVersion 2 (TASK-088 §2.1): the product owner asked for seven
@@ -335,11 +344,15 @@ def test_a_run_records_which_package_answered(srv, monkeypatch) -> None:
     run = srv.runs().get(body["run_id"])
     params = run["params"]
     assert params["skillId"] == "story-development"
-    assert params["skillVersion"] == 1
+    assert params["skillVersion"] == 2, "story-development 在 TASK-089 §2.1 升到了 v2"
     assert params["skillDigest"].startswith("sha256:")
 
     # …and that record is what the loader is handed on the next load
-    assert srv.runs().skill_digests()[("story-development", 1)] == params["skillDigest"]
+    # keyed by what the RUN recorded, not by a hardcoded version — otherwise this
+    # stops checking anything the moment the package legitimately ships a new
+    # version (TASK-087 §7 项 2: derive the key, never write it down)
+    recorded = (params["skillId"], params["skillVersion"])
+    assert srv.runs().skill_digests()[recorded] == params["skillDigest"]
 
 
 def test_skill_digests_does_not_leak_runs_across_projects(srv) -> None:
@@ -393,7 +406,15 @@ def test_the_input_caps_survived_the_migration(srv, monkeypatch) -> None:
     )
     assert status == 200
     assert body not in seen[0]
-    assert len(seen[0]) < 22_000, "story-develop's outline cap did not bound it"
+    # MEASURE THE CAP, NOT THE WHOLE PROMPT. This asserted `len(prompt) < 22_000`,
+    # which silently tracked the length of `prompt.md` rather than the cap: when
+    # `story-development` v2 spelled out the product owner's eight items the
+    # instruction grew and the assertion failed while the cap was working exactly as
+    # before. The fenced VALUE is what the cap bounds, so that is what is measured.
+    fenced = seen[0].split('<数据 键="outline">\n', 1)[1].split("\n</数据>", 1)[0]
+    assert len(fenced) == 20_000, (
+        "story-develop's 20 000-char outline cap did not apply"
+    )
 
     # script-draft admits a 4 000-char instruction: it must not be cut to
     # another endpoint's 2 000…

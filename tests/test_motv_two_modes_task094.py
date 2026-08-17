@@ -144,18 +144,34 @@ def test_a_writer_mode_steer_is_still_fenced_and_a_reviser_one_is_not(srv) -> No
         del srv._EXTRA_FENCED["_probe"]
 
 
-def test_story_develop_still_fences_its_steer(srv) -> None:
-    """Regression guard: `story-develop` gets its reviser in 批次 C, so until then
-    it behaves exactly as before.
+def test_every_two_mode_endpoint_stops_double_fencing_its_steer(srv) -> None:
+    """The rule 批次 0 established, now asserted for EVERY registered endpoint.
 
-    (`episode-plan` was here too through 批次 0 and moved to
-    `test_motv_episode_plan_task094.py` when 批次 A registered its reviser — the
-    guard did its job: registering the endpoint made this assertion fail.)
+    This started as 「`story-develop` / `episode-plan` still behave exactly as
+    before」 — a deliberately temporary guard, and it did its job twice: registering
+    `episode-plan` (批次 A) and then `story-develop` (批次 C) each made it fail
+    rather than letting the change pass unnoticed. What survives is the invariant
+    that outlives the migration: in writer mode the steer is fenced, in reviser
+    mode it is a declared input and must not be fenced a second time.
     """
-    assert srv._extra_fenced("story-develop", {"instruction": "改"}) == (
-        ("instruction", "修改要求"),
-    )
-    assert "story-develop" not in srv._TWO_MODES
+    assert set(srv._TWO_MODES) == {"script-draft", "episode-plan", "story-develop"}
+    for slug, base_key in (
+        ("story-develop", "current"),
+        ("episode-plan", "current_plan"),
+    ):
+        mode = srv._TWO_MODES[slug]
+        assert mode.steer_key == "instruction"
+        # writer mode: no base, so the steer has no declared home → fenced
+        assert srv._extra_fenced(slug, {"instruction": "改"}) == (
+            ("instruction", "修改要求"),
+        )
+        # reviser mode: it IS a declared input now → not fenced again
+        base = [{"epNumber": 1}] if base_key == "current_plan" else {"storyCore": "x"}
+        assert srv._extra_fenced(slug, {"instruction": "改", base_key: base}) == ()
+        assert (
+            srv._skill_id_for(slug, {"instruction": "改", base_key: base})
+            == mode.reviser
+        )
 
 
 # --- and the endpoint behaviour is unchanged end-to-end ---------------------- #
