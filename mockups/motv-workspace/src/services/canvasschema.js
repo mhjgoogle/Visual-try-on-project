@@ -2158,6 +2158,26 @@ export function validateCanvasDoc(doc) {
         if (epIds.has(e.episodeId)) return `duplicate episodeId ${e.episodeId}`;
         epIds.add(e.episodeId);
         if (typeof e.title !== "string") return `episode ${e.episodeId} has no title string`;
+        // SOFT ARCHIVE (ADR-0072 决策 4 / TASK-094 批次 G). Additive, by the rule
+        // `additivePresent` states: absent/null is every document written before it,
+        // and present-but-wrong rejects the WHOLE document — hydration degrades a
+        // malformed value to 「not archived」, so accepting one would make an episode
+        // reappear on the next load with nothing saying why. No version bump.
+        if (additivePresent(e.archived)) {
+          if (!isPlainObject(e.archived)) return `episode ${e.episodeId} archived is not an object`;
+          if (typeof e.archived.at !== "string" || !e.archived.at.trim()) {
+            return `episode ${e.episodeId} archived.at is missing`;
+          }
+          if (additivePresent(e.archived.reason) && typeof e.archived.reason !== "string") {
+            return `episode ${e.episodeId} archived.reason is not a string`;
+          }
+          // THE ONE IN HAND IS NEVER ARCHIVED. `activeEpisodeId` pointing at an
+          // archived episode is a document whose current episode is not shown
+          // anywhere — the state `archiveEpisode` refuses to create.
+          if (p.activeEpisodeId === e.episodeId) {
+            return `episode ${e.episodeId} is archived but is also activeEpisodeId`;
+          }
+        }
         // v9: episode BGM reference — SHAPE only vs the audio registry (a
         // music asset legitimately outlives its bytes, like bible refs)
         if (atV9 && !assetRefOk(e.bgmAssetId)) return `episode ${e.episodeId} bgmAssetId is invalid`;

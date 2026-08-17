@@ -38,7 +38,11 @@ export function projectCardModel(doc) {
     };
   }
   const prod = isObj(doc.production) ? doc.production : {};
-  const episodes = Array.isArray(prod.episodes) ? prod.episodes : [];
+  // ARCHIVED SHELLS DO NOT COUNT ON THE PROJECT CARD (批次 G). The card answers
+  // 「这个项目有多少集」, and the archived ones are put-away husks — the very reason
+  // this card's own comment below argues about one word meaning two things.
+  const episodes = (Array.isArray(prod.episodes) ? prod.episodes : [])
+    .filter((e) => !(e && e.archived && e.archived.at));
   // THE SHOTS THE EPISODES REALLY OWN. Counted as a SET across scenes: a shot id
   // listed by two scenes is one shot, and counting the lists would inflate the
   // number the creator is shown.

@@ -39,9 +39,9 @@ test("createProduction: persisted ids survive verbatim (never re-minted)", () =>
       {
         episodeId: "ep-x", title: "上集", bgmAssetId: null,
         scenes: [{ sceneId: "scene-1", title: "大殿", shotIds: ["shot-a"], characterRefs: [], locationRef: null, ambienceAssetId: null, bgmAssetId: null }],
-        beats: noBeats, basedOn: noStamp,
+        beats: noBeats, basedOn: noStamp, archived: null,
       },
-      { episodeId: "ep-mig-1", title: "第 1 集", scenes: [], bgmAssetId: null, beats: noBeats, basedOn: noStamp },
+      { episodeId: "ep-mig-1", title: "第 1 集", scenes: [], bgmAssetId: null, beats: noBeats, basedOn: noStamp, archived: null },
     ],
     characters: [],
     locations: [],

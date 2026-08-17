@@ -41,7 +41,7 @@ const nonEmpty = (x) => typeof x === "string" && x !== "";
 function defaultProduction() {
   const ep = {
     episodeId: mintId("ep"), title: "第 1 集", scenes: [], bgmAssetId: null,
-    beats: defaultBeats(), basedOn: defaultBasedOn(),
+    beats: defaultBeats(), basedOn: defaultBasedOn(), archived: null,
   };
   return {
     activeEpisodeId: ep.episodeId,
@@ -116,6 +116,11 @@ export function createProduction(saved) {
       // entities they reference are hydrated
       _rawBeats: e.beats,
       basedOn: sanitizeBasedOn(e.basedOn),
+      // SOFT ARCHIVE (ADR-0072 决策 4). `null` is the normal state; an archived
+      // episode STAYS in this list, at its position, and stays resolvable by id —
+      //历史 Run / 剧本 / 提案 point at it, and turning those into dangling
+      // references is the thing a delete would do (AGENTS.md 第 13 条).
+      archived: sanitizeArchived(e.archived),
     });
   }
   if (!episodes.length) return defaultProduction();
@@ -176,6 +181,57 @@ export function findScene(prod, sceneId) {
   return null;
 }
 
+/** `{ at, reason }` or null. A malformed value degrades to 「not archived」: the
+ *  visible state must never be decided by a half-written record. */
+function sanitizeArchived(a) {
+  if (!isObj(a)) return null;
+  const at = typeof a.at === "string" ? a.at : "";
+  const reason = typeof a.reason === "string" ? a.reason : "";
+  if (!at.trim()) return null;
+  return { at, reason };
+}
+
+/** Is this episode archived? The one reader of the shape, so 「归档了没有」 cannot
+ *  be answered two different ways. */
+export function isArchived(ep) {
+  return !!(ep && isObj(ep.archived) && typeof ep.archived.at === "string" && ep.archived.at.trim());
+}
+
+/** The episodes a creator is working with — archived ones excluded.
+ *
+ *  Every surface that LISTS episodes uses this; anything that RESOLVES one by id
+ *  keeps using `findEpisode`, because an archived episode must stay reachable
+ *  (ADR-0072 决策 4). */
+export function liveEpisodes(prod) {
+  return (prod && Array.isArray(prod.episodes) ? prod.episodes : []).filter((e) => !isArchived(e));
+}
+
+/**
+ * Archive one episode. Returns false when it is not there or already archived.
+ *
+ * NO CONTENT CHECK HERE, deliberately: this module cannot see `scripts`,
+ * `timelines` or the Run registry, and a check that only looked at what it CAN see
+ * would be exactly the 「守卫看起来加了，其实只覆盖了一半」 defect this repo keeps
+ * paying for. `archivableEpisodes` (workflow/episodecleanup.js) makes that
+ * judgement against the WHOLE document and is what the UI offers.
+ */
+export function archiveEpisode(prod, episodeId, { at, reason = "" } = {}) {
+  const ep = findEpisode(prod, episodeId);
+  if (!ep || isArchived(ep)) return false;
+  if (typeof at !== "string" || !at.trim()) return false; // no clock in here
+  if (prod.activeEpisodeId === episodeId) return false; // never the one in hand
+  ep.archived = { at, reason: typeof reason === "string" ? reason : "" };
+  return true;
+}
+
+/** Put it back. The whole reason archiving is allowed at all. */
+export function unarchiveEpisode(prod, episodeId) {
+  const ep = findEpisode(prod, episodeId);
+  if (!ep || !isArchived(ep)) return false;
+  ep.archived = null;
+  return true;
+}
+
 /** Append a new Episode (id minted once, carried forever). Returns it. */
 export function addEpisode(prod, title) {
   const ep = {
@@ -187,6 +243,7 @@ export function addEpisode(prod, title) {
     // upstream — the creator stamps it when they decide it is up to date
     beats: defaultBeats(),
     basedOn: defaultBasedOn(),
+    archived: null,
   };
   prod.episodes.push(ep);
   return ep;

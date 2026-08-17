@@ -151,7 +151,10 @@ export function directorNote({ module, story, doc, pd, shotId }) {
     return "世界观可用。具体场景地（含日/夜状态与参考图）在「人物 · 场景地库」里，这里不重复存第二份地点数据。";
   }
   if (module === "episodes") {
-    const eps = (prod && prod.episodes) || [];
+    // ARCHIVED SHELLS ARE NOT WORK TO DO (批次 G). The advice below is a ratio of a
+    // named total («已建立的 N 集里有 M 集缺 beat»), and counting 32 archived shells
+    // into it would make the Director report a backlog nobody has.
+    const eps = ((prod && prod.episodes) || []).filter((e) => !(e.archived && e.archived.at));
     if (!story.approved) return "分集规划要基于已批准的大纲。先在「故事大纲」批准一版，我再按它拆集。";
     if (!story.confirmedPlan) return "规划还没确认。确认之后才会建立剧集实体——在那之前我不会动任何一集。";
     const noBeat = eps.filter((e) => !e.beats || !(e.beats.plot.length || e.beats.relationship.length || e.beats.character.length || e.beats.world.length));

@@ -272,13 +272,18 @@ export function episodesModel(pd) {
         : null;
     })(),
   });
-  const episodes = prod.episodes.map((e) => ({
+  // ARCHIVED EPISODES LEAVE THIS LIST TOO (批次 G). It feeds the 剧集 structure
+  // workspace and the plan panel's integrity line, and an archived shell is not
+  // something the creator is structuring. `removable` counts the LIVE ones: 「删除
+  // 最后一集」 must stay refused when the only others are archived.
+  const live = prod.episodes.filter((e) => !(e.archived && e.archived.at));
+  const episodes = live.map((e) => ({
     episodeId: e.episodeId,
     title: e.title,
     active: e.episodeId === prod.activeEpisodeId,
     sceneCount: e.scenes.length,
     shotRefCount: e.scenes.reduce((n, s) => n + s.shotIds.length, 0),
-    removable: !e.scenes.length && prod.episodes.length > 1,
+    removable: !e.scenes.length && live.length > 1,
   }));
   const view = episodeView(prod, prod.activeEpisodeId, draft);
   const active = view

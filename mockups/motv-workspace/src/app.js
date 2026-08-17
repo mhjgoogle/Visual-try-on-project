@@ -96,6 +96,7 @@ import { buildShotSlotIndex, slotForShotId, shotIdForSlot, resolveAdoptTarget } 
 import * as scriptdoc from "./workflow/scriptdoc.js";
 import * as storydoc from "./workflow/storydoc.js";
 import * as proddoc from "./workflow/proddoc.js";
+import * as episodecleanup from "./workflow/episodecleanup.js";
 import * as timeline from "./workflow/timeline.js";
 import * as bibledoc from "./workflow/bibledoc.js";
 import * as canondoc from "./workflow/canondoc.js";
@@ -1149,6 +1150,37 @@ const ctx = {
       return ep;
     },
     renameEpisode: (id, title) => prodOp(proddoc.renameEpisode(productionDoc, id, title)),
+    // --- 历史空壳收口 (TASK-094 批次 G / ADR-0072 决策 4-5) ------------------- //
+    //
+    // WHY THIS LIVES HERE. The judgement is 「这个 episodeId 在整份文档里还有别的引用
+    // 吗」, and `serializeGraph()` — the exact object `persist` writes — is the only
+    // place the WHOLE document exists. A check written inside `proddoc` could see
+    // `production` alone and would have missed the `timelines` entries the real
+    // project turned out to have (measured on 照见未明rev2: four episodes referenced
+    // there and nowhere in the task card's checklist).
+    cleanupReport: () => episodecleanup.episodeCleanupReport(serializeGraph()),
+    archivableCount: () => episodecleanup.archivableEpisodes(serializeGraph()).length,
+    archiveEmptyShells: () => {
+      const ids = episodecleanup.archivableEpisodes(serializeGraph());
+      const at = new Date().toISOString();
+      let n = 0;
+      for (const id of ids) {
+        // `archiveEpisode` refuses the ACTIVE episode independently of the scan —
+        // two guards, because this one is about a pointer and the scan is about
+        // references, and neither implies the other
+        if (proddoc.archiveEpisode(productionDoc, id, { at, reason: "零内容空壳（TASK-094 批次 G）" })) n += 1;
+      }
+      if (!n) { toast("没有可归档的空壳"); return 0; }
+      ctx.persist();
+      refreshProductionView();
+      toast(`已归档 ${n} 集空壳。这不是删除：记录仍在文档里，可以随时取消归档`);
+      return n;
+    },
+    unarchive: (id) => {
+      const ok = proddoc.unarchiveEpisode(productionDoc, id);
+      if (ok) { ctx.persist(); refreshProductionView(); toast("已取消归档，这一集回到列表里"); }
+      return ok;
+    },
     removeEpisode: (id) => {
       const ok = proddoc.removeEpisode(productionDoc, id);
       if (ok) {

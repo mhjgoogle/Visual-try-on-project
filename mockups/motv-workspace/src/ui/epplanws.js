@@ -24,6 +24,7 @@ import { head, empty } from "./shell.js";
 import { bindField, restoreFieldFocus } from "./fieldsync.js";
 import { reviewText, reviewList, notRunYet, written } from "./reviewface.js";
 import { effectivePlanEpisodes, planEditBase, planDirty, planDraftVersions, nextPlanVersion } from "../workflow/storydoc.js";
+import { liveEpisodes } from "../workflow/proddoc.js";
 
 const code = (i) => `EP${String(i + 1).padStart(2, "0")}`;
 
@@ -48,7 +49,15 @@ export function episodePlanModel(pd, story, impactOf) {
     const [a, b] = r.characterIds.map((id) => (byChar.get(id) || {}).name || "?");
     return `${a} × ${b}`;
   };
-  const episodes = prod.episodes.map((e, i) => {
+  // ARCHIVED EPISODES LEAVE THE LIST (ADR-0072 决策 4 / 批次 G). They stay in the
+  // document and stay resolvable by id — a script, a Run or a plan entry still
+  // points at them — but a shell with nothing in it is not something the creator
+  // is working with, and 48 of those is what 「分集规划竟然设计了 48 集」 was.
+  //
+  // The INDEX for `code` comes from this filtered list on purpose: EP01…EP12 must
+  // be what the creator counts on screen, not positions in a list holding 36 rows
+  // they cannot see.
+  const episodes = liveEpisodes(prod).map((e, i) => {
     const entry = entries.find((x) => x.episodeId === e.episodeId) || null;
     const beats = e.beats;
     const impact = impactOf ? impactOf(e.episodeId) : null;
@@ -132,11 +141,24 @@ export function episodePlanModel(pd, story, impactOf) {
   });
   const inPlan = new Set(entries.map((e) => e.episodeId).filter(Boolean));
   const others = episodes.filter((e) => !inPlan.has(e.episodeId));
+  // …and what has been put away. Read straight off the document (not from
+  // `episodes`, which is the LIVE list) so 「已归档」 is answered by the field rather
+  // than by absence from a filtered list.
+  const archived = (prod.episodes || [])
+    .filter((e) => e.archived && e.archived.at)
+    .map((e, i) => ({
+      episodeId: e.episodeId,
+      code: `#${i + 1}`,
+      title: e.title,
+      archivedAt: e.archived.at,
+      archivedReason: e.archived.reason || "",
+    }));
   return {
     empty: false,
     episodes,
     rows,
     others,
+    archived,
     planVersion: story.confirmedPlan || 0,
     // TASK-077 §1.6: THE TWO NUMBERS, named. One screen printed 48 / 48 集 / 12 集 /
     // 47 集 with no statement of what each counted, so they read as four claims
@@ -576,8 +598,27 @@ function planRow(m, ui, row) {
  *  on screen. Folded, because the table is the plan; present, because 36 real
  *  Episode entities carrying real scripts must not vanish from the one screen that
  *  used to list them (they are cleaned up by TASK-094 批次 G, not by hiding). */
-function othersFold(m, ui) {
+function othersFold(m, ui, cleanup) {
   if (!m.others.length) return "";
+  // 「归档这 N 个零内容空壳」 (TASK-094 批次 G / ADR-0072 决策 4-5).
+  //
+  // WHO DECIDES: `episodeCleanupReport` scans the WHOLE document for any reference
+  // to each episodeId. The button offers only what that scan cleared, and every
+  // episode it did NOT clear says WHY on its own row — 「任何一项非空就不归档，如实
+  // 列出来交给产品负责人看」 (TASK-094 §5). Nothing is deleted: archiving is a field
+  // that can be put back.
+  const report = Array.isArray(cleanup) ? cleanup : [];
+  const byId = new Map(report.map((r) => [r.episodeId, r]));
+  const canArchive = m.others.filter((e) => (byId.get(e.episodeId) || {}).archivable);
+  const cleanupRow = report.length
+    ? `<div class="rg-ai">` +
+      (canArchive.length
+        ? `<button class="btn sm" data-ep-archive-all>归档这 ${canArchive.length} 个零内容空壳</button>` +
+          `<span class="meta">它们没有剧本、没有分镜、没有推进记录，也没有被文档里任何地方引用过。` +
+          `<b>归档不是删除</b>：记录留在文档里、按 id 仍然可解析，随时可以取消归档。</span>`
+        : `<span class="chip mute">这些集都有内容或被引用，没有可归档的空壳</span>`) +
+      `</div>`
+    : "";
   // OPEN WHEN THE CREATOR OPENED IT, **OR** WHEN WHAT THEY ASKED FOR IS INSIDE IT.
   // `ui.othersOpen` is recorded by the fold's own `toggle` handler (`bindEpPlanWs`);
   // without that, any re-render — including the one caused by clicking 「⚠ N 个上游
@@ -589,17 +630,52 @@ function othersFold(m, ui) {
     `另有 ${m.others.length} 集不在这一版规划里（更早的规划版本建立的）</summary>` +
     `<div class="meta">它们仍然存在、仍然可以进入 —— 只是当前这一版规划没有引用它们。` +
     `其中没有任何内容的空壳可以归档（ADR-0072 决策 4）。</div>` +
+    cleanupRow +
     m.others
-      .map((ep) =>
+      .map((ep) => {
+        const r = byId.get(ep.episodeId) || null;
+        // WHY THIS ONE STAYS, on its own row. A cleanup that archived 32 and said
+        // nothing about the other 4 would leave the creator to work out which of his
+        // episodes were spared and why.
+        const verdict = !r
+          ? ""
+          : r.archivable
+            ? `<span class="chip mute" title="没有任何内容，也没有被引用">可归档</span>`
+            : `<span class="chip ok" title="${esc(r.blockers.join("；"))}">留下：${esc(r.blockers[0] || "有内容")}</span>`;
+        return (
         `<div class="ept-other${ep.active ? " on" : ""}">` +
         `<span class="mono">${esc(ep.code)}</span><b>${esc(ep.title)}</b>` +
         `<span class="meta">${ep.sceneCount} 个场景 · ${ep.beatCount} 条推进记录</span>` +
+        verdict +
         basedOnLine(ep) +
         // …and its Impact Review opens HERE. `basedOnLine` above renders the
         // 「⚠ N 个上游变化」 button for these episodes too, and a button whose panel
         // has nowhere to appear is a button that does nothing.
         (ui.impactOpen === ep.episodeId ? impactReview(ep) : "") +
         `<button class="btn sm" data-ep-enter="${esc(ep.episodeId)}">进入 →</button>` +
+        `</div>`);
+      })
+      .join("") +
+    `</details>`
+  );
+}
+
+/** 「已归档 N 集」 — archived episodes are OUT of the way, not out of existence, and
+ *  every one of them can come back (ADR-0072 决策 4: 取消归档随时可以，这是敢做这一步
+ *  的前提). */
+function archivedFold(m, ui) {
+  if (!m.archived.length) return "";
+  return (
+    `<details class="ept-others"${ui.archivedOpen ? " open" : ""} data-archivedfold><summary>` +
+    `已归档 ${m.archived.length} 集（不显示在上面，记录仍在）</summary>` +
+    `<div class="meta">归档只是把空壳收起来：它们仍然在文档里、按 id 仍然可解析，` +
+    `所以指向它们的历史记录不会变成悬空引用。想要哪一集回来就取消归档。</div>` +
+    m.archived
+      .map((ep) =>
+        `<div class="ept-other">` +
+        `<span class="mono">${esc(ep.code)}</span><b>${esc(ep.title)}</b>` +
+        (ep.archivedAt ? `<span class="meta">归档于 ${esc(String(ep.archivedAt).slice(0, 16))}</span>` : "") +
+        `<button class="btn sm" data-ep-unarchive="${esc(ep.episodeId)}">取消归档</button>` +
         `</div>`)
       .join("") +
     `</details>`
@@ -652,7 +728,10 @@ export function renderEpPlanWs(ctx, ui) {
       : "") +
     countLine(m) +
     table +
-    othersFold(m, ui)
+    // the cleanup verdict comes from the WHOLE document, so the page asks the shell
+    // for it rather than deriving it from `production` alone (批次 G)
+    othersFold(m, ui, ctx.production && ctx.production.cleanupReport ? ctx.production.cleanupReport() : null) +
+    archivedFold(m, ui)
   );
 }
 
@@ -787,6 +866,29 @@ export function bindEpPlanWs(root, ctx, ui, rerender) {
   // `toggle` needs no re-render: the browser has already opened or closed it.
   const others = root.querySelector(".ept-others");
   if (others) others.ontoggle = () => { ui.othersOpen = others.open; };
+  const archived = root.querySelector("[data-archivedfold]");
+  if (archived) archived.ontoggle = () => { ui.archivedOpen = archived.open; };
+  // 归档 / 取消归档 (批次 G). Archiving is offered ONLY for what the document-wide
+  // scan cleared, and it is confirmed once — it changes what the creator sees on
+  // their own project, and 「说清楚将要发生什么」 is cheaper than an undo they have to
+  // discover. Un-archiving needs no confirmation: it only puts something back.
+  on("[data-ep-archive-all]", () => {
+    if (!ctx.production || !ctx.production.archiveEmptyShells) return;
+    const n = ctx.production.archivableCount ? ctx.production.archivableCount() : 0;
+    if (!n) { ctx.toast("没有可归档的空壳"); return; }
+    if (!window.confirm(
+      `归档 ${n} 个零内容空壳？\n\n` +
+      "它们没有剧本、没有分镜、没有推进记录，也没有被文档里任何地方引用。\n" +
+      "这不是删除：记录留在文档里，按 id 仍然可解析，随时可以取消归档。",
+    )) return;
+    ctx.production.archiveEmptyShells();
+    rerender();
+  });
+  on("[data-ep-unarchive]", (el) => {
+    if (!ctx.production || !ctx.production.unarchive) return;
+    ctx.production.unarchive(el.dataset.epUnarchive);
+    rerender();
+  });
   root.querySelectorAll("[data-epmore]").forEach((el) => {
     el.ontoggle = () => {
       if (!ui.epmoreOpen) ui.epmoreOpen = {};

@@ -416,12 +416,23 @@ export const SECTION_LABEL = {
 /** Episode short label: EP01, EP02… derived from position, with the planned
  *  title carried separately (never parsed out of the title string). */
 export function episodeLabels(prod) {
-  return prod.episodes.map((e, i) => ({
-    episodeId: e.episodeId,
-    code: `EP${String(i + 1).padStart(2, "0")}`,
-    title: e.title,
-    active: e.episodeId === prod.activeEpisodeId,
-  }));
+  // ARCHIVED EPISODES ARE NOT LABELLED (ADR-0072 决策 4 / TASK-094 批次 G). This one
+  // function feeds the EPISODES rail, the breadcrumb's 「共 N 集」 and every episode
+  // picker, so filtering here is what keeps those three from disagreeing with
+  // 分集规划 — the plan page showed 16 while the rail still said 48, which is the
+  // 「几个数字互相矛盾」 defect TASK-077 §1.6 spent a card on.
+  //
+  // The CODE is derived from position in the LIVE list: EP01…EP12 must be what the
+  // creator counts on screen. An archived shell is still resolvable by id
+  // (`findEpisode`), which is what keeps历史 Run / 剧本 references intact.
+  return prod.episodes
+    .filter((e) => !(e.archived && e.archived.at))
+    .map((e, i) => ({
+      episodeId: e.episodeId,
+      code: `EP${String(i + 1).padStart(2, "0")}`,
+      title: e.title,
+      active: e.episodeId === prod.activeEpisodeId,
+    }));
 }
 
 /** The title to print BESIDE the code, without saying the code twice.

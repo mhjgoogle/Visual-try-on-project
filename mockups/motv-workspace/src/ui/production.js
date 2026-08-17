@@ -226,8 +226,12 @@ export function navBadges(doc, pd) {
     world: prod && prod.world && prod.canon
       ? prod.canon.world ? `✓v${prod.canon.world}` : Object.values(prod.world).some((v) => typeof v === "string" && v.trim()) ? "草稿" : ""
       : "",
-    // M6: real persisted Episode entities — the count is honest domain data
-    episodes: prod && Array.isArray(prod.episodes) ? String(prod.episodes.length) : "",
+    // M6: real persisted Episode entities — the count is honest domain data.
+    // ARCHIVED ONES EXCLUDED (批次 G): the badge sits beside 分集规划, and a badge
+    // saying 48 next to a page saying 16 is two claims about one quantity.
+    episodes: prod && Array.isArray(prod.episodes)
+      ? String(prod.episodes.filter((e) => !(e.archived && e.archived.at)).length)
+      : "",
     scenes: "",
     // 本集制作 and 参考统筹 carry no badge: their own headers report the real
     // numbers, and a second copy here could only ever disagree with them.
