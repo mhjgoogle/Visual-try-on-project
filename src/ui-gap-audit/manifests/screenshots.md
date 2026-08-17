@@ -29,6 +29,43 @@ PYTHONIOENCODING=utf-8 .venv/Scripts/python src/ui-gap-audit/tools/capture_curre
 | Commit | 工作树 = `d546b4c` + TASK-077 的改动（提交后为 TASK-077 那一条） |
 | JS 异常 | **0**（`capture.json` 里逐次记录；带吞掉的异常的截图不算证据） |
 
+## Cold start — 空项目的第一屏（**2026-08-17，TASK-094 §3**）
+
+**为什么单独一组**：C-101…C-124 那 24 张**全是「项目里已经有 48 集内容」的样子**，
+从来没有人看过一个空项目 —— 而故事开发这条链要设计的三个审阅面，**第一次出现时都是
+空的**。产品负责人的原话是「这个 UI 我完全看不懂。哪里是入口哪里可以输入文本和图片。
+在做哪个阶段的活。」审计把信息架构排在第五位，正是因为缺了这个视角。
+
+**捕获条件**：viewport 1440×900 · Playwright Chromium · **新建的空项目**
+（scratch account-root，不污染用户的项目目录）· **JS 异常 0**。
+
+| ID | Screenshot | 看到了什么 |
+| --- | --- | --- |
+| C-000 | `00-cold-start.png` | **新建空项目的第一屏**（`story/brief`）。作品设定在 rail 第三位 —— 也就是还没有任何剧本可以派生它的时候 |
+| C-000a | `00a-cold-landing.png` | 落地页 / 项目网格 |
+| C-000b | `00b-cold-new-project-dialog.png` | 新建项目对话框（保存位置默认取后端 account-root） |
+| C-000c | `00c-cold-brief.png` | 项目与创意：空 |
+| C-000d | `00d-cold-story-outline.png` | 故事大纲：空态已经有说明 + 一个主行动，姿态本来就对 |
+| C-000e | `00e-cold-settings-bible.png` | 作品设定：空态也有说明 + 「AI 剧本拆解」 |
+| C-000f | `00f-cold-episode-plan.png` | **分集规划：一个新项目就已经摆出「本集要推进什么」的手填格子**（主线 / 人物 / 关系 / 世界规则），AI 一个字都不产出 —— 288 格是**结构性的**，不是 48 集的副产品。而且这一页渲染的是 `production.episodes`（「已建立 1 集 · 还没有规划条目」），这正是真实项目上显示 48 的原因 |
+| C-000g | `00g-cold-episode-script.png` | 本集剧本：空 |
+
+## Current — 第四轮（**2026-08-18，TASK-094 故事开发链收口后**）
+
+**捕获条件**：与第三轮同（viewport 1440×900 · Playwright Chromium · 真实项目
+`照见未明rev2` · `--port 8791`）· **JS 异常 0**。
+
+**这一轮项目状态变了一处**：批次 G 归档了 32 个零内容空壳，所以真实项目从
+**48 集显示成 16 集**（文档里仍然是 48 集，一集都没删，按 id 全部可解析）。
+C-105 与所有剧集相关截图都按这个前提读。
+
+| ID | Screenshot | 这一轮的变化（TASK-094） |
+| --- | --- | --- |
+| C-120 | `20-accept-episode-plan.png` | **分集规划是一张表**：12 行＝本版规划的条目、九列＝产品负责人的七项、96 个就地编辑格、最后一列进得去该集；下面是「另有 4 集」与「已归档 32 集」两个折叠 |
+| C-121 | `21-accept-story-outline.png` | **故事大纲是八项**；旧字段标注为「旧字段」，没写的一项如实说明而不摆空格 |
+| C-122 | `22-accept-bible.png` | **作品设定排在最后**；人物关系有「AI 梳理关系（按当前剧本）」主行动 |
+| C-123 | `23-accept-world.png` | **世界观有 AI 了**：`world-director`（能力目录 21 → **24**：本链还新增了 `episode-plan-reviser` 与 `story-reviser`） |
+
 ## Current — motv 创作者 Studio（**第三轮，2026-08-16 Phase 2 收口后**）
 
 **捕获条件**：viewport 1440×900 · Playwright Chromium · 真实项目 `照见未明rev2`

@@ -1,6 +1,14 @@
 # TASK-088：分集规划是一张 AI 写好、我能改的表
 
-- 状态：**进行中**
+- 状态：**已完成（2026-08-18）** —— 由 [TASK-094](TASK-094-story-development-chain.md)
+  批次 **A**（`65a3b6c`：episode-planner v2 的七项 + `episode-plan-reviser` + 端点两模式
+  + 身份继承）与批次 **B**（`3f1712c`：表格界面、288 格消失、旧字段照常可见）实现。
+  §5 暴露的两件事仍未做：48 集清理已由批次 **G**（`64d4d35`）完成，
+  「反馈 → Skill 提升」闭环仍未开工（需 ADR）。
+- 实施记录：见那两条提交的信息与 [ADR-0072](../adr/ADR-0072-episode-identity-across-plan-revisions.md)。
+  一处与本卡不同的事实：**`characterBeats` 的 `who` 存的是角色名**（模型答的就是名字），
+  界面对不上人物档案时**标出「未知人物」而不丢弃**——静默丢掉答案会让创作者以为
+  AI 什么都没产出。
 - 负责 Agent：单一实施 Agent（AGENTS.md 第 14 条）
 - 依据：产品负责人 2026-08-17 的三句话（原话见 §0）
 - 验收环境：**真实 Connected Project `照见未明rev2`**

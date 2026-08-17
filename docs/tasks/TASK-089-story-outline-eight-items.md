@@ -1,6 +1,15 @@
 # TASK-089：故事大纲写这八项就够了
 
-- 状态：**未开工**
+- 状态：**已完成（2026-08-18）** —— 由 [TASK-094](TASK-094-story-development-chain.md)
+  批次 **C**（`002b571`：story-development v2 的八项 + `story-reviser` + 端点两模式）
+  与批次 **D**（`87c4edf`：那一页变成审阅面）实现。
+- 实施记录：§2.2 的四个清单外字段逐条落地（`episodeCount` / `durationNote` /
+  `genreTone` 保留；`premise` 合并进 `storyCore` 但**保留旧字段读取**，
+  `storyCoreOf()` 是那条 fallback 的唯一实现）；`logline` / `world` /
+  `centralConflict` / `storyArc` / `climax` / `ending` 同样保留，因为真实项目四版
+  大纲全写在它们里。
+  一处比本卡更严的做法：**编辑时不去重旧字段**（读态才去重）——标题那一格绑的是空的
+  `storyCore`，编辑时把旧字段藏起来会让磁盘上真实存在的内容既改不了也删不掉。
 - 负责 Agent：单一实施 Agent（AGENTS.md 第 14 条）
 - 依据：产品负责人 2026-08-17 的规格（§0 原话）
 - **前置：TASK-088 已完成并提交** —— 同一套机制（Skill 新版本 + 表单按新 schema 重做），
