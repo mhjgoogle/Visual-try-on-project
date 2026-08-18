@@ -19,6 +19,7 @@
 import { esc } from "../util/dom.js";
 import { buildEntityIndex, findMentions, assetReadiness } from "../workflow/shotentity.js";
 import { clipsOf } from "../workflow/shotaudio.js";
+import { groupShotsByScene, sceneLabel, sceneCoverage, TIME_OF_DAY_HINTS } from "../workflow/sceneplan.js";
 
 // NOTE ON DEPENDENCIES. `shotDetailModel` (the ONE prompt compiler) and
 // `buildPortraitIndex` (「这个实体有参考图吗」) both live in `ui/storyboard.js`, and
@@ -109,7 +110,7 @@ export function describeParts(index, text) {
  * `buffer` / `deleted` are the shell's TRANSIENT edit state; nothing here is
  * persisted until 保存为新草稿版本.
  */
-export function shotTableModel(pd, { buffer = {}, deleted = [], detailOf, portraitFor } = {}) {
+export function shotTableModel(pd, { buffer = {}, deleted = [], detailOf, portraitFor, recycled = [] } = {}) {
   const shots = Array.isArray(pd && pd.draftShots) ? pd.draftShots : [];
   const prod = pd && pd.production;
   const index = buildEntityIndex(prod);
@@ -175,8 +176,40 @@ export function shotTableModel(pd, { buffer = {}, deleted = [], detailOf, portra
     shots: buffered.filter((s) => !(s && gone.has(s.shotId))),
     hasReferenceImage: (kind, id) => !!portrait(kind, id),
   });
+  // SCENE GROUPING (TASK-095 §2.1.1) — 派生自 `production` 里 scene 的 `shotIds`，
+  // 不在 shot 上存 sceneId。分组行本身迫使 Scene 存在，所以这也是 GAP-13
+  // （真实项目 48 集全部 0 场景）的修法。
+  const episodeId = prod && typeof prod.activeEpisodeId === "string" ? prod.activeEpisodeId : null;
+  const byId = new Map(rows.map((r) => [r.shotId, r]));
+  const groups = groupShotsByScene({ prod, episodeId, shots: buffered }).map((g) => ({
+    ...g,
+    label: sceneLabel(g),
+    rows: g.shots.map((sh) => byId.get(sh && sh.shotId)).filter(Boolean),
+  }));
+  const unassignedGroup = groups.find((g) => g.unassigned) || null;
   return {
     rows,
+    groups,
+    // 归入场景需要知道「哪一集」与「哪些镜头」。**从模型里取，不让 bind 再算一遍**
+    // （§2.5e：两处陈述同一件事实）。
+    episodeId,
+    unassignedShotIds: unassignedGroup
+      ? unassignedGroup.rows.map((r) => r.shotId).filter(Boolean)
+      : [],
+    // 回收区（软删除的镜头）。它们**不在** `pd.draftShots` 里 —— 那份镜像只给存活的
+    // （见 `workflow/shotdelete.js` 文件头），所以由调用方注入，不在这里重新过滤：
+    // 重新过滤就会变成第二处「什么算已删除」的定义（§2.5e）。
+    recycled: (Array.isArray(recycled) ? recycled : [])
+      .filter((sh) => sh && typeof sh === "object")
+      .map((sh, i) => ({
+        shotId: typeof sh.shotId === "string" ? sh.shotId : "",
+        title: str(sh.title),
+        seq: typeof sh.sequence === "number" ? sh.sequence : i + 1,
+        at: (sh.deleted && typeof sh.deleted.at === "string") ? sh.deleted.at : "",
+      })),
+    // 「N 个镜头还没分到场景」是**待办**，不是阻塞（§2.5f 第二条）——
+    // 第 ① 步正是做这件事的地方，拦住它等于拦住它请创作者做的事。
+    coverage: sceneCoverage({ prod, episodeId, shots: buffered }),
     readiness,
     total: rows.length,
     deletedCount: rows.filter((r) => r.deleted).length,
@@ -204,10 +237,16 @@ export function shotTableModel(pd, { buffer = {}, deleted = [], detailOf, portra
  *  additive-field posture `normalizeShots` takes, so 「清空景别」 and 「从来没填过
  *  景别」 persist identically instead of as two indistinguishable-but-different
  *  shapes. */
-export function applyTableEdits(shots, { buffer = {}, deleted = [] } = {}) {
+export function applyTableEdits(shots, { buffer = {}, deleted = [], at = null } = {}) {
   const gone = new Set(deleted);
+  // 删除是**软删除**（AGENTS.md 第 13 条 / TASK-095 §2.1）：打标记，不从列表里抹掉。
+  // 没有时间戳就不打标记，而且**不静默跳过** —— 一条删除被悄悄忽略，创作者会以为
+  // 删掉了，而下一次保存又把它带回来。
+  const when = typeof at === "string" ? at.trim() : "";
+  if (gone.size && !when) {
+    throw new Error("applyTableEdits: 软删除需要一个时间戳（at），否则删除会被静默丢弃");
+  }
   return (Array.isArray(shots) ? shots : [])
-    .filter((s) => !(s && typeof s.shotId === "string" && gone.has(s.shotId)))
     .map((s) => {
       const out = { ...s };
       const shotId = s && typeof s.shotId === "string" ? s.shotId : null;
@@ -220,6 +259,7 @@ export function applyTableEdits(shots, { buffer = {}, deleted = [] } = {}) {
         else delete out[k];
       }
       if ("duration" in buf) out.duration_seconds = +buf.duration === 10 ? 10 : 6;
+      if (shotId && gone.has(shotId)) out.deleted = { at: when };
       return out;
     });
 }
@@ -281,6 +321,32 @@ function promptCell(r) {
   );
 }
 
+/** 分组行。**一行字就是 `S01 ｜ 便利店外 ｜ 夜`**，缺的段落整段省略（sceneLabel）。
+ *
+ *  时间就地可改（自由文本 + datalist 建议）。「未分配到场景」那一组给的是**动作**：
+ *  新建场景、或把镜头放进已有场景 —— 否则真实项目里那 60 个镜头永远出不来。 */
+function sceneRow(g, span, collapsed, sceneOptions) {
+  const cells = g.unassigned
+    ? `<span class="sbt-scname">${esc(g.label)}</span>` +
+      `<span class="sbt-note">这些镜头还没归到任何场景 —— 场景决定它们复用哪一套场景图</span>` +
+      `<button class="sbt-mini" data-scnew="1">＋ 新建场景并放入</button>` +
+      (sceneOptions.length
+        ? `<select class="sbt-in sbt-scpick" data-scmove="1">` +
+          `<option value="">放入已有场景…</option>` +
+          sceneOptions.map((o) => `<option value="${esc(o.sceneId)}">${esc(o.label)}</option>`).join("") +
+          `</select>`
+        : "")
+    : `<span class="sbt-scname">${esc(g.label)}</span>` +
+      `<span class="sbt-note">${g.rows.length} 镜</span>` +
+      `<label class="sbt-sctime">时间 <input class="sbt-in" list="sbt-tod" data-sctime="${esc(g.sceneId)}" ` +
+      `maxlength="40" placeholder="未填（不猜）" value="${esc(g.timeOfDay)}"></label>`;
+  return (
+    `<tr class="sbt-scene${g.unassigned ? " un" : ""}" data-scrow="${esc(g.sceneId || "")}">` +
+    `<td colspan="${span}"><button class="sbt-sctoggle" data-sctoggle="${esc(g.sceneId || "*none*")}" ` +
+    `title="折叠 / 展开">${collapsed ? "▶" : "▼"}</button>${cells}</td></tr>`
+  );
+}
+
 /** The whole table. `ui` carries { tbuf, tdel, tableEdit } — transient only. */
 export function renderShotTable(ctx, m, ui) {
   const editing = ui.tableEdit || null;
@@ -288,7 +354,11 @@ export function renderShotTable(ctx, m, ui) {
   const focus = ui.tableFocus && ui.tableFocus.shotId ? ui.tableFocus : null;
   const colorOf = (r) => (r.color ? ` sbt-c-${esc(r.color)}` : "");
   const head = COLUMNS.map((c) => `<th class="sbt-h-${esc(c.key)}">${esc(c.label)}</th>`).join("");
-  const rows = m.rows.map((r) => {
+  const collapsedSet = new Set(ui.sceneCollapsed || []);
+  const sceneOptions = m.groups
+    .filter((g) => !g.unassigned)
+    .map((g) => ({ sceneId: g.sceneId, label: g.label }));
+  const renderRow = (r) => {
     const del = r.deleted;
     return (
       `<tr class="sbt-row${colorOf(r)}${del ? " sbt-del" : ""}" data-trow="${esc(r.shotId || "")}">` +
@@ -320,6 +390,13 @@ export function renderShotTable(ctx, m, ui) {
         : `<button class="sbt-mini sbt-danger" data-tdel="${esc(r.shotId || "")}">删除</button>`) +
       `</td></tr>`
     );
+  };
+  // GROUPED BODY. 每一组一行组头 + 它的镜头行；组头可折叠（60 镜的表非折不可）。
+  const rows = m.groups.map((g) => {
+    const key = g.sceneId || "*none*";
+    const collapsed = collapsedSet.has(key);
+    return sceneRow(g, COLUMNS.length, collapsed, sceneOptions) +
+      (collapsed ? "" : g.rows.map(renderRow).join(""));
   }).join("");
 
   const rd = m.readiness;
@@ -334,6 +411,10 @@ export function renderShotTable(ctx, m, ui) {
     (rd.missing.length ? `；还差：${esc(rd.missing.slice(0, 6).map((e) => e.name).join("、"))}${rd.missing.length > 6 ? " 等" : ""}` : "") +
     `</span>` +
     `<span class="sbt-note">缺景别 ${m.gaps.shotSize} · 缺光影 ${m.gaps.lighting} · 缺运镜 ${m.gaps.cameraMotion}</span>` +
+    // 场景覆盖是**待办**，不是阻塞 —— 说清还差什么，不拦（§2.5f 第二条）
+    (m.coverage.todo.length
+      ? `<span class="sbt-note">${esc(m.coverage.todo.join(" · "))}</span>`
+      : `<span class="sbt-stat ok">${m.coverage.scenes} 个场景都已分好</span>`) +
     `</div>`;
 
   const dirty = m.dirty;
@@ -350,9 +431,26 @@ export function renderShotTable(ctx, m, ui) {
     `<button class="btn sm" data-tdiscard${dirty ? "" : " hidden"}>放弃修改</button>` +
     `</div>`;
 
+  // 回收区（AGENTS.md 第 13 条）。**默认折叠、空则不出现** —— 一个永远显示
+  // 「回收区（0）」的区块只是噪音。撤销是立即的：软删除本来就为了它存在。
+  const recycled = Array.isArray(m.recycled) ? m.recycled : [];
+  const recycleBox = recycled.length
+    ? `<details class="sbt-recycle"><summary>回收区（${recycled.length}）—— 删除的镜头留在这里，可随时撤销</summary>` +
+      `<ul>` + recycled.map((r) =>
+        `<li><span class="mono">${esc(String(r.seq).padStart(2, "0"))}</span> ` +
+        `<b>${esc(r.title || r.shotId || "")}</b>` +
+        `<span class="sbt-note">删除于 ${esc(r.at || "")}</span>` +
+        `<button class="sbt-mini" data-trestore="${esc(r.shotId || "")}">撤销删除</button></li>`).join("") +
+      `</ul></details>`
+    : "";
+
   return (
     bar + savebar +
-    `<div class="sbt-wrap"><table class="sbt"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`
+    `<datalist id="sbt-tod">` +
+    TIME_OF_DAY_HINTS.map((t) => `<option value="${esc(t)}"></option>`).join("") +
+    `</datalist>` +
+    `<div class="sbt-wrap"><table class="sbt"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>` +
+    recycleBox
   );
 }
 
@@ -364,7 +462,7 @@ export function renderShotTable(ctx, m, ui) {
  * editor syncs its bar by hand). The description cell is the exception: it has a
  * read view carrying entity links, so entering and leaving it re-renders once.
  */
-export function bindShotTable(root, ctx, ui, rerender) {
+export function bindShotTable(root, ctx, ui, rerender, m = null) {
   const buf = ui.tbuf || (ui.tbuf = {});
   const del = ui.tdel || (ui.tdel = []);
   const shotsNow = () => (ctx.prodData().draftShots || []);
@@ -422,6 +520,62 @@ export function bindShotTable(root, ctx, ui, rerender) {
     rerender();
   }));
 
+  // --- 分组行：折叠 / 场景时间 / 归入场景（TASK-095 §2.1.1–2.1.2） -------------- //
+  //
+  // 这些**不是**表格 buffer 的一部分：场景归属与场景时间住在 production 文档里，
+  // 由 `ctx.production` 的写路径落盘；镜头字段住在草稿版本里，由「保存为新草稿版本」
+  // 落盘。两者混进同一个 buffer 会让「保存」这个词在同一屏上指两件事。
+  root.querySelectorAll("[data-sctoggle]").forEach((el) => (el.onclick = () => {
+    const key = el.dataset.sctoggle;
+    const set = new Set(ui.sceneCollapsed || []);
+    if (set.has(key)) set.delete(key); else set.add(key);
+    ui.sceneCollapsed = [...set];
+    rerender();
+  }));
+  root.querySelectorAll("[data-sctime]").forEach((el) => (el.onchange = () => {
+    const sceneId = el.dataset.sctime;
+    if (!sceneId) return;
+    // 空值是**清空**，不是「没提交」—— 写路径把它落成「删字段」
+    ctx.production.setSceneTimeOfDay(sceneId, el.value);
+    rerender();
+  }));
+  const unassignedIds = () => (m && Array.isArray(m.unassignedShotIds) ? m.unassignedShotIds : []);
+  const newScene = root.querySelector("[data-scnew]");
+  if (newScene) newScene.onclick = () => {
+    const ids = unassignedIds();
+    if (!ids.length) return;
+    const episodeId = m && m.episodeId;
+    if (!episodeId) { ctx.toast("先选一集 —— 场景属于某一集"); return; }
+    const title = window.prompt("新场景名（例：便利店外）", "");
+    if (title == null || !title.trim()) return;
+    const scene = ctx.production.addScene(episodeId, title.trim());
+    if (!scene) { ctx.toast("没能创建场景"); return; }
+    for (const id of ids) ctx.production.assignShot(scene.sceneId, id);
+    ctx.toast(`已创建场景并放入 ${ids.length} 个镜头 —— 记得填时间（白天 / 夜）`);
+    rerender();
+  };
+  const movePick = root.querySelector("[data-scmove]");
+  if (movePick) movePick.onchange = () => {
+    const sceneId = movePick.value;
+    if (!sceneId) return;
+    const ids = unassignedIds();
+    for (const id of ids) ctx.production.assignShot(sceneId, id);
+    ctx.toast(`已把 ${ids.length} 个镜头放入该场景`);
+    rerender();
+  };
+
+  // 回收区：撤销删除是**立即**的（软删除本来就是为它存在的）
+  root.querySelectorAll("[data-trestore]").forEach((el) => (el.onclick = () => {
+    const id = el.dataset.trestore;
+    if (!id) return;
+    if (ctx.shots.restoreDeleted(id)) {
+      ctx.toast("已撤销删除 —— 镜头回到它原来的位置");
+      rerender();
+    } else {
+      ctx.toast("没能撤销 —— 这个镜头不在回收区");
+    }
+  }));
+
   root.querySelectorAll("[data-tdel]").forEach((el) => (el.onclick = () => {
     const id = el.dataset.tdel;
     if (id && !del.includes(id)) del.push(id);
@@ -445,9 +599,15 @@ export function bindShotTable(root, ctx, ui, rerender) {
   if (save) save.onclick = () => {
     const shots = shotsNow();
     if (!tableDirty(shots, { buffer: buf, deleted: del })) { ctx.toast("没有修改 — 未创建新版本"); return; }
-    const items = applyTableEdits(shots, { buffer: buf, deleted: del });
-    if (!items.length) { ctx.toast("至少保留 1 个镜头 — 未保存"); return; }
-    if (items.some((s) => !String(s.title || "").trim())) { ctx.toast("镜头名不能为空"); return; }
+    const items = applyTableEdits(shots, {
+      buffer: buf, deleted: del, at: new Date().toISOString(),
+    });
+    // 「至少保留 1 个镜头」问的是**存活的**镜头 —— 软删除之后 `items` 里仍然有
+    // 被标记的那些，用 `items.length` 判断等于允许把整集删空（§2.5f 第一条的
+    // 同一形状：换了语义之后旧判据说的已经不是它以为的那件事）。
+    const live = items.filter((s) => !(s && s.deleted));
+    if (!live.length) { ctx.toast("至少保留 1 个镜头 — 未保存"); return; }
+    if (live.some((s) => !String(s.title || "").trim())) { ctx.toast("镜头名不能为空"); return; }
     if (ctx.shots.saveEdit(items)) {
       ui.tbuf = {};
       ui.tdel = [];

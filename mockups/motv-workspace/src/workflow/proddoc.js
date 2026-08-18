@@ -73,9 +73,15 @@ function sanitizeScene(s, takenSceneIds, takenShotIds) {
     }
   }
   const assetRef = (v) => (typeof v === "string" && v ? v : null);
+  const timeOfDay = typeof s.timeOfDay === "string" ? s.timeOfDay.trim() : "";
   return {
     sceneId: s.sceneId,
     title: typeof s.title === "string" ? s.title : "",
+    // 场景时间（TASK-095 §2.1.2）—— **加法字段**，老数据没有它是常态。
+    // 缺就是缺：不填默认值、不猜「白天」。产品负责人给的理由是资产复用 ——
+    // 同一个「便利店外」的白天与夜是两套场景图，没有时间就分不开也复用不了。
+    // 只在真的有值时带上这个键，好让「清空时间」与「从来没写过时间」持久成同一形状。
+    ...(timeOfDay ? { timeOfDay } : {}),
     shotIds,
     // M7 bible references — validated against the hydrated entities below
     // (sanitizeSceneRefs), since they point INSIDE this same document
@@ -289,6 +295,17 @@ export function addScene(prod, episodeId, title) {
   };
   ep.scenes.push(scene);
   return scene;
+}
+
+/** 场景时间（`白天` / `夜` / `黄昏`…）。自由文本：`TIME_OF_DAY_HINTS` 只是输入建议。
+ *  空值**删字段**，与 `sanitizeScene` 同一姿态。 */
+export function setSceneTimeOfDay(prod, sceneId, timeOfDay) {
+  const hit = findScene(prod, sceneId);
+  if (!hit) return false;
+  const v = typeof timeOfDay === "string" ? timeOfDay.trim() : "";
+  if (v) hit.scene.timeOfDay = v;
+  else delete hit.scene.timeOfDay;
+  return true;
 }
 
 export function renameScene(prod, sceneId, title) {

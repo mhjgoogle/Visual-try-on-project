@@ -1200,6 +1200,24 @@ export function validateCanvasDoc(doc) {
     if (n.versions !== undefined && !Array.isArray(n.versions)) {
       return "node versions is not an array";
     }
+    // 软删除标记（TASK-097 批次 4B）。一个**读不懂的标记比没有标记危险得多**：
+    // 镜头列表镜像按 `counts.isDeleted` 过滤，所以一个形状不对的 `deleted` 会让这
+    // 一镜要么在界面上彻底消失、要么反过来仍然算进「60 个镜头已就绪」，而两种都
+    // 没有任何一处会喊。所以在这里 fail-closed：出现就必须长得对。
+    for (const ver of Array.isArray(n.versions) ? n.versions : []) {
+      if (!isPlainObject(ver) || !Array.isArray(ver.raw)) continue;
+      for (const s of ver.raw) {
+        if (!isPlainObject(s) || !("deleted" in s)) continue;
+        const d = s.deleted;
+        if (!isPlainObject(d)) return `shot ${s.shotId} deleted marker is not an object`;
+        if (typeof d.at !== "string" || !d.at.trim()) {
+          return `shot ${s.shotId} deleted marker has no timestamp`;
+        }
+        for (const k of Object.keys(d)) {
+          if (k !== "at" && k !== "by") return `shot ${s.shotId} deleted marker has unknown field "${k}"`;
+        }
+      }
+    }
     // Since v3 the Project Asset Registry owns creator media; nodes only ALIAS
     // it at runtime and never persist it. A v3 document whose node still
     // carries uploads/firstFrames/finals would load WITHOUT that media (restore
@@ -2290,6 +2308,14 @@ export function validateCanvasDoc(doc) {
           if (sceneIds.has(s.sceneId)) return `duplicate sceneId ${s.sceneId}`;
           sceneIds.add(s.sceneId);
           if (typeof s.title !== "string") return `scene ${s.sceneId} has no title string`;
+          // 场景时间（TASK-095 §2.1.2）：**加法字段，缺席合法**；出现就必须是
+          // 非空字符串。存 `""` 与不存这个键会在下游分叉成两个形状（「清空过」
+          // vs「从没写过」），所以那一半在这里就拒绝。
+          if ("timeOfDay" in s) {
+            if (typeof s.timeOfDay !== "string" || !s.timeOfDay.trim()) {
+              return `scene ${s.sceneId} timeOfDay must be a non-empty string when present`;
+            }
+          }
           if (!Array.isArray(s.shotIds)) return `scene ${s.sceneId} shotIds is not an array`;
           for (const id of s.shotIds) {
             if (typeof id !== "string" || !id) return `scene ${s.sceneId} has a non-string shot reference`;

@@ -387,16 +387,38 @@ test("认不出来的颜色标记不入库", () => {
   assert.ok(ROW_COLORS.every(([k]) => k === "" || /^[a-z]+$/.test(k)));
 });
 
-test("删除行也是「保存为新版本」，不是原地删", () => {
+test("删除是**软删除**：打标记留在列表里，不是抹掉（TASK-097 批次 4B）", () => {
   const shots = SHOTS.map((s) => ({ ...s }));
-  const out = applyTableEdits(shots, { deleted: ["shot-b"] });
-  assert.deepEqual(out.map((s) => s.shotId), ["shot-a", "shot-c"]);
+  const out = applyTableEdits(shots, { deleted: ["shot-b"], at: "2026-08-19T00:00:00Z" });
+  // 三条都还在 —— 记录不消失（AGENTS.md 第 13 条）
+  assert.deepEqual(out.map((s) => s.shotId), ["shot-a", "shot-b", "shot-c"]);
+  assert.deepEqual(out.find((s) => s.shotId === "shot-b").deleted, { at: "2026-08-19T00:00:00Z" });
+  assert.equal("deleted" in out.find((s) => s.shotId === "shot-a"), false, "没删的不带标记");
   assert.equal(shots.length, 3, "输入没有被就地改动");
+  assert.equal("deleted" in shots[1], false, "输入也没有被打上标记");
+  // 没有时间戳就**拒绝**，不静默丢掉这次删除：创作者会以为删掉了，而下一次保存
+  // 又把它带回来（§2.6.3：每条守卫先证明它真的会拒绝）
+  assert.throws(() => applyTableEdits(shots, { deleted: ["shot-b"] }), /时间戳/);
+  // 没有删除时不需要时间戳 —— 守卫只挡它该挡的那一半
+  assert.equal(applyTableEdits(shots, { buffer: {} }).length, 3);
   // 未保存之前，被标记的行仍然在表上，可以撤销
   const m = shotTableModel({ ...fixturePd(), }, { deleted: ["shot-b"] });
   assert.equal(m.rows.length, 3);
   assert.equal(m.deletedCount, 1);
   assert.ok(m.rows.find((r) => r.shotId === "shot-b").deleted);
+});
+
+test("标记了删除、还没保存时，表格照常渲染 —— 不需要时间戳（codex round 2 的驳回，钉住）", () => {
+  // codex 报「选中删除会让表格渲染崩掉」。不成立：`shotTableModel` 调
+  // `applyTableEdits(shots, { buffer })`，**从不**把 `deleted` 传进去 ——
+  // 待删是渲染出来的一个状态（划掉的行 + 「N 行将被删除」），不是一次写入。
+  // 但这条担心值得钉住：哪天有人顺手把 `deleted` 也传进去，这个测试会先喊。
+  const m = shotTableModel(fixturePd(), { deleted: ["shot-b"] });
+  assert.equal(m.rows.length, 3, "三行都还在屏幕上");
+  assert.equal(m.deletedCount, 1);
+  assert.equal(m.dirty, true, "而且 保存 是可用的");
+  // 真正落盘那一步才要时间戳
+  assert.throws(() => applyTableEdits(fixturePd().draftShots, { deleted: ["shot-b"] }), /时间戳/);
 });
 
 test("时长只认 6 / 10", () => {

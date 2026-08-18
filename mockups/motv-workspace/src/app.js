@@ -114,6 +114,10 @@ import * as shotgraph from "./workflow/shotgraph.js";
 import * as canvasnodes from "./workflow/canvasnodes.js";
 import * as canvasgrow from "./workflow/canvasgrow.js";
 import * as counts from "./workflow/counts.js";
+import * as sceneplan from "./workflow/sceneplan.js";
+import {
+  installShotMirror, softDeleteShot, restoreShot, deletionImpact, mergeKeepingRecycled,
+} from "./workflow/shotdelete.js";
 import { compileEntityBasePrompt } from "./workflow/promptc.js";
 import { seedDemoProject, DEMO_PROJECT_NAME } from "../fixtures/demo-project.js";
 
@@ -1052,6 +1056,16 @@ const inspector = createInspector();
 const est = createEstimate({ renderBudget, toast });
 
 // --- shared context handed to every node def ---
+// 镜头列表镜像 —— **一处决定「镜头列表是什么」**（TASK-097 批次 4B）。
+//
+// 读到的是存活镜头，回收的从 `shotMirror.recycled()` 单独取。`draftShots` 今天有
+// 28 个文件在读；让每个调用点自己过滤就是 §2.6.1 那条「手写清单总会漏一项」，
+// 而漏掉的那一处会显示一个已删除的镜头，或者把它算进「60 个镜头已就绪」。
+//
+// 项目对象每次换项目都会重建，所以镜像必须在**它出生的地方**装上 —— 这个 let
+// 指向当前那个。
+let shotMirror = null;
+
 const ctx = {
   project: { ...FIX },
   gateway: { submitCommand },
@@ -1216,6 +1230,10 @@ const ctx = {
     },
     renameScene: (id, title) => prodOp(proddoc.renameScene(productionDoc, id, title)),
     removeScene: (id) => prodOp(proddoc.removeScene(productionDoc, id)),
+    /** 场景时间（TASK-095 §2.1.2）。空值删字段 —— 「清空」与「从没写过」是同一形状。 */
+    setSceneTimeOfDay: (sceneId, v) => prodOp(
+      proddoc.setSceneTimeOfDay(productionDoc, sceneId, sceneplan.normalizeTimeOfDay(v) || ""),
+    ),
     assignShot: (sceneId, shotId) => prodOp(proddoc.assignShot(productionDoc, sceneId, shotId)),
     unassignShot: (shotId) => prodOp(proddoc.unassignShot(productionDoc, shotId)),
   },
@@ -2283,7 +2301,13 @@ const ctx = {
       const curV = node && (node.versions || []).find((x) => x.v === node.cur);
       if (!curV) return false;
       const v = nextDraftVersion(node.versions); // max+1, never length+1
-      const edited = normalizeShots(items, `v${v}`);
+      // THE VERSION MUST CARRY THE RECYCLE AREA TOO (TASK-097 批次 4B). Callers
+      // read `ctx.project.draftShots`, which is LIVE shots only, so a list built
+      // from it omits everything soft-deleted. Persisting that list would hard-
+      // delete the recycled shots at the next reload — 「删除可撤销」 would hold
+      // until the page refreshed, which is the worst kind of reversible.
+      const full = mergeKeepingRecycled(shotMirror ? shotMirror.all() : null, items);
+      const edited = normalizeShots(full, `v${v}`);
       node.versions.push({
         id: mintId("sdv"),
         v,
@@ -2308,6 +2332,35 @@ const ctx = {
       ctx.persist();
       return true;
     },
+    /**
+     * 软删除 / 撤销（TASK-095 §2.1 · AGENTS.md 第 13 条）。
+     *
+     * 走的是**同一条**保存路径（新的不可变草稿版本），只是写进去的列表带回收标记。
+     * 没有第二条写路径 —— 那正是这个仓库反复付过代价的地方。
+     */
+    softDelete: (shotId) => {
+      const all = shotMirror && shotMirror.all();
+      if (!Array.isArray(all)) return false;
+      const r = softDeleteShot(all, shotId, { at: new Date().toISOString() });
+      if (!r.changed) return false;
+      return ctx.shots.saveEdit(r.shots);
+    },
+    restoreDeleted: (shotId) => {
+      const all = shotMirror && shotMirror.all();
+      if (!Array.isArray(all)) return false;
+      const r = restoreShot(all, shotId);
+      if (!r.changed) return false;
+      return ctx.shots.saveEdit(r.shots);
+    },
+    /** 回收区的内容（只读）。界面据此给出「撤销删除」。 */
+    recycled: () => (shotMirror ? shotMirror.recycled() : []),
+    /**
+     * 删了会影响到哪儿 —— **派生扫描**（§2.6.1）。
+     *
+     * 不是闸门：软删除不销毁任何东西，撤销把它原位放回，所以这里只如实说后果，
+     * 不拦（§2.5f 第二条）。
+     */
+    deletionImpact: (shotId) => deletionImpact(serializeGraph(), shotId),
   },
   // Audio production controller (M11-A): the single write path for audio
   // REFERENCES (scene ambience / episode+scene BGM) and for audio media
@@ -4392,6 +4445,16 @@ const ctx = {
 // Documents are passed as GETTERS. They are module-level `let`s that project loading
 // REASSIGNS, so handing over their current values would leave a controller writing to
 // the previous project's documents forever.
+/** 装上镜头列表镜像（见 `let shotMirror` 那段）。换项目会重建 `ctx.project`，
+ *  所以每一个新的项目对象都要经过这里 —— 否则那个项目的 `draftShots` 是一个普通
+ *  属性，过滤与「赋值不丢回收区」两条保证同时失效，而且**不报错**。 */
+function useShotMirror(project) {
+  const initial = Array.isArray(project.draftShots) ? project.draftShots : null;
+  shotMirror = installShotMirror(project, initial);
+  return shotMirror;
+}
+useShotMirror(ctx.project);
+
 ctx.timeline = createTimelineController({
   docs: {
     timelines: () => timelinesDoc,
@@ -5914,6 +5977,7 @@ async function enterCanvas(name, opts = {}) {
       ? `【${name}】\n（在此编写剧本草稿，自动保存到本地 data/${name}.json）`
       : FIX.script,
   };
+  useShotMirror(ctx.project);
   if (CONNECTED) {
     try { REAL_STANDING = realmap.mapStanding(await query.getQuery(name, "budget")); } catch { REAL_STANDING = null; }
     // Show the project's REAL locked shot plan in the 分镜 node instead of the

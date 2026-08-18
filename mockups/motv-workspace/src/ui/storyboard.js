@@ -519,10 +519,12 @@ export function buildPortraitIndex(pd) {
  *  injected — so the table's 「提示词 · 缺 N」 column reports gaps for the exact
  *  prompt the generation entry would send, and 「有参考图」 means what the bible
  *  cards mean by it. */
-export function tableModel(pd, ui = {}) {
+export function tableModel(pd, ui = {}, recycled = []) {
   return shotTableModel(pd, {
     buffer: ui.tbuf || {},
     deleted: ui.tdel || [],
+    // 回收区从 `pd` 拿不到（镜像只给存活的），由 shell 注入
+    recycled,
     // `shots` is the draft WITH the unsaved buffer applied (codex round 1, P2).
     // Compiling against `pd.draftShots` meant the 提示词 column reported the gap
     // count of the text the creator had just replaced — 「运镜为空」 next to a 运镜
@@ -748,7 +750,10 @@ export function renderStoryboard(ctx, ui) {
       wizardBtn +
       `<button class="btn sm" data-sb-generate>↻ 重新生成（新版本）</button>`,
   );
-  if (ui.tableView) return header + renderShotTable(ctx, tableModel(pd, ui), ui);
+  if (ui.tableView) {
+    const recycled = ctx.shots && typeof ctx.shots.recycled === "function" ? ctx.shots.recycled() : [];
+    return header + renderShotTable(ctx, tableModel(pd, ui, recycled), ui);
+  }
   return (
     header +
     renderSceneStrip(m.scenes, selScene ? selScene.sceneId : null) +
@@ -833,7 +838,11 @@ export function bindStoryboard(root, ctx, ui, rerender) {
     ui.tableView = toTable;
     rerender();
   }));
-  if (ui.tableView) { bindShotTable(root, ctx, ui, rerender); return; }
+  if (ui.tableView) {
+    const recycled = ctx.shots && typeof ctx.shots.recycled === "function" ? ctx.shots.recycled() : [];
+    bindShotTable(root, ctx, ui, rerender, tableModel(ctx.prodData(), ui, recycled));
+    return;
+  }
   bindShotSelection(root, ctx, ui, rerender);
   bindShotEditor(root, ctx, ui, rerender);
   bindShotMedia(root, ctx, ui);

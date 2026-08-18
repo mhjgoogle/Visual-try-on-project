@@ -49,6 +49,16 @@ export function normalizeShots(items, slotPrefix) {
       const v = typeof s[k] === "string" ? s[k].trim().slice(0, 500) : "";
       if (v) out[k] = v;
     }
+    // 软删除标记必须活过**每一条**保存路径（TASK-097 批次 4B）。
+    // 它是对象，`ADDITIVE_SHOT_FIELDS` 全是字符串，所以单独带 —— 漏掉它的后果与
+    // 上面那段注释里「编辑任何字段都会静默擦掉景别」是同一类，只是更糟：
+    // 保存一次就把回收区里的镜头**复活成存活镜头**，而没有任何一处会喊。
+    const d = s.deleted;
+    if (d && typeof d === "object" && typeof d.at === "string" && d.at.trim()) {
+      out.deleted = typeof d.by === "string" && d.by
+        ? { at: d.at, by: d.by }
+        : { at: d.at };
+    }
     return out;
   });
 }
