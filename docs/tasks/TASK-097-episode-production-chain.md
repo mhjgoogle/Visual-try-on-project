@@ -275,7 +275,7 @@ Storyboard 通过数 / Keyframe 通过数 / 视频完成数 —— 每一个都�
 | --- | --- | --- | --- |
 | 0 | `35337e9` | codex 6 轮（名义 3，超额已声明）：15 P1 + 3 P2 全真全修零驳回 | 五个纯模块 `refscan` / `refset` / `batchpay` / `counts` / `genspec`；`gencard` 改读 `genspec`，`episodecleanup` 改用 `refscan`。守卫 52 项，前端 1504 全绿。**第 6 轮 3 处修复未复审**，已登记[待复审清单](../design/pending-codex-rereview.md)——这两个模块今日零调用方，批次 2/4D/4F/4G/4E 会在真实调用语境复审 |
 | 1 | `c94fd19` | codex 3 轮：3 P1 + 1 P2，**轮 3 pass 零发现** | [ADR-0073](../adr/ADR-0073-shot-multi-stage-workflow.md) 自行 Accept（技术、不涉付费、不动用户数据）。`shotstage.js` 六个 stage；只有 `skipped` 持久；依赖是数据（加假 stage 的测试当场证明）；`shotStage` 降级为汇总，线性链删除；新增 `storyboard`/`keyframe` kind + 资产库筛选的派生守卫；schema v16。轮 1 第 3 条 P1 **部分驳回**（不重定义审片那个词），改为拆出 `shotComplete()`。前端 1530 绿 |
-| 2 | | | |
+| 2 | `41d627b` | codex **7 轮**（名义 3，超额已声明）：13 P1 + 8 P2，12+8 为真已修、1 条驳回 | 目录声明能力（缺省 max 0）+ `ProviderRequest.reference_images` 加法 + 方案 C fail-closed（**拒绝不截断**，接在预约锁之前）+ WAL 往返 + preflight 交出能力 + 接进 `gencard`。**第 6 轮最有价值**：指出两个新函数只有测试在调用——守卫全绿而应用照旧说谎。SSRF 修了六轮才从「枚举拼法」换成 `is_global` + DNS 名白名单。**驳回 DNS 解析**（3/5/7 轮同一条，理由已留档）。真实项目 v15→v16 迁移干净 |
 | 3 | | | |
 | 4A | | | ← **做完给产品负责人看一次** |
 | 4B | | | |
