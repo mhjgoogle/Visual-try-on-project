@@ -43,7 +43,11 @@ import { renderEpPlanWs, bindEpPlanWs } from "./epplanws.js";
 import { renderImageWs, bindImageWs, renderVideoWs, bindVideoWs } from "./mediaws.js";
 import { directorModel, renderDirector, bindDirector } from "./director.js";
 import { renderEpProd, bindEpProd, workbenchModel, currentPlace } from "./epprod.js";
-import { renderShotGraph, bindShotGraph, drawShotEdges, renderStages } from "./shotgraphview.js";
+import {
+  renderShotGraph, bindShotGraph, drawShotEdges, renderStages,
+  renderAddMenu, renderChainMenu, renderStageChips, renderReferenceArea, renderCameraPresets,
+} from "./shotgraphview.js";
+import { REFERENCE_CATEGORIES } from "../workflow/refset.js";
 import { inspectFromShotNode } from "../workflow/shotgraph.js";
 import { derivedLabel } from "../workflow/assetreg.js";
 // TASK-066: the five regions of 剧集制作. Each owns ONE question, and the shell is the
@@ -1190,11 +1194,42 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
           stage: activeModule,
           inner: main,
           graph: shotGraph
-            ? renderShotGraph(shotGraph, {
+            ? // TASK-093 批次 3: the canvas is now WRITABLE, and these four blocks are
+              // where that shows. Mounted here rather than left for a later batch —
+              // batch 2's lesson was that an unwired module reads exactly like a
+              // finished feature (TASK-097 §2.5c).
+              // `ctx.shot.stageBoard`, not `ctx.shotgraph.*` — the six stages belong to
+              // the SHOT (TASK-092), and the canvas is one of their readers. Caught by
+              // opening the real project: the page threw twice while still rendering a
+              // perfectly plausible screenshot (TASK-097 §2.6.4 — 测试不替代去看真实屏幕).
+              renderStageChips(shotGraph.shotId ? ctx.shot.stageBoard(shotGraph.shotId) : null) +
+              renderReferenceArea(
+                shotGraph.shotId ? ctx.shotgraph.referenceArea(shotGraph.shotId) : null,
+                REFERENCE_CATEGORIES,
+              ) +
+              // ABOVE the graph, not below it. Rendered after `renderShotGraph` at
+              // first, which put it in the DOM and off the bottom of the canvas
+              // column — the primary new affordance of this batch was invisible on
+              // the real screen while every test passed (TASK-097 §2.6.4).
+              // NO SHOT, NO CANVAS CONTROLS (codex 轮 3, P1). `bindShotGraph` returns
+              // early on an empty graph, so these rendered with no handlers — clickable
+              // and inert. And semantically 「添加到这块画布」 means nothing before a shot
+              // is chosen: there is no skeleton to add to. Gating the RENDER is the
+              // honest fix; the empty state already says 「先选一个镜头」.
+              (shotGraph.shotId ? renderAddMenu(ctx.shotgraph.addable()) : "") +
+              // ADR-0075 的可见形式。0/60 那个填充率就在这里被解决 —— 一次点击。
+              (shotGraph.shotId ? renderCameraPresets(ctx.shotgraph.cameraPresets(shotGraph.shotId)) : "") +
+              renderShotGraph(shotGraph, {
                 selectedId: ui.sgNode,
                 layout: ui.sgLayout || "auto",
                 menuOpen: ui.sgMenu,
-              })
+              }) +
+              (ui.sgNode && shotGraph.shotId
+                ? renderChainMenu(ctx.shotgraph.chain(
+                    shotGraph.shotId,
+                    shotGraph.nodes.find((n) => n.id === ui.sgNode) || null,
+                  ))
+                : "")
             : null,
         }) +
         `</main>` +
@@ -1952,6 +1987,73 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
           onMenu: (id) => { ui.sgMenu = ui.sgMenu === id ? null : id; render(); },
           onStage: (key) => { ui.sgStage = key; render(); },
           onAct: (act, n) => cardAction(ctx, act, n, shotGraph),
+          // ---- TASK-093 批次 3 (codex 轮 1, P1: these had no control at all) ---- //
+          //
+          // 添加 routes to the EXISTING write path for that registry — the canvas adds
+          // no second one. An item the domain marked unavailable never reaches here,
+          // because `renderAddMenu` draws it as a `<span>`, not a button.
+          onAdd: (kind) => {
+            // EVERY BRANCH REUSES AN EXISTING WRITE PATH — that is the whole point of
+            // TASK-093's first discipline. `cardAction("upload")` is the ONE import
+            // path (ADR-0055): the file becomes an Asset on this shot and freezes the
+            // inputs it was made from.
+            //
+            // An earlier draft called `ctx.assets.importInto(...)`, WHICH DOES NOT
+            // EXIST — and my own wiring guard passed, because it only checked that the
+            // string appeared in this file. A guard that greps for a call cannot tell a
+            // real method from an invented one; it now asserts against the methods the
+            // canvas genuinely uses.
+            if (kind === "reference") { setModule("refplan"); return; }
+            if (kind === "from-history") {
+              // 「从生成历史选择」 adds no record: it opens the card's version history,
+              // where choosing a version is the existing 「设为当前」.
+              //
+              // WHICH history depends on what the creator is looking at (codex 轮 2,
+              // P2). It always opened the IMAGE card, so a shot whose work is on the
+              // video side could not reach its own takes while the menu said it could.
+              const sel = shotGraph.nodes.find((n) => n.id === ui.sgNode) || null;
+              ui.sgMenu = sel && sel.type === "video" ? "video:selected" : "image:selected";
+              render();
+              return;
+            }
+            const node = kind === "video"
+              ? shotGraph.nodes.find((n) => n.id === "video:selected")
+              : shotGraph.nodes.find((n) => n.id === "image:selected");
+            if (kind === "audio") {
+              // audio lives in the post console, which owns the shot's tracks
+              setModule("audio");
+              return;
+            }
+            if (node) cardAction(ctx, "upload", node, shotGraph);
+          },
+          onChain: (id) => {
+            const node = shotGraph.nodes.find((n) => n.id === ui.sgNode) || null;
+            if (!node) return;
+            if (id === "character-from-image") {
+              // ADR-0074 决策 2: the name MUST come from a person. No prompt, no
+              // character — a filename-derived name would never match any shot's
+              // description while looking like it worked.
+              const name = window.prompt("给这个角色起个名字（会用它在画面描述里识别这个人物）");
+              if (name === null) return;
+              ctx.shotgraph.characterFromImage(node, name);
+              render();
+              return;
+            }
+            const t = ctx.shotgraph.chain(shotGraph.shotId, node).find((x) => x.id === id);
+            if (!t || !t.available) { ctx.toast((t && t.why) || "这条路现在走不了"); return; }
+            if (id === "first-frame") { cardAction(ctx, "usefirst", node, shotGraph); return; }
+            if (id === "end-frame") { cardAction(ctx, "extractbind", node, shotGraph); return; }
+            if (id === "run-prompt") { cardAction(ctx, "generate", node, shotGraph); return; }
+            // Unreachable by construction: `renderChainMenu` draws an unavailable target
+            // as a `<span>`, and `CHAIN_HANDLED` is asserted to cover every available
+            // one. Kept as a fail-loud floor rather than a silent no-op.
+            ctx.toast(`「${t.label}」的落点还没接上 —— 不假装它成功了`);
+          },
+          onPreset: (presetId) => {
+            if (!ui.selectedShotId) { ctx.toast("先选一个镜头"); return; }
+            ctx.shotgraph.applyCameraPreset(ui.selectedShotId, presetId);
+            render();
+          },
         });
       }
       if (activeModule === "provenance") {

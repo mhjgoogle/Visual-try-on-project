@@ -101,12 +101,15 @@ import * as timeline from "./workflow/timeline.js";
 import * as bibledoc from "./workflow/bibledoc.js";
 import * as canondoc from "./workflow/canondoc.js";
 import * as shotprod from "./workflow/shotprod.js";
+import * as shotstage from "./workflow/shotstage.js";
 import * as breakdown from "./workflow/breakdown.js";
 // TASK-065: the creator-object-first surfaces. All three are PURE read models over
 // documents this file already owns — none of them introduces a store.
 import * as baseassets from "./workflow/baseassets.js";
 import * as relgraph from "./workflow/relgraph.js";
 import * as shotgraph from "./workflow/shotgraph.js";
+import * as canvasnodes from "./workflow/canvasnodes.js";
+import * as canvasgrow from "./workflow/canvasgrow.js";
 import { compileEntityBasePrompt } from "./workflow/promptc.js";
 import { seedDemoProject, DEMO_PROJECT_NAME } from "../fixtures/demo-project.js";
 
@@ -1685,6 +1688,87 @@ const ctx = {
         nextShot: shotId && ctx.frames.nextShotOf ? ctx.frames.nextShotOf(shotId) : null,
       });
     },
+    // ---- the WRITABLE half (TASK-093 / 批次 3) ------------------------------ //
+    //
+    // THE SKELETON STAYS DERIVED. Everything below either writes into a registry
+    // that already exists, or refuses and says why. There is no canvas document,
+    // nothing to name, nothing to maintain — which is the answer to 「一个 shot 一个
+    // 画布是不是有点奢侈了」 (TASK-093 §0c).
+    //
+    // WIRED HERE, NOT LEFT FOR LATER. Batch 2 shipped two functions whose only
+    // caller was a test — green guards over an app that still behaved the old way
+    // (§2.5c). So each of these has a real path from the canvas view to it.
+
+    /** 能往画布上加什么。`available` 只由「有没有既有登记表装它」决定. */
+    addable: () => canvasnodes.addableNodes(),
+
+    /** 「以此生成 →」 for one node, with its prefill and its refusals.
+     *  The six stages come from TASK-092's ONE computation (§2.4), passed in. */
+    chain: (shotId, node) => canvasnodes.chainTargets(node, {
+      stage: shotId ? ctx.shot.stageBoard(shotId) : null,
+      hasPrompt: !!(node && node.preview && node.preview.trim()),
+      nextShotId: shotId && ctx.frames.nextShotOf ? ctx.frames.nextShotOf(shotId) : null,
+    }),
+
+    /** 参考区的五个一级分类 —— 派生分组，`kind` 数据不动，且「进不进模型」逐条如实. */
+    referenceArea: (shotId) => {
+      const d = shotId ? shotDetailModel(ctx.prodData(), shotId) : null;
+      const refs = (d && d.refInputs && d.refInputs.references) || [];
+      return canvasnodes.referenceArea(refs);
+    },
+
+    /** 删一个节点背后那条记录之前，先问「还有谁引用着它」（派生扫描，两个方向都钉）. */
+    removalCheck: (id, label) => canvasnodes.removalCheck(
+      serializeGraph(),
+      id,
+      {
+        label: label || "这个对象",
+        // 它自己的登记条目不算「被引用」—— 闭集是「哪里不算」，于是明天新增的
+        // 引用点默认算引用（§2.6.1）。谓词是 `canvasnodes` 里那个**有名字的**
+        // 函数，测试用的是同一份：这里原先是一个写错的内联 lambda，把资产自己的
+        // 版本记录也算成外部引用，于是什么都删不掉，而测试因为用了另一个谓词
+        // 而通过（codex 轮 4）。
+        expected: canvasnodes.ownAssetRegistryPath(id),
+      },
+    ),
+
+    // ---- ADR-0074 / ADR-0075 ------------------------------------------------ //
+
+    /** 从一张图创建角色：只登记身份 + 一条参考绑定，其余如实留空. */
+    characterFromImage: (node, name) => {
+      const check = canvasgrow.characterFromImage({
+        node, name, characters: productionDoc.characters,
+      });
+      if (!check.ok) { toast(check.blockers[0]); return null; }
+      const c = bibledoc.addCharacter(productionDoc, check.proposal.name);
+      // 引用，不复制（ADR-0074 决策 3）—— 不产生任何新的媒体字节
+      c.referenceAssetIds = [check.proposal.referenceAssetId];
+      c.activeReferenceAssetId = check.proposal.referenceAssetId;
+      ctx.persist();
+      refreshProductionView();
+      toast(
+        `已创建角色「${c.name}」并绑定这张图为参考。`
+        + "外貌 / 服装 / 画面指令仍然是空的 —— 这张图没告诉我们这些，需要你来写。",
+      );
+      return c;
+    },
+
+    /** 运镜预设菜单 + 应用（复制文本，落到镜头上就与预设脱钩）. */
+    cameraPresets: (shotId) => {
+      const shot = (ctx.project.draftShots || []).find((s) => s && s.shotId === shotId);
+      return canvasgrow.cameraPresetMenu(shot ? shot.cameraMotion : "");
+    },
+    applyCameraPreset: (shotId, presetId, mode) => {
+      const shot = (ctx.project.draftShots || []).find((s) => s && s.shotId === shotId);
+      if (!shot) { toast("找不到这个镜头"); return false; }
+      const r = canvasgrow.applyCameraPreset(shot.cameraMotion, presetId, { mode });
+      if (!r.ok) { toast(r.reason); return false; }
+      // THE EXISTING WRITE PATH: an edit becomes a NEW immutable draft version,
+      // exactly like the detail editor and the table (no second write path).
+      ctx.shots.saveEdit(shotId, { cameraMotion: r.text });
+      toast(r.appended ? "已追加到这一镜的运镜后面（你写的话没有被替换）" : "已填入这一镜的运镜");
+      return true;
+    },
   },
 
   agentShotsDraft: (script) => query.generateShotsDraft(script),
@@ -3108,6 +3192,101 @@ const ctx = {
     /** The DERIVED production stage of one shot (待设计 … 已通过). */
     stage: (shot) => shotprod.shotStage(productionDoc, shot, ctx.shot.mediaOf(shot)),
     stageCounts: (shots) => shotprod.stageCounts(productionDoc, shots, (s) => ctx.shot.mediaOf(s)),
+    /**
+     * TASK-092's SIX stages with their gates, for one shot (ADR-0073).
+     *
+     * The evidence is assembled HERE because each piece lives in a different
+     * registry — and `shotstage` stays pure so 「崩溃后 in_progress 会不会说谎」 is
+     * testable without a backend.
+     *
+     * THIS IS THE ONE COMPUTATION (§2.4). The canvas, the wizard and QC all read
+     * it; none of them re-derives a status. `inflight` reads the generation
+     * registry, `artifact` requires the probe to actually say the bytes are there
+     * (a declaration is not evidence — TASK-077's `storageState` lesson), and
+     * `approvedFor` is the existing approval bound to the artifact.
+     */
+    stageBoard: (shotId) => {
+      const shot = (ctx.project.draftShots || []).find((s) => s && s.shotId === shotId) || null;
+      const media = ctx.shot.mediaOf(shot);
+      const gens = (generationRegistry.generations || []).filter((g) => g && g.targetId === shotId);
+      const inflightOf = (kind) => gens.some(
+        (g) => g.type === kind && (g.status === "queued" || g.status === "generating"),
+      );
+      // THE PROBE'S VERDICT, not the registry's declaration — and the four possible
+      // verdicts do NOT collapse into two (codex 轮 5, P1).
+      //
+      // Two different questions read this same tri-state, and they must read it
+      // differently. `mediaprobe`'s own rule is about not crying wolf; this one is
+      // about not claiming completion. Both are right:
+      //
+      //   「这张图丢了吗」   INCONCLUSIVE → 不说丢了   (mediaprobe.js 的规则)
+      //   「这一步做完了吗」 INCONCLUSIVE → 不说做完了 (本条)
+      //
+      //   PRESENT       done: the probe confirmed the bytes
+      //   MISSING       not done: they are gone
+      //   INCONCLUSIVE  not done: we ASKED and could not confirm. A gate opening on
+      //                 this would spend money against unverified media.
+      //   null          done: nobody has asked yet. The probe scans lazily, and the
+      //                 registry's current-asset pointer is the evidence we hold. That
+      //                 is a genuinely different position from INCONCLUSIVE — one is
+      //                 unanswered, the other is answered "cannot tell".
+      //
+      // ADR-0073 决策 2 said 「探针没有判定它 MISSING」, which is what let the loose
+      // check through; that wording is corrected to match this.
+      const present = (url) => {
+        const verdict = mediaProbe.stateOf(url);
+        if (verdict === mediaprobe.MISSING) return false;
+        if (verdict === mediaprobe.INCONCLUSIVE) return false;
+        return true;
+      };
+      return shotstage.stageBoard(productionDoc.shotProduction.stages, shotId, {
+        // ATTRIBUTED ONLY WHERE THE PIPELINE REALLY FEEDS (codex 轮 3, P1). Mapping an
+        // in-flight `image` generation onto BOTH `storyboard` and `keyframe` showed
+        // false progress on a stage nothing was running for — and `in_progress` feeds
+        // the gates, so a wrong one changes what the creator is told they can start.
+        //
+        // A generation record carries `type: image | video | audio`; it does NOT say
+        // whether an image is a draft sketch or a final keyframe. So each stage claims
+        // only the run it can genuinely own today:
+        //
+        //   keyframe  the existing image pipeline produces THIS
+        //   video     the existing video pipeline
+        //   voice     the existing TTS path (dialogue)
+        //   storyboard / sfx  have no generation path yet (4F / 5A). They report
+        //                     `not_started`, which is the honest answer — inventing
+        //                     progress for them would be the 「声明当事实」 this whole
+        //                     card removes.
+        inflight: (stage) => {
+          if (stage === "keyframe") return inflightOf("image");
+          if (stage === "video") return inflightOf("video");
+          if (stage === "voice") return inflightOf("audio");
+          return false;
+        },
+        artifact: (stage) => {
+          if (stage === "keyframe") {
+            const url = ctx.episode.mediaUrl(shot, "images");
+            return media.image ? { assetId: media.imageAssetId || null, present: present(url) } : null;
+          }
+          if (stage === "video") {
+            const url = ctx.episode.mediaUrl(shot, "videos");
+            return media.video ? { assetId: media.videoAssetId || null, present: present(url) } : null;
+          }
+          // storyboard / voice / sfx / qc have no resolved artifact channel yet —
+          // they arrive with batches 4F / 5A. Reporting `null` is the honest answer:
+          // `not_started`, never a guessed 「已完成」.
+          return null;
+        },
+        approvedFor: (assetId) => shotprod.isApprovedFor(productionDoc, shotId, assetId),
+        // 「台词已确认」 is a fact about the SCRIPT, not a seventh stage (ADR-0073).
+        // A shot with a line written counts as settled; one with no line at all is
+        // `skipped` — it needs no voice, and that is a decision, not a gap.
+        fact: (name) => {
+          if (name !== "dialogue") return null;
+          const line = shot && typeof shot.dialogue === "string" ? shot.dialogue.trim() : "";
+          return line ? "completed" : "skipped";
+        },
+      });
+    },
     /** Whether a shot HAS a current image / video Asset — resolved through the
      *  proven shotId→slot index, never by position. */
     mediaOf: (shot) => {
