@@ -1,6 +1,6 @@
 # TASK-092：Shot 工作流从线性状态机升级成带依赖的多 Stage
 
-- 状态：**未开工**
+- 状态：**已完成（2026-08-18，TASK-097 批次 1 · 提交 `c94fd19` · [ADR-0073](../adr/ADR-0073-shot-multi-stage-workflow.md)）** —— codex 3 轮，轮 3 pass 零发现
 - 负责 Agent：单一实施 Agent（AGENTS.md 第 14 条）
 - 依据：产品负责人 2026-08-17（§0 原话）
 - **前置：TASK-091 已完成并提交** —— 091 把整集九步做成 rail，本卡改 Shot 级状态
