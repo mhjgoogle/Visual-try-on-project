@@ -13,6 +13,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
   groupShotsByScene, sceneLabel, sceneCoverage, normalizeTimeOfDay, TIME_OF_DAY_HINTS,
@@ -211,6 +212,22 @@ test("删除影响是派生扫描：真有引用报出来，**没人引用报 0*
   const clean = deletionImpact(doc, "b");
   assert.equal(clean.total, 0, "只钉「会报出来」那一半，等于造一道以后一定被关掉的门");
   assert.deepEqual(clean.groups, []);
+});
+
+test("影响扫描**真的有人调用** —— 只导出不调用等于登记了一个永不发生的能力", () => {
+  // §2.5c 接线账：新导出必须在同一批里有真实调用方。codex 在交接前那轮抓到
+  // 本批违反了它（`deletionImpact` 只被测试调用），所以这条守卫钉两头 ——
+  // 调用点在，且被调的那个方法真的定义在 app.js 上。批次 3 的教训：只 grep
+  // 调用文本的守卫会为一个**不存在的方法**放行（`ctx.assets.importInto`）。
+  const here = new URL(".", import.meta.url);
+  const table = readFileSync(new URL("../src/ui/shottable.js", here), "utf8");
+  const app = readFileSync(new URL("../src/app.js", here), "utf8");
+  const handler = table.slice(table.indexOf('[data-tdel]'), table.indexOf('[data-tundel]'));
+  assert.match(handler, /ctx\.shots\.deletionImpact\(/, "删除动作没有调用影响扫描");
+  assert.match(app, /^\s{4}deletionImpact:\s*\(shotId\)\s*=>/m,
+    "app.js 上没有这个方法 —— 调用点会在运行时报 not a function");
+  // 而且它是**告知**，不是闸门：删除路径里不得因为有引用就 return 掉
+  assert.equal(/impact[^\n]*\breturn\b/.test(handler), false, "影响扫描不得变成一道门");
 });
 
 test("那条「哪里不算」的谓词是**生产用的那个**，而且它真的分得清", () => {

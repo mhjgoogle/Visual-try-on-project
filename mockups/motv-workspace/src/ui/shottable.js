@@ -578,7 +578,23 @@ export function bindShotTable(root, ctx, ui, rerender, m = null) {
 
   root.querySelectorAll("[data-tdel]").forEach((el) => (el.onclick = () => {
     const id = el.dataset.tdel;
-    if (id && !del.includes(id)) del.push(id);
+    if (id && !del.includes(id)) {
+      del.push(id);
+      // **标记删除的那一刻就把后果说出来。** 派生扫描本来就是为这句话存在的；
+      // 只导出不调用，等于「登记了一个能力，界面上永远不发生」—— 那正是
+      // §2.5c 接线账要挡的东西（codex 交接前那轮的 non-blocking：
+      // 「creators cannot make the informed decision the scan is intended to support」）。
+      //
+      // 这是**告知，不是闸门**：软删除不销毁任何东西，撤销把镜头原位放回，
+      // 所以这里不拦（§2.5f 第二条）。
+      const impact = typeof ctx.shots.deletionImpact === "function"
+        ? ctx.shots.deletionImpact(id)
+        : null;
+      if (impact && impact.total > 0) {
+        const areas = impact.groups.map((g) => `${g.area}(${g.paths.length})`).join("、");
+        ctx.toast(`标记删除 —— 保存后 ${impact.total} 处引用会指向一个已回收的镜头：${areas}。可随时撤销`);
+      }
+    }
     rerender();
   }));
   root.querySelectorAll("[data-tundel]").forEach((el) => (el.onclick = () => {

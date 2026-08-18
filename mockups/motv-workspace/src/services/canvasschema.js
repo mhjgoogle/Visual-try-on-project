@@ -1213,6 +1213,13 @@ export function validateCanvasDoc(doc) {
         if (typeof d.at !== "string" || !d.at.trim()) {
           return `shot ${s.shotId} deleted marker has no timestamp`;
         }
+        // `by` 与 `at` 一视同仁：出现就必须是非空字符串。放过任意类型等于
+        // 「校验通过，然后在下一次 normalize/save 时被静默改写」—— 一个说自己
+        // 检查过的守卫却让形状不对的东西过去，比没有守卫更坏
+        //（codex 交接前那轮的 non-blocking）。
+        if ("by" in d && (typeof d.by !== "string" || !d.by.trim())) {
+          return `shot ${s.shotId} deleted marker has a non-string "by"`;
+        }
         for (const k of Object.keys(d)) {
           if (k !== "at" && k !== "by") return `shot ${s.shotId} deleted marker has unknown field "${k}"`;
         }

@@ -63,6 +63,15 @@ test("软删除标记：形状不对一律拒绝（它真的会拒绝）", () =>
   const extra = base();
   extra.nodes[0].versions[0].raw[0].deleted = { at: "t", reason: "手滑" };
   rejects(extra, /unknown field "reason"/);
+
+  // `by` 与 `at` 一视同仁：放过任意类型 = 「校验通过，然后在下一次 save 时被
+  // 静默改写」（codex 交接前那轮的 non-blocking）
+  const badBy = base();
+  badBy.nodes[0].versions[0].raw[0].deleted = { at: "t", by: 7 };
+  rejects(badBy, /non-string "by"/);
+  const blankBy = base();
+  blankBy.nodes[0].versions[0].raw[0].deleted = { at: "t", by: "  " };
+  rejects(blankBy, /non-string "by"/);
 });
 
 test("`timeOfDay`：**加法字段，缺席合法**；出现必须是非空字符串", () => {
