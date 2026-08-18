@@ -21,9 +21,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ai_video_workflow.config._parsing import (
+    require_bool,
     require_currency,
     require_exact_keys,
     require_int,
+    require_keys,
     require_mapping,
     require_str,
     require_str_tuple,
@@ -43,6 +45,21 @@ _PROVIDER_KEYS = frozenset(
 _MODEL_KEYS = frozenset(
     {"billing_mode", "currency", "clip_prices", "per_second_minor_units"}
 )
+# ADR-0071 decision 4: OPTIONAL in the file, never optional as a rule. A model that
+# does not declare it gets NO_REFERENCE_IMAGES below, i.e. "this model takes no
+# reference images" -- the ADR's words are: a missing declaration is treated as
+# max: 0 (fail-closed).
+_MODEL_OPTIONAL_KEYS = frozenset({"reference_images"})
+_REFERENCE_IMAGES_KEYS = frozenset({"max", "addressable", "roles"})
+
+
+class _Undeclared:
+    """The key was absent from the model, as opposed to present and null."""
+
+    __slots__ = ()
+
+
+_UNDECLARED = _Undeclared()
 _CLIP_PRICE_KEYS = frozenset({"resolution", "duration_seconds", "amount_minor_units"})
 
 
@@ -53,6 +70,52 @@ class ClipPrice:
     resolution: str
     duration_seconds: int
     amount_minor_units: int
+
+
+@dataclass(frozen=True, slots=True)
+class ReferenceImageCapability:
+    """What this model can be GIVEN as reference images (ADR-0071 decision 4).
+
+    THE CATALOG IS THE FACT; THE PROVIDER NEVER GUESSES. Before this existed the
+    studio labelled the character / location / prop / style references as "direct
+    model input" while the paid request carried exactly one image (the first
+    frame) -- four files the creator believed were sent and never were
+    (TASK-077 1.3, GAP-27 / GAP-28).
+
+    ``max_images``   how many reference images this model accepts. 0 means none,
+                     and 0 is the DEFAULT for a model that says nothing.
+    ``addressable``  whether the prompt may point at the Nth image (``[[ref:N]]``).
+                     A model that cannot resolve an ordinal must refuse a prompt
+                     that uses one rather than send it and hope.
+    ``roles``        the reference roles it accepts; empty means no restriction.
+
+    Option C (product owner, 2026-08-17): only providers that have declared that
+    multi-image costs no extra are usable for multi-image at all, so a model whose
+    multi-image billing is unknown simply keeps ``max_images = 0``. We do not price
+    on the provider's behalf.
+    """
+
+    max_images: int
+    addressable: bool
+    roles: tuple[str, ...]
+    # WHETHER THE CATALOG ACTUALLY SAID SO (codex round 1, P1). Without this, a
+    # model that resolved but declared nothing is indistinguishable from one that
+    # declared zero -- and the studio prints DIFFERENT sentences for those two
+    # ("the catalog says this model takes none" vs "the catalog does not describe
+    # this model"). Both mean no images are sent; only one of them is a statement
+    # the catalog made, and claiming the wrong one is the class of lie this ADR
+    # exists to remove.
+    declared: bool = False
+
+    @property
+    def accepts_reference_images(self) -> bool:
+        return self.max_images > 0
+
+
+#: The fail-closed default for a model that declares nothing (decision 4).
+NO_REFERENCE_IMAGES = ReferenceImageCapability(
+    max_images=0, addressable=False, roles=(), declared=False
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +133,10 @@ class ModelCatalogEntry:
     currency: str
     clip_prices: tuple[ClipPrice, ...]
     per_second_minor_units: Mapping[str, int]
+    # additive (ADR-0071 decision 4); a catalog written before it loads unchanged
+    # and reads as "takes no reference images", which is the truth for every model
+    # that existed then
+    reference_images: ReferenceImageCapability = NO_REFERENCE_IMAGES
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,7 +267,7 @@ def _parse_provider(provider_id: str, raw: object) -> ProviderEntry:
 def _parse_model(provider_id: str, model_id: str, raw: object) -> ModelCatalogEntry:
     ctx = f"provider {provider_id!r} model {model_id!r}"
     entry = require_mapping(raw, ctx, CatalogConfigError)
-    require_exact_keys(entry, _MODEL_KEYS, ctx, CatalogConfigError)
+    require_keys(entry, _MODEL_KEYS, _MODEL_OPTIONAL_KEYS, ctx, CatalogConfigError)
     billing_mode = require_str(
         entry["billing_mode"], f"{ctx}.billing_mode", CatalogConfigError
     )
@@ -235,6 +302,56 @@ def _parse_model(provider_id: str, model_id: str, raw: object) -> ModelCatalogEn
         currency=currency,
         clip_prices=clip_prices,
         per_second_minor_units=per_second,
+        reference_images=_parse_reference_images(
+            # ABSENT vs EXPLICIT NULL (codex round 2, P2). `.get()` collapsed them,
+            # so `"reference_images": null` silently disabled the capability instead
+            # of being reported as a malformed declaration. A catalog is
+            # version-controlled and reviewed; a null there is a mistake somebody
+            # should be told about, not a quiet default.
+            entry["reference_images"] if "reference_images" in entry else _UNDECLARED,
+            ctx,
+        ),
+    )
+
+
+def _parse_reference_images(raw: object, ctx: str) -> ReferenceImageCapability:
+    """Parse a model's reference-image declaration, or fail closed to none.
+
+    A model that says nothing carries no reference images. That is not a guess: it
+    is the only safe reading, and it is exactly what every model in this catalog
+    could do before the field existed.
+    """
+    if raw is _UNDECLARED:
+        return NO_REFERENCE_IMAGES
+    entry = require_mapping(raw, f"{ctx}.reference_images", CatalogConfigError)
+    require_exact_keys(
+        entry, _REFERENCE_IMAGES_KEYS, f"{ctx}.reference_images", CatalogConfigError
+    )
+    max_images = require_int(
+        entry["max"], f"{ctx}.reference_images.max", CatalogConfigError, minimum=0
+    )
+    addressable = require_bool(
+        entry["addressable"],
+        f"{ctx}.reference_images.addressable",
+        CatalogConfigError,
+    )
+    roles = require_str_tuple(
+        entry["roles"], f"{ctx}.reference_images.roles", CatalogConfigError
+    )
+    # Two declarations that cannot both be true. Refused at load rather than
+    # normalised, because a catalog that says one thing and means another is the
+    # single source of truth being wrong -- the whole point of decision 4.
+    if max_images == 0 and addressable:
+        raise CatalogConfigError(
+            f"{ctx}.reference_images: addressable requires max >= 1 -- a prompt "
+            "cannot point at an image the model is never given"
+        )
+    if max_images == 0 and roles:
+        raise CatalogConfigError(
+            f"{ctx}.reference_images: roles are meaningless with max = 0"
+        )
+    return ReferenceImageCapability(
+        max_images=max_images, addressable=addressable, roles=roles, declared=True
     )
 
 

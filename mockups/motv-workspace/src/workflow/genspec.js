@@ -187,3 +187,108 @@ export function specRows(preflight) {
     ],
   };
 }
+
+/* -------------------------------------------------------------------------- */
+/* 参考图能力：目录说了什么（ADR-0071 决策 4 / 决策 5）                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * 把 preflight 里的 `inputs.reference_images` 读成界面能说的一句话。
+ *
+ * WHY IT LIVES HERE AND NOT IN A NEW MODULE (TASK-097 §2.5b). 这是「报价与规格只有
+ * 一个读法」那条不变量的同一处：能力和报价来自**同一份** preflight 响应，分开读会
+ * 立刻产生「按 A 的能力显示、按 B 的报价收费」的缝。批次 0 那 15 个 P1 有一半是这个
+ * 形状，所以这里扩展既有模块，而不是新写一份。
+ *
+ * 三种答案，界面必须分得清：
+ *
+ *   declared + max>0   这个 model 真的吃 N 张图
+ *   declared + max=0   目录明确说它不吃 —— 那些图**不会进模型**
+ *   未 declared        目录里没有这个 model；按 fail-closed 读成不吃，
+ *                      但**说法不同**：「不知道」不等于「已知为 0」
+ */
+export function referenceCapability(preflight) {
+  const q = quoteView(preflight);
+  const raw = q.inputs && isObj(q.inputs.reference_images) ? q.inputs.reference_images : null;
+  if (!raw) {
+    return {
+      known: false,
+      maxImages: 0,
+      addressable: false,
+      roles: [],
+      // 「没问过」与「问过，答案是 0」不是一回事。前者该去取报价，后者是事实。
+      note: "还不知道这个模型吃不吃参考图 —— 按「⚡报价」向 Gateway 取一次",
+    };
+  }
+  const maxImages = Number.isInteger(raw.max) && raw.max > 0 ? raw.max : 0;
+  const declared = raw.declared === true;
+  return {
+    known: true,
+    declared,
+    maxImages,
+    addressable: raw.addressable === true,
+    roles: Array.isArray(raw.roles) ? raw.roles.filter(nonEmpty) : [],
+    // `providerLabel` 让 batchpay 的方案 C 拒绝语句能指名道姓
+    providerLabel: nonEmpty(q.inputs.model) ? q.inputs.model : null,
+    note: maxImages > 0
+      ? `这个模型接受 ${maxImages} 张参考图${raw.addressable === true ? "，并且认得提示词里的 [[ref:N]] 编号" : "，但不认编号指代"}`
+      : declared
+        ? "目录明确声明这个模型**不吃参考图** —— 绑定的参考图不会进模型，只会被 AI 解读成提示词里的文字"
+        : "目录里没有这个模型的参考图声明 —— 按 fail-closed 当作不吃（ADR-0071 决策 4）",
+  };
+}
+
+/**
+ * 这一组参考图能不能送给这个模型 —— 与后端
+ * `paid_coordinator.reference_capability_violation` **同一套判据**。
+ *
+ * 两边都要有，理由不是冗余：界面必须在**点提交之前**就说清楚，而后端必须在
+ * **花钱之前**再拦一次。少了前者创作者会白绑一堆图；少了后者一个绕过界面的调用
+ * 就能把图悄悄丢掉（ADR-0071 决策 5：那是拒绝，不是截断）。
+ */
+export function referenceViolation(capability, { count = 0, markers = [], usesMarkers = false, roles = [] } = {}) {
+  // 标记要按**编号**判，不是按「有没有用标记」这个布尔（codex 轮 5）。
+  // 只传布尔时，两张图 + `[[ref:99]]` 在界面上是合法的，而后端会拒 —— 创作者点了
+  // 提交才看到一个莫名其妙的失败。悬空判定必须与后端逐条对齐，用的是同一条规则：
+  // 编号必须落在 1..N 之内。
+  const raw = Array.isArray(markers) ? markers.filter((n) => typeof n === "number") : [];
+  // 位数超限的编号在 `refMarkers` 里是 `Infinity`。它**不能被过滤掉**：那是一个真的
+  // 写在提示词里的标记，只是不可能命中任何图，而后端会明确拒绝它（codex 轮 6）。
+  if (raw.some((n) => !Number.isFinite(n))) {
+    return "提示词里有一个编号长得离谱的 [[ref:N]] 标记 —— 它不可能对应任何一张参考图";
+  }
+  const ordinals = raw.filter((n) => Number.isInteger(n));
+  const anyMarker = ordinals.length > 0 || usesMarkers === true;
+  const dangling = [...new Set(ordinals.filter((n) => n < 1 || n > count))].sort((a, b) => a - b);
+  if (dangling.length) {
+    return `提示词里的 ${dangling.map((n) => `[[ref:${n}]]`).join("、")} 指向不存在的参考`
+      + `（这一镜绑定了 ${count} 张，编号只能是 1..${count}）`;
+  }
+  // 零张图时**仍要**检查标记（codex 轮 4）—— 后端在轮 2 修的正是同一个早退：
+  // 一条写着 [[ref:1]] 而集合为空的提示词，界面放行、后端拒绝。
+  if (anyMarker && !count) {
+    return "提示词里用了 [[ref:N]]，但这一镜没有绑定任何参考图 —— 标记指向不存在的东西";
+  }
+  if (!count) return null;
+  const cap = isObj(capability) ? capability : null;
+  if (!cap || !cap.known) {
+    return "还没有向 Gateway 取过这个模型的参考图能力 —— 先报价，不猜";
+  }
+  const label = cap.providerLabel ? `模型 ${cap.providerLabel}` : "这个模型";
+  if (cap.maxImages <= 0) {
+    return `${label}没有声明多图支持，所以这 ${count} 张参考图送不出去。`
+      + "ADR-0071 方案 C：拒绝，而不是悄悄少送几张 —— 降级会让「用了角色设定图」这句话变成谎。";
+  }
+  if (count > cap.maxImages) {
+    return `${label}接受 ${cap.maxImages} 张参考图，现在绑了 ${count} 张 —— 请选留哪几张。`
+      + "多出来的不会被截断：静默丢弃就是「界面显示已应用、实际没应用」。";
+  }
+  if (anyMarker && !cap.addressable) {
+    return `${label}不认编号指代，但提示词里用了 [[ref:N]]`;
+  }
+  if (cap.roles.length) {
+    const bad = [...new Set((Array.isArray(roles) ? roles : []).filter((r) => nonEmpty(r) && !cap.roles.includes(r)))];
+    if (bad.length) return `${label}不接受这些参考角色：${bad.join("、")}（它只接受 ${cap.roles.join("、")}）`;
+  }
+  return null;
+}

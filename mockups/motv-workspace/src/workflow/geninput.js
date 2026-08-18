@@ -104,6 +104,14 @@ export const isInterpretationRole = (role) => ROLE_USE[role] === "ai-interpretat
  */
 export const ROUTE_CAPABILITY = Object.freeze({
   // Gateway 付费生成 (ADR-0041) — one image, and it is the first frame.
+  //
+  // THIS IS NOW A FALLBACK, NOT THE ANSWER (ADR-0071 决策 4). Hard-coding `false`
+  // was the honest reading while nothing could tell the UI otherwise: the catalog
+  // had no capability field, so 「这条路送几张图」 was a property of the code. It is
+  // a property of the MODEL now, declared in the catalog and delivered by the
+  // Gateway preflight — see `gatewayCapabilityFrom` below. This entry describes the
+  // route when no preflight has been taken yet, and it stays fail-closed, because
+  // 「还没问过」 must never render as 「可以送」.
   gateway: Object.freeze({
     id: "gateway",
     label: "Gateway 付费生成",
@@ -338,4 +346,29 @@ export function generationSeedFrom(set, { type, promptSnapshot, status = "genera
     },
     status,
   };
+}
+
+/**
+ * The gateway route's capability AS THE CATALOG DECLARES IT (ADR-0071 决策 4).
+ *
+ * `capability` is `genspec.referenceCapability(preflight)` — passed in rather than
+ * imported so this module stays free of the preflight shape, and so there is one
+ * reader of that response (TASK-097 §2.5b: 报价与能力来自同一份 preflight，分开读会
+ * 产生「按 A 的能力显示、按 B 的报价收费」的缝).
+ *
+ * Falls back to the fail-closed static entry when nothing has been asked yet: the
+ * route note then says 「请求只带一张图片（首帧）」, which is what a creator should
+ * assume until the Gateway says otherwise.
+ */
+export function gatewayCapabilityFrom(capability) {
+  const cap = capability && typeof capability === "object" ? capability : null;
+  if (!cap || cap.known !== true || !(cap.maxImages > 0)) return ROUTE_CAPABILITY.gateway;
+  return Object.freeze({
+    id: "gateway",
+    label: "Gateway 付费生成",
+    referenceImages: true,
+    maxImages: cap.maxImages,
+    addressable: cap.addressable === true,
+    imageInputs: Object.freeze(["first-frame", "reference"]),
+  });
 }

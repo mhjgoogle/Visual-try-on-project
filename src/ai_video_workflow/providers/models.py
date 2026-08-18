@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import math
+import re
 import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+from ipaddress import ip_address
 from types import MappingProxyType
 from typing import TypeAlias
+from urllib.parse import urlsplit
 
 from ai_video_workflow.errors import FieldTypeError, InvariantViolationError
 from ai_video_workflow.providers.errors import (
@@ -247,6 +250,332 @@ class ProviderInstruction:
         }
 
 
+#: Hostnames that always name the fetcher itself or its local network.
+_LOCAL_HOST_NAMES = frozenset({"localhost", "localhost.localdomain", "ip6-localhost"})
+_LOCAL_HOST_SUFFIXES = (".localhost", ".local", ".internal", ".localdomain")
+
+#: Per-image inline data-URL ceiling. The same 8 MiB the first-frame boundaries use
+#: (ADR-0047 sizing: <=5.5 MB original -> ~7.34 MB base64).
+MAX_INLINE_IMAGE_LEN = 8 * 1024 * 1024
+
+#: Ceiling on the WHOLE ordered set's inline bytes. N images that each pass the
+#: per-image cap can still be a payload nobody wants to serialize into every WAL
+#: snapshot, so the set is bounded as well as its members.
+MAX_INLINE_IMAGE_SET_LEN = 24 * 1024 * 1024
+
+
+#: One DNS label: letters / digits / hyphen, not starting or ending with a hyphen.
+_DNS_LABEL_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+
+#: A label that is a NUMBER in some base rather than a name: `127`, `0x7f`, `0X1A`.
+_NUMERIC_LABEL_RE = re.compile(r"^(?:0[xX][0-9a-fA-F]+|[0-9]+)$")
+
+
+def normalize_url_host(host: str) -> str:
+    """Lower-case, drop the root dot, and punycode an internationalised name.
+
+    ONE NORMALISATION, DONE FIRST (codex round 5). `foo.localhost.` slipped past the
+    local-name check because that check ran on the raw string and the trailing root dot
+    made `endswith(".localhost")` false -- the check was right, the input had simply
+    not been normalised yet. Every later test now runs on this output.
+
+    IDNA is applied rather than refused (codex round 5, P2): an earlier draft required
+    ASCII, which would have rejected `https://例え.jp/a.png` -- a public URL that used
+    to work. A name that cannot be IDNA-encoded at all comes back unchanged and fails
+    the shape test below, which is the honest outcome for something we cannot read.
+    """
+    text = (host or "").strip().lower().rstrip(".")
+    if not text or text.isascii():
+        return text
+    try:
+        return text.encode("idna").decode("ascii")
+    except (UnicodeError, ValueError):
+        return text
+
+
+def _is_dns_name(host: str) -> bool:
+    """Is this a syntactically valid DNS name rather than an address in disguise?
+
+    TESTING THE SHAPE OF A NAME, NOT LISTING THE DISGUISES. Rounds 2-5 each found a
+    spelling the previous fix missed -- scheme-only, then decimal/hex/octal integers,
+    then dotted hex `0x7f.0.0.1`, then all-hex-labels `0x7f.0x0.0x0.0x1`. The set of
+    spellings is unbounded, so the check is inverted: a name must LOOK like a name,
+    and every numeric form fails that regardless of who thought of it.
+    """
+    if not host or len(host) > 253:
+        return False
+    labels = host.split(".")
+    if len(labels) < 2:
+        # a single label cannot be a public name (`http://intranet/`), and it is
+        # exactly the shape that resolves to something internal
+        return False
+    if not all(_DNS_LABEL_RE.match(label) for label in labels):
+        return False
+    # A NUMERIC FINAL LABEL MEANS THIS IS AN ADDRESS: `127.1`, `0x7f.0.0.1`.
+    # ALL-NUMERIC LABELS mean the same thing even when each one has letters in it:
+    # `0x7f.0x0.0x0.0x1` is loopback with every octet written in hex.
+    #
+    # The final-label test is deliberately only "numeric literal", never "parses as
+    # hex": an earlier draft refused any hex-parseable TLD, which would have rejected
+    # `example.ca` and `example.de` -- many real ccTLDs are pure a-f letters. A guard
+    # that blocks legitimate domains gets worked around, and then protects nothing.
+    if _NUMERIC_LABEL_RE.match(labels[-1]):
+        return False
+    return not all(_NUMERIC_LABEL_RE.match(label) for label in labels)
+
+
+def _literal_address(host: str):
+    """The IP this host names, in ANY notation, or None if it is not a literal.
+
+    ``ip_address`` only reads the canonical spellings, so the integer / hex / octal
+    forms of an address (all of which real resolvers accept) come back as "not an
+    address" and would then be treated as a DNS name. This tries the other spellings
+    too, so ``2130706433``, ``0x7f000001`` and ``017700000001`` are all recognised as
+    127.0.0.1 and refused by the caller.
+    """
+    try:
+        return ip_address(host)
+    except ValueError:
+        pass
+    # a bare integer in decimal / hex / octal — the classic loopback disguises
+    for base in (10, 16, 8):
+        try:
+            packed = int(host, base)
+        except ValueError:
+            continue
+        if 0 <= packed <= 0xFFFFFFFF:
+            try:
+                return ip_address(packed)
+            except ValueError:
+                continue
+    return None
+
+
+def validate_public_media_url(value: object, *, field_name: str) -> str:
+    """A媒体 URL we hand to a PROVIDER to fetch, or an inline image data URL.
+
+    THE CHECK NOW MATCHES ITS OWN CLAIM (codex round 2, P1). Both this and the
+    first-frame validator said "must be a public http(s) URL" while checking only the
+    scheme, so ``http://localhost/admin`` and ``http://192.168.1.1/`` passed. The
+    provider is the one that dereferences the URL, so such a value asks a cloud
+    service to fetch something on ITS network — and an error message that asserts
+    "public" without enforcing it is the same shape of untruth this whole audit is
+    about.
+
+    What is refused: a non-http(s) scheme, a missing host, embedded credentials, a
+    literal loopback / private / link-local / reserved IP **in any notation**, and the
+    hostnames that always mean "the fetcher itself".
+
+    "IN ANY NOTATION" IS THE PART ROUND 2 GOT WRONG (codex round 3, P1).
+    ``http://2130706433/`` is 127.0.0.1 written as a decimal integer, and many HTTP
+    clients and resolvers accept it; ``0x7f000001`` and ``017700000001`` are the same
+    address again. ``ip_address("2130706433")`` raises, so those all fell through the
+    "it must be a DNS name" branch and were returned unchecked. The claim was
+    "literal addresses are checked", so the check has to cover the ways a literal can
+    be spelled -- a host with NO letter in it is a number, not a name, and is only
+    accepted if it parses as a public address.
+
+    WHAT IS NOT ATTEMPTED, AND WHY IT IS NOT A GAP TO CLOSE HERE (raised and declined
+    in codex rounds 3, 5 and 7 -- recorded so the next reader does not re-litigate it):
+
+    DNS RESOLUTION. ``https://attacker.example/`` can resolve to 169.254.169.254, and
+    this function will not stop it. Resolving here would not either:
+
+      * the fetch happens on the PROVIDER's host, with the provider's resolver and
+        the provider's network view. What we resolve to says nothing about what they
+        resolve to.
+      * a name can re-resolve between our check and their fetch (DNS rebinding), so
+        resolve-then-hand-over is a TOCTOU by construction.
+      * implementing it would therefore READ as a guarantee while providing none --
+        the exact shape of untruth this whole audit exists to remove.
+
+    The defence that works against a hostile name is on the fetching side: an egress
+    allowlist or a resolver policy where the request is actually made. That is the
+    provider's boundary, not this validator's, and pretending otherwise here would
+    make the code look safer than it is.
+
+    So this function's claim is deliberately narrow and exactly true: it refuses
+    literal addresses in any notation, and names that always mean the fetcher itself.
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise InvalidProviderRequestError(f"{field_name}: expected a non-empty string")
+    if value.startswith("data:image/"):
+        # A CEILING HERE TOO (codex round 3, P1). `first_frame_image` has had one for
+        # a while; the reference set had none, and it holds SEVERAL images that are
+        # then serialized into the request and into every WAL snapshot of it. The
+        # per-image cap matches the first-frame one; `validate_reference_images`
+        # additionally caps the SET, because N images under the individual limit can
+        # still be an unreasonable payload.
+        if len(value) > MAX_INLINE_IMAGE_LEN:
+            raise InvalidProviderRequestError(f"{field_name}: data URL too large")
+        return value
+    if not value.startswith(("http://", "https://")):
+        raise InvalidProviderRequestError(
+            f"{field_name}: must be a public http(s) URL or an image data URL "
+            "(local paths are not allowed)"
+        )
+    # `urlsplit` RAISES on a malformed bracketed host such as `https://[::1`
+    # (codex round 7, P2). An unhandled ValueError here would surface as a coordinator
+    # crash where a plain validation refusal belongs -- the same class of defect as the
+    # over-long ordinal: malformed input must be classified, not escape as an
+    # exception.
+    try:
+        parsed = urlsplit(value)
+    except ValueError as exc:
+        raise InvalidProviderRequestError(
+            f"{field_name}: not a parseable URL ({exc})"
+        ) from exc
+    if parsed.username or parsed.password:
+        raise InvalidProviderRequestError(
+            f"{field_name}: must not embed credentials in the URL"
+        )
+    # NORMALISE ONCE, THEN TEST (codex round 5): trailing root dot removed, lower-cased,
+    # IDNA-encoded. Every check below reads this value, so none of them can be fooled by
+    # a spelling the previous one already handled.
+    host = normalize_url_host(parsed.hostname or "")
+    if not host:
+        raise InvalidProviderRequestError(f"{field_name}: URL has no host")
+    if host in _LOCAL_HOST_NAMES or host.endswith(_LOCAL_HOST_SUFFIXES):
+        raise InvalidProviderRequestError(
+            f"{field_name}: {host!r} names the fetcher's own machine, not a public "
+            "address"
+        )
+    address = _literal_address(host)
+    if address is None:
+        # ALLOWLIST THE ONE SHAPE WE UNDERSTAND, rather than enumerating disguises
+        # (codex rounds 2-4). Three rounds went by patching notations one at a time --
+        # scheme-only, then decimal/hex/octal integers, then dotted-hex `0x7f.0.0.1`
+        # -- because a denylist of spellings is unbounded. A DNS NAME has a known
+        # shape and a non-numeric last label; every numeric disguise fails that test,
+        # including the ones nobody has thought of yet.
+        if not _is_dns_name(host):
+            raise InvalidProviderRequestError(
+                f"{field_name}: {host!r} is neither a public address nor a valid "
+                "hostname -- refusing rather than letting the provider's resolver "
+                "decide what it means"
+            )
+        return value  # a DNS name; see the docstring on why it is not resolved
+    # ONE PROPERTY, MAINTAINED BY THE STDLIB (codex round 6, P1). An enumeration of
+    # loopback / private / link-local / reserved / multicast / unspecified missed
+    # 100.64.0.0/10 (CGNAT), which is none of those and is still not public -- and
+    # would have kept missing whatever range comes next. `is_global` is exactly the
+    # question being asked, and it is somebody else's job to keep it current.
+    if not address.is_global:
+        raise InvalidProviderRequestError(
+            f"{field_name}: {host} is not a globally routable address (loopback / "
+            "private / link-local / carrier-NAT addresses would point the provider "
+            "at its own network)"
+        )
+    return value
+
+
+@dataclass(frozen=True, slots=True)
+class ReferenceImage:
+    """One reference image handed to a generation, at a known ordinal.
+
+    ADR-0071 decision 1 / decision 3. The ordinal is AUTHORITATIVE: it is the
+    number the prompt refers to as ``[[ref:N]]``, so it must be 1-based and the
+    set must be contiguous. The caller normalises the set (the studio does this in
+    ``workflow/refset.js``); this type refuses an ordinal that could not be part of
+    such a set.
+
+    ``version`` + ``content_digest`` are MANDATORY, the same discipline
+    ``reuse_assets`` already carries: a paid generation must bind the exact version
+    it used, or "re-run with the same parameters" has no definition afterwards.
+
+    ``role`` is one of the ADR-0061 decision 4 reference roles. It says WHAT the
+    image is, for the Skill and for capability matching -- it is no longer a slot.
+    """
+
+    ordinal: int
+    url_or_data: str
+    role: str
+    asset_id: str
+    version: int
+    content_digest: str
+
+    def __post_init__(self) -> None:
+        if isinstance(self.ordinal, bool) or not isinstance(self.ordinal, int):
+            raise InvalidProviderRequestError(
+                "reference_images[].ordinal: expected int"
+            )
+        if self.ordinal < 1:
+            raise InvalidProviderRequestError(
+                "reference_images[].ordinal: must be >= 1 (it is the number the "
+                "prompt points at)"
+            )
+        if isinstance(self.version, bool) or not isinstance(self.version, int):
+            raise InvalidProviderRequestError(
+                "reference_images[].version: expected int"
+            )
+        if self.version < 1:
+            raise InvalidProviderRequestError(
+                "reference_images[].version: must be >= 1"
+            )
+        for field_name in ("url_or_data", "role", "asset_id", "content_digest"):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise InvalidProviderRequestError(
+                    f"reference_images[].{field_name}: expected a non-empty string"
+                )
+        # NEVER A LOCAL PATH, AND NEVER A LOCAL ADDRESS. Same rule as
+        # first_frame_image, now sharing one implementation with it.
+        validate_public_media_url(
+            self.url_or_data, field_name="reference_images[].url_or_data"
+        )
+
+    def to_json_dict(self) -> dict[str, JsonInputValue]:
+        """Return a new JSON-compatible dictionary for this reference image."""
+        return {
+            "ordinal": self.ordinal,
+            "url_or_data": self.url_or_data,
+            "role": self.role,
+            "asset_id": self.asset_id,
+            "version": self.version,
+            "content_digest": self.content_digest,
+        }
+
+
+def validate_reference_images(value: object) -> tuple[ReferenceImage, ...]:
+    """Normalise and CHECK a reference-image set (ADR-0071 decision 1).
+
+    The ordinals must be exactly 1..N with no holes and no repeats. A hole makes
+    every ``[[ref:N]]`` after it name a different picture, and a repeat makes one
+    number ambiguous -- both are the silent-rebinding failure the studio side
+    (``refset.js``) refuses, checked again here so the provider boundary cannot be
+    reached around.
+    """
+    if value is None:
+        return ()
+    if isinstance(value, (str, bytes)) or not isinstance(value, (list, tuple)):
+        raise InvalidProviderRequestError("reference_images: expected a sequence")
+    images = tuple(value)
+    for image in images:
+        if not isinstance(image, ReferenceImage):
+            raise InvalidProviderRequestError(
+                "reference_images: expected ReferenceImage entries"
+            )
+    ordinals = [image.ordinal for image in images]
+    if ordinals != list(range(1, len(images) + 1)):
+        raise InvalidProviderRequestError(
+            f"reference_images: ordinals must be exactly 1..N in order (got {ordinals})"
+        )
+    # THE SET IS BOUNDED, NOT ONLY ITS MEMBERS (codex round 3, P1). N images that each
+    # pass the per-image ceiling can still be a payload that gets serialized into the
+    # request AND into every WAL snapshot of it.
+    inline = sum(
+        len(image.url_or_data)
+        for image in images
+        if image.url_or_data.startswith("data:image/")
+    )
+    if inline > MAX_INLINE_IMAGE_SET_LEN:
+        raise InvalidProviderRequestError(
+            f"reference_images: inline image data totals {inline} bytes, over the "
+            f"{MAX_INLINE_IMAGE_SET_LEN}-byte ceiling for one request"
+        )
+    return images
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class ProviderRequest:
     """One immutable generation request handed to a provider."""
@@ -260,6 +589,11 @@ class ProviderRequest:
     height: int
     frame_rate: float
     staging_ref: str | None
+    # ADR-0071 decision 3: ADDITIVE, default empty. Every existing provider and
+    # every existing packet keeps working untouched; `first_frame_image` stays
+    # exactly where it is, because a condition frame is not "reference image 0" --
+    # merging the two would blur both concepts at once.
+    reference_images: tuple[ReferenceImage, ...]
     _provider_parameters: Mapping[str, FrozenJsonValue]
 
     __hash__ = None
@@ -276,6 +610,7 @@ class ProviderRequest:
         frame_rate: float,
         staging_ref: str | None = None,
         provider_parameters: dict[str, JsonInputValue] | None = None,
+        reference_images: object = None,
     ) -> None:
         set_field = object.__setattr__
         set_field(
@@ -314,6 +649,11 @@ class ProviderRequest:
         set_field(self, "staging_ref", staging_ref)
         set_field(
             self,
+            "reference_images",
+            validate_reference_images(reference_images),
+        )
+        set_field(
+            self,
             "_provider_parameters",
             _freeze_parameters(
                 provider_parameters,
@@ -338,6 +678,9 @@ class ProviderRequest:
             "height": self.height,
             "frame_rate": self.frame_rate,
             "staging_ref": self.staging_ref,
+            "reference_images": [
+                image.to_json_dict() for image in self.reference_images
+            ],
             "provider_parameters": _thaw_json_mapping(self._provider_parameters),
         }
 

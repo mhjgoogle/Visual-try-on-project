@@ -73,3 +73,43 @@ def require_str_tuple(
     if len(set(items)) != len(items):
         raise error(f"{ctx}: duplicate entries are not allowed")
     return items
+
+
+def require_keys(
+    mapping: Mapping,
+    required: frozenset[str],
+    optional: frozenset[str],
+    ctx: str,
+    error: type[ErrorT],
+) -> None:
+    """Closed-key validation that admits a declared set of OPTIONAL keys.
+
+    ``require_exact_keys`` above is the right default and stays the default: an
+    unknown key in a config file is almost always a typo, and silently ignoring
+    it is how a mis-spelled price sits in a catalog doing nothing.
+
+    ADR-0071 决策 4 needs one genuinely optional key (``reference_images`` on a
+    model), because an existing catalog that predates it must keep loading. It is
+    optional in the FILE only — a missing declaration is not a missing rule: the
+    parser substitutes the fail-closed default (``max: 0``), so an un-declared
+    model carries no reference images rather than an unknown capability.
+    """
+    actual = frozenset(mapping)
+    missing = required - actual
+    if missing:
+        raise error(f"{ctx}: missing keys {sorted(missing)}")
+    unknown = actual - required - optional
+    if unknown:
+        raise error(f"{ctx}: unknown keys {sorted(unknown)}")
+
+
+def require_bool(value: object, ctx: str, error: type[ErrorT]) -> bool:
+    """A real JSON boolean. ``1`` / ``"true"`` are refused rather than coerced.
+
+    Coercion is how a capability flag ends up ON because somebody typed a string:
+    ``addressable`` decides whether a prompt may name the Nth image, so guessing
+    it wrong sends an un-resolvable ordinal to a paid model.
+    """
+    if not isinstance(value, bool):
+        raise error(f"{ctx}: expected a JSON boolean")
+    return value

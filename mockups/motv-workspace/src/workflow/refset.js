@@ -297,14 +297,28 @@ export function reorderReferenceInputs(inputs, order) {
  *  text, and the word `Image` would lie the moment the same mechanism carries a
  *  text / video / audio reference. The TYPE is stated by the entry's `role`,
  *  一处权威. */
-const MARKER_RE = /\[\[ref:(\d+)\]\]/g;
+// `[0-9]` 而不是 `\d`（codex 轮 4）：Python 的 `\d` 匹配全部 Unicode 十进制数字，
+// JS 的只匹配 ASCII，于是 `[[ref:٣]]` 在后端是一个标记、在界面是普通文字。
+// 两层对同一条提示词读出不同结果，正是跨语言守卫要挡住的事。
+const MARKER_RE = /\[\[ref:([0-9]+)\]\]/g;
+
+/** 一个 ordinal 最多几位。与后端 `_MAX_ORDINAL_DIGITS` 同一个数：Python 对超过
+ *  4300 位的 str→int 会抛，而 JS 的 `Number("9".repeat(309))` 会变成 `Infinity`
+ *  —— 两种失败方式不同，但都必须被判成「这个编号不可能命中任何一张图」，
+ *  否则同一条提示词在两层得到不同结论（codex 轮 6）。 */
+export const MAX_ORDINAL_DIGITS = 9;
 
 /** Every ordinal a prompt refers to, in reading order (duplicates kept: a prompt
- *  may legitimately name the same picture twice). */
+ *  may legitimately name the same picture twice).
+ *
+ *  一个位数超限的编号返回 `Infinity`，而不是被静默丢掉：它是一个**真的出现在提示词里
+ *  的标记**，只是不可能有对应的图。丢掉它会让界面说「没问题」而后端拒绝。 */
 export function refMarkers(text) {
   const out = [];
   if (typeof text !== "string") return out;
-  for (const m of text.matchAll(MARKER_RE)) out.push(Number(m[1]));
+  for (const m of text.matchAll(MARKER_RE)) {
+    out.push(m[1].length > MAX_ORDINAL_DIGITS ? Number.POSITIVE_INFINITY : Number(m[1]));
+  }
   return out;
 }
 

@@ -49,6 +49,7 @@ from ai_video_workflow.providers.models import (
     ProviderRequest,
     ProviderResult,
     ProviderStatus,
+    validate_public_media_url,
 )
 
 MINIMAX_PROVIDER_ID = "minimax"
@@ -62,18 +63,16 @@ _MAX_DATA_URL_LEN = 8 * 1024 * 1024
 
 
 def _validate_first_frame_image(value: object) -> str:
+    # THE SAME CLASS AS reference_images[].url_or_data (codex round 2, P1). This
+    # validator's message has always claimed "a public http(s) URL" while checking
+    # only the scheme, so `http://localhost/...` passed. Fixing it only on the new
+    # field would leave the identical hole one line away, on the field that is
+    # actually in use today — so both now share `validate_public_media_url`.
     if not isinstance(value, str) or not value:
         raise InvalidProviderRequestError("first_frame_image: expected a non-empty str")
-    if value.startswith(("http://", "https://")):
-        return value
-    if value.startswith("data:image/"):
-        if len(value) > _MAX_DATA_URL_LEN:
-            raise InvalidProviderRequestError("first_frame_image: data URL too large")
-        return value
-    raise InvalidProviderRequestError(
-        "first_frame_image: must be a public http(s) URL or an image data URL "
-        "(local paths are not allowed)"
-    )
+    if value.startswith("data:image/") and len(value) > _MAX_DATA_URL_LEN:
+        raise InvalidProviderRequestError("first_frame_image: data URL too large")
+    return validate_public_media_url(value, field_name="first_frame_image")
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,6 +271,21 @@ class MinimaxVideoProvider(VideoProvider):
         # MiniMax /v1/video_generation body (ADR-0009). Only defined vendor
         # fields are sent; a first_frame_image (image-to-video) is included
         # only if the caller supplies one in provider_parameters.
+        #
+        # THIS BODY HAS NO MULTI-IMAGE FIELD, so a request carrying reference
+        # images is REFUSED here rather than sent with them dropped (ADR-0071
+        # decision 5). The coordinator already refuses it against the catalog
+        # declaration (`reference_images.max = 0` for this model), and this is the
+        # second, independent stop at the boundary that actually builds the body:
+        # a request reaching this point with reference images means some caller
+        # bypassed the catalog check, and silently omitting them is precisely the
+        # "the UI said four images were sent" defect this ADR exists to remove.
+        if request.reference_images:
+            raise InvalidProviderRequestError(
+                f"minimax video_generation accepts no reference images, but "
+                f"{len(request.reference_images)} were attached; refusing rather "
+                "than sending the request without them"
+            )
         params = dict(request.provider_parameters)
         body: dict = {
             "model": params.get("model"),

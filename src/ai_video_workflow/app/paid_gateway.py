@@ -52,6 +52,7 @@ from ai_video_workflow.budget.reservation import (
     outstanding_holds,
     shot_consecutive_failures,
 )
+from ai_video_workflow.config.catalog import NO_REFERENCE_IMAGES
 from ai_video_workflow.config.catalog_lock import load_locked_catalog
 from ai_video_workflow.config.project_config import load_project_config
 from ai_video_workflow.errors import AiVideoWorkflowError
@@ -407,6 +408,30 @@ def _budget_denied_reason(
 # --- preview (read-only) ------------------------------------------------------
 
 
+def _reference_capability_json(catalog, provider_id: str, model_id: str) -> dict:
+    """This model's declared reference-image capability, as plain JSON.
+
+    An unknown provider or model reports ``max: 0`` -- the same fail-closed reading
+    the coordinator uses (ADR-0071 decision 4: the provider never guesses, and
+    neither does the interface). ``declared`` distinguishes "the catalog says none"
+    from "the catalog says nothing", because those are different things to tell a
+    creator even though both mean no images are sent.
+    """
+    entry = catalog.providers.get(provider_id) if catalog is not None else None
+    model = entry.models.get(model_id) if entry is not None else None
+    capability = model.reference_images if model is not None else NO_REFERENCE_IMAGES
+    return {
+        "max": capability.max_images,
+        "addressable": capability.addressable,
+        "roles": list(capability.roles),
+        # `declared` means THE CATALOG SAID SO, not "we found the model" (codex
+        # round 1, P1). A resolved model that declares nothing is undeclared; saying
+        # otherwise makes the studio print "the catalog explicitly declared zero"
+        # about a catalog that was silent.
+        "declared": capability.declared,
+    }
+
+
 def _preview(project_root: Path, envelope: CommandEnvelope, deps: _PaidDeps) -> Preview:
     params = envelope.params
     shot_id = params.get("shot_id")
@@ -437,6 +462,7 @@ def _preview(project_root: Path, envelope: CommandEnvelope, deps: _PaidDeps) -> 
         except Exception as exc:  # noqa: BLE001 - any unmet prereq is a blocker
             blockers.append(f"{type(exc).__name__}: {exc}")
         else:
+            provider_id = _provider_id_for(config, request.shot_id)
             inputs.update(
                 {
                     "model": request.model_id,
@@ -444,9 +470,17 @@ def _preview(project_root: Path, envelope: CommandEnvelope, deps: _PaidDeps) -> 
                     "duration": request.duration_seconds,
                     "capability": request.capability,
                     "stage": request.stage,
+                    # ADR-0071 decision 4 reaching the interface: the CATALOG says
+                    # how many reference images this model takes, so the studio can
+                    # state it instead of guessing. Before this, the panel labelled
+                    # four reference roles "direct model input" while the request
+                    # carried one image (TASK-077 1.3) -- the UI had no way to know
+                    # better, because nothing told it.
+                    "reference_images": _reference_capability_json(
+                        catalog, provider_id, request.model_id
+                    ),
                 }
             )
-            provider_id = _provider_id_for(config, request.shot_id)
             scope_violation = _paid_scope_violation(config, request.shot_id)
             if scope_violation is not None:
                 blockers.append(scope_violation)

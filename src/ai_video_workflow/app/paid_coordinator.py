@@ -27,6 +27,7 @@ never re-submitted; it is flagged for reconciliation.
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -62,7 +63,11 @@ from ai_video_workflow.budget.reservation import (
     release_reservation,
     shot_consecutive_failures,
 )
-from ai_video_workflow.config.catalog import ProviderCatalog
+from ai_video_workflow.config.catalog import (
+    NO_REFERENCE_IMAGES,
+    ProviderCatalog,
+    ReferenceImageCapability,
+)
 from ai_video_workflow.config.project_config import ProjectConfig
 from ai_video_workflow.config.selection import resolve_provider_selection
 from ai_video_workflow.digests import file_sha256
@@ -84,6 +89,9 @@ from ai_video_workflow.providers.models import (
     ProviderRequest,
     ProviderResult,
     ProviderStatus,
+    ReferenceImage,
+    validate_public_media_url,
+    validate_reference_images,
 )
 from ai_video_workflow.providers.registry import ProviderRegistry
 from ai_video_workflow.qcd.events import build_provider_cost_recorded_event
@@ -91,6 +99,21 @@ from ai_video_workflow.qcd.log import append_event
 from ai_video_workflow.security.paths import resolve_within_root
 
 _MAX_POLLS = 120
+
+# The prompt reference marker, ADR-0071 decision 2. Spelled `[[ref:N]]` rather than
+# `{{Image N}}`: our prompts are COMPILED, `{{...}}` collides with Chinese creative
+# text, and the word "Image" would lie the moment the same mechanism carries a text
+# or audio reference. Kept in sync with `mockups/motv-workspace/src/workflow/refset.js`
+# by a cross-language guard (tests/test_motv_refset_adr0071.py).
+#: `[0-9]`, NOT `\d` (codex round 4, P2). Python's `\d` matches every Unicode decimal
+#: digit while JavaScript's matches ASCII only, so `[[ref:٣]]` was a marker to the
+#: backend and plain text to the studio -- two layers reading one prompt differently
+#: is precisely what the cross-language guard exists to prevent.
+_REF_MARKER_RE = re.compile(r"\[\[ref:([0-9]+)\]\]")
+
+# The pattern itself stays permissive so both languages can share one spelling (the
+# cross-language guard compares them literally); the LENGTH is bounded here instead.
+_MAX_ORDINAL_DIGITS = 9
 
 # Submit-phase errors that PROVE no remote job was created (safe to release
 # and fall back). Everything else during submit is ambiguous.
@@ -134,6 +157,12 @@ class GenerationSpec:
     frame_rate: float
     prompt: str
     first_frame_image: str | None = None
+    # ADR-0071 decision 1 / decision 3. Additive and empty by default, so every
+    # existing paid path is byte-identical. It rides on the SPEC (not just on the
+    # request) because the spec is what the quote and the payload both derive from:
+    # if the images were attached later, the thing that was priced and the thing
+    # that was sent could differ.
+    reference_images: tuple[ReferenceImage, ...] = ()
 
 
 class MediaFetcher(Protocol):
@@ -155,6 +184,7 @@ class PaidRequest:
     resolution: str
     duration_seconds: int
     first_frame_image: str | None = None
+    reference_images: tuple[ReferenceImage, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -451,6 +481,26 @@ class PaidGenerationCoordinator:
                 provider_id=provider_id,
                 operation_id=operation_id,
                 reason=str(exc),
+                fell_back=fell_back,
+            )
+
+        # ADR-0071 decision 5 / Option C: refuse an un-sendable reference set
+        # BEFORE the reservation lock. The catalog states the capability and the
+        # provider never guesses; a set the model cannot take is an answer, not a
+        # truncation, and giving that answer after a hold exists would turn it into
+        # a refund problem.
+        violation = reference_capability_violation(
+            self._reference_capability(provider_id, spec.model_id),
+            spec.reference_images,
+            spec.prompt,
+            model_id=spec.model_id,
+        )
+        if violation is not None:
+            return PaidOutcome(
+                kind=SPEC_INVALID,
+                provider_id=provider_id,
+                operation_id=operation_id,
+                reason=violation,
                 fell_back=fell_back,
             )
 
@@ -821,6 +871,23 @@ class PaidGenerationCoordinator:
             )
         return self._registry.build(provider_id, entry)
 
+    def _reference_capability(
+        self, provider_id: str, model_id: str
+    ) -> ReferenceImageCapability:
+        """The LOCKED catalog's declaration for this model, or none.
+
+        A provider or model the catalog does not describe carries
+        ``NO_REFERENCE_IMAGES``: an unknown capability is not a permissive one
+        (ADR-0071 decision 4 -- the provider never guesses).
+        """
+        entry = self._catalog.providers.get(provider_id)
+        if entry is None:
+            return NO_REFERENCE_IMAGES
+        model = entry.models.get(model_id)
+        if model is None:
+            return NO_REFERENCE_IMAGES
+        return model.reference_images
+
     def _build_request(
         self, spec: GenerationSpec, request: PaidRequest, provider_id: str
     ) -> ProviderRequest:
@@ -837,6 +904,7 @@ class PaidGenerationCoordinator:
             height=spec.height,
             frame_rate=spec.frame_rate,
             staging_ref=staging_ref_for(request.task_id),
+            reference_images=spec.reference_images,
             provider_parameters={
                 "resolution": spec.resolution,
                 "capability": spec.capability,
@@ -856,17 +924,18 @@ _MAX_FIRST_FRAME_DATA_URL_LEN = 8 * 1024 * 1024
 
 def _validate_first_frame_image(value: str) -> str:
     # image-to-video first frame: public URL or inline image data URL only —
-    # never a local path (which could leak a path or exfiltrate a local file).
-    if value.startswith(("http://", "https://")):
-        return value
-    if value.startswith("data:image/"):
-        if len(value) > _MAX_FIRST_FRAME_DATA_URL_LEN:
-            raise CoordinatorError("first_frame_image: data URL too large")
-        return value
-    raise CoordinatorError(
-        "first_frame_image: must be a public http(s) URL or an image data URL "
-        "(local paths are not allowed)"
-    )
+    # never a local path (which could leak a path or exfiltrate a local file),
+    # and never a loopback / private address (codex round 2, P1: the message
+    # promised "public" while only the scheme was checked, so the provider could
+    # be pointed at its own network). Shares the provider boundary's one
+    # implementation rather than keeping a second, weaker copy here.
+    if value.startswith("data:image/") and len(value) > _MAX_FIRST_FRAME_DATA_URL_LEN:
+        raise CoordinatorError("first_frame_image: data URL too large")
+    try:
+        return validate_public_media_url(value, field_name="first_frame_image")
+    except InvalidProviderRequestError as exc:
+        # keep this boundary's own error type: callers classify CoordinatorError
+        raise CoordinatorError(str(exc)) from exc
 
 
 def _build_spec(shot: Shot, request: PaidRequest) -> GenerationSpec:
@@ -904,7 +973,103 @@ def _build_spec(shot: Shot, request: PaidRequest) -> GenerationSpec:
         frame_rate=shot.frame_rate,
         prompt=shot.prompt,
         first_frame_image=first_frame_image,
+        # validated by ProviderRequest / validate_reference_images: ordinals must
+        # be exactly 1..N, and every entry must bind a version + digest
+        reference_images=validate_reference_images(request.reference_images),
     )
+
+
+def reference_capability_violation(
+    capability: ReferenceImageCapability,
+    images: tuple[ReferenceImage, ...],
+    prompt: str,
+    *,
+    model_id: str,
+) -> str | None:
+    """Why this model must NOT be sent this reference set -- or None.
+
+    ADR-0071 decision 5, and the reason it is a REFUSAL rather than a truncation:
+
+    ==================  ====================================================
+    catalog says        what happens
+    ==================  ====================================================
+    ``max: 0``          refused. Option C: a provider that has not declared
+                        "multi-image costs no extra" is simply not available
+                        for this route. We never quietly send one image and
+                        call it done -- that would make "we used the character
+                        sheet" a lie.
+    ``max: 3``, 5 bound refused, naming the count. Dropping images 4 and 5 is
+                        the "UI says applied, nothing was applied" family this
+                        whole audit exists to remove.
+    not addressable,    refused. The prompt points at the Nth image and the
+    prompt uses [[ref]] model cannot resolve an ordinal.
+    role not accepted   refused, naming the role.
+    ==================  ====================================================
+
+    Called BEFORE a reservation is held, for the same reason
+    ``_validate_first_frame_image`` is: a refusal after money is held is a refund
+    problem, and a refusal before it is just an answer.
+    """
+    # MARKERS ARE CHECKED EVEN WITH NO IMAGES BOUND (codex round 2, P1). The early
+    # return used to skip straight past this, so a prompt saying `[[ref:1]]` with an
+    # EMPTY set launched a paid generation whose reference resolves to nothing. Zero
+    # bound images is precisely the case where every marker is dangling.
+    # `int()` IS NOT SAFE ON UNBOUNDED DIGITS (codex round 3, P2 -- and it is real,
+    # not merely uncertain: since Python 3.11 a str->int conversion over 4300 digits
+    # raises ValueError, so `[[ref:` + 5000 digits would surface as an unexpected
+    # coordinator crash instead of SPEC_INVALID). An ordinal that long is dangling by
+    # construction anyway, so it is classified without being converted.
+    markers: list[int] = []
+    absurd = False
+    for match in _REF_MARKER_RE.findall(prompt):
+        if len(match) > _MAX_ORDINAL_DIGITS:
+            absurd = True
+            continue
+        markers.append(int(match))
+    if absurd:
+        return (
+            "the prompt contains a reference marker whose number is absurdly long, "
+            "so it cannot name any of the bound images -- refusing rather than "
+            "guessing what was meant"
+        )
+    dangling = sorted({n for n in markers if n < 1 or n > len(images)})
+    if dangling:
+        listed = ", ".join(f"[[ref:{n}]]" for n in dangling)
+        return (
+            f"the prompt points at {listed}, but only {len(images)} reference "
+            "image(s) are bound (ordinals are 1..N) -- refusing rather than sending "
+            "a prompt whose references resolve to nothing"
+        )
+    if not images:
+        return None
+    if not capability.accepts_reference_images:
+        return (
+            f"model {model_id!r} does not declare multi-image support "
+            f"(reference_images.max = {capability.max_images}), so these "
+            f"{len(images)} reference images cannot be sent. ADR-0071 Option C: we "
+            "refuse rather than silently sending fewer images than the creator bound."
+        )
+    if len(images) > capability.max_images:
+        return (
+            f"model {model_id!r} accepts {capability.max_images} reference images, "
+            f"{len(images)} are bound -- choose which to keep. They are not "
+            "truncated: dropping some silently would report inputs that never "
+            "reached the model."
+        )
+    if markers and not capability.addressable:
+        return (
+            f"model {model_id!r} does not resolve ordinal references, but the prompt "
+            "points at one with [[ref:N]]"
+        )
+    if capability.roles:
+        allowed = set(capability.roles)
+        bad = sorted({image.role for image in images if image.role not in allowed})
+        if bad:
+            return (
+                f"model {model_id!r} does not accept reference role(s) "
+                f"{', '.join(bad)} (it accepts: {', '.join(capability.roles)})"
+            )
+    return None
 
 
 def _submit_phase(provider, request: ProviderRequest, now: datetime):

@@ -62,6 +62,7 @@ from ai_video_workflow.providers.models import (
     ProviderRequest,
     ProviderResult,
     ProviderStatus,
+    ReferenceImage,
 )
 from ai_video_workflow.serialization import (
     model_from_dict,
@@ -170,6 +171,14 @@ _PROVIDER_REQUEST_KEYS = frozenset(
         "provider_parameters",
     }
 )
+
+# ADR-0071 decision 3 is additive, so the WAL snapshot admits the new key WITHOUT
+# requiring it: a snapshot written before the field existed must still restore, and
+# it restores to the empty set -- which is what that request really carried. The
+# key is round-tripped rather than dropped because a recovered request that
+# silently lost its reference images would send fewer pictures than the one the
+# creator paid for, which is the exact failure this whole ADR removes.
+_PROVIDER_REQUEST_OPTIONAL_KEYS = frozenset({"reference_images"})
 
 _PROVIDER_RESULT_KEYS = frozenset(
     {
@@ -690,7 +699,20 @@ def _restore_provider_request(snapshot: object) -> ProviderRequest:
     )
     name = "provider_request snapshot"
     payload = _thaw_mapping(wrapper["payload"])
-    _require_exact_keys(payload, required=_PROVIDER_REQUEST_KEYS, name=name)
+    _require_exact_keys(
+        payload,
+        required=_PROVIDER_REQUEST_KEYS,
+        optional=_PROVIDER_REQUEST_OPTIONAL_KEYS,
+        name=name,
+    )
+    # ABSENT is a pre-ADR-0071 snapshot; PRESENT-BUT-NULL is malformed (codex round
+    # 1, P2). The sentinel distinguishes them, because the docstring's promise --
+    # "present-but-malformed is an error, never a silent empty set" -- was not kept
+    # when `.get()` collapsed both into None.
+    reference_images = _restore_reference_images(
+        payload["reference_images"] if "reference_images" in payload else _ABSENT,
+        name=f"{name}.reference_images",
+    )
     parameters = _require_plain_dict(
         payload["provider_parameters"],
         name=f"{name}.provider_parameters",
@@ -707,6 +729,7 @@ def _restore_provider_request(snapshot: object) -> ProviderRequest:
             frame_rate=payload["frame_rate"],
             staging_ref=payload["staging_ref"],
             provider_parameters=parameters,
+            reference_images=reference_images,
         ),
         name=name,
     )
@@ -960,11 +983,67 @@ def _wrap_restore_errors(constructor, *, name: str):
         raise InvalidRecoveryRecordError(f"{name}: {exc}") from exc
 
 
+class _Absent:
+    """The key was not in the snapshot at all -- distinct from a null value."""
+
+    __slots__ = ()
+
+
+_ABSENT = _Absent()
+
+
+def _restore_reference_images(
+    value: object, *, name: str
+) -> tuple[ReferenceImage, ...]:
+    """Rebuild the ordered reference set from a WAL snapshot.
+
+    Absent (a pre-ADR-0071 snapshot) means the empty set, which is the truth for
+    that request. Present-but-malformed is an error, never a silent empty set: the
+    difference between "carried none" and "carried some we could not read" decides
+    whether a recovered job is the same job -- and `null` is malformed, not absent.
+    """
+    if isinstance(value, _Absent):
+        return ()
+    if not isinstance(value, (list, tuple)):
+        raise FieldTypeError(f"{name}: expected a sequence")
+    images = []
+    for index, item in enumerate(value):
+        row = _require_exact_keys(
+            item,
+            required=frozenset(
+                {
+                    "ordinal",
+                    "url_or_data",
+                    "role",
+                    "asset_id",
+                    "version",
+                    "content_digest",
+                }
+            ),
+            name=f"{name}[{index}]",
+        )
+        images.append(
+            _wrap_restore_errors(
+                lambda row=row: ReferenceImage(
+                    ordinal=row["ordinal"],
+                    url_or_data=row["url_or_data"],
+                    role=row["role"],
+                    asset_id=row["asset_id"],
+                    version=row["version"],
+                    content_digest=row["content_digest"],
+                ),
+                name=f"{name}[{index}]",
+            )
+        )
+    return tuple(images)
+
+
 def _require_exact_keys(
     value: object,
     *,
     required: frozenset[str],
     name: str,
+    optional: frozenset[str] = frozenset(),
 ) -> Mapping[str, object]:
     mapping = _require_mapping(value, name=name)
     keys = set()
@@ -977,7 +1056,7 @@ def _require_exact_keys(
     missing = sorted(required - keys)
     if missing:
         raise InvariantViolationError(f"{name}: missing required key {missing[0]!r}")
-    unknown = sorted(keys - required)
+    unknown = sorted(keys - required - optional)
     if unknown:
         raise InvariantViolationError(f"{name}: unknown key {unknown[0]!r}")
     return mapping

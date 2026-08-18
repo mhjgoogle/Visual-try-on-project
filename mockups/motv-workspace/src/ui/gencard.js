@@ -25,7 +25,11 @@
 // Pure render + bind; the model is derived from `shotDetailModel` output.
 
 import { esc } from "../util/dom.js";
-import { quoteView, specRows } from "../workflow/genspec.js";
+import {
+  quoteView, specRows, referenceCapability, referenceViolation,
+} from "../workflow/genspec.js";
+import { refMarkers } from "../workflow/refset.js";
+import { gatewayCapabilityFrom, referenceRouteNote } from "../workflow/geninput.js";
 
 const KIND_LABEL = { image: "画面", video: "视频" };
 
@@ -109,7 +113,32 @@ export function genCardModel(d, kind, { paid = false, quote = null, promptEdit =
     canSubmit: !!(paid && kind === "video" && d.shot.shotId),
     paid,
     quote: quote && quote.shotId === d.shot.shotId ? quote : null,
+    // ADR-0071 决策 4/5 ON THE SURFACE THAT ACTUALLY HOLDS THE PREFLIGHT
+    // (codex 轮 6, P1). The capability reading and the violation check existed but
+    // nothing called them, so the studio still said 「参考图不会进模型」 unconditionally
+    // and let a creator submit a set the Gateway would refuse. This card already has
+    // the references, the quote and the submit, so it is where both belong.
+    ...referenceStanding(d, kind, quote && quote.shotId === d.shot.shotId ? quote : null, chips),
   };
+}
+
+/**
+ * 「这些参考图会怎么样」 for THIS card: what the catalog declared, and whether the
+ * set as bound can actually be sent.
+ *
+ * Reads `genspec` (one preflight reader for quote AND capability) and `refset`
+ * (marker parsing), rather than deciding anything itself — TASK-097 §2.5b: those two
+ * invariants are already hardened, and re-deriving them here is how they drift.
+ */
+function referenceStanding(d, kind, quote, chips) {
+  const capability = referenceCapability(quote);
+  const text = (d.prompts[kind] || {}).text || "";
+  const violation = referenceViolation(capability, {
+    count: chips.length,
+    markers: refMarkers(text),
+    roles: chips.map((c) => c.kind),
+  });
+  return { refCapability: capability, refViolation: violation };
 }
 
 /** The spec block. EVERY value comes from the preflight response; nothing here
@@ -281,7 +310,32 @@ export function renderGenCard(m) {
       `<span class="meta">这个镜头还没有绑定参考 —— 一致性会明显不稳。` +
       `<button class="btn sm" data-goto="refplan">→ 去绑定</button></span></div>`;
 
-  const submit = m.canSubmit
+  // WHAT THE CATALOG SAID ABOUT THESE PICTURES (ADR-0071 决策 4/5).
+  //
+  // Two separate statements, deliberately:
+  //   the NOTE says what this model does with reference images at all
+  //   the VIOLATION says this particular set cannot be sent, and why
+  //
+  // The note reads the route capability DERIVED from the preflight rather than the
+  // static table, so 「图不会进模型」 stops being an unconditional claim the moment the
+  // catalog says otherwise — that unconditional claim is what TASK-077 §1.3 could only
+  // work around, because nothing used to tell the interface the truth.
+  const refNote = m.canSubmit && m.chips.length
+    ? `<div class="gc-note gc-refcap">${esc(m.refCapability.note)}` +
+      (m.refCapability.known
+        ? `<span class="gc-refcap-route"> ${esc(referenceRouteNote(gatewayCapabilityFrom(m.refCapability)))}</span>`
+        : "") +
+      `</div>`
+    : "";
+  const refBlock = m.refViolation
+    ? `<div class="gc-block gc-refblock">⚠ ${esc(m.refViolation)}</div>`
+    : "";
+
+  const submit = m.refViolation && m.canSubmit
+    // 提交按钮**不置灰**（既有纪律）—— 但它必须说清为什么按下去会被拒，
+    // 而不是让创作者付了一次预检的时间才知道。
+    ? `<button class="btn primary" data-gc-submit disabled title="${esc(m.refViolation)}">提交生成（付费）</button>`
+    : m.canSubmit
     ? `<button class="btn primary" data-gc-submit>提交生成（付费）</button>`
     : m.paid && m.kind === "image"
       ? `<span class="meta">付费图片生成尚未获批（ADR-0038 未 Accepted）——下面的免费路线是这一步的正式做法。</span>`
@@ -311,6 +365,8 @@ export function renderGenCard(m) {
     `付费提交发送的是已锁定 packet 里的 Prompt —— 那是被批准过的那一份。` +
     `<button class="btn sm" data-gc-reset>还原为编译结果</button></div>` +
     specHtml(m) +
+    refNote +
+    refBlock +
     `<div class="gc-actions">${quoteHtml(m)}${submit}</div>` +
     failuresHtml(m) +
     `<div class="gc-free"><span class="lab">免费路线</span>` +
