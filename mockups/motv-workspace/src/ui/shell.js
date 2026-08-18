@@ -31,7 +31,15 @@ export const NAV = [
       ["brief", "💡", "项目与创意"],
       ["story", "📖", "故事大纲"],
       ["episodes", "📺", "分集规划"],
-      ["script", "📄", "本集剧本"],
+      // 「本集剧本」 MOVED TO 剧集制作 (TASK-091 §1.1, confirmed by the owner's 图一:
+      // 「剧集制作开始的时候按照图一。写剧本」). It is the FIRST thing that space does,
+      // and it was sitting in 故事开发 where the creator had already left for production.
+      //
+      // ONLY THE SPACE MOVED. The member set of PAGES is byte-identical, so the frozen
+      // `PAGES.length === 11` guard (ADR-0066 决策 10) still holds; `spaceOf` and
+      // `crumbScope` both derive from EPISODE_NAV, so moving the row is the whole
+      // change — no address, no history key and no alias is touched (TASK-086 gave
+      // every key a stable address).
       // 作品设定 IS LAST, and that is a product decision this card executes
       // (产品负责人 2026-08-17, TASK-090 §0 / §2.1):
       //
@@ -79,6 +87,10 @@ export const EPISODE_DEFAULT = "board";
  *  Nothing was deleted. 参考 / Prompt / 生成 / 画面 / 视频 / 音频 / 审片 all keep
  *  their full workspace AND gained a node entrance. */
 export const EPISODE_NAV = [
+  // 剧集制作 STARTS AT THE SCRIPT (图一). The owner's own sequence is
+  // 「写剧本 → 脚本生成器自动生成分镜 → …」, so the script is this space's first row
+  // rather than 故事开发's last.
+  ["script", "📄", "本集剧本"],
   // TASK-073 §1.1: FIVE pages, down from eleven same-level tabs. This is a
   // regrouping, NOT a removal — every capability behind the old eleven keys is
   // still reachable, as a SECTION of one of these five (see MODULE_ALIAS). What

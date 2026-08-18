@@ -1555,12 +1555,15 @@ test("the demo seed produces a document that VALIDATES at the current schema", a
 /* Information architecture                                                  */
 /* ========================================================================= */
 
-test("IA: 故事开发's rail ends at the episode script; media stages are their own space", () => {
+test("IA: 故事开发's rail ends at 分集规划; the script begins 剧集制作", () => {
   assert.deepEqual(NAV.map((g) => g.sec), ["故事开发"]);
   // TASK-073 §1.1: 人物 / 人物关系 / 世界观 became three SECTIONS of ③ 作品设定 — see
   // the same assertion in tests/workspaces.test.mjs for why this shrank again.
+  // TASK-091 §1.1 / 图一: 本集剧本 MOVED into 剧集制作 — writing the script is the first
+  // thing that space does. The forward chain 创意 → 大纲 → 分集规划 → 本集剧本 is
+  // unchanged as a PIPELINE; what moved is which space owns the last link.
   assert.deepEqual(NAV[0].items.map((i) => i[0]), [
-    "brief", "story", "episodes", "script", "settings",
+    "brief", "story", "episodes", "settings",
   ]);
   // ADR-0061 决策 1 AND 产品负责人 2026-08-17 — two claims about two different things,
   // which is why both can hold at once (TASK-094 批次 F1):
@@ -1576,17 +1579,19 @@ test("IA: 故事开发's rail ends at the episode script; media stages are their
   // 核对面 it became.
   const items = NAV[0].items.map((i) => i[0]);
   assert.equal(items[items.length - 1], "settings", "作品设定 在最后（产品负责人拍板）");
+  // 生产链**作为链**仍然止于本集剧本，但那一步的**归属空间**已经移到剧集制作
+  // （TASK-091 §1.1 / 图一）。所以这条断言现在只覆盖 故事开发 这一侧的三步。
   assert.deepEqual(items.filter((k) => k !== "settings"),
-    ["brief", "story", "episodes", "script"], "生产链本身仍然止于本集剧本");
+    ["brief", "story", "episodes"], "故事开发这一侧止于分集规划");
   // the media stages are NOT in the story rail; they belong to 剧集制作
   for (const k of ["frames", "video", "audio", "dailies"]) {
     assert.ok(!NAV.some((g) => g.items.some((i) => i[0] === k)));
     assert.ok(EPISODE_MODULES.includes(k));
   }
-  // 剧集制作 is FIVE pages now; the eleven legacy stages remain addressable as
-  // sections of them (TASK-073 §1.1 落点表), which EPISODE_MODULES still spans.
+  // 剧集制作 is SIX rows now — 本集剧本 joined at the front (TASK-091 §1.1). Still the
+  // same eleven PAGES: the row moved out of 故事开发, it was not added.
   const epKeys = EPISODE_NAV.map((i) => i[0]);
-  assert.deepEqual(epKeys, ["board", "storyboard", "shotwork", "cutreview", "delivery"]);
+  assert.deepEqual(epKeys, ["script", "board", "storyboard", "shotwork", "cutreview", "delivery"]);
   for (const k of ["workbench", "scenes", "shots", "frames", "video", "audio", "dailies", "provenance"]) {
     assert.ok(EPISODE_MODULES.includes(k), `${k} must stay addressable in 剧集制作`);
   }

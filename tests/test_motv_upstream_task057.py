@@ -88,7 +88,14 @@ def test_production_rail_is_upstream_only() -> None:
     # ADR-0061 决策 1 renamed this space 故事开发 (「把故事写出来」) and extended it to
     # end at 本集剧本 — media production moved out to the 剧集制作 space entirely.
     assert '"故事开发"' in nav
-    assert '"script"' in nav, "story development ends at the episode script"
+    # 本集剧本 MOVED to 剧集制作 (TASK-091 §1.1, confirmed by the owner's 图一 on
+    # 2026-08-17: 「剧集制作开始的时候按照图一。写剧本」). It is that space's FIRST row
+    # now, so it must be absent here and present there — asserting both sides is the
+    # point: a move that only removed it would have deleted a page.
+    assert '"script"' not in nav, "本集剧本 belongs to 剧集制作 now"
+    ep_nav = shell[shell.index("export const EPISODE_NAV = [") :]
+    ep_nav = ep_nav[: ep_nav.index("\n];")]
+    assert '"script"' in ep_nav, "…and it must really be in the episode rail"
     # The episode's production stages are the 剧集制作 space's centre tabs
     # (ADR-0061 决策 2) rather than a sub-tree nested under an episode row.
     ep_start = shell.index("export const EPISODE_NAV")
@@ -102,9 +109,15 @@ def test_production_rail_is_upstream_only() -> None:
     legacy = shell[shell.index("export const LEGACY_EPISODE_STAGES") :]
     for key in ('"shots"', '"frames"', '"video"', '"audio"', '"edit"'):
         assert key in legacy, f"{key} must stay addressable"
-    # 剧本 is NOT here: story development ends at the episode script, and 剧集制作
-    # begins FROM it. Both spaces claiming it is exactly the overlap ADR-0061 removed.
-    assert '"script"' not in episode_nav, "本集剧本 belongs to 故事开发, not 剧集制作"
+    # 剧本 IS here now, and it is this space's FIRST row (TASK-091 §1.1 / 图一:
+    # 「剧集制作开始的时候按照图一。写剧本」). ADR-0061 put it at the end of 故事开发;
+    # the owner's own sequence starts 剧集制作 with it, so the space that owns it moved.
+    #
+    # ONE SPACE OWNS IT, still — the overlap ADR-0061 removed stays removed: the
+    # assertion above checks it is absent from the 故事开发 rail, and this one checks it
+    # is present here. Both sides are pinned, because a move asserted from one side
+    # only cannot tell a move from a deletion.
+    assert '"script"' in episode_nav, "本集剧本 is 剧集制作's first row now"
     # the unified workbench leads, and the provenance VIEW is part of this space
     assert '"workbench"' in legacy
     assert '"provenance"' in legacy

@@ -68,13 +68,16 @@ test("an episode with no selection offers no exit at all", () => {
   assert.ok(html.includes("data-ep-choose"), "the rows are still selectable");
 });
 
-test("the exit lands in 剧集制作, and 本集剧本 is NOT a cross-space jump", () => {
+test("the exit lands in 剧集制作, and 本集剧本 now lives THERE", () => {
   // The rail's exit target and the space it belongs to are decided by ONE
   // function, so the top bar cannot disagree with the centre about where the
   // creator is.
   assert.equal(spaceOf(EPISODE_DEFAULT), "episode");
-  // 本集剧本 is story development's LAST step — entering it must stay in 故事开发
-  assert.equal(spaceOf("script"), "story");
+  // 本集剧本 USED TO BE story development's last step. THE RULE CHANGED
+  // (TASK-091 §1.1 / the owner's 图一): writing the episode script is the first
+  // thing 剧集制作 does. Entering it is therefore no longer a cross-space jump in
+  // the other direction — it is where that space begins.
+  assert.equal(spaceOf("script"), "episode");
 });
 
 /* ========================================================================= */
@@ -92,7 +95,12 @@ test("制作台 IS the centre; the stage workspaces (incl. 生成溯源) are sec
   // (`LEGACY_EPISODE_CENTRE`), while the SPACE now opens on ⑥ 本集看板.
   assert.equal(LEGACY_EPISODE_CENTRE, "workbench");
   assert.equal(EPISODE_DEFAULT, "board");
-  assert.equal(EPISODE_NAV[0][0], EPISODE_DEFAULT);
+  // The FIRST ROW and the DEFAULT are now different things, deliberately
+  // (TASK-091 §1.1): the rail reads in the owner's order — 剧集制作 starts at 本集剧本 —
+  // while 「进入剧集制作」 still lands on 本集看板, because a returning creator usually
+  // already has a script and wants the next piece of work.
+  assert.equal(EPISODE_NAV[0][0], "script");
+  assert.ok(EPISODE_NAV.some(([k]) => k === EPISODE_DEFAULT), "the default is still a row");
   // nothing was deleted: every stage is still addressable, provenance included
   for (const k of ["provenance", "episode", "scenes", "shots", "refplan", "frames", "video", "audio", "dailies", "edit"]) {
     assert.ok(EPISODE_MODULES.includes(k), `${k} must stay reachable`);

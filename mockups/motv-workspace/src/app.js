@@ -35,12 +35,15 @@ import * as realmap from "./services/realmap.js";
 import * as mediaprobe from "./services/mediaprobe.js";
 import { createInspector } from "./ui/inspector.js";
 import { createEstimate } from "./ui/estimate.js";
-import { createWizard } from "./ui/wizard.js";
+import { createWizard, wizardReadiness } from "./ui/wizard.js";
 import { createShotEditor, normalizeShots, nextDraftVersion } from "./ui/shoteditor.js";
 import { mintId } from "./workflow/identity.js";
 import { createViews } from "./ui/landing.js";
 // TASK-082 §1.3: the landing card finally says something about the film
 import { projectCardModel, pickCover, cardStats, renderCover } from "./ui/landingcard.js";
+// 步骤就绪判定**只有一份**，在向导定义旁边。控制器不复述它 —— 复述就是 §2.5e
+// 那条缝（两处陈述同一件事实），而这一批的 P1 正是从「上游要求是手写的」来的。
+import { stepReadiness } from "./ui/prodwizard.js";
 import { createProduction } from "./ui/production.js";
 import { dailiesModel } from "./ui/dailies.js";
 import { reviewBoardModel } from "./ui/cutreview.js";
@@ -110,6 +113,7 @@ import * as relgraph from "./workflow/relgraph.js";
 import * as shotgraph from "./workflow/shotgraph.js";
 import * as canvasnodes from "./workflow/canvasnodes.js";
 import * as canvasgrow from "./workflow/canvasgrow.js";
+import * as counts from "./workflow/counts.js";
 import { compileEntityBasePrompt } from "./workflow/promptc.js";
 import { seedDemoProject, DEMO_PROJECT_NAME } from "../fixtures/demo-project.js";
 
@@ -1769,6 +1773,53 @@ const ctx = {
       toast(r.appended ? "已追加到这一镜的运镜后面（你写的话没有被替换）" : "已填入这一镜的运镜");
       return true;
     },
+  },
+
+  // ---- 剧集制作向导 (TASK-095 / TASK-097 批次 4A) --------------------------- //
+  //
+  // `counts` 的第一个真实消费者（§2.5c 接线账）。顶部那些数字**全部**走
+  // `counts.productionCounts` —— 就地算一遍会同时造成「模块永远接不上」和
+  // 「多出第二份计数」，两个缺陷一次达成（§2.6.2 那个 16/48）。
+  // `prodWizard`, NOT `wizard`: `ctx.wizard` is ALREADY the demo assets-node wizard
+  // (`createWizard`, assigned near the bottom of this file), so an object-literal key
+  // named `wizard` here was silently overwritten by that later assignment — the whole
+  //五步向导 read as 「ctx.wizard.counts is not a function」 on the real project while
+  // every test passed. Two things claiming one name is TASK-097 §2.5e's exact shape,
+  // and `tests/wizardskeleton.test.mjs` now asserts the two names stay distinct.
+  prodWizard: {
+    /** 全部计数，一次算完。缺来源的那些如实返回「不知道」，不是 0。 */
+    counts: () => {
+      const pd = ctx.prodData();
+      const shots = Array.isArray(pd.draftShots) ? pd.draftShots : null;
+      return counts.productionCounts({
+        shots,
+        // 「还差 10 个」查的是**实际有参考图的实体**（既有那一份派生，不重算）
+        assetReadiness: shots ? wizardReadiness(pd) : null,
+        // 两份提示词都编译出来才算已合成（TASK-095 §2.3.1）
+        promptsOf: (shotId) => {
+          const d = shotId ? shotDetailModel(pd, shotId) : null;
+          if (!d) return null;
+          return {
+            image: !!(d.prompts.image && d.prompts.image.text.trim()),
+            video: !!(d.prompts.video && d.prompts.video.text.trim()),
+          };
+        },
+        // 六个 stage 那**一份**计算（§2.4），逐镜取
+        stageOf: (shotId) => (shotId ? ctx.shot.stageBoard(shotId) : null),
+      });
+    },
+    /**
+     * 这一步**真实的**完成条件与阻塞原因。
+     *
+     * §2.5e：向导的每一步都是一条缝 ——「说可以进下一步」与「下一步真的能做」
+     * 是两处在陈述同一件事实。所以这里读的是**登记表**，绝不读「用户走到哪一步」：
+     * 一个记录导航历史的向导会立刻变成那条缝（「下一步亮着但点进去是空的」）。
+     */
+    // 判定本体在 `ui/prodwizard.js` 的 `stepReadiness` 里：**生产用的那个谓词
+    // 必须是被钉住的那个**（§2.5d）。它只读 counts，所以是纯函数、可导出、
+    // 测试与生产共用同一份 —— 在这里内联一份等于让「两个方向都钉住」
+    // 自己变成一条新的缝。
+    readyOf: (stepId) => stepReadiness(ctx.prodWizard.counts(), stepId),
   },
 
   agentShotsDraft: (script) => query.generateShotsDraft(script),

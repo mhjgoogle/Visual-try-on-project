@@ -170,6 +170,10 @@ function topBar(m, ui, { stage, showFocus, place }) {
   const prov = stage === "provenance"
     ? `<button class="ep-wsback" data-mod="${esc(LEGACY_EPISODE_CENTRE)}">← 回到制作台</button>`
     : `<button class="ep-prov" data-mod="provenance" title="整集的生成溯源：这个东西是怎么来的">完整溯源 ↗</button>`;
+  // 剧集制作向导 (TASK-095 / 批次 4A). 产品负责人 2026-08-17:「现在剧集制作的各个页面
+  // 还是设计的太 busy 了。完全不知道点击哪里好。」—— 这个入口通向那条
+  // 「任何时刻只有一个下一步」的路。它是一层覆盖面，不是第十二页。
+  const wizard = `<button class="ep-wiz" data-ep-wizard title="五步向导：确认镜头 → 准备资产 → 合成提示词 → Storyboard → Keyframe">🧭 向导</button>`;
   const layout = stage === LEGACY_EPISODE_CENTRE
     ? `<div class="ep-layout">` +
       ["auto", "manual"].map((k) =>
@@ -186,7 +190,7 @@ function topBar(m, ui, { stage, showFocus, place }) {
     `<span class="ep-i" title="${esc(hint)}">ⓘ</span>` +
     focus +
     `<span class="push"></span>` +
-    layout + prov + wsMenu(stage, ui) +
+    layout + wizard + prov + wsMenu(stage, ui) +
     `</div>`
   );
 }
@@ -289,6 +293,9 @@ export function bindEpProd(root, ctx, ui, render, { enterEpisode, setStage, goSt
   const on = (q, fn) => { const el = root.querySelector(q); if (el) el.onclick = fn; };
 
   on("[data-ep-selopen]", () => { ui.epSelOpen = !ui.epSelOpen; render(); });
+  // 向导入口 (批次 4A). Bound next to the other header actions — a rendered button
+  // with no handler is the defect batch 3 spent four rounds on (TASK-097 §2.5e).
+  on("[data-ep-wizard]", () => { ui.pwOpen = true; render(); });
   root.querySelectorAll("[data-ep-pick]").forEach((b) => (b.onclick = () => {
     ui.epSelOpen = false;
     if (enterEpisode) enterEpisode(b.dataset.epPick);

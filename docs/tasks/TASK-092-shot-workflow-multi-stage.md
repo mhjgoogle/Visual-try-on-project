@@ -114,7 +114,7 @@ storyboardStatus / keyframeStatus / videoStatus / voiceStatus / sfxStatus / qcSt
 | --- | --- | --- |
 | `not_started` | 默认 | 无证据、无决定 |
 | `in_progress` | **派生**：`runstore` 有在途 Run | **存储的 `in_progress` 在崩溃后会永久说谎** |
-| `completed` | **派生 + 要证据**：产物存在，且探针**明确答了 `PRESENT`** | 唯一能防漂移的做法。**⚠️ 本行原写「探针没有判定它 MISSING」——那句太松，是 codex 轮 5 那个缺陷的来源**：`INCONCLUSIVE`（问过、答不上来）与「从未问过」都不是 `MISSING`，于是被算成产物存在，闸门会在未经确认的媒体上打开。四态判定见 [ADR-0073](../adr/ADR-0073-shot-multi-stage-workflow.md) 决策 2 的表 |
+| `completed` | **派生 + 要证据**：产物存在，且探针的答案**不否认、也不是「说不清」** —— 四种答案逐一的判定见 [ADR-0073](../adr/ADR-0073-shot-multi-stage-workflow.md) 决策 2 的表，**本卡不再复述它** | 唯一能防漂移的做法。**⚠️ 这一行被订正过两次，两次都是同一个形状**：原写「探针没有判定它 MISSING」**太松**（`INCONCLUSIVE` 被算成产物存在，闸门会在未经确认的媒体上打开 —— codex 轮 5）；第一次订正改成「明确答了 `PRESENT`」又**太严**（「从未问过」也变成没做完，而探针是懒扫描的，于是一个已经有成片的镜头会显示「还没开始」）。**根因不是措辞选得不好，是这里在复述另一处的事实** —— 那正是 [TASK-097 §2.5e](TASK-097-episode-production-chain.md) 归纳的缺陷家族本身。所以现在指向那张表，不再自己说一遍 |
 | `skipped` | **存储** | 只有人 / Workflow 的决定能知道 —— 产品负责人说得对，这个必须存 |
 | `approved` | **存储，且绑在产物上** | 见 §2.3 |
 

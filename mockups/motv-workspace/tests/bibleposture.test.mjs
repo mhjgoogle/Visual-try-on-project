@@ -52,10 +52,12 @@ test("作品设定 is LAST in 故事开发, and the page set did not change", ()
   assert.equal(keys[keys.length - 1], "settings");
   // 「不改成员集合 —— 因此不碰 PAGES.length === 11 那条冻结守卫」（TASK-090 §2.1）
   assert.equal(PAGES.length, 11);
-  assert.deepEqual([...keys].sort(), ["brief", "episodes", "script", "settings", "story"]);
-  // …and the PRODUCING chain still ends at the script
+  assert.deepEqual([...keys].sort(), ["brief", "episodes", "settings", "story"]);
+  // …and the PRODUCING chain in 故事开发 now ends at 分集规划: the script moved into
+  // 剧集制作 (TASK-091 §1.1). 作品设定 is still LAST of this rail, which is the thing
+  // this test owns — 「作品设定的内容不应该在故事开发的时候准备」.
   assert.deepEqual(keys.filter((k) => k !== "settings"),
-    ["brief", "story", "episodes", "script"]);
+    ["brief", "story", "episodes"]);
 });
 
 // --- §2.3 入口 -------------------------------------------------------------- //

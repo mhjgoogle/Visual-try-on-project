@@ -671,9 +671,13 @@ test("crumbScope: ⑦ 分镜设计 follows its SECTION — 场景 is episode-lev
 });
 
 test("crumbScope: 故事开发 and 资产库 pages are project-level", () => {
-  for (const m of ["brief", "story", "settings", "episodes", "script", "assets", "projectsettings"]) {
+  for (const m of ["brief", "story", "settings", "episodes", "assets", "projectsettings"]) {
     assert.equal(crumbScope(m, null), "project", `${m} is not inside one episode`);
   }
+  // `script` is NO LONGER among them: it moved into 剧集制作 (TASK-091 §1.1), so its
+  // crumb is 「项目 › EP01 › 本集剧本」. A project-level crumb would have said the
+  // creator was nowhere in particular while they were editing one episode's script.
+  assert.equal(crumbScope("script", null), "episode");
 });
 
 test("crumbScope classifies EVERY page — no module falls through unclassified", () => {

@@ -48,6 +48,8 @@ import {
   renderAddMenu, renderChainMenu, renderStageChips, renderReferenceArea, renderCameraPresets,
 } from "./shotgraphview.js";
 import { REFERENCE_CATEGORIES } from "../workflow/refset.js";
+import * as prodwizard from "./prodwizard.js";
+import { renderProdWizard, bindProdWizard } from "./prodwizard.js";
 import { inspectFromShotNode } from "../workflow/shotgraph.js";
 import { derivedLabel } from "../workflow/assetreg.js";
 // TASK-066: the five regions of 剧集制作. Each owns ONE question, and the shell is the
@@ -1234,6 +1236,20 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
         }) +
         `</main>` +
         aiDirector(ctx) +
+        // 剧集制作向导 (TASK-095 / 批次 4A) —— 一层**覆盖面**，不是页面。
+        // `PAGES.length === 11` 那条冻结守卫不碰（ADR-0066 决策 10）：新界面最容易
+        // 顺手多开一页，而向导是既有内容的重新组织，不是第十二页。
+        (ui.pwOpen
+          ? renderProdWizard(prodwizard.wizardModel({
+              counts: ctx.prodWizard.counts(),
+              readyOf: ctx.prodWizard.readyOf,
+              // NO `|| "shots"` HERE: the model picks the first unfinished step when the
+              // creator has not chosen one. Defaulting again in the shell made the outer
+              // default win, so the body showed a finished ① while the header said the
+              // next step was ② — two places deciding one thing (§2.5e).
+              activeId: ui.pwStep || null,
+            }))
+          : "") +
         (onCentre && !ui.sgFull ? renderRefSearch(ctx, ui, refSearch) : "") +
         (onCentre && shotGraph
           ? `<footer class="ep-foot"><span class="lb">Shot 进度</span>` +
@@ -2054,6 +2070,20 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
             ctx.shotgraph.applyCameraPreset(ui.selectedShotId, presetId);
             render();
           },
+        });
+      }
+      if (ui.pwOpen) {
+        bindProdWizard(root, {
+          onStep: (id) => { ui.pwStep = id; render(); },
+          onGo: (id) => {
+            const step = prodwizard.wizardStep(id);
+            ui.pwOpen = false;
+            // 每一步的落点是一个**既有页面**（向导不新增页面）。指不出落点的步骤
+            // 不给一个空白面板 —— 它在向导里已经如实说了「界面还在做」。
+            if (step && step.lands) setModule(step.lands);
+            else render();
+          },
+          onClose: () => { ui.pwOpen = false; render(); },
         });
       }
       if (activeModule === "provenance") {

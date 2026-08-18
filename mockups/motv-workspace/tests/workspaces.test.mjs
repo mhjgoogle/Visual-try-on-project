@@ -410,10 +410,15 @@ test("navBadges: counts reflect state; empty modules still get a badge-less item
 
 // --- M2.5 最终信息架构 ----------------------------------------------------- //
 
-test("NAV: the rail is 故事开发 and it ENDS at the episode script (ADR-0061 决策 1)", () => {
-  // ADR-0061 决策 1: the first space is 故事开发 — 把故事写出来 — and its end
-  // point is每一集的 Episode Script. 创意 → 故事大纲 → 作品设定（人物 / 人物关系 /
-  // 世界观）→ 分集规划 → 本集剧本.
+test("NAV: 故事开发 ends at 分集规划; 本集剧本 moved to 剧集制作 (TASK-091 §1.1)", () => {
+  // ADR-0061 决策 1 put the episode script at the END of 故事开发. THE RULE CHANGED
+  // (TASK-091 §1.1, confirmed by the owner's 图一 on 2026-08-17: 「剧集制作开始的时候
+  // 按照图一。写剧本」): writing the episode script is the FIRST thing 剧集制作 does,
+  // not the last thing 故事开发 does. It sat in a space the creator had already left.
+  //
+  // Only the SPACE moved — the member set of PAGES is byte-identical, so the frozen
+  // 「三空间 / 十一页」 count still holds. That is asserted below and in
+  // `wizardskeleton.test.mjs` alongside the wizard's own visibility.
   assert.deepEqual(NAV.map((g) => g.sec), ["故事开发"]);
   // TASK-065 §2 / §4 — a DELIBERATE contract change: TWO 作品设定 entries, not
   // three. 人物关系 is a TAB inside 人物 (a relationship connects two characters and
@@ -427,12 +432,12 @@ test("NAV: the rail is 故事开发 and it ENDS at the episode script (ADR-0061 
   // 故事开发的最后」). It used to sit third, before any script existed to derive it
   // from. THE RULE CHANGED; this assertion follows it rather than the reverse.
   assert.deepEqual(NAV[0].items.map((i) => i[0]), [
-    "brief", "story", "episodes", "script", "settings",
+    "brief", "story", "episodes", "settings",
   ]);
   // …and the MEMBER SET is what must not change: the frozen IA is a closed set of
-  // eleven pages, so a reorder may never smuggle a page in or out.
+  // eleven pages, so a move may never smuggle a page in or out.
   assert.deepEqual([...NAV[0].items.map((i) => i[0])].sort(), [
-    "brief", "episodes", "script", "settings", "story",
+    "brief", "episodes", "settings", "story",
   ]);
   assert.equal(NAV[0].items.filter((i) => i[3] && i[3].under).length, 0);
   // …and `characters` / `relationships` / `world` are NOT rail rows any more, while
@@ -459,9 +464,15 @@ test("NAV: the rail is 故事开发 and it ENDS at the episode script (ADR-0061 
   // gone — they are sections of these five, reached through `resolveModule`, which
   // a dedicated test below checks key by key.
   const epKeys = EPISODE_NAV.map((i) => i[0]);
-  assert.deepEqual(epKeys, ["board", "storyboard", "shotwork", "cutreview", "delivery"]);
+  // SIX rows now: 本集剧本 joined at the FRONT (TASK-091 §1.1 / the owner's 图一 —
+  // 剧集制作 starts by writing the script). Still six PAGES, not six new pages: the
+  // row moved out of 故事开发, so the frozen eleven-page count is unchanged.
+  assert.deepEqual(epKeys, ["script", "board", "storyboard", "shotwork", "cutreview", "delivery"]);
+  // …and the space still OPENS on 本集看板, not on the script: 「进入剧集制作」 lands
+  // where the next piece of work is, and a returning creator usually has a script
+  // already. The first ROW and the DEFAULT are deliberately different things.
   assert.equal(EPISODE_DEFAULT, "board", "the space opens on 本集看板");
-  assert.equal(epKeys[0], EPISODE_DEFAULT);
+  assert.equal(epKeys[0], "script", "but the rail READS in the owner's order");
   assert.ok(!epKeys.includes("canvas"), "流程画布 must not be on a creator path");
   // EPISODE_MODULES still spans the legacy keys, or a bookmark to one episode's
   // shots would report 故事开发 in the top bar
@@ -482,9 +493,12 @@ test("NAV: the rail is 故事开发 and it ENDS at the episode script (ADR-0061 
 test("spaceOf: every module belongs to exactly one space (ADR-0061 决策 1)", () => {
   // ONE function decides, so the top bar, the rail and the breadcrumb cannot
   // disagree about where the creator is.
-  for (const k of ["brief", "story", "characters", "relationships", "world", "episodes", "script", "settings"]) {
+  for (const k of ["brief", "story", "characters", "relationships", "world", "episodes", "settings"]) {
     assert.equal(spaceOf(k), "story", k);
   }
+  // `script` MOVED to 剧集制作 (TASK-091 §1.1). It is derived from EPISODE_NAV, not
+  // special-cased — which is why moving the rail row was the whole change.
+  assert.equal(spaceOf("script"), "episode");
   for (const k of EPISODE_MODULES) assert.equal(spaceOf(k), "episode", k);
   for (const k of ["assets", "assets:reference", "assets:image", "assets:video", "assets:audio", "assets:final", "assets:collection"]) {
     assert.equal(spaceOf(k), "assets", k);
@@ -508,7 +522,7 @@ test("TASK-073 §1.1 验收 #1: the IA is a CLOSED set — 三空间 / 十一页
   // so this asserts membership, and the ORDER is asserted once, in the NAV test
   // that owns it.
   assert.deepEqual([...NAV_PAGES[0].items.map((i) => i[0])].sort(),
-    ["brief", "episodes", "script", "settings", "story"]);
+    ["brief", "episodes", "settings", "story"]);
   assert.equal(PAGES.length, 11, `expected eleven pages, got ${PAGES.join(" ")}`);
   // ⚙ 项目设置 is NOT one of the eleven — it is not a page of any space (§1.7)
   assert.ok(!PAGES.includes(PROJECT_SETTINGS));
