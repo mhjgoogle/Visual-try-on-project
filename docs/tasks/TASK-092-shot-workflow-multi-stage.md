@@ -114,7 +114,7 @@ storyboardStatus / keyframeStatus / videoStatus / voiceStatus / sfxStatus / qcSt
 | --- | --- | --- |
 | `not_started` | 默认 | 无证据、无决定 |
 | `in_progress` | **派生**：`runstore` 有在途 Run | **存储的 `in_progress` 在崩溃后会永久说谎** |
-| `completed` | **派生 + 要证据**：产物存在，且 `mediaprobe` 没有判定它 MISSING | 唯一能防漂移的做法 |
+| `completed` | **派生 + 要证据**：产物存在，且探针**明确答了 `PRESENT`** | 唯一能防漂移的做法。**⚠️ 本行原写「探针没有判定它 MISSING」——那句太松，是 codex 轮 5 那个缺陷的来源**：`INCONCLUSIVE`（问过、答不上来）与「从未问过」都不是 `MISSING`，于是被算成产物存在，闸门会在未经确认的媒体上打开。四态判定见 [ADR-0073](../adr/ADR-0073-shot-multi-stage-workflow.md) 决策 2 的表 |
 | `skipped` | **存储** | 只有人 / Workflow 的决定能知道 —— 产品负责人说得对，这个必须存 |
 | `approved` | **存储，且绑在产物上** | 见 §2.3 |
 
@@ -237,7 +237,7 @@ model-input / ai-interpretation 的事实原样保留）。
 ## 6. 测试
 
 - 四态 × 六 stage 的来源逐条断言：`in_progress` 无在途 Run 时**不得**为真；
-  `completed` 在产物被探针判定 MISSING 时**不得**为真（防漂移，对着 TASK-077 那个谎）
+  `completed` **仅在探针明确答 `PRESENT` 时**为真 —— `MISSING` / `INCONCLUSIVE` / 从未问过**一律不算**（防漂移，对着 TASK-077 那个谎；措辞订正见上表 ⚠️）
 - `skipped` 是唯一新增的持久状态（守卫测试：其余四个无持久写入）
 - Keyframe 闸门：`skipped` 放行、`completed` 但未 approved **不放行**、
   `completed` + approved 放行
