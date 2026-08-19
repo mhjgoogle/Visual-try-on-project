@@ -159,15 +159,54 @@ function sanitizeLocation(l, taken, stateIds) {
   };
 }
 
+/**
+ * 道具 (TASK-095 §2.2 / TASK-097 批次 4C) — the third thing the ② step prepares.
+ *
+ * DELIBERATELY SIMPLER THAN A LOCATION: **no states.** A location has 白天 / 夜 /
+ * 被砸过 because the same place is re-shot under different conditions; a prop is
+ * 一把钥匙, and 「同一把钥匙的两个状态」 is a thing we have never once needed. States
+ * cost a whole id namespace, an override whitelist and a resolve path, and an
+ * unused one is not free — it is a shape every reader has to understand and every
+ * writer can get wrong. If a prop ever does need states, adding them then is
+ * additive; taking them away later would not be.
+ *
+ * Everything else is deliberately identical to a location, because the ② step
+ * treats all three kinds the same way: 名称 + 描述摘要 + 设定图.
+ */
+function sanitizeProp(p, taken) {
+  if (!isObj(p) || !nonEmpty(p.propId) || taken.has(p.propId)) return null;
+  taken.add(p.propId);
+  const prof = isObj(p.profile) ? p.profile : {};
+  const refs = idArray(p.referenceAssetIds);
+  // `...p` 保留未知字段（非破坏性水合），但 **`states` 必须被摘掉**：道具没有状态，
+  // 而 schema 明确拒绝带 states 的道具 —— 留着它，一次 load → save 往返就会产出
+  // 一份**自己拒绝加载**的文档（codex 本批 round 2 的 P1）。
+  // 这是「宽容地读」与「严格地校验」之间的缝：两边必须对同一件事说同一句话。
+  const { states: _ignoredStates, ...rest } = p;
+  return {
+    ...rest,
+    propId: p.propId,
+    name: str(p.name),
+    profile: {
+      ...prof,
+      description: str(prof.description),
+      visualInstruction: str(prof.visualInstruction),
+    },
+    referenceAssetIds: refs,
+    activeReferenceAssetId: activeIn(refs, p.activeReferenceAssetId),
+  };
+}
+
 /** Hydrate the bible slice of a persisted production document. Existing ids
- *  survive verbatim; structurally unusable entries are dropped. Character and
- *  Location ids share ONE namespace (entity lookups resolve across both
- *  kinds), so a cross-kind collision drops the later entry deterministically.
- *  Returns { characters, locations }. */
+ *  survive verbatim; structurally unusable entries are dropped. Character,
+ *  Location AND Prop ids share ONE namespace (entity lookups resolve across all
+ *  three kinds — see `entityOf`), so a cross-kind collision drops the later
+ *  entry deterministically. Returns { characters, locations, props }. */
 export function sanitizeBible(saved) {
   const characters = [];
   const locations = [];
-  const entityIds = new Set(); // one namespace across characters AND locations
+  const props = [];
+  const entityIds = new Set(); // one namespace across characters, locations AND props
   const stateIds = new Set(); // unique across the whole bible
   if (isObj(saved)) {
     for (const c of Array.isArray(saved.characters) ? saved.characters : []) {
@@ -178,8 +217,13 @@ export function sanitizeBible(saved) {
       const rec = sanitizeLocation(l, entityIds, stateIds);
       if (rec) locations.push(rec);
     }
+    // 加法字段：老文档没有 `props` 是常态，水合成空数组，一个字节的旧数据不动
+    for (const p of Array.isArray(saved.props) ? saved.props : []) {
+      const rec = sanitizeProp(p, entityIds);
+      if (rec) props.push(rec);
+    }
   }
-  return { characters, locations };
+  return { characters, locations, props };
 }
 
 /** Sanitize a scene's bible references against the hydrated entities: a ref
@@ -440,7 +484,9 @@ export function setCharacterStateOverrides(prod, characterId, stateId, overrides
 // ---- reference assets (shared by characters & locations) --------------------- //
 
 function entityOf(prod, id) {
-  return findCharacter(prod, id) || findLocation(prod, id);
+  // 三类共用**一处**解析。参考图的挂接 / 摘除 / 设主图因此对道具天生就成立 ——
+  // 如果道具另写一份，那就是 §2.5e 那条缝：两处陈述「参考图怎么挂在实体上」。
+  return findCharacter(prod, id) || findLocation(prod, id) || findProp(prod, id);
 }
 
 /** Attach an Asset REFERENCE (M3 assetId) to a character/location. */
@@ -471,6 +517,52 @@ export function setActiveReferenceAsset(prod, entityId, assetId) {
 }
 
 // ---- location transitions ---------------------------------------------------- //
+
+// ---- 道具 (TASK-095 §2.2 / 批次 4C) ----------------------------------------- //
+//
+// 与场景地同构，少了 states（理由见 `sanitizeProp`）。写路径与人物 / 场景地一致，
+// 所以 ② 步那三组卡片是**同一个组件**读三份同构数据，而不是三套代码。
+
+export function findProp(prod, propId) {
+  if (!isObj(prod) || !Array.isArray(prod.props)) return null;
+  return prod.props.find((p) => p.propId === propId) || null;
+}
+
+export function addProp(prod, name) {
+  if (!Array.isArray(prod.props)) prod.props = [];
+  const p = {
+    propId: mintId("prop"),
+    name: nonEmpty(name) ? name : `道具 ${prod.props.length + 1}`,
+    profile: { description: "", visualInstruction: "" },
+    referenceAssetIds: [],
+    activeReferenceAssetId: null,
+  };
+  prod.props.push(p);
+  return p;
+}
+
+export function renameProp(prod, propId, name) {
+  const p = findProp(prod, propId);
+  if (!p || typeof name !== "string" || !name.trim()) return false;
+  p.name = name;
+  return true;
+}
+
+export function removeProp(prod, propId) {
+  const p = findProp(prod, propId);
+  if (!p) return false;
+  prod.props = prod.props.filter((x) => x.propId !== propId);
+  return true;
+}
+
+export function updatePropProfile(prod, propId, fields) {
+  const p = findProp(prod, propId);
+  if (!p || !isObj(fields)) return false;
+  for (const k of ["description", "visualInstruction"]) {
+    if (k in fields) p.profile[k] = str(fields[k]);
+  }
+  return true;
+}
 
 export function addLocation(prod, name) {
   const l = {

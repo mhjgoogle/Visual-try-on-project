@@ -231,11 +231,34 @@ test("the caller cannot re-point the episode a run recorded", () => {
 test("a scene and a shot are validated TOGETHER, not one at a time", () => {
   const { ctl, state } = makeCtl();
   state.production.episodes[0].scenes.push({ sceneId: "sc-2", title: "第二场", shotIds: ["shot-9"] });
-  // sc-1 is real, shot-9 is real — but shot-9 does not live in sc-1
-  const scope = ctl.scopeOf("script-breakdown", { sceneId: "sc-1", shotId: "shot-9" });
+  // 用一个**同时读 `scenes` 与 `shots`** 的能力（cinematography）—— 只有这样这条
+  // 守卫才真的在检查「配对」。
+  //
+  // 它此前用的是 `script-breakdown`，而那时那个能力**两个级别都不读**，于是
+  // sceneId/shotId 都因为「没读那一级」被丢掉，配对逻辑根本没被走到 —— 守卫是绿的，
+  // 检查的却是另一件事。批次 4C 给 script-breakdown 加上 `shots`（输入从剧本扩到
+  // 分镜表）时它才失败，暴露了这一点（TASK-097 §2.6.3：守卫会静默失效）。
+  const scope = ctl.scopeOf("cinematography", { sceneId: "sc-1", shotId: "shot-9" });
   assert.equal(scope.sceneId, null);
   assert.equal(scope.shotId, null);
   assert.equal(scope.episodeId, "ep-1", "the episode it really read still stands");
+  // 而配对正确时**必须真的记下来**（§2.5d 的另一半）：shot-9 就在 sc-2 里
+  const ok = ctl.scopeOf("cinematography", { sceneId: "sc-2", shotId: "shot-9" });
+  assert.equal(ok.sceneId, "sc-2");
+  assert.equal(ok.shotId, "shot-9");
+});
+
+test("script-breakdown v3 读分镜表，所以它记得下 shot 级 —— 但只读剧本的能力记不下", () => {
+  // TASK-095 §2.2：输入从「剧本」扩到「分镜表」。scope 记录必须跟着变，
+  // 否则 provenance 会说这次拆解没看过任何镜头，而它其实看了 60 个。
+  const { ctl, state } = makeCtl();
+  state.production.episodes[0].scenes.push({ sceneId: "sc-2", title: "第二场", shotIds: ["shot-9"] });
+  const bd = ctl.scopeOf("script-breakdown", { shotId: "shot-9" });
+  assert.equal(bd.shotId, "shot-9", "它读了分镜表，就记得下这一镜");
+  assert.equal(bd.episodeId, "ep-1");
+  // 反方向：只读大纲那类能力**不得**记下镜头
+  const sd = ctl.scopeOf("story-development", { shotId: "shot-9" });
+  assert.equal(sd, null, "它从没看过任何一集，更没看过镜头");
 });
 
 test("a skill that reads no episode-level input records no episode", () => {

@@ -108,6 +108,33 @@
           }
         }
       }
+    },
+    "props": {
+      "type": "array",
+      "of": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "fields": {
+          "name": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "description": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "visualInstruction": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "existingAssetKey": {
+            "type": "string",
+            "nonEmpty": false
+          }
+        }
+      }
     }
   }
 }

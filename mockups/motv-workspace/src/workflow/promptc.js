@@ -201,19 +201,25 @@ export function compileImagePrompt({ shot, characters = [], location = null, ton
  * them. An absent facet is never written as a plausible default: 「一位女性」 for a
  * character nobody described would be this module inventing canon.
  *
- * @param kind      "character" | "location"
+ * @param kind      "character" | "location" | "prop"
+ * @param compositionSpec 该类型的「构图规范」，来自 **Skill 包**（不是常量）。
+ *                  缺了就 fail-closed 记进 `missing`，绝不自己编一段。
  * @param entity    resolveCharacter() / resolveLocation() output
  * @param tone      the outline's 题材/基调, "" when none
  * @param worldTone the World Setting's 视觉基调, "" when none — a location's look
  *                  is a statement about the world before it is about the place
  * @returns { text, missing }
  */
-export function compileEntityBasePrompt({ kind, entity, tone = "", worldTone = "" } = {}) {
+export function compileEntityBasePrompt(
+  { kind, entity, tone = "", worldTone = "", compositionSpec = null } = {},
+) {
   const missing = [];
   const parts = [];
   if (!isObj(entity)) return { text: "", missing: ["没有可编译的对象"] };
   const isChar = kind === "character";
-  const named = s(entity.name) || (isChar ? "未命名角色" : "未命名场景地");
+  const isProp = kind === "prop";
+  const named = s(entity.name)
+    || (isChar ? "未命名角色" : isProp ? "未命名道具" : "未命名场景地");
   const state = s(entity.stateName);
   const styleBits = [s(tone), s(worldTone)].filter(Boolean);
   if (styleBits.length) parts.push(`【风格】${styleBits.join("；")}`);
@@ -231,7 +237,11 @@ export function compileEntityBasePrompt({ kind, entity, tone = "", worldTone = "
     if (s(entity.personality)) parts.push(`【气质】${s(entity.personality)}`);
     if (s(entity.visualInstruction)) parts.push(`【画面指令】${s(entity.visualInstruction)}`);
     else missing.push(`${named} 没有画面指令（打光 / 机位 / 色调倾向）`);
-    parts.push("【要求】单人全身与半身各一张，中性背景，正面与四分之三侧面，五官清晰，无文字水印");
+  } else if (isProp) {
+    parts.push(`【道具设定图】${named}`);
+    if (s(entity.description)) parts.push(`【道具描述】${s(entity.description)}`);
+    else missing.push(`${named} 没有描述（材质 / 尺度 / 新旧，在道具卡片里填写）`);
+    if (s(entity.visualInstruction)) parts.push(`【画面指令】${s(entity.visualInstruction)}`);
   } else {
     parts.push(`【场景设定图】${named}${state ? `（${state}）` : ""}`);
     if (s(entity.description)) parts.push(`【场景描述】${s(entity.description)}`);
@@ -244,7 +254,29 @@ export function compileEntityBasePrompt({ kind, entity, tone = "", worldTone = "
     }
     if (s(entity.visualInstruction)) parts.push(`【画面指令】${s(entity.visualInstruction)}`);
     else missing.push(`${named} 没有画面指令（打光 / 色调 / 镜头语言）`);
-    parts.push("【要求】16:9 空场，无人物，构图与光线可复用，高细节，无文字水印");
+  }
+  // 【构图规范】—— **Skill 包的内容，不是这里的常量**（TASK-095 §2.2 / ADR-0067）。
+  //
+  // 这一段是这张图能不能当参考图用的**全部原因**：② 步刻意要四视图，为的是让 ③ 步
+  // 能靠它锁住身份；而四视图之所以能用，靠的是 ③ 步那句「若此参考图是角色多视图，
+  // 则必须保证角色不能重复出现」。**两句是一对**（TASK-095 §2.3.3）。
+  //
+  // 此前这里是两句硬编码的【要求】（人物「全身与半身各一张」、场景「16:9 空场」），
+  // 它们既不是那一对规则，又冻在源码里：改一次措辞要改代码，而 Run 记下的
+  // `skillDigest` 也就不再描述它当时真正拿到的文字。
+  //
+  // FAIL-CLOSED（§2.5f 第一条）：拿不到规范时**不退回一段自己编的** —— 沉默地
+  // 少一段规范，产出的正是一张「看起来没问题、实际不能当参考图用」的图，
+  // 而没有任何一处会喊。
+  const spec = s(compositionSpec);
+  const specKey = isChar ? "character" : isProp ? "prop" : "location";
+  if (spec) parts.push(`【构图规范】${spec}`);
+  else {
+    missing.push(
+      `拿不到「${named}」这一类的构图规范（Skill 包 base-asset-designer 的 `
+      + `promptBlocks.compositionSpec.${specKey}）—— 少了它这张图能生成，`
+      + "但之后当不成参考图用",
+    );
   }
   return { text: parts.join("\n"), missing };
 }

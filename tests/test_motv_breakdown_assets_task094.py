@@ -74,14 +74,23 @@ def _post(app, payload, headers=None):
 
 def test_the_capability_declares_assets_and_is_a_new_version(srv) -> None:
     skill = srv._load_skill_catalog().skills["script-breakdown"]
-    assert skill.version == 2, "改了内容必须升版本（ADR-0067 §1.2）"
+    # 版本**不钉死一个数字**（TASK-097 §2.6.3 第 1 条）。这条守卫要说的是
+    # 「改了内容必须升版本」，而 `== 2` 让每一次合法升版都要改测试，同时它并不
+    # 真的检查那件事。改成：不得低于本条能力落地时的版本，内容不变量单独断言。
+    # （实测代价：批次 4C 把 v2 升到 v3 时，这一行是唯一失败的东西。）
+    assert skill.version >= 2, "改了内容必须升版本（ADR-0067 §1.2）"
     assert "assets" in skill.optional_inputs, "TASK-090 §2.2 的落点"
     assert "characters" in skill.optional_inputs
     # …and the output can EXPRESS the connection it was asked to look for
     for kind in ("characters", "locations"):
         fields = skill.output_schema["fields"][kind]["of"]["fields"]
         assert fields["existingAssetKey"]["type"] == "string"
-        assert kind not in skill.output_schema["required"] or True
+    # `… or True` 是一条**永远不会失败**的断言（原文就在这里）。真正的规则是：
+    # 人物与场景地是必需的，而 v3 的道具**不是** —— 一集真的可能没有需要设定图的
+    # 道具，把它设成必需会逼模型编一个出来。
+    required = skill.output_schema["required"]
+    assert "characters" in required and "locations" in required
+    assert "props" not in required, "没有道具的一集不该被迫编一个出来"
     # 单一职责（ADR-0067）：`asset-librarian` 不得被合并进来
     assert "asset-librarian" in srv._load_skill_catalog().skills
     assert skill.skill_id == "script-breakdown"

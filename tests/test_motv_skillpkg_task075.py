@@ -90,7 +90,16 @@ def test_the_compiled_prompts_match_the_live_baseline(
     """
     expected = snapshot["prompts"]
     context = snapshot["context"]
-    assert len(expected) == 20
+    # 成员集合**从目录派生**，不写死一个数字（TASK-097 §2.6.3 第 1 条 /
+    # TASK-087 §4.8）。写死 20 的代价已经实际发生过：目录长到 26 个包时，
+    # episode-planner / script-reviser / story-reviser / episode-plan-reviser /
+    # world-director 五个包**根本没有漂移警报**，而这条断言仍然是绿的 ——
+    # 它检查的是「基线里有 20 条」，不是「每个包都有基线」。
+    assert set(expected) == set(catalog.skills), (
+        "基线与内置包目录不一致：新增包必须**因为存在**而进基线，"
+        f"缺 {sorted(set(catalog.skills) - set(expected))}，"
+        f"多 {sorted(set(expected) - set(catalog.skills))}"
+    )
 
     for skill_id, want in expected.items():
         skill = catalog.skills.get(skill_id)
@@ -279,8 +288,10 @@ def test_user_content_cannot_break_out_of_its_data_fence(catalog, labels) -> Non
 
 
 def test_every_manifest_field_survived_the_migration(catalog, snapshot) -> None:
-    # a truncated fixture would otherwise pass this vacuously
-    assert len(snapshot["catalog"]) == 20
+    # a truncated fixture would otherwise pass this vacuously — and 「20」 stopped
+    # being the truth long before anyone noticed, so the count is DERIVED from the
+    # package tree（TASK-097 §2.6.3 第 1 条 / TASK-087 §4.8）
+    assert {e["skillId"] for e in snapshot["catalog"]} == set(catalog.skills)
     for entry in snapshot["catalog"]:
         skill = catalog.skills[entry["skillId"]]
         assert skill.version == entry["version"]

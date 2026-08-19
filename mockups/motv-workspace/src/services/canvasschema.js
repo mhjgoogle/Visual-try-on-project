@@ -69,7 +69,7 @@ const LEGACY_SKILL_RUN_STATUSES = new Set([
 ]);
 
 /** Authoritative CURRENT canvas schema version. Saves must emit exactly this. */
-export const CANVAS_SCHEMA_VERSION = 16;
+export const CANVAS_SCHEMA_VERSION = 17;
 
 /**
  * v1 → v2 (checkpoint M2): stable creator identity + minimal provenance.
@@ -1170,7 +1170,50 @@ function migrateV15ToV16(doc) {
   return doc;
 }
 
-export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7, 7: migrateV7ToV8, 8: migrateV8ToV9, 9: migrateV9ToV10, 10: migrateV10ToV11, 11: migrateV11ToV12, 12: migrateV12ToV13, 13: migrateV13ToV14, 14: migrateV14ToV15, 15: migrateV15ToV16 };
+/**
+ * v16 → v17 (TASK-095 §2.2 / TASK-097 批次 4C): 道具成为第三类设定对象。
+ *
+ * 两件事，都是加法：
+ *
+ * 1. `production.props` —— 空数组。老文档没有道具是常态，不回填任何条目
+ *    （回填等于替创作者发明了道具）。
+ * 2. 每个资产的 `links.propId = null` —— **这一条才是版本必须升的原因**。
+ *    `LINK_KEYS` 是「资产属于哪个对象」的**唯一那份表**，而校验要求每个键都在场：
+ *    缺键与 `null` 是两种不同的「不知道」，过滤与比较对它们的行为不一样
+ *    （那段理由就写在校验处）。所以新增一个链接键必须走迁移，不能靠读时补。
+ *
+ * `null` 是**「不知道」**，不是「不属于任何道具」—— 与其他五个链接键一致。
+ * 旧数据一个字节不改（AGENTS.md 第 13 条：迁移前留下可回滚的旧数据）。
+ */
+function migrateV16ToV17(doc) {
+  const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
+  if (isObj(doc.production) && !Array.isArray(doc.production.props)) {
+    doc.production.props = [];
+  }
+  // **结构化地走，不按层数手写。**
+  //
+  // 第一版按「桶 → 行」两层遍历，于是漏掉了真正存放链接的地方：链接住在每条
+  // 资产链的 **history 记录**上（`assets.images[key].history[i].links`），
+  // 而不是行本身。后果是真实项目直接 `migrate: invalid` —— 界面看起来正常，
+  // 作品设定却全空（0 个角色）。**测试全绿，是在真实项目上打开才看到的**
+  // （§2.6.4）。
+  //
+  // 所以这里认的是**「一个叫 links 的对象」**这个结构特征，而不是它藏在第几层：
+  // 登记表以后再长一层，这段代码不需要跟着改（§2.6.1：要派生，不要手写清单）。
+  const fillLinks = (node, depth = 0) => {
+    if (depth > 12 || !node || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      for (const item of node) fillLinks(item, depth + 1);
+      return;
+    }
+    if (isObj(node.links) && !("propId" in node.links)) node.links.propId = null;
+    for (const key of Object.keys(node)) fillLinks(node[key], depth + 1);
+  };
+  if (isObj(doc.assets)) fillLinks(doc.assets);
+  return doc;
+}
+
+export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7, 7: migrateV7ToV8, 8: migrateV8ToV9, 9: migrateV9ToV10, 10: migrateV10ToV11, 11: migrateV11ToV12, 12: migrateV12ToV13, 13: migrateV13ToV14, 14: migrateV14ToV15, 15: migrateV15ToV16, 16: migrateV16ToV17 };
 
 /** Read the schema version of a raw persisted document.
  *  Returns a positive integer, or null if the marker is malformed.
@@ -2100,6 +2143,27 @@ export function validateCanvasDoc(doc) {
           || checkStates(l, `location ${l.locationId}`, LOC_FACETS);
         if (err) return err;
         locStates.set(l.locationId, new Set(l.states.map((s) => s.stateId)));
+      }
+      // 道具（TASK-095 §2.2 / 批次 4C）—— **加法字段：缺席合法**（老文档一律没有），
+      // 出现就必须长得对。没有 states，所以不查状态；id 与人物 / 场景地**同一个
+      // 命名空间**（`entityOf` 跨三类解析），撞了就是歧义，必须拒。
+      if ("props" in p) {
+        if (!Array.isArray(p.props)) return "production.props is not an array";
+        const propIds = new Set();
+        for (const it of p.props) {
+          if (!isPlainObject(it)) return "production.props contains a non-object entry";
+          if (typeof it.propId !== "string" || !it.propId) return "a prop has no propId";
+          if (propIds.has(it.propId) || locStates.has(it.propId) || charStates.has(it.propId)) {
+            return `duplicate propId ${it.propId}`;
+          }
+          propIds.add(it.propId);
+          if (typeof it.name !== "string") return `prop ${it.propId} has no name string`;
+          if (!isPlainObject(it.profile)) return `prop ${it.propId} has no profile object`;
+          if ("states" in it) return `prop ${it.propId} carries states (props have none)`;
+          const err = checkProfile(it, `prop ${it.propId}`, ["description", "visualInstruction"])
+            || checkRefs(it, `prop ${it.propId}`);
+          if (err) return err;
+        }
       }
     }
     // Since v13 the production document owns SHOT PRODUCTION state: the

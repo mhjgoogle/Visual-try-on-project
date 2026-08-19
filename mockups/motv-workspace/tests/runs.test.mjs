@@ -244,11 +244,17 @@ test("the migration is a pure function of the document (run it twice)", () => {
   assert.deepEqual(twice, once, "no clock, no randomness — same input, same output");
 });
 
-test("the current schema version is 16", () => {
+test("the current schema version is 17", () => {
   // v16: ADR-0073 决策 8 adds `production.shotProduction.stages` (skip decisions
   // only). A pinned number is the point — it forces whoever bumps the schema to
   // come here and say what changed, which is how the migration list stays honest.
-  assert.equal(CANVAS_SCHEMA_VERSION, 16);
+  //
+  // v17（TASK-095 §2.2 / TASK-097 批次 4C）：道具成为第三类设定对象。
+  //   1. `production.props` —— 空数组，不回填任何条目。
+  //   2. 每个资产的 `links.propId = null` —— **这一条才是必须升版本的原因**：
+  //      `LINK_KEYS` 是「资产属于哪个对象」的唯一那份表，而校验要求每个键都在场
+  //      （缺键与 null 是两种不同的「不知道」），所以新增链接键不能靠读时补。
+  assert.equal(CANVAS_SCHEMA_VERSION, 17);
 });
 
 // --- validator -------------------------------------------------------------- //

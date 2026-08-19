@@ -357,7 +357,7 @@ test("**派生守卫**：每个图像域的 kind 都能被至少一个筛选找�
 /* ========================================================================= */
 
 test("v15→v16 只加一个空容器，一个字节的旧数据都不改", () => {
-  assert.equal(CANVAS_SCHEMA_VERSION, 16);
+  assert.equal(CANVAS_SCHEMA_VERSION, 17, "v17 是道具那一批（批次 4C）");
   const doc = {
     v: 15, nodes: [],
     production: { shotProduction: { reviews: { a: { approved: true, assetId: "v1", approvedAt: null, note: "" } }, references: {} } },

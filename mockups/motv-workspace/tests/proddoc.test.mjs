@@ -45,6 +45,11 @@ test("createProduction: persisted ids survive verbatim (never re-minted)", () =>
     ],
     characters: [],
     locations: [],
+    // TASK-095 §2.2 / 批次 4C 的道具。**保存出来的形状从此带 `props`**，与
+    // ADR-0073 给 `stages` 定的规矩一致：老文档缺席合法（水合成 []、schema 放行），
+    // 但存下去总是带上它 —— 否则「没有道具」会有「缺键」和「空数组」两个形状，
+    // 而两个形状迟早在下游分叉（§2.5f 那条同一形状的老账）。
+    props: [],
     relationships: [],
     world: { era: "", rules: "", society: "", regions: "", places: "", visualTone: "", atmosphere: "" },
     canon: { characters: 0, relationships: 0, world: 0 },

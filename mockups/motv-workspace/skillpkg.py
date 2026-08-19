@@ -51,7 +51,12 @@ _REQUIRED_MANIFEST = (
     "inputs",
     "recommendedRuntime",
 )
-_OPTIONAL_MANIFEST = ("optionalInputs", "reviewCriteria", "deprecated")
+_OPTIONAL_MANIFEST = (
+    "optionalInputs",
+    "reviewCriteria",
+    "deprecated",
+    "promptBlocks",
+)
 _STRING_FIELDS = ("skillId", "work", "role", "title", "purpose", "recommendedRuntime")
 _STRING_LIST_FIELDS = ("inputs", "optionalInputs", "reviewCriteria")
 
@@ -99,6 +104,17 @@ class Skill:
     recommended_runtime: str
     deprecated: bool
     instruction: str
+    #: Named, reusable prompt blocks this package OWNS (TASK-095 §2.2 / §2.3.3).
+    #:
+    #: WHY PACKAGE CONTENT AND NOT CONSTANTS IN SOURCE. Two are already known:
+    #: 第 ② 步 的「构图规范」(what makes a 设定图 usable as a reference at all) and
+    #: 第 ③ 步 的「参考图使用规则」(what stops a four-view sheet from being painted
+    #: as four views). Both are craft that evolves with experience — frozen into
+    #: source, every future correction becomes a code change, and the version a
+    #: Run recorded would no longer describe the text that Run was actually
+    #: given. As package content they are digest-covered, so a Run's
+    #: ``skillDigest`` pins the exact wording it used (ADR-0067).
+    prompt_blocks: dict
     output_schema: dict
     digest: str
     source: str
@@ -125,6 +141,7 @@ class Skill:
             "reviewCriteria": list(self.review_criteria),
             "recommendedRuntime": self.recommended_runtime,
             "instruction": self.instruction,
+            "promptBlocks": dict(self.prompt_blocks),
             "outputSchema": self.output_schema,
             "deprecated": self.deprecated,
             "skillDigest": self.digest,
@@ -348,6 +365,20 @@ def _read_manifest(raw: object) -> dict:
     deprecated = raw.get("deprecated", False)
     if not isinstance(deprecated, bool):
         raise SkillPackageError("manifest.json 的 deprecated 必须是布尔值")
+    blocks = raw.get("promptBlocks", {})
+    if not isinstance(blocks, dict):
+        raise SkillPackageError("manifest.json 的 promptBlocks 必须是一个对象")
+    for key, value in blocks.items():
+        # A block with an unusable name or text must fail the PACKAGE, never be
+        # skipped. Consumers look a block up BY NAME and fail closed when it is
+        # absent, so a silently dropped block reads to them as "this package
+        # never had one" — while the author believes it is in effect.
+        if not isinstance(key, str) or not key.strip():
+            raise SkillPackageError("manifest.json 的 promptBlocks 有空的块名")
+        if not isinstance(value, str) or not value.strip():
+            raise SkillPackageError(
+                f"manifest.json 的 promptBlocks.{key} 必须是非空字符串"
+            )
     return raw
 
 
@@ -442,6 +473,7 @@ def load_package(directory: Path, source: str) -> Skill:
         # convention: the file ends with one, the compiled prompt must not gain
         # a blank line from it (acceptance #1 is byte-identity).
         instruction=instruction.rstrip("\n"),
+        prompt_blocks=dict(manifest.get("promptBlocks") or {}),
         output_schema=schema,
         digest=compute_digest(files),
         source=source,

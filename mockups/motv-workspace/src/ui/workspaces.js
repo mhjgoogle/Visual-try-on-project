@@ -651,8 +651,10 @@ export function renderBreakdownPanel(ctx, m) {
   const KIND = {
     "new-character": ["👤 新角色", ""],
     "new-location": ["📍 新场景地", ""],
+    "new-prop": ["🔑 新道具", ""],
     "update-character": ["👤 角色更新", "update"],
     "update-location": ["📍 场景地更新", "update"],
+    "update-prop": ["🔑 道具更新", "update"],
   };
   const cards = st.cards
     .map((c) => {
@@ -664,11 +666,16 @@ export function renderBreakdownPanel(ctx, m) {
         const facets = c.kind === "new-character"
           ? [["外貌", p.appearance], ["服装", p.costume], ["性格", p.personality], ["画面指令", p.visualInstruction], ["声音", p.voiceDescription]]
           : [["描述", p.description], ["画面指令", p.visualInstruction]];
+        // 「并入已有」的候选**同类**：道具只能并进道具（跨类并入会把一把钥匙
+        // 写进一个场景地的档案，而两边的字段名恰好一样，所以不会报错）
         body = facets.filter(([, v]) => v).map(([k, v]) => `<div class="bd-f"><span>${esc(k)}</span>${esc(v)}</div>`).join("");
-        const sameKind = c.kind === "new-character" ? m.characters : m.locations;
+        const sameKind = c.kind === "new-character"
+          ? m.characters
+          : c.kind === "new-prop" ? (m.props || []) : m.locations;
+        const idOf = (e) => e.characterId || e.locationId || e.propId;
         const mergeSel = sameKind.length
           ? `<select class="ws-assign" data-bd-merge="${esc(c.id)}"><option value="">并入已有…（只填充空字段）</option>${sameKind
-              .map((e) => `<option value="${esc(c.kind === "new-character" ? e.characterId : e.locationId)}">${esc(e.name)}</option>`)
+              .map((e) => `<option value="${esc(idOf(e))}">${esc(e.name)}</option>`)
               .join("")}</select>`
           : "";
         actions = `<button class="nrun" data-bd-add="${esc(c.id)}">＋ 添加</button>${mergeSel}<button class="nrun ghost" data-bd-ignore="${esc(c.id)}">忽略</button>`;
@@ -678,7 +685,9 @@ export function renderBreakdownPanel(ctx, m) {
           .join("");
         actions = `<button class="nrun" data-bd-apply="${esc(c.id)}">应用更新到「${esc(c.entityName)}」</button><button class="nrun ghost" data-bd-ignore="${esc(c.id)}">忽略</button>`;
       }
-      const states = (c.kind.startsWith("new-") ? p.states : c.changes.states)
+      // 道具没有状态（`bibledoc.sanitizeProp`），所以这里读到的是 undefined，
+      // 不是空数组 —— 归一化在这一处做，不让每个消费者各自 `|| []`
+      const states = ((c.kind.startsWith("new-") ? p.states : c.changes.states) || [])
         .map((s) => `<span class="ws-tag" title="${esc(s.reason || "")}">◈ ${esc(s.name)}</span>`)
         .join(" ");
       // 「这个对象可能已经有参考图了」 (TASK-090 §2.2 / 批次 E). RESOLVED against the

@@ -215,7 +215,22 @@ test("parseBreakdown sanitizes the agent payload fail-closed", () => {
   assert.equal(b.characters[0].name, "李昭");
   assert.deepEqual(b.characters[0].states, [{ name: "黑化", reason: "剧情" }, { name: "夜行", reason: "" }]);
   assert.equal(b.locations.length, 1);
-  assert.deepEqual(parseBreakdown(null), { characters: [], locations: [] });
+  // v3 起提案里还有道具（TASK-095 §2.2）。**形状总是带 `props`**，缺席的输入
+  // 得到空数组而不是缺键 —— 否则「这次没有道具」会有两个形状。
+  assert.deepEqual(parseBreakdown(null), { characters: [], locations: [], props: [] });
+  const withProps = parseBreakdown({
+    characters: [], locations: [],
+    props: [
+      { name: "青铜钥匙", description: "带锈", visualInstruction: "特写可辨" },
+      { name: "青铜钥匙", description: "重复的，按归一化名去重" },
+      { name: "" },            // 无名 → 丢掉
+      "junk",                   // 非对象 → 丢掉
+      { name: "旧监视器", states: [{ name: "碎屏" }] }, // 道具没有状态 → 不带过来
+    ],
+  });
+  assert.deepEqual(withProps.props.map((x) => x.name), ["青铜钥匙", "旧监视器"]);
+  assert.equal(withProps.props[0].description, "带锈");
+  assert.equal("states" in withProps.props[1], false, "道具没有状态这件事在解析时就成立");
 });
 
 test("matchProposals: unmatched → new; matched → update with field/state diff; in-sync omitted", () => {

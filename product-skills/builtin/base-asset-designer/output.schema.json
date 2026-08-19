@@ -1,0 +1,46 @@
+{
+  "type": "object",
+  "required": [
+    "prompt"
+  ],
+  "fields": {
+    "prompt": {
+      "type": "string",
+      "nonEmpty": true
+    },
+    "name": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "description": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "costume": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "features": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "compositionSpec": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "assumptions": {
+      "type": "array",
+      "of": {
+        "type": "string",
+        "nonEmpty": true
+      }
+    },
+    "missingInputs": {
+      "type": "array",
+      "of": {
+        "type": "string",
+        "nonEmpty": true
+      }
+    }
+  }
+}

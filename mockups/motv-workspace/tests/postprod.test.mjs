@@ -16,6 +16,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { emptyLinks } from "../src/workflow/assetreg.js";
 import * as refinterp from "../src/workflow/refinterp.js";
 import * as framebind from "../src/workflow/framebind.js";
 import * as locksdoc from "../src/workflow/locks.js";
@@ -863,10 +864,10 @@ test("a derived frame is its OWN kind, in the images domain", () => {
  * The identity checks the rule exists for are all still enforced below.
  */
 test("binding an extracted frame keeps the canvas LOADABLE", () => {
-  const LINKS = {
-    episodeId: null, sceneId: null, shotId: null,
-    characterId: null, locationId: null, generationId: null,
-  };
+  // 链接键**从生产那份表派生**（§2.6.3 第 2 条：手写 fixture 会发明字段，
+  // 也会漏掉字段）。批次 4C 给 `LINK_KEYS` 加 `propId` 时，这段手写的六个键
+  // 就是唯一失败的东西 —— 它校验的是一个产品里已经不存在的形状。
+  const LINKS = emptyLinks();
   const frameAsset = {
     assetId: "asset-frame", version: 1, url: "/api/uploads/p/assets-frame-x_v1.png",
     digest: null, origin: "upload", storageState: "local", kind: "derived-frame",

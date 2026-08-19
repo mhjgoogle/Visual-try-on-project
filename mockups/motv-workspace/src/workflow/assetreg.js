@@ -248,6 +248,10 @@ export const LINK_KEYS = [
   "shotId",
   "characterId",
   "locationId",
+  // 道具（TASK-095 §2.2 / 批次 4C）。加一个链接键**必须走迁移** —— 校验要求
+  // 每个键都在场（缺键与 null 是两种不同的「不知道」），所以 v16→v17 给每条
+  // 既有资产补上 `propId: null`。
+  "propId",
   "generationId",
 ];
 

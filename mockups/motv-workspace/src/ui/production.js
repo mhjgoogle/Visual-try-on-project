@@ -29,6 +29,7 @@ import { renderCutReview, bindCutReview } from "./cutreview.js";
 import { bindChainMenu } from "./chain.js";
 import { renderEpisodeWs, bindEpisodeWs } from "./episodews.js";
 import { renderRefPlan, bindRefPlan } from "./refplan.js";
+import { renderAssetPrep, bindAssetPrep } from "./assetprepview.js";
 import {
   renderAssetLibrary, bindAssetLibrary, RAIL_TYPE,
   // TASK-082 §1.2: the rail is a CONTENT tree now, not a second copy of the chips
@@ -961,7 +962,10 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
           // shot. No separate review page is created.
           : step === "pick"
             ? renderDailies(ctx, ui)
-            : renderRefPlan(ctx, ui);
+            // 第 ② 步「准备资产」（TASK-095 §2.2）就在这一节里，参考统筹之上：
+            // 一个是「这一集要哪些设定图」，一个是「每个镜头绑了哪些参考」——
+            // 同一屏的两层，不是两页（ADR-0066 决策 10：不新增页面）。
+            : renderAssetPrep(ctx, ctx.assetPrep.model(), ui) + renderRefPlan(ctx, ui);
       // STEP ① also opens the asset drawer (§1.1 落点表: `refplan` → ⑧ 步骤①「并打开
       // 资产抽屉」). It is the SAME component as ⑪ 资产库, at drawer size (§1.6).
       const drawer = step === "prepare" && ui.alDrawer === true
@@ -1023,7 +1027,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // and there must be exactly one implementation of any post operation.
     edit: (ctx) => renderPostConsole(ctx, ui, { mode: "full" }),
     episode: (ctx) => renderEpisodeWs(ctx, ui),
-    refplan: (ctx) => renderRefPlan(ctx, ui),
+    refplan: (ctx) => renderAssetPrep(ctx, ctx.assetPrep.model(), ui) + renderRefPlan(ctx, ui),
     scenes: (ctx) => ws.renderEpisodes(ctx),
     shots: (ctx) => renderStoryboard(ctx, ui),
     frames: (ctx) => renderImageWs(ctx, ui),
@@ -1839,7 +1843,10 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     if (activeModule === "video") bindVideoWs(root, ctx, ui, render);
     if (activeModule === "audio") bindAudioWs(root, ctx, ui, render);
     if (activeModule === "episode") bindEpisodeWs(root, ctx, ui, render);
-    if (activeModule === "refplan") bindRefPlan(root, ctx, ui, render);
+    if (activeModule === "refplan") {
+      bindAssetPrep(root, ctx, ui, render);
+      bindRefPlan(root, ctx, ui, render);
+    }
     if (activeModule === "dailies") bindDailies(root, ctx, ui, render);
     if (activeModule === "storage") bindStorageWs(root, ctx, ui, render);
     // --- TASK-073 §1.1/§1.2: the new pages bind the SAME components ---------- //
@@ -1862,7 +1869,10 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       if (step === "image") bindImageWs(root, ctx, ui, render);
       else if (step === "video") bindVideoWs(root, ctx, ui, render);
       else if (step === "pick") bindDailies(root, ctx, ui, render);
-      else bindRefPlan(root, ctx, ui, render);
+      else {
+        bindAssetPrep(root, ctx, ui, render);
+        bindRefPlan(root, ctx, ui, render);
+      }
       // 「真实取消」 (验收 #7) — `ctx.skills.cancel` calls the backend and refuses to
       // record a cancellation it did not confirm. Deliberately NOT a local state
       // reset: that would print 「已取消」 over a still-running executor.

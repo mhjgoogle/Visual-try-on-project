@@ -48,6 +48,7 @@ function defaultProduction() {
     episodes: [ep],
     characters: [],
     locations: [],
+    props: [],
     // TASK-057 project-level canon: relationships between characters, the
     // World Setting, and one revision number per canon surface
     relationships: [],
@@ -134,7 +135,7 @@ export function createProduction(saved) {
     ? saved.activeEpisodeId
     : episodes[0].episodeId; // a dangling pointer falls back deterministically
   // M7 Production Bible: hydrate entities first, then scene refs against them
-  const { characters, locations } = sanitizeBible(saved);
+  const { characters, locations, props } = sanitizeBible(saved);
   for (const e of episodes) for (const s of e.scenes) sanitizeSceneRefs(s, characters, locations);
   // TASK-057 canon: relationships need the characters to exist, and beats need
   // both — so the order is characters → relationships → beats
@@ -150,6 +151,8 @@ export function createProduction(saved) {
     episodes,
     characters,
     locations,
+    // 道具（TASK-095 §2.2）—— 加法字段，老文档没有它是常态
+    props,
     relationships,
     world: sanitizeWorld(saved.world),
     canon: sanitizeCanon(saved.canon),
@@ -164,6 +167,7 @@ export function serialize(prod) {
     episodes: prod.episodes,
     characters: prod.characters,
     locations: prod.locations,
+    props: prod.props,
     relationships: prod.relationships,
     world: prod.world,
     canon: prod.canon,

@@ -195,12 +195,21 @@ test("compileEntityBasePrompt: a STATE is the same person, merged by the resolve
   });
   const young = bd.addCharacterState(prod, c.characterId, "少女时期");
   bd.setCharacterStateOverrides(prod, c.characterId, young.stateId, { costume: "校服" });
-  const base = compileEntityBasePrompt({ kind: "character", entity: bd.resolveCharacter(c, null), tone: "都市悬疑" });
+  // 构图规范来自 Skill 包（TASK-097 批次 4C）。这里显式给一段 —— 不给就是一个
+  // 真实的缺口，见下面那个测试。
+  const SPEC = "必须是角色四视图 = 正面头部特写 + 全身正面 / 左侧 / 背面，纯白背景";
+  const base = compileEntityBasePrompt({
+    kind: "character", entity: bd.resolveCharacter(c, null), tone: "都市悬疑", compositionSpec: SPEC,
+  });
   assert.ok(base.text.includes("【风格】都市悬疑"));
   assert.ok(base.text.includes("林婉"));
   assert.ok(base.text.includes("黑色风衣"));
+  assert.ok(base.text.includes("【构图规范】"), "规范进了提示词，而且是给进来的那一段");
+  assert.ok(base.text.includes("四视图"));
   assert.deepEqual(base.missing, []);
-  const st = compileEntityBasePrompt({ kind: "character", entity: bd.resolveCharacter(c, young.stateId) });
+  const st = compileEntityBasePrompt({
+    kind: "character", entity: bd.resolveCharacter(c, young.stateId), compositionSpec: SPEC,
+  });
   assert.ok(st.text.includes("林婉（少女时期）"));
   assert.ok(st.text.includes("校服"), "the state's override reached the prompt");
   assert.ok(!st.text.includes("黑色风衣"), "…and replaced the base costume rather than joining it");
@@ -211,18 +220,52 @@ test("compileEntityBasePrompt: a STATE is the same person, merged by the resolve
 test("compileEntityBasePrompt: an absent facet is a stated GAP, never a plausible default", () => {
   const prod = pdoc.createProduction(null);
   const c = bd.addCharacter(prod, "无名");
-  const out = compileEntityBasePrompt({ kind: "character", entity: bd.resolveCharacter(c, null) });
+  const SPEC = "四视图，纯白背景";
+  const out = compileEntityBasePrompt({
+    kind: "character", entity: bd.resolveCharacter(c, null), compositionSpec: SPEC,
+  });
   assert.equal(out.missing.length, 2);
   assert.ok(out.missing.some((x) => x.includes("外貌")));
   assert.ok(out.missing.some((x) => x.includes("画面指令")));
   // nothing was invented to fill the hole
   assert.ok(!/一位|女性|男性/.test(out.text));
   const l = bd.addLocation(prod, "医院走廊");
-  const lo = compileEntityBasePrompt({ kind: "location", entity: bd.resolveLocation(l, null), worldTone: "冷白光" });
+  const lo = compileEntityBasePrompt({
+    kind: "location", entity: bd.resolveLocation(l, null), worldTone: "冷白光",
+    compositionSpec: "空场景全景，无人物",
+  });
   assert.ok(lo.text.includes("【风格】冷白光"));
   assert.ok(lo.text.includes("无人物"), "a location plate is empty of people by construction");
   assert.equal(lo.missing.length, 2);
   assert.deepEqual(compileEntityBasePrompt({ kind: "character", entity: null }).missing, ["没有可编译的对象"]);
+});
+
+test("构图规范拿不到时**不自己编一段** —— 它是这张图能不能当参考图用的全部原因", () => {
+  // TASK-095 §2.2 / §2.3.3：② 步刻意生成四视图，是为了 ③ 步能靠它锁身份；
+  // 而四视图能用，靠的是 ③ 步那句「多视图不得让角色重复出现」。两句是一对。
+  // 少了规范，产出的是一张「看起来没问题、实际不能复用」的图 —— 所以宁可喊出来。
+  const prod = pdoc.createProduction(null);
+  const c = bd.addCharacter(prod, "林婉");
+  bd.updateCharacterProfile(prod, c.characterId, {
+    appearance: "短发", costume: "风衣", visualInstruction: "冷色调",
+  });
+  const bare = compileEntityBasePrompt({ kind: "character", entity: bd.resolveCharacter(c, null) });
+  assert.equal(bare.text.includes("【构图规范】"), false, "没有就是没有，不编");
+  assert.equal(bare.missing.length, 1);
+  assert.match(bare.missing[0], /promptBlocks\.compositionSpec\.character/, "指名去哪儿补");
+  assert.match(bare.missing[0], /当不成参考图/, "并说清后果");
+  // 反方向（§2.5d）：给了规范就真的没有缺口
+  const ok = compileEntityBasePrompt({
+    kind: "character", entity: bd.resolveCharacter(c, null), compositionSpec: "四视图",
+  });
+  assert.deepEqual(ok.missing, []);
+  // 三类都指得出自己那一段，不会都去要 character 那一块
+  const p = bd.addProp(prod, "青铜钥匙");
+  bd.updatePropProfile(prod, p.propId, { description: "带锈的青铜钥匙" });
+  const pm = compileEntityBasePrompt({ kind: "prop", entity: { ...p, ...p.profile } });
+  assert.match(pm.missing[0], /compositionSpec\.prop/);
+  assert.ok(pm.text.includes("【道具设定图】青铜钥匙"));
+  assert.ok(pm.text.includes("带锈的青铜钥匙"));
 });
 
 /* ========================================================================= */

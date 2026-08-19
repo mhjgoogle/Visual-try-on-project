@@ -35,6 +35,7 @@ export function normName(s) {
 export function parseBreakdown(payload) {
   const characters = [];
   const locations = [];
+  const props = [];
   const states = (list) => {
     const out = [];
     const seen = new Set();
@@ -87,8 +88,25 @@ export function parseBreakdown(payload) {
       });
       if (locations.length >= 12) break;
     }
+    // 道具（script-breakdown v3 / TASK-095 §2.2）。**没有 states** —— 一把钥匙
+    // 就是一把钥匙；它被折断是剧情事件，写进描述，不拆成两个道具
+    //（同一条理由写在 `bibledoc.sanitizeProp` 上，两处指的是同一个决定）。
+    const seenP = new Set();
+    for (const it of Array.isArray(payload.props) ? payload.props : []) {
+      if (!isObj(it)) continue;
+      const name = str(it.name);
+      if (!name || seenP.has(normName(name))) continue;
+      seenP.add(normName(name));
+      props.push({
+        name,
+        description: str(it.description),
+        visualInstruction: str(it.visualInstruction),
+        existingAssetKey: str(it.existingAssetKey),
+      });
+      if (props.length >= 12) break;
+    }
   }
-  return { characters, locations };
+  return { characters, locations, props };
 }
 
 /** The field-level changes applying a character proposal to an entity would
@@ -129,6 +147,22 @@ export function locationChanges(entity, proposal, mode) {
   return { fields, states };
 }
 
+/** Same for a prop proposal. **No states**, so there is no state list to diff —
+ *  and that difference is stated HERE rather than by passing an empty array
+ *  around, because an empty `states` would read as 「这个道具的状态都已存在」. */
+export function propChanges(entity, proposal, mode) {
+  const fields = [];
+  const map = [
+    ["description", entity.profile.description, proposal.description],
+    ["visualInstruction", entity.profile.visualInstruction, proposal.visualInstruction],
+  ];
+  for (const [key, cur, next] of map) {
+    if (!next) continue;
+    if (mode === "merge" ? !cur : cur !== next) fields.push({ key, from: cur, to: next });
+  }
+  return { fields, states: [] };
+}
+
 /** Match a parsed breakdown against the CURRENT bible. Returns proposal
  *  cards, each classified:
  *  - { kind:'new-character'|'new-location', proposal }               — no match
@@ -161,6 +195,17 @@ export function matchProposals(prod, breakdown) {
       }
     }
   }
+  for (const p of breakdown.props || []) {
+    const hit = (prod.props || []).find((x) => normName(x.name) === normName(p.name));
+    if (!hit) {
+      out.push({ id: `bp-${++n}`, kind: "new-prop", proposal: p });
+    } else {
+      const changes = propChanges(hit, p, "update");
+      if (changes.fields.length) {
+        out.push({ id: `bp-${++n}`, kind: "update-prop", proposal: p, entityId: hit.propId, entityName: hit.name, changes });
+      }
+    }
+  }
   return out;
 }
 
@@ -171,9 +216,12 @@ export function matchProposals(prod, breakdown) {
  *  name against the entity's current states. Pure. */
 export function gateUpdate(entity, changes) {
   const current = (key) =>
-    key === "voiceDescription" ? entity.voice.description : entity.profile[key];
+    key === "voiceDescription" ? (entity.voice || {}).description : entity.profile[key];
   const fields = changes.fields.filter((f) => current(f.key) === f.from);
-  const have = new Set(entity.states.map((s) => normName(s.name)));
+  // 道具没有 states（`bibledoc.sanitizeProp`），所以这里读的是「有没有这份清单」，
+  // 不是「清单是不是空的」—— 把缺席当成空数组会让「道具的状态都已存在」成为一句
+  // 关于一个不存在的概念的判断。
+  const have = new Set((Array.isArray(entity.states) ? entity.states : []).map((s) => normName(s.name)));
   return {
     fields,
     skipped: changes.fields.length - fields.length,

@@ -45,6 +45,14 @@ export function buildEntityIndex(prod) {
     if (!name || !isObj(l) || typeof l.locationId !== "string") continue;
     out.push({ kind: "location", id: l.locationId, name });
   }
+  // 道具（TASK-095 §2.2 / 批次 4C）。**加在这一处，就等于加进了所有计数** ——
+  // 「准备资产 N/M」、分镜表的实体链接、②步的缺口行全都读这一份索引。
+  // 如果道具在别处单独数一遍，那正是 §2.6.2 那个 16/48：改一个，其余继续说谎。
+  for (const p of Array.isArray(prod.props) ? prod.props : []) {
+    const name = normName(isObj(p) ? p.name : "");
+    if (!name || !isObj(p) || typeof p.propId !== "string") continue;
+    out.push({ kind: "prop", id: p.propId, name });
+  }
   return out;
 }
 

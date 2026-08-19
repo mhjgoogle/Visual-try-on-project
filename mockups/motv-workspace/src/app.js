@@ -47,7 +47,7 @@ import { stepReadiness } from "./ui/prodwizard.js";
 import { createProduction } from "./ui/production.js";
 import { dailiesModel } from "./ui/dailies.js";
 import { reviewBoardModel } from "./ui/cutreview.js";
-import { shotDetailModel } from "./ui/storyboard.js";
+import { shotDetailModel, buildPortraitIndex } from "./ui/storyboard.js";
 import * as assetlibws from "./ui/assetlibws.js";
 import { createWorkflowGraph } from "./ui/wfgraph.js";
 import { renderStepbar } from "./ui/stepbar.js";
@@ -115,6 +115,7 @@ import * as canvasnodes from "./workflow/canvasnodes.js";
 import * as canvasgrow from "./workflow/canvasgrow.js";
 import * as counts from "./workflow/counts.js";
 import * as sceneplan from "./workflow/sceneplan.js";
+import * as assetprep from "./workflow/assetprep.js";
 import {
   installShotMirror, softDeleteShot, restoreShot, deletionImpact, mergeKeepingRecycled,
 } from "./workflow/shotdelete.js";
@@ -1386,11 +1387,21 @@ const ctx = {
     compiled: (kind, entityId, stateId = null) => {
       const entity = kind === "character"
         ? bibledoc.findCharacter(productionDoc, entityId)
-        : bibledoc.findLocation(productionDoc, entityId);
+        : kind === "prop"
+          ? bibledoc.findProp(productionDoc, entityId)
+          : bibledoc.findLocation(productionDoc, entityId);
       if (!entity) return { text: "", missing: ["这个对象已不存在"] };
       const resolved = kind === "character"
         ? bibledoc.resolveCharacter(entity, stateId)
-        : bibledoc.resolveLocation(entity, stateId);
+        // 道具没有状态，所以「解析」就是把 profile 摊平 —— 不假装走一遍 resolver，
+        // 那会让读者以为道具也有状态覆盖（`bibledoc.sanitizeProp`）
+        : kind === "prop"
+          ? { ...entity, ...entity.profile }
+          : bibledoc.resolveLocation(entity, stateId);
+      // 构图规范来自 **Skill 包**（TASK-095 §2.2 / ADR-0067）。拿不到时传 null，
+      // 由编译器 fail-closed 记进 `missing` —— 这里不兜一段默认文本，
+      // 因为「少了规范」的后果是产出一张当不成参考图的图，不是一次报错。
+      const spec = skills.promptBlock("base-asset-designer", `compositionSpec.${kind}`);
       return compileEntityBasePrompt({
         kind,
         entity: resolved,
@@ -1398,6 +1409,7 @@ const ctx = {
         // a location's look is a statement about the world before it is about the
         // place — the World Setting's 视觉基调 is a real input, not decoration
         worldTone: kind === "location" ? (productionDoc.world.visualTone || "") : "",
+        compositionSpec: spec.ok ? spec.text : null,
       });
     },
     /** The EFFECTIVE prompt + where it came from — a stored version overrides the
@@ -1441,6 +1453,101 @@ const ctx = {
   // controller adds no store and opens no second upload path; it only decides WHICH
   // entity (or state) the registered asset is attached to.
   // ---------------------------------------------------------------------- //
+  /**
+   * 第 ② 步「准备资产」(TASK-095 §2.2 / 批次 4C)。
+   *
+   * 名字先 grep 过（§2.5f 第三条：`ctx.wizard` 那次是被静默覆盖，不报错）。
+   *
+   * **每一个写入都走既有路径**：新增实体走 `bibledoc`，上传走
+   * `ctx.baseAssets.registerUpload`（ADR-0055：上传即登记），从资产库挂走
+   * `ctx.baseAssets.attach`。这里没有第二条上传通道，也没有第二份计数。
+   */
+  assetPrep: {
+    model: () => assetprep.assetPrepModel({
+      prod: productionDoc,
+      // 与分镜表、向导第 ② 步**同一份**镜头列表（软删除的已被镜像过滤掉）
+      shots: ctx.project.draftShots || [],
+      // 与 `assetReadiness` 用同一个判断 —— 卡片上的「已有设定图」与底部那句
+      // 缺口话术不可能互相矛盾（§2.6.2）
+      hasReferenceImage: buildPortraitIndex(ctx.prodData()),
+      // null 与 [] 是两件事：前者「还没抽取过」，后者「抽过、没有新东西」
+      proposals: bibleProposals ? (bibleProposals.cards || []) : null,
+    }),
+    add: (kind, name) => {
+      const K = ctx.breakdown._kinds[kind];
+      if (!K || !String(name || "").trim()) return null;
+      const made = K.add(String(name).trim());
+      ctx.persist();
+      refreshProductionView();
+      return made;
+    },
+    /**
+     * 生成设定图。**本批只走到报价与提交**：报价来自 preflight，界面永不自算。
+     *
+     * `edited` 是弹窗里那个 textarea 的当前内容。**它与生效版本不同时，先存成新版本
+     * 再生成** —— 否则创作者改了提示词却用旧的那版出图，而且没有任何提示
+     * （codex 本批 round 1 的 P1）。存盘走既有的版本路径，不新开存储。
+     */
+    generate: (kind, entityId, edited = null) => {
+      const before = ctx.basePrompt.effective(kind, entityId);
+      const text = typeof edited === "string" ? edited : (before.text || "");
+      if (!text.trim()) {
+        toast("这个对象还没有可用的提示词 —— 先在卡片里补上描述");
+        return false;
+      }
+      if (text.trim() !== String(before.text || "").trim()) {
+        if (before.locked) {
+          // 锁定的提示词不被覆盖（既有规则）。如实说，不静默用旧的那版去生成。
+          toast("这段提示词是锁定的 —— 先解锁再改，否则生成用的会是锁定的那一版");
+          return false;
+        }
+        const v = ctx.basePrompt.save(kind, entityId, null, text);
+        if (!v) {
+          toast("没能保存你改过的提示词 —— 未提交生成");
+          return false;
+        }
+        toast(`已把你改过的提示词存成第 ${v} 版，并用它提交生成`);
+      }
+      // 走既有的生成入口（同一张「一次生成 = 一张卡」）。付费与否由那条路上的
+      // 闸门决定；这里不复制一份判断。
+      return ctx.basePrompt.entry(kind, entityId, null);
+    },
+    upload: async (kind, entityId) => {
+      try {
+        const ref = await ctx.baseAssets.registerUpload(kind, entityId, null, {
+          displayName: ctx.baseAssets.suggestName(kind, entityId, null),
+        });
+        if (ref) toast("已登记为这个对象的设定图");
+        refreshProductionView();
+        return ref;
+      } catch (e) {
+        toast(e.message);
+        return null;
+      }
+    },
+    /**
+     * 「从资产库选」的候选：**已经登记过的、这一类的参考资产**。
+     *
+     * 复用 `ctx.baseAssets.referenceOptions` —— 基础资产面板用的就是它，所以两处
+     * 看到的候选集一定相同（§2.5e：同一件事实一份来源）。
+     */
+    libraryOptions: (kind) => ctx.baseAssets.referenceOptions(kind),
+    /**
+     * 挂上一张已登记资产。走 `ctx.baseAssets.attach` —— 没有第二条挂接路径。
+     *
+     * 第一版这里**只弹了一句提示就返回 true**：那个 tab 于是「点得开、什么也做不了」
+     * —— §2.5e 里 `available` 却没有处理器的同一形状（codex 本批 round 2 的 P1）。
+     */
+    attachFromLibrary: (kind, entityId, assetId) => {
+      if (!assetId) return false;
+      const one = ctx.baseAssets.one(kind, entityId);
+      const first = !one || !one.refs || !one.refs.length;
+      const ok = ctx.baseAssets.attach(kind, entityId, null, assetId, { active: first });
+      toast(ok ? "已挂上这张设定图" : "没能挂上 —— 这张资产不适用于这个对象");
+      if (ok) refreshProductionView();
+      return ok;
+    },
+  },
   baseAssets: {
     model: () => baseassets.baseAssetsModel(ctx.prodData(), {
       promptOf: (kind, entityId, stateId) => ctx.basePrompt.effective(kind, entityId, stateId),
@@ -2183,24 +2290,68 @@ const ctx = {
       refreshProductionView();
     },
     // 添加为新实体 — creates the entity, fills its profile/voice, adds states.
+    //
+    // THREE KINDS, ONE TABLE (批次 4C). This used to be `isChar ? … : …`, and 道具
+    // would have made it a three-way branch in five separate places — five chances
+    // for 「道具走的是场景地那一支」. The kind is DATA: what to call it, how to find
+    // it, how to write it, and whether it even HAS states (a prop does not, see
+    // `bibledoc.sanitizeProp`). A fourth kind adds a row, not a branch.
+    _kinds: {
+      character: {
+        word: "角色",
+        find: (idv) => bibledoc.findCharacter(productionDoc, idv),
+        add: (name) => bibledoc.addCharacter(productionDoc, name),
+        idOf: (e) => e.characterId,
+        writeProfile: (idv, f) => bibledoc.updateCharacterProfile(productionDoc, idv, f),
+        addState: (idv, name) => bibledoc.addCharacterState(productionDoc, idv, name),
+        // 只有人物有声音。**能力写在表里**，不靠调用点回忆 —— 否则 `voiceDescription`
+        // 迟早会被写到一个没有 voice 的实体上（而 `entity.voice.description` 会抛）。
+        setVoice: (idv, description) =>
+          bibledoc.setCharacterVoice(productionDoc, idv, { description }),
+        changes: (e, prop, mode) => breakdown.characterChanges(e, prop, mode),
+      },
+      location: {
+        word: "场景地",
+        find: (idv) => bibledoc.findLocation(productionDoc, idv),
+        add: (name) => bibledoc.addLocation(productionDoc, name),
+        idOf: (e) => e.locationId,
+        writeProfile: (idv, f) => bibledoc.updateLocationProfile(productionDoc, idv, f),
+        addState: (idv, name) => bibledoc.addLocationState(productionDoc, idv, name),
+        changes: (e, prop, mode) => breakdown.locationChanges(e, prop, mode),
+      },
+      prop: {
+        word: "道具",
+        find: (idv) => bibledoc.findProp(productionDoc, idv),
+        add: (name) => bibledoc.addProp(productionDoc, name),
+        idOf: (e) => e.propId,
+        writeProfile: (idv, f) => bibledoc.updatePropProfile(productionDoc, idv, f),
+        // 道具没有状态。**null 是一个明确的答案**，不是一个空实现 ——
+        // 给它一个 no-op 会让「加状态失败了」与「这类东西没有状态」看起来一样。
+        addState: null,
+        changes: (e, prop, mode) => breakdown.propChanges(e, prop, mode),
+      },
+    },
+    /** 卡片种类 → 那一类的写法。`new-prop` / `update-prop` 都落到 `prop`。 */
+    _kindOf: (cardKind) => {
+      const name = String(cardKind || "").replace(/^(new|update)-/, "");
+      return ctx.breakdown._kinds[name] || null;
+    },
     addAsNew: (id) => {
       const card = (bibleProposals?.cards || []).find((c) => c.id === id);
       if (!card || !card.kind.startsWith("new-")) return null;
       const p = card.proposal;
-      let entity;
-      if (card.kind === "new-character") {
-        entity = bibledoc.addCharacter(productionDoc, p.name);
-        bibledoc.updateCharacterProfile(productionDoc, entity.characterId, p);
-        if (p.voiceDescription) bibledoc.setCharacterVoice(productionDoc, entity.characterId, { description: p.voiceDescription });
-        for (const s of p.states) bibledoc.addCharacterState(productionDoc, entity.characterId, s.name);
-      } else {
-        entity = bibledoc.addLocation(productionDoc, p.name);
-        bibledoc.updateLocationProfile(productionDoc, entity.locationId, p);
-        for (const s of p.states) bibledoc.addLocationState(productionDoc, entity.locationId, s.name);
+      const K = ctx.breakdown._kindOf(card.kind);
+      if (!K) return null;
+      const entity = K.add(p.name);
+      const entityId = K.idOf(entity);
+      K.writeProfile(entityId, p);
+      if (K.setVoice && p.voiceDescription) K.setVoice(entityId, p.voiceDescription);
+      if (K.addState) {
+        for (const st of Array.isArray(p.states) ? p.states : []) K.addState(entityId, st.name);
       }
       ctx.breakdown.dismiss(id);
       ctx.persist();
-      toast(`已添加${card.kind === "new-character" ? "角色" : "场景地"}「${p.name}」`);
+      toast(`已添加${K.word}「${p.name}」`);
       return entity;
     },
     // 应用更新 — writes EXACTLY the changes the card DISPLAYED. A field whose
@@ -2215,19 +2366,16 @@ const ctx = {
       const card = (bibleProposals?.cards || []).find((c) => c.id === id);
       if (!card) return false;
       const p = card.proposal;
-      const isChar = card.kind.endsWith("character");
+      const K = ctx.breakdown._kindOf(card.kind);
+      if (!K) return false;
       const targetId = entityId || card.entityId;
-      const entity = isChar
-        ? bibledoc.findCharacter(productionDoc, targetId)
-        : bibledoc.findLocation(productionDoc, targetId);
+      const entity = K.find(targetId);
       if (!entity) return false;
       let fieldsToWrite;
       let statesToAdd;
       let skipped = 0;
       if (mode === "merge") {
-        const changes = isChar
-          ? breakdown.characterChanges(entity, p, "merge")
-          : breakdown.locationChanges(entity, p, "merge");
+        const changes = K.changes(entity, p, "merge");
         fieldsToWrite = changes.fields;
         statesToAdd = changes.states;
       } else {
@@ -2242,14 +2390,8 @@ const ctx = {
         if (f.key === "voiceDescription") bibledoc.setCharacterVoice(productionDoc, targetId, { description: f.to });
         else fields[f.key] = f.to;
       }
-      if (Object.keys(fields).length) {
-        if (isChar) bibledoc.updateCharacterProfile(productionDoc, targetId, fields);
-        else bibledoc.updateLocationProfile(productionDoc, targetId, fields);
-      }
-      for (const s of statesToAdd) {
-        if (isChar) bibledoc.addCharacterState(productionDoc, targetId, s.name);
-        else bibledoc.addLocationState(productionDoc, targetId, s.name);
-      }
+      if (Object.keys(fields).length) K.writeProfile(targetId, fields);
+      if (K.addState) for (const st of statesToAdd) K.addState(targetId, st.name);
       ctx.breakdown.dismiss(id);
       ctx.persist();
       toast(

@@ -323,6 +323,38 @@ export function findSkill(skillId) {
   return BY_ID.get(skillId) || null;
 }
 
+/**
+ * 一个具名 prompt 块 —— **Skill 包的内容，不是源码常量**（TASK-095 §2.2 / §2.3.3）。
+ *
+ * 两个已知的使用者：② 步的「构图规范」（决定这张设定图能不能当参考图用）与
+ * ③ 步的「参考图使用规则」（挡住四视图被画成四个视图）。**它们是一对**：
+ * 前者刻意生成多视图，后者负责让多视图不被复制成多个角色。
+ *
+ * FAIL-CLOSED 且**说清后果**（§2.5f 第一条）：拿不到就返回 `ok:false` 与理由，
+ * 绝不返回一段「差不多的」默认文本。少一段规则不会报错，只会产出一张
+ * 看起来没问题、实际不能复用的图 —— 那正是没有任何一处会喊的那类缺陷。
+ *
+ * 形状与 `refset.usageRuleFor` 一致，故意的：同一个机制，两个消费者。
+ */
+export function promptBlock(skillId, blockName) {
+  const skill = findSkill(skillId);
+  if (!skill) {
+    return {
+      ok: false,
+      text: null,
+      reason: `Skill 包 ${skillId} 没装上（后端没连上，或这个包加载失败）`,
+    };
+  }
+  const blocks = isObj(skill.promptBlocks) ? skill.promptBlocks : null;
+  const text = blocks && typeof blocks[blockName] === "string" ? blocks[blockName].trim() : "";
+  if (text) return { ok: true, text, skillId, version: skill.version, block: blockName };
+  return {
+    ok: false,
+    text: null,
+    reason: `Skill 包 ${skillId} 里没有 promptBlocks.${blockName}`,
+  };
+}
+
 /** Which REQUIRED inputs are missing from the supplied context.
  *  A Skill with missing inputs must not run: an AI asked to storyboard with no
  *  scene will produce something plausible and unrelated, which is worse than an
