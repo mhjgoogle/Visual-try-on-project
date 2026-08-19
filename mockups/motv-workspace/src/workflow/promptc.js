@@ -354,6 +354,10 @@ export function compileDialoguePrompt({ dialogue, character = null, baseVoice = 
 export function compileVideoPrompt({
   shot, hasImage = false, startFrame = null, endFrame = null,
   references = [], interpretation = [], route = "manual",
+  // 有序参考集合 + 用法规则（TASK-095 §2.3.2 / §2.3.3，批次 4D）。调用方把
+  // `workflow/promptrefs.js` 的产出传进来 —— 那个模块**转交 refset**，
+  // 不重新推导编号、冲突检测或规则查找（§2.5b）。
+  referenceBlock = null,
 } = {}) {
   const missing = [];
   const parts = [];
@@ -399,5 +403,22 @@ export function compileVideoPrompt({
   const interp = compileInterpretationBlock(interpretation);
   if (interp) parts.push(interp);
   missing.push(...unreadGaps(interpretation));
-  return { text: parts.join("\n"), missing };
+  // 参考段在最后：它说的是「这些图分别管什么 + 怎么用」，读的时候要紧挨着提交动作。
+  // **缺口原样带上**（哪一类没有用法规则、集合是否合法）—— 不带规则送多图，
+  // 第 ② 步刻意生成的四视图设定图会被模型画成四个视图（TASK-095 §2.3.3）。
+  // 扣下的参考**结构化带出去**，不只写在 `missing` 的文字里：下游要据它判断这一镜
+  // 到底算不算合成好了，而按中文串去匹配是一条迟早会断的判据。
+  let withheldReferences = [];
+  if (referenceBlock && typeof referenceBlock === "object") {
+    if (s(referenceBlock.text)) parts.push(s(referenceBlock.text));
+    if (Array.isArray(referenceBlock.missing)) missing.push(...referenceBlock.missing);
+    if (Array.isArray(referenceBlock.withheld)) {
+      withheldReferences = referenceBlock.withheld.map((w) => ({
+        name: (w && w.entry && w.entry.name) || "",
+        kind: (w && w.entry && w.entry.kind) || "",
+        reason: (w && w.reason) || "",
+      }));
+    }
+  }
+  return { text: parts.join("\n"), missing, withheldReferences };
 }

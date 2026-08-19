@@ -242,8 +242,12 @@ test("v17 迁移给每一条资产补上 `links.propId` —— 包括**嵌在 hi
   // 所以这里不引用外部文件：文档由**迁移链自己**产出，链接形状照抄产品真正写下的
   // 那一种（`mediaref` 的 `{current, history:[…]}`）。
   const doc = { v: 1, nodes: [] };
-  for (let from = 1; from < CANVAS_SCHEMA_VERSION - 1; from++) MIGRATIONS[from](doc);
-  doc.v = CANVAS_SCHEMA_VERSION - 1; // 一份 v16 文档
+  // **迁到 v16 为止**（`propId` 是 v16→v17 加的）。此前写成 `CANVAS_SCHEMA_VERSION - 1`，
+  // 于是 v18 一落地这条守卫就变成在测 v17→v18 —— 检查的已经不是它自己那件事了。
+  // 又一处「钉在相对版本号上」的守卫（§2.6.3 第 1 条：钉死的守卫会静默变成别的东西）。
+  const V16 = 16;
+  for (let from = 1; from < V16; from++) MIGRATIONS[from](doc);
+  doc.v = V16;
   // 每条记录由**生产函数** `ensureDeclaration` 补全（§2.6.3 第 2 条：手写 fixture
   // 会发明字段，也会漏掉字段 —— 第一版就漏了几个，于是校验因为别的原因失败，
   // 差点让我以为迁移还是坏的）。补完之后再把 `propId` 摘掉，得到一份 v16 的形状。

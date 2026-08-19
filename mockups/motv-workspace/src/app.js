@@ -116,6 +116,7 @@ import * as canvasgrow from "./workflow/canvasgrow.js";
 import * as counts from "./workflow/counts.js";
 import * as sceneplan from "./workflow/sceneplan.js";
 import * as assetprep from "./workflow/assetprep.js";
+import * as promptbatch from "./ui/promptbatch.js";
 import {
   installShotMirror, softDeleteShot, restoreShot, deletionImpact, mergeKeepingRecycled,
 } from "./workflow/shotdelete.js";
@@ -1065,6 +1066,13 @@ const est = createEstimate({ renderBudget, toast });
 //
 // 项目对象每次换项目都会重建，所以镜像必须在**它出生的地方**装上 —— 这个 let
 // 指向当前那个。
+// 「一键合成全部提示词」当前那一批（批次 4D）。**只有一批**：两批同时跑会让
+// 「已花多少」有两个来源，而那正是 batchpay 要挡的东西。
+let promptBatchState = null;
+// 文档里**别的**批量（别的 kind）。这一层内存只管 `prompt-compose` 那一种，
+// 但保存时必须把其余原样写回去 —— 否则打开-保存一次就删掉了它们。
+let loadedBatches = {};
+
 let shotMirror = null;
 
 const ctx = {
@@ -1462,6 +1470,192 @@ const ctx = {
    * `ctx.baseAssets.registerUpload`（ADR-0055：上传即登记），从资产库挂走
    * `ctx.baseAssets.attach`。这里没有第二条上传通道，也没有第二份计数。
    */
+  /**
+   * 「一键合成全部提示词」 (TASK-095 §2.3 / 批次 4D) —— **`batchpay` 的第一个真实
+   * 调用方**（§2.5c 接线账：那 396 行到此之前应用侧调用方是 0）。
+   *
+   * 名字先 grep 过（§2.5f 第三条）。状态机、总额校验、记账全部是 `batchpay` 的
+   * 导出在管；这里只负责「谁进这一批」「preflight 的答复交给它」「每一镜的结果报
+   * 回去」。
+   *
+   * **付费红线**：`start` 只建批次并取报价（预检是只读的，从不扣费）；`confirm`
+   * 是 ADR-0041 的第二步，由创作者在界面上按下。本控制器不会自己确认。
+   */
+  promptBatch: {
+    state: () => promptBatchState,
+    /** 落盘 + 重渲染。一处写，让每条路径（含失败路径）都用它。 */
+    _save: () => { ctx.persist(); refreshProductionView(); return promptBatchState; },
+    model: () => promptbatch.promptBatchModel(promptBatchState, ctx.prodWizard.counts()),
+    start: () => {
+      const pd = ctx.prodData();
+      const made = promptbatch.startPromptBatch({
+        shots: pd.draftShots || [],
+        // **与那个计数同一份口径**（§2.6.2）：谁算「已合成」只有一处定义
+        promptsOf: (shotId) => {
+          const d = shotId ? shotDetailModel(pd, shotId) : null;
+          if (!d) return null;
+          return {
+            image: !!(d.prompts.image && d.prompts.image.text.trim()),
+            video: !!(d.prompts.video && d.prompts.video.text.trim()),
+          };
+        },
+      });
+      // 「没有要做的」先说清楚 —— 它不是一次失败（真实屏幕上第一次点这个按钮
+      // 看到的是「没能建批次」，而真相是 60/60 都已经合成了）
+      if (made.nothingToDo) {
+        promptBatchState = null;
+        // `already` 是**清单**（哪些已经齐了），不是一个数字 —— 打印数组会得到
+        // 一串对象；要数目就取长度。
+        toast(made.already.length
+          ? `没有需要合成的镜头 —— ${made.already.length} 个镜头两份提示词都已经齐了`
+          : "这一集还没有镜头 —— 先去第 ① 步确认镜头");
+        ctx.persist(); // 状态变了就落盘 —— 只重渲染的话，刷新之后报价与已花多少全丢
+      refreshProductionView();
+        return null;
+      }
+      // 拒绝是**批次自己的状态**，不是一个单独的字段（batchpay 的合同）
+      if (made.batch.state === "refused") {
+        toast(`没能建批次：${made.batch.refusal ? made.batch.refusal.reason : "条目不合法"}`);
+        promptBatchState = made.batch;
+        ctx.persist(); // 状态变了就落盘 —— 只重渲染的话，刷新之后报价与已花多少全丢
+      refreshProductionView();
+        return promptBatchState;
+      }
+      promptBatchState = made.batch;
+      toast(`${promptBatchState.items.length} 个镜头待合成 —— 正在向 Gateway 取总额（预检只读，不扣费）`);
+      ctx.promptBatch._quote();
+      return promptBatchState;
+    },
+    /** 取报价。**总额来自 preflight**；拿不到就停在 draft，不编一个数。 */
+    _quote: async () => {
+      if (!promptBatchState) return null;
+      // **await 之后世界可能已经变了**（codex round 3）：换项目、重新加载、放弃这一批
+      // 都会换掉 `promptBatchState`。把「取报价时它是哪一批、哪个项目」记下来，
+      // 回来不是同一个就丢掉这次答复 —— 否则一份报价会被贴到另一批上。
+      const forBatch = promptBatchState;
+      const forProject = PROJECT_NAME;
+      const stillMine = () => promptBatchState === forBatch && PROJECT_NAME === forProject;
+      const route = PAID ? "gateway" : "local";
+      let answer = null;
+      if (promptbatch.localComposeIsFree(route)) {
+        // 本地编译不花钱 —— 这是关于**我们自己代码**的事实，由具名谓词说出来，
+        // 而且照样走 `applyPreflight` 的三道校验（条数 / 币种 / 非负金额）。
+        answer = promptbatch.localComposeQuote(promptBatchState.items.length);
+      } else {
+        try {
+          answer = await ctx.promptBatch._askGateway(promptBatchState);
+        } catch (e) {
+          toast(`预检失败：${e.message}`);
+          // **失败也要落盘**（codex round 7 的 non-blocking）：这一批停在 `draft`，
+          // 而界面给的出路是「重新取总额」—— 不落盘的话刷新就把它丢了，
+          // 那条出路等于不存在。
+          if (stillMine()) ctx.promptBatch._save();
+          return null;
+        }
+        if (!answer) {
+          // 付费路线拿不到答复时**不补一个数**（ADR-0071 决策 6 / §2.5f 第一条）。
+          // 批次停在待报价，界面显示「还没有总额」。
+          toast("没能从 Gateway 取到总额 —— 批次留在待报价，界面不自算");
+          if (stillMine()) ctx.promptBatch._save();
+          return null;
+        }
+      }
+      if (!stillMine()) return null; // 换了项目或换了批次：这份答复已经无处可贴
+      promptBatchState = promptbatch.batchOps.applyPreflight(forBatch, answer);
+      if (promptBatchState.state === "refused") {
+        toast(promptBatchState.refusal ? promptBatchState.refusal.reason : "预检拒绝了这一批");
+      }
+      ctx.persist(); // 状态变了就落盘 —— 只重渲染的话，刷新之后报价与已花多少全丢
+      refreshProductionView();
+      return promptBatchState;
+    },
+    /** 真正问 Gateway。抽出来是为了让测试能替换它而不必碰状态机。 */
+    _askGateway: async (batch) => {
+      const envelope = ctx.gateway.buildEnvelope
+        ? ctx.gateway.buildEnvelope({ kind: "prompt-compose", count: batch.items.length })
+        : null;
+      if (!envelope) return null;
+      return query.preflight(PROJECT_NAME, envelope);
+    },
+    /**
+     * ADR-0041 第二步。创作者按的那一下 —— **并且真的把活干完**。
+     *
+     * 第一版只把状态推到 `running` 就返回：批次永远停在「进行中」，一条也没跑
+     * （codex 本批 round 2 的 P1）。这是 §2.5e 那条「亮着但点进去什么也没发生」
+     * 在批量上的形状。
+     *
+     * 这一批的「活」是什么，说清楚：**两份提示词是派生的**（`promptc` 纯编译），
+     * 所以这一批不是去问模型，而是**逐镜编译一遍并如实报告哪几镜还编不出来**
+     * （缺画面描述 / 缺运镜 / 参考没有用法规则……）。编不出来的镜记 `failed`
+     * 并带原因 —— 失败不算成功，这是 batchpay 的第 4 条。
+     */
+    confirm: () => {
+      if (!promptBatchState) return null;
+      promptBatchState = promptbatch.batchOps.confirmBatch(promptBatchState, new Date().toISOString());
+      if (promptBatchState.state !== "running") {
+        toast("还不能开始：这一批还没有总额（ADR-0041 两步 —— 先预检，再确认）");
+        ctx.persist(); // 状态变了就落盘 —— 只重渲染的话，刷新之后报价与已花多少全丢
+      refreshProductionView();
+        return promptBatchState;
+      }
+      const pd = ctx.prodData();
+      for (const item of promptBatchState.items) {
+        if (promptBatchState.state !== "running") break; // 中止立即生效
+        const d = shotDetailModel(pd, item.id);
+        const img = d && d.prompts.image ? d.prompts.image : null;
+        const vid = d && d.prompts.video ? d.prompts.video : null;
+        // 成败判据是**那个具名谓词**（生产与测试共用一份）：文本非空**且**没有参考
+        // 被 fail-closed 扣下。只看非空会让批量说「60 镜全好了」，而其中几镜的角色
+        // 设定图根本没送出去（codex round 3）。
+        const verdict = promptbatch.composeOutcome({ image: img, video: vid });
+        promptBatchState = promptbatch.batchOps.recordItem(promptBatchState, item.id, verdict.ok
+          // 本地编译不花钱 —— `spent: 0` 是「确知没花」，不是「不知道」
+          ? { outcome: "success", spent: 0 }
+          : { outcome: "failed", spent: 0, error: verdict.reasons.join("；") });
+      }
+      const st = promptbatch.batchOps.settlement(promptBatchState);
+      toast(st.allSucceeded
+        ? `${st.total} 个镜头的两份提示词都编出来了`
+        : `${st.total} 镜里有 ${st.by.failed} 镜还编不出来 —— 展开看缺什么（没有花钱）`);
+      ctx.persist(); // 状态变了就落盘 —— 只重渲染的话，刷新之后报价与已花多少全丢
+      refreshProductionView();
+      return promptBatchState;
+    },
+    /** 预检失败之后**还能重试**：`draft` 不是死局（codex round 3）。 */
+    requote: () => {
+      if (!promptBatchState || promptBatchState.state !== "draft") return null;
+      ctx.promptBatch._quote();
+      return promptBatchState;
+    },
+    /** 关掉 / 放弃这一批。**正在跑的不许一键抹掉** —— 那会把「花过钱」也抹掉。 */
+    discard: () => {
+      if (!promptBatchState) return null;
+      if (promptBatchState.state === "running") {
+        toast("这一批正在跑 —— 先中止；中止后已经花掉的会照实留在账上");
+        return promptBatchState;
+      }
+      promptBatchState = null;
+      ctx.persist(); // 一次就够（codex round 6：这里曾经连写两次）
+      refreshProductionView();
+      return null;
+    },
+    abort: () => {
+      if (!promptBatchState) return null;
+      promptBatchState = promptbatch.batchOps.abortBatch(promptBatchState, new Date().toISOString());
+      toast("已中止 —— 已经花掉的照实记账，迟到的回执仍然会被收下");
+      ctx.persist(); // 状态变了就落盘 —— 只重渲染的话，刷新之后报价与已花多少全丢
+      refreshProductionView();
+      return promptBatchState;
+    },
+    /** 一镜的结果报回状态机。失败**不算成功**，花掉的钱如实记。 */
+    record: (shotId, { outcome, spent = null, error = null } = {}) => {
+      if (!promptBatchState) return null;
+      promptBatchState = promptbatch.batchOps.recordItem(promptBatchState, shotId, { outcome, spent, error });
+      ctx.persist(); // 状态变了就落盘 —— 只重渲染的话，刷新之后报价与已花多少全丢
+      refreshProductionView();
+      return promptBatchState;
+    },
+  },
   assetPrep: {
     model: () => assetprep.assetPrepModel({
       prod: productionDoc,
@@ -5869,6 +6063,16 @@ function serializeGraph() {
     skillRuns: skillRunRegistry,
     // Production structure (M6) — episodes/scenes owning shot REFERENCES only.
     production: proddoc.serialize(productionDoc),
+    // 批量付费的状态（v18 / 批次 4D）。**必须落盘**：一个已确认的批次带着报价、
+    // 已花多少与「迟到回执还没收齐」；刷新一次全没了，创作者会再确认一次 ——
+    // 对付费批量那是第二次真实扣费，而且没有任何一处说过第一次发生过。
+    // **别的 kind 不被吃掉**（codex round 4）：4E 会加「批量生视频」那一种，而
+    // 打开-保存一次就把它删掉，正是 AGENTS.md 第 13 条禁止的静默覆盖。
+    // 内存里的那一种覆盖同名项，其余原样带过去。
+    batches: {
+      ...loadedBatches,
+      ...(promptBatchState ? { [promptBatchState.kind]: promptBatchState } : {}),
+    },
     // Per-episode timelines (M11) — asset REFERENCES only, never media bytes.
     timelines: timeline.serialize(timelinesDoc),
     // Per-shot Prompt OVERRIDES (ADR-0061 决策 5). Only shots whose prompt was
@@ -5940,6 +6144,20 @@ function restoreGraph(data) {
   productionDoc = proddoc.createProduction((data && data.production) || null);
   // Per-episode timelines (M11).
   timelinesDoc = timeline.createTimelines((data && data.timelines) || null);
+  // 批量付费的状态（v18 / 批次 4D）：**水合回来**，否则刷新之后创作者看到一个
+  // 从没跑过的干净界面，然后再确认一次。一种批量只有一个，取那一个。
+  // **一个 kind 只有一个主人。**
+  //
+  // `loadedBatches` 保存「这一层不管的那些批量」，所以水合时就把自己那一种**摘掉**。
+  // 不摘的后果 codex round 5 指出来了：`discard()` 把内存里那一批清成 null，而序列化
+  // 仍然从 `loadedBatches` 把它写回去 —— 刷新之后那个已经被放弃的、已报价的批次
+  // 原地复活，然后可以被确认。放弃一件事之后它自己回来，是最坏的一种不可逆。
+  const savedBatches = (data && data.batches && typeof data.batches === "object" && !Array.isArray(data.batches))
+    ? { ...data.batches }
+    : {};
+  promptBatchState = promptbatch.hydrateBatch(savedBatches, "prompt-compose");
+  delete savedBatches["prompt-compose"]; // 这一种归 `promptBatchState` 管，不再有第二份
+  loadedBatches = savedBatches;
   // Per-shot Prompt overrides (ADR-0061 决策 5).
   promptsDoc = promptdoc.createPrompts((data && data.prompts) || null);
   // TASK-064 Phase 2 / Phase 3 documents (additive; absent → empty).
@@ -6088,6 +6306,8 @@ async function enterCanvas(name, opts = {}) {
   scriptDoc = scriptdoc.createDoc();
   storyDoc = storydoc.createStory(null);
   timelinesDoc = timeline.createTimelines(null);
+  promptBatchState = null; // 换项目：上一个项目的批次不跟过来
+  loadedBatches = {};
   promptsDoc = promptdoc.createPrompts(null);
   // …and the Phase 2 / Phase 3 documents. Cleared HERE too, not only in
   // restoreGraph: entering a project whose canvas is empty never calls restore,

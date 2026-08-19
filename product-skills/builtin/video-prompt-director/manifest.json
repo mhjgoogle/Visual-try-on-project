@@ -1,6 +1,6 @@
 {
   "skillId": "video-prompt-director",
-  "skillVersion": 1,
+  "skillVersion": 2,
   "work": "creative",
   "role": "Prompt 导演",
   "title": "Video Prompt Director",
@@ -19,7 +19,15 @@
     "运镜是否与机位参考的解读一致，而不是与它冲突",
     "是否只使用了已有解读的参考（没有解读的参考不得被凭名字发挥）",
     "时长是否被改动",
-    "连续性要求是否指向前后镜真实存在的事实"
+    "连续性要求是否指向前后镜真实存在的事实",
+    "每一类被送出的参考图，是否都带上了它自己那一段用法规则"
   ],
-  "recommendedRuntime": "local_subscription"
+  "recommendedRuntime": "local_subscription",
+  "promptBlocks": {
+    "referenceUsage.character": "只参考此图中的角色形象；不参考角度、构图、姿势、表情。若此参考图是角色多视图，则必须保证角色不能重复出现。",
+    "referenceUsage.location": "只参考此图中的空间、材质与光照关系；不参考图中的人物、临时道具与镜头角度。",
+    "referenceUsage.prop": "只参考此图中该物件的形状、材质与新旧程度；不参考它在图中的摆放位置与持握方式。",
+    "referenceUsage.visual": "只参考此图的影调、色彩与质感倾向；不参考画面内容、构图与其中出现的任何对象。",
+    "referenceUsage.audio": "此参考不参与画面生成，仅用于声音；不要据它改变任何视觉内容。"
+  }
 }

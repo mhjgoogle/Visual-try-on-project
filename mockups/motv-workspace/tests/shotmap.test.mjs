@@ -91,6 +91,7 @@ test("v3→current is non-destructive: assetId/url/slot/version/current/history 
   delete res.doc.scripts; // M9 per-episode scripts map (empty here)
   delete res.doc.timelines; // M11 additive per-episode timelines
   delete res.doc.skillRuns; // v12 additive skill-run registry
+  delete res.doc.batches; // v18 additive batch-payment state (TASK-097 批次 4D)
   delete before.scriptDoc; // v8 moves the (null = empty) script away
   res.doc.v = 3;
   assert.deepEqual(res.doc, before);

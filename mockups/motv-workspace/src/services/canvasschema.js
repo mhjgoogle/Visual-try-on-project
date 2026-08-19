@@ -69,7 +69,7 @@ const LEGACY_SKILL_RUN_STATUSES = new Set([
 ]);
 
 /** Authoritative CURRENT canvas schema version. Saves must emit exactly this. */
-export const CANVAS_SCHEMA_VERSION = 17;
+export const CANVAS_SCHEMA_VERSION = 18;
 
 /**
  * v1 → v2 (checkpoint M2): stable creator identity + minimal provenance.
@@ -1213,7 +1213,33 @@ function migrateV16ToV17(doc) {
   return doc;
 }
 
-export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7, 7: migrateV7ToV8, 8: migrateV8ToV9, 9: migrateV9ToV10, 10: migrateV10ToV11, 11: migrateV11ToV12, 12: migrateV12ToV13, 13: migrateV13ToV14, 14: migrateV14ToV15, 15: migrateV15ToV16, 16: migrateV16ToV17 };
+/**
+ * v17 → v18 (TASK-095 §2.3 / TASK-097 批次 4D): 批量付费的状态要活过一次刷新。
+ *
+ * **为什么这必须持久化，而不是留在内存里。** 一个已确认的批次带着报价、已花多少、
+ * 中止状态与「迟到回执还没收齐」。刷新一次全没了，创作者看到的是一个从没跑过的
+ * 干净界面 —— 于是**再确认一次**。对本地免费的合成来说那只是白跑；对付费批量
+ * 来说那是**第二次真实扣费，而且没有任何一处说过第一次发生过**
+ * （codex 本批 round 2 的 P1）。
+ *
+ * 形状：`batches` 是 `kind → batch`，一种批量同时只有一个（两个同时跑会让
+ * 「已花多少」有两个来源，那正是 batchpay 要挡的）。**加法**：老文档没有它，
+ * 迁移只放一个空容器，不回填任何批次（回填等于发明一次付费历史）。
+ */
+function migrateV17ToV18(doc) {
+  const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
+  // **只在缺席时放空容器。** 一个 v17 文档里如果已经有 `batches` 而且形状不对
+  // （校验此前不管顶层未知键），把它换成 `{}` 就是**静默丢掉用户数据**，而且
+  // 不可逆 —— 下一次自动保存会把丢掉的结果写回磁盘（codex round 3 的那一条）。
+  //
+  // 正确的动作是**原样留着**，让校验去拒绝整份文档：拒绝加载是可恢复的，
+  // 悄悄改写不是（AGENTS.md 第 13 条）。
+  if (!("batches" in doc)) doc.batches = {};
+  else if (!isObj(doc.batches)) return doc; // 形状不对：不动它，交给校验
+  return doc;
+}
+
+export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7, 7: migrateV7ToV8, 8: migrateV8ToV9, 9: migrateV9ToV10, 10: migrateV10ToV11, 11: migrateV11ToV12, 12: migrateV12ToV13, 13: migrateV13ToV14, 14: migrateV14ToV15, 15: migrateV15ToV16, 16: migrateV16ToV17, 17: migrateV17ToV18 };
 
 /** Read the schema version of a raw persisted document.
  *  Returns a positive integer, or null if the marker is malformed.
@@ -1286,6 +1312,49 @@ export function validateCanvasDoc(doc) {
       }
       if (n.finals !== undefined && n.finals !== null && typeof n.finals !== "object") {
         return "node finals is not an object or array";
+      }
+    }
+  }
+  // 批量付费的持久状态（v18 / 批次 4D）。**加法字段：缺席合法**；出现就必须是
+  // 一个 kind → batch 的对象，而每个批次的状态必须是 batchpay 认得的那几个。
+  // 读不懂的批次比没有批次危险：`settlement` 会据它印出「已花多少」。
+  if (doc.batches !== undefined) {
+    if (!isPlainObject(doc.batches)) return "batches is not an object";
+    const STATES = new Set(["draft", "quoted", "running", "done", "aborted", "refused"]);
+    for (const kind of Object.keys(doc.batches)) {
+      const b = doc.batches[kind];
+      if (!isPlainObject(b)) return `batches[${kind}] is not an object`;
+      if (b.kind !== kind) return `batches[${kind}] carries a different kind ${JSON.stringify(b.kind)}`;
+      if (!STATES.has(b.state)) return `batches[${kind}] has an unknown state ${JSON.stringify(b.state)}`;
+      if (!Array.isArray(b.items)) return `batches[${kind}] items is not an array`;
+      const ids = new Set();
+      for (const it of b.items) {
+        if (!isPlainObject(it)) return `batches[${kind}] items contains a non-object entry`;
+        if (typeof it.id !== "string" || !it.id) return `batches[${kind}] has an item with no id`;
+        if (ids.has(it.id)) return `batches[${kind}] has duplicate item id ${it.id}`;
+        ids.add(it.id);
+        if (it.spent !== null && !(typeof it.spent === "number" && Number.isFinite(it.spent) && it.spent >= 0)) {
+          return `batches[${kind}] item ${it.id} spent is neither null nor a non-negative number`;
+        }
+      }
+      if (b.quote !== null) {
+        if (!isPlainObject(b.quote)) return `batches[${kind}] quote is neither null nor an object`;
+        if (!(typeof b.quote.amount === "number" && Number.isFinite(b.quote.amount) && b.quote.amount >= 0)) {
+          return `batches[${kind}] quote amount is not a non-negative number`;
+        }
+        if (typeof b.quote.currency !== "string" || !b.quote.currency.trim()) {
+          return `batches[${kind}] quote has no currency`;
+        }
+        // **报价覆盖几条，必须与这一批的条数对得上**（codex round 6）。
+        // `applyPreflight` 在报价那一刻查过，但一份持久化的文档可能是别处写的 ——
+        // 只查「是个整数」，等于让一份覆盖 5 条的总额在重载后授权 60 条。
+        // 这是同一条不变量的持久化侧（批次 0 的九个金额 P1 之一）。
+        if (!Number.isInteger(b.quote.count) || b.quote.count < 0) {
+          return `batches[${kind}] quote does not say how many items it covers`;
+        }
+        if (b.quote.count !== b.items.length) {
+          return `batches[${kind}] quote covers ${b.quote.count} items but the batch has ${b.items.length}`;
+        }
       }
     }
   }

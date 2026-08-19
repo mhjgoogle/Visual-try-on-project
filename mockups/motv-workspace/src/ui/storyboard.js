@@ -20,6 +20,8 @@ import { episodeView, sceneOfShot, activeEpisode } from "../workflow/proddoc.js"
 import { findCharacter, findLocation, resolveCharacter, resolveLocation } from "../workflow/bibledoc.js";
 import { outlineForPlan } from "../workflow/storydoc.js";
 import { compileImagePrompt, compileVideoPrompt } from "../workflow/promptc.js";
+import { referenceBlock } from "../workflow/promptrefs.js";
+import { promptBlock as promptBlockLookup } from "../workflow/skills.js";
 import { referencesOfShot } from "../workflow/shotprod.js";
 import { listReferences, derivedLabel, INTERPRETATION_KINDS } from "../workflow/assetreg.js";
 import { interpretationInputs } from "../workflow/refinterp.js";
@@ -413,6 +415,12 @@ export function shotDetailModel(pd, shotId) {
         // the creator attaching files. Only the parenthetical differs, and an
         // absent `pd.route` (tests, older callers) means the manual route.
         route: pd.route === "gateway" ? "gateway" : "manual",
+        // 有序参考集合 + 每类一段用法规则（批次 4D）。规则来自 Skill 包，
+        // 查找函数由 shell 注入 —— 这个读模型不知道目录是怎么装进来的。
+        referenceBlock: referenceBlock({
+          bindings: refIn.videoReferences,
+          lookup: promptBlockLookup,
+        }),
       }),
     },
     // carried so the Generation Input Set and the Inspector read the SAME

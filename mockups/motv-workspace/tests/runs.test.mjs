@@ -244,7 +244,7 @@ test("the migration is a pure function of the document (run it twice)", () => {
   assert.deepEqual(twice, once, "no clock, no randomness — same input, same output");
 });
 
-test("the current schema version is 17", () => {
+test("the current schema version is 18", () => {
   // v16: ADR-0073 决策 8 adds `production.shotProduction.stages` (skip decisions
   // only). A pinned number is the point — it forces whoever bumps the schema to
   // come here and say what changed, which is how the migration list stays honest.
@@ -254,7 +254,11 @@ test("the current schema version is 17", () => {
   //   2. 每个资产的 `links.propId = null` —— **这一条才是必须升版本的原因**：
   //      `LINK_KEYS` 是「资产属于哪个对象」的唯一那份表，而校验要求每个键都在场
   //      （缺键与 null 是两种不同的「不知道」），所以新增链接键不能靠读时补。
-  assert.equal(CANVAS_SCHEMA_VERSION, 17);
+  //
+  // v18（TASK-095 §2.3 / 批次 4D）：`batches` —— 批量付费的状态必须活过一次刷新。
+  //   一个已确认的批次带着报价、已花多少与「迟到回执还没收齐」；刷新丢掉它，
+  //   创作者会再确认一次，而对付费批量那是**第二次真实扣费**。
+  assert.equal(CANVAS_SCHEMA_VERSION, 18);
 });
 
 // --- validator -------------------------------------------------------------- //

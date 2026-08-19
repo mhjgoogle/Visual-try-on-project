@@ -30,6 +30,7 @@ import { bindChainMenu } from "./chain.js";
 import { renderEpisodeWs, bindEpisodeWs } from "./episodews.js";
 import { renderRefPlan, bindRefPlan } from "./refplan.js";
 import { renderAssetPrep, bindAssetPrep } from "./assetprepview.js";
+import { renderPromptBatch, bindPromptBatch } from "./promptbatch.js";
 import {
   renderAssetLibrary, bindAssetLibrary, RAIL_TYPE,
   // TASK-082 §1.2: the rail is a CONTENT tree now, not a second copy of the chips
@@ -954,6 +955,12 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // workspace that already did that step; the flow bar is the section nav.
     shotwork: (ctx) => {
       const step = sectionOf("shotwork");
+      // 「一键合成全部提示词」是**集级**动作（TASK-095 §2.3），所以它在这一页顶部，
+      // 而不是某一镜的卡片里。批次壳走 batchpay（批次 4D 把它接上）。
+      // 集级动作，所以它在这一页顶部常驻（ 的四个 section 里都能看到）——
+      // 「prompt」不是一个 section（shell 的 SECTIONS 里只有 prepare/image/video/pick），
+      // 按不存在的 section 判断等于这块永远不出现。
+      const batchBar = renderPromptBatch(ctx.promptBatch.model());
       const inner = step === "image"
         ? renderImageWs(ctx, ui)
         : step === "video"
@@ -975,7 +982,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
         ? `<button class="btn sm al-dopen" data-al-drawer-open="1">` +
           `${ui.alDrawer ? "收起参考抽屉" : "+ 添加参考（打开资产抽屉）"}</button>`
         : "";
-      return sectionNav("shotwork") + drawerBtn + drawer + inner + shotTaskRows(ctx);
+      return sectionNav("shotwork") + drawerBtn + batchBar + drawer + inner + shotTaskRows(ctx);
     },
     // ⑨ 粗剪审片 — the episode-wide playback + issue marking (检查层 2).
     // ⑨ 粗剪审片 is the EPISODE-WIDE storyboard (TASK-079 §1.1); ⑧ step ④ keeps
@@ -1843,6 +1850,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     if (activeModule === "video") bindVideoWs(root, ctx, ui, render);
     if (activeModule === "audio") bindAudioWs(root, ctx, ui, render);
     if (activeModule === "episode") bindEpisodeWs(root, ctx, ui, render);
+    bindPromptBatch(root, ctx, ui, render);
     if (activeModule === "refplan") {
       bindAssetPrep(root, ctx, ui, render);
       bindRefPlan(root, ctx, ui, render);
