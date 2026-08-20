@@ -1,6 +1,6 @@
 # TASK-093：一镜一画布 —— 把只读的制作流程图变成能干活的面
 
-- 状态：**未开工**
+- 状态：**已完成（2026-08-19，TASK-097 批次 3 · 提交 `550504f`）** —— codex 6 轮（名义 3，超额已声明），9 P1 + 1 P2 全真全修，轮 6 pass 零发现。画布成为**派生视图**（第一条纪律做成可执行：`available` 只由 registry 决定）；六个 stage 上画布，读 TASK-092 那一份状态；[ADR-0074](../adr/ADR-0074-character-from-image.md) / [ADR-0075](../adr/ADR-0075-camera-motion-presets.md) 由实施 Agent 自行 Accept。**轮 4 / 轮 5 两个 P1 值得记住**：生产谓词把资产自己的记录算成外部引用（而测试用了另一个谓词）；`INCONCLUSIVE` 被算成产物存在（根因是 ADR-0073 决策 2 措辞太松，已订正 ADR 正文）
 - 负责 Agent：单一实施 Agent（AGENTS.md 第 14 条）
 - 依据：产品负责人 2026-08-17（§0 原话）+ [UI Gap Audit](../../src/ui-gap-audit/) 的 LibTV 目标截图
 - **前置：TASK-092 已完成并提交** —— 画布上每个节点的状态就是 092 那六个 stage；
