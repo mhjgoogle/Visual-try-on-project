@@ -92,7 +92,7 @@ export const PRODUCTION_COUNTS = [
     units: ["草图已通过"],
     /** 第 ④ 步。**跳过也算这一步已了结**（轻量模式），但它与「通过」分开计，
      *  因为界面必须能区分「他决定不画」和「他还没画」（TASK-092 §2.2）。 */
-    derive: (s) => stageCount(s, "storyboardStatus"),
+    derive: (s) => stageCount(s, "storyboard"),
     text: (c) => (c.known
       ? `${c.value}/${c.total} 草图已通过${c.skipped ? ` · ${c.skipped} 镜跳过` : ""}`
       : `${UNKNOWN} 草图已通过`),
@@ -101,7 +101,7 @@ export const PRODUCTION_COUNTS = [
     id: "keyframePassed",
     label: "关键帧已就绪",
     units: ["关键帧已就绪"],
-    derive: (s) => stageCount(s, "keyframeStatus"),
+    derive: (s) => stageCount(s, "keyframe"),
     text: (c) => (c.known
       ? `${c.value}/${c.total} 关键帧已就绪`
       : `${UNKNOWN} 关键帧已就绪`),
@@ -110,7 +110,7 @@ export const PRODUCTION_COUNTS = [
     id: "videoDone",
     label: "视频已完成",
     units: ["视频已完成"],
-    derive: (s) => stageCount(s, "videoStatus"),
+    derive: (s) => stageCount(s, "video"),
     text: (c) => (c.known ? `${c.value}/${c.total} 视频已完成` : `${UNKNOWN} 视频已完成`),
   },
 ];
@@ -123,18 +123,34 @@ export function isDeleted(shot) {
   return !!(isObj(shot) && isObj(shot.deleted) && shot.deleted.at);
 }
 
-/** 六个 stage 里某一个的完成计数。`stageOf(shotId)` 由 TASK-092 那一份状态提供 ——
- *  **不重算**（§2.4：状态只有一份，本模块是它的读者）。 */
-function stageCount(s, field) {
+/**
+ * 六个 stage 里某一个的完成计数。`stageOf(shotId)` 由 TASK-092 那一份状态提供 ——
+ * **不重算**（§2.4：状态只有一份，本模块是它的读者）。
+ *
+ * 读的是 `stageBoard` 真实的形状：`board[stage].status`（批次 5A 修）。
+ *
+ * WHY THIS IS WRITTEN OUT: 上一版读的是 `board["videoStatus"]` 这种键，而生产传进来的
+ * 是 `ctx.shot.stageBoard(shotId)`，它的键是 `video` / `keyframe` / `storyboard`，
+ * 值里才有 `status`。那个键**在生产的 board 上根本不存在** —— 于是
+ * `storyboardPassed` / `keyframePassed` / `videoDone` 三个计数**永久是 0，而 `known`
+ * 为真**：一个我们没资格做的断言，正是本文件开头那段 `storageState` 教训的同一形状。
+ * 单元测试看不见它，因为测试自己造了 `{ storyboardStatus: "completed" }` 这个
+ * 生产里不存在的形状（§2.6.3：fixture 会发明字段）。
+ *
+ * 所以形状不认识时**返回「不知道」而不是 0**：下一次形状再变，屏幕会显示「—」，
+ * 不会静默地少数一半。
+ */
+function stageCount(s, stage) {
   if (!Array.isArray(s.shots) || typeof s.stageOf !== "function") return { known: false };
   const live = s.shots.filter((x) => isObj(x) && !isDeleted(x));
   let value = 0;
   let skipped = 0;
   for (const shot of live) {
-    const st = s.stageOf(shot.shotId);
-    const v = isObj(st) ? st[field] : null;
-    if (v === "completed") value += 1;
-    else if (v === "skipped") skipped += 1;
+    const board = s.stageOf(shot.shotId);
+    const cell = isObj(board) ? board[stage] : null;
+    if (!isObj(cell) || typeof cell.status !== "string") return { known: false };
+    if (cell.status === "completed") value += 1;
+    else if (cell.status === "skipped") skipped += 1;
   }
   return { known: true, value, total: live.length, skipped };
 }

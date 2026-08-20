@@ -105,6 +105,7 @@ import * as bibledoc from "./workflow/bibledoc.js";
 import * as canondoc from "./workflow/canondoc.js";
 import * as shotprod from "./workflow/shotprod.js";
 import * as shotstage from "./workflow/shotstage.js";
+import * as poststatus from "./workflow/poststatus.js";
 import * as breakdown from "./workflow/breakdown.js";
 // TASK-065: the creator-object-first surfaces. All three are PURE read models over
 // documents this file already owns — none of them introduces a store.
@@ -2585,6 +2586,40 @@ const ctx = {
     readyOf: (stepId) => stepReadiness(ctx.prodWizard.counts(), stepId),
   },
 
+  /**
+   * ⑩ 后期交付 的状态（TASK-096 / 批次 5A）。
+   *
+   * 三个状态**取自 TASK-092 那一份**（`ctx.shot.stageBoard`），这一层一个都不重算 ——
+   * 它只把「可以开始 / 可以定稿」这两个已经算好的 ok 变成创作者看得懂的词，
+   * 并说清「要不要做」有没有人写下来。
+   */
+  postStatus: {
+    rows: () => {
+      const shots = ctx.project.draftShots;
+      if (!Array.isArray(shots)) return null;
+      return poststatus.postRows(shots.filter((x) => x && !counts.isDeleted(x)), {
+        boardOf: (shotId) => ctx.shot.stageBoard(shotId),
+      });
+    },
+    model: () => {
+      const rows = ctx.postStatus.rows();
+      return {
+        hasShots: Array.isArray(rows) && rows.length > 0,
+        stages: poststatus.POST_STAGES,
+        // 规则本身写一次，就在这里 —— 每一行不必各自解释一遍
+        rule: "音频与视频并行：现在就能开始，定稿要等画面对齐",
+        summary: poststatus.postSummary(rows || []),
+        parallel: poststatus.parallelWindow(rows || []),
+        gaps: poststatus.soundGaps(rows || []),
+        // 新增一条音轨而忘了给它归属时，**屏幕上说出来**。守卫测试只在 CI 里挡，
+        // 而这一条让创作者也不会对着一个静默不参与任何状态的轨发愁（§2.5c 规则 3：
+        // 一个只有测试调用的导出等于没接线）。
+        unclassified: poststatus.unclassifiedTracks(),
+        whyHere: poststatus.SOUND_HOME_WHY,
+      };
+    },
+  },
+
   agentShotsDraft: (script) => query.generateShotsDraft(script),
   // Story development controller (M9): Idea → Outline (versioned, approved) →
   // Episode Plan (versioned, confirmed). The ONLY write path into the story
@@ -4161,8 +4196,21 @@ const ctx = {
             const d = ctx.storyboard.draftOf(shotId);
             return d ? { assetId: d.assetId, present: d.present } : null;
           }
-          // voice / sfx / qc 仍然没有通道（5A / 5B）。返回 null 是老实话：
-          // `not_started`，不是猜一个「已完成」。
+          // ⑦⑧ 配音 / 音效的通道在批次 5A 接上：它是这一镜**音频轨上的片段**
+          // （`poststatus.STAGE_TRACKS` 说哪条轨算哪一步），而「在不在」仍然要探针说话
+          // —— 与 keyframe / video 同一口径。
+          if (stage === "voice" || stage === "sfx") {
+            const ev = poststatus.audioEvidence(ctx.shotAudio.clips(shotId), {
+              presentOf: (assetId) => {
+                const hit = assetId ? ctx.assets.find(assetId) : null;
+                // 片段指着一个已经不在登记表里的资产 = fail-closed，不是「在」
+                return hit ? present(hit.record.url || "") : false;
+              },
+            });
+            return ev[stage];
+          }
+          // qc 仍然没有通道（5B）。返回 null 是老实话：`not_started`，
+          // 不是猜一个「已完成」。
           return null;
         },
         // **分阶段问**（批次 4F）：`video` 问审片那条记录，图片类问 `stageReviews`。

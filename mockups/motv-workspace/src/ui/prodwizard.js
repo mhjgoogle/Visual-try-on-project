@@ -153,12 +153,19 @@ export function stepReadiness(counts, stepId) {
         : { done: false, why: `还有 ${r.total - r.value} 个镜头的两份提示词没编译齐` };
     }
     const cid = id === "storyboard" ? "storyboardPassed" : "keyframePassed";
-    const unbuilt = "这一步的界面还在做（本链 4F / 4G）";
-    if (!known(cid)) return { done: false, why: unbuilt };
+    // 「界面还在做」曾经是这两步唯一的理由（4F / 4G 之前）。两步都建成之后它变成一句
+    // **假话**，而且是唯一一句创作者会读到的话。理由改为**从计数派生**：显示的文本
+    // 直接用登记表那一份（`countText`），所以这里不会长出第二个版本的同一句话。
+    if (!known(cid)) return { done: false, why: `读不到${val(cid).label || "这一步"}的情况` };
     const r = val(cid);
-    return r.total > 0 && r.value + (r.skipped || 0) === r.total
-      ? { done: true, why: null }
-      : { done: false, why: unbuilt };
+    const settled = r.value + (r.skipped || 0);
+    if (r.total > 0 && settled === r.total) return { done: true, why: null };
+    return {
+      done: false,
+      why: r.total > 0
+        ? `还差 ${r.total - settled} 镜 —— ${countText(cid, c)}`
+        : "这一集还没有镜头",
+    };
   };
   const step = wizardStep(stepId);
   if (!step) return { done: false, blockers: [] };

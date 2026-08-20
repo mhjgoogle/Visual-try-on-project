@@ -1951,3 +1951,34 @@
 .vb-unavail .meta { display: block; margin-top: 3px; }
 .vb-alt { margin-top: 5px; color: var(--text-dim); }
 .vb-acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+
+/* ── 后期状态条 (TASK-097 批次 5A) ─────────────────────────────
+   重点是那一行「现在就能开始」：它是本批新出现的判定，所以给它强调色，
+   而不是和其他三行一样的灏文字。 */
+.ps { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin: 0 0 12px; }
+.ps-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.ps-h .push { flex: 1; }
+.ps-par {
+  border: 1px dashed var(--accent-line); border-radius: 8px;
+  padding: 6px 8px; margin: 6px 0; font-size: var(--t-sm);
+}
+.ps-par b { color: var(--gate); }
+.ps-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 0; font-size: var(--t-sm);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+}
+.ps-row:last-of-type { border-bottom: 0; }
+.ps-txt { flex: 1; color: var(--text-dim); }
+.ps-sound { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 6px; }
+.ps-h2 { font-size: var(--t-xs); color: var(--text-faint); margin-bottom: 4px; }
+.ps-snd { font-size: var(--t-sm); padding: 4px 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.ps-snd .meta { color: var(--text-faint); }
+.ps-snd > div { flex-basis: 100%; }
+.ps-act { color: var(--text-dim); }
+.ps-why { margin-top: 8px; font-size: var(--t-xs); color: var(--text-faint); }
+.ps-unc {
+  border: 1px solid color-mix(in srgb, var(--bad) 45%, var(--line)); border-radius: 8px;
+  padding: 6px 8px; margin: 6px 0; font-size: var(--t-sm); color: var(--bad);
+}
+.ps-unc .meta { display: block; margin-top: 3px; }

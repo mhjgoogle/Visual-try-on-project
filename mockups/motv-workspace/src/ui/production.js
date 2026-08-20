@@ -82,6 +82,7 @@ import {
 import { shotDirectorModel, renderShotDirector, bindShotDirector, runOperation } from "./directorshot.js";
 import { episodeView } from "../workflow/proddoc.js";
 import { renderQcPanel } from "./qcpanel.js";
+import { renderPostStatus } from "./poststatusbar.js";
 import {
   NAV, EPISODE_MODULES, EPISODE_DEFAULT, LEGACY_EPISODE_CENTRE, MODULE_LABEL, SPACE_LABEL, spaceOf,
   renderRail, renderAssetRail, renderCrumb, episodeLabels, episodeTitleBeside, head, episodeEntryModule,
@@ -1008,13 +1009,17 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     cutreview: (ctx) => renderCutReview(ctx, ui),
     // ⑩ 后期交付 — the post console at full size, with its seven sections.
     delivery: (ctx) => {
+      // 「这一集后期还差什么」是**页面级**的问题，所以这一条在 section 之上（批次 5A）：
+      // 七个 section 都在它下面。挂进某一个 section 等于让创作者必须先猜对去哪一节
+      // 才能看到还差什么。
+      const status = renderPostStatus(ctx.postStatus.model());
       // 交付质检 is a section of its OWN (§1.2 新增), not a corner of the post
       // console: it is the only place that answers 「这条片子能不能导出」, and G4's
       // verdict has to be readable next to the rows it came from.
       if (sectionOf("delivery") === "qc") {
-        return sectionNav("delivery") + renderQcPanel(ctx.deliveryQc());
+        return sectionNav("delivery") + status + renderQcPanel(ctx.deliveryQc());
       }
-      return sectionNav("delivery") + renderPostConsole(ctx, ui, { mode: "full" });
+      return sectionNav("delivery") + status + renderPostConsole(ctx, ui, { mode: "full" });
     },
     // ⚙ 项目设置 — its own route key, NOT `settings` (§1.7). Only the 存储与诊断
     // section has an implementation today (`storagews`, plus the provenance

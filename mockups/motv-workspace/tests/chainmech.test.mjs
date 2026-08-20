@@ -504,16 +504,34 @@ test("两份提示词都在才算「已合成」—— 只有一份不算", () =
   assert.equal(c.promptsComposed.text, "1/2 已合成");
 });
 
-test("stage 计数读 TASK-092 那一份状态，且「跳过」与「还没做」分开显示", () => {
-  const stageOf = (id) => (id === "a"
-    ? { storyboardStatus: "completed" }
-    : { storyboardStatus: "skipped" });
+test("stage 计数读 TASK-092 那一份状态，且「跳过」与「还没做」分开显示", async () => {
+  // FIXTURE BUILT BY THE PRODUCTION FUNCTION, ON PURPOSE (批次 5A).
+  //
+  // 这个测试原来自己造了 `{ storyboardStatus: "completed" }` —— 一个**生产里不存在的
+  // 形状**。生产传进来的是 `ctx.shot.stageBoard(shotId)`，它的键是 `storyboard` /
+  // `keyframe` / `video`，值里才有 `status`。于是三个 stage 计数在真实项目上
+  // **永久是 0 而 known 为真**，而这个测试一直是绿的（§2.6.3：fixture 会发明字段）。
+  //
+  // 所以 fixture 现在由 `shotstage.stageBoard` 本人产出：形状再变，这里当场就红。
+  const { stageBoard, skipStage } = await import("../src/workflow/shotstage.js");
+  const stages = {};
+  skipStage(stages, "b", "storyboard", "2026-08-20T00:00:00Z");
+  const stageOf = (id) => stageBoard(stages, id, {
+    artifact: (stage) => (id === "a" && stage === "storyboard"
+      ? { assetId: "asset-1", present: true }
+      : null),
+  });
   const c = productionCounts({ shots: SHOTS, stageOf });
   assert.equal(c.storyboardPassed.value, 1);
   assert.equal(c.storyboardPassed.skipped, 1);
   assert.match(c.storyboardPassed.text, /1 镜跳过/);
   // 没有 stageOf 就是答不上来，而不是「0 通过」
   assert.equal(productionCounts({ shots: SHOTS }).storyboardPassed.known, false);
+  // …而**形状不认识**也是答不上来。这是上面那个缺陷的守卫：一个键名对不上的 board
+  // 必须显示「—」，不许静默地少数一半。
+  const wrongShape = productionCounts({ shots: SHOTS, stageOf: () => ({ storyboardStatus: "completed" }) });
+  assert.equal(wrongShape.storyboardPassed.known, false);
+  assert.ok(wrongShape.storyboardPassed.text.includes(UNKNOWN));
 });
 
 test("countText 是唯一的显示入口 —— 消费者没有自己拼字符串的理由", () => {

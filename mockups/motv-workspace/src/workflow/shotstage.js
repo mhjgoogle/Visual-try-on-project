@@ -117,6 +117,66 @@ export const FACTS = ["dialogue"];
 
 export const FACT_LABEL = { dialogue: "台词" };
 
+/* -------------------------------------------------------------------------- */
+/* 「可以开始」与「可以定稿」是两个判定（TASK-096 §2.2 / TASK-097 批次 5A）        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * 定稿**额外**需要的前置。
+ *
+ * 产品负责人原话：**「音频在视频之后，但可以并行准备。」**
+ *
+ * 「之后」指的是**对齐**（配音要贴画面时长），**不是开工顺序**。所以这句话在界面上
+ * 是两件事，而今天没有任何东西表达它们的差别：
+ *
+ *   可以开始   台词已确认（`STAGE_DEPENDENCIES`）—— **视频还没生成也能录**
+ *   可以定稿   再加上「有画面可对齐」
+ *
+ * 这里**只写额外那一条**：完整的定稿条件由 `FINALIZE_DEPENDENCIES` 派生出来，
+ * 于是「可以开始的条件」全仓库仍然只有一处（§2.5g：一件事实一个位置）。
+ * 手写第二张完整的表 = 改了开工条件而忘了改定稿条件，两张表从此各说一套。
+ *
+ * `note` 是**为什么**要这个前置 —— 定稿被卡住时，创作者要看到的是「配音要贴画面
+ * 时长」，不是干巴巴一句「视频：还没开始」。
+ */
+export const FINALIZE_EXTRA = {
+  voice: [{ on: "video", satisfiedBy: ["completed", "skipped"], note: "配音要贴画面时长" }],
+  sfx: [{ on: "video", satisfiedBy: ["completed", "skipped"], note: "音效要落在画面里的动作上" }],
+};
+
+/** 任意一张开工表 + 额外那一条。**给定哪张表就在哪张表上加**，所以自定义依赖表
+ *  （测试加一个假 stage，或将来加 Lip Sync）不会把定稿条件悄悄丢掉。 */
+export function withFinalizeExtra(dependencies = STAGE_DEPENDENCIES) {
+  const src = isObj(dependencies) ? dependencies : STAGE_DEPENDENCIES;
+  return Object.fromEntries(
+    Object.keys(src).map((stage) => [
+      stage,
+      [...(Array.isArray(src[stage]) ? src[stage] : []), ...(FINALIZE_EXTRA[stage] || [])],
+    ]),
+  );
+}
+
+/** 六个 stage 的定稿条件，派生。键集与 `STAGE_DEPENDENCIES` 完全一致。
+ *
+ *  ORDER NOTE. 这一行在模块求值时就要读 `STAGE_DEPENDENCIES`，所以它必须留在那个
+ *  声明**之后**（它在本文件更上面，依赖表那一节）。写在这里是因为独立审查连续两轮
+ *  把它误报成 TDZ `ReferenceError` —— 审查者看到的是 diff 的窗口，而那个声明不在
+ *  窗口里。实测：`import` 正常、1715 项前端测试全绿、真实项目 0 page error。
+ *  往上挪这一块会让那条误报变成真的。 */
+export const FINALIZE_DEPENDENCIES = Object.freeze(withFinalizeExtra(STAGE_DEPENDENCIES));
+
+/**
+ * 「这一步现在能定稿吗」。
+ *
+ * **同一个判定引擎，两张表** —— 不是第二份实现。`canStart` 已经会查表、会 OR、会
+ * fail-closed（表里没有的条件名绝不当成已满足），定稿判定要的正是这些。
+ * 复制一份判定逻辑出来，就是给 ADR-0073 决策 4 的「加一行就能加 Lip Sync」
+ * 埋一个只加了一半的坑。
+ */
+export function canFinalize(stage, statuses, { dependencies = FINALIZE_DEPENDENCIES } = {}) {
+  return canStart(stage, statuses, { dependencies });
+}
+
 /** 条件名 → 判定。也是表，不是分支。 */
 const CONDITIONS = {
   completed: (st) => st.status === "completed",
@@ -152,7 +212,8 @@ function explain(dep, st) {
   const now = st.status === "completed" && st.approved !== true
     ? "已完成但还没确认"
     : STATUS_LABEL[st.status] || st.status;
-  return `${name}：现在是「${now}」，需要${wants}`;
+  const why = typeof dep.note === "string" && dep.note ? `（${dep.note}）` : "";
+  return `${name}：现在是「${now}」，需要${wants}${why}`;
 }
 
 const CONDITION_ZH = {
@@ -320,6 +381,9 @@ export function stageBoard(stages, shotId, evidence, { dependencies = STAGE_DEPE
       ...st,
       statusLabel: STATUS_LABEL[st.status] || st.status,
       ...canStart(stage, statuses, { dependencies }),
+      // 「可以定稿」是另一个问题（TASK-096 §2.2）。一次算完，两个判定同一份证据 ——
+      // 让消费者各自再算一遍就是这条链反复付过代价的那条缝。
+      finalize: canFinalize(stage, statuses, { dependencies: withFinalizeExtra(dependencies) }),
     };
   }
   return board;
