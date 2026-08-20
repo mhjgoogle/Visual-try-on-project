@@ -31,6 +31,7 @@ import { renderEpisodeWs, bindEpisodeWs } from "./episodews.js";
 import { renderRefPlan, bindRefPlan } from "./refplan.js";
 import { renderAssetPrep, bindAssetPrep } from "./assetprepview.js";
 import { renderPromptBatch, bindPromptBatch } from "./promptbatch.js";
+import { renderStoryboardStrip, bindStoryboardStrip } from "./sbstrip.js";
 import {
   renderAssetLibrary, bindAssetLibrary, RAIL_TYPE,
   // TASK-082 §1.2: the rail is a CONTENT tree now, not a second copy of the chips
@@ -950,7 +951,11 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // ⑦ 分镜设计 — scenes list and shot list, two sections of one page.
     storyboard: (ctx) =>
       sectionNav("storyboard") +
-      (sectionOf("storyboard") === "scenes" ? ws.renderEpisodes(ctx) : renderStoryboard(ctx, ui)),
+      (sectionOf("storyboard") === "scenes"
+        ? ws.renderEpisodes(ctx)
+        // ④ 那条横向带在**分镜**这一节的顶部（TASK-095 §2.4）：判断「前后接得顺不顺」
+        // 要跨镜看，而分镜表本身就是这一屏。不新增页面（ADR-0066 决策 10）。
+        : renderStoryboardStrip(ctx.storyboard.model(), ui) + renderStoryboard(ctx, ui)),
     // ⑧ 镜头制作 — the FOUR STEPS of one shot's production (§1.3). Each step is the
     // workspace that already did that step; the flow bar is the section nav.
     shotwork: (ctx) => {
@@ -1036,7 +1041,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     episode: (ctx) => renderEpisodeWs(ctx, ui),
     refplan: (ctx) => renderAssetPrep(ctx, ctx.assetPrep.model(), ui) + renderRefPlan(ctx, ui),
     scenes: (ctx) => ws.renderEpisodes(ctx),
-    shots: (ctx) => renderStoryboard(ctx, ui),
+    shots: (ctx) => renderStoryboardStrip(ctx.storyboard.model(), ui) + renderStoryboard(ctx, ui),
     frames: (ctx) => renderImageWs(ctx, ui),
     video: (ctx) => renderVideoWs(ctx, ui),
     audio: (ctx) => renderAudioWs(ctx, ui),
@@ -1851,6 +1856,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     if (activeModule === "audio") bindAudioWs(root, ctx, ui, render);
     if (activeModule === "episode") bindEpisodeWs(root, ctx, ui, render);
     bindPromptBatch(root, ctx, ui, render);
+    bindStoryboardStrip(root, ctx, ui, render);
     if (activeModule === "refplan") {
       bindAssetPrep(root, ctx, ui, render);
       bindRefPlan(root, ctx, ui, render);

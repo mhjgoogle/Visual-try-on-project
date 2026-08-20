@@ -124,16 +124,27 @@ test("不能开始的那一步**仍然进得去**，但如实说缺什么（闸�
   assert.match(html, /仍然进去看看/, "而且仍然给一条进去的路 —— 闸门不置灰导航");
 });
 
-test("还没做完的那两步不给空白面板，如实说界面还在做", () => {
-  const m = wizardModel({
+test("还没建成的那一步不给空白面板，如实说界面还在做；建成的那一步给落点", () => {
+  // 批次 4F 之后 ④ 已经建成（那条横向带），所以它**指得出落点**；
+  // ⑤ 仍未建成（4G），继续如实说。这条守卫因此同时钉住两半 ——
+  // 否则它会在每一批建成之后静默变成永真（§2.6.3 第 1 条）。
+  const built = wizardModel({
     counts: productionCounts({}),
     readyOf: () => ({ done: false, blockers: [] }),
     activeId: "storyboard",
   });
-  const html = renderProdWizard(m);
-  assert.match(html, /界面还在做/);
-  assert.match(html, /4F \/ 4G/, "并指明它在本链的哪一批");
-  assert.equal(/进入「Storyboard」/.test(html), false, "不给一个进不去的入口");
+  const builtHtml = renderProdWizard(built);
+  assert.equal(/界面还在做/.test(builtHtml), false, "④ 已建成，不该再说还在做");
+  assert.match(builtHtml, /进入「Storyboard」/, "建成了就指得出落点");
+  const unbuilt = wizardModel({
+    counts: productionCounts({}),
+    readyOf: () => ({ done: false, blockers: [] }),
+    activeId: "keyframe",
+  });
+  const unbuiltHtml = renderProdWizard(unbuilt);
+  assert.match(unbuiltHtml, /界面还在做/);
+  assert.match(unbuiltHtml, /4F \/ 4G/, "并指明它在本链的哪一批");
+  assert.equal(/进入「Keyframe」/.test(unbuiltHtml), false, "不给一个进不去的入口");
 });
 
 test("五步全完成才说可以批量生视频", () => {

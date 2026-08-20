@@ -85,8 +85,9 @@ export const WIZARD_STEPS = [
     label: "Storyboard",
     detail: "低成本草图，先确认构图与前后是否接得顺 —— 便宜是它存在的理由",
     count: "storyboardPassed",
-    lands: null,
-    built: false,
+    // 批次 4F 建成：落点是分镜设计页的 storyboard 一节（那条横向带）。
+    lands: "storyboard",
+    built: true,
   },
   {
     id: "keyframe",

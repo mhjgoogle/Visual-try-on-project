@@ -296,7 +296,9 @@ export function stageStatuses(stages, shotId, { inflight, artifact, approvedFor,
       out[stage] = {
         status: "completed",
         assetId: nonEmpty(art.assetId) ? art.assetId : null,
-        approved: nonEmpty(art.assetId) ? !!okOf(art.assetId) : false,
+        // **stage 也传过去**（批次 4F）：「这个产物通过了吗」对视频问审片那条记录，
+        // 对图片类问 stageReviews —— 由调用方那一个函数决定，这里只如实转达是哪一格。
+        approved: nonEmpty(art.assetId) ? !!okOf(art.assetId, stage) : false,
       };
       continue;
     }

@@ -57,7 +57,7 @@ test("createProduction: persisted ids survive verbatim (never re-minted)", () =>
     // bindings) is part of the durable round-trip too.
     // ADR-0073 决策 8 adds `stages` — the ONLY persisted stage decision is 「跳过」,
     // and it round-trips like everything else here.
-    shotProduction: { reviews: {}, references: {}, stages: {} },
+    shotProduction: { reviews: {}, references: {}, stages: {}, stageReviews: {} },
   };
   const p = pd.createProduction(structuredClone(saved));
   assert.deepEqual(pd.serialize(p), saved);

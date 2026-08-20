@@ -176,7 +176,9 @@ test("hydration drops unusable bindings and de-duplicates", () => {
   // `stages` is ADDITIVE (ADR-0073 决策 8): a fresh document carries the container
   // and no decisions. Asserted as a whole-shape equality on purpose — it is how a
   // future field that quietly starts life non-empty gets noticed.
-  assert.deepEqual(defaultShotProduction(), { reviews: {}, references: {}, stages: {} });
+  // 批次 4F 加了 `stageReviews`（图片类 stage 的通过单独存 —— 审片那一条记的是视频，
+  // 两者共用会让「通过了视频」把「通过了草图」翻掉）。同样是加法字段。
+  assert.deepEqual(defaultShotProduction(), { reviews: {}, references: {}, stages: {}, stageReviews: {} });
 });
 
 test("a shotId literally named __proto__ stays an own key", () => {

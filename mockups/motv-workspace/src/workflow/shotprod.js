@@ -60,7 +60,9 @@ const DESIGN_FACETS = ["description", "shotSize", "angle", "cameraMotion", "acti
 export function defaultShotProduction() {
   // `stages` (ADR-0073 决策 8) 是加法字段，只承载 `skipped` 决定。旧存档没有它时
   // 按决策 2 派生，不写回填脚本 —— 回填一个可以算出来的值正是决策 2 要禁止的事。
-  return { reviews: {}, references: {}, stages: defaultShotStages() };
+  // `stageReviews`（批次 4F）同样是加法字段：老存档没有它，但**存下去总是带上**，
+  // 否则「没有分阶段通过」会有「缺键」和「空对象」两个形状。
+  return { reviews: {}, references: {}, stages: defaultShotStages(), stageReviews: {} };
 }
 
 /** Safe own-property write: a creativeShotId is an arbitrary string and could
@@ -107,7 +109,28 @@ export function sanitizeShotProduction(saved) {
   }
   // `sanitizeShotStages` 只认 `skipped`：任何被写进文档的 `completed` / `in_progress`
   // 一律丢弃（ADR-0073 决策 2 —— 那种声明会在产物消失后继续说做完了）。
-  return { reviews, references, stages: sanitizeShotStages(src.stages) };
+  // 分阶段通过（批次 4F）：加法字段。形状不对的条目丢掉 —— 一条读不懂的通过
+  // 记录会让闸门以为草图已经过了。
+  const stageReviews = {};
+  const srcSR = isObj(src.stageReviews) ? src.stageReviews : {};
+  for (const shotId of Object.keys(srcSR)) {
+    const perShot = srcSR[shotId];
+    if (!nonEmpty(shotId) || !isObj(perShot)) continue;
+    const kept = {};
+    for (const stage of Object.keys(perShot)) {
+      const r = perShot[stage];
+      if (!isObj(r) || r.approved !== true || !nonEmpty(r.assetId)) continue;
+      if (!nonEmpty(r.approvedAt) || !r.approvedAt.trim()) continue;
+      kept[stage] = {
+        approved: true,
+        assetId: r.assetId,
+        approvedAt: r.approvedAt,
+        note: typeof r.note === "string" ? r.note : "",
+      };
+    }
+    if (Object.keys(kept).length) putKey(stageReviews, shotId, kept);
+  }
+  return { reviews, references, stages: sanitizeShotStages(src.stages), stageReviews };
 }
 
 // ---- review ---------------------------------------------------------------- //
@@ -127,6 +150,76 @@ export function isApproved(prod, shotId) {
 export function isApprovedFor(prod, shotId, videoAssetId) {
   const r = prod.shotProduction.reviews[shotId];
   return !!(isObj(r) && r.approved === true && nonEmpty(videoAssetId) && r.assetId === videoAssetId);
+}
+
+/* -------------------------------------------------------------------------- */
+/* 分阶段的「通过」 (TASK-095 §2.4 / TASK-097 批次 4F)                          */
+/* -------------------------------------------------------------------------- */
+//
+// **为什么不能沿用上面那一条 review。** `reviews[shotId]` 记的是**审片**对某一个
+// 视频的判断（一个 shot 一条，带 `assetId`）。④ Storyboard 也需要「通过」，而它通过
+// 的是一张草图 —— 如果两者共用那一条记录，创作者一旦通过了视频，草图那一格的
+// `approved` 就会翻回 false（`isApprovedFor` 比的是同一个 `assetId`），于是
+// ④→⑤ 那道闸门在视频做完之后自己关上了。
+//
+// 所以图片类 stage 的通过单独存：`stageReviews[shotId][stage]`。**加法字段**，
+// 老文档没有它是常态。审片那一条**不动** —— 粗剪审片是它的主人。
+//
+// 「这个 stage 的产物通过了吗」只有**一个**函数回答（`isStageArtifactApproved`），
+// 它知道该问哪一份；两处各自判断就是 §2.5e 那条缝。
+
+/** 图片类 stage 的通过记录，或 null。 */
+export function stageReviewOf(prod, shotId, stage) {
+  const all = prod.shotProduction.stageReviews;
+  const perShot = isObj(all) ? all[shotId] : null;
+  const rec = isObj(perShot) ? perShot[stage] : null;
+  return isObj(rec) ? rec : null;
+}
+
+/** 这个 stage 的通过，是不是**针对这一张具体的产物**。
+ *  换一张草图，记录就不再描述屏幕上的东西 —— 与审片同一条纪律。 */
+export function isStageApprovedFor(prod, shotId, stage, assetId) {
+  const r = stageReviewOf(prod, shotId, stage);
+  return !!(r && r.approved === true && nonEmpty(assetId) && r.assetId === assetId);
+}
+
+/**
+ * **「这个 stage 的产物通过了吗」的唯一答案。**
+ *
+ * `video` 那一格问审片那条记录（粗剪审片是它的主人），其余问 `stageReviews`。
+ * 具名、可导出、生产与测试共用一份（§2.5d）—— 界面与闸门都调它，所以两处不可能
+ * 对同一张图给出不同答案。
+ */
+export function isStageArtifactApproved(prod, shotId, stage, assetId) {
+  if (stage === "video") return isApprovedFor(prod, shotId, assetId);
+  return isStageApprovedFor(prod, shotId, stage, assetId);
+}
+
+/** 记下「这一张通过了」。拒绝没有 assetId 的通过 —— 说不出通过了什么的记录，
+ *  事后什么也证明不了（与 `approveShot` 同一条）。 */
+export function approveStage(prod, shotId, stage, assetId, at, note = "") {
+  if (!nonEmpty(shotId) || !nonEmpty(stage) || !nonEmpty(assetId)) return false;
+  if (!nonEmpty(at) || !at.trim()) return false;
+  if (!isObj(prod.shotProduction.stageReviews)) prod.shotProduction.stageReviews = {};
+  const all = prod.shotProduction.stageReviews;
+  if (!isObj(all[shotId])) putKey(all, shotId, {});
+  all[shotId][stage] = {
+    approved: true,
+    assetId,
+    approvedAt: at,
+    note: typeof note === "string" ? note : "",
+  };
+  return true;
+}
+
+/** 撤销这个 stage 的通过（「重出」按下时用）。**删记录，不写 approved:false** ——
+ *  加法字段的反面是移除，留一条 false 会让「撤销过」与「从没通过」两个形状并存。 */
+export function unapproveStage(prod, shotId, stage) {
+  const all = prod.shotProduction.stageReviews;
+  if (!isObj(all) || !isObj(all[shotId]) || !isObj(all[shotId][stage])) return false;
+  delete all[shotId][stage];
+  if (!Object.keys(all[shotId]).length) delete all[shotId];
+  return true;
 }
 
 export function reviewOf(prod, shotId) {

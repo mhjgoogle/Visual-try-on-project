@@ -1875,3 +1875,34 @@
 .pw-unbuilt { border:1px dashed var(--line-2); border-radius:8px; padding:8px 10px; }
 .pw-foot { padding:10px 14px; border-top:1px solid var(--line); }
 .pw-foot .meta { color:var(--text-faint); font-size:12px; }
+
+/* ── ④ Storyboard 草图带 (TASK-097 批次 4F) ─────────────────────────────────
+   横向可滚，一格一镜：判断「前后接得顺不顺」要跨镜看。
+   四种状态用**不同的边框色**区分 —— 「已跳过」是一个决定，「还没画」是一件还没
+   发生的事，两者都没有图，画成一样创作者就会去做他已经决定不做的事。
+   颜色一律走既有 token（--ok / --gate / --line / --muted），不新增调色板。 */
+.sbs { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin: 0 0 12px; }
+.sbs-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.sbs-h .push { flex: 1; }
+.sbs-empty { color: var(--muted); display: flex; gap: 10px; align-items: baseline; }
+.sbs-track { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; }
+.sbs-cell {
+  flex: 0 0 148px; border: 1px solid var(--line); border-radius: 8px; padding: 6px;
+  display: flex; flex-direction: column; gap: 6px; background: var(--panel);
+}
+.sbs-cell.sbs-ok { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
+.sbs-cell.sbs-warn { border-color: var(--accent-line); }
+.sbs-cell.sbs-skip { border-style: dashed; opacity: .72; }
+.sbs-cell.sbs-none { border-style: dotted; }
+.sbs-thumb {
+  height: 84px; display: grid; place-items: center; overflow: hidden;
+  border-radius: 6px; background: color-mix(in srgb, var(--line) 25%, transparent);
+}
+.sbs-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.sbs-none .sbs-thumb, .sbs-skip .sbs-thumb { color: var(--muted); font-size: 20px; }
+.sbs-meta { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; font-size: 12px; }
+.sbs-title { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 78px; }
+.sbs-acts { display: flex; gap: 4px; flex-wrap: wrap; }
+.chip.skip { color: var(--muted); border-style: dashed; }
+.chip.none { color: var(--muted); }
+.chip.warn { color: var(--gate); border-color: var(--accent-line); }

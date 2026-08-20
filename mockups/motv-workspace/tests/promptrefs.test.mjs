@@ -496,7 +496,13 @@ test("扣下中间那一张之后，送出去的那一份**自己连续编号**�
 
 test("确认 / 记账 / 中止都落盘，不只是重渲染（round 4 的 P1）", () => {
   const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
-  const region = app.slice(app.indexOf("  promptBatch: {"), app.indexOf("\n  assetPrep: {"));
+  // 区间**自己算出来**：从 `promptBatch: {` 到**下一个同级键**。上一版写死到
+  // `assetPrep: {`，于是批次 4F 在两者之间插入 `storyboard: {` 之后，这条守卫开始
+  // 度量一段包含别人代码的区间 —— 又一处「钉在相对位置上」的守卫（§2.6.3 第 1 条）。
+  const from = app.indexOf("  promptBatch: {");
+  const after = app.slice(from + "  promptBatch: {".length);
+  const nextKey = after.search(/\n {2}[A-Za-z_$][A-Za-z0-9_$]*: \{/);
+  const region = after.slice(0, nextKey >= 0 ? nextKey : after.length);
   // 这一段里每一次重渲染前面都要有一次落盘
   const renders = region.split("refreshProductionView();").length - 1;
   const persists = region.split("ctx.persist();").length - 1;

@@ -116,6 +116,7 @@ import * as canvasgrow from "./workflow/canvasgrow.js";
 import * as counts from "./workflow/counts.js";
 import * as sceneplan from "./workflow/sceneplan.js";
 import * as assetprep from "./workflow/assetprep.js";
+import * as sbdraft from "./workflow/sbdraft.js";
 import * as promptbatch from "./ui/promptbatch.js";
 import {
   installShotMirror, softDeleteShot, restoreShot, deletionImpact, mergeKeepingRecycled,
@@ -1654,6 +1655,157 @@ const ctx = {
       ctx.persist(); // 状态变了就落盘 —— 只重渲染的话，刷新之后报价与已花多少全丢
       refreshProductionView();
       return promptBatchState;
+    },
+  },
+  /**
+   * ④ Storyboard 草图 (TASK-095 §2.4 / 批次 4F)。
+   *
+   * 名字先 grep 过（§2.5f 第三条）。**判定不在这里**：状态四分与闸门都在
+   * `workflow/sbdraft.js`，这一层只把证据凑齐、把决定写进既有的两份存储
+   * （跳过 → `stages`，通过 → `stageReviews`）。
+   *
+   * **便宜是这一步存在的理由**，所以出草图一律带 `DRAFT_SPEC`，并且在提交前
+   * 用生产那份谓词 `draftSpecViolations` 拦一次 —— 高清草图既不便宜，
+   * 也不比 ⑤ 早看到什么。
+   */
+  storyboard: {
+    /** 这一镜当前那张草图。**从资产登记表里找**，不另存一份指针（§2.5e）。 */
+    draftOf: (shotId) => {
+      if (!shotId) return null;
+      const rows = assetreg.listAssets(assetRegistry)
+        .filter((a) => a && a.kind === "storyboard" && a.links && a.links.shotId === shotId);
+      if (!rows.length) return null;
+      // 最新那一版就是「当前那张草图」；`present` 用与 stageBoard 同一份探针口径
+      const newest = rows.reduce((m, a) => (a.version > (m ? m.version : -1) ? a : m), null);
+      const verdict = mediaProbe.stateOf(newest.url);
+      return {
+        assetId: newest.assetId,
+        url: newest.url,
+        version: newest.version,
+        // 与 TASK-092 的 `completed` 同一条：探针说不出来，就不算它在
+        present: verdict !== mediaprobe.MISSING && verdict !== mediaprobe.INCONCLUSIVE,
+      };
+    },
+    model: () => {
+      // **共用 ⑨ 粗剪审片那个底座**（TASK-095 §2.4：不新建第二套视图模型）——
+      // 直接调 `ctx.dailies.model()`，而不是自己再拼一遍参数：第一版按记忆写成
+      // `dailiesModel(pd, {})`，签名不对，于是 items 恒为空 —— 一条空带，
+      // 而测试全绿（真实屏幕上才看得见，§2.6.4）。
+      const dailies = ctx.dailies.model();
+      return sbdraft.storyboardStrip({
+        items: dailies.items,
+        stages: productionDoc.shotProduction.stages,
+        draftOf: (shotId) => ctx.storyboard.draftOf(shotId),
+        // **生产那一份谓词**（§2.5d）：界面与闸门问的是同一个函数
+        approvedFor: (shotId, assetId) =>
+          shotprod.isStageArtifactApproved(productionDoc, shotId, "storyboard", assetId),
+      });
+    },
+    /** 「通过」—— 绑到那一张具体的草图上。没有草图不给通过。 */
+    approve: (shotId) => {
+      const d = ctx.storyboard.draftOf(shotId);
+      if (!d || !d.present) {
+        toast("这一镜还没有可确认的草图 —— 先出一张（探针确认它真的在）");
+        return false;
+      }
+      const ok = shotprod.approveStage(productionDoc, shotId, "storyboard", d.assetId, new Date().toISOString());
+      if (ok) { ctx.persist(); refreshProductionView(); }
+      return ok;
+    },
+    /** 「重出」—— 撤销通过，再出一张。撤销与重出是两件事，都做，顺序固定。 */
+    /** 「重出」= 撤销通过，然后重新出一张（任务单再给一次）。 */
+    redraw: (shotId) => {
+      shotprod.unapproveStage(productionDoc, shotId, "storyboard");
+      ctx.persist();
+      refreshProductionView();
+      return ctx.storyboard.brief(shotId);
+    },
+    /** 「跳过」/「取消跳过」—— 写 `stages`，那是 ADR-0073 里唯一被持久化的状态。 */
+    skip: (shotId) => {
+      const ok = shotstage.skipStage(
+        productionDoc.shotProduction.stages, shotId, "storyboard",
+        new Date().toISOString(), "创作者决定这一镜不画草图",
+      );
+      if (ok) {
+        // 跳过之后那条通过记录不再描述任何东西 —— 一起清掉，免得留下一个
+        // 「跳过了但也通过了」的形状
+        shotprod.unapproveStage(productionDoc, shotId, "storyboard");
+        ctx.persist();
+        refreshProductionView();
+      }
+      return ok;
+    },
+    unskip: (shotId) => {
+      const ok = shotstage.unskipStage(productionDoc.shotProduction.stages, shotId, "storyboard");
+      if (ok) { ctx.persist(); refreshProductionView(); }
+      return ok;
+    },
+    /**
+     * 一镜的**草图任务单**：提示词 + 便宜档规格 + 违规检查。
+     *
+     * **这里没有「排入队列」这回事，因为今天没有那个队列。** 图片生成在本仓库仍然
+     * 是手工路线（付费图片路线未被任何 Accepted ADR 授权 —— app.js 的 `estimate`
+     * 那段就写着 image/audio 仍然 gated）。所以老实的动作是：把提示词与规格交给
+     * 创作者，他到外部工具出图，回来上传成这一镜的草图。
+     *
+     * 第一版这里只弹了一句「已排入草图生成」然后 return true —— 屏幕说 60 镜都排上了，
+     * 而没有任何东西会产出一张草图（codex 本批 round 1 的 P1）。那是 §2.5e 里
+     * 「亮着但点进去什么也没发生」的最贵版本：它还顺带撒了个谎。
+     */
+    brief: (shotId) => {
+      const violations = sbdraft.draftSpecViolations(sbdraft.DRAFT_SPEC);
+      const d = shotId ? shotDetailModel(ctx.prodData(), shotId) : null;
+      const img = d && d.prompts.image ? d.prompts.image : null;
+      return {
+        shotId,
+        // ④ 吃的是**分镜提示词**（TASK-095 §2.4：草图不表达运动，所以不是视频那一份）
+        prompt: img ? img.text : "",
+        missing: img ? img.missing : ["这一镜还编不出分镜提示词"],
+        spec: sbdraft.DRAFT_SPEC,
+        violations,
+        ready: !!(img && img.text.trim()) && !violations.length,
+      };
+    },
+    /** 上传一张出好的草图，登记为这一镜的 `storyboard` 资产（上传即登记，ADR-0055）。 */
+    upload: async (shotId) => {
+      if (!shotId) return null;
+      try {
+        const { ref } = await ctx.assets.importReference({
+          kind: "storyboard",
+          links: { shotId },
+          displayName: `草图 · ${shotId}`,
+        });
+        toast("已登记为这一镜的草图 —— 回到带上按「通过」或「重出」");
+        refreshProductionView();
+        return ref;
+      } catch (e) {
+        toast(`上传失败：${e.message}`);
+        return null;
+      }
+    },
+    /**
+     * 「一次出全集」：跨镜比较是这一步的意义，所以默认是全集。
+     *
+     * 它给的是**全集的任务单**（哪几镜要出、每镜的提示词齐不齐），
+     * 不是一句「已排入」。
+     */
+    drawAll: () => {
+      const m = ctx.storyboard.model();
+      const todo = m.rows.filter((r) => r.state === "not_started" || r.state === "drafted");
+      if (!todo.length) {
+        toast(m.total
+          ? "每一镜都已经通过或跳过了 —— 没有要出的草图"
+          : "这一集还没有镜头 —— 先在第 ① 步确认镜头");
+        return { todo: [], ready: 0, blocked: [] };
+      }
+      const briefs = todo.map((r) => ctx.storyboard.brief(r.shotId));
+      const ready = briefs.filter((b) => b.ready);
+      const blocked = briefs.filter((b) => !b.ready);
+      toast(blocked.length
+        ? `${ready.length} 镜的草图提示词已备好；${blocked.length} 镜还编不出提示词 —— 展开看缺什么`
+        : `${ready.length} 镜的草图提示词已备好 —— 复制到外部工具出图（${sbdraft.DRAFT_SPEC.label}），回来上传`);
+      refreshProductionView();
+      return { todo: briefs, ready: ready.length, blocked };
     },
   },
   assetPrep: {
@@ -3711,12 +3863,21 @@ const ctx = {
             const url = ctx.episode.mediaUrl(shot, "videos");
             return media.video ? { assetId: media.videoAssetId || null, present: present(url) } : null;
           }
-          // storyboard / voice / sfx / qc have no resolved artifact channel yet —
-          // they arrive with batches 4F / 5A. Reporting `null` is the honest answer:
-          // `not_started`, never a guessed 「已完成」.
+          // ④ 草图的通道在批次 4F 接上：它是资产登记表里 kind 为 `storyboard`、
+          // 链到这一镜的那一张（`ctx.storyboard.draftOf` 是唯一的那处查找）。
+          if (stage === "storyboard") {
+            const d = ctx.storyboard.draftOf(shotId);
+            return d ? { assetId: d.assetId, present: d.present } : null;
+          }
+          // voice / sfx / qc 仍然没有通道（5A / 5B）。返回 null 是老实话：
+          // `not_started`，不是猜一个「已完成」。
           return null;
         },
-        approvedFor: (assetId) => shotprod.isApprovedFor(productionDoc, shotId, assetId),
+        // **分阶段问**（批次 4F）：`video` 问审片那条记录，图片类问 `stageReviews`。
+        // 共用一条记录会让「通过了视频」把「通过了草图」翻掉，于是 ④→⑤ 那道闸门
+        // 在视频做完之后自己关上。一个函数知道该问哪一份（§2.5e）。
+        approvedFor: (assetId, stage) =>
+          shotprod.isStageArtifactApproved(productionDoc, shotId, stage, assetId),
         // 「台词已确认」 is a fact about the SCRIPT, not a seventh stage (ADR-0073).
         // A shot with a line written counts as settled; one with no line at all is
         // `skipped` — it needs no voice, and that is a decision, not a gap.
