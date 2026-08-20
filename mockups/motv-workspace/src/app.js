@@ -120,6 +120,7 @@ import * as assetprep from "./workflow/assetprep.js";
 import * as sbdraft from "./workflow/sbdraft.js";
 import * as keyframe from "./workflow/keyframe.js";
 import * as promptbatch from "./ui/promptbatch.js";
+import * as videobatch from "./ui/videobatch.js";
 import {
   installShotMirror, softDeleteShot, restoreShot, deletionImpact, mergeKeepingRecycled,
 } from "./workflow/shotdelete.js";
@@ -1072,8 +1073,14 @@ const est = createEstimate({ renderBudget, toast });
 // 「一键合成全部提示词」当前那一批（批次 4D）。**只有一批**：两批同时跑会让
 // 「已花多少」有两个来源，而那正是 batchpay 要挡的东西。
 let promptBatchState = null;
-// 文档里**别的**批量（别的 kind）。这一层内存只管 `prompt-compose` 那一种，
-// 但保存时必须把其余原样写回去 —— 否则打开-保存一次就删掉了它们。
+let videoBatchState = null;
+// 文档里**别的**批量（这一层不管的那些 kind）。保存时必须原样写回去 ——
+// 否则打开-保存一次就删掉了它们（4D 轮 4 的 P1）。
+//
+// **这一层拥有的 kind 是一个集合，不是一个名字**（批次 4E）：4D 只有
+// `prompt-compose` 时它被写成了一个字符串，而 4E 一加进来，「摘掉自己那一种」
+// 就必须摘两种 —— 漏掉一种的后果与 4D 轮 5 那个「放弃之后又自己回来」一模一样。
+const OWNED_BATCH_KINDS = ["prompt-compose", videobatch.VIDEO_BATCH_KIND];
 let loadedBatches = {};
 
 let shotMirror = null;
@@ -1975,6 +1982,122 @@ const ctx = {
         : `${proposals.length} 镜都还不能合成：${proposals[0].reason}`);
       refreshProductionView();
       return { proposals, blocked: list.blocked.length };
+    },
+  },
+  /**
+   * ⑥ 批量生视频 (TASK-095 §2.5 末段 / 批次 4E)。
+   *
+   * 名字先 grep 过（§2.5f 第三条）。状态机全部是 `batchpay`；这一层只做
+   * 「谁进这一批 / 报价交给它 / 结果报回去」。
+   *
+   * **与 4D 那一批的根本差别：视频要真花钱。**
+   * 所以这里没有「本地免费」那条路，也不许自己把逐镜单价加起来 ——
+   * 那正是 batchpay 第 1 条禁止的「单价 ×N 让人自己乘」。
+   * 拿不到整批总额时，这一块**退化成真实可做的那件事**（§2.5h 第二条）。
+   */
+  videoBatch: {
+    state: () => videoBatchState,
+    _save: () => { ctx.persist(); refreshProductionView(); return videoBatchState; },
+    /**
+     * 为什么拿不到总额 —— **一句真话 + 一条真实可走的路**。
+     *
+     * Gateway 今天只有**逐镜**的预检命令（`submit-video-generation` 一次一镜），
+     * 没有「批量预检」。逐镜预检再自己加起来就是界面自算；补一个 0 是谎，
+     * 因为它真的要钱。所以这一批开始不了，而**逐镜生成今天就能用**。
+     */
+    _whyNoQuote: () => ({
+      reason: "拿不到整批总额",
+      detail: "Gateway 现在只有逐镜的预检命令，没有批量预检。"
+        + "逐镜取价再自己加起来就是「单价 ×N」——界面永不自算（ADR-0071 决策 6）；"
+        + "补一个 0 更不行，视频是真的要花钱。",
+      alternative: "逐镜生成 —— 在「视频」里选中一镜按「生成单个」，"
+        + "每一镜自己走 ADR-0041 的两步确认（预检 → 你确认 → 提交）",
+    }),
+    model: () => videobatch.videoBatchModel(videoBatchState, {
+      counts: ctx.prodWizard.counts(),
+      quoteUnavailable: PAID ? ctx.videoBatch._whyNoQuote() : {
+        reason: "当前不是付费模式",
+        detail: "没有真实的付费路线，所以既取不到总额，也不会有任何扣费。",
+        alternative: "先用逐镜的手工流程把画面与视频跑通（M1 那条路），或让产品负责人开启付费模式",
+      },
+    }),
+    start: () => {
+      const pd = ctx.prodData();
+      const made = videobatch.startVideoBatch({
+        shots: pd.draftShots || [],
+        // 「哪些算就绪」**不在这里第二次定义**：首帧看既有的绑定 / 媒体，
+        // 视频看既有的媒体判断
+        readyOf: (shotId) => {
+          const shot = (ctx.project.draftShots || []).find((s) => s && s.shotId === shotId) || null;
+          if (!shot) return null;
+          const media = ctx.shot.mediaOf(shot);
+          const frame = ctx.frames.binding(shotId, "start");
+          const kf = ctx.keyframe.frameOf(shotId);
+          return {
+            hasFrame: !!(frame || (kf && kf.present) || media.image),
+            hasVideo: !!media.video,
+          };
+        },
+      });
+      if (made.nothingToDo) {
+        videoBatchState = null;
+        toast(made.blocked.length
+          ? `没有可生成的镜头：${made.blocked.length} 镜还没有首帧 —— 先在 ⑤ 合成关键帧`
+          : `没有可生成的镜头 —— ${made.already.length} 镜已经有视频了`);
+        return ctx.videoBatch._save();
+      }
+      videoBatchState = made.batch;
+      if (videoBatchState.state === "refused") {
+        toast(`没能建批次：${videoBatchState.refusal ? videoBatchState.refusal.reason : "条目不合法"}`);
+        return ctx.videoBatch._save();
+      }
+      toast(`${videoBatchState.items.length} 镜待生成 —— 正在取整批总额`);
+      ctx.videoBatch.requote();
+      return videoBatchState;
+    },
+    /**
+     * 取整批总额。**今天必然拿不到**（没有批量预检命令），所以这里如实停在 draft
+     * 并把原因与替代路径交给界面 —— 不伪造、不自算、不静默降级成逐镜偷偷跑。
+     */
+    requote: () => {
+      if (!videoBatchState || videoBatchState.state !== "draft") return videoBatchState;
+      const why = PAID ? ctx.videoBatch._whyNoQuote() : null;
+      toast(why ? `${why.reason} —— ${why.alternative}` : "当前不是付费模式：没有总额可取，也不会有任何扣费");
+      return ctx.videoBatch._save();
+    },
+    /** ADR-0041 第二步。没有总额时**拒绝开始**（batchpay 自己也会拒）。 */
+    confirm: () => {
+      if (!videoBatchState) return null;
+      videoBatchState = videobatch.batchOps.confirmBatch(videoBatchState, new Date().toISOString());
+      if (videoBatchState.state !== "running") {
+        toast("还不能开始：这一批没有总额（ADR-0041 两步 —— 先预检，再确认）");
+      }
+      return ctx.videoBatch._save();
+    },
+    abort: () => {
+      if (!videoBatchState) return null;
+      videoBatchState = videobatch.batchOps.abortBatch(videoBatchState, new Date().toISOString());
+      toast("已中止 —— 已经花掉的照实记账，迟到的回执仍然会被收下");
+      return ctx.videoBatch._save();
+    },
+    /**
+     * 一镜的结果报回状态机。**失败不算成功**，花掉的钱如实记 ——
+     * 包括「失败但已扣费」这种最容易被记漏的情形。
+     */
+    record: (shotId, { outcome, spent = null, error = null } = {}) => {
+      if (!videoBatchState) return null;
+      videoBatchState = videobatch.batchOps.recordItem(videoBatchState, shotId, { outcome, spent, error });
+      return ctx.videoBatch._save();
+    },
+    discard: () => {
+      if (!videoBatchState) return null;
+      if (videoBatchState.state === "running") {
+        toast("这一批正在跑 —— 先中止；中止后已经花掉的会照实留在账上");
+        return videoBatchState;
+      }
+      videoBatchState = null;
+      ctx.videoBatch._save();
+      return null;
     },
   },
   assetPrep: {
@@ -6402,6 +6525,7 @@ function serializeGraph() {
     batches: {
       ...loadedBatches,
       ...(promptBatchState ? { [promptBatchState.kind]: promptBatchState } : {}),
+      ...(videoBatchState ? { [videoBatchState.kind]: videoBatchState } : {}),
     },
     // Per-episode timelines (M11) — asset REFERENCES only, never media bytes.
     timelines: timeline.serialize(timelinesDoc),
@@ -6486,7 +6610,10 @@ function restoreGraph(data) {
     ? { ...data.batches }
     : {};
   promptBatchState = promptbatch.hydrateBatch(savedBatches, "prompt-compose");
-  delete savedBatches["prompt-compose"]; // 这一种归 `promptBatchState` 管，不再有第二份
+  videoBatchState = promptbatch.hydrateBatch(savedBatches, videobatch.VIDEO_BATCH_KIND);
+  // 自己拥有的**每一种**都摘掉 —— 留下任何一种，`discard` 清了内存之后序列化
+  // 又会把它写回去，那个已经被放弃的批次就原地复活（4D 轮 5 的 P1）。
+  for (const kind of OWNED_BATCH_KINDS) delete savedBatches[kind];
   loadedBatches = savedBatches;
   // Per-shot Prompt overrides (ADR-0061 决策 5).
   promptsDoc = promptdoc.createPrompts((data && data.prompts) || null);
@@ -6637,6 +6764,7 @@ async function enterCanvas(name, opts = {}) {
   storyDoc = storydoc.createStory(null);
   timelinesDoc = timeline.createTimelines(null);
   promptBatchState = null; // 换项目：上一个项目的批次不跟过来
+  videoBatchState = null;
   loadedBatches = {};
   promptsDoc = promptdoc.createPrompts(null);
   // …and the Phase 2 / Phase 3 documents. Cleared HERE too, not only in

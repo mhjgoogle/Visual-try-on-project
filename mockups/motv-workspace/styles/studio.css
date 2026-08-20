@@ -1929,3 +1929,25 @@
 .kfl-row.kfl-none td { color: var(--text-dim); }
 .kfl-gate { max-width: 340px; }
 .kfl-act { text-align: right; white-space: nowrap; }
+
+/* ── ⑥ 批量生视频 (TASK-097 批次 4E) ────────────────────────────────────────
+   最要紧的两块是「总额」与「拿不到总额」：后者不是错误提示，是一句真话加一条
+   真实可走的路，所以它有自己的样式而不是一个红框。 */
+.vb { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin: 0 0 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.vb.vb-open { display: block; }
+.vb-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.vb-h .push { flex: 1; }
+.vb-quote { font-size: 12px; color: var(--text-dim); margin: 4px 0; }
+.vb-line { font-size: 12px; color: var(--text-dim); margin: 4px 0; }
+.vb-refused {
+  border: 1px solid color-mix(in srgb, var(--bad) 45%, var(--line)); border-radius: 8px;
+  padding: 6px 8px; margin: 6px 0; color: var(--bad); font-size: 12px;
+}
+.vb-unavail {
+  border: 1px dashed var(--accent-line); border-radius: 8px; padding: 8px;
+  margin: 6px 0; font-size: 12px;
+}
+.vb-unavail b { color: var(--gate); }
+.vb-unavail .meta { display: block; margin-top: 3px; }
+.vb-alt { margin-top: 5px; color: var(--text-dim); }
+.vb-acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }

@@ -33,6 +33,7 @@ import { renderAssetPrep, bindAssetPrep } from "./assetprepview.js";
 import { renderPromptBatch, bindPromptBatch } from "./promptbatch.js";
 import { renderStoryboardStrip, bindStoryboardStrip } from "./sbstrip.js";
 import { renderKeyframeList, bindKeyframeList } from "./kflist.js";
+import { renderVideoBatch, bindVideoBatch } from "./videobatch.js";
 import {
   renderAssetLibrary, bindAssetLibrary, RAIL_TYPE,
   // TASK-082 §1.2: the rail is a CONTENT tree now, not a second copy of the chips
@@ -974,7 +975,13 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       const inner = step === "image"
         ? renderImageWs(ctx, ui)
         : step === "video"
-          ? renderVideoWs(ctx, ui)
+          // ⑥ 批量生视频是**集级**动作（TASK-095 §2.5 末段），所以在这一节顶部；
+          // 单镜生成仍在下面的工作区里，各走各自的两步确认。
+          //
+          // 挂在**这一处**而不是模块渲染器那张表里：`shotwork` 这一页自己切 section，
+          // 模块表里的 `video:` 是另一条路由。4F 的那条带也踩过同一个坑 ——
+          // 两处都叫 video，而屏幕上只走这一处。
+          ? renderVideoBatch(ctx.videoBatch.model()) + renderVideoWs(ctx, ui)
           // ④ 对比候选并选定 IS 检查层 1 (§1.3): the same dailies component, on one
           // shot. No separate review page is created.
           : step === "pick"
@@ -1048,7 +1055,9 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     scenes: (ctx) => ws.renderEpisodes(ctx),
     shots: (ctx) => renderStoryboardStrip(ctx.storyboard.model(), ui) + renderStoryboard(ctx, ui),
     frames: (ctx) => renderImageWs(ctx, ui),
-    video: (ctx) => renderVideoWs(ctx, ui),
+    // ⑥ 批量生视频是**集级**动作（TASK-095 §2.5 末段），所以在这一屏顶部；
+    // 单镜生成仍在下面的工作区里，各走各自的两步确认。
+    video: (ctx) => renderVideoBatch(ctx.videoBatch.model()) + renderVideoWs(ctx, ui),
     audio: (ctx) => renderAudioWs(ctx, ui),
     dailies: (ctx) => renderDailies(ctx, ui),
     // 存储管理 stays the storage MANAGER (archive / remove bytes / delete);
@@ -1863,6 +1872,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     bindPromptBatch(root, ctx, ui, render);
     bindStoryboardStrip(root, ctx, ui, render);
     bindKeyframeList(root, ctx, ui, render);
+    bindVideoBatch(root, ctx, ui, render);
     if (activeModule === "refplan") {
       bindAssetPrep(root, ctx, ui, render);
       bindRefPlan(root, ctx, ui, render);

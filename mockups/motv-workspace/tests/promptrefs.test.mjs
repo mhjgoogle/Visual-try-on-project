@@ -527,7 +527,11 @@ test("放弃之后不得自己回来 —— 一个 kind 只有一个主人（rou
   const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
   // 水合时把自己那一种从「别人的批量」里摘掉：否则 discard 清空内存，序列化又从
   // loadedBatches 写回去，刷新后那个已放弃、已报价的批次原地复活，然后可以被确认。
-  assert.match(app, /delete savedBatches\["prompt-compose"\]/, "自己那一种不留第二份");
+  // 批次 4E 起「自己拥有的 kind」是一个**集合**（两种批量），所以摘的是集合里的
+  // 每一种 —— 漏掉任何一种，后果与这条守卫本来防的那个一模一样。
+  assert.match(app, /const OWNED_BATCH_KINDS = \[/, "拥有的 kind 写在一处");
+  assert.match(app, /for \(const kind of OWNED_BATCH_KINDS\) delete savedBatches\[kind\]/,
+    "每一种都摘掉，不留第二份");
   assert.match(app, /promptBatchState = promptbatch\.hydrateBatch\(savedBatches, "prompt-compose"\)/);
   assert.match(app, /loadedBatches = savedBatches;/);
   // 而别的 kind 仍然被带过去
