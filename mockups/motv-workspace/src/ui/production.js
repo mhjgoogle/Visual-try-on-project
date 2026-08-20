@@ -83,6 +83,7 @@ import { shotDirectorModel, renderShotDirector, bindShotDirector, runOperation }
 import { episodeView } from "../workflow/proddoc.js";
 import { renderQcPanel } from "./qcpanel.js";
 import { renderPostStatus } from "./poststatusbar.js";
+import { renderShotQc, bindShotQc, shotQcModel } from "./shotqcpanel.js";
 import {
   NAV, EPISODE_MODULES, EPISODE_DEFAULT, LEGACY_EPISODE_CENTRE, MODULE_LABEL, SPACE_LABEL, spaceOf,
   renderRail, renderAssetRail, renderCrumb, episodeLabels, episodeTitleBeside, head, episodeEntryModule,
@@ -1017,7 +1018,11 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       // console: it is the only place that answers 「这条片子能不能导出」, and G4's
       // verdict has to be readable next to the rows it came from.
       if (sectionOf("delivery") === "qc") {
-        return sectionNav("delivery") + status + renderQcPanel(ctx.deliveryQc());
+        // 两份报告，各答一个问题（批次 5B）：**逐镜质检**说这一集每一镜对不对，
+        // **交付质检**说这条成片能不能导出。合成一份会让「哪一镜有问题」和
+        // 「这条片子能不能出」互相盖住。
+        return sectionNav("delivery") + status
+          + renderShotQc(shotQcModel(ctx)) + renderQcPanel(ctx.deliveryQc());
       }
       return sectionNav("delivery") + status + renderPostConsole(ctx, ui, { mode: "full" });
     },
@@ -2035,6 +2040,11 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       // 剪辑 IS the Post Production Console at full size (§15: nothing deleted, it
       // simply no longer takes room in the Shot workbench).
       if (activeModule === "edit" || activeModule === "delivery") bindPostConsole(root, ctx, ui, render);
+      // 逐镜质检只在 delivery 的 qc 一节渲染，所以只在那里绑 —— 而「去这一镜」走
+      // shell 自己的 `openShot`（它会问未保存的修改，也不会静默换集）。
+      if (activeModule === "delivery" && sectionOf("delivery") === "qc") {
+        bindShotQc(root, ctx, ui, render, { openShot: (id) => openShotIn(id) });
+      }
       bindEpProd(root, ctx, ui, render, {
         enterEpisode: (id) => enterEpisode(id, null),
         setStage: (k) => setModule(k),
@@ -2486,7 +2496,12 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
      *  context out from under them. Returns false when the selection was
      *  refused (unsaved shot edits), so the caller never claims a jump that
      *  did not happen. */
-    openShot(shotId, module = "shotwork") {
+    openShot: openShotIn,
+  };
+
+  /** 「打开这一镜」的**唯一实现**。API 的 `openShot` 与页面内的跳转（逐镜质检的
+   *  「去这一镜」，批次 5B）共用它 —— 复制一份就会有一处忘记问「未保存的修改」。 */
+  function openShotIn(shotId, module = "shotwork") {
       if (typeof shotId !== "string" || !shotId) return false;
       if (ui.dirty && !window.confirm("镜头详情有未保存的修改，切换将丢弃？")) return false;
       ui.dirty = false;
@@ -2505,6 +2520,5 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       root.style.display = "grid";
       render();
       return true;
-    },
-  };
+  }
 }

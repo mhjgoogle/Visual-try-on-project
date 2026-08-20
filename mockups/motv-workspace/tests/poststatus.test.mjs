@@ -283,7 +283,13 @@ test("控制器把它接在 delivery 这一页上，而且不是接在历史键�
   const dl = prod.slice(prod.indexOf("    delivery: (ctx) => {"));
   const body = dl.slice(0, dl.indexOf("\n    },"));
   assert.match(body, /renderPostStatus\(ctx\.postStatus\.model\(\)\)/);
-  assert.equal((body.match(/\+ status \+/g) || []).length, 2, "七个 section 都在它下面");
+  // 两个分支都要有它 —— 判据数**出现次数**，不钉排版：上一版写成 `/\+ status \+/`，
+  // 5B 把那一行折成两行之后它就自己失效了（钉在今天的形状上，§2.5h 第三条）。
+  assert.equal((body.match(/status/g) || []).length >= 3, true,
+    "定义一次 + 两个 section 分支各用一次");
+  const branches = body.split("return sectionNav(\"delivery\")");
+  assert.equal(branches.length, 3, "delivery 有两个 return 分支");
+  for (const b of branches.slice(1)) assert.match(b, /status/, "七个 section 都在它下面");
   // 音频那条音轨证据由 app 接上（voice / sfx 不再永远 null）
   assert.match(app, /poststatus\.audioEvidence\(ctx\.shotAudio\.clips\(shotId\)/);
 });

@@ -1982,3 +1982,35 @@
   padding: 6px 8px; margin: 6px 0; font-size: var(--t-sm); color: var(--bad);
 }
 .ps-unc .meta { display: block; margin-top: 3px; }
+
+/* ── 逐镜质检 (TASK-097 批次 5B) ────────────────────────────
+   三档要分得开：通过 / 有发现 / 无法判定。第三档**不能长得像通过**，
+   也不能像失败 —— 它是一个还没被回答的问题。 */
+.sq { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin: 0 0 12px; }
+.sq-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.sq-h .push { flex: 1; }
+.sq-row {
+  display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: var(--t-sm);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+}
+.sq-txt { flex: 1; color: var(--text-dim); }
+.sq-t { width: 100%; border-collapse: collapse; font-size: var(--t-sm); margin-top: 8px; }
+.sq-t th {
+  text-align: left; color: var(--text-faint); font-weight: 500;
+  border-bottom: 1px solid var(--line); padding: 4px 6px;
+}
+.sq-t td {
+  padding: 6px; vertical-align: top;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+}
+.sq-seq { white-space: nowrap; }
+.sq-title { color: var(--text-dim); font-size: var(--t-xs); max-width: 180px; }
+.sq-c .meta { display: block; margin-top: 3px; }
+.sq-c.sq-unknown { color: var(--text-dim); }
+.sq-mini {
+  margin-top: 4px; font-size: var(--t-xs); background: none; color: var(--link);
+  border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; cursor: pointer;
+}
+.sq-mini:hover { border-color: var(--line-2); }
+.sq-clean { margin-top: 8px; font-size: var(--t-sm); color: var(--ok); }
+.sq-why { margin-top: 8px; font-size: var(--t-xs); color: var(--text-faint); }

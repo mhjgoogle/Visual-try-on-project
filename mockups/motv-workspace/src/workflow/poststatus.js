@@ -34,7 +34,7 @@
 // PURE：证据与镜头全部由调用方注入，没有 fetch / DOM / clock / 写入。
 
 import {
-  STAGES, STAGE_GROUP, STAGE_LABEL, STATUSES, STATUS_LABEL,
+  STAGES, STAGE_GROUP, STAGE_LABEL, STATUSES, STATUS_LABEL, FINALIZE_EXTRA,
 } from "./shotstage.js";
 import { TRACKS as AUDIO_TRACKS, TRACK_LABEL as AUDIO_TRACK_LABEL } from "./shotaudio.js";
 
@@ -178,6 +178,19 @@ export const PHASE_LABEL = {
 export const SETTLED_PHASES = ["done", "skipped"];
 
 /**
+ * 这一步的定稿**有没有对齐前置**。
+ *
+ * 派生自 `FINALIZE_EXTRA`（那张表是唯一的来源）。为什么必须区分：
+ * 「等画面对齐」只有对**有对齐前置**的那些步骤成立。`video` 没有额外前置，
+ * 于是 `canFinalize === canStart` —— 一条**已经有视频**、但关键帧从未做过的镜头
+ * 会被读成「等画面对齐」，而它其实就是做完了（产物在，上游那道闸门此刻已经无意义）。
+ * 批次 5B 的逐镜质检第一次把 `video` 也放进来，这个缺陷当场现形。
+ */
+export function hasAlignmentGate(stage) {
+  return Array.isArray(FINALIZE_EXTRA[stage]) && FINALIZE_EXTRA[stage].length > 0;
+}
+
+/**
  * `cell` 是 `shotstage.stageBoard(shotId)[stage]` —— **直接用，不重算**。
  *
  * 读不出四态就是 `unknown`，绝不读作放行（§2.5f：不知道 ≠ 放行）。
@@ -186,7 +199,10 @@ export function postPhase(cell, need) {
   if (!isObj(cell) || !STATUSES.includes(cell.status)) return "unknown";
   if (cell.status === "skipped") return "skipped";
   const canFinalize = !!(isObj(cell.finalize) && cell.finalize.ok);
-  if (cell.status === "completed") return canFinalize ? "done" : "waiting";
+  // 认不出是哪一步时按**有对齐前置**处理：「等画面对齐」比「已完成」保守，
+  // 而这里宁可保守也不要替创作者宣布做完了。
+  const gated = typeof cell.stage === "string" ? hasAlignmentGate(cell.stage) : true;
+  if (cell.status === "completed") return gated && !canFinalize ? "waiting" : "done";
   if (cell.status === "in_progress") return "running";
   // 还没开始 —— 这里才轮到「要不要做」
   if (need !== true) return "unknown";
@@ -200,15 +216,18 @@ export function postPhase(cell, need) {
  * `boardOf(shotId)` → `shotstage.stageBoard(shotId)`。给不出 board 的镜头，三步
  * 全部 `unknown` —— 那是老实话，不是「都没开始」。
  */
-export function postRows(shots, { boardOf, needOf } = {}) {
+export function postRows(shots, { boardOf, needOf, stages = POST_STAGES } = {}) {
   const board = typeof boardOf === "function" ? boardOf : () => null;
   const need = typeof needOf === "function" ? needOf : soundNeed;
+  const which = Array.isArray(stages) && stages.length ? stages : POST_STAGES;
   const rows = [];
   for (const shot of Array.isArray(shots) ? shots.filter(isObj) : []) {
     const shotId = typeof shot.shotId === "string" ? shot.shotId : "";
     if (!shotId) continue;
     const b = board(shotId);
-    for (const stage of POST_STAGES) {
+    // `stages` 可以指定 —— 逐镜质检要问的是 video / voice / sfx（批次 5B），
+    // 而它必须**用这一份派生**，不是再写一遍 phase 那套词汇（§2.5g）。
+    for (const stage of which) {
       const cell = isObj(b) ? b[stage] : null;
       const known = isObj(cell) && STATUSES.includes(cell.status);
       const needed = need(shot, stage);

@@ -106,6 +106,7 @@ import * as canondoc from "./workflow/canondoc.js";
 import * as shotprod from "./workflow/shotprod.js";
 import * as shotstage from "./workflow/shotstage.js";
 import * as poststatus from "./workflow/poststatus.js";
+import * as shotqc from "./workflow/shotqc.js";
 import * as breakdown from "./workflow/breakdown.js";
 // TASK-065: the creator-object-first surfaces. All three are PURE read models over
 // documents this file already owns — none of them introduces a store.
@@ -153,6 +154,13 @@ let DEFAULT_NAME = "local-draft";
 // make stale measurements look current on the delivery screen — worse than
 // having none, because 未检查 at least tells the truth.
 let DELIVERY_PROBE = { assetId: null, name: null, probe: null, error: null, running: false };
+// 逐镜时长测量（批次 5B）。**同样不持久化，同样理由**：一次测量说的是**那一个文件**
+// 的事，换了一条视频它就在说别的文件。所以键是**视频的 assetId** —— 换 take、加新版本，
+// 上一次的测量自动不再匹配，界面回到「还没测过」而不是显示一个旧数字。
+//
+// 值：`{ name, durationS?, error?, running }`。「没测过」= 键不在表里；
+// 「没跑成」= 有 error。两者会把创作者送到不同的地方，所以不能合成一个。
+const SHOT_PROBES = new Map();
 let REAL_STANDING = null;
 // the backend's project list, kept so the landing/new-project dialog can
 // re-render and name-check without refetching
@@ -2584,6 +2592,119 @@ const ctx = {
     // 测试与生产共用同一份 —— 在这里内联一份等于让「两个方向都钉住」
     // 自己变成一条新的缝。
     readyOf: (stepId) => stepReadiness(ctx.prodWizard.counts(), stepId),
+  },
+
+  /**
+   * 逐镜质检（TASK-096 §2.4 / 批次 5B）—— **只读判断，不修数据**。
+   *
+   * 三条判据的判定全在 `workflow/shotqc.js`（纯函数）；这一层只负责把证据取出来：
+   * 状态取 TASK-092 那一份 board、绑定取既有的 references、发送记录取生成登记表里
+   * **发起时冻结**的 `referenceAssetIds`、时长测量走既有那个真实 ffprobe 端点。
+   */
+  shotQc: {
+    _shots: () => {
+      const shots = ctx.project.draftShots;
+      return Array.isArray(shots) ? shots.filter((x) => x && !counts.isDeleted(x)) : [];
+    },
+    /** 这一镜绑定的设定图。名字用登记表那一份派生标签，不另起一套叫法。 */
+    _bound: (shotId) => {
+      // `ctx.shot.references`，**不是** `ctx.episode.references`：后者不存在。
+      // 第一版就是那么写的，1725 项测试全绿，而真实屏幕上整块面板炸掉
+      // （`ctx.episode.references is not a function`）—— §2.5f 第三条原话：
+      // 往 ctx 上挂一个名字之前先 grep 它。守卫测试也一起改成**行为判据**。
+      const keys = ctx.shot.references(shotId) || [];
+      const byKey = new Map(assetreg.listReferences(assetRegistry).map((r) => [r.key, r]));
+      return keys
+        .map((k) => byKey.get(k))
+        .filter(Boolean)
+        .map((r) => ({ assetId: r.assetId, name: assetreg.derivedLabel(r), kind: r.kind }));
+    },
+    /** 产出**当前那条视频**的那次生成，或 null（手工放进来的就是 null）。 */
+    _generation: (shotId) => {
+      const media = ctx.shot.mediaOf(ctx.shot.find(shotId));
+      const assetId = media && media.videoAssetId;
+      if (!assetId) return null;
+      return (generationRegistry || []).find(
+        (g) => g && g.type === "video" && Array.isArray(g.resultAssetIds)
+          && g.resultAssetIds.includes(assetId),
+      ) || null;
+    },
+    /** 这一镜当前那条视频的测量结果 —— 键是 assetId，所以换了视频自动失效。 */
+    _measure: (shotId) => {
+      const media = ctx.shot.mediaOf(ctx.shot.find(shotId));
+      const assetId = media && media.videoAssetId;
+      if (!assetId) return null;
+      return SHOT_PROBES.get(assetId) || null;
+    },
+    /** 哪些镜头**真的有视频可测** —— 「逐镜测时长」只会走这些，
+     *  不会对 60 个没有视频的镜头各弹一次「这一镜还没有视频」。 */
+    measurableIds: () => ctx.shotQc._shots()
+      .filter((s) => {
+        const m = ctx.shot.mediaOf(s);
+        return !!(m && m.videoAssetId);
+      })
+      .map((s) => s.shotId),
+    report: () => shotqc.shotQcReport({
+      shots: ctx.shotQc._shots(),
+      boardOf: (shotId) => ctx.shot.stageBoard(shotId),
+      boundOf: ctx.shotQc._bound,
+      genOf: ctx.shotQc._generation,
+      measureOf: ctx.shotQc._measure,
+    }),
+    /**
+     * 真的去量一镜的时长（既有的 `/api/delivery/probe`，只读、不花钱）。
+     *
+     * 失败**留下来并显示**：「没跑成」与「没测过」把创作者送到不同的地方
+     * （一个装 ffmpeg，一个点按钮），静默 catch 会让两者长得一样
+     * —— 与 `runDeliveryProbe` 同一条纪律。
+     */
+    measure: async (shotId) => {
+      const shot = ctx.shot.find(shotId);
+      const media = ctx.shot.mediaOf(shot);
+      const assetId = media && media.videoAssetId;
+      if (!assetId) { toast("这一镜还没有视频可测"); return null; }
+      if (!CONNECTED) {
+        SHOT_PROBES.set(assetId, { error: "演示模式无后端，无法跑真实探测", running: false });
+        refreshProductionView();
+        return null;
+      }
+      const hit = ctx.assets.find(assetId);
+      const url = hit && hit.record ? hit.record.url || "" : "";
+      const name = String(url).split("/").filter(Boolean).pop() || "";
+      if (!name) {
+        SHOT_PROBES.set(assetId, { error: "这条视频没有可解析的文件名", running: false });
+        refreshProductionView();
+        return null;
+      }
+      SHOT_PROBES.set(assetId, { name, running: true });
+      refreshProductionView();
+      // WHY THE try/catch, given that `query.deliveryProbe` cannot reject today:
+      // `apiclient.attempt` 有一层兜底 catch，网络错误一律变成 `{ ok: false }` ——
+      // 所以 codex 轮 2 报的那条「reject 会让界面永久显示探测中」**今天不可达**。
+      // 仍然加上，因为代价是四行，而失败模式是**不可恢复的**：`running: true` 一旦
+      // 卡住，除了刷新页面没有别的出路，而刷新会丢掉这一轮所有测量。
+      // 一个只能靠刷新解开的死结，不值得赌上游永远不会抛。
+      try {
+        const res = await query.deliveryProbe(PROJECT_NAME, name);
+        const probe = res.ok && res.data ? res.data.probe : null;
+        SHOT_PROBES.set(assetId, res.ok
+          ? {
+            name,
+            // 服务端「测不到就不写这个字段」，所以这里也**不补默认值**
+            durationS: probe && typeof probe.durationS === "number" ? probe.durationS : null,
+            running: false,
+          }
+          : {
+            name,
+            error: (res.error && res.error.detail) || (res.error && res.error.category) || "探测失败",
+            running: false,
+          });
+      } catch (e) {
+        SHOT_PROBES.set(assetId, { name, error: `探测出错：${String(e && e.message ? e.message : e)}`, running: false });
+      }
+      refreshProductionView();
+      return SHOT_PROBES.get(assetId);
+    },
   },
 
   /**
