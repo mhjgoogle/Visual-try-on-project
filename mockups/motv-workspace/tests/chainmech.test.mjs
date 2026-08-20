@@ -200,7 +200,10 @@ test("重排时被漏掉的项不会消失，而是排到末尾", () => {
 });
 
 test("五个一级分类是派生的，kind 数据一个字都没改", () => {
-  assert.deepEqual(REFERENCE_CATEGORIES.map(([id]) => id), ["character", "location", "prop", "visual", "audio"]);
+  // 批次 4G 加了 `composition`：④ 的草图管构图，而「视觉参考」那一类的规则恰好
+  // 写着「不参考构图」—— 共用会让 ⑤ 丢掉草图唯一要的那件事，所以它自己一类。
+  assert.deepEqual(REFERENCE_CATEGORIES.map(([id]) => id),
+    ["character", "location", "prop", "composition", "visual", "audio"]);
   assert.equal(categoryOf("character-reference"), "character");
   assert.equal(categoryOf("motion-reference"), "visual");
   assert.equal(categoryOf("camera-reference"), "visual");

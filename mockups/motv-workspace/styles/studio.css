@@ -1884,7 +1884,7 @@
 .sbs { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin: 0 0 12px; }
 .sbs-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
 .sbs-h .push { flex: 1; }
-.sbs-empty { color: var(--muted); display: flex; gap: 10px; align-items: baseline; }
+.sbs-empty { color: var(--text-dim); display: flex; gap: 10px; align-items: baseline; }
 .sbs-track { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; }
 .sbs-cell {
   flex: 0 0 148px; border: 1px solid var(--line); border-radius: 8px; padding: 6px;
@@ -1899,10 +1899,33 @@
   border-radius: 6px; background: color-mix(in srgb, var(--line) 25%, transparent);
 }
 .sbs-thumb img { width: 100%; height: 100%; object-fit: cover; }
-.sbs-none .sbs-thumb, .sbs-skip .sbs-thumb { color: var(--muted); font-size: 20px; }
+.sbs-none .sbs-thumb, .sbs-skip .sbs-thumb { color: var(--text-faint); font-size: 20px; }
 .sbs-meta { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; font-size: 12px; }
-.sbs-title { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 78px; }
+.sbs-title { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 78px; }
 .sbs-acts { display: flex; gap: 4px; flex-wrap: wrap; }
-.chip.skip { color: var(--muted); border-style: dashed; }
-.chip.none { color: var(--muted); }
+.chip.skip { color: var(--text-dim); border-style: dashed; }
+.chip.none { color: var(--text-faint); }
 .chip.warn { color: var(--gate); border-color: var(--accent-line); }
+
+/* ── ⑤ Keyframe 全集清单 (TASK-097 批次 4G) ─────────────────────────────────
+   一行一镜：⑤ 状态 + ④→⑤ 闸门 + 一个动作。闸门关着的那些**不置灰**，
+   动作降级成「仍然进去看看」——「不能进」不是这条界面说的话。
+   颜色一律用词汇表里的 token（--text-dim / --text-faint / --ok / --gate）。 */
+.kfl { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin: 0 0 12px; }
+.kfl-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.kfl-h .push { flex: 1; }
+.kfl-empty { color: var(--text-dim); display: flex; gap: 10px; align-items: baseline; }
+.kfl-todo {
+  color: var(--gate); border: 1px dashed var(--accent-line); border-radius: 8px;
+  padding: 6px 8px; margin-bottom: 8px; font-size: 12px;
+}
+.kfl-t { width: 100%; border-collapse: collapse; font-size: 12px; }
+.kfl-t th {
+  text-align: left; color: var(--text-faint); font-weight: 500;
+  border-bottom: 1px solid var(--line); padding: 4px 6px;
+}
+.kfl-t td { padding: 5px 6px; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
+.kfl-row.kfl-ok td { background: color-mix(in srgb, var(--ok) 6%, transparent); }
+.kfl-row.kfl-none td { color: var(--text-dim); }
+.kfl-gate { max-width: 340px; }
+.kfl-act { text-align: right; white-space: nowrap; }

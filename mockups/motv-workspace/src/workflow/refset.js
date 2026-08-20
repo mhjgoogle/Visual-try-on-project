@@ -49,6 +49,11 @@ export const REFERENCE_CATEGORIES = [
   ["character", "人物"],
   ["location", "场景"],
   ["prop", "道具"],
+  // **构图自己一类**（TASK-097 批次 4G）。它本来最像「视觉参考」，但那一类的用法
+  // 规则是「只参考影调与质感，**不参考构图**」—— 对一张草图来说恰好说反了：
+  // ④ 那张草图存在的全部理由就是给构图。共用那一类的规则会让 ⑤ 的合成丢掉它
+  // 唯一要的那件事，所以它必须有自己的一段规则，也就必须自己一类。
+  ["composition", "构图"],
   ["visual", "视觉参考"],
   ["audio", "声音"],
 ];
@@ -62,6 +67,8 @@ const CATEGORY_OF_KIND = {
   "character-reference": "character",
   "location-reference": "location",
   "prop-reference": "prop",
+  // ④ 的草图（TASK-097 批次 4G）：它管构图，见 REFERENCE_CATEGORIES 那段注释
+  storyboard: "composition",
   "style-reference": "visual",
   "video-style-reference": "visual",
   "motion-reference": "visual",

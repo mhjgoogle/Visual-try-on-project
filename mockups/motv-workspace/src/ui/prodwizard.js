@@ -95,8 +95,10 @@ export const WIZARD_STEPS = [
     label: "Keyframe",
     detail: "由草图 + 角色设定图 + 场景设定图合成的正式画面，就是视频首帧",
     count: "keyframePassed",
-    lands: null,
-    built: false,
+    // 批次 4G 建成：落点是**分镜设计页的镜头一节**（那张全集清单在那儿），
+    // 而真正的合成在单镜画布上做 —— 向导说清还差哪几镜，画布做那一镜。
+    lands: "storyboard",
+    built: true,
   },
 ];
 

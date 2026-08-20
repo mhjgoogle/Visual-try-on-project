@@ -197,10 +197,15 @@ test("探针的两个名字是**两样东西**，而且都在（round 2 的驳�
   // 实例上取 stateOf，命名空间上取常量 —— 两处用法都必须存在且各在其位
   assert.match(code, /mediaProbe\.stateOf\(/);
   assert.match(code, /mediaprobe\.(MISSING|INCONCLUSIVE)/);
-  // 而且 `draftOf` 用的就是这一对（不是自己另建一个探针）
-  const from = code.indexOf("draftOf: (shotId)");
-  const body = code.slice(from, from + 1200);
-  assert.match(body, /mediaProbe\.stateOf\(/);
-  assert.match(body, /mediaprobe\.MISSING/);
-  assert.equal(/createMediaProbe\(/.test(body), false, "不在这里另建一个探针");
+  // 每一处读探针的地方用的都是这一对（不是自己另建一个探针）。
+  // **两处都钉**：codex 在 4F 轮 2 与 4G 轮 3 分别为 `draftOf` 与 `frameOf` 报过
+  // 同一个不存在的缺陷，所以这条守卫覆盖两个函数，下次再报时有现成证据。
+  for (const fn of ["draftOf: (shotId)", "frameOf: (shotId)"]) {
+    const from = code.indexOf(fn);
+    assert.ok(from > 0, `${fn} 不见了`);
+    const body = code.slice(from, from + 1400);
+    assert.match(body, /mediaProbe\.stateOf\(/, `${fn} 要用那个实例`);
+    assert.match(body, /mediaprobe\.MISSING/, `${fn} 要用命名空间上的常量`);
+    assert.equal(/createMediaProbe\(/.test(body), false, `${fn} 不该另建一个探针`);
+  }
 });

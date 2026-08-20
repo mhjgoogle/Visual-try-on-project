@@ -286,9 +286,23 @@ export function referenceViolation(capability, { count = 0, markers = [], usesMa
   if (anyMarker && !cap.addressable) {
     return `${label}不认编号指代，但提示词里用了 [[ref:N]]`;
   }
-  if (cap.roles.length) {
-    const bad = [...new Set((Array.isArray(roles) ? roles : []).filter((r) => nonEmpty(r) && !cap.roles.includes(r)))];
-    if (bad.length) return `${label}不接受这些参考角色：${bad.join("、")}（它只接受 ${cap.roles.join("、")}）`;
+  // 形状不完整的能力对象**不许把这道守卫打崩**，也**不许因此被放行**
+  // （TASK-097 批次 4G，codex 轮 2 → 轮 3 两次）。
+  //
+  // 轮 2 修的是「抛异常」：这道判定长在**提交路径**上，在这里抛出去，等于让方案 C
+  // 那道门以一种没人预料的方式消失（外层随便 catch 一下就成了「没有违规」）。
+  //
+  // 但轮 2 那个修法把 `roles` 缺席**当成了空数组**，于是角色校验被整段跳过 ——
+  // 一个 fail-closed 被我改成了 fail-open。**「没声明限制」与「读不懂」是两件事**：
+  //   `roles: []`   声明了「不限制角色」→ 跳过这段校验是对的
+  //   `roles` 缺席   读不懂 → **拒绝**（不知道 ≠ 可以送）
+  if (!Array.isArray(cap.roles)) {
+    return `${label}的可接受参考角色读不出来（不是一个数组）—— 读不懂就不送`;
+  }
+  const capRoles = cap.roles;
+  if (capRoles.length) {
+    const bad = [...new Set((Array.isArray(roles) ? roles : []).filter((r) => nonEmpty(r) && !capRoles.includes(r)))];
+    if (bad.length) return `${label}不接受这些参考角色：${bad.join("、")}（它只接受 ${capRoles.join("、")}）`;
   }
   return null;
 }

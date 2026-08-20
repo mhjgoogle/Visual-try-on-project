@@ -638,7 +638,7 @@
     },
     {
       "skillId": "video-prompt-director",
-      "version": 2,
+      "version": 3,
       "work": "creative",
       "role": "Prompt 导演",
       "title": "Video Prompt Director",

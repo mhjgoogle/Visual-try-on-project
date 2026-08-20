@@ -124,27 +124,29 @@ test("不能开始的那一步**仍然进得去**，但如实说缺什么（闸�
   assert.match(html, /仍然进去看看/, "而且仍然给一条进去的路 —— 闸门不置灰导航");
 });
 
-test("还没建成的那一步不给空白面板，如实说界面还在做；建成的那一步给落点", () => {
-  // 批次 4F 之后 ④ 已经建成（那条横向带），所以它**指得出落点**；
-  // ⑤ 仍未建成（4G），继续如实说。这条守卫因此同时钉住两半 ——
-  // 否则它会在每一批建成之后静默变成永真（§2.6.3 第 1 条）。
-  const built = wizardModel({
-    counts: productionCounts({}),
-    readyOf: () => ({ done: false, blockers: [] }),
-    activeId: "storyboard",
-  });
-  const builtHtml = renderProdWizard(built);
-  assert.equal(/界面还在做/.test(builtHtml), false, "④ 已建成，不该再说还在做");
-  assert.match(builtHtml, /进入「Storyboard」/, "建成了就指得出落点");
-  const unbuilt = wizardModel({
-    counts: productionCounts({}),
-    readyOf: () => ({ done: false, blockers: [] }),
-    activeId: "keyframe",
-  });
-  const unbuiltHtml = renderProdWizard(unbuilt);
-  assert.match(unbuiltHtml, /界面还在做/);
-  assert.match(unbuiltHtml, /4F \/ 4G/, "并指明它在本链的哪一批");
-  assert.equal(/进入「Keyframe」/.test(unbuiltHtml), false, "不给一个进不去的入口");
+test("每一步：建成的指得出落点，未建成的如实说「界面还在做」—— **从数据派生**", () => {
+  // 这条守卫原来点名 ④ / ⑤，于是每建成一步就要改一次，而且**五步全建成之后
+  // 它会静默变成永真**（§2.6.3 第 1 条）。改成遍历 `WIZARD_STEPS`：
+  // 规则是「`built` ⟺ 指得出落点」，与哪一步建成了无关。
+  for (const step of WIZARD_STEPS) {
+    const html = renderProdWizard(wizardModel({
+      counts: productionCounts({}),
+      readyOf: () => ({ done: false, blockers: [] }),
+      activeId: step.id,
+    }));
+    if (step.built) {
+      assert.ok(step.lands, `${step.id} 说自己建好了却指不出落点`);
+      assert.match(html, new RegExp(`进入「${step.label}」`), `${step.id} 建成了就该给入口`);
+      assert.equal(/界面还在做/.test(html), false, `${step.id} 已建成，不该再说还在做`);
+    } else {
+      assert.equal(step.lands, null, `${step.id} 还没建成却指了一个落点`);
+      assert.match(html, /界面还在做/, `${step.id} 未建成就要如实说`);
+      assert.equal(new RegExp(`进入「${step.label}」`).test(html), false,
+        `${step.id} 未建成，不给一个进不去的入口`);
+    }
+  }
+  // 而且这条规则**两半都要有主**：五步里至少有一步建成了，否则上面那半没被走到。
+  assert.ok(WIZARD_STEPS.some((s) => s.built), "没有任何一步建成 —— 那一半守卫是空的");
 });
 
 test("五步全完成才说可以批量生视频", () => {

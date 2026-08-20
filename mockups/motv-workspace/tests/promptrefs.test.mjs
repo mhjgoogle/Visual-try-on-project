@@ -116,7 +116,9 @@ test("每一类被送出的参考都带上它自己那一段规则，且规则�
   const manifest = installRealRules();
   const lookup = promptBlock;
   const rules = usageRules(lookup);
-  assert.deepEqual(Object.keys(rules).sort(), ["audio", "character", "location", "prop", "visual"]);
+  assert.deepEqual(Object.keys(rules).sort(),
+    ["audio", "character", "composition", "location", "prop", "visual"],
+    "批次 4G 起有六类 —— composition 是 ④ 那张草图那一类");
   const b = referenceBlock({ bindings: BINDINGS, lookup });
   assert.match(b.text, /\[\[ref:1\]\]/);
   assert.match(b.text, /这张管身份/, "每张图声明它管什么");

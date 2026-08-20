@@ -32,6 +32,7 @@ import { renderRefPlan, bindRefPlan } from "./refplan.js";
 import { renderAssetPrep, bindAssetPrep } from "./assetprepview.js";
 import { renderPromptBatch, bindPromptBatch } from "./promptbatch.js";
 import { renderStoryboardStrip, bindStoryboardStrip } from "./sbstrip.js";
+import { renderKeyframeList, bindKeyframeList } from "./kflist.js";
 import {
   renderAssetLibrary, bindAssetLibrary, RAIL_TYPE,
   // TASK-082 §1.2: the rail is a CONTENT tree now, not a second copy of the chips
@@ -955,7 +956,11 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
         ? ws.renderEpisodes(ctx)
         // ④ 那条横向带在**分镜**这一节的顶部（TASK-095 §2.4）：判断「前后接得顺不顺」
         // 要跨镜看，而分镜表本身就是这一屏。不新增页面（ADR-0066 决策 10）。
-        : renderStoryboardStrip(ctx.storyboard.model(), ui) + renderStoryboard(ctx, ui)),
+        // ④ 那条带 + ⑤ 那张全集清单，都在**分镜**这一节：④ 判断前后接不接得顺，
+        // ⑤ 说清还差哪几镜；合成本身在单镜画布上做（TASK-095 §1.3）。
+        : renderStoryboardStrip(ctx.storyboard.model(), ui)
+          + renderKeyframeList(ctx.keyframe.list())
+          + renderStoryboard(ctx, ui)),
     // ⑧ 镜头制作 — the FOUR STEPS of one shot's production (§1.3). Each step is the
     // workspace that already did that step; the flow bar is the section nav.
     shotwork: (ctx) => {
@@ -1857,6 +1862,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     if (activeModule === "episode") bindEpisodeWs(root, ctx, ui, render);
     bindPromptBatch(root, ctx, ui, render);
     bindStoryboardStrip(root, ctx, ui, render);
+    bindKeyframeList(root, ctx, ui, render);
     if (activeModule === "refplan") {
       bindAssetPrep(root, ctx, ui, render);
       bindRefPlan(root, ctx, ui, render);

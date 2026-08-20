@@ -1,6 +1,6 @@
 {
   "skillId": "video-prompt-director",
-  "skillVersion": 2,
+  "skillVersion": 3,
   "work": "creative",
   "role": "Prompt 导演",
   "title": "Video Prompt Director",
@@ -28,6 +28,7 @@
     "referenceUsage.location": "只参考此图中的空间、材质与光照关系；不参考图中的人物、临时道具与镜头角度。",
     "referenceUsage.prop": "只参考此图中该物件的形状、材质与新旧程度；不参考它在图中的摆放位置与持握方式。",
     "referenceUsage.visual": "只参考此图的影调、色彩与质感倾向；不参考画面内容、构图与其中出现的任何对象。",
-    "referenceUsage.audio": "此参考不参与画面生成，仅用于声音；不要据它改变任何视觉内容。"
+    "referenceUsage.audio": "此参考不参与画面生成，仅用于声音；不要据它改变任何视觉内容。",
+    "referenceUsage.composition": "只参考此图的构图、机位与人物在画面里的位置；**不参考它的画质、色彩、细节与线条** —— 它是一张低画质草图，照它的画质画出来就等于把草图当成了成品。"
   }
 }

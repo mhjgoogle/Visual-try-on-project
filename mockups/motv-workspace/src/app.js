@@ -114,9 +114,11 @@ import * as shotgraph from "./workflow/shotgraph.js";
 import * as canvasnodes from "./workflow/canvasnodes.js";
 import * as canvasgrow from "./workflow/canvasgrow.js";
 import * as counts from "./workflow/counts.js";
+import * as genspec from "./workflow/genspec.js";
 import * as sceneplan from "./workflow/sceneplan.js";
 import * as assetprep from "./workflow/assetprep.js";
 import * as sbdraft from "./workflow/sbdraft.js";
+import * as keyframe from "./workflow/keyframe.js";
 import * as promptbatch from "./ui/promptbatch.js";
 import {
   installShotMirror, softDeleteShot, restoreShot, deletionImpact, mergeKeepingRecycled,
@@ -1806,6 +1808,173 @@ const ctx = {
         : `${ready.length} 镜的草图提示词已备好 —— 复制到外部工具出图（${sbdraft.DRAFT_SPEC.label}），回来上传`);
       refreshProductionView();
       return { todo: briefs, ready: ready.length, blocked };
+    },
+  },
+  /**
+   * ⑤ Keyframe 合成 (TASK-095 §1.3 / §2.5 · 批次 4G)。**本链最重的一批。**
+   *
+   * 名字先 grep 过（§2.5f 第三条）。判定全部在 `workflow/keyframe.js`，而它又把
+   * 有序集合 / 用法规则 / 方案 C / 闸门分别转交 `promptrefs` / `genspec` / `sbdraft`
+   * —— 这一层只负责把证据凑齐、把决定写进既有存储、把产物接到既有那条首帧路上。
+   *
+   * **付费红线**：本控制器不发起真实扣费。方案 C 的拒绝落在**提交路径**上
+   * （`composeSubmission`），而不是一份人类可读报告里的一句话（§2.5b-2）。
+   */
+  keyframe: {
+    /** 这一镜当前那张 keyframe（资产登记表里 kind 为 `keyframe`、链到这一镜的那张）。 */
+    frameOf: (shotId) => {
+      if (!shotId) return null;
+      const rows = assetreg.listAssets(assetRegistry)
+        .filter((a) => a && a.kind === "keyframe" && a.links && a.links.shotId === shotId);
+      if (!rows.length) return null;
+      const newest = rows.reduce((m, a) => (a.version > (m ? m.version : -1) ? a : m), null);
+      const verdict = mediaProbe.stateOf(newest.url);
+      const present = verdict !== mediaprobe.MISSING && verdict !== mediaprobe.INCONCLUSIVE;
+      return {
+        assetId: newest.assetId,
+        url: newest.url,
+        version: newest.version,
+        present,
+        // **keyframe 的通过是它自己那件事**（§2.5h 第一条）：不看审片，也不看草图
+        approved: shotprod.isStageArtifactApproved(productionDoc, shotId, "keyframe", newest.assetId),
+        skipped: shotstage.isSkipped(productionDoc.shotProduction.stages, shotId, "keyframe"),
+      };
+    },
+    /** 向导第 ⑤ 步那张全集清单。④ 的状态与闸门都来自 4F 那一份。 */
+    list: () => keyframe.keyframeList({
+      rows: ctx.storyboard.model().rows,
+      keyframeOf: (shotId) => {
+        const kf = ctx.keyframe.frameOf(shotId);
+        if (kf) return kf;
+        // 没有产物时仍然要说得出「整镜是不是被跳过了」
+        return { skipped: shotstage.isSkipped(productionDoc.shotProduction.stages, shotId, "keyframe") };
+      },
+    }),
+    /** 一镜的合成编排：草图 + 设定图 + 分镜提示词，每张声明它管什么。 */
+    plan: (shotId) => {
+      const pd = ctx.prodData();
+      const d = shotId ? shotDetailModel(pd, shotId) : null;
+      // **只有「通过了的」草图才是输入**（codex 本批 round 2 的 P1）。
+      //
+      // 闸门有两条放行路径：草图通过，或者**这一镜的草图被跳过**。第一版只看
+      // `present`，于是「跳过了 ④、但硬盘上还留着一张没通过的旧草图」这种情形下，
+      // 那张被否决的草图仍然被送进合成 —— 创作者决定不用它，它却在影响画面。
+      // 「通过」是一个人的判断，`present` 只是「文件在」。
+      const draftRow = ctx.storyboard.draftOf(shotId);
+      const draftApproved = !!(draftRow && draftRow.present
+        && shotprod.isStageArtifactApproved(productionDoc, shotId, "storyboard", draftRow.assetId));
+      const draft = draftApproved
+        ? { ...draftRow, name: `本镜草图 v${draftRow.version}`, contentDigest: draftRow.assetId }
+        : null;
+      // ② 的设定图：这一镜绑定的参考里，图片类的那些（人物 / 场景 / 道具 / 风格）
+      const refs = d && d.refInputs ? (d.refInputs.imageReferences || []) : [];
+      return keyframe.composePlan({
+        shotId,
+        draft,
+        refs,
+        // ③ 的**分镜提示词**（不是视频运动那一份 —— 静态帧不表达运动）
+        prompt: d && d.prompts.image ? d.prompts.image.text : "",
+        lookup: skills.promptBlock,
+      });
+    },
+    /**
+     * 提交合成。**方案 C 的拒绝就在这里** —— 这一层是真正要发请求的那一层。
+     *
+     * 能力从 preflight 来（`genspec.referenceCapability`），拿不到就是拿不到：
+     * 不许在这里补一个「大概能吃 6 张」。
+     */
+    submit: (shotId, { preflight = null } = {}) => {
+      const plan = ctx.keyframe.plan(shotId);
+      // 闸门结论从**清单那一行**取 —— 与界面看到的是同一份判断（§2.5d）
+      const row = ctx.keyframe.list().rows.find((r) => r.shotId === shotId) || null;
+      const gate = row ? { ok: row.gateOk, reason: row.gateReason } : null;
+      // **能力来自调用方手上那份 preflight**（界面刚取的那一次），不是控制器自己
+      // 攒的一个全局 —— 那种全局会让「上一次取的报价」被当成这一次的事实。
+      // 给不出 preflight 时 `known` 为假，`composeSubmission` 就会拒（不知道 ≠ 可以送）。
+      const capability = genspec.referenceCapability(preflight);
+      const verdict = keyframe.composeSubmission({ plan, capability, gate });
+      if (!verdict.ok) {
+        // 闸门关着时**退化成真实可做的那件事**（§2.5h 第二条）：说明原因 +
+        // 这一镜真实可走的路（复制编排、外部合成、回来上传）。不说「已提交」。
+        toast(`没有提交：${verdict.reason}`);
+        return { ok: false, reason: verdict.reason, plan };
+      }
+      toast(`编排合规（${verdict.count} 张输入）—— 实际扣费仍要你在弹窗里按两步确认`);
+      return { ok: true, plan, count: verdict.count };
+    },
+    /** 上传一张合成好的 keyframe，登记并**接到既有那条首帧路上**。 */
+    upload: async (shotId) => {
+      if (!shotId) return null;
+      try {
+        const { ref } = await ctx.assets.importReference({
+          kind: "keyframe",
+          links: { shotId },
+          displayName: `关键帧 · ${shotId}`,
+        });
+        // **产出就是视频首帧**（TASK-095 §2.5）：接既有的
+        // `shot.first_frame_image → packets.py → cloud_minimax` 那条路，
+        // 不新建第二条通道 —— `ctx.frames.bind` 就是那条路的入口。
+        const bound = ctx.frames.bind(shotId, "start", {
+          assetId: ref.assetId, source: "keyframe", sourceKind: "keyframe",
+        });
+        toast(bound
+          ? "已登记为这一镜的关键帧，并绑成视频首帧"
+          : "已登记为关键帧，但没能绑成首帧 —— 在「画面」里手工绑一次（资产没有丢）");
+        refreshProductionView();
+        return ref;
+      } catch (e) {
+        toast(`上传失败：${e.message}`);
+        return null;
+      }
+    },
+    /** 「通过」这一张 keyframe —— 它自己那件事，与草图 / 视频各不相干。 */
+    approve: (shotId) => {
+      const kf = ctx.keyframe.frameOf(shotId);
+      if (!kf || !kf.present) {
+        toast("这一镜还没有可确认的关键帧");
+        return false;
+      }
+      const ok = shotprod.approveStage(productionDoc, shotId, "keyframe", kf.assetId, new Date().toISOString());
+      if (ok) { ctx.persist(); refreshProductionView(); }
+      return ok;
+    },
+    /** 进入这一镜的画布：选中它并切到画布 —— 合成在那儿做。 */
+    openCanvas: (shotId) => {
+      if (!shotId) return false;
+      ctx.ui = ctx.ui || {};
+      ctx.ui.gotoShotCanvas = shotId;
+      return true;
+    },
+    /**
+     * 「用同一套默认编排试一遍」。
+     *
+     * **产出是提案，逐镜确认**（TASK-095 §2.5）：⑤ 是整条链上最贵的一步，把 60 次
+     * 判断压缩成一次点击正是这一批要避免的事。所以这里只算出每一镜的编排与它过不过
+     * 方案 C，**不提交任何一镜**。
+     */
+    tryAll: ({ preflight = null } = {}) => {
+      const list = ctx.keyframe.list();
+      const open = list.rows.filter((r) => r.canCompose && r.state === "not_started");
+      if (!open.length) {
+        toast(list.blocked.length
+          ? `没有可合成的镜头 —— ${list.blocked.length} 镜还过不了 ④→⑤ 那道门`
+          : "每一镜都已经合成或跳过了");
+        return { proposals: [], blocked: list.blocked.length };
+      }
+      const capability = genspec.referenceCapability(preflight);
+      const proposals = open.map((r) => {
+        const plan = ctx.keyframe.plan(r.shotId);
+        const verdict = keyframe.composeSubmission({
+          plan, capability, gate: { ok: r.gateOk, reason: r.gateReason },
+        });
+        return { shotId: r.shotId, title: r.title, plan, ok: verdict.ok, reason: verdict.reason };
+      });
+      const ready = proposals.filter((p) => p.ok).length;
+      toast(ready
+        ? `${ready}/${proposals.length} 镜的编排可以合成 —— 逐镜进画布确认，不一次性提交`
+        : `${proposals.length} 镜都还不能合成：${proposals[0].reason}`);
+      refreshProductionView();
+      return { proposals, blocked: list.blocked.length };
     },
   },
   assetPrep: {
