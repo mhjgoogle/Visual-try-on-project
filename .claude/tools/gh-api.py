@@ -14,9 +14,12 @@ Manager）。所以**不新增任何密钥、不需要用户贴 token**，权限
 
 三条硬规矩
 ----------
-1. **token 绝不出现在输出里**。它不进 argv、不进日志；输出统一过一遍
-   `_redact()`，万一 API 把它回显出来也会被打成 `***`。
-2. **只打 api.github.com**，host 写死；`--repo` 只接受 `owner/name`。
+1. **token 绝不出现在输出里**。它不进 argv、不进日志；**所有**输出只走 `_out()` /
+   `_fail()` 这两个口子，无条件过一遍 `_redact()`，万一 API 把它回显出来也会被
+   打成 `***`。逐个字段判断「这行要不要 redact」必漏一个，所以不这么做。
+2. **只打 api.github.com**，host 写死并在发请求前再核一次；`--repo` 走**白名单**
+   （`[A-Za-z0-9][A-Za-z0-9._-]*`，两段），因此 `#` / `?` 这类能改写或截断路径的
+   字符进不来 —— 黑名单只会等下一个变体。
 3. **fail-closed**：取不到凭据、host 不对、HTTP 非 2xx —— 一律非零退出并说清
    原因，不静默继续。
 
@@ -31,6 +34,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -52,7 +56,7 @@ _TOKEN: str | None = None
 
 def _fail(msg: str) -> None:
     """一句话说清为什么做不了，然后退出。"""
-    print(f"gh-api: {msg}", file=sys.stderr)
+    print(_redact(f"gh-api: {msg}"), file=sys.stderr)
     raise SystemExit(2)
 
 
@@ -61,6 +65,17 @@ def _redact(text: str) -> str:
     if _TOKEN and _TOKEN in text:
         return text.replace(_TOKEN, "***")
     return text
+
+
+def _out(text: str) -> None:
+    """**唯一的输出口子。**
+
+    脚本里不直接 `print` 任何一行 —— 打出来的东西几乎全部来自 API 响应（标题、
+    分支名、PR 正文……），而「哪些字段可能回显 token」不是我们能替 GitHub 保证的。
+    逐个字段判断「这个要不要 redact」注定漏一个：codex 就是在 PR 标题那一行抓到
+    的。让所有输出无条件过一遍，漏字段就不再是一种可能的写法。
+    """
+    print(_redact(text))
 
 
 def _token() -> str:
@@ -105,11 +120,25 @@ def _token() -> str:
     return _TOKEN
 
 
+# GitHub 的 owner / repo 允许的字符集（首字符必须是字母数字）。
+# **白名单，不是黑名单**：原来的写法只拦 `/` 和 `..`，于是 `?` 和 `#` 照过 ——
+# 一个 `#` 就能把 `/repos/o/n#/pulls` 截断成 `/repos/o/n`，一个 `?` 能塞查询串，
+# 「只打这几个端点」的保证当场作废（codex 的 blocking finding）。
+# 逐个补 `?`、`#` 只会等下一个变体（`%`、`\`、空格……）；改成白名单，这一类就没了。
+_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
 def _repo(value: str) -> str:
-    """`owner/name`，别的一律拒 —— 不让参数决定打谁。"""
+    """`owner/name`，别的一律拒 —— 不让参数决定打哪个端点。"""
     parts = value.split("/")
-    if len(parts) != 2 or not all(parts) or any("/" in p or ".." in p for p in parts):
-        _fail(f"--repo 必须是 owner/name，收到：{value!r}")
+    ok = (
+        len(parts) == 2
+        and all(_NAME_RE.match(p) for p in parts)
+        # `a..b` 能过上面那条正则，但路径遍历要单独拦
+        and ".." not in value
+    )
+    if not ok:
+        _fail(f"--repo 必须是 owner/name（只允许字母数字 . _ -），收到：{value!r}")
     return value
 
 
@@ -157,16 +186,16 @@ def cmd_pr_create(a) -> None:
             "draft": bool(a.draft),
         },
     )
-    print(f"#{pr['number']}  {pr['html_url']}")
+    _out(f"#{pr['number']}  {pr['html_url']}")
 
 
 def cmd_pr_list(a) -> None:
     prs = _call("GET", f"/repos/{a.repo}/pulls?state={a.state}&per_page={a.limit}")
     if not prs:
-        print("（没有匹配的 PR）")
+        _out("（没有匹配的 PR）")
         return
     for pr in prs:
-        print(
+        _out(
             f"#{pr['number']}  {pr['head']['ref']} -> {pr['base']['ref']}  "
             f"[{pr['state']}]  {pr['title']}"
         )
@@ -174,19 +203,19 @@ def cmd_pr_list(a) -> None:
 
 def cmd_pr_view(a) -> None:
     pr = _call("GET", f"/repos/{a.repo}/pulls/{a.number}")
-    print(f"#{pr['number']}  {pr['title']}")
-    print(
+    _out(f"#{pr['number']}  {pr['title']}")
+    _out(
         f"{pr['head']['ref']} -> {pr['base']['ref']}  [{pr['state']}]  "
         f"mergeable={pr.get('mergeable')}"
     )
-    print(
+    _out(
         f"提交 {pr.get('commits')} · 文件 {pr.get('changed_files')} · "
         f"+{pr.get('additions')}/-{pr.get('deletions')}"
     )
-    print(pr["html_url"])
+    _out(pr["html_url"])
     if pr.get("body"):
-        print("---")
-        print(_redact(pr["body"]))
+        _out("---")
+        _out(pr["body"])
 
 
 def cmd_pr_comment(a) -> None:
@@ -194,7 +223,7 @@ def cmd_pr_comment(a) -> None:
     if not body:
         _fail("评论内容为空")
     c = _call("POST", f"/repos/{a.repo}/issues/{a.number}/comments", {"body": body})
-    print(c["html_url"])
+    _out(c["html_url"])
 
 
 def _read_text(path: str) -> str:
