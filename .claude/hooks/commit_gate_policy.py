@@ -7,6 +7,7 @@ implementations invoke this file so their risk decisions cannot drift.
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import shlex
@@ -98,30 +99,27 @@ _TEST_DOMAIN_DIRS = (
 #: 全量」办事 —— Test Scope = Change Impact Scope 就是这一条的全部内容).
 _FULL_PYTEST_FILES = {"pyproject.toml", "tests/conftest.py"}
 
-#: Import forms the derivation RECOGNISES, anchored at a statement start.
+#: THE IMPORT GRAPH IS READ WITH `ast`, NOT WITH REGEXES.
 #:
-#: A plain substring test (`"tests.media_fakes" in text`) was wrong twice over
-#: (codex review): it matched the name inside comments and strings, and
-#: `tests.foo` matched `tests.foo_extra` -- a DIFFERENT module. Both errors
-#: widen the domain set, which is the harmless direction, but the same
-#: looseness made the dangerous direction reachable too: see `_MENTION_RE`.
-_IMPORT_FORM_RE = (
-    r"^[ \t]*(?:"
-    r"from[ \t]+tests\.{stem}[ \t]+import\b"
-    r"|import[ \t]+tests\.{stem}(?![\w.])"
-    r"|from[ \t]+tests[ \t]+import[ \t]+[^\n]*\b{stem}\b"
-    r")"
-)
-
-#: Any reference to the dotted module name, wherever it appears.
+#: Two regex generations were tried and both leaked, in the one direction that
+#: matters -- a MISSED consumer narrows the test selection, i.e. it runs too
+#: little (codex review, TASK-102, twice):
 #:
-#: This is the FAIL-CLOSED trigger, and it is the whole reason the derivation
-#: can be trusted. If a file mentions `tests.<stem>` but matches none of the
-#: recognised import forms above, the graph is NOT fully understood -- so the
-#: answer must be the full run, never "the domains I happened to recognise".
-#: Returning a PARTIAL domain set is the one outcome that silently runs too
-#: little (codex review, TASK-102), and it is strictly worse than over-running.
-_MENTION_RE = r"\btests\.{stem}(?![\w.])"
+#:   1. substring test          `tests.foo` matched `tests.foo_extra`, and
+#:                              matched the name in comments and strings
+#:   2. anchored form matching  `from tests import (\n    foo,\n)` matches
+#:                              neither the dotted form nor the single-line
+#:                              `from tests import …` form -> silently omitted
+#:
+#: The second one is the lesson: a parenthesised, multi-line, or aliased import
+#: is ordinary Python, and no line-oriented pattern sees all of them. The
+#: grammar is the fact, so parse the grammar. `ast` is stdlib, the files are
+#: already being read, and every import spelling collapses to the same three
+#: node shapes handled in `_imports_support_module`.
+#:
+#: A file that does not parse is treated as "cannot prove it does NOT import
+#: this" -> the whole derivation fails closed to the full run.
+_TESTS_PACKAGE = "tests"
 
 _EXAMPLES_TARGETS = (
     "tests/backend/test_example_project.py",
@@ -801,7 +799,7 @@ def _is_pytest_file(path: str) -> bool:
 _Claim = tuple[str, tuple[str, ...]]
 
 
-def _domains_importing(stem: str) -> tuple[str, ...]:
+def _domains_importing(stem: str, root: Path | None = None) -> tuple[str, ...]:
     """Test domains that import the tests/ root support module *stem*.
 
     DERIVED, never hand-written: a hand-kept table drifts the moment someone
@@ -816,33 +814,67 @@ def _domains_importing(stem: str) -> tuple[str, ...]:
     touches the tests/ root (rare). A `tests/` directory that cannot be read is
     reported as no domains, i.e. the full run.
     """
-    quoted = re.escape(stem)
-    imports = re.compile(_IMPORT_FORM_RE.format(stem=quoted), re.MULTILINE)
-    mentions = re.compile(_MENTION_RE.format(stem=quoted))
+    # `root` exists ONLY so tests can point the scan at a throwaway tree.
+    # Without it, a test that plants a probe file in the real tests/ tree
+    # changes the answer for every OTHER derivation running at the same time --
+    # under `-n 8` that is a genuine flake, observed 2 runs in 4 (codex review,
+    # TASK-102, second round). Production always passes None: both gates run the
+    # classifier with the repo root as the working directory.
+    base = Path() if root is None else root
     domains: set[str] = set()
     for domain_dir in _TEST_DOMAIN_DIRS:
         try:
             # RECURSIVE: a consumer in a nested directory (tests/backend/sub/)
             # was invisible to `glob("*.py")`, and missing it NARROWED the
             # answer rather than widening it (codex review, TASK-102).
-            candidates = sorted(Path(domain_dir).rglob("*.py"))
+            candidates = sorted((base / domain_dir).rglob("*.py"))
         except OSError:
             return ()
         for candidate in candidates:
             try:
-                text = candidate.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):
-                # Unreadable file: cannot prove it does NOT import the module,
-                # so widen to the full run instead of guessing.
+                tree = ast.parse(candidate.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, SyntaxError, ValueError):
+                # Cannot prove this file does NOT import the module, so widen
+                # to the full run rather than guess.
                 return ()
-            if imports.search(text):
+            if _imports_support_module(tree, stem):
                 domains.add(domain_dir.rstrip("/"))
                 break
-            if mentions.search(text):
-                # Mentioned in a form this does not recognise -> the graph is
-                # not fully understood. Fail closed for the WHOLE derivation.
-                return ()
     return tuple(sorted(domains))
+
+
+def _imports_support_module(tree: ast.AST, stem: str) -> bool:
+    """Does this parsed module import ``tests.<stem>``, in ANY spelling?
+
+    Three node shapes cover every form, parenthesised and aliased included:
+      ``from tests.<stem> import x``  -> ImportFrom(module="tests.<stem>")
+      ``from tests import <stem>``    -> ImportFrom(module="tests", names=[…])
+      ``import tests.<stem>``         -> Import(names=["tests.<stem>"])
+    A relative ``from .<stem> import x`` (level > 0) inside a domain package
+    counts too, since that is the same module by another route.
+    """
+    dotted = f"{_TESTS_PACKAGE}.{stem}"
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.module == dotted:
+                return True
+            if node.module == _TESTS_PACKAGE and any(
+                alias.name == stem for alias in node.names
+            ):
+                return True
+            if node.level and node.module in (None, stem):
+                # `from . import <stem>` / `from .<stem> import x`
+                if node.module == stem or any(
+                    alias.name == stem for alias in node.names
+                ):
+                    return True
+        elif isinstance(node, ast.Import):
+            if any(
+                alias.name == dotted or alias.name.startswith(f"{dotted}.")
+                for alias in node.names
+            ):
+                return True
+    return False
 
 
 def _claim(path: str) -> _Claim | None:

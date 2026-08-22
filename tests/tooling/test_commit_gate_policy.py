@@ -1529,110 +1529,110 @@ def test_the_serial_test_never_arrives_as_a_directory_target() -> None:
     assert parallel.serial_targets == ()
 
 
-def test_the_derivation_is_not_fooled_by_a_name_that_is_a_prefix() -> None:
+#: 换行字面量。写成 chr(10) 而不是转义序列：下面几条守卫要构造**多行**的
+#: import 源码，而这份文件几经 shell/heredoc 生成，转义序列会被提前展开成
+#: 真换行并破坏字符串字面量（本任务里踩过两次）。
+NL = chr(10)
+
+
+def _plant(root: Path, domain: str, name: str, body: str) -> None:
+    """在一棵**一次性**的假仓库里放一个测试文件。
+
+    这些守卫绝不往真实 tests/ 里写探针：派生读的是文件系统这份共享状态，
+    一个探针会改变**同时**在跑的其它派生查询的答案 —— `-n 8` 下实测 4 次里
+    翻 2 次（codex 第二轮 P1）。`_domains_importing` 的 `root` 参数就是为此存在。
+    """
+    directory = root / "tests" / domain
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / name).write_text(body, encoding="utf-8")
+
+
+def _consumer(stem: str, symbol: str = "thing") -> str:
+    return (
+        f"from tests.{stem} import {symbol}{NL}{NL}{NL}"
+        f"def test_probe() -> None:{NL}    assert {symbol}{NL}"
+    )
+
+
+def test_the_derivation_is_not_fooled_by_a_name_that_is_a_prefix(
+    tmp_path: Path,
+) -> None:
     """P1（codex, TASK-102）：子串匹配让 `tests.foo` 命中 `tests.foo_extra`,
     那是**另一个模块**。
 
-    第一版守卫只断言「没人用的模块名 → 全量」，而带边界和不带边界在那个输入上
+    第一版守卫只断言「没人用的模块名 → 全量」，而带边界与不带边界在那个输入上
     **恰好都给出全量**（一个因为没使用者，一个因为误命中后 fail-closed），
-    于是变异验证放过了它 —— 结果相同不等于机制正确。
+    变异验证于是放过了它 —— 结果相同不等于机制正确。
 
-    这一版造一个能区分两者的现场：短名有规范使用者（studio），长名在另一个域
-    （contract）被使用。带边界 → 短名精确得到 studio；不带边界 → 短名误命中
-    contract 里那行 `…_long`，而它不是短名的 import 形态，于是整个派生
-    fail-closed 成全量。两者答案不同，变异才抓得住。
+    这一版造能区分的现场：短名的使用者在 studio，长名的使用者在 contract。
+    正确实现下短名只得到 studio；把长名那个也算进来就是错的。
     """
-    root = _POLICY_PATH.parents[2]
-    short = "_probe_prefix_tmp"
-    long_name = short + "_long"
-    dotted = "tests."  # 拼接，避免把探针名写成本文件里的真实提及
+    short, long_name = "probe_pref", "probe_pref_long"
+    _plant(tmp_path, "studio", "test_short_user.py", _consumer(short))
+    _plant(tmp_path, "contract", "test_long_user.py", _consumer(long_name, "other"))
 
-    def body(module: str, symbol: str) -> str:
-        return (
-            f"from {dotted}{module} import {symbol}\n\n\n"
-            f"def test_probe() -> None:\n    assert {symbol}\n"
-        )
+    assert _POLICY._domains_importing(short, root=tmp_path) == ("tests/studio",)
+    # 反向也成立：长名不会把短名的使用者算进来
+    assert _POLICY._domains_importing(long_name, root=tmp_path) == ("tests/contract",)
 
-    planted = [
-        (
-            root / "tests" / "studio" / f"test_{short}_user.py",
-            body(short, "thing"),
-        ),
-        (
-            root / "tests" / "contract" / f"test_{long_name}_user.py",
-            body(long_name, "other"),
-        ),
+
+def test_every_import_spelling_is_seen_including_parenthesised_ones() -> None:
+    """P1（codex, TASK-102，第二次）：正则版看不见括号多行的
+    ``from tests import (…)`` —— 那是普通 Python，而**漏看一个使用者会收窄
+    测试范围**，正是要避免的方向。
+
+    两代正则都在同一个方向漏，所以改成用 ``ast`` 读语法本身。这条守卫逐个
+    spelling 过，钉的是「每种写法都算得出」。
+    """
+    import ast as _ast
+
+    stem = "media_fakes"
+    dotted = "tests" + "." + stem  # 拼接：不在本文件留下真实提及
+    seen = [
+        f"from {dotted} import FakeMediaInspector",
+        f"import {dotted}",
+        f"from tests import {stem}",
+        f"from tests import {stem} as mf",
+        f"from tests import ({NL}    {stem},{NL})",
+        f"from tests import ({NL}    other,{NL}    {stem},{NL})",
     ]
-    for path, _ in planted:
-        assert not path.exists(), f"探针文件名已被占用：{path}"
-    for path, body in planted:
-        path.write_text(body, encoding="utf-8")
-    try:
-        decision = _POLICY.classify([f"tests/{short}.py"])
-        assert decision.tier == "pytest-targeted", (
-            f"短名应精确到它自己的使用者域，实为 {decision.tier}"
+    for source in seen:
+        assert _POLICY._imports_support_module(_ast.parse(source), stem), (
+            f"这种写法必须被算作使用者：{source!r}"
         )
-        assert set(decision.pytest_targets) == {"tests/studio"}, (
-            "长名那个使用者不属于短名的影响范围，实为 "
-            f"{sorted(decision.pytest_targets)}"
+
+    not_seen = [
+        "from tests import other_thing",
+        f"MODULE_NAME = {dotted!r}",  # 字符串不是依赖
+        f"# {dotted}",  # 注释不是依赖
+        f"from {dotted}_long import thing",  # 同前缀不同名，是另一个模块
+    ]
+    for source in not_seen:
+        assert not _POLICY._imports_support_module(_ast.parse(source), stem), (
+            f"这不该被算作使用者：{source!r}"
         )
-    finally:
-        for path, _ in planted:
-            path.unlink()
 
 
-def test_a_mention_in_an_unrecognised_form_fails_the_whole_derivation() -> None:
-    """P1（codex, TASK-102）：真正危险的不是「多跑」，是**部分域**——认得出的域
-    进了结果、认不出的那种 import 被漏掉，于是跑得比该跑的少。
+def test_an_unparseable_consumer_fails_the_whole_derivation(tmp_path: Path) -> None:
+    """派生的 fail-closed 那一半：**解析不了**的文件意味着「无法证明它没有
+    import 这个模块」，于是整个派生退回全量 —— 绝不能给出「我认出来的那几个
+    域」，部分域会跑得比该跑的少。"""
+    stem = "probe_unparseable"
+    _plant(tmp_path, "studio", "test_user.py", _consumer(stem))
+    assert _POLICY._domains_importing(stem, root=tmp_path) == ("tests/studio",)
 
-    所以规则是：文件里出现 `tests.<stem>` 却不匹配任何已知 import 形态 →
-    **整个派生 fail-closed 到全量**。这条用真实文件验证：临时往一个域里放一个
-    只在注释里提到模块的文件，派生必须立刻退回全量。
-    """
-    root = _POLICY_PATH.parents[2]
-    planted = root / "tests" / "studio" / "_derivation_probe_tmp.py"
-    assert not planted.exists(), "探针文件名已被占用，请改名"
-    # `_scan` 平时只有 tests/studio 用，所以它是最敏感的探针目标
-    assert set(_POLICY.classify(["tests/_scan.py"]).pytest_targets) == {"tests/studio"}
-    # 字面量必须拼接：派生扫的是**文本**，把 "tests.<stem>" 直接写进本文件就等于
-    # 在 tests/tooling 域伪造了一个使用者。第一版就这么污染了自己的被测数据，
-    # 派生当场 fail-closed —— 机制是对的，守卫写错了。
-    dotted = "tests." + "_scan"
-    planted.write_text(
-        f"# 这里以一种派生认不出的写法提到 {dotted}\nMODULE_NAME = {dotted!r}\n",
-        encoding="utf-8",
+    _plant(tmp_path, "studio", "broken_helper.py", "def (:::")
+    assert _POLICY._domains_importing(stem, root=tmp_path) == (), (
+        "解析不了的文件必须让整个派生退回全量（空元组 → 调用方给 full）"
     )
-    try:
-        decision = _POLICY.classify(["tests/_scan.py"])
-        assert decision.tier == "full", (
-            "认不出的提及必须让整个派生退回全量，而不是给出部分域"
-        )
-        assert decision.pytest_targets == ()
-    finally:
-        planted.unlink()
-    # 清掉探针后回到精确答案，证明上面不是永久降级
-    assert set(_POLICY.classify(["tests/_scan.py"]).pytest_targets) == {"tests/studio"}
 
 
-def test_the_derivation_sees_consumers_in_nested_directories() -> None:
-    """P1（codex, TASK-096 风格的同一类）：非递归 `glob("*.py")` 看不见
-    `tests/<domain>/<sub>/` 里的使用者，而漏看一个使用者是**收窄**结果 ——
-    正是要避免的方向。用真实嵌套文件验证递归生效。"""
-    root = _POLICY_PATH.parents[2]
-    nested_dir = root / "tests" / "contract" / "_nested_probe_tmp"
-    nested_dir.mkdir(exist_ok=False)
-    planted = nested_dir / "test_probe.py"
-    dotted = "tests." + "_scan"  # 同上，不得写成字面量
-    planted.write_text(
-        f"from {dotted} import core_files_containing\n\n\n"
-        "def test_probe() -> None:\n    assert core_files_containing\n",
-        encoding="utf-8",
-    )
-    try:
-        targets = set(_POLICY.classify(["tests/_scan.py"]).pytest_targets)
-        assert "tests/contract" in targets, (
-            f"嵌套目录里的使用者必须被算进去，实为 {sorted(targets)}"
-        )
-    finally:
-        planted.unlink()
-        nested_dir.rmdir()
+def test_the_derivation_sees_consumers_in_nested_directories(tmp_path: Path) -> None:
+    """P1（codex, TASK-102）：非递归 ``glob("*.py")`` 看不见
+    ``tests/<domain>/<sub>/`` 里的使用者，而漏看一个使用者是**收窄**结果。"""
+    stem = "probe_nested"
+    nested = tmp_path / "tests" / "contract" / "sub" / "deeper"
+    nested.mkdir(parents=True)
+    (nested / "test_probe.py").write_text(_consumer(stem), encoding="utf-8")
+
+    assert _POLICY._domains_importing(stem, root=tmp_path) == ("tests/contract",)
