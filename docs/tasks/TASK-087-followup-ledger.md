@@ -70,6 +70,7 @@
 | 3.6.2 | **`src` 内部 import 环** | TASK-102 盘点（自动统计 import 方向） | 中 | `app → planning` 且 `planning → app`（应用层与领域层双向）；`learning → workspace → app → …` 长链。核心库对 mockups 是**零依赖**（这一侧干净），但内部方向不干净：动 app 会波及领域层，反之亦然。本卡 OUT OF SCOPE |
 | 3.6.3 | **L0–S7 合同手抄三份** | TASK-102 盘点 | 中 | `docs/design/workflow-stage-step-io-contract.md`（权威）↔ `src/…/workspace/io_contract.py`（801 行，自称 transcription）↔ `mockups/…/src/workflow/contract.js`（78 行，自称 mirrors）。改合同要同时改三处，漏一处就静默不一致。反例参照：`product-skills/skill-inputs.json` 是**单一来源**被前后端同时读，形状健康 |
 | 3.6.4 | **前端入口 `app.js` 不可测** | TASK-102 批次 E | 低（已缓解） | 它是入口编排文件，`.test.mjs` 无法 import，所以它的架构不变量只能从**源码文本**侧断言。批次 E 已把这些守卫从 19 个测试文件收敛到 `tests/contract/` 一个文件（改 app.js 只碰一处），但断言的仍是写法而非性质。根治要拆 app.js 的编排层——属前端重构，另立卡 |
+| 3.6.5 | **auto-push 的 `scope_violation` 是过期快照，且无重算通道** | TASK-102 merge 时实测 | 中（会**无理由拦住 merge**） | `record-commit` 按**当时**申报的 `paths` 算 `scope_violation` 并存进清单；后续 `task-ready` 覆盖 `paths` 之后，旧快照与新申报不再一致，而 `merge` 只看快照 → `BLOCKED_SCOPE`。本次两条提交的 13 + 2 个「越界」文件其实全在最终申报范围内，用 `autopush._matches` 按当前申报重算后为 0。`stage` 有 `--allow-wide` 这个出口，`record-commit`／`merge` 侧没有对应物。修法建议：`merge` 前按当前 `paths` 重算，或加一个 `recheck-scope` 子命令；顺带考虑 `task-ready` 覆盖 `paths` 时就地重算历史记录。归 TASK-101 / auto-push skill |
 
 ## 4. 数据与状态的诚实性（每条都是「界面说的和事实不符」那一族）
 
