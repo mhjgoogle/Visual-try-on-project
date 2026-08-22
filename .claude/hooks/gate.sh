@@ -143,7 +143,11 @@ if [ "$INTENT_FORCE_FULL" = "1" ]; then
   # describe it either (决策 4). Skip the diff and run everything: asking git
   # what is staged would answer a question about THIS repo that the unreadable
   # command may not even have been about.
-  POLICY_JSON='{"tier": "full", "reason": "unreadable command", "pytest_targets": [], "serial_targets": [], "frontend": false, "notice": ""}'
+  # frontend true: same reason as gate.ps1's forced-full branch -- this is the
+  # fail-closed path and the full contract includes the frontend suite, so a
+  # command we could not parse must not skip it (ADR-0062 决策 3 also requires
+  # both shells to answer identically here).
+  POLICY_JSON='{"tier": "full", "reason": "unreadable command", "pytest_targets": [], "serial_targets": [], "frontend": true, "notice": ""}'
 else
   POLICY_DIFF_ARGS=(diff --cached --name-only --no-renames -z)
   if [ "$INTENT_DIFF" = "head" ]; then
@@ -179,10 +183,22 @@ if [ -z "$POLICY_TIER" ]; then
   exit 2
 fi
 mapfile -t POLICY_PYTEST_TARGETS < <(
-  printf '%s' "$POLICY_JSON" | "$PY" -c 'import json,sys; print(*json.load(sys.stdin)["pytest_targets"], sep="\n")'
+  printf '%s' "$POLICY_JSON" | "$PY" -c 'import json,sys
+targets = json.load(sys.stdin).get("pytest_targets") or ()
+for target in targets:
+    print(target)'
 )
+# `print(*(), sep="\n")` still emits the trailing newline, so an EMPTY target
+# list came back to `mapfile` as ONE EMPTY ELEMENT -- and `pytest ""` is a
+# usage error, which broke every ordinary targeted commit on the Ubuntu target
+# (codex review, TASK-102). Emit nothing at all when the list is empty so the
+# array is genuinely empty; `-d ''`-style tricks are not needed because no test
+# path in this repo contains a newline.
 mapfile -t POLICY_SERIAL_TARGETS < <(
-  printf '%s' "$POLICY_JSON" | "$PY" -c 'import json,sys; print(*json.load(sys.stdin).get("serial_targets", ()), sep="\n")'
+  printf '%s' "$POLICY_JSON" | "$PY" -c 'import json,sys
+targets = json.load(sys.stdin).get("serial_targets") or ()
+for target in targets:
+    print(target)'
 )
 # The frontend FLAG a python+frontend mixed change carries (ADR-0080): the
 # frontend suite runs IN ADDITION to the pytest targets. Read as exact "true"

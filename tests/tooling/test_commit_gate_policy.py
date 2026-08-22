@@ -1387,3 +1387,80 @@ def test_both_shells_BOUND_the_classifier_step() -> None:
     assert sh_secs == ps_secs, (
         f"两个 shell 的分类器超时必须相同：sh={sh_secs} ps1={ps_secs}"
     )
+
+
+# --- TASK-102 codex 审查的三条 P1（每条都是「fail-closed 分支上有个洞」） ---- #
+
+
+def test_an_unmapped_path_does_not_swallow_the_frontend_claim() -> None:
+    """P1（codex, TASK-102）：无归属路径原先**立即 return**，于是同一次提交里的
+    frontend 声明连同默认 `frontend=False` 一起被丢掉 —— 混合提交走了 full 档却
+    **跳过前端套件**。fail-closed 分支不该比它替代的那条跑得更少。"""
+    mixed = _POLICY.classify(["Makefile", "mockups/motv-workspace/src/ui/shell.js"])
+    assert mixed.tier == "full"
+    assert mixed.frontend is True, "无归属 + 前端的混合提交必须仍跑前端套件"
+
+    # 纯无归属仍然是 full 且不假装有前端改动
+    plain = _POLICY.classify(["Makefile"])
+    assert plain.tier == "full"
+    assert plain.frontend is False
+
+    # 而且 fail-closed 永不被链模式推迟（既有不变量，一并钉住）
+    assert _POLICY.classify(["Makefile"], chain_mode=True).tier == "full"
+
+
+def test_the_forced_full_fallback_includes_the_frontend_suite_in_both_shells() -> None:
+    """P1（codex, TASK-102）：命令解析不出来时两个 shell 都自造 policy 走 full，
+    但都把 `frontend` 写成 false —— 于是「读不懂的命令」跑了除前端以外的一切。
+    ADR-0080 的 full 合同包含前端套件；ADR-0062 决策 3 还要求两壳答案一致。"""
+    root = _POLICY_PATH.parent
+    ps1 = (root / "gate.ps1").read_text("utf-8")
+    sh = (root / "gate.sh").read_text("utf-8")
+
+    # 只看**代码行**，不看整段分支文本。第一版按分支文本断言，结果被这段代码
+    # 自己的注释骗过去了（注释里就写着 frontend = 那个值），把 $false 的变异判成
+    # 绿 —— 变异验证当场抓到。这正是 TASK-087 §7「断言性质，别断言写法」的同一个
+    # 坑：一个只会读注释的守卫，等于没有守卫。
+    def code_lines(text: str, start_at: str, end_at: str) -> list[str]:
+        branch = text.split(start_at, 1)[1].split(end_at, 1)[0]
+        return [
+            s
+            for s in (ln.strip() for ln in branch.splitlines())
+            if s and not s.startswith("#")
+        ]
+
+    ps_code = code_lines(ps1, "if ($intent.force_full)", "else")
+    ps_policy = [ln for ln in ps_code if ln.startswith("$policy =")]
+    assert ps_policy, "找不到 gate.ps1 forced-full 分支里自造 policy 的那一行"
+    assert "frontend = $true" in ps_policy[0], (
+        f"gate.ps1 的 forced-full 必须带前端套件，实为：{ps_policy[0]}"
+    )
+
+    sh_code = code_lines(sh, 'if [ "$INTENT_FORCE_FULL" = "1" ]', "\nelse")
+    sh_policy = [ln for ln in sh_code if ln.startswith("POLICY_JSON=")]
+    assert sh_policy, "找不到 gate.sh forced-full 分支里自造 policy 的那一行"
+    assert '"frontend": true' in sh_policy[0], (
+        f"gate.sh 的 forced-full 必须带前端套件，实为：{sh_policy[0]}"
+    )
+
+
+def test_gate_sh_never_hands_pytest_an_empty_string_target() -> None:
+    """P1（codex, TASK-102）：`print(*(), sep="\n")` 仍然输出那个换行，于是空
+    target 列表经 `mapfile` 变成**一个空元素**，`pytest ""` 是 usage error ——
+    受支持目标（Ubuntu）上每个普通定向提交都会被闸门拦死。
+
+    钉的是性质：两个 target 数组的提取都不得使用会为空列表产出一行的写法。
+    """
+    sh = (_POLICY_PATH.parent / "gate.sh").read_text("utf-8")
+    for name in ("POLICY_PYTEST_TARGETS", "POLICY_SERIAL_TARGETS"):
+        # 切到该 mapfile 的收尾 `\n)\n` —— 不能按第一个 `)` 切：内嵌的那段
+        # python 自己就含 `)`（`or ()`），按它切会把要断言的循环切掉。
+        after = sh.split(f"mapfile -t {name} < <(", 1)[1]
+        block = after.split("\n)\n", 1)[0]
+        assert "print(*" not in block, (
+            f"{name}: `print(*seq, sep=...)` 对空 seq 仍输出一行，"
+            "mapfile 会得到一个空元素"
+        )
+        assert "for target in targets:" in block, (
+            f"{name}: 必须逐个 print，空列表就什么都不输出"
+        )

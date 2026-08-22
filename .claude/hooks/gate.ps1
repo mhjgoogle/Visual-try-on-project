@@ -419,7 +419,12 @@ if ($intent.force_full) {
     # describe it either (decision 4). Skip the diff and run everything: asking
     # git what is staged would answer a question about THIS repo that the
     # unreadable command may not even have been about.
-    $policy = [pscustomobject]@{ tier = 'full'; pytest_targets = @(); serial_targets = @(); frontend = $false; notice = '' }
+    # frontend = $true: this is the fail-closed path (the command could not be
+    # parsed), and under ADR-0080 the full contract INCLUDES the frontend suite.
+    # Leaving it $false meant an unreadable commit command ran everything
+    # EXCEPT the frontend tests -- a fail-closed branch with a hole in it
+    # (codex review, TASK-102).
+    $policy = [pscustomobject]@{ tier = 'full'; pytest_targets = @(); serial_targets = @(); frontend = $true; notice = '' }
 }
 else {
     $diffArgs = @('diff', '--cached', '--name-only', '--no-renames', '-z')

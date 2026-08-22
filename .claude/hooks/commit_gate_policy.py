@@ -952,10 +952,17 @@ def _classify(paths: list[str]) -> Decision:
     serial_targets: set[str] = set()
     frontend = False
     needs_full_pytest = False
+    unmapped = False
     for path in non_docs:
         claim = _claim(path)
         if claim is None:
-            return Decision("full", _REASON_NO_MAPPING)
+            # Do NOT return here. An early return kept the default
+            # `frontend=False`, so a commit mixing an unmapped path with a
+            # FRONTEND path took the full tier and silently dropped the
+            # frontend suite (codex review, TASK-102). Keep scanning so the
+            # frontend claim survives into the decision below.
+            unmapped = True
+            continue
         kind, targets = claim
         if kind == "frontend":
             frontend = True
@@ -965,6 +972,9 @@ def _classify(paths: list[str]) -> Decision:
             needs_full_pytest = True
         else:
             pytest_targets.update(targets)
+
+    if unmapped:
+        return Decision("full", _REASON_NO_MAPPING, frontend=frontend)
 
     if needs_full_pytest:
         # The whole pytest run already contains every targeted selection; the
