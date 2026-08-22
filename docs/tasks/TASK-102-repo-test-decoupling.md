@@ -1,6 +1,7 @@
 # TASK-102：仓库集成与解耦重构 —— 测试所有权、前后端边界、文档收敛
 
-- 状态：进行中
+- 状态：**已完成（2026-08-22）** —— 独立审查通过（轮 2 pass，零发现）；
+  最终全量 3297 + 6 pytest / 1763 前端 / ruff 全过。**Merge Gate 待用户指示。**
 - Workflow：Refactor · 深度：DEEP
 - 关联 Requirement：依据 —— 产品负责人 2026-08-22 全文任务书
   「Repository Integration & Decoupling Refactor …目标是在不改变当前有效产品
@@ -194,6 +195,31 @@ gate.sh 同步实现（ADR-0062 决策 3 同一行为合同）；链令牌语义
 `--collect-only` **不执行函数体所以照样绿**。删掉这两个已搬走的函数后守恒成立。
 教训：**搬迁类改动必须用「连 untracked 一起 stash」的方式取基线，且守恒要按
 函数名逐个计数比对，不能只看总数**——总数相等也可能是一边丢一边多。
+
+**独立审查（ADR-0081 新协议：默认 1 轮，P1 修复后复审一次）**：
+
+- 审查者 **codex**（跨模型独立，未降级）。范围：gate 逻辑 + 治理文档
+  （`.claude/hooks/**`、AGENTS.md、CLAUDE.md、`.claude/skills/**`、README、
+  src、server.py、pyproject）864 行。**机械搬迁部分（测试移动/删除）未送审**，
+  理由是它由「函数名逐个计数守恒 + 全量逐项对齐基线」证明，比人读 5 万行 diff
+  可靠——如实记录此范围决定。首次尝试 `main..HEAD` 得 `DIFF_TOO_LARGE`
+  （27 万行：main 停在 Initial commit，该区间等于整个仓库历史）。
+- **轮 1：fail，3 条 P1，全部为真缺陷，全部已修**：
+  1. `gate.sh:186` —— `print(*(), sep="\n")` 对空列表仍输出一行，`mapfile` 得到
+     **一个空元素**，`pytest ""` 是 usage error → **Ubuntu 上每个普通定向提交都会
+     被闸门拦死**。按「修整个 class」规则连同 `pytest_targets` 一并修。
+  2. `commit_gate_policy.py:957` —— 无归属路径**立即 return**，把同一次提交里的
+     frontend 声明连同默认 `False` 一起丢掉 → 混合提交走 full 档却**跳过前端套件**。
+  3. `gate.ps1:421`（及 `gate.sh` 对称位置）—— forced-full 分支硬写
+     `frontend = $false`，于是「读不懂的命令」跑了除前端以外的一切
+     → fail-closed 分支上的洞。
+- 三条各配回归守卫（`tests/tooling/test_commit_gate_policy.py`，共 +3 项）并做
+  **变异验证**：4 个变异全部被抓到。**第一版守卫没抓到 ps1 那条** —— 它按整段
+  分支文本断言，被这段代码自己的注释骗过（注释里就写着 `frontend = $true`），
+  改为只看**代码行**后才变红。这正是 TASK-087 §7「断言性质，别断言写法」的
+  同一个坑，记在此处以免下次再踩。
+- **轮 2：pass，零发现**（只审 P1 修复的 diff）。预算用掉 2 轮 = 协议上限，
+  无未闭合 P1 → 收口。
 
 **任务书 §16 验收项实测**：
 
