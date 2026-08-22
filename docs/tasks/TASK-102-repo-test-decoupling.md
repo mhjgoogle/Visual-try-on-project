@@ -37,8 +37,29 @@
    docs/skill-evolution、examples/projects/wfm1-demo、mockups/motv-workspace、
    src/ui-gap-audit、scripts、scripts/launch）。
 
+## 产品负责人裁决（2026-08-22，实施中追加）
+
+1. 实施权：「本会话继续（推荐）」—— TASK-102 唯一实施 Agent 为本会话；
+   并行实施者（不可见于会话列表，疑似 codex）由产品负责人停止。
+2. 治理范围：「不要保留风险分集。dev-workflow 根据影响范围决定是否审查
+   → 默认一轮 → P1 修复后复审一次 → P2 修复 + 定向测试，不再复审
+   → P3/P4 记录但不阻塞。其他不采纳」。
+3. 「风险分级和skill的内容相悖。必须修改」——codex-review-loop 与
+   dev-workflow 中按风险分级的措辞随之更新。
+4. 「我不要每次都全量测试。」——commit gate 由「高风险路径→全量」改为
+   按测试所有权定向；全量只保留在集成检查点（CI、merge、链尾、发布/交接前）
+   与真正无法归属时的 fail-closed 回退。
+5. 未采纳部分维持现状：MOTV_CONTINUOUS_CHAIN（ADR-0068）保留；CLAUDE.md
+   不掏空；注入 ADR-0080 的其余条目不生效（归档为证据）。
+
 ## IN SCOPE
 
+0. 按上方裁决更新治理文档与 skills：AGENTS.md §20（测试与审查）、CLAUDE.md
+   实施纪律的审查表、dev-workflow references/verification.md、
+   codex-review-loop SKILL.md；commit gate 按所有权映射重设计
+   （`commit_gate_policy.py` + 双 shell + 其测试）；以新 ADR 记录（取代
+   ADR-0060 的风险分级语义与 ADR-0069 的按风险轮次预算；保留两者的
+   fail-closed 实现原则与两阶段全量方案）。
 1. `tests/` 按 ownership 分目录：`backend/`（src 库+workspace_shell）、
    `studio/`（mockups 的 Python 后端）、`contract/`（真跨 py↔js 边界）、
    `e2e/`（少量关键路径，含唯一 serial）、`tooling/`（gate/auto-push/
@@ -70,8 +91,8 @@
 - CI 按路径选测试（CI 保持全量，是有意决策）；
 - 三向合同投影（doc/io_contract.py/contract.js）的机制性统一——记 Follow-up；
 - 前端 `.test.mjs` 套件内部重组（归属已正确）；
-- **任何治理规则的删改**（风险分级、MOTV_CONTINUOUS_CHAIN、CLAUDE.md/AGENTS.md
-  的合并）——见下方「范围事件记录」。
+- 裁决未采纳的治理变更：删除 MOTV_CONTINUOUS_CHAIN、掏空 CLAUDE.md、
+  注入 ADR-0080 的其余条目——见「范围事件记录」与「产品负责人裁决」。
 
 ## 范围事件记录（2026-08-22）
 
@@ -105,13 +126,44 @@
 
 ## 实施批次（同一 Change 分支 change/TASK-102-repo-decoupling 上的独立 commit）
 
-- A 批：目录重归属 + import/fixture 修复 + gate 映射 + serial/CI 核验（机械移动，
-  不删测试）。
-- B 批：删 node 包装 + gate full 档补前端套件。
-- C 批：删 JS 源码文本断言（热点文件逐个过）。
-- D 批：README 收敛 + 命令文档（AGENTS.md §20、根 README）+ ADR-0080 +
-  repo-contract 更新。
-- 尾批：全量两阶段 pytest + 全量前端 + ruff + 独立审查（高风险 2 轮）+ 本卡收口。
+- A 批：目录重归属 + import/fixture 修复 + gate 最小路径跟随（机械移动，
+  不删测试，gate 逻辑不变）。
+- B 批：删 node 包装 + 删 JS 源码文本断言（测试收敛）。
+- C 批：gate 按所有权映射重设计（废风险分级、日常不全量）+ gate 测试更新。
+- D 批：治理文档与 skills 对齐（AGENTS.md §20、CLAUDE.md 审查表、
+  verification.md、codex-review-loop）+ README 收敛 + 新 ADR + repo-contract。
+- 尾批（集成检查点）：全量两阶段 pytest + 全量前端 + ruff + 独立审查
+  （新政策：默认 1 轮）+ 本卡收口。
+  中间批次按任务书 §17 与「我不要每次都全量测试」的授权走 ADR-0068 链式节奏：
+  定向测试收口、逐批独立提交（gate 判全量档时手写 MOTV_CONTINUOUS_CHAIN 令牌
+  推迟到链尾），每批独立审查不放松。
+
+## 批次 C 设计：gate 归属映射（实施依据）
+
+改动路径 → 归属测试目标（并集执行；首条命中生效）：
+
+| 路径 | 目标 |
+| --- | --- |
+| docs/、根 md、.claude/**.md | lint（不变） |
+| mockups/**.{css,html,js,mjs} | 前端套件 |
+| mockups/**.py | tests/studio + tests/contract |
+| src/…/workspace/、src/workspace_shell/ | 既有 workspace 精选集（新路径） |
+| src/**.py 有 tests/backend/test_<stem>.py | 该文件 |
+| src/**.py 其它（含核心共享文件） | tests/backend + tests/studio（core 影响两者） |
+| tests/**/test_*.py | 改动的文件本身 |
+| tests/ 根支撑层（conftest、scenario、fakes） | 两阶段全量 pytest（影响=全部域，罕改） |
+| pyproject.toml | 两阶段全量 pytest |
+| .claude/hooks/**、.claude/skills/**（非 md） | tests/tooling |
+| scripts/** | tests/tooling/test_repository_layout.py |
+| product-skills/** | tests/studio + tests/contract |
+| examples/** | tests/backend/test_example_project.py + test_wfm1_demo_example.py |
+| config/providers/** | tests/backend/test_config_catalog.py + tests/contract/test_motv_refset_adr0071.py |
+| .github/workflows/** | lint（本地无对应测试，CI 自证） |
+| 其它 | full（fail-closed，不变） |
+
+Decision 增加 `frontend` 布尔（python+前端混合改动时两边都跑）；gate.ps1 与
+gate.sh 同步实现（ADR-0062 决策 3 同一行为合同）；链令牌语义不变。
+「高风险→全量」被上表替代（产品负责人 2026-08-22：「我不要每次都全量测试」）。
 
 ## 验证（完成时补）
 

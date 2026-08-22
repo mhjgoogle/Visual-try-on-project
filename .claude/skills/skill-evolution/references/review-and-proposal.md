@@ -68,7 +68,7 @@ Skill 规则导致的，severity 不该是 severe，反馈也应写明「疑似 
    - 确认原问题的规则已消除/修正；
    - 逐条核对 protected key 的行为仍成立；
    - Skill 结构仍合法（frontmatter 完整、内链有效）；
-   - 涉及 evolution.py 时跑 `tests/test_skill_evolution_tooling.py`。
+   - 涉及 evolution.py 时跑 `tests/tooling/test_skill_evolution_tooling.py`。
 3. 收口：`set-status <skill> --key K --status RESOLVED`；在 EP 文件补
    validation result 与日期。revision 由下次 status/sync 自动更新；
    变更历史 = git log（不自建 version framework）。

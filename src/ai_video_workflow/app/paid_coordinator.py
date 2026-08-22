@@ -104,7 +104,7 @@ _MAX_POLLS = 120
 # `{{Image N}}`: our prompts are COMPILED, `{{...}}` collides with Chinese creative
 # text, and the word "Image" would lie the moment the same mechanism carries a text
 # or audio reference. Kept in sync with `mockups/motv-workspace/src/workflow/refset.js`
-# by a cross-language guard (tests/test_motv_refset_adr0071.py).
+# by a cross-language guard (tests/contract/test_motv_refset_adr0071.py).
 #: `[0-9]`, NOT `\d` (codex round 4, P2). Python's `\d` matches every Unicode decimal
 #: digit while JavaScript's matches ASCII only, so `[[ref:٣]]` was a marker to the
 #: backend and plain text to the studio -- two layers reading one prompt differently

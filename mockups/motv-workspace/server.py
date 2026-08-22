@@ -3559,7 +3559,7 @@ class _App:
 
         skill_id = _skill_id_for(slug, payload)
         # NO PROJECT ROOT HERE. This route must never turn a project name into a
-        # path (guarded by tests/test_motv_skills_task059.py), so the five
+        # path (guarded by tests/studio/test_motv_skills_task059.py), so the five
         # endpoints resolve against the user and builtin sources only. Serving a
         # PROJECT-scoped package to them needs that path question settled first —
         # `GET /api/skills?project=` already does it safely for the catalog view

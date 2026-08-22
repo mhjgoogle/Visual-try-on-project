@@ -30,14 +30,14 @@ _WORKSPACE_PREFIXES = (
     "src/workspace_shell/",
 )
 _WORKSPACE_TESTS = (
-    "tests/test_workspace_action_query.py",
-    "tests/test_workspace_cli.py",
-    "tests/test_workspace_evaluation_query.py",
-    "tests/test_workspace_multimedia.py",
-    "tests/test_workspace_queries.py",
-    "tests/test_workspace_shell.py",
-    "tests/test_workspace_wfm1_acceptance.py",
-    "tests/test_workspace_write.py",
+    "tests/backend/test_workspace_action_query.py",
+    "tests/backend/test_workspace_cli.py",
+    "tests/backend/test_workspace_evaluation_query.py",
+    "tests/backend/test_workspace_multimedia.py",
+    "tests/backend/test_workspace_queries.py",
+    "tests/backend/test_workspace_shell.py",
+    "tests/backend/test_workspace_write.py",
+    "tests/e2e/test_workspace_wfm1_acceptance.py",
 )
 _FRONTEND_PREFIX = "mockups/motv-workspace/"
 _FRONTEND_SUFFIXES = (".css", ".html", ".js", ".mjs")
@@ -722,7 +722,7 @@ def _test_for_source(path: str) -> str | None:
 
     if not (path.startswith("src/") and path.endswith(".py")):
         return None
-    target = f"tests/test_{Path(path).stem}.py"
+    target = f"tests/backend/test_{Path(path).stem}.py"
     return target if Path(target).is_file() else None
 
 

@@ -7,14 +7,30 @@
   "chain_mode": false,
   "tasks": {
     "TASK-102": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "efab6b1abf0c8e7109837a397abfe45fd701a414",
+          "subject": "TASK-102 任务卡（Refactor/DEEP）+ 范围注入事件留痕 —— 卡为防篡改基线先行入库",
+          "time": "2026-08-22T07:23:25+00:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null
+        }
+      ],
       "paths": [
+        ".claude/hooks/commit_gate_policy.py",
+        ".claude/skills/skill-evolution/references/review-and-proposal.md",
+        "docs/adr/ADR-0080-test-ownership-and-gate-mapping.md",
+        "docs/adr/ADR-0081-review-by-impact-scope.md",
         "docs/tasks/TASK-102-repo-test-decoupling.md",
-        "docs/tasks/TASK-102-scope-injection-evidence-2026-08-22.md"
+        "mockups/motv-workspace/server.py",
+        "mockups/motv-workspace/stage_evidence.py",
+        "src/ai_video_workflow/app/paid_coordinator.py",
+        "tests/"
       ],
       "verification": "PASS",
-      "verification_ref": "docs-only：任务卡与范围注入事件留痕，无代码/测试影响（gate lint 档）",
-      "declared": "2026-08-22T07:21:16+00:00"
+      "verification_ref": "批次A：collect 3466 与基线一致0错误；两阶段全量 3402+6 passed（与基线逐项一致）；studio 519、tooling+contract 208+19、e2e/backend 抽取域 68+39+18 定向全绿；ruff check/format 全过",
+      "declared": "2026-08-22T07:49:33+00:00"
     }
   },
   "merge_gate": {

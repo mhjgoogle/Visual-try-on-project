@@ -7,7 +7,7 @@ compiled task packet for a single shot, plus a locked catalog carrying the REAL
 MiniMax price row (MiniMax-Hailuo-02 · 768P · 6s · per-clip USD 0.28 → 45 JPY at
 the locked FX, under the 400 JPY per-shot cap). Staging itself never calls a
 provider and spends nothing — it only writes local files, exactly like the
-pytest fixture this mirrors (tests/test_paid_gateway_command.py).
+pytest fixture this mirrors (tests/backend/test_paid_gateway_command.py).
 
 Run inside the venv:  python mockups/motv-workspace/stage_evidence.py
 Then start the UI backend in paid mode (see the printed instructions). The one
