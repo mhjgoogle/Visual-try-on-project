@@ -143,7 +143,7 @@ if [ "$INTENT_FORCE_FULL" = "1" ]; then
   # describe it either (决策 4). Skip the diff and run everything: asking git
   # what is staged would answer a question about THIS repo that the unreadable
   # command may not even have been about.
-  POLICY_JSON='{"tier": "full", "reason": "unreadable command", "pytest_targets": [], "notice": ""}'
+  POLICY_JSON='{"tier": "full", "reason": "unreadable command", "pytest_targets": [], "serial_targets": [], "frontend": false, "notice": ""}'
 else
   POLICY_DIFF_ARGS=(diff --cached --name-only --no-renames -z)
   if [ "$INTENT_DIFF" = "head" ]; then
@@ -181,6 +181,17 @@ fi
 mapfile -t POLICY_PYTEST_TARGETS < <(
   printf '%s' "$POLICY_JSON" | "$PY" -c 'import json,sys; print(*json.load(sys.stdin)["pytest_targets"], sep="\n")'
 )
+mapfile -t POLICY_SERIAL_TARGETS < <(
+  printf '%s' "$POLICY_JSON" | "$PY" -c 'import json,sys; print(*json.load(sys.stdin).get("serial_targets", ()), sep="\n")'
+)
+# The frontend FLAG a python+frontend mixed change carries (ADR-0080): the
+# frontend suite runs IN ADDITION to the pytest targets. Read as exact "true"
+# so a malformed value fails towards NOT skipping pytest rather than crashing.
+POLICY_FRONTEND="$(printf '%s' "$POLICY_JSON" | "$PY" -c 'import json,sys; print("true" if json.load(sys.stdin).get("frontend") is True else "false")')"
+
+run_frontend_suite() {
+  run_check "frontend tests" 90 node --test "$ROOT"/mockups/motv-workspace/tests/*.test.mjs
+}
 
 # --- run every configured quality check ------------------------------------
 # Each check has a bounded timeout so a hung command cannot stall the commit.
@@ -250,12 +261,28 @@ if [ -z "$FAIL_LABEL" ]; then
       # already makes this shell the fast one.
       run_check "pytest (full, parallel)" 240 "$PY" -m pytest -n 8 -m "not serial" \
         && run_check "pytest (full, serial)" 120 "$PY" -m pytest -m serial
+      if [ -z "$FAIL_LABEL" ] && [ "$POLICY_FRONTEND" = "true" ]; then
+        run_frontend_suite
+      fi
       ;;
-    workspace|pytest-targeted)
-      run_check "pytest ($POLICY_TIER)" 120 "$PY" -m pytest "${POLICY_PYTEST_TARGETS[@]}"
+    pytest-targeted)
+      # Ownership-mapped selection (ADR-0080). Directory-level targets can be
+      # most of a pytest domain, so the parallel run uses the same xdist
+      # setting as the full tier and excludes the serial marker; the
+      # real-process-tree tests arrive separately in serial_targets and must
+      # never go through xdist.
+      if [ "${#POLICY_PYTEST_TARGETS[@]}" -gt 0 ]; then
+        run_check "pytest (targeted)" 240 "$PY" -m pytest -n 8 -m "not serial" "${POLICY_PYTEST_TARGETS[@]}"
+      fi
+      if [ -z "$FAIL_LABEL" ] && [ "${#POLICY_SERIAL_TARGETS[@]}" -gt 0 ]; then
+        run_check "pytest (targeted, serial)" 120 "$PY" -m pytest "${POLICY_SERIAL_TARGETS[@]}"
+      fi
+      if [ -z "$FAIL_LABEL" ] && [ "$POLICY_FRONTEND" = "true" ]; then
+        run_frontend_suite
+      fi
       ;;
     frontend)
-      run_check "frontend tests" 90 node --test "$ROOT"/mockups/motv-workspace/tests/*.test.mjs
+      run_frontend_suite
       ;;
     lint)
       ;;

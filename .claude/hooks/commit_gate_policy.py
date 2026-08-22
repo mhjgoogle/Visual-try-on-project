@@ -41,32 +41,66 @@ _WORKSPACE_TESTS = (
 )
 _FRONTEND_PREFIX = "mockups/motv-workspace/"
 _FRONTEND_SUFFIXES = (".css", ".html", ".js", ".mjs")
-_HIGH_RISK_PREFIXES = (
-    "src/ai_video_workflow/security/",
-    "src/ai_video_workflow/config/",
-    "src/ai_video_workflow/assets/registration.py",
-    "src/ai_video_workflow/audio/registration.py",
-    "src/ai_video_workflow/composition/",
-    "src/ai_video_workflow/media/",
-    "src/ai_video_workflow/orchestration/",
+
+# ---------------------------------------------------------------------------
+# OWNERSHIP MAPPING (ADR-0080, supersedes ADR-0060's risk tiers).
+#
+# 产品负责人 2026-08-22: 「我不要每次都全量测试。」 Daily commits run the test
+# domain that OWNS the changed path (Test Scope = Change Impact Scope); the
+# whole-suite run remains the INTEGRATION CHECKPOINT (CI, chain end, pre-merge,
+# release/handover) plus the fail-closed answer for paths nothing owns.
+#
+# Consequences of being wrong stay asymmetric on purpose: an entry missing from
+# this table can only fall through to the FULL suite (over-testing); an entry
+# wrongly present runs that owner's tests instead of everything, so every row
+# below names the domain that genuinely owns the path per ADR-0080 decision 1.
+# ---------------------------------------------------------------------------
+
+#: The Studio's Python backend (server.py, runstore.py, skillpkg.py, serve.py,
+#: rootadmit.py, stage_evidence.py). Owned by tests/studio; the py<->js skill
+#: prompt parity contract also exercises skillpkg, so contract rides along.
+_STUDIO_PY_TARGETS = ("tests/contract", "tests/studio")
+
+#: Core shared modules of the backend package impact both the library's own
+#: tests and the Studio backend that imports it. e2e and the frontend suite
+#: stay at the integration checkpoint.
+_BACKEND_CORE_TARGETS = ("tests/backend", "tests/studio")
+
+#: The one test file that must run OUTSIDE xdist (real OS process trees).
+_SERIAL_TEST_FILES = frozenset({"tests/e2e/test_motv_run_lifecycle_task072.py"})
+
+#: Test-domain directories that contain NO serial tests, so a directory-level
+#: target is safe under `-n 8 -m "not serial"`.
+_TEST_DOMAIN_DIRS = (
+    "tests/backend/",
+    "tests/studio/",
+    "tests/contract/",
+    "tests/tooling/",
 )
-_HIGH_RISK_FILES = {
-    "src/ai_video_workflow/appendlog.py",
-    "src/ai_video_workflow/persistence.py",
-    "src/ai_video_workflow/models.py",
-    "src/ai_video_workflow/serialization.py",
-    "tests/conftest.py",
-    "pyproject.toml",
-    # The motv backend: persistence, schema migrations, identity and the paid
-    # paths all live in this one 6700-line file, which AGENTS.md rule 20 puts
-    # squarely in the whole-suite tier. It used to get its own `motv-server`
-    # tier (the 33 `tests/test_motv_*.py` files) purely because the full suite
-    # was too expensive to run on every edit. Measured 2026-08-15, after the
-    # two-phase parallel split (ADR-0069 decision 7): that tier is 121s (458
-    # tests) against 179s for the WHOLE suite (3142 tests) -- 58 seconds buys
-    # 2684 more tests, so the exemption no longer pays for itself.
-    "mockups/motv-workspace/server.py",
-}
+
+#: Repo-root test-support layer (conftest, scenario builders, fakes, _scan):
+#: it underpins every pytest domain, so its impact scope IS the full pytest run.
+_FULL_PYTEST_FILES = {"pyproject.toml", "tests/conftest.py"}
+
+_EXAMPLES_TARGETS = (
+    "tests/backend/test_example_project.py",
+    "tests/backend/test_wfm1_demo_example.py",
+    "tests/backend/test_wfm1_profile.py",
+    "tests/backend/test_wfm1_reuse.py",
+)
+_PROVIDER_CONFIG_TARGETS = (
+    "tests/backend/test_config_catalog.py",
+    "tests/contract/test_motv_refset_adr0071.py",
+)
+_SKILL_PACKAGE_TARGETS = ("tests/contract", "tests/studio")
+_TOOLING_TARGETS = ("tests/tooling",)
+_LAYOUT_TARGETS = ("tests/tooling/test_repository_layout.py",)
+
+#: Paths with no local test owner where the lint stage is the honest answer:
+#: CI config proves itself on push, and the git metadata files change behavior
+#: only inside git itself.
+_LINT_ONLY_PREFIXES = (".github/",)
+_LINT_ONLY_FILES = {".gitattributes", ".gitignore"}
 
 
 #: The continuous-modification-chain opt-in (ADR-0068 决策 7).
@@ -673,6 +707,15 @@ class Decision:
     #: Shown verbatim by both gates. Non-empty ONLY when a check was skipped —
     #: an invisible skip is how a temporary exception becomes permanent.
     notice: str = ""
+    #: Targets that must run OUTSIDE xdist (the real-process-tree tests). The
+    #: shells run `pytest_targets` under `-n 8 -m "not serial"` and these plain;
+    #: folding both into one list would either break the serial tests (xdist)
+    #: or fail with exit 5 (a serial-only selection filtered to nothing).
+    serial_targets: tuple[str, ...] = ()
+    #: A python+frontend MIXED change runs the frontend suite AS WELL as its
+    #: pytest targets. A dedicated flag rather than a pseudo pytest target, so
+    #: neither shell ever hands a node suite to pytest.
+    frontend: bool = False
 
 
 def _normalise(path: str) -> str:
@@ -697,12 +740,12 @@ def _is_docs(path: str) -> bool:
     return path.startswith(_AGENT_DOC_PREFIX) and path.endswith(_AGENT_DOC_SUFFIX)
 
 
-def _is_workspace_path(path: str) -> bool:
-    return path.startswith(_WORKSPACE_PREFIXES) or path in _WORKSPACE_TESTS
-
-
-def _is_frontend_path(path: str) -> bool:
-    return path.startswith(_FRONTEND_PREFIX) and path.endswith(_FRONTEND_SUFFIXES)
+def _is_lint_only(path: str) -> bool:
+    # Same `..` guard as `_is_docs`: a traversal-marked path never takes the
+    # cheap stage.
+    if ".." in PurePosixPath(path).parts:
+        return False
+    return path in _LINT_ONLY_FILES or path.startswith(_LINT_ONLY_PREFIXES)
 
 
 def _is_pytest_file(path: str) -> bool:
@@ -713,17 +756,86 @@ def _is_pytest_file(path: str) -> bool:
     )
 
 
-def _is_high_risk(path: str) -> bool:
-    return path in _HIGH_RISK_FILES or path.startswith(_HIGH_RISK_PREFIXES)
+#: A claim is (kind, targets): kind in {"frontend", "pytest", "serial", "full"}.
+_Claim = tuple[str, tuple[str, ...]]
 
 
-def _test_for_source(path: str) -> str | None:
-    """Return a conventional, existing unit-test counterpart when available."""
+def _claim(path: str) -> _Claim | None:
+    """Which test domain OWNS *path* (ADR-0080 decision 1). None = nobody -> full."""
 
-    if not (path.startswith("src/") and path.endswith(".py")):
+    if path.startswith(_FRONTEND_PREFIX):
+        if path.endswith(_FRONTEND_SUFFIXES):
+            return ("frontend", ())
+        if path.endswith(".py"):
+            return ("pytest", _STUDIO_PY_TARGETS)
+        return None  # runtime data / unknown asset under the Studio dir
+    if path.startswith(_WORKSPACE_PREFIXES):
+        return ("pytest", _WORKSPACE_TESTS)
+    if path.startswith("src/") and path.endswith(".py"):
+        # Top-level modules of the package (persistence, models, errors,
+        # digests, ...) are the de-facto common layer -- 20+ subpackages import
+        # them -- so their impact scope is backend AND the Studio backend even
+        # when a conventional per-module test exists. Inside a subpackage the
+        # conventional test wins; src/ui-gap-audit and anything else falls
+        # through to full.
+        if re.fullmatch(r"src/ai_video_workflow/[^/]+\.py", path):
+            return ("pytest", _BACKEND_CORE_TARGETS)
+        parts = PurePosixPath(path).parts
+        stem = Path(path).stem
+        candidates = [f"tests/backend/test_{stem}.py"]
+        if len(parts) >= 4:
+            # src/ai_video_workflow/<pkg>/<stem>.py -> test_<pkg>_<stem>.py is
+            # the dominant naming for subpackage modules.
+            candidates.insert(0, f"tests/backend/test_{parts[2]}_{stem}.py")
+        for target in candidates:
+            if Path(target).is_file():
+                return ("pytest", (target,))
+        if path.startswith(("src/ai_video_workflow/", "src/workspace_shell/")):
+            return ("pytest", _BACKEND_CORE_TARGETS)
         return None
-    target = f"tests/backend/test_{Path(path).stem}.py"
-    return target if Path(target).is_file() else None
+    if path in _FULL_PYTEST_FILES:
+        return ("full", ())
+    if path in _SERIAL_TEST_FILES:
+        # A DELETED serial test cannot be handed to pytest as a target; its
+        # domain dir would drag nothing serial anyway, so fall back to full.
+        return ("serial", (path,)) if Path(path).is_file() else ("full", ())
+    if _is_pytest_file(path):
+        if Path(path).is_file():
+            return ("pytest", (path,))
+        # A deleted test file is still a change to its domain: run the OWNING
+        # domain so the deletion cannot silently break a neighbour (imports,
+        # shared helpers), instead of handing pytest a path that no longer
+        # exists (usage error -> gate block).
+        parts = path.split("/")
+        if len(parts) > 2 and f"tests/{parts[1]}/" in _TEST_DOMAIN_DIRS:
+            return ("pytest", (f"tests/{parts[1]}",))
+        return ("full", ())
+    if path.startswith("tests/"):
+        parts = path.split("/")
+        if len(parts) == 2:
+            # Repo-root test-support layer (conftest, scenario builders,
+            # fakes): underpins every domain, so full pytest is its scope.
+            return ("full", ())
+        domain = parts[1]
+        if f"tests/{domain}/" in _TEST_DOMAIN_DIRS:
+            # Domain fixtures and helpers: run the owning domain. tests/e2e is
+            # deliberately absent (its dir target would drag the serial test
+            # under xdist), so an e2e support file falls through to full.
+            return ("pytest", (f"tests/{domain}",))
+        return None
+    if path.startswith(".claude/"):
+        # Agent tooling (hooks, skill scripts, settings wiring). Markdown under
+        # .claude/ is documentation and never reaches this function.
+        return ("pytest", _TOOLING_TARGETS)
+    if path.startswith("scripts/"):
+        return ("pytest", _LAYOUT_TARGETS)
+    if path.startswith("product-skills/"):
+        return ("pytest", _SKILL_PACKAGE_TARGETS)
+    if path.startswith("examples/"):
+        return ("pytest", _EXAMPLES_TARGETS)
+    if path.startswith("config/"):
+        return ("pytest", _PROVIDER_CONFIG_TARGETS)
+    return None
 
 
 def chain_mode_from_command(command: str) -> bool:
@@ -830,35 +942,53 @@ def _classify(paths: list[str]) -> Decision:
             "a path contains a literal backslash — cannot be classified safely",
         )
 
-    non_docs = tuple(path for path in changed if not _is_docs(path))
+    non_docs = tuple(
+        path for path in changed if not (_is_docs(path) or _is_lint_only(path))
+    )
     if not non_docs:
         return Decision("lint", "documentation-only change")
 
-    if any(_is_high_risk(path) for path in non_docs):
+    pytest_targets: set[str] = set()
+    serial_targets: set[str] = set()
+    frontend = False
+    needs_full_pytest = False
+    for path in non_docs:
+        claim = _claim(path)
+        if claim is None:
+            return Decision("full", _REASON_NO_MAPPING)
+        kind, targets = claim
+        if kind == "frontend":
+            frontend = True
+        elif kind == "serial":
+            serial_targets.update(targets)
+        elif kind == "full":
+            needs_full_pytest = True
+        else:
+            pytest_targets.update(targets)
+
+    if needs_full_pytest:
+        # The whole pytest run already contains every targeted selection; the
+        # frontend flag still rides along for a mixed change.
         return Decision(
-            "full", "high-risk persistence, security, schema, or render path"
+            "full", "path underpins the whole pytest suite", frontend=frontend
         )
-
-    if all(_is_workspace_path(path) for path in non_docs):
+    # Drop targets subsumed by a directory-level target of the same domain, so
+    # one test does not run twice in the same gate invocation.
+    dirs = {target for target in pytest_targets if not target.endswith(".py")}
+    pytest_targets = {
+        target
+        for target in pytest_targets
+        if target in dirs or not any(target.startswith(f"{d}/") for d in dirs)
+    }
+    if pytest_targets or serial_targets:
         return Decision(
-            "workspace", "bounded workspace read-model surface", _WORKSPACE_TESTS
+            "pytest-targeted",
+            "ownership-mapped test selection",
+            tuple(sorted(pytest_targets)),
+            serial_targets=tuple(sorted(serial_targets)),
+            frontend=frontend,
         )
-
-    if all(_is_frontend_path(path) for path in non_docs):
-        return Decision("frontend", "bounded frontend-only surface")
-
-    if all(_is_pytest_file(path) for path in non_docs):
-        return Decision("pytest-targeted", "test-only change", tuple(non_docs))
-
-    targets = tuple(
-        sorted({target for path in non_docs if (target := _test_for_source(path))})
-    )
-    if len(targets) == len(non_docs):
-        return Decision(
-            "pytest-targeted", "conventional source-to-test mapping", targets
-        )
-
-    return Decision("full", _REASON_NO_MAPPING)
+    return Decision("frontend", "bounded frontend-only surface")
 
 
 def _run_intent_mode() -> Intent:

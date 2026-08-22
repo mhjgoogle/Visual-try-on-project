@@ -32,7 +32,7 @@ def test_workspace_change_runs_the_conservative_workspace_regression_set() -> No
         ]
     )
 
-    assert decision.tier == "workspace"
+    assert decision.tier == "pytest-targeted"
     assert "tests/e2e/test_workspace_wfm1_acceptance.py" in decision.pytest_targets
     assert "tests/backend/test_workspace_write.py" in decision.pytest_targets
 
@@ -51,45 +51,60 @@ def test_test_only_change_runs_its_changed_test_file() -> None:
 
 
 def test_conventional_source_runs_its_matching_test_file() -> None:
-    decision = _POLICY.classify(["src/ai_video_workflow/validation.py"])
+    # Inside a subpackage the conventional per-module test wins…
+    decision = _POLICY.classify(["src/ai_video_workflow/budget/ledger.py"])
 
     assert decision.tier == "pytest-targeted"
-    assert decision.pytest_targets == ("tests/backend/test_validation.py",)
+    assert decision.pytest_targets == ("tests/backend/test_budget_ledger.py",)
+
+    # …but a TOP-LEVEL module is the package's common layer (20+ subpackages
+    # import it), so even with a conventional test present the impact scope is
+    # backend + studio (ADR-0080).
+    top = _POLICY.classify(["src/ai_video_workflow/validation.py"])
+    assert top.pytest_targets == ("tests/backend", "tests/studio")
 
 
-def test_persistence_and_mixed_surfaces_are_never_fast_laned() -> None:
-    assert _POLICY.classify(["src/ai_video_workflow/persistence.py"]).tier == "full"
+def test_core_modules_map_to_backend_and_studio_owners() -> None:
+    """ADR-0080：核心共享模块的影响域 = 库自己的测试 + import 它的 Studio 后端。
+
+    产品负责人 2026-08-22（「我不要每次都全量测试。」）之后，「高风险标签→全量」
+    被归属映射取代；全量是集成检查点（CI / 链尾 / merge 前），不是日常提交税。
+    """
+    decision = _POLICY.classify(["src/ai_video_workflow/persistence.py"])
+    assert decision.tier == "pytest-targeted"
+    assert decision.pytest_targets == ("tests/backend", "tests/studio")
+
+    # 根测试支撑层（conftest / scenario / 假件）托着每个 pytest 域，
+    # 它的影响域就是整个 pytest 运行。
     assert _POLICY.classify(["tests/conftest.py"]).tier == "full"
-    assert (
-        _POLICY.classify(
-            ["src/workspace_shell/server.py", "mockups/motv-workspace/assets/app.js"]
-        ).tier
-        == "full"
+
+    mixed = _POLICY.classify(
+        ["src/workspace_shell/server.py", "mockups/motv-workspace/assets/app.js"]
     )
+    assert mixed.tier == "pytest-targeted"
+    assert mixed.frontend is True
+    assert "tests/backend/test_workspace_shell.py" in mixed.pytest_targets
 
 
-def test_the_motv_backend_gets_the_whole_suite_not_its_own_tier() -> None:
-    """`server.py` 是 motv 后端的持久化 / schema 迁移 / 身份 / 付费路径所在。
+def test_the_motv_backend_maps_to_studio_and_contract_owners() -> None:
+    """`server.py` 是 Studio 后端：tests/studio 是它的归属域，tests/contract
+    钉住它与前端共享的合同（skill prompt parity 等）。
 
-    它曾有一个专属的 `motv-server` tier（只跑 33 个 `test_motv_*.py`），理由纯粹
-    是当时全量太贵。2026-08-15 实测：那个 tier 121s（458 项），全量两阶段 179s
-    （3142 项）——58 秒换 2684 个测试，豁免不再划算，且 AGENTS.md 第 20 条本来
-    就把持久化 / schema 放在全量档。
-
-    这条守卫钉的是**分档结果**，不是当时的耗时数字：谁要把它改回定向档，
-    得先解释为什么持久化和 schema 迁移可以不跑全量。
+    历史：它先有专属 `motv-server` tier，后并入全量（2026-08-15 的耗时论证）；
+    ADR-0080（产品负责人 2026-08-22 裁决）把它改为归属映射——变化的是
+    「全量在哪里跑」（集成检查点），不是「它要不要被测」。
     """
     decision = _POLICY.classify(["mockups/motv-workspace/server.py"])
 
-    assert decision.tier == "full"
-    assert decision.pytest_targets == ()
+    assert decision.tier == "pytest-targeted"
+    assert decision.pytest_targets == ("tests/contract", "tests/studio")
 
 
-def test_deleted_high_risk_path_is_not_hidden_from_full_validation() -> None:
+def test_deleted_support_layer_path_is_not_hidden_from_full_validation() -> None:
     decision = _POLICY.classify(
         [
             "docs/adr/ADR-0060-risk-based-local-commit-gate.md",
-            "src/ai_video_workflow/persistence.py",
+            "tests/conftest.py",
         ]
     )
 
@@ -100,25 +115,21 @@ def test_deleted_high_risk_path_is_not_hidden_from_full_validation() -> None:
 
 
 def test_without_the_opt_in_the_original_gate_is_unchanged() -> None:
-    """The chain mode is opt-in per commit. Nothing about the risk table moves."""
-    decision = _POLICY.classify(
-        ["src/ai_video_workflow/persistence.py"], chain_mode=False
-    )
+    """The chain mode is opt-in per commit. Nothing about the mapping moves."""
+    decision = _POLICY.classify(["tests/conftest.py"], chain_mode=False)
     assert decision.tier == "full"
     assert decision.notice == ""
 
 
-def test_the_opt_in_defers_the_whole_suite_but_keeps_the_risk_honest() -> None:
+def test_the_opt_in_defers_the_whole_suite_but_keeps_the_reason_honest() -> None:
     """ADR-0068 决策 3: whole-suite runs move to the end of the chain. The change
-    is still high-risk — only the place that run happens changes."""
-    decision = _POLICY.classify(
-        ["src/ai_video_workflow/persistence.py"], chain_mode=True
-    )
+    still owns the whole suite — only the place that run happens changes."""
+    decision = _POLICY.classify(["tests/conftest.py"], chain_mode=True)
     assert decision.tier == "continuous-chain"
     assert decision.pytest_targets == ()
     # the ORIGINAL classification is still stated, so the record does not
-    # pretend the change was low-risk
-    assert "high-risk" in decision.reason
+    # pretend the change was narrowly scoped
+    assert "whole pytest suite" in decision.reason
     assert "ADR-0068" in decision.notice
 
 
@@ -136,7 +147,7 @@ def test_targeted_tiers_still_run_under_the_opt_in() -> None:
     for paths, tier in (
         (["src/ai_video_workflow/validation.py"], "pytest-targeted"),
         (["tests/backend/test_validation.py"], "pytest-targeted"),
-        (["src/workspace_shell/app.py"], "workspace"),
+        (["src/workspace_shell/app.py"], "pytest-targeted"),
     ):
         decision = _POLICY.classify(paths, chain_mode=True)
         assert decision.tier == tier, paths
@@ -205,14 +216,14 @@ def test_the_opt_in_cannot_ride_along_with_a_push_or_merge() -> None:
     """ADR-0068 决策 6 is the one invariant the ADR marks non-negotiable, and a
     single `&&` defeated it: the chain's own escape hatch pushed a commit whose
     full suite had never run (independent review, round 3)."""
-    high_risk = ["src/ai_video_workflow/persistence.py"]
+    whole_suite = ["tests/conftest.py"]
     for cmd in (
         'MOTV_CONTINUOUS_CHAIN=1 git commit -m "batch 2" && git push',
         "MOTV_CONTINUOUS_CHAIN=1 git commit -m x; git push origin main",
         "MOTV_CONTINUOUS_CHAIN=1 git commit -m x && git merge --ff-only main",
         "# MOTV_CONTINUOUS_CHAIN=1\ngit commit -m x\ngit push",
     ):
-        decision = _POLICY.decide(high_risk, cmd, tool_name="Bash")
+        decision = _POLICY.decide(whole_suite, cmd, tool_name="Bash")
         assert decision.tier == "chain-conflict", cmd
         assert "ADR-0068" in decision.reason
         assert decision.notice == "", cmd
@@ -227,7 +238,9 @@ def test_the_opt_in_cannot_ride_along_with_a_push_or_merge() -> None:
     # …and WITHOUT the opt-in the compound is none of this policy's business:
     # that commit ran its full suite, so pushing it is legitimate.
     assert (
-        _POLICY.decide(high_risk, "git commit -m x && git push", tool_name="Bash").tier
+        _POLICY.decide(
+            whole_suite, "git commit -m x && git push", tool_name="Bash"
+        ).tier
         == "full"
     )
 
@@ -254,7 +267,7 @@ def test_classify_never_consults_the_environment() -> None:
     old = os.environ.get("MOTV_CONTINUOUS_CHAIN")
     os.environ["MOTV_CONTINUOUS_CHAIN"] = "1"
     try:
-        assert _POLICY.classify(["src/ai_video_workflow/persistence.py"]).tier == "full"
+        assert _POLICY.classify(["tests/conftest.py"]).tier == "full"
     finally:
         if old is None:
             os.environ.pop("MOTV_CONTINUOUS_CHAIN", None)
@@ -301,7 +314,7 @@ def test_the_cli_both_shells_actually_invoke_behaves_end_to_end() -> None:
     import json
     import subprocess
 
-    high_risk = "src/ai_video_workflow/persistence.py"
+    whole_suite = "tests/conftest.py"
 
     def run(chain_mode: str, *paths: str) -> dict:
         result = subprocess.run(
@@ -324,14 +337,21 @@ def test_the_cli_both_shells_actually_invoke_behaves_end_to_end() -> None:
         # could not tell them apart, because Intent carries a `tier` too — so a
         # classifier call that silently ran in INTENT mode still looked right
         # (变异验证 2026-08-16: that mutation survived until this line existed).
-        assert set(answer) == {"tier", "reason", "pytest_targets", "notice"}, answer
+        assert set(answer) == {
+            "tier",
+            "reason",
+            "pytest_targets",
+            "serial_targets",
+            "frontend",
+            "notice",
+        }, answer
         return answer
 
-    assert run("1", high_risk)["tier"] == "continuous-chain"
-    assert run("0", high_risk)["tier"] == "full"
+    assert run("1", whole_suite)["tier"] == "continuous-chain"
+    assert run("0", whole_suite)["tier"] == "full"
     # EXACT "1": a switch that can be turned on vaguely gets turned on vaguely
     for vague in ("true", "yes", "on", "01", ""):
-        assert run(vague, high_risk)["tier"] == "full", vague
+        assert run(vague, whole_suite)["tier"] == "full", vague
     # targeted tiers survive the opt-in; docs stay lint; unknown paths stay full
     assert run("1", "src/ai_video_workflow/validation.py")["tier"] == "pytest-targeted"
     assert run("1", "docs/x.md")["tier"] == "lint"
@@ -346,7 +366,7 @@ def test_the_cli_both_shells_actually_invoke_behaves_end_to_end() -> None:
     for staged_path in ("--chain-mode", "--intent", "--"):
         assert run("1", staged_path)["tier"] == "full", staged_path
     # the notice survives the round trip intact, Chinese lines included
-    notice = run("1", high_risk)["notice"]
+    notice = run("1", whole_suite)["notice"]
     assert notice.splitlines()[0].isascii()
     assert "链尾" in notice
 
@@ -737,9 +757,7 @@ def test_the_chain_token_refuses_every_way_of_moving_commits(tail) -> None:
     · 动词表里只有两个，另外三种把提交带出去/整合进来的方式全部放行。
     """
     cmd = "MOTV_CONTINUOUS_CHAIN=1 git commit -m x && " + tail
-    decision = _POLICY.decide(
-        ["src/ai_video_workflow/persistence.py"], cmd, tool_name="Bash"
-    )
+    decision = _POLICY.decide(["tests/conftest.py"], cmd, tool_name="Bash")
     assert decision.tier == "chain-conflict", (
         tail + " 必须被拒绝，实为 " + decision.tier
     )
@@ -750,7 +768,7 @@ def test_the_token_must_not_be_triggered_from_the_commit_message() -> None:
     锚定是有效的。这条留作反向守卫：它一旦真的成立，减档就成了任何人打一句
     话就能打开的开关。"""
     decision = _POLICY.decide(
-        ["src/ai_video_workflow/persistence.py"],
+        ["tests/conftest.py"],
         'git commit -m "note: MOTV_CONTINUOUS_CHAIN=1 was used earlier"',
         tool_name="Bash",
     )
@@ -760,7 +778,7 @@ def test_the_token_must_not_be_triggered_from_the_commit_message() -> None:
 def test_a_normal_chain_commit_still_gets_the_reduced_tier() -> None:
     """扩大拒绝面不能把连续修改链本身也堵死。"""
     decision = _POLICY.decide(
-        ["src/ai_video_workflow/persistence.py"],
+        ["tests/conftest.py"],
         "MOTV_CONTINUOUS_CHAIN=1 git commit -m x",
         tool_name="Bash",
     )
@@ -1073,7 +1091,7 @@ def test_a_commit_message_mentioning_push_is_no_longer_a_chain_conflict() -> Non
     和它有没有出现在某条信息里，是两个不同的问题。
     """
     token = "MOTV_CONTINUOUS_CHAIN=1"
-    high_risk = ["src/ai_video_workflow/persistence.py"]
+    high_risk = ["tests/conftest.py"]
 
     allowed = _POLICY.decide(
         high_risk, f'{token} git commit -m "say push here"', tool_name="Bash"

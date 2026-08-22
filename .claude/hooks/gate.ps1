@@ -372,8 +372,10 @@ if (-not (Test-Path -LiteralPath $py -PathType Leaf)) {
 
 # --- run every configured quality check ------------------------------------
 # Each check has a bounded timeout so a hung command cannot stall the commit.
-# The per-check budget sums to 946s (15+15+900+8+8) and the hook cap in
-# settings.json is 1000s. That 54s of slack is NOT cosmetic: it must cover the
+# The per-check budget's worst case is the full tier with the frontend flag:
+# 916s (15+15+600+180+90+8+8); the ownership-mapped targeted tier peaks at 736s
+# (15+15+480+120+90+8+8). The hook cap in settings.json is 1000s. The remaining
+# slack is NOT cosmetic: it must cover the
 # worst-case teardown of a hung check (up to 10s waiting on the tree kill plus
 # 2x10s on the bounded stream drains) so this script always reaches its own
 # `exit 2`. If the outer harness times the hook out first, the failure is
@@ -417,7 +419,7 @@ if ($intent.force_full) {
     # describe it either (decision 4). Skip the diff and run everything: asking
     # git what is staged would answer a question about THIS repo that the
     # unreadable command may not even have been about.
-    $policy = [pscustomobject]@{ tier = 'full'; pytest_targets = @(); notice = '' }
+    $policy = [pscustomobject]@{ tier = 'full'; pytest_targets = @(); serial_targets = @(); frontend = $false; notice = '' }
 }
 else {
     $diffArgs = @('diff', '--cached', '--name-only', '--no-renames', '-z')
@@ -489,6 +491,36 @@ $checks = @(
     @{ Label = 'ruff check'; Timeout = 15; File = $py; Args = @('-m', 'ruff', 'check', '.') }
 )
 
+# Frontend suite assembly, shared by the `frontend` tier and the `frontend`
+# FLAG a python+frontend mixed change carries (ADR-0080). FAIL CLOSED, like
+# every other spawn in Phase B. With $ErrorActionPreference='Stop' a missing
+# test directory is a TERMINATING error, and an unhandled one exits the script
+# with 1 -- which PreToolUse reads as a non-blocking hook error, so the commit
+# lands with ZERO checks run (not even ruff, since tier assembly runs before
+# the check loop). A commit that MOVES mockups/motv-workspace/tests/ classifies
+# as `frontend` and hits exactly this (independent review, round 4); the
+# `-eq 0` guard below is dead in that case because the throw comes first.
+function Get-FrontendSuiteCheck {
+    $node = Get-Command node -ErrorAction SilentlyContinue
+    if (-not $node) {
+        Write-Block -Label 'frontend tests' -Output 'node was not found on PATH.'
+    }
+    try {
+        $nodeTests = @(
+            Get-ChildItem -LiteralPath (Join-Path $root 'mockups\motv-workspace\tests') -Filter '*.test.mjs' |
+                Sort-Object Name |
+                ForEach-Object FullName
+        )
+    }
+    catch {
+        Write-Block -Label 'frontend tests' -Output "could not list frontend test files: $($_.Exception.Message)"
+    }
+    if ($nodeTests.Count -eq 0) {
+        Write-Block -Label 'frontend tests' -Output 'no frontend test files were found.'
+    }
+    return @{ Label = 'frontend tests'; Timeout = 90; File = $node.Source; Args = @('--test') + $nodeTests }
+}
+
 switch ($policy.tier) {
     'full' {
         # Two phases (see pyproject.toml [tool.pytest.ini_options].markers):
@@ -505,40 +537,28 @@ switch ($policy.tier) {
         # workers stop paying once fsync dominates.
         $checks += @{ Label = 'pytest (full, parallel)'; Timeout = 600; File = $py; Args = @('-m', 'pytest', '-n', '8', '-m', 'not serial') }
         $checks += @{ Label = 'pytest (full, serial)';   Timeout = 180; File = $py; Args = @('-m', 'pytest', '-m', 'serial') }
-    }
-    'workspace' {
-        $checks += @{ Label = 'pytest (workspace)'; Timeout = 120; File = $py; Args = @('-m', 'pytest') + @($policy.pytest_targets) }
+        if ($policy.frontend) {
+            $checks += Get-FrontendSuiteCheck
+        }
     }
     'pytest-targeted' {
-        $checks += @{ Label = 'pytest (targeted)'; Timeout = 120; File = $py; Args = @('-m', 'pytest') + @($policy.pytest_targets) }
+        # Ownership-mapped selection (ADR-0080). Directory-level targets can be
+        # most of a pytest domain, so the parallel run uses the same xdist
+        # setting as the full tier and excludes the serial marker; the
+        # real-process-tree tests arrive separately in serial_targets and must
+        # never go through xdist.
+        if (@($policy.pytest_targets).Count -gt 0) {
+            $checks += @{ Label = 'pytest (targeted)'; Timeout = 480; File = $py; Args = @('-m', 'pytest', '-n', '8', '-m', 'not serial') + @($policy.pytest_targets) }
+        }
+        if (@($policy.serial_targets).Count -gt 0) {
+            $checks += @{ Label = 'pytest (targeted, serial)'; Timeout = 120; File = $py; Args = @('-m', 'pytest') + @($policy.serial_targets) }
+        }
+        if ($policy.frontend) {
+            $checks += Get-FrontendSuiteCheck
+        }
     }
     'frontend' {
-        $node = Get-Command node -ErrorAction SilentlyContinue
-        if (-not $node) {
-            Write-Block -Label 'frontend tests' -Output 'node was not found on PATH.'
-        }
-        # FAIL CLOSED, like every other spawn in Phase B. With
-        # $ErrorActionPreference='Stop' a missing test directory is a TERMINATING
-        # error, and an unhandled one exits the script with 1 -- which PreToolUse
-        # reads as a non-blocking hook error, so the commit lands with ZERO
-        # checks run (not even ruff, since this switch runs before the check
-        # loop). A commit that MOVES mockups/motv-workspace/tests/ classifies as
-        # `frontend` and hits exactly this (independent review, round 4); the
-        # `-eq 0` guard below is dead in that case because the throw comes first.
-        try {
-            $nodeTests = @(
-                Get-ChildItem -LiteralPath (Join-Path $root 'mockups\motv-workspace\tests') -Filter '*.test.mjs' |
-                    Sort-Object Name |
-                    ForEach-Object FullName
-            )
-        }
-        catch {
-            Write-Block -Label 'frontend tests' -Output "could not list frontend test files: $($_.Exception.Message)"
-        }
-        if ($nodeTests.Count -eq 0) {
-            Write-Block -Label 'frontend tests' -Output 'no frontend test files were found.'
-        }
-        $checks += @{ Label = 'frontend tests'; Timeout = 90; File = $node.Source; Args = @('--test') + $nodeTests }
+        $checks += Get-FrontendSuiteCheck
     }
     'lint' { }
     'continuous-chain' {
