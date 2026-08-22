@@ -555,7 +555,7 @@ export function motionStamp({ text, spec, sourceUrl } = {}) {
       spec.shake ? spec.shake.amp.toFixed(6) : "-",
       spec.still ? "still" : "moving",
     ].join(",") : "-",
-  ].join(" ");
+  ].join("\u0000");
   let h = 0x811c9dc5;
   for (let i = 0; i < canonical.length; i += 1) {
     h ^= canonical.charCodeAt(i);
