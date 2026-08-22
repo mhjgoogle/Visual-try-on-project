@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "change_id": "repo-decoupling",
+  "branch": "change/TASK-102-repo-decoupling",
+  "status": "open",
+  "created": "2026-08-22T07:18:22+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-102": {
+      "commits": [],
+      "paths": [
+        "docs/tasks/TASK-102-repo-test-decoupling.md",
+        "docs/tasks/TASK-102-scope-injection-evidence-2026-08-22.md"
+      ],
+      "verification": "PASS",
+      "verification_ref": "docs-only：任务卡与范围注入事件留痕，无代码/测试影响（gate lint 档）",
+      "declared": "2026-08-22T07:21:16+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PENDING"
+  },
+  "merge": null,
+  "cleanup": null
+}
