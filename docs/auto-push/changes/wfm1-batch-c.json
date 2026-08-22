@@ -56,30 +56,30 @@
       "declared": "2026-08-22T05:56:34+00:00"
     },
     "TASK-099": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "dc8fc719d2b7487729b8e678ccb55db372bb016e",
+          "subject": "仓库根目录治理：启动器移入 scripts/launch、pytest 配置移入 tests/（移动非删除；ADR-0077，Codex 实施+审查通过，本会话代提交）（TASK-099 · wfm1-batch-c）",
+          "time": "2026-08-22T06:57:59+00:00",
+          "branch": "feat/wfm1-batch-c",
+          "pushed": false,
+          "scope_violation": null
+        },
+        {
+          "hash": "8c633412b32ade3661c0e60d0a301c9d21021b39",
+          "subject": "fix(TASK-099): 恢复 scripts/launch/studio.sh 可执行位 100755 —— 暂存区往返弄丢 mode，Ubuntu CI 的 test_repository_layout 第 49 行会翻红（Windows 上 os.access(X_OK) 恒真所以本地全量已绿）（TASK-099 · wfm1-batch-c）",
+          "time": "2026-08-22T07:05:22+00:00",
+          "branch": "feat/wfm1-batch-c",
+          "pushed": false,
+          "scope_violation": null
+        }
+      ],
       "paths": [
-        ".claude/hooks/commit_gate_policy.py",
-        ".claude/hooks/gate.ps1",
-        ".claude/skills/dev-workflow/references/repo-contract.md",
-        "AGENTS.md",
-        "README.md",
-        "conftest.py",
-        "docs/adr/ADR-0077-repository-path-ownership.md",
-        "docs/design/pending-speedup-and-gate-fix.md",
-        "docs/design/task097-handover-2026-08-19.md",
-        "docs/tasks/TASK-099-repository-path-ownership.md",
-        "mockups/motv-workspace/README.md",
-        "run-windows.bat",
-        "run-windows.ps1",
-        "run.sh",
-        "scripts/",
-        "tests/conftest.py",
-        "tests/test_commit_gate_policy.py",
-        "tests/test_repository_layout.py"
+        "scripts/launch/studio.sh"
       ],
       "verification": "PASS",
-      "verification_ref": "本会话 2026-08-22 干净树全量：pytest -n 8 -m 'not serial' 3402 passed/58 skipped + pytest -m serial 6 passed + 前端 node --test 1763 passed + ruff check/format 全过；TASK-099 卡内定向 67 passed/1 skipped；独立审查已过（P1-P4 均 0）",
-      "declared": "2026-08-22T06:52:41+00:00"
+      "verification_ref": "mode-only 修复：恢复 studio.sh 的 100755（tests/test_repository_layout.py 第 49 行断言的 Ubuntu 语义；Windows 上 os.access(X_OK) 恒真故本地全量已绿）",
+      "declared": "2026-08-22T06:58:12+00:00"
     }
   },
   "merge_gate": {
