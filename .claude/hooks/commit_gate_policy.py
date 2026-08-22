@@ -121,6 +121,27 @@ _FULL_PYTEST_FILES = {"pyproject.toml", "tests/conftest.py"}
 #: this" -> the whole derivation fails closed to the full run.
 _TESTS_PACKAGE = "tests"
 
+#: The AST BLIND-SPOT TRIGGER. Not an identifier of dependencies — that is the
+#: AST's job — but a detector for "there may be a dependency the AST cannot
+#: see" (codex review, TASK-102, round 3).
+#:
+#: `importlib.import_module("tests.foo")` and `__import__("tests.foo")` are
+#: real imports that produce no Import/ImportFrom node, and dropping the earlier
+#: textual check turned them into a SILENT omission -> too few domains. Both
+#: forms must spell the module name as a string, so: when the AST found no
+#: import but the text still names the module, refuse to narrow anything and
+#: fall back to the full run.
+#:
+#: (This repo already treats that class as known: tests/backend/
+#: test_orchestration_layout.py detects "ANY mechanism — static Import /
+#: ImportFrom, __import__, or importlib.import_module, including aliased
+#: forms". Rather than re-implement that analysis, this errs to the safe side.)
+#:
+#: A mere mention in a comment therefore also forces the full run. That is the
+#: harmless direction, and it stays rare: in this repo every mention of a
+#: support module is a real import.
+_BLIND_SPOT_RE = r"\btests\.{stem}(?![\w.])"
+
 _EXAMPLES_TARGETS = (
     "tests/backend/test_example_project.py",
     "tests/backend/test_wfm1_demo_example.py",
@@ -821,6 +842,7 @@ def _domains_importing(stem: str, root: Path | None = None) -> tuple[str, ...]:
     # TASK-102, second round). Production always passes None: both gates run the
     # classifier with the repo root as the working directory.
     base = Path() if root is None else root
+    blind_spot = re.compile(_BLIND_SPOT_RE.format(stem=re.escape(stem)))
     domains: set[str] = set()
     for domain_dir in _TEST_DOMAIN_DIRS:
         try:
@@ -832,7 +854,8 @@ def _domains_importing(stem: str, root: Path | None = None) -> tuple[str, ...]:
             return ()
         for candidate in candidates:
             try:
-                tree = ast.parse(candidate.read_text(encoding="utf-8"))
+                text = candidate.read_text(encoding="utf-8")
+                tree = ast.parse(text)
             except (OSError, UnicodeDecodeError, SyntaxError, ValueError):
                 # Cannot prove this file does NOT import the module, so widen
                 # to the full run rather than guess.
@@ -840,6 +863,11 @@ def _domains_importing(stem: str, root: Path | None = None) -> tuple[str, ...]:
             if _imports_support_module(tree, stem):
                 domains.add(domain_dir.rstrip("/"))
                 break
+            if blind_spot.search(text):
+                # The AST saw no import, yet the text names the module: it may
+                # be a dynamic import the AST cannot represent. Refuse to
+                # narrow (see _BLIND_SPOT_RE).
+                return ()
     return tuple(sorted(domains))
 
 

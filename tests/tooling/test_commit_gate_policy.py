@@ -1636,3 +1636,32 @@ def test_the_derivation_sees_consumers_in_nested_directories(tmp_path: Path) -> 
     (nested / "test_probe.py").write_text(_consumer(stem), encoding="utf-8")
 
     assert _POLICY._domains_importing(stem, root=tmp_path) == ("tests/contract",)
+
+
+def test_a_dynamic_import_forces_the_full_run(tmp_path: Path) -> None:
+    """P1（codex, TASK-102，第三轮）：``importlib.import_module("tests.foo")``
+    与 ``__import__("tests.foo")`` 是**真的 import**，却不产生任何
+    Import/ImportFrom 节点。改用 ast 之后我把原来的文本兜底删了，于是这类
+    使用者被**静默漏掉** —— 又一次落在「跑得比该跑的少」这一侧。
+
+    修法不是去实现完整的动态 import 分析（本仓库 tests/backend/
+    test_orchestration_layout.py 已经有那套），而是把文本检查以正确的角色
+    加回来：它不识别依赖（那是 ast 的活），它检测「ast 之外可能还有依赖」。
+    两种动态写法都必须把模块名写成字符串，所以文本一定看得见。
+    """
+    stem = "probe_dynamic"
+    _plant(tmp_path, "studio", "test_static_user.py", _consumer(stem))
+    assert _POLICY._domains_importing(stem, root=tmp_path) == ("tests/studio",)
+
+    for source in (
+        f"import importlib{NL}{NL}{NL}def test_dyn() -> None:{NL}"
+        f"    assert importlib.import_module('tests.{stem}'){NL}",
+        f"def test_dyn() -> None:{NL}    assert __import__('tests.{stem}'){NL}",
+    ):
+        _plant(tmp_path, "contract", "test_dynamic_user.py", source)
+        assert _POLICY._domains_importing(stem, root=tmp_path) == (), (
+            "ast 看不见的引用形态必须让整个派生退回全量，而不是漏掉那个域"
+        )
+    (tmp_path / "tests" / "contract" / "test_dynamic_user.py").unlink()
+    # 盲区消失后回到精确答案，证明它不是永久降级
+    assert _POLICY._domains_importing(stem, root=tmp_path) == ("tests/studio",)
