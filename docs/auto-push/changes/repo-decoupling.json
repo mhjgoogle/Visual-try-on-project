@@ -72,6 +72,14 @@
           "branch": "change/TASK-102-repo-decoupling",
           "pushed": false,
           "scope_violation": null
+        },
+        {
+          "hash": "f71657d6d166b7262cea99e01f6861cc266fc4fb",
+          "subject": "docs(TASK-102): 收口 F 批与轮 3-5 审查记录 —— 4 条 P1 全修 + 1 条范围性 rebut、轮次超支理由、变异验证抓到的两个假守卫",
+          "time": "2026-08-22T13:18:02+00:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null
         }
       ],
       "paths": [
