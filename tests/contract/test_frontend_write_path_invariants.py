@@ -181,6 +181,82 @@ def test_single_media_write_path_is_mediaref() -> None:
     assert hits == [], f"parallel media write paths found: {hits}"
 
 
+# --- TASK-103：唯一 API Client 出口（创作者系统合同 §7.1 规定 10）---------------
+
+#: `fetch` 的裸调用在前端**只允许**出现在这一个模块里。
+_THE_ONE_FETCH_OUTLET = "services/apiclient.js"
+
+#: 唯一的显式豁免，连同它成立的理由。
+#:
+#: `mediaprobe.js` 探的是**媒体字节**（对资产 URL 发 `HEAD`），不是后端 API ——
+#: 规定 10 点名的五个模块里本来就没有它，而 `apiclient` 是 JSON API 客户端，
+#: 把字节探测塞进去会让「问不出来」这个第三态失去它自己的分类。它那一处还是
+#: 测试注入点（`fetchImpl`），去掉等于让探针无法被断言。
+#:
+#: 豁免是**被断言的，不是被假设的**：下面会钉住它只有这一处、且就是那个注入
+#: 默认值。多出第二处、或那一处变成真实调用，测试就红 —— 所以这张免票盖不到
+#: 别的文件头上（照 `test_single_media_write_path_is_mediaref` 的既有做法）。
+_DECLARED_EXEMPTIONS = {"services/mediaprobe.js": 1}
+
+#: 裸调用：`fetch(` 前面不能紧跟标识符字符或点号，于是 `fetchImpl(` /
+#: `fetchAsDataUrl(` / `x.fetch(` 都不算，`await fetch(` 算。
+_BARE_FETCH = re.compile(r"(?<![A-Za-z0-9_$.])fetch\s*\(")
+
+
+def test_only_the_api_client_may_call_fetch() -> None:
+    """前端只有一个 fetch 出口 —— 成员集合从目录派生，新文件因为存在而进断言。
+
+    这条守的是合同 §7.1 规定 10。它此前只活在文档里：TASK-072 批次二迁了
+    24/30 个调用点，剩下 6 个（`persist` 读/写、`runtime` 取消/执行）没有任何
+    可执行断言拦着它们回流，于是「唯一出口」在四个月里一直是半真的。
+
+    **派生而非手写**（TASK-087 §7 项 2）：扫 `src/**.js`，所以新加的 service
+    不需要有人记得把它加进某张名单 —— 它因为存在而被检查。
+    """
+    offenders: dict[str, int] = {}
+    for path in sorted(_SRC.rglob("*.js")):
+        rel = str(path.relative_to(_SRC)).replace("\\", "/")
+        if rel == _THE_ONE_FETCH_OUTLET:
+            continue
+        n = len(_BARE_FETCH.findall(_code(*rel.split("/"))))
+        if n:
+            offenders[rel] = n
+    assert offenders == _DECLARED_EXEMPTIONS, (
+        "前端裸 fetch 调用与已声明的豁免不一致 —— "
+        f"实测 {offenders}，声明 {_DECLARED_EXEMPTIONS}。"
+        f"新的后端调用必须经 {_THE_ONE_FETCH_OUTLET}"
+    )
+
+
+def test_the_one_mediaprobe_exemption_is_still_only_the_test_seam() -> None:
+    """豁免的那一处仍然只是可注入的默认值，不是一条真实调用路径。"""
+    code = _code("services", "mediaprobe.js")
+    hits = [ln.strip() for ln in code.splitlines() if _BARE_FETCH.search(ln)]
+    assert len(hits) == 1, hits
+    # 它是 `fetchImpl` 缺省时的回落表达式（`typeof fetch === "function" ? … : null`），
+    # 不是一条调用；探测本身只调注入进来的 `f(...)`，所以测试永远能替换掉它。
+    assert 'typeof fetch === "function"' in hits[0], hits[0]
+    assert "await" not in hits[0], hits[0]
+    assert "const f = fetchImpl" in code
+    assert "await f(" in code
+
+
+def test_the_migrated_call_sites_kept_their_deadline_semantics() -> None:
+    """canvas 写、取消、执行三处**必须**显式关掉客户端超时。
+
+    `apiclient` 的默认 20s 对它们全都是错的：canvas 存档可以很大，取消「等不到」
+    不等于「没取消」，而本地 CLI 跑一次以分钟计。迁移时把这三处的 `timeoutMs: 0`
+    忘掉，症状是「跑到一半自己断了」——那种缺陷在测试里很难自然暴露，所以这里
+    直接钉住它。
+    """
+    persist = _code("services", "persist.js")
+    runtime = _code("services", "runtime.js")
+    assert persist.count("timeoutMs: 0") == 1, "canvas PUT 丢了 no-deadline 语义"
+    assert runtime.count("timeoutMs: 0") == 2, (
+        "cancel / skill-run 丢了 no-deadline 语义"
+    )
+
+
 # --- from tests/studio/test_motv_identity_m2.py (M2) -------------------------
 
 

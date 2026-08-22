@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "change_id": "frontback-ui-residuals",
+  "branch": "change/TASK-103-frontback-ui-residuals",
+  "status": "open",
+  "created": "2026-08-22T14:07:40+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-103": {
+      "commits": [],
+      "paths": [
+        "docs/tasks/TASK-103-frontback-and-ui-residuals.md",
+        "mockups/motv-workspace/src/services/apiclient.js",
+        "mockups/motv-workspace/src/services/persist.js",
+        "mockups/motv-workspace/src/services/runtime.js",
+        "tests/contract/test_frontend_write_path_invariants.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "",
+      "declared": "2026-08-22T14:23:07+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PENDING"
+  },
+  "merge": null,
+  "cleanup": null
+}

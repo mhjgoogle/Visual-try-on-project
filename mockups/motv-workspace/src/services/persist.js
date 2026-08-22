@@ -53,6 +53,7 @@
 // the UI with its own task — not in a heuristic buried in the save path.
 
 import { migrateToCurrent } from "./canvasschema.js";
+import { attempt, API_ERROR } from "./apiclient.js";
 
 const _timers = new Map();
 // The payload of the save queued for each project, so a page teardown can still
@@ -226,36 +227,49 @@ export function loadCanvas(name) {
   return p;
 }
 
+/** Did the CANVAS BACKEND answer this, or is there no backend at all?
+ *
+ *  The whole fallback decision hangs on this one distinction, and it is NOT the
+ *  same as "did the request succeed". A static host (no `server.py`) answers
+ *  these URLs too — 404s, or 200 HTML from an index fallback — and must keep the
+ *  documented localStorage fallback. A backend that answered 409/5xx is
+ *  authoritative and must NOT be fallen back from, or an empty canvas overwrites
+ *  a recoverable file.
+ *
+ *  Two independent pieces of evidence, either of which proves a backend spoke:
+ *  a parsed `{error:{…}}` body (this project's error convention), or a
+ *  `application/json` content type — the latter also covers the case the old
+ *  code caught in its `catch`: JSON headers with a body that would not parse,
+ *  which is a CORRUPT server document, not an absent server. */
+function _backendSpoke(err) {
+  if (!err) return false;
+  if (err.body !== null && err.body !== undefined) return true;
+  return String(err.contentType || "").includes("application/json");
+}
+
 async function _loadCanvasInner(name) {
-  let backend = false;
-  try {
-    const r = await fetch(`/api/canvas/${encodeURIComponent(name)}`, { cache: "no-store" });
-    // Only a JSON response is the canvas backend speaking. A static host
-    // (no server.py) answers these URLs too — 404s, or 200 HTML from an
-    // index fallback — and must keep the documented localStorage fallback.
-    const ctype = (r.headers && r.headers.get && r.headers.get("content-type")) || "";
-    backend = ctype.includes("application/json");
-    if (backend) {
-      if (r.ok) {
-        const doc = await r.json();
-        // the server marks a document it served from the legacy scratch
-        const legacy = !!(doc && doc._legacy);
-        return _dispatch(name, doc, { legacy });
-      }
-      // The backend answered but refused: the stored file exists yet cannot
-      // be served as a document (corrupt JSON → 409, read failure → 5xx).
-      // Do NOT fall through to localStorage — the server copy is
-      // authoritative — and do not let an empty canvas overwrite it.
-      let category = "";
-      try {
-        category = (await r.json())?.error?.category || "";
-      } catch {
-        /* unreadable error body */
-      }
-      return _fail(name, category === "corrupt_save" ? "corrupt" : "unavailable", category || `http ${r.status}`);
+  // Through the ONE api client (系统合同 §7.1 规定 10). `retries: 0` keeps the
+  // pre-migration behaviour exactly: a canvas load never silently repeated.
+  const res = await attempt(`/api/canvas/${encodeURIComponent(name)}`, { retries: 0 });
+  if (res.ok) {
+    const doc = res.data;
+    // the server marks a document it served from the legacy scratch
+    const legacy = !!(doc && doc._legacy);
+    return _dispatch(name, doc, { legacy });
+  }
+  if (_backendSpoke(res.error)) {
+    // The backend answered but refused: the stored file exists yet cannot be
+    // served as a document (corrupt JSON → 409, read failure → 5xx). Do NOT
+    // fall through to localStorage — the server copy is authoritative.
+    const category = (res.error.body && res.error.body.error && res.error.body.error.category) || "";
+    if (res.error.category === API_ERROR.MALFORMED) {
+      return _fail(name, "corrupt", "unreadable response body");
     }
-  } catch {
-    if (backend) return _fail(name, "corrupt", "unreadable response body");
+    return _fail(
+      name,
+      category === "corrupt_save" ? "corrupt" : "unavailable",
+      category || `http ${res.status}`,
+    );
   }
   // no backend — static demo persists via localStorage
   let s = null;
@@ -322,14 +336,21 @@ async function _write(name, data, { keepalive = false } = {}) {
   const entry = { ctl, data, keepalive: reserving };
   _inflight.set(name, entry);
   try {
-    const r = await fetch(`/api/canvas/${encodeURIComponent(name)}`, {
+    // Through the ONE api client (系统合同 §7.1 规定 10). `timeoutMs: 0` keeps the
+    // pre-migration semantics: this write had NO deadline, and giving it the
+    // client's 20s default would abort a large canvas save mid-flight — which is
+    // the one thing this module exists to prevent. `body` is already a JSON
+    // string, so the client passes it through untouched (`isRawBody`), and a
+    // write is never retried by the transport.
+    const res = await attempt(`/api/canvas/${encodeURIComponent(name)}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body,
+      timeoutMs: 0,
       ...(ctl ? { signal: ctl.signal } : {}),
       ...(reserving ? { keepalive: true } : {}),
     });
-    if (r.ok) {
+    if (res.ok) {
       // CONFIRMED — and only now is it safe to forget anything. The queued
       // payload is dropped only if it is still this exact one (a newer edit may
       // have replaced it while this request was in flight), and the recovery
@@ -337,11 +358,10 @@ async function _write(name, data, { keepalive = false } = {}) {
       if (_pendingSaves.get(name) === data) _pendingSaves.delete(name);
       return true;
     }
-  } catch (err) {
     // Cancelled on purpose by a newer (teardown) write: that write carries this
     // body's content and more, so persisting THIS one to localStorage would put
     // stale content there — the exact overwrite the abort was meant to prevent.
-    if (err && err.name === "AbortError") return;
+    if (res.error && res.error.category === API_ERROR.ABORTED) return;
     /* otherwise fall through to localStorage */
   } finally {
     if (reserving) _keepaliveBytes -= size;
