@@ -1,0 +1,23 @@
+{
+  "skillId": "image-prompt-director",
+  "skillVersion": 1,
+  "work": "creative",
+  "role": "Prompt 导演",
+  "title": "Image Prompt Director",
+  "purpose": "为当前 Shot 写出这次出图真正要用的 Image Prompt。",
+  "inputs": [
+    "shotContext"
+  ],
+  "optionalInputs": [
+    "characters",
+    "world",
+    "assetCandidates"
+  ],
+  "reviewCriteria": [
+    "提示词是否自足（没有只有本项目才知道的名字或 id）",
+    "是否与已绑定的参考矛盾",
+    "是否偷偷改变了镜头设计（景别 / 角度 / 画面内容）",
+    "assumptions 是否老实列出了它自己补的东西，而不是把编造当成既定事实"
+  ],
+  "recommendedRuntime": "local_subscription"
+}

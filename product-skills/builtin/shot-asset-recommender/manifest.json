@@ -1,0 +1,23 @@
+{
+  "skillId": "shot-asset-recommender",
+  "skillVersion": 1,
+  "work": "creative",
+  "role": "美术",
+  "title": "Shot Asset Recommender",
+  "purpose": "为当前 Shot 从已有资产库里挑出该绑定的参考，并指出真正缺的那几项。",
+  "inputs": [
+    "shotContext",
+    "assetCandidates"
+  ],
+  "optionalInputs": [
+    "characters",
+    "world"
+  ],
+  "reviewCriteria": [
+    "每个 referenceKey 是否真的出现在给定的候选清单里（发明的一律无效）",
+    "理由是否建立在候选自带的 evidence 上，而不是套路化的推断",
+    "是否重复推荐了已经绑在这一镜上的参考",
+    "missing 里的条目是否真的被这一镜需要，而不是把候选清单缺的东西列一遍"
+  ],
+  "recommendedRuntime": "local_subscription"
+}

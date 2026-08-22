@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "asset_id": "character-mia",
+  "version": 1,
+  "kind": "character",
+  "content": {
+    "name": "Mia",
+    "look": "short black hair, grey coat, small silver earring",
+    "personality": "quiet, observant, acts before speaking",
+    "prompt_fragment": "a young woman with short black hair in a grey coat, cinematic lighting"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/Scripts/python.exe -m ruff check *)",
+      "Bash(.venv/Scripts/python.exe -m ruff format --check *)",
+      "Bash(.venv/bin/python -m ruff check *)",
+      "Bash(.venv/bin/python -m ruff format --check *)",
+      "Bash(.venv/Scripts/python.exe .claude/tools/gh-api.py *)",
+      "Bash(.venv/bin/python .claude/tools/gh-api.py *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/gate_dispatch.py\"",
+            "timeout": 1000
+          }
+        ]
+      }
+    ]
+  }
+}

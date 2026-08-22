@@ -1,0 +1,25 @@
+{
+  "skillId": "episode-planner",
+  "skillVersion": 2,
+  "work": "creative",
+  "role": "制片规划",
+  "title": "Episode Planner",
+  "purpose": "把已批准的故事大纲规划成逐集分集：核心目标、关键事件、角色推进、信息揭示、情绪曲线与结尾钩子。",
+  "inputs": [
+    "outline"
+  ],
+  "optionalInputs": [
+    "brief",
+    "characters",
+    "world"
+  ],
+  "reviewCriteria": [
+    "每集的核心目标是否真的不同，而不是把同一件事讲了 N 遍",
+    "关键事件是否是一条一个动作/转折，而不是把一段梗概切成了六行",
+    "角色推进是否只写了这一集真的发生变化的角色，而不是全员各凑一条",
+    "结尾拍与钩子是否是两件事（发生了什么 / 留下什么悬念），而不是同一句写两遍",
+    "集数是否尊重大纲里的 episodeCount，而不是自行改写规模",
+    "是否只用大纲与人物档案里已有的设定，没有新发明人物或转折"
+  ],
+  "recommendedRuntime": "local_subscription"
+}

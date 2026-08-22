@@ -1,0 +1,23 @@
+{
+  "skillId": "script-doctor",
+  "skillVersion": 1,
+  "work": "review",
+  "role": "剧本医生",
+  "title": "Script Doctor",
+  "purpose": "找出剧本的结构问题并给出**具体**修改建议（不改写全篇）。",
+  "inputs": [
+    "episodeScript"
+  ],
+  "optionalInputs": [
+    "outline",
+    "episodePlan",
+    "characters",
+    "relationships"
+  ],
+  "reviewCriteria": [
+    "每条 finding 是否都能定位到剧本的具体位置",
+    "修法是否可执行，而不是「让它更有张力」这类空话",
+    "是否把风格偏好伪装成结构问题"
+  ],
+  "recommendedRuntime": "local_subscription"
+}

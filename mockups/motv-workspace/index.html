@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>motv — AI 短剧制作工作室（原型）</title>
+    <link rel="stylesheet" href="styles/tokens.css" />
+    <link rel="stylesheet" href="styles/app.css" />
+    <!-- studio.css loads LAST: it owns the creator-facing Production surface and
+         deliberately overrides the older canvas-era rules for those elements. -->
+    <link rel="stylesheet" href="styles/studio.css" />
+    <!-- the Workflow provenance surface owns its own sheet (TASK-054) -->
+    <link rel="stylesheet" href="styles/wfgraph.css" />
+    <!-- 剧集制作's three-column space owns its own sheet (TASK-064 / ADR-0061);
+         it loads last because it chooses the shell grid per space. -->
+    <link rel="stylesheet" href="styles/epprod.css" />
+    <!-- 剧集制作's Shot workbench (TASK-066): the five regions. Loads last because it
+         owns the newest surfaces; the GRID that places them stays in epprod.css. -->
+    <link rel="stylesheet" href="styles/shotwork.css" />
+  </head>
+  <body>
+    <!-- ===================== LANDING ===================== -->
+    <div id="landing">
+      <div class="topbar onlanding">
+        <div class="brand"><span class="mk">▶</span> motv<span style="font-size:11px;color:var(--text-faint);font-weight:600;margin-left:4px">创作工作台 · 原型</span></div>
+        <div class="spacer"></div>
+        <span class="modebadge" id="modebadge1"></span>
+        <div class="budget" id="budget1"></div>
+        <button class="icon-btn" id="theme1" title="主题">◐</button>
+      </div>
+      <div class="lwrap">
+        <div class="sec-h"><h3>我的项目</h3><span class="sec-note" id="landing-note"></span></div>
+        <div class="projgrid" id="projgrid">
+          <button class="newproj" id="start-create"><span class="plus">+</span> 新建项目</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 新建项目：项目名 + 资产保存位置（默认取后端 account-root，可自行填写） -->
+    <div class="np-scrim" id="np-scrim">
+      <div class="np" role="dialog" aria-modal="true" aria-labelledby="np-title">
+        <div class="np-h"><div class="t" id="np-title">新建项目</div>
+          <button class="icon-btn" id="np-x" aria-label="关闭">✕</button></div>
+        <div class="np-b">
+          <label class="lab" for="np-name">项目名</label>
+          <input class="field" id="np-name" maxlength="60" autocomplete="off"
+                 placeholder="例如：夜班沉默" />
+          <div class="lab">项目保存位置</div>
+          <div class="np-root"><span class="p" id="np-root"></span>
+            <button class="btn sm" id="np-pick">选择…</button></div>
+          <div class="np-path" id="np-path"></div>
+          <div class="np-note" id="np-note"></div>
+          <div class="np-err" id="np-err" hidden></div>
+        </div>
+        <div class="np-f">
+          <span class="push"></span>
+          <button class="btn" id="np-cancel">取消</button>
+          <button class="btn primary" id="np-ok">创建项目</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 目录选择器：服务端只读列目录（ADR-0051 §4），浏览器无法交出真实路径 -->
+    <div class="np-scrim" id="fs-scrim">
+      <div class="np fs" role="dialog" aria-modal="true" aria-labelledby="fs-title">
+        <div class="np-h"><div class="t" id="fs-title">选择项目保存位置</div>
+          <button class="icon-btn" id="fs-x" aria-label="关闭">✕</button></div>
+        <div class="fs-bar"><button class="btn sm" id="fs-up">↑ 上一层</button>
+          <span class="cur mono" id="fs-cur"></span></div>
+        <div class="fs-list" id="fs-list"></div>
+        <div class="np-err" id="fs-err" hidden></div>
+        <div class="np-f"><span class="push"></span>
+          <button class="btn" id="fs-cancel">取消</button>
+          <button class="btn primary" id="fs-ok">选择这个文件夹</button></div>
+      </div>
+    </div>
+
+    <!-- ===================== CANVAS ===================== -->
+    <div id="canvas">
+      <div class="st-top">
+        <button class="st-brand" id="home-canvas" title="返回主页"><span class="mk">▶</span> motv</button>
+        <button class="st-proj" id="proj-switch" title="切换项目">
+          <span class="nm" id="proj-name">—</span><span class="cv">▾</span>
+        </button>
+        <!-- ADR-0061 决策 1: three spaces, named after the creative object each
+             one is about — not after the system's internal layering. -->
+        <div class="st-modes">
+          <button id="seg-story" class="on" title="故事开发：把故事写出来（创意 → 大纲 → 设定 → 分集规划 → 本集剧本）">故事开发</button>
+          <button id="seg-episode" title="剧集制作：把这一集做出来（镜头 → 参考 → Prompt → 画面 → 视频 → 音频 → 审片 → 剪辑 → 成片）">剧集制作</button>
+          <button id="seg-assets" title="资产库：我有什么可以复用">资产库</button>
+        </div>
+        <div class="st-sp"></div>
+        <span class="modebadge" id="modebadge2"></span><div class="budget" id="budget2"></div>
+        <button class="icon-btn" id="theme2" title="主题">◐</button><button class="icon-btn" id="back-home" title="返回主页">🏠</button>
+      </div>
+      <!-- ADR-0053：项目仍在旧的仓库 scratch 目录时的只读提示 + 迁移入口 -->
+      <div class="legacy-bar" id="legacy-bar" hidden></div>
+      <!-- ADR-0061 决策 1: 生成溯源 is a VIEW inside 剧集制作, not a top-level
+           space, and 流程画布 is no longer on any creator path — Production is
+           already the workflow, and a second flow model only invites the
+           question 「哪一个才是真的流程？」. The node canvas stays reachable at
+           `?canvas=1` as a diagnostic surface; this bar is what drives it. -->
+      <div class="wf-tabs" id="wf-tabs" hidden>
+        <button id="wf-tab-canvas" class="on">流程画布 · 诊断</button>
+        <span class="wf-tabnote">诊断视图：节点执行面。创作路径在「剧集制作」，生成溯源在那里。</span>
+        <button class="btn sm" id="wf-tab-exit">← 回到剧集制作</button>
+      </div>
+      <!-- the provenance graph now mounts INSIDE 剧集制作's centre column; this
+           container stays for the diagnostic canvas route only -->
+      <div id="wfgraph" hidden></div>
+      <span class="hintbar" id="wf-hint" hidden>拖端口连线（仅相邻步骤）· 连线可多选(Shift)后 Del 删除</span>
+      <!-- 全局付费队列条（只读投影：排队/生成中/已入账/失败，自动轮询刷新） -->
+      <div class="paidqueue" id="paidqueue" hidden></div>
+      <!-- Production workspace (creator-facing; this checkpoint: Script only).
+           Renders FROM the same scriptDoc domain document as the workflow node. -->
+      <div id="production"></div>
+      <div class="viewport" id="viewport">
+        <div id="world"><svg id="edges"></svg><div id="edgectl"></div></div>
+        <div class="emptyhint" id="emptyhint">▶ 双击画布 · 或从下方选一个过程开始</div>
+      </div>
+      <div class="entrybar" id="entrybar">
+        <button class="entry e1" data-seed="story"><span class="ei">🎬</span><span class="etx"><b>故事脚本生成</b><span>L0 创意 → S1 剧本</span></span></button>
+        <button class="entry e2" data-seed="char"><span class="ei">🧑‍🎨</span><span class="etx"><b>角色三视图</b><span>S2 设计登记</span></span></button>
+        <button class="entry e3" data-seed="i2v"><span class="ei">🖼</span><span class="etx"><b>首帧图生视频</b><span>S4 视频镜头生成</span></span></button>
+        <button class="entry e4" data-seed="a2v"><span class="ei">🎵</span><span class="etx"><b>音频生视频</b><span>S4 对白/音效</span></span></button>
+      </div>
+      <div class="stepbar" id="stepbar" style="display:none"></div>
+    </div>
+
+    <!-- overlays -->
+    <div class="nmenu" id="nmenu"></div>
+    <div class="scrim" id="scrim"></div>
+    <aside class="insp" id="insp">
+      <div class="insp-h"><div><div class="t" id="insp-t">—</div><div class="s" id="insp-s"></div></div><button class="x" id="insp-x">×</button></div>
+      <div class="insp-b" id="insp-b"></div>
+    </aside>
+
+    <div class="wz-scrim" id="wz-scrim"><div class="wz">
+      <div class="wz-top"><div style="font-weight:700">批量生成 · 准备资产</div>
+        <div class="wz-steps"><div class="wz-step"><span class="n">1</span>确认镜头<small>11 个镜头已就绪</small></div><div class="wz-line"></div><div class="wz-step on"><span class="n">2</span>准备资产<small>0/9 已生成 · 差 9 个</small></div><div class="wz-line"></div><div class="wz-step"><span class="n">3</span>合成提示词<small>0/11 已合成</small></div></div>
+        <div style="color:var(--text-faint);font-size:12px">1/3 · 完成后批量生视频</div><button class="icon-btn" id="wz-home" title="返回主页">🏠</button><button class="icon-btn" id="wz-x">✕</button></div>
+      <div class="wz-body">
+        <div class="style-tag"><b>全局风格</b><span id="wz-style"></span></div>
+        <div class="wz-grp">角色</div><div class="charline" id="wz-chars"></div>
+        <div class="wz-grp">场景</div><div class="charline" id="wz-scenes"></div>
+      </div>
+      <div class="wz-foot"><div class="warn">⚠ 检测到 6 个人物角色、2 个场景和 1 个道具没有设定图，可手动上传或 AI 批量生成。</div><div class="sp"></div><button class="btn-ghost" id="wz-cancel">稍后</button><button class="btn-primary" id="wz-gen">一键生成所有资产</button></div>
+    </div></div>
+
+    <div class="es-scrim" id="es-scrim"><div class="es">
+      <div class="es-h"><div class="t">生成前 · 预算预检</div><div class="cmd mono" id="es-cmd"></div></div>
+      <div class="es-b" id="es-b"></div>
+      <div class="es-f"><button class="btn-ghost" id="es-cancel">取消</button><button class="btn-primary" id="es-ok">确认生成</button></div>
+    </div></div>
+
+    <!-- manual shot editor (人工 Gate: 手工修改分镜草稿 → 保存为新版本) -->
+    <div class="es-scrim" id="se-scrim"><div class="es se">
+      <div class="es-h"><div class="t">手工编辑分镜</div><div class="cmd mono" id="se-sub"></div></div>
+      <div class="es-b se-b" id="se-b"></div>
+      <div class="es-f"><button class="btn-ghost" id="se-add">＋ 添加镜头</button><button class="btn-ghost" id="se-cancel">取消</button><button class="btn-primary" id="se-save">保存为新版本</button></div>
+    </div></div>
+
+    <!-- node detail (放大编辑视窗): the SAME node body, larger, live-synced -->
+    <div class="es-scrim" id="dt-scrim"><div class="es dt">
+      <div class="es-h" style="display:flex;align-items:center;gap:10px"><div class="t" id="dt-t">—</div><div class="cmd mono" id="dt-s"></div><div style="flex:1"></div><button class="icon-btn" id="dt-x">✕</button></div>
+      <div class="es-b dt-b" id="dt-b"></div>
+    </div></div>
+
+    <!-- media lightbox: click any thumbnail to view the image/video full-size -->
+    <div class="lb-scrim" id="lb-scrim"><button class="icon-btn lb-x" id="lb-x">✕</button><div id="lb-c"></div></div>
+
+    <script type="module" src="src/app.js"></script>
+  </body>
+</html>

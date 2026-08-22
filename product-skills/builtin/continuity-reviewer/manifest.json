@@ -1,0 +1,24 @@
+{
+  "skillId": "continuity-reviewer",
+  "skillVersion": 1,
+  "work": "review",
+  "role": "场记",
+  "title": "Continuity Reviewer",
+  "purpose": "检查连贯性：人物状态、服装、地点状态、时间线、关系走向。",
+  "inputs": [
+    "shots"
+  ],
+  "optionalInputs": [
+    "scenes",
+    "characters",
+    "relationships",
+    "world",
+    "episodeScript"
+  ],
+  "reviewCriteria": [
+    "每条问题是否指出了具体冲突的两处，而不是笼统的「不够连贯」",
+    "是否把创作选择误报为连贯性错误",
+    "没有问题时是否老实返回空列表"
+  ],
+  "recommendedRuntime": "local_subscription"
+}

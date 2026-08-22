@@ -1,0 +1,242 @@
+{
+  "schema": 1,
+  "change_id": "repo-decoupling",
+  "branch": "change/TASK-102-repo-decoupling",
+  "status": "open",
+  "created": "2026-08-22T07:18:22+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-102": {
+      "commits": [
+        {
+          "hash": "efab6b1abf0c8e7109837a397abfe45fd701a414",
+          "subject": "TASK-102 任务卡（Refactor/DEEP）+ 范围注入事件留痕 —— 卡为防篡改基线先行入库",
+          "time": "2026-08-22T07:23:25+00:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null
+        },
+        {
+          "hash": "fcbd238555a7a65afa117bbf5e868238eb132f05",
+          "subject": "批次A：142个测试按归属分域（backend/studio/contract/e2e/tooling），场景fixture抽取为共享scenario模块，gate路径跟随，注释指针更新（TASK-102 · repo-decoupling · ADR-0080/0081 草案入库）",
+          "time": "2026-08-22T07:50:54+00:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null,
+          "scope_recheck": "2026-08-22: 按当前申报的 paths 用 autopush._matches 重算（旧值是 record-commit 当时较窄申报下的快照）"
+        },
+        {
+          "hash": "47fb47f543456fddd381e8cd569225990dfe840d",
+          "subject": "批次D：治理与文档对齐 —— AGENTS.md §20 改测试归属域表、CLAUDE.md 审查改按影响范围（默认1轮），dev-workflow/codex-review-loop 去分级措辞；README 收敛为仓库根一份（TASK-102 · ADR-0080/0081）",
+          "time": "2026-08-22T08:34:34+00:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null,
+          "scope_recheck": "2026-08-22: 按当前申报的 paths 用 autopush._matches 重算（旧值是 record-commit 当时较窄申报下的快照）"
+        },
+        {
+          "hash": "5cc7c50fcf57c3547d18b719d7a6bc967d911e7f",
+          "subject": "docs(TASK-102): 补验证记录与 §16 验收实测；四条架构耦合登记进 TASK-087 总账（3.6.1–3.6.4）",
+          "time": "2026-08-22T08:42:08+00:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null
+        },
+        {
+          "hash": "f4fe3a413ab66d86203c81960b59770055b16806",
+          "subject": "批次E：前端入口不变量集中到 tests/contract —— 41个源码守卫从18个studio文件收敛到1个文件，改app.js只碰一处；测试数守恒3358（断言一字未改）（TASK-102 · ADR-0080决策3例外）",
+          "time": "2026-08-22T11:03:26+00:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null
+        },
+        {
+          "hash": "a8794c71114f41b008ad34148224b05d55b75d64",
+          "subject": "docs(TASK-102): 收口 —— 独立审查 2 轮（轮2 pass 零发现）、3 条 P1 及其变异验证记录、最终全量 3297+6",
+          "time": "2026-08-22T11:33:53+00:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null
+        },
+        {
+          "hash": "f71657d6d166b7262cea99e01f6861cc266fc4fb",
+          "subject": "docs(TASK-102): 收口 F 批与轮 3-5 审查记录 —— 4 条 P1 全修 + 1 条范围性 rebut、轮次超支理由、变异验证抓到的两个假守卫",
+          "time": "2026-08-22T13:18:02+00:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null
+        },
+        {
+          "hash": "c7268a72f9c6a7af0ee3ebc71950c2e5a5ffc348",
+          "subject": "批次B：删除前后端测试联动 —— 23个pytest内嵌node包装、约60个JS源码文本断言函数（行为已由前端套件覆盖）、2个删空文件；无前端覆盖的守卫如实保留（TASK-102 · ADR-0080决策3）",
+          "time": "2026-08-22T17:12:39+09:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null,
+          "backfilled": "2026-08-22: record-commit 只能记 HEAD，无法补登历史提交（工装缺口 TASK-087 3.6.5）；用 autopush._matches 与真实 git 元数据补登"
+        },
+        {
+          "hash": "9d52eca409b269bf7ebac733aab8f5ac7e43b2af",
+          "subject": "批次C：commit gate 改为归属映射 —— 路径→测试域，废风险分级，日常提交不再全量；新增 serial_targets 与 frontend 标志，双 shell 同步（TASK-102 · ADR-0080/0081）",
+          "time": "2026-08-22T17:18:01+09:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null,
+          "backfilled": "2026-08-22: record-commit 只能记 HEAD，无法补登历史提交（工装缺口 TASK-087 3.6.5）；用 autopush._matches 与真实 git 元数据补登"
+        },
+        {
+          "hash": "07acce2f41dcc26d3e644648ca5ae7750e31ed3c",
+          "subject": "docs(TASK-102): 批次E验证记录 —— 测试数守恒证明与 stash -u 取基线的教训",
+          "time": "2026-08-22T20:08:56+09:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null,
+          "backfilled": "2026-08-22: record-commit 只能记 HEAD，无法补登历史提交（工装缺口 TASK-087 3.6.5）；用 autopush._matches 与真实 git 元数据补登"
+        },
+        {
+          "hash": "e99422216ff964238b4a85f5a1867b460222d65a",
+          "subject": "fix(TASK-102): codex 审查 3 条 P1 —— gate.sh 空 target 变空串拦死定向提交、unmapped 早返回丢弃 frontend 声明、两壳 forced-full 漏跑前端套件；各配回归守卫并做变异验证",
+          "time": "2026-08-22T20:24:12+09:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null,
+          "backfilled": "2026-08-22: record-commit 只能记 HEAD，无法补登历史提交（工装缺口 TASK-087 3.6.5）；用 autopush._matches 与真实 git 元数据补登"
+        },
+        {
+          "hash": "aeffa1d473598c6488e5033da77755ebfc17a443",
+          "subject": "chore(auto-push): repo-decoupling 元数据回写 —— 登记 TASK-102 收口提交",
+          "time": "2026-08-22T20:38:21+09:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null,
+          "backfilled": "2026-08-22: record-commit 只能记 HEAD，无法补登历史提交（工装缺口 TASK-087 3.6.5）；用 autopush._matches 与真实 git 元数据补登"
+        },
+        {
+          "hash": "a58ebc0fd45f8bc8afe0646ad1a9731817d77f32",
+          "subject": "chore(skill-evolution): TASK-102 使用反馈 —— codex-review-loop 在 main 为空基线时的审查范围选择缺口",
+          "time": "2026-08-22T20:43:35+09:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null,
+          "backfilled": "2026-08-22: record-commit 只能记 HEAD，无法补登历史提交（工装缺口 TASK-087 3.6.5）；用 autopush._matches 与真实 git 元数据补登"
+        },
+        {
+          "hash": "141487757bc1880b536ea4d1e660d5dcdc07f8ff",
+          "subject": "fix(TASK-102): 支撑层的影响范围改为从 import 图派生 —— _scan 只跑 studio(385) 不再跑全量(3358)；e2e 恢复为合法目录 target（两壳定向档本就带 -m 'not serial'）；3 个守卫经变异验证（ADR-0080 决策 7）",
+          "time": "2026-08-22T21:02:47+09:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null,
+          "backfilled": "2026-08-22: record-commit 只能记 HEAD，无法补登历史提交（工装缺口 TASK-087 3.6.5）；用 autopush._matches 与真实 git 元数据补登"
+        },
+        {
+          "hash": "fc5203537ac613d3ca814f52c202348db4023e60",
+          "subject": "fix(TASK-102): 派生逻辑的 2 条 P1 —— 子串匹配把 tests.foo_extra 当 tests.foo、非递归 glob 漏看嵌套使用者；两者都会给出**部分域**（跑得比该跑的少），改为带边界的形态匹配 + rglob + 「认不出的提及一律 fail-closed」",
+          "time": "2026-08-22T21:18:08+09:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null,
+          "backfilled": "2026-08-22: record-commit 只能记 HEAD，无法补登历史提交（工装缺口 TASK-087 3.6.5）；用 autopush._matches 与真实 git 元数据补登"
+        },
+        {
+          "hash": "adb232784454d3702a54af729ab591e2296affce",
+          "subject": "fix(TASK-102): 派生改用 ast 解析 import 图 + 探针测试 tmp 隔离 —— 正则看不见 'from tests import (多行)' 会静默漏域；探针写共享 tests/ 让并行 worker 互相干扰（-n 8 实测 4 次翻 2 次，现 6 次全绿）",
+          "time": "2026-08-22T21:49:27+09:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null,
+          "backfilled": "2026-08-22: record-commit 只能记 HEAD，无法补登历史提交（工装缺口 TASK-087 3.6.5）；用 autopush._matches 与真实 git 元数据补登"
+        },
+        {
+          "hash": "f83b1f00a9a4fa57dd86c1cb1f7cdfb5a58125ac",
+          "subject": "fix(TASK-102): 动态 import 盲区 —— importlib.import_module/__import__ 不产生 AST 节点会静默漏域；文本检查以「ast 盲区触发器」角色加回（不识别依赖，只发现 ast 看不见的可能依赖）",
+          "time": "2026-08-22T22:04:57+09:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null,
+          "backfilled": "2026-08-22: record-commit 只能记 HEAD，无法补登历史提交（工装缺口 TASK-087 3.6.5）；用 autopush._matches 与真实 git 元数据补登"
+        },
+        {
+          "hash": "3fa1a70e3d2b2c6cec0dc2ec97ea6b4b376635ad",
+          "subject": "docs(TASK-102): 记录派生的残余盲区并停止追逐 —— 运行时拼接的模块名静态不可判定（第5轮变体更窄=不收敛信号）；后果被 CI 全量与集成检查点兜住，如实写进代码注释",
+          "time": "2026-08-22T22:12:57+09:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null,
+          "backfilled": "2026-08-22: record-commit 只能记 HEAD，无法补登历史提交（工装缺口 TASK-087 3.6.5）；用 autopush._matches 与真实 git 元数据补登"
+        },
+        {
+          "hash": "28278031a024716f79f644f00959f665afccf2db",
+          "subject": "chore(auto-push): repo-decoupling 元数据回写",
+          "time": "2026-08-22T22:22:13+09:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null,
+          "backfilled": "2026-08-22: record-commit 只能记 HEAD，无法补登历史提交（工装缺口 TASK-087 3.6.5）；用 autopush._matches 与真实 git 元数据补登"
+        },
+        {
+          "hash": "7c4f3804bf1fac0dd24e782d499b2346d45b7fad",
+          "subject": "chore(auto-push): repo-decoupling 元数据回写 —— Merge Gate PASS",
+          "time": "2026-08-22T22:31:38+09:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null,
+          "backfilled": "2026-08-22: record-commit 只能记 HEAD，无法补登历史提交（工装缺口 TASK-087 3.6.5）；用 autopush._matches 与真实 git 元数据补登"
+        },
+        {
+          "hash": "27d58917814dcca6cbbd9850aedad9f44e273d72",
+          "subject": "chore(auto-push): 按当前申报重算两条提交的 scope_violation —— 旧值是 record-commit 当时较窄申报下的快照，用 autopush._matches 重算后为 0（工装缺口：paths 被后续 task-ready 覆盖后无重算通道，记 TASK-101 follow-up）",
+          "time": "2026-08-22T22:37:08+09:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null,
+          "backfilled": "2026-08-22: record-commit 只能记 HEAD，无法补登历史提交（工装缺口 TASK-087 3.6.5）；用 autopush._matches 与真实 git 元数据补登"
+        },
+        {
+          "hash": "4db35e99f39d2601fde4074ae8d309b85717ef37",
+          "subject": "docs(TASK-087): 登记 3.6.5 —— auto-push 的 scope_violation 过期快照无重算通道，会无理由拦住 merge（TASK-102 实测）",
+          "time": "2026-08-22T22:46:07+09:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null,
+          "backfilled": "2026-08-22: record-commit 只能记 HEAD，无法补登历史提交（工装缺口 TASK-087 3.6.5）；用 autopush._matches 与真实 git 元数据补登"
+        },
+        {
+          "hash": "a6e0b4a4b2d33cd78b67d49116432654ef20219f",
+          "subject": "chore(auto-push): repo-decoupling 元数据回写 —— merge 前 tip 验证与 Merge Gate",
+          "time": "2026-08-22T22:50:56+09:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null,
+          "backfilled": "2026-08-22: record-commit 只能记 HEAD，无法补登历史提交（工装缺口 TASK-087 3.6.5）；用 autopush._matches 与真实 git 元数据补登"
+        }
+      ],
+      "paths": [
+        ".claude/",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "README.md",
+        "config/",
+        "docs/",
+        "examples/",
+        "mockups/",
+        "product-skills/",
+        "pyproject.toml",
+        "scripts/",
+        "src/",
+        "tests/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "merge 前当前 tip 集成检查点：pytest 3305 passed/58 skipped + serial 6 passed + 前端 1763 passed + ruff 全过；独立审查 5 轮 7 条 P1 全修、轮5 范围性 rebut 已记录",
+      "declared": "2026-08-22T13:46:54+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PASS",
+    "by": "产品负责人 2026-08-22：「合并」",
+    "time": "2026-08-22T13:46:54+00:00",
+    "tip": "4db35e99f39d2601fde4074ae8d309b85717ef37"
+  },
+  "merge": null,
+  "cleanup": null
+}

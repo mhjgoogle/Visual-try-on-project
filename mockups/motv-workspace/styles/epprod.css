@@ -1,0 +1,910 @@
+/* 剧集制作 — the three-column production space (ADR-0061 决策 2).
+ *
+ *   LEFT   Production Inspector   the current object's operating panel
+ *   CENTER Production Workspace   episode selector, focus filter, scene → shot
+ *   RIGHT  AI Director            observation, plan, 能力 (Skill)
+ *
+ * The grid is chosen by ONE class on #production, so no two rules can disagree
+ * about which space is on screen. Loads AFTER studio.css and owns only the new
+ * surfaces — nothing here restyles an existing workspace.
+ */
+
+/* TASK-066 §17 — FIVE REGIONS on one grid.
+ *
+ *   row 1  crumb                        (full width)
+ *   row 2  EP ▼ / Scene ▼ / SH ▼        (full width)
+ *   row 3  参考输入 | 制作流程图 | AI 导演
+ *   row 4  参考素材库 (spans left+centre) | AI 导演 continues
+ *   row 5  Shot 进度                     (full width)
+ *
+ * The AI Director spans rows 3–4 so its chat box sits at the bottom of the column,
+ * which is what the reference layout shows and what makes the column feel like one
+ * conversation rather than a panel that stops halfway. */
+/* TASK-077 §1.5 adds a FOURTH column at the far left: the五页 rail. The space had
+   no rail at all, so its five pages (`EPISODE_NAV`) had no entrance and ⑨ 粗剪审片
+   was unreachable outright. The rail is narrow on purpose — it names pages, it is
+   not a second inspector — and it stays visible in 全屏, because navigation is
+   exactly what a creator still needs when the picture is maximised. */
+#production.space-episode {
+  grid-template-columns: 152px 316px minmax(0, 1fr) minmax(300px, 340px);
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+}
+#production.space-episode > .st-crumb { grid-column: 1 / -1; grid-row: 1; }
+#production.space-episode > .ss { grid-column: 1 / -1; grid-row: 2; }
+#production.space-episode > .prod-eprail { grid-column: 1; grid-row: 3 / 5; }
+#production.space-episode > .sr,
+#production.space-episode > .pi { grid-column: 2; grid-row: 3; }
+#production.space-episode > .ep-main { grid-column: 3; grid-row: 3; }
+#production.space-episode > .st-dir { grid-column: 4; grid-row: 3 / 5; }
+#production.space-episode > .rs { grid-column: 2 / 4; grid-row: 4; }
+#production.space-episode > .ep-foot { grid-column: 1 / -1; grid-row: 5; }
+/* 全屏: the picture takes the whole grid; the searcher and the columns step aside.
+   The selectors and the progress bar STAY — 「我在做哪一个 Shot」 and 「做到哪一步」 are
+   exactly what a full-screen reader still needs. */
+#production.space-episode:has(> .ep-main.full) > .sr,
+#production.space-episode:has(> .ep-main.full) > .pi,
+#production.space-episode:has(> .ep-main.full) > .st-dir { display: none; }
+#production.space-episode > .ep-main.full { grid-column: 2 / -1; grid-row: 3 / 5; }
+#production.space-assets { grid-template-columns: 200px minmax(0, 1fr) minmax(300px, 340px); }
+@media (max-width: 1440px) {
+  #production.space-episode { grid-template-columns: 132px 268px minmax(0, 1fr) minmax(268px, 300px); }
+}
+
+/* ========================================================================== */
+/* LEFT — Production Inspector                                                */
+/* ========================================================================== */
+
+.pi {
+  border-right: 1px solid var(--line); background: var(--panel);
+  overflow-y: auto; padding: var(--s3) var(--s4) var(--s6);
+  display: flex; flex-direction: column; gap: var(--s3); min-width: 0;
+}
+.pi > * { flex: none; }
+
+.pi-tabs {
+  display: flex; flex-wrap: wrap; gap: 2px;
+  padding-bottom: var(--s2); border-bottom: 1px solid var(--line);
+}
+.pi-tab {
+  font: inherit; font-size: var(--t-xs); font-weight: 700; cursor: pointer;
+  padding: 4px 7px; border-radius: var(--r1); border: 1px solid transparent;
+  background: none; color: var(--text-faint);
+}
+.pi-tab:hover { color: var(--text-dim); background: var(--panel-2); }
+.pi-tab.on { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-line); }
+
+.pi-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s2); }
+.pi-head .pi-t { font-size: var(--t-lg); font-weight: 800; letter-spacing: -.01em; min-width: 0; }
+.pi-head .pi-chip { margin-left: auto; }
+.pi-head .pi-s { flex-basis: 100%; font-size: var(--t-xs); color: var(--text-faint); }
+
+.pi-sec { display: flex; flex-direction: column; gap: var(--s2); }
+.pi-sec.warn {
+  background: var(--accent-soft); border: 1px solid var(--accent-line);
+  border-radius: var(--r2); padding: var(--s3);
+}
+.pi-none { font-size: var(--t-xs); color: var(--text-faint); }
+.pi-ok { font-size: var(--t-xs); color: var(--ok); font-weight: 600; }
+.pi-text { font-size: var(--t-sm); color: var(--text-dim); line-height: 1.65; }
+/* TASK-077 §1.3 — 「这几张参考会不会进模型」, per route, with the one in force marked.
+   Two rows rather than one sentence, because the two routes give OPPOSITE answers
+   and an unqualified claim is what the audit found. */
+.pi-routes { display: grid; gap: 4px; margin-top: var(--s2); }
+.pi-routerow {
+  display: grid; grid-template-columns: 15px 1fr; gap: 6px; align-items: start;
+  font-size: var(--t-xs); line-height: 1.55; color: var(--text-faint);
+  padding: 5px 7px; border-radius: var(--r1); border: 1px solid transparent;
+}
+.pi-routerow.on { color: var(--text-dim); background: var(--panel-2); border-color: var(--line); }
+.pi-routerow .mk { font-weight: 700; text-align: center; color: var(--text-faint); }
+.pi-routerow.on .mk { color: var(--accent); }
+.pi-chips { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s2); }
+.pi-acts { display: flex; flex-wrap: wrap; gap: var(--s2); }
+
+.pi-preview {
+  width: 100%; aspect-ratio: var(--thumb-ratio); object-fit: contain;
+  border-radius: var(--r2); background: var(--canvas); border: 1px solid var(--line);
+}
+.pi-audio { width: 100%; }
+
+.pi-pre {
+  margin: 0; padding: var(--s3); max-height: 220px; overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--t-xs); line-height: 1.6;
+  background: var(--canvas); border: 1px solid var(--line); border-radius: var(--r2);
+  white-space: pre-wrap; word-break: break-word;
+}
+
+.pi-kv {
+  display: grid; grid-template-columns: 64px minmax(0, 1fr);
+  gap: 3px var(--s3); margin: 0; font-size: var(--t-xs);
+}
+.pi-kv dt { color: var(--text-faint); }
+.pi-kv dd { margin: 0; color: var(--text-dim); min-width: 0; word-break: break-word; }
+.pi-kv.mono dd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--t-micro); }
+
+.pi-missing { margin: 0; padding-left: 18px; font-size: var(--t-xs); color: var(--gate); line-height: 1.7; }
+.pi-warn { display: flex; flex-direction: column; gap: var(--s2); font-size: var(--t-xs); color: var(--text-dim); }
+.pi-warn b { color: var(--gate); }
+
+.pi-segs { display: flex; gap: 2px; }
+.pi-seg {
+  flex: 1; font: inherit; font-size: var(--t-xs); font-weight: 700; cursor: pointer;
+  padding: 5px 6px; border: 1px solid var(--line); background: var(--canvas);
+  color: var(--text-faint); border-radius: var(--r1);
+}
+.pi-seg:hover { color: var(--text-dim); border-color: var(--line-2); }
+.pi-seg.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+
+.pi-vlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s2); }
+.pi-vlist li {
+  display: flex; align-items: center; gap: var(--s3); padding: var(--s2);
+  border: 1px solid var(--line); border-radius: var(--r2); background: var(--canvas);
+}
+.pi-vlist li.cur { border-color: var(--accent-line); background: var(--accent-soft); }
+.pi-vth { width: 46px; height: 30px; object-fit: cover; border-radius: var(--r1); flex: none; background: #0003; }
+.pi-vth.none { display: grid; place-items: center; font-size: var(--t-sm); opacity: .45; }
+/* an audio version is PLAYED, not looked at — it needs real width, so it takes
+   the row and the version metadata wraps under it */
+.pi-vaudio { width: 100%; height: 30px; }
+.pi-vlist li:has(.pi-vaudio) { flex-wrap: wrap; }
+.pi-vmeta {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px;
+  font-size: var(--t-xs); text-align: left;
+}
+.pi-vmeta.as-link { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.pi-vmeta.as-link:hover { color: var(--accent); }
+.pi-vorigin { color: var(--text-faint); font-size: var(--t-micro); }
+
+.pi-deps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s2); font-size: var(--t-xs); }
+.pi-deps li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+
+.pi-refchip {
+  font: inherit; font-size: var(--t-micro); font-weight: 600; cursor: pointer;
+  padding: 3px 7px; border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--elev); color: var(--text-dim); max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pi-refchip:hover { border-color: var(--accent-line); color: var(--accent); }
+.pi-refchip.static { cursor: default; }
+
+.pi-tech { font-size: var(--t-xs); color: var(--text-faint); }
+.pi-tech summary { cursor: pointer; }
+
+/* 溯源 — the selected graph node's recorded facts, UNDER the operating panel.
+   Clicking 画面 on the graph gives the version list and the upload first; where
+   that frame came from is right below it, not instead of it. */
+.pi-prov {
+  border-top: 1px solid var(--line); padding-top: var(--s3);
+  font-size: var(--t-xs); color: var(--text-faint);
+}
+.pi-prov > summary { cursor: pointer; font-weight: 700; color: var(--text-dim); }
+.pi-provrow { display: flex; flex-direction: column; gap: 3px; margin-top: var(--s2); }
+.pi-provrow > .lab {
+  font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint);
+}
+.pi-implbl { position: relative; overflow: hidden; }
+
+/* ========================================================================== */
+/* CENTER — the production workspace                                          */
+/* ========================================================================== */
+
+/* The 剧集制作 centre column holds TWO stacked regions: the workspace and the
+   docked Post Production Console (ADR-0061 决策 6). `.st-main` scrolls and pins
+   every child with `flex: none`, so the console — appended after the workspace —
+   was laid out BELOW a `.ep-center` that claimed `height: 100%` and ended up off
+   screen: present in the DOM, wired, and invisible.
+   The column owns the height instead: the workspace flexes, the console keeps its
+   own bounded height, and neither scrolls the other. */
+.ep-main { padding: 0; overflow: hidden; }
+.ep-main > .ep-center { flex: 1 1 auto; min-height: 0; }
+.ep-main > .pc { flex: none; }
+.ep-center { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+
+.ep-top {
+  display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap;
+  padding: var(--s3) var(--s5); border-bottom: 1px solid var(--line); background: var(--panel-2);
+}
+.ep-sel { position: relative; }
+.ep-selbtn {
+  display: inline-flex; align-items: center; gap: var(--s2); font: inherit;
+  font-size: var(--t-md); font-weight: 800; cursor: pointer;
+  padding: 5px var(--s3); border: 1px solid var(--line); border-radius: var(--r2);
+  background: var(--elev); color: var(--text);
+}
+.ep-selbtn .nm {
+  font-weight: 600; color: var(--text-dim); font-size: var(--t-sm);
+  max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ep-selbtn .cv { color: var(--text-faint); }
+.ep-selmenu {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 40; min-width: 240px;
+  display: flex; flex-direction: column; padding: var(--s1);
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r2);
+  box-shadow: 0 10px 28px #0006;
+}
+.ep-selmenu button {
+  font: inherit; font-size: var(--t-sm); text-align: left; cursor: pointer;
+  padding: 6px var(--s3); border: 0; border-radius: var(--r1); background: none; color: var(--text-dim);
+}
+.ep-selmenu button:hover { background: var(--panel-2); color: var(--text); }
+.ep-selmenu button.cur { color: var(--accent); font-weight: 700; }
+
+.ep-focus { display: flex; gap: 2px; }
+.ep-fbtn {
+  font: inherit; font-size: var(--t-xs); font-weight: 700; cursor: pointer;
+  padding: 4px 9px; border: 1px solid var(--line); background: var(--canvas);
+  color: var(--text-faint); border-radius: var(--r1);
+}
+.ep-fbtn:hover { color: var(--text-dim); border-color: var(--line-2); }
+.ep-fbtn.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.ep-topnote { font-size: var(--t-xs); color: var(--text-faint); }
+
+/* 工作区 — the SECONDARY entry to a stage workspace. Deliberately quiet and
+   right-aligned: it is a detour off the centre, not a peer of it. The eleven
+   same-level .ep-tab buttons it replaces are gone (TASK-064 Phase 1b). */
+.ep-ws { position: relative; margin-left: auto; display: flex; align-items: center; gap: var(--s2); }
+.ep-wsback {
+  font: inherit; font-size: var(--t-xs); font-weight: 700; cursor: pointer;
+  padding: 4px var(--s3); border: 1px solid var(--accent-line); border-radius: var(--r1);
+  background: var(--accent-soft); color: var(--accent); white-space: nowrap;
+}
+.ep-wsbtn {
+  display: inline-flex; align-items: center; gap: var(--s2); flex: none;
+  font: inherit; font-size: var(--t-xs); font-weight: 700; cursor: pointer;
+  padding: 5px var(--s3); border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--canvas); color: var(--text-faint); white-space: nowrap;
+}
+.ep-wsbtn:hover { color: var(--text-dim); border-color: var(--line-2); }
+.ep-wsbtn.on { color: var(--text); background: var(--elev); border-color: var(--line-2); }
+.ep-wsbtn .cv { color: var(--text-faint); }
+.ep-wsmenu {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 40; min-width: 216px;
+  display: flex; flex-direction: column; padding: var(--s1);
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r2);
+  box-shadow: 0 10px 28px #0006;
+}
+.ep-wshd, .ep-wsnote {
+  padding: var(--s2) var(--s3); font-size: var(--t-xs); color: var(--text-faint);
+}
+.ep-wshd { font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+.ep-wsnote { border-top: 1px solid var(--line); line-height: 1.5; }
+.ep-wsmenu button {
+  display: flex; align-items: center; gap: var(--s2);
+  font: inherit; font-size: var(--t-sm); text-align: left; cursor: pointer;
+  padding: 6px var(--s3); border: 0; border-radius: var(--r1); background: none; color: var(--text-dim);
+}
+.ep-wsmenu button:hover { background: var(--panel-2); color: var(--text); }
+.ep-wsmenu button.cur { color: var(--accent); font-weight: 700; }
+
+.ep-summary { padding: var(--s3) var(--s5) 0; font-size: var(--t-xs); color: var(--text-faint); }
+.ep-body {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: var(--s4) var(--s5) var(--s7);
+  display: flex; flex-direction: column; gap: var(--s5);
+}
+.ep-body > * { flex: none; }
+.ep-body.full { padding: 0; }
+.ep-graph { height: 100%; min-height: 460px; }
+
+.ep-scenesec { display: flex; flex-direction: column; gap: var(--s3); }
+.ep-scenehd { display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap; }
+.ep-scenehd h3 { margin: 0; font-size: var(--t-md); font-weight: 800; }
+.ep-scenen { font-size: var(--t-xs); color: var(--text-faint); }
+
+.ep-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(238px, 1fr)); gap: var(--s4); }
+.ep-card {
+  display: flex; flex-direction: column; gap: var(--s2); padding: var(--s3);
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r3); cursor: pointer;
+}
+.ep-card:hover { border-color: var(--line-2); }
+.ep-card.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.ep-card.ok .ep-cardt { color: var(--ok); }
+.ep-cardhead { display: flex; gap: var(--s3); min-width: 0; }
+.ep-cardth {
+  width: 84px; aspect-ratio: var(--thumb-ratio); object-fit: contain;
+  border-radius: var(--r1); background: #0003; flex: none;
+}
+.ep-cardth.none { display: grid; place-items: center; font-size: var(--t-lg); opacity: .4; }
+.ep-cardmeta { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ep-cardt { font-size: var(--t-sm); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ep-card .ep-cards { display: block; font-size: var(--t-micro); color: var(--text-faint); }
+.ep-cardchips { display: flex; flex-wrap: wrap; gap: var(--s1); }
+.ep-cardrefs { display: flex; flex-wrap: wrap; gap: var(--s1); }
+
+.ep-subs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; }
+.ep-sub {
+  font: inherit; font-size: var(--t-micro); font-weight: 700; cursor: pointer;
+  padding: 4px 2px; border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--canvas); color: var(--text-faint);
+}
+.ep-sub.ok { color: var(--text-dim); }
+.ep-sub.none { color: var(--text-faint); border-style: dashed; }
+.ep-sub.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); }
+.ep-sub.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+
+.ep-none { font-size: var(--t-xs); color: var(--text-faint); }
+
+/* The embedded provenance graph loses its own inspector aside: that node detail
+   is the LEFT column's job now (ADR-0061 决策 2). */
+.wg-root.embedded .wg-body { grid-template-columns: minmax(0, 1fr); }
+
+/* ========================================================================== */
+/* RIGHT — the Director's 能力 (Skill) section                                 */
+/* ========================================================================== */
+
+.dir-space { margin-left: auto; font-size: var(--t-micro); font-weight: 600; color: var(--text-faint); }
+
+.sk-list { display: flex; flex-direction: column; gap: 2px; }
+.sk-row {
+  display: flex; align-items: center; gap: var(--s2); width: 100%;
+  font: inherit; font-size: var(--t-xs); text-align: left; cursor: pointer;
+  padding: 5px var(--s2); border: 1px solid transparent; border-radius: var(--r1);
+  background: none; color: var(--text-dim);
+}
+.sk-row:hover { background: var(--panel-2); color: var(--text); }
+.sk-row.on { background: var(--elev); border-color: var(--line-2); color: var(--text); }
+.sk-role { flex: none; min-width: 34px; color: var(--text-faint); font-size: var(--t-micro); }
+.sk-title {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-weight: 600;
+}
+
+.sk-detail { display: flex; flex-direction: column; gap: var(--s2); margin-top: var(--s3); }
+.sk-dh { display: flex; align-items: center; gap: var(--s2); font-size: var(--t-sm); flex-wrap: wrap; }
+.sk-chips { display: flex; flex-wrap: wrap; gap: var(--s1); }
+
+.sk-execs { display: flex; flex-direction: column; gap: 2px; }
+.sk-exec {
+  display: flex; align-items: center; gap: var(--s2); font-size: var(--t-xs); cursor: pointer;
+  padding: 4px var(--s2); border: 1px solid var(--line); border-radius: var(--r1); background: var(--canvas);
+}
+.sk-exec.on { border-color: var(--accent-line); background: var(--accent-soft); }
+.sk-execn { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.sk-acts { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.sk-hint { font-size: var(--t-xs); color: var(--text-faint); }
+.sk-hint summary { cursor: pointer; }
+.sk-pre {
+  margin: var(--s2) 0 0; padding: var(--s3); max-height: 200px; overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--t-micro); line-height: 1.6;
+  background: var(--canvas); border: 1px solid var(--line); border-radius: var(--r2);
+  white-space: pre-wrap; word-break: break-word;
+}
+.sk-prop {
+  display: flex; flex-direction: column; gap: var(--s2); padding: var(--s3);
+  background: var(--accent-soft); border: 1px solid var(--accent-line); border-radius: var(--r2);
+}
+.sk-proph { display: flex; align-items: center; gap: var(--s2); font-size: var(--t-sm); flex-wrap: wrap; }
+.sk-open {
+  display: flex; flex-direction: column; gap: var(--s2); padding: var(--s3);
+  background: var(--canvas); border: 1px solid var(--line); border-radius: var(--r2); font-size: var(--t-sm);
+}
+.sk-hist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s2); font-size: var(--t-xs); }
+.sk-hist li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+.sk-hm { color: var(--text-dim); }
+.sk-ht { margin-left: auto; color: var(--text-faint); font-size: var(--t-micro); }
+.sk-err { flex-basis: 100%; color: var(--bad); font-size: var(--t-micro); line-height: 1.6; }
+.sk-answer { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--t-micro); }
+
+/* 故事开发's exit row: 进入剧集制作 → */
+.st-epexit { color: var(--accent); font-weight: 700; }
+
+/* ========================================================================== */
+/* 后期控制台 — the Post Production Console (ADR-0061 决策 6 / Phase 3)        */
+/*                                                                            */
+/* TWO SIZES, ONE COMPONENT: `.pc-dock` is the strip under the centre column,  */
+/* `.pc-full` fills the 剪辑 module. Only the chrome differs — every control    */
+/* inside is the same element with the same handler, so the expanded view can  */
+/* never show a different tool than the dock it came from.                    */
+/* ========================================================================== */
+
+.pc {
+  display: flex; flex-direction: column; min-width: 0;
+  background: var(--panel); border-top: 1px solid var(--line-2);
+}
+.pc-dock { max-height: 46vh; }
+.pc-dock.collapsed { max-height: none; }
+.pc-full { border-top: 0; height: 100%; }
+
+.pc-bar {
+  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  padding: var(--s2) var(--s5); background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+}
+.pc-toggle, .pc-expand {
+  font: inherit; font-size: var(--t-xs); font-weight: 700; cursor: pointer;
+  padding: 3px var(--s3); border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--canvas); color: var(--text-faint);
+}
+.pc-toggle:hover, .pc-expand:hover { color: var(--text-dim); border-color: var(--line-2); }
+.pc-expand { margin-left: auto; }
+.pc-title { font-size: var(--t-sm); font-weight: 800; letter-spacing: .02em; }
+.pc-tabs { display: flex; gap: 2px; }
+.pc-tab {
+  display: inline-flex; align-items: center; gap: 5px;
+  font: inherit; font-size: var(--t-xs); font-weight: 700; cursor: pointer;
+  padding: 4px var(--s3); border: 1px solid transparent; border-radius: var(--r1);
+  background: none; color: var(--text-faint);
+}
+.pc-tab:hover { color: var(--text-dim); background: var(--canvas); }
+.pc-tab.on { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-line); }
+.pc-barnote { font-size: var(--t-xs); color: var(--text-faint); }
+
+.pc-body {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: var(--s4) var(--s5) var(--s6);
+  display: flex; flex-direction: column; gap: var(--s4);
+}
+.pc-body > * { flex: none; }
+
+.pc-head { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+.pc-head > b { font-size: var(--t-md); }
+.pc-sub { font-size: var(--t-xs); color: var(--text-faint); }
+.pc-acts { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; margin-left: auto; }
+.pc-note {
+  font-size: var(--t-xs); color: var(--text-faint); line-height: 1.6;
+  border-left: 2px solid var(--line-2); padding-left: var(--s3);
+}
+.pc-none { font-size: var(--t-xs); color: var(--text-faint); padding: var(--s3) 0; }
+.pc-warn {
+  padding: var(--s3); border: 1px solid var(--gate); border-radius: var(--r2);
+  font-size: var(--t-sm);
+}
+
+/* --- tracks -------------------------------------------------------------- */
+.pc-tracks { display: flex; flex-direction: column; gap: var(--s3); }
+.pc-track {
+  border: 1px solid var(--line); border-radius: var(--r2); background: var(--canvas);
+  display: flex; flex-direction: column;
+}
+.pc-track > header {
+  display: flex; align-items: center; gap: var(--s3);
+  padding: var(--s2) var(--s3); border-bottom: 1px solid var(--line); flex-wrap: wrap;
+}
+.pc-track > header .pc-acts { margin-left: auto; }
+.pc-trackn { font-size: var(--t-xs); font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+
+.pc-clips { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.pc-clip {
+  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  padding: var(--s2) var(--s3); border-bottom: 1px solid var(--line);
+  font-size: var(--t-xs);
+}
+.pc-clip:last-child { border-bottom: 0; }
+.pc-clip.bad { background: #ff6b6b10; }
+.pc-clip.muted { opacity: .55; }
+.pc-clip.removed { opacity: .45; }
+.pc-clipn {
+  min-width: 150px; max-width: 240px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-weight: 700; display: inline-flex; align-items: center; gap: 5px;
+}
+.pc-timing { display: inline-flex; align-items: center; gap: 4px; }
+.pc-timing select, .pc-timing input, .pc-clip input, .pc-cue input,
+.pc-settings input, .pc-settings select {
+  font: inherit; font-size: var(--t-xs); padding: 2px 5px;
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--line); border-radius: var(--r1);
+}
+.pc-off { width: 68px; }
+.pc-at { min-width: 118px; color: var(--text-faint); }
+.pc-gain { display: inline-flex; align-items: center; gap: 5px; }
+.pc-gain input[type="range"] { width: 92px; }
+.pc-fade { display: inline-flex; align-items: center; gap: 4px; color: var(--text-faint); }
+.pc-fade input { width: 60px; }
+.pc-lock {
+  font: inherit; font-size: var(--t-xs); cursor: pointer; line-height: 1;
+  padding: 3px 5px; border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--canvas); color: var(--text-faint);
+}
+.pc-lock.on { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent); }
+
+.pc-mixrow {
+  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  padding: var(--s2) var(--s3); border: 1px solid var(--line);
+  border-radius: var(--r2); background: var(--canvas); font-size: var(--t-xs);
+}
+
+/* --- the video strip ----------------------------------------------------- */
+.pc-vstrip { display: flex; gap: var(--s3); overflow-x: auto; padding: var(--s3); }
+.pc-vclip {
+  flex: none; width: 208px; display: flex; flex-direction: column; gap: var(--s2);
+  padding: var(--s2); border: 1px solid var(--line); border-radius: var(--r2);
+  background: var(--panel);
+}
+.pc-vclip.removed { opacity: .5; }
+.pc-vclip.locked { border-color: var(--accent-line); }
+.pc-vth { position: relative; aspect-ratio: 16/9; background: #000; border-radius: var(--r1); overflow: hidden; }
+.pc-vth video { width: 100%; height: 100%; object-fit: contain; }
+.pc-vth .none { display: grid; place-items: center; width: 100%; height: 100%; color: var(--text-faint); }
+.pc-vdur {
+  position: absolute; right: 4px; bottom: 4px; font-size: 10px;
+  background: #000a; color: #fff; padding: 1px 4px; border-radius: 3px;
+}
+.pc-vmeta { display: flex; flex-direction: column; gap: 2px; font-size: var(--t-xs); }
+.pc-vacts { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; }
+.pc-vacts select, .pc-trim input {
+  font: inherit; font-size: 10px; padding: 2px 4px;
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: var(--r1);
+}
+.pc-trim { font-size: 10px; color: var(--text-faint); display: inline-flex; align-items: center; gap: 3px; }
+.pc-trim input { width: 52px; }
+
+.pc-drift {
+  display: flex; flex-direction: column; gap: 4px; font-size: var(--t-xs);
+  padding: var(--s2); margin-top: var(--s2);
+  border: 1px solid var(--gate); border-radius: var(--r1);
+}
+.pc-drift .pc-acts { margin-left: 0; }
+
+/* --- subtitles ----------------------------------------------------------- */
+.pc-cues { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.pc-cue {
+  display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
+  padding: var(--s2) var(--s3); border-bottom: 1px solid var(--line); font-size: var(--t-xs);
+}
+.pc-cue:last-child { border-bottom: 0; }
+.pc-cue.locked { background: var(--accent-soft); }
+.pc-cue .pc-at input { width: 74px; }
+.pc-cuspk { width: 92px; }
+.pc-cutext { flex: 1; min-width: 180px; }
+.pc-substyle {
+  font: inherit; font-size: var(--t-xs); padding: 2px 5px;
+  background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--r1);
+}
+
+/* --- finals + preview ---------------------------------------------------- */
+.pc-settings { display: flex; gap: var(--s3); flex-wrap: wrap; font-size: var(--t-xs); color: var(--text-faint); }
+.pc-settings input { width: 72px; }
+.pc-finals { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s3); }
+.pc-final { display: flex; gap: var(--s3); align-items: flex-start; flex-wrap: wrap; }
+.pc-finalv { width: 260px; max-width: 100%; border-radius: var(--r2); background: #000; }
+.pc-finalm { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: var(--s2); font-size: var(--t-xs); }
+.pc-prov summary { cursor: pointer; font-size: var(--t-xs); font-weight: 700; color: var(--text-dim); }
+
+.pc-preview {
+  border-top: 1px solid var(--line); background: var(--canvas);
+  padding: var(--s3) var(--s5); display: flex; flex-direction: column; gap: var(--s2);
+}
+.pc-pvhead { display: flex; align-items: center; gap: var(--s3); }
+.pc-pvhead button { margin-left: auto; }
+.pc-pv { width: 100%; max-height: 320px; background: #000; border-radius: var(--r2); }
+.pc-pvnow { font-size: var(--t-xs); color: var(--text-faint); }
+
+/* --- the LEFT inspector's new blocks (Phase 2) --------------------------- */
+.pi-axis { display: flex; flex-direction: column; gap: 2px; margin-bottom: var(--s2); }
+.pi-axis .lab { font-size: var(--t-xs); color: var(--text-faint); }
+.pi-axisin { font-size: var(--t-xs); padding: 4px 6px; }
+
+/* ========================================================================== */
+/* TASK-065 — 创作对象优先                                                     */
+/* ========================================================================== */
+
+/* --- LEFT: where you are, not which function to pick (§8) ---------------- */
+/* The seven-button `.pi-tabs` strip is gone. This is a PATH: it says what the
+   column is operating on and offers exactly one move — back up to the shot. */
+.pi-where {
+  display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
+  padding-bottom: var(--s2); border-bottom: 1px solid var(--line);
+  font-size: var(--t-xs);
+}
+.pi-where .up {
+  font: inherit; font-size: var(--t-xs); font-weight: 700; cursor: pointer;
+  padding: 3px 7px; border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--canvas); color: var(--text-dim);
+  max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pi-where .up:hover { color: var(--accent); border-color: var(--accent-line); }
+.pi-where .sep { color: var(--text-faint); }
+.pi-where .cur { font-weight: 800; color: var(--text); }
+
+/* --- LEFT: checkable Generation Input (§11) ------------------------------ */
+.pi-refsec { gap: var(--s2); }
+.pi-refhd { display: flex; align-items: center; gap: var(--s2); font-size: var(--t-xs); }
+.pi-refhd > b { font-size: var(--t-sm); }
+.pi-refhd .push { flex: 1; }
+.pi-refrow { align-items: center; }
+.pi-refrow.on { border-color: var(--accent-line); background: var(--accent-soft); }
+/* NAME AND VERSION ON ONE LINE. `.pi-vmeta` is a flex COLUMN, and
+   `nameWithVersion()` returns a bare text node followed by a `<span class="chip">`:
+   in a column that made the chip an item of its own, stretched to the full row
+   width, so 「林晚 Ref」 and its 「v3」 appeared on two lines with the version drawn as
+   a wide empty box. The row overrides the direction for its own meta only. */
+.pi-refrow .pi-vmeta {
+  flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 2px var(--s2);
+}
+.pi-refrow .pi-vmeta > .chip { flex: none; }
+.pi-refrow .pi-vorigin { flex-basis: 100%; }
+.pi-check { display: inline-flex; align-items: center; flex: none; cursor: pointer; }
+.pi-check input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
+.pi-check input:disabled { cursor: default; opacity: .6; }
+.pi-check span { display: none; }
+.pi-refacts { display: inline-flex; gap: 3px; flex: none; }
+.pi-reflib { font-size: var(--t-xs); color: var(--text-faint); }
+.pi-reflib summary { cursor: pointer; padding: 2px 0; }
+.pi-reflib > .pi-vlist { margin-top: var(--s2); }
+
+/* --- CENTER: the light Scene → Shot picker (§9) -------------------------- */
+.ep-place {
+  display: flex; flex-direction: column; gap: var(--s2);
+  padding: var(--s3) var(--s5); border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.ep-prow {
+  display: flex; align-items: center; gap: var(--s2);
+  overflow-x: auto; padding-bottom: 2px;
+}
+.ep-prow > .lb {
+  flex: none; font-size: var(--t-micro); font-weight: 800; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-faint); width: 30px;
+}
+.ep-schip {
+  flex: none; display: inline-flex; align-items: baseline; gap: var(--s2);
+  font: inherit; font-size: var(--t-xs); cursor: pointer;
+  padding: 4px var(--s3); border: 1px solid var(--line); border-radius: 999px;
+  background: var(--canvas); color: var(--text-dim); max-width: 240px;
+}
+.ep-schip > b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ep-schip .n { font-size: var(--t-micro); color: var(--text-faint); }
+.ep-schip:hover { border-color: var(--line-2); color: var(--text); }
+.ep-schip.on { background: var(--elev); border-color: var(--accent); color: var(--text); }
+.ep-shchip {
+  flex: none; display: inline-flex; align-items: center; gap: var(--s2);
+  font: inherit; font-size: var(--t-xs); cursor: pointer; text-align: left;
+  padding: 3px var(--s3) 3px 3px; border: 1px solid var(--line); border-radius: var(--r2);
+  background: var(--canvas); color: var(--text-dim); max-width: 210px;
+}
+.ep-shchip img, .ep-shchip .ph {
+  width: 40px; height: 24px; flex: none; object-fit: cover;
+  border-radius: 3px; background: #0003; display: grid; place-items: center;
+  font-size: var(--t-xs);
+}
+.ep-shchip .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ep-shchip .bad { flex: none; font-size: var(--t-micro); color: var(--bad); }
+.ep-shchip:hover { border-color: var(--line-2); color: var(--text); }
+.ep-shchip.on { border-color: var(--accent); background: var(--elev); color: var(--text); box-shadow: inset 0 0 0 1px var(--accent); }
+.ep-shchip.ok .t { color: var(--ok); }
+.ep-shchip.none { border-style: dashed; }
+
+.ep-prov {
+  font: inherit; font-size: var(--t-xs); font-weight: 700; cursor: pointer;
+  padding: 4px var(--s3); border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--canvas); color: var(--text-faint); white-space: nowrap;
+}
+.ep-prov:hover { color: var(--accent); border-color: var(--accent-line); }
+
+/* --- CENTER: the current Shot Production Graph (§9 / §10) ---------------- */
+.sg-root {
+  display: flex; flex-direction: column; gap: var(--s3);
+  padding: var(--s3) var(--s5) var(--s7); min-width: 0;
+}
+
+/* A / B IS A SUMMARY, NOT THE PAGE.
+   First version let both panels grow to their content, which on a 1000px viewport
+   with the post console docked (46vh) pushed the production graph — the thing this
+   centre exists for — entirely below the fold: present, wired, every behavioural
+   assertion green, and invisible. Same failure class as the Phase 3 console.
+   So each side is HEIGHT-BOUNDED and scrolls inside itself; the graph always starts
+   on the first screen. The acceptance script measures the first band's boundingBox
+   so this cannot silently come back. */
+.sg-sides {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--s3); flex: none;
+}
+.sg-side {
+  display: flex; flex-direction: column; gap: var(--s2);
+  padding: var(--s2) var(--s3) var(--s3); border-radius: var(--r2);
+  border: 1px solid var(--line); background: var(--panel);
+  max-height: 168px; min-height: 0;
+}
+.sg-side > header {
+  display: flex; align-items: center; gap: var(--s2); flex: none;
+  font-size: var(--t-sm); font-weight: 800;
+}
+.sg-side > .sg-slist, .sg-side > .sg-needs { overflow-y: auto; min-height: 0; }
+/* the closing note is useful but not worth vertical space every render */
+.sg-side > .meta { flex: none; font-size: var(--t-micro); }
+.sg-side.a { border-color: color-mix(in srgb, var(--ok) 32%, var(--line)); }
+.sg-side.a > header { color: var(--ok); }
+.sg-side.b { border-color: color-mix(in srgb, var(--gate) 32%, var(--line)); }
+.sg-side.b > header { color: var(--gate); }
+.sg-none { font-size: var(--t-xs); color: var(--text-faint); }
+
+.sg-slist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s2); }
+.sg-slist li { display: flex; align-items: center; gap: var(--s2); font-size: var(--t-xs); }
+.sg-slist li.st-missing .sg-smeta > b { color: var(--gate); }
+.sg-sth {
+  width: 40px; height: 26px; flex: none; object-fit: cover; border-radius: 3px;
+  background: #0003; display: grid; place-items: center; font-weight: 800;
+}
+.sg-sth.none { color: var(--text-faint); }
+.sg-smeta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; text-align: left; }
+.sg-smeta > b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sg-ssub { font-size: var(--t-micro); color: var(--text-faint); }
+
+.sg-needs { display: flex; flex-direction: column; gap: 3px; }
+.sg-need {
+  display: flex; align-items: baseline; gap: var(--s2); width: 100%;
+  font: inherit; text-align: left; cursor: pointer;
+  padding: 3px var(--s2); border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--canvas); color: var(--text-dim);
+}
+.sg-need:hover { border-color: var(--accent-line); }
+.sg-need .mk { flex: none; font-weight: 800; color: var(--gate); }
+.sg-need.soft { opacity: .78; }
+.sg-need.soft .mk { color: var(--text-faint); }
+/* one line each: the WHY is a hint, and five needs stacked three lines high is what
+   pushed the graph off screen. The full text stays reachable as the title. */
+.sg-need .sg-smeta { flex-direction: row; align-items: baseline; gap: var(--s2); }
+.sg-need .sg-ssub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* the flow: BANDS stacked top-to-bottom, wires measured and drawn over them */
+.sg-flow { position: relative; display: flex; flex-direction: column; gap: var(--s5); }
+.sg-wires { position: absolute; inset: 0; pointer-events: none; overflow: visible; z-index: 0; }
+.sg-wire { fill: none; stroke: var(--line-2); stroke-width: 1.5; opacity: .8; }
+.sg-wire.w-produces { stroke: var(--text-faint); }
+.sg-wire.w-source { stroke: var(--accent); stroke-width: 2; }
+.sg-wire.w-interpretation { stroke: var(--prompt); stroke-dasharray: 4 3; }
+.sg-wire.w-frame { stroke: var(--gen); stroke-dasharray: 6 3; }
+/* a BACK edge (a directing reference also feeding the IMAGE prompt, which sits above
+   it) is drawn thinner and dimmer so it reads as 「也回到上面那一步」 rather than as a
+   second forward step — it is a real input, not a stage in the chain */
+.sg-wire.back { opacity: .5; stroke-width: 1.1; }
+
+.sg-band { position: relative; z-index: 1; display: flex; flex-direction: column; gap: var(--s2); }
+/* The band HEADER needs its own ground: the wires are painted behind the cards, and
+   a label with a transparent background let a curve run straight through the words. */
+.sg-band > header {
+  display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap;
+  align-self: flex-start; max-width: 100%;
+  padding: 1px var(--s2); border-radius: var(--r1); background: var(--canvas);
+}
+.sg-bandl {
+  font-size: var(--t-micro); font-weight: 800; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--text-faint);
+}
+.sg-bandh {
+  font-size: var(--t-micro); color: var(--text-faint); opacity: .85;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.sg-row { display: flex; flex-wrap: wrap; gap: var(--s3); align-items: stretch; }
+.sg-empty {
+  font-size: var(--t-xs); color: var(--text-faint);
+  padding: var(--s2) var(--s3); border: 1px dashed var(--line-2); border-radius: var(--r2);
+}
+
+.sg-card {
+  display: flex; align-items: center; gap: var(--s2); min-width: 178px; max-width: 250px;
+  font: inherit; text-align: left; cursor: pointer;
+  padding: var(--s2); border: 1px solid var(--line); border-radius: var(--r2);
+  background: var(--panel); color: var(--text-dim);
+}
+.sg-card.flat { cursor: default; }
+.sg-card:not(.flat):hover { border-color: var(--line-2); background: var(--elev); }
+.sg-card.sel { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.sg-card.st-active { border-color: color-mix(in srgb, var(--ok) 46%, var(--line)); }
+.sg-card.st-gap { border-style: dashed; color: var(--text-faint); }
+.sg-card.sg-prompt { background: var(--prompt-soft); border-color: color-mix(in srgb, var(--prompt) 30%, var(--line)); }
+.sg-th {
+  width: 46px; height: 30px; flex: none; object-fit: cover; border-radius: 3px;
+  background: #0003; display: grid; place-items: center;
+}
+.sg-th.none { color: var(--text-faint); font-size: var(--t-sm); }
+.sg-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.sg-meta > b { font-size: var(--t-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sg-sub { font-size: var(--t-micro); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sg-legend { line-height: 1.7; }
+
+/* ========================================================================== */
+/* 基础资产面板 — shared by 人物 and 世界观 (§1 / §4)                          */
+/* ========================================================================== */
+
+.ba { display: flex; flex-direction: column; gap: var(--s4); }
+.ba-hd { display: flex; flex-direction: column; gap: 2px; }
+.ba-hd > b { font-size: var(--t-md); }
+.ba-sec { display: flex; flex-direction: column; gap: var(--s2); }
+.ba-sec > .lab {
+  font-size: var(--t-micro); font-weight: 800; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-faint);
+}
+.ba-none { font-size: var(--t-xs); color: var(--text-faint); }
+
+.ba-states { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+.ba-state {
+  font: inherit; font-size: var(--t-xs); font-weight: 700; cursor: pointer;
+  padding: 4px var(--s3); border: 1px solid var(--line); border-radius: 999px;
+  background: var(--canvas); color: var(--text-faint);
+}
+.ba-state:hover { color: var(--text-dim); border-color: var(--line-2); }
+.ba-state.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.ba-state.add { border-style: dashed; }
+.ba-state .ct { margin-left: 4px; opacity: .7; }
+
+.ba-gal { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: var(--s3); }
+.ba-item {
+  margin: 0; display: flex; flex-direction: column; gap: var(--s2);
+  padding: var(--s2); border: 1px solid var(--line); border-radius: var(--r2);
+  background: var(--canvas);
+}
+.ba-item.on { border-color: var(--accent); }
+.ba-th {
+  width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radius: var(--r1);
+  background: #0003; display: grid; place-items: center;
+  font-size: var(--t-micro); color: var(--text-faint); text-align: center;
+}
+.ba-item figcaption { display: flex; flex-direction: column; gap: 1px; font-size: var(--t-xs); min-width: 0; }
+.ba-item figcaption > b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ba-cap { font-size: var(--t-micro); color: var(--text-faint); }
+.ba-itemacts { display: flex; flex-wrap: wrap; gap: 3px; }
+.ba-voice { display: flex; flex-direction: column; gap: var(--s2); }
+.ba-prompt { font-size: var(--t-xs); line-height: 1.6; }
+
+/* The character / location drawer is TWO columns now: 基础资产 on the left, 设定 on
+   the right. `.drawer-b` is a flex COLUMN by default (studio.css), so the grid has
+   to be declared here rather than only the template — otherwise the columns silently
+   stay stacked and the drawer just gets wider for nothing. */
+.drawer.wide { width: min(1020px, 74vw); }
+.drawer.wide .drawer-b {
+  display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  align-items: start;
+}
+.drawer.wide .drawer-b > * { min-width: 0; display: flex; flex-direction: column; gap: var(--s4); }
+@media (max-width: 1200px) {
+  .drawer.wide { width: min(620px, 92vw); }
+  .drawer.wide .drawer-b { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ========================================================================== */
+/* 人物关系图 (§2)                                                             */
+/* ========================================================================== */
+
+.rg { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
+.rg-bar { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+.rg-bar .push { flex: 1; }
+.rg-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 340px); gap: var(--s4); }
+@media (max-width: 1180px) { .rg-body { grid-template-columns: minmax(0, 1fr); } }
+.rg-canvas {
+  position: relative; border: 1px solid var(--line); border-radius: var(--r3);
+  background: var(--canvas); min-height: 380px; overflow: hidden;
+}
+.rg-svg { display: block; width: 100%; height: auto; }
+.rg-empty {
+  position: absolute; inset: auto 0 var(--s5) 0; text-align: center;
+  font-size: var(--t-xs); color: var(--text-faint);
+}
+
+.rg-node { cursor: pointer; }
+.rg-blank { fill: var(--elev); }
+.rg-ring { fill: none; stroke: var(--line-2); stroke-width: 2; }
+.rg-node:hover .rg-ring { stroke: var(--accent); }
+.rg-node.sel .rg-ring { stroke: var(--accent); stroke-width: 4; }
+.rg-node.bit .rg-ring { stroke-dasharray: 5 4; }
+.rg-initial { fill: var(--text-dim); font-size: 26px; font-weight: 800; }
+.rg-name { fill: var(--text); font-size: 13px; font-weight: 700; }
+.rg-tier { fill: var(--text-faint); font-size: 10px; }
+
+.rg-edge { cursor: pointer; }
+.rg-hit { stroke: transparent; stroke-width: 18; }
+.rg-line { stroke: var(--line-2); stroke-width: 1.6; }
+.rg-edge.warm .rg-line { stroke: var(--gate); stroke-width: 2.2; }
+.rg-edge.hot .rg-line { stroke: var(--bad); stroke-width: 3; }
+.rg-edge:hover .rg-line, .rg-edge.sel .rg-line { stroke: var(--accent); }
+.rg-edge #rg-arrow path, marker#rg-arrow path { fill: var(--line-2); }
+.rg-type { fill: var(--text); font-size: 11px; font-weight: 700; }
+.rg-conf { fill: var(--bad); font-size: 10px; }
+.rg-cur { fill: var(--gen); font-size: 10px; }
+.rg-edge.sel .rg-type { fill: var(--accent); }
+
+.rg-side {
+  display: flex; flex-direction: column; gap: var(--s2);
+  padding: var(--s3); border: 1px solid var(--line); border-radius: var(--r2);
+  background: var(--panel); max-height: 620px; overflow-y: auto;
+}
+.rg-sidehd { display: flex; align-items: center; gap: var(--s2); font-size: var(--t-md); font-weight: 800; flex-wrap: wrap; }
+.rg-arrow { color: var(--accent); }
+.rg-cursum {
+  display: flex; flex-direction: column; gap: 2px; font-size: var(--t-xs);
+  padding: var(--s2); border-left: 2px solid var(--gen); background: var(--canvas);
+}
+.rg-legend { line-height: 1.7; }

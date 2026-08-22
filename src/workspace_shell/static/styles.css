@@ -1,0 +1,249 @@
+/* Read-only workspace shell styles (TASK-026 / WSM1-B).
+   No external assets; loopback-served. Desktop + narrow-screen responsive,
+   keyboard-reachable, sufficient contrast, light/dark aware. */
+
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --border: #d3d8de;
+  --text: #1b1f24;
+  --muted: #5a6470;
+  --accent: #1f4f8f;
+  --accent-text: #ffffff;
+  --auth: #1a6d3a;
+  --derived: #7a5a00;
+  --unavailable: #6b3f8f;
+  --error-bg: #fbe9e9;
+  --error-border: #c0392b;
+  --legacy-bg: #fdf3e0;
+  --legacy-border: #b9791a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171b;
+    --panel: #1d2126;
+    --border: #333a42;
+    --text: #e8ebee;
+    --muted: #9aa4af;
+    --accent: #6fa8f5;
+    --accent-text: #0c1116;
+    --auth: #57c785;
+    --derived: #d9b45a;
+    --unavailable: #c39ae0;
+    --error-bg: #3a1f1f;
+    --error-border: #e57373;
+    --legacy-bg: #3a2f1a;
+    --legacy-border: #e0b45a;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+a { color: var(--accent); }
+
+.app {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  border-right: 1px solid var(--border);
+  background: var(--panel);
+  padding: 1rem;
+  overflow-y: auto;
+}
+
+.sidebar h1 { font-size: 1rem; margin: 0 0 0.25rem; }
+.sidebar .sub { color: var(--muted); font-size: 0.8rem; margin-bottom: 1rem; }
+
+.nav-list { list-style: none; margin: 0; padding: 0; }
+.nav-list li { margin: 0.15rem 0; }
+.nav-list a {
+  display: block;
+  padding: 0.4rem 0.55rem;
+  border-radius: 6px;
+  text-decoration: none;
+  color: var(--text);
+}
+.nav-list a:hover { background: rgba(127, 127, 127, 0.14); }
+.nav-list a[aria-current="page"] {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.nav-list .stage { color: var(--muted); font-size: 0.78rem; }
+
+.content { padding: 1.5rem 2rem; overflow-x: auto; }
+.content h2 { margin-top: 0; }
+
+.viewnav { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
+.viewnav a {
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  text-decoration: none;
+  color: var(--text);
+  font-size: 0.85rem;
+}
+.viewnav a[aria-current="page"] {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+th, td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+th { color: var(--muted); font-weight: 600; }
+caption { text-align: left; color: var(--muted); padding-bottom: 0.4rem; }
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.2rem;
+  margin-bottom: 1rem;
+}
+
+/* Provenance three-way badges — always visible, never conflated. */
+.prov {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.05rem 0.4rem;
+  border-radius: 4px;
+  border: 1px solid currentColor;
+  margin-left: 0.4rem;
+  vertical-align: middle;
+}
+.prov.authoritative { color: var(--auth); }
+.prov.derived { color: var(--derived); }
+.prov.unavailable { color: var(--unavailable); }
+
+/* Data-region state panels — loading / empty / error / legacy / unavailable
+   are each rendered distinctly and never collapsed into one another. */
+.state {
+  padding: 1rem 1.2rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+.state.loading { color: var(--muted); }
+.state.empty { color: var(--muted); }
+.state.error {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+}
+.state.legacy {
+  background: var(--legacy-bg);
+  border-color: var(--legacy-border);
+}
+.state .state-title { font-weight: 700; margin-bottom: 0.35rem; }
+.state code { font-size: 0.82rem; }
+
+.problems { list-style: none; padding: 0; margin: 0.5rem 0 0; }
+.problems li {
+  border-left: 3px solid var(--error-border);
+  padding: 0.35rem 0.7rem;
+  margin: 0.35rem 0;
+  background: var(--error-bg);
+  border-radius: 0 6px 6px 0;
+}
+.problems .cat { font-weight: 700; }
+.problems .ctx { color: var(--muted); font-size: 0.8rem; }
+.readiness {
+  display: inline-block;
+  margin-left: 0.4rem;
+  color: var(--error-border);
+  font-weight: 700;
+  font-size: 0.75rem;
+}
+
+.markers { margin: 0.5rem 0; }
+.markers .marker {
+  display: inline-block;
+  font-size: 0.72rem;
+  padding: 0.05rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  margin-right: 0.3rem;
+  color: var(--muted);
+}
+
+.muted { color: var(--muted); }
+.meta { color: var(--muted); font-size: 0.8rem; margin-top: 1.5rem; }
+
+/* An explicit "unavailable" state — visually distinct from empty/error/legacy
+   so an out-of-WFM1-scope value is never mistaken for missing or broken data. */
+.state.unavailable {
+  background: rgba(127, 127, 127, 0.08);
+  border-style: dashed;
+  border-color: var(--unavailable);
+}
+.state.unavailable .state-title { color: var(--unavailable); }
+
+/* Deep-dive (TASK-027): version cards, candidate/selected columns, key-values,
+   the identifier form, cost flags, and the lazy media viewer. */
+.kv { display: flex; gap: 0.5rem; padding: 0.2rem 0; flex-wrap: wrap; }
+.kv .k { color: var(--muted); min-width: 12rem; font-weight: 600; }
+.kv .v { flex: 1; word-break: break-word; }
+
+.version .basis { margin: 0.2rem 0 0.6rem; }
+.provline { margin-top: 0.35rem; }
+
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 0.6rem 0; }
+.cols .col h4 { margin: 0 0 0.3rem; font-size: 0.9rem; }
+
+.idform { display: flex; gap: 0.5rem; margin-top: 0.4rem; flex-wrap: wrap; }
+.idform-wrap .k { display: block; margin-bottom: 0.2rem; }
+.idinput {
+  flex: 1;
+  min-width: 12rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.idform button, .mediaviewer button {
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+tr.flagged td { background: var(--legacy-bg); }
+
+.media { margin: 0.6rem 0 0; }
+.media img, .media video { max-width: 100%; height: auto; border: 1px solid var(--border); border-radius: 6px; }
+.media figcaption { font-size: 0.78rem; margin-top: 0.25rem; word-break: break-all; }
+.mediaout { margin-top: 0.6rem; }
+
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+@media (max-width: 720px) {
+  .app { grid-template-columns: 1fr; }
+  .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  .content { padding: 1rem; }
+  .cols { grid-template-columns: 1fr; }
+  .kv .k { min-width: 8rem; }
+}

@@ -1,0 +1,1106 @@
+// Workflow — the generation provenance workspace (TASK-054).
+//
+// The Production surface already answers "where is this episode in the
+// process". This page answers a different question, and only that one:
+//
+//   which prompt, references and source media actually produced this asset,
+//   and what did it go on to produce?
+//
+// It renders the DERIVED graph from workflow/provenance.js. It owns view state
+// only — scope, filter, query, selection, which groups are expanded — and never
+// writes to any domain document. Every label on screen traces to a record; a
+// link the records do not prove is not drawn, and a gap is printed as a gap.
+//
+// Deliberately NOT a DAG editor: no ports, no payloads, no ids in the primary
+// surface (raw ids live in the inspector's collapsed 技术详情), no dragging
+// nodes around. Media nodes show the real frame/poster/waveform.
+
+import { esc } from "../util/dom.js";
+import {
+  buildProvenanceGraph,
+  scopeGraph,
+  traceOf,
+  searchGraph,
+  explainNode,
+  sceneGroups,
+  shotGroups,
+  seqLabel,
+  nodeIds,
+} from "../workflow/provenance.js";
+
+const SCOPES = [
+  ["episode", "剧集"],
+  ["scene", "场景"],
+  ["shot", "镜头"],
+  ["project", "全项目"],
+];
+
+const FILTERS = [
+  ["all", "全部"],
+  ["image", "图片"],
+  ["video", "视频"],
+  ["audio", "音频"],
+  ["render", "渲染"],
+  ["failed", "失败"],
+];
+
+/** The creative spine (CP7, extended CP8). Filtering by media KIND narrows what
+ *  media is shown; it must not sever the chain that explains it, so a spine node
+ *  is kept whenever something downstream of it survived the filter — and dropped
+ *  when nothing did, so 「失败」 shows the three failures and not every shot.
+ *
+ *  `canon` / `skillRun` / `proposal` join it at CP8: they are equally not media,
+ *  and equally the explanation of the media that is showing. */
+const SPINE = new Set(["script", "scene", "shot", "canon", "skillRun", "proposal"]);
+
+const STATUS_LABEL = {
+  success: "成功", failed: "失败", cancelled: "已取消",
+  generating: "生成中", queued: "排队中",
+};
+
+/** Column headers, from what the column actually holds.
+ *  The leftmost column is everything that was never generated here — bible
+ *  references and plain imports alike — so it is honestly labelled INPUTS
+ *  rather than RESULT, which it is not. */
+function columnTitle(nodes, rank) {
+  const types = new Set(nodes.map((n) => n.type));
+  if (types.size === 1) {
+    if (types.has("prompt")) return "PROMPT";
+    if (types.has("generation")) return "GENERATION";
+    if (types.has("script")) return "SCRIPT";
+    if (types.has("scene")) return "SCENE";
+    if (types.has("shot")) return "SHOT";
+    if (types.has("canon")) return "CANON";
+    if (types.has("skillRun")) return "SKILL RUN";
+    if (types.has("proposal")) return "PROPOSAL";
+    if (types.has("review")) return "REVIEW";
+  }
+  // a column shared by the spine and the references it binds is honestly both
+  if (types.has("shot") && types.has("asset")) return "SHOT / REFERENCES";
+  const kinds = new Set(nodes.filter((n) => n.type === "asset").map((n) => n.kind));
+  if (kinds.has("final")) return "FINAL";
+  if (rank === 0) {
+    return [...kinds].every((k) => k === "characterRef" || k === "locationRef") ? "REFERENCES" : "INPUTS";
+  }
+  if (types.has("asset")) return "RESULT";
+  return "";
+}
+
+/**
+ * Restrict a scoped graph to one media kind.
+ *
+ * TWO RULES, and the second is the one that matters:
+ *
+ *   1. Filtering hides nodes; it NEVER rewrites an edge. A hidden middle step
+ *      leaves a visible gap, never a fabricated shortcut from A straight to C —
+ *      「过滤不能破坏 lineage truth」.
+ *   2. The creative spine (script → scene → shot) is kept for exactly as long
+ *      as something downstream of it survived. 图片 then still shows WHICH shot
+ *      each frame belongs to, and 失败 still shows three failures rather than
+ *      every shot in the episode.
+ *
+ * Exported so the rule is testable on its own, without a DOM.
+ */
+export function filterGraph(scoped, filter) {
+  if (!filter || filter === "all") return scoped;
+  const keep = (n) => {
+    if (SPINE.has(n.type)) return false; // decided below, by what survives
+    // an approval is decided by its TAKE, forward — see below
+    if (n.type === "review") return false;
+    if (filter === "failed") {
+      return n.type === "generation" && (n.status === "failed" || n.status === "cancelled");
+    }
+    if (n.type === "generation" || n.type === "prompt") return n.kind === filter;
+    if (filter === "image") return n.kind === "shotImage" || n.kind === "characterRef" || n.kind === "locationRef";
+    if (filter === "video") return n.kind === "shotVideo";
+    if (filter === "audio") return ["dialogue", "sfx", "bgm", "ambience", "audio"].includes(n.kind);
+    if (filter === "render") return n.kind === "final";
+    return true;
+  };
+  const ids = new Set(scoped.order.filter((id) => keep(scoped.nodes.get(id))));
+  // An approval belongs to the take it approved and to nothing else: it survives
+  // exactly when that take does. Keeping it under 图片 would attach a video's
+  // 审片通过 to a frame nobody reviewed; dropping it under 视频 would hide the one
+  // step of the chain no generation record implies.
+  for (const e of scoped.edges) {
+    if (e.kind === "review" && ids.has(e.from)) ids.add(e.to);
+  }
+  // walk the spine BACKWARDS from what survived: a shot whose image is showing
+  // stays, and the scene and script above it stay with it
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const e of scoped.edges) {
+      if (!ids.has(e.to) || ids.has(e.from)) continue;
+      const from = scoped.nodes.get(e.from);
+      if (from && SPINE.has(from.type)) { ids.add(e.from); grew = true; }
+    }
+  }
+  const nodes = new Map();
+  for (const id of scoped.order) if (ids.has(id)) nodes.set(id, scoped.nodes.get(id));
+  return {
+    ...scoped,
+    nodes,
+    edges: scoped.edges.filter((e) => ids.has(e.from) && ids.has(e.to)),
+    order: scoped.order.filter((id) => ids.has(id)),
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* node cards                                                                  */
+/* -------------------------------------------------------------------------- */
+
+const shotLine = (n) => (n.shot ? `${seqLabel(n.shot)} ${n.shot.title}`.trim() : "");
+
+function assetCard(n) {
+  const cls = ["wg-node", "wg-asset", `wg-k-${n.kind}`];
+  if (n.active) cls.push("is-active");
+  if (n.missing) cls.push("is-missing");
+  const badge = n.active ? `<span class="wg-badge">ACTIVE</span>` : "";
+  // "Ref v3" is the entity's third reference; a bare "v3" would read as a media
+  // version, which a bible reference does not have
+  const ver = n.version == null ? "" : `${n.versionKind === "reference" ? "Ref " : ""}v${n.version}`;
+  const title = n.roleLabel || (n.shot ? shotLine(n) : n.kindLabel);
+  let visual;
+  if (n.missing) {
+    visual = `<div class="wg-thumb wg-gone"><span>媒体已删除</span></div>`;
+  } else if (n.kind === "dialogue" || n.kind === "sfx" || n.kind === "bgm" || n.kind === "ambience" || n.kind === "audio") {
+    visual = n.url
+      ? `<img class="wg-thumb wg-wave" src="${esc(n.url)}" alt="" loading="lazy">`
+      : `<div class="wg-thumb wg-wave wg-gone"><span>无波形</span></div>`;
+  } else if (n.url && (n.kind === "shotVideo" || n.kind === "final")) {
+    // A video asset's url IS the video file. An <img> cannot decode an mp4 —
+    // with the SVG placeholders every "video" was really a picture, so this
+    // only shows up against real media, as a broken-image glyph. <video> with
+    // metadata preload paints the real first frame without downloading it all.
+    visual =
+      `<div class="wg-thumbwrap">` +
+      `<video class="wg-thumb" src="${esc(n.url)}" muted preload="metadata" playsinline></video>` +
+      `<span class="wg-play">▶</span></div>`;
+  } else if (n.url) {
+    visual = `<div class="wg-thumbwrap"><img class="wg-thumb" src="${esc(n.url)}" alt="" loading="lazy"></div>`;
+  } else {
+    visual = `<div class="wg-thumb wg-gone"><span>无预览</span></div>`;
+  }
+  return (
+    `<button class="${cls.join(" ")}" data-node="${esc(n.id)}" type="button">` +
+    visual +
+    `<span class="wg-nt">${esc(title)}${ver ? ` <b>${esc(ver)}</b>` : ""}</span>` +
+    `<span class="wg-nk">${esc(n.kindLabel)}${badge}</span>` +
+    `</button>`
+  );
+}
+
+function promptCard(n) {
+  const first = String(n.text || "").split("\n").find((l) => l.trim()) || "";
+  const preview = first.length > 42 ? `${first.slice(0, 42)}…` : first;
+  return (
+    `<button class="wg-node wg-prompt" data-node="${esc(n.id)}" type="button">` +
+    `<span class="wg-pk">${esc(n.kindLabel)}</span>` +
+    `<span class="wg-ptext">“${esc(preview)}”</span>` +
+    (n.userInstruction ? `<span class="wg-pnote">改写：${esc(n.userInstruction)}</span>` : "") +
+    `</button>`
+  );
+}
+
+function generationCard(n) {
+  const st = n.status || "generating";
+  const time = n.createdAt ? String(n.createdAt).slice(11, 16) : "";
+  return (
+    `<button class="wg-node wg-gen wg-st-${esc(st)}" data-node="${esc(n.id)}" type="button">` +
+    `<span class="wg-gk">${esc(n.kindLabel)}</span>` +
+    `<span class="wg-gmeta">${esc(n.provider || "未记录来源")}</span>` +
+    `<span class="wg-gstat"><i></i>${esc(STATUS_LABEL[st] || st)}${time ? ` · ${esc(time)}` : ""}</span>` +
+    `</button>`
+  );
+}
+
+/** A spine card (CP7). Deliberately flat and text-first: these are documents,
+ *  not media, and dressing them up as thumbnails would suggest the graph made
+ *  them. A shot the draft no longer holds says so on its face. */
+function spineCard(n) {
+  const sub =
+    n.type === "script" ? `${String(n.text || "").trim().split("\n").length} 行${n.version ? ` · v${n.version}` : ""}`
+      : n.type === "scene" ? `${n.shotCount} 个镜头`
+        : n.dangling ? "草稿中已不存在" : seqLabel(n.shot) || "";
+  return (
+    `<button class="wg-node wg-spine wg-s-${n.type}${n.dangling ? " is-missing" : ""}" data-node="${esc(n.id)}" type="button">` +
+    `<span class="wg-sk">${esc(n.kindLabel)}</span>` +
+    `<span class="wg-nt">${esc(n.title || "未命名")}</span>` +
+    (sub ? `<span class="wg-nk">${esc(sub)}</span>` : "") +
+    `</button>`
+  );
+}
+
+/** Canon / skill run / proposal (CP8). Same flat, text-first treatment as the
+ *  rest of the spine — and each says the one thing that matters about it: what
+ *  the baseline was, who answered, what the creator decided. */
+function askCard(n) {
+  if (n.type === "canon") {
+    const items = (n.items || []).map((i) => `${i.label} ${i.value}`).join(" · ");
+    return (
+      `<button class="wg-node wg-spine wg-s-canon" data-node="${esc(n.id)}" type="button">` +
+      `<span class="wg-sk">${esc(n.kindLabel)}</span>` +
+      `<span class="wg-nt">${esc(n.title || "未命名")}</span>` +
+      `<span class="wg-nk">${esc(items)}</span></button>`
+    );
+  }
+  if (n.type === "skillRun") {
+    // the runtime is WHO answered; an unrecorded model stays unrecorded
+    const who = [n.executor || n.runtime, n.model].filter(Boolean).join(" · ");
+    return (
+      `<button class="wg-node wg-spine wg-s-skillrun wg-st-${esc(n.status)}" data-node="${esc(n.id)}" type="button">` +
+      `<span class="wg-sk">${esc(n.kindLabel)}</span>` +
+      `<span class="wg-nt">${esc(n.skillId)}${n.skillVersion ? ` <b>v${n.skillVersion}</b>` : ""}</span>` +
+      `<span class="wg-nk">${esc(who || "来源未记录")}</span>` +
+      (n.contextRecorded
+        ? (n.contextInconsistent ? `<span class="wg-nk wg-unknown">上下文自相矛盾</span>` : "")
+        : `<span class="wg-nk wg-unknown">未记录上下文</span>`) +
+      `</button>`
+    );
+  }
+  if (n.type === "review") {
+    // 生成成功 != 镜头完成 — this card is the human decision, and it says WHEN it
+    // was made. It never prints the asset id: the take is the edge beside it.
+    const when = n.approvedAt ? String(n.approvedAt).slice(0, 16).replace("T", " ") : "";
+    return (
+      `<button class="wg-node wg-spine wg-s-review" data-node="${esc(n.id)}" type="button">` +
+      `<span class="wg-sk">${esc(n.kindLabel)}</span>` +
+      `<span class="wg-nt">${esc(n.title || "这个镜头")}</span>` +
+      `<span class="wg-nk">${esc(when || "通过时间未记录")}</span>` +
+      (n.note ? `<span class="wg-nk">${esc(n.note)}</span>` : "") +
+      `</button>`
+    );
+  }
+  const decided = n.decision === "accepted" ? "已接受" : n.decision === "rejected" ? "已拒绝" : "待决定";
+  return (
+    `<button class="wg-node wg-spine wg-s-proposal" data-node="${esc(n.id)}" type="button">` +
+    `<span class="wg-sk">${esc(n.kindLabel)}</span>` +
+    `<span class="wg-nt">${esc(n.skillId)}</span>` +
+    `<span class="wg-nk">${esc(decided)}</span></button>`
+  );
+}
+
+function nodeCard(n) {
+  if (n.type === "prompt") return promptCard(n);
+  if (n.type === "generation") return generationCard(n);
+  if (n.type === "script" || n.type === "scene" || n.type === "shot") return spineCard(n);
+  if (n.type === "canon" || n.type === "skillRun" || n.type === "proposal" || n.type === "review") return askCard(n);
+  return assetCard(n);
+}
+
+/* -------------------------------------------------------------------------- */
+/* the workspace                                                               */
+/* -------------------------------------------------------------------------- */
+
+export function createWorkflowGraph(getCtx) {
+  // view state only — none of this is persisted, none of it is domain data
+  const view = {
+    scopeKind: "episode",
+    sceneId: null,
+    shotId: null,
+    filter: "all",
+    query: "",
+    selected: null,
+    traceMode: "full",
+    expandedScene: null,
+    expandedShot: null,
+    // once the creator opens/closes a group themselves, the default-expansion
+    // below must never override their choice
+    touchedScene: false,
+    touchedShot: false,
+    showFinalDetail: false,
+  };
+  let root = null;
+  let onSelect = null;
+  let resizeObs = null;
+  // ADR-0061 决策 2: true while this graph is the 剧集制作 space's CENTER tab, in
+  // which case the node detail is rendered by the shell's LEFT inspector.
+  let embedded = false;
+
+  const pd = () => getCtx().prodData();
+
+  function fullGraph() {
+    const d = pd();
+    return buildProvenanceGraph({
+      assets: d.assets,
+      generations: d.generations,
+      production: d.production,
+      timelines: d.timelines,
+      draftShots: d.draftShots,
+      scripts: d.scripts,
+      skillRuns: d.skillRuns,
+    });
+  }
+
+  /** The graph after scope + filter. */
+  function currentGraph() {
+    const d = pd();
+    const g = fullGraph();
+    const epId = d.production ? d.production.activeEpisodeId : null;
+    let scope = { kind: "project" };
+    if (view.scopeKind === "episode") scope = { kind: "episode", id: epId };
+    else if (view.scopeKind === "scene") scope = { kind: "scene", id: view.sceneId };
+    else if (view.scopeKind === "shot") scope = { kind: "shot", id: view.shotId };
+    return filterGraph(scopeGraph(g, scope), view.filter);
+  }
+
+  /* ---- header ----------------------------------------------------------- */
+
+  function header(g) {
+    const d = pd();
+    const prod = d.production;
+    const eps = prod ? prod.episodes : [];
+    const epOpts = eps
+      .map((e, i) => `<option value="${esc(e.episodeId)}"${e.episodeId === prod.activeEpisodeId ? " selected" : ""}>EP${String(i + 1).padStart(2, "0")} ${esc(e.title.replace(/^EP\d+\s*/, ""))}</option>`)
+      .join("");
+    const scopeBtns = SCOPES.map(([k, label]) => {
+      const disabled = (k === "scene" && !view.sceneId) || (k === "shot" && !view.shotId);
+      return `<button class="wg-seg${view.scopeKind === k ? " on" : ""}" data-scope="${k}"${disabled ? " disabled title=\"先在下面展开一个场景/镜头\"" : ""}>${esc(label)}</button>`;
+    }).join("");
+    const filterBtns = FILTERS.map(([k, label]) =>
+      `<button class="wg-chip${view.filter === k ? " on" : ""}" data-filter="${k}">${esc(label)}</button>`).join("");
+    const counts = {
+      gen: g.order.filter((id) => g.nodes.get(id).type === "generation").length,
+      failed: g.order.filter((id) => {
+        const n = g.nodes.get(id);
+        return n.type === "generation" && (n.status === "failed" || n.status === "cancelled");
+      }).length,
+    };
+    return (
+      `<div class="wg-bar">` +
+      `<div class="wg-barrow">` +
+      `<div class="wg-title">生成溯源<span>每一个资产的来源与去向</span></div>` +
+      (eps.length ? `<select class="wg-epsel" id="wg-ep">${epOpts}</select>` : "") +
+      `<div class="wg-segs">${scopeBtns}</div>` +
+      `<div class="wg-spacer"></div>` +
+      `<input class="wg-search" id="wg-q" type="search" placeholder="搜索镜头 / 角色 / 版本 / 来源 / Prompt 文本" value="${esc(view.query)}">` +
+      `</div>` +
+      `<div class="wg-barrow wg-barrow2">` +
+      `<div class="wg-chips">${filterBtns}</div>` +
+      `<div class="wg-spacer"></div>` +
+      `<div class="wg-stat">${counts.gen} 次生成${counts.failed ? ` · <b class="bad">${counts.failed} 次未成功</b>` : ""}</div>` +
+      `</div></div>`
+    );
+  }
+
+  /* ---- episode overview (progressive disclosure) ------------------------- */
+
+  /** Up to six real frames from the scene, newest-version first — the collapsed
+   *  row still has to look like film, not a table row. */
+  function sceneStrip(g, sceneId) {
+    const shots = new Map();
+    for (const id of g.order) {
+      const n = g.nodes.get(id);
+      if (n.sceneId !== sceneId || n.type !== "asset") continue;
+      // images only: a filmstrip <img> cannot decode an mp4, and a shot's frame
+      // is the right glance-level thumbnail anyway
+      if (n.kind !== "shotImage") continue;
+      const key = `${n.shotId}:${n.kind}`;
+      const prev = shots.get(key);
+      if (!prev || (n.version || 0) > (prev.version || 0)) shots.set(key, n);
+    }
+    const pics = [...shots.values()]
+      .sort((a, b) => (a.shot && b.shot ? (a.shot.sequence || 0) - (b.shot.sequence || 0) : 0))
+      .filter((n) => n.url)
+      .slice(0, 6);
+    if (!pics.length) return `<span class="wg-stripnone">还没有画面</span>`;
+    return `<span class="wg-strip">${pics.map((n) =>
+      `<img src="${esc(n.url)}" alt="" loading="lazy">`).join("")}</span>`;
+  }
+
+  /** Every version this shot holds, oldest first — a collapsed shot row still
+   *  shows what was actually made for it, in order. */
+  function shotStrip(g, shotId) {
+    const pics = g.order
+      .map((id) => g.nodes.get(id))
+      .filter((n) => n.shotId === shotId && n.type === "asset" && n.url && n.kind === "shotImage")
+      .sort((a, b) => (a.kind === b.kind ? (a.version || 0) - (b.version || 0) : a.kind < b.kind ? 1 : -1))
+      .slice(0, 8);
+    if (!pics.length) return `<span class="wg-stripnone">还没有画面</span>`;
+    return `<span class="wg-strip sm">${pics.map((n) =>
+      `<img src="${esc(n.url)}" alt="" loading="lazy"${n.active ? ' class="on"' : ""}>`).join("")}</span>`;
+  }
+
+  function overview(g, focus) {
+    const d = pd();
+    const prod = d.production;
+    const epId = prod ? prod.activeEpisodeId : null;
+    const scenes = sceneGroups(g, prod, epId);
+    if (!scenes.length) {
+      return `<div class="wg-empty"><div class="ic">🕸</div><div class="tt">这一集还没有场景</div><div class="hh">先在「剧集」里建立场景与镜头，生成过的每一步都会出现在这里。</div></div>`;
+    }
+    // Open the first scene that actually HAS generation history until the
+    // creator chooses otherwise: an episode with real work behind it must never
+    // greet them with four collapsed rows and a page of empty space.
+    if (!view.touchedScene && view.expandedScene === null) {
+      const first = scenes.find((s) => s.generations > 0) || scenes[0];
+      view.expandedScene = first.sceneId;
+      view.sceneId = first.sceneId;
+    }
+    const cards = scenes.map((sc) => {
+      const on = view.expandedScene === sc.sceneId;
+      return (
+        `<div class="wg-scene${on ? " open" : ""}">` +
+        `<button class="wg-scenehead" data-scene="${esc(sc.sceneId)}">` +
+        `<span class="wg-sname">${esc(sc.title)}</span>` +
+        (on ? "" : sceneStrip(g, sc.sceneId)) +
+        `<span class="wg-scounts">` +
+        `<i>镜头 <b>${sc.shots}</b></i><i>图片 <b>${sc.images}</b></i><i>视频 <b>${sc.videos}</b></i>` +
+        `<i>音频 <b>${sc.audio}</b></i><i>生成 <b>${sc.generations}</b></i>` +
+        (sc.failed ? `<i class="bad">未成功 <b>${sc.failed}</b></i>` : "") +
+        `</span><span class="wg-caret">${on ? "收起" : "展开"}</span></button>` +
+        (on ? sceneBody(g, sc.sceneId, focus) : "") +
+        `</div>`
+      );
+    }).join("");
+    return canonRow(g, epId) + scriptRow(g, epId) + `<div class="wg-scenes">${cards}</div>${finalCard(g)}`;
+  }
+
+  /** The episode's SCRIPT, at the head of the chain (CP7). The scene and shot
+   *  rows below already ARE the spine's other two levels — this is the one link
+   *  that had nowhere to live, and it is what everything under it descends
+   *  from. An episode with no script text simply has no row: the graph says
+   *  「还没有剧本」 by not claiming there is one. */
+  /** The episode's CANON BASELINE, above its script (CP8/ADR-0059). The chain
+   *  starts where the work started, so the default episode view has to show it
+   *  — not only the wide project layout. An episode that was never stamped has
+   *  no row: 「基于当前 canon」 would be an invention, not a default. */
+  function canonRow(g, epId) {
+    const n = g.nodes.get(nodeIds.canon(epId));
+    if (!n) return "";
+    const items = (n.items || []).map((i) => `${i.label} ${i.value}`).join(" · ");
+    return (
+      `<button class="wg-scriptrow wg-canonrow${view.selected === n.id ? " sel" : ""}" data-node="${esc(n.id)}">` +
+      `<span class="wg-sk">作品基线</span>` +
+      `<span class="wg-scriptname">${esc(n.title)}</span>` +
+      `<span class="wg-scriptline">${esc(items)}</span></button>`
+    );
+  }
+
+  function scriptRow(g, epId) {
+    const id = nodeIds.script(epId);
+    const n = g.nodes.get(id);
+    if (!n) return "";
+    const line = String(n.text || "").split("\n").find((l) => l.trim()) || "";
+    const preview = line.length > 60 ? `${line.slice(0, 60)}…` : line;
+    return (
+      `<button class="wg-scriptrow${view.selected === id ? " sel" : ""}" data-node="${esc(id)}">` +
+      `<span class="wg-sk">剧本</span>` +
+      `<span class="wg-scriptname">${esc(n.title)}${n.version ? ` · v${n.version}` : ""}</span>` +
+      `<span class="wg-scriptline">“${esc(preview)}”</span>` +
+      `<span class="wg-scounts"><i>行 <b>${String(n.text || "").trim().split("\n").length}</b></i></span>` +
+      `</button>`
+    );
+  }
+
+  function sceneBody(g, sceneId, focus) {
+    const groups = shotGroups(g, pd().production, sceneId);
+    // same reasoning as the scene above: show one real lineage straight away
+    if (!view.touchedShot && view.expandedShot === null) {
+      const first = groups.find((s) => s.generations > 0);
+      if (first) { view.expandedShot = first.shotId; view.shotId = first.shotId; }
+    }
+    const rows = groups.map((s) => {
+      const on = view.expandedShot === s.shotId;
+      return (
+        `<div class="wg-shotrow${on ? " open" : ""}">` +
+        `<button class="wg-shothead" data-shot="${esc(s.shotId)}">` +
+        `<span class="wg-shname">${esc(s.label)}</span>` +
+        (on ? "" : shotStrip(g, s.shotId)) +
+        `<span class="wg-scounts"><i>图 <b>${s.images}</b></i><i>视频 <b>${s.videos}</b></i><i>对白 <b>${s.audio}</b></i>` +
+        (s.failed ? `<i class="bad">未成功 <b>${s.failed}</b></i>` : "") +
+        // the creator's own decision — a collapsed row must not hide it, and no
+        // count above it implies it (生成成功 != 镜头完成)
+        (s.approved ? `<i class="ok">已通过</i>` : "") + `</span>` +
+        `<span class="wg-caret">${on ? "收起" : "展开生成链"}</span></button>` +
+        (on ? `<div class="wg-shotlane">${columns(scopeGraph(g, { kind: "shot", id: s.shotId }), focus)}</div>` : "") +
+        `</div>`
+      );
+    }).join("");
+    return `<div class="wg-shots">${rows}</div>`;
+  }
+
+  /** The Final's lineage, collapsed by track — §15: never explode hundreds of
+   *  nodes by default, and never hide how many there are. */
+  function finalCard(g) {
+    const finals = g.order.map((id) => g.nodes.get(id)).filter((n) => n.type === "asset" && n.kind === "final");
+    if (!finals.length) return "";
+    const fin = finals[finals.length - 1];
+    const story = explainNode(g, fin.id);
+    const gen = story.producedBy;
+    const groups = new Map();
+    for (const inp of gen ? explainNode(g, gen.id).inputs : []) {
+      const key = inp.kindLabel;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(inp);
+    }
+    const chips = [...groups.entries()].map(([label, list]) =>
+      `<button class="wg-group" data-group="${esc(label)}">${esc(label)} <b>×${list.length}</b></button>`).join("");
+    const expanded = view.showFinalDetail
+      ? `<div class="wg-groupbody">${[...groups.values()].flat().map(assetCard).join("")}</div>`
+      : "";
+    return (
+      `<section class="wg-final">` +
+      `<div class="wg-finalhead"><span class="wg-fk">成片链路</span>` +
+      `<button class="wg-flink" data-node="${esc(fin.id)}">查看成片详情</button></div>` +
+      `<div class="wg-finalrow">` +
+      `<div class="wg-finalin"><div class="wg-collabel">上游素材</div><div class="wg-groups">${chips || "<span class=\"wg-none\">没有记录任何输入</span>"}</div></div>` +
+      `<div class="wg-arrow">→</div>` +
+      `<div class="wg-finalgen">${gen ? generationCard(gen) : "<span class=\"wg-none\">没有渲染记录</span>"}</div>` +
+      `<div class="wg-arrow">→</div>` +
+      `<div class="wg-finalout">${assetCard(fin)}</div>` +
+      `</div>${expanded}</section>`
+    );
+  }
+
+  /* ---- the column graph -------------------------------------------------- */
+
+  function columns(g, focus) {
+    if (!g.order.length) {
+      return `<div class="wg-empty small"><div class="tt">这个范围里没有可显示的生成记录</div><div class="hh">换一个筛选条件，或展开别的镜头。</div></div>`;
+    }
+    const byRank = new Map();
+    for (const id of g.order) {
+      const n = g.nodes.get(id);
+      if (!byRank.has(n.rank)) byRank.set(n.rank, []);
+      byRank.get(n.rank).push(n);
+    }
+    // Inside a column, read top-to-bottom the way a creator thinks: references
+    // before imports, earlier versions before later ones, earlier attempts
+    // before the one that worked. Sorting by node id would interleave a
+    // character reference with a shot frame for no reason a reader can see.
+    const KIND_ORDER = { characterRef: 0, locationRef: 1, shotImage: 2, shotVideo: 3, dialogue: 4, sfx: 5, ambience: 6, bgm: 7, final: 8 };
+    const rowKey = (n) => [
+      n.type === "asset" ? (KIND_ORDER[n.kind] ?? 9) : 0,
+      n.shot && n.shot.sequence != null ? n.shot.sequence : 0,
+      n.version != null ? n.version : 0,
+      n.createdAt || "",
+      n.id,
+    ];
+    const cmp = (a, b) => {
+      const ka = rowKey(a), kb = rowKey(b);
+      for (let i = 0; i < ka.length; i += 1) {
+        if (ka[i] < kb[i]) return -1;
+        if (ka[i] > kb[i]) return 1;
+      }
+      return 0;
+    };
+    const ranks = [...byRank.keys()].sort((a, b) => a - b);
+    const cols = ranks.map((r) => {
+      const list = byRank.get(r).slice().sort(cmp);
+      const title = columnTitle(list, r);
+      const cards = list.map((n) => {
+        const dim = focus && !focus.has(n.id);
+        const sel = view.selected === n.id;
+        return `<div class="wg-slot${dim ? " dim" : ""}${sel ? " sel" : ""}">${nodeCard(n)}</div>`;
+      }).join("");
+      return `<div class="wg-col"><div class="wg-collabel">${esc(title)}</div><div class="wg-colbody">${cards}</div></div>`;
+    });
+    // The SVG is filled in after layout (drawEdges) — it needs real geometry.
+    return `<div class="wg-cols" data-edges="1"><svg class="wg-wires" aria-hidden="true"></svg>${cols.join(`<div class="wg-flow">→</div>`)}</div>`;
+  }
+
+  /** Draw the real connections, after the cards have been laid out.
+   *
+   *  One line per RECORDED edge, from the right edge of the source card to the
+   *  left edge of the target. Nothing is drawn for a link the graph does not
+   *  hold, and an edge whose endpoint is filtered out is simply absent — the
+   *  wires can never claim more than the records do. */
+  function drawEdges(g, focus) {
+    for (const box of root.querySelectorAll(".wg-cols[data-edges]")) {
+      const svg = box.querySelector(".wg-wires");
+      if (!svg) continue;
+      const base = box.getBoundingClientRect();
+      svg.setAttribute("viewBox", `0 0 ${Math.max(1, box.scrollWidth)} ${Math.max(1, box.scrollHeight)}`);
+      svg.setAttribute("width", box.scrollWidth);
+      svg.setAttribute("height", box.scrollHeight);
+      const at = (id) => {
+        const el = box.querySelector(`[data-node="${CSS.escape(id)}"]`);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return {
+          x1: r.left - base.left, x2: r.right - base.left,
+          y: r.top - base.top + r.height / 2,
+        };
+      };
+      const parts = [];
+      for (const e of g.edges) {
+        const a = at(e.from);
+        const b = at(e.to);
+        if (!a || !b || b.x1 <= a.x2) continue; // only forward, left→right
+        const dx = Math.max(14, (b.x1 - a.x2) * 0.55);
+        const lit = !focus || (focus.has(e.from) && focus.has(e.to));
+        parts.push(
+          `<path d="M${a.x2} ${a.y} C${a.x2 + dx} ${a.y} ${b.x1 - dx} ${b.y} ${b.x1} ${b.y}" ` +
+          `class="wire wire-${e.kind}${lit ? " lit" : ""}"/>`,
+        );
+      }
+      svg.innerHTML = parts.join("");
+    }
+  }
+
+  /* ---- inspectors -------------------------------------------------------- */
+
+  function kv(label, value) {
+    return `<div class="wg-kv"><span>${esc(label)}</span><b>${value}</b></div>`;
+  }
+
+  function miniRow(list, emptyText) {
+    if (!list.length) return `<div class="wg-none">${esc(emptyText)}</div>`;
+    return `<div class="wg-mini">${list.map((n) => {
+      const label = n.type === "asset"
+        ? `${n.roleLabel || n.kindLabel}${n.version != null ? ` v${n.version}` : ""}`
+        : n.type === "skillRun" || n.type === "proposal"
+          ? `${n.kindLabel} · ${n.skillId}`
+          : n.type === "review"
+            ? `${n.kindLabel}${n.title ? ` · ${n.title}` : ""}`
+            : n.kindLabel;
+      const thumb = n.type === "asset" && n.url ? `<img src="${esc(n.url)}" alt="">` : "";
+      return `<button class="wg-minirow" data-node="${esc(n.id)}">${thumb}<span>${esc(label)}</span></button>`;
+    }).join("")}</div>`;
+  }
+
+  /**
+   * AI 导演 · 溯源助手 (§18).
+   *
+   * It reads the SAME derived story the graph draws and re-states it as a
+   * chain, plus at most one observation. Every sentence it can produce is
+   * pinned to a record: it never proposes a link, never guesses a cause, and
+   * when the records do not support a remark it prints nothing rather than
+   * filling the panel.
+   */
+  function directorPanel(g) {
+    if (!view.selected || !g.nodes.has(view.selected)) {
+      return (
+        `<section class="wg-dir"><div class="wg-ilabel">AI 导演 · 溯源</div>` +
+        `<div class="wg-none">选中一个节点后，这里会把它的生成链按记录复述一遍。</div></section>`
+      );
+    }
+    const n = g.nodes.get(view.selected);
+    const story = explainNode(g, n.id);
+    const name = (x) => (x.type === "asset"
+      ? `${x.roleLabel || x.kindLabel}${x.version != null ? ` v${x.version}` : ""}`
+      : x.kindLabel);
+
+    /** Name the inputs — but a render consumes every clip in the episode, and
+     *  listing forty of them is not a summary. Past a handful, collapse to
+     *  counts BY KIND, which is still exactly what the records say. */
+    const feedLine = (list) => {
+      if (list.length <= 5) return list.map((f) => `<b>${esc(name(f))}</b>`).join(" ＋ ");
+      const byKind = new Map();
+      for (const x of list) byKind.set(x.kindLabel, (byKind.get(x.kindLabel) || 0) + 1);
+      return `<b>${list.length} 项素材</b>（` +
+        [...byKind.entries()].map(([k, c]) => `${esc(k)} ×${c}`).join(" · ") + `）`;
+    };
+
+    const steps = [];
+    if (story.producedBy) {
+      const genStory = explainNode(g, story.producedBy.id);
+      const feed = genStory.references.concat(genStory.inputs);
+      if (feed.length) steps.push(feedLine(feed));
+      if (story.prompt) steps.push(`＋ <b>${esc(story.prompt.kindLabel)}</b>`);
+      steps.push(`→ ${esc(story.producedBy.kindLabel)}（${esc(story.producedBy.provider || "来源未记录")}）`);
+      steps.push(`→ <b>${esc(name(n))}</b>`);
+    } else if (n.type === "asset") {
+      steps.push(n.missing ? "媒体记录已删除，只保留了链路。" : "这是一次导入：没有生成记录，也没有可引用的 Prompt。");
+    } else if (n.type === "canon" || n.type === "skillRun" || n.type === "proposal") {
+      // the ask-and-answer layer is authored/recorded, never generated
+      steps.push(n.type === "canon"
+        ? `这是本集建立时的作品基线：它<b>是</b>来源。`
+        : n.type === "skillRun"
+          ? `这是一次能力运行的记录${n.contextRecorded ? "" : "（未记录上下文）"}。`
+          : `这是一份提案，等待或已经得到创作者的判断。`);
+      if (story.proposal) steps.push(`→ 产出 <b>${esc(story.proposal.kindLabel)}</b>`);
+      if (story.launched.length) steps.push(`→ 发起了 <b>${story.launched.length}</b> 次生成`);
+    } else if (n.type === "review") {
+      steps.push(story.approved
+        ? `创作者通过了 <b>${esc(name(story.approved))}</b>。`
+        : `这是一次审片通过，但它指向的媒体已不在登记表里。`);
+      steps.push(`→ 这是人的判断，不是任何一次生成的结果。`);
+    } else if (n.type === "script" || n.type === "scene" || n.type === "shot") {
+      // authored, not generated — there is no chain ABOVE it to recite
+      steps.push(`这是创作文档，不是生成物：它没有来源链，它<b>是</b>来源。`);
+      if (story.contains.length) steps.push(`→ 它展开为 <b>${story.contains.length}</b> 个${esc(story.contains[0].kindLabel)}`);
+      if (story.generations.length) steps.push(`→ 为它做过 <b>${story.generations.length}</b> 次生成`);
+    } else if (n.type === "generation") {
+      const gs = explainNode(g, n.id);
+      const feed = gs.references.concat(gs.inputs);
+      if (feed.length) steps.push(feedLine(feed));
+      if (gs.prompt) steps.push(`＋ <b>${esc(gs.prompt.kindLabel)}</b>`);
+      steps.push(`→ ${esc(n.kindLabel)}（${esc(STATUS_LABEL[n.status] || n.status)}）`);
+      steps.push(gs.results.length ? `→ <b>${esc(gs.results.map(name).join("、"))}</b>` : "→ 没有产出");
+    } else {
+      steps.push(`这段 Prompt 驱动了一次${esc(n.kindLabel)}。`);
+    }
+
+    // At most ONE observation, and only where the records themselves justify it.
+    let note = "";
+    if (n.type === "asset" && n.kind === "shotVideo" && story.inputs.length === 1) {
+      const src = story.inputs[0];
+      note = `这个视频是从 <b>${esc(name(src))}</b> 生成的${src.active ? "" : "（该图片已不是当前选用版本）"}。` +
+        `人物或场景不一致时，先查这一张图片和它的参考，再决定要不要重做视频。`;
+    } else if (n.type === "generation" && (n.status === "failed" || n.status === "cancelled")) {
+      note = `这次尝试没有产出，记录保留下来是为了说明后面那一次改了什么。`;
+    } else if (n.type === "asset" && story.provenance === "import" && !n.missing) {
+      note = `没有生成记录，所以来源只能如实写成「外部导入」——不要在这里推断 Prompt。`;
+    }
+
+    const jumps = [];
+    if (story.producedBy) jumps.push(`<button class="wg-btn" data-node="${esc(story.producedBy.id)}">查看生成记录</button>`);
+    if (story.prompt) jumps.push(`<button class="wg-btn" data-node="${esc(story.prompt.id)}">查看 Prompt</button>`);
+    if (story.inputs[0]) jumps.push(`<button class="wg-btn" data-node="${esc(story.inputs[0].id)}">定位 ${esc(name(story.inputs[0]))}</button>`);
+
+    return (
+      `<section class="wg-dir"><div class="wg-ilabel">AI 导演 · 溯源</div>` +
+      `<div class="wg-dirchain">` +
+      steps.map((s) => `<div class="wg-dirstep"><span class="mk">·</span><span class="bd">${s}</span></div>`).join("") +
+      `</div>` +
+      (note ? `<div class="wg-dirnote">${note}</div>` : "") +
+      (jumps.length ? `<div class="wg-acts">${jumps.join("")}</div>` : "") +
+      `</section>`
+    );
+  }
+
+  function inspector(g) {
+    if (!view.selected || !g.nodes.has(view.selected)) {
+      return (
+        `<aside class="wg-insp empty"><div class="wg-inspempty">` +
+        `<div class="ic">🔍</div><div class="tt">选一个节点</div>` +
+        `<div class="hh">点任意画面、Prompt 或生成记录，这里会显示它的完整来源与去向；<br>图上会只亮起这一条链路。</div>` +
+        `</div>${directorPanel(g)}</aside>`
+      );
+    }
+    const n = g.nodes.get(view.selected);
+    const story = explainNode(g, n.id);
+    const traceBtns =
+      `<div class="wg-trace">` +
+      ["up", "down", "full"].map((m) =>
+        `<button class="wg-seg${view.traceMode === m ? " on" : ""}" data-trace="${m}">${m === "up" ? "仅看上游" : m === "down" ? "仅看下游" : "完整链路"}</button>`).join("") +
+      `</div>`;
+
+    let body = "";
+    if (n.type === "prompt") {
+      body =
+        `<div class="wg-isec"><div class="wg-ilabel">目标</div><div class="wg-ivalue">${esc(n.shot ? `${n.shot.episodeTitle} · ${n.shot.sceneTitle} · ${seqLabel(n.shot)}` : "未绑定镜头")}</div></div>` +
+        `<div class="wg-isec"><div class="wg-ilabel">Prompt 快照</div><pre class="wg-pre">${esc(n.text)}</pre></div>` +
+        (n.userInstruction ? `<div class="wg-isec"><div class="wg-ilabel">本次改写要求</div><div class="wg-ivalue">${esc(n.userInstruction)}</div></div>` : "") +
+        `<div class="wg-isec"><div class="wg-ilabel">输入</div>${miniRow(story.references.concat(story.inputs), "这次生成没有记录输入")}</div>` +
+        `<div class="wg-isec"><div class="wg-ilabel">来源</div><div class="wg-ivalue">${esc(n.provider || "未记录")}</div></div>` +
+        `<div class="wg-acts"><button class="wg-btn" data-copy="${esc(n.id)}">复制 Prompt</button>` +
+        `<button class="wg-btn" data-node="${esc(nodeIds.generation(n.generationId))}">查看生成记录</button>` +
+        (n.shotId ? `<button class="wg-btn" data-goshot="${esc(n.shotId)}">定位镜头</button>` : "") + `</div>`;
+    } else if (n.type === "generation") {
+      const p = n.parameters;
+      body =
+        `<div class="wg-isec"><div class="wg-ilabel">状态</div><div class="wg-ivalue"><span class="wg-pill wg-st-${esc(n.status)}">${esc(STATUS_LABEL[n.status] || n.status)}</span></div></div>` +
+        kv("来源", esc(n.provider || "未记录")) +
+        kv("模型", esc(n.model || "未记录")) +
+        kv("时间", esc(n.createdAt || "未记录")) +
+        kv("目标", esc(n.shot ? `${n.shot.sceneTitle} · ${seqLabel(n.shot)} ${n.shot.title}` : "整集渲染")) +
+        (story.prompt ? `<div class="wg-isec"><div class="wg-ilabel">Prompt 快照</div><pre class="wg-pre">${esc(story.prompt.text)}</pre></div>`
+          : `<div class="wg-isec"><div class="wg-ilabel">Prompt</div><div class="wg-none">这类生成没有 Prompt（渲染使用的是设置，不是提示词）</div></div>`) +
+        `<div class="wg-isec"><div class="wg-ilabel">参考</div>${miniRow(story.references, "没有记录参考")}</div>` +
+        `<div class="wg-isec"><div class="wg-ilabel">输入</div>${miniRow(story.inputs, "没有记录输入")}</div>` +
+        `<div class="wg-isec"><div class="wg-ilabel">产出</div>${miniRow(story.results, n.status === "failed" || n.status === "cancelled" ? "这次尝试没有产出（记录保留）" : "还没有产出")}</div>` +
+        (p ? `<details class="wg-tech"><summary>技术详情</summary><pre class="wg-pre">${esc(JSON.stringify({ generationId: n.generationId, parameters: p }, null, 2))}</pre></details>`
+          : `<details class="wg-tech"><summary>技术详情</summary><pre class="wg-pre">${esc(n.generationId)}</pre></details>`);
+    } else if (n.type === "canon" || n.type === "skillRun" || n.type === "proposal") {
+      // CP8/ADR-0059. Everything here is AUTHORED or RECORDED, never generated,
+      // and anything the document did not capture says so instead of guessing.
+      const unknown = `<span class="wg-none">未记录</span>`;
+      if (n.type === "canon") {
+        body =
+          `<div class="wg-isec"><div class="wg-ilabel">本集建立时的作品基线</div>` +
+          `<dl class="wg-baseline">${(n.items || []).map((i) =>
+            `<dt>${esc(i.label)}</dt><dd>${esc(String(i.value))}</dd>`).join("")}</dl></div>` +
+          `<div class="wg-isec"><div class="wg-ilabel">向下</div>${miniRow(story.contains, "")}</div>` +
+          `<div class="wg-isec"><div class="wg-ilabel">读取过它的能力运行</div>${miniRow(story.skillRuns, "还没有能力运行读过这个基线")}</div>`;
+      } else if (n.type === "skillRun") {
+        body =
+          kv("能力", `${esc(n.skillId)}${n.skillVersion ? ` v${n.skillVersion}` : ""}`) +
+          kv("运行时", esc(n.runtime || "未记录")) +
+          kv("执行器", esc(n.executor || "未记录")) +
+          // the model is reported BY the runtime — unreported stays unreported
+          kv("模型", n.model ? esc(n.model) : unknown) +
+          kv("状态", esc(STATUS_LABEL[n.status] || n.status || "")) +
+          kv("时间", esc(n.createdAt || "未记录")) +
+          `<div class="wg-isec"><div class="wg-ilabel">读取的上下文</div>` +
+          (!n.contextRecorded
+            ? `<div class="wg-none">这条记录没有捕获上下文——它早于 ADR-0059，不会被归到任何一集</div>`
+            : n.contextInconsistent
+              ? `<div class="wg-none">这条记录的上下文与文档不一致（它命名的剧集与那个镜头/场景真正所属的不是同一个），因此不据它连任何线</div>`
+              : `<div class="wg-ivalue">${esc([n.episodeId && "剧集", n.sceneId && "场景", n.shotId && "镜头"].filter(Boolean).join(" / "))}</div>`) +
+          `</div>` +
+          (n.inputSummary ? `<div class="wg-isec"><div class="wg-ilabel">输入摘要</div><div class="wg-ivalue">${esc(n.inputSummary)}</div></div>` : "") +
+          `<div class="wg-isec"><div class="wg-ilabel">提案</div>${miniRow(story.proposal ? [story.proposal] : [], "这次运行没有产出提案")}</div>`;
+      } else {
+        const decided = n.decision === "accepted" ? "已接受" : n.decision === "rejected" ? "已拒绝" : "待决定";
+        body =
+          kv("能力", esc(n.skillId)) +
+          kv("创作者的决定", esc(decided)) +
+          kv("时间", esc(n.decidedAt || "未记录")) +
+          `<div class="wg-isec"><div class="wg-ilabel">来自</div>${miniRow(story.fromRun ? [story.fromRun] : [], "")}</div>` +
+          `<div class="wg-isec"><div class="wg-ilabel">由它发起的生成</div>` +
+          `${miniRow(story.launched, "没有生成记录说自己来自这份提案")}</div>`;
+      }
+      body += `<div class="wg-isec"><div class="wg-ilabel">来源</div>` +
+        `<div class="wg-ivalue">创作文档 / 运行记录 — 它不是被生成出来的</div></div>`;
+    } else if (n.type === "script" || n.type === "scene" || n.type === "shot") {
+      // The creative spine (CP7). It was AUTHORED — it has no prompt, no
+      // provider and no producing generation, and saying so is the point.
+      body =
+        (n.type === "script"
+          ? `<div class="wg-isec"><div class="wg-ilabel">剧本${n.version ? ` v${n.version}` : ""}</div><pre class="wg-pre">${esc(n.text)}</pre></div>`
+          : kv("名称", esc(n.title || "未命名"))) +
+        (n.type === "scene" ? kv("镜头数", String(n.shotCount)) : "") +
+        (n.type === "shot" && n.dangling ? kv("状态", "当前分镜草稿里已不存在这个镜头（记录保留）") : "") +
+        (story.partOf ? `<div class="wg-isec"><div class="wg-ilabel">属于</div>${miniRow([story.partOf], "")}</div>` : "") +
+        (story.contains.length ? `<div class="wg-isec"><div class="wg-ilabel">包含</div>${miniRow(story.contains, "")}</div>` : "") +
+        (story.boundReferences.length
+          ? `<div class="wg-isec"><div class="wg-ilabel">绑定的参考</div>${miniRow(story.boundReferences, "")}</div>`
+          : n.type === "shot" ? `<div class="wg-isec"><div class="wg-ilabel">绑定的参考</div><div class="wg-none">还没有绑定任何参考</div></div>` : "") +
+        (story.generations.length
+          ? `<div class="wg-isec"><div class="wg-ilabel">为它做过的生成</div>${miniRow(story.generations, "")}</div>`
+          : n.type === "shot" ? `<div class="wg-isec"><div class="wg-ilabel">为它做过的生成</div><div class="wg-none">还没有为这个镜头生成过任何东西</div></div>` : "") +
+        `<div class="wg-isec"><div class="wg-ilabel">来源</div><div class="wg-ivalue">创作文档 — 它不是被生成出来的，没有 Prompt 可引用</div></div>` +
+        (n.shotId ? `<div class="wg-acts"><button class="wg-btn" data-goshot="${esc(n.shotId)}">在制作中打开</button></div>` : "");
+    } else if (n.type === "review") {
+      // CP4/ADR-0057. A decision, not an artefact: it has no prompt, no provider
+      // and no media of its own — what it HAS is the take it was given for.
+      body =
+        kv("镜头", esc(n.shot ? `${n.shot.sceneTitle} · ${seqLabel(n.shot)} ${n.shot.title}` : n.title || "未记录")) +
+        kv("通过时间", esc(n.approvedAt || "未记录")) +
+        (n.note ? kv("备注", esc(n.note)) : "") +
+        `<div class="wg-isec"><div class="wg-ilabel">通过的是这一条</div>${miniRow(story.approved ? [story.approved] : [], "这条通过记录指向的媒体已不在登记表里")}</div>` +
+        `<div class="wg-isec"><div class="wg-ilabel">来源</div>` +
+        `<div class="wg-ivalue">创作者的判断 — 生成成功不等于镜头完成，没有任何生成会自动写出它</div></div>` +
+        (n.shotId ? `<div class="wg-acts"><button class="wg-btn" data-goshot="${esc(n.shotId)}">在制作中打开</button></div>` : "");
+    } else {
+      const origin = story.provenance === "import"
+        ? (n.missing ? "媒体记录已删除，只剩链路" : "外部导入 · 没有生成记录")
+        : "AI 生成";
+      body =
+        `<div class="wg-ihero">${n.url ? `<img src="${esc(n.url)}" alt="">` : `<div class="wg-gone"><span>无预览</span></div>`}</div>` +
+        kv("类型", esc(n.kindLabel) + (n.version != null ? ` v${n.version}` : "") + (n.active ? ` <span class="wg-badge">ACTIVE</span>` : "")) +
+        kv("归属", esc(n.shot ? `${n.shot.sceneTitle} · ${seqLabel(n.shot)} ${n.shot.title}` : (n.roleLabel || "项目级素材"))) +
+        kv("来源", esc(origin)) +
+        (n.storageState && n.storageState !== "local" ? kv("媒体状态", esc(n.storageState)) : "") +
+        (story.producedBy
+          ? `<div class="wg-isec"><div class="wg-ilabel">由谁生成</div>${miniRow([story.producedBy], "")}</div>` +
+            (story.prompt ? `<div class="wg-isec"><div class="wg-ilabel">Prompt</div><pre class="wg-pre">${esc(story.prompt.text)}</pre></div>` : "")
+          : `<div class="wg-isec"><div class="wg-ilabel">Prompt</div><div class="wg-none">未知 — 这是一次导入，没有可引用的 Prompt</div></div>`) +
+        `<div class="wg-isec"><div class="wg-ilabel">参考</div>${miniRow(story.references, "没有记录参考")}</div>` +
+        (story.firstFrame.length ? `<div class="wg-isec"><div class="wg-ilabel">记录的首帧</div>${miniRow(story.firstFrame, "")}</div>` : "") +
+        `<div class="wg-isec"><div class="wg-ilabel">下游产物</div>${miniRow(story.usedBy, "还没有被任何后续生成使用")}</div>` +
+        `<div class="wg-acts">` +
+        (n.shotId ? `<button class="wg-btn" data-goshot="${esc(n.shotId)}">在制作中打开</button>` : "") +
+        `<button class="wg-btn" data-scopeshot="${esc(n.shotId || "")}"${n.shotId ? "" : " disabled"}>只看这个镜头</button>` +
+        `</div>`;
+    }
+
+    const title = n.type === "asset"
+      ? `${n.roleLabel || n.kindLabel}${n.version != null ? ` v${n.version}` : ""}`
+      : n.kindLabel;
+    return (
+      `<aside class="wg-insp">` +
+      `<div class="wg-ihead"><div class="wg-it">${esc(title)}</div>` +
+      `<button class="wg-close" data-close="1">✕</button></div>` +
+      traceBtns +
+      `<div class="wg-ibody">${body}${directorPanel(g)}</div></aside>`
+    );
+  }
+
+  /* ---- render ------------------------------------------------------------ */
+
+  function render() {
+    if (!root) return;
+    const g = currentGraph();
+    const hits = view.query ? new Set(searchGraph(g, view.query)) : null;
+    let focus = null;
+    if (view.selected && g.nodes.has(view.selected)) focus = traceOf(g, view.selected, view.traceMode);
+    else if (hits && hits.size) focus = hits;
+
+    const showOverview = view.scopeKind === "episode" && !view.query;
+    const main = showOverview ? overview(g, focus) : columns(g, focus);
+    const hitNote = hits
+      ? `<div class="wg-hits">${hits.size ? `找到 <b>${hits.size}</b> 个匹配节点，其余已淡出` : "没有匹配的节点"}</div>`
+      : "";
+    // EMBEDDED (ADR-0061 决策 2): inside 剧集制作 the node detail belongs to the
+    // shell's LEFT Production Inspector, and the RIGHT column stays the AI
+    // Director. Rendering this aside there too would put the same object in two
+    // places and re-create exactly the crowding the consolidation removes.
+    root.innerHTML =
+      `<div class="wg-root${embedded ? " embedded" : ""}">${header(g)}` +
+      `<div class="wg-body"><div class="wg-canvas">${hitNote}${main}</div>${embedded ? "" : inspector(g)}</div></div>`;
+    wire(g);
+    // wires need real geometry, and the placeholder frames are images: redraw
+    // once after layout and again as each one lands, or the curves would point
+    // at where the cards used to be
+    const redraw = () => drawEdges(g, focus);
+    requestAnimationFrame(redraw);
+    for (const img of root.querySelectorAll(".wg-cols img")) {
+      if (!img.complete) img.addEventListener("load", redraw, { once: true });
+    }
+    if (resizeObs) resizeObs.disconnect();
+    if (typeof ResizeObserver === "function") {
+      resizeObs = new ResizeObserver(() => redraw());
+      for (const box of root.querySelectorAll(".wg-cols")) resizeObs.observe(box);
+    }
+    if (onSelect) onSelect(view.selected ? explainNode(g, view.selected) : null, g);
+  }
+
+  function wire(g) {
+    const q = (sel) => root.querySelectorAll(sel);
+    const ep = root.querySelector("#wg-ep");
+    if (ep) {
+      const wasEp = ep.value;
+      ep.onchange = () => {
+        const ctx = getCtx();
+        // The active episode is shared with the Production shell. Switching it
+        // while a shot detail has unsaved edits would strand that buffer: the
+        // shell blocks re-selection while dirty, so returning to Production
+        // would show the previous episode's shot under the new episode.
+        if (ctx.hasUnsavedShotEdit && ctx.hasUnsavedShotEdit()) {
+          if (!window.confirm("镜头详情有未保存的修改，切换剧集将丢弃？")) {
+            ep.value = wasEp; // the switch did not happen — do not pretend it did
+            return;
+          }
+          // the creator said discard, so actually discard: leaving the buffer
+          // alive would carry the old episode's shot edit into the new episode
+          if (ctx.discardShotEdit) ctx.discardShotEdit();
+        }
+        if (ctx.production && ctx.production.setActiveEpisode) ctx.production.setActiveEpisode(ep.value);
+        view.expandedScene = null; view.expandedShot = null;
+        view.sceneId = null; view.shotId = null; view.selected = null;
+        view.scopeKind = "episode";
+        render();
+      };
+    }
+    const search = root.querySelector("#wg-q");
+    if (search) {
+      search.oninput = () => {
+        view.query = search.value;
+        render();
+        const again = root.querySelector("#wg-q");
+        if (again) { again.focus(); again.setSelectionRange(again.value.length, again.value.length); }
+      };
+    }
+    for (const b of q("[data-scope]")) {
+      b.onclick = () => { view.scopeKind = b.dataset.scope; view.selected = null; render(); };
+    }
+    for (const b of q("[data-filter]")) {
+      b.onclick = () => { view.filter = b.dataset.filter; render(); };
+    }
+    for (const b of q("[data-scene]")) {
+      b.onclick = () => {
+        const id = b.dataset.scene;
+        view.touchedScene = true;
+        view.touchedShot = false;
+        view.expandedScene = view.expandedScene === id ? null : id;
+        view.sceneId = view.expandedScene;
+        view.expandedShot = null;
+        render();
+      };
+    }
+    for (const b of q("[data-shot]")) {
+      b.onclick = () => {
+        const id = b.dataset.shot;
+        view.touchedShot = true;
+        view.expandedShot = view.expandedShot === id ? null : id;
+        view.shotId = view.expandedShot;
+        render();
+      };
+    }
+    for (const b of q("[data-node]")) {
+      b.onclick = () => {
+        const id = b.dataset.node;
+        view.selected = view.selected === id ? null : id;
+        render();
+      };
+    }
+    for (const b of q("[data-trace]")) {
+      b.onclick = () => { view.traceMode = b.dataset.trace; render(); };
+    }
+    for (const b of q("[data-group]")) {
+      b.onclick = () => { view.showFinalDetail = !view.showFinalDetail; render(); };
+    }
+    for (const b of q("[data-close]")) {
+      b.onclick = () => { view.selected = null; render(); };
+    }
+    for (const b of q("[data-copy]")) {
+      b.onclick = async () => {
+        const n = g.nodes.get(b.dataset.copy);
+        if (!n) return;
+        try {
+          await navigator.clipboard.writeText(n.text);
+          b.textContent = "已复制";
+          setTimeout(() => { b.textContent = "复制 Prompt"; }, 1200);
+        } catch {
+          b.textContent = "复制失败";
+        }
+      };
+    }
+    for (const b of q("[data-scopeshot]")) {
+      b.onclick = () => {
+        if (!b.dataset.scopeshot) return;
+        view.shotId = b.dataset.scopeshot;
+        view.scopeKind = "shot";
+        render();
+      };
+    }
+    for (const b of q("[data-goshot]")) {
+      b.onclick = () => {
+        const ctx = getCtx();
+        if (ctx.openShotInProduction) ctx.openShotInProduction(b.dataset.goshot);
+      };
+    }
+  }
+
+  return {
+    /** Attach to a container WITHOUT rendering: at app-boot time the engine and
+     *  the project documents do not exist yet, and deriving a graph from them
+     *  would throw before the shell is even up. The first render happens when
+     *  Workflow is actually opened. */
+    mount(el, { onSelectionChange, embedded: emb = false } = {}) {
+      root = el;
+      onSelect = onSelectionChange || null;
+      embedded = !!emb;
+    },
+    render,
+    /** The relations filter (仅看上游 / 仅看下游 / 完整链路). Owned here because
+     *  the graph is what dims and lights up, but DRIVEN from the shell's LEFT
+     *  Production Inspector when embedded (ADR-0061 决策 2 / TASK-064 §11).
+     *  An unknown mode is refused rather than stored — a mode the tracer does
+     *  not implement would silently show the full graph while the button claims
+     *  a narrowed one. */
+    setTraceMode(mode) {
+      if (!["up", "down", "full"].includes(mode)) return false;
+      view.traceMode = mode;
+      render();
+      return true;
+    },
+    /** Which node the graph currently has selected, or null. Read-only. */
+    selectedId: () => view.selected || null,
+    /** The current selection's provenance story — what the AI Director reads.
+     *  It is the SAME derived record set the page draws, so the panel cannot
+     *  describe a link the graph does not show. */
+    selection() {
+      if (!view.selected) return null;
+      const g = currentGraph();
+      return g.nodes.has(view.selected) ? explainNode(g, view.selected) : null;
+    },
+    /** Focus a shot's lineage from outside (e.g. the Director's jump buttons). */
+    focusShot(shotId) {
+      view.scopeKind = "shot";
+      view.shotId = shotId;
+      view.selected = null;
+      render();
+    },
+    focusNode(nodeId) {
+      view.selected = nodeId;
+      render();
+    },
+    state: view,
+  };
+}

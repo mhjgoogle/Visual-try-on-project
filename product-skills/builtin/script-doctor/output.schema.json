@@ -1,0 +1,44 @@
+{
+  "type": "object",
+  "required": [
+    "findings"
+  ],
+  "fields": {
+    "findings": {
+      "type": "array",
+      "of": {
+        "type": "object",
+        "required": [
+          "where",
+          "problem",
+          "fix"
+        ],
+        "fields": {
+          "where": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "problem": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "fix": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "severity": {
+            "type": "string",
+            "nonEmpty": false
+          }
+        }
+      }
+    },
+    "strengths": {
+      "type": "array",
+      "of": {
+        "type": "string",
+        "nonEmpty": true
+      }
+    }
+  }
+}

@@ -1,0 +1,91 @@
+// Shared helpers for node bodies.
+import { addVersion, refFromResponse, slotEntry } from "../mediaref.js";
+import { declare, checkDeclaration } from "../assetreg.js";
+
+/** Render "下一步：X →" guidance chips. Each button carries data-next (+ data-dy
+ *  for vertical offset of the spawned node); app.js binds them to ctx.addNext. */
+export const nx = (pairs) =>
+  `<div class="nextchips">${pairs
+    .map(([t, l, dy]) => `<button class="nextchip" data-next="${t}" data-dy="${dy || 0}">下一步：${l} →</button>`)
+    .join("")}</div>`;
+
+/** Version badge for a slot thumbnail (TASK-048 第3步): shows the CURRENT
+ *  version number; clicking opens the version picker (回切/浏览历史). Empty
+ *  string when the slot has no media yet. */
+export function vbadge(uploads, k) {
+  const e = slotEntry(uploads, k);
+  if (!e) return "";
+  const n = e.history.length;
+  return `<button class="vbadge" data-vers="${k}" title="版本 v${e.current} · 共 ${n} 个版本 — 点击查看/回切">v${e.current}${n > 1 ? `·${n}` : ""}</button>`;
+}
+
+/** Bind the manual-provider slot buttons rendered by a node body:
+ *  [data-copy] copies a generation prompt/text (getPrompt(key) → string);
+ *  [data-up] uploads a user-generated media file into the slot's version chain
+ *  (node.uploads[key] = {current, history:[MediaRef...]}; same slot re-uploads
+ *  APPEND a version, never replace — TASK-048/ADR-0048);
+ *  [data-vers] opens the slot's version picker (ctx.openVersions). */
+export function bindSlots(node, el, ctx, { accept, getPrompt, copiedMsg, uploadedMsg }) {
+  el.querySelectorAll("[data-copy]").forEach((b) => (b.onclick = async (e) => {
+    e.stopPropagation();
+    const text = getPrompt(b.dataset.copy);
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      ctx.toast(copiedMsg || "已复制");
+    } catch {
+      ctx.toast("复制失败：请手动选择文本复制");
+    }
+  }));
+  el.querySelectorAll("[data-up]").forEach((b) => (b.onclick = (e) => {
+    e.stopPropagation();
+    const k = b.dataset.up; // slot id, e.g. "v3-2" / "voice-v3-2" / "music-main"
+    if (!k) { ctx.toast("该槽位缺少标识：请重新生成或编辑分镜"); return; }
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = accept;
+    input.onchange = async () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      if (!ctx.uploadMedia) { ctx.toast("演示模式暂不支持上传（需连接后端）"); return; }
+      // pass the DOMAIN (node type) so the slot is read correctly, never
+      // guessed from a voice-/music-/sfx- prefix on the key text
+      const domain = node.type === "assets" ? "images" : node.type === "video" ? "videos" : "audio";
+      // CP2/ADR-0055: the node type says what the media IS (画面节点 → 镜头图片,
+      // 视频节点 → 镜头视频); the AUDIO node's slots carry several kinds, so it
+      // honestly declares nothing and the take lands as unclassified rather
+      // than mislabelled.
+      const kind = domain === "images" ? "shot-image" : domain === "videos" ? "shot-video" : null;
+      // CHECKED BEFORE THE UPLOAD: a declaration refused afterwards would leave
+      // bytes on disk that no Asset record points at.
+      const pre = checkDeclaration(domain, { kind });
+      if (pre) { ctx.toast(`登记被拒绝，未上传：${pre}`); return; }
+      try {
+        const res = await ctx.uploadMedia(`${node.type}-${k}`, file);
+        // stamp the PROVABLE shot association (null when ambiguous — M3)
+        const shotId = ctx.shotIdForKey ? ctx.shotIdForKey(k, domain) : null;
+        const ref = refFromResponse(k, "upload", res, shotId);
+        declare(ref, domain, {
+          kind,
+          originalFilename: file.name || null,
+          links: ctx.contextOfShot ? ctx.contextOfShot(shotId) : { shotId },
+        });
+        addVersion(node, k, ref);
+        // M3: node.uploads aliases the shared project registry, so a duplicate
+        // node of the same type shows this slot too — refresh them all, not
+        // just the initiating node, or the sibling would display stale media.
+        if (ctx.refreshType) ctx.refreshType(node.type);
+        else ctx.refresh(node);
+        if (ctx.persist) ctx.persist();
+        ctx.toast(`${uploadedMsg || "已上传"} · v${res.version || 1}（旧版本保留，可回切）`);
+      } catch (err) {
+        ctx.toast("上传失败：" + err.message);
+      }
+    };
+    input.click();
+  }));
+  el.querySelectorAll("[data-vers]").forEach((b) => (b.onclick = (e) => {
+    e.stopPropagation();
+    if (ctx.openVersions) ctx.openVersions(node, b.dataset.vers);
+  }));
+}

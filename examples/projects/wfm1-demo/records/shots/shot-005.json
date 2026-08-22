@@ -1,0 +1,13 @@
+{
+  "character_ids": [],
+  "created_at": "2026-08-02T00:00:00.000000+00:00",
+  "description": "Mia quietly taps her card twice at the reader",
+  "duration_seconds": 6.0,
+  "frame_rate": 24.0,
+  "height": 512,
+  "prompt": "Mia quietly taps her card twice at the reader",
+  "scene_id": "scene-001",
+  "sequence": 5,
+  "shot_id": "shot-005",
+  "width": 512
+}

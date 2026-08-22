@@ -1,0 +1,45 @@
+{
+  "type": "object",
+  "required": [
+    "proposals"
+  ],
+  "fields": {
+    "proposals": {
+      "type": "array",
+      "of": {
+        "type": "object",
+        "required": [
+          "assetId"
+        ],
+        "fields": {
+          "assetId": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "kind": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "tags": {
+            "type": "array",
+            "of": {
+              "type": "string",
+              "nonEmpty": true
+            }
+          },
+          "reusable": {
+            "type": "boolean"
+          },
+          "duplicateOf": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "reason": {
+            "type": "string",
+            "nonEmpty": false
+          }
+        }
+      }
+    }
+  }
+}

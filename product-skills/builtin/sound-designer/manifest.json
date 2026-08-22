@@ -1,0 +1,24 @@
+{
+  "skillId": "sound-designer",
+  "skillVersion": 1,
+  "work": "creative",
+  "role": "声音设计",
+  "title": "Sound Designer",
+  "purpose": "调整音量、对位与淡入淡出：镜头音频编排或本集时间线。",
+  "inputs": [
+    "shotAudio"
+  ],
+  "optionalInputs": [
+    "timeline",
+    "shots",
+    "scenes",
+    "episodeScript"
+  ],
+  "reviewCriteria": [
+    "layer 是否明确，且 clipId 真的属于那一层",
+    "gainDb 是否是相对增减，而不是绝对值混着用",
+    "对位建议是否说明了它在对哪一个事件",
+    "没有问题时是否老实返回空列表"
+  ],
+  "recommendedRuntime": "local_subscription"
+}

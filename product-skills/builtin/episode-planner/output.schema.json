@@ -1,0 +1,101 @@
+{
+  "type": "object",
+  "required": [
+    "episodes"
+  ],
+  "fields": {
+    "episodes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "of": {
+        "type": "object",
+        "required": [
+          "epNumber",
+          "title",
+          "coreGoal",
+          "keyEvents"
+        ],
+        "fields": {
+          "epNumber": {
+            "type": "number"
+          },
+          "title": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "coreGoal": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "keyEvents": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 12,
+            "of": {
+              "type": "string",
+              "nonEmpty": true
+            }
+          },
+          "characterBeats": {
+            "type": "array",
+            "maxItems": 20,
+            "of": {
+              "type": "object",
+              "required": [
+                "who",
+                "change"
+              ],
+              "fields": {
+                "who": {
+                  "type": "string",
+                  "nonEmpty": true
+                },
+                "change": {
+                  "type": "string",
+                  "nonEmpty": true
+                },
+                "relationChange": {
+                  "type": "string",
+                  "nonEmpty": false
+                }
+              }
+            }
+          },
+          "reveals": {
+            "type": "array",
+            "maxItems": 12,
+            "of": {
+              "type": "string",
+              "nonEmpty": true
+            }
+          },
+          "emotionArc": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "endingBeat": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "hook": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "duration": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "synopsis": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "purpose": {
+            "type": "string",
+            "nonEmpty": false
+          }
+        }
+      }
+    }
+  }
+}

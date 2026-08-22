@@ -1,0 +1,26 @@
+{
+  "skillId": "story-development",
+  "skillVersion": 2,
+  "work": "creative",
+  "role": "编剧",
+  "title": "Story Development",
+  "purpose": "把创意发展成故事大纲的八项：故事核心 / 主角与目标 / 核心冲突 / 世界与核心规则 / 主要角色关系 / 故事主线 / 核心秘密与揭示顺序 / 主题与最终变化。",
+  "inputs": [
+    "brief"
+  ],
+  "optionalInputs": [
+    "outline",
+    "characters",
+    "world"
+  ],
+  "reviewCriteria": [
+    "核心冲突的外部与内部是否真的互为因果，而不是同一件事换个说法写了两遍",
+    "世界规则是否只写了会直接影响剧情的那些，而不是百科式设定",
+    "故事主线五段是否是一个结构（开端 → 发展 → 中段转折 → 高潮 → 结局），而不是五段并列概述",
+    "秘密的揭露时机是否给了具体位置，而不是「后面会揭晓」",
+    "结局是否回应了故事核心提出的问题",
+    "主角最开始想要什么，写的是不是最开始的欲望，而不是结局的领悟",
+    "是否偷偷改变了 Brief 里已确定的类型 / 基调 / 形式 / 集数"
+  ],
+  "recommendedRuntime": "local_subscription"
+}

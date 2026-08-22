@@ -1,0 +1,23 @@
+{
+  "skillId": "reference-planner",
+  "skillVersion": 1,
+  "work": "creative",
+  "role": "美术",
+  "title": "Reference Planner",
+  "purpose": "统筹一集/一场需要哪些参考图：已有 / 缺失 / 建议复用 / 建议新建。",
+  "inputs": [
+    "shots",
+    "references"
+  ],
+  "optionalInputs": [
+    "characters",
+    "scenes",
+    "world"
+  ],
+  "reviewCriteria": [
+    "是否把同一个对象拆成了多个重复参考",
+    "reuse 建议是否指向一个真实存在的参考",
+    "缺失项是否真的被某个镜头需要"
+  ],
+  "recommendedRuntime": "local_subscription"
+}

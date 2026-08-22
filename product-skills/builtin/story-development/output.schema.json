@@ -1,0 +1,224 @@
+{
+  "type": "object",
+  "required": [
+    "storyCore",
+    "protagonist",
+    "conflict",
+    "worldAndRules",
+    "mainline",
+    "themeAndChange"
+  ],
+  "fields": {
+    "storyCore": {
+      "type": "string",
+      "nonEmpty": true
+    },
+    "protagonist": {
+      "type": "object",
+      "required": [
+        "who",
+        "initialWant"
+      ],
+      "fields": {
+        "who": {
+          "type": "string",
+          "nonEmpty": true
+        },
+        "initialWant": {
+          "type": "string",
+          "nonEmpty": true
+        }
+      }
+    },
+    "conflict": {
+      "type": "object",
+      "required": [
+        "external",
+        "internal"
+      ],
+      "fields": {
+        "external": {
+          "type": "string",
+          "nonEmpty": true
+        },
+        "internal": {
+          "type": "string",
+          "nonEmpty": true
+        }
+      }
+    },
+    "worldAndRules": {
+      "type": "object",
+      "required": [
+        "where",
+        "rules"
+      ],
+      "fields": {
+        "where": {
+          "type": "string",
+          "nonEmpty": true
+        },
+        "rules": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "of": {
+            "type": "string",
+            "nonEmpty": true
+          }
+        }
+      }
+    },
+    "keyRelationships": {
+      "type": "array",
+      "maxItems": 12,
+      "of": {
+        "type": "object",
+        "required": [
+          "between",
+          "nature",
+          "howItChanges"
+        ],
+        "fields": {
+          "between": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "of": {
+              "type": "string",
+              "nonEmpty": true
+            }
+          },
+          "nature": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "howItChanges": {
+            "type": "string",
+            "nonEmpty": true
+          }
+        }
+      }
+    },
+    "mainline": {
+      "type": "object",
+      "required": [
+        "setup",
+        "development",
+        "midpointTurn",
+        "climax",
+        "ending"
+      ],
+      "fields": {
+        "setup": {
+          "type": "string",
+          "nonEmpty": true
+        },
+        "development": {
+          "type": "string",
+          "nonEmpty": true
+        },
+        "midpointTurn": {
+          "type": "string",
+          "nonEmpty": true
+        },
+        "climax": {
+          "type": "string",
+          "nonEmpty": true
+        },
+        "ending": {
+          "type": "string",
+          "nonEmpty": true
+        }
+      }
+    },
+    "secretsAndReveals": {
+      "type": "array",
+      "maxItems": 12,
+      "of": {
+        "type": "object",
+        "required": [
+          "truth",
+          "revealAround"
+        ],
+        "fields": {
+          "truth": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "whyNotUpfront": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "revealAround": {
+            "type": "string",
+            "nonEmpty": true
+          }
+        }
+      }
+    },
+    "themeAndChange": {
+      "type": "object",
+      "required": [
+        "theme",
+        "protagonistBecomes"
+      ],
+      "fields": {
+        "theme": {
+          "type": "string",
+          "nonEmpty": true
+        },
+        "protagonistBecomes": {
+          "type": "string",
+          "nonEmpty": true
+        }
+      }
+    },
+    "genreTone": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "episodeCount": {
+      "type": "number"
+    },
+    "durationNote": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "characterConcepts": {
+      "type": "array",
+      "of": {
+        "type": "string",
+        "nonEmpty": true
+      }
+    },
+    "premise": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "logline": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "world": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "centralConflict": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "storyArc": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "climax": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "ending": {
+      "type": "string",
+      "nonEmpty": false
+    }
+  }
+}

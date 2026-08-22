@@ -1,0 +1,13 @@
+{
+  "asset_id": "asset-001",
+  "container_format": "mp4",
+  "duration_seconds": 4.0,
+  "frame_rate": 24.0,
+  "height": 1080,
+  "path": "assets/media/shot-001-v1.mp4",
+  "shot_id": "shot-001",
+  "source_task_id": "task-001",
+  "validated_at": "2026-07-26T01:00:00.000000+00:00",
+  "version": 1,
+  "width": 1920
+}

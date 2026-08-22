@@ -1,0 +1,90 @@
+{
+  "schema": 1,
+  "change_id": "wfm1-batch-c",
+  "branch": "feat/wfm1-batch-c",
+  "status": "open",
+  "created": "2026-08-22T04:52:48+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-101": {
+      "commits": [
+        {
+          "hash": "548e9239f5072c4f6fe94f4cf4b6553710b900fd",
+          "subject": "feat(skill): auto-push v0.1 —— Task 级自动 commit/push 与 Merge Gate 后的受控合并（TASK-101 / ADR-0079）",
+          "time": "2026-08-22T04:58:53+00:00",
+          "branch": "feat/wfm1-batch-c",
+          "pushed": true,
+          "scope_violation": null
+        },
+        {
+          "hash": "9f21fbd609c2bcf090c0fb28ad57e29a20a03f27",
+          "subject": "fix(skill): auto-push 审查轮 1 —— secret 不回显、禁收养 main、commit 改 -F、push 复查 Gate、rebase 重映射 hash、Merge Gate 绑 tip、cleanup 拒删含并发提交的远端分支（TASK-101）",
+          "time": "2026-08-22T05:20:12+00:00",
+          "branch": "feat/wfm1-batch-c",
+          "pushed": true,
+          "scope_violation": null
+        },
+        {
+          "hash": "c1fad5bfb3cdba20416f46f147c888fdb0979c3b",
+          "subject": "fix(skill): auto-push 审查轮 2 —— 不可扫描文件 fail-closed、push 拒推未登记提交、sync 后验证置 STALE、merge 复查任务闸、diff 头精确匹配、cleanup 状态如实（TASK-101）",
+          "time": "2026-08-22T05:38:02+00:00",
+          "branch": "feat/wfm1-batch-c",
+          "pushed": true,
+          "scope_violation": null
+        },
+        {
+          "hash": "ba0c8e27d69481a58006c3a4c384c4f905dfc2da",
+          "subject": "fix(skill): auto-push 审查轮 3 —— 清单元数据过 secret 扫描、未登记提交豁免看内容不看 subject、merge tip push 过同一道闸；修复未经复审，已登记待复审清单（TASK-101）",
+          "time": "2026-08-22T06:00:04+00:00",
+          "branch": "feat/wfm1-batch-c",
+          "pushed": true,
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        ".claude/skills/auto-push/",
+        ".claude/skills/dev-workflow/SKILL.md",
+        "docs/adr/ADR-0079-auto-push-skill.md",
+        "docs/auto-push/",
+        "docs/design/pending-codex-rereview.md",
+        "docs/requirements/",
+        "docs/tasks/TASK-101-auto-push-skill.md",
+        "tests/test_auto_push_tooling.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "pytest tests/test_auto_push_tooling.py: 30 passed (review round 3 P1 fixes + negative cases); ruff: pass",
+      "declared": "2026-08-22T05:56:34+00:00"
+    },
+    "TASK-099": {
+      "commits": [
+        {
+          "hash": "dc8fc719d2b7487729b8e678ccb55db372bb016e",
+          "subject": "仓库根目录治理：启动器移入 scripts/launch、pytest 配置移入 tests/（移动非删除；ADR-0077，Codex 实施+审查通过，本会话代提交）（TASK-099 · wfm1-batch-c）",
+          "time": "2026-08-22T06:57:59+00:00",
+          "branch": "feat/wfm1-batch-c",
+          "pushed": false,
+          "scope_violation": null
+        },
+        {
+          "hash": "8c633412b32ade3661c0e60d0a301c9d21021b39",
+          "subject": "fix(TASK-099): 恢复 scripts/launch/studio.sh 可执行位 100755 —— 暂存区往返弄丢 mode，Ubuntu CI 的 test_repository_layout 第 49 行会翻红（Windows 上 os.access(X_OK) 恒真所以本地全量已绿）（TASK-099 · wfm1-batch-c）",
+          "time": "2026-08-22T07:05:22+00:00",
+          "branch": "feat/wfm1-batch-c",
+          "pushed": false,
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        "scripts/launch/studio.sh"
+      ],
+      "verification": "PASS",
+      "verification_ref": "mode-only 修复：恢复 studio.sh 的 100755（tests/test_repository_layout.py 第 49 行断言的 Ubuntu 语义；Windows 上 os.access(X_OK) 恒真故本地全量已绿）",
+      "declared": "2026-08-22T06:58:12+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PENDING"
+  },
+  "merge": null,
+  "cleanup": null
+}

@@ -1,0 +1,22 @@
+{
+  "schema_version": 2,
+  "stage": "concept_lock",
+  "status": "approved",
+  "approved_at": "2026-08-01T09:00:00+00:00",
+  "approved_by": "project-owner",
+  "approved_targets": [
+    {
+      "ref_kind": "file",
+      "ref": "records/shots/shot-001.json",
+      "version": 1,
+      "content_digest": "5a9e706953fd5fe8003ebf14c873bee409e9c9b6484cf39b82a1826ec3531256"
+    },
+    {
+      "ref_kind": "file",
+      "ref": "records/shots/shot-002.json",
+      "version": 1,
+      "content_digest": "546f1b0b0bb0c7adfa06c8706f2a4c2926a418ab79847de1909da0fa433c0b20"
+    }
+  ],
+  "note": "Concept locked: single character, single scene, primary payload only. Bound to the two shot records; editing either invalidates this approval."
+}

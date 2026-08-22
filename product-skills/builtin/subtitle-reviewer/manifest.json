@@ -1,0 +1,24 @@
+{
+  "skillId": "subtitle-reviewer",
+  "skillVersion": 1,
+  "work": "review",
+  "role": "字幕校对",
+  "title": "Subtitle Reviewer",
+  "purpose": "校对字幕：断行、可读时长、说话人、错别字与重叠。",
+  "inputs": [
+    "subtitles"
+  ],
+  "optionalInputs": [
+    "episodeScript",
+    "shots",
+    "characters",
+    "timeline"
+  ],
+  "reviewCriteria": [
+    "每条修正是否用 cueId 定位",
+    "是否把剧本台词改写成了别的意思（字幕不是重写台词的地方）",
+    "时长建议是否真的可读（过短的 cue 等于没有）",
+    "没有问题时是否老实返回空列表"
+  ],
+  "recommendedRuntime": "local_subscription"
+}

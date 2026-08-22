@@ -1,0 +1,23 @@
+{
+  "skillId": "reference-interpreter",
+  "skillVersion": 1,
+  "work": "creative",
+  "role": "摄影指导",
+  "title": "Reference Interpreter",
+  "purpose": "把视频风格 / 运动 / 机位 / 表演参考读成运镜、运动、表演、构图、光线、节奏。",
+  "inputs": [
+    "references"
+  ],
+  "optionalInputs": [
+    "shots",
+    "world",
+    "scenes",
+    "characters"
+  ],
+  "reviewCriteria": [
+    "每个轴是否具体到能直接写进提示词，而不是形容词堆叠",
+    "是否为了填满六个轴而编造了参考里看不出来的东西",
+    "referenceKey 是否指向真实存在的参考"
+  ],
+  "recommendedRuntime": "local_subscription"
+}

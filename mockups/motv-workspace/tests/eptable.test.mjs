@@ -1,0 +1,297 @@
+// 分集规划是一张表（TASK-094 批次 B / TASK-088 §2.3）。
+//
+// 产品负责人 2026-08-17：「分集规划你就列一张表格用 AI 写内容就好了。我要改也可以改」
+// 以及「为什么那么多重复的内容要写呢」—— 后者的精确成因是旧界面摆了
+// 6 角色 × 48 集 = 288 个 AI 一字不产出的输入框。
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import { episodePlanModel, renderEpPlanWs, PLAN_COLUMNS } from "../src/ui/epplanws.js";
+import * as st from "../src/workflow/storydoc.js";
+import * as pd from "../src/workflow/proddoc.js";
+import * as cd from "../src/workflow/canondoc.js";
+import * as sd from "../src/workflow/scriptdoc.js";
+import * as bd from "../src/workflow/bibledoc.js";
+
+const OUTLINE = {
+  premise: "p", logline: "l", genreTone: "t", world: "w", characterConcepts: [],
+  centralConflict: "c", storyArc: "a", climax: "x", ending: "e",
+  episodeCount: 2, durationNote: "60-90 秒",
+};
+
+/** A project with 2 episodes, a confirmed 2-entry plan, and 6 characters —
+ *  the shape the 288-cell defect needs to be visible in. */
+function project(entries) {
+  const prod = pd.createProduction(null);
+  const story = st.createStory(null);
+  story.idea = "i";
+  st.editBriefDraft(story, { targetEpisodes: 4 });
+  st.commitBrief(story);
+  const oid = st.beginDevelop(story, "outline", "");
+  st.completeDevelop(story, oid, OUTLINE);
+  st.applyProposal(story);
+  st.approveOutline(story, 1);
+
+  const cast = ["林照", "许渡", "校准官", "叁", "阿姐", "编号七"].map((n) => bd.addCharacter(prod, n));
+  const pid = st.beginDevelop(story, "plan", "");
+  st.completeDevelop(story, pid, entries);
+  st.applyProposal(story);
+  // confirm-time identity join, exactly as the caller does it
+  const eps = [prod.episodes[0], pd.addEpisode(prod, "第 2 集")];
+  story.plans[0].episodes.forEach((e, i) => { e.episodeId = eps[i].episodeId; });
+  st.confirmPlan(story, 1);
+  return { prod, story, cast, eps };
+}
+
+const V2_ENTRIES = [
+  {
+    epNumber: 1, title: "被抹除的核验员", coreGoal: "确立世界规则与越界的代价",
+    keyEvents: ["她救下不可被救的人", "世界开始收走她", "她醒在终局世界"],
+    characterBeats: [{ who: "林照", change: "第一次越界", relationChange: "从陌生到欠一条命" }],
+    reveals: ["抹除不等于死亡"], emotionArc: "平静 → 紧张 → 转折",
+    endingBeat: "她捡到刻着自己名字的旧校准牌", hook: "被抹除的人为什么还活着？",
+  },
+  { epNumber: 2, title: "引路人的价目表", coreGoal: "建立交易关系", keyEvents: ["许渡开价"] },
+];
+
+function render(prod, story, ui = {}) {
+  return renderEpPlanWs(
+    {
+      prodData: () => ({ production: prod }),
+      story: { doc: () => story },
+      canon: { impact: (id) => cd.episodeImpact(prod, id, story) },
+      breakdown: { state: () => null },
+      script: { doc: () => sd.createDoc() },
+      toast: () => {},
+      isConnected: () => true,
+    },
+    { dirOpen: {}, ...ui },
+  );
+}
+
+test("the table is the PLAN VERSION: one row per entry, not one card per entity", () => {
+  const { prod, story } = project(V2_ENTRIES);
+  // three more entities from an earlier (now unreferenced) planning round
+  pd.addEpisode(prod, "更早建立的一集");
+  pd.addEpisode(prod, "另一集");
+  const m = episodePlanModel({ production: prod }, story, () => null);
+  assert.equal(m.rows.length, 2, "本版规划 2 集 → 2 行");
+  assert.equal(m.others.length, 2, "其余的如实计入 others，不静默丢弃");
+  assert.equal(m.establishedCount, 4);
+  assert.equal(m.plannedCount, 2);
+
+  const html = render(prod, story);
+  assert.match(html, /<table class="ept">/);
+  assert.equal((html.match(/class="ept-row/g) || []).length, 2);
+  assert.match(html, /另有 2 集不在这一版规划里/);
+});
+
+test("every one of the product owner's seven facets has a column", () => {
+  const keys = PLAN_COLUMNS.map((c) => c.key);
+  for (const k of ["title", "coreGoal", "keyEvents", "characterBeats", "reveals", "emotionArc", "ending"]) {
+    assert.ok(keys.includes(k), `缺列：${k}`);
+  }
+  const { prod, story } = project(V2_ENTRIES);
+  const html = render(prod, story);
+  for (const label of ["本集核心目标", "主要剧情", "角色推进", "信息揭示", "情绪曲线", "结尾钩子"]) {
+    assert.ok(html.includes(label), `表头缺：${label}`);
+  }
+});
+
+test("what AI wrote is on screen and editable in place", () => {
+  const { prod, story, eps } = project(V2_ENTRIES);
+  const html = render(prod, story);
+  assert.ok(html.includes("确立世界规则与越界的代价"));
+  assert.ok(html.includes("她救下不可被救的人"));
+  assert.ok(html.includes("抹除不等于死亡"));
+  assert.ok(html.includes("平静 → 紧张 → 转折"));
+  // …and each is addressed by episodeId + field, i.e. the existing write path
+  assert.match(html, new RegExp(`data-plan-edit="${eps[0].episodeId}" data-field="coreGoal"`));
+  assert.match(html, new RegExp(`data-plan-item="${eps[0].episodeId}" data-field="keyEvents" data-i="0"`));
+  assert.match(html, new RegExp(`data-plan-beat="${eps[0].episodeId}" data-i="0" data-key="who"`));
+  // endingBeat and hook are TWO fields in ONE cell — merging would lose one
+  assert.match(html, /data-field="endingBeat"/);
+  assert.match(html, /data-field="hook"/);
+});
+
+test("the 288-cell grid is gone: no row for a character with nothing to advance", () => {
+  const { prod, story, eps } = project(V2_ENTRIES);
+  const html = render(prod, story, { impactOpen: eps[0].episodeId });
+  // six characters exist; only 林照 has a beat in the plan, and NO canon beat is
+  // recorded at all — so no per-character input may be laid out
+  const charInputs = (html.match(/data-beat-char=/g) || []).length;
+  assert.equal(charInputs, 0, "旧界面在这里会摆 6 × 2 = 12 个空框");
+  assert.match(html, /data-beat-add=/, "改成一个选择器：要记谁就挑谁");
+  // …and the same for relationships
+  assert.equal((html.match(/data-beat-rel=/g) || []).length, 0);
+});
+
+test("picking a character OPENS a row and writes nothing to canon", () => {
+  // codex review, 批次 B round 1 (BLOCKING): the first shape wrote a placeholder
+  // beat through `setCharacterBeat` to make the row appear, so abandoning the edit
+  // left a character progression the creator never entered in canonical data.
+  const { prod, story, cast, eps } = project(V2_ENTRIES);
+  const key = `${eps[0].episodeId}:${cast[1].characterId}`;
+  const html = render(prod, story, { impactOpen: eps[0].episodeId, beatOpen: { [key]: true } });
+  // the row is there to type in…
+  assert.match(html, new RegExp(`data-cid="${cast[1].characterId}"`));
+  assert.match(html, /data-beat-char=[^>]*value=""/, "空行，不是伪造的内容");
+  // …and the document still records nothing for that character
+  const beats = prod.episodes.find((e) => e.episodeId === eps[0].episodeId).beats;
+  assert.equal(beats.character.length, 0, "选一下人物不得写进 canon");
+  // …and EP01's picker no longer offers a character whose row is already open.
+  // Scoped to EP01's row: EP02 has its own picker, where that character is
+  // legitimately still on offer.
+  const ep01 = html.slice(html.indexOf(eps[0].episodeId), html.indexOf(eps[1].episodeId));
+  assert.equal(ep01.includes(`<option value="${cast[1].characterId}"`), false);
+  assert.ok(html.includes(`<option value="${cast[1].characterId}"`), "EP02 那一行仍然可以挑他");
+});
+
+test("picking a relationship also only opens a row", () => {
+  const { prod, story, cast, eps } = project(V2_ENTRIES);
+  const rel = cd.addRelationship(prod, cast[0].characterId, cast[1].characterId);
+  const key = `${eps[0].episodeId}:${rel.relationshipId}`;
+  const html = render(prod, story, { impactOpen: eps[0].episodeId, beatOpen: { [key]: true } });
+  assert.match(html, new RegExp(`data-rid="${rel.relationshipId}"`));
+  const beats = prod.episodes.find((e) => e.episodeId === eps[0].episodeId).beats;
+  assert.equal(beats.relationship.length, 0, "选一下关系不得写进 canon");
+});
+
+test("a recorded canon beat is still shown and still editable", () => {
+  const { prod, story, cast, eps } = project(V2_ENTRIES);
+  cd.setEpisodeCharacterBeat(prod, eps[0].episodeId, cast[0].characterId, "第一次说谎");
+  const rel = cd.addRelationship(prod, cast[0].characterId, cast[1].characterId);
+  cd.setEpisodeRelationshipBeat(prod, eps[0].episodeId, rel.relationshipId, {
+    start: "戒备", event: "合作", end: "信任",
+  });
+  const html = render(prod, story, { impactOpen: eps[0].episodeId });
+  assert.ok(html.includes("第一次说谎"));
+  assert.match(html, new RegExp(`data-beat-char="${eps[0].episodeId}"`));
+  // exactly ONE row: the other five characters have nothing here
+  assert.equal((html.match(/data-beat-char=/g) || []).length, 1);
+
+  // …AND THE ROW SAYS WHO IT IS. A beat RECORD carries only `characterId`; the
+  // display name is resolved by `episodePlanModel` against the bible, so passing
+  // the raw document into `beatsBlock` would render nameless rows editable against
+  // an unidentified person (reported as a defect by codex review, batch B round 2 —
+  // it is not one, because the renderer is given the view model; this assertion is
+  // what keeps that true).
+  assert.ok(html.includes(cast[0].name), "人物推进那一行必须显示是谁");
+  assert.ok(html.includes(`${cast[0].name} × ${cast[1].name}`), "关系推进那一行必须显示是哪一段关系");
+  assert.ok(html.includes("戒备") && html.includes("合作") && html.includes("信任"));
+});
+
+test("3～6 条 is a hint: a short list is flagged and nothing is blocked", () => {
+  const { prod, story } = project(V2_ENTRIES);
+  const html = render(prod, story);
+  // EP02 has ONE key event
+  assert.match(html, /1 条 · 少于建议的 3～6 条/);
+  assert.doesNotMatch(html, /disabled[^>]*data-plan-item/);
+});
+
+test("a name that matches no character is FLAGGED, not dropped", () => {
+  const { prod, story } = project([
+    {
+      ...V2_ENTRIES[0],
+      characterBeats: [{ who: "不存在的人", change: "做了什么" }],
+    },
+    V2_ENTRIES[1],
+  ]);
+  const html = render(prod, story);
+  assert.ok(html.includes("不存在的人"), "静默丢掉答案 = 创作者以为 AI 什么都没产出");
+  assert.ok(html.includes("未知人物"));
+});
+
+test("the LEGACY prose of the real project is visible where its replacement goes", () => {
+  // 照见未明rev2 的四版规划都写在 synopsis / purpose 里，没有 coreGoal / keyEvents
+  const { prod, story } = project([
+    { epNumber: 1, title: "不可被救的人", synopsis: "校准员林照救下被判定不可被救的人。", purpose: "建立世界规则" },
+    { epNumber: 2, title: "回声", synopsis: "她听见自己的名字。", purpose: "推进" },
+  ]);
+  const html = render(prod, story);
+  assert.ok(html.includes("校准员林照救下被判定不可被救的人。"), "旧格式的规划不能显示成空表");
+  assert.ok(html.includes("建立世界规则"));
+  assert.ok(html.includes("旧字段 · 梗概"));
+  assert.ok(html.includes("旧字段 · 戏剧功能"), "并且标明它是旧字段");
+  // …and it is still editable, through the same field it lives in
+  assert.match(html, /data-field="synopsis"/);
+});
+
+test("legacy prose stays visible AFTER the new field is filled — it is distinct data", () => {
+  // codex review, 批次 B round 1 (non-blocking): hiding `purpose` as soon as
+  // `coreGoal` was written left real stored content this screen could neither show
+  // nor clear, so the creator could not even delete it.
+  const { prod, story } = project([
+    {
+      epNumber: 1, title: "t", coreGoal: "新的核心目标", keyEvents: ["新的事件"],
+      purpose: "旧的戏剧功能", synopsis: "旧的梗概",
+    },
+    V2_ENTRIES[1],
+  ]);
+  const html = render(prod, story);
+  assert.ok(html.includes("新的核心目标"));
+  assert.ok(html.includes("旧的戏剧功能"), "两个都是磁盘上真实存在的内容");
+  assert.ok(html.includes("新的事件"));
+  assert.ok(html.includes("旧的梗概"));
+});
+
+test("the three numbers are stated, and a mismatch is flagged without blocking", () => {
+  const { prod, story } = project(V2_ENTRIES);
+  const m = episodePlanModel({ production: prod }, story, () => null);
+  assert.equal(m.targetEpisodes, 4, "创意的目标集数");
+  assert.equal(m.outlineEpisodeCount, 2);
+  const html = render(prod, story);
+  assert.ok(html.includes("本版规划 2 集"));
+  assert.ok(html.includes("创意目标 4 集"));
+  assert.ok(html.includes("条数与目标集数不一致"));
+  assert.ok(html.includes("先规划前几集是完全正常的"), "提示，不是闸门");
+});
+
+test("the last column enters that episode", () => {
+  const { prod, story, eps } = project(V2_ENTRIES);
+  const html = render(prod, story);
+  assert.match(html, new RegExp(`data-ep-enter="${eps[0].episodeId}"`));
+  assert.match(html, new RegExp(`data-ep-open="${eps[0].episodeId}"`));
+});
+
+test("an UNCONFIRMED entry says why it cannot be edited yet, instead of refusing silently", () => {
+  const { prod, story } = project(V2_ENTRIES);
+  // a fresh plan version whose entries are not linked to any entity
+  const pid = st.beginDevelop(story, "plan", "");
+  st.completeDevelop(story, pid, [{ epNumber: 1, title: "全新的一集", coreGoal: "g", keyEvents: ["x"] }]);
+  st.applyProposal(story);
+  const html = render(prod, story);
+  assert.match(html, /class="ept-row unlinked"/);
+  assert.ok(html.includes("这一版还没确认"));
+  // …and no control that would refuse the write is offered on that row
+  assert.doesNotMatch(html, /data-plan-edit="null"/);
+});
+
+test("an opened fold survives the next re-render", () => {
+  // codex review, 批次 B round 2 (BLOCKING): `<details>` keeps its open state in the
+  // DOM, and this page rebuilds the DOM — so clicking 「⚠ N 个上游变化」 on an episode
+  // inside the 「另有 N 集」 fold re-rendered it CLOSED and hid the review just asked
+  // for. Both folds now record their state on the shell.
+  const { prod, story } = project(V2_ENTRIES);
+  const stray = pd.addEpisode(prod, "更早建立的一集");
+  const html = render(prod, story, { othersOpen: true });
+  assert.match(html, /<details class="ept-others" open>/);
+
+  // …and it opens by itself when the thing being reviewed is inside it
+  const withImpact = render(prod, story, { impactOpen: stray.episodeId });
+  assert.match(withImpact, /<details class="ept-others" open>/);
+  assert.ok(withImpact.includes("确定性依赖变化"), "折叠里的影响审阅必须真的出现");
+
+  // the row fold has the same memory, and a handle to record it through
+  const rowOpen = render(prod, story, { epmoreOpen: { [prod.episodes[0].episodeId]: true } });
+  assert.match(rowOpen, /<details class="epmore" open data-epmore=/);
+});
+
+test("with no plan at all it states the situation — it does not draw a blank grid", () => {
+  const prod = pd.createProduction(null);
+  const story = st.createStory(null);
+  const html = render(prod, story);
+  assert.match(html, /data-rf-notrun/);
+  assert.doesNotMatch(html, /<table class="ept">/);
+  assert.doesNotMatch(html, /data-plan-item/);
+});

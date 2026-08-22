@@ -1,0 +1,26 @@
+{
+  "skillId": "script-reviser",
+  "skillVersion": 2,
+  "work": "creative",
+  "role": "编剧",
+  "title": "Script Reviser",
+  "purpose": "按创作者的修改要求修订已有剧本，保留未被要求改动的部分。",
+  "inputs": [
+    "episodeScript",
+    "revisionRequest"
+  ],
+  "optionalInputs": [
+    "outline",
+    "episodePlan",
+    "characters",
+    "relationships",
+    "world"
+  ],
+  "reviewCriteria": [
+    "未被要求修改的部分是否原样保留，而不是被顺手重写",
+    "修改是否只回应了修改要求本身，没有夹带别的改动",
+    "人物口吻与既定设定是否保持一致",
+    "输出是否是完整剧本，而不是只给出修改片段"
+  ],
+  "recommendedRuntime": "local_subscription"
+}

@@ -1,0 +1,68 @@
+{
+  "type": "object",
+  "required": [
+    "recommendations"
+  ],
+  "fields": {
+    "recommendations": {
+      "type": "array",
+      "of": {
+        "type": "object",
+        "required": [
+          "referenceKey",
+          "reason"
+        ],
+        "fields": {
+          "referenceKey": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "reason": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "use": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "replacesKey": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "confidence": {
+            "type": "string",
+            "nonEmpty": false
+          }
+        }
+      }
+    },
+    "missing": {
+      "type": "array",
+      "of": {
+        "type": "object",
+        "required": [
+          "kind",
+          "reason"
+        ],
+        "fields": {
+          "kind": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "subject": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "reason": {
+            "type": "string",
+            "nonEmpty": true
+          }
+        }
+      }
+    },
+    "note": {
+      "type": "string",
+      "nonEmpty": false
+    }
+  }
+}

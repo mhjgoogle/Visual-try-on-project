@@ -1,0 +1,7 @@
+{
+  "character_id": "character-001",
+  "created_at": "2026-07-26T00:00:00.000000+00:00",
+  "description": "The lead character in the minimal example.",
+  "name": "Ari",
+  "project_id": "minimal-project"
+}

@@ -1,0 +1,2050 @@
+/* Production Studio — the creator-facing visual system.
+ *
+ * Owns every surface inside #production (shell, rails, workspaces, AI
+ * Director) plus the studio-mode top bar. The workflow node canvas keeps its
+ * own look in app.css; nothing here touches it.
+ *
+ * Composition rules:
+ *   - surfaces come from the token elevation ladder, never ad-hoc colours;
+ *   - one warm accent for primary action + selection, semantic colours for
+ *     status only;
+ *   - media is the primary content: every media box uses --thumb-ratio and
+ *     object-fit: cover so a gallery never goes ragged;
+ *   - primitives first (.chip/.card/.btn/.meta), screens compose them.
+ */
+
+/* ========================================================================== */
+/* 1 · primitives                                                             */
+/* ========================================================================== */
+
+.chip {
+  display: inline-flex; align-items: center; gap: var(--s1);
+  font-size: var(--t-micro); line-height: 1.5; white-space: nowrap;
+  color: var(--text-dim); background: var(--elev);
+  border: 1px solid var(--line); border-radius: var(--r1);
+  padding: 2px 7px;
+}
+.chip.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); background: color-mix(in srgb, var(--ok) 10%, transparent); }
+.chip.gen { color: var(--gen); border-color: color-mix(in srgb, var(--gen) 40%, var(--line)); background: color-mix(in srgb, var(--gen) 10%, transparent); }
+.chip.gate { color: var(--gate); border-color: var(--accent-line); background: var(--accent-soft); }
+.chip.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); background: color-mix(in srgb, var(--bad) 10%, transparent); }
+.chip.mute { color: var(--text-faint); background: transparent; }
+.chip.solid { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); font-weight: 700; }
+.chip .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex: none; }
+.chip img { width: 16px; height: 16px; border-radius: 3px; object-fit: cover; margin-left: -2px; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--s2);
+  font-family: inherit; font-size: var(--t-sm); font-weight: 600; line-height: 1;
+  color: var(--text-dim); background: var(--elev);
+  border: 1px solid var(--line); border-radius: var(--r2);
+  padding: 8px 12px; cursor: pointer; white-space: nowrap;
+  transition: border-color .13s, color .13s, background .13s;
+}
+.btn:hover { color: var(--text); border-color: var(--line-2); }
+.btn.primary { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); font-weight: 700; }
+.btn.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); color: var(--accent-ink); }
+.btn.quiet { background: transparent; }
+.btn.danger:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+.btn.sm { padding: 5px 9px; font-size: var(--t-xs); border-radius: var(--r1); }
+.btn:disabled { opacity: .42; cursor: not-allowed; }
+
+.card {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r3); overflow: hidden;
+}
+.card.pad { padding: var(--s4) var(--s5); }
+
+.meta { font-size: var(--t-xs); color: var(--text-faint); line-height: 1.6; }
+.meta b, .meta strong { color: var(--text-dim); font-weight: 600; }
+.lab {
+  display: block; font-size: var(--t-micro); font-weight: 700;
+  letter-spacing: .07em; text-transform: uppercase;
+  color: var(--text-faint); margin-bottom: var(--s2);
+}
+
+/* a labelled key/value pair — the compact metadata unit used everywhere */
+.kv { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.kv > .k { font-size: var(--t-micro); color: var(--text-faint); letter-spacing: .04em; }
+.kv > .v { font-size: var(--t-sm); color: var(--text); overflow-wrap: anywhere; }
+.kvrow { display: flex; flex-wrap: wrap; gap: var(--s4) var(--s6); }
+
+.field {
+  width: 100%; font-family: inherit; font-size: var(--t-sm); line-height: 1.65;
+  color: var(--text); background: var(--canvas);
+  border: 1px solid var(--line); border-radius: var(--r2);
+  padding: 7px 10px; resize: vertical;
+}
+.field:focus { outline: none; border-color: var(--accent-line); }
+.field::placeholder { color: var(--text-faint); }
+
+/* every media box in the studio */
+.media {
+  display: block; width: 100%; aspect-ratio: var(--thumb-ratio);
+  object-fit: cover; background: var(--canvas);
+}
+.media-none {
+  display: grid; place-items: center; gap: var(--s1);
+  color: var(--text-faint); font-size: var(--t-xs);
+  background: repeating-linear-gradient(135deg, var(--canvas) 0 9px, var(--panel-2) 9px 18px);
+}
+.media-none .ic { font-size: 19px; opacity: .5; }
+/* TASK-077 §1.2 — 「登记了，但文件不在」 is NOT 「还没有画面」, and must not look like
+   it: one is a normal step of the work, the other is a fact about this project.
+   Gated colouring + the filename, so the creator knows what to go looking for. */
+.media-gone {
+  color: var(--gate); border: 1px dashed var(--gate);
+  background: repeating-linear-gradient(135deg, var(--canvas) 0 9px, var(--panel) 9px 18px);
+  padding: var(--s2); text-align: center;
+}
+.media-gone .ic { opacity: .8; }
+.media-gone .fn {
+  font-family: var(--mono, ui-monospace, monospace); font-size: var(--t-micro);
+  color: var(--text-faint); word-break: break-all; max-width: 100%;
+}
+
+/* ========================================================================== */
+/* 1b · landing — my projects, and nothing else                               */
+/* ========================================================================== */
+
+/* The landing page's only job is: pick a project, or make one. No banner, no
+   carousel, no marketing — those pushed the actual work below the fold. */
+#landing .lwrap { max-width: 1180px; margin: 0 auto; padding: 96px 26px 56px; }
+#landing .sec-h {
+  display: flex; align-items: baseline; gap: var(--s4);
+  flex-wrap: wrap; margin: 0 2px var(--s5);
+}
+#landing .sec-h h3 { margin: 0; flex: none; font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
+/* a long absolute path must wrap on its own, never squeeze the heading */
+#landing .sec-note {
+  flex: 1 1 320px; min-width: 0; font-size: var(--t-sm); color: var(--text-faint);
+  overflow-wrap: anywhere;
+}
+#landing .projgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: var(--s5); }
+
+#landing .newproj {
+  aspect-ratio: 4 / 3; border: 1.5px dashed var(--line-2); border-radius: var(--r4);
+  background: var(--panel); display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: var(--s3);
+  color: var(--text-dim); font-weight: 700; font-size: var(--t-lg);
+  transition: border-color .15s, color .15s, transform .15s;
+}
+#landing .newproj:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-2px); }
+#landing .newproj .plus { font-size: 34px; font-weight: 300; line-height: 1; }
+
+#landing .pcard {
+  aspect-ratio: 4 / 3; border-radius: var(--r4); overflow: hidden;
+  border: 1px solid var(--line); background: var(--panel);
+  text-align: left; color: inherit; display: flex; flex-direction: column;
+  transition: border-color .15s, transform .15s;
+}
+#landing .pcard:hover { transform: translateY(-2px); border-color: var(--line-2); }
+#landing .pcard .thumb { flex: 1; position: relative; display: grid; place-items: center; min-height: 0; }
+#landing .pcard .thumb img { width: 100%; height: 100%; object-fit: cover; }
+#landing .pcard .cap { padding: var(--s3) var(--s4) var(--s4); display: flex; flex-direction: column; gap: 3px; }
+#landing .pcard .nm { font-size: var(--t-md); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#landing .pcard .rw { display: flex; align-items: center; gap: var(--s1); }
+#landing .pcard .pt {
+  font-size: var(--t-micro); color: var(--text-faint); font-family: var(--mono);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left;
+}
+
+/* ---- new-project dialog -------------------------------------------------- */
+.np-scrim {
+  position: fixed; inset: 0; z-index: 60; display: none;
+  align-items: center; justify-content: center; padding: var(--s5);
+  background: color-mix(in srgb, #000 62%, transparent);
+}
+.np-scrim.show { display: flex; }
+.np {
+  width: min(560px, 100%); background: var(--panel);
+  border: 1px solid var(--line-2); border-radius: var(--r4);
+  box-shadow: var(--shadow-hero); display: flex; flex-direction: column;
+}
+.np-h {
+  display: flex; align-items: center; gap: var(--s3);
+  padding: var(--s4) var(--s5); border-bottom: 1px solid var(--line);
+}
+.np-h .t { font-size: var(--t-xl); font-weight: 800; letter-spacing: -.02em; }
+.np-h .icon-btn { margin-left: auto; }
+.np-b { padding: var(--s5); display: flex; flex-direction: column; gap: var(--s2); }
+.np-b .lab { margin-top: var(--s3); }
+.np-b .lab:first-child { margin-top: 0; }
+.np-b .field { font-size: var(--t-md); padding: 9px 12px; }
+/* the location is CHOSEN, not typed: one control, one click */
+.np-root {
+  display: flex; align-items: center; gap: var(--s3);
+  background: var(--canvas); border: 1px solid var(--line);
+  border-radius: var(--r2); padding: var(--s2) var(--s2) var(--s2) var(--s3);
+}
+.np-root .p {
+  flex: 1; min-width: 0; font-family: var(--mono); font-size: var(--t-sm);
+  color: var(--text); overflow-wrap: anywhere;
+}
+.np-root .p:empty::before { content: "未选择"; color: var(--text-faint); }
+.np-root .btn { flex: none; }
+
+.np-path {
+  font-family: var(--mono); font-size: var(--t-xs); color: var(--text-dim);
+  background: var(--canvas); border: 1px solid var(--line); border-radius: var(--r2);
+  padding: var(--s2) var(--s3); overflow-wrap: anywhere;
+}
+.np-path b { color: var(--accent); font-weight: 700; }
+.np-note { font-size: var(--t-xs); color: var(--text-faint); line-height: 1.65; }
+.np-err {
+  font-size: var(--t-sm); color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--bad) 40%, var(--line));
+  border-radius: var(--r2); padding: var(--s2) var(--s3);
+}
+.np-f {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s4) var(--s5); border-top: 1px solid var(--line);
+}
+
+/* ---- directory picker ---------------------------------------------------- */
+.np.fs { width: min(660px, 100%); }
+.fs-bar {
+  display: flex; align-items: center; gap: var(--s3);
+  padding: var(--s3) var(--s5); border-bottom: 1px solid var(--line);
+}
+.fs-bar .cur { flex: 1; min-width: 0; font-size: var(--t-xs); color: var(--text-dim); overflow-wrap: anywhere; }
+.fs-list {
+  height: min(44vh, 380px); overflow-y: auto; padding: var(--s2) var(--s3);
+  display: flex; flex-direction: column; gap: 1px;
+}
+.fs-row {
+  display: flex; align-items: center; gap: var(--s3); width: 100%;
+  background: none; border: 1px solid transparent; border-radius: var(--r2);
+  padding: 7px var(--s3); color: var(--text-dim); font-size: var(--t-md);
+  text-align: left; cursor: pointer;
+}
+.fs-row:hover { background: var(--panel-2); color: var(--text); }
+.fs-row .ic { opacity: .7; }
+.fs-row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fs-empty { padding: var(--s5); text-align: center; font-size: var(--t-sm); color: var(--text-faint); }
+.np.fs .np-err { margin: 0 var(--s5); }
+
+/* ========================================================================== */
+/* 2 · studio top bar                                                         */
+/* ========================================================================== */
+
+.st-top {
+  position: fixed; top: 0; left: 0; right: 0; height: 52px; z-index: 30;
+  display: flex; align-items: center; gap: var(--s4); padding: 0 var(--s5);
+  background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.st-brand {
+  display: inline-flex; align-items: center; gap: var(--s2);
+  font-weight: 800; font-size: var(--t-lg); letter-spacing: -.02em;
+  color: var(--text); background: none; border: 0; padding: 0 var(--s2) 0 0;
+}
+.st-brand .mk {
+  width: 21px; height: 18px; border-radius: 4px; display: grid; place-items: center;
+  background: linear-gradient(135deg, var(--accent), #e07b3a);
+  color: var(--accent-ink); font-size: 10px; font-weight: 900;
+}
+/* project switcher */
+.st-proj {
+  display: inline-flex; align-items: center; gap: var(--s2);
+  background: var(--elev); border: 1px solid var(--line); border-radius: var(--r2);
+  padding: 6px 10px; font-size: var(--t-sm); font-weight: 600; color: var(--text);
+  max-width: 300px;
+}
+.st-proj .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-proj .cv { color: var(--text-faint); font-weight: 400; }
+/* the three top-level modes */
+.st-modes { display: inline-flex; gap: 2px; background: var(--canvas); border: 1px solid var(--line); border-radius: var(--r2); padding: 3px; }
+.st-modes button {
+  background: none; border: 0; border-radius: var(--r1); padding: 5px 16px;
+  font-size: var(--t-sm); font-weight: 700; color: var(--text-faint); cursor: pointer;
+}
+.st-modes button:hover { color: var(--text-dim); }
+.st-modes button.on { background: var(--elev-2); color: var(--text); }
+.st-sp { flex: 1; }
+
+/* ========================================================================== */
+/* 3 · studio shell grid                                                      */
+/* ========================================================================== */
+
+#production {
+  display: none; position: absolute; inset: 52px 0 0 0;
+  grid-template-columns: 220px minmax(0, 1fr) minmax(300px, 340px);
+  grid-template-rows: 34px minmax(0, 1fr);
+  background: var(--canvas);
+}
+
+/* -- breadcrumb strip ------------------------------------------------------ */
+.st-crumb {
+  grid-column: 1 / -1; display: flex; align-items: center; gap: var(--s2);
+  padding: 0 var(--s5); border-bottom: 1px solid var(--line);
+  background: var(--panel-2); font-size: var(--t-xs); color: var(--text-dim);
+}
+.st-crumb .sep { color: var(--text-faint); opacity: .7; }
+.st-crumb .cur { color: var(--accent); font-weight: 700; }
+.st-crumb .tail { margin-left: auto; display: flex; align-items: center; gap: var(--s3); color: var(--text-faint); }
+
+/* -- LEFT rail ------------------------------------------------------------- */
+.st-rail {
+  border-right: 1px solid var(--line); background: var(--panel);
+  padding: var(--s4) var(--s3) var(--s5); overflow-y: auto;
+  display: flex; flex-direction: column; gap: var(--s2);
+}
+.st-railsec {
+  font-size: var(--t-micro); font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--text-faint); padding: var(--s4) var(--s3) var(--s1);
+}
+.st-navitem {
+  display: flex; align-items: center; gap: var(--s3); width: 100%;
+  padding: 7px var(--s3); border: 1px solid transparent; border-radius: var(--r2);
+  background: none; color: var(--text-dim); font-size: var(--t-md);
+  text-align: left; cursor: pointer;
+}
+.st-navitem:hover { background: var(--panel-2); color: var(--text); }
+.st-navitem.on { background: var(--elev); color: var(--text); font-weight: 700; border-color: var(--line-2); }
+.st-navitem .ic { width: 17px; text-align: center; font-size: var(--t-md); flex: none; opacity: .9; }
+.st-navitem .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-navitem .bdg { font-size: var(--t-micro); font-weight: 700; color: var(--text-faint); flex: none; }
+.st-navitem.on .bdg { color: var(--accent); }
+.st-navitem .bdg.ok { color: var(--ok); }
+
+/* episode selector */
+.st-eps { display: flex; flex-wrap: wrap; gap: var(--s1); padding: var(--s1) var(--s3) var(--s3); }
+.st-ep {
+  min-width: 42px; padding: 5px 7px; border-radius: var(--r1);
+  background: var(--canvas); border: 1px solid var(--line);
+  color: var(--text-faint); font-size: var(--t-micro); font-weight: 700;
+  font-variant-numeric: tabular-nums; cursor: pointer;
+}
+.st-ep:hover { color: var(--text-dim); border-color: var(--line-2); }
+.st-ep.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+
+/* stage progress in the rail: a thin state bar under each stage row */
+.st-stage { position: relative; }
+.st-stage .bar {
+  position: absolute; left: var(--s3); right: var(--s3); bottom: 2px; height: 2px;
+  border-radius: 2px; background: var(--line);
+}
+.st-stage .bar > i { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
+.st-stage .bar.done > i { background: var(--ok); }
+
+/* -- CENTER ---------------------------------------------------------------- */
+.st-main {
+  min-width: 0; overflow-y: auto;
+  padding: var(--s5) var(--s6) var(--s7);
+  display: flex; flex-direction: column; gap: var(--s4);
+}
+/* A scrolling flex column must not shrink its sections: without this a tall
+   workspace squeezes every block toward zero height instead of scrolling. */
+.st-main > *, .stack > *, .maincol > *, .listcol > *, .refcol > * { flex: none; }
+.st-head { display: flex; align-items: baseline; gap: var(--s4); flex-wrap: wrap; }
+.st-title { font-size: var(--t-xl); font-weight: 800; letter-spacing: -.02em; }
+.st-sub { font-size: var(--t-xs); color: var(--text-faint); }
+.st-head .acts { margin-left: auto; display: flex; gap: var(--s2); align-items: center; }
+
+/* section header inside a workspace */
+.st-sec { display: flex; align-items: center; gap: var(--s3); }
+.st-sec h3 { margin: 0; font-size: var(--t-md); font-weight: 800; }
+.st-sec .acts { margin-left: auto; display: flex; gap: var(--s2); }
+
+.st-empty {
+  border: 1px dashed var(--line-2); border-radius: var(--r4);
+  padding: var(--s7) var(--s6); text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: var(--s3);
+}
+.st-empty .ic { font-size: 30px; opacity: .55; }
+.st-empty .tt { font-weight: 800; font-size: var(--t-lg); }
+.st-empty .hh { font-size: var(--t-sm); color: var(--text-faint); max-width: 52ch; line-height: 1.7; }
+
+/* -- RIGHT: AI Director ---------------------------------------------------- */
+.st-dir {
+  border-left: 1px solid var(--line); background: var(--panel);
+  overflow-y: auto; padding: var(--s4) var(--s4) var(--s6);
+  display: flex; flex-direction: column; gap: var(--s3);
+}
+/* same rule as the centre column: a scrolling flex column must not shrink its
+   sections, or a tall panel clips every block instead of scrolling */
+.st-dir > * { flex: none; }
+.dir-head { display: flex; align-items: center; gap: var(--s2); font-size: var(--t-md); font-weight: 800; }
+.dir-head .av {
+  width: 24px; height: 24px; border-radius: var(--r1); display: grid; place-items: center;
+  background: var(--accent-soft); border: 1px solid var(--accent-line); font-size: var(--t-md);
+}
+.dir-block { display: flex; flex-direction: column; gap: var(--s2); }
+.dir-ctxcard {
+  background: var(--canvas); border: 1px solid var(--line); border-radius: var(--r2);
+  padding: var(--s3) var(--s4); display: flex; flex-direction: column; gap: var(--s1);
+}
+.dir-ctxcard .l1 { font-size: var(--t-sm); font-weight: 700; color: var(--text); }
+.dir-ctxcard .l2 { font-size: var(--t-xs); color: var(--text-dim); display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); align-items: center; }
+.dir-ctxcard .l3 { font-size: var(--t-xs); color: var(--text-faint); }
+.dir-note {
+  background: var(--accent-soft); border: 1px solid var(--accent-line);
+  border-radius: var(--r2); padding: var(--s3) var(--s4);
+  font-size: var(--t-sm); line-height: 1.7; color: var(--text-dim);
+}
+.dir-note .who { display: block; font-size: var(--t-micro); font-weight: 800; letter-spacing: .06em; color: var(--accent); margin-bottom: 3px; text-transform: uppercase; }
+.dir-prompt {
+  background: var(--canvas); border: 1px solid var(--line); border-radius: var(--r2);
+  padding: var(--s3); font-family: var(--mono); font-size: var(--t-xs);
+  line-height: 1.65; color: var(--text-dim); max-height: 132px; overflow-y: auto;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.dir-seg { display: flex; gap: 2px; background: var(--canvas); border: 1px solid var(--line); border-radius: var(--r2); padding: 3px; }
+.dir-seg button {
+  flex: 1; background: none; border: 0; border-radius: var(--r1); padding: 5px 4px;
+  font-size: var(--t-xs); font-weight: 700; color: var(--text-faint); cursor: pointer;
+}
+.dir-seg button.on { background: var(--elev-2); color: var(--text); }
+.dir-provs { display: flex; flex-wrap: wrap; gap: var(--s1); }
+.dir-unavail {
+  font-size: var(--t-xs); color: var(--text-faint); line-height: 1.6;
+  border: 1px dashed var(--line-2); border-radius: var(--r2); padding: var(--s2) var(--s3);
+}
+/* -- media standing inside the context card ------------------------------- */
+.dir-media { display: flex; gap: var(--s1); margin-top: var(--s1); }
+.dir-media .mstat {
+  flex: 1; display: flex; flex-direction: column; gap: 1px;
+  font-size: var(--t-micro); color: var(--text-faint);
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: var(--r1); padding: 3px 6px;
+}
+.dir-media .mstat b { font-weight: 600; color: var(--text-faint); }
+.dir-media .mstat.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 30%, var(--line)); }
+.dir-media .mstat.ok b { color: var(--text-dim); }
+
+/* the one thing that outranks every section: the current shot cannot proceed */
+.dir-blocker {
+  display: flex; flex-direction: column; align-items: flex-start; gap: var(--s2);
+  font-size: var(--t-xs); line-height: 1.6; color: var(--gate);
+  background: color-mix(in srgb, var(--gate) 12%, transparent);
+  border: 1px solid var(--accent-line); border-radius: var(--r2);
+  padding: var(--s3);
+}
+.dir-blocker b { display: block; color: var(--accent); }
+
+/* -- collapsible control-tower sections ----------------------------------- */
+.dir-sec {
+  border: 1px solid var(--line); border-radius: var(--r2);
+  background: var(--canvas); overflow: hidden;
+}
+.dir-sec.surfaced { border-color: var(--accent-line); background: var(--accent-soft); }
+.dir-sec-h {
+  display: flex; align-items: center; gap: var(--s2); width: 100%;
+  background: none; border: 0; cursor: pointer; text-align: left;
+  padding: var(--s3) var(--s3); color: var(--text-dim);
+}
+.dir-sec-h:hover { color: var(--text); }
+.dir-sec-h .tw { color: var(--text-faint); font-size: var(--t-micro); width: 10px; flex: none; }
+.dir-sec-h .ti {
+  font-size: var(--t-micro); font-weight: 800; letter-spacing: .08em;
+  text-transform: uppercase; white-space: nowrap;
+}
+.dir-sec.surfaced .dir-sec-h .ti { color: var(--accent); }
+.dir-sec-h .su { margin-left: auto; display: flex; gap: var(--s1); min-width: 0; }
+.dir-sec-h .su .chip { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+.dir-sec-b {
+  padding: 0 var(--s3) var(--s3);
+  display: flex; flex-direction: column; gap: var(--s2);
+}
+
+/* -- production plan ------------------------------------------------------ */
+.pl-rows { display: flex; flex-direction: column; gap: 1px; }
+.pl-row {
+  display: flex; align-items: center; gap: var(--s2); width: 100%;
+  background: none; border: 0; border-radius: var(--r1); cursor: pointer;
+  padding: 3px var(--s2); text-align: left; color: var(--text-dim);
+  font-size: var(--t-xs);
+}
+.pl-row:hover { background: var(--panel-2); color: var(--text); }
+.pl-row .mk { width: 12px; flex: none; text-align: center; color: var(--text-faint); }
+.pl-row.done .mk { color: var(--ok); }
+.pl-row.active .mk { color: var(--accent); }
+.pl-row .nm { flex: 1; min-width: 0; }
+.pl-row.done .nm { color: var(--text-dim); }
+.pl-row.active .nm { color: var(--text); font-weight: 700; }
+.pl-row .dt { color: var(--text-faint); font-variant-numeric: tabular-nums; flex: none; }
+
+.pl-next {
+  border-top: 1px dashed var(--line-2); padding-top: var(--s2);
+  display: flex; flex-direction: column; gap: var(--s2);
+}
+.pl-next .nx-t { font-size: var(--t-md); font-weight: 700; color: var(--text); }
+.pl-next .nx-d { font-size: var(--t-xs); color: var(--text-dim); line-height: 1.6; }
+.pl-block {
+  font-size: var(--t-xs); line-height: 1.6; color: var(--gate);
+  background: color-mix(in srgb, var(--gate) 10%, transparent);
+  border: 1px solid var(--accent-line); border-radius: var(--r1);
+  padding: var(--s2) var(--s3);
+}
+.pl-block.lead { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s2); }
+
+/* -- asset inbox ---------------------------------------------------------- */
+.ib-sum { font-size: var(--t-xs); color: var(--text-dim); }
+.ib-sum b { color: var(--text); font-variant-numeric: tabular-nums; }
+.ib-sum b.warn { color: var(--gate); }
+.ib-row {
+  display: flex; gap: var(--s2); align-items: flex-start;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r1); padding: var(--s2);
+}
+.ib-th {
+  width: 40px; height: 26px; flex: none; object-fit: cover;
+  border-radius: 3px; border: 1px solid var(--line); background: var(--canvas);
+}
+.ib-th.ph { display: grid; place-items: center; font-size: var(--t-micro); color: var(--text-faint); border-style: dashed; }
+.ib-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.ib-t { font-size: var(--t-xs); font-weight: 700; color: var(--text); overflow-wrap: anywhere; }
+.ib-p { font-size: var(--t-micro); color: var(--text-dim); }
+.ib-e { font-size: var(--t-micro); color: var(--text-faint); line-height: 1.5; }
+.ib-a { display: flex; flex-direction: column; gap: var(--s1); align-items: flex-end; flex: none; }
+
+.dir-hist { display: flex; flex-direction: column; gap: var(--s1); }
+.dir-hrow {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s1) 0; border-bottom: 1px solid var(--line);
+  font-size: var(--t-xs); color: var(--text-dim);
+}
+.dir-hrow:last-child { border-bottom: 0; }
+.dir-hthumb { width: 40px; height: 24px; border-radius: 3px; object-fit: cover; flex: none; background: var(--canvas); }
+.dir-hrow .l { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dir-hrow .t { color: var(--text-faint); font-variant-numeric: tabular-nums; flex: none; }
+
+/* ========================================================================== */
+/* 4 · shared production components                                           */
+/* ========================================================================== */
+
+/* -- SceneStrip: the horizontal scene rail --------------------------------- */
+.scenestrip { display: flex; gap: var(--s3); overflow-x: auto; padding-bottom: var(--s2); }
+.scenecard {
+  flex: none; width: 196px; text-align: left; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r3);
+  overflow: hidden; color: inherit; padding: 0;
+  display: flex; flex-direction: column;
+}
+.scenecard:hover { border-color: var(--line-2); }
+.scenecard.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.scenecard .strip { display: flex; height: 44px; background: var(--canvas); }
+.scenecard .strip img, .scenecard .strip .ph { flex: 1; min-width: 0; object-fit: cover; height: 100%; border-right: 1px solid var(--panel); }
+.scenecard .strip .ph { background: repeating-linear-gradient(135deg, var(--canvas) 0 7px, var(--panel-2) 7px 14px); }
+.scenecard .bd { padding: var(--s2) var(--s3) var(--s3); display: flex; flex-direction: column; gap: var(--s1); }
+.scenecard .nm { font-size: var(--t-sm); font-weight: 700; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scenecard .rw { display: flex; align-items: center; gap: var(--s1); flex-wrap: wrap; }
+
+/* -- ShotList: vertical, thumbnail-led ------------------------------------- */
+.shotlist { display: flex; flex-direction: column; gap: var(--s2); overflow-y: auto; }
+.shotitem {
+  display: flex; gap: var(--s3); align-items: stretch; text-align: left; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r2);
+  padding: var(--s2); color: inherit; width: 100%;
+}
+.shotitem:hover { border-color: var(--line-2); }
+.shotitem.on { border-color: var(--accent); background: var(--accent-soft); }
+.shotitem .th { width: 86px; flex: none; border-radius: var(--r1); overflow: hidden; }
+.shotitem .th .media { aspect-ratio: var(--thumb-ratio); }
+.shotitem .bd { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; justify-content: center; }
+.shotitem .nm { font-size: var(--t-sm); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shotitem .nm .n { color: var(--text-faint); font-family: var(--mono); font-size: var(--t-micro); margin-right: 5px; }
+.shotitem .rw { display: flex; align-items: center; gap: var(--s1); flex-wrap: wrap; }
+.shotitem.dangling { opacity: .55; cursor: default; }
+
+/* -- MediaHero: the big current-media surface ------------------------------ */
+.hero { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
+.herobox {
+  position: relative; border-radius: var(--r4); overflow: hidden;
+  border: 1px solid var(--line-2); background: #000; box-shadow: var(--shadow-hero);
+}
+/* The hero is the largest thing on screen but must never push the variants
+   and metadata below the fold: cap it, and crop rather than letterbox. */
+.herobox > .media, .herobox > video {
+  aspect-ratio: var(--thumb-ratio); width: 100%; max-height: 34vh;
+  display: block; object-fit: cover;
+}
+.herobox .badge {
+  position: absolute; top: var(--s3); left: var(--s3); display: flex; gap: var(--s1);
+}
+.herobox .badge2 { position: absolute; top: var(--s3); right: var(--s3); display: flex; gap: var(--s1); }
+.herobox .foot {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  padding: var(--s6) var(--s4) var(--s3);
+  background: linear-gradient(180deg, transparent, rgba(0,0,0,.82));
+  display: flex; align-items: flex-end; gap: var(--s4);
+}
+.herobox .foot .ttl { font-size: var(--t-lg); font-weight: 700; color: #fff; text-shadow: 0 1px 8px rgba(0,0,0,.6); }
+.herobox .foot .rt { margin-left: auto; display: flex; gap: var(--s1); }
+
+/* -- VariantGallery -------------------------------------------------------- */
+.variants { display: flex; flex-direction: column; gap: var(--s3); }
+.vtabs { display: flex; gap: var(--s1); border-bottom: 1px solid var(--line); }
+.vtab {
+  background: none; border: 0; border-bottom: 2px solid transparent;
+  padding: var(--s2) var(--s4); font-size: var(--t-sm); font-weight: 700;
+  color: var(--text-faint); cursor: pointer; margin-bottom: -1px;
+}
+.vtab:hover { color: var(--text-dim); }
+.vtab.on { color: var(--text); border-bottom-color: var(--accent); }
+.vtab .ct { color: var(--text-faint); font-weight: 500; margin-left: 3px; }
+.vgrid { display: flex; gap: var(--s3); flex-wrap: wrap; }
+.vcard {
+  width: 146px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r2); overflow: hidden; cursor: pointer; padding: 0;
+  color: inherit; text-align: left; display: flex; flex-direction: column;
+}
+.vcard:hover { border-color: var(--line-2); }
+.vcard.on { border-color: var(--ok); box-shadow: 0 0 0 1px var(--ok); }
+.vcard .media { aspect-ratio: var(--thumb-ratio); }
+.vcard .bd { padding: var(--s2) var(--s2) var(--s2); display: flex; flex-direction: column; gap: 3px; }
+.vcard .vn { font-size: var(--t-xs); font-weight: 700; color: var(--text); display: flex; align-items: center; gap: var(--s1); }
+.vcard .vn .cur { margin-left: auto; color: var(--ok); font-size: var(--t-micro); }
+.vcard .og { font-size: var(--t-micro); color: var(--text-faint); }
+
+/* provenance: Image v3 → Video v2 */
+.lineage {
+  display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap;
+  background: var(--canvas); border: 1px solid var(--line);
+  border-radius: var(--r2); padding: var(--s3) var(--s4);
+}
+.lineage .lnode { display: flex; align-items: center; gap: var(--s2); }
+.lineage .lnode img { width: 54px; height: 31px; object-fit: cover; border-radius: var(--r1); border: 1px solid var(--line); }
+.lineage .lnode .tx { display: flex; flex-direction: column; gap: 1px; }
+.lineage .lnode .tx b { font-size: var(--t-xs); }
+.lineage .lnode .tx span { font-size: var(--t-micro); color: var(--text-faint); }
+.lineage .arrow { color: var(--text-faint); font-size: var(--t-md); }
+.lineage .lnode.active b { color: var(--accent); }
+
+/* -- ReferenceCard: character / location context --------------------------- */
+.refs { display: flex; flex-direction: column; gap: var(--s3); }
+.refcard {
+  display: flex; align-items: center; gap: var(--s3);
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r2); padding: var(--s2);
+}
+.refcard img, .refcard .ph {
+  width: 42px; height: 52px; border-radius: var(--r1); object-fit: cover; flex: none;
+  background: var(--canvas); border: 1px solid var(--line);
+}
+.refcard .ph { display: grid; place-items: center; font-size: var(--t-xs); color: var(--text-faint); border-style: dashed; }
+.refcard .bd { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.refcard .nm { font-size: var(--t-sm); font-weight: 700; }
+.refcard .rw { display: flex; gap: var(--s1); flex-wrap: wrap; }
+
+/* -- ProductionProgress ---------------------------------------------------- */
+.progress { display: flex; gap: var(--s2); flex-wrap: wrap; }
+.pstage {
+  display: flex; align-items: center; gap: var(--s3); cursor: pointer;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r3);
+  padding: var(--s3) var(--s4); color: var(--text-dim); text-align: left;
+}
+.pstage:hover { border-color: var(--accent-line); }
+.pstage .ic { font-size: var(--t-lg); opacity: .85; }
+.pstage .tx { display: flex; flex-direction: column; gap: 2px; }
+.pstage .tx b { color: var(--text); font-size: var(--t-sm); }
+.pstage .tx span { font-size: var(--t-micro); color: var(--text-faint); }
+.pstage.done { border-color: color-mix(in srgb, var(--ok) 32%, var(--line)); }
+.pstage.done .tx b { color: var(--ok); }
+.pstage.active { border-color: var(--accent); background: var(--accent-soft); }
+
+/* a linear stage flow (story pipeline, workflow map) */
+.flow { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.flow .fstep {
+  display: flex; align-items: center; gap: var(--s2);
+  border: 1px solid var(--line); border-radius: 999px; padding: 5px 13px;
+  font-size: var(--t-sm); color: var(--text-faint); background: var(--panel);
+}
+.flow .fstep.done { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, var(--line)); }
+.flow .fstep.on { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); font-weight: 700; }
+.flow .arr { color: var(--text-faint); }
+
+/* ========================================================================== */
+/* 5 · Story workspace                                                        */
+/* ========================================================================== */
+
+.story-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(292px, 1fr)); gap: var(--s4); }
+.story-card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r3);
+  padding: var(--s4) var(--s5); display: flex; flex-direction: column; gap: var(--s2);
+}
+.story-card.wide { grid-column: 1 / -1; }
+.story-card .hd { display: flex; align-items: center; gap: var(--s2); }
+.story-card .hd h4 { margin: 0; font-size: var(--t-sm); font-weight: 800; letter-spacing: .02em; }
+.story-card .hd .ic { opacity: .7; }
+.story-card .tx { font-size: var(--t-md); line-height: 1.85; color: var(--text-dim); white-space: pre-wrap; }
+.story-card .tx.lead { font-size: var(--t-lg); line-height: 1.8; color: var(--text); }
+.story-card .none { font-size: var(--t-sm); color: var(--text-faint); font-style: italic; }
+
+.epgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); gap: var(--s4); }
+.epcard {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r3);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.epcard .top { display: flex; align-items: center; gap: var(--s2); padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line); background: var(--panel-2); }
+.epcard .no { font-family: var(--mono); font-size: var(--t-sm); font-weight: 800; color: var(--accent); }
+.epcard .ti { font-size: var(--t-sm); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.epcard .bd { padding: var(--s3) var(--s4) var(--s4); display: flex; flex-direction: column; gap: var(--s3); flex: 1; }
+.epcard .sy { font-size: var(--t-sm); line-height: 1.75; color: var(--text-dim); }
+.epcard .ft { display: flex; align-items: center; gap: var(--s2); margin-top: auto; }
+
+/* ========================================================================== */
+/* 6 · Production Bible                                                       */
+/* ========================================================================== */
+
+.biblegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(212px, 1fr)); gap: var(--s4); }
+.bcard {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r3);
+  overflow: hidden; cursor: pointer; text-align: left; color: inherit; padding: 0;
+  display: flex; flex-direction: column;
+}
+.bcard:hover { border-color: var(--line-2); transform: translateY(-2px); }
+.bcard.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.bcard { transition: transform .13s, border-color .13s; }
+.bcard .por { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; display: block; background: var(--canvas); }
+.bcard .por.loc { aspect-ratio: var(--thumb-ratio); }
+.bcard .bd { padding: var(--s3) var(--s4) var(--s4); display: flex; flex-direction: column; gap: var(--s2); flex: 1; }
+.bcard .nm { display: flex; align-items: baseline; gap: var(--s2); }
+.bcard .nm b { font-size: var(--t-lg); font-weight: 800; letter-spacing: -.01em; }
+.bcard .nm .role { font-size: var(--t-micro); color: var(--text-faint); }
+.bcard .rw { display: flex; gap: var(--s1); flex-wrap: wrap; align-items: center; }
+.bcard .rw .k { font-size: var(--t-micro); color: var(--text-faint); margin-right: 2px; }
+
+/* detail drawer */
+.drawer {
+  position: fixed; top: 52px; right: 0; bottom: 0; width: min(620px, 52vw); z-index: 40;
+  background: var(--panel); border-left: 1px solid var(--line-2);
+  box-shadow: -22px 0 60px -30px rgba(0,0,0,.85);
+  display: flex; flex-direction: column;
+}
+.drawer-h {
+  display: flex; align-items: center; gap: var(--s3);
+  padding: var(--s4) var(--s5); border-bottom: 1px solid var(--line);
+}
+.drawer-h .ti { font-size: var(--t-xl); font-weight: 800; letter-spacing: -.02em; }
+.drawer-h .x { margin-left: auto; }
+.drawer-b { flex: 1; overflow-y: auto; padding: var(--s5); display: flex; flex-direction: column; gap: var(--s5); }
+/* the drawer reuses the bible's existing field markup: the canvas-era buttons
+   in it are full-width by default, which reads as a stack of banners here */
+.drawer-b .nrun { width: auto; flex: none; margin: 0; padding: 6px 11px; }
+.drawer-b .ws-epbtns { gap: var(--s2); }
+.drawer-b .ws-bible, .drawer-b .ws-state { max-width: none; }
+.drawer-gal { display: flex; gap: var(--s2); overflow-x: auto; }
+.drawer-gal .g {
+  flex: none; width: 116px; border-radius: var(--r2); overflow: hidden;
+  border: 1px solid var(--line); background: var(--panel-2); cursor: pointer; padding: 0;
+}
+.drawer-gal .g img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; display: block; }
+.drawer-gal .g .cp { font-size: var(--t-micro); color: var(--text-faint); padding: 3px 5px; text-align: center; }
+.drawer-gal .g.on { border-color: var(--ok); box-shadow: 0 0 0 1px var(--ok); }
+.drawer-states { display: flex; flex-direction: column; gap: var(--s2); }
+.statebar { display: flex; gap: var(--s1); flex-wrap: wrap; }
+.statebar .sbtn {
+  padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--canvas); color: var(--text-dim); font-size: var(--t-xs); cursor: pointer;
+}
+.statebar .sbtn.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+
+/* ========================================================================== */
+/* 7 · Storyboard / Image / Video workspace layout                            */
+/* ========================================================================== */
+
+/* center column splits into: shot list | hero + variants | reference column */
+.wsplit {
+  display: grid; grid-template-columns: 232px minmax(0, 1fr) 214px;
+  gap: var(--s5); align-items: start; min-height: 0;
+}
+.wsplit.norefs { grid-template-columns: 232px minmax(0, 1fr); }
+@media (max-width: 1500px) { .wsplit { grid-template-columns: 200px minmax(0, 1fr); } .wsplit .refcol { grid-column: 1 / -1; } }
+.wsplit > .listcol { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
+.wsplit > .maincol { display: flex; flex-direction: column; gap: var(--s4); min-width: 0; }
+.wsplit > .refcol { display: flex; flex-direction: column; gap: var(--s4); min-width: 0; }
+
+/* compact shot metadata under the hero */
+.shotmeta {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  gap: var(--s3) var(--s4);
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r3); padding: var(--s4) var(--s5);
+}
+.shotmeta .kv .v { font-size: var(--t-sm); line-height: 1.6; }
+.shotmeta .kv.span2 { grid-column: span 2; }
+.shotmeta .kv.full { grid-column: 1 / -1; }
+.shotmeta .kv .v.dlg { color: var(--accent); font-style: italic; }
+
+/* the inline editor a shot opens into (kept out of the default read view) */
+.editgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: var(--s3) var(--s4); }
+.editgrid .full { grid-column: 1 / -1; }
+
+/* ========================================================================== */
+/* 8 · Audio / Timeline / Assets (shared primitives, screen-specific bits)     */
+/* ========================================================================== */
+
+.audiocard {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r3);
+  padding: var(--s4) var(--s5); display: flex; gap: var(--s4);
+}
+.audiocard .por { width: 46px; height: 56px; border-radius: var(--r2); object-fit: cover; flex: none; border: 1px solid var(--line); }
+.audiocard .bd { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--s2); }
+.audiocard .line { font-size: var(--t-lg); line-height: 1.7; color: var(--text); }
+.audiocard .line.q { color: var(--accent); }
+.wave { width: 100%; height: 44px; border-radius: var(--r2); border: 1px solid var(--line); background: var(--canvas); object-fit: cover; display: block; }
+
+.assetgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); gap: var(--s4); }
+.acard {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r3);
+  overflow: hidden; cursor: pointer; text-align: left; color: inherit; padding: 0;
+  display: flex; flex-direction: column;
+}
+.acard:hover { border-color: var(--line-2); }
+.acard .media { aspect-ratio: var(--thumb-ratio); }
+.acard .bd { padding: var(--s3); display: flex; flex-direction: column; gap: var(--s1); }
+.acard .nm { font-size: var(--t-sm); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acard .rw { display: flex; gap: var(--s1); flex-wrap: wrap; align-items: center; }
+
+.filterbar { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; }
+.filterbar .search {
+  flex: 1; min-width: 220px; max-width: 420px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r2);
+  padding: 7px 11px; color: var(--text); font-size: var(--t-sm); font-family: inherit;
+}
+.filterbar .search:focus { outline: none; border-color: var(--accent-line); }
+.fchip {
+  padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--text-dim); font-size: var(--t-xs); cursor: pointer;
+}
+.fchip.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+
+/* ========================================================================== */
+/* 9 · Workflow production map                                                */
+/* ========================================================================== */
+
+.wfmap { display: flex; flex-direction: column; gap: var(--s2); align-items: center; }
+.wfnode {
+  width: min(560px, 100%); display: flex; align-items: center; gap: var(--s4);
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r3);
+  padding: var(--s4) var(--s5); cursor: pointer; text-align: left; color: inherit;
+}
+.wfnode:hover { border-color: var(--line-2); }
+.wfnode.done { border-color: color-mix(in srgb, var(--ok) 30%, var(--line)); }
+.wfnode.active { border-color: var(--accent); background: var(--accent-soft); }
+.wfnode.blocked { opacity: .6; }
+.wfnode .ic { font-size: var(--t-xl); width: 30px; text-align: center; }
+.wfnode .tx { flex: 1; min-width: 0; }
+.wfnode .tx b { display: block; font-size: var(--t-lg); font-weight: 700; }
+.wfnode .tx span { font-size: var(--t-xs); color: var(--text-faint); }
+.wfarrow { color: var(--text-faint); font-size: var(--t-lg); line-height: 1; }
+
+/* ========================================================================== */
+/* 10 · utilities                                                             */
+/* ========================================================================== */
+
+.row { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.row.tight { gap: var(--s1); }
+.push { margin-left: auto; }
+.stack { display: flex; flex-direction: column; gap: var(--s3); }
+.scroll-y { overflow-y: auto; }
+.trunc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* generating shimmer, reused from the canvas language but studio-scaled */
+.st-skel { display: grid; gap: var(--s2); }
+.st-skel > i {
+  height: 9px; border-radius: 4px; display: block;
+  background: linear-gradient(90deg, var(--panel-2) 25%, var(--elev) 37%, var(--panel-2) 63%);
+  background-size: 400% 100%; animation: stshimmer 1.35s ease infinite;
+}
+.st-skel > i:nth-child(2n) { width: 78%; }
+.st-skel > i:nth-child(3n) { width: 62%; }
+@keyframes stshimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+@media (prefers-reduced-motion: reduce) { .st-skel > i { animation: none; } }
+
+/* ======================================================================== */
+/* TASK-057 · Production upstream workspace (ADR-0054)                      */
+/* ======================================================================== */
+
+/* --- rail: the 作品设定 sub-heading and its indented items --------------- */
+.st-railsub {
+  font-size: var(--t-micro); font-weight: 700; letter-spacing: .06em;
+  color: var(--text-faint); padding: var(--s2) var(--s3) 2px var(--s4);
+}
+.st-subitem { padding-left: calc(var(--s3) + var(--s4)); }
+.st-subitem .ic { opacity: .75; }
+.st-railnote {
+  font-size: var(--t-xs); color: var(--text-faint); line-height: 1.6;
+  padding: var(--s1) var(--s3) var(--s3);
+}
+/* an episode row: the rail's expandable exit into one episode */
+.st-eprow .nm { font-weight: 700; }
+.st-eprow.on { background: var(--accent-soft); border-color: var(--accent-line); color: var(--text); }
+.st-navitem .bdg.gate { color: var(--gate); }
+
+/* --- creative brief / world: the autosave-vs-version note ---------------- */
+.cb-note {
+  padding: var(--s2) var(--s3); border: 1px dashed var(--line-2);
+  border-radius: var(--r2); background: var(--panel-2); line-height: 1.7;
+}
+
+/* --- relationships: the pair gallery ------------------------------------- */
+.relgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(266px, 1fr)); gap: var(--s4); }
+.relcard {
+  display: flex; flex-direction: column; text-align: left; cursor: pointer;
+  border: 1px solid var(--line); border-radius: var(--r3); background: var(--panel);
+  overflow: hidden; color: inherit; font: inherit; padding: 0;
+}
+.relcard:hover { border-color: var(--line-2); background: var(--panel-2); }
+.relcard.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-line) inset; }
+.relcard .rel-pair { display: flex; gap: 1px; background: var(--line); }
+.relcard .por.sm { width: 50%; aspect-ratio: 4 / 5; object-fit: cover; display: block; background: var(--canvas); }
+.relcard .rel-pair .media-none {
+  width: 50%; aspect-ratio: 4 / 5; display: flex; align-items: center; justify-content: center;
+  background: var(--canvas); color: var(--text-faint);
+}
+.relcard .bd { padding: var(--s3) var(--s4) var(--s4); display: flex; flex-direction: column; gap: var(--s2); }
+.relcard .nm { display: flex; align-items: center; gap: var(--s2); font-size: var(--t-md); }
+.relcard .rel-x { color: var(--accent); font-weight: 800; }
+.relcard .kv .v { font-size: var(--t-sm); color: var(--text-dim); line-height: 1.7; }
+.relcard .rw { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.relcard .k { font-size: var(--t-micro); font-weight: 700; color: var(--text-faint); text-transform: uppercase; }
+
+/* --- episode plan: wide cards with the Arc / dependency blocks ----------- */
+/* auto-FIT, not auto-fill: a project with one or two episodes must let the
+   cards use the whole column instead of leaving empty tracks beside them */
+.epgrid.wide { grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); }
+.epcard.on { border-color: var(--accent-line); }
+.epcard .rw { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.epcard .rw .k { font-size: var(--t-micro); font-weight: 700; color: var(--text-faint); text-transform: uppercase; }
+.epcard .push { margin-left: auto; }
+
+.beatbox, .impactbox {
+  border: 1px solid var(--line-2); border-radius: var(--r2); background: var(--canvas);
+  padding: var(--s3); display: flex; flex-direction: column; gap: var(--s2);
+}
+.impactbox {
+  border-color: color-mix(in srgb, var(--gate) 45%, var(--line));
+  background: color-mix(in srgb, var(--gate) 8%, transparent);
+}
+.beatbox .hd, .impactbox .hd { display: flex; align-items: center; gap: var(--s2); font-size: var(--t-sm); }
+.beatbox .hd .push, .impactbox .hd .push { margin-left: auto; }
+.beatrow { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.beatrow > .chip { flex: none; min-width: 96px; }
+.beatrow input { flex: 1; min-width: 140px; }
+.beatrow.rel input { min-width: 118px; }
+.beatrow .ws-bibleinput { width: auto; margin: 0; }
+.beatbox .ws-lab, .impactbox .lab { margin-top: var(--s1); }
+
+/* AI Director · 作品 CANON: one readable row per upstream surface (seven
+   label+value chips would wrap into vertical slivers in a 300px column) */
+.dir-canon { display: flex; flex-direction: column; gap: 1px; }
+.dir-canon .cr {
+  display: flex; align-items: baseline; gap: var(--s2);
+  padding: 3px var(--s2); border-radius: var(--r1); background: var(--panel-2);
+}
+.dir-canon .cr .k { flex: 1; min-width: 0; font-size: var(--t-xs); color: var(--text-faint); }
+.dir-canon .cr .v {
+  flex: none; font-size: var(--t-xs); font-weight: 700; color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.dir-canon .cr.ok .v { color: var(--ok); }
+
+/* a relationship SUMMARY is prose, so it must ellipsize rather than clip
+   mid-character when it does not fit its card */
+.bcard .rw .chip, .drawer-b .row .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* --- Dailies: continuous review of an episode (CP4 / ADR-0057) ----------- */
+.dl-wrap { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr); gap: 16px; align-items: start; }
+.dl-stage { background: #0b0d12; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; min-height: 240px; display: grid; place-items: center; }
+.dl-video { width: 100%; max-height: 62vh; display: block; background: #000; }
+.dl-novideo { display: grid; gap: 6px; place-items: center; padding: 48px 16px; color: var(--text-faint); text-align: center; }
+.dl-novideo .ic { font-size: 30px; opacity: .65; }
+.dl-novideo .hh { font-size: 12px; opacity: .8; }
+.dl-meta { display: grid; gap: 10px; align-content: start; }
+.dl-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; }
+.dl-scene { font-size: 12px; color: var(--text-faint); }
+.dl-scene.muted { opacity: .7; }
+.dl-desc { margin: 0; font-size: 13px; line-height: 1.6; }
+.dl-design { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: 12px; }
+.dl-design dt { color: var(--text-faint); }
+.dl-design dd { margin: 0; }
+.dl-nodesign { font-size: 12px; color: var(--text-faint); }
+.dl-strip { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.dl-chip { min-width: 30px; height: 26px; padding: 0 7px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--text); font-size: 12px; cursor: pointer; }
+.dl-chip.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.dl-chip.ok { background: color-mix(in srgb, var(--ok) 22%, transparent); border-color: var(--ok); }
+.dl-chip.novideo { opacity: .5; border-style: dashed; }
+@media (max-width: 1100px) { .dl-wrap { grid-template-columns: minmax(0, 1fr); } }
+
+.dl-stale { font-size: 12px; line-height: 1.55; color: var(--gate); border: 1px solid color-mix(in srgb, var(--gate) 40%, var(--line)); background: color-mix(in srgb, var(--gate) 8%, transparent); border-radius: 8px; padding: 8px 10px; }
+
+/* --- Asset Library: visual-first Production Memory (CP5 / ADR-0058) ------- */
+.al-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.al-tab { padding: 5px 11px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--text); font-size: 12px; cursor: pointer; }
+.al-tab.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.al-tab b { opacity: .6; font-weight: 600; margin-left: 3px; }
+.al-bar2 { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.al-search { flex: 1 1 240px; min-width: 180px; }
+.al-sel { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 5px 8px; font-size: 12px; }
+.al-toggle { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-faint); }
+.al-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
+.al-tagchip { padding: 3px 9px; border: 1px dashed var(--line); border-radius: 999px; background: transparent; color: var(--text-faint); font-size: 11px; cursor: pointer; }
+.al-tagchip.on { border-style: solid; border-color: var(--accent); color: var(--text); }
+.al-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0fr); gap: 16px; align-items: start; }
+.al-body:has(.al-insp) { grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); }
+.al-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 12px; }
+/* the card is an <article>; only its caption is the button (see card()) */
+.al-card { display: flex; flex-direction: column; gap: 0; padding: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); overflow: hidden; text-align: left; color: var(--text); }
+.al-card:hover { border-color: var(--line-2); }
+.al-card.needs { border-style: dashed; }
+.al-media { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; display: block; background: #0b0d12; }
+.al-insp-media .al-media { aspect-ratio: auto; max-height: 42vh; object-fit: contain; }
+.al-wave { display: grid; place-items: center; gap: 6px; padding: 10px; background: linear-gradient(90deg, #0b0d12 0 4px, transparent 4px 8px) 0 0/8px 100%, #10131a; }
+.al-wave .ic { font-size: 20px; opacity: .7; }
+.al-wave audio { width: 100%; height: 30px; }
+.al-gone { display: grid; place-items: center; gap: 4px; color: var(--text-faint); font-size: 12px; }
+/* TASK-077 §1.2 — the PROBED absence: the registry says `local`, the file is not
+   there. Distinct from `.al-gone` alone (archived / bytes deliberately removed),
+   because one is a decision the project made and the other is a surprise. */
+.al-gone.probed { color: var(--gate); padding: var(--s2); text-align: center; border: 1px dashed var(--gate); }
+.al-gonefile { font-family: var(--mono, ui-monospace, monospace); font-size: 10.5px; color: var(--text-faint); word-break: break-all; }
+.al-cardgone { outline: 1px solid var(--gate); outline-offset: -1px; }
+.al-gonenote { margin: var(--s2) 0; padding: var(--s2) var(--s3); border-left: 2px solid var(--gate); color: var(--text-dim); font-size: var(--t-xs); line-height: 1.5; }
+.al-gonenote code { font-family: var(--mono, ui-monospace, monospace); }
+.al-cap { padding: 8px 10px; display: grid; gap: 5px; width: 100%; text-align: left;
+  background: none; border: 0; color: inherit; font: inherit; cursor: pointer; }
+.al-cap:hover { background: var(--panel-2); }
+.al-name { font-size: 12.5px; font-weight: 600; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.al-sub { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 11px; }
+.al-use { color: var(--text-faint); }
+.al-use.muted { opacity: .6; }
+.al-insp { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: var(--panel); display: grid; gap: 10px; align-content: start; position: sticky; top: 8px; max-height: calc(100vh - 90px); overflow: auto; }
+.al-insp-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.al-insp h4 { margin: 6px 0 0; font-size: 12px; color: var(--text-faint); font-weight: 600; }
+.al-info { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: 12px; }
+.al-info dt { color: var(--text-faint); }
+.al-info dd { margin: 0; word-break: break-word; }
+.al-usage { margin: 0; padding-left: 0; list-style: none; display: grid; gap: 4px; font-size: 12px; }
+.al-usage li { display: flex; gap: 6px; align-items: baseline; }
+.al-none { color: var(--text-faint); font-size: 12px; padding: 6px 0; }
+.al-edit { display: grid; gap: 6px; }
+.al-reuse { font-size: 12px; color: var(--text-faint); display: flex; gap: 6px; align-items: center; }
+.al-tech { font-size: 12px; color: var(--text-faint); }
+.al-tech summary { cursor: pointer; }
+.al-tech code { font-size: 11px; word-break: break-all; }
+@media (max-width: 1100px) { .al-body:has(.al-insp) { grid-template-columns: minmax(0, 1fr); } }
+
+/* --- 本集制作 (CP6) — the unified script ↔ scene ↔ shot creative context ---- */
+.ep-wrap { display: flex; flex-direction: column; gap: 18px; }
+.ep-scene { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); overflow: hidden; }
+.ep-scenehead { display: flex; align-items: baseline; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.ep-scenehead h3 { margin: 0; font-size: 15px; }
+.ep-scenen { font-size: 12px; color: var(--text-faint); }
+.ep-script { padding: 10px 14px; border-bottom: 1px solid var(--line); background: rgba(127, 127, 127, .05); }
+.ep-script summary { cursor: pointer; font-size: 12px; color: var(--text-faint); }
+.ep-script pre { margin: 8px 0 0; white-space: pre-wrap; font: 13px/1.7 var(--sans); max-height: 260px; overflow: auto; }
+.ep-scriptnote, .ep-dangling { padding: 8px 14px; font-size: 12px; color: var(--text-faint); }
+.ep-shots { display: flex; flex-direction: column; }
+.ep-shot { border-top: 1px solid var(--line); }
+.ep-shot:first-child { border-top: 0; }
+.ep-shot.on { background: rgba(127, 127, 127, .06); }
+.ep-shothead { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 14px;
+  background: none; border: 0; color: inherit; text-align: left; cursor: pointer; }
+.ep-shothead:hover { background: rgba(127, 127, 127, .08); }
+.ep-thumb { width: 96px; height: 54px; object-fit: cover; border-radius: 6px; background: #0003; flex: none; }
+.ep-nothumb { display: grid; place-items: center; font-size: 18px; opacity: .45; }
+.ep-shotmeta { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.ep-shottitle { font-size: 14px; }
+.ep-shotsub { font-size: 12px; color: var(--text-faint); }
+.ep-shotrefs { display: flex; flex-wrap: wrap; gap: 4px; }
+.ep-refchip { font-size: 11px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--text-faint); }
+.ep-noref { font-size: 11px; color: var(--text-faint); opacity: .7; }
+.ep-shot.ok .ep-shottitle::after { content: " ✓"; color: var(--ok); }
+.ep-detail { display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr); gap: 16px; padding: 0 14px 14px 14px; }
+.ep-player { width: 100%; border-radius: 8px; background: #000; max-height: 260px; }
+.ep-design { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0 0 12px; font-size: 13px; }
+.ep-design dt { color: var(--text-faint); }
+.ep-design dd { margin: 0; }
+.ep-nodesign { font-size: 13px; color: var(--text-faint); margin-bottom: 12px; }
+.ep-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+@media (max-width: 900px) { .ep-detail { grid-template-columns: minmax(0, 1fr); } }
+
+/* the reference picker / generation task panel.
+   `position: relative` + z-index, NOT sticky: sticky pinned it to the bottom of
+   the scrollport where it painted underneath the shot rows scrolling past it —
+   the panel's own text and the shot list were legible through each other. It
+   belongs at the end of the page, after the shot it is about. */
+.ep-panel { position: relative; z-index: 2; margin-top: 18px; padding: 14px;
+  border: 1px solid var(--line-2); border-radius: 12px; background: var(--panel);
+  box-shadow: var(--shadow); }
+.ep-panelhead { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.ep-panelhead b { flex: 1; }
+.ep-panel h4 { margin: 14px 0 6px; font-size: 12px; color: var(--text-faint); font-weight: 600; }
+.ep-picklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ep-picklist li { display: flex; align-items: center; gap: 10px; }
+.ep-pickname { flex: 1; font-size: 13px; }
+.ep-upload { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ep-kinds { display: flex; gap: 4px; }
+.ep-kind { padding: 3px 10px; font-size: 12px; border: 1px solid var(--line); border-radius: 999px;
+  background: none; color: var(--text-faint); cursor: pointer; }
+.ep-kind.on { background: var(--accent); border-color: transparent; color: #fff; }
+.ep-inputs { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: 13px; }
+.ep-inputs dt { color: var(--text-faint); }
+.ep-inputs dd { margin: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.ep-prompt { width: 100%; font: 12px/1.6 var(--mono); resize: vertical; }
+.ep-importlbl { cursor: pointer; }
+.ep-blockers { margin: 10px 0 0; padding-left: 20px; font-size: 12px; color: var(--gate); }
+
+/* --- 参考统筹 (CP6) --------------------------------------------------------- */
+.rp-sec { margin-bottom: 22px; }
+.rp-sec h3 { margin: 0 0 4px; font-size: 14px; }
+.rp-note { margin: 0 0 10px; font-size: 12px; color: var(--text-faint); }
+.rp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.rp-card { display: flex; gap: 10px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.rp-thumb { width: 72px; height: 72px; object-fit: cover; border-radius: 6px; background: #0003; flex: none; }
+.rp-thumb.sm { width: 40px; height: 40px; }
+.rp-none { display: grid; place-items: center; font-size: 18px; opacity: .4; }
+.rp-body { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.rp-name { font-size: 13px; }
+.rp-shots { font-size: 12px; color: var(--text-faint); }
+.rp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.rp-list li { display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.rp-list li .rp-shots { flex: 1; }
+.rp-empty { font-size: 13px; color: var(--text-faint); }
+
+/* the Director's evidence block (CP8) — which real ids this reading used */
+.dir-trace { margin: 0 0 10px; font-size: 12px; color: var(--text-faint); }
+.dir-trace summary { cursor: pointer; }
+.dir-trace > div { display: flex; gap: 8px; align-items: baseline; padding: 2px 0 0 12px; }
+.dir-trace span { min-width: 34px; }
+.dir-trace code { font-size: 11px; word-break: break-all; }
+
+/* ======================================================================== */
+/* TASK-073 §1.1/§1.2 · in-page section nav, and ⑧'s four-step flow bar     */
+/* ======================================================================== */
+/*
+ * ONE component, two looks. The eleven old episode tabs became five pages whose
+ * sub-parts are SECTIONS; this is how a creator moves between them. The 镜头制作
+ * variant renders as a numbered flow (①→④) because there the sections are ordered
+ * STEPS of one shot's production (§1.3) — everywhere else they are peers.
+ *
+ * Visual language is unchanged (ADR-0066 §5 / 验收 #10): the same tokens, the same
+ * accent for the active item, the same radii as .st-navitem.
+ */
+.st-secnav,
+.st-steps {
+  display: flex; gap: var(--s2); align-items: center; flex-wrap: wrap;
+  padding: var(--s3) 0 var(--s4);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: var(--s4);
+}
+.st-secitem {
+  appearance: none; cursor: pointer;
+  font: inherit; font-size: var(--t-sm); color: var(--text-dim);
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: var(--r2); padding: var(--s2) var(--s4);
+  transition: color .12s, border-color .12s, background .12s;
+}
+.st-secitem:hover { color: var(--text); border-color: var(--line-2); }
+.st-secitem.on {
+  color: var(--accent-strong); font-weight: 700;
+  background: var(--accent-soft); border-color: var(--accent-line);
+}
+/* the flow bar draws the ORDER between steps — a section nav has no order to draw */
+.st-steps .st-secitem + .st-secitem { position: relative; margin-left: var(--s4); }
+.st-steps .st-secitem + .st-secitem::before {
+  content: "→"; position: absolute; left: calc(var(--s4) * -1); top: 50%;
+  transform: translate(-2px, -50%);
+  color: var(--text-faint); font-size: var(--t-sm); pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) { .st-secitem { transition: none; } }
+
+/* --- TASK-073 §1.3 · task rows: 状态 耗时 成本 失败原因 重试 真实取消 -------- */
+.tk-block { margin-top: var(--s6); border-top: 1px solid var(--line); padding-top: var(--s4); }
+.tk-list { display: flex; flex-direction: column; gap: var(--s2); }
+.tk-row {
+  border: 1px solid var(--line); border-radius: var(--r2);
+  background: var(--panel-2); padding: var(--s3) var(--s4);
+}
+.tk-row.open { border-color: color-mix(in srgb, var(--gen) 40%, var(--line)); }
+.tk-row.bad { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+.tk-main { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.tk-name { font-size: var(--t-sm); font-weight: 700; color: var(--text); margin-right: var(--s2); }
+/* the failure REASON gets its own line: a truncated reason is not a reason */
+.tk-fail {
+  margin-top: var(--s2); font-size: var(--t-xs); line-height: 1.6;
+  color: var(--bad); word-break: break-word;
+}
+.tk-bar {
+  margin-top: var(--s2); height: 3px; border-radius: 2px;
+  background: var(--line); overflow: hidden;
+}
+.tk-bar > i { display: block; height: 100%; background: var(--gen); }
+.tk-acts { display: flex; gap: var(--s2); margin-top: var(--s3); }
+.tk-acts:empty { display: none; }
+.tk-empty { font-size: var(--t-xs); color: var(--text-faint); padding: var(--s3) 0; }
+
+/* --- TASK-073 §1.7 · ⚙ spec / budget table ------------------------------- */
+.ds-tbl { width: 100%; border-collapse: collapse; margin: var(--s3) 0 var(--s4); }
+.ds-tbl td { padding: var(--s2) var(--s3); border-bottom: 1px solid var(--line); font-size: var(--t-sm); }
+.ds-k { color: var(--text-dim); width: 46%; }
+.ds-k .chip { margin-left: var(--s2); }
+.ds-v { color: var(--text); font-variant-numeric: tabular-nums; }
+/* 「还没有设置」 is printed in the faint tone: visibly an absence, not a value */
+.ds-v.un { color: var(--text-faint); }
+.ds-in {
+  width: 100%; max-width: 260px; font: inherit; font-size: var(--t-sm);
+  color: var(--text); background: var(--panel); border: 1px solid var(--line-2);
+  border-radius: var(--r1); padding: var(--s1) var(--s2);
+}
+.ds-in:focus { outline: none; border-color: var(--accent-line); }
+.ds-tbl tr.bad .ds-in { border-color: var(--bad); }
+.ds-err { color: var(--bad); font-size: var(--t-xs); margin-top: 2px; }
+
+/* ======================================================================== */
+/* TASK-073 §1.4 · the contextual Agent panel (IA §6)                       */
+/* ======================================================================== */
+/*
+ * OPENED ON DEMAND. Closed, only `.ag-open` exists — the panel is not in the layout
+ * at all, which is the difference between 「按需打开的面板」 and a standing sidebar
+ * that narrows every page for a feature used occasionally.
+ */
+.ag-open {
+  float: right; appearance: none; cursor: pointer;
+  font: inherit; font-size: var(--t-sm); color: var(--text-dim);
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: var(--r2); padding: var(--s2) var(--s4); margin-bottom: var(--s3);
+}
+.ag-open:hover { color: var(--text); border-color: var(--line-2); }
+.ag-open.on { color: var(--accent-strong); background: var(--accent-soft); border-color: var(--accent-line); }
+.ag-panel {
+  clear: both; margin-bottom: var(--s5);
+  border: 1px solid var(--accent-line); border-radius: var(--r3);
+  background: var(--panel); box-shadow: var(--shadow-sm);
+  padding: var(--s4);
+}
+.ag-top { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s3); }
+.ag-scope { font-size: var(--t-xs); color: var(--text-dim); }
+.ag-x {
+  margin-left: auto; appearance: none; cursor: pointer; background: none;
+  border: none; color: var(--text-faint); font-size: var(--t-md);
+}
+.ag-x:hover { color: var(--text); }
+/* the seven sections, visually equal — none of them is a hierarchy */
+.ag-sec + .ag-sec { margin-top: var(--s4); padding-top: var(--s3); border-top: 1px solid var(--line); }
+.ag-h { font-size: var(--t-micro); font-weight: 700; letter-spacing: .06em; color: var(--text-faint); margin-bottom: var(--s2); }
+.ag-none { font-size: var(--t-xs); color: var(--text-faint); line-height: 1.6; }
+.ag-task { font-size: var(--t-md); font-weight: 700; color: var(--text); }
+.ag-probs, .ag-read, .ag-miss, .ag-steps, .ag-res { margin: 0; padding-left: var(--s5); font-size: var(--t-sm); line-height: 1.7; }
+.ag-probs { list-style: none; padding-left: 0; }
+.ag-probs .chip { margin-right: var(--s2); }
+.ag-tgt { margin-left: var(--s2); font-size: var(--t-xs); color: var(--text-dim); }
+.ag-miss { list-style: none; padding-left: 0; }
+.ag-goto {
+  appearance: none; cursor: pointer; font: inherit; font-size: var(--t-sm);
+  color: var(--link); background: none; border: none; padding: 0; text-align: left;
+}
+.ag-goto:hover { color: var(--link-glow); text-decoration: underline; }
+/* the primary action stands alone; alternatives are folded so they cannot compete */
+.ag-run { margin-right: var(--s3); }
+.ag-alt > summary { cursor: pointer; font-size: var(--t-sm); color: var(--text-dim); }
+.ag-diff { font-size: var(--t-xs); color: var(--text-dim); }
+
+/* --- TASK-073 §1.5 · 生成记录, beside every result ------------------------ */
+.gr { margin-top: var(--s3); border-top: 1px solid var(--line); padding-top: var(--s2); }
+.gr > summary { cursor: pointer; font-size: var(--t-xs); color: var(--text-dim); }
+.gr > summary:hover { color: var(--text); }
+.gr-tbl { width: 100%; border-collapse: collapse; margin: var(--s2) 0; }
+.gr-tbl td { padding: 2px var(--s2); font-size: var(--t-xs); border-bottom: 1px solid var(--line); }
+.gr-k { color: var(--text-faint); width: 40%; }
+.gr-v { color: var(--text); word-break: break-all; }
+/* 未记录 is faint — visibly an absence rather than a value */
+.gr-v.un { color: var(--text-faint); font-style: italic; }
+.gr-sec { font-size: var(--t-micro); font-weight: 700; letter-spacing: .06em; color: var(--text-faint); margin-top: var(--s3); }
+.gr-in { margin: var(--s1) 0 0; padding-left: var(--s5); font-size: var(--t-xs); line-height: 1.7; }
+.gr-in .chip { margin-left: var(--s2); }
+.gr-pre { margin: var(--s1) 0 0; font-size: var(--t-xs); background: var(--panel-2); border-radius: var(--r1); padding: var(--s2); overflow-x: auto; }
+.gr-none { font-size: var(--t-xs); color: var(--text-faint); line-height: 1.6; }
+.gr-ok { font-size: var(--t-xs); color: var(--ok); }
+
+/* --- TASK-073 §1.6 · the asset drawer: the SAME library, at drawer size ---- */
+.al-dopen { margin-bottom: var(--s3); }
+.al-drawer {
+  margin-bottom: var(--s5); padding: var(--s4);
+  border: 1px solid var(--line-2); border-radius: var(--r3);
+  background: var(--panel-2);
+  max-height: 46vh; overflow-y: auto;
+}
+.al-dtop { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s2); }
+.al-dscope { font-size: var(--t-xs); color: var(--text-dim); }
+.al-dscope.warn { color: var(--gate); }
+.al-dx { margin-left: auto; appearance: none; cursor: pointer; background: none; border: none; color: var(--text-faint); }
+.al-dx:hover { color: var(--text); }
+.al-add { width: 100%; margin-top: var(--s2); }
+
+/* The landing note when the project list could NOT be read (TASK-072 §1.4 验收 #5).
+   Without this rule the fault rendered in the same muted hint style as the normal
+   note, which is precisely the 「故障读起来像故障」 goal not being met. */
+#landing-note.bad { color: var(--bad); font-weight: 600; }
+
+/* ⑩ 后期交付 · 交付质检 (TASK-074 §1.2).
+
+   THE COLOURS CARRY THE HONESTY RULE. `unavailable` is neither green nor red: it is
+   an open question, and painting it either way would make a screen that measured two
+   of eight checks read as a verdict on all eight. */
+.qc-wrap { display: flex; flex-direction: column; gap: var(--s3); }
+.qc-head { display: flex; align-items: baseline; gap: var(--s3); }
+.qc-count { color: var(--text-faint); font-size: var(--t-micro); }
+.qc-ok { color: var(--ok); font-weight: 700; }
+.qc-notyet { color: var(--gate); font-weight: 700; }
+.qc-empty { color: var(--text-faint); padding: var(--s4) 0; }
+.qc-note { color: var(--text-faint); font-size: var(--t-micro); line-height: 1.7; }
+
+/* 真实探测（TASK-074 §1.2 接线）。The state text sits NEXT TO the button, not in
+   the table: it says which cut was measured, and 「没跑过」/「跑失败了」/「正在跑」
+   are three different reasons the five ffmpeg rows read 未检查. */
+.qc-probe-bar { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+.qc-probe-state { color: var(--text-faint); font-size: var(--t-micro); }
+.qc-probe-err { color: var(--bad); }
+
+.qc-table { width: 100%; border-collapse: collapse; font-size: var(--t-sm); }
+.qc-table th {
+  text-align: left; font-size: var(--t-micro); font-weight: 700; letter-spacing: .06em;
+  color: var(--text-faint); border-bottom: 1px solid var(--line); padding: var(--s2);
+}
+.qc-table td { padding: var(--s2); border-bottom: 1px solid var(--line); vertical-align: top; }
+.qc-table .qc-k { font-weight: 600; white-space: nowrap; }
+.qc-table .qc-s { white-space: nowrap; }
+.qc-table .qc-d { color: var(--text-faint); line-height: 1.6; }
+.qc-pass .qc-s { color: var(--ok); }
+.qc-fail .qc-s { color: var(--bad); }
+/* deliberately the MUTED tone, not a success or a failure tone */
+.qc-unknown .qc-s { color: var(--pending); }
+.qc-sev {
+  margin-left: var(--s2); padding: 0 var(--s2); border-radius: 3px;
+  font-size: var(--t-micro); font-weight: 700;
+}
+.qc-sev-blocking { background: var(--bad); color: #fff; }
+.qc-sev-warning { background: var(--gate); color: #fff; }
+
+.qc-gate { padding: var(--s3); border-radius: 4px; line-height: 1.7; }
+.qc-gate-ok { background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--ok); }
+.qc-gate-warn { background: color-mix(in srgb, var(--gate) 12%, transparent); color: var(--gate); }
+.qc-gate-block { background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--bad); }
+.qc-gate-ids { margin-top: var(--s2); font-size: var(--t-micro); opacity: .85; }
+
+/* 成片「与规格对照」（TASK-074 §1.1）。未测 / 不符 / 一致是三种状态，颜色只给
+   后两种：没测过是一个待答的问题，涂成绿或红都会变成一个它没做过的判断。 */
+.pc-specchk { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; margin-top: var(--s2); }
+.pc-specv { font-size: var(--t-micro); font-weight: 700; }
+.pc-specv-ok { color: var(--ok); }
+.pc-specv-bad { color: var(--bad); }
+.pc-specv-unk { color: var(--text-faint); }
+.pc-specerr { color: var(--bad); font-size: var(--t-micro); }
+.pc-specrows { list-style: none; margin: 0; padding: 0; width: 100%; display: flex; flex-wrap: wrap; gap: var(--s2) var(--s3); }
+.pc-specrow { display: flex; gap: var(--s2); font-size: var(--t-micro); color: var(--text-faint); }
+.pc-specrow-fail .pc-specd { color: var(--bad); }
+.pc-speck { font-weight: 600; }
+
+/* ========================================================================= */
+/* 分镜表格视图（TASK-078 §2.2/§2.3）                                         */
+/*                                                                            */
+/* 一屏之内横向可比：60 行镜头，景别 / 光影 / 运镜 各成一列，缺的地方一眼就看  */
+/* 得见。卡片视图回答「这一个镜头是什么」，这张表回答「这一批对不对」，两者    */
+/* 并存而不是互相取代。                                                       */
+/* ========================================================================= */
+
+/* 卡片 ⇄ 表格 的分段切换 —— 两个按钮贴在一起，读作一个控件 */
+.segbtn { display: inline-flex; gap: 1px; }
+.segbtn .btn { border-radius: 0; }
+.segbtn .btn:first-child { border-radius: var(--r1) 0 0 var(--r1); }
+.segbtn .btn:last-child { border-radius: 0 var(--r1) var(--r1) 0; }
+
+/* 表头那一条：真实的「准备资产 N/M」，以及三个刻面的缺口计数 */
+.sbt-bar {
+  display: flex; align-items: baseline; gap: var(--s4); flex-wrap: wrap;
+  padding: var(--s3) var(--s4); margin-bottom: var(--s2);
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r2);
+}
+.sbt-stat { font-weight: 700; font-size: var(--t-md); color: var(--gate); }
+.sbt-stat.ok { color: var(--ok); }
+.sbt-note { color: var(--text-faint); font-size: var(--t-micro); line-height: 1.7; }
+
+.sbt-save {
+  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  padding: 0 var(--s2) var(--s3);
+}
+
+/* 宽内容自己横向滚，页面本体不横向滚 */
+.sbt-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r2); }
+.sbt { width: 100%; border-collapse: collapse; font-size: var(--t-sm); min-width: 1100px; }
+.sbt th {
+  position: sticky; top: 0; z-index: 1;
+  text-align: left; font-size: var(--t-micro); font-weight: 700; letter-spacing: .06em;
+  color: var(--text-faint); background: var(--panel-2);
+  border-bottom: 1px solid var(--line-2); padding: var(--s2) var(--s3); white-space: nowrap;
+}
+.sbt td { padding: var(--s2) var(--s3); border-bottom: 1px solid var(--line); vertical-align: top; }
+.sbt-row:hover td { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+
+.sbt-h-description, .sbt-descc { min-width: 260px; }
+.sbt-h-prompt, .sbt-promptc { min-width: 180px; }
+.sbt-h-seq, .sbt-seq { min-width: 120px; }
+
+.sbt-seq .mono { font-weight: 700; color: var(--text-dim); }
+.sbt-title { color: var(--text-faint); font-size: var(--t-micro); line-height: 1.5; margin-top: 2px; }
+
+/* 就地编辑：单元格看上去仍是单元格，点进去就能打字 */
+.sbt-in {
+  width: 100%; min-width: 90px; box-sizing: border-box;
+  background: transparent; color: var(--text);
+  border: 1px solid transparent; border-radius: var(--r1);
+  padding: 3px var(--s2); font: inherit;
+}
+.sbt-in:hover { border-color: var(--line-2); }
+.sbt-in:focus { border-color: var(--accent); background: var(--panel); outline: none; }
+.sbt-in::placeholder { color: var(--text-faint); opacity: .7; }
+/* 从「未填 · 去填写」跳过来的那一格 —— 只高亮这一次 */
+.sbt-focus { border-color: var(--accent); background: var(--accent-soft); }
+
+.sbt-area {
+  width: 100%; box-sizing: border-box; resize: vertical;
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--accent); border-radius: var(--r1);
+  padding: var(--s2); font: inherit; line-height: 1.6;
+}
+.sbt-desc { line-height: 1.7; cursor: text; }
+.sbt-fill {
+  background: none; border: 1px dashed var(--gate); color: var(--gate);
+  border-radius: var(--r1); padding: 2px var(--s2); font: inherit; cursor: pointer;
+}
+
+/* 描述里的实体 —— 是链接，不是高亮色块：点它去这个人物 / 场景地自己的卡片 */
+.sbt-ent {
+  background: none; border: none; padding: 0; font: inherit; cursor: pointer;
+  color: var(--link); border-bottom: 1px dashed var(--link);
+}
+.sbt-ent:hover { color: var(--link-glow); border-bottom-style: solid; }
+
+.sbt-prompt {
+  display: flex; align-items: center; gap: var(--s2); width: 100%;
+  background: none; border: none; padding: 0; font: inherit; cursor: pointer;
+  color: var(--text-dim); text-align: left;
+}
+.sbt-ptext {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--t-micro);
+}
+.sbt-prompt:hover .sbt-ptext { color: var(--text); }
+
+.sbt-mute { color: var(--text-faint); }
+.sbt-sfx { white-space: nowrap; }
+.sbt-mini {
+  background: none; border: 1px solid var(--line-2); color: var(--text-faint);
+  border-radius: var(--r1); padding: 1px var(--s2); font-size: var(--t-micro); cursor: pointer;
+}
+.sbt-mini:hover { color: var(--text); border-color: var(--line-3); }
+.sbt-danger:hover { color: var(--bad); border-color: var(--bad); }
+.sbt-ops { display: flex; flex-direction: column; gap: var(--s1); min-width: 110px; }
+.sbt-color { font-size: var(--t-micro); }
+
+/* 行标记：一条左边线，不给整行上色 —— 表格首先要好读 */
+.sbt-c-red    td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
+.sbt-c-amber  td:first-child { box-shadow: inset 3px 0 0 var(--gate); }
+.sbt-c-green  td:first-child { box-shadow: inset 3px 0 0 var(--ok); }
+.sbt-c-blue   td:first-child { box-shadow: inset 3px 0 0 var(--gen); }
+.sbt-c-violet td:first-child { box-shadow: inset 3px 0 0 var(--prompt); }
+
+/* 待删除：仍然在表上、仍然可撤销 —— 保存之前什么都没发生 */
+.sbt-del td { opacity: .45; text-decoration: line-through; }
+.sbt-del .sbt-mini { opacity: 1; text-decoration: none; }
+
+/* 「未填 · 去填写」在只读刻面显示处 */
+.shotmeta .v.todo {
+  background: none; border: 1px dashed var(--gate); color: var(--gate);
+  border-radius: var(--r1); padding: 1px var(--s2); font: inherit; cursor: pointer;
+}
+.shotmeta .v.todo:hover { background: color-mix(in srgb, var(--gate) 12%, transparent); }
+
+/* ========================================================================= */
+/* 生成卡（TASK-078 §3）                                                      */
+/*                                                                            */
+/* 一次生成需要的东西全在一张卡上：参考、Prompt、规格、报价、提交、免费路线。 */
+/* 报价挨着提交按钮，不再只在确认弹窗里出现一次。                             */
+/* ========================================================================= */
+
+.gc { display: flex; flex-direction: column; gap: var(--s3); }
+
+.gc-refs { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.gc-chip {
+  display: inline-flex; align-items: center; gap: var(--s2);
+  padding: 2px var(--s2) 2px 2px; border: 1px solid var(--line-2);
+  border-radius: var(--r3); font-size: var(--t-micro); color: var(--text-dim);
+}
+.gc-chip img { width: 26px; height: 26px; object-fit: cover; border-radius: var(--r1); }
+.gc-chip b {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 16px; height: 16px; padding: 0 4px; margin-left: 4px;
+  background: var(--accent); color: var(--accent-ink);
+  border-radius: 999px; font-size: var(--t-micro);
+}
+/* the first frame is not one reference among several — it IS the video's input */
+.gc-chip-frame { border-color: var(--accent-line); background: var(--accent-soft); }
+.gc-chip-frame b { background: var(--ok); color: #fff; }
+
+.gc-gaps { display: flex; gap: var(--s2); flex-wrap: wrap; }
+
+.gc-prompt {
+  width: 100%; box-sizing: border-box; resize: vertical;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--line); border-radius: var(--r2);
+  padding: var(--s3); font: var(--t-sm)/1.7 var(--mono);
+}
+.gc-prompt:focus { border-color: var(--prompt); outline: none; background: var(--panel); }
+
+.gc-spec { display: flex; gap: var(--s4); flex-wrap: wrap; align-items: baseline; }
+.gc-kv { display: inline-flex; gap: var(--s2); font-size: var(--t-xs); }
+.gc-kv .k { color: var(--text-faint); }
+.gc-kv .v { color: var(--text); font-weight: 600; }
+.gc-spec-unknown { flex-direction: column; align-items: flex-start; gap: var(--s1); }
+.gc-note { color: var(--text-faint); font-size: var(--t-micro); line-height: 1.7; }
+
+.gc-actions { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+/* 报价常驻在提交按钮旁 —— 这是本卡的要点，不是装饰 */
+.gc-price {
+  display: inline-flex; align-items: baseline; gap: var(--s2);
+  font-weight: 700; font-size: var(--t-md); color: var(--gate);
+}
+.gc-price-src { font-weight: 400; font-size: var(--t-micro); color: var(--text-faint); }
+.gc-block { color: var(--bad); font-size: var(--t-xs); }
+
+.gc-free {
+  display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
+  padding-top: var(--s3); border-top: 1px solid var(--line);
+}
+.gc-free .lab { color: var(--text-faint); font-size: var(--t-micro); }
+
+/* ========================================================================= */
+/* ⑨ 粗剪审片 · 故事板 + 「以此生成 →」链式（TASK-079）                        */
+/* ========================================================================= */
+
+.cr-filters { display: flex; gap: var(--s2); flex-wrap: wrap; margin-bottom: var(--s3); }
+.cr-head {
+  display: grid; grid-template-columns: minmax(240px, 1.4fr) 1fr 1.2fr; gap: var(--s4);
+  padding: 0 var(--s3) var(--s2);
+  font-size: var(--t-micro); font-weight: 700; letter-spacing: .06em; color: var(--text-faint);
+  border-bottom: 1px solid var(--line);
+}
+.cr-list { display: flex; flex-direction: column; }
+.cr-row {
+  display: grid; grid-template-columns: minmax(240px, 1.4fr) 1fr 1.2fr; gap: var(--s4);
+  padding: var(--s4) var(--s3); border-bottom: 1px solid var(--line);
+}
+.cr-row:hover { background: color-mix(in srgb, var(--accent) 4%, transparent); }
+/* 已通过 gets a quiet left edge, not a colour wash — the columns must stay readable */
+.cr-ok { box-shadow: inset 3px 0 0 var(--ok); }
+
+.cr-col { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
+.cr-title { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; font-weight: 600; }
+.cr-title .mono { color: var(--text-dim); }
+.cr-scene { font-size: var(--t-micro); color: var(--text-dim); }
+.cr-scene.muted { color: var(--text-faint); }
+.cr-desc { margin: 0; font-size: var(--t-xs); color: var(--text-dim); line-height: 1.7; }
+.cr-stale { font-size: var(--t-micro); color: var(--gate); line-height: 1.6; }
+.cr-fail { font-size: var(--t-micro); color: var(--bad); line-height: 1.6; }
+.cr-acts { display: flex; gap: var(--s2); flex-wrap: wrap; margin-top: auto; }
+
+.cr-thumb {
+  width: 100%; max-width: 240px; aspect-ratio: var(--thumb-ratio);
+  object-fit: cover; border-radius: var(--r2); background: var(--panel-2);
+}
+.cr-none {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-faint); font-size: var(--t-lg); border: 1px dashed var(--line-2);
+}
+.cr-meta { display: flex; flex-direction: column; gap: var(--s1); }
+.cr-kv { display: inline-flex; align-items: center; gap: var(--s2); font-size: var(--t-micro); }
+.cr-kv .k { color: var(--text-faint); }
+.cr-kv .v { color: var(--text-dim); }
+.cr-src { width: 32px; height: 18px; object-fit: cover; border-radius: 3px; }
+.cr-empty { padding: var(--s6); text-align: center; color: var(--text-faint); }
+
+/* 「以此生成 →」—— 不可用的组合灰掉并说明原因，绝不隐藏 */
+.chain { position: relative; display: inline-block; }
+.chain-menu {
+  position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 260px;
+  display: flex; flex-direction: column;
+  background: var(--elev); border: 1px solid var(--line-2); border-radius: var(--r2);
+  box-shadow: var(--shadow); overflow: hidden;
+}
+.chain-item {
+  display: flex; flex-direction: column; gap: 2px; align-items: flex-start;
+  padding: var(--s2) var(--s3); background: none; border: none; text-align: left;
+  font: inherit; font-size: var(--t-xs); color: var(--text); cursor: pointer;
+}
+.chain-item:hover { background: var(--elev-2); }
+.chain-item.off { color: var(--text-faint); cursor: not-allowed; }
+.chain-item.off:hover { background: none; }
+.chain-note { font-size: var(--t-micro); color: var(--text-faint); line-height: 1.5; }
+
+/* 失败工单（TASK-079 §1.3）—— 一次失败保留成可以重开的对象，不是一条错误消息 */
+.gc-fails { display: flex; flex-direction: column; gap: var(--s2); padding-top: var(--s3); border-top: 1px solid var(--line); }
+.gc-fails > .lab { color: var(--bad); font-size: var(--t-micro); font-weight: 700; }
+.gc-fail {
+  display: flex; flex-direction: column; gap: var(--s2);
+  padding: var(--s3); border-radius: var(--r2);
+  border: 1px solid color-mix(in srgb, var(--bad) 35%, var(--line));
+  background: color-mix(in srgb, var(--bad) 6%, transparent);
+}
+.gc-fail-h { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+.gc-fail-why { color: var(--bad); font-size: var(--t-xs); line-height: 1.7; }
+.gc-fail-p summary { cursor: pointer; color: var(--text-faint); font-size: var(--t-micro); }
+.gc-fail-p pre {
+  margin: var(--s2) 0 0; padding: var(--s2); max-height: 180px; overflow: auto;
+  background: var(--panel-2); border-radius: var(--r1);
+  font: var(--t-micro)/1.7 var(--mono); white-space: pre-wrap; word-break: break-word;
+}
+.gc-fail-acts { display: flex; gap: var(--s2); flex-wrap: wrap; }
+
+/* ⚙ 能力目录（TASK-080 §1.1）—— 一屏答完「这个系统一共能帮我做哪些事」 */
+.sc-bar { display: flex; gap: var(--s4); align-items: center; flex-wrap: wrap; padding-bottom: var(--s3); }
+.sc-q { flex: 1 1 260px; min-width: 200px; }
+.sc-bar .st-secnav { border-bottom: 0; margin-bottom: 0; padding: 0; }
+.sc-grp { padding-top: var(--s4); }
+.sc-grp > .lab { color: var(--text-dim); font-size: var(--t-micro); font-weight: 700; }
+.sc-grid {
+  display: grid; gap: var(--s3); padding-top: var(--s3);
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+.sc-card {
+  display: flex; flex-direction: column; gap: var(--s2);
+  padding: var(--s4); border: 1px solid var(--line); border-radius: var(--r2);
+  background: var(--panel-2);
+}
+.sc-card.off { opacity: .68; border-style: dashed; }
+.sc-h { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.sc-role { color: var(--text-faint); font-size: var(--t-micro); }
+.sc-t { font-size: var(--t-sm); }
+.sc-p { margin: 0; color: var(--text-dim); font-size: var(--t-xs); line-height: 1.7; }
+.sc-chips, .sc-meta { display: flex; gap: var(--s2); flex-wrap: wrap; }
+.sc-acts { display: flex; gap: var(--s2); padding-top: var(--s2); }
+.sc-bad {
+  display: flex; flex-direction: column; gap: var(--s2);
+  padding: var(--s4); margin-bottom: var(--s4); border-radius: var(--r2);
+  border: 1px solid color-mix(in srgb, var(--bad) 35%, var(--line));
+  background: color-mix(in srgb, var(--bad) 6%, transparent);
+}
+.sc-bad > .lab { color: var(--bad); font-size: var(--t-micro); font-weight: 700; }
+.sc-badrow { display: flex; flex-direction: column; gap: 2px; }
+
+/* 一个常驻 Agent 会话（TASK-080 §1.2 批次 A）—— 上下文由创作者显式给出，看得见也改得动 */
+.as-sec { border-bottom: 1px solid var(--line); }
+.as-body { display: flex; flex-direction: column; gap: var(--s2); }
+.as-ctx { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.as-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px var(--s2); border-radius: var(--r1);
+  background: var(--elev); border: 1px solid var(--line);
+  font-size: var(--t-micro); color: var(--text);
+}
+.as-chip.gone { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); color: var(--text-dim); }
+.as-ci { opacity: .8; }
+.as-cx {
+  appearance: none; background: none; border: 0; cursor: pointer;
+  color: var(--text-faint); font: inherit; font-size: var(--t-micro); padding: 0 2px;
+}
+.as-cx:hover { color: var(--bad); }
+.as-task { display: flex; align-items: center; gap: var(--s2); }
+.as-input { width: 100%; resize: vertical; }
+.as-picker {
+  display: flex; flex-direction: column; gap: 1px; max-height: 240px; overflow: auto;
+  padding: var(--s2); border: 1px solid var(--line-2); border-radius: var(--r2);
+  background: var(--panel-2);
+}
+.as-pick {
+  display: grid; grid-template-columns: 16px 1fr auto; gap: var(--s2); align-items: center;
+  appearance: none; cursor: pointer; text-align: left;
+  background: none; border: 1px solid transparent; border-radius: var(--r1);
+  padding: var(--s2); font: inherit; font-size: var(--t-micro); color: var(--text-dim);
+}
+.as-pick:hover { background: var(--elev); color: var(--text); border-color: var(--line); }
+.as-pl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.as-ps { color: var(--text-faint); font-size: var(--t-micro); }
+.as-acts { display: flex; gap: var(--s2); }
+.as-runs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.as-runs li { display: flex; align-items: center; gap: var(--s2); font-size: var(--t-micro); }
+.as-rn { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
+.as-rt { color: var(--text-faint); }
+.as-chip.sent { border-color: var(--accent-line); background: var(--accent-soft); }
+.as-nosend { border-left: 2px solid color-mix(in srgb, var(--bad) 45%, var(--line)); padding-left: var(--s2); }
+
+/* ⚙ 项目健康（TASK-082 §1.1）—— 只读投影，不知道的一律 —，绝不写 0 */
+.hz-sec { padding-top: var(--s5); }
+.hz-sec > .lab { color: var(--text-dim); font-size: var(--t-micro); font-weight: 700; }
+.hz-stats { display: flex; flex-wrap: wrap; gap: var(--s5); padding-top: var(--s3); }
+.hz-stat { display: flex; flex-direction: column; gap: 2px; }
+.hz-stat .k { color: var(--text-faint); font-size: var(--t-micro); }
+.hz-stat .v { font-size: var(--t-lg); font-weight: 700; }
+.hz-stat .v.unknown { color: var(--text-faint); font-weight: 400; }
+.hz-tbl { width: 100%; border-collapse: collapse; margin-top: var(--s3); font-size: var(--t-micro); }
+.hz-tbl th { text-align: left; color: var(--text-faint); font-weight: 400; padding: var(--s2); border-bottom: 1px solid var(--line); }
+.hz-tbl td { padding: var(--s2); border-bottom: 1px solid var(--line); vertical-align: top; }
+.hz-tbl tr.bad td { background: color-mix(in srgb, var(--bad) 6%, transparent); }
+.hz-seq, .hz-lv { color: var(--text-faint); white-space: nowrap; }
+.hz-t { color: var(--text); }
+.hz-t .chip { margin-left: var(--s2); }
+.hz-ex, .hz-ow { color: var(--text-dim); white-space: nowrap; }
+.hz-st { white-space: nowrap; }
+.hz-st.unknown { color: var(--text-faint); }
+.hz-probs { list-style: none; margin: var(--s3) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--s2); }
+.hz-probs li { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; font-size: var(--t-xs); }
+.hz-pd { color: var(--text-dim); }
+.hz-at { color: var(--text-faint); font-size: var(--t-micro); }
+
+/* --- 分集规划：AI 写好、你逐格改（TASK-094 批次 B / TASK-088 §2.3） ---------- */
+/*
+ * ONE ROW PER EPISODE OF THE PLAN VERSION ON SCREEN. The shape follows the shot
+ * table (.sbt) deliberately — this project already had 「一张能打字的表」 and a
+ * second table idiom would be one more thing to keep consistent.
+ *
+ * 宽内容自己横向滚，页面本体不横向滚（与 .sbt-wrap 同一条规则）。
+ */
+.ept-counts { margin: var(--s3) 0 var(--s2); }
+.ept-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r2); }
+.ept { width: 100%; border-collapse: collapse; font-size: var(--t-sm); min-width: 1560px; }
+.ept th {
+  position: sticky; top: 0; z-index: 1;
+  text-align: left; font-size: var(--t-micro); font-weight: 700; letter-spacing: .06em;
+  color: var(--text-faint); background: var(--panel-2);
+  border-bottom: 1px solid var(--line-2); padding: var(--s2) var(--s3); white-space: nowrap;
+}
+.ept td { padding: var(--s2) var(--s3); border-bottom: 1px solid var(--line); vertical-align: top; }
+.ept-row:hover td { background: color-mix(in srgb, var(--accent) 4%, transparent); }
+.ept-row.on td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.ept-row.unlinked td { color: var(--text-dim); }
+
+.ept-h-ep, .ept-ep { min-width: 76px; }
+.ept-h-title, .ept-title { min-width: 150px; }
+.ept-h-coreGoal, .ept-goal { min-width: 190px; }
+.ept-h-keyEvents, .ept-events { min-width: 250px; }
+.ept-h-characterBeats, .ept-beats { min-width: 260px; }
+.ept-h-reveals, .ept-reveals { min-width: 190px; }
+.ept-h-emotionArc, .ept-arc { min-width: 140px; }
+.ept-h-ending, .ept-end { min-width: 220px; }
+.ept-h-ops, .ept-ops { min-width: 150px; }
+.ept-ep .mono { font-family: var(--mono); font-weight: 800; color: var(--accent); }
+.ept-ops { display: table-cell; }
+.ept-ops .btn { display: block; width: 100%; margin-bottom: var(--s2); }
+
+/* 旧字段（synopsis / purpose）：显示在新字段的位置上，并标明它是旧的 */
+.ept-legacy { margin-top: var(--s2); display: flex; flex-direction: column; gap: 4px; }
+
+/* 不在这一版规划里的剧集：折叠，但不隐瞒 */
+.ept-others { margin-top: var(--s4); border-top: 1px solid var(--line); padding-top: var(--s3); }
+.ept-others > summary { cursor: pointer; font-size: var(--t-sm); color: var(--text-dim); }
+.ept-other {
+  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  padding: var(--s2) 0; border-bottom: 1px solid var(--line);
+}
+.ept-other .mono { font-family: var(--mono); color: var(--text-faint); }
+.ept-other.on { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+
+/* --- 审阅面基元（src/ui/reviewface.js）------------------------------------- */
+/*
+ * AI 写了的正常显示、可编辑；AI 没写的一行说明，绝不预先摆空框。
+ */
+.rf-f { display: flex; flex-direction: column; gap: 4px; }
+.rf-f > .k, .rf-lh > .k { color: var(--text-faint); font-size: var(--t-micro); font-weight: 700; }
+.rf-f > .hint, .rf-lh > .hint { color: var(--text-faint); font-size: var(--t-micro); }
+.rf-i, .rf-t {
+  width: 100%; box-sizing: border-box;
+  background: transparent; color: var(--text);
+  border: 1px solid transparent; border-radius: var(--r1);
+  padding: 3px var(--s2); font: inherit; line-height: 1.6;
+}
+.rf-t { resize: vertical; }
+.rf-i:hover, .rf-t:hover { border-color: var(--line-2); }
+.rf-i:focus, .rf-t:focus { border-color: var(--accent); background: var(--panel); outline: none; }
+.rf-i::placeholder, .rf-t::placeholder { color: var(--text-faint); opacity: .7; }
+
+.rf-l { display: flex; flex-direction: column; gap: 4px; }
+.rf-lh { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; }
+.rf-row { display: flex; align-items: flex-start; gap: 4px; }
+.rf-row.beat { flex-wrap: wrap; }
+.rf-row.beat .rf-i { flex: 1 1 100%; }
+.rf-none { font-size: var(--t-micro); }
+.rf-add { align-self: flex-start; opacity: .75; }
+.rf-add:hover { opacity: 1; }
+.rf-count { white-space: nowrap; }
+
+.rf-absent { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; }
+.rf-absent > .k { color: var(--text-faint); font-size: var(--t-micro); font-weight: 700; }
+
+.rf-empty {
+  border: 1px dashed var(--line-2); border-radius: var(--r2);
+  padding: var(--s5); text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: var(--s3);
+}
+.rf-empty > .ti { font-weight: 700; }
+.rf-empty > .meta { max-width: 60ch; line-height: 1.7; }
+
+/* 人物关系 / 世界观：AI 梳理这一行（TASK-094 批次 F1 / F2） */
+.rg-ai {
+  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  padding: var(--s3) 0; border-bottom: 1px solid var(--line);
+}
+.rg-ai > .meta { flex: 1 1 24ch; line-height: 1.7; }
+
+/* TASK-093 批次 3 —— 单镜画布的可写层。
+   `.sg-stagechips` 与既有四步定位条 `.sg-stages` 是两个不同的东西：
+   前者是 TASK-092 的六个 stage，后者是 TASK-066 §9 的进度定位。
+   共用类名会让任何一条 CSS 规则悄悄影响另一个（查真实 DOM 时发现的）。 */
+.sg-stagechips { display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding:6px 10px; }
+.sg-stagechips .lab { color:var(--text-faint); font-size:12px; margin-right:4px; }
+.chip.sg-stagechip { font-size:11px; }
+.chip.sg-stagechip.ok { border-color:var(--ok); color:var(--ok); }
+.chip.sg-stagechip.skip { border-color:var(--text-faint); color:var(--text-faint); font-style:italic; }
+.chip.sg-stagechip.run { border-color:var(--gate); color:var(--gate); }
+
+.sg-add { margin:10px; padding:8px 10px; border:1px dashed var(--line); border-radius:8px; }
+.sg-add header { display:flex; flex-direction:column; gap:2px; margin-bottom:6px; }
+.sg-add header .meta { font-size:11px; color:var(--text-faint); }
+.sg-add-list { display:flex; flex-wrap:wrap; gap:6px; }
+.sg-add-item { display:flex; align-items:center; gap:6px; padding:4px 8px; border:1px solid var(--line);
+  border-radius:6px; background:transparent; color:var(--text); font-size:12px; cursor:pointer; }
+.sg-add-item:hover { border-color:var(--accent); }
+.sg-add-item.off { opacity:.55; cursor:default; border-style:dashed; max-width:100%; }
+.sg-add-item.off:hover { border-color:var(--line); }
+.sg-add-reg { color:var(--text-faint); font-size:11px; }
+.sg-add-why { color:var(--text-faint); font-size:11px; white-space:normal; }
+
+.sg-chain { margin:10px; padding:8px 10px; border:1px solid var(--line); border-radius:8px; }
+.sg-chain-item { display:flex; align-items:center; gap:6px; width:100%; padding:4px 6px; border:0;
+  background:transparent; color:var(--text); font-size:12px; text-align:left; cursor:pointer; }
+.sg-chain-item:hover { background:var(--panel-2); }
+.sg-chain-item.off { opacity:.55; cursor:default; }
+.sg-chain-pre, .sg-chain-why { color:var(--text-faint); font-size:11px; }
+
+.sg-refarea { display:flex; flex-wrap:wrap; gap:8px; padding:6px 10px; }
+.sg-refcat { border:1px solid var(--line); border-radius:8px; padding:6px 8px; min-width:180px; }
+.sg-refcat.off { border-style:dashed; opacity:.75; }
+.sg-refcat header { display:flex; gap:6px; align-items:center; margin-bottom:4px; }
+.sg-refrow { display:flex; gap:6px; align-items:center; font-size:12px; }
+.sg-reach { font-size:10px; color:var(--text-faint); }
+.sg-reach-model-input { color:var(--ok); }
+.sg-reach-ai-interpretation { color:var(--gate); }
+.sg-add-off { margin-top:6px; }
+.sg-add-off > summary { cursor:pointer; color:var(--text-faint); font-size:11px; }
+.sg-add-off > .sg-add-list { margin-top:6px; }
+
+.sg-presets { margin:0 10px 10px; padding:8px 10px; border:1px solid var(--line); border-radius:8px; }
+.sg-presets header { display:flex; flex-direction:column; gap:2px; margin-bottom:6px; }
+.sg-presets header .meta { font-size:11px; color:var(--text-faint); }
+.sg-preset-list { display:flex; flex-wrap:wrap; gap:6px; }
+.sg-preset { padding:3px 8px; border:1px solid var(--line); border-radius:12px; background:transparent;
+  color:var(--text); font-size:11px; cursor:pointer; }
+.sg-preset:hover { border-color:var(--accent); }
+
+/* TASK-095 / 批次 4A —— 剧集制作向导（一层覆盖面，不是页面）。 */
+.ep-wiz { padding:3px 10px; border:1px solid var(--accent-line); border-radius:6px;
+  background:var(--accent-soft); color:var(--accent-strong); font-size:12px; cursor:pointer; }
+.ep-wiz:hover { border-color:var(--accent); }
+.pw-scrim { position:fixed; inset:0; background:#000a; display:none; z-index:60;
+  align-items:center; justify-content:center; }
+.pw-scrim.show { display:flex; }
+.pw { width:min(880px,92vw); max-height:88vh; overflow:auto; background:var(--panel);
+  border:1px solid var(--line-2); border-radius:12px; }
+.pw-top { display:flex; align-items:center; gap:10px; padding:10px 14px;
+  border-bottom:1px solid var(--line); }
+.pw-top .push { flex:1; }
+.pw-top .meta { color:var(--text-faint); font-size:12px; }
+.pw-next { color:var(--accent); font-size:12px; }
+.pw-steps { display:flex; align-items:center; gap:4px; padding:12px 14px; flex-wrap:wrap; }
+.pw-line { flex:0 0 16px; height:1px; background:var(--line-2); }
+.pw-step { display:flex; flex-direction:column; align-items:flex-start; gap:1px;
+  padding:6px 10px; border:1px solid var(--line); border-radius:8px; background:transparent;
+  color:var(--text-dim); cursor:pointer; min-width:118px; }
+.pw-step.on { border-color:var(--accent); color:var(--text); background:var(--accent-soft); }
+.pw-step.done { border-color:var(--ok); }
+.pw-step .n { font-size:11px; color:var(--text-faint); }
+.pw-step.done .n { color:var(--ok); }
+.pw-step b { font-size:13px; }
+.pw-step small { color:var(--text-faint); font-size:11px; }
+.pw-body { padding:6px 16px 16px; }
+.pw-h { display:flex; align-items:baseline; gap:8px; }
+.pw-h .pw-n { color:var(--accent); font-weight:700; }
+.pw-h .meta { color:var(--text-faint); font-size:12px; }
+.pw-count { margin:8px 0 12px; color:var(--text); font-size:20px; }
+.pw-block { border:1px solid var(--gate); border-radius:8px; padding:8px 10px; }
+.pw-block ul { margin:6px 0 8px 18px; color:var(--text-dim); font-size:12px; }
+.pw-note { color:var(--text-faint); font-size:12px; }
+.pw-unbuilt { border:1px dashed var(--line-2); border-radius:8px; padding:8px 10px; }
+.pw-foot { padding:10px 14px; border-top:1px solid var(--line); }
+.pw-foot .meta { color:var(--text-faint); font-size:12px; }
+
+/* ── ④ Storyboard 草图带 (TASK-097 批次 4F) ─────────────────────────────────
+   横向可滚，一格一镜：判断「前后接得顺不顺」要跨镜看。
+   四种状态用**不同的边框色**区分 —— 「已跳过」是一个决定，「还没画」是一件还没
+   发生的事，两者都没有图，画成一样创作者就会去做他已经决定不做的事。
+   颜色一律走既有 token（--ok / --gate / --line / --muted），不新增调色板。 */
+.sbs { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin: 0 0 12px; }
+.sbs-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.sbs-h .push { flex: 1; }
+.sbs-empty { color: var(--text-dim); display: flex; gap: 10px; align-items: baseline; }
+.sbs-track { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; }
+.sbs-cell {
+  flex: 0 0 148px; border: 1px solid var(--line); border-radius: 8px; padding: 6px;
+  display: flex; flex-direction: column; gap: 6px; background: var(--panel);
+}
+.sbs-cell.sbs-ok { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
+.sbs-cell.sbs-warn { border-color: var(--accent-line); }
+.sbs-cell.sbs-skip { border-style: dashed; opacity: .72; }
+.sbs-cell.sbs-none { border-style: dotted; }
+.sbs-thumb {
+  height: 84px; display: grid; place-items: center; overflow: hidden;
+  border-radius: 6px; background: color-mix(in srgb, var(--line) 25%, transparent);
+}
+.sbs-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.sbs-none .sbs-thumb, .sbs-skip .sbs-thumb { color: var(--text-faint); font-size: 20px; }
+.sbs-meta { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; font-size: 12px; }
+.sbs-title { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 78px; }
+.sbs-acts { display: flex; gap: 4px; flex-wrap: wrap; }
+.chip.skip { color: var(--text-dim); border-style: dashed; }
+.chip.none { color: var(--text-faint); }
+.chip.warn { color: var(--gate); border-color: var(--accent-line); }
+
+/* ── ⑤ Keyframe 全集清单 (TASK-097 批次 4G) ─────────────────────────────────
+   一行一镜：⑤ 状态 + ④→⑤ 闸门 + 一个动作。闸门关着的那些**不置灰**，
+   动作降级成「仍然进去看看」——「不能进」不是这条界面说的话。
+   颜色一律用词汇表里的 token（--text-dim / --text-faint / --ok / --gate）。 */
+.kfl { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin: 0 0 12px; }
+.kfl-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.kfl-h .push { flex: 1; }
+.kfl-empty { color: var(--text-dim); display: flex; gap: 10px; align-items: baseline; }
+.kfl-todo {
+  color: var(--gate); border: 1px dashed var(--accent-line); border-radius: 8px;
+  padding: 6px 8px; margin-bottom: 8px; font-size: 12px;
+}
+.kfl-t { width: 100%; border-collapse: collapse; font-size: 12px; }
+.kfl-t th {
+  text-align: left; color: var(--text-faint); font-weight: 500;
+  border-bottom: 1px solid var(--line); padding: 4px 6px;
+}
+.kfl-t td { padding: 5px 6px; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
+.kfl-row.kfl-ok td { background: color-mix(in srgb, var(--ok) 6%, transparent); }
+.kfl-row.kfl-none td { color: var(--text-dim); }
+.kfl-gate { max-width: 340px; }
+.kfl-act { text-align: right; white-space: nowrap; }
+
+/* ── 白膜视频：⑤ 那张清单里的「运镜 · 白膜」一格 (TASK-098) ──────────────────
+   这一格要同时容下三种结局（能预览 / 认得出但做不到 / 认不出），所以它是一叠
+   小块而不是一个状态词 —— 「没做到弧形」和「已预览」必须能同时出现在一行里。
+   颜色一律用词汇表里的 token（--text-dim / --text-faint / --gate / --ok）。 */
+.kfl-motion { max-width: 300px; }
+.kfl-motion > * { margin-right: 4px; }
+/* 这一列里的标签允许折行：`.chip` 默认 `nowrap`，而这里的标签会带上「没做到 …」
+   这样的短句。加了第六列之后不折行就会把「动作」那一列挤出屏幕。 */
+.kfl-motion .chip, .kfl-gate .chip { white-space: normal; }
+.kfl-mblock { color: var(--gate); }
+/* 对不上现在这句运镜的那一段：压暗 + 一句话说清，不许它冒充当前的预览 */
+.kfl-mvid.stale { opacity: 0.55; border-color: var(--accent-line); }
+.kfl-mstale { display: block; color: var(--gate); font-size: 11px; margin-bottom: 3px; }
+.kfl-mnone { color: var(--text-faint); }
+.kfl-mvid {
+  display: block; width: 100%; max-width: 220px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--canvas); margin-bottom: 4px;
+}
+.kfl-mtodo { color: var(--text-dim); }
+.kfl-t td { vertical-align: top; }
+/* 认不出时列出能识别的词 —— 它是验收标准的一半，所以它有位置，不是一个 title */
+.kfl-mvocab {
+  display: block; color: var(--text-faint); font-size: 11px; line-height: 1.5;
+  margin-top: 3px;
+}
+.kfl-mcaveat { display: block; color: var(--text-faint); font-size: 11px; margin-top: 2px; }
+/* 运镜填充率那一条：0/60 那个数字的对照面（TASK-098 §4 / §7.3） */
+.kfl-mbar {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px;
+  margin-bottom: 8px; background: color-mix(in srgb, var(--panel) 60%, transparent);
+}
+.kfl-mnote { color: var(--text-faint); font-size: 11px; flex: 1 1 260px; }
+
+/* ── ⑥ 批量生视频 (TASK-097 批次 4E) ────────────────────────────────────────
+   最要紧的两块是「总额」与「拿不到总额」：后者不是错误提示，是一句真话加一条
+   真实可走的路，所以它有自己的样式而不是一个红框。 */
+.vb { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin: 0 0 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.vb.vb-open { display: block; }
+.vb-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.vb-h .push { flex: 1; }
+.vb-quote { font-size: 12px; color: var(--text-dim); margin: 4px 0; }
+.vb-line { font-size: 12px; color: var(--text-dim); margin: 4px 0; }
+.vb-refused {
+  border: 1px solid color-mix(in srgb, var(--bad) 45%, var(--line)); border-radius: 8px;
+  padding: 6px 8px; margin: 6px 0; color: var(--bad); font-size: 12px;
+}
+.vb-unavail {
+  border: 1px dashed var(--accent-line); border-radius: 8px; padding: 8px;
+  margin: 6px 0; font-size: 12px;
+}
+.vb-unavail b { color: var(--gate); }
+.vb-unavail .meta { display: block; margin-top: 3px; }
+.vb-alt { margin-top: 5px; color: var(--text-dim); }
+.vb-acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+
+/* ── 后期状态条 (TASK-097 批次 5A) ─────────────────────────────
+   重点是那一行「现在就能开始」：它是本批新出现的判定，所以给它强调色，
+   而不是和其他三行一样的灏文字。 */
+.ps { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin: 0 0 12px; }
+.ps-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.ps-h .push { flex: 1; }
+.ps-par {
+  border: 1px dashed var(--accent-line); border-radius: 8px;
+  padding: 6px 8px; margin: 6px 0; font-size: var(--t-sm);
+}
+.ps-par b { color: var(--gate); }
+.ps-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 0; font-size: var(--t-sm);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+}
+.ps-row:last-of-type { border-bottom: 0; }
+.ps-txt { flex: 1; color: var(--text-dim); }
+.ps-sound { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 6px; }
+.ps-h2 { font-size: var(--t-xs); color: var(--text-faint); margin-bottom: 4px; }
+.ps-snd { font-size: var(--t-sm); padding: 4px 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.ps-snd .meta { color: var(--text-faint); }
+.ps-snd > div { flex-basis: 100%; }
+.ps-act { color: var(--text-dim); }
+.ps-why { margin-top: 8px; font-size: var(--t-xs); color: var(--text-faint); }
+.ps-unc {
+  border: 1px solid color-mix(in srgb, var(--bad) 45%, var(--line)); border-radius: 8px;
+  padding: 6px 8px; margin: 6px 0; font-size: var(--t-sm); color: var(--bad);
+}
+.ps-unc .meta { display: block; margin-top: 3px; }
+
+/* ── 逐镜质检 (TASK-097 批次 5B) ────────────────────────────
+   三档要分得开：通过 / 有发现 / 无法判定。第三档**不能长得像通过**，
+   也不能像失败 —— 它是一个还没被回答的问题。 */
+.sq { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin: 0 0 12px; }
+.sq-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.sq-h .push { flex: 1; }
+.sq-row {
+  display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: var(--t-sm);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+}
+.sq-txt { flex: 1; color: var(--text-dim); }
+.sq-t { width: 100%; border-collapse: collapse; font-size: var(--t-sm); margin-top: 8px; }
+.sq-t th {
+  text-align: left; color: var(--text-faint); font-weight: 500;
+  border-bottom: 1px solid var(--line); padding: 4px 6px;
+}
+.sq-t td {
+  padding: 6px; vertical-align: top;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+}
+.sq-seq { white-space: nowrap; }
+.sq-title { color: var(--text-dim); font-size: var(--t-xs); max-width: 180px; }
+.sq-c .meta { display: block; margin-top: 3px; }
+.sq-c.sq-unknown { color: var(--text-dim); }
+.sq-mini {
+  margin-top: 4px; font-size: var(--t-xs); background: none; color: var(--link);
+  border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; cursor: pointer;
+}
+.sq-mini:hover { border-color: var(--line-2); }
+.sq-clean { margin-top: 8px; font-size: var(--t-sm); color: var(--ok); }
+.sq-why { margin-top: 8px; font-size: var(--t-xs); color: var(--text-faint); }

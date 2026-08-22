@@ -1,0 +1,74 @@
+# Python environments and bytecode
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Test and static-analysis caches
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local environment, credentials, and keys
+.env
+.env.*
+!.env.example
+credentials.json
+secrets.json
+*.key
+*.pem
+
+# Editor and temporary files
+*.swp
+*.temp
+*.tmp
+*~
+# Chromium/Playwright crash-handler log, dropped into the repo root by the
+# acceptance scripts. Not ours, never useful in history.
+debug.log
+
+# Agent acceptance scratch. The scripts here drive the REAL Connected Project, so
+# the directory accumulates screenshots and JSON dumps of the user's own creative
+# work — generated media that AGENTS.md 第 23 条 keeps out of Git.
+mockups/motv-workspace/_agent-tools/
+
+# Generated media
+*.avi
+*.mkv
+*.mov
+*.mp3
+*.mp4
+*.wav
+*.webm
+
+# Claude Code local settings; shared Agent directories remain trackable.
+.claude/settings.local.json
+.claude/tmp/
+# …AT ANY DEPTH. An agent shell whose working directory is a SUBDIRECTORY writes
+# its scratch to `<subdir>/.claude/tmp/` instead, and the repo grew one of those
+# (`mockups/motv-workspace/.claude/tmp/`, holding a stale review verdict from
+# 2026-08-16). Untracked scratch is harmless until it starts showing up in every
+# review diff as if it were part of the change — which is how a codex round came
+# back reporting a two-day-old 「VERDICT: fail」 for unrelated code (TASK-094 批次 E).
+# Ignored rather than deleted: it is not this task's file to remove.
+**/.claude/tmp/
+
+# motv mockup: local canvas persistence (prototype scratch, not a fixture)
+mockups/motv-workspace/data/
+
+# UI gap audit: the PIXELS stay local, the AUDIT stays in Git.
+# `current/` frames the user's own creative project and `target/` frames another
+# company's product — same reason `_agent-tools/` is ignored (AGENTS.md 第 23 条).
+# The manifest, the reports and the capture tool ARE tracked, so the audit is
+# reproducible from the repo; re-run `src/ui-gap-audit/tools/capture_current.py`
+# to regenerate the frames.
+src/ui-gap-audit/screenshots/**/*.png
+src/ui-gap-audit/screenshots/**/*.jpg
+src/ui-gap-audit/screenshots/**/capture.json

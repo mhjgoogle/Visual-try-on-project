@@ -1,0 +1,27 @@
+{
+  "skillId": "base-asset-designer",
+  "skillVersion": 1,
+  "work": "creative",
+  "role": "美术",
+  "title": "Base Asset Designer",
+  "purpose": "为一个人物 / 场景地 / 道具写出「设定图」的出图提示词，并带上构图规范，使这张图之后能真的当参考图用。",
+  "inputs": [
+    "characters"
+  ],
+  "optionalInputs": [
+    "world",
+    "assets"
+  ],
+  "reviewCriteria": [
+    "提示词是否自足（外部工具看不到本项目数据，不能出现内部名字或 id）",
+    "是否只写了档案里真实存在的外貌 / 服装 / 环境，没有为了完整而编造设定",
+    "是否带上了构图规范，且没有把它改写成「差不多的意思」",
+    "人物设定图是否是四视图，且四个视图都被明确要求"
+  ],
+  "recommendedRuntime": "local_subscription",
+  "promptBlocks": {
+    "compositionSpec.character": "必须是角色四视图 = 正面头部特写 + 全身正面 / 左侧 / 背面，四格之间用淡灰 2px 细线分割，纯白背景，中性棚灯平光；角色必须空手、无道具、无表情、无背景、无文字水印。",
+    "compositionSpec.location": "必须是空场景全景，无人物、无临时道具；中性自然光或场景自身的常态照明，纯净背景边界，无文字水印。给出足以判断空间关系的透视，而不是一张氛围图。",
+    "compositionSpec.prop": "必须是单件道具，纯白背景，中性棚灯平光，正面与四分之三侧面各一，比例可判读；无人手、无场景、无文字水印。"
+  }
+}

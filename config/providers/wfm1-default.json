@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "catalog_id": "wfm1-default",
+  "version": 1,
+  "providers": {
+    "manual": {
+      "display_name": "Manual (human web tool)",
+      "capabilities": ["image_to_video"],
+      "credential_env_vars": [],
+      "models": {}
+    },
+    "cloud-a": {
+      "display_name": "Example Cloud Provider A (per-clip billing)",
+      "capabilities": ["image_to_video", "text_to_video"],
+      "credential_env_vars": ["WFM1_CLOUD_A_API_KEY"],
+      "models": {
+        "std-6s": {
+          "billing_mode": "per_clip",
+          "currency": "USD",
+          "clip_prices": [
+            {
+              "resolution": "512p",
+              "duration_seconds": 6,
+              "amount_minor_units": 10
+            },
+            {
+              "resolution": "768p",
+              "duration_seconds": 6,
+              "amount_minor_units": 28
+            }
+          ],
+          "per_second_minor_units": {}
+        }
+      }
+    },
+    "cloud-b": {
+      "display_name": "Example Cloud Provider B (per-second billing)",
+      "capabilities": ["image_to_video"],
+      "credential_env_vars": ["WFM1_CLOUD_B_API_KEY"],
+      "models": {
+        "ray-flash": {
+          "billing_mode": "per_second",
+          "currency": "USD",
+          "clip_prices": [],
+          "per_second_minor_units": {
+            "540p": 8,
+            "720p": 12
+          }
+        }
+      }
+    }
+  }
+}

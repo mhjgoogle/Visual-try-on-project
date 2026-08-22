@@ -1,0 +1,91 @@
+name: CI
+
+# Native Windows is the authoritative environment (AGENTS.md §2 / ADR-0062); the
+# Ubuntu job is the supported-target compatibility verification of record.
+#
+# BOTH MUST BE GREEN, and the Ubuntu one matters MORE than it used to, not less:
+# while Linux was authoritative it automatically punished any Windows-only
+# assumption. It no longer does, so this job is now the only mechanical guard on
+# the platform-neutrality rules in AGENTS.md §3 (ADR-0062 决策 2).
+#
+# The two jobs run identical steps on purpose — a difference between them would
+# make "the authoritative one" mean "a different check", not "the tie-breaker".
+# FFmpeg-dependent tests self-skip when ffmpeg is absent, so we install it on both
+# runners to actually exercise the render/ffprobe paths.
+
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    name: Windows (authoritative, ADR-0062)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install FFmpeg
+        run: choco install ffmpeg -y --no-progress
+      - name: Install project (editable) + dev deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      # Separate steps: a multi-line run under PowerShell (windows-latest's
+      # default shell) only surfaces the LAST command's exit status, so a
+      # combined "ruff check; ruff format --check" could pass despite a lint
+      # failure. One command per step makes each failure fail the job.
+      - name: Ruff lint
+        run: ruff check .
+      - name: Ruff format check
+        run: ruff format --check .
+      # Two phases, same split as both commit gates (pyproject.toml markers):
+      # the suite runs under xdist except the real-process-tree tests, which
+      # cannot tolerate sibling workers killing their own trees.
+      - name: Pytest (parallel)
+        run: python -m pytest -q -n 8 -m "not serial"
+      - name: Pytest (serial process-tree tests)
+        run: python -m pytest -q -m serial
+      - name: Frontend unit tests (motv mockup)
+        run: node --test mockups/motv-workspace/tests/*.test.mjs
+
+  linux:
+    name: Ubuntu (supported target, ADR-0062)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install project (editable) + dev deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      # Steps kept byte-identical to the Windows job above, including the
+      # one-command-per-step split it needs. A difference here would make the
+      # supported-target check a DIFFERENT check rather than the same one run
+      # elsewhere, which is the only thing that makes it a useful tie-breaker.
+      - name: Ruff lint
+        run: ruff check .
+      - name: Ruff format check
+        run: ruff format --check .
+      # Two phases, same split as both commit gates (pyproject.toml markers):
+      # the suite runs under xdist except the real-process-tree tests, which
+      # cannot tolerate sibling workers killing their own trees.
+      - name: Pytest (parallel)
+        run: python -m pytest -q -n 8 -m "not serial"
+      - name: Pytest (serial process-tree tests)
+        run: python -m pytest -q -m serial
+      - name: Frontend unit tests (motv mockup)
+        run: node --test mockups/motv-workspace/tests/*.test.mjs

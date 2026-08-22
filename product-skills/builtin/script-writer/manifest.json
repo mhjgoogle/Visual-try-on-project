@@ -1,0 +1,24 @@
+{
+  "skillId": "script-writer",
+  "skillVersion": 1,
+  "work": "creative",
+  "role": "编剧",
+  "title": "Script Writer",
+  "purpose": "把本集规划写成可拍的剧本。",
+  "inputs": [
+    "outline",
+    "episodePlan"
+  ],
+  "optionalInputs": [
+    "brief",
+    "characters",
+    "relationships",
+    "world"
+  ],
+  "reviewCriteria": [
+    "本集的 Hook 与 Ending Beat 是否真的出现在剧本里",
+    "台词是否符合每个角色已确立的说话方式与欲望",
+    "是否发生了 forbidden deviation（关系偏离）"
+  ],
+  "recommendedRuntime": "local_subscription"
+}

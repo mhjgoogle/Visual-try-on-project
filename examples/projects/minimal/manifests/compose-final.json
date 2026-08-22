@@ -1,0 +1,17 @@
+{
+  "completed_at": "2026-07-26T01:05:00.000000+00:00",
+  "created_at": "2026-07-26T01:00:00.000000+00:00",
+  "error_summary": null,
+  "input_digest": "example-input-digest",
+  "output_metadata": {
+    "asset_count": 1,
+    "shot_count": 2
+  },
+  "output_paths": [
+    "outputs/final.mp4"
+  ],
+  "relevant_config_digest": "example-config-digest",
+  "schema_version": 1,
+  "status": "completed",
+  "step_name": "compose_final"
+}
