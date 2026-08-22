@@ -31,23 +31,30 @@
           "branch": "change/TASK-103-frontback-ui-residuals",
           "pushed": false,
           "scope_violation": null
+        },
+        {
+          "hash": "32b33bc4b6ee6751d7d9317787a05dd702cda202",
+          "subject": "批次C：服务端媒体审计 —— 只读 media-audit 路由让项目媒体只剩「在/不在」两种答案（消除 INCONCLUSIVE）；ffprobe-only 单文件 measure 给出真实尺寸/时长，审片列区分未探测/真实值/探不到的具体原因；实测发现 ffprobe rc=0 仍会返回 0×0+0.04s，判据改用 -v error 的 stderr（TASK-103 · GAP-02 · TASK-087 §4.2/§4.3/§3.5.4）",
+          "time": "2026-08-22T15:24:15+00:00",
+          "branch": "change/TASK-103-frontback-ui-residuals",
+          "pushed": false,
+          "scope_violation": null
         }
       ],
       "paths": [
         "docs/tasks/TASK-103-frontback-and-ui-residuals.md",
-        "mockups/motv-workspace/server.py",
         "mockups/motv-workspace/src/app.js",
-        "mockups/motv-workspace/src/services/mediaprobe.js",
-        "mockups/motv-workspace/src/services/query.js",
-        "mockups/motv-workspace/src/ui/cutreview.js",
-        "mockups/motv-workspace/src/ui/production.js",
-        "mockups/motv-workspace/tests/cutreview.test.mjs",
-        "mockups/motv-workspace/tests/mediaaudit.test.mjs",
-        "tests/studio/test_motv_media_audit_task103.py"
+        "mockups/motv-workspace/src/services/routelatch.js",
+        "mockups/motv-workspace/src/ui/gencard.js",
+        "mockups/motv-workspace/src/ui/genentry.js",
+        "mockups/motv-workspace/src/ui/genintent.js",
+        "mockups/motv-workspace/src/ui/mediaws.js",
+        "mockups/motv-workspace/tests/genintent.test.mjs",
+        "mockups/motv-workspace/tests/routelatch.test.mjs"
       ],
       "verification": "PASS",
       "verification_ref": "",
-      "declared": "2026-08-22T15:23:05+00:00"
+      "declared": "2026-08-22T15:31:29+00:00"
     }
   },
   "merge_gate": {

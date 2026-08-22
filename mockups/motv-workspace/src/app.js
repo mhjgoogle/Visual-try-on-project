@@ -32,6 +32,7 @@ import {
 import * as persist from "./services/persist.js";
 import { CANVAS_SCHEMA_VERSION } from "./services/canvasschema.js";
 import * as realmap from "./services/realmap.js";
+import { createRouteLatch } from "./services/routelatch.js";
 import * as mediaprobe from "./services/mediaprobe.js";
 import { createInspector } from "./ui/inspector.js";
 import { createEstimate } from "./ui/estimate.js";
@@ -6282,25 +6283,39 @@ function landingNote(msg) {
   note.classList.add("bad");
 }
 
+/** The address this function last ACTED on.
+ *
+ *  The de-duplication of 「one press, two events」 used to be the `routeApplying`
+ *  early return, which also discarded a genuine second press (TASK-087 §5.6).
+ *  Now that the latch re-runs instead of discarding, the duplicate has to be
+ *  recognised by what it IS — the same address again — rather than by when it
+ *  arrived. Keyed on the raw hash, so it holds even on the paths that return
+ *  before `writeUrl()` updates `currentRoute` (a declined unsaved-edit prompt,
+ *  an address naming a project this backend does not list). */
+let lastHonouredHash = null;
+
 /**
  * Go where the address bar says.
  *
  * Bound to BOTH `popstate` and `hashchange`: the first fires for our own
  * push/replace history entries, the second for an address typed or pasted into
- * the bar, and a back-press between two hash-differing entries fires both. The
- * `routeApplying` latch is what keeps that double event from being applied twice
- * — and, much more importantly, from asking the unsaved-edit question twice for
- * one press.
+ * the bar, and a back-press between two hash-differing entries fires both.
+ * `lastHonouredHash` is what keeps that double event from being applied twice —
+ * and, much more importantly, from asking the unsaved-edit question twice for one
+ * press. A genuine second press carries a DIFFERENT address, so it survives.
  */
 async function honourAddress() {
-  if (routeApplying) return;
-  const want = parseRoute(window.location.hash);
+  const hash = window.location.hash;
+  const want = parseRoute(hash);
   // THE SECOND EVENT OF ONE PRESS DOES NOTHING. `popstate` and `hashchange` both
   // fire for a back-press between two hash-differing entries, and applying the
   // route twice would repaint and re-ask the unsaved-edit question — and after a
   // DECLINE, `restoreUrl` has already put the address back, so the second event
   // would read the restored address and apply it as a fresh navigation.
   if (currentRoute && sameRoute(want, currentRoute)) return;
+  // the SECOND event of ONE press: same address, already handled
+  if (hash === lastHonouredHash) return;
+  lastHonouredHash = hash;
   if (!want.ok || !want.project) {
     // The address names nowhere. That IS the landing page — but it still goes
     // through the unsaved-edit guard, because the back button reaching this state
@@ -6352,8 +6367,23 @@ async function honourAddress() {
   writeUrl();
 }
 
-window.addEventListener("popstate", () => { honourAddress(); });
-window.addEventListener("hashchange", () => { honourAddress(); });
+// COALESCED, NOT DROPPED (TASK-103 批次 D / TASK-087 §5.6).
+//
+// `routeApplying` used to `return` on a second event, which is right for the two
+// events of ONE press (popstate + hashchange both fire for a hash-differing
+// back-press) but wrong for a SECOND press arriving while the first navigation is
+// still loading a project: that press was silently discarded. The address bar sat
+// at the second position, the screen at the first, and the trailing `writeUrl()`
+// then rewrote the address back to where the app actually was — consistent, and
+// yet the creator's press did nothing and nothing said so.
+//
+// The latch re-runs once after the in-flight navigation finishes. `honourAddress`
+// re-reads `window.location.hash` itself, so the re-run goes to the LAST address,
+// not a queued stale one; and its own `sameRoute` check makes the duplicate event
+// of a single press a no-op exactly as before.
+const routeLatch = createRouteLatch(honourAddress);
+window.addEventListener("popstate", () => { routeLatch.trigger(); });
+window.addEventListener("hashchange", () => { routeLatch.trigger(); });
 
 function goProduction() { setTopMode("story"); }
 function goWorkflow() { setTopMode("episode"); }
