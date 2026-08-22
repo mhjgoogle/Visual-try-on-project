@@ -55,7 +55,7 @@ _HIGH_RISK_FILES = {
     "src/ai_video_workflow/persistence.py",
     "src/ai_video_workflow/models.py",
     "src/ai_video_workflow/serialization.py",
-    "conftest.py",
+    "tests/conftest.py",
     "pyproject.toml",
     # The motv backend: persistence, schema migrations, identity and the paid
     # paths all live in this one 6700-line file, which AGENTS.md rule 20 puts

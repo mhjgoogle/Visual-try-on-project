@@ -20,7 +20,7 @@ Contract 约束的是「必须能回答」，**不强制统一目录结构**。
 
 | 问题 | 答案 |
 | --- | --- |
-| 怎么运行 | `README.md`（Windows 权威 + Ubuntu 目标）；`run-windows.ps1` / `run.sh`；Studio mockup 见 `mockups/motv-workspace/` |
+| 怎么运行 | `README.md`（Windows 权威 + Ubuntu 目标）；`scripts/launch/studio.ps1` / `scripts/launch/studio.sh`；Studio 见 `mockups/motv-workspace/` |
 | 有效事实 | `docs/product_spec.md`、`docs/architecture.md`、两份顶层需求文档、`docs/design/creator-system-contract.md`（Studio 范围唯一权威，与信息架构文档并列） |
 | Requirement | **新需求**：`docs/requirements/REQ-*.md`（本 Skill 引入，见 records.md）。**存量需求**：上一行的基线文档 + 任务卡「依据：产品负责人 YYYY-MM-DD」行 —— 不回填，不迁移 |
 | Change | `docs/tasks/TASK-*.md`（STANDARD/DEEP）；QUICK 深度 = 提交信息即记录。欠账在 `docs/tasks/TASK-087-followup-ledger.md` |

@@ -90,7 +90,7 @@ push / merge 并列，理由相同：不能把没验证过的状态交出去。
 PYTHONIOENCODING=utf-8 .venv\Scripts\python mockups\motv-workspace\server.py `
     --account-root "<...>\MotvProjects" --port 8907
 # 或者用启动器（它会把 --account-root 默认成仓库的上一级）
-.\run-windows.ps1 -Connected -AssetRoot "<...>\MotvProjects"
+.\scripts\launch\studio.ps1 -Connected -AssetRoot "<...>\MotvProjects"
 ```
 
 页面按名字直达：`http://127.0.0.1:8907/#/<项目名>/<space>/<module>`，

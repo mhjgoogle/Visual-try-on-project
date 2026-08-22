@@ -34,7 +34,7 @@
 
 - `pytest -n 8 -m "not serial"` → 132s（3130 项）
 - `pytest -m serial` → 47s（5 项）
-- 收益来自 fsync I/O 重叠：Windows 没有 `/dev/shm`，根 `conftest.py` 的 tmpfs
+- 收益来自 fsync I/O 重叠：Windows 没有 `/dev/shm`，`tests/conftest.py` 的 tmpfs
   路由在这里是 no-op，每次 persist 都 fsync 到 NTFS。`-n 8` 是实测值，
   不用 `auto`（12）——fsync 主导后更多 worker 不再付费。
 - `serial` marker 只给断言真实 OS 进程状态的测试用：`-n 8` 下唯一失败的是

@@ -54,6 +54,32 @@
       "verification": "PASS",
       "verification_ref": "pytest tests/test_auto_push_tooling.py: 30 passed (review round 3 P1 fixes + negative cases); ruff: pass",
       "declared": "2026-08-22T05:56:34+00:00"
+    },
+    "TASK-099": {
+      "commits": [],
+      "paths": [
+        ".claude/hooks/commit_gate_policy.py",
+        ".claude/hooks/gate.ps1",
+        ".claude/skills/dev-workflow/references/repo-contract.md",
+        "AGENTS.md",
+        "README.md",
+        "conftest.py",
+        "docs/adr/ADR-0077-repository-path-ownership.md",
+        "docs/design/pending-speedup-and-gate-fix.md",
+        "docs/design/task097-handover-2026-08-19.md",
+        "docs/tasks/TASK-099-repository-path-ownership.md",
+        "mockups/motv-workspace/README.md",
+        "run-windows.bat",
+        "run-windows.ps1",
+        "run.sh",
+        "scripts/",
+        "tests/conftest.py",
+        "tests/test_commit_gate_policy.py",
+        "tests/test_repository_layout.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "本会话 2026-08-22 干净树全量：pytest -n 8 -m 'not serial' 3402 passed/58 skipped + pytest -m serial 6 passed + 前端 node --test 1763 passed + ruff check/format 全过；TASK-099 卡内定向 67 passed/1 skipped；独立审查已过（P1-P4 均 0）",
+      "declared": "2026-08-22T06:52:41+00:00"
     }
   },
   "merge_gate": {

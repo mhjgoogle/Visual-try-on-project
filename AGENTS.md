@@ -195,7 +195,7 @@ pause/cancel/skip 状态。
     因此 2.6× 这个倍数仍以 2026-08-14 的同口径数字为准。
 
     收益来自 fsync I/O 重叠，因为 Windows 没有 `/dev/shm`，
-    根 `conftest.py` 的 tmpfs 路由在这里是 no-op。`-n 8` 是实测值，
+    `tests/conftest.py` 的 tmpfs 路由在这里是 no-op。`-n 8` 是实测值，
     不用 `auto`（12）——fsync 主导后更多 worker 不再付费。
     `serial` marker 只给**断言真实 OS 进程状态**的测试用
     （当前仅 `tests/test_motv_run_lifecycle_task072.py`），

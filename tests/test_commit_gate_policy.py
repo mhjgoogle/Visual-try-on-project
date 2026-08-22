@@ -59,6 +59,7 @@ def test_conventional_source_runs_its_matching_test_file() -> None:
 
 def test_persistence_and_mixed_surfaces_are_never_fast_laned() -> None:
     assert _POLICY.classify(["src/ai_video_workflow/persistence.py"]).tier == "full"
+    assert _POLICY.classify(["tests/conftest.py"]).tier == "full"
     assert (
         _POLICY.classify(
             ["src/workspace_shell/server.py", "mockups/motv-workspace/assets/app.js"]
@@ -274,14 +275,14 @@ def test_an_unclassifiable_change_is_never_deferred() -> None:
 def test_the_skip_is_announced_and_survives_a_non_utf8_console() -> None:
     """An invisible skip is how a temporary exception becomes permanent — and a
     Chinese-only warning on a cp936/cp932 console is invisible."""
-    decision = _POLICY.classify(["conftest.py"], chain_mode=True)
+    decision = _POLICY.classify(["tests/conftest.py"], chain_mode=True)
     first = decision.notice.splitlines()[0]
     assert first.isascii(), "the critical line must stay legible everywhere"
     assert "FULL TESTS SKIPPED" in first
     assert "ADR-0068" in first
     # …and a tier that skipped nothing stays silent, so the notice cannot be
     # read as boilerplate
-    assert _POLICY.classify(["conftest.py"]).notice == ""
+    assert _POLICY.classify(["tests/conftest.py"]).notice == ""
 
 
 def test_the_cli_both_shells_actually_invoke_behaves_end_to_end() -> None:

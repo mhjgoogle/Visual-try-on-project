@@ -90,10 +90,15 @@ python -m pytest
 Or use the launcher (creates the venv, installs deps, opens the demo studio):
 
 ```powershell
-.\run-windows.ps1              # setup + demo studio
-.\run-windows.ps1 -Connected   # setup + connected backend (server.py)
-.\run-windows.ps1 -SetupOnly    # just venv + deps
+.\scripts\launch\studio.ps1              # setup + demo studio
+.\scripts\launch\studio.ps1 -Connected   # setup + connected backend
+.\scripts\launch\studio.ps1 -SetupOnly   # just venv + deps
 ```
+
+On Ubuntu / WSL2, use `./scripts/launch/studio.sh` with the equivalent
+`--connected` / `--setup-only` options. Repository-level executable entry
+points live under [`scripts/launch/`](scripts/launch/); the repository root is
+reserved for project metadata and governance files.
 
 FFmpeg/ffprobe (real render/probe) and, optionally, Piper (local TTS) must be
 installed and on `PATH` (e.g. `choco install ffmpeg`); there is no `apt`.

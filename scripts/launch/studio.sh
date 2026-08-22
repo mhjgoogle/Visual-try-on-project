@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# run.sh — POSIX (WSL2 Ubuntu) counterpart of run-windows.ps1 (ADR-0049).
+# studio.sh — POSIX counterpart of scripts/launch/studio.ps1 (ADR-0049).
 # Sets up the venv + package and opens the motv creative studio in DEMO mode.
-#   ./run.sh              # setup + serve the demo studio
-#   ./run.sh --connected  # setup + run the connected backend (server.py)
-#   ./run.sh --setup-only # just create the venv + install deps
+#   ./scripts/launch/studio.sh              # setup + serve demo studio
+#   ./scripts/launch/studio.sh --connected  # setup + connected backend
+#   ./scripts/launch/studio.sh --setup-only # just venv + deps
 set -euo pipefail
-cd "$(dirname "$0")"
+repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$repo_root"
 
 if [ ! -d .venv ]; then
   echo "Creating virtual environment (.venv)..."

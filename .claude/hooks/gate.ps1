@@ -381,7 +381,7 @@ if (-not (Test-Path -LiteralPath $py -PathType Leaf)) {
 # a hung check must never fail open. Raise the two numbers together.
 #
 # The pytest budget is much larger than gate.sh's 220s because native Windows
-# has no /dev/shm: the repo-root conftest.py tmpfs route is a no-op here, so
+# has no /dev/shm: the tests/conftest.py tmpfs route is a no-op here, so
 # pytest's temp tree lands on NTFS and every persist fsyncs to disk. Measured
 # 2026-08-10 on this host: 328s green for 2815 tests (WSL2 tmpfs: ~110-150s).
 # 900s leaves headroom for current native-Windows suite growth. If the suite grows past
@@ -500,7 +500,7 @@ switch ($policy.tier) {
         # suite that grew as a performance regression (AGENTS.md keeps both
         # numbers with their test counts for exactly this reason).
         # The win is I/O overlap: native Windows has no /dev/shm, so the
-        # repo-root conftest.py tmpfs route is a no-op here and every persist
+        # tests/conftest.py tmpfs route is a no-op here and every persist
         # fsyncs to NTFS. -n 8 (not `auto`=12) is the measured setting; more
         # workers stop paying once fsync dominates.
         $checks += @{ Label = 'pytest (full, parallel)'; Timeout = 600; File = $py; Args = @('-m', 'pytest', '-n', '8', '-m', 'not serial') }

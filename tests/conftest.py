@@ -1,4 +1,4 @@
-"""Repo-root pytest configuration.
+"""Test-suite pytest configuration.
 
 Routes pytest's ``tmp_path`` tree onto a RAM-backed tmpfs when one is available
 (WSL2 exposes ``/dev/shm``). The core library fsyncs on every persist for

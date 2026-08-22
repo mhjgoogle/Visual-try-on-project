@@ -1,12 +1,12 @@
-# run-windows.ps1 — native-Windows launcher for the V1 baseline (ADR-0049).
+# studio.ps1 — native-Windows launcher for the V1 baseline (ADR-0049).
 #
 # Sets up the project venv + package (so the CLI, connected backend and tests
 # work) and then opens the motv creative studio in DEMO mode (backend-less,
 # needs nothing but Python). Run from the repository root in PowerShell:
 #
-#     ./run-windows.ps1                # setup + open the demo studio
-#     ./run-windows.ps1 -Connected     # setup + run the connected backend (server.py)
-#     ./run-windows.ps1 -SetupOnly     # just create the venv + install deps
+#     ./scripts/launch/studio.ps1                # setup + open the demo studio
+#     ./scripts/launch/studio.ps1 -Connected     # setup + connected backend
+#     ./scripts/launch/studio.ps1 -SetupOnly     # just venv + deps
 #
 # In connected mode the backend's --account-root is where projects and their
 # assets live; it defaults to the folder CONTAINING this repository. Override
@@ -31,11 +31,12 @@ param(
     # Where projects (and their assets) live. Defaults to the folder that
     # CONTAINS this repository, so generated media never lands inside the repo
     # (AGENTS.md §23). Override for another location:
-    #     ./run-windows.ps1 -Connected -AssetRoot "E:\media\projects"
+    #     ./scripts/launch/studio.ps1 -Connected -AssetRoot "E:\media\projects"
     [string]$AssetRoot
 )
 $ErrorActionPreference = "Stop"
-$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$root = (Resolve-Path -LiteralPath (Join-Path $scriptDir "..\..")).Path
 Set-Location $root
 
 # Prefer the py launcher, fall back to python on PATH.
@@ -132,7 +133,7 @@ function Resolve-CodexOnPath {
         Write-Host "codex: installed but NOT enabled (fail-closed by default)." -ForegroundColor Yellow
         Write-Host "  codex has no tool-free mode: --sandbox read-only blocks writes, but it can still READ" -ForegroundColor Yellow
         Write-Host "  local files and quote them back, and skill prompts inline your own script text." -ForegroundColor Yellow
-        Write-Host "  Enable it deliberately with:  ./run-windows.ps1 -Connected -AllowCodexReview" -ForegroundColor Yellow
+        Write-Host "  Enable it deliberately with:  ./scripts/launch/studio.ps1 -Connected -AllowCodexReview" -ForegroundColor Yellow
         return
     }
     $env:MOTV_RUNTIME_ALLOW_FS_READING_EXECUTORS = "1"

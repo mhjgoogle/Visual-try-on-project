@@ -47,7 +47,8 @@ python mockups/motv-workspace/server.py --account-root examples/projects
 --account-root examples\projects`；演示模式用 `py -3 mockups\motv-workspace\serve.py`。
 ffmpeg/ffprobe（渲染/探测）与可选 Piper（本地 TTS）需装好并在 `PATH`。付费模式的
 `export AI_VIDEO_WORKFLOW_ENABLE_PAID_COMMANDS=1` 在 PowerShell 里是
-`$env:AI_VIDEO_WORKFLOW_ENABLE_PAID_COMMANDS=1`。仓库根 `run-windows.ps1` 提供一键启动。
+`$env:AI_VIDEO_WORKFLOW_ENABLE_PAID_COMMANDS=1`。仓库的
+`scripts/launch/studio.ps1` 提供一键启动。
 连接模式下：落地页列出**真实项目**（如 `wfm1-demo`）；顶部预算是**真实 WQ-14 数字（JPY）**；
 点余额看**真实预算 / 阶段状态(WQ-02) / 成本(WQ-07)**；画布编辑（剧本/节点/连线）**自动存到
 `data/<project>.json`，刷新不丢**；生成类操作提示"待 Gateway"。创意节点内容仍是本地草稿
