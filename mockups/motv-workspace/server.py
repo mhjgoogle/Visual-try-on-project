@@ -417,6 +417,25 @@ except Exception:  # noqa: BLE001 - degrade to static/persistence-only if absent
     _QUERY_OK = False
     QUERY_CONTRACT_VERSION = "unavailable"
 
+# Which Gateway commands are available WITHOUT `--enable-paid`, DERIVED from the
+# core's own membership list rather than spelled out a second time here
+# (TASK-103 批次 B). A hand-written copy is how a no-spend command gets added to
+# the registry and then silently 403'd at this door — the two lists drift and
+# nothing says so. `lock-draft-plan` is named explicitly because it is a single
+# spec registered from its own module (ADR-0047), not part of a family.
+#
+# Its own try: a write-side import failure must not flip `_QUERY_OK` and take the
+# read-only query backend down with it. If this import fails the Gateway cannot be
+# built at all, and the route ahead of this check already answers 503.
+try:
+    from ai_video_workflow.app.gateway_commands import (  # type: ignore
+        CREATIVE_LOOP_COMMANDS,
+    )
+
+    _NO_SPEND_COMMANDS = frozenset({"lock-draft-plan", *CREATIVE_LOOP_COMMANDS})
+except Exception:  # noqa: BLE001 - no core, no Gateway; the route answers 503
+    _NO_SPEND_COMMANDS = frozenset({"lock-draft-plan"})
+
 # sub-path -> zero-arg query method (same shape as workspace_shell/app.py)
 _QUERIES = {
     "plan": "project_plan",
@@ -2645,6 +2664,9 @@ class _App:
         are resolved per command family: shot-plan refs bind the draft lock,
         shot-record refs bind paid generation.
         """
+        from ai_video_workflow.app.gateway_commands import (
+            register_creative_loop_commands,
+        )
         from ai_video_workflow.app.lock_gateway import (
             ShotPlanTargetResolver,
             register_lock_draft_command,
@@ -2658,6 +2680,12 @@ class _App:
             catalog_dir=self.lock_catalog_dir,
             account_root=self.account_root,
         )
+        # TASK-103 批次 B: the evaluation / feedback / action loop (TASK-087 §1.2).
+        # These four spend nothing and were already implemented and registered for
+        # the workspace shell; the Studio simply never registered them, so the one
+        # interface a creator actually uses could not reach them. Wiring, not a new
+        # capability — and the SAME specs, imported rather than copied.
+        register_creative_loop_commands(registry)
         if self.paid:
             from ai_video_workflow.app.media_fetch import UrllibMediaFetcher
             from ai_video_workflow.app.paid_gateway import (
@@ -2823,6 +2851,11 @@ class _App:
                 return self._generation_target(
                     unquote(name), (params.get("shot_id") or [""])[0]
                 )
+            if sub.startswith("review-target"):
+                params = parse_qs(urlsplit(raw_path).query)
+                return self._review_target(
+                    unquote(name), (params.get("shot_id") or [""])[0]
+                )
             if sub == "lock-target":
                 return self._lock_target(unquote(name))
             if sub == "shots":
@@ -2978,9 +3011,15 @@ class _App:
                 400,
                 {"error": {"category": "bad_request", "detail": "body must be object"}},
             )
-        # The no-spend lock-draft-plan command is available in both modes;
-        # every other Gateway command (paid generation) still needs paid mode.
-        if not self.paid and payload.get("name") != "lock-draft-plan":
+        # The no-spend commands are available in both modes; every other Gateway
+        # command (paid generation) still needs paid mode.
+        #
+        # DERIVED, not a second hand-written list (TASK-103 批次 B): the creative
+        # loop's membership lives in `gateway_commands.CREATIVE_LOOP_COMMANDS`, so a
+        # fifth no-spend command added there cannot be silently 403'd here by
+        # someone forgetting this line. `lock-draft-plan` is spelled out because it
+        # is registered from a different module with its own single spec.
+        if not self.paid and payload.get("name") not in _NO_SPEND_COMMANDS:
             return _json(
                 403,
                 {
@@ -4341,6 +4380,64 @@ class _App:
                     "content_digest": resolved.content_digest,
                 },
                 "params": {"plan_version": version},
+            },
+        )
+
+    def _review_target(self, name: str, shot_id: str):
+        """Read-only target coordinates for a REVIEW write (TASK-103 批次 B).
+
+        `record-evaluation` / `create-feedback` bind the same three-tuple every
+        Gateway command does — ``{ref, version, content_digest}`` — and the digest
+        is the sha256 of the authoritative shot-record bytes. **The browser cannot
+        compute it and must never invent one**: an invented digest does not fail as
+        「被拒」, it binds a command to a version that does not exist. So the same
+        resolver the Gateway will verify against computes it here, and the UI just
+        carries it.
+
+        Available in BOTH modes, unlike ``generation-target``: reviewing spends
+        nothing. That is the whole reason these four commands are LOW risk.
+
+        Fail-closed and read-only: an unresolvable shot reads as 404, and 404 here
+        is a real product answer — 「这一镜还没有正式镜头记录」 — which the review
+        page states rather than swallowing.
+        """
+        if not _QUERY_OK:
+            return _json(
+                503,
+                {
+                    "error": {
+                        "category": "unavailable",
+                        "detail": "command backend not available (run inside the venv)",
+                    }
+                },
+            )
+        root = self._projects.get(name)
+        if root is None:
+            return _json(
+                404, {"error": {"category": "not_found", "detail": "unknown project"}}
+            )
+        if not shot_id or not _NAME_RE.fullmatch(shot_id):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "bad shot_id"}}
+            )
+        from ai_video_workflow.app.paid_gateway import ShotRecordTargetResolver
+
+        resolved = ShotRecordTargetResolver().resolve_target(
+            root, ref=shot_id, version=1
+        )
+        if not resolved.exists:
+            return _json(
+                404,
+                {"error": {"category": "not_found", "detail": "shot record not found"}},
+            )
+        return _json(
+            200,
+            {
+                "target": {
+                    "ref": shot_id,
+                    "version": 1,
+                    "content_digest": resolved.content_digest,
+                }
             },
         )
 

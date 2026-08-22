@@ -88,6 +88,7 @@ import { createSkillController } from "./controllers/skillctl.js";
 import { createMotionPreviewController } from "./controllers/motionctl.js";
 // TASK-072 §1.5/§1.6: the three review layers and the five gates, as domain
 import * as review from "./workflow/review.js";
+import * as reviewsync from "./workflow/reviewsync.js";
 import { g3TriggerFor, g3Retire, g4Export } from "./workflow/gates.js";
 import * as deliveryqc from "./workflow/deliveryqc.js";
 import * as framebind from "./workflow/framebind.js";
@@ -420,7 +421,10 @@ let deliverySpecDoc = {};
 /** Review issues + decisions (系统合同 §6 / TASK-072 §1.5). Additive and optional,
  *  exactly like refInterp / frameBindings / ctxCache: a document written before this
  *  carries none of it and hydrates empty, so no schema version and no migration. */
-let reviewsDoc = { issues: [], decisions: [] };
+// `coreSync` (TASK-103 批次 B) 是**回执台账**，不是第二份结论：decisionId →
+// 这条结论有没有走进核心项目、没走进是因为什么。结论本身仍然只有 `decisions`
+// 一份。分开存是因为 G5「只追加」管的是结论，而登记是一次可以重试的传输。
+let reviewsDoc = { issues: [], decisions: [], coreSync: {} };
 // The 「用于生成」 intent (ADR-0061 决策 3) MOVED with the skill controller
 // (src/controllers/skillctl.js): it is session state owned by exactly two of that
 // controller's methods, so it belongs beside the rules that govern it.
@@ -4420,6 +4424,12 @@ const ctx = {
         reviewsDoc = { ...reviewsDoc, decisions: [...reviewsDoc.decisions, dec.value] };
         ctx.persist();
         refreshProductionView();
+        // AND OUT OF THE CANVAS (TASK-103 批次 B / TASK-087 §1.2). Deliberately NOT
+        // awaited: the approval already happened locally and is already saved, so
+        // making the button wait on the backend would turn a local fact into a
+        // network-latency fact. What must not happen is the result being lost —
+        // `syncReviewToCore` records it in the ledger and the page shows it.
+        syncReviewToCore(reviewsync.evaluationFor(dec.value), dec.value.decisionId);
       }
       return ok;
     },
@@ -4450,6 +4460,11 @@ const ctx = {
       if (ok && undo.ok) {
         reviewsDoc = { ...reviewsDoc, decisions: [...reviewsDoc.decisions, undo.value] };
         ctx.persist();
+        // A WITHDRAWAL IS ALSO A FACT THE CORE MUST HEAR. Recording only approvals
+        // would leave the core believing a shot passed after the creator took it
+        // back — the core's copy would be a stale half of the story, which is worse
+        // than not having one.
+        syncReviewToCore(reviewsync.evaluationFor(undo.value), undo.value.decisionId);
       }
       return ok;
     },
@@ -4488,6 +4503,12 @@ const ctx = {
       return dailiesModel({
         prod: productionDoc,
         view,
+        // 这一镜最近一条审片结论的登记回执（TASK-103 批次 B）。按 decisionId 取，
+        // 所以显示的永远是**当前这条结论**的去向，不是历史上任意一次的。
+        coreSyncOf: (shotId) => {
+          const d = review.latestDecision(reviewsDoc.decisions, { layer: "shot", targetId: shotId });
+          return d ? (reviewsDoc.coreSync || {})[d.decisionId] || null : null;
+        },
         mediaOf: (s) => ctx.shot.mediaOf(s),
         urlOf: (s) => {
           const slot = ctx.shot._slotOf(s);
@@ -5792,6 +5813,42 @@ ctx.discardShotEdit = () => production.discardShotEdit();
 // Land a production-structure mutation: refused ops (false) change nothing and
 // must not persist; successful ones persist + re-render the shell (hoisted —
 // ctx.production above calls these only at runtime).
+/** 把一次审片结论送进核心项目，并把「送没送到、为什么没送到」记下来。
+ *
+ *  TASK-103 批次 B。三条纪律：
+ *  1. **不阻塞创作者**：画布上的通过已经成立并已存盘，这里失败不回滚它。
+ *  2. **不吞掉结果**：每次都往 `reviewsDoc.coreSync` 写一条，界面据此如实显示。
+ *     一个只弹 toast 的版本等于三秒后又回到「按下之后不知去了哪」。
+ *  3. **不假装成功**：`AMBIGUOUS`／被拒／没后端各自是自己的状态（见
+ *     `reviewsync.explain`），绝不合并成一句「登记失败」。
+ */
+async function syncReviewToCore(spec, decisionId) {
+  // 只有连上真实项目才有核心可写。演示模式不是错误，是「这里本来就没有核心」。
+  const client = CONNECTED
+    ? {
+        // 目标三元组由后端算 —— 见 `_review_target`。前端拼一个 digest 出来
+        // 等于把命令绑在一个不存在的版本上。
+        target: (project, shotId) => query.getReviewTarget(project, shotId),
+        preflight: command.preflight,
+        submit: command.submit,
+      }
+    : null;
+  const said = reviewsync.explain(
+    await reviewsync.sendThroughGateway(client, PROJECT_NAME, spec),
+  );
+  reviewsDoc = {
+    ...reviewsDoc,
+    coreSync: {
+      ...(reviewsDoc.coreSync || {}),
+      [decisionId]: { state: said.state, text: said.text, at: new Date().toISOString() },
+    },
+  };
+  ctx.persist();
+  refreshProductionView();
+  if (said.state !== "recorded") toast(said.text);
+  return said;
+}
+
 function refreshProductionView() {
   if (production.isVisible()) production.render();
 }
@@ -6762,7 +6819,11 @@ function serializeGraph() {
     // target, and folding them together would make changing one change the other.
     deliverySpec: { ...deliverySpecDoc },
     // §6: issues an Agent may raise + decisions only the creator may make
-    reviews: { issues: [...reviewsDoc.issues], decisions: [...reviewsDoc.decisions] },
+    reviews: {
+      issues: [...reviewsDoc.issues],
+      decisions: [...reviewsDoc.decisions],
+      coreSync: { ...(reviewsDoc.coreSync || {}) },
+    },
     nodes: engine.nodes.map((n) => ({
       id: n.id, type: n.type, x: n.x, y: n.y, state: n.state,
       text: n.text, versions: n.versions, cur: n.cur, pickSingle: n.pickSingle,
@@ -6847,6 +6908,10 @@ function restoreGraph(data) {
     // another way made layer 2 quietly stop being 「必须定位到具体镜头」.
     issues: review.relocateLegacyIssues(rv && rv.issues),
     decisions: rv && Array.isArray(rv.decisions) ? [...rv.decisions] : [],
+    // 旧存档没有这张台账 —— 空表读作「还没问过核心」，不是「核心拒绝过」。
+    coreSync: rv && rv.coreSync && typeof rv.coreSync === "object" && !Array.isArray(rv.coreSync)
+      ? { ...rv.coreSync }
+      : {},
   };
   // Breakdown proposals are PER-PROJECT transient review state: cards derived
   // from another project's script must never be appliable here, and a switch
@@ -6988,7 +7053,7 @@ async function enterCanvas(name, opts = {}) {
   // project's asset recommendations under another project's shot ids.
   ctxCacheDoc = ctxcache.createCache(null);
   deliverySpecDoc = {};
-  reviewsDoc = { issues: [], decisions: [] };
+  reviewsDoc = { issues: [], decisions: [], coreSync: {} };
   // …and the project-health cache, for the same reason every document above is
   // cleared here: it describes the project being left.
   HEALTH = { ...HEALTH_EMPTY };

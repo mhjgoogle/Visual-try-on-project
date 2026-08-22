@@ -15,15 +15,31 @@
           "branch": "change/TASK-103-frontback-ui-residuals",
           "pushed": false,
           "scope_violation": null
+        },
+        {
+          "hash": "fc5884da3987ca60d1308fa159622aeb5c5fbdf0",
+          "subject": "批次A 收口：唯一 fetch 出口守卫搬到前端套件 —— 被守的 services/*.js 都能被 node import，属 ADR-0080 决策 3 的前端归属；tests/contract 的源码文本例外只留给 .test.mjs 拿不到的入口层。两次变异验证（加一个裸 fetch / 去掉一个 timeoutMs:0）均转红（TASK-103）",
+          "time": "2026-08-22T14:27:23+00:00",
+          "branch": "change/TASK-103-frontback-ui-residuals",
+          "pushed": false,
+          "scope_violation": null
         }
       ],
       "paths": [
-        "mockups/motv-workspace/tests/apioutlet.test.mjs",
-        "tests/contract/test_frontend_write_path_invariants.py"
+        "docs/tasks/TASK-103-frontback-and-ui-residuals.md",
+        "mockups/motv-workspace/server.py",
+        "mockups/motv-workspace/src/app.js",
+        "mockups/motv-workspace/src/services/query.js",
+        "mockups/motv-workspace/src/ui/dailies.js",
+        "mockups/motv-workspace/src/workflow/reviewsync.js",
+        "mockups/motv-workspace/styles/studio.css",
+        "mockups/motv-workspace/tests/reviewsync.test.mjs",
+        "src/ai_video_workflow/app/gateway_commands.py",
+        "tests/studio/test_motv_review_gateway_task103.py"
       ],
       "verification": "PASS",
       "verification_ref": "",
-      "declared": "2026-08-22T14:26:36+00:00"
+      "declared": "2026-08-22T14:59:20+00:00"
     }
   },
   "merge_gate": {

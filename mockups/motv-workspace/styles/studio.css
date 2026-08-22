@@ -970,6 +970,12 @@
 @media (max-width: 1100px) { .dl-wrap { grid-template-columns: minmax(0, 1fr); } }
 
 .dl-stale { font-size: 12px; line-height: 1.55; color: var(--gate); border: 1px solid color-mix(in srgb, var(--gate) 40%, var(--line)); background: color-mix(in srgb, var(--gate) 8%, transparent); border-radius: 8px; padding: 8px 10px; }
+/* 审片结论的核心登记回执（TASK-103 批次 B）。三种颜色对应三种事实，
+   不是三种“严重程度”：已登记 / 没连后端（正常）/ 被拒或出错。 */
+.dl-coresync { font-size: 12px; line-height: 1.55; border-radius: 8px; padding: 6px 10px; margin-top: 2px; }
+.dl-coresync.ok { color: var(--ok); border: 1px solid color-mix(in srgb, var(--ok) 35%, var(--line)); background: color-mix(in srgb, var(--ok) 8%, transparent); }
+.dl-coresync.muted { color: var(--text-dim); border: 1px solid var(--line); }
+.dl-coresync.warn { color: var(--gate); border: 1px solid color-mix(in srgb, var(--gate) 40%, var(--line)); background: color-mix(in srgb, var(--gate) 8%, transparent); }
 
 /* --- Asset Library: visual-first Production Memory (CP5 / ADR-0058) ------- */
 .al-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }

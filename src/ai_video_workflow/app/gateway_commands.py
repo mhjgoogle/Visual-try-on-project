@@ -58,9 +58,34 @@ def build_gateway(project_root, clock):
     )
 
 
-def build_wfm1_registry() -> CommandRegistry:
-    """Build the approved WFM1 creative-write command registry."""
-    registry = CommandRegistry()
+#: The creative fact-write closed loop, as ONE name. Any surface that wires it
+#: registers exactly this set — see ``register_creative_loop_commands``.
+CREATIVE_LOOP_COMMANDS = (
+    RECORD_EVALUATION,
+    CREATE_FEEDBACK,
+    CREATE_ACTION,
+    ACTION_TRANSITION,
+)
+
+
+def register_creative_loop_commands(registry: CommandRegistry) -> CommandRegistry:
+    """Register the evaluation / feedback / action loop into ``registry``.
+
+    Extracted from ``build_wfm1_registry`` (TASK-103 批次 B) so a SECOND surface
+    can wire the same four specs without copying them. The second surface is the
+    Studio backend: these commands were implemented and registered here in
+    2026-07, but the Studio — the interface a creator actually uses — never
+    registered them, so 审片页 pressing 「✓ 通过」 wrote only to the canvas and the
+    core project never heard about it (TASK-087 §1.2 / TASK-083 §5.1).
+
+    Copying the four ``CommandSpec`` lines into the Studio instead would have made
+    the risk level, the validators and the applied service DUPLICATED facts, and
+    the whole point of a registry is that there is one answer to 「这个命令是什么
+    风险、跑的是哪个服务」. So the specs stay here and callers share them.
+
+    Registration is not admission: each spec still validates in its read-only
+    ``preview`` and fails closed on bad input or a missing project identity.
+    """
     registry.register(
         CommandSpec(RECORD_EVALUATION, CommandRisk.LOW, _eval_preview, _eval_apply)
     )
@@ -82,6 +107,11 @@ def build_wfm1_registry() -> CommandRegistry:
         )
     )
     return registry
+
+
+def build_wfm1_registry() -> CommandRegistry:
+    """Build the approved WFM1 creative-write command registry."""
+    return register_creative_loop_commands(CommandRegistry())
 
 
 # --- shared helpers -----------------------------------------------------------

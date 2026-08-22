@@ -46,7 +46,7 @@ const DESIGN_ROWS = [
  * Total by construction: a missing view, an empty episode and a shot whose
  * draft entry no longer resolves all produce a usable (possibly empty) model.
  */
-export function dailiesModel({ prod, view, mediaOf, urlOf }) {
+export function dailiesModel({ prod, view, mediaOf, urlOf, coreSyncOf }) {
   const items = [];
   const push = (shot, sceneId, sceneTitle) => {
     if (!shot || typeof shot.shotId !== "string" || !shot.shotId) return;
@@ -78,6 +78,9 @@ export function dailiesModel({ prod, view, mediaOf, urlOf }) {
       // video. An image-only shot is 已生成, not 待审片: approving it would jump
       // it straight to 已通过 having reviewed something that does not exist yet.
       canApprove: !!media.video,
+      // 这一镜的审片结论有没有走进核心项目（TASK-103 批次 B）。
+      // `null` = 还没问过核心 —— 它与「核心拒绝了」是两件事，不许塌成一件。
+      coreSync: (coreSyncOf && coreSyncOf(shot.shotId)) || null,
     });
   };
   const v = view && typeof view === "object" ? view : { scenes: [], unassigned: [] };
@@ -142,10 +145,32 @@ function shotCard(it) {
     (it.staleApproval
       ? `<div class="dl-stale">⚠ 这个镜头曾被通过，但当时通过的视频已不在了——通过记录保留，状态回到「${esc(it.stageLabel)}」</div>`
       : "") +
+    coreSyncLine(it.coreSync) +
     (it.description ? `<p class="dl-desc">${esc(it.description)}</p>` : "") +
     design +
     `</div>`
   );
+}
+
+/** 「✓ 通过」按下之后到底去了哪 —— TASK-103 批次 B（TASK-087 §1.2）。
+ *
+ *  在这之前它只写进画布，核心项目对此一无所知，而界面上没有任何地方说出这一点：
+ *  创作者按下按钮、看到状态变成「已通过」，合理地以为这件事已经记在项目里了。
+ *
+ *  所以四种情况各说各的，绝不合并：
+ *    null          还没问过核心（刚打开旧存档）—— 不是「没登记上」
+ *    recorded      已登记，带记录号
+ *    blocked       核心拒绝了，原样转述它给的理由（缺项目身份 / 镜头没正式记录）
+ *    unavailable   没连后端 —— 演示模式下这是正常的，不是故障
+ *    failed        网关报错，或回执不是 completed（含 AMBIGUOUS：可能写了也可能
+ *                  没写，显示成「已登记」比不显示更糟）
+ */
+function coreSyncLine(sync) {
+  if (!sync || typeof sync !== "object") return "";
+  const text = typeof sync.text === "string" ? sync.text : "";
+  if (!text) return "";
+  const cls = sync.state === "recorded" ? "ok" : sync.state === "unavailable" ? "muted" : "warn";
+  return `<div class="dl-coresync ${cls}">${esc(text)}</div>`;
 }
 
 /** The Dailies workspace. */

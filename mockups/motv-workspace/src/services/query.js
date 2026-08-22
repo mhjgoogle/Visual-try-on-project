@@ -181,6 +181,19 @@ export function getLockTarget(project) {
   return _read(`/api/projects/${encodeURIComponent(project)}/lock-target`, "lock-target");
 }
 
+/** 一次审片写入要绑的目标三元组（TASK-103 批次 B）。
+ *
+ *  与 `getLockTarget` 同类，且同样**绝不回落到假件**：编一个 digest 的后果不是
+ *  被拒，是把命令绑在一个不存在的版本上。读不到就抛，让调用方如实说。 */
+export async function getReviewTarget(project, shotId) {
+  const j = await _read(
+    `/api/projects/${encodeURIComponent(project)}/review-target`
+      + `?shot_id=${encodeURIComponent(shotId)}`,
+    "review-target",
+  );
+  return j && j.target;
+}
+
 /** Paid-op status projection (read-only; reservations + staging artifacts). */
 export async function paidOps(project) {
   const j = await _read(`/api/paid-ops/${encodeURIComponent(project)}`, "ops");
