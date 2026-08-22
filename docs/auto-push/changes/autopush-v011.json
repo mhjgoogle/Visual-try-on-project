@@ -7,7 +7,27 @@
   "chain_mode": false,
   "tasks": {
     "TASK-101": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "94a06a70da8e7c2da127d3b519939755191cdcb6",
+          "subject": "fix(skill): auto-push v0.1.1 —— 共享树永不倒退、越界现算、回写不 stale、出处全局化+--hash 补登、evil-merge 豁免改登记制、merge 前置 ledger 核对（TASK-101，六项实战缺陷 fb-0002~0006 + ba0c8e2 补审 P1）",
+          "time": "2026-08-22T14:45:22+00:00",
+          "branch": "change/TASK-101-autopush-v011",
+          "pushed": false,
+          "files": [
+            ".claude/skills/auto-push/SKILL.md",
+            ".claude/skills/auto-push/references/merge-and-conflicts.md",
+            ".claude/skills/auto-push/scripts/autopush.py",
+            "docs/auto-push/changes/autopush-v011.json",
+            "docs/design/pending-codex-rereview.md",
+            "docs/skill-evolution/backlogs/auto-push.jsonl",
+            "docs/skill-evolution/index.json",
+            "docs/tasks/TASK-101-auto-push-skill.md",
+            "tests/tooling/test_auto_push_tooling.py"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         ".claude/skills/auto-push/",
         "docs/design/pending-codex-rereview.md",
