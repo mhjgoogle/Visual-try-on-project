@@ -58,7 +58,19 @@ embedding/vector、multi-agent committee、每次使用跑完整 eval、跨 Skil
   missing 保历史/rename 迁移/MISSING 复活/CLI 往返/fail-closed）。
 - `ruff check` + `ruff format`：通过。
 - 真实仓库实弹：`sync` 纳管 3 Skill；`record` 落 fb-dev-workflow-0001。
-- gate 全量 + codex-review-loop（Medium · 1 轮）：见提交后记录。
+- gate 全量：da4fa32 通过（3427 项并行 + 串行，0 失败）。
+- codex-review-loop（Medium · 1 轮，reviewer=codex，干净 worktree 对
+  HEAD~1 送审）：fail，3 blocking + 4 non-blocking。定级与处置：
+  - P1 已修：skill 名未消毒可路径穿越 → `_bad_name` 白名单 + 拒 `..`。
+  - P2 已修（定向测试覆盖）：PROPOSED/APPROVED 仍计为复审证据（重复触发
+    Review）→ EVIDENCE_STATUSES；共享 tmp 名并发碰撞 → pid 后缀 tmp；
+    `status` 不刷新 revision → 已按文档合同刷新；compact 先追加后删的
+    重试重复 → 归档前按 id 去重。
+  - P3 只记录：set-status 不强制状态机转移（agent 语义层职责，v0.1 不加
+    刚性）；rename 摘要撞车（多个内容相同的 Skill 同时改名，保守限制已在
+    reference 写明）。
+  - P1 修复按预算规则花 +1 轮复审：见第 2 轮记录。
+- 修复后定向测试：20 passed；ruff check + format 通过。
 
 ## Follow-up
 

@@ -13,8 +13,8 @@
 | `registered_at` / `last_seen_at` / `last_feedback_at` / `last_review_at` | 时间戳（UTC） |
 | `revision` | SKILL.md 内容 sha256 前 12 位（register/status/sync 时刷新） |
 | `feedback_seq` | 反馈 id 计数器（compact 后 id 不回卷） |
-| `open` / `severe_open` | 开放条目数 / 其中 severe 数 |
-| `repeated` | 开放 key → 计数（只列 >=2；POSITIVE_SIGNAL 不计入） |
+| `open` / `severe_open` | 开放条目数 / 其中 severe 的**证据**数 |
+| `repeated` | key → 证据计数（只列 >=2；POSITIVE_SIGNAL 不计入；**只有 OBSERVING/CANDIDATE 算证据**——已进提案管道的条目不再触发重复复审） |
 | `pending_proposals` | PROPOSED/APPROVED 条目引用的 EP 编号 |
 | `protected` | Protected Behavior 列表 `{key, note, since}` |
 | `status` | 派生：REGISTERED / OBSERVING / REVIEW_CANDIDATE / PROPOSAL_PENDING / HEALTHY；MISSING 由 sync 显式设置 |
@@ -61,6 +61,8 @@ revision、时间戳，建空 backlog + index 条目。**不读 references、不
 
 ## 平台与安全
 
-脚本只用 pathlib / UTF-8 / `os.replace`（先写 tmp 再原子替换），路径存
-POSIX 斜杠，Windows/Ubuntu 行为一致；出错 fail-closed（非零退出 + error
-字段），绝不静默删数据——MISSING/ARCHIVED 都是软删除。
+脚本只用 pathlib / UTF-8 / `os.replace`（先写 pid 后缀 tmp 再原子替换），
+路径存 POSIX 斜杠，Windows/Ubuntu 行为一致；skill 名嵌进可写路径前必消毒
+（拒绝 `..` 与路径分隔符）；出错 fail-closed（非零退出 + error 字段），
+绝不静默删数据——MISSING/ARCHIVED 都是软删除。已知限制：CLI 假定单写者
+（一次一个 agent 命令），两个会话同时 record 可能丢一次计数更新。

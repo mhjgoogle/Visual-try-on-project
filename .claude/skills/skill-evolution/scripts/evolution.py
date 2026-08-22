@@ -16,6 +16,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,6 +24,18 @@ from pathlib import Path
 SCHEMA_VERSION = 1
 REVIEW_THRESHOLD = 3
 SKILL_ROOTS = (".claude/skills",)
+
+#: skill 名会被嵌进可写路径（backlog/archive 文件名），必须消毒：只接受
+#: 目录名字符集，拒绝 `..`、分隔符与任何路径语义（codex 独立审查 round 1
+#: 的 blocking finding：`../` 形状的名字可以逃出数据目录写文件）。
+_SKILL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def _bad_name(skill: str) -> str | None:
+    if _SKILL_NAME_RE.match(skill) and ".." not in skill:
+        return None
+    return f"invalid skill name '{skill}'"
+
 
 CATEGORIES = (
     "FRICTION",
@@ -37,8 +50,12 @@ CATEGORIES = (
     "OTHER",
 )
 SEVERITIES = ("low", "medium", "high", "severe")
-#: 开放状态参与阈值计数；终态不参与，compact 时移入 archive。
+#: 开放状态 = 还没走完生命周期；其中只有 EVIDENCE_STATUSES 参与阈值计数——
+#: 已进提案管道（PROPOSED/APPROVED）的条目不再作为触发证据，否则提案存在
+#: 期间每条新反馈都会再触发一次重复的 Evolution Review（codex round 1）。
+#: 终态不参与任何计数，compact 时移入 archive。
 OPEN_STATUSES = frozenset({"OBSERVING", "CANDIDATE", "PROPOSED", "APPROVED"})
+EVIDENCE_STATUSES = frozenset({"OBSERVING", "CANDIDATE"})
 TERMINAL_STATUSES = frozenset({"RESOLVED", "REJECTED", "ARCHIVED"})
 ALL_STATUSES = tuple(sorted(OPEN_STATUSES | TERMINAL_STATUSES))
 
@@ -82,7 +99,10 @@ def load_index(root: Path) -> dict:
 def save_index(root: Path, index: dict) -> None:
     path = index_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".json.tmp")
+    # tmp 名带 pid：本 CLI 假定单写者（一次一个 agent 命令），但两个会话
+    # 并行时共享 tmp 名会互相覆盖半成品；pid 后缀让 os.replace 仍然原子。
+    # 计数器本身的并发丢失更新仍是已知限制（TASK-100 Follow-up）。
+    tmp = path.with_suffix(f".json.tmp{os.getpid()}")
     tmp.write_text(
         json.dumps(index, ensure_ascii=False, indent=1, sort_keys=True) + "\n",
         "utf-8",
@@ -134,7 +154,7 @@ def _write_jsonl(path: Path, entries: list[dict]) -> None:
         json.dumps(entry, ensure_ascii=False, sort_keys=True) + "\n"
         for entry in entries
     )
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp = path.with_suffix(path.suffix + f".tmp{os.getpid()}")
     tmp.write_text(body, "utf-8")
     os.replace(tmp, path)
 
@@ -148,12 +168,13 @@ def _append_jsonl(path: Path, entry: dict) -> None:
 def _recompute(root: Path, skill: str, entry: dict, backlog: list[dict]) -> dict:
     """从 backlog 重算 index 条目的派生字段（计数永远可重建，不会漂移）。"""
     open_entries = [e for e in backlog if e.get("status") in OPEN_STATUSES]
+    evidence = [e for e in open_entries if e.get("status") in EVIDENCE_STATUSES]
     keys: dict[str, int] = {}
-    for item in open_entries:
+    for item in evidence:
         key = item.get("key") or ""
         if key and item.get("category") != "POSITIVE_SIGNAL":
             keys[key] = keys.get(key, 0) + 1
-    severe_open = sum(1 for e in open_entries if e.get("severity") == "severe")
+    severe_open = sum(1 for e in evidence if e.get("severity") == "severe")
     proposals = sorted(
         {
             e["proposal"]
@@ -193,6 +214,8 @@ def _review_due(entry: dict) -> tuple[bool, list[str]]:
 
 def register(root: Path, skill: str) -> dict:
     """懒注册：只取最小 metadata，不读 references（需求原文第 11 节）。"""
+    if error := _bad_name(skill):
+        return {"registered": False, "error": error}
     index = load_index(root)
     entry = index["skills"].get(skill)
     now = _now()
@@ -224,10 +247,20 @@ def register(root: Path, skill: str) -> dict:
 
 def status(root: Path, skill: str) -> dict:
     """Fast Loop 的第一步：一次调用回答「注册了吗 + 现有 key + 热点」。"""
+    if error := _bad_name(skill):
+        return {"registered": False, "skill": skill, "error": error}
     index = load_index(root)
     entry = index["skills"].get(skill)
     if entry is None:
         return {"registered": False, "skill": skill}
+    skill_dir = find_skill_dir(root, skill)
+    if skill_dir is not None:
+        revision = skill_md_digest(skill_dir / "SKILL.md")
+        if revision != entry.get("revision"):
+            # 文档合同：revision 在 register/status/sync 三处刷新（codex
+            # round 1 non-blocking：不刷会让复审/提案引用过期 revision）。
+            entry["revision"] = revision
+            save_index(root, index)
     backlog = read_backlog(root, skill)
     open_keys: dict[str, int] = {}
     for item in backlog:
@@ -254,6 +287,8 @@ def record(
     task: str | None = None,
 ) -> dict:
     """一次调用完成：查注册 → 懒注册 → 追加 → 重算 → 阈值判定。"""
+    if error := _bad_name(skill):
+        return {"recorded": False, "error": error}
     if category not in CATEGORIES:
         return {"recorded": False, "error": f"unknown category '{category}'"}
     if severity not in SEVERITIES:
@@ -445,8 +480,17 @@ def compact(root: Path, skill: str) -> dict:
     backlog = read_backlog(root, skill)
     keep = [e for e in backlog if e.get("status") not in TERMINAL_STATUSES]
     closed = [e for e in backlog if e.get("status") in TERMINAL_STATUSES]
+    # 先查 archive 已有的 id：追加在 backlog 重写之前发生，中断后重试不该
+    # 把同一条归档两次（codex round 1 non-blocking）。
+    archive = archive_path(root, skill)
+    archived_ids = set()
+    if archive.is_file():
+        for line in archive.read_text("utf-8").splitlines():
+            if line.strip():
+                archived_ids.add(json.loads(line).get("id"))
     for item in closed:
-        _append_jsonl(archive_path(root, skill), item)
+        if item.get("id") not in archived_ids:
+            _append_jsonl(archive, item)
     if closed:
         _write_jsonl(backlog_path(root, skill), keep)
         entry["archived"] = int(entry.get("archived", 0)) + len(closed)

@@ -240,3 +240,56 @@ def test_unknown_skill_record_fails_closed(repo: Path) -> None:
         "recorded": False,
         "error": "no SKILL.md found for 'no-such-skill'",
     }
+
+
+def test_path_traversal_skill_names_are_rejected(repo: Path) -> None:
+    # skill 名会嵌进可写路径；`../` 形状必须在任何文件操作之前被拒。
+    evil = repo / "escape"
+    evil.mkdir()
+    (evil / "SKILL.md").write_text("---\nname: escape\n---\n", "utf-8")
+    for name in ("../../escape", "..", "a/b", "a\\b", ".hidden", ""):
+        assert evo.record(repo, name, "FRICTION", "low", "k", "n") == {
+            "recorded": False,
+            "error": f"invalid skill name '{name}'",
+        }
+        assert not evo.register(repo, name)["registered"]
+        assert "error" in evo.status(repo, name)
+    assert not (repo / "docs" / "skill-evolution" / "backlogs" / "..").exists()
+
+
+def test_a_pending_proposal_stops_counting_as_review_evidence(repo: Path) -> None:
+    for _ in range(3):
+        _record(repo, "alpha")
+    assert evo.status(repo, "alpha")["review_due"]
+    evo.set_status(
+        repo, "alpha", "PROPOSED", key="excessive-user-escalation", proposal="EP-001"
+    )
+    status = evo.status(repo, "alpha")
+    assert not status["review_due"]
+    assert status["entry"]["status"] == "PROPOSAL_PENDING"
+    # 提案挂起期间又来一条同类反馈：计 1，不再立即触发重复复审。
+    result = _record(repo, "alpha", note="提案期间又发生")
+    assert result["recurrence_count"] == 1 and not result["review_due"]
+
+
+def test_status_refreshes_the_revision_after_a_skill_md_edit(repo: Path) -> None:
+    _record(repo, "alpha")
+    before = evo.status(repo, "alpha")["entry"]["revision"]
+    skill_md = repo / ".claude" / "skills" / "alpha" / "SKILL.md"
+    skill_md.write_text("---\nname: alpha\n---\nnew rules\n", "utf-8")
+    after = evo.status(repo, "alpha")["entry"]["revision"]
+    assert after != before
+    assert evo.load_index(repo)["skills"]["alpha"]["revision"] == after
+
+
+def test_compact_retry_does_not_duplicate_archived_entries(repo: Path) -> None:
+    _record(repo, "alpha")
+    evo.set_status(repo, "alpha", "RESOLVED", key="excessive-user-escalation")
+    # 模拟「追加进 archive 后、backlog 重写前」中断：手工把同一条塞回 backlog。
+    evo.compact(repo, "alpha")
+    archive = repo / "docs" / "skill-evolution" / "archive" / "alpha.jsonl"
+    line = archive.read_text("utf-8").splitlines()[0]
+    backlog = repo / "docs" / "skill-evolution" / "backlogs" / "alpha.jsonl"
+    backlog.write_text(line + "\n", "utf-8")
+    evo.compact(repo, "alpha")
+    assert len(archive.read_text("utf-8").splitlines()) == 1
