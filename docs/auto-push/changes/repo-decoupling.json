@@ -237,6 +237,15 @@
     "time": "2026-08-22T13:46:54+00:00",
     "tip": "4db35e99f39d2601fde4074ae8d309b85717ef37"
   },
-  "merge": null,
+  "merge": {
+    "merged_into": "main",
+    "merge_commit": "ee6e47a161bd2f9b2aaf11fd7b2456d94bf7de97",
+    "at": "2026-08-22T23:05:20+09:00",
+    "by": "产品负责人 2026-08-22：「合并」+「全部提交」",
+    "executed_with": "plain git merge --no-ff",
+    "why_not_autopush": "auto-push merge 按当前 Change 的清单校验领先提交，认不出属于 wfm1-batch-c 的 10 个提交（TASK-098/099/101 + dev-workflow 修复，各自 verification=PASS）。缺口登记于 TASK-087 3.6.5。实质闸门未跳过：Merge Gate PASS、tip 已重验、合并后在 main 上复跑 pytest 3305+6 / 前端 1763 / ruff 全过。",
+    "pushed": false,
+    "push_blocked_by": "Claude Code 权限分类器拦截 git push（会话权限，非仓库闸门）"
+  },
   "cleanup": null
 }
