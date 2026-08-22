@@ -14,4 +14,5 @@ SUPERSEDED）与版本修订规则见
 
 ## 索引
 
-（暂无 —— 第一条新需求进来时从 REQ-001 开始。）
+- [REQ-001](REQ-001-auto-push.md) — CONFIRMED — Task 完成后自动 commit/push，
+  Change 完成后受控合并（TASK-101 / ADR-0079）

@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "change_id": "wfm1-batch-c",
+  "branch": "feat/wfm1-batch-c",
+  "status": "open",
+  "created": "2026-08-22T04:52:48+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-101": {
+      "commits": [],
+      "paths": [
+        ".claude/skills/auto-push/",
+        ".claude/skills/dev-workflow/SKILL.md",
+        "docs/adr/ADR-0079-auto-push-skill.md",
+        "docs/auto-push/",
+        "docs/requirements/",
+        "docs/tasks/TASK-101-auto-push-skill.md",
+        "tests/test_auto_push_tooling.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "pytest tests/test_auto_push_tooling.py: 22 passed; ruff format+check: pass",
+      "declared": "2026-08-22T04:52:48+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PENDING"
+  },
+  "merge": null,
+  "cleanup": null
+}

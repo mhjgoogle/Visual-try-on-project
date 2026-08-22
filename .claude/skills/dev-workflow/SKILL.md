@@ -136,7 +136,13 @@ CONFIRMED REQ 明确取代的，允许删**。测试保护的是 Current Valid B
 「代码写完」「测试绿」都不是 Done。逐条确认：REQ 满足？验证够（对本次
 impact scope）？架构没有明显恶化？obsolete 已清或已记 Follow-up？
 REQ / Change Record 已更新到终态？临时 prototype 已清除或已正式化？
-全部是 → 按 AGENTS.md §22 提交（commit 不必问；push/merge 必须用户明确要求）。
+全部是 → 提交。当前工作在 auto-push 管理的 Change 下（`docs/auto-push/changes/`
+有清单）时，commit/push 交给 `auto-push` Skill：`task-ready`（申报验证结果与
+diff 范围）→ `stage` → 在 shell 运行其返回的 commit 命令 → `record-commit` →
+`push`——Change 分支的 push 依 ADR-0079 决策 4 自动执行，不逐次问；
+**merge 仍须用户明确指示**，届时用 `set-merge-gate --gate PASS --by "<原话>"`
+把授权交给 auto-push。没有清单时按 AGENTS.md §22 原样提交
+（commit 不必问；push/merge 必须用户明确要求）。
 
 提交完成后做一次 Post-Use Feedback（`skill-evolution` Skill 的 Fast Loop：
 两次脚本调用 + 一条 50–150 字反馈，不做深度分析，不改任何 Skill）。
