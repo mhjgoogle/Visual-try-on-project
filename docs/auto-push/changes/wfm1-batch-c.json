@@ -31,6 +31,14 @@
           "branch": "feat/wfm1-batch-c",
           "pushed": true,
           "scope_violation": null
+        },
+        {
+          "hash": "ba0c8e27d69481a58006c3a4c384c4f905dfc2da",
+          "subject": "fix(skill): auto-push 审查轮 3 —— 清单元数据过 secret 扫描、未登记提交豁免看内容不看 subject、merge tip push 过同一道闸；修复未经复审，已登记待复审清单（TASK-101）",
+          "time": "2026-08-22T06:00:04+00:00",
+          "branch": "feat/wfm1-batch-c",
+          "pushed": true,
+          "scope_violation": null
         }
       ],
       "paths": [
