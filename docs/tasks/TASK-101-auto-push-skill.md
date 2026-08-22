@@ -41,13 +41,21 @@
 
 ## 验证
 
-- `pytest tests/test_auto_push_tooling.py`：22 passed（场景 A–L、N 全覆盖，
-  含临时 bare origin + 双 clone 的 remote-ahead / 冲突 / merge / cleanup）。
-- `ruff format --check` + `ruff check`：通过。
+- `pytest tests/test_auto_push_tooling.py`：最终 **30 passed**（场景 A–L、N
+  全覆盖 + 审查修复的负向用例，临时 bare origin + 双 clone 的
+  remote-ahead / 冲突 / merge / cleanup）。
+- `ruff format --check` + `ruff check`：通过。每次 commit 由 commit gate
+  跑全量 pytest（autopush.py 属未映射非文档路径 → full 档），三次全绿。
 - 真实仓库 dry-run：用 auto-push 提交本任务自身（工作树同时存在 TASK-099
-  的未提交改动 = 活体 Scenario B），结果记录在下方「dry-run 记录」。
-- 独立审查：高风险档（文件操作/安全/Windows 可移植性）→ codex-review-loop
-  2 轮，见验证附记。
+  的未提交改动 = 活体 Scenario B），TASK-099 的 24 个脏文件全程未被触碰。
+- 独立审查：codex 跨模型，高风险预算 2 + P1 买 1 = **3 轮全部用尽**，
+  独立性未降级。轮 1：7 P1 + 2 P2 全修（548e923 → 9f21fbd）；轮 2：5 条，
+  4 P1 已修 + cleanup TOCTOU 一条驳回（修复需 force-with-lease，v0.1 §14
+  禁止）+ 2 P2 顺带修 + 1 P2 记 follow-up（9f21fbd → c1fad5b）；轮 3：4 条，
+  3 真 P1 已修（清单元数据过 secret 扫描 / 豁免看内容不看 subject / merge
+  tip push 过同一道闸）、TOCTOU 同主题维持驳回。**轮 3 的 3 处修复未经复审**
+  ——已登记[待复审清单](../design/pending-codex-rereview.md)，
+  **本 Change merge 前必须补审**。
 
 ## dry-run 记录（真实仓库）
 

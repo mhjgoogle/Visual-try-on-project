@@ -23,6 +23,14 @@
           "branch": "feat/wfm1-batch-c",
           "pushed": true,
           "scope_violation": null
+        },
+        {
+          "hash": "c1fad5bfb3cdba20416f46f147c888fdb0979c3b",
+          "subject": "fix(skill): auto-push 审查轮 2 —— 不可扫描文件 fail-closed、push 拒推未登记提交、sync 后验证置 STALE、merge 复查任务闸、diff 头精确匹配、cleanup 状态如实（TASK-101）",
+          "time": "2026-08-22T05:38:02+00:00",
+          "branch": "feat/wfm1-batch-c",
+          "pushed": true,
+          "scope_violation": null
         }
       ],
       "paths": [
@@ -30,13 +38,14 @@
         ".claude/skills/dev-workflow/SKILL.md",
         "docs/adr/ADR-0079-auto-push-skill.md",
         "docs/auto-push/",
+        "docs/design/pending-codex-rereview.md",
         "docs/requirements/",
         "docs/tasks/TASK-101-auto-push-skill.md",
         "tests/test_auto_push_tooling.py"
       ],
       "verification": "PASS",
-      "verification_ref": "pytest tests/test_auto_push_tooling.py: 27 passed (review round 2 fixes); ruff: pass",
-      "declared": "2026-08-22T05:34:41+00:00"
+      "verification_ref": "pytest tests/test_auto_push_tooling.py: 30 passed (review round 3 P1 fixes + negative cases); ruff: pass",
+      "declared": "2026-08-22T05:56:34+00:00"
     }
   },
   "merge_gate": {

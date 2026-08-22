@@ -208,6 +208,26 @@ push `feat/wfm1-batch-c`（本地领先远端 120 个提交）**。
 注释说得多准确。新增/加强守卫时一律做变异验证（改坏实现看它是否变红），本轮每
 一条修复都做了。
 
+## TASK-101 auto-push 轮 3 的三处 P1 修复（2026-08-22）—— **待补审**
+
+- **为什么在这张表上**：auto-push skill（git 执行工装）按 AGENTS.md 第 20 条属
+  高风险（安全 / 文件操作 / Windows 可移植性）。审查预算 2 + P1 买 1 = 3 轮
+  **全部用尽**（codex 跨模型，独立性未降级）：轮 1 报 7 P1 + 2 P2 全修并经轮 2
+  复审；轮 2 报 5 条，4 P1 已修、1 条驳回，经轮 3 复审；**轮 3 又报 4 条**，
+  其中 3 条为真 P1 且已修 —— 但按轮次天花板不得再开轮 4，
+  **这三处修复没有任何审查者看过**。按 CLAUDE.md「审查是后移，不是取消」登记。
+- **补审范围（只看这三处）**：`.claude/skills/auto-push/scripts/autopush.py` 里
+  ① stage() 的清单 secret 扫描块（清单元数据 verification_ref/by 可携带凭据）；
+  ② `_is_metadata_commit` + `_push_gates`（未登记提交豁免改为看内容不看
+  subject；含 `--not origin/main` 的范围修正——premerge 后 main 侧历史不归闸管）；
+  ③ merge() 在 tip push 前调用 `_push_gates`。
+- **定向验证已做**：3 个新负向用例（清单带 AKIA、伪装 `chore(auto-push):` 的
+  代码提交、merge 携带未登记提交）全部证明被拦；全套 30 项测试通过。
+- **轮 3 第 4 条驳回不修**（cleanup 的 fetch/删除 TOCTOU）：完整修复需要
+  force-with-lease 式的 CAS 删除，v0.1 需求 §14 明令禁止自动执行任何
+  force 变体；单用户本地工具、遏制检查紧贴删除执行。记 v0.2 follow-up。
+- **该 Change（wfm1-batch-c 上的 TASK-101）merge 到 main 之前必须补审这三处。**
+
 ## `f337567` + 后续修复 —— `.claude/tools/gh-api.py`（2026-08-21）
 
 - **为什么在这张表上**：这个脚本**读取 GitHub 凭据并向外部主机发请求**。

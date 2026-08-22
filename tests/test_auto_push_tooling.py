@@ -324,6 +324,51 @@ def test_push_refuses_unrecorded_commits(rig: dict) -> None:
     assert blocked["commits"][0]["subject"] == "manual commit"
 
 
+def test_manifest_metadata_is_secret_scanned(rig: dict) -> None:
+    work = rig["work"]
+    _new_change(work)
+    fake_key = "AKIA" + "IOSFODNN7EXAMPLE"  # 运行时拼接，源码不含完整模式
+    ap.task_ready(work, "CHG-1", "TASK-001", "PASS", ["feature/"], ref=fake_key)
+    (work / "feature").mkdir()
+    (work / "feature" / "a.py").write_text("A = 1\n", "utf-8")
+    result = ap.stage(work, "CHG-1", "TASK-001", "add a")
+    assert result["status"] == "BLOCKED_SECRET"
+    assert _g(work, "diff", "--cached", "--name-only") == ""
+
+
+def test_chore_subject_alone_does_not_exempt_a_commit(rig: dict) -> None:
+    work = rig["work"]
+    _new_change(work)
+    _declare(work, "CHG-1", "TASK-001", ["feature/"])
+    (work / "feature").mkdir()
+    (work / "feature" / "a.py").write_text("A = 1\n", "utf-8")
+    ap.stage(work, "CHG-1", "TASK-001", "add a")
+    _g(work, "commit", "-m", "add a（TASK-001 · CHG-1）")
+    ap.record_commit(work, "CHG-1", "TASK-001")
+    assert ap.push(work, "CHG-1")["status"] == "OK"
+    # 伪装成元数据回写、实际碰了代码的提交 —— 看内容不看 subject
+    (work / "feature" / "evil.py").write_text("E = 1\n", "utf-8")
+    _g(work, "add", "feature/evil.py")
+    _g(work, "commit", "-m", "chore(auto-push): 假回写")
+    blocked = ap.push(work, "CHG-1")
+    assert blocked["status"] == "BLOCKED_UNRECORDED_COMMITS"
+
+
+def test_merge_tip_push_runs_the_same_gates(rig: dict) -> None:
+    work = _one_committed_task(rig)
+    assert (
+        ap.set_merge_gate(work, "CHG-1", "PASS", by="user 2026-08-22")["status"] == "OK"
+    )
+    _g(work, "add", "-A", "--", "docs/auto-push")
+    _g(work, "commit", "-m", "chore(auto-push): CHG-1 元数据回写")
+    # gate 之后混进一个未登记的手工提交 —— 即便声明 reverified 也不得被 merge 代推
+    (work / "feature" / "late.py").write_text("L = 1\n", "utf-8")
+    _g(work, "add", "feature/late.py")
+    _g(work, "commit", "-m", "manual late commit")
+    blocked = ap.merge(work, "CHG-1", reverified=True)
+    assert blocked["status"] == "BLOCKED_UNRECORDED_COMMITS"
+
+
 def test_unscannable_binary_needs_explicit_allowance(rig: dict) -> None:
     work = rig["work"]
     _new_change(work)

@@ -682,8 +682,21 @@ def stage(
             )
 
     # 清单自身如有改动一并带走（它是本 Change 的记录，属于每个 task commit）。
+    # 它同样要过 secret 扫描：verification_ref / by 等字段是自由文本，凭据
+    # 可以从这里混进提交（codex 审查轮 3，blocking）。
     rel = _manifest_rel(change)
     if any(_norm(p) == rel for _s, p in _worktree_entries(root)):
+        manifest_text = (root / rel).read_text("utf-8")
+        manifest_hits = _scan_added_lines(
+            "\n".join("+" + line for line in manifest_text.splitlines())
+        )
+        if manifest_hits:
+            _git(root, "reset", "-q")
+            return _blocked(
+                "BLOCKED_SECRET",
+                "suspected secrets in the Change manifest metadata",
+                hits=manifest_hits[:10],
+            )
         _git(root, "add", "-A", "--", rel)
         staged_now = _staged_paths(root)
 
@@ -764,14 +777,39 @@ def record_commit(root: Path, change: str, task: str) -> dict:
     return result
 
 
-def push(root: Path, change: str) -> dict:
-    manifest = _load_manifest(root, change)
-    branch = manifest["branch"]
-    if _current_branch(root) != branch:
-        return _blocked("BLOCKED_BRANCH", f"not on '{branch}'")
-    # push 自己复查安全 Gate，不假设提交都经过 stage 走进来（codex 审查轮 1，
-    # blocking）：验证状态被撤回、或 record-commit 记下过越界文件的提交，
-    # 都不得离开本机。
+def _commit_files(root: Path, commit_hash: str) -> list[str]:
+    out = _git(
+        root,
+        "diff-tree",
+        "--no-commit-id",
+        "--name-only",
+        "--no-renames",
+        "-r",
+        "-z",
+        "--root",
+        commit_hash,
+    ).stdout
+    return [_norm(p) for p in out.split("\0") if p]
+
+
+def _is_metadata_commit(root: Path, commit_hash: str) -> bool:
+    """真·元数据回写 = 内容只碰 docs/auto-push/。看内容，不看 subject——
+    subject 谁都能写成 chore(auto-push):（codex 审查轮 3，blocking）。"""
+
+    files = _commit_files(root, commit_hash)
+    return bool(files) and all(p.startswith("docs/auto-push/") for p in files)
+
+
+def _push_gates(root: Path, manifest: dict) -> dict | None:
+    """把分支推向远端前的共同闸（push 与 merge 的 tip push 共用）。
+
+    1) 有未推送提交的 Task 必须 verification=PASS 且无越界记录（codex 轮 1）。
+    2) 将被推出去的每个提交都要有出处：清单登记过、内容只碰 docs/auto-push/
+       的元数据回写、或 premerge-sync 产生的（第二亲是 main 的）merge commit。
+       收养分支上预先存在的 / 手工做的提交没过任何 Gate，不得代推
+       （codex 轮 2 / 轮 3）。调用前须已 fetch。
+    """
+
     for tid, tdata in manifest["tasks"].items():
         unpushed = [c for c in tdata.get("commits", []) if not c.get("pushed")]
         if not unpushed:
@@ -790,15 +828,8 @@ def push(root: Path, change: str) -> dict:
                 "files — dev-workflow must resolve them before push",
                 commits=violating,
             )
-    if not _has_remote(root):
-        return _blocked("BLOCKED_NO_REMOTE", "no 'origin' remote configured")
-    _git(root, "fetch", "origin", check=False)
-    remote_ref = _remote_ref(root, branch)
-    # 将被推出去的每个提交都必须有出处：清单登记过的 task commit、
-    # 本 skill 的元数据回写、或 premerge-sync 的 merge commit。收养分支上
-    # 预先存在的/手工做的提交没有过任何 Gate，不得由 auto-push 代推
-    # （codex 审查轮 2，blocking）。
-    push_base = remote_ref or (
+    branch = manifest["branch"]
+    push_base = _remote_ref(root, branch) or (
         "origin/main" if _ref_exists(root, "origin/main") else None
     )
     if push_base:
@@ -808,19 +839,25 @@ def push(root: Path, change: str) -> dict:
             for c in tdata.get("commits", [])
         }
         unrecorded = []
-        log_out = _git(
-            root, "log", "--format=%H%x1f%s%x1f%P", f"{push_base}..HEAD"
-        ).stdout
+        # `--not origin/main`：premerge-sync 之后 main 侧的历史也落在
+        # push_base..HEAD 里——那些提交已经发布在 main 上，不归我们的闸管。
+        log_args = ["log", "--format=%H%x1f%s%x1f%P", f"{push_base}..HEAD"]
+        if _ref_exists(root, "origin/main"):
+            log_args += ["--not", "origin/main"]
+        log_out = _git(root, *log_args).stdout
         for line in log_out.splitlines():
             if "\x1f" not in line:
                 continue
             h, s, parents = line.split("\x1f", 2)
             if h in recorded_hashes:
                 continue
-            if s.startswith("chore(auto-push):"):
+            parent_list = parents.split()
+            if len(parent_list) > 1:
+                # premerge-sync 的 merge commit：被并入的一侧必须真是 main
+                if any(_is_ancestor(root, p, "origin/main") for p in parent_list[1:]):
+                    continue
+            elif _is_metadata_commit(root, h):
                 continue
-            if len(parents.split()) > 1:
-                continue  # premerge-sync 产生的 merge commit
             unrecorded.append({"hash": h[:12], "subject": s[:80]})
         if unrecorded:
             return _blocked(
@@ -829,6 +866,21 @@ def push(root: Path, change: str) -> dict:
                 "record them per task (record-commit) or hand back to the user",
                 commits=unrecorded[:10],
             )
+    return None
+
+
+def push(root: Path, change: str) -> dict:
+    manifest = _load_manifest(root, change)
+    branch = manifest["branch"]
+    if _current_branch(root) != branch:
+        return _blocked("BLOCKED_BRANCH", f"not on '{branch}'")
+    if not _has_remote(root):
+        return _blocked("BLOCKED_NO_REMOTE", "no 'origin' remote configured")
+    _git(root, "fetch", "origin", check=False)
+    gates = _push_gates(root, manifest)
+    if gates:
+        return gates
+    remote_ref = _remote_ref(root, branch)
     if remote_ref:
         counts = _git(
             root, "rev-list", "--left-right", "--count", f"{branch}...{remote_ref}"
@@ -1072,6 +1124,11 @@ def merge(root: Path, change: str, reverified: bool = False) -> dict:
             gate_tip=gate["tip"],
         )
     if _has_remote(root):
+        # tip push 与普通 push 过同一道闸：未登记/未验证/越界的提交同样
+        # 不得借 merge 流程离开本机（codex 审查轮 3，blocking）。
+        gates = _push_gates(root, manifest)
+        if gates:
+            return gates
         # 远端 Change 分支必须如实反映将被合并的 tip（writeback / premerge-sync
         # 的提交也在内），否则 merge 后 cleanup 的 -d 会因 upstream 落后而拒绝。
         tip_push = _git(root, "push", "-u", "origin", branch, check=False)
