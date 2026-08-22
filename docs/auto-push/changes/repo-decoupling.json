@@ -100,7 +100,10 @@
     }
   },
   "merge_gate": {
-    "status": "PENDING"
+    "status": "PASS",
+    "by": "产品负责人 2026-08-22：「合并」（前问答确认为 merge TASK-102 到 main）",
+    "time": "2026-08-22T13:27:31+00:00",
+    "tip": "28278031a024716f79f644f00959f665afccf2db"
   },
   "merge": null,
   "cleanup": null
