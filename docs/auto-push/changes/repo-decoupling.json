@@ -22,10 +22,8 @@
           "time": "2026-08-22T07:50:54+00:00",
           "branch": "change/TASK-102-repo-decoupling",
           "pushed": false,
-          "scope_violation": [
-            "docs/tasks/TASK-102-injected-adr-0080-2026-08-22.md",
-            "docs/tasks/TASK-102-injected-agents-md-2026-08-22.patch"
-          ]
+          "scope_violation": null,
+          "scope_recheck": "2026-08-22: 按当前申报的 paths 用 autopush._matches 重算（旧值是 record-commit 当时较窄申报下的快照）"
         },
         {
           "hash": "47fb47f543456fddd381e8cd569225990dfe840d",
@@ -33,21 +31,8 @@
           "time": "2026-08-22T08:34:34+00:00",
           "branch": "change/TASK-102-repo-decoupling",
           "pushed": false,
-          "scope_violation": [
-            ".claude/skills/auto-push/SKILL.md",
-            ".claude/skills/auto-push/references/manifest.md",
-            ".claude/skills/codex-review-loop/SKILL.md",
-            ".claude/skills/dev-workflow/SKILL.md",
-            ".claude/skills/dev-workflow/references/architecture.md",
-            ".claude/skills/dev-workflow/references/records.md",
-            ".claude/skills/dev-workflow/references/repo-contract.md",
-            ".claude/skills/dev-workflow/references/verification.md",
-            ".claude/skills/dev-workflow/references/workflows.md",
-            ".claude/skills/skill-evolution/references/data-and-sync.md",
-            "AGENTS.md",
-            "CLAUDE.md",
-            "README.md"
-          ]
+          "scope_violation": null,
+          "scope_recheck": "2026-08-22: 按当前申报的 paths 用 autopush._matches 重算（旧值是 record-commit 当时较窄申报下的快照）"
         },
         {
           "hash": "5cc7c50fcf57c3547d18b719d7a6bc967d911e7f",
