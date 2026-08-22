@@ -1,12 +1,28 @@
 {
  "skills": {
+  "auto-push": {
+   "backlog": "docs/skill-evolution/backlogs/auto-push.jsonl",
+   "feedback_seq": 1,
+   "last_feedback_at": "2026-08-22T06:01:22Z",
+   "last_review_at": null,
+   "last_seen_at": "2026-08-22T06:01:22Z",
+   "open": 1,
+   "path": ".claude/skills/auto-push",
+   "pending_proposals": [],
+   "protected": [],
+   "registered_at": "2026-08-22T06:01:22Z",
+   "repeated": {},
+   "revision": "242d8a00ddc0",
+   "severe_open": 0,
+   "status": "OBSERVING"
+  },
   "codex-review-loop": {
    "backlog": "docs/skill-evolution/backlogs/codex-review-loop.jsonl",
-   "feedback_seq": 1,
-   "last_feedback_at": "2026-08-22T04:24:00Z",
+   "feedback_seq": 2,
+   "last_feedback_at": "2026-08-22T06:01:22Z",
    "last_review_at": null,
    "last_seen_at": "2026-08-22T03:57:33Z",
-   "open": 1,
+   "open": 2,
    "path": ".claude/skills/codex-review-loop",
    "pending_proposals": [],
    "protected": [],

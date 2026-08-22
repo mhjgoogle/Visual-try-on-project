@@ -1,0 +1,1 @@
+{"category": "FRICTION", "id": "fb-auto-push-0001", "key": "manifest-writeback-dirty-tree", "note": "清单回写让工作树周期性变脏：record-commit/push 写清单后 sync/merge 都要先 NEEDS_WRITEBACK_COMMIT+chore 提交消化，每 Change 多 1-2 个 chore 提交（TASK-101 真实使用实测）", "severity": "low", "status": "OBSERVING", "task": "TASK-101", "ts": "2026-08-22T06:01:22Z"}
