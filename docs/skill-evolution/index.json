@@ -2,10 +2,11 @@
  "skills": {
   "codex-review-loop": {
    "backlog": "docs/skill-evolution/backlogs/codex-review-loop.jsonl",
-   "feedback_seq": 0,
+   "feedback_seq": 1,
+   "last_feedback_at": "2026-08-22T04:24:00Z",
    "last_review_at": null,
    "last_seen_at": "2026-08-22T03:57:33Z",
-   "open": 0,
+   "open": 1,
    "path": ".claude/skills/codex-review-loop",
    "pending_proposals": [],
    "protected": [],
@@ -13,7 +14,7 @@
    "repeated": {},
    "revision": "78091f365f56",
    "severe_open": 0,
-   "status": "REGISTERED"
+   "status": "OBSERVING"
   },
   "dev-workflow": {
    "backlog": "docs/skill-evolution/backlogs/dev-workflow.jsonl",
