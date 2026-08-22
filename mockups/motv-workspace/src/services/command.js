@@ -162,6 +162,22 @@ export function mixShotAudio(project, slug, clips) {
   return post("/api/agent/mix-shot", { project, slug, clips }, "mix", { timeoutMs: 0 });
 }
 
+/**
+ * 白膜视频（TASK-098）：一张 Keyframe + 一份运动规格 → 一段本地渲的静音 mp4。
+ *
+ * **零花费**，所以它和 `renderEpisode` / `mixShotAudio` 一样走 agent 那组本地
+ * ffmpeg 路线，而**不**经付费 Gateway。那句运镜怎么读是
+ * `workflow/motionpreview.js` 的事；这里只把数字送过去。
+ */
+export function renderMotionPreview(project, slug, image, spec) {
+  return post(
+    "/api/agent/motion-preview",
+    { project, slug, image, spec },
+    "motion",
+    { timeoutMs: 0 },
+  );
+}
+
 export function composeFinal(project, spec) {
   return post("/api/agent/compose", { project, ...spec }, "compose", { timeoutMs: 0 });
 }

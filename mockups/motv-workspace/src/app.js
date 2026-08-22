@@ -85,6 +85,7 @@ import { createFrameController } from "./controllers/framectl.js";
 import { createAssetController } from "./controllers/assetctl.js";
 import { createTimelineController } from "./controllers/timelinectl.js";
 import { createSkillController } from "./controllers/skillctl.js";
+import { createMotionPreviewController } from "./controllers/motionctl.js";
 // TASK-072 §1.5/§1.6: the three review layers and the five gates, as domain
 import * as review from "./workflow/review.js";
 import { g3TriggerFor, g3Retire, g4Export } from "./workflow/gates.js";
@@ -121,6 +122,7 @@ import * as sceneplan from "./workflow/sceneplan.js";
 import * as assetprep from "./workflow/assetprep.js";
 import * as sbdraft from "./workflow/sbdraft.js";
 import * as keyframe from "./workflow/keyframe.js";
+import * as motionpreview from "./workflow/motionpreview.js";
 import * as promptbatch from "./ui/promptbatch.js";
 import * as videobatch from "./ui/videobatch.js";
 import {
@@ -1865,6 +1867,9 @@ const ctx = {
         // 没有产物时仍然要说得出「整镜是不是被跳过了」
         return { skipped: shotstage.isSkipped(productionDoc.shotProduction.stages, shotId, "keyframe") };
       },
+      // 白膜视频（TASK-098）：每行多一格运镜。**注入而不是 import** —— 与
+      // `keyframeOf` 同一条纪律，`keyframe.js` 不该知道 ffmpeg 或者那句运镜怎么读。
+      motionOf: (shotId, ev) => ctx.motionPreview.rowOf(shotId, ev),
     }),
     /** 一镜的合成编排：草图 + 设定图 + 分镜提示词，每张声明它管什么。 */
     plan: (shotId) => {
@@ -5497,6 +5502,39 @@ ctx.shotAudio = createShotAudioController({
   now: () => new Date().toISOString(),
 });
 
+// 白膜视频（TASK-098）。名字先 grep 过（§2.5f 第三条：`ctx` 上撞名不报错，
+// 只是行为静默变成另一个）—— 仓库里没有第二个 `motionPreview`。
+//
+// 依赖列表短得刻意：它读登记表、读那一镜的运镜与时长、调本地 ffmpeg、登记一份
+// 预览。**没有 generations、没有 gateway、没有 budget** —— 零花费是本卡的前提，
+// 而一个不需要付费依赖的操作就不该把它们接进来。
+ctx.motionPreview = createMotionPreviewController({
+  docs: { registry: () => assetRegistry },
+  modules: { motionpreview, mediaref, assetreg },
+  findShot: (shotId) => ctx.shot.find(shotId),
+  slotOf: (shot) => ctx.shot._slotOf(shot),
+  keyframeOf: (shotId) => ctx.keyframe.frameOf(shotId),
+  // 第二档：这一镜**当前那张镜头图片**（`mediaOf` 读的正是这条链）。
+  // 实测两个真实项目里 `keyframe` 一张都还没产出过，只认关键帧会让白膜在现有
+  // 项目上一次也跑不起来 —— 退档是允许的，**静默退档不是**（界面与 toast 都
+  // 报出用的是哪一档，见 `motionpreview.SOURCE_TIERS`）。
+  shotImageOf: (shotId) => {
+    const shot = ctx.shot.find(shotId);
+    const slot = shot ? ctx.shot._slotOf(shot) : null;
+    if (!slot) return null;
+    const ref = mediaref.currentRef(assetRegistry.images, slot);
+    return ref && ref.url ? { url: ref.url, assetId: ref.assetId || null } : null;
+  },
+  contextOfShot,
+  session: { connected: () => CONNECTED, projectName: () => PROJECT_NAME },
+  renderMotionPreview: (project, slug, image, spec) =>
+    command.renderMotionPreview(project, slug, image, spec),
+  refreshType: (t) => ctx.refreshType(t),
+  persist: () => ctx.persist(),
+  refresh: () => refreshProductionView(),
+  toast,
+});
+
 // TASK-073 §1.8: 首/尾帧。grabVideoFrame 用注入而不是 import —— 它读的是
 // <video> 元素，是这里唯一真正绑定浏览器的一步；把它注入进来，这个模块的其余部分
 // 才能在测试里被构造出来。
@@ -7268,7 +7306,7 @@ async function npOpen() {
   npRoot = await defaultAssetRoot();
   npNote.textContent = CONNECTED
     ? "项目文件夹会由后端创建在这个位置。第一次使用一个新位置时会要求你确认一次。"
-    : "演示模式没有后端，也就没有文件系统：这里不会建任何文件夹。要真正把项目建到磁盘上，用连接模式启动（./run-windows.ps1 -Connected）。";
+    : "演示模式没有后端，也就没有文件系统：这里不会建任何文件夹。要真正把项目建到磁盘上，用连接模式启动（./scripts/launch/studio.ps1 -Connected）。";
   const pick = $("#np-pick");
   pick.disabled = !CONNECTED;
   pick.title = CONNECTED ? "" : "目录选择需要连接模式（后端）";

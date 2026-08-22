@@ -214,7 +214,9 @@ _UPLOAD_FILE_RE = re.compile(r"[A-Za-z0-9_-]{1,76}\.(?:png|jpg|webp|mp4|webm|mp3
 # `mix-` joined in TASK-064 Phase 3: a Shot Mix is a DERIVED deliverable written
 # by _agent_mix_shot, and a manual upload allowed to claim its slug could
 # silently replace a mix (or have the same-slug cleanup delete one).
-_RESERVED_SLUG_PREFIXES = ("final-cut", "render-ep", "mix-")
+# TASK-098 加入 `motion-`：白膜预览走自己的链（`motion-<slot>`），保留前缀让人工
+# 上传抢不到它的版本化文件名 —— 与 `mix-` 同一条理由。
+_RESERVED_SLUG_PREFIXES = ("final-cut", "render-ep", "mix-", "motion-")
 
 # Episode render is CPU/disk heavy: allow only ONE at a time (a second caller
 # gets a busy response, never a pile-up), and bound the total output work by a
@@ -435,6 +437,8 @@ _MEDIA_WRITE_ROUTES = frozenset(
         "/api/agent/adopt-paid",
         "/api/agent/render-episode",
         "/api/agent/mix-shot",
+        # TASK-098: 白膜预览写 media/ 下的 mp4，所以它同样受未迁移项目的闸门约束
+        "/api/agent/motion-preview",
         "/api/assets/delete-file",
     }
 )
@@ -2916,6 +2920,8 @@ class _App:
             return self._agent_render_episode(body)
         if path == "/api/agent/mix-shot":
             return self._agent_mix_shot(body)
+        if path == "/api/agent/motion-preview":
+            return self._agent_motion_preview(body)
         if path == "/api/assets/delete-file":
             return self._assets_delete_file(body)
         if path == "/api/agent/script-draft":
@@ -6148,6 +6154,586 @@ class _App:
                 "version": n,
                 "sha256": sha,
                 "clips": len(auds),
+            },
+        )
+
+    # -- 白膜视频：关键帧 + 运镜 → 本地免费预览 (TASK-098) --------------------
+    #
+    # 成本阶梯里缺的那一格：Storyboard 便宜、Keyframe 贵、整镜生成最贵，而
+    # 「运镜对不对」在此之前**只有花钱生成整镜才看得到**。真实项目 60 个镜头的
+    # `cameraMotion` 填充率是 0/60 —— 本卡的假设是「填了也看不见效果」。
+    #
+    # 本端点**全程零花费**：一张既有的关键帧 + 本地 ffmpeg 的仿射变换。
+    # 没有 provider、没有网络、没有 API key。
+    #
+    # 语义归属划得很清：**那句运镜怎么读，是前端 `workflow/motionpreview.js`
+    # 一个人的事**（生产与测试共用同一份谓词，§2.5d）。本端点只收一份**数值规格**
+    # 并且**再验一次同样的不变量** —— 因为它是真正要写文件的那一层
+    # （§2.5b-2：fail-closed 必须落在对方真正读的那条路上）。
+    _MOTION_TIMEOUT_SECONDS = 180
+    # **时长上限是一条，帧数上限只是它的一个副产品。**
+    #
+    # 第一版把两者写成互不相关的两道：`fps ∈ [12,30]` 与 `frames ∈ [2,1800]`。
+    # 两道各自合法的请求组合起来是 1800/12 = **150 秒** —— 越过了 60 秒这条合同，
+    # 而且会长时间占住全局那把渲染锁（codex 轮 2 的 P1）。
+    #
+    # 所以真正要守的不变量是 `frames / fps <= 60`，帧数那道只留作一个粗的理智边界。
+    # 与前端 `motionpreview.MAX_PREVIEW_SECONDS` 是同一个数：白膜是一次目视确认，
+    # 不是成片。
+    _MOTION_MAX_SECONDS = 60
+    _MOTION_MAX_FRAMES = 1800  # 60s @ 30fps —— 上限仍由 _MOTION_MAX_SECONDS 兜住
+    _MOTION_OUT_LONG_EDGE = 1280
+
+    @staticmethod
+    def _motion_even(n):
+        """偶数边长（H.264 要 4:2:0，奇数边会被 ffmpeg 拒或悄悄改）。"""
+        return max(16, int(n) // 2 * 2)
+
+    @classmethod
+    def _motion_prescale(cls, out_w, out_h, z_max, cap=4096):
+        """预放到多大。**两条边乘同一个系数** —— 这是一条几何不变量，所以它有名字、
+        可导出、生产与测试共用同一份（§2.5d）。
+
+        第一版把两条边各自 `min(cap, …)`：zoom 上限 4.0、长边输出 1280，于是
+        `1280×4 = 5120` 被夹到 4096 而短边没被夹 —— 预览被**横向压扁**，而它看起来
+        仍然是一次成功的渲染（codex 轮 3 的 P1）。
+
+        提成方法而不是留在函数体里，是因为**压扁看不出来**：输出尺寸
+        （`width`/`height`）在两种写法下都是对的，被改变的是画面内容的比例。
+        一条只能靠像素才能发现的缺陷，必须让判定本身可测。
+        """
+        scale = min(float(z_max), float(cap) / max(out_w, out_h))
+        return cls._motion_even(out_w * scale), cls._motion_even(out_h * scale)
+
+    @staticmethod
+    def _motion_contained(zoom_from, zoom_to, cx0, cx1, cy0, cy1, amp):
+        """裁切窗口在**任何一帧**都必须整个落在画面里。
+
+        这是 `motionpreview.specContained` 的同一条，写在这一层是因为**这一层才是
+        真的调 ffmpeg 的那一层**。越界的后果不是报错：ffmpeg 会把 x/y 静默夹在边界
+        上，于是运动走到一半自己停下，而输出仍然是一个「成功」的 mp4 —— 一段会
+        说谎的画面比一次失败坏得多。
+        """
+        z_min = min(zoom_from, zoom_to)
+        if not z_min >= 1.0:
+            return False
+        half = 0.5 / z_min
+        worst_x = max(abs(cx0 - 0.5), abs(cx1 - 0.5)) + amp
+        worst_y = max(abs(cy0 - 0.5), abs(cy1 - 0.5)) + amp
+        return worst_x + half <= 0.5 + 1e-9 and worst_y + half <= 0.5 + 1e-9
+
+    def _agent_motion_preview(self, body: bytes):
+        """白膜视频（TASK-098 §2 B1）：一张 Keyframe + 一份运动规格 → 一段与该镜
+        `时长` 等长的**静音** MP4，本地、免费、确定性。
+
+        输出 ``motion-<slot>_v<N>.mp4`` —— 版本化原子占位，永不覆盖（第 13 条）。
+        它是**预览，不是产物**：登记为 `motionpreview`，走自己的链
+        （`motion-<slot>`），因此不进 `mediaOf` 那条「这一镜有没有视频」的判定，
+        也不接 `first_frame_image` 那条付费路（TASK-098 §5.4）。
+
+        fail-closed 的每一处都说得出原因：缺 ffmpeg → 503；图不在 / 规格越界 →
+        400；ffmpeg 失败或**输出时长与请求不符** → 502。**任何一条都不产出文件**。
+        """
+        if len(body) > 20_000:
+            return _json(
+                413, {"error": {"category": "too_large", "detail": "request too large"}}
+            )
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid JSON"}}
+            )
+        if not isinstance(payload, dict):
+            return _json(
+                400,
+                {"error": {"category": "bad_request", "detail": "body must be object"}},
+            )
+        project = payload.get("project")
+        slug = payload.get("slug")
+        image = payload.get("image")
+        spec = payload.get("spec")
+        if not isinstance(project, str):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid name"}}
+            )
+        d = self._upload_dir(project)
+        if d is None:
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid name"}}
+            )
+        if not isinstance(slug, str) or not _NAME_RE.fullmatch(slug):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid slug"}}
+            )
+        # …并且必须留在自己的命名空间里（与 `_agent_mix_shot` 同一条纪律）。
+        # `motion-` 是保留前缀（`_RESERVED_SLUG_PREFIXES`），所以人工上传抢不到
+        # 这些文件名；反方向同样要挡住 —— 一个白膜预览不许写进 `voice-…` 或
+        # `final-cut…`，否则它会顶掉别人那条链上的一个版本号。
+        if not slug.startswith("motion-"):
+            return _json(
+                400,
+                {
+                    "error": {
+                        "category": "bad_request",
+                        "detail": "白膜预览的名字必须以 motion- 开头（保留命名空间）",
+                    }
+                },
+            )
+        if not isinstance(spec, dict):
+            return _json(
+                400,
+                {"error": {"category": "bad_request", "detail": "spec must be object"}},
+            )
+
+        def _num(container, key, lo, hi, label=None):
+            """一个**必填**的有限数字，且必须在范围内。
+
+            越界一律拒绝，**不静默夹回范围内** —— 夹回去等于渲出一段与请求不同的
+            运动，然后报告成功。范围比较放在 `isfinite` 之前：JSON 里一个大到装不进
+            float 的整数会让 `isfinite` 抛 OverflowError（`_agent_mix_shot` 已经
+            为这一条付过一次代价）。
+            """
+            v = container.get(key)
+            if (
+                isinstance(v, (int, float))
+                and not isinstance(v, bool)
+                and lo <= v <= hi
+                and math.isfinite(v)
+            ):
+                return float(v), None
+            return None, f"{label or f'spec.{key}'} 不是 [{lo}, {hi}] 里的数字"
+
+        def _int(container, key, lo, hi):
+            v = container.get(key)
+            if isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi:
+                return v, None
+            return None, f"spec.{key} 不是 [{lo}, {hi}] 里的整数"
+
+        fps, e = _int(spec, "fps", 12, 30)
+        if e is None:
+            frames, e = _int(spec, "frames", 2, self._MOTION_MAX_FRAMES)
+        zoom = spec.get("zoom") if isinstance(spec.get("zoom"), dict) else {}
+        center = spec.get("center") if isinstance(spec.get("center"), dict) else {}
+        if e is None:
+            z_from, e = _num(zoom, "from", 1.0, 4.0, "spec.zoom.from")
+        if e is None:
+            z_to, e = _num(zoom, "to", 1.0, 4.0, "spec.zoom.to")
+        if e is None:
+            cx0, e = _num(center, "fromX", 0.0, 1.0, "spec.center.fromX")
+        if e is None:
+            cx1, e = _num(center, "toX", 0.0, 1.0, "spec.center.toX")
+        if e is None:
+            cy0, e = _num(center, "fromY", 0.0, 1.0, "spec.center.fromY")
+        if e is None:
+            cy1, e = _num(center, "toY", 0.0, 1.0, "spec.center.toY")
+        shake = spec.get("shake")
+        amp = 0.0
+        if e is None and shake is not None:
+            if not isinstance(shake, dict):
+                e = "spec.shake 要么缺省，要么是一个对象"
+            else:
+                amp, e = _num(shake, "amp", 0.0, 0.05, "spec.shake.amp")
+        still = spec.get("still")
+        if e is None and not isinstance(still, bool):
+            e = "spec.still 必须显式说明这段预览是不是「画面不动」"
+        if e:
+            return _json(400, {"error": {"category": "bad_request", "detail": e}})
+
+        # 时长那条不变量（不是 fps 与 frames 各自那两道 —— 见 _MOTION_MAX_SECONDS）
+        if frames / float(fps) > self._MOTION_MAX_SECONDS + 0.05:
+            return _json(
+                400,
+                {
+                    "error": {
+                        "category": "bad_request",
+                        "detail": (
+                            f"预览长 {frames / float(fps):.1f}s，超过上限 "
+                            f"{self._MOTION_MAX_SECONDS}s —— 白膜是一次目视确认，"
+                            "不是成片（它还会占住本机那把渲染锁）"
+                        ),
+                    }
+                },
+            )
+
+        # **「不动」必须是一次声明，不能是一个巧合**（TASK-098 §7.2 的服务端那一半）。
+        #
+        # 「认不出的运镜不静默输出一个不动的视频」这条闸门在前端解析器上钉了一次；
+        # 只钉在那里的话，任何别的调用方（今天的批量、明天的 Skill）都能绕过它 ——
+        # 而它绕过的方式恰恰是最像成功的那一种：一段能播、时长正确、什么都不发生
+        # 的 mp4。所以**两个方向都在这里再钉一次**：
+        #
+        #   声明了不动，规格却在动  → 拒（前端与后端对同一段预览的理解已经分叉）
+        #   没声明不动，规格也不动  → 拒（这正是那段会说谎的视频）
+        #
+        # 明写「固定机位」时输出一个不动的视频**是对的**，所以放行那一半必须存在
+        # ——只挡不放的闸门迟早会被关掉（§2.5d）。
+        moving = (
+            abs(z_from - z_to) > 1e-6
+            or abs(cx0 - cx1) > 1e-6
+            or abs(cy0 - cy1) > 1e-6
+            or amp > 0
+        )
+        if still and moving:
+            return _json(
+                400,
+                {
+                    "error": {
+                        "category": "bad_request",
+                        "detail": "规格声明「画面不动」，但它带着运动 —— 不予渲染",
+                    }
+                },
+            )
+        if not still and not moving:
+            return _json(
+                400,
+                {
+                    "error": {
+                        "category": "bad_request",
+                        "detail": (
+                            "这份规格没有任何运动，也没有声明「固定机位」——"
+                            "白膜不会静默输出一段不动的视频冒充预览"
+                        ),
+                    }
+                },
+            )
+        if not self._motion_contained(z_from, z_to, cx0, cx1, cy0, cy1, amp):
+            return _json(
+                400,
+                {
+                    "error": {
+                        "category": "bad_request",
+                        "detail": (
+                            "这份规格的平移幅度超出了画幅余量 —— 渲出来运动会在中途"
+                            "被夹住停下，而视频看起来仍然是成功的，所以不予渲染"
+                        ),
+                    }
+                },
+            )
+
+        # 请求本身的问题**不排在一次媒体读取后面**（与 `_agent_render_episode`
+        # 同一条纪律）：规格越界只取决于请求，先答完它，再去碰磁盘。
+        src = self._resolve_upload_file(d, image, (".png", ".jpg", ".webp"))
+        if src is None:
+            return _json(
+                400,
+                {
+                    "error": {
+                        "category": "bad_request",
+                        "detail": (
+                            "找不到这一镜的关键帧图片"
+                            "（或它不是本项目 media/ 下的普通文件）"
+                        ),
+                    }
+                },
+            )
+
+        import shutil as _shutil
+
+        # ADR-0049 第 3 条：按名解析，**绝不裸名调用**（`shell=False` 下裸名解析不到
+        # `.cmd`/`.bat`），缺失即 fail-closed 并给安装提示。
+        ffmpeg = _shutil.which("ffmpeg")
+        ffprobe = _shutil.which("ffprobe")
+        if ffmpeg is None or ffprobe is None:
+            return _json(
+                503,
+                {
+                    "error": {
+                        "category": "motion_preview_unavailable",
+                        "detail": (
+                            "ffmpeg/ffprobe 缺失：请安装并加入 PATH"
+                            "（白膜预览是本地渲染）"
+                        ),
+                    }
+                },
+            )
+
+        # 关键帧的真实像素尺寸。**测不到就不渲** —— 猜一个 16:9 会让竖屏短剧的预览
+        # 被拉变形，而那时创作者看到的构图不是他那张图的构图。
+        if not _PROBE_SEM.acquire(timeout=_PROBE_WAIT_SECONDS):
+            return _json(
+                503,
+                {
+                    "error": {
+                        "category": "busy",
+                        "detail": "本机探测队列已满，请稍后再试",
+                    }
+                },
+            )
+        try:
+            pr = subprocess.run(  # noqa: S603 - fixed argv, validated path
+                [
+                    ffprobe,
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "v:0",
+                    "-show_entries",
+                    "stream=width,height",
+                    "-of",
+                    "default=noprint_wrappers=1:nokey=1",
+                    str(src),
+                ],
+                capture_output=True,
+                timeout=30,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            pr = None
+        finally:
+            _PROBE_SEM.release()
+        dims = []
+        if pr is not None and pr.returncode == 0:
+            for line in (pr.stdout or b"").decode("utf-8", "replace").split():
+                try:
+                    dims.append(int(line))
+                except ValueError:
+                    dims = []
+                    break
+        if len(dims) != 2 or dims[0] < 16 or dims[1] < 16:
+            return _json(
+                502,
+                {
+                    "error": {
+                        "category": "probe_failed",
+                        "detail": "读不出关键帧的像素尺寸 —— 不猜一个比例，本次不渲染",
+                    }
+                },
+            )
+        src_w, src_h = dims
+
+        _even = self._motion_even
+        long_edge = self._MOTION_OUT_LONG_EDGE
+        if src_w >= src_h:
+            out_w, out_h = _even(long_edge), _even(long_edge * src_h / src_w)
+        else:
+            out_w, out_h = _even(long_edge * src_w / src_h), _even(long_edge)
+        # zoompan 的裁切窗口是 `iw/zoom` —— 想让最紧的那一帧还是 1:1，输入就得预放到
+        # 输出尺寸的 zoom 倍。4096 是为了不让一份合法请求造出一张巨图。
+        #
+        # **两条边必须乘同一个系数。** 第一版把两条边各自 `min(4096, …)`：
+        # zoom 上限是 4.0，而长边输出 1280，于是 `1280×4 = 5120` 被夹到 4096、短边
+        # 却没被夹 —— 预览被**横向压扁**，而它看起来仍然是一次成功的渲染
+        # （codex 轮 3 的 P1）。一张几何上说谎的画面正是本卡最不能出的东西。
+        #
+        # 所以夹的是**系数**，不是边长：超过 4096 时最紧的那一帧会被略微放大
+        # （清晰度的代价），但构图与比例仍然是真的 —— 那是正确的取舍方向。
+        z_max = max(z_from, z_to)
+        pre_w, pre_h = self._motion_prescale(out_w, out_h, z_max)
+
+        last = max(1, frames - 1)
+        prog = f"(on/{last})"
+        z_expr = f"{z_from:.6f}+({z_to - z_from:.6f})*{prog}"
+        cx_expr = f"{cx0:.6f}+({cx1 - cx0:.6f})*{prog}"
+        cy_expr = f"{cy0:.6f}+({cy1 - cy0:.6f})*{prog}"
+        if amp > 0:
+            # 确定性抖动：两个不成整数比的正弦叠加，看起来不周期，而**同一份规格
+            # 永远抖出同一段画面**。用 `random()` 会让「改一个字看效果变没变」这件
+            # 事失去参照 —— 预览必须可复现。
+            t = f"(on/{fps})"
+            cx_expr += (
+                f"+{amp:.6f}*(sin(6.283185*2.7*{t})+0.6*sin(6.283185*5.3*{t}))/1.6"
+            )
+            cy_expr += (
+                f"+{amp:.6f}*(sin(6.283185*3.1*{t}+1.1)+0.6*sin(6.283185*4.7*{t}))/1.6"
+            )
+        vf = (
+            f"scale={pre_w}:{pre_h}:flags=lanczos,"
+            f"zoompan=z='{z_expr}'"
+            f":x='iw*({cx_expr})-(iw/zoom)*0.5'"
+            f":y='ih*({cy_expr})-(ih/zoom)*0.5'"
+            f":d=1:s={out_w}x{out_h}:fps={fps},format=yuv420p"
+        )
+
+        if not _RENDER_LOCK.acquire(blocking=False):
+            return _json(
+                503,
+                {
+                    "error": {
+                        "category": "busy",
+                        "detail": "本机已有一个 ffmpeg 作业在跑，请等它结束",
+                    }
+                },
+            )
+        work = None
+        try:
+            # `dir=str(d)` 不是整洁，是**正确性**：ADR-0049 决策 2 要求原子替换的
+            # 临时文件始终待在目标目录（同卷）。第一版用了系统临时目录，于是仓库在
+            # D: 而 TEMP 在 C: 的这台机器上 `os.replace` 直接 `OSError` ——
+            # 三个真实镜头全部 502。其余四处 ffmpeg 端点本来都传了 `dir=`；
+            # 只有这一处漏了，而**只有在真实项目上跑才会暴露**（tmp_path 与被写入
+            # 的目录在测试里同卷）。
+            work = Path(tempfile.mkdtemp(prefix="motionpreview-", dir=str(d)))
+            out_tmp = work / "preview.mp4"
+            try:
+                proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
+                    [
+                        ffmpeg,
+                        "-nostdin",
+                        "-v",
+                        "error",
+                        "-y",
+                        "-loop",
+                        "1",
+                        "-i",
+                        str(src),
+                        "-frames:v",
+                        str(frames),
+                        "-vf",
+                        vf,
+                        "-c:v",
+                        "libx264",
+                        "-preset",
+                        "veryfast",
+                        "-crf",
+                        "22",
+                        "-pix_fmt",
+                        "yuv420p",
+                        # 白膜是静音的（§6：配音对齐仍归 TASK-096）
+                        "-an",
+                        "-movflags",
+                        "+faststart",
+                        str(out_tmp),
+                    ],
+                    capture_output=True,
+                    timeout=self._MOTION_TIMEOUT_SECONDS,
+                )
+            except subprocess.TimeoutExpired:
+                return _json(
+                    504,
+                    {
+                        "error": {
+                            "category": "motion_preview_failed",
+                            "detail": "ffmpeg 超时 —— 本次没有产出文件",
+                        }
+                    },
+                )
+            except OSError as exc:
+                return _json(
+                    502,
+                    {
+                        "error": {
+                            "category": "motion_preview_failed",
+                            "detail": f"ffmpeg 起不来：{exc}",
+                        }
+                    },
+                )
+            # 「退出码 0」不等于产出了一段能看的视频：零字节文件同样会带着 0 回来。
+            if (
+                proc.returncode != 0
+                or not out_tmp.is_file()
+                or out_tmp.stat().st_size == 0
+            ):
+                detail = (proc.stderr or b"")[-400:].decode("utf-8", "replace")
+                return _json(
+                    502,
+                    {
+                        "error": {
+                            "category": "motion_preview_failed",
+                            "detail": f"ffmpeg 没有产出可用的预览：{detail}".strip(),
+                        }
+                    },
+                )
+            # **时长要核对**（§7 / §9：预览时长 == 该镜时长）。帧数是我们给的，
+            # 但「给了 N 帧就一定得到 N 帧」是一个断言，不是一个事实 —— 核对一次，
+            # 不对就不交付。
+            want = frames / float(fps)
+            try:
+                vr = subprocess.run(  # noqa: S603 - fixed argv, validated path
+                    [
+                        ffprobe,
+                        "-v",
+                        "error",
+                        "-show_entries",
+                        "format=duration",
+                        "-of",
+                        "default=noprint_wrappers=1:nokey=1",
+                        str(out_tmp),
+                    ],
+                    capture_output=True,
+                    timeout=30,
+                )
+            except (subprocess.TimeoutExpired, OSError):
+                vr = None
+            got = None
+            if vr is not None and vr.returncode == 0:
+                try:
+                    got = float((vr.stdout or b"").decode("utf-8", "replace").strip())
+                except ValueError:
+                    got = None
+            if got is None or not math.isfinite(got) or abs(got - want) > 0.15:
+                got_text = "读不出" if got is None else format(got, ".2f")
+                return _json(
+                    502,
+                    {
+                        "error": {
+                            "category": "motion_preview_failed",
+                            "detail": (
+                                f"预览时长核对不过（要 {want:.2f}s，"
+                                f"得到 {got_text}）"
+                                "—— 不交付一个时长不对的预览"
+                            ),
+                        }
+                    },
+                )
+            # 版本化原子占位：两个并发的预览永远不会共用同一个 N（第 13 条）
+            n = 1
+            while True:
+                target = d / f"{slug}_v{n}.mp4"
+                try:
+                    os.close(os.open(str(target), os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+                    break
+                except FileExistsError:
+                    n += 1
+            # 占住版本号之后的**每一条失败路径都要把它让出来**。
+            #
+            # 两层教训叠在这里（codex 轮 3 的 non-blocking + 修它时暴露的第二个洞）：
+            #   一、先发布再算哈希 → 哈希失败时留下一个**没人登记**的 mp4；
+            #   二、占位是一个**空文件** → 只把顺序换过来，哈希失败会留下一个
+            #       **零字节**的 `_v1.mp4`，而它照样占着版本号让重试跳号。
+            # 所以 `unlink` 要覆盖占位之后的全部失败，不只是 `os.replace` 那一步。
+            try:
+                h = hashlib.sha256()
+                with open(out_tmp, "rb") as fh:
+                    for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                        h.update(chunk)
+                sha = h.hexdigest()
+                # 被发布的永远是**已经算过哈希的那一个字节流**
+                os.replace(out_tmp, target)
+            except OSError:
+                try:
+                    os.unlink(target)  # 让出占住的版本号，别留一个零字节文件
+                except OSError:
+                    pass
+                raise
+        except OSError as exc:
+            # **原因照带**。第一版把它咽掉了，于是那个跨卷 `os.replace` 只报出
+            # 「写入失败」，排查全靠猜 —— 一条说不出原因的失败和一条假成功一样贵。
+            return _json(
+                502,
+                {
+                    "error": {
+                        "category": "motion_preview_failed",
+                        "detail": f"白膜预览写入失败：{exc}",
+                    }
+                },
+            )
+        finally:
+            if work is not None:
+                _shutil.rmtree(work, ignore_errors=True)
+            _RENDER_LOCK.release()
+        return _json(
+            200,
+            {
+                "ok": True,
+                "url": f"/api/uploads/{project}/{slug}_v{n}.mp4",
+                "version": n,
+                "sha256": sha,
+                "duration": round(want, 3),
+                "frames": frames,
+                "fps": fps,
+                "width": out_w,
+                "height": out_h,
+                "source": src.name,
             },
         )
 

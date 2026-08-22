@@ -17,7 +17,7 @@ import { esc } from "../util/dom.js";
 import { head, empty, fileNameOf } from "./shell.js";
 import {
   ASSET_KIND_LABEL, ASSET_KINDS, KIND_DOMAIN, REFERENCE_KINDS as REF_KINDS, SHOT_PICTURE_KINDS,
-  derivedLabel, isReferenceKey,
+  SHOT_VIDEO_LIBRARY_KINDS, derivedLabel, isReferenceKey,
 } from "../workflow/assetreg.js";
 import { USAGE_KIND_LABEL, isUnused } from "../workflow/assetusage.js";
 
@@ -69,12 +69,16 @@ const AUDIO_KINDS = new Set(
 // been registered correctly and shown nowhere (TASK-097 §2.6.1 —— 新增 kind 的消费者
 // 要派生，不要手写).
 const SHOT_PICTURES = new Set(SHOT_PICTURE_KINDS);
+// 同一条，视频那一半（TASK-098）：`shot-video` 原来是精确匹配，于是新增的
+// `motionpreview` 会登记成功而在这个筛选里一段也看不见。
+const SHOT_VIDEOS = new Set(SHOT_VIDEO_LIBRARY_KINDS);
 
 function matchesType(a, type) {
   if (type === "all") return true;
   if (type === "reference") return REFERENCE_KINDS.has(a.kind) || isReferenceKey(a.key);
   if (type === "audio") return AUDIO_KINDS.has(a.kind) || a.domain === "audio";
   if (type === "shot-image") return SHOT_PICTURES.has(a.kind);
+  if (type === "shot-video") return SHOT_VIDEOS.has(a.kind);
   if (type === "final") return a.kind === "final" || a.domain === "finals";
   // 资产库's Collections tab (ADR-0061 决策 1): assets the creator EXPLICITLY
   // marked reusable. Never "used more than once" — that inference is what

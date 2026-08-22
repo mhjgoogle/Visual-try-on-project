@@ -1930,6 +1930,40 @@
 .kfl-gate { max-width: 340px; }
 .kfl-act { text-align: right; white-space: nowrap; }
 
+/* ── 白膜视频：⑤ 那张清单里的「运镜 · 白膜」一格 (TASK-098) ──────────────────
+   这一格要同时容下三种结局（能预览 / 认得出但做不到 / 认不出），所以它是一叠
+   小块而不是一个状态词 —— 「没做到弧形」和「已预览」必须能同时出现在一行里。
+   颜色一律用词汇表里的 token（--text-dim / --text-faint / --gate / --ok）。 */
+.kfl-motion { max-width: 300px; }
+.kfl-motion > * { margin-right: 4px; }
+/* 这一列里的标签允许折行：`.chip` 默认 `nowrap`，而这里的标签会带上「没做到 …」
+   这样的短句。加了第六列之后不折行就会把「动作」那一列挤出屏幕。 */
+.kfl-motion .chip, .kfl-gate .chip { white-space: normal; }
+.kfl-mblock { color: var(--gate); }
+/* 对不上现在这句运镜的那一段：压暗 + 一句话说清，不许它冒充当前的预览 */
+.kfl-mvid.stale { opacity: 0.55; border-color: var(--accent-line); }
+.kfl-mstale { display: block; color: var(--gate); font-size: 11px; margin-bottom: 3px; }
+.kfl-mnone { color: var(--text-faint); }
+.kfl-mvid {
+  display: block; width: 100%; max-width: 220px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--canvas); margin-bottom: 4px;
+}
+.kfl-mtodo { color: var(--text-dim); }
+.kfl-t td { vertical-align: top; }
+/* 认不出时列出能识别的词 —— 它是验收标准的一半，所以它有位置，不是一个 title */
+.kfl-mvocab {
+  display: block; color: var(--text-faint); font-size: 11px; line-height: 1.5;
+  margin-top: 3px;
+}
+.kfl-mcaveat { display: block; color: var(--text-faint); font-size: 11px; margin-top: 2px; }
+/* 运镜填充率那一条：0/60 那个数字的对照面（TASK-098 §4 / §7.3） */
+.kfl-mbar {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px;
+  margin-bottom: 8px; background: color-mix(in srgb, var(--panel) 60%, transparent);
+}
+.kfl-mnote { color: var(--text-faint); font-size: 11px; flex: 1 1 260px; }
+
 /* ── ⑥ 批量生视频 (TASK-097 批次 4E) ────────────────────────────────────────
    最要紧的两块是「总额」与「拿不到总额」：后者不是错误提示，是一句真话加一条
    真实可走的路，所以它有自己的样式而不是一个红框。 */

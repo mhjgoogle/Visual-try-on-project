@@ -25,7 +25,10 @@ import {
 import {
   defaultShotProduction, sanitizeShotProduction, shotStage, approveShot, stagesFromMedia,
 } from "../src/workflow/shotprod.js";
-import { ASSET_KINDS, ASSET_KIND_LABEL, KIND_DOMAIN, KIND_DOMAINS, SHOT_PICTURE_KINDS } from "../src/workflow/assetreg.js";
+import {
+  ASSET_KINDS, ASSET_KIND_LABEL, KIND_DOMAIN, KIND_DOMAINS,
+  SHOT_PICTURE_KINDS, SHOT_VIDEO_LIBRARY_KINDS,
+} from "../src/workflow/assetreg.js";
 import { TYPE_FILTERS, libraryModel } from "../src/ui/assetlibws.js";
 import { CANVAS_SCHEMA_VERSION, MIGRATIONS, validateCanvasDoc } from "../src/services/canvasschema.js";
 
@@ -332,24 +335,56 @@ test("**派生守卫**：每个 kind 都有标签、有允许的媒体域 ——
   }
 });
 
-test("**派生守卫**：每个图像域的 kind 都能被至少一个筛选找到 —— 否则它登记得好好的却一张也看不见", () => {
+/**
+ * 只有「全部」找得到的 kind —— **显式列出并说明**，不是静默通过。
+ *
+ * `derived-frame`（从视频里切出来的一帧）今天没有任何具体筛选认领它。这是**本卡
+ * 之前就存在的缺口**，TASK-098 只把它记下来（Follow-up），不顺手改：动它要先决定
+ * 「切出来的帧算不算镜头图片」，那是一个产品判断，不是一次筛选修补。
+ */
+const ONLY_UNDER_ALL = new Set(["derived-frame"]);
+
+test("**派生守卫**：每个 kind 都能被一个**具体**筛选找到 —— 「全部」不算", () => {
+  // 「全部」对每个 kind 都返回真，所以把它算进来这条守卫**永远不会失败**。
+  // TASK-098 的变异验证抓到了这一点：把「镜头视频」那条筛选删掉，守卫照样全绿
+  // —— 它当时只是在证明 `matchesType("all")` 返回真（§2.5d「过严的守卫等于没有
+  // 守卫」的镜像：**过松的守卫同样等于没有守卫**）。
+  //
+  // 而且一个几百条的库里，「全部」本来就不是找到某个东西的方式。
   const names = { character: () => "", location: () => "", episode: () => "", scene: () => "", shot: () => "" };
-  const filters = TYPE_FILTERS.map(([k]) => k).filter((k) => k !== "collection");
-  const imageKinds = ASSET_KINDS.filter((k) => KIND_DOMAIN[k] === "images");
-  for (const kind of imageKinds) {
-    const asset = {
-      assetId: `a-${kind}`, key: `img-${kind}`, kind, domain: "images",
-      tags: [], links: {}, current: true, reusable: false,
-    };
-    const found = filters.some((type) => {
-      const m = libraryModel({
+  const filters = TYPE_FILTERS.map(([k]) => k).filter((k) => k !== "collection" && k !== "all");
+  assert.ok(!filters.includes("all"), "「全部」必须排除，否则这条守卫恒真");
+  const kinds = ASSET_KINDS.filter((k) => KIND_DOMAIN[k] || (KIND_DOMAINS[k] || []).length);
+  assert.equal(kinds.length, ASSET_KINDS.length, "每个 kind 都要声明媒体域");
+  for (const kind of kinds) {
+    const domains = KIND_DOMAIN[kind] ? [KIND_DOMAIN[kind]] : KIND_DOMAINS[kind];
+    const found = filters.some((type) => domains.some((domain) => {
+      const asset = {
+        assetId: `a-${kind}`, key: `k-${kind}`, kind, domain,
+        tags: [], links: {}, current: true, reusable: false,
+      };
+      return libraryModel({
         assets: [asset], usage: new Map(), names,
         filters: { type, variant: "all" },
-      });
-      return m.rows.some((r) => r.kind === kind);
-    });
-    assert.ok(found, `${kind} 登记了却没有任何筛选能找到它 —— 它在资产库里是隐形的`);
+      }).rows.some((r) => r.kind === kind);
+    }));
+    if (ONLY_UNDER_ALL.has(kind)) {
+      // 例外也要钉住：哪天有人给它接上筛选，这条会红，提醒把它从例外表里删掉。
+      assert.ok(!found, `${kind} 已经能被具体筛选找到了 —— 把它从 ONLY_UNDER_ALL 里删掉`);
+      continue;
+    }
+    assert.ok(found, `${kind}（${domains.join("|")}）没有任何具体筛选能找到它 —— 它在资产库里等于隐形`);
   }
+});
+
+test("**运镜预览是自己的 kind**，而不是又一条镜头视频（TASK-098 §5.4）", () => {
+  assert.ok(ASSET_KINDS.includes("motionpreview"));
+  assert.equal(KIND_DOMAIN.motionpreview, "videos");
+  assert.equal(ASSET_KIND_LABEL.motionpreview, "运镜预览");
+  // 资产库找得到它…
+  assert.ok(SHOT_VIDEO_LIBRARY_KINDS.includes("motionpreview"));
+  // …而「这一镜的画面」那一族**不含**它：白膜不是一张关键帧的替代品
+  assert.ok(!SHOT_PICTURE_KINDS.includes("motionpreview"));
 });
 
 /* ========================================================================= */

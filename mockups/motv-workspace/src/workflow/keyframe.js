@@ -223,9 +223,16 @@ export function markersOf(text) {
  * 闸门用的是 4F 那一份 `keyframeGate` —— 不在这里重写一遍（§2.5d：生产与测试
  * 共用同一个谓词；4F 那次 born-closed 的教训就是这么来的）。
  */
-export function keyframeList({ rows, keyframeOf } = {}) {
+export function keyframeList({ rows, keyframeOf, motionOf } = {}) {
   const src = Array.isArray(rows) ? rows.filter(isObj) : [];
   const kfOf = typeof keyframeOf === "function" ? keyframeOf : () => null;
+  // 白膜视频（TASK-098）挂在**这张清单的每一行**上：⑤ 通过之后、⑥ 批量生视频之前，
+  // 每镜一个动作。它**不是第六步**（向导仍是五步）也**不是第七个 stage**
+  // （TASK-092 那六个是唯一真相）—— 它是 Keyframe 的一个附属视图。
+  //
+  // 证据由调用方注入，与 `keyframeOf` 同一条纪律：那句运镜怎么读住在
+  // `workflow/motionpreview.js`，这里不重新推导，也不知道 ffmpeg 存在。
+  const mOf = typeof motionOf === "function" ? motionOf : () => null;
   const out = src.map((r) => {
     const gate = keyframeGate(r);
     const kf = kfOf(r.shotId);
@@ -249,13 +256,35 @@ export function keyframeList({ rows, keyframeOf } = {}) {
       // **不置灰导航**：进不去的那些仍然给一条进去看的路（既有纪律）
       canEnter: true,
       canCompose: gate.ok,
+      // 白膜要拿那张 keyframe 当输入，所以「有没有图」是它自己的前置。
+      // `motion` 里那些话由 `motionpreview` 说，这里只把「图在不在」交给它。
+      motion: mOf(r.shotId, { hasKeyframe: has }),
     };
   });
   const by = (s) => out.filter((r) => r.state === s).length;
+  // 运镜填充率。**它在屏幕上**，因为它是 TASK-098 §4 那个假设唯一的度量：
+  // 真实项目 60 镜的 `cameraMotion` 是 0/60，而本卡赌的是「有反馈之后有人写了」。
+  // 一个只存在于审计报告里的数字没法回答这件事；一个每次打开 ⑤ 都在的数字可以。
+  const mrows = out.map((r) => r.motion).filter(isObj);
+  const motion = {
+    total: out.length,
+    written: mrows.filter((m) => !m.empty).length,
+    previewable: mrows.filter((m) => m.canPreview).length,
+    // **只数对得上的那些**。一段旧运镜渲的白膜不算「已看过这一句的白膜」——
+    // 那会让顶部那个数字变成本卡最不该出现的东西：一个说谎的计数。
+    previewed: mrows.filter((m) => m.previewFresh).length,
+    previewStale: mrows.filter((m) => m.previewStale).length,
+    // **三种结局在这里也是三个数**（TASK-098 §2）。第一版把「认不出」与「认得出但
+    // 做不到 / 没说方向」并成一个 `unreadable`，界面统一印「认不出」——
+    // 本卡最核心的那条区分，在自己的汇总指标里被抹掉了（codex 轮 1 的 non-blocking）。
+    unreadable: mrows.filter((m) => !m.empty && !m.renderable && !m.notApplied.length).length,
+    unsupported: mrows.filter((m) => !m.empty && !m.renderable && m.notApplied.length > 0).length,
+  };
   const blocked = out.filter((r) => !r.gateOk);
   return {
     rows: out,
     total: out.length,
+    motion,
     approved: by("approved"),
     made: by("made"),
     skipped: by("skipped"),

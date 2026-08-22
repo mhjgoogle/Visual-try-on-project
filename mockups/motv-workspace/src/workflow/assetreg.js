@@ -75,6 +75,13 @@ export const ASSET_KINDS = [
   "storyboard",
   "keyframe",
   "shot-video",
+  // TASK-098: 白膜视频 —— 由一张 `keyframe` + 那句 `运镜` 在本地免费渲出的运镜预览。
+  //
+  // **它是预览，不是产物**，所以它必须是自己的 kind 而不是又一条 `shot-video`：
+  // 「这一镜有没有视频」这个判定（`mediaOf` → TASK-092 的 `video` stage → 逐镜质检
+  // 的成片判定）读的是**镜头视频那条链**，一段白膜混进去会让 60 个镜头看起来都拍完了。
+  // 同理它也不接 `first_frame_image` 那条付费路：白膜不是一次生成的输入。
+  "motionpreview",
   // TASK-064 Phase 2 §7: a frame CUT OUT of a video take — 上一镜的尾帧 becoming
   // 下一镜的首帧. It is its own kind rather than a `shot-image`, because it is not
   // a picture generated FOR a shot: it is a still lifted out of one, its
@@ -121,6 +128,7 @@ export const ASSET_KIND_LABEL = {
   storyboard: "分镜草图",
   keyframe: "关键帧",
   "shot-video": "镜头视频",
+  motionpreview: "运镜预览",
   "derived-frame": "派生帧",
   dialogue: "对白",
   ambience: "环境音",
@@ -181,6 +189,20 @@ export const INTERPRETATION_KINDS = [
  */
 export const SHOT_PICTURE_KINDS = ["shot-image", "storyboard", "keyframe"];
 
+/**
+ * 一个 SHOT 的**视频域**资产，同一条理由的另一半（TASK-098）。
+ *
+ * 「镜头视频」这个筛选原来精确匹配 `kind === "shot-video"`，所以新增的
+ * `motionpreview` 会登记得好好的、在资产库里**一段也看不见** —— 与上面那条
+ * 完全同形（TASK-097 §2.6.1：新增 kind 的消费者要派生，不要手写）。
+ *
+ * **但它不是 `SHOT_PICTURE_KINDS` 的对称物**：那一族是「这一镜的画面，不管哪一档
+ * 成本」，成员之间可以互相替代；这一族只是「都能在资产库的视频筛选里被找到」。
+ * 判定「这一镜有没有视频」的地方**不读这张表**，读的是镜头视频那条链
+ * —— 两者混起来正是本 kind 存在的理由被抹掉的方式。
+ */
+export const SHOT_VIDEO_LIBRARY_KINDS = ["shot-video", "motionpreview"];
+
 const INTERPRETATION_SET = new Set(INTERPRETATION_KINDS);
 
 /** True when this kind reaches a generation through AI interpretation rather
@@ -204,6 +226,7 @@ export const KIND_DOMAIN = {
   storyboard: "images",
   keyframe: "images",
   "shot-video": "videos",
+  motionpreview: "videos",
   "derived-frame": "images",
   dialogue: "audio",
   ambience: "audio",
