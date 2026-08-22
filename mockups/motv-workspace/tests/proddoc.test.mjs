@@ -1,5 +1,5 @@
 // Production domain document (checkpoint M6) — run via `node --test`,
-// wrapped by tests/test_motv_production_domain_m6.py.
+//. Owned by the frontend suite (gate frontend tier + CI).
 //
 // Covers: default hydration, id stability across reloads, sanitize rules,
 // episode/scene transitions (non-destructive refusals), shot assignment with

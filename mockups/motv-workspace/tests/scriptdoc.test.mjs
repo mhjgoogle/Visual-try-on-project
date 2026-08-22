@@ -1,6 +1,5 @@
 // Unit tests for the script DOMAIN document (Idea → Script vertical slice).
-// Pure-logic module — run via `node --test`, wrapped by
-// tests/test_motv_script_slice_e2e.py. No DOM, no fetch.
+// Pure-logic module — run via `node --test`. Owned by the frontend suite (gate frontend tier + CI). No DOM, no fetch.
 import test from "node:test";
 import assert from "node:assert/strict";
 

@@ -1,5 +1,5 @@
 // Checkpoint CP2 (ADR-0055 / TASK-058) — Asset Registration Foundation.
-// Run via `node --test`, wrapped by tests/test_motv_assetreg_task058.py.
+// Run via `node --test`. Owned by the frontend suite (gate frontend tier + CI).
 //
 // What is pinned here:
 //   1. the declaration VOCABULARY is closed and domain-checked

@@ -1,5 +1,5 @@
 // Canvas persistence schema-version dispatch (checkpoint M1) — run via
-// `node --test`, wrapped by tests/test_motv_canvas_persistence_m1.py.
+// `node --test`. Owned by the frontend suite (gate frontend tier + CI).
 //
 // Covers: explicit version read, sequential migration chain, v1 compatibility,
 // fail-safe rejection of newer/invalid documents, save blocking after a

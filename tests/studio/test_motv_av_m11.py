@@ -4,12 +4,9 @@ Drives the mockup backend (``mockups/motv-workspace/server.py`` ``_App``)
 directly — no sockets, no browser, STRICTLY OFFLINE, no spend (the render
 path uses LOCAL ffmpeg only and is skipped when ffmpeg is absent).
 
-Covers:
+Covers (the frontend units — voice identity rule, timeline, storage semantics,
+v9 schema — live in ``tests/av.test.mjs``, run by the frontend gate/CI):
 
-- the frontend units (voice identity rule, dialogue prompt, ambience/BGM as
-  reused references, timeline reference-only clips + edit ops + reload,
-  Remove-Local-Copy / permanent-delete semantics, v9 schema) via
-  ``node --test tests/av.test.mjs``;
 - the render endpoint's fail-closed validation: bad JSON/shape, clip caps,
   path traversal / symlink refusal on clip files, honest 503 without ffmpeg;
 - a REAL local ffmpeg render (tiny lavfi clips) producing an atomically
@@ -123,22 +120,6 @@ def _make_media(updir: Path) -> None:
         capture_output=True,
         timeout=120,
     )
-
-
-# --- frontend units ----------------------------------------------------------
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_frontend_av_units_via_node() -> None:
-    """M11 音频/时间线/存储 域与 v9 schema 的前端单测。"""
-    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
-        ["node", "--test", "tests/av.test.mjs"],
-        cwd=str(_MOCKUP_DIR),
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
 # --- render endpoint: fail-closed validation ---------------------------------

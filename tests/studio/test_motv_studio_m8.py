@@ -1,9 +1,10 @@
 """motv Production studio UI reconstruction — checkpoint M8.
 
-STRICTLY OFFLINE, no spend. Runs the frontend units (storyboard/shot-detail
+STRICTLY OFFLINE, no spend. Guards the wiring contract that lives in
+DOM-bound closures and the server endpoint posture (storyboard/shot-detail
 models, AI Director model, creative-facet passthrough, bible breakdown
-parse/match/merge semantics, derived appearances) via ``node --test`` and
-guards the wiring contract:
+parse/match/merge semantics, derived appearances are covered by the frontend
+suite, ``tests/studio.test.mjs``):
 
 - the studio is a VIEW: no new persisted top-level field, no duplicate media
   state — media writes stay on mediaref/the M3 registry, shot edits append
@@ -18,8 +19,6 @@ guards the wiring contract:
 from __future__ import annotations
 
 import importlib.util
-import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -38,20 +37,6 @@ def _server_module():
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_frontend_studio_units_via_node() -> None:
-    """M8 studio 模型 / 拆解提案域 的前端单测。"""
-    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
-        ["node", "--test", "tests/studio.test.mjs"],
-        cwd=str(_MOCKUP_DIR),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        timeout=120,
-    )
-    assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
 def test_studio_adds_no_new_persisted_field() -> None:
@@ -123,17 +108,6 @@ def test_breakdown_endpoint_is_fail_closed_and_write_free() -> None:
     assert "_skill_prompt" in handler
     assert "prompt = (" not in handler, "the endpoint must not carry its own prompt"
     assert "open(" not in handler and ".write(" not in handler
-
-
-def test_appearances_are_derived_not_stored() -> None:
-    bd = (_SRC / "workflow" / "breakdown.js").read_text("utf-8")
-    assert "export function derivedAppearances" in bd
-    # nothing writes an appearance/episode list onto bible entities
-    bible = (_SRC / "workflow" / "bibledoc.js").read_text("utf-8")
-    for forbidden in ("appearances", "episodeIds", "appearsIn"):
-        assert forbidden not in bible, (
-            f"appearance lists must stay derived ({forbidden})"
-        )
 
 
 def test_proposals_apply_through_existing_bible_ops_only() -> None:

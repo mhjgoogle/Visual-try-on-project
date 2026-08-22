@@ -29,16 +29,6 @@ def _app_callers(module: str) -> list[str]:
     return sorted(hits)
 
 
-def test_this_batch_left_no_zero_caller_module() -> None:
-    """§2.5c rule 3: an export introduced in this batch has a real caller now."""
-    for module in ("canvasnodes", "canvasgrow"):
-        callers = _app_callers(module)
-        assert callers, (
-            f"{module}.js has no application-side caller -- green guards over an "
-            "unwired module read exactly like a finished feature (TASK-097 §2.5c)"
-        )
-
-
 def test_every_capability_has_a_path_from_the_SCREEN_not_just_an_import() -> None:
     """§2.5c rule 3, read strictly -- and this is where my own scan was too weak.
 

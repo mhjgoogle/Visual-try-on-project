@@ -1,5 +1,5 @@
 // Production upstream PERSISTENCE (TASK-057 blocker fix) — run via
-// `node --test`, wrapped by tests/test_motv_upstream_persistence.py.
+// `node --test`. Owned by the frontend suite (gate frontend tier + CI).
 //
 // THE BLOCKER these tests exist for: the upstream fields wrote to the canonical
 // document only on `change` (blur). A creator who typed into Creative Brief and

@@ -12,9 +12,10 @@ Covers the three P0 fixes end to end:
   overwritten);
 - first-frame binding: the lock-draft-plan preflight's ``first_frame_sha256``
   matches the data URL built from the uploaded asset image (图→视频首帧闭环
-  的服务端一致性);
-- the frontend pure-logic units (MediaRef migration back-compat, version
-  switch, paid-queue aggregation) via ``node --test``.
+  的服务端一致性).
+
+(The frontend pure-logic units live in ``tests/frontend-units.test.mjs`` and
+run via the frontend suite + gate frontend tier + CI.)
 """
 
 from __future__ import annotations
@@ -23,8 +24,6 @@ import base64
 import hashlib
 import importlib.util
 import json
-import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -254,19 +253,3 @@ def test_no_unlink_of_existing_uploads_in_server_source() -> None:
     src = _SERVER_PATH.read_text("utf-8")
     assert "stale.unlink()" not in src  # the old same-slug cleanup pattern
     assert "_claim_version" in src
-
-
-# --- frontend pure-logic units (node --test) --------------------------------
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_frontend_units_via_node() -> None:
-    """旧版 uploads（字符串）兼容迁移 / 版本回切 / 队列聚合 的前端单测。"""
-    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
-        ["node", "--test", "tests/frontend-units.test.mjs"],
-        cwd=str(_MOCKUP_DIR),
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    assert proc.returncode == 0, proc.stdout + proc.stderr

@@ -1,5 +1,5 @@
 // Checkpoint M2 — stable creator identity + minimal provenance. Run via
-// `node --test`, wrapped by tests/test_motv_identity_m2.py.
+// `node --test`. Owned by the frontend suite (gate frontend tier + CI).
 //
 // Covers: deterministic non-destructive v1→v2 migration (incl. the REAL saved
 // fixtures), stable Script version ids, stable Shot Draft version ids, per-shot

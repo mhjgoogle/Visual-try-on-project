@@ -1,16 +1,9 @@
 """motv Project Asset Registry — checkpoint M3 (v2→v3 migration).
 
-STRICTLY OFFLINE, no spend. Wraps the frontend registry/migration units and
-adds source-level guards on the ownership boundaries that live inside
-DOM-bound closures.
+STRICTLY OFFLINE, no spend. Source-level guards on the ownership boundaries
+that live inside DOM-bound closures (the registry/migration behavior itself
+is covered by the frontend suite, ``tests/assets.test.mjs``):
 
-Covers the M3 guarantees:
-
-- deterministic, non-destructive v2→v3 migration (real fixtures included),
-  media-domain keying (slot values are NOT globally unique across kinds),
-  history/current preservation, conservative finals migration, reference-
-  proven first-frame Asset reuse, provable-only shot association — via
-  ``node --test tests/assets.test.mjs``;
 - ONE authoritative durable media owner: the serializer persists the project
   registry and no node-local media fields; the edit node appends finals via
   the registry, not node state;
@@ -21,29 +14,12 @@ Covers the M3 guarantees:
 
 from __future__ import annotations
 
-import shutil
-import subprocess
 from pathlib import Path
-
-import pytest
 
 from tests._scan import core_files_containing
 
 _MOCKUP_DIR = Path(__file__).resolve().parents[2] / "mockups" / "motv-workspace"
 _SRC = _MOCKUP_DIR / "src"
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_frontend_asset_registry_units_via_node() -> None:
-    """迁移确定性/分域键/首帧同资产复用/溯源诚实/finals 保守迁移 的前端单测。"""
-    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
-        ["node", "--test", "tests/assets.test.mjs"],
-        cwd=str(_MOCKUP_DIR),
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
 def test_serializer_persists_registry_not_node_media() -> None:

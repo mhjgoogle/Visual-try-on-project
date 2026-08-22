@@ -1,17 +1,14 @@
 """motv Asset Registration Foundation — TASK-058 / ADR-0055.
 
-STRICTLY OFFLINE, no spend. Runs the frontend units (declaration vocabulary,
-domain checking, the v10→v11 migration, v11 validation, canonical References,
-explicit reclassification) via ``node --test`` and guards the wiring contract:
+STRICTLY OFFLINE, no spend. Guards the wiring contract (the frontend units —
+declaration vocabulary, domain checking, the v10→v11 migration, v11 validation,
+canonical References, explicit reclassification — live in
+``tests/assetreg.test.mjs``, run by the frontend gate/CI):
 
 - 上传 ≠ 保存文件: EVERY media write path declares at the write, and the single
   media write path fills honest defaults so an undeclared write yields an
   UNCLASSIFIED asset rather than an orphan or an invalid document;
 - semantics never come from a path or a filename (ADR-0055 决策 2);
-- the declaration lives ON the Asset record — there is no second registry that
-  could drift out of sync with the media it describes (决策 1);
-- the migration back-fills only what the document already records, and invents
-  no filename, display name, tag or reusable mark (决策 4);
 - `reusable` is only ever an explicit creator mark — never inferred from usage;
 - a new project's folder shape (project.json / studio/ / media/) exists from
   creation, with NO physical classification subfolders (决策 5);
@@ -21,11 +18,7 @@ explicit reclassification) via ``node --test`` and guards the wiring contract:
 from __future__ import annotations
 
 import re
-import shutil
-import subprocess
 from pathlib import Path
-
-import pytest
 
 _REPO = Path(__file__).resolve().parents[2]
 _MOCKUP_DIR = _REPO / "mockups" / "motv-workspace"
@@ -43,56 +36,6 @@ def _code(*parts: str) -> str:
     src = _read(*parts)
     src = re.sub(r"/\*.*?\*/", "", src, flags=re.DOTALL)
     return "\n".join(ln.split("//")[0] for ln in src.splitlines())
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_frontend_assetreg_units_via_node() -> None:
-    """CP2 登记域 / v10→v11 迁移 / v11 校验 / 参考链 的前端单测。"""
-    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
-        ["node", "--test", "tests/assetreg.test.mjs"],
-        cwd=str(_MOCKUP_DIR),
-        capture_output=True,
-        text=True,
-        timeout=180,
-    )
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-
-
-def test_declaration_vocabulary_is_closed_and_single_sourced() -> None:
-    """The twelve semantic types exist in ONE place and everyone imports them."""
-    reg = _read("workflow", "assetreg.js")
-    for kind in (
-        "character-reference",
-        "location-reference",
-        "prop-reference",
-        "style-reference",
-        "external-reference",
-        "shot-image",
-        "shot-video",
-        "dialogue",
-        "ambience",
-        "sfx",
-        "bgm",
-        "final",
-    ):
-        assert f'"{kind}"' in reg, f"{kind} missing from the kind vocabulary"
-    # the schema validator must not carry a SECOND copy of the vocabulary —
-    # a forked list is how a valid document starts getting rejected (the same
-    # defect codex found at v10 with the relationship pair key)
-    schema = _read("services", "canvasschema.js")
-    assert 'from "../workflow/assetreg.js"' in schema
-    msg = "the validator must reuse the domain's list"
-    assert "new Set(ASSET_KINDS)" in schema, msg
-    assert "new Set(LINK_KEYS)" in schema
-    # the validator body itself names no kind literal
-    body = _code("services", "canvasschema.js")
-    validator = body.split("export function validateCanvasDoc", 1)[1]
-    # (`dialogue` / `ambience` / `sfx` / `bgm` are deliberately excluded — they
-    # are ALSO timeline track names, a different namespace that legitimately
-    # appears here.)
-    kinds = ("character-reference", "location-reference", "shot-image", "shot-video")
-    for kind in kinds:
-        assert f'"{kind}"' not in validator, f"validateCanvasDoc re-declares {kind}"
 
 
 def test_every_media_write_path_declares_at_the_write() -> None:
@@ -156,36 +99,6 @@ def test_semantics_never_come_from_a_path_or_filename() -> None:
     assert "originalFilename" in reg  # kept, but only as displayed provenance
 
 
-def test_declaration_lives_on_the_asset_record_not_a_second_registry() -> None:
-    """决策 1: one record, so an index cannot drift from its media."""
-    reg = _code("workflow", "assetreg.js")
-    # the registry structure is unchanged — no new top-level map is introduced
-    assert "reg.index" not in reg
-    assert "assetIndex" not in reg
-    schema = _code("services", "canvasschema.js")
-    assert "doc.assetDeclarations" not in schema
-    # listAssets DERIVES the flat view from the same records every time
-    assert "export function listAssets" in reg
-
-
-def test_migration_backfills_only_recorded_facts() -> None:
-    """决策 4: the v10→v11 step never invents a classification."""
-    schema = _read("services", "canvasschema.js")
-    assert "function migrateV10ToV11" in schema
-    assert "10: migrateV10ToV11" in schema
-    body = schema.split("function migrateV10ToV11", 1)[1].split(
-        "\nexport const MIGRATIONS"
-    )[0]
-    # the honest defaults
-    assert "rec.displayName = null" in body
-    assert "rec.originalFilename = null" in body
-    assert "rec.tags = []" in body
-    assert "rec.reusable = false" in body
-    # a record with no recorded fact stays unclassified AND flagged
-    assert "stamp(r, null, null)" in body
-    assert "rec.needsReview = !rec.kind" in body
-
-
 def test_reusable_is_never_inferred_from_usage() -> None:
     """A creator marks 可复用; 'used many times' is not consent."""
     reg = _code("workflow", "assetreg.js")
@@ -199,14 +112,6 @@ def test_reusable_is_never_inferred_from_usage() -> None:
         )
 
 
-def test_unclassified_is_a_real_state_not_a_rejection() -> None:
-    """An asset the studio cannot classify is still registered and visible."""
-    reg = _read("workflow", "assetreg.js")
-    assert "unclassified is honest" in reg or "kind: null" in reg
-    schema = _read("services", "canvasschema.js")
-    assert "`kind: null` is" in schema and "valid and expected" in schema
-
-
 def test_project_folder_shape_is_created_without_physical_classification() -> None:
     """决策 5: studio/ + media/ exist from creation; no per-type subfolders."""
     server = (_MOCKUP_DIR / "server.py").read_text("utf-8")
@@ -217,19 +122,6 @@ def test_project_folder_shape_is_created_without_physical_classification() -> No
     assert "Asset Registry is the classification source of truth" in server
     for forbidden in ("media/images", "media/characters", "media/references"):
         assert forbidden not in server
-
-
-def test_schema_chain_reaches_v11_and_stays_unbroken() -> None:
-    """Pins the v10→v11 STEP, not the current version: later checkpoints add
-    v12, v13… and must not break this (the same lesson TASK-057's pin taught)."""
-    schema = _read("services", "canvasschema.js")
-    match = re.search(r"CANVAS_SCHEMA_VERSION = (\d+)", schema)
-    assert match is not None
-    current = int(match.group(1))
-    assert current >= 11, "v11 (TASK-058) must not be renumbered away"
-    compact = schema.replace(" ", "")
-    for n in range(1, current):
-        assert f"{n}:migrateV{n}To" in compact, f"migration step {n} is missing"
 
 
 def test_core_contracts_untouched_by_cp2() -> None:

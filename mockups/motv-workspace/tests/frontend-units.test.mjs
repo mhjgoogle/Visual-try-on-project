@@ -1,5 +1,4 @@
-// Frontend unit tests for TASK-048 (run via `node --test`, wrapped by
-// tests/test_motv_task048_e2e.py). Pure-logic modules only — no DOM needed.
+// Frontend unit tests for TASK-048 (run via `node --test`. Owned by the frontend suite (gate frontend tier + CI). Pure-logic modules only — no DOM needed.
 import test from "node:test";
 import assert from "node:assert/strict";
 

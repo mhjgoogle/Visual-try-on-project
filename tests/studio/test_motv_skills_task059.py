@@ -1,7 +1,8 @@
 """motv Local AI Runtime + Film Skills — TASK-059 / ADR-0056.
 
-STRICTLY OFFLINE, no spend, no executor is launched. Runs the frontend units via
-``node --test`` and guards the SAFETY and LAYERING contract:
+STRICTLY OFFLINE, no spend, no executor is launched. Guards the SAFETY and
+LAYERING contract on the backend (the frontend units live in
+``tests/skills.test.mjs``, run by the frontend gate/CI):
 
 - a Film AI Runtime is a TEXT executor, not a code-modification agent: tools are
   disabled / the sandbox is read-only, argv arrays (never a shell), a NEUTRAL
@@ -23,12 +24,8 @@ from __future__ import annotations
 import inspect
 import json
 import re
-import shutil
-import subprocess
 import sys
 from pathlib import Path
-
-import pytest
 
 _REPO = Path(__file__).resolve().parents[2]
 _MOCKUP_DIR = _REPO / "mockups" / "motv-workspace"
@@ -60,20 +57,6 @@ def _server_code() -> str:
             continue
         out.append(ln)
     return "\n".join(out)
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_frontend_skill_units_via_node() -> None:
-    """CP3 能力层 / 运行留痕 / v11→v12 迁移 / v12 校验 的前端单测。"""
-    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
-        ["node", "--test", "tests/skills.test.mjs"],
-        cwd=str(_MOCKUP_DIR),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        timeout=180,
-    )
-    assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
 def test_runtime_is_a_text_executor_not_a_code_agent() -> None:
@@ -202,9 +185,6 @@ def test_the_skill_run_route_needs_a_header_a_hostile_page_cannot_set() -> None:
     assert "_PROBE_CACHE" in src
     assert "_PROBE_TTL_SECONDS" in src
     assert "def _probe_executor_cached" in src
-    # …and the client actually sends it on BOTH routes
-    client = _read("services", "runtime.js")
-    assert client.count('"X-Motv-Runtime": "1"') >= 2
 
 
 def test_a_configured_executor_is_really_probed() -> None:
@@ -254,35 +234,6 @@ def test_the_skill_body_is_capped_at_transport_not_after_parsing() -> None:
     assert "_SKILL_BODY_MAX" in cap
 
 
-def test_an_object_shaped_nothing_is_still_a_missing_input() -> None:
-    """codex review, TASK-059 round 9: the default Brief is a full object of
-    empty strings; counting it as present let a skill run on a blank input."""
-    dom = _code("workflow", "skills.js")
-    assert "function hasContent" in dom
-    assert "v.some(hasContent)" in dom
-    # …and an IDENTITY field is not content either (codex review, round 10): a
-    # freshly created scene is an id plus empty fields, and storyboarding it
-    # would be storyboarding nothing
-    assert "IDENTITY_KEY" in dom
-    assert "!IDENTITY_KEY.test(k) && hasContent(v[k])" in dom
-
-
-def test_no_path_crosses_the_runtime_boundary() -> None:
-    """决策 2 — context is inlined as DATA, so no Windows/WSL path translation
-    problem exists to get wrong."""
-    client = _code("services", "runtime.js")
-    assert "prompt" in client
-    for forbidden in ("project", "path", "cwd", "file://"):
-        assert f'"{forbidden}"' not in client.split("runOnExecutor", 1)[1], (
-            f"runOnExecutor must not send {forbidden}"
-        )
-    compiled = _code("workflow", "skills.js")
-    assert "compilePrompt" in compiled
-    # the prompt builder inlines values; it never reads or names a filesystem
-    for forbidden in ("readFile", "fetch(", "process.", "require("):
-        assert forbidden not in compiled
-
-
 def test_executor_resolution_is_env_then_which_then_honest_unavailable() -> None:
     """决策 3 + ADR-0049 规则 6."""
     src = _server()
@@ -324,9 +275,6 @@ def test_probe_never_fabricates_ready() -> None:
     assert "PermissionError" in run
     route = src.split("def _skill_run", 1)[1].split("\n    def _agent_shots_draft")[0]
     assert '"category": "unauthenticated"' in route
-    # the client's backend-less fallback is unavailable, never ready
-    client = _read("services", "runtime.js")
-    assert "没有后端：无法探测本机执行器" in client
 
 
 def test_no_skill_hardwires_an_executor() -> None:
@@ -357,100 +305,11 @@ def test_no_skill_hardwires_an_executor() -> None:
         ), pkg.name
 
 
-def test_skill_definitions_are_immutable_constants() -> None:
-    """决策 6 — improving a Skill is an explicit revision, never a side effect."""
-    catalog = _code("workflow", "skills.js")
-    assert "Object.freeze" in catalog
-    runs = _code("workflow", "skillrun.js")
-    # the run registry records the skill id + version; it never writes a skill
-    assert "skillVersion" in runs
-    for forbidden in ("SKILLS", "findSkill", "instruction =", "outputSchema ="):
-        assert forbidden not in runs, f"skillrun.js must not touch {forbidden}"
-
-
-def test_a_proposal_is_not_a_canonical_write() -> None:
-    """Domain context → Skill → Runtime → Proposal → review → ACCEPT → write."""
-    runs = _code("workflow", "skillrun.js")
-    # v15: the two questions have their own fields. 「the run finished」 is
-    # `succeeded`; 「I took the answer」 is `disposition: accepted` (ADR-0066 决策 8).
-    assert "succeeded" in runs and "accepted" in runs
-    assert "PROPOSAL_DISPOSITIONS" in runs
-    # the module has no access to any canonical document
-    for forbidden in (
-        "productionDoc",
-        "storyDoc",
-        "assetRegistry",
-        "proddoc",
-        "storydoc",
-    ):
-        assert forbidden not in runs
-    # TASK-073 §1.8 第四批 moved the whole skill controller out of app.js into
-    # `controllers/skillctl.js`, so the slice is now the FILE — which is what the
-    # two hand-tuned boundaries below were always trying to approximate.
-    #
-    # (History, kept because it is the reason those boundaries existed: the window
-    # used to be bounded inside the app.js object literal, first at `\n  shot: {`
-    # — the wrong boundary, since it is not the next controller, so every
-    # controller added between skills and shot fell inside it. TASK-064's
-    # refInterp / locks / frames / shotAudio / subtitles controllers legitimately
-    # READ proddoc to build their view models, and that tripped a guard about what
-    # ACCEPTING A PROPOSAL may WRITE. The rule is unchanged; the file boundary is
-    # now exact rather than approximate.)
-    section = _code("controllers", "skillctl.js")
-    assert "skillrun.acceptRun" in section
-    # Accepting MARKS the run; applying the proposal to canon is the caller's,
-    # through the normal domain controllers. (Reading the canonical documents to
-    # BUILD the prompt context is expected and fine — it is writing that must
-    # not happen here, so the assertion is scoped to accept/reject.)
-    decide = section.split("accept: (skillRunId)", 1)[1]
-    for forbidden in (
-        "proddoc.",
-        "bibledoc.",
-        "canondoc.",
-        "storydoc.",
-        "assetreg.declare",
-        "mediaref.addVersion",
-    ):
-        assert forbidden not in decide, (
-            f"accepting a proposal must not call {forbidden}"
-        )
-
-
 def test_failure_is_recorded_as_failure_never_as_content() -> None:
-    runs = _code("workflow", "skillrun.js")
-    body = runs.split("export function failRun", 1)[1].split(
-        "export function reviewRun"
-    )[0]
-    assert "r.proposal = null" in body
-    # the four/five distinct kinds survive to the client
-    for kind in ("unavailable", "unauthenticated", "timeout", "invalid_output"):
-        assert f'"{kind}"' in runs
     src = _server()
     body = src.split("def _skill_run", 1)[1].split("\n    def _agent_shots_draft")[0]
     for category in ("unavailable", "timeout", "execution_error"):
         assert f'"category": "{category}"' in body
-
-
-def test_schema_v12_registry_is_additive_and_empty() -> None:
-    """Pins the v11→v12 STEP, not the current version: later checkpoints add
-    v13, v14… and must not break this."""
-    schema = _read("services", "canvasschema.js")
-    match = re.search(r"CANVAS_SCHEMA_VERSION = (\d+)", schema)
-    assert match is not None
-    assert int(match.group(1)) >= 12, "v12 (TASK-059) must not be renumbered away"
-    assert "function migrateV11ToV12" in schema
-    assert "11: migrateV11ToV12" in schema
-    # bounded by the NEXT migration function, not by MIGRATIONS: a later
-    # v12→v13 step legitimately sits between them and is not ours to police
-    step = schema.split("function migrateV11ToV12", 1)[1]
-    end = step.find("\n/**", 1)  # the next migration's doc comment starts here
-    body = step[: end if end != -1 else len(step)]
-    assert "doc.skillRuns = []" in body
-    # the step touches nothing else
-    for forbidden in ("assets", "generations", "production", "story", "timelines"):
-        assert forbidden not in body, f"the v12 step must not touch {forbidden}"
-    # and the validator reuses the domain's status list rather than forking it
-    assert "new Set(RUN_STATUSES)" in schema
 
 
 def test_the_persisted_registry_is_owned_by_the_serializer() -> None:

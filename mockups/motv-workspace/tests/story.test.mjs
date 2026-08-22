@@ -1,5 +1,5 @@
 // Story development & episode planning (checkpoint M9) — run via
-// `node --test`, wrapped by tests/test_motv_story_m9.py.
+// `node --test`. Owned by the frontend suite (gate frontend tier + CI).
 //
 // Covers: the story document's proposal→apply→approve/confirm transitions,
 // lossless hydration, the v7→v8 migration (per-episode scripts + story chain),

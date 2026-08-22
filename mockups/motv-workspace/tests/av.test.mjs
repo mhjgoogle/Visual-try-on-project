@@ -1,5 +1,5 @@
 // Audio Production + Episode Timeline + Storage Management (checkpoint M11)
-// — run via `node --test`, wrapped by tests/test_motv_av_m11.py.
+// — run via `node --test`. Owned by the frontend suite (gate frontend tier + CI).
 //
 // Covers the M11 verification points: voice identity fixed across states/
 // episodes (states adjust PERFORMANCE only), dialogue prompt context, scene

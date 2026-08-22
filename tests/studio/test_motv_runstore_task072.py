@@ -947,26 +947,3 @@ def _wait_all_terminal(st, run_ids, timeout=8.0):
             return
         time.sleep(0.02)
     raise AssertionError("runs did not settle")
-
-
-# --- the frontend domain units --------------------------------------------- #
-
-
-def test_frontend_run_units_via_node() -> None:
-    """v15 状态拆分 / disposition / v14→v15 迁移 / 校验器 的前端单测。"""
-    import shutil
-    import subprocess
-
-    if shutil.which("node") is None:
-        pytest.skip("node not available")
-    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
-        ["node", "--test", "tests/runs.test.mjs"],
-        cwd=str(_MOCKUP_DIR),
-        capture_output=True,
-        text=True,
-        # node emits UTF-8; `text=True` alone would decode with the locale codec
-        # and lose the failure output on a non-ASCII assertion message
-        encoding="utf-8",
-        timeout=120,
-    )
-    assert proc.returncode == 0, proc.stdout + proc.stderr

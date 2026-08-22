@@ -1,13 +1,9 @@
 """motv Story development & episode planning — checkpoint M9.
 
-STRICTLY OFFLINE, no spend. Runs the frontend units (storydoc transitions,
-v7→v8 migration, v8 validation, story/plan view models) via ``node --test``
-and guards the wiring contract:
-
-- the creator path is Idea → AI story development → Story Outline (versioned,
-  APPROVED) → Episode Plan (versioned, CONFIRMED) → per-episode scripts; the
-  old idea→script shortcut is gone from the story workspace;
-- AI output is a PROPOSAL first (apply/revise, versions preserved);
+STRICTLY OFFLINE, no spend. Guards the wiring contract that lives in
+DOM-bound closures and the server endpoint posture (storydoc transitions,
+v7→v8 migration, v8 validation, story/plan view models are covered by the
+frontend suite, ``tests/story.test.mjs``):
 - scripts are PER-EPISODE (v8 ``scripts`` map; the legacy single scriptDoc
   moves to the active episode; a malformed one fails safe, never dropped);
 - the outline never auto-creates Production Bible entities (bible sync stays
@@ -21,8 +17,6 @@ from __future__ import annotations
 
 import importlib.util
 import re
-import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -43,37 +37,6 @@ def _server_module():
     return module
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_frontend_story_units_via_node() -> None:
-    """M9 故事域 / v7→v8 迁移 / v8 校验 的前端单测。"""
-    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
-        ["node", "--test", "tests/story.test.mjs"],
-        cwd=str(_MOCKUP_DIR),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        timeout=120,
-    )
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-
-
-def test_story_is_a_dedicated_domain_module() -> None:
-    src = (_SRC / "workflow" / "storydoc.js").read_text("utf-8")
-    for fn in (
-        "createStory",
-        "beginDevelop",
-        "completeDevelop",
-        "applyProposal",
-        "approveOutline",
-        "confirmPlan",
-        "applyManualOutline",
-    ):
-        assert f"export function {fn}" in src
-    # ids are MINTED, never derived
-    assert 'mintId("so")' in src
-    assert 'mintId("plan")' in src
-
-
 def test_scripts_are_per_episode_since_v8() -> None:
     schema = (_SRC / "services" / "canvasschema.js").read_text("utf-8")
     # the schema has moved past v8 (v10 = TASK-057 upstream canon, v11+ = later
@@ -91,17 +54,6 @@ def test_scripts_are_per_episode_since_v8() -> None:
     app = (_SRC / "app.js").read_text("utf-8")
     assert "scriptForEpisode" in app
     assert "syncActiveScript" in app
-
-
-def test_no_direct_idea_to_script_shortcut() -> None:
-    ws = (_SRC / "ui" / "workspaces.js").read_text("utf-8")
-    story_section = ws[
-        ws.index("export function renderStory") : ws.index("export function bindStory")
-    ]
-    # the story workspace routes through outline+plan — never straight to script
-    assert "创意 → 大纲 → 剧集规划 → 分集剧本" in story_section
-    assert "去剧本工作区生成" not in story_section
-    assert 'data-goto="script"' not in story_section
 
 
 def test_outline_never_writes_bible_entities() -> None:

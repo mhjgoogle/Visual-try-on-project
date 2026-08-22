@@ -1,6 +1,6 @@
 // Checkpoint M4c/M4d — creativeShotId ↔ server official shot_id bridge, and
 // adopt-paid / re-lock resolution by canonical Shot identity. Run via
-// `node --test`, wrapped by tests/test_motv_shot_bridge_m4c.py.
+// `node --test`. Owned by the frontend suite (gate frontend tier + CI).
 import test from "node:test";
 import assert from "node:assert/strict";
 

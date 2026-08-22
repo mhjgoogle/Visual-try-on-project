@@ -1,5 +1,5 @@
 // Checkpoint M4a — canonical creative-Shot ↔ slot resolver + v3→v4 rename.
-// Run via `node --test`, wrapped by tests/test_motv_shotmap_m4a.py.
+// Run via `node --test`. Owned by the frontend suite (gate frontend tier + CI).
 //
 // Covers: the v3→v4 field rename (shot_id → creativeShotId) is deterministic
 // and non-destructive; the pure resolver bridges creative shotId ↔ storage

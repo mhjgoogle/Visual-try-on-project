@@ -14,16 +14,17 @@ Covers:
   (base_script + instruction → revised script), including the untrusted-data
   prompt framing;
 - fail-closed error taxonomy (bad request / too large / CLI missing / timeout /
-  empty output);
-- the script DOMAIN document units (versioning, proposal apply, persistence
-  round-trip) via ``node --test``.
+  empty output).
+
+The script DOMAIN document units (versioning, proposal apply, persistence
+round-trip) live in ``mockups/motv-workspace/tests/scriptdoc.test.mjs`` and run
+in the frontend suite directly (TASK-102 批次 B removed the subprocess wrapper).
 """
 
 from __future__ import annotations
 
 import importlib.util
 import json
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -259,20 +260,3 @@ def test_oversized_output_is_rejected(server_module, monkeypatch) -> None:
     status, j = _post(app, "/api/agent/script-draft", {"idea": "x"})
     assert status == 502
     assert j["error"]["category"] == "agent_bad_output"
-
-
-# --- frontend domain-document units (node --test) ----------------------------
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_scriptdoc_units_via_node() -> None:
-    """创意→v1、修订提案→应用为 v2（v1 保留）、版本切换、失败/取消、持久化。"""
-    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
-        ["node", "--test", "tests/scriptdoc.test.mjs"],
-        cwd=str(_MOCKUP_DIR),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        timeout=120,
-    )
-    assert proc.returncode == 0, proc.stdout + proc.stderr

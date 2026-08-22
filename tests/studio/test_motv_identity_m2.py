@@ -1,13 +1,11 @@
 """motv canvas identity/provenance — checkpoint M2 (v1→v2 migration).
 
-STRICTLY OFFLINE, no spend. Wraps the frontend identity units and adds
-source-level guards on the flows that live inside DOM-bound closures.
+STRICTLY OFFLINE, no spend. Source-level guards on the flows that live inside
+DOM-bound closures (the migration/identity behavior itself is covered by the
+frontend suite, ``tests/identity.test.mjs``, run by the frontend gate/CI).
 
 Covers the M2 guarantees:
 
-- deterministic, non-destructive v1→v2 migration (real fixtures included),
-  stable Script/Draft/Shot ids, honest null legacy provenance, slot behavior
-  unchanged — via ``node --test tests/identity.test.mjs``;
 - the AI-draft flow captures the Script version id at call time and never
   fabricates a based-on relation; the manual-edit flow records its base draft
   version (source guards on scriptgen.js);
@@ -18,28 +16,11 @@ Covers the M2 guarantees:
 
 from __future__ import annotations
 
-import shutil
-import subprocess
 from pathlib import Path
-
-import pytest
 
 from tests._scan import core_files_containing
 
 _MOCKUP_DIR = Path(__file__).resolve().parents[2] / "mockups" / "motv-workspace"
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_frontend_identity_units_via_node() -> None:
-    """迁移确定性/身份稳定/溯源诚实/slot 兼容 的前端单测。"""
-    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
-        ["node", "--test", "tests/identity.test.mjs"],
-        cwd=str(_MOCKUP_DIR),
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
 def test_draft_flows_record_provenance_at_the_real_push_sites() -> None:

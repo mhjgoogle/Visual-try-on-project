@@ -12,19 +12,18 @@ Covers the persistence-only M1 guarantees:
   atomic replace, so the only copy of recoverable creator data cannot be
   destroyed by an autosave;
 - absent / valid saves keep their existing behavior (200 ``{}`` / 200 doc);
-- the frontend dispatcher units (version read, sequential migration chain,
-  fail-safe newer/invalid handling, save blocking, unknown-field round-trip)
-  via ``node --test``;
 - the app serializer emits the authoritative schema version constant and the
   load path actually routes through the dispatcher (source-level guard).
+
+The frontend dispatcher units live in
+``mockups/motv-workspace/tests/persistence.test.mjs`` and run in the frontend
+suite directly (TASK-102 批次 B removed the subprocess wrapper).
 """
 
 from __future__ import annotations
 
 import importlib.util
 import json
-import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -199,19 +198,3 @@ def test_serializer_emits_authoritative_version_and_load_dispatches() -> None:
     assert "v: 1" not in serializer
     persist_src = (_MOCKUP_DIR / "src" / "services" / "persist.js").read_text("utf-8")
     assert "migrateToCurrent" in persist_src  # every load routes the dispatcher
-
-
-# --- frontend dispatcher units (node --test) ---------------------------------
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_frontend_persistence_units_via_node() -> None:
-    """版本读取/顺序迁移/过新拒绝/坏档阻断保存/未知字段往返 的前端单测。"""
-    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
-        ["node", "--test", "tests/persistence.test.mjs"],
-        cwd=str(_MOCKUP_DIR),
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    assert proc.returncode == 0, proc.stdout + proc.stderr

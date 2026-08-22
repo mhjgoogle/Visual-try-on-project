@@ -1,7 +1,6 @@
 // Unit tests for the Production workspace view-model (`scriptStatus`) — the
 // pure lens the shell renders from, driven through REAL scriptdoc transitions
-// so the two stay contract-compatible. Run via `node --test`, wrapped by
-// tests/test_motv_production_view_e2e.py. No DOM.
+// so the two stay contract-compatible. Run via `node --test`. Owned by the frontend suite (gate frontend tier + CI). No DOM.
 import test from "node:test";
 import assert from "node:assert/strict";
 

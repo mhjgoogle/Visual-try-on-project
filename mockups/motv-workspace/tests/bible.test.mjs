@@ -1,5 +1,4 @@
-// Production Bible (checkpoint M7) — run via `node --test`, wrapped by
-// tests/test_motv_production_bible_m7.py.
+// Production Bible (checkpoint M7) — run via `node --test`. Owned by the frontend suite (gate frontend tier + CI).
 //
 // Covers: character/location lifecycle, states as overrides of the SAME
 // identity, the voice rule (a state never carries its own voice identity),

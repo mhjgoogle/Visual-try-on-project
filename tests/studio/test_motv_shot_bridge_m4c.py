@@ -1,8 +1,7 @@
 """motv creativeShotId ↔ server shot_id bridge — checkpoint M4c.
 
 STRICTLY OFFLINE, no spend. Tests the server-side additive bridge helper
-directly (pure), wraps the frontend M4c units, and guards the client/server
-contract additions.
+directly (pure) and guards the client/server contract additions.
 
 Covers the M4c guarantees:
 
@@ -11,16 +10,19 @@ Covers the M4c guarantees:
   the server ``shot_id``; malformed / length-mismatched / duplicate bridges
   fail SAFE to ``creativeShotId = None``;
 - the client sends ``creativeShotIds`` as a PARALLEL array and the server strips
-  it before building the Core envelope (Core contract untouched);
-- the frontend bridge builder + paid-op read-state join resolve by
-  creativeShotId, never by draft sequence (via ``node --test``).
+  it before building the Core envelope (Core contract untouched).
+
+The frontend bridge builder + paid-op read-state join (resolve by
+creativeShotId, never by draft sequence) are behavior-tested in
+``mockups/motv-workspace/tests/shot_bridge.test.mjs`` and
+``tests/workspaces.test.mjs``, run by the frontend suite directly
+(TASK-102 批次 B removed the subprocess wrapper and the duplicated
+source-text assertions).
 """
 
 from __future__ import annotations
 
 import importlib.util
-import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -127,19 +129,6 @@ def test_bridge_passes_through_unexpected_shapes(server_module):
     assert b(_outcome(1), None) == _outcome(1)  # no parallel array → untouched
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_frontend_bridge_units_via_node() -> None:
-    """creativeShotId↔server 桥 + 付费读状态按身份联结 的前端单测。"""
-    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
-        ["node", "--test", "tests/shot_bridge.test.mjs", "tests/workspaces.test.mjs"],
-        cwd=str(_MOCKUP_DIR),
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-
-
 def test_client_sends_creative_ids_and_server_strips_before_core() -> None:
     app = (_SRC / "app.js").read_text("utf-8")
     assert "creativeShotIds" in app  # client sends the parallel array at lock time
@@ -147,14 +136,6 @@ def test_client_sends_creative_ids_and_server_strips_before_core() -> None:
     # server strips it from params before building the Core envelope
     assert 'k != "creativeShotIds"' in server
     assert "_bridge_creative_shot_ids" in server
-
-
-def test_paid_op_join_uses_the_bridge_not_sequence() -> None:
-    ws = (_SRC / "ui" / "workspaces.js").read_text("utf-8")
-    assert "serverShotIdForShot" in ws
-    assert "buildServerBridge" in ws
-    # the old positional helper is gone from the read model
-    assert "shots[seq - 1]" not in ws
 
 
 def test_core_contracts_untouched_by_m4c() -> None:

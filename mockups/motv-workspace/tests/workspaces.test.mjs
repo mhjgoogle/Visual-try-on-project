@@ -1,6 +1,6 @@
 // Unit tests for the Production module workspaces' pure view-models — the
 // read-only lenses over existing workflow/node state (no ownership moved).
-// Run via `node --test`, wrapped by tests/test_motv_production_view_e2e.py.
+// Run via `node --test`. Owned by the frontend suite (gate frontend tier + CI).
 import test from "node:test";
 import assert from "node:assert/strict";
 

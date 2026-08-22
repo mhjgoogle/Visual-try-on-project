@@ -1,5 +1,5 @@
 // Production upstream workspace (TASK-057 / ADR-0054) — run via `node --test`,
-// wrapped by tests/test_motv_upstream_task057.py.
+//. Owned by the frontend suite (gate frontend tier + CI).
 //
 // Covers:
 // - Creative Brief: working draft vs formal revision (Autosave != Version),

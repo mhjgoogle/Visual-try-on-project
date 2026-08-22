@@ -1,5 +1,5 @@
 // Checkpoint M3 — Project Asset Registry extraction. Run via `node --test`,
-// wrapped by tests/test_motv_assets_m3.py.
+//. Owned by the frontend suite (gate frontend tier + CI).
 //
 // Covers: deterministic non-destructive v2→v3 migration (real fixtures too),
 // media-domain keying (slots are NOT globally unique), history/current

@@ -1,5 +1,4 @@
-// Production studio (checkpoint M8) — run via `node --test`, wrapped by
-// tests/test_motv_studio_m8.py.
+// Production studio (checkpoint M8) — run via `node --test`. Owned by the frontend suite (gate frontend tier + CI).
 //
 // Covers: the Storyboard workspace models (scene grouping, shot detail with
 // creative facets + media variants + lineage), the AI Director model, the M8

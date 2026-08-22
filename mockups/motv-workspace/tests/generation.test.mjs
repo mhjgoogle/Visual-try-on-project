@@ -1,6 +1,5 @@
 // Checkpoint M5 — Project Generation Registry (durable provenance) + Asset
-// storage lifecycle. Run via `node --test`, wrapped by
-// tests/test_motv_generation_m5.py.
+// storage lifecycle. Run via `node --test`. Owned by the frontend suite (gate frontend tier + CI).
 //
 // Covers: generationId stability; frozen input/prompt/target snapshot;
 // success/failed/cancelled transitions; completion AFTER the world changed does
