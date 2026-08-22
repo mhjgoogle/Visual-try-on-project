@@ -7,17 +7,23 @@
   "chain_mode": false,
   "tasks": {
     "TASK-103": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "0346b1089c2e1f4c6b610028cd753ea9f066e646",
+          "subject": "批次A：唯一 API Client 出口收口 —— persist 的 canvas 读/写与 runtime 的 cancel/skill-run 迁到 apiclient；apiclient 加 keepalive 透传与 ApiError.contentType；派生式裸 fetch 守卫（TASK-103 · 合同 §7.1 规定 10）",
+          "time": "2026-08-22T14:24:28+00:00",
+          "branch": "change/TASK-103-frontback-ui-residuals",
+          "pushed": false,
+          "scope_violation": null
+        }
+      ],
       "paths": [
-        "docs/tasks/TASK-103-frontback-and-ui-residuals.md",
-        "mockups/motv-workspace/src/services/apiclient.js",
-        "mockups/motv-workspace/src/services/persist.js",
-        "mockups/motv-workspace/src/services/runtime.js",
+        "mockups/motv-workspace/tests/apioutlet.test.mjs",
         "tests/contract/test_frontend_write_path_invariants.py"
       ],
       "verification": "PASS",
       "verification_ref": "",
-      "declared": "2026-08-22T14:23:07+00:00"
+      "declared": "2026-08-22T14:26:36+00:00"
     }
   },
   "merge_gate": {
