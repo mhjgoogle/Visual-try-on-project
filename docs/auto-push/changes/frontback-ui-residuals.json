@@ -23,6 +23,14 @@
           "branch": "change/TASK-103-frontback-ui-residuals",
           "pushed": false,
           "scope_violation": null
+        },
+        {
+          "hash": "6bb675122025aff42d4ee5dbee3ccf1c6918a293",
+          "subject": "批次B：评价/反馈闭环接进 Studio Gateway —— 四个 LOW-risk 命令从 workspace_shell 抽成共享缝并在 Studio 注册；无花费门改派生；新增只读 review-target 路由（target 的 content_digest 必须后端算，前端编一个会把命令绑到不存在的版本）；审片「✓通过/撤销」经网关落核心，回执进 coreSync 并在卡片上如实显示（TASK-103 · TASK-087 §1.2 · TASK-083 §5.1）",
+          "time": "2026-08-22T15:02:17+00:00",
+          "branch": "change/TASK-103-frontback-ui-residuals",
+          "pushed": false,
+          "scope_violation": null
         }
       ],
       "paths": [
