@@ -15,6 +15,17 @@
           "branch": "change/TASK-102-repo-decoupling",
           "pushed": false,
           "scope_violation": null
+        },
+        {
+          "hash": "fcbd238555a7a65afa117bbf5e868238eb132f05",
+          "subject": "批次A：142个测试按归属分域（backend/studio/contract/e2e/tooling），场景fixture抽取为共享scenario模块，gate路径跟随，注释指针更新（TASK-102 · repo-decoupling · ADR-0080/0081 草案入库）",
+          "time": "2026-08-22T07:50:54+00:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": [
+            "docs/tasks/TASK-102-injected-adr-0080-2026-08-22.md",
+            "docs/tasks/TASK-102-injected-agents-md-2026-08-22.patch"
+          ]
         }
       ],
       "paths": [

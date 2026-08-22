@@ -132,6 +132,12 @@
 - C 批：gate 按所有权映射重设计（废风险分级、日常不全量）+ gate 测试更新。
 - D 批：治理文档与 skills 对齐（AGENTS.md §20、CLAUDE.md 审查表、
   verification.md、codex-review-loop）+ README 收敛 + 新 ADR + repo-contract。
+- E 批：**前端架构不变量集中化**。批次 B 后仍有 107 处对前端 JS 文件名的引用，
+  其中 `app.js` 被 **19 个**测试文件读 —— 那是「改 app.js 一行要碰 19 个 Python
+  测试」的残留联动。根因是 app.js 是入口编排文件，`.test.mjs` 无法 import 它，
+  所以这些守卫（媒体写路径必经 registry、序列化器是持久化唯一所有者、
+  不得静默定稿等）只能从源码侧断言。它们本质是**跨层写路径不变量**，归
+  `tests/contract/`，集中到一个文件：改一处只碰一个测试文件。
 - 尾批（集成检查点）：全量两阶段 pytest + 全量前端 + ruff + 独立审查
   （新政策：默认 1 轮）+ 本卡收口。
   中间批次按任务书 §17 与「我不要每次都全量测试」的授权走 ADR-0068 链式节奏：

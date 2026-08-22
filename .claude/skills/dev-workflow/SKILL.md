@@ -20,8 +20,9 @@ description: >-
 只有真正的产品决策才回到用户。
 
 **本 Skill 是路由与记录层，不重定义本仓库已有的权威规则。**
-风险分档、测试规模、审查轮次预算、提交规则、决策模式，权威永远是
-AGENTS.md §20、CLAUDE.md「决策模式」与「实施纪律」、ADR-0060/0068/0069。
+测试归属与规模、审查触发与轮次、提交规则、决策模式，权威永远是
+AGENTS.md §20、CLAUDE.md「决策模式」与「实施纪律」、ADR-0080/0081（测试归属
+与审查协议）、ADR-0068（连续修改链）。
 本 Skill 与它们冲突时，以它们为准。
 
 ## 第 0 步 — Repo Contract 检查（每个新会话一次）
@@ -49,9 +50,9 @@ AGENTS.md §20、CLAUDE.md「决策模式」与「实施纪律」、ADR-0060/006
 
 ## 第 2 步 — 定深度：QUICK / STANDARD / DEEP
 
-深度管**流程重量**（建什么档、做多少分析）；风险档管**验证与审查重量**
-（AGENTS.md §20，不由本 Skill 重定义）。两者独立判断——
-持久化里改一行 = QUICK 深度 + 高风险验证。
+深度管**流程重量**（建什么档、做多少分析）；**改动影响范围**管验证与审查重量
+（AGENTS.md §20 / ADR-0080，不由本 Skill 重定义）。两者独立判断——
+持久化里改一行 = QUICK 深度 + backend/studio 两个域的验证 + 一轮审查。
 
 | 深度 | 适用 | Requirement | Change Record | Impact Analysis |
 | --- | --- | --- | --- | --- |
@@ -120,9 +121,10 @@ boundary leakage / 隐藏耦合 / 重复抽象，**不直接接受扩散**；必
 
 ## 第 8 步 — Targeted Verification
 
-**Test Scope = Change Impact Scope**（映射表见 references/verification.md）。
-风险档与全量触发条件以 AGENTS.md §20 为准；中/高风险完成后按 CLAUDE.md
-实施纪律调用 `codex-review-loop`（低风险不调）。
+**Test Scope = Change Impact Scope**（归属映射见 references/verification.md）。
+测试归属与全量触发以 AGENTS.md §20 / ADR-0080 为准：跑改动路径的**归属域**，
+全量只在集成检查点。审查按影响范围触发（ADR-0081）：需要审的调
+`codex-review-loop`（默认 1 轮，P1 复审一次），纯文档与纯展示改动不调。
 
 ## 第 9 步 — Convergence（完成前必查）
 

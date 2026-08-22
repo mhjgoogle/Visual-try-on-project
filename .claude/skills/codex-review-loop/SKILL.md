@@ -2,18 +2,17 @@
 name: codex-review-loop
 description: >-
   Run an automated read-only code review of the current diff and fix only the
-  blocking findings, within a risk-tiered round budget (Medium 1 round, High 2;
-  every tier gets one extra round while a P1 is still outstanding).
-  INVOKE after finishing a **Medium- or High-risk** implementation task — i.e.
-  once code has actually changed and the change is complete. The reviewer is
-  codex when available, otherwise an independent claude session (fallback).
-  DO NOT invoke for: **Low-risk changes** (CSS, layout, spacing, copy, purely
-  presentational composition, or a localized bug whose fix touches none of the
-  Medium/High categories — these ship on targeted tests alone), answering
-  questions, explaining code, pure documentation-only changes, or while an
-  implementation is still in progress / incomplete. The highest tier a change
-  touches always wins: a one-line fix inside persistence, identity, security,
-  file operations, or a cross-layer contract is High, however obvious its cause.
+  blocking findings: ONE round by default, plus one more round to re-review a P1
+  fix (ADR-0081). INVOKE after finishing an implementation task whose change
+  touches behavior, a contract, persistence, identity, registration, render or
+  file operations, paid paths, concurrency, security, Windows portability, or
+  more than one domain — i.e. once code has actually changed and the change is
+  complete. The reviewer is codex when available, otherwise an independent
+  claude session (fallback). DO NOT invoke for: purely presentational changes
+  (CSS, layout, spacing, copy), documentation-only changes, answering questions,
+  explaining code, or while an implementation is still in progress / incomplete.
+  Judge by WHAT the change touches, never by how small or how obvious it is;
+  when unsure whether a change needs review, review it.
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash(bash *), Bash(git diff *), Bash(git status *), PowerShell(powershell *), PowerShell(git diff *), PowerShell(git status *)
 ---
 
@@ -30,32 +29,35 @@ back to an independent `claude -p` session**. Fallback loses cross-model
 independence — when the report shows a `claude (fallback…)` reviewer, record
 that independence was degraded.
 
-## Phase 0 — classify the change, then set the round budget
+## Phase 0 — decide whether to review, then set the round budget
 
-Do this BEFORE launching any review. The budget is decided once, from the risk
-of the change, and stated in the report.
+Do this BEFORE launching any review. There are **no risk tiers** (ADR-0081,
+产品负责人 2026-08-22: 「不要保留风险分集」). Two questions only.
 
-| Risk | What the change touches | Round budget |
-| --- | --- | --- |
-| **Low** | CSS, layout, spacing, copy, pure presentational composition, or a single localized bug whose fix touches **none** of the Medium/High categories below | **0 — do not run this skill.** Targeted tests + ship. |
-| **Medium** | interaction, navigation, read model, derived view state, filtering/sorting/selection, business logic inside one layer | **1 round** |
-| **High** | persistence, schema/migration, identity, asset or generation registration, timeline, render/file operations, storage lifecycle, paid operations, concurrency/async state, security, Windows portability, cross-layer contract | **2 rounds** |
+**1. Does this change need a review at all?** Judge by WHAT it touches, never by
+diff size or how obvious the cause is:
 
-**Every tier gets `budget + 1` when a P1 is still outstanding** — fix the P1s
-alone and spend that one extra round re-reviewing just that fix (Medium: 1 → 2,
-High: 2 → 3). An outstanding P1 always buys the round it needs; the budget
-bounds polishing, never the closing of a real defect. There is no tier at which
-a P1 can dead-end the workflow.
+| Change touches | Review |
+| --- | --- |
+| documentation only, or purely presentational surface (CSS, layout, spacing, copy) | **no — do not run this skill.** Targeted tests + ship. |
+| behavior, contracts, persistence, schema/migration, identity, asset or generation registration, timeline, render/file operations, storage lifecycle, paid operations, concurrency/async state, security, Windows portability, cross-layer contract, or more than one domain | **yes** |
 
-**Precedence: the highest tier the change touches wins.** Classify by category,
-never by how small or how obvious the change is. A one-line fix with a perfectly
-obvious cause is still **High** if it lands in persistence, schema/migration,
-identity, registration, render/file operations, storage lifecycle, paid
-operations, concurrency, security, Windows portability, or a cross-layer
-contract. "Obvious cause" and "small diff" are never grounds to drop a tier —
-they only describe how fast the FIX is, not what it can break.
+When you cannot tell, review it. "Obvious cause" and "small diff" describe how
+fast the FIX is, not what it can break.
 
-If a change cannot be classified, treat it as High.
+**2. Budget: ONE round by default.** Then:
+
+- **P1 found → fix the P1s alone and spend ONE more round re-reviewing just
+  that fix.** An outstanding P1 always buys the round it needs; a P1 can never
+  dead-end the workflow.
+- **P2 found → fix them, run the owning test domain, close.** Do NOT open
+  another round for P2s: a reviewer can always find a narrower P2 variant, so
+  P2-triggered re-review does not converge (TASK-061 spent 13 rounds, TASK-062
+  spent 10 — and round B4 reverted round A4's fix, a net negative).
+- **P3/P4 → record as Follow-up.** They never block delivery.
+
+Going beyond this protocol requires an explicit, stated choice
+(ship / fix P1 only / escalate) — never a silent extra round.
 
 The budget counts **review rounds**, not findings. Reaching it is a normal,
 expected outcome — not a failure.
@@ -123,14 +125,10 @@ For each round:
    - **P1 present** → fix (minimally — see Ironclad rules). If the round budget
      still has a round left, run the next round to re-review. If not, see
      budget exhaustion below.
-   - **P2 present, no P1** → fix the P2s minimally and run the **targeted tests**
-     covering them. Then split by tier:
-     - **Low / Medium** → go to Phase 2. Do **NOT** spend a round re-reviewing a
-       P2 fix. Note the fixes in the report as reviewed-once.
-     - **High** → if the budget still has a round left, **spend it** re-reviewing
-       the P2 fixes. Persistence / schema / identity / security code must not
-       ship a fix no reviewer has seen; the second round exists for exactly this.
-       Skip it only when the budget is already spent, and say so in the report.
+   - **P2 present, no P1** → fix the P2s minimally, run the **owning test
+     domain** (ADR-0080), and go to Phase 2. Do **NOT** spend a round
+     re-reviewing a P2 fix (ADR-0081 — the tier-dependent exception is gone).
+     Note the fixes in the report as reviewed-once.
    - **Only P3/P4** → do not fix anything; record them as follow-ups; go to
      Phase 2.
 
@@ -186,11 +184,10 @@ d. **Budget exhausted** — the Phase 0 round budget is spent. Do NOT silently
    - **ship** — no P1 outstanding → done, with any P2/P3/P4 recorded as
      follow-ups.
    - **fix P1 only** — a P1 is outstanding → fix the P1s (nothing else) and
-     spend ONE extra round re-reviewing just that fix. This applies at **every**
-     tier: a Medium-risk change whose single round found a P1 gets that round
-     (2 total), a High-risk change gets a 3rd. Hard ceiling: **tier budget + 1**.
-     An outstanding P1 always buys the round it needs — the budget bounds
-     polishing, never the closing of a real defect.
+     spend ONE extra round re-reviewing just that fix. Hard ceiling:
+     **default round + 1 = 2 rounds** (ADR-0081). An outstanding P1 always buys
+     the round it needs — the budget bounds polishing, never the closing of a
+     real defect.
    - **escalate** — a P1 is outstanding and the fix would exceed the task's
      scope, or the same P1 theme survived the extra round → stop, do not
      widen scope, and report it to the user as a blocking finding with a

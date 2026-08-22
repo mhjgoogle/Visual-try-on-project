@@ -3,8 +3,9 @@
 The shipped ``examples/projects/wfm1-demo`` is a gate deliverable with a
 deterministic runbook. These tests pin it against drift: the example must
 keep compiling through the REAL CLI with exactly the packet counts and
-yen preview its README promises, and its locked catalog digest must keep
-matching the repository's shipped catalog. No provider is ever called
+yen preview its runbook promises (pinned below), and its locked catalog
+digest must keep matching the repository's shipped catalog. No provider
+is ever called
 (compilation stops before any paid step).
 """
 
@@ -61,10 +62,10 @@ def test_demo_example_compiles_exactly_as_its_runbook_promises(
     assert _run(root, "plan-compile", "--account-root", str(account)) == 0
 
     packets = sorted((root / "planning" / "packets").glob("shot-*_v1.json"))
-    assert len(packets) == 8  # README: packets: 8
+    assert len(packets) == 8  # runbook: packets: 8
     parsed = [json.loads(p.read_text(encoding="utf-8")) for p in packets]
-    assert sum(p["p50_jpy"] for p in parsed) == 128  # README: p50=128 JPY
-    assert sum(p["p90_jpy"] for p in parsed) == 256  # README: p90=256 JPY
+    assert sum(p["p50_jpy"] for p in parsed) == 128  # runbook: p50=128 JPY
+    assert sum(p["p90_jpy"] for p in parsed) == 256  # runbook: p90=256 JPY
     # every packet locks the reuse asset by version + content digest
     for p in parsed:
         (ref,) = p["reuse_assets"]

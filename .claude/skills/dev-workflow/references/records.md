@@ -3,7 +3,7 @@
 ## Requirement Record（`docs/requirements/REQ-*.md`）
 
 一个需求一个文件，命名 `REQ-NNN-short-slug.md`，编号取
-`docs/requirements/` 下现有最大号 +1。索引在 `docs/requirements/README.md`
+`docs/requirements/` 下现有最大号 +1。索引在 `docs/requirements/index.md`
 （一行一条，Agent 建 REQ 时同步加行）。
 
 记录**为什么要做、用户真正要什么**。实现方案不写这里（写任务卡/ADR）。

@@ -2,6 +2,15 @@
 
 数据都在 `docs/skill-evolution/`（放 docs/ 的理由见 ADR-0078 决策 2：
 仓库先例 + commit gate 把 docs/ 归 lint 档，feedback 追加不背全量测试）。
+**Agent 自动维护，用户不填**；人只在两处出现：对反馈草稿的轻量确认
+（默认 ACCEPT）和对 Evolution Proposal 的批准/否决。目录布局：
+
+| 内容 | 位置 |
+| --- | --- |
+| 全局轻量索引（哪个 Skill 健康/在观察/该复审） | `index.json` |
+| 每 Skill 反馈 backlog（一行一条 JSONL） | `backlogs/<skill>.jsonl` |
+| 压缩归档（终态条目；正常使用不加载） | `archive/<skill>.jsonl` |
+| Evolution Proposal（改 Skill 前的提案，待批准） | `proposals/EP-NNN-slug.md` |
 
 ## Global Index —— `index.json`
 

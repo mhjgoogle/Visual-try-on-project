@@ -20,24 +20,32 @@ QUICK 心算；STANDARD/DEEP 写进任务卡（每项一行即可）：
 
 核心原则：**Test Scope = Change Impact Scope**。不默认全量。
 
+测试**归属**见 ADR-0080 与 AGENTS.md §20 的域表（`tests/backend` /
+`tests/studio` / `tests/contract` / `tests/e2e` / `tests/tooling` /
+前端 `node --test`）。本表说的是**改了什么 → 跑哪个域**：
+
 | 改动 | 至少跑 |
 | --- | --- |
-| 单个 backend service/module | 该模块单测 + 直接受影响的集成测试 |
-| API / Contract | 合同测试 + 相关集成（本仓库：Command/Query 相关 pytest + 前端合同调用方测试） |
-| UI / 前端 | 受影响的 `node --test mockups/motv-workspace/tests/<相关>.test.mjs` + 手动 smoke |
-| shared / core | 扩大到**所有直接依赖模块**的测试 |
+| src 单个模块 | `pytest tests/backend/test_<对应>.py`（约定名不存在时跑 `tests/backend`） |
+| src 顶层共享模块（persistence/models/errors…） | `pytest tests/backend tests/studio`（Studio 后端 import 它） |
+| Studio Python 后端（`mockups/.../*.py`） | `pytest tests/studio tests/contract` |
+| API / 跨层合同 | `pytest tests/contract` + 相关 Command/Query pytest + 前端调用方 `.test.mjs` |
+| UI / 前端 | `node --test mockups/motv-workspace/tests/*.test.mjs`（或受影响子集）+ 手动 smoke |
+| Agent 工装（hooks / skills / scripts） | `pytest tests/tooling` |
+| tests/ 根支撑层（conftest / scenario / 假件） | 两阶段全量 pytest（它托着每个域） |
 | 修 Bug | 新回归测试（先红后绿）+ 上表对应行 |
 | Perf | benchmark 对比 + 上表对应行（证明行为未变） |
 
-**风险档与全量触发以 AGENTS.md §20 为准**（本表是它的「怎么选定向」细化，
-不是替代）。全量（两阶段 pytest + 全量前端 + ruff）只在：broad core change、
-大型 refactor、依赖/框架迁移、依赖图不清、发布关键验证、高风险改动。
-拿不准依赖图 → 宁可扩大。Agent 有权按风险单方面扩大验证范围，无权缩小
-§20 规定的下限。
+本地 gate 已按同一张归属映射自动选域（`.claude/hooks/commit_gate_policy.py`）。
+**全量是集成检查点**，不是日常提交默认（产品负责人 2026-08-22：「我不要每次
+都全量测试。」）：CI、连续链链尾、merge 前、发布/交接前，以及归属映射兜不住
+（fail-closed）时。拿不准依赖图 → 宁可扩大；Agent 有权扩大验证范围，
+无权缩到归属域以下。
 
-审查：中/高风险完成后调 `codex-review-loop`（轮次预算见该 Skill）；
-低风险不调。**发布闸门 = 验收满足 + 相关测试过 + 无未闭合 P1**，
-不是零发现。
+审查：按影响范围触发（ADR-0081 / AGENTS.md §20），需要时调
+`codex-review-loop`——默认 1 轮，P1 修复后复审一次，P2 修完跑归属域即收口，
+P3/P4 记 Follow-up。纯文档与纯展示改动不调。
+**发布闸门 = 验收满足 + 相关测试过 + 无未闭合 P1**，不是零发现。
 
 ## Convergence（完成前必查）
 

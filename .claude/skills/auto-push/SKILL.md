@@ -18,7 +18,8 @@ description: >-
 
 **dev-workflow = 决策权，auto-push = Git 执行权。** 本 Skill 永不判断
 「需求是否完成」，也永不改产品行为。机制决策见 ADR-0079；数据在
-`docs/auto-push/changes/<change-id>.json`（一个 Change 一个清单）。
+`docs/auto-push/changes/<change-id>.json`（一个 Change 一个清单；schema
+与目录说明见 [references/manifest.md](references/manifest.md)）。
 
 所有确定性操作走一个脚本（输出单行 JSON；`BLOCKED_*` 是合法结果，exit 0）：
 
@@ -53,7 +54,7 @@ init-change --change <id> --branch <name> [--adopt] [--chain]
 2. `stage --task T --message "<一句话>"` —— 自动做：branch 校验、冲突/脏
    index 检查、diff 归属（mine / mixed / foreign）、宽 diff 守卫、secret 扫描，
    然后只 stage 归属文件（清单自身自动带走）。
-3. 把返回的 `commit_command` **原样在 shell 运行**（gate 按 ADR-0060 分档跑
+3. 把返回的 `commit_command` **原样在 shell 运行**（gate 按 ADR-0080 归属映射跑
    检查），然后 `record-commit --task T` 回写 hash。
 4. `push` —— 成功即完；`NEEDS_SYNC` 见下。
 5. push 成功后做一次 skill-evolution Fast Loop 反馈（沿用 dev-workflow

@@ -7,9 +7,10 @@ Agent 之间只通过仓库中的文档、代码和 Git 状态共享上下文，
 
 ### 长期目标
 
-构建一个 AI 视频 / AI 短剧生产工作流（权威开发环境为 WSL2 Ubuntu + VS Code；
-自 [ADR-0049](docs/adr/ADR-0049-native-windows-run-and-test-target.md) 起，原生
-Windows 为受支持的**运行+测试**目标），覆盖：
+构建一个 AI 视频 / AI 短剧生产工作流（权威开发/构建/CI/agent 环境为原生
+Windows + NTFS，见下方第 2 节第 2 条与
+[ADR-0062](docs/adr/ADR-0062-windows-authoritative-environment.md)；Ubuntu / WSL2
+与 Linux CI runner 是受支持目标），覆盖：
 
 故事构思 → 结构化剧本 → 场景与镜头拆分 → 人物/场景/道具资产管理 → 图片生成
 → 视频生成 → 配音、音效和字幕 → FFmpeg 合成 → 质量检查
@@ -88,6 +89,32 @@ L0–S7 阶段/步骤的逻辑输入输出基线见
 Skill 只产生提案，**不得定稿、锁定、付费或导出**；加载或校验失败一律 fail-closed。
 实施见 [TASK-075](docs/tasks/TASK-075-product-skill-package.md)。
 
+**Studio 原型的运行时边界**（原 `mockups/motv-workspace/README.md` 的「治理
+边界」并入此处，TASK-102）：
+
+- 它是**非生产的 UX 原型**，不是受治理的 Workspace 实现。
+- **只读接真实数据是允许的**（ADR-0031/0032 已 Accepted）：可选后端
+  `server.py` 消费**公开**查询包 `ai_video_workflow.workspace`（与
+  `src/workspace_shell/app.py` 同一公开面），只读、不写业务状态、不持凭据，
+  刻意不放进 `src/workspace_shell/`。禁的是 import 核心**内部**类型。
+- **写侧受门槛、保持 stub**：生成/发布/Command Gateway/DB/最终 schema 受
+  ADR-0033+ 约束；前端 `services/gateway.js` 是 client stub，连上后端时生成类
+  操作显式提示「待 Gateway」，不产生真实花费、不写核心文件。
+- **画布持久化是原型本地 scratch**：`data/<project>.json` 只存画布自有状态，
+  不是核心事实的投影，不回写任何核心文件（已 gitignore）。
+- **已知非目标**：不接真实 Command Gateway、不做真实生成/发布、不写核心业务
+  文件、不进 `workspace_shell`、不建 DB 或物化 projection。要把它落成生产
+  Workspace UI 或做真写/真生成，另走 ADR 与任务卡。
+- 演示模式的种子项目与 SVG 占位素材不是验收依据（见第 20 条「真实 Connected
+  Project 是主要验收环境」）；连接模式永不触发种子。
+
+**UI 差距审计工装**（原 `src/ui-gap-audit/README.md`，TASK-102）：
+`src/ui-gap-audit/` 放审计报告与抓图工装。**像素不进 Git**——`current/` 拍的是
+用户自己的创作项目，`target/` 拍的是他人产品界面，与第 23 条同一理由；清单、
+报告与脚本进 Git，使审计可复现。竞品截图需要**用户自己的登录态，凭据从不经过
+Agent**。审计**不得按下任何真实付费提交**，付费才能触发的状态如实标注为未实拍。
+审计判据优先级：实际运行行为 > 代码 > 测试 > schema > 注释。
+
 ## 2. 技术与环境约束
 
 1. Python 是主要开发语言。
@@ -106,6 +133,18 @@ Skill 只产生提案，**不得定稿、锁定、付费或导出**；加载或�
    (`.ps1`) 为**权威实现**，对应 `.sh` 变体保留以服务 Ubuntu 目标，两者共享 ADR-0050
    决策 1 的同一行为合同表，必须给出相同判定（ADR-0062 决策 3）。面向 Windows 用户的
    `.ps1`/`.bat` 启动器就是主入口，不再是「例外」。
+   **仓库路径所有权**（ADR-0077；原 `scripts/README.md` 的边界声明并入此处）：
+   可执行的仓库级工具放 `scripts/`，**不放仓库根**——根只留项目元数据与治理
+   文件（`README.md`、`LICENSE`、`pyproject.toml`、Agent 规则）。
+   `scripts/launch/` 是面向人的产品启动器：`studio.ps1`（原生 Windows 权威）、
+   `studio.bat`（双击/CMD 适配器，委托前者）、`studio.sh`（Ubuntu / WSL2）。
+   三者都从**自身位置**解析仓库根，可从任意工作目录调用
+   （`tests/tooling/test_repository_layout.py` 钉住这条）。其余所有权不变：
+   agent 工装在 `.claude/`，应用与库代码在 `src/`，测试与其配置在 `tests/`。
+   **README 只有仓库根那一份且面向使用者**（产品负责人 2026-08-22：
+   「Readme不要设计太多…在project下面有一个就可以。别的readme如果是设计给
+   agent遵守。请统一到agents.md或者claude.md」）——给 Agent 的规则写本文件或
+   对应权威 docs，不再新建子目录 README。
 5. 权威仓库位于 Windows NTFS（当前 `D:\02_Work\04_video-work\Visual-try-on-project`）。
    在 WSL 内对该仓库执行 git 时**必须对齐行尾语义**，否则 diff 完全失真（实测
    149,986 行 vs 1,918 行）：
@@ -154,27 +193,36 @@ pause/cancel/skip 状态。
 ## 5. 质量规则
 
 19. 新功能必须有测试。
-20. 测试按**风险分级**运行，规模与改动风险匹配，不是每次改动都跑全量：
+20. **测试按所有权与影响范围运行（Test Scope = Change Impact Scope），不做
+    风险分级**（产品负责人 2026-08-22：「不要保留风险分集」「我不要每次都
+    全量测试。」；[ADR-0080](docs/adr/ADR-0080-test-ownership-and-gate-mapping.md)
+    取代 ADR-0060 的分档语义，[ADR-0081](docs/adr/ADR-0081-review-by-impact-scope.md)
+    取代 ADR-0069 的按档轮次预算）：
 
-    | 风险 | 改动内容 | 运行 |
+    | 测试域 | 归属目录 | 独立运行命令 |
     | --- | --- | --- |
-    | 低 | CSS、布局、间距、排版、纯展示组件组合、静态文案 | 相关前端测试 + 手动 smoke |
-    | 中 | 交互、导航、read model、派生视图状态、筛选/排序/选择 | 受影响的前端/单元测试 + 必要时定向 pytest |
-    | 高 | 持久化、schema/迁移、资产登记、生成登记、时间线、渲染/文件操作、存储生命周期、Windows 可移植性/安全 | **全量 pytest + 全量前端 + ruff + Codex 独立审查** |
+    | 后端（src 库 + workspace_shell） | `tests/backend/` | `pytest tests/backend` |
+    | Studio Python 后端（暂居 mockups） | `tests/studio/` | `pytest tests/studio` |
+    | 跨 py↔js 合同 | `tests/contract/` | `pytest tests/contract` |
+    | 端到端关键路径 | `tests/e2e/` | `pytest tests/e2e -m "not serial"` + `pytest -m serial` |
+    | Agent 工装（gate/skills/仓库结构） | `tests/tooling/` | `pytest tests/tooling` |
+    | 前端 | `mockups/motv-workspace/tests/` | `node --test mockups/motv-workspace/tests/*.test.mjs` |
 
-    本地 commit gate 按 [ADR-0060](docs/adr/ADR-0060-risk-based-local-commit-gate.md)
-    的保守 allowlist 选择检查；高风险与无法分类的改动必须跑全量。全量测试仍是
-    有意义的 checkpoint、合并前 CI 与高风险代码变更的硬门槛。
+    共享测试支撑层（`tests/conftest.py`、scenario 构造器、假件）留在 `tests/`
+    根。Python 测试不得对前端 JS 做源码文本断言、不得内嵌 `node --test`；
+    跨边界验证只住 `tests/contract/`（ADR-0080 决策 3）。
 
-    **审查同样按同一张表分级，并且有轮次预算**（低 = 不审 / 中 = 1 轮 /
-    高 = 2 轮，仅当第 2 轮仍报 P1 才允许第 3 轮）。**低 / 中风险的 P2 修完跑定向
-    测试即可收口，不再开一轮再审；高风险的 P2 修复必须用掉剩余那一轮复审**
-    （ADR-0069 决策 3——此处原写成无条件，与该决策冲突，2026-08-16 codex 跨模型
-    复审报为 blocking，已就地限定）——只有 P1 值得再花一轮；每轮约 6–10 分钟 ×
-    审查者数量，而审查者永远能找到更窄的 P2 变体，所以 P2 触发再审在结构上
-    不收敛。历史代价：TASK-061 13 轮、TASK-062 10 轮，其中轮 B4 撤回了轮 A4
-    的修复（净负值）。预算耗尽必须显式选择 **ship / 只修 P1 / escalate**，
-    不得静默续轮。
+    本地 commit gate 按 ADR-0080 的**归属映射**选择检查：改动路径 → 它的归属
+    测试域；映射不到时 fail-closed 到全量。**全量（两阶段 pytest + 全量前端 +
+    ruff）是集成检查点**——CI、连续链链尾、merge 前、发布/交接前——不是日常
+    提交的默认。
+
+    **审查按影响范围触发，不按档位**（ADR-0081，产品负责人 2026-08-22：
+    「dev-workflow 根据影响范围决定是否审查 → 默认一轮 → P1 修复后复审一次
+    → P2 修复 + 定向测试，不再复审 → P3/P4 记录但不阻塞」）。行为/合同/
+    持久化/安全/并发/跨域改动做独立审查；纯文档、纯展示改动不审。历史代价
+    提醒仍然有效：TASK-061 13 轮、TASK-062 10 轮（轮 B4 撤回了轮 A4 的修复，
+    净负值）——协议之外不得静默续轮。
 
     **发布闸门 = 用户验收标准满足 + 相关测试通过 + 无未闭合 P1**，
     而不是零发现 + 全量测试 + 完美架构。`VERDICT: pass` 不是闸门。
@@ -198,7 +246,7 @@ pause/cancel/skip 状态。
     `tests/conftest.py` 的 tmpfs 路由在这里是 no-op。`-n 8` 是实测值，
     不用 `auto`（12）——fsync 主导后更多 worker 不再付费。
     `serial` marker 只给**断言真实 OS 进程状态**的测试用
-    （当前仅 `tests/test_motv_run_lifecycle_task072.py`），
+    （当前仅 `tests/e2e/test_motv_run_lifecycle_task072.py`），
     不是绕开并行的通用逃生口。
 
     实施记录见[提速与 gate 修复](docs/design/pending-speedup-and-gate-fix.md)。
@@ -215,7 +263,8 @@ pause/cancel/skip 状态。
     最终全量失败则「修复 → 定向测试 → Codex 复审 → 修复提交 → 重新跑全量」。
     **push / merge / 交接 / 人工验收之前必须完成最终全量。**
     **Codex 独立审查在中间批次不放松**——那是敢于推迟全量的唯一理由；
-    审查者不可用时不得使用本节奏，回落 ADR-0060 原规则并如实报告。
+    审查者不可用时不得使用本节奏，回落到本条第 20 项的常规归属验证
+    （ADR-0080）并如实报告。
     **不存在永久关闭测试的全局开关。**
     UI 迭代不得每次触发 2800+ 项 pytest（一轮约 6.5 分钟，纯粹浪费用户时间）。
 

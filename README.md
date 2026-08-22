@@ -96,7 +96,10 @@ Or use the launcher (creates the venv, installs deps, opens the demo studio):
 ```
 
 On Ubuntu / WSL2, use `./scripts/launch/studio.sh` with the equivalent
-`--connected` / `--setup-only` options. Repository-level executable entry
+`--connected` / `--setup-only` options; `scripts\launch\studio.bat` is a
+double-click/CMD adapter that delegates to `studio.ps1`. All launchers resolve
+the repository root from their own location, so they may be invoked from any
+working directory. Repository-level executable entry
 points live under [`scripts/launch/`](scripts/launch/); the repository root is
 reserved for project metadata and governance files.
 
@@ -120,6 +123,37 @@ Tests whose fixture needs a real symlink skip on a Windows host without
 symlink-creation privilege; enable **Developer Mode** (Settings → System → For
 developers) to run them locally. They always run on Linux and in Windows CI,
 which stays the verification of record for those guards.
+
+## Creator Studio (motv-workspace)
+
+[`mockups/motv-workspace`](mockups/motv-workspace/) is the creator-studio UX
+prototype (non-production; read-only against real data). ES modules must load
+over http, so it cannot be opened via `file://`. Two ways to run it:
+
+```powershell
+# demo mode — static fixtures, zero dependencies. Use serve.py, not
+# `python -m http.server`: native Windows serves .js with a wrong MIME type.
+py -3 mockups\motv-workspace\serve.py --port 8000     # http://localhost:8000/
+
+# connected mode — same-origin loopback backend reading real projects
+.\.venv\Scripts\Activate.ps1
+python mockups\motv-workspace\server.py --account-root examples\projects
+# http://127.0.0.1:8770/
+```
+
+On Ubuntu / WSL2 the same commands run with `python3` and forward slashes.
+`scripts\launch\studio.ps1` (above) wraps setup plus either mode.
+
+## Example Project (wfm1-demo)
+
+[`examples/projects/wfm1-demo`](examples/projects/wfm1-demo/) is the read-only
+WFM1 acceptance fixture (one character, 8 shots, ~48s; JSON inputs only — no
+media, no credentials). Its offline end-to-end acceptance (real CLI + fake
+provider, zero cost) runs as:
+
+```powershell
+python -m pytest tests/e2e/test_wfm1_e2e.py -q
+```
 
 ## Minimal Loop (M1)
 

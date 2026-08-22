@@ -54,5 +54,6 @@ Implementation → Targeted Verification → Convergence → Done`。
 - 分阶段：能新旧并存就先并存，切换与清理分开两步；清理是 convergence 的一部分，
   不是「以后再说」——旧路径退役要出现在本任务或显式 Follow-up 里。
 - 本仓库特有：**Windows（权威）与 Ubuntu（受支持目标）都得绿**（ADR-0062）；
-  schema/持久化迁移永远是高风险档（全量 + 审查 2 轮）。
+  schema/持久化迁移永远跑到集成检查点（两阶段全量 pytest + 全量前端 + ruff），
+  并做一轮独立审查（P1 修复后复审一次；ADR-0080/0081）。
 - 深度默认 DEEP；纯 patch 版本依赖升级且测试全绿可降 STANDARD。
