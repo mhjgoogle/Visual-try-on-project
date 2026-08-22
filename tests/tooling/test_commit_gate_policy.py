@@ -1527,3 +1527,112 @@ def test_the_serial_test_never_arrives_as_a_directory_target() -> None:
     parallel = _POLICY.classify(["tests/e2e/test_wfm1_e2e.py"])
     assert parallel.pytest_targets == ("tests/e2e/test_wfm1_e2e.py",)
     assert parallel.serial_targets == ()
+
+
+def test_the_derivation_is_not_fooled_by_a_name_that_is_a_prefix() -> None:
+    """P1（codex, TASK-102）：子串匹配让 `tests.foo` 命中 `tests.foo_extra`,
+    那是**另一个模块**。
+
+    第一版守卫只断言「没人用的模块名 → 全量」，而带边界和不带边界在那个输入上
+    **恰好都给出全量**（一个因为没使用者，一个因为误命中后 fail-closed），
+    于是变异验证放过了它 —— 结果相同不等于机制正确。
+
+    这一版造一个能区分两者的现场：短名有规范使用者（studio），长名在另一个域
+    （contract）被使用。带边界 → 短名精确得到 studio；不带边界 → 短名误命中
+    contract 里那行 `…_long`，而它不是短名的 import 形态，于是整个派生
+    fail-closed 成全量。两者答案不同，变异才抓得住。
+    """
+    root = _POLICY_PATH.parents[2]
+    short = "_probe_prefix_tmp"
+    long_name = short + "_long"
+    dotted = "tests."  # 拼接，避免把探针名写成本文件里的真实提及
+
+    def body(module: str, symbol: str) -> str:
+        return (
+            f"from {dotted}{module} import {symbol}\n\n\n"
+            f"def test_probe() -> None:\n    assert {symbol}\n"
+        )
+
+    planted = [
+        (
+            root / "tests" / "studio" / f"test_{short}_user.py",
+            body(short, "thing"),
+        ),
+        (
+            root / "tests" / "contract" / f"test_{long_name}_user.py",
+            body(long_name, "other"),
+        ),
+    ]
+    for path, _ in planted:
+        assert not path.exists(), f"探针文件名已被占用：{path}"
+    for path, body in planted:
+        path.write_text(body, encoding="utf-8")
+    try:
+        decision = _POLICY.classify([f"tests/{short}.py"])
+        assert decision.tier == "pytest-targeted", (
+            f"短名应精确到它自己的使用者域，实为 {decision.tier}"
+        )
+        assert set(decision.pytest_targets) == {"tests/studio"}, (
+            "长名那个使用者不属于短名的影响范围，实为 "
+            f"{sorted(decision.pytest_targets)}"
+        )
+    finally:
+        for path, _ in planted:
+            path.unlink()
+
+
+def test_a_mention_in_an_unrecognised_form_fails_the_whole_derivation() -> None:
+    """P1（codex, TASK-102）：真正危险的不是「多跑」，是**部分域**——认得出的域
+    进了结果、认不出的那种 import 被漏掉，于是跑得比该跑的少。
+
+    所以规则是：文件里出现 `tests.<stem>` 却不匹配任何已知 import 形态 →
+    **整个派生 fail-closed 到全量**。这条用真实文件验证：临时往一个域里放一个
+    只在注释里提到模块的文件，派生必须立刻退回全量。
+    """
+    root = _POLICY_PATH.parents[2]
+    planted = root / "tests" / "studio" / "_derivation_probe_tmp.py"
+    assert not planted.exists(), "探针文件名已被占用，请改名"
+    # `_scan` 平时只有 tests/studio 用，所以它是最敏感的探针目标
+    assert set(_POLICY.classify(["tests/_scan.py"]).pytest_targets) == {"tests/studio"}
+    # 字面量必须拼接：派生扫的是**文本**，把 "tests.<stem>" 直接写进本文件就等于
+    # 在 tests/tooling 域伪造了一个使用者。第一版就这么污染了自己的被测数据，
+    # 派生当场 fail-closed —— 机制是对的，守卫写错了。
+    dotted = "tests." + "_scan"
+    planted.write_text(
+        f"# 这里以一种派生认不出的写法提到 {dotted}\nMODULE_NAME = {dotted!r}\n",
+        encoding="utf-8",
+    )
+    try:
+        decision = _POLICY.classify(["tests/_scan.py"])
+        assert decision.tier == "full", (
+            "认不出的提及必须让整个派生退回全量，而不是给出部分域"
+        )
+        assert decision.pytest_targets == ()
+    finally:
+        planted.unlink()
+    # 清掉探针后回到精确答案，证明上面不是永久降级
+    assert set(_POLICY.classify(["tests/_scan.py"]).pytest_targets) == {"tests/studio"}
+
+
+def test_the_derivation_sees_consumers_in_nested_directories() -> None:
+    """P1（codex, TASK-096 风格的同一类）：非递归 `glob("*.py")` 看不见
+    `tests/<domain>/<sub>/` 里的使用者，而漏看一个使用者是**收窄**结果 ——
+    正是要避免的方向。用真实嵌套文件验证递归生效。"""
+    root = _POLICY_PATH.parents[2]
+    nested_dir = root / "tests" / "contract" / "_nested_probe_tmp"
+    nested_dir.mkdir(exist_ok=False)
+    planted = nested_dir / "test_probe.py"
+    dotted = "tests." + "_scan"  # 同上，不得写成字面量
+    planted.write_text(
+        f"from {dotted} import core_files_containing\n\n\n"
+        "def test_probe() -> None:\n    assert core_files_containing\n",
+        encoding="utf-8",
+    )
+    try:
+        targets = set(_POLICY.classify(["tests/_scan.py"]).pytest_targets)
+        assert "tests/contract" in targets, (
+            f"嵌套目录里的使用者必须被算进去，实为 {sorted(targets)}"
+        )
+    finally:
+        planted.unlink()
+        nested_dir.rmdir()

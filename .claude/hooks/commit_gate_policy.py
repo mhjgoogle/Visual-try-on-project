@@ -98,10 +98,30 @@ _TEST_DOMAIN_DIRS = (
 #: 全量」办事 —— Test Scope = Change Impact Scope 就是这一条的全部内容).
 _FULL_PYTEST_FILES = {"pyproject.toml", "tests/conftest.py"}
 
-#: Import forms the derivation recognises. Both spellings appear in this repo
-#: (`from tests.media_fakes import X` and, in a couple of files, a module-level
-#: `tests.symlink_support` reference), so match the dotted name itself.
-_SUPPORT_IMPORT_RE = "tests.{stem}"
+#: Import forms the derivation RECOGNISES, anchored at a statement start.
+#:
+#: A plain substring test (`"tests.media_fakes" in text`) was wrong twice over
+#: (codex review): it matched the name inside comments and strings, and
+#: `tests.foo` matched `tests.foo_extra` -- a DIFFERENT module. Both errors
+#: widen the domain set, which is the harmless direction, but the same
+#: looseness made the dangerous direction reachable too: see `_MENTION_RE`.
+_IMPORT_FORM_RE = (
+    r"^[ \t]*(?:"
+    r"from[ \t]+tests\.{stem}[ \t]+import\b"
+    r"|import[ \t]+tests\.{stem}(?![\w.])"
+    r"|from[ \t]+tests[ \t]+import[ \t]+[^\n]*\b{stem}\b"
+    r")"
+)
+
+#: Any reference to the dotted module name, wherever it appears.
+#:
+#: This is the FAIL-CLOSED trigger, and it is the whole reason the derivation
+#: can be trusted. If a file mentions `tests.<stem>` but matches none of the
+#: recognised import forms above, the graph is NOT fully understood -- so the
+#: answer must be the full run, never "the domains I happened to recognise".
+#: Returning a PARTIAL domain set is the one outcome that silently runs too
+#: little (codex review, TASK-102), and it is strictly worse than over-running.
+_MENTION_RE = r"\btests\.{stem}(?![\w.])"
 
 _EXAMPLES_TARGETS = (
     "tests/backend/test_example_project.py",
@@ -796,12 +816,16 @@ def _domains_importing(stem: str) -> tuple[str, ...]:
     touches the tests/ root (rare). A `tests/` directory that cannot be read is
     reported as no domains, i.e. the full run.
     """
-    needle = _SUPPORT_IMPORT_RE.format(stem=stem)
+    quoted = re.escape(stem)
+    imports = re.compile(_IMPORT_FORM_RE.format(stem=quoted), re.MULTILINE)
+    mentions = re.compile(_MENTION_RE.format(stem=quoted))
     domains: set[str] = set()
     for domain_dir in _TEST_DOMAIN_DIRS:
-        directory = Path(domain_dir)
         try:
-            candidates = sorted(directory.glob("*.py"))
+            # RECURSIVE: a consumer in a nested directory (tests/backend/sub/)
+            # was invisible to `glob("*.py")`, and missing it NARROWED the
+            # answer rather than widening it (codex review, TASK-102).
+            candidates = sorted(Path(domain_dir).rglob("*.py"))
         except OSError:
             return ()
         for candidate in candidates:
@@ -811,9 +835,13 @@ def _domains_importing(stem: str) -> tuple[str, ...]:
                 # Unreadable file: cannot prove it does NOT import the module,
                 # so widen to the full run instead of guessing.
                 return ()
-            if needle in text:
+            if imports.search(text):
                 domains.add(domain_dir.rstrip("/"))
                 break
+            if mentions.search(text):
+                # Mentioned in a form this does not recognise -> the graph is
+                # not fully understood. Fail closed for the WHOLE derivation.
+                return ()
     return tuple(sorted(domains))
 
 
