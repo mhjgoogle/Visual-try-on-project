@@ -170,7 +170,13 @@ function coreSyncLine(sync) {
   const text = typeof sync.text === "string" ? sync.text : "";
   if (!text) return "";
   const cls = sync.state === "recorded" ? "ok" : sync.state === "unavailable" ? "muted" : "warn";
-  return `<div class="dl-coresync ${cls}">${esc(text)}</div>`;
+  // 只有「已登记」和「正在登记」不需要重试。其余每一种 —— 中断、被拒、出错、
+  // 没后端 —— 创作者今天都无路可走：镜头一旦通过，「✓ 通过」就被「撤销通过」
+  // 顶掉了，没有第二次机会（codex round 1, P1）。
+  const retry = sync.state === "recorded" || sync.state === "pending"
+    ? ""
+    : `<button class="btn sm" data-dl-resync>重试登记</button>`;
+  return `<div class="dl-coresync ${cls}">${esc(text)}${retry}</div>`;
 }
 
 /** The Dailies workspace. */
@@ -235,6 +241,9 @@ export function bindDailies(root, ctx, ui, render) {
     // move on automatically — the point of a review pass is to keep going
     if (at.next) ui.dailiesShotId = at.next.shotId;
     render();
+  });
+  on("[data-dl-resync]", () => {
+    if (at.current) ctx.shot.resyncReview(at.current.shotId);
   });
   on("[data-dl-unapprove]", () => {
     if (!at.current) return;

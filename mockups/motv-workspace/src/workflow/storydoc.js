@@ -654,8 +654,10 @@ export function planDraftVersions(doc) {
 /**
  * Type one facet of one episode's plan entry.
  *
- * Addressed by `episodeId` — never by index. An index would move under any
- * re-order and silently write 「EP03 的钩子」 onto EP02.
+ * Addressed by IDENTITY — never by index. An index would move under any re-order
+ * and silently write 「EP03 的钩子」 onto EP02. A confirmed entry answers to its
+ * `episodeId`; an unconfirmed one, which has none, answers to `ep#<本版第 N 集>`
+ * (see `planAddress`).
  *
  * Returns false when there is nothing to edit (no plan) or the episode / field
  * is not part of the plan — a refusal, never a silent no-op that reports success.
@@ -668,6 +670,87 @@ export function editPlanEntry(doc, episodeId, field, value) {
   return true;
 }
 
+/** How a plan row is addressed (TASK-103 批次 D / TASK-087 §5.8).
+ *
+ *  A plan entry that has not been confirmed yet has no episode entity, so it has
+ *  no `episodeId` — and every plan edit used to be addressed by one. The row
+ *  therefore said 「确认后才能改」 rather than offering a control that would be
+ *  refused, which was honest but wrong: the creator is looking at an AI-written
+ *  plan and the natural next move is to correct it BEFORE confirming.
+ *
+ *  So the address widens to 「有 id 用 id，没有就用本版第 N 集」. Still an
+ *  IDENTITY, never an index: `epNumber` is the plan's own numbering, stated on
+ *  the entry itself, and a draft is seeded from one immutable version whose
+ *  numbering does not move underneath it. An array index would move on any
+ *  re-order and silently write EP03's hook onto EP02 — the exact defect the
+ *  original `episodeId`-only rule was written to prevent, and it stays prevented.
+ *
+ *  **THE TWO FORMS ARE TAGGED, NOT ARBITRATED** (codex 轮 2 + 轮 3, both P1).
+ *  The first design wrote a bare `episodeId` or a bare `ep#N` and then decided
+ *  which wins when they collide. That question has no good answer, and the
+ *  reviewer found a corruption on EACH side of it: prefer the number and an
+ *  episode whose id reads `ep#3` gets edited by array luck; prefer the id and the
+ *  unconfirmed row numbered 3 becomes unreachable while its edits land on that
+ *  episode. Two findings on one line means the line is wrong, not the tie-break —
+ *  so the namespaces are now disjoint BY CONSTRUCTION (`id:` / `num:`) and the
+ *  collision cannot be expressed. `episodeId` may contain anything, including
+ *  `ep#3` or a colon, because it is whatever follows the first `id:`. */
+const ADDR_ID = "id:";
+const ADDR_NUM = "num:";
+
+export function planAddress(entry) {
+  if (!entry || typeof entry !== "object") return "";
+  if (typeof entry.episodeId === "string" && entry.episodeId) return ADDR_ID + entry.episodeId;
+  return Number.isInteger(entry.epNumber) && entry.epNumber > 0 ? ADDR_NUM + entry.epNumber : "";
+}
+
+/** Split an address back into what it names. **The tag is REQUIRED.**
+ *
+ *  THE THEME, AND WHY IT ENDS HERE. The reviewer reported this same collision
+ *  three times, each in a narrower spelling:
+ *
+ *    轮 2  bare forms, number preferred → an id spelled `ep#3` got edited by luck
+ *    轮 3  bare forms, id preferred     → the unconfirmed row 3 became unreachable
+ *    轮 4  tagged + a bare fallback     → an id spelled `num:3` still collides
+ *
+ *  Three spellings of one mechanism means the mechanism was never addressed:
+ *  every version still let ONE string be read two ways, and each fix only moved
+ *  which way won. So the untagged form is gone. An address is `id:<episodeId>` or
+ *  `num:<本版第 N 集>`, nothing else parses, and `episodeId` may spell anything at
+ *  all — `ep#3`, `num:3`, a colon, the empty-looking — because it is whatever
+ *  follows the first `id:` and is never re-examined.
+ *
+ *  Refusing the bare form is deliberate rather than tolerant: a tolerated form is
+ *  how the fourth spelling would arrive. Callers pass what `planAddress` produced. */
+function parseAddress(address) {
+  if (typeof address !== "string") return null;
+  if (address.startsWith(ADDR_NUM)) {
+    const rest = address.slice(ADDR_NUM.length);
+    return /^[1-9][0-9]*$/.test(rest) ? { by: "num", n: Number(rest) } : null;
+  }
+  if (address.startsWith(ADDR_ID)) {
+    const id = address.slice(ADDR_ID.length);
+    return id ? { by: "id", id } : null;
+  }
+  return null;
+}
+
+/**
+ * Resolve an address to at most one row.
+ *
+ * With tagged forms there is no precedence to get wrong: an `id:` address only
+ * ever looks at `episodeId`, a `num:` address only ever looks at rows that have
+ * none. A confirmed row therefore stays unreachable by number (its identity is
+ * the only way in) and an unconfirmed row stays reachable, whatever any id
+ * happens to spell.
+ */
+function findByAddress(entries, address) {
+  const a = parseAddress(address);
+  if (!Array.isArray(entries) || !a) return null;
+  if (a.by === "id") return entries.find((e) => e && e.episodeId === a.id) || null;
+  return entries.find((e) => e && !e.episodeId && e.epNumber === a.n) || null;
+}
+
 /**
  * The draft row for one episode, seeding this version's draft on first touch.
  *
@@ -675,11 +758,11 @@ export function editPlanEntry(doc, episodeId, field, value) {
  * after seeding would leave a draft behind for an edit that was refused, i.e.
  * state created by an operation that reported failure.
  */
-function draftEntry(doc, episodeId) {
-  if (typeof episodeId !== "string" || !episodeId) return null;
+function draftEntry(doc, address) {
+  if (typeof address !== "string" || !address) return null;
   const base = planEditBase(doc);
   if (!base) return null;
-  if (!base.episodes.some((e) => e.episodeId === episodeId)) return null;
+  if (!findByAddress(base.episodes, address)) return null;
   if (!doc.planDrafts) doc.planDrafts = {};
   const key = String(base.v);
   if (!Array.isArray(doc.planDrafts[key])) {
@@ -687,7 +770,7 @@ function draftEntry(doc, episodeId) {
     // the immutable version it came from. Other versions' drafts are untouched.
     doc.planDrafts[key] = base.episodes.map(clonePlanEntry);
   }
-  return doc.planDrafts[key].find((e) => e.episodeId === episodeId) || null;
+  return findByAddress(doc.planDrafts[key], address);
 }
 
 /** The list living under `field` on one draft row, or null when that is not a

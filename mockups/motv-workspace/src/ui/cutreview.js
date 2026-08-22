@@ -247,8 +247,13 @@ function mediaCol(r, kind) {
   return (
     `<div class="cr-col">${thumb}` +
     `<div class="cr-meta">${statusChip(m.status)}${rows}</div>` +
-    (m.url && !m.measured
-      ? `<button class="btn sm" data-cr-measure="${esc(m.url)}" title="只读探测，不花钱">测量</button>`
+    // STAYS after a failed measurement (codex round 1, non-blocking). Hiding it on
+    // any cached result meant 「探不到」 was terminal: replace or repair the file and
+    // the only way to ask again was a page reload. Only a successful measure has
+    // nothing left to ask.
+    (m.url && !(m.measured && m.measured.state === "ok")
+      ? `<button class="btn sm" data-cr-measure="${esc(m.url)}" title="只读探测，不花钱">`
+        + `${m.measured ? "重新测量" : "测量"}</button>`
       : "") +
     `<button class="btn sm" data-cr-ask="${esc(r.shotId)}" data-kind="${esc(kind)}">问 Agent</button>` +
     `</div>`

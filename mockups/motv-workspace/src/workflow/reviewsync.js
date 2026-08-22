@@ -15,9 +15,15 @@
 // （画布上的通过已经成立），也都不许被吞掉。它们各自有自己的一句话，见 `explain`。
 
 /** 命令名 —— 与 `src/ai_video_workflow/app/gateway_commands.py` 同名，
- *  那边是权威；这里写死是因为信封里必须出现字面量。 */
+ *  那边是权威；这里写死是因为信封里必须出现字面量。
+ *
+ *  只有 `record-evaluation`。`create-feedback` 的信封构造器**曾经写在这里并有
+ *  测试，但没有任何调用方**（codex 轮 1，P1：导出了、测了、没人用）。原因是
+ *  今天**界面上根本没有创建审片问题的入口** —— `workflow/review.js` 的
+ *  `issue()` 在整个 `src/` 里零调用方。把一个构造器留在这里，会让「反馈闭环
+ *  已接通」这句话看起来成立而实际不成立，所以删掉，并把缺口如实登记。
+ *  真要接通，先得有「提出问题」这个动作，那是另一张卡。 */
 export const RECORD_EVALUATION = "record-evaluation";
-export const CREATE_FEEDBACK = "create-feedback";
 
 /** 审片通过用的评价判据。一个固定的短标识，不是给人看的标题 ——
  *  核心把它当 `criterion` 存，用来回答「这条评价评的是哪一项」。 */
@@ -86,40 +92,6 @@ export function evaluationFor(dec) {
       criterion: DAILIES_CRITERION,
       pass: passed,
       rationale: note || (passed ? "创作者审片通过（未填写理由）" : "创作者撤销通过（未填写理由）"),
-    },
-  };
-}
-
-/**
- * AI 导演提的「问题」→ `create-feedback` 的信封素材。
- *
- * 反馈的 actor 在服务端被强制成 `user`（浏览器无权自称 agent），所以 Agent 提出的
- * 问题登记进核心时，**由创作者署名**是准确的：是他决定把这条问题留下来的。
- * 问题本身是谁提的写进 `context.raisedBy`，不假装成人写的。
- */
-export function feedbackFor(iss, { raisedBy = "agent" } = {}) {
-  if (!iss || typeof iss !== "object") return { ok: false, error: "没有可登记的问题" };
-  const shotId = str(iss.locatedShotId) || str(iss.targetId);
-  if (!shotId) return { ok: false, error: "这条问题没有定位到镜头，无法登记到核心" };
-  const id = str(iss.issueId);
-  if (!id) return { ok: false, error: "这条问题没有 issueId" };
-  const summary = str(iss.title) || str(iss.summary);
-  if (!summary) return { ok: false, error: "这条问题没有标题" };
-  return {
-    ok: true,
-    name: CREATE_FEEDBACK,
-    shotId,
-    commandId: `cmd-fb-${id}`,
-    params: {
-      feedback_id: `fb-${id}`,
-      summary,
-      // detail 必填；问题没有正文时如实说没有，不把标题复制一遍充数
-      detail: str(iss.detail) || str(iss.body) || "（没有填写正文）",
-      context: {
-        layer: str(iss.layer) || "shot",
-        severity: str(iss.severity) || "warning",
-        raisedBy: str(raisedBy) || "agent",
-      },
     },
   };
 }

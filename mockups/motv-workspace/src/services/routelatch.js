@@ -19,19 +19,28 @@
 /**
  * 包一个异步动作，使它同一时刻只跑一个实例。
  *
- * @param {() => Promise<void>} run 真正的动作。**它自己负责去读当前地址** ——
- *        闩不缓存参数，因为合并之后要去的是最后那个地址，缓存第一次的参数正是
- *        它要消除的那种「按了但没反应」。
- * @returns {{trigger: () => Promise<void>, busy: () => boolean, pending: () => boolean}}
+ * @param {(payload:any) => Promise<void>} run 真正的动作。
+ * @returns {{trigger: (payload?:any) => Promise<void>, busy: () => boolean, pending: () => boolean}}
+ *
+ * **闩记住的是最后那个 payload，不是一个布尔**（codex 轮 1，P1）。
+ * 第一版让补跑自己去读 `window.location.hash`，理由是「要去的是最后那个地址」。
+ * 那个理由对，但那个做法错：第一次导航跑完时会调 `writeUrl()` 把地址**规范回**
+ * 它自己所在的位置，于是补跑读到的是被改回去的旧地址，`sameRoute` 直接短路 ——
+ * 快速连按的最后一次仍然静默丢失，只是丢在了更靠后的地方。
+ *
+ * 所以事件到达的那一刻就把地址取下来交给闩；多次到达后写覆盖前写，最终跑的
+ * 仍然是**最后**那一个，而它不再依赖跑的时候地址栏还是不是那个值。
  */
 export function createRouteLatch(run) {
   let running = false;
   let queued = false;
+  let queuedPayload;
 
-  async function trigger() {
+  async function trigger(payload) {
     if (running) {
-      // 合并，不丢弃。多次到达只排一次 —— 中间那些地址是路过。
+      // 合并，不丢弃。后写覆盖前写 —— 中间那些地址是路过，要去的是最后一个。
       queued = true;
+      queuedPayload = payload;
       return;
     }
     running = true;
@@ -40,7 +49,7 @@ export function createRouteLatch(run) {
     // 换了个触发条件。排空之后原样抛，调用方看到的仍是第一次的那个错误。
     let failure = null;
     try {
-      await run();
+      await run(payload);
     } catch (e) {
       failure = e;
     }
@@ -48,8 +57,10 @@ export function createRouteLatch(run) {
     // 排在后面的那一次在 `running` 落回 false **之后**才跑，否则它会看见
     // `running === true` 又把自己排一遍，成了永远排不空的队。
     if (queued) {
+      const next = queuedPayload;
       queued = false;
-      await trigger();
+      queuedPayload = undefined;
+      await trigger(next);
     }
     if (failure) throw failure;
   }

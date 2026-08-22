@@ -4427,10 +4427,22 @@ class _App:
         files: dict[str, dict] = {}
         truncated = False
         if d is not None and d.is_dir():
-            for i, entry in enumerate(sorted(d.iterdir(), key=lambda e: e.name)):
-                if i >= self._MEDIA_AUDIT_MAX:
+            # ITERATE LAZILY, cap, THEN sort (codex round 1, non-blocking).
+            # `sorted(d.iterdir())` materialises the whole directory before the cap
+            # can apply, so the bound protected the RESPONSE and not the server —
+            # a directory large enough to matter would still be fully listed in
+            # memory first. Ordering within the capped set is not a promise this
+            # route makes; `truncated` is.
+            examined = 0
+            for entry in d.iterdir():
+                # COUNT WHAT WE LOOKED AT, not what we kept (codex round 3).
+                # Counting only accepted files let a directory dominated by
+                # subdirectories or sockets run the loop unbounded while the
+                # advertised cap sat untouched — the bound has to be on the work.
+                if examined >= self._MEDIA_AUDIT_MAX:
                     truncated = True
                     break
+                examined += 1
                 if not entry.is_file():
                     continue
                 try:
@@ -4440,6 +4452,7 @@ class _App:
                     # is a different fact from 「文件不在」, and collapsing it into
                     # absence is exactly the confusion this route removes.
                     files[entry.name] = {"bytes": None}
+        files = dict(sorted(files.items()))
         body: dict = {
             # `dir: false` is still an AUTHORITATIVE audit — a project with no
             # media folder genuinely has no media. It is not 「问不出来」.
@@ -4464,11 +4477,24 @@ class _App:
         if media_dir is None:
             return {"state": "not_found"}
         target = media_dir / filename
+        # CONTAINMENT AFTER RESOLUTION (codex round 1, non-blocking — graded P2 and
+        # fixed here because it is a path escape, which this repo treats as real
+        # regardless of who filed it). Checking `target.parent` left the FILE free
+        # to be a symlink: `media/x.mp4 -> C:\Users\...\secret.mp4` has a parent
+        # inside the project, passes `is_file()` (which follows links), and ffprobe
+        # then reads outside the project. So resolve the leaf itself, require it to
+        # stay under the resolved media dir, and require a REGULAR file
+        # (`lstat`, which does not follow) — the same posture as ADR-0049.
         try:
-            if not target.is_file() or target.parent.resolve() != media_dir.resolve():
+            if target.is_symlink() or not target.is_file():
+                return {"state": "not_found"}
+            resolved = target.resolve()
+            root = media_dir.resolve()
+            if resolved.parent != root:
                 return {"state": "not_found"}
         except OSError:
             return {"state": "not_found"}
+        target = resolved
         import shutil as _shutil
 
         ffprobe = _shutil.which("ffprobe")
@@ -4476,6 +4502,34 @@ class _App:
             # FAIL-CLOSED AND SAID OUT LOUD (AGENTS.md 第 2 节第 6 条). The column
             # must not read 「0×0」 because a tool is missing.
             return {"state": "no_ffprobe"}
+
+        # WHAT THE FILE WAS when we validated it. `ffprobe` takes a PATH, not a
+        # descriptor, so the check and the read cannot be made atomic from here —
+        # `/dev/fd/N` is POSIX-only and Windows is the authoritative environment
+        # (ADR-0062). What IS available is detection: capture identity before,
+        # re-check after, and DISCARD the numbers if anything moved. That does not
+        # stop the read, it stops the DISCLOSURE — which is the whole payload of
+        # this route (codex round 3 escalated this from non-blocking; graded fresh
+        # and mitigated as far as the platform allows, residue recorded in
+        # TASK-087 rather than waved away a second time).
+        def _identity(path):
+            # THE WHOLE PROBE IS INSIDE THE GUARD (codex round 4). `lstat` was
+            # guarded but `resolve()` was not, so a concurrent replacement with a
+            # symlink loop raised out of a read-only route — a 500 where the honest
+            # answer is 「探不到」. A failed identity read IS that answer.
+            try:
+                st = path.lstat()
+                resolved = str(path.resolve())
+            except (OSError, ValueError, RuntimeError):
+                return None
+            # st_ino is 0 on some Windows filesystems; the resolved path plus
+            # size+mtime still catches a swap, and a false 「变了」 only costs a
+            # 「探不到」, never a wrong number.
+            return (resolved, st.st_ino, st.st_dev, st.st_size, st.st_mtime_ns)
+
+        before = _identity(target)
+        if before is None:
+            return {"state": "not_found"}
         try:
             pr = subprocess.run(  # noqa: S603 - fixed argv, no shell
                 [
@@ -4493,6 +4547,11 @@ class _App:
                 timeout=30,
             )
         except (OSError, subprocess.SubprocessError):
+            return {"state": "unreadable"}
+        after = _identity(target)
+        if after is None or after != before or target.is_symlink():
+            # Something replaced the leaf while ffprobe was running. Whatever it
+            # measured is not the file we admitted — refuse to report it.
             return {"state": "unreadable"}
         # EXIT CODE 0 IS NOT PROOF — measured on this repo. Handed 16 bytes of text
         # named `.png`, ffprobe 9.0 returns rc=0 with `width: 0, height: 0` and

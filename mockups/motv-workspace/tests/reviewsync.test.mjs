@@ -62,26 +62,7 @@ test("构造不出信封时给出具体原因，而不是让网关回 400", () =
   assert.equal(rs.evaluationFor(null).ok, false);
 });
 
-test("Agent 提的问题登记时如实记下是谁提的", () => {
-  const f = rs.feedbackFor(
-    { issueId: "i-9", locatedShotId: "sh-7", title: "穿帮：杯子换了", detail: "第 3 秒", severity: "warning" },
-    { raisedBy: "agent" },
-  );
-  assert.equal(f.ok, true);
-  assert.equal(f.name, rs.CREATE_FEEDBACK);
-  assert.equal(f.params.context.raisedBy, "agent");
-  assert.equal(f.shotId, "sh-7");
-});
 
-test("没有正文的问题如实说没有正文，不把标题复制一遍充数", () => {
-  const f = rs.feedbackFor({ issueId: "i-9", locatedShotId: "sh-7", title: "穿帮" });
-  assert.equal(f.params.detail, "（没有填写正文）");
-  assert.notEqual(f.params.detail, f.params.summary);
-});
-
-test("没有定位到镜头的问题不登记 —— 它挂不到任何目标上", () => {
-  assert.match(rs.feedbackFor({ issueId: "i-9", title: "整体偏暗" }).error, /没有定位到镜头/);
-});
 
 // --- 走网关 ------------------------------------------------------------------
 

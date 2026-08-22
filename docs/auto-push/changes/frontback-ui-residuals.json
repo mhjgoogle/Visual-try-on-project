@@ -39,22 +39,37 @@
           "branch": "change/TASK-103-frontback-ui-residuals",
           "pushed": false,
           "scope_violation": null
+        },
+        {
+          "hash": "f05729d3f081ea4c9e2d094b7231d245c46d7baa",
+          "subject": "批次D（其一）：生成意图按(种类,镜头)存，路由闩改合并而非丢弃 —— genIntent 一种媒体只有一格会在跨镜切换时静默丢溯源；routeApplying 早退会把快速连按的第二次按下丢掉。两者都从入口编排层抽成可测模块（TASK-103 · TASK-087 §5.2/§5.6）",
+          "time": "2026-08-22T15:32:14+00:00",
+          "branch": "change/TASK-103-frontback-ui-residuals",
+          "pushed": false,
+          "scope_violation": null
         }
       ],
       "paths": [
+        "docs/design/creator-system-contract.md",
+        "docs/tasks/TASK-068-legacy-agent-endpoints-to-runtime.md",
+        "docs/tasks/TASK-087-followup-ledger.md",
         "docs/tasks/TASK-103-frontback-and-ui-residuals.md",
+        "mockups/motv-workspace/server.py",
         "mockups/motv-workspace/src/app.js",
         "mockups/motv-workspace/src/services/routelatch.js",
-        "mockups/motv-workspace/src/ui/gencard.js",
-        "mockups/motv-workspace/src/ui/genentry.js",
-        "mockups/motv-workspace/src/ui/genintent.js",
-        "mockups/motv-workspace/src/ui/mediaws.js",
-        "mockups/motv-workspace/tests/genintent.test.mjs",
-        "mockups/motv-workspace/tests/routelatch.test.mjs"
+        "mockups/motv-workspace/src/ui/cutreview.js",
+        "mockups/motv-workspace/src/ui/dailies.js",
+        "mockups/motv-workspace/src/ui/epplanws.js",
+        "mockups/motv-workspace/src/workflow/reviewsync.js",
+        "mockups/motv-workspace/src/workflow/storydoc.js",
+        "mockups/motv-workspace/tests/eptable.test.mjs",
+        "mockups/motv-workspace/tests/planidentity.test.mjs",
+        "mockups/motv-workspace/tests/reviewsync.test.mjs",
+        "mockups/motv-workspace/tests/story.test.mjs"
       ],
       "verification": "PASS",
       "verification_ref": "",
-      "declared": "2026-08-22T15:31:29+00:00"
+      "declared": "2026-08-22T16:15:15+00:00"
     }
   },
   "merge_gate": {
