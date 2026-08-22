@@ -182,6 +182,18 @@ gate.sh 同步实现（ADR-0062 决策 3 同一行为合同）；链令牌语义
 | B 删测试联动 | `c7268a7` | 前端 **1763 passed**；studio+contract 507 passed；e2e 27 passed；serial 6 passed；ruff 全过（净删 2016 行） |
 | C gate 归属映射 | `9d52eca` | tooling **64 passed**（13 个钉旧行为的测试改写为新语义）；17 个路径用例逐一 spot-check 映射正确；ruff 全过 |
 | D 治理与文档 | `47fb47f` | **链尾集成检查点**：pytest **3294 + 6 passed**（较基线少 108 项 = 批次 B 删除的重复测试）、前端 **1763 passed**、ruff 全过；tooling 117 passed；`git ls-files '*README.md'` = **1** |
+| E 前端不变量集中化 | `f4fe3a4` | **测试数守恒证明**：搬迁前后 `--collect-only` 均 **3358**，且逐个函数名计数零差异（见下）；pytest **3294 + 6 passed**、contract+studio 507 passed、ruff 全过；`app.js` 读取者 **19 → 1** |
+
+**批次 E 的守恒验证值得单独记**（实施 Agent 中途因会话限额中断，交接时树是
+半成品，我接手时先做的就是这一步）：第一次对比得出「少了 39 项」，追查发现是
+**对比方法本身错了** —— `git stash push -- tests/` 默认不 stash untracked 文件，
+所以「基线」里同时含新建的集中文件与尚未删除的原函数，是个重复态。改用
+`git stash push -u` 拿到真基线 3358 后，实际差异是 **+2**：`story_m9` 的两个函数
+已复制进新文件但尚未从原文件删除（中断点）。更严重的是那两个函数依赖的
+`_SRC` 与 `import re` 已被清理掉了 —— 函数体留在原地会 `NameError`，而
+`--collect-only` **不执行函数体所以照样绿**。删掉这两个已搬走的函数后守恒成立。
+教训：**搬迁类改动必须用「连 untracked 一起 stash」的方式取基线，且守恒要按
+函数名逐个计数比对，不能只看总数**——总数相等也可能是一边丢一边多。
 
 **任务书 §16 验收项实测**：
 

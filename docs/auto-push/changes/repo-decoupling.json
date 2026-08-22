@@ -48,6 +48,22 @@
             "CLAUDE.md",
             "README.md"
           ]
+        },
+        {
+          "hash": "5cc7c50fcf57c3547d18b719d7a6bc967d911e7f",
+          "subject": "docs(TASK-102): 补验证记录与 §16 验收实测；四条架构耦合登记进 TASK-087 总账（3.6.1–3.6.4）",
+          "time": "2026-08-22T08:42:08+00:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null
+        },
+        {
+          "hash": "f4fe3a413ab66d86203c81960b59770055b16806",
+          "subject": "批次E：前端入口不变量集中到 tests/contract —— 41个源码守卫从18个studio文件收敛到1个文件，改app.js只碰一处；测试数守恒3358（断言一字未改）（TASK-102 · ADR-0080决策3例外）",
+          "time": "2026-08-22T11:03:26+00:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null
         }
       ],
       "paths": [
