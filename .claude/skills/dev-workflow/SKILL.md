@@ -1,0 +1,144 @@
+---
+name: dev-workflow
+description: >-
+  Software Development Operating Skill — the single entry point for any
+  development request. INVOKE at the START of any task that will change code
+  or behavior: new feature / enhancement, bug fix or debugging, refactor or
+  cleanup, performance optimization, dependency or schema or framework
+  migration, and requirement changes to already-shipped features. It routes
+  the task to the right internal workflow, picks the process depth, creates
+  and maintains the Requirement / Change records, decides verification scope,
+  and runs the convergence check before finishing. DO NOT invoke for:
+  answering questions, explaining code, pure conversation, or running the
+  review loop by itself (that is codex-review-loop, which this skill calls
+  at the right moment).
+---
+
+# dev-workflow — 软件开发操作 Skill（v0.1）
+
+一个入口，五条内部工作流，自动路由、自动建档、自动验证、自动收敛。
+只有真正的产品决策才回到用户。
+
+**本 Skill 是路由与记录层，不重定义本仓库已有的权威规则。**
+风险分档、测试规模、审查轮次预算、提交规则、决策模式，权威永远是
+AGENTS.md §20、CLAUDE.md「决策模式」与「实施纪律」、ADR-0060/0068/0069。
+本 Skill 与它们冲突时，以它们为准。
+
+## 第 0 步 — Repo Contract 检查（每个新会话一次）
+
+第一次在一个 repo 里工作时，先确认它能回答八个问题（怎么运行 / 有效事实
+在哪 / Requirement 在哪 / Change 在哪 / 架构边界在哪 / 历史如何处理 /
+测试怎么跑 / Agent 规则是什么）。本仓库的答案已收录在
+[references/repo-contract.md](references/repo-contract.md) —— 已满足即直接用，
+只有真缺失才补齐，**不平行创建第二套**。
+
+## 第 1 步 — 路由：这是哪种任务？
+
+按用户请求的**意图**（不是措辞）选一条主工作流：
+
+| 信号 | 工作流 | 铁律（详见 references/workflows.md） |
+| --- | --- | --- |
+| 「加/改一个功能」「支持 X」 | **Feature** | 需求先于实现；垂直切片；做出来给用户看 |
+| 「坏了」「报错」「偶尔 500」「不对」 | **Bug** | 先复现拿证据，再找根因；**禁止不懂根因就连环 patch** |
+| 「太乱」「重复」「删掉旧的」 | **Refactor** | 默认不改有效产品行为；测试先行护住行为 |
+| 「太慢」「卡」「优化性能」 | **Perf** | **无 baseline 不许动手，无对比 benchmark 不许宣称改善** |
+| 「升级依赖/框架」「迁移 API/schema」 | **Migration** | 先盘点兼容面与回滚路径，再动 |
+
+拿不准时：有错误证据 → Bug；其余 → Feature。一个任务只有一条主工作流；
+中途发现另一类问题记 Follow-up（TASK-087 总账），不换道也不顺手修。
+
+## 第 2 步 — 定深度：QUICK / STANDARD / DEEP
+
+深度管**流程重量**（建什么档、做多少分析）；风险档管**验证与审查重量**
+（AGENTS.md §20，不由本 Skill 重定义）。两者独立判断——
+持久化里改一行 = QUICK 深度 + 高风险验证。
+
+| 深度 | 适用 | Requirement | Change Record | Impact Analysis |
+| --- | --- | --- | --- | --- |
+| **QUICK** | 意图明确、范围一目了然、单模块 | 已有 REQ 就引用；没有不强制建 | **提交信息即记录**（引用 REQ/TASK） | 心算，不落纸 |
+| **STANDARD** | 多文件/单模块以上，或有一个待确认点 | 按需（见第 3 步） | 任务卡（`docs/tasks/TASK-*.md`） | 卡内一节，几行 |
+| **DEEP** | 跨模块、动合同/schema、迁移、高不确定 | 涉产品行为则必须 CONFIRMED REQ 或明确「依据」 | 任务卡 + 需要时 ADR | 卡内一节 + 架构治理 |
+
+升档信号（实施中随时生效）：改动扩散出预估边界、触发第 5 步任一架构条件、
+发现与已确认行为冲突 → 停下升档，补齐对应记录，再继续。
+
+## 第 3 步 — Requirement Record
+
+格式与规则见 [references/records.md](references/records.md)。要点：
+
+- **REQ 只记产品需求。** 需要建/引用 REQ 的是 Feature 与涉及用户可见行为的
+  Migration；**Bug / Refactor / Perf 默认不建**——它们的需求是「既有已确认
+  行为应当成立/不变」，任务卡引用原始依据即可。例外：修复过程中发现需求
+  本身要变 → 那一刻起建/修订 REQ。
+
+- 记录**为什么要做、用户真正要什么**，不记实现方案。
+- 用户明确提出的需求 = 创建即 `CONFIRMED`（引用原话+日期，与任务卡
+  「依据」行同一习惯）。Agent 从探索中**推断**的需求 = `DRAFT`，
+  在用户看到可运行结果并认可后转 `CONFIRMED` —— 这正是 CLAUDE.md 决策模式：
+  **做出来给用户看，不是中途问**。DRAFT 不是提问闸门。
+- 已实现的需求在真实使用后变化 → **不篡改旧版**，在同一 REQ 文件里追加
+  `v2 (supersedes v1)`，后续实施只处理 **v1→v2 delta**。
+- Discovery 阶段允许读代码、跑 App、写临时代码、做 prototype、调 API、
+  截图、做实验 —— 但产物默认只是 **Evidence**（帮助确认需求），
+  **不自动成为正式实现**。需求确认后按正式工作流重新落地或正式化。
+
+## 第 4 步 — Change Record
+
+- QUICK：不建卡。提交信息写明意图 + 关联（`REQ-NNN` / `TASK-NNN`，如有）。
+- STANDARD / DEEP：建任务卡，沿用本仓库既有卡格式，含最小字段集
+  （见 references/records.md）：id、状态、workflow 类型、深度、关联 REQ、
+  目标、IN/OUT SCOPE、受影响模块、架构影响、实施摘要、已做验证、
+  未解决项（→ Follow-up 总账）。**Agent 自动创建自动维护，用户不填。**
+- 追溯链：`REQ → TASK（或提交信息）→ 代码 → 测试 → 验证记录`。
+
+## 第 5 步 — Impact Analysis（轻量，为定范围而做）
+
+识别：受影响 feature/module、API/合同影响、数据影响、依赖影响、
+架构影响、受影响测试、文档影响。目的只有两个：**定修改范围 + 定验证范围**
+（见 [references/verification.md](references/verification.md)），不是造文档。
+
+## 第 6 步 — Architecture Governance（条件触发的共享子流程）
+
+触发条件（任一命中 → 读 [references/architecture.md](references/architecture.md)）：
+
+- 跨多个模块 / 前后端或 API 合同改变 / shared·core 修改 / 数据模型改变 /
+  依赖方向改变 / 新公共抽象 / **一个看似局部的改动却要碰异常多文件**。
+
+最后一条是 **Change Isolation** 铁律：简单需求引发大范围扩散时，先查
+boundary leakage / 隐藏耦合 / 重复抽象，**不直接接受扩散**；必要时先做
+小范围架构修复（另立卡），再回来做原任务。
+
+## 第 7 步 — 实施
+
+按所选工作流的节奏推进（references/workflows.md）。共同纪律：
+
+- 垂直切片，能跑能演示；不按技术层拆。
+- 工程决策自己定（拆文件、命名、helper、跑哪些测试、删明显 obsolete 代码、
+  普通 refactor），**不问用户**。只有四种情况升级：产品歧义无法推断 /
+  与已确认产品行为冲突 / 必须改已确认行为 / 真产品 trade-off（如保兼容 vs
+  breaking）。问法按 CLAUDE.md：「我打算 A，因为 X，代价 Y——要拦吗？」
+
+## 第 8 步 — Targeted Verification
+
+**Test Scope = Change Impact Scope**（映射表见 references/verification.md）。
+风险档与全量触发条件以 AGENTS.md §20 为准；中/高风险完成后按 CLAUDE.md
+实施纪律调用 `codex-review-loop`（低风险不调）。
+
+## 第 9 步 — Convergence（完成前必查）
+
+清单见 references/verification.md「收敛」节。核心：obsolete 代码/测试/文档、
+临时 prototype、死兼容层、保护已被取代行为的测试 —— **旧行为已被新的
+CONFIRMED REQ 明确取代的，允许删**。测试保护的是 Current Valid Behavior，
+不是 Historical Behavior。
+
+## 第 10 步 — Done 判定（轻量）
+
+「代码写完」「测试绿」都不是 Done。逐条确认：REQ 满足？验证够（对本次
+impact scope）？架构没有明显恶化？obsolete 已清或已记 Follow-up？
+REQ / Change Record 已更新到终态？临时 prototype 已清除或已正式化？
+全部是 → 按 AGENTS.md §22 提交（commit 不必问；push/merge 必须用户明确要求）。
+
+## v0.2 预留（现在不做）
+
+部署编排、发布自动化、secrets 管理、安全/可观测框架、企业审批流、
+sprint/ticket 管理、强制多 Agent 编排、强制 TDD。repo 已有的机制照常兼容。
