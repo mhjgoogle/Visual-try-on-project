@@ -36,8 +36,8 @@
         "tests/tooling/test_auto_push_tooling.py"
       ],
       "verification": "PASS",
-      "verification_ref": "pytest tests/tooling/test_auto_push_tooling.py: 37 passed; ruff format+check: pass",
-      "declared": "2026-08-22T14:43:46+00:00"
+      "verification_ref": "pytest tests/tooling/test_auto_push_tooling.py: 40 passed (v0.1.1 review fixes); ruff: pass",
+      "declared": "2026-08-22T15:09:50+00:00"
     }
   },
   "merge_gate": {

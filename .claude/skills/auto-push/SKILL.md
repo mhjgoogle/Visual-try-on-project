@@ -94,8 +94,10 @@ HEAD 时返回 `BLOCKED_BASE_BEHIND`——要么 `--base HEAD`（在当前历史
   提交（包括别的 Change / main 的未发布历史）。出处齐全只说明「可追溯」，
   不等于「有发布授权」——祖先里含**他人未授权发布**的提交时，把 push 交给
   用户裁决，不要让它变成一次没人声明过的发布。
-- `NEEDS_WRITEBACK_COMMIT`：清单元数据待提交，运行返回的 `suggested` 命令
-  （docs-only，gate 走 lint 档）即可继续。
+- `NEEDS_WRITEBACK_COMMIT`：清单元数据待提交。`record-commit` 的返回里也带
+  `writeback_needed` + `writeback_commands`（不 push 的流程同样要收尾巴）。
+  建议命令永远是**两条分开跑**——`git add … && git commit …` 复合形式会被
+  PreToolUse gate 在执行前整条评估：add 未跑、index 空、fail-closed 跑全量。
 - 其余 `PUSH_FAILED`：读 detail，能定位（如网络）就修复重试；需要改写远端
   历史的一律停下升级给用户。
 

@@ -430,6 +430,62 @@ def test_cross_change_recorded_commits_are_recognised(rig: dict) -> None:
     assert ap.push(work, "CHG-2")["status"] == "OK"
 
 
+def test_record_commit_refuses_merge_commits(rig: dict) -> None:
+    """v0.1.1 复审 P1：merge 的 diff-tree（无 -m）files=[] 会让越界现算恒空——
+    record-commit 直接拒登 merge，合法通道是 record-sync。"""
+
+    work, other = rig["work"], rig["other"]
+    _new_change(work)
+    _declare(work, "CHG-1", "TASK-001", ["app.py"])
+    (work / "app.py").write_text("mine\n", "utf-8")
+    ap.stage(work, "CHG-1", "TASK-001", "mine")
+    _g(work, "commit", "-m", "mine（TASK-001 · CHG-1）")
+    ap.record_commit(work, "CHG-1", "TASK-001")
+    _g(work, "add", "-A", "--", "docs/auto-push")
+    _g(work, "commit", "-m", "chore(auto-push): 回写")
+    (other / "mainline.txt").write_text("main moved\n", "utf-8")
+    _commit_all(other, "main moves on")
+    _g(other, "push", "origin", "main")
+    synced = ap.premerge_sync(work, "CHG-1")
+    assert synced["status"] == "OK"
+    blocked = ap.record_commit(work, "CHG-1", "TASK-001", commit_hash=synced["merged"])
+    assert blocked["status"] == "BLOCKED_MERGE_COMMIT"
+
+
+def test_record_commit_refuses_double_ownership(rig: dict) -> None:
+    """v0.1.1 复审 P1：同一 hash 不得在两个 task 下重复登记。"""
+
+    work = rig["work"]
+    _new_change(work)
+    _declare(work, "CHG-1", "TASK-001", ["feature/"])
+    _declare(work, "CHG-1", "TASK-002", ["feature/"])
+    (work / "feature").mkdir()
+    (work / "feature" / "a.py").write_text("A = 1\n", "utf-8")
+    _g(work, "add", "-A")
+    _g(work, "commit", "-m", "shared（TASK-001 · CHG-1）")
+    assert ap.record_commit(work, "CHG-1", "TASK-001")["status"] == "OK"
+    blocked = ap.record_commit(work, "CHG-1", "TASK-002")
+    assert blocked["status"] == "BLOCKED_ALREADY_OWNED"
+    again = ap.record_commit(work, "CHG-1", "TASK-001")
+    assert again["status"] == "OK" and again["already_recorded"]
+
+
+def test_record_commit_reports_writeback_debt(rig: dict) -> None:
+    """回写提醒不能只挂在 push 上：不 push 的合法流程也要看得见尾巴。"""
+
+    work = rig["work"]
+    _new_change(work)
+    _declare(work, "CHG-1", "TASK-001", ["feature/"])
+    (work / "feature").mkdir()
+    (work / "feature" / "a.py").write_text("A = 1\n", "utf-8")
+    ap.stage(work, "CHG-1", "TASK-001", "add a")
+    _g(work, "commit", "-m", "add a（TASK-001 · CHG-1）")
+    rec = ap.record_commit(work, "CHG-1", "TASK-001")
+    assert rec["writeback_needed"] is True
+    assert len(rec["writeback_commands"]) == 2  # 两条分开跑，永不复合
+    assert all("&&" not in cmd for cmd in rec["writeback_commands"])
+
+
 def test_record_commit_hash_backfills_history(rig: dict) -> None:
     """v0.1.1 修复 4b：--hash 补登历史提交，不再只能记 HEAD。"""
 

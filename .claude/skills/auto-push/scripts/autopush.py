@@ -197,6 +197,20 @@ def _manifest_rel(change: str) -> str:
     return (CHANGES_DIR / f"{change}.json").as_posix()
 
 
+def _writeback_commands(change: str) -> list[str]:
+    """清单回写的建议命令——**两条分开跑**，永不给复合形式。
+
+    `git add … && git commit …` 会被 PreToolUse gate 在执行前整条拦截评估：
+    add 还没跑、index 是空的，gate 对空 staged 集 fail-closed 跑全量
+    （2026-08-22 实测两次）。change id 已过 _bad_id 消毒，可安全内嵌。"""
+
+    rel = _manifest_rel(change)
+    return [
+        f"git add -A -- {rel}",
+        f'git commit -m "chore(auto-push): {change} manifest writeback"',
+    ]
+
+
 # ---------------------------------------------------------------------------
 # 工作树盘点与归属
 # ---------------------------------------------------------------------------
@@ -528,10 +542,7 @@ def _dirty_gate(root: Path, change: str, operation: str) -> dict | None:
         return _blocked(
             "NEEDS_WRITEBACK_COMMIT",
             f"the manifest has unrecorded updates — commit it before {operation}",
-            suggested=(
-                f"git add -A -- {rel} && git commit -m "
-                f'"chore(auto-push): {change} 元数据回写"'
-            ),
+            suggested=_writeback_commands(change),
         )
     return _blocked(
         "BLOCKED_DIRTY",
@@ -786,9 +797,30 @@ def record_commit(
     if proc.returncode != 0:
         raise AutoPushError(f"'{ref}' is not a commit")
     target = proc.stdout.strip()
-    for commit in manifest["tasks"][task]["commits"]:
-        if commit["hash"] == target:
-            return {"status": "OK", "hash": target, "already_recorded": True}
+    # 一个提交一个主人：跨 task 的重复登记会造出互相矛盾的所有权/验证/
+    # 推送状态（codex v0.1.1 复审，blocking #3）——去重范围是整个清单。
+    for tid, tdata in manifest["tasks"].items():
+        for commit in tdata.get("commits", []):
+            if commit["hash"] == target:
+                if tid == task:
+                    return {"status": "OK", "hash": target, "already_recorded": True}
+                return _blocked(
+                    "BLOCKED_ALREADY_OWNED",
+                    f"commit is already recorded under task '{tid}' — one "
+                    "commit, one owner",
+                    hash=target,
+                )
+    # merge commit 不是 task commit：diff-tree 无 -m 对 merge 输出为空，
+    # files=[] 会让越界现算永远为空（codex v0.1.1 复审，blocking #2）。
+    # merge 的合法归属通道是 record-sync / premerge-sync 的登记。
+    parents = _git(root, "show", "-s", "--format=%P", target).stdout.split()
+    if len(parents) > 1:
+        return _blocked(
+            "BLOCKED_MERGE_COMMIT",
+            "merge commits are not task commits — register sync merges via "
+            "record-sync instead",
+            hash=target,
+        )
     subject = _git(root, "show", "-s", "--format=%s", target).stdout.strip()
     files = _commit_files(root, target)
     entry = {
@@ -803,7 +835,15 @@ def record_commit(
     entry["scope_violation"] = sorted(violations) or None
     manifest["tasks"][task]["commits"].append(entry)
     _save_manifest(root, change, manifest)
-    result = {"status": "OK", "hash": target, "files": len(files)}
+    result = {
+        "status": "OK",
+        "hash": target,
+        "files": len(files),
+        # 回写提醒不能只挂在 push 上：按 AGENTS.md §22 不 push 的合法流程
+        # 同样让清单变脏，尾巴会悬在共享树里（0c 会话实测）。
+        "writeback_needed": True,
+        "writeback_commands": _writeback_commands(change),
+    }
     if violations:
         result["status"] = "WARN_SCOPE_VIOLATION"
         result["out_of_scope"] = sorted(violations)
