@@ -1,150 +1,156 @@
 # AGENTS.md
 
-本文件是本项目所有 AI 编码 Agent（Claude Code、Codex 等）必须遵守的正式规范。
+**这份文件是本项目所有 AI 编码 Agent（Claude Code、Codex 等）必须遵守的
+唯一规范。** 只放规则，不放项目背景。
+
+- **项目是什么、走到哪了** → [docs/project-context.md](docs/project-context.md)
+- **怎么运行、入口在哪** → [README.md](README.md)（面向使用者，仓库唯一一份 README）
+- **某个决定为什么这么定** → `docs/adr/`（本文件只写结论，不写修订史）
+
+`CLAUDE.md` 只是 Claude Code 的入口，内容就是本文件，没有第二份规则。
 Agent 之间只通过仓库中的文档、代码和 Git 状态共享上下文，不依赖各自的聊天记录。
 
-## 1. 项目目标
+## 目录
 
-### 长期目标
+| 节 | 回答什么 | 条款 |
+| --- | --- | --- |
+| [1. 怎么做决定](#1-怎么做决定) | 什么自己定、什么必须问产品负责人 | — |
+| [2. 范围与切片](#2-范围与切片) | 一个任务做多大 | — |
+| [3. 技术与环境](#3-技术与环境约束) | 语言、平台、路径所有权 | 1–7 |
+| [4. 架构](#4-架构约束) | Provider 中立、可重跑、不静默覆盖 | 8–13 |
+| [5. Agent 协作](#5-agent-协作规则) | 多 Agent 同仓怎么不打架 | 14–18 |
+| [6. 测试与审查](#6-质量规则测试与审查) | 跑哪些测试、审不审、审几轮 | 19–21 |
+| [7. Git 与安全](#7-git-与安全规则) | commit / push / merge、不许提交什么 | 22–23 |
 
-构建一个 AI 视频 / AI 短剧生产工作流（权威开发/构建/CI/agent 环境为原生
-Windows + NTFS，见下方第 2 节第 2 条与
-[ADR-0062](docs/adr/ADR-0062-windows-authoritative-environment.md)；Ubuntu / WSL2
-与 Linux CI runner 是受支持目标），覆盖：
+---
 
-故事构思 → 结构化剧本 → 场景与镜头拆分 → 人物/场景/道具资产管理 → 图片生成
-→ 视频生成 → 配音、音效和字幕 → FFmpeg 合成 → 质量检查
-→ 质量、成本、交付周期（QCD）记录 → 最终成片
-→ 统一创作工作视窗中的观察、运行、评价、复盘与跨项目学习。
+## 1. 怎么做决定
 
-### 第一阶段目标（最小闭环，不接入付费 API）
+产品负责人 2026-08-15：
 
-读取故事与镜头数据
-→ 生成人工视频制作任务
-→ 用户在网页视频工具中手工生成视频
-→ 用户将视频放入指定目录
-→ 程序检查视频文件
-→ FFmpeg 按镜头顺序合成
-→ 输出最终 MP4。
+> 「我只能在看到最终结果有问题之后才能给出决策。中间多次询问我这种开发模式
+> 应该变更。」
+> 「我只负责出 UI/UX 的产品要求。」
 
-该第一阶段称为原 **M1**，已经完成并作为后续工作的稳定基础保留。
+所以决策输入点是**用户看到可运行结果之后**，不是开发中途。
 
-### WFM1 增量路线
+**判据不是「这个决定重不重要」，而是「错了能不能重来」。**
+能做出来给他看、看完不满意再改的 —— 直接做。做了回不了头的 —— 先问。
 
-WFM1 在原 M1 之后增量加入可复用短剧生产流程、人工创意审批、生产规划、
-预算约束与云端视频默认生产路线。WFM1 不重定义原 M1，不修改既有冻结合同；
-新开发任务从 `TASK-014` 起，采用现有 batch milestone review。
+### 直接自己定，不问（绝大多数情况）
 
-云端视频是 WFM1 的默认生产路线，但核心架构继续保持 Provider 中立。
-付费 API 仅可在 Accepted ADR 明确批准的范围内接入。
+- **一切技术决策**：架构与模块边界、持久化 schema 的形状与迁移策略、数据结构、
+  接口与跨层合同、依赖选型、错误处理与并发模型、测试与审查策略、工具与配置、
+  命名与文件组织。定完按第 18 条写进 `docs/`，**不上交**。
+- **UI/UX 也先做一版给他看**，而不是问「你要 A 还是 B」—— 用户在看到之前无法
+  判断，问了等于把工作退回给他。做出来、能演示、他看完给反馈、再改。
+- **技术架构变更不需要用户确认**，它就是技术决策。
+- 发现的范围外问题记 `Follow-up` 或新任务卡，**不设「先问用户」这道闸门**。
 
-详细规格见 [docs/product_spec.md](docs/product_spec.md)，
-架构见 [docs/architecture.md](docs/architecture.md)，
-WFM1 工作流见
-[docs/ai_shortfilm_pipeline_workflow.md](docs/ai_shortfilm_pipeline_workflow.md)，
-实施规划见 [docs/implementation_plan.md](docs/implementation_plan.md)，
-文档权威关系见
-[ADR-0007](docs/adr/ADR-0007-wfm1-document-baseline-and-governance.md)。
+### 「回不了头」是缺陷，先消除它，而不是拿它去问用户
 
-### 统一创作工作视窗（已规划路线）
+产品负责人 2026-08-15：
 
-跨项目 Creation Workspace 已进入分阶段建设规划。需求基线见
-[docs/ai_video_creation_workspace_requirements.md](docs/ai_video_creation_workspace_requirements.md)，
-安全边界见
-[ADR-0010](docs/adr/ADR-0010-creation-workspace-boundary.md)，WFM1 数据准备见
-[docs/creation_workspace_data_observability_requirements.md](docs/creation_workspace_data_observability_requirements.md)。
-交付治理见
-[ADR-0030](docs/adr/ADR-0030-creation-workspace-delivery-governance.md)，任务路线为
-`TASK-024`～`TASK-033`（WFM1 数据基线）。TASK-024 可立即做 docs-only 收口，已稳定 source 的只读
-能力可增量实施；Workspace 仍不属于 WFM1 验收，生产级只读验收及全部界面写能力
-受 TASK-023 门槛约束。UI 技术和最终数据结构只有在对应 Proposed ADR Accepted
-后才可实施。完整流程由 WFM2 TASK-008/034～037 与 WFM3 TASK-012/038 补齐，
-Workspace 完整多媒体扩展和两份顶层需求最终验收分别由 TASK-039/040 承接；
-统一归属见
-[端到端需求追踪矩阵](docs/design/end-to-end-requirements-traceability.md)。
-L0–S7 阶段/步骤的逻辑输入输出基线见
-[工作层级输入输出合同](docs/design/workflow-stage-step-io-contract.md)；实现任务只能
-细化获批 schema/路径，不能删除输入绑定、输出身份或人工 Gate。
+> 「做了就回不了头的才问这一点也很奇怪。按理说不应该回不了头啊。这时候就算
+> 问我我也不知道该如何回答。只能选择推荐选项。」
 
-### 创作者 Studio（`mockups/motv-workspace`）
+不可逆是**实现方式的缺陷**，不是该上交的选择题。遇到它，默认动作是**把它变成
+可逆的**：
 
-自 [ADR-0066](docs/adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)
-起，创作者 Studio 的界面归属与系统边界由两份文档冻结，它们是该范围的**唯一权威**：
+- 覆盖用户文件 → 写**带版本的新路径**（第 13 条本来就允许这条路）
+- 数据迁移 → 迁移前留下可回滚的旧数据；**加法字段优先于破坏性变更**
+- 删除 → 软删除 / 移入回收区，保留历史版本
+- 状态机 → 留一条回退边，而不是单向门
 
-- [创作者产品信息架构](docs/design/creator-product-information-architecture.md)
-  —— 三空间 / 十一页的**封闭集合**、完整用户流程、三层检查、页面职责、
-  现状→目标映射、Agent 协作与权限边界。
-- [创作者系统合同](docs/design/creator-system-contract.md)
-  —— 核心对象、Artifact 版本状态机、Skill Run 状态与持久化字段、
-  Command / Query 名录、「界面—命令—任务—输出—确认」矩阵、前后端交互原则。
+只有**确实无法消除不可逆性**时才问，并且必须带明确推荐。
 
-实施分四阶段（ADR-0066 决策 10 / TASK-072～074）：**新增 Skill 不得新增一级或二级
-页面**；每项功能只有一个归属页面；Agent 不得静默覆盖、静默定稿、静默付费或替用户
-完成审美决策。
+### 真正必须问的只有一件：付费 / 真实花钱
 
-自 [ADR-0067](docs/adr/ADR-0067-product-skill-package.md) 起，**Skill 是产品资产
-而不是源码常量**：一个 Skill 是 `manifest.json` + `prompt.md` +
-`output.schema.json` 三件套，从项目 → 用户 → 内置三个来源按优先级加载，Run 记录
-`skillDigest` 使版本指向确定的内容；已被历史 Run 引用的版本**不得原地覆盖**；
-Skill 只产生提案，**不得定稿、锁定、付费或导出**；加载或校验失败一律 fail-closed。
-实施见 [TASK-075](docs/tasks/TASK-075-product-skill-package.md)。
+花的是用户的钱，不是技术选择；用户在这件事上有 Agent 没有的信息（预算、这次
+值不值得）。ADR-0006 / ADR-0009 的窄授权不得自行扩大。
 
-**Studio 原型的运行时边界**（原 `mockups/motv-workspace/README.md` 的「治理
-边界」并入此处，TASK-102）：
+除此之外，「需要产品负责人拍板」不是一个有效的理由。
+**在技术问题上停下来问，等于把工作退回给用户。**
 
-- 它是**非生产的 UX 原型**，不是受治理的 Workspace 实现。
-- **只读接真实数据是允许的**（ADR-0031/0032 已 Accepted）：可选后端
-  `server.py` 消费**公开**查询包 `ai_video_workflow.workspace`（与
-  `src/workspace_shell/app.py` 同一公开面），只读、不写业务状态、不持凭据，
-  刻意不放进 `src/workspace_shell/`。禁的是 import 核心**内部**类型。
-- **写侧受门槛、保持 stub**：生成/发布/Command Gateway/DB/最终 schema 受
-  ADR-0033+ 约束；前端 `services/gateway.js` 是 client stub，连上后端时生成类
-  操作显式提示「待 Gateway」，不产生真实花费、不写核心文件。
-- **画布持久化是原型本地 scratch**：`data/<project>.json` 只存画布自有状态，
-  不是核心事实的投影，不回写任何核心文件（已 gitignore）。
-- **已知非目标**：不接真实 Command Gateway、不做真实生成/发布、不写核心业务
-  文件、不进 `workspace_shell`、不建 DB 或物化 projection。要把它落成生产
-  Workspace UI 或做真写/真生成，另走 ADR 与任务卡。
-- 演示模式的种子项目与 SVG 占位素材不是验收依据（见第 20 条「真实 Connected
-  Project 是主要验收环境」）；连接模式永不触发种子。
+### 不得不问的时候，问法也有要求
 
-**UI 差距审计工装**（原 `src/ui-gap-audit/README.md`，TASK-102）：
-`src/ui-gap-audit/` 放审计报告与抓图工装。**像素不进 Git**——`current/` 拍的是
-用户自己的创作项目，`target/` 拍的是他人产品界面，与第 23 条同一理由；清单、
-报告与脚本进 Git，使审计可复现。竞品截图需要**用户自己的登录态，凭据从不经过
-Agent**。审计**不得按下任何真实付费提交**，付费才能触发的状态如实标注为未实拍。
-审计判据优先级：实际运行行为 > 代码 > 测试 > schema > 注释。
+用户明确说过「就算问我我也不知道该如何回答，只能选择推荐选项」—— 开放式选择题
+等于把判断退回给他，一次纯浪费的往返。
 
-## 2. 技术与环境约束
+**正确形式：说明你打算做什么、为什么、风险是什么，让用户否决。**
+不是「A 还是 B？」，而是「我打算 A，因为 X，代价是 Y —— 要拦吗？」
+
+不得把决策包装成「有三个方案，请你选择」。开工前的文档收口只做一轮；同一批次
+出现第二、第三轮纯文档收口，说明该决策已被过度前置 —— 把未定项作为显式假设
+写进任务卡然后开工。
+
+### 不得新增「要用户离开对话手动操作」的规则
+
+产品负责人 2026-08-23：「不要加什么自己改不了自己限制的设置。这样我做什么都
+不能自动化了。」
+
+要用户拍板的事，**必须能用一句话完成**。任何需要他去编辑配置文件、点 UI、改
+环境变量才能推进的机制，一律不得新增；已存在的（如 Claude Code 的权限白名单，
+Agent 无权自改）如实告知并一次性解决，不要让它变成每次都要重复的动作。
+
+### ADR 的 Accept 权
+
+技术 ADR（架构、schema、迁移、合同、并发、测试与审查节奏、工具链）由实施 Agent
+依本节授权**自行 Accept**，并在 ADR 里写明依据与理由。涉及**付费**或**不可逆
+动用户数据**的 ADR 仍须用户 Accept。UI/UX 相关的 ADR 先实现出可演示的版本，
+再由用户看到结果后确认或推翻。
+
+## 2. 范围与切片
+
+- 每个需求按**垂直切片**推进：每个切片自己就能跑、能演示、能验证。不要按技术层
+  拆（schema → resolver → service → store → component → UI），那会让用户直到
+  最后才看到东西。
+- 任务开始时写明 **IN SCOPE / OUT OF SCOPE**。
+- 非本任务 bug：一律**记录**到 `Follow-up` 或新任务卡（欠账总账在
+  [TASK-087](docs/tasks/TASK-087-followup-ledger.md)），**不顺手修**（第 17 条）。
+  唯一例外是它**阻塞当前任务** —— 那时只在最小范围内修，并在报告里写明为什么
+  绕不开。P2 记录；**P3/P4 不修**。
+  不要因为审查者报了 5 个小问题，把一个用户功能扩成两天重构。
+- 技术基础只做 **Minimum Necessary Foundation**。基础工作开始膨胀时先问：
+  「不做这个重构，当前用户功能能否安全完成？」能，就不做。
+- 同一时间最多推进 1 个主要用户需求 + 1 个阻塞它的技术任务。
+  **Finish before starting more.**
+
+## 3. 技术与环境约束
 
 1. Python 是主要开发语言。
-2. 自 [ADR-0062](docs/adr/ADR-0062-windows-authoritative-environment.md) 起，
-   **权威开发/构建/CI/agent 环境为原生 Windows + NTFS**；Ubuntu / WSL2 与 Linux CI
-   runner 是**受支持目标**。「权威」的含义是**行为差异的裁决者**：两个环境结论不一致
-   时以 Windows 为准；Ubuntu 上的失败仍然是缺陷，只是不再是裁决基准。文件系统限
-   NTFS 同卷（ADR-0049）。
-3. **平台中立，不是 POSIX。** 路径一律走 pathlib/stdlib；**不得硬编码分隔符**，也不得
-   硬编码 `C:\Users\...` 或 `/home/...`；不得使用平台专属 syscall。
-   反转的是权威归属，**不是**「代码可以开始关心自己跑在哪」（ADR-0062 决策 2）。
-   注意：权威环境从 Linux 换成 Windows 后，「权威是 Linux」这个天然的可移植性执行者
-   消失了——**因此受支持目标的 Ubuntu CI job 必须绿这一点比以前更重要，不是更不重要。**
-4. **流水线与产品代码**内不使用 PowerShell、CMD 或平台专属路径——这一条不变。
-   变的是 **agent 工装**：`.claude/hooks/`、skill 脚本及其 settings 接线以 PowerShell
-   (`.ps1`) 为**权威实现**，对应 `.sh` 变体保留以服务 Ubuntu 目标，两者共享 ADR-0050
-   决策 1 的同一行为合同表，必须给出相同判定（ADR-0062 决策 3）。面向 Windows 用户的
-   `.ps1`/`.bat` 启动器就是主入口，不再是「例外」。
-   **仓库路径所有权**（ADR-0077；原 `scripts/README.md` 的边界声明并入此处）：
-   可执行的仓库级工具放 `scripts/`，**不放仓库根**——根只留项目元数据与治理
-   文件（`README.md`、`LICENSE`、`pyproject.toml`、Agent 规则）。
-   `scripts/launch/` 是面向人的产品启动器：`studio.ps1`（原生 Windows 权威）、
-   `studio.bat`（双击/CMD 适配器，委托前者）、`studio.sh`（Ubuntu / WSL2）。
-   三者都从**自身位置**解析仓库根，可从任意工作目录调用
-   （`tests/tooling/test_repository_layout.py` 钉住这条）。其余所有权不变：
-   agent 工装在 `.claude/`，应用与库代码在 `src/`，测试与其配置在 `tests/`。
-   **README 只有仓库根那一份且面向使用者**（产品负责人 2026-08-22：
-   「Readme不要设计太多…在project下面有一个就可以。别的readme如果是设计给
-   agent遵守。请统一到agents.md或者claude.md」）——给 Agent 的规则写本文件或
-   对应权威 docs，不再新建子目录 README。
+2. **权威开发/构建/CI/agent 环境为原生 Windows + NTFS**；Ubuntu / WSL2 与 Linux
+   CI runner 是**受支持目标**（[ADR-0062](docs/adr/ADR-0062-windows-authoritative-environment.md)）。
+   「权威」的含义是**行为差异的裁决者**：两个环境结论不一致时以 Windows 为准；
+   Ubuntu 上的失败仍然是缺陷，只是不再是裁决基准。文件系统限 NTFS 同卷（ADR-0049）。
+3. **平台中立，不是 POSIX。** 路径一律走 pathlib/stdlib；**不得硬编码分隔符**，
+   也不得硬编码 `C:\Users\...` 或 `/home/...`；不得使用平台专属 syscall。
+   权威归属反转**不等于**「代码可以开始关心自己跑在哪」（ADR-0062 决策 2）。
+   权威从 Linux 换成 Windows 后，「权威是 Linux」这个天然的可移植性执行者消失了
+   —— **因此 Ubuntu CI job 必须绿这一点比以前更重要，不是更不重要。**
+4. **流水线与产品代码**内不使用 PowerShell、CMD 或平台专属路径。
+   **agent 工装**例外：`.claude/hooks/`、skill 脚本及其 settings 接线以
+   PowerShell (`.ps1`) 为**权威实现**，`.sh` 变体服务 Ubuntu 目标，两者共享
+   ADR-0050 决策 1 的同一行为合同表，**必须给出相同判定**（ADR-0062 决策 3）。
+   面向 Windows 用户的 `.ps1`/`.bat` 启动器就是主入口。
+
+   **仓库路径所有权**（[ADR-0077](docs/adr/ADR-0077-repository-path-ownership.md)）：
+
+   | 位置 | 放什么 |
+   | --- | --- |
+   | 仓库根 | 只放项目元数据与治理文件（README、LICENSE、pyproject.toml、Agent 规则） |
+   | `scripts/launch/` | 面向人的产品启动器：`studio.ps1`（Windows 权威）、`studio.bat`（CMD 适配器）、`studio.sh`（Ubuntu/WSL2） |
+   | `.claude/` | agent 工装 |
+   | `src/` | 应用与库代码 |
+   | `tests/` | 测试与其配置 |
+
+   三个启动器都从**自身位置**解析仓库根，可从任意工作目录调用
+   （`tests/tooling/test_repository_layout.py` 钉住这条）。
+
+   **README 只有仓库根那一份且面向使用者**（产品负责人 2026-08-22：「Readme
+   不要设计太多…在project下面有一个就可以。别的readme如果是设计给agent遵守。
+   请统一到agents.md或者claude.md」）—— 给 Agent 的规则写本文件或对应权威
+   docs，不再新建子目录 README。
 5. 权威仓库位于 Windows NTFS（当前 `D:\02_Work\04_video-work\Visual-try-on-project`）。
    在 WSL 内对该仓库执行 git 时**必须对齐行尾语义**，否则 diff 完全失真（实测
    149,986 行 vs 1,918 行）：
@@ -152,52 +158,60 @@ Agent**。审计**不得按下任何真实付费提交**，付费才能触发的
    不改共享配置。
 6. 所有外部工具（ffmpeg/ffprobe/piper/claude/codex/node）一律经 `shutil.which`
    解析、**失败即 fail-closed**，不得裸名调用（ADR-0049 / ADR-0062 决策 2）。
-   Windows 权威下这条更容易被触发且**必须如实报告**：安装器改了 PATH，但早于安装
-   启动的进程（agent shell、commit gate 的 hook）看不到新 PATH——正确处理是重启会话，
-   不是让代码去猜路径。
+   安装器改了 PATH 但早于安装启动的进程看不到新 PATH —— 正确处理是重启会话并
+   **如实报告**，不是让代码去猜路径。
 7. Python 依赖必须安装在项目虚拟环境（venv）内，不污染系统环境。
 
-## 3. 架构约束
+## 4. 架构约束
 
 8. 核心工作流不能依赖任何具体视频厂商。
-9. 所有视频生成方法必须通过 `VideoProvider` 接口接入（手工流程、云端 API、本地模型一视同仁）。
-10. 原 M1 不接入任何付费 API；后续里程碑只有在 Accepted ADR 明确批准的
-    范围内才可接入，当前窄范围授权见 ADR-0006 与 ADR-0009。
+9. 所有视频生成方法必须通过 `VideoProvider` 接口接入（手工流程、云端 API、
+   本地模型一视同仁）。
+10. 原 M1 不接入任何付费 API；后续里程碑只有在 Accepted ADR 明确批准的范围内
+    才可接入，当前窄范围授权见 ADR-0006 与 ADR-0009。
 11. 工作流的每个步骤必须可以独立执行（可单独运行、单独重跑）。
-12. 工作流必须支持断点续跑：中断后可从已完成的步骤之后继续，不重做已完成的工作。
-13. 禁止静默覆盖用户文件和已有生成结果。两条合规路径里**优先选带版本的新路径**，
-    而不是停下来找用户确认——不可逆是实现方式的缺陷，不是该上交的选择题
-    （产品负责人 2026-08-15：「按理说不应该回不了头啊。这时候就算问我我也不知道
-    该如何回答」）。同理：迁移留可回滚的旧数据、加法字段优先于破坏性变更、
-    删除做成软删除。只有确实消除不掉不可逆性时才问，且必须带明确推荐。
+12. 工作流必须支持断点续跑：中断后从已完成的步骤之后继续，不重做已完成的工作。
+13. **禁止静默覆盖用户文件和已有生成结果。** 两条合规路径里**优先选带版本的
+    新路径**，而不是停下来找用户确认（理由见第 1 节「回不了头是缺陷」）。
+    同理：迁移留可回滚的旧数据、加法字段优先于破坏性变更、删除做成软删除。
+    只有确实消除不掉不可逆性时才问，且必须带明确推荐。
 
-未来 Creation Workspace 必须遵守：不直接调用 Provider、不直接修改核心业务
-文件；变更命令经 Command Gateway 和 Workflow Orchestrator 应用边界；观察数据
-可从权威文件/事件重建；界面关闭不影响核心执行。未经正式任务卡与 ADR，不得
-提前实现 UI、Action Center、数据库或 UI 专用状态机。
-图片/音频等多媒体 Provider 抽象、完整创意/后期与 WFM3 command capability 必须
-分别等待 ADR-0037～0040 Accepted；不得提前泛化 `VideoProvider` 或由 UI 发明
-pause/cancel/skip 状态。
+**Creation Workspace 必须遵守**：不直接调用 Provider、不直接修改核心业务文件；
+变更命令经 Command Gateway 和 Workflow Orchestrator 应用边界；观察数据可从权威
+文件/事件重建；界面关闭不影响核心执行。未经正式任务卡与 ADR，不得提前实现 UI、
+Action Center、数据库或 UI 专用状态机。图片/音频等多媒体 Provider 抽象、完整
+创意/后期与 WFM3 command capability 必须分别等待 ADR-0037～0040 Accepted；
+不得提前泛化 `VideoProvider` 或由 UI 发明 pause/cancel/skip 状态。
+（当前可执行的任务范围见 [docs/project-context.md](docs/project-context.md)。）
 
-## 4. Agent 协作规则
+## 5. Agent 协作规则
 
 14. 每个开发任务（`docs/tasks/TASK-*.md`）只能有一个实施 Agent。
 15. 另一个 Agent 只能作为独立审查者，不得在同一任务上并行修改代码。
     审查范围必须**明确限定为本次 diff 及它能影响的不变量**，不得每轮重新审查
     整个架构或整个仓库。审查者判断的是**实际风险**（正确性、回归、状态一致性、
     竞态、身份），不是「还能不能继续优化」；只报 P3/P4 时不得阻塞交付。
-16. 修改前必须检查 `git status` 和相关文件的当前内容，确认没有他人未提交的改动被破坏。
-17. 不修改当前任务范围之外的代码；发现范围外问题时记录到文档或新任务，不顺手修改。
-18. 持久性决策必须写入仓库文档（docs/），不得只存在于聊天记录中。
+16. 修改前必须检查 `git status` 和相关文件的当前内容，确认没有他人未提交的
+    改动被破坏。
+17. 不修改当前任务范围之外的代码；发现范围外问题时记录到文档或新任务，
+    不顺手修改。
+18. 持久性决策必须写入仓库文档（`docs/`），不得只存在于聊天记录或 Agent 记忆中。
+    正式规格以仓库文档为准。
 
-## 5. 质量规则
+## 6. 质量规则：测试与审查
 
 19. 新功能必须有测试。
-20. **测试按所有权与影响范围运行（Test Scope = Change Impact Scope），不做
-    风险分级**（产品负责人 2026-08-22：「不要保留风险分集」「我不要每次都
-    全量测试。」；[ADR-0080](docs/adr/ADR-0080-test-ownership-and-gate-mapping.md)
-    取代 ADR-0060 的分档语义，[ADR-0081](docs/adr/ADR-0081-review-by-impact-scope.md)
-    取代 ADR-0069 的按档轮次预算）：
+
+20. **测试按所有权与影响范围运行（Test Scope = Change Impact Scope），
+    不做风险分级。**
+
+    依据：产品负责人 2026-08-22「不要保留风险分集」「我不要每次都全量测试。」
+    机制见 [ADR-0080](docs/adr/ADR-0080-test-ownership-and-gate-mapping.md)
+    （取代 ADR-0060 的分档语义）与
+    [ADR-0081](docs/adr/ADR-0081-review-by-impact-scope.md)
+    （取代 ADR-0069 的按档轮次预算）。
+
+    **测试归属**：
 
     | 测试域 | 归属目录 | 独立运行命令 |
     | --- | --- | --- |
@@ -208,83 +222,101 @@ pause/cancel/skip 状态。
     | Agent 工装（gate/skills/仓库结构） | `tests/tooling/` | `pytest tests/tooling` |
     | 前端 | `mockups/motv-workspace/tests/` | `node --test mockups/motv-workspace/tests/*.test.mjs` |
 
-    共享测试支撑层（`tests/conftest.py`、scenario 构造器、假件）留在 `tests/`
-    根。Python 测试不得对前端 JS 做源码文本断言、不得内嵌 `node --test`；
-    跨边界验证只住 `tests/contract/`（ADR-0080 决策 3）。
+    共享测试支撑层（`tests/conftest.py`、scenario 构造器、假件）留在 `tests/` 根。
+    **Python 测试不得对前端 JS 做源码文本断言、不得内嵌 `node --test`**；跨边界
+    验证只住 `tests/contract/`（ADR-0080 决策 3；唯一例外是 node 拿不到的入口
+    编排层，见 `tests/contract/test_frontend_write_path_invariants.py` 的 docstring）。
 
-    **影响范围能推导出来的，就不许退回全量**（ADR-0080 决策 7）：支撑层模块
-    跑的是 **import 它们的那些域**，由 import 图派生而非手写名单。只有
-    `tests/conftest.py` 与 `pyproject.toml` 例外——它们不经 import 生效，
-    影响范围真的是全部。推不出来时 fail-closed 到全量。
+    **影响范围能推导出来的，就不许退回全量**（ADR-0080 决策 7）：支撑层模块跑的
+    是 **import 它们的那些域**，由 import 图派生而非手写名单。只有
+    `tests/conftest.py` 与 `pyproject.toml` 例外 —— 它们不经 import 生效，影响
+    范围真的是全部。推不出来时 fail-closed 到全量。
 
-    本地 commit gate 按 ADR-0080 的**归属映射**选择检查：改动路径 → 它的归属
-    测试域；映射不到时 fail-closed 到全量。**全量（两阶段 pytest + 全量前端 +
-    ruff）是集成检查点**——CI、连续链链尾、merge 前、发布/交接前——不是日常
-    提交的默认。
+    本地 commit gate 按同一张归属映射选择检查（`.claude/hooks/commit_gate_policy.py`）。
+    **全量（两阶段 pytest + 全量前端 + ruff）是集成检查点** —— CI、连续链链尾、
+    merge 前、发布/交接前 —— **不是日常提交的默认**。
 
-    **审查按影响范围触发，不按档位**（ADR-0081，产品负责人 2026-08-22：
-    「dev-workflow 根据影响范围决定是否审查 → 默认一轮 → P1 修复后复审一次
-    → P2 修复 + 定向测试，不再复审 → P3/P4 记录但不阻塞」）。行为/合同/
-    持久化/安全/并发/跨域改动做独立审查；纯文档、纯展示改动不审。历史代价
-    提醒仍然有效：TASK-061 13 轮、TASK-062 10 轮（轮 B4 撤回了轮 A4 的修复，
-    净负值）——协议之外不得静默续轮。
+    全量的两阶段写法（`serial` marker 只给**断言真实 OS 进程状态**的测试用，
+    当前仅 `tests/e2e/test_motv_run_lifecycle_task072.py`，不是绕开并行的逃生口）：
+
+    ```
+    pytest -n 8 -m "not serial"     # 并行
+    pytest -m serial                # 串行，真实进程树
+    ```
+
+    `-n 8` 是实测值（不用 `auto`）；耗时基线与选定理由见
+    [提速与 gate 修复](docs/design/pending-speedup-and-gate-fix.md)。
+
+    **审查按影响范围触发，不按档位**：
+
+    | 改动影响 | 审查 |
+    | --- | --- |
+    | 纯文档、纯展示（CSS/布局/间距/文案） | **不调用** `codex-review-loop` |
+    | 行为、合同、持久化、身份、登记、渲染与文件操作、付费、并发、安全、Windows 可移植性、跨层合同、跨域 | 调用，**默认 1 轮** |
+
+    「diff 很小」「原因很明显」都不是免审理由 —— 判据是**它改的是什么**，不是改了
+    多少行；拿不准就审。
+
+    **轮次协议**（唯一一份，细则见 ADR-0081 决策 2a–2d）：
+
+    - **P1** → 修复后**复审一次**。复审若报出**新的** P1，该 P1 同样买它自己的
+      那一轮；**连续一轮无新 P1 即收口**（不是两轮，pass 后再跑一轮求稳是禁止的）。
+    - 但**同一主题的更窄变体不算新 P1** —— 那时做**范围判断并记录**，不再买轮。
+      判「同一主题」看**失效机理**，不看代码位置；**判不准时买那一轮**
+      （误判成变体的代价是一条 P1 出门，误判成新的代价只是一轮）。
+    - **P2** → 修复 + 跑归属测试即收口，**不再复审**。
+    - **P3/P4** → 记 Follow-up，**不阻塞交付**。
+
+    协议之外不得静默续轮；确需超出时显式选择 ship / 只修 P1 / escalate 并写明
+    理由。历史代价：TASK-061 13 轮、TASK-062 10 轮（轮 B4 撤回了轮 A4 的修复，
+    净负值）。
+
+    **审查不是提交的前置门槛。** 相关测试通过、无已知 P1 即可提交；审查在提交
+    之后进行，发现 P1 用后续提交修。审查者不可用时**照常提交并推进**，在提交
+    信息与任务卡里如实写明「未经独立审查 + 原因」—— 不假装审过，也不用「测试
+    全绿」冒充独立审查，但也不因此停下交付。codex 不可用时会自动回退到独立的
+    claude 会话，此时独立性降级，必须在报告中如实注明。
+
+    **该审而未审的改动是后移审查，不是取消。** 必须登记到
+    [待复审清单](docs/design/pending-codex-rereview.md)，审查者恢复后立即补审，
+    且 **push / merge / 交接 / 人工验收之前必须完成补审**。
+    **merge 前必须把这份清单当作前置闸门查一遍**，不能只查任务卡的验证字段。
 
     **发布闸门 = 用户验收标准满足 + 相关测试通过 + 无未闭合 P1**，
     而不是零发现 + 全量测试 + 完美架构。`VERDICT: pass` 不是闸门。
 
-    **全量 pytest 改为两阶段并行跑**：
-
-    1. `pytest -n 8 -m "not serial"` —— 并行，3186 项
-    2. `pytest -m serial` —— 串行，5 项（真实进程树）
-
-    **唯一权威基线**（原生 Windows，同一台主机，2026-08-14 同口径实测，
-    3191 项）：**串行 469s → 两阶段 179s（并行 132s + 串行 47s），2.6×**。
-    历史参考数字 328s / 2815 项（2026-08-10，gate.ps1 注释）测的是**更少的
-    测试**，不可与上面的数字混用来判断是否回归。
-
-    2026-08-15 在 TASK-072/073/074 那批新代码上复测两阶段：3198 项
-    **210s**（并行 155s / 3137 项 + 串行 55s / 5 项），0 失败——并行安全性在
-    新代码上重新证明过，没有新的并行不安全测试。该轮**未重测串行基线**，
-    因此 2.6× 这个倍数仍以 2026-08-14 的同口径数字为准。
-
-    收益来自 fsync I/O 重叠，因为 Windows 没有 `/dev/shm`，
-    `tests/conftest.py` 的 tmpfs 路由在这里是 no-op。`-n 8` 是实测值，
-    不用 `auto`（12）——fsync 主导后更多 worker 不再付费。
-    `serial` marker 只给**断言真实 OS 进程状态**的测试用
-    （当前仅 `tests/e2e/test_motv_run_lifecycle_task072.py`），
-    不是绕开并行的通用逃生口。
-
-    实施记录见[提速与 gate 修复](docs/design/pending-speedup-and-gate-fix.md)。
-
-    **连续修改链例外**（[ADR-0068](docs/adr/ADR-0068-continuous-modification-chain.md)）：
-    经用户**明确授权**、且任务卡已写下任务/批次清单与最终检查点的连续实施，其
-    **中间**提交按「实现 → 定向测试 → Codex review loop → 修复时定向回归 →
-    Codex 通过 → 立即独立 commit」执行，中间提交**不跑**全量 pytest 与全量前端
-    （仍跑 ruff 与 diff 检查），由写在**提交命令最前面**的
-    `MOTV_CONTINUOUS_CHAIN=1` 逐次显式启用（**不是环境变量**，也不得持久化；
+    **连续修改链**（[ADR-0068](docs/adr/ADR-0068-continuous-modification-chain.md)）：
+    任务卡已写下批次清单与最终检查点的连续实施，其**中间**提交按「实现 → 定向
+    测试 → 独立审查 → 修复时定向回归 → 立即独立 commit」执行，中间提交**不跑**
+    全量（仍跑 ruff 与 diff 检查），由写在**提交命令最前面**的
+    `MOTV_CONTINUOUS_CHAIN=1` 逐次显式启用（**不是环境变量**，不得持久化；
     PowerShell 写成首行注释 `# MOTV_CONTINUOUS_CHAIN=1` 再换行写命令；同一条
-    命令里带 push / merge 一律拒绝提交。见 ADR-0068 决策 7 补记）。
-    整条链结束后**统一跑一次**全量 pytest + 全量前端 + ruff + 最终验收；
-    最终全量失败则「修复 → 定向测试 → Codex 复审 → 修复提交 → 重新跑全量」。
-    **push / merge / 交接 / 人工验收之前必须完成最终全量。**
-    **Codex 独立审查在中间批次不放松**——那是敢于推迟全量的唯一理由；
-    审查者不可用时不得使用本节奏，回落到本条第 20 项的常规归属验证
-    （ADR-0080）并如实报告。
+    命令里带 push / merge 一律拒绝提交）。
+    整条链结束后**统一跑一次**全量 + 最终验收；失败则「修复 → 定向测试 → 复审
+    → 修复提交 → 重新跑全量」。**push / merge / 交接 / 人工验收之前必须完成
+    最终全量。** 独立审查在中间批次不放松 —— 那是敢于推迟全量的唯一理由；
+    审查者不可用时不得使用本节奏，回落常规归属验证并如实报告。
     **不存在永久关闭测试的全局开关。**
-    UI 迭代不得每次触发 2800+ 项 pytest（一轮约 6.5 分钟，纯粹浪费用户时间）。
 
     **真实 Connected Project 是主要验收环境**（2026-08-11 起）：demo seed 与 SVG
-    占位素材不再作为主要验收依据——它们会掩盖只有真实媒体才暴露的缺陷（实例见
+    占位素材不作为主要验收依据 —— 它们会掩盖只有真实媒体才暴露的缺陷（实例见
     [TASK-055 §5](docs/tasks/TASK-055-project-rooted-storage.md)：保存镜头会静默
     丢失景别/角度/情绪、视频资产被放进 `<img>`）。发现真实数据问题时**优先如实
     报告，不得用 mock 绕过**。
-21. 重大设计变更必须创建 ADR（Architecture Decision Record，存放于 `docs/adr/`）。
-## 6. Git 与安全规则
 
-22. **`commit` 不需要每次征求同意**——它可回退（`revert` / `reset`），而每问一次
-    都是一次拖慢开发的往返（产品负责人 2026-08-15：「这些询问到回答的过程非常
-    影响开发进度」）。测试通过、无未闭合 P1 即可提交，按第 20 条的分级跑检查。
-    **`push` / `merge` 仍须用户明确要求**：一旦推到远端，别人可能已经拉取，
-    「做出来给他看了再改」的前提就不成立了。
-    （另见 CLAUDE.md「决策模式」：判据是**错了能不能重来**，不是决定的大小。）
+21. 重大设计变更必须创建 ADR（存放于 `docs/adr/`）。
+
+## 7. Git 与安全规则
+
+22. **`commit` 与 `push` 都不需要每次征求同意。**
+
+    commit 可回退（`revert` / `reset`），而每问一次都是一次拖慢开发的往返
+    （产品负责人 2026-08-15：「这些询问到回答的过程非常影响开发进度」）。
+    push 同理 —— 产品负责人 2026-08-23：「我要的就是自动push。」
+    测试通过、无未闭合 P1 即可提交与推送，按第 20 条跑归属检查。
+
+    **`merge` 到 main 仍须用户明确要求**：它把整条分支一次性交给所有拉取者，
+    说一句「合并」的成本远小于弄错的成本。这不是「禁制」，是唯一保留的那道
+    人工闸（见第 1 节：判据是错了能不能重来）。
+
 23. 不得提交 API key、密码、生成的视频文件或本地凭据到 Git 仓库。

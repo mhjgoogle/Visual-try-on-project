@@ -17,8 +17,8 @@ def test_the_adr_exists_and_is_accepted() -> None:
         "utf-8"
     )
     assert "状态：**Accepted" in adr
-    # It is a TECHNICAL ADR, so the implementing agent may Accept it (CLAUDE.md
-    # 「ADR 的 Accept 权」) — but only because it touches neither 付费 nor an
+    # It is a TECHNICAL ADR, so the implementing agent may Accept it (AGENTS.md
+    # §1「ADR 的 Accept 权」) — but only because it touches neither 付费 nor an
     # irreversible write. The ADR has to say so out loud.
     assert "不涉及付费口径" in adr
     assert "不不可逆动用户数据" in adr
