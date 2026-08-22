@@ -1,19 +1,19 @@
 """motv Production studio UI reconstruction — checkpoint M8.
 
-STRICTLY OFFLINE, no spend. Guards the wiring contract that lives in
-DOM-bound closures and the server endpoint posture (storyboard/shot-detail
-models, AI Director model, creative-facet passthrough, bible breakdown
-parse/match/merge semantics, derived appearances are covered by the frontend
-suite, ``tests/studio.test.mjs``):
+STRICTLY OFFLINE, no spend. Guards the server endpoint posture
+(storyboard/shot-detail models, AI Director model, creative-facet passthrough,
+bible breakdown parse/match/merge semantics, derived appearances are covered by
+the frontend suite, ``tests/studio.test.mjs``):
 
-- the studio is a VIEW: no new persisted top-level field, no duplicate media
-  state — media writes stay on mediaref/the M3 registry, shot edits append
-  immutable scriptgen draft versions, provenance stays on the M5 registry;
 - the bible breakdown endpoint follows the ADR-0042 agent posture (local
   ``claude -p``, fail-closed strict parse, writes nothing server-side) and
   everything it returns is a PROPOSAL — application is an explicit user act;
-- episode appearances are DERIVED from scene references, never stored;
 - the Core contract is untouched (all of this is mockup/client-side).
+
+The four guards that read ``app.js``（入口编排层）—— studio 是 VIEW：不新增持久化
+字段、媒体动作复用唯一写路径、镜头编辑追加不可变草稿版本、提案只能经既有
+bibledoc 操作落地 —— 已随 TASK-102 批次 E 移到
+``tests/contract/test_frontend_write_path_invariants.py``。
 """
 
 from __future__ import annotations
@@ -26,7 +26,6 @@ import pytest
 from tests._scan import core_files_containing
 
 _MOCKUP_DIR = Path(__file__).resolve().parents[2] / "mockups" / "motv-workspace"
-_SRC = _MOCKUP_DIR / "src"
 
 
 def _server_module():
@@ -37,51 +36,6 @@ def _server_module():
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
-
-
-def test_studio_adds_no_new_persisted_field() -> None:
-    app = (_SRC / "app.js").read_text("utf-8")
-    serializer = app[
-        app.index("function serializeGraph") : app.index("function attachAssetViews")
-    ]
-    # exactly the domain field set (M9: scriptDoc → per-episode scripts +
-    # story) — the studio persists NOTHING of its own
-    for field in (
-        "story:",
-        "scripts,",
-        "assets:",
-        "generations:",
-        "production:",
-        "nodes:",
-        "edges:",
-        "pan:",
-    ):
-        assert field in serializer
-    assert "bibleProposals" not in serializer  # proposals are transient review state
-    assert "selectedShot" not in serializer
-
-
-def test_media_actions_reuse_the_single_write_paths() -> None:
-    app = (_SRC / "app.js").read_text("utf-8")
-    # variant switching goes through the SAME mediaref primitive as the node
-    # version picker, against the M3 registry maps — no duplicate media state
-    assert "mediaref.setCurrent({ uploads: map }" in app
-    sb = (_SRC / "ui" / "storyboard.js").read_text("utf-8")
-    for forbidden in ("addVersion(", "history.push", "localStorage"):
-        assert forbidden not in sb, (
-            f"storyboard must not write media state ({forbidden})"
-        )
-
-
-def test_shot_edits_append_immutable_draft_versions() -> None:
-    app = (_SRC / "app.js").read_text("utf-8")
-    # ctx.shots.saveEdit pushes a NEW version and re-points cur — same
-    # discipline as the node's ✎ editor; creative facets ride additively
-    assert "node.versions.push({" in app
-    assert 'origin: "edited"' in app
-    editor = (_SRC / "ui" / "shoteditor.js").read_text("utf-8")
-    for facet in ("action", "cameraMotion", "dialogue"):
-        assert facet in editor
 
 
 def test_breakdown_endpoint_is_fail_closed_and_write_free() -> None:
@@ -108,20 +62,6 @@ def test_breakdown_endpoint_is_fail_closed_and_write_free() -> None:
     assert "_skill_prompt" in handler
     assert "prompt = (" not in handler, "the endpoint must not carry its own prompt"
     assert "open(" not in handler and ".write(" not in handler
-
-
-def test_proposals_apply_through_existing_bible_ops_only() -> None:
-    app = (_SRC / "app.js").read_text("utf-8")
-    block = app[app.index("breakdown: {") : app.index("// Shot-draft controller")]
-    # every application composes existing bibledoc ops — no direct doc surgery
-    for op in (
-        "bibledoc.addCharacter",
-        "bibledoc.updateCharacterProfile",
-        "bibledoc.addLocation",
-    ):
-        assert op in block
-    assert "productionDoc.characters.push" not in block
-    assert "productionDoc.locations.push" not in block
 
 
 def test_core_contracts_untouched_by_m8() -> None:

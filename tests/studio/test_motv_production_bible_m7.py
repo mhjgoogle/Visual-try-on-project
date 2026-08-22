@@ -1,12 +1,12 @@
 """motv Production Bible — checkpoint M7.
 
-STRICTLY OFFLINE, no spend. Guards the wiring contract that lives in
-DOM-bound closures (bibledoc transitions / resolvers / v6→v7 migration / v7
-validation behavior is covered by the frontend suite, ``tests/bible.test.mjs``):
+STRICTLY OFFLINE, no spend. What stays here is the Core-untouched contract
+(bibledoc transitions / resolvers / v6→v7 migration / v7 validation behavior is
+covered by the frontend suite, ``tests/bible.test.mjs``).
 
-- the bible rides in the SAME ``production`` document (single write path) and
-  no workflow node imports or owns it;
-- the Core contract is untouched (all of this is mockup/client-side).
+The wiring guard —— bible 与 production 同乘**一份**文档（唯一写路径），没有工作流
+节点 import 或持有它 —— reads ``app.js``（入口编排层）and moved to
+``tests/contract/test_frontend_write_path_invariants.py`` (TASK-102 批次 E).
 """
 
 from __future__ import annotations
@@ -14,26 +14,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from tests._scan import core_files_containing
-
-_MOCKUP_DIR = Path(__file__).resolve().parents[2] / "mockups" / "motv-workspace"
-_SRC = _MOCKUP_DIR / "src"
-
-
-def test_bible_is_persisted_via_production_not_nodes() -> None:
-    app = (_SRC / "app.js").read_text("utf-8")
-    # the bible rides in the SAME production document (single write path)
-    assert "production: proddoc.serialize(productionDoc)" in app
-    assert "bibledoc." in app
-    for node in (
-        "script.js",
-        "scriptgen.js",
-        "assets.js",
-        "video.js",
-        "audio.js",
-        "edit.js",
-    ):
-        node_src = (_SRC / "workflow" / "nodes" / node).read_text("utf-8")
-        assert "bibledoc" not in node_src
 
 
 def test_core_contracts_untouched_by_m7() -> None:

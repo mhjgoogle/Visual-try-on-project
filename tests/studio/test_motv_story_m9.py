@@ -4,19 +4,19 @@ STRICTLY OFFLINE, no spend. Guards the wiring contract that lives in
 DOM-bound closures and the server endpoint posture (storydoc transitions,
 v7→v8 migration, v8 validation, story/plan view models are covered by the
 frontend suite, ``tests/story.test.mjs``):
-- scripts are PER-EPISODE (v8 ``scripts`` map; the legacy single scriptDoc
-  moves to the active episode; a malformed one fails safe, never dropped);
-- the outline never auto-creates Production Bible entities (bible sync stays
-  driven by actual episode scripts, M8);
 - both agent endpoints follow the ADR-0042 posture (local ``claude -p``,
   fail-closed strict parse, zero server-side writes);
 - the Core contract is untouched (all of this is mockup/client-side).
+
+The two guards that read ``app.js``（入口编排层）—— scripts are PER-EPISODE since
+v8 (no second script source of truth), and the outline never auto-creates
+Production Bible entities —— 已随 TASK-102 批次 E 移到
+``tests/contract/test_frontend_write_path_invariants.py``。
 """
 
 from __future__ import annotations
 
 import importlib.util
-import re
 from pathlib import Path
 
 import pytest
@@ -24,7 +24,6 @@ import pytest
 from tests._scan import core_files_containing
 
 _MOCKUP_DIR = Path(__file__).resolve().parents[2] / "mockups" / "motv-workspace"
-_SRC = _MOCKUP_DIR / "src"
 
 
 def _server_module():
@@ -35,35 +34,6 @@ def _server_module():
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
-
-
-def test_scripts_are_per_episode_since_v8() -> None:
-    schema = (_SRC / "services" / "canvasschema.js").read_text("utf-8")
-    # the schema has moved past v8 (v10 = TASK-057 upstream canon, v11+ = later
-    # migrations); this test pins the v8 per-episode-scripts mechanics, NOT the
-    # current version number, so a legitimate later migration cannot break it
-    match = re.search(r"CANVAS_SCHEMA_VERSION = (\d+)", schema)
-    assert match is not None
-    assert int(match.group(1)) >= 8
-    assert "function migrateV7ToV8" in schema
-    assert "7: migrateV7ToV8" in schema
-    assert "missing its scripts map" in schema
-    assert "missing its story document" in schema
-    # a leftover legacy scriptDoc is rejected — no second script source of truth
-    assert "retains scriptDoc" in schema
-    app = (_SRC / "app.js").read_text("utf-8")
-    assert "scriptForEpisode" in app
-    assert "syncActiveScript" in app
-
-
-def test_outline_never_writes_bible_entities() -> None:
-    story = (_SRC / "workflow" / "storydoc.js").read_text("utf-8")
-    for forbidden in ("addCharacter", "addLocation", "bibledoc"):
-        assert forbidden not in story, f"outline must not touch the bible ({forbidden})"
-    # the confirm-plan orchestration touches only proddoc episode ops
-    app = (_SRC / "app.js").read_text("utf-8")
-    block = app[app.index("confirmPlan: (v) =>") : app.index("openEpisodeScript")]
-    assert "bibledoc" not in block
 
 
 def test_agent_endpoints_are_fail_closed_and_write_free() -> None:

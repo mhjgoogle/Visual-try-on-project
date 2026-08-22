@@ -11,9 +11,12 @@ Covers the persistence-only M1 guarantees:
 - PUT over an unparseable existing save secures the same backup before the
   atomic replace, so the only copy of recoverable creator data cannot be
   destroyed by an autosave;
-- absent / valid saves keep their existing behavior (200 ``{}`` / 200 doc);
-- the app serializer emits the authoritative schema version constant and the
-  load path actually routes through the dispatcher (source-level guard).
+- absent / valid saves keep their existing behavior (200 ``{}`` / 200 doc).
+
+The source-level guard (the app serializer emits the authoritative schema
+version constant and the load path routes through the dispatcher) reads
+``app.js`` and moved to
+``tests/contract/test_frontend_write_path_invariants.py`` (TASK-102 批次 E).
 
 The frontend dispatcher units live in
 ``mockups/motv-workspace/tests/persistence.test.mjs`` and run in the frontend
@@ -183,18 +186,3 @@ def test_put_over_valid_canvas_creates_no_backup(server_module, data_dir):
     )
     assert status == 200
     assert list(data_dir.glob("canvas.json.corrupt-*")) == []
-
-
-# --- source-level guards ------------------------------------------------------
-
-
-def test_serializer_emits_authoritative_version_and_load_dispatches() -> None:
-    app_src = (_MOCKUP_DIR / "src" / "app.js").read_text("utf-8")
-    assert "v: CANVAS_SCHEMA_VERSION" in app_src  # save emits the constant
-    # the serializer itself carries no hardcoded schema version
-    serializer = app_src.split("function serializeGraph()")[1].split(
-        "function restoreGraph"
-    )[0]
-    assert "v: 1" not in serializer
-    persist_src = (_MOCKUP_DIR / "src" / "services" / "persist.js").read_text("utf-8")
-    assert "migrateToCurrent" in persist_src  # every load routes the dispatcher

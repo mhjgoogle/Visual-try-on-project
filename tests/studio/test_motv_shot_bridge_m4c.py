@@ -9,8 +9,12 @@ Covers the M4c guarantees:
   locked record (zipped by SEQUENCE, authoritative at lock time), separate from
   the server ``shot_id``; malformed / length-mismatched / duplicate bridges
   fail SAFE to ``creativeShotId = None``;
-- the client sends ``creativeShotIds`` as a PARALLEL array and the server strips
-  it before building the Core envelope (Core contract untouched).
+- the Core contract is untouched.
+
+The cross-layer source guard (the client sends ``creativeShotIds`` as a PARALLEL
+array and the server strips it before building the Core envelope) reads
+``app.js`` and moved to
+``tests/contract/test_frontend_write_path_invariants.py`` (TASK-102 批次 E).
 
 The frontend bridge builder + paid-op read-state join (resolve by
 creativeShotId, never by draft sequence) are behavior-tested in
@@ -31,7 +35,6 @@ from tests._scan import core_files_containing
 
 _MOCKUP_DIR = Path(__file__).resolve().parents[2] / "mockups" / "motv-workspace"
 _SERVER_PATH = _MOCKUP_DIR / "server.py"
-_SRC = _MOCKUP_DIR / "src"
 
 
 @pytest.fixture(scope="module")
@@ -127,15 +130,6 @@ def test_bridge_passes_through_unexpected_shapes(server_module):
     assert b({"shots": "nope"}, ["c1"]) == {"shots": "nope"}  # not a list → untouched
     assert b("not-a-dict", ["c1"]) == "not-a-dict"
     assert b(_outcome(1), None) == _outcome(1)  # no parallel array → untouched
-
-
-def test_client_sends_creative_ids_and_server_strips_before_core() -> None:
-    app = (_SRC / "app.js").read_text("utf-8")
-    assert "creativeShotIds" in app  # client sends the parallel array at lock time
-    server = _SERVER_PATH.read_text("utf-8")
-    # server strips it from params before building the Core envelope
-    assert 'k != "creativeShotIds"' in server
-    assert "_bridge_creative_shot_ids" in server
 
 
 def test_core_contracts_untouched_by_m4c() -> None:

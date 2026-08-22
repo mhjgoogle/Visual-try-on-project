@@ -17,29 +17,21 @@ LAYERING contract on the backend (the frontend units live in
   (决策 3, ADR-0049 规则 6: resolve, never invoke by bare name);
 - Skill definitions are immutable constants; runs record them, never write them
   (决策 6 — no automatic self-learning).
+
+The serializer-ownership guard for the Skill Run registry reads ``app.js``
+（入口编排层）and moved to
+``tests/contract/test_frontend_write_path_invariants.py`` (TASK-102 批次 E).
 """
 
 from __future__ import annotations
 
 import inspect
 import json
-import re
 import sys
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[2]
 _MOCKUP_DIR = _REPO / "mockups" / "motv-workspace"
-_SRC = _MOCKUP_DIR / "src"
-
-
-def _read(*parts: str) -> str:
-    return (_SRC / Path(*parts)).read_text("utf-8")
-
-
-def _code(*parts: str) -> str:
-    src = _read(*parts)
-    src = re.sub(r"/\*.*?\*/", "", src, flags=re.DOTALL)
-    return "\n".join(ln.split("//")[0] for ln in src.splitlines())
 
 
 def _server() -> str:
@@ -310,16 +302,6 @@ def test_failure_is_recorded_as_failure_never_as_content() -> None:
     body = src.split("def _skill_run", 1)[1].split("\n    def _agent_shots_draft")[0]
     for category in ("unavailable", "timeout", "execution_error"):
         assert f'"category": "{category}"' in body
-
-
-def test_the_persisted_registry_is_owned_by_the_serializer() -> None:
-    """The serializer emits the registry on every save, and the loader hydrates
-    it from the same field — so a reload returns the recorded runs."""
-    app = _code("app.js")
-    assert "skillRuns: skillRunRegistry" in app, "serializeGraph must emit skillRuns"
-    assert "createSkillRunRegistry((data && data.skillRuns)" in app, (
-        "restoreGraph must hydrate skillRuns from the save"
-    )
 
 
 def test_core_contracts_untouched_by_cp3() -> None:
