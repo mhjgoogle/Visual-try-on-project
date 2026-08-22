@@ -354,6 +354,161 @@ def test_chore_subject_alone_does_not_exempt_a_commit(rig: dict) -> None:
     assert blocked["status"] == "BLOCKED_UNRECORDED_COMMITS"
 
 
+def test_init_change_refuses_backward_base(rig: dict) -> None:
+    """v0.1.1 修复 1：共享工作树永不倒退（fb-auto-push-0002，TASK-102 实测）。"""
+
+    work = rig["work"]
+    assert ap.init_change(work, "CHG-1", "change/CHG-1-demo")["status"] == "OK"
+    (work / "f.txt").write_text("x\n", "utf-8")
+    _g(work, "add", "f.txt")
+    _g(work, "commit", "-m", "ahead of origin/main")
+    blocked = ap.init_change(work, "CHG-2", "change/CHG-2-x")  # 默认 base 已落后
+    assert blocked["status"] == "BLOCKED_BASE_BEHIND"
+    assert _g(work, "rev-parse", "--abbrev-ref", "HEAD") == "change/CHG-1-demo"
+    assert (work / "f.txt").is_file()  # 树没被倒退
+    assert (
+        ap.init_change(work, "CHG-2", "change/CHG-2-x", base="HEAD")["status"] == "OK"
+    )
+
+
+def test_scope_violation_recomputed_against_current_paths(rig: dict) -> None:
+    """v0.1.1 修复 2：越界按当前申报重算，不信登记时快照（fb-auto-push-0003）。"""
+
+    work = rig["work"]
+    _new_change(work)
+    _declare(work, "CHG-1", "TASK-001", ["feature/"])
+    (work / "feature").mkdir()
+    (work / "feature" / "a.py").write_text("A = 1\n", "utf-8")
+    (work / "extra.txt").write_text("extra\n", "utf-8")
+    _g(work, "add", "-A")
+    _g(work, "commit", "-m", "wide（TASK-001 · CHG-1）")
+    assert (
+        ap.record_commit(work, "CHG-1", "TASK-001")["status"] == "WARN_SCOPE_VIOLATION"
+    )
+    assert ap.push(work, "CHG-1")["status"] == "BLOCKED_SCOPE"
+    # dev-workflow 复查后扩大申报范围 → 越界现算为空 → 放行
+    _declare(work, "CHG-1", "TASK-001", ["feature/", "extra.txt"])
+    assert ap.push(work, "CHG-1")["status"] == "OK"
+
+
+def test_metadata_writeback_does_not_stale_the_gate(rig: dict) -> None:
+    """v0.1.1 修复 3：gate 后只有元数据回写移动 HEAD → 不算 stale（fb-0004）。"""
+
+    work = _one_committed_task(rig)
+    assert (
+        ap.set_merge_gate(work, "CHG-1", "PASS", by="user 2026-08-22")["status"] == "OK"
+    )
+    blocked = ap.merge(work, "CHG-1", ledger_checked=True)
+    assert blocked["status"] == "NEEDS_WRITEBACK_COMMIT"
+    _g(work, "add", "-A", "--", "docs/auto-push")
+    _g(work, "commit", "-m", "chore(auto-push): CHG-1 元数据回写")
+    merged = ap.merge(work, "CHG-1", ledger_checked=True)  # 不带 reverified
+    assert merged["status"] == "OK" and merged["pushed_main"]
+
+
+def test_cross_change_recorded_commits_are_recognised(rig: dict) -> None:
+    """v0.1.1 修复 4：叠分支时父 Change 清单里的提交被认出（fb-0005）。"""
+
+    work = rig["work"]
+    _new_change(work)
+    _declare(work, "CHG-1", "TASK-001", ["feature/"])
+    (work / "feature").mkdir()
+    (work / "feature" / "a.py").write_text("A = 1\n", "utf-8")
+    ap.stage(work, "CHG-1", "TASK-001", "add a")
+    _g(work, "commit", "-m", "add a（TASK-001 · CHG-1）")
+    ap.record_commit(work, "CHG-1", "TASK-001")  # 故意不 push CHG-1
+    assert (
+        ap.init_change(work, "CHG-2", "change/CHG-2-stacked", base="HEAD")["status"]
+        == "OK"
+    )
+    ap.task_ready(work, "CHG-2", "TASK-002", "PASS", ["mod2/"], ref="ok")
+    (work / "mod2").mkdir()
+    (work / "mod2" / "x.py").write_text("N = 2\n", "utf-8")
+    ap.stage(work, "CHG-2", "TASK-002", "add mod2")
+    _g(work, "commit", "-m", "add mod2（TASK-002 · CHG-2）")
+    ap.record_commit(work, "CHG-2", "TASK-002")
+    assert ap.push(work, "CHG-2")["status"] == "OK"
+
+
+def test_record_commit_hash_backfills_history(rig: dict) -> None:
+    """v0.1.1 修复 4b：--hash 补登历史提交，不再只能记 HEAD。"""
+
+    work = rig["work"]
+    _new_change(work)
+    _declare(work, "CHG-1", "TASK-001", ["feature/"])
+    (work / "feature").mkdir()
+    (work / "feature" / "a.py").write_text("A = 1\n", "utf-8")
+    _g(work, "add", "-A")
+    _g(work, "commit", "-m", "old（TASK-001 · CHG-1）")
+    old = _g(work, "rev-parse", "HEAD")
+    (work / "feature" / "b.py").write_text("B = 2\n", "utf-8")
+    _g(work, "add", "-A")
+    _g(work, "commit", "-m", "new（TASK-001 · CHG-1）")
+    rec = ap.record_commit(work, "CHG-1", "TASK-001", commit_hash=old)
+    assert rec["status"] == "OK" and rec["hash"] == old
+
+
+def test_evil_merge_is_not_exempt(rig: dict) -> None:
+    """v0.1.1 修复 5：merge 豁免走登记制——挂 main 祖先当第二亲的 evil merge
+    夹带任意树也过不了闸（ba0c8e2 补审确认的 P1）。"""
+
+    work = rig["work"]
+    _new_change(work)
+    _declare(work, "CHG-1", "TASK-001", ["feature/"])
+    (work / "feature").mkdir()
+    (work / "feature" / "a.py").write_text("A = 1\n", "utf-8")
+    ap.stage(work, "CHG-1", "TASK-001", "add a")
+    _g(work, "commit", "-m", "add a（TASK-001 · CHG-1）")
+    ap.record_commit(work, "CHG-1", "TASK-001")
+    _g(work, "add", "-A", "--", "docs/auto-push")
+    _g(work, "commit", "-m", "chore(auto-push): 回写")
+    # 用 plumbing 构造 evil merge：树里夹带 evil.txt，第二亲挂 origin/main
+    (work / "evil.txt").write_text("smuggled\n", "utf-8")
+    _g(work, "add", "evil.txt")
+    tree = _g(work, "write-tree")
+    head = _g(work, "rev-parse", "HEAD")
+    anc = _g(work, "rev-parse", "origin/main")
+    evil = _g(
+        work, "commit-tree", tree, "-p", head, "-p", anc, "-m", "premerge 模样的 merge"
+    )
+    _g(work, "reset", "--hard", evil)
+    blocked = ap.push(work, "CHG-1")
+    assert blocked["status"] == "BLOCKED_UNRECORDED_COMMITS"
+    assert any(evil.startswith(c["hash"]) for c in blocked["commits"])
+
+
+def test_record_sync_legitimises_conflict_resolution_merge(rig: dict) -> None:
+    """v0.1.1 修复 5b：冲突解决后的 premerge merge 经 record-sync 显式登记放行。"""
+
+    work, other = rig["work"], rig["other"]
+    _new_change(work)
+    _declare(work, "CHG-1", "TASK-001", ["app.py"])
+    (work / "app.py").write_text("mine\n", "utf-8")
+    ap.stage(work, "CHG-1", "TASK-001", "mine")
+    _g(work, "commit", "-m", "mine（TASK-001 · CHG-1）")
+    ap.record_commit(work, "CHG-1", "TASK-001")
+    _g(work, "add", "-A", "--", "docs/auto-push")
+    _g(work, "commit", "-m", "chore(auto-push): 回写")
+
+    (other / "app.py").write_text("theirs on main\n", "utf-8")
+    _commit_all(other, "conflicting main change")
+    _g(other, "push", "origin", "main")
+
+    assert ap.premerge_sync(work, "CHG-1")["status"] == "CONFLICT"
+    (work / "app.py").write_text("resolved\n", "utf-8")
+    _g(work, "add", "app.py")
+    _g(work, "commit", "-m", "merge main：解决 app.py 冲突")
+
+    assert ap.push(work, "CHG-1")["status"] == "BLOCKED_UNRECORDED_COMMITS"
+    assert ap.record_sync(work, "CHG-1")["status"] == "OK"
+    assert ap.push(work, "CHG-1")["status"] == "OK"
+    # 普通提交不能被声明成 sync
+    (work / "app.py").write_text("plain\n", "utf-8")
+    _g(work, "add", "app.py")
+    _g(work, "commit", "-m", "plain commit")
+    assert ap.record_sync(work, "CHG-1")["status"] == "BLOCKED_NOT_A_SYNC_MERGE"
+
+
 def test_merge_tip_push_runs_the_same_gates(rig: dict) -> None:
     work = _one_committed_task(rig)
     assert (
@@ -365,7 +520,7 @@ def test_merge_tip_push_runs_the_same_gates(rig: dict) -> None:
     (work / "feature" / "late.py").write_text("L = 1\n", "utf-8")
     _g(work, "add", "feature/late.py")
     _g(work, "commit", "-m", "manual late commit")
-    blocked = ap.merge(work, "CHG-1", reverified=True)
+    blocked = ap.merge(work, "CHG-1", reverified=True, ledger_checked=True)
     assert blocked["status"] == "BLOCKED_UNRECORDED_COMMITS"
 
 
@@ -509,8 +664,11 @@ def _merge_change(rig: dict) -> Path:
         ap.set_merge_gate(work, "CHG-1", "PASS", by="user 2026-08-22")["status"] == "OK"
     )
 
+    # ledger 前置：未声明查过待复审清单 → 拒（TASK-102 的教训）
+    assert ap.merge(work, "CHG-1")["status"] == "BLOCKED_LEDGER_UNCHECKED"
+
     # 清单有未提交回写 → merge 先要求 writeback commit
-    blocked = ap.merge(work, "CHG-1")
+    blocked = ap.merge(work, "CHG-1", ledger_checked=True)
     assert blocked["status"] == "NEEDS_WRITEBACK_COMMIT"
     _g(work, "add", "-A", "--", "docs/auto-push")
     _g(work, "commit", "-m", "chore(auto-push): CHG-1 元数据回写")
@@ -518,11 +676,17 @@ def _merge_change(rig: dict) -> Path:
     synced = ap.premerge_sync(work, "CHG-1")
     assert synced["status"] == "OK" and synced["needs_verification"]
 
-    # HEAD 已离开 gate 绑定的 tip → 未声明重验证的 merge 被拒
-    stale = ap.merge(work, "CHG-1")
+    # premerge 把 merge hash 登记进 sync_commits → 清单又脏 → 再回写一次
+    blocked = ap.merge(work, "CHG-1", ledger_checked=True)
+    assert blocked["status"] == "NEEDS_WRITEBACK_COMMIT"
+    _g(work, "add", "-A", "--", "docs/auto-push")
+    _g(work, "commit", "-m", "chore(auto-push): CHG-1 sync 登记回写")
+
+    # premerge 的 merge commit 不是元数据 → gate stale，需 reverified
+    stale = ap.merge(work, "CHG-1", ledger_checked=True)
     assert stale["status"] == "BLOCKED_STALE_GATE"
 
-    merged = ap.merge(work, "CHG-1", reverified=True)
+    merged = ap.merge(work, "CHG-1", reverified=True, ledger_checked=True)
     assert merged["status"] == "OK" and merged["pushed_main"]
     assert _g(work, "rev-parse", "--abbrev-ref", "HEAD") == "main"
     assert _g(rig["origin"], "rev-parse", "main") == merged["merge"]

@@ -16,7 +16,7 @@
 
 | 冲突落点 | 类别 | 谁处理 |
 | --- | --- | --- |
-| import/依赖清单顺序、相邻但无关的行、机械重命名的两侧、纯格式 | 工程文本冲突 | auto-push 语义层（你）直接解决：逐文件编辑掉冲突标记，`git add` 后 `git commit`（gate 照常拦截），**然后必须重跑定向验证** |
+| import/依赖清单顺序、相邻但无关的行、机械重命名的两侧、纯格式 | 工程文本冲突 | auto-push 语义层（你）直接解决：逐文件编辑掉冲突标记，`git add` 后 `git commit`（gate 照常拦截），提交后 **`record-sync` 登记该 merge commit**（否则 push 会 BLOCKED_UNRECORDED_COMMITS），**然后必须重跑定向验证** |
 | `docs/requirements/`、`docs/adr/`、`docs/design/` 合同文档、`docs/product_spec.md` | Requirement / 合同 | `merge-abort` → 交回 dev-workflow |
 | API/接口签名、schema、持久化格式、业务规则分支、跨层合同（双方都改了含义） | Semantic conflict —— git 能合但行为可能错 | `merge-abort` → 交回 dev-workflow：读当前有效 Requirement + 两个 Change 的意图，裁定最终行为 |
 | module boundary、shared/core、依赖方向 | Architecture conflict | `merge-abort` → dev-workflow 触发 Architecture Governance（其第 6 步），auto-push 等结果 |
@@ -32,6 +32,7 @@
 
 | 状态 | 恢复动作 |
 | --- | --- |
+| `BLOCKED_LEDGER_UNCHECKED` | 读 pending-codex-rereview.md 的未闭合项，确认没有覆盖本分支历史的条目后带 `--ledger-checked`。**有覆盖就先补审，别把标志当橡皮图章** |
 | `BLOCKED_NOT_SYNCED` | 先 `premerge-sync` + 重验证 |
 | `BLOCKED_STALE_GATE` | HEAD 已离开 Gate 绑定的 tip——在当前 tip 上重跑定向验证，然后 `merge --reverified`。**没重跑就带 --reverified 是在向清单说谎** |
 | `NEEDS_WRITEBACK_COMMIT` | 跑返回的 `suggested` 命令再来 |

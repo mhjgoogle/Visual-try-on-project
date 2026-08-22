@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "change_id": "autopush-v011",
+  "branch": "change/TASK-101-autopush-v011",
+  "status": "open",
+  "created": "2026-08-22T14:43:45+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-101": {
+      "commits": [],
+      "paths": [
+        ".claude/skills/auto-push/",
+        "docs/design/pending-codex-rereview.md",
+        "docs/skill-evolution/",
+        "docs/tasks/TASK-101-auto-push-skill.md",
+        "tests/tooling/test_auto_push_tooling.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "pytest tests/tooling/test_auto_push_tooling.py: 37 passed; ruff format+check: pass",
+      "declared": "2026-08-22T14:43:46+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PENDING"
+  },
+  "merge": null,
+  "cleanup": null
+}

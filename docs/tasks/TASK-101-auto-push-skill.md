@@ -62,6 +62,31 @@
 见提交历史：change `wfm1-batch-c`（收养 `feat/wfm1-batch-c`）下的
 TASK-101 提交。TASK-099 的 18 个脏文件全程未被触碰、未被 stage。
 
+## v0.1.1（2026-08-22 晚，同卡追加实施）
+
+首个多会话实战日暴露的六项缺陷一次收口（证据：skill-evolution
+fb-auto-push-0002~0006 + ba0c8e2 补审）：
+
+1. `init-change` 永不把共享工作树往回切（`BLOCKED_BASE_BEHIND`；TASK-102
+   实测踩中「main=Initial commit → 切成空树」）。
+2. 越界判定按**当前**申报范围现算（`_live_violations`），不吃登记时快照；
+   commit 记录新增 `files` 字段。
+3. Merge Gate 的 stale 判定豁免「tip 之后只有元数据回写」（内容判定，
+   复用 `_is_metadata_commit`），解开 set-merge-gate → 回写 → stale 死环。
+4. 出处判定全局化：`_provenance` 汇总**全部** Change 清单（跨 Change 叠
+   分支可行）；排除集扩为 `--remotes=origin`；`record-commit --hash` 补登
+   历史提交。
+5. evil-merge P1 修复（ba0c8e2 补审的 blocking）：merge commit 豁免改为
+   **登记制**——premerge-sync 自动登记 `sync_commits`，冲突解决路径
+   `record-sync` 显式登记；废除「后位亲是 main 祖先」的结构推断。
+6. merge 新增 `--ledger-checked` 前置：声明已核对待复审清单（TASK-102 的
+   流程教训制度化）。
+
+验证：tests/tooling/test_auto_push_tooling.py **37 passed**（新增 7 项，含
+plumbing 构造的 evil merge、跨 Change 叠分支、快照重算、回写不 stale）。
+另：分支 push 会连带发布整个祖先——「出处齐全 ≠ 发布授权」已写进
+SKILL.md（0c 会话指出，本次 v0.1.1 提交因此**只 commit 不 push**）。
+
 ## Follow-up
 
 - AGENTS.md §22 正文补写「Change 分支 push 由 auto-push 自动执行

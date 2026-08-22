@@ -425,6 +425,30 @@ def init_change(
         if _has_remote(root) and base.startswith("origin/"):
             _git(root, "fetch", "origin", check=False)
         start = base if _ref_exists(root, base) else "HEAD"
+        head = _head_hash(root)
+        start_hash = _git(root, "rev-parse", start).stdout.strip()
+        if start_hash != head:
+            # 共享工作树永不倒退：base 落后于（或岔开）HEAD 时，switch -c 会把
+            # 树改写成旧基底——本仓库 main 停在 Initial commit，实测等于清空树
+            # （TASK-102 会话踩中，fb-auto-push-0002）。只允许向前。
+            if not _is_ancestor(root, "HEAD", start):
+                return _blocked(
+                    "BLOCKED_BASE_BEHIND",
+                    f"base '{start}' is behind or diverged from HEAD — creating "
+                    "the branch would rewrite the shared worktree backwards; "
+                    "use --base HEAD or --adopt an existing branch",
+                    base=start,
+                )
+            # 向前切换仍会改树：要求 tracked 工作树干净，别人的现场不陪葬。
+            entries = _worktree_entries(root)
+            dirty = [p for s, p in entries if s.strip() and not s.startswith("?")]
+            if dirty:
+                return _blocked(
+                    "BLOCKED_DIRTY_SWITCH",
+                    "creating a branch from a different tree needs a clean "
+                    "tracked worktree",
+                    files=dirty[:20],
+                )
         _git(root, "switch", "-c", branch, start)
 
     manifest = {
@@ -728,49 +752,58 @@ def stage(
     return result
 
 
-def record_commit(root: Path, change: str, task: str) -> dict:
+def _live_violations(commit: dict, patterns: list[str]) -> list[str]:
+    """按**当前**申报范围重算越界，而不是信登记时的快照。
+
+    record-commit 之后 task-ready 可以合法地扩大 paths——快照会把已经不越界的
+    提交继续拦死（TASK-102 实测 13+2 个假越界，fb-auto-push-0003）。判定永远
+    从 files 现算；老清单没存 files 时才退回快照（保守方向）。
+    """
+
+    files = commit.get("files")
+    if files is None:
+        return list(commit.get("scope_violation") or [])
+    return [
+        f
+        for f in files
+        if not _matches(f, patterns)
+        and not _norm(f).startswith("docs/auto-push/changes/")
+    ]
+
+
+def record_commit(
+    root: Path, change: str, task: str, commit_hash: str | None = None
+) -> dict:
+    """登记一个提交到 task 名下。默认 HEAD；--hash 可补登历史提交
+    （TASK-102 实测：只能记 HEAD 时，绕过 stage 的既成提交无法归属，
+    fb-auto-push-0005）。"""
+
     manifest = _load_manifest(root, change)
     if task not in manifest["tasks"]:
         raise AutoPushError(f"task '{task}' not declared")
-    head = _head_hash(root)
+    ref = commit_hash or "HEAD"
+    proc = _git(root, "rev-parse", "--verify", f"{ref}^{{commit}}", check=False)
+    if proc.returncode != 0:
+        raise AutoPushError(f"'{ref}' is not a commit")
+    target = proc.stdout.strip()
     for commit in manifest["tasks"][task]["commits"]:
-        if commit["hash"] == head:
-            return {"status": "OK", "hash": head, "already_recorded": True}
-    subject = _git(root, "show", "-s", "--format=%s", "HEAD").stdout.strip()
-    files = [
-        p
-        for p in _git(
-            root,
-            "diff-tree",
-            "--no-commit-id",
-            "--name-only",
-            "--no-renames",
-            "-r",
-            "-z",
-            "--root",
-            "HEAD",
-        ).stdout.split("\0")
-        if p
-    ]
-    my_patterns = manifest["tasks"][task]["paths"]
-    violations = [
-        p
-        for p in files
-        if not _matches(_norm(p), my_patterns)
-        and not _norm(p).startswith("docs/auto-push/changes/")
-    ]
-    manifest["tasks"][task]["commits"].append(
-        {
-            "hash": head,
-            "subject": subject,
-            "time": _now(),
-            "branch": _current_branch(root),
-            "pushed": False,
-            "scope_violation": sorted(violations) or None,
-        }
-    )
+        if commit["hash"] == target:
+            return {"status": "OK", "hash": target, "already_recorded": True}
+    subject = _git(root, "show", "-s", "--format=%s", target).stdout.strip()
+    files = _commit_files(root, target)
+    entry = {
+        "hash": target,
+        "subject": subject,
+        "time": _now(),
+        "branch": _current_branch(root),
+        "pushed": False,
+        "files": sorted(files),
+    }
+    violations = _live_violations(entry, manifest["tasks"][task]["paths"])
+    entry["scope_violation"] = sorted(violations) or None
+    manifest["tasks"][task]["commits"].append(entry)
     _save_manifest(root, change, manifest)
-    result = {"status": "OK", "hash": head, "files": len(files)}
+    result = {"status": "OK", "hash": target, "files": len(files)}
     if violations:
         result["status"] = "WARN_SCOPE_VIOLATION"
         result["out_of_scope"] = sorted(violations)
@@ -800,6 +833,31 @@ def _is_metadata_commit(root: Path, commit_hash: str) -> bool:
     return bool(files) and all(p.startswith("docs/auto-push/") for p in files)
 
 
+def _provenance(root: Path) -> tuple[set[str], set[str]]:
+    """(recorded, synced)：**全部** Change 清单里登记过的提交与 sync 合并。
+
+    跨 Change 叠分支（change B 基于 change A 的分支）时，A 的已验证提交也在
+    B 的 push 范围里——只查自己清单会把它们误判为未登记（TASK-102 实测 10 条，
+    fb-auto-push-0005）。出处是全局事实，按全局收集。坏清单跳过（不参与豁免，
+    fail-closed 方向）。"""
+
+    recorded: set[str] = set()
+    synced: set[str] = set()
+    changes_dir = root / CHANGES_DIR
+    if changes_dir.is_dir():
+        for path in sorted(changes_dir.glob("*.json")):
+            try:
+                data = json.loads(path.read_text("utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            for tdata in data.get("tasks", {}).values():
+                for c in tdata.get("commits", []):
+                    if c.get("hash"):
+                        recorded.add(c["hash"])
+            synced.update(h for h in data.get("sync_commits", []) if h)
+    return recorded, synced
+
+
 def _push_gates(root: Path, manifest: dict) -> dict | None:
     """把分支推向远端前的共同闸（push 与 merge 的 tip push 共用）。
 
@@ -820,12 +878,17 @@ def _push_gates(root: Path, manifest: dict) -> dict | None:
                 f"task '{tid}' has unpushed commits but verification is "
                 f"'{tdata.get('verification', 'UNDECLARED')}'",
             )
-        violating = [c["hash"][:12] for c in unpushed if c.get("scope_violation")]
+        violating = [
+            c["hash"][:12]
+            for c in unpushed
+            if _live_violations(c, tdata.get("paths", []))
+        ]
         if violating:
             return _blocked(
                 "BLOCKED_SCOPE",
-                f"task '{tid}' has unpushed commits with recorded out-of-scope "
-                "files — dev-workflow must resolve them before push",
+                f"task '{tid}' has unpushed commits with out-of-scope files "
+                "(judged against the CURRENT declared paths) — dev-workflow "
+                "must resolve them before push",
                 commits=violating,
             )
     branch = manifest["branch"]
@@ -833,30 +896,24 @@ def _push_gates(root: Path, manifest: dict) -> dict | None:
         "origin/main" if _ref_exists(root, "origin/main") else None
     )
     if push_base:
-        recorded_hashes = {
-            c["hash"]
-            for tdata in manifest["tasks"].values()
-            for c in tdata.get("commits", [])
-        }
+        recorded_hashes, sync_hashes = _provenance(root)
         unrecorded = []
-        # `--not origin/main`：premerge-sync 之后 main 侧的历史也落在
-        # push_base..HEAD 里——那些提交已经发布在 main 上，不归我们的闸管。
+        # `--not --remotes=origin`：已经发布在任何 origin 分支上的历史不归
+        # 我们的闸管（premerge 带进的 main 侧提交、其他已推分支的提交）。
         log_args = ["log", "--format=%H%x1f%s%x1f%P", f"{push_base}..HEAD"]
-        if _ref_exists(root, "origin/main"):
-            log_args += ["--not", "origin/main"]
+        if _has_remote(root):
+            log_args += ["--not", "--remotes=origin"]
         log_out = _git(root, *log_args).stdout
         for line in log_out.splitlines():
             if "\x1f" not in line:
                 continue
             h, s, parents = line.split("\x1f", 2)
-            if h in recorded_hashes:
+            if h in recorded_hashes or h in sync_hashes:
                 continue
-            parent_list = parents.split()
-            if len(parent_list) > 1:
-                # premerge-sync 的 merge commit：被并入的一侧必须真是 main
-                if any(_is_ancestor(root, p, "origin/main") for p in parent_list[1:]):
-                    continue
-            elif _is_metadata_commit(root, h):
+            # merge commit 的豁免走**登记制**（premerge-sync 自动登记 /
+            # record-sync 显式登记），不做结构推断——「后位亲是 main 祖先」
+            # 可被 evil merge 伪造着夹带任意树（ba0c8e2 补审确认的 P1）。
+            if len(parents.split()) == 1 and _is_metadata_commit(root, h):
                 continue
             unrecorded.append({"hash": h[:12], "subject": s[:80]})
         if unrecorded:
@@ -1047,12 +1104,42 @@ def premerge_sync(root: Path, change: str) -> dict:
             "rules or run merge-abort and hand back",
             files=conflicts,
         )
+    merged_hash = _head_hash(root)
+    # 登记制：这个 merge commit 的出处从此有据可查，_push_gates 只认登记
+    # 不做结构推断（evil-merge P1 的修复，ba0c8e2 补审）。
+    manifest.setdefault("sync_commits", []).append(merged_hash)
+    _save_manifest(root, change, manifest)
     return {
         "status": "OK",
-        "merged": _head_hash(root),
+        "merged": merged_hash,
         "needs_verification": True,
         "note": "re-run targeted verification, then merge",
     }
+
+
+def record_sync(root: Path, change: str) -> dict:
+    """把冲突解决后手工提交的 premerge merge 显式登记为 sync commit。
+
+    与 task-ready 同一信任模型：这是 agent 的**显式声明**、留痕于清单——
+    区别于被废除的静默结构豁免。仍要求形状成立（merge commit 且有后位亲
+    在 main 上），杜绝把普通提交声明成 sync。"""
+
+    manifest = _load_manifest(root, change)
+    head = _head_hash(root)
+    if head in manifest.get("sync_commits", []):
+        return {"status": "OK", "hash": head, "already_recorded": True}
+    parents = _git(root, "show", "-s", "--format=%P", "HEAD").stdout.split()
+    main_ref = "origin/main" if _has_remote(root) else "main"
+    if len(parents) < 2 or not any(
+        _is_ancestor(root, p, main_ref) for p in parents[1:]
+    ):
+        return _blocked(
+            "BLOCKED_NOT_A_SYNC_MERGE",
+            "HEAD is not a merge commit whose later parent lies on main",
+        )
+    manifest.setdefault("sync_commits", []).append(head)
+    _save_manifest(root, change, manifest)
+    return {"status": "OK", "hash": head, "needs_verification": True}
 
 
 def merge_abort(root: Path, change: str) -> dict:
@@ -1063,7 +1150,12 @@ def merge_abort(root: Path, change: str) -> dict:
     return {"status": "OK"}
 
 
-def merge(root: Path, change: str, reverified: bool = False) -> dict:
+def merge(
+    root: Path,
+    change: str,
+    reverified: bool = False,
+    ledger_checked: bool = False,
+) -> dict:
     """Merge Gate = PASS 后把 Change branch 以 --no-ff 合入 main 并 push。"""
 
     manifest = _load_manifest(root, change)
@@ -1076,6 +1168,17 @@ def merge(root: Path, change: str, reverified: bool = False) -> dict:
             "BLOCKED_MERGE_GATE",
             f"merge gate is '{gate.get('status', 'PENDING')}' — only dev-workflow "
             "sets PASS, and only on the user's explicit merge instruction",
+        )
+    if not ledger_checked:
+        # TASK-102 的教训（其卡§验证）：merge 前只查了清单 verification，
+        # 没查待复审清单，含未补审修复的历史被合进 main。声明式前置：
+        # agent 读过 pending-codex-rereview.md 的未闭合项并确认不覆盖本分支
+        # 历史后，显式带 --ledger-checked。
+        return _blocked(
+            "BLOCKED_LEDGER_UNCHECKED",
+            "read docs/design/pending-codex-rereview.md (仍然待办 + open 追记) "
+            "and confirm no open item covers this branch's history, then pass "
+            "--ledger-checked",
         )
     # Gate PASS 之后状态还会变（sync 置 STALE、record-commit 记下越界）——
     # merge 时刻按当前清单重查一遍，与 push 同一套闸（codex 审查轮 2，blocking）。
@@ -1094,12 +1197,13 @@ def merge(root: Path, change: str, reverified: bool = False) -> dict:
         c["hash"][:12]
         for tdata in manifest["tasks"].values()
         for c in tdata.get("commits", [])
-        if c.get("scope_violation")
+        if _live_violations(c, tdata.get("paths", []))
     ]
     if violating:
         return _blocked(
             "BLOCKED_SCOPE",
-            "recorded commits carry unresolved out-of-scope files",
+            "recorded commits carry out-of-scope files (judged against the "
+            "CURRENT declared paths)",
             commits=violating,
         )
     gate_dirty = _dirty_gate(root, change, "merge")
@@ -1117,12 +1221,19 @@ def merge(root: Path, change: str, reverified: bool = False) -> dict:
     if gate.get("tip") and _head_hash(root) != gate["tip"] and not reverified:
         # PASS 绑定的是验证过的 tip；premerge-sync / 新提交移动 HEAD 之后，
         # 必须在当前 tip 上重跑定向验证再带 --reverified 进来。
-        return _blocked(
-            "BLOCKED_STALE_GATE",
-            "HEAD moved since the merge gate passed — re-run targeted "
-            "verification on the current tip, then pass --reverified",
-            gate_tip=gate["tip"],
-        )
+        # 例外：tip 之后**只有**元数据回写（内容判定）——回写 commit 本身
+        # 不改被验证的代码，若不豁免则 set-merge-gate → 回写 → stale 成环
+        # （TASK-102 实测，fb-auto-push-0004）。
+        moved = _git(
+            root, "log", "--format=%H", f"{gate['tip']}..HEAD", check=False
+        ).stdout.split()
+        if not moved or not all(_is_metadata_commit(root, h) for h in moved):
+            return _blocked(
+                "BLOCKED_STALE_GATE",
+                "HEAD moved since the merge gate passed — re-run targeted "
+                "verification on the current tip, then pass --reverified",
+                gate_tip=gate["tip"],
+            )
     if _has_remote(root):
         # tip push 与普通 push 过同一道闸：未登记/未验证/越界的提交同样
         # 不得借 merge 流程离开本机（codex 审查轮 3，blocking）。
@@ -1325,14 +1436,23 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("record-commit")
     p.add_argument("--change", required=True)
     p.add_argument("--task", required=True)
+    p.add_argument("--hash", dest="commit_hash", default=None)
 
-    for name in ("push", "sync", "premerge-sync", "merge-abort", "status"):
+    for name in (
+        "push",
+        "sync",
+        "premerge-sync",
+        "merge-abort",
+        "record-sync",
+        "status",
+    ):
         p = sub.add_parser(name)
         p.add_argument("--change", required=True)
 
     p = sub.add_parser("merge")
     p.add_argument("--change", required=True)
     p.add_argument("--reverified", action="store_true")
+    p.add_argument("--ledger-checked", action="store_true")
 
     p = sub.add_parser("set-merge-gate")
     p.add_argument("--change", required=True)
@@ -1367,7 +1487,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.allow_unscanned,
             )
         elif args.command == "record-commit":
-            result = record_commit(root, args.change, args.task)
+            result = record_commit(root, args.change, args.task, args.commit_hash)
         elif args.command == "push":
             result = push(root, args.change)
         elif args.command == "sync":
@@ -1378,8 +1498,10 @@ def main(argv: list[str] | None = None) -> int:
             result = premerge_sync(root, args.change)
         elif args.command == "merge-abort":
             result = merge_abort(root, args.change)
+        elif args.command == "record-sync":
+            result = record_sync(root, args.change)
         elif args.command == "merge":
-            result = merge(root, args.change, args.reverified)
+            result = merge(root, args.change, args.reverified, args.ledger_checked)
         elif args.command == "cleanup":
             result = cleanup(root, args.change, args.keep_remote)
         elif args.command == "status":
