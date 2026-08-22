@@ -171,12 +171,51 @@ Decision 增加 `frontend` 布尔（python+前端混合改动时两边都跑）�
 gate.sh 同步实现（ADR-0062 决策 3 同一行为合同）；链令牌语义不变。
 「高风险→全量」被上表替代（产品负责人 2026-08-22：「我不要每次都全量测试」）。
 
-## 验证（完成时补）
+## 验证
+
+**基线（开工前，干净树）**：pytest 3402 + 6 / 前端 1763 / ruff 干净。
+（该次全量同时补上 TASK-098 卡内登记的「需在干净树重跑全量」缺口，覆盖 2cdddde。）
+
+| 批次 | 提交 | 验证 |
+| --- | --- | --- |
+| A 目录重归属 | `fcbd238` | collect 3466（与基线一致，0 错误）；两阶段全量 **3402 + 6 passed**（逐项与基线一致）；域内定向：studio 519、tooling+contract 208+19、抽取域 68/39/18 全绿；ruff 全过 |
+| B 删测试联动 | `c7268a7` | 前端 **1763 passed**；studio+contract 507 passed；e2e 27 passed；serial 6 passed；ruff 全过（净删 2016 行） |
+| C gate 归属映射 | `9d52eca` | tooling **64 passed**（13 个钉旧行为的测试改写为新语义）；17 个路径用例逐一 spot-check 映射正确；ruff 全过 |
+| D 治理与文档 | `47fb47f` | **链尾集成检查点**：pytest **3294 + 6 passed**（较基线少 108 项 = 批次 B 删除的重复测试）、前端 **1763 passed**、ruff 全过；tooling 117 passed；`git ls-files '*README.md'` = **1** |
+
+**任务书 §16 验收项实测**：
+
+- A/B/C/D：`pytest tests/backend` / `tests/studio` / `tests/contract` / `tests/e2e` +
+  `node --test` 均可独立运行（见 AGENTS.md §20 命令表）。
+- E（随机 frontend feature）：`node --test …/shotmap.test.mjs` → 13 passed，
+  **0.3s**，零 Python 依赖。
+- F（随机 backend module）：`pytest tests/backend/test_budget_ledger.py` →
+  6 passed，**0.7s**，零前端依赖（grep `mockups|node|.mjs` = 0 处）。
+- G：pytest 内嵌 `node --test` 包装 **0 处**（原 23 处）。
+- H：前端 `.test.mjs` 对 Python 的引用只剩 **1 处注释**（gencard.test.mjs:181
+  引用 paid_gateway.py 的规则作为合同参照，非依赖）。
+- I：删除 23 个 node 包装 + 约 60 个重复的 JS 源码文本断言函数 + 2 个删空文件
+  + 8 个子 README；无「旧的保留 + 新的另起一套」。
 
 ## Follow-up
 
-- auto-push `init-change` 在「main 仍是 Initial commit」的仓库里从 main 建新
-  分支，会把共享工作树切成近空树（本次实测，已用 `--adopt` 绕开）——应在
-  init-change 里加保护或文档说明（归 TASK-101 / auto-push skill）。
-- （完成时补；已知候选：src 内 app↔planning import 环；三向合同投影统一；
-  mockups Python 后端正式应用化 = ADR-0077 决策 6 既有欠账）
+- **auto-push `init-change` 会把共享工作树切成近空树**：新建分支路径用
+  `git switch -c <branch> <base>` 且 base 默认 origin/main，而本仓库 main 仍停在
+  Initial commit。本次实测触发（已用 `--adopt` 绕开并恢复）。归 TASK-101 /
+  auto-push skill；94 号会话已按证据机制登记（fb-auto-push-0002，severity high），
+  计划改为 base 落后于 HEAD 时返回 `BLOCKED_BASE_BEHIND`。
+- **仍存在的架构耦合（如实记录，本卡不修）**：
+  1. **Studio 的产品后端住在 `mockups/motv-workspace/`**（server.py 358KB
+     单体 + runstore/skillpkg）—— 这是最大的边界错位，ADR-0077 决策 6 已登记，
+     需一个「Studio 正式应用化」任务一次性处理包入口、导入与数据路径。
+     本卡只把它的**测试归属**理清（`tests/studio/`），代码不动。
+  2. **`src` 内的 import 环**：`app → planning` 且 `planning → app`；
+     `learning → workspace → app → …` 长链。核心库对 mockups 零依赖（干净），
+     但内部方向不干净。
+  3. **三向合同投影**：`docs/design/workflow-stage-step-io-contract.md` ↔
+     `src/…/workspace/io_contract.py` ↔ `mockups/…/src/workflow/contract.js`
+     同一份 L0–S7 合同手抄三份；`product-skills/skill-inputs.json` 被前后端
+     同时读取（这一份是单一来源，形状健康）。改合同要同时改三处。
+  4. **前端入口不可测**：`app.js` 无法被 node import，所以它的架构不变量只能
+     从源码侧断言（批次 E 已把这些守卫集中到 `tests/contract/`，从 19 个文件
+     收敛到 1 个）。根治要拆 app.js 的编排层，属前端重构，另立卡。
