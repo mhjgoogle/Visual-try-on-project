@@ -69,18 +69,39 @@ _BACKEND_CORE_TARGETS = ("tests/backend", "tests/studio")
 #: The one test file that must run OUTSIDE xdist (real OS process trees).
 _SERIAL_TEST_FILES = frozenset({"tests/e2e/test_motv_run_lifecycle_task072.py"})
 
-#: Test-domain directories that contain NO serial tests, so a directory-level
-#: target is safe under `-n 8 -m "not serial"`.
+#: Every test-domain directory, usable as a directory-level pytest target.
+#:
+#: tests/e2e IS here, and its earlier absence was over-caution: both shells run
+#: the targeted tier as `pytest -n 8 -m "not serial" <targets>`, so the one
+#: serial file is deselected by the marker no matter what the target is — and
+#: when the serial file is itself the change, it arrives through
+#: `serial_targets` and runs outside xdist. Excluding e2e only meant that
+#: helpers shared with e2e (media_fakes, wfm1_scenario, gateway_scenario) fell
+#: back to the whole suite for no benefit.
 _TEST_DOMAIN_DIRS = (
     "tests/backend/",
     "tests/studio/",
     "tests/contract/",
+    "tests/e2e/",
     "tests/tooling/",
 )
 
-#: Repo-root test-support layer (conftest, scenario builders, fakes, _scan):
-#: it underpins every pytest domain, so its impact scope IS the full pytest run.
+#: Files whose impact scope genuinely IS every pytest domain. Both take effect
+#: WITHOUT being imported -- pytest loads them itself (ini options, markers,
+#: the tmpfs basetemp hook) -- so no import graph can narrow them down.
+#:
+#: Every OTHER file in the tests/ root (scenario builders, fakes, _scan,
+#: symlink_support) reaches its consumers through an `import`, so its scope is
+#: DERIVED from that graph by `_domains_importing` instead of assumed to be
+#: everything: `_scan` is used by tests/studio alone, so editing it used to run
+#: 3358 tests to cover 385 (产品负责人 2026-08-22: 解耦之后不该还按「保守起见跑
+#: 全量」办事 —— Test Scope = Change Impact Scope 就是这一条的全部内容).
 _FULL_PYTEST_FILES = {"pyproject.toml", "tests/conftest.py"}
+
+#: Import forms the derivation recognises. Both spellings appear in this repo
+#: (`from tests.media_fakes import X` and, in a couple of files, a module-level
+#: `tests.symlink_support` reference), so match the dotted name itself.
+_SUPPORT_IMPORT_RE = "tests.{stem}"
 
 _EXAMPLES_TARGETS = (
     "tests/backend/test_example_project.py",
@@ -760,6 +781,42 @@ def _is_pytest_file(path: str) -> bool:
 _Claim = tuple[str, tuple[str, ...]]
 
 
+def _domains_importing(stem: str) -> tuple[str, ...]:
+    """Test domains that import the tests/ root support module *stem*.
+
+    DERIVED, never hand-written: a hand-kept table drifts the moment someone
+    adds a consumer, and it drifts SILENTLY towards running too little. The
+    import graph is the fact, so read it (TASK-087 §7: 守卫的键集要派生).
+
+    Returns () when nothing imports it — a brand-new helper, or an import form
+    this does not recognise. The caller turns that into the full run, so the
+    unknown case stays fail-closed rather than testing nothing.
+
+    Cost: reading the ~150 test files once, only for a commit that actually
+    touches the tests/ root (rare). A `tests/` directory that cannot be read is
+    reported as no domains, i.e. the full run.
+    """
+    needle = _SUPPORT_IMPORT_RE.format(stem=stem)
+    domains: set[str] = set()
+    for domain_dir in _TEST_DOMAIN_DIRS:
+        directory = Path(domain_dir)
+        try:
+            candidates = sorted(directory.glob("*.py"))
+        except OSError:
+            return ()
+        for candidate in candidates:
+            try:
+                text = candidate.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                # Unreadable file: cannot prove it does NOT import the module,
+                # so widen to the full run instead of guessing.
+                return ()
+            if needle in text:
+                domains.add(domain_dir.rstrip("/"))
+                break
+    return tuple(sorted(domains))
+
+
 def _claim(path: str) -> _Claim | None:
     """Which test domain OWNS *path* (ADR-0080 decision 1). None = nobody -> full."""
 
@@ -813,9 +870,14 @@ def _claim(path: str) -> _Claim | None:
     if path.startswith("tests/"):
         parts = path.split("/")
         if len(parts) == 2:
-            # Repo-root test-support layer (conftest, scenario builders,
-            # fakes): underpins every domain, so full pytest is its scope.
-            return ("full", ())
+            # Repo-root test-support layer. `_FULL_PYTEST_FILES` above already
+            # took the two files pytest loads by itself; everything else here
+            # reaches its consumers through an import, so DERIVE the scope from
+            # that graph rather than assuming it is everything.
+            if not path.endswith(".py"):
+                return None
+            domains = _domains_importing(Path(path).stem)
+            return ("pytest", domains) if domains else ("full", ())
         domain = parts[1]
         if f"tests/{domain}/" in _TEST_DOMAIN_DIRS:
             # Domain fixtures and helpers: run the owning domain. tests/e2e is

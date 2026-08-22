@@ -1464,3 +1464,66 @@ def test_gate_sh_never_hands_pytest_an_empty_string_target() -> None:
         assert "for target in targets:" in block, (
             f"{name}: 必须逐个 print，空列表就什么都不输出"
         )
+
+
+# --- TASK-102 收尾：支撑层的影响范围是**派生**的，不是「保守起见跑全量」 ---- #
+
+
+def test_a_support_module_runs_only_the_domains_that_import_it() -> None:
+    """产品负责人 2026-08-22：「解耦之后就不需要分风险等级之后全测试了。」
+
+    `tests/` 根的支撑模块此前一律触发全量。但它们的影响范围是**可知的** ——
+    就是 import 它们的那些域。`_scan` 只有 tests/studio 用（12 个使用者），
+    改它一行注释却要跑 3358 项来覆盖 385 项：那不是谨慎，那是没算过。
+
+    钉的是**派生这件事**，不是某一份名单：断言结果与现场 import 图一致，
+    所以新增一个使用者会自动被算进去，而不是等谁想起来改表。
+    """
+    root = _POLICY_PATH.parents[2]
+
+    def domains_importing(stem: str) -> set[str]:
+        found = set()
+        for domain in ("backend", "studio", "contract", "e2e", "tooling"):
+            directory = root / "tests" / domain
+            for path in sorted(directory.glob("*.py")):
+                if f"tests.{stem}" in path.read_text("utf-8"):
+                    found.add(f"tests/{domain}")
+                    break
+        return found
+
+    for stem in ("_scan", "paid_scenario", "symlink_support", "media_fakes"):
+        expected = domains_importing(stem)
+        assert expected, f"tests/{stem}.py 没有任何使用者？断言前提已变"
+        decision = _POLICY.classify([f"tests/{stem}.py"])
+        assert decision.tier == "pytest-targeted", (
+            f"tests/{stem}.py 的影响范围是可知的，不该退回全量"
+        )
+        assert set(decision.pytest_targets) == expected, (
+            f"tests/{stem}.py: 应跑 {sorted(expected)}，实为 "
+            f"{sorted(decision.pytest_targets)}"
+        )
+
+
+def test_an_unknown_support_module_still_fails_closed_to_the_full_run() -> None:
+    """派生的另一半：**推导不出来就跑全量。** 一个还没有使用者的新 helper，
+    或一种这里不认识的 import 写法，都必须落到全量 —— 派生用来收窄已知的东西，
+    不用来给未知的东西发通行证。"""
+    assert _POLICY.classify(["tests/no_such_helper_xyz.py"]).tier == "full"
+    # pytest 自己加载、不经 import 生效的那两个，永远是全量
+    assert _POLICY.classify(["tests/conftest.py"]).tier == "full"
+    assert _POLICY.classify(["pyproject.toml"]).tier == "full"
+
+
+def test_the_serial_test_never_arrives_as_a_directory_target() -> None:
+    """tests/e2e 现在是合法的目录 target（两个 shell 的定向档都带
+    `-m "not serial"`）。但那个真进程树测试自己被改动时，**必须**走
+    `serial_targets` 走串行通道 —— 否则它会被 marker 过滤掉，等于没跑。"""
+    serial_file = "tests/e2e/test_motv_run_lifecycle_task072.py"
+    decision = _POLICY.classify([serial_file])
+    assert decision.serial_targets == (serial_file,)
+    assert serial_file not in decision.pytest_targets
+
+    # 而 e2e 里普通的那些，走并行通道
+    parallel = _POLICY.classify(["tests/e2e/test_wfm1_e2e.py"])
+    assert parallel.pytest_targets == ("tests/e2e/test_wfm1_e2e.py",)
+    assert parallel.serial_targets == ()

@@ -212,6 +212,11 @@ pause/cancel/skip 状态。
     根。Python 测试不得对前端 JS 做源码文本断言、不得内嵌 `node --test`；
     跨边界验证只住 `tests/contract/`（ADR-0080 决策 3）。
 
+    **影响范围能推导出来的，就不许退回全量**（ADR-0080 决策 7）：支撑层模块
+    跑的是 **import 它们的那些域**，由 import 图派生而非手写名单。只有
+    `tests/conftest.py` 与 `pyproject.toml` 例外——它们不经 import 生效，
+    影响范围真的是全部。推不出来时 fail-closed 到全量。
+
     本地 commit gate 按 ADR-0080 的**归属映射**选择检查：改动路径 → 它的归属
     测试域；映射不到时 fail-closed 到全量。**全量（两阶段 pytest + 全量前端 +
     ruff）是集成检查点**——CI、连续链链尾、merge 前、发布/交接前——不是日常

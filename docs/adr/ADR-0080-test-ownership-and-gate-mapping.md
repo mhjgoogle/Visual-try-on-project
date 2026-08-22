@@ -57,6 +57,18 @@ Agent 工装。前后端测试通过三种机制联动：25 个 pytest 子进程
 6. `mockups/motv-workspace` 的 Python 后端本次不搬迁（ADR-0077 决策 6 不变），
    `tests/studio/` 的存在正是为未来「Studio 正式应用化」预先划清测试归属。
 
+7. **影响范围能推导出来的，就不许退回全量**（产品负责人 2026-08-22：「解耦
+   之后就不需要分风险等级之后全测试了。不然不合理」）。共享测试支撑层
+   （`tests/` 根的 scenario 构造器、假件、`_scan`、`symlink_support`）的影响
+   范围 = **import 它们的那些域**，由 import 图**派生**，不手写名单——手写的表
+   在有人加使用者时会静默漂移，且漂移方向总是「跑得比该跑的少」。
+   实例：`_scan` 只被 `tests/studio` 使用，改它此前要跑 3358 项去覆盖 385 项。
+   例外只有两个文件：`tests/conftest.py` 与 `pyproject.toml` —— 它们**不经
+   import 生效**（pytest 自己加载 ini 选项、marker 与 basetemp 钩子），
+   没有 import 图能收窄它们，所以它们的影响范围真的是全部。
+   派生推不出结果时（新 helper、不认识的 import 写法）**fail-closed 到全量**：
+   派生用来收窄已知的东西，不给未知的东西发通行证。
+
 ## 后果
 
 - 前端小改不再触发任何 Python 测试；后端小改不再触发前端套件；29 个前端测试
