@@ -1665,3 +1665,69 @@ def test_a_dynamic_import_forces_the_full_run(tmp_path: Path) -> None:
     (tmp_path / "tests" / "contract" / "test_dynamic_user.py").unlink()
     # 盲区消失后回到精确答案，证明它不是永久降级
     assert _POLICY._domains_importing(stem, root=tmp_path) == ("tests/studio",)
+
+
+# --- TASK-104：heredoc 正文是数据，不该参与命令解析 ------------------------- #
+
+
+def test_a_heredoc_body_never_makes_a_pure_edit_fail_closed() -> None:
+    """两个独立会话实测（2026-08-22/23）：一条**纯编辑**的
+    ``python - <<'PY' … PY`` 被闸门拦住并跑了全量检查。
+
+    真因不是「被判成 commit」，而是 ``shlex`` 一路数引号数进了 heredoc 正文：
+    正文里出现**奇数个撇号**（``# don't``、Python 的 ``'''``、中文注释里一个
+    落单的 ``'``）就让 ``_tokenise`` 返回 None，调用方**正确地** fail-closed
+    到全量 —— 于是一条只改文件的命令，被当时恰好翻红的**别人的在制代码**挡住。
+    在共享工作树里这等于「A 会话的 WIP 阻断 B 会话的无关编辑」。
+
+    修法是摘掉正文再切词：shell 从不把 heredoc 正文当命令解析，而扫描真正关心
+    的东西（``git commit`` 调用、ADR-0068 链令牌、尾随的 ``&& git push``）
+    永远在命令文本里，不在正文里。所以摘掉只会去噪。
+    """
+    apostrophe, newline = chr(39), chr(10)
+
+    def heredoc(body: str, tag: str = "PY", quoted: bool = True) -> str:
+        quote = apostrophe if quoted else ""
+        return f"python - <<{quote}{tag}{quote}{newline}{body}{newline}{tag}"
+
+    # 正文里的各种「按 shell 规则不配平」的写法，都必须回到 skip
+    for body in (
+        f"# don{apostrophe}t do this",
+        apostrophe * 3 + "docstring" + apostrophe * 3,
+        f"print({apostrophe}git commit -m x{apostrophe})",  # 正文里的 git commit 是数据
+    ):
+        assert _POLICY.inspect_command("Bash", heredoc(body)).gate == "skip", body
+
+    # `<<-` 缩进型与未加引号的定界符同样处理
+    assert (
+        _POLICY.inspect_command(
+            "Bash", f"cat <<-EOF{newline}don{apostrophe}t{newline}EOF"
+        ).gate
+        == "skip"
+    )
+    assert _POLICY.inspect_command("Bash", heredoc("x=1", "EOF", False)).gate == "skip"
+
+
+def test_stripping_heredoc_bodies_does_not_blind_any_scan() -> None:
+    """摘正文**不得**削弱任何一道扫描 —— 这三条是它的反面守卫。"""
+    apostrophe, newline = chr(39), chr(10)
+    body = f"python - <<{apostrophe}PY{apostrophe}{newline}print(1){newline}PY"
+
+    # ① heredoc 之后的真提交照样抓得到
+    assert (
+        _POLICY.inspect_command("Bash", f"{body}{newline}git commit -m y").gate
+        == "check"
+    )
+    # ② 链令牌 + push 的冲突照样拦
+    assert (
+        _POLICY.inspect_command(
+            "Bash", "MOTV_CONTINUOUS_CHAIN=1 git commit -m x && git push"
+        ).gate
+        == "block"
+    )
+    # ③ 真正未闭合的引号（不在 heredoc 里）仍然 fail-closed
+    unterminated = _POLICY.inspect_command("Bash", f"echo {apostrophe}unclosed")
+    assert unterminated.gate == "check"
+    assert unterminated.force_full is True
+    # ④ here-string（<<<）不是 heredoc，不受影响
+    assert _POLICY.inspect_command("Bash", 'cat <<< "hello"').gate == "skip"

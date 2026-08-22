@@ -456,6 +456,54 @@ def _basename(token: str) -> str:
     return tail.lower().removesuffix(".exe")
 
 
+#: `<<TAG` / `<<-TAG` / `<<'TAG'` / `<<"TAG"` — the heredoc REDIRECTION operator.
+#: `<<<` (here-STRING) is deliberately excluded: its payload is an ordinary word
+#: on the same line, already handled by normal tokenisation.
+_HEREDOC_START_RE = re.compile(
+    r"<<-?\s*(?P<quote>['\"]?)(?P<tag>[A-Za-z_][A-Za-z0-9_]*)(?P=quote)"
+)
+
+
+def _strip_heredoc_bodies(command: str) -> str:
+    """Remove heredoc BODIES before tokenising. They are data, not commands.
+
+    A heredoc body is never parsed by the shell as command text, but `shlex`
+    does not know that: it keeps counting quotes straight through the payload.
+    So an ODD number of apostrophes anywhere inside — `# don't do this`, a
+    Python `'''` docstring, a Chinese comment with a stray `'` — made
+    `_tokenise_posix` return None, which the caller correctly turns into
+    fail-closed... on a command that merely EDITS A FILE.
+
+    Measured cost before this fix (two independent sessions, 2026-08-22/23):
+    a pure `python - <<'PY' … PY` edit was run through the whole full-suite
+    check and then blocked by whatever unrelated in-progress code happened to
+    be red at the time — in a shared worktree that means one session's WIP
+    blocks another session's unrelated edit.
+    STRIPPING is the right fix and it does NOT weaken the gate: everything the
+    scans care about (the `git commit` invocation, the ADR-0068 chain token, a
+    trailing `&& git push`) lives in the COMMAND text, never in a heredoc
+    payload. Dropping the payload can only remove noise. The delimiter line is
+    dropped with it; the command line carrying `<<TAG` is kept intact.
+    """
+    lines = command.splitlines(keepends=True)
+    out: list[str] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        out.append(line)
+        tags = [m.group("tag") for m in _HEREDOC_START_RE.finditer(line)]
+        index += 1
+        # One command line may open several heredocs; bash consumes their
+        # bodies in order.
+        for tag in tags:
+            while index < len(lines):
+                body = lines[index]
+                index += 1
+                if body.strip() == tag:
+                    break  # delimiter reached; body (and it) are dropped
+    return "".join(out)
+
+
 def _tokenise_posix(command: str) -> list[list[str]] | None:
     """Split a POSIX command line into simple commands of dequoted tokens.
 
@@ -464,6 +512,7 @@ def _tokenise_posix(command: str) -> list[list[str]] | None:
     not run in bash either, so the cost is a wasted check run on something that
     was already broken.
     """
+    command = _strip_heredoc_bodies(command)
     lexer = shlex.shlex(command, posix=True, punctuation_chars="();<>|&\n")
     # Newline must be a SEPARATOR, not whitespace: `git commit -m x\ngit push`
     # is two commands, and shlex's default whitespace set swallows the boundary.
