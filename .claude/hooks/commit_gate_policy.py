@@ -140,6 +140,27 @@ _TESTS_PACKAGE = "tests"
 #: A mere mention in a comment therefore also forces the full run. That is the
 #: harmless direction, and it stays rare: in this repo every mention of a
 #: support module is a real import.
+#:
+#: KNOWN RESIDUAL GAP, RECORDED ON PURPOSE — DO NOT DELETE THIS PARAGRAPH.
+#: A module name ASSEMBLED at runtime is invisible to both the AST and the text
+#: check: `import_module("." + stem, package="tests")`, `"tests." + stem`,
+#: `getattr(tests, stem)`. Deciding those statically is equivalent to running
+#: the program, so no pattern and no parser closes this class — the fourth
+#: consecutive review round proposed a narrower spelling than the third, which
+#: is the signature of a non-convergent chase (ADR-0081 / TASK-087 §7).
+#:
+#: Accepted because the blast radius is bounded and covered elsewhere:
+#:   * zero such imports exist in this repo today (only tests/backend/
+#:     test_orchestration_layout.py mentions the mechanism, and it is ANALYSING
+#:     it, not using it);
+#:   * a support module reached that way would make the LOCAL gate skip one
+#:     domain — while CI runs the whole suite unconditionally on every push, and
+#:     ADR-0080's integration checkpoints (chain end, pre-merge, release) do too;
+#:   * the files this applies to are the test-support layer, which changes
+#:     rarely.
+#: If a dynamic import of a support module is ever added, add its domain to the
+#: consumer's imports (or list the module in `_FULL_PYTEST_FILES`) — do not try
+#: to teach this regex another spelling.
 _BLIND_SPOT_RE = r"\btests\.{stem}(?![\w.])"
 
 _EXAMPLES_TARGETS = (
