@@ -42,6 +42,54 @@ const str = (x) => (typeof x === "string" ? x : "");
  *  zero look identical and only one of them is true. */
 export const NOT_RECORDED = "未记录";
 
+/** 「还没量过」—— 与「量过了，量不出来」是两回事（TASK-103 批次 C）。
+ *
+ *  这两个词此前都写作「未记录」，而它们要求的下一步完全不同：一个是按一下
+ *  「测量」，另一个是这个文件有问题。合并它们正是本仓库反复付代价的那种
+ *  「三个事实塌成一个」。 */
+export const NOT_MEASURED = "未探测";
+
+/** ffprobe 的每种失败结局，说人话。绝不退化成一个数字。 */
+const MEASURE_TEXT = {
+  no_ffprobe: "探不到（本机没有 ffprobe）",
+  unreadable: "探不到（文件读不出画面/时长）",
+  not_found: "探不到（文件不在）",
+  bad_name: "探不到（文件名不合法）",
+};
+
+/** 尺寸列：量到了给真实像素，没量给「未探测」，量不到给具体原因。
+ *
+ *  `bytes` 是审计顺带拿到的**真实**字节数，免费且总是有 —— 但它不是尺寸，
+ *  所以只作为附注出现，绝不冒充像素值。 */
+export function sizeText(measured, bytes) {
+  const suffix = Number.isFinite(bytes) ? ` · ${formatBytes(bytes)}` : "";
+  if (!measured) return NOT_MEASURED + suffix;
+  if (measured.state === "ok" && measured.width && measured.height) {
+    return `${measured.width}×${measured.height}${suffix}`;
+  }
+  return (MEASURE_TEXT[measured.state] || "探不到") + suffix;
+}
+
+/** 时长列：量到了给真实秒数，否则如实标「设计」值是设计值。 */
+export function durationText(measured, designed) {
+  if (measured && measured.state === "ok" && Number.isFinite(measured.duration)) {
+    const real = `${measured.duration.toFixed(2)}s`;
+    // 实测与设计不一致时**两个都说** —— 差异本身就是审片要看的东西
+    return designed != null && Math.abs(measured.duration - designed) > 0.05
+      ? `${real}（设计 ${designed}s）`
+      : real;
+  }
+  if (measured) return MEASURE_TEXT[measured.state] || "探不到";
+  return designed != null ? `${designed}s（设计）` : NOT_MEASURED;
+}
+
+function formatBytes(n) {
+  if (!Number.isFinite(n)) return "";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
 /** Summarise a description for a list row without cutting mid-character. */
 function summarize(text, max = 64) {
   const s = str(text).replace(/\s+/g, " ").trim();
@@ -74,7 +122,11 @@ function genForAsset(gens, type, assetId) {
  * Everything the registry does not record is reported as 未记录 — never filled
  * in with a plausible value (AGENTS.md 第 20 条 真实项目为主要验收环境).
  */
-export function reviewRow(item, d) {
+export function reviewRow(item, d, media = {}) {
+  //: `media.measuredOf(url)` → ffprobe 的结果或 null；`media.bytesOf(url)` →
+  //: 服务端审计给的真实字节数或 null。两个都注入，所以这个函数仍然是纯的。
+  const measuredOf = typeof media.measuredOf === "function" ? media.measuredOf : () => null;
+  const bytesOf = typeof media.bytesOf === "function" ? media.bytesOf : () => null;
   const gens = (d && d.generations) || [];
   const curImg = d ? d.images.list.find((r) => r.current) : null;
   const curVid = d ? d.videos.list.find((r) => r.current) : null;
@@ -101,11 +153,13 @@ export function reviewRow(item, d) {
       url: curImg ? curImg.url : "",
       version: curImg ? curImg.version : null,
       origin: curImg ? curImg.origin : "",
-      // NOT RECORDED ANYWHERE. The Asset Registry stores url/version/origin and
-      // no pixel dimensions, so this column is honest rather than absent — the
-      // gap is real and is written down (task card §5 follow-up) instead of
-      // being papered over with a number nobody measured.
-      size: NOT_RECORDED,
+      // MEASURED, not declared (TASK-103 批次 C / TASK-087 §4.3). The Asset
+      // Registry still stores no pixel dimensions — that would be a schema
+      // change with its own migration story. Instead the server probes the file
+      // on request, so the column stops saying 「未记录」 about something that is
+      // sitting right there. Never measured yet ≠ measured and unreadable.
+      size: sizeText(measuredOf(curImg && curImg.url), bytesOf(curImg && curImg.url)),
+      measured: measuredOf(curImg && curImg.url),
       model: imgGen ? imgGen.model || NOT_RECORDED : null,
       status: imgGen ? imgGen.status : curImg ? "imported" : null,
     },
@@ -113,10 +167,12 @@ export function reviewRow(item, d) {
       url: curVid ? curVid.url : "",
       version: curVid ? curVid.version : null,
       origin: curVid ? curVid.origin : "",
-      size: NOT_RECORDED,
-      // the DESIGNED duration — labelled as such, because the clip's real
-      // duration is not probed or stored anywhere either
-      duration: item.duration != null ? `${item.duration}s（设计）` : NOT_RECORDED,
+      size: sizeText(measuredOf(curVid && curVid.url), bytesOf(curVid && curVid.url)),
+      measured: measuredOf(curVid && curVid.url),
+      // REAL duration when probed; otherwise the designed one, still labelled as
+      // designed. When the two disagree the column says BOTH — that disagreement
+      // is precisely what a reviewer is there to notice.
+      duration: durationText(measuredOf(curVid && curVid.url), item.duration),
       model: vidGen ? vidGen.model || NOT_RECORDED : null,
       status: vidGen ? vidGen.status : curVid ? "imported" : null,
       // WHICH picture this clip actually came from, proven from the Generation
@@ -139,9 +195,9 @@ export function reviewRow(item, d) {
  * its compiler: this module must not become a second place that decides what a
  * shot's media standing is.
  */
-export function reviewBoardModel(dailies, detailOf, { filter = "all" } = {}) {
+export function reviewBoardModel(dailies, detailOf, { filter = "all", media = {} } = {}) {
   const of = typeof detailOf === "function" ? detailOf : () => null;
-  const rows = ((dailies && dailies.items) || []).map((it) => reviewRow(it, of(it.shotId)));
+  const rows = ((dailies && dailies.items) || []).map((it) => reviewRow(it, of(it.shotId), media));
   const pass = FILTER_BY_KEY.get(filter) || FILTER_BY_KEY.get("all");
   return {
     rows,
@@ -191,6 +247,9 @@ function mediaCol(r, kind) {
   return (
     `<div class="cr-col">${thumb}` +
     `<div class="cr-meta">${statusChip(m.status)}${rows}</div>` +
+    (m.url && !m.measured
+      ? `<button class="btn sm" data-cr-measure="${esc(m.url)}" title="只读探测，不花钱">测量</button>`
+      : "") +
     `<button class="btn sm" data-cr-ask="${esc(r.shotId)}" data-kind="${esc(kind)}">问 Agent</button>` +
     `</div>`
   );

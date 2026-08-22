@@ -2851,6 +2851,11 @@ class _App:
                 return self._generation_target(
                     unquote(name), (params.get("shot_id") or [""])[0]
                 )
+            if sub.startswith("media-audit"):
+                params = parse_qs(urlsplit(raw_path).query)
+                return self._media_audit(
+                    unquote(name), (params.get("measure") or [""])[0]
+                )
             if sub.startswith("review-target"):
                 params = parse_qs(urlsplit(raw_path).query)
                 return self._review_target(
@@ -4382,6 +4387,149 @@ class _App:
                 "params": {"plan_version": version},
             },
         )
+
+    #: How many media entries one audit will enumerate. A directory listing is
+    #: cheap, but an unbounded response is still an unbounded response — and a
+    #: SILENT cap would make 「都在」 mean 「前 N 个都在」. So it is capped AND the
+    #: truncation is reported, per TASK-087 §7「no silent caps」.
+    _MEDIA_AUDIT_MAX = 5000
+
+    def _media_audit(self, name: str, measure: str):
+        """Server-side media presence audit (GAP-02 / TASK-083 §5.2 · TASK-087 §4.2).
+
+        WHY THIS EXISTS. TASK-077 answered 「这个文件还在吗」 from the browser with a
+        ``HEAD`` per URL, which has a third outcome the filesystem does not have:
+        `INCONCLUSIVE` — the server declined to answer (405/501), or the request
+        itself blew up. That third state is honest for a cross-origin probe, but it
+        is not a fact about the project; it is a fact about the transport. Here the
+        server simply reads its own directory, so **for a project media URL there
+        are only two answers**, and the creator stops being told 「问不出来」 about
+        files sitting on their own disk.
+
+        Read-only in the strongest sense: it lists a directory and (optionally)
+        runs `ffprobe`. It writes nothing — in particular it does NOT reconcile the
+        declared `storageState`, which is a persistence change with its own owner
+        (TASK-087 §4.1, deliberately still open).
+
+        ``measure=<filename>`` additionally probes ONE file for its real pixel size
+        / duration (TASK-087 §4.3). Deliberately one file per request and
+        **ffprobe-only** — no decode. `/api/delivery/probe` does a full ebur128 +
+        blackdetect pass, which is an order of magnitude more work than 「这段多长」
+        needs (TASK-087 §3.5.4). Missing ffprobe is reported as such, never as a
+        zero.
+        """
+        root = self._projects.get(name)
+        if root is None:
+            return _json(
+                404, {"error": {"category": "not_found", "detail": "unknown project"}}
+            )
+        d = self._read_upload_dir(name)
+        files: dict[str, dict] = {}
+        truncated = False
+        if d is not None and d.is_dir():
+            for i, entry in enumerate(sorted(d.iterdir(), key=lambda e: e.name)):
+                if i >= self._MEDIA_AUDIT_MAX:
+                    truncated = True
+                    break
+                if not entry.is_file():
+                    continue
+                try:
+                    files[entry.name] = {"bytes": entry.stat().st_size}
+                except OSError:
+                    # Present but unstat-able. NOT dropped: 「文件在，大小问不出来」
+                    # is a different fact from 「文件不在」, and collapsing it into
+                    # absence is exactly the confusion this route removes.
+                    files[entry.name] = {"bytes": None}
+        body: dict = {
+            # `dir: false` is still an AUTHORITATIVE audit — a project with no
+            # media folder genuinely has no media. It is not 「问不出来」.
+            "dir": bool(d is not None and d.is_dir()),
+            "files": files,
+            "truncated": truncated,
+        }
+        if measure:
+            body["measured"] = self._measure_media(d, measure)
+        return _json(200, body)
+
+    def _measure_media(self, media_dir, filename: str) -> dict:
+        """ffprobe ONE file for width/height/duration. Never a fabricated number.
+
+        Every outcome is named, because the review columns show whichever one
+        happened: `ok` / `bad_name` / `not_found` / `no_ffprobe` / `unreadable`.
+        A column that says 「未探测」 and a column that says 「探不到」 describe
+        different situations and lead to different next steps.
+        """
+        if not _NAME_RE.fullmatch(Path(filename).stem) or not filename:
+            return {"state": "bad_name"}
+        if media_dir is None:
+            return {"state": "not_found"}
+        target = media_dir / filename
+        try:
+            if not target.is_file() or target.parent.resolve() != media_dir.resolve():
+                return {"state": "not_found"}
+        except OSError:
+            return {"state": "not_found"}
+        import shutil as _shutil
+
+        ffprobe = _shutil.which("ffprobe")
+        if ffprobe is None:
+            # FAIL-CLOSED AND SAID OUT LOUD (AGENTS.md 第 2 节第 6 条). The column
+            # must not read 「0×0」 because a tool is missing.
+            return {"state": "no_ffprobe"}
+        try:
+            pr = subprocess.run(  # noqa: S603 - fixed argv, no shell
+                [
+                    ffprobe,
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "stream=width,height:format=duration",
+                    "-of",
+                    "json",
+                    str(target),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return {"state": "unreadable"}
+        # EXIT CODE 0 IS NOT PROOF — measured on this repo. Handed 16 bytes of text
+        # named `.png`, ffprobe 9.0 returns rc=0 with `width: 0, height: 0` and
+        # `duration: "0.040000"`: a garbage answer that survives every check made of
+        # the parsed JSON alone. It does write the real verdict to stderr
+        # (`Invalid PNG signature …`), and with `-v error` stderr stays silent unless
+        # something genuinely failed — so stderr is the authoritative signal.
+        #
+        # This is the endpoint's whole reason to exist: a column reading 「0×0」
+        # because the prober half-answered is worse than one reading 「探不到」.
+        if pr.returncode != 0 or pr.stderr.strip():
+            return {"state": "unreadable"}
+        try:
+            info = json.loads(pr.stdout)
+        except ValueError:
+            return {"state": "unreadable"}
+        width = height = None
+        for stream in info.get("streams") or []:
+            if not isinstance(stream, dict):
+                continue
+            w, h = stream.get("width"), stream.get("height")
+            # positive ints only — a `0` is ffprobe saying it does not know
+            if isinstance(w, int) and isinstance(h, int) and w > 0 and h > 0:
+                width, height = w, h
+                break
+        duration = _probe_float((info.get("format") or {}).get("duration"))
+        if duration is not None and duration <= 0:
+            duration = None
+        if width is None and duration is None:
+            # Probed fine and learned nothing usable — still not a zero.
+            return {"state": "unreadable"}
+        return {
+            "state": "ok",
+            "width": width,
+            "height": height,
+            "duration": duration,
+        }
 
     def _review_target(self, name: str, shot_id: str):
         """Read-only target coordinates for a REVIEW write (TASK-103 批次 B).

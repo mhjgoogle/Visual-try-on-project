@@ -15,7 +15,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  reviewBoardModel, reviewRow, REVIEW_FILTERS, NOT_RECORDED,
+  reviewBoardModel, reviewRow, REVIEW_FILTERS, NOT_RECORDED, NOT_MEASURED,
 } from "../src/ui/cutreview.js";
 import { chainOptions, renderChainMenu } from "../src/ui/chain.js";
 
@@ -90,10 +90,47 @@ test("首帧只在**能证明**的时候才说，证不出来就说未记录", (
   assert.equal(reviewRow(ITEM(), d).video.sourceFrame, null);
 });
 
-test("尺寸没人记过，就写未记录 —— 不编一个", () => {
+test("还没量过就说「未探测」—— 不编一个数，也不说成「未记录」", () => {
+  // TASK-103 批次 C 之前这里写「未记录」，那是把两件事说成一件：登记表里确实
+  // 没有像素尺寸字段（今天仍然没有，加它是一次 schema 改动），但文件就在磁盘上，
+  // 量一下就知道。「未记录」听起来像没救了，「未探测」才是真话 —— 而两者要求的
+  // 下一步完全不同。
   const r = reviewRow(ITEM(), DETAIL());
-  assert.equal(r.image.size, NOT_RECORDED);
-  assert.equal(r.video.size, NOT_RECORDED);
+  assert.equal(r.image.size, NOT_MEASURED);
+  assert.equal(r.video.size, NOT_MEASURED);
+  assert.equal(r.image.measured, null);
+});
+
+test("量到了就给真实像素；量不到就说清楚是哪种量不到", () => {
+  const measured = {
+    "u/a.png": { state: "ok", width: 1920, height: 1080, duration: null },
+    "u/a.mp4": { state: "no_ffprobe" },
+  };
+  const r = reviewRow(ITEM(), DETAIL(), { measuredOf: (u) => measured[u] || null });
+  assert.match(r.image.size, /1920×1080/);
+  assert.match(r.video.size, /没有 ffprobe/);
+  // 「量过了，量不出来」绝不退化成「还没量」——否则界面会一直劝人再按一次
+  assert.notEqual(r.video.size, NOT_MEASURED);
+});
+
+test("真实字节数只作附注，绝不冒充像素尺寸", () => {
+  // 字节数是目录审计免费带回来的真实值，但它不是尺寸。让它顶替像素值，
+  // 就是这一列一开始要避免的那种「填一个看起来像答案的东西」。
+  const r = reviewRow(ITEM(), DETAIL(), { bytesOf: (u) => (u === "u/a.png" ? 2048 : null) });
+  assert.match(r.image.size, /^未探测 · 2 KB$/);
+  assert.equal(r.video.size, NOT_MEASURED);
+});
+
+test("实测时长与设计时长不一致时**两个都说**", () => {
+  // 差异本身就是审片要看的东西：只显示一个，等于替创作者决定哪个才算数。
+  const measured = { "u/a.mp4": { state: "ok", width: 1920, height: 1080, duration: 4.5 } };
+  const r = reviewRow(ITEM(), DETAIL(), { measuredOf: (u) => measured[u] || null });
+  assert.match(r.video.duration, /4\.50s/);
+  assert.match(r.video.duration, /设计 10s/);
+});
+
+test("没量过时时长仍如实标明它是设计值，不是实测值", () => {
+  assert.equal(reviewRow(ITEM(), DETAIL()).video.duration, "10s（设计）");
 });
 
 test("模型没记录的生成，说未记录，而不是留空", () => {

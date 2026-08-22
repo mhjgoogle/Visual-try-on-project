@@ -373,6 +373,20 @@ let skillRunRegistry = skillrun.createSkillRunRegistry(null);
 // moment, not a fact about the project, and writing it into the canvas would be
 // exactly the persistent-state change this card refuses to make.
 const mediaProbe = mediaprobe.createMediaProbe();
+
+/** url → ffprobe 结果（TASK-103 批次 C / TASK-087 §4.3）。
+ *
+ *  **只在创作者按下「测量」时才填**，一次一个文件。整块自动测量会让 60 镜的
+ *  审片页一次起 60 个 ffprobe —— 那正是 TASK-087 §3.5.4 记下来的重端点问题，
+ *  换个地方重犯一遍没有意义。
+ *
+ *  不落盘：资产登记表里仍然没有像素尺寸字段，加它是一次 schema 改动，有自己的
+ *  归属。这里是显示用的会话内缓存，跟 `mediaProbe` 同一个姿态。 */
+const mediaMeasured = new Map();
+
+/** 最近一次目录审计的清单（文件名 → {bytes}）。审计本身在 `scanRegistry` 里做，
+ *  这里只留结果，供审片页显示真实字节数。空表 = 还没审计过，不是「都不在」。 */
+let mediaAuditFiles = {};
 // Production domain document (M6) — Project → Episodes → Scenes → Shots
 // structure. Scenes reference shots by canonical creativeShotId; shot content
 // stays on the scriptgen draft, media/provenance stay in their registries.
@@ -4526,8 +4540,39 @@ const ctx = {
     board: (filter) => reviewBoardModel(
       ctx.dailies.model(),
       (shotId) => shotDetailModel(ctx.prodData(), shotId),
-      { filter },
+      {
+        filter,
+        media: {
+          measuredOf: (url) => (url ? mediaMeasured.get(url) || null : null),
+          // 真实字节数来自那一次目录审计，免费且总是有 —— 但它**不是**尺寸，
+          // 所以只作附注（见 `sizeText`），绝不冒充像素值。
+          bytesOf: (url) => {
+            const name = mediaprobe.uploadName(url, PROJECT_NAME);
+            const e = name && mediaAuditFiles[name];
+            return e && Number.isFinite(e.bytes) ? e.bytes : null;
+          },
+        },
+      },
     ),
+    /** 测量一个媒体文件的真实尺寸/时长。只读，不花钱，一次一个。 */
+    measure: async (url) => {
+      const name = mediaprobe.uploadName(url, PROJECT_NAME);
+      if (!CONNECTED || !name) {
+        // 演示模式或非项目媒体：如实说测不了，而不是留一个按不动的按钮
+        mediaMeasured.set(url, { state: "not_found" });
+        return false;
+      }
+      try {
+        const j = await query.getMediaAudit(PROJECT_NAME, name);
+        mediaAuditFiles = (j && j.files) || mediaAuditFiles;
+        mediaMeasured.set(url, (j && j.measured) || { state: "unreadable" });
+      } catch (e) {
+        // 后端故障不是关于这个文件的事实 —— 不缓存，让创作者可以再按一次
+        toast(`测量失败：${(e && e.message) || "读不到后端"}`);
+        return false;
+      }
+      return true;
+    },
   },
   // Episode Production controller (CP6 / ADR-0058) — the read models behind
   // 本集制作 and 参考统筹, plus the manual generation round trip.
@@ -4803,8 +4848,31 @@ const ctx = {
     isKnown: (url) => mediaProbe.isKnown(url),
     observe: (url, present) => mediaProbe.observe(url, present),
     /** Probe every URL the registry declares. Resolves true when something new
-     *  was learned, so the caller re-renders exactly once. */
-    scanRegistry: () => mediaProbe.scan(mediaprobe.registryUrls(assetRegistry)),
+     *  was learned, so the caller re-renders exactly once.
+     *
+     *  SERVER AUDIT FIRST (TASK-103 批次 C). When connected, one request answers
+     *  for every project media file at once, authoritatively — no per-URL `HEAD`,
+     *  and no `INCONCLUSIVE` for files sitting on the creator's own disk. The
+     *  `HEAD` scan still runs afterwards for whatever the audit did not decide
+     *  (canvas-local paths, a truncated listing), so nothing loses coverage.
+     *
+     *  An audit that FAILS is not an answer: we fall through to the probe rather
+     *  than let a backend fault read as 「都不在」. */
+    scanRegistry: async () => {
+      const urls = mediaprobe.registryUrls(assetRegistry);
+      let changed = false;
+      if (CONNECTED) {
+        try {
+          const audit = await query.getMediaAudit(PROJECT_NAME);
+          mediaAuditFiles = (audit && audit.files) || {};
+          changed = mediaProbe.applyAudit(urls, PROJECT_NAME, audit);
+        } catch {
+          /* audit unavailable — the HEAD scan below is still the honest fallback */
+        }
+      }
+      const scanned = await mediaProbe.scan(urls);
+      return changed || scanned;
+    },
     checked: () => mediaProbe.checked(),
   },
   // ---------------------------------------------------------------------- //

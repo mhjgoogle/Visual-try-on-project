@@ -37,17 +37,17 @@
         "docs/tasks/TASK-103-frontback-and-ui-residuals.md",
         "mockups/motv-workspace/server.py",
         "mockups/motv-workspace/src/app.js",
+        "mockups/motv-workspace/src/services/mediaprobe.js",
         "mockups/motv-workspace/src/services/query.js",
-        "mockups/motv-workspace/src/ui/dailies.js",
-        "mockups/motv-workspace/src/workflow/reviewsync.js",
-        "mockups/motv-workspace/styles/studio.css",
-        "mockups/motv-workspace/tests/reviewsync.test.mjs",
-        "src/ai_video_workflow/app/gateway_commands.py",
-        "tests/studio/test_motv_review_gateway_task103.py"
+        "mockups/motv-workspace/src/ui/cutreview.js",
+        "mockups/motv-workspace/src/ui/production.js",
+        "mockups/motv-workspace/tests/cutreview.test.mjs",
+        "mockups/motv-workspace/tests/mediaaudit.test.mjs",
+        "tests/studio/test_motv_media_audit_task103.py"
       ],
       "verification": "PASS",
       "verification_ref": "",
-      "declared": "2026-08-22T14:59:20+00:00"
+      "declared": "2026-08-22T15:23:05+00:00"
     }
   },
   "merge_gate": {
