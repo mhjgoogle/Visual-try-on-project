@@ -247,13 +247,18 @@ def test_path_traversal_skill_names_are_rejected(repo: Path) -> None:
     evil = repo / "escape"
     evil.mkdir()
     (evil / "SKILL.md").write_text("---\nname: escape\n---\n", "utf-8")
-    for name in ("../../escape", "..", "a/b", "a\\b", ".hidden", ""):
+    for name in ("../../escape", "..", "a/b", "a\\b", ".hidden", "", "alpha\n"):
         assert evo.record(repo, name, "FRICTION", "low", "k", "n") == {
             "recorded": False,
             "error": f"invalid skill name '{name}'",
         }
         assert not evo.register(repo, name)["registered"]
+        # 每个带可写路径的入口都拒绝（整类关死，不依赖 index 门的传递保护）。
         assert "error" in evo.status(repo, name)
+        assert "error" in evo.set_status(repo, name, "RESOLVED", key="k")
+        assert "error" in evo.protect(repo, name, "k", "n")
+        assert "error" in evo.review_context(repo, name)
+        assert "error" in evo.compact(repo, name)
     assert not (repo / "docs" / "skill-evolution" / "backlogs" / "..").exists()
 
 

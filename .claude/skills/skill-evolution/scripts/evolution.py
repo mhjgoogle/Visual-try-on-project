@@ -32,7 +32,9 @@ _SKILL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 def _bad_name(skill: str) -> str | None:
-    if _SKILL_NAME_RE.match(skill) and ".." not in skill:
+    # fullmatch，不是 match+$：`$` 允许结尾换行，白名单会被 "name\n" 绕过，
+    # 且该文件名在 Windows/Ubuntu 上行为分歧（codex round 2）。
+    if _SKILL_NAME_RE.fullmatch(skill) and ".." not in skill:
         return None
     return f"invalid skill name '{skill}'"
 
@@ -339,6 +341,8 @@ def set_status(
     key: str | None = None,
     proposal: str | None = None,
 ) -> dict:
+    if error := _bad_name(skill):
+        return {"updated": 0, "error": error}
     if new_status not in ALL_STATUSES:
         return {"updated": 0, "error": f"unknown status '{new_status}'"}
     if not ids and not key:
@@ -364,6 +368,8 @@ def set_status(
 
 
 def protect(root: Path, skill: str, key: str, note: str) -> dict:
+    if error := _bad_name(skill):
+        return {"protected": False, "error": error}
     index = load_index(root)
     entry = index["skills"].get(skill)
     if entry is None:
@@ -383,6 +389,8 @@ def review_context(
     root: Path, skill: str, key: str | None = None, include_closed: bool = False
 ) -> dict:
     """慢循环的读取口：只给目标问题 + severe 的条目，不给整个 backlog。"""
+    if error := _bad_name(skill):
+        return {"registered": False, "skill": skill, "error": error}
     index = load_index(root)
     entry = index["skills"].get(skill)
     if entry is None:
@@ -473,6 +481,8 @@ def sync(root: Path) -> dict:
 
 def compact(root: Path, skill: str) -> dict:
     """把终态条目移入 archive；正常使用不加载 archive（需求原文第 26 节）。"""
+    if error := _bad_name(skill):
+        return {"compacted": 0, "error": error}
     index = load_index(root)
     entry = index["skills"].get(skill)
     if entry is None:

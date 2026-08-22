@@ -1,6 +1,6 @@
 # TASK-100：skill-evolution Skill v0.1 —— 受控的 Skill 演化闭环
 
-- 状态：进行中
+- 状态：完成
 - Workflow：Feature · 深度：DEEP
 - 关联 Requirement：依据 = 产品负责人 2026-08-22 完整指令（本卡的需求原文，
   要点：低 Token 反馈采集 / per-skill backlog / 全局轻量 index / 新 Skill
@@ -71,6 +71,17 @@ embedding/vector、multi-agent committee、每次使用跑完整 eval、跨 Skil
     reference 写明）。
   - P1 修复按预算规则花 +1 轮复审：见第 2 轮记录。
 - 修复后定向测试：20 passed；ruff check + format 通过。
+- 第 2 轮（P1 修复的 +1 轮，reviewer=codex）：fail，1 blocking + 1
+  non-blocking，均为轮 1 主题的收窄变体。定级裁决（rebuttal 记录在案）：
+  - 「compact 等未消毒」降为 **P2**：这些函数在任何文件操作前都先查
+    index，而进 index 的唯一门已消毒；剩余向量需要能手改 index.json 的
+    攻击者——那等于已有仓库写权限，护栏对其无意义。仍按「修整类比争论
+    便宜」原则把 `_bad_name` 加到全部带 skill 参数的入口。
+  - 正则 `$` 接受尾部换行：**P2 真问题**（白名单绕过 + 双平台分歧），
+    改 `re.fullmatch`。
+  - 按预算规则：无 P1 在场，Medium 档 P2 修复以定向测试收口（20 passed，
+    含全入口消毒 + 换行名拒绝），**不再开第 3 轮**。P2 修复 reviewed-once
+    如实记录。
 
 ## Follow-up
 
