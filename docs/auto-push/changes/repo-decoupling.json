@@ -72,23 +72,26 @@
         "AGENTS.md",
         "CLAUDE.md",
         "README.md",
+        "config/",
         "docs/",
         "examples/",
         "mockups/",
+        "product-skills/",
+        "pyproject.toml",
         "scripts/",
         "src/",
         "tests/"
       ],
       "verification": "PASS",
-      "verification_ref": "批次D链尾集成检查点：pytest 3294+6 passed / 前端 1763 passed / ruff 全过；tooling 117 passed；README 收敛为 1",
-      "declared": "2026-08-22T08:34:45+00:00"
+      "verification_ref": "merge 前当前 tip 集成检查点：pytest 3305 passed/58 skipped + serial 6 passed + 前端 1763 passed + ruff 全过；独立审查 5 轮 7 条 P1 全修、轮5 范围性 rebut 已记录",
+      "declared": "2026-08-22T13:46:54+00:00"
     }
   },
   "merge_gate": {
     "status": "PASS",
-    "by": "产品负责人 2026-08-22：「合并」（前问答确认为 merge TASK-102 到 main）",
-    "time": "2026-08-22T13:27:31+00:00",
-    "tip": "28278031a024716f79f644f00959f665afccf2db"
+    "by": "产品负责人 2026-08-22：「合并」",
+    "time": "2026-08-22T13:46:54+00:00",
+    "tip": "4db35e99f39d2601fde4074ae8d309b85717ef37"
   },
   "merge": null,
   "cleanup": null
