@@ -33,6 +33,7 @@
 | 状态 | 恢复动作 |
 | --- | --- |
 | `BLOCKED_NOT_SYNCED` | 先 `premerge-sync` + 重验证 |
+| `BLOCKED_STALE_GATE` | HEAD 已离开 Gate 绑定的 tip——在当前 tip 上重跑定向验证，然后 `merge --reverified`。**没重跑就带 --reverified 是在向清单说谎** |
 | `NEEDS_WRITEBACK_COMMIT` | 跑返回的 `suggested` 命令再来 |
 | `BLOCKED_MAIN_DIVERGED` | 本地 main 与 origin/main 分叉——不属于本 skill 的现场，如实报告给用户裁决 |
 | `MAIN_PUSH_FAILED` | merge 已落本地 main 但 push 被拒（多半是竞态：别人刚推了 main）。**不 force。** 恢复路径：先确认 `git log origin/main..main` 里**只有**我们这次的 merge commit（它可重建、无独有内容），然后 `git switch main && git reset --hard origin/main` 把本地 main 退回远端，回到 Change 分支重走 premerge-sync → 重验证 → merge。若 origin/main..main 里还有别的东西，停下升级用户 |

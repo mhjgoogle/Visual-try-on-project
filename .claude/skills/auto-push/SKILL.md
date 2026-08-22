@@ -92,9 +92,13 @@ Task 级 push 与 Change 级 merge 严格分开。merge 的前提链：
 2. `premerge-sync` —— 把 latest main 合进 Change 分支；返回
    `needs_verification: true` 就重跑定向验证。
 3. `merge` —— 校验 Gate=PASS、树干净、main 已是祖先，推最终 tip，
-   `--no-ff` 合入 main 并 push main。
+   `--no-ff` 合入 main 并 push main。Gate 的 PASS 绑定在设 Gate 时的分支
+   tip 上：premerge-sync / 新提交移动 HEAD 后会得到 `BLOCKED_STALE_GATE`
+   ——只有在当前 tip 上**真的重跑过定向验证**才允许带 `--reverified` 重来。
 4. `cleanup` —— 确认 merge 已在 origin/main 上后删本地+远端分支
-   （`--keep-remote` 可留远端）；最后把清单的收尾回写 commit 到 main。
+   （`--keep-remote` 可留远端；远端分支若有 origin/main 之外的并发提交会
+   拒删并返回 `WARN_REMOTE_CLEANUP`——那不是成功，如实上报）；最后把清单
+   的收尾回写 commit 到 main。
 
 premerge-sync / merge 冲突的分流规则（谁裁决）→ 读
 [references/merge-and-conflicts.md](references/merge-and-conflicts.md)。

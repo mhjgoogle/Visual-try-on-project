@@ -114,8 +114,13 @@ def test_scenario_a_single_task_stage_commit_push_writeback(rig: dict) -> None:
     assert "feature/a.py" in staged["staged"]
     # 清单自身被自动带走，不算 foreign
     assert any(p.startswith("docs/auto-push/") for p in staged["staged"])
-    assert staged["commit_command"].startswith('git commit -m "')
-    assert "TASK-001" in staged["commit_command"]
+    # 消息进文件（-F），不内嵌进命令 —— 两种 shell 没有共同的安全内嵌法
+    assert (
+        staged["commit_command"] == "git commit -F .claude/tmp/autopush-commit-msg.txt"
+    )
+    assert "TASK-001" in staged["message"]
+    msg = (work / ".claude" / "tmp" / "autopush-commit-msg.txt").read_text("utf-8")
+    assert msg.strip() == staged["message"]
 
     _g(work, "commit", "-m", "add feature value（TASK-001 · CHG-1）")
     recorded = ap.record_commit(work, "CHG-1", "TASK-001")
@@ -247,6 +252,10 @@ def test_scenario_g_secret_content_blocks_stage(rig: dict) -> None:
     result = ap.stage(work, "CHG-1", "TASK-001", "add cfg")
     assert result["status"] == "BLOCKED_SECRET"
     assert _g(work, "diff", "--cached", "--name-only") == ""
+    # 命中内容绝不回显 —— 输出本身不能成为二次泄露面
+    import json as _json
+
+    assert fake_key not in _json.dumps(result)
 
 
 def test_scenario_g_secret_filename_blocks_stage(rig: dict) -> None:
@@ -332,6 +341,12 @@ def test_scenario_f_remote_ahead_sync_then_push(rig: dict) -> None:
     synced = ap.sync(work, "CHG-1")
     assert synced["status"] == "OK" and synced["needs_verification"]
 
+    # rebase 改写了未推送提交的 hash → 清单必须已重映射到新 hash
+    manifest = ap._load_manifest(work, "CHG-1")
+    second = manifest["tasks"]["TASK-001"]["commits"][1]
+    assert second["hash"] == _g(work, "rev-parse", "HEAD~1")
+    assert second["rebased_from"] != second["hash"]
+
     pushed = ap.push(work, "CHG-1")
     assert pushed["status"] == "OK" and pushed["pushed"]
     assert "other work" in (work / "elsewhere.txt").read_text("utf-8")
@@ -396,7 +411,9 @@ def test_merge_gate_pass_requires_all_tasks_verified(rig: dict) -> None:
     assert result["tasks"] == ["TASK-002"]
 
 
-def test_scenario_k_full_merge_and_cleanup(rig: dict) -> None:
+def _merge_change(rig: dict) -> Path:
+    """跑完 gate PASS → writeback → premerge-sync → 重验证 → merge 的公共路径。"""
+
     work, other = _one_committed_task(rig), rig["other"]
     # main 前进一步（无冲突文件）
     (other / "mainline.txt").write_text("main moved\n", "utf-8")
@@ -416,11 +433,19 @@ def test_scenario_k_full_merge_and_cleanup(rig: dict) -> None:
     synced = ap.premerge_sync(work, "CHG-1")
     assert synced["status"] == "OK" and synced["needs_verification"]
 
-    merged = ap.merge(work, "CHG-1")
+    # HEAD 已离开 gate 绑定的 tip → 未声明重验证的 merge 被拒
+    stale = ap.merge(work, "CHG-1")
+    assert stale["status"] == "BLOCKED_STALE_GATE"
+
+    merged = ap.merge(work, "CHG-1", reverified=True)
     assert merged["status"] == "OK" and merged["pushed_main"]
     assert _g(work, "rev-parse", "--abbrev-ref", "HEAD") == "main"
     assert _g(rig["origin"], "rev-parse", "main") == merged["merge"]
+    return work
 
+
+def test_scenario_k_full_merge_and_cleanup(rig: dict) -> None:
+    work = _merge_change(rig)
     cleaned = ap.cleanup(work, "CHG-1")
     assert cleaned == {"status": "OK", "local_deleted": True, "remote_deleted": True}
     assert "change/CHG-1-demo" not in _g(work, "branch", "--list", "change/*")
@@ -428,6 +453,22 @@ def test_scenario_k_full_merge_and_cleanup(rig: dict) -> None:
     assert "change/CHG-1-demo" not in remote_branches
     status = ap.change_status(work, "CHG-1")
     assert status["state"] == "closed"
+
+
+def test_cleanup_keeps_remote_branch_with_concurrent_push(rig: dict) -> None:
+    work, other = _merge_change(rig), rig["other"]
+    # merge 之后有人又往 Change 分支推了新提交 —— 删远端分支会永久丢弃它
+    _g(other, "fetch", "origin")
+    _g(other, "switch", "change/CHG-1-demo")
+    (other / "late.txt").write_text("late work\n", "utf-8")
+    _commit_all(other, "late concurrent commit")
+    _g(other, "push", "origin", "change/CHG-1-demo")
+
+    cleaned = ap.cleanup(work, "CHG-1")
+    assert cleaned["status"] == "WARN_REMOTE_CLEANUP"
+    assert cleaned["local_deleted"] and not cleaned["remote_deleted"]
+    assert "refused to delete" in cleaned["remote_error"]
+    assert "change/CHG-1-demo" in _g(rig["origin"], "branch", "--list")
 
 
 def test_scenario_l_text_conflict_is_reported_not_resolved(rig: dict) -> None:
@@ -448,7 +489,8 @@ def test_scenario_l_text_conflict_is_reported_not_resolved(rig: dict) -> None:
     result = ap.premerge_sync(work, "CHG-1")
     assert result["status"] == "CONFLICT" and result["files"] == ["app.py"]
     assert ap.merge_abort(work, "CHG-1")["status"] == "OK"
-    assert _g(work, "status", "--porcelain") == ""
+    # -uno：-F 的消息文件在无 .gitignore 的临时仓库里是 untracked，与本断言无关
+    assert _g(work, "status", "--porcelain", "-uno") == ""
 
 
 def test_scenario_n_cleanup_refuses_unconfirmed_merge(rig: dict) -> None:
@@ -486,6 +528,12 @@ def test_init_change_adopts_existing_branch_only_explicitly(rig: dict) -> None:
     assert result["status"] == "OK" and result["adopted"]
 
 
+def test_main_can_never_be_a_change_branch(rig: dict) -> None:
+    work = rig["work"]
+    with pytest.raises(ap.AutoPushError, match="must not be 'main'"):
+        ap.init_change(work, "CHG-M", "main", adopt=True)
+
+
 def test_change_and_task_ids_are_sanitised(rig: dict) -> None:
     work = rig["work"]
     with pytest.raises(ap.AutoPushError, match="invalid change id"):
@@ -507,3 +555,20 @@ def test_record_commit_flags_out_of_scope_files(rig: dict) -> None:
     result = ap.record_commit(work, "CHG-1", "TASK-001")
     assert result["status"] == "WARN_SCOPE_VIOLATION"
     assert "sneaky.txt" in result["out_of_scope"]
+    # 越界提交在解决前不得离开本机
+    blocked = ap.push(work, "CHG-1")
+    assert blocked["status"] == "BLOCKED_SCOPE"
+
+
+def test_push_rechecks_verification_after_commit(rig: dict) -> None:
+    work = rig["work"]
+    _new_change(work)
+    _declare(work, "CHG-1", "TASK-001", ["feature/"])
+    (work / "feature").mkdir()
+    (work / "feature" / "a.py").write_text("A = 1\n", "utf-8")
+    ap.stage(work, "CHG-1", "TASK-001", "add a")
+    _g(work, "commit", "-m", "add a（TASK-001 · CHG-1）")
+    ap.record_commit(work, "CHG-1", "TASK-001")
+    # 验证结论在 push 前被撤回（重验证挂了）→ push 拒绝
+    _declare(work, "CHG-1", "TASK-001", ["feature/"], verification="FAIL")
+    assert ap.push(work, "CHG-1")["status"] == "PUSH_BLOCKED_BY_VERIFICATION"

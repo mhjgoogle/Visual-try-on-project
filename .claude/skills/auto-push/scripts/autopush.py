@@ -305,7 +305,10 @@ def _scan_added_lines(text: str) -> list[dict]:
             continue
         for name, pattern in _SECRET_LINE_PATTERNS:
             if pattern.search(line):
-                hits.append({"rule": name, "line": line[:120]})
+                # 只报规则名，绝不回显命中内容：命中行本身就是疑似凭据，
+                # 任何回显（console / agent 上下文 / CI 日志）都是二次泄露面
+                # （codex 审查轮 1，blocking）。
+                hits.append({"rule": name})
     return hits
 
 
@@ -320,12 +323,19 @@ def _scan_secret_names(files: list[str]) -> list[str]:
     return flagged
 
 
-def _scan_worktree_secrets(root: Path, files: list[str]) -> list[dict]:
-    """stage 之前扫（tracked 走 diff，untracked 直接读文件的全文当新增行）。"""
+def _scan_worktree_secrets(
+    root: Path, files: list[str]
+) -> tuple[list[dict], list[str]]:
+    """stage 之前扫（tracked 走 diff，untracked 直接读文件的全文当新增行）。
+
+    返回 (hits, unscanned)：二进制/超大的 untracked 文件做不了行扫描，
+    **如实上报**而不是静默跳过——调用方把它们摆到结果里让人看见。
+    """
 
     if not files:
-        return []  # `git diff --` 无 pathspec 会扫全树 —— 别人的 diff 不归我们管
+        return [], []  # `git diff --` 无 pathspec 会扫全树 —— 别人的 diff 不归我们管
     hits: list[dict] = []
+    unscanned: list[str] = []
     tracked_diff = _git(root, "diff", "--no-color", "--", *files, check=False).stdout
     hits.extend(_scan_added_lines(tracked_diff))
     for f in files:
@@ -338,14 +348,16 @@ def _scan_worktree_secrets(root: Path, files: list[str]) -> list[dict]:
         try:
             raw = full.read_bytes()
         except OSError:
+            unscanned.append(f)
             continue
         if b"\0" in raw[:8000] or len(raw) > 1_000_000:
-            continue  # 二进制/超大：不做行扫描（文件名扫描仍然有效）
+            unscanned.append(f)  # 文件名扫描仍然有效，但行扫描缺席要可见
+            continue
         text = raw.decode("utf-8", errors="replace")
         hits.extend(
             _scan_added_lines("\n".join("+" + line for line in text.splitlines()))
         )
-    return hits
+    return hits, unscanned
 
 
 # ---------------------------------------------------------------------------
@@ -373,6 +385,10 @@ def init_change(
         raise AutoPushError(f"change '{change}' already registered")
     if _git(root, "check-ref-format", "--branch", branch, check=False).returncode != 0:
         raise AutoPushError(f"invalid branch name '{branch}'")
+    if branch in ("main", "master"):
+        # 否则 --adopt main 之后的每次 push 都直写 origin/main，Merge Gate
+        # 整个被绕过（codex 审查轮 1，blocking）。
+        raise AutoPushError("a Change branch must not be 'main'/'master'")
 
     current = _current_branch(root)
     branch_exists = _ref_exists(root, f"refs/heads/{branch}")
@@ -580,7 +596,7 @@ def stage(
             "file names look like credentials — refuse to stage",
             files=named,
         )
-    hits = _scan_worktree_secrets(root, to_stage)
+    hits, unscanned = _scan_worktree_secrets(root, to_stage)
     if hits:
         return _blocked(
             "BLOCKED_SECRET",
@@ -650,11 +666,17 @@ def stage(
         return _blocked("NOTHING_TO_COMMIT", "staging produced an empty index")
 
     subject = message if task in message else f"{message}（{task} · {change}）"
-    quoted = subject.replace('"', '\\"')
-    return {
+    # 消息进文件、命令用固定 ASCII 路径：`-m "内嵌"` 在 bash 里挡不住 $()/
+    # 反引号展开，在 PowerShell 里 `\"` 又不是转义——两种 shell 没有共同的
+    # 安全内嵌法，不内嵌才是安全的（codex 审查轮 1，blocking）。
+    msg_file = root / ".claude" / "tmp" / "autopush-commit-msg.txt"
+    msg_file.parent.mkdir(parents=True, exist_ok=True)
+    msg_file.write_text(subject + "\n", "utf-8")
+    result = {
         "status": "STAGED",
         "staged": staged_now,
-        "commit_command": f'git commit -m "{quoted}"',
+        "commit_command": "git commit -F .claude/tmp/autopush-commit-msg.txt",
+        "message": subject,
         # ADR-0068 决策 7：链式令牌必须由 agent 逐次手写在提交命令最前面，
         # 任何脚本都不得存储或拼接它 —— 这里只提示，不生成。
         "chain_mode": bool(manifest.get("chain_mode")),
@@ -663,6 +685,9 @@ def stage(
             "hook can intercept it; then call record-commit"
         ),
     }
+    if unscanned:
+        result["unscanned"] = unscanned
+    return result
 
 
 def record_commit(root: Path, change: str, task: str) -> dict:
@@ -719,6 +744,27 @@ def push(root: Path, change: str) -> dict:
     branch = manifest["branch"]
     if _current_branch(root) != branch:
         return _blocked("BLOCKED_BRANCH", f"not on '{branch}'")
+    # push 自己复查安全 Gate，不假设提交都经过 stage 走进来（codex 审查轮 1，
+    # blocking）：验证状态被撤回、或 record-commit 记下过越界文件的提交，
+    # 都不得离开本机。
+    for tid, tdata in manifest["tasks"].items():
+        unpushed = [c for c in tdata.get("commits", []) if not c.get("pushed")]
+        if not unpushed:
+            continue
+        if tdata.get("verification") != "PASS":
+            return _blocked(
+                "PUSH_BLOCKED_BY_VERIFICATION",
+                f"task '{tid}' has unpushed commits but verification is "
+                f"'{tdata.get('verification', 'UNDECLARED')}'",
+            )
+        violating = [c["hash"][:12] for c in unpushed if c.get("scope_violation")]
+        if violating:
+            return _blocked(
+                "BLOCKED_SCOPE",
+                f"task '{tid}' has unpushed commits with recorded out-of-scope "
+                "files — dev-workflow must resolve them before push",
+                commits=violating,
+            )
     if not _has_remote(root):
         return _blocked("BLOCKED_NO_REMOTE", "no 'origin' remote configured")
     _git(root, "fetch", "origin", check=False)
@@ -778,6 +824,34 @@ def sync(root: Path, change: str) -> dict:
             "rebase hit conflicts and was aborted — hand back to dev-workflow",
             files=conflicts,
         )
+    # rebase 改写了本地未推送提交的 hash：清单必须跟着改，否则追溯链指向
+    # 已被丢弃的对象（codex 审查轮 1，blocking）。按 subject 顺序重映射；
+    # 在新历史里找不到的提交 = rebase 判定其内容已在远端（空提交被丢弃），
+    # 如实标注 rebased_away 并视为已上远端。
+    recorded = [
+        c
+        for tdata in manifest["tasks"].values()
+        for c in tdata.get("commits", [])
+        if not c.get("pushed")
+    ]
+    if recorded:
+        out = _git(root, "log", "--format=%H%x1f%s", f"{remote_ref}..HEAD").stdout
+        pool = [line.split("\x1f", 1) for line in out.splitlines() if "\x1f" in line]
+        pool.reverse()  # 最旧在前，与记录顺序一致
+        for commit in recorded:
+            idx = next(
+                (i for i, (_h, s) in enumerate(pool) if s == commit.get("subject")),
+                None,
+            )
+            if idx is None:
+                commit["rebased_away"] = True
+                commit["pushed"] = True
+            else:
+                new_hash, _s = pool.pop(idx)
+                if new_hash != commit["hash"]:
+                    commit["rebased_from"] = commit["hash"]
+                    commit["hash"] = new_hash
+        _save_manifest(root, change, manifest)
     return {
         "status": "OK",
         "needs_verification": True,
@@ -793,6 +867,12 @@ def set_merge_gate(root: Path, change: str, status: str, by: str) -> dict:
             "--by is required: record the basis (user's words / date) for the gate"
         )
     manifest = _load_manifest(root, change)
+    if _current_branch(root) != manifest["branch"]:
+        return _blocked(
+            "BLOCKED_BRANCH",
+            f"set the merge gate from '{manifest['branch']}' — the gate binds "
+            "to that branch's verified tip",
+        )
     if status == "PASS":
         not_passed = [
             tid
@@ -805,7 +885,14 @@ def set_merge_gate(root: Path, change: str, status: str, by: str) -> dict:
                 "merge gate cannot PASS while tasks lack verification PASS",
                 tasks=not_passed,
             )
-    manifest["merge_gate"] = {"status": status, "by": by, "time": _now()}
+    # tip 把 PASS 钉在「验证通过的那个提交」上：之后 HEAD 一动（premerge-sync
+    # 或新提交），merge 必须先重验证（codex 审查轮 1，blocking）。
+    manifest["merge_gate"] = {
+        "status": status,
+        "by": by,
+        "time": _now(),
+        "tip": _head_hash(root),
+    }
     _save_manifest(root, change, manifest)
     return {"status": "OK", "merge_gate": status}
 
@@ -850,11 +937,13 @@ def merge_abort(root: Path, change: str) -> dict:
     return {"status": "OK"}
 
 
-def merge(root: Path, change: str) -> dict:
+def merge(root: Path, change: str, reverified: bool = False) -> dict:
     """Merge Gate = PASS 后把 Change branch 以 --no-ff 合入 main 并 push。"""
 
     manifest = _load_manifest(root, change)
     branch = manifest["branch"]
+    if _current_branch(root) != branch:
+        return _blocked("BLOCKED_BRANCH", f"merge runs from '{branch}'")
     gate = manifest.get("merge_gate") or {}
     if gate.get("status") != "PASS":
         return _blocked(
@@ -873,6 +962,15 @@ def merge(root: Path, change: str) -> dict:
             "BLOCKED_NOT_SYNCED",
             "latest main is not an ancestor of the change branch — run "
             "premerge-sync (and re-verify) first",
+        )
+    if gate.get("tip") and _head_hash(root) != gate["tip"] and not reverified:
+        # PASS 绑定的是验证过的 tip；premerge-sync / 新提交移动 HEAD 之后，
+        # 必须在当前 tip 上重跑定向验证再带 --reverified 进来。
+        return _blocked(
+            "BLOCKED_STALE_GATE",
+            "HEAD moved since the merge gate passed — re-run targeted "
+            "verification on the current tip, then pass --reverified",
+            gate_tip=gate["tip"],
         )
     if _has_remote(root):
         # 远端 Change 分支必须如实反映将被合并的 tip（writeback / premerge-sync
@@ -957,10 +1055,21 @@ def cleanup(root: Path, change: str, keep_remote: bool = False) -> dict:
     remote_deleted = False
     remote_error = None
     if _has_remote(root) and not keep_remote:
-        proc = _git(root, "push", "origin", "--delete", branch, check=False)
-        remote_deleted = proc.returncode == 0
-        if not remote_deleted:
-            remote_error = (proc.stderr or proc.stdout).strip()[:200]
+        remote_branch = f"origin/{branch}"
+        if not _ref_exists(root, remote_branch):
+            remote_deleted = True  # 远端本来就没有 —— 无事可删
+        elif not _is_ancestor(root, remote_branch, "origin/main"):
+            # 远端分支 tip 有 origin/main 里没有的提交（并发的 merge 后推送）：
+            # 删了它那些提交就永久丢失（codex 审查轮 1，blocking）。
+            remote_error = (
+                "remote branch tip has commits not contained in origin/main — "
+                "refused to delete; inspect the concurrent push first"
+            )
+        else:
+            proc = _git(root, "push", "origin", "--delete", branch, check=False)
+            remote_deleted = proc.returncode == 0
+            if not remote_deleted:
+                remote_error = (proc.stderr or proc.stdout).strip()[:200]
     manifest["cleanup"] = {
         "local_deleted": local_deleted,
         "remote_deleted": remote_deleted,
@@ -969,7 +1078,11 @@ def cleanup(root: Path, change: str, keep_remote: bool = False) -> dict:
     manifest["status"] = "closed"
     _save_manifest(root, change, manifest)
     result = {
-        "status": "OK",
+        # 远端没删干净不是 OK：如实报 WARN，调用方不得当成功上报
+        # （codex 审查轮 1，non-blocking #2）。
+        "status": "OK"
+        if (remote_deleted or keep_remote or not _has_remote(root))
+        else "WARN_REMOTE_CLEANUP",
         "local_deleted": local_deleted,
         "remote_deleted": remote_deleted,
     }
@@ -1055,9 +1168,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--change", required=True)
     p.add_argument("--task", required=True)
 
-    for name in ("push", "sync", "premerge-sync", "merge-abort", "merge", "status"):
+    for name in ("push", "sync", "premerge-sync", "merge-abort", "status"):
         p = sub.add_parser(name)
         p.add_argument("--change", required=True)
+
+    p = sub.add_parser("merge")
+    p.add_argument("--change", required=True)
+    p.add_argument("--reverified", action="store_true")
 
     p = sub.add_parser("set-merge-gate")
     p.add_argument("--change", required=True)
@@ -1103,7 +1220,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "merge-abort":
             result = merge_abort(root, args.change)
         elif args.command == "merge":
-            result = merge(root, args.change)
+            result = merge(root, args.change, args.reverified)
         elif args.command == "cleanup":
             result = cleanup(root, args.change, args.keep_remote)
         elif args.command == "status":
