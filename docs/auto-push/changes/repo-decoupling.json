@@ -64,6 +64,14 @@
           "branch": "change/TASK-102-repo-decoupling",
           "pushed": false,
           "scope_violation": null
+        },
+        {
+          "hash": "a8794c71114f41b008ad34148224b05d55b75d64",
+          "subject": "docs(TASK-102): 收口 —— 独立审查 2 轮（轮2 pass 零发现）、3 条 P1 及其变异验证记录、最终全量 3297+6",
+          "time": "2026-08-22T11:33:53+00:00",
+          "branch": "change/TASK-102-repo-decoupling",
+          "pushed": false,
+          "scope_violation": null
         }
       ],
       "paths": [
