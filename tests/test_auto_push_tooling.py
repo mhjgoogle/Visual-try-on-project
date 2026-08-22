@@ -305,6 +305,40 @@ def test_no_force_push_is_even_constructible(rig: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_push_refuses_unrecorded_commits(rig: dict) -> None:
+    work = rig["work"]
+    _new_change(work)
+    _declare(work, "CHG-1", "TASK-001", ["feature/"])
+    (work / "feature").mkdir()
+    (work / "feature" / "a.py").write_text("A = 1\n", "utf-8")
+    ap.stage(work, "CHG-1", "TASK-001", "add a")
+    _g(work, "commit", "-m", "add a（TASK-001 · CHG-1）")
+    ap.record_commit(work, "CHG-1", "TASK-001")
+    assert ap.push(work, "CHG-1")["status"] == "OK"
+    # 绕开 auto-push 手工提交 —— 没过任何 Gate 的提交不得被代推
+    (work / "feature" / "b.py").write_text("B = 2\n", "utf-8")
+    _g(work, "add", "feature/b.py")
+    _g(work, "commit", "-m", "manual commit")
+    blocked = ap.push(work, "CHG-1")
+    assert blocked["status"] == "BLOCKED_UNRECORDED_COMMITS"
+    assert blocked["commits"][0]["subject"] == "manual commit"
+
+
+def test_unscannable_binary_needs_explicit_allowance(rig: dict) -> None:
+    work = rig["work"]
+    _new_change(work)
+    _declare(work, "CHG-1", "TASK-001", ["feature/"])
+    (work / "feature").mkdir()
+    (work / "feature" / "blob.bin").write_bytes(b"\x00\x01\x02" * 100)
+    blocked = ap.stage(work, "CHG-1", "TASK-001", "add blob")
+    assert blocked["status"] == "BLOCKED_UNSCANNABLE"
+    assert blocked["files"] == ["feature/blob.bin"]
+    assert _g(work, "diff", "--cached", "--name-only") == ""
+    allowed = ap.stage(work, "CHG-1", "TASK-001", "add blob", allow_unscanned=True)
+    assert allowed["status"] == "STAGED"
+    assert allowed["unscanned"] == ["feature/blob.bin"]
+
+
 def test_scenario_f_remote_ahead_sync_then_push(rig: dict) -> None:
     work, other = rig["work"], rig["other"]
     _new_change(work)
@@ -347,6 +381,11 @@ def test_scenario_f_remote_ahead_sync_then_push(rig: dict) -> None:
     assert second["hash"] == _g(work, "rev-parse", "HEAD~1")
     assert second["rebased_from"] != second["hash"]
 
+    # 旧的 PASS 在新基底上不作数：重验证并重新申报之前 push 被拒
+    assert synced["verification_staled"] == ["TASK-001"]
+    assert ap.push(work, "CHG-1")["status"] == "PUSH_BLOCKED_BY_VERIFICATION"
+    _declare(work, "CHG-1", "TASK-001", ["feature/"])  # 新基底重验证后重新申报
+
     pushed = ap.push(work, "CHG-1")
     assert pushed["status"] == "OK" and pushed["pushed"]
     assert "other work" in (work / "elsewhere.txt").read_text("utf-8")
@@ -359,6 +398,7 @@ def test_sync_conflict_aborts_and_hands_back(rig: dict) -> None:
     (work / "app.py").write_text("mine\n", "utf-8")
     ap.stage(work, "CHG-1", "TASK-001", "mine")
     _g(work, "commit", "-m", "mine（TASK-001 · CHG-1）")
+    ap.record_commit(work, "CHG-1", "TASK-001")
     assert ap.push(work, "CHG-1")["status"] == "OK"
 
     _g(other, "fetch", "origin")
@@ -469,6 +509,8 @@ def test_cleanup_keeps_remote_branch_with_concurrent_push(rig: dict) -> None:
     assert cleaned["local_deleted"] and not cleaned["remote_deleted"]
     assert "refused to delete" in cleaned["remote_error"]
     assert "change/CHG-1-demo" in _g(rig["origin"], "branch", "--list")
+    # 远端没清干净 → Change 停在 merged，不得标 closed
+    assert ap.change_status(work, "CHG-1")["state"] == "merged"
 
 
 def test_scenario_l_text_conflict_is_reported_not_resolved(rig: dict) -> None:

@@ -66,6 +66,7 @@ init-change --change <id> --branch <name> [--adopt] [--chain]
 | `MIXED` / `BLOCKED_MIXED` | 文件同时命中别的 Task。**能可靠区分**（你了解每处改动属于谁）→ 自己产出只含本 Task hunk 的 patch（`git diff -U3 -- <file>` 后手工裁剪），`stage --patch-file <f>`。**不能可靠区分** → 交回 dev-workflow 先理清修改边界，不为省事整文件提交 |
 | `BLOCKED_WIDE` | diff 形状超过 Task 申报范围 → 回 dev-workflow 重查 Change Scope / 架构漂移（Change Isolation 信号）；确认合法后 `--allow-wide` |
 | `BLOCKED_SECRET` | 疑似凭据。**永不自动放行**；确认是误报后由人工提交，真凭据则移出并按泄露处理 |
+| `BLOCKED_UNSCANNABLE` | 二进制/超大文件做不了内容扫描。**人**确认不含凭据后才 `--allow-unscanned` |
 | `BLOCKED_BRANCH` / `BLOCKED_DIRTY_INDEX` / `BLOCKED_CONFLICT` | 仓库状态不是脚本造成的 → 如实报告，人/dev-workflow 先恢复 |
 | `NOTHING_TO_COMMIT` | 没有归属 diff —— 检查 paths 申报是否漏了 |
 
@@ -75,8 +76,12 @@ init-change --change <id> --branch <name> [--adopt] [--chain]
 ## push 失败处理
 
 - `NEEDS_SYNC`（remote ahead）：`sync`（fetch + rebase 本地未推送提交，只改写
-  本地历史）→ 按返回的 `needs_verification` **重跑定向验证** → 再 `push`。
+  本地历史）。sync 会把相关 Task 的验证置为 **STALE**——在新基底上**重跑
+  定向验证**后重新 `task-ready --verification PASS`，才 push 得出去。
   rebase 冲突会自动 abort 并返回 `CONFLICT` → 交回 dev-workflow。
+- `BLOCKED_UNRECORDED_COMMITS`：分支上有清单没登记的提交（手工做的、或
+  收养分支上预先存在的）——auto-push 不代推没过 Gate 的提交。逐个
+  `record-commit` 归属，或交回用户决定。
 - `NEEDS_WRITEBACK_COMMIT`：清单元数据待提交，运行返回的 `suggested` 命令
   （docs-only，gate 走 lint 档）即可继续。
 - 其余 `PUSH_FAILED`：读 detail，能定位（如网络）就修复重试；需要改写远端

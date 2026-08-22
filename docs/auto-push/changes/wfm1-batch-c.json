@@ -15,6 +15,14 @@
           "branch": "feat/wfm1-batch-c",
           "pushed": true,
           "scope_violation": null
+        },
+        {
+          "hash": "9f21fbd609c2bcf090c0fb28ad57e29a20a03f27",
+          "subject": "fix(skill): auto-push 审查轮 1 —— secret 不回显、禁收养 main、commit 改 -F、push 复查 Gate、rebase 重映射 hash、Merge Gate 绑 tip、cleanup 拒删含并发提交的远端分支（TASK-101）",
+          "time": "2026-08-22T05:20:12+00:00",
+          "branch": "feat/wfm1-batch-c",
+          "pushed": true,
+          "scope_violation": null
         }
       ],
       "paths": [
@@ -27,8 +35,8 @@
         "tests/test_auto_push_tooling.py"
       ],
       "verification": "PASS",
-      "verification_ref": "pytest tests/test_auto_push_tooling.py: 25 passed (review round 1 fixes); ruff: pass",
-      "declared": "2026-08-22T05:16:41+00:00"
+      "verification_ref": "pytest tests/test_auto_push_tooling.py: 27 passed (review round 2 fixes); ruff: pass",
+      "declared": "2026-08-22T05:34:41+00:00"
     }
   },
   "merge_gate": {

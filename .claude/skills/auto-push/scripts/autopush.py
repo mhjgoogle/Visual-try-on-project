@@ -298,10 +298,16 @@ def _wide_guard(files: list[str]) -> dict | None:
 # ---------------------------------------------------------------------------
 
 
+#: 只有真正的 diff 头（`+++ b/path` / `+++ /dev/null`）可以跳过——内容行
+#: 也可能以 ++ 开头，粗糙的 startswith("+++") 会让那些行逃过扫描
+#: （codex 审查轮 2）。
+_DIFF_HEADER_RE = re.compile(r"^\+\+\+ (?:a/|b/|/dev/null)")
+
+
 def _scan_added_lines(text: str) -> list[dict]:
     hits: list[dict] = []
     for line in text.splitlines():
-        if not line.startswith("+") or line.startswith("+++"):
+        if not line.startswith("+") or _DIFF_HEADER_RE.match(line):
             continue
         for name, pattern in _SECRET_LINE_PATTERNS:
             if pattern.search(line):
@@ -338,6 +344,14 @@ def _scan_worktree_secrets(
     unscanned: list[str] = []
     tracked_diff = _git(root, "diff", "--no-color", "--", *files, check=False).stdout
     hits.extend(_scan_added_lines(tracked_diff))
+    # tracked 的二进制 diff 没有 `+` 行，行扫描对它是静默失明 —— numstat 的
+    # "-\t-\t" 把它们找出来，与 untracked 的二进制同样归入 unscanned
+    # （codex 审查轮 2，blocking）。
+    numstat = _git(root, "diff", "--numstat", "-z", "--", *files, check=False).stdout
+    for record in numstat.split("\0"):
+        parts = record.split("\t")
+        if len(parts) == 3 and parts[0] == "-" and parts[1] == "-":
+            unscanned.append(_norm(parts[2]))
     for f in files:
         full = root / f
         if not full.is_file():
@@ -570,6 +584,7 @@ def stage(
     message: str,
     patch_file: str | None = None,
     allow_wide: bool = False,
+    allow_unscanned: bool = False,
 ) -> dict:
     manifest = _load_manifest(root, change)
     guard = _plan_guards(root, manifest, task)
@@ -603,6 +618,16 @@ def stage(
             "suspected secrets in the diff — commit manually only after a human "
             "confirms these are not credentials",
             hits=hits[:10],
+        )
+    if unscanned and not allow_unscanned:
+        # 扫不了 ≠ 没问题：fail-closed，让人确认后显式放行
+        # （codex 审查轮 2，blocking：unscanned 只警告等于没有闸门）。
+        return _blocked(
+            "BLOCKED_UNSCANNABLE",
+            "these files cannot be content-scanned (binary/oversized) — after a "
+            "human confirms they hold no credentials, re-run with "
+            "--allow-unscanned",
+            files=sorted(set(unscanned)),
         )
 
     # 逐文件 `git add -A -- <path>`：捕捉修改/新增/删除，且永不出现 `git add .`。
@@ -769,6 +794,41 @@ def push(root: Path, change: str) -> dict:
         return _blocked("BLOCKED_NO_REMOTE", "no 'origin' remote configured")
     _git(root, "fetch", "origin", check=False)
     remote_ref = _remote_ref(root, branch)
+    # 将被推出去的每个提交都必须有出处：清单登记过的 task commit、
+    # 本 skill 的元数据回写、或 premerge-sync 的 merge commit。收养分支上
+    # 预先存在的/手工做的提交没有过任何 Gate，不得由 auto-push 代推
+    # （codex 审查轮 2，blocking）。
+    push_base = remote_ref or (
+        "origin/main" if _ref_exists(root, "origin/main") else None
+    )
+    if push_base:
+        recorded_hashes = {
+            c["hash"]
+            for tdata in manifest["tasks"].values()
+            for c in tdata.get("commits", [])
+        }
+        unrecorded = []
+        log_out = _git(
+            root, "log", "--format=%H%x1f%s%x1f%P", f"{push_base}..HEAD"
+        ).stdout
+        for line in log_out.splitlines():
+            if "\x1f" not in line:
+                continue
+            h, s, parents = line.split("\x1f", 2)
+            if h in recorded_hashes:
+                continue
+            if s.startswith("chore(auto-push):"):
+                continue
+            if len(parents.split()) > 1:
+                continue  # premerge-sync 产生的 merge commit
+            unrecorded.append({"hash": h[:12], "subject": s[:80]})
+        if unrecorded:
+            return _blocked(
+                "BLOCKED_UNRECORDED_COMMITS",
+                "commits ahead of the remote are not recorded in the manifest — "
+                "record them per task (record-commit) or hand back to the user",
+                commits=unrecorded[:10],
+            )
     if remote_ref:
         counts = _git(
             root, "rev-list", "--left-right", "--count", f"{branch}...{remote_ref}"
@@ -851,11 +911,25 @@ def sync(root: Path, change: str) -> dict:
                 if new_hash != commit["hash"]:
                     commit["rebased_from"] = commit["hash"]
                     commit["hash"] = new_hash
+    # rebase 之后旧的 PASS 不再作数：置 STALE，push 会拒绝，直到 agent 在
+    # 新基底上重跑定向验证并重新 task-ready PASS（codex 审查轮 2，blocking：
+    # 只「提醒重验证」挡不住紧接着的 push）。
+    staled = []
+    for tid, tdata in manifest["tasks"].items():
+        has_unpushed = any(not c.get("pushed") for c in tdata.get("commits", []))
+        if has_unpushed and tdata.get("verification") == "PASS":
+            tdata["verification"] = "STALE"
+            staled.append(tid)
+    if recorded or staled:
         _save_manifest(root, change, manifest)
     return {
         "status": "OK",
         "needs_verification": True,
-        "note": "re-run targeted verification before pushing",
+        "verification_staled": staled,
+        "note": (
+            "re-run targeted verification, then re-declare task-ready PASS "
+            "before pushing"
+        ),
     }
 
 
@@ -950,6 +1024,31 @@ def merge(root: Path, change: str, reverified: bool = False) -> dict:
             "BLOCKED_MERGE_GATE",
             f"merge gate is '{gate.get('status', 'PENDING')}' — only dev-workflow "
             "sets PASS, and only on the user's explicit merge instruction",
+        )
+    # Gate PASS 之后状态还会变（sync 置 STALE、record-commit 记下越界）——
+    # merge 时刻按当前清单重查一遍，与 push 同一套闸（codex 审查轮 2，blocking）。
+    not_passed = [
+        tid
+        for tid, tdata in manifest["tasks"].items()
+        if tdata.get("verification") != "PASS"
+    ]
+    if not_passed:
+        return _blocked(
+            "BLOCKED_TASKS_NOT_PASSED",
+            "tasks lost verification PASS after the gate was set — re-verify",
+            tasks=not_passed,
+        )
+    violating = [
+        c["hash"][:12]
+        for tdata in manifest["tasks"].values()
+        for c in tdata.get("commits", [])
+        if c.get("scope_violation")
+    ]
+    if violating:
+        return _blocked(
+            "BLOCKED_SCOPE",
+            "recorded commits carry unresolved out-of-scope files",
+            commits=violating,
         )
     gate_dirty = _dirty_gate(root, change, "merge")
     if gate_dirty:
@@ -1070,19 +1169,20 @@ def cleanup(root: Path, change: str, keep_remote: bool = False) -> dict:
             remote_deleted = proc.returncode == 0
             if not remote_deleted:
                 remote_error = (proc.stderr or proc.stdout).strip()[:200]
+    clean_done = remote_deleted or keep_remote or not _has_remote(root)
     manifest["cleanup"] = {
         "local_deleted": local_deleted,
         "remote_deleted": remote_deleted,
         "time": _now(),
     }
-    manifest["status"] = "closed"
+    # 远端没清干净就不是 closed —— 状态的消费方不得把它当已归档
+    # （codex 审查轮 2）。
+    manifest["status"] = "closed" if clean_done else "merged"
     _save_manifest(root, change, manifest)
     result = {
         # 远端没删干净不是 OK：如实报 WARN，调用方不得当成功上报
         # （codex 审查轮 1，non-blocking #2）。
-        "status": "OK"
-        if (remote_deleted or keep_remote or not _has_remote(root))
-        else "WARN_REMOTE_CLEANUP",
+        "status": "OK" if clean_done else "WARN_REMOTE_CLEANUP",
         "local_deleted": local_deleted,
         "remote_deleted": remote_deleted,
     }
@@ -1163,6 +1263,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--message", required=True)
     p.add_argument("--patch-file", default=None)
     p.add_argument("--allow-wide", action="store_true")
+    p.add_argument("--allow-unscanned", action="store_true")
 
     p = sub.add_parser("record-commit")
     p.add_argument("--change", required=True)
@@ -1206,6 +1307,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.message,
                 args.patch_file,
                 args.allow_wide,
+                args.allow_unscanned,
             )
         elif args.command == "record-commit":
             result = record_commit(root, args.change, args.task)
