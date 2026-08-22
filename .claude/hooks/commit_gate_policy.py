@@ -356,7 +356,14 @@ _UNCLASSIFIED_REASONS = frozenset(
 #: forced into this set too (see `_tokenise_posix`) -- without it
 #: `git commit -m x\ngit push` collapses into a single command and the ADR-0068
 #: 决策 6 scan stops seeing the push.
-_SEPARATOR_CHARS = frozenset(";&|()<>\n")
+#:
+#: The BACKTICK is here for the same reason `(` is: it opens a command
+#: substitution, so what follows is a COMMAND. `$(git commit …)` was already
+#: caught (via `(`) while the equivalent `git commit …` was not —
+#: the token came back as ``git` and matched no command name (codex review,
+#: TASK-104). Same class as the unquoted-heredoc hole fixed alongside it:
+#: a real command hidden where the scan does not look.
+_SEPARATOR_CHARS = frozenset(";&|()<>" + chr(96) + "\n")
 
 #: `NAME=value` prefixes (Bash env assignments). `MOTV_CONTINUOUS_CHAIN=1 git
 #: commit` must still resolve to the command `git`.
@@ -456,34 +463,54 @@ def _basename(token: str) -> str:
     return tail.lower().removesuffix(".exe")
 
 
-#: `<<TAG` / `<<-TAG` / `<<'TAG'` / `<<"TAG"` — the heredoc REDIRECTION operator.
-#: `<<<` (here-STRING) is deliberately excluded: its payload is an ordinary word
-#: on the same line, already handled by normal tokenisation.
+#: ONLY the QUOTED heredoc operator: `<<'TAG'` / `<<"TAG"` (and their `<<-`
+#: forms). The quotes are the whole point — see `_strip_heredoc_bodies`.
+#:
+#: The tag is matched permissively (anything up to the closing quote, no
+#: newline) because a delimiter word may legitimately start with a digit or
+#: contain `-` / `.`; a tag we fail to recognise just leaves that body
+#: tokenised, i.e. back to the old fail-closed behaviour (codex review,
+#: non-blocking).
+#:
+#: `<<<` (here-STRING) is excluded: its payload is an ordinary word on the same
+#: line, already handled by normal tokenisation. The `(?<!<)` guard keeps
+#: `<<<'x'` from being read as `<<` + `<'x'`.
 _HEREDOC_START_RE = re.compile(
-    r"<<-?\s*(?P<quote>['\"]?)(?P<tag>[A-Za-z_][A-Za-z0-9_]*)(?P=quote)"
+    r"(?<!<)<<-?\s*(?P<quote>['\"])(?P<tag>[^'\"\n]+)(?P=quote)"
 )
 
 
-def _strip_heredoc_bodies(command: str) -> str:
-    """Remove heredoc BODIES before tokenising. They are data, not commands.
+def _strip_heredoc_bodies(command: str) -> str | None:
+    """Remove QUOTED heredoc bodies before tokenising. Returns None = give up.
 
-    A heredoc body is never parsed by the shell as command text, but `shlex`
-    does not know that: it keeps counting quotes straight through the payload.
-    So an ODD number of apostrophes anywhere inside — `# don't do this`, a
-    Python `'''` docstring, a Chinese comment with a stray `'` — made
+    Why bodies must go: `shlex` keeps counting quotes straight through a
+    heredoc payload, so an ODD number of apostrophes inside — `# don't`, a
+    Python `'''` docstring, a stray `'` in a Chinese comment — made
     `_tokenise_posix` return None, which the caller correctly turns into
-    fail-closed... on a command that merely EDITS A FILE.
+    fail-closed... on a command that merely EDITS A FILE. Measured twice in
+    two independent sessions (2026-08-22/23): in a shared worktree that means
+    one session's red WIP blocks another session's unrelated edit.
 
-    Measured cost before this fix (two independent sessions, 2026-08-22/23):
-    a pure `python - <<'PY' … PY` edit was run through the whole full-suite
-    check and then blocked by whatever unrelated in-progress code happened to
-    be red at the time — in a shared worktree that means one session's WIP
-    blocks another session's unrelated edit.
-    STRIPPING is the right fix and it does NOT weaken the gate: everything the
-    scans care about (the `git commit` invocation, the ADR-0068 chain token, a
-    trailing `&& git push`) lives in the COMMAND text, never in a heredoc
-    payload. Dropping the payload can only remove noise. The delimiter line is
-    dropped with it; the command line carrying `<<TAG` is kept intact.
+    WHY ONLY QUOTED DELIMITERS. The first version of this stripped unquoted
+    `<<EOF` too, on the belief that "the shell never parses a heredoc body as
+    commands". That is only true when the delimiter is QUOTED. With `<<EOF` the
+    shell still expands `$(...)`, backticks and `$var` inside the body, so
+
+        cat <<EOF
+        $(git commit -m pwned)
+        EOF
+
+    IS a commit — and stripping it hid that from every scan (codex review,
+    TASK-104, blocking). Unquoted heredocs are therefore left in place: their
+    bodies stay tokenised, which at worst reproduces the old false-closed
+    behaviour. Over-checking is the acceptable direction; hiding a commit is not.
+
+    WHY AN UNCLOSED HEREDOC RETURNS None. This is a line scanner, not a shell
+    parser: it cannot tell an operator from the same characters inside a quoted
+    word. `echo "<<'EOF'"` looks like an opener, and if no delimiter line ever
+    follows, the old version swallowed EVERY remaining line — hiding a real
+    `git commit` / `git push` further down (same review, blocking). So when a
+    body is not terminated, this refuses to answer and the caller fails closed.
     """
     lines = command.splitlines(keepends=True)
     out: list[str] = []
@@ -493,14 +520,27 @@ def _strip_heredoc_bodies(command: str) -> str:
         out.append(line)
         tags = [m.group("tag") for m in _HEREDOC_START_RE.finditer(line)]
         index += 1
-        # One command line may open several heredocs; bash consumes their
-        # bodies in order.
+        # One command line may open several quoted heredocs; bash consumes
+        # their bodies in order.
         for tag in tags:
+            closed = False
             while index < len(lines):
                 body = lines[index]
                 index += 1
-                if body.strip() == tag:
-                    break  # delimiter reached; body (and it) are dropped
+                # `<<TAG` wants the delimiter alone on its line; `<<-TAG`
+                # additionally allows leading tabs. Accepting arbitrary
+                # surrounding whitespace would end a body EARLY and feed its
+                # remainder to the tokeniser as commands (codex review,
+                # non-blocking), so compare against the exact line content.
+                if body.rstrip("\r\n").lstrip("\t") == tag:
+                    closed = True
+                    break
+            if not closed:
+                # Unterminated: this scanner has mis-read something (most
+                # likely a `<<'TAG'` literal inside a quoted word). Refuse to
+                # guess -- swallowing the rest of the command is exactly how a
+                # later `git commit` would become invisible.
+                return None
     return "".join(out)
 
 
@@ -512,8 +552,12 @@ def _tokenise_posix(command: str) -> list[list[str]] | None:
     not run in bash either, so the cost is a wasted check run on something that
     was already broken.
     """
-    command = _strip_heredoc_bodies(command)
-    lexer = shlex.shlex(command, posix=True, punctuation_chars="();<>|&\n")
+    stripped = _strip_heredoc_bodies(command)
+    if stripped is None:
+        return None  # mis-read heredoc -> fail closed, never guess
+    lexer = shlex.shlex(
+        stripped, posix=True, punctuation_chars="();<>|&" + chr(96) + "\n"
+    )
     # Newline must be a SEPARATOR, not whitespace: `git commit -m x\ngit push`
     # is two commands, and shlex's default whitespace set swallows the boundary.
     # Quoted newlines are unaffected -- they are consumed inside the quote state,
