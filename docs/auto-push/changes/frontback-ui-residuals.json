@@ -47,6 +47,14 @@
           "branch": "change/TASK-103-frontback-ui-residuals",
           "pushed": false,
           "scope_violation": null
+        },
+        {
+          "hash": "c2fb26abb0b408827be00c99cd782a80b566a9c5",
+          "subject": "批次D（其二）+ 审查修复：未确认规划条目可逐格编辑（地址扩成 id:/num: 两个不相通的空间，标签必填）；codex 5 轮共 12 条 P1 全修 —— 审片同步按镜头串行、开始前落 pending、切项目不写错画布、路由闩携带事件发生时的地址、删除无调用方的 feedbackFor 并改口径、链条键带文档世代、未确认行时长可改；ffprobe TOCTOU 的 ABA 变种按 ADR-0081 §2b 驳回并记录残余（TASK-103）",
+          "time": "2026-08-22T16:16:31+00:00",
+          "branch": "change/TASK-103-frontback-ui-residuals",
+          "pushed": false,
+          "scope_violation": null
         }
       ],
       "paths": [
