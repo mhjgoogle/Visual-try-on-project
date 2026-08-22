@@ -1,0 +1,51 @@
+{
+ "skills": {
+  "codex-review-loop": {
+   "backlog": "docs/skill-evolution/backlogs/codex-review-loop.jsonl",
+   "feedback_seq": 0,
+   "last_review_at": null,
+   "last_seen_at": "2026-08-22T03:57:33Z",
+   "open": 0,
+   "path": ".claude/skills/codex-review-loop",
+   "pending_proposals": [],
+   "protected": [],
+   "registered_at": "2026-08-22T03:57:33Z",
+   "repeated": {},
+   "revision": "78091f365f56",
+   "severe_open": 0,
+   "status": "REGISTERED"
+  },
+  "dev-workflow": {
+   "backlog": "docs/skill-evolution/backlogs/dev-workflow.jsonl",
+   "feedback_seq": 1,
+   "last_feedback_at": "2026-08-22T03:57:45Z",
+   "last_review_at": null,
+   "last_seen_at": "2026-08-22T03:57:33Z",
+   "open": 1,
+   "path": ".claude/skills/dev-workflow",
+   "pending_proposals": [],
+   "protected": [],
+   "registered_at": "2026-08-22T03:57:33Z",
+   "repeated": {},
+   "revision": "7b49669a65e5",
+   "severe_open": 0,
+   "status": "OBSERVING"
+  },
+  "skill-evolution": {
+   "backlog": "docs/skill-evolution/backlogs/skill-evolution.jsonl",
+   "feedback_seq": 0,
+   "last_review_at": null,
+   "last_seen_at": "2026-08-22T03:57:33Z",
+   "open": 0,
+   "path": ".claude/skills/skill-evolution",
+   "pending_proposals": [],
+   "protected": [],
+   "registered_at": "2026-08-22T03:57:33Z",
+   "repeated": {},
+   "revision": "05d42dc33c78",
+   "severe_open": 0,
+   "status": "REGISTERED"
+  }
+ },
+ "version": 1
+}

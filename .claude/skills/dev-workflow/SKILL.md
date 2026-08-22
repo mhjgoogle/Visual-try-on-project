@@ -138,6 +138,9 @@ impact scope）？架构没有明显恶化？obsolete 已清或已记 Follow-up�
 REQ / Change Record 已更新到终态？临时 prototype 已清除或已正式化？
 全部是 → 按 AGENTS.md §22 提交（commit 不必问；push/merge 必须用户明确要求）。
 
+提交完成后做一次 Post-Use Feedback（`skill-evolution` Skill 的 Fast Loop：
+两次脚本调用 + 一条 50–150 字反馈，不做深度分析，不改任何 Skill）。
+
 ## v0.2 预留（现在不做）
 
 部署编排、发布自动化、secrets 管理、安全/可观测框架、企业审批流、
