@@ -42,6 +42,19 @@
             "tests/tooling/test_auto_push_tooling.py"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "4e36bb77be64c0955b75fb4439e589349a8d40f0",
+          "subject": "fix(skill): auto-push v0.1.1 补审轮 —— 拒登 merge 的守卫移到去重之前（只盖新登记盖不住存量），去重早退补回写提醒（TASK-101，codex 2 轮：轮1 1 P1+1 P2 已修 1 驳回，轮2 pass）",
+          "time": "2026-08-23T01:03:49+00:00",
+          "branch": "change/TASK-101-autopush-v011",
+          "pushed": false,
+          "files": [
+            ".claude/skills/auto-push/scripts/autopush.py",
+            "docs/design/pending-codex-rereview.md",
+            "tests/tooling/test_auto_push_tooling.py"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
