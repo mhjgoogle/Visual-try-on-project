@@ -55,10 +55,19 @@
           "branch": "change/TASK-103-frontback-ui-residuals",
           "pushed": false,
           "scope_violation": null
+        },
+        {
+          "hash": "c040eab7127659c740916a0fb5d9524690943b1c",
+          "subject": "chore(skill-evolution): 记 codex-review-loop 的轮次协议实测证据（TASK-103，5 轮）",
+          "time": "2026-08-23T01:27:08+00:00",
+          "branch": "change/TASK-103-frontback-ui-residuals",
+          "pushed": false,
+          "scope_violation": null
         }
       ],
       "paths": [
         "docs/design/creator-system-contract.md",
+        "docs/skill-evolution/",
         "docs/tasks/TASK-068-legacy-agent-endpoints-to-runtime.md",
         "docs/tasks/TASK-087-followup-ledger.md",
         "docs/tasks/TASK-103-frontback-and-ui-residuals.md",
@@ -77,7 +86,7 @@
       ],
       "verification": "PASS",
       "verification_ref": "",
-      "declared": "2026-08-22T16:15:15+00:00"
+      "declared": "2026-08-23T01:26:56+00:00"
     }
   },
   "merge_gate": {
