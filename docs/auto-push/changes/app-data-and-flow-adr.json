@@ -7,7 +7,47 @@
   "chain_mode": false,
   "tasks": {
     "TASK-056": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "2287fd2d1638a741afd19ecda59ecbc95af74b47",
+          "subject": "feat(TASK-056): 账户级注册表移出仓库 —— projects.json / runs.json 进应用数据目录",
+          "time": "2026-08-23T10:09:34+00:00",
+          "branch": "change/TASK-056-app-data-location",
+          "pushed": false,
+          "files": [
+            "docs/adr/ADR-0053-project-rooted-studio-storage.md",
+            "docs/auto-push/changes/app-data-and-flow-adr.json",
+            "docs/design/creator-system-contract.md",
+            "docs/implementation_plan.md",
+            "docs/project-context.md",
+            "docs/tasks/active/TASK-056-app-storage-location.md",
+            "docs/tasks/active/TASK-072-system-contract-and-persistent-runs.md",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "docs/tasks/done/TASK-055-project-rooted-storage.md",
+            "docs/tasks/done/TASK-056-app-storage-location.md",
+            "mockups/motv-workspace/runstore.py",
+            "mockups/motv-workspace/server.py",
+            "src/ui-gap-audit/reports/current-capabilities.md",
+            "tests/conftest.py",
+            "tests/e2e/test_motv_task048_e2e.py",
+            "tests/studio/test_motv_app_data_location_task056.py",
+            "tests/studio/test_motv_av_m11.py",
+            "tests/studio/test_motv_breakdown_assets_task094.py",
+            "tests/studio/test_motv_canvas_persistence_m1.py",
+            "tests/studio/test_motv_episode_plan_task094.py",
+            "tests/studio/test_motv_mix_hardening_task074.py",
+            "tests/studio/test_motv_motion_preview_task098.py",
+            "tests/studio/test_motv_project_create_api.py",
+            "tests/studio/test_motv_project_storage.py",
+            "tests/studio/test_motv_runs_api_task072.py",
+            "tests/studio/test_motv_script_slice_e2e.py",
+            "tests/studio/test_motv_skillendpoints_task075.py",
+            "tests/studio/test_motv_story_outline_task094.py",
+            "tests/studio/test_motv_two_modes_task094.py"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/adr/ADR-0053-project-rooted-studio-storage.md",
         "docs/design/creator-system-contract.md",
@@ -28,6 +68,24 @@
       "verification": "PASS",
       "verification_ref": "两阶段 pytest 3376+6 · node --test 1807 · ruff 全绿 · codex-review-loop 4 轮，轮4 pass（codex）",
       "declared": "2026-08-23T10:04:28+00:00"
+    },
+    "TASK-083": {
+      "commits": [],
+      "paths": [
+        "docs/adr/ADR-0071-reference-inputs-as-an-ordered-set.md",
+        "docs/adr/ADR-0074-character-from-image.md",
+        "docs/adr/ADR-0075-camera-motion-presets.md",
+        "docs/adr/ADR-0084-project-flow-template-as-a-package.md",
+        "docs/tasks/active/TASK-083-phase3-adrs-first.md",
+        "docs/tasks/active/TASK-105-flow-template-first-slice.md",
+        "docs/tasks/done/TASK-083-phase3-adrs-first.md",
+        "docs/tasks/done/TASK-093-one-canvas-per-shot.md",
+        "docs/tasks/done/TASK-097-episode-production-chain.md",
+        "docs/tasks/done/TASK-103-frontback-and-ui-residuals.md"
+      ],
+      "verification": "PASS",
+      "verification_ref": "纯文档/ADR 决策：全仓 md 断链检查 0 条 · tests/tooling 152 全绿 · 按 ADR-0081 纯文档不调审查",
+      "declared": "2026-08-23T10:09:48+00:00"
     }
   },
   "merge_gate": {

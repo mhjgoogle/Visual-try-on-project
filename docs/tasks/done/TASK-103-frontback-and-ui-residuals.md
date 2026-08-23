@@ -6,7 +6,7 @@
 - 权威范围来源：
   [创作者系统合同 §7](../../design/creator-system-contract.md)（前后端交互原则，冻结）·
   [TASK-087 总账](../active/TASK-087-followup-ledger.md) §1.2 / §4.2 / §4.3 / §5 ·
-  [TASK-083 §5.1–5.2 与 §6 执行顺序](../active/TASK-083-phase3-adrs-first.md)
+  [TASK-083 §5.1–5.2 与 §6 执行顺序](TASK-083-phase3-adrs-first.md)
 - 验收环境：**真实 Connected Project `照见未明rev2`**（AGENTS.md 第 20 条）
 
 ## 0. 开工前的事实核对（2026-08-22，合并后的 `main` 上实测）

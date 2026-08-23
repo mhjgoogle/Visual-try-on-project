@@ -7,7 +7,7 @@
 - **生效的报价口径（方案 C）**：**只支持「多图不额外计费」的 provider**；
   其余在 catalog 里标 `max: 0` 并 **fail-closed 拒绝**，我们**不替 provider 算钱**。
   可用面因此最窄 —— 这是产品负责人接受的代价。
-- 实施：[TASK-083](../tasks/active/TASK-083-phase3-adrs-first.md) ADR-A
+- 实施：[TASK-083](../tasks/done/TASK-083-phase3-adrs-first.md) ADR-A
 - 依据：[UI Gap Audit](../../src/ui-gap-audit/) GAP-27 / GAP-28
 - 相关：[ADR-0041](ADR-0041-workspace-generation-write-path.md)（packet-only 两步提交）、
   [ADR-0061](ADR-0061-creator-ia-and-automated-episode-production.md) 决策 4（八个参考角色 /

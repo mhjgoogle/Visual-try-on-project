@@ -8,7 +8,7 @@
 - **前置：[TASK-094](TASK-094-story-development-chain.md) 整条链完成**
   —— 向导第 ① 步要吃分集规划的内容，那个形状是 094 定的
 - 详细规格：[TASK-092](TASK-092-shot-workflow-multi-stage.md) ·
-  [TASK-083](../active/TASK-083-phase3-adrs-first.md) ADR-A ·
+  [TASK-083](TASK-083-phase3-adrs-first.md) ADR-A ·
   [TASK-093](TASK-093-one-canvas-per-shot.md) ·
   [TASK-095](TASK-095-episode-production-wizard.md) ·
   [TASK-096](TASK-096-post-video-three-steps.md)

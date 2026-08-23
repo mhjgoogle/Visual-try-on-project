@@ -1,10 +1,15 @@
 # TASK-083：Phase 3 —— 先落 ADR，再谈实现
 
-- 状态：**过半已完成（2026-08-23 复查）—— ~~未开工~~ 是过期状态**。逐项核实：
+- 状态：**四个 ADR 全部已定，本卡收口（2026-08-23）**。ADR-A/B/C 已定且已实施，
+  ADR-D 于本日定案 → [ADR-0084](../../adr/ADR-0084-project-flow-template-as-a-package.md)
+  （Accepted，实施 Agent 自行 Accept —— 不涉付费、不动用户数据）。
+  **本卡的交付是「ADR + 对应实现批次」，ADR-D 的实现按其「实施」节另立卡**，
+  这与 ADR-A/B/C 的实现落在 TASK-097 各批次是同一种安排。
+  逐项核实（2026-08-23 复查记录，保留）：
   **ADR-A 已定且已实施** → [ADR-0071](../../adr/ADR-0071-reference-inputs-as-an-ordered-set.md)
   （Accepted 2026-08-17，其头部就写着「实施：TASK-083 ADR-A」；付费口径由产品负责人
   拍板方案 C），实现落在 TASK-097 批次 0/2。
-  **§5.1 评价闭环接线** → 已由 [TASK-103](../done/TASK-103-frontback-and-ui-residuals.md) 批次 B 完成。
+  **§5.1 评价闭环接线** → 已由 [TASK-103](TASK-103-frontback-and-ui-residuals.md) 批次 B 完成。
   **§5.2 后端媒体探针路由** → 已由 TASK-103 批次 C 完成。
   **ADR-B 已定且已实施** → [ADR-0075](../../adr/ADR-0075-camera-motion-presets.md)
   （Accepted 2026-08-18），实现 TASK-097 批次 3。**注意它只覆盖运镜** ——
@@ -13,10 +18,10 @@
   与「复制一段文本」的运镜预设不是同一类东西。
   **ADR-C 已定且已实施** → [ADR-0074](../../adr/ADR-0074-character-from-image.md)
   （Accepted 2026-08-18），实现 TASK-097 批次 3。
-  **本卡真正剩下的只有 ADR-D（项目 / 流程模板）** —— 无 ADR、无代码，
-  全仓只有审计报告提到它
+  ~~**本卡真正剩下的只有 ADR-D（项目 / 流程模板）** —— 无 ADR、无代码，
+  全仓只有审计报告提到它~~ → **已定**，见上。
 - 负责 Agent：单一实施 Agent（AGENTS.md 第 14 条）
-- 依据：[UI Gap Audit](../../src/ui-gap-audit/) GAP-05 / 16 / 17 / 21 / 23 / 27 / 28，
+- 依据：[UI Gap Audit](../../../src/ui-gap-audit/) GAP-05 / 16 / 17 / 21 / 23 / 27 / 28，
   [ui-correction-plan.md](../../../src/ui-gap-audit/reports/ui-correction-plan.md) Phase 3
 - **前置：TASK-082 已完成并提交**
 - 验收环境：**真实 Connected Project `照见未明rev2`**
@@ -161,11 +166,25 @@ body = { model, prompt, duration, resolution, first_frame_image? }
 与 Skill 包（ADR-0067 三件套 + 三级来源）的关系 —— **是同一个机制的扩展，
 还是第二套？** 我倾向前者，但由 ADR 定。
 
+> **已定（2026-08-23）** → [ADR-0084](../../adr/ADR-0084-project-flow-template-as-a-package.md)
+>
+> - **扩展，不是第二套**：模板是 `kind: "flow"` 的包，三件套与 Skill 同构
+>   （`manifest.json` / `flow.md` / `seed.json`），复用同一套三级来源、digest、
+>   「被引用过的版本不得原地覆盖」与 fail-closed 加载 —— 那四件事对模板逐条同样必要。
+> - **带结构不带内容**（硬边界）：步骤顺序 + 每步的 `(skillId, skillVersion)` +
+>   项目层约定 + 空骨架；**不**带媒体字节、不带 Asset/Generation 登记、不带 Run、
+>   不带剧本/角色/世界观的内容。
+> - **套用模板不获得付费/定稿/锁定/导出**（ADR-0066 决策 6 四条禁令落到模板层）。
+> - **`steps[]` 引用了本机没有的能力 → fail-closed 并指名道姓**，不静默跳过。
+> - **「复制项目」是另一件事**，本 ADR 不定它 —— 两者不得共用一个词。
+>
+> **实现另立卡**（ADR-0084「实施」节给了第一刀的切法）。
+
 ## 5. 不需要 ADR、可以直接排的两条
 
 ### 5.1 评价 / 反馈 / 行动闭环接进 Studio（GAP-05）
 
-> **已闭合（2026-08-23 复查）** —— [TASK-103](../done/TASK-103-frontback-and-ui-residuals.md)
+> **已闭合（2026-08-23 复查）** —— [TASK-103](TASK-103-frontback-and-ui-residuals.md)
 > 批次 B：四个 LOW-risk 命令从 `workspace_shell` 抽成共享缝并在 Studio 注册，
 > 审片「✓通过/撤销」经网关落核心。`workspace_shell` 的去留也在该卡内决定。
 
