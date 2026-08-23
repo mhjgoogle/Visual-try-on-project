@@ -261,8 +261,8 @@
         "docs/adr/"
       ],
       "verification": "PASS",
-      "verification_ref": "最终全量：两阶段 pytest 3383+6 · node --test 1808 · ruff check/format 全绿 · 全仓 md 断链 0；纯治理文档改动，按 ADR-0081 不调审查",
-      "declared": "2026-08-23T23:06:41+00:00"
+      "verification_ref": "premerge-sync 之后在新 tip 上重跑最终全量：pytest 3383 + 6 · node --test 1808 · ruff check/format 全绿",
+      "declared": "2026-08-23T23:25:12+00:00"
     }
   },
   "merge_gate": {
@@ -272,5 +272,8 @@
     "tip": "2991078f82c7102e27929cfb22708a81b2a9dbf0"
   },
   "merge": null,
-  "cleanup": null
+  "cleanup": null,
+  "sync_commits": [
+    "cd9153a2e7ac3b79bd82157c0843e47ce5e12b5e"
+  ]
 }
