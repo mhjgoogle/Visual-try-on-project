@@ -1,6 +1,6 @@
 # TASK-040：AI 短剧工作流与 Creation Workspace 最终统一验收
 
-> **状态：Evidence Ready — 等用户签字（2026-08-04）。** 最终产品 milestone gate；
+> **状态：Evidence Ready — 等用户一句话确认（2026-08-04）。** 最终产品 milestone gate；
 > TASK-037（WFM2 gate，证据已备齐等签字）、TASK-038/039 已实现过审。本任务不新增
 > 功能，只备齐最终联合验收证据：`tests/test_final_unified_acceptance.py`（闭环
 > 目标→运行→观察→评价/Action→复盘→学习/复用 + 跨切面不变量）+

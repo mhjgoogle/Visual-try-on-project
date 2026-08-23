@@ -197,10 +197,12 @@ ADR-0051 / 0052 / 0053 / 0064 / 0065 / 0066 六个，现全部 Accepted）。
 - **已退役（3 张）**：TASK-051 / 051A / 051B。界面归属被 ADR-0066 的固定十一页 IA
   重新裁定、由 TASK-073 承接实施（证据：`src/ui/shell.js` 的 `PAGES` 就是那个封闭集），
   它们的「待视觉验收」**已经没有对象**。
-- **实现已完成、只欠产品签字（6 张）**：TASK-049 已达成并被 ADR-0062 超越（Windows
-  CI job 已是权威）；TASK-057/058/059/060/062 的 canvas 迁移 v9→v10→v11→v12→v13→v14
-  逐级在位且迁移注释直接署名对应任务卡，当前 `CANVAS_SCHEMA_VERSION = 18`。
-  **未代签的是**各卡验收清单里「在真实 Connected Project 上逐条确认」那部分。
+- **实现已完成（6 张）**：TASK-049 已达成并被 ADR-0062 超越（Windows CI job 已是
+  权威）；TASK-057/058/059/060/062 的 canvas 迁移 v9→v10→v11→v12→v13→v14 逐级在位
+  且迁移注释直接署名对应任务卡，当前 `CANVAS_SCHEMA_VERSION = 18`。
+  各卡验收清单里**尚未在真实项目上被看过**的条目逐条列在卡内 —— 按
+  [ADR-0082](adr/ADR-0082-no-signoff-gate-on-task-cards.md) 那是**信息，不是闸门**，
+  不阻塞收口。
 
 下表保留原始记录（复查结论见各卡状态头）：
 
@@ -210,13 +212,13 @@ ADR-0051 / 0052 / 0053 / 0064 / 0065 / 0066 六个，现全部 Accepted）。
 | [TASK-051](tasks/TASK-051-production-studio-ui-convergence.md) | ~~进行中~~ → **已退役**（被 ADR-0066 固定 IA / TASK-073 取代） | —— |
 | [TASK-051A](tasks/TASK-051A-ai-director-production-control-tower.md) | ~~进行中~~ → **已退役**（内容被 TASK-073 §1.4 承接） | —— |
 | [TASK-051B](tasks/TASK-051B-landing-and-new-project.md) | ~~进行中~~ → **已退役**（剩余由 TASK-053 / 055 承接） | —— |
-| [TASK-057](tasks/TASK-057-production-upstream-workspace.md) | ~~进行中~~ → **实现已完成**，只欠真实项目签字 | ADR-0054 Accepted |
-| [TASK-058](tasks/TASK-058-asset-registration-foundation.md) | ~~进行中~~ → **实现已完成**，只欠真实项目签字 | ADR-0055 Accepted |
-| [TASK-059](tasks/TASK-059-local-ai-runtime-and-film-skills.md) | ~~进行中~~ → **实现已完成**，只欠真实项目签字 | ADR-0056 Accepted |
-| [TASK-060](tasks/TASK-060-shot-production-and-dailies.md) | ~~进行中~~ → **实现已完成**，只欠真实项目签字 | ADR-0057 Accepted |
-| [TASK-062](tasks/TASK-062-integration-production-graph.md) | ~~进行中~~ → **实现已完成**，只欠真实项目签字 | ADR-0059 Accepted |
+| [TASK-057](tasks/TASK-057-production-upstream-workspace.md) | ~~进行中~~ → **已完成**（ADR-0082 收口；未走过的验收项列在卡内，是信息不是闸门） | ADR-0054 Accepted |
+| [TASK-058](tasks/TASK-058-asset-registration-foundation.md) | ~~进行中~~ → **已完成**（ADR-0082 收口；未走过的验收项列在卡内，是信息不是闸门） | ADR-0055 Accepted |
+| [TASK-059](tasks/TASK-059-local-ai-runtime-and-film-skills.md) | ~~进行中~~ → **已完成**（ADR-0082 收口；未走过的验收项列在卡内，是信息不是闸门） | ADR-0056 Accepted |
+| [TASK-060](tasks/TASK-060-shot-production-and-dailies.md) | ~~进行中~~ → **已完成**（ADR-0082 收口；未走过的验收项列在卡内，是信息不是闸门） | ADR-0057 Accepted |
+| [TASK-062](tasks/TASK-062-integration-production-graph.md) | ~~进行中~~ → **已完成**（ADR-0082 收口；未走过的验收项列在卡内，是信息不是闸门） | ADR-0059 Accepted |
 
-这 9 张**不阻塞 TASK-072**：它们的决策已 Accepted、实现已在基线内，缺的只是签字。
+这 9 张**不阻塞 TASK-072**：它们的决策已 Accepted、实现已在基线内。~~缺的只是签字。~~ —— 签字闸已由 [ADR-0082](adr/ADR-0082-no-signoff-gate-on-task-cards.md) 废除；六张已按其决策 2 收口，三张退役。
 TASK-051 / 051A / 051B 的界面归属另有一层——它们大部分被
 [ADR-0066](adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)
 的固定 IA 取代，收口时应连同「被 TASK-073 取代」一并裁决，而不是简单标记已验收。

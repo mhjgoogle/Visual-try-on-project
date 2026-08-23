@@ -45,12 +45,19 @@ AI_VIDEO_WORKFLOW_REAL_TOOLS=1 python -m pytest tests/test_av_ffmpeg_smoke.py -q
 | 无孤儿谱系，历史/未选候选保留 | E2E 全产物 load 重解析通过；index create-only 版本化 |
 | 未接付费 API | 全离线打桩；真实 ffmpeg 仅 skipif |
 
-## 5. 用户签字栏（里程碑 PASS 属用户）
+## 5. WFM2 里程碑 PASS（属用户，一句话即可）
 
-> 以下由用户填写。实施 Agent 已备齐全部证据，不代判 PASS。
+> 实施 Agent 已备齐全部证据，不代判 PASS。
+> **形式：一句话，不是表格**（[ADR-0082](../adr/ADR-0082-no-signoff-gate-on-task-cards.md)
+> 决策 3）。里程碑 PASS 仍归用户判定 —— 它是对整个产品的声明 —— 但说一句
+> 「这个可以了」即成立，由 Agent 记录原话与日期。原先的 `签字：____ 日期：____`
+> 表格已取消：AGENTS.md §1 禁止「要用户离开对话手动操作」的机制。
+>
+> 下面的清单是**给用户看的证据索引**，不是要他逐项打勾的表单。
 
 - [ ] 已运行 §2 自动化证据并通过（全量 pytest + ruff）。
 - [ ] 已审阅 [追踪矩阵](wfm2-acceptance-traceability.md) 与 §4 标准映射。
 - [ ] 认可 [追踪矩阵 §4 已知限制](wfm2-acceptance-traceability.md)（合同层交付、
       自算 digest、无付费 API、M1 链复用）。
-- [ ] **WFM2 里程碑：PASS / 需返工（圈选）**，签字：________ 日期：________
+- **WFM2 里程碑**：由用户一句话裁定 PASS 或需返工；Agent 记录原话与日期。
+  ~~PASS / 需返工（圈选），签字：________ 日期：________~~（表格形态已按 ADR-0082 决策 3 取消）

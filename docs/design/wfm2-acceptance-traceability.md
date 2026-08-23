@@ -67,4 +67,4 @@
 WFM2 各层（创意锁定、多媒体资产、音画混流、正式后期/QC/发布/复盘合同）均已实现、
 独立测试并在 `test_wfm2_e2e_acceptance.py` 中证明可组合，跨面谱系、事实域分离与
 缺失语义成立。里程碑「验收标准勾选」属用户，见
-[WFM2 验收 runbook](wfm2-acceptance-runbook.md) §5 签字栏。
+[WFM2 验收 runbook](wfm2-acceptance-runbook.md) §5（里程碑 PASS，一句话即可）。

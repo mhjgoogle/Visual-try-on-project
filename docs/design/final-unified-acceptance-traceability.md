@@ -62,4 +62,4 @@
 两份顶层需求的核心闭环（目标→运行→观察→评价→Action→复盘→学习→复用）已由 Accepted
 ADR、实现与测试贯通并有证据；跨切面不变量（唯一写入者/可重建/fail-closed/缺失语义/
 跨项目复用/人工优先）均有针对性验收。最终里程碑「验收标准勾选」属用户，见
-[最终验收 runbook](final-unified-acceptance-runbook.md) §5 签字栏。
+[最终验收 runbook](final-unified-acceptance-runbook.md) §5（里程碑 PASS，一句话即可）。
