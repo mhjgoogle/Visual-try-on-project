@@ -107,7 +107,10 @@
     }
   },
   "merge_gate": {
-    "status": "PENDING"
+    "status": "PASS",
+    "by": "产品负责人 2026-08-23：「合并并收口」",
+    "time": "2026-08-23T02:12:38+00:00",
+    "tip": "0025f9943c3cdfb6f5719c981041f11f83d9e234"
   },
   "merge": null,
   "cleanup": null
