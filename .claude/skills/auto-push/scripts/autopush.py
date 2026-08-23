@@ -797,22 +797,14 @@ def record_commit(
     if proc.returncode != 0:
         raise AutoPushError(f"'{ref}' is not a commit")
     target = proc.stdout.strip()
-    # 一个提交一个主人：跨 task 的重复登记会造出互相矛盾的所有权/验证/
-    # 推送状态（codex v0.1.1 复审，blocking #3）——去重范围是整个清单。
-    for tid, tdata in manifest["tasks"].items():
-        for commit in tdata.get("commits", []):
-            if commit["hash"] == target:
-                if tid == task:
-                    return {"status": "OK", "hash": target, "already_recorded": True}
-                return _blocked(
-                    "BLOCKED_ALREADY_OWNED",
-                    f"commit is already recorded under task '{tid}' — one "
-                    "commit, one owner",
-                    hash=target,
-                )
     # merge commit 不是 task commit：diff-tree 无 -m 对 merge 输出为空，
     # files=[] 会让越界现算永远为空（codex v0.1.1 复审，blocking #2）。
     # merge 的合法归属通道是 record-sync / premerge-sync 的登记。
+    #
+    # **这一关必须排在去重之前。** v0.1 没有本关，它登记下来的 merge 条目
+    # 正带着那个空的 files=[]；把去重放前面，重跑 record-commit 会走早退答
+    # OK，那条永久失明的记录就被放行了——守卫只盖住新登记、盖不住存量
+    # （codex v0.1.1 补审，blocking）。
     parents = _git(root, "show", "-s", "--format=%P", target).stdout.split()
     if len(parents) > 1:
         return _blocked(
@@ -821,6 +813,29 @@ def record_commit(
             "record-sync instead",
             hash=target,
         )
+    # 一个提交一个主人：跨 task 的重复登记会造出互相矛盾的所有权/验证/
+    # 推送状态（codex v0.1.1 复审，blocking #3）——去重范围是整个清单。
+    for tid, tdata in manifest["tasks"].items():
+        for commit in tdata.get("commits", []):
+            if commit["hash"] == target:
+                if tid == task:
+                    # 回写提醒在这条路径上同样要给：漏掉它，重跑一次
+                    # record-commit 就把待回写的尾巴藏起来了，而这个提醒
+                    # 本就是为「不 push 的合法流程」加的（codex v0.1.1
+                    # 补审，non-blocking）。
+                    return {
+                        "status": "OK",
+                        "hash": target,
+                        "already_recorded": True,
+                        "writeback_needed": True,
+                        "writeback_commands": _writeback_commands(change),
+                    }
+                return _blocked(
+                    "BLOCKED_ALREADY_OWNED",
+                    f"commit is already recorded under task '{tid}' — one "
+                    "commit, one owner",
+                    hash=target,
+                )
     subject = _git(root, "show", "-s", "--format=%s", target).stdout.strip()
     files = _commit_files(root, target)
     entry = {

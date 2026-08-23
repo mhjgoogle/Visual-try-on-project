@@ -16,6 +16,7 @@ N（merge 未上远端不删分支）。M（semantic conflict 归 dev-workflow�
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 from pathlib import Path
 
@@ -452,6 +453,50 @@ def test_record_commit_refuses_merge_commits(rig: dict) -> None:
     assert blocked["status"] == "BLOCKED_MERGE_COMMIT"
 
 
+def test_record_commit_refuses_ALREADY_RECORDED_merge_commits(rig: dict) -> None:
+    """v0.1.1 补审 P1：拒登 merge 这一关必须排在去重早退之前。
+
+    v0.1 没有这一关，它登记下来的 merge 条目带着空的 files=[]，越界现算对
+    它永久失明。守卫若排在去重之后，重跑 record-commit 会走 already_recorded
+    早退答 OK，那条存量记录就被放行——守卫只盖新登记、盖不住存量。
+    """
+
+    work, other = rig["work"], rig["other"]
+    _new_change(work)
+    _declare(work, "CHG-1", "TASK-001", ["app.py"])
+    (work / "app.py").write_text("mine\n", "utf-8")
+    ap.stage(work, "CHG-1", "TASK-001", "mine")
+    _g(work, "commit", "-m", "mine（TASK-001 · CHG-1）")
+    ap.record_commit(work, "CHG-1", "TASK-001")
+    _g(work, "add", "-A", "--", "docs/auto-push")
+    _g(work, "commit", "-m", "chore(auto-push): 回写")
+    (other / "mainline.txt").write_text("main moved\n", "utf-8")
+    _commit_all(other, "main moves on")
+    _g(other, "push", "origin", "main")
+    merged = ap.premerge_sync(work, "CHG-1")["merged"]
+
+    # v0.1 时代的既成事实：merge 已经躺在 task 名下，files=[] 恒空。
+    rel = work / "docs" / "auto-push" / "changes" / "CHG-1.json"
+    data = json.loads(rel.read_text("utf-8"))
+    data["tasks"]["TASK-001"]["commits"].append(
+        {
+            "hash": merged,
+            "subject": "legacy merge recorded by v0.1",
+            "time": "2026-08-22T00:00:00+00:00",
+            "branch": "change/CHG-1-demo",
+            "pushed": False,
+            "files": [],
+            "scope_violation": None,
+        }
+    )
+    rel.write_text(json.dumps(data, ensure_ascii=False, indent=2), "utf-8")
+
+    blocked = ap.record_commit(work, "CHG-1", "TASK-001", commit_hash=merged)
+    assert blocked["status"] == "BLOCKED_MERGE_COMMIT", (
+        "存量 merge 条目重跑时必须仍被拒，不得被去重早退放行"
+    )
+
+
 def test_record_commit_refuses_double_ownership(rig: dict) -> None:
     """v0.1.1 复审 P1：同一 hash 不得在两个 task 下重复登记。"""
 
@@ -468,6 +513,9 @@ def test_record_commit_refuses_double_ownership(rig: dict) -> None:
     assert blocked["status"] == "BLOCKED_ALREADY_OWNED"
     again = ap.record_commit(work, "CHG-1", "TASK-001")
     assert again["status"] == "OK" and again["already_recorded"]
+    # v0.1.1 补审 non-blocking：早退漏掉回写提醒，重跑一次就把尾巴藏了。
+    assert again["writeback_needed"] is True
+    assert len(again["writeback_commands"]) == 2
 
 
 def test_record_commit_reports_writeback_debt(rig: dict) -> None:
