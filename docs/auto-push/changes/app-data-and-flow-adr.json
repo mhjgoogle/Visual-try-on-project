@@ -241,7 +241,7 @@
           "subject": "docs(ADR-0085): merge 到 main 不再是人工闸 —— 前置条件一条不少，只是没人再点头",
           "time": "2026-08-23T23:07:56+00:00",
           "branch": "change/TASK-056-app-data-location",
-          "pushed": false,
+          "pushed": true,
           "files": [
             ".claude/skills/auto-push/SKILL.md",
             ".claude/skills/auto-push/references/merge-and-conflicts.md",
@@ -266,7 +266,10 @@
     }
   },
   "merge_gate": {
-    "status": "PENDING"
+    "status": "PASS",
+    "by": "ADR-0085 依据：Done 判定全部成立；最终全量通过（两阶段 pytest 3383+6 · node --test 1808 · ruff check/format · 全仓 md 断链 0）；无未闭合 P1（TASK-056 轮4 pass、TASK-073 轮1 pass、TASK-087 按 ADR-0081 §2b 显式 ship）；待复审清单已查，仍然待办只剩 POSIX parent-death 一条且状态是记录。产品负责人 2026-08-24「合并。这个也不需要保留人工」",
+    "time": "2026-08-23T23:13:41+00:00",
+    "tip": "2991078f82c7102e27929cfb22708a81b2a9dbf0"
   },
   "merge": null,
   "cleanup": null
