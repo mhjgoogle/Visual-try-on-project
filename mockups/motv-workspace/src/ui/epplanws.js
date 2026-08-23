@@ -23,7 +23,7 @@ import { UPSTREAM_STATE_LABEL } from "../workflow/canondoc.js";
 import { head, empty } from "./shell.js";
 import { bindField, restoreFieldFocus } from "./fieldsync.js";
 import { reviewText, reviewList, notRunYet, written } from "./reviewface.js";
-import { effectivePlanEpisodes, planEditBase, planDirty, planDraftVersions, nextPlanVersion } from "../workflow/storydoc.js";
+import { effectivePlanEpisodes, planEditBase, planDirty, planDraftVersions, nextPlanVersion, planAddress } from "../workflow/storydoc.js";
 import { liveEpisodes } from "../workflow/proddoc.js";
 
 const code = (i) => `EP${String(i + 1).padStart(2, "0")}`;
@@ -118,9 +118,15 @@ export function episodePlanModel(pd, story, impactOf) {
       code: `EP${String(entry.epNumber).padStart(2, "0")}`,
       epNumber: entry.epNumber,
       episodeId: entry.episodeId || null,
-      // 「这一行还没有对应的剧集实体」 — an unconfirmed plan entry. It is NOT
-      // editable (every plan edit is addressed by episodeId) and it has nowhere to
-      // enter, so the row says so instead of offering controls that refuse.
+      // WHERE AN EDIT TO THIS ROW GOES (TASK-103 批次 D / TASK-087 §5.8). A
+      // confirmed row is addressed by `episodeId`; an unconfirmed one has none and
+      // is addressed by 「本版第 N 集」. Encoded by the DOMAIN (`planAddress`), so
+      // the screen and the write path cannot disagree about what a row is called.
+      address: planAddress(entry),
+      // 「这一行还没有对应的剧集实体」 — an unconfirmed plan entry. Its CONTENT is
+      // editable all the same: the creator is reading an AI-written plan and the
+      // natural next move is to correct it before confirming. What it still does
+      // not have is somewhere to ENTER — that arrives with the episode entity.
       linked: !!ep,
       title: entry.title,
       entity: ep,
@@ -427,10 +433,16 @@ export const PLAN_COLUMNS = [
 ];
 
 /** Which list rows the creator has explicitly opened for hand entry, per cell.
- *  Transient shell state: `ui.planOpen["<episodeId>:<field>"] = [index, …]`. */
-function openedRows(ui, episodeId, field) {
+ *  Transient shell state: `ui.planOpen["<address>:<field>"] = [index, …]`.
+ *
+ *  KEYED BY THE SAME ADDRESS THE WRITE USES (codex round 2). The read used
+ *  `episodeId` while the button's `data-rf-add` had already moved to
+ *  `row.address`, so on unconfirmed rows the two sides keyed different things —
+ *  and every unconfirmed row shared the key `null:<field>`, i.e. opening a hand-
+ *  entry row on one of them opened it on all of them. */
+function openedRows(ui, address, field) {
   const all = ui.planOpen || {};
-  const list = all[`${episodeId}:${field}`];
+  const list = all[`${address}:${field}`];
   return Array.isArray(list) ? list : [];
 }
 
@@ -455,7 +467,7 @@ function legacyNote(row, field, label) {
   return (
     `<div class="ept-legacy"><span class="chip mute" title="这一版规划写在旧字段里；让 AI 改一次就会拆成新的结构">${esc(label)}</span>` +
     `<textarea class="rf-t" rows="3" spellcheck="false" ` +
-    `data-plan-edit="${esc(row.episodeId)}" data-field="${field}">${esc(value)}</textarea></div>`
+    `data-plan-edit="${esc(row.address)}" data-field="${field}">${esc(value)}</textarea></div>`
   );
 }
 
@@ -463,9 +475,9 @@ function legacyNote(row, field, label) {
 function listCell(ui, row, field, opts) {
   return reviewList(opts.label, row.plan[field], {
     rowAttrs: (i) =>
-      `class="rf-i" data-plan-item="${esc(row.episodeId)}" data-field="${field}" data-i="${i}"`,
-    addAttrs: `data-rf-add="${esc(row.episodeId)}" data-field="${field}"`,
-    open: openedRows(ui, row.episodeId, field),
+      `class="rf-i" data-plan-item="${esc(row.address)}" data-field="${field}" data-i="${i}"`,
+    addAttrs: `data-rf-add="${esc(row.address)}" data-field="${field}"`,
+    open: openedRows(ui, row.address, field),
     min: opts.min ?? null,
     max: opts.max ?? null,
     hint: opts.hint || "",
@@ -481,13 +493,13 @@ function listCell(ui, row, field, opts) {
 function beatsCell(m, ui, row) {
   const beats = row.plan.characterBeats;
   const known = new Set(m.characterOptions.map((c) => c.name));
-  const opened = openedRows(ui, row.episodeId, "characterBeats");
+  const opened = openedRows(ui, row.address, "characterBeats");
   const rows = beats
     .map((b, i) => ({ b, i }))
     .filter(({ b, i }) => written(b) || opened.includes(i))
     .map(({ b, i }) => {
       const f = (key, ph) =>
-        `<input class="rf-i" data-plan-beat="${esc(row.episodeId)}" data-i="${i}" data-key="${key}" ` +
+        `<input class="rf-i" data-plan-beat="${esc(row.address)}" data-i="${i}" data-key="${key}" ` +
         `placeholder="${esc(ph)}" value="${esc(typeof b[key] === "string" ? b[key] : "")}">`;
       // A NAME THAT MATCHES NO CHARACTER IS FLAGGED, NOT DROPPED. The capability
       // is told not to invent people; when it does anyway, silently discarding the
@@ -498,7 +510,7 @@ function beatsCell(m, ui, row) {
       return (
         `<div class="rf-row beat">${f("who", "谁")}${unknown}${f("change", "发生了什么变化")}` +
         f("relationChange", "关系怎么变（可空）") +
-        `<button class="btn sm ghost" data-rf-del="${esc(row.episodeId)}" data-field="characterBeats" ` +
+        `<button class="btn sm ghost" data-rf-del="${esc(row.address)}" data-field="characterBeats" ` +
         `data-i="${i}" title="移除这一行">✕</button></div>`
       );
     })
@@ -506,7 +518,7 @@ function beatsCell(m, ui, row) {
   return (
     `<div class="rf-l" data-rf-list="角色推进">` +
     (rows || `<div class="meta rf-none">AI 没有写这一项</div>`) +
-    `<button class="btn sm rf-add" data-rf-add="${esc(row.episodeId)}" data-field="characterBeats">＋ 加一个角色</button>` +
+    `<button class="btn sm rf-add" data-rf-add="${esc(row.address)}" data-field="characterBeats">＋ 加一个角色</button>` +
     `</div>`
   );
 }
@@ -518,7 +530,7 @@ function beatsCell(m, ui, row) {
 function endingCell(row) {
   const f = (field, label, ph) =>
     reviewText(label, row.plan[field], {
-      attrs: `data-plan-edit="${esc(row.episodeId)}" data-field="${field}"`,
+      attrs: `data-plan-edit="${esc(row.address)}" data-field="${field}"`,
       rows: 2,
       placeholder: ph,
       force: true,
@@ -526,34 +538,23 @@ function endingCell(row) {
   return f("endingBeat", "最后发生了什么", "这一集停在哪一下") + f("hook", "留下什么悬念", "推动下一集的那个问题");
 }
 
-/** One table row. Editable only when the entry is LINKED to an Episode entity —
- *  every plan edit is addressed by episodeId, so an unconfirmed entry has nothing
- *  to write to and says so rather than offering controls that refuse. */
-function planRow(m, ui, row) {
-  const ep = row.entity;
-  const cell = (field, ph, rows = 2) =>
-    reviewText("", row.plan[field], {
-      attrs: `data-plan-edit="${esc(row.episodeId)}" data-field="${field}"`,
-      rows,
-      placeholder: ph,
-      force: true,
-    });
-  if (!row.linked) {
-    return (
-      `<tr class="ept-row unlinked" data-eprow="${esc(String(row.epNumber))}">` +
-      `<td class="ept-ep"><span class="mono">${esc(row.code)}</span></td>` +
-      `<td colspan="${PLAN_COLUMNS.length - 1}"><b>${esc(row.title)}</b>` +
-      `<div class="meta">这一版还没确认，所以这一集还没有对应的剧集实体 ——` +
-      `上面「确认规划 v${esc(String(m.planBaseVersion))}」之后就能逐格修改，并进入这一集。</div></td>` +
-      `</tr>`
-    );
-  }
+/** 时长格。**一份定义，两种行共用** —— 与 `contentCells` 同一个理由。 */
+function durationCell(row) {
+  return reviewText("时长（仅偏离时填）", row.plan.duration, {
+    attrs: `data-plan-edit="${esc(row.address)}" data-field="duration"`,
+    placeholder: "例如 90 秒",
+    force: true,
+  });
+}
+
+/** 表格中间那几列 —— **已确认与未确认的行共用这一份定义**（TASK-103 批次 D）。
+ *
+ *  抽出来的理由不是省几行：两种行如果各写一套单元格，它们迟早会长歪 —— 加一个
+ *  facet 时有人只改了一边，于是未确认的行少一列而没有任何东西会报错。共用之后
+ *  「一行长什么样」只有一个答案，两种行的差别只剩它们真正的差别：能不能进入
+ *  这一集。 */
+function contentCells(m, ui, row, cell) {
   return (
-    `<tr class="ept-row${ep.active ? " on" : ""}" data-eprow="${esc(row.episodeId)}">` +
-    `<td class="ept-ep"><span class="mono">${esc(row.code)}</span>` +
-    (ep.active ? `<span class="chip ok" title="当前剧集">当前</span>` : "") +
-    (row.plan.duration ? `<div class="meta">${esc(row.plan.duration)}</div>` : "") +
-    `</td>` +
     `<td class="ept-title">${cell("title", "这一集叫什么", 1)}</td>` +
     `<td class="ept-goal">${cell("coreGoal", "这一集要完成的那一件事")}` +
     legacyNote(row, "purpose", "旧字段 · 戏剧功能") +
@@ -568,7 +569,59 @@ function planRow(m, ui, row) {
       label: "", addLabel: "加一条", placeholder: "观众这一集新知道了什么",
     })}</td>` +
     `<td class="ept-arc">${cell("emotionArc", "平静 → 紧张 → 冲突 → 转折", 2)}</td>` +
-    `<td class="ept-end">${endingCell(row)}</td>` +
+    `<td class="ept-end">${endingCell(row)}</td>`
+  );
+}
+
+/** One table row.
+ *
+ *  CONTENT is editable either way (TASK-103 批次 D / TASK-087 §5.8): a plan edit is
+ *  addressed by identity, and an entry with no `episodeId` yet answers to 「本版
+ *  第 N 集」 (`planAddress`). What an unconfirmed entry still lacks is somewhere to
+ *  ENTER — the episode entity does not exist until the version is confirmed — and
+ *  the row says exactly that instead of refusing the edits too. */
+function planRow(m, ui, row) {
+  const ep = row.entity;
+  const cell = (field, ph, rows = 2) =>
+    reviewText("", row.plan[field], {
+      attrs: `data-plan-edit="${esc(row.address)}" data-field="${field}"`,
+      rows,
+      placeholder: ph,
+      force: true,
+    });
+  if (!row.linked) {
+    // EDITABLE, and honest about what it still lacks (TASK-103 批次 D / §5.8)。
+    //
+    // 之前这里是一整行 colspan 的说明文字，理由是「每次规划编辑都按 episodeId
+    // 寻址」—— 那是**实现约束**，不是产品意图。创作者面对的是 AI 写出来的一版
+    // 规划，下一步本来就是先改再确认；把改的能力推迟到确认之后，等于逼他先
+    // 接受一版他还不同意的东西。
+    //
+    // 现在内容照常逐格改，走的是**同一套单元格**（`contentCells`），写的也是
+    // 同一份未版本化草稿 —— 不是给未确认行另开一条路径。缺的只剩「进入这一集」，
+    // 因为剧集实体确实还不存在，那一句留着。
+    return (
+      `<tr class="ept-row unlinked" data-eprow="${esc(String(row.epNumber))}">` +
+      `<td class="ept-ep"><span class="mono">${esc(row.code)}</span>` +
+      `<span class="chip mute" title="确认这一版规划后才会建立剧集实体">未确认</span>` +
+      // 时长在已确认的行里住在 `<details>` 折叠里（它只在偏离统一时长时才填）。
+      // 未确认的行没有那个折叠 —— 第一版就把它渲染成了只读文字，于是这一格成了
+      // 「说能改、其实不能改」的那一列（codex 轮 4，P1）。给它同一个编辑器。
+      durationCell(row) +
+      `</td>` +
+      contentCells(m, ui, row, cell) +
+      `<td class="ept-ops"><div class="meta">确认规划 v${esc(String(m.planBaseVersion))}` +
+      ` 之后才能进入这一集</div></td>` +
+      `</tr>`
+    );
+  }
+  return (
+    `<tr class="ept-row${ep.active ? " on" : ""}" data-eprow="${esc(row.episodeId)}">` +
+    `<td class="ept-ep"><span class="mono">${esc(row.code)}</span>` +
+    (ep.active ? `<span class="chip ok" title="当前剧集">当前</span>` : "") +
+    (row.plan.duration ? `<div class="meta">${esc(row.plan.duration)}</div>` : "") +
+    `</td>` +
+    contentCells(m, ui, row, cell) +
     `<td class="ept-ops">` +
     `<button class="btn primary sm" data-ep-open="${esc(row.episodeId)}">去写剧本 →</button>` +
     `<button class="btn sm" data-ep-enter="${esc(row.episodeId)}">进入剧集制作 →</button>` +
@@ -581,11 +634,7 @@ function planRow(m, ui, row) {
     // 时长 is deliberately NOT a column: it derives from 创意's 单集时长方向 and is
     // only written when THIS episode deviates (TASK-088 §2.1), so a column of it
     // would be twelve boxes nobody needs to fill.
-    reviewText("时长（仅偏离时填）", row.plan.duration, {
-      attrs: `data-plan-edit="${esc(row.episodeId)}" data-field="duration"`,
-      placeholder: "例如 90 秒",
-      force: true,
-    }) +
+    durationCell(row) +
     basedOnLine(ep) +
     (ui.impactOpen === row.episodeId ? impactReview(ep) : "") +
     beatsBlock(m, ep, ui) +
@@ -786,7 +835,9 @@ export function bindEpPlanWs(root, ctx, ui, rerender) {
     const episodeId = el.dataset.rfAdd;
     const field = el.dataset.field;
     const i = ctx.story.addPlanItem(episodeId, field);
-    if (i < 0) { ctx.toast("这一版还没有确认，暂时不能逐格修改"); return; }
+    // 未确认的行现在也能改（TASK-103 批次 D），所以这里剩下的只有「这一行根本
+    // 不在当前这一版规划里」——说那一句，而不是那句已经不成立的旧解释。
+    if (i < 0) { ctx.toast("这一行不在当前这一版规划里，改不了"); return; }
     if (!ui.planOpen) ui.planOpen = {};
     const key = `${episodeId}:${field}`;
     ui.planOpen[key] = [...(ui.planOpen[key] || []), i];

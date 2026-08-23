@@ -1,0 +1,100 @@
+{
+  "schema": 1,
+  "change_id": "frontback-ui-residuals",
+  "branch": "change/TASK-103-frontback-ui-residuals",
+  "status": "open",
+  "created": "2026-08-22T14:07:40+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-103": {
+      "commits": [
+        {
+          "hash": "0346b1089c2e1f4c6b610028cd753ea9f066e646",
+          "subject": "批次A：唯一 API Client 出口收口 —— persist 的 canvas 读/写与 runtime 的 cancel/skill-run 迁到 apiclient；apiclient 加 keepalive 透传与 ApiError.contentType；派生式裸 fetch 守卫（TASK-103 · 合同 §7.1 规定 10）",
+          "time": "2026-08-22T14:24:28+00:00",
+          "branch": "change/TASK-103-frontback-ui-residuals",
+          "pushed": false,
+          "scope_violation": null
+        },
+        {
+          "hash": "fc5884da3987ca60d1308fa159622aeb5c5fbdf0",
+          "subject": "批次A 收口：唯一 fetch 出口守卫搬到前端套件 —— 被守的 services/*.js 都能被 node import，属 ADR-0080 决策 3 的前端归属；tests/contract 的源码文本例外只留给 .test.mjs 拿不到的入口层。两次变异验证（加一个裸 fetch / 去掉一个 timeoutMs:0）均转红（TASK-103）",
+          "time": "2026-08-22T14:27:23+00:00",
+          "branch": "change/TASK-103-frontback-ui-residuals",
+          "pushed": false,
+          "scope_violation": null
+        },
+        {
+          "hash": "6bb675122025aff42d4ee5dbee3ccf1c6918a293",
+          "subject": "批次B：评价/反馈闭环接进 Studio Gateway —— 四个 LOW-risk 命令从 workspace_shell 抽成共享缝并在 Studio 注册；无花费门改派生；新增只读 review-target 路由（target 的 content_digest 必须后端算，前端编一个会把命令绑到不存在的版本）；审片「✓通过/撤销」经网关落核心，回执进 coreSync 并在卡片上如实显示（TASK-103 · TASK-087 §1.2 · TASK-083 §5.1）",
+          "time": "2026-08-22T15:02:17+00:00",
+          "branch": "change/TASK-103-frontback-ui-residuals",
+          "pushed": false,
+          "scope_violation": null
+        },
+        {
+          "hash": "32b33bc4b6ee6751d7d9317787a05dd702cda202",
+          "subject": "批次C：服务端媒体审计 —— 只读 media-audit 路由让项目媒体只剩「在/不在」两种答案（消除 INCONCLUSIVE）；ffprobe-only 单文件 measure 给出真实尺寸/时长，审片列区分未探测/真实值/探不到的具体原因；实测发现 ffprobe rc=0 仍会返回 0×0+0.04s，判据改用 -v error 的 stderr（TASK-103 · GAP-02 · TASK-087 §4.2/§4.3/§3.5.4）",
+          "time": "2026-08-22T15:24:15+00:00",
+          "branch": "change/TASK-103-frontback-ui-residuals",
+          "pushed": false,
+          "scope_violation": null
+        },
+        {
+          "hash": "f05729d3f081ea4c9e2d094b7231d245c46d7baa",
+          "subject": "批次D（其一）：生成意图按(种类,镜头)存，路由闩改合并而非丢弃 —— genIntent 一种媒体只有一格会在跨镜切换时静默丢溯源；routeApplying 早退会把快速连按的第二次按下丢掉。两者都从入口编排层抽成可测模块（TASK-103 · TASK-087 §5.2/§5.6）",
+          "time": "2026-08-22T15:32:14+00:00",
+          "branch": "change/TASK-103-frontback-ui-residuals",
+          "pushed": false,
+          "scope_violation": null
+        },
+        {
+          "hash": "c2fb26abb0b408827be00c99cd782a80b566a9c5",
+          "subject": "批次D（其二）+ 审查修复：未确认规划条目可逐格编辑（地址扩成 id:/num: 两个不相通的空间，标签必填）；codex 5 轮共 12 条 P1 全修 —— 审片同步按镜头串行、开始前落 pending、切项目不写错画布、路由闩携带事件发生时的地址、删除无调用方的 feedbackFor 并改口径、链条键带文档世代、未确认行时长可改；ffprobe TOCTOU 的 ABA 变种按 ADR-0081 §2b 驳回并记录残余（TASK-103）",
+          "time": "2026-08-22T16:16:31+00:00",
+          "branch": "change/TASK-103-frontback-ui-residuals",
+          "pushed": false,
+          "scope_violation": null
+        },
+        {
+          "hash": "c040eab7127659c740916a0fb5d9524690943b1c",
+          "subject": "chore(skill-evolution): 记 codex-review-loop 的轮次协议实测证据（TASK-103，5 轮）",
+          "time": "2026-08-23T01:27:08+00:00",
+          "branch": "change/TASK-103-frontback-ui-residuals",
+          "pushed": false,
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        "docs/design/creator-system-contract.md",
+        "docs/skill-evolution/",
+        "docs/tasks/TASK-068-legacy-agent-endpoints-to-runtime.md",
+        "docs/tasks/TASK-087-followup-ledger.md",
+        "docs/tasks/TASK-103-frontback-and-ui-residuals.md",
+        "mockups/motv-workspace/server.py",
+        "mockups/motv-workspace/src/app.js",
+        "mockups/motv-workspace/src/services/routelatch.js",
+        "mockups/motv-workspace/src/ui/cutreview.js",
+        "mockups/motv-workspace/src/ui/dailies.js",
+        "mockups/motv-workspace/src/ui/epplanws.js",
+        "mockups/motv-workspace/src/workflow/reviewsync.js",
+        "mockups/motv-workspace/src/workflow/storydoc.js",
+        "mockups/motv-workspace/tests/eptable.test.mjs",
+        "mockups/motv-workspace/tests/planidentity.test.mjs",
+        "mockups/motv-workspace/tests/reviewsync.test.mjs",
+        "mockups/motv-workspace/tests/story.test.mjs"
+      ],
+      "verification": "PASS",
+      "verification_ref": "",
+      "declared": "2026-08-23T01:26:56+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PASS",
+    "by": "产品负责人 2026-08-23：「合并并收口」",
+    "time": "2026-08-23T01:31:41+00:00",
+    "tip": "e93e6fbd473f4557dd24301172184ae16139f9cb"
+  },
+  "merge": null,
+  "cleanup": null
+}

@@ -417,7 +417,7 @@ test("a hand edit is a DRAFT, not a version — the confirmed baseline never mov
 
   // typing edits the DRAFT — the confirmed version is untouched, which is what
   // every Episode's 「Based on 规划 v1」 baseline depends on (ADR-0054 决策 6)
-  assert.equal(st.editPlanEntry(doc, "ep1", "hook", "尸体在第一分钟出现"), true);
+  assert.equal(st.editPlanEntry(doc, "id:ep1", "hook", "尸体在第一分钟出现"), true);
   assert.equal(st.planDirty(doc), true);
   assert.equal(st.effectivePlanEpisodes(doc)[0].hook, "尸体在第一分钟出现");
   assert.equal(doc.plans.length, 1, "no version was created by typing");
@@ -426,7 +426,7 @@ test("a hand edit is a DRAFT, not a version — the confirmed baseline never mov
 
   // typing it BACK clears the flag — a 「已修改」 the creator cannot get rid of
   // would be worse than none
-  st.editPlanEntry(doc, "ep1", "hook", "");
+  st.editPlanEntry(doc, "id:ep1", "hook", "");
   assert.equal(st.planDirty(doc), false);
 });
 
@@ -438,7 +438,7 @@ test("saving the draft appends a manual version and does NOT confirm it", () => 
     activePlan: 1, confirmedPlan: 1,
   });
   assert.equal(st.savePlanDraft(doc), 0, "nothing to save");
-  st.editPlanEntry(doc, "ep1", "purpose", "把观众从旁观者变成共犯");
+  st.editPlanEntry(doc, "id:ep1", "purpose", "把观众从旁观者变成共犯");
   const v = st.savePlanDraft(doc);
   assert.equal(v, 2);
   assert.equal(doc.plans.length, 2);
@@ -461,13 +461,13 @@ test("an edit is addressed by episodeId, and refuses what it cannot place", () =
     ] }],
     activePlan: 1, confirmedPlan: 1,
   });
-  assert.equal(st.editPlanEntry(doc, "nope", "hook", "x"), false, "an unknown episode is refused, not written to a neighbour");
-  assert.equal(st.editPlanEntry(doc, "ep1", "notAField", "x"), false, "only the six plan facets are editable");
+  assert.equal(st.editPlanEntry(doc, "id:nope", "hook", "x"), false, "an unknown episode is refused, not written to a neighbour");
+  assert.equal(st.editPlanEntry(doc, "id:ep1", "notAField", "x"), false, "only the six plan facets are editable");
   assert.equal(st.editPlanEntry(doc, "", "hook", "x"), false);
   assert.equal(st.planDraftFor(doc, 1), null, "a refused edit creates no draft");
   // with no plan at all there is nothing to edit
   const bare = st.createStory(null);
-  assert.equal(st.editPlanEntry(bare, "ep1", "hook", "x"), false);
+  assert.equal(st.editPlanEntry(bare, "id:ep1", "hook", "x"), false);
   assert.equal(st.planEditBase(bare), null);
   assert.deepEqual(st.effectivePlanEpisodes(bare), []);
 });
@@ -479,7 +479,7 @@ test("the draft survives a save/load round-trip, and a dangling one is dropped",
     ] }],
     activePlan: 1, confirmedPlan: 1,
   });
-  st.editPlanEntry(doc, "ep1", "synopsis", "写到一半刷新也不能丢");
+  st.editPlanEntry(doc, "id:ep1", "synopsis", "写到一半刷新也不能丢");
   const back = st.createStory(st.serialize(doc));
   assert.equal(st.planDirty(back), true);
   assert.equal(st.effectivePlanEpisodes(back)[0].synopsis, "写到一半刷新也不能丢");
@@ -496,7 +496,7 @@ test("discarding goes back to the version on file", () => {
     ] }],
     activePlan: 1, confirmedPlan: 1,
   });
-  st.editPlanEntry(doc, "ep1", "title", "EP01 改坏了");
+  st.editPlanEntry(doc, "id:ep1", "title", "EP01 改坏了");
   assert.equal(st.discardPlanDraft(doc), true);
   assert.equal(st.planDirty(doc), false);
   assert.equal(st.effectivePlanEpisodes(doc)[0].title, "EP01 原标题");
@@ -515,7 +515,7 @@ test("switching plan versions does NOT destroy an unsaved edit (codex review, P1
     ],
     activePlan: 1, confirmedPlan: 1,
   });
-  st.editPlanEntry(doc, "ep1", "hook", "只在 v1 上写的钩子");
+  st.editPlanEntry(doc, "id:ep1", "hook", "只在 v1 上写的钩子");
   assert.equal(st.planDirty(doc), true);
 
   // switch to v2 — it shows V2's OWN text, not v1's draft
@@ -527,7 +527,7 @@ test("switching plan versions does NOT destroy an unsaved edit (codex review, P1
   assert.deepEqual(st.planDraftVersions(doc), [1]);
 
   // typing on v2 seeds v2's OWN draft and leaves v1's alone
-  st.editPlanEntry(doc, "ep1", "hook", "v2 的钩子");
+  st.editPlanEntry(doc, "id:ep1", "hook", "v2 的钩子");
   assert.deepEqual(st.planDraftVersions(doc), [1, 2]);
   assert.equal(st.planDraftFor(doc, 1)[0].hook, "只在 v1 上写的钩子", "the v1 edit survived");
 
@@ -572,11 +572,11 @@ test("a draft typed back to its original is not reported as an unsaved edit", ()
     ],
     activePlan: 1, confirmedPlan: 1,
   });
-  st.editPlanEntry(doc, "ep1", "synopsis", "改了一下");
+  st.editPlanEntry(doc, "id:ep1", "synopsis", "改了一下");
   assert.deepEqual(st.planDraftVersions(doc), [1]);
   assert.equal(st.planDirty(doc), true);
   // …type it back
-  st.editPlanEntry(doc, "ep1", "synopsis", "原文");
+  st.editPlanEntry(doc, "id:ep1", "synopsis", "原文");
   assert.equal(st.planDirty(doc), false, "the version on screen is clean again");
   assert.deepEqual(st.planDraftVersions(doc), [], "…and it is not reported to other versions either");
   // seen from v2, the v1 draft must likewise not raise a warning

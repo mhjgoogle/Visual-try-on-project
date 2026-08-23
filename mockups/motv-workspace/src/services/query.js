@@ -181,6 +181,35 @@ export function getLockTarget(project) {
   return _read(`/api/projects/${encodeURIComponent(project)}/lock-target`, "lock-target");
 }
 
+/** 服务端媒体存在性审计（TASK-103 批次 C · GAP-02 / TASK-087 §4.2）。
+ *
+ *  它是 TASK-077 那个前端 `HEAD` 探针拿不到的答案：服务端读自己的目录，所以
+ *  「在 / 不在」没有第三种。`measure=<文件名>` 时额外对**一个**文件做
+ *  ffprobe-only 探测（尺寸 / 时长，TASK-087 §4.3）—— 不解码，与
+ *  `/api/delivery/probe` 那条重端点区分开（TASK-087 §3.5.4）。
+ *
+ *  读不到就抛：这个函数的调用方要能说「审计没做成」，而不是渲染成「都不在」。 */
+export function getMediaAudit(project, measure) {
+  const q = measure ? `?measure=${encodeURIComponent(measure)}` : "";
+  return _read(
+    `/api/projects/${encodeURIComponent(project)}/media-audit${q}`,
+    "media-audit",
+  );
+}
+
+/** 一次审片写入要绑的目标三元组（TASK-103 批次 B）。
+ *
+ *  与 `getLockTarget` 同类，且同样**绝不回落到假件**：编一个 digest 的后果不是
+ *  被拒，是把命令绑在一个不存在的版本上。读不到就抛，让调用方如实说。 */
+export async function getReviewTarget(project, shotId) {
+  const j = await _read(
+    `/api/projects/${encodeURIComponent(project)}/review-target`
+      + `?shot_id=${encodeURIComponent(shotId)}`,
+    "review-target",
+  );
+  return j && j.target;
+}
+
 /** Paid-op status projection (read-only; reservations + staging artifacts). */
 export async function paidOps(project) {
   const j = await _read(`/api/paid-ops/${encodeURIComponent(project)}`, "ops");

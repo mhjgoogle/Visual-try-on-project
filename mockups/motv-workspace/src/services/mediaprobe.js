@@ -82,6 +82,35 @@ export function isProbeable(url) {
   }
 }
 
+/**
+ * The project media FILENAME a URL names, or null.
+ *
+ * Media lives at ``/api/uploads/<project>/<name>`` (ADR-0053). Only that exact
+ * shape can be answered by the server-side audit; anything else keeps the `HEAD`
+ * path. Pure and base-independent for the same reason `isProbeable` is: the
+ * decision must not depend on which origin the string happens to resolve against.
+ */
+export function uploadName(url, project) {
+  if (!isProbeable(url) || typeof project !== "string" || !project) return null;
+  let pathname;
+  try {
+    pathname = new URL(url, PROBE_BASE_A).pathname;
+  } catch {
+    return null;
+  }
+  const prefix = `/api/uploads/${encodeURIComponent(project)}/`;
+  if (!pathname.startsWith(prefix)) return null;
+  const rest = pathname.slice(prefix.length);
+  // one path segment only — a nested path is not a file in this flat directory,
+  // and treating it as one would report a miss for something never audited
+  if (!rest || rest.includes("/")) return null;
+  try {
+    return decodeURIComponent(rest);
+  } catch {
+    return null;
+  }
+}
+
 /** Every media URL the registry declares, deduped. Pure, so a test can state
  *  what would be probed without a network. */
 export function registryUrls(reg) {
@@ -214,12 +243,47 @@ export function createMediaProbe({ fetchImpl, limit = 6 } = {}) {
     return changed;
   }
 
+  /**
+   * Fold a SERVER-SIDE directory audit into the table (TASK-103 批次 C).
+   *
+   * This is the answer TASK-077 could not get from the browser. The server read
+   * its own directory, so for a URL under this project's media folder there is
+   * no third state: the name is in the listing or it is not. Both outcomes are
+   * recorded, which is what makes 「媒体不可用 N」 finally mean something.
+   *
+   * Deliberately narrow:
+   *  - Only `/api/uploads/<project>/<name>` URLs are decided here. Anything else
+   *    (a canvas-local path, another project) is left to `scan`'s `HEAD`.
+   *  - A TRUNCATED audit decides nothing about names it never reached. Marking
+   *    them MISSING would turn a cap into a false accusation — the exact class of
+   *    「守卫只覆盖了一半」 defect TASK-087 §7 catalogues.
+   *  - `dir: false` IS an answer (the project has no media folder), so those URLs
+   *    are genuinely MISSING rather than unknown.
+   *
+   * Returns true when anything changed, matching `scan`'s render contract.
+   */
+  function applyAudit(urls, project, audit) {
+    if (!audit || typeof audit !== "object") return false;
+    const listing = audit.files && typeof audit.files === "object" ? audit.files : {};
+    let changed = false;
+    for (const url of Array.isArray(urls) ? urls : []) {
+      const name = uploadName(url, project);
+      if (name === null) continue;
+      const present = Object.prototype.hasOwnProperty.call(listing, name);
+      // A cap cannot accuse: past the truncation point we simply do not know.
+      if (!present && audit.truncated) continue;
+      if (record(url, present ? PRESENT : MISSING)) changed = true;
+    }
+    return changed;
+  }
+
   return {
     stateOf,
     isMissing: (url) => stateOf(url) === MISSING,
     isKnown: (url) => state.has(url),
     observe,
     scan,
+    applyAudit,
     /** For the honest 「已探测 n 条」 line — never used to imply completeness. */
     checked: () => state.size,
     missingUrls: () => [...state.entries()].filter(([, v]) => v === MISSING).map(([u]) => u),

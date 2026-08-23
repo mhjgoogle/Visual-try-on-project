@@ -17,7 +17,7 @@
 // is also why there is nothing to translate between Windows and WSL path
 // conventions — no path ever crosses the boundary.
 
-import { attempt } from "./apiclient.js";
+import { attempt, API_ERROR } from "./apiclient.js";
 
 const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
 
@@ -203,19 +203,23 @@ export async function probeExecutors() {
  */
 export async function cancelRun(runId, project = null) {
   if (typeof runId !== "string" || !runId) return { unknown: true };
-  let r;
-  try {
-    r = await fetch(`/api/runs/${encodeURIComponent(runId)}/cancel`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Motv-Runtime": "1" },
-      body: JSON.stringify(project ? { project } : {}),
-    });
-  } catch (e) {
+  // Through the ONE api client (系统合同 §7.1 规定 10). `timeoutMs: 0` keeps the
+  // pre-migration semantics — this request had no deadline, and a cancel that we
+  // stopped waiting for is NOT a cancel that failed; inventing a deadline here
+  // would manufacture exactly the ambiguity the branches below exist to remove.
+  const res = await attempt(`/api/runs/${encodeURIComponent(runId)}/cancel`, {
+    method: "POST",
+    headers: { "X-Motv-Runtime": "1" },
+    body: project ? { project } : {},
+    timeoutMs: 0,
+  });
+  const transport = new Set([API_ERROR.OFFLINE, API_ERROR.TIMEOUT, API_ERROR.ABORTED]);
+  if (!res.ok && transport.has(res.error.category)) {
     // A network failure is NOT "it does not exist" — refusing here keeps the
     // page from declaring a run cancelled that may still be running.
-    return { ok: false, detail: e && e.message ? e.message : "请求失败" };
+    return { ok: false, detail: res.error.detail || "请求失败" };
   }
-  if (r.status === 404) {
+  if (res.status === 404) {
     // A 404 IS NOT PROOF. The lookup is project-scoped, so a stale or missing
     // project id produces the same answer as a genuinely unknown run — and
     // retrying with `null` does not help, because `null` is itself a scope (the
@@ -227,12 +231,14 @@ export async function cancelRun(runId, project = null) {
     // `ctx.skills.abandon`.
     return { ok: false, notFound: true, detail: "后端没有找到这次运行（可能是项目归属不符）" };
   }
-  if (!r.ok) {
-    const j = await r.json().catch(() => null);
-    const err = isObj(j) && isObj(j.error) ? j.error : {};
-    return { ok: false, detail: err.detail || `HTTP ${r.status}` };
+  if (!res.ok) {
+    // The api client already prefers the backend's own wording over the bare
+    // status. A MALFORMED 200 lands here too, and that is deliberate: an
+    // unparseable body is not evidence that the run finished, so it must not be
+    // reported as 「这次运行已经是…」 the way an unparseable body used to be.
+    return { ok: false, detail: res.error.detail || `HTTP ${res.status}` };
   }
-  const j = await r.json().catch(() => null);
+  const j = res.data;
   // ONLY `cancelled` is a cancellation. `cancelling` means the kill was not
   // confirmed; `succeeded` / `failed` mean the run finished before the request
   // landed — and reporting either as success let the canvas overwrite a real
@@ -268,39 +274,53 @@ export async function runOnExecutor({ executor, prompt, timeoutSeconds }) {
   if (!EXECUTOR_BY_ID.has(executor) || executor === "manual") {
     return { ok: false, kind: "unavailable", detail: `未知执行器 ${executor}` };
   }
-  let r;
-  try {
-    r = await fetch("/api/skill/run", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        // CSRF guard: a cross-origin page cannot set a custom header without a
-        // preflight, and this backend answers none — so a hostile page cannot
-        // reach the one route that starts a real local CLI.
-        "X-Motv-Runtime": "1",
-      },
-      body: JSON.stringify({
-        executor,
-        prompt,
-        ...(Number.isFinite(timeoutSeconds) ? { timeout: timeoutSeconds } : {}),
-      }),
-    });
-  } catch (e) {
-    return { ok: false, kind: "execution_error", detail: e && e.message ? e.message : "请求失败" };
-  }
-  let j = null;
-  try {
-    j = await r.json();
-  } catch {
-    return { ok: false, kind: "execution_error", detail: `无法解析响应（HTTP ${r.status}）` };
-  }
-  if (!r.ok || !isObj(j)) {
-    const err = isObj(j) && isObj(j.error) ? j.error : {};
+  // Through the ONE api client (系统合同 §7.1 规定 10). `timeoutMs: 0` because this
+  // request is a LOCAL CLI RUN and legitimately takes minutes — the deadline that
+  // matters is the server-side `timeout` in the body, which the executor can
+  // report on. A client-side one would abort a run that is still working and
+  // leave the process orphaned.
+  const res = await attempt("/api/skill/run", {
+    method: "POST",
+    headers: {
+      // CSRF guard: a cross-origin page cannot set a custom header without a
+      // preflight, and this backend answers none — so a hostile page cannot
+      // reach the one route that starts a real local CLI.
+      "X-Motv-Runtime": "1",
+    },
+    body: {
+      executor,
+      prompt,
+      ...(Number.isFinite(timeoutSeconds) ? { timeout: timeoutSeconds } : {}),
+    },
+    timeoutMs: 0,
+  });
+  if (!res.ok) {
+    // A transport fault and an unparseable body are both `execution_error` — the
+    // same two cases the hand-rolled version reported that way. Everything else
+    // keeps the BACKEND's own `category`, because `RUN_ERROR_KINDS` is what the
+    // panels branch on: a timeout, a missing binary and a crashed process are
+    // three different problems with three different fixes, and flattening them
+    // into a transport class would blank out every one of those hints.
+    const body = res.error.body;
+    const err = isObj(body) && isObj(body.error) ? body.error : {};
+    const kinds = new Set([
+      API_ERROR.OFFLINE,
+      API_ERROR.TIMEOUT,
+      API_ERROR.ABORTED,
+      API_ERROR.MALFORMED,
+    ]);
     return {
       ok: false,
-      kind: typeof err.category === "string" ? err.category : "execution_error",
-      detail: typeof err.detail === "string" ? err.detail : `HTTP ${r.status}`,
+      kind:
+        !kinds.has(res.error.category) && typeof err.category === "string"
+          ? err.category
+          : "execution_error",
+      detail: res.error.detail || `HTTP ${res.status}`,
     };
+  }
+  const j = res.data;
+  if (!isObj(j)) {
+    return { ok: false, kind: "execution_error", detail: `无法解析响应（HTTP ${res.status}）` };
   }
   return {
     ok: true,
