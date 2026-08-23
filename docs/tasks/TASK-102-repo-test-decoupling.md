@@ -1,8 +1,18 @@
 # TASK-102：仓库集成与解耦重构 —— 测试所有权、前后端边界、文档收敛
 
-- 状态：**已完成（2026-08-22）** —— 独立审查 5 轮，7 条 P1 全修，轮 5 的
-  finding 经范围判断 rebut 并记录残余风险；最终全量 3305 + 6 pytest /
-  1763 前端 / ruff 全过。**Merge Gate 待用户指示。**
+- 状态：**本卡已完成并已合入 main（2026-08-22）** —— 独立审查 5 轮，7 条 P1
+  全修，轮 5 的 finding 经范围判断 rebut 并记录残余风险；最终全量 3305 + 6
+  pytest / 1763 前端 / ruff 全过。合并提交 `ee6e47a`（依据：产品负责人
+  2026-08-22「合并」+「全部提交」），合并后在 main 上复跑同一套全量，全绿。
+- **main 尚未 push，且当前不应 push** —— 原因**不在本卡**：合并把
+  `feat/wfm1-batch-c` 的历史一并带入 main（用户明确要求「全部提交」），其中
+  TASK-101 的 `ba0c8e2` 在 push 后补审中被判出 **1 条未闭合 P1**（auto-push
+  `_push_gates` 的 merge commit 豁免只查「存在后位亲是 origin/main 祖先」，
+  人为构造的 evil merge 可挂古老祖先当第二亲、夹带任意内容混过闸门）。
+  该缺陷在 `.claude/skills/auto-push/scripts/autopush.py`，**TASK-102 一行
+  未改过该文件**（`git diff --name-only efab6b1^..HEAD | grep auto-push/scripts`
+  为空）。发布闸门「无未闭合 P1」因此对 main 整体不成立，push 阻塞至
+  TASK-101 修复（其作者已定修法：登记制取代结构推断，v0.1.1 六项之一）。
 - Workflow：Refactor · 深度：DEEP
 - 关联 Requirement：依据 —— 产品负责人 2026-08-22 全文任务书
   「Repository Integration & Decoupling Refactor …目标是在不改变当前有效产品
@@ -95,6 +105,22 @@
 - 前端 `.test.mjs` 套件内部重组（归属已正确）；
 - 裁决未采纳的治理变更：删除 MOTV_CONTINUOUS_CHAIN、掏空 CLAUDE.md、
   注入 ADR-0080 的其余条目——见「范围事件记录」与「产品负责人裁决」。
+
+## 合并与 push 的流程教训（2026-08-22，收口后追记）
+
+**merge 前我只查了两份清单的 `verification` 字段，没查
+[待复审清单](../design/pending-codex-rereview.md)** —— 而 `ba0c8e2` 的补审要求
+就登记在那里（「push / merge 前必须完成补审」）。时序上它写入比本卡起卡晚不了
+几分钟，我 merge 时确实不知情；但**不知情不等于流程正确**：merge 前的前置检查
+本来就该包含那份清单，而不只是清单里的 verification。
+
+后果分层如实记录：**merge 闸是无意跳过**（登记存在但我没查），
+**push 闸履行了「可以推迟，不可以跳过」** —— 补审在 push 前完成并判出真 P1，
+push 因此被正确阻塞。这正是 ADR-0068 决策 6 那条规则想要的效果。
+
+已作为建议交给 auto-push 作者（v0.1.1 六项之一）：merge 子命令把「本分支历史内
+是否有未闭合的待复审条目」纳入前置检查，且做成**显式声明式**（deterministic
+层不解析 markdown）。
 
 ## 范围事件记录（2026-08-22）
 
@@ -254,6 +280,17 @@ gate.sh 同步实现（ADR-0062 决策 3 同一行为合同）；链令牌语义
 ② 前缀那条只断言「没人用的模块名 → 全量」，而带边界与不带边界在该输入上
 恰好都给出全量，结果相同掩盖了机制不同。两条都是 TASK-087 §7「断言性质，
 别断言写法」的同一个坑，且**只有变异验证能发现**——测试自己是绿的。
+
+**解耦成果被独立应用的首个实证（2026-08-22，TASK-103 会话）**：它给「唯一
+fetch 出口」写守卫时，第一版按旧习惯放进 `tests/contract/` 做 Python 源码文本
+断言；据 ADR-0080 决策 3 复核后自行改正 —— 被守的 `services/*.js` 都能被 node
+import，**不属于那条例外的范围**（例外只给 `.test.mjs` 拿不到的入口层，见
+`tests/contract/test_frontend_write_path_invariants.py` 的 docstring），于是搬成
+前端套件里的 `mockups/motv-workspace/tests/apioutlet.test.mjs`（`node:fs` 扫
+`src/**.js`，成员集合**派生**而非手写），并删掉 Python 侧的重复；两次变异验证
+均转红（加一个裸 `fetch` / 去掉一个 `timeoutMs: 0`）。提交 `fc5884d`。
+这条记在此处是因为它验证了本卡最容易被误用的那个边界：**例外不是「Python 想
+断言前端就放 contract」，而是「只有 node 拿不到的入口层才走那条路」。**
 
 **任务书 §16 验收项实测**：
 

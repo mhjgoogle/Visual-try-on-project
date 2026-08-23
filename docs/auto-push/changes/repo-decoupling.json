@@ -244,8 +244,9 @@
     "by": "产品负责人 2026-08-22：「合并」+「全部提交」",
     "executed_with": "plain git merge --no-ff",
     "why_not_autopush": "auto-push merge 按当前 Change 的清单校验领先提交，认不出属于 wfm1-batch-c 的 10 个提交（TASK-098/099/101 + dev-workflow 修复，各自 verification=PASS）。缺口登记于 TASK-087 3.6.5。实质闸门未跳过：Merge Gate PASS、tip 已重验、合并后在 main 上复跑 pytest 3305+6 / 前端 1763 / ruff 全过。",
-    "pushed": false,
-    "push_blocked_by": "Claude Code 权限分类器拦截 git push（会话权限，非仓库闸门）"
+    "pushed": true,
+    "pushed_at": "2026-08-23",
+    "push_note": "产品负责人 2026-08-23 明确指示「现在推」后推送成功：49aa20a..ee6e47a main -> main。此前阻塞的两个原因已分别消解：① 会话权限分类器 —— 用户在 .claude/settings.json 加了 Bash(git *) / PowerShell(git *)；② TASK-101 ba0c8e2 的 evil-merge P1 —— 用户在知情（该缺陷属工装安全边界、推与不推都已在本地 main 内、其修复本身也要靠 push 才能到远端）的前提下决定先推，修复由 TASK-101 v0.1.1 跟进。"
   },
   "cleanup": null
 }
