@@ -11,6 +11,7 @@
 // the free route in one place. It adds NO new write path: 提交 calls the same
 // ADR-0041 two-step the paid route already used, and the free route is the same
 // copy → external tool → import round trip, moved onto the card.
+import * as genintent from "./genintent.js";
 //
 // TWO RULES IT MUST NOT BREAK
 //
@@ -460,14 +461,12 @@ export function bindGenCard(root, ctx, ui, rerender, { kind, shotId, importMedia
   };
   card.querySelectorAll("[data-gc-free]").forEach((b) => (b.onclick = async () => {
     const entry = b.dataset.gcFree;
-    const setIntent = () => {
-      ui.genIntent = ui.genIntent || {};
-      ui.genIntent[kind] = {
+    const setIntent = () =>
+      genintent.setIntent(ui, kind, shotId, {
         shotId,
         prompt: promptText(),
         entry: entry === "manual" ? "manual" : `${entry}-manual`,
-      };
-    };
+      });
     if (entry === "manual") {
       if (await copy()) setIntent();
       return;

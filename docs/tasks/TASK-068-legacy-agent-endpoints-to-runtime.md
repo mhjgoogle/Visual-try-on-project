@@ -1,6 +1,13 @@
 # TASK-068：把旧 `/api/agent/*` 创作端点收进 Runtime 层
 
-- 状态：**已解锁，待排期** —— [ADR-0065](../adr/ADR-0065-every-ai-action-through-the-runtime-layer.md)
+- 状态：**已完成（由 TASK-072 §1.8 落地）** —— 状态头此前长期停在「已解锁，待排期」，
+  而内容其实早已实施：`server.py::_creative_agent` 是五个创作端点**唯一**的执行
+  路径，它们不再自己 spawn `claude`，而是经 Runtime 层拿到执行器解析、并发上限、
+  真实进程树 kill、带 provenance 的持久 Run，以及执行器缺席时的手工兜底
+  （`manual_fallback` + `/api/runs/<id>/submit`）。`_run_claude` 已不存在。
+  **过期的状态头会误导下一个读者**（TASK-078 发生过同样的事），故于 2026-08-22
+  由 [TASK-103](TASK-103-frontback-and-ui-residuals.md) 开工前的事实核对就地订正。
+- 原状态记录：[ADR-0065](../adr/ADR-0065-every-ai-action-through-the-runtime-layer.md)
   已于 2026-08-13 转 Accepted，本卡的前置门槛消除
 - 实施基线：`ae0a54a`（ADR-0065 决策 3 / 4 / 5 已在此实施；决策 1 / 2 未实施）
 - **排期归属**：并入第二阶段

@@ -1,4 +1,5 @@
 // 生成入口 (M10) — compiled prompt → pick an entry → import the result back
+import * as genintent from "./genintent.js";
 // onto this shot with REAL provenance.
 //
 // Extracted from the storyboard so the AI Director can host it (spec §3: the
@@ -70,10 +71,12 @@ export function bindGenEntry(root, ctx, ui, rerender) {
     const el = root.querySelector(`[data-genprompt="${kind}"]`);
     return el ? el.textContent : "";
   };
-  const setIntent = (kind, entry) => {
-    ui.genIntent = ui.genIntent || {};
-    ui.genIntent[kind] = { shotId: ui.selectedShotId, prompt: promptText(kind), entry };
-  };
+  const setIntent = (kind, entry) =>
+    genintent.setIntent(ui, kind, ui.selectedShotId, {
+      shotId: ui.selectedShotId,
+      prompt: promptText(kind),
+      entry,
+    });
   const copyPrompt = async (kind) => {
     try {
       await navigator.clipboard.writeText(promptText(kind));
@@ -117,14 +120,15 @@ export function bindGenEntry(root, ctx, ui, rerender) {
       input.onchange = async () => {
         const file = input.files && input.files[0];
         if (!file) return;
-        const intent = ui.genIntent && ui.genIntent[kind] && ui.genIntent[kind].shotId === ui.selectedShotId
-          ? ui.genIntent[kind]
-          : null;
+        // keyed by (kind, shot) — see genintent.js. The shot is IN the key now, so
+        // there is no second place where 「是这一镜的吗」 could be answered differently.
+        const shotId = ui.selectedShotId;
+        const intent = genintent.getIntent(ui, kind, shotId);
         try {
-          await ctx.media.importShotMedia(kind, d.slot, ui.selectedShotId, file, intent);
+          await ctx.media.importShotMedia(kind, d.slot, shotId, file, intent);
           // consume ONLY the intent this import used — a NEWER intent set while
           // the upload was in flight belongs to the next import
-          if (intent && ui.genIntent && ui.genIntent[kind] === intent) delete ui.genIntent[kind];
+          genintent.consumeIntent(ui, kind, shotId, intent);
           rerender();
         } catch (err) {
           ctx.toast("导入失败：" + err.message);

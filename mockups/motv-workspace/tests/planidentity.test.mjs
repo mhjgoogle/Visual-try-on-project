@@ -244,22 +244,22 @@ test("editing a list facet marks the draft dirty — otherwise 保存 stays disa
   const doc = withConfirmedPlan(V1);
   assert.equal(st.planDirty(doc), false);
 
-  assert.equal(st.editPlanItem(doc, "ep-1", "keyEvents", 0, "她救了不该救的人"), true);
+  assert.equal(st.editPlanItem(doc, "id:ep-1", "keyEvents", 0, "她救了不该救的人"), true);
   assert.equal(st.planDirty(doc), true, "编辑主要剧情必须算「已手工修改」");
 
   st.discardPlanDraft(doc);
   assert.equal(st.planDirty(doc), false);
-  assert.equal(st.addPlanItem(doc, "ep-1", "characterBeats"), 0);
-  assert.equal(st.editPlanBeat(doc, "ep-1", 0, "who", "林照"), true);
+  assert.equal(st.addPlanItem(doc, "id:ep-1", "characterBeats"), 0);
+  assert.equal(st.editPlanBeat(doc, "id:ep-1", 0, "who", "林照"), true);
   assert.equal(st.planDirty(doc), false,
     "只有名字、没写变化 = 还没有内容（`savePlanDraft` 也会丢掉它），所以还不算改动");
-  assert.equal(st.editPlanBeat(doc, "ep-1", 0, "change", "第一次越界"), true);
+  assert.equal(st.editPlanBeat(doc, "id:ep-1", 0, "change", "第一次越界"), true);
   assert.equal(st.planDirty(doc), true, "写全了才算 —— dirty 与「保存会产生新东西」同义");
 });
 
 test("a draft edit NEVER reaches the immutable version it was copied from", () => {
   const doc = withConfirmedPlan(V1);
-  st.editPlanItem(doc, "ep-1", "keyEvents", 0, "改过的事件");
+  st.editPlanItem(doc, "id:ep-1", "keyEvents", 0, "改过的事件");
   assert.equal(doc.plans[0].episodes[0].keyEvents[0], "她救了人",
     "浅拷贝会让草稿和已确认版本共用同一个数组");
   assert.equal(st.effectivePlanEpisodes(doc)[0].keyEvents[0], "改过的事件");
@@ -279,28 +279,28 @@ test("an ADDED row survives a reload, and does not renumber the ones after it", 
     { epNumber: 1, title: "t", coreGoal: "g", keyEvents: ["一", "二"] },
     V1[1],
   ]);
-  assert.equal(st.addPlanItem(doc, "ep-1", "keyEvents"), 2);
-  assert.equal(st.addPlanItem(doc, "ep-1", "characterBeats"), 0);
+  assert.equal(st.addPlanItem(doc, "id:ep-1", "keyEvents"), 2);
+  assert.equal(st.addPlanItem(doc, "id:ep-1", "characterBeats"), 0);
 
   const reloaded = st.createStory(st.serialize(doc));
   const entry = st.effectivePlanEpisodes(reloaded)[0];
   assert.deepEqual(entry.keyEvents, ["一", "二", ""], "打开的那一行必须还在");
   assert.deepEqual(entry.characterBeats, [{ who: "", change: "" }]);
   // …so index 2 still addresses the row the creator is looking at
-  assert.equal(st.editPlanItem(reloaded, "ep-1", "keyEvents", 2, "三"), true);
+  assert.equal(st.editPlanItem(reloaded, "id:ep-1", "keyEvents", 2, "三"), true);
   assert.deepEqual(st.effectivePlanEpisodes(reloaded)[0].keyEvents, ["一", "二", "三"]);
 });
 
 test("merely OPENING a row is not 「已手工修改」 — and saving one drops it", () => {
   const doc = withConfirmedPlan(V1);
-  assert.equal(st.addPlanItem(doc, "ep-1", "keyEvents"), 1);
-  assert.equal(st.addPlanItem(doc, "ep-1", "characterBeats"), 0);
+  assert.equal(st.addPlanItem(doc, "id:ep-1", "keyEvents"), 1);
+  assert.equal(st.addPlanItem(doc, "id:ep-1", "characterBeats"), 0);
   assert.equal(st.planDirty(doc), false,
     "空行是「我准备写」，不是「我改了」——否则 保存 会被要求去保存一个它必然丢弃的东西");
   assert.equal(st.savePlanDraft(doc), 0);
 
   // typing into it IS an edit, and then it saves — without the blank row
-  st.editPlanItem(doc, "ep-1", "keyEvents", 1, "第二件事");
+  st.editPlanItem(doc, "id:ep-1", "keyEvents", 1, "第二件事");
   assert.equal(st.planDirty(doc), true);
   const v = st.savePlanDraft(doc);
   assert.equal(v, 2);
@@ -311,12 +311,12 @@ test("merely OPENING a row is not 「已手工修改」 — and saving one drops
 
 test("list ops refuse an out-of-range index rather than appending", () => {
   const doc = withConfirmedPlan(V1);
-  assert.equal(st.editPlanItem(doc, "ep-1", "keyEvents", 9, "x"), false);
-  assert.equal(st.removePlanItem(doc, "ep-1", "keyEvents", -1), false);
-  assert.equal(st.editPlanBeat(doc, "ep-1", 0, "who", "x"), false, "还没有这一行");
-  assert.equal(st.editPlanItem(doc, "ep-nope", "keyEvents", 0, "x"), false);
-  assert.equal(st.editPlanItem(doc, "ep-1", "notAFacet", 0, "x"), false);
-  assert.equal(st.editPlanBeat(doc, "ep-1", 0, "__proto__", "x"), false);
+  assert.equal(st.editPlanItem(doc, "id:ep-1", "keyEvents", 9, "x"), false);
+  assert.equal(st.removePlanItem(doc, "id:ep-1", "keyEvents", -1), false);
+  assert.equal(st.editPlanBeat(doc, "id:ep-1", 0, "who", "x"), false, "还没有这一行");
+  assert.equal(st.editPlanItem(doc, "id:ep-nope", "keyEvents", 0, "x"), false);
+  assert.equal(st.editPlanItem(doc, "id:ep-1", "notAFacet", 0, "x"), false);
+  assert.equal(st.editPlanBeat(doc, "id:ep-1", 0, "__proto__", "x"), false);
 });
 
 test("removing an item removes exactly that one", () => {
@@ -324,7 +324,7 @@ test("removing an item removes exactly that one", () => {
     { epNumber: 1, title: "t", coreGoal: "g", keyEvents: ["一", "二", "三"] },
     V1[1],
   ]);
-  assert.equal(st.removePlanItem(doc, "ep-1", "keyEvents", 1), true);
+  assert.equal(st.removePlanItem(doc, "id:ep-1", "keyEvents", 1), true);
   assert.deepEqual(st.effectivePlanEpisodes(doc)[0].keyEvents, ["一", "三"]);
 });
 

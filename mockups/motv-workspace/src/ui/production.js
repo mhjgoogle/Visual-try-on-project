@@ -2194,6 +2194,17 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // scope (which follows `ui.selectedShotId`), opens the panel and prefills the
     // question. The prefill names the real shot and the real medium — a generic
     // 「帮我看看」 would be decoration.
+    // 「测量」 — TASK-103 批次 C。只读 ffprobe，一次一个文件，创作者按了才跑。
+    // 按钮上写明「只读探测，不花钱」，因为这一页别的按钮不是都这样。
+    root.querySelectorAll("[data-cr-measure]").forEach((b) => (b.onclick = async (ev) => {
+      ev.stopPropagation();
+      b.disabled = true;
+      b.textContent = "测量中…";
+      // 无论成败都重渲染：失败也有它自己的一句话（「探不到（…）」），
+      // 让按钮停在「测量中…」才是把结果吞掉。
+      await ctx.review.measure(b.dataset.crMeasure);
+      render();
+    }));
     root.querySelectorAll("[data-cr-ask]").forEach((b) => (b.onclick = (ev) => {
       ev.stopPropagation();
       const shotId = b.dataset.crAsk;

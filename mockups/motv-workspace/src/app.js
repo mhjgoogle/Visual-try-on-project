@@ -32,6 +32,7 @@ import {
 import * as persist from "./services/persist.js";
 import { CANVAS_SCHEMA_VERSION } from "./services/canvasschema.js";
 import * as realmap from "./services/realmap.js";
+import { createRouteLatch } from "./services/routelatch.js";
 import * as mediaprobe from "./services/mediaprobe.js";
 import { createInspector } from "./ui/inspector.js";
 import { createEstimate } from "./ui/estimate.js";
@@ -88,6 +89,7 @@ import { createSkillController } from "./controllers/skillctl.js";
 import { createMotionPreviewController } from "./controllers/motionctl.js";
 // TASK-072 §1.5/§1.6: the three review layers and the five gates, as domain
 import * as review from "./workflow/review.js";
+import * as reviewsync from "./workflow/reviewsync.js";
 import { g3TriggerFor, g3Retire, g4Export } from "./workflow/gates.js";
 import * as deliveryqc from "./workflow/deliveryqc.js";
 import * as framebind from "./workflow/framebind.js";
@@ -372,6 +374,20 @@ let skillRunRegistry = skillrun.createSkillRunRegistry(null);
 // moment, not a fact about the project, and writing it into the canvas would be
 // exactly the persistent-state change this card refuses to make.
 const mediaProbe = mediaprobe.createMediaProbe();
+
+/** url → ffprobe 结果（TASK-103 批次 C / TASK-087 §4.3）。
+ *
+ *  **只在创作者按下「测量」时才填**，一次一个文件。整块自动测量会让 60 镜的
+ *  审片页一次起 60 个 ffprobe —— 那正是 TASK-087 §3.5.4 记下来的重端点问题，
+ *  换个地方重犯一遍没有意义。
+ *
+ *  不落盘：资产登记表里仍然没有像素尺寸字段，加它是一次 schema 改动，有自己的
+ *  归属。这里是显示用的会话内缓存，跟 `mediaProbe` 同一个姿态。 */
+const mediaMeasured = new Map();
+
+/** 最近一次目录审计的清单（文件名 → {bytes}）。审计本身在 `scanRegistry` 里做，
+ *  这里只留结果，供审片页显示真实字节数。空表 = 还没审计过，不是「都不在」。 */
+let mediaAuditFiles = {};
 // Production domain document (M6) — Project → Episodes → Scenes → Shots
 // structure. Scenes reference shots by canonical creativeShotId; shot content
 // stays on the scriptgen draft, media/provenance stay in their registries.
@@ -420,7 +436,20 @@ let deliverySpecDoc = {};
 /** Review issues + decisions (系统合同 §6 / TASK-072 §1.5). Additive and optional,
  *  exactly like refInterp / frameBindings / ctxCache: a document written before this
  *  carries none of it and hydrates empty, so no schema version and no migration. */
-let reviewsDoc = { issues: [], decisions: [] };
+// `coreSync` (TASK-103 批次 B) 是**回执台账**，不是第二份结论：decisionId →
+// 这条结论有没有走进核心项目、没走进是因为什么。结论本身仍然只有 `decisions`
+// 一份。分开存是因为 G5「只追加」管的是结论，而登记是一次可以重试的传输。
+let reviewsDoc = { issues: [], decisions: [], coreSync: {} };
+
+/** WHICH DOCUMENT IS LOADED RIGHT NOW (codex round 1, P1).
+ *
+ *  `syncReviewToCore` awaits the gateway and then writes into the module-level
+ *  `reviewsDoc`. Switching projects during that await replaces the document, and
+ *  the late write would drop the previous project's receipt into the NEW
+ *  project's canvas — a receipt for a decision that canvas has never heard of.
+ *  Bumped wherever the document is replaced wholesale; the async writer captures
+ *  it before the await and refuses to write if it moved. */
+let canvasEpoch = 0;
 // The 「用于生成」 intent (ADR-0061 决策 3) MOVED with the skill controller
 // (src/controllers/skillctl.js): it is session state owned by exactly two of that
 // controller's methods, so it belongs beside the rules that govern it.
@@ -4420,8 +4449,34 @@ const ctx = {
         reviewsDoc = { ...reviewsDoc, decisions: [...reviewsDoc.decisions, dec.value] };
         ctx.persist();
         refreshProductionView();
+        // AND OUT OF THE CANVAS (TASK-103 批次 B / TASK-087 §1.2). Deliberately NOT
+        // awaited: the approval already happened locally and is already saved, so
+        // making the button wait on the backend would turn a local fact into a
+        // network-latency fact. What must not happen is the result being lost —
+        // `syncReviewToCore` records it in the ledger and the page shows it.
+        syncReviewToCore(reviewsync.evaluationFor(dec.value), dec.value.decisionId, shotId);
       }
       return ok;
+    },
+    /** Re-send this shot's LATEST review decision to the core.
+     *
+     *  Needed because an interrupted or refused sync is otherwise unreachable:
+     *  once a shot is approved the 「✓ 通过」 button is replaced by 「撤销通过」,
+     *  so there is no way to ask again. Re-sends the SAME decision — same
+     *  `evaluation_id`, so the gateway's idempotency makes a duplicate press a
+     *  no-op rather than a second evaluation.
+     */
+    resyncReview: (shotId) => {
+      const d = review.latestDecision(reviewsDoc.decisions, { layer: "shot", targetId: shotId });
+      if (!d) { toast("这一镜还没有审片结论可登记"); return false; }
+      // A retry ON TOP OF a live attempt is a duplicate, not a retry (codex 轮 3).
+      // It would overwrite the shared `pending` entry, let the earlier attempt's
+      // result overwrite it back, and hand the creator another 重试 button — one
+      // press turning into a queue of identical requests.
+      const live = (reviewsDoc.coreSync || {})[d.decisionId];
+      if (live && live.state === "pending") { toast("正在登记中，先等这一次的结果"); return false; }
+      syncReviewToCore(reviewsync.evaluationFor(d), d.decisionId, shotId);
+      return true;
     },
     /** Withdraw an approval. The legacy marker is REMOVED (「没有记录通过」 is the
      *  state, not 「approved: false」), but the Decision is APPENDED to, never
@@ -4450,6 +4505,11 @@ const ctx = {
       if (ok && undo.ok) {
         reviewsDoc = { ...reviewsDoc, decisions: [...reviewsDoc.decisions, undo.value] };
         ctx.persist();
+        // A WITHDRAWAL IS ALSO A FACT THE CORE MUST HEAR. Recording only approvals
+        // would leave the core believing a shot passed after the creator took it
+        // back — the core's copy would be a stale half of the story, which is worse
+        // than not having one.
+        syncReviewToCore(reviewsync.evaluationFor(undo.value), undo.value.decisionId, shotId);
       }
       return ok;
     },
@@ -4488,6 +4548,12 @@ const ctx = {
       return dailiesModel({
         prod: productionDoc,
         view,
+        // 这一镜最近一条审片结论的登记回执（TASK-103 批次 B）。按 decisionId 取，
+        // 所以显示的永远是**当前这条结论**的去向，不是历史上任意一次的。
+        coreSyncOf: (shotId) => {
+          const d = review.latestDecision(reviewsDoc.decisions, { layer: "shot", targetId: shotId });
+          return d ? (reviewsDoc.coreSync || {})[d.decisionId] || null : null;
+        },
         mediaOf: (s) => ctx.shot.mediaOf(s),
         urlOf: (s) => {
           const slot = ctx.shot._slotOf(s);
@@ -4505,8 +4571,39 @@ const ctx = {
     board: (filter) => reviewBoardModel(
       ctx.dailies.model(),
       (shotId) => shotDetailModel(ctx.prodData(), shotId),
-      { filter },
+      {
+        filter,
+        media: {
+          measuredOf: (url) => (url ? mediaMeasured.get(url) || null : null),
+          // 真实字节数来自那一次目录审计，免费且总是有 —— 但它**不是**尺寸，
+          // 所以只作附注（见 `sizeText`），绝不冒充像素值。
+          bytesOf: (url) => {
+            const name = mediaprobe.uploadName(url, PROJECT_NAME);
+            const e = name && mediaAuditFiles[name];
+            return e && Number.isFinite(e.bytes) ? e.bytes : null;
+          },
+        },
+      },
     ),
+    /** 测量一个媒体文件的真实尺寸/时长。只读，不花钱，一次一个。 */
+    measure: async (url) => {
+      const name = mediaprobe.uploadName(url, PROJECT_NAME);
+      if (!CONNECTED || !name) {
+        // 演示模式或非项目媒体：如实说测不了，而不是留一个按不动的按钮
+        mediaMeasured.set(url, { state: "not_found" });
+        return false;
+      }
+      try {
+        const j = await query.getMediaAudit(PROJECT_NAME, name);
+        mediaAuditFiles = (j && j.files) || mediaAuditFiles;
+        mediaMeasured.set(url, (j && j.measured) || { state: "unreadable" });
+      } catch (e) {
+        // 后端故障不是关于这个文件的事实 —— 不缓存，让创作者可以再按一次
+        toast(`测量失败：${(e && e.message) || "读不到后端"}`);
+        return false;
+      }
+      return true;
+    },
   },
   // Episode Production controller (CP6 / ADR-0058) — the read models behind
   // 本集制作 and 参考统筹, plus the manual generation round trip.
@@ -4782,8 +4879,31 @@ const ctx = {
     isKnown: (url) => mediaProbe.isKnown(url),
     observe: (url, present) => mediaProbe.observe(url, present),
     /** Probe every URL the registry declares. Resolves true when something new
-     *  was learned, so the caller re-renders exactly once. */
-    scanRegistry: () => mediaProbe.scan(mediaprobe.registryUrls(assetRegistry)),
+     *  was learned, so the caller re-renders exactly once.
+     *
+     *  SERVER AUDIT FIRST (TASK-103 批次 C). When connected, one request answers
+     *  for every project media file at once, authoritatively — no per-URL `HEAD`,
+     *  and no `INCONCLUSIVE` for files sitting on the creator's own disk. The
+     *  `HEAD` scan still runs afterwards for whatever the audit did not decide
+     *  (canvas-local paths, a truncated listing), so nothing loses coverage.
+     *
+     *  An audit that FAILS is not an answer: we fall through to the probe rather
+     *  than let a backend fault read as 「都不在」. */
+    scanRegistry: async () => {
+      const urls = mediaprobe.registryUrls(assetRegistry);
+      let changed = false;
+      if (CONNECTED) {
+        try {
+          const audit = await query.getMediaAudit(PROJECT_NAME);
+          mediaAuditFiles = (audit && audit.files) || {};
+          changed = mediaProbe.applyAudit(urls, PROJECT_NAME, audit);
+        } catch {
+          /* audit unavailable — the HEAD scan below is still the honest fallback */
+        }
+      }
+      const scanned = await mediaProbe.scan(urls);
+      return changed || scanned;
+    },
     checked: () => mediaProbe.checked(),
   },
   // ---------------------------------------------------------------------- //
@@ -5792,6 +5912,114 @@ ctx.discardShotEdit = () => production.discardShotEdit();
 // Land a production-structure mutation: refused ops (false) change nothing and
 // must not persist; successful ones persist + re-render the shell (hoisted —
 // ctx.production above calls these only at runtime).
+/** 装载时的台账修正：上一次会话留下的 `pending` 是**中断**，不是进行中。
+ *
+ *  两者要求的下一步不同 —— 一个是等，一个是重试 —— 而它们长得一样正是本批
+ *  反复在消除的那种「两个事实塌成一个」。 */
+function normaliseCoreSync(stored) {
+  if (!stored || typeof stored !== "object" || Array.isArray(stored)) return {};
+  const out = {};
+  for (const k of Object.keys(stored)) {
+    const e = stored[k];
+    if (!e || typeof e !== "object") continue;
+    out[k] = e.state === "pending"
+      ? { ...e, state: "interrupted", text: "登记没能确认结果（上次会话中断）—— 可以重试" }
+      : e;
+  }
+  return out;
+}
+
+/** 一条回执落进台账。集中一处，因为它有三个写入时机（开始前、结束后、装载时）。 */
+function writeCoreSync(decisionId, entry) {
+  reviewsDoc = {
+    ...reviewsDoc,
+    coreSync: { ...(reviewsDoc.coreSync || {}), [decisionId]: entry },
+  };
+}
+
+/** 每一镜自己一条串行链（codex round 1, P1）。
+ *
+ *  通过与撤销通过是**两条不同的命令**（不同 decisionId ⇒ 不同 evaluation_id），
+ *  所以网关的按 command_id 幂等救不了顺序：快速「通过 → 撤销」两次 fire-and-forget
+ *  并发发出，撤销可能先落、通过后落，核心最终留下的是一个创作者已经收回的
+ *  「passed」。按镜头串起来之后，核心看到的顺序就是他按下的顺序。
+ *
+ *  按镜头而不是全局：不同镜头之间没有顺序关系，串成一条会让 60 镜的批量审片
+ *  变成一个个排队。
+ *
+ *  **键里带项目与文档世代**（codex 轮 3，P1）。只按 `shotId` 串，切到另一个项目
+ *  后一个**同名**的镜头会排在上一个项目那次请求的后面 —— 而那次请求没有客户端
+ *  超时（本地 CLI 与大存档都需要无限期），一旦后端挂住，新项目的登记就永远发不
+ *  出去，界面停在「正在登记」。链条属于一份文档，键就该说出是哪一份。 */
+const reviewSyncChains = new Map();
+
+/** 把一次审片结论送进核心项目，并把「送没送到、为什么没送到」记下来。
+ *
+ *  TASK-103 批次 B。四条纪律：
+ *  1. **不阻塞创作者**：画布上的通过已经成立并已存盘，这里失败不回滚它。
+ *  2. **不吞掉结果**：每次都往 `reviewsDoc.coreSync` 写一条，界面据此如实显示。
+ *     一个只弹 toast 的版本等于三秒后又回到「按下之后不知去了哪」。
+ *     **开始之前就写一条 `pending`**（codex round 1, P1）：请求飞在半空时关掉
+ *     页面，本地已经有一条通过、核心什么都没收到，而台账里空空如也 —— 那正是
+ *     本批要消除的「按下之后不知去了哪」，只是换了个时机。
+ *  3. **不假装成功**：`AMBIGUOUS`／被拒／没后端各自是自己的状态（见
+ *     `reviewsync.explain`），绝不合并成一句「登记失败」。
+ *  4. **不写到别人的画布上**：await 之后先确认装载的还是同一份文档。
+ */
+function syncReviewToCore(spec, decisionId, shotId) {
+  // 只有连上真实项目才有核心可写。演示模式不是错误，是「这里本来就没有核心」。
+  const client = CONNECTED
+    ? {
+        // 目标三元组由后端算 —— 见 `_review_target`。前端拼一个 digest 出来
+        // 等于把命令绑在一个不存在的版本上。
+        target: (project, shotId2) => query.getReviewTarget(project, shotId2),
+        preflight: command.preflight,
+        submit: command.submit,
+      }
+    : null;
+  const project = PROJECT_NAME;
+  const epoch = canvasEpoch;
+  // 先落一条「登记中」，并且**立刻存盘** —— 这条状态存在的意义就是在请求没能
+  // 回来时仍然说得出话。
+  writeCoreSync(decisionId, { state: "pending", text: "正在登记到核心…", at: new Date().toISOString() });
+  ctx.persist();
+  refreshProductionView();
+
+  const chainKey = `${project}\u0000${epoch}\u0000${shotId}`;
+  const prev = reviewSyncChains.get(chainKey) || Promise.resolve();
+  const run = prev.then(async () => {
+    // ANY throw must still replace `pending` (codex round 2, P1). `sendThroughGateway`
+    // is written not to reject, but 「写得对」 is not a guarantee: an exception from
+    // anywhere in here would leave the ledger saying 「正在登记到核心…」 forever, and
+    // the card hides 重试登记 on `pending` — so the one state that must never get
+    // stuck is exactly the one that would. Fail-closed to a visible, retryable
+    // failure rather than to a hopeful one.
+    let said;
+    try {
+      said = reviewsync.explain(await reviewsync.sendThroughGateway(client, project, spec));
+    } catch (e) {
+      said = { state: "failed", text: `未登记到核心：${(e && e.message) || "登记过程出错"}` };
+    }
+    // 装载的已经不是同一份文档了 —— 这条回执属于上一份，写进来就是伪造。
+    if (project !== PROJECT_NAME || epoch !== canvasEpoch) return said;
+    writeCoreSync(decisionId, { state: said.state, text: said.text, at: new Date().toISOString() });
+    ctx.persist();
+    refreshProductionView();
+    if (said.state !== "recorded") toast(said.text);
+    return said;
+  });
+  // 链条不能被一次失败截断（否则这一镜后续的登记全部不再发出）
+  const link = run.catch(() => {});
+  reviewSyncChains.set(chainKey, link);
+  // …而跑完就得清掉（codex 轮 4）。每次装载文档都会造出一批新的世代键，只加不减
+  // 会让一整个标签页寿命内的链条与它们捕获的请求状态全部留着。只有当自己仍然是
+  // 这一格的当前值时才删 —— 后面排上来的那条不该被上一条顺手清掉。
+  link.then(() => {
+    if (reviewSyncChains.get(chainKey) === link) reviewSyncChains.delete(chainKey);
+  });
+  return run;
+}
+
 function refreshProductionView() {
   if (production.isVisible()) production.render();
 }
@@ -6157,25 +6385,42 @@ function landingNote(msg) {
   note.classList.add("bad");
 }
 
+/** The address this function last ACTED on.
+ *
+ *  The de-duplication of 「one press, two events」 used to be the `routeApplying`
+ *  early return, which also discarded a genuine second press (TASK-087 §5.6).
+ *  Now that the latch re-runs instead of discarding, the duplicate has to be
+ *  recognised by what it IS — the same address again — rather than by when it
+ *  arrived. Keyed on the raw hash, so it holds even on the paths that return
+ *  before `writeUrl()` updates `currentRoute` (a declined unsaved-edit prompt,
+ *  an address naming a project this backend does not list). */
+let lastHonouredHash = null;
+
 /**
  * Go where the address bar says.
  *
  * Bound to BOTH `popstate` and `hashchange`: the first fires for our own
  * push/replace history entries, the second for an address typed or pasted into
- * the bar, and a back-press between two hash-differing entries fires both. The
- * `routeApplying` latch is what keeps that double event from being applied twice
- * — and, much more importantly, from asking the unsaved-edit question twice for
- * one press.
+ * the bar, and a back-press between two hash-differing entries fires both.
+ * `lastHonouredHash` is what keeps that double event from being applied twice —
+ * and, much more importantly, from asking the unsaved-edit question twice for one
+ * press. A genuine second press carries a DIFFERENT address, so it survives.
  */
-async function honourAddress() {
-  if (routeApplying) return;
-  const want = parseRoute(window.location.hash);
+async function honourAddress(atHash) {
+  // The address AS IT WAS WHEN THE EVENT FIRED, not as it is now (codex 轮 1, P1):
+  // a navigation that already finished has rewritten `window.location.hash` back
+  // to where IT went, so a re-run reading it live would go nowhere.
+  const hash = typeof atHash === "string" ? atHash : window.location.hash;
+  const want = parseRoute(hash);
   // THE SECOND EVENT OF ONE PRESS DOES NOTHING. `popstate` and `hashchange` both
   // fire for a back-press between two hash-differing entries, and applying the
   // route twice would repaint and re-ask the unsaved-edit question — and after a
   // DECLINE, `restoreUrl` has already put the address back, so the second event
   // would read the restored address and apply it as a fresh navigation.
   if (currentRoute && sameRoute(want, currentRoute)) return;
+  // the SECOND event of ONE press: same address, already handled
+  if (hash === lastHonouredHash) return;
+  lastHonouredHash = hash;
   if (!want.ok || !want.project) {
     // The address names nowhere. That IS the landing page — but it still goes
     // through the unsaved-edit guard, because the back button reaching this state
@@ -6227,8 +6472,26 @@ async function honourAddress() {
   writeUrl();
 }
 
-window.addEventListener("popstate", () => { honourAddress(); });
-window.addEventListener("hashchange", () => { honourAddress(); });
+// COALESCED, NOT DROPPED (TASK-103 批次 D / TASK-087 §5.6).
+//
+// `routeApplying` used to `return` on a second event, which is right for the two
+// events of ONE press (popstate + hashchange both fire for a hash-differing
+// back-press) but wrong for a SECOND press arriving while the first navigation is
+// still loading a project: that press was silently discarded. The address bar sat
+// at the second position, the screen at the first, and the trailing `writeUrl()`
+// then rewrote the address back to where the app actually was — consistent, and
+// yet the creator's press did nothing and nothing said so.
+//
+// The latch re-runs once after the in-flight navigation finishes, WITH the address
+// captured when the event fired. Reading the address live in the re-run does not
+// work: the finished navigation calls `writeUrl()`, which normalises the bar back
+// to where it went, so the re-run would read that and short-circuit — the last
+// press lost again, just later (codex 轮 1, P1). `honourAddress`'s own
+// `lastHonouredHash` / `sameRoute` checks still make the duplicate event of a
+// single press a no-op.
+const routeLatch = createRouteLatch(honourAddress);
+window.addEventListener("popstate", () => { routeLatch.trigger(window.location.hash); });
+window.addEventListener("hashchange", () => { routeLatch.trigger(window.location.hash); });
 
 function goProduction() { setTopMode("story"); }
 function goWorkflow() { setTopMode("episode"); }
@@ -6762,7 +7025,11 @@ function serializeGraph() {
     // target, and folding them together would make changing one change the other.
     deliverySpec: { ...deliverySpecDoc },
     // §6: issues an Agent may raise + decisions only the creator may make
-    reviews: { issues: [...reviewsDoc.issues], decisions: [...reviewsDoc.decisions] },
+    reviews: {
+      issues: [...reviewsDoc.issues],
+      decisions: [...reviewsDoc.decisions],
+      coreSync: { ...(reviewsDoc.coreSync || {}) },
+    },
     nodes: engine.nodes.map((n) => ({
       id: n.id, type: n.type, x: n.x, y: n.y, state: n.state,
       text: n.text, versions: n.versions, cur: n.cur, pickSingle: n.pickSingle,
@@ -6847,7 +7114,14 @@ function restoreGraph(data) {
     // another way made layer 2 quietly stop being 「必须定位到具体镜头」.
     issues: review.relocateLegacyIssues(rv && rv.issues),
     decisions: rv && Array.isArray(rv.decisions) ? [...rv.decisions] : [],
+    // 旧存档没有这张台账 —— 空表读作「还没问过核心」，不是「核心拒绝过」。
+    // 从磁盘读回来的 `pending` **不是**「正在登记」：那次登记随页面一起结束了，
+    // 结果没人知道。如实改写成 `interrupted`，界面据此给出重试（codex round 1, P1）。
+    coreSync: normaliseCoreSync(rv && rv.coreSync),
   };
+  // a DIFFERENT document is loaded now — any sync still in flight belongs to the
+  // previous one and must not write into this canvas
+  canvasEpoch++;
   // Breakdown proposals are PER-PROJECT transient review state: cards derived
   // from another project's script must never be appliable here, and a switch
   // mid-run must not leave a stuck "running" guard. (The in-flight run's
@@ -6988,7 +7262,8 @@ async function enterCanvas(name, opts = {}) {
   // project's asset recommendations under another project's shot ids.
   ctxCacheDoc = ctxcache.createCache(null);
   deliverySpecDoc = {};
-  reviewsDoc = { issues: [], decisions: [] };
+  reviewsDoc = { issues: [], decisions: [], coreSync: {} };
+  canvasEpoch++; // same reason as the load path
   // …and the project-health cache, for the same reason every document above is
   // cleared here: it describes the project being left.
   HEALTH = { ...HEALTH_EMPTY };
