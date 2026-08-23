@@ -152,6 +152,31 @@ def _ref_exists(root: Path, ref: str) -> bool:
     )
 
 
+def _worktrees_holding(root: Path, branch: str):
+    """Which worktrees currently have `branch` checked out — or `None` if unknown.
+
+    `git branch -d/-D` refuses to delete a branch that some worktree has checked
+    out; `update-ref -d` does NOT, because it operates on the ref and knows
+    nothing about worktrees. Swapping one for the other therefore drops that
+    protection, and the cost is a linked worktree whose symbolic HEAD points at
+    a ref that no longer exists (codex review, round 2).
+
+    `None` means「问不出来」and callers must treat it as「可能有」: an older git,
+    a broken worktree list, or any error at all. Fail-closed — the alternative is
+    force-deleting on the strength of a question we could not answer.
+    """
+    proc = _git(root, "worktree", "list", "--porcelain", check=False)
+    if proc.returncode != 0:
+        return None
+    held, current = [], None
+    for line in proc.stdout.splitlines():
+        if line.startswith("worktree "):
+            current = line[len("worktree ") :].strip()
+        elif line.strip() == f"branch refs/heads/{branch}" and current:
+            held.append(current)
+    return held
+
+
 def _is_ancestor(root: Path, ancestor: str, descendant: str) -> bool:
     return (
         _git(
@@ -1172,29 +1197,40 @@ def premerge_sync(root: Path, change: str) -> dict:
     }
 
 
-def record_sync(root: Path, change: str) -> dict:
+def record_sync(root: Path, change: str, hash_: str | None = None) -> dict:
     """把冲突解决后手工提交的 premerge merge 显式登记为 sync commit。
 
     与 task-ready 同一信任模型：这是 agent 的**显式声明**、留痕于清单——
     区别于被废除的静默结构豁免。仍要求形状成立（merge commit 且有后位亲
-    在 main 上），杜绝把普通提交声明成 sync。"""
+    在 main 上），杜绝把普通提交声明成 sync。
+
+    `hash_` 补登**历史**上的 sync merge（TASK-087 §3.6.6）。它与
+    `record_commit(--hash)` 是同一个形状，也是同一个理由：只能登记 HEAD 时，
+    一条由旧版工具产出、因此没写进 `sync_commits` 的 merge 就**够不着** ——
+    `_push_gates` 只认登记，于是分支卡在 `BLOCKED_UNRECORDED_COMMITS`，
+    唯一的出路是手工编辑清单。实测发生过一次（TASK-104 合并，merge `1028d34`）。
+    形状校验**一条不放松**：补登的对象照样要是「有后位亲在 main 上」的 merge。"""
 
     manifest = _load_manifest(root, change)
-    head = _head_hash(root)
-    if head in manifest.get("sync_commits", []):
-        return {"status": "OK", "hash": head, "already_recorded": True}
-    parents = _git(root, "show", "-s", "--format=%P", "HEAD").stdout.split()
+    ref = hash_ or "HEAD"
+    proc = _git(root, "rev-parse", "--verify", f"{ref}^{{commit}}", check=False)
+    if proc.returncode != 0:
+        return _blocked("BLOCKED_UNKNOWN_COMMIT", f"{ref!r} is not a commit")
+    target = proc.stdout.strip()
+    if target in manifest.get("sync_commits", []):
+        return {"status": "OK", "hash": target, "already_recorded": True}
+    parents = _git(root, "show", "-s", "--format=%P", target).stdout.split()
     main_ref = "origin/main" if _has_remote(root) else "main"
     if len(parents) < 2 or not any(
         _is_ancestor(root, p, main_ref) for p in parents[1:]
     ):
         return _blocked(
             "BLOCKED_NOT_A_SYNC_MERGE",
-            "HEAD is not a merge commit whose later parent lies on main",
+            f"{target[:12]} is not a merge commit whose later parent lies on main",
         )
-    manifest.setdefault("sync_commits", []).append(head)
+    manifest.setdefault("sync_commits", []).append(target)
     _save_manifest(root, change, manifest)
-    return {"status": "OK", "hash": head, "needs_verification": True}
+    return {"status": "OK", "hash": target, "needs_verification": True}
 
 
 def merge_abort(root: Path, change: str) -> dict:
@@ -1367,12 +1403,73 @@ def cleanup(root: Path, change: str, keep_remote: bool = False) -> dict:
         return _blocked("BLOCKED_BRANCH", "switch off the change branch first")
     local_deleted = False
     if _ref_exists(root, f"refs/heads/{branch}"):
-        proc = _git(root, "branch", "-d", branch, check=False)  # 永不 -D
+        proc = _git(root, "branch", "-d", branch, check=False)
         if proc.returncode != 0:
-            return _blocked(
-                "BLOCKED_UNMERGED_COMMITS",
-                f"git branch -d refused: {proc.stderr.strip()[:200]}",
+            # `git branch -d` 判的是「相对本地**上游**是否已合并」，而这里要问的
+            # 是另一件事：**这个分支上的每一个提交是不是都已经在 main 里**。
+            # 两者会分歧 —— 分支领先自己的远端上游，但两个 tip 都已在 main 内
+            # （TASK-087 §3.6.9，`feat/wfm1-batch-c` 实测：7 个领先提交逐个核实
+            # 都是 origin/main 的祖先，删除不丢任何提交，`-d` 仍然拒绝）。
+            #
+            # 所以这里**自己回答那个问题**，答得出来才升级到 `-D`：分支 tip 是
+            # `confirm_ref` 的祖先 ⇒ 它的全部历史都在 main 里 ⇒ 删除不可能丢东西。
+            # 答不出来仍然拒绝。这不是放宽，是把判断从「git 的那个近似」换成
+            # 「真正要成立的那条」，并把理由写进返回值。
+            probe = _git(
+                root, "rev-parse", "--verify", f"{branch}^{{commit}}", check=False
             )
+            tip = probe.stdout.strip() if probe.returncode == 0 else ""
+            if not tip or not _is_ancestor(root, tip, confirm_ref):
+                return _blocked(
+                    "BLOCKED_UNMERGED_COMMITS",
+                    f"git branch -d refused and {branch} has commits not "
+                    f"contained in {confirm_ref}: {proc.stderr.strip()[:160]}",
+                )
+            # AND NOBODY MAY HAVE IT CHECKED OUT. `branch -d/-D` refuses in that
+            # case; `update-ref -d` does not, so the swap below would otherwise
+            # trade one hazard for another — a linked worktree left pointing at a
+            # deleted ref (codex review, round 2). `None` = 问不出来 = 当作有。
+            holders = _worktrees_holding(root, branch)
+            if holders is None or holders:
+                return _blocked(
+                    "BLOCKED_BRANCH_CHECKED_OUT",
+                    f"{branch} is checked out in "
+                    + (
+                        ", ".join(holders)
+                        if holders
+                        else "an undetermined worktree (git worktree list failed)"
+                    )
+                    + " — refuse to delete the ref out from under it",
+                )
+            # 残余竞态，明说不掩盖（codex 审查轮 3，按 ADR-0081 §2b 判为轮 1 那条
+            # P1 的更窄变体：失效机理同一个 —— 删除之前做的检查可能已经过时）。
+            # 能钉的只有分支自己的 oid（下面就钉了）。另外两项钉不住，git 没有
+            # 提供跨这些条件的 compare-and-swap：
+            #
+            #   * `origin/main` 在检查与删除之间被**改写**（不是前进 —— 前进不影响
+            #     包含关系）。那要求有人 force-push main，而那件事在本仓库是禁的，
+            #     真发生时丢一个分支引用是最轻的后果。
+            #   * 另一个进程恰在这几微秒里把该分支 check out 到新 worktree。
+            #
+            # 两者都要求并发写者在单用户 loopback 原型的亚毫秒窗口里插进来。
+            # 登记在 TASK-087 §6.7，不再逐个追更窄的拼法。
+            #
+            # DELETE THE OID WE CHECKED, not「whatever the name points at now」.
+            # `git branch -D <name>` is unconditional, so between the check above
+            # and the delete another process can land a commit on the branch —
+            # and that commit, which was never in main, would be the one thrown
+            # away (codex review, round 1). `update-ref -d <ref> <oldvalue>`
+            # takes the expected oid and fails if the ref moved, which makes
+            # check-and-delete one step instead of two.
+            forced = _git(
+                root, "update-ref", "-d", f"refs/heads/{branch}", tip, check=False
+            )
+            if forced.returncode != 0:
+                return _blocked(
+                    "BLOCKED_UNMERGED_COMMITS",
+                    f"refused to delete {branch}: it moved after its tip was "
+                    f"verified, or the delete failed: {forced.stderr.strip()[:160]}",
+                )
         local_deleted = True
     remote_deleted = False
     remote_error = None
@@ -1498,11 +1595,16 @@ def main(argv: list[str] | None = None) -> int:
         "sync",
         "premerge-sync",
         "merge-abort",
-        "record-sync",
         "status",
     ):
         p = sub.add_parser(name)
         p.add_argument("--change", required=True)
+
+    p = sub.add_parser("record-sync")
+    p.add_argument("--change", required=True)
+    # 补登历史上的 sync merge（TASK-087 §3.6.6）。与 record-commit 的 --hash
+    # 同名同义：只能登记 HEAD 时，旧版工具产出的 merge 就够不着。
+    p.add_argument("--hash", dest="commit_hash", default=None)
 
     p = sub.add_parser("merge")
     p.add_argument("--change", required=True)
@@ -1554,7 +1656,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "merge-abort":
             result = merge_abort(root, args.change)
         elif args.command == "record-sync":
-            result = record_sync(root, args.change)
+            result = record_sync(root, args.change, hash_=args.commit_hash)
         elif args.command == "merge":
             result = merge(root, args.change, args.reverified, args.ledger_checked)
         elif args.command == "cleanup":

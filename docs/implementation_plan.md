@@ -13,7 +13,7 @@
 - 剩余任务的规划与设计一次性完成，经**一次整体 Codex 架构审查**
   后连续实施，不再逐 Step 等待外部审查；
 - 实施后的独立审查合并到 **milestone 回归门槛**（见
-  [remaining-roadmap-design-report](design/active/remaining-roadmap-design-report.md)）；
+  [remaining-roadmap-design-report](design/done/remaining-roadmap-design-report.md)）；
 - 实施者/审查者分离原则（AGENTS.md 14/15）不变，只改变审查粒度。
 
 ## 阶段 → 任务映射（当前）

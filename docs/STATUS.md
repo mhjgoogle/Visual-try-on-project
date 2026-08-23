@@ -52,9 +52,7 @@
 | [final-unified-acceptance-runbook.md](design/active/final-unified-acceptance-runbook.md) | 最终统一验收 Runbook（TASK-040） | — |
 | [final-unified-acceptance-traceability.md](design/active/final-unified-acceptance-traceability.md) | 最终统一验收追踪矩阵（TASK-040） | — |
 | [final-unified-milestone-review.md](design/active/final-unified-milestone-review.md) | 最终统一产品里程碑评审记录（TASK-040） | — |
-| [handover-2026-08-23-remaining-active-tasks.md](design/active/handover-2026-08-23-remaining-active-tasks.md) | 交接：docs/tasks/active/ 的剩余任务（2026-08-23） | — |
 | [pending-codex-rereview.md](design/active/pending-codex-rereview.md) | 待补 codex 复审清单（降级审查模式的债务） | P1 未闭合 → 按发布闸门（无未闭合 P1）main 不得 push，直至修复落地 |
-| [remaining-roadmap-design-report.md](design/active/remaining-roadmap-design-report.md) | 剩余 Roadmap 整体设计报告（供 Codex 一次性架构审查） | — |
 | [wfm2-acceptance-runbook.md](design/active/wfm2-acceptance-runbook.md) | WFM2 正式作品验收 Runbook（TASK-037） | — |
 | [wfm2-acceptance-traceability.md](design/active/wfm2-acceptance-traceability.md) | WFM2 端到端验收追踪矩阵（TASK-037） | — |
 | [WFM2-milestone-review.md](design/active/WFM2-milestone-review.md) | WFM2 里程碑评审记录（TASK-037） | — |
@@ -168,8 +166,10 @@
 | 文档 | 标题 | 状态行（首句） |
 | --- | --- | --- |
 | [commit-gate-intent-detection.md](design/done/commit-gate-intent-detection.md) | commit gate 的意图判定：从正则读命令文本，改成用每个 shell 自己的解析器 | 已实施（2026-08-16，TASK-085） |
+| [handover-2026-08-23-remaining-active-tasks.md](design/done/handover-2026-08-23-remaining-active-tasks.md) | 交接：docs/tasks/active/ 的剩余任务（2026-08-23） | — |
 | [M1-milestone-review.md](design/done/M1-milestone-review.md) | M1 Milestone Review Record | — |
 | [pending-speedup-and-gate-fix.md](design/done/pending-speedup-and-gate-fix.md) | 测试提速 + commit gate 分类修复 | 已落地（2026-08-15） |
+| [remaining-roadmap-design-report.md](design/done/remaining-roadmap-design-report.md) | 剩余 Roadmap 整体设计报告（供 Codex 一次性架构审查） | — |
 | [TASK-003-provider-contract-design.md](design/done/TASK-003-provider-contract-design.md) | TASK-003 设计文档：VideoProvider 契约与 ManualVideoProvider | approved — ready for implementation |
 | [TASK-004-provider-orchestrator-design.md](design/done/TASK-004-provider-orchestrator-design.md) | TASK-004 设计文档：Provider Orchestrator 契约与基础编排 | completed — implementation complete through Step G; Codex |
 | [TASK-008-audio-subtitle-design.md](design/done/TASK-008-audio-subtitle-design.md) | TASK-008 Focused Design — Subtitles, Voice-over, Audio (M2) | 聚焦设计定案（用户已批准 3 项产品假设「全按推荐」+ 批准 |

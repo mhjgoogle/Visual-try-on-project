@@ -90,10 +90,10 @@
 
 | # | 欠账 | 来源 | 风险 | 它今天挡住什么 |
 | --- | --- | --- | --- | --- |
-| 3.6.6 | **`record-sync` 只能登记 HEAD，补登不了历史 sync merge** | TASK-104 合并实测 | 中 | 与 3.6.5 同一形状（`record-commit` 当初也只能记 HEAD，后来加了 `--hash` 才解）。本次 `premerge-sync` 由旧版产出 merge `1028d34`（那版不写 `sync_commits`），换成新版后 `_push_gates` 只认登记 → `BLOCKED_UNRECORDED_COMMITS`，而 `record-sync` 够不着那个 hash。**只能手工写进清单**（已自行复核形状：merge commit + 后位亲在 origin/main 上）。修法：给 `record-sync` 加 `--hash`，复用 `record_sync` 已有的两项形状校验 |
+| ~~3.6.6~~ | ~~**`record-sync` 只能登记 HEAD，补登不了历史 sync merge**~~ | TASK-104 合并实测 | **已闭合 2026-08-23** | 按当时写下的修法做了：`record-sync` 加 `--hash`，复用 `record_commit(--hash)` 同一条 rev 解析，**形状校验一条不放松**（补登对象照样要是「有后位亲在 main 上」的 merge）。守卫两条，含反向那条；变异验证：拆掉形状校验 → 反向那条转红 |
 | 3.6.7 | **merge 记录的形状不统一，`cleanup` 因此认不出已合并的 Change** | TASK-102 清单实测 | 中 | 手工合并时人写的是 `merge_commit` / `at`，而 `cleanup` 读的是 `merge["hash"]` → 对一条**确实已合并**的 Change 报 `BLOCKED_NOT_MERGED`。本次按加法补齐了 `hash` / `time`（未动既有字段）。根治要么给 merge 记录一个单一来源的写入口，要么让读侧接受两种键名 —— 前者对 |
 | 3.6.8 | **`writeback_needed` 恒为 `True`** | TASK-101 补审轮 2 non-blocking（判 P3） | 低 | 回写已提交后重跑 `record-commit` 仍答「有待办」，并给出会 `nothing to commit` 的命令。主路径本来就是无条件给的，非新引入；真实脏否由 `_dirty_gate` 在下次操作时判定 |
-| 3.6.9 | **`git branch -d` 在「本地领先其远端上游」时拒删，即便两个 tip 都已在 main 内** | `feat/wfm1-batch-c` 清理实测 | 低 | `cleanup` 返回 `BLOCKED_UNMERGED_COMMITS`。本次逐个核实那 7 个提交**全部**是 `origin/main` 的祖先（删除不丢任何提交），但 force 删除被会话权限层拦下，分支**至今未删**，状态记在 `wfm1-batch-c.json` 的 `cleanup` 字段里。修法：`cleanup` 在「所有领先提交都是 origin/main 祖先」时改用 `-D` 并说明理由，而不是把判断退回给人 |
+| ~~3.6.9~~ | ~~**`git branch -d` 在「本地领先其远端上游」时拒删，即便两个 tip 都已在 main 内**~~ | `feat/wfm1-batch-c` 清理实测 | **已闭合 2026-08-23** | `cleanup` 现在**自己回答那个问题**：分支 tip 是 `origin/main` 的祖先 ⇒ 全部历史都在 main 里 ⇒ 删除不可能丢东西，此时才升级到 `-D`；答不出来仍然拒绝，并把理由写进返回值。**这不是放宽**，是把判断从 git 的那个近似（相对本地上游）换成真正要成立的那条。`feat/wfm1-batch-c` 本地与远端**都已删除**，欠了一整轮的清理到此结清 |
 
 **一条方法论**（与 §7 同族）：这四条里有三条的形状是**「事实成立，但登记表说不出来」** ——
 不是守卫太严，是**事实的表示法有两套而读侧只认一套**。3.6.3「L0–S7 合同手抄三份」
@@ -109,7 +109,7 @@
 | 4.4 | **`nonEmpty` 拦不住占位词** | TASK-078 | 中 | Skill schema 的 `nonEmpty` 挡不住模型写「无」「常规」——非空但无信息 |
 | 4.5 | **`LANDS_ON` 与 `MODULE_ALIAS` 两份表无守卫比对** | TASK-086 §Follow-up | 低 | 抓图工具里镜像了一份别名表。守卫会在应用落到别处时喊，但两份表本身不比对。根治要让工具从 `shell.js` 读 |
 | 4.6 | 升版本后**历史 Run 的 Prompt 无法从磁盘复现** | TASK-078 · TASK-094 批次 A/C/E | 中 | Run 记了 `skillDigest`，但那个版本的 `prompt.md` 已被新版本取代。**本链又升了三个包**（`episode-planner` 2、`story-development` 2、`script-breakdown` 2），所以这条的暴露面从一个包变成四个。**不是运行期缺陷**：没有任何代码按 `(skillId, version)` 解析包（`findSkill` 只按 id），历史 Run 的产物早已存在文档里，所以不会 fail closed；丢的是**可复现性**。根治要给包一个带版本的磁盘布局（`<skillId>/v1/`…），那是 ADR-0067 的布局变更，需要单独一张卡 + ADR。codex 在批次 E 把它报成 blocking，已按此驳回并登记（ADR-0067 决策 3 给出的补救就是「升版本号」，它没有要求保留旧内容） |
-| 4.8 | **Prompt 漂移基线只覆盖 20 / 22 个内置包** | TASK-094 批次 A 实测 | 低 | `skill-prompt-snapshots.json` 里没有 `episode-planner` 与 `script-reviser`，所以批次 A 重写 `episode-planner/prompt.md` 时那个「漂移警报」**没有响**（改 `story-development` / `script-breakdown` 时响了）。守卫的成员集合应当**从目录派生**，让新包**因为存在**而进基线（TASK-087 §7 项 2 同一条）。新增的 `episode-plan-reviser` / `story-reviser` / `world-director` 同样不在里面 |
+| ~~4.8~~ | ~~**Prompt 漂移基线只覆盖 20 / 22 个内置包**~~ | TASK-094 批次 A 实测 | **已闭合（2026-08-23 复查发现早已修好）** | `skill-prompt-snapshots.json` 现在 26 条，与 `product-skills/builtin/` 的 26 个目录一一对应；`test_the_two_compilers_agree_on_every_skill` 的成员集合断言写的是 `set(expected) == set(catalog.skills)` —— **从目录派生**，新包因为存在而进基线，正是本条要求的那个形状。本条属于「文档比事实旧」那一族，登记时是真的，读到时已不是 |
 | 4.9 | 拆解提案的 `existingAssetKey` **只显示、不绑定** | TASK-094 批次 E | 中 | 能力现在能说「这个人已经有参考图了」，卡片会**对着资产库核一遍**再显示（核不到就说核不到）。但「确认后把这张图挂到该档案上」还是手工的。自动绑定＝资产登记写路径，超出 TASK-090 §2.2 的范围（那一节只要求输入 + prompt + 端点），故未做 |
 | 4.7 | 规划版本的 `basedOn` **只校验「是整数」**，不校验它指向一个真实的更早版本 | TASK-094 批次 A · codex 复审非阻塞 | 中（持久化诚实性） | `0` / 负数 / 指向自己 / 指向未来版本都能存进文档，于是「这一版是从哪一版改出来的」可以是假话。**不阻塞**：身份继承读的是**瞬态** `pending.basedOn`，不是持久字段，所以畸形值最多让**溯源显示**不对，接不错集。收紧到 `1 <= basedOn < v` 是一行，但按 ADR-0069 的轮次预算，P1 未闭合的那一轮只修 P1；故登记在此。大纲链的 `basedOn` 有**同样**的宽松，一起收紧才有意义 |
 
@@ -140,6 +140,7 @@
 | 6.4 | **`data/skills/` 仍在仓库里** | TASK-056 | `_USER_SKILLS_DIR = DATA_DIR / "skills"`。按它自己的注释（合同 §5.5）它和 `projects.json` / `runs.json` 同类 —— 账户级、跨项目、非源码 —— 但 TASK-056 的范围只写了那两个注册表，所以它没跟着搬。**不是缺陷，是一致性欠账**：ADR-0067 的用户 Skill 包目前仍从仓库 scratch 读 |
 | 6.5 | `pytest_unconfigure` 不还原 `MOTV_APP_DATA_DIR` | TASK-056 审查轮 4（P3） | 用 `pytest.main()` 在同一进程里跑完测试的调用方，之后仍持有一个**已被删除**的丢弃目录路径；再起后端会把它重建出来并往里写。命令行 `pytest` 不受影响（进程结束变量就没了）。**未修** |
 | 6.6 | `RunStore._load` 先 `exists()` 再读 | TASK-056 审查轮 4（P3，审查者自标 uncertain） | 两步之间若有另一进程创建了新位置的日志，本实例会从 legacy 启动并可能用旧状态覆盖新的。同一台机器上同时跑两个后端本来就不是支持的姿态（单用户 loopback 原型），且窗口是微秒级。**未修，记录** |
+| 6.7 | `cleanup` 删分支前的两项检查存在残余竞态 | TASK-087 §3.6.9 实施 · codex 审查轮 3 | **记录，不修**。删除已经用 `update-ref -d <ref> <expected-oid>` 把**分支自己的 oid** 钉住了（轮 1 的 P1）。另外两项钉不住 —— git 没有跨这些条件的 compare-and-swap：① `origin/main` 在检查与删除之间被**改写**（前进不影响包含关系，只有 force-push main 才会；而那在本仓库是禁的）；② 另一进程恰在这几微秒里把该分支 check out 到新 worktree。按 ADR-0081 §2b 判为轮 1 那条 P1 的**更窄变体**（失效机理同一个：删除前的检查可能已过时），做范围判断并记录，不再逐个追拼法。代码里就地写明，见 `cleanup` 删除前那段注释 |
 
 ---
 
