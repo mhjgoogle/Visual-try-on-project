@@ -50,6 +50,29 @@ fast the FIX is, not what it can break.
 - **P1 found → fix the P1s alone and spend ONE more round re-reviewing just
   that fix.** An outstanding P1 always buys the round it needs; a P1 can never
   dead-end the workflow.
+- **A re-review that reports a NEW P1 buys its own round** (ADR-0081 §2a — not
+  a hard ceiling of two). Stop after **one** clean round; never run another
+  "just to be sure" after a pass. Two independent samples: TASK-098 found new
+  P1s in rounds 2 AND 3 (one of them: an explicitly forbidden camera move still
+  rendered), TASK-102 in rounds 3 AND 4 (one of them: the gate silently running
+  one test domain too few). A two-round ceiling would have shipped all of them —
+  they existed *because* the first fix was incomplete, which is the single most
+  common case.
+- **But a narrower variant of an already-fixed / already-rebutted / already-
+  recorded finding is NOT a new P1** (§2b). When the same theme keeps returning
+  in narrower spellings, make the scope call and record it — do not buy another
+  round. That is the other half of the 13-round / 10-round disease (TASK-097
+  §2.5d spent six rounds on SSRF spellings: scheme → decimal/hex/octal →
+  dotted-hex → trailing root dot → CGNAT).
+- **"Same theme" is judged by FAILURE MECHANISM, never by code location**
+  (§2c). TASK-098's round-2 and round-3 P1s sat in the same endpoint fewer than
+  30 lines apart yet were different mechanisms (a missing duration bound vs a
+  geometry distortion) — merging them by location would have shipped the
+  distortion. The converse holds too: one theme can span files.
+- **When you cannot tell, buy the round** (§2d). The asymmetry: mis-judging a
+  finding as "a variant" costs **a shipped P1**; mis-judging it as "new" costs
+  **one round**. §2b applies only when you can already articulate the shared
+  mechanism.
 - **P2 found → fix them, run the owning test domain, close.** Do NOT open
   another round for P2s: a reviewer can always find a narrower P2 variant, so
   P2-triggered re-review does not converge (TASK-061 spent 13 rounds, TASK-062
