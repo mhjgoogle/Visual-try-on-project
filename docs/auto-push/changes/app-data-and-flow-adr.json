@@ -233,6 +233,36 @@
       "verification": "PASS",
       "verification_ref": "两阶段 pytest 3383+6 · node --test 1808 · ruff check/format 全绿 · codex-review-loop 3 轮（轮3 两条判为同主题变体，显式 ship）· 五次变异验证全部先红后绿",
       "declared": "2026-08-23T11:36:54+00:00"
+    },
+    "ADR-0085-merge-gate": {
+      "commits": [
+        {
+          "hash": "1b80872cfc4f196ade8638ea21af0e57ec640722",
+          "subject": "docs(ADR-0085): merge 到 main 不再是人工闸 —— 前置条件一条不少，只是没人再点头",
+          "time": "2026-08-23T23:07:56+00:00",
+          "branch": "change/TASK-056-app-data-location",
+          "pushed": false,
+          "files": [
+            ".claude/skills/auto-push/SKILL.md",
+            ".claude/skills/auto-push/references/merge-and-conflicts.md",
+            ".claude/skills/dev-workflow/SKILL.md",
+            "AGENTS.md",
+            "docs/STATUS.md",
+            "docs/adr/ADR-0079-auto-push-skill.md",
+            "docs/adr/ADR-0085-merge-is-not-a-human-gate.md"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        ".claude/skills/",
+        "AGENTS.md",
+        "docs/STATUS.md",
+        "docs/adr/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "最终全量：两阶段 pytest 3383+6 · node --test 1808 · ruff check/format 全绿 · 全仓 md 断链 0；纯治理文档改动，按 ADR-0081 不调审查",
+      "declared": "2026-08-23T23:06:41+00:00"
     }
   },
   "merge_gate": {
