@@ -1,0 +1,84 @@
+{
+  "schema": 1,
+  "change_id": "autopush-v011",
+  "branch": "change/TASK-101-autopush-v011",
+  "status": "open",
+  "created": "2026-08-22T14:43:45+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-101": {
+      "commits": [
+        {
+          "hash": "94a06a70da8e7c2da127d3b519939755191cdcb6",
+          "subject": "fix(skill): auto-push v0.1.1 —— 共享树永不倒退、越界现算、回写不 stale、出处全局化+--hash 补登、evil-merge 豁免改登记制、merge 前置 ledger 核对（TASK-101，六项实战缺陷 fb-0002~0006 + ba0c8e2 补审 P1）",
+          "time": "2026-08-22T14:45:22+00:00",
+          "branch": "change/TASK-101-autopush-v011",
+          "pushed": false,
+          "files": [
+            ".claude/skills/auto-push/SKILL.md",
+            ".claude/skills/auto-push/references/merge-and-conflicts.md",
+            ".claude/skills/auto-push/scripts/autopush.py",
+            "docs/auto-push/changes/autopush-v011.json",
+            "docs/design/pending-codex-rereview.md",
+            "docs/skill-evolution/backlogs/auto-push.jsonl",
+            "docs/skill-evolution/index.json",
+            "docs/tasks/TASK-101-auto-push-skill.md",
+            "tests/tooling/test_auto_push_tooling.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "2c92975275d2fe94dd1b48026ad40860f762af59",
+          "subject": "fix(skill): auto-push v0.1.1 复审轮 —— record-commit 拒登 merge、一提交一主人、回写提醒不再只挂 push、建议命令拆复合（TASK-101，复审 2 真 P1 + 0c 实测缺口）",
+          "time": "2026-08-22T15:11:16+00:00",
+          "branch": "change/TASK-101-autopush-v011",
+          "pushed": false,
+          "files": [
+            ".claude/skills/auto-push/SKILL.md",
+            ".claude/skills/auto-push/scripts/autopush.py",
+            "docs/auto-push/changes/autopush-v011.json",
+            "docs/skill-evolution/backlogs/auto-push.jsonl",
+            "docs/skill-evolution/index.json",
+            "tests/tooling/test_auto_push_tooling.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "4e36bb77be64c0955b75fb4439e589349a8d40f0",
+          "subject": "fix(skill): auto-push v0.1.1 补审轮 —— 拒登 merge 的守卫移到去重之前（只盖新登记盖不住存量），去重早退补回写提醒（TASK-101，codex 2 轮：轮1 1 P1+1 P2 已修 1 驳回，轮2 pass）",
+          "time": "2026-08-23T01:03:49+00:00",
+          "branch": "change/TASK-101-autopush-v011",
+          "pushed": false,
+          "files": [
+            ".claude/skills/auto-push/scripts/autopush.py",
+            "docs/design/pending-codex-rereview.md",
+            "tests/tooling/test_auto_push_tooling.py"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        ".claude/skills/auto-push/",
+        "docs/design/pending-codex-rereview.md",
+        "docs/skill-evolution/",
+        "docs/tasks/TASK-101-auto-push-skill.md",
+        "tests/tooling/test_auto_push_tooling.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "pytest tests/tooling/test_auto_push_tooling.py: 40 passed (v0.1.1 review fixes); ruff: pass",
+      "declared": "2026-08-22T15:09:50+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PASS",
+    "by": "产品负责人 2026-08-23：「合并并收口」",
+    "time": "2026-08-23T01:08:26+00:00",
+    "tip": "d59694ed25a127ff186dd1dfb4e4c6fcd1fae40c"
+  },
+  "merge": null,
+  "cleanup": null,
+  "sync_commits": [
+    "8330004ff7358eba31a9baa8e9263082386258aa",
+    "0fae4a7288b88162126cfa57a5c5ac38995587d3"
+  ]
+}
