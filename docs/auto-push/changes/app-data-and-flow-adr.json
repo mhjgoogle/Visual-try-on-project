@@ -110,7 +110,28 @@
       "declared": "2026-08-23T10:09:48+00:00"
     },
     "TASK-087-docs-links": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "f0b04c87f125c9a302d6ed0739658b1a138ebac0",
+          "subject": "test(docs): 全仓 md 断链守卫 —— ADR-0083 的 git mv 每次都会打断入链，此前没有东西接住",
+          "time": "2026-08-23T10:10:52+00:00",
+          "branch": "change/TASK-056-app-data-location",
+          "pushed": false,
+          "files": [
+            "docs/STATUS.md",
+            "docs/auto-push/changes/app-data-and-flow-adr.json",
+            "docs/tasks/done/TASK-049-native-windows-run-target.md",
+            "docs/tasks/done/TASK-077-honest-state-and-dead-surfaces.md",
+            "docs/tasks/done/TASK-078-storyboard-table-to-first-frame.md",
+            "docs/tasks/done/TASK-079-review-surface-and-chaining.md",
+            "docs/tasks/done/TASK-080-skill-catalog-and-one-agent-session.md",
+            "docs/tasks/done/TASK-081-url-routing-and-deep-links.md",
+            "docs/tasks/done/TASK-082-project-health-and-asset-tree.md",
+            "tests/tooling/test_docs_links.py"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/STATUS.md",
         "docs/tasks/done/TASK-049-native-windows-run-target.md",
