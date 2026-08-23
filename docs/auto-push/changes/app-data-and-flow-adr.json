@@ -200,7 +200,31 @@
       "declared": "2026-08-23T10:47:08+00:00"
     },
     "TASK-087": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "574e1402686db33a6063ed31084046b29ff9cd7e",
+          "subject": "fix(TASK-087): auto-push 工装两条欠账闭合 + 陈旧分支清理，交接卡收口",
+          "time": "2026-08-23T11:45:02+00:00",
+          "branch": "change/TASK-056-app-data-location",
+          "pushed": false,
+          "files": [
+            ".claude/skills/auto-push/scripts/autopush.py",
+            "docs/STATUS.md",
+            "docs/auto-push/changes/app-data-and-flow-adr.json",
+            "docs/design/active/handover-2026-08-23-remaining-active-tasks.md",
+            "docs/design/active/remaining-roadmap-design-report.md",
+            "docs/design/done/handover-2026-08-23-remaining-active-tasks.md",
+            "docs/design/done/remaining-roadmap-design-report.md",
+            "docs/implementation_plan.md",
+            "docs/tasks/active/TASK-027-workspace-lineage-comparison-and-cost.md",
+            "docs/tasks/active/TASK-041-workspace-generation-command-and-evidence.md",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "docs/tasks/done/TASK-004-provider-orchestrator-foundation.md",
+            "tests/tooling/test_auto_push_tooling.py"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         ".claude/skills/auto-push/",
         "docs/",
