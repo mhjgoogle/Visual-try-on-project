@@ -13,7 +13,7 @@
           "subject": "feat(TASK-056): 账户级注册表移出仓库 —— projects.json / runs.json 进应用数据目录",
           "time": "2026-08-23T10:09:34+00:00",
           "branch": "change/TASK-056-app-data-location",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/adr/ADR-0053-project-rooted-studio-storage.md",
             "docs/auto-push/changes/app-data-and-flow-adr.json",
@@ -76,7 +76,7 @@
           "subject": "docs(TASK-083): ADR-D 定案 —— 流程模板是 Skill 包机制的第二个 kind，不是第二套",
           "time": "2026-08-23T10:10:15+00:00",
           "branch": "change/TASK-056-app-data-location",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/adr/ADR-0071-reference-inputs-as-an-ordered-set.md",
             "docs/adr/ADR-0074-character-from-image.md",
@@ -116,7 +116,7 @@
           "subject": "test(docs): 全仓 md 断链守卫 —— ADR-0083 的 git mv 每次都会打断入链，此前没有东西接住",
           "time": "2026-08-23T10:10:52+00:00",
           "branch": "change/TASK-056-app-data-location",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/STATUS.md",
             "docs/auto-push/changes/app-data-and-flow-adr.json",
@@ -146,6 +146,30 @@
       "verification": "PASS",
       "verification_ref": "pytest tests/tooling 154 全绿（含新守卫 2 条）· 变异验证：注入一条坏链后守卫转红，撤回后转绿 · 全仓断链 0 条",
       "declared": "2026-08-23T10:10:28+00:00"
+    },
+    "FOREIGN-dev-workflow-adr0083": {
+      "commits": [
+        {
+          "hash": "aa6c002ac8928aaced7c3ea0e248553b6fc34a78",
+          "subject": "docs(dev-workflow): 把「搬进 done/ 并重生成 STATUS」写进 Done 判定与建卡步骤",
+          "time": "2026-08-23T10:22:40+00:00",
+          "branch": "change/TASK-056-app-data-location",
+          "pushed": false,
+          "files": [
+            ".claude/skills/dev-workflow/SKILL.md",
+            ".claude/skills/dev-workflow/references/records.md",
+            "docs/auto-push/changes/app-data-and-flow-adr.json"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        ".claude/skills/dev-workflow/",
+        "docs/auto-push/changes/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "并发会话自带验证：两个改动文件 md 链接可达 0 broken · pytest tests/tooling/test_docs_status.py 6 passed · 纯文档不触发审查。本会话未复核，仅登记归属",
+      "declared": "2026-08-23T10:22:40+00:00"
     }
   },
   "merge_gate": {
