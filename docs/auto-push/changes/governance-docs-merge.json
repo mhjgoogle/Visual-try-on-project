@@ -2,7 +2,7 @@
   "schema": 1,
   "change_id": "governance-docs-merge",
   "branch": "change/TASK-104-governance-docs-merge",
-  "status": "open",
+  "status": "closed",
   "created": "2026-08-23T02:03:57+00:00",
   "chain_mode": false,
   "tasks": {
@@ -112,8 +112,16 @@
     "time": "2026-08-23T02:12:38+00:00",
     "tip": "0025f9943c3cdfb6f5719c981041f11f83d9e234"
   },
-  "merge": null,
-  "cleanup": null,
+  "merge": {
+    "hash": "8b9eb8199fa742685f06da3de0c60207306ff07c",
+    "time": "2026-08-23T02:27:55+00:00",
+    "pushed": true
+  },
+  "cleanup": {
+    "local_deleted": true,
+    "remote_deleted": true,
+    "time": "2026-08-23T02:28:06+00:00"
+  },
   "sync_commits": [
     "1028d34ffb57c7966d14b85f523cc92834348a45"
   ]
