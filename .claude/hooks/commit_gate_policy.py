@@ -463,85 +463,39 @@ def _basename(token: str) -> str:
     return tail.lower().removesuffix(".exe")
 
 
-#: ONLY the QUOTED heredoc operator: `<<'TAG'` / `<<"TAG"` (and their `<<-`
-#: forms). The quotes are the whole point — see `_strip_heredoc_bodies`.
+#: KNOWN LIMITATION, RECORDED ON PURPOSE - DO NOT "FIX" THIS WITH A SCANNER.
 #:
-#: The tag is matched permissively (anything up to the closing quote, no
-#: newline) because a delimiter word may legitimately start with a digit or
-#: contain `-` / `.`; a tag we fail to recognise just leaves that body
-#: tokenised, i.e. back to the old fail-closed behaviour (codex review,
-#: non-blocking).
+#: A heredoc body is DATA, but this module tokenises the whole command text,
+#: so a body still participates in lexing. Two consequences, both accepted:
 #:
-#: `<<<` (here-STRING) is excluded: its payload is an ordinary word on the same
-#: line, already handled by normal tokenisation. The `(?<!<)` guard keeps
-#: `<<<'x'` from being read as `<<` + `<'x'`.
-_HEREDOC_START_RE = re.compile(
-    r"(?<!<)<<-?\s*(?P<quote>['\"])(?P<tag>[^'\"\n]+)(?P=quote)"
-)
-
-
-def _strip_heredoc_bodies(command: str) -> str | None:
-    """Remove QUOTED heredoc bodies before tokenising. Returns None = give up.
-
-    Why bodies must go: `shlex` keeps counting quotes straight through a
-    heredoc payload, so an ODD number of apostrophes inside — `# don't`, a
-    Python `'''` docstring, a stray `'` in a Chinese comment — made
-    `_tokenise_posix` return None, which the caller correctly turns into
-    fail-closed... on a command that merely EDITS A FILE. Measured twice in
-    two independent sessions (2026-08-22/23): in a shared worktree that means
-    one session's red WIP blocks another session's unrelated edit.
-
-    WHY ONLY QUOTED DELIMITERS. The first version of this stripped unquoted
-    `<<EOF` too, on the belief that "the shell never parses a heredoc body as
-    commands". That is only true when the delimiter is QUOTED. With `<<EOF` the
-    shell still expands `$(...)`, backticks and `$var` inside the body, so
-
-        cat <<EOF
-        $(git commit -m pwned)
-        EOF
-
-    IS a commit — and stripping it hid that from every scan (codex review,
-    TASK-104, blocking). Unquoted heredocs are therefore left in place: their
-    bodies stay tokenised, which at worst reproduces the old false-closed
-    behaviour. Over-checking is the acceptable direction; hiding a commit is not.
-
-    WHY AN UNCLOSED HEREDOC RETURNS None. This is a line scanner, not a shell
-    parser: it cannot tell an operator from the same characters inside a quoted
-    word. `echo "<<'EOF'"` looks like an opener, and if no delimiter line ever
-    follows, the old version swallowed EVERY remaining line — hiding a real
-    `git commit` / `git push` further down (same review, blocking). So when a
-    body is not terminated, this refuses to answer and the caller fails closed.
-    """
-    lines = command.splitlines(keepends=True)
-    out: list[str] = []
-    index = 0
-    while index < len(lines):
-        line = lines[index]
-        out.append(line)
-        tags = [m.group("tag") for m in _HEREDOC_START_RE.finditer(line)]
-        index += 1
-        # One command line may open several quoted heredocs; bash consumes
-        # their bodies in order.
-        for tag in tags:
-            closed = False
-            while index < len(lines):
-                body = lines[index]
-                index += 1
-                # `<<TAG` wants the delimiter alone on its line; `<<-TAG`
-                # additionally allows leading tabs. Accepting arbitrary
-                # surrounding whitespace would end a body EARLY and feed its
-                # remainder to the tokeniser as commands (codex review,
-                # non-blocking), so compare against the exact line content.
-                if body.rstrip("\r\n").lstrip("\t") == tag:
-                    closed = True
-                    break
-            if not closed:
-                # Unterminated: this scanner has mis-read something (most
-                # likely a `<<'TAG'` literal inside a quoted word). Refuse to
-                # guess -- swallowing the rest of the command is exactly how a
-                # later `git commit` would become invisible.
-                return None
-    return "".join(out)
+#:   1. FALSE FULL RUNS. An odd number of apostrophes inside a body
+#:      (`# don't`, a Python ''' docstring, a stray apostrophe in a
+#:      Chinese comment) makes `shlex` report unbalanced quotes, and
+#:      `_tokenise_posix` then fails closed. So a command that merely EDITS A
+#:      FILE can be run through the whole suite - measured twice in two
+#:      independent sessions (2026-08-22/23); in a shared worktree it means
+#:      one session's red WIP blocks another session's unrelated edit.
+#:   2. FALSE POSITIVES ON DATA. A body containing the literal text
+#:      `git commit` / `git push` is scanned as if it were that command.
+#:
+#: TASK-104 tried to remove #1 by stripping heredoc bodies before lexing and
+#: WITHDREW it after four review rounds found a real bypass each time:
+#:   - stripping unquoted `<<EOF` hid `$(git commit ...)`, which the shell DOES
+#:     expand inside an unquoted body (commit-gate bypass);
+#:   - a quoted-delimiter LITERAL inside a quoted word looks exactly like an
+#:     opener, so a fake opener swallowed real commands - first with no
+#:     delimiter, then with one, then (after reordering) whenever any later
+#:     genuine body forced the recovery path;
+#:   - the last round's two findings pointed in OPPOSITE directions (be more
+#:     conservative on the recovery path vs stop treating valid bodies as
+#:     commands). That is the proof: one line/regex scanner cannot have both.
+#:
+#: Deciding heredoc extent needs the shell's own grammar. Until the hook can
+#: be handed a structurally parsed command - the move TASK-085 already made
+#: for PowerShell, where the shell itself splits and this module only judges
+#: - the honest state is: body text IS scanned, and both consequences above
+#: stand. Both err toward over-checking, the acceptable direction. Do not
+#: re-attempt this with a wider regex; that is how three bypasses got in.
 
 
 def _lex_posix(text: str) -> list[str] | None:
@@ -572,29 +526,10 @@ def _tokenise_posix(command: str) -> list[list[str]] | None:
     not run in bash either, so the cost is a wasted check run on something that
     was already broken.
 
-    HEREDOC STRIPPING IS A RECOVERY, NOT A PRE-PASS (codex review, TASK-104,
-    third finding). Two earlier versions stripped bodies unconditionally, and
-    both leaked for the same reason: this is a line scanner, so a `<<'EOF'`
-    LITERAL inside a quoted word looks exactly like an opener. With
-
-        echo "<<'EOF'"
-        git commit -m x
-        EOF
-
-    the pre-pass deleted the middle line — a commit-gate bypass — even though
-    that command's quoting is perfectly BALANCED and needed no stripping at all.
-    Hence the order below: lex first, and only reach for the heredoc heuristic
-    when the text genuinely cannot be lexed. Anything already parseable is never
-    touched, so a fake opener can no longer hide a real command.
     """
     tokens = _lex_posix(command)
     if tokens is None:
-        stripped = _strip_heredoc_bodies(command)
-        if stripped is None:
-            return None  # mis-read heredoc -> fail closed, never guess
-        tokens = _lex_posix(stripped)
-        if tokens is None:
-            return None
+        return None
 
     commands: list[list[str]] = [[]]
     for token in tokens:
