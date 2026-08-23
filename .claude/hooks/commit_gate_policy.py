@@ -544,20 +544,9 @@ def _strip_heredoc_bodies(command: str) -> str | None:
     return "".join(out)
 
 
-def _tokenise_posix(command: str) -> list[list[str]] | None:
-    """Split a POSIX command line into simple commands of dequoted tokens.
-
-    Returns ``None`` when the text cannot be tokenised at all (an unbalanced
-    quote), which the caller turns into a fail-closed run. Such a command would
-    not run in bash either, so the cost is a wasted check run on something that
-    was already broken.
-    """
-    stripped = _strip_heredoc_bodies(command)
-    if stripped is None:
-        return None  # mis-read heredoc -> fail closed, never guess
-    lexer = shlex.shlex(
-        stripped, posix=True, punctuation_chars="();<>|&" + chr(96) + "\n"
-    )
+def _lex_posix(text: str) -> list[str] | None:
+    """POSIX-split *text* into dequoted tokens, or None if the quoting is broken."""
+    lexer = shlex.shlex(text, posix=True, punctuation_chars="();<>|&" + chr(96) + "\n")
     # Newline must be a SEPARATOR, not whitespace: `git commit -m x\ngit push`
     # is two commands, and shlex's default whitespace set swallows the boundary.
     # Quoted newlines are unaffected -- they are consumed inside the quote state,
@@ -570,9 +559,42 @@ def _tokenise_posix(command: str) -> list[list[str]] | None:
     lexer.commenters = ""
     lexer.whitespace_split = True
     try:
-        tokens = list(lexer)
+        return list(lexer)
     except ValueError:
         return None
+
+
+def _tokenise_posix(command: str) -> list[list[str]] | None:
+    """Split a POSIX command line into simple commands of dequoted tokens.
+
+    Returns ``None`` when the text cannot be tokenised at all (an unbalanced
+    quote), which the caller turns into a fail-closed run. Such a command would
+    not run in bash either, so the cost is a wasted check run on something that
+    was already broken.
+
+    HEREDOC STRIPPING IS A RECOVERY, NOT A PRE-PASS (codex review, TASK-104,
+    third finding). Two earlier versions stripped bodies unconditionally, and
+    both leaked for the same reason: this is a line scanner, so a `<<'EOF'`
+    LITERAL inside a quoted word looks exactly like an opener. With
+
+        echo "<<'EOF'"
+        git commit -m x
+        EOF
+
+    the pre-pass deleted the middle line — a commit-gate bypass — even though
+    that command's quoting is perfectly BALANCED and needed no stripping at all.
+    Hence the order below: lex first, and only reach for the heredoc heuristic
+    when the text genuinely cannot be lexed. Anything already parseable is never
+    touched, so a fake opener can no longer hide a real command.
+    """
+    tokens = _lex_posix(command)
+    if tokens is None:
+        stripped = _strip_heredoc_bodies(command)
+        if stripped is None:
+            return None  # mis-read heredoc -> fail closed, never guess
+        tokens = _lex_posix(stripped)
+        if tokens is None:
+            return None
 
     commands: list[list[str]] = [[]]
     for token in tokens:

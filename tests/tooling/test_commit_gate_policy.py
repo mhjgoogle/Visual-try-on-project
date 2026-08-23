@@ -1754,31 +1754,85 @@ def test_an_unquoted_heredoc_body_is_never_stripped() -> None:
     )
 
 
-def test_an_unterminated_heredoc_fails_closed_instead_of_swallowing_lines() -> None:
-    """**P1（codex, TASK-104）**：这是个行扫描器，不是 shell 解析器 —— 它分不清
-    操作符和「同样字符出现在带引号的词里」。``echo "<<'EOF'"`` 长得像开启符，
-    而如果后面永远没有定界符行，第一版会把**剩下每一行都吞掉**，于是更靠后的
-    真 ``git commit`` / ``git push`` 就从闸门眼前消失了。
+def test_an_unquoted_heredoc_is_never_stripped_even_on_the_recovery_path() -> None:
+    """把「只摘加引号定界符」这条钉在**摘除真的会发生**的那条路径上。
 
-    所以正文没有闭合时，它拒绝作答，调用方 fail-closed。
+    新顺序（先 lex，失败才摘）让摘除很少发生，于是「允许未加引号定界符」这个
+    变异一度**杀不掉** —— 常见的未加引号 heredoc 引号是平衡的，压根走不到摘除。
+    能走到摘除的组合是：未加引号 heredoc **且**正文里引号不平衡。那时若把它也
+    摘了，就会藏住 ``$(...)``：
+
+        cat <<EOF
+        don't
+        $(git commit -m pwned)
+        EOF
+
+    正确行为是摘除对它 no-op、lex 仍失败、fail-closed 到 check。
+    """
+    apostrophe, newline = chr(39), chr(10)
+    hidden = (
+        f"cat <<EOF{newline}don{apostrophe}t{newline}$(git commit -m pwned){newline}EOF"
+    )
+    assert _POLICY.inspect_command("Bash", hidden).gate == "check"
+    # 性质：摘除函数不动未加引号的正文（摘完仍含那行提交）
+    stripped = _POLICY._strip_heredoc_bodies(hidden)
+    assert stripped is None or "git commit" in stripped
+
+
+def test_a_fake_heredoc_opener_can_never_hide_a_command() -> None:
+    """**P1（codex, TASK-104，第二与第三轮的共同根因）**：这是个行扫描器，
+    分不清 heredoc 操作符与「同样字符出现在带引号的词里」。
+
+    ``echo "<<'EOF'"`` 长得像开启符。前两版把摘正文当常规预处理，于是这个假
+    开启符两次藏住了真命令：没有定界符时吞掉剩余全部行，有定界符时吞掉中间那
+    几行。两种写法都必须让后面的真提交仍被看见。
+
+    根治靠的是**顺序**（见 `_tokenise_posix` 的 docstring）：先直接切词，只有
+    切不动时才摘正文。这些假开启符的引号本来就是平衡的，于是永远走不到摘除
+    那一步。
     """
     apostrophe, double, newline = chr(39), chr(34), chr(10)
+    fake = f"echo {double}<<{apostrophe}EOF{apostrophe}{double}"
 
-    # 字符串里的字面量看起来像开启符 -> 后面的真提交必须仍被看见
+    # 假开启符 + 无定界符
+    assert (
+        _POLICY.inspect_command("Bash", f"{fake}{newline}git commit -m a").gate
+        == "check"
+    )
+    # 假开启符 + 有定界符（第三轮那条）
     assert (
         _POLICY.inspect_command(
-            "Bash",
-            f"echo {double}<<{apostrophe}EOF{apostrophe}{double}{newline}"
-            f"git commit -m real",
+            "Bash", f"{fake}{newline}git commit -m b{newline}EOF"
         ).gate
         == "check"
     )
-    # 真的开了却没闭合 -> fail-closed（不猜）
-    unclosed = _POLICY.inspect_command(
-        "Bash", f"python - <<{apostrophe}PY{apostrophe}{newline}print(1)"
+    # 假开启符 + 后面是 push（ADR-0068 决策 6 的扫描也不能被藏）
+    assert (
+        _POLICY.inspect_command(
+            "Bash",
+            f"MOTV_CONTINUOUS_CHAIN=1 git commit -m c && git push{newline}{fake}",
+        ).gate
+        == "block"
     )
-    assert unclosed.gate == "check"
-    assert unclosed.force_full is True
+
+
+def test_an_unterminated_heredoc_hides_nothing() -> None:
+    """未闭合的 heredoc 在 bash 里是语法错误，命令根本跑不起来；而它的引号是
+    平衡的，所以**不会触发摘除**，正文照样进切词。
+
+    于是性质是「藏不住东西」而不是「一律 fail-closed」：正文里有真提交就被看见
+    （保守方向），没有就 skip（那条命令本来也执行不了）。
+    """
+    apostrophe, newline = chr(39), chr(10)
+    opener = f"python - <<{apostrophe}PY{apostrophe}"
+
+    # 正文里有提交 -> 必须看见
+    assert (
+        _POLICY.inspect_command("Bash", f"{opener}{newline}git commit -m x").gate
+        == "check"
+    )
+    # 正文无提交、命令又跑不起来 -> skip 是诚实的答案
+    assert _POLICY.inspect_command("Bash", f"{opener}{newline}print(1)").gate == "skip"
 
 
 def test_stripping_heredoc_bodies_does_not_blind_any_scan() -> None:
@@ -1806,3 +1860,48 @@ def test_stripping_heredoc_bodies_does_not_blind_any_scan() -> None:
     assert (
         _POLICY.inspect_command("Bash", f"cat <<< {double}hello{double}").gate == "skip"
     )
+
+
+def test_heredoc_stripping_only_runs_when_the_text_cannot_be_lexed() -> None:
+    """**P1（codex, TASK-104，第三轮）—— 这条不是「更窄变体」，是我只修了一半。**
+
+    前两版都把摘正文当**常规预处理**，于是同一个根因漏了两次：这是个行扫描器，
+    带引号词里的 ``<<'EOF'`` **字面量**长得和开启符一模一样。第二版堵住了「假
+    开启符 + 后面没有定界符」，却漏了「假开启符 + 后面恰好有一行 EOF」——
+
+        echo "<<'EOF'"
+        git commit -m x
+        EOF
+
+    中间那行真提交被当成正文摘掉 = commit gate 绕过。
+
+    根治的关键观察是：**这条命令的引号本来就是平衡的，根本不需要摘除。**
+    所以顺序改成「先直接切词，只有切不动时才摘 heredoc 正文再试一次」——
+    摘除从预处理降级为**解析失败时的补救**。已经能解析的命令再也不会被摘除
+    逻辑碰到，假开启符也就再藏不住真命令。
+    """
+    apostrophe, double, newline = chr(39), chr(34), chr(10)
+
+    # 假开启符 + 有定界符：中间的真提交必须被看见
+    assert (
+        _POLICY.inspect_command(
+            "Bash",
+            f"echo {double}<<{apostrophe}EOF{apostrophe}{double}{newline}"
+            f"git commit -m x{newline}EOF",
+        ).gate
+        == "check"
+    )
+    # 引号平衡的普通多行命令不受任何影响
+    assert _POLICY.inspect_command("Bash", f"ls{newline}pwd").gate == "skip"
+    # 而真正需要补救的那种（正文里奇数撇号）仍然被救回来
+    assert (
+        _POLICY.inspect_command(
+            "Bash",
+            f"python - <<{apostrophe}PY{apostrophe}{newline}"
+            f"# don{apostrophe}t{newline}PY",
+        ).gate
+        == "skip"
+    )
+    # 性质断言：摘除只在 lex 失败后发生 —— 直接 lex 得通的文本原样送去切词
+    assert _POLICY._lex_posix("git commit -m x") is not None
+    assert _POLICY._lex_posix(f"echo {apostrophe}unclosed") is None
