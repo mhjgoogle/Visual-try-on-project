@@ -2,7 +2,7 @@
   "schema": 1,
   "change_id": "app-data-and-flow-adr",
   "branch": "change/TASK-056-app-data-location",
-  "status": "open",
+  "status": "closed",
   "created": "2026-08-23T10:03:35+00:00",
   "chain_mode": false,
   "tasks": {
@@ -271,8 +271,16 @@
     "time": "2026-08-23T23:13:41+00:00",
     "tip": "2991078f82c7102e27929cfb22708a81b2a9dbf0"
   },
-  "merge": null,
-  "cleanup": null,
+  "merge": {
+    "hash": "8316928e7e55e54b4f81e85d308f45ab1094d424",
+    "time": "2026-08-23T23:30:39+00:00",
+    "pushed": true
+  },
+  "cleanup": {
+    "local_deleted": true,
+    "remote_deleted": true,
+    "time": "2026-08-23T23:30:53+00:00"
+  },
   "sync_commits": [
     "cd9153a2e7ac3b79bd82157c0843e47ce5e12b5e"
   ]
