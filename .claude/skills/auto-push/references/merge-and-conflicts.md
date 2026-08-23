@@ -2,9 +2,11 @@
 
 ## 前提回顾
 
-- Merge Gate 只有 dev-workflow 能设 PASS，且其依据必须是**用户明确指示合并**
-  （`--by` 记录原话+日期）。没有 PASS，`merge` 会以 `BLOCKED_MERGE_GATE` 拒绝
-  ——这不是可以绕的检查。
+- Merge Gate 只有 dev-workflow 能设 PASS，其依据是**Done 判定 + 最终全量通过
+  + 无未闭合 P1**（`--by` 记录凭什么放行）。没有 PASS，`merge` 会以
+  `BLOCKED_MERGE_GATE` 拒绝——这不是可以绕的检查。
+  **不再要求用户明确指示合并**（ADR-0085）：去掉的是那一下点头，
+  前置条件一条没少，只是现在由 Agent 自己证明。
 - 合并策略固定为 `--no-ff` merge commit：本仓库 main 此前无合并历史（无既有
   惯例），选可追溯、不改写历史的最简策略（ADR-0079 决策 5）。不做 squash、
   不做 rebase-onto-main、不做任何远端历史改写。

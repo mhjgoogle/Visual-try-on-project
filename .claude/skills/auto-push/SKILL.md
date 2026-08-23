@@ -6,12 +6,16 @@ description: >-
   task DONE with targeted verification PASS: attribute the diff, stage only
   this task's changes, hand the commit command to the shell (so the commit
   gate runs), record metadata, push the change branch — no per-push user
-  confirmation; (2) Change-level — the user has explicitly instructed merging
-  this Change: set the merge gate, sync latest main, re-verify, merge --no-ff
-  into main, push main, clean up the branch. DO NOT invoke: to decide whether
-  a task or requirement is done (dev-workflow's job), while verification is
-  failing, for repos without a Change manifest (run init-change first), or to
-  force-push / rewrite remote history (always forbidden).
+  confirmation; (2) Change-level — the Change is finished: its Done criteria
+  hold, the FINAL FULL verification passed, no P1 is outstanding, and the
+  pending-re-review ledger carries nothing covering this branch: set the merge
+  gate (recording that evidence, not a user utterance — ADR-0085), sync latest
+  main, re-verify, merge --no-ff into main, push main, clean up the branch.
+  DO NOT invoke: to decide whether a task or requirement is done
+  (dev-workflow's job), while verification is failing, before the final full
+  verification has passed, for repos without a Change manifest (run
+  init-change first), or to force-push / rewrite remote history (always
+  forbidden).
 ---
 
 # auto-push — Task 级自动 commit/push 与受控合并（v0.1）
@@ -105,9 +109,12 @@ HEAD 时返回 `BLOCKED_BASE_BEHIND`——要么 `--base HEAD`（在当前历史
 
 Task 级 push 与 Change 级 merge 严格分开。merge 的前提链：
 
-1. dev-workflow 完成 Requirement / 验证 / 架构 / 收敛 / Done 检查，**且用户
-   明确指示合并**（AGENTS.md §22 对 merge 的要求不变），才：
-   `set-merge-gate --gate PASS --by "<用户原话+日期>"`。
+1. dev-workflow 完成 Requirement / 验证 / 架构 / 收敛 / Done 检查，**且最终
+   全量通过、无未闭合 P1**，才：`set-merge-gate --gate PASS --by "<依据>"`。
+   **merge 不再需要用户点头**（产品负责人 2026-08-24 →
+   [ADR-0085](../../../docs/adr/ADR-0085-merge-is-not-a-human-gate.md)）；
+   `--by` 记的是**凭什么放行**（Done 判定 + 最终全量的结果），不再是用户原话。
+   Gate 的存在意义因此变成两条纯机械的：**留痕**，以及**绑 tip**（见第 3 步）。
 2. `premerge-sync` —— 把 latest main 合进 Change 分支，并把该 merge commit
    **登记进清单 `sync_commits`**（merge 豁免走登记制，不做结构推断——
    evil merge 可伪造亲子关系夹带内容）；冲突自行解决后的手工 merge 用

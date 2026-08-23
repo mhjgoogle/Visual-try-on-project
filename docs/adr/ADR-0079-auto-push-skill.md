@@ -49,6 +49,13 @@ main 此前**从未有过 merge**（全部历史在 feat 分支上），无既�
    的正文更新记为 follow-up（该文件当前被 TASK-099 未提交改动占用，
    不混 diff）。
 
+   > **本条的后半句已被取代（2026-08-24）** →
+   > [ADR-0085](ADR-0085-merge-is-not-a-human-gate.md)：产品负责人「合并。这个
+   > 也不需要保留人工」，merge 的用户闸门去掉。**Merge Gate 机制本身不动** ——
+   > 它仍然只能由 dev-workflow 设 PASS、仍然绑分支 tip、仍然要 `--ledger-checked`；
+   > 变的只是 `--by` 记的东西：从「用户原话+日期」换成「Done 判定 + 最终全量的
+   > 结果」。本条前半句（Change 分支自动 push）不变。
+
 5. **branch 与合并策略。** 短生命周期分支 `change/<TASK-NNN|batch>-<slug>`
    （紧急修复 `hotfix/…`），长期分支只有 main；既有分支经 `--adopt` 收养，
    分支身份由 dev-workflow 决定，脚本不发明分支名。合并固定为

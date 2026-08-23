@@ -160,10 +160,22 @@ REQ / Change Record 已更新到终态？临时 prototype 已清除或已正式�
 全部是 → 提交。当前工作在 auto-push 管理的 Change 下（`docs/auto-push/changes/`
 有清单）时，commit/push 交给 `auto-push` Skill：`task-ready`（申报验证结果与
 diff 范围）→ `stage` → 在 shell 运行其返回的 commit 命令 → `record-commit` →
-`push`——Change 分支的 push 依 ADR-0079 决策 4 自动执行，不逐次问；
-**merge 仍须用户明确指示**，届时用 `set-merge-gate --gate PASS --by "<原话>"`
-把授权交给 auto-push。没有清单时按 AGENTS.md §22 原样提交
-（commit 不必问；push/merge 必须用户明确要求）。
+`push`——Change 分支的 push 依 ADR-0079 决策 4 自动执行，不逐次问。
+
+**merge 到 main 同样不问**（产品负责人 2026-08-24，[ADR-0085](../../../docs/adr/ADR-0085-merge-is-not-a-human-gate.md)）。
+去掉的是「谁点头」，**前置条件一条不减**，而且现在由你自己负责证明：
+
+1. Done 判定全部成立 + **最终全量**（两阶段 pytest + 全量前端 + ruff）通过 +
+   无未闭合 P1；
+2. 读[待复审清单](../../../docs/design/active/pending-codex-rereview.md)，确认没有
+   覆盖本分支历史的未闭合条目 —— 这一条**比以前更要紧**：以前还有一个人会在
+   合并前看一眼，现在没有了（TASK-102 就栽在只查任务卡不查清单）；
+3. `set-merge-gate --gate PASS --by "<依据>"` —— `--by` 写的是**Done 判定 +
+   最终全量的结果**，不再是用户原话；Gate 仍绑当前 tip，tip 一动即作废；
+4. `premerge-sync --ledger-checked` → `merge` → `cleanup`。
+
+没有清单时按 AGENTS.md §22 原样提交（commit / push / merge 都不必问；
+**只有花钱必须问**）。
 
 提交完成后做一次 Post-Use Feedback（`skill-evolution` Skill 的 Fast Loop：
 两次脚本调用 + 一条 50–150 字反馈，不做深度分析，不改任何 Skill）。

@@ -17,7 +17,7 @@
 | `docs/requirements/` | 需求记录：DRAFT / CONFIRMED / SUPERSEDED |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：12 项在办 · 95 项已完成 · 68 条 ADR。
+**当前**：12 项在办 · 95 项已完成 · 69 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -186,7 +186,7 @@
 
 | 位置 | 放什么 |
 | --- | --- |
-| [`docs/adr/`](adr/) | 68 条架构决策记录（ADR-0001 … ADR-0084） |
+| [`docs/adr/`](adr/) | 69 条架构决策记录（ADR-0001 … ADR-0085） |
 | [`docs/design/`](design/) 根 | 系统合同、产品信息架构、L0–S7 I/O 合同 |
 | [项目背景与路线](project-context.md) | 这个项目是什么、走到哪了 |
 | [实施规划](implementation_plan.md) | 阶段与里程碑路线图 |
