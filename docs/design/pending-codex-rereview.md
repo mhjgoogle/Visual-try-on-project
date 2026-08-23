@@ -208,7 +208,7 @@ push `feat/wfm1-batch-c`（本地领先远端 120 个提交）**。
 注释说得多准确。新增/加强守卫时一律做变异验证（改坏实现看它是否变红），本轮每
 一条修复都做了。
 
-## TASK-101 auto-push 轮 3 的三处 P1 修复（2026-08-22）—— **待补审**
+## ~~TASK-101 auto-push 轮 3 的三处 P1 修复（2026-08-22）—— 待补审~~ → **已闭合（2026-08-23）**
 
 - **为什么在这张表上**：auto-push skill（git 执行工装）按 AGENTS.md 第 20 条属
   高风险（安全 / 文件操作 / Windows 可移植性）。审查预算 2 + P1 买 1 = 3 轮
@@ -227,6 +227,58 @@ push `feat/wfm1-batch-c`（本地领先远端 120 个提交）**。
   force-with-lease 式的 CAS 删除，v0.1 需求 §14 明令禁止自动执行任何
   force 变体；单用户本地工具、遏制检查紧贴删除执行。记 v0.2 follow-up。
 - **该 Change（wfm1-batch-c 上的 TASK-101）merge 到 main 之前必须补审这三处。**
+
+### 追记（2026-08-22 晚）：补审已做，结果 fail —— main 的 push 因此继续阻塞
+
+时序说明：TASK-102 会话在**不知道本条登记**的情况下（登记晚于其起卡仅几分钟）把
+含 ba0c8e2 的历史 merge 进了本地 main（ee6e47a）——merge 闸被无意跳过，但
+**push 闸还在**：补审于 push 前完成，履行了「可以推迟，不可以跳过」。
+
+补审（codex 跨模型，范围严格限定三处，提示词与原始输出
+`.claude/tmp/codex-rereview/Q-task101-round3.{md,out}`）：`VERDICT: fail`，1 blocking：
+
+- **修复 ①（清单过 secret 扫描）与 ③（merge tip push 过 _push_gates）复审干净**；
+  ②的「豁免看内容不看 subject」部分也干净。
+- **② 的 merge commit 豁免有确认 P1**：豁免条件只查「存在一个后位亲是
+  origin/main 的祖先」——人为构造的 evil merge 可挂任意古老 main 祖先当第二亲、
+  树里夹带任意内容，从而未登记即通过 `_push_gates` 被推出。
+- **修法（登记制取代结构推断，与清单其余部分同一信任模型）**：premerge-sync
+  成功时把 merge hash 登记进清单 `sync_commits`；`_push_gates` 对多亲提交只认
+  登记，不再做祖先推断；冲突解决路径新增 `record-sync` 显式登记。该修法同时
+  解决 TASK-087 3.6.5 的跨 Change 提交不识别问题的一半。
+- **状态：P1 未闭合 → 按发布闸门（无未闭合 P1）main 不得 push**，直至修复落地
+  并复审，或用户显式决定 ship。修复排在 auto-push v0.1.1（工作树当前归
+  TASK-103，等窗口）。
+
+### 追记 2（2026-08-22 深夜）：evil-merge P1 修复已落地，**该修复待 1 轮复审**
+
+v0.1.1 已实施（本行所在提交，change/TASK-101-autopush-v011）：merge 豁免改
+**登记制**（premerge-sync 自动登记 sync_commits / record-sync 显式登记），
+废除「后位亲是 main 祖先」的结构推断；连同另外五项实战缺陷一并修复，37 项
+定向测试全绿（含 plumbing 构造的 evil merge 负向用例）。按 ADR-0081
+（1 轮 + P1 修复再买 1 轮），**本修复的复审轮就绪后立即跑**；在它 pass 之前
+本条继续算未闭合。main 的 push 另需用户明确授权（并连带发布决策——见
+TASK-101 卡 v0.1.1 节末段）。
+
+### 追记 3（2026-08-23）：v0.1.1 的复审轮已跑完，**本条闭合**
+
+按 ADR-0081「P1 修复买它那一轮」，`2c92975`（v0.1.1 复审轮的两处 P1 修复）
+本身欠的那一轮已跑完，**codex 跨模型 2 轮，独立性未降级**：
+
+- **轮 1 `fail`，1 blocking**：`record_commit` 的同 task 去重早退**排在 merge
+  检查之前**——v0.1 时代登记下来的 merge 条目带着空 `files=[]`（越界现算对它
+  永久失明），重跑 `record-commit` 会走早退答 `OK` 把它放行。**守卫只盖住新
+  登记、盖不住存量。** 已修（merge 亲代检查移到去重循环之前）。
+  同轮 1 条 non-blocking 一并修（早退漏给 `writeback_needed`）；
+  另 1 条驳回并留证据（`suggested` 全仓只有一个产出点，字段不存在多态）。
+- **轮 2 `pass`，0 blocking**。唯一 non-blocking 判 P3 记 Follow-up 不修：
+  `writeback_needed` 恒为 `True` 会在回写已提交后虚报待办——**主路径本来就
+  是无条件给的**，非本轮引入，且真实脏否由 `_dirty_gate` 在下次操作时判定。
+- **变异验证两个方向均杀死**：顺序改回去 → 新测试转红（答 OK）；删掉两个
+  writeback 字段 → 既有测试转红。报告：`.claude/tmp/last-review.md`。
+
+**因此本条不再是欠账**：三处修复经 `Q-task101-round3` 补审 + 上述 2 轮复审，
+无未闭合 P1，该 Change 可以 merge。
 
 ## `f337567` + 后续修复 —— `.claude/tools/gh-api.py`（2026-08-21）
 

@@ -38,8 +38,12 @@ diff）。
 已有分支用 `--adopt` 收养（分支身份由 dev-workflow 定，脚本不发明分支名）。
 
 ```
-init-change --change <id> --branch <name> [--adopt] [--chain]
+init-change --change <id> --branch <name> [--base <ref>] [--adopt] [--chain]
 ```
+
+新建分支**永不把共享工作树往回切**：默认 base（origin/main）落后或岔开于
+HEAD 时返回 `BLOCKED_BASE_BEHIND`——要么 `--base HEAD`（在当前历史上叠加，
+跨 Change 叠分支的正路），要么 `--adopt` 既有分支。
 
 `--chain` 只在用户已按 ADR-0068 明确授权连续修改链时传；stage 结果里的
 `chain_mode: true` 提醒你把链式令牌**逐次手写**在提交命令最前面
@@ -55,7 +59,8 @@ init-change --change <id> --branch <name> [--adopt] [--chain]
    index 检查、diff 归属（mine / mixed / foreign）、宽 diff 守卫、secret 扫描，
    然后只 stage 归属文件（清单自身自动带走）。
 3. 把返回的 `commit_command` **原样在 shell 运行**（gate 按 ADR-0080 归属映射跑
-   检查），然后 `record-commit --task T` 回写 hash。
+   检查），然后 `record-commit --task T` 回写 hash（`--hash <h>` 可补登历史
+   提交；越界判定按**当前**申报范围现算，不吃登记时的快照）。
 4. `push` —— 成功即完；`NEEDS_SYNC` 见下。
 5. push 成功后做一次 skill-evolution Fast Loop 反馈（沿用 dev-workflow
    第 10 步的既有约定，把 commit hash 写进 note）。
@@ -80,11 +85,19 @@ init-change --change <id> --branch <name> [--adopt] [--chain]
   本地历史）。sync 会把相关 Task 的验证置为 **STALE**——在新基底上**重跑
   定向验证**后重新 `task-ready --verification PASS`，才 push 得出去。
   rebase 冲突会自动 abort 并返回 `CONFLICT` → 交回 dev-workflow。
-- `BLOCKED_UNRECORDED_COMMITS`：分支上有清单没登记的提交（手工做的、或
-  收养分支上预先存在的）——auto-push 不代推没过 Gate 的提交。逐个
-  `record-commit` 归属，或交回用户决定。
-- `NEEDS_WRITEBACK_COMMIT`：清单元数据待提交，运行返回的 `suggested` 命令
-  （docs-only，gate 走 lint 档）即可继续。
+- `BLOCKED_UNRECORDED_COMMITS`：分支上有没出处的提交——auto-push 不代推
+  没过 Gate 的东西。「出处」查的是**全部** Change 清单的登记 + sync 登记 +
+  已在 origin 上的历史（跨 Change 叠分支因此天然可行）。补救：
+  `record-commit --hash` 逐个归属、冲突解决型 merge 用 `record-sync`，
+  或交回用户决定。
+- **push 发布的是整个祖先**：分支 push 会连带发布其历史里所有未上远端的
+  提交（包括别的 Change / main 的未发布历史）。出处齐全只说明「可追溯」，
+  不等于「有发布授权」——祖先里含**他人未授权发布**的提交时，把 push 交给
+  用户裁决，不要让它变成一次没人声明过的发布。
+- `NEEDS_WRITEBACK_COMMIT`：清单元数据待提交。`record-commit` 的返回里也带
+  `writeback_needed` + `writeback_commands`（不 push 的流程同样要收尾巴）。
+  建议命令永远是**两条分开跑**——`git add … && git commit …` 复合形式会被
+  PreToolUse gate 在执行前整条评估：add 未跑、index 空、fail-closed 跑全量。
 - 其余 `PUSH_FAILED`：读 detail，能定位（如网络）就修复重试；需要改写远端
   历史的一律停下升级给用户。
 
@@ -95,8 +108,14 @@ Task 级 push 与 Change 级 merge 严格分开。merge 的前提链：
 1. dev-workflow 完成 Requirement / 验证 / 架构 / 收敛 / Done 检查，**且用户
    明确指示合并**（AGENTS.md §22 对 merge 的要求不变），才：
    `set-merge-gate --gate PASS --by "<用户原话+日期>"`。
-2. `premerge-sync` —— 把 latest main 合进 Change 分支；返回
-   `needs_verification: true` 就重跑定向验证。
+2. `premerge-sync` —— 把 latest main 合进 Change 分支，并把该 merge commit
+   **登记进清单 `sync_commits`**（merge 豁免走登记制，不做结构推断——
+   evil merge 可伪造亲子关系夹带内容）；冲突自行解决后的手工 merge 用
+   `record-sync` 显式登记。返回 `needs_verification: true` 就重跑定向验证。
+   merge 前须带 `--ledger-checked`：先读
+   [待复审清单](../../../docs/design/pending-codex-rereview.md)确认没有
+   覆盖本分支历史的未闭合条目（TASK-102 的教训：只查 verification 不查
+   清单，含未补审修复的历史被合进了 main）。
 3. `merge` —— 校验 Gate=PASS、树干净、main 已是祖先，推最终 tip，
    `--no-ff` 合入 main 并 push main。Gate 的 PASS 绑定在设 Gate 时的分支
    tip 上：premerge-sync / 新提交移动 HEAD 后会得到 `BLOCKED_STALE_GATE`

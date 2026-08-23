@@ -106,9 +106,10 @@ test("what AI wrote is on screen and editable in place", () => {
   assert.ok(html.includes("抹除不等于死亡"));
   assert.ok(html.includes("平静 → 紧张 → 转折"));
   // …and each is addressed by episodeId + field, i.e. the existing write path
-  assert.match(html, new RegExp(`data-plan-edit="${eps[0].episodeId}" data-field="coreGoal"`));
-  assert.match(html, new RegExp(`data-plan-item="${eps[0].episodeId}" data-field="keyEvents" data-i="0"`));
-  assert.match(html, new RegExp(`data-plan-beat="${eps[0].episodeId}" data-i="0" data-key="who"`));
+  // 地址带标签（TASK-103 批次 D，codex 轮 3）：`id:` 与 `num:` 是两个不相通的空间
+  assert.match(html, new RegExp(`data-plan-edit="id:${eps[0].episodeId}" data-field="coreGoal"`));
+  assert.match(html, new RegExp(`data-plan-item="id:${eps[0].episodeId}" data-field="keyEvents" data-i="0"`));
+  assert.match(html, new RegExp(`data-plan-beat="id:${eps[0].episodeId}" data-i="0" data-key="who"`));
   // endingBeat and hook are TWO fields in ONE cell — merging would lose one
   assert.match(html, /data-field="endingBeat"/);
   assert.match(html, /data-field="hook"/);
@@ -254,7 +255,12 @@ test("the last column enters that episode", () => {
   assert.match(html, new RegExp(`data-ep-open="${eps[0].episodeId}"`));
 });
 
-test("an UNCONFIRMED entry says why it cannot be edited yet, instead of refusing silently", () => {
+test("an UNCONFIRMED entry is EDITABLE, and honest that it cannot be entered yet", () => {
+  // TASK-103 批次 D / TASK-087 §5.8. 这条测试原本守的是相反的行为：整行 colspan
+  // 一句「确认后才能改」。那个限制来自实现（每次规划编辑都按 episodeId 寻址），
+  // 不来自产品 —— 创作者面对的是 AI 写出来的一版规划，下一步本来就是先改再确认。
+  // 现在寻址扩成「有 id 用 id，没有就用本版第 N 集」，所以内容照常改；真正缺的
+  // 「进入这一集」仍然缺，那一句留着。
   const { prod, story } = project(V2_ENTRIES);
   // a fresh plan version whose entries are not linked to any entity
   const pid = st.beginDevelop(story, "plan", "");
@@ -262,9 +268,33 @@ test("an UNCONFIRMED entry says why it cannot be edited yet, instead of refusing
   st.applyProposal(story);
   const html = render(prod, story);
   assert.match(html, /class="ept-row unlinked"/);
-  assert.ok(html.includes("这一版还没确认"));
-  // …and no control that would refuse the write is offered on that row
+  // 可编辑：单元格按「本版第 N 集」寻址
+  assert.match(html, /data-plan-edit="num:1"/);
+  // 绝不写成 null —— 那是一个谁都可能接住的地址
   assert.doesNotMatch(html, /data-plan-edit="null"/);
+  // 仍然说得出它还不能进入
+  assert.ok(html.includes("才能进入这一集"));
+  assert.ok(html.includes("未确认"));
+});
+
+test("未确认行的编辑真的写得进去，而且写的是那一行", () => {
+  // 界面可编辑但域层拒收，是比不可编辑更糟的一种谎。
+  const { story } = project(V2_ENTRIES);
+  const pid = st.beginDevelop(story, "plan", "");
+  st.completeDevelop(story, pid, [
+    { epNumber: 1, title: "第一集", coreGoal: "g1", keyEvents: ["x"] },
+    { epNumber: 2, title: "第二集", coreGoal: "g2", keyEvents: ["y"] },
+  ]);
+  st.applyProposal(story);
+  assert.equal(st.editPlanEntry(story, "num:2", "coreGoal", "改过的目标"), true);
+  const rows = st.planEditBase(story) && st.effectivePlanEpisodes(story);
+  const second = rows.find((e) => e.epNumber === 2);
+  const first = rows.find((e) => e.epNumber === 1);
+  assert.equal(second.coreGoal, "改过的目标");
+  assert.equal(first.coreGoal, "g1", "只能改到那一行");
+  // 不存在的编号被拒绝，而不是静默无操作
+  assert.equal(st.editPlanEntry(story, "num:99", "coreGoal", "x"), false);
+  assert.equal(st.editPlanEntry(story, "num:0", "coreGoal", "x"), false);
 });
 
 test("an opened fold survives the next re-render", () => {
@@ -294,4 +324,41 @@ test("with no plan at all it states the situation — it does not draw a blank g
   assert.match(html, /data-rf-notrun/);
   assert.doesNotMatch(html, /<table class="ept">/);
   assert.doesNotMatch(html, /data-plan-item/);
+});
+
+test("两种地址形式互不相通 —— 冲突根本表达不出来", () => {
+  // codex 轮 2（P1）：第一版把优先级只写在**单条记录内部**，取的时候仍是 `.find()`，
+  // 于是谁在数组前面谁被选中 —— 一个 id 恰好长成 `ep#3` 的已确认剧集若排在编号 3 的
+  // 未确认行后面，编辑会静默落到未确认行上。「每条记录内部的优先级」不是优先级。
+  // 轮 3（P1）又从反面报了一条：如果改成「身份优先」，那么一个 id 恰好读作
+  // `ep#3` 的已确认剧集会把编号 3 的未确认行**顶掉**，后者的编辑落到前者身上。
+  //
+  // 一条代码被从两个方向各报一次，说明错的不是仲裁规则而是那条代码：两种地址
+  // 本来就不该在同一个字符串空间里。现在带标签（`id:` / `num:`），冲突表达不
+  // 出来 —— `episodeId` 里含 `ep#3`、含冒号、含什么都行。
+  const { story } = project(V2_ENTRIES);
+  const base = st.planEditBase(story);
+  const confirmed = base.episodes.find((e) => e.episodeId);
+  assert.ok(confirmed, "fixture 里应当有已确认的行");
+  const before = confirmed.coreGoal;
+  assert.equal(
+    st.editPlanEntry(story, `num:${confirmed.epNumber}`, "coreGoal", "不该落到这里"),
+    false,
+    "有 episodeId 的行不接受编号地址",
+  );
+  assert.equal(
+    st.effectivePlanEpisodes(story).find((e) => e.epNumber === confirmed.epNumber).coreGoal,
+    before,
+    "被拒绝的编辑一个字都不许写进去",
+  );
+  // 而它自己的身份地址照常可用
+  assert.equal(st.editPlanEntry(story, `id:${confirmed.episodeId}`, "coreGoal", "改到了"), true);
+  // 裸的字符串**不再是地址**（codex 轮 4）。容忍它正是第四种拼法进来的路：
+  // 一个 id 恰好读作 `num:3` 时，裸形式又会被当成「本版第 3 集」。
+  assert.equal(st.editPlanEntry(story, confirmed.episodeId, "coreGoal", "x"), false);
+  // 而 id 里写什么都不再要紧 —— 它只活在 `id:` 之后，永远不会被二次解读
+  assert.equal(st.editPlanEntry(story, "id:num:3", "coreGoal", "x"), false, "没有这个 id");
+  assert.equal(st.editPlanEntry(story, "id:ep#3", "coreGoal", "x"), false, "也没有这个 id");
+  // 编号空间只能经 `num:` 进入，所以上面两个不可能撞到任何未确认行
+  assert.equal(st.editPlanEntry(story, "num:", "coreGoal", "x"), false);
 });

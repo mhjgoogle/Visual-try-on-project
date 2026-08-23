@@ -863,7 +863,9 @@ Skill / Provider / Repository
 
 1. 页面不得直接调用 Claude、Skill、Provider 或 FFmpeg。
 2. API 路由不得直接执行具体 Provider 或 CLI。
-   （**现状违反**：`/api/agent/*` 五个端点直连 `claude` —— 由 ADR-0065 / TASK-068 承接。）
+   （**已收口**（2026-08-22 实测）：五个创作端点经 `server.py::_creative_agent` →
+   Runtime 层，`_run_claude` 已不存在。原「现状违反」标注由 TASK-072 §1.8 消除，
+   TASK-103 核对后更新此处。）
 3. 前端只保存**临时界面状态**（选中项 / 展开态 / 筛选条件 / 未提交的输入）。
 4. 任务、版本、成本、确认与错误由**后端持久化**。
 5. **所有写操作必须有明确 Command**（有名字、有参数契约、有风险等级）。
@@ -872,8 +874,12 @@ Skill / Provider / Repository
    （「读取失败：<原因>」+ 重试），**绝不降级为「这里什么都没有」**。
 8. 新增 Skill 不应要求新增主页面或重新设计任务状态。
 9. Query 是纯读，**不得有副作用**；Command 是纯写意图，返回受理结果而非业务数据。
-10. 统一 API Client 是**唯一** `fetch` 出口。今天有五个模块直接 `fetch`
-    （`services/{gateway,persist,query,runtime}.js`、`workflow/mediaref.js`）——收敛为一个。
+10. 统一 API Client 是**唯一** `fetch` 出口。
+    （**已收口**（TASK-103 批次 A）：`services/{gateway,persist,query,runtime}.js` 与
+    `workflow/mediaref.js` 全部改经 `apiclient`；由前端套件
+    `tests/apioutlet.test.mjs` **派生式**守住 —— 扫 `src/**.js`，新加的 service
+    因为存在而被检查。唯一豁免 `services/mediaprobe.js` 的可注入 `fetch` 缺省值：
+    它探的是媒体字节而非后端 API，且是测试注入点；豁免被断言，不是被假设。）
 
 ### 7.2 现状差距
 
@@ -884,7 +890,9 @@ Skill / Provider / Repository
 | 取消不可达 | 无取消路径 | `cancelling` → 终止子进程 → `cancelled` | TASK-072 **批次一** |
 | 运行记录只有 Skill 有 | 生成 / 渲染 / 导出各自记账，看板无法统一回答 | 一个 `Run` + `kind`（§5.0） | TASK-072 **批次一** |
 | AI 路径二选一 | `/api/agent/*` 与 `/api/skill/run` 并存 | 全部经 Runtime 层 | TASK-068（规格）并入 TASK-072 **批次一** |
-| 多个 fetch 出口 | 5 个模块 | 1 个 | TASK-072 **批次二** |
+| 多个 fetch 出口 | ~~5 个模块~~ **1 个（+1 条被断言的媒体字节豁免）** | 1 个 | TASK-072 批次二（24/30）+ **TASK-103 批次 A（收口）** |
+| 评价 / 反馈闭环够不到 Studio 项目 | ~~四个 LOW-risk 命令只注册在 `workspace_shell`~~ **`record-evaluation` 等四条已注册进 Studio Gateway；审片「✓ 通过 / 撤销」经网关落核心并留回执** | 闭环接通 | **TASK-103 批次 B**（`create-feedback` 仍无调用方 —— 界面尚无「提出审片问题」入口，见 TASK-087 §5.9） |
+| 媒体是否还在只能从浏览器猜 | ~~前端 `HEAD` 探针 + 第三态 `INCONCLUSIVE`~~ **服务端 `media-audit` 目录审计，项目媒体只有「在 / 不在」** | 服务端权威 | **TASK-103 批次 C** |
 
 ---
 

@@ -11,6 +11,7 @@
 // Read-only over the same models the storyboard uses (storyboardModel /
 // shotDetailModel). Writes go through the shared shot bindings.
 import { esc } from "../util/dom.js";
+import * as genintent from "./genintent.js";
 import { head, empty } from "./shell.js";
 import { storyboardModel, shotDetailModel, buildPortraitIndex } from "./storyboard.js";
 import { episodeShots } from "./prodplan.js";
@@ -71,13 +72,12 @@ function importForShot(ctx, ui, rerender) {
       const file = input.files && input.files[0];
       if (!file) return;
       // only an intent recorded FOR THIS SHOT counts: a stale one from another
-      // shot would attribute this file to a prompt it never came from
-      const intent = ui.genIntent && ui.genIntent[kind] && ui.genIntent[kind].shotId === shotId
-        ? ui.genIntent[kind]
-        : null;
+      // shot would attribute this file to a prompt it never came from. The shot is
+      // part of the KEY now (genintent.js), so 「是这一镜的吗」 has one answer.
+      const intent = genintent.getIntent(ui, kind, shotId);
       try {
         await ctx.media.importShotMedia(kind, d.slot, shotId, file, intent);
-        if (intent && ui.genIntent && ui.genIntent[kind] === intent) delete ui.genIntent[kind];
+        genintent.consumeIntent(ui, kind, shotId, intent);
         rerender();
       } catch (err) {
         ctx.toast("导入失败：" + err.message);

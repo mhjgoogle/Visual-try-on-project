@@ -64,13 +64,25 @@ export const API_ERROR_TEXT = {
 
 /** A backend failure, carrying enough to render an honest message. */
 export class ApiError extends Error {
-  constructor(category, { status = 0, detail = "", path = "", body = null } = {}) {
+  constructor(
+    category,
+    { status = 0, detail = "", path = "", body = null, contentType = "" } = {},
+  ) {
     super(detail || API_ERROR_TEXT[category] || category);
     this.name = "ApiError";
     this.category = category;
     this.status = status;
     this.detail = detail || API_ERROR_TEXT[category] || category;
     this.path = path;
+    // WHAT THE RESPONSE CLAIMED TO BE. `MALFORMED` covers two facts that are not
+    // the same product situation: a backend that answered JSON we could not parse
+    // (its stored document is broken — authoritative, do not fall back), and a
+    // static host answering HTML for an /api path (there is no backend — the
+    // documented localStorage fallback applies). `persist.js` must tell those
+    // apart, and the only evidence is the content type. Carried rather than
+    // sniffed out of `detail`, because a wording change must not silently flip a
+    // fallback decision.
+    this.contentType = contentType;
     // the parsed error body when the backend sent one — `{error:{category,detail}}`
     // is this project's convention and callers sometimes need its `category`
     this.body = body;
@@ -117,7 +129,20 @@ function isRawBody(body) {
 
 /** One attempt, no retry. Separated so the retry loop stays readable. */
 async function once(path, opts) {
-  const { method = "GET", body, headers, timeoutMs = DEFAULT_TIMEOUT_MS, signal, expect } = opts;
+  const {
+    method = "GET",
+    body,
+    headers,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    signal,
+    expect,
+    // `keepalive` asks the browser to let the request outlive page teardown. Only
+    // the canvas save needs it, and it CANNOT be emulated at the call site any
+    // more (that call site is no longer allowed its own `fetch`), so the one
+    // transport has to carry it. The browser caps total keepalive bytes in
+    // flight; that budget stays the caller's problem — it knows what it queued.
+    keepalive = false,
+  } = opts;
   const controller = new AbortController();
   const onAbort = () => controller.abort();
   if (signal) {
@@ -151,6 +176,7 @@ async function once(path, opts) {
       // files, and forcing a re-download on every preview/hash is pure waste. Those
       // pass `expect: "raw"`, so they keep the default caching they had before.
       const init = { method, signal: controller.signal };
+      if (keepalive) init.keepalive = true;
       if (!wantsRaw) init.cache = "no-store";
       const hdrs = { ...(headers || {}) };
       if (body !== undefined) {
@@ -219,6 +245,7 @@ async function once(path, opts) {
         detail: (err && err.detail) || `HTTP ${res.status}`,
         path,
         body: parsed,
+        contentType: ctype,
       });
     }
     if (wantsRaw) return res;
@@ -229,6 +256,7 @@ async function once(path, opts) {
         status: res.status,
         detail: `期望 JSON，收到 ${ctype || "未声明类型"}`,
         path,
+        contentType: ctype,
       });
     }
     if (parsed === null) {
@@ -236,6 +264,7 @@ async function once(path, opts) {
         status: res.status,
         detail: "响应不是可解析的 JSON",
         path,
+        contentType: ctype,
       });
     }
     // the REAL status travels with the body, so a caller can tell 200 from 201/204
@@ -258,6 +287,7 @@ async function once(path, opts) {
  *   signal    caller's AbortSignal
  *   retries   read-only transport retries; forced to 0 for non-GET
  *   expect    `"raw"` to get the Response itself (blobs, data URLs)
+ *   keepalive let the request outlive page teardown (canvas save on pagehide)
  */
 export async function request(path, opts = {}) {
   const r = await withRetry(path, opts);

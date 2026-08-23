@@ -417,6 +417,25 @@ except Exception:  # noqa: BLE001 - degrade to static/persistence-only if absent
     _QUERY_OK = False
     QUERY_CONTRACT_VERSION = "unavailable"
 
+# Which Gateway commands are available WITHOUT `--enable-paid`, DERIVED from the
+# core's own membership list rather than spelled out a second time here
+# (TASK-103 批次 B). A hand-written copy is how a no-spend command gets added to
+# the registry and then silently 403'd at this door — the two lists drift and
+# nothing says so. `lock-draft-plan` is named explicitly because it is a single
+# spec registered from its own module (ADR-0047), not part of a family.
+#
+# Its own try: a write-side import failure must not flip `_QUERY_OK` and take the
+# read-only query backend down with it. If this import fails the Gateway cannot be
+# built at all, and the route ahead of this check already answers 503.
+try:
+    from ai_video_workflow.app.gateway_commands import (  # type: ignore
+        CREATIVE_LOOP_COMMANDS,
+    )
+
+    _NO_SPEND_COMMANDS = frozenset({"lock-draft-plan", *CREATIVE_LOOP_COMMANDS})
+except Exception:  # noqa: BLE001 - no core, no Gateway; the route answers 503
+    _NO_SPEND_COMMANDS = frozenset({"lock-draft-plan"})
+
 # sub-path -> zero-arg query method (same shape as workspace_shell/app.py)
 _QUERIES = {
     "plan": "project_plan",
@@ -2645,6 +2664,9 @@ class _App:
         are resolved per command family: shot-plan refs bind the draft lock,
         shot-record refs bind paid generation.
         """
+        from ai_video_workflow.app.gateway_commands import (
+            register_creative_loop_commands,
+        )
         from ai_video_workflow.app.lock_gateway import (
             ShotPlanTargetResolver,
             register_lock_draft_command,
@@ -2658,6 +2680,12 @@ class _App:
             catalog_dir=self.lock_catalog_dir,
             account_root=self.account_root,
         )
+        # TASK-103 批次 B: the evaluation / feedback / action loop (TASK-087 §1.2).
+        # These four spend nothing and were already implemented and registered for
+        # the workspace shell; the Studio simply never registered them, so the one
+        # interface a creator actually uses could not reach them. Wiring, not a new
+        # capability — and the SAME specs, imported rather than copied.
+        register_creative_loop_commands(registry)
         if self.paid:
             from ai_video_workflow.app.media_fetch import UrllibMediaFetcher
             from ai_video_workflow.app.paid_gateway import (
@@ -2823,6 +2851,16 @@ class _App:
                 return self._generation_target(
                     unquote(name), (params.get("shot_id") or [""])[0]
                 )
+            if sub.startswith("media-audit"):
+                params = parse_qs(urlsplit(raw_path).query)
+                return self._media_audit(
+                    unquote(name), (params.get("measure") or [""])[0]
+                )
+            if sub.startswith("review-target"):
+                params = parse_qs(urlsplit(raw_path).query)
+                return self._review_target(
+                    unquote(name), (params.get("shot_id") or [""])[0]
+                )
             if sub == "lock-target":
                 return self._lock_target(unquote(name))
             if sub == "shots":
@@ -2978,9 +3016,15 @@ class _App:
                 400,
                 {"error": {"category": "bad_request", "detail": "body must be object"}},
             )
-        # The no-spend lock-draft-plan command is available in both modes;
-        # every other Gateway command (paid generation) still needs paid mode.
-        if not self.paid and payload.get("name") != "lock-draft-plan":
+        # The no-spend commands are available in both modes; every other Gateway
+        # command (paid generation) still needs paid mode.
+        #
+        # DERIVED, not a second hand-written list (TASK-103 批次 B): the creative
+        # loop's membership lives in `gateway_commands.CREATIVE_LOOP_COMMANDS`, so a
+        # fifth no-spend command added there cannot be silently 403'd here by
+        # someone forgetting this line. `lock-draft-plan` is spelled out because it
+        # is registered from a different module with its own single spec.
+        if not self.paid and payload.get("name") not in _NO_SPEND_COMMANDS:
             return _json(
                 403,
                 {
@@ -4341,6 +4385,266 @@ class _App:
                     "content_digest": resolved.content_digest,
                 },
                 "params": {"plan_version": version},
+            },
+        )
+
+    #: How many media entries one audit will enumerate. A directory listing is
+    #: cheap, but an unbounded response is still an unbounded response — and a
+    #: SILENT cap would make 「都在」 mean 「前 N 个都在」. So it is capped AND the
+    #: truncation is reported, per TASK-087 §7「no silent caps」.
+    _MEDIA_AUDIT_MAX = 5000
+
+    def _media_audit(self, name: str, measure: str):
+        """Server-side media presence audit (GAP-02 / TASK-083 §5.2 · TASK-087 §4.2).
+
+        WHY THIS EXISTS. TASK-077 answered 「这个文件还在吗」 from the browser with a
+        ``HEAD`` per URL, which has a third outcome the filesystem does not have:
+        `INCONCLUSIVE` — the server declined to answer (405/501), or the request
+        itself blew up. That third state is honest for a cross-origin probe, but it
+        is not a fact about the project; it is a fact about the transport. Here the
+        server simply reads its own directory, so **for a project media URL there
+        are only two answers**, and the creator stops being told 「问不出来」 about
+        files sitting on their own disk.
+
+        Read-only in the strongest sense: it lists a directory and (optionally)
+        runs `ffprobe`. It writes nothing — in particular it does NOT reconcile the
+        declared `storageState`, which is a persistence change with its own owner
+        (TASK-087 §4.1, deliberately still open).
+
+        ``measure=<filename>`` additionally probes ONE file for its real pixel size
+        / duration (TASK-087 §4.3). Deliberately one file per request and
+        **ffprobe-only** — no decode. `/api/delivery/probe` does a full ebur128 +
+        blackdetect pass, which is an order of magnitude more work than 「这段多长」
+        needs (TASK-087 §3.5.4). Missing ffprobe is reported as such, never as a
+        zero.
+        """
+        root = self._projects.get(name)
+        if root is None:
+            return _json(
+                404, {"error": {"category": "not_found", "detail": "unknown project"}}
+            )
+        d = self._read_upload_dir(name)
+        files: dict[str, dict] = {}
+        truncated = False
+        if d is not None and d.is_dir():
+            # ITERATE LAZILY, cap, THEN sort (codex round 1, non-blocking).
+            # `sorted(d.iterdir())` materialises the whole directory before the cap
+            # can apply, so the bound protected the RESPONSE and not the server —
+            # a directory large enough to matter would still be fully listed in
+            # memory first. Ordering within the capped set is not a promise this
+            # route makes; `truncated` is.
+            examined = 0
+            for entry in d.iterdir():
+                # COUNT WHAT WE LOOKED AT, not what we kept (codex round 3).
+                # Counting only accepted files let a directory dominated by
+                # subdirectories or sockets run the loop unbounded while the
+                # advertised cap sat untouched — the bound has to be on the work.
+                if examined >= self._MEDIA_AUDIT_MAX:
+                    truncated = True
+                    break
+                examined += 1
+                if not entry.is_file():
+                    continue
+                try:
+                    files[entry.name] = {"bytes": entry.stat().st_size}
+                except OSError:
+                    # Present but unstat-able. NOT dropped: 「文件在，大小问不出来」
+                    # is a different fact from 「文件不在」, and collapsing it into
+                    # absence is exactly the confusion this route removes.
+                    files[entry.name] = {"bytes": None}
+        files = dict(sorted(files.items()))
+        body: dict = {
+            # `dir: false` is still an AUTHORITATIVE audit — a project with no
+            # media folder genuinely has no media. It is not 「问不出来」.
+            "dir": bool(d is not None and d.is_dir()),
+            "files": files,
+            "truncated": truncated,
+        }
+        if measure:
+            body["measured"] = self._measure_media(d, measure)
+        return _json(200, body)
+
+    def _measure_media(self, media_dir, filename: str) -> dict:
+        """ffprobe ONE file for width/height/duration. Never a fabricated number.
+
+        Every outcome is named, because the review columns show whichever one
+        happened: `ok` / `bad_name` / `not_found` / `no_ffprobe` / `unreadable`.
+        A column that says 「未探测」 and a column that says 「探不到」 describe
+        different situations and lead to different next steps.
+        """
+        if not _NAME_RE.fullmatch(Path(filename).stem) or not filename:
+            return {"state": "bad_name"}
+        if media_dir is None:
+            return {"state": "not_found"}
+        target = media_dir / filename
+        # CONTAINMENT AFTER RESOLUTION (codex round 1, non-blocking — graded P2 and
+        # fixed here because it is a path escape, which this repo treats as real
+        # regardless of who filed it). Checking `target.parent` left the FILE free
+        # to be a symlink: `media/x.mp4 -> C:\Users\...\secret.mp4` has a parent
+        # inside the project, passes `is_file()` (which follows links), and ffprobe
+        # then reads outside the project. So resolve the leaf itself, require it to
+        # stay under the resolved media dir, and require a REGULAR file
+        # (`lstat`, which does not follow) — the same posture as ADR-0049.
+        try:
+            if target.is_symlink() or not target.is_file():
+                return {"state": "not_found"}
+            resolved = target.resolve()
+            root = media_dir.resolve()
+            if resolved.parent != root:
+                return {"state": "not_found"}
+        except OSError:
+            return {"state": "not_found"}
+        target = resolved
+        import shutil as _shutil
+
+        ffprobe = _shutil.which("ffprobe")
+        if ffprobe is None:
+            # FAIL-CLOSED AND SAID OUT LOUD (AGENTS.md 第 2 节第 6 条). The column
+            # must not read 「0×0」 because a tool is missing.
+            return {"state": "no_ffprobe"}
+
+        # WHAT THE FILE WAS when we validated it. `ffprobe` takes a PATH, not a
+        # descriptor, so the check and the read cannot be made atomic from here —
+        # `/dev/fd/N` is POSIX-only and Windows is the authoritative environment
+        # (ADR-0062). What IS available is detection: capture identity before,
+        # re-check after, and DISCARD the numbers if anything moved. That does not
+        # stop the read, it stops the DISCLOSURE — which is the whole payload of
+        # this route (codex round 3 escalated this from non-blocking; graded fresh
+        # and mitigated as far as the platform allows, residue recorded in
+        # TASK-087 rather than waved away a second time).
+        def _identity(path):
+            # THE WHOLE PROBE IS INSIDE THE GUARD (codex round 4). `lstat` was
+            # guarded but `resolve()` was not, so a concurrent replacement with a
+            # symlink loop raised out of a read-only route — a 500 where the honest
+            # answer is 「探不到」. A failed identity read IS that answer.
+            try:
+                st = path.lstat()
+                resolved = str(path.resolve())
+            except (OSError, ValueError, RuntimeError):
+                return None
+            # st_ino is 0 on some Windows filesystems; the resolved path plus
+            # size+mtime still catches a swap, and a false 「变了」 only costs a
+            # 「探不到」, never a wrong number.
+            return (resolved, st.st_ino, st.st_dev, st.st_size, st.st_mtime_ns)
+
+        before = _identity(target)
+        if before is None:
+            return {"state": "not_found"}
+        try:
+            pr = subprocess.run(  # noqa: S603 - fixed argv, no shell
+                [
+                    ffprobe,
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "stream=width,height:format=duration",
+                    "-of",
+                    "json",
+                    str(target),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return {"state": "unreadable"}
+        after = _identity(target)
+        if after is None or after != before or target.is_symlink():
+            # Something replaced the leaf while ffprobe was running. Whatever it
+            # measured is not the file we admitted — refuse to report it.
+            return {"state": "unreadable"}
+        # EXIT CODE 0 IS NOT PROOF — measured on this repo. Handed 16 bytes of text
+        # named `.png`, ffprobe 9.0 returns rc=0 with `width: 0, height: 0` and
+        # `duration: "0.040000"`: a garbage answer that survives every check made of
+        # the parsed JSON alone. It does write the real verdict to stderr
+        # (`Invalid PNG signature …`), and with `-v error` stderr stays silent unless
+        # something genuinely failed — so stderr is the authoritative signal.
+        #
+        # This is the endpoint's whole reason to exist: a column reading 「0×0」
+        # because the prober half-answered is worse than one reading 「探不到」.
+        if pr.returncode != 0 or pr.stderr.strip():
+            return {"state": "unreadable"}
+        try:
+            info = json.loads(pr.stdout)
+        except ValueError:
+            return {"state": "unreadable"}
+        width = height = None
+        for stream in info.get("streams") or []:
+            if not isinstance(stream, dict):
+                continue
+            w, h = stream.get("width"), stream.get("height")
+            # positive ints only — a `0` is ffprobe saying it does not know
+            if isinstance(w, int) and isinstance(h, int) and w > 0 and h > 0:
+                width, height = w, h
+                break
+        duration = _probe_float((info.get("format") or {}).get("duration"))
+        if duration is not None and duration <= 0:
+            duration = None
+        if width is None and duration is None:
+            # Probed fine and learned nothing usable — still not a zero.
+            return {"state": "unreadable"}
+        return {
+            "state": "ok",
+            "width": width,
+            "height": height,
+            "duration": duration,
+        }
+
+    def _review_target(self, name: str, shot_id: str):
+        """Read-only target coordinates for a REVIEW write (TASK-103 批次 B).
+
+        `record-evaluation` / `create-feedback` bind the same three-tuple every
+        Gateway command does — ``{ref, version, content_digest}`` — and the digest
+        is the sha256 of the authoritative shot-record bytes. **The browser cannot
+        compute it and must never invent one**: an invented digest does not fail as
+        「被拒」, it binds a command to a version that does not exist. So the same
+        resolver the Gateway will verify against computes it here, and the UI just
+        carries it.
+
+        Available in BOTH modes, unlike ``generation-target``: reviewing spends
+        nothing. That is the whole reason these four commands are LOW risk.
+
+        Fail-closed and read-only: an unresolvable shot reads as 404, and 404 here
+        is a real product answer — 「这一镜还没有正式镜头记录」 — which the review
+        page states rather than swallowing.
+        """
+        if not _QUERY_OK:
+            return _json(
+                503,
+                {
+                    "error": {
+                        "category": "unavailable",
+                        "detail": "command backend not available (run inside the venv)",
+                    }
+                },
+            )
+        root = self._projects.get(name)
+        if root is None:
+            return _json(
+                404, {"error": {"category": "not_found", "detail": "unknown project"}}
+            )
+        if not shot_id or not _NAME_RE.fullmatch(shot_id):
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "bad shot_id"}}
+            )
+        from ai_video_workflow.app.paid_gateway import ShotRecordTargetResolver
+
+        resolved = ShotRecordTargetResolver().resolve_target(
+            root, ref=shot_id, version=1
+        )
+        if not resolved.exists:
+            return _json(
+                404,
+                {"error": {"category": "not_found", "detail": "shot record not found"}},
+            )
+        return _json(
+            200,
+            {
+                "target": {
+                    "ref": shot_id,
+                    "version": 1,
+                    "content_digest": resolved.content_digest,
+                }
             },
         )
 
