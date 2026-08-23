@@ -86,7 +86,9 @@ ADR-0080/0081（测试归属与审查协议）、ADR-0068（连续修改链）�
 ## 第 4 步 — Change Record
 
 - QUICK：不建卡。提交信息写明意图 + 关联（`REQ-NNN` / `TASK-NNN`，如有）。
-- STANDARD / DEEP：建任务卡，沿用本仓库既有卡格式，含最小字段集
+- STANDARD / DEEP：建任务卡**在 `docs/tasks/active/`**（目录即状态，
+  [ADR-0083](../../../docs/adr/ADR-0083-docs-partitioned-by-completion.md)；
+  卡不得直接躺在 `docs/tasks/` 下），沿用本仓库既有卡格式，含最小字段集
   （见 references/records.md）：id、状态、workflow 类型、深度、关联 REQ、
   目标、IN/OUT SCOPE、受影响模块、架构影响、实施摘要、已做验证、
   未解决项（→ Follow-up 总账）。**Agent 自动创建自动维护，用户不填。**
@@ -157,6 +159,22 @@ CONFIRMED REQ 明确取代的，允许删**。测试保护的是 Current Valid B
 「代码写完」「测试绿」都不是 Done。逐条确认：REQ 满足？验证够（对本次
 impact scope）？架构没有明显恶化？obsolete 已清或已记 Follow-up？
 REQ / Change Record 已更新到终态？临时 prototype 已清除或已正式化？
+
+**卡做完了还要把它搬过去** —— 这一步属于 Done，不是收尾的可选项
+（[ADR-0083](../../../docs/adr/ADR-0083-docs-partitioned-by-completion.md)
+决策 1/3）：
+
+```
+git mv docs/tasks/active/TASK-NNN-*.md docs/tasks/done/
+python .claude/tools/gen_docs_status.py
+```
+
+**目录即状态**：留在 `active/` 的卡就是「还没做完」，所以一张已完成却没搬走的卡
+会让下一个人重新推导它——那正是 2026-08-23 一天查出五处过期状态的成因。
+`tests/tooling/test_docs_status.py` 会在忘记重生成时转红，但那是补救，不是流程：
+守卫事后喊，不如这一步当场做对。**部分完成的卡留在 `active/`**（「部分完成」也是
+在办）。`docs/design/` 下有完成状态的文档同理。
+
 全部是 → 提交。当前工作在 auto-push 管理的 Change 下（`docs/auto-push/changes/`
 有清单）时，commit/push 交给 `auto-push` Skill：`task-ready`（申报验证结果与
 diff 范围）→ `stage` → 在 shell 运行其返回的 commit 命令 → `record-commit` →
