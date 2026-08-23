@@ -42,7 +42,11 @@ def server_module(tmp_path, monkeypatch):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     # an isolated run journal per test: the endpoint now records real Runs
-    monkeypatch.setattr(module, "_RUNS_PATH", tmp_path / "runs.json")
+    monkeypatch.setattr(module, "APP_DATA_DIR", tmp_path)
+    # the legacy scratch too: `runs.json` falls back to the old in-repo
+    # location when the app data dir has none (TASK-056), and the repo has a
+    # real 300 KB journal that would otherwise boot into this test
+    monkeypatch.setattr(module, "DATA_DIR", tmp_path / "legacy")
     monkeypatch.setattr(module, "_RUNS", None)
     # make the preferred executor resolvable so the default is chosen
     monkeypatch.setattr(module, "_executor_argv", lambda n: (["fake", n], "path"))

@@ -415,10 +415,14 @@ canvas <ProjectRoot>/studio/canvas.json  skillRuns[]
 
 #### `runs.json` 放在哪（冻结）
 
-**与 `projects.json` 同址、同类**：今天是 `mockups/motv-workspace/data/runs.json`，
-并**随 [TASK-056](../tasks/active/TASK-056-app-storage-location.md) 一起**迁到应用数据目录
-（Windows `%LOCALAPPDATA%\motv\`，POSIX `$XDG_DATA_HOME` / `~/.local/share/motv/`）。
-**不新增第三个存储位置。**
+**与 `projects.json` 同址、同类**：应用数据目录
+（Windows `%LOCALAPPDATA%\motv\`，POSIX `$XDG_DATA_HOME/motv` 或 `~/.local/share/motv/`），
+可由 `--app-data-dir` / `MOTV_APP_DATA_DIR` 覆盖。**不新增第三个存储位置。**
+
+搬迁已在 [TASK-056](../tasks/done/TASK-056-app-storage-location.md) 完成。旧位置
+`mockups/motv-workspace/data/` 是**只读 legacy**：新位置没有这两个文件时仍从那里读，
+写入永远落在新位置，旧文件不改名不删除；`--migrate-app-data` 是显式的一次性拷贝
+（不覆盖新位置已有的内容）。
 
 为什么**不**放进 `<ProjectRoot>/studio/`：
 

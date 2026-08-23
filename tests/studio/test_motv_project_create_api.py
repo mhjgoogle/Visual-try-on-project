@@ -35,6 +35,9 @@ def backend(tmp_path, monkeypatch):
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     monkeypatch.setattr(srv, "DATA_DIR", data_dir)
+    app_data = tmp_path / "app-data"
+    app_data.mkdir()
+    monkeypatch.setattr(srv, "APP_DATA_DIR", app_data)
     account_root = tmp_path / "account"
     account_root.mkdir()
 

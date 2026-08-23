@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "change_id": "app-data-and-flow-adr",
+  "branch": "change/TASK-056-app-data-location",
+  "status": "open",
+  "created": "2026-08-23T10:03:35+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-056": {
+      "commits": [],
+      "paths": [
+        "docs/adr/ADR-0053-project-rooted-studio-storage.md",
+        "docs/design/creator-system-contract.md",
+        "docs/implementation_plan.md",
+        "docs/project-context.md",
+        "docs/tasks/active/TASK-056-app-storage-location.md",
+        "docs/tasks/active/TASK-072-system-contract-and-persistent-runs.md",
+        "docs/tasks/active/TASK-087-followup-ledger.md",
+        "docs/tasks/done/TASK-055-project-rooted-storage.md",
+        "docs/tasks/done/TASK-056-app-storage-location.md",
+        "mockups/motv-workspace/runstore.py",
+        "mockups/motv-workspace/server.py",
+        "src/ui-gap-audit/reports/current-capabilities.md",
+        "tests/conftest.py",
+        "tests/e2e/",
+        "tests/studio/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "两阶段 pytest 3376+6 · node --test 1807 · ruff 全绿 · codex-review-loop 4 轮，轮4 pass（codex）",
+      "declared": "2026-08-23T10:04:28+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PENDING"
+  },
+  "merge": null,
+  "cleanup": null
+}

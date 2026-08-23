@@ -96,14 +96,25 @@ TASK-008/034～037 与 WFM3 TASK-012/038 补齐；Workspace 完整多媒体扩�
   消费**公开**查询包 `ai_video_workflow.workspace`（与 `src/workspace_shell/app.py`
   同一公开面），只读、不写业务状态、不持凭据，刻意不放进 `src/workspace_shell/`。
   禁的是 import 核心**内部**类型。
-- **写侧受门槛、保持 stub**：生成/发布/Command Gateway/DB/最终 schema 受
-  ADR-0033+ 约束；前端 `services/gateway.js` 是 client stub，连上后端时生成类
-  操作显式提示「待 Gateway」，不产生真实花费、不写核心文件。
-- **画布持久化是原型本地 scratch**：`data/<project>.json` 只存画布自有状态，
-  不是核心事实的投影，不回写任何核心文件（已 gitignore）。
-- **已知非目标**：不接真实 Command Gateway、不做真实生成/发布、不写核心业务
-  文件、不进 `workspace_shell`、不建 DB 或物化 projection。要把它落成生产
-  Workspace UI 或做真写/真生成，另走 ADR 与任务卡。
+- **写侧经 Command Gateway，按命令逐个开门**（2026-08-23 复核订正 —— 「保持
+  stub」在 TASK-041 增量二与 TASK-103 批次 B 之后已经不成立）：
+  `services/gateway.js` 做的是**真实的两步提交**（preflight → 确认 → submit），
+  `_command_gateway` 注册的是真命令。**门是按命令开的，不是整体开的**：
+
+  | 命令 | 花费 | 注册条件 |
+  | --- | --- | --- |
+  | `lock-draft-plan`（ADR-0047） | 无 | 永远注册 |
+  | `record-evaluation` / `create-feedback` / `create-action` / `action-transition`（TASK-103 批次 B） | 无 | 永远注册 |
+  | `submit-video-generation`（ADR-0041） | **有** | 仅付费模式：`--enable-paid` **且** `AI_VIDEO_WORKFLOW_ENABLE_PAID_COMMANDS=1`，真实调用再要 key + 人工预检确认 |
+
+  没开付费门时，注册表里**一个会花钱的命令都没有** —— 这条不变，变的只是
+  「无花费的写命令也一律 stub」那半句。
+- **画布持久化在项目目录里**（ADR-0053 / TASK-055）：`<ProjectRoot>/studio/canvas.json`
+  + `<ProjectRoot>/media/`。仓库内的 `mockups/motv-workspace/data/<project>.json`
+  降为**只读 legacy**，要显式迁移后才能编辑。账户级的两份注册表
+  （`projects.json` / `runs.json`）也已移出仓库，见 TASK-056。
+- **已知非目标**：不做真实发布、不进 `workspace_shell`、不建 DB 或物化 projection；
+  付费生成之外不新增会花钱的命令。要把它落成生产 Workspace UI，另走 ADR 与任务卡。
 - 演示模式的种子项目与 SVG 占位素材不是验收依据（见 AGENTS.md 第 20 条
   「真实 Connected Project 是主要验收环境」）；连接模式永不触发种子。
 

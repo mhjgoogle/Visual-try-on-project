@@ -25,6 +25,7 @@ allowed to diverge, because the file is what the next process boots from.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import threading
@@ -212,6 +213,7 @@ class RunStore:
         self,
         path,
         *,
+        legacy_path=None,
         max_concurrent: int = 2,
         runner=None,
         terminator=None,
@@ -219,6 +221,11 @@ class RunStore:
         history_limit: int = 400,
     ):
         self.path = Path(path)
+        #: READ-ONLY seed for the very first load, used only when `path` does
+        #: not exist yet (TASK-056 moved the journal out of the repo). Nothing
+        #: in this module ever writes, renames or removes it — including the
+        #: corrupt-journal quarantine, which must not touch a file we do not own.
+        self.legacy_path = None if legacy_path is None else Path(legacy_path)
         self.max_concurrent = max(1, int(max_concurrent))
         self._runner = runner
         # how to kill something `on_spawn` gave us; injected so the cancel
@@ -242,8 +249,11 @@ class RunStore:
     def _load(self) -> None:
         """Read the journal, then SWEEP. Both happen before anyone can call in."""
         raw = None
+        source = self.path
+        if self.legacy_path is not None and not self.path.exists():
+            source = self.legacy_path
         try:
-            raw = json.loads(self.path.read_text("utf-8"))
+            raw = json.loads(source.read_text("utf-8"))
         except FileNotFoundError:
             raw = None
         except OSError as exc:
@@ -268,7 +278,12 @@ class RunStore:
                     backup = self.path.with_suffix(
                         f"{self.path.suffix}.corrupt-{stamp}-{n}"
                     )
-                os.replace(self.path, backup)
+                # Only ever quarantine OUR OWN journal. A corrupt legacy file
+                # belongs to the old location and is read-only to us (TASK-056):
+                # renaming it would destroy the operator's evidence inside a
+                # directory this store was told not to write to.
+                if source == self.path:
+                    os.replace(self.path, backup)
             except OSError:
                 pass
             raw = None
@@ -354,12 +369,21 @@ class RunStore:
             trimmed.sort(key=lambda r: _as_int(r.get("queueSeq")))
             runs = trimmed
         payload = {"v": 1, "runs": runs}
+        tmp = None
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(self.path.suffix + f".tmp{os.getpid()}")
             tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=1), "utf-8")
             os.replace(tmp, self.path)
         except OSError as exc:
+            # Remove the partial file before reporting the failure. Leaving it
+            # is what put two orphaned `runs.json.tmp<pid>` blobs next to the
+            # live journal (TASK-056 / TASK-087 §6.2): each is a FULL copy of
+            # the registry, so the leak is hundreds of KB per transient write
+            # error, and the debris outlives the process that made it.
+            if tmp is not None:
+                with contextlib.suppress(OSError):
+                    tmp.unlink()
             raise PersistFailed(f"无法写入运行记录：{exc}") from exc
         # The trim is applied to MEMORY only after the write succeeded. Dropping
         # records first meant a transient write failure lost them from memory,

@@ -135,8 +135,11 @@
 | # | 项 | 来源 | 说明 |
 | --- | --- | --- | --- |
 | 6.1 | 每次 Bash/PowerShell 工具调用多 **~126 ms** | TASK-085 §6 | policy 冷启动。压它的正确方向是常驻/内联切分，**不是**把文本预筛加回来（那会重新引入 TASK-085 消除的漏洞） |
-| 6.2 | `test_the_kill_verified_finish_PERSISTS…` **偶发失败** | TASK-085 §6 | `os.replace` 收到 `OSError`；单独重跑与整个串行阶段重跑都通过。形状像 NTFS 瞬时共享冲突（杀软/索引器）。**未修，未深查** |
+| 6.2 | `test_the_kill_verified_finish_PERSISTS…` **偶发失败** | TASK-085 §6 | `os.replace` 收到 `OSError`；单独重跑与整个串行阶段重跑都通过。形状像 NTFS 瞬时共享冲突（杀软/索引器）。**根因未查**，但它的一个后果已在 TASK-056 闭合：`_persist_locked` 失败时不再留下 `runs.json.tmp<pid>` 残骸（实证：仓库里躺着 219 KB + 27 B 两个，各是注册表的整份拷贝）|
 | 6.3 | 分类器彻底不可达时会拦**每一条**命令 | TASK-085 §6 | 实际接线里不可达（`gate_dispatch.py` 自己就是 python），影响面已压到最小 |
+| 6.4 | **`data/skills/` 仍在仓库里** | TASK-056 | `_USER_SKILLS_DIR = DATA_DIR / "skills"`。按它自己的注释（合同 §5.5）它和 `projects.json` / `runs.json` 同类 —— 账户级、跨项目、非源码 —— 但 TASK-056 的范围只写了那两个注册表，所以它没跟着搬。**不是缺陷，是一致性欠账**：ADR-0067 的用户 Skill 包目前仍从仓库 scratch 读 |
+| 6.5 | `pytest_unconfigure` 不还原 `MOTV_APP_DATA_DIR` | TASK-056 审查轮 4（P3） | 用 `pytest.main()` 在同一进程里跑完测试的调用方，之后仍持有一个**已被删除**的丢弃目录路径；再起后端会把它重建出来并往里写。命令行 `pytest` 不受影响（进程结束变量就没了）。**未修** |
+| 6.6 | `RunStore._load` 先 `exists()` 再读 | TASK-056 审查轮 4（P3，审查者自标 uncertain） | 两步之间若有另一进程创建了新位置的日志，本实例会从 legacy 启动并可能用旧状态覆盖新的。同一台机器上同时跑两个后端本来就不是支持的姿态（单用户 loopback 原型），且窗口是微秒级。**未修，记录** |
 
 ---
 
