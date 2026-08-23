@@ -14,7 +14,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 
 import {
   referenceInputsOf, referenceBlock, usageRules, expandMarkers, checkSet,
@@ -29,6 +29,48 @@ import {
 import {
   CANVAS_SCHEMA_VERSION, MIGRATIONS, validateCanvasDoc,
 } from "../src/services/canvasschema.js";
+
+/** app.js 与它抽出去的控制器，连成一份源码。
+ *
+ * TASK-073 §1.8 每搬走一个控制器都会改变文件归属，而下面几条守卫是按**文件**
+ * 扫描的。§5.12 记过这个形状，并给了处理方式：不变量是「**系统里**这件事成立」，
+ * 不是「app.js 这个文件里还有这一行」，所以扫描面跟着搬迁走。数字与断言一个不降。
+ *
+ * 失效时最坏的表现是「测试仍然通过但什么都没断言」——比直接失败更危险，所以
+ * `appSource()` 自己带一条自检（见 `扫描面不得为空` 那一条）。
+ */
+function appSourceParts() {
+  const dir = new URL("../src/controllers/", import.meta.url);
+  const parts = [readFileSync(new URL("../src/app.js", import.meta.url), "utf8")];
+  for (const name of readdirSync(dir).sort()) {
+    if (name.endsWith(".js")) parts.push(readFileSync(new URL(name, dir), "utf8"));
+  }
+  return parts;
+}
+
+function appSource() {
+  return appSourceParts().join("\n");
+}
+
+/** 含 `needle` 的那**一个文件**的源码。
+ *
+ * 区间型守卫（「从这个键到下一个同级键」）必须在**单个文件**里划界。在拼接后的
+ * 全量源码上划，末位键的区间会一路吃到后面拼进来的别的控制器 —— 那些文件里
+ * 不相干的 `persist()` / `refresh()` 就能把计数凑够，守卫于是「仍然通过但什么
+ * 都没断言」（codex 审查本批 non-blocking；也正是 §5.12 记的那个形状）。
+ */
+function fileContaining(needle) {
+  const hit = appSourceParts().filter((src) => src.includes(needle));
+  assert.equal(hit.length, 1, `${needle} 应当只出现在一个文件里，实际 ${hit.length} 个`);
+  return hit[0];
+}
+
+test("扫描面不得为空 —— 按文件扫描的守卫要先证明自己真的读到了东西", () => {
+  const src = appSource();
+  assert.ok(src.length > 200_000, `扫描面只有 ${src.length} 字符`);
+  assert.match(src, /createPromptController/, "app.js 侧");
+  assert.match(src, /export function createPromptController/, "控制器侧");
+});
 
 /** 规则从**真实的包**装进目录，不手写（§2.6.3 第 2 条）。 */
 function installRealRules() {
@@ -273,13 +315,14 @@ test("界面不自算：批次那一块里没有任何乘法", () => {
 });
 
 test("batchpay **真的被应用侧调用了**（§2.5c 接线账）", () => {
-  const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+  const app = appSource();
   assert.match(app, /promptbatch\.batchOps\.applyPreflight/, "预检答复交给状态机");
   assert.match(app, /promptbatch\.batchOps\.confirmBatch/);
   assert.match(app, /promptbatch\.batchOps\.abortBatch/);
   assert.match(app, /promptbatch\.batchOps\.recordItem/);
-  // 而且控制器**不自己 import batchpay** —— 状态机的知识只有一处
-  assert.equal(/from "\.\/workflow\/batchpay\.js"/.test(app), false);
+  // 而且应用侧**不自己 import batchpay** —— 状态机的知识只有一处。
+  // 两种相对写法都要挡：控制器住在 src/controllers/，它写的是 `../workflow/`。
+  assert.equal(/from "\.{1,2}\/workflow\/batchpay\.js"/.test(app), false);
 });
 
 /* ========================================================================= */
@@ -287,14 +330,15 @@ test("batchpay **真的被应用侧调用了**（§2.5c 接线账）", () => {
 /* ========================================================================= */
 
 test("确认之后**真的逐镜跑完**，不是把状态推到 running 就算完（round 2 的 P1）", () => {
-  const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
-  const fn = app.slice(app.indexOf("    confirm: () => {"));
-  const body = fn.slice(0, fn.indexOf("\n    abort:"));
-  // 逐条跑 + 逐条记结果
-  assert.match(body, /for \(const item of promptBatchState\.items\)/, "要真的遍历这一批");
-  assert.match(body, /recordItem\(promptBatchState, item\.id/, "每一条的结果都报回状态机");
+  const app = appSource();
+  const fn = app.slice(app.indexOf("confirm: () => {"));
+  const body = fn.slice(0, fn.indexOf("requote:"));
+  // 逐条跑 + 逐条记结果。批次状态经注入的 `batchState` 读写（控制器够不到
+  // app.js 的模块级 `let` —— getter 注入正是 §5.10 的模式），不变量不变。
+  assert.match(body, /for \(const item of batchState\.get\(\)\.items\)/, "要真的遍历这一批");
+  assert.match(body, /recordItem\(batchState\.get\(\), item\.id/, "每一条的结果都报回状态机");
   assert.match(body, /outcome: "failed"/, "编不出来的记 failed —— 失败不算成功");
-  assert.match(body, /if \(promptBatchState\.state !== "running"\) break/, "中止要立即生效");
+  assert.match(body, /if \(batchState\.get\(\)\.state !== "running"\) break/, "中止要立即生效");
   // 本地编译花的是 0，**而且说得出是 0**（不是 null=不知道）
   assert.match(body, /spent: 0/);
   assert.equal(/spent: null/.test(body), false, "本地编译不是「不知道花了多少」");
@@ -426,12 +470,12 @@ test("每个状态都有出路 —— `draft` 不是死局（round 3 的 P1）",
 });
 
 test("await 回来之后不把报价贴到另一批 / 另一个项目上（round 3 的 P1）", () => {
-  const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+  const app = appSource();
   const fn = app.slice(app.indexOf("_quote: async () => {"));
-  const body = fn.slice(0, fn.indexOf("\n    _askGateway"));
-  assert.match(body, /const forBatch = promptBatchState/);
-  assert.match(body, /const forProject = PROJECT_NAME/);
-  assert.match(body, /promptBatchState === forBatch && PROJECT_NAME === forProject/);
+  const body = fn.slice(0, fn.indexOf("confirm: () => {"));
+  assert.match(body, /const forBatch = batchState\.get\(\)/);
+  assert.match(body, /const forProject = projectName\(\)/);
+  assert.match(body, /batchState\.get\(\) === forBatch && projectName\(\) === forProject/);
   assert.match(body, /if \(!stillMine\(\)\) return null/);
   // 而且贴的是**当时那一批**，不是「现在的那一批」
   assert.match(body, /applyPreflight\(forBatch, answer\)/);
@@ -497,17 +541,20 @@ test("扣下中间那一张之后，送出去的那一份**自己连续编号**�
 });
 
 test("确认 / 记账 / 中止都落盘，不只是重渲染（round 4 的 P1）", () => {
-  const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+  // 在**含它的那个文件**里划界，不在拼接后的全量源码上划（见 `fileContaining`）
+  const app = fileContaining("promptBatch: {");
   // 区间**自己算出来**：从 `promptBatch: {` 到**下一个同级键**。上一版写死到
   // `assetPrep: {`，于是批次 4F 在两者之间插入 `storyboard: {` 之后，这条守卫开始
   // 度量一段包含别人代码的区间 —— 又一处「钉在相对位置上」的守卫（§2.6.3 第 1 条）。
-  const from = app.indexOf("  promptBatch: {");
-  const after = app.slice(from + "  promptBatch: {".length);
-  const nextKey = after.search(/\n {2}[A-Za-z_$][A-Za-z0-9_$]*: \{/);
+  const from = app.indexOf("promptBatch: {");
+  const after = app.slice(from + "promptBatch: {".length);
+  const nextKey = after.search(/\n {2,4}[A-Za-z_$][A-Za-z0-9_$]*: \{/);
   const region = after.slice(0, nextKey >= 0 ? nextKey : after.length);
-  // 这一段里每一次重渲染前面都要有一次落盘
-  const renders = region.split("refreshProductionView();").length - 1;
-  const persists = region.split("ctx.persist();").length - 1;
+  // 这一段里每一次重渲染前面都要有一次落盘。搬进控制器之后两者是注入的
+  // `refresh` / `persist`，而绝大多数路径走的是把它们绑在一起的 `save()`
+  // —— 那比数数更强（结构上不可能只渲染不落盘），计数照旧成立。
+  const renders = region.split("refresh();").length - 1;
+  const persists = region.split("persist();").length - 1;
   assert.ok(renders > 0, "前提：这一段确实会重渲染");
   assert.ok(persists >= renders,
     `每次状态变化都要落盘：重渲染 ${renders} 次，落盘 ${persists} 次`);
@@ -560,10 +607,13 @@ test("持久化的报价必须覆盖**这一批的条数**（round 6 的 P1）",
 });
 
 test("放弃一批只落盘一次（round 6 的 non-blocking）", () => {
-  const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
-  const d = app.slice(app.indexOf("discard: () => {"));
-  const body = d.slice(0, d.indexOf("\n    abort:"));
-  assert.equal(body.split("ctx.persist()").length - 1, 1, "一次就够");
+  // 锚在**这一批**的 promptBatch 区间里再找 discard：拼接后的源码里不止一个
+  // `discard:`（批量生视频也有一个），从整份源码起手会切出一段别人的代码。
+  const app = fileContaining("promptBatch: {");
+  const batchRegion = app.slice(app.indexOf("promptBatch: {"));
+  const d = batchRegion.slice(batchRegion.indexOf("discard: () => {"));
+  const body = d.slice(0, d.indexOf("abort:"));
+  assert.equal(body.split("persist()").length - 1, 1, "一次就够");
 });
 
 test("绑定不完整（缺版本 / 缺 digest）也算「没送出去」，那一镜不算成功（round 7 的 P1）", () => {
@@ -592,9 +642,9 @@ test("绑定不完整（缺版本 / 缺 digest）也算「没送出去」，那�
 });
 
 test("预检失败也落盘 —— 否则界面给的「重新取总额」那条出路不存在（round 7）", () => {
-  const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+  const app = appSource();
   const fn = app.slice(app.indexOf("_quote: async () => {"));
-  const body = fn.slice(0, fn.indexOf("\n    _askGateway"));
-  assert.equal(body.split("_save()").length - 1 >= 2, true, "抛异常与空答复两条路都要落盘");
-  assert.match(body, /if \(stillMine\(\)\) ctx\.promptBatch\._save\(\)/);
+  const body = fn.slice(0, fn.indexOf("confirm: () => {"));
+  assert.equal(body.split("save()").length - 1 >= 2, true, "抛异常与空答复两条路都要落盘");
+  assert.match(body, /if \(stillMine\(\)\) save\(\)/);
 });

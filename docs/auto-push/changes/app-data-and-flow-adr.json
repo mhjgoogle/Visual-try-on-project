@@ -170,6 +170,18 @@
       "verification": "PASS",
       "verification_ref": "并发会话自带验证：两个改动文件 md 链接可达 0 broken · pytest tests/tooling/test_docs_status.py 6 passed · 纯文档不触发审查。本会话未复核，仅登记归属",
       "declared": "2026-08-23T10:22:40+00:00"
+    },
+    "TASK-073": {
+      "commits": [],
+      "paths": [
+        "docs/tasks/active/TASK-073-fixed-ia-and-contextual-agent.md",
+        "mockups/motv-workspace/src/app.js",
+        "mockups/motv-workspace/src/controllers/",
+        "mockups/motv-workspace/tests/promptrefs.test.mjs"
+      ],
+      "verification": "PASS",
+      "verification_ref": "两阶段 pytest 3376+6 · node --test 1808 · ruff 全绿 · codex-review-loop 1 轮 VERDICT: pass（codex），1 条 non-blocking 按 P2 修掉并变异验证",
+      "declared": "2026-08-23T10:47:08+00:00"
     }
   },
   "merge_gate": {
