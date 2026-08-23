@@ -2,7 +2,7 @@
   "schema": 1,
   "change_id": "wfm1-batch-c",
   "branch": "feat/wfm1-batch-c",
-  "status": "open",
+  "status": "merged",
   "created": "2026-08-22T04:52:48+00:00",
   "chain_mode": false,
   "tasks": {
@@ -62,16 +62,18 @@
           "subject": "仓库根目录治理：启动器移入 scripts/launch、pytest 配置移入 tests/（移动非删除；ADR-0077，Codex 实施+审查通过，本会话代提交）（TASK-099 · wfm1-batch-c）",
           "time": "2026-08-22T06:57:59+00:00",
           "branch": "feat/wfm1-batch-c",
-          "pushed": false,
-          "scope_violation": null
+          "pushed": true,
+          "scope_violation": null,
+          "pushed_note": "2026-08-23 核实：该提交确在 origin/main 上（本分支 tip 是其祖先），旧标志是陈旧快照"
         },
         {
           "hash": "8c633412b32ade3661c0e60d0a301c9d21021b39",
           "subject": "fix(TASK-099): 恢复 scripts/launch/studio.sh 可执行位 100755 —— 暂存区往返弄丢 mode，Ubuntu CI 的 test_repository_layout 第 49 行会翻红（Windows 上 os.access(X_OK) 恒真所以本地全量已绿）（TASK-099 · wfm1-batch-c）",
           "time": "2026-08-22T07:05:22+00:00",
           "branch": "feat/wfm1-batch-c",
-          "pushed": false,
-          "scope_violation": null
+          "pushed": true,
+          "scope_violation": null,
+          "pushed_note": "2026-08-23 核实：该提交确在 origin/main 上（本分支 tip 是其祖先），旧标志是陈旧快照"
         }
       ],
       "paths": [
@@ -85,6 +87,12 @@
   "merge_gate": {
     "status": "PENDING"
   },
-  "merge": null,
+  "merge": {
+    "hash": "ee6e47a161bd2f9b2aaf11fd7b2456d94bf7de97",
+    "time": "2026-08-22T23:05:20+09:00",
+    "pushed": true,
+    "mechanism": "本 Change 没有属于自己的 merge commit：它的历史是作为 change/TASK-102-repo-decoupling 的基底、随 TASK-102 的 merge ee6e47a 一并进入 main 的。2026-08-23 核实分支 tip 8f8e07d59ed9 确为 origin/main 的祖先，内容全部在 main 内，故如实登记为 merged 并指向 ee6e47a。",
+    "recorded_by": "产品负责人 2026-08-23：「合并并收口」"
+  },
   "cleanup": null
 }
