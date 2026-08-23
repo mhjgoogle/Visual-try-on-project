@@ -64,6 +64,7 @@ def data_dir(server_module, tmp_path: Path, monkeypatch) -> Path:
     touch the real repo directory.
     """
     monkeypatch.setattr(server_module, "DATA_DIR", tmp_path / "mockdata")
+    monkeypatch.setattr(server_module, "APP_DATA_DIR", tmp_path / "app-data")
     (tmp_path / "mockdata").mkdir()
     account = tmp_path / "account"
     account.mkdir()

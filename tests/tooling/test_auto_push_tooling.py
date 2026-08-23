@@ -927,3 +927,265 @@ def test_push_rechecks_verification_after_commit(rig: dict) -> None:
     # 验证结论在 push 前被撤回（重验证挂了）→ push 拒绝
     _declare(work, "CHG-1", "TASK-001", ["feature/"], verification="FAIL")
     assert ap.push(work, "CHG-1")["status"] == "PUSH_BLOCKED_BY_VERIFICATION"
+
+
+# ---------------------------------------------------------------------------
+# TASK-087 §3.6.6 / §3.6.9：两条实测出来的工装欠账
+# ---------------------------------------------------------------------------
+
+
+def test_record_sync_hash_backfills_a_historical_merge(rig: dict) -> None:
+    """§3.6.6：`record-sync` 只能登记 HEAD 时，旧版工具产出的 sync merge 够不着。
+
+    实测形状（TASK-104 合并）：`premerge-sync` 由旧版产出 merge，那一版不写
+    `sync_commits`；换新版后 `_push_gates` 只认登记 → `BLOCKED_UNRECORDED_COMMITS`，
+    而 `record-sync` 只看 HEAD，补登不了那个 hash。唯一出路是手工编辑清单。
+    """
+
+    work, other = rig["work"], rig["other"]
+    _new_change(work)
+    _declare(work, "CHG-1", "TASK-001", ["app.py"])
+    (work / "app.py").write_text("mine\n", "utf-8")
+    ap.stage(work, "CHG-1", "TASK-001", "mine")
+    _g(work, "commit", "-m", "mine（TASK-001 · CHG-1）")
+    ap.record_commit(work, "CHG-1", "TASK-001")
+    _g(work, "add", "-A", "--", "docs/auto-push")
+    _g(work, "commit", "-m", "chore(auto-push): 回写")
+
+    (other / "README.md").write_text("moved on\n", "utf-8")
+    _commit_all(other, "main moves on")
+    _g(other, "push", "origin", "main")
+    _g(work, "fetch", "origin")
+    # 手工做一次 premerge merge（模拟旧版工具：登记没写进清单）
+    _g(work, "merge", "--no-edit", "origin/main")
+    merge_hash = _g(work, "rev-parse", "HEAD")
+    # 再往前走一步，于是 HEAD 不再是那个 merge —— 这正是补登不了的处境
+    (work / "app.py").write_text("mine again\n", "utf-8")
+    ap.stage(work, "CHG-1", "TASK-001", "mine again")
+    _g(work, "commit", "-m", "mine again（TASK-001 · CHG-1）")
+    ap.record_commit(work, "CHG-1", "TASK-001")
+
+    rec = ap.record_sync(work, "CHG-1", hash_=merge_hash)
+    assert rec["status"] == "OK", rec
+    assert rec["hash"] == merge_hash
+
+
+def test_record_sync_hash_still_refuses_a_non_merge(rig: dict) -> None:
+    """形状校验一条不放松：`--hash` 是补登的口子，不是把普通提交声明成 sync 的口子。"""
+
+    work = rig["work"]
+    _new_change(work)
+    _declare(work, "CHG-1", "TASK-001", ["app.py"])
+    (work / "app.py").write_text("mine\n", "utf-8")
+    ap.stage(work, "CHG-1", "TASK-001", "mine")
+    _g(work, "commit", "-m", "mine（TASK-001 · CHG-1）")
+    ordinary = _g(work, "rev-parse", "HEAD")
+
+    rec = ap.record_sync(work, "CHG-1", hash_=ordinary)
+    assert rec["status"] == "BLOCKED_NOT_A_SYNC_MERGE", rec
+
+
+def _branch_with_a_stale_upstream(work: Path) -> str:
+    """A change branch whose remote upstream is BEHIND it, merged into main.
+
+    This is the `feat/wfm1-batch-c` shape, and it is fiddly enough to be worth
+    one helper: `git branch -d` asks 「merged into its upstream?」 when an
+    upstream is set, so an upstream pushed from the CURRENT tip makes `-d`
+    succeed and the `-D` path unreachable. Returns the branch tip.
+    """
+    _new_change(work)
+    _declare(work, "CHG-1", "TASK-001", ["app.py"])
+    (work / "app.py").write_text("first\n", "utf-8")
+    ap.stage(work, "CHG-1", "TASK-001", "first")
+    _g(work, "commit", "-m", "first（TASK-001 · CHG-1）")
+    ap.record_commit(work, "CHG-1", "TASK-001")
+    _g(work, "add", "-A", "--", "docs/auto-push")
+    _g(work, "commit", "-m", "chore(auto-push): 回写")
+
+    # 上游停在**这里** —— 之后分支还会往前走，于是它是真的落后了
+    _g(work, "push", "origin", "HEAD:refs/heads/stale-upstream")
+
+    (work / "app.py").write_text("second\n", "utf-8")
+    ap.stage(work, "CHG-1", "TASK-001", "second")
+    _g(work, "commit", "-m", "second（TASK-001 · CHG-1）")
+    ap.record_commit(work, "CHG-1", "TASK-001")
+    _g(work, "add", "-A", "--", "docs/auto-push")
+    _g(work, "commit", "-m", "chore(auto-push): 回写 2")
+    tip = _g(work, "rev-parse", "HEAD")
+
+    _g(work, "fetch", "origin")
+    _g(work, "branch", "--set-upstream-to=origin/stale-upstream", "change/CHG-1-demo")
+    return tip
+
+
+def _record_merge(work: Path, merge_hash: str) -> None:
+    path = work / "docs" / "auto-push" / "changes" / "CHG-1.json"
+    manifest = json.loads(path.read_text("utf-8"))
+    manifest["merge"] = {"hash": merge_hash, "time": "2026-01-01T00:00:00+00:00"}
+    manifest["status"] = "merged"
+    path.write_text(json.dumps(manifest, ensure_ascii=False), "utf-8")
+
+
+def test_cleanup_deletes_a_branch_whose_every_commit_is_already_on_main(
+    rig: dict,
+) -> None:
+    """§3.6.9：`git branch -d` 判的是「相对**上游**是否已合并」，不是「是否已在
+    main 里」。两者会分歧，而分歧时 `cleanup` 从前把判断退回给人 —— 实测卡住了
+    `feat/wfm1-batch-c`：7 个领先提交逐个核实都是 `origin/main` 的祖先，删除不丢
+    任何提交，分支却删不掉。
+    """
+
+    work = rig["work"]
+    branch_tip = _branch_with_a_stale_upstream(work)
+
+    _g(work, "checkout", "main")
+    _g(work, "merge", "--no-ff", "--no-edit", "change/CHG-1-demo")
+    _g(work, "push", "origin", "main")
+    _g(work, "fetch", "origin")
+    _record_merge(work, _g(work, "rev-parse", "HEAD"))
+
+    # 前提自证：`-d` 确实会拒，否则这条测试根本没走到 `-D` 那一支
+    refused = subprocess.run(
+        ["git", "-C", str(work), "branch", "-d", "change/CHG-1-demo"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert refused.returncode != 0, "前提不成立：-d 没有拒绝，这条测试就没在测 -D"
+    assert ap._is_ancestor(work, branch_tip, "origin/main"), "但它确实整个在 main 里"
+
+    result = ap.cleanup(work, "CHG-1", keep_remote=True)
+    assert result["status"] == "OK", result
+    assert result["local_deleted"] is True
+    assert not ap._ref_exists(work, "refs/heads/change/CHG-1-demo")
+
+
+def test_cleanup_refuses_when_the_branch_moves_after_its_tip_was_verified(
+    rig: dict, monkeypatch
+) -> None:
+    """§3.6.9 的 P1：检查与删除之间分支会动。
+
+    `git branch -D <name>` 是无条件的，所以「tip 已在 main 里」这个结论一旦过时，
+    被删掉的就是那个**从没进过 main** 的新提交。删除改成
+    `update-ref -d <ref> <expected-oid>`：oid 对不上就失败（codex 审查轮 1）。
+
+    **注入点必须是删除那一次调用本身。** 第一版挂在 `_is_ancestor` 上，于是新提交
+    在 `cleanup` 顶部的 merge 确认时就落了下来 —— 等 tip 检查跑到时它已经在分支上，
+    那道检查自己就拒了，删除那一步根本没被考验。实测：把删除换回无条件
+    `branch -D`，那一版测试**照样通过**。这就是「测试的构造恰好排除了要防的
+    那件事」（TASK-087 §7）。
+    """
+
+    work = rig["work"]
+    _branch_with_a_stale_upstream(work)
+
+    _g(work, "checkout", "main")
+    _g(work, "merge", "--no-ff", "--no-edit", "change/CHG-1-demo")
+    _g(work, "push", "origin", "main")
+    _g(work, "fetch", "origin")
+    _record_merge(work, _g(work, "rev-parse", "HEAD"))
+    verified_tip = _g(work, "rev-parse", "change/CHG-1-demo")
+
+    real_git = ap._git
+    landed = []
+
+    def racing_git(root, *args, **kwargs):
+        # 恰好在**删除这一次调用**之前落一个 main 从没见过的提交上去
+        deleting = args[:2] in (("update-ref", "-d"), ("branch", "-D"))
+        if deleting and not landed:
+            tree = _g(root, "rev-parse", "change/CHG-1-demo^{tree}")
+            parent = _g(root, "rev-parse", "change/CHG-1-demo")
+            sneaked = _g(
+                root, "commit-tree", tree, "-p", parent, "-m", "landed mid-cleanup"
+            )
+            _g(root, "update-ref", "refs/heads/change/CHG-1-demo", sneaked)
+            landed.append(sneaked)
+        return real_git(root, *args, **kwargs)
+
+    monkeypatch.setattr(ap, "_git", racing_git)
+    result = ap.cleanup(work, "CHG-1", keep_remote=True)
+
+    assert landed, "前提不成立：竞态没有被注入到删除那一步"
+    assert result["status"] == "BLOCKED_UNMERGED_COMMITS", result
+    assert ap._ref_exists(work, "refs/heads/change/CHG-1-demo"), (
+        "那个中途落上来的提交必须还在 —— 它从没进过 main"
+    )
+    assert _g(work, "rev-parse", "change/CHG-1-demo") == landed[0]
+    assert verified_tip != landed[0], "前提自证：分支确实动过"
+
+
+def test_cleanup_refuses_to_delete_a_branch_another_worktree_has_checked_out(
+    rig: dict, tmp_path: Path
+) -> None:
+    """`update-ref -d` 不认识 worktree，而 `branch -d/-D` 认识。
+
+    换成前者就把那道保护一起丢了：代价是一个 linked worktree 的 HEAD 指向一个
+    已经不存在的 ref（codex 审查轮 2）。所以删除前显式问一遍，问不出来也当作有。
+    """
+
+    work = rig["work"]
+    _branch_with_a_stale_upstream(work)
+
+    _g(work, "checkout", "main")
+    _g(work, "merge", "--no-ff", "--no-edit", "change/CHG-1-demo")
+    _g(work, "push", "origin", "main")
+    _g(work, "fetch", "origin")
+    _record_merge(work, _g(work, "rev-parse", "HEAD"))
+
+    linked = tmp_path / "linked-worktree"
+    _g(work, "worktree", "add", str(linked), "change/CHG-1-demo")
+
+    result = ap.cleanup(work, "CHG-1", keep_remote=True)
+
+    assert result["status"] == "BLOCKED_BRANCH_CHECKED_OUT", result
+    assert ap._ref_exists(work, "refs/heads/change/CHG-1-demo")
+    # 那个 worktree 的 HEAD 仍然解析得出来 —— 没有被删成悬空
+    assert _g(linked, "rev-parse", "HEAD")
+
+
+def test_cleanup_fails_closed_when_the_worktree_list_cannot_be_read(
+    rig: dict, monkeypatch
+) -> None:
+    """问不出来 = 当作有。这条独立于上一条：上一条证明「有就拒」，
+    这条证明「不知道也拒」—— 后者才是把 fail-open 写死的那一半。"""
+
+    work = rig["work"]
+    _branch_with_a_stale_upstream(work)
+
+    _g(work, "checkout", "main")
+    _g(work, "merge", "--no-ff", "--no-edit", "change/CHG-1-demo")
+    _g(work, "push", "origin", "main")
+    _g(work, "fetch", "origin")
+    _record_merge(work, _g(work, "rev-parse", "HEAD"))
+
+    monkeypatch.setattr(ap, "_worktrees_holding", lambda root, branch: None)
+    result = ap.cleanup(work, "CHG-1", keep_remote=True)
+
+    assert result["status"] == "BLOCKED_BRANCH_CHECKED_OUT", result
+    assert "undetermined" in result["reason"]
+    assert ap._ref_exists(work, "refs/heads/change/CHG-1-demo")
+
+
+def test_cleanup_still_refuses_a_branch_carrying_commits_main_never_saw(
+    rig: dict,
+) -> None:
+    """反方向：这不是放宽。分支上有 main 里没有的提交时，照旧拒绝。"""
+
+    work = rig["work"]
+    _branch_with_a_stale_upstream(work)
+
+    _g(work, "checkout", "main")
+    _g(work, "merge", "--no-ff", "--no-edit", "change/CHG-1-demo")
+    _g(work, "push", "origin", "main")
+    _g(work, "fetch", "origin")
+    _record_merge(work, _g(work, "rev-parse", "HEAD"))
+
+    # 合并之后分支上又多了一个提交 —— main 从没见过它
+    tree = _g(work, "rev-parse", "change/CHG-1-demo^{tree}")
+    parent = _g(work, "rev-parse", "change/CHG-1-demo")
+    later = _g(work, "commit-tree", tree, "-p", parent, "-m", "later, never merged")
+    _g(work, "update-ref", "refs/heads/change/CHG-1-demo", later)
+
+    result = ap.cleanup(work, "CHG-1", keep_remote=True)
+    assert result["status"] == "BLOCKED_UNMERGED_COMMITS", result
+    assert "not contained in" in result["reason"]

@@ -19,6 +19,27 @@
 > artifact 路径，实现并排媒体需再扩查询合同暴露路径；决定等 WFM2 多媒体 Provider
 > （ADR-0038）落地、媒体路径模型稳定后与之一并做，避免为此单独多扩一次合同后又改。
 > 届时随 TASK-035/039 媒体扩展承接。
+>
+> **复核（2026-08-23）：推迟的那个理由已经不成立了。** part-2b 当时等的是
+> 「WFM2 多媒体 Provider（ADR-0038）落地、媒体路径模型稳定」——
+> ADR-0038 已 Accepted，[TASK-035](../done/TASK-035-wfm2-multimedia-generation-and-lineage.md)
+> 与 [TASK-039](../done/TASK-039-workspace-multimedia-and-full-workflow-expansion.md)
+> **两张卡都已在 `done/`**。所以 part-2b 现在是**可做的**，不再被媒体路径模型挡住。
+>
+> **但动手之前有一个必须先定的东西**：part-2b 要在 `workspace_shell` 里加两个页面
+> （并排媒体比较、`reuse_usage` 下游使用），而 **`workspace_shell` 的去留至今没有
+> 结论**。[TASK-083](../done/TASK-083-phase3-adrs-first.md) §5.1 要求「顺带在文档里
+> 明确它的去留」，[TASK-103](../done/TASK-103-frontback-and-ui-residuals.md) 批次 B
+> 声明会做，但 2026-08-23 全仓 grep **找不到任何记下来的结论**——
+> 又一处「声明了却没落到文档里」。
+>
+> 具体的风险是实的：C-020 记着 `workspace_shell` 对真实 Studio 项目 **Portfolio
+> 全空**（`discover_projects` 要 `config/wfm1.json`，Studio 建的项目没有）。
+> 往一个对真实项目看不见任何东西的壳里加两个页面，**做完也没法验收**
+> —— AGENTS.md §20「真实 Connected Project 是主要验收环境」。
+>
+> **接手顺序因此是**：先定 `workspace_shell` 的去留（技术决策，按 AGENTS.md §1
+> 由实施 Agent 自行决定并写进文档），再决定 part-2b 落在哪个壳里。
 
 ## 目的
 

@@ -1,0 +1,279 @@
+{
+  "schema": 1,
+  "change_id": "app-data-and-flow-adr",
+  "branch": "change/TASK-056-app-data-location",
+  "status": "open",
+  "created": "2026-08-23T10:03:35+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-056": {
+      "commits": [
+        {
+          "hash": "2287fd2d1638a741afd19ecda59ecbc95af74b47",
+          "subject": "feat(TASK-056): 账户级注册表移出仓库 —— projects.json / runs.json 进应用数据目录",
+          "time": "2026-08-23T10:09:34+00:00",
+          "branch": "change/TASK-056-app-data-location",
+          "pushed": true,
+          "files": [
+            "docs/adr/ADR-0053-project-rooted-studio-storage.md",
+            "docs/auto-push/changes/app-data-and-flow-adr.json",
+            "docs/design/creator-system-contract.md",
+            "docs/implementation_plan.md",
+            "docs/project-context.md",
+            "docs/tasks/active/TASK-056-app-storage-location.md",
+            "docs/tasks/active/TASK-072-system-contract-and-persistent-runs.md",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "docs/tasks/done/TASK-055-project-rooted-storage.md",
+            "docs/tasks/done/TASK-056-app-storage-location.md",
+            "mockups/motv-workspace/runstore.py",
+            "mockups/motv-workspace/server.py",
+            "src/ui-gap-audit/reports/current-capabilities.md",
+            "tests/conftest.py",
+            "tests/e2e/test_motv_task048_e2e.py",
+            "tests/studio/test_motv_app_data_location_task056.py",
+            "tests/studio/test_motv_av_m11.py",
+            "tests/studio/test_motv_breakdown_assets_task094.py",
+            "tests/studio/test_motv_canvas_persistence_m1.py",
+            "tests/studio/test_motv_episode_plan_task094.py",
+            "tests/studio/test_motv_mix_hardening_task074.py",
+            "tests/studio/test_motv_motion_preview_task098.py",
+            "tests/studio/test_motv_project_create_api.py",
+            "tests/studio/test_motv_project_storage.py",
+            "tests/studio/test_motv_runs_api_task072.py",
+            "tests/studio/test_motv_script_slice_e2e.py",
+            "tests/studio/test_motv_skillendpoints_task075.py",
+            "tests/studio/test_motv_story_outline_task094.py",
+            "tests/studio/test_motv_two_modes_task094.py"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        "docs/adr/ADR-0053-project-rooted-studio-storage.md",
+        "docs/design/creator-system-contract.md",
+        "docs/implementation_plan.md",
+        "docs/project-context.md",
+        "docs/tasks/active/TASK-056-app-storage-location.md",
+        "docs/tasks/active/TASK-072-system-contract-and-persistent-runs.md",
+        "docs/tasks/active/TASK-087-followup-ledger.md",
+        "docs/tasks/done/TASK-055-project-rooted-storage.md",
+        "docs/tasks/done/TASK-056-app-storage-location.md",
+        "mockups/motv-workspace/runstore.py",
+        "mockups/motv-workspace/server.py",
+        "src/ui-gap-audit/reports/current-capabilities.md",
+        "tests/conftest.py",
+        "tests/e2e/",
+        "tests/studio/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "两阶段 pytest 3376+6 · node --test 1807 · ruff 全绿 · codex-review-loop 4 轮，轮4 pass（codex）",
+      "declared": "2026-08-23T10:04:28+00:00"
+    },
+    "TASK-083": {
+      "commits": [
+        {
+          "hash": "9630b2ba67abb25a602b70283bea6a55cf8942b7",
+          "subject": "docs(TASK-083): ADR-D 定案 —— 流程模板是 Skill 包机制的第二个 kind，不是第二套",
+          "time": "2026-08-23T10:10:15+00:00",
+          "branch": "change/TASK-056-app-data-location",
+          "pushed": true,
+          "files": [
+            "docs/adr/ADR-0071-reference-inputs-as-an-ordered-set.md",
+            "docs/adr/ADR-0074-character-from-image.md",
+            "docs/adr/ADR-0075-camera-motion-presets.md",
+            "docs/adr/ADR-0084-project-flow-template-as-a-package.md",
+            "docs/auto-push/changes/app-data-and-flow-adr.json",
+            "docs/tasks/active/TASK-083-phase3-adrs-first.md",
+            "docs/tasks/active/TASK-105-flow-template-first-slice.md",
+            "docs/tasks/done/TASK-083-phase3-adrs-first.md",
+            "docs/tasks/done/TASK-093-one-canvas-per-shot.md",
+            "docs/tasks/done/TASK-097-episode-production-chain.md",
+            "docs/tasks/done/TASK-103-frontback-and-ui-residuals.md"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        "docs/adr/ADR-0071-reference-inputs-as-an-ordered-set.md",
+        "docs/adr/ADR-0074-character-from-image.md",
+        "docs/adr/ADR-0075-camera-motion-presets.md",
+        "docs/adr/ADR-0084-project-flow-template-as-a-package.md",
+        "docs/tasks/active/TASK-083-phase3-adrs-first.md",
+        "docs/tasks/active/TASK-105-flow-template-first-slice.md",
+        "docs/tasks/done/TASK-083-phase3-adrs-first.md",
+        "docs/tasks/done/TASK-093-one-canvas-per-shot.md",
+        "docs/tasks/done/TASK-097-episode-production-chain.md",
+        "docs/tasks/done/TASK-103-frontback-and-ui-residuals.md"
+      ],
+      "verification": "PASS",
+      "verification_ref": "纯文档/ADR 决策：全仓 md 断链检查 0 条 · tests/tooling 152 全绿 · 按 ADR-0081 纯文档不调审查",
+      "declared": "2026-08-23T10:09:48+00:00"
+    },
+    "TASK-087-docs-links": {
+      "commits": [
+        {
+          "hash": "f0b04c87f125c9a302d6ed0739658b1a138ebac0",
+          "subject": "test(docs): 全仓 md 断链守卫 —— ADR-0083 的 git mv 每次都会打断入链，此前没有东西接住",
+          "time": "2026-08-23T10:10:52+00:00",
+          "branch": "change/TASK-056-app-data-location",
+          "pushed": true,
+          "files": [
+            "docs/STATUS.md",
+            "docs/auto-push/changes/app-data-and-flow-adr.json",
+            "docs/tasks/done/TASK-049-native-windows-run-target.md",
+            "docs/tasks/done/TASK-077-honest-state-and-dead-surfaces.md",
+            "docs/tasks/done/TASK-078-storyboard-table-to-first-frame.md",
+            "docs/tasks/done/TASK-079-review-surface-and-chaining.md",
+            "docs/tasks/done/TASK-080-skill-catalog-and-one-agent-session.md",
+            "docs/tasks/done/TASK-081-url-routing-and-deep-links.md",
+            "docs/tasks/done/TASK-082-project-health-and-asset-tree.md",
+            "tests/tooling/test_docs_links.py"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        "docs/STATUS.md",
+        "docs/tasks/done/TASK-049-native-windows-run-target.md",
+        "docs/tasks/done/TASK-077-honest-state-and-dead-surfaces.md",
+        "docs/tasks/done/TASK-078-storyboard-table-to-first-frame.md",
+        "docs/tasks/done/TASK-079-review-surface-and-chaining.md",
+        "docs/tasks/done/TASK-080-skill-catalog-and-one-agent-session.md",
+        "docs/tasks/done/TASK-081-url-routing-and-deep-links.md",
+        "docs/tasks/done/TASK-082-project-health-and-asset-tree.md",
+        "tests/tooling/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "pytest tests/tooling 154 全绿（含新守卫 2 条）· 变异验证：注入一条坏链后守卫转红，撤回后转绿 · 全仓断链 0 条",
+      "declared": "2026-08-23T10:10:28+00:00"
+    },
+    "FOREIGN-dev-workflow-adr0083": {
+      "commits": [
+        {
+          "hash": "aa6c002ac8928aaced7c3ea0e248553b6fc34a78",
+          "subject": "docs(dev-workflow): 把「搬进 done/ 并重生成 STATUS」写进 Done 判定与建卡步骤",
+          "time": "2026-08-23T10:22:40+00:00",
+          "branch": "change/TASK-056-app-data-location",
+          "pushed": false,
+          "files": [
+            ".claude/skills/dev-workflow/SKILL.md",
+            ".claude/skills/dev-workflow/references/records.md",
+            "docs/auto-push/changes/app-data-and-flow-adr.json"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        ".claude/skills/dev-workflow/",
+        "docs/auto-push/changes/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "并发会话自带验证：两个改动文件 md 链接可达 0 broken · pytest tests/tooling/test_docs_status.py 6 passed · 纯文档不触发审查。本会话未复核，仅登记归属",
+      "declared": "2026-08-23T10:22:40+00:00"
+    },
+    "TASK-073": {
+      "commits": [
+        {
+          "hash": "1f65ec441af9c20955157611cd18460cad7de100",
+          "subject": "refactor(TASK-073 §1.8): 提示词域搬进 controllers/promptctl.js（第五批）",
+          "time": "2026-08-23T10:52:19+00:00",
+          "branch": "change/TASK-056-app-data-location",
+          "pushed": true,
+          "files": [
+            "docs/auto-push/changes/app-data-and-flow-adr.json",
+            "docs/tasks/active/TASK-073-fixed-ia-and-contextual-agent.md",
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/src/controllers/promptctl.js",
+            "mockups/motv-workspace/tests/promptrefs.test.mjs"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        "docs/tasks/active/TASK-073-fixed-ia-and-contextual-agent.md",
+        "mockups/motv-workspace/src/app.js",
+        "mockups/motv-workspace/src/controllers/",
+        "mockups/motv-workspace/tests/promptrefs.test.mjs"
+      ],
+      "verification": "PASS",
+      "verification_ref": "两阶段 pytest 3376+6 · node --test 1808 · ruff 全绿 · codex-review-loop 1 轮 VERDICT: pass（codex），1 条 non-blocking 按 P2 修掉并变异验证",
+      "declared": "2026-08-23T10:47:08+00:00"
+    },
+    "TASK-087": {
+      "commits": [
+        {
+          "hash": "574e1402686db33a6063ed31084046b29ff9cd7e",
+          "subject": "fix(TASK-087): auto-push 工装两条欠账闭合 + 陈旧分支清理，交接卡收口",
+          "time": "2026-08-23T11:45:02+00:00",
+          "branch": "change/TASK-056-app-data-location",
+          "pushed": true,
+          "files": [
+            ".claude/skills/auto-push/scripts/autopush.py",
+            "docs/STATUS.md",
+            "docs/auto-push/changes/app-data-and-flow-adr.json",
+            "docs/design/active/handover-2026-08-23-remaining-active-tasks.md",
+            "docs/design/active/remaining-roadmap-design-report.md",
+            "docs/design/done/handover-2026-08-23-remaining-active-tasks.md",
+            "docs/design/done/remaining-roadmap-design-report.md",
+            "docs/implementation_plan.md",
+            "docs/tasks/active/TASK-027-workspace-lineage-comparison-and-cost.md",
+            "docs/tasks/active/TASK-041-workspace-generation-command-and-evidence.md",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "docs/tasks/done/TASK-004-provider-orchestrator-foundation.md",
+            "tests/tooling/test_auto_push_tooling.py"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        ".claude/skills/auto-push/",
+        "docs/",
+        "tests/tooling/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "两阶段 pytest 3383+6 · node --test 1808 · ruff check/format 全绿 · codex-review-loop 3 轮（轮3 两条判为同主题变体，显式 ship）· 五次变异验证全部先红后绿",
+      "declared": "2026-08-23T11:36:54+00:00"
+    },
+    "ADR-0085-merge-gate": {
+      "commits": [
+        {
+          "hash": "1b80872cfc4f196ade8638ea21af0e57ec640722",
+          "subject": "docs(ADR-0085): merge 到 main 不再是人工闸 —— 前置条件一条不少，只是没人再点头",
+          "time": "2026-08-23T23:07:56+00:00",
+          "branch": "change/TASK-056-app-data-location",
+          "pushed": true,
+          "files": [
+            ".claude/skills/auto-push/SKILL.md",
+            ".claude/skills/auto-push/references/merge-and-conflicts.md",
+            ".claude/skills/dev-workflow/SKILL.md",
+            "AGENTS.md",
+            "docs/STATUS.md",
+            "docs/adr/ADR-0079-auto-push-skill.md",
+            "docs/adr/ADR-0085-merge-is-not-a-human-gate.md"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        ".claude/skills/",
+        "AGENTS.md",
+        "docs/STATUS.md",
+        "docs/adr/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "premerge-sync 之后在新 tip 上重跑最终全量：pytest 3383 + 6 · node --test 1808 · ruff check/format 全绿",
+      "declared": "2026-08-23T23:25:12+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PASS",
+    "by": "ADR-0085 依据：Done 判定全部成立；最终全量通过（两阶段 pytest 3383+6 · node --test 1808 · ruff check/format · 全仓 md 断链 0）；无未闭合 P1（TASK-056 轮4 pass、TASK-073 轮1 pass、TASK-087 按 ADR-0081 §2b 显式 ship）；待复审清单已查，仍然待办只剩 POSIX parent-death 一条且状态是记录。产品负责人 2026-08-24「合并。这个也不需要保留人工」",
+    "time": "2026-08-23T23:13:41+00:00",
+    "tip": "2991078f82c7102e27929cfb22708a81b2a9dbf0"
+  },
+  "merge": null,
+  "cleanup": null,
+  "sync_commits": [
+    "cd9153a2e7ac3b79bd82157c0843e47ce5e12b5e"
+  ]
+}

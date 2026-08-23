@@ -57,6 +57,7 @@ def data_dir(server_module, tmp_path: Path, monkeypatch) -> Path:
     legacy = tmp_path / "mockdata"
     legacy.mkdir()
     monkeypatch.setattr(server_module, "DATA_DIR", legacy)
+    monkeypatch.setattr(server_module, "APP_DATA_DIR", tmp_path / "app-data")
     account = tmp_path / "account"
     (account / "p1").mkdir(parents=True)
     (account / "p1" / "project.json").write_text(

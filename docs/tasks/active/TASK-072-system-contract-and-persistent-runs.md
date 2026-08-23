@@ -150,9 +150,10 @@
 后端 `runs.json` 是运行生命周期的**唯一权威**；canvas 的 `skillRuns[]` 拥有创作者的
 决定与输入指纹。完整的所有权表、Canvas PUT 规则与并发规则见系统合同 §5.5。
 
-**存储位置（冻结）**：`mockups/motv-workspace/data/runs.json`，与 `projects.json`
-**同址同类**（账户级、跨项目、非源码），并随 [TASK-056](TASK-056-app-storage-location.md)
-一起迁到应用数据目录。**不新增第三个存储位置**，也**不**放进 `<ProjectRoot>/studio/`
+**存储位置（冻结）**：应用数据目录下的 `runs.json`，与 `projects.json`
+**同址同类**（账户级、跨项目、非源码）—— 搬迁已由
+[TASK-056](../done/TASK-056-app-storage-location.md) 完成，旧的 `data/runs.json`
+降为只读 legacy。**不新增第三个存储位置**，也**不**放进 `<ProjectRoot>/studio/`
 （重启清扫要在任何项目被打开之前跑完；且存在没有项目的 Run）。理由全文见合同 §5.5。
 
 **项目归属与跨项目隔离（冻结）**：Run 增加 `projectId`。

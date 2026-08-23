@@ -1,8 +1,19 @@
 # TASK-041: 工作视窗付费视频生成命令 + UI 接入 + 1 次真实证据
 
-> **状态：Accepted（2026-08-07，用户「同意」）—— 离线实现进行中。** ADR-0041 已 Accept。
-> 离线实现（命令/测试/UI 接线/目录/副本项目搭建）不花钱；付费实调需用户显式授权
-> （key + 标志 + 预算确认），真跑前单独确认。
+> **状态：Accepted（2026-08-07，用户「同意」）。2026-08-23 逐项复核，结论见下表。**
+> ADR-0041 已 Accept。离线实现不花钱；付费实调需用户显式授权（key + 标志 +
+> 预算确认），真跑前单独确认。
+>
+> | 增量 | 实际状态（代码级证据） |
+> | --- | --- |
+> | **1 · 核心命令** | ✅ **已完成**。`src/ai_video_workflow/app/paid_gateway.py` 的 `SUBMIT_VIDEO_GENERATION`；授权门是 `authorized=True` **加** `AI_VIDEO_WORKFLOW_ENABLE_PAID_COMMANDS=1` 双闸，默认 `build_wfm1_registry()` 不含它。`tests/backend/test_paid_gateway_command.py` **28 项全绿** |
+> | **2 · UI 接线** | ✅ **已完成**。Studio 的 `_command_gateway`（`server.py`）在付费模式下注册该命令；`services/gateway.js` 早已不是 stub，做的是真实两步提交（`buildEnvelope` · `preflight` · `submit`）。~~「保持 stub」~~ 那句在 `docs/project-context.md` 里挂到 2026-08-23 才被订正 |
+> | **4 · 证据运行前置** | ❌ **未做**。`examples/projects/` 下只有 `minimal` 与 `wfm1-demo`，**没有 catalog 目录**，也没有含 minimax 价目的目录、没有副本项目、没有 re-lock 的 `catalog_digest`。这一步**不花钱**，是纯离线搭建 |
+> | **3 · 1 次真实证据** | ⛔ **需要产品负责人**：它要 `WFM1_MINIMAX_API_KEY` + `AI_VIDEO_WORKFLOW_REAL_MINIMAX=1` + 对 ≈USD 0.28 的确认。AGENTS.md §1：**花钱是唯一必须问的那件事**，Agent 不得自行推进 |
+>
+> **所以本卡的剩余工作是两段，不是一段**：第 4 项（离线搭建，任何 Agent 都能做）
+> 与第 3 项（真实花费，只有产品负责人能放行）。上一版状态行把两者合成「离线实现
+> 进行中」一句，读起来像是全都卡在同一个地方。
 
 依据：ADR-0041（本任务实现的决策）；ADR-0033 Gateway 合同；ADR-0006 + ADR-0009 付费视频窄授权；
 ADR-0010 / ADR-0032 工作视窗边界；ADR-0008 成本事实；ADR-0040 / TASK-038 submit capability。

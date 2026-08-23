@@ -72,6 +72,238 @@ from serve import _banner  # noqa: E402 - same path line
 MOCKUP_DIR = Path(__file__).resolve().parent
 REPO_ROOT = MOCKUP_DIR.parents[1]
 DATA_DIR = MOCKUP_DIR / "data"
+
+# --- application-level data (TASK-056) ------------------------------------- #
+#
+# `projects.json` (name -> admitted root) and `runs.json` (the Run registry) are
+# ACCOUNT-level facts: they span every project, they are not source, and they
+# describe THIS machine's backend rather than the repository. They used to be
+# written into `DATA_DIR`, i.e. inside a checkout — so a clone carried someone
+# else's project list, and a `git clean` deleted a live run journal.
+#
+# `DATA_DIR` stays READ-ONLY LEGACY for exactly these two files, the same shape
+# ADR-0053 gave the per-project scratch: an existing install keeps reading its
+# registry, every write lands in the new location, and nothing the creator has
+# is deleted on our initiative (AGENTS.md §13). `migrate_app_data()` is the
+# explicit one-time copy; it never moves and never removes.
+#
+# Everything ELSE still under `DATA_DIR` (the legacy per-project canvas scratch,
+# uploads, the TTS model cache, `skills/`, `paid-image-log.jsonl`) is out of
+# this task's scope on purpose — see TASK-087 §6.4.
+_APP_DIR_NAME = "motv"
+
+#: The application-level files this module owns, in the order a migration
+#: report should list them.
+_APP_DATA_FILES = ("projects.json", "runs.json")
+
+
+def _absolute_env_path(name: str) -> Path | None:
+    """`os.environ[name]` as a path, but only when it is ABSOLUTE.
+
+    A relative value would make where the account's registries live depend on
+    whatever the working directory happened to be — including, if it is
+    relative to a checkout, back inside the repository this task empties
+    (codex review, round 2). The XDG spec says the same about a non-absolute
+    `XDG_DATA_HOME`: ignore it and use the default. `LOCALAPPDATA` gets the
+    same treatment for one reason — there is no argument for honouring a
+    relative one that does not apply equally to both.
+    """
+    raw = os.environ.get(name)
+    if not raw:
+        return None
+    candidate = Path(raw)
+    return candidate if candidate.is_absolute() else None
+
+
+def _default_app_data_dir(windows: bool | None = None) -> Path:
+    """`%LOCALAPPDATA%/motv` on Windows, `$XDG_DATA_HOME/motv` on POSIX.
+
+    The platform's own environment variable comes first on BOTH platforms,
+    because that is how each one lets an operator relocate application data;
+    the home-relative path is only the fallback for when it is unset. Nothing
+    here hardcodes a separator (AGENTS.md §3) — the Windows branch names two
+    plain directory segments and only runs on Windows.
+
+    `windows` is a PARAMETER rather than a read of `os.name`, so both branches
+    are testable on either host (ADR-0062: Windows is authoritative, but the
+    Ubuntu target has to stay green). Faking `os.name` instead would be worse
+    than useless: `pathlib` reads it at construction time, so the POSIX branch
+    would build a `PosixPath` that a Windows host refuses to instantiate — the
+    test would fail for a reason that has nothing to do with this function.
+    """
+    if os.name == "nt" if windows is None else windows:
+        home = Path.home() / "AppData" / "Local" / _APP_DIR_NAME
+        base = _absolute_env_path("LOCALAPPDATA")
+        return _outside_the_repo(base / _APP_DIR_NAME, home) if base else home
+    home = Path.home() / ".local" / "share" / _APP_DIR_NAME
+    base = _absolute_env_path("XDG_DATA_HOME")
+    return _outside_the_repo(base / _APP_DIR_NAME, home) if base else home
+
+
+def _outside_the_repo(candidate: Path, fallback: Path) -> Path:
+    """`candidate`, unless it lands inside this checkout — then `fallback`.
+
+    The platform variables are NOT put through `admit_root` (codex review,
+    round 3 asked for it; this is the scope call). `admit_root` creates the
+    directory and proves writability by writing to it, and this runs at IMPORT
+    time — so a machine whose `%LOCALAPPDATA%` is momentarily unwritable could
+    not even import the module, and merely importing it would start creating
+    directories. That is a worse failure than the one being guarded against,
+    and the guard's real subject is narrower anyway: an operator who has
+    repointed `LOCALAPPDATA` at the repository controls far more of this
+    process than one registry file.
+
+    What IS worth enforcing here is the invariant this task exists for, and it
+    costs one pure comparison: the registries never land inside the checkout.
+    The remaining deny-list (system directories, the bare home) still applies
+    to every path an operator actually supplies — both override channels go
+    through `admit_root` in `main()`.
+    """
+    try:
+        resolved = candidate.resolve()
+    except OSError:
+        return fallback
+    repo = REPO_ROOT.resolve()
+    return fallback if resolved == repo or repo in resolved.parents else candidate
+
+
+def resolve_app_data_dir(override: str | None = None) -> Path:
+    """Where application-level data lives: argument, else env, else default.
+
+    Deliberately NOT resolved here: this runs at import time, and `resolve()`
+    on a path that does not exist yet is a filesystem call for no benefit. The
+    admission check in `main()` resolves and judges an operator-supplied one.
+    """
+    raw = override if override else os.environ.get("MOTV_APP_DATA_DIR")
+    if raw:
+        return Path(raw).expanduser()
+    return _default_app_data_dir()
+
+
+APP_DATA_DIR = resolve_app_data_dir()
+
+
+def use_app_data_dir(path) -> Path:
+    """Point the process at `path` for application-level data.
+
+    The ONE writer of `APP_DATA_DIR`, so the derived paths (`_registry_path`,
+    `_runs_path`) cannot go stale — they are functions of this value, computed
+    on each call rather than captured at import.
+    """
+    global APP_DATA_DIR
+    APP_DATA_DIR = Path(path)
+    return APP_DATA_DIR
+
+
+def _app_data_path(name: str) -> Path:
+    """Where application-level file `name` is WRITTEN. Always the new location."""
+    return APP_DATA_DIR / name
+
+
+def _app_data_read_path(name: str) -> Path:
+    """Where it is READ from: the new location, else the legacy one.
+
+    When neither exists this returns the NEW path, so a caller reporting "not
+    found" names the place the file will actually be created rather than the
+    location this task is retiring.
+    """
+    live = APP_DATA_DIR / name
+    if live.exists():
+        return live
+    legacy = DATA_DIR / name
+    return legacy if legacy.exists() else live
+
+
+def migrate_app_data(*, legacy_dir: Path | None = None, app_dir: Path | None = None):
+    """Copy the legacy application data into the app data dir. COPY, never move.
+
+    Explicit and one-time, like `/api/projects/migrate-legacy` (ADR-0053): the
+    legacy file is left exactly where it is, and a destination that already
+    exists is never overwritten — re-running this is a no-op, not a rollback of
+    whatever the new location has learned since.
+
+    Returns ``{"target", "copied", "skipped", "missing"}`` for the banner and
+    for tests; it never raises for a per-file failure, because a backend must
+    still come up when one of two registries could not be copied.
+    """
+    src_dir = DATA_DIR if legacy_dir is None else Path(legacy_dir)
+    dst_dir = APP_DATA_DIR if app_dir is None else Path(app_dir)
+    report = {
+        "target": str(dst_dir),
+        "copied": [],
+        "skipped": [],
+        "missing": [],
+    }
+    # NOT SWEPT: a killed run can leave a `*.migrating` temp file here, and the
+    # obvious tidy-up — glob the pattern and unlink the matches — was tried and
+    # removed (codex review, round 3). It deletes by NAME PATTERN in a
+    # directory this function does not own, so it would take a creator's own
+    # file that happens to end in `.migrating`, and it would delete a
+    # CONCURRENT migration's in-flight temp file out from under it. Deleting
+    # someone else's bytes to clean up rare, inert debris is the wrong trade
+    # (AGENTS.md §13). The debris is a temp file with a plain name; the
+    # `finally` below removes it on every path except a hard kill.
+    for name in _APP_DATA_FILES:
+        src = src_dir / name
+        dst = dst_dir / name
+        if not src.is_file():
+            report["missing"].append(name)
+            continue
+        try:
+            dst_dir.mkdir(parents=True, exist_ok=True)
+            # FILL FIRST, THEN CLAIM THE NAME — and let the claim itself be the
+            # exclusivity check. `os.link` is the primitive that does both at
+            # once: it refuses when the destination exists, and when it
+            # succeeds the destination already HAS the full content. Same
+            # directory, therefore same volume, so it works on NTFS and POSIX
+            # alike (ADR-0049).
+            #
+            # The two shapes it replaces both lost data (codex review rounds
+            # 1 and 2):
+            #
+            # * `dst.exists()` then `os.replace` is check-then-act — `replace`
+            #   overwrites unconditionally, so a registry that appeared in the
+            #   window (a second migration, a backend already writing) was
+            #   replaced by the OLDER legacy copy.
+            # * Claiming the name first with `O_CREAT|O_EXCL` and filling it
+            #   afterwards fixed that race but opened a worse one: a crash in
+            #   between leaves an EMPTY `projects.json`, and an empty
+            #   destination both suppresses the legacy read-only fallback and
+            #   makes every later migration report "already_present" — the
+            #   project list would be gone with nothing reporting a failure.
+            #
+            # A crash before the link leaves only a `.migrating` temp file:
+            # inert, named, and swept the next time this runs.
+            fd, tmpname = tempfile.mkstemp(dir=str(dst_dir), suffix=".migrating")
+            try:
+                with os.fdopen(fd, "wb") as fh:
+                    fh.write(src.read_bytes())
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                try:
+                    os.link(tmpname, dst)
+                except FileExistsError:
+                    report["skipped"].append(
+                        {"name": name, "reason": "already_present"}
+                    )
+                    continue
+            finally:
+                # The temp name is always removed: on success the destination
+                # is a second link to the same bytes, so dropping this one
+                # keeps nothing from the migrated file.
+                with contextlib.suppress(OSError):
+                    os.unlink(tmpname)
+        except OSError as exc:
+            # Includes a filesystem that cannot make hard links. Reporting it
+            # is the right outcome: migration is explicit and one-time, and a
+            # silent fall back to an overwriting copy is exactly the data loss
+            # this function was rewritten to remove.
+            report["skipped"].append({"name": name, "reason": f"error: {exc}"})
+            continue
+        report["copied"].append(name)
+    return report
+
+
 # A project name becomes a directory segment under the chosen root, so the same
 # rule the studio applies client-side is enforced here as well — the page is
 # never trusted. Windows refuses the reserved device names in any case, with or
@@ -110,7 +342,13 @@ _REGISTRY_LOCK = threading.Lock()
 
 
 def _registry_path() -> Path:
-    return DATA_DIR / "projects.json"
+    """Where the registry is WRITTEN (TASK-056: the app data dir, never the repo)."""
+    return _app_data_path("projects.json")
+
+
+def _registry_read_path() -> Path:
+    """Where it is READ: the app data dir, falling back to the legacy scratch."""
+    return _app_data_read_path("projects.json")
 
 
 def _empty_registry() -> dict:
@@ -120,7 +358,7 @@ def _empty_registry() -> dict:
 def _load_project_registry() -> dict:
     """{"version":1,"projects":[{name,root,created_at}],"confirmedRoots":[...]}"""
     try:
-        raw = json.loads(_registry_path().read_text(encoding="utf-8"))
+        raw = json.loads(_registry_read_path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return _empty_registry()
     if not isinstance(raw, dict):
@@ -145,12 +383,16 @@ def _load_registry_projects() -> list[dict]:
 
 
 def _save_project_registry(reg: dict) -> bool:
-    DATA_DIR.mkdir(exist_ok=True)
-    fd, tmpname = tempfile.mkstemp(dir=str(DATA_DIR), suffix=".tmp")
+    target = _registry_path()
+    # `parents=True`: the app data dir is several levels deep under
+    # %LOCALAPPDATA% / $XDG_DATA_HOME and, unlike the old in-repo `data/`, is
+    # not guaranteed to have been created by anything else first.
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmpname = tempfile.mkstemp(dir=str(target.parent), suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(json.dumps(reg, ensure_ascii=False, indent=2))
-        os.replace(tmpname, _registry_path())  # atomic
+        os.replace(tmpname, target)  # atomic
         return True
     except OSError:
         try:
@@ -1514,11 +1756,27 @@ def _probe_executor(name: str) -> dict:
 # the only thing it must not know — how to actually start and kill a process.
 #
 # WHERE IT LIVES (contract §5.5): beside `projects.json`, because it is the same
-# CLASS of thing — account-level, cross-project, not source. It moves to the app
-# data directory together with `projects.json` under TASK-056; it deliberately
-# does NOT go into a project folder, because the restart sweep has to finish
-# before any project is opened, and because project-less legacy runs exist.
-_RUNS_PATH = DATA_DIR / "runs.json"
+# CLASS of thing — account-level, cross-project, not source. Both moved to the
+# app data directory under TASK-056; it deliberately does NOT go into a project
+# folder, because the restart sweep has to finish before any project is opened,
+# and because project-less legacy runs exist.
+#
+# A FUNCTION rather than the module constant this used to be: the location is
+# derived from `APP_DATA_DIR`, which `main()` may still replace from the command
+# line after import. A second copy of the answer would go stale exactly there,
+# and the failure — a backend serving from one journal while the operator reads
+# another — is silent.
+
+
+def _runs_path() -> Path:
+    """Where the run journal is WRITTEN."""
+    return _app_data_path("runs.json")
+
+
+def _runs_read_path() -> Path:
+    """Where it is READ: the app data dir, falling back to the legacy scratch."""
+    return _app_data_read_path("runs.json")
+
 
 #: Which capability each legacy `/api/agent/*` creative endpoint IS. A STABLE
 #: MACHINE KEY (contract §5.3) — deliberately not the user-facing task name,
@@ -1544,9 +1802,10 @@ _AGENT_SKILL_IDS = {
     "bible-breakdown": "script-breakdown",
 }
 
-#: Where Skill packages come from (ADR-0067 决策 2). The user source sits beside
-#: `runs.json` / `projects.json` because it is the same class of thing:
-#: account-level, cross-project, not source (TASK-056 / contract §5.5).
+#: Where Skill packages come from (ADR-0067 决策 2). Same CLASS as `runs.json` /
+#: `projects.json` — account-level, cross-project, not source (contract §5.5) —
+#: but deliberately NOT moved by TASK-056, whose scope is the two registries.
+#: Recorded as TASK-087 §6.4 so the divergence is an entry, not a surprise.
 _USER_SKILLS_DIR = DATA_DIR / "skills"
 _BUILTIN_SKILLS_DIR = REPO_ROOT / "product-skills" / "builtin"
 _SKILL_INPUTS_PATH = REPO_ROOT / "product-skills" / "skill-inputs.json"
@@ -1674,7 +1933,7 @@ def _reconcile_skill_runs(payload: dict, project: str | None = None) -> None:
     store = None
     if _RUNS is not None:
         store = _RUNS
-    elif _RUNS_PATH.exists():
+    elif _runs_read_path().exists():
         # A journal exists but nothing has touched the registry yet. Initialising
         # it HERE is what runs the restart sweep; returning early let the first
         # canvas save after a restart write stale lifecycle state back and skip
@@ -1933,7 +2192,12 @@ def runs() -> runstore.RunStore:
                 # (codex review, round 8).
                 _windows_job()
                 _RUNS = runstore.RunStore(
-                    _RUNS_PATH,
+                    _runs_path(),
+                    # READ-ONLY fallback, TASK-056: an install whose journal is
+                    # still in the repo scratch boots from it and then writes
+                    # only to the new location. The legacy file is never
+                    # written, renamed or removed.
+                    legacy_path=DATA_DIR / "runs.json",
                     max_concurrent=_SKILL_RUN_MAX_CONCURRENT,
                     runner=_execute_run,
                     terminator=_terminate_run,
@@ -8296,7 +8560,63 @@ def main(argv=None):
         help="locked provider catalog dir for paid mode "
         "(default: <account-root>/catalog)",
     )
+    ap.add_argument(
+        "--app-data-dir",
+        default=None,
+        help="where the account-level registries (projects.json, runs.json) "
+        "live. Overrides MOTV_APP_DATA_DIR. Default: %%LOCALAPPDATA%%\\motv on "
+        "Windows, $XDG_DATA_HOME/motv (else ~/.local/share/motv) on POSIX.",
+    )
+    ap.add_argument(
+        "--migrate-app-data",
+        action="store_true",
+        help="copy projects.json / runs.json from the old in-repo location into "
+        "the app data dir before serving (TASK-056). COPIES: the old files are "
+        "left untouched, and an existing destination is never overwritten.",
+    )
     args = ap.parse_args(argv)
+
+    # BEFORE anything reads a registry. `build_server` discovers projects, which
+    # reads `projects.json`, so choosing the directory afterwards would serve one
+    # location and write another.
+    #
+    # BOTH override channels are admitted, not just the flag (codex review,
+    # round 1). They are the same act — an operator relocating the account's
+    # registries — and the environment one is if anything the easier to get
+    # wrong: a RELATIVE `MOTV_APP_DATA_DIR` would resolve against whatever the
+    # working directory happened to be, and one pointing inside the checkout
+    # would quietly undo this whole task. Only the built-in platform default
+    # skips admission: it is ours, not input.
+    override = args.app_data_dir or os.environ.get("MOTV_APP_DATA_DIR")
+    if override:
+        # An operator typed this, so it is confirmed by construction — but it is
+        # still a path we are about to write the account's registries into, so it
+        # goes through the SAME admission policy as an asset root (ADR-0051):
+        # deny-list, post-realpath judgement, real writability probe. `repo_root`
+        # matters most here: it refuses the very location this task retires.
+        source = "--app-data-dir" if args.app_data_dir else "MOTV_APP_DATA_DIR"
+        try:
+            admitted = admit_root(
+                override,
+                repo_root=REPO_ROOT,
+                confirm=True,
+                create=True,
+            )
+        except RootRejected as exc:
+            ap.error(f"{source} rejected ({exc.code}): {exc.detail}")
+        use_app_data_dir(admitted.resolved)
+    else:
+        use_app_data_dir(resolve_app_data_dir())
+
+    if args.migrate_app_data:
+        report = migrate_app_data()
+        _banner(f"  app-data migration → {report['target']}")
+        for name in report["copied"]:
+            _banner(f"    copied: {name}")
+        for item in report["skipped"]:
+            _banner(f"    skipped {item['name']}: {item['reason']}")
+        for name in report["missing"]:
+            _banner(f"    nothing to copy: {name}")
 
     # Loopback-only by design: this backend serves real project data and accepts
     # canvas writes with only a same-origin (not authenticated) guard, so it must
@@ -8346,6 +8666,7 @@ def main(argv=None):
     _banner(f"motv mockup backend → http://{args.host}:{args.port}/")
     _banner(f"  mode: {mode}")
     _banner(f"  account-root: {account_root}")
+    _banner(f"  app-data: {APP_DATA_DIR}")
     if app.connected:
         _banner(
             f"  projects: {', '.join(sorted(app._projects)) or '(none discovered)'}"

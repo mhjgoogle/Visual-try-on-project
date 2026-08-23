@@ -989,7 +989,7 @@ record and no stable-bearing phase bypassing S1. These are
 implementation refinements consistent with the approved r6 contract
 (§13.2 S1, §14 recovery matrix, §17.2 admission); the authoritative
 summary and the 6-blocker + 3-important mapping are in
-[remaining-roadmap-design-report](../../design/active/remaining-roadmap-design-report.md)
+[remaining-roadmap-design-report](../../design/done/remaining-roadmap-design-report.md)
 §11. §22 entries 62/63/87/116 were strengthened accordingly. Files:
 `orchestration/executor.py`, `orchestration/orchestrator.py`,
 `tests/test_orchestrator.py`.

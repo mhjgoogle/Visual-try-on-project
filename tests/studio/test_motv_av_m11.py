@@ -57,6 +57,7 @@ def data_dir(server_module, tmp_path: Path, monkeypatch) -> Path:
     d = tmp_path / "mockdata"
     d.mkdir()
     monkeypatch.setattr(server_module, "DATA_DIR", d)
+    monkeypatch.setattr(server_module, "APP_DATA_DIR", tmp_path / "app-data")
     account = tmp_path / "account"
     account.mkdir()
     return account

@@ -102,13 +102,13 @@ Gateway 是唯一合规写路径。注册表是**按前端分别构造的**，�
 
 | Capability | 路由 | 实现 | 花费 | Persistence | User Accessible |
 | --- | --- | --- | --- | --- | --- |
-| 创建项目 / 选目录 | `POST /api/projects`、`GET /api/fs/*` | 自有 + rootadmit | 免费 | `data/projects.json` + 项目目录 | ✅ |
+| 创建项目 / 选目录 | `POST /api/projects`、`GET /api/fs/*` | 自有 + rootadmit | 免费 | `<应用数据目录>/projects.json` + 项目目录 | ✅ |
 | 迁移 legacy 项目 | `POST /api/projects/migrate-legacy` | 自有 | 免费 | 项目目录 | ✅ |
 | 画布读写（**全部创作数据**） | `GET/PUT /api/canvas/<项目>` | 自有 | 免费 | `studio/canvas.json` | ✅ |
 | 上传/读取媒体 | `PUT/GET /api/uploads/<项目>/<slug>` | 自有，magic 字节校验，版本追加 | 免费 | `media/` | ✅ |
 | 删除媒体文件 | `POST /api/assets/delete-file` | 自有 | 免费 | `media/` | ✅ |
 | Skill 目录 | `GET /api/skills` | `skillpkg`（ADR-0067） | 免费 | `product-skills/` 三级来源 | ✅ 21 个 Skill |
-| Skill 运行（同步/异步） | `POST /api/skill/run`、`/api/runs/*` | `runstore` + `claude -p` | 订阅制，**不计费** | `data/runs.json` | ✅ |
+| Skill 运行（同步/异步） | `POST /api/skill/run`、`/api/runs/*` | `runstore` + `claude -p` | 订阅制，**不计费** | `<应用数据目录>/runs.json` | ✅ |
 | 运行时探测 | `GET /api/runtimes` | `shutil.which` + `--version` | 免费 | 缓存 30s | ✅（claude-code installed / codex 主动停用） |
 | 剧本草稿 / 故事发展 / 分集规划 / 分镜草稿 / 剧本拆解 | `POST /api/agent/*` | `claude -p`，fail-closed，**服务端零写入** | 订阅制 | 无（提案回前端） | ✅ |
 | 本地 TTS | `POST /api/agent/tts` | Piper | 免费离线 | `media/` | 🟡 需装 piper + 模型 |

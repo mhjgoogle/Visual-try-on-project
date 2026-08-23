@@ -2,7 +2,7 @@
 
 - 状态：**已完成**（2026-08-16，批次 A + B 均已提交）
 - 负责 Agent：单一实施 Agent（AGENTS.md 第 14 条）
-- 依据：[UI Gap Audit](../../src/ui-gap-audit/)，
+- 依据：[UI Gap Audit](../../../src/ui-gap-audit/)，
   [ui-correction-plan.md](../../../src/ui-gap-audit/reports/ui-correction-plan.md) Phase 1
 - **前置：TASK-078 已完成并提交**（本卡要审阅的东西，得先做得出来）
 - 实施基线：TASK-078 的收口 commit

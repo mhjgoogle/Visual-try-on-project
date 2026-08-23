@@ -4,7 +4,7 @@
   —— 架构 + 版本语义，属技术范畴；**不涉及付费口径**，**不不可逆动用户数据**
   （应用预设写的是镜头上一个既有的可编辑字段，可以直接改回去）。
 - 依据：[UI Gap Audit](../../src/ui-gap-audit/) GAP-16 ·
-  [TASK-083](../tasks/active/TASK-083-phase3-adrs-first.md) §2 ADR-B ·
+  [TASK-083](../tasks/done/TASK-083-phase3-adrs-first.md) §2 ADR-B ·
   [TASK-093](../tasks/done/TASK-093-one-canvas-per-shot.md) §2.4
 - 实施：[TASK-097](../tasks/done/TASK-097-episode-production-chain.md) 批次 3
 

@@ -42,6 +42,7 @@ def server_module():
 @pytest.fixture()
 def app(server_module, tmp_path: Path, monkeypatch):
     monkeypatch.setattr(server_module, "DATA_DIR", tmp_path / "mockdata")
+    monkeypatch.setattr(server_module, "APP_DATA_DIR", tmp_path / "app-data")
     account = tmp_path / "account"
     media = account / "proj" / "media"
     media.mkdir(parents=True)

@@ -13,7 +13,7 @@
 - 剩余任务的规划与设计一次性完成，经**一次整体 Codex 架构审查**
   后连续实施，不再逐 Step 等待外部审查；
 - 实施后的独立审查合并到 **milestone 回归门槛**（见
-  [remaining-roadmap-design-report](design/active/remaining-roadmap-design-report.md)）；
+  [remaining-roadmap-design-report](design/done/remaining-roadmap-design-report.md)）；
 - 实施者/审查者分离原则（AGENTS.md 14/15）不变，只改变审查粒度。
 
 ## 阶段 → 任务映射（当前）
@@ -183,7 +183,7 @@ WFM2 在 WFM1 gate 之后补齐两份顶层需求仍缺少的完整创意、多�
 | [ADR-0051](adr/ADR-0051-per-project-asset-root-and-runtime-selection.md) | **Accepted**（决策 1–5 全部保留，无决策被取代）；仅呈现位置归 ⚙ 项目设置 · 项目 |
 | [TASK-053](tasks/done/TASK-053-choose-project-location.md) | **已验收并收口**；呈现位置迁移交 TASK-073 §1.7 |
 | [ADR-0053](adr/ADR-0053-project-rooted-studio-storage.md) | **Accepted**（决策 1–5 全部保留，无决策被取代）；仅呈现位置归 ⚙ 项目设置 · 存储与诊断 |
-| [TASK-055](tasks/done/TASK-055-project-rooted-storage.md) | **已验收并收口**；§4 三项已知剩余项按原裁定继续归属（① 暂不修 / ② → [TASK-056](tasks/active/TASK-056-app-storage-location.md) / ③ 低优先级），**不影响 ADR 验收** |
+| [TASK-055](tasks/done/TASK-055-project-rooted-storage.md) | **已验收并收口**；§4 三项已知剩余项按原裁定继续归属（① 暂不修 / ② → [TASK-056](tasks/done/TASK-056-app-storage-location.md) / ③ 低优先级），**不影响 ADR 验收** |
 
 #### 状态漂移扫描（2026-08-13 实测）
 
