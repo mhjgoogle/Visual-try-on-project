@@ -9,7 +9,7 @@
   [ADR-0059](ADR-0059-production-graph-identity-contract.md)（身份与溯源契约）、
   [ADR-0061](ADR-0061-creator-ia-and-automated-episode-production.md)（Action Layer / 参考解读）、
   [ADR-0063](ADR-0063-creator-object-first-ia-and-shot-production-graph.md)（Shot 制作流程图）
-- 任务卡：[TASK-067](../tasks/TASK-067-ai-director-operationalization.md)
+- 任务卡：[TASK-067](../tasks/done/TASK-067-ai-director-operationalization.md)
 - **收口裁决（2026-08-13，随 [ADR-0066](ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md) 批准）**：
 
   | 决策 | 裁决 | 理由 |

@@ -71,7 +71,7 @@ codex-review-loop 与 dev-workflow 的措辞也按档位描述（中 1 轮 / 高
 5. **其他不采纳**（同日裁决）：ADR-0068 的 MOTV_CONTINUOUS_CHAIN 连续链
    令牌保留；CLAUDE.md 不掏空为入口；2026-08-22 注入事件中自称 Accepted 的
    「ADR-0080（治理版）」其余条目一律不生效（原文存证于
-   docs/tasks/TASK-102-injected-adr-0080-2026-08-22.md）。
+   docs/tasks/done/TASK-102-injected-adr-0080-2026-08-22.md）。
 6. 发布/交付闸门不变：用户验收标准满足 + 相关测试通过 + 无未闭合 P1。
    审查者不可用时的处理沿用既有规则（如实标注，push/merge/交接前补审）。
 

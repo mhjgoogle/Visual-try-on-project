@@ -19,10 +19,10 @@
             ".claude/skills/auto-push/references/merge-and-conflicts.md",
             ".claude/skills/auto-push/scripts/autopush.py",
             "docs/auto-push/changes/autopush-v011.json",
-            "docs/design/pending-codex-rereview.md",
+            "docs/design/active/pending-codex-rereview.md",
             "docs/skill-evolution/backlogs/auto-push.jsonl",
             "docs/skill-evolution/index.json",
-            "docs/tasks/TASK-101-auto-push-skill.md",
+            "docs/tasks/done/TASK-101-auto-push-skill.md",
             "tests/tooling/test_auto_push_tooling.py"
           ],
           "scope_violation": null
@@ -51,7 +51,7 @@
           "pushed": false,
           "files": [
             ".claude/skills/auto-push/scripts/autopush.py",
-            "docs/design/pending-codex-rereview.md",
+            "docs/design/active/pending-codex-rereview.md",
             "tests/tooling/test_auto_push_tooling.py"
           ],
           "scope_violation": null
@@ -59,9 +59,9 @@
       ],
       "paths": [
         ".claude/skills/auto-push/",
-        "docs/design/pending-codex-rereview.md",
+        "docs/design/active/pending-codex-rereview.md",
         "docs/skill-evolution/",
-        "docs/tasks/TASK-101-auto-push-skill.md",
+        "docs/tasks/done/TASK-101-auto-push-skill.md",
         "tests/tooling/test_auto_push_tooling.py"
       ],
       "verification": "PASS",

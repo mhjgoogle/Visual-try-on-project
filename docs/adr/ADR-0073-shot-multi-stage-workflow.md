@@ -4,10 +4,10 @@
   —— 本 ADR 是**架构 + schema + 跨层合同**，属技术范畴；它**不涉及付费口径**，
   也**不不可逆动用户数据**（唯一的新增持久状态是加法字段，旧存档一个字节不改）。
 - 依据：产品负责人 2026-08-17 的原话（逐字见
-  [TASK-092 §0](../tasks/TASK-092-shot-workflow-multi-stage.md)）
-- 实施：[TASK-097](../tasks/TASK-097-episode-production-chain.md) 批次 1
-- 相关：[ADR-0057](ADR-0057-shot-production-state.md)（批准绑在产物上、其余派生）、
-  [ADR-0061](ADR-0061-three-spaces-and-reference-roles.md) 决策 4、
+  [TASK-092 §0](../tasks/done/TASK-092-shot-workflow-multi-stage.md)）
+- 实施：[TASK-097](../tasks/done/TASK-097-episode-production-chain.md) 批次 1
+- 相关：[ADR-0057](ADR-0057-shot-production-state-and-dailies.md)（批准绑在产物上、其余派生）、
+  [ADR-0061](ADR-0061-creator-ia-and-automated-episode-production.md) 决策 4、
   [ADR-0072](ADR-0072-episode-identity-across-plan-revisions.md) 决策 4（软归档的形状）
 
 ---

@@ -109,7 +109,7 @@ Creation Workspace 是核心工作流之上的表现/控制层，不直接调用
 [creation_workspace_data_observability_requirements.md](creation_workspace_data_observability_requirements.md)。
 WFM1 数据基线实现路线已由
 [ADR-0030](adr/ADR-0030-creation-workspace-delivery-governance.md) 与
-[creation-workspace-implementation-roadmap.md](design/creation-workspace-implementation-roadmap.md)
+[creation-workspace-implementation-roadmap.md](design/active/creation-workspace-implementation-roadmap.md)
 规划为 TASK-024～033。它不计入 WFM1/TASK-023 的界面功能验收；TASK-023 只验证
 核心 data readiness，TASK-033 只验收 Workspace-on-WFM1 数据基线。完整多媒体
 Workspace 由 TASK-039 扩展，两份顶层需求最终由 TASK-040 联合验收。UI、数据库、

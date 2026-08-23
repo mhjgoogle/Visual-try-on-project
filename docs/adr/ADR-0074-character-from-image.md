@@ -4,10 +4,10 @@
   —— 架构 + 写路径 + 身份，属技术范畴；**不涉及付费口径**，
   **不不可逆动用户数据**（新建一个角色是加法；它的参考图是引用而非复制）。
 - 依据：[UI Gap Audit](../../src/ui-gap-audit/) GAP-17 ·
-  [TASK-083](../tasks/TASK-083-phase3-adrs-first.md) §3 ADR-C ·
-  [TASK-093](../tasks/TASK-093-one-canvas-per-shot.md) §2.4
-- 实施：[TASK-097](../tasks/TASK-097-episode-production-chain.md) 批次 3
-- 相关：[ADR-0055](ADR-0055-asset-registry.md)（引用不复制）、
+  [TASK-083](../tasks/active/TASK-083-phase3-adrs-first.md) §3 ADR-C ·
+  [TASK-093](../tasks/done/TASK-093-one-canvas-per-shot.md) §2.4
+- 实施：[TASK-097](../tasks/done/TASK-097-episode-production-chain.md) 批次 3
+- 相关：[ADR-0055](ADR-0055-unified-asset-registration.md)（引用不复制）、
   ADR-0057（批准绑在产物上）、TASK-090 的 M8 提案卡纪律（**不得臆造档案内容**）
 
 ---

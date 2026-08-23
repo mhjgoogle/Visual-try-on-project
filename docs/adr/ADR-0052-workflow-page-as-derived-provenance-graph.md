@@ -3,7 +3,7 @@
 - Status: **Accepted（决策 1/2/3/5/6/7）；决策 4 被 ADR-0066 取代**
   —— 2026-08-13 由产品负责人收口（TASK-054 早已交付，本 ADR 此前一直滞留在 Proposed）
 - Date: 2026-08-11（Accepted：2026-08-13）
-- Scope tasks: [TASK-054](../tasks/TASK-054-workflow-provenance-graph.md)（已验收并收口）
+- Scope tasks: [TASK-054](../tasks/done/TASK-054-workflow-provenance-graph.md)（已验收并收口）
 - 实施基线：`ae0a54a`
 - 关联：ADR-0007（WFM1 文档基线）、M3 资产登记、M5 生成登记、M10 Prompt 编译器、
   M11 时间线与渲染、[ADR-0049](ADR-0049-native-windows-run-and-test-target.md)
@@ -30,8 +30,8 @@
   作为**诊断**而非执行面。
 - **溯源读模型本身完整保留**（`workflow/provenance.js` 及决策 1/5/6/7 的全部规则），
   迁移为两处呈现：**具体结果旁的「生成记录」** 与**项目设置 · 存储与诊断下的诊断视图**。
-  页面归属的迁移由 [TASK-073](../tasks/TASK-073-fixed-ia-and-contextual-agent.md) §1.5
-  与 [TASK-074](../tasks/TASK-074-delivery-migration-and-legacy-retirement.md) §1.5 承接
+  页面归属的迁移由 [TASK-073](../tasks/active/TASK-073-fixed-ia-and-contextual-agent.md) §1.5
+  与 [TASK-074](../tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md) §1.5 承接
   （`ui/wfgraph.js` / `workflow/provenance.js` **保留，不删**）。
 
 「溯源图是派生的、不是第二套流程模型」这一条**从未被撤销**，它现在是 ADR-0066

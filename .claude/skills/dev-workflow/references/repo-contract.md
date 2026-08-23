@@ -23,7 +23,7 @@ Contract 约束的是「必须能回答」，**不强制统一目录结构**。
 | 怎么运行 | `README.md`（Windows 权威 + Ubuntu 目标）；`scripts/launch/studio.ps1` / `scripts/launch/studio.sh`；Studio 见 `mockups/motv-workspace/` |
 | 有效事实 | `docs/product_spec.md`、`docs/architecture.md`、两份顶层需求文档、`docs/design/creator-system-contract.md`（Studio 范围唯一权威，与信息架构文档并列） |
 | Requirement | **新需求**：`docs/requirements/REQ-*.md`（索引 `docs/requirements/index.md`；见 records.md）。**存量需求**：上一行的基线文档 + 任务卡「依据：产品负责人 YYYY-MM-DD」行 —— 不回填，不迁移 |
-| Change | `docs/tasks/TASK-*.md`（STANDARD/DEEP）；QUICK 深度 = 提交信息即记录。欠账在 `docs/tasks/TASK-087-followup-ledger.md` |
+| Change | `docs/tasks/active/TASK-*.md`（在办）、`docs/tasks/done/`（已完成）——**目录即状态**（ADR-0083）；QUICK 深度 = 提交信息即记录。欠账在 `docs/tasks/active/TASK-087-followup-ledger.md`。总览 `docs/STATUS.md`（生成的，改完跑 `python .claude/tools/gen_docs_status.py`） |
 | 架构边界 | `docs/architecture.md`、`docs/adr/`（决策）、`docs/design/creator-product-information-architecture.md`（页面集合封闭）、`docs/design/workflow-stage-step-io-contract.md`（L0–S7 输入输出） |
 | 历史处理 | REQ 文件内追加版本（v2 supersedes v1，不篡改 v1）；任务卡改状态不删卡；ADR 用新 ADR 取代旧 ADR；follow-up 总账闭合时划掉不删行 |
 | 测试 | `python -m pytest -n 8 -m "not serial"` + `python -m pytest -m serial`（全量两阶段）；前端 `node --test mockups/motv-workspace/tests/*.test.mjs`；分域独立运行：`pytest tests/backend` / `tests/studio` / `tests/contract` / `tests/e2e` / `tests/tooling`；归属规则 = AGENTS.md §20 + ADR-0080；本地 gate = `.claude/hooks/`（ADR-0080/0070） |

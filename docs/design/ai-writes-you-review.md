@@ -1,9 +1,9 @@
 # 「AI 写好、你审、你也能让 AI 再改」——这条链的共同机制
 
-- 依据：[TASK-094](../tasks/TASK-094-story-development-chain.md) §1（批次 0）
-- 适用范围：故事开发三段（[TASK-088](../tasks/TASK-088-episode-plan-as-an-ai-written-table.md) /
-  [TASK-089](../tasks/TASK-089-story-outline-eight-items.md) /
-  [TASK-090](../tasks/TASK-090-bible-is-derived-and-comes-last.md)），以及后续任何
+- 依据：[TASK-094](../tasks/done/TASK-094-story-development-chain.md) §1（批次 0）
+- 适用范围：故事开发三段（[TASK-088](../tasks/done/TASK-088-episode-plan-as-an-ai-written-table.md) /
+  [TASK-089](../tasks/done/TASK-089-story-outline-eight-items.md) /
+  [TASK-090](../tasks/done/TASK-090-bible-is-derived-and-comes-last.md)），以及后续任何
   「表单变审阅面」的改动
 - 状态：**批次 0 已落地**（机制存在且被 `script-draft` 用新写法重新表达了一遍）
 

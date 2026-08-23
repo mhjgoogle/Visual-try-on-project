@@ -593,19 +593,19 @@ Provider 是可选升级，不是 WFM3 最小通过条件。
 厂商中立付费链；其余工作包已形成以下任务卡，Draft 卡须经 batch design
 baseline 批准后才能实施：
 
-- [TASK-017](tasks/TASK-017-minimax-real-api-and-smoke.md)：首个真实云 Provider
+- [TASK-017](tasks/done/TASK-017-minimax-real-api-and-smoke.md)：首个真实云 Provider
   与不重复提交的媒体恢复；
-- [TASK-018](tasks/TASK-018-wfm1-project-and-reusable-assets.md)：项目实例与
+- [TASK-018](tasks/done/TASK-018-wfm1-project-and-reusable-assets.md)：项目实例与
   复用资产引用边界；
-- [TASK-019](tasks/TASK-019-wfm1-stage-approval-and-change-control.md)：阶段状态、
+- [TASK-019](tasks/done/TASK-019-wfm1-stage-approval-and-change-control.md)：阶段状态、
   审批门和变更失效；
-- [TASK-020](tasks/TASK-020-wfm1-production-planning-and-task-packets.md)：L0-S3
+- [TASK-020](tasks/done/TASK-020-wfm1-production-planning-and-task-packets.md)：L0-S3
   生产规划、镜头任务包和预算预览；
-- [TASK-021](tasks/TASK-021-wfm1-paid-lifecycle-and-qcd-integration.md)：默认云
+- [TASK-021](tasks/done/TASK-021-wfm1-paid-lifecycle-and-qcd-integration.md)：默认云
   生成接回 M1 生命周期及 QCD 报表；
-- [TASK-022](tasks/TASK-022-wfm1-qc-release-and-archive.md)：S4-S7 最小质检、
+- [TASK-022](tasks/done/TASK-022-wfm1-qc-release-and-archive.md)：S4-S7 最小质检、
   发布包和归档；
-- [TASK-023](tasks/TASK-023-wfm1-end-to-end-acceptance.md)：WFM1 端到端验收。
+- [TASK-023](tasks/done/TASK-023-wfm1-end-to-end-acceptance.md)：WFM1 端到端验收。
 
 WFM1 之后的完整目标不复用旧编号：WFM2 为 TASK-008、TASK-034～037，WFM3 为
 TASK-012/038（TASK-011 可选），完整 Workspace 扩展与两份顶层需求最终验收为

@@ -5,7 +5,7 @@
 - 决策者：产品负责人（本条为其明确裁定）
 - 关联：[AGENTS.md](../../AGENTS.md) §1（决策判据）、§18（决策入库）、§20（发布闸门）·
   [ADR-0081](ADR-0081-review-by-impact-scope.md)（审查不阻塞交付，同一族）·
-  [TASK-087](../tasks/TASK-087-followup-ledger.md)（欠账总账）
+  [TASK-087](../tasks/active/TASK-087-followup-ledger.md)（欠账总账）
 
 ## 1. 背景（改之前的状态，不是本 ADR 的结论）
 

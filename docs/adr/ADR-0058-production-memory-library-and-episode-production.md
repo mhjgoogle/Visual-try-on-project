@@ -6,7 +6,7 @@
   [ADR-0054](ADR-0054-production-upstream-workspace.md)、
   [ADR-0055](ADR-0055-unified-asset-registration.md)、
   [ADR-0057](ADR-0057-shot-production-state-and-dailies.md)、
-  [TASK-061](../tasks/TASK-061-asset-library-and-episode-production-ui.md)
+  [TASK-061](../tasks/done/TASK-061-asset-library-and-episode-production-ui.md)
 
 ## 1. 背景
 

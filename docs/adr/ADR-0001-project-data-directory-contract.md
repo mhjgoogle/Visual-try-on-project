@@ -505,7 +505,7 @@ Rules:
 
 The TASK-006 composition ordering and the intent-based recovery matrix
 (rules A–F) are defined in
-[TASK-006](../tasks/TASK-006-ffmpeg-composition.md). TASK-005's
+[TASK-006](../tasks/done/TASK-006-ffmpeg-composition.md). TASK-005's
 validation recovery is source-SHA / input-digest based and does **not**
 depend on any composition intent.
 

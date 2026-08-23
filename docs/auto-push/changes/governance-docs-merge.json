@@ -23,7 +23,7 @@
             "AGENTS.md",
             "CLAUDE.md",
             "docs/project-context.md",
-            "docs/tasks/TASK-104-governance-docs-merge.md",
+            "docs/tasks/done/TASK-104-governance-docs-merge.md",
             "tests/studio/test_motv_shotstage_task092.py"
           ],
           "scope_violation": null
@@ -36,7 +36,7 @@
           "pushed": false,
           "files": [
             ".claude/hooks/commit_gate_policy.py",
-            "docs/tasks/TASK-104-governance-docs-merge.md",
+            "docs/tasks/done/TASK-104-governance-docs-merge.md",
             "tests/tooling/test_commit_gate_policy.py"
           ],
           "scope_violation": null
@@ -73,7 +73,7 @@
           "pushed": false,
           "files": [
             ".claude/hooks/commit_gate_policy.py",
-            "docs/tasks/TASK-104-governance-docs-merge.md",
+            "docs/tasks/done/TASK-104-governance-docs-merge.md",
             "tests/tooling/test_commit_gate_policy.py"
           ],
           "scope_violation": null
@@ -85,7 +85,7 @@
           "branch": "change/TASK-104-governance-docs-merge",
           "pushed": false,
           "files": [
-            "docs/tasks/TASK-104-governance-docs-merge.md"
+            "docs/tasks/done/TASK-104-governance-docs-merge.md"
           ],
           "scope_violation": null
         }
@@ -97,7 +97,7 @@
         "AGENTS.md",
         "CLAUDE.md",
         "docs/project-context.md",
-        "docs/tasks/TASK-104-governance-docs-merge.md",
+        "docs/tasks/done/TASK-104-governance-docs-merge.md",
         "tests/studio/test_motv_shotstage_task092.py",
         "tests/tooling/test_commit_gate_policy.py"
       ],

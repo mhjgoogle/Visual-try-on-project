@@ -47,7 +47,7 @@ Episode→Scene→Shot 真实模型 · 分镜锁定为正式版本（Gateway 两
 
 **全部纯前端 · 无后端改动 · 低/中风险 · 这一批做完就能给用户看**
 
-**✅ Phase 0 已交付** —— [TASK-077](../../../docs/tasks/TASK-077-honest-state-and-dead-surfaces.md)，
+**✅ Phase 0 已交付** —— [TASK-077](../../../docs/tasks/done/TASK-077-honest-state-and-dead-surfaces.md)，
 2026-08-16，在真实 Connected Project `照见未明rev2` 上验收，0 JS 异常。
 
 | # | 改动 | Gap | 风险档 | 状态 |

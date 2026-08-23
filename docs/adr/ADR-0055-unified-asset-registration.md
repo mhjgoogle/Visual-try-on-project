@@ -4,7 +4,7 @@
 - 日期：2026-08-11
 - 关联：[ADR-0053](ADR-0053-project-rooted-studio-storage.md)、
   [ADR-0054](ADR-0054-production-upstream-workspace.md)、
-  [TASK-058](../tasks/TASK-058-asset-registration-foundation.md)
+  [TASK-058](../tasks/done/TASK-058-asset-registration-foundation.md)
 
 ## 背景
 

@@ -7,7 +7,7 @@
   [ADR-0056](ADR-0056-local-ai-runtime-and-film-skills.md)、
   [ADR-0057](ADR-0057-shot-production-state-and-dailies.md)、
   [ADR-0058](ADR-0058-production-memory-library-and-episode-production.md)、
-  [TASK-062](../tasks/TASK-062-integration-production-graph.md)
+  [TASK-062](../tasks/done/TASK-062-integration-production-graph.md)
 
 ## 1. 背景
 

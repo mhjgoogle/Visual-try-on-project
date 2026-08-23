@@ -8,7 +8,7 @@
   [ADR-0058](ADR-0058-production-memory-library-and-episode-production.md)、
   [ADR-0059](ADR-0059-production-graph-identity-contract.md)、
   [ADR-0061](ADR-0061-creator-ia-and-automated-episode-production.md)、
-  [TASK-065](../tasks/TASK-065-creator-object-first-ia.md)
+  [TASK-065](../tasks/done/TASK-065-creator-object-first-ia.md)
 - **被 [ADR-0066](ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)
   部分撤销**：决策 4 / 决策 5（`EPISODE_DEFAULT = workbench`，当前 Shot 生产图作为
   剧集制作的中央）**被撤销** —— 剧集制作的默认落点改为「本集看板」，镜头生产改为

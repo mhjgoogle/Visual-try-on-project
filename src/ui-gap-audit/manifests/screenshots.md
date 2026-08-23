@@ -111,7 +111,7 @@ C-105 与所有剧集相关截图都按这个前提读。
 | C-109 | `07c-shot-production.png` | `episode/shotwork/prepare` | 第 ③；生成卡（TASK-078 批次 B） |
 | C-110 | `07d-cut-review.png` | `episode/cutreview/review` | 第 ④ —— **此前完全不可达**，现在是三列故事板（TASK-079） |
 | C-111 | `07e-post-delivery.png` | `episode/delivery/timeline` | 第 ⑤ |
-| ~~C-112~~ | ~~`07-episode-workbench.png`~~ | 请求 `episode/workbench` → **实际落到 `story/brief`** | ❌ **不是证据**：`workbench` 无别名，工具没检查 `resolved` 就截了图。见 [TASK-086 §1](../../../docs/tasks/TASK-086-address-truth-and-count-scope.md) |
+| ~~C-112~~ | ~~`07-episode-workbench.png`~~ | 请求 `episode/workbench` → **实际落到 `story/brief`** | ❌ **不是证据**：`workbench` 无别名，工具没检查 `resolved` 就截了图。见 [TASK-086 §1](../../../docs/tasks/done/TASK-086-address-truth-and-count-scope.md) |
 | ~~C-113~~ | ~~`08-provenance-graph.png`~~ | 请求 `episode/provenance` → **实际落到 `story/brief`** | ❌ 同上 |
 | C-114 | `09-episode-overview.png` | `episode/board/overview` | |
 | C-115 | `10-scenes.png` | `episode/storyboard/scenes` | |
@@ -125,7 +125,7 @@ C-105 与所有剧集相关截图都按这个前提读。
 | C-123 | `18-asset-library.png` | `assets/assets` | 左栏七行分类删除，改**内容树**（TASK-082） |
 | C-124 | `19-storage-diagnostics.png` | `story/projectsettings/storage` | **「媒体不可用 2」**（此前是 0）+ 逐行「登记 local · 文件拿不到（探测）」+ 明说「本轮只显示，不改写登记状态」（TASK-077 §1.2）；⚙ 现有 **项目信息 / 项目健康 / 成片规格 / 预算与限制 / 存储与诊断 / 能力目录** 六个分区 |
 
-**本轮实测发现的两条**（已开 [TASK-086](../../../docs/tasks/TASK-086-address-truth-and-count-scope.md)）：
+**本轮实测发现的两条**（已开 [TASK-086](../../../docs/tasks/done/TASK-086-address-truth-and-count-scope.md)）：
 
 1. C-112 / C-113 是**误导性证据** —— 工具不检查 `resolveModule().resolved`，
    把 fallback 当成功。**这两个文件不得被引用为证据。**

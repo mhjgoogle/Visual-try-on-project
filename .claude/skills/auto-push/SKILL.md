@@ -113,7 +113,7 @@ Task 级 push 与 Change 级 merge 严格分开。merge 的前提链：
    evil merge 可伪造亲子关系夹带内容）；冲突自行解决后的手工 merge 用
    `record-sync` 显式登记。返回 `needs_verification: true` 就重跑定向验证。
    merge 前须带 `--ledger-checked`：先读
-   [待复审清单](../../../docs/design/pending-codex-rereview.md)确认没有
+   [待复审清单](../../../docs/design/active/pending-codex-rereview.md)确认没有
    覆盖本分支历史的未闭合条目（TASK-102 的教训：只查 verification 不查
    清单，含未补审修复的历史被合进了 main）。
 3. `merge` —— 校验 Gate=PASS、树干净、main 已是祖先，推最终 tip，

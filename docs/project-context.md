@@ -1,6 +1,7 @@
 # 项目背景与路线
 
 **这份文件回答「这个项目是什么、走到哪了」，不含任何约束条款。**
+逐项的完成状态见 [STATUS.md](STATUS.md)（生成的）——本文件只讲路线，不逐条报状态。
 你必须遵守的规则在 [AGENTS.md](../AGENTS.md)；那里只放规则，不放背景。
 
 ---
@@ -86,7 +87,7 @@ TASK-008/034～037 与 WFM3 TASK-012/038 补齐；Workspace 完整多媒体扩�
 从项目 → 用户 → 内置三个来源按优先级加载，Run 记录 `skillDigest` 使版本指向
 确定的内容；已被历史 Run 引用的版本**不得原地覆盖**；Skill 只产生提案，
 **不得定稿、锁定、付费或导出**；加载或校验失败一律 fail-closed。
-实施见 [TASK-075](tasks/TASK-075-product-skill-package.md)。
+实施见 [TASK-075](tasks/done/TASK-075-product-skill-package.md)。
 
 ### Studio 原型的运行时边界
 

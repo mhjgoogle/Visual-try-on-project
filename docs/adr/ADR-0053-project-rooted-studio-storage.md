@@ -3,7 +3,7 @@
 - Status: **Accepted（决策 1–5 全部保留）** —— 2026-08-13 收口
   （TASK-055 早已交付，本 ADR 此前一直滞留在 Proposed）
 - Date: 2026-08-11（Accepted：2026-08-13）
-- Scope tasks: [TASK-055](../tasks/TASK-055-project-rooted-storage.md)（已验收并收口）
+- Scope tasks: [TASK-055](../tasks/done/TASK-055-project-rooted-storage.md)（已验收并收口）
 - 实施基线：`ae0a54a`
 
 ### 收口裁决（2026-08-13）
@@ -20,7 +20,7 @@
 （它们是后续增量，不是本 ADR 决策的未完成部分）：
 ① 资产 URL 仍带 project name → 维持「暂不修」原裁定，等项目改名 / 移动 / 打包导出时
 一并解决；② `data/projects.json` 仍在仓库内 → 归
-[TASK-056](../tasks/TASK-056-app-storage-location.md)；③ 旧 scratch 只保留不回收 →
+[TASK-056](../tasks/active/TASK-056-app-storage-location.md)；③ 旧 scratch 只保留不回收 →
 低优先级，保留原裁定。
 
 与 [ADR-0066](ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)

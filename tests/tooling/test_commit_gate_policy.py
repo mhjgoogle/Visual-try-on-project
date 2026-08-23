@@ -18,7 +18,7 @@ _SPEC.loader.exec_module(_POLICY)
 
 def test_docs_only_change_skips_test_execution() -> None:
     decision = _POLICY.classify(
-        ["docs/tasks/TASK-063-risk-based-commit-gate.md", "README.md"]
+        ["docs/tasks/done/TASK-063-risk-based-commit-gate.md", "README.md"]
     )
 
     assert decision.tier == "lint"

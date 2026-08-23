@@ -9,7 +9,7 @@
   [ADR-0057](ADR-0057-shot-production-state-and-dailies.md)、
   [ADR-0058](ADR-0058-production-memory-library-and-episode-production.md)、
   [ADR-0059](ADR-0059-production-graph-identity-contract.md)、
-  [TASK-064](../tasks/TASK-064-creator-ui-consolidation.md)
+  [TASK-064](../tasks/done/TASK-064-creator-ui-consolidation.md)
 - **被 [ADR-0066](ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)
   部分修订**：决策 1（三个顶层空间）**保留并强化**，二级页面收敛为固定十一页；
   决策 2 的「右侧永远属于 AI 导演」**被撤销**，改为按需打开的上下文 Agent 面板；

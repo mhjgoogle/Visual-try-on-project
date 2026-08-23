@@ -8,8 +8,8 @@
   （`MOTV_RUNTIME_ALLOW_FS_READING_EXECUTORS` 默认关闭，`-AllowCodexReview` 显式开启）、
   **决策 4 已实施**（PATH 修复留在 `run-windows.ps1`）；
   **决策 1 与决策 2 未实施** —— 五个 `/api/agent/*` 创作端点仍直连 `claude`，
-  由 [TASK-068](../tasks/TASK-068-legacy-agent-endpoints-to-runtime.md) 承接，
-  并被 [TASK-072](../tasks/TASK-072-system-contract-and-persistent-runs.md) §1.8 纳入第二阶段。
+  由 [TASK-068](../tasks/done/TASK-068-legacy-agent-endpoints-to-runtime.md) 承接，
+  并被 [TASK-072](../tasks/active/TASK-072-system-contract-and-persistent-runs.md) §1.8 纳入第二阶段。
 - **被 [ADR-0066](ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)
   保留强化**：决策 1「每个 AI 动作都经 Runtime 层」升级为 ADR-0066 决策 9 的全局原则
   「API 路由不得直接执行具体 Provider 或 CLI」；决策 2「每个 AI 动作都必须有手工兜底」
@@ -19,7 +19,7 @@
   [ADR-0056](ADR-0056-local-ai-runtime-and-film-skills.md)（Runtime / Executor / Skill 分层）、
   [ADR-0062](ADR-0062-windows-authoritative-environment.md)（Windows 权威）、
   [ADR-0064](ADR-0064-ai-director-operationalization.md)（AI 导演可操作化）
-- 任务卡：[TASK-068](../tasks/TASK-068-legacy-agent-endpoints-to-runtime.md)
+- 任务卡：[TASK-068](../tasks/done/TASK-068-legacy-agent-endpoints-to-runtime.md)
 - 触发：产品负责人 2026-08-13 —— 「这个项目所有需要 AI 来调整的背后都是要用现在这个订阅
   账号来完成的」，以及「不单单要接 Claude Code，还要接 Codex。Claude Code 主要是执行，
   Codex 要做审阅然后给出意见」。

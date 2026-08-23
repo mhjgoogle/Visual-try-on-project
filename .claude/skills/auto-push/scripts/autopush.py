@@ -1231,7 +1231,7 @@ def merge(
         # 历史后，显式带 --ledger-checked。
         return _blocked(
             "BLOCKED_LEDGER_UNCHECKED",
-            "read docs/design/pending-codex-rereview.md (仍然待办 + open 追记) "
+            "read docs/design/active/pending-codex-rereview.md (仍然待办 + open 追记) "
             "and confirm no open item covers this branch's history, then pass "
             "--ledger-checked",
         )

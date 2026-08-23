@@ -20,7 +20,7 @@
   `.claude/skills/codex-review-loop/SKILL.md`；决策 7（测试提速）与配套的
   commit gate 修复**已于 2026-08-15 落地并提交**（`pyproject.toml` / `gate.ps1` /
   `gate.sh` / `ci.yml`），完整记录见
-  [实施记录](../design/pending-speedup-and-gate-fix.md)。
+  [实施记录](../design/done/pending-speedup-and-gate-fix.md)。
   （此行原写「已实现并验证但尚未提交」，落地后没跟着改，成了一条过期的
   「尚未落地」警告——codex 跨模型复审 2026-08-16 的 non-blocking finding，
   TASK-084 项 1。）
@@ -121,7 +121,7 @@ AGENTS.md 第 20 条那张表**第一次真正生效**。
 （2026-08-14 已安装 2.1.232，订阅凭据可用，`claude -p` 验证通过）。
 
 **高风险改动的审查是后移，不是取消。** 未经审查就提交的高风险改动必须登记到
-[待复审清单](../design/pending-codex-rereview.md)，审查者恢复后立即补审，且
+[待复审清单](../design/active/pending-codex-rereview.md)，审查者恢复后立即补审，且
 **push / merge / 交接 / 人工验收之前必须完成补审**——与 ADR-0068 决策 6 同一
 逻辑：可以推迟，不可以跳过。
 

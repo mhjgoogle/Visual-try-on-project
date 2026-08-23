@@ -416,7 +416,7 @@ canvas <ProjectRoot>/studio/canvas.json  skillRuns[]
 #### `runs.json` 放在哪（冻结）
 
 **与 `projects.json` 同址、同类**：今天是 `mockups/motv-workspace/data/runs.json`，
-并**随 [TASK-056](../tasks/TASK-056-app-storage-location.md) 一起**迁到应用数据目录
+并**随 [TASK-056](../tasks/active/TASK-056-app-storage-location.md) 一起**迁到应用数据目录
 （Windows `%LOCALAPPDATA%\motv\`，POSIX `$XDG_DATA_HOME` / `~/.local/share/motv/`）。
 **不新增第三个存储位置。**
 

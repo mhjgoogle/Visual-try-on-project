@@ -9,10 +9,12 @@ A cross-project Creation Workspace is a separately planned product track. Its
 requirements are in
 [`docs/ai_video_creation_workspace_requirements.md`](docs/ai_video_creation_workspace_requirements.md);
 the staged ADR/task roadmap is in
-[`docs/design/creation-workspace-implementation-roadmap.md`](docs/design/creation-workspace-implementation-roadmap.md).
+[`docs/design/active/creation-workspace-implementation-roadmap.md`](docs/design/active/creation-workspace-implementation-roadmap.md).
 It remains outside WFM1 implementation and acceptance. The complete route from
 M1/WFM1 through WFM2/WFM3 and the final Workspace gate is tracked in
 [`docs/design/end-to-end-requirements-traceability.md`](docs/design/end-to-end-requirements-traceability.md).
+For what is finished and what is still open, see
+[`docs/STATUS.md`](docs/STATUS.md) — generated from the docs tree, never hand-edited.
 The logical input/output contract for every Project/L0/S1-S7 step is in
 [`docs/design/workflow-stage-step-io-contract.md`](docs/design/workflow-stage-step-io-contract.md).
 

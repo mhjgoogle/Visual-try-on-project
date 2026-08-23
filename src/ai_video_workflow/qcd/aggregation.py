@@ -8,7 +8,7 @@ reconciliation list. It never writes business or QCD state; all metrics
 are derived and recomputable from the log (architecture.md §10). The
 consumption contract for each event type is ADR-0003 §4 + its
 "TASK-009 aggregation 使用方式" section; see also
-docs/design/TASK-009-qcd-aggregation-design.md.
+docs/design/done/TASK-009-qcd-aggregation-design.md.
 """
 
 from __future__ import annotations

@@ -8,7 +8,7 @@
   [ADR-0060](ADR-0060-risk-based-local-commit-gate.md)（风险分级本地 commit gate）
   的「高风险改动必须跑全量」在**连续修改链的中间提交**上的应用方式；
   AGENTS.md 第 20 条与 CLAUDE.md 实施纪律同步。
-- 实施任务：[TASK-076](../tasks/TASK-076-continuous-chain-gate.md)
+- 实施任务：[TASK-076](../tasks/done/TASK-076-continuous-chain-gate.md)
 
 ## 背景
 
@@ -193,5 +193,5 @@ workspace spend cap，**在 2026-08-18 之前不可用**，且 `claude` CLI 未�
 ### 复审债务清单
 
 需要在 2026-08-18 之后补 codex 复审的改动，记录在
-[docs/design/pending-codex-rereview.md](../design/pending-codex-rereview.md)。
+[docs/design/active/pending-codex-rereview.md](../design/active/pending-codex-rereview.md)。
 **该清单清空之前，不得 push / merge / 交接 / 宣告最终验收。**

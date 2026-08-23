@@ -4,8 +4,8 @@
 - Accept 依据：CLAUDE.md「决策模式 → ADR 的 Accept 权」——本 ADR 属于技术范畴
   （质量门实现机制、跨层合同、两 shell 一致性），不涉及付费，也不不可逆动用户
   数据，由实施 Agent 自行 Accept 并写明理由。
-- 实施：[TASK-085](../tasks/TASK-085-gate-intent-detection.md)
-- 方案：[commit gate 的意图判定](../design/commit-gate-intent-detection.md)
+- 实施：[TASK-085](../tasks/done/TASK-085-gate-intent-detection.md)
+- 方案：[commit gate 的意图判定](../design/done/commit-gate-intent-detection.md)
 - 修订：[ADR-0050](ADR-0050-powershell-native-agent-dev-tooling.md) 决策 1「两 shell 各自
   匹配命令文本」的**实现约定**（行为合同本身不变，见「与 ADR-0050 的关系」）
 - 相关：[ADR-0062](ADR-0062-windows-authoritative-environment.md) 决策 3、
@@ -15,7 +15,7 @@
 ## 背景
 
 commit gate 用两条正则在**命令文本**上判断「这是不是一次 `git commit`」。
-2026-08-16 的跨模型复审报出两条实际绕过（[待复审清单](../design/pending-codex-rereview.md)
+2026-08-16 的跨模型复审报出两条实际绕过（[待复审清单](../design/active/pending-codex-rereview.md)
 「仍然待办」第 3 项）：
 
 | 写法 | 后果 |
@@ -201,7 +201,7 @@ ADR-0062 决策 3 因此从一条**需要人去维护两侧一致性**的纪律�
 
 **轮 2（codex，跨模型）：`VERDICT: pass`，0 blocking，2 non-blocking。**
 两条都成立，都已修（预算 2/2 用尽，轮 2 无 P1，按 CLAUDE.md 不得开第 3 轮，
-**因此这两处修复未经复审**，已登记[待复审清单](../design/pending-codex-rereview.md)，
+**因此这两处修复未经复审**，已登记[待复审清单](../design/active/pending-codex-rereview.md)，
 push / merge 前补审）：
 
 1. **`git commit -Salpha` 被读成带 `-a`。** 短选项簇里，**取值的那个选项之后

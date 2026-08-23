@@ -68,9 +68,9 @@
       "paths": [
         "docs/design/creator-system-contract.md",
         "docs/skill-evolution/",
-        "docs/tasks/TASK-068-legacy-agent-endpoints-to-runtime.md",
-        "docs/tasks/TASK-087-followup-ledger.md",
-        "docs/tasks/TASK-103-frontback-and-ui-residuals.md",
+        "docs/tasks/done/TASK-068-legacy-agent-endpoints-to-runtime.md",
+        "docs/tasks/active/TASK-087-followup-ledger.md",
+        "docs/tasks/done/TASK-103-frontback-and-ui-residuals.md",
         "mockups/motv-workspace/server.py",
         "mockups/motv-workspace/src/app.js",
         "mockups/motv-workspace/src/services/routelatch.js",

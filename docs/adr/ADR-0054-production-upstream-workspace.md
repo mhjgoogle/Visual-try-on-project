@@ -4,7 +4,7 @@
 - 日期：2026-08-11
 - 关联：[ADR-0052](ADR-0052-workflow-page-as-derived-provenance-graph.md)、
   [ADR-0053](ADR-0053-project-rooted-studio-storage.md)、
-  [TASK-057](../tasks/TASK-057-production-upstream-workspace.md)
+  [TASK-057](../tasks/done/TASK-057-production-upstream-workspace.md)
 
 ## 背景
 

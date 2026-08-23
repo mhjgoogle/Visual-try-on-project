@@ -3,7 +3,7 @@
 - 状态：**Accepted**（产品负责人 2026-08-13 下发）
 - 日期：2026-08-13
 - 实施基线：`70dab40`（TASK-072 批次一）
-- 实施任务：[TASK-075](../tasks/TASK-075-product-skill-package.md)
+- 实施任务：[TASK-075](../tasks/done/TASK-075-product-skill-package.md)
 - 相关：
   [ADR-0056](ADR-0056-local-ai-runtime-and-film-skills.md)（Runtime / Skill 分层、
   能力定义不可变、不自动自学习）、
@@ -137,7 +137,7 @@ manifest 不合法、schema 不合法、digest 冲突、目录缺文件 → **�
 
 ### 要定的那件事
 
-[待复审清单](../design/pending-codex-rereview.md)指出 `_load_skill_catalog` 的
+[待复审清单](../design/active/pending-codex-rereview.md)指出 `_load_skill_catalog` 的
 `studio/skills` 没有 containment：一个 **junction 可以指向项目根之外**，那个目录里的
 包会被当作**这个项目的** Skill 加载。修法本身很小，但先要回答一个产品问题：
 

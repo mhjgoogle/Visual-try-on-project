@@ -6,6 +6,9 @@
 - **项目是什么、走到哪了** → [docs/project-context.md](docs/project-context.md)
 - **怎么运行、入口在哪** → [README.md](README.md)（面向使用者，仓库唯一一份 README）
 - **某个决定为什么这么定** → `docs/adr/`（本文件只写结论，不写修订史）
+- **什么做完了、什么还没做** → [docs/STATUS.md](docs/STATUS.md)（**生成的**，别手改）。
+  文档按完成状态分区：`active/` 在办、`done/` 已完成，`adr/` 与 `design/` 根是没有
+  「完成」这一维的稳定参考（[ADR-0083](docs/adr/ADR-0083-docs-partitioned-by-completion.md)）
 
 `CLAUDE.md` 只是 Claude Code 的入口，内容就是本文件，没有第二份规则。
 Agent 之间只通过仓库中的文档、代码和 Git 状态共享上下文，不依赖各自的聊天记录。
@@ -134,7 +137,7 @@ Agent 无权自改）如实告知并一次性解决，不要让它变成每次�
   最后才看到东西。
 - 任务开始时写明 **IN SCOPE / OUT OF SCOPE**。
 - 非本任务 bug：一律**记录**到 `Follow-up` 或新任务卡（欠账总账在
-  [TASK-087](docs/tasks/TASK-087-followup-ledger.md)），**不顺手修**（第 17 条）。
+  [TASK-087](docs/tasks/active/TASK-087-followup-ledger.md)），**不顺手修**（第 17 条）。
   唯一例外是它**阻塞当前任务** —— 那时只在最小范围内修，并在报告里写明为什么
   绕不开。P2 记录；**P3/P4 不修**。
   不要因为审查者报了 5 个小问题，把一个用户功能扩成两天重构。
@@ -213,7 +216,9 @@ Action Center、数据库或 UI 专用状态机。图片/音频等多媒体 Prov
 
 ## 5. Agent 协作规则
 
-14. 每个开发任务（`docs/tasks/TASK-*.md`）只能有一个实施 Agent。
+14. 每个开发任务（`docs/tasks/{active,done}/TASK-*.md`）只能有一个实施 Agent。
+    **卡放在哪个目录就是它的状态**：做完了就 `git mv` 进 `done/`，并重新生成
+    `docs/STATUS.md`（ADR-0083）。任务卡不得直接躺在 `docs/tasks/` 下。
 15. 另一个 Agent 只能作为独立审查者，不得在同一任务上并行修改代码。
     审查范围必须**明确限定为本次 diff 及它能影响的不变量**，不得每轮重新审查
     整个架构或整个仓库。审查者判断的是**实际风险**（正确性、回归、状态一致性、
@@ -272,7 +277,7 @@ Action Center、数据库或 UI 专用状态机。图片/音频等多媒体 Prov
     ```
 
     `-n 8` 是实测值（不用 `auto`）；耗时基线与选定理由见
-    [提速与 gate 修复](docs/design/pending-speedup-and-gate-fix.md)。
+    [提速与 gate 修复](docs/design/done/pending-speedup-and-gate-fix.md)。
 
     **审查按影响范围触发，不按档位**：
 
@@ -305,7 +310,7 @@ Action Center、数据库或 UI 专用状态机。图片/音频等多媒体 Prov
     claude 会话，此时独立性降级，必须在报告中如实注明。
 
     **该审而未审的改动是后移审查，不是取消。** 必须登记到
-    [待复审清单](docs/design/pending-codex-rereview.md)，审查者恢复后立即补审，
+    [待复审清单](docs/design/active/pending-codex-rereview.md)，审查者恢复后立即补审，
     且 **push / merge / 交接 / 人工验收之前必须完成补审**。
     **merge 前必须把这份清单当作前置闸门查一遍**，不能只查任务卡的验证字段。
 
@@ -327,7 +332,7 @@ Action Center、数据库或 UI 专用状态机。图片/音频等多媒体 Prov
 
     **真实 Connected Project 是主要验收环境**（2026-08-11 起）：demo seed 与 SVG
     占位素材不作为主要验收依据 —— 它们会掩盖只有真实媒体才暴露的缺陷（实例见
-    [TASK-055 §5](docs/tasks/TASK-055-project-rooted-storage.md)：保存镜头会静默
+    [TASK-055 §5](docs/tasks/done/TASK-055-project-rooted-storage.md)：保存镜头会静默
     丢失景别/角度/情绪、视频资产被放进 `<img>`）。发现真实数据问题时**优先如实
     报告，不得用 mock 绕过**。
 

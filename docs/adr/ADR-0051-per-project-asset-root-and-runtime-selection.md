@@ -3,7 +3,7 @@
 - Status: **Accepted（决策 1–5 全部保留）** —— 2026-08-13 收口
   （TASK-053 早已交付，本 ADR 此前一直滞留在 Proposed）
 - Date: 2026-08-11（Accepted：2026-08-13）
-- Scope tasks: [TASK-053](../tasks/TASK-053-choose-project-location.md)（已验收并收口）
+- Scope tasks: [TASK-053](../tasks/done/TASK-053-choose-project-location.md)（已验收并收口）
 - 实施基线：`ae0a54a`
 
 ### 收口裁决（2026-08-13）

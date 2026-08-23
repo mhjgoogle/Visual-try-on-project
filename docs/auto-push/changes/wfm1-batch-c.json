@@ -46,9 +46,9 @@
         ".claude/skills/dev-workflow/SKILL.md",
         "docs/adr/ADR-0079-auto-push-skill.md",
         "docs/auto-push/",
-        "docs/design/pending-codex-rereview.md",
+        "docs/design/active/pending-codex-rereview.md",
         "docs/requirements/",
-        "docs/tasks/TASK-101-auto-push-skill.md",
+        "docs/tasks/done/TASK-101-auto-push-skill.md",
         "tests/test_auto_push_tooling.py"
       ],
       "verification": "PASS",

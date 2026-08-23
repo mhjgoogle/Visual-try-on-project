@@ -5,9 +5,9 @@
   在实施 Agent。**不涉及付费**，**不做不可逆删除**（本 ADR 的全部动作都是加法字段
   与可回退的归档态），因此不需要产品负责人 Accept。
   规则来源是产品负责人 2026-08-17 的原话，见「背景」。
-- 实施：[TASK-094](../tasks/TASK-094-story-development-chain.md) 批次 **A**（成因）
+- 实施：[TASK-094](../tasks/done/TASK-094-story-development-chain.md) 批次 **A**（成因）
   与批次 **G**（历史数据）
-- 相关：[ADR-0054](ADR-0054-story-spine-and-episode-plan.md)（规划版本 → 确认 → 建立剧集）、
+- 相关：[ADR-0054](ADR-0054-production-upstream-workspace.md)（规划版本 → 确认 → 建立剧集）、
   [ADR-0067](ADR-0067-product-skill-package.md)（Skill 只出提案）、
   [AGENTS.md 第 13 条](../../AGENTS.md)（禁止静默覆盖；删除做成软删除）
 
