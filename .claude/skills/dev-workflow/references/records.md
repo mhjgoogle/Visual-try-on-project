@@ -56,7 +56,9 @@ v1 标题行就地补 `（superseded by v2）`，内容一字不动。
 
 - **QUICK 深度**：提交信息即记录。首行写意图，正文写关联
   （`REQ-NNN`/`TASK-NNN`，如有）、做了什么验证。不建卡。
-- **STANDARD / DEEP 深度**：任务卡 `docs/tasks/TASK-NNN-slug.md`
+- **STANDARD / DEEP 深度**：任务卡 `docs/tasks/active/TASK-NNN-slug.md`
+  （在办；做完后 `git mv` 进 `docs/tasks/done/` 并重新生成 `docs/STATUS.md`
+  —— 目录即状态，ADR-0083）
   （编号顺延现有最大号），沿用本仓库既有卡风格，最小字段集：
 
 ```markdown
