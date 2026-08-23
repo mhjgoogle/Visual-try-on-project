@@ -94,7 +94,7 @@ suite 全绿），暴露 3 处 CI 覆盖不到的缺口，均属本任务范围�
 
 1. **symlink fixture 需要特权**：33 个用例用 `symlink_to` / `os.symlink`
    构造 fixture，本机无开发者模式时 `WinError 1314`，测试还没跑就失败。新增
-   [tests/symlink_support.py](../../tests/symlink_support.py)：
+   [tests/symlink_support.py](../../../tests/symlink_support.py)：
    `symlink_or_skip()` 建不出链接就 skip（沿用 `test_windows_portability.py`
    既有约定）。只守 fixture 构造，被测代码「必须拒绝 symlink」的断言不变；
    Linux 与 Windows CI（runner 有该特权）照常执行，验证记录不受影响。

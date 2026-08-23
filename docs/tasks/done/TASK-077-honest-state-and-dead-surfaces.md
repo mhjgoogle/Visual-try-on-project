@@ -3,7 +3,7 @@
 - 状态：**已完成**（六条交付全部完成；七条验收全部在真实项目上通过；
   codex 独立审查 4 轮收于 `pass`，无未闭合 P1）
 - 负责 Agent：单一实施 Agent（AGENTS.md 第 14 条）
-- 依据：[UI Gap Audit](../../src/ui-gap-audit/)（2026-08-16，commit `18fa281`），
+- 依据：[UI Gap Audit](../../../src/ui-gap-audit/)（2026-08-16，commit `18fa281`），
   尤其 [ui-correction-plan.md](../../../src/ui-gap-audit/reports/ui-correction-plan.md) Phase 0
 - 前置：**已满足** —— 无新 ADR、无后端改动、无 schema 迁移
 - 实施基线：`18fa281`（分支 `feat/wfm1-batch-c`）

@@ -70,7 +70,29 @@
       "declared": "2026-08-23T10:04:28+00:00"
     },
     "TASK-083": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "9630b2ba67abb25a602b70283bea6a55cf8942b7",
+          "subject": "docs(TASK-083): ADR-D 定案 —— 流程模板是 Skill 包机制的第二个 kind，不是第二套",
+          "time": "2026-08-23T10:10:15+00:00",
+          "branch": "change/TASK-056-app-data-location",
+          "pushed": false,
+          "files": [
+            "docs/adr/ADR-0071-reference-inputs-as-an-ordered-set.md",
+            "docs/adr/ADR-0074-character-from-image.md",
+            "docs/adr/ADR-0075-camera-motion-presets.md",
+            "docs/adr/ADR-0084-project-flow-template-as-a-package.md",
+            "docs/auto-push/changes/app-data-and-flow-adr.json",
+            "docs/tasks/active/TASK-083-phase3-adrs-first.md",
+            "docs/tasks/active/TASK-105-flow-template-first-slice.md",
+            "docs/tasks/done/TASK-083-phase3-adrs-first.md",
+            "docs/tasks/done/TASK-093-one-canvas-per-shot.md",
+            "docs/tasks/done/TASK-097-episode-production-chain.md",
+            "docs/tasks/done/TASK-103-frontback-and-ui-residuals.md"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/adr/ADR-0071-reference-inputs-as-an-ordered-set.md",
         "docs/adr/ADR-0074-character-from-image.md",
@@ -86,6 +108,23 @@
       "verification": "PASS",
       "verification_ref": "纯文档/ADR 决策：全仓 md 断链检查 0 条 · tests/tooling 152 全绿 · 按 ADR-0081 纯文档不调审查",
       "declared": "2026-08-23T10:09:48+00:00"
+    },
+    "TASK-087-docs-links": {
+      "commits": [],
+      "paths": [
+        "docs/STATUS.md",
+        "docs/tasks/done/TASK-049-native-windows-run-target.md",
+        "docs/tasks/done/TASK-077-honest-state-and-dead-surfaces.md",
+        "docs/tasks/done/TASK-078-storyboard-table-to-first-frame.md",
+        "docs/tasks/done/TASK-079-review-surface-and-chaining.md",
+        "docs/tasks/done/TASK-080-skill-catalog-and-one-agent-session.md",
+        "docs/tasks/done/TASK-081-url-routing-and-deep-links.md",
+        "docs/tasks/done/TASK-082-project-health-and-asset-tree.md",
+        "tests/tooling/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "pytest tests/tooling 154 全绿（含新守卫 2 条）· 变异验证：注入一条坏链后守卫转红，撤回后转绿 · 全仓断链 0 条",
+      "declared": "2026-08-23T10:10:28+00:00"
     }
   },
   "merge_gate": {

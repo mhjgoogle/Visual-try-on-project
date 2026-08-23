@@ -2,7 +2,7 @@
 
 - 状态：**已完成**（2026-08-16，提交 `3ca71e8`）
 - 负责 Agent：单一实施 Agent（AGENTS.md 第 14 条）
-- 依据：[UI Gap Audit](../../src/ui-gap-audit/) GAP-07，
+- 依据：[UI Gap Audit](../../../src/ui-gap-audit/) GAP-07，
   [ui-correction-plan.md](../../../src/ui-gap-audit/reports/ui-correction-plan.md) Phase 2.3
 - **前置：TASK-080 已完成并提交**
 - 验收环境：**真实 Connected Project `照见未明rev2`**

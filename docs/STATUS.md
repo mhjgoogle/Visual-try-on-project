@@ -17,7 +17,7 @@
 | `docs/requirements/` | 需求记录：DRAFT / CONFIRMED / SUPERSEDED |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：13 项在办 · 93 项已完成 · 67 条 ADR。
+**当前**：12 项在办 · 95 项已完成 · 68 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -36,12 +36,11 @@
 | [TASK-037-wfm2-end-to-end-acceptance.md](tasks/active/TASK-037-wfm2-end-to-end-acceptance.md) | TASK-037：WFM2 正式作品端到端验收 | Evidence Ready — 等用户一句话确认（2026-08-04） |
 | [TASK-040-final-unified-product-acceptance.md](tasks/active/TASK-040-final-unified-product-acceptance.md) | TASK-040：AI 短剧工作流与 Creation Workspace 最终统一验收 | Evidence Ready — 等用户一句话确认（2026-08-04） |
 | [TASK-041-workspace-generation-command-and-evidence.md](tasks/active/TASK-041-workspace-generation-command-and-evidence.md) | TASK-041: 工作视窗付费视频生成命令 + UI 接入 + 1 次真实证据 | Accepted（2026-08-07，用户「同意」） |
-| [TASK-056-app-storage-location.md](tasks/active/TASK-056-app-storage-location.md) | TASK-056 — 应用级数据移出仓库（小 checkpoint） | 未开始（中优先级，不阻塞使用） |
 | [TASK-072-system-contract-and-persistent-runs.md](tasks/active/TASK-072-system-contract-and-persistent-runs.md) | TASK-072：第二阶段 —— 后端合同、持久化任务、版本管理与兼容层 | 批次一已完成并提交（70dab40） |
 | [TASK-073-fixed-ia-and-contextual-agent.md](tasks/active/TASK-073-fixed-ia-and-contextual-agent.md) | TASK-073：第三阶段 —— 前端信息架构、页面重构与上下文 Agent 交互 | 大部分已实施（2026-08-14/15） |
 | [TASK-074-delivery-migration-and-legacy-retirement.md](tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md) | TASK-074：第四阶段 —— 后期交付、旧数据迁移、旧页面与旧接口清理、真实项目验收 | 部分实施（§1.1b 已完成 |
-| [TASK-083-phase3-adrs-first.md](tasks/active/TASK-083-phase3-adrs-first.md) | TASK-083：Phase 3 —— 先落 ADR，再谈实现 | 过半已完成（2026-08-23 复查） |
 | [TASK-087-followup-ledger.md](tasks/active/TASK-087-followup-ledger.md) | TASK-087：Follow-up 总账 —— 把散在九张卡里的欠账收成一处 | 活账（不是一次性交付 |
+| [TASK-105-flow-template-first-slice.md](tasks/active/TASK-105-flow-template-first-slice.md) | TASK-105：流程模板第一刀 —— 内置一份 flow，新建项目时可选 | 未开工（2026-08-23 建卡） |
 
 ## 在办 · 设计与验收文档
 
@@ -112,6 +111,7 @@
 | [TASK-053-choose-project-location.md](tasks/done/TASK-053-choose-project-location.md) | TASK-053 — 在界面里选任意路径，后端就往那儿写 | 已验收并收口（2026-08-13，随 ADR-0051 一并收口） |
 | [TASK-054-workflow-provenance-graph.md](tasks/done/TASK-054-workflow-provenance-graph.md) | TASK-054 — 工作流页面重做：生成溯源图 | 已验收并收口（产品负责人 2026-08-13，随 ADR-0052 / ADR-0066 一并收口） |
 | [TASK-055-project-rooted-storage.md](tasks/done/TASK-055-project-rooted-storage.md) | TASK-055 — Studio 数据与媒体落在项目目录内（high-risk checkpoint） | 已验收并收口（2026-08-13，随 ADR-0053 一并收口） |
+| [TASK-056-app-storage-location.md](tasks/done/TASK-056-app-storage-location.md) | TASK-056 — 应用级数据移出仓库（小 checkpoint） | 实现完成（2026-08-23） |
 | [TASK-057-production-upstream-workspace.md](tasks/done/TASK-057-production-upstream-workspace.md) | TASK-057：Production Upstream Workspace v1 | 已完成（2026-08-23 复查收口，ADR-0082） |
 | [TASK-058-asset-registration-foundation.md](tasks/done/TASK-058-asset-registration-foundation.md) | TASK-058：Asset Registration Foundation（统一资产登记） | 已完成（2026-08-23 复查收口，ADR-0082） |
 | [TASK-059-local-ai-runtime-and-film-skills.md](tasks/done/TASK-059-local-ai-runtime-and-film-skills.md) | TASK-059：Local AI Runtime + Film Skill Runtime | 已完成（2026-08-23 复查收口，ADR-0082） |
@@ -136,6 +136,7 @@
 | [TASK-080-skill-catalog-and-one-agent-session.md](tasks/done/TASK-080-skill-catalog-and-one-agent-session.md) | TASK-080：能力可见 —— Skill 目录页 + 一个 Agent 会话（Phase 2 上半） | 已完成（2026-08-16，三个批次三次提交） |
 | [TASK-081-url-routing-and-deep-links.md](tasks/done/TASK-081-url-routing-and-deep-links.md) | TASK-081：URL 即状态 —— 路由与深链接（Phase 2 下半 · 之一） | 已完成（2026-08-16，提交 3ca71e8） |
 | [TASK-082-project-health-and-asset-tree.md](tasks/done/TASK-082-project-health-and-asset-tree.md) | TASK-082：项目健康与资产内容树（Phase 2 下半 · 之二） | 已完成（2026-08-16 · 本链链尾） |
+| [TASK-083-phase3-adrs-first.md](tasks/done/TASK-083-phase3-adrs-first.md) | TASK-083：Phase 3 —— 先落 ADR，再谈实现 | 四个 ADR 全部已定，本卡收口（2026-08-23） |
 | [TASK-084-clear-the-push-gate.md](tasks/done/TASK-084-clear-the-push-gate.md) | TASK-084：清掉 push 闸门上剩下的四项 | 已完成（2026-08-16） |
 | [TASK-085-gate-intent-detection.md](tasks/done/TASK-085-gate-intent-detection.md) | TASK-085：commit gate 改用 shell 自己的解析器判断意图 | 已完成（2026-08-16） |
 | [TASK-086-address-truth-and-count-scope.md](tasks/done/TASK-086-address-truth-and-count-scope.md) | TASK-086：地址说真话，数字带口径 | 已完成（2026-08-16） |
@@ -185,7 +186,7 @@
 
 | 位置 | 放什么 |
 | --- | --- |
-| [`docs/adr/`](adr/) | 67 条架构决策记录（ADR-0001 … ADR-0083） |
+| [`docs/adr/`](adr/) | 68 条架构决策记录（ADR-0001 … ADR-0084） |
 | [`docs/design/`](design/) 根 | 系统合同、产品信息架构、L0–S7 I/O 合同 |
 | [项目背景与路线](project-context.md) | 这个项目是什么、走到哪了 |
 | [实施规划](implementation_plan.md) | 阶段与里程碑路线图 |
