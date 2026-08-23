@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "change_id": "governance-docs-merge",
+  "branch": "change/TASK-104-governance-docs-merge",
+  "status": "open",
+  "created": "2026-08-23T02:03:57+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-104": {
+      "commits": [],
+      "paths": [
+        ".claude/hooks/commit_gate_policy.py",
+        ".claude/skills/auto-push/references/merge-and-conflicts.md",
+        ".claude/skills/dev-workflow/",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "docs/project-context.md",
+        "docs/tasks/TASK-104-governance-docs-merge.md",
+        "tests/studio/test_motv_shotstage_task092.py",
+        "tests/tooling/test_commit_gate_policy.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "",
+      "declared": "2026-08-23T02:04:16+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PENDING"
+  },
+  "merge": null,
+  "cleanup": null
+}
