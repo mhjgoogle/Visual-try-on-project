@@ -2,7 +2,7 @@
   "schema": 1,
   "change_id": "frontback-ui-residuals",
   "branch": "change/TASK-103-frontback-ui-residuals",
-  "status": "open",
+  "status": "closed",
   "created": "2026-08-22T14:07:40+00:00",
   "chain_mode": false,
   "tasks": {
@@ -95,6 +95,14 @@
     "time": "2026-08-23T01:31:41+00:00",
     "tip": "e93e6fbd473f4557dd24301172184ae16139f9cb"
   },
-  "merge": null,
-  "cleanup": null
+  "merge": {
+    "hash": "e5c52f75e079e9e7eb03a72934d29e20b0d82a86",
+    "time": "2026-08-23T01:45:49+00:00",
+    "pushed": true
+  },
+  "cleanup": {
+    "local_deleted": true,
+    "remote_deleted": true,
+    "time": "2026-08-23T01:46:23+00:00"
+  }
 }
