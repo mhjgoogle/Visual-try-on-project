@@ -1665,3 +1665,83 @@ def test_a_dynamic_import_forces_the_full_run(tmp_path: Path) -> None:
     (tmp_path / "tests" / "contract" / "test_dynamic_user.py").unlink()
     # 盲区消失后回到精确答案，证明它不是永久降级
     assert _POLICY._domains_importing(stem, root=tmp_path) == ("tests/studio",)
+
+
+# --- TASK-104：heredoc 正文是数据，不该参与命令解析 ------------------------- #
+
+
+def test_a_backtick_command_substitution_is_never_invisible() -> None:
+    """`$(git commit ...)` was already caught because `(` is a separator,
+    while the equivalent backtick form came back as one token and matched no
+    command name (codex review, TASK-104). Backticks open a command
+    substitution, so what follows IS a command; the separator set now says so.
+    """
+    backtick, newline = chr(96), chr(10)
+
+    assert (
+        _POLICY.inspect_command("Bash", f"{backtick}git commit -m x{backtick}").gate
+        == "check"
+    )
+    # 也包括藏在未加引号 heredoc 正文里的那种（shell 会展开它）
+    assert (
+        _POLICY.inspect_command(
+            "Bash",
+            f"cat <<EOF{newline}{backtick}git commit -m y{backtick}{newline}EOF",
+        ).gate
+        == "check"
+    )
+
+
+def test_heredoc_bodies_are_scanned_and_that_limitation_is_deliberate() -> None:
+    """TASK-104 试过在切词前摘掉 heredoc 正文，四轮审查each次都查出真绕过，
+    最后**撤回**。这条守卫钉的是撤回后的诚实状态，以及「不要再用扫描器修它」。
+
+    两个后果都还在，且都偏向过度检查（可接受的方向）：
+      ① 正文里奇数个撇号 -> lex 失败 -> fail-closed 到全量（纯编辑也会中）；
+      ② 正文里的 `git commit` 字面量会被当成那条命令。
+
+    为什么不修：判定 heredoc 的范围需要 shell 自己的语法。最后一轮的两条
+    finding 方向相反（补救路径要更保守 vs 合法正文不该当命令）—— 那就是
+    「一个行/正则扫描器不可能同时满足」的证明。真正的解法是让 hook 拿到
+    结构化解析结果（TASK-085 对 PowerShell 已经这么做：shell 负责切，本模块
+    只负责判），那是另一张卡。
+    """
+    apostrophe, newline = chr(39), chr(10)
+
+    # ① 正文里奇数撇号 -> fail-closed（如实钉住，不是期望值而是现状）
+    odd = f"python - <<{apostrophe}PY{apostrophe}{newline}# don{apostrophe}t{newline}PY"
+    intent = _POLICY.inspect_command("Bash", odd)
+    assert intent.gate == "check"
+    assert intent.force_full is True
+
+    # ② 正文里的 git commit 字面量被当成命令（同样如实钉住）
+    assert (
+        _POLICY.inspect_command(
+            "Bash", f"cat <<EOF{newline}git commit -m data{newline}EOF"
+        ).gate
+        == "check"
+    )
+
+    # 代码里必须留着那段「不要用扫描器修它」的说明 —— 它是三次绕过换来的
+    source = _POLICY_PATH.read_text(encoding="utf-8")
+    assert "KNOWN LIMITATION, RECORDED ON PURPOSE" in source
+    assert "_strip_heredoc_bodies" not in source, (
+        "摘 heredoc 正文的做法已在 TASK-104 撤回；重新引入前先读那段说明"
+    )
+
+
+def test_the_real_scans_still_work_on_ordinary_commands() -> None:
+    """撤回之后，三道扫描在普通命令上照常工作。"""
+    newline = chr(10)
+    assert _POLICY.inspect_command("Bash", "git commit -m x").gate == "check"
+    assert (
+        _POLICY.inspect_command(
+            "Bash", "MOTV_CONTINUOUS_CHAIN=1 git commit -m x && git push"
+        ).gate
+        == "block"
+    )
+    assert _POLICY.inspect_command("Bash", f"ls{newline}pwd").gate == "skip"
+    assert (
+        _POLICY.inspect_command("Bash", f"git commit -m a{newline}git push").gate
+        == "check"
+    )

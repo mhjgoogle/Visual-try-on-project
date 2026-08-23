@@ -356,7 +356,14 @@ _UNCLASSIFIED_REASONS = frozenset(
 #: forced into this set too (see `_tokenise_posix`) -- without it
 #: `git commit -m x\ngit push` collapses into a single command and the ADR-0068
 #: 决策 6 scan stops seeing the push.
-_SEPARATOR_CHARS = frozenset(";&|()<>\n")
+#:
+#: The BACKTICK is here for the same reason `(` is: it opens a command
+#: substitution, so what follows is a COMMAND. `$(git commit …)` was already
+#: caught (via `(`) while the equivalent `git commit …` was not —
+#: the token came back as ``git` and matched no command name (codex review,
+#: TASK-104). Same class as the unquoted-heredoc hole fixed alongside it:
+#: a real command hidden where the scan does not look.
+_SEPARATOR_CHARS = frozenset(";&|()<>" + chr(96) + "\n")
 
 #: `NAME=value` prefixes (Bash env assignments). `MOTV_CONTINUOUS_CHAIN=1 git
 #: commit` must still resolve to the command `git`.
@@ -456,15 +463,44 @@ def _basename(token: str) -> str:
     return tail.lower().removesuffix(".exe")
 
 
-def _tokenise_posix(command: str) -> list[list[str]] | None:
-    """Split a POSIX command line into simple commands of dequoted tokens.
+#: KNOWN LIMITATION, RECORDED ON PURPOSE - DO NOT "FIX" THIS WITH A SCANNER.
+#:
+#: A heredoc body is DATA, but this module tokenises the whole command text,
+#: so a body still participates in lexing. Two consequences, both accepted:
+#:
+#:   1. FALSE FULL RUNS. An odd number of apostrophes inside a body
+#:      (`# don't`, a Python ''' docstring, a stray apostrophe in a
+#:      Chinese comment) makes `shlex` report unbalanced quotes, and
+#:      `_tokenise_posix` then fails closed. So a command that merely EDITS A
+#:      FILE can be run through the whole suite - measured twice in two
+#:      independent sessions (2026-08-22/23); in a shared worktree it means
+#:      one session's red WIP blocks another session's unrelated edit.
+#:   2. FALSE POSITIVES ON DATA. A body containing the literal text
+#:      `git commit` / `git push` is scanned as if it were that command.
+#:
+#: TASK-104 tried to remove #1 by stripping heredoc bodies before lexing and
+#: WITHDREW it after four review rounds found a real bypass each time:
+#:   - stripping unquoted `<<EOF` hid `$(git commit ...)`, which the shell DOES
+#:     expand inside an unquoted body (commit-gate bypass);
+#:   - a quoted-delimiter LITERAL inside a quoted word looks exactly like an
+#:     opener, so a fake opener swallowed real commands - first with no
+#:     delimiter, then with one, then (after reordering) whenever any later
+#:     genuine body forced the recovery path;
+#:   - the last round's two findings pointed in OPPOSITE directions (be more
+#:     conservative on the recovery path vs stop treating valid bodies as
+#:     commands). That is the proof: one line/regex scanner cannot have both.
+#:
+#: Deciding heredoc extent needs the shell's own grammar. Until the hook can
+#: be handed a structurally parsed command - the move TASK-085 already made
+#: for PowerShell, where the shell itself splits and this module only judges
+#: - the honest state is: body text IS scanned, and both consequences above
+#: stand. Both err toward over-checking, the acceptable direction. Do not
+#: re-attempt this with a wider regex; that is how three bypasses got in.
 
-    Returns ``None`` when the text cannot be tokenised at all (an unbalanced
-    quote), which the caller turns into a fail-closed run. Such a command would
-    not run in bash either, so the cost is a wasted check run on something that
-    was already broken.
-    """
-    lexer = shlex.shlex(command, posix=True, punctuation_chars="();<>|&\n")
+
+def _lex_posix(text: str) -> list[str] | None:
+    """POSIX-split *text* into dequoted tokens, or None if the quoting is broken."""
+    lexer = shlex.shlex(text, posix=True, punctuation_chars="();<>|&" + chr(96) + "\n")
     # Newline must be a SEPARATOR, not whitespace: `git commit -m x\ngit push`
     # is two commands, and shlex's default whitespace set swallows the boundary.
     # Quoted newlines are unaffected -- they are consumed inside the quote state,
@@ -477,8 +513,22 @@ def _tokenise_posix(command: str) -> list[list[str]] | None:
     lexer.commenters = ""
     lexer.whitespace_split = True
     try:
-        tokens = list(lexer)
+        return list(lexer)
     except ValueError:
+        return None
+
+
+def _tokenise_posix(command: str) -> list[list[str]] | None:
+    """Split a POSIX command line into simple commands of dequoted tokens.
+
+    Returns ``None`` when the text cannot be tokenised at all (an unbalanced
+    quote), which the caller turns into a fail-closed run. Such a command would
+    not run in bash either, so the cost is a wasted check run on something that
+    was already broken.
+
+    """
+    tokens = _lex_posix(command)
+    if tokens is None:
         return None
 
     commands: list[list[str]] = [[]]

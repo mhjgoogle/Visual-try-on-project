@@ -2,7 +2,7 @@
 
 不是独立主工作流；任何工作流命中触发条件时进入。产出通常是：
 边界判断写进任务卡「架构影响」节；重大者立 ADR（AGENTS.md 第 21 条，
-技术 ADR 依 CLAUDE.md 授权自行 Accept）。
+技术 ADR 依 AGENTS.md §1 授权自行 Accept）。
 
 ## 触发条件（任一命中）
 
@@ -48,7 +48,7 @@
 - architecture drift
 
 确认是结构缺陷 → 先问 Minimum Necessary Foundation 那个问题
-（CLAUDE.md「范围与切片」）：**不修这个结构，当前任务能否在自己边界内
+（AGENTS.md §2「范围与切片」）：**不修这个结构，当前任务能否在自己边界内
 安全完成？** 能 → 记 Follow-up（TASK-087 总账），本任务不碰它
 （AGENTS.md 第 17 条：范围外不顺手修）；不能（真阻塞）→ 只做**最小范围**
 修复（另立卡，Refactor 工作流），报告里写明为什么绕不开，再回来做原任务。
