@@ -1,6 +1,10 @@
 # TASK-057：Production Upstream Workspace v1
 
-- 状态：进行中
+- 状态：**实现已完成并在基线内（2026-08-23 复查）；产品验收待用户在真实 Connected Project 上确认**
+  —— ~~进行中~~ 是状态漂移。证据：canvas 迁移 `v9 → v10` 就在 `src/services/canvasschema.js`，其文档注释直接署名「v9 → v10 (TASK-057 / ADR-0054)」，实现了本卡验收项里的 `story.brief`（Creative Brief 草稿+修订链）、`production.relationships` / `world` / `canon`、character `tier`、episode `beats` 与 `basedOn`（即验收项 8 的「Based on 上游版本」）。
+  当前 `CANVAS_SCHEMA_VERSION = 18`，本卡那一级迁移之上又叠了四个版本 —— 到不了 v18
+  而这一级没落地。**未代签的部分**：本卡验收清单要求在真实项目上逐条确认，那是
+  AGENTS.md §1 归产品负责人的判断，本 Agent 不代签
 - ADR：[ADR-0054](../adr/ADR-0054-production-upstream-workspace.md)
 - baseline：`6879370` + `7b182a3`（Connected Studio）
 - 风险级别：**高**（canvas schema v9 → v10 + 持久化 + 迁移）

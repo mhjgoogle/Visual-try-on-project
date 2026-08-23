@@ -1,6 +1,14 @@
 # TASK-051 — Production Studio UI 收敛（V1 视觉重建）
 
-- 状态：进行中（第一批 5 个界面已交付，待视觉验收）
+- 状态：**已退役（2026-08-23 复查）—— 界面归属被后续裁决取代，不是「仍在进行」**。
+  ~~进行中（第一批 5 个界面已交付，待视觉验收）~~：那批界面**已交付**，但
+  [ADR-0066](../adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)
+  此后把二级导航重新裁定为**固定十一页封闭集**，实施由
+  [TASK-073](TASK-073-fixed-ia-and-contextual-agent.md) 承接。证据：
+  `mockups/motv-workspace/src/ui/shell.js` 的 `PAGES` 就是那个十一页封闭集，旧模块
+  key 经 `MODULE_ALIAS` 映射过去。**所以本卡的「待视觉验收」已经没有对象** ——
+  今天要验的是十一页，不是本卡当时那批界面。视觉方向的成果保留在 IA 与
+  [创作者产品信息架构](../design/creator-product-information-architecture.md) 里
 - 归属里程碑：motv 原型 V1 之后的**表现层**收口检查点
 - 实施 Agent：单一实施者（AGENTS.md §14）
 - 依赖：motv M3–M11 全部已完成并冻结（数据/行为不变）

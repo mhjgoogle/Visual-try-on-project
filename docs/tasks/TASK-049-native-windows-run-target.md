@@ -1,6 +1,11 @@
 # TASK-049: 冻结 V1 并使其在原生 Windows 上可复现运行
 
-- Status: In Progress
+- Status: **Done（2026-08-23 复查）** —— 目标已达成**并被超越**：`.github/workflows/ci.yml` 里
+  Windows job 存在且已是**权威**那个（`name: Windows (authoritative, ADR-0062)`），
+  [ADR-0062](../adr/ADR-0062-windows-authoritative-environment.md) 已把 ADR-0049 的
+  「环境权威」部分从「受支持目标」反转为「权威」；2026-08-23 在原生 Windows 上跑过
+  完整全量（pytest 3333 passed / 58 skipped + serial 6 + 前端 1807 + ruff 591 文件）。
+  ~~In Progress~~ 是状态漂移，本卡要的东西早已成立
 - Owner: 单实施 Agent
 - 依据: ADR-0049（原生 Windows 作为受支持的运行+测试目标；supersede ADR-0001
   的 WSL-only 平台范围）、ADR-0007（文档权威与 supersession 规则）、AGENTS.md §2

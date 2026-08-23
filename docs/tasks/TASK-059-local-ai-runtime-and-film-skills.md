@@ -1,6 +1,10 @@
 # TASK-059：Local AI Runtime + Film Skill Runtime
 
-- 状态：进行中
+- 状态：**实现已完成并在基线内（2026-08-23 复查）；产品验收待用户在真实 Connected Project 上确认**
+  —— ~~进行中~~ 是状态漂移。证据：canvas 迁移 `v11 → v12` 在位；`/api/runtimes` 在 `server.py` 与 `src/services/runtime.js` 两侧都在（验收项 1）。Skill 包此后由 ADR-0067 / [TASK-075](TASK-075-product-skill-package.md) 进一步承接。
+  当前 `CANVAS_SCHEMA_VERSION = 18`，本卡那一级迁移之上又叠了四个版本 —— 到不了 v18
+  而这一级没落地。**未代签的部分**：本卡验收清单要求在真实项目上逐条确认，那是
+  AGENTS.md §1 归产品负责人的判断，本 Agent 不代签
 - ADR：[ADR-0056](../adr/ADR-0056-local-ai-runtime-and-film-skills.md)
 - baseline：TASK-058（schema v11）
 - 风险级别：**高**（新增本地进程执行路径 + schema v11 → v12 + 安全边界）

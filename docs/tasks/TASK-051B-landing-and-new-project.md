@@ -1,6 +1,10 @@
 # TASK-051B — 落地页收敛与「新建项目」（项目名 + 资产位置）
 
-- 状态：进行中（已实现，待验收）
+- 状态：**已退役（2026-08-23 复查）—— 实现已在基线内，剩余部分被后续卡承接**。
+  ~~进行中（已实现，待验收）~~：落地页与「新建项目」已实现；资产位置这条线此后由
+  [TASK-053](TASK-053-choose-project-location.md)（已验收并收口，随 ADR-0051）与
+  [TASK-055](TASK-055-project-rooted-storage.md)（已验收并收口，随 ADR-0053）承接，
+  界面归属并入 ADR-0066 的固定 IA。**本卡不再单独持有一个待验收项**
 - 前置：[TASK-051](TASK-051-production-studio-ui-convergence.md)、
   [TASK-051A](TASK-051A-ai-director-production-control-tower.md)
 - 触发：用户直接指示——「首页那个横幅没有什么必要。进入首页我只需要看到我曾经的

@@ -1,6 +1,12 @@
 # TASK-056 — 应用级数据移出仓库（小 checkpoint）
 
-- 状态：未开始（中优先级，不阻塞使用）
+- 状态：**未开始（中优先级，不阻塞使用）—— 2026-08-23 复查确认该状态属实**。
+  `mockups/motv-workspace/data/` 下 `projects.json` 与 `runs.json` 仍在仓库工作树里
+  （已 gitignore，未提交，但没搬到应用数据位置）；`server.py:113` / `:1521` 仍指向
+  `DATA_DIR`，`:1518` 的注释自己还写着「under TASK-056」。
+  **顺带记一条**：该目录里躺着 `runs.json.tmp19264` / `runs.json.tmp20772` 两个残留
+  临时文件 —— 原子写中断的产物，与 [TASK-087](TASK-087-followup-ledger.md) §6.2 记的
+  `os.replace` 偶发 `OSError` 是同一现象的落地证据。搬迁时一并处理临时文件清理
 - 前置：[ADR-0053 / TASK-055](TASK-055-project-rooted-storage.md)
 - 触发：用户 2026-08-11 的优先级裁定 —— 项目数据已经进了项目目录，但**应用级**
   数据还留在仓库里。

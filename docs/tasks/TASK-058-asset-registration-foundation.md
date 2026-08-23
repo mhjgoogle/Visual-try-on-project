@@ -1,6 +1,10 @@
 # TASK-058：Asset Registration Foundation（统一资产登记）
 
-- 状态：进行中
+- 状态：**实现已完成并在基线内（2026-08-23 复查）；产品验收待用户在真实 Connected Project 上确认**
+  —— ~~进行中~~ 是状态漂移。证据：canvas 迁移 `v10 → v11` 署名「checkpoint CP2 / ADR-0055」，为每条 Asset 记录加上 kind / displayName / originalFilename / links / tags / reusable / needsReview —— 正是验收项 3 与 4；`src/workflow/assetreg.js` 在位。
+  当前 `CANVAS_SCHEMA_VERSION = 18`，本卡那一级迁移之上又叠了四个版本 —— 到不了 v18
+  而这一级没落地。**未代签的部分**：本卡验收清单要求在真实项目上逐条确认，那是
+  AGENTS.md §1 归产品负责人的判断，本 Agent 不代签
 - ADR：[ADR-0055](../adr/ADR-0055-unified-asset-registration.md)
 - baseline：`83a8054`（Production Upstream v1 / schema v10）
 - 风险级别：**高**（canvas schema v10 → v11 + 全部媒体写入口 + 迁移）

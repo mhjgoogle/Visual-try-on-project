@@ -1,6 +1,10 @@
 # TASK-062：Integration / Production Graph
 
-- 状态：进行中
+- 状态：**实现已完成并在基线内（2026-08-23 复查）；产品验收待用户在真实 Connected Project 上确认**
+  —— ~~进行中~~ 是状态漂移。证据：canvas 迁移 `v13 → v14` 在位；生成登记 linkage 贯穿 `app.js` / `ui/cutreview.js` / `ui/production.js`。
+  当前 `CANVAS_SCHEMA_VERSION = 18`，本卡那一级迁移之上又叠了四个版本 —— 到不了 v18
+  而这一级没落地。**未代签的部分**：本卡验收清单要求在真实项目上逐条确认，那是
+  AGENTS.md §1 归产品负责人的判断，本 Agent 不代签
 - ADR：[ADR-0059](../adr/ADR-0059-production-graph-identity-contract.md)
 - baseline：`05c3f5d`
 - 风险级别：**高**（schema v13→v14 迁移 + 生成登记 linkage）→ 全量 pytest + 全量前端 + ruff + Codex 独立审查
