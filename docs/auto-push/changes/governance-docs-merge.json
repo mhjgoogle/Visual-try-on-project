@@ -7,7 +7,89 @@
   "chain_mode": false,
   "tasks": {
     "TASK-104": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "9f18bea308010f2940424a6c799f431d06ea2437",
+          "subject": "refactor(docs): 治理文档合并为一份 —— AGENTS.md 唯一规范，CLAUDE.md 收为入口，项目背景移出 docs/project-context.md（TASK-104）",
+          "time": "2026-08-23T02:08:32+00:00",
+          "branch": "change/TASK-104-governance-docs-merge",
+          "pushed": false,
+          "files": [
+            ".claude/skills/auto-push/references/merge-and-conflicts.md",
+            ".claude/skills/dev-workflow/SKILL.md",
+            ".claude/skills/dev-workflow/references/architecture.md",
+            ".claude/skills/dev-workflow/references/records.md",
+            ".claude/skills/dev-workflow/references/repo-contract.md",
+            "AGENTS.md",
+            "CLAUDE.md",
+            "docs/project-context.md",
+            "docs/tasks/TASK-104-governance-docs-merge.md",
+            "tests/studio/test_motv_shotstage_task092.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "0863b8c34fe87ddf6315e262b41f0fbea83036cd",
+          "subject": "fix(gate): heredoc 正文不再参与命令解析 —— 正文里奇数个撇号会让 shlex 解析失败并 fail-closed 到全量，于是纯编辑命令被别人的在制代码挡住（两会话实测）",
+          "time": "2026-08-23T02:08:33+00:00",
+          "branch": "change/TASK-104-governance-docs-merge",
+          "pushed": false,
+          "files": [
+            ".claude/hooks/commit_gate_policy.py",
+            "docs/tasks/TASK-104-governance-docs-merge.md",
+            "tests/tooling/test_commit_gate_policy.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "17a829a8a80cf524610f20dbbe5c04828a0d0cc2",
+          "subject": "fix(gate): 修 heredoc 摘除的 2 条 P1 —— 我上一版把'shell 不解析正文'当成普遍真理，那只对加引号定界符成立",
+          "time": "2026-08-23T02:08:33+00:00",
+          "branch": "change/TASK-104-governance-docs-merge",
+          "pushed": false,
+          "files": [
+            ".claude/hooks/commit_gate_policy.py",
+            "tests/tooling/test_commit_gate_policy.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "10bce957b63511a099212b5a1251c736350f5fb4",
+          "subject": "fix(gate): 第3轮 P1 —— 摘 heredoc 从常规预处理降级为「lex 失败时的补救」",
+          "time": "2026-08-23T02:08:34+00:00",
+          "branch": "change/TASK-104-governance-docs-merge",
+          "pushed": false,
+          "files": [
+            ".claude/hooks/commit_gate_policy.py",
+            "tests/tooling/test_commit_gate_policy.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "d52e2643852d0c3f4f0ec66ed5f4350173ed24f8",
+          "subject": "revert(gate): 撤回 heredoc 摘除 —— 四轮审查各查出一个真绕过，第4轮两条 finding 方向相反即证明不可兼得",
+          "time": "2026-08-23T02:08:34+00:00",
+          "branch": "change/TASK-104-governance-docs-merge",
+          "pushed": false,
+          "files": [
+            ".claude/hooks/commit_gate_policy.py",
+            "docs/tasks/TASK-104-governance-docs-merge.md",
+            "tests/tooling/test_commit_gate_policy.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "867aa6f1d060de15303ce3ec13423578f03200f6",
+          "subject": "docs(TASK-104): 收口 —— 撤回版审查 pass 零发现",
+          "time": "2026-08-23T02:08:35+00:00",
+          "branch": "change/TASK-104-governance-docs-merge",
+          "pushed": false,
+          "files": [
+            "docs/tasks/TASK-104-governance-docs-merge.md"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         ".claude/hooks/commit_gate_policy.py",
         ".claude/skills/auto-push/references/merge-and-conflicts.md",
