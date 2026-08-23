@@ -72,6 +72,22 @@
 | 3.6.4 | **前端入口 `app.js` 不可测** | TASK-102 批次 E | 低（已缓解） | 它是入口编排文件，`.test.mjs` 无法 import，所以它的架构不变量只能从**源码文本**侧断言。批次 E 已把这些守卫从 19 个测试文件收敛到 `tests/contract/` 一个文件（改 app.js 只碰一处），但断言的仍是写法而非性质。根治要拆 app.js 的编排层——属前端重构，另立卡 |
 | 3.6.5 | **auto-push 的 `scope_violation` 是过期快照，且无重算通道** | TASK-102 merge 时实测 | 中（会**无理由拦住 merge**） | `record-commit` 按**当时**申报的 `paths` 算 `scope_violation` 并存进清单；后续 `task-ready` 覆盖 `paths` 之后，旧快照与新申报不再一致，而 `merge` 只看快照 → `BLOCKED_SCOPE`。本次两条提交的 13 + 2 个「越界」文件其实全在最终申报范围内，用 `autopush._matches` 按当前申报重算后为 0。`stage` 有 `--allow-wide` 这个出口，`record-commit`／`merge` 侧没有对应物。修法建议：`merge` 前按当前 `paths` 重算，或加一个 `recheck-scope` 子命令；顺带考虑 `task-ready` 覆盖 `paths` 时就地重算历史记录。归 TASK-101 / auto-push skill |
 
+### 3.6b TASK-101/103/104 三条 Change 合并时暴露的四条（2026-08-23 登记）
+
+共同点与 3.6.5 同族：**登记表能记的和工具能读的对不上**，于是闸门在真实事实
+成立的情况下拦住合并 —— 每一条都靠人工核实事实后手工补，而不是工具自己收敛。
+
+| # | 欠账 | 来源 | 风险 | 它今天挡住什么 |
+| --- | --- | --- | --- | --- |
+| 3.6.6 | **`record-sync` 只能登记 HEAD，补登不了历史 sync merge** | TASK-104 合并实测 | 中 | 与 3.6.5 同一形状（`record-commit` 当初也只能记 HEAD，后来加了 `--hash` 才解）。本次 `premerge-sync` 由旧版产出 merge `1028d34`（那版不写 `sync_commits`），换成新版后 `_push_gates` 只认登记 → `BLOCKED_UNRECORDED_COMMITS`，而 `record-sync` 够不着那个 hash。**只能手工写进清单**（已自行复核形状：merge commit + 后位亲在 origin/main 上）。修法：给 `record-sync` 加 `--hash`，复用 `record_sync` 已有的两项形状校验 |
+| 3.6.7 | **merge 记录的形状不统一，`cleanup` 因此认不出已合并的 Change** | TASK-102 清单实测 | 中 | 手工合并时人写的是 `merge_commit` / `at`，而 `cleanup` 读的是 `merge["hash"]` → 对一条**确实已合并**的 Change 报 `BLOCKED_NOT_MERGED`。本次按加法补齐了 `hash` / `time`（未动既有字段）。根治要么给 merge 记录一个单一来源的写入口，要么让读侧接受两种键名 —— 前者对 |
+| 3.6.8 | **`writeback_needed` 恒为 `True`** | TASK-101 补审轮 2 non-blocking（判 P3） | 低 | 回写已提交后重跑 `record-commit` 仍答「有待办」，并给出会 `nothing to commit` 的命令。主路径本来就是无条件给的，非新引入；真实脏否由 `_dirty_gate` 在下次操作时判定 |
+| 3.6.9 | **`git branch -d` 在「本地领先其远端上游」时拒删，即便两个 tip 都已在 main 内** | `feat/wfm1-batch-c` 清理实测 | 低 | `cleanup` 返回 `BLOCKED_UNMERGED_COMMITS`。本次逐个核实那 7 个提交**全部**是 `origin/main` 的祖先（删除不丢任何提交），但 force 删除被会话权限层拦下，分支**至今未删**，状态记在 `wfm1-batch-c.json` 的 `cleanup` 字段里。修法：`cleanup` 在「所有领先提交都是 origin/main 祖先」时改用 `-D` 并说明理由，而不是把判断退回给人 |
+
+**一条方法论**（与 §7 同族）：这四条里有三条的形状是**「事实成立，但登记表说不出来」** ——
+不是守卫太严，是**事实的表示法有两套而读侧只认一套**。3.6.3「L0–S7 合同手抄三份」
+是同一个病在文档侧的样子。
+
 ## 4. 数据与状态的诚实性（每条都是「界面说的和事实不符」那一族）
 
 | # | 欠账 | 来源 | 风险 | 说明 |

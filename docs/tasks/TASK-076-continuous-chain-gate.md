@@ -1,6 +1,9 @@
 # TASK-076：让连续修改链在 commit gate 上真实生效
 
-- 状态：**已实施，待 Codex 复审**（审查者降级，见 §4）
+- 状态：**已完成** —— ~~已实施，待 Codex 复审~~（2026-08-23 订正）。`c1edb00` 的跨模型
+  补审已于 2026-08-16 完成（补审批次 G「链令牌与冲突扫描」，报 7 条 → 3 真已修
+  + 1 驳回 + 3 条转「仍然待办」，那 3 条此后也全部闭合，见
+  [待复审清单](../design/pending-codex-rereview.md)）
 - 负责 Agent：单一实施 Agent（AGENTS.md 第 14 条）
 - 依据：[ADR-0068](../adr/ADR-0068-continuous-modification-chain.md) 决策 7
 - 实施基线：`435f839`

@@ -94,5 +94,10 @@
     "mechanism": "本 Change 没有属于自己的 merge commit：它的历史是作为 change/TASK-102-repo-decoupling 的基底、随 TASK-102 的 merge ee6e47a 一并进入 main 的。2026-08-23 核实分支 tip 8f8e07d59ed9 确为 origin/main 的祖先，内容全部在 main 内，故如实登记为 merged 并指向 ee6e47a。",
     "recorded_by": "产品负责人 2026-08-23：「合并并收口」"
   },
-  "cleanup": null
+  "cleanup": {
+    "done": false,
+    "blocked_by": "Claude Code 会话权限分类器拒绝 git branch -D / git push origin --delete",
+    "why_force_was_needed": "git branch -d 拒删，因为本地 feat/wfm1-batch-c 领先其上游 origin/feat/wfm1-batch-c 共 7 个提交。但那 7 个提交已逐个核实**全部**在 origin/main 上（本地 tip 8f8e07d59ed9 与远端 tip 1afca98d1f97 都是 origin/main 的祖先），删除不丢任何提交。",
+    "pending_action": "本地与远端分支 feat/wfm1-batch-c 待删；需用户放行或自行执行"
+  }
 }

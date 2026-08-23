@@ -2,7 +2,7 @@
   "schema": 1,
   "change_id": "repo-decoupling",
   "branch": "change/TASK-102-repo-decoupling",
-  "status": "open",
+  "status": "closed",
   "created": "2026-08-22T07:18:22+00:00",
   "chain_mode": false,
   "tasks": {
@@ -251,5 +251,9 @@
     "time": "2026-08-22T23:05:20+09:00",
     "shape_note": "hash / time 为 2026-08-23 补齐：本条 merge 记录由 2026-08-22 手工合并时手写（字段名 merge_commit / at），与 auto-push 自己写的形状不同，导致 cleanup 读不到 merge[\"hash\"] 而报 BLOCKED_NOT_MERGED。只做加法，未改任何既有字段。"
   },
-  "cleanup": null
+  "cleanup": {
+    "local_deleted": true,
+    "remote_deleted": true,
+    "time": "2026-08-23T02:36:59+00:00"
+  }
 }

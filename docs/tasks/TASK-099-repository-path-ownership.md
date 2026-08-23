@@ -1,6 +1,8 @@
 # TASK-099：仓库根目录治理与启动器归档
 
-- 状态：**已实施，待共享工作树全量闸门**（2026-08-22）
+- 状态：**已完成（2026-08-23）** —— ~~待共享工作树全量闸门~~：该闸门已过。
+  本卡内容随 `ee6e47a` 进入 main，2026-08-23 在含本卡的 main 上跑过完整全量
+  （pytest 3333 passed / 58 skipped + serial 6 + 前端 1807 + ruff 591 文件全过）
 - Owner：Codex
 - 决策：[ADR-0077](../adr/ADR-0077-repository-path-ownership.md)
 

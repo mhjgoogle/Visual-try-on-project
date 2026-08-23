@@ -1,6 +1,8 @@
 # TASK-101：auto-push Skill v0.1 —— Task 级自动 commit/push 与受控合并
 
-- 状态：完成
+- 状态：完成 · **已合入 main（2026-08-23，产品负责人「合并并收口」）**，merge commit `17372a1`。v0.1.1 轮 3 三处修复的补审已闭合
+  （codex 跨模型 2 轮：轮 1 报 1 P1「拒登 merge 的守卫排在去重早退之后，只盖新登记
+  盖不住存量」已修 + 1 P2 已修 + 1 条驳回，轮 2 pass；两个方向变异均杀死）
 - Workflow：Feature · 深度：DEEP
 - 关联 Requirement：REQ-001（产品负责人 2026-08-22 原始指令）
 - 目标：dev-workflow 判定 Task 完成 + 定向验证 PASS 后自动 stage（仅当前
