@@ -24,7 +24,7 @@
 
 | # | 欠账 | 来源 | 风险 | 为什么还没做 |
 | --- | --- | --- | --- | --- |
-| 1.1 | **参考数组化 + `{{Image N}}` + `ProviderRequest` 多图契约** | GAP-27/28 · TASK-083 ADR-A | **高** · 需 ADR | 是 1.2 / 3.1 / 3.2 的硬前置。LibTV 实测 wire format 已贴在 TASK-083 里，不用重查 |
+| 1.1 | ~~**参考数组化 + `{{Image N}}` + `ProviderRequest` 多图契约**~~ **已闭合（2026-08-23 复查）** | GAP-27/28 · TASK-083 ADR-A | —— | 决策 [ADR-0071](../adr/ADR-0071-reference-inputs-as-an-ordered-set.md)（Accepted 2026-08-17，付费口径方案 C 由产品负责人拍板），实现 TASK-097 批次 0/2。四点全落：`refset.js` 有序 ordinal、`{{Image N}}`、`ProviderRequest.reference_images` + catalog 按 model 声明 `max_images`、能力不足 **fail-closed 两道**。~~是 1.2 / 3.1 / 3.2 的硬前置~~ —— **这道前置已经不存在了**，它却一直挂在这里，把 3.1 / 3.2 也标成「等 1.1」 |
 | 1.2 | ~~**评价 / 反馈 / 行动闭环接进 Studio Gateway**~~ **评价一半已闭合（TASK-103 批次 B · `6bb6751`）；反馈一半仍开着** | GAP-05 · TASK-079 §7 · TASK-083 §5.1 | **高**（跨层写路径） | 四条 LOW-risk 命令已注册进 Studio Gateway（共享缝 `register_creative_loop_commands`，规格不复制），审片页的「✓ 通过 / 撤销通过」经网关落核心并把回执记在 `reviewsDoc.coreSync` 上如实显示。**没做的那一半**：`create-feedback` 至今没有调用方 —— 不是忘了接，是**界面上根本没有「提出审片问题」这个动作**（`workflow/review.js` 的 `issue()` 在整个 `src/` 里零调用方）。本卡曾一度写了个 `feedbackFor` 构造器并配测试，codex 轮 1 判为 P1（导出了、测了、没人用，且让「闭环已接通」这句话看起来成立），已删除。见新增的 §5.9 |
 
 ## 2. 安全 / 质量门（能力边界，说清比堵死重要）
@@ -42,7 +42,7 @@
 > 它的四条里 **2.1 / 2.3 早已被 TASK-085 等做掉**，只剩这两条。登记在此是为了「还欠
 > 什么」能一眼看完；**细节与证据不复制**，在 TASK-052 各小节的开头。
 
-## 3. 领域能力（需 ADR，等 1.1）
+## 3. 领域能力（需 ADR）—— ~~等 1.1~~ **1.1 已于 2026-08-23 闭合，这一节不再被它挡住**
 
 | # | 欠账 | 来源 | 风险 |
 | --- | --- | --- | --- |

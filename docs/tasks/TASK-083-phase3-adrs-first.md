@@ -1,6 +1,14 @@
 # TASK-083：Phase 3 —— 先落 ADR，再谈实现
 
-- 状态：**未开工**
+- 状态：**过半已完成（2026-08-23 复查）—— ~~未开工~~ 是过期状态**。逐项核实：
+  **ADR-A 已定且已实施** → [ADR-0071](../adr/ADR-0071-reference-inputs-as-an-ordered-set.md)
+  （Accepted 2026-08-17，其头部就写着「实施：TASK-083 ADR-A」；付费口径由产品负责人
+  拍板方案 C），实现落在 TASK-097 批次 0/2。
+  **§5.1 评价闭环接线** → 已由 [TASK-103](TASK-103-frontback-and-ui-residuals.md) 批次 B 完成。
+  **§5.2 后端媒体探针路由** → 已由 TASK-103 批次 C 完成。
+  **剩下的是 ADR-B / C / D**：按本卡 §6 的顺序，下一个是 **ADR-C（从图创建角色）**；
+  ADR-B 仍在等真实使用数据（本卡自己写着「不要在没有使用数据的情况下设计预设库」）；
+  ADR-D 排最后
 - 负责 Agent：单一实施 Agent（AGENTS.md 第 14 条）
 - 依据：[UI Gap Audit](../../src/ui-gap-audit/) GAP-05 / 16 / 17 / 21 / 23 / 27 / 28，
   [ui-correction-plan.md](../../src/ui-gap-audit/reports/ui-correction-plan.md) Phase 3
@@ -24,6 +32,18 @@ AGENTS.md 第 21 条：重大设计变更必须先有 ADR。
 ---
 
 ## 1. ADR-A：参考输入的形态与 Provider 多图契约（GAP-27 + GAP-28）
+
+> **已闭合（2026-08-23 复查）** —— 决策见
+> [ADR-0071](../adr/ADR-0071-reference-inputs-as-an-ordered-set.md)（Accepted 2026-08-17），
+> 实现见 TASK-097 批次 0/2。下面四个「必须决定」逐条对上：
+> ① 有序集合 → `src/workflow/refset.js`（`ordinal` 1..N 连续、删除后重编号）；
+> ② `{{Image N}}` 引用语法 → `refset.js` / `ui/gencard.js`；
+> ③ `ProviderRequest.reference_images` 加法字段 + catalog 按 model 声明能力
+> （`config/catalog.py` 的 `ReferenceImageCapability.max_images`）；
+> ④ 不支持时 **fail-closed 拒绝而不是静默丢弃** —— `paid_coordinator.py:1045` 一道，
+> `cloud_minimax.py:_payload` 边界上第二道（注释原话：静默省略正是本 ADR 要消除的
+> 「界面说送了四张图」那个缺陷）。
+
 
 **这是 Phase 3 里唯一必须先做的一条** —— GAP-16/17/21 都会用到它定下的形状。
 
@@ -112,6 +132,11 @@ body = { model, prompt, duration, resolution, first_frame_image? }
 
 ### 5.1 评价 / 反馈 / 行动闭环接进 Studio（GAP-05）
 
+> **已闭合（2026-08-23 复查）** —— [TASK-103](TASK-103-frontback-and-ui-residuals.md)
+> 批次 B：四个 LOW-risk 命令从 `workspace_shell` 抽成共享缝并在 Studio 注册，
+> 审片「✓通过/撤销」经网关落核心。`workspace_shell` 的去留也在该卡内决定。
+
+
 四个 LOW-risk Gateway 命令（`record-evaluation` / `create-feedback` /
 `create-action` / `action-transition`）**已经实现并注册在 `workspace_shell`**
 （`app/gateway_commands.py:60-84`），Studio 的 `_command_gateway`
@@ -127,6 +152,11 @@ AI 导演的「问题」接 `create-feedback`。
 Studio 建的项目没有。要么让它能发现，要么在文档里明确它只服务 WFM1 核心项目。
 
 ### 5.2 后端媒体探针路由（GAP-02 的彻底解法）
+
+> **已闭合（2026-08-23 复查）** —— TASK-103 批次 C：只读 `media-audit` 路由，
+> 消除 `INCONCLUSIVE`；顺带做了 ffprobe-only 的单文件 measure。
+> 「写 `storageState: missing`」那条仍未做（TASK-087 §4.1，高风险，单独评估）。
+
 
 TASK-077 用前端 `HEAD` 探测 + 三态（`PRESENT / MISSING / INCONCLUSIVE`）解决了显示。
 彻底解法是一个只读路由 `GET /api/projects/<p>/media-audit`，
