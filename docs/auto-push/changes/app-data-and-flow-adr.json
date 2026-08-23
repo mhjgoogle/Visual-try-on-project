@@ -172,7 +172,23 @@
       "declared": "2026-08-23T10:22:40+00:00"
     },
     "TASK-073": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "1f65ec441af9c20955157611cd18460cad7de100",
+          "subject": "refactor(TASK-073 §1.8): 提示词域搬进 controllers/promptctl.js（第五批）",
+          "time": "2026-08-23T10:52:19+00:00",
+          "branch": "change/TASK-056-app-data-location",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/app-data-and-flow-adr.json",
+            "docs/tasks/active/TASK-073-fixed-ia-and-contextual-agent.md",
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/src/controllers/promptctl.js",
+            "mockups/motv-workspace/tests/promptrefs.test.mjs"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/tasks/active/TASK-073-fixed-ia-and-contextual-agent.md",
         "mockups/motv-workspace/src/app.js",
