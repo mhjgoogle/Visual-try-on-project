@@ -206,7 +206,7 @@
           "subject": "fix(TASK-087): auto-push 工装两条欠账闭合 + 陈旧分支清理，交接卡收口",
           "time": "2026-08-23T11:45:02+00:00",
           "branch": "change/TASK-056-app-data-location",
-          "pushed": false,
+          "pushed": true,
           "files": [
             ".claude/skills/auto-push/scripts/autopush.py",
             "docs/STATUS.md",
