@@ -160,8 +160,35 @@ append_untracked_diff() {
   fi
   while IFS= read -r -d '' f; do
     [ -f "$f" ] || continue                          # skip dirs/sockets
-    if [ -s "$f" ] && ! grep -Iq '' "$f" 2>/dev/null; then
-      continue                                       # non-empty binary -> skip
+    if [ -s "$f" ]; then
+      # `grep -Iq` answers non-zero for BINARY *and* for UNREADABLE, so on its
+      # own it skipped a locked/permission-denied source file as if it were
+      # binary -- the round then came back `pass` without that file ever being
+      # reviewed (TASK-052 §2.4). Separate the two: unreadable is an ENV_ERROR,
+      # only genuinely binary is skipped. Same verdict as the .ps1 variant
+      # (ADR-0050 决策 1).
+      if ! head -c 1 -- "$f" >/dev/null 2>&1; then
+        status "ENV_ERROR: cannot read untracked '$f'"
+        echo "ENV_ERROR: cannot read untracked file '$f'; refusing to review a diff that would silently omit it."
+        exit 0
+      fi
+      if ! grep -Iq '' "$f" 2>/dev/null; then
+        # grep answered non-zero. That means BINARY only if the file is still
+        # readable -- a failure that appeared after the probe above (file
+        # replaced, ACL revoked, I/O error) would otherwise be skipped just
+        # like binary, which is the very hole this section closes
+        # (codex review round 2).
+        # Read the WHOLE file, not just its first byte: `grep -Iq` reads to the
+        # end, so the failure it reported may have happened anywhere in the
+        # file. A one-byte probe would still call that "binary" and skip it
+        # (codex review round 3).
+        if ! cat -- "$f" >/dev/null 2>&1; then
+          status "ENV_ERROR: cannot read untracked '$f'"
+          echo "ENV_ERROR: cannot read untracked file '$f'; refusing to review a diff that would silently omit it."
+          exit 0
+        fi
+        continue                                     # non-empty binary -> skip
+      fi
     fi
     set +e
     out="$(git diff -U"$CTX" --no-index -- /dev/null "$f" 2>"$ERRFILE")"

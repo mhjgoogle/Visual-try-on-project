@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 import sys
 import threading
+import time
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -577,3 +579,300 @@ def test_stopping_server_leaves_core_files_untouched(tmp_path, monkeypatch):
     server.server_close()
     thread.join(timeout=5)
     assert snapshot() == before  # backend read nothing into existence, wrote nothing
+
+
+# --- TASK-052 §2.2: a declared-but-undelivered body must not pin the thread ---
+
+
+def _serve_in_background(server):
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return thread
+
+
+def test_declared_body_never_delivered_is_bounded(tmp_path, monkeypatch):
+    """A byte cap alone does not close this: the client declares a perfectly
+    legal small Content-Length and then sends nothing. Before TASK-052 §2.2 the
+    drain loop waited on that socket forever and the handler thread was gone for
+    good (slowloris). The bound must make the server answer and let go.
+    """
+    import socket as socket_mod
+
+    from workspace_shell import server as server_mod
+
+    # Shrink both bounds so the test asserts the mechanism, not the wall clock.
+    monkeypatch.setattr(server_mod, "_BODY_DEADLINE_SECONDS", 0.5)
+    monkeypatch.setattr(server_mod._Handler, "timeout", 0.5)
+
+    httpd = server_mod.build_server(tmp_path, port=0, clock=_clock)
+    host, port = httpd.server_address[0], httpd.server_address[1]
+    _serve_in_background(httpd)
+    try:
+        with socket_mod.create_connection((host, port), timeout=10) as sock:
+            sock.sendall(
+                b"POST /api/anything HTTP/1.1\r\n"
+                b"Host: 127.0.0.1\r\n"
+                b"Content-Length: 5000\r\n"
+                b"\r\n"
+                # ...and then not one byte of the 5000 promised.
+            )
+            sock.settimeout(10)
+            head = b""
+            while b"\r\n\r\n" not in head:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                head += chunk
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+    # It answered rather than hanging. Which refusal it is (405 for the verb,
+    # 408 for the body) is not the point — that it CAME BACK is.
+    assert head.startswith(b"HTTP/1.1 "), head[:80]
+    assert b" 405 " in head or b" 408 " in head, head[:120]
+
+
+def test_read_bounded_gives_up_on_a_slow_drip(monkeypatch):
+    """The per-read socket timeout cannot catch this one: every individual read
+    arrives in time, the body just never finishes. Only the total deadline does.
+    """
+    from workspace_shell import server as server_mod
+
+    monkeypatch.setattr(server_mod, "_BODY_DEADLINE_SECONDS", 0.3)
+
+    class _DripFile:
+        """One byte per read, promptly — forever, up to a hard stop.
+
+        The hard stop is what makes a REGRESSION fail fast instead of hanging
+        the suite: without the deadline the read loop never ends, so a bare
+        `return b"x"` would turn this test into a 60-second timeout instead of
+        a red assertion (verified by mutation — removing the deadline check
+        made the run hit the harness timeout at exit 124).
+        """
+
+        LIMIT = 2000
+
+        def __init__(self):
+            self.reads = 0
+
+        def read(self, _n):
+            # The real rfile is a BufferedReader, whose read(n) blocks until it
+            # has ALL n bytes. If _read_bounded calls this, one call parks for
+            # as long as the peer likes and the deadline is never rechecked --
+            # the bound is present and useless (codex review, TASK-052 §2.2).
+            raise AssertionError(
+                "_read_bounded must use read1(): read() blocks until n bytes "
+                "and starves the deadline check"
+            )
+
+        def read1(self, _n):
+            self.reads += 1
+            if self.reads > self.LIMIT:
+                raise AssertionError(
+                    f"_read_bounded kept reading past {self.LIMIT} chunks — "
+                    "the total deadline is not bounding the drip (TASK-052 §2.2)"
+                )
+            time.sleep(0.001)
+            return b"x"
+
+    handler = object.__new__(server_mod._Handler)
+    handler.close_connection = False
+    handler.rfile = _DripFile()
+
+    started = time.monotonic()
+    out = handler._read_bounded(10_000_000)
+    elapsed = time.monotonic() - started
+
+    assert out is None, "a body that never finishes must not be returned"
+    assert handler.close_connection is True
+    assert elapsed < 5, f"deadline did not fire (took {elapsed:.1f}s)"
+    assert handler.rfile.reads > 1, "the drip should have been read, then cut off"
+    # `_DripFile.read` raises if called, so reaching here also proves the
+    # single-syscall path (`read1`) is the one in use.
+
+
+def test_slow_headers_do_not_pin_the_handler(tmp_path, monkeypatch):
+    """The body bound cannot reach this one: the request line and headers are
+    read inside http.server, where no deadline of ours is consulted. Only the
+    connection watchdog closes it (codex review round 2, TASK-052 §2.2).
+    """
+    import socket as socket_mod
+
+    from workspace_shell import server as server_mod
+
+    monkeypatch.setattr(server_mod, "_CONNECTION_DEADLINE_SECONDS", 1.0)
+    # Deliberately LONGER than the watchdog: this test must prove the watchdog
+    # is what cuts the connection, not the per-read socket timeout.
+    monkeypatch.setattr(server_mod._Handler, "timeout", 30.0)
+
+    httpd = server_mod.build_server(tmp_path, port=0, clock=_clock)
+    host, port = httpd.server_address[0], httpd.server_address[1]
+    _serve_in_background(httpd)
+    try:
+        with socket_mod.create_connection((host, port), timeout=20) as sock:
+            # A request that never ends: header bytes trickle, no blank line.
+            sock.sendall(b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n")
+            started = time.monotonic()
+            sock.settimeout(20)
+            while True:
+                sock.sendall(b"X-Pad: x\r\n")
+                try:
+                    if not sock.recv(4096):
+                        break  # server hung up — the watchdog fired
+                except OSError:
+                    break  # connection reset by the shutdown — same thing
+                if time.monotonic() - started > 15:
+                    raise AssertionError(
+                        "the connection watchdog never fired — slow headers "
+                        "still pin the handler (TASK-052 §2.2)"
+                    )
+                time.sleep(0.05)
+            elapsed = time.monotonic() - started
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+    assert elapsed < 15, f"watchdog too slow ({elapsed:.1f}s)"
+
+
+def test_keep_alive_survives_past_the_watchdog_window(tmp_path, monkeypatch):
+    """The watchdog must bound a REQUEST, not the conversation.
+
+    Arming it once per connection cut well-behaved keep-alive clients loose at
+    the deadline (codex review round 3) — a guard that starts failing real
+    traffic is worse than the drip it was added to stop. Several quick requests
+    spanning more than one watchdog window must all be answered on ONE socket.
+    """
+    import socket as socket_mod
+
+    from workspace_shell import server as server_mod
+
+    # The gap between requests must sit COMFORTABLY under the budget and the
+    # whole conversation comfortably over it. The budget starts when we begin
+    # waiting for a request, not when its first byte lands (that wait has to be
+    # inside the window, or a header drip would escape it — round 2), so tuning
+    # the gap right up against the deadline makes this test flaky rather than
+    # strict. In production the two never collide: an idle keep-alive socket is
+    # closed by `timeout` (10s) long before the 60s watchdog.
+    monkeypatch.setattr(server_mod, "_CONNECTION_DEADLINE_SECONDS", 1.5)
+    httpd = server_mod.build_server(tmp_path, port=0, clock=_clock)
+    host, port = httpd.server_address[0], httpd.server_address[1]
+    _serve_in_background(httpd)
+    answered = 0
+    try:
+        with socket_mod.create_connection((host, port), timeout=10) as sock:
+            sock.settimeout(10)
+            for _ in range(6):
+                sock.sendall(b"GET /api/meta HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+                buf = b""
+
+                def _pull(so_far=answered):
+                    chunk = sock.recv(4096)
+                    if not chunk:
+                        raise AssertionError(
+                            f"connection dropped after {so_far} request(s) — "
+                            "the watchdog is bounding the CONNECTION, not the "
+                            "request (TASK-052 §2.2)"
+                        )
+                    return chunk
+
+                while b"\r\n\r\n" not in buf:
+                    buf += _pull()
+                head, _, rest = buf.partition(b"\r\n\r\n")
+                assert head.startswith(b"HTTP/1.1 "), head[:60]
+                # Drain the BODY too. Leaving it in the socket makes the next
+                # response start behind the previous one's bytes — an earlier
+                # version of this test did exactly that and then blamed the
+                # server for its own bookkeeping.
+                match = re.search(rb"[Cc]ontent-[Ll]ength:\s*(\d+)", head)
+                want = int(match.group(1)) if match else 0
+                while len(rest) < want:
+                    rest += _pull()
+                answered += 1
+                # Straddle the watchdog window between requests.
+                time.sleep(0.5)
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+    assert answered == 6, f"only {answered} of 6 requests were answered"
+
+
+def test_a_slow_application_is_not_cut_off(tmp_path, monkeypatch):
+    """The watchdog bounds time spent WAITING ON THE PEER, nothing else.
+
+    Leaving it armed across application execution disconnected legitimate slow
+    requests mid-flight (codex review round 4) — and on the write path that is
+    a client-visible failure over a mutation that already happened. A slow
+    application is our own problem, not a slowloris.
+    """
+    import urllib.error
+
+    from workspace_shell import server as server_mod
+
+    monkeypatch.setattr(server_mod, "_CONNECTION_DEADLINE_SECONDS", 0.3)
+
+    httpd = server_mod.build_server(tmp_path, port=0, clock=_clock)
+    host, port = httpd.server_address[0], httpd.server_address[1]
+
+    real_handle = httpd.app.handle
+
+    def slow_handle(path):
+        time.sleep(1.5)  # five watchdog windows of pure application time
+        return real_handle(path)
+
+    httpd.app.handle = slow_handle
+    _serve_in_background(httpd)
+    try:
+        with urllib.request.urlopen(
+            f"http://{host}:{port}/api/projects", timeout=20
+        ) as r:
+            status, body = r.status, r.read()
+    except (urllib.error.URLError, ConnectionError) as exc:
+        raise AssertionError(
+            f"the watchdog cut a slow APPLICATION off ({exc}) — it must only "
+            "bound waiting on the peer (TASK-052 §2.2)"
+        ) from exc
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+    assert status == 200
+    assert body, "a slow but successful request must still deliver its body"
+
+
+def test_a_superseded_watchdog_callback_does_nothing():
+    """Timer.cancel() only stops a timer that has not STARTED. A callback
+    already on its way runs anyway, and before the generation guard it would
+    shut the socket down after the header deadline was cancelled and the
+    application had begun — losing the response to a request whose mutation had
+    already happened (codex review round 5).
+    """
+    from workspace_shell import server as server_mod
+
+    handler = object.__new__(server_mod._Handler)
+    handler._watchdog = None
+    handler._cancel_watchdog()
+    stale_generation = handler._watchdog_generation
+    handler._cancel_watchdog()  # a newer window opened; the old one is over
+
+    class _Socket:
+        def shutdown(self, _how):
+            raise AssertionError(
+                "a superseded watchdog callback must not touch the socket"
+            )
+
+    handler.connection = _Socket()
+    handler.close_connection = False
+    handler._force_close(stale_generation)
+    assert handler.close_connection is False
+
+    # ...and the CURRENT generation still closes, or the guard would be inert.
+    closed = []
+    handler.connection = type(
+        "S", (), {"shutdown": lambda self, how: closed.append(how)}
+    )()
+    handler._force_close(handler._watchdog_generation)
+    assert handler.close_connection is True
+    assert closed, "the live watchdog must still shut the socket down"

@@ -17,7 +17,7 @@
 | `docs/requirements/` | 需求记录：DRAFT / CONFIRMED / SUPERSEDED |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：14 项在办 · 92 项已完成 · 67 条 ADR。
+**当前**：13 项在办 · 93 项已完成 · 67 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -36,7 +36,6 @@
 | [TASK-037-wfm2-end-to-end-acceptance.md](tasks/active/TASK-037-wfm2-end-to-end-acceptance.md) | TASK-037：WFM2 正式作品端到端验收 | Evidence Ready — 等用户一句话确认（2026-08-04） |
 | [TASK-040-final-unified-product-acceptance.md](tasks/active/TASK-040-final-unified-product-acceptance.md) | TASK-040：AI 短剧工作流与 Creation Workspace 最终统一验收 | Evidence Ready — 等用户一句话确认（2026-08-04） |
 | [TASK-041-workspace-generation-command-and-evidence.md](tasks/active/TASK-041-workspace-generation-command-and-evidence.md) | TASK-041: 工作视窗付费视频生成命令 + UI 接入 + 1 次真实证据 | Accepted（2026-08-07，用户「同意」） |
-| [TASK-052-agent-tooling-and-shell-hardening.md](tasks/active/TASK-052-agent-tooling-and-shell-hardening.md) | TASK-052 — Agent 工装与 workspace_shell 加固（审查遗留收口） | 部分已闭合（2026-08-23 复查） |
 | [TASK-056-app-storage-location.md](tasks/active/TASK-056-app-storage-location.md) | TASK-056 — 应用级数据移出仓库（小 checkpoint） | 未开始（中优先级，不阻塞使用） |
 | [TASK-072-system-contract-and-persistent-runs.md](tasks/active/TASK-072-system-contract-and-persistent-runs.md) | TASK-072：第二阶段 —— 后端合同、持久化任务、版本管理与兼容层 | 批次一已完成并提交（70dab40） |
 | [TASK-073-fixed-ia-and-contextual-agent.md](tasks/active/TASK-073-fixed-ia-and-contextual-agent.md) | TASK-073：第三阶段 —— 前端信息架构、页面重构与上下文 Agent 交互 | 大部分已实施（2026-08-14/15） |
@@ -108,6 +107,7 @@
 | [TASK-051-production-studio-ui-convergence.md](tasks/done/TASK-051-production-studio-ui-convergence.md) | TASK-051 — Production Studio UI 收敛（V1 视觉重建） | 已退役（2026-08-23 复查） |
 | [TASK-051A-ai-director-production-control-tower.md](tasks/done/TASK-051A-ai-director-production-control-tower.md) | TASK-051A — AI 导演升级为生产控制塔（Production Control Tower） | 已退役（2026-08-23 复查） |
 | [TASK-051B-landing-and-new-project.md](tasks/done/TASK-051B-landing-and-new-project.md) | TASK-051B — 落地页收敛与「新建项目」（项目名 + 资产位置） | 已退役（2026-08-23 复查） |
+| [TASK-052-agent-tooling-and-shell-hardening.md](tasks/done/TASK-052-agent-tooling-and-shell-hardening.md) | TASK-052 — Agent 工装与 workspace_shell 加固（审查遗留收口） | 已完成（2026-08-23） |
 | [TASK-053-choose-project-location.md](tasks/done/TASK-053-choose-project-location.md) | TASK-053 — 在界面里选任意路径，后端就往那儿写 | 已验收并收口（2026-08-13，随 ADR-0051 一并收口） |
 | [TASK-054-workflow-provenance-graph.md](tasks/done/TASK-054-workflow-provenance-graph.md) | TASK-054 — 工作流页面重做：生成溯源图 | 已验收并收口（产品负责人 2026-08-13，随 ADR-0052 / ADR-0066 一并收口） |
 | [TASK-055-project-rooted-storage.md](tasks/done/TASK-055-project-rooted-storage.md) | TASK-055 — Studio 数据与媒体落在项目目录内（high-risk checkpoint） | 已验收并收口（2026-08-13，随 ADR-0053 一并收口） |

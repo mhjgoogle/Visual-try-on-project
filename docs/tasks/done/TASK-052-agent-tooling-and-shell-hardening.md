@@ -1,6 +1,9 @@
 # TASK-052 — Agent 工装与 workspace_shell 加固（审查遗留收口）
 
-- 状态：**部分已闭合（2026-08-23 复查）—— 四条里 2.1 / 2.3 已做，2.2 / 2.4 仍在**。
+- 状态：**已完成（2026-08-23）—— 四条全部闭合**。2.1 由 TASK-085 / ADR-0070 做掉、
+  2.3 已修（均在 2026-08-23 复查中确认）；**2.2 与 2.4 本轮实施**，codex 跨模型
+  **5 轮**（轮 1/2/3/4 各报出 P1，轮 5 pass 零 blocking），报告见
+  `.claude/tmp/last-review.md`。
   ~~待开始~~ 不准确：2.1 被 [TASK-085](../done/TASK-085-gate-intent-detection.md) /
   [ADR-0070](../../adr/ADR-0070-commit-gate-intent-by-shell-parser.md) 整条做掉，
   2.3 也已修。逐条结论就写在下面各小节的开头，**剩 2.2 与 2.4 两条**
@@ -44,7 +47,16 @@ blocking。它们与 UI 检查点无关，按 AGENTS.md §17 未在那两张卡�
 
 ### 2.2 `src/workspace_shell/server.py` — `_discard_body()` 无超时阻塞读
 
-> **仍未闭合（2026-08-23 复查）—— 只做了一半。** 现在有**字节上界**
+> **已闭合（2026-08-23 实施）。** 三道界，一道都不多余：
+> ① 每次读的停顿界（`_Handler.timeout`）；
+> ② body 的总时限（`_read_bounded`，且必须用 `read1()` —— `BufferedReader.read(n)`
+>   会等满 n 字节，单次调用就能把时限饿死，审查轮 1 报的正是这条）；
+> ③ **连接级看门狗**，因为请求行与头部在 `http.server` 内部读，我的时限够不到
+>   （轮 2）。看门狗只盖**等待对端**的时间：按请求而不是按连接重新计时（轮 3），
+>   且在 `parse_request` 后取消、只在 body 读取时重新 arm（轮 4）——
+>   慢的应用是我们自己的问题，不是 slowloris。过期回调由代次号变成空操作（轮 5）。
+>
+> ~~仍未闭合（2026-08-23 复查）—— 只做了一半。~~ 现在有**字节上界**
 > （`_MAX_BODY_BYTES`，见 `server.py:92` 的 docstring），但**没有时间上界**：
 > `_Handler` 既无 `timeout` 类属性也没有 `settimeout`。本条描述的向量因此依然成立
 > ——**声明一个合法范围内的 `Content-Length` 再慢速发送**，字节上界拦不住它，
@@ -69,7 +81,14 @@ POSIX 上把所有 `EACCES` / `EPERM` 都当作「本平台不支持符号链接
 
 ### 2.4 `.claude/skills/codex-review-loop/scripts/run-review.ps1` — `Test-BinaryFile`
 
-> **仍未闭合（2026-08-23 复查）** —— `run-review.ps1:330` 仍是
+> **已闭合（2026-08-23 实施）。** 两个 shell 都改：读取失败不再答「二进制」，
+> 而是走 ENV_ERROR —— 与两脚本在 `git diff` 失败时已有的姿态一致，拒绝审查
+> 好过审查一个有洞的 diff。`.sh` 侧 `grep -Iq` 对二进制与不可读同样返回非零，
+> 因此前后各加一次可读性判定（复查用 `cat` 读完整个文件，覆盖中途 I/O 错误）。
+> 守卫由 `tests/tooling/test_review_script_readability.py` 钉住，两 shell 判定一致
+> （ADR-0050 决策 1）。
+>
+> ~~仍未闭合（2026-08-23 复查）~~ —— `run-review.ps1:330` 曾是
 > `catch { return $true }`，注释原话 `unreadable -> treat as binary and skip`。
 > 被 ACL / 共享锁锁住的源码文件依旧在**没有被审查**的情况下拿到 pass。
 

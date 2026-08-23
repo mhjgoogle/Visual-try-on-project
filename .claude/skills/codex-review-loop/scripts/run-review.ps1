@@ -315,21 +315,23 @@ function Invoke-GitDiffOrFail {
 # added-file diff via --no-index. Respects .gitignore and the same $Excludes.
 function Test-BinaryFile {
     param([Parameter(Mandatory = $true)][string]$Path)
+    # A READ FAILURE IS NOT "THIS FILE IS BINARY" (TASK-052 §2.4). The old
+    # `catch { return $true }` made an unreadable file look binary, and a binary
+    # file is silently skipped -- so a source file held by an ACL or an open
+    # handle could let the whole round come back `pass` without ever having been
+    # reviewed. Let the exception out; the caller turns it into an ENV_ERROR,
+    # the same posture it already uses when `git diff` on an untracked file
+    # fails. Refusing to review beats reviewing a diff with a hole in it.
+    $stream = [System.IO.File]::OpenRead($Path)
     try {
-        $stream = [System.IO.File]::OpenRead($Path)
-        try {
-            $buffer = New-Object byte[] 8000
-            $read = $stream.Read($buffer, 0, $buffer.Length)
-            for ($i = 0; $i -lt $read; $i++) {
-                if ($buffer[$i] -eq 0) { return $true }
-            }
-            return $false
+        $buffer = New-Object byte[] 8000
+        $read = $stream.Read($buffer, 0, $buffer.Length)
+        for ($i = 0; $i -lt $read; $i++) {
+            if ($buffer[$i] -eq 0) { return $true }
         }
-        finally { $stream.Dispose() }
+        return $false
     }
-    catch {
-        return $true   # unreadable -> treat as binary and skip
-    }
+    finally { $stream.Dispose() }
 }
 
 function Get-UntrackedDiff {
@@ -343,7 +345,15 @@ function Get-UntrackedDiff {
         $full = Join-Path $Root $rel
         if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }   # skip dirs/specials
         $info = Get-Item -LiteralPath $full
-        if ($info.Length -gt 0 -and (Test-BinaryFile $full)) { continue }      # non-empty binary -> skip
+        if ($info.Length -gt 0) {
+            try { $isBinary = Test-BinaryFile $full }
+            catch {
+                Write-Status "ENV_ERROR: cannot read untracked '$rel'"
+                Write-Report "ENV_ERROR: cannot read untracked file '$rel' ($($_.Exception.Message)); refusing to review a diff that would silently omit it."
+                exit 0
+            }
+            if ($isBinary) { continue }                                        # non-empty binary -> skip
+        }
         # `git diff --no-index` exits 1 when the files differ -- that is the
         # normal case here. Anything above that is a real failure, and dropping
         # the file would remove a brand-new module from the review unnoticed.
