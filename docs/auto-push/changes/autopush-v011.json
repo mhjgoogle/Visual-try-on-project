@@ -2,7 +2,7 @@
   "schema": 1,
   "change_id": "autopush-v011",
   "branch": "change/TASK-101-autopush-v011",
-  "status": "open",
+  "status": "closed",
   "created": "2026-08-22T14:43:45+00:00",
   "chain_mode": false,
   "tasks": {
@@ -75,8 +75,16 @@
     "time": "2026-08-23T01:08:26+00:00",
     "tip": "d59694ed25a127ff186dd1dfb4e4c6fcd1fae40c"
   },
-  "merge": null,
-  "cleanup": null,
+  "merge": {
+    "hash": "17372a1a1219d5c84952885bae45a2329da7c4bf",
+    "time": "2026-08-23T02:03:01+00:00",
+    "pushed": true
+  },
+  "cleanup": {
+    "local_deleted": true,
+    "remote_deleted": true,
+    "time": "2026-08-23T02:03:14+00:00"
+  },
   "sync_commits": [
     "8330004ff7358eba31a9baa8e9263082386258aa",
     "0fae4a7288b88162126cfa57a5c5ac38995587d3"
