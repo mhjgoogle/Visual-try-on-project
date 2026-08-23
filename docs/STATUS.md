@@ -53,6 +53,7 @@
 | [final-unified-acceptance-runbook.md](design/active/final-unified-acceptance-runbook.md) | 最终统一验收 Runbook（TASK-040） | — |
 | [final-unified-acceptance-traceability.md](design/active/final-unified-acceptance-traceability.md) | 最终统一验收追踪矩阵（TASK-040） | — |
 | [final-unified-milestone-review.md](design/active/final-unified-milestone-review.md) | 最终统一产品里程碑评审记录（TASK-040） | — |
+| [handover-2026-08-23-remaining-active-tasks.md](design/active/handover-2026-08-23-remaining-active-tasks.md) | 交接：docs/tasks/active/ 的剩余任务（2026-08-23） | — |
 | [pending-codex-rereview.md](design/active/pending-codex-rereview.md) | 待补 codex 复审清单（降级审查模式的债务） | P1 未闭合 → 按发布闸门（无未闭合 P1）main 不得 push，直至修复落地 |
 | [remaining-roadmap-design-report.md](design/active/remaining-roadmap-design-report.md) | 剩余 Roadmap 整体设计报告（供 Codex 一次性架构审查） | — |
 | [wfm2-acceptance-runbook.md](design/active/wfm2-acceptance-runbook.md) | WFM2 正式作品验收 Runbook（TASK-037） | — |
