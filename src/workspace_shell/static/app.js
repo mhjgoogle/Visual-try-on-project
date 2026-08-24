@@ -317,14 +317,15 @@ function mediaNode(path) {
 }
 
 // A read-only media viewer: paste a project-relative artifact path to view it.
-// WFM1's query contract does not yet bind a lineage ref to a media path (that is
-// a WFM2 extension, marked unavailable), so media is fetched by contained path.
+// Shot attempts no longer need this — contract 1.6 binds each attempt to its
+// media (TASK-027 part-2b), so the Shots view renders footage directly. Lineage
+// refs still have no media binding, so this stays as their only route in.
 function mediaViewer() {
   const box = el("div", { class: "card mediaviewer" });
   box.appendChild(el("h3", { text: "Artifact media viewer" }));
   box.appendChild(el("p", { class: "muted",
     text: "View a committed artifact by its project-relative path (served read-only " +
-      "with path containment). Ref→media binding is a WFM2 contract extension." }));
+      "with path containment). Lineage refs carry no media binding; shot attempts do." }));
   const input = el("input", { type: "text", class: "idinput",
     placeholder: "e.g. wfm1-demo/outputs/final_v1.mp4", "aria-label": "Artifact path" });
   const out = el("div", { class: "mediaout" });
@@ -397,6 +398,57 @@ function _deltaRow(label, prevItem, curItem, fieldName) {
     row.appendChild(el("span", { class: "removed", text: `-${renderValue(x)} ` })));
   return row;
 }
+
+// Shot attempts, side by side, WITH the footage each one produced (WQ-06,
+// contract 1.6 — TASK-027 part-2b). Comparing candidates is a visual act: a
+// list of ids and provider names cannot answer 「这一条比那一条好在哪」.
+//
+// An attempt whose media is `unavailable` says so in words. It must never
+// render an empty <video>: a black box reads as 「这次生成失败了」 when the truth
+// may be 「这次成功了，只是还没发布成资产」 — two different facts.
+function renderShotAttempts(target, data, projectName) {
+  if (!data.items || !data.items.length) {
+    if (!data.problems || !data.problems.length) target.appendChild(emptyPanel());
+    return;
+  }
+  const grid = el("div", { class: "attempts" });
+  data.items.forEach((a) => {
+    const card = el("div", { class: "card attempt" });
+    const kind = a.attempt_kind && a.attempt_kind.value;
+    const status = a.status && a.status.value;
+    card.appendChild(el("h3", { text: `${kind || "attempt"} — ${status || "unknown"}` }));
+    card.appendChild(field("Operation", a.operation_id));
+    card.appendChild(field("Provider / model",
+      { value: [a.provider_id && a.provider_id.value,
+                a.model_id && a.model_id.value].filter(Boolean).join(" / ") || "—",
+        provenance: (a.provider_id && a.provider_id.provenance) || "unavailable" }));
+    if (a.reason && a.reason.value) card.appendChild(field("Reason", a.reason));
+
+    const mp = a.media_path;
+    if (mp && mp.provenance === "authoritative" && mp.value) {
+      // `/artifact` resolves against the ACCOUNT root, while `media_path` is
+      // project-relative — so the project's directory name has to be prefixed.
+      // `project.name` IS that directory name (discovery guarantees it), which
+      // is why this join is safe rather than a guess about layout.
+      card.appendChild(mediaNode(projectName + "/" + mp.value));
+      const n = a.media_asset_count && a.media_asset_count.value;
+      if (typeof n === "number" && n > 1) {
+        // Say it outright: showing one of several without a word is how a
+        // comparison silently drops the take the creator was looking for.
+        card.appendChild(el("p", { class: "muted",
+          text: `This operation published ${n} assets; the highest version is shown.` }));
+      }
+    } else {
+      card.appendChild(unavailablePanel("No media",
+        (mp && mp.provenance === "unavailable" && mp.value)
+          ? String(mp.value)
+          : "this attempt has no published media asset"));
+    }
+    grid.appendChild(card);
+  });
+  target.appendChild(grid);
+}
+
 
 function renderPromptHistory(target, data) {
   if (!data.items || !data.items.length) {
@@ -780,7 +832,9 @@ async function renderParamView(region, name, view, id) {
     ? await Q.promptHistory(name, id) : await Q.shotAttempts(name, id);
   clear(region);
   if (view === "prompts") { renderCustom(region, result, renderPromptHistory); }
-  else { renderInto(region, result, ""); }
+  else if (view === "shots") {
+    renderCustom(region, result, (t, d) => renderShotAttempts(t, d, name));
+  } else { renderInto(region, result, ""); }
 }
 
 // Monotonic navigation token: a response that finishes after the user has

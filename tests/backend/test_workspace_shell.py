@@ -362,6 +362,67 @@ def test_shot_attempts_endpoint(tmp_path, monkeypatch):
     assert op["provider_id"]["provenance"] == "authoritative"
 
 
+# --- WQ-12 reuse-usage (TASK-027 part-2b) -------------------------------------
+
+
+def test_reuse_usage_is_reachable_and_account_scoped(tmp_path, monkeypatch):
+    """part-2b 的「下游使用」页要问的是**跨项目**的事实。
+
+    查询层早有 `reuse_usage`，但壳里**没有任何路由通向它** —— 那个页面因此
+    拿不到数据。挂在 `/api/reuse-usage`（账户级）而不是
+    `/api/projects/<name>/…`：挂到某个项目下面会暗示「这是那个项目的事实」，
+    而它恰恰是跨项目的。
+    """
+    account, _root = _episode(tmp_path, monkeypatch)
+    res = _app(account).handle("/api/reuse-usage?asset_id=pack-a&version=1")
+    # 资产不存在时是 200 + readiness 失败的 problem 信封，不是 404：
+    # 「这个复用包不存在」本身就是这条查询要回答的东西之一
+    assert res.status == 200, res.body
+    body = _json(res)
+    assert body["query_id"] == "WQ-12"
+    assert body["contract_version"] == "1.6"
+
+
+def test_reuse_usage_refuses_a_missing_or_unusable_version(tmp_path, monkeypatch):
+    """`version` 拿不准时**报错，不猜**。
+
+    强制成正整数：非数字、0、负数一律 400。默默当成 0 或「最新那一版」
+    正是一次复用审计答到错版本上去的方式 —— 而这个页面的全部意义就是
+    「**这一版**被谁用了」。
+    """
+    account, _root = _episode(tmp_path, monkeypatch)
+    app = _app(account)
+    for query, why in (
+        ("?version=1", "缺 asset_id"),
+        ("?asset_id=pack-a", "缺 version"),
+        ("?asset_id=pack-a&version=", "version 空"),
+        ("?asset_id=pack-a&version=latest", "version 非数字"),
+        ("?asset_id=pack-a&version=0", "version 为 0"),
+        ("?asset_id=pack-a&version=-1", "version 为负"),
+        ("?asset_id=pack-a&version=1.5", "version 非整数"),
+    ):
+        res = app.handle(f"/api/reuse-usage{query}")
+        assert res.status == 400, f"{why}：期望 400，得到 {res.status}"
+        assert _json(res)["error"]["category"] == "bad_request", why
+
+
+def test_reuse_usage_refuses_a_repeated_parameter(tmp_path, monkeypatch):
+    """`?version=1&version=2` 是**歧义**，不是一个可以挑的列表。
+
+    静默取第一个，正是一次复用审计报到没人问过的那一版上去的方式 ——
+    而「哪一版」就是这条查询的全部主题（codex 轮 1 非阻塞）。
+    """
+    account, _root = _episode(tmp_path, monkeypatch)
+    app = _app(account)
+    for query, why in (
+        ("?asset_id=pack-a&version=1&version=2", "version 给了两次"),
+        ("?asset_id=a&asset_id=b&version=1", "asset_id 给了两次"),
+    ):
+        res = app.handle(f"/api/reuse-usage{query}")
+        assert res.status == 400, f"{why}：期望 400，得到 {res.status}"
+        assert _json(res)["error"]["category"] == "bad_request", why
+
+
 def test_cost_drilldown_keeps_currencies_separate(tmp_path, monkeypatch):
     account, root = _episode(tmp_path, monkeypatch)
     item = _json(_app(account).handle(f"/api/projects/{root.name}/cost"))["items"][0]
@@ -388,7 +449,7 @@ def test_cost_drilldown_stage_step_time_dimensions(tmp_path, monkeypatch):
     """
     account, root = _episode(tmp_path, monkeypatch)
     dto = _json(_app(account).handle(f"/api/projects/{root.name}/cost"))
-    assert dto["contract_version"] == "1.5"
+    assert dto["contract_version"] == "1.6"
     item = dto["items"][0]
     for dim in ("by_step", "by_stage", "by_time"):
         assert item[dim]["provenance"] == "derived"

@@ -140,6 +140,8 @@ class WorkspaceApp:
             return self._run_query(
                 "cross_project_index", lambda s: s.cross_project_index()
             )
+        if path == "/api/reuse-usage":
+            return self._reuse_usage(params)
         if path.startswith("/api/projects/"):
             name, _, sub = path[len("/api/projects/") :].partition("/")
             # The client percent-encodes the project name; decode it so
@@ -337,6 +339,44 @@ class WorkspaceApp:
             return self._error(
                 500, "query_failed", f"unexpected {type(exc).__name__}", query=label
             )
+
+    def _reuse_usage(self, params: dict[str, list[str]]) -> Response:
+        """WQ-12: which projects reference one reuse asset version.
+
+        Account-level on purpose (TASK-027 part-2b). Hanging it under
+        ``/api/projects/<name>/`` would imply the answer belongs to one project,
+        when the whole point is that it spans them.
+
+        ``version`` must be a positive integer. A non-numeric or non-positive
+        value is a 400, never a coerced 0 or a silent "latest" — guessing which
+        version the creator meant is exactly how a reuse audit ends up
+        answering about the wrong one.
+        """
+        # A repeated parameter (`?version=1&version=2`) is AMBIGUOUS, not a list
+        # to pick from. Taking the first silently is how a reuse audit reports on
+        # a version nobody asked about — and 「which version」 is this query's
+        # entire subject (codex round 1, non-blocking; same fail-closed family as
+        # the integer check below).
+        for key in ("asset_id", "version"):
+            if len(params.get(key) or []) > 1:
+                return self._error(400, "bad_request", f"{key!r} given more than once")
+        asset_id = (params.get("asset_id") or [""])[0]
+        if not asset_id:
+            return self._error(400, "bad_request", "missing 'asset_id'")
+        raw_version = (params.get("version") or [""])[0]
+        if not raw_version:
+            return self._error(400, "bad_request", "missing 'version'")
+        try:
+            version = int(raw_version)
+        except ValueError:
+            return self._error(
+                400, "bad_request", f"version must be an integer: {raw_version!r}"
+            )
+        if version < 1:
+            return self._error(400, "bad_request", f"version must be >= 1: {version}")
+        return self._run_query(
+            "reuse_usage", lambda s: s.reuse_usage(asset_id, version)
+        )
 
     # -- static + artifacts ------------------------------------------------
 

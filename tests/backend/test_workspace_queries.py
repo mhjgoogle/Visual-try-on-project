@@ -187,6 +187,102 @@ def test_wq06_shot_attempts_distinguishes_kind_and_reason(tmp_path, monkeypatch)
     assert "reason" in op and op["provider_id"].provenance is Provenance.AUTHORITATIVE
 
 
+def _publish_generated_media(root, *, operation_id: str, ref: str = "cand"):
+    """Publish a real generation-sourced media asset for `operation_id`.
+
+    Goes through the authoritative chain — `generate_batch` → `record_selection`
+    → `promote_selection` — rather than hand-building a MediaAsset, because
+    `_verify_generation_provenance` refuses an asset whose bound media is not the
+    selected candidate's staged file. Faking it here would test a shape the
+    product can never actually produce.
+    """
+    from ai_video_workflow.media.batch import record_selection
+    from ai_video_workflow.media.generation import generate_batch, promote_selection
+    from ai_video_workflow.media.provider import default_media_registry
+
+    generate_batch(
+        root,
+        registry=default_media_registry(),
+        provider_id="local-stub",
+        operation_id=operation_id,
+        batch_id=f"batch-{ref}",
+        capability="text_to_image",
+        media_kind="generated_image",
+        prompt="p",
+        model_id="m1",
+        candidate_ids=["c1"],
+        clock=_clock,
+    )
+    record_selection(
+        root,
+        selection_id=f"sel-{ref}",
+        batch_id=f"batch-{ref}",
+        selected_candidate_id="c1",
+    )
+    return promote_selection(root, ref=ref, version=1, selection_id=f"sel-{ref}")
+
+
+def test_wq06_binds_each_attempt_to_the_media_it_produced(tmp_path, monkeypatch):
+    """TASK-027 part-2b：WQ-06 现在带得出**实际的媒体文件**，不只是 id/ref。
+
+    并排比较候选要看画面。合同 1.5 里 WQ-06 只有 id/ref/provider/时间，
+    于是「比较」页最多只能并排显示两行文字 —— 这正是 part-2b 被挡住的那一条。
+
+    连接键是 `operation_id`，两边都是权威事实（`_validate_producer` 对
+    generation 强制要求，reservation 本来就带），**不靠名字或时间推断**。
+    """
+    _, root, _catalog_dir = _finished(tmp_path, monkeypatch)
+    svc = _service(tmp_path)
+
+    before = svc.shot_attempts(root, "shot-1")
+    assert before.items, "夹具必须真的有 attempt，否则下面证不出任何东西"
+    op_id = before.items[0]["operation_id"].value
+
+    # 未发布资产时：**缺席，不是空串** —— 空路径在界面上会变成「有文件但打不开」
+    assert before.items[0]["media_path"].provenance is Provenance.UNAVAILABLE
+    assert before.items[0]["media_asset_count"].value == 0
+
+    asset = _publish_generated_media(root, operation_id=op_id)
+
+    after = svc.shot_attempts(root, "shot-1")
+    bound = next(i for i in after.items if i["operation_id"].value == op_id)
+    assert bound["media_path"].value == asset.media_path
+    assert bound["media_path"].provenance is Provenance.AUTHORITATIVE
+    assert bound["media_sha256"].value == asset.media_sha256
+    assert bound["media_ref"].value == asset.ref
+    assert bound["media_asset_count"].value == 1
+
+    # 那条路径必须真的指向一个存在的文件 —— 否则「暴露了路径」是句空话
+    assert (root / asset.media_path).is_file()
+
+    # 同一镜的其他 attempt 不因为这一个绑上了就跟着绑上
+    others = [i for i in after.items if i["operation_id"].value != op_id]
+    for item in others:
+        assert item["media_path"].provenance is Provenance.UNAVAILABLE
+
+
+def test_wq06_media_absence_never_becomes_an_empty_path(tmp_path, monkeypatch):
+    """没有产出资产的 attempt **每一个媒体字段都缺席**，一个都不许回填。
+
+    这条与 §1.7「测不出即缺席」是同一条规则。分开写是因为上一条只要
+    `media_path` 缺席就能通过，而「五个字段里有四个缺席、一个是空串」同样
+    会让界面说谎 —— 那种半对的实现正是这条要挡的。
+    """
+    _, root, _catalog_dir = _finished(tmp_path, monkeypatch)
+    res = _service(tmp_path).shot_attempts(root, "shot-1")
+    assert res.items
+    for item in res.items:
+        for name in (
+            "media_ref",
+            "media_kind",
+            "media_version",
+            "media_path",
+            "media_sha256",
+        ):
+            assert item[name].provenance is Provenance.UNAVAILABLE, name
+        assert item["media_asset_count"].value == 0
+
+
 # --- WQ-07 cost-breakdown -----------------------------------------------------
 
 

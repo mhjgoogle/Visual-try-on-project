@@ -95,7 +95,17 @@
 - 用途：对一个镜头返回全部 attempt/redo/fallback、Provider/model/参数、状态和时间。
 - 输入：shot id；reservation records；qcd events；packets。
 - 返回：operation/attempt〔A〕、状态/category/reason〔A〕、external ref〔A〕、
-  provider/model/参数版本〔A〕、时间〔A〕、redo/fallback 关系〔A〕。
+  provider/model/参数版本〔A〕、时间〔A〕、redo/fallback 关系〔A〕；
+  **合同 1.6 起**：该 attempt 产出的媒体 `media_ref` / `media_kind` /
+  `media_version` / `media_path` / `media_sha256`〔A〕、`media_asset_count`〔D〕。
+- **媒体绑定的连接键是 `operation_id`**（TASK-027 part-2b）：它在两侧都是权威
+  事实 —— `media/assets.py` 的 `_validate_producer` 对每个 generation 来源的资产
+  强制要求它，reservation 本来就带 —— 所以绑定不靠名字或时间推断。
+  手工/导入来源的资产没有 `operation_id`，**不参与绑定**，也不编一个。
+- **没有已发布资产的 attempt，五个媒体字段全部 `unavailable`**，一个都不回填：
+  空路径在界面上会读成「有这个文件但打不开」，而事实是「这次尝试没有产出资产」。
+  一次操作发布了多个资产时，取版本最高的那个并把总数放进 `media_asset_count`，
+  **不静默只显示一个**。
 - 排序：时间升序（带时区）。
 - 失败：skip/retry/redo/fallback/cancel/人工终止无法区分 → problem。
 

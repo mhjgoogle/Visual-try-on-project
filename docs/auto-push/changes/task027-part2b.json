@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "change_id": "task027-part2b",
+  "branch": "change/TASK-027-part2b",
+  "status": "open",
+  "created": "2026-08-24T04:10:35+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-027": {
+      "commits": [],
+      "paths": [
+        "docs/",
+        "src/ai_video_workflow/workspace/",
+        "src/workspace_shell/",
+        "tests/backend/",
+        "tests/e2e/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "两阶段 pytest 3484+6 全绿；node --test 1819 全绿；ruff check/format 613 文件全绿；codex-review-loop 切片1 一轮 pass、切片2+3 两轮轮2 pass，独立性未降级",
+      "declared": "2026-08-24T04:10:45+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PENDING"
+  },
+  "merge": null,
+  "cleanup": null
+}

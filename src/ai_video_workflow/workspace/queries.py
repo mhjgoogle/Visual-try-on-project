@@ -385,13 +385,65 @@ def prompt_history(project_root: Path, prompt_id: str, now: str) -> QueryResult:
 # --- WQ-06 shot-attempts ------------------------------------------------------
 
 
+def _attempt_media(views) -> dict[str, Field]:
+    """The media an attempt produced, or an honest absence.
+
+    Several assets CAN share one operation (a batch that published more than one
+    kind). Picking one silently would make the comparison page show 「the」 clip
+    for an attempt that actually produced two, so the highest version of each
+    kind is reported and the count is stated outright.
+    """
+    if not views:
+        gone = "no published media asset for this attempt"
+        return {
+            "media_ref": Field.unavailable(gone),
+            "media_kind": Field.unavailable(gone),
+            "media_version": Field.unavailable(gone),
+            "media_path": Field.unavailable(gone),
+            "media_sha256": Field.unavailable(gone),
+            "media_asset_count": Field.derived(0),
+        }
+    # deterministic: newest version wins, ties broken by (kind, ref) so the same
+    # inputs always yield the same row
+    best = max(views, key=lambda v: (v.version, v.media_kind, v.ref))
+    return {
+        "media_ref": Field.authoritative(best.ref),
+        "media_kind": Field.authoritative(best.media_kind),
+        "media_version": Field.authoritative(best.version),
+        "media_path": Field.authoritative(best.media_path),
+        "media_sha256": Field.authoritative(best.media_sha256),
+        "media_asset_count": Field.derived(len(views)),
+    }
+
+
 def shot_attempts(project_root: Path, shot_id: str, now: str) -> QueryResult:
     """All attempts for a shot with their relationship kind distinguished:
     primary / fallback / redo / retry, plus each attempt's status and reason
     — skip/retry/redo/fallback/cancel are never collapsed into 'failed'
-    (requirements §3.2.5, query contract §3 WQ-06)."""
+    (requirements §3.2.5, query contract §3 WQ-06).
+
+    Contract 1.6 (TASK-027 part-2b) additionally binds each attempt to the media
+    asset it produced, so a side-by-side candidate comparison can show the actual
+    footage rather than a list of ids.
+
+    The join key is ``operation_id`` — an authoritative fact on BOTH sides
+    (``_validate_producer`` requires it for every generation-sourced asset, and
+    every reservation carries one), so nothing here is inferred from names or
+    timestamps. An attempt with no published asset gets ``Field.unavailable``:
+    an empty path would read on screen as 「有这个文件但打不开」 when the truth is
+    「这次尝试没有产出资产」."""
     esrc = execution.read_execution(project_root)
     problems: list[Problem] = list(esrc.problems)
+    # Media published by this project, indexed by the operation that produced it.
+    # A corrupt media source becomes a problem (already fail-closed inside
+    # `read_multimedia`) — it must NOT make the attempts themselves disappear,
+    # so the attempt rows are still returned with their media unavailable.
+    msrc = multimedia.read_multimedia(project_root)
+    problems.extend(msrc.problems)
+    by_operation: dict[str, list] = {}
+    for view in msrc.media:
+        if view.producer_operation_id:
+            by_operation.setdefault(view.producer_operation_id, []).append(view)
     # task_status_changed events give per-task status transitions + reasons
     status_events = [
         e
@@ -438,6 +490,7 @@ def shot_attempts(project_root: Path, shot_id: str, now: str) -> QueryResult:
                 "external_task_ref": Field.authoritative(r.external_task_ref),
                 "created_at": Field.authoritative(r.created_at),
                 "resolved_at": Field.authoritative(r.resolved_at),
+                **_attempt_media(by_operation.get(r.operation_id)),
             }
         )
     return _result(

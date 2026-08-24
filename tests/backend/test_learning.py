@@ -255,7 +255,7 @@ def test_wq17_analytics_query(tmp_path):
     _project_with_facts(tmp_path)
     res = WorkspaceQueryService(tmp_path, clock=_clock).cross_project_analytics()
     assert res.query_id == "WQ-17"
-    assert res.contract_version == "1.5"
+    assert res.contract_version == "1.6"  # TASK-027 part-2b: WQ-06 媒体绑定
     item = res.items[0]
     assert item["evaluation_pass_rate"].value == 0.5
     assert item["action_resolution_rate"].value == 1.0
