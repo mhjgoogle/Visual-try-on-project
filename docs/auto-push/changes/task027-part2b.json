@@ -13,7 +13,7 @@
           "subject": "feat(TASK-027): part-2b 三个切片 —— 查询合同 1.6、reuse-usage 路由、并排比较页",
           "time": "2026-08-24T04:12:54+00:00",
           "branch": "change/TASK-027-part2b",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/auto-push/changes/task027-part2b.json",
             "docs/design/workspace-query-contract.md",
@@ -52,7 +52,10 @@
     }
   },
   "merge_gate": {
-    "status": "PENDING"
+    "status": "PASS",
+    "by": "ADR-0085 常设授权；依据=Done 判定 + 最终全量：pytest 3484+6、node 1819、ruff 613 全绿，codex 两轮轮2 pass，无未闭合 P1，待复审清单仅剩无关的 POSIX 记录条目",
+    "time": "2026-08-24T04:13:25+00:00",
+    "tip": "50ec71d244bb29caf8f866fbe871c5a1db4497d9"
   },
   "merge": null,
   "cleanup": null
