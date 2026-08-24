@@ -7,7 +7,29 @@
   "chain_mode": false,
   "tasks": {
     "TASK-037": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "b974b3e38558a571e7ebd9c502a84340e4949da5",
+          "subject": "feat(TASK-037): WFM2 里程碑 PASS —— 产品负责人 2026-08-24 原话「WFM2 可以了」",
+          "time": "2026-08-24T11:14:50+00:00",
+          "branch": "change/TASK-037-wfm2-pass",
+          "pushed": false,
+          "files": [
+            "docs/STATUS.md",
+            "docs/auto-push/changes/wfm2-pass.json",
+            "docs/design/active/WFM2-milestone-review.md",
+            "docs/design/active/wfm2-acceptance-runbook.md",
+            "docs/design/active/wfm2-acceptance-traceability.md",
+            "docs/design/done/WFM2-milestone-review.md",
+            "docs/design/done/wfm2-acceptance-runbook.md",
+            "docs/design/done/wfm2-acceptance-traceability.md",
+            "docs/implementation_plan.md",
+            "docs/tasks/active/TASK-037-wfm2-end-to-end-acceptance.md",
+            "docs/tasks/done/TASK-037-wfm2-end-to-end-acceptance.md"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/"
       ],
