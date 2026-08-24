@@ -2,7 +2,7 @@
   "schema": 1,
   "change_id": "wfm2-pass",
   "branch": "change/TASK-037-wfm2-pass",
-  "status": "open",
+  "status": "closed",
   "created": "2026-08-24T11:13:46+00:00",
   "chain_mode": false,
   "tasks": {
@@ -44,6 +44,14 @@
     "time": "2026-08-24T11:20:23+00:00",
     "tip": "50eb292aa7c8bd34e1f8589b5501f6483cadc3e6"
   },
-  "merge": null,
-  "cleanup": null
+  "merge": {
+    "hash": "1a78c43af40275efe73a5ab998c461777e9a8360",
+    "time": "2026-08-24T11:20:37+00:00",
+    "pushed": true
+  },
+  "cleanup": {
+    "local_deleted": true,
+    "remote_deleted": true,
+    "time": "2026-08-24T11:20:42+00:00"
+  }
 }
