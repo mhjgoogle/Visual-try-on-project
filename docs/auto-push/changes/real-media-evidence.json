@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "change_id": "real-media-evidence",
+  "branch": "change/TASK-074-real-media-evidence",
+  "status": "open",
+  "created": "2026-08-24T03:23:49+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-074": {
+      "commits": [],
+      "paths": [
+        "docs/",
+        "mockups/motv-workspace/src/",
+        "tests/e2e/",
+        "tests/tooling/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "两阶段 pytest 3475+6 全绿；node --test 1819 全绿；ruff check/format 612 文件全绿；codex-review-loop 两轮，轮 2 VERDICT: pass",
+      "declared": "2026-08-24T03:23:58+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PENDING"
+  },
+  "merge": null,
+  "cleanup": null
+}

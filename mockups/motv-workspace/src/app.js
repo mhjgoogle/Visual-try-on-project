@@ -30,6 +30,7 @@ import {
   formatRoute, parseRoute, sameRoute, loadLastRoute, saveLastRoute,
 } from "./services/route.js";
 import * as persist from "./services/persist.js";
+import { grabVideoFrame } from "./services/videoframe.js";
 import { CANVAS_SCHEMA_VERSION } from "./services/canvasschema.js";
 import * as realmap from "./services/realmap.js";
 import { createRouteLatch } from "./services/routelatch.js";
@@ -296,52 +297,9 @@ function pickFile(accept) {
  * a blank image: a black frame silently registered as 「SH01 的尾帧」 would be
  * indistinguishable from a real one.
  */
-function grabVideoFrame(url, { timecodeMs = null, pick = "last" } = {}) {
-  return new Promise((resolve, reject) => {
-    const v = document.createElement("video");
-    v.preload = "auto";
-    v.muted = true;
-    v.playsInline = true;
-    // same-origin (/api/uploads/…), so the canvas stays untainted and toBlob works
-    v.crossOrigin = "anonymous";
-    let settled = false;
-    const done = (fn, arg) => { if (settled) return; settled = true; clearTimeout(timer); v.src = ""; fn(arg); };
-    const timer = setTimeout(() => done(reject, new Error("读取视频超时：无法提取帧")), 20000);
-    v.onerror = () => done(reject, new Error("无法读取这条视频（文件可能已不在本地）"));
-    v.onloadedmetadata = () => {
-      const dur = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : null;
-      if (!dur) { done(reject, new Error("这条视频没有可用的时长信息，无法定位帧")); return; }
-      // the LAST frame is not `duration` exactly: seeking there lands past the
-      // final sample in most containers and decodes nothing. One frame back at a
-      // conservative 30 fps is the usual "last valid frame".
-      const want = pick === "at" && Number.isFinite(timecodeMs)
-        ? Math.min(Math.max(0, timecodeMs / 1000), Math.max(0, dur - 0.001))
-        : Math.max(0, dur - 1 / 30);
-      v.currentTime = want;
-    };
-    v.onseeked = () => {
-      try {
-        const w = v.videoWidth;
-        const h = v.videoHeight;
-        if (!w || !h) { done(reject, new Error("这条视频没有可读的画面尺寸")); return; }
-        const cv = document.createElement("canvas");
-        cv.width = w;
-        cv.height = h;
-        cv.getContext("2d").drawImage(v, 0, 0, w, h);
-        const at = Math.round(v.currentTime * 1000);
-        cv.toBlob((blob) => {
-          if (!blob) { done(reject, new Error("帧编码失败")); return; }
-          const file = new File([blob], `frame-${at}ms.png`, { type: "image/png" });
-          done(resolve, { file, timecodeMs: at, width: w, height: h });
-        }, "image/png");
-      } catch (e) {
-        // a tainted canvas throws here; report it rather than registering nothing
-        done(reject, new Error(`无法读取画面像素：${e && e.message ? e.message : e}`));
-      }
-    };
-    v.src = url;
-  });
-}
+// `grabVideoFrame` 搬进 `services/videoframe.js`（TASK-073 §1.8 · TASK-072 §1.9 #10）
+// —— 它是这里唯一真正绑定浏览器的一步，留在 app.js 里就没人测得到它。
+// 现在 `tests/e2e/test_video_frame_grab_task072.py` 在真的 Chromium 里驱动它。
 
 function acceptForKind(kind) {
   const domains = new Set(assetreg.domainsForKind(kind));

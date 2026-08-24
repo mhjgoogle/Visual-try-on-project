@@ -17,7 +17,7 @@
 | `docs/requirements/` | 需求记录：DRAFT / CONFIRMED / SUPERSEDED |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：12 项在办 · 95 项已完成 · 70 条 ADR。
+**当前**：11 项在办 · 96 项已完成 · 70 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -40,7 +40,6 @@
 | [TASK-073-fixed-ia-and-contextual-agent.md](tasks/active/TASK-073-fixed-ia-and-contextual-agent.md) | TASK-073：第三阶段 —— 前端信息架构、页面重构与上下文 Agent 交互 | 大部分已实施（2026-08-14/15） |
 | [TASK-074-delivery-migration-and-legacy-retirement.md](tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md) | TASK-074：第四阶段 —— 后期交付、旧数据迁移、旧页面与旧接口清理、真实项目验收 | 部分实施（§1.1b 已完成 |
 | [TASK-087-followup-ledger.md](tasks/active/TASK-087-followup-ledger.md) | TASK-087：Follow-up 总账 —— 把散在九张卡里的欠账收成一处 | 活账（不是一次性交付 |
-| [TASK-105-flow-template-first-slice.md](tasks/active/TASK-105-flow-template-first-slice.md) | TASK-105：流程模板第一刀 —— 内置一份 flow，新建项目时可选 | 第一刀实现完成（2026-08-24） |
 
 ## 在办 · 设计与验收文档
 
@@ -158,6 +157,7 @@
 | [TASK-102-scope-injection-evidence-2026-08-22.md](tasks/done/TASK-102-scope-injection-evidence-2026-08-22.md) | TASK-102 任务卡范围注入事件留痕（2026-08-22） | — |
 | [TASK-103-frontback-and-ui-residuals.md](tasks/done/TASK-103-frontback-and-ui-residuals.md) | TASK-103：前后端交互与 UI 的剩余欠账 | A–E 批已落地（2026-08-23） · 已合入 main（2026-08-23，产品负责人「合并并收口」），merge commit e5c52f7 |
 | [TASK-104-governance-docs-merge.md](tasks/done/TASK-104-governance-docs-merge.md) | TASK-104：治理文档合并 —— AGENTS.md 成为唯一规范 | 已完成（2026-08-23） · 已合入 main（2026-08-23，产品负责人「合并并收口」），merge commit 8b9eb81 |
+| [TASK-105-flow-template-first-slice.md](tasks/done/TASK-105-flow-template-first-slice.md) | TASK-105：流程模板第一刀 —— 内置一份 flow，新建项目时可选 | 第一刀实现完成（2026-08-24） |
 
 ## 已完成 · 设计与验收记录
 
