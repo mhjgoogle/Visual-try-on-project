@@ -2,7 +2,7 @@
   "schema": 1,
   "change_id": "task087-audio",
   "branch": "change/TASK-087-sfx-and-audio",
-  "status": "open",
+  "status": "closed",
   "created": "2026-08-24T05:37:20+00:00",
   "chain_mode": false,
   "tasks": {
@@ -44,6 +44,14 @@
     "time": "2026-08-24T05:43:33+00:00",
     "tip": "cc78b9a459acd0e4acd63935e2ca59f1965f4a5d"
   },
-  "merge": null,
-  "cleanup": null
+  "merge": {
+    "hash": "c168ff1a1de51965560787bc32595cd0101941b2",
+    "time": "2026-08-24T05:48:54+00:00",
+    "pushed": true
+  },
+  "cleanup": {
+    "local_deleted": true,
+    "remote_deleted": true,
+    "time": "2026-08-24T05:48:59+00:00"
+  }
 }
