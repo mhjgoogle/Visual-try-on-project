@@ -9,7 +9,7 @@
   **决策 4 已实施**（PATH 修复留在 `run-windows.ps1`）；
   **决策 1 与决策 2 未实施** —— 五个 `/api/agent/*` 创作端点仍直连 `claude`，
   由 [TASK-068](../tasks/done/TASK-068-legacy-agent-endpoints-to-runtime.md) 承接，
-  并被 [TASK-072](../tasks/active/TASK-072-system-contract-and-persistent-runs.md) §1.8 纳入第二阶段。
+  并被 [TASK-072](../tasks/done/TASK-072-system-contract-and-persistent-runs.md) §1.8 纳入第二阶段。
 - **被 [ADR-0066](ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)
   保留强化**：决策 1「每个 AI 动作都经 Runtime 层」升级为 ADR-0066 决策 9 的全局原则
   「API 路由不得直接执行具体 Provider 或 CLI」；决策 2「每个 AI 动作都必须有手工兜底」

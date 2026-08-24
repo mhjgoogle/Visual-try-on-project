@@ -4,7 +4,7 @@
   ~~进行中（第一批 5 个界面已交付，待视觉验收）~~：那批界面**已交付**，但
   [ADR-0066](../../adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)
   此后把二级导航重新裁定为**固定十一页封闭集**，实施由
-  [TASK-073](../active/TASK-073-fixed-ia-and-contextual-agent.md) 承接。证据：
+  [TASK-073](../done/TASK-073-fixed-ia-and-contextual-agent.md) 承接。证据：
   `mockups/motv-workspace/src/ui/shell.js` 的 `PAGES` 就是那个十一页封闭集，旧模块
   key 经 `MODULE_ALIAS` 映射过去。**所以本卡的「待视觉验收」已经没有对象** ——
   今天要验的是十一页，不是本卡当时那批界面。视觉方向的成果保留在 IA 与

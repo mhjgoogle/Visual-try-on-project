@@ -154,8 +154,8 @@ WFM2 在 WFM1 gate 之后补齐两份顶层需求仍缺少的完整创意、多�
 | 阶段 | 任务 | 内容 | 依赖 | 状态 |
 | --- | --- | --- | --- | --- |
 | 一 | ADR-0066 + 两份设计文档 | 需求 / 界面 / Agent 协作 / 系统合同定稿 | TASK-064～071 已实施 | **已完成** —— ADR-0066 于 2026-08-13 **Accepted** |
-| 二 | [TASK-072](tasks/active/TASK-072-system-contract-and-persistent-runs.md) | 后端合同、持久化任务（run_id / 取消）、版本管理、兼容层、`/api/agent/*` 收口 | ADR-0066 Accepted | **已解锁，可开工** |
-| 三 | [TASK-073](tasks/active/TASK-073-fixed-ia-and-contextual-agent.md) | 前端信息架构、页面重构、上下文 Agent 交互 | TASK-072 | 已规划 |
+| 二 | [TASK-072](tasks/done/TASK-072-system-contract-and-persistent-runs.md) | 后端合同、持久化任务（run_id / 取消）、版本管理、兼容层、`/api/agent/*` 收口 | ADR-0066 Accepted | **已解锁，可开工** |
+| 三 | [TASK-073](tasks/done/TASK-073-fixed-ia-and-contextual-agent.md) | 前端信息架构、页面重构、上下文 Agent 交互 | TASK-072 | 已规划 |
 | 四 | [TASK-074](tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md) | 后期交付、旧数据迁移、旧页面与旧接口清理、真实项目验收 | TASK-073 | 已规划 |
 
 #### 治理收口（2026-08-13）

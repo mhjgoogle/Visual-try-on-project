@@ -7,7 +7,7 @@
   Proposal → Action 映射、两个订阅的分工）。**只有 §18 / §19 的「AI 导演常驻右栏」被
   [ADR-0066](../../adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)
   决策 5 取代**，改为按需打开的上下文面板 + 结果旁的「生成记录」，替代实施在
-  [TASK-073](../active/TASK-073-fixed-ia-and-contextual-agent.md) §1.4 / §1.5。
+  [TASK-073](../done/TASK-073-fixed-ia-and-contextual-agent.md) §1.4 / §1.5。
 - 负责 Agent：Claude Code（单一实施 Agent）
 - 前置：[TASK-066](TASK-066-episode-production-shot-workbench.md) 的五区工作台已落地
 - 依据：[ADR-0064](../../adr/ADR-0064-ai-director-operationalization.md) +

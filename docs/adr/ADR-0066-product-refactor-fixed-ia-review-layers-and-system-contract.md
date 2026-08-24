@@ -19,8 +19,8 @@
 - 交付文档：
   [创作者产品信息架构](../design/creator-product-information-architecture.md)、
   [创作者系统合同](../design/creator-system-contract.md)
-- 实施任务：[TASK-072](../tasks/active/TASK-072-system-contract-and-persistent-runs.md)、
-  [TASK-073](../tasks/active/TASK-073-fixed-ia-and-contextual-agent.md)、
+- 实施任务：[TASK-072](../tasks/done/TASK-072-system-contract-and-persistent-runs.md)、
+  [TASK-073](../tasks/done/TASK-073-fixed-ia-and-contextual-agent.md)、
   [TASK-074](../tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md)
 
 > **本 ADR 不改任何业务代码。** 它冻结产品与系统边界；实施分三个后续阶段

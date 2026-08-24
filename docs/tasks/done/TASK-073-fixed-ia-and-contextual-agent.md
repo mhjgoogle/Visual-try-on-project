@@ -1,6 +1,11 @@
 # TASK-073：第三阶段 —— 前端信息架构、页面重构与上下文 Agent 交互
 
-- 状态：**大部分已实施**（2026-08-14/15）—— §1.1/§1.2 IA 收敛、§1.3 任务行与真实
+- 状态：**已完成（2026-08-24 收口）。** §5.4「本卡未做」六项里**五项 ✅**，
+  唯一未打勾的 §1.8 `app.js` 拆分，卡自己（§5.16）写明它是
+  **「一条持续的线，不是一个做完就完的步骤」** —— 一条贯穿全卡的**约束**
+  不能拿来当收口闸门，否则这张卡永远关不掉。验收 #9（后端错误不显示为空）
+  的守卫已于 2026-08-24 补齐（查询层 + 渲染层各一道）。
+  ~~大部分已实施（2026-08-14/15）~~ —— §1.1/§1.2 IA 收敛、§1.3 任务行与真实
   取消、§1.4 Agent 面板、§1.5 生成记录、§1.6 资产库抽屉、§1.7 ⚙ 十四字段与两个硬闸
   均已完成；§1.8 `app.js` 拆分见 §5.16。
   **~~仍剩 `assets` / `actions` / `skills`~~ 这句 2026-08-23 复查为过期**：
@@ -14,7 +19,7 @@
 - 依据：[ADR-0066](../../adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)、
   [创作者产品信息架构](../../design/creator-product-information-architecture.md)
 - 前置：[TASK-072](TASK-072-system-contract-and-persistent-runs.md) 全部验收通过
-- 后续：[TASK-074](TASK-074-delivery-migration-and-legacy-retirement.md)
+- 后续：[TASK-074](../active/TASK-074-delivery-migration-and-legacy-retirement.md)
 
 ## 0. 本轮边界
 

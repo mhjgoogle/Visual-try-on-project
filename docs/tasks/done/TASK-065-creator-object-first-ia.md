@@ -7,7 +7,7 @@
   决策 4 进一步收敛为**一个**「作品设定」页；基础资产四件套、关系图、A/B 分区、
   可勾选生成清单**全部保留**并迁入新页面。**§5 / §9 的「制作台 = 当前 Shot 生产图作为
   剧集制作中央」被 ADR-0066 决策 3 撤销**，替代实施在
-  [TASK-073](../active/TASK-073-fixed-ia-and-contextual-agent.md)。
+  [TASK-073](../done/TASK-073-fixed-ia-and-contextual-agent.md)。
 - 负责 Agent：Claude Code（单一实施 Agent）
 - 依据：[ADR-0063](../../adr/ADR-0063-creator-object-first-ia-and-shot-production-graph.md)
 - 前置：[TASK-064](TASK-064-creator-ui-consolidation.md) Phase 1 / 1b / 2 / 3 全部完成
