@@ -7,7 +7,28 @@
   "chain_mode": false,
   "tasks": {
     "TASK-087": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "590d86ac588f8a2b9631379234dfafc800a9b89a",
+          "subject": "feat(TASK-087): §3.5.2 音效需求字段 + §3.5.3 音频逐份批准",
+          "time": "2026-08-24T05:38:19+00:00",
+          "branch": "change/TASK-087-sfx-and-audio",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/task087-audio.json",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "mockups/motv-workspace/src/ui/shoteditor.js",
+            "mockups/motv-workspace/src/ui/shottable.js",
+            "mockups/motv-workspace/src/workflow/poststatus.js",
+            "mockups/motv-workspace/src/workflow/shotstage.js",
+            "mockups/motv-workspace/tests/audioapproval.test.mjs",
+            "mockups/motv-workspace/tests/poststatus.test.mjs",
+            "mockups/motv-workspace/tests/sfxneed.test.mjs",
+            "mockups/motv-workspace/tests/shottable.test.mjs"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/",
         "mockups/motv-workspace/"
