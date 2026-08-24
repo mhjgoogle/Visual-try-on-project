@@ -13,7 +13,7 @@
           "subject": "feat(TASK-074): §1.4 整链走通 + 边界 8 在真实写路径上闭合，并修掉两个真缺陷",
           "time": "2026-08-24T13:26:17+00:00",
           "branch": "change/TASK-074-boundary8",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/auto-push/changes/t074-boundary8.json",
             "docs/tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md",
@@ -36,7 +36,10 @@
     }
   },
   "merge_gate": {
-    "status": "PENDING"
+    "status": "PASS",
+    "by": "ADR-0085 常设授权；依据=Done 判定 + 最终全量：pytest 3534+6、node 1854、ruff 620 全绿，codex 六轮轮6 pass，无未闭合 P1，待复审清单零未闭合条目",
+    "time": "2026-08-24T13:31:27+00:00",
+    "tip": "87376aab1e9b311d13259607b94ee64f915096c4"
   },
   "merge": null,
   "cleanup": null
