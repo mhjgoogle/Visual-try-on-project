@@ -308,6 +308,26 @@ export function isSkipped(stages, shotId, stage) {
 /* 派生：把证据读成一个词                                                       */
 /* -------------------------------------------------------------------------- */
 
+/** 这一格的产物**通过了吗**。
+ *
+ *  单产物：问那一个。多产物（音频，TASK-087 §3.5.3）：**每一份都通过才算通过**
+ *  —— 三条音效里有一条没过就不是通过了，与 `present` 的「每一个都在」同一条规矩。
+ *
+ *  空数组显式判 false：`[].every(...)` 是 true，直接用会把「一条都没有」
+ *  说成「全通过了」—— 这是全称量词最经典的那个坑。
+ */
+function approvedOf(art, stage, okOf) {
+  const ids = art && Array.isArray(art.assetIds) ? art.assetIds : null;
+  if (!ids) return nonEmpty(art.assetId) ? !!okOf(art.assetId, stage) : false;
+  if (!ids.length) return false;
+  // 绑不了批准的片段**不能当作不存在**。片段数比可绑定数多，说明轨上有一条
+  // 没有 assetId 的片段 —— 它没人能批准，于是这一步不该显示成「通过」，
+  // 否则一条没人看过的音频就混进通过里了（与 `present` 那条「丢了一条就不算
+  // 做完」是同一个道理）。
+  if (Number.isInteger(art.clips) && art.clips !== ids.length) return false;
+  return ids.every((id) => nonEmpty(id) && !!okOf(id, stage));
+}
+
 /**
  * 六个 stage 的当前状态。
  *
@@ -359,7 +379,11 @@ export function stageStatuses(stages, shotId, { inflight, artifact, approvedFor,
         assetId: nonEmpty(art.assetId) ? art.assetId : null,
         // **stage 也传过去**（批次 4F）：「这个产物通过了吗」对视频问审片那条记录，
         // 对图片类问 stageReviews —— 由调用方那一个函数决定，这里只如实转达是哪一格。
-        approved: nonEmpty(art.assetId) ? !!okOf(art.assetId, stage) : false,
+        //
+        // 多产物（音频一步可能有好几条片段，TASK-087 §3.5.3）：**每一份都通过
+        // 才算通过**，与上面 `present` 的「每一个都在」同一条规矩。空数组不算
+        // 通过 —— `every` 对空集恒真，那会把「一条都没有」说成「全通过了」。
+        approved: approvedOf(art, stage, okOf),
       };
       continue;
     }

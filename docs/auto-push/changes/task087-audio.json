@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "change_id": "task087-audio",
+  "branch": "change/TASK-087-sfx-and-audio",
+  "status": "open",
+  "created": "2026-08-24T05:37:20+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-087": {
+      "commits": [],
+      "paths": [
+        "docs/",
+        "mockups/motv-workspace/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "两阶段 pytest 3497+6 全绿；node --test 1838 全绿；ruff 全绿；codex 一轮 pass 零发现",
+      "declared": "2026-08-24T05:37:20+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PENDING"
+  },
+  "merge": null,
+  "cleanup": null
+}

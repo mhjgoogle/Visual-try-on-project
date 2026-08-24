@@ -290,11 +290,14 @@ test("⑦ 分镜设计 提供表格视图，且与卡片视图并存", () => {
 test("表格给出卡片答不了的那几列，一行一个镜头", () => {
   const pd = fixturePd();
   const html = renderShotTable(boardCtx(pd), tableModel(pd, {}), {});
+  // 「音效需求」（可写）与「音效」（只读片段数）**并排** —— 要什么 / 有什么，
+  // 是两件事。以前只有后者，于是逐镜质检问「这一镜要不要做音效」时无从答起
+  // （TASK-087 §3.5.2）。
   for (const [, label] of [["镜号"], ["时长"], ["画面描述"], ["景别"], ["光影氛围"],
-    ["台词"], ["音效"], ["运镜"], ["提示词"], ["操作"]].map((x) => ["", x[0]])) {
+    ["台词"], ["音效需求"], ["音效"], ["运镜"], ["提示词"], ["操作"]].map((x) => ["", x[0]])) {
     assert.ok(html.includes(`>${label}</th>`), `缺少列：${label}`);
   }
-  assert.equal(COLUMNS.length, 10);
+  assert.equal(COLUMNS.length, 11);
   const m = tableModel(pd, {});
   assert.equal(m.rows.length, 3);
   assert.deepEqual(m.rows.map((r) => r.seq), [1, 2, 3]);

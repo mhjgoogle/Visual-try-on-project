@@ -145,9 +145,10 @@ test("空台词是「不知道要不要配音」，不是「不需要配音」",
   assert.equal(soundNeed(SHOT_WITH_LINE, "voice"), true);
   assert.equal(soundNeed(SHOT_NO_LINE, "voice"), null, "空着分不清默戏和还没写");
   assert.equal(soundNeed({ shotId: "x", dialogue: "   " }, "voice"), null);
-  // 音效今天没有任何地方写下需求 —— 分镜表那一列是**片段数**
+  // 音效需求现在有地方写了（TASK-087 §3.5.2 的 `sfxNote` 列）。口径与台词一致：
+  // 空着 = 没人写下来，**不是不需要**；「不需要」要标为跳过，那是人的决定。
   assert.equal(soundNeed(SHOT_WITH_LINE, "sfx"), null);
-  assert.match(NEED_UNKNOWN.sfx, /片段数/);
+  assert.match(NEED_UNKNOWN.sfx, /音效需求/);
   // 每一镜都要审 —— qc 不问这个问题
   assert.equal(soundNeed(SHOT_NO_LINE, "qc"), true);
   // 这个函数**永远不返回 false**：「不需要」是人的决定（标为跳过），不是推断
@@ -162,7 +163,7 @@ test("不知道的那些**不进「还差文件」**，而是带着一条真实�
   assert.equal(g.missing, 0, "不知道要不要做，就不能说它「差一个文件」");
   assert.equal(g.undecided, 2, "配音 + 音效 各一");
   assert.match(g.byStage.voice.action, /写上台词|标为跳过/);
-  assert.match(g.byStage.sfx.why, /不是需求/);
+  assert.match(g.byStage.sfx.why, /音效需求/);
   // 写下了台词，它才变成一个真的缺口
   const withLine = soundGaps(postRows([SHOT_WITH_LINE], { boardOf: () => boardFor({}) }));
   assert.equal(withLine.byStage.voice.missing, 1);

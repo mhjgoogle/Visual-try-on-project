@@ -51,6 +51,11 @@ export const COLUMNS = [
   { key: "shotSize", label: "景别", edit: "shotSize" },
   { key: "lighting", label: "光影氛围", edit: "lighting" },
   { key: "dialogue", label: "台词", edit: "dialogue" },
+  // 「要什么」与「有什么」并排：`sfxNote` 是创作者写下的需求（可编辑），
+  // `sfx` 是这一镜现在有几条音效片段（只读，归音频工作区所有）。
+  // 以前只有后者，于是逐镜质检问「这一镜要不要做音效」时无从答起
+  // （TASK-087 §3.5.2）。
+  { key: "sfxNote", label: "音效需求", edit: "sfxNote" },
   { key: "sfx", label: "音效" },
   { key: "cameraMotion", label: "运镜", edit: "cameraMotion" },
   { key: "prompt", label: "提示词" },
@@ -60,7 +65,7 @@ export const COLUMNS = [
 /** Text fields an in-place cell edit may write. `duration` is handled apart
  *  (it is a number with two legal values) and `description` too (it carries the
  *  entity links, so it has a read view). */
-const TEXT_FIELDS = ["shotSize", "lighting", "dialogue", "cameraMotion"];
+const TEXT_FIELDS = ["shotSize", "lighting", "dialogue", "sfxNote", "cameraMotion"];
 
 /** Every draft-shot field this table can change, for the save path. */
 export const EDITABLE_FIELDS = ["description", ...TEXT_FIELDS, "color"];
@@ -157,6 +162,7 @@ export function shotTableModel(pd, { buffer = {}, deleted = [], detailOf, portra
       shotSize: str(eff.shotSize),
       lighting: str(eff.lighting),
       dialogue: str(eff.dialogue),
+      sfxNote: str(eff.sfxNote),
       cameraMotion: str(eff.cameraMotion),
       color: str(eff.color),
       sfx: sfxCount(pd && pd.shotAudio, shotId),
@@ -373,6 +379,7 @@ export function renderShotTable(ctx, m, ui) {
       `<td>${textCell(r, "shotSize", "如 中近景", focus)}</td>` +
       `<td>${textCell(r, "lighting", "如 冷白顶光", focus)}</td>` +
       `<td>${textCell(r, "dialogue", "如 「你是谁？」", focus)}</td>` +
+      `<td>${textCell(r, "sfxNote", "如 「雨声、远处雷」", focus)}</td>` +
       `<td class="sbt-sfx">` +
       (r.sfx
         ? `<span class="chip ok">${r.sfx}</span>`
