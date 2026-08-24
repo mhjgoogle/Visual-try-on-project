@@ -56,7 +56,39 @@
       "declared": "2026-08-24T01:54:24+00:00"
     },
     "TASK-041": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "60be8ba804fe599b38a25ec0ab50fbab26556440",
+          "subject": "feat(TASK-041 §4): minimax 目录 + 证据副本项目 —— 离线那一段做完了",
+          "time": "2026-08-24T02:01:14+00:00",
+          "branch": "change/TASK-105-flow-templates",
+          "pushed": false,
+          "files": [
+            "config/providers/wfm1-minimax.json",
+            "docs/auto-push/changes/flow-templates-and-evidence.json",
+            "docs/tasks/active/TASK-041-workspace-generation-command-and-evidence.md",
+            "examples/projects/wfm1-minimax-evidence/config/wfm1.json",
+            "examples/projects/wfm1-minimax-evidence/planning/brief_v1.json",
+            "examples/projects/wfm1-minimax-evidence/planning/prompts/p-mia-night/v1.json",
+            "examples/projects/wfm1-minimax-evidence/planning/shot_plan_v1.json",
+            "examples/projects/wfm1-minimax-evidence/planning/story_v1.json",
+            "examples/projects/wfm1-minimax-evidence/profile/project_profile_v1.json",
+            "examples/projects/wfm1-minimax-evidence/profile/reuse_refs.json",
+            "examples/projects/wfm1-minimax-evidence/project.json",
+            "examples/projects/wfm1-minimax-evidence/records/scenes/scene-001.json",
+            "examples/projects/wfm1-minimax-evidence/records/shots/shot-001.json",
+            "examples/projects/wfm1-minimax-evidence/records/shots/shot-002.json",
+            "examples/projects/wfm1-minimax-evidence/records/shots/shot-003.json",
+            "examples/projects/wfm1-minimax-evidence/records/shots/shot-004.json",
+            "examples/projects/wfm1-minimax-evidence/records/shots/shot-005.json",
+            "examples/projects/wfm1-minimax-evidence/records/shots/shot-006.json",
+            "examples/projects/wfm1-minimax-evidence/records/shots/shot-007.json",
+            "examples/projects/wfm1-minimax-evidence/records/shots/shot-008.json",
+            "tests/backend/test_minimax_evidence_scaffold_task041.py"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "config/providers/",
         "docs/tasks/active/TASK-041-workspace-generation-command-and-evidence.md",
@@ -66,6 +98,16 @@
       "verification": "PASS",
       "verification_ref": "pytest tests/backend 13 条守卫全绿（含逐镜报价与全项目身份自证）；离线搭建，不花一分钱",
       "declared": "2026-08-24T02:00:37+00:00"
+    },
+    "ADR-0086": {
+      "commits": [],
+      "paths": [
+        "docs/",
+        "src/ui-gap-audit/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "纯文档/ADR 决策：全仓 md 断链 0 · pytest tests/tooling 全绿 · 按 ADR-0081 纯文档不调审查",
+      "declared": "2026-08-24T02:01:26+00:00"
     }
   },
   "merge_gate": {
