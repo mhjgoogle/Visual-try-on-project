@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "change_id": "wfm2-pass",
+  "branch": "change/TASK-037-wfm2-pass",
+  "status": "open",
+  "created": "2026-08-24T11:13:46+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-037": {
+      "commits": [
+        {
+          "hash": "b974b3e38558a571e7ebd9c502a84340e4949da5",
+          "subject": "feat(TASK-037): WFM2 里程碑 PASS —— 产品负责人 2026-08-24 原话「WFM2 可以了」",
+          "time": "2026-08-24T11:14:50+00:00",
+          "branch": "change/TASK-037-wfm2-pass",
+          "pushed": true,
+          "files": [
+            "docs/STATUS.md",
+            "docs/auto-push/changes/wfm2-pass.json",
+            "docs/design/active/WFM2-milestone-review.md",
+            "docs/design/active/wfm2-acceptance-runbook.md",
+            "docs/design/active/wfm2-acceptance-traceability.md",
+            "docs/design/done/WFM2-milestone-review.md",
+            "docs/design/done/wfm2-acceptance-runbook.md",
+            "docs/design/done/wfm2-acceptance-traceability.md",
+            "docs/implementation_plan.md",
+            "docs/tasks/active/TASK-037-wfm2-end-to-end-acceptance.md",
+            "docs/tasks/done/TASK-037-wfm2-end-to-end-acceptance.md"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        "docs/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "裁定当天重跑证据：WFM2 + 最终验收 e2e 共 7 条通过；两阶段 pytest 3528+6、node 1848、ruff 619 全绿",
+      "declared": "2026-08-24T11:13:47+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PASS",
+    "by": "ADR-0085 常设授权；依据=Done 判定 + 最终全量：pytest 3528+6、node 1848、ruff 619 全绿，无未闭合 P1，待复审清单零未闭合条目；里程碑 PASS 原话已记录",
+    "time": "2026-08-24T11:20:23+00:00",
+    "tip": "50eb292aa7c8bd34e1f8589b5501f6483cadc3e6"
+  },
+  "merge": null,
+  "cleanup": null
+}

@@ -59,5 +59,6 @@ AI_VIDEO_WORKFLOW_REAL_TOOLS=1 python -m pytest tests/test_av_ffmpeg_smoke.py -q
 - [ ] 已审阅 [追踪矩阵](wfm2-acceptance-traceability.md) 与 §4 标准映射。
 - [ ] 认可 [追踪矩阵 §4 已知限制](wfm2-acceptance-traceability.md)（合同层交付、
       自算 digest、无付费 API、M1 链复用）。
-- **WFM2 里程碑**：由用户一句话裁定 PASS 或需返工；Agent 记录原话与日期。
+- **WFM2 里程碑：PASS。** 产品负责人 2026-08-24 原话：**「WFM2 可以了」**。
+  （本行由 Agent 记录，不代判 —— 上面那三条证据索引在裁定前已逐条说明。）
   ~~PASS / 需返工（圈选），签字：________ 日期：________~~（表格形态已按 ADR-0082 决策 3 取消）
