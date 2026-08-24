@@ -2,7 +2,7 @@
   "schema": 1,
   "change_id": "active-audit",
   "branch": "change/active-cards-audit",
-  "status": "open",
+  "status": "closed",
   "created": "2026-08-24T08:25:06+00:00",
   "chain_mode": false,
   "tasks": {
@@ -46,6 +46,14 @@
     "time": "2026-08-24T08:32:24+00:00",
     "tip": "67d8679858aa7f43c28bb815dfaada43a2cf9288"
   },
-  "merge": null,
-  "cleanup": null
+  "merge": {
+    "hash": "127e32c36fc0e2f7609e13a0acd3698ac6aa3653",
+    "time": "2026-08-24T08:38:20+00:00",
+    "pushed": true
+  },
+  "cleanup": {
+    "local_deleted": true,
+    "remote_deleted": true,
+    "time": "2026-08-24T08:38:26+00:00"
+  }
 }
