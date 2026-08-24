@@ -382,34 +382,42 @@ def _read_manifest(raw: object) -> dict:
     return raw
 
 
-def load_package(directory: Path, source: str) -> Skill:
-    """Load and validate ONE package. Raises ``SkillPackageError`` if unusable."""
+def read_package_files(
+    directory: Path, names: Sequence[str], *, what: str = "Skill 包"
+) -> dict[str, str]:
+    """Read a package's files, refusing anything that reaches outside it.
+
+    Shared by Skill packages and Flow packages (ADR-0084 决策 1 says the flow
+    format REUSES this mechanism rather than growing a second one) — `names` is
+    the only thing that differs between them, and `what` only names the thing in
+    the error a person reads.
+
+    THE PACKAGE'S OWN FILES MUST STAY INSIDE IT (ADR-0067 补记 / TASK-084 项 4,
+    cross-model review round 2). Containing the package DIRECTORY is not enough:
+    `prompt.md` can itself be a symlink to anywhere on the disk, and the read
+    below follows it — so the text inlined into what an executor is sent would
+    come from outside the project while the package still reports
+    `source: "project"`. That is the same defect the directory check closes, one
+    level down.
+
+    `is_symlink()` is NOT the test (a Windows junction answers False), and a
+    regular-file check alone would not catch a symlink to a regular file, so
+    resolved containment is what decides.
+
+    WHAT THIS DOES NOT CATCH, stated rather than implied: a HARD LINK has no
+    target path — it resolves to the very name inside the package — so a hard
+    link to an outside file passes this check. Closing that needs an inode
+    comparison, which NTFS and POSIX express differently, and it buys nothing
+    here: creating one already requires write access to the package directory,
+    and anyone with that can simply write the bytes in.
+    """
 
     files: dict[str, str] = {}
-    # THE PACKAGE'S OWN FILES MUST ALSO STAY INSIDE IT (ADR-0067 补记 / TASK-084
-    # 项 4, cross-model review round 2). Containing the package DIRECTORY is not
-    # enough: `prompt.md` can itself be a symlink to anywhere on the disk, and the
-    # read below follows it — so the text inlined into what an executor is sent
-    # would come from outside the project while the package still reports
-    # `source: "project"`. That is the same defect the directory check closes,
-    # one level down, so it is closed here rather than waiting for it to be
-    # reported again as its own finding.
-    #
-    # `is_symlink()` is NOT the test (a Windows junction answers False), and a
-    # regular-file check alone would not catch a symlink to a regular file, so
-    # resolved containment is what decides.
-    #
-    # WHAT THIS DOES NOT CATCH, stated rather than implied: a HARD LINK has no
-    # target path — it resolves to the very name inside the package — so a hard
-    # link to an outside file passes this check. Closing that needs an inode
-    # comparison, which NTFS and POSIX express differently, and it buys nothing
-    # here: creating one already requires write access to the package directory,
-    # and anyone with that can simply write the bytes in.
     try:
         package_root = directory.resolve(strict=True)
     except (OSError, RuntimeError) as exc:
         raise SkillPackageError(f"无法解析包目录：{exc}") from exc
-    for name in PACKAGE_FILES:
+    for name in names:
         target = directory / name
         try:
             resolved = target.resolve(strict=True)
@@ -420,7 +428,7 @@ def load_package(directory: Path, source: str) -> Skill:
         if resolved.parent != package_root or not resolved.is_file():
             raise SkillPackageError(
                 f"{name} 指向了包目录之外（{resolved}）——"
-                "Skill 包必须自成一体，不得把内容链接到别处"
+                f"{what}必须自成一体，不得把内容链接到别处"
             )
         try:
             # Read BYTES and decode strictly: a file that is not valid UTF-8 is
@@ -433,6 +441,13 @@ def load_package(directory: Path, source: str) -> Skill:
             raise SkillPackageError(f"{name} 不是合法的 UTF-8") from exc
         except OSError as exc:
             raise SkillPackageError(f"无法读取 {name}：{exc}") from exc
+    return files
+
+
+def load_package(directory: Path, source: str) -> Skill:
+    """Load and validate ONE package. Raises ``SkillPackageError`` if unusable."""
+
+    files = read_package_files(directory, PACKAGE_FILES)
 
     try:
         manifest = json.loads(files["manifest.json"])

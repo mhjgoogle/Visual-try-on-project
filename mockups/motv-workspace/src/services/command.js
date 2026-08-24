@@ -49,9 +49,32 @@ async function call(path, opts) {
 /* --- project lifecycle ----------------------------------------------------- */
 
 /** Create a project folder at `root`. A location never used before comes back 409
- *  `root_unconfirmed`; re-send with confirm=true. */
-export function createProject(name, root, confirm) {
-  return call("/api/projects", { method: "POST", body: { name, root, confirm: !!confirm } });
+ *  `root_unconfirmed`; re-send with confirm=true.
+ *
+ *  `flow` 可选（ADR-0084 / TASK-105）：从一份流程模板起步。**省略 = 不用模板**，
+ *  那是完全正常的一条路 —— 模板是可复用物，不是必经之路。字段只在真选了的时候
+ *  才发出去，所以后端那边它是加法字段。 */
+export function createProject(name, root, confirm, flow) {
+  const body = { name, root, confirm: !!confirm };
+  if (flow) body.flow = flow;
+  return call("/api/projects", { method: "POST", body });
+}
+
+/** 这个项目**从哪份模板起步的**，以及那份模板说了什么。
+ *
+ *  没用模板时返回 `{ flow: null }` 而不是 404：「这个项目本来就没有模板」是
+ *  正常状态，读侧不该把它和「请求失败」混在一起。 */
+export function projectFlow(project) {
+  return call(`/api/projects/${encodeURIComponent(project)}/flow`, { method: "GET" });
+}
+
+/** 可用的流程模板 + **不可用的那些为什么不可用**。
+ *
+ *  problems 一起带回来是刻意的（与 `/api/skills` 同）：一个装了却没生效的模板，
+ *  沉默地消失比报错难查得多。 */
+export function listFlows(project) {
+  const q = project ? `?project=${encodeURIComponent(project)}` : "";
+  return call(`/api/flows${q}`, { method: "GET" });
 }
 
 /** Copy a project's legacy repo-scratch canvas + media into the project folder

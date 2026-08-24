@@ -1,0 +1,12 @@
+{
+  "note": "结构骨架，不是内容。这里出现的每一个字段都是空的槽位 —— 加载器会拒绝带资产登记、生成登记、Run 记录、媒体或时间线的 seed（ADR-0084 决策 3）。",
+  "story": {
+    "storyCore": "",
+    "genre": "",
+    "tone": ""
+  },
+  "world": {
+    "visualTone": ""
+  },
+  "episodes": []
+}

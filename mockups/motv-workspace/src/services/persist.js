@@ -186,6 +186,38 @@ export function saveBlockedReason(name) {
   return _blocked.get(name) || null;
 }
 
+/** Block saving for `name` for a reason the CALLER knows about.
+ *
+ *  Same map, same semantics as a fail-safe load: the stored document (or, here,
+ *  the not-yet-written one) stays recoverable because nothing autosaves over it.
+ *
+ *  The case this exists for (TASK-105, codex 审查轮 5): the studio could not read
+ *  which flow template a fresh project started from. Carrying on would restore a
+ *  BLANK canvas and autosave it — and the next refresh sees that saved canvas,
+ *  so it never retries. A transient read failure would permanently discard the
+ *  creator's template choice, silently. Blocking saves turns「暂时读不到」 back
+ *  into 「刷新一次就好了」. */
+export function blockSaves(name, reason, detail) {
+  if (!name) return null;
+  // FIRST BLOCKER WINS. Overwriting would let a lighter reason replace a
+  // heavier one — a `flow_pending` block landing on top of a `corrupt` one,
+  // and then its own `unblockSaves` deleting the only entry, so saving resumes
+  // over a document we still cannot read (codex 审查轮 9). A block is a claim
+  // that something is unsafe; a second claim never cancels the first.
+  if (_blocked.has(name)) return _blocked.get(name);
+  _blocked.set(name, { reason, detail });
+  return _blocked.get(name);
+}
+
+/** Lift a block this module's caller put on. Only lifts `reason`, so it can
+ *  never clear a fail-safe-load block by accident — those are the loader's,
+ *  and clearing one would autosave over a document we could not read. */
+export function unblockSaves(name, reason) {
+  const cur = _blocked.get(name);
+  if (cur && cur.reason === reason) _blocked.delete(name);
+  return _blocked.get(name) || null;
+}
+
 /**
  * Load a saved canvas document for `name`.
  *

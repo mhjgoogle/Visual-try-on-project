@@ -1038,3 +1038,43 @@ def test_outline_never_writes_bible_entities() -> None:
     app = (_SRC / "app.js").read_text("utf-8")
     block = app[app.index("confirmPlan: (v) =>") : app.index("openEpisodeScript")]
     assert "bibledoc" not in block
+
+
+def test_a_flow_that_cannot_be_applied_never_leaves_autosave_enabled() -> None:
+    """TASK-105：套用模板失败的**每一种**方式都必须停用自动保存。
+
+    这条守卫是文本断言，因为它守的是 app.js 的入口编排层（node 拿不到它 ——
+    见本文件 docstring 里那条唯一例外）。它盯的不是某一种输入，而是那个性质：
+
+        我们打算套用一份模板，就必须真的拿到一份**能用的**模板；
+        拿不到就不许让自动保存把空白画布存成这个项目的开局。
+
+    三轮审查各报出这个洞的一种拼法（请求失败 → 只 toast 不停保存 → `{}` 是真值），
+    所以断言的是三条出路都在，而不是某一次修复的字面写法。
+    """
+    src = (_MOCKUP_DIR / "src" / "app.js").read_text(encoding="utf-8")
+    where = src.index('if (CONNECTED && res.status === "empty")')
+    region = src[where : src.index("if (!restoreGraph(doc))", where)]
+
+    # **先停用**，再去问 —— 默认是「不确定」
+    assert region.index("persist.blockSaves(") < region.index("query.projectFlow(")
+    # 解除只有两条路，而且都在**确凿**的分支里
+    assert region.count("persist.unblockSaves(") == 2
+    assert "flow === null" in region, "确凿之一：后端说这个项目没用模板"
+    assert "proddoc.isUsableFlow(flow)" in region, "确凿之二：拿到一份能用的"
+    # 判据走的是那个**具名谓词**（谓词本身住在 proddoc，node 测得到）。
+    # 内联一个等价条件会让上面那条断言失效 —— 判据必须只有一处。
+    #
+    # 兜底那一支**不枚举失败拼法**：前四轮各补一种（请求失败 / `{}` /
+    # `false` / 缺字段），而拼法补不完（ADR-0081 §2b）。所以这里断言的是形状 ——
+    # **停用两次、解除两次**：进门先停一次，兜底再停一次（换个更准的 reason），
+    # 而解除只属于那两条确凿分支。少一次停用就说明有一条路能带着自动保存出门。
+    assert region.count("persist.blockSaves(") == 2
+    assert "flow_unreadable" in region
+    # await 之后世界可能已经变了：创作者可以在这一问还没回来时切到另一个项目，
+    # 而 `PENDING_FLOW` 是模块级的 —— 晚回来的答复会把 A 的模板套到 B 的画布上。
+    # 与 `promptBatch._quote` 那条钉子同形（codex 审查轮 9）。
+    assert "if (PROJECT_NAME !== name) return;" in region
+    assert region.index("await query.projectFlow(") < region.index(
+        "if (PROJECT_NAME !== name)"
+    ), "钉子必须在 await 之后"

@@ -8,12 +8,27 @@
 > | --- | --- |
 > | **1 · 核心命令** | ✅ **已完成**。`src/ai_video_workflow/app/paid_gateway.py` 的 `SUBMIT_VIDEO_GENERATION`；授权门是 `authorized=True` **加** `AI_VIDEO_WORKFLOW_ENABLE_PAID_COMMANDS=1` 双闸，默认 `build_wfm1_registry()` 不含它。`tests/backend/test_paid_gateway_command.py` **28 项全绿** |
 > | **2 · UI 接线** | ✅ **已完成**。Studio 的 `_command_gateway`（`server.py`）在付费模式下注册该命令；`services/gateway.js` 早已不是 stub，做的是真实两步提交（`buildEnvelope` · `preflight` · `submit`）。~~「保持 stub」~~ 那句在 `docs/project-context.md` 里挂到 2026-08-23 才被订正 |
-> | **4 · 证据运行前置** | ❌ **未做**。`examples/projects/` 下只有 `minimal` 与 `wfm1-demo`，**没有 catalog 目录**，也没有含 minimax 价目的目录、没有副本项目、没有 re-lock 的 `catalog_digest`。这一步**不花钱**，是纯离线搭建 |
+> | **4 · 证据运行前置** | ✅ **已完成（2026-08-24）**。`config/providers/wfm1-minimax.json`（minimax + `MiniMax-Hailuo-02` 768P/6s = USD 0.28 per_clip + `credential_env_vars: ["WFM1_MINIMAX_API_KEY"]`）；副本项目 `examples/projects/wfm1-minimax-evidence/` 已 re-lock 该目录的 digest，**冻结的 `wfm1-demo` 一字未改**。守卫 `tests/backend/test_minimax_evidence_scaffold_task041.py`（8 条）跑通整条离线链：锁验过 → registry 造出真的 `MinimaxVideoProvider`，**全程不发请求、不读 key** |
 > | **3 · 1 次真实证据** | ⛔ **需要产品负责人**：它要 `WFM1_MINIMAX_API_KEY` + `AI_VIDEO_WORKFLOW_REAL_MINIMAX=1` + 对 ≈USD 0.28 的确认。AGENTS.md §1：**花钱是唯一必须问的那件事**，Agent 不得自行推进 |
 >
-> **所以本卡的剩余工作是两段，不是一段**：第 4 项（离线搭建，任何 Agent 都能做）
-> 与第 3 项（真实花费，只有产品负责人能放行）。上一版状态行把两者合成「离线实现
-> 进行中」一句，读起来像是全都卡在同一个地方。
+> **2026-08-24 更新：离线那一段做完了，本卡只剩需要产品负责人的那一段。**
+> 增量 1、2、4 全部完成并有守卫；**只剩增量 3**，它要的是
+> `WFM1_MINIMAX_API_KEY` + `AI_VIDEO_WORKFLOW_REAL_MINIMAX=1` + 对 ≈USD 0.28 的
+> 确认。AGENTS.md §1：花钱是**唯一**必须问的那件事，Agent 不得自行推进。
+>
+> 真跑时的完整口令（离线部分已经全部就位，剩下的就是这一条）：
+>
+> ```powershell
+> $env:WFM1_MINIMAX_API_KEY = '<你的 key>'
+> $env:AI_VIDEO_WORKFLOW_REAL_MINIMAX = '1'
+> $env:AI_VIDEO_WORKFLOW_ENABLE_PAID_COMMANDS = '1'
+> ./scripts/launch/studio.ps1 -Connected `
+>     -AccountRoot examples/projects `
+>     -EnablePaid -CatalogDir config/providers
+> ```
+>
+> 然后在界面上对 `wfm1-minimax-evidence` 触发一次生成，预检会显示 USD 0.28，
+> 由你按下第二步确认。**预检是只读的，从不扣费**；扣费只发生在你按下确认之后。
 
 依据：ADR-0041（本任务实现的决策）；ADR-0033 Gateway 合同；ADR-0006 + ADR-0009 付费视频窄授权；
 ADR-0010 / ADR-0032 工作视窗边界；ADR-0008 成本事实；ADR-0040 / TASK-038 submit capability。

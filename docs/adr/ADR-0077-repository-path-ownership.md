@@ -25,6 +25,14 @@
 
 历史 ADR / 任务卡记录的旧命令保持原文；当前运行入口以 README 为准。
 
+> **补记（2026-08-24，TASK-105）**：仓库根多了一个 `product-flows/`，与
+> `product-skills/` 并列，放**内置流程模板**（[ADR-0084](ADR-0084-project-flow-template-as-a-package.md)
+> 决策 7）。理由与 `product-skills/` 在根上的理由逐字相同：它是**产品资产**，
+> 不是这个原型的私有物，将来产品换外壳它也要跟着走。
+>
+> 与 `product-skills/` **并列而不是嵌进去**：一个 flow 不是一个 skill 的一部分，
+> 两者的 id 空间也必须分开 —— 同名的 `storyboard` skill 与 `storyboard` flow 合法。
+
 ## 后果
 
 - 根目录没有可执行脚本或 Python 文件，职责一眼可辨。

@@ -38,8 +38,23 @@
 > 往一个对真实项目看不见任何东西的壳里加两个页面，**做完也没法验收**
 > —— AGENTS.md §20「真实 Connected Project 是主要验收环境」。
 >
-> **接手顺序因此是**：先定 `workspace_shell` 的去留（技术决策，按 AGENTS.md §1
-> 由实施 Agent 自行决定并写进文档），再决定 part-2b 落在哪个壳里。
+> **已定（2026-08-24）** → [ADR-0086](../../adr/ADR-0086-workspace-shell-serves-core-projects-only.md)：
+> `workspace_shell` **保留**，主语明确为 **WFM1 核心项目**；**不**让
+> `discover_projects` 接纳 Studio 项目 —— 那会让壳开始说谎（Studio 项目里没有核心
+> 事实，点进去是每一页都空的谱系与成本，看起来像「功能坏了」而不是「不归这里管」）。
+> **「Portfolio 不空了但每一页都是空的」严格劣于一个诚实的空 Portfolio。**
+>
+> **对本卡的三个直接后果**：
+>
+> 1. part-2b **落在 `workspace_shell`** —— 它的主语是谱系与复用，是核心事实；
+> 2. 验收环境是**真实的核心项目**（如 `wfm1-demo` / `wfm1-minimax-evidence`），
+>    不是 Studio 项目。AGENTS.md §20 那条「真实 Connected Project 是主要验收环境」
+>    要的是「别拿 demo seed 与 SVG 占位素材当依据」，不是「一切都拿 Studio 项目验」；
+> 3. C-020（Portfolio 对 Studio 项目全空）**不再算本卡的前置缺陷**。
+>
+> **仍未做**：part-2b 本身（并排媒体比较 + `reuse_usage` 下游使用页）。
+> 它现在是可做的 —— 需要先把候选/选中结果 DTO 里的媒体 artifact 路径暴露出来
+> （当前只带 id/ref），那是查询合同的一次加法扩展。
 
 ## 目的
 

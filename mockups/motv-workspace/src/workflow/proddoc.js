@@ -161,6 +161,78 @@ export function createProduction(saved) {
 }
 
 /** The durable slice for persistence (schema v10 `production`). */
+/** 这是一份**能用的**落地流程吗（ADR-0084 / TASK-105）？
+ *
+ *  判据是 `createdFrom.flowId` —— 后端写下的每一份 `studio/flow.json` 都有它，
+ *  它就是「这确实是一份落下来的流程」的那个标记。
+ *
+ *  为什么需要一个具名谓词而不是 `if (flow)`：`{}` 是真值，于是它会被当成加载
+ *  成功，套用时静默 no-op，而自动保存照常把空白画布存下来 —— 与请求失败的后果
+ *  一模一样（codex 审查轮 7）。前几轮一次修一种输入（失败 → 消息 → 停保存），
+ *  这一版守的是那个**性质**：打算套用模板，就必须真的拿到一份能用的模板。
+ *
+ *  住在这里而不是 app.js 里，是为了它**能被真的测到** —— app.js 是入口编排层，
+ *  `node --test` 拿不到它，那一层只剩源码文本断言（TASK-087 §3.6.4）。 */
+export function isUsableFlow(flow) {
+  if (!isObj(flow) || !isObj(flow.createdFrom)) return false;
+  const { flowId, flowVersion, flowDigest } = flow.createdFrom;
+  // **三个字段一个不少** —— ADR-0084 决策 5 写的就是三个，理由也在那里：
+  // `flowVersion` 回答「作者说这是第几版」，`flowDigest` 回答「那一版到底是什么」。
+  // 只认 `flowId` 的话，一份被截断的 flow 能解除自动保存、套用出零内容，然后把
+  // 空白画布存成这个项目的开局（codex 审查轮 10）。
+  //
+  // `nonEmpty` 只查 `!== ""`，所以 `"   "` 会过；这里 trim，因为这个谓词的
+  // **全部意义**就是不让「看起来有东西」冒充「真的有东西」。
+  return (
+    typeof flowId === "string" && flowId.trim() !== "" &&
+    typeof flowVersion === "number" && Number.isInteger(flowVersion) && flowVersion >= 1 &&
+    typeof flowDigest === "string" && flowDigest.trim() !== ""
+  );
+}
+
+/** 把一份流程模板的骨架应用到**全新**的生产文档上（ADR-0084 / TASK-105）。
+ *
+ *  只在项目还没有画布时调用一次。**它不覆盖任何已有内容** —— 传进来的 `prod`
+ *  必须是刚 `createProduction(null)` 出来的那一份，否则就成了「模板改写创作者
+ *  已经写下的东西」，那是第 13 条禁止的静默覆盖。
+ *
+ *  为什么这一步存在：不做它，从模板起步的项目和空项目**一模一样**，
+ *  「选模板」就成了一个点了没反应的控件（codex 审查轮 3 的 blocking）。
+ *
+ *  目前应用的是 `episodeCount`。刻意**只做这一条**：它是 seed 里唯一一个能在
+ *  不发明任何内容的前提下改变项目形状的约定 —— 集数是结构，剧本是内容。 */
+export function applyFlowSeed(prod, flow) {
+  if (!isObj(prod) || !isObj(flow)) return prod;
+  const conventions = isObj(flow.conventions) ? flow.conventions : {};
+  const want = conventions.episodeCount;
+  // 整数、>= 1、且有个上限：一个写着 1e9 的模板不该让新建项目挂住
+  if (typeof want !== "number" || !Number.isInteger(want) || want < 1 || want > 200) {
+    return prod;
+  }
+  // 只从**默认那一集**长出去。判据不能只是「集数 == 1」：一份创作者已经写了
+  // 半天、但仍然只有一集的文档同样满足它，于是模板会在它上面接着长出十一集
+  // （codex 审查轮 6 的 non-blocking）。今天唯一的调用方在「这个项目还没有画布」
+  // 时才调，所以撞不上——但**一个函数不该靠调用方替它守规矩**，尤其当它守的是
+  // 第 13 条（不静默覆盖创作者的东西）。
+  if (prod.episodes.length !== 1) return prod;
+  const only = prod.episodes[0];
+  const untouched =
+    (!Array.isArray(only.scenes) || only.scenes.length === 0) &&
+    !only.bgmAssetId &&
+    !isArchived(only) &&
+    !prod.characters.length &&
+    !prod.locations.length &&
+    !prod.props.length;
+  if (!untouched) return prod;
+  while (prod.episodes.length < want) {
+    addEpisode(prod, `第 ${prod.episodes.length + 1} 集`);
+  }
+  // `addEpisode` 会把新集设为 active；模板应用完之后回到第一集，
+  // 因为创作者要从头开始，不是从第 12 集开始。
+  prod.activeEpisodeId = prod.episodes[0].episodeId;
+  return prod;
+}
+
 export function serialize(prod) {
   return {
     activeEpisodeId: prod.activeEpisodeId,

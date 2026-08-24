@@ -312,7 +312,7 @@ AI 生成分镜草稿（60 镜）→ 手工编辑 → 「锁定为正式版本�
 | `ASSET_NAV` 七行 rail | ADR-0066/TASK-073 说要变成页内筛选值，但 rail 仍在渲染（C-018），与页内 chips 重复 |
 | `LEGACY_EPISODE_STAGES` 十一项 | TASK-073 说这是「旧入口，TASK-074 退休」，实测**它才是唯一入口** |
 | 节点画布（`?canvas=1`） | ADR-0061 降级为诊断视图，创作路径不再经过 |
-| `workspace_shell` 整个前端 | 对真实 Studio 项目 Portfolio 全空（C-020） |
+| `workspace_shell` 整个前端 | 对真实 Studio 项目 Portfolio 全空（C-020）—— **2026-08-24 结案：这是正确行为**，见 [ADR-0086](../../../docs/adr/ADR-0086-workspace-shell-serves-core-projects-only.md)。它的主语是 WFM1 核心项目；让 Studio 项目出现在这里只会把范围问题伪装成一堆缺陷 |
 | Studio 服务端 `plan`/`problems`/`approvals` 路由 | 前端一次不调 |
 
 ---

@@ -1127,6 +1127,9 @@ const est = createEstimate({ renderBudget, toast });
 // 「一键合成全部提示词」当前那一批（批次 4D）。**只有一批**：两批同时跑会让
 // 「已花多少」有两个来源，而那正是 batchpay 要挡的东西。
 let promptBatchState = null;
+//: 这个项目落下的那份流程（`studio/flow.json`），等着在全新画布上被应用一次。
+//: 应用完就清空 —— 它是一次性的开局，不是一份持续生效的配置。
+let PENDING_FLOW = null;
 let videoBatchState = null;
 // 文档里**别的**批量（这一层不管的那些 kind）。保存时必须原样写回去 ——
 // 否则打开-保存一次就删掉了它们（4D 轮 4 的 P1）。
@@ -6852,6 +6855,16 @@ function restoreGraph(data) {
   // Production structure (M6): existing episode/scene ids survive verbatim; a
   // fresh/legacy canvas starts with the default single active episode.
   productionDoc = proddoc.createProduction((data && data.production) || null);
+  // 从模板起步的项目：**第一次**打开（还没有画布）时把模板的骨架应用上去。
+  // 不做这一步，从模板起步的项目和空项目一模一样 ——「选模板」就是个点了没反应
+  // 的控件（codex 审查轮 3 的 blocking）。
+  //
+  // 条件卡在「没有已保存的画布」上，而不是「有没有模板」：模板永远不覆盖创作者
+  // 已经写下的东西（第 13 条）。
+  if (!data && PENDING_FLOW) {
+    proddoc.applyFlowSeed(productionDoc, PENDING_FLOW);
+    PENDING_FLOW = null;
+  }
   // Per-episode timelines (M11).
   timelinesDoc = timeline.createTimelines((data && data.timelines) || null);
   // 批量付费的状态（v18 / 批次 4D）：**水合回来**，否则刷新之后创作者看到一个
@@ -7101,7 +7114,59 @@ async function enterCanvas(name, opts = {}) {
   } else {
     const res = await persist.loadCanvas(name);
     const doc = res.status === "ok" ? res.doc : null;
+    // 只在**确实还没有画布**时去取模板（`empty`，不是「读失败」）。读失败时
+    // 存档还在、自动保存已停，往上套模板会把一次读错变成一次改写。
+    PENDING_FLOW = null;
+    if (CONNECTED && res.status === "empty") {
+      // **默认是「不确定」，不确定就不许保存。**
+      //
+      // 前四轮审查各报出这个洞的一种拼法：请求失败 → 只 toast 不停保存 →
+      // `{}` 是真值 → `false`/`0`/`""` 是假值绕过了「形状不对」那一支。
+      // 每一次我都在补一个新的失败拼法，而拼法是补不完的（ADR-0081 §2b 记的
+      // 正是这种病）。所以这一版**把默认反过来**：先停用，只有两种**确凿**的
+      // 结果才解除 ——
+      //
+      //   1. 后端明确说「这个项目没用模板」（`flow === null`）；
+      //   2. 拿到了一份 `isUsableFlow` 认可的模板。
+      //
+      // 其余一切 —— 请求失败、`{}`、`false`、`0`、`""`、缺 `createdFrom`、
+      // 将来某种还没见过的形状 —— 统统落进 else，**不需要被枚举**。
+      const PENDING = "flow_pending";
+      persist.blockSaves(name, PENDING, "还没确定这个项目是不是从模板起步的");
+      const got = await query.projectFlow(name);
+      // **await 之后世界可能已经变了**（codex 审查轮 9）：创作者可以在这一问
+      // 还没回来的时候就切到另一个项目。`PENDING_FLOW` 是模块级的，所以晚回来
+      // 的那一份答复会把 A 的模板套到 B 的画布上。
+      //
+      // 与 `promptBatch._quote` 里那条钉子是同一个形状、同一个修法：把「问的时候
+      // 是哪个项目」记下来，回来不是同一个就**只留下那次停用**（那是给 A 的，
+      // A 的画布也确实还没确定），什么都不套、什么都不解除。
+      if (PROJECT_NAME !== name) return;
+      const flow = got.ok && got.data ? got.data.flow : undefined;
+      if (got.ok && flow === null) {
+        persist.unblockSaves(name, PENDING);            // 确凿：没用模板
+      } else if (proddoc.isUsableFlow(flow)) {
+        PENDING_FLOW = flow;
+        persist.unblockSaves(name, PENDING);            // 确凿：拿到了
+      } else {
+        const detail = got.ok
+          ? "studio/flow.json 形状不对"
+          : (got.error && got.error.detail) || "请求失败";
+        persist.blockSaves(name, "flow_unreadable", detail);
+        toast(
+          `读不到这个项目的流程模板（${detail}）——已停用自动保存以免把空白画布` +
+          "存成这个项目的开局；刷新可以重试",
+        );
+      }
+    }
     if (!restoreGraph(doc)) { engine.reset(); seeded = false; engine.render(); }
+    if (PENDING_FLOW) {
+      // restoreGraph 在 doc 为 null 时会走它自己的早退路径，不一定进到应用点；
+      // 兜一次，并且**只在还是全新文档时**兜（applyFlowSeed 自己也会再判一次）。
+      proddoc.applyFlowSeed(productionDoc, PENDING_FLOW);
+      PENDING_FLOW = null;
+      refreshProductionView();
+    }
     // Fail-safe load (corrupt save / newer schema / backend read failure):
     // persist has already blocked saves for this project so the stored
     // document stays recoverable — tell the creator why nothing autosaves.
@@ -7358,6 +7423,50 @@ function npFail(msg, focus) {
   if (focus) focus.focus();
 }
 
+/** 把可用的流程模板装进选择框。**不可用的那些也说出来**，带原因。
+ *
+ *  失败不挡创建：模板是可选的，取不到列表就等于「这次不用模板」，
+ *  而不是「新建项目坏了」。但要**说出来**——静默的空列表看起来像「没有模板」，
+ *  那是另一件事（ADR-0067 决策 7 的同一条理由：装了却没生效必须可见）。 */
+async function npLoadFlows() {
+  const sel = $("#np-flow");
+  const note = $("#np-flow-note");
+  sel.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = "不用模板（空项目）";
+  sel.appendChild(none);
+  note.textContent = "";
+  if (!CONNECTED) {
+    sel.disabled = true;
+    note.textContent = "演示模式没有后端，读不到流程模板。";
+    return;
+  }
+  sel.disabled = false;
+  const res = await query.listFlows();
+  if (!res.ok) {
+    note.textContent = `读不到流程模板（${(res.error && res.error.detail) || "请求失败"}）——这次可以先不用模板。`;
+    return;
+  }
+  const flows = (res.data && res.data.flows) || [];
+  for (const f of flows) {
+    if (f.deprecated) continue;
+    const opt = document.createElement("option");
+    opt.value = f.flowId;
+    opt.textContent = `${f.title}（${f.steps.length} 步 · v${f.flowVersion}）`;
+    opt.title = f.purpose;
+    sel.appendChild(opt);
+  }
+  const problems = (res.data && res.data.problems) || [];
+  if (problems.length) {
+    note.textContent = `${problems.length} 份模板加载不了：${problems
+      .map((p) => `${p.flowId || p.path}——${p.detail}`)
+      .join("；")}`;
+  } else if (!flows.length) {
+    note.textContent = "还没有可用的流程模板。";
+  }
+}
+
 async function npOpen() {
   npName.value = "";
   npRoot = await defaultAssetRoot();
@@ -7370,6 +7479,8 @@ async function npOpen() {
   npRefresh();
   npScrim.classList.add("show");
   npName.focus();
+  // await 放在最后：读模板不该拖慢对话框出现，也不该在它失败时挡住输入
+  await npLoadFlows();
 }
 
 const npClose = () => npScrim.classList.remove("show");
@@ -7384,10 +7495,11 @@ async function npCreate() {
   if (CONNECTED) {
     // the BACKEND creates the folder; it owns admission (deny-list, symlink,
     // writability) and asks once per new location
-    let res = await query.createProject(v.name, npRoot, false);
+    const flowId = ($("#np-flow") && $("#np-flow").value) || "";
+    let res = await query.createProject(v.name, npRoot, false, flowId);
     if (res.status === 409 && res.error && res.error.category === "root_unconfirmed") {
       if (!window.confirm(`${res.error.detail}\n\n确认使用这个位置？`)) return;
-      res = await query.createProject(v.name, npRoot, true);
+      res = await query.createProject(v.name, npRoot, true, flowId);
     }
     if (!res.ok) {
       return npFail((res.error && res.error.detail) || "创建失败", null);
