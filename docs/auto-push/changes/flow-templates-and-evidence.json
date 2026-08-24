@@ -2,7 +2,7 @@
   "schema": 1,
   "change_id": "flow-templates-and-evidence",
   "branch": "change/TASK-105-flow-templates",
-  "status": "open",
+  "status": "closed",
   "created": "2026-08-24T01:54:12+00:00",
   "chain_mode": false,
   "tasks": {
@@ -132,6 +132,14 @@
     "time": "2026-08-24T02:11:46+00:00",
     "tip": "7baf857f1b7c7d724010f23a6a41589a7f5a8746"
   },
-  "merge": null,
-  "cleanup": null
+  "merge": {
+    "hash": "bf2472d616edcaffc396924c53d33f178d1faa13",
+    "time": "2026-08-24T02:17:13+00:00",
+    "pushed": true
+  },
+  "cleanup": {
+    "local_deleted": true,
+    "remote_deleted": true,
+    "time": "2026-08-24T02:22:18+00:00"
+  }
 }
