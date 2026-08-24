@@ -7,7 +7,40 @@
   "chain_mode": false,
   "tasks": {
     "TASK-072": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "cc04c6db7188d04f52ddab3794ab233e14bae744",
+          "subject": "chore: TASK-072 / TASK-073 收口进 done",
+          "time": "2026-08-24T11:50:07+00:00",
+          "branch": "change/close-072-073",
+          "pushed": false,
+          "files": [
+            "docs/STATUS.md",
+            "docs/adr/ADR-0052-workflow-page-as-derived-provenance-graph.md",
+            "docs/adr/ADR-0065-every-ai-action-through-the-runtime-layer.md",
+            "docs/adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md",
+            "docs/auto-push/changes/close-072-073.json",
+            "docs/implementation_plan.md",
+            "docs/tasks/active/TASK-072-system-contract-and-persistent-runs.md",
+            "docs/tasks/active/TASK-073-fixed-ia-and-contextual-agent.md",
+            "docs/tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md",
+            "docs/tasks/done/TASK-051-production-studio-ui-convergence.md",
+            "docs/tasks/done/TASK-051A-ai-director-production-control-tower.md",
+            "docs/tasks/done/TASK-053-choose-project-location.md",
+            "docs/tasks/done/TASK-054-workflow-provenance-graph.md",
+            "docs/tasks/done/TASK-055-project-rooted-storage.md",
+            "docs/tasks/done/TASK-064-creator-ui-consolidation.md",
+            "docs/tasks/done/TASK-065-creator-object-first-ia.md",
+            "docs/tasks/done/TASK-066-episode-production-shot-workbench.md",
+            "docs/tasks/done/TASK-067-ai-director-operationalization.md",
+            "docs/tasks/done/TASK-068-legacy-agent-endpoints-to-runtime.md",
+            "docs/tasks/done/TASK-071-storyboard-first-episode-entry.md",
+            "docs/tasks/done/TASK-072-system-contract-and-persistent-runs.md",
+            "docs/tasks/done/TASK-073-fixed-ia-and-contextual-agent.md"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/"
       ],
