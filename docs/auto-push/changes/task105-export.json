@@ -7,7 +7,23 @@
   "chain_mode": false,
   "tasks": {
     "TASK-105": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "3aa703670c7ec85a2444627a93dd9cecbcf720ec",
+          "subject": "feat(TASK-105): 第二刀 —— 从已完成项目导出流程模板",
+          "time": "2026-08-24T06:56:29+00:00",
+          "branch": "change/TASK-105-flow-export",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/task105-export.json",
+            "docs/reports/2026-08-24-session-report.md",
+            "docs/tasks/done/TASK-105-flow-template-first-slice.md",
+            "mockups/motv-workspace/server.py",
+            "tests/studio/test_motv_flow_export_task105.py"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/",
         "mockups/motv-workspace/",
