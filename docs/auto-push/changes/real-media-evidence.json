@@ -13,7 +13,7 @@
           "subject": "feat(TASK-074): §1.4 机械那一半用合成真媒体闭合；§1.9 #10 实测未复现",
           "time": "2026-08-24T03:25:31+00:00",
           "branch": "change/TASK-074-real-media-evidence",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/STATUS.md",
             "docs/adr/ADR-0084-project-flow-template-as-a-package.md",
@@ -46,7 +46,10 @@
     }
   },
   "merge_gate": {
-    "status": "PENDING"
+    "status": "PASS",
+    "by": "ADR-0085 常设授权（产品负责人 2026-08-24「合并。这个也不需要保留人工」）；依据=Done 判定 + 最终全量：pytest 3475+6、node 1819、ruff 612 全绿，codex 轮 2 VERDICT: pass，无未闭合 P1",
+    "time": "2026-08-24T03:27:00+00:00",
+    "tip": "3056076ffd1f0aee4e9ce75e5400d5bcfa628934"
   },
   "merge": null,
   "cleanup": null
