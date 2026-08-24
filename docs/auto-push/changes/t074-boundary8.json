@@ -7,7 +7,24 @@
   "chain_mode": false,
   "tasks": {
     "TASK-074": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "68dc2b63357d79cfcaa6d342a5fb1f7eb69f82a5",
+          "subject": "feat(TASK-074): §1.4 整链走通 + 边界 8 在真实写路径上闭合，并修掉两个真缺陷",
+          "time": "2026-08-24T13:26:17+00:00",
+          "branch": "change/TASK-074-boundary8",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/t074-boundary8.json",
+            "docs/tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "mockups/motv-workspace/server.py",
+            "mockups/motv-workspace/tests/fullpipeline.test.mjs",
+            "tests/studio/test_final_cut_versioning_task074.py"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/",
         "mockups/motv-workspace/",
