@@ -3,8 +3,10 @@
 - 状态：**批次一已完成并提交**（`70dab40`）；**批次二 / 三部分完成**（2026-08-14/15）
   —— 批次二：§1.4 Query/Command 拆分 + `apiclient.js`（24/30 调用点）、§1.5 Review
   三层、§1.6 门槛 G1–G5（G3 已接进 dispatcher）、§1.7 六态派生；
-  批次三：§1.9 十条缺陷中的七条（含 blocking #1 / #8）。**未做**：§1.9 缺陷 #10
-  （需真实素材）。真实进度以本卡「实施记录」小节与 `git log` 为准
+  批次三：§1.9 **十条缺陷全部处理完**——七条已修，#10 于 2026-08-24 **实测未复现
+  并关闭**（见下方「§1.9 #10 的实测结论」；~~需真实素材~~ 已由 ffmpeg 生成的真
+  H.264 + Playwright Chromium 实测，`seeked` 派不派发与画面内容无关）。
+  真实进度以本卡「实施记录」小节与 `git log` 为准
 - 负责 Agent：单一实施 Agent（AGENTS.md 第 14 条）
 - 依据：[ADR-0066](../../adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)、
   [创作者系统合同](../../design/creator-system-contract.md)
@@ -156,6 +158,40 @@
 降为只读 legacy。**不新增第三个存储位置**，也**不**放进 `<ProjectRoot>/studio/`
 （重启清扫要在任何项目被打开之前跑完；且存在没有项目的 Run）。理由全文见合同 §5.5。
 
+
+### §1.9 #10 的实测结论（2026-08-24）：**未复现，未改代码**
+
+卡上写的是「**先在真实项目里实测**；复现不了就记「未复现」并关闭，**不要凭报告改**」。
+照做了，而且**前提与结论分开测**，因为只测结论会掉进「测试的构造恰好排除了要防的
+那件事」（TASK-087 §7）。
+
+先做了一件让实测成为可能的事：`grabVideoFrame` 从 `app.js` **搬进**
+`src/services/videoframe.js`。它是整个 studio 里唯一真正绑定浏览器的一步，而
+`framectl` 一直是把它**注入**进去的 —— 于是每一条帧相关的测试都在 stub 它，
+**真正跟媒体元素打交道的那段代码从来没有被任何测试执行过**。搬出来之后
+`tests/e2e/test_video_frame_grab_task072.py` 可以在真的 Chromium 里驱动**它本身**
+（不是抄一份），对着 ffmpeg 生成的**真 H.264 文件**。
+
+实测（Chromium via Playwright）：
+
+| 报告说的 | 实测 |
+| --- | --- |
+| `loadedmetadata` 时视频本来就停在 0 | ✅ **成立** —— `currentTime === 0` |
+| 于是 `currentTime = 0` 是一次空赋值 | ✅ **成立** —— 赋完仍是 0 |
+| 浏览器**不派发** `seeked` → 走到 20 秒超时 | ❌ **不成立** —— Chromium 照样派发，抓帧在 2 秒预算内返回 0 ms 的 PNG |
+
+**所以 `videoframe.js` 一个字节都没有因为这条报告而改动。** 那正是卡上要求的。
+
+留下来的两条测试的价值是**方向相反**的一件事：如果哪天换了引擎、或 Chromium 改了
+行为，它们会**先于创作者**发现 —— 那时 #10 就从「未复现」变成一条真缺陷，
+并且会指名道姓地说是哪一条前提变了。
+
+**合成素材为什么足以 settle 这一条**：`seeked` 派不派发是**浏览器与媒体元素的行为**，
+与画面内容无关。AGENTS.md §20 禁 SVG 占位素材的理由是「占位素材不像真媒体那样行为」
+（TASK-055 §5：SVG 放进 `<img>` 恰好能显示，于是掩盖了视频被放进 `<img>` 的缺陷）
+—— 而 ffmpeg 生成的 MP4 **就是**真媒体：真容器、真编码、真时长、真 magic bytes。
+它证明什么、不证明什么，写在 `tests/e2e/assets_synthetic.py` 的模块注释里。
+
 **项目归属与跨项目隔离（冻结）**：Run 增加 `projectId`。
 
 | 调用 | `projectId` |
@@ -276,7 +312,7 @@ TASK-068 保留为该项的**详细规格**（旧端点行为、响应形状差�
 | 7 | 064 §4g 第 2 条 | `ctx.skills.context` 的 `timeline.alternatives` 不看 `trackType`，一律去查该镜头的**视频链** → 音频片段被投影出一串视频版本作为「可替换项」，Editing Director 依此提的提案必在域校验处失败 | `src/app.js` | 按 `trackType` 取对应的链，音频取音频 |
 | 8 | 064 §4i 第 2 条（blocking） | dispatcher `replaceTimelineAsset` 只要同 domain 的已登记资产就接受，**不校验它是否出现在那次运行看到的 `alternatives` 里** → 被注入或幻觉的提案可以把片段换成项目里**任意**无关媒体 | `src/app.js` dispatcher | 照搬 TASK-067 在 `shot-asset-recommender` 上的修法：候选集记进 `contextTrace`，应用时按它过滤，**没有记录就拒绝**（fail-closed） |
 | 9 | 064 §4l | `setFade` **只在 `layer === "shot"` 时**发出 → 只调 episode 层淡入淡出的合法 Sound Designer 提案被**静默忽略**，界面却显示已应用 | `workflow/skillapply.js` | 支持 episode 层 fade，**或**无法应用时如实拒绝并说明；不能两者都不做 |
-| 10 | 064 §4j（**codex 自标 uncertain，未复现**） | `"at"` 帧提取：`currentTime` 设到 0 ms 时若视频本来就停在 0，浏览器**不保证**派发 `seeked` → 抓第一帧走到超时 | `src/app.js` | **先在真实项目里实测**；复现不了就记「未复现」并关闭，**不要凭报告改** |
+| ~~10~~ | 064 §4j | ~~`"at"` 帧提取：`currentTime` 设到 0 ms 时若视频本来就停在 0，浏览器**不保证**派发 `seeked` → 抓第一帧走到超时~~ | `services/videoframe.js` | **已实测，未复现，关闭（2026-08-24）**。见下 |
 
 #### 已驳回，不分配（留档以免再花审查配额）
 

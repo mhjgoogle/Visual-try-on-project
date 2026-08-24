@@ -13,7 +13,7 @@
   这一版就是那个「一版」。
 - workflow：Feature ｜ 深度：STANDARD
 - 依据：[ADR-0084](../../adr/ADR-0084-project-flow-template-as-a-package.md)
-  （Accepted 2026-08-23）「实施」节。ADR 由 [TASK-083](../done/TASK-083-phase3-adrs-first.md)
+  （Accepted 2026-08-23）「实施」节。ADR 由 [TASK-083](TASK-083-phase3-adrs-first.md)
   ADR-D 定案，实现按 AGENTS.md §2 切成垂直片，本卡是第一片。
 - 缺口：GAP-21（[目标流程走查](../../../src/ui-gap-audit/reports/target-workflow-walkthrough.md)）
 
@@ -37,6 +37,9 @@ digest、不可原地覆盖、fail-closed）。一次把三级来源、项目源
    三个字段（ADR-0084 决策 5）。
 5. **`product-flows/` 进 [ADR-0077](../../adr/ADR-0077-repository-path-ownership.md)
    的路径所有权表**，并让 `tests/tooling/test_repository_layout.py` 认它。
+   ✅ AGENTS.md §3 表 + ADR-0077 补记 + `test_product_assets_own_their_top_level_paths`
+   与 `test_the_path_ownership_table_names_both_product_asset_roots` —— 后者钉的是
+   「规则写进了会被读到的那张表」，那正是 ADR-0083 落地时漏掉的形状。
 
 ## OUT OF SCOPE（明确留给第二刀）
 

@@ -148,6 +148,6 @@ T-070 的右上角有两个不同的东西，产品里**不得共用一个词**�
 ## 实施
 
 **本 ADR 只做决定，不含实现。** 实施另立卡 →
-[TASK-105](../tasks/active/TASK-105-flow-template-first-slice.md)，切片按 AGENTS.md §2：
+[TASK-105](../tasks/done/TASK-105-flow-template-first-slice.md)，切片按 AGENTS.md §2：
 第一刀是「内置一份 flow + 新建项目时可选 + canvas 记 `createdFrom`」，
 自己就能跑、能演示、能验证；`seed.json` 的骨架深度与项目源/用户源留到第二刀。

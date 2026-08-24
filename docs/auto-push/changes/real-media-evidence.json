@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "change_id": "real-media-evidence",
+  "branch": "change/TASK-074-real-media-evidence",
+  "status": "open",
+  "created": "2026-08-24T03:23:49+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-074": {
+      "commits": [
+        {
+          "hash": "4226252c2f0ab4cd579d97549728e9c17fdae65b",
+          "subject": "feat(TASK-074): §1.4 机械那一半用合成真媒体闭合；§1.9 #10 实测未复现",
+          "time": "2026-08-24T03:25:31+00:00",
+          "branch": "change/TASK-074-real-media-evidence",
+          "pushed": true,
+          "files": [
+            "docs/STATUS.md",
+            "docs/adr/ADR-0084-project-flow-template-as-a-package.md",
+            "docs/auto-push/changes/real-media-evidence.json",
+            "docs/design/done/handover-2026-08-23-remaining-active-tasks.md",
+            "docs/tasks/active/TASK-072-system-contract-and-persistent-runs.md",
+            "docs/tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "docs/tasks/active/TASK-105-flow-template-first-slice.md",
+            "docs/tasks/done/TASK-105-flow-template-first-slice.md",
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/src/services/videoframe.js",
+            "tests/e2e/assets_synthetic.py",
+            "tests/e2e/test_studio_real_media_task074.py",
+            "tests/e2e/test_video_frame_grab_task072.py",
+            "tests/tooling/test_repository_layout.py"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        "docs/",
+        "mockups/motv-workspace/src/",
+        "tests/e2e/",
+        "tests/tooling/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "两阶段 pytest 3475+6 全绿；node --test 1819 全绿；ruff check/format 612 文件全绿；codex-review-loop 两轮，轮 2 VERDICT: pass",
+      "declared": "2026-08-24T03:23:58+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PASS",
+    "by": "ADR-0085 常设授权（产品负责人 2026-08-24「合并。这个也不需要保留人工」）；依据=Done 判定 + 最终全量：pytest 3475+6、node 1819、ruff 612 全绿，codex 轮 2 VERDICT: pass，无未闭合 P1",
+    "time": "2026-08-24T03:27:00+00:00",
+    "tip": "3056076ffd1f0aee4e9ce75e5400d5bcfa628934"
+  },
+  "merge": null,
+  "cleanup": null
+}

@@ -107,7 +107,7 @@ Outline）。它们不是「剩下的小尾巴」，是新里程碑。除非前�
 | --- | --- | --- |
 | 1 | **TASK-056** | ✅ **做完并收进 `done/`**。注册表进应用数据目录，旧位置只读回退，`--migrate-app-data` 显式迁移；`runs.json.tmp*` 泄漏堵住。**codex 四轮**，轮 2 与轮 3 各报出一条**上一轮修复自身引入的**新机理 P1 |
 | 2 | **TASK-073 §1.8** | ✅ **做了第五批**（提示词域 → `promptctl.js`，7803 → 7583）。但**本文件说的「仍剩三个控制器」是过期的**：`assets` / `skills` 早已搬出，`actions` 是判定不搬。真正该报的是 app.js **已经长回基线之上**（详见卡上 §5.16） |
-| 3 | **TASK-083 ADR-D** | ✅ **定案** → [ADR-0084](../../adr/ADR-0084-project-flow-template-as-a-package.md)（模板 = Skill 包机制的第二个 kind）。卡收进 `done/`，实现另立 [TASK-105](../../tasks/active/TASK-105-flow-template-first-slice.md) |
+| 3 | **TASK-083 ADR-D** | ✅ **定案** → [ADR-0084](../../adr/ADR-0084-project-flow-template-as-a-package.md)（模板 = Skill 包机制的第二个 kind）。卡收进 `done/`，实现另立 [TASK-105](../../tasks/done/TASK-105-flow-template-first-slice.md) |
 | 4 | **TASK-087 欠账** | ✅ **闭合三条**：§3.6.6（`record-sync --hash`）、§3.6.9（`cleanup` 能删「已全在 main 里」的分支 —— 顺带把欠了一整轮的 `feat/wfm1-batch-c` 本地+远端**都删掉了**）、§4.8（复查发现**早已修好**）。新增 §6.4/§6.5/§6.6 三条记录 |
 | 5 | **TASK-041** | ⚠️ **核实后拆成两段**：增量 1、2 **已完成**（28 项测试全绿，`gateway.js` 早已不是 stub）；**第 4 项离线搭建未做**（`examples/projects/` 下没有 catalog 目录）；**增量 3 要花钱 → B 类**，Agent 不得推进。卡上已改写 |
 | 6 | **TASK-027** | ⚠️ **推迟的理由已不成立**（ADR-0038 已 Accepted，TASK-035/039 都在 `done/`），但**动手前要先定 `workspace_shell` 的去留** —— TASK-083 §5.1 要求过、TASK-103 声明会做，全仓 grep **找不到结论**。卡上已写明 |
