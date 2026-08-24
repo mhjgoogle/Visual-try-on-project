@@ -2,7 +2,7 @@
   "schema": 1,
   "change_id": "real-media-evidence",
   "branch": "change/TASK-074-real-media-evidence",
-  "status": "open",
+  "status": "closed",
   "created": "2026-08-24T03:23:49+00:00",
   "chain_mode": false,
   "tasks": {
@@ -51,6 +51,14 @@
     "time": "2026-08-24T03:27:00+00:00",
     "tip": "3056076ffd1f0aee4e9ce75e5400d5bcfa628934"
   },
-  "merge": null,
-  "cleanup": null
+  "merge": {
+    "hash": "6d7c3902d6adf1bce3630a445133af10c16d0673",
+    "time": "2026-08-24T03:28:02+00:00",
+    "pushed": true
+  },
+  "cleanup": {
+    "local_deleted": true,
+    "remote_deleted": true,
+    "time": "2026-08-24T03:28:16+00:00"
+  }
 }
