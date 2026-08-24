@@ -7,7 +7,33 @@
   "chain_mode": false,
   "tasks": {
     "TASK-074": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "4226252c2f0ab4cd579d97549728e9c17fdae65b",
+          "subject": "feat(TASK-074): §1.4 机械那一半用合成真媒体闭合；§1.9 #10 实测未复现",
+          "time": "2026-08-24T03:25:31+00:00",
+          "branch": "change/TASK-074-real-media-evidence",
+          "pushed": false,
+          "files": [
+            "docs/STATUS.md",
+            "docs/adr/ADR-0084-project-flow-template-as-a-package.md",
+            "docs/auto-push/changes/real-media-evidence.json",
+            "docs/design/done/handover-2026-08-23-remaining-active-tasks.md",
+            "docs/tasks/active/TASK-072-system-contract-and-persistent-runs.md",
+            "docs/tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "docs/tasks/active/TASK-105-flow-template-first-slice.md",
+            "docs/tasks/done/TASK-105-flow-template-first-slice.md",
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/src/services/videoframe.js",
+            "tests/e2e/assets_synthetic.py",
+            "tests/e2e/test_studio_real_media_task074.py",
+            "tests/e2e/test_video_frame_grab_task072.py",
+            "tests/tooling/test_repository_layout.py"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/",
         "mockups/motv-workspace/src/",
