@@ -7,7 +7,21 @@
   "chain_mode": false,
   "tasks": {
     "TASK-074": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "9c896a71f9d0f71a97056bfdb1b17fc915ab9a6f",
+          "subject": "chore(TASK-074): §1.5 前期核查 —— 一个字节都没删，但把「能不能删」查清了",
+          "time": "2026-08-24T12:08:24+00:00",
+          "branch": "change/TASK-074-retirement-audit",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/t074-audit.json",
+            "docs/tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md",
+            "mockups/motv-workspace/tests/retirementready.test.mjs"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/",
         "mockups/motv-workspace/tests/"
