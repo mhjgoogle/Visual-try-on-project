@@ -7,7 +7,25 @@
   "chain_mode": false,
   "tasks": {
     "TASK-008": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "c5d9bb01f2423d5147066daa69eee4a48eb657b3",
+          "subject": "docs: TASK-008 收口进 done；011/012 订正旧规则留下的「用户裁决」闸",
+          "time": "2026-08-24T10:27:10+00:00",
+          "branch": "change/TASK-008-close",
+          "pushed": false,
+          "files": [
+            "docs/STATUS.md",
+            "docs/auto-push/changes/task008-close.json",
+            "docs/implementation_plan.md",
+            "docs/tasks/active/TASK-008-subtitles-voice-audio.md",
+            "docs/tasks/active/TASK-011-local-video-provider.md",
+            "docs/tasks/active/TASK-012-qcd-auto-routing.md",
+            "docs/tasks/done/TASK-008-subtitles-voice-audio.md"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/"
       ],
