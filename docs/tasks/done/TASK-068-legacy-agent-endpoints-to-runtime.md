@@ -11,7 +11,7 @@
   已于 2026-08-13 转 Accepted，本卡的前置门槛消除
 - 实施基线：`ae0a54a`（ADR-0065 决策 3 / 4 / 5 已在此实施；决策 1 / 2 未实施）
 - **排期归属**：并入第二阶段
-  [TASK-072](../active/TASK-072-system-contract-and-persistent-runs.md) §1.8 —— 五个端点的收口
+  [TASK-072](../done/TASK-072-system-contract-and-persistent-runs.md) §1.8 —— 五个端点的收口
   与 §1.3 的 `run_id` / 取消语义改造触及同一批调用点，分两次做会让同一段代码被改两遍。
   本卡保留为该项的**详细规格**，不单独排期。
   **归 TASK-072 批次一，与 §1.3 同一个提交**（ADR-0066 §0.2；TASK-072 §2 已校正

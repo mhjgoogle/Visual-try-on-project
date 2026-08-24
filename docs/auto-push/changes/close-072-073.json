@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "change_id": "close-072-073",
+  "branch": "change/close-072-073",
+  "status": "open",
+  "created": "2026-08-24T11:49:23+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-072": {
+      "commits": [],
+      "paths": [
+        "docs/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "两阶段 pytest 3528+6、node 1848、ruff 619 全绿；纯文档收口",
+      "declared": "2026-08-24T11:49:24+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PENDING"
+  },
+  "merge": null,
+  "cleanup": null
+}

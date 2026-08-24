@@ -8,7 +8,7 @@
   ADR-0066 决策 3 撤销**，改由「本集看板」承担默认入口，溯源降级为生成记录与诊断视图。
   Phase 2 / Phase 3 的后期域（多轨音频、Shot Mix、字幕、自动初剪、Lock）**全部保留**，
   由 [TASK-074](../active/TASK-074-delivery-migration-and-legacy-retirement.md) 承接到「后期交付」页。
-  界面层的替代实施在 [TASK-073](../active/TASK-073-fixed-ia-and-contextual-agent.md)。
+  界面层的替代实施在 [TASK-073](../done/TASK-073-fixed-ia-and-contextual-agent.md)。
 - 负责 Agent：Claude Code（单一实施 Agent）
 - 依据：[ADR-0061](../../adr/ADR-0061-creator-ia-and-automated-episode-production.md)
 - 前置：TASK-062 / ADR-0059 已完成（生产图身份合同贯通，Codex `VERDICT: pass`）
@@ -397,7 +397,7 @@ Phase 2 / Phase 3 不动。
 
 | 分配到 | 条数 | 条目 |
 | --- | --- | --- |
-| [TASK-072](../active/TASK-072-system-contract-and-persistent-runs.md) §1.9 **批次三**（领域 / 前端） | **13**（同族合并为 10 行） | §4d 第 1 / 2 / 3 / 4 / 5 条 · §4f · §4g 第 1 / 2 条 · §4i 第 2 条 · §4j（未复现）· §4k 第 2 条 · §4l · §4m |
+| [TASK-072](../done/TASK-072-system-contract-and-persistent-runs.md) §1.9 **批次三**（领域 / 前端） | **13**（同族合并为 10 行） | §4d 第 1 / 2 / 3 / 4 / 5 条 · §4f · §4g 第 1 / 2 条 · §4i 第 2 条 · §4j（未复现）· §4k 第 2 条 · §4l · §4m |
 | [TASK-074](../active/TASK-074-delivery-migration-and-legacy-retirement.md) §1.1b（`mix-shot` 端点） | **4** | §4h 第 1 / 2 条 · §4i 第 1 条 · §4k 第 1 条 |
 | **已驳回，不分配** | **1** | §4e（`reextract` 传 `force: true`）—— 假阳性，已驳回两次，理由见 §4e 与 §4d 末段 |
 

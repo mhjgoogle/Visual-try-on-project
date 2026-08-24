@@ -6,7 +6,7 @@
   （**Accepted**，决策 1–5 全部保留，无决策被取代）
 - **后续归属**：能力完整保留。仅**呈现位置**迁移 —— 存储生命周期管理归
   「⚙ 项目设置 · 存储与诊断」（[ADR-0066](../../adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md) IA §4），
-  由 [TASK-073](../active/TASK-073-fixed-ia-and-contextual-agent.md) §1.7 承接；双重确认与
+  由 [TASK-073](../done/TASK-073-fixed-ia-and-contextual-agent.md) §1.7 承接；双重确认与
   引用阻断规则**不动**。§4 的已知剩余项按原裁定继续归属（见下），**不影响本卡验收**。
 - ADR：[ADR-0053](../../adr/ADR-0053-project-rooted-studio-storage.md)（Proposed）
 - 前置：[ADR-0051 / TASK-053](TASK-053-choose-project-location.md)（项目位置可选）

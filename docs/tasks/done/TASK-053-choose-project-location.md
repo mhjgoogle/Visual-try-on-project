@@ -6,7 +6,7 @@
   （**Accepted**，决策 1–5 全部保留，无决策被取代）
 - **后续归属**：能力完整保留。仅**呈现位置**迁移 —— 项目位置的选择与展示归
   「⚙ 项目设置 · 项目」（[ADR-0066](../../adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md) IA §4），
-  由 [TASK-073](../active/TASK-073-fixed-ia-and-contextual-agent.md) §1.7 承接。
+  由 [TASK-073](../done/TASK-073-fixed-ia-and-contextual-agent.md) §1.7 承接。
   `rootadmit.py` 的准入策略与 containment 语义**不动**。
 - ADR：[ADR-0051](../../adr/ADR-0051-per-project-asset-root-and-runtime-selection.md)（Proposed）
 - 前置：[TASK-051B](TASK-051B-landing-and-new-project.md)

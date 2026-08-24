@@ -8,7 +8,7 @@
   确定性布局、渐进披露、AI 导演只复述）。**只有页面归属迁移**：顶层「工作流」双视图
   取消，溯源改为呈现在**具体结果旁的「生成记录」**与**项目设置 · 存储与诊断的诊断视图**；
   流程画布不再是执行入口（生成的唯一入口是「镜头制作」四步流程）。
-  迁移由 [TASK-073](../active/TASK-073-fixed-ia-and-contextual-agent.md) §1.5 与
+  迁移由 [TASK-073](../done/TASK-073-fixed-ia-and-contextual-agent.md) §1.5 与
   [TASK-074](../active/TASK-074-delivery-migration-and-legacy-retirement.md) §1.5 承接；
   `ui/wfgraph.js` / `workflow/provenance.js` **保留，不删**。
 - 前置：[TASK-051](TASK-051-production-studio-ui-convergence.md)、

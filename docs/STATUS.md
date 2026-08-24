@@ -17,7 +17,7 @@
 | `docs/requirements/` | 需求记录：DRAFT / CONFIRMED / SUPERSEDED |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：8 项在办 · 99 项已完成 · 70 条 ADR。
+**当前**：6 项在办 · 101 项已完成 · 70 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -33,8 +33,6 @@
 | [TASK-012-qcd-auto-routing.md](tasks/active/TASK-012-qcd-auto-routing.md) | TASK-012：基于 QCD 的自动模型路由（阶段 9） | Outline（WFM3） |
 | [TASK-040-final-unified-product-acceptance.md](tasks/active/TASK-040-final-unified-product-acceptance.md) | TASK-040：AI 短剧工作流与 Creation Workspace 最终统一验收 | Evidence Ready — 等用户一句话确认（2026-08-04） |
 | [TASK-041-workspace-generation-command-and-evidence.md](tasks/active/TASK-041-workspace-generation-command-and-evidence.md) | TASK-041: 工作视窗付费视频生成命令 + UI 接入 + 1 次真实证据 | Accepted（2026-08-07，用户「同意」） |
-| [TASK-072-system-contract-and-persistent-runs.md](tasks/active/TASK-072-system-contract-and-persistent-runs.md) | TASK-072：第二阶段 —— 后端合同、持久化任务、版本管理与兼容层 | 批次一已完成并提交（70dab40） |
-| [TASK-073-fixed-ia-and-contextual-agent.md](tasks/active/TASK-073-fixed-ia-and-contextual-agent.md) | TASK-073：第三阶段 —— 前端信息架构、页面重构与上下文 Agent 交互 | 大部分已实施（2026-08-14/15） |
 | [TASK-074-delivery-migration-and-legacy-retirement.md](tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md) | TASK-074：第四阶段 —— 后期交付、旧数据迁移、旧页面与旧接口清理、真实项目验收 | 部分实施（§1.1b 已完成 |
 | [TASK-087-followup-ledger.md](tasks/active/TASK-087-followup-ledger.md) | TASK-087：Follow-up 总账 —— 把散在九张卡里的欠账收成一处 | 活账（不是一次性交付 |
 
@@ -122,6 +120,8 @@
 | [TASK-069-manual-episode-plan-editing.md](tasks/done/TASK-069-manual-episode-plan-editing.md) | TASK-069：分集规划可以手工修改 | 已验收（产品负责人 2026-08-13 随 ADR-0066 批准一并收口） |
 | [TASK-070-cast-seeded-from-outline.md](tasks/done/TASK-070-cast-seeded-from-outline.md) | TASK-070：初始人物从故事大纲的「主要角色概念」获取 | 已验收（产品负责人 2026-08-13 随 ADR-0066 批准一并收口） |
 | [TASK-071-storyboard-first-episode-entry.md](tasks/done/TASK-071-storyboard-first-episode-entry.md) | TASK-071：进入剧集制作先定分镜，再逐镜详细制作 | 已验收（产品负责人 2026-08-13 随 ADR-0066 批准一并收口） |
+| [TASK-072-system-contract-and-persistent-runs.md](tasks/done/TASK-072-system-contract-and-persistent-runs.md) | TASK-072：第二阶段 —— 后端合同、持久化任务、版本管理与兼容层 | 已完成（2026-08-24 收口） |
+| [TASK-073-fixed-ia-and-contextual-agent.md](tasks/done/TASK-073-fixed-ia-and-contextual-agent.md) | TASK-073：第三阶段 —— 前端信息架构、页面重构与上下文 Agent 交互 | 已完成（2026-08-24 收口） |
 | [TASK-075-product-skill-package.md](tasks/done/TASK-075-product-skill-package.md) | TASK-075：Product Skill Package —— Skill 从源码常量变成可加载的产品资产 | 已完成 |
 | [TASK-076-continuous-chain-gate.md](tasks/done/TASK-076-continuous-chain-gate.md) | TASK-076：让连续修改链在 commit gate 上真实生效 | 已完成 |
 | [TASK-077-honest-state-and-dead-surfaces.md](tasks/done/TASK-077-honest-state-and-dead-surfaces.md) | TASK-077：诚实状态与死掉的面 —— UI Gap Audit Phase 0 | 已完成（六条交付全部完成 |

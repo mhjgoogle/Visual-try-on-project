@@ -6,7 +6,7 @@
   [ADR-0066](../../adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)
   保留，**落点改名**：无分镜 → 「⑦ 分镜设计」，已有分镜 → 「⑥ 本集看板」
   （原为「制作台」，见 ADR-0066 决策 3）。替代实施在
-  [TASK-073](../active/TASK-073-fixed-ia-and-contextual-agent.md) §1.1。
+  [TASK-073](../done/TASK-073-fixed-ia-and-contextual-agent.md) §1.1。
 - 负责 Agent：Claude Code（单一实施 Agent）
 - 产品要求（2026-08-13）：「故事开发结束之后，点击进入该剧的剧集制作就要有分镜的生成，
   这些分镜生成也要可以修改编辑的。跳转画面是要到剧集制作。定好分镜之后再对各个分镜做

@@ -3,7 +3,7 @@
 - 状态：**已退役（2026-08-23 复查）—— 内容被承接，不是「仍在进行」**。
   ~~进行中（分镜屏已交付，待截图验收）~~：交付物仍在（`src/ui/prodplan.js` 今天还在
   用），但右栏归属已由 ADR-0066 的固定 IA 与
-  [TASK-073](../active/TASK-073-fixed-ia-and-contextual-agent.md) §1.4「Agent 面板」重新裁定，
+  [TASK-073](../done/TASK-073-fixed-ia-and-contextual-agent.md) §1.4「Agent 面板」重新裁定，
   生产计划成为新 IA 内的一个组件而非本卡自己的一块屏。**「待截图验收」已无对象**
 - 前置：[TASK-051](TASK-051-production-studio-ui-convergence.md) 第一批视觉方向已批准
 - 实施 Agent：单一实施者（AGENTS.md §14）

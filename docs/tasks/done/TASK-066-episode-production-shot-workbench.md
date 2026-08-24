@@ -7,7 +7,7 @@
   **完整继承**，成为「镜头制作」页的目标。**本卡的「五区工作台」布局被 ADR-0066 决策 3
   的四步线性流程取代**（准备输入 → 制作主画面 → 制作视频 → 对比候选并选定）；
   五个区的每一项能力都在四步里有归属，替代实施在
-  [TASK-073](../active/TASK-073-fixed-ia-and-contextual-agent.md) §1.3。
+  [TASK-073](../done/TASK-073-fixed-ia-and-contextual-agent.md) §1.3。
 - 负责 Agent：Claude Code（单一实施 Agent）
 - 前置：[TASK-065](TASK-065-creator-object-first-ia.md) 已实施完成并通过 codex 审查
 - 依据：产品负责人 2026-08-12 下发的 §1–§20 规格 + 参考图

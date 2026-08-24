@@ -5,7 +5,7 @@
 - 负责 Agent：单一实施 Agent（AGENTS.md 第 14 条）
 - 依据：[ADR-0066](../../adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)、
   [创作者系统合同](../../design/creator-system-contract.md) §10
-- 前置：[TASK-073](TASK-073-fixed-ia-and-contextual-agent.md) 全部验收通过
+- 前置：[TASK-073](../done/TASK-073-fixed-ia-and-contextual-agent.md) 全部验收通过
 - 性质：**这是唯一允许删除的阶段。** 前三阶段一律并存。
 
 ## 0. 本轮边界
