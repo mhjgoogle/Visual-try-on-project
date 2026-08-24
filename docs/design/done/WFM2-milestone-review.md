@@ -22,7 +22,10 @@
 - 代码/静态检查：全量 pytest 通过，ruff 干净（见 runbook §2）。
 - 独立代码审查：各 owner 任务经 codex-review-loop 过审（TASK-008 11 轮、
   TASK-036 4 轮，0 blocking 收尾）；本验收证据经 codex-review-loop 审查。
-- **里程碑验收 PASS：等待用户签字**（runbook §5）。实施 Agent 不代判里程碑 PASS。
+- **里程碑验收 PASS（产品负责人 2026-08-24）。** 原话：**「WFM2 可以了」**。
+  形式是一句话而非签字栏（ADR-0082 决策 3）；实施 Agent 只记录，不代判。
+  裁定当天重跑过证据：WFM2 + 最终验收两份 e2e 共 7 条通过，全量全绿。
+  ~~等待用户签字（runbook §5）~~
 
 ## 依赖与后续
 

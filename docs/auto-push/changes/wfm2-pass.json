@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "change_id": "wfm2-pass",
+  "branch": "change/TASK-037-wfm2-pass",
+  "status": "open",
+  "created": "2026-08-24T11:13:46+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-037": {
+      "commits": [],
+      "paths": [
+        "docs/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "裁定当天重跑证据：WFM2 + 最终验收 e2e 共 7 条通过；两阶段 pytest 3528+6、node 1848、ruff 619 全绿",
+      "declared": "2026-08-24T11:13:47+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PENDING"
+  },
+  "merge": null,
+  "cleanup": null
+}

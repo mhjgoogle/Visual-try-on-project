@@ -1,11 +1,31 @@
 # TASK-037：WFM2 正式作品端到端验收
 
-> **状态：Evidence Ready — 等用户一句话确认（2026-08-04）。** WFM2 milestone gate；
+> **状态：里程碑 PASS（产品负责人 2026-08-24 原话「WFM2 可以了」）。**
+>
+> 按 [ADR-0082](../../adr/ADR-0082-no-signoff-gate-on-task-cards.md) 决策 3，
+> 里程碑归用户判定、**形式是一句话**，由 Agent 记录原话与日期。
+>
+> **裁定当天（2026-08-24）重跑过证据**，不是引用 2026-08-04 的结论：
+> `tests/e2e/test_wfm2_e2e_acceptance.py` 与 `test_final_unified_acceptance.py`
+> 合计 **7 条全部通过**；同日全量两阶段 pytest 3528 + 6、node 1848、
+> ruff 619 文件全绿。
+>
+> **这句话认下的是什么**（追踪矩阵 §4 的四条已知限制，裁定前已逐条说明）：
+> ① 合同层交付 —— 身份/谱系/事实域/状态语义成立且可组合，但具体 QC 参数、
+> 发布服务、scorecard 聚合、最终 JSON schema、DB/CLI 均未展开（ADR-0039
+> 明确留到验收后按需细化）；② `content_digest` 自算、无外部锚定；
+> ③ 无真实付费 API / 无自动发布 / 无真实剪辑软件自动化，E2E 全程离线打桩；
+> ④ M1 视频链由 fake composer/inspector 驱动，不是真工具跑完。
+>
+> **未裁定**：[TASK-040](../active/TASK-040-final-unified-product-acceptance.md)
+> 最终产品里程碑 —— 用户这一次说的是 WFM2，那张卡仍在 `active/`。
+>
+> ~~Evidence Ready — 等用户一句话确认（2026-08-04）。~~ WFM2 milestone gate；
 > TASK-008、TASK-034～036 均 Implemented。本任务不新增产品能力，只备齐验收证据。
 > 交付 `tests/test_wfm2_e2e_acceptance.py`（L0→S7 组合）+
-> [追踪矩阵](../../design/active/wfm2-acceptance-traceability.md) +
-> [runbook](../../design/active/wfm2-acceptance-runbook.md) +
-> [里程碑评审](../../design/active/WFM2-milestone-review.md)。里程碑 PASS 属用户（runbook §5），
+> [追踪矩阵](../../design/done/wfm2-acceptance-traceability.md) +
+> [runbook](../../design/done/wfm2-acceptance-runbook.md) +
+> [里程碑评审](../../design/done/WFM2-milestone-review.md)。里程碑 PASS 属用户（runbook §5），
 > 实施 Agent 不代判 —— 但形式是**一句话**，不是签字栏（[ADR-0082](../../adr/ADR-0082-no-signoff-gate-on-task-cards.md) 决策 3）。证据已备齐；后续 TASK-038/039 不被此门阻塞，继续推进。
 
 ## 目的

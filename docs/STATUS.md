@@ -17,7 +17,7 @@
 | `docs/requirements/` | 需求记录：DRAFT / CONFIRMED / SUPERSEDED |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：9 项在办 · 98 项已完成 · 70 条 ADR。
+**当前**：8 项在办 · 99 项已完成 · 70 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -31,7 +31,6 @@
 | --- | --- | --- |
 | [TASK-011-local-video-provider.md](tasks/active/TASK-011-local-video-provider.md) | TASK-011：LocalVideoProvider（阶段 8） | Outline（可选 WFM3 升级） |
 | [TASK-012-qcd-auto-routing.md](tasks/active/TASK-012-qcd-auto-routing.md) | TASK-012：基于 QCD 的自动模型路由（阶段 9） | Outline（WFM3） |
-| [TASK-037-wfm2-end-to-end-acceptance.md](tasks/active/TASK-037-wfm2-end-to-end-acceptance.md) | TASK-037：WFM2 正式作品端到端验收 | Evidence Ready — 等用户一句话确认（2026-08-04） |
 | [TASK-040-final-unified-product-acceptance.md](tasks/active/TASK-040-final-unified-product-acceptance.md) | TASK-040：AI 短剧工作流与 Creation Workspace 最终统一验收 | Evidence Ready — 等用户一句话确认（2026-08-04） |
 | [TASK-041-workspace-generation-command-and-evidence.md](tasks/active/TASK-041-workspace-generation-command-and-evidence.md) | TASK-041: 工作视窗付费视频生成命令 + UI 接入 + 1 次真实证据 | Accepted（2026-08-07，用户「同意」） |
 | [TASK-072-system-contract-and-persistent-runs.md](tasks/active/TASK-072-system-contract-and-persistent-runs.md) | TASK-072：第二阶段 —— 后端合同、持久化任务、版本管理与兼容层 | 批次一已完成并提交（70dab40） |
@@ -50,9 +49,6 @@
 | [final-unified-acceptance-traceability.md](design/active/final-unified-acceptance-traceability.md) | 最终统一验收追踪矩阵（TASK-040） | — |
 | [final-unified-milestone-review.md](design/active/final-unified-milestone-review.md) | 最终统一产品里程碑评审记录（TASK-040） | — |
 | [pending-codex-rereview.md](design/active/pending-codex-rereview.md) | 待补 codex 复审清单（降级审查模式的债务） | P1 未闭合 → 按发布闸门（无未闭合 P1）main 不得 push，直至修复落地 |
-| [wfm2-acceptance-runbook.md](design/active/wfm2-acceptance-runbook.md) | WFM2 正式作品验收 Runbook（TASK-037） | — |
-| [wfm2-acceptance-traceability.md](design/active/wfm2-acceptance-traceability.md) | WFM2 端到端验收追踪矩阵（TASK-037） | — |
-| [WFM2-milestone-review.md](design/active/WFM2-milestone-review.md) | WFM2 里程碑评审记录（TASK-037） | — |
 
 ## 已完成 · 任务卡
 
@@ -94,6 +90,7 @@
 | [TASK-034-wfm2-full-creative-and-audiovisual-design.md](tasks/done/TASK-034-wfm2-full-creative-and-audiovisual-design.md) | TASK-034：WFM2 完整创意与视听设计（L0–S3） | Implemented（2026-08-03） |
 | [TASK-035-wfm2-multimedia-generation-and-lineage.md](tasks/done/TASK-035-wfm2-multimedia-generation-and-lineage.md) | TASK-035：WFM2 多媒体生成、资产谱系与统一成本 | Implemented（2026-08-04） |
 | [TASK-036-wfm2-formal-postproduction-qc-release.md](tasks/done/TASK-036-wfm2-formal-postproduction-qc-release.md) | TASK-036：WFM2 正式后期、QC、发布与复盘 | Delivered（合同层，2026-08-04） |
+| [TASK-037-wfm2-end-to-end-acceptance.md](tasks/done/TASK-037-wfm2-end-to-end-acceptance.md) | TASK-037：WFM2 正式作品端到端验收 | 里程碑 PASS（产品负责人 2026-08-24 原话「WFM2 可以了」） |
 | [TASK-038-wfm3-automation-and-command-capabilities.md](tasks/done/TASK-038-wfm3-automation-and-command-capabilities.md) | TASK-038：WFM3 固定职责自动化与命令能力收口 | Delivered（合同层，2026-08-04） |
 | [TASK-039-workspace-multimedia-and-full-workflow-expansion.md](tasks/done/TASK-039-workspace-multimedia-and-full-workflow-expansion.md) | TASK-039：Creation Workspace 多媒体与完整工作流扩展 | Delivered（只读观测层，2026-08-04） |
 | [TASK-042-creative-agent-shots-draft.md](tasks/done/TASK-042-creative-agent-shots-draft.md) | TASK-042: 创意 Agent 分镜草稿（Claude CLI 通道）+ 画布自动衔接 | Accepted（2026-08-07，随 ADR-0042） |
@@ -176,6 +173,9 @@
 | [TASK-009-qcd-aggregation-design.md](design/done/TASK-009-qcd-aggregation-design.md) | TASK-009 Focused Design — QCD Aggregation, Metrics, Reporting | 聚焦设计定案（M2 |
 | [task097-handover-2026-08-19.md](design/done/task097-handover-2026-08-19.md) | TASK-097 交接说明（2026-08-19，换机器） | — |
 | [WFM1-milestone-review.md](design/done/WFM1-milestone-review.md) | WFM1 Milestone Review（TASK-023 gate） | — |
+| [wfm2-acceptance-runbook.md](design/done/wfm2-acceptance-runbook.md) | WFM2 正式作品验收 Runbook（TASK-037） | — |
+| [wfm2-acceptance-traceability.md](design/done/wfm2-acceptance-traceability.md) | WFM2 端到端验收追踪矩阵（TASK-037） | — |
+| [WFM2-milestone-review.md](design/done/WFM2-milestone-review.md) | WFM2 里程碑评审记录（TASK-037） | — |
 | [workspace-wfm1-acceptance-runbook.md](design/done/workspace-wfm1-acceptance-runbook.md) | Workspace WFM1 数据基线验收 Runbook（TASK-033 / WSM3-B） | Approved acceptance evidence（2026-08-03） |
 | [workspace-wfm1-acceptance-traceability.md](design/done/workspace-wfm1-acceptance-traceability.md) | Workspace WFM1 数据基线验收追踪矩阵（TASK-033 / WSM3-B） | Approved acceptance evidence（2026-08-03） |
 | [WSM3-workspace-wfm1-milestone-review.md](design/done/WSM3-workspace-wfm1-milestone-review.md) | WSM3 Workspace WFM1 数据基线里程碑评审（TASK-033 gate） | — |
