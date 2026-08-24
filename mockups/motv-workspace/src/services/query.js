@@ -238,7 +238,7 @@ async function _read(path, label) {
 // Re-exported rather than reimplemented, so there is exactly ONE implementation of
 // each write and the compatibility layer cannot drift from it.
 export {
-  createProject, migrateLegacy,
+  createProject, listFlows, projectFlow, migrateLegacy,
   generateShotsDraft, generateScriptDraft, generateBibleBreakdown,
   developStory, planEpisodes,
   renderEpisode, mixShotAudio, composeFinal, ttsGenerate,

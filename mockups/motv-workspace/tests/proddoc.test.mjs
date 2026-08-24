@@ -363,3 +363,142 @@ test("v6 validation: id uniqueness, single-owner shot refs, active pointer", () 
   doc.production.episodes[0].scenes[0].shotIds = ["shot-not-in-any-draft"];
   assert.equal(migrateToCurrent(doc).status, "ok");
 });
+
+// --- TASK-105 / ADR-0084：套用流程模板的骨架 -------------------------------- //
+//
+// 这一族存在的理由很具体：不做这一步，从模板起步的项目和空项目**一模一样**，
+// 「选模板」就是一个点了没反应的控件（codex 审查轮 3 的 blocking）。
+
+test("applyFlowSeed 按 episodeCount 长出集数，并停在第 1 集", () => {
+  const prod = pd.createProduction(null);
+  assert.equal(prod.episodes.length, 1, "前提：全新文档只有一集");
+
+  pd.applyFlowSeed(prod, { conventions: { episodeCount: 12 } });
+
+  assert.equal(prod.episodes.length, 12);
+  // 创作者要从头开始，不是从第 12 集开始 —— addEpisode 会把新集设为 active
+  assert.equal(prod.activeEpisodeId, prod.episodes[0].episodeId);
+  assert.equal(new Set(prod.episodes.map((e) => e.episodeId)).size, 12, "id 不重复");
+});
+
+test("已经不止一集的文档不被套用 —— 模板绝不覆盖已经写下的东西", () => {
+  const prod = pd.createProduction(null);
+  pd.addEpisode(prod, "创作者自己加的");
+  const before = prod.episodes.map((e) => e.episodeId);
+
+  pd.applyFlowSeed(prod, { conventions: { episodeCount: 12 } });
+
+  assert.deepEqual(prod.episodes.map((e) => e.episodeId), before, "一集都不该多");
+});
+
+test("离谱或缺失的 episodeCount 一律当作没说", () => {
+  for (const conventions of [
+    {},
+    { episodeCount: 0 },
+    { episodeCount: -3 },
+    { episodeCount: 1.5 },
+    { episodeCount: "12" },
+    { episodeCount: 1e9 },      // 一份写着十亿的模板不该让新建项目挂住
+    { episodeCount: NaN },
+  ]) {
+    const prod = pd.createProduction(null);
+    pd.applyFlowSeed(prod, { conventions });
+    assert.equal(prod.episodes.length, 1, JSON.stringify(conventions));
+  }
+});
+
+test("没有模板 / 模板形状不对时原样返回", () => {
+  const prod = pd.createProduction(null);
+  for (const flow of [null, undefined, "flow", 7, []]) {
+    assert.equal(pd.applyFlowSeed(prod, flow), prod);
+    assert.equal(prod.episodes.length, 1);
+  }
+});
+
+test("episodeCount 为 1 时是一次空操作，不是「再加一集」", () => {
+  const prod = pd.createProduction(null);
+  pd.applyFlowSeed(prod, { conventions: { episodeCount: 1 } });
+  assert.equal(prod.episodes.length, 1);
+});
+
+test("一集但已经有内容的文档也不被套用 —— 判据是「动过没有」，不是「几集」", () => {
+  // 「集数 == 1」不够：创作者写了半天但仍然只有一集，同样满足它
+  // （codex 审查轮 6 的 non-blocking）。
+  const withScene = pd.createProduction(null);
+  pd.addScene(withScene, withScene.episodes[0].episodeId, "第一场");
+  pd.applyFlowSeed(withScene, { conventions: { episodeCount: 12 } });
+  assert.equal(withScene.episodes.length, 1, "有场了就不该被模板接着长");
+
+  const withCast = pd.createProduction(null);
+  withCast.characters.push({ characterId: "c1", name: "林照" });
+  pd.applyFlowSeed(withCast, { conventions: { episodeCount: 12 } });
+  assert.equal(withCast.episodes.length, 1, "有角色了同理");
+});
+
+test("isUsableFlow：`{}` 是真值，但它不是一份能用的流程", () => {
+  // 这条是 codex 审查轮 7 报出来的那个洞：`if (flow)` 会把 `{}` 当成加载成功，
+  // 套用时静默 no-op，而自动保存照常把空白画布存下来 —— 与请求失败后果一样。
+  assert.equal(pd.isUsableFlow({}), false);
+  assert.equal(pd.isUsableFlow({ createdFrom: {} }), false);
+  assert.equal(pd.isUsableFlow({ createdFrom: { flowId: "" } }), false);
+  assert.equal(pd.isUsableFlow({ createdFrom: { flowId: "   " } }), false);
+  assert.equal(pd.isUsableFlow({ createdFrom: "episode-from-scratch" }), false);
+  assert.equal(pd.isUsableFlow(null), false);
+  assert.equal(pd.isUsableFlow(undefined), false);
+  assert.equal(pd.isUsableFlow("flow"), false);
+  assert.equal(pd.isUsableFlow([]), false);
+
+  // 后端真正写下的那种形状
+  assert.equal(
+    pd.isUsableFlow({
+      createdFrom: { flowId: "episode-from-scratch", flowVersion: 1, flowDigest: "sha256:x" },
+      conventions: { episodeCount: 12 },
+    }),
+    true,
+  );
+});
+
+test("isUsableFlow 一次挡住四轮审查报出来的**每一种**拼法", () => {
+  // 轮 4：请求失败折成 null / undefined
+  // 轮 7：`{}` 是真值
+  // 轮 8：`false` / `0` / `""` 是假值，绕过了「形状不对」那一支
+  // 轮 8：`{createdFrom:{flowId:"x"}}` 有 id 但没东西可套
+  //
+  // 谓词只回答**一个**问题：这是不是一份落下来的、认得出身份的流程。
+  // 不认识就是不认识 —— 调用方据此停用自动保存，而不需要认得这些拼法。
+  for (const bad of [
+    undefined, null, false, 0, "", "flow", [], {},
+    { createdFrom: null },
+    { createdFrom: {} },
+    { createdFrom: { flowId: "" } },
+    { createdFrom: { flowId: "  " } },
+    { createdFrom: { flowVersion: 1 } },
+    { conventions: { episodeCount: 12 } },   // 有内容但没身份
+  ]) {
+    assert.equal(pd.isUsableFlow(bad), false, JSON.stringify(bad));
+  }
+
+  // 轮 10 收紧之后，**三个字段一个不少**（ADR-0084 决策 5）：只有 flowId 的
+  // 那种「被截断的 flow」也不算能用 —— 它能解除自动保存、套用出零内容，
+  // 然后把空白画布存成这个项目的开局。
+  assert.equal(pd.isUsableFlow({ createdFrom: { flowId: "x" } }), false);
+  assert.equal(
+    pd.isUsableFlow({ createdFrom: { flowId: "x", flowVersion: 1 } }),
+    false,
+  );
+  assert.equal(
+    pd.isUsableFlow({ createdFrom: { flowId: "x", flowDigest: "sha256:y" } }),
+    false,
+  );
+  assert.equal(
+    pd.isUsableFlow({ createdFrom: { flowId: "x", flowVersion: 0, flowDigest: "sha256:y" } }),
+    false,
+  );
+
+  // 三个都齐**才**算能用。没有可套用的 conventions 是合法的 —— 一份只定义步骤的
+  // 模板本来就不改变项目形状，而它的溯源已经落在 project.json 与 studio/flow.json。
+  assert.equal(
+    pd.isUsableFlow({ createdFrom: { flowId: "x", flowVersion: 1, flowDigest: "sha256:y" } }),
+    true,
+  );
+});

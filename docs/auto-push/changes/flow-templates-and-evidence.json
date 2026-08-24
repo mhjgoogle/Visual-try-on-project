@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "change_id": "flow-templates-and-evidence",
+  "branch": "change/TASK-105-flow-templates",
+  "status": "open",
+  "created": "2026-08-24T01:54:12+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-105": {
+      "commits": [],
+      "paths": [
+        "AGENTS.md",
+        "docs/STATUS.md",
+        "docs/adr/ADR-0077-repository-path-ownership.md",
+        "docs/tasks/active/TASK-105-flow-template-first-slice.md",
+        "mockups/motv-workspace/",
+        "product-flows/",
+        "tests/contract/",
+        "tests/studio/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "两阶段 pytest 3466+6 · node --test 1819 · ruff 全绿 · codex-review-loop 10 轮，按 ADR-0081 2d 显式 ship，无未闭合 P1 · 8 次变异验证",
+      "declared": "2026-08-24T01:54:24+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PENDING"
+  },
+  "merge": null,
+  "cleanup": null
+}

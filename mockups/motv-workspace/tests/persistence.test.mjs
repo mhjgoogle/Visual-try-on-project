@@ -14,7 +14,7 @@ import {
   readSchemaVersion,
   migrateToCurrent,
 } from "../src/services/canvasschema.js";
-import { loadCanvas, saveCanvas, saveBlockedReason } from "../src/services/persist.js";
+import { loadCanvas, saveCanvas, saveBlockedReason, blockSaves, unblockSaves } from "../src/services/persist.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -431,4 +431,47 @@ test("empty then valid load: no save exists → saving allowed; later corrupt lo
   globalThis.fetch = okJson(v1Doc());
   assert.equal((await loadCanvas("cycle")).status, "ok");
   assert.equal(saveBlockedReason("cycle"), null);
+});
+
+// --- TASK-105 审查轮 5：调用方知道的理由也能停用自动保存 -------------------- //
+
+test("blockSaves 让一次自动保存变成 no-op —— 空白画布不会被存成开局", async () => {
+  const store = stubEnv({ fetchImpl: okJson(v1Doc()) });
+
+  // 场景：项目是全新的（还没有画布），而「它从哪份模板起步」这一问读失败了。
+  // 照常走下去会 restore 一张空白画布并把它自动保存 —— 刷新之后看到的是一张
+  // 已保存的空画布，于是永远不会再去取模板：一次瞬时失败把创作者的选择**永久**
+  // 丢掉了（codex 审查轮 5）。
+  blockSaves("flow-unreadable", "flow_unreadable", "读不到 studio/flow.json");
+  assert.equal(saveBlockedReason("flow-unreadable").reason, "flow_unreadable");
+
+  let putCalled = false;
+  globalThis.fetch = async () => { putCalled = true; return { ok: true, status: 200, json: async () => ({}) }; };
+  saveCanvas("flow-unreadable", { v: CANVAS_SCHEMA_VERSION, nodes: [] });
+  await sleep(850);
+
+  assert.equal(putCalled, false, "被停用之后不得发出任何 PUT");
+  assert.equal(store.get("motv:flow-unreadable"), undefined, "也不得落到 localStorage");
+});
+
+test("blockSaves 对空项目名是无害的空操作", () => {
+  assert.equal(blockSaves("", "x", "y"), null);
+  assert.equal(blockSaves(null, "x", "y"), null);
+});
+
+test("blockSaves 不覆盖已有的停用理由 —— 第一个声明者说了算", () => {
+  // 覆盖会让一个较轻的理由顶掉较重的：`flow_pending` 压在 `corrupt` 上面，
+  // 然后它自己的 unblockSaves 把唯一那条删掉，于是自动保存在一份**仍然读不出来**
+  // 的存档上恢复了（codex 审查轮 9）。
+  blockSaves("layered", "corrupt", "存档读不出来");
+  blockSaves("layered", "flow_pending", "还没确定模板");
+  assert.equal(saveBlockedReason("layered").reason, "corrupt", "第一个说了算");
+
+  // 而按后来那个理由去解除，什么也不该发生
+  unblockSaves("layered", "flow_pending");
+  assert.equal(saveBlockedReason("layered").reason, "corrupt", "仍然停用");
+
+  // 只有按**它自己**的理由才解得开
+  unblockSaves("layered", "corrupt");
+  assert.equal(saveBlockedReason("layered"), null);
 });

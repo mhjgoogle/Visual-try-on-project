@@ -60,7 +60,8 @@ from urllib.parse import parse_qs, unquote, urlsplit
 # happened to import something else first.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import runstore  # noqa: E402 - needs the path line above
+import flowpkg  # noqa: E402 - needs the path line above
+import runstore  # noqa: E402 - same
 import skillpkg  # noqa: E402 - same
 from rootadmit import RootRejected, admit_root  # noqa: E402 - same
 
@@ -1808,6 +1809,12 @@ _AGENT_SKILL_IDS = {
 #: Recorded as TASK-087 §6.4 so the divergence is an entry, not a surprise.
 _USER_SKILLS_DIR = DATA_DIR / "skills"
 _BUILTIN_SKILLS_DIR = REPO_ROOT / "product-skills" / "builtin"
+
+#: Flow 包的三个来源（ADR-0084 决策 7）。与 `skills/` **并列**而不是嵌在里面：
+#: 一个 flow 不是一个 skill 的一部分，两者的 id 空间也必须分开 —— 同名的
+#: `storyboard` skill 与 `storyboard` flow 是合法的。
+_USER_FLOWS_DIR = DATA_DIR / "flows"
+_BUILTIN_FLOWS_DIR = REPO_ROOT / "product-flows" / "builtin"
 _SKILL_INPUTS_PATH = REPO_ROOT / "product-skills" / "skill-inputs.json"
 
 #: Input caps the legacy endpoints applied before splicing user text into their
@@ -2834,6 +2841,74 @@ def _load_skill_catalog(project_root: Path | None = None):
     )
 
 
+def _load_flow_catalog(project_root: Path | None = None):
+    """本次请求的流程模板目录（ADR-0084 / TASK-105）。
+
+    与 `_load_skill_catalog` 逐条同形，包括那条最要紧的：**项目来源必须留在项目
+    根之内**（ADR-0067 补记）。一个指向别处的 `studio/flows` 会让 `source` 说谎，
+    而 `source` 正是决定覆盖优先级的字段。
+
+    能力目录**传进去**，因为 ADR-0084 决策 6 要求解析每一步的
+    `(skillId, skillVersion)`：引用了本机没有的能力，这份流程整份不可用并说出
+    缺的是哪一个，绝不静默跳过那一步。
+    """
+
+    project_dir = None
+    contain_within = None
+    if project_root is not None:
+        contain_within = Path(project_root)
+        project_dir = contain_within / "studio" / "flows"
+    return flowpkg.load_flow_catalog(
+        [
+            ("project", project_dir, contain_within),
+            ("user", _USER_FLOWS_DIR),
+            ("builtin", _BUILTIN_FLOWS_DIR),
+        ],
+        skills=_load_skill_catalog(project_root),
+    )
+
+
+def _flow_payload(catalog) -> dict:
+    """流程目录的只读投影。**不含 `seed` 与 `narrative` 的全文** —— 列表页要的是
+    「有哪些、每份几步、干什么用」，把骨架和整篇说明塞进列表只会让它变慢。"""
+
+    return {
+        "flows": [
+            {
+                "flowId": f.flow_id,
+                "flowVersion": f.version,
+                "title": f.title,
+                "purpose": f.purpose,
+                "source": f.source,
+                "deprecated": f.deprecated,
+                "digest": f.digest,
+                "steps": [
+                    {
+                        "stepKey": st.step_key,
+                        "skillId": st.skill_id,
+                        "skillVersion": st.skill_version,
+                        "note": st.note,
+                    }
+                    for st in f.steps
+                ],
+                "conventions": dict(f.conventions),
+            }
+            for f in sorted(catalog.flows.values(), key=lambda x: x.flow_id)
+        ],
+        # 不能用的那些**照样报出来**，带上为什么不能用：一个装了却没生效的模板，
+        # 沉默地消失比报错难查得多（ADR-0067 决策 7 的同一条理由）。
+        "problems": [
+            {
+                "flowId": pr.skill_id,
+                "source": pr.source,
+                "path": pr.path,
+                "detail": pr.reason,
+            }
+            for pr in catalog.problems
+        ],
+    }
+
+
 def _skill_input_labels() -> dict:
     try:
         return skillpkg.load_input_labels(_SKILL_INPUTS_PATH)
@@ -3089,6 +3164,52 @@ class _App:
                     {"error": {"category": "unavailable", "detail": str(exc)}},
                 )
             return _json(200, body)
+        if path == "/api/flows":
+            # 与 `/api/skills` 逐条同形，理由也同：页面读不到文件系统，后端就是
+            # 加载器，而**加载不了的那些必须带着原因出现在列表里** —— 一个装了
+            # 却没生效的模板，沉默地消失比报错难查得多。
+            q = parse_qs(urlsplit(raw_path).query)
+            name = (q.get("project") or [""])[0]
+            root = None
+            if name:
+                if not _valid_project_name(name) or name not in self._projects:
+                    # 404，不是 403：跨项目探测学不到这个项目存不存在
+                    return _json(
+                        404,
+                        {
+                            "error": {
+                                "category": "not_found",
+                                "detail": "unknown project",
+                            }
+                        },
+                    )
+                root = self._project_root(name)
+            return _json(200, _flow_payload(_load_flow_catalog(root)))
+        if path.startswith("/api/projects/") and path.endswith("/flow"):
+            # 这个项目**从哪份模板起步的**，以及那份模板说了什么。
+            # 页面在初始化一张全新画布时读它一次；没有就是没用模板。
+            name = unquote(path[len("/api/projects/") : -len("/flow")])
+            if not _valid_project_name(name) or name not in self._projects:
+                return _json(
+                    404,
+                    {"error": {"category": "not_found", "detail": "unknown project"}},
+                )
+            root = self._project_root(name)
+            landed = self._contained(root, "studio", "flow.json")
+            if landed is None or not landed.is_file():
+                # 没用模板是**正常状态**，不是错误：200 + null，读侧不必去分辨
+                # 「请求失败」和「这个项目本来就没有模板」。
+                return _json(200, {"flow": None})
+            try:
+                return _json(
+                    200,
+                    {"flow": json.loads(landed.read_text(encoding="utf-8"))},
+                )
+            except (OSError, ValueError) as exc:
+                return _json(
+                    500,
+                    {"error": {"category": "unreadable", "detail": str(exc)}},
+                )
         if path == "/api/fs/default":
             return _json(
                 200,
@@ -5529,6 +5650,38 @@ class _App:
         name = str(payload.get("name") or "").strip()
         root_in = str(payload.get("root") or "").strip()
         confirm = payload.get("confirm") is True
+        # 可选：从一份流程模板起步（ADR-0084 / TASK-105）。**没选也完全正常** ——
+        # 模板是可复用物，不是必经之路。
+        flow_id = payload.get("flow")
+        if flow_id is not None and not isinstance(flow_id, str):
+            return _json(
+                400,
+                {"error": {"category": "bad_request", "detail": "flow 必须是字符串"}},
+            )
+        flow_id = (flow_id or "").strip()
+        created_from = None
+        chosen_flow = None
+        if flow_id:
+            # 项目还不存在，所以只有 user + builtin 两个来源 —— 项目来源要等这个
+            # 项目自己有 `studio/flows/` 之后才谈得上（那是第二刀）。
+            flow = _load_flow_catalog().get(flow_id)
+            chosen_flow = flow
+            if flow is None:
+                # 说清楚是「没有这份」还是「有但不可用」：不可用的那些带着原因
+                # 就在 `/api/flows` 的 problems 里，直接指过去比复述一遍准确。
+                return _json(
+                    404,
+                    {
+                        "error": {
+                            "category": "not_found",
+                            "detail": (
+                                f"没有可用的流程模板 {flow_id!r} —— "
+                                "GET /api/flows 会列出可用的，以及不可用的为什么"
+                            ),
+                        }
+                    },
+                )
+            created_from = flow.created_from()
         if not _valid_project_name(name):
             return _json(
                 400,
@@ -5649,15 +5802,24 @@ class _App:
                 flags |= getattr(os, "O_NOFOLLOW", 0)
                 flags |= getattr(os, "O_BINARY", 0)
                 fd = os.open(target / "project.json", flags, 0o644)
+                record = {
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "description": None,
+                    "name": name,
+                    "project_id": name,
+                }
+                if created_from is not None:
+                    # 三个字段一个不少（ADR-0084 决策 5）：`flowVersion` 回答
+                    # 「作者说这是第几版」，`flowDigest` 回答「那一版到底是什么」。
+                    # 只有后者能让一年后的溯源链闭合 —— 同一个 `(flowId, 1)` 在
+                    # 两台机器上可能是两份不同的流程，而 digest 不会说谎。
+                    #
+                    # **加法字段**：没选模板的项目里它根本不出现，老项目照常读。
+                    record["createdFrom"] = created_from
                 with os.fdopen(fd, "wb") as fh:
                     fh.write(
                         json.dumps(
-                            {
-                                "created_at": datetime.now(timezone.utc).isoformat(),
-                                "description": None,
-                                "name": name,
-                                "project_id": name,
-                            },
+                            record,
                             ensure_ascii=False,
                             indent=2,
                         ).encode("utf-8")
@@ -5671,11 +5833,60 @@ class _App:
                 # second, physical one could only ever disagree with it.
                 for sub in ("studio", "media"):
                     (target / sub).mkdir(exist_ok=True)
-            except OSError as exc:
+                if chosen_flow is not None:
+                    # 选了模板就要**真的落下东西**，否则每一份模板造出来的项目
+                    # 完全一样，只有溯源元数据不同（codex 审查轮 1 的 blocking）——
+                    # 那是「亮着但点进去什么也没发生」。
+                    #
+                    # 写成 `studio/flow.json`，与 `canvas.json` **并列而不是塞进
+                    # 它**：canvas 的 schema 由前端拥有并带着一整条迁移链，后端往
+                    # 里写等于凭空多出第二个写者，而两个写者对同一份 schema 的理解
+                    # 迟早会岔开。这个文件只有一个写者（这里），只有一个读者（前端
+                    # 初始化新项目的 canvas 时）。
+                    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+                    flags |= getattr(os, "O_NOFOLLOW", 0)
+                    flags |= getattr(os, "O_BINARY", 0)
+                    fd = os.open(target / "studio" / "flow.json", flags, 0o644)
+                    with os.fdopen(fd, "wb") as fh:
+                        fh.write(
+                            json.dumps(
+                                {
+                                    "createdFrom": chosen_flow.created_from(),
+                                    "title": chosen_flow.title,
+                                    "purpose": chosen_flow.purpose,
+                                    "steps": [
+                                        {
+                                            "stepKey": st.step_key,
+                                            "skillId": st.skill_id,
+                                            "skillVersion": st.skill_version,
+                                            "note": st.note,
+                                        }
+                                        for st in chosen_flow.steps
+                                    ],
+                                    "conventions": dict(chosen_flow.conventions),
+                                    "seed": dict(chosen_flow.seed),
+                                },
+                                ensure_ascii=False,
+                                indent=2,
+                            ).encode("utf-8")
+                        )
+            except (OSError, ValueError) as exc:
+                # `ValueError` too, not just `OSError` (codex 审查轮 10):
+                # `json.dumps(..., ensure_ascii=False).encode("utf-8")` raises
+                # `UnicodeEncodeError` — a ValueError — on a lone surrogate, so
+                # catching only OSError meant the rollback did NOT run and a
+                # half-made project answered "already exists" on every retry.
+                # `flowpkg` now refuses such a string at read time, so this is
+                # the second line of defence rather than the only one.
+                #
                 # Same rule as the registry rollback below: never leave a partial
                 # project behind, or every retry is rejected as "already exists".
                 try:
                     (target / "project.json").unlink(missing_ok=True)
+                    # `studio/flow.json` 也是我们写的 —— 不删掉它，下面那个
+                    # `studio` 的 rmdir 会因为目录非空而失败，于是半个项目留在
+                    # 原地，每次重试都答「已存在」
+                    (target / "studio" / "flow.json").unlink(missing_ok=True)
                     # the scaffolded subfolders are OURS too — an rmdir that
                     # trips over them would leave the half-made project behind
                     # and make every retry fail as "already exists"
@@ -5705,6 +5916,10 @@ class _App:
                 # still unregistered and invisible after a restart.
                 try:
                     (target / "project.json").unlink(missing_ok=True)
+                    # `studio/flow.json` 也是我们写的 —— 不删掉它，下面那个
+                    # `studio` 的 rmdir 会因为目录非空而失败，于是半个项目留在
+                    # 原地，每次重试都答「已存在」
+                    (target / "studio" / "flow.json").unlink(missing_ok=True)
                     # the scaffolded subfolders are OURS too — an rmdir that
                     # trips over them would leave the half-made project behind
                     # and make every retry fail as "already exists"

@@ -173,6 +173,7 @@ Agent 无权自改）如实告知并一次性解决，不要让它变成每次�
    | `scripts/launch/` | 面向人的产品启动器：`studio.ps1`（Windows 权威）、`studio.bat`（CMD 适配器）、`studio.sh`（Ubuntu/WSL2） |
    | `.claude/` | agent 工装 |
    | `src/` | 应用与库代码 |
+   | `product-skills/` · `product-flows/` | 内置的能力包与流程模板 —— **产品资产**，不是原型私有物（ADR-0067 决策 2 / ADR-0084 决策 7） |
    | `tests/` | 测试与其配置 |
 
    三个启动器都从**自身位置**解析仓库根，可从任意工作目录调用

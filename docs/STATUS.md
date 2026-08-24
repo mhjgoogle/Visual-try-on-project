@@ -17,7 +17,7 @@
 | `docs/requirements/` | 需求记录：DRAFT / CONFIRMED / SUPERSEDED |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：12 项在办 · 95 项已完成 · 69 条 ADR。
+**当前**：12 项在办 · 95 项已完成 · 70 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -40,7 +40,7 @@
 | [TASK-073-fixed-ia-and-contextual-agent.md](tasks/active/TASK-073-fixed-ia-and-contextual-agent.md) | TASK-073：第三阶段 —— 前端信息架构、页面重构与上下文 Agent 交互 | 大部分已实施（2026-08-14/15） |
 | [TASK-074-delivery-migration-and-legacy-retirement.md](tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md) | TASK-074：第四阶段 —— 后期交付、旧数据迁移、旧页面与旧接口清理、真实项目验收 | 部分实施（§1.1b 已完成 |
 | [TASK-087-followup-ledger.md](tasks/active/TASK-087-followup-ledger.md) | TASK-087：Follow-up 总账 —— 把散在九张卡里的欠账收成一处 | 活账（不是一次性交付 |
-| [TASK-105-flow-template-first-slice.md](tasks/active/TASK-105-flow-template-first-slice.md) | TASK-105：流程模板第一刀 —— 内置一份 flow，新建项目时可选 | 未开工（2026-08-23 建卡） |
+| [TASK-105-flow-template-first-slice.md](tasks/active/TASK-105-flow-template-first-slice.md) | TASK-105：流程模板第一刀 —— 内置一份 flow，新建项目时可选 | 第一刀实现完成（2026-08-24） |
 
 ## 在办 · 设计与验收文档
 
@@ -186,7 +186,7 @@
 
 | 位置 | 放什么 |
 | --- | --- |
-| [`docs/adr/`](adr/) | 69 条架构决策记录（ADR-0001 … ADR-0085） |
+| [`docs/adr/`](adr/) | 70 条架构决策记录（ADR-0001 … ADR-0086） |
 | [`docs/design/`](design/) 根 | 系统合同、产品信息架构、L0–S7 I/O 合同 |
 | [项目背景与路线](project-context.md) | 这个项目是什么、走到哪了 |
 | [实施规划](implementation_plan.md) | 阶段与里程碑路线图 |

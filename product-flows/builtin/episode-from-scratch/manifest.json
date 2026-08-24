@@ -1,0 +1,56 @@
+{
+  "flowId": "episode-from-scratch",
+  "flowVersion": 1,
+  "kind": "flow",
+  "title": "从零做一集",
+  "purpose": "一个空项目到一集成片之间，产品自己跑通过的那条顺序。每一步引用一个版本化的能力，缺哪个都会在加载时指名道姓。",
+  "steps": [
+    {
+      "stepKey": "story",
+      "skillId": "story-development",
+      "skillVersion": 2,
+      "note": "先有故事。这一步的产出是大纲，不是剧本 —— 后面每一步都从它派生。"
+    },
+    {
+      "stepKey": "world",
+      "skillId": "world-director",
+      "skillVersion": 1,
+      "note": "世界观梳理。排在故事之后：世界是为这个故事服务的，不是先建好再往里塞。"
+    },
+    {
+      "stepKey": "episode-plan",
+      "skillId": "episode-planner",
+      "skillVersion": 2,
+      "note": "分集规划。它读大纲，写出每一集要发生什么。"
+    },
+    {
+      "stepKey": "script",
+      "skillId": "script-writer",
+      "skillVersion": 1,
+      "note": "把一集的规划写成剧本。"
+    },
+    {
+      "stepKey": "breakdown",
+      "skillId": "script-breakdown",
+      "skillVersion": 3,
+      "note": "拆解剧本：这一集要哪些角色、场景、道具。它的产出决定下一步要准备什么资产。"
+    },
+    {
+      "stepKey": "base-assets",
+      "skillId": "base-asset-designer",
+      "skillVersion": 1,
+      "note": "为拆解出来的每个实体设计基础资产的提示词。排在拆解之后，因为要先知道有哪些实体。"
+    },
+    {
+      "stepKey": "storyboard",
+      "skillId": "storyboard-director",
+      "skillVersion": 2,
+      "note": "分镜。最后一步，因为它要同时读剧本与已经准备好的资产。"
+    }
+  ],
+  "conventions": {
+    "episodeCount": 12,
+    "shotNaming": "s{scene}-{shot}",
+    "note": "这些是项目层的约定，不是内容。改它们不会改变任何一步做什么，只改变它们做出来的东西长什么样。"
+  }
+}
