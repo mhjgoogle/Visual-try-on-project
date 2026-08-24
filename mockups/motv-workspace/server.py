@@ -420,6 +420,14 @@ _GATEWAY_BODY_MAX = 2_000_000  # agent JSON envelopes stay small
 _COMMAND_BODY_MAX = 80_000_000
 _NAME_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
+# Windows 上建不出来的目录名（DOS 设备名，带不带扩展名都一样）。权威环境是
+# Windows（ADR-0062），所以这不是「顺便兼容一下」，是主路径。
+_WINDOWS_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{i}" for i in range(1, 10)}
+    | {f"LPT{i}" for i in range(1, 10)}
+)
+
 # Manual media uploads (ADR pending for the CORE manual providers; this is the
 # PROTOTYPE-LOCAL scratch path only — user-generated reference images / video
 # clips / audio from e.g. the Gemini web app or a TTS tool, stored under
@@ -3363,6 +3371,19 @@ class _App:
             return self._create_project(body)
         if path == "/api/projects/migrate-legacy":
             return self._migrate_legacy(body)
+        if path.startswith("/api/projects/") and path.endswith("/flow/export"):
+            # TASK-105 第二刀。它写的是**应用数据里的用户流程目录**，不碰项目
+            # 文件，所以不走 Command Gateway：Gateway 管的是项目内的创作事实
+            # （ADR-0033），而一份模板是「以后怎么开始」，不是这个项目的事实。
+            name = unquote(path[len("/api/projects/") : -len("/flow/export")])
+            try:
+                payload = json.loads(body.decode("utf-8")) if body else {}
+            except (ValueError, UnicodeDecodeError):
+                return _json(
+                    400,
+                    {"error": {"category": "bad_json", "detail": "body 不是合法 JSON"}},
+                )
+            return self._export_flow(name, payload)
         if not path.startswith("/api/projects/"):
             return _json(
                 404,
@@ -4778,6 +4799,335 @@ class _App:
     #: SILENT cap would make 「都在」 mean 「前 N 个都在」. So it is capped AND the
     #: truncation is reported, per TASK-087 §7「no silent caps」.
     _MEDIA_AUDIT_MAX = 5000
+
+    # -- TASK-105 第二刀：把一个项目走过的流程导出成模板 --------------------
+    _EXPORT_MAX_EPISODES = 200
+
+    def _export_flow(self, name: str, payload):
+        """把这个项目**起步用的那条流程** + **它最后长成的样子**存成一份模板。
+
+        携带什么是这一条的全部设计：
+
+        - `steps` 从起步流程**原样 carry** —— 不重新发明顺序；
+        - `conventions.episodeCount` 从项目**实际的集数**学 —— 那是从结果学到的
+          真事实，也是这份导出比原模板多出来的唯一东西；
+        - 创作者写的内容**一个字都不带**：seed 是空骨架（ADR-0084 决策 3 本来
+          就拒绝带资产 / 生成 / 媒体的 seed）。
+
+        **没有起步流程的项目导不出模板**，明确拒绝而不是导出一个空壳：
+        `steps` 必须非空（flowpkg：「没有步骤的流程不是流程」），而一个从零手搓
+        的项目没有任何地方记录过它走的是什么顺序 —— 编一条出来就是发明。
+        """
+        if not _valid_project_name(name) or name not in self._projects:
+            return _json(
+                404, {"error": {"category": "not_found", "detail": "unknown project"}}
+            )
+        root = self._project_root(name)
+        landed = self._contained(root, "studio", "flow.json")
+        if landed is None or not landed.is_file():
+            return _json(
+                409,
+                {
+                    "error": {
+                        "category": "no_origin_flow",
+                        "detail": (
+                            "这个项目不是从模板起步的，导不出模板：模板要的是"
+                            "「按什么顺序做」，而这个项目没有任何地方记录过它走的"
+                            "是什么顺序。编一条出来就是发明。"
+                        ),
+                    }
+                },
+            )
+        try:
+            origin = json.loads(landed.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            return _json(500, {"error": {"category": "unreadable", "detail": str(exc)}})
+        # `flowId` 住在 `createdFrom` 三元组里（ADR-0084 决策 5）。
+        created = origin.get("createdFrom") if isinstance(origin, dict) else None
+        origin_id = created.get("flowId") if isinstance(created, dict) else None
+        # **步骤直接从这份文件读，不去目录里查当前版本。** 这份文件冻结的是
+        # 创建那一刻的样子，而那才是「这个项目走过的路」；源模板后来升版、
+        # 改名、被删掉都不影响导出 —— 去查当前版本反而会让导出的模板声称自己
+        # 是这个项目走过的路，而其实不是。
+        origin_steps = origin.get("steps") if isinstance(origin, dict) else None
+        if (
+            not isinstance(origin_id, str)
+            or not origin_id
+            or not isinstance(origin_steps, list)
+            or not origin_steps
+        ):
+            return _json(
+                409,
+                {
+                    "error": {
+                        "category": "unreadable_origin",
+                        "detail": (
+                            "studio/flow.json 读不出可用的 flowId 与步骤 —— "
+                            "导不出这个项目走过的那条流程。"
+                        ),
+                    }
+                },
+            )
+
+        # **一条形状不对就整个拒绝，不静默跳过**（codex 轮 3 的 P1）。
+        # 跳过的后果是：导出的模板**少了几步而没有人说过**，而这个函数自己
+        # 声称「步骤原样 carry」。少一步的流程不是「差不多的流程」，它是一条
+        # 别的流程 —— 而它会顶着「这是那个项目走过的路」的名义被复用。
+        steps = []
+        bad = []
+        seen_keys: set[str] = set()
+        for i, st in enumerate(origin_steps):
+            if not isinstance(st, dict):
+                bad.append(f"steps[{i}] 不是对象")
+                continue
+            key = st.get("stepKey")
+            skill = st.get("skillId")
+            ver = st.get("skillVersion")
+            # **判据与 `flowpkg` 逐字一致**（`.strip()` 后非空 + `stepKey` 唯一）。
+            # 松一点的后果不是「导出宽容」，是**导出成功但加载失败** —— 而那正是
+            # 最糟的组合：创作者以为存下来了，用的时候才发现这份模板读不进去
+            # （codex 轮 6 非阻塞）。
+            if not (
+                isinstance(key, str)
+                and key.strip()
+                and isinstance(skill, str)
+                and skill.strip()
+            ):
+                bad.append(f"steps[{i}] 的 stepKey/skillId 不是非空字符串")
+                continue
+            if key in seen_keys:
+                bad.append(f"steps[{i}] 的 stepKey {key!r} 与前面重复")
+                continue
+            seen_keys.add(key)
+            if isinstance(ver, bool) or not isinstance(ver, int) or ver < 1:
+                bad.append(f"steps[{i}] 的 skillVersion 不是 >= 1 的整数")
+                continue
+            one = {"stepKey": key, "skillId": skill, "skillVersion": ver}
+            note = st.get("note")
+            if isinstance(note, str) and note.strip():
+                one["note"] = note
+            steps.append(one)
+        if bad or not steps:
+            return _json(
+                409,
+                {
+                    "error": {
+                        "category": "unreadable_origin",
+                        "detail": (
+                            "studio/flow.json 的步骤读不完整，导出会少几步："
+                            + "；".join(bad[:5])
+                            if bad
+                            else "studio/flow.json 里一条步骤都没有"
+                        ),
+                    }
+                },
+            )
+        origin_title = origin.get("title") if isinstance(origin, dict) else None
+        origin_title = (
+            origin_title.strip()
+            if isinstance(origin_title, str) and origin_title.strip()
+            else origin_id
+        )
+
+        episodes = self._count_episodes(name)
+        body = payload if isinstance(payload, dict) else {}
+        title = body.get("title")
+        title = title.strip() if isinstance(title, str) and title.strip() else None
+        if title is None:
+            # **不写项目名**（codex 轮 2 的 P1）。模板是拿出去复用的东西，而项目名
+            # 是创作者写的内容 —— 一个叫「客户A-机密企划」的项目会把这个名字带进
+            # 每一份从它导出的模板。这直接违反本函数自己声明的合同；我那条泄漏
+            # 测试只查了 canvas 内容没查项目名，所以第一版没抓到。
+            #
+            # 要在标题里认出「这是从某个项目导出的」，由**创作者自己**在
+            # `title` 里写 —— 那是他的决定，不是我们替他做的泄漏。
+            title = f"{origin_title}（导出）"
+        purpose = body.get("purpose")
+        purpose = (
+            purpose.strip() if isinstance(purpose, str) and purpose.strip() else None
+        )
+        if purpose is None:
+            # 同样不写项目名（codex 轮 2 的 P1）。
+            purpose = f"从一个项目导出。步骤与 {origin_id!r} 相同；" + (
+                f"约定记下了那个项目最后做成 {episodes} 集。"
+                if episodes is not None
+                else "那个项目的集数读不出来，所以没有记下约定。"
+            )
+
+        manifest = {
+            "flowId": None,  # 下面按落地目录名定
+            "flowVersion": 1,
+            "kind": "flow",
+            "title": title,
+            "purpose": purpose,
+            "steps": steps,
+        }
+        if episodes is not None:
+            manifest["conventions"] = {"episodeCount": episodes}
+
+        seed = {
+            "note": (
+                "从项目导出的结构骨架。**不含任何创作者写下的内容** —— "
+                "导出的是「按什么顺序做」和「做成了几集」，不是做了什么。"
+            ),
+            "episodes": [],
+        }
+
+        # 先把三份内容**全部编码成字节**，再去建目录（codex 轮 1 的 P1）。
+        # 顺序反过来的话，任何一次写失败都会在用户流程目录里留下一个空的/半份的
+        # 包，而重试只会造一个带序号的新目录，**永远不修那个半份的**。
+        #
+        # `ValueError` 与 `OSError` 一起接：`ensure_ascii=False` 的
+        # `json.dumps(...).encode("utf-8")` 遇到孤立代理项抛 `UnicodeEncodeError`
+        # —— 那是 ValueError 不是 OSError。**这个仓库已经修过一次同样的 bug**
+        # （`_create_project` 里 codex 轮 10 那条），这里是第二次。
+        try:
+            files = {
+                "manifest.json": json.dumps(
+                    manifest, ensure_ascii=False, indent=2
+                ).encode("utf-8")
+                + b"\n",
+                "seed.json": json.dumps(seed, ensure_ascii=False, indent=2).encode(
+                    "utf-8"
+                )
+                + b"\n",
+                "flow.md": f"# {title}\n\n{purpose}\n".encode(),
+            }
+        except (ValueError, UnicodeEncodeError) as exc:
+            return _json(
+                400,
+                {
+                    "error": {
+                        "category": "unencodable",
+                        "detail": f"标题或说明里有存不下来的字符：{exc}",
+                    }
+                },
+            )
+
+        # **扫描目录里唯一会出现的东西，是一份完整的包 —— 而且它靠 rename 整个
+        # 出现。** 这一版把前四轮审查围着打转的那个主题一次性关掉：不再有「占名的
+        # 空目录」，因为**这里根本不创建目录**，只做一次 rename。
+        #
+        #   轮 2「目录先出现、文件后写」   → 不创建，只 rename
+        #   轮 3「POSIX 的 rename 会替换空目录」→ 见下，替换空目录不丢任何东西
+        #   轮 4「崩溃留下永久坏条目」     → 扫描面上从没出现过未完成的东西
+        #   轮 5「占名窗口里被强杀」       → 没有占名这一步了
+        #
+        # 为什么不用 `mkdir` 占名（前一版那样）：占名会在扫描目录里放一个空目录，
+        # 而它在**被强杀时** `finally` 跑不到 —— 那个空目录就永久留下，被扫描器
+        # 报成一份坏流程。占名换来的「原子」并不值这个代价，因为：
+        #
+        # **rename 已经提供了真正要的那条保证** —— 目标是一份**完整的包**时，
+        # 两个平台都拒绝（POSIX ENOTEMPTY / Windows EEXIST）。所以一份真的模板
+        # 永远不会被覆盖。POSIX 上能被替换掉的只有**空**目录，而空目录里没有包、
+        # 没有内容，替换掉它什么也没丢。
+        target = None
+        staging = None
+        try:
+            _USER_FLOWS_DIR.mkdir(parents=True, exist_ok=True)
+            # 同一个卷（rename 要原子就必须同卷），带 `.` 前缀住在扫描面之外
+            staging = Path(
+                tempfile.mkdtemp(dir=_USER_FLOWS_DIR.parent, prefix=".flow-export-")
+            )
+            (staging / "seed.json").write_bytes(files["seed.json"])
+            (staging / "flow.md").write_bytes(files["flow.md"])
+            for candidate in self._flow_dir_candidates(origin_id):
+                if candidate.exists():
+                    continue  # 便宜的快速跳过；真正的判定由 rename 做
+                # `flowId` 必须等于目录名（flowpkg 会拒绝不一致的包）——
+                # 名字定了，manifest 才定得下来。
+                manifest["flowId"] = candidate.name
+                (staging / "manifest.json").write_bytes(
+                    json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
+                    + b"\n"
+                )
+                try:
+                    staging.rename(candidate)
+                except OSError:
+                    # **只有「名字确实被占了」才换下一个**（轮 5 非阻塞）：
+                    # 权限 / 只读卷 / 磁盘满换个名字也不会好，重试 999 次只会
+                    # 把真正的失败原因埋掉。
+                    if candidate.exists():
+                        continue
+                    raise
+                target = candidate
+                staging = None  # 已经搬走
+                break
+            if target is None:
+                raise OSError("用户流程目录里同名条目太多，找不到可用的新名字")
+        except (OSError, ValueError) as exc:
+            return _json(500, {"error": {"category": "unwritable", "detail": str(exc)}})
+        finally:
+            # 失败时它是唯一的痕迹，而且住在**扫描面之外** —— 即使这里没跑到
+            # （进程被强杀），留下的也不是一条会被报成坏流程的目录条目。
+            if staging is not None:
+                shutil.rmtree(staging, ignore_errors=True)
+
+        return _json(
+            201,
+            {
+                "flowId": target.name,
+                "title": title,
+                "steps": len(manifest["steps"]),
+                "episodeCount": episodes,
+                "source": "user",
+            },
+        )
+
+    def _count_episodes(self, name: str):
+        """这个项目实际有几集。读不出来就 None —— **不补 0，也不猜 1**。"""
+        path = self._canvas_path(name)
+        if path is None or not path.is_file():
+            return None
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        eps = doc.get("production", {}) if isinstance(doc, dict) else {}
+        eps = eps.get("episodes") if isinstance(eps, dict) else None
+        if not isinstance(eps, list):
+            eps = doc.get("episodes") if isinstance(doc, dict) else None
+        if not isinstance(eps, list) or not eps:
+            return None
+        # 一集必须**真的像一集**：有 id、且没归档。`{}` 或缺 id 的条目照样算数的话，
+        # 一份畸形数据会导出一个**看起来合理但是错的** `episodeCount`
+        # （codex 轮 4 非阻塞）—— 而这个数会决定下一个项目长出几集。
+        live = [
+            e
+            for e in eps
+            if isinstance(e, dict)
+            and not e.get("archivedAt")
+            and isinstance(e.get("episodeId"), str)
+            and e.get("episodeId")
+        ]
+        n = len(live)
+        return n if 1 <= n <= self._EXPORT_MAX_EPISODES else None
+
+    def _flow_dir_candidates(self, base_id: str):
+        """一串**还不存在**的用户流程目录候选名，从最想要的那个开始。
+
+        AGENTS.md 第 13 条：不静默覆盖。两条合规路径里选**带版本的新路径**，
+        而不是停下来问 —— 「导出第二次把第一次盖掉」是不可逆的，换个名字是可逆的。
+
+        只产名字、不建目录：真正的占位由调用方的 `rename` 完成，**而 rename 在
+        两个平台上都拒绝覆盖已存在的目录** —— 于是「先查再建」之间的竞态由 OS
+        关掉，不靠我们查得够快。
+        """
+        stem = (
+            "".join(
+                c if c.isascii() and (c.isalnum() or c in "_-") else "-"
+                for c in base_id
+            ).strip("-")[:48]
+            or "flow"
+        )
+        # Windows 保留设备名建不出目录，而权威环境就是 Windows（ADR-0062）——
+        # 一份 flowId 叫 `con` 的模板会在这里失败得莫名其妙（codex 轮 1 非阻塞，
+        # 自标 uncertain，实测为真）。**加前缀而不是拒绝**：导出不该因为源模板
+        # 的名字碰巧撞上 DOS 的历史包袱而做不了。
+        if stem.split(".")[0].upper() in _WINDOWS_RESERVED_NAMES:
+            stem = f"flow-{stem}"
+        for n in range(1, 1000):
+            yield _USER_FLOWS_DIR / (stem if n == 1 else f"{stem}-{n}")
 
     def _media_audit(self, name: str, measure: str):
         """Server-side media presence audit (GAP-02 / TASK-083 §5.2 · TASK-087 §4.2).

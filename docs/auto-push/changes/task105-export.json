@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "change_id": "task105-export",
+  "branch": "change/TASK-105-flow-export",
+  "status": "open",
+  "created": "2026-08-24T06:55:04+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-105": {
+      "commits": [],
+      "paths": [
+        "docs/",
+        "mockups/motv-workspace/",
+        "tests/studio/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "两阶段 pytest 3524+6 全绿；node --test 1838 全绿；ruff 618 文件全绿；codex-review-loop 六轮（轮 1-5 的 blocking 全为真且已修，轮 6 经代码证据驳回并按 ADR-0081 §2b 记录范围判断）",
+      "declared": "2026-08-24T06:55:04+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PENDING"
+  },
+  "merge": null,
+  "cleanup": null
+}
