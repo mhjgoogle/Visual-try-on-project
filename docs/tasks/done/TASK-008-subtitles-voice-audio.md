@@ -1,8 +1,16 @@
 # TASK-008：字幕、配音与音频合成（阶段 5）
 
-> **状态：Planned（WFM2）。** 原 Milestone 2 设计继续作为用户提供音频与
-> 字幕的可靠起点；实施纳入 WFM2，并须先由 ADR-0038/0039 锁定资产、Provider、
-> 路径和后期边界。冻结模型或目录的增补仍需独立批准。
+> **状态：已交付（WFM2，2026-08-04）。** 2026-08-24 逐条核实后收进 `done/`。
+>
+> **卡首原本写着 `Planned`，而卡尾的「当前状态」写着 `Delivered`** —— 同一张卡
+> 上两句话互相矛盾，前一句是旧文本。核实的是代码不是文字：`audio/` 四个模块、
+> `composition/av_{profile,audiovisual,step}.py`、`media/provider.py` 里
+> import-only 的 `voiceover`/`sfx`/`subtitle`、QCD 的 `audiovisual_completed`
+> 事件**全部在 `origin/main` 上**，六份测试 **57 通过 / 1 跳过**（跳过的是
+> 需要 opt-in 真实 ffmpeg 的冒烟）。
+>
+> 前置也全部满足：ADR-0038 / ADR-0039 都是 Accepted，TASK-034 / TASK-035 都在
+> `done/`。
 
 ## 正式名称
 
@@ -22,7 +30,15 @@ FFmpeg 合成流程，使最终 MP4 具备完整音画（implementation_plan
 - ADR-0038、ADR-0039 Accepted，以及 TASK-034/035 已提供正式输入；
 - 产品级决策（见「产品级未决问题」）。
 
-## 产品级未决问题（须用户裁决后实施）
+## 产品级未决问题 —— **已定，走的是不花钱那条路**
+
+> **2026-08-24 订正。** 这一节的标题原本是「须用户裁决后实施」，那是旧规则留下
+> 的闸：现行 AGENTS.md §1（产品负责人 2026-08-15 / 08-23）只把**付费**保留为
+> 人工闸，而下面三个问题的**推荐答案都不花钱**。
+>
+> 产品负责人 2026-08-24：「用不花钱的方向就好了」。三个都按各自的「规划假设」
+> 落地了，而且 As-built 那一节写得很明确：**「全程无 TTS/付费 API；生产合同仍是
+> 『用户提供文件』」**。所以这一节记的是**已经做出的选择**，不是待办。
 
 1. 配音来源：第一版只接受**用户提供的音频文件**（与阶段 1 手工
    模式一致，推荐），还是接入 TTS API（付费 API，越出当前边界）？
@@ -129,5 +145,5 @@ clause 9 要求音频/字幕遵守「与 VideoAsset 同一的登记/版本/防�
 
 Delivered（WFM2，2026-08-04）。codex-review-loop 11 轮过审（0 blocking；1 P3
 WAV 对齐 nitpick 记录未修——离线结构校验为尽力而为，真实边界是 ffprobe + digest
-绑定的不可变资产 + fail-closed 混流）。全量 2588 passed / ruff clean。已本地提交
-（未 push）。
+绑定的不可变资产 + fail-closed 混流）。全量 2588 passed / ruff clean。**「已本地提交（未 push）」那句
+是 2026-08-04 的旧话** —— 2026-08-24 核实，这些代码早已在 `origin/main` 上。

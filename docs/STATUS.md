@@ -17,7 +17,7 @@
 | `docs/requirements/` | 需求记录：DRAFT / CONFIRMED / SUPERSEDED |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：10 项在办 · 97 项已完成 · 70 条 ADR。
+**当前**：9 项在办 · 98 项已完成 · 70 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -29,7 +29,6 @@
 
 | 文档 | 标题 | 状态行（首句） |
 | --- | --- | --- |
-| [TASK-008-subtitles-voice-audio.md](tasks/active/TASK-008-subtitles-voice-audio.md) | TASK-008：字幕、配音与音频合成（阶段 5） | Planned（WFM2） |
 | [TASK-011-local-video-provider.md](tasks/active/TASK-011-local-video-provider.md) | TASK-011：LocalVideoProvider（阶段 8） | Outline（可选 WFM3 升级） |
 | [TASK-012-qcd-auto-routing.md](tasks/active/TASK-012-qcd-auto-routing.md) | TASK-012：基于 QCD 的自动模型路由（阶段 9） | Outline（WFM3） |
 | [TASK-037-wfm2-end-to-end-acceptance.md](tasks/active/TASK-037-wfm2-end-to-end-acceptance.md) | TASK-037：WFM2 正式作品端到端验收 | Evidence Ready — 等用户一句话确认（2026-08-04） |
@@ -68,6 +67,7 @@
 | [TASK-005-video-file-validation.md](tasks/done/TASK-005-video-file-validation.md) | TASK-005：视频文件校验、VideoAsset 登记与 QCD 事件日志基础（阶段 3） | 已实现（IMPLEMENTED），并已随 TASK-013 |
 | [TASK-006-ffmpeg-composition.md](tasks/done/TASK-006-ffmpeg-composition.md) | TASK-006：FFmpeg 按镜头顺序合成（阶段 4） | 已实现（IMPLEMENTED），并已随 TASK-013 |
 | [TASK-007-workflow-bootstrap-and-cli.md](tasks/done/TASK-007-workflow-bootstrap-and-cli.md) | TASK-007：任务生成 Bootstrap、工作流驱动与最小 CLI（阶段 2 收尾 + 最小闭环接线） | 已实现（IMPLEMENTED），并已随 TASK-013 |
+| [TASK-008-subtitles-voice-audio.md](tasks/done/TASK-008-subtitles-voice-audio.md) | TASK-008：字幕、配音与音频合成（阶段 5） | 已交付（WFM2，2026-08-04） |
 | [TASK-009-qcd-aggregation-reporting.md](tasks/done/TASK-009-qcd-aggregation-reporting.md) | TASK-009：QCD 汇总、指标计算与报告（阶段 6） | Implemented |
 | [TASK-010-cloud-video-provider.md](tasks/done/TASK-010-cloud-video-provider.md) | TASK-010：首个 CloudVideoProvider（阶段 7） | Historical / Superseded |
 | [TASK-013-m1-findings-closure.md](tasks/done/TASK-013-m1-findings-closure.md) | TASK-013：M1 Findings Closure（整体审查 blocker/important 收口） | 已实现并验收（IMPLEMENTED AND ACCEPTED） |

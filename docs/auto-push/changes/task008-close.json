@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "change_id": "task008-close",
+  "branch": "change/TASK-008-close",
+  "status": "open",
+  "created": "2026-08-24T10:26:13+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-008": {
+      "commits": [],
+      "paths": [
+        "docs/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "TASK-008 自身六份测试 57 通过/1 跳过；两阶段 pytest 3528+6 全绿；node 1848 全绿；ruff 619 全绿",
+      "declared": "2026-08-24T10:26:13+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PENDING"
+  },
+  "merge": null,
+  "cleanup": null
+}
