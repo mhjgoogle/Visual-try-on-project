@@ -2,7 +2,7 @@
   "schema": 1,
   "change_id": "task008-close",
   "branch": "change/TASK-008-close",
-  "status": "open",
+  "status": "closed",
   "created": "2026-08-24T10:26:13+00:00",
   "chain_mode": false,
   "tasks": {
@@ -40,6 +40,14 @@
     "time": "2026-08-24T10:32:46+00:00",
     "tip": "a20d77bed0a174b20b7d7cfd5e69f50a4f0b4d35"
   },
-  "merge": null,
-  "cleanup": null
+  "merge": {
+    "hash": "5ecd481da63afd705ebd09b7600c26ea014d9137",
+    "time": "2026-08-24T10:32:59+00:00",
+    "pushed": true
+  },
+  "cleanup": {
+    "local_deleted": true,
+    "remote_deleted": true,
+    "time": "2026-08-24T10:33:04+00:00"
+  }
 }
