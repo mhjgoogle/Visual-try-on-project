@@ -2,7 +2,7 @@
   "schema": 1,
   "change_id": "t074-boundary8",
   "branch": "change/TASK-074-boundary8",
-  "status": "open",
+  "status": "closed",
   "created": "2026-08-24T13:24:23+00:00",
   "chain_mode": false,
   "tasks": {
@@ -41,6 +41,14 @@
     "time": "2026-08-24T13:31:27+00:00",
     "tip": "87376aab1e9b311d13259607b94ee64f915096c4"
   },
-  "merge": null,
-  "cleanup": null
+  "merge": {
+    "hash": "fe9e6933c3a98c2e4d124f9a3ff1beb936ed3d5e",
+    "time": "2026-08-24T13:31:41+00:00",
+    "pushed": true
+  },
+  "cleanup": {
+    "local_deleted": true,
+    "remote_deleted": true,
+    "time": "2026-08-24T13:31:46+00:00"
+  }
 }
