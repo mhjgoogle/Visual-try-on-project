@@ -7,7 +7,33 @@
   "chain_mode": false,
   "tasks": {
     "TASK-087": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "4ab088c0d1c297b02e4149f2076dd87d3f28a0f3",
+          "subject": "fix(TASK-087): 欠账四条 —— 轻端点切换、占位词、别名表守卫、basedOn 收紧",
+          "time": "2026-08-24T05:11:31+00:00",
+          "branch": "change/TASK-087-ledger-batch",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/task087-batch.json",
+            "docs/reports/2026-08-24-session-report.md",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "mockups/motv-workspace/skillpkg.py",
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/src/workflow/identity.js",
+            "mockups/motv-workspace/src/workflow/scriptdoc.js",
+            "mockups/motv-workspace/src/workflow/skills.js",
+            "mockups/motv-workspace/src/workflow/storydoc.js",
+            "mockups/motv-workspace/tests/basedon.test.mjs",
+            "mockups/motv-workspace/tests/placeholder.test.mjs",
+            "mockups/motv-workspace/tests/shotqc.test.mjs",
+            "tests/contract/test_media_audit_states_task087.py",
+            "tests/contract/test_module_alias_mirror_task087.py",
+            "tests/contract/test_placeholder_words_task087.py"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/",
         "mockups/motv-workspace/",
