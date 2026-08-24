@@ -604,7 +604,7 @@ commit，**不跑**全量 pytest 与全量前端（把 `MOTV_CONTINUOUS_CHAIN=1`
 | Envelope 构造 + preflight / submit 归位 | **已完成（2026-08-15）**。见下方 §Envelope 归位 |
 | `services/persist.js` 改经 apiclient | **未做，有意保留**。它靠 **content-type 嗅探**区分「后端在」与「静态 host」，并自带 keepalive 的 64 KiB 聚合字节记账、写序列化与 AbortController 竞态处理。apiclient 现在把「200 非 JSON」归成 `malformed` 抛出，正好**吃掉**它依赖的那个区分。要改需要先让 apiclient 表达 keepalive 与「这是不是后端在说话」，那是单独一轮的事 —— 而这是全树里推理最密的文件，赶工改它就是 B2 那三次「守卫没守住」的复现条件 |
 | `services/runtime.js` 的 `cancelRun` / `runOnExecutor` | **未做，有意保留**。两者的契约是**状态码形状**的（「404 不是证明」、非 2xx 时仍要读 body 里的 `kind`），且这些分支写的是 codex 第 22–23 轮的结论 |
-| 验收 #5 的守卫测试 | **未做**（本次按要求跳过测试环节）。「后端 500 时 UI 模型是 error 而不是 empty」目前只有代码保证 |
+| ~~验收 #5 的守卫测试~~ | **已补（2026-08-24）** —— `tests/backend500.test.mjs`。三条读路径（`listProjects` / `getShots` / `getQuery`）在后端 500 时都必须**抛出带后端 `category` 的分类错误**，不退化成 `[]`。卡上这一条当时是**手工实证过**的，缺的只是回归守卫 —— 现在补上了。**带两条反方向对照**：真的空仍然是空（否则把三条改成「永远抛」也能全绿，而那样创作者第一次打开空账户就会看到一条错误）；没有后端时返回空**合法**（静态 demo 按设计就没有后端 —— 「坏了」与「本来就没有」是两件事）。变异验证 3 次全红 |
 
 测试现状：全量前端 **929 通过**、`-k motv` **451 通过 / 14 跳过**、ruff 全绿。
 **未做 Codex 独立审查**（本次按产品负责人要求跳过；codex 亦在 spend cap 内不可用）。

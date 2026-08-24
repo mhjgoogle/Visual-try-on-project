@@ -17,7 +17,7 @@
 | `docs/requirements/` | 需求记录：DRAFT / CONFIRMED / SUPERSEDED |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：11 项在办 · 96 项已完成 · 70 条 ADR。
+**当前**：10 项在办 · 97 项已完成 · 70 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -32,7 +32,6 @@
 | [TASK-008-subtitles-voice-audio.md](tasks/active/TASK-008-subtitles-voice-audio.md) | TASK-008：字幕、配音与音频合成（阶段 5） | Planned（WFM2） |
 | [TASK-011-local-video-provider.md](tasks/active/TASK-011-local-video-provider.md) | TASK-011：LocalVideoProvider（阶段 8） | Outline（可选 WFM3 升级） |
 | [TASK-012-qcd-auto-routing.md](tasks/active/TASK-012-qcd-auto-routing.md) | TASK-012：基于 QCD 的自动模型路由（阶段 9） | Outline（WFM3） |
-| [TASK-027-workspace-lineage-comparison-and-cost.md](tasks/active/TASK-027-workspace-lineage-comparison-and-cost.md) | TASK-027：谱系、提示词/产物比较与成本深钻（WSM1-C） | 核心已交付（part-1 + part-2a），part-2b 推迟 |
 | [TASK-037-wfm2-end-to-end-acceptance.md](tasks/active/TASK-037-wfm2-end-to-end-acceptance.md) | TASK-037：WFM2 正式作品端到端验收 | Evidence Ready — 等用户一句话确认（2026-08-04） |
 | [TASK-040-final-unified-product-acceptance.md](tasks/active/TASK-040-final-unified-product-acceptance.md) | TASK-040：AI 短剧工作流与 Creation Workspace 最终统一验收 | Evidence Ready — 等用户一句话确认（2026-08-04） |
 | [TASK-041-workspace-generation-command-and-evidence.md](tasks/active/TASK-041-workspace-generation-command-and-evidence.md) | TASK-041: 工作视窗付费视频生成命令 + UI 接入 + 1 次真实证据 | Accepted（2026-08-07，用户「同意」） |
@@ -85,6 +84,7 @@
 | [TASK-024-workspace-query-contract-and-information-architecture.md](tasks/done/TASK-024-workspace-query-contract-and-information-architecture.md) | TASK-024：Creation Workspace 查询合同与信息架构收口（WSM0） | Docs-complete |
 | [TASK-025-workspace-projection-and-query-service.md](tasks/done/TASK-025-workspace-projection-and-query-service.md) | TASK-025：可重建 Projection 与 Query Service（WSM1-A） | Accepted（2026-08-02，独立审查两轮通过） |
 | [TASK-026-workspace-read-only-shell.md](tasks/done/TASK-026-workspace-read-only-shell.md) | TASK-026：跨项目只读工作视窗骨架（WSM1-B） | Done（2026-08-03） |
+| [TASK-027-workspace-lineage-comparison-and-cost.md](tasks/done/TASK-027-workspace-lineage-comparison-and-cost.md) | TASK-027：谱系、提示词/产物比较与成本深钻（WSM1-C） | 已完成（2026-08-24） |
 | [TASK-028-workspace-evaluation-experiment-decision.md](tasks/done/TASK-028-workspace-evaluation-experiment-decision.md) | TASK-028：评价、实验比较与创作决定（WSM2-A） | Delivered（步骤 1–5，2026-08-03） |
 | [TASK-029-workspace-feedback-and-action.md](tasks/done/TASK-029-workspace-feedback-and-action.md) | TASK-029：Feedback、Action 合同与只读 Action Center（WSM2-B） | Delivered（2026-08-03 |
 | [TASK-030-command-gateway-foundation.md](tasks/done/TASK-030-command-gateway-foundation.md) | TASK-030：Command Gateway、安全预检与命令回执（WSM2-C） | Delivered（2026-08-03） |

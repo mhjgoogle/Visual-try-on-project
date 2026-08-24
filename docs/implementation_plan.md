@@ -93,10 +93,10 @@ Creation Workspace 不属于 TASK-018～023 或 WFM1 验收。安全边界见
 
 | 任务 | 里程碑 | 内容 | 实现门槛 | 状态 |
 | --- | --- | --- | --- | --- |
-| [TASK-024](tasks/done/TASK-024-workspace-query-contract-and-information-architecture.md) | WSM0 | Query contract、信息架构、source gap、ADR-0031 | 可立即 docs-only | Planned |
-| [TASK-025](tasks/done/TASK-025-workspace-projection-and-query-service.md) | WSM1 | 可重建 projection/query service | TASK-024 + ADR-0031；最终验收等 TASK-023 | Planned |
-| [TASK-026](tasks/done/TASK-026-workspace-read-only-shell.md) | WSM1 | 跨项目只读工作视窗 | TASK-025 + ADR-0032 | Planned |
-| [TASK-027](tasks/active/TASK-027-workspace-lineage-comparison-and-cost.md) | WSM1 | 谱系、版本/产物比较、成本深钻 | TASK-020/021/022 + TASK-025/026 | Planned |
+| [TASK-024](tasks/done/TASK-024-workspace-query-contract-and-information-architecture.md) | WSM0 | Query contract、信息架构、source gap、ADR-0031 | 可立即 docs-only | Delivered |
+| [TASK-025](tasks/done/TASK-025-workspace-projection-and-query-service.md) | WSM1 | 可重建 projection/query service | TASK-024 + ADR-0031；最终验收等 TASK-023 | Delivered |
+| [TASK-026](tasks/done/TASK-026-workspace-read-only-shell.md) | WSM1 | 跨项目只读工作视窗 | TASK-025 + ADR-0032 | Delivered |
+| [TASK-027](tasks/done/TASK-027-workspace-lineage-comparison-and-cost.md) | WSM1 | 谱系、版本/产物比较、成本深钻 | TASK-020/021/022 + TASK-025/026 | Delivered（part-1 + part-2a + part-2b，2026-08-24 收口） |
 | [TASK-028](tasks/done/TASK-028-workspace-evaluation-experiment-decision.md) | WSM2 | 评价、实验、创作决定 + 只读页面 | ADR-0034 + TASK-018/020/022/026/027 | Delivered（步骤 1–5） |
 | [TASK-029](tasks/done/TASK-029-workspace-feedback-and-action.md) | WSM2 | Feedback/Action + 只读 Action Center | ADR-0035 + TASK-025/026/028 | Delivered |
 | [TASK-030](tasks/done/TASK-030-command-gateway-foundation.md) | WSM2 | Gateway、preflight、确认、幂等回执 | **TASK-023** + ADR-0033 | Delivered |
@@ -120,7 +120,7 @@ WFM2 在 WFM1 gate 之后补齐两份顶层需求仍缺少的完整创意、多�
 | --- | --- | --- | --- |
 | [TASK-034](tasks/done/TASK-034-wfm2-full-creative-and-audiovisual-design.md) | 完整 L0–S3 创意/叙事/视听设计产物 | ADR-0037 | Implemented（2026-08-03；验收 TASK-037） |
 | [TASK-035](tasks/done/TASK-035-wfm2-multimedia-generation-and-lineage.md) | 图片/音频等多媒体 Provider、资产、谱系与成本 | ADR-0038 | Implemented（2026-08-04；打桩不花钱；验收 TASK-037） |
-| [TASK-008](tasks/active/TASK-008-subtitles-voice-audio.md) | 字幕、用户音频与合成增量 | ADR-0038/0039 | Delivered（2026-08-04；audio/ 包 + AV 混流步骤 + audiovisual_completed 事件） |
+| [TASK-008](tasks/active/TASK-008-subtitles-voice-audio.md) | 字幕、用户音频与合成增量 | ADR-0038/0039 | 部分交付（2026-08-04；audio/ 包 + AV 混流步骤 + audiovisual_completed 事件）；整卡仍在 `active/` |
 | [TASK-036](tasks/done/TASK-036-wfm2-formal-postproduction-qc-release.md) | 正式 S4–S7 后期、QC、发布与复盘 | ADR-0039 | Delivered（合同层，2026-08-04；postproduction catalog+index，事实域分离+status 语义） |
 | [TASK-037](tasks/active/TASK-037-wfm2-end-to-end-acceptance.md) | WFM2 端到端 milestone gate | TASK-008/034～036 | Evidence Ready — 等用户签字（2026-08-04；L0→S7 E2E + 矩阵 + runbook + 评审） |
 

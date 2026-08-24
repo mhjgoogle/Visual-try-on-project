@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "change_id": "active-audit",
+  "branch": "change/active-cards-audit",
+  "status": "open",
+  "created": "2026-08-24T08:25:06+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-027": {
+      "commits": [],
+      "paths": [
+        "docs/",
+        "mockups/motv-workspace/tests/",
+        "tests/tooling/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "两阶段 pytest 3528+6 全绿；node --test 1848 全绿；ruff 619 文件全绿；codex-review-loop 四轮，轮 3 与轮 4 均 pass",
+      "declared": "2026-08-24T08:25:07+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PENDING"
+  },
+  "merge": null,
+  "cleanup": null
+}
