@@ -1,0 +1,6 @@
+{
+  "created_at": "2026-08-02T00:00:00.000000+00:00",
+  "description": "TASK-041 增量 3 的证据项目：wfm1-demo 的副本，改锁 wfm1-minimax 目录。冻结的 wfm1-demo 一字未改。",
+  "name": "WFM1 MiniMax Evidence",
+  "project_id": "wfm1-minimax-evidence"
+}

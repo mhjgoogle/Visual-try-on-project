@@ -1,0 +1,21 @@
+{
+  "schema_version": 2,
+  "default_provider": "minimax",
+  "fallback_provider": null,
+  "shot_overrides": {},
+  "budgets_jpy": {
+    "episode_soft": 1200,
+    "episode_hard": 1500,
+    "monthly_hard": 5000,
+    "per_shot": 400
+  },
+  "fx": {
+    "base_currency": "JPY",
+    "rates": {
+      "USD": 160
+    }
+  },
+  "catalog_id": "wfm1-minimax",
+  "catalog_version": 1,
+  "catalog_digest": "5771e863d8899d06193ce2eb91ea068e583ff01ab1aea113b0e1e4048c54e50d"
+}

@@ -7,7 +7,40 @@
   "chain_mode": false,
   "tasks": {
     "TASK-105": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "5425948290b119638d97deaf484fe58eabfcb36c",
+          "subject": "feat(TASK-105): 流程模板第一刀 —— 「整条流程」第一次成为可复用物",
+          "time": "2026-08-24T02:00:37+00:00",
+          "branch": "change/TASK-105-flow-templates",
+          "pushed": false,
+          "files": [
+            "AGENTS.md",
+            "docs/STATUS.md",
+            "docs/adr/ADR-0077-repository-path-ownership.md",
+            "docs/auto-push/changes/flow-templates-and-evidence.json",
+            "docs/tasks/active/TASK-105-flow-template-first-slice.md",
+            "mockups/motv-workspace/flowpkg.py",
+            "mockups/motv-workspace/index.html",
+            "mockups/motv-workspace/server.py",
+            "mockups/motv-workspace/skillpkg.py",
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/src/services/command.js",
+            "mockups/motv-workspace/src/services/persist.js",
+            "mockups/motv-workspace/src/services/query.js",
+            "mockups/motv-workspace/src/workflow/proddoc.js",
+            "mockups/motv-workspace/tests/persistence.test.mjs",
+            "mockups/motv-workspace/tests/proddoc.test.mjs",
+            "product-flows/builtin/episode-from-scratch/flow.md",
+            "product-flows/builtin/episode-from-scratch/manifest.json",
+            "product-flows/builtin/episode-from-scratch/seed.json",
+            "tests/contract/test_frontend_write_path_invariants.py",
+            "tests/contract/test_motv_flowpkg_task105.py",
+            "tests/studio/test_motv_flows_api_task105.py"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "AGENTS.md",
         "docs/STATUS.md",
@@ -21,6 +54,18 @@
       "verification": "PASS",
       "verification_ref": "两阶段 pytest 3466+6 · node --test 1819 · ruff 全绿 · codex-review-loop 10 轮，按 ADR-0081 2d 显式 ship，无未闭合 P1 · 8 次变异验证",
       "declared": "2026-08-24T01:54:24+00:00"
+    },
+    "TASK-041": {
+      "commits": [],
+      "paths": [
+        "config/providers/",
+        "docs/tasks/active/TASK-041-workspace-generation-command-and-evidence.md",
+        "examples/projects/wfm1-minimax-evidence/",
+        "tests/backend/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "pytest tests/backend 13 条守卫全绿（含逐镜报价与全项目身份自证）；离线搭建，不花一分钱",
+      "declared": "2026-08-24T02:00:37+00:00"
     }
   },
   "merge_gate": {
