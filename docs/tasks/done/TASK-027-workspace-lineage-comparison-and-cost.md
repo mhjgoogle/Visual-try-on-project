@@ -1,8 +1,17 @@
 # TASK-027：谱系、提示词/产物比较与成本深钻（WSM1-C）
 
-> **状态：核心已交付（part-1 + part-2a），part-2b 推迟。** 依赖 ADR-0031/0032
-> Accepted、TASK-020/021/022 source contracts、TASK-025/026；完整验收仍等待
-> TASK-023 readiness 与独立审查。
+> **状态：已完成（2026-08-24）。** part-1 + part-2a + **part-2b 三个切片全部交付**，
+> 每一部分都经 codex 跨模型独立审查（part-2b 切片 1 一轮零发现；切片 2+3 两轮，
+> 轮 2 pass）。
+>
+> **收口前逐条核实过前置**（本仓库最贵的缺陷是过期声明，所以不引用卡上的话）：
+> TASK-023 在 `done/` 且 **WFM1 milestone review PASSED**（2026-08-02），
+> TASK-025 / TASK-026 同样在 `done/`。原状态行写的「完整验收仍等待 TASK-023
+> readiness」以及「part-2b 推迟」**都已不成立**。
+>
+> **仍未做、但不属于本卡**：part-2b 的两个页面已经能用，剩下的是在真实核心项目
+> （`wfm1-demo` / `wfm1-minimax-evidence`）上的人工验收 —— 那是判断，不是机械
+> 验证，按 ADR-0086 的后果 2 归产品负责人。
 >
 > **已交付（2026-08-03）：**
 > - part-1（commit `c86061d`）：WQ-07 cost-breakdown 附加派生维度 `by_step`/

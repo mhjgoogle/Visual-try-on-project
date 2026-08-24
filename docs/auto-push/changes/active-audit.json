@@ -1,0 +1,51 @@
+{
+  "schema": 1,
+  "change_id": "active-audit",
+  "branch": "change/active-cards-audit",
+  "status": "open",
+  "created": "2026-08-24T08:25:06+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-027": {
+      "commits": [
+        {
+          "hash": "692d597854c12325c7352f757f4a2ad92c5d10e2",
+          "subject": "chore: active 卡逐张核实 —— 027 收口、072/073 补守卫、计划表加状态守卫",
+          "time": "2026-08-24T08:26:33+00:00",
+          "branch": "change/active-cards-audit",
+          "pushed": true,
+          "files": [
+            "docs/STATUS.md",
+            "docs/adr/ADR-0086-workspace-shell-serves-core-projects-only.md",
+            "docs/auto-push/changes/active-audit.json",
+            "docs/implementation_plan.md",
+            "docs/tasks/active/TASK-027-workspace-lineage-comparison-and-cost.md",
+            "docs/tasks/active/TASK-072-system-contract-and-persistent-runs.md",
+            "docs/tasks/active/TASK-073-fixed-ia-and-contextual-agent.md",
+            "docs/tasks/done/TASK-027-workspace-lineage-comparison-and-cost.md",
+            "mockups/motv-workspace/tests/backend500.test.mjs",
+            "mockups/motv-workspace/tests/listerror.test.mjs",
+            "tests/tooling/test_plan_status_matches_folder.py"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        "docs/",
+        "mockups/motv-workspace/tests/",
+        "tests/tooling/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "两阶段 pytest 3528+6 全绿；node --test 1848 全绿；ruff 619 文件全绿；codex-review-loop 四轮，轮 3 与轮 4 均 pass",
+      "declared": "2026-08-24T08:25:07+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PASS",
+    "by": "ADR-0085 常设授权；依据=Done 判定 + 最终全量：pytest 3528+6、node 1848、ruff 619 全绿，codex 四轮轮3/轮4 均 pass，无未闭合 P1，待复审清单零未闭合条目",
+    "time": "2026-08-24T08:32:24+00:00",
+    "tip": "67d8679858aa7f43c28bb815dfaada43a2cf9288"
+  },
+  "merge": null,
+  "cleanup": null
+}

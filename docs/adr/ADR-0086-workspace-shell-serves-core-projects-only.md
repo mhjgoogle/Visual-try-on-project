@@ -24,7 +24,7 @@ GAP-05 把这件事记成了一个待决问题，并给了两条路：
 > WFM1 核心项目并在文档里说清。
 
 GAP-05 的另外两项（四个 LOW-risk 命令注册进 Studio、审片页接 `record-evaluation`）
-已由 TASK-103 批次 B 完成。**只剩这一条**，而它挡着 [TASK-027](../tasks/active/TASK-027-workspace-lineage-comparison-and-cost.md)
+已由 TASK-103 批次 B 完成。**只剩这一条**，而它挡着 [TASK-027](../tasks/done/TASK-027-workspace-lineage-comparison-and-cost.md)
 part-2b —— 那两个页面要加在哪个壳里，取决于这个答案。
 
 ## 决策
