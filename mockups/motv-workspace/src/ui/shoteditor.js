@@ -77,6 +77,10 @@ export function normalizeShots(items, slotPrefix) {
 export const ADDITIVE_SHOT_FIELDS = [
   "action", "cameraMotion", "dialogue", "shotSize", "angle", "emotion",
   "expression", "environmentMotion", "lighting", "color",
+  // `sfxNote`（音效需求）是 TASK-087 §3.5.2 的加法字段：以前镜头上没有任何地方
+  // 写「这一镜需要什么音效」，于是逐镜质检对音效永远只能答无法判定。
+  // 登记在这里，是因为上面那句话 —— 只在一条保存路径上活下来的字段不叫加法字段。
+  "sfxNote",
 ];
 
 /** The next draft version number: max existing + 1 — NEVER length + 1. The

@@ -95,10 +95,13 @@ export function unclassifiedTracks(tracks = AUDIO_TRACKS) {
  * 判定：这一步的轨上**至少有一个片段，且每一个都在**才算有产物。三条音效里丢了一条
  * 就不是「做完了」—— 合成出来会缺一条，而界面此刻说的是「已完成」。
  *
- * `assetId` 只在**恰好一个**片段时给出。它是批准要绑的那个东西
- * （`shotstage.approvedFor(assetId, stage)`），而多个片段里挑第一个去绑
- * 等于让「哪一份通过了」指向一个任意的答案。音频的逐份批准今天不存在，
- * 所以这里给 null，并记成 follow-up，而不是现在发明一个绑法。
+ * `assetId` 只在**恰好一个**片段时给出。它是「那一个」的绑点，而多份时确实
+ * 不存在「那一个」—— 挑第一个去绑等于让「哪一份通过了」指向一个任意答案。
+ *
+ * `assetIds` 是这一步轨上的**全部**片段（TASK-087 §3.5.3）。批准按全称量词算：
+ * **每一份都通过才算通过**，与上面 `present` 的「每一个都在」是同一条规矩 ——
+ * 三条音效里丢了一条不算做完，那三条里有一条没过当然也不算通过。
+ * 不需要新的 schema：`approvedFor` 本来就是绑产物的，缺的只是「多份时算谁」。
  */
 export function audioEvidence(clips, { presentOf } = {}) {
   const has = typeof presentOf === "function" ? presentOf : () => false;
@@ -109,8 +112,15 @@ export function audioEvidence(clips, { presentOf } = {}) {
     );
     if (!mine.length) { out[stage] = null; continue; }
     const allPresent = mine.every((c) => has(c.assetId));
+    const ids = mine
+      .map((c) => c.assetId)
+      .filter((id) => typeof id === "string" && id);
     out[stage] = {
       assetId: mine.length === 1 && typeof mine[0].assetId === "string" ? mine[0].assetId : null,
+      // 全部片段，供「每一份都通过才算通过」用（§3.5.3）。**片段数与 id 数不等**
+      // 时（有片段没有 assetId）下面 `clips` 与 `assetIds.length` 会对不上 ——
+      // 那种片段绑不了批准，所以它让整步不通过，而不是被悄悄跳过。
+      assetIds: ids,
       present: allPresent,
       clips: mine.length,
     };
@@ -124,13 +134,13 @@ export function audioEvidence(clips, { presentOf } = {}) {
 
 export const NEED_UNKNOWN = {
   voice: "台词列是空的 —— 空着分不清「这一镜是默戏」和「台词还没写」",
-  sfx: "没有地方写下这一镜需要什么音效 —— 分镜表的「音效」列显示的是已有片段数，不是需求",
+  sfx: "分镜表的「音效需求」列是空的 —— 空着分不清「这一镜不用音效」和「还没想」",
 };
 
 /** 不知道要不要做时，创作者**真实可做**的那件事（§2.5h 第二条）。 */
 export const NEED_ACTIONS = {
   voice: "在分镜表的「台词」列写上台词，或者把这一镜的配音标为跳过",
-  sfx: "把这一镜的音效标为跳过；要用音效就直接在「镜头音频」里放一条",
+  sfx: "在分镜表的「音效需求」列写下要什么音效，或者把这一镜的音效标为跳过",
 };
 
 /**
@@ -144,7 +154,12 @@ export const NEED_ACTIONS = {
  */
 export function soundNeed(shot, stage) {
   if (stage === "voice") return trimmed(shot && shot.dialogue) ? true : null;
-  if (stage === "sfx") return null;
+  // TASK-087 §3.5.2：以前这里无条件 `return null` —— 镜头上根本没有地方写
+  // 「这一镜需要什么音效」，于是逐镜质检对音效**永远只能答无法判定**。
+  // `sfxNote` 是那个地方，口径与 `dialogue` **完全一致**：写了就是要做，
+  // 空着就是没人写下来（**不是不需要** —— 「不需要」要标为跳过，那是一条
+  // 会被存下来的人的决定）。
+  if (stage === "sfx") return trimmed(shot && shot.sfxNote) ? true : null;
   // qc 不问「要不要做」—— 每一镜都要判
   return true;
 }
