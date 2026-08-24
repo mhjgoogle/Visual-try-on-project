@@ -2,7 +2,7 @@
   "schema": 1,
   "change_id": "t074-audit",
   "branch": "change/TASK-074-retirement-audit",
-  "status": "open",
+  "status": "closed",
   "created": "2026-08-24T12:06:39+00:00",
   "chain_mode": false,
   "tasks": {
@@ -37,6 +37,14 @@
     "time": "2026-08-24T12:08:33+00:00",
     "tip": "a08486f893a358f048ae9b360cfcee451854dabd"
   },
-  "merge": null,
-  "cleanup": null
+  "merge": {
+    "hash": "6d687283a1312b4654aee592edb69a21bb7fa2d0",
+    "time": "2026-08-24T12:15:05+00:00",
+    "pushed": true
+  },
+  "cleanup": {
+    "local_deleted": true,
+    "remote_deleted": true,
+    "time": "2026-08-24T12:15:11+00:00"
+  }
 }
