@@ -186,6 +186,30 @@ demo seed 与 SVG 占位素材不作为主要验收依据）：
 | `ui/shotgraphview.js` / `workflow/shotgraph.js` | **保留**——它们是「生成记录」与诊断视图的实现（ADR-0066 §4） |
 | `ui/wfgraph.js` / `workflow/provenance.js` | **保留**——ADR-0052 决策 1/2/3/5/6/7 仍然 Accepted；只删「工作流」顶层入口与画布的执行路径，读模型一行不动 |
 
+#### §1.5 前期核查（2026-08-24，**一个字节都没删**）
+
+§1.5 的第 1 条规则是「先确认无引用，再删」。删除要等 §1.4，但**那个确认现在就
+能做** —— 做完之后，§1.4 通过的那天这里就是一次机械操作，而不是一次重新调查。
+
+**结论比预想的重要：多数条目在代码侧也还没到可删的状态**，§1.5 不只是被 §1.4
+挡着。§1.4 通过那天，前面还有真正的迁移工作要做。
+
+| 清理对象 | 实测（`grep` 全仓） | 现在能删吗 |
+| --- | --- | --- |
+| `/api/skill/run` 同步分支 | `services/runtime.js:282` **仍在调**（`attempt("/api/skill/run", …)`） | **否** —— 条件「前端已全部走 `run_id` 路径」不成立 |
+| `/api/agent/*` 五个创作端点 | `services/command.js` 里**八处以上**在调（shots-draft / script-draft / bible-breakdown / story-develop / episode-plan / render-episode / mix-shot / motion-preview） | **否** |
+| `services/query.js` 的写函数 re-export | 16 个里 **14 个仍有调用点**；只有 `renderEpisode` 与 `mixShotAudio` 已无人从 `query.*` 调 | **仅那 2 个** |
+| `run.skillRunId` 兼容别名 | 全仓 **149 处**。它**不是一个薄别名** —— `app.js` 里 `remember(scope, shotId, value, { skillRunId … })` 这类签名都带着它 | **否** —— 这一条本身就是一次独立迁移 |
+| `approveShot` 旧布尔标记 | `approveShot` / `unapproveShot` 仍是活的 action 名与 `shotprod` 调用；要删的是**旧布尔标记**而非这两个函数，需要再细分一次才知道边界 | **未判定** —— 边界还没划清 |
+
+**两个可以顺手做但本次没做的**：`renderEpisode` / `mixShotAudio` 这两个
+re-export 确实无人使用。没删的理由是 §1.5 整节的硬前置是 §1.4，而**为两个
+无害的 re-export 去破例，会把「等 §1.4」这条规矩变成一句可以商量的话**。
+它们已经登记在这里，删的时候一起删。
+
+**这份核查本身不会过期成谎话**：上面每一行都是可复现的 `grep` 结果，
+数字对不上的那天，说明代码动了 —— 那正是应该重新核一遍的时候。
+
 清理的三条规则：
 
 1. **先确认无引用，再删。** `grep` 全仓 + 前端测试全绿。

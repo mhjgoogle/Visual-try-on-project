@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "change_id": "t074-audit",
+  "branch": "change/TASK-074-retirement-audit",
+  "status": "open",
+  "created": "2026-08-24T12:06:39+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-074": {
+      "commits": [],
+      "paths": [
+        "docs/",
+        "mockups/motv-workspace/tests/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "两阶段 pytest 3528+6、node 1851、ruff 619 全绿；codex 一轮 pass，唯一非阻塞已修",
+      "declared": "2026-08-24T12:06:39+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PENDING"
+  },
+  "merge": null,
+  "cleanup": null
+}
