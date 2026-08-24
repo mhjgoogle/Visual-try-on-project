@@ -2,7 +2,7 @@
   "schema": 1,
   "change_id": "close-072-073",
   "branch": "change/close-072-073",
-  "status": "open",
+  "status": "closed",
   "created": "2026-08-24T11:49:23+00:00",
   "chain_mode": false,
   "tasks": {
@@ -55,6 +55,14 @@
     "time": "2026-08-24T11:56:04+00:00",
     "tip": "6902bcc0e57d54d3a3bbfbab72ddb5e030811cae"
   },
-  "merge": null,
-  "cleanup": null
+  "merge": {
+    "hash": "8eae43359a7c41f8cf3c0c6b0193a117da9d6cdd",
+    "time": "2026-08-24T11:56:19+00:00",
+    "pushed": true
+  },
+  "cleanup": {
+    "local_deleted": true,
+    "remote_deleted": true,
+    "time": "2026-08-24T11:56:24+00:00"
+  }
 }
