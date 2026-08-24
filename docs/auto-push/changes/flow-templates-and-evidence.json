@@ -100,7 +100,23 @@
       "declared": "2026-08-24T02:00:37+00:00"
     },
     "ADR-0086": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "1e5d60740372591e172da7b0b30ffecd41dd0102",
+          "subject": "docs(ADR-0086): workspace_shell 只服务 WFM1 核心项目 —— 那个空 Portfolio 是正确行为",
+          "time": "2026-08-24T02:06:35+00:00",
+          "branch": "change/TASK-105-flow-templates",
+          "pushed": false,
+          "files": [
+            "docs/adr/ADR-0086-workspace-shell-serves-core-projects-only.md",
+            "docs/auto-push/changes/flow-templates-and-evidence.json",
+            "docs/tasks/active/TASK-027-workspace-lineage-comparison-and-cost.md",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "src/ui-gap-audit/reports/current-capabilities.md"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/",
         "src/ui-gap-audit/"
