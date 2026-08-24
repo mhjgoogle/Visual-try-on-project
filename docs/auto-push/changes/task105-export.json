@@ -2,7 +2,7 @@
   "schema": 1,
   "change_id": "task105-export",
   "branch": "change/TASK-105-flow-export",
-  "status": "open",
+  "status": "closed",
   "created": "2026-08-24T06:55:04+00:00",
   "chain_mode": false,
   "tasks": {
@@ -40,6 +40,14 @@
     "time": "2026-08-24T07:02:16+00:00",
     "tip": "8214cb7de8e4c77f2e2d70046c703c69171e4e5d"
   },
-  "merge": null,
-  "cleanup": null
+  "merge": {
+    "hash": "2daa354a2e52cbd3ad284ec803b27dc0fb4bc587",
+    "time": "2026-08-24T07:08:00+00:00",
+    "pushed": true
+  },
+  "cleanup": {
+    "local_deleted": true,
+    "remote_deleted": true,
+    "time": "2026-08-24T07:08:05+00:00"
+  }
 }
