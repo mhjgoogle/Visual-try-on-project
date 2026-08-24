@@ -19,6 +19,7 @@ source of truth (ADR-0010 decision 4).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -44,6 +45,13 @@ class MediaAssetView:
     media_sha256: str
     size_bytes: int
     producer_source: str
+    # 绑定媒体文件的项目内相对路径。加载时已被 `_verify_media_file` 按 digest +
+    # size 重新校验过，所以它到这里已经是**核过的事实**，不是一个待信任的字符串。
+    media_path: str
+    # 只有 `source == "generation"` 的资产才有；它是 attempt ↔ 资产的连接键
+    # （`_validate_producer` 对 generation 强制要求）。手工/导入来源没有，
+    # 那时是 None —— **不编一个**。
+    producer_operation_id: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +71,26 @@ class MultimediaSources:
     media: tuple[MediaAssetView, ...]
     postproduction: tuple[PostProductionView, ...]
     problems: tuple[Problem, ...]
+
+
+def _generation_operation(producer) -> str | None:
+    """The operation that generated this asset, or None.
+
+    ONLY for `source == "generation"`. `_validate_producer` already whitelists
+    the non-generation branch down to `source` + `note`, so a manual/import
+    asset cannot carry an `operation_id` through validation today — this is
+    not fixing a live defect. It is here because the field decides an IDENTITY
+    binding (WQ-06 attaches this asset's footage to that attempt), and binding
+    the wrong take is not a cosmetic error: the creator judges a shot by a clip
+    that another operation produced. The rule belongs where it is used, not
+    three modules away in a whitelist that a future edit could widen.
+    """
+    if not isinstance(producer, Mapping):
+        return None
+    if producer.get("source") != "generation":
+        return None
+    op = producer.get("operation_id")
+    return op if isinstance(op, str) and op else None
 
 
 def read_multimedia(project_root: Path) -> MultimediaSources:
@@ -89,6 +117,8 @@ def read_multimedia(project_root: Path) -> MultimediaSources:
                     media_sha256=asset.media_sha256,
                     size_bytes=asset.size_bytes,
                     producer_source=str(asset.producer.get("source", "")),
+                    media_path=asset.media_path,
+                    producer_operation_id=_generation_operation(asset.producer),
                 )
             )
 

@@ -60,7 +60,7 @@ def test_multimedia_projection_makes_media_observable(tmp_path) -> None:
     _seed(tmp_path)
     res = queries.project_multimedia(tmp_path, NOW)
     assert res.query_id == "WQ-19"
-    assert res.contract_version == "1.5"
+    assert res.contract_version == "1.6"
     # every field is AUTHORITATIVE (derived from the digest-bound indices) — no
     # media type is an "unavailable" WFM1 placeholder anymore
     for item in res.items:
@@ -116,3 +116,39 @@ def test_empty_project_has_no_media_but_does_not_fail(tmp_path) -> None:
     assert res.items == ()
     assert not res.problems
     assert res.scope["media_asset_count"] == 0
+
+
+def test_only_generation_assets_carry_an_operation_id(tmp_path) -> None:
+    """`producer_operation_id` 只属于 generation 来源（TASK-027 part-2b）。
+
+    WQ-06 用它把媒体绑到 attempt 上 —— 那是一条**身份**绑定。绑错了，创作者
+    在判断某个镜头时看到的是另一次操作产出的画面。
+
+    今天 `_validate_producer` 的非 generation 分支构造的是**只含 `source` 与
+    `note` 的新字典**（白名单，不是透传），所以这里本来就带不出 operation_id；
+    这条测试把那个前提**钉住**，将来白名单被放宽时它会先红。
+    """
+    _media(tmp_path, "keyframe", "kf-manual")
+    src = queries.multimedia.read_multimedia(tmp_path)
+    assert src.media, "夹具必须真的有资产"
+    for view in src.media:
+        assert view.producer_source == "external"
+        assert view.producer_operation_id is None, (
+            f"非 generation 来源却带出了 operation_id：{view}"
+        )
+
+
+def test_a_non_generation_producer_cannot_smuggle_an_operation_id() -> None:
+    """就算原始 JSON 里塞了 operation_id，非 generation 来源也**带不出来**。
+
+    上一条测的是正常路径；这一条直接把字段塞进去，证明拦它的是**校验**，
+    不是「没人往里写」。两条分开写：只有正常路径的话，任何一天有人开始写这个
+    字段，绑定就会悄悄开始生效。
+    """
+    from ai_video_workflow.workspace.adapters.multimedia import _generation_operation
+
+    smuggled = {"source": "external", "note": "n", "operation_id": "op-not-mine"}
+    assert _generation_operation(smuggled) is None
+    # 反向对照：generation 来源的确带得出来，否则上面的 None 可能只是函数坏了
+    real = {"source": "generation", "operation_id": "op-1"}
+    assert _generation_operation(real) == "op-1"

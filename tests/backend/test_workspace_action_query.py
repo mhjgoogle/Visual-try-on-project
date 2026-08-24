@@ -109,7 +109,7 @@ def test_wq16_lists_feedback_and_action_with_folded_state(project):
     _seed(project)
     res = _query(project.parent).action_center(project)
     assert res.query_id == "WQ-16"
-    assert res.contract_version == "1.5"
+    assert res.contract_version == "1.6"
     kinds = [it["kind"].value for it in res.items]
     assert kinds == ["feedback", "action"]
     action = res.items[1]

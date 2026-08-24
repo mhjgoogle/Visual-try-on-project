@@ -247,3 +247,15 @@ tr.flagged td { background: var(--legacy-bg); }
   .cols { grid-template-columns: 1fr; }
   .kv .k { min-width: 8rem; }
 }
+
+/* Side-by-side candidate comparison (TASK-027 part-2b). Auto-fill rather than a
+   fixed column count: two takes sit side by side, six wrap, and a narrow window
+   degrades to one column instead of shrinking every frame to a thumbnail. */
+.attempts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  gap: 1rem;
+}
+.attempts .attempt { margin: 0; }
+.attempts .media img,
+.attempts .media video { width: 100%; height: auto; }

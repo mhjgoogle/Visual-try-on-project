@@ -52,9 +52,67 @@
 >    要的是「别拿 demo seed 与 SVG 占位素材当依据」，不是「一切都拿 Studio 项目验」；
 > 3. C-020（Portfolio 对 Studio 项目全空）**不再算本卡的前置缺陷**。
 >
-> **仍未做**：part-2b 本身（并排媒体比较 + `reuse_usage` 下游使用页）。
-> 它现在是可做的 —— 需要先把候选/选中结果 DTO 里的媒体 artifact 路径暴露出来
-> （当前只带 id/ref），那是查询合同的一次加法扩展。
+> **切片 1 已做（2026-08-24）：查询合同 1.5 → 1.6，WQ-06 绑上实际媒体。**
+> 这正是上面写的那个前置 —— 「候选/选中结果 DTO 只带 id/ref」。现在每个 attempt
+> 额外带 `media_ref` / `media_kind` / `media_version` / `media_path` /
+> `media_sha256`〔A〕与 `media_asset_count`〔D〕。
+>
+> **连接键是 `operation_id`，两侧都是权威事实**（`_validate_producer` 对每个
+> generation 来源的资产强制要求它；reservation 本来就带），所以绑定不靠名字或
+> 时间推断。手工/导入来源没有 `operation_id`，**不参与绑定也不编一个**。
+> 没有已发布资产的 attempt，五个媒体字段**全部 `unavailable`** —— 空路径在界面上
+> 会读成「有这个文件但打不开」，而事实是「这次尝试没有产出资产」。
+>
+> 测试：`tests/backend/test_workspace_queries.py` 三条（绑定的前后对照、
+> 缺席不得回填、其他 attempt 不被连带绑上）。变异验证：把连接键换成 `task_id`
+> 后绑定测试立刻红。夹具走**真实的** `generate_batch → record_selection →
+> promote_selection` 链，不手搓 MediaAsset —— `_verify_generation_provenance`
+> 本来就拒绝「绑定媒体不是所选候选的暂存文件」的资产，手搓等于测一个产品
+> 永远造不出来的形状。
+>
+> **切片 2（2026-08-24）：`reuse_usage` 接进壳。** 查询层早就有
+> `WorkspaceQueryService.reuse_usage`，但**壳里没有任何路由通向它** —— 下游使用
+> 页因此拿不到数据。新增 `GET /api/reuse-usage?asset_id=&version=`，**账户级**
+> （挂到 `/api/projects/<name>/…` 会暗示「这是那个项目的事实」，而它恰恰是跨项目的）。
+> `version` 强制正整数：非数字 / 0 / 负数 / 小数一律 400 ——「默默当成最新那一版」
+> 正是一次复用审计答到错版本上去的方式，而这个页面的全部意义就是「**这一版**
+> 被谁用了」。测试 2 条；变异验证：去掉 `version < 1` 那道闸后立刻红。
+>
+> **切片 3（2026-08-24）：并排媒体比较页做出来了。**
+> Shots 视图新增 `renderShotAttempts`：每个 attempt 一张卡，**带媒体的直接渲出
+> 画面**（复用既有的 `mediaNode`，走壳自己的 `/artifact` 端点，含路径围栏），
+> CSS 用 `auto-fill` 网格 —— 两条并排、六条换行、窄窗退成一列，而不是把每帧
+> 压成缩略图。没有媒体的 attempt **说明原因**，不渲空播放器：一个空 `<video>`
+> 是个黑框，读起来像「这次生成失败了」，而事实可能是「成功了，只是还没发布成
+> 资产」—— 两件不同的事不能长一个样。
+>
+> 顺带修掉一条**过时注释**：`mediaViewer()` 里写着「查询合同尚未把 ref 绑到媒体
+> 路径」，切片 1 之后不再成立（手工粘路径的查看器保留，它对 lineage 视图仍是
+> 唯一的路子）。
+>
+> 测试：`tests/e2e/test_workspace_shell_compare_task027.py` 2 条，**真 Chromium
+> 驱动真的 shell 前端**。为什么必须用浏览器：`static/app.js` 是浏览器脚本，
+> 没有 `export`、靠 `document` 活着，`node --test` import 不了；而 AGENTS.md §20
+> 禁止 Python 测试对前端 JS 做源码文本断言（断言源码里有没有某串字，证明不了
+> 它跑起来会渲出什么）。变异验证：让渲染器忽略媒体（退回 part-2b 之前的样子）
+> 后立刻红。
+>
+> **审查**：codex 跨模型，独立性未降级。切片 1 一轮 pass 零发现；切片 2+3
+> 轮 1 `fail` → 轮 2 `pass` 零发现。轮 1 那条 blocking（`producer_operation_id`
+> 未检查 `source == "generation"`，codex 自标 uncertain）**经证据驳回**：
+> `_validate_producer` 的非 generation 分支构造的是只含 `source` + `note` 的新
+> 字典（白名单，非透传），读路径每一步都过它，**无活缺陷**。仍加了显式闸 ——
+> 理由不是修复，而是这条绑定决定的是**身份**，绑错等于创作者在判断某镜时看到
+> 另一次操作的画面；规则该写在用它的地方，而不是靠三个模块之外、将来可能被
+> 放宽的白名单。轮 1 那条 non-blocking 是**真缺口**（`?version=1&version=2`
+> 静默取第一个）已修。
+>
+> **变异验证 3 次全部转红**：连接键换成 `task_id`、去掉 `version < 1` 那道闸、
+> 让渲染器忽略媒体。
+>
+> **part-2b 的两个页面到此都有了。** 剩下的是真实核心项目上的人工验收
+> （`wfm1-demo` / `wfm1-minimax-evidence`，见 ADR-0086 的后果 2）—— 那是判断，
+> 不是机械验证。
 
 ## 目的
 

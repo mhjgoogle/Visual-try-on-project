@@ -164,7 +164,7 @@ class QueryResult:
 # ADR-0039 S5-S7 post-production index (fact domain + status). Makes those media
 # types observable as AUTHORITATIVE facts instead of WFM1 `unavailable`
 # placeholders; no writer change, no second source, existing queries unchanged.
-QUERY_CONTRACT_VERSION = "1.5"
+QUERY_CONTRACT_VERSION = "1.6"
 
 
 def to_jsonable(result: QueryResult) -> dict:

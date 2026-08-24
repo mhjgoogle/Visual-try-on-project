@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "change_id": "task027-part2b",
+  "branch": "change/TASK-027-part2b",
+  "status": "open",
+  "created": "2026-08-24T04:10:35+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-027": {
+      "commits": [
+        {
+          "hash": "46e6c1f86645ab0568ccc311a2deca4aff4cbde5",
+          "subject": "feat(TASK-027): part-2b 三个切片 —— 查询合同 1.6、reuse-usage 路由、并排比较页",
+          "time": "2026-08-24T04:12:54+00:00",
+          "branch": "change/TASK-027-part2b",
+          "pushed": true,
+          "files": [
+            "docs/auto-push/changes/task027-part2b.json",
+            "docs/design/workspace-query-contract.md",
+            "docs/skill-evolution/backlogs/auto-push.jsonl",
+            "docs/skill-evolution/backlogs/codex-review-loop.jsonl",
+            "docs/skill-evolution/index.json",
+            "docs/tasks/active/TASK-027-workspace-lineage-comparison-and-cost.md",
+            "src/ai_video_workflow/workspace/adapters/multimedia.py",
+            "src/ai_video_workflow/workspace/envelope.py",
+            "src/ai_video_workflow/workspace/queries.py",
+            "src/workspace_shell/app.py",
+            "src/workspace_shell/static/app.js",
+            "src/workspace_shell/static/styles.css",
+            "tests/backend/test_learning.py",
+            "tests/backend/test_workspace_action_query.py",
+            "tests/backend/test_workspace_cli.py",
+            "tests/backend/test_workspace_evaluation_query.py",
+            "tests/backend/test_workspace_multimedia.py",
+            "tests/backend/test_workspace_queries.py",
+            "tests/backend/test_workspace_shell.py",
+            "tests/e2e/test_workspace_shell_compare_task027.py"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        "docs/",
+        "src/ai_video_workflow/workspace/",
+        "src/workspace_shell/",
+        "tests/backend/",
+        "tests/e2e/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "两阶段 pytest 3484+6 全绿；node --test 1819 全绿；ruff check/format 613 文件全绿；codex-review-loop 切片1 一轮 pass、切片2+3 两轮轮2 pass，独立性未降级",
+      "declared": "2026-08-24T04:10:45+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PASS",
+    "by": "ADR-0085 常设授权；依据=Done 判定 + 最终全量：pytest 3484+6、node 1819、ruff 613 全绿，codex 两轮轮2 pass，无未闭合 P1，待复审清单仅剩无关的 POSIX 记录条目",
+    "time": "2026-08-24T04:13:25+00:00",
+    "tip": "50ec71d244bb29caf8f866fbe871c5a1db4497d9"
+  },
+  "merge": null,
+  "cleanup": null
+}
