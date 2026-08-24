@@ -127,7 +127,10 @@
     }
   },
   "merge_gate": {
-    "status": "PENDING"
+    "status": "PASS",
+    "by": "ADR-0085 依据：Done 判定成立；最终全量通过（两阶段 pytest 3466+6 · node --test 1819 · ruff check/format · 全仓 md 断链 0）；无未闭合 P1（TASK-105 十轮后按 ADR-0081 2d 显式 ship，TASK-041 §4 三轮修完）；待复审清单已查，仍然待办只剩 POSIX parent-death 一条且状态是记录",
+    "time": "2026-08-24T02:11:46+00:00",
+    "tip": "7baf857f1b7c7d724010f23a6a41589a7f5a8746"
   },
   "merge": null,
   "cleanup": null
