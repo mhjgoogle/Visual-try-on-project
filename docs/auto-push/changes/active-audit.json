@@ -13,7 +13,7 @@
           "subject": "chore: active 卡逐张核实 —— 027 收口、072/073 补守卫、计划表加状态守卫",
           "time": "2026-08-24T08:26:33+00:00",
           "branch": "change/active-cards-audit",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/STATUS.md",
             "docs/adr/ADR-0086-workspace-shell-serves-core-projects-only.md",
@@ -41,7 +41,10 @@
     }
   },
   "merge_gate": {
-    "status": "PENDING"
+    "status": "PASS",
+    "by": "ADR-0085 常设授权；依据=Done 判定 + 最终全量：pytest 3528+6、node 1848、ruff 619 全绿，codex 四轮轮3/轮4 均 pass，无未闭合 P1，待复审清单零未闭合条目",
+    "time": "2026-08-24T08:32:24+00:00",
+    "tip": "67d8679858aa7f43c28bb815dfaada43a2cf9288"
   },
   "merge": null,
   "cleanup": null
