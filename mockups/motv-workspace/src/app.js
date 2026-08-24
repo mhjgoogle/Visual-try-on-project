@@ -166,6 +166,17 @@ let DELIVERY_PROBE = { assetId: null, name: null, probe: null, error: null, runn
 //
 // 值：`{ name, durationS?, error?, running }`。「没测过」= 键不在表里；
 // 「没跑成」= 有 error。两者会把创作者送到不同的地方，所以不能合成一个。
+// `media-audit?measure=` 的五种具名失败状态各自的说法（TASK-087 §3.5.4）。
+// 服务端刻意把它们分开命名，因为每一种把创作者送到**不同的下一步**：
+// 装 ffprobe、去找文件、改文件名、换一条视频。压成一句「探测失败」就等于
+// 把这个端点专门保留下来的那个区分丢掉。
+const SHOT_MEASURE_STATE = {
+  bad_name: "这条视频的文件名不合规，没法安全地去量",
+  not_found: "这个文件不在项目的 media 目录里",
+  no_ffprobe: "这台机器上没有 ffprobe，量不了（装上再试）",
+  unreadable: "文件在，但 ffprobe 读不出可用的时长",
+};
+
 const SHOT_PROBES = new Map();
 let REAL_STANDING = null;
 // the backend's project list, kept so the landing/new-project dialog can
@@ -2415,11 +2426,16 @@ const ctx = {
       measureOf: ctx.shotQc._measure,
     }),
     /**
-     * 真的去量一镜的时长（既有的 `/api/delivery/probe`，只读、不花钱）。
+     * 真的去量一镜的时长（`media-audit?measure=`，只读、不花钱）。
+     *
+     * **走轻端点，不走 `/api/delivery/probe`**（TASK-087 §3.5.4）：后者每次
+     * ffprobe **加一次完整解码**（ebur128 + blackdetect），而这里只要时长，
+     * 且逐镜质检是 60 镜逐个跑 —— ffprobe-only 快一个数量级。
      *
      * 失败**留下来并显示**：「没跑成」与「没测过」把创作者送到不同的地方
      * （一个装 ffmpeg，一个点按钮），静默 catch 会让两者长得一样
-     * —— 与 `runDeliveryProbe` 同一条纪律。
+     * —— 与 `runDeliveryProbe` 同一条纪律。轻端点把失败分成**五种具名状态**，
+     * 逐种给话说：压成一句「探测失败」等于把这个端点专门保留的区分丢掉。
      */
     measure: async (shotId) => {
       const shot = ctx.shot.find(shotId);
@@ -2441,25 +2457,23 @@ const ctx = {
       }
       SHOT_PROBES.set(assetId, { name, running: true });
       refreshProductionView();
-      // WHY THE try/catch, given that `query.deliveryProbe` cannot reject today:
-      // `apiclient.attempt` 有一层兜底 catch，网络错误一律变成 `{ ok: false }` ——
-      // 所以 codex 轮 2 报的那条「reject 会让界面永久显示探测中」**今天不可达**。
-      // 仍然加上，因为代价是四行，而失败模式是**不可恢复的**：`running: true` 一旦
-      // 卡住，除了刷新页面没有别的出路，而刷新会丢掉这一轮所有测量。
-      // 一个只能靠刷新解开的死结，不值得赌上游永远不会抛。
+      // `getMediaAudit` **读不到就抛**（不像 `deliveryProbe` 会回 `{ok:false}`），
+      // 所以这个 try/catch 在这里是**承重的**，不再只是兜底。失败模式仍然是
+      // 不可恢复的：`running: true` 一旦卡住，除了刷新没有别的出路，而刷新会
+      // 丢掉这一轮所有测量。
       try {
-        const res = await query.deliveryProbe(PROJECT_NAME, name);
-        const probe = res.ok && res.data ? res.data.probe : null;
-        SHOT_PROBES.set(assetId, res.ok
+        const audit = await query.getMediaAudit(PROJECT_NAME, name);
+        const m = audit && audit.measured;
+        SHOT_PROBES.set(assetId, (m && m.state === "ok")
           ? {
             name,
             // 服务端「测不到就不写这个字段」，所以这里也**不补默认值**
-            durationS: probe && typeof probe.durationS === "number" ? probe.durationS : null,
+            durationS: typeof m.duration === "number" ? m.duration : null,
             running: false,
           }
           : {
             name,
-            error: (res.error && res.error.detail) || (res.error && res.error.category) || "探测失败",
+            error: SHOT_MEASURE_STATE[m && m.state] || "探测失败",
             running: false,
           });
       } catch (e) {

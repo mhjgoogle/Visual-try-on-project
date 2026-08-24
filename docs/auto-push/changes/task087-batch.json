@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "change_id": "task087-batch",
+  "branch": "change/TASK-087-ledger-batch",
+  "status": "open",
+  "created": "2026-08-24T05:03:52+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-087": {
+      "commits": [],
+      "paths": [
+        "docs/",
+        "mockups/motv-workspace/",
+        "src/ui-gap-audit/",
+        "tests/contract/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "两阶段 pytest 3497+6 全绿；node --test 1828 全绿；ruff 617 文件全绿；codex-review-loop 一轮 pass，唯一非阻塞（跨语言 trim 分歧）已修并补测试",
+      "declared": "2026-08-24T05:03:53+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PENDING"
+  },
+  "merge": null,
+  "cleanup": null
+}
