@@ -420,6 +420,15 @@ _GATEWAY_BODY_MAX = 2_000_000  # agent JSON envelopes stay small
 _COMMAND_BODY_MAX = 80_000_000
 _NAME_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
+# 成片版本号的位数上限。999999 版远超任何真实使用，而它同时是一道**安全边界**：
+# 没有上限的话，一个手工放进 media/ 的超长全 9 文件名会让 `max + 1` 进位成一个
+# 建不出来的名字（ENAMETOOLONG），把合成永久打死。
+_MAX_CUT_DIGITS = 6
+# **这个上限本身有一条边界，如实写下来**（codex 复审非阻塞）：真到了第
+# 1,000,000 版，七位的成片会被这道扫描忽略，于是「只前进」在那之后不再严格。
+# 不去修它，因为要触发它得对同一集合成一百万次 —— 那个世界里先坏掉的是别的
+# 东西。写在这里是为了它**被知道**，而不是被当成不存在。
+
 # Windows 上建不出来的目录名（DOS 设备名，带不带扩展名都一样）。权威环境是
 # Windows（ADR-0062），所以这不是「顺便兼容一下」，是主路径。
 _WINDOWS_RESERVED_NAMES = frozenset(
@@ -6637,7 +6646,38 @@ class _App:
             # The version number is claimed ATOMICALLY via O_CREAT|O_EXCL so two
             # concurrent composes can never pick the same N (check-then-replace
             # would race); once claimed, the placeholder is ours to replace.
-            n = 1
+            # 从**当前最高版本之后**开始，不是从 1 开始（TASK-074 §1.4 边界 8
+            # 实测 + codex 复审）。从 1 开始找第一个空位会**填坑**：创作者删掉
+            # 中间某一版之后，新成片会落回一个**低于当前最高版本**的号，而按
+            # 「最高版本 = 当前成片」认产物的下游会把刚做出来的那一版当成旧结果。
+            #
+            # 这也是服务端与前端 G5 曾经的分歧：`gates.js` 的 `g5Append` 明确
+            # 拒绝 `nextVersion <= max`（「版本只前进」）。两条规则现在一致了。
+            existing = []
+            for f in d.glob("final-cut-v*.mp4"):
+                stem = f.name[len("final-cut-v") : -len(".mp4")]
+                # `isdigit()` 单用会崩（codex 复审）：上标 `²` 之类
+                # `isdigit()` 为真而 `int()` 抛 ValueError —— 而 media/ 里的文件名
+                # 是**创作者可控**的，于是一个叫 `final-cut-v².mp4` 的文件会让每次
+                # 合成都 500，且删不掉就一直 500。加 `isascii()` 把它挡在外面：
+                # 版本号只可能是 ASCII 数字。
+                # 三重判据，三条都为真才算一个版本号：
+                #   `isascii()`  —— 上标 `²` 之类 `isdigit()` 为真而 `int()` 抛
+                #                   ValueError（codex 复审）；
+                #   `isdigit()`  —— 是数字；
+                #   长度 <= 6    —— **上限**（codex 复审）：一个由创作者手工放进
+                #                   media/ 的超长全 9 文件名，`max + 1` 之后会
+                #                   进位成更长的名字，创建时 ENAMETOOLONG，
+                #                   于是**每一次**合成都失败且删不掉就一直失败。
+                #
+                # 这三条挡的是同一件事：**media/ 里的文件名是创作者可控的写入面**，
+                # 一个畸形名字不许把合成打死。不认识的名字一律**忽略**（不删、
+                # 不报错）—— 那不是我们写的文件。
+                if stem.isascii() and stem.isdigit() and len(stem) <= _MAX_CUT_DIGITS:
+                    existing.append(int(stem))
+            n = (max(existing) + 1) if existing else 1
+            # O_EXCL 仍然保留：它挡的是**并发**两次合成算出同一个 n（先查再写
+            # 之间的竞态）。撞上就继续往后找，绝不覆盖。
             while True:
                 target = d / f"final-cut-v{n}.mp4"
                 try:
