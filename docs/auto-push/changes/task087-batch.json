@@ -2,7 +2,7 @@
   "schema": 1,
   "change_id": "task087-batch",
   "branch": "change/TASK-087-ledger-batch",
-  "status": "open",
+  "status": "closed",
   "created": "2026-08-24T05:03:52+00:00",
   "chain_mode": false,
   "tasks": {
@@ -51,6 +51,14 @@
     "time": "2026-08-24T05:17:07+00:00",
     "tip": "318ae51b51b216b7fa4023db0f00b81dc1efb0bd"
   },
-  "merge": null,
-  "cleanup": null
+  "merge": {
+    "hash": "364224c41dc2e13cbb9766a2b3ba8f7317c1b6ad",
+    "time": "2026-08-24T05:17:19+00:00",
+    "pushed": true
+  },
+  "cleanup": {
+    "local_deleted": true,
+    "remote_deleted": true,
+    "time": "2026-08-24T05:22:33+00:00"
+  }
 }
