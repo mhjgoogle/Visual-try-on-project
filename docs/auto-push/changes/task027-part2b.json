@@ -7,7 +7,38 @@
   "chain_mode": false,
   "tasks": {
     "TASK-027": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "46e6c1f86645ab0568ccc311a2deca4aff4cbde5",
+          "subject": "feat(TASK-027): part-2b 三个切片 —— 查询合同 1.6、reuse-usage 路由、并排比较页",
+          "time": "2026-08-24T04:12:54+00:00",
+          "branch": "change/TASK-027-part2b",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/task027-part2b.json",
+            "docs/design/workspace-query-contract.md",
+            "docs/skill-evolution/backlogs/auto-push.jsonl",
+            "docs/skill-evolution/backlogs/codex-review-loop.jsonl",
+            "docs/skill-evolution/index.json",
+            "docs/tasks/active/TASK-027-workspace-lineage-comparison-and-cost.md",
+            "src/ai_video_workflow/workspace/adapters/multimedia.py",
+            "src/ai_video_workflow/workspace/envelope.py",
+            "src/ai_video_workflow/workspace/queries.py",
+            "src/workspace_shell/app.py",
+            "src/workspace_shell/static/app.js",
+            "src/workspace_shell/static/styles.css",
+            "tests/backend/test_learning.py",
+            "tests/backend/test_workspace_action_query.py",
+            "tests/backend/test_workspace_cli.py",
+            "tests/backend/test_workspace_evaluation_query.py",
+            "tests/backend/test_workspace_multimedia.py",
+            "tests/backend/test_workspace_queries.py",
+            "tests/backend/test_workspace_shell.py",
+            "tests/e2e/test_workspace_shell_compare_task027.py"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/",
         "src/ai_video_workflow/workspace/",
