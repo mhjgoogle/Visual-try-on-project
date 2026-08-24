@@ -7,7 +7,29 @@
   "chain_mode": false,
   "tasks": {
     "TASK-027": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "692d597854c12325c7352f757f4a2ad92c5d10e2",
+          "subject": "chore: active 卡逐张核实 —— 027 收口、072/073 补守卫、计划表加状态守卫",
+          "time": "2026-08-24T08:26:33+00:00",
+          "branch": "change/active-cards-audit",
+          "pushed": false,
+          "files": [
+            "docs/STATUS.md",
+            "docs/adr/ADR-0086-workspace-shell-serves-core-projects-only.md",
+            "docs/auto-push/changes/active-audit.json",
+            "docs/implementation_plan.md",
+            "docs/tasks/active/TASK-027-workspace-lineage-comparison-and-cost.md",
+            "docs/tasks/active/TASK-072-system-contract-and-persistent-runs.md",
+            "docs/tasks/active/TASK-073-fixed-ia-and-contextual-agent.md",
+            "docs/tasks/done/TASK-027-workspace-lineage-comparison-and-cost.md",
+            "mockups/motv-workspace/tests/backend500.test.mjs",
+            "mockups/motv-workspace/tests/listerror.test.mjs",
+            "tests/tooling/test_plan_status_matches_folder.py"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/",
         "mockups/motv-workspace/tests/",
