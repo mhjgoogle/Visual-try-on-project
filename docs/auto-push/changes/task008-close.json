@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "change_id": "task008-close",
+  "branch": "change/TASK-008-close",
+  "status": "open",
+  "created": "2026-08-24T10:26:13+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-008": {
+      "commits": [
+        {
+          "hash": "c5d9bb01f2423d5147066daa69eee4a48eb657b3",
+          "subject": "docs: TASK-008 收口进 done；011/012 订正旧规则留下的「用户裁决」闸",
+          "time": "2026-08-24T10:27:10+00:00",
+          "branch": "change/TASK-008-close",
+          "pushed": true,
+          "files": [
+            "docs/STATUS.md",
+            "docs/auto-push/changes/task008-close.json",
+            "docs/implementation_plan.md",
+            "docs/tasks/active/TASK-008-subtitles-voice-audio.md",
+            "docs/tasks/active/TASK-011-local-video-provider.md",
+            "docs/tasks/active/TASK-012-qcd-auto-routing.md",
+            "docs/tasks/done/TASK-008-subtitles-voice-audio.md"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        "docs/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "TASK-008 自身六份测试 57 通过/1 跳过；两阶段 pytest 3528+6 全绿；node 1848 全绿；ruff 619 全绿",
+      "declared": "2026-08-24T10:26:13+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PASS",
+    "by": "ADR-0085 常设授权；依据=Done 判定 + 最终全量：pytest 3528+6、node 1848、ruff 619 全绿；纯文档改动无 P1；待复审清单零未闭合条目",
+    "time": "2026-08-24T10:32:46+00:00",
+    "tip": "a20d77bed0a174b20b7d7cfd5e69f50a4f0b4d35"
+  },
+  "merge": null,
+  "cleanup": null
+}
