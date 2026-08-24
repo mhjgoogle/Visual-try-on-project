@@ -2,7 +2,7 @@
   "schema": 1,
   "change_id": "task027-part2b",
   "branch": "change/TASK-027-part2b",
-  "status": "open",
+  "status": "closed",
   "created": "2026-08-24T04:10:35+00:00",
   "chain_mode": false,
   "tasks": {
@@ -57,6 +57,14 @@
     "time": "2026-08-24T04:13:25+00:00",
     "tip": "50ec71d244bb29caf8f866fbe871c5a1db4497d9"
   },
-  "merge": null,
-  "cleanup": null
+  "merge": {
+    "hash": "8f4a4432c8611193ec8f0e621cce3e5d7e19af22",
+    "time": "2026-08-24T04:13:53+00:00",
+    "pushed": true
+  },
+  "cleanup": {
+    "local_deleted": true,
+    "remote_deleted": true,
+    "time": "2026-08-24T04:13:57+00:00"
+  }
 }
