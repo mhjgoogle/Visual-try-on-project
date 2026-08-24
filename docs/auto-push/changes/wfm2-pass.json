@@ -13,7 +13,7 @@
           "subject": "feat(TASK-037): WFM2 里程碑 PASS —— 产品负责人 2026-08-24 原话「WFM2 可以了」",
           "time": "2026-08-24T11:14:50+00:00",
           "branch": "change/TASK-037-wfm2-pass",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/STATUS.md",
             "docs/auto-push/changes/wfm2-pass.json",
@@ -39,7 +39,10 @@
     }
   },
   "merge_gate": {
-    "status": "PENDING"
+    "status": "PASS",
+    "by": "ADR-0085 常设授权；依据=Done 判定 + 最终全量：pytest 3528+6、node 1848、ruff 619 全绿，无未闭合 P1，待复审清单零未闭合条目；里程碑 PASS 原话已记录",
+    "time": "2026-08-24T11:20:23+00:00",
+    "tip": "50eb292aa7c8bd34e1f8589b5501f6483cadc3e6"
   },
   "merge": null,
   "cleanup": null
