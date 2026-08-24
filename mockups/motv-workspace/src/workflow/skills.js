@@ -61,12 +61,68 @@ export const RUNTIME_KINDS = ["local_subscription", "manual"];
 // enough to read in one sitting — and it has NO way to express "accept
 // anything", so a skill can never quietly stop validating its output.
 
+// 「非空」不等于「有信息」（TASK-087 §4.4）。模型被要求填一个字段却没什么可说时，
+// 最常写的就是这些词：它们通过 `trim()`，进入 canon，然后在界面上显示成一个
+// 看起来有人填过的答案。
+//
+// **判据是整串完全相等（trim + 小写后），绝不是子串包含。**
+// 「无人机俯拍」「常规打光之外的处理」都是真答案，含占位词只是巧合 ——
+// 子串匹配会把它们一起拒掉，那比放进无信息的内容更糟。
+//
+// 这份名单必须与 `skillpkg.py` 的 `_PLACEHOLDER_WORDS` 逐字一致
+// （ADR-0067 双编译器合同），由 tests/contract/ 里的测试比对。
+const PLACEHOLDER_WORDS = new Set([
+  "无",
+  "没有",
+  "暂无",
+  "无内容",
+  "无要求",
+  "不适用",
+  "略",
+  "常规",
+  "一般",
+  "普通",
+  "标准",
+  "默认",
+  "待定",
+  "未定",
+  "n/a",
+  "na",
+  "tbd",
+  "none",
+  "null",
+  "-",
+  "--",
+  "/",
+]);
+
+// 空白之外还要剥掉的不可见字符（codex 复审非阻塞，TASK-087 §4.4）。
+//
+// 起因是一处**真的跨语言分歧**：JS `trim()` 会剥 U+FEFF，而 Python `strip()`
+// 不会。于是 `"\ufeff无\ufeff"` 在这一侧被拒、在 Python 侧通过 —— 同一份输出
+// 两个编译器给出相反判定，正是 ADR-0067 双编译器合同禁的事。
+//
+// 两边都不再依赖各自语言的 trim 语义，改成剥这份显式的共享集合。
+// 本字符串必须与 `skillpkg.py` 的 `_STRIP_CHARS` 逐字一致。
+const STRIP_CHARS = "\ufeff\u200b\u200c\u200d\u2060";
+const STRIP_RE = new RegExp(`^[\\s${STRIP_CHARS}]+|[\\s${STRIP_CHARS}]+$`, "g");
+
+/** 与 `skillpkg.py` 的 `_normalise` 同一套规则。 */
+const normalise = (s) => String(s).replace(STRIP_RE, "");
+
+const isPlaceholder = (s) => PLACEHOLDER_WORDS.has(normalise(s).toLowerCase());
+
 function typeError(spec, value, path) {
   const at = path || "输出";
   switch (spec.type) {
     case "string":
       if (typeof value !== "string") return `${at} 应为字符串`;
-      if (spec.nonEmpty && !value.trim()) return `${at} 不能为空`;
+      if (spec.nonEmpty) {
+        if (!normalise(value)) return `${at} 不能为空`;
+        if (isPlaceholder(value)) {
+          return `${at} 只写了占位词「${normalise(value)}」—— 需要真正的内容`;
+        }
+      }
       return null;
     case "number":
       if (typeof value !== "number" || !Number.isFinite(value)) return `${at} 应为数字`;

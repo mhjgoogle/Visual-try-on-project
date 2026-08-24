@@ -294,7 +294,22 @@ test("控制器把三样证据接上，而且时长测量不落盘", () => {
     assert.ok(uses > here, `${m}…) 只有逐镜质检在调 —— 先确认这个名字真的存在`);
   }
   assert.match(region, /g\.type === "video"/);
-  assert.match(region, /query\.deliveryProbe\(PROJECT_NAME, name\)/);
+  // 走**轻端点**，不走 `/api/delivery/probe`（TASK-087 §3.5.4）：后者每次
+  // ffprobe 加一次完整解码（ebur128 + blackdetect），而这里只要时长，
+  // 且逐镜质检是逐个跑 60 镜。整段成片的交付质检仍然走重端点 —— 它真的
+  // 需要那次解码，所以这条断言只管逐镜这一条路径。
+  assert.match(region, /query\.getMediaAudit\(PROJECT_NAME, name\)/);
+  // 判的是**代码**，不是散文：上面那段注释里就提到了 `deliveryProbe`
+  // （说明两条端点的区别），拿原文判会把注释当成调用 —— 这正是文本守卫最常见
+  // 的假阳性。`codeOnly` 是本文件既有的助手，为的就是这件事。
+  assert.equal(/deliveryProbe/.test(codeOnly(region)), false,
+    "逐镜时长不该再走重端点（TASK-087 §3.5.4）");
+  // 五种具名状态逐种给话说：压成一句「探测失败」等于把这个端点专门保留的
+  // 区分丢掉，而每一种把创作者送到不同的下一步（装 ffprobe / 找文件 / 改名）
+  assert.match(region, /SHOT_MEASURE_STATE/);
+  for (const st of ["bad_name", "not_found", "no_ffprobe", "unreadable"]) {
+    assert.ok(app.includes(`${st}: "`), `${st} 没有对应的说法`);
+  }
   // 探测抛了也不能永远卡在「探测中」：那是一个只能靠刷新解开的死结，
   // 而刷新会丢掉这一轮所有测量（codex 轮 2 的 blocking —— 今天的 `attempt` 兜底
   // 让它不可达，仍然加了，代价四行）。

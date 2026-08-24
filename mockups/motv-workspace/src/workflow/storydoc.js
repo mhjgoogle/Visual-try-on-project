@@ -22,7 +22,7 @@
 //
 // Pure state + transitions only — no fetch, no DOM, no clock.
 
-import { mintId } from "./identity.js";
+import { basedOnOrNull, mintId } from "./identity.js";
 
 const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
 const str = (x) => (typeof x === "string" ? x : "");
@@ -407,7 +407,8 @@ function sanitizeVersions(list) {
       outline: sanitizeOutline(x.outline),
       origin: ["developed", "revision", "manual"].includes(x.origin) ? x.origin : "developed",
       instruction: str(x.instruction),
-      basedOn: Number.isInteger(x.basedOn) ? x.basedOn : null,
+      // 必须指向一个**真实的更早版本**，不只是「是个整数」（TASK-087 §4.7）
+      basedOn: basedOnOrNull(x.basedOn, out.length + 1),
       // TASK-057: the Creative Brief revision this outline was developed from.
       // Honestly null when there was none (never back-derived from a later
       // revision — an outline written before any brief revision is based on no
@@ -439,7 +440,8 @@ function sanitizePlans(list) {
       // a plan whose parent is unknown cannot be explained afterwards. Honestly
       // null for versions written before it existed — never back-derived from
       // `v - 1`, which would invent a provenance chain.
-      basedOn: Number.isInteger(x.basedOn) ? x.basedOn : null,
+      // 必须指向一个**真实的更早版本**，不只是「是个整数」（TASK-087 §4.7）
+      basedOn: basedOnOrNull(x.basedOn, out.length + 1),
     });
   }
   return out;

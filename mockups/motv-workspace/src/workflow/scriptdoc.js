@@ -11,7 +11,7 @@
 // proposed / failed) and is intentionally NOT persisted — a reload lands on the
 // last durable version, never on a half-finished call.
 
-import { mintId } from "./identity.js";
+import { basedOnOrNull, mintId } from "./identity.js";
 
 /** One immutable version record: what was asked (instruction), what came back
  *  (content), where it started (basedOn) and how (origin). `id` is the stable
@@ -47,7 +47,8 @@ function sanitizeVersions(list) {
       // whitelist: a tampered save must not smuggle arbitrary strings into
       // the UI through this enum-like field
       origin: ORIGINS.includes(x.origin) ? x.origin : "generated",
-      basedOn: Number.isInteger(x.basedOn) ? x.basedOn : null,
+      // 必须指向一个**真实的更早版本**，不只是「是个整数」（TASK-087 §4.7）
+      basedOn: basedOnOrNull(x.basedOn, out.length + 1),
       status: "done",
     });
   }

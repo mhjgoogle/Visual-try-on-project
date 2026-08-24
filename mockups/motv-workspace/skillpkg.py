@@ -966,6 +966,76 @@ def parse_skill_output(text: str) -> dict:
     raise SkillPackageError(f"JSON 解析失败：{last_error or '没有可解析的顶层对象'}")
 
 
+# 「非空」不等于「有信息」（TASK-087 §4.4）。模型被要求填一个字段却没什么可说时，
+# 最常写的就是这些词：它们通过 `strip()`，进入 canon，然后在界面上显示成一个
+# 看起来有人填过的答案。
+#
+# **判据是整串完全相等（trim + 小写后），绝不是子串包含。**
+# 「无人机俯拍」「常规打光之外的处理」都是真答案，含占位词只是巧合 ——
+# 子串匹配会把它们一起拒掉，那比放进无信息的内容更糟。
+#
+# 这份名单必须与 `src/workflow/skills.js` 的 `PLACEHOLDER_WORDS` 逐字一致
+# （ADR-0067 双编译器合同），由 tests/contract/ 里的测试比对。
+_PLACEHOLDER_WORDS = frozenset(
+    {
+        "无",
+        "没有",
+        "暂无",
+        "无内容",
+        "无要求",
+        "不适用",
+        "略",
+        "常规",
+        "一般",
+        "普通",
+        "标准",
+        "默认",
+        "待定",
+        "未定",
+        "n/a",
+        "na",
+        "tbd",
+        "none",
+        "null",
+        "-",
+        "--",
+        "/",
+    }
+)
+
+
+# 空白之外还要剥掉的不可见字符（codex 复审非阻塞，TASK-087 §4.4）。
+#
+# 起因是一处**真的跨语言分歧**：JS `trim()` 会剥 U+FEFF，而 Python `strip()`
+# 不会（它 `isspace()` 为假）。于是 `"\ufeff无\ufeff"` 在 JS 侧被拒、在 Python
+# 侧通过 —— 同一份输出两个编译器给出相反判定，正是 ADR-0067 双编译器合同禁的事。
+#
+# 所以两边都**不再依赖各自语言的 trim 语义**，改成剥这份显式的共享集合。
+# 顺带关掉一个两边共同的缺口：零宽字符两边都不剥，于是「\u200b无」原本会被
+# 一起放行 —— 那不是分歧，是共同的漏洞。
+#
+# 本列表必须与 `src/workflow/skills.js` 的 `STRIP_CHARS` 逐字一致。
+_STRIP_CHARS = "\ufeff\u200b\u200c\u200d\u2060"
+
+
+def _normalise(text: str) -> str:
+    """两个编译器共用的归一化：反复剥空白与不可见字符，直到不再变短。
+
+    一轮不够：`" \ufeff 无 "` 先剥空白剩 `"\ufeff 无"`，再剥不可见才到 `" 无"`。
+    单向一次的话，交替排列的空白与不可见字符会留下残余，两边又会分歧。
+    """
+    prev = None
+    out = text
+    while out != prev:
+        prev = out
+        out = out.strip().strip(_STRIP_CHARS)
+    return out
+
+
+def _is_placeholder(text: str) -> bool:
+    return _normalise(text).casefold() in _PLACEHOLDER_WORDS
+
+
 def validate_output(schema: Mapping, value: object, path: str = "") -> None:
     """Check one answer against a Skill's output contract. Mirror of
     ``typeError`` in ``src/workflow/skills.js``.
@@ -980,8 +1050,13 @@ def validate_output(schema: Mapping, value: object, path: str = "") -> None:
     if kind == "string":
         if not isinstance(value, str):
             raise SkillPackageError(f"{at} 应为字符串")
-        if schema.get("nonEmpty") and not value.strip():
-            raise SkillPackageError(f"{at} 不能为空")
+        if schema.get("nonEmpty"):
+            if not _normalise(value):
+                raise SkillPackageError(f"{at} 不能为空")
+            if _is_placeholder(value):
+                raise SkillPackageError(
+                    f"{at} 只写了占位词「{_normalise(value)}」—— 需要真正的内容"
+                )
         return
     if kind == "number":
         if isinstance(value, bool) or not isinstance(value, (int, float)):

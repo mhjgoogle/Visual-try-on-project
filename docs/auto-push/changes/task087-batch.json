@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "change_id": "task087-batch",
+  "branch": "change/TASK-087-ledger-batch",
+  "status": "open",
+  "created": "2026-08-24T05:03:52+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-087": {
+      "commits": [
+        {
+          "hash": "4ab088c0d1c297b02e4149f2076dd87d3f28a0f3",
+          "subject": "fix(TASK-087): 欠账四条 —— 轻端点切换、占位词、别名表守卫、basedOn 收紧",
+          "time": "2026-08-24T05:11:31+00:00",
+          "branch": "change/TASK-087-ledger-batch",
+          "pushed": true,
+          "files": [
+            "docs/auto-push/changes/task087-batch.json",
+            "docs/reports/2026-08-24-session-report.md",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "mockups/motv-workspace/skillpkg.py",
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/src/workflow/identity.js",
+            "mockups/motv-workspace/src/workflow/scriptdoc.js",
+            "mockups/motv-workspace/src/workflow/skills.js",
+            "mockups/motv-workspace/src/workflow/storydoc.js",
+            "mockups/motv-workspace/tests/basedon.test.mjs",
+            "mockups/motv-workspace/tests/placeholder.test.mjs",
+            "mockups/motv-workspace/tests/shotqc.test.mjs",
+            "tests/contract/test_media_audit_states_task087.py",
+            "tests/contract/test_module_alias_mirror_task087.py",
+            "tests/contract/test_placeholder_words_task087.py"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        "docs/",
+        "mockups/motv-workspace/",
+        "src/ui-gap-audit/",
+        "tests/contract/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "两阶段 pytest 3497+6 全绿；node --test 1828 全绿；ruff 617 文件全绿；codex-review-loop 一轮 pass，唯一非阻塞（跨语言 trim 分歧）已修并补测试",
+      "declared": "2026-08-24T05:03:53+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PASS",
+    "by": "ADR-0085 常设授权；依据=Done 判定 + 最终全量：pytest 3497+6、node 1828、ruff 617 全绿，codex 一轮 pass，非阻塞已修，无未闭合 P1，待复审清单零未闭合条目",
+    "time": "2026-08-24T05:17:07+00:00",
+    "tip": "318ae51b51b216b7fa4023db0f00b81dc1efb0bd"
+  },
+  "merge": null,
+  "cleanup": null
+}
