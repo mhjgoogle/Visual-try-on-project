@@ -100,6 +100,30 @@
             "tests/e2e/test_studio_real_media_task074.py"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "26fc2a4619e310c92341f2beec8318aa74eefd4f",
+          "subject": "fix(TASK-074): codex 轮 2 —— 星号 re-export 单独判，守卫不再在泄漏面最大处变绿",
+          "time": "2026-08-25T13:02:58+00:00",
+          "branch": "change/TASK-074-legacy-retirement",
+          "pushed": true,
+          "files": [
+            "mockups/motv-workspace/tests/retirementready.test.mjs"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "c8c64d3347d5e1cff2dbc6b2f52649fac14ebea1",
+          "subject": "fix(TASK-074): codex 轮 1 —— 迁移不再悄悄裁决身份冲突；导出面守卫不再漏跨行 re-export",
+          "time": "2026-08-25T13:03:14+00:00",
+          "branch": "change/TASK-074-legacy-retirement",
+          "pushed": true,
+          "files": [
+            "mockups/motv-workspace/src/services/canvasschema.js",
+            "mockups/motv-workspace/tests/retirementready.test.mjs",
+            "mockups/motv-workspace/tests/runs.test.mjs"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
@@ -108,8 +132,8 @@
         "tests/"
       ],
       "verification": "PASS",
-      "verification_ref": "最终全量：pytest 3533 passed + serial 6 passed；node --test 1856；ruff check + format 全绿",
-      "declared": "2026-08-25T12:31:36+00:00"
+      "verification_ref": "最终全量：pytest 3534 + serial 6；node --test 1857；ruff check + format 全绿。codex 两轮，轮 2 pass 0 blocking，无未闭合 P1",
+      "declared": "2026-08-25T13:02:51+00:00"
     }
   },
   "merge_gate": {
