@@ -2,21 +2,21 @@
  "skills": {
   "auto-push": {
    "backlog": "docs/skill-evolution/backlogs/auto-push.jsonl",
-   "feedback_seq": 11,
-   "last_feedback_at": "2026-08-24T03:29:52Z",
+   "feedback_seq": 12,
+   "last_feedback_at": "2026-08-25T13:19:43Z",
    "last_review_at": null,
    "last_seen_at": "2026-08-22T06:01:22Z",
-   "open": 11,
+   "open": 12,
    "path": ".claude/skills/auto-push",
    "pending_proposals": [],
    "protected": [],
    "registered_at": "2026-08-22T06:01:22Z",
    "repeated": {
-    "manifest-writeback-dirty-tree": 2
+    "manifest-writeback-dirty-tree": 3
    },
-   "revision": "75dde79333c9",
+   "revision": "220537f4841a",
    "severe_open": 0,
-   "status": "OBSERVING"
+   "status": "REVIEW_CANDIDATE"
   },
   "codex-review-loop": {
    "backlog": "docs/skill-evolution/backlogs/codex-review-loop.jsonl",
