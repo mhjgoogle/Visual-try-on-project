@@ -521,7 +521,11 @@ def test_the_declared_kind_must_agree_with_the_file() -> None:
     assert "mediaDomainOfFile(file)" in media
     assert "fileDomain !== domain" in media
     # …and it is checked BEFORE the upload, so a refusal leaves nothing on disk
-    upload_at = media.index("query.uploadAssetImage")
+    #
+    # 按**函数名**定位，不带模块前缀：这条守卫要钉的是「校验在上传之前」这个
+    # 顺序，而这个写函数住在哪个模块是另一件事。TASK-074 §1.5 批次 2 把它从
+    # `query.*` 挪到 `command.*` 时，原来带前缀的写法把一次纯搬家报成了缺陷。
+    upload_at = media.index("uploadAssetImage(")
     assert media.index("fileDomain !== domain") < upload_at, (
         "the mismatch must be refused before any byte is written"
     )
@@ -1057,7 +1061,10 @@ def test_a_flow_that_cannot_be_applied_never_leaves_autosave_enabled() -> None:
     region = src[where : src.index("if (!restoreGraph(doc))", where)]
 
     # **先停用**，再去问 —— 默认是「不确定」
-    assert region.index("persist.blockSaves(") < region.index("query.projectFlow(")
+    #
+    # 「去问」按**函数名**定位，不带模块前缀（同 §1.5 批次 2 的理由）：钉的是
+    # 停用与提问的**先后**，不是那次提问从哪个模块导入。
+    assert region.index("persist.blockSaves(") < region.index("projectFlow(")
     # 解除只有两条路，而且都在**确凿**的分支里
     assert region.count("persist.unblockSaves(") == 2
     assert "flow === null" in region, "确凿之一：后端说这个项目没用模板"
@@ -1075,6 +1082,9 @@ def test_a_flow_that_cannot_be_applied_never_leaves_autosave_enabled() -> None:
     # 而 `PENDING_FLOW` 是模块级的 —— 晚回来的答复会把 A 的模板套到 B 的画布上。
     # 与 `promptBatch._quote` 那条钉子同形（codex 审查轮 9）。
     assert "if (PROJECT_NAME !== name) return;" in region
-    assert region.index("await query.projectFlow(") < region.index(
-        "if (PROJECT_NAME !== name)"
-    ), "钉子必须在 await 之后"
+    # 同样不写死模块前缀：钉的是「那一问是 await 的，而且钉子在它之后」。
+    awaited = re.search(r"await\s+\w+\.projectFlow\(", region)
+    assert awaited, "那一问必须是 await 的 —— 否则下面这颗钉子无事可钉"
+    assert awaited.start() < region.index("if (PROJECT_NAME !== name)"), (
+        "钉子必须在 await 之后"
+    )

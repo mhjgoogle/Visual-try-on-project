@@ -40,6 +40,21 @@
             "mockups/motv-workspace/tests/skills.test.mjs"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "c5f1ffdcd84d7c2b730db61dfc37e26ce40ea7a0",
+          "subject": "refactor(TASK-074): §1.5 批次 2 —— query.js 的 16 个写函数 re-export 全部删除",
+          "time": "2026-08-25T11:38:39+00:00",
+          "branch": "change/TASK-074-legacy-retirement",
+          "pushed": true,
+          "files": [
+            "docs/auto-push/changes/t074-legacy-retirement.json",
+            "docs/tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md",
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/src/services/query.js",
+            "mockups/motv-workspace/tests/retirementready.test.mjs"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
