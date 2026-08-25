@@ -378,10 +378,18 @@ _BOUNDARIES = {
         _MOCKUP / "tests" / "review.test.mjs",
         'test("G4: an open blocking issue refuses the export',
     ),
-    "4 长任务运行中刷新→从后端恢复": (
-        _REPO / "tests" / "studio" / "test_motv_runs_api_task072.py",
-        "def test_a_page_refresh_can_recover_a_run_from_the_backend",
-    ),
+    # **2026-08-25 退回未闭合。** 原归属是 `tests/studio/test_motv_runs_api_task072.py`
+    # 里的 `test_a_page_refresh_can_recover_a_run_from_the_backend`，
+    # 那条测试是真的、也在跑 —— 但它测的是**后端 API**，而前端一处都不读运行
+    # 状态：`grep -rn "api/runs" src/services/` 只有 `POST …/cancel`，
+    # `GET /api/runs` 与 `GET /api/runs/<id>` **零调用点**；`_reconcile_skill_runs`
+    # 只挂 canvas PUT，`_canvas_get` 不对账。所以「刷新后从后端恢复」这条**产品
+    # 行为**今天没有实现，只有能实现它的 API 存在。
+    #
+    # 这正是这张表要防的那件事换了个位置发生：归属规则要求「钉到一个具名测试」，
+    # 而那条测试**存在、在跑、是绿的**，它只是测的不是产品路径。
+    # 去向：TASK-106（与 §1.5 两行端点退役同一个前置）。
+    "4 长任务运行中刷新→从后端恢复": None,
     "5 长任务取消→子进程真实退出": (
         _REPO / "tests" / "e2e" / "test_motv_run_lifecycle_task072.py",
         "def test_a_clean_shutdown_kills_the_whole_tree_then_writes_the_records",
@@ -394,10 +402,19 @@ _BOUNDARIES = {
         _REPO / "tests" / "studio" / "test_motv_runs_api_task072.py",
         "def test_a_missing_runtime_offers_the_manual_route_instead_of_a_dead_end",
     ),
-    # 找遍 `tests/` 与 `mockups/motv-workspace/tests/`：粗剪/导出的版本号由
-    # `server.py` 的 `final-cut-v{n}.mp4` 产生，**没有任何测试断言过「再来一次
-    # 会得到 v{n+1} 且 v{n} 仍在」**。写成 None 而不是省略 —— 见下。
-    "8 每次粗剪/导出→新版本且旧版本仍在": None,
+    # **已闭合（2026-08-24，TASK-087 §4.10）**，两层一起补的：真实写路径由
+    # `test_final_cut_versioning_task074.py` 在磁盘上验（O_CREAT|O_EXCL 原子占号、
+    # 旧版本内容未被改写、并发占同一个号必失败），闸本身由 `fullpipeline.test.mjs`
+    # 的边界 8 验。这里挂**写路径**那一层 —— 它是「旧版本仍在」这句话唯一能被
+    # 磁盘证伪的地方。
+    #
+    # 这一行在 2026-08-25 之前一直停在 `None`：缺口补上了，表没跟着更新。
+    # 下面那条守卫**看不见这种漂移** —— 它把表和一个写死在同一文件里的字面量
+    # 比，两边都没人改就一直是绿的。这条注释留着，因为那是这张表自己的 fail-open。
+    "8 每次粗剪/导出→新版本且旧版本仍在": (
+        _REPO / "tests" / "studio" / "test_final_cut_versioning_task074.py",
+        "def test_each_real_compose_appends_and_the_earlier_cuts_survive",
+    ),
 }
 
 
@@ -442,7 +459,7 @@ def test_the_boundaries_with_no_owner_are_stated_not_hidden() -> None:
     补完之后必须回来把归属填上，否则这张表又开始漂移。
     """
     unowned = {k for k, v in _BOUNDARIES.items() if v is None}
-    assert unowned == {"8 每次粗剪/导出→新版本且旧版本仍在"}, (
+    assert unowned == {"4 长任务运行中刷新→从后端恢复"}, (
         "§1.4 边界的无归属集合变了。变多 → 有边界失去了守卫；"
         f"变少 → 补了测试却没更新这张表。当前：{sorted(unowned)}"
     )
