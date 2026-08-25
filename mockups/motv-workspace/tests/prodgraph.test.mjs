@@ -102,12 +102,12 @@ test("a Proposal is given an id the moment it exists, and keeps it", () => {
   const reg = [];
   const r = startRun(reg, { skillId: "s", skillVersion: 1, createdAt: "t0" });
   assert.equal(proposalIdOf(r), null, "a running run has no proposal to point at");
-  proposeRun(reg, r.skillRunId, { issues: [] });
+  proposeRun(reg, r.runId, { issues: [] });
   const pid = proposalIdOf(r);
   assert.match(pid, /^proposal-/);
   // rejecting does not erase it: a rejected proposal is still a real thing
   // that was shown, and anything already pointing at it must keep resolving
-  acceptRun(reg, r.skillRunId, "t1");
+  acceptRun(reg, r.runId, "t1");
   assert.equal(proposalIdOf(r), pid);
 });
 
@@ -163,15 +163,15 @@ function fullChain() {
     inputSummary: "EP01 · S01", context: { episodeId: epId, sceneId, shotId: "sh01" },
     createdAt: "t0",
   });
-  proposeRun(runs, run.skillRunId, { shots: [] }, { model: "claude-opus-5" });
-  acceptRun(runs, run.skillRunId, "t1");
+  proposeRun(runs, run.runId, { shots: [] }, { model: "claude-opus-5" });
+  acceptRun(runs, run.runId, "t1");
   const proposalId = proposalIdOf(run);
 
   const gens = [];
   const gen = startGeneration(gens, {
     type: "image", targetId: "sh01", promptSnapshot: "【画面】雨水",
     provider: "manual", createdAt: "t2",
-    origin: { skillRunId: run.skillRunId, proposalId },
+    origin: { skillRunId: run.runId, proposalId },
   });
   completeGeneration(gens, gen.generationId, ["img-1"]);
 
@@ -197,11 +197,11 @@ test("the graph joins canon → run → proposal → generation → asset", () =
 
   assert.ok(g.nodes.has(nodeIds.canon(epId)), "the episode's baseline heads the chain");
   assert.ok(has(nodeIds.canon(epId), nodeIds.script(epId), "baseline"));
-  assert.ok(has(nodeIds.canon(epId), nodeIds.skillRun(run.skillRunId), "baseline"),
+  assert.ok(has(nodeIds.canon(epId), nodeIds.skillRun(run.runId), "baseline"),
     "the run read that baseline");
-  assert.ok(has(nodeIds.shot("sh01"), nodeIds.skillRun(run.skillRunId), "asked"),
+  assert.ok(has(nodeIds.shot("sh01"), nodeIds.skillRun(run.runId), "asked"),
     "…scoped to the shot it was asked about");
-  assert.ok(has(nodeIds.skillRun(run.skillRunId), nodeIds.proposal(proposalId), "proposal"));
+  assert.ok(has(nodeIds.skillRun(run.runId), nodeIds.proposal(proposalId), "proposal"));
   assert.ok(has(nodeIds.proposal(proposalId), nodeIds.generation(gen.generationId), "origin"));
   assert.ok(has(nodeIds.generation(gen.generationId), nodeIds.asset("img-1"), "result"));
 });
@@ -225,11 +225,11 @@ test("the chain is walkable from the frame back to the baseline", () => {
   const gen = explainNode(g, asset.producedBy.id);
   assert.equal(gen.launchedBy.id, nodeIds.proposal(proposalId), "…which names the proposal");
   const proposal = explainNode(g, nodeIds.proposal(proposalId));
-  assert.equal(proposal.fromRun.id, nodeIds.skillRun(run.skillRunId), "…which names the run");
-  const runStory = explainNode(g, nodeIds.skillRun(run.skillRunId));
+  assert.equal(proposal.fromRun.id, nodeIds.skillRun(run.runId), "…which names the run");
+  const runStory = explainNode(g, nodeIds.skillRun(run.runId));
   assert.equal(runStory.partOf.id, nodeIds.canon(epId), "…which names the baseline it read");
   // and none of the three is a generated artefact
-  for (const id of [nodeIds.canon(epId), nodeIds.skillRun(run.skillRunId), nodeIds.proposal(proposalId)]) {
+  for (const id of [nodeIds.canon(epId), nodeIds.skillRun(run.runId), nodeIds.proposal(proposalId)]) {
     assert.equal(explainNode(g, id).provenance, "authored");
   }
 });
@@ -246,8 +246,8 @@ test("QC still binds a specific take, and the final lineage is unchanged", () =>
 test("a skill run is searchable by skill, runtime and its summary", () => {
   const { src, run } = fullChain();
   const g = buildProvenanceGraph(src);
-  assert.ok(searchGraph(g, "storyboard").includes(nodeIds.skillRun(run.skillRunId)));
-  assert.ok(searchGraph(g, "claude_code").includes(nodeIds.skillRun(run.skillRunId)));
+  assert.ok(searchGraph(g, "storyboard").includes(nodeIds.skillRun(run.runId)));
+  assert.ok(searchGraph(g, "claude_code").includes(nodeIds.skillRun(run.runId)));
 });
 
 // --- 5. unknown stays unknown -----------------------------------------------
@@ -255,7 +255,7 @@ test("a skill run is searchable by skill, runtime and its summary", () => {
 test("a run whose context was never captured is shown, but belongs to NO episode", () => {
   const { src, epId } = fullChain();
   src.skillRuns.push({
-    skillRunId: "run-legacy", skillId: "continuity-review", skillVersion: 1,
+    runId: "run-legacy", skillId: "continuity-review", skillVersion: 1,
     runtime: null, executor: null, model: null, status: "failed",
     inputKeys: [], inputSummary: null, proposal: null, error: null,
     decision: null, decidedAt: null, createdAt: "t0", context: null,
@@ -492,7 +492,7 @@ test("a run in an episode with NO baseline gets no canon edge — the node does 
   const g = buildProvenanceGraph(src);
   assert.equal(g.nodes.has(nodeIds.canon(epId)), false, "no stamp → no canon node");
   // the run is still there, still placed by its own context…
-  assert.ok(g.nodes.has(nodeIds.skillRun(run.skillRunId)));
+  assert.ok(g.nodes.has(nodeIds.skillRun(run.runId)));
   // …and EVERY edge in the graph connects two nodes that exist
   for (const e of g.edges) {
     assert.ok(g.nodes.has(e.from), `edge ${e.id} starts at a node that does not exist`);
@@ -514,7 +514,7 @@ test("an origin's proposal must BELONG to the run it names", () => {
   // tampered record point a generation at somebody else's answer.
   const { src, gen } = fullChain();
   const other = startRun(src.skillRuns, { skillId: "s2", skillVersion: 1, context: { episodeId: "ep-x" }, createdAt: "t0" });
-  proposeRun(src.skillRuns, other.skillRunId, { x: 1 });
+  proposeRun(src.skillRuns, other.runId, { x: 1 });
   const otherProposalId = proposalIdOf(other);
   // a generation claiming ANOTHER run's proposal
   const forged = src.generations.find((x) => x.generationId === gen.generationId);
@@ -535,8 +535,8 @@ test("a proposal's id is MINTED, never taken from the answer's payload", () => {
   const reg = [];
   const a = startRun(reg, { skillId: "s", skillVersion: 1, createdAt: "t0" });
   const b = startRun(reg, { skillId: "s", skillVersion: 1, createdAt: "t0" });
-  proposeRun(reg, a.skillRunId, { shots: [], proposalId: "proposal-forged" });
-  proposeRun(reg, b.skillRunId, { shots: [], proposalId: "proposal-forged" });
+  proposeRun(reg, a.runId, { shots: [], proposalId: "proposal-forged" });
+  proposeRun(reg, b.runId, { shots: [], proposalId: "proposal-forged" });
   assert.notEqual(proposalIdOf(a), "proposal-forged");
   assert.notEqual(proposalIdOf(b), "proposal-forged");
   assert.notEqual(proposalIdOf(a), proposalIdOf(b), "two proposals never share an id");
@@ -549,9 +549,9 @@ test("an origin whose proposal node is missing is REPORTED, not drawn from the r
   // as lineage.
   const { src, gen, run } = fullChain();
   // the run is real; its proposal record is gone
-  src.skillRuns.find((r) => r.skillRunId === run.skillRunId).proposal = null;
+  src.skillRuns.find((r) => r.runId === run.runId).proposal = null;
   const g = buildProvenanceGraph(src);
-  assert.ok(g.nodes.has(nodeIds.skillRun(run.skillRunId)));
+  assert.ok(g.nodes.has(nodeIds.skillRun(run.runId)));
   assert.equal(
     g.edges.some((e) => e.kind === "origin" && e.to === nodeIds.generation(gen.generationId)),
     false,
@@ -564,20 +564,20 @@ test("a context that contradicts itself is reported, and nothing is drawn from i
   // lives in another is internally contradictory. Drawing the half that
   // resolves would attach the run to a shot its own record disagrees with.
   const { src, run } = fullChain();
-  const r = src.skillRuns.find((x) => x.skillRunId === run.skillRunId);
+  const r = src.skillRuns.find((x) => x.runId === run.runId);
   r.context = { episodeId: "ep-somewhere-else", sceneId: null, shotId: "sh01" };
   const g = buildProvenanceGraph(src);
-  const n = g.nodes.get(nodeIds.skillRun(run.skillRunId));
+  const n = g.nodes.get(nodeIds.skillRun(run.runId));
   assert.equal(n.contextRecorded, true, "it DID record a context — that is the problem");
   assert.equal(n.contextInconsistent, true);
   assert.equal(g.edges.some((e) => e.to === n.id), false, "no edge is drawn from a contradictory context");
-  assert.ok(g.warnings.some((w) => w.kind === "inconsistentContext" && w.skillRunId === run.skillRunId));
+  assert.ok(g.warnings.some((w) => w.kind === "inconsistentContext" && w.skillRunId === run.runId));
 });
 
 test("a consistent context still draws its edges", () => {
   const { src, run, epId } = fullChain();
   const g = buildProvenanceGraph(src);
-  const n = g.nodes.get(nodeIds.skillRun(run.skillRunId));
+  const n = g.nodes.get(nodeIds.skillRun(run.runId));
   assert.equal(n.contextInconsistent, false);
   assert.ok(g.edges.some((e) => e.from === nodeIds.shot("sh01") && e.to === n.id && e.kind === "asked"));
   assert.ok(g.edges.some((e) => e.from === nodeIds.canon(epId) && e.to === n.id));
@@ -590,7 +590,7 @@ test("an origin pointing at a proposal that was never accepted is not drawn", ()
   const { src, gen, run } = fullChain();
   // v15: 「the creator rejected it」 is a DISPOSITION on the proposal, not a
   // status on the run — the execution succeeded either way.
-  const rec = src.skillRuns.find((r) => r.skillRunId === run.skillRunId);
+  const rec = src.skillRuns.find((r) => r.runId === run.runId);
   rec.status = "succeeded";
   rec.proposal.disposition = "rejected";
   const g = buildProvenanceGraph(src);
@@ -619,10 +619,10 @@ test("a context naming a shot that does not exist cannot be verified — nothing
   // codex review round 9: `!home` treated an unresolvable shot as "consistent
   // by absence", and the canon edge was still drawn.
   const { src, run } = fullChain();
-  src.skillRuns.find((r) => r.skillRunId === run.skillRunId).context =
+  src.skillRuns.find((r) => r.runId === run.runId).context =
     { episodeId: src.production.episodes[0].episodeId, sceneId: null, shotId: "sh-deleted" };
   const g = buildProvenanceGraph(src);
-  const n = g.nodes.get(nodeIds.skillRun(run.skillRunId));
+  const n = g.nodes.get(nodeIds.skillRun(run.runId));
   assert.equal(n.contextInconsistent, true);
   assert.equal(g.edges.some((e) => e.to === n.id), false);
 });

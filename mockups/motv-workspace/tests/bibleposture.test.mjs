@@ -120,11 +120,11 @@ test("it also says the proposal will not overwrite a confirmed record", () => {
 
 test("lastRunOf reads real history and never invents one", () => {
   const ctx = ctxFor(pd.createProduction(null), [
-    { skillId: "world-director", status: "failed", skillRunId: "w1" },
-    { skillId: "relationship-director", status: "succeeded", skillRunId: "r1" },
-    { skillId: "relationship-director", status: "failed", skillRunId: "r2", startedAt: "2026-08-17T12:00:00Z" },
+    { skillId: "world-director", status: "failed", runId: "w1" },
+    { skillId: "relationship-director", status: "succeeded", runId: "r1" },
+    { skillId: "relationship-director", status: "failed", runId: "r2", startedAt: "2026-08-17T12:00:00Z" },
   ]);
-  assert.equal(lastRunOf(ctx, "relationship-director").skillRunId, "r2", "最后一条才是上一次");
+  assert.equal(lastRunOf(ctx, "relationship-director").runId, "r2", "最后一条才是上一次");
   assert.equal(lastRunOf(ctx, "world-director").status, "failed");
   assert.equal(lastRunOf(ctx, "script-doctor"), null);
   assert.equal(lastRunOf({}, "relationship-director"), null, "没有运行记录通道就是没有");

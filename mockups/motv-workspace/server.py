@@ -1971,6 +1971,11 @@ def _reconcile_skill_runs(payload: dict, project: str | None = None) -> None:
     for rec in records:
         if not isinstance(rec, dict):
             continue
+        # 旧名的回落**刻意保留**（TASK-074 §1.5）。别名已在 v18→v19 从文档里
+        # 删除，但这里读的是一份**还没被这个前端迁移过**的 PUT body —— 老页签、
+        # 缓存住的旧构建、离线重放都可能送来 v18 形状。丢掉回落只会让这类
+        # 请求**静默跳过对账**，于是画布把过期的生命周期字段写回权威记录，
+        # 而那正是本函数存在的理由。多认一个名字在这里不花任何代价。
         run_id = rec.get("runId") or rec.get("skillRunId")
         if not isinstance(run_id, str) or not run_id:
             continue

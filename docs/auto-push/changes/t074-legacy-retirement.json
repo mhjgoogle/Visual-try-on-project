@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "change_id": "t074-legacy-retirement",
+  "branch": "change/TASK-074-legacy-retirement",
+  "status": "open",
+  "created": "2026-08-25T11:04:39+00:00",
+  "chain_mode": true,
+  "tasks": {
+    "TASK-074": {
+      "commits": [],
+      "paths": [
+        "docs/",
+        "mockups/motv-workspace/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "前端 node --test 1856 全绿；pytest tests/studio tests/contract 662 passed；ruff 全绿。连续链批次 1，未跑全量",
+      "declared": "2026-08-25T11:25:31+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PENDING"
+  },
+  "merge": null,
+  "cleanup": null
+}

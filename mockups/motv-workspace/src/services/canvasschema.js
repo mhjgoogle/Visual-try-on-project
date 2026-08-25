@@ -69,7 +69,7 @@ const LEGACY_SKILL_RUN_STATUSES = new Set([
 ]);
 
 /** Authoritative CURRENT canvas schema version. Saves must emit exactly this. */
-export const CANVAS_SCHEMA_VERSION = 18;
+export const CANVAS_SCHEMA_VERSION = 19;
 
 /**
  * v1 → v2 (checkpoint M2): stable creator identity + minimal provenance.
@@ -1239,7 +1239,50 @@ function migrateV17ToV18(doc) {
   return doc;
 }
 
-export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7, 7: migrateV7ToV8, 8: migrateV8ToV9, 9: migrateV9ToV10, 10: migrateV10ToV11, 11: migrateV11ToV12, 12: migrateV12ToV13, 13: migrateV13ToV14, 14: migrateV14ToV15, 15: migrateV15ToV16, 16: migrateV16ToV17, 17: migrateV17ToV18 };
+/**
+ * v18 → v19 (TASK-074 §1.5 / 系统合同 §5.0): 删除 Run 记录自己的 `skillRunId`
+ * 别名，`runId` 成为唯一身份。
+ *
+ * v15 引入 `runId` 时刻意让它**等于**原来的 `skillRunId`（一个 id 换个名字，
+ * 不是第二个身份），并把旧名留了一版兼容别名。合同 §5.0 那张表把删除这一步
+ * 写在 TASK-074 —— 就是这里。
+ *
+ * **为什么这不是「删除用户数据」。** 两个字段承载的是**同一个值**，而且 v15
+ * 起的校验本身就拒绝 `runId !== skillRunId` 的文档：能被加载的 v15–v18 文档里，
+ * 这两个名字下面必然是同一个字符串。删掉其中一个，可复原的信息一个比特都没少。
+ *
+ * **一个值挂两个名字的实际代价**（这才是删它的理由，不是整洁）：每一处读侧都要
+ * 自己决定信哪个，于是全仓出现了 `r.runId || r.skillRunId`、`r.skillRunId` 与
+ * `r.runId` 三种写法混用；两处一旦不同，没有任何一层能说清哪个才是这条 run，
+ * 而后端的 Run 注册表只认 `runId`。
+ *
+ * **不动的两类**（刻意，不是遗漏）：
+ *
+ * - `generations[].origin.skillRunId` 以及 promptdoc / refinterp / ctxcache
+ *   版本记录上的 `skillRunId` —— 那些是**外键**，一个值一个名字，不存在别名
+ *   问题。给它们改名是另一次跨四种持久化形状的迁移，换不到任何行为上的东西
+ *   （§1.5 规则 3：有疑问就保留）。
+ * - 形状不对的记录：`runId` 不是非空字符串**且**旧名也给不出一个可用的 id 时
+ *   **原样留着**，交给校验拒绝整份文档。理由与 v17→v18 那条一样 —— 拒绝加载
+ *   可恢复，悄悄改写不可恢复（AGENTS.md 第 13 条）。
+ */
+function migrateV18ToV19(doc) {
+  const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
+  const str = (x) => (typeof x === "string" && x ? x : null);
+  if (!Array.isArray(doc.skillRuns)) return doc;
+  for (const r of doc.skillRuns) {
+    if (!isObj(r)) continue;
+    // 先把身份补齐再删旧名，顺序不能反：反过来做，一条只有旧名的记录会在
+    // 补齐之前就失去它唯一的 id。
+    const id = str(r.runId) || str(r.skillRunId);
+    if (!id) continue; // 两个名字都给不出 id —— 不动它，让校验说话
+    r.runId = id;
+    delete r.skillRunId;
+  }
+  return doc;
+}
+
+export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7, 7: migrateV7ToV8, 8: migrateV8ToV9, 9: migrateV9ToV10, 10: migrateV10ToV11, 11: migrateV11ToV12, 12: migrateV12ToV13, 13: migrateV13ToV14, 14: migrateV14ToV15, 15: migrateV15ToV16, 16: migrateV16ToV17, 17: migrateV17ToV18, 18: migrateV18ToV19 };
 
 /** Read the schema version of a raw persisted document.
  *  Returns a positive integer, or null if the marker is malformed.
@@ -1751,6 +1794,8 @@ export function validateCanvasDoc(doc) {
   // restore empty and cement the loss of every recorded AI run.
   const atV12 = Number.isInteger(doc.v) && doc.v >= 12;
   const atV15 = Number.isInteger(doc.v) && doc.v >= 15;
+  // v19 (TASK-074 §1.5): `skillRunId` 别名被删除，`runId` 是唯一身份。
+  const atV19 = Number.isInteger(doc.v) && doc.v >= 19;
   if (atV12 && !Array.isArray(doc.skillRuns)) {
     return "v12 document is missing its skillRuns registry";
   }
@@ -1759,19 +1804,33 @@ export function validateCanvasDoc(doc) {
   }
   for (const r of Array.isArray(doc.skillRuns) ? doc.skillRuns : []) {
     if (!isPlainObject(r)) return "skillRuns contains a non-object entry";
-    if (typeof r.skillRunId !== "string" || !r.skillRunId) return "a skill run has no skillRunId";
-    if (typeof r.skillId !== "string" || !r.skillId) return `skill run ${r.skillRunId} has no skillId`;
+    // 身份字段随版本换名：v19 起只有 `runId`，v12–v18 是 `skillRunId`（v15–v18
+    // 两个都在且必须相等）。**每份文档按它自己那一版的词汇判** —— 否则一份完好
+    // 的旧文档会因为「缺少一个它那一版还不存在的字段」被当成损坏。
+    if (atV19) {
+      if (typeof r.runId !== "string" || !r.runId) return "a skill run has no runId";
+      // 别名本不该再出现。**留下来的那份必须仍是同一个值**：一份 v19 文档里出现
+      // 两个不同的 id，正是删掉这个别名要防的那件事。而一个多余但相等的冗余字段
+      // 不构成信息损坏，没有理由为它拒绝整份文档。
+      if (r.skillRunId !== undefined && r.skillRunId !== r.runId) {
+        return `skill run ${r.runId} still carries a conflicting skillRunId alias`;
+      }
+    } else if (typeof r.skillRunId !== "string" || !r.skillRunId) {
+      return "a skill run has no skillRunId";
+    }
+    const rid = atV19 ? r.runId : r.skillRunId;
+    if (typeof r.skillId !== "string" || !r.skillId) return `skill run ${rid} has no skillId`;
     // the VERSION is what makes a run comparable later — a run that cannot say
     // which definition produced it is unusable as evidence for a revision
     if (!Number.isInteger(r.skillVersion) || r.skillVersion < 1) {
-      return `skill run ${r.skillRunId} has no valid skillVersion`;
+      return `skill run ${rid} has no valid skillVersion`;
     }
     // A document is judged by ITS OWN version's vocabulary. A v12–v14 save
     // legitimately holds `proposed` / `accepted` / `rejected`, and a caller that
     // validates before migrating must not have those rejected as corruption
     // (codex review, round 22). v15 documents get the v15 set, and only that.
     const allowed = atV15 ? SKILL_RUN_STATUS_SET : LEGACY_SKILL_RUN_STATUSES;
-    if (!allowed.has(r.status)) return `skill run ${r.skillRunId} has invalid status`;
+    if (!allowed.has(r.status)) return `skill run ${rid} has invalid status`;
     // The status↔proposal invariant, BOTH ways (v15). The domain transitions can
     // only produce these pairings, and a document carrying another one
     // misreports what the creator actually saw and decided:
@@ -1786,7 +1845,7 @@ export function validateCanvasDoc(doc) {
     if (!atV15) continue;
     const wantsProposal = r.status === "succeeded";
     if (wantsProposal && r.proposal == null) {
-      return `skill run ${r.skillRunId} is ${r.status} but carries no proposal`;
+      return `skill run ${rid} is ${r.status} but carries no proposal`;
     }
     if (!wantsProposal && r.proposal != null) {
       // `cancelled` is included, deliberately (codex review, round 4). An earlier
@@ -1796,7 +1855,7 @@ export function validateCanvasDoc(doc) {
       // a Proposal is something offered to the creator for a decision, and a
       // cancelled run is offering nothing. Exempting it let a document assert
       // both "I stopped this" and "here is its answer to judge".
-      return `skill run ${r.skillRunId} is ${r.status} but carries a proposal`;
+      return `skill run ${rid} is ${r.status} but carries a proposal`;
     }
     // The DISPOSITION is the second axis (ADR-0066 决策 8) and is REQUIRED on a
     // succeeded run. The proposal must therefore be a plain object — a
@@ -1806,13 +1865,13 @@ export function validateCanvasDoc(doc) {
     // migration wraps any non-object proposal precisely so this holds.
     if (wantsProposal) {
       if (!isPlainObject(r.proposal)) {
-        return `skill run ${r.skillRunId} has a non-object proposal`;
+        return `skill run ${rid} has a non-object proposal`;
       }
       if (!SKILL_RUN_DISPOSITION_SET.has(r.proposal.disposition)) {
-        return `skill run ${r.skillRunId} has invalid proposal.disposition`;
+        return `skill run ${rid} has invalid proposal.disposition`;
       }
     }
-    // v15 identity: `runId` is the same value as `skillRunId` (one id, a new
+    // v15–v18 identity: `runId` is the same value as `skillRunId` (one id, a new
     // name). A DIFFERENT value would mean two identities for one run, and every
     // provenance edge would then be ambiguous.
     //
@@ -1820,22 +1879,26 @@ export function validateCanvasDoc(doc) {
     // point of the field is that the backend can be asked about this run, and
     // the migration sets it on every record — so a current-schema document
     // missing it is malformed, not merely old.
-    if (atV15 && r.runId !== r.skillRunId) {
-      return `skill run ${r.skillRunId} has a missing or conflicting runId`;
-    }
-    if (r.runId !== undefined && r.runId !== null && r.runId !== r.skillRunId) {
-      return `skill run ${r.skillRunId} has a conflicting runId`;
+    //
+    // 到 v19 别名已被删除，这一对比较由上面的身份检查接手。
+    if (!atV19) {
+      if (atV15 && r.runId !== r.skillRunId) {
+        return `skill run ${rid} has a missing or conflicting runId`;
+      }
+      if (r.runId !== undefined && r.runId !== null && r.runId !== r.skillRunId) {
+        return `skill run ${rid} has a conflicting runId`;
+      }
     }
     // v14 (ADR-0059): the run's target context. `null` is VALID and means the
     // document never captured it — but a present context must be an object of
     // ids, because a malformed one would be rendered as a real provenance link.
     if (r.context !== undefined && r.context !== null && !isPlainObject(r.context)) {
-      return `skill run ${r.skillRunId} has a non-object context`;
+      return `skill run ${rid} has a non-object context`;
     }
     for (const k of ["episodeId", "sceneId", "shotId"]) {
       const v = isPlainObject(r.context) ? r.context[k] : undefined;
       if (v !== undefined && v !== null && (typeof v !== "string" || !v)) {
-        return `skill run ${r.skillRunId} has an invalid context.${k}`;
+        return `skill run ${rid} has an invalid context.${k}`;
       }
     }
     // …and a context object naming NOTHING is refused. The domain normaliser
@@ -1846,7 +1909,7 @@ export function validateCanvasDoc(doc) {
     // document can, and that is exactly what validation is for.
     if (isPlainObject(r.context)
       && !r.context.episodeId && !r.context.sceneId && !r.context.shotId) {
-      return `skill run ${r.skillRunId} has a context naming nothing (use null for 未记录)`;
+      return `skill run ${rid} has a context naming nothing (use null for 未记录)`;
     }
   }
   // v14: a Generation's ORIGIN — which proposal launched it. `null`/absent is

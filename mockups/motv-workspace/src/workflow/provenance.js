@@ -572,8 +572,8 @@ export function buildProvenanceGraph({ assets, generations, production, timeline
   // off nothing: attaching it to the active episode would be exactly the
   // invented attribution this checkpoint exists to prevent.
   for (const r of arr(skillRuns)) {
-    if (!isObj(r) || !nonEmpty(r.skillRunId)) continue;
-    const rid = nodeIds.skillRun(r.skillRunId);
+    if (!isObj(r) || !nonEmpty(r.runId)) continue;
+    const rid = nodeIds.skillRun(r.runId);
     const c = isObj(r.context) ? r.context : null;
     // does the context agree with itself? (a shot's real home episode/scene is
     // in `shots`; a scene's episode is in the production document)
@@ -594,7 +594,7 @@ export function buildProvenanceGraph({ assets, generations, production, timeline
       type: "skillRun",
       kind: str(r.skillId) || "skill",
       kindLabel: "能力运行",
-      skillRunId: r.skillRunId,
+      skillRunId: r.runId,
       skillId: str(r.skillId),
       skillVersion: Number.isInteger(r.skillVersion) ? r.skillVersion : null,
       runtime: str(r.runtime),
@@ -616,7 +616,7 @@ export function buildProvenanceGraph({ assets, generations, production, timeline
     // run to a shot its own record disagrees with. The whole context is
     // reported as inconsistent instead, and nothing is drawn from it.
     if (c && !consistent) {
-      warnings.push({ kind: "inconsistentContext", skillRunId: r.skillRunId, context: c });
+      warnings.push({ kind: "inconsistentContext", skillRunId: r.runId, context: c });
     } else if (c) {
       // the baseline it read, when its context names an episode that has one
       if (c.episodeId) addEdge(nodeIds.canon(c.episodeId), rid, "baseline");
@@ -643,7 +643,7 @@ export function buildProvenanceGraph({ assets, generations, production, timeline
         kind: str(r.skillId) || "proposal",
         kindLabel: "提案",
         proposalId: r.proposal.proposalId,
-        skillRunId: r.skillRunId,
+        skillRunId: r.runId,
         skillId: str(r.skillId),
         // the creator's decision is the thing worth seeing at a glance
         // The DISPOSITION is where the creator's decision lives now (系统合同

@@ -674,7 +674,7 @@ test("the panel shows the NEWEST open run, so a stuck one cannot hold the slot",
   // rejected — while the run the creator had just started stayed unreachable.
   const b = build();
   const runOf = (skillId, at, extra = {}) => ({
-    skillRunId: `run-${skillId}-${at}`, skillId, skillVersion: 1, status: "running",
+    runId: `run-${skillId}-${at}`, skillId, skillVersion: 1, status: "running",
     runtime: "manual", executor: "manual", createdAt: at, proposal: null,
     context: { episodeId: "ep1", sceneId: "sc1", shotId: "sh01" }, contextTrace: { shotId: "sh01", ...extra },
   });

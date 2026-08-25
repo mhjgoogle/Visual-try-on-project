@@ -79,8 +79,8 @@ export function taskRowModel(run, { nowMs = null, canCancel = null } = {}) {
   // process behind it and a front-end record (same rule as `ctx.skills.abandon`).
   const backendOwned = typeof run.runId === "string" && run.runId.startsWith("run-");
   return {
-    runId: run.runId || run.skillRunId || null,
-    skillRunId: run.skillRunId || null,
+    runId: run.runId || run.runId || null,
+    skillRunId: run.runId || null,
     taskName: run.taskName || null,
     status: run.status || null,
     statusLabel: RUN_STATUS_LABEL[run.status] || run.status || "未知",

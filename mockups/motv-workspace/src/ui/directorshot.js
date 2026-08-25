@@ -437,9 +437,9 @@ function proposalBody(run) {
       ? `<div class="meta">${esc(app.detail || "")}</div>`
       : `<div class="dir-unavail">◌ ${esc(app.reason || "没有可写回的目标")}</div>`) +
     `<div class="sd-acts">` +
-    (app.can ? `<button class="btn primary sm" data-sd-apply="${esc(run.skillRunId)}">应用</button>` : "") +
-    `<button class="btn sm" data-sd-regen="${esc(run.skillRunId)}">重新生成</button>` +
-    `<button class="btn sm" data-sd-reject="${esc(run.skillRunId)}">忽略</button>` +
+    (app.can ? `<button class="btn primary sm" data-sd-apply="${esc(run.runId)}">应用</button>` : "") +
+    `<button class="btn sm" data-sd-regen="${esc(run.runId)}">重新生成</button>` +
+    `<button class="btn sm" data-sd-reject="${esc(run.runId)}">忽略</button>` +
     `</div>` +
     `<details class="sd-det"><summary>结构化提案 / 运行详情</summary>` +
     `<div class="sd-kv"><span>能力</span><code>${esc(run.skillId)} v${esc(String(run.skillVersion))}</code></div>` +
@@ -490,14 +490,14 @@ function openRunBody(run, others) {
     ? `<div class="meta">另有 ${others.length} 次运行也在等答案（` +
       others.map((r) => esc(opLabelOf(r))).join("、") +
       `）。放弃它们可以让这一栏只剩你正在做的那一次：` +
-      others.map((r) => `<button class="btn sm" data-sd-abandon="${esc(r.skillRunId)}">放弃「${esc(opLabelOf(r))}」</button>`).join("") +
+      others.map((r) => `<button class="btn sm" data-sd-abandon="${esc(r.runId)}">放弃「${esc(opLabelOf(r))}」</button>`).join("") +
       `</div>`
     : "";
   if (run.executor !== "manual") {
     return (
       `<div class="sd-open"><b>运行中 · ${esc(opLabelOf(run))}</b>` +
       `<div class="meta">由「${esc(run.executor || "")}」执行，答案回来后会自动变成提案。</div>` +
-      `<div class="sd-acts"><button class="btn sm" data-sd-abandon="${esc(run.skillRunId)}">放弃这次运行</button></div>` +
+      `<div class="sd-acts"><button class="btn sm" data-sd-abandon="${esc(run.runId)}">放弃这次运行</button></div>` +
       stale + `</div>`
     );
   }
@@ -505,10 +505,10 @@ function openRunBody(run, others) {
     `<div class="sd-open"><b>等你把答案带回来 · ${esc(opLabelOf(run))}</b>` +
     `<div class="meta">复制下面的任务 Prompt，到 ChatGPT / Claude / Gemini 里跑，把结果原样粘回来。` +
     `同一个能力、同一份输出契约、同一道确认门——只是执行者不同。</div>` +
-    `<div class="sd-acts"><button class="btn sm" data-sd-copyprompt="${esc(run.skillRunId)}">复制任务 Prompt</button>` +
-    `<button class="btn sm" data-sd-abandon="${esc(run.skillRunId)}">放弃</button></div>` +
+    `<div class="sd-acts"><button class="btn sm" data-sd-copyprompt="${esc(run.runId)}">复制任务 Prompt</button>` +
+    `<button class="btn sm" data-sd-abandon="${esc(run.runId)}">放弃</button></div>` +
     `<textarea class="field sd-answer" rows="6" spellcheck="false" placeholder="粘贴模型返回的 JSON"></textarea>` +
-    `<div class="sd-acts"><button class="btn primary sm" data-sd-submit="${esc(run.skillRunId)}">提交结果</button></div>` +
+    `<div class="sd-acts"><button class="btn primary sm" data-sd-submit="${esc(run.runId)}">提交结果</button></div>` +
     stale + `</div>`
   );
 }
@@ -653,7 +653,7 @@ export async function runOperation(ctx, ui, key, shotId, executor = null) {
     // `needsPrompt` is the VARIANT: 图片 Prompt 审核 and 视频 Prompt 审核 share the
     // `promptReview` scope but are conclusions about two different prompts.
     ctx.shotctx.remember(op.scope, shotId, res.proposal,
-      { skillRunId: res.run.skillRunId, variant: op.needsPrompt || null });
+      { skillRunId: res.run.runId, variant: op.needsPrompt || null });
   }
   return { ...res, op };
 }
@@ -708,9 +708,9 @@ export function bindShotDirector(root, ctx, ui, render, { shotId, onOpenNode } =
     // rather than one, because a rejected proposal is real history: it is the most
     // informative kind of record for improving a Skill later (ADR-0056 决策 6).
     const runs = ctx.skills.runs();
-    const run = runs.find((r) => r && r.skillRunId === el.dataset.sdRegen);
+    const run = runs.find((r) => r && r.runId === el.dataset.sdRegen);
     if (!run) return;
-    ctx.skills.reject(run.skillRunId, "创作者要求重新生成");
+    ctx.skills.reject(run.runId, "创作者要求重新生成");
     const op = operationOfRun(run);
     const res = op
       ? await runOperation(ctx, ui, op.key, shotId)
@@ -722,7 +722,7 @@ export function bindShotDirector(root, ctx, ui, render, { shotId, onOpenNode } =
   // --- the MANUAL runtime's two halves ----------------------------------- //
   all("[data-sd-copyprompt]", async (el) => {
     const runs = ctx.skills.runs();
-    const run = runs.find((r) => r && r.skillRunId === el.dataset.sdCopyprompt);
+    const run = runs.find((r) => r && r.runId === el.dataset.sdCopyprompt);
     if (!run) return;
     // THE PROMPT THIS RUN WAS LAUNCHED WITH, verbatim.
     //
@@ -764,7 +764,7 @@ export function bindShotDirector(root, ctx, ui, render, { shotId, onOpenNode } =
     const res = ctx.skills.submitManual(el.dataset.sdSubmit, text);
     if (!res.ok) ctx.toast(`结果未被采纳：${res.error}`);
     else {
-      const run = ctx.skills.runs().find((x) => x && x.skillRunId === el.dataset.sdSubmit);
+      const run = ctx.skills.runs().find((x) => x && x.runId === el.dataset.sdSubmit);
       const op = operationOfRun(run);
       if (op && op.scope && res.proposal) {
         ctx.shotctx.remember(op.scope, shotId, res.proposal,

@@ -1953,16 +1953,16 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       bindTaskRows(root, {
         onCancel: async (runId) => {
           const run = (ctx.skills.runs() || []).find(
-            (r) => r && (r.runId === runId || r.skillRunId === runId),
+            (r) => r && (r.runId === runId || r.runId === runId),
           );
           if (!run) { ctx.toast("找不到这次运行的记录"); render(); return; }
-          const res = await ctx.skills.cancel(run.skillRunId);
+          const res = await ctx.skills.cancel(run.runId);
           if (!res.ok) ctx.toast(res.error);
           render();
         },
         onRetry: (runId) => {
           const run = (ctx.skills.runs() || []).find(
-            (r) => r && (r.runId === runId || r.skillRunId === runId),
+            (r) => r && (r.runId === runId || r.runId === runId),
           );
           // A retry is a NEW run of the same capability, never a re-open of this
           // record — the old one keeps its outcome (系统合同 §5.7 显式重试).

@@ -254,6 +254,38 @@ re-export 确实无人使用。没删的理由是 §1.5 整节的硬前置是 §
 2. **能力已在别处覆盖才删入口；能力本身不删。**
 3. **有疑问就保留。** 一个多余的文件比一个丢失的能力便宜得多。
 
+#### §1.5 批次 1（2026-08-25）：`run.skillRunId` 别名已删除
+
+上表把这一条判为「否 —— 这一条本身就是一次独立迁移」。**那次迁移做完了。**
+
+| 落点 | 内容 |
+| --- | --- |
+| `workflow/skillrun.js` | `startRun` 只铸 `runId`，记录上**不再写出** `skillRunId`；`findRun` 与八个状态转换全部按 `runId` 匹配 |
+| `services/canvasschema.js` | 新增 `migrateV18ToV19`：先补齐身份再删旧名；`CANVAS_SCHEMA_VERSION` → 19。校验按**文档自己那一版的词汇**判：v19 要求 `runId`，v12–v18 仍要求 `skillRunId` |
+| 读侧 | `skillctl` / `directorshot` / `skillpanel` / `production` / `agentsession` / `taskrow` / `runskill` / `provenance` 共 31 处属性访问改读 `runId`；`skillctl` 的参数名一并统一 |
+| `server.py` | `_reconcile_skill_runs` 的 `runId or skillRunId` 回落**刻意留着**，理由写在代码里：它读的是**还没被这个前端迁移过**的 PUT body |
+
+**范围判断（这一条比改动本身重要）**：`skillRunId` 在仓库里有两种用法，只有第一种
+是别名。
+
+- **Run 记录自己的 `skillRunId`** —— 同一个对象上，同一个值挂两个名字。**这是别名，
+  已删。** 删它不丢信息：v15 起校验就拒绝 `runId !== skillRunId`，所以任何能被加载的
+  v15–v18 文档里这两个名字下面必然是同一个字符串。
+- **别的结构上叫 `skillRunId` 的字段** —— `generations[].origin`、promptdoc / refinterp /
+  ctxcache 的版本记录。那些是**外键**：一个值，一个名字，不存在「读侧该信哪个」的问题。
+  给它们改名要再跨四种持久化形状做一次迁移，换不到任何行为上的东西（规则 3）。
+  **不动，并且在迁移注释里写明了不动的理由**，免得下一个人把它当遗漏重做一遍。
+
+**守卫**（两条都断言性质，不断言写法）：`runs.test.mjs` 的
+「a new run carries the contract's fields」现在钉的是 `!("skillRunId" in r)` ——
+此前它钉的是「两个名字、同一个值」，别名删掉之后那句话会**恒真**，也就是说
+有人把字段写回来时不会有任何东西变红；新增「v18 → v19：别名被删掉，身份一个都没少」
+覆盖三条路径（两名齐全 / 只有旧名 / 两个都给不出 id 时原样不动）。
+「v15–v18 冲突被拒」与「v19 冲突被拒」**两版各留一条** —— 同一条不变量换了形状，
+只留新的那条等于把旧版文档的保护删掉。
+
+验证：前端 1856 全绿；`pytest tests/studio tests/contract` 662 passed；ruff 全绿。
+
 ### 1.6 文档收口
 
 - ADR-0052 / 0064 / 0065 / 0066 已于 2026-08-13 全部转 Accepted，

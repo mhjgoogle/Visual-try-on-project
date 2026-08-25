@@ -118,7 +118,7 @@ export function skillPanelModel(ctx, ui, probe) {
         .reverse()
         .slice(0, 6)
         .map((r) => ({
-          skillRunId: r.skillRunId,
+          skillRunId: r.runId,
           status: r.status,
           statusLabel: runLabel(r),
           disposition: dispositionOf(r),
@@ -188,10 +188,10 @@ function proposalBody(m, r) {
       : `<div class="dir-unavail">◌ ${esc((app && app.reason) || "没有可写回的目标")}</div>`) +
     `<div class="sk-acts">` +
     (app && app.can
-      ? `<button class="btn primary sm" data-sk-apply="${esc(r.skillRunId)}">应用</button>`
+      ? `<button class="btn primary sm" data-sk-apply="${esc(r.runId)}">应用</button>`
       : "") +
-    `<button class="btn sm" data-sk-usegen="${esc(r.skillRunId)}">用于生成</button>` +
-    `<button class="btn sm" data-sk-reject="${esc(r.skillRunId)}">忽略</button>` +
+    `<button class="btn sm" data-sk-usegen="${esc(r.runId)}">用于生成</button>` +
+    `<button class="btn sm" data-sk-reject="${esc(r.runId)}">忽略</button>` +
     `</div>` +
     `<div class="meta">「用于生成」会把这份提案记为已接受，并把 ` +
     `<code>skillRunId + proposalId</code> 带到下一次生成的记录上——溯源图里能看到这次生成` +
@@ -211,9 +211,9 @@ function openRunBody(r) {
     `<div class="sk-open"><b>等你把答案带回来</b>` +
     `<div class="meta">复制下面的完整任务 Prompt，到 ChatGPT / Claude / Gemini 里跑，` +
     `把结果原样粘回来。同一个能力、同一份输出契约、同一道确认门——只是执行者不同。</div>` +
-    `<div class="sk-acts"><button class="btn sm" data-sk-copyprompt="${esc(r.skillRunId)}">复制任务 Prompt</button></div>` +
+    `<div class="sk-acts"><button class="btn sm" data-sk-copyprompt="${esc(r.runId)}">复制任务 Prompt</button></div>` +
     `<textarea class="field sk-answer" rows="6" spellcheck="false" placeholder="粘贴模型返回的 JSON"></textarea>` +
-    `<div class="sk-acts"><button class="btn primary sm" data-sk-submit="${esc(r.skillRunId)}">提交结果</button></div></div>`
+    `<div class="sk-acts"><button class="btn primary sm" data-sk-submit="${esc(r.runId)}">提交结果</button></div></div>`
   );
 }
 
