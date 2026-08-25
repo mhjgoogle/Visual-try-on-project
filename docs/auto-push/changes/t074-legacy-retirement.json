@@ -83,6 +83,23 @@
             "mockups/motv-workspace/tests/apiclient.test.mjs"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "070c39afb81ecc5a679d7cb7e905cda0a955081e",
+          "subject": "docs(TASK-074): §1.6 文档收口 + §1.4 边界 4 退回 + 新卡 TASK-106",
+          "time": "2026-08-25T12:36:39+00:00",
+          "branch": "change/TASK-074-legacy-retirement",
+          "pushed": true,
+          "files": [
+            "docs/STATUS.md",
+            "docs/auto-push/changes/t074-legacy-retirement.json",
+            "docs/design/end-to-end-requirements-traceability.md",
+            "docs/tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "docs/tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md",
+            "tests/e2e/test_studio_real_media_task074.py"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
