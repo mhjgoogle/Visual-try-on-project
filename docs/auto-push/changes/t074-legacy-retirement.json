@@ -137,7 +137,10 @@
     }
   },
   "merge_gate": {
-    "status": "PENDING"
+    "status": "PASS",
+    "by": "ADR-0085 常设授权；依据=Done 判定 + 最终全量：pytest 3534 passed + serial 6 passed、node --test 1857 全绿、ruff check + format 全绿；codex 跨模型 2 轮（轮 1 fail 1 P1 已修+变异验证，轮 2 pass 0 blocking），无未闭合 P1；待复审清单「仍然待办」零未闭合条目（只剩 POSIX parent-death 一条纯记录）",
+    "time": "2026-08-25T13:08:19+00:00",
+    "tip": "3cf87f876972a95f9d50857dd4ea4166c70cfad7"
   },
   "merge": null,
   "cleanup": null
