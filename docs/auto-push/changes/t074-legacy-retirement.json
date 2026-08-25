@@ -55,15 +55,30 @@
             "mockups/motv-workspace/tests/retirementready.test.mjs"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "d4e0134987093f71c41916b500ec8a5969f0ffad",
+          "subject": "fix(TASK-074): §1.5 批次 2 后续 —— 三条 app.js 源码守卫改按函数名定位",
+          "time": "2026-08-25T11:50:53+00:00",
+          "branch": "change/TASK-074-legacy-retirement",
+          "pushed": true,
+          "files": [
+            "docs/auto-push/changes/t074-legacy-retirement.json",
+            "tests/contract/test_frontend_write_path_invariants.py"
+          ],
+          "scope_violation": [
+            "tests/contract/test_frontend_write_path_invariants.py"
+          ]
         }
       ],
       "paths": [
         "docs/",
-        "mockups/motv-workspace/"
+        "mockups/motv-workspace/",
+        "tests/"
       ],
       "verification": "PASS",
-      "verification_ref": "node --test 1856 全绿；ruff 全绿。连续链批次 2，未跑全量",
-      "declared": "2026-08-25T11:38:11+00:00"
+      "verification_ref": "pytest tests/contract tests/studio 662 passed；node --test 1856 全绿；ruff check + format 全绿。连续链，链尾跑最终全量",
+      "declared": "2026-08-25T11:51:02+00:00"
     }
   },
   "merge_gate": {
