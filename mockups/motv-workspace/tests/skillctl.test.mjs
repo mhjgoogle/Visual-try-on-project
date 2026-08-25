@@ -125,19 +125,18 @@ function seedProposedRun(state, { skillId = "editing-director", proposal = null,
     context,
     createdAt: "2026-08-15T00:00:00.000Z",
   });
-  skillrun.proposeRun(state.runs, rec.skillRunId, proposal || { edits: [] }, {
+  skillrun.proposeRun(state.runs, rec.runId, proposal || { edits: [] }, {
     model: null,
     at: "2026-08-15T00:00:00.000Z",
   });
   return rec;
 }
 
-/** A backend-owned run — `runId` is minted FROM `skillRunId` (skillrun.startRun),
- *  and a `run-…` prefix is the knowable difference between a run the backend owns
- *  and one this page owns. */
+/** A backend-owned run — `runId` 是这条 run 唯一的身份（skillrun.startRun），
+ *  而 `run-…` 前缀是「后端拥有这条 run」与「这个页面拥有它」之间可判定的差别。 */
 function seedBackendRun(state) {
   return skillrun.startRun(state.runs, {
-    skillRunId: "run-abc",
+    runId: "run-abc",
     skillId: "editing-director",
     skillVersion: 1,
     runtime: "local_subscription",
@@ -324,12 +323,12 @@ test("no explicit 「用于生成」 → no origin, ever", () => {
 test("the pending origin is bound to the run's OWN recorded shot", () => {
   const { ctl, state } = makeCtl();
   const rec = seedProposedRun(state, { context: { episodeId: "ep-1", sceneId: "sc-1", shotId: "shot-1" } });
-  const used = ctl.useForGeneration(rec.skillRunId);
+  const used = ctl.useForGeneration(rec.runId);
   assert.equal(used.ok, true);
 
   assert.deepEqual(ctl.pendingOriginFor("shot-1"), {
-    skillRunId: rec.skillRunId,
-    proposalId: skillrun.proposalIdOf(skillrun.findRun(state.runs, rec.skillRunId)),
+    skillRunId: rec.runId,
+    proposalId: skillrun.proposalIdOf(skillrun.findRun(state.runs, rec.runId)),
   });
   assert.equal(
     ctl.pendingOriginFor("shot-7"), null,
@@ -340,21 +339,21 @@ test("the pending origin is bound to the run's OWN recorded shot", () => {
 test("an origin describes ONE launch — a generation that carries it consumes it", () => {
   const { ctl, state } = makeCtl();
   const rec = seedProposedRun(state, { context: { episodeId: "ep-1", sceneId: null, shotId: "shot-1" } });
-  ctl.useForGeneration(rec.skillRunId);
+  ctl.useForGeneration(rec.runId);
   assert.notEqual(ctl.pendingOriginFor("shot-1"), null);
 
   // …and the claim is looked up through the GETTER: a generation registry replaced
   // by a project load is the one that answers
-  state.generations = [{ generationId: "gen-1", origin: { skillRunId: rec.skillRunId, proposalId: "p" } }];
+  state.generations = [{ generationId: "gen-1", origin: { skillRunId: rec.runId, proposalId: "p" } }];
   assert.equal(ctl.pendingOriginFor("shot-1"), null, "consumed");
 });
 
 test("originOf refuses a run that is not accepted", () => {
   const { ctl, state } = makeCtl();
   const rec = seedProposedRun(state);
-  assert.equal(ctl.originOf(rec.skillRunId), null, "proposed is not accepted");
-  ctl.accept(rec.skillRunId);
-  assert.notEqual(ctl.originOf(rec.skillRunId), null);
+  assert.equal(ctl.originOf(rec.runId), null, "proposed is not accepted");
+  ctl.accept(rec.runId);
+  assert.notEqual(ctl.originOf(rec.runId), null);
 });
 
 // --- 5. 应用提案：部分成功仍留在 proposed，可以再按一次 -------------------- //
@@ -373,11 +372,11 @@ test("a PARTIAL apply leaves the run proposed so the rest can be retried", () =>
       ],
     },
   });
-  const res = ctl.applyProposal(rec.skillRunId);
+  const res = ctl.applyProposal(rec.runId);
   assert.equal(res.ok, true);
   assert.equal(res.partial, true);
   assert.equal(
-    skillrun.dispositionOf(skillrun.findRun(state.runs, rec.skillRunId)), "pending",
+    skillrun.dispositionOf(skillrun.findRun(state.runs, rec.runId)), "pending",
     "an accepted run refuses applyProposal, so a partial apply must NOT accept it",
   );
 });
@@ -387,7 +386,7 @@ test("an action that is ALREADY SATISFIED counts as done — applying twice is s
   const rec = seedProposedRun(state, {
     proposal: { edits: [{ clipId: "clip-1", trimInMs: 0, trimOutMs: 1000, reason: "掐头" }] },
   });
-  const res = ctl.applyProposal(rec.skillRunId);
+  const res = ctl.applyProposal(rec.runId);
   assert.equal(res.ok, true);
   assert.equal(res.partial, false);
   assert.match(res.detail, /本来就已满足/);
@@ -408,7 +407,7 @@ test("applying a world proposal SAYS which requested fields it skipped", () => {
       ],
     },
   });
-  const res = ctl.applyProposal(rec.skillRunId);
+  const res = ctl.applyProposal(rec.runId);
   assert.equal(res.ok, true);
   assert.match(res.detail, /1 项已应用/);
   assert.match(res.detail, /不是这份档案的字段，已跳过（magicSystem）/);
@@ -417,8 +416,8 @@ test("applying a world proposal SAYS which requested fields it skipped", () => {
 test("applyProposal refuses a run with nothing pending", () => {
   const { ctl, state } = makeCtl();
   const rec = seedProposedRun(state);
-  ctl.accept(rec.skillRunId);
-  const res = ctl.applyProposal(rec.skillRunId);
+  ctl.accept(rec.runId);
+  const res = ctl.applyProposal(rec.runId);
   assert.equal(res.ok, false);
   assert.match(res.error, /没有待应用的提案/);
 });
@@ -430,11 +429,11 @@ test("an UNCONFIRMED kill leaves the run in 「取消中」 — never marked can
     runtime: { ...runtime, cancelRun: async () => ({ ok: false, detail: "残留 pid 4312" }) },
   });
   const rec = seedBackendRun(state);
-  const res = await ctl.cancel(rec.skillRunId);
+  const res = await ctl.cancel(rec.runId);
   assert.equal(res.ok, false);
   assert.match(res.error, /未能确认终止/);
   assert.equal(
-    skillrun.findRun(state.runs, rec.skillRunId).status, "cancelling",
+    skillrun.findRun(state.runs, rec.runId).status, "cancelling",
     "「已取消」 on screen while the executor keeps running and keeps spending",
   );
 });
@@ -447,7 +446,7 @@ test("a run that FINISHED first keeps its real result — not overwritten with �
     },
   });
   const rec = seedBackendRun(state);
-  const res = await ctl.cancel(rec.skillRunId);
+  const res = await ctl.cancel(rec.runId);
   assert.equal(res.ok, false);
   assert.equal(res.finished, true);
   assert.equal(res.error, "这次运行已经结束");
@@ -458,14 +457,14 @@ test("a CONFIRMED kill is recorded as cancelled", async () => {
     runtime: { ...runtime, cancelRun: async () => ({ ok: true }) },
   });
   const rec = seedBackendRun(state);
-  assert.equal((await ctl.cancel(rec.skillRunId)).ok, true);
-  assert.equal(skillrun.findRun(state.runs, rec.skillRunId).status, "cancelled");
+  assert.equal((await ctl.cancel(rec.runId)).ok, true);
+  assert.equal(skillrun.findRun(state.runs, rec.runId).status, "cancelled");
 });
 
 test("abandon is for MANUAL runs only — an executor's run needs a real kill", async () => {
   const { ctl, state } = makeCtl();
   const rec = seedBackendRun(state);
-  const res = await ctl.abandon(rec.skillRunId);
+  const res = await ctl.abandon(rec.runId);
   assert.equal(res.ok, false);
   assert.match(res.error, /取消运行/);
 });
@@ -476,9 +475,9 @@ test("abandoning a front-end run reaches a TERMINAL state, not 「取消中」 f
     skillId: "editing-director", skillVersion: 1, runtime: "manual",
     executor: "manual", createdAt: "2026-08-15T00:00:00.000Z",
   });
-  assert.equal((await ctl.abandon(rec.skillRunId)).ok, true);
+  assert.equal((await ctl.abandon(rec.runId)).ok, true);
   assert.equal(
-    skillrun.findRun(state.runs, rec.skillRunId).status, "cancelled",
+    skillrun.findRun(state.runs, rec.runId).status, "cancelled",
     "nothing would ever arrive to complete a `cancelling` transition here",
   );
 });
@@ -488,7 +487,7 @@ test("abandoning a front-end run reaches a TERMINAL state, not 「取消中」 f
 test("a LOCAL run cannot be answered by hand — that is a race, not a fallback", () => {
   const { ctl, state } = makeCtl();
   const rec = seedBackendRun(state);
-  const res = ctl.submitManual(rec.skillRunId, "{}");
+  const res = ctl.submitManual(rec.runId, "{}");
   assert.equal(res.ok, false);
   assert.match(res.error, /不能手工提交结果/);
 });
@@ -496,12 +495,12 @@ test("a LOCAL run cannot be answered by hand — that is a race, not a fallback"
 test("a run that already LANDED is not open for a second answer", () => {
   const { ctl, state } = makeCtl();
   const rec = seedProposedRun(state);
-  const res = ctl.submitManual(rec.skillRunId, "garbage");
+  const res = ctl.submitManual(rec.runId, "garbage");
   assert.equal(res.ok, false);
   assert.match(res.error, /不能再提交结果/);
   // v15 split the two questions: `succeeded` is 「the run finished」, `pending` is
   // 「the creator has not decided yet」 (ADR-0066 决策 8).
-  const held = skillrun.findRun(state.runs, rec.skillRunId);
+  const held = skillrun.findRun(state.runs, rec.runId);
   assert.equal(held.status, "succeeded");
   assert.equal(
     skillrun.dispositionOf(held), "pending",
@@ -553,10 +552,10 @@ test("a manual run FREEZES its prompt — editing the project later must not rew
   assert.equal(res.manual, true);
   assert.ok(res.prompt.includes("clip-1"));
 
-  const frozen = skillrun.findRun(state.runs, res.run.skillRunId).promptText;
+  const frozen = skillrun.findRun(state.runs, res.run.runId).promptText;
   state.timelines = {}; // the creator edits — or loads another project
   assert.equal(
-    skillrun.findRun(state.runs, res.run.skillRunId).promptText, frozen,
+    skillrun.findRun(state.runs, res.run.runId).promptText, frozen,
     "the creator copies this later; recompiling would hand them a different question",
   );
   assert.ok(frozen.includes("clip-1"));

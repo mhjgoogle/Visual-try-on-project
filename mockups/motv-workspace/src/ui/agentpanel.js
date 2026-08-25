@@ -41,7 +41,11 @@ export const PANEL_ITEMS = Object.freeze([
   "primaryAction", "alternatives", "results",
 ]);
 
-/** Field names that must NEVER reach this panel (IA §6.3). */
+/** Field names that must NEVER reach this panel (IA §6.3).
+ *
+ *  `skillRunId` 至 v19 已从 Run 记录上删除（TASK-074 §1.5），**这一行仍然留着**：
+ *  这是一份**禁入名单**，列一个已退役的名字不花任何代价，而删掉它等于把「有人
+ *  又把这个字段接回来」这条路重新打开。 */
 export const HIDDEN_FIELDS = Object.freeze([
   "skillId", "skillVersion", "runtime", "executor", "provider", "model",
   "runId", "skillRunId", "context", "contextTrace", "promptText",

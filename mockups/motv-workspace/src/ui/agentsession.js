@@ -266,7 +266,7 @@ export function agentSessionModel(ctx, ui) {
     .reverse()
     .slice(0, 6)
     .map((r) => ({
-      skillRunId: r.skillRunId,
+      skillRunId: r.runId,
       skillId: r.skillId,
       status: r.status,
       createdAt: r.createdAt,

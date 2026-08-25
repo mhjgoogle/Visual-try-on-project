@@ -569,7 +569,7 @@ export function createSkillController({
       const res = await runtime.runOnExecutor({ executor, prompt });
       if (!res.ok) {
         // `docs.runs()` is read HERE, after the await — never hoisted (§5.14).
-        skillrun.failRun(docs.runs(), rec.skillRunId, res.kind, res.detail);
+        skillrun.failRun(docs.runs(), rec.runId, res.kind, res.detail);
         persist();
         refresh();
         return { ok: false, error: res.detail, kind: res.kind, run: rec };
@@ -579,8 +579,8 @@ export function createSkillController({
 
     /** Bring a MANUAL answer back. Same skill, same schema, same gate — only
      *  the executor differed. */
-    submitManual: (skillRunId, text) => {
-      const rec = skillrun.findRun(docs.runs(), skillRunId);
+    submitManual: (runId, text) => {
+      const rec = skillrun.findRun(docs.runs(), runId);
       if (!rec) return { ok: false, error: "运行记录不存在" };
       // A run that has ALREADY landed is not open for another answer. Without
       // this, pasting a second (malformed) answer into a run that already holds
@@ -607,7 +607,7 @@ export function createSkillController({
     _land: (rec, skill, text, model) => {
       const read = skills.readSkillAnswer(skill, text);
       if (!read.ok) {
-        skillrun.failRun(docs.runs(), rec.skillRunId, "invalid_output", read.error);
+        skillrun.failRun(docs.runs(), rec.runId, "invalid_output", read.error);
         persist();
         refresh();
         return { ok: false, error: read.error, kind: "invalid_output", run: rec };
@@ -615,7 +615,7 @@ export function createSkillController({
       // proposeRun REFUSES a run that is not `running`. Ignoring that refusal
       // would report success for a proposal that was never recorded, and the UI
       // would render something the document does not contain.
-      const landed = skillrun.proposeRun(docs.runs(), rec.skillRunId, read.value, {
+      const landed = skillrun.proposeRun(docs.runs(), rec.runId, read.value, {
         model,
         at: now(),
       });
@@ -635,8 +635,8 @@ export function createSkillController({
      * that was probably behind this". A generation attributed by proximity
      * would read as a record of something that never happened.
      */
-    originOf: (skillRunId) => {
-      const r = skillrun.findRun(docs.runs(), skillRunId);
+    originOf: (runId) => {
+      const r = skillrun.findRun(docs.runs(), runId);
       if (!r) return null;
       const proposalId = skillrun.proposalIdOf(r);
       // 「从这份提案发起」 requires a proposal the creator ACCEPTED. A run still
@@ -644,7 +644,7 @@ export function createSkillController({
       // proposal with no id cannot be pointed at. Stamping any of those would
       // let a generation claim a provenance the records never support.
       if (!skillrun.isAccepted(r) || !proposalId) return null;
-      return { skillRunId: r.skillRunId, proposalId };
+      return { skillRunId: r.runId, proposalId };
     },
 
     /**
@@ -660,8 +660,8 @@ export function createSkillController({
      * accepted with nothing applied would claim a decision took effect when it
      * did not.
      */
-    applyProposal: (skillRunId, scope = {}) => {
-      const run = skillrun.findRun(docs.runs(), skillRunId);
+    applyProposal: (runId, scope = {}) => {
+      const run = skillrun.findRun(docs.runs(), runId);
       if (!run) return { ok: false, error: "运行记录不存在" };
       if (!skillrun.isPending(run)) {
         return { ok: false, error: `这次运行是「${run.status}」，没有待应用的提案` };
@@ -710,7 +710,7 @@ export function createSkillController({
       const failed = [];
       for (const act of plan.actions) {
         const res = dispatchAction(act, {
-          skillRunId: run.skillRunId,
+          skillRunId: run.runId,
           proposalId: skillrun.proposalIdOf(run),
         });
         if (res.ok) { done.push(act.action); continue; }
@@ -750,7 +750,7 @@ export function createSkillController({
           failed,
         };
       }
-      self.accept(skillRunId);
+      self.accept(runId);
       return { ok: true, partial: false, detail: parts.join("；"), failed };
     },
 
@@ -764,16 +764,16 @@ export function createSkillController({
      * record — so the provenance graph can show that this generation was in fact
      * started from this proposal.
      */
-    useForGeneration: (skillRunId) => {
-      const run = skillrun.findRun(docs.runs(), skillRunId);
+    useForGeneration: (runId) => {
+      const run = skillrun.findRun(docs.runs(), runId);
       if (!run) return { ok: false, error: "运行记录不存在" };
       if (!skillrun.isPending(run) && !skillrun.isAccepted(run)) {
         return { ok: false, error: `这次运行是「${run.status}」，没有可用于生成的提案` };
       }
-      if (skillrun.isPending(run) && !self.accept(skillRunId)) {
+      if (skillrun.isPending(run) && !self.accept(runId)) {
         return { ok: false, error: "无法标记为已接受" };
       }
-      const origin = self.originOf(skillRunId);
+      const origin = self.originOf(runId);
       if (!origin) {
         return { ok: false, error: "这份提案没有可引用的身份（proposalId 未记录）" };
       }
@@ -820,15 +820,15 @@ export function createSkillController({
 
     /** The creator ACCEPTS. This marks the run only — applying the proposal to
      *  canon is the caller's, through the normal domain controllers. */
-    accept: (skillRunId) => {
-      const r = skillrun.acceptRun(docs.runs(), skillRunId, now());
+    accept: (runId) => {
+      const r = skillrun.acceptRun(docs.runs(), runId, now());
       if (!r) return null;
       persist();
       refresh();
       return r;
     },
-    reject: (skillRunId, reason) => {
-      const r = skillrun.rejectRun(docs.runs(), skillRunId, now(), reason);
+    reject: (runId, reason) => {
+      const r = skillrun.rejectRun(docs.runs(), runId, now(), reason);
       if (!r) return null;
       persist();
       refresh();
@@ -871,8 +871,8 @@ export function createSkillController({
      * rule 3 forbids: it puts 「已取消」 on screen while the executor keeps running
      * and keeps spending.
      */
-    cancel: async (skillRunId) => {
-      const r = skillrun.findRun(docs.runs(), skillRunId);
+    cancel: async (runId) => {
+      const r = skillrun.findRun(docs.runs(), runId);
       if (!r) return { ok: false, error: "运行记录不存在" };
       if (!skillrun.isOpen(r)) {
         return { ok: false, error: `这次运行已经是「${r.status}」，没有可取消的东西` };
@@ -880,11 +880,11 @@ export function createSkillController({
       // A run the FRONT END owns has no process to kill — that is `abandon`'s job,
       // and routing it here would ask the backend about an id it never minted.
       const backendOwned = typeof r.runId === "string" && r.runId.startsWith("run-");
-      if (!backendOwned) return self.abandon(skillRunId, "创作者取消了这次运行");
+      if (!backendOwned) return self.abandon(runId, "创作者取消了这次运行");
       const at = now();
       // park it in `cancelling` FIRST, so the row stops offering 「取消」 twice while
       // the request is in flight
-      skillrun.cancelRun(docs.runs(), skillRunId, at, "创作者取消了这次运行");
+      skillrun.cancelRun(docs.runs(), runId, at, "创作者取消了这次运行");
       persist();
       refresh();
       const res = await runtime.cancelRun(r.runId, r.projectId || null);
@@ -892,7 +892,7 @@ export function createSkillController({
       // a project loaded while the request was in flight replaces the registry
       // binding, and a hoisted value would settle the ABANDONED project's record.
       if (res.ok) {
-        skillrun.confirmCancelled(docs.runs(), skillRunId, now());
+        skillrun.confirmCancelled(docs.runs(), runId, now());
         persist();
         refresh();
         return { ok: true };
@@ -910,8 +910,8 @@ export function createSkillController({
         finished: !!res.finished,
       };
     },
-    abandon: async (skillRunId, reason = "创作者放弃了这次运行") => {
-      const r = skillrun.findRun(docs.runs(), skillRunId);
+    abandon: async (runId, reason = "创作者放弃了这次运行") => {
+      const r = skillrun.findRun(docs.runs(), runId);
       if (!r) return { ok: false, error: "运行记录不存在" };
       if (!skillrun.isOpen(r)) {
         return { ok: false, error: `这次运行已经是「${r.status}」，不需要放弃` };
@@ -954,7 +954,7 @@ export function createSkillController({
       }
       const at = now();
       // read AFTER the await, never hoisted (§5.14)
-      skillrun.cancelRun(docs.runs(), skillRunId, at, reason);
+      skillrun.cancelRun(docs.runs(), runId, at, reason);
       // …AND IT MUST REACH A TERMINAL STATE HERE.
       //
       // `cancelRun` parks a `running` record in `cancelling`, which is correct
@@ -969,7 +969,7 @@ export function createSkillController({
       // about claiming a SUBPROCESS died without checking. A backend-owned run
       // is cancelled through `POST /api/runs/<id>/cancel`, which does the real
       // termination and only then reports `cancelled`.
-      skillrun.confirmCancelled(docs.runs(), skillRunId, at);
+      skillrun.confirmCancelled(docs.runs(), runId, at);
       persist();
       refresh();
       return { ok: true };

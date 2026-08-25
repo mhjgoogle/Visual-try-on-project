@@ -221,10 +221,15 @@ Run {
 | --- | --- |
 | v14 及更早 | 只有 `skillRunId`，且只有 Skill 有运行记录 |
 | **v15（TASK-072 批次一）** | 迁移为每条 run 增加 `runId`，值**等于**原 `skillRunId`；`skillRunId` 保留为**兼容别名**并标 deprecated |
-| TASK-074 | 删除 `skillRunId` 别名，只留 `runId` |
+| **v19（TASK-074 §1.5，2026-08-25）** | **已删除** `skillRunId` 别名，只留 `runId`。`migrateV18ToV19` 先补齐身份再删旧名；形状不对的记录原样留着交给校验 |
 
 迁移是**确定性**的：同一个 id 换一个字段名，不新建身份，不重排，不用时钟。
 新签发的 id 一律走 `runId`；任何代码不得再新增对 `skillRunId` 的写入。
+
+**这一节说的只有 Run 记录自己的那个字段。** 外键字段
+（`generations[].origin.skillRunId`，以及 promptdoc / refinterp / ctxcache 版本
+记录上的同名字段）**保持原名**：它们一个值一个名字，不是别名，改名要跨四种持久化
+形状再做一次迁移而换不到任何行为上的东西（TASK-074 §1.5 批次 1 的范围判断）。
 
 ### 5.1 Skill（能力定义）
 

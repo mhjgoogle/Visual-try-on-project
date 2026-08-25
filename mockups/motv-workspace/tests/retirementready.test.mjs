@@ -1,15 +1,17 @@
-// TASK-074 §1.5 —— 「哪些旧接口**真的**可以删」这条判断，别让它悄悄过期。
+// 系统合同 §7 —— 读写两个模块的分工，钉成一条可执行的断言。
 //
-// §1.5 的第一条规则是「先确认无引用，再删」。2026-08-24 做过一次全仓核查，
-// 结论写在卡上。问题是：**那份核查是一份文档，而文档会过期** —— 这个仓库今天
-// 已经撞到十几处过期声明了。
+// 历史：这个文件原本守的是 TASK-074 §1.5 的**前置**（「§1.4 没通过之前，
+// `query.js` 里那两个已无人调用的写函数 re-export 也不许提前删」）。
+// §1.4 于 2026-08-24 机械闭合、§1.5 批次 2 于 2026-08-25 把十六个 re-export
+// 连同调用点一起迁完之后，那条规则已被取代 —— **它保护的是历史行为，不是
+// 当前有效行为**，所以换成下面这条。
 //
-// 所以把核查里**唯一可执行的那部分**钉住：`query.js` 那 16 个写函数 re-export
-// 里，只有 `renderEpisode` 与 `mixShotAudio` 已经没有 `query.*` 调用点。
-// 哪天有人重新用起它们，卡上那句「这两个可以删」就变成假话 —— 这条会先红。
+// 现在守的是那件真正长期成立的事：**`query.*` 底下不得再出现写操作。**
+// 拆开两个模块的全部理由，是让「这一次调用会不会改东西」能靠「它来自哪个模块」
+// 回答；只要有一个写函数能从 `query.*` 取到，这个问题就又要逐个调用点去查了。
 //
-// **不钉「仍在使用」的那 14 个**：那是正常状态，钉它只会让每次正常改动都变红。
-// 只钉「已经可以删」的少数几个 —— 它们才是会被人照着去删的那几行。
+// 写函数的名单**从 command.js 自己派生**，不手写：新加的写函数应当**因为存在**
+// 而进入这条守卫（TASK-087 §7 方法论第 2 条）。
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
@@ -31,43 +33,110 @@ function allSources(dir = SRC, out = []) {
   return out;
 }
 
-const RETIREABLE = ["renderEpisode", "mixShotAudio"];
+/** 去掉注释，只留代码。
+ *
+ *  这条守卫判的是**调用**，不是**提到**。app.js 里有一段注释专门解释
+ *  「这里为什么必须是 command.preflight 而不是 query.preflight」——
+ *  连那段解释一起判成违规，会逼着代码不许把理由写下来，而理由正是
+ *  防止有人再改回去的那样东西。
+ *
+ *  故意做得保守：块注释与整行 `//` 注释，够用且不会把真代码吃掉。
+ *  行尾 `//` 不处理 —— 它可能出现在字符串里的 `https://`，切错了会
+ *  把真代码切没，那才是危险的方向。 */
+function codeOnly(text) {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/^\s*\/\/.*$/gm, "");
+}
 
-test("§1.5 核查：这两个写函数 re-export 仍然无人从 `query.*` 调用", () => {
-  const sources = allSources().filter(([rel]) => rel !== "services/query.js");
-  for (const fn of RETIREABLE) {
-    const callers = sources
-      .filter(([, text]) => text.includes(`query.${fn}`))
-      .map(([rel]) => rel);
-    assert.deepEqual(
-      callers,
-      [],
-      `卡上说 \`${fn}\` 已无调用点、可随 §1.5 一起删 —— 但 ${callers} 又用起来了。`
-        + "先更新 TASK-074 §1.5 的核查表，再决定还删不删。",
-    );
+/** command.js 导出的每一个函数名 —— 派生，不手写。 */
+function writeFunctionNames() {
+  const text = readFileSync(new URL("services/command.js", SRC), "utf8");
+  const names = new Set();
+  for (const m of text.matchAll(/^export\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/gm)) {
+    names.add(m[1]);
   }
-});
+  return [...names];
+}
 
-test("§1.5 核查：它们**还在**，也就是说 §1.5 没有被悄悄执行掉一半", () => {
-  // 反方向的守卫。§1.5 的硬前置是 §1.4，而 §1.4 还没通过 —— 所以这些东西
-  // 此刻**应该都还在**。少了任何一个，说明有人跳过了那个前置。
+/** query.js 的**导出面**：每一条 `export …` 语句的完整文本（含跨行的那些）。
+ *
+ *  第一版用的是「名字所在行 + 最多再往下一行里有 `from "./command.js"`」这种
+ *  近似（codex 审查轮 1 的 non-blocking）。**被删掉的那个兼容层本身就是五行**，
+ *  名字离 `from` 子句三四行远 —— 也就是说那条守卫恰好抓不到它存在的理由，
+ *  又一个 fail-open。
+ *
+ *  改成按**导出语句的三种形状**切，`export { … }` 的花括号整块吃进来，所以
+ *  跨多少行都一样。仍然是文本近似，但近视的单位从「两行」变成「一条语句」。
+ *
+ *  **注释先去掉**（`codeOnly`）：判的是导出，不是提到。 */
+const EXPORT_SHAPES = [
+  // export { a, b, c } from "…";  ——  花括号整块，跨行无所谓
+  /\bexport\s*\{[\s\S]*?\}[^;\n]*/g,
+  // export * from "…";  ——  一次泄漏全部
+  /\bexport\s*\*[^;\n]*/g,
+  // export function foo(… / export const foo = …
+  /\bexport\s+(?:default\s+)?(?:async\s+)?(?:function|const|let|var|class)\s+[\w$]+/g,
+];
+
+function exportStatements(text) {
+  const code = codeOnly(text);
+  return EXPORT_SHAPES.flatMap((re) => code.match(re) || []);
+}
+
+/** `export * from "./command.js"` —— **一句话泄漏全部，而且一个名字都不出现**。
+ *
+ *  codex 审查轮 2 的 non-blocking，判得对：上一版按「语句里有没有出现这个函数名」
+ *  判泄漏，而星号 re-export 的语句文本是 `export * from "./command.js"`，
+ *  里面没有任何一个函数名 —— 于是 `leaked` 是空的，守卫在**泄漏面最大**的那种
+ *  写法上恰好变绿。与本文件已经修过两次的是同一族：**守卫在它要守的东西
+ *  出现时反而没反应**。
+ *
+ *  所以这一种单独判：命中即认定全部写函数都泄漏了，不再去数名字。 */
+function starReExportsCommand(statements) {
+  return statements.some((st) => /^\s*export\s*\*/.test(st) && /command\.js/.test(st));
+}
+
+test("§7：command.js 的每一个写函数都不得能从 `query.*` 取到", () => {
   const query = readFileSync(new URL("services/query.js", SRC), "utf8");
-  for (const fn of RETIREABLE) {
-    assert.ok(
-      query.includes(fn),
-      `\`${fn}\` 已经从 query.js 消失了 —— §1.5 的硬前置是 §1.4 全绿，`
-        + "而 §1.4 尚未通过。要么是提前删了，要么是这份核查该更新了。",
-    );
-  }
+  const statements = exportStatements(query);
+  const names = writeFunctionNames();
+  const leaked = starReExportsCommand(statements)
+    ? names
+    : names.filter((fn) => statements.some((st) => new RegExp(`\\b${fn}\\b`).test(st)));
+  assert.deepEqual(leaked, [],
+    `这些写函数又能从 \`query.*\` 取到了：${leaked}。`
+    + "系统合同 §7：读住 query.js，写住 command.js —— 一个写操作从读模块导出，"
+    + "就把「这一次调用会不会改东西」重新变成一个要逐处去查的问题。");
 });
 
-test("§1.5 核查：扫描面非空自检", () => {
-  // 上面两条都靠「扫遍 src/」。扫空了的话，第一条在空集上恒真 ——
-  // 一条永远绿的守卫比没有守卫更糟，因为它看起来像有人在看着。
+test("§7：没有任何调用点还在走 `query.<写函数>`", () => {
+  const names = writeFunctionNames();
+  const sources = allSources().filter(([rel]) => rel !== "services/query.js");
+  const offenders = [];
+  for (const [rel, raw] of sources) {
+    const text = codeOnly(raw);
+    for (const fn of names) {
+      if (text.includes(`query.${fn}`)) offenders.push(`${rel} → query.${fn}`);
+    }
+  }
+  assert.deepEqual(offenders, [], `${offenders}\n改成从 command.js 直接调。`);
+});
+
+test("§7：扫描面非空自检", () => {
+  // 上面两条都靠「扫遍 src/」与「从 command.js 派生名单」。任何一边扫空了，
+  // 断言就在空集上恒真 —— 一条永远绿的守卫比没有守卫更糟，因为它看起来
+  // 像有人在看着。
   const sources = allSources();
   assert.ok(sources.length > 50, `只扫到 ${sources.length} 个源文件，扫描面坏了`);
   assert.ok(
     sources.some(([, t]) => t.includes("query.")),
     "一个 `query.` 引用都没扫到 —— 扫描面坏了",
   );
+  const names = writeFunctionNames();
+  assert.ok(names.length > 10, `只从 command.js 派生出 ${names.length} 个写函数，名单坏了`);
+  // 迁移过来的那批必须真的在名单里，否则「派生」只是看起来在派生。
+  for (const fn of ["renderEpisode", "mixShotAudio", "createProject", "ttsGenerate"]) {
+    assert.ok(names.includes(fn), `派生名单里没有 ${fn}`);
+  }
 });

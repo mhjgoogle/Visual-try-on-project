@@ -3,7 +3,7 @@
 // with the answer.
 //
 //   Skill Run {
-//     skillRunId, skillId, skillVersion,
+//     runId, skillId, skillVersion,
 //     runtime, executor, model,        // WHO answered (never conflated)
 //     inputKeys, inputSummary,         // WHAT it was given (reproducible)
 //     contextTrace,                    // …and the CONTENT fingerprint of it
@@ -175,7 +175,10 @@ export function startRun(reg, entry) {
   if (!skillId) return null; // a run with no capability records nothing usable
   if (!Number.isInteger(entry.skillVersion) || entry.skillVersion < 1) return null;
   const rec = {
-    skillRunId: strOrNull(entry.skillRunId) || mintId("skillrun"),
+    // 系统合同 §5.0：`runId` 是这条 run 的**唯一**身份。历史别名 `skillRunId`
+    // 由 v18→v19 迁移删除（TASK-074 §1.5）—— 同一个值挂两个名字，读侧就要在
+    // 每一处决定信哪个，而两处一旦不同就没有人能说清哪个是这条 run。
+    runId: strOrNull(entry.runId) || mintId("skillrun"),
     skillId,
     skillVersion: entry.skillVersion,
     runtime: strOrNull(entry.runtime),
@@ -230,9 +233,6 @@ export function startRun(reg, entry) {
     decidedAt: null,
     createdAt: strOrNull(entry.createdAt),
     // --- 系统合同 §5.0 / §5.3 的持久化字段 ---------------------------------- //
-    // `runId` is the ONE identity; `skillRunId` above is the same value under
-    // its historical name, kept as a compatibility alias until TASK-074.
-    runId: strOrNull(entry.skillRunId) || null,
     kind: strOrNull(entry.kind) || "skill",
     // A STABLE MACHINE KEY, never the display name: `taskName` changes with copy
     // and language, and using it as a persisted key loses history on a rewrite.
@@ -257,15 +257,13 @@ export function startRun(reg, entry) {
     failureReason: null,
     confirmation: null,
   };
-  // runId defaults to whatever id was actually minted for this run
-  rec.runId = rec.runId || rec.skillRunId;
   reg.push(rec);
   return rec;
 }
 
-export function findRun(reg, skillRunId) {
-  if (!Array.isArray(reg) || typeof skillRunId !== "string" || !skillRunId) return null;
-  return reg.find((r) => isObj(r) && r.skillRunId === skillRunId) || null;
+export function findRun(reg, runId) {
+  if (!Array.isArray(reg) || typeof runId !== "string" || !runId) return null;
+  return reg.find((r) => isObj(r) && r.runId === runId) || null;
 }
 
 /** Attach the SCHEMA-VALIDATED structured answer as a Proposal.
@@ -274,8 +272,8 @@ export function findRun(reg, skillRunId) {
  *  written, and the creator can still reject it. A run already in a terminal
  *  state is not resurrected — a late answer must not overwrite a decision the
  *  creator already made. */
-export function proposeRun(reg, skillRunId, proposal, { model = null, at = null } = {}) {
-  const r = findRun(reg, skillRunId);
+export function proposeRun(reg, runId, proposal, { model = null, at = null } = {}) {
+  const r = findRun(reg, runId);
   // `awaiting_input` is where a MANUAL run waits, so it is the state a pasted
   // answer lands from — the old code accepted only `running`, which is what a
   // manual run used to (incorrectly) sit in.
@@ -326,8 +324,8 @@ export function proposalIdOf(run) {
 /** Record an honest failure. The reason is one of RUN_ERROR_KINDS so the UI can
  *  say something actionable, and `proposal` stays null — a failed run never
  *  becomes content. */
-export function failRun(reg, skillRunId, kind, detail) {
-  const r = findRun(reg, skillRunId);
+export function failRun(reg, runId, kind, detail) {
+  const r = findRun(reg, runId);
   // A TERMINAL run is never re-failed: whatever really happened is already
   // written down, and a late error must not erase a result the creator saw.
   if (!r || TERMINAL_SET.has(r.status)) return null;
@@ -346,8 +344,8 @@ export function failRun(reg, skillRunId, kind, detail) {
 /** Move a run to `awaiting_input` — it is being executed BY A PERSON.
  *  Separate from `running` because nothing is running, and because the backend's
  *  restart sweep must not treat a creator's in-flight work as a zombie. */
-export function awaitInput(reg, skillRunId) {
-  const r = findRun(reg, skillRunId);
+export function awaitInput(reg, runId) {
+  const r = findRun(reg, runId);
   if (!r || (r.status !== "queued" && r.status !== "running")) return null;
   r.status = "awaiting_input";
   return r;
@@ -358,8 +356,8 @@ export function awaitInput(reg, skillRunId) {
  *  Pre-execution states cancel AT ONCE — they own no process, so there is
  *  nothing to deliver a signal to. Only `running` goes through `cancelling`,
  *  because killing a real process tree takes time and can fail. */
-export function cancelRun(reg, skillRunId, at, reason) {
-  const r = findRun(reg, skillRunId);
+export function cancelRun(reg, runId, at, reason) {
+  const r = findRun(reg, runId);
   if (!r || TERMINAL_SET.has(r.status)) return null;
   // WHY they stopped is recorded on BOTH branches. It used to be written only
   // on the pre-execution one, so a `running` run — the case where the reason is
@@ -378,8 +376,8 @@ export function cancelRun(reg, skillRunId, at, reason) {
 /** The backend confirmed the process is gone. Only from `cancelling`: claiming
  *  `cancelled` without that confirmation is exactly the pretence the contract
  *  forbids (§5.4 rule 3). */
-export function confirmCancelled(reg, skillRunId, at) {
-  const r = findRun(reg, skillRunId);
+export function confirmCancelled(reg, runId, at) {
+  const r = findRun(reg, runId);
   if (!r || r.status !== "cancelling") return null;
   r.status = "cancelled";
   r.endedAt = strOrNull(at);
@@ -392,8 +390,8 @@ export function confirmCancelled(reg, skillRunId, at) {
  *  verdict: with no checker, `directorReview` stays null and the UI says the
  *  review is unavailable (the same honesty rule as the Impact Review's semantic
  *  verdict, ADR-0054 决策 6). */
-export function reviewRun(reg, skillRunId, review) {
-  const r = findRun(reg, skillRunId);
+export function reviewRun(reg, runId, review) {
+  const r = findRun(reg, runId);
   if (!r || !isPending(r) || !isObj(review)) return null;
   r.directorReview = {
     verdict: strOrNull(review.verdict),
@@ -406,8 +404,8 @@ export function reviewRun(reg, skillRunId, review) {
 /** The creator ACCEPTS a proposal. This marks the run; the canonical write is
  *  the caller's, through the normal domain controllers — this module never
  *  touches canon, so an accept can never itself corrupt a document. */
-export function acceptRun(reg, skillRunId, at) {
-  const r = findRun(reg, skillRunId);
+export function acceptRun(reg, runId, at) {
+  const r = findRun(reg, runId);
   if (!r || !isPending(r)) return null;
   // The STATUS does not move: the execution already succeeded. What changes is
   // the creator's disposition of the answer — which is the whole reason these
@@ -421,8 +419,8 @@ export function acceptRun(reg, skillRunId, at) {
 /** The creator REJECTS a proposal. The record is KEPT — a rejected run is the
  *  most informative kind for improving a Skill later, and deleting it would
  *  leave only the flattering half of the history. */
-export function rejectRun(reg, skillRunId, at, reason) {
-  const r = findRun(reg, skillRunId);
+export function rejectRun(reg, runId, at, reason) {
+  const r = findRun(reg, runId);
   if (!r || !isPending(r)) return null;
   r.proposal.disposition = "rejected";
   r.decision = "rejected"; // compatibility field, removed in TASK-074
@@ -444,8 +442,8 @@ export function rejectRun(reg, skillRunId, at, reason) {
  * disposition set is frozen (ADR-0066 决策 8) and because TASK-073's proposal
  * replacement is the caller it is waiting for.
  */
-export function supersedeRun(reg, skillRunId, at) {
-  const r = findRun(reg, skillRunId);
+export function supersedeRun(reg, runId, at) {
+  const r = findRun(reg, runId);
   if (!r || !isPending(r)) return null;
   r.proposal.disposition = "superseded";
   r.decidedAt = strOrNull(at);

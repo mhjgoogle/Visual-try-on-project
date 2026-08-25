@@ -8,7 +8,6 @@ import assert from "node:assert/strict";
 
 import { request, attempt, ApiError, API_ERROR, legacyError } from "../src/services/apiclient.js";
 import { buildEnvelope, preflight, submit, newOperationId, submitCommand } from "../src/services/command.js";
-import * as gateway from "../src/services/gateway.js";
 import * as command from "../src/services/command.js";
 import * as query from "../src/services/query.js";
 
@@ -236,13 +235,11 @@ test("the write path and the read coordinates now come from the seam that names 
     assert.equal(typeof query[r], "function", `${r} must be a READ`);
     assert.equal(r in command, false, `${r} only reads — it must not sit in command.js`);
   }
-  // the deprecated shim re-exports rather than reimplementing, so it cannot drift
-  for (const k of ["buildEnvelope", "preflight", "submit", "adoptPaid", "submitCommand"]) {
-    assert.equal(gateway[k], command[k], `gateway.${k} must BE command.${k}`);
-  }
-  for (const k of ["getGenerationTarget", "getLockTarget", "paidOps"]) {
-    assert.equal(gateway[k], query[k], `gateway.${k} must BE query.${k}`);
-  }
+  // 原本这里还有两组断言，钉的是 `services/gateway.js` 那个兼容层「re-export 而
+  // 不是重新实现，所以不会漂移」。**那个文件在 TASK-074 §1.5 批次 3 删掉了**
+  // （它自己的文件头就写着「TASK-074 §1.5 deletes the file once nothing imports
+  // it」，而 `src/` 里确实一个 import 都没有了）。层没了，「层会不会漂移」这个
+  // 问题也就不存在了 —— 上面那两组「谁只读、谁只写」的断言才是真正要长期成立的。
 });
 
 test("the MONEY paths get their uniqueness from the operation id, not the envelope", () => {

@@ -82,6 +82,6 @@ export function lastRunOf(ctx, skillId) {
     // emits — so a completed run silently fell through to its START time and the
     // chip labelled that as when the tidy-up happened (codex review, 批次 F2 round 2).
     at: last.endedAt || last.startedAt || last.createdAt || "",
-    skillRunId: last.skillRunId || last.runId || "",
+    runId: last.runId || "",
   };
 }

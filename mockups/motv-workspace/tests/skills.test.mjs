@@ -250,12 +250,12 @@ test("a run records skill + version + who ran it, and starts as running", () => 
     inputKeys: ["outline", "episodePlan"], inputSummary: "EP01",
     createdAt: "2026-08-12T00:00:00Z",
   });
-  assert.ok(r.skillRunId);
+  assert.ok(r.runId);
   assert.equal(r.status, "running");
   assert.equal(r.model, null, "an unreported model stays null, never assumed");
   assert.equal(r.proposal, null);
   assert.equal(r.decision, null);
-  assert.equal(findRun(reg, r.skillRunId), r);
+  assert.equal(findRun(reg, r.runId), r);
   // a run with no skill or no version records nothing usable
   assert.equal(startRun(reg, { skillVersion: 1 }), null);
   assert.equal(startRun(reg, { skillId: "x" }), null);
@@ -265,22 +265,22 @@ test("a run records skill + version + who ran it, and starts as running", () => 
 test("proposed ≠ accepted: a proposal is not a decision", () => {
   const reg = createSkillRunRegistry(null);
   const r = startRun(reg, { skillId: "script-doctor", skillVersion: 1 });
-  proposeRun(reg, r.skillRunId, { findings: [] }, { model: "claude-opus-5" });
+  proposeRun(reg, r.runId, { findings: [] }, { model: "claude-opus-5" });
   // v15: the two questions finally have their own fields. The EXECUTION
   // succeeded; the ANSWER is still undecided.
   assert.equal(r.status, "succeeded");
   assert.equal(r.proposal.disposition, "pending");
   assert.equal(r.model, "claude-opus-5"); // what ACTUALLY answered
   assert.equal(r.decision, null);
-  acceptRun(reg, r.skillRunId, "2026-08-12T01:00:00Z");
+  acceptRun(reg, r.runId, "2026-08-12T01:00:00Z");
   assert.equal(r.status, "succeeded", "accepting does not re-run anything");
   assert.equal(r.proposal.disposition, "accepted");
   assert.equal(r.decision, "accepted");
   assert.equal(r.decidedAt, "2026-08-12T01:00:00Z");
   // a decided run cannot be re-proposed or re-decided
-  assert.equal(proposeRun(reg, r.skillRunId, { findings: [] }), null);
-  assert.equal(acceptRun(reg, r.skillRunId, "x"), null);
-  assert.equal(rejectRun(reg, r.skillRunId, "x"), null);
+  assert.equal(proposeRun(reg, r.runId, { findings: [] }), null);
+  assert.equal(acceptRun(reg, r.runId, "x"), null);
+  assert.equal(rejectRun(reg, r.runId, "x"), null);
 });
 
 test("a landed run is CLOSED — a second answer can never wipe the first", () => {
@@ -289,16 +289,16 @@ test("a landed run is CLOSED — a second answer can never wipe the first", () =
   // destroys the creator's result.
   const reg = createSkillRunRegistry(null);
   const r = startRun(reg, { skillId: "script-doctor", skillVersion: 1 });
-  assert.ok(proposeRun(reg, r.skillRunId, { findings: [{ where: "w", problem: "p", fix: "f" }] }));
+  assert.ok(proposeRun(reg, r.runId, { findings: [{ where: "w", problem: "p", fix: "f" }] }));
   const kept = r.proposal;
   // proposeRun refuses a run that is no longer `running`…
-  assert.equal(proposeRun(reg, r.skillRunId, { findings: [] }), null);
+  assert.equal(proposeRun(reg, r.runId, { findings: [] }), null);
   assert.equal(r.proposal, kept);
   // …and v15 makes this STRUCTURAL rather than a caller's duty: failRun now
   // refuses a terminal run outright, so a late error cannot destroy a result
   // the creator already saw. (Before, it succeeded and cleared the proposal,
   // and only the caller's own check stood between that and data loss.)
-  assert.equal(failRun(reg, r.skillRunId, "invalid_output", "second answer was junk"), null);
+  assert.equal(failRun(reg, r.runId, "invalid_output", "second answer was junk"), null);
   assert.equal(r.status, "succeeded");
   assert.equal(r.proposal, kept, "the landed answer survives a late failure");
 });
@@ -306,8 +306,8 @@ test("a landed run is CLOSED — a second answer can never wipe the first", () =
 test("a rejected run is KEPT — it is the most informative kind", () => {
   const reg = createSkillRunRegistry(null);
   const r = startRun(reg, { skillId: "script-doctor", skillVersion: 1 });
-  proposeRun(reg, r.skillRunId, { findings: [] });
-  rejectRun(reg, r.skillRunId, "2026-08-12T01:00:00Z", "全是空话");
+  proposeRun(reg, r.runId, { findings: [] });
+  rejectRun(reg, r.runId, "2026-08-12T01:00:00Z", "全是空话");
   assert.equal(r.status, "succeeded");
   assert.equal(r.proposal.disposition, "rejected");
   assert.equal(r.rejectionReason, "全是空话");
@@ -318,7 +318,7 @@ test("failure kinds stay distinct and never carry a proposal", () => {
   for (const kind of RUN_ERROR_KINDS) {
     const reg = createSkillRunRegistry(null);
     const r = startRun(reg, { skillId: "cinematography", skillVersion: 1 });
-    failRun(reg, r.skillRunId, kind, "detail here");
+    failRun(reg, r.runId, kind, "detail here");
     assert.equal(r.status, "failed");
     assert.equal(r.error.kind, kind);
     assert.equal(r.failureReason.category, kind, "the same fact in v15 vocabulary");
@@ -327,14 +327,14 @@ test("failure kinds stay distinct and never carry a proposal", () => {
   // an unknown kind degrades to execution_error rather than being stored raw
   const reg = createSkillRunRegistry(null);
   const r = startRun(reg, { skillId: "cinematography", skillVersion: 1 });
-  failRun(reg, r.skillRunId, "made-up", null);
+  failRun(reg, r.runId, "made-up", null);
   assert.equal(r.error.kind, "execution_error");
   // a late failure never erases a decision the creator already made
   const reg2 = createSkillRunRegistry(null);
   const r2 = startRun(reg2, { skillId: "cinematography", skillVersion: 1 });
-  proposeRun(reg2, r2.skillRunId, { approach: "a", perShot: [] });
-  acceptRun(reg2, r2.skillRunId, "t");
-  assert.equal(failRun(reg2, r2.skillRunId, "timeout", "late"), null);
+  proposeRun(reg2, r2.runId, { approach: "a", perShot: [] });
+  acceptRun(reg2, r2.runId, "t");
+  assert.equal(failRun(reg2, r2.runId, "timeout", "late"), null);
   assert.equal(r2.status, "succeeded");
   assert.equal(r2.proposal.disposition, "accepted");
 });
@@ -342,9 +342,9 @@ test("failure kinds stay distinct and never carry a proposal", () => {
 test("the Director review is attached only when a real check ran", () => {
   const reg = createSkillRunRegistry(null);
   const r = startRun(reg, { skillId: "continuity-reviewer", skillVersion: 1 });
-  proposeRun(reg, r.skillRunId, { issues: [] });
+  proposeRun(reg, r.runId, { issues: [] });
   assert.equal(r.directorReview, null, "no checker ⇒ no verdict, not a fake one");
-  reviewRun(reg, r.skillRunId, { verdict: "ok", notes: ["与场景一致"], by: "ai-director" });
+  reviewRun(reg, r.runId, { verdict: "ok", notes: ["与场景一致"], by: "ai-director" });
   assert.equal(r.directorReview.verdict, "ok");
   assert.deepEqual(r.directorReview.notes, ["与场景一致"]);
 });
@@ -353,9 +353,9 @@ test("accumulation is a tally a human reads, not a score the system acts on", ()
   const reg = createSkillRunRegistry(null);
   const mk = (decision) => {
     const r = startRun(reg, { skillId: "prompt-director", skillVersion: 1 });
-    proposeRun(reg, r.skillRunId, { prompt: "p" });
-    if (decision === "accepted") acceptRun(reg, r.skillRunId, "t");
-    if (decision === "rejected") rejectRun(reg, r.skillRunId, "t");
+    proposeRun(reg, r.runId, { prompt: "p" });
+    if (decision === "accepted") acceptRun(reg, r.runId, "t");
+    if (decision === "rejected") rejectRun(reg, r.runId, "t");
     return r;
   };
   mk("accepted"); mk("accepted"); mk("rejected"); mk(null);
@@ -469,7 +469,7 @@ test("v12 validation rejects a run that misreports what the creator saw", () => 
     return validateCanvasDoc(doc);
   };
   assert.equal(withRun(() => {}), null);
-  assert.ok(withRun((r) => { r.skillRunId = ""; }));
+  assert.ok(withRun((r) => { r.runId = ""; }));
   assert.ok(withRun((r) => { r.skillId = ""; }));
   assert.ok(withRun((r) => { r.skillVersion = 0; }));
   assert.ok(withRun((r) => { r.skillVersion = "1"; }));

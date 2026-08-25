@@ -228,20 +228,14 @@ async function _read(path, label) {
 }
 
 /* --------------------------------------------------------------------------- */
-/* COMPATIBILITY LAYER — deprecated (系统合同 §7 / TASK-072 §1.4)               */
+/* 兼容层已删除（TASK-074 §1.5 批次 2，2026-08-25）                              */
 /* --------------------------------------------------------------------------- */
 //
-// Every WRITE moved to services/command.js. These re-exports keep the existing call
-// sites working unchanged; they are deprecated and TASK-074 §1.5 deletes them once
-// nothing imports them from here.
+// TASK-072 §1.4 把每一个 WRITE 搬去了 services/command.js，并在这里留了十六个
+// re-export 让当时的调用点不用跟着改。**十六个调用点现在全部直接从 command.js
+// 走**，所以这一段没有了。
 //
-// Re-exported rather than reimplemented, so there is exactly ONE implementation of
-// each write and the compatibility layer cannot drift from it.
-export {
-  createProject, listFlows, projectFlow, migrateLegacy,
-  generateShotsDraft, generateScriptDraft, generateBibleBreakdown,
-  developStory, planEpisodes,
-  renderEpisode, mixShotAudio, composeFinal, ttsGenerate,
-  deleteAssetFile, uploadAssetImage,
-  paidImageGenerate,
-} from "./command.js";
+// 删它买到的是这个模块的那句话重新为真：**这里的东西一律不改状态。**
+// 一个从 `query.*` 取到的写函数会让「这一次调用会不会改东西」这个问题
+// 无法靠「它来自哪个模块」回答 —— 而那正是当初拆开两个模块的全部理由
+// （系统合同 §7）。能力一个都没删，只是入口只剩一个（§1.5 规则 2）。

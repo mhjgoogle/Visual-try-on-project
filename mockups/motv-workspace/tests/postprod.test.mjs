@@ -63,6 +63,8 @@ test("a reading is stored with its author — nothing is inferred from a file", 
   const r = refinterp.activeReading(doc, "ref-1");
   assert.deepEqual(r.axes, { cameraLanguage: "缓慢推进", pacing: "两拍一动" });
   assert.equal(r.origin, "skill");
+  // `skillRunId` 在解读记录上是**外键**，不是 Run 记录自己的别名 ——
+  // TASK-074 §1.5 删的是后者，这一处刻意不动（见 v18→v19 迁移注释）。
   assert.equal(r.skillRunId, "run-1");
   // an UNANSWERED axis stays absent — 「没说」 and 「说了空」 mean different things
   assert.equal("lighting" in r.axes, false);

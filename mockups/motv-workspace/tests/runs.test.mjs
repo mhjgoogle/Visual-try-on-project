@@ -56,7 +56,7 @@ test("the run lifecycle is eight states and the disposition is four", () => {
 test("a landed answer is succeeded + pending, not a single fused status", () => {
   const reg = createSkillRunRegistry();
   const r = mkRun(reg);
-  proposeRun(reg, r.skillRunId, { premise: "p" });
+  proposeRun(reg, r.runId, { premise: "p" });
   assert.equal(r.status, "succeeded", "the EXECUTION succeeded");
   assert.equal(dispositionOf(r), "pending", "the ANSWER is undecided");
   assert.ok(isPending(r));
@@ -66,8 +66,8 @@ test("a landed answer is succeeded + pending, not a single fused status", () => 
 test("accepting moves the disposition and leaves the status alone", () => {
   const reg = createSkillRunRegistry();
   const r = mkRun(reg);
-  proposeRun(reg, r.skillRunId, { premise: "p" });
-  acceptRun(reg, r.skillRunId, "2026-08-13T00:00:00Z");
+  proposeRun(reg, r.runId, { premise: "p" });
+  acceptRun(reg, r.runId, "2026-08-13T00:00:00Z");
   assert.equal(r.status, "succeeded", "the run did not re-succeed; it was already done");
   assert.equal(dispositionOf(r), "accepted");
   assert.ok(isAccepted(r));
@@ -77,8 +77,8 @@ test("accepting moves the disposition and leaves the status alone", () => {
 test("rejecting keeps the record — a rejected proposal is the informative kind", () => {
   const reg = createSkillRunRegistry();
   const r = mkRun(reg);
-  proposeRun(reg, r.skillRunId, { premise: "p" });
-  rejectRun(reg, r.skillRunId, "t", "不要这个方向");
+  proposeRun(reg, r.runId, { premise: "p" });
+  rejectRun(reg, r.runId, "t", "不要这个方向");
   assert.ok(isRejected(r));
   assert.deepEqual(r.proposal, { premise: "p", proposalId: r.proposal.proposalId, disposition: "rejected" });
 });
@@ -86,8 +86,8 @@ test("rejecting keeps the record — a rejected proposal is the informative kind
 test("superseded is available but nothing produces it automatically", () => {
   const reg = createSkillRunRegistry();
   const r = mkRun(reg);
-  proposeRun(reg, r.skillRunId, { premise: "p" });
-  assert.ok(supersedeRun(reg, r.skillRunId, "t"));
+  proposeRun(reg, r.runId, { premise: "p" });
+  assert.ok(supersedeRun(reg, r.runId, "t"));
   assert.equal(dispositionOf(r), "superseded");
   // …and only a PENDING proposal can be superseded: a decision the creator
   // already made is not quietly overwritten by a newer answer
@@ -103,18 +103,18 @@ test("superseded is available but nothing produces it automatically", () => {
 test("a landed run records when it ended", () => {
   const reg = createSkillRunRegistry();
   const r = mkRun(reg);
-  proposeRun(reg, r.skillRunId, { premise: "p" }, { at: "2026-08-13T02:00:00Z" });
+  proposeRun(reg, r.runId, { premise: "p" }, { at: "2026-08-13T02:00:00Z" });
   assert.equal(r.endedAt, "2026-08-13T02:00:00Z");
 });
 
 test("a manual run waits in awaiting_input and is still open", () => {
   const reg = createSkillRunRegistry();
   const r = mkRun(reg, { executor: "manual" });
-  assert.ok(awaitInput(reg, r.skillRunId));
+  assert.ok(awaitInput(reg, r.runId));
   assert.equal(r.status, "awaiting_input");
   assert.ok(isOpen(r), "the creator can still bring an answer back");
   // …and the pasted answer lands exactly like a local one
-  proposeRun(reg, r.skillRunId, { premise: "p" });
+  proposeRun(reg, r.runId, { premise: "p" });
   assert.ok(isPending(r));
 });
 
@@ -123,16 +123,16 @@ test("a manual run waits in awaiting_input and is still open", () => {
 test("cancelling a running run goes through cancelling, never straight to cancelled", () => {
   const reg = createSkillRunRegistry();
   const r = mkRun(reg);
-  cancelRun(reg, r.skillRunId, "t");
+  cancelRun(reg, r.runId, "t");
   assert.equal(r.status, "cancelling", "a kill takes time and can fail");
-  assert.equal(confirmCancelled(reg, r.skillRunId, "t2").status, "cancelled");
+  assert.equal(confirmCancelled(reg, r.runId, "t2").status, "cancelled");
 });
 
 test("a pre-execution run cancels at once — there is no process to signal", () => {
   for (const status of ["queued", "awaiting_confirmation", "awaiting_input"]) {
     const reg = createSkillRunRegistry();
     const r = mkRun(reg, { status });
-    cancelRun(reg, r.skillRunId, "t");
+    cancelRun(reg, r.runId, "t");
     assert.equal(r.status, "cancelled", status);
   }
 });
@@ -140,16 +140,16 @@ test("a pre-execution run cancels at once — there is no process to signal", ()
 test("confirmCancelled refuses anything that is not cancelling", () => {
   const reg = createSkillRunRegistry();
   const r = mkRun(reg);
-  assert.equal(confirmCancelled(reg, r.skillRunId, "t"), null,
+  assert.equal(confirmCancelled(reg, r.runId, "t"), null,
     "claiming cancelled without a confirmed kill is the pretence the contract forbids");
 });
 
 test("a terminal run is never re-failed by a late error", () => {
   const reg = createSkillRunRegistry();
   const r = mkRun(reg);
-  proposeRun(reg, r.skillRunId, { premise: "p" });
-  acceptRun(reg, r.skillRunId, "t");
-  assert.equal(failRun(reg, r.skillRunId, "timeout", "late"), null);
+  proposeRun(reg, r.runId, { premise: "p" });
+  acceptRun(reg, r.runId, "t");
+  assert.equal(failRun(reg, r.runId, "timeout", "late"), null);
   assert.equal(r.status, "succeeded");
 });
 
@@ -161,8 +161,8 @@ test("abandoning a front-end run reaches a TERMINAL state, not limbo", () => {
   // clear.
   const reg = createSkillRunRegistry();
   const r = mkRun(reg, { executor: "manual" });
-  cancelRun(reg, r.skillRunId, "t", "创作者放弃");
-  confirmCancelled(reg, r.skillRunId, "t");
+  cancelRun(reg, r.runId, "t", "创作者放弃");
+  confirmCancelled(reg, r.runId, "t");
   assert.equal(r.status, "cancelled");
   assert.ok(!isOpen(r), "an abandoned run must not stay open");
 });
@@ -172,7 +172,11 @@ test("abandoning a front-end run reaches a TERMINAL state, not limbo", () => {
 test("a new run carries the contract's fields, with honest nulls", () => {
   const reg = createSkillRunRegistry();
   const r = mkRun(reg, { createdAt: "2026-08-13T00:00:00Z" });
-  assert.equal(r.runId, r.skillRunId, "one identity, two names — not two identities");
+  // TASK-074 §1.5：一个身份，**一个名字**。此前这里断言的是「两个名字、同一个值」；
+  // v19 把别名删掉之后，要钉的就变成了「新记录上根本不存在那个名字」——
+  // 否则某处重新写回 `skillRunId` 时没有任何东西会红。
+  assert.match(r.runId, /^skillrun-/, "身份由 startRun 铸出");
+  assert.ok(!("skillRunId" in r), "别名不再被写出（系统合同 §5.0）");
   assert.equal(r.kind, "skill");
   assert.equal(r.taskType, "skill.story-development", "a STABLE machine key");
   assert.equal(r.provider, null, "unknown stays null — never guessed");
@@ -184,12 +188,12 @@ test("a new run carries the contract's fields, with honest nulls", () => {
 test("stats read the disposition axis, not the status", () => {
   const reg = createSkillRunRegistry();
   const a = mkRun(reg);
-  proposeRun(reg, a.skillRunId, { premise: "p" });
-  acceptRun(reg, a.skillRunId, "t");
+  proposeRun(reg, a.runId, { premise: "p" });
+  acceptRun(reg, a.runId, "t");
   const b = mkRun(reg);
-  proposeRun(reg, b.skillRunId, { premise: "q" });
+  proposeRun(reg, b.runId, { premise: "q" });
   const c = mkRun(reg);
-  failRun(reg, c.skillRunId, "timeout", "slow");
+  failRun(reg, c.runId, "timeout", "slow");
   const s = skillStats(reg, "story-development");
   assert.equal(s.accepted, 1);
   assert.equal(s.failed, 1);
@@ -212,7 +216,7 @@ const v14doc = () => ({
 
 test("v15 migration maps every old status deterministically", () => {
   const doc = MIGRATIONS[14](v14doc());
-  const by = Object.fromEntries(doc.skillRuns.map((r) => [r.skillRunId, r]));
+  const by = Object.fromEntries(doc.skillRuns.map((r) => [r.runId, r]));
   assert.equal(by.r1.status, "succeeded");
   assert.equal(by.r1.proposal.disposition, "pending", "an undecided proposal is NOT lost");
   assert.equal(by.r2.proposal.disposition, "accepted");
@@ -228,6 +232,8 @@ test("v15 migration maps every old status deterministically", () => {
 test("v15 migration adds identity and classification without inventing history", () => {
   const doc = MIGRATIONS[14](v14doc());
   for (const r of doc.skillRuns) {
+    // 这一步产出的是 **v15** 文档：那一版两个名字都在，且必须是同一个值。
+    // 别名的删除发生在 v18→v19（见本文件末尾），不在这里。
     assert.equal(r.runId, r.skillRunId, "same id, new name");
     assert.equal(r.kind, "skill");
     assert.equal(r.taskType, "skill.s");
@@ -244,7 +250,7 @@ test("the migration is a pure function of the document (run it twice)", () => {
   assert.deepEqual(twice, once, "no clock, no randomness — same input, same output");
 });
 
-test("the current schema version is 18", () => {
+test("the current schema version is 19", () => {
   // v16: ADR-0073 决策 8 adds `production.shotProduction.stages` (skip decisions
   // only). A pinned number is the point — it forces whoever bumps the schema to
   // come here and say what changed, which is how the migration list stays honest.
@@ -258,7 +264,12 @@ test("the current schema version is 18", () => {
   // v18（TASK-095 §2.3 / 批次 4D）：`batches` —— 批量付费的状态必须活过一次刷新。
   //   一个已确认的批次带着报价、已花多少与「迟到回执还没收齐」；刷新丢掉它，
   //   创作者会再确认一次，而对付费批量那是**第二次真实扣费**。
-  assert.equal(CANVAS_SCHEMA_VERSION, 18);
+  //
+  // v19（TASK-074 §1.5 / 系统合同 §5.0）：删除 Run 记录自己的 `skillRunId` 别名。
+  //   两个字段承载同一个值（v15 起校验就拒绝它们不等），所以删除**不丢信息**；
+  //   删它的理由是读侧不必再逐处决定信哪个。外键字段（`generations[].origin`
+  //   等）上叫 `skillRunId` 的那些**不动** —— 它们一个值一个名字，不是别名。
+  assert.equal(CANVAS_SCHEMA_VERSION, 19);
 });
 
 // --- validator -------------------------------------------------------------- //
@@ -279,27 +290,103 @@ test("the validator accepts a migrated v15 document", () => {
 
 test("a succeeded run without a disposition is refused", () => {
   const bad = baseDoc([
-    { skillRunId: "x", skillId: "s", skillVersion: 1, status: "succeeded", proposal: { a: 1 } },
+    { runId: "x", skillId: "s", skillVersion: 1, status: "succeeded", proposal: { a: 1 } },
   ]);
   assert.match(validate(bad) || "", /disposition/);
 });
 
 test("a failed run carrying a proposal is refused — failure never becomes content", () => {
   const bad = baseDoc([
-    { skillRunId: "x", skillId: "s", skillVersion: 1, status: "failed", proposal: { a: 1 } },
+    { runId: "x", skillId: "s", skillVersion: 1, status: "failed", proposal: { a: 1 } },
   ]);
   assert.match(validate(bad) || "", /carries a proposal/);
 });
 
-test("a runId that disagrees with skillRunId is refused", () => {
-  const bad = baseDoc([
+test("v15–v18: a runId that disagrees with skillRunId is refused", () => {
+  // 这条规则描述的是**别名还在的那几版**，所以文档必须真的标成 v18，
+  // 而不是拿当前版本的壳子去测一条已经换了形状的规则。
+  const bad = { ...baseDoc([]), v: 18, skillRuns: [
     {
       skillRunId: "x", runId: "y", skillId: "s", skillVersion: 1,
       status: "succeeded", proposal: { a: 1, disposition: "pending" },
     },
-  ]);
+  ] };
   assert.match(validate(bad) || "", /conflicting runId/,
     "two identities for one run makes every provenance edge ambiguous");
+});
+
+test("v19：别名要么不在，要么仍是同一个值", () => {
+  // 同一条不变量在 v19 换了形状 —— **两边都要有测试**，否则「别名删掉之后
+  // 两个不同的 id 还能不能溜进来」这个问题没有任何东西在答。
+  const conflicting = baseDoc([
+    {
+      runId: "x", skillRunId: "y", skillId: "s", skillVersion: 1,
+      status: "succeeded", proposal: { a: 1, disposition: "pending" },
+    },
+  ]);
+  assert.match(validate(conflicting) || "", /conflicting skillRunId alias/);
+
+  // 相等的冗余字段**不构成信息损坏**：它顶多是一份没走完迁移的旧文档，
+  // 为它拒绝整份文档只会让创作者打不开自己的项目。
+  const redundant = baseDoc([
+    {
+      runId: "x", skillRunId: "x", skillId: "s", skillVersion: 1,
+      status: "succeeded", proposal: { a: 1, disposition: "pending" },
+    },
+  ]);
+  assert.equal(validate(redundant), null);
+
+  // 而**没有 runId** 在 v19 就是损坏 —— 那是这条记录唯一的身份。
+  const nameless = baseDoc([
+    { skillRunId: "x", skillId: "s", skillVersion: 1, status: "running", proposal: null },
+  ]);
+  assert.match(validate(nameless) || "", /has no runId/);
+});
+
+test("v18 → v19：别名被删掉，身份一个都没少", () => {
+  const v18 = {
+    v: 18,
+    skillRuns: [
+      { skillRunId: "r1", runId: "r1", skillId: "s", skillVersion: 1, status: "running", proposal: null },
+      // 只有旧名的记录（v15 之前的残留形状）：先补齐身份，再删旧名。
+      { skillRunId: "r2", skillId: "s", skillVersion: 1, status: "running", proposal: null },
+      // 两个名字都给不出 id —— **原样留着**，交给校验拒绝整份文档。
+      // 悄悄改写不可恢复，拒绝加载可恢复（AGENTS.md 第 13 条）。
+      { skillRunId: "", runId: null, skillId: "s", skillVersion: 1, status: "running", proposal: null },
+    ],
+  };
+  const out = MIGRATIONS[18](structuredClone(v18));
+  assert.equal(out.skillRuns[0].runId, "r1");
+  assert.ok(!("skillRunId" in out.skillRuns[0]), "别名删掉了");
+  assert.equal(out.skillRuns[1].runId, "r2", "只有旧名时，身份从旧名补齐");
+  assert.ok(!("skillRunId" in out.skillRuns[1]));
+  assert.equal(out.skillRuns[2].skillRunId, "", "形状不对的那条一个字节都没动");
+  assert.equal(out.skillRuns[2].runId, null);
+
+  // 无时钟、无随机：同样的输入两次跑出同样的结果。
+  assert.deepEqual(MIGRATIONS[18](MIGRATIONS[18](structuredClone(v18))), out);
+});
+
+test("v18 → v19：两个名字给出**两个不同的 id** 时，迁移一个字节都不动", () => {
+  // codex 审查轮 1 的 P1。第一版写的是 `runId || skillRunId`，也就是
+  // 「冲突时信 runId」—— 那是在**悄悄裁决一场冲突**：v15–v18 的校验本来就
+  // 拒绝 `runId !== skillRunId`，所以带冲突的文档在旧版里根本加载不了；
+  // 迁移之后它却变成一份合法的 v19 文档，另一个 id 被删掉再也追不回来。
+  // `generations[].origin` 这类外键若指的正是被删掉的那一个，溯源链就此断掉
+  // 或指错，而且没有任何一处会报错。
+  const conflicting = {
+    v: 18,
+    skillRuns: [
+      { runId: "a", skillRunId: "b", skillId: "s", skillVersion: 1, status: "running", proposal: null },
+    ],
+  };
+  const out = MIGRATIONS[18](structuredClone(conflicting));
+  assert.deepEqual(out.skillRuns[0], conflicting.skillRuns[0], "冲突的记录原样留着");
+
+  // …而「原样留着」之所以是**正确**动作，是因为校验会拒绝整份文档。
+  // 拒绝加载可恢复，悄悄改写不可恢复（AGENTS.md 第 13 条）。
+  const stamped = baseDoc(out.skillRuns);
+  assert.match(validate(stamped) || "", /conflicting skillRunId alias/);
 });
 
 test("a corrupted non-object proposal is WRAPPED, not lost and not left unusable", () => {
@@ -319,7 +406,7 @@ test("a corrupted non-object proposal is WRAPPED, not lost and not left unusable
 
 test("a succeeded run with a non-object proposal is refused", () => {
   const bad = baseDoc([
-    { skillRunId: "x", skillId: "s", skillVersion: 1, status: "succeeded", proposal: [] },
+    { runId: "x", skillId: "s", skillVersion: 1, status: "succeeded", proposal: [] },
   ]);
   assert.match(validate(bad) || "", /non-object proposal/);
 });
@@ -327,7 +414,7 @@ test("a succeeded run with a non-object proposal is refused", () => {
 test("the pre-v15 statuses are no longer valid", () => {
   for (const status of ["proposed", "accepted", "rejected"]) {
     const bad = baseDoc([
-      { skillRunId: "x", skillId: "s", skillVersion: 1, status, proposal: { a: 1 } },
+      { runId: "x", skillId: "s", skillVersion: 1, status, proposal: { a: 1 } },
     ]);
     assert.match(validate(bad) || "", /invalid status/, status);
   }

@@ -1,6 +1,7 @@
 # TASK-074：第四阶段 —— 后期交付、旧数据迁移、旧页面与旧接口清理、真实项目验收
 
-- 状态：**部分实施**（§1.1b 已完成；§1.2 领域层 + 界面已完成；§1.3 两条已完成）
+- 状态：**部分实施**（2026-08-25 更新）。**已完成**：§1.1 · §1.1b · §1.2 · §1.5 · §1.6，§1.3 四条里三条，§1.4 八条边界里七条。
+  **未闭合且各有去向**：§1.4 边界 4 与 §1.5 两行端点退役 → [TASK-106](TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md)（同一个缺失机制）；§1.3 的 `approveShot` 双写 → [TASK-087 §4.12](TASK-087-followup-ledger.md)（需 ADR）
 - 实施基线：**`ae0a54a`** + TASK-072 / TASK-073 的交付
 - 负责 Agent：单一实施 Agent（AGENTS.md 第 14 条）
 - 依据：[ADR-0066](../../adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)、
@@ -133,7 +134,7 @@ demo seed 与 SVG 占位素材不作为主要验收依据）：
 | 1 未全定稿提交正式审片被 G1 拒 | ✅ 本文件（且验到「被拒之后仍可生成**测试**粗剪」） |
 | 2 审片后改顺序回落 needs_rereview | ✅ 本文件（且验到**回落是替换不是删除** —— 「曾经通过过」这个事实要留着 —— 以及幂等） |
 | 3 有 blocking 质检问题时导出被 G4 拒 | ✅ 本文件（且验到另一半：**没跑过质检 ≠ 通过**） |
-| 4 长任务刷新→从后端恢复 | ✅ `tests/studio/test_motv_runs_api_task072.py` |
+| 4 长任务刷新→从后端恢复 | ⛔ **退回未闭合（2026-08-25）** —— `tests/studio/test_motv_runs_api_task072.py` 测的是**后端 API**，而前端一处都不读运行状态。见下方订正；去向 [TASK-106](TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) |
 | 5 长任务取消→子进程真实退出 | ✅ `tests/e2e/test_motv_run_lifecycle_task072.py`（真进程树） |
 | 6 后端不可用→报错不显示空列表 | ✅ `tests/backend500.test.mjs` + `listerror.test.mjs` + e2e |
 | 7 runtime 不可用→手工兜底 | ✅ `tests/studio/test_motv_runs_api_task072.py` |
@@ -143,9 +144,30 @@ demo seed 与 SVG 占位素材不作为主要验收依据）：
 G5 单独去掉「已存在」那道检查时**存活** —— 查下去是**第二道守卫（版本只前进）
 接住了**，不是测试漏了；两道一起去掉即红。纵深防御，如实记下。
 
-**所以 §1.4 还剩什么**：八条边界情况**全部有自动守卫**。剩下的只有
-「一个人看一眼产出的成片觉得好不好」—— 那是审美，**§1.4 没有要求它**，
-里程碑级的产品判断在 TASK-037 / TASK-040。§1.4 到此**机械上已闭合**。
+> ##### 订正（2026-08-25，§1.5 期间实测）：**边界 4 的那个 ✅ 只覆盖后端**
+>
+> 上表把边界 4「长任务运行中刷新页面 → 状态从后端恢复」归给
+> `tests/studio/test_motv_runs_api_task072.py`。那份测试是真的，但它测的是
+> **后端 API**；而查下去，**前端从来不调它**：
+>
+> - `grep -rn "api/runs" src/services/` 只有一处 —— `POST /api/runs/<id>/cancel`。
+>   **没有任何一处读**运行状态（`GET /api/runs` / `GET /api/runs/<id>` 零调用点）。
+> - `_reconcile_skill_runs` 只挂在 **canvas PUT** 上；`_canvas_get` 不对账。
+>   所以刷新之后页面拿到的是**上次保存时**的运行状态，不是后端此刻的状态。
+> - `src/controllers/skillctl.js` 里没有任何 resume / reconcile / 轮询。
+>
+> 结论：**「能力存在」被当成了「能力接通」** —— 与本节自己列的那一族
+> fail-open 同形（「守卫在它要守的东西消失时变绿」），只是这次发生在**归属**上：
+> 归属表要求「钉到一个具名测试」，而那条测试确实存在、确实在跑、确实是绿的，
+> 它只是**测的不是产品路径**。
+>
+> 边界 4 因此**退回未闭合**，与 §1.5 那两行端点退役同一个前置（见下）。
+> 其余七条不受影响 —— 它们钉的都是前端自己跑得到的代码。
+
+**所以 §1.4 还剩什么**：八条边界情况里**七条有自动守卫**；边界 4 于 2026-08-25
+退回未闭合（上方订正：归属测试测的是后端 API，不是产品路径），去向 TASK-106。
+除此之外剩下的只有「一个人看一眼产出的成片觉得好不好」—— 那是审美，
+**§1.4 没有要求它**，里程碑级的产品判断在 TASK-037 / TASK-040。
 
 ---
 
@@ -236,7 +258,8 @@ G5 单独去掉「已存在」那道检查时**存活** —— 查下去是**第
 | --- | --- | --- |
 | `/api/skill/run` 同步分支 | `services/runtime.js:282` **仍在调**（`attempt("/api/skill/run", …)`） | **否** —— 条件「前端已全部走 `run_id` 路径」不成立 |
 | `/api/agent/*` 五个创作端点 | `services/command.js` 里**八处以上**在调（shots-draft / script-draft / bible-breakdown / story-develop / episode-plan / render-episode / mix-shot / motion-preview） | **否** |
-| `services/query.js` 的写函数 re-export | 16 个里 **14 个仍有调用点**；只有 `renderEpisode` 与 `mixShotAudio` 已无人从 `query.*` 调 | **仅那 2 个** |
+| `services/query.js` 的写函数 re-export | 16 个里 **14 个仍有调用点**；只有 `renderEpisode` 与 `mixShotAudio` 已无人从 `query.*` 调 | ~~**仅那 2 个**~~ → **16 个全删了**（批次 2）：该删的是入口，调用点挪一下就行 |
+| `run.skillRunId` 兼容别名 | —— | ~~**否**~~ → **已删除**（批次 1，v18→v19） |
 | `run.skillRunId` 兼容别名 | 全仓 **149 处**。它**不是一个薄别名** —— `app.js` 里 `remember(scope, shotId, value, { skillRunId … })` 这类签名都带着它 | **否** —— 这一条本身就是一次独立迁移 |
 | `approveShot` 旧布尔标记 | `approveShot` / `unapproveShot` 仍是活的 action 名与 `shotprod` 调用；要删的是**旧布尔标记**而非这两个函数，需要再细分一次才知道边界 | **未判定** —— 边界还没划清 |
 
@@ -254,12 +277,149 @@ re-export 确实无人使用。没删的理由是 §1.5 整节的硬前置是 §
 2. **能力已在别处覆盖才删入口；能力本身不删。**
 3. **有疑问就保留。** 一个多余的文件比一个丢失的能力便宜得多。
 
+#### §1.5 批次 1（2026-08-25）：`run.skillRunId` 别名已删除
+
+上表把这一条判为「否 —— 这一条本身就是一次独立迁移」。**那次迁移做完了。**
+
+| 落点 | 内容 |
+| --- | --- |
+| `workflow/skillrun.js` | `startRun` 只铸 `runId`，记录上**不再写出** `skillRunId`；`findRun` 与八个状态转换全部按 `runId` 匹配 |
+| `services/canvasschema.js` | 新增 `migrateV18ToV19`：先补齐身份再删旧名；`CANVAS_SCHEMA_VERSION` → 19。校验按**文档自己那一版的词汇**判：v19 要求 `runId`，v12–v18 仍要求 `skillRunId` |
+| 读侧 | `skillctl` / `directorshot` / `skillpanel` / `production` / `agentsession` / `taskrow` / `runskill` / `provenance` 共 31 处属性访问改读 `runId`；`skillctl` 的参数名一并统一 |
+| `server.py` | `_reconcile_skill_runs` 的 `runId or skillRunId` 回落**刻意留着**，理由写在代码里：它读的是**还没被这个前端迁移过**的 PUT body |
+
+**范围判断（这一条比改动本身重要）**：`skillRunId` 在仓库里有两种用法，只有第一种
+是别名。
+
+- **Run 记录自己的 `skillRunId`** —— 同一个对象上，同一个值挂两个名字。**这是别名，
+  已删。** 删它不丢信息：v15 起校验就拒绝 `runId !== skillRunId`，所以任何能被加载的
+  v15–v18 文档里这两个名字下面必然是同一个字符串。
+- **别的结构上叫 `skillRunId` 的字段** —— `generations[].origin`、promptdoc / refinterp /
+  ctxcache 的版本记录。那些是**外键**：一个值，一个名字，不存在「读侧该信哪个」的问题。
+  给它们改名要再跨四种持久化形状做一次迁移，换不到任何行为上的东西（规则 3）。
+  **不动，并且在迁移注释里写明了不动的理由**，免得下一个人把它当遗漏重做一遍。
+
+**守卫**（两条都断言性质，不断言写法）：`runs.test.mjs` 的
+「a new run carries the contract's fields」现在钉的是 `!("skillRunId" in r)` ——
+此前它钉的是「两个名字、同一个值」，别名删掉之后那句话会**恒真**，也就是说
+有人把字段写回来时不会有任何东西变红；新增「v18 → v19：别名被删掉，身份一个都没少」
+覆盖三条路径（两名齐全 / 只有旧名 / 两个都给不出 id 时原样不动）。
+「v15–v18 冲突被拒」与「v19 冲突被拒」**两版各留一条** —— 同一条不变量换了形状，
+只留新的那条等于把旧版文档的保护删掉。
+
+验证：前端 1856 全绿；`pytest tests/studio tests/contract` 662 passed；ruff 全绿。
+
+#### §1.5 批次 2（2026-08-25）：`query.js` 的写函数 re-export 已全部删除
+
+上表判的是「仅那 2 个可删」。**16 个全删了** —— 因为按 §1.5 规则 2，该删的是
+**入口**，而能力早就住在 `command.js` 里。剩下那 14 个不是「还不能删」，是
+「调用点还没挪」，而挪它们是 `app.js` 里 20 处 `query.X` → `command.X` 的机械替换。
+
+| 落点 | 内容 |
+| --- | --- |
+| `app.js` | 20 处调用点改从 `command.*` 走（十四个函数名；全部调用点都在这一个文件里） |
+| `services/query.js` | 整段兼容层删除。这个模块的那句话重新为真：**这里的东西一律不改状态** |
+| `tests/retirementready.test.mjs` | 守的规则换了 —— 见下 |
+
+**顺带抓到一条真缺陷**：`app.js` 的 `askPromptBatchGateway` 调的是
+`query.preflight(...)`，而 **`query.js` 一天都没有导出过 `preflight`** ——
+这一行只要被走到就抛 `preflight is not a function`。改成 `command.preflight`。
+它能活到今天是因为 `app.js` 是入口编排文件、`.test.mjs` import 不了它
+（[TASK-087 §3.6.4](TASK-087-followup-ledger.md)），所以**没有任何测试走过这条路**；
+抓到它的正是本批次新写的那条源码级守卫。
+
+**那条守卫换了它守的东西**（这一步值得单独说）。它原本守的是 §1.5 的**前置**：
+「§1.4 没通过之前，这两个已无人调用的 re-export 也不许提前删」。§1.4 闭合、
+本批次删完之后，那条规则**保护的是历史行为**，留着它只会让正确的改动变红。
+换成那件长期成立的事：**`query.*` 底下不得再出现写操作**，两个方向各一条
+（导出面 / 调用点），名单**从 `command.js` 的 `export function` 派生**而不是
+手写 —— 新加的写函数应当**因为存在**而进入守卫（TASK-087 §7 方法论第 2 条）。
+
+守卫本身判的是**调用**不是**提到**：`app.js` 里那段解释「为什么必须是
+`command.preflight`」的注释会被文本扫描判成违规，于是扫描前先去掉注释 ——
+否则这条守卫会逼着代码不许把理由写下来，而理由正是防止有人改回去的那样东西。
+
+**变异验证两个方向**：把 `renderEpisode` 的 re-export 加回 `query.js` → 导出面
+那条红；把 `app.js` 的一处 `command.mixShotAudio` 改回 `query.mixShotAudio`
+→ 调用点那条红。还原后三条全绿。
+
+验证：前端 1856 全绿。
+
+#### §1.5 批次 3（2026-08-25）：「只服务旧入口的 UI 模块」—— 删 1 个，另外 3 个**刻意不删**
+
+§1.5 那一行写的是「**逐个确认无引用后**再删；有疑问就保留」。确认的方法不是读卡，
+是把 `src/` 下 165 个 `.js` 的 import 图跑出来，取**零 importer** 的那些
+（`app.js` 是入口，不算）。结果是 4 个，而它们分属三种完全不同的情况 ——
+**这才是「逐个确认」的意思**：
+
+| 模块 | 实测 | 处置 |
+| --- | --- | --- |
+| `services/gateway.js` | 19 行的兼容层，**它自己的文件头就写着**「TASK-074 §1.5 deletes the file once nothing imports it」。`src/` 里零 import；唯一引用者是 `apiclient.test.mjs` 里「这个层不会漂移」的两组断言 | **已删除**。能力全在 `command.js` / `query.js`，层没了「层会不会漂移」也就不存在了；那两组断言随之删掉，同一测试里「谁只读、谁只写」的断言留着 —— 那才是长期要成立的 |
+| `ui/timelinews.js` | `production.js` 里有一条具名注记：ADR-0061 决策 6 用后期制作台取代了剪辑工作区，**「模块留在树里，但没有任何东西渲染它」**。它的 `renderTimelineWs` / `bindTimelineWs` 是死界面；`timelineModel` 仍被 `av.test.mjs` 用 | **保留**。删它要连带判断 `timelineModel` 该搬去哪 —— 那是位置问题不是清理问题（规则 3） |
+| `ui/genrecord.js` | 「生成记录」，IA §5.1 #12 · #31 **明文要求**的能力，而且是 IA §6.3 把技术词汇（Skill ID / 执行器 / 模型 / 内部 task id）「搬过去」的那个落点 | **保留**。零 importer 在这里不是「旧入口」，是**这个能力今天没有入口** —— 删它就是删能力，正是规则 2 禁的 |
+| `workflow/artifactversion.js` | 系统合同 §3 的六态派生词汇，只读、零写入，有自己的测试与一条 `tests/contract` 守卫。`src/` 里零消费者 | **保留**。同上：合同里的词汇，不是过期入口 |
+
+**后两条是同一个形状，而且值得单独说**：**有实现、有测试、没有入口**。
+codex 在 TASK-103 批次 B 把这个形状判过 P1（「导出了、测了、没人用，且让
+『闭环已接通』看起来成立」，见 [TASK-087 §1.2](TASK-087-followup-ledger.md)）。
+这里没有那么严重 —— 没有任何一处文档声称它们已经接通 —— 但登记下来，
+因为**从「零 importer」这个信号出发，删掉它们和接上它们看起来一样合理**，
+而两者的后果相反。已登记为 TASK-087 新条目。
+
+验证：前端 1856 全绿；`pytest tests/contract tests/studio` 662 passed。
+
+#### §1.5 批次 4（2026-08-25）：剩下两行**卡在同一个缺失的机制**上
+
+`/api/skill/run` 同步分支与 `/api/agent/*` 五个创作端点，核查表里各写了一行
+「否 —— 条件不成立」。查下去，两行**不是两件事**：
+
+**它们的条件是同一句话 ——「前端已全部走 `run_id` 路径」，而前端今天没有读运行
+状态的能力，一处都没有。**
+
+| 实测 | 结果 |
+| --- | --- |
+| `grep -rn "api/runs" src/services/` | **1 处**，且是 `POST …/cancel`。`GET /api/runs` / `GET /api/runs/<id>` **零调用点** |
+| `grep -n "timeoutMs: 0" src/services/command.js` | **16 处**长任务，全部是同步阻塞 `await` |
+| `skillctl.js` 里的 resume / reconcile / 轮询 | **没有** |
+| `_reconcile_skill_runs` 挂在哪 | 只挂 canvas **PUT**；`_canvas_get` 不对账 |
+
+后端两条路都齐了（`X-Motv-Async: 1` → `202 {run_id}`，`_agent_sync_response`
+保留旧响应形状）。缺的是**前端那一半**：一个读运行状态并与画布记录对账的循环。
+那**不是接线，是一个新机制** —— 多久问一次、与 `_reconcile_skill_runs` 谁说了算、
+关标签页怎么办、失败怎么退避，每一条都是要定的决定（AGENTS.md 第 21 条 → 需要 ADR）。
+
+**所以 §1.5 对这两行的正确动作就是不删**，这不是推迟：§1.5 的规则 1 是
+「先确认无引用，再删」，确认的结果是**仍被引用且条件不成立**；规则 3 是
+「有疑问就保留」。照规则走完，结论就是保留。
+
+**同一个前置也挡着 §1.4 边界 4**（见上面那条订正）。三者合并成一张新卡：
+[TASK-106](TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md)。
+
 ### 1.6 文档收口
 
 - ADR-0052 / 0064 / 0065 / 0066 已于 2026-08-13 全部转 Accepted，
   ADR-0057 / 0061 / 0063 的替代关系注记已加好（**未修改原决策文字**，
   AGENTS.md 第 18 条）。**治理状态无残留项**，本轮只复查一遍注记是否与最终实现一致。
 - 更新 [端到端需求追踪矩阵](../../design/end-to-end-requirements-traceability.md)。
+
+#### §1.6 执行记录（2026-08-25）
+
+**一、三条替代关系注记逐条复查 —— 两条一致，一条不一致。**
+
+| 注记 | 它说了什么 | 实现 |
+| --- | --- | --- |
+| ADR-0057 被 ADR-0066 **拆分**：单层审片 → 三层 | 层 1 逐镜通过 / 层 2 粗剪审片 / 层 3 交付质检 | ✅ 一致：`review.js` 的 `LAYERS`、`cutreview.js`、`deliveryqc.js` 三层齐备，且有守卫钉住「三层的 category 集合互不相交」 |
+| ADR-0061 决策 2 **被撤销**：右栏不再永远属于 AI 导演，改为按需打开的上下文 Agent 面板 | —— | ✅ 一致：`ui/agentpanel.js`，其七项与两个入口都有守卫 |
+| ADR-0063 决策 4/5 **被撤销**：生产图**降级为「生成记录」与诊断视图** | 诊断视图 = `ui/shotgraphview.js`（`production.js:54` 真的 import 了）；**「生成记录」= `ui/genrecord.js`** | ⛔ **不一致**：`genrecord.js` 在 `src/` 里**零 importer**。它是唯一渲染 Skill ID / Skill 版本 / Runtime / Executor / Model 的地方，而 `ui/agentpanel.js:199` 在界面上写着「在每个结果旁的『生成记录』里」—— **那句话今天不成立**。已登记 [TASK-087 §5.13](TASK-087-followup-ledger.md) |
+
+这正是 §1.6 这一步存在的理由：注记写的是「降级为 X」，而 X 有实现、有测试、
+**没有入口**。不逐条对着代码看一遍，它会一直读起来像已经完成。
+
+**二、追踪矩阵**：按该文件自己的维护规则第 2 条（「只有对应验收任务通过后才能
+提升覆盖级别」），本轮**不提升任何一行的覆盖级别** —— TASK-074 不是 §3 里任何
+一行的最终 owner（那些是 TASK-039 / TASK-040）。新增的是一节「本卡交付了什么、
+**没闭合什么**」（该文件 §3b），把 §1.4 边界 4 的退回与 §1.5 三行未删一并写在
+那里，否则下一个读矩阵的人会以为清理已经做完。
 
 ## 2. 依赖
 
@@ -343,8 +503,8 @@ TASK-073 全部验收
 | §1.2 的**接线**（跑 ffmpeg 真实探测 → 填 probe → 展示 QCReport） | **已完成**（2026-08-15，见 §4.2） |
 | §1.3 旧数据迁移 | **实质完成**（见 §4「§1.3 旧数据迁移」小节）：四条里两条已实施、两条本来就成立。唯一剩余的是 `approveShot` 旧标记的**删除**，它按约定要等 §1.4 真实验收之后——**被 §1.4 阻塞，不是未做** |
 | §1.4 真实项目全流程验收（八个边界情况） | **机械那一半已闭合**（2026-08-24，见 §1.4 下的小节）：ffmpeg 合成真媒体 + 真 Chromium + 真后端，3 条测试全绿，八条边界逐条有归属。**判断那一半仍要产品负责人本人**跑完整一集看内容成不成立 |
-| §1.5 旧页面 / 旧接口清理 | **未做**，且它以 §1.4 全绿为硬前置 |
-| §1.6 文档收口 | **被 §1.4/§1.5 阻塞**，不是可以提前做的：两部分都要最终实现定型后才有内容——（a）复查 ADR-0057/0061/0063 的替代关系注记「是否与最终实现一致」，而实现还会被 §1.5 的清理改动；（b）更新[端到端需求追踪矩阵](../../design/end-to-end-requirements-traceability.md)，但该表按需求项组织、目前仍停在 WFM1 基线（TASK-024/033/040），TASK-074 该登记什么取决于 §1.4 的验收结果。提前填等于把未发生的验收写成记录 |
+| §1.5 旧页面 / 旧接口清理 | **已按它自己的规则走完**（2026-08-25，四个批次）：删除 `run.skillRunId` 别名（v18→v19 迁移）、`query.js` 十六个写函数 re-export、`services/gateway.js` 兼容层；`/api/skill/run` 同步分支 · `/api/agent/*` 五个创作端点 · 三个孤儿模块**确认后保留**，原因逐条写在 §1.5 各批次小节。规则 1「先确认无引用，再删」与规则 3「有疑问就保留」的结论就是保留 —— **这不是推迟** |
+| §1.6 文档收口 | **已完成**（2026-08-25，见 §1.6 执行记录）：三条替代关系注记逐条对着代码复查，两条一致、**一条不一致**（ADR-0063 说生产图「降级为生成记录」，而 `ui/genrecord.js` 零 importer）；追踪矩阵新增 §3b「交付了什么 / 没闭合什么」，按其维护规则第 2 条**不提升任何覆盖级别** |
 | Codex 独立审查 | **未做**（reviewer 不可用） |
 
 ## 实施记录（2026-08-15）
@@ -471,6 +631,51 @@ G4 的结论由界面**渲染**而不是重新推导：两个地方决定能不�
 **为什么标记而不改 `state`**：改写 `state` 会把一条 open 的阻断问题移出
 `openIssues`，G4 于是放行一次本该被拦下的导出。一个悄悄解开闸门的迁移，
 比它要修的漂移更糟。
+
+#### `approveShot` 旧标记 —— 划边界（2026-08-25），结论是**它不能在本卡删**
+
+§1.5 的核查表把这一行留成「未判定 —— 边界还没划清」。现在划清了。
+
+**两份记录各自携带什么**：
+
+| | 层 1 `ReviewDecision`（`reviews.decisions`） | 旧标记（`production.shotProduction.reviews[shotId]`） |
+| --- | --- | --- |
+| 审的是哪一版 | `basedOnVersion`（**必填**，`review.decision()` 缺它直接拒） | 无 |
+| 审的是哪个产物 | **无** | `assetId` —— `isApprovedFor` 比的就是它 |
+| 创作者写的话 | **无**（`decision()` 不保留 `note`） | `note` |
+| 谁能写 | 只有 `by: "user"` | 同 |
+
+**所以「只留层 1 Decision」今天做不到，会丢两样东西**：
+
+1. **`assetId`**。`isApprovedFor(shotId, videoAssetId)` 判的是「这条通过是给**这一个
+   产物**的」，用的是身份。改判 `basedOnVersion` 是**换成更弱的判据** —— 版本号是
+   链内序数，而溯源图画的是 assetId（`prodgraph` 里已有「一条通过指向**另一个镜头**
+   的产物必须被拒」这样的测试）。
+2. **`note`**。那是创作者本人写下的文字，`decision()` 不带它。删掉旧标记就是删掉它 ——
+   §1.3 的硬规则第一句就是「不删除任何用户数据」。
+
+**而且还有一个真正需要决定的东西**：一条**旧的、没有版本号的**通过记录，
+在 Decision 的词汇里**表示不出来** —— `basedOnVersion` 是必填的。代码里已经写着
+这件事（`app.js` 撤销通过那一段：「A legacy approval carries no version, so no valid
+Decision can be written for it」）。三条出路各有代价：
+
+| 出路 | 代价 |
+| --- | --- |
+| 迁移时**合成**一条 Decision，`basedOnVersion: null` | 要给 `decisionStanding` 加第四种答案（今天 `null === currentVersion` 会算成 `stale`，而它不是过期，是**没说审的哪一版**） |
+| 放宽 `basedOnVersion` 为可空 | 削弱那条让 `decisionStanding` 有意义的不变量 |
+| 旧标记只保留给旧记录 | 两个读者还在，正是 §1.3 要消掉的东西 |
+
+**这是一次 ReviewDecision 合同变更（加 `basedOnAssetId` + `note`，并给
+「未版本化的通过」一个表示法），按 AGENTS.md 第 21 条需要 ADR。**
+不在本卡的 §1.3「旧数据迁移」范围里 —— 那一节的另外三条都是加法或派生，
+只有这一条要改合同。
+
+**已知的真实后果（今天就在，不是这次引入的）**：撤销通过那条路上两份记录**会**
+不一致 —— 旧记录没有版本号时写不出 Decision，代码选择「撤销照样生效」并把这一点
+写进了注释，于是旧标记说「没通过」而最新的 Decision 还停在 `passed`。这正是
+§1.3 想消掉那次双写的理由，也是这条欠账的优先级依据。
+
+**登记去向**：TASK-087（欠账总账），并在那里带上上面这张出路表。
 
 ### G4 为什么还没接到渲染上（明确记录，不是遗漏）
 
