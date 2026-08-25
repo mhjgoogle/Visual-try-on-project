@@ -7,7 +7,41 @@
   "chain_mode": true,
   "tasks": {
     "TASK-074": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "2aee0d6e10b21f017491171e2ec715e91c610552",
+          "subject": "refactor(TASK-074): §1.5 批次 1 —— 删除 run.skillRunId 别名，runId 成为唯一身份",
+          "time": "2026-08-25T11:27:14+00:00",
+          "branch": "change/TASK-074-legacy-retirement",
+          "pushed": true,
+          "files": [
+            "docs/auto-push/changes/t074-legacy-retirement.json",
+            "docs/design/creator-system-contract.md",
+            "docs/tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md",
+            "mockups/motv-workspace/server.py",
+            "mockups/motv-workspace/src/controllers/skillctl.js",
+            "mockups/motv-workspace/src/services/canvasschema.js",
+            "mockups/motv-workspace/src/ui/agentpanel.js",
+            "mockups/motv-workspace/src/ui/agentsession.js",
+            "mockups/motv-workspace/src/ui/directorshot.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/src/ui/runskill.js",
+            "mockups/motv-workspace/src/ui/skillpanel.js",
+            "mockups/motv-workspace/src/ui/taskrow.js",
+            "mockups/motv-workspace/src/workflow/provenance.js",
+            "mockups/motv-workspace/src/workflow/skillrun.js",
+            "mockups/motv-workspace/tests/aidirector.test.mjs",
+            "mockups/motv-workspace/tests/bibleposture.test.mjs",
+            "mockups/motv-workspace/tests/postprod.test.mjs",
+            "mockups/motv-workspace/tests/prodgraph.test.mjs",
+            "mockups/motv-workspace/tests/runs.test.mjs",
+            "mockups/motv-workspace/tests/shotstage.test.mjs",
+            "mockups/motv-workspace/tests/skillctl.test.mjs",
+            "mockups/motv-workspace/tests/skills.test.mjs"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/",
         "mockups/motv-workspace/"
