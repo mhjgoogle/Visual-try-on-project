@@ -1274,7 +1274,23 @@ function migrateV18ToV19(doc) {
     if (!isObj(r)) continue;
     // 先把身份补齐再删旧名，顺序不能反：反过来做，一条只有旧名的记录会在
     // 补齐之前就失去它唯一的 id。
-    const id = str(r.runId) || str(r.skillRunId);
+    const runId = str(r.runId);
+    const alias = str(r.skillRunId);
+    // **两个名字给出两个不同的 id —— 一个字节都不动**（codex 审查轮 1 的 P1）。
+    //
+    // 第一版这里写的是 `runId || skillRunId`，也就是「冲突时信 runId」。那是在
+    // **悄悄裁决一场冲突**：v15–v18 的校验本来就拒绝 `runId !== skillRunId`，
+    // 所以带着冲突的文档在旧版里根本加载不了；而这样迁移之后它变成一份合法的
+    // v19 文档，另一个 id 被删掉再也追不回来。如果 `generations[].origin`
+    // 这类外键指的是被删掉的那一个，溯源链就此断掉或指错，**而且没有任何一处
+    // 会报错**。
+    //
+    // 正确动作与下面「两个都给不出 id」那条完全一样：原样留着，让校验去拒绝
+    // 整份文档（v19 校验器认得这个形状，报 conflicting skillRunId alias）。
+    // 拒绝加载可恢复，悄悄改写不可恢复 —— AGENTS.md 第 13 条，也是这段注释
+    // 自己在上一版就写下的规矩，只是没有贯彻到冲突这一支。
+    if (runId && alias && runId !== alias) continue;
+    const id = runId || alias;
     if (!id) continue; // 两个名字都给不出 id —— 不动它，让校验说话
     r.runId = id;
     delete r.skillRunId;

@@ -59,14 +59,37 @@ function writeFunctionNames() {
   return [...names];
 }
 
+/** query.js 的**导出面**：每一条 `export …` 语句的完整文本（含跨行的那些）。
+ *
+ *  第一版用的是「名字所在行 + 最多再往下一行里有 `from "./command.js"`」这种
+ *  近似（codex 审查轮 1 的 non-blocking）。**被删掉的那个兼容层本身就是五行**，
+ *  名字离 `from` 子句三四行远 —— 也就是说那条守卫恰好抓不到它存在的理由，
+ *  又一个 fail-open。
+ *
+ *  改成按**导出语句的三种形状**切，`export { … }` 的花括号整块吃进来，所以
+ *  跨多少行都一样。仍然是文本近似，但近视的单位从「两行」变成「一条语句」。
+ *
+ *  **注释先去掉**（`codeOnly`）：判的是导出，不是提到。 */
+const EXPORT_SHAPES = [
+  // export { a, b, c } from "…";  ——  花括号整块，跨行无所谓
+  /\bexport\s*\{[\s\S]*?\}[^;\n]*/g,
+  // export * from "…";  ——  一次泄漏全部
+  /\bexport\s*\*[^;\n]*/g,
+  // export function foo(… / export const foo = …
+  /\bexport\s+(?:default\s+)?(?:async\s+)?(?:function|const|let|var|class)\s+[\w$]+/g,
+];
+
+function exportStatements(text) {
+  const code = codeOnly(text);
+  return EXPORT_SHAPES.flatMap((re) => code.match(re) || []);
+}
+
 test("§7：command.js 的每一个写函数都不得能从 `query.*` 取到", () => {
   const query = readFileSync(new URL("services/query.js", SRC), "utf8");
-  const leaked = writeFunctionNames().filter((fn) => (
-    // 只看 query.js 里的**导出面**：注释里提到某个名字（比如解释为什么删掉了
-    // 兼容层）不是泄漏。这里判的是「它有没有被再导出」。
-    new RegExp(`^\\s*export\\b[^\\n]*\\b${fn}\\b`, "m").test(query)
-    || new RegExp(`\\b${fn}\\b[^\\n]*\\n?[^\\n]*from ["']\\./command\\.js["']`).test(query)
-  ));
+  const statements = exportStatements(query);
+  const leaked = writeFunctionNames().filter((fn) =>
+    statements.some((st) => new RegExp(`\\b${fn}\\b`).test(st)),
+  );
   assert.deepEqual(leaked, [],
     `这些写函数又能从 \`query.*\` 取到了：${leaked}。`
     + "系统合同 §7：读住 query.js，写住 command.js —— 一个写操作从读模块导出，"

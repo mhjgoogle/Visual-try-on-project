@@ -367,6 +367,28 @@ test("v18 → v19：别名被删掉，身份一个都没少", () => {
   assert.deepEqual(MIGRATIONS[18](MIGRATIONS[18](structuredClone(v18))), out);
 });
 
+test("v18 → v19：两个名字给出**两个不同的 id** 时，迁移一个字节都不动", () => {
+  // codex 审查轮 1 的 P1。第一版写的是 `runId || skillRunId`，也就是
+  // 「冲突时信 runId」—— 那是在**悄悄裁决一场冲突**：v15–v18 的校验本来就
+  // 拒绝 `runId !== skillRunId`，所以带冲突的文档在旧版里根本加载不了；
+  // 迁移之后它却变成一份合法的 v19 文档，另一个 id 被删掉再也追不回来。
+  // `generations[].origin` 这类外键若指的正是被删掉的那一个，溯源链就此断掉
+  // 或指错，而且没有任何一处会报错。
+  const conflicting = {
+    v: 18,
+    skillRuns: [
+      { runId: "a", skillRunId: "b", skillId: "s", skillVersion: 1, status: "running", proposal: null },
+    ],
+  };
+  const out = MIGRATIONS[18](structuredClone(conflicting));
+  assert.deepEqual(out.skillRuns[0], conflicting.skillRuns[0], "冲突的记录原样留着");
+
+  // …而「原样留着」之所以是**正确**动作，是因为校验会拒绝整份文档。
+  // 拒绝加载可恢复，悄悄改写不可恢复（AGENTS.md 第 13 条）。
+  const stamped = baseDoc(out.skillRuns);
+  assert.match(validate(stamped) || "", /conflicting skillRunId alias/);
+});
+
 test("a corrupted non-object proposal is WRAPPED, not lost and not left unusable", () => {
   // codex review rounds 4-7: leaving it alone produced a `succeeded` record
   // whose proposal can never be recognised as pending/accepted/rejected.
