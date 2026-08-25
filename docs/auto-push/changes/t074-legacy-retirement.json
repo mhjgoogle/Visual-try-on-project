@@ -69,6 +69,20 @@
           "scope_violation": [
             "tests/contract/test_frontend_write_path_invariants.py"
           ]
+        },
+        {
+          "hash": "ff0a23f4b1b901578edd27c92bd7672c51ed3a39",
+          "subject": "refactor(TASK-074): §1.5 批次 3 —— 删掉 gateway.js 兼容层，另外三个孤儿模块刻意不删",
+          "time": "2026-08-25T12:12:06+00:00",
+          "branch": "change/TASK-074-legacy-retirement",
+          "pushed": true,
+          "files": [
+            "docs/tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "mockups/motv-workspace/src/services/gateway.js",
+            "mockups/motv-workspace/tests/apiclient.test.mjs"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
