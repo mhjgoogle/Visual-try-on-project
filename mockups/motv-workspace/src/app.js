@@ -976,7 +976,7 @@ async function developStoryRun(kind, instruction) {
     let payload;
     if (CONNECTED) {
       payload = kind === "plan"
-        ? await query.planEpisodes({
+        ? await command.planEpisodes({
             outline: storydoc.approvedOutline(doc).outline,
             instruction,
             // WHAT IS BEING REVISED (TASK-094 批次 A) — and ONLY when this run is
@@ -993,7 +993,7 @@ async function developStoryRun(kind, instruction) {
               characterId: c.characterId, name: c.name, tier: c.tier,
             })),
           })
-        : await query.developStory({
+        : await command.developStory({
             idea: doc.idea,
             current: (storydoc.activeOutline(doc) || {}).outline || null,
             instruction,
@@ -1037,7 +1037,7 @@ async function generateScript(kind, instruction) {
   try {
     let content;
     if (CONNECTED) {
-      content = await query.generateScriptDraft(
+      content = await command.generateScriptDraft(
         kind === "revision" ? { baseScript: base, instruction } : { idea: instruction },
       );
     } else {
@@ -1069,15 +1069,21 @@ async function generateScript(kind, instruction) {
 
 /** 真正问 Gateway 要一批提示词合成的总额（预检只读，从不扣费）。
  *
- * 留在 app.js 而不是跟着控制器走：它读的是 `ctx.gateway` 与 `query`，也就是
+ * 留在 app.js 而不是跟着控制器走：它读的是 `ctx.gateway` 与 `command`，也就是
  * 这个文件负责组装的那两样东西。控制器通过 `preflight` 注入拿到它，测试替换
- * 的仍然是同一个缝。 */
+ * 的仍然是同一个缝。
+ *
+ * **`command.preflight`，不是 `query.preflight`** —— 后者从来就不存在
+ * （`query.js` 一天都没有导出过它），所以这一行原本会直接抛
+ * `preflight is not a function`。TASK-074 §1.5 批次 2 的守卫抓到的，
+ * 见卡上那一节。预检本身是只读的，但它住在 command.js：两步提交是**一个**
+ * 动作的两半，拆到两个模块会让第二步找不到自己的第一步。 */
 async function askPromptBatchGateway(batch) {
   const envelope = ctx.gateway.buildEnvelope
     ? ctx.gateway.buildEnvelope({ kind: "prompt-compose", count: batch.items.length })
     : null;
   if (!envelope) return null;
-  return query.preflight(PROJECT_NAME, envelope);
+  return command.preflight(PROJECT_NAME, envelope);
 }
 
 // --- UI singletons ---
@@ -2518,7 +2524,7 @@ const ctx = {
     },
   },
 
-  agentShotsDraft: (script) => query.generateShotsDraft(script),
+  agentShotsDraft: (script) => command.generateShotsDraft(script),
   // Story development controller (M9): Idea → Outline (versioned, approved) →
   // Episode Plan (versioned, confirmed). The ONLY write path into the story
   // document; AI output lands as proposals, application is explicit, versions
@@ -2828,7 +2834,7 @@ const ctx = {
           // assets, so the breakdown can point at an existing reference instead of
           // proposing a duplicate object, and the cast, so an entity that already
           // has a profile comes back as an update.
-          raw = await query.generateBibleBreakdown(script, {
+          raw = await command.generateBibleBreakdown(script, {
             assets: assetreg.listAssets(assetRegistry).map((a) => ({
               key: a.key, kind: a.kind, name: assetreg.derivedLabel(a),
               tags: a.tags, links: a.links,
@@ -3107,7 +3113,7 @@ const ctx = {
       // disk would leave exactly the orphan file this checkpoint forbids.
       const pre = assetreg.checkDeclaration("audio", { kind });
       if (pre) throw new Error(`登记被拒绝，未上传：${pre}`);
-      const res = await query.uploadAssetImage(PROJECT_NAME, `audio-${key}`, file);
+      const res = await command.uploadAssetImage(PROJECT_NAME, `audio-${key}`, file);
       const ref = mediaref.refFromResponse(key, "upload", res, shotId ?? null);
       // CP2: the caller states the audio KIND (对白 / 环境音 / 音效 / BGM). It is
       // not inferred from the key text — the key is an addressing detail, and
@@ -3162,7 +3168,7 @@ const ctx = {
       const key = `voice-${slot}`;
       // pass the speaker's FIXED base voiceId so the server renders with a
       // matching local piper model when present (else honest default fallback)
-      const res = await query.ttsGenerate(PROJECT_NAME, `audio-${key}`, text, fitSlug || undefined, voiceMeta && voiceMeta.voiceId ? voiceMeta.voiceId : undefined);
+      const res = await command.ttsGenerate(PROJECT_NAME, `audio-${key}`, text, fitSlug || undefined, voiceMeta && voiceMeta.voiceId ? voiceMeta.voiceId : undefined);
       const ref = mediaref.refFromResponse(key, "tts", res, shotId ?? null);
       // CP2: a TTS take IS 对白, and its speaker is the character just verified
       // to have a fixed base voice — both facts, recorded at the write.
@@ -4832,7 +4838,7 @@ const ctx = {
       if (!CONNECTED) throw new Error("演示模式无后端，无法删除文件");
       const hit = assetlib.findAssetById(assetRegistry, assetId);
       if (!hit) throw new Error("资产不存在");
-      await query.deleteAssetFile(PROJECT_NAME, String(hit.record.url || "").split("/").pop());
+      await command.deleteAssetFile(PROJECT_NAME, String(hit.record.url || "").split("/").pop());
       assetlib.setStorageState(assetRegistry, assetId, "deleted");
       ctx.persist();
       refreshProductionView();
@@ -4850,7 +4856,7 @@ const ctx = {
       }
       const hit = assetlib.findAssetById(assetRegistry, assetId);
       if (!hit) throw new Error("资产不存在");
-      await query.deleteAssetFile(PROJECT_NAME, String(hit.record.url || "").split("/").pop());
+      await command.deleteAssetFile(PROJECT_NAME, String(hit.record.url || "").split("/").pop());
       assetlib.removeAssetRecord(assetRegistry, assetId);
       // CP4/ADR-0057 决策 5: removing the LAST version of a canonical Reference
       // removes its chain, and any shot still bound to that key would render a
@@ -4926,7 +4932,7 @@ const ctx = {
       // checked BEFORE the upload — see ctx.audio.importKey
       const pre = assetreg.checkDeclaration(domain, { kind: declKind });
       if (pre) throw new Error(`登记被拒绝，未上传：${pre}`);
-      const res = await query.uploadAssetImage(PROJECT_NAME, slug, file);
+      const res = await command.uploadAssetImage(PROJECT_NAME, slug, file);
       const map = kind === "image" ? assetRegistry.images : assetRegistry.videos;
       const ref = mediaref.refFromResponse(slot, "upload", res, shotId ?? null);
       // CP2/ADR-0055: the import declares WHAT this is and WHERE it belongs, in
@@ -5045,13 +5051,13 @@ const ctx = {
   // manual providers (prototype scratch): media upload + explicit persistence
   uploadMedia: (slug, file) => {
     if (!CONNECTED) return Promise.reject(new Error("演示模式无后端，无法上传"));
-    return query.uploadAssetImage(PROJECT_NAME, slug, file);
+    return command.uploadAssetImage(PROJECT_NAME, slug, file);
   },
   // free automatic voice-over via local Piper TTS (ADR-0043); fitSlug names an
   // uploaded video slot so the narration is paced to fit that clip's duration
   agentTts: (slug, text, fitSlug) => {
     if (!CONNECTED) return Promise.reject(new Error("演示模式无后端"));
-    return query.ttsGenerate(PROJECT_NAME, slug, text, fitSlug);
+    return command.ttsGenerate(PROJECT_NAME, slug, text, fitSlug);
   },
   // paid image generation (ADR-0045): PAID mode only, price already confirmed
   // by the caller's per-image dialog and echoed for the server-side check
@@ -5061,12 +5067,12 @@ const ctx = {
       err.definitiveReject = true; // a client-side guard — nothing was generated/billed
       return Promise.reject(err);
     }
-    return query.paidImageGenerate(PROJECT_NAME, slug, prompt, confirmUsd);
+    return command.paidImageGenerate(PROJECT_NAME, slug, prompt, confirmUsd);
   },
   // real local FFmpeg draft compose (ADR-0044)
   composeFinal: (spec) => {
     if (!CONNECTED) return Promise.reject(new Error("演示模式无后端"));
-    return query.composeFinal(PROJECT_NAME, spec);
+    return command.composeFinal(PROJECT_NAME, spec);
   },
   // The video/audio upload maps for the edit node's readiness view — merged
   // across ALL nodes of the type: slot ids are unique per draft version, so
@@ -5449,7 +5455,7 @@ ctx.assets = createAssetController({
   },
   modules: { assetreg, assetlib, mediaref, assetusage, assetlibws },
   session: { connected: () => CONNECTED, projectName: () => PROJECT_NAME },
-  uploadAssetImage: (project, key, file) => query.uploadAssetImage(project, key, file),
+  uploadAssetImage: (project, key, file) => command.uploadAssetImage(project, key, file),
   pickFile,
   mediaDomainOfFile,
   domainSlugPrefix,
@@ -5992,7 +5998,7 @@ function showLegacyBanner(name) {
     go.disabled = true;
     go.textContent = "迁移中…";
     try {
-      const r = await query.migrateLegacy(name);
+      const r = await command.migrateLegacy(name);
       toast(`已迁移 ${r.files} 个文件到项目目录，正在重新载入…`);
       legacyProject = null;
       await enterCanvas(name, {}); // reload from the project-rooted copy
@@ -7105,7 +7111,7 @@ async function enterCanvas(name, opts = {}) {
       // 将来某种还没见过的形状 —— 统统落进 else，**不需要被枚举**。
       const PENDING = "flow_pending";
       persist.blockSaves(name, PENDING, "还没确定这个项目是不是从模板起步的");
-      const got = await query.projectFlow(name);
+      const got = await command.projectFlow(name);
       // **await 之后世界可能已经变了**（codex 审查轮 9）：创作者可以在这一问
       // 还没回来的时候就切到另一个项目。`PENDING_FLOW` 是模块级的，所以晚回来
       // 的那一份答复会把 A 的模板套到 B 的画布上。
@@ -7415,7 +7421,7 @@ async function npLoadFlows() {
     return;
   }
   sel.disabled = false;
-  const res = await query.listFlows();
+  const res = await command.listFlows();
   if (!res.ok) {
     note.textContent = `读不到流程模板（${(res.error && res.error.detail) || "请求失败"}）——这次可以先不用模板。`;
     return;
@@ -7468,10 +7474,10 @@ async function npCreate() {
     // the BACKEND creates the folder; it owns admission (deny-list, symlink,
     // writability) and asks once per new location
     const flowId = ($("#np-flow") && $("#np-flow").value) || "";
-    let res = await query.createProject(v.name, npRoot, false, flowId);
+    let res = await command.createProject(v.name, npRoot, false, flowId);
     if (res.status === 409 && res.error && res.error.category === "root_unconfirmed") {
       if (!window.confirm(`${res.error.detail}\n\n确认使用这个位置？`)) return;
-      res = await query.createProject(v.name, npRoot, true, flowId);
+      res = await command.createProject(v.name, npRoot, true, flowId);
     }
     if (!res.ok) {
       return npFail((res.error && res.error.detail) || "创建失败", null);

@@ -47,8 +47,8 @@
         "mockups/motv-workspace/"
       ],
       "verification": "PASS",
-      "verification_ref": "前端 node --test 1856 全绿；pytest tests/studio tests/contract 662 passed；ruff 全绿。连续链批次 1，未跑全量",
-      "declared": "2026-08-25T11:25:31+00:00"
+      "verification_ref": "node --test 1856 全绿；ruff 全绿。连续链批次 2，未跑全量",
+      "declared": "2026-08-25T11:38:11+00:00"
     }
   },
   "merge_gate": {

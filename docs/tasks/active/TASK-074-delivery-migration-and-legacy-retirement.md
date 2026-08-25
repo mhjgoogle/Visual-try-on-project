@@ -236,7 +236,8 @@ G5 单独去掉「已存在」那道检查时**存活** —— 查下去是**第
 | --- | --- | --- |
 | `/api/skill/run` 同步分支 | `services/runtime.js:282` **仍在调**（`attempt("/api/skill/run", …)`） | **否** —— 条件「前端已全部走 `run_id` 路径」不成立 |
 | `/api/agent/*` 五个创作端点 | `services/command.js` 里**八处以上**在调（shots-draft / script-draft / bible-breakdown / story-develop / episode-plan / render-episode / mix-shot / motion-preview） | **否** |
-| `services/query.js` 的写函数 re-export | 16 个里 **14 个仍有调用点**；只有 `renderEpisode` 与 `mixShotAudio` 已无人从 `query.*` 调 | **仅那 2 个** |
+| `services/query.js` 的写函数 re-export | 16 个里 **14 个仍有调用点**；只有 `renderEpisode` 与 `mixShotAudio` 已无人从 `query.*` 调 | ~~**仅那 2 个**~~ → **16 个全删了**（批次 2）：该删的是入口，调用点挪一下就行 |
+| `run.skillRunId` 兼容别名 | —— | ~~**否**~~ → **已删除**（批次 1，v18→v19） |
 | `run.skillRunId` 兼容别名 | 全仓 **149 处**。它**不是一个薄别名** —— `app.js` 里 `remember(scope, shotId, value, { skillRunId … })` 这类签名都带着它 | **否** —— 这一条本身就是一次独立迁移 |
 | `approveShot` 旧布尔标记 | `approveShot` / `unapproveShot` 仍是活的 action 名与 `shotprod` 调用；要删的是**旧布尔标记**而非这两个函数，需要再细分一次才知道边界 | **未判定** —— 边界还没划清 |
 
@@ -285,6 +286,42 @@ re-export 确实无人使用。没删的理由是 §1.5 整节的硬前置是 §
 只留新的那条等于把旧版文档的保护删掉。
 
 验证：前端 1856 全绿；`pytest tests/studio tests/contract` 662 passed；ruff 全绿。
+
+#### §1.5 批次 2（2026-08-25）：`query.js` 的写函数 re-export 已全部删除
+
+上表判的是「仅那 2 个可删」。**16 个全删了** —— 因为按 §1.5 规则 2，该删的是
+**入口**，而能力早就住在 `command.js` 里。剩下那 14 个不是「还不能删」，是
+「调用点还没挪」，而挪它们是 `app.js` 里 20 处 `query.X` → `command.X` 的机械替换。
+
+| 落点 | 内容 |
+| --- | --- |
+| `app.js` | 20 处调用点改从 `command.*` 走（十四个函数名；全部调用点都在这一个文件里） |
+| `services/query.js` | 整段兼容层删除。这个模块的那句话重新为真：**这里的东西一律不改状态** |
+| `tests/retirementready.test.mjs` | 守的规则换了 —— 见下 |
+
+**顺带抓到一条真缺陷**：`app.js` 的 `askPromptBatchGateway` 调的是
+`query.preflight(...)`，而 **`query.js` 一天都没有导出过 `preflight`** ——
+这一行只要被走到就抛 `preflight is not a function`。改成 `command.preflight`。
+它能活到今天是因为 `app.js` 是入口编排文件、`.test.mjs` import 不了它
+（[TASK-087 §3.6.4](TASK-087-followup-ledger.md)），所以**没有任何测试走过这条路**；
+抓到它的正是本批次新写的那条源码级守卫。
+
+**那条守卫换了它守的东西**（这一步值得单独说）。它原本守的是 §1.5 的**前置**：
+「§1.4 没通过之前，这两个已无人调用的 re-export 也不许提前删」。§1.4 闭合、
+本批次删完之后，那条规则**保护的是历史行为**，留着它只会让正确的改动变红。
+换成那件长期成立的事：**`query.*` 底下不得再出现写操作**，两个方向各一条
+（导出面 / 调用点），名单**从 `command.js` 的 `export function` 派生**而不是
+手写 —— 新加的写函数应当**因为存在**而进入守卫（TASK-087 §7 方法论第 2 条）。
+
+守卫本身判的是**调用**不是**提到**：`app.js` 里那段解释「为什么必须是
+`command.preflight`」的注释会被文本扫描判成违规，于是扫描前先去掉注释 ——
+否则这条守卫会逼着代码不许把理由写下来，而理由正是防止有人改回去的那样东西。
+
+**变异验证两个方向**：把 `renderEpisode` 的 re-export 加回 `query.js` → 导出面
+那条红；把 `app.js` 的一处 `command.mixShotAudio` 改回 `query.mixShotAudio`
+→ 调用点那条红。还原后三条全绿。
+
+验证：前端 1856 全绿。
 
 ### 1.6 文档收口
 
