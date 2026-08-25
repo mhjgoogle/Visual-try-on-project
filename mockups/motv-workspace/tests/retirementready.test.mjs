@@ -84,12 +84,26 @@ function exportStatements(text) {
   return EXPORT_SHAPES.flatMap((re) => code.match(re) || []);
 }
 
+/** `export * from "./command.js"` —— **一句话泄漏全部，而且一个名字都不出现**。
+ *
+ *  codex 审查轮 2 的 non-blocking，判得对：上一版按「语句里有没有出现这个函数名」
+ *  判泄漏，而星号 re-export 的语句文本是 `export * from "./command.js"`，
+ *  里面没有任何一个函数名 —— 于是 `leaked` 是空的，守卫在**泄漏面最大**的那种
+ *  写法上恰好变绿。与本文件已经修过两次的是同一族：**守卫在它要守的东西
+ *  出现时反而没反应**。
+ *
+ *  所以这一种单独判：命中即认定全部写函数都泄漏了，不再去数名字。 */
+function starReExportsCommand(statements) {
+  return statements.some((st) => /^\s*export\s*\*/.test(st) && /command\.js/.test(st));
+}
+
 test("§7：command.js 的每一个写函数都不得能从 `query.*` 取到", () => {
   const query = readFileSync(new URL("services/query.js", SRC), "utf8");
   const statements = exportStatements(query);
-  const leaked = writeFunctionNames().filter((fn) =>
-    statements.some((st) => new RegExp(`\\b${fn}\\b`).test(st)),
-  );
+  const names = writeFunctionNames();
+  const leaked = starReExportsCommand(statements)
+    ? names
+    : names.filter((fn) => statements.some((st) => new RegExp(`\\b${fn}\\b`).test(st)));
   assert.deepEqual(leaked, [],
     `这些写函数又能从 \`query.*\` 取到了：${leaked}。`
     + "系统合同 §7：读住 query.js，写住 command.js —— 一个写操作从读模块导出，"
