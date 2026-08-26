@@ -128,6 +128,19 @@
             "tests/tooling/test_review_package_contract.py"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "453b23bae7cbe64343b845a9d38853004995ad12",
+          "subject": "docs(TASK-108): 卡与 REQ-003 回填提交 hash",
+          "time": "2026-08-26T21:54:44+00:00",
+          "branch": "change/TASK-107-doc-lifecycle",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/doc-lifecycle.json",
+            "docs/requirements/REQ-003-traceability-and-requirement-fulfillment-review.md",
+            "docs/tasks/done/TASK-108-traceability-and-requirement-review.md"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
