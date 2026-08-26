@@ -1,6 +1,8 @@
 # ADR-0001: Project Data Directory Contract
 
-- Status: Accepted
+- Status: **Accepted（除平台支持声明外全部保留）；其平台支持声明被
+  [ADR-0049](ADR-0049-native-windows-run-and-test-target.md) 决策 2 取代**
+  （见文末 superseded-in-part 说明）
 - Date: 2026-07-26
 - Accepted: 2026-07-26 after Step G independent review and TASK-002 final
   acceptance checks passed.

@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-08-10
+- Supersedes: [ADR-0001](ADR-0001-project-data-directory-contract.md) 的
+  WSL2-only 平台支持声明（见下方 Scope 与 Decision 2）；ADR-0001 的其余决策不变
 
 > **Superseded in part by
 > [ADR-0050](ADR-0050-powershell-native-agent-dev-tooling.md) (2026-08-10):**

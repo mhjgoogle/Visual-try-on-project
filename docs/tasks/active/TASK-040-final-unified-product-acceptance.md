@@ -6,8 +6,12 @@
 > 目标→运行→观察→评价/Action→复盘→学习/复用 + 跨切面不变量）+
 > [最终追踪矩阵](../../design/active/final-unified-acceptance-traceability.md) +
 > [runbook](../../design/active/final-unified-acceptance-runbook.md) +
-> [里程碑评审](../../design/active/final-unified-milestone-review.md)。里程碑 PASS 属用户
+> [里程碑评审](../../design/done/final-unified-milestone-review.md)。里程碑 PASS 属用户
 > （runbook §5），实施 Agent 不代判。TASK-037 与本门两处签字共同构成最终产品验收。
+
+- 依据：[AI 短剧工作流需求](../../ai_shortfilm_pipeline_workflow.md) +
+  [Creation Workspace 需求](../../ai_video_creation_workspace_requirements.md)
+  —— 本卡是这两份顶层需求的最终统一验收门，逐项对应见上面那份追踪矩阵
 
 ## 目的
 

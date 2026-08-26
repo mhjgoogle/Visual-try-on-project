@@ -34,6 +34,13 @@ ADR-0080/0081（测试归属与审查协议）、ADR-0068（连续修改链）�
 [references/repo-contract.md](references/repo-contract.md) —— 已满足即直接用，
 只有真缺失才补齐，**不平行创建第二套**。
 
+「记录活多久、默认读什么、临时产物怎么办」是同一个合同的另一半，见
+[references/lifecycle.md](references/lifecycle.md)（权威：AGENTS.md 第 24–26 条 /
+[ADR-0087](../../../docs/adr/ADR-0087-document-lifecycle-and-default-agent-context.md)）。
+**默认只加载当前事实**：AGENTS.md · 本次 REQ ·
+[当前架构合同](../../../docs/current-architecture.md) 相关部分 · 本次那张卡 ·
+`docs/STATUS.md` · 影响范围内的代码与测试。历史按需读，不默认读。
+
 ## REQUIREMENT UNDERSTANDING GATE（第 1 步之前）
 
 Before planning or implementation, establish product understanding.
@@ -204,7 +211,8 @@ This is a product behavior decision.
   行为应当成立/不变」，任务卡引用原始依据即可。例外：修复过程中发现需求
   本身要变 → 那一刻起建/修订 REQ。
 
-- 记录**为什么要做、用户真正要什么**，不记实现方案。
+- 记录**为什么要做、用户真正要什么**，不记实现方案。**验收判据写成有序列表**
+  —— 序号就是后面对账与审查的引用句柄（`REQ-003 v1 判据 2`），散文写不了对账。
 - 新需求、实质性修订或含糊的 UX 变化先经过 Requirement Understanding Gate；
   用户原话是需求来源，**不再仅凭「描述了功能」自动视为 `CONFIRMED`**。
   无实质产品歧义时先标记 `UNDERSTANDING_READY` 并呈现理解；交互式产品探索须等
@@ -225,7 +233,10 @@ This is a product behavior decision.
   （见 references/records.md）：id、状态、workflow 类型、深度、关联 REQ、
   目标、IN/OUT SCOPE、受影响模块、架构影响、实施摘要、已做验证、
   未解决项（→ Follow-up 总账）。**Agent 自动创建自动维护，用户不填。**
-- 追溯链：`REQ → TASK（或提交信息）→ 代码 → 测试 → 验证记录`。
+- **追溯**：卡上只多两行 —— `关联 Requirement：REQ-NNN vK 判据 1,3`（无产品需求
+  时改写 `技术目标：<一句，含为什么必要>`）与 `架构约束：CA §N …`（或
+  `none-specific`）。两者皆无的卡是 `ORPHAN_TASK`，`lifecycle_check` 当场转红。
+  完整链、句柄约定、缺口标签见 [references/traceability.md](references/traceability.md)。
 
 ## 第 5 步 — Impact Analysis（轻量，为定范围而做）
 
@@ -278,30 +289,65 @@ boundary leakage / 隐藏耦合 / 重复抽象，**不直接接受扩散**；必
 
 **Test Scope = Change Impact Scope**（归属映射见 references/verification.md）。
 测试归属与全量触发以 AGENTS.md §20 / ADR-0080 为准：跑改动路径的**归属域**，
-全量只在集成检查点。审查按影响范围触发（ADR-0081）：需要审的调
+全量只在集成检查点。审查按影响范围触发（ADR-0081，触发表与轮次协议不变）：需要审的调
 `codex-review-loop`（默认 1 轮，P1 复审一次），纯文档与纯展示改动不调。
+
+**调之前备 Review Package**（`.claude/tmp/review-package.md`，模板见
+[references/traceability.md](references/traceability.md) §4）：本次声称完成的判据原文、
+Task、引用的 `CA §N` 原文、变更面、验证证据、已知风险、实施摘要。审查因此按
+**四闸顺序**作答 —— 需求完成度 → 架构符合性 → 证据充分性 → 技术质量，
+且默认不扫全仓库（ADR-0088）。**有 REQ 的 Change 不许不带包去审。**
 
 ## 第 9 步 — Convergence（完成前必查）
 
-清单见 references/verification.md「收敛」节。核心：obsolete 代码/测试/文档、
-临时 prototype、死兼容层、保护已被取代行为的测试 —— **旧行为已被新的
-CONFIRMED REQ 明确取代的，允许删**。测试保护的是 Current Valid Behavior，
-不是 Historical Behavior。
+**两个面，一起过。**
+
+**代码面**：清单见 references/verification.md「收敛」节。核心：obsolete
+代码/测试/文档、临时 prototype、死兼容层、保护已被取代行为的测试 ——
+**旧行为已被新的 CONFIRMED REQ 明确取代的，允许删**。测试保护的是
+Current Valid Behavior，不是 Historical Behavior。
+
+**仓库面**（AGENTS.md 第 24–26 条 / ADR-0087，展开见
+[references/lifecycle.md](references/lifecycle.md) §3）：
+
+1. 这次新增的 `docs/` 文件，每一份都是**当前事实**或**历史证据**吗？
+   一次性产物删掉，或提炼几行进 REQ / 卡 / ADR / 当前架构合同后删原件。
+2. 有当前事实在**说谎**吗？尤其 `docs/current-architecture.md` ——
+   边界 / 依赖方向 / 前后端合同 / 测试归属变了就在**同一个提交里**改它。
+3. 取代了某条决策吗？→ **双向**链接补上（只改新 ADR 等于没写）。
+4. 需求变了吗？→ REQ 追加 v2，v1 一字不动。
+5. `active/` 里有做完的（→ `done/`）或没人在做的（→ `backlog/`）卡吗？
+6. 有不再代表当前有效行为的测试 / 文档 / 兼容层吗？→ 删或更新。
+
+后两问机器帮你查（前四问要你自己判，守卫刻意不猜）：
+
+```
+python .claude/tools/lifecycle_check.py
+```
+
+**目标不是每个 Change 都增加文档，而是 Change 做完之后仓库不比之前更乱。**
 
 ## 第 10 步 — Done 判定（轻量）
 
-「代码写完」「测试绿」都不是 Done。逐条确认：REQ 满足？验证够（对本次
-impact scope）？架构没有明显恶化？obsolete 已清或已记 Follow-up？
+「代码写完」「测试绿」都不是 Done。逐条确认：**每条验收判据都指得出实现与证据**
+（判不出来的那条就是 `REQUIREMENT_COVERAGE_GAP`，不是「大概做完了」）？验证够
+（对本次 impact scope，且证的是**判据里的行为**不只是周边）？引用的 `CA §N`
+都仍然成立？obsolete 已清或已记 Follow-up？
 REQ / Change Record 已更新到终态？临时 prototype 已清除或已正式化？
+**当前架构合同仍然准确？`lifecycle_check` 零发现？**
 
 **卡做完了还要把它搬过去** —— 这一步属于 Done，不是收尾的可选项
 （[ADR-0083](../../../docs/adr/ADR-0083-docs-partitioned-by-completion.md)
 决策 1/3）：
 
 ```
-git mv docs/tasks/active/TASK-NNN-*.md docs/tasks/done/
-python .claude/tools/gen_docs_status.py
+git mv docs/tasks/active/TASK-NNN-*.md docs/tasks/done/   # 或 backlog/（没人在做）
+python .claude/tools/lifecycle_check.py                   # 0 finding
+python .claude/tools/gen_docs_status.py                   # 重新生成总览
 ```
+
+三条一起做，**不是可选项**。`backlog/` 是第三个状态目录（ADR-0087 决策 2）：
+立了卡但短期不做的放那里 —— `active/` 只代表**正在进行**的工作。
 
 **目录即状态**：留在 `active/` 的卡就是「还没做完」，所以一张已完成却没搬走的卡
 会让下一个人重新推导它——那正是 2026-08-23 一天查出五处过期状态的成因。
@@ -317,8 +363,13 @@ diff 范围）→ `stage` → 在 shell 运行其返回的 commit 命令 → `re
 **merge 到 main 同样不问**（产品负责人 2026-08-24，[ADR-0085](../../../docs/adr/ADR-0085-merge-is-not-a-human-gate.md)）。
 去掉的是「谁点头」，**前置条件一条不减**，而且现在由你自己负责证明：
 
-1. Done 判定全部成立 + **最终全量**（两阶段 pytest + 全量前端 + ruff）通过 +
-   无未闭合 P1；
+1. Done 判定全部成立（含卡搬家 + `lifecycle_check` 零发现 + `STATUS.md` 已重新
+   生成）+ **最终全量**（两阶段 pytest + 全量前端 + ruff）通过 + 无未闭合 P1；
+   并且审查四闸的结论是 **Requirement 全 `PASS` · Architecture 无 `FAIL` ·
+   Verification `SUFFICIENT` · 四个缺口标签一个不挂**（ADR-0088 决策 6）。
+   任一判据 `PARTIAL` / `FAIL` / `NOT_EVIDENCED` → Gate 不为 PASS；**这不是要问
+   用户** —— 缺实现就实现、缺证据就补、越界就改回来，真超范围就把缺口写成新卡
+   并在 REQ 里记下它挪到哪；
 2. 读[待复审清单](../../../docs/design/active/pending-codex-rereview.md)，确认没有
    覆盖本分支历史的未闭合条目 —— 这一条**比以前更要紧**：以前还有一个人会在
    合并前看一眼，现在没有了（TASK-102 就栽在只查任务卡不查清单）；

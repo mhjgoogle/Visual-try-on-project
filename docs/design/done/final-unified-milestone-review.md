@@ -1,5 +1,8 @@
 # 最终统一产品里程碑评审记录（TASK-040）
 
+- 状态：**已完成**（评审记录本身在 2026-08-04 就已写完并定稿；2026-08-26
+  按 ADR-0087 归档 —— 它是**历史证据**，不是待办。TASK-040 的里程碑判定
+  仍归用户，那张卡还在 `docs/tasks/active/`）
 - 里程碑：AI 短剧工作流 + Creation Workspace 最终统一验收
 - 日期：2026-08-04
 - 范围：两份顶层需求（`ai_shortfilm_pipeline_workflow.md` +
@@ -11,9 +14,9 @@
 - `tests/test_final_unified_acceptance.py` — 闭环（目标→运行→观察→评价/Action→复盘→
   学习/复用）+ 跨切面不变量（唯一写入者/可重建/fail-closed/缺失语义/跨项目复用/
   人工优先）的联合验收。
-- [final-unified-acceptance-traceability.md](final-unified-acceptance-traceability.md)
+- [final-unified-acceptance-traceability.md](../active/final-unified-acceptance-traceability.md)
   — 两份需求逐条→ADR→owner→code→test→evidence 最终矩阵 + 4 项诚实已知限制。
-- [final-unified-acceptance-runbook.md](final-unified-acceptance-runbook.md) —
+- [final-unified-acceptance-runbook.md](../active/final-unified-acceptance-runbook.md) —
   离线零花费验收 runbook + 标准→证据映射 + 用户签字栏。
 
 ## 依赖里程碑状态

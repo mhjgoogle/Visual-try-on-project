@@ -21,16 +21,22 @@ Contract 约束的是「必须能回答」，**不强制统一目录结构**。
 | 问题 | 答案 |
 | --- | --- |
 | 怎么运行 | `README.md`（Windows 权威 + Ubuntu 目标）；`scripts/launch/studio.ps1` / `scripts/launch/studio.sh`；Studio 见 `mockups/motv-workspace/` |
-| 有效事实 | `docs/product_spec.md`、`docs/architecture.md`、两份顶层需求文档、`docs/design/creator-system-contract.md`（Studio 范围唯一权威，与信息架构文档并列） |
+| 有效事实 | **入口：`docs/current-architecture.md`**（当前架构合同 = WHAT IS TRUE NOW，ADR-0087 决策 4）。它指向的细节文档：`docs/product_spec.md`、`docs/architecture.md`、两份顶层需求文档、`docs/design/creator-system-contract.md`（Studio 范围唯一权威，与信息架构文档并列） |
 | Requirement | **新需求**：`docs/requirements/REQ-*.md`（索引 `docs/requirements/index.md`；见 records.md）。**存量需求**：上一行的基线文档 + 任务卡「依据：产品负责人 YYYY-MM-DD」行 —— 不回填，不迁移 |
-| Change | `docs/tasks/active/TASK-*.md`（在办）、`docs/tasks/done/`（已完成）——**目录即状态**（ADR-0083）；QUICK 深度 = 提交信息即记录。欠账在 `docs/tasks/active/TASK-087-followup-ledger.md`。总览 `docs/STATUS.md`（生成的，改完跑 `python .claude/tools/gen_docs_status.py`） |
-| 架构边界 | `docs/architecture.md`、`docs/adr/`（决策）、`docs/design/creator-product-information-architecture.md`（页面集合封闭）、`docs/design/workflow-stage-step-io-contract.md`（L0–S7 输入输出） |
-| 历史处理 | REQ 文件内追加版本（v2 supersedes v1，不篡改 v1）；任务卡改状态不删卡；ADR 用新 ADR 取代旧 ADR；follow-up 总账闭合时划掉不删行 |
+| Change | `docs/tasks/backlog/`（没人在做）、`active/`（在办）、`done/`（已完成）——**目录即状态**（ADR-0083 + ADR-0087 决策 2）；QUICK 深度 = 提交信息即记录。欠账在 `docs/tasks/active/TASK-087-followup-ledger.md`。总览 `docs/STATUS.md`（生成的，改完跑 `python .claude/tools/gen_docs_status.py`） |
+| 架构边界 | **`docs/current-architecture.md`**（模块边界 / 依赖方向 / 前后端合同 / 测试归属 / 当前约束，≤200 行）；细节在 `docs/architecture.md`、`docs/design/creator-product-information-architecture.md`（页面集合封闭）、`docs/design/workflow-stage-step-io-contract.md`（L0–S7 输入输出）；**为什么**这么定在 `docs/adr/` |
+| 历史处理 | REQ 文件内追加版本（v2 supersedes v1，不篡改 v1）；任务卡改状态不删卡；ADR 用新 ADR 取代旧 ADR 且**双向链接**；follow-up 总账闭合时划掉不删行。已完成记录移出 `active/`，**默认不进 Agent 上下文**（ADR-0087 决策 5，细则见 [lifecycle.md](lifecycle.md)） |
 | 测试 | `python -m pytest -n 8 -m "not serial"` + `python -m pytest -m serial`（全量两阶段）；前端 `node --test mockups/motv-workspace/tests/*.test.mjs`；分域独立运行：`pytest tests/backend` / `tests/studio` / `tests/contract` / `tests/e2e` / `tests/tooling`；归属规则 = AGENTS.md §20 + ADR-0080；本地 gate = `.claude/hooks/`（ADR-0080/0070） |
 | Agent 规则 | `AGENTS.md` —— **唯一一份**，含决策模式、范围切片、技术/架构/协作/测试审查/Git 全部条款（`CLAUDE.md` 只是 Claude Code 的入口，`@AGENTS.md`）；项目背景在 `docs/project-context.md` |
 
 **缺口盘点结论**：本仓库唯一真缺的是轻量 per-requirement record（问题 3），
 已由 `docs/requirements/` 补齐（ADR-0076）。其余七项复用现有机制。
+
+**2026-08-26 更新（TASK-107 / ADR-0087）**：问题 5（架构边界）与问题 6（历史处理）
+的答案换成了上表那两行 —— 当前架构事实收口到 `docs/current-architecture.md`
+（此前只能靠遍历 70 条 ADR 推导），ADR 增加 `Superseded` 状态与双向链接，
+任务卡增加 `backlog/`，并新增一条**默认上下文**规则（AGENTS.md 第 25 条）。
+机器可判的部分由 `.claude/tools/lifecycle_check.py` 守。
 
 **2026-08-22 更新（TASK-102 / ADR-0080）**：测试改为按归属分域，问题 7 的答案
 见上表「测试」行；README 只保留仓库根一份且面向使用者，Agent 规则在 AGENTS.md /

@@ -11,16 +11,29 @@
 | 位置 | 含义 |
 | --- | --- |
 | `docs/tasks/active/` · `docs/design/active/` | **还没做完**，需要有人接手 |
+| `docs/tasks/backlog/` | **没人在做**：已立卡但未排期（默认不读） |
 | `docs/tasks/done/` · `docs/design/done/` | **已经做完**，只作历史查阅 |
-| `docs/adr/` | **决策记录**，没有「完成」这一维 —— Accepted 即一直有效 |
+| `docs/adr/` | **决策记录**，没有「完成」这一维；被取代的写明取代者 |
 | `docs/design/` 根 | **稳定合同与参考**，合同不会「做完」 |
 | `docs/requirements/` | 需求记录：DRAFT / CONFIRMED / SUPERSEDED |
+| `docs/reports/` | 阶段性工作报告 —— **历史证据**，默认不读 |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：7 项在办 · 101 项已完成 · 70 条 ADR。
+**当前**：6 在办 · 2 待排期 · 102 已完成 · 72 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
+
+## 默认加载什么（AGENTS.md 第 25 条 · ADR-0087 决策 5）
+
+**默认读**：[AGENTS.md](../AGENTS.md) · 本次 Change 关联的 REQ ·
+[当前架构合同](current-architecture.md) 里相关的那几行 ·
+`docs/tasks/active/` 里**本次**这一张卡 · 本文件 · 影响范围内的代码与测试。
+
+**默认不读**：`tasks/done/` · `design/done/` · `tasks/backlog/` · `reports/` ·
+未被当前架构合同指向的历史 ADR · 被取代的 REQ 版本 · 历史 Change 清单。
+只有**回归调查 / 架构理由 / 历史冲突 / 需求演化 / 复现旧决策边界**这五种情形
+才按需去读 —— 历史存在，但历史不占日常开发上下文。
 
 ---
 ## 在办 · 任务卡
@@ -29,13 +42,12 @@
 
 | 文档 | 标题 | 状态行（首句） |
 | --- | --- | --- |
-| [TASK-011-local-video-provider.md](tasks/active/TASK-011-local-video-provider.md) | TASK-011：LocalVideoProvider（阶段 8） | Outline（可选 WFM3 升级） |
-| [TASK-012-qcd-auto-routing.md](tasks/active/TASK-012-qcd-auto-routing.md) | TASK-012：基于 QCD 的自动模型路由（阶段 9） | Outline（WFM3） |
 | [TASK-040-final-unified-product-acceptance.md](tasks/active/TASK-040-final-unified-product-acceptance.md) | TASK-040：AI 短剧工作流与 Creation Workspace 最终统一验收 | Evidence Ready — 等用户一句话确认（2026-08-04） |
 | [TASK-041-workspace-generation-command-and-evidence.md](tasks/active/TASK-041-workspace-generation-command-and-evidence.md) | TASK-041: 工作视窗付费视频生成命令 + UI 接入 + 1 次真实证据 | Accepted（2026-08-07，用户「同意」） |
 | [TASK-074-delivery-migration-and-legacy-retirement.md](tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md) | TASK-074：第四阶段 —— 后期交付、旧数据迁移、旧页面与旧接口清理、真实项目验收 | 部分实施（2026-08-25 更新） |
 | [TASK-087-followup-ledger.md](tasks/active/TASK-087-followup-ledger.md) | TASK-087：Follow-up 总账 —— 把散在九张卡里的欠账收成一处 | 活账（不是一次性交付 |
 | [TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md](tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) | TASK-106：前端接上 run_id 路径 —— 并由此退役同步分支与 /api/agent/ | 待开始（分析已完成，见 §1 |
+| [TASK-107-document-lifecycle.md](tasks/active/TASK-107-document-lifecycle.md) | TASK-107：文档与记录的统一生命周期 —— 落到规则、工装与现有文档上 | 进行中 |
 
 ## 在办 · 设计与验收文档
 
@@ -43,11 +55,18 @@
 
 | 文档 | 标题 | 状态行（首句） |
 | --- | --- | --- |
-| [creation-workspace-implementation-roadmap.md](design/active/creation-workspace-implementation-roadmap.md) | Creation Workspace ADR 与实施任务路线 | Approved planning baseline |
 | [final-unified-acceptance-runbook.md](design/active/final-unified-acceptance-runbook.md) | 最终统一验收 Runbook（TASK-040） | — |
 | [final-unified-acceptance-traceability.md](design/active/final-unified-acceptance-traceability.md) | 最终统一验收追踪矩阵（TASK-040） | — |
-| [final-unified-milestone-review.md](design/active/final-unified-milestone-review.md) | 最终统一产品里程碑评审记录（TASK-040） | — |
-| [pending-codex-rereview.md](design/active/pending-codex-rereview.md) | 待补 codex 复审清单（降级审查模式的债务） | P1 未闭合 → 按发布闸门（无未闭合 P1）main 不得 push，直至修复落地 |
+| [pending-codex-rereview.md](design/active/pending-codex-rereview.md) | 待补 codex 复审清单（活账） | 活账（不是一次性交付） |
+
+## 待排期 · 任务卡
+
+已立卡但**没人在做**：需求成立、优先级未排。`active/` 只放正在进行的工作，否则「待办 = ls active/」会把没人做的也读成待办（ADR-0087 决策 2）。
+
+| 文档 | 标题 | 状态行（首句） |
+| --- | --- | --- |
+| [TASK-011-local-video-provider.md](tasks/backlog/TASK-011-local-video-provider.md) | TASK-011：LocalVideoProvider（阶段 8） | Outline（可选 WFM3 升级） |
+| [TASK-012-qcd-auto-routing.md](tasks/backlog/TASK-012-qcd-auto-routing.md) | TASK-012：基于 QCD 的自动模型路由（阶段 9） | Outline（WFM3） |
 
 ## 已完成 · 任务卡
 
@@ -156,6 +175,7 @@
 | [TASK-103-frontback-and-ui-residuals.md](tasks/done/TASK-103-frontback-and-ui-residuals.md) | TASK-103：前后端交互与 UI 的剩余欠账 | A–E 批已落地（2026-08-23） · 已合入 main（2026-08-23，产品负责人「合并并收口」），merge commit e5c52f7 |
 | [TASK-104-governance-docs-merge.md](tasks/done/TASK-104-governance-docs-merge.md) | TASK-104：治理文档合并 —— AGENTS.md 成为唯一规范 | 已完成（2026-08-23） · 已合入 main（2026-08-23，产品负责人「合并并收口」），merge commit 8b9eb81 |
 | [TASK-105-flow-template-first-slice.md](tasks/done/TASK-105-flow-template-first-slice.md) | TASK-105：流程模板第一刀 —— 内置一份 flow，新建项目时可选 | 第一刀实现完成（2026-08-24） |
+| [TASK-108-traceability-and-requirement-review.md](tasks/done/TASK-108-traceability-and-requirement-review.md) | TASK-108：把「产品意图 → 验证」的追溯链与需求完成度审查接进开发流程 | 完成（2026-08-26） |
 
 ## 已完成 · 设计与验收记录
 
@@ -163,7 +183,10 @@
 
 | 文档 | 标题 | 状态行（首句） |
 | --- | --- | --- |
+| [codex-rereview-history-2026-08.md](design/done/codex-rereview-history-2026-08.md) | codex 补审历史（2026-08-13 – 2026-08-23）—— 已闭合，仅作历史查阅 | 已完成（全部条目已闭合 |
 | [commit-gate-intent-detection.md](design/done/commit-gate-intent-detection.md) | commit gate 的意图判定：从正则读命令文本，改成用每个 shell 自己的解析器 | 已实施（2026-08-16，TASK-085） |
+| [creation-workspace-implementation-roadmap.md](design/done/creation-workspace-implementation-roadmap.md) | Creation Workspace ADR 与实施任务路线 | 已完成（规划基线已被消化，2026-08-26 归档） |
+| [final-unified-milestone-review.md](design/done/final-unified-milestone-review.md) | 最终统一产品里程碑评审记录（TASK-040） | 已完成（评审记录本身在 2026-08-04 就已写完并定稿 |
 | [handover-2026-08-23-remaining-active-tasks.md](design/done/handover-2026-08-23-remaining-active-tasks.md) | 交接：docs/tasks/active/ 的剩余任务（2026-08-23） | — |
 | [M1-milestone-review.md](design/done/M1-milestone-review.md) | M1 Milestone Review Record | — |
 | [pending-speedup-and-gate-fix.md](design/done/pending-speedup-and-gate-fix.md) | 测试提速 + commit gate 分类修复 | 已落地（2026-08-15） |
@@ -187,7 +210,8 @@
 
 | 位置 | 放什么 |
 | --- | --- |
-| [`docs/adr/`](adr/) | 70 条架构决策记录（ADR-0001 … ADR-0086） |
+| [当前架构合同](current-architecture.md) | **现在**成立的边界与约束（NOW） |
+| [`docs/adr/`](adr/) | 72 条决策记录（ADR-0001 … ADR-0088）—— WHY / HISTORY |
 | [`docs/design/`](design/) 根 | 系统合同、产品信息架构、L0–S7 I/O 合同 |
 | [项目背景与路线](project-context.md) | 这个项目是什么、走到哪了 |
 | [实施规划](implementation_plan.md) | 阶段与里程碑路线图 |

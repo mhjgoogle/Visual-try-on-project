@@ -1,6 +1,8 @@
 # ADR-0070：commit gate 的意图判定改由每个 shell 自己的解析器给出
 
 - 状态：**Accepted**（2026-08-16）
+- **取代**：[ADR-0050](ADR-0050-powershell-native-agent-dev-tooling.md) 决策 1 中
+  「靠命令文本判定 commit 意图」的实现约定（行为合同不变）
 - Accept 依据：CLAUDE.md「决策模式 → ADR 的 Accept 权」——本 ADR 属于技术范畴
   （质量门实现机制、跨层合同、两 shell 一致性），不涉及付费，也不不可逆动用户
   数据，由实施 Agent 自行 Accept 并写明理由。

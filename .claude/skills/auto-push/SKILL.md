@@ -111,6 +111,14 @@ Task 级 push 与 Change 级 merge 严格分开。merge 的前提链：
 
 1. dev-workflow 完成 Requirement / 验证 / 架构 / 收敛 / Done 检查，**且最终
    全量通过、无未闭合 P1**，才：`set-merge-gate --gate PASS --by "<依据>"`。
+   「Requirement 检查」的判定形式是审查四闸的结论（[ADR-0088](../../../docs/adr/ADR-0088-traceability-and-requirement-fulfillment-review.md)
+   决策 6）：**Requirement 全 `PASS` · Architecture 无 `FAIL` · Verification
+   `SUFFICIENT` · 四个缺口标签一个不挂**。任一判据 `PARTIAL` / `FAIL` /
+   `NOT_EVIDENCED` → Gate 不为 PASS，交回 dev-workflow 补齐，**不是问用户**。
+   「收敛」含**仓库收敛**（ADR-0087）：卡已搬进 `done/` 或 `backlog/`、
+   `docs/STATUS.md` 已重新生成、`.claude/tools/lifecycle_check.py` 零发现。
+   这三条**不是额外动作** —— 守卫住在 `tests/tooling/`，最终全量跑到它；
+   全量绿就等于它绿。
    **merge 不再需要用户点头**（产品负责人 2026-08-24 →
    [ADR-0085](../../../docs/adr/ADR-0085-merge-is-not-a-human-gate.md)）；
    `--by` 记的是**凭什么放行**（Done 判定 + 最终全量的结果），不再是用户原话。

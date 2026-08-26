@@ -3,6 +3,8 @@
 - 状态：Accepted（技术 ADR，依 CLAUDE.md「ADR 的 Accept 权」由实施 Agent Accept；
   「日常提交不跑全量」为产品负责人 2026-08-22 明确指示：「我不要每次都全量测试。」）
 - 日期：2026-08-22
+- **取代**：[ADR-0060](ADR-0060-risk-based-local-commit-gate.md) 的「按风险分档选
+  检查」（其 fail-closed 与「判不出来跑全量」保留，见决策 7）
 - 任务：TASK-102 · 决策记录人：TASK-102 实施 Agent
 
 ## 背景
