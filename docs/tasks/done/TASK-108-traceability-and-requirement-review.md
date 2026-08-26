@@ -1,8 +1,9 @@
 # TASK-108：把「产品意图 → 验证」的追溯链与需求完成度审查接进开发流程
 
-- 状态：完成（2026-08-26）—— 实现完成、归属域验证通过、三轮独立审查后代码里无未闭合 P1。
-  **尚未提交**：同一工作树里 TASK-107 在途且共改六个文件，拆 hunk 会和另一个
-  Agent 正在写的文件抢写，交给 TASK-107 先落地（详见「验证」末尾）。
+- 状态：完成（2026-08-26）—— 实现完成、归属域验证通过、三轮独立审查后无未闭合 P1；
+  已提交 `1b32047` 并随 `change/TASK-107-doc-lifecycle` 推送（2026-08-27）。
+  与 TASK-107 交错的八个文件落在前一个提交 `712c7d4` 里（同一区域交错，其中三个是
+  TASK-107 新建的文件，物理上拆不开；两个提交信息各自写明了这一点）。
 - Workflow：Refactor · 深度：DEEP
 - 关联 Requirement：[REQ-003](../../requirements/REQ-003-traceability-and-requirement-fulfillment-review.md) v1 判据 1–6
 - 关联 ADR：[ADR-0088](../../adr/ADR-0088-traceability-and-requirement-fulfillment-review.md)
