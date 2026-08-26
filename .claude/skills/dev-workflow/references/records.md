@@ -25,9 +25,14 @@
 
 ### 状态机
 
+- `UNDERSTANDING` / `UNDERSTANDING_READY` 是实施工作流状态：前者表示产品行为理解
+  尚未充分，后者表示 Requirement Understanding Check 已完整且没有实质产品歧义，
+  正在等待交互式产品发现中的用户确认。二者可以只呈现在对话里，不要求为了 Gate
+  单独创建 REQ 文件。
 - `DRAFT` —— Agent 从探索/证据中**推断**的需求。转 CONFIRMED 的路径是
-  **做出来给用户看**（AGENTS.md §1「怎么做决定」），不是中途提问。
-- `CONFIRMED` —— 用户明确提出（原话即确认），或看到可运行结果后认可。
+  先完成 Requirement Understanding Check，再由用户确认产品理解；不得直接进入实施。
+- `CONFIRMED` —— 用户确认了 Requirement Understanding Check、已有需求原本已确认，
+  或用户看到可运行结果后认可。仅描述一个新功能不自动等于 `CONFIRMED`。
 - `SUPERSEDED` —— 被同文件更高版本或另一 REQ 取代（写明被谁取代）。
 
 ### 版本修订（真实使用后需求变化）

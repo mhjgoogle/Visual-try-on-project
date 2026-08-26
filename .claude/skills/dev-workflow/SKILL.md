@@ -6,15 +6,16 @@ description: >-
   or behavior: new feature / enhancement, bug fix or debugging, refactor or
   cleanup, performance optimization, dependency or schema or framework
   migration, and requirement changes to already-shipped features. It routes
-  the task to the right internal workflow, picks the process depth, creates
-  and maintains the Requirement / Change records, decides verification scope,
-  and runs the convergence check before finishing. DO NOT invoke for:
+  the task to the right internal workflow, establishes requirement understanding
+  and confirmation, picks the process depth, creates and maintains the Requirement
+  / Change records, decides verification scope, and runs the convergence check
+  before finishing. DO NOT invoke for:
   answering questions, explaining code, pure conversation, or running the
   review loop by itself (that is codex-review-loop, which this skill calls
   at the right moment).
 ---
 
-# dev-workflow — 软件开发操作 Skill（v0.1）
+# dev-workflow — 软件开发操作 Skill（v0.2）
 
 一个入口，五条内部工作流，自动路由、自动建档、自动验证、自动收敛。
 只有真正的产品决策才回到用户。
@@ -32,6 +33,137 @@ ADR-0080/0081（测试归属与审查协议）、ADR-0068（连续修改链）�
 测试怎么跑 / Agent 规则是什么）。本仓库的答案已收录在
 [references/repo-contract.md](references/repo-contract.md) —— 已满足即直接用，
 只有真缺失才补齐，**不平行创建第二套**。
+
+## REQUIREMENT UNDERSTANDING GATE（第 1 步之前）
+
+Before planning or implementation, establish product understanding.
+
+Do not start coding merely because the user has described a feature.
+
+For new requirements, meaningful requirement revisions, or ambiguous UX changes,
+first produce a concise Requirement Understanding Check.
+
+The purpose is to prove that the intended product behavior is understood.
+
+### Output
+
+#### 1. Goal
+
+In your own words, state what outcome the user is trying to achieve.
+
+Do not merely repeat the user's wording.
+
+#### 2. Expected User Behavior
+
+Describe concretely:
+
+- what the user does
+- what the system does
+- what the user sees
+- what happens next
+
+Prefer one or two concrete user-flow examples.
+
+#### 3. Scope
+
+State what is included in this requirement.
+
+#### 4. Non-Goals
+
+State what is NOT implied by this requirement.
+
+This is important for preventing unnecessary implementation expansion.
+
+#### 5. Existing Behavior Impact
+
+Identify:
+
+- what current behavior remains unchanged
+- what behavior changes
+- what existing module/workflow is affected
+
+#### 6. Acceptance Examples
+
+Give a small number of observable examples.
+
+Use:
+
+Given ...
+When ...
+Then ...
+
+These should describe product behavior, not implementation details.
+
+#### 7. Open Product Decisions
+
+Only list ambiguities that materially affect:
+
+- user-visible behavior
+- workflow
+- product semantics
+- compatibility with an already confirmed requirement
+
+Do NOT ask the user about normal engineering decisions.
+
+### GATE RULE
+
+Implementation status remains:
+
+`UNDERSTANDING`
+
+until the requirement is sufficiently understood.
+
+If no material product ambiguity remains, state:
+
+`UNDERSTANDING_READY`
+
+and present the understanding to the user.
+
+For interactive product discovery, wait for the user's confirmation before promoting to:
+
+`CONFIRMED`
+
+Only after `CONFIRMED` may the workflow proceed to:
+
+Impact Analysis
+→ Planning
+→ Implementation
+
+### IMPORTANT
+
+Do not use this gate as an excuse to ask unnecessary questions.
+
+If the user's intent is already clear:
+
+- make reasonable engineering assumptions
+- state them briefly when relevant
+- do not ask the user to decide implementation details
+
+Ask the user only when different interpretations would create meaningfully different product behavior.
+
+### ANTI-PATTERN
+
+Bad:
+
+> "I understand. Should I use React Context or Zustand?"
+
+Bad:
+
+> "Should I create src/components/feedback/FeedbackPanel.tsx?"
+
+Bad:
+
+> "Do you want REST or WebSocket?"
+
+These are engineering decisions.
+
+Good:
+
+> "When the user clicks another UI component while the feedback conversation is open,
+> should the conversation remain attached to the original component,
+> or follow the newly selected component?"
+
+This is a product behavior decision.
 
 ## 第 1 步 — 路由：这是哪种任务？
 
@@ -73,10 +205,11 @@ ADR-0080/0081（测试归属与审查协议）、ADR-0068（连续修改链）�
   本身要变 → 那一刻起建/修订 REQ。
 
 - 记录**为什么要做、用户真正要什么**，不记实现方案。
-- 用户明确提出的需求 = 创建即 `CONFIRMED`（引用原话+日期，与任务卡
-  「依据」行同一习惯）。Agent 从探索中**推断**的需求 = `DRAFT`，
-  在用户看到可运行结果并认可后转 `CONFIRMED` —— 这正是 AGENTS.md §1 的决策模式：
-  **做出来给用户看，不是中途问**。DRAFT 不是提问闸门。
+- 新需求、实质性修订或含糊的 UX 变化先经过 Requirement Understanding Gate；
+  用户原话是需求来源，**不再仅凭「描述了功能」自动视为 `CONFIRMED`**。
+  无实质产品歧义时先标记 `UNDERSTANDING_READY` 并呈现理解；交互式产品探索须等
+  用户确认后转 `CONFIRMED`。Agent 从探索中**推断**的需求仍记为 `DRAFT`，且不能
+  绕过本 Gate 进入 Impact Analysis、Planning 或 Implementation。
 - 已实现的需求在真实使用后变化 → **不篡改旧版**，在同一 REQ 文件里追加
   `v2 (supersedes v1)`，后续实施只处理 **v1→v2 delta**。
 - Discovery 阶段允许读代码、跑 App、写临时代码、做 prototype、调 API、
@@ -136,9 +269,10 @@ boundary leakage / 隐藏耦合 / 重复抽象，**不直接接受扩散**；必
   「需要产品负责人拍板」不是有效理由；**在技术问题上停下来问，等于把工作
   退回给用户**。
 
-- **一次任务里把待办做到底，不中途交还控制权。** 报告写在做完之后，不是做之前。
-  真正必须停的只有三处：**merge 到 main**（AGENTS.md §22）、**花钱**（§1）、
-  **会话权限层拒绝**（外部限制，如实报告一次，不反复问）。
+- Requirement Understanding Gate 在实施开始前完成；进入 `CONFIRMED` 后，
+  **一次任务里把待办做到底，不中途交还控制权。** 报告写在做完之后，不是做之前。
+  实施阶段真正必须停的只有**花钱**（AGENTS.md §1）或**会话权限层拒绝**
+  （外部限制，如实报告一次，不反复问）。
 
 ## 第 8 步 — Targeted Verification
 
@@ -198,7 +332,7 @@ diff 范围）→ `stage` → 在 shell 运行其返回的 commit 命令 → `re
 提交完成后做一次 Post-Use Feedback（`skill-evolution` Skill 的 Fast Loop：
 两次脚本调用 + 一条 50–150 字反馈，不做深度分析，不改任何 Skill）。
 
-## v0.2 预留（现在不做）
+## v0.3 预留（现在不做）
 
 部署编排、发布自动化、secrets 管理、安全/可观测框架、企业审批流、
 sprint/ticket 管理、强制多 Agent 编排、强制 TDD。repo 已有的机制照常兼容。
