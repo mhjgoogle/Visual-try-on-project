@@ -16,19 +16,73 @@
 > `WFM1_MINIMAX_API_KEY` + `AI_VIDEO_WORKFLOW_REAL_MINIMAX=1` + 对 ≈USD 0.28 的
 > 确认。AGENTS.md §1：花钱是**唯一**必须问的那件事，Agent 不得自行推进。
 >
-> 真跑时的完整口令（离线部分已经全部就位，剩下的就是这一条）：
+> > **2026-08-26 订正：「它要的是」那三样列少了。** 实测还要**四道 stage 批准**
+> > （`concept_lock` → `screenplay_lock` → `av_design_lock` → `production_lock`），
+> > 而付费网关硬要 `production_lock`。逐条证据见下方 §3。
 >
-> ```powershell
-> $env:WFM1_MINIMAX_API_KEY = '<你的 key>'
-> $env:AI_VIDEO_WORKFLOW_REAL_MINIMAX = '1'
-> $env:AI_VIDEO_WORKFLOW_ENABLE_PAID_COMMANDS = '1'
-> ./scripts/launch/studio.ps1 -Connected `
->     -AccountRoot examples/projects `
->     -EnablePaid -CatalogDir config/providers
-> ```
+> ~~真跑时的完整口令（离线部分已经全部就位，剩下的就是这一条）：~~
 >
-> 然后在界面上对 `wfm1-minimax-evidence` 触发一次生成，预检会显示 USD 0.28，
-> 由你按下第二步确认。**预检是只读的，从不扣费**；扣费只发生在你按下确认之后。
+> > **2026-08-26 订正：上面那句「剩下的就是这一条」是错的，那条命令也跑不起来。**
+> > 产品负责人当天说「跑」，实测之后有**三件**事挡着，不是一件。逐条见下方
+> > 「§3 真跑前置的实测结果」。
+
+### §3 真跑前置的实测结果（2026-08-26）
+
+**一、原来写的启动命令不存在那三个参数。**
+
+`scripts/launch/studio.ps1` 的 `param()` 只有
+`-Connected` / `-SetupOnly` / `-AllowCodexReview` / `-Port` / `-AssetRoot`；
+`-AccountRoot` / `-EnablePaid` / `-CatalogDir` **一个都没有**，而且启动器把
+后端写死成 `server.py --account-root $AssetRoot`，**没有转发任何其它参数的路径**。
+照原命令粘下去只会得到 `A parameter cannot be found that matches parameter name
+'AccountRoot'` —— 而那正好发生在准备花钱的那一刻。
+
+付费模式要**直接调 `server.py`**（三个参数在它自己的 argparse 里）。已实测启动成功
+（`/api/meta` 回 `{"mode":"connected","paid":true}`）：
+
+```powershell
+$env:WFM1_MINIMAX_API_KEY = '<你的 key>'
+$env:AI_VIDEO_WORKFLOW_REAL_MINIMAX = '1'
+$env:AI_VIDEO_WORKFLOW_ENABLE_PAID_COMMANDS = '1'
+.\.venv\Scripts\python.exe mockups\motv-workspace\server.py `
+    --account-root examples\projects `
+    --enable-paid `
+    --catalog-dir config\providers
+```
+
+代价（已知，可接受）：绕开启动器就没有它的 `Resolve-ClaudeOnPath` /
+`Resolve-CodexOnPath`，AI 运行时不会被解析 —— 对本次付费生成不影响，
+它走的是 MiniMax 传输层，不是本地 CLI。
+生成的媒体落在 `examples/projects/` 内，但 `.gitignore` 的 `*.mp4` 挡着，
+不违反第 23 条。
+
+**二、`production_lock` 没批 —— 而付费路径硬要它。**
+
+`src/ai_video_workflow/app/paid_gateway.py:330` 是
+`require_stage_ready(project_root, "production_lock")`。实测两个项目的八个 stage
+**全是 `draft`**：
+
+```
+concept_lock      draft   blocked_by=[]
+screenplay_lock   draft   blocked_by=[concept_lock]
+av_design_lock    draft   blocked_by=[screenplay_lock]
+production_lock   draft   blocked_by=[av_design_lock]
+```
+
+`wfm1-minimax-evidence` 与冻结的 `wfm1-demo` **逐文件相同**（`diff` 无输出），
+所以这不是副本丢了东西，是这条链本来就没批过。**本卡此前从未提到这四道闸。**
+
+这四道闸不是可以顺手替用户按掉的：它们正是挡在付费动作前面的**人工批准**，
+也就是 ADR-0006 / ADR-0009 窄授权赖以成立的那一层。Agent 自行批准它们再去花钱，
+等于把整套付费设计的控制点掏空 —— AGENTS.md §1「窄授权不得自行扩大」。
+
+**三、key 只从环境变量来。** `cloud_minimax.py:57`
+`MINIMAX_CREDENTIAL_ENV = "WFM1_MINIMAX_API_KEY"`，仓库里没有、也不该有凭据文件
+（第 23 条）。
+
+**离线那一段在 2026-08-25 的 schema 迁移合并之后复验仍然全绿**：
+`test_minimax_evidence_scaffold_task041.py` + `test_paid_gateway_command.py`
+共 41 项通过。
 
 依据：ADR-0041（本任务实现的决策）；ADR-0033 Gateway 合同；ADR-0006 + ADR-0009 付费视频窄授权；
 ADR-0010 / ADR-0032 工作视窗边界；ADR-0008 成本事实；ADR-0040 / TASK-038 submit capability。
