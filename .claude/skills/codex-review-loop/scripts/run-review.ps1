@@ -21,6 +21,15 @@
 
 .EXAMPLE
   run-review.ps1 main           # review current branch vs main
+
+.NOTES
+  REVIEW_PACKAGE=<file>  Requirement context for the four-gate review
+                         (ADR-0088): claimed requirements + acceptance criteria,
+                         architecture constraints in force, verification
+                         evidence. Without it only gate 4 (technical quality) is
+                         reviewed. An unreadable / empty / oversized package is
+                         an ENV_ERROR or PACKAGE_TOO_LARGE, never a silent
+                         downgrade to a code-only review.
 #>
 [CmdletBinding()]
 param(
@@ -54,6 +63,17 @@ function Get-EnvOrDefault {
 # the reviewer (and, on the claude fallback, your quota) bounded.
 $Ctx = [int](Get-EnvOrDefault 'REVIEW_DIFF_CONTEXT' '1')      # unified context lines (default 1, vs git's 3)
 $MaxLines = [int](Get-EnvOrDefault 'REVIEW_MAX_DIFF_LINES' '4000')  # refuse to review a diff larger than this
+# The Review Package (ADR-0088 decision 5) exists to keep the reviewer OUT of the
+# rest of the repository, so it must stay small: a package that grows into a repo
+# dump defeats its own purpose and costs the tokens it was meant to save.
+# Get-EnvOrDefault would fold a whitespace-only value into "absent", and this
+# script would then quietly review gate 4 only while run-review.sh reported
+# ENV_ERROR for the same environment -- a host-dependent verdict, which is
+# exactly what ADR-0062 决策 3 forbids (codex review, TASK-108 轮 2).
+$PackageRaw = [Environment]::GetEnvironmentVariable('REVIEW_PACKAGE')
+if ($null -eq $PackageRaw) { $PackageRaw = '' }
+$Package = $PackageRaw.Trim()
+$MaxPackageLines = [int](Get-EnvOrDefault 'REVIEW_MAX_PACKAGE_LINES' '200')
 # Hard wall-clock cap on EACH reviewer invocation so a hung/stalled reviewer can
 # never block for hours. On timeout the reviewer is treated as failed (codex ->
 # falls back to claude; claude -> ENV_ERROR). Override via REVIEW_TIMEOUT (secs).
@@ -412,43 +432,111 @@ if ($DiffLines -gt $MaxLines) {
     exit 0
 }
 
+# --- optional Review Package (requirement context) --------------------------
+# Gates 1-3 (requirement fulfilment / architecture conformance / verification
+# sufficiency) can only be answered from material that is IN the prompt. So a
+# package that was requested but cannot be read must STOP the run: continuing
+# would print a normal verdict for a review that silently covered gate 4 only --
+# the same "verdict claims coverage the run never had" hole the unreadable-file
+# branch above exists to close.
+$PackageBlock = ''
+if ($PackageRaw.Length -gt 0 -and $Package.Length -eq 0) {
+    Write-Status 'ENV_ERROR: REVIEW_PACKAGE is blank'
+    Write-Report 'ENV_ERROR: REVIEW_PACKAGE is set but blank; pass a real package path or unset it (a blank value must never silently become a gate-4-only review).'
+    exit 0
+}
+if ($Package.Length -gt 0) {
+    $packageText = $null
+    if (Test-Path -LiteralPath $Package -PathType Leaf) {
+        try { $packageText = [IO.File]::ReadAllText($Package) } catch { $packageText = $null }
+    }
+    if ($null -eq $packageText) {
+        Write-Status 'ENV_ERROR: cannot read review package'
+        Write-Report "ENV_ERROR: cannot read review package '$Package'; refusing to run a gate-4-only review while a requirement review was requested."
+        exit 0
+    }
+    if ([string]::IsNullOrWhiteSpace($packageText)) {
+        Write-Status 'ENV_ERROR: review package is empty'
+        Write-Report "ENV_ERROR: review package '$Package' is empty; it must state the claimed requirements, their acceptance criteria and the evidence."
+        exit 0
+    }
+    $packageLines = ($packageText.TrimEnd("`n") -split "`n").Count
+    if ($packageLines -gt $MaxPackageLines) {
+        Write-Status "PACKAGE_TOO_LARGE: $packageLines lines > $MaxPackageLines"
+        Write-Report "PACKAGE_TOO_LARGE: review package is $packageLines lines (> $MaxPackageLines); trim it to the acceptance criteria, the architecture constraints and the evidence."
+        exit 0
+    }
+    $PackageBlock = "<<<REVIEW PACKAGE>>>`n" + $packageText.TrimEnd("`n") + "`n<<<END REVIEW PACKAGE>>>`n"
+}
+
 # --- build the review prompt (identical for both reviewers) -----------------
 $Instructions = @'
-You are a strict, read-only code reviewer. Review ONLY the unified diff given
-below. Do not modify any files.
+You are a strict, read-only reviewer. Review ONLY the material given below.
+Do not modify any files.
 
-Review through EXACTLY these four lenses and nothing else:
-  1. correctness / bug risk
-  2. regression risk
-  3. edge cases
-  4. security
+A REVIEW PACKAGE block may precede the diff. It states which requirements this
+change claims to fulfil (with their acceptance criteria), the architecture
+constraints in force, and the verification evidence. When it is present, review
+in EXACTLY this order and report all four gates:
+
+  1. Requirement fulfilment - for EACH requirement / acceptance criterion in the
+     package: is that behaviour implemented in this diff, and does the cited
+     evidence show it works?
+  2. Architecture conformance - does the diff stay inside EACH architecture
+     constraint the package cites?
+  3. Verification sufficiency - does the cited evidence exercise the required
+     behaviour itself, or only its surroundings?
+  4. Technical quality - correctness / bug risk, regression risk, edge cases,
+     security.
+
+When NO REVIEW PACKAGE block is present, review gate 4 only and write "- (none)"
+under the three other gate headers. Never invent requirements of your own.
+
+Gate 1 verdict per requirement or criterion:
+  PASS          the behaviour is implemented AND evidenced
+  PARTIAL       some acceptance behaviour is missing
+  FAIL          the implementation contradicts or breaks the requirement
+  NOT_EVIDENCED implementation may exist, but the evidence does not prove it
+NEVER answer PASS because the package claims the work is done, and NEVER answer
+PASS because tests are green: name the code that implements the behaviour and
+the evidence that exercises it, or answer NOT_EVIDENCED.
+Gate 2 verdict per constraint: PASS | FAIL | NOT_APPLICABLE.
+Gate 3 verdict: SUFFICIENT | INSUFFICIENT.
 
 Rules:
 - Every issue MUST cite a file path and line number, and explain WHY it is a
   problem (what breaks, under what input/condition).
 - Mark anything you are not sure about with the literal tag (uncertain).
-- DO NOT propose architecture changes or refactors of any kind. Architecture is
-  decided by ADRs, not by this review. Such suggestions are out of scope and
-  forbidden -- they prevent the fix loop from ever converging.
+- Judge architecture CONFORMANCE against the constraints the package cites. DO
+  NOT propose architecture changes, redesigns or refactors of any kind:
+  architecture is decided by ADRs, not by this review. Such proposals are out of
+  scope and forbidden - they prevent the fix loop from ever converging.
 - DO NOT report style nitpicks unless the style directly causes a bug.
-- If you find no blocking issues, say so with VERDICT: pass.
+- Stay inside the package and the diff. Read nothing else unless a gate cannot
+  be decided without it; if you do, say which file you needed and why.
 - Be terse to save tokens: ONE line per finding, no preamble, no summary, and
   do NOT restate or quote the diff back.
 
 Output STRICTLY in the following format, with NO extra text before or after it:
 
 VERDICT: pass|fail
+REQUIREMENT:
+- [REQ-id / criterion] PASS|PARTIAL|FAIL|NOT_EVIDENCED -> what is missing, or where the proof is
+ARCHITECTURE:
+- [constraint] PASS|FAIL|NOT_APPLICABLE -> why
+VERIFICATION:
+- SUFFICIENT|INSUFFICIENT -> what remains unproven
 BLOCKING:
 - [file:line] description -> impact
 NON_BLOCKING:
 - [file:line] description -> impact
 
+VERDICT must be fail if ANY requirement is PARTIAL, FAIL or NOT_EVIDENCED, ANY
+constraint is FAIL, verification is INSUFFICIENT, or BLOCKING has any item.
 If a section has no items, keep the header and write "- (none)" under it.
-
-Here is the unified diff to review:
 '@
 
-$Prompt = $Instructions + "`n" + $Diff
+$Prompt = $Instructions + "`n" + $PackageBlock + "Here is the unified diff to review:`n" + $Diff
 
 # --- reviewer helpers -------------------------------------------------------
 # Resolved by name (never bare-name Popen), per ADR-0049 decision 3. The env
@@ -472,6 +560,86 @@ function Resolve-Reviewer {
 # line 'VERDICT: pass|fail', so an echoed or truncated prompt would count as a
 # finished review.
 $VERDICT_PATTERN = '(^|\n)\s*VERDICT:\s*(pass|fail)(\s|$)'
+# ...and when a Review Package was supplied, a completed review must ANSWER the
+# three gates the package exists for. Accepting a bare `VERDICT: pass` would let
+# a reviewer that ignored (or never actually received) the package close the loop
+# with the requirement question never asked -- the same fail-open shape as a
+# review that silently skipped a file (codex review, TASK-108 轮 1).
+# Header PRESENCE alone was still fail-open (codex review, TASK-108 轮 2): three
+# empty headers in any order satisfied it, so an answer that never graded a
+# single criterion counted as a four-gate review. A complete answer must carry
+# the gates IN ORDER (the order IS the rule -- requirement first) and must state
+# at least one gate-1 verdict.
+function Get-GateLine {
+    param(
+        [Parameter(Mandatory = $true)][string]$Gate,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Text
+    )
+    $lines = $Text -split "`n"
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match "^\s*${Gate}:") { return $i }
+    }
+    return -1
+}
+
+function Test-ReviewComplete {
+    param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Text)
+    if ($Text -notmatch $VERDICT_PATTERN) { return $false }
+    if ([string]::IsNullOrEmpty($PackageBlock)) { return $true }
+    $r = Get-GateLine -Gate 'REQUIREMENT' -Text $Text
+    $a = Get-GateLine -Gate 'ARCHITECTURE' -Text $Text
+    $v = Get-GateLine -Gate 'VERIFICATION' -Text $Text
+    # The technical-quality sections belong to the SAME answer: dropping them is a
+    # three-gate answer to a four-gate question, and gate 4 is where correctness
+    # lives (codex review, TASK-108 轮 3).
+    $b = Get-GateLine -Gate 'BLOCKING' -Text $Text
+    $n = Get-GateLine -Gate 'NON_BLOCKING' -Text $Text
+    if ($r -lt 0 -or $a -lt 0 -or $v -lt 0 -or $b -lt 0 -or $n -lt 0) { return $false }
+    if (-not ($r -lt $a -and $a -lt $v -and $v -lt $b -and $b -lt $n)) { return $false }
+    $gate1 = ($Text -split "`n")[$r..$a] -join "`n"
+    if ($gate1 -notmatch '\b(PASS|PARTIAL|FAIL|NOT_EVIDENCED)\b') { return $false }
+    return $true
+}
+
+# A `VERDICT: pass` that sits above a gate reporting PARTIAL / FAIL /
+# NOT_EVIDENCED / INSUFFICIENT is self-contradictory, and the Merge Gate reads
+# the verdict. Rather than rewrite a reviewer's words, say so on its own line and
+# let the controller treat the run as a fail (ADR-0088 决策 6). False positives
+# (a gate word used in prose) push toward fail, which is the safe direction.
+function Get-ConsistencyNote {
+    param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Text)
+    if ($Text -notmatch '(^|`n)\s*VERDICT:\s*pass') { return '' }
+    if ([string]::IsNullOrEmpty($PackageBlock)) { return '' }
+    $lines = $Text -split "`n"
+    $r = Get-GateLine -Gate 'REQUIREMENT' -Text $Text
+    $b = Get-GateLine -Gate 'BLOCKING' -Text $Text
+    $n = Get-GateLine -Gate 'NON_BLOCKING' -Text $Text
+    if ($r -ge 0) {
+        $end = $b
+        if ($end -lt 0) { $end = $lines.Count - 1 }
+        $region = $lines[$r..$end] -join "`n"
+        if ($region -match '\b(PARTIAL|FAIL|NOT_EVIDENCED|INSUFFICIENT)\b') {
+            return 'GATE_CONSISTENCY: inconsistent — a gate reports PARTIAL/FAIL/NOT_EVIDENCED/INSUFFICIENT while VERDICT says pass; treat this review as fail.'
+        }
+    }
+    # ...and a populated BLOCKING list contradicts a pass just as loudly. The scan
+    # used to STOP at that header, so `pass` + a real blocking finding went
+    # unflagged (codex review, TASK-108 轮 3).
+    if ($b -lt 0) { return '' }
+    $end = $n
+    if ($end -lt 0) { $end = $lines.Count }
+    $items = @()
+    for ($i = $b + 1; $i -lt $end; $i++) {
+        $line = $lines[$i].Trim()
+        if (-not $line) { continue }
+        if ($line -match '^[-*]\s*\(none\)$') { continue }
+        $items += $line
+    }
+    if ($items.Count -gt 0) {
+        return 'GATE_CONSISTENCY: inconsistent — BLOCKING lists findings while VERDICT says pass; treat this review as fail.'
+    }
+    return ''
+}
 
 $CodexExe = Resolve-Reviewer -Name 'codex' -EnvVar 'REVIEW_CODEX_BIN'
 $ClaudeExe = Resolve-Reviewer -Name 'claude' -EnvVar 'REVIEW_CLAUDE_BIN'
@@ -517,8 +685,8 @@ function Invoke-Reviewer {
     # truncated answer that happens to echo the template ("VERDICT: unknown",
     # "output VERDICT: pass|fail") must count as a failed review and fall
     # through to the next reviewer, never be reported as a completed one.
-    if ($r.StdOut -notmatch $VERDICT_PATTERN) {
-        $script:LastError = "$Name produced no 'VERDICT: pass|fail' line"
+    if (-not (Test-ReviewComplete -Text $r.StdOut)) {
+        $script:LastError = "$Name produced no complete answer (need 'VERDICT: pass|fail', plus REQUIREMENT/ARCHITECTURE/VERIFICATION when a review package was supplied)"
         return $null
     }
     return $r.StdOut
@@ -542,6 +710,8 @@ if ($CodexExe) {
     if ($out) {
         Write-Status "codex done: $(Get-VerdictLine $out)"
         Write-Report 'REVIEWER: codex'
+        $note = Get-ConsistencyNote -Text $out
+        if ($note) { Write-Report $note }
         Write-Report $out
         exit 0
     }
@@ -552,6 +722,8 @@ if ($CodexExe) {
         if ($out) {
             Write-Status "claude (fallback) done: $(Get-VerdictLine $out)"
             Write-Report "REVIEWER: claude (fallback; codex unavailable: $reason)"
+            $note = Get-ConsistencyNote -Text $out
+            if ($note) { Write-Report $note }
             Write-Report 'INDEPENDENCE: degraded - reviewer and implementer are the same model.'
             Write-Report $out
             exit 0
@@ -572,6 +744,8 @@ if ($ClaudeExe) {
     if ($out) {
         Write-Status "claude (fallback) done: $(Get-VerdictLine $out)"
         Write-Report 'REVIEWER: claude (fallback; codex not installed)'
+        $note = Get-ConsistencyNote -Text $out
+        if ($note) { Write-Report $note }
         Write-Report 'INDEPENDENCE: degraded - reviewer and implementer are the same model.'
         Write-Report $out
         exit 0

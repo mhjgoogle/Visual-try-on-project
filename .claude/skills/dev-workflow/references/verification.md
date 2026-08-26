@@ -47,6 +47,12 @@ QUICK 心算；STANDARD/DEEP 写进任务卡（每项一行即可）：
 P3/P4 记 Follow-up。纯文档与纯展示改动不调。
 **发布闸门 = 验收满足 + 相关测试过 + 无未闭合 P1**，不是零发现。
 
+调审查前备 Review Package，审查按**四闸顺序**作答（需求完成度 → 架构符合性 →
+证据充分性 → 技术质量）：模板、判词与评级映射见
+[traceability.md](traceability.md) §4–5。**验证要证明判据里的行为，不是「测试全绿」**
+——「Button renders」证不了「点击后 Feedback Agent 拿到 component context」，
+那种证据在审查里叫 `NOT_EVIDENCED`。
+
 ## Convergence（完成前必查）
 
 防止「只加不减」。逐项过（多数时候答案是「无」，几秒钟）：
@@ -68,8 +74,10 @@ obsolete code/tests/docs **允许删**（软删/带版本路径优先，AGENTS.m
 
 ## Done 判定
 
-- [ ] Requirement 满足（对着 REQ 验收判据，不是对着代码）
-- [ ] Verification 覆盖了本次 impact scope
+- [ ] Requirement 满足：**逐条**验收判据都指得出实现与证据（对着 REQ 判据，
+      不是对着代码）；指不出来的那条 = `REQUIREMENT_COVERAGE_GAP`
+- [ ] Verification 覆盖了本次 impact scope，且证的是**判据里的行为**
+- [ ] 卡引用的每条 `CA §N` 仍然成立（越界 = 不能 Merge，先改回边界内）
 - [ ] 架构未明显恶化（触发过治理的，结论已记录）
 - [ ] Convergence 清单过完，删的删了，欠的记了
 - [ ] REQ / Change Record 更新到终态（状态、相关 Change、实施摘要、验证）

@@ -107,6 +107,10 @@
 
 ## 5. 文档维护规则
 
+**本表是产品级追踪（哪个需求域由谁承接、到什么覆盖级别）。** 单个 Change 的
+「判据 → Task → 架构约束 → 实现 → 验证」由 dev-workflow 在收口与审查时现算，
+不落库、**不在这里再建一份**（[ADR-0088](../adr/ADR-0088-traceability-and-requirement-fulfillment-review.md) 决策 1）。
+
 1. TASK-024 负责把本表细化为 query/page/source/test 级追踪，但不得删除 WFM2/WFM3
    deferred owner。
 2. 每个新任务完成时更新本表状态；只有对应验收任务通过后才能提升覆盖级别。
