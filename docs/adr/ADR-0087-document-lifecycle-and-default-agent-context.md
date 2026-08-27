@@ -5,7 +5,7 @@
 - 决策者：产品负责人下发目标（2026-08-26），实施 Agent 依 AGENTS.md §1
   「ADR 的 Accept 权」自行 Accept 技术形状
 - 关联：[REQ-002](../requirements/REQ-002-document-lifecycle.md) ·
-  [TASK-107](../tasks/active/TASK-107-document-lifecycle.md) ·
+  [TASK-107](../tasks/done/TASK-107-document-lifecycle.md) ·
   [ADR-0083](ADR-0083-docs-partitioned-by-completion.md)（目录即状态，本 ADR 扩展它）·
   [ADR-0076](ADR-0076-dev-workflow-operating-skill.md)（REQ 记录与 dev-workflow）·
   [ADR-0077](ADR-0077-repository-path-ownership.md)（仓库路径所有权）

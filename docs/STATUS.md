@@ -19,7 +19,7 @@
 | `docs/reports/` | 阶段性工作报告 —— **历史证据**，默认不读 |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：6 在办 · 2 待排期 · 102 已完成 · 72 条 ADR。
+**当前**：5 在办 · 2 待排期 · 103 已完成 · 72 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -47,7 +47,6 @@
 | [TASK-074-delivery-migration-and-legacy-retirement.md](tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md) | TASK-074：第四阶段 —— 后期交付、旧数据迁移、旧页面与旧接口清理、真实项目验收 | 部分实施（2026-08-25 更新） |
 | [TASK-087-followup-ledger.md](tasks/active/TASK-087-followup-ledger.md) | TASK-087：Follow-up 总账 —— 把散在九张卡里的欠账收成一处 | 活账（不是一次性交付 |
 | [TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md](tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) | TASK-106：前端接上 run_id 路径 —— 并由此退役同步分支与 /api/agent/ | 待开始（分析已完成，见 §1 |
-| [TASK-107-document-lifecycle.md](tasks/active/TASK-107-document-lifecycle.md) | TASK-107：文档与记录的统一生命周期 —— 落到规则、工装与现有文档上 | 进行中 |
 
 ## 在办 · 设计与验收文档
 
@@ -175,6 +174,7 @@
 | [TASK-103-frontback-and-ui-residuals.md](tasks/done/TASK-103-frontback-and-ui-residuals.md) | TASK-103：前后端交互与 UI 的剩余欠账 | A–E 批已落地（2026-08-23） · 已合入 main（2026-08-23，产品负责人「合并并收口」），merge commit e5c52f7 |
 | [TASK-104-governance-docs-merge.md](tasks/done/TASK-104-governance-docs-merge.md) | TASK-104：治理文档合并 —— AGENTS.md 成为唯一规范 | 已完成（2026-08-23） · 已合入 main（2026-08-23，产品负责人「合并并收口」），merge commit 8b9eb81 |
 | [TASK-105-flow-template-first-slice.md](tasks/done/TASK-105-flow-template-first-slice.md) | TASK-105：流程模板第一刀 —— 内置一份 flow，新建项目时可选 | 第一刀实现完成（2026-08-24） |
+| [TASK-107-document-lifecycle.md](tasks/done/TASK-107-document-lifecycle.md) | TASK-107：文档与记录的统一生命周期 —— 落到规则、工装与现有文档上 | 完成（2026-08-26） |
 | [TASK-108-traceability-and-requirement-review.md](tasks/done/TASK-108-traceability-and-requirement-review.md) | TASK-108：把「产品意图 → 验证」的追溯链与需求完成度审查接进开发流程 | 完成（2026-08-26） |
 
 ## 已完成 · 设计与验收记录

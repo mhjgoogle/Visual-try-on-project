@@ -1,6 +1,7 @@
 # TASK-107：文档与记录的统一生命周期 —— 落到规则、工装与现有文档上
 
-- 状态：进行中
+- 状态：完成（2026-08-26）—— 实现完成、`tests/tooling` 全域绿、codex 三轮审查后
+  本卡无未闭合 P1；提交 `712c7d4`（41 个文件）
 - Workflow：Refactor · 深度：DEEP
 - 关联 Requirement：[REQ-002](../../requirements/REQ-002-document-lifecycle.md)
 - 关联 ADR：[ADR-0087](../../adr/ADR-0087-document-lifecycle-and-default-agent-context.md)
@@ -117,17 +118,16 @@
 
 ## Follow-up
 
-- **本卡未提交** —— 提交被一次**并发编辑**挡住，不是被验证挡住：2026-08-26 21:33
-  起，同一工作树、同一分支上出现了另一个 Agent 的 TASK-108 / ADR-0088（追溯链与
-  需求兑现审查）改动，且它与本卡在 6 个文件上交叠：`docs/STATUS.md`（生成物，现在
-  同时含两边的行）、`docs/requirements/index.md`、`.claude/skills/dev-workflow/SKILL.md`、
-  `.claude/tools/lifecycle_check.py`（对方加了 `orphan-task` 检查）、
-  `tests/tooling/test_lifecycle_check.py`（对方改了本卡的 fixture）、
-  `.claude/skills/dev-workflow/references/verification.md`。
-  按 AGENTS.md 第 14/15/16 条与 auto-push 的 `MIXED` 规则，**不整文件提交别人的
-  在途改动**；且 `tests/tooling` 当前唯一一条红是对方的
-  （`ADR-0088` 链到尚不存在的 `docs/tasks/done/TASK-108-*.md`）。
-  两边收口后一并提交，或由两卡各自拆 patch 提交。
+- **并发编辑已收口（留痕）**：2026-08-26 21:33 起，另一个 Agent 的
+  [TASK-108](../done/TASK-108-traceability-and-requirement-review.md)（追溯链与需求
+  兑现审查）与本卡在同一工作树、同一分支上并行，两者在 6 个文件上交叠
+  （`STATUS.md`、`requirements/index.md`、`dev-workflow/SKILL.md`、
+  `lifecycle_check.py`（对方加了 `orphan-task` 检查）、`test_lifecycle_check.py`、
+  `verification.md`）。**违反 AGENTS.md 第 14/15 条**（一个任务一个实施 Agent、
+  不并行改同一处）。结果没有丢失：两边的改动都进了同一条分支（`712c7d4` /
+  `1b32047`+`453b23b`），`lifecycle_check` 与 `tests/tooling` 事后全绿。
+  记在这里是因为**下次未必这么运气好** —— 交叠文件里有 `STATUS.md` 这种生成物和
+  `lifecycle_check.py` 这种共享守卫，晚一步就是互相覆盖。
 - `.claude/tmp/`（未跟踪、已 gitignore、约 90 个历史 scratch 文件）本次**不删**：
   它在 Git 之外，删了不可逆，且既不进上下文也不进 diff。第 26 条对**新产生**的
   scratch 生效。要清的话是一次纯人工动作，登记在 TASK-087 而不是这里。
