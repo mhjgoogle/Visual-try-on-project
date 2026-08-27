@@ -170,7 +170,10 @@
     }
   },
   "merge_gate": {
-    "status": "PENDING"
+    "status": "PASS",
+    "by": "ADR-0085 常设授权；依据=Done 判定 + 最终全量：pytest -n 8 -m 'not serial' 3608 passed/59 skipped + pytest -m serial 6 passed、node --test 1857 全绿、ruff check + format --check 372 files 全绿；lifecycle_check 0 finding；codex 跨模型 3 轮（轮 1 两 P1、轮 2 三 P1 全部已修并补正反用例，轮 3 属于本卡的 blocking 为 0），无未闭合 P1；待复审清单「待复审（未闭合）」为空",
+    "time": "2026-08-27T09:07:00+00:00",
+    "tip": "b6b23b2076a8bc75a8b91752e4f611b85a3299ff"
   },
   "merge": null,
   "cleanup": null
