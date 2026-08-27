@@ -10,7 +10,6 @@ import assert from "node:assert/strict";
 import { storyboardModel, shotDetailModel, renderStoryboard } from "../src/ui/storyboard.js";
 import { videoSourceFrame, curVideoVersion } from "../src/ui/studioparts.js";
 import { renderImageWs, renderVideoWs } from "../src/ui/mediaws.js";
-import { directorModel } from "../src/ui/director.js";
 import { normalizeShots, nextDraftVersion } from "../src/ui/shoteditor.js";
 import {
   parseBreakdown,
@@ -127,36 +126,6 @@ test("shotDetailModel: creative facets + scene context + media variants + lineag
 
 // --- directorModel -------------------------------------------------------------- //
 
-test("directorModel: per-module context, real primary actions, provenance history", () => {
-  const s = snapshot();
-  const doc = sd.createDoc();
-  // script module: no versions → initial generation
-  let m = directorModel({ module: "script", doc, pd: s, sel: {} });
-  assert.equal(m.primary.kind, "script-initial");
-  sd.completeGeneration(doc, sd.beginGeneration(doc, "initial", "想法"), "剧本");
-  m = directorModel({ module: "script", doc, pd: s, sel: {} });
-  assert.equal(m.primary.kind, "script-revise");
-  // shots module with a draft → regenerate + selected-shot context
-  m = directorModel({ module: "shots", doc, pd: s, sel: { selectedShotId: "shot-a" } });
-  assert.equal(m.primary.kind, "shots-generate");
-  assert.ok(m.context.some((t) => t.includes("跪殿")));
-  // settings module → AI-first bible breakdown
-  m = directorModel({ module: "settings", doc, pd: s, sel: {} });
-  assert.equal(m.primary.kind, "bible-breakdown");
-  // history: newest first, real registry statuses
-  assert.deepEqual(m.history.map((h) => h.status), ["生成中", "成功"]);
-  // frames module: no fake generate button. With NO shot selected there is
-  // nothing to act on, so the honest note stands; WITH one, the real
-  // generation entry (compiled prompt + provider + import) is offered.
-  m = directorModel({ module: "frames", doc, pd: s, sel: {} });
-  assert.equal(m.primary, null);
-  assert.ok(m.pending.includes("资产准备"));
-  m = directorModel({ module: "frames", doc, pd: s, sel: { selectedShotId: "shot-a" } });
-  assert.equal(m.primary, null);
-  assert.equal(m.pending, null);
-  assert.equal(m.genKind, "image");
-  assert.ok(m.genDetail);
-});
 
 // --- normalizeShots M8 facets ------------------------------------------------------ //
 
@@ -300,19 +269,6 @@ test("nextDraftVersion is max+1, never length+1 (noncontiguous surviving version
   assert.equal(nextDraftVersion([{ v: 1 }, { v: "x" }, null]), 2);
 });
 
-test("proposal states dedup by NORMALIZED name; director input only where consumed", () => {
-  const b = parseBreakdown({
-    characters: [{ name: "甲", states: [{ name: "夜 晚" }, { name: "夜  晚" }, { name: "白日" }] }],
-    locations: [],
-  });
-  assert.deepEqual(b.characters[0].states.map((s) => s.name), ["夜 晚", "白日"]);
-  const s = snapshot();
-  const doc = sd.createDoc();
-  // shots/settings actions do not consume the instruction → no input rendered
-  assert.equal(directorModel({ module: "shots", doc, pd: s, sel: {} }).primary.input, false);
-  assert.equal(directorModel({ module: "settings", doc, pd: s, sel: {} }).primary.input, false);
-  assert.equal(directorModel({ module: "script", doc, pd: s, sel: {} }).primary.input, true);
-});
 
 test("normName collapses whitespace but never removes it (distinct names stay distinct)", () => {
   const b = parseBreakdown({

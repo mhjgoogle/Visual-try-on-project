@@ -13,7 +13,7 @@
           "subject": "feat(TASK-109): 全站三栏骨架 + 右栏只留对话（导演台不再渲染）",
           "time": "2026-08-27T11:06:44+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/auto-push/changes/three-pane.json",
             "docs/requirements/REQ-004-three-pane-shell-and-agent-conversation.md",
@@ -25,17 +25,32 @@
             "mockups/motv-workspace/styles/studio.css"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "03619769818c6f9a6f88c54d96c3ec1623764338",
+          "subject": "chore(auto-push): three-pane manifest writeback + STATUS 重新生成",
+          "time": "2026-08-27T11:07:15+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/STATUS.md",
+            "docs/auto-push/changes/three-pane.json"
+          ],
+          "scope_violation": [
+            "docs/STATUS.md"
+          ]
         }
       ],
       "paths": [
+        "docs/STATUS.md",
         "docs/auto-push/changes/three-pane.json",
         "docs/requirements/",
         "docs/tasks/active/TASK-109-three-pane-shell-and-agent-conversation.md",
         "mockups/motv-workspace/"
       ],
       "verification": "PASS",
-      "verification_ref": "node --test 前端全量 1857 passed/0 failed · pytest tests/contract 203 passed/2 skipped · lifecycle_check 0 finding · Playwright 在真实项目 夜班沉默 上实测三栏（story lanes=[0,220,1340]，episode lanes=[0,312,1340]）",
-      "declared": "2026-08-27T11:01:30+00:00"
+      "verification_ref": "node --test 前端全量 1857 passed/0 failed · pytest tests/contract 203 passed/2 skipped · gate 全量 3607 passed（STATUS 过期那条已修）· lifecycle_check 0 finding · Playwright 真实项目实测三栏",
+      "declared": "2026-08-27T11:07:27+00:00"
     }
   },
   "merge_gate": {

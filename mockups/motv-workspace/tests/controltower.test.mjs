@@ -12,7 +12,6 @@ import { productionPlan, shotBlockers, episodeShots, episodeStageCounts, unassig
 import { assetInbox, knownOwners } from "../src/ui/assetinbox.js";
 import { storyboardModel, defaultShotId, isEpisodeShot, isSelectableShot } from "../src/ui/storyboard.js";
 import { CAPABILITIES, needsConfirm, isAutomatic, levelOf, invoke } from "../src/ui/directorops.js";
-import { surfacedSection } from "../src/ui/director.js";
 import { episodeStages } from "../src/ui/production.js";
 import * as sd from "../src/workflow/scriptdoc.js";
 
@@ -379,14 +378,6 @@ test("invoke() runs free actions directly and gates the dangerous ones", () => {
 /* -------------------------------------------------------------------------- */
 /* contextual surfacing                                                        */
 /* -------------------------------------------------------------------------- */
-
-test("surfacedSection: blocker beats inbox beats the next action", () => {
-  const plan = { next: { key: "frames" } };
-  assert.equal(surfacedSection({ plan, inbox: { pending: 3 }, currentBlocked: true }), "plan");
-  assert.equal(surfacedSection({ plan, inbox: { pending: 3 }, currentBlocked: false }), "inbox");
-  assert.equal(surfacedSection({ plan, inbox: { pending: 0 }, currentBlocked: false }), "plan");
-  assert.equal(surfacedSection({ plan: { next: null }, inbox: { pending: 0 }, currentBlocked: false }), "director");
-});
 
 test("a DANGLING bible reference blocks the shot instead of passing silently", () => {
   const s = pd();

@@ -39,6 +39,7 @@ import {
   // TASK-082 §1.2: the rail is a CONTENT tree now, not a second copy of the chips
   assetTreeModel, renderAssetTree,
 } from "./assetlibws.js";
+import { renderAssetInboxSection, bindAssetInboxSection } from "./assetinboxsec.js";
 import { renderStorageWs, bindStorageWs } from "./storagews.js";
 import { renderStoryWs, bindStoryWs } from "./storyws.js";
 import { renderBibleWs, bindBibleWs } from "./biblews.js";
@@ -46,7 +47,6 @@ import { renderBriefWs, bindBriefWs } from "./briefws.js";
 import { renderWorldWs, bindWorldWs } from "./worldws.js";
 import { renderEpPlanWs, bindEpPlanWs } from "./epplanws.js";
 import { renderImageWs, bindImageWs, renderVideoWs, bindVideoWs } from "./mediaws.js";
-import { directorModel, renderDirector, bindDirector } from "./director.js";
 import { renderEpProd, bindEpProd, workbenchModel, currentPlace } from "./epprod.js";
 import {
   renderShotGraph, bindShotGraph, drawShotEdges, renderStages,
@@ -67,10 +67,8 @@ import { renderPostConsole, bindPostConsole } from "./postconsole.js";
 // TASK-073 §1.3: 状态 / 耗时 / 成本 / 失败原因 / 重试 / 真实取消, in one place
 import { taskRowModel, renderTaskRows, bindTaskRows } from "./taskrow.js";
 // TASK-073 §1.4: the contextual Agent panel — two entrances, seven items
-import { agentPanelModel, renderAgentPanel, bindAgentPanel } from "./agentpanel.js";
 // TASK-073 §1.7: the fourteen spec fields + the two hard gates (domain)
 import { specStanding, SPEC_FIELD_BY_KEY } from "../workflow/deliveryspec.js";
-import { skillPanelModel, renderSkillPanel, bindSkillPanel } from "./skillpanel.js";
 // TASK-080 §1.1: 「这个系统一共能帮我做哪些事」, in one place
 import { skillCatalogModel, renderSkillCatalog, bindSkillCatalog } from "./skillcatalog.js";
 // TASK-082 §1.1: 「这个项目整体在哪一步，有什么数据问题」
@@ -79,7 +77,9 @@ import { healthModel, renderHealth, bindHealth } from "./healthws.js";
 import {
   agentSessionModel, renderAgentSession, bindAgentSession, sessionState,
 } from "./agentsession.js";
-import { shotDirectorModel, renderShotDirector, bindShotDirector, runOperation } from "./directorshot.js";
+// Only `runOperation` survives here: the shot workbench's prompt actions use it.
+// The 导演台 panels that used the rest are gone (REQ-004 v2).
+import { runOperation } from "./directorshot.js";
 import { episodeView } from "../workflow/proddoc.js";
 import { renderQcPanel } from "./qcpanel.js";
 import { renderPostStatus } from "./poststatusbar.js";
@@ -423,10 +423,6 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
   // describing different shots.
   let shotRefs = null;
   let refSearch = null;
-  // The RIGHT column's operational model for THIS render (TASK-067) — resolved by
-  // aiDirector(), read by bind(). Non-null only on the shot workbench with a shot
-  // selected, which is exactly where its ten operations mean anything.
-  let shotDirector = null;
   // …and whether this render IS that surface. Set once in render() and read by
   // aiDirector(), so the two cannot disagree about which panel is showing.
   let onShotBench = false;
@@ -480,123 +476,29 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
 
   /** The persistent right-side AI Director. Script gets the live assistant;
    *  every other module gets the contextual Director panel. */
+  /** The persistent right column: ONE conversation, nothing else.
+   *
+   *  REQ-004 v2 — 产品负责人 2026-08-27: 「AI导演台不需要了。根本用不上。直接给我做一个
+   *  像现在一样的对话框。」 So the six-section 导演台 (导演观察 / 生产计划 / 当前状态 /
+   *  能力 / 生成 / 这一镜怎么办) is retired: `director.js`, `skillpanel.js` and
+   *  `agentpanel.js` are deleted, not merely unrendered.
+   *
+   *  WHAT DID NOT GO WITH IT. 资产收件箱 was housed in that column but is an ACTION
+   *  surface, not an observation — it is the only place an asset's ownership gets
+   *  confirmed. It moved into 资产库's workspace (`assetinboxsec.js`), because the
+   *  creator's own IA rule puts 「工作区」 in the middle column.
+   */
   function aiDirector(ctx) {
-    // TASK-080 §1.2 批次 A — the ONE session, on EVERY page including 剧本.
-    //
-    // It leads the column deliberately: the context it operates on is the one the
-    // creator STATED, so it must be readable before anything derived from 「which
-    // page you are on」. Rendered here rather than per page, because a panel that
-    // exists on some pages is exactly the 「先导航到正确的页面」 burden this
-    // replaces. NOTHING below it was removed this round (§1.2 迁移纪律 4).
     const session = renderAgentSession(agentSessionModel(ctx, ui), {
-      // §1.2 批次 B — the page-level panel is a part OF the session now, not a
-      // second surface in the middle column
-      panel: agentPanelBlock(ctx),
       // REQ-004 判据 4 — the history scrolls, the input box does not move
       split: true,
     });
-    if (activeModule === "script") {
-      const d = ctx.script.doc();
-      return (
-        `<aside class="st-dir prod-ai">` +
-        `<div class="dir-head"><span class="av">🎬</span>AI 导演 · 剧本</div>` +
-        // REQ-004 判据 4: the column is a CONVERSATION — everything derived scrolls
-        // above, the thing you type into is pinned at the bottom. Same two wrappers
-        // in both branches, so the shape cannot differ by page.
-        `<div class="st-dir-flow">` + aiPane(ctx, d, scriptStatus(d)) + session.history + `</div>` +
-        `<div class="st-dir-composer">` + session.composer + `</div>` +
-        `</aside>`
-      );
-    }
-    const m = directorModel({
-      module: activeModule,
-      doc: ctx.script.doc(),
-      story: ctx.story.doc(),
-      pd: ctx.prodData(),
-      sel: ui,
-      // CP8/ADR-0059 要求 1+9: the ONE production read model the Director's
-      // observation is built from — and the context ids it read, so that
-      // observation can be traced back to the canon it actually saw.
-      production: ctx.prodgraph.model({ shotId: ui.selectedShotId || null }),
-    });
-    // ADR-0061 决策 3: the Director now has a real Skill entrance. It is a
-    // collapsible section like the others, and it leads when the creator opened
-    // it — running a capability is the one thing the Director could not do.
-    const skillOpen = ui.dirOpen && ui.dirOpen.skills === true;
-    const sk = skillPanelModel(ctx, ui, execProbe);
-    const skillSummary = sk.pending
-      ? `<span class="chip gate">有提案待决定</span>`
-      : sk.open
-        ? `<span class="chip gen">运行中</span>`
-        : `<span class="chip">${sk.skills.length} 个能力</span>`;
-    const skillSec =
-      `<section class="dir-sec${skillOpen ? " open" : ""}${sk.pending ? " surfaced" : ""}">` +
-      `<button class="dir-sec-h" data-dsec="skills">` +
-      `<span class="tw">${skillOpen ? "▾" : "▸"}</span><span class="ti">能力</span>` +
-      `<span class="su">${skillSummary}</span></button>` +
-      (skillOpen ? `<div class="dir-sec-b">${renderSkillPanel(sk, ui)}</div>` : "") +
-      `</section>`;
-    // TASK-067 §2 / §6 / §18 / §19 — the AI Director as a real OPERATION ENTRANCE.
-    //
-    // On the shot workbench this REPLACES the old 当前状态 checklist rather than
-    // sitting beside it. Two checklists of the same shot, derived two ways, is the
-    // duplicate this codebase keeps paying for: `shotDirectorModel` reads
-    // `shotctx.shotReadiness`, which is the same derivation the capability layer
-    // gates on, so the panel and the buttons can never disagree about whether this
-    // shot is ready. The 能力 catalog below stays reachable — nothing was removed.
-    shotDirector = onShotBench ? shotDirectorModel(ctx, ui, execProbe) : null;
-    const shotDirSec = shotDirector
-      ? `<section class="dir-sec open sd-sec"><div class="dir-sec-h static">` +
-        `<span class="ti">这一镜现在怎么办</span></div>` +
-        `<div class="dir-sec-b">${renderShotDirector(shotDirector, ui)}</div></section>`
-      : "";
-    // 当前状态 (TASK-066 §14) — kept for the stage workspaces, where the operational
-    // panel above is not rendered. DERIVED from the same graph the centre draws, so
-    // the checklist and the picture cannot disagree about what exists.
-    const stateSec = shotGraph && !shotDirector
-      ? `<section class="dir-sec open"><div class="dir-sec-h static"><span class="ti">当前状态</span></div>` +
-        `<div class="dir-sec-b"><div class="dir-state">` +
-        [
-          ["主要画面参考", shotGraph.bands.find((b) => b.key === "refs").nodes.length, "个"],
-          ["视频编排参考", shotGraph.bands.find((b) => b.key === "directing").nodes.length, "个"],
-        ].map(([k, n, unit]) =>
-          `<div class="dir-strow ${n ? "ok" : "gap"}"><span class="mk">${n ? "✓" : "!"}</span>` +
-          `<span class="k">${esc(k)}</span><span class="v">${n} ${esc(unit)}</span></div>`).join("") +
-        [
-          ["Image Prompt", shotGraph.nodes.find((n) => n.id === "prompt:image")],
-          ["主帧图", shotGraph.nodes.find((n) => n.id === "image:selected")],
-          ["Video Prompt", shotGraph.nodes.find((n) => n.id === "prompt:video")],
-          ["最终视频", shotGraph.nodes.find((n) => n.id === "video:selected")],
-        ].map(([k, n]) => {
-          if (!n) return "";
-          // the WORDS are the truth of each state, never a generic 「就绪」: 「还缺 2 项」
-          // and 「已就绪」 are different facts and the creator acts on them differently
-          const done = n.state === "ready" || n.state === "active";
-          const what = n.type === "prompt"
-            ? (n.missing && n.missing.length ? `还缺 ${n.missing.length} 项` : "已就绪")
-            : n.version != null ? `已选定 v${n.version}` : "待生成";
-          return `<div class="dir-strow ${done ? "ok" : "gap"}"><span class="mk">${done ? "✓" : "!"}</span>` +
-            `<span class="k">${esc(k)}</span><span class="v">${esc(what)}</span></div>`;
-        }).join("") +
-        `</div>` +
-        (shotGraph.done
-          ? `<div class="pi-ok">这一镜已经有选定的最终视频。</div>`
-          : `<div class="meta">剧集制作的终点是「选定的最终 Shot Video」。</div>`) +
-        `</div></section>`
-      : "";
+    const label = activeModule === "script"
+      ? " · 剧本"
+      : ` · ${SPACE_LABEL[spaceOf(activeModule)] || ""}`;
     return (
       `<aside class="st-dir prod-ai">` +
-      `<div class="dir-head"><span class="av">🎬</span>AI 导演` +
-      `<span class="dir-space">${esc(SPACE_LABEL[spaceOf(activeModule)] || "")}</span></div>` +
-      // REQ-004 v2: the column IS the conversation. The 导演台 six-section stack
-      // (这一镜怎么办 / 当前状态 / 导演观察 / 能力 / 生成) is no longer rendered here —
-      // 产品负责人 2026-08-27: 「AI导演台不需要了。根本用不上。」 v1's 「面板不许消失」
-      // was my own conservative criterion, not his requirement, and it turned this
-      // column into a hybrid of a chat box and a panel stack.
-      //
-      // The MODULES are still on disk and still tested; retiring them is its own
-      // step (TASK-109 Follow-up), because deleting a module and its tests in the
-      // same breath as a layout change is how a capability goes missing by accident.
+      `<div class="dir-head"><span class="av">🤖</span>对话<span class="dir-space">${esc(label.slice(3))}</span></div>` +
       `<div class="st-dir-flow">` + session.history + `</div>` +
       `<div class="st-dir-composer">` + session.composer + `</div>` +
       `</aside>`
@@ -826,63 +728,6 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     );
   }
 
-  /**
-   * The page-level Agent panel — now rendered INSIDE the session (§1.2 批次 B).
-   *
-   * THE ENTRANCE IS WHAT WAS RETIRED, NOT THE PANEL. It used to open as a second
-   * surface in the middle column, with its own scope line and its own close
-   * button, while the right column showed a different Agent looking at something
-   * else. Returning its HTML for the session to embed keeps all seven items and
-   * every one of its actions (a guard test enumerates them) while leaving ONE
-   * place that answers 「Agent 现在在看什么」.
-   */
-  function agentPanelBlock(ctx) {
-    if (ui.agentOpen !== true) return "";
-    const skillId = ui.skillId || null;
-    const skill = skillId ? ctx.skills.find(skillId) : null;
-    const cat = ctx.skills.catalogState ? ctx.skills.catalogState() : { installed: true, detail: "" };
-    // WHY it may or may not run — from the catalog, the inputs and the probe, never
-    // from an assumption that it does
-    const missingKeys = skill ? ctx.skills.missing(skillId) || [] : [];
-    const available = !cat.installed
-      ? { ok: false, reason: cat.detail || "能力目录不可用" }
-      : !skill
-        ? { ok: false, reason: "还没有选择要做什么——在左侧能力面板里选一个" }
-        : { ok: true };
-    const runs = (ctx.skills.runs() || []).filter((r) => r && r.skillId === skillId);
-    const last = runs.length ? runs[runs.length - 1] : null;
-    const model = agentPanelModel({
-      scope: { kind: "page", label: MODULE_LABEL[activeModule] || null },
-      taskName: skill ? skill.title : null,
-      understanding: skill
-        ? [
-          `任务：${skill.title}（${skill.role}）`,
-          ui.selectedShotId ? "范围：当前选中的镜头" : "范围：本集",
-        ]
-        : [],
-      // problems come from the SAME checks the rest of the page uses
-      problems: missingKeys.length
-        ? [{ text: `有 ${missingKeys.length} 项必要输入还没有准备好`, severity: "blocking" }]
-        : [],
-      missing: missingKeys.map((k) => ({
-        key: k,
-        label: ctx.skills.inputLabel(k),
-        gotoModule: MODULE_ALIAS_GOTO[k] || null,
-      })),
-      nextSteps: skill && missingKeys.length
-        ? ["先补齐缺失输入", "再回到这里执行"]
-        : skill
-          ? ["可以执行了", "执行后在结果旁看「生成记录」确认它读了什么"]
-          : [],
-      available,
-      results: last && last.proposal
-        ? [{ label: "最近一次提案", version: last.skillVersion || null }]
-        : [],
-      manualFallback: { can: true },
-    });
-    return renderAgentPanel(model);
-  }
-
   /** The task rows for the shot being made (TASK-073 §1.3).
    *
    *  Below the step's own workspace, because they are ABOUT that shot's production
@@ -1088,8 +933,11 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // own type filter, so there is one library and one filter vocabulary rather
     // than seven near-identical workspaces.
     storage: (ctx) => renderStorageWs(ctx, ui),
-    assets: (ctx) => renderAssetLibrary(ctx, ui),
-    "assets:reference": (ctx) => renderAssetLibrary(ctx, ui),
+    // REQ-004 v2: 资产收件箱 moved OUT of the retired 导演台 and into the workspace of
+    // the space whose subject is assets — it is the only surface where an asset's
+    // ownership gets confirmed, so it could not go with the console.
+    assets: (ctx) => renderAssetInboxSection(ctx.prodData()) + renderAssetLibrary(ctx, ui),
+    "assets:reference": (ctx) => renderAssetInboxSection(ctx.prodData()) + renderAssetLibrary(ctx, ui),
     "assets:image": (ctx) => renderAssetLibrary(ctx, ui),
     "assets:video": (ctx) => renderAssetLibrary(ctx, ui),
     "assets:audio": (ctx) => renderAssetLibrary(ctx, ui),
@@ -1162,7 +1010,6 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     shotGraph = null;
     shotRefs = null;
     refSearch = null;
-    shotDirector = null;
     onShotBench = false;
     // EVERY page carries the page-level Agent entrance at its top-right (IA §6.1).
     // Prepended to the workspace rather than injected per page, so the entrance is
@@ -2006,6 +1853,9 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     }
     if (spaceOf(activeModule) === "assets" && activeModule !== "storage") {
       bindAssetLibrary(root, ctx, ui, render);
+      // the relocated 资产收件箱 (REQ-004 v2) — its 确认归属 still routes through
+      // directorops, so the confirmation gate survived the console it came from
+      bindAssetInboxSection(root, ctx);
       // TASK-082 §1.2 — the content tree sets the library's OWN ownership filters
       // (`characterId` / `locationId` / `episodeId` / `unlinked`), which is what
       // makes the tree a view of the library rather than a second library. It
@@ -2273,23 +2123,9 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       ev.stopPropagation();
       enterEpisode(b.dataset.epOpen, "script");
     }));
-    // AI Director (non-script modules) — real dispatches only. The Skill panel
-    // is part of the Director now, so it binds wherever the Director does.
-    if (activeModule !== "script") {
-      bindDirector(root, ctx, ui, render);
-      bindSkillPanel(root, ctx, ui, render);
-      // TASK-067: the shot workbench's operational panel. Bound only where it was
-      // rendered — `shotDirector` is null everywhere else, and binding against a
-      // panel that is not on screen would attach handlers carrying the PREVIOUS
-      // shot's id.
-      if (shotDirector) {
-        bindShotDirector(root, ctx, ui, render, {
-          shotId: shotDirector.shotId,
-          onOpenNode: (node) => openShotCard(ctx, node),
-        });
-      }
-      return;
-    }
+    // The 导演台 and its Skill panel are retired (REQ-004 v2), so there is nothing
+    // left to bind on the right — the conversation binds itself below.
+    if (activeModule !== "script") return;
     // --- script workspace bindings (unchanged behavior) ---
     const text = root.querySelector(".pm-text");
     const dirtyTag = root.querySelector(".dirtytag");

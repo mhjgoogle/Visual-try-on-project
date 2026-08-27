@@ -10,7 +10,6 @@ import assert from "node:assert/strict";
 import * as st from "../src/workflow/storydoc.js";
 import { CANVAS_SCHEMA_VERSION, migrateToCurrent } from "../src/services/canvasschema.js";
 import { storyModel, renderStory, renderPlanPanel } from "../src/ui/workspaces.js";
-import { directorModel } from "../src/ui/director.js";
 import * as sd from "../src/workflow/scriptdoc.js";
 
 const OUTLINE = {
@@ -298,29 +297,6 @@ function storyWith(over = {}) {
   return doc;
 }
 
-test("storyModel + director: the M9 pipeline standing and real actions", () => {
-  const empty = storyModel(storyWith());
-  assert.equal(empty.hasIdea, false);
-  assert.equal(empty.approved, null);
-  const doc = st.createStory(null);
-  st.setIdea(doc, "想法");
-  const id = st.beginDevelop(doc, "outline", "");
-  st.completeDevelop(doc, id, OUTLINE);
-  st.applyProposal(doc);
-  st.approveOutline(doc, 1);
-  const m = storyModel(doc);
-  assert.equal(m.approvedIsActive, true);
-  // director: story module develops the outline (never a direct idea→script)
-  const pd = { draftShots: null, generations: [], story: doc };
-  const dm = directorModel({ module: "story", doc: sd.createDoc(), story: doc, pd, sel: {} });
-  assert.equal(dm.primary.kind, "story-develop");
-  // episodes module: plan action only WITH an approved outline
-  const em = directorModel({ module: "episodes", doc: sd.createDoc(), story: doc, pd, sel: {} });
-  assert.equal(em.primary.kind, "story-plan");
-  const em0 = directorModel({ module: "episodes", doc: sd.createDoc(), story: st.createStory(null), pd, sel: {} });
-  assert.equal(em0.primary, null);
-  assert.ok(em0.pending.includes("批准"));
-});
 
 test("story workspace renders the pipeline; no idea→script shortcut remains", () => {
   const doc = st.createStory(null);

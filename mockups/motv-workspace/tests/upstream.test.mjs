@@ -32,7 +32,6 @@ import { briefModel, renderBriefWs } from "../src/ui/briefws.js";
 import { relationshipGraph } from "../src/workflow/relgraph.js";
 import { worldModel } from "../src/ui/worldws.js";
 import { episodePlanModel, renderEpPlanWs } from "../src/ui/epplanws.js";
-import { canonModel, directorNote, surfacedSection, directorModel, renderDirector } from "../src/ui/director.js";
 import { NAV, EPISODE_NAV, EPISODE_MODULES, MODULE_LABEL, renderRail, episodeLabels } from "../src/ui/shell.js";
 import * as sd from "../src/workflow/scriptdoc.js";
 
@@ -787,51 +786,6 @@ test("UI: the Impact Review calls an unrecorded surface 没有记录基线, not 
   assert.ok(review.includes("上游已更新：本集基于 v1 · 当前 v2"));
 });
 
-test("read model: the rail and the Director never flag an unrecorded baseline", () => {
-  const { story, prod } = upstreamProject();
-  const doc = sd.createDoc();
-  const pdSnap = snap(prod);
-
-  // the rail badge is driven by im.count, so an unknown baseline yields none
-  const upstream = {};
-  for (const e of prod.episodes) {
-    const im = cd.episodeImpact(prod, e.episodeId, story);
-    if (im.count) upstream[e.episodeId] = im.count;
-  }
-  assert.deepEqual(upstream, {});
-  const rail = renderRail({
-    activeModule: "brief", badges: {}, episodes: episodeLabels(prod),
-    ratios: {}, episodeMode: false, upstream,
-  });
-  assert.ok(!rail.includes("变化"), "the rail must not claim a change for an unrecorded baseline");
-
-  // the Director separates the two lists, with distinct wording
-  let cm = canonModel({ story, pd: pdSnap });
-  assert.deepEqual(cm.stale, []);
-  assert.equal(cm.unrecorded.length, 1);
-  let html = renderDirector(
-    directorModel({ module: "brief", doc, story, pd: pdSnap, sel: { dirOpen: {} } }), "", { canon: true },
-  );
-  assert.ok(html.includes("上游基线未记录"));
-  assert.ok(html.includes("未记录 ≠ 落后"));
-  assert.ok(!html.includes("上游变化（确定性）"));
-  // …and the COLLAPSED summary must not claim agreement either
-  assert.ok(html.includes("1 集基线未记录"));
-  assert.ok(!html.includes("与上游一致"), "an unrecorded baseline is not agreement");
-
-  // once a baseline exists AND moves, it appears in the CHANGED list instead
-  cd.stampEpisodeUpstream(prod, prod.episodes[0].episodeId, story);
-  cd.confirmCanon(prod, "world");
-  cm = canonModel({ story, pd: snap(prod) });
-  assert.equal(cm.unrecorded.length, 0);
-  assert.equal(cm.stale.length, 1);
-  assert.deepEqual(cm.stale[0].surfaces, ["世界观（已更新）"]);
-  html = renderDirector(
-    directorModel({ module: "brief", doc, story, pd: snap(prod), sel: { dirOpen: {} } }), "", { canon: true },
-  );
-  assert.ok(html.includes("上游变化（确定性）"));
-  assert.ok(!html.includes("上游基线未记录"));
-});
 
 test("basedOn chips flag EXACTLY the surfaces the impact model calls changed", () => {
   // the view must not carry its own copy of the staleness rule: a rolled-back
@@ -1429,66 +1383,8 @@ test("episodePlanModel: plan facets, resolved beats and the impact per episode",
   assert.equal(episodePlanModel(snap(null), story, null).empty, true);
 });
 
-test("canonModel: what the Director reads, and what it cannot yet judge", () => {
-  const { story, prod } = upstreamProject();
-  const ep = prod.episodes[0];
-  cd.setEpisodeTextBeats(prod, ep.episodeId, "plot", ["找到录音"]);
-  cd.stampEpisodeUpstream(prod, ep.episodeId, story);
-  let m = canonModel({ story, pd: snap(prod) });
-  assert.deepEqual(m.versions, { brief: 1, outline: 1, characters: 1, relationships: 1, world: 1 });
-  assert.deepEqual(m.stale, []);
-  const reads = new Map(m.reads.map((r) => [r.k, r]));
-  assert.equal(reads.get("创意 Brief").v, "v1");
-  assert.equal(reads.get("人物关系").ok, true);
-  assert.equal(reads.get("世界规则").ok, true);
-  assert.equal(reads.get("已发生的剧集事实").v, "1 条 beat");
-  // the supervising checks are LISTED as unavailable, not stubbed
-  assert.ok(m.capabilities.length >= 3);
 
-  cd.confirmCanon(prod, "world");
-  m = canonModel({ story, pd: snap(prod) });
-  assert.equal(m.stale.length, 1);
-  assert.equal(m.stale[0].code, "EP01");
-  assert.equal(m.stale[0].count, 1);
-  assert.deepEqual(m.stale[0].surfaces, ["世界观（已更新）"]);
-});
 
-test("director: the upstream modules get real, justified observations", () => {
-  const { story, prod } = upstreamProject();
-  const doc = sd.createDoc();
-  const base = { doc, pd: snap(prod), shotId: null };
-  // every upstream module answers with a NOTE grounded in state
-  for (const module of ["brief", "story", "relationships", "world", "episodes", "characters"]) {
-    const note = directorNote({ ...base, module, story });
-    assert.equal(typeof note, "string");
-    assert.ok(note.length > 8, `${module} note too thin`);
-  }
-  // a genuinely empty world is called out as empty
-  const emptyProd = pd.createProduction(null);
-  assert.match(
-    directorNote({ ...base, pd: snap(emptyProd), module: "world", story: st.createStory(null) }),
-    /世界观还是空的/,
-  );
-  // …and one character is not enough for a relationship
-  assert.match(
-    directorNote({ ...base, pd: snap(emptyProd), module: "relationships", story }),
-    /两个人物/,
-  );
-});
-
-test("director surfaces the CANON section while working upstream", () => {
-  const plan = { next: { label: "写本集剧本" } };
-  const inbox = { pending: 2 };
-  const upstream = { isUpstream: true, stale: [] };
-  assert.equal(surfacedSection({ plan, inbox, currentBlocked: false, upstream, module: "brief" }), "canon");
-  // a blocked shot still outranks everything — it is why work has stopped
-  assert.equal(surfacedSection({ plan, inbox, currentBlocked: true, upstream, module: "brief" }), "plan");
-  // downstream, the existing priority is unchanged
-  assert.equal(
-    surfacedSection({ plan, inbox, currentBlocked: false, upstream: { isUpstream: false, stale: [] }, module: "frames" }),
-    "inbox",
-  );
-});
 
 /* ========================================================================= */
 /* The demo fixture must stay v10-valid                                      */

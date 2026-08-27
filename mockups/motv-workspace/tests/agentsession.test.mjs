@@ -27,7 +27,6 @@ import {
   agentSessionModel, objectIndex, activeToken, stripToken, sessionState, SENT_KINDS,
   renderAgentSession, OBJECT_KINDS,
 } from "../src/ui/agentsession.js";
-import { agentPanelModel, renderAgentPanel } from "../src/ui/agentpanel.js";
 import { releasePageState } from "../src/ui/production.js";
 
 installBuiltinCatalog(skills);
@@ -411,33 +410,6 @@ test("换一个页面，会话不重置——releasePageState 是换页对 ui �
 /* 5 · 批次 B：收「询问 Agent」这个入口，但一件能力都不带走                        */
 /* ------------------------------------------------------------------------- */
 
-test("批次 B：页面级 Agent 面板整体搬进会话，七项与全部动作原样保留", () => {
-  const ctx = makeCtx();
-  const ui = {};
-  const m = agentSessionModel(ctx, ui);
-  // the panel arrives as HTML the session embeds — verbatim, not re-rendered
-  const panel = renderAgentPanel(
-    agentPanelModel({
-      scope: { kind: "page", label: "分镜设计" },
-      taskName: "为这一镜写画面提示词",
-      understanding: ["任务：写画面提示词"],
-      // deliberately RUNNABLE: a blocked panel renders its reason instead of the
-      // primary button, and the point here is that every action survives the move
-      nextSteps: ["可以执行了"],
-      available: { ok: true },
-      manualFallback: { can: true },
-    }),
-  );
-  const withPanel = renderAgentSession(m, { panel });
-  assert.match(withPanel, /这一页的诊断/);
-  assert.ok(withPanel.includes(panel), "the panel must be embedded verbatim, not paraphrased");
-  // its actions travel with it — this is what 「合并入口，不删能力」 means
-  for (const attr of PANEL_ACTIONS["agentpanel.js"]) {
-    assert.ok(withPanel.includes(attr), `${attr} was lost when the panel moved`);
-  }
-  // …and with nothing to embed, the session does not invent a heading for it
-  assert.ok(!renderAgentSession(m).includes("这一页的诊断"));
-});
 
 /* ------------------------------------------------------------------------- */
 /* 6 · 迁移守卫：四个旧面板的每个可执行动作仍被发出                               */
@@ -457,26 +429,27 @@ test("批次 B：页面级 Agent 面板整体搬进会话，七项与全部动�
  * (`data-dnext` / `data-ibattach`) rather than actions of their own. Both kinds
  * are excluded so the list stays a list of things these panels can DO.
  */
+// REQ-004 v2 RETIRED THREE OF THE FOUR. 产品负责人 2026-08-27 killed the 导演台
+// (「根本用不上」), so `director.js`, `agentpanel.js` and `skillpanel.js` are DELETED
+// and their action sets are no longer anything to preserve — that decision is his,
+// recorded in REQ-004 v2, not a migration slip. What the guard still protects is
+// the panel that survived: the shot workbench's operations.
+//
+// The one capability that did NOT go with the console is 资产收件箱 —— it is an action
+// surface (the only place asset ownership is confirmed), so it moved into 资产库's
+// workspace as `assetinboxsec.js` and is guarded below with its own row.
 const PANEL_ACTIONS = Object.freeze({
-  "director.js": [
-    "data-canon-ep", "data-dir-cancel", "data-dir-run", "data-dnext", "data-dplan",
-    "data-dsec", "data-ibattach", "data-ibopen", "data-ibopen-all",
-  ],
   "directorshot.js": [
     "data-exec", "data-sd-abandon", "data-sd-apply", "data-sd-copyprompt", "data-sd-fix",
     "data-sd-goto", "data-sd-interp", "data-sd-op", "data-sd-prepare", "data-sd-regen",
     "data-sd-reject", "data-sd-submit",
   ],
-  "agentpanel.js": ["data-agent-close", "data-agent-manual", "data-agent-panel", "data-agent-run"],
-  "skillpanel.js": [
-    "data-sk-apply", "data-sk-back", "data-sk-copyprompt", "data-sk-pick", "data-sk-reject",
-    "data-sk-run", "data-sk-showprompt", "data-sk-submit", "data-sk-usegen",
-  ],
+  "assetinboxsec.js": ["data-ibattach", "data-ibopen"],
 });
 
 const NAVIGATION = new Set(["data-mod", "data-goto", "data-shot", "data-goto2", "data-shot2"]);
 
-test("合并后，四个旧面板的每个可执行动作仍然被发出（§1.2 迁移纪律 1）", () => {
+test("仍在的面板，其可执行动作集合不许悄悄变小（REQ-004 v2 之后）", () => {
   for (const [file, expected] of Object.entries(PANEL_ACTIONS)) {
     const src = readFileSync(join(HERE, "..", "src", "ui", file), "utf8");
     // BARE attributes count too: `data-sk-run` and `data-sk-back` are emitted
