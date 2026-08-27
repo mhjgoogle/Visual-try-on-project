@@ -37,7 +37,7 @@ def test_status_file_matches_the_tree() -> None:
 
 @pytest.mark.parametrize(
     "folder",
-    ["tasks/active", "tasks/done", "design/active", "design/done"],
+    ["tasks/active", "tasks/backlog", "tasks/done", "design/active", "design/done"],
 )
 def test_the_four_status_folders_exist(folder: str) -> None:
     """The active/done split is the answer to 「哪些要求是完成的看起来很不清晰」

@@ -5,10 +5,15 @@
 
 - **项目是什么、走到哪了** → [docs/project-context.md](docs/project-context.md)
 - **怎么运行、入口在哪** → [README.md](README.md)（面向使用者，仓库唯一一份 README）
-- **某个决定为什么这么定** → `docs/adr/`（本文件只写结论，不写修订史）
+- **现在的架构是什么** → [docs/current-architecture.md](docs/current-architecture.md)
+  （**WHAT IS TRUE NOW**，过期即缺陷）
+- **某个决定为什么这么定** → `docs/adr/`（**WHY / HISTORY**；本文件只写结论，不写修订史）
 - **什么做完了、什么还没做** → [docs/STATUS.md](docs/STATUS.md)（**生成的**，别手改）。
-  文档按完成状态分区：`active/` 在办、`done/` 已完成，`adr/` 与 `design/` 根是没有
-  「完成」这一维的稳定参考（[ADR-0083](docs/adr/ADR-0083-docs-partitioned-by-completion.md)）
+  文档按完成状态分区：`backlog/` 没人在做、`active/` 在办、`done/` 已完成，
+  `adr/` 与 `design/` 根是没有「完成」这一维的稳定参考
+  （[ADR-0083](docs/adr/ADR-0083-docs-partitioned-by-completion.md) ·
+  [ADR-0087](docs/adr/ADR-0087-document-lifecycle-and-default-agent-context.md)）
+- **默认该读哪些、不该读哪些** → 第 25 条（历史存在，但不占日常开发上下文）
 
 `CLAUDE.md` 只是 Claude Code 的入口，内容就是本文件，没有第二份规则。
 Agent 之间只通过仓库中的文档、代码和 Git 状态共享上下文，不依赖各自的聊天记录。
@@ -24,6 +29,7 @@ Agent 之间只通过仓库中的文档、代码和 Git 状态共享上下文，
 | [5. Agent 协作](#5-agent-协作规则) | 多 Agent 同仓怎么不打架 | 14–18 |
 | [6. 测试与审查](#6-质量规则测试与审查) | 跑哪些测试、审不审、审几轮 | 19–21 |
 | [7. Git 与安全](#7-git-与安全规则) | commit / push / merge、不许提交什么 | 22–23 |
+| [8. 文档生命周期](#8-文档生命周期与默认上下文) | 记录活多久、默认读什么、临时产物怎么办 | 24–26 |
 
 ---
 
@@ -305,6 +311,30 @@ Action Center、数据库或 UI 专用状态机。图片/音频等多媒体 Prov
     理由。历史代价：TASK-061 13 轮、TASK-062 10 轮（轮 B4 撤回了轮 A4 的修复，
     净负值）。
 
+    **审查先答「需求做完了吗」，代码质量最后答**（[ADR-0088](docs/adr/ADR-0088-traceability-and-requirement-fulfillment-review.md)，
+    触发表与上面的轮次协议**一条不改**，改的是审查**内容与顺序**）。四道闸，
+    顺序即优先级 —— **普通代码问题不得盖住「需求没做完」**：
+
+    | 闸 | 问什么 | 判词 |
+    | --- | --- | --- |
+    | 1 Requirement Fulfillment | 声称完成的每条验收判据真的实现了吗？证据在哪？ | `PASS` / `PARTIAL` / `FAIL` / `NOT_EVIDENCED` |
+    | 2 Architecture Conformance | 停在卡引用的每条 `CA §N`（[当前架构合同](docs/current-architecture.md)的节号）之内了吗？ | `PASS` / `FAIL` / `NOT_APPLICABLE` |
+    | 3 Verification Sufficiency | 证据证的是那个**行为**，还是它的周边？ | `SUFFICIENT` / `INSUFFICIENT` |
+    | 4 Technical Quality | correctness / regression / edge case / security | P1–P4（不变） |
+
+    **禁止两种 PASS**：因为实施 Agent 声称完成；因为测试全绿。**架构符合性在
+    范围内，架构提案仍然禁止**（越界是 P1，重新设计交给 ADR）。审查者默认只读
+    本次 **Review Package**（判据原文 + 约束原文 + diff + 证据），不扫全仓库、
+    不遍历历史 ADR；包不可读/为空/超上限一律 fail-closed，宁可不审也不假装审过。
+
+    追溯链、句柄约定（`REQ-NNN 判据 M` / `CA §N`）、Review Package 模板与四个
+    缺口标签（`ORPHAN_TASK` / `ORPHAN_IMPLEMENTATION` /
+    `REQUIREMENT_COVERAGE_GAP` / `ARCHITECTURE_UNKNOWN`）在 dev-workflow Skill 的
+    [references/traceability.md](.claude/skills/dev-workflow/references/traceability.md)。
+    **每个 Change 说得出它为哪条判据而做**；没有产品需求的工作（Bug / Refactor /
+    Perf / 工装）写**技术目标**，两者皆无是 `ORPHAN_TASK`，
+    `.claude/tools/lifecycle_check.py` 当场转红。
+
     **审查不是提交的前置门槛。** 相关测试通过、无已知 P1 即可提交；审查在提交
     之后进行，发现 P1 用后续提交修。审查者不可用时**照常提交并推进**，在提交
     信息与任务卡里如实写明「未经独立审查 + 原因」—— 不假装审过，也不用「测试
@@ -318,6 +348,11 @@ Action Center、数据库或 UI 专用状态机。图片/音频等多媒体 Prov
 
     **发布闸门 = 用户验收标准满足 + 相关测试通过 + 无未闭合 P1**，
     而不是零发现 + 全量测试 + 完美架构。`VERDICT: pass` 不是闸门。
+    审查按四闸作答之后，闸门追加三项：Requirement 全 `PASS` · Architecture 无
+    `FAIL` · Verification `SUFFICIENT`，且四个缺口标签一个不挂（ADR-0088 决策 6）。
+    **判据不满足不等于要问用户** —— 缺实现就实现、缺证据就补、越界就改回来；
+    真超出本卡范围就把缺口写成新卡并在 REQ 里记下它挪到哪，不让 `PARTIAL`
+    被 merge 掉。
 
     **连续修改链**（[ADR-0068](docs/adr/ADR-0068-continuous-modification-chain.md)）：
     任务卡已写下批次清单与最终检查点的连续实施，其**中间**提交按「实现 → 定向
@@ -363,3 +398,63 @@ Action Center、数据库或 UI 专用状态机。图片/音频等多媒体 Prov
     **唯一还必须问的是「花钱」**（第 1 节）。
 
 23. 不得提交 API key、密码、生成的视频文件或本地凭据到 Git 仓库。
+
+## 8. 文档生命周期与默认上下文
+
+依据：[ADR-0087](docs/adr/ADR-0087-document-lifecycle-and-default-agent-context.md)
+（产品负责人 2026-08-26：「Current truth remains small. History remains traceable.
+The repo converges instead of accumulating forever.」）。
+细则与操作步骤在 dev-workflow Skill 的
+[references/lifecycle.md](.claude/skills/dev-workflow/references/lifecycle.md)。
+
+24. **每份文档属于三类之一，处置由类决定。**
+
+    | 类 | 它回答什么 | 处置 |
+    | --- | --- | --- |
+    | **当前事实** | 现在是什么 / 现在要做什么 | 保持精简、持续更新、默认加载 |
+    | **历史证据** | 当时为什么这么定 / 当时发生了什么 | 永久保留、默认不加载 |
+    | **一次性产物** | 这一次我是怎么查 / 怎么试的 | 任务结束即删（先提炼再删） |
+
+    判据不是「重不重要」，而是**过期时会不会骗人**。各记录类型的状态机：
+
+    - **Requirement**（`docs/requirements/`）：`DRAFT → CONFIRMED → SUPERSEDED`。
+      **不篡改旧版**，同文件追加 `v2 · supersedes v1`，实施只做 delta。
+    - **Change / Task**（`docs/tasks/`）：**目录即状态** ——
+      `backlog/`（没人在做）→ `active/`（正在做）→ `done/`（做完了）。
+      `active/` 只放**正在进行**的工作，否则「待办 = `ls active/`」会连没人做的
+      一起读成待办（ADR-0083 决策 1 + ADR-0087 决策 2）。
+    - **ADR**（`docs/adr/`）：`Proposed → Accepted → Superseded / Rejected`。
+      **旧 ADR 永不删除**，取代关系必须**双向**：被取代方写
+      `状态：Superseded by [ADR-XXXX]`，取代方写 `取代：[ADR-YYYY]`；
+      部分取代写成「Accepted（决策 1/2 保留）；决策 3 被 ADR-XXXX 取代」。
+
+25. **默认 Agent 上下文（硬要求）。**
+
+    默认只加载：`AGENTS.md` · 当前 Change 关联的 REQ（或任务卡「依据」行）·
+    [当前架构合同](docs/current-architecture.md) 及它指向的相关那一份 ·
+    `docs/tasks/active/` 里**本次**这张卡 + [STATUS.md](docs/STATUS.md) ·
+    影响范围内的代码与测试。
+
+    **默认不加载**：`docs/tasks/done/`、`docs/design/done/`、`docs/reports/`、
+    未被当前架构合同指向的历史 ADR、被取代的 REQ 版本、历史 Change 清单。
+    只有五种情形才按需读历史：**回归调查 / 架构理由 / 历史冲突 / 需求演化 /
+    复现一次旧决策的边界**。
+
+    「现在的架构是什么」不得靠遍历全部 ADR 推导 —— 那是
+    `docs/current-architecture.md` 的职责（**WHAT IS TRUE NOW**）；
+    ADR 回答的是 **WHY / HISTORY**，两者不合并。
+
+26. **一次性产物默认删除，提炼优先于保留。**
+
+    scratch、临时实施计划、调试记录、原始对话、一次性调查笔记、过期迁移清单、
+    被放弃的原型笔记 —— 任务结束即删；有长期价值的**先提炼进 REQ / 任务卡 /
+    ADR / 当前架构合同，再删原件**。「先都留下，以后可能有用」不是节省，
+    是把成本转嫁给之后每一次读。
+
+    - 临时产物**不进 `docs/`**：写 `.claude/tmp/`（已 gitignore）或会话 scratchpad。
+    - 不留影子实现：`old/`、`old2/`、`legacy-copy/`、`backup/`、
+      `deprecated-but-kept/` 一律不要 —— 代码历史由 Git 承担。
+    - 不再代表当前有效行为的**测试与文档**：删除或更新，不留作「兼容测试」。
+    - 这三条由 `.claude/tools/lifecycle_check.py` 守（`tests/tooling/` 里跑，
+      因此自动出现在 commit gate 与 merge 前的最终全量中）；**判不了的不判**，
+      交给第 20 条的收敛检查，宁可漏报不误杀。

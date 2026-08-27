@@ -1,7 +1,12 @@
 # ADR-0050: PowerShell-Native AI-Agent Dev Tooling on Windows
 
-- Status: Accepted
+- Status: **Accepted（决策 2–4 全部保留）；决策 1 的「gate 靠命令文本判定 commit
+  意图」这一实现约定被 [ADR-0070](ADR-0070-commit-gate-intent-by-shell-parser.md)
+  取代 —— 行为合同本身不变**（同样的输入仍须给出同样的判定，见下方决策 1 的补记）
 - Date: 2026-08-10
+- Supersedes: [ADR-0049](ADR-0049-native-windows-run-and-test-target.md) 的
+  「bash AI-agent 工装未移植」声明（Not Decided Here 项 1 + 对应 Consequences
+  第 4 条）；ADR-0049 的其余决策不变
 - Scope: The AI-agent development harness only — the PreToolUse commit gate
   (`.claude/hooks/gate.sh`) and the `codex-review-loop` review script
   (`.claude/skills/codex-review-loop/scripts/run-review.sh`). Supersedes

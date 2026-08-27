@@ -17,6 +17,14 @@
 #   run-review.sh                # review uncommitted changes (staged+unstaged)
 #   run-review.sh <base-branch>  # review current branch vs <base-branch>
 #
+# REVIEW_PACKAGE=<file>  Requirement context for the four-gate review
+#                        (ADR-0088): claimed requirements + acceptance criteria,
+#                        architecture constraints in force, verification
+#                        evidence. Without it only gate 4 (technical quality) is
+#                        reviewed. An unreadable / empty / oversized package is
+#                        an ENV_ERROR or PACKAGE_TOO_LARGE, never a silent
+#                        downgrade to a code-only review.
+#
 set -euo pipefail
 
 BASE="${1:-}"
@@ -26,6 +34,18 @@ BASE="${1:-}"
 # the reviewer (and, on the claude fallback, your quota) bounded.
 CTX="${REVIEW_DIFF_CONTEXT:-1}"              # unified context lines (default 1, vs git's 3)
 MAX_LINES="${REVIEW_MAX_DIFF_LINES:-4000}"   # refuse to review a diff larger than this
+# The Review Package (ADR-0088 decision 5) exists to keep the reviewer OUT of the
+# rest of the repository, so it must stay small: a package that grows into a repo
+# dump defeats its own purpose and costs the tokens it was meant to save.
+# `:-` would swallow a blank value; a package path is either absent (unset or
+# empty) or a real path. A value that is only whitespace is an ACCIDENT, and both
+# shells must call it the same way -- run-review.ps1 used to read it as "absent"
+# and quietly review gate 4 only while this one reported ENV_ERROR, which is a
+# host-dependent verdict (codex review, TASK-108 轮 2 / ADR-0062 决策 3).
+PACKAGE_RAW="${REVIEW_PACKAGE-}"
+PACKAGE="${PACKAGE_RAW#"${PACKAGE_RAW%%[![:space:]]*}"}"   # ltrim
+PACKAGE="${PACKAGE%"${PACKAGE##*[![:space:]]}"}"           # rtrim
+MAX_PACKAGE_LINES="${REVIEW_MAX_PACKAGE_LINES:-200}"
 # Hard wall-clock cap on EACH reviewer invocation so a hung/stalled reviewer can
 # never block for hours. On timeout the reviewer is treated as failed (codex ->
 # falls back to claude; claude -> ENV_ERROR). Override via REVIEW_TIMEOUT (secs).
@@ -243,43 +263,112 @@ if [ "$DIFF_LINES" -gt "$MAX_LINES" ]; then
   exit 0
 fi
 
+# --- optional Review Package (requirement context) --------------------------
+# Gates 1-3 (requirement fulfilment / architecture conformance / verification
+# sufficiency) can only be answered from material that is IN the prompt. So a
+# package that was requested but cannot be read must STOP the run: continuing
+# would print a normal verdict for a review that silently covered gate 4 only --
+# the same "verdict claims coverage the run never had" hole the unreadable-file
+# branch above exists to close.
+PACKAGE_BLOCK=""
+if [ -n "$PACKAGE_RAW" ] && [ -z "$PACKAGE" ]; then
+  status "ENV_ERROR: REVIEW_PACKAGE is blank"
+  echo "ENV_ERROR: REVIEW_PACKAGE is set but blank; pass a real package path or unset it (a blank value must never silently become a gate-4-only review)."
+  exit 0
+fi
+if [ -n "$PACKAGE" ]; then
+  if [ ! -f "$PACKAGE" ] || ! head -c 1 "$PACKAGE" >/dev/null 2>&1; then
+    status "ENV_ERROR: cannot read review package"
+    echo "ENV_ERROR: cannot read review package '$PACKAGE'; refusing to run a gate-4-only review while a requirement review was requested."
+    exit 0
+  fi
+  PACKAGE_TEXT="$(cat "$PACKAGE")"
+  if [ -z "${PACKAGE_TEXT//[[:space:]]/}" ]; then
+    status "ENV_ERROR: review package is empty"
+    echo "ENV_ERROR: review package '$PACKAGE' is empty; it must state the claimed requirements, their acceptance criteria and the evidence."
+    exit 0
+  fi
+  PACKAGE_LINES="$(printf '%s\n' "$PACKAGE_TEXT" | wc -l | tr -d ' ')"
+  if [ "$PACKAGE_LINES" -gt "$MAX_PACKAGE_LINES" ]; then
+    status "PACKAGE_TOO_LARGE: ${PACKAGE_LINES} lines > ${MAX_PACKAGE_LINES}"
+    echo "PACKAGE_TOO_LARGE: review package is ${PACKAGE_LINES} lines (> ${MAX_PACKAGE_LINES}); trim it to the acceptance criteria, the architecture constraints and the evidence."
+    exit 0
+  fi
+  PACKAGE_BLOCK="<<<REVIEW PACKAGE>>>
+${PACKAGE_TEXT}
+<<<END REVIEW PACKAGE>>>
+"
+fi
+
 # --- build the review prompt (identical for both reviewers) -----------------
 read -r -d '' INSTRUCTIONS <<'PROMPT_EOF' || true
-You are a strict, read-only code reviewer. Review ONLY the unified diff given
-below. Do not modify any files.
+You are a strict, read-only reviewer. Review ONLY the material given below.
+Do not modify any files.
 
-Review through EXACTLY these four lenses and nothing else:
-  1. correctness / bug risk
-  2. regression risk
-  3. edge cases
-  4. security
+A REVIEW PACKAGE block may precede the diff. It states which requirements this
+change claims to fulfil (with their acceptance criteria), the architecture
+constraints in force, and the verification evidence. When it is present, review
+in EXACTLY this order and report all four gates:
+
+  1. Requirement fulfilment - for EACH requirement / acceptance criterion in the
+     package: is that behaviour implemented in this diff, and does the cited
+     evidence show it works?
+  2. Architecture conformance - does the diff stay inside EACH architecture
+     constraint the package cites?
+  3. Verification sufficiency - does the cited evidence exercise the required
+     behaviour itself, or only its surroundings?
+  4. Technical quality - correctness / bug risk, regression risk, edge cases,
+     security.
+
+When NO REVIEW PACKAGE block is present, review gate 4 only and write "- (none)"
+under the three other gate headers. Never invent requirements of your own.
+
+Gate 1 verdict per requirement or criterion:
+  PASS          the behaviour is implemented AND evidenced
+  PARTIAL       some acceptance behaviour is missing
+  FAIL          the implementation contradicts or breaks the requirement
+  NOT_EVIDENCED implementation may exist, but the evidence does not prove it
+NEVER answer PASS because the package claims the work is done, and NEVER answer
+PASS because tests are green: name the code that implements the behaviour and
+the evidence that exercises it, or answer NOT_EVIDENCED.
+Gate 2 verdict per constraint: PASS | FAIL | NOT_APPLICABLE.
+Gate 3 verdict: SUFFICIENT | INSUFFICIENT.
 
 Rules:
 - Every issue MUST cite a file path and line number, and explain WHY it is a
   problem (what breaks, under what input/condition).
 - Mark anything you are not sure about with the literal tag (uncertain).
-- DO NOT propose architecture changes or refactors of any kind. Architecture is
-  decided by ADRs, not by this review. Such suggestions are out of scope and
-  forbidden — they prevent the fix loop from ever converging.
+- Judge architecture CONFORMANCE against the constraints the package cites. DO
+  NOT propose architecture changes, redesigns or refactors of any kind:
+  architecture is decided by ADRs, not by this review. Such proposals are out of
+  scope and forbidden - they prevent the fix loop from ever converging.
 - DO NOT report style nitpicks unless the style directly causes a bug.
-- If you find no blocking issues, say so with VERDICT: pass.
+- Stay inside the package and the diff. Read nothing else unless a gate cannot
+  be decided without it; if you do, say which file you needed and why.
 - Be terse to save tokens: ONE line per finding, no preamble, no summary, and
   do NOT restate or quote the diff back.
 
 Output STRICTLY in the following format, with NO extra text before or after it:
 
 VERDICT: pass|fail
+REQUIREMENT:
+- [REQ-id / criterion] PASS|PARTIAL|FAIL|NOT_EVIDENCED -> what is missing, or where the proof is
+ARCHITECTURE:
+- [constraint] PASS|FAIL|NOT_APPLICABLE -> why
+VERIFICATION:
+- SUFFICIENT|INSUFFICIENT -> what remains unproven
 BLOCKING:
 - [file:line] description -> impact
 NON_BLOCKING:
 - [file:line] description -> impact
 
+VERDICT must be fail if ANY requirement is PARTIAL, FAIL or NOT_EVIDENCED, ANY
+constraint is FAIL, verification is INSUFFICIENT, or BLOCKING has any item.
 If a section has no items, keep the header and write "- (none)" under it.
-
-Here is the unified diff to review:
 PROMPT_EOF
 
 PROMPT="${INSTRUCTIONS}
+${PACKAGE_BLOCK}Here is the unified diff to review:
 ${DIFF}"
 
 # --- reviewer helpers -------------------------------------------------------
@@ -289,6 +378,68 @@ ${DIFF}"
 # latter accepts the literal template line 'VERDICT: pass|fail' (the '|' passes
 # it), so an echoed or truncated prompt would count as a finished review.
 VERDICT_PATTERN='^[[:space:]]*VERDICT:[[:space:]]*(pass|fail)([[:space:]]|$)'
+# ...and when a Review Package was supplied, a completed review must ANSWER the
+# three gates the package exists for. Accepting a bare `VERDICT: pass` would let
+# a reviewer that ignored (or never actually received) the package close the loop
+# with the requirement question never asked -- the same fail-open shape as a
+# review that silently skipped a file (codex review, TASK-108 轮 1).
+# Header PRESENCE alone was still fail-open (codex review, TASK-108 轮 2): three
+# empty headers in any order satisfied it, so an answer that never graded a
+# single criterion counted as a four-gate review. A complete answer must carry
+# the gates IN ORDER (the order IS the rule -- requirement first) and must state
+# at least one gate-1 verdict.
+_line_of() { printf '%s\n' "$2" | grep -nE "^[[:space:]]*$1:" | head -1 | cut -d: -f1; }
+
+review_is_complete() {
+  printf '%s' "$1" | grep -qE "$VERDICT_PATTERN" || return 1
+  [ -z "$PACKAGE_BLOCK" ] && return 0
+  local r a v b n
+  r="$(_line_of REQUIREMENT "$1")"
+  a="$(_line_of ARCHITECTURE "$1")"
+  v="$(_line_of VERIFICATION "$1")"
+  # The technical-quality sections belong to the SAME answer: dropping them is a
+  # three-gate answer to a four-gate question, and gate 4 is where correctness
+  # lives (codex review, TASK-108 轮 3).
+  b="$(_line_of BLOCKING "$1")"
+  n="$(_line_of NON_BLOCKING "$1")"
+  [ -n "$r" ] && [ -n "$a" ] && [ -n "$v" ] && [ -n "$b" ] && [ -n "$n" ] || return 1
+  [ "$r" -lt "$a" ] && [ "$a" -lt "$v" ] && [ "$v" -lt "$b" ] && [ "$b" -lt "$n" ] || return 1
+  printf '%s\n' "$1" | sed -n "${r},${a}p" \
+    | grep -qE '\b(PASS|PARTIAL|FAIL|NOT_EVIDENCED)\b' || return 1
+  return 0
+}
+
+# A `VERDICT: pass` that sits above a gate reporting PARTIAL / FAIL /
+# NOT_EVIDENCED / INSUFFICIENT is self-contradictory, and the Merge Gate reads
+# the verdict. Rather than rewrite a reviewer's words, say so on its own line and
+# let the controller treat the run as a fail (ADR-0088 决策 6). False positives
+# (a gate word used in prose) push toward fail, which is the safe direction.
+consistency_note() {
+  local r b n total gates blocking
+  printf '%s' "$1" | grep -qE '^[[:space:]]*VERDICT:[[:space:]]*pass' || return 0
+  [ -z "$PACKAGE_BLOCK" ] && return 0
+  total="$(printf '%s\n' "$1" | wc -l | tr -d ' ')"
+  r="$(_line_of REQUIREMENT "$1")"
+  b="$(_line_of BLOCKING "$1")"
+  n="$(_line_of NON_BLOCKING "$1")"
+  if [ -n "$r" ]; then
+    gates="$(printf '%s\n' "$1" | sed -n "${r},${b:-$total}p")"
+    if printf '%s' "$gates" | grep -qE '\b(PARTIAL|FAIL|NOT_EVIDENCED|INSUFFICIENT)\b'; then
+      echo "GATE_CONSISTENCY: inconsistent — a gate reports PARTIAL/FAIL/NOT_EVIDENCED/INSUFFICIENT while VERDICT says pass; treat this review as fail."
+      return 0
+    fi
+  fi
+  # ...and a populated BLOCKING list contradicts a pass just as loudly. The scan
+  # used to STOP at that header, so `pass` + a real blocking finding went
+  # unflagged (codex review, TASK-108 轮 3).
+  [ -n "$b" ] || return 0
+  blocking="$(printf '%s\n' "$1" | sed -n "$((b + 1)),${n:-$total}p" \
+    | grep -vE '^[[:space:]]*(NON_BLOCKING:)?[[:space:]]*$' \
+    | grep -vE '^[[:space:]]*[-*][[:space:]]*\(none\)[[:space:]]*$' || true)"
+  if [ -n "${blocking//[[:space:]]/}" ]; then
+    echo "GATE_CONSISTENCY: inconsistent — BLOCKING lists findings while VERDICT says pass; treat this review as fail."
+  fi
+}
 have_codex=0
 have_claude=0
 command -v codex  >/dev/null 2>&1 && have_codex=1
@@ -315,8 +466,8 @@ run_codex() {
   # A DECISION is required, not merely the word VERDICT: a refusal or a
   # truncated answer that echoes the template ("VERDICT: unknown") must count
   # as a failed review and fall through, never be reported as a completed one.
-  if ! printf '%s' "$out" | grep -qE "$VERDICT_PATTERN"; then
-    echo "codex produced no 'VERDICT: pass|fail' line" >>"$ERRFILE"
+  if ! review_is_complete "$out"; then
+    echo "codex produced no complete answer (need 'VERDICT: pass|fail', plus REQUIREMENT/ARCHITECTURE/VERIFICATION when a review package was supplied)" >>"$ERRFILE"
     return 1
   fi
   printf '%s\n' "$out"
@@ -338,8 +489,8 @@ run_claude() {
   if [ "$rc" -ne 0 ]; then
     return 1
   fi
-  if ! printf '%s' "$out" | grep -qE "$VERDICT_PATTERN"; then
-    echo "claude produced no 'VERDICT: pass|fail' line" >>"$ERRFILE"
+  if ! review_is_complete "$out"; then
+    echo "claude produced no complete answer (need 'VERDICT: pass|fail', plus REQUIREMENT/ARCHITECTURE/VERIFICATION when a review package was supplied)" >>"$ERRFILE"
     return 1
   fi
   printf '%s\n' "$out"
@@ -356,6 +507,7 @@ if [ "$have_codex" -eq 1 ]; then
   if OUT="$(run_codex)"; then
     status "codex done: $(verdict_of "$OUT")"
     echo "REVIEWER: codex"
+    consistency_note "$OUT"
     printf '%s\n' "$OUT"
     exit 0
   fi
@@ -367,6 +519,7 @@ if [ "$have_codex" -eq 1 ]; then
       status "claude (fallback) done: $(verdict_of "$OUT")"
       echo "REVIEWER: claude (fallback; codex unavailable: ${REASON})"
       echo "INDEPENDENCE: degraded — reviewer and implementer are the same model."
+      consistency_note "$OUT"
       printf '%s\n' "$OUT"
       exit 0
     fi
@@ -386,6 +539,7 @@ if [ "$have_claude" -eq 1 ]; then
     status "claude (fallback) done: $(verdict_of "$OUT")"
     echo "REVIEWER: claude (fallback; codex not installed)"
     echo "INDEPENDENCE: degraded — reviewer and implementer are the same model."
+    consistency_note "$OUT"
     printf '%s\n' "$OUT"
     exit 0
   fi

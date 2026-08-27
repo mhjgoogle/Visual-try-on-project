@@ -20,17 +20,19 @@
   },
   "codex-review-loop": {
    "backlog": "docs/skill-evolution/backlogs/codex-review-loop.jsonl",
-   "feedback_seq": 10,
-   "last_feedback_at": "2026-08-24T07:13:58Z",
+   "feedback_seq": 11,
+   "last_feedback_at": "2026-08-26T22:02:09Z",
    "last_review_at": null,
    "last_seen_at": "2026-08-22T03:57:33Z",
-   "open": 10,
+   "open": 11,
    "path": ".claude/skills/codex-review-loop",
    "pending_proposals": [],
    "protected": [],
    "registered_at": "2026-08-22T03:57:33Z",
-   "repeated": {},
-   "revision": "5042337b7835",
+   "repeated": {
+    "shared-worktree-diff-contamination": 2
+   },
+   "revision": "200b39337376",
    "severe_open": 0,
    "status": "OBSERVING"
   },

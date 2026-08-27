@@ -182,7 +182,7 @@ digest、输入/输出关系、Provider/模型/参数、时间、成本、评价
 
 实施编号和里程碑由
 [ADR-0030](adr/ADR-0030-creation-workspace-delivery-governance.md) 确定；完整路线见
-[Creation Workspace 实施路线](design/active/creation-workspace-implementation-roadmap.md)，
+[Creation Workspace 实施路线](design/done/creation-workspace-implementation-roadmap.md)，
 逐项需求归属见
 [端到端需求追踪矩阵](design/end-to-end-requirements-traceability.md)。
 

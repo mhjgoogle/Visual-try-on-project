@@ -1,6 +1,11 @@
 # ADR-0060：风险分级本地 Commit Gate
 
-- 状态：Accepted
+- 状态：**Superseded**（2026-08-22）—— 由
+  [ADR-0080](ADR-0080-test-ownership-and-gate-mapping.md) 取代「按风险分档选检查」，
+  由 [ADR-0081](ADR-0081-review-by-impact-scope.md) 取代随之而来的按档轮次语义。
+  **本 ADR 不再是现行规则**，保留是为了回答「当时为什么要分档」；现行规则见
+  AGENTS.md §20。仍然继承下来的只有 **fail-closed 与「判不出来就跑全量」** 两条
+  （ADR-0081 决策 4 明确保留）。
 - 日期：2026-08-12
 - 范围：仅 `.claude/hooks/` 的本地 AI-agent commit gate；不改变产品代码、CI
   必跑项或高风险改动的全量验收要求。

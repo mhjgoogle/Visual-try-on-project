@@ -1,6 +1,9 @@
 # ADR-0079：auto-push Skill —— Git 执行权与开发决策权分离
 
-- 状态：Accepted（2026-08-22，实施 Agent 依 CLAUDE.md「ADR 的 Accept 权」
+- 状态：**Accepted（决策 1–3、5 全部保留）；决策 4 的后半句「merge 仍须用户
+  明确要求」被 [ADR-0085](ADR-0085-merge-is-not-a-human-gate.md) 取代**
+  （2026-08-24；Merge Gate 机制本身不动，变的只是 `--by` 记什么）。
+  原状态行：Accepted（2026-08-22，实施 Agent 依 CLAUDE.md「ADR 的 Accept 权」
   自行 Accept；其中**推送授权**部分的依据是产品负责人 2026-08-22 的明确指令，
   见决策 4 引文——不是 Agent 自行扩权）
 - 关联：REQ-001、TASK-101；上游机制 ADR-0060（commit gate）、ADR-0068

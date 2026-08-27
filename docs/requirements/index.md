@@ -16,3 +16,8 @@ SUPERSEDED）与版本修订规则见
 
 - [REQ-001](REQ-001-auto-push.md) — CONFIRMED — Task 完成后自动 commit/push，
   Change 完成后受控合并（TASK-101 / ADR-0079）
+- [REQ-002](REQ-002-document-lifecycle.md) — CONFIRMED — 文档与记录的统一
+  生命周期：当前事实精简、历史可追溯、完成记录不进默认上下文
+  （TASK-107 / ADR-0087）
+- [REQ-003](REQ-003-traceability-and-requirement-fulfillment-review.md) — CONFIRMED — 从产品意图到验证的追溯链，审查先答「声称完成的需求真的完成了吗」
+  （TASK-108 / ADR-0088）

@@ -3,7 +3,8 @@
 - 状态：**Accepted**（产品负责人 2026-08-24 下发）
 - 依据（原话）：「合并。这个也不需要保留人工。」
 - 日期：2026-08-24
-- 取代：[AGENTS.md](../../AGENTS.md) §22 里「`merge` 到 main 仍须用户明确要求」
+- 取代：[AGENTS.md](../../AGENTS.md) §22 里「`merge` 到 main 仍须用户明确要求」，
+  以及 [ADR-0079](ADR-0079-auto-push-skill.md) 决策 4 的同一句
   那一段，以及 §1「保留人工闸的只有 merge 到 main 与付费」的前半句
 - 相关：[ADR-0079](ADR-0079-auto-push-skill.md)（auto-push 的 Merge Gate 机制）、
   [ADR-0082](ADR-0082-no-signoff-gate-on-task-cards.md)（任务卡不设签字闸）、

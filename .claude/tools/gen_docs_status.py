@@ -40,16 +40,29 @@ _PREAMBLE = """# 文档状态总览
 | 位置 | 含义 |
 | --- | --- |
 | `docs/tasks/active/` · `docs/design/active/` | **还没做完**，需要有人接手 |
+| `docs/tasks/backlog/` | **没人在做**：已立卡但未排期（默认不读） |
 | `docs/tasks/done/` · `docs/design/done/` | **已经做完**，只作历史查阅 |
-| `docs/adr/` | **决策记录**，没有「完成」这一维 —— Accepted 即一直有效 |
+| `docs/adr/` | **决策记录**，没有「完成」这一维；被取代的写明取代者 |
 | `docs/design/` 根 | **稳定合同与参考**，合同不会「做完」 |
 | `docs/requirements/` | 需求记录：DRAFT / CONFIRMED / SUPERSEDED |
+| `docs/reports/` | 阶段性工作报告 —— **历史证据**，默认不读 |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：{n_active} 项在办 · {n_done} 项已完成 · {n_adr} 条 ADR。
+**当前**：{n_active} 在办 · {n_backlog} 待排期 · {n_done} 已完成 · {n_adr} 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
+
+## 默认加载什么（AGENTS.md 第 25 条 · ADR-0087 决策 5）
+
+**默认读**：[AGENTS.md](../AGENTS.md) · 本次 Change 关联的 REQ ·
+[当前架构合同](current-architecture.md) 里相关的那几行 ·
+`docs/tasks/active/` 里**本次**这一张卡 · 本文件 · 影响范围内的代码与测试。
+
+**默认不读**：`tasks/done/` · `design/done/` · `tasks/backlog/` · `reports/` ·
+未被当前架构合同指向的历史 ADR · 被取代的 REQ 版本 · 历史 Change 清单。
+只有**回归调查 / 架构理由 / 历史冲突 / 需求演化 / 复现旧决策边界**这五种情形
+才按需去读 —— 历史存在，但历史不占日常开发上下文。
 
 ---
 """
@@ -60,7 +73,8 @@ _TRAILER = """## 稳定参考（没有「完成」这一维）
 
 | 位置 | 放什么 |
 | --- | --- |
-| [`docs/adr/`](adr/) | {n_adr} 条架构决策记录（ADR-0001 … {last}） |
+| [当前架构合同](current-architecture.md) | **现在**成立的边界与约束（NOW） |
+| [`docs/adr/`](adr/) | {n_adr} 条决策记录（ADR-0001 … {last}）—— WHY / HISTORY |
 | [`docs/design/`](design/) 根 | 系统合同、产品信息架构、L0–S7 I/O 合同 |
 | [项目背景与路线](project-context.md) | 这个项目是什么、走到哪了 |
 | [实施规划](implementation_plan.md) | 阶段与里程碑路线图 |
@@ -77,6 +91,12 @@ _SECTIONS = [
         "在办 · 设计与验收文档",
         "design/active",
         "仍有未闭合项的设计、验收 runbook 与活账清单。",
+    ),
+    (
+        "待排期 · 任务卡",
+        "tasks/backlog",
+        "已立卡但**没人在做**：需求成立、优先级未排。`active/` 只放正在进行的工作，"
+        "否则「待办 = ls active/」会把没人做的也读成待办（ADR-0087 决策 2）。",
     ),
     (
         "已完成 · 任务卡",
@@ -137,9 +157,10 @@ def _section(heading: str, rel_folder: str, blurb: str) -> list[str]:
 def render() -> str:
     adr = sorted((DOCS / "adr").glob("ADR-*.md"))
     n_active = len(list((DOCS / "tasks" / "active").glob("*.md")))
+    n_backlog = len(list((DOCS / "tasks" / "backlog").glob("*.md")))
     n_done = len(list((DOCS / "tasks" / "done").glob("*")))
     lines = _PREAMBLE.format(
-        n_active=n_active, n_done=n_done, n_adr=len(adr)
+        n_active=n_active, n_backlog=n_backlog, n_done=n_done, n_adr=len(adr)
     ).splitlines()
     for heading, folder, blurb in _SECTIONS:
         lines += _section(heading, folder, blurb)

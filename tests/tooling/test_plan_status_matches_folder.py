@@ -24,7 +24,9 @@ _PLAN = _REPO / "docs" / "implementation_plan.md"
 
 # `TASK-051A` / `051B` 带字母后缀 —— 第一版写的 `TASK-\d+` 把它们漏掉了，
 # 而漏掉的行**完全不受检查**。这两行正是加严之后当场抓到的。
-_ROW = re.compile(r"^\| \[(TASK-\d+[A-Z]?)\]\(tasks/(active|done)/([^)]+)\)(.*)\|\s*$")
+_ROW = re.compile(
+    r"^\| \[(TASK-\d+[A-Z]?)\]\(tasks/(active|backlog|done)/([^)]+)\)(.*)\|\s*$"
+)
 
 
 def _rows() -> list[tuple[str, str, str, str]]:
@@ -61,6 +63,9 @@ def test_every_task_row_is_parsed_none_silently_skipped() -> None:
     assert len(rows) == len(declared)
     assert any(f == "done" for _, f, _, _ in rows)
     assert any(f == "active" for _, f, _, _ in rows)
+    # `backlog/` 是 ADR-0087 决策 2 加的第三个状态目录。它必须在扫描面里 ——
+    # 一条没被解析到的行，它的状态与链接**完全不受检查**（本文件开头那族缺陷）。
+    assert any(f == "backlog" for _, f, _, _ in rows)
     assert all(s for _, _, _, s in rows), "有行没解析出状态列"
 
 
@@ -85,6 +90,8 @@ def test_a_done_card_is_never_listed_as_not_started() -> None:
     这是那五处漂移里的四处。一张做完的卡在计划里显示成 `Planned`，
     下一个人会照着它重做一遍，或者以为某条能力还不存在。
     """
+    # `backlog/` 的卡**本来就**写着 Planned / Outline —— 那正是它在 backlog 的原因。
+    # 这条只查 `done/`（做完的卡不得看起来还没开工）。
     NOT_STARTED = ("Planned", "Outline", "未开始", "待开始")
     wrong = [
         f"{tid}（{status}）"

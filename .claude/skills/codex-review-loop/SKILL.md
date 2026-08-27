@@ -1,9 +1,11 @@
 ---
 name: codex-review-loop
 description: >-
-  Run an automated read-only code review of the current diff and fix only the
+  Run an automated read-only review of the current diff and fix only the
   blocking findings: ONE round by default, plus one more round to re-review a P1
-  fix (ADR-0081). INVOKE after finishing an implementation task whose change
+  fix (ADR-0081). The review answers requirement fulfilment FIRST and code
+  quality last (four gates, ADR-0088), fed by a Review Package instead of a
+  repo-wide scan. INVOKE after finishing an implementation task whose change
   touches behavior, a contract, persistence, identity, registration, render or
   file operations, paid paths, concurrency, security, Windows portability, or
   more than one domain — i.e. once code has actually changed and the change is
@@ -18,9 +20,25 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash(bash *), Bash(git diff *), Ba
 
 # codex-review-loop
 
-Controller for an implement → review → fix loop. It calls
-`scripts/run-review.sh`, grades the findings, fixes only what must be fixed, and
-writes a report. It NEVER commits.
+Controller for an implement → review → fix loop. It builds a Review Package,
+calls `scripts/run-review.sh`, grades the findings, fixes only what must be
+fixed, and writes a report. It NEVER commits.
+
+The review runs **four gates in this fixed order** (ADR-0088; details and the
+package template live in
+[dev-workflow references/traceability.md](../dev-workflow/references/traceability.md)):
+
+1. **Requirement fulfilment** — does the change actually deliver the acceptance
+   criteria it claims? `PASS` / `PARTIAL` / `FAIL` / `NOT_EVIDENCED`.
+2. **Architecture conformance** — does it stay inside the `CA §N` constraints the
+   card cites? `PASS` / `FAIL` / `NOT_APPLICABLE`.
+3. **Verification sufficiency** — does the evidence exercise that behavior?
+   `SUFFICIENT` / `INSUFFICIENT`.
+4. **Technical quality** — correctness / regression / edge cases / security
+   (the original four lenses, unchanged).
+
+The order is the point: **a style nitpick must never bury "the requirement is
+not done".**
 
 The review script picks the reviewer automatically: **codex first** (independent
 cross-model review); if codex is unavailable for any reason (not installed, not
@@ -32,7 +50,7 @@ that independence was degraded.
 ## Phase 0 — decide whether to review, then set the round budget
 
 Do this BEFORE launching any review. There are **no risk tiers** (ADR-0081,
-产品负责人 2026-08-22: 「不要保留风险分集」). Two questions only.
+产品负责人 2026-08-22: 「不要保留风险分集」). Two questions, then one artifact.
 
 **1. Does this change need a review at all?** Judge by WHAT it touches, never by
 diff size or how obvious the cause is:
@@ -85,6 +103,23 @@ Going beyond this protocol requires an explicit, stated choice
 The budget counts **review rounds**, not findings. Reaching it is a normal,
 expected outcome — not a failure.
 
+**3. Build the Review Package** — `.claude/tmp/review-package.md`, template in
+[traceability.md §4](../dev-workflow/references/traceability.md). It carries the
+claimed requirements **with their acceptance criteria quoted**, the task ids, the
+`CA §N` constraints quoted, the changed surface, the verification evidence, known
+risks, and your implementation summary. Keep it ≤120 lines: it exists so the
+reviewer does **not** scan the repository or walk historical ADRs.
+
+- Pass it with `REVIEW_PACKAGE=.claude/tmp/review-package.md` (below). Without
+  it the script reviews **gate 4 only** and reports the other three as `(none)`
+  — acceptable for pure tooling / technical cleanup, **never for a Change that
+  claims a requirement**.
+- If you can name neither a requirement nor a technical objective for this
+  change, stop: that is `ORPHAN_TASK`, and it goes back to dev-workflow
+  (第 4 步), not to the reviewer.
+- The package is a one-off artifact (AGENTS.md 第 26 条): `.claude/tmp/` is
+  gitignored, and it is deleted with the task, not filed under `docs/`.
+
 ## Phase 1 — review loop (bounded by the Phase 0 round budget)
 
 For each round:
@@ -99,11 +134,25 @@ For each round:
    path does not exist there):
 
    - Ubuntu/WSL2 — Bash tool, `run_in_background: true`:
-     - uncommitted changes: `REVIEW_TASK=TASK-0XX bash .claude/skills/codex-review-loop/scripts/run-review.sh`
-     - branch vs a base: `REVIEW_TASK=TASK-0XX bash .claude/skills/codex-review-loop/scripts/run-review.sh <base-branch>`
+     - uncommitted changes: `REVIEW_TASK=TASK-0XX REVIEW_PACKAGE=.claude/tmp/review-package.md bash .claude/skills/codex-review-loop/scripts/run-review.sh`
+     - branch vs a base: `REVIEW_TASK=TASK-0XX REVIEW_PACKAGE=.claude/tmp/review-package.md bash .claude/skills/codex-review-loop/scripts/run-review.sh <base-branch>`
    - Native Windows — PowerShell tool, `run_in_background: true`:
-     - uncommitted changes: `$env:REVIEW_TASK='TASK-0XX'; powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/codex-review-loop/scripts/run-review.ps1`
-     - branch vs a base: `$env:REVIEW_TASK='TASK-0XX'; powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/codex-review-loop/scripts/run-review.ps1 <base-branch>`
+     - uncommitted changes: `$env:REVIEW_TASK='TASK-0XX'; $env:REVIEW_PACKAGE='.claude/tmp/review-package.md'; powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/codex-review-loop/scripts/run-review.ps1`
+     - branch vs a base: `$env:REVIEW_TASK='TASK-0XX'; $env:REVIEW_PACKAGE='.claude/tmp/review-package.md'; powershell -NoProfile -ExecutionPolicy Bypass -File .claude/skills/codex-review-loop/scripts/run-review.ps1 <base-branch>`
+
+     Drop `REVIEW_PACKAGE` only for a gate-4-only review (see Phase 0 step 3).
+     An unreadable, empty, blank, or oversized package is reported as
+     `ENV_ERROR` / `PACKAGE_TOO_LARGE` and **no review runs** — fail-closed, the
+     same posture the scripts already take for a diff they cannot read
+     completely. Both hosts decide identically (ADR-0050 决策 1), including for a
+     whitespace-only value.
+
+     With a package supplied, the script also refuses to call a **shaped but
+     ungraded** answer a finished review: the three gate sections must appear
+     **in order** and gate 1 must state at least one verdict. Such an answer is
+     treated exactly like a missing `VERDICT:` line — codex falls back to claude,
+     and claude failing that way ends in `ENV_ERROR`. Never re-run a review
+     hoping for a better-shaped answer; read the message.
 
      On Windows, `codex` and `claude` are often installed per-user and NOT on
      `PATH`. If the script reports `ENV_ERROR: neither codex nor claude is
@@ -128,7 +177,10 @@ For each round:
      `.claude/tmp/last-review-output.txt` for a completed verdict first;
      otherwise retry the background launch ONCE. If it fails again, stop and
      go to Phase 2 reporting the tool error verbatim.
-   - Output begins with `ENV_ERROR`, `NO_CHANGES`, or `DIFF_TOO_LARGE` →
+   - Output begins with `ENV_ERROR`, `NO_CHANGES`, `DIFF_TOO_LARGE`, or
+     `PACKAGE_TOO_LARGE` (that last one: trim the package to the criteria,
+     constraints and evidence that matter — do not raise the cap to ship a
+     repo dump) →
      **change no code**. Stop the loop and go to Phase 2, reporting the message
      verbatim. For `DIFF_TOO_LARGE`, also relay its guidance (narrow the scope
      or raise `REVIEW_MAX_DIFF_LINES`) — do NOT try to review it another way.
@@ -138,11 +190,35 @@ For each round:
    - `VERDICT: pass` → stop the loop (success) and go to Phase 2.
    - `VERDICT: fail` → grade every finding (below), then decide whether to fix.
 
-3. Grade each finding:
-   - **P1** — correctness / bug / security → MUST fix.
-   - **P2** — regression / edge case → SHOULD fix.
-   - **P3** — suggested improvement → do NOT fix, record only.
-   - **P4** — nitpick → do NOT fix, record only.
+3. Grade the output **gate by gate, in order** — a gate-1 result outranks every
+   technical finding below it:
+
+   | Reported | Grade | Round effect |
+   | --- | --- | --- |
+   | `REQUIREMENT: … FAIL` / `PARTIAL` | **P1** — implement the missing behavior | buys a re-review round |
+   | `REQUIREMENT: … NOT_EVIDENCED` | **P1** — add evidence that exercises the behavior | evidence only, production code untouched → **no new round**; run the owning domain and close |
+   | `ARCHITECTURE: … FAIL` | **P1** — move back inside the cited constraint | buys a re-review round |
+   | `VERIFICATION: INSUFFICIENT` | **P1** — verify the behavior, not its surroundings | same as `NOT_EVIDENCED` |
+   | `BLOCKING:` / `NON_BLOCKING:` items | **P1** correctness / bug / security → MUST fix; **P2** regression / edge case → SHOULD fix; **P3** suggestion and **P4** nitpick → record only | original protocol |
+
+   **Count the criteria yourself.** You built the package, so you know how many
+   criteria it claims. Any claimed criterion the answer does not grade counts as
+   **`NOT_EVIDENCED`** — never as a pass by omission. (The script does not count
+   them: parsing the package's prose would mis-reject valid packages, and a
+   mis-rejection costs a whole round.)
+
+   **A `GATE_CONSISTENCY: inconsistent` line beats the `VERDICT:` line.** The
+   script emits it when a `pass` sits above a gate reporting `PARTIAL` / `FAIL` /
+   `NOT_EVIDENCED` / `INSUFFICIENT`, or above a populated `BLOCKING` list; the run
+   then counts as **fail** and the non-PASS gate is graded from the table above. Do not "resolve" the
+   contradiction in the reviewer's favour, and do not ask the reviewer again —
+   the gate result is the answer, the `pass` label is the mistake.
+
+   A `PARTIAL` that is genuinely outside this task's scope is not closed by
+   widening the task: record the gap as a new card and note in the REQ where that
+   criterion went — that is a scope decision, not a silently shipped `PARTIAL`
+   (ADR-0088 决策 6). Engineering gaps come back to you, never to the user; only a
+   real conflict between two CONFIRMED requirements escalates.
 
 4. Act on the grades — **only P1 buys another round**:
    - **P1 present** → fix (minimally — see Ironclad rules). If the round budget
@@ -277,6 +353,13 @@ must contain:
 
 - number of iterations run
 - final verdict (pass / fail / ENV_ERROR / NO_CHANGES)
+- **the four gate results**: every requirement / criterion with its
+  `PASS|PARTIAL|FAIL|NOT_EVIDENCED`, every cited constraint with its
+  `PASS|FAIL|NOT_APPLICABLE`, and `SUFFICIENT|INSUFFICIENT` for the evidence —
+  this is what the Merge Gate reads (ADR-0088 决策 6). When the change cannot
+  merge, say plainly which link of the chain is missing.
+- whether the run had a Review Package (without one, gates 1–3 are `(none)`, and
+  a change that claims a requirement is **not** merge-ready)
 - which reviewer produced the final verdict, and whether independence was
   degraded (claude fallback)
 - P1/P2 findings that were fixed (with file:line)
@@ -292,8 +375,14 @@ must contain:
   still available — a fix only counts as done after a re-review round sees it.
 - Fixes must be **minimal**: touch only the code the finding points at. Do not
   refactor, tidy, rename, or change anything nearby "while you are there".
-- If the reviewer proposes architecture/refactor changes, ignore them — those
-  are out of scope and decided by ADRs, not by this loop.
+- **Architecture conformance is in scope; architecture proposals are not**
+  (ADR-0088 决策 4). A finding that the diff breaks a `CA §N` constraint the
+  package cited is a P1 — fix it by moving back inside the boundary. A finding
+  that proposes a different architecture, a redesign, or a refactor is out of
+  scope: ignore it, record it, leave architecture to ADRs.
+- Never promote a requirement gate to `PASS` yourself. Only a re-review round
+  closes a `PARTIAL` / `FAIL`; a `NOT_EVIDENCED` closed by new evidence must say
+  in the report which command or observation now proves the behavior.
 
 ## Token frugality
 

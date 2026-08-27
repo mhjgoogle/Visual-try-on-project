@@ -1,0 +1,237 @@
+{
+  "schema": 1,
+  "change_id": "doc-lifecycle",
+  "branch": "change/TASK-107-doc-lifecycle",
+  "status": "open",
+  "created": "2026-08-26T11:57:45+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-107": {
+      "commits": [
+        {
+          "hash": "712c7d4beb97d8de94b049ba403de98344e01e96",
+          "subject": "docs(TASK-107): 文档与记录的统一生命周期（ADR-0087）",
+          "time": "2026-08-26T21:44:01+00:00",
+          "branch": "change/TASK-107-doc-lifecycle",
+          "pushed": true,
+          "files": [
+            ".claude/skills/auto-push/SKILL.md",
+            ".claude/skills/dev-workflow/SKILL.md",
+            ".claude/skills/dev-workflow/references/lifecycle.md",
+            ".claude/skills/dev-workflow/references/records.md",
+            ".claude/skills/dev-workflow/references/repo-contract.md",
+            ".claude/tools/gen_docs_status.py",
+            ".claude/tools/lifecycle_check.py",
+            "AGENTS.md",
+            "README.md",
+            "docs/STATUS.md",
+            "docs/adr/ADR-0001-project-data-directory-contract.md",
+            "docs/adr/ADR-0049-native-windows-run-and-test-target.md",
+            "docs/adr/ADR-0050-powershell-native-agent-dev-tooling.md",
+            "docs/adr/ADR-0060-risk-based-local-commit-gate.md",
+            "docs/adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md",
+            "docs/adr/ADR-0069-review-round-budget-and-parallel-suite.md",
+            "docs/adr/ADR-0070-commit-gate-intent-by-shell-parser.md",
+            "docs/adr/ADR-0079-auto-push-skill.md",
+            "docs/adr/ADR-0080-test-ownership-and-gate-mapping.md",
+            "docs/adr/ADR-0081-review-by-impact-scope.md",
+            "docs/adr/ADR-0085-merge-is-not-a-human-gate.md",
+            "docs/adr/ADR-0087-document-lifecycle-and-default-agent-context.md",
+            "docs/ai_video_creation_workspace_requirements.md",
+            "docs/auto-push/changes/doc-lifecycle.json",
+            "docs/current-architecture.md",
+            "docs/design/active/creation-workspace-implementation-roadmap.md",
+            "docs/design/active/final-unified-milestone-review.md",
+            "docs/design/active/pending-codex-rereview.md",
+            "docs/design/done/codex-rereview-history-2026-08.md",
+            "docs/design/done/creation-workspace-implementation-roadmap.md",
+            "docs/design/done/final-unified-milestone-review.md",
+            "docs/implementation_plan.md",
+            "docs/product_spec.md",
+            "docs/project-context.md",
+            "docs/requirements/REQ-002-document-lifecycle.md",
+            "docs/requirements/index.md",
+            "docs/tasks/active/TASK-011-local-video-provider.md",
+            "docs/tasks/active/TASK-012-qcd-auto-routing.md",
+            "docs/tasks/active/TASK-040-final-unified-product-acceptance.md",
+            "docs/tasks/active/TASK-107-document-lifecycle.md",
+            "docs/tasks/backlog/TASK-011-local-video-provider.md",
+            "docs/tasks/backlog/TASK-012-qcd-auto-routing.md",
+            "tests/tooling/test_docs_status.py",
+            "tests/tooling/test_lifecycle_check.py",
+            "tests/tooling/test_plan_status_matches_folder.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "48514221a40c2bc460690b2e3f1b34dc4799b5f9",
+          "subject": "TASK-107 收口：卡进 done/，ADR-0087 链接跟着搬",
+          "time": "2026-08-27T08:57:28+00:00",
+          "branch": "change/TASK-107-doc-lifecycle",
+          "pushed": true,
+          "files": [
+            "docs/STATUS.md",
+            "docs/adr/ADR-0087-document-lifecycle-and-default-agent-context.md",
+            "docs/auto-push/changes/doc-lifecycle.json",
+            "docs/tasks/active/TASK-107-document-lifecycle.md",
+            "docs/tasks/done/TASK-107-document-lifecycle.md"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "c629a67dd77745d216e1ef035c173487c18514df",
+          "subject": "chore(auto-push): merge gate + TASK-108 post-use feedback 落盘",
+          "time": "2026-08-27T09:19:37+00:00",
+          "branch": "change/TASK-107-doc-lifecycle",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/doc-lifecycle.json",
+            "docs/skill-evolution/backlogs/codex-review-loop.jsonl",
+            "docs/skill-evolution/index.json"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        ".claude/skills/auto-push/SKILL.md",
+        ".claude/skills/dev-workflow/SKILL.md",
+        ".claude/skills/dev-workflow/references/lifecycle.md",
+        ".claude/skills/dev-workflow/references/records.md",
+        ".claude/skills/dev-workflow/references/repo-contract.md",
+        ".claude/tools/gen_docs_status.py",
+        ".claude/tools/lifecycle_check.py",
+        "AGENTS.md",
+        "README.md",
+        "docs/STATUS.md",
+        "docs/adr/ADR-0001-project-data-directory-contract.md",
+        "docs/adr/ADR-0049-native-windows-run-and-test-target.md",
+        "docs/adr/ADR-0050-powershell-native-agent-dev-tooling.md",
+        "docs/adr/ADR-0060-risk-based-local-commit-gate.md",
+        "docs/adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md",
+        "docs/adr/ADR-0069-review-round-budget-and-parallel-suite.md",
+        "docs/adr/ADR-0070-commit-gate-intent-by-shell-parser.md",
+        "docs/adr/ADR-0079-auto-push-skill.md",
+        "docs/adr/ADR-0080-test-ownership-and-gate-mapping.md",
+        "docs/adr/ADR-0081-review-by-impact-scope.md",
+        "docs/adr/ADR-0085-merge-is-not-a-human-gate.md",
+        "docs/adr/ADR-0087-document-lifecycle-and-default-agent-context.md",
+        "docs/ai_video_creation_workspace_requirements.md",
+        "docs/auto-push/changes/doc-lifecycle.json",
+        "docs/current-architecture.md",
+        "docs/design/active/creation-workspace-implementation-roadmap.md",
+        "docs/design/active/final-unified-milestone-review.md",
+        "docs/design/active/pending-codex-rereview.md",
+        "docs/design/done/codex-rereview-history-2026-08.md",
+        "docs/design/done/creation-workspace-implementation-roadmap.md",
+        "docs/design/done/final-unified-milestone-review.md",
+        "docs/implementation_plan.md",
+        "docs/product_spec.md",
+        "docs/project-context.md",
+        "docs/requirements/REQ-002-document-lifecycle.md",
+        "docs/requirements/index.md",
+        "docs/skill-evolution/backlogs/codex-review-loop.jsonl",
+        "docs/skill-evolution/index.json",
+        "docs/tasks/active/TASK-011-local-video-provider.md",
+        "docs/tasks/active/TASK-012-qcd-auto-routing.md",
+        "docs/tasks/active/TASK-040-final-unified-product-acceptance.md",
+        "docs/tasks/active/TASK-107-document-lifecycle.md",
+        "docs/tasks/backlog/TASK-011-local-video-provider.md",
+        "docs/tasks/backlog/TASK-012-qcd-auto-routing.md",
+        "docs/tasks/done/TASK-107-document-lifecycle.md",
+        "tests/tooling/test_docs_status.py",
+        "tests/tooling/test_lifecycle_check.py",
+        "tests/tooling/test_plan_status_matches_folder.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "最终全量（b6b23b2）：pytest -n 8 -m 'not serial' 3608 passed/59 skipped + pytest -m serial 6 passed；node --test 1857 全绿；ruff check + format --check 372 files 全绿；lifecycle_check 0 finding；codex 3 轮无未闭合 P1",
+      "declared": "2026-08-27T09:14:18+00:00"
+    },
+    "TASK-108": {
+      "commits": [
+        {
+          "hash": "1b32047a4a13c85b1a1d801d1751ee6653c17df8",
+          "subject": "docs(TASK-108): 追溯链与需求完成度审查四闸（ADR-0088）",
+          "time": "2026-08-26T21:46:41+00:00",
+          "branch": "change/TASK-107-doc-lifecycle",
+          "pushed": true,
+          "files": [
+            ".claude/skills/codex-review-loop/SKILL.md",
+            ".claude/skills/codex-review-loop/scripts/run-review.ps1",
+            ".claude/skills/codex-review-loop/scripts/run-review.sh",
+            ".claude/skills/dev-workflow/references/traceability.md",
+            ".claude/skills/dev-workflow/references/verification.md",
+            "docs/adr/ADR-0088-traceability-and-requirement-fulfillment-review.md",
+            "docs/auto-push/changes/doc-lifecycle.json",
+            "docs/design/end-to-end-requirements-traceability.md",
+            "docs/requirements/REQ-003-traceability-and-requirement-fulfillment-review.md",
+            "docs/tasks/done/TASK-108-traceability-and-requirement-review.md",
+            "tests/tooling/test_review_package_contract.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "453b23bae7cbe64343b845a9d38853004995ad12",
+          "subject": "docs(TASK-108): 卡与 REQ-003 回填提交 hash",
+          "time": "2026-08-26T21:54:44+00:00",
+          "branch": "change/TASK-107-doc-lifecycle",
+          "pushed": true,
+          "files": [
+            "docs/auto-push/changes/doc-lifecycle.json",
+            "docs/requirements/REQ-003-traceability-and-requirement-fulfillment-review.md",
+            "docs/tasks/done/TASK-108-traceability-and-requirement-review.md"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        ".claude/skills/codex-review-loop/",
+        ".claude/skills/dev-workflow/references/traceability.md",
+        ".claude/skills/dev-workflow/references/verification.md",
+        "docs/adr/ADR-0088-traceability-and-requirement-fulfillment-review.md",
+        "docs/design/end-to-end-requirements-traceability.md",
+        "docs/requirements/REQ-003-traceability-and-requirement-fulfillment-review.md",
+        "docs/tasks/done/TASK-108-traceability-and-requirement-review.md",
+        "tests/tooling/test_review_package_contract.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "pytest tests/tooling 241 passed/1 skipped + ruff 全绿 + lifecycle_check 0 finding；3 轮 codex 四闸审查（架构由 FAIL 修回 PASS），无未闭合 P1",
+      "declared": "2026-08-26T21:39:56+00:00"
+    },
+    "dev-workflow-understanding-gate": {
+      "commits": [
+        {
+          "hash": "9d6592ba7eb794300792ece284680cd1b3ca6a06",
+          "subject": "docs(dev-workflow): add requirement understanding gate",
+          "time": "2026-08-26T21:47:30+00:00",
+          "branch": "change/TASK-107-doc-lifecycle",
+          "pushed": true,
+          "files": [
+            ".claude/skills/dev-workflow/SKILL.md",
+            ".claude/skills/dev-workflow/references/records.md",
+            ".claude/skills/dev-workflow/references/workflows.md"
+          ],
+          "scope_violation": [
+            ".claude/skills/dev-workflow/references/records.md",
+            ".claude/skills/dev-workflow/references/workflows.md"
+          ]
+        }
+      ],
+      "paths": [
+        ".claude/skills/dev-workflow/SKILL.md",
+        ".claude/skills/dev-workflow/references/records.md",
+        ".claude/skills/dev-workflow/references/workflows.md"
+      ],
+      "verification": "PASS",
+      "verification_ref": "补登来源：本分支上早于 TASK-107/108 的既有提交 9d6592b（另一会话所作，内容=dev-workflow 需求理解 Gate）。当前树 pytest tests/tooling 241 passed/1 skipped + ruff 全绿，覆盖该文件所属域",
+      "declared": "2026-08-26T21:47:42+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PASS",
+    "by": "ADR-0085 常设授权；依据=Done 判定 + 最终全量（在 b6b23b2 上跑）：pytest -n 8 -m 'not serial' 3608 passed/59 skipped + pytest -m serial 6 passed、node --test 1857 全绿、ruff check + format --check 372 files 全绿；lifecycle_check 0 finding；codex 跨模型 3 轮后无未闭合 P1；待复审清单未闭合条目为 0。其后仅追加 c629a67（3 个 json/jsonl 工具数据落盘，无代码/测试变动），故全量结论仍成立",
+    "time": "2026-08-27T09:13:07+00:00",
+    "tip": "c629a67dd77745d216e1ef035c173487c18514df"
+  },
+  "merge": null,
+  "cleanup": null
+}

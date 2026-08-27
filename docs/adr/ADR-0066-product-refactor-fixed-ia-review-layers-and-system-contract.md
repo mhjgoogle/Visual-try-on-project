@@ -3,6 +3,10 @@
 - 状态：**Accepted**（产品负责人 2026-08-13 批准）
 - 日期：2026-08-13
 - 实施基线：**`ae0a54a`**
+- **取代**：[ADR-0052](ADR-0052-workflow-page-as-derived-provenance-graph.md) 决策 4
+  （顶层「工作流」页与画布）与
+  [ADR-0064](ADR-0064-ai-director-operationalization.md) 决策 8（AI 导演常驻右栏）；
+  这两份 ADR 的其余决策全部保留
 - 触发：产品负责人 2026-08-13 下发「产品与系统重构第一阶段：需求、界面、Agent
   协作与系统合同定稿」（本文以下称**本轮规格**）
 - 关联 / 被本 ADR 修订：

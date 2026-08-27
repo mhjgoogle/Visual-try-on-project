@@ -2,6 +2,11 @@
 
 - 状态：Accepted（产品负责人 2026-08-22 裁决）
 - 日期：2026-08-22
+- **取代**：[ADR-0069](ADR-0069-review-round-budget-and-parallel-suite.md) 的按风险
+  档轮次预算（其两阶段并行全量与「审查不阻塞提交」保留）、
+  [ADR-0060](ADR-0060-risk-based-local-commit-gate.md) 的分档语义
+- 关联：[ADR-0080](ADR-0080-test-ownership-and-gate-mapping.md) —— 测试归属那一半
+  由它承担，两份 ADR 一起替掉 ADR-0060/0069 的整套分档
 - 任务：TASK-102
 
 ## 背景
