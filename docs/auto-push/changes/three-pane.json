@@ -39,18 +39,42 @@
           "scope_violation": [
             "docs/STATUS.md"
           ]
+        },
+        {
+          "hash": "e4afc6a35ec35acff985795179f06f7eccd398b0",
+          "subject": "feat(TASK-109): 清掉 AI 导演台，资产收件箱搬进资产库工作区",
+          "time": "2026-08-27T11:39:37+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/three-pane.json",
+            "mockups/motv-workspace/src/ui/agentpanel.js",
+            "mockups/motv-workspace/src/ui/assetinboxsec.js",
+            "mockups/motv-workspace/src/ui/director.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/src/ui/skillpanel.js",
+            "mockups/motv-workspace/tests/agentpanel.test.mjs",
+            "mockups/motv-workspace/tests/agentsession.test.mjs",
+            "mockups/motv-workspace/tests/assetinboxsec.test.mjs",
+            "mockups/motv-workspace/tests/controltower.test.mjs",
+            "mockups/motv-workspace/tests/story.test.mjs",
+            "mockups/motv-workspace/tests/studio.test.mjs",
+            "mockups/motv-workspace/tests/upstream.test.mjs"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
         "docs/STATUS.md",
+        "docs/adr/ADR-0089-conversational-agent-write-path.md",
         "docs/auto-push/changes/three-pane.json",
         "docs/requirements/",
         "docs/tasks/active/TASK-109-three-pane-shell-and-agent-conversation.md",
         "mockups/motv-workspace/"
       ],
       "verification": "PASS",
-      "verification_ref": "node --test 前端全量 1857 passed/0 failed · pytest tests/contract 203 passed/2 skipped · gate 全量 3607 passed（STATUS 过期那条已修）· lifecycle_check 0 finding · Playwright 真实项目实测三栏",
-      "declared": "2026-08-27T11:07:27+00:00"
+      "verification_ref": "文档提交：ADR-0089（对话式写路径）。代码侧上一提交 e4afc6a 已过 gate：前端 1844 passed、contract+studio 662 passed",
+      "declared": "2026-08-27T11:41:38+00:00"
     }
   },
   "merge_gate": {
