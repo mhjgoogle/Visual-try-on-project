@@ -21,3 +21,5 @@ SUPERSEDED）与版本修订规则见
   （TASK-107 / ADR-0087）
 - [REQ-003](REQ-003-traceability-and-requirement-fulfillment-review.md) — CONFIRMED — 从产品意图到验证的追溯链，审查先答「声称完成的需求真的完成了吗」
   （TASK-108 / ADR-0088）
+- [REQ-004](REQ-004-three-pane-shell-and-agent-conversation.md) — CONFIRMED — 全站统一三栏（左控制/选择 · 中工作区 · 右 Agent 对话），右栏是真正的对话框
+  （TASK-109）

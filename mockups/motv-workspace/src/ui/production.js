@@ -492,14 +492,19 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       // §1.2 批次 B — the page-level panel is a part OF the session now, not a
       // second surface in the middle column
       panel: agentPanelBlock(ctx),
+      // REQ-004 判据 4 — the history scrolls, the input box does not move
+      split: true,
     });
     if (activeModule === "script") {
       const d = ctx.script.doc();
       return (
         `<aside class="st-dir prod-ai">` +
         `<div class="dir-head"><span class="av">🎬</span>AI 导演 · 剧本</div>` +
-        session +
-        aiPane(ctx, d, scriptStatus(d)) +
+        // REQ-004 判据 4: the column is a CONVERSATION — everything derived scrolls
+        // above, the thing you type into is pinned at the bottom. Same two wrappers
+        // in both branches, so the shape cannot differ by page.
+        `<div class="st-dir-flow">` + aiPane(ctx, d, scriptStatus(d)) + session.history + `</div>` +
+        `<div class="st-dir-composer">` + session.composer + `</div>` +
         `</aside>`
       );
     }
@@ -583,10 +588,17 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       `<aside class="st-dir prod-ai">` +
       `<div class="dir-head"><span class="av">🎬</span>AI 导演` +
       `<span class="dir-space">${esc(SPACE_LABEL[spaceOf(activeModule)] || "")}</span></div>` +
-      session +
-      shotDirSec +
-      stateSec +
-      renderDirector(m, ui.directorText, ui.dirOpen, skillSec) +
+      // REQ-004 v2: the column IS the conversation. The 导演台 six-section stack
+      // (这一镜怎么办 / 当前状态 / 导演观察 / 能力 / 生成) is no longer rendered here —
+      // 产品负责人 2026-08-27: 「AI导演台不需要了。根本用不上。」 v1's 「面板不许消失」
+      // was my own conservative criterion, not his requirement, and it turned this
+      // column into a hybrid of a chat box and a panel stack.
+      //
+      // The MODULES are still on disk and still tested; retiring them is its own
+      // step (TASK-109 Follow-up), because deleting a module and its tests in the
+      // same breath as a layout change is how a capability goes missing by accident.
+      `<div class="st-dir-flow">` + session.history + `</div>` +
+      `<div class="st-dir-composer">` + session.composer + `</div>` +
       `</aside>`
     );
   }

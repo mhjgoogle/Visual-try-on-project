@@ -267,9 +267,14 @@
 /* 3 · studio shell grid                                                      */
 /* ========================================================================== */
 
+/* THREE panels, always — 左 控制与选择 · 中 工作区 · 右 与 Agent 的对话
+   (REQ-004 判据 1). This is the shell's ONE effective grid: `app.css` carries an
+   older copy of the same selector that this file overrides wholesale, so read
+   THIS one. Every `space-*` rule in epprod.css must keep the column COUNT — a
+   skeleton that changes shape per page is the mess REQ-004 removes. */
 #production {
   display: none; position: absolute; inset: 52px 0 0 0;
-  grid-template-columns: 220px minmax(0, 1fr) minmax(300px, 340px);
+  grid-template-columns: minmax(200px, 220px) minmax(0, 1fr) minmax(300px, 340px);
   grid-template-rows: 34px minmax(0, 1fr);
   background: var(--canvas);
 }

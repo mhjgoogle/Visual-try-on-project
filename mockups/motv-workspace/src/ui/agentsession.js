@@ -332,7 +332,7 @@ function pickerHtml(p) {
  *  one session, so there is one place that answers 「Agent 现在在看什么」.
  *  Its seven items and every one of its actions are rendered verbatim.
  */
-export function renderAgentSession(m, { panel = "" } = {}) {
+export function renderAgentSession(m, { panel = "", split = false } = {}) {
   const chips = m.context.length
     ? m.context
         .map(
@@ -349,11 +349,10 @@ export function renderAgentSession(m, { panel = "" } = {}) {
         )
         .join("")
     : `<span class="meta">还没有引用任何对象——输入 <b>@</b> 可以把镜头 / 角色 / 场景 / 场景地 / 资产 / 剧集加进来。</span>`;
-  return (
-    `<section class="dir-sec open as-sec">` +
-    `<div class="dir-sec-h static"><span class="ti">会话</span>` +
-    `<span class="su"><span class="chip mute">${m.skillCount} 个能力</span></span></div>` +
-    `<div class="dir-sec-b as-body">` +
+  // WHAT YOU TYPE INTO. Kept together so it can be pinned to the bottom of the
+  // column (REQ-004 判据 4) — the one element that must never move as the
+  // Director finds more to say above it.
+  const composer =
     `<div class="lab">当前上下文</div>` +
     `<div class="as-ctx">${chips}</div>` +
     (m.skill
@@ -362,14 +361,6 @@ export function renderAgentSession(m, { panel = "" } = {}) {
         `<span class="chip mute">${esc(m.skill.role)}</span>` +
         `<button class="as-cx" data-as-clearskill="1" title="换一个能力">✕</button></div>`
       : "") +
-    `<textarea class="field as-input" rows="3" spellcheck="false" ` +
-    `placeholder="说你要做什么。/ 唤出能力，@ 引用对象">${esc(m.text)}</textarea>` +
-    pickerHtml(m.pick) +
-    `<div class="as-acts">` +
-    (m.blocked
-      ? `<div class="dir-unavail">◌ ${esc(m.blocked)}</div>`
-      : `<button class="btn primary sm" data-as-run="1">运行「${esc(m.skill.title)}」</button>`) +
-    `</div>` +
     // WHAT ACTUALLY GOES OUT, spelled out. The session accepts six kinds and free
     // text; the run contract carries two of them. Saying which is which is the
     // difference between a session and a box that quietly eats what you type.
@@ -395,6 +386,20 @@ export function renderAgentSession(m, { panel = "" } = {}) {
         `没有可以放它们的位置。它们留在这里作为你自己的笔记；` +
         `想按自己的说法跑，用下面「能力」里的「查看任务 Prompt」+ 手工运行。</div>`
       : "") +
+    // THE BOX IS LAST (REQ-004 判据 4). Everything explanatory sits ABOVE it,
+    // the way a chat console puts its input at the very bottom — a note printed
+    // BELOW the box is the line that gets clipped by the band edge.
+    `<textarea class="field as-input" rows="3" spellcheck="false" ` +
+    `placeholder="说你要做什么。/ 唤出能力，@ 引用对象">${esc(m.text)}</textarea>` +
+    pickerHtml(m.pick) +
+    `<div class="as-acts">` +
+    (m.blocked
+      ? `<div class="dir-unavail">◌ ${esc(m.blocked)}</div>`
+      : `<button class="btn primary sm" data-as-run="1">运行「${esc(m.skill.title)}」</button>`) +
+    `</div>`;
+  // WHAT ALREADY HAPPENED. Scrolls above the composer, because history grows and
+  // an input box that history pushes down is the thing this split removes.
+  const history =
     (m.runs.length
       ? `<div class="lab">运行记录</div><ul class="as-runs">` +
         m.runs
@@ -407,7 +412,30 @@ export function renderAgentSession(m, { panel = "" } = {}) {
           .join("") +
         `</ul>`
       : `<div class="meta">这个会话还没有运行记录。</div>`) +
-    (panel ? `<div class="lab">这一页的诊断</div>${panel}` : "") +
+    (panel ? `<div class="lab">这一页的诊断</div>${panel}` : "");
+  const head =
+    `<div class="dir-sec-h static"><span class="ti">会话</span>` +
+    `<span class="su"><span class="chip mute">${m.skillCount} 个能力</span></span></div>`;
+  // TWO PLACES, ONE MODEL (REQ-004 判据 4/5). `split` only changes WHERE the two
+  // halves are mounted — both are still rendered, so nothing a creator could
+  // reach before became unreachable.
+  if (split) {
+    return {
+      history:
+        `<section class="dir-sec open as-sec as-history">` +
+        head +
+        `<div class="dir-sec-b as-body">${history}</div></section>`,
+      composer:
+        `<section class="dir-sec open as-sec as-composer">` +
+        `<div class="dir-sec-b as-body">${composer}</div></section>`,
+    };
+  }
+  return (
+    `<section class="dir-sec open as-sec">` +
+    head +
+    `<div class="dir-sec-b as-body">` +
+    composer +
+    history +
     `</div></section>`
   );
 }

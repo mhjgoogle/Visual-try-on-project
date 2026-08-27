@@ -25,30 +25,77 @@
    was unreachable outright. The rail is narrow on purpose — it names pages, it is
    not a second inspector — and it stays visible in 全屏, because navigation is
    exactly what a creator still needs when the picture is maximised. */
+/* REQ-004 判据 1–4: THREE panels, on every page, in the same order —
+   左 控制与选择 · 中 工作区 · 右 与 Agent 的对话.
+   This space used to be the exception with FOUR columns (152px rail + 316px
+   inspector), so the skeleton changed shape depending on which page the creator
+   was standing on. The rail and the inspector answer the SAME question (「我要看
+   哪一个」), so they share the left panel instead of owning a column each: rail on
+   top (it names pages), selection below it. The Agent column now spans every
+   content row, because a conversation that stops halfway down reads as a panel. */
 #production.space-episode {
-  grid-template-columns: 152px 316px minmax(0, 1fr) minmax(300px, 340px);
-  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(272px, 312px) minmax(0, 1fr) minmax(300px, 340px);
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
 }
 #production.space-episode > .st-crumb { grid-column: 1 / -1; grid-row: 1; }
 #production.space-episode > .ss { grid-column: 1 / -1; grid-row: 2; }
-#production.space-episode > .prod-eprail { grid-column: 1; grid-row: 3 / 5; }
+#production.space-episode > .prod-eprail { grid-column: 1; grid-row: 3; }
 #production.space-episode > .sr,
-#production.space-episode > .pi { grid-column: 2; grid-row: 3; }
-#production.space-episode > .ep-main { grid-column: 3; grid-row: 3; }
-#production.space-episode > .st-dir { grid-column: 4; grid-row: 3 / 5; }
-#production.space-episode > .rs { grid-column: 2 / 4; grid-row: 4; }
-#production.space-episode > .ep-foot { grid-column: 1 / -1; grid-row: 5; }
+#production.space-episode > .pi { grid-column: 1; grid-row: 4; }
+#production.space-episode > .ep-main { grid-column: 2; grid-row: 3 / 5; }
+#production.space-episode > .st-dir { grid-column: 3; grid-row: 3 / 6; }
+#production.space-episode > .rs { grid-column: 2; grid-row: 5; }
+#production.space-episode > .ep-foot { grid-column: 1 / -1; grid-row: 6; }
+/* The rail sits INSIDE the left panel now, so it lays itself out horizontally and
+   wraps — a 152px vertical rail inside a 300px panel would waste half of it. */
+#production.space-episode > .prod-eprail {
+  display: flex; flex-flow: row wrap; gap: 4px; align-content: flex-start;
+  border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  background: var(--panel); padding: var(--s2) var(--s3);
+}
 /* 全屏: the picture takes the whole grid; the searcher and the columns step aside.
    The selectors and the progress bar STAY — 「我在做哪一个 Shot」 and 「做到哪一步」 are
    exactly what a full-screen reader still needs. */
 #production.space-episode:has(> .ep-main.full) > .sr,
 #production.space-episode:has(> .ep-main.full) > .pi,
 #production.space-episode:has(> .ep-main.full) > .st-dir { display: none; }
-#production.space-episode > .ep-main.full { grid-column: 2 / -1; grid-row: 3 / 5; }
+/* The rail STAYS (navigation is what a full-screen reader still needs), so the
+   picture takes everything to its right. */
+#production.space-episode > .ep-main.full { grid-column: 2 / -1; grid-row: 3 / 6; }
 #production.space-assets { grid-template-columns: 200px minmax(0, 1fr) minmax(300px, 340px); }
 @media (max-width: 1440px) {
-  #production.space-episode { grid-template-columns: 132px 268px minmax(0, 1fr) minmax(268px, 300px); }
+  #production.space-episode { grid-template-columns: minmax(232px, 264px) minmax(0, 1fr) minmax(268px, 300px); }
 }
+
+/* ========================================================================== */
+/* RIGHT — the Agent conversation (REQ-004 判据 4)                             */
+/* ========================================================================== */
+
+/* Three bands, and only the middle one scrolls: the head says whose column this
+   is, the flow carries everything derived, and the composer stays where the hand
+   already is. Before this, the sections were stacked in one scroller, so the
+   input box moved down the page as the Director found more to say — the one
+   element that must never move. */
+.st-dir { display: flex; flex-direction: column; min-height: 0; }
+.st-dir > .dir-head { flex: none; }
+.st-dir > .st-dir-flow {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: var(--s3);
+  padding-bottom: var(--s3);
+}
+/* Sections keep their NATURAL height and the flow scrolls — the same rule `.pi`
+   already needs. Without it flex shrinks each section and every one of them gets
+   cut mid-row, which reads as a rendering bug rather than a long column. */
+.st-dir > .st-dir-flow > * { flex: none; }
+.st-dir > .st-dir-composer {
+  flex: none; border-top: 1px solid var(--line); background: var(--panel-2);
+  max-height: 52%; overflow-y: auto;
+}
+/* The composer band IS the bottom of the column, so its section carries no
+   heading and no frame of its own — one box, where the hand already is. */
+.st-dir > .st-dir-composer > .as-composer > .as-body { padding-top: var(--s3); }
+/* The composer's own section chrome would draw a second frame inside the band. */
+.st-dir > .st-dir-composer > .as-sec { border: 0; margin: 0; background: transparent; }
 
 /* ========================================================================== */
 /* LEFT — Production Inspector                                                */
