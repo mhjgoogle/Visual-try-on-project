@@ -77,6 +77,19 @@
             "docs/tasks/done/TASK-107-document-lifecycle.md"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "c629a67dd77745d216e1ef035c173487c18514df",
+          "subject": "chore(auto-push): merge gate + TASK-108 post-use feedback 落盘",
+          "time": "2026-08-27T09:19:37+00:00",
+          "branch": "change/TASK-107-doc-lifecycle",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/doc-lifecycle.json",
+            "docs/skill-evolution/backlogs/codex-review-loop.jsonl",
+            "docs/skill-evolution/index.json"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
