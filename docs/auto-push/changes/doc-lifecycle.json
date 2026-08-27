@@ -2,7 +2,7 @@
   "schema": 1,
   "change_id": "doc-lifecycle",
   "branch": "change/TASK-107-doc-lifecycle",
-  "status": "open",
+  "status": "closed",
   "created": "2026-08-26T11:57:45+00:00",
   "chain_mode": false,
   "tasks": {
@@ -232,6 +232,14 @@
     "time": "2026-08-27T09:13:07+00:00",
     "tip": "c629a67dd77745d216e1ef035c173487c18514df"
   },
-  "merge": null,
-  "cleanup": null
+  "merge": {
+    "hash": "75290cc63b96e190101d4ef7c2455309cc8c48c3",
+    "time": "2026-08-27T09:24:54+00:00",
+    "pushed": true
+  },
+  "cleanup": {
+    "local_deleted": true,
+    "remote_deleted": true,
+    "time": "2026-08-27T09:25:04+00:00"
+  }
 }
