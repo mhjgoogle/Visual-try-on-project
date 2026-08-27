@@ -7,7 +7,26 @@
   "chain_mode": false,
   "tasks": {
     "TASK-109": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "c5d318c0579db3557bf0f0ed0fc7eedfae636d56",
+          "subject": "feat(TASK-109): 全站三栏骨架 + 右栏只留对话（导演台不再渲染）",
+          "time": "2026-08-27T11:06:44+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/three-pane.json",
+            "docs/requirements/REQ-004-three-pane-shell-and-agent-conversation.md",
+            "docs/requirements/index.md",
+            "docs/tasks/active/TASK-109-three-pane-shell-and-agent-conversation.md",
+            "mockups/motv-workspace/src/ui/agentsession.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/styles/epprod.css",
+            "mockups/motv-workspace/styles/studio.css"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/auto-push/changes/three-pane.json",
         "docs/requirements/",
