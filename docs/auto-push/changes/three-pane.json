@@ -115,23 +115,44 @@
         }
       ],
       "paths": [
-        ".autopush-placeholder"
+        "docs/",
+        "mockups/motv-workspace/",
+        "tests/studio/"
       ],
       "verification": "PASS",
-      "verification_ref": "",
-      "declared": "2026-08-29T05:06:28+00:00"
+      "verification_ref": "dcaf7e2",
+      "declared": "2026-08-29T05:11:51+00:00"
     },
     "TASK-110": {
       "commits": [],
       "paths": [
-        ".autopush-placeholder"
+        "docs/",
+        "mockups/motv-workspace/",
+        "tests/studio/"
       ],
       "verification": "PASS",
-      "verification_ref": "",
-      "declared": "2026-08-29T05:06:28+00:00"
+      "verification_ref": "dcaf7e2 —— 与 TASK-109 同属一个提交",
+      "declared": "2026-08-29T05:11:51+00:00"
     },
     "TASK-112": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "3d82cbd7d864d0b34467ffdce8a19ac8a136ec65",
+          "subject": "fix(TASK-112): 已连接后端时，主页只画后端真的有的项目",
+          "time": "2026-08-29T05:11:51+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/STATUS.md",
+            "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/done/TASK-112-connected-home-list-shows-only-backend-projects.md",
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/src/services/projects.js",
+            "mockups/motv-workspace/tests/projects.test.mjs"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/",
         "mockups/motv-workspace/"
