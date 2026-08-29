@@ -115,20 +115,24 @@
         }
       ],
       "paths": [
-        ".autopush-placeholder"
+        "docs/",
+        "mockups/motv-workspace/",
+        "tests/studio/"
       ],
       "verification": "PASS",
-      "verification_ref": "已提交",
-      "declared": "2026-08-29T11:14:50+00:00"
+      "verification_ref": "",
+      "declared": "2026-08-29T11:25:10+00:00"
     },
     "TASK-110": {
       "commits": [],
       "paths": [
-        ".autopush-placeholder"
+        "docs/",
+        "mockups/motv-workspace/",
+        "tests/studio/"
       ],
       "verification": "PASS",
-      "verification_ref": "已提交",
-      "declared": "2026-08-29T11:14:50+00:00"
+      "verification_ref": "",
+      "declared": "2026-08-29T11:25:10+00:00"
     },
     "TASK-112": {
       "commits": [
@@ -150,11 +154,13 @@
         }
       ],
       "paths": [
-        ".autopush-placeholder"
+        "docs/",
+        "mockups/motv-workspace/",
+        "tests/studio/"
       ],
       "verification": "PASS",
-      "verification_ref": "已提交",
-      "declared": "2026-08-29T11:14:50+00:00"
+      "verification_ref": "",
+      "declared": "2026-08-29T11:25:11+00:00"
     },
     "TASK-111": {
       "commits": [
@@ -185,11 +191,13 @@
         }
       ],
       "paths": [
-        ".autopush-placeholder"
+        "docs/",
+        "mockups/motv-workspace/",
+        "tests/studio/"
       ],
       "verification": "PASS",
-      "verification_ref": "已提交",
-      "declared": "2026-08-29T11:14:50+00:00"
+      "verification_ref": "",
+      "declared": "2026-08-29T11:25:10+00:00"
     },
     "TASK-113": {
       "commits": [
@@ -217,14 +225,53 @@
         }
       ],
       "paths": [
-        ".autopush-placeholder"
+        "docs/",
+        "mockups/motv-workspace/",
+        "tests/studio/"
       ],
       "verification": "PASS",
-      "verification_ref": "已提交",
-      "declared": "2026-08-29T11:14:50+00:00"
+      "verification_ref": "",
+      "declared": "2026-08-29T11:25:11+00:00"
     },
     "TASK-114": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "e2c01917d7fad918f7e0aa2d7ff88854e0c63ec0",
+          "subject": "feat(TASK-114/115): 动作注册表（他能做的 Agent 都能做）+ 意见回路 + 删除都能撤销",
+          "time": "2026-08-29T11:25:10+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            ".claude/tools/read_feedback.py",
+            "docs/STATUS.md",
+            "docs/adr/ADR-0089-conversational-agent-write-path.md",
+            "docs/auto-push/changes/three-pane.json",
+            "docs/requirements/REQ-006-agent-can-do-what-the-creator-can-do.md",
+            "docs/requirements/index.md",
+            "docs/tasks/done/TASK-114-agent-action-registry-and-feedback-loop.md",
+            "docs/tasks/done/TASK-115-delete-with-an-undo-everywhere.md",
+            "mockups/motv-workspace/server.py",
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/src/ui/briefws.js",
+            "mockups/motv-workspace/src/ui/convthread.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/src/ui/storyboard.js",
+            "mockups/motv-workspace/src/ui/storyws.js",
+            "mockups/motv-workspace/src/ui/studioparts.js",
+            "mockups/motv-workspace/src/ui/versionrow.js",
+            "mockups/motv-workspace/src/workflow/convactions.js",
+            "mockups/motv-workspace/src/workflow/convedits.js",
+            "mockups/motv-workspace/src/workflow/storydoc.js",
+            "mockups/motv-workspace/styles/studio.css",
+            "mockups/motv-workspace/tests/convactions.test.mjs",
+            "mockups/motv-workspace/tests/convapply.test.mjs",
+            "mockups/motv-workspace/tests/versiondelete.test.mjs",
+            "tests/studio/test_motv_conversation_task109.py",
+            "tests/tooling/test_feedback_reader_req006.py"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         ".claude/tools/",
         "docs/",
@@ -239,11 +286,13 @@
     "TASK-115": {
       "commits": [],
       "paths": [
-        ".autopush-placeholder"
+        "docs/",
+        "mockups/motv-workspace/",
+        "tests/studio/"
       ],
       "verification": "PASS",
-      "verification_ref": "与 TASK-114 同一个提交",
-      "declared": "2026-08-29T11:14:51+00:00"
+      "verification_ref": "",
+      "declared": "2026-08-29T11:25:11+00:00"
     }
   },
   "merge_gate": {
