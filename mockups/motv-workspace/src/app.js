@@ -2549,8 +2549,13 @@ const ctx = {
     editBrief: (fields) => { storydoc.editBriefDraft(storyDoc, fields); ctx.persist(); },
     briefIsDirty: () => storydoc.briefIsDirty(storyDoc),
     activeBrief: () => storydoc.activeBrief(storyDoc),
-    commitBrief: () => {
-      const rec = storydoc.commitBrief(storyDoc, "manual", "");
+    // `origin` / `instruction` are passed through so a revision the CONVERSATION
+    // produced is recorded as 「developed」 with the creator's own sentence as its
+    // instruction — the version list must say where a version came from, or an
+    // agent-made revision is indistinguishable from one he typed himself
+    // (TASK-111 / ADR-0089 决策 3).
+    commitBrief: (origin = "manual", instruction = "") => {
+      const rec = storydoc.commitBrief(storyDoc, origin, instruction);
       if (!rec) { toast("与当前版本没有差异 — 未创建新版本"); return null; }
       ctx.persist();
       refreshProductionView();

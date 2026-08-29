@@ -46,6 +46,28 @@ CANVAS = {
         "idea": "一间深夜不打烊的酒吧，和一个不肯把录音交出去的调酒师。",
         "versions": [{"v": 1}, {"v": 2}],
         "approved": 2,
+        # 创意简报的真实形状：不断更新的草稿 + 版本链 + 一个 active 指针。
+        # 「类型」就住在这里 —— 它缺席时，助理对着一个类型写着「悬疑」的项目回答
+        # 「我这边看不到类型/题材这个字段」（产品负责人 2026-08-29）。
+        "brief": {
+            "draft": {
+                "genre": "悬疑",
+                "tone": "冷",
+                "form": "",
+                "episodeDuration": "",
+                "totalDuration": "",
+                "notes": "",
+                "targetEpisodes": 3,
+            },
+            "versions": [
+                {"v": 1, "fields": {"genre": "都市", "tone": "暖", "notes": ""}},
+                {
+                    "v": 2,
+                    "fields": {"genre": "悬疑", "tone": "冷", "targetEpisodes": 3},
+                },
+            ],
+            "active": 2,
+        },
     },
     "production": {
         "characters": [{"characterId": "c-1", "name": "林晚"}],
@@ -429,3 +451,233 @@ def test_the_conversation_from_BEFORE_per_page_threads_is_still_readable(app, sr
     # and a new page starts empty rather than inheriting it
     _, shots = _get(app, "夜班沉默", "shots")
     assert shots["turns"] == []
+
+
+# --- 6. 创意简报是事实的一部分（TASK-111 / 产品负责人 2026-08-29） ------------ #
+
+
+def test_the_brief_fields_are_facts_the_assistant_can_see(app):
+    """他问「帮我改类型」时，助理答「我这边看不到类型/题材这个字段」——
+    字段就在文档里，是装配事实时漏了它。"""
+    facts = app._conv_facts("夜班沉默", None)
+    assert "类型/题材：悬疑" in facts
+    assert "基调：冷" in facts
+    assert "目标集数：3" in facts
+    # 报的是 ACTIVE 那一版，不是第一版，也不是未版本化的草稿
+    assert "v2" in facts
+    assert "都市" not in facts
+
+
+def test_a_brief_with_no_revision_yet_is_reported_as_a_draft(app, tmp_path):
+    canvas = tmp_path / "account" / "夜班沉默" / "studio" / "canvas.json"
+    doc = json.loads(canvas.read_text("utf-8"))
+    doc["story"]["brief"]["versions"] = []
+    doc["story"]["brief"]["active"] = None
+    canvas.write_text(json.dumps(doc, ensure_ascii=False), "utf-8")
+    facts = app._conv_facts("夜班沉默", None)
+    assert "草稿" in facts
+    assert "类型/题材：悬疑" in facts
+
+
+def test_an_empty_brief_says_so_instead_of_going_silent(app, tmp_path):
+    canvas = tmp_path / "account" / "夜班沉默" / "studio" / "canvas.json"
+    doc = json.loads(canvas.read_text("utf-8"))
+    doc["story"]["brief"] = {"draft": {}, "versions": [], "active": None}
+    canvas.write_text(json.dumps(doc, ensure_ascii=False), "utf-8")
+    facts = app._conv_facts("夜班沉默", None)
+    assert "创意简报：字段都还是空的" in facts
+
+
+def test_the_field_whitelist_is_what_reaches_the_document(srv):
+    """模型的答案会落进他的 canvas.json —— 白名单在边界上执行，不是在写入处。"""
+    out = srv._conv_brief_fields(
+        {
+            "genre": "悬疑",
+            "targetEpisodes": 24,
+            "bogus": "x",
+            "__proto__": "y",
+            "notes": "  留白  ",
+        }
+    )
+    assert out == {"genre": "悬疑", "targetEpisodes": 24, "notes": "留白"}
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {"targetEpisodes": 0},
+        {"targetEpisodes": 51},
+        {"targetEpisodes": True},  # bool 是 int 的子类 —— 不能当集数
+        {"targetEpisodes": "24"},
+        {"genre": "   "},
+        {"genre": 7},
+        "不是对象",
+        None,
+    ],
+)
+def test_a_field_edit_that_names_nothing_writable_is_empty(srv, raw):
+    assert srv._conv_brief_fields(raw) == {}
+
+
+def test_a_brief_fields_edit_survives_the_adapter_with_its_data(srv):
+    out = srv._adapt_conversation(
+        json.dumps(
+            {
+                "reply": "已经把类型改成悬疑。",
+                "edits": [
+                    {
+                        "kind": "brief.fields",
+                        "text": "把类型改成悬疑",
+                        "fields": {"genre": "悬疑", "bogus": "x"},
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        )
+    )
+    assert len(out["edits"]) == 1
+    assert out["edits"][0]["fields"] == {"genre": "悬疑"}
+    assert out["unsupported"] == []
+
+
+def test_a_brief_fields_edit_with_nothing_writable_is_reported_not_applied(srv):
+    """一条改不了任何字段的编辑不能变成「已落到作品上」—— 它是「我做不到」。"""
+    out = srv._adapt_conversation(
+        json.dumps(
+            {
+                "reply": "我来改。",
+                "edits": [
+                    {
+                        "kind": "brief.fields",
+                        "text": "改点什么",
+                        "fields": {"bogus": "x"},
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        )
+    )
+    assert out["edits"] == []
+    assert len(out["unsupported"]) == 1
+    assert out["unsupported"][0]["kind"] == "brief.fields"
+
+
+def test_the_prompt_tells_it_which_fields_it_may_change(srv):
+    prompt = srv._conv_prompt("帮我改类型", "项目：夜班沉默")
+    assert "brief.fields" in prompt
+    assert "genre 类型/题材" in prompt
+    # 「会被自动落到作品上」必须写在提示里：模型据此决定要不要给 edits
+    assert "自动落到作品上" in prompt
+
+
+# --- 7. 落地回执（TASK-111）：「已落到作品上」是持久事实，不是一次性提示 ------ #
+
+
+def _applied(app, srv, name, payload, header=True):
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    headers = {srv._SKILL_RUN_HEADER: "1"} if header else {}
+    resp = app.handle_post(
+        f"/api/projects/{name}/conversation/applied", body, headers=headers
+    )
+    return resp.status, json.loads(resp.body.decode("utf-8"))
+
+
+def _seed_agent_turn(app, run_id="run-x", key="story"):
+    doc = app._conv_load("夜班沉默")
+    app._conv_turns(doc, key).append(
+        {
+            "turnId": "t-1",
+            "role": "agent",
+            "runId": run_id,
+            "status": "succeeded",
+            "text": "已把类型改成悬疑。",
+            "edits": [{"kind": "brief.fields", "text": "把类型改成悬疑"}],
+            "createdAt": "2026-08-29T00:00:00Z",
+        }
+    )
+    app._conv_save("夜班沉默", doc)
+
+
+def test_a_receipt_lands_on_the_turn_that_proposed_it(app, srv):
+    _seed_agent_turn(app)
+    status, out = _applied(
+        app,
+        srv,
+        "夜班沉默",
+        {
+            "runId": "run-x",
+            "applied": [
+                {"kind": "brief.fields", "detail": "类型/题材 → 悬疑（创意简报 v2）"}
+            ],
+        },
+    )
+    assert status == 200, out
+    _, read = _get(app, "夜班沉默", "story")
+    turn = [t for t in read["turns"] if t.get("runId") == "run-x"][0]
+    assert turn["applied"][0]["detail"] == "类型/题材 → 悬疑（创意简报 v2）"
+
+
+def test_the_receipt_survives_a_reload_because_it_is_in_the_thread(app, srv):
+    """这条测试守的就是那个缺陷：刷新一次，「已落到作品上」退回成「还没落到作品上」。"""
+    _seed_agent_turn(app)
+    _applied(
+        app,
+        srv,
+        "夜班沉默",
+        {
+            "runId": "run-x",
+            "applied": [{"kind": "brief.idea", "detail": "新创意（v3）"}],
+        },
+    )
+    # 新的一次读取 = 新开的标签页：落地信息只能来自服务端存的那份
+    # 真的换一个 _App 实例（新开的标签页 / 重启的进程），而不是复用同一份内存
+    fresh = srv._App(app.account_root)
+    fresh._projects.update(app._projects)
+    _, read = _get(fresh, "夜班沉默", "story")
+    turn = [t for t in read["turns"] if t.get("runId") == "run-x"][0]
+    assert turn["applied"][0]["detail"] == "新创意（v3）"
+
+
+def test_a_receipt_needs_the_csrf_header(app, srv):
+    _seed_agent_turn(app)
+    status, out = _applied(
+        app, srv, "夜班沉默", {"runId": "run-x", "applied": []}, header=False
+    )
+    assert status == 403
+    assert out["error"]["category"] == "forbidden"
+
+
+def test_a_receipt_for_an_unknown_run_says_so(app, srv):
+    status, out = _applied(
+        app, srv, "夜班沉默", {"runId": "run-nope", "applied": [{"kind": "note"}]}
+    )
+    assert status == 404
+    assert "run-nope" in out["error"]["detail"]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [{}, {"runId": ""}, {"runId": "run-x"}, {"runId": "run-x", "applied": "改了"}],
+)
+def test_a_malformed_receipt_is_refused(app, srv, payload):
+    _seed_agent_turn(app)
+    status, _ = _applied(app, srv, "夜班沉默", payload)
+    assert status == 400
+
+
+def test_a_hostile_receipt_cannot_bloat_the_thread(app, srv):
+    _seed_agent_turn(app)
+    _applied(
+        app,
+        srv,
+        "夜班沉默",
+        {
+            "runId": "run-x",
+            "applied": [{"kind": "k" * 500, "detail": "d" * 5000}] * 50,
+        },
+    )
+    _, read = _get(app, "夜班沉默", "story")
+    turn = [t for t in read["turns"] if t.get("runId") == "run-x"][0]
+    assert len(turn["applied"]) == 20
+    assert len(turn["applied"][0]["kind"]) == 64
+    assert len(turn["applied"][0]["detail"]) == 400

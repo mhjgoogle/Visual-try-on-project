@@ -27,11 +27,16 @@ const STATUS_ZH = {
 
 const EDIT_ZH = {
   "brief.idea": "改核心创意",
+  "brief.fields": "改创意简报",
   "story.outline": "追加一版故事大纲",
 };
 
 /** Pure view model: what the column shows, from the thread the server gave. */
-export function threadModel(turns, { pendingRun = null, pendingStatus = "" } = {}) {
+export function threadModel(
+  turns,
+  { pendingRun = null, pendingStatus = "", applied = {} } = {},
+) {
+  const landed = applied && typeof applied === "object" ? applied : {};
   const rows = (Array.isArray(turns) ? turns : []).map((t) => ({
     turnId: String(t.turnId || ""),
     role: t.role === "agent" ? "agent" : "user",
@@ -42,7 +47,20 @@ export function threadModel(turns, { pendingRun = null, pendingStatus = "" } = {
     failureCategory: t.failureCategory ? String(t.failureCategory) : "",
     edits: Array.isArray(t.edits) ? t.edits : [],
     unsupported: Array.isArray(t.unsupported) ? t.unsupported : [],
-  }));
+    // WHAT ACTUALLY LANDED, keyed by the run that proposed it. 「它说要改」 and
+    // 「已经改了」 stay separate rows on screen (决策 2b): an edit that was applied
+    // moves OUT of 「还没落到作品上」 and says which version it became.
+    //
+    // THE TURN'S OWN `applied` WINS. It is the回执 the server stored, so it survives
+    // a refresh; the in-memory map only covers the moment between applying and the
+    // thread's next read.
+    applied: (Array.isArray(t.applied) && t.applied.length
+      ? t.applied
+      : (t.runId && Array.isArray(landed[t.runId]) ? landed[t.runId] : [])),
+  })).map((r) => (r.applied.length
+    // an edit that landed is no longer 「建议」 —— 同一条不能在两个标题下各出现一次
+    ? { ...r, edits: r.edits.filter((e) => !r.applied.some((a) => a.kind === e.kind)) }
+    : r));
   // The turn in flight has no agent row yet; it is shown as one so the column
   // never looks like the message vanished.
   const answered = new Set(rows.filter((r) => r.role === "agent").map((r) => r.runId));
@@ -93,11 +111,30 @@ export function renderThread(m) {
       // No avatar (产品负责人 2026-08-27:「机器人的图不需要」). The turn is already
       // distinguishable by its own block; a status chip appears only when there IS
       // a status worth saying, so a normal answer carries no chrome at all.
+      const applied = r.applied.length
+        ? `<div class="cv-editswrap"><div class="lab ok">已落到作品上</div>` +
+          `<ul class="cv-edits">` +
+          r.applied
+            .map((a) => (
+              `<li class="cv-edit done"><span class="k">${esc(EDIT_ZH[a.kind] || a.kind || "改动")}</span>` +
+              `<span class="t">${esc(String(a.detail || a.text || ""))}</span></li>`
+            ))
+            .join("") +
+          `</ul></div>`
+        : "";
+      const failedApply = r.applied.filter((a) => a.error);
+      const applyFail = failedApply.length
+        ? `<div class="cv-fail">有改动没能落下：` +
+          esc(failedApply.map((a) => a.error).join("；")) +
+          `</div>`
+        : "";
       return (
         `<div class="cv-turn agent">` +
         (status ? `<div class="cv-h">${status}</div>` : "") +
         (r.text ? `<div class="cv-tx">${esc(r.text)}</div>` : "") +
         failure +
+        applied +
+        applyFail +
         editList(r.edits, { supported: true }) +
         editList(r.unsupported, { supported: false }) +
         `</div>`

@@ -41,7 +41,9 @@ import {
 } from "./assetlibws.js";
 import { renderAssetInboxSection, bindAssetInboxSection } from "./assetinboxsec.js";
 import { threadModel, renderThread } from "./convthread.js";
-import { loadThread, sendTurn, awaitTurn, cancelTurn } from "../services/conversation.js";
+import {
+  loadThread, sendTurn, awaitTurn, cancelTurn, reportApplied,
+} from "../services/conversation.js";
 import { renderStorageWs, bindStorageWs } from "./storagews.js";
 import { renderStoryWs, bindStoryWs } from "./storyws.js";
 import { renderBibleWs, bindBibleWs } from "./biblews.js";
@@ -83,6 +85,7 @@ import {
 // The 导演台 panels that used the rest are gone (REQ-004 v2).
 import { runOperation } from "./directorshot.js";
 import { episodeView, activeEpisode } from "../workflow/proddoc.js";
+import { applyConversationEdits } from "../workflow/convedits.js";
 import { renderQcPanel } from "./qcpanel.js";
 import { renderPostStatus } from "./poststatusbar.js";
 import { renderShotQc, bindShotQc, shotQcModel } from "./shotqcpanel.js";
@@ -475,6 +478,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       renderThread(threadModel(convState().turns, {
         pendingRun: convState().pendingRun,
         pendingStatus: convState().pendingStatus,
+        applied: convState().applied,
       })) +
       `</div>` +
       `<div class="st-dir-composer">` + session.composer + `</div>` +
@@ -1641,7 +1645,12 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     const store = (ui.convByPage = ui.convByPage || {});
     const k = key || convKey();
     if (!store[k]) {
-      store[k] = { turns: [], pendingRun: null, pendingStatus: "", loaded: "" };
+      store[k] = {
+        turns: [], pendingRun: null, pendingStatus: "", loaded: "",
+        // runId -> [{kind, detail, error}] —— 这一轮提出的改动里，哪些真的落到作品上了。
+        // 落地本身是持久的（写进 canvas 的新版本）；这张表只是这次会话里的显示。
+        applied: {},
+      };
     }
     return store[k];
   }
@@ -1750,7 +1759,21 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
             st.pendingStatus = (run && run.status) || "";
             render();
           },
-        }).then(() => refreshConversation(ctx, sentFrom));
+        }).then((run) => {
+          // APPLY BEFORE THE REFRESH, so the thread and the work never disagree on
+          // screen: by the time his answer appears, the version it describes exists.
+          // 落地走创作者自己那条写路径（ADR-0089 决策 2b），逻辑在 workflow/convedits.js，
+          // 那里可以被行为测试直接调用 —— 上一批六个 bug 全是「界面看着正常、其实什么
+          // 都没发生」，把它埋在闭包里就只能靠真机才发现。
+          const landed = applyConversationEdits(ctx.story, { ...(run || {}), instruction: text });
+          if (!landed.length) return refreshConversation(ctx, sentFrom);
+          st.applied = { ...(st.applied || {}), [res.runId]: landed };
+          render();
+          // 回执写进对话线，「已落到作品上」才熬得过一次刷新。回执失败不掩盖落地本身
+          // —— 改动已经在作品里了，所以只是这一行字下次读不回来。
+          return Promise.resolve(reportApplied(project, res.runId, landed))
+            .then(() => refreshConversation(ctx, sentFrom));
+        });
       })
       .catch((err) => {
         // 决策 6: fail-closed AND say why. An unhandled rejection here reads as

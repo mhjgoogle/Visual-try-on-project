@@ -2836,7 +2836,20 @@ _CONV_KEY_MAX = 64
 #: The edits this app can actually apply. Anything else the model asks for is
 #: reported to the creator as unsupported rather than dropped — a silently
 #: discarded intention is how an assistant looks like it agreed and did nothing.
-_CONV_EDIT_KINDS = ("brief.idea", "story.outline", "note")
+_CONV_EDIT_KINDS = ("brief.idea", "brief.fields", "story.outline", "note")
+
+#: 创意简报里可以被一条 `brief.fields` 编辑改到的字段 —— 与前端 `storydoc.BRIEF_FIELDS`
+#: 同一份名单（`targetEpisodes` 是整数，单独处理）。这是**白名单**：模型报上来的
+#: 任何其它键都不落进创作文档。
+_CONV_BRIEF_FIELDS = (
+    "genre",
+    "tone",
+    "form",
+    "episodeDuration",
+    "totalDuration",
+    "notes",
+)
+_CONV_BRIEF_VALUE_MAX = 2000
 
 
 def _conv_prompt(message: str, facts: str) -> str:
@@ -2855,11 +2868,19 @@ def _conv_prompt(message: str, facts: str) -> str:
         "他说「这个」「当前」「这一镜」时，指的就是那里；据此回答，不要反问他在哪。\n"
         "2. 需要改动时，用 edits 表达，不要把改动写在 reply 里让作者自己复制。\n"
         "3. edits 里每一项的 kind 只能是：brief.idea（改核心创意）、"
+        "brief.fields（改创意简报里的字段：genre 类型/题材、tone 基调、form 形态、"
+        "episodeDuration 每集时长、totalDuration 总时长、notes 备注、"
+        "targetEpisodes 目标集数（整数）—— 只写你要改的那几个）、"
         "story.outline（追加一版故事大纲）、note（你想做但本应用还不能自动做的事，"
         "写清楚是什么）。\n"
+        "3b. brief.idea 与 brief.fields 会被**自动落到作品上**，形成创意简报的"
+        "新一版（旧版本一律保留）。所以只在作者确实要求改动时才给，"
+        "并在 reply 里说清楚你改了什么。\n"
         "4. 不确定就先问，不要替作者决定作品走向。\n\n"
         "只输出一个 JSON 对象，不要任何解释文字、不要代码围栏：\n"
-        '{"reply": "给作者看的话", "edits": [{"kind": "brief.idea", "text": "..."}]}\n'
+        '{"reply": "给作者看的话", "edits": [{"kind": "brief.idea", "text": "..."},'
+        ' {"kind": "brief.fields", "text": "把类型改成悬疑",'
+        ' "fields": {"genre": "悬疑"}}]}\n'
         "没有要改的就给 edits: []。\n\n"
         "=== 项目当前事实 ===\n"
         f"{facts}\n"
@@ -2909,6 +2930,30 @@ def _conv_json_object(text: str) -> dict:
     raise ValueError("回答里没有可解析的 JSON 对象")
 
 
+def _conv_brief_fields(raw) -> dict:
+    """The writable subset of a `brief.fields` edit.
+
+    WHITELIST, NOT SANITIZE-IN-PLACE: the value comes from a model answer and lands
+    in the creator's `studio/canvas.json`, so anything not on `_CONV_BRIEF_FIELDS`
+    is dropped instead of carried through under a key the renderer would iterate
+    (the same posture as the outline/plan adapters). `targetEpisodes` is the one
+    non-string field and keeps the frontend's 1..50 bound.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for key in _CONV_BRIEF_FIELDS:
+        val = raw.get(key)
+        if isinstance(val, str) and val.strip():
+            out[key] = val.strip()[:_CONV_BRIEF_VALUE_MAX]
+    n = raw.get("targetEpisodes")
+    if isinstance(n, bool):
+        n = None
+    if isinstance(n, int) and 1 <= n <= 50:
+        out["targetEpisodes"] = n
+    return out
+
+
 def _adapt_conversation(text: str, _skill_id=None) -> dict:
     """Validate one turn's answer. Fail-closed: a malformed answer is a FAILED
     run, never a half-kept one (the same posture as every other adapter)."""
@@ -2934,7 +2979,17 @@ def _adapt_conversation(text: str, _skill_id=None) -> dict:
             "kind": kind if isinstance(kind, str) else "",
             "text": body.strip()[:4000],
         }
-        if entry["kind"] in _CONV_EDIT_KINDS and entry["kind"] != "note":
+        if entry["kind"] == "brief.fields":
+            # A FIELD EDIT CARRIES DATA, NOT PROSE. The whitelist is applied HERE,
+            # at the boundary, so an unknown key never reaches the document — and a
+            # field edit that names nothing we can write is reported as unsupported
+            # rather than landing as an empty revision.
+            entry["fields"] = _conv_brief_fields(item.get("fields"))
+            if entry["fields"]:
+                edits.append(entry)
+            else:
+                unsupported.append(entry)
+        elif entry["kind"] in _CONV_EDIT_KINDS and entry["kind"] != "note":
             edits.append(entry)
         else:
             # kept, not dropped: the creator is told what the assistant wanted to
@@ -3535,6 +3590,14 @@ class _App:
             # own edit path in the browser (决策 2b).
             name = unquote(path[len("/api/projects/") : -len("/conversation")])
             return self._conversation_post(name, body, headers)
+        if path.startswith("/api/projects/") and path.endswith("/conversation/applied"):
+            # 落地回执（TASK-111）。前端落完改动后告诉这条线「这一轮真的改了什么」，
+            # 于是「已落到作品上」是**持久事实**而不是一次性提示 —— 刷新一次就退回
+            # 「还没落到作品上」，等于告诉他改动丢了。
+            #
+            # 这仍然不违反决策 2b：写的是应用自己的对话文件，不是他的创作文档。
+            name = unquote(path[len("/api/projects/") : -len("/conversation/applied")])
+            return self._conversation_applied(name, body, headers)
         if path.startswith("/api/projects/") and path.endswith("/flow/export"):
             # TASK-105 第二刀。它写的是**应用数据里的用户流程目录**，不碰项目
             # 文件，所以不走 Command Gateway：Gateway 管的是项目内的创作事实
@@ -5911,6 +5974,49 @@ class _App:
             lines.append(f"核心创意：{idea.strip()[:600]}")
         else:
             lines.append("核心创意：还没写")
+        # THE CREATIVE BRIEF IS A FACT, NOT DECORATION. 「类型」 lives here, and while
+        # this was missing the assistant answered 「我这边看不到类型/题材这个字段」 to a
+        # project whose brief says 「悬疑 / 科幻奇幻 / …」 (产品负责人 2026-08-29).
+        # The ACTIVE revision is what downstream is based on; the unversioned draft
+        # is only reported when there is no revision yet.
+        brief = story.get("brief") if isinstance(story.get("brief"), dict) else {}
+        bversions = (
+            brief.get("versions") if isinstance(brief.get("versions"), list) else []
+        )
+        active_brief = None
+        for rec in bversions:
+            if isinstance(rec, dict) and rec.get("v") == brief.get("active"):
+                active_brief = rec
+        if active_brief is None and bversions and isinstance(bversions[-1], dict):
+            active_brief = bversions[-1]
+        bfields = active_brief.get("fields") if isinstance(active_brief, dict) else None
+        which = "草稿"
+        if isinstance(active_brief, dict):
+            which = f"v{active_brief.get('v')}"
+        if not isinstance(bfields, dict):
+            bfields = brief.get("draft") if isinstance(brief.get("draft"), dict) else {}
+            which = "草稿（还没版本化）"
+        labels = [
+            ("genre", "类型/题材"),
+            ("tone", "基调"),
+            ("form", "形态"),
+            ("episodeDuration", "每集时长"),
+            ("totalDuration", "总时长"),
+            ("notes", "备注"),
+        ]
+        said = []
+        for key, label in labels:
+            val = bfields.get(key)
+            if isinstance(val, str) and val.strip():
+                said.append(f"  {label}：{val.strip()[:600]}")
+        target = bfields.get("targetEpisodes")
+        if isinstance(target, int) and not isinstance(target, bool):
+            said.append(f"  目标集数：{target}")
+        if said:
+            lines.append(f"创意简报（{which}，共 {len(bversions)} 版）：")
+            lines.extend(said)
+        else:
+            lines.append("创意简报：字段都还是空的（类型、基调、形态等都没填）")
         versions = (
             story.get("versions") if isinstance(story.get("versions"), list) else []
         )
@@ -6101,6 +6207,94 @@ class _App:
             200,
             {"project": name, "thread": key, "turns": turns[-100:], "threads": others},
         )
+
+    def _conversation_applied(self, name: str, body: bytes, headers=None):
+        """Record what a turn's edits ACTUALLY became, on the turn that proposed them.
+
+        The browser is the only side that can apply a creative change (决策 2b), so it
+        is also the only side that knows whether the change landed. Without this the
+        answer 「已落到作品上」 lives in one tab's memory and a refresh silently demotes
+        it back to 「还没落到作品上」.
+        """
+        if (headers or {}).get(_SKILL_RUN_HEADER) != "1":
+            return _json(
+                403,
+                {
+                    "error": {
+                        "category": "forbidden",
+                        "detail": f"{_SKILL_RUN_HEADER}: 1 required",
+                    }
+                },
+            )
+        if name not in self._projects:
+            return _json(
+                404, {"error": {"category": "not_found", "detail": "unknown project"}}
+            )
+        try:
+            payload = json.loads(body.decode("utf-8")) if body else {}
+        except (ValueError, UnicodeDecodeError):
+            return _json(
+                400, {"error": {"category": "bad_json", "detail": "invalid JSON body"}}
+            )
+        if not isinstance(payload, dict):
+            return _json(
+                400,
+                {"error": {"category": "bad_json", "detail": "body is not an object"}},
+            )
+        run_id = payload.get("runId")
+        if not isinstance(run_id, str) or not run_id.strip():
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "runId required"}}
+            )
+        rows = payload.get("applied")
+        if not isinstance(rows, list):
+            return _json(
+                400,
+                {
+                    "error": {
+                        "category": "bad_request",
+                        "detail": "applied must be a list",
+                    }
+                },
+            )
+        applied = []
+        for row in rows[:20]:
+            if not isinstance(row, dict):
+                continue
+            kind = row.get("kind")
+            detail = row.get("detail")
+            error = row.get("error")
+            applied.append(
+                {
+                    "kind": kind[:64] if isinstance(kind, str) else "",
+                    "detail": detail[:400] if isinstance(detail, str) else "",
+                    "error": error[:400] if isinstance(error, str) else "",
+                }
+            )
+        doc = self._conv_load(name)
+        found = False
+        for entry in doc.get("threads", {}).values():
+            for turn in entry.get("turns", []):
+                if turn.get("role") == "agent" and turn.get("runId") == run_id:
+                    turn["applied"] = applied
+                    found = True
+        if not found:
+            # NOT an error the creator has to see: the thread lands the finished run
+            # on the next READ (_conv_reconcile), so the receipt can legitimately
+            # arrive first. Reconcile, then try once more.
+            doc = self._conv_reconcile(name, doc)
+            for entry in doc.get("threads", {}).values():
+                for turn in entry.get("turns", []):
+                    if turn.get("role") == "agent" and turn.get("runId") == run_id:
+                        turn["applied"] = applied
+                        found = True
+        if not found:
+            return _json(
+                404,
+                {"error": {"category": "not_found", "detail": f"unknown run {run_id}"}},
+            )
+        self._conv_save(name, doc)
+        return _json(200, {"ok": True, "runId": run_id, "applied": applied})
 
     def _conversation_post(self, name: str, body: bytes, headers=None):
         """One turn: record what he said, launch the run, hand back its identity.

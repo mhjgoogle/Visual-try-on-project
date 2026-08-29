@@ -103,6 +103,28 @@ export async function awaitTurn(project, runId, { onTick, timeoutMs = 180000, ev
   }
 }
 
+/** Tell the thread what a turn's edits actually became.
+ *
+ *  落地只能发生在浏览器（ADR-0089 决策 2b），所以只有浏览器知道结果。不回执的话，
+ *  「已落到作品上」只活在这一个标签页的内存里，刷新一次就退回「还没落到作品上」——
+ *  在他眼里那等于改动丢了。
+ *
+ *  回执失败不是致命的：改动本身已经写进作品，所以这里吞掉错误并返回 false，由调用方
+ *  决定要不要说。 */
+export async function reportApplied(project, runId, applied) {
+  if (!project || !runId || !Array.isArray(applied) || !applied.length) return false;
+  try {
+    await request(`/api/projects/${encodeURIComponent(project)}/conversation/applied`, {
+      method: "POST",
+      headers: RUNTIME_HEADER,
+      body: { runId, applied },
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Cancel a turn in flight — the same real cancel a skill run gets. */
 export async function cancelTurn(runId) {
   if (!runId) return false;

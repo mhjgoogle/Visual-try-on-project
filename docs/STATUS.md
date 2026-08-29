@@ -19,7 +19,7 @@
 | `docs/reports/` | 阶段性工作报告 —— **历史证据**，默认不读 |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：5 在办 · 3 待排期 · 106 已完成 · 74 条 ADR。
+**当前**：5 在办 · 2 待排期 · 107 已完成 · 74 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -66,7 +66,6 @@
 | --- | --- | --- |
 | [TASK-011-local-video-provider.md](tasks/backlog/TASK-011-local-video-provider.md) | TASK-011：LocalVideoProvider（阶段 8） | Outline（可选 WFM3 升级） |
 | [TASK-012-qcd-auto-routing.md](tasks/backlog/TASK-012-qcd-auto-routing.md) | TASK-012：基于 QCD 的自动模型路由（阶段 9） | Outline（WFM3） |
-| [TASK-111-agent-applies-its-own-edits.md](tasks/backlog/TASK-111-agent-applies-its-own-edits.md) | TASK-111：让对话里的 Agent 真的把改动落到作品上 | 未开工 |
 
 ## 已完成 · 任务卡
 
@@ -179,6 +178,7 @@
 | [TASK-108-traceability-and-requirement-review.md](tasks/done/TASK-108-traceability-and-requirement-review.md) | TASK-108：把「产品意图 → 验证」的追溯链与需求完成度审查接进开发流程 | 完成（2026-08-26） |
 | [TASK-109-three-pane-shell-and-agent-conversation.md](tasks/done/TASK-109-three-pane-shell-and-agent-conversation.md) | TASK-109：全站三栏骨架 + 右栏改成真正的 Agent 对话框 | 完成（2026-08-27） |
 | [TASK-110-remove-project-from-home.md](tasks/done/TASK-110-remove-project-from-home.md) | TASK-110：主页可以把项目从列表里移除（文件他自己删） | 完成（2026-08-27） |
+| [TASK-111-agent-applies-its-own-edits.md](tasks/done/TASK-111-agent-applies-its-own-edits.md) | TASK-111：让对话里的 Agent 真的把改动落到作品上 | 完成（2026-08-29） |
 | [TASK-112-connected-home-list-shows-only-backend-projects.md](tasks/done/TASK-112-connected-home-list-shows-only-backend-projects.md) | TASK-112：已连接后端时，主页只显示后端真的有的项目 | 完成（2026-08-29） |
 
 ## 已完成 · 设计与验收记录

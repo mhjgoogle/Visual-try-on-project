@@ -115,24 +115,20 @@
         }
       ],
       "paths": [
-        "docs/",
-        "mockups/motv-workspace/",
-        "tests/studio/"
+        ".autopush-placeholder"
       ],
       "verification": "PASS",
-      "verification_ref": "dcaf7e2",
-      "declared": "2026-08-29T05:11:51+00:00"
+      "verification_ref": "已提交",
+      "declared": "2026-08-29T08:02:13+00:00"
     },
     "TASK-110": {
       "commits": [],
       "paths": [
-        "docs/",
-        "mockups/motv-workspace/",
-        "tests/studio/"
+        ".autopush-placeholder"
       ],
       "verification": "PASS",
-      "verification_ref": "dcaf7e2 —— 与 TASK-109 同属一个提交",
-      "declared": "2026-08-29T05:11:51+00:00"
+      "verification_ref": "已提交",
+      "declared": "2026-08-29T08:02:13+00:00"
     },
     "TASK-112": {
       "commits": [
@@ -154,12 +150,22 @@
         }
       ],
       "paths": [
+        ".autopush-placeholder"
+      ],
+      "verification": "PASS",
+      "verification_ref": "已提交",
+      "declared": "2026-08-29T08:02:13+00:00"
+    },
+    "TASK-111": {
+      "commits": [],
+      "paths": [
         "docs/",
-        "mockups/motv-workspace/"
+        "mockups/motv-workspace/",
+        "tests/studio/"
       ],
       "verification": "PASS",
       "verification_ref": "",
-      "declared": "2026-08-29T05:06:28+00:00"
+      "declared": "2026-08-29T08:02:12+00:00"
     }
   },
   "merge_gate": {
