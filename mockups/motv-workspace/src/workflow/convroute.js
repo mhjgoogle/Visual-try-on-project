@@ -180,6 +180,29 @@ export function structuralRoot(landed) {
   return best;
 }
 
+/**
+ * 一次被路由起跑的运行要记下的**来历**。
+ *
+ * 两个字段各管一件事，别混：
+ *
+ *   conversationRunId  哪一轮对话要求的 —— 挡住同一轮被重复起跑（刷新 / 轮询 / 重试）
+ *   idempotencyKey     这件**事**的稳定身份（哪个文档的第几版）—— 挡住同一件事被
+ *                      不同轮次各起跑一次
+ *
+ * 第二个只有跨层建议那条路会带。它必须真的走到 `startRun` 里去，否则
+ * `hasOriginKey()` 永远查不到任何东西，而「只提一次 / 只跑一次」就只剩页面内存那
+ * 半条 —— 刷新一次就没了（codex 独立审查最后一轮的 P1）。
+ *
+ * 做成纯函数而不是在调用点拼字面量：这样「origin 长什么样」有一处定义、一处测试。
+ */
+export function originForRoute(conversationRunId, idempotencyKey) {
+  const origin = { kind: "conversation", conversationRunId: conversationRunId || null };
+  if (typeof idempotencyKey === "string" && idempotencyKey) {
+    origin.idempotencyKey = idempotencyKey;
+  }
+  return origin;
+}
+
 /** 这次变更的稳定身份。同一份文档的同一版永远得到同一个 key。 */
 export function zoomKeyFor(root) {
   if (!root || !root.doc || !Number.isInteger(root.version)) return null;

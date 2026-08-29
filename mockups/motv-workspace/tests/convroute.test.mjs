@@ -20,8 +20,8 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 import {
-  decideRoute, routeOf, rejectedRouteOf, scopeOfSkill, structuralRoot, zoomKeyFor,
-  zoomTrigger, STRUCTURAL_ACTIONS, USER_CAPABILITY_ZH,
+  decideRoute, originForRoute, routeOf, rejectedRouteOf, scopeOfSkill, structuralRoot,
+  zoomKeyFor, zoomTrigger, STRUCTURAL_ACTIONS, USER_CAPABILITY_ZH,
 } from "../src/workflow/convroute.js";
 import { createSkillController } from "../src/controllers/skillctl.js";
 import * as skills from "../src/workflow/skills.js";
@@ -412,13 +412,20 @@ test("判据 5：去重问的是**登记表**，所以刷新 / 重试之后仍�
   assert.equal(d.action, "already");
 });
 
-test("判据 5：跨层建议的幂等键也认登记表，不认页面内存", () => {
+test("判据 5：跨层建议的幂等键**真的走进 origin** —— 不是测试自己拼出来的", () => {
+  // 上一版这条测试**手工插了一条带 idempotencyKey 的记录**，于是它证的是
+  // `hasOriginKey` 会读这个字段，而不是「真实路径会写这个字段」——
+  // 而真实路径当时根本没写（点击时把 key 丢了）。这正是「为了错误的理由而通过」。
+  // 现在先用 `originForRoute`（生产代码里唯一构造 origin 的地方）造出那条记录。
   const registry = [];
-  skillrun.startRun(registry, {
-    skillId: "story-zoom",
-    skillVersion: 1,
-    origin: { kind: "structural-change", idempotencyKey: "consistency:outline:v3" },
+  const key = zoomKeyFor({ doc: "outline", version: 3 });
+  const origin = originForRoute("conv-9", key);
+  assert.deepEqual(origin, {
+    kind: "conversation",
+    conversationRunId: "conv-9",
+    idempotencyKey: "consistency:outline:v3",
   });
+  skillrun.startRun(registry, { skillId: "story-zoom", skillVersion: 1, origin });
   const afterRefresh = makeSkillController(registry);
   assert.equal(afterRefresh.hasOriginKey("consistency:outline:v3"), true);
   assert.equal(afterRefresh.hasOriginKey("consistency:outline:v4"), false, "另一版是另一件事");
@@ -465,4 +472,55 @@ test("判据 3：两个新诊断能力**结构上**写不回作品", () => {
   }
   // …对比一个真的能写回的，证明这条断言不是恒真
   assert.equal(skillapply.applicability("world-director").can, true);
+});
+
+test("判据 5：没有幂等键时 origin 不长出一个空字段", () => {
+  // 普通的一轮对话没有「这件事」的身份，只有「这一轮」的身份。
+  assert.deepEqual(originForRoute("conv-1"), {
+    kind: "conversation",
+    conversationRunId: "conv-1",
+  });
+  assert.deepEqual(originForRoute("conv-1", ""), {
+    kind: "conversation",
+    conversationRunId: "conv-1",
+  });
+});
+
+test("判据 5：换一轮对话也拦得住 —— 那是 conversationRunId 拦不住的那一半", () => {
+  // 他点两次「查一下」，或者一次失败的发送被重发，都会产生**新的** conversationRunId。
+  // 只有这件事自己的身份能拦住第二次（codex 最后一轮的 P1 正是这条断了）。
+  const registry = [];
+  const key = zoomKeyFor({ doc: "outline", version: 3 });
+  skillrun.startRun(registry, {
+    skillId: "story-zoom",
+    skillVersion: 1,
+    origin: originForRoute("conv-A", key),
+  });
+  const ctl = makeSkillController(registry);
+  assert.equal(ctl.routedRunFor("conv-B"), null, "换一轮：这道闸确实拦不住");
+  assert.equal(ctl.hasOriginKey(key), true, "但这件事已经跑过了 —— 这道闸拦得住");
+});
+
+test("接线：建议带着 key，一路送到 origin，且起跑前先查一次", () => {
+  // 源码断言是**故意**的：这条性质说的是「这几个值有没有被一路传下去」，
+  // 中间任何一环丢掉它，行为上都表现为「幂等键从来没被写进去过」——
+  // 而那正是上一版发生的事，当时所有测试都是绿的。
+  const src = readFileSync(join(HERE, "..", "src", "ui", "production.js"), "utf8");
+  assert.ok(src.includes("key: trigger.key"), "建议里要带上这件事的身份");
+  assert.ok(
+    src.includes("sendConversationTurn(ctx, goal, { originKey })"),
+    "点击时要把它交给这一次发送",
+  );
+  assert.ok(
+    src.includes("runRouteFor(ctx, res.runId, turn, text, originKey)"),
+    "发送链要把它交给起跑那一步",
+  );
+  assert.ok(
+    src.includes("originForRoute(convRunId, originKey)"),
+    "起跑时要用唯一那个构造函数写进 origin",
+  );
+  assert.ok(
+    src.includes("ctx.skills.hasOriginKey(originKey)"),
+    "起跑前先问登记表：这件事是不是已经跑过了",
+  );
 });

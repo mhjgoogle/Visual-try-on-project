@@ -87,7 +87,9 @@ import { runOperation } from "./directorshot.js";
 import { episodeView, activeEpisode } from "../workflow/proddoc.js";
 import { applyConversationEdits } from "../workflow/convedits.js";
 import { actionCatalog } from "../workflow/convactions.js";
-import { decideRoute, routeOf, scopeOfSkill, zoomTrigger } from "../workflow/convroute.js";
+import {
+  decideRoute, originForRoute, routeOf, scopeOfSkill, zoomTrigger,
+} from "../workflow/convroute.js";
 import { suggestExecutor, isRunnable } from "../services/runtime.js";
 import { renderQcPanel } from "./qcpanel.js";
 import { renderPostStatus } from "./poststatusbar.js";
@@ -1911,9 +1913,17 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
    *
    *  **只在发送那条链里调用**，从不在读线程时调用 —— 那是「刷新 / 轮询不会重复启动」
    *  最结实的那一半保证：读路径上根本没有起跑的代码。另一半是登记表里的幂等键。 */
-  function runRouteFor(ctx, convRunId, turn, said) {
+  function runRouteFor(ctx, convRunId, turn, said, originKey) {
     const route = routeOf(turn);
     if (!route) return Promise.resolve();
+    // 这件**事**已经跑过了 —— 与「这一轮跑过了」是两道不同的闸。跨层建议带着
+    // 一个稳定身份（哪个文档的第几版）：他点两次、或者一次失败的发送被重发，
+    // 都会产生**新的**对话轮次，`conversationRunId` 那道闸拦不住，只有这一道能。
+    if (originKey && ctx.skills.hasOriginKey(originKey)) {
+      ctx.toast("这一版的跨层检查已经跑过了");
+      render();
+      return Promise.resolve();
+    }
     const decision = decideRoute(route, routeCtxFor(ctx, convRunId));
     if (decision.action !== "run") {
       render(); // 没跑也要显示：识别到了什么、为什么没跑
@@ -1922,7 +1932,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     return launchRouted(ctx, {
       skillId: decision.skillId,
       executor: decision.executor,
-      origin: { kind: "conversation", conversationRunId: convRunId },
+      origin: originForRoute(convRunId, originKey),
       summary: `对话里识别到的能力：${String(said || "").slice(0, 60)}`,
       said: `已启动「${decision.title}」`,
     });
@@ -1946,6 +1956,9 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     ui.convSuggested = { ...(ui.convSuggested || {}), [trigger.key]: true };
     ui.convSuggest = {
       goal: trigger.goal,
+      // 这件事的稳定身份**必须一路带到 startRun**，否则 `hasOriginKey` 永远查不到
+      // 东西，「只跑一次」就只剩 `ui.convSuggested` 那半条 —— 刷新一次就没了。
+      key: trigger.key,
       text: `${trigger.root.doc === "brief" ? "创意" : trigger.root.doc === "outline" ? "大纲" : "分集规划"}` +
         ` v${trigger.root.version} 落下之后，下游的${trigger.affects.length}层可能还停在旧的上面`,
     };
@@ -2009,7 +2022,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
    *  The local echo matters: a chat that shows what you said only after a round
    *  trip reads as if the send was lost, and the creator presses again. The
    *  server's own copy replaces the echo on the next read. */
-  function sendConversationTurn(ctx, text) {
+  function sendConversationTurn(ctx, text, { originKey = "" } = {}) {
     const project = ctx.projectName ? ctx.projectName() : null;
     if (!project) { ctx.toast("先打开一个项目"); return; }
     // THE PAGE THIS TURN BELONGS TO, captured before the await: he may navigate away
@@ -2091,7 +2104,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
             // 落地之后才轮到能力：路由的判据是**作品此刻的样子**，所以要读的是
             // 这一轮改完之后的状态，不是改之前的。
             return after
-              .then(() => runRouteFor(ctx, res.runId, turn, text))
+              .then(() => runRouteFor(ctx, res.runId, turn, text, originKey))
               .then(() => suggestZoomFor(ctx, landed));
           });
         });
@@ -2207,8 +2220,11 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // 诊断器仍然由服务端 resolver 决定，与他自己开口问走的是同一条路。
     root.querySelectorAll("[data-cv-suggest]").forEach((b) => (b.onclick = () => {
       const goal = ui.convSuggest && ui.convSuggest.goal;
+      // key 跟着这一次发送走 —— 它最终要落进那次运行的 `origin.idempotencyKey`，
+      // 「同一件事只跑一次」才熬得过刷新（丢了它，就只剩页面内存那半条）。
+      const originKey = ui.convSuggest && ui.convSuggest.key;
       ui.convSuggest = null;
-      if (goal) sendConversationTurn(ctx, goal);
+      if (goal) sendConversationTurn(ctx, goal, { originKey });
       else render();
     }));
     // 「去运行」—— 自动没跑成时的那条**手工兜底**（ADR-0065 决策 2）。它不代跑：
