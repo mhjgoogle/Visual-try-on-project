@@ -115,20 +115,24 @@
         }
       ],
       "paths": [
-        ".autopush-placeholder"
+        "docs/",
+        "mockups/motv-workspace/",
+        "tests/studio/"
       ],
       "verification": "PASS",
-      "verification_ref": "已提交",
-      "declared": "2026-08-29T10:01:11+00:00"
+      "verification_ref": "",
+      "declared": "2026-08-29T10:12:25+00:00"
     },
     "TASK-110": {
       "commits": [],
       "paths": [
-        ".autopush-placeholder"
+        "docs/",
+        "mockups/motv-workspace/",
+        "tests/studio/"
       ],
       "verification": "PASS",
-      "verification_ref": "已提交",
-      "declared": "2026-08-29T10:01:12+00:00"
+      "verification_ref": "",
+      "declared": "2026-08-29T10:12:25+00:00"
     },
     "TASK-112": {
       "commits": [
@@ -150,11 +154,13 @@
         }
       ],
       "paths": [
-        ".autopush-placeholder"
+        "docs/",
+        "mockups/motv-workspace/",
+        "tests/studio/"
       ],
       "verification": "PASS",
-      "verification_ref": "已提交",
-      "declared": "2026-08-29T10:01:12+00:00"
+      "verification_ref": "",
+      "declared": "2026-08-29T10:12:25+00:00"
     },
     "TASK-111": {
       "commits": [
@@ -185,14 +191,39 @@
         }
       ],
       "paths": [
-        ".autopush-placeholder"
+        "docs/",
+        "mockups/motv-workspace/",
+        "tests/studio/"
       ],
       "verification": "PASS",
-      "verification_ref": "已提交",
-      "declared": "2026-08-29T10:01:12+00:00"
+      "verification_ref": "",
+      "declared": "2026-08-29T10:12:25+00:00"
     },
     "TASK-113": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "ea2c0c563a88d61b02704b0b91edcc132c9150eb",
+          "subject": "feat(TASK-113): 版本行默认只露最新版；还没落下的改动给一个出口",
+          "time": "2026-08-29T10:12:25+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/STATUS.md",
+            "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/done/TASK-113-latest-version-only-and-apply-outlet.md",
+            "mockups/motv-workspace/src/ui/briefws.js",
+            "mockups/motv-workspace/src/ui/convthread.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/src/ui/storyws.js",
+            "mockups/motv-workspace/src/ui/versionrow.js",
+            "mockups/motv-workspace/styles/epprod.css",
+            "mockups/motv-workspace/styles/studio.css",
+            "mockups/motv-workspace/tests/convapply.test.mjs",
+            "mockups/motv-workspace/tests/versionrow.test.mjs"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/",
         "mockups/motv-workspace/"
