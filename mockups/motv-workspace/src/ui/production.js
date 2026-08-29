@@ -1830,6 +1830,19 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
   /* 意图路由：一句话 → 一个能力（TASK-119 / ADR-0091）                       */
   /* ---------------------------------------------------------------------- */
 
+  //: 此刻正在起跑、但还没在登记表里落地的那些路由（TASK-119）。
+  //:
+  //: 为什么需要它：`hasOriginKey` / `routedRunFor` 查的是登记表，而登记表里那条
+  //: 记录要等 `ctx.skills.run` 真的调到 `startRun` 才出现 —— 中间隔着一个微任务。
+  //: 「先查后做」之间的这条缝，今天从代码上够不着（一次发送一条链、一个
+  //: conversationRunId；建议的 key 在点击时就被同步取走了，第二次点击拿不到），
+  //: 但它是**结构性的**：以后任何人再加一条起跑路径，缝就自己张开了，而症状是
+  //: 「同一件事跑了两遍」——两次都成功、两份提案、没有任何一处报错。
+  //:
+  //: 所以按类关掉，而不是论证它今天够不着。**不进 `ui`**：它是这一次页面生命周期
+  //: 里的瞬时状态，持久化它会让一次刷新之后的合法重试被永远挡住。
+  const routeInflight = new Set();
+
   /** 这次路由要用哪个执行器，或 null（本机没有能自动跑的）。
    *
    *  `manual` 不算「能自动跑」—— 手工运行是**开一条等人的记录**，不是一次运行。
@@ -1919,23 +1932,33 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // 这件**事**已经跑过了 —— 与「这一轮跑过了」是两道不同的闸。跨层建议带着
     // 一个稳定身份（哪个文档的第几版）：他点两次、或者一次失败的发送被重发，
     // 都会产生**新的**对话轮次，`conversationRunId` 那道闸拦不住，只有这一道能。
+    // 这件**事**已经跑过了 —— 与「这一轮跑过了」是两道不同的闸。跨层建议带着
+    // 一个稳定身份（哪个文档的第几版）：他点两次、或者一次失败的发送被重发，
+    // 都会产生**新的**对话轮次，`conversationRunId` 那道闸拦不住，只有这一道能。
+    const guard = originKey || convRunId;
     if (originKey && ctx.skills.hasOriginKey(originKey)) {
       ctx.toast("这一版的跨层检查已经跑过了");
       render();
       return Promise.resolve();
     }
+    // …而登记表里那条记录要等一个微任务之后才写下，所以「查过了」到「写下了」
+    // 之间还有一条缝。这一句把它关掉（见 `routeInflight` 的说明）。
+    if (guard && routeInflight.has(guard)) return Promise.resolve();
     const decision = decideRoute(route, routeCtxFor(ctx, convRunId));
     if (decision.action !== "run") {
       render(); // 没跑也要显示：识别到了什么、为什么没跑
       return Promise.resolve();
     }
+    if (guard) routeInflight.add(guard);
     return launchRouted(ctx, {
       skillId: decision.skillId,
       executor: decision.executor,
       origin: originForRoute(convRunId, originKey),
       summary: `对话里识别到的能力：${String(said || "").slice(0, 60)}`,
       said: `已启动「${decision.title}」`,
-    });
+      // 起跑结束就放开 —— 那时登记表里已经有记录了，两道闸交接得上。
+      // 失败也要放开：一次失败的起跑不该把这条路径永久锁死。
+    }).then(() => { if (guard) routeInflight.delete(guard); });
   }
 
   /** 一次结构性版本变更之后，**建议**查一遍各层还对不对得上 —— 建议，不是自动跑。

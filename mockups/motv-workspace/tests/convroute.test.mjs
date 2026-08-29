@@ -524,3 +524,18 @@ test("接线：建议带着 key，一路送到 origin，且起跑前先查一次
     "起跑前先问登记表：这件事是不是已经跑过了",
   );
 });
+
+test("接线：先查后做之间的那条缝被关掉了（in-flight 闸）", () => {
+  // `hasOriginKey` / `routedRunFor` 查的是登记表，而那条记录要等 `ctx.skills.run`
+  // 调到 `startRun` 才出现 —— 中间隔着一个微任务。今天从代码上够不着这条缝
+  // （一次发送一条链、一个 conversationRunId；建议的 key 在点击时被同步取走），
+  // 但它是**结构性的**：再加一条起跑路径缝就自己张开，症状是「同一件事跑了两遍」，
+  // 两次都成功、两份提案、没有任何一处报错（codex 最后一轮）。
+  const src = readFileSync(join(HERE, "..", "src", "ui", "production.js"), "utf8");
+  assert.ok(src.includes("const routeInflight = new Set()"), "要有这道闸");
+  assert.ok(src.includes("routeInflight.has(guard)"), "起跑前要问它");
+  assert.ok(src.includes("routeInflight.add(guard)"), "起跑前要占住");
+  assert.ok(src.includes("routeInflight.delete(guard)"), "起跑结束要放开");
+  // **不能进 ui**：那是持久化的页面状态，持久化它会让刷新之后的合法重试被永远挡住
+  assert.ok(!src.includes("ui.routeInflight"), "这是瞬时状态，不该被持久化");
+});
