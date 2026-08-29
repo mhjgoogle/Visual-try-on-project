@@ -88,3 +88,11 @@ def test_it_tells_the_agent_what_each_verdict_means(text):
         assert verdict in text
     # `changes` 里那句话是新的需求 —— 这条最容易被当成「已经同意了」
     assert "`note` 里那句话是新的需求" in text
+
+
+def test_it_carries_the_lesson_from_two_agents_on_one_tree(text):
+    """2026-08-29 的实测：两个会话同改三个文件，各漏半句话，合进去一个已知 P1。"""
+    assert "「绿了」不等于「可以合」" in text
+    assert "一次提交、双方署名" in text
+    # 通配路径扫走别人未提交文件的那一课
+    assert "路径要精确到文件" in text
