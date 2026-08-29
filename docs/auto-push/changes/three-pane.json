@@ -115,24 +115,30 @@
         }
       ],
       "paths": [
-        "docs/",
-        "mockups/motv-workspace/",
-        "tests/studio/"
+        ".autopush-placeholder"
       ],
       "verification": "PASS",
       "verification_ref": "",
-      "declared": "2026-08-29T04:23:37+00:00"
+      "declared": "2026-08-29T05:06:28+00:00"
     },
     "TASK-110": {
       "commits": [],
       "paths": [
-        "docs/",
-        "mockups/motv-workspace/",
-        "tests/studio/"
+        ".autopush-placeholder"
       ],
       "verification": "PASS",
-      "verification_ref": "dcaf7e2 —— TASK-110 与 TASK-109 同属一个提交（一个提交只能有一个 owner，记在 109 名下）",
-      "declared": "2026-08-29T04:29:48+00:00"
+      "verification_ref": "",
+      "declared": "2026-08-29T05:06:28+00:00"
+    },
+    "TASK-112": {
+      "commits": [],
+      "paths": [
+        "docs/",
+        "mockups/motv-workspace/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "",
+      "declared": "2026-08-29T05:06:28+00:00"
     }
   },
   "merge_gate": {

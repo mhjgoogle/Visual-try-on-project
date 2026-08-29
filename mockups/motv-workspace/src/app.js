@@ -6294,6 +6294,7 @@ function openProjMenu() {
   const cards = projects.projectCards({
     local,
     remote: CONNECTED ? REAL_NAMES : [],
+    includeCanvas: !CONNECTED,
     demo: CONNECTED ? null : { name: DEMO_PROJECT_NAME, assetRoot: "", openedAt: "" },
   });
   const rows = cards
@@ -7419,11 +7420,20 @@ async function removeProjectCard(card) {
 function renderLanding(realNames) {
   const projectsError = LIST_ERROR;
   const grid = $("#projgrid");
-  [...grid.querySelectorAll(".pcard")].forEach((c) => c.remove());
+  // REMOVE THE WRAPPER, NOT JUST THE CARD. Since the ✕ became a SIBLING of the
+  // card inside `.pcardwrap`, clearing only `.pcard` left the wrapper (and its
+  // delete button) on screen — one more orphan ✕ per re-render.
+  [...grid.querySelectorAll(".pcardwrap, .pcard")].forEach((c) => c.remove());
   const local = projects.loadRegistry(window.localStorage);
   const cards = projects.projectCards({
     local,
     remote: CONNECTED ? realNames : [],
+    // CONNECTED: the backend list IS the project list. A local row with no backend
+    // project behind it is residue from an earlier prototype session, and drawing it
+    // as a card is what filled this page with projects that do not exist
+    // (产品负责人 2026-08-29:「画面不对啊。有很多不存在的项目」). The rows stay in
+    // localStorage — they still carry assetRoot/openedAt for the real cards.
+    includeCanvas: !CONNECTED,
     // the seeded demo is always offered in demo mode — it is what makes the
     // studio explorable without any real data
     demo: CONNECTED ? null : { name: DEMO_PROJECT_NAME, assetRoot: "", openedAt: "" },

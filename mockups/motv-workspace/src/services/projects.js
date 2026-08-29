@@ -195,8 +195,18 @@ export function touchProject(storage, name, now) {
  * a prototype canvas with no core project directory. The two are labelled
  * differently and never conflated — a local entry that shares a name with a
  * real project is shown once, as the real one.
+ *
+ * `includeCanvas: false` DROPS the canvas-only entries entirely. Connected mode
+ * passes it: there the backend list is the truth, and a local row that no longer
+ * matches any backend project is browser residue from an earlier prototype
+ * session — showing it as a card is how the list fills up with projects that do
+ * not exist (产品负责人 2026-08-29:「画面不对啊。有很多不存在的项目」). The rows
+ * are NOT deleted: they still supply `assetRoot` / `openedAt` for the real cards,
+ * and reappear as cards in demo mode, which has no backend to be the truth.
  */
-export function projectCards({ local = [], remote = [], demo = null } = {}) {
+export function projectCards({
+  local = [], remote = [], demo = null, includeCanvas = true,
+} = {}) {
   const seen = new Set();
   const cards = [];
   for (const name of remote) {
@@ -210,10 +220,12 @@ export function projectCards({ local = [], remote = [], demo = null } = {}) {
       openedAt: match ? match.openedAt : "",
     });
   }
-  for (const p of local) {
-    if (seen.has(p.name.toLowerCase())) continue;
-    seen.add(p.name.toLowerCase());
-    cards.push({ name: p.name, kind: "canvas", assetRoot: p.assetRoot, openedAt: p.openedAt });
+  if (includeCanvas) {
+    for (const p of local) {
+      if (seen.has(p.name.toLowerCase())) continue;
+      seen.add(p.name.toLowerCase());
+      cards.push({ name: p.name, kind: "canvas", assetRoot: p.assetRoot, openedAt: p.openedAt });
+    }
   }
   // newest-opened first; never-opened entries keep insertion order after them
   cards.sort((a, b) => String(b.openedAt || "").localeCompare(String(a.openedAt || "")));
