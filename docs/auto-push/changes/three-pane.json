@@ -240,7 +240,7 @@
           "subject": "feat(TASK-114/115): 动作注册表（他能做的 Agent 都能做）+ 意见回路 + 删除都能撤销",
           "time": "2026-08-29T11:25:10+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             ".claude/tools/read_feedback.py",
             "docs/STATUS.md",
