@@ -115,20 +115,24 @@
         }
       ],
       "paths": [
-        ".autopush-placeholder"
+        "docs/",
+        "mockups/motv-workspace/",
+        "tests/studio/"
       ],
       "verification": "PASS",
-      "verification_ref": "已提交",
-      "declared": "2026-08-29T11:44:08+00:00"
+      "verification_ref": "",
+      "declared": "2026-08-29T11:51:34+00:00"
     },
     "TASK-110": {
       "commits": [],
       "paths": [
-        ".autopush-placeholder"
+        "docs/",
+        "mockups/motv-workspace/",
+        "tests/studio/"
       ],
       "verification": "PASS",
-      "verification_ref": "已提交",
-      "declared": "2026-08-29T11:44:09+00:00"
+      "verification_ref": "",
+      "declared": "2026-08-29T11:51:34+00:00"
     },
     "TASK-112": {
       "commits": [
@@ -150,11 +154,13 @@
         }
       ],
       "paths": [
-        ".autopush-placeholder"
+        "docs/",
+        "mockups/motv-workspace/",
+        "tests/studio/"
       ],
       "verification": "PASS",
-      "verification_ref": "已提交",
-      "declared": "2026-08-29T11:44:09+00:00"
+      "verification_ref": "",
+      "declared": "2026-08-29T11:51:34+00:00"
     },
     "TASK-111": {
       "commits": [
@@ -185,11 +191,13 @@
         }
       ],
       "paths": [
-        ".autopush-placeholder"
+        "docs/",
+        "mockups/motv-workspace/",
+        "tests/studio/"
       ],
       "verification": "PASS",
-      "verification_ref": "已提交",
-      "declared": "2026-08-29T11:44:09+00:00"
+      "verification_ref": "",
+      "declared": "2026-08-29T11:51:34+00:00"
     },
     "TASK-113": {
       "commits": [
@@ -217,11 +225,13 @@
         }
       ],
       "paths": [
-        ".autopush-placeholder"
+        "docs/",
+        "mockups/motv-workspace/",
+        "tests/studio/"
       ],
       "verification": "PASS",
-      "verification_ref": "已提交",
-      "declared": "2026-08-29T11:44:09+00:00"
+      "verification_ref": "",
+      "declared": "2026-08-29T11:51:34+00:00"
     },
     "TASK-114": {
       "commits": [
@@ -263,23 +273,48 @@
         }
       ],
       "paths": [
-        ".autopush-placeholder"
+        "docs/",
+        "mockups/motv-workspace/",
+        "tests/studio/"
       ],
       "verification": "PASS",
-      "verification_ref": "已提交",
-      "declared": "2026-08-29T11:44:10+00:00"
+      "verification_ref": "",
+      "declared": "2026-08-29T11:51:35+00:00"
     },
     "TASK-115": {
       "commits": [],
       "paths": [
-        ".autopush-placeholder"
+        "docs/",
+        "mockups/motv-workspace/",
+        "tests/studio/"
       ],
       "verification": "PASS",
-      "verification_ref": "已提交",
-      "declared": "2026-08-29T11:44:10+00:00"
+      "verification_ref": "",
+      "declared": "2026-08-29T11:51:35+00:00"
     },
     "TASK-116": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "36f51cdf533a4be0785097ddfdc2451b691ffe34",
+          "subject": "feat(TASK-116): 提案回路补成双向 —— 我提案，他在对话里拍板，我读回他的原话",
+          "time": "2026-08-29T11:46:24+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            ".claude/tools/read_feedback.py",
+            "docs/STATUS.md",
+            "docs/auto-push/changes/three-pane.json",
+            "docs/requirements/REQ-006-agent-can-do-what-the-creator-can-do.md",
+            "docs/tasks/done/TASK-116-proposal-loop-both-ways.md",
+            "mockups/motv-workspace/server.py",
+            "mockups/motv-workspace/src/ui/convthread.js",
+            "mockups/motv-workspace/tests/convapply.test.mjs",
+            "tests/studio/test_motv_conversation_task109.py",
+            "tests/tooling/test_feedback_reader_req006.py"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         ".claude/tools/",
         "docs/",
