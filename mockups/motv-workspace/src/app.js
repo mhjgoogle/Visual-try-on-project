@@ -1119,6 +1119,15 @@ let shotMirror = null;
 
 const ctx = {
   project: { ...FIX },
+  // WHICH PROJECT IS OPEN — the session's own answer, not the fixture's.
+  //
+  // `ctx.project` is a spread of the FIXTURE (`query.fixtureProject()`), so
+  // `ctx.project.name` is the fixture's name and never the folder the creator
+  // opened. Anything that has to talk to `/api/projects/<name>/…` needs THIS,
+  // and the conversation turn (ADR-0089) was silently no-oping on the difference:
+  // it read a `ctx.projectName` that did not exist, decided no project was open,
+  // and swallowed the message (产品负责人 2026-08-27:「点击发送送不出去」).
+  projectName: () => PROJECT_NAME,
   gateway: { submitCommand },
   budget,
   inspector,
@@ -6265,7 +6274,73 @@ const wfExit = $("#wf-tab-exit");
 if (wfExit) wfExit.onclick = () => setTopMode("episode");
 const wfCanvasTab = $("#wf-tab-canvas");
 if (wfCanvasTab) wfCanvasTab.onclick = () => showDiagnosticCanvas(true);
-$("#proj-switch").onclick = () => { views.goHome(); clearUrl(); };
+// THE ▾ NOW OPENS WHAT IT DRAWS (产品负责人 2026-08-27:「这里不应该是点击可以选择不同
+// 项目的吗」). It drew a caret and said 「切换项目」 while doing `goHome()` — a control that
+// promises one thing and does another costs him the discovery every single time.
+//
+// Switching goes through `enterCanvas`, the SAME entry the landing cards use, so a
+// switch from here and a click on a card cannot land in two different states.
+// 「返回项目列表…」 stays as the last item: that is still where a project is created.
+const projMenu = $("#projmenu");
+function closeProjMenu() {
+  if (!projMenu) return;
+  projMenu.hidden = true;
+  const b = $("#proj-switch");
+  if (b) b.setAttribute("aria-expanded", "false");
+}
+function openProjMenu() {
+  if (!projMenu) return;
+  const local = projects.loadRegistry(window.localStorage);
+  const cards = projects.projectCards({
+    local,
+    remote: CONNECTED ? REAL_NAMES : [],
+    demo: CONNECTED ? null : { name: DEMO_PROJECT_NAME, assetRoot: "", openedAt: "" },
+  });
+  const rows = cards
+    .map((c) => {
+      const on = c.name === PROJECT_NAME;
+      const tag = c.kind === "real" ? "真实项目" : c.kind === "demo" ? "演示项目" : "画布项目";
+      return (
+        `<button data-pm-open="${esc(c.name)}"${on ? ' class="on"' : ""}>` +
+        `<span class="tick">${on ? "✓" : ""}</span>` +
+        `<span>${esc(c.name)}</span>` +
+        `<span class="chip mute" style="margin-left:auto">${esc(tag)}</span></button>`
+      );
+    })
+    .join("");
+  projMenu.innerHTML =
+    `<div class="pm-h">切换项目</div>` +
+    (rows || `<div class="pm-h">还没有别的项目</div>`) +
+    `<div class="pm-sep"></div>` +
+    `<button data-pm-home="1"><span class="tick"></span><span>返回项目列表…</span></button>`;
+  projMenu.hidden = false;
+  const btn = $("#proj-switch");
+  if (btn) btn.setAttribute("aria-expanded", "true");
+  projMenu.querySelectorAll("[data-pm-open]").forEach((b) => (b.onclick = () => {
+    const name = b.dataset.pmOpen;
+    closeProjMenu();
+    if (name === PROJECT_NAME) return; // already here — a no-op, never a reload
+    projects.touchProject(window.localStorage, name, new Date().toISOString());
+    enterCanvas(name, { route: loadLastRoute(window.localStorage, name) });
+  }));
+  const home = projMenu.querySelector("[data-pm-home]");
+  if (home) home.onclick = () => { closeProjMenu(); views.goHome(); clearUrl(); };
+}
+$("#proj-switch").onclick = (ev) => {
+  ev.stopPropagation();
+  if (projMenu && projMenu.hidden) openProjMenu();
+  else closeProjMenu();
+};
+// click-away and Esc close it: a menu that only closes by re-clicking its own button
+// is a menu that gets left open on top of the work
+document.addEventListener("click", (ev) => {
+  if (!projMenu || projMenu.hidden) return;
+  if (projMenu.contains(ev.target) || (ev.target.closest && ev.target.closest("#proj-switch"))) return;
+  closeProjMenu();
+});
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") closeProjMenu();
+});
 
 // Every locked plan a paid op could have been minted under: each scriptgen
 // version keeps its own `locked` bridge, so a paid op from a PRIOR (re-locked)
@@ -7076,8 +7151,8 @@ async function enterCanvas(name, opts = {}) {
   renderBudget();
   $("#proj-name").textContent = name;
   $("#proj-switch").title = ctx.project.assetRoot
-    ? `资产位置：${projects.assetPathFor(ctx.project.assetRoot, name)}（点击返回项目列表）`
-    : "点击返回项目列表";
+    ? `资产位置：${projects.assetPathFor(ctx.project.assetRoot, name)}（点击切换项目）`
+    : "点击切换项目";
   views.goCanvas();
   if (opts.seedDemo) {
     // A re-entry must rebuild the demo from scratch: these registries are
@@ -7298,6 +7373,49 @@ async function loadProjectCards(names) {
   }
 }
 
+/** Remove one project from the LIST. Never from the disk (ADR-0090 决策 1/2).
+ *
+ *  产品负责人 2026-08-27:「删除前端。后端的文件留下就好了啊。」 So the confirmation says
+ *  exactly that, and the answer repeats where the folder still is — otherwise
+ *  「删了怎么还占着盘」 becomes the next question.
+ *
+ *  The project he is INSIDE cannot be removed from under him (判据 4): the interface
+ *  would go on working against something the list no longer has.
+ */
+async function removeProjectCard(card) {
+  const name = card.name;
+  if (canvasActive && name === PROJECT_NAME) {
+    toast("这是当前打开的项目 —— 先切到别的项目或回到主页，再移除它");
+    return;
+  }
+  const where = card.kind === "real" ? "服务端的项目列表" : "本机的项目列表";
+  if (!window.confirm(
+    `把「${name}」从${where}里移除？\n\n` +
+    `磁盘上的项目文件夹不会被删除，也不会被移动 —— 要清理的话你自己删。\n` +
+    `重新打开那个文件夹就能把它加回来。`,
+  )) return;
+  if (card.kind === "real") {
+    const res = await query.unregisterProject(name);
+    if (!res.ok) {
+      toast(`没能移除：${(res.error && (res.error.detail || res.error.message)) || "未知原因"}`);
+      return;
+    }
+    REAL_NAMES = REAL_NAMES.filter((n) => n !== name);
+    // the local registry may ALSO carry a row for the same name (he opened it once);
+    // leaving that behind would put the card straight back on the next render
+    projects.removeProject(window.localStorage, name);
+    toast(res.keptAt ? `已从列表移除。文件仍在：${res.keptAt}` : "已从列表移除，文件未删除");
+  } else {
+    const res = projects.removeProject(window.localStorage, name);
+    if (!res.ok) {
+      toast(res.error || "没能移除");
+      return;
+    }
+    toast("已从本机列表移除，磁盘文件未删除");
+  }
+  renderLanding(REAL_NAMES);
+}
+
 function renderLanding(realNames) {
   const projectsError = LIST_ERROR;
   const grid = $("#projgrid");
@@ -7362,13 +7480,32 @@ function renderLanding(realNames) {
     // `HEAD` can be declined by a server that still serves `GET`, so the `<img>`
     // is the last word — and when it says the bytes are unfetchable, the next
     // candidate takes over instead of a broken glyph becoming the project's face.
+    // DELETE, as a SIBLING of the card rather than a child (REQ-005 / ADR-0090).
+    //
+    // `pcard` is a <button>; nesting another button inside it is invalid HTML and the
+    // click would bubble into 「open this project」 — the worst possible mis-click for
+    // a destructive-looking control.
+    const wrap = document.createElement("div");
+    wrap.className = "pcardwrap";
+    const del = document.createElement("button");
+    del.className = "pdel";
+    del.type = "button";
+    del.title = `从列表移除「${c.name}」（磁盘上的文件不动）`;
+    del.setAttribute("aria-label", del.title);
+    del.textContent = "✕";
+    del.onclick = (ev) => {
+      ev.stopPropagation();
+      removeProjectCard(c);
+    };
     const img = b.querySelector("[data-pcard-cover]");
     if (img) {
       img.onerror = () => {
         if (mediaProbe.observe(img.dataset.mediaUrl, false)) renderLanding(realNames);
       };
     }
-    grid.appendChild(b);
+    wrap.appendChild(b);
+    wrap.appendChild(del);
+    grid.appendChild(wrap);
   }
 }
 

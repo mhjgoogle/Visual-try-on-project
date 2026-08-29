@@ -65,16 +65,22 @@
         }
       ],
       "paths": [
-        "docs/STATUS.md",
-        "docs/adr/ADR-0089-conversational-agent-write-path.md",
-        "docs/auto-push/changes/three-pane.json",
-        "docs/requirements/",
-        "docs/tasks/active/TASK-109-three-pane-shell-and-agent-conversation.md",
-        "mockups/motv-workspace/"
+        "docs/",
+        "mockups/motv-workspace/",
+        "tests/studio/"
       ],
       "verification": "PASS",
-      "verification_ref": "文档提交：ADR-0089（对话式写路径）。代码侧上一提交 e4afc6a 已过 gate：前端 1844 passed、contract+studio 662 passed",
-      "declared": "2026-08-27T11:41:38+00:00"
+      "verification_ref": "",
+      "declared": "2026-08-29T04:23:37+00:00"
+    },
+    "TASK-110": {
+      "commits": [],
+      "paths": [
+        ".autopush-placeholder-restored-after-commit"
+      ],
+      "verification": "PASS",
+      "verification_ref": "",
+      "declared": "2026-08-29T04:23:48+00:00"
     }
   },
   "merge_gate": {

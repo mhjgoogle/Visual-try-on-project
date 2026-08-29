@@ -40,6 +40,8 @@ import {
   assetTreeModel, renderAssetTree,
 } from "./assetlibws.js";
 import { renderAssetInboxSection, bindAssetInboxSection } from "./assetinboxsec.js";
+import { threadModel, renderThread } from "./convthread.js";
+import { loadThread, sendTurn, awaitTurn, cancelTurn } from "../services/conversation.js";
 import { renderStorageWs, bindStorageWs } from "./storagews.js";
 import { renderStoryWs, bindStoryWs } from "./storyws.js";
 import { renderBibleWs, bindBibleWs } from "./biblews.js";
@@ -80,7 +82,7 @@ import {
 // Only `runOperation` survives here: the shot workbench's prompt actions use it.
 // The 导演台 panels that used the rest are gone (REQ-004 v2).
 import { runOperation } from "./directorshot.js";
-import { episodeView } from "../workflow/proddoc.js";
+import { episodeView, activeEpisode } from "../workflow/proddoc.js";
 import { renderQcPanel } from "./qcpanel.js";
 import { renderPostStatus } from "./poststatusbar.js";
 import { renderShotQc, bindShotQc, shotQcModel } from "./shotqcpanel.js";
@@ -438,41 +440,6 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
   }
 
   // --- the SCRIPT module keeps its full live assistant ---------------------- //
-  function aiPane(ctx, d, st) {
-    if (st.generating) {
-      const lab = d.pending.kind === "initial" ? "AI 生成剧本中…" : "AI 生成修订稿中…";
-      return `<div class="st-skel"><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="genprog"><span class="pc">${lab}</span><span class="cx">取消</span></div>`;
-    }
-    let out = "";
-    if (st.error) {
-      out += `<div class="scripterr">⚠ 生成失败：${esc(st.error)}<button class="errx" data-errx>知道了</button></div>`;
-    }
-    if (st.proposal) {
-      // proposal vs current: both labeled, apply is explicitly "new version"
-      return (
-        out +
-        `<div class="meta">当前剧本：<b>v${st.active}</b>${ctx.script.isDirty() ? "（含未版本化的手工修改）" : ""}</div>` +
-        `<div class="proposal"><div class="proplab">修订稿提案 · 未应用 · 要求：${esc(st.proposal.instruction)}</div>` +
-        `<textarea class="pa-proptext" readonly spellcheck="false">${esc(st.proposal.text)}</textarea>` +
-        `<div class="row"><button class="btn primary" data-apply>✔ 应用为 v${st.nextVersion}</button><button class="btn" data-discard>放弃提案</button></div></div>` +
-        `<div class="meta">应用后成为持久版本 v${st.nextVersion}；v1…v${st.versions} 全部保留，可随时回切。</div>`
-      );
-    }
-    if (!st.versions && !ctx.script.hasContent()) {
-      return (
-        out +
-        `<div class="meta">基于 创意＋已批准大纲＋本集规划 生成本集剧本：</div>` +
-        `<button class="btn primary" data-gen>AI 生成本集剧本 v1</button>`
-      );
-    }
-    return (
-      out +
-      `<label class="lab">修改要求</label>` +
-      `<textarea class="field pa-rev" rows="3" spellcheck="false" placeholder="例如：结尾加一个反转；台词更口语化">${esc(revText)}</textarea>` +
-      `<button class="btn primary" data-revise>AI 修订 → 生成提案</button>` +
-      `<div class="meta">提案不会直接生效：确认「应用」后才创建新版本 v${st.nextVersion}，旧版本全部保留。</div>`
-    );
-  }
 
   /** The persistent right-side AI Director. Script gets the live assistant;
    *  every other module gets the contextual Director panel. */
@@ -498,8 +465,18 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       : ` · ${SPACE_LABEL[spaceOf(activeModule)] || ""}`;
     return (
       `<aside class="st-dir prod-ai">` +
-      `<div class="dir-head"><span class="av">🤖</span>对话<span class="dir-space">${esc(label.slice(3))}</span></div>` +
-      `<div class="st-dir-flow">` + session.history + `</div>` +
+      `<div class="dir-head">对话<span class="dir-space">${esc(label.slice(3))}</span></div>` +
+      // THE CONVERSATION IS THE WHOLE COLUMN. 产品负责人 2026-08-27:「会话那个框也很
+      // 多余。用不上的东西不要加进去」— so the 运行记录 / 这一页的诊断 box
+      // (`session.history`) is no longer mounted. It is still BUILT by
+      // `renderAgentSession`, and capability runs remain readable on the 生成记录
+      // page, so this removes a surface he does not use rather than a fact.
+      `<div class="st-dir-flow">` +
+      renderThread(threadModel(convState().turns, {
+        pendingRun: convState().pendingRun,
+        pendingStatus: convState().pendingStatus,
+      })) +
+      `</div>` +
       `<div class="st-dir-composer">` + session.composer + `</div>` +
       `</aside>`
     );
@@ -721,10 +698,11 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
    *  check and the executor probe decide whether the primary action exists at all,
    *  so 「不可用」 always carries the actual reason (IA §6.4). */
   function agentEntrance() {
-    const open = ui.agentOpen === true;
+    // No 「open」 state any more: the conversation is ALWAYS on screen in the right
+    // column, so this button is a jump to the input box, not a toggle.
     return (
-      `<button class="ag-open${open ? " on" : ""}" data-agent-open="1" ` +
-      `title="就当前页面问 Agent（在右栏的会话里打开）">🤖 询问 Agent</button>`
+      `<button class="ag-open" data-agent-open="1" ` +
+      `title="在右栏的对话框里问它">🤖 询问 Agent</button>`
     );
   }
 
@@ -1600,8 +1578,10 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     const name = shot ? (shot.title || `镜头 ${shot.sequence}`) : shotId;
     const medium = kind === "video" ? "视频" : "画面";
     ui.selectedShotId = shotId;
-    ui.agentOpen = true;
-    ui.directorText =
+    // Prefill the CONVERSATION (REQ-004 v2). `ui.directorText` fed the retired
+    // 导演台 instruction box, so writing there now would compose a question into a
+    // field nobody renders — the creator would press the button and see nothing.
+    sessionState(ui).text =
       `「${name}」的${medium}生成失败了。Run ${runId || "未知"}` +
       (model ? ` · 模型 ${model}` : "") +
       `，报的原因是：${why || "（登记表里没有记录失败原因）"}。` +
@@ -1613,7 +1593,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
    *  standing on (TASK-080 §1.1 「在当前上下文运行」).
    *
    *  It SELECTS and OPENS; it does not run. Running is a decision with an
-   *  executor behind it and a set of guards in `bindSkillPanel` — a second
+   *  executor behind it and a set of guards in the run path — a second
    *  invocation path here would be a second place to forget them. The scope the
    *  run will record is whatever `ui.selectedShotId` says, which is exactly what
    *  「当前上下文」 means. */
@@ -1642,6 +1622,151 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
    *  from `ui.selectedShotId` — that is the whole difference between 「上下文由
    *  用户显式给出」 and 「上下文由你在哪一页隐式决定」. The run itself still goes
    *  through `ctx.skills.run`, the one path with the guards on it. */
+  /* ---------------------------------------------------------------------- */
+  /* 对话（ADR-0089）                                                        */
+  /* ---------------------------------------------------------------------- */
+
+  /** ONE CONVERSATION PER PAGE (REQ-004 v3).
+   *
+   *  产品负责人 2026-08-27:「我可以打开不同的页面都有新的对话框吗。历史内容保存在不同
+   *  对话框」。So every piece of per-conversation state is keyed by the page — the
+   *  turns, the run in flight and its status. Three flat fields would make a turn
+   *  started on 分镜 render its spinner on 资产库.
+   */
+  function convKey() {
+    return activeModule || "__project__";
+  }
+
+  function convState(key) {
+    const store = (ui.convByPage = ui.convByPage || {});
+    const k = key || convKey();
+    if (!store[k]) {
+      store[k] = { turns: [], pendingRun: null, pendingStatus: "", loaded: "" };
+    }
+    return store[k];
+  }
+
+  /** Load THIS page's conversation once. The thread is server-side (a projection of
+   *  the runs), so this is a read, not a cache to keep in sync. The guard is per
+   *  (project, page) because `bind()` runs after EVERY render — without it there
+   *  would be a request behind every keystroke. */
+  function ensureConversation(ctx) {
+    const project = ctx.projectName ? ctx.projectName() : null;
+    if (!project) return;
+    const st = convState();
+    const stamp = `${project}::${convKey()}`;
+    if (st.loaded === stamp) return;
+    st.loaded = stamp;
+    Promise.resolve(loadThread(project, convKey())).then((res) => {
+      st.turns = res.turns;
+      ui.convOtherPages = res.others || {};
+      render();
+    });
+  }
+
+  function refreshConversation(ctx, key) {
+    const project = ctx.projectName ? ctx.projectName() : null;
+    if (!project) return Promise.resolve();
+    const which = key || convKey();
+    const st = convState(which);
+    return Promise.resolve(loadThread(project, which)).then((res) => {
+      st.turns = res.turns;
+      st.pendingRun = null;
+      st.pendingStatus = "";
+      ui.convOtherPages = res.others || {};
+      render();
+    });
+  }
+
+  /** Where the creator is standing, as the turn's context.
+   *
+   *  Sent on EVERY turn: 「这个」「当前」「这一镜」 are the words he actually uses, and
+   *  without this the answer has to ask him where he is — which is the thing he
+   *  noticed was missing (2026-08-27). */
+  function conversationContext(ctx) {
+    const pd = ctx.prodData ? ctx.prodData() : null;
+    const shotId = ui.selectedShotId || null;
+    const shot = shotId && ctx.shot && ctx.shot.find ? ctx.shot.find(shotId) : null;
+    const ep = pd && pd.production ? activeEpisode(pd.production) : null;
+    const epIndex = ep && pd && pd.production
+      ? pd.production.episodes.findIndex((e) => e && e.episodeId === ep.episodeId)
+      : -1;
+    return {
+      module: activeModule,
+      moduleLabel: MODULE_LABEL[activeModule] || activeModule,
+      spaceLabel: SPACE_LABEL[spaceOf(activeModule)] || "",
+      shotId,
+      shotTitle: shot ? (shot.title || "") : "",
+      episodeLabel: ep
+        ? `${epIndex >= 0 ? `EP${String(epIndex + 1).padStart(2, "0")} ` : ""}${ep.title || ""}`.trim()
+        : "",
+    };
+  }
+
+  /** One turn: his sentence on screen NOW, the answer when the run lands.
+   *
+   *  The local echo matters: a chat that shows what you said only after a round
+   *  trip reads as if the send was lost, and the creator presses again. The
+   *  server's own copy replaces the echo on the next read. */
+  function sendConversationTurn(ctx, text) {
+    const project = ctx.projectName ? ctx.projectName() : null;
+    if (!project) { ctx.toast("先打开一个项目"); return; }
+    // THE PAGE THIS TURN BELONGS TO, captured before the await: he may navigate away
+    // while it runs, and the answer belongs to the conversation he asked it in.
+    const sentFrom = convKey();
+    const st = convState(sentFrom);
+    st.turns = [...st.turns, { turnId: `local-${Date.now()}`, role: "user", text }];
+    st.pendingStatus = "queued";
+    render();
+    // EVERY failure has to become a VISIBLE turn. `Promise.resolve(f())` evaluates
+    // `f()` first, so a synchronous throw out of `conversationContext` escaped the
+    // chain entirely — his sentence stayed on screen with no answer and no error,
+    // which is exactly what he reported (「没有回应」). Building the context INSIDE
+    // the chain, plus a `.catch()` at the end, is what makes silence impossible.
+    Promise.resolve()
+      .then(() =>
+        // WHAT HE IS LOOKING AT, in the words the UI already uses. The labels come
+        // from here because this module owns the page vocabulary (`MODULE_LABEL`),
+        // so the server never keeps a second copy that could drift from the rail.
+        sendTurn(project, text, conversationContext(ctx)))
+      .then((res) => {
+        if (!res.ok) {
+          // FAIL LOUDLY (ADR-0089 决策 6): a swallowed send is a message the creator
+          // believes was delivered.
+          st.pendingStatus = "";
+          st.turns = [...st.turns, {
+            turnId: `err-${Date.now()}`,
+            role: "agent",
+            status: "failed",
+            failure: (res.error && (res.error.detail || res.error.message)) || "发送失败",
+          }];
+          render();
+          return null;
+        }
+        st.pendingRun = res.runId;
+        render();
+        return awaitTurn(project, res.runId, {
+          onTick: (run) => {
+            st.pendingStatus = (run && run.status) || "";
+            render();
+          },
+        }).then(() => refreshConversation(ctx, sentFrom));
+      })
+      .catch((err) => {
+        // 决策 6: fail-closed AND say why. An unhandled rejection here reads as
+        // 「它无视了我」.
+        st.pendingRun = null;
+        st.pendingStatus = "";
+        st.turns = [...st.turns, {
+          turnId: `err-${Date.now()}`,
+          role: "agent",
+          status: "failed",
+          failure: `发送没成功：${(err && (err.detail || err.message)) || err}`,
+        }];
+        render();
+      });
+  }
+
   function runSessionSkill(ctx, skillId) {
     const m = agentSessionModel(ctx, ui);
     if (!skillId || m.blocked) { ctx.toast(m.blocked || "先用 / 选一个能力"); return; }
@@ -1688,24 +1813,31 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     bindMediaErrors(root, ctx);
     // TASK-080 §1.2 批次 A — bound EARLY, because the script branch below returns
     // before the other panels bind and the session is on that page too.
-    bindAgentSession(root, ctx, ui, render, { onRun: (id) => runSessionSkill(ctx, id) });
-    // the Agent panel: open / close / run / manual / jump-to-fix (TASK-073 §1.4)
-    root.querySelectorAll("[data-agent-open]").forEach((b) => (b.onclick = () => {
-      ui.agentOpen = ui.agentOpen !== true;
-      render();
-    }));
-    bindAgentPanel(root, {
-      onClose: () => { ui.agentOpen = false; render(); },
-      onGoto: (mod) => setModule(mod),
-      onRun: () => {
-        // The panel does not implement running — it points at the ONE place that
-        // does, so there is a single run path with a single set of guards.
-        ctx.toast("在左侧能力面板按「运行」执行——面板与这里用的是同一条运行路径");
-      },
-      onManual: () => {
-        ctx.toast("在左侧能力面板选「手工」运行：复制 Prompt → 到别处跑 → 粘回来，走同一道契约");
-      },
+    bindAgentSession(root, ctx, ui, render, {
+      onRun: (id) => runSessionSkill(ctx, id),
+      onSend: (text) => sendConversationTurn(ctx, text),
     });
+    root.querySelectorAll("[data-cv-cancel]").forEach((b) => (b.onclick = () => {
+      // the same REAL cancel a capability run gets — a local CLI keeps consuming
+      // the subscription until something actually kills it
+      Promise.resolve(cancelTurn(b.dataset.cvCancel)).then(() => refreshConversation(ctx));
+    }));
+    ensureConversation(ctx);
+    // The page-level Agent panel is retired with the 导演台 (REQ-004 v2): there is
+    // one conversation now. What the entrance button does is therefore no longer
+    // 「open a second panel」 but 「put my cursor where I talk to it」.
+    //
+    // Leaving the old `bindAgentPanel` call here after deleting its import threw a
+    // ReferenceError on EVERY bind — the picture still rendered, so nothing looked
+    // wrong while every handler on the page was dead. That is why the guard in
+    // tests/assetinboxsec.test.mjs enumerates the retired symbols: `node --check`
+    // cannot see a missing global.
+    root.querySelectorAll("[data-agent-open]").forEach((b) => (b.onclick = () => {
+      const box = root.querySelector(".st-dir-composer .as-input");
+      if (!box) return;
+      if (box.scrollIntoView) box.scrollIntoView({ block: "nearest" });
+      box.focus();
+    }));
     // in-page section nav — and for ⑧ 镜头制作 this is the four-step flow bar
     // (TASK-073 §1.1/§1.3). Front-end state only: a section is never persisted.
     root.querySelectorAll("[data-sec]").forEach((b) => (b.onclick = () => {
@@ -2074,8 +2206,8 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       const shot = ctx.shot.find(shotId);
       const name = shot ? (shot.title || `镜头 ${shot.sequence}`) : shotId;
       ui.selectedShotId = shotId;
-      ui.agentOpen = true;
-      ui.directorText = `看一下「${name}」的${kind}：它现在的状态对不对，下一步该做什么？`;
+      sessionState(ui).text =
+        `看一下「${name}」的${kind}：它现在的状态对不对，下一步该做什么？`;
       render();
     }));
     // 「未填 · 去填写」 — the read-only facet displays now LAND ON THE CELL. Also

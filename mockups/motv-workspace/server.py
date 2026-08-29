@@ -2808,12 +2808,150 @@ _MANUAL_SANITISERS = {
 
 #: taskType -> (response key, adapter). The KEY is unchanged for all five, which
 #: is what keeps every unmigrated caller working (contract §5.9c).
+
+# --- 对话式 turn (ADR-0089) -------------------------------------------------- #
+#
+# ONE free-form turn: the creator types a sentence, the SERVER gathers the facts
+# (决策 0 — the executor runs `claude -p --tools ""`, so the model has no tools and
+# could not gather anything itself), the model answers and may propose EDITS, and
+# the edits are applied by the creator's own edit path in the browser (决策 2b),
+# never by this process writing the creative document behind the UI's back.
+_CONV_TASK_TYPE = "conversation.turn"
+#: A turn's message. Long enough for a paragraph of direction, bounded because it
+#: travels into a prompt whose size is what costs subscription capacity.
+_CONV_MESSAGE_MAX = 4000
+#: How much project fact may ride along. The cap is on the ASSEMBLED text, not on
+#: any one section, so a project with 500 shots cannot silently push the creator's
+#: own sentence out of the model's attention.
+_CONV_FACTS_MAX = 12000
+#: 一条对话线的 key = 页面（REQ-004 v3）。这两个是兜底：`__project__` 给没报告页面的
+#: 请求，`__legacy__` 收留分线之前那条项目级历史（旧数据不丢，AGENTS.md 第 13 条）。
+_CONV_DEFAULT_THREAD = "__project__"
+_CONV_LEGACY_THREAD = "__legacy__"
+#: A key rides into a filename-free JSON object, but it is still creator-influenced
+#: text: bound it and keep it to a safe alphabet so it cannot become a path or blow
+#: up the document.
+_CONV_KEY_MAX = 64
+
+#: The edits this app can actually apply. Anything else the model asks for is
+#: reported to the creator as unsupported rather than dropped — a silently
+#: discarded intention is how an assistant looks like it agreed and did nothing.
+_CONV_EDIT_KINDS = ("brief.idea", "story.outline", "note")
+
+
+def _conv_prompt(message: str, facts: str) -> str:
+    """The turn's prompt: WHO you are, WHAT is true, WHAT the creator said, and
+    the exact answer shape. The output contract is JSON because a turn that also
+    proposes edits must be machine-readable, and a fuzzy 「大概是这个意思」 parse is
+    how a wrong edit gets applied to someone's script."""
+    return (
+        "你是这个短剧创作项目里的制作助理。你面对的是作品的作者。\n"
+        "下面给你的是这个项目**当前的事实**（由服务端读取，不是你猜的）。\n"
+        "作者说了一句话，你要：读懂他要什么 → 用中文简短回答 → 如果需要改动作品，"
+        "就提出具体的编辑。\n\n"
+        "规则：\n"
+        "1. 只依据下面的事实说话。事实里没有的，就说你还需要知道什么，不要编。\n"
+        "1b. 事实里的「现在在看」是作者此刻打开的页面和选中的对象。"
+        "他说「这个」「当前」「这一镜」时，指的就是那里；据此回答，不要反问他在哪。\n"
+        "2. 需要改动时，用 edits 表达，不要把改动写在 reply 里让作者自己复制。\n"
+        "3. edits 里每一项的 kind 只能是：brief.idea（改核心创意）、"
+        "story.outline（追加一版故事大纲）、note（你想做但本应用还不能自动做的事，"
+        "写清楚是什么）。\n"
+        "4. 不确定就先问，不要替作者决定作品走向。\n\n"
+        "只输出一个 JSON 对象，不要任何解释文字、不要代码围栏：\n"
+        '{"reply": "给作者看的话", "edits": [{"kind": "brief.idea", "text": "..."}]}\n'
+        "没有要改的就给 edits: []。\n\n"
+        "=== 项目当前事实 ===\n"
+        f"{facts}\n"
+        "=== 作者说 ===\n"
+        f"{message}\n"
+    )
+
+
+def _conv_json_object(text: str) -> dict:
+    """The first balanced JSON object in the answer.
+
+    Models wrap JSON in prose or fences even when told not to. Scanning for a
+    BALANCED object (rather than `text[text.find('{'):text.rfind('}')+1]`) is what
+    keeps a trailing 「希望这样可以」 or a second example object from turning a good
+    answer into a parse failure.
+    """
+    depth = 0
+    start = -1
+    in_str = False
+    esc = False
+    for i, ch in enumerate(text):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start >= 0:
+                try:
+                    obj = json.loads(text[start : i + 1])
+                except ValueError:
+                    start = -1
+                    continue
+                if isinstance(obj, dict):
+                    return obj
+                start = -1
+    raise ValueError("回答里没有可解析的 JSON 对象")
+
+
+def _adapt_conversation(text: str, _skill_id=None) -> dict:
+    """Validate one turn's answer. Fail-closed: a malformed answer is a FAILED
+    run, never a half-kept one (the same posture as every other adapter)."""
+    obj = _conv_json_object(text)
+    reply = obj.get("reply")
+    if not isinstance(reply, str) or not reply.strip():
+        raise ValueError("回答缺少 reply")
+    raw_edits = obj.get("edits")
+    if raw_edits is None:
+        raw_edits = []
+    if not isinstance(raw_edits, list):
+        raise ValueError("edits 不是数组")
+    edits = []
+    unsupported = []
+    for item in raw_edits[:20]:
+        if not isinstance(item, dict):
+            continue
+        kind = item.get("kind")
+        body = item.get("text")
+        if not isinstance(body, str) or not body.strip():
+            continue
+        entry = {
+            "kind": kind if isinstance(kind, str) else "",
+            "text": body.strip()[:4000],
+        }
+        if entry["kind"] in _CONV_EDIT_KINDS and entry["kind"] != "note":
+            edits.append(entry)
+        else:
+            # kept, not dropped: the creator is told what the assistant wanted to
+            # do and that this app cannot do it yet
+            unsupported.append(entry)
+    return {"reply": reply.strip()[:8000], "edits": edits, "unsupported": unsupported}
+
+
 _AGENT_PARSERS = {
     "skill.storyboard-director": ("shots", _adapt_shots),
     "skill.script-breakdown": ("breakdown", _adapt_breakdown),
     "skill.story-development": ("outline", _adapt_outline),
     "skill.episode-plan": ("episodes", _adapt_episodes),
     "skill.script-writer": ("script", _adapt_script),
+    # ADR-0089: the conversational turn is a Run like any other, so it inherits
+    # cancellation, the concurrency cap, the journal and the manual fallback.
+    _CONV_TASK_TYPE: ("conversation", _adapt_conversation),
 }
 
 
@@ -3253,6 +3391,8 @@ class _App:
         if path.startswith("/api/projects/"):
             rest = path[len("/api/projects/") :]
             name, _, sub = rest.partition("/")
+            if sub == "conversation" or sub.startswith("conversation?"):
+                return self._conversation_get(unquote(name), raw_path)
             if sub.startswith("generation-target"):
                 params = parse_qs(urlsplit(raw_path).query)
                 return self._generation_target(
@@ -3385,6 +3525,16 @@ class _App:
             return self._create_project(body)
         if path == "/api/projects/migrate-legacy":
             return self._migrate_legacy(body)
+        if path.startswith("/api/projects/") and path.endswith("/unregister"):
+            # ADR-0090: list-only removal. No filesystem write lives behind this.
+            name = unquote(path[len("/api/projects/") : -len("/unregister")])
+            return self._unregister_project(name, headers)
+        if path.startswith("/api/projects/") and path.endswith("/conversation"):
+            # ADR-0089: one free-form turn. Reads project facts, writes only the
+            # thread projection — every creative change is applied by the creator's
+            # own edit path in the browser (决策 2b).
+            name = unquote(path[len("/api/projects/") : -len("/conversation")])
+            return self._conversation_post(name, body, headers)
         if path.startswith("/api/projects/") and path.endswith("/flow/export"):
             # TASK-105 第二刀。它写的是**应用数据里的用户流程目录**，不碰项目
             # 文件，所以不走 Command Gateway：Gateway 管的是项目内的创作事实
@@ -5558,6 +5708,485 @@ class _App:
         if root_r not in resolved.parents:
             return None
         return resolved
+
+    def _unregister_project(self, name: str, headers=None):
+        """Take a project OUT OF THE LIST. Touch not one byte on disk.
+
+        产品负责人 2026-08-27:「删除前端。后端的文件留下就好了啊。」
+        「后端的文件我可以手动删除。」
+
+        So this route has NO filesystem write at all — it edits the
+        account-level registry and nothing else (ADR-0090 决策 1/2). That is
+        also why it needs no containment argument: there is no path to
+        contain.
+
+        The failure it exists to fix: he deleted a project FOLDER and the card stayed,
+        because the registry still remembered it. Now the interface can finish the job.
+        """
+        if (headers or {}).get(_SKILL_RUN_HEADER) != "1":
+            return _json(
+                403,
+                {
+                    "error": {
+                        "category": "forbidden",
+                        "detail": f"{_SKILL_RUN_HEADER}: 1 required",
+                    }
+                },
+            )
+        reg = _load_project_registry()
+        before = len(reg["projects"])
+        reg["projects"] = [p for p in reg["projects"] if p.get("name") != name]
+        removed = before - len(reg["projects"])
+        if not removed and name not in self._projects:
+            # NOT an error worth failing on if the registry never had it, but the
+            # answer must say which happened — 「我点了删除，它说成功了，卡片还在」 is
+            # exactly the confusion this endpoint exists to remove.
+            return _json(
+                404,
+                {
+                    "error": {
+                        "category": "not_found",
+                        "detail": f"注册表里没有「{name}」",
+                    }
+                },
+            )
+        if removed:
+            if not _save_project_registry(reg):
+                return _json(
+                    500,
+                    {
+                        "error": {
+                            "category": "write_failed",
+                            "detail": "注册表写入失败 —— 什么都没有改动",
+                        }
+                    },
+                )
+        # The in-memory view follows the registry, so the next list request cannot
+        # still report it (判据 5) — and the project's FILES stay exactly where they
+        # are, which the caller is told explicitly so the UI can say it.
+        root = self._projects.pop(name, None)
+        return _json(
+            200,
+            {
+                "ok": True,
+                "removed": name,
+                "registryEntriesRemoved": removed,
+                "filesKeptAt": str(root) if root else None,
+                "filesDeleted": False,
+            },
+        )
+
+    # -- 对话（ADR-0089）------------------------------------------------------ #
+
+    def _conv_path(self, name: str):
+        """`<project>/studio/conversation.json` — the thread lives WITH the work.
+
+        Same containment as the canvas: built from the admitted root, never from
+        the name the caller typed (ADR-0004 / ADR-0053).
+        """
+        root = self._project_root(name)
+        if root is None:
+            return None
+        return self._contained(root, "studio", "conversation.json")
+
+    @staticmethod
+    def _conv_key(context) -> str:
+        """Which conversation a turn belongs to: the PAGE (REQ-004 v3).
+
+        Derived from the turn's own context, never from a separate field the client
+        could set independently — a run already carries the context it ran with, so
+        the answer's thread is a fact about the run rather than a later claim
+        (ADR-0089 决策 4b 纪律 1).
+        """
+        mod = ""
+        if isinstance(context, dict):
+            raw = context.get("module")
+            if isinstance(raw, str):
+                mod = "".join(ch for ch in raw.strip() if ch.isalnum() or ch in "-_:")
+        return (mod or _CONV_DEFAULT_THREAD)[:_CONV_KEY_MAX]
+
+    def _conv_load(self, name: str) -> dict:
+        """The whole document, always in the v2 shape `{version, threads}`.
+
+        v1 WAS ONE FLAT LIST. It is migrated into `__legacy__` rather than dropped or
+        re-keyed by guesswork: those turns predate per-page threads, and pretending to
+        know which page each one belonged to would be inventing history.
+        """
+        p = self._conv_path(name)
+        empty = {"version": 2, "threads": {}}
+        if p is None or not p.is_file():
+            return empty
+        try:
+            doc = json.loads(p.read_text("utf-8"))
+        except (ValueError, OSError, UnicodeDecodeError):
+            # An unreadable document must not take the chat down with it: the RUNS
+            # are the authoritative record, and this file is a projection the
+            # endpoint can rebuild (ADR-0031 的 projection 纪律).
+            return empty
+        if not isinstance(doc, dict):
+            return empty
+        threads = doc.get("threads")
+        if isinstance(threads, dict):
+            out = {}
+            for key, val in threads.items():
+                if not isinstance(key, str) or not isinstance(val, dict):
+                    continue
+                turns = val.get("turns")
+                out[key[:_CONV_KEY_MAX]] = {
+                    "turns": [x for x in turns if isinstance(x, dict)]
+                    if isinstance(turns, list)
+                    else []
+                }
+            return {"version": 2, "threads": out}
+        if isinstance(doc.get("turns"), list):  # v1
+            return {
+                "version": 2,
+                "threads": {
+                    _CONV_LEGACY_THREAD: {
+                        "turns": [x for x in doc["turns"] if isinstance(x, dict)]
+                    }
+                },
+            }
+        return empty
+
+    @staticmethod
+    def _conv_turns(doc: dict, key: str) -> list:
+        """The list for `key`, created on demand — one place that decides the shape."""
+        threads = doc.setdefault("threads", {})
+        entry = threads.setdefault(key, {"turns": []})
+        if not isinstance(entry.get("turns"), list):
+            entry["turns"] = []
+        return entry["turns"]
+
+    def _conv_save(self, name: str, doc: dict) -> bool:
+        p = self._conv_path(name)
+        if p is None:
+            return False
+        # Same atomic write the canvas uses: a unique temp file INSIDE the project
+        # (os.replace is only atomic within one filesystem, and the project root is
+        # often on another volume than the repo), then replace.
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            fd, tmpname = tempfile.mkstemp(dir=str(p.parent), suffix=".tmp")
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(doc, ensure_ascii=False))
+            os.replace(tmpname, p)
+            return True
+        except OSError:
+            return False
+
+    def _conv_facts(self, name: str, context=None) -> str:
+        """The project's CURRENT facts, assembled here rather than by the model.
+
+        决策 0: the executor is tool-free, so 「Agent 自己去后台收集信息」 means the
+        server reads the authoritative document and hands over what matters. Read
+        ONLY — this method never writes, and the caller cannot make it read outside
+        the admitted root.
+        """
+        p = self._canvas_path(name)
+        lines = [f"项目：{name}"]
+        doc = None
+        if p is not None and p.is_file():
+            try:
+                doc = json.loads(p.read_text("utf-8"))
+            except (ValueError, OSError, UnicodeDecodeError):
+                doc = None
+        if not isinstance(doc, dict):
+            lines.append(
+                "（这个项目还没有保存过创作文档，所以除了名字我什么都不知道。）"
+            )
+            return "\n".join(lines)
+
+        def _g(*keys):
+            cur = doc
+            for k in keys:
+                if not isinstance(cur, dict):
+                    return None
+                cur = cur.get(k)
+            return cur
+
+        story = _g("story") if isinstance(_g("story"), dict) else {}
+        idea = story.get("idea") if isinstance(story.get("idea"), str) else ""
+        if idea.strip():
+            lines.append(f"核心创意：{idea.strip()[:600]}")
+        else:
+            lines.append("核心创意：还没写")
+        versions = (
+            story.get("versions") if isinstance(story.get("versions"), list) else []
+        )
+        approved = story.get("approved")
+        lines.append(
+            f"故事大纲：{len(versions)} 版"
+            + (f"，已批准 v{approved}" if approved else "，还没有批准任何一版")
+        )
+        prod = _g("production") if isinstance(_g("production"), dict) else {}
+        chars = (
+            prod.get("characters") if isinstance(prod.get("characters"), list) else []
+        )
+        if chars:
+            names = [
+                c.get("name") for c in chars if isinstance(c, dict) and c.get("name")
+            ]
+            lines.append(
+                f"人物（{len(chars)}）：" + "、".join(str(n) for n in names[:12])
+            )
+        else:
+            lines.append("人物：还没有")
+        eps = prod.get("episodes") if isinstance(prod.get("episodes"), list) else []
+        if eps:
+            titles = []
+            for i, e in enumerate(eps[:12]):
+                if isinstance(e, dict):
+                    titles.append(f"EP{i + 1:02d} {e.get('title') or ''}".strip())
+            lines.append(f"分集（{len(eps)}）：" + "、".join(titles))
+        else:
+            lines.append("分集：还没有规划")
+        # SHOTS: the structure is authoritative in the episodes' scenes; the titles
+        # are derived by the frontend from a node version's `raw`, so they are looked
+        # up best-effort. Counting from `doc["draftShots"]` (an earlier guess) reported
+        # 「还没有」 for a project with three shots — see this module's fix note.
+        shot_titles = {}
+        for node in doc.get("nodes") or []:
+            if not isinstance(node, dict):
+                continue
+            for ver in node.get("versions") or []:
+                raw = ver.get("raw") if isinstance(ver, dict) else None
+                for s in raw if isinstance(raw, list) else []:
+                    if isinstance(s, dict) and isinstance(s.get("shotId"), str):
+                        shot_titles.setdefault(s["shotId"], s)
+        total_shots = 0
+        for i, e in enumerate(eps):
+            if not isinstance(e, dict):
+                continue
+            for sc in e.get("scenes") or []:
+                if not isinstance(sc, dict):
+                    continue
+                ids = [x for x in (sc.get("shotIds") or []) if isinstance(x, str)]
+                if not ids:
+                    continue
+                total_shots += len(ids)
+                scene_name = sc.get("title") or sc.get("sceneId")
+                lines.append(f"  EP{i + 1:02d} · {scene_name}：{len(ids)} 个镜头")
+                for sid in ids[:8]:
+                    s = shot_titles.get(sid) or {}
+                    label = s.get("title") or sid[:16]
+                    dur = s.get("duration")
+                    lines.append(f"    - {label}" + (f"（{dur}s）" if dur else ""))
+        lines.insert(
+            len(lines) - sum(1 for x in lines if x.startswith("  "))
+            if total_shots
+            else len(lines),
+            f"镜头：{total_shots} 个" if total_shots else "镜头：还没有",
+        )
+        # WHERE HE IS STANDING. Sent by the UI (it owns the page vocabulary), so the
+        # server prints what it was told rather than keeping a second copy of the
+        # page names that could disagree with the rail. Bounded per field: it rides
+        # into a prompt.
+        if isinstance(context, dict):
+
+            def _c(key, limit=80):
+                v = context.get(key)
+                return v.strip()[:limit] if isinstance(v, str) and v.strip() else ""
+
+            page = _c("moduleLabel") or _c("module")
+            space = _c("spaceLabel")
+            shot_title = _c("shotTitle")
+            shot_id = _c("shotId", 64)
+            ep = _c("episodeLabel")
+            where = []
+            if space and page:
+                where.append(f"{space} · {page}")
+            elif page:
+                where.append(page)
+            if ep:
+                where.append(f"当前分集 {ep}")
+            if shot_title or shot_id:
+                where.append(f"选中的镜头「{shot_title or shot_id}」")
+            if where:
+                lines.append("现在在看：" + "，".join(where))
+            else:
+                lines.append("现在在看：（界面没有报告位置）")
+        text = "\n".join(lines)
+        if len(text) > _CONV_FACTS_MAX:
+            # bounded, and the creator's own sentence is never what gets cut
+            text = text[:_CONV_FACTS_MAX] + "\n（事实过长，已截断。）"
+        return text
+
+    def _conv_reconcile(self, name: str, thread: dict) -> dict:
+        """Land every FINISHED conversation run that the thread has not recorded.
+
+        WHY THE THREAD IS A PROJECTION. The run record is the authoritative event
+        (it survives a closed browser, a restart and a crash); the thread file is
+        the readable form of it. Reconciling on read means a creator who closes the
+        tab mid-turn still finds the answer waiting, and no writer other than this
+        one ever has to exist (ADR-0031).
+        """
+        seen = set()
+        for entry in thread.get("threads", {}).values():
+            for x in entry.get("turns", []):
+                if x.get("role") == "agent" and x.get("runId"):
+                    seen.add(x["runId"])
+        changed = False
+        for run in runs().list(project=name) or []:
+            if run.get("taskType") != _CONV_TASK_TYPE:
+                continue
+            rid = run.get("runId")
+            if not rid or rid in seen:
+                continue
+            status = run.get("status")
+            if status in ("queued", "running", "cancelling"):
+                continue
+            turn = {
+                "turnId": f"t-{rid}",
+                "role": "agent",
+                "runId": rid,
+                "status": status,
+                "createdAt": (
+                    run.get("endedAt")
+                    or run.get("startedAt")
+                    or datetime.now(timezone.utc).isoformat()
+                ),
+            }
+            outputs = run.get("outputs") if isinstance(run.get("outputs"), dict) else {}
+            conv = (
+                outputs.get("conversation")
+                if isinstance(outputs.get("conversation"), dict)
+                else None
+            )
+            if status == "succeeded" and conv:
+                turn["text"] = conv.get("reply") or ""
+                turn["edits"] = conv.get("edits") or []
+                turn["unsupported"] = conv.get("unsupported") or []
+            else:
+                # FAIL-CLOSED, AND SAY WHY (ADR-0089 决策 6). A failed turn that
+                # rendered as silence would look like the assistant ignored him.
+                # The reason lives in `failureReason` — the store's own field name;
+                # reading a guessed `error` key is how a real reason becomes the
+                # word 「failed」 on screen.
+                err = (
+                    run.get("failureReason")
+                    if isinstance(run.get("failureReason"), dict)
+                    else {}
+                )
+                turn["text"] = ""
+                turn["failureCategory"] = err.get("category") or ""
+                turn["failure"] = err.get("detail") or status or "运行失败"
+            # ITS OWN thread, derived from the run's context (决策 4b 纪律 1)
+            self._conv_turns(thread, self._conv_key(run.get("context"))).append(turn)
+            changed = True
+        if changed:
+            for entry in thread["threads"].values():
+                entry["turns"].sort(key=lambda x: str(x.get("createdAt") or ""))
+            self._conv_save(name, thread)
+        return thread
+
+    def _conversation_get(self, name: str, raw_path: str = ""):
+        if name not in self._projects:
+            return _json(
+                404, {"error": {"category": "not_found", "detail": "unknown project"}}
+            )
+        params = parse_qs(urlsplit(raw_path).query) if raw_path else {}
+        asked = (params.get("thread") or [""])[0]
+        key = self._conv_key({"module": asked}) if asked else _CONV_DEFAULT_THREAD
+        doc = self._conv_reconcile(name, self._conv_load(name))
+        turns = self._conv_turns(doc, key)
+        # WHICH OTHER CONVERSATIONS EXIST. Reported so the column can say 「另一页还有
+        # 一段对话」 instead of leaving the creator to remember where he said things.
+        others = {
+            k: len(v.get("turns") or [])
+            for k, v in doc.get("threads", {}).items()
+            if k != key and (v.get("turns") or [])
+        }
+        return _json(
+            200,
+            {"project": name, "thread": key, "turns": turns[-100:], "threads": others},
+        )
+
+    def _conversation_post(self, name: str, body: bytes, headers=None):
+        """One turn: record what he said, launch the run, hand back its identity.
+
+        Guarded by the SAME custom header as `/api/skill/run`: this route starts a
+        real local CLI on his subscription, and a cross-origin page cannot set a
+        custom header without a preflight this server never answers.
+        """
+        if (headers or {}).get(_SKILL_RUN_HEADER) != "1":
+            return _json(
+                403,
+                {
+                    "error": {
+                        "category": "forbidden",
+                        "detail": f"{_SKILL_RUN_HEADER}: 1 required",
+                    }
+                },
+            )
+        if name not in self._projects:
+            return _json(
+                404, {"error": {"category": "not_found", "detail": "unknown project"}}
+            )
+        try:
+            payload = json.loads(body.decode("utf-8")) if body else {}
+        except (ValueError, UnicodeDecodeError):
+            return _json(
+                400, {"error": {"category": "bad_json", "detail": "invalid JSON body"}}
+            )
+        if not isinstance(payload, dict):
+            return _json(
+                400, {"error": {"category": "bad_json", "detail": "expected an object"}}
+            )
+        message = payload.get("message")
+        if not isinstance(message, str) or not message.strip():
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "message 是空的"}}
+            )
+        if len(message) > _CONV_MESSAGE_MAX:
+            return _json(
+                413,
+                {
+                    "error": {
+                        "category": "too_large",
+                        "detail": f"message 超过 {_CONV_MESSAGE_MAX} 字",
+                    }
+                },
+            )
+        facts = self._conv_facts(name, payload.get("context"))
+        prompt = _conv_prompt(message.strip(), facts)
+        try:
+            run = runs().create(
+                kind="skill",
+                task_type=_CONV_TASK_TYPE,
+                executor="claude-code",
+                project_id=name,
+                context=payload.get("context"),
+                params={"prompt": prompt, "timeout": _SKILL_TIMEOUT_DEFAULT},
+                provider="local_subscription",
+            )
+        except runstore.RunStoreError as exc:
+            return _json(
+                400, {"error": {"category": exc.category, "detail": exc.detail}}
+            )
+        doc = self._conv_load(name)
+        key = self._conv_key(payload.get("context"))
+        turn = {
+            "turnId": f"u-{run.get('runId')}",
+            "role": "user",
+            "text": message.strip(),
+            "runId": run.get("runId"),
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+        }
+        self._conv_turns(doc, key).append(turn)
+        # A thread that cannot be persisted is reported, not swallowed: the run is
+        # already launched, and pretending the message was filed would leave the
+        # creator with an answer whose question is missing.
+        stored = self._conv_save(name, doc)
+        return _json(
+            202,
+            {
+                "run": _run_view(run),
+                "turn": turn,
+                "thread": key,
+                "threadStored": stored,
+            },
+        )
 
     def _canvas_path(self, name: str):
         """Where this project's studio document lives NOW (project-rooted).

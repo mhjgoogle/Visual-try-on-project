@@ -140,6 +140,18 @@ export function saveRegistry(storage, list) {
   }
 }
 
+/** Take a project OUT OF the local registry (REQ-005 / ADR-0090 决策 1).
+ *
+ *  LIST ONLY. This is `localStorage`, so there is nothing on disk to touch here —
+ *  and for real projects the server route is equally file-free. Returns the new
+ *  list so the caller re-renders from the value rather than from an assumption.
+ */
+export function removeProject(storage, name) {
+  const list = loadRegistry(storage).filter((p) => p && p.name !== name);
+  const ok = saveRegistry(storage, list);
+  return { ok, list, error: ok ? null : "本机项目列表写入失败" };
+}
+
 /** Add a project. Returns { ok, list, error } — the caller re-renders from
  *  `list`, so a rejected name never half-applies. */
 export function addProject(storage, { name, assetRoot, now }) {

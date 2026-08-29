@@ -353,8 +353,10 @@ export function renderAgentSession(m, { panel = "", split = false } = {}) {
   // column (REQ-004 判据 4) — the one element that must never move as the
   // Director finds more to say above it.
   const composer =
-    `<div class="lab">当前上下文</div>` +
-    `<div class="as-ctx">${chips}</div>` +
+    // ONLY WHEN THERE IS ONE. Three lines to say 「你还没引用任何对象」 is the kind of
+    // furniture 产品负责人 2026-08-27 asked to stop adding; `@` still works, and the
+    // moment he uses it the chips (and this label) appear.
+    (m.context.length ? `<div class="lab">当前上下文</div><div class="as-ctx">${chips}</div>` : "") +
     (m.skill
       ? `<div class="lab">要做什么</div>` +
         `<div class="as-task"><b>${esc(m.skill.title)}</b>` +
@@ -366,7 +368,7 @@ export function renderAgentSession(m, { panel = "", split = false } = {}) {
     // difference between a session and a box that quietly eats what you type.
     // PRINTED FROM `recorded`, i.e. from `scopeOf` itself — never from a local
     // guess about what it would keep.
-    `<div class="meta">这次运行会被记为：` +
+    (m.skill ? `<div class="meta">这次运行会被记为：` : `<div class="meta" hidden>`) +
     `<b>${esc(m.skill ? m.skill.title : "（还没选能力）")}</b>` +
     (m.recorded
       ? [
@@ -393,9 +395,22 @@ export function renderAgentSession(m, { panel = "", split = false } = {}) {
     `placeholder="说你要做什么。/ 唤出能力，@ 引用对象">${esc(m.text)}</textarea>` +
     pickerHtml(m.pick) +
     `<div class="as-acts">` +
-    (m.blocked
-      ? `<div class="dir-unavail">◌ ${esc(m.blocked)}</div>`
-      : `<button class="btn primary sm" data-as-run="1">运行「${esc(m.skill.title)}」</button>`) +
+    // REQ-004 v2 — 「能和你对话」: with no capability chosen, the primary action is
+    // SEND, not a notice explaining why nothing can run. The declared-input
+    // contract still governs capabilities (`data-as-run`); free text goes to the
+    // conversation turn instead (ADR-0089), which is the whole point.
+    (m.skill
+      ? (m.blocked
+        ? `<div class="dir-unavail">◌ ${esc(m.blocked)}</div>`
+        : `<button class="btn primary sm" data-as-run="1">运行「${esc(m.skill.title)}」</button>`)
+      // NEVER `disabled` FROM RENDER STATE. The box deliberately does not re-render
+      // on every keystroke (that would move the caret), so a render-time `disabled`
+      // stays stuck at 「the text was empty when this was drawn」 — the creator types a
+      // whole sentence and the button never wakes up. It did exactly that
+      // (产品负责人 2026-08-27: 「根本得按不了发送」). The empty case is refused by the
+      // handler, and `bind` keeps the LOOK in sync by toggling a class — no re-render.
+      : `<button class="btn primary sm${m.text.trim() ? "" : " dim"}" data-as-send="1">发送</button>` +
+        `<span class="meta as-hint">Enter 发送 · Shift+Enter 换行</span>`) +
     `</div>`;
   // WHAT ALREADY HAPPENED. Scrolls above the composer, because history grows and
   // an input box that history pushes down is the thing this split removes.
@@ -452,7 +467,7 @@ export function stripToken(text) {
   return text.slice(0, tok.start);
 }
 
-export function bindAgentSession(root, ctx, ui, render, { onRun } = {}) {
+export function bindAgentSession(root, ctx, ui, render, { onRun, onSend } = {}) {
   const st = sessionState(ui);
   const box = root.querySelector(".as-input");
   if (box) {
@@ -501,4 +516,34 @@ export function bindAgentSession(root, ctx, ui, render, { onRun } = {}) {
   if (clear) clear.onclick = () => { st.skillId = null; render(); };
   const run = root.querySelector("[data-as-run]");
   if (run) run.onclick = () => { if (onRun) onRun(st.skillId); };
+  // --- free text (REQ-004 v2 / ADR-0089) ---------------------------------- //
+  const send = () => {
+    const text = String(st.text || "").trim();
+    if (!text || !onSend) return;
+    // cleared HERE, before the await: a message that stays in the box after it was
+    // sent gets sent twice by a creator who thinks the first press missed.
+    st.text = "";
+    st.pick = null;
+    onSend(text);
+  };
+  const sendBtn = root.querySelector("[data-as-send]");
+  if (sendBtn) sendBtn.onclick = send;
+  if (box && sendBtn) {
+    // keep the affordance honest without repainting the textarea
+    const sync = () => sendBtn.classList.toggle("dim", !String(box.value || "").trim());
+    box.addEventListener("input", sync);
+    sync();
+  }
+  if (box) {
+    box.onkeydown = (ev) => {
+      // Enter sends, Shift+Enter is a newline — the shape of every chat box he
+      // already uses. IME composition must never send: pressing Enter to accept
+      // a Chinese candidate would otherwise fire the message mid-word.
+      if (ev.key !== "Enter" || ev.shiftKey || ev.isComposing || ev.keyCode === 229) return;
+      if (st.skillId) return; // a chosen capability runs through its own button
+      ev.preventDefault();
+      st.text = box.value;
+      send();
+    };
+  }
 }

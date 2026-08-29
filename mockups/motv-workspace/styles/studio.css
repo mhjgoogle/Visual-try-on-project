@@ -279,6 +279,28 @@
   background: var(--canvas);
 }
 
+/* 项目切换菜单 —— 那个 ▾ 一直在承诺的东西（产品负责人 2026-08-27）。 */
+.projmenu {
+  position: absolute; top: 44px; left: 96px; z-index: 60;
+  min-width: 240px; max-height: 60vh; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .45); padding: 6px;
+}
+.projmenu .pm-h {
+  font-size: var(--t-xs); color: var(--text-faint);
+  padding: 4px 8px 6px;
+}
+.projmenu button {
+  display: flex; width: 100%; align-items: center; gap: 8px;
+  background: transparent; border: 0; border-radius: 7px;
+  color: var(--text-dim); font: inherit; font-size: var(--t-sm);
+  padding: 7px 8px; text-align: left; cursor: pointer;
+}
+.projmenu button:hover { background: var(--elev); color: var(--text); }
+.projmenu button.on { color: var(--accent); }
+.projmenu button .tick { width: 12px; flex: none; color: var(--accent); }
+.projmenu .pm-sep { height: 1px; background: var(--line); margin: 6px 4px; }
+
 /* -- breadcrumb strip ------------------------------------------------------ */
 .st-crumb {
   grid-column: 1 / -1; display: flex; align-items: center; gap: var(--s2);

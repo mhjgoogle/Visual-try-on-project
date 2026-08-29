@@ -23,3 +23,5 @@ SUPERSEDED）与版本修订规则见
   （TASK-108 / ADR-0088）
 - [REQ-004](REQ-004-three-pane-shell-and-agent-conversation.md) — CONFIRMED — 全站统一三栏（左控制/选择 · 中工作区 · 右 Agent 对话），右栏是真正的对话框
   （TASK-109）
+- [REQ-005](REQ-005-remove-a-project-from-the-home-list.md) — CONFIRMED — 主页可以把项目从列表里删除（只删列表，文件他自己删）
+  （TASK-110 / ADR-0090）

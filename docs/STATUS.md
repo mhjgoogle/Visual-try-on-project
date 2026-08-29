@@ -19,7 +19,7 @@
 | `docs/reports/` | 阶段性工作报告 —— **历史证据**，默认不读 |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：6 在办 · 2 待排期 · 103 已完成 · 72 条 ADR。
+**当前**：5 在办 · 3 待排期 · 105 已完成 · 74 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -47,7 +47,6 @@
 | [TASK-074-delivery-migration-and-legacy-retirement.md](tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md) | TASK-074：第四阶段 —— 后期交付、旧数据迁移、旧页面与旧接口清理、真实项目验收 | 部分实施（2026-08-25 更新） |
 | [TASK-087-followup-ledger.md](tasks/active/TASK-087-followup-ledger.md) | TASK-087：Follow-up 总账 —— 把散在九张卡里的欠账收成一处 | 活账（不是一次性交付 |
 | [TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md](tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) | TASK-106：前端接上 run_id 路径 —— 并由此退役同步分支与 /api/agent/ | 待开始（分析已完成，见 §1 |
-| [TASK-109-three-pane-shell-and-agent-conversation.md](tasks/active/TASK-109-three-pane-shell-and-agent-conversation.md) | TASK-109：全站三栏骨架 + 右栏改成真正的 Agent 对话框 | 进行中 |
 
 ## 在办 · 设计与验收文档
 
@@ -67,6 +66,7 @@
 | --- | --- | --- |
 | [TASK-011-local-video-provider.md](tasks/backlog/TASK-011-local-video-provider.md) | TASK-011：LocalVideoProvider（阶段 8） | Outline（可选 WFM3 升级） |
 | [TASK-012-qcd-auto-routing.md](tasks/backlog/TASK-012-qcd-auto-routing.md) | TASK-012：基于 QCD 的自动模型路由（阶段 9） | Outline（WFM3） |
+| [TASK-111-agent-applies-its-own-edits.md](tasks/backlog/TASK-111-agent-applies-its-own-edits.md) | TASK-111：让对话里的 Agent 真的把改动落到作品上 | 未开工 |
 
 ## 已完成 · 任务卡
 
@@ -177,6 +177,8 @@
 | [TASK-105-flow-template-first-slice.md](tasks/done/TASK-105-flow-template-first-slice.md) | TASK-105：流程模板第一刀 —— 内置一份 flow，新建项目时可选 | 第一刀实现完成（2026-08-24） |
 | [TASK-107-document-lifecycle.md](tasks/done/TASK-107-document-lifecycle.md) | TASK-107：文档与记录的统一生命周期 —— 落到规则、工装与现有文档上 | 完成（2026-08-26） |
 | [TASK-108-traceability-and-requirement-review.md](tasks/done/TASK-108-traceability-and-requirement-review.md) | TASK-108：把「产品意图 → 验证」的追溯链与需求完成度审查接进开发流程 | 完成（2026-08-26） |
+| [TASK-109-three-pane-shell-and-agent-conversation.md](tasks/done/TASK-109-three-pane-shell-and-agent-conversation.md) | TASK-109：全站三栏骨架 + 右栏改成真正的 Agent 对话框 | 完成（2026-08-27） |
+| [TASK-110-remove-project-from-home.md](tasks/done/TASK-110-remove-project-from-home.md) | TASK-110：主页可以把项目从列表里移除（文件他自己删） | 完成（2026-08-27） |
 
 ## 已完成 · 设计与验收记录
 
@@ -212,7 +214,7 @@
 | 位置 | 放什么 |
 | --- | --- |
 | [当前架构合同](current-architecture.md) | **现在**成立的边界与约束（NOW） |
-| [`docs/adr/`](adr/) | 72 条决策记录（ADR-0001 … ADR-0088）—— WHY / HISTORY |
+| [`docs/adr/`](adr/) | 74 条决策记录（ADR-0001 … ADR-0090）—— WHY / HISTORY |
 | [`docs/design/`](design/) 根 | 系统合同、产品信息架构、L0–S7 I/O 合同 |
 | [项目背景与路线](project-context.md) | 这个项目是什么、走到哪了 |
 | [实施规划](implementation_plan.md) | 阶段与里程碑路线图 |

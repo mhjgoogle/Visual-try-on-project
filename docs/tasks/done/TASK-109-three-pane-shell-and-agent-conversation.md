@@ -1,9 +1,12 @@
 # TASK-109：全站三栏骨架 + 右栏改成真正的 Agent 对话框
 
-- 状态：进行中
+- 状态：完成（2026-08-27）—— 三栏骨架、导演台退役、对话（后端+前端+分页）全部实现并在
+  真实项目上验证过；切片 3 的「Agent 自己落改动」仍未做，如实记在下面
 - Workflow：Feature · 深度：DEEP
 - 关联 Requirement：[REQ-004](../../requirements/REQ-004-three-pane-shell-and-agent-conversation.md)
-  **v2** 判据 1–4（v1 判据 5「面板不许消失」已被 v2 作废；v2 新增「对话的另一端是能干活的 Agent」）
+  **v3** 判据 1–4 + v2 的「能干活的 Agent」 + v3 的「每页一条对话」
+  （v1 判据 5「面板不许消失」已被 v2 作废）
+- 关联 ADR：[ADR-0089](../../adr/ADR-0089-conversational-agent-write-path.md)（对话式写路径）
 - 架构约束：`CA §3` 前后端合同（页面集合封闭 —— 本卡**不新增页面**，只改骨架）·
   `CA §1` 模块边界（改动限于 `mockups/motv-workspace/`）· `CA §4` 测试归属（前端 `.test.mjs`）
 - 目标：骨架每页一致（左控制/选择 · 中工作区 · 右对话），右栏从「六段折叠面板」
@@ -16,10 +19,14 @@
 - 切片 2 ✅：右栏结构改成会话形状 —— 上方可滚动流 + 底部固定输入框（`/` 唤能力、
   `@` 引对象沿用 `agentsession.js`，不新造第二套）
 - 切片 2b ✅（REQ-004 v2）：右栏**不再渲染** AI 导演台六段面板
-- 切片 3 ⛔ 未做：右栏成为**真正能对话的 Agent**（自由文本 → Agent 自己收集信息 →
-  自己落改动 → 在流里逐步说明）。这需要**一条新的会话式写路径**，按 AGENTS.md §21
-  先立 ADR（约束：ADR-0033 变更必须经 Command Gateway、ADR-0065 每个 AI 动作经运行层、
-  付费仍是唯一必须问用户的事），并依赖 TASK-106 的运行状态读取循环才能「逐步可见」
+- 切片 3 ✅ **对话本体已实现**（ADR-0089）：`POST/GET /api/projects/<name>/conversation`；
+  服务端装配项目事实 → 经 Runtime 层起 run → 线程是 run 的投影（读时对账，关页面不丢）；
+  前端 `services/conversation.js` + `ui/convthread.js` + 自由文本发送 + 读运行状态的轮询
+- 切片 3b ✅ 位置自动识别：每一轮带上「空间·页面 / 当前分集 / 选中的镜头」
+- 切片 3c ✅ 每页一条对话线（REQ-004 v3 / ADR-0089 决策 4b）
+- 切片 4 ⛔ **未做**：Agent **自己把改动落到作品上**。现在它只能**提出** edits，
+  屏幕上明确写着「还没落到作品上」。落地要走创作者自己那条编辑路径（决策 2b），
+  是下一张卡
 
 ## OUT OF SCOPE
 
@@ -47,7 +54,7 @@
 结论：等用户看过可演示版本后立 ADR 记录三栏骨架，或按他的反馈推翻重做 —— 不在他看到
 之前把 IA 写成既定事实。
 
-## 实施摘要
+## 实施摘要（切片 1/2/2b 见下表；切片 3 的对话本体见「对话」一节）
 
 **切片 1 · 三栏骨架（纯 CSS）**
 
@@ -97,7 +104,7 @@ Playwright 截图 5 次（两个空间 + 三次修正复看）。
 
 - **切片 3（真正的对话式 Agent）**：需要一条新的会话式写路径 —— 自由文本进、Agent
   自行收集上下文、改动经 Command Gateway 落地、过程在流里逐步可见。前置：ADR（新写路径）
-  + [TASK-106](TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) 的运行状态
+  + [TASK-106](../active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) 的运行状态
   读取循环（前端至今零处读 `GET /api/runs`）。**付费动作仍须显式确认**（AGENTS.md §1）。
 - **导演台模块退役**：`director.js` / `directorshot.js` / `prodplan` 等已不再被右栏渲染，
   但模块与测试仍在仓库里。等产品负责人用过新对话框、确认不再需要那些派生结论之后再删
@@ -108,3 +115,35 @@ Playwright 截图 5 次（两个空间 + 三次修正复看）。
 - **启动器默认 asset root 对真实数据是错的**：默认「仓库的上一级」会让
   `MotvProjects/<项目>` 的预算端点一律 403。要么改默认值，要么连接后端时校验并提示。
 - `照见未明rev2` 的两个 404 资产：需要产品负责人确认是不是自己挪走了媒体文件。
+
+## 对话（切片 3，ADR-0089）
+
+| 位置 | 内容 |
+| --- | --- |
+| `server.py` | `_conv_prompt` / `_conv_json_object` / `_adapt_conversation`（fail-closed 解析）；`_conv_facts` 服务端装配项目事实 + 「现在在看」；`_conv_key` 把一轮归到它自己的页面线；`_conv_load` 把 v1 单条 turns 迁进 `__legacy__`；`_conv_reconcile` 用 run 记录重建线程；两条端点 |
+| `src/services/conversation.js` | 发送 / 读线程 / 读运行状态（TASK-106 缺口的最小消费面）/ 取消 |
+| `src/ui/convthread.js` | 对话流：他说的、Agent 回的、这一轮状态、建议的改动、它做不到的事 |
+| `src/ui/agentsession.js` | 没选能力时主动作是「发送」；Enter 发送、Shift+Enter 换行、输入法组字不误发 |
+| `src/ui/production.js` | 每页一份对话状态（`ui.convByPage`）；发送前记住页面；失败一律变成可见的一条 |
+| `src/app.js` | `ctx.projectName`（原本不存在，导致发送被判定「没打开项目」而静默） |
+
+## 本轮修掉的自己引入的 bug（都是「界面看着正常、其实什么都没发生」那一族）
+
+| # | bug | 为什么测试没拦住 |
+| --- | --- | --- |
+| 1 | `bindAgentPanel` 调用留着、import 已删 → 每次 bind 抛 ReferenceError | 单元测试不跑 `production.js` 的 bind |
+| 2 | 发送按钮 `disabled` 写在渲染态里 → 打字不重渲染，按钮永远灰 | 只断言了源码文本，没断言行为 |
+| 3 | `bindAgentSession` 签名没解构 `onSend` → 点击静默 return | 同上 |
+| 4 | `ctx.projectName` 根本不存在（`ctx.project` 是 fixture 项目） | 同上 |
+| 5 | 轮询 `/api/runs/<id>` 少了必需的 `?project=` → 永远等不到终态 | 真机才暴露 |
+| 6 | `conversationContext` 用了未 import 的 `activeEpisode`；且发送链无 `.catch()` → 抛在本地回显之后 = 完全静默 | 真机才暴露（产品负责人：「没有回应」） |
+
+对应补的是**行为测试**而不是文本测试：`tests/convsend.test.mjs`（真调 bind、真触发
+click/keydown/input）。
+
+## 最终验证（收口）
+
+- `node --test mockups/motv-workspace/tests/*.test.mjs` → 见提交信息
+- `pytest tests/studio tests/contract` → 见提交信息
+- 真机（真实项目「夜班沉默」/「照见未明rev2」）：三栏列宽实测、发送→回答端到端、
+  位置识别答对页面与镜头、两页两条历史互不串、项目切换不跳主页、主页移除不动文件

@@ -5,7 +5,7 @@
 - 决策者：产品负责人下发需求（2026-08-27），实施 Agent 依 AGENTS.md §1
   「ADR 的 Accept 权」自行 Accept 技术形状（不涉付费、不涉不可逆动用户数据）
 - 关联：[REQ-004 v2](../requirements/REQ-004-three-pane-shell-and-agent-conversation.md) ·
-  [TASK-109](../tasks/active/TASK-109-three-pane-shell-and-agent-conversation.md) ·
+  [TASK-109](../tasks/done/TASK-109-three-pane-shell-and-agent-conversation.md) ·
   [ADR-0033](ADR-0033-command-gateway-contract.md)（唯一写路径 = Command Gateway）·
   [ADR-0065](ADR-0065-every-ai-action-through-the-runtime-layer.md)（每个 AI 动作经 Runtime 层）·
   [ADR-0066](ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md) 决策 9
@@ -56,6 +56,20 @@ turn 内的**信息收集是只读的**，可以读项目的任何权威文件�
 **任何改动都表达成 Gateway 命令**（ADR-0033 P1「唯一写路径」不破例）：Agent 不碰业务
 文件，命令由既有应用边界写入。Agent 想做 Gateway 里没有的事 → 它**说出来**，不绕路。
 
+### 决策 2b：创意文档的改动走**创作者自己那条编辑路径**，服务端不偷改
+
+实现时查明：创意 / 大纲 / 人物 / 分镜这些创意文档由**前端整份保存**
+（`PUT /api/projects/<name>/canvas`，服务端只做存储 + `_reconcile_skill_runs`
+保护运行进度）。所以「服务端直接改文档」会与前端内存里的同一份文档打架，
+并绕开 UI 自己的版本语义。
+
+正确形状：turn 返回**语义化的编辑意图**（例如「把创意改成 X」「追加一版大纲」），
+由**前端调用创作者点按钮时走的同一批文档函数**应用，然后按既有路径保存。
+好处不是省事，是三条实质的：版本与撤销语义天然继承、改动立刻出现在工作区、
+**没有第二条写路径**（ADR-0033 P1 的精神在这里的落法）。
+
+Gateway 命令仍然是**生产/生成类**动作（付费、运行、审批）的路径，这一点不变。
+
 ### 决策 3：改动一律是「加一版」，所以不必问就能落
 
 产品负责人要的是「直接改」。能直接改的前提是**改了能回来**：文档域的写入一律表达为
@@ -73,6 +87,22 @@ REQ 版本纪律同一条道理）。因此：
 是怎么被做出来的**，和 `canvas.json` 同级，属于项目而不是账户级（对比
 `projects.json` / `runs.json` 是账户级，ADR-0053 / TASK-056）。项目根围栏照旧
 （ADR-0004 / ADR-0053）。
+
+### 决策 4b：对话按页面分线，键是页面本身
+
+产品负责人 2026-08-27：「我可以打开不同的页面都有新的对话框吗。历史内容保存在不同
+对话框」。所以 `conversation.json` 从「一条 turns」变成「按 key 分组的多条 turns」，
+key 就是**页面**（`context.module`），因为那正是他说的「不同的页面」。
+
+三条实现纪律：
+
+1. **key 由服务端从 run 的 context 推**，不新增字段 —— run 记录里本来就存着这一轮的
+   context（决策 5 的投影逻辑照旧成立）：一轮答案属于哪条线，是从它自己的事实推出来的，
+   不是前端事后声称的。
+2. **旧数据不丢**：v1 的单条 `turns` 迁进 `__legacy__` 线，仍然读得到（AGENTS.md 第 13 条
+   的加法优先：不改旧结构，加一层）。
+3. **不按对象分得更细**（每个镜头一条线）—— 他说的是页面。分得比他要的更细，
+   等于替他发明一套他没要求的组织方式。
 
 ### 决策 5：过程可见靠读运行状态，不靠 Agent 自己汇报
 
