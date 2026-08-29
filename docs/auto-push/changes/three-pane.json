@@ -62,6 +62,44 @@
             "mockups/motv-workspace/tests/upstream.test.mjs"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "dcaf7e2631d4252fe1d2e7661339921a995ad355",
+          "subject": "feat(TASK-109/110): 右栏成为真正的对话框（按页面分线）+ 主页可移除项目",
+          "time": "2026-08-29T04:24:58+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/STATUS.md",
+            "docs/adr/ADR-0089-conversational-agent-write-path.md",
+            "docs/adr/ADR-0090-project-removal-is-unregister-only.md",
+            "docs/auto-push/changes/three-pane.json",
+            "docs/requirements/REQ-004-three-pane-shell-and-agent-conversation.md",
+            "docs/requirements/REQ-005-remove-a-project-from-the-home-list.md",
+            "docs/requirements/index.md",
+            "docs/tasks/active/TASK-109-three-pane-shell-and-agent-conversation.md",
+            "docs/tasks/backlog/TASK-111-agent-applies-its-own-edits.md",
+            "docs/tasks/done/TASK-109-three-pane-shell-and-agent-conversation.md",
+            "docs/tasks/done/TASK-110-remove-project-from-home.md",
+            "mockups/motv-workspace/index.html",
+            "mockups/motv-workspace/server.py",
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/src/services/conversation.js",
+            "mockups/motv-workspace/src/services/projects.js",
+            "mockups/motv-workspace/src/services/query.js",
+            "mockups/motv-workspace/src/ui/agentsession.js",
+            "mockups/motv-workspace/src/ui/convthread.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/styles/app.css",
+            "mockups/motv-workspace/styles/epprod.css",
+            "mockups/motv-workspace/styles/studio.css",
+            "mockups/motv-workspace/tests/convsend.test.mjs",
+            "mockups/motv-workspace/tests/convthread.test.mjs",
+            "mockups/motv-workspace/tests/projectremove.test.mjs",
+            "tests/studio/test_motv_conversation_task109.py",
+            "tests/studio/test_motv_unregister_project_task110.py"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
@@ -76,11 +114,13 @@
     "TASK-110": {
       "commits": [],
       "paths": [
-        ".autopush-placeholder-restored-after-commit"
+        "docs/",
+        "mockups/motv-workspace/",
+        "tests/studio/"
       ],
       "verification": "PASS",
-      "verification_ref": "",
-      "declared": "2026-08-29T04:23:48+00:00"
+      "verification_ref": "dcaf7e2 —— TASK-110 与 TASK-109 同属一个提交（一个提交只能有一个 owner，记在 109 名下）",
+      "declared": "2026-08-29T04:29:48+00:00"
     }
   },
   "merge_gate": {
