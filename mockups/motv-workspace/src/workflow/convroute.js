@@ -25,6 +25,22 @@ export const USER_CAPABILITY_ZH = {
   "story-review": "检查问题",
 };
 
+/**
+ * 一个能力在**哪一层**上工作，从它的公开形状里读出来（没有就是 ""）。
+ *
+ * 路径是 `routing.internalRouting.scope`，**不是** `routing.scope` —— 后者是路由元
+ * 数据拆成两半之前的写法。这个函数存在的全部理由就是那次拆分留下的坑：读错一层
+ * 得到的是 `undefined`，而 `undefined` 在每一个判断里都表现为「不是 shot」——
+ * 于是镜头域能力永远拿不到 `shotId`，永远因为「缺一个镜头」起不来，而且**不报错**
+ * （codex 独立审查轮 1 的 P1）。
+ *
+ * 所以它是一个具名函数而不是几处内联取值：一处读法，一处测试，钉住真实形状。
+ */
+export function scopeOfSkill(skill) {
+  const internal = skill && skill.routing && skill.routing.internalRouting;
+  return isObj(internal) && typeof internal.scope === "string" ? internal.scope : "";
+}
+
 /** 服务端已经解析好的执行计划（没有就是 null）。 */
 export function routeOf(turn) {
   const r = turn && turn.route;

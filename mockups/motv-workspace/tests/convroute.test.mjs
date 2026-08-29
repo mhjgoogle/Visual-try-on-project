@@ -20,9 +20,14 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 import {
-  decideRoute, routeOf, rejectedRouteOf, structuralRoot, zoomKeyFor, zoomTrigger,
-  STRUCTURAL_ACTIONS, USER_CAPABILITY_ZH,
+  decideRoute, routeOf, rejectedRouteOf, scopeOfSkill, structuralRoot, zoomKeyFor,
+  zoomTrigger, STRUCTURAL_ACTIONS, USER_CAPABILITY_ZH,
 } from "../src/workflow/convroute.js";
+import { createSkillController } from "../src/controllers/skillctl.js";
+import * as skills from "../src/workflow/skills.js";
+import * as runtime from "../src/services/runtime.js";
+import * as skillrun from "../src/workflow/skillrun.js";
+import * as skillapply from "../src/workflow/skillapply.js";
 
 /** 服务端解析结果的形状：capability 是他看得见的那一类，skillId 是解析出来的。 */
 const PLAN = {
@@ -264,6 +269,25 @@ test("跨层诊断是**建议**，不是自动跑", () => {
   assert.ok(!text.includes("launchRouted("), "它只放一条建议，不替他决定跑不跑");
   assert.ok(!text.includes("ctx.skills.run("));
   assert.ok(text.includes("ui.convSuggest"));
+  // …而且要重画。它是发送那条链的**最后一步**，后面没有别的东西会重画 ——
+  // 少了这一句，建议要等某个不相干的渲染才出现，在他眼里等于什么都没发生
+  // （codex 独立审查轮 2 的 P1）。
+  assert.ok(text.includes("render()"), "设了要显示的状态就必须重画");
+});
+
+test("发送那条链里，每个会改 UI 状态的终点都重画", () => {
+  // 这是上面那条 P1 的**类**，不是那一个实例：一条异步链的终点改了要显示的状态却
+  // 不重画，屏幕上与「它没做」无法区分，而且不会报错。
+  const src = readFileSync(join(HERE, "..", "src", "ui", "production.js"), "utf8");
+  const body = (name) => {
+    const at = src.indexOf(`function ${name}(`);
+    assert.ok(at > 0, `${name} 不见了`);
+    const next = src.indexOf("\n  function ", at + 1);
+    return src.slice(at, next > 0 ? next : src.length);
+  };
+  for (const fn of ["runRouteFor", "suggestZoomFor", "launchRouted"]) {
+    assert.ok(body(fn).includes("render()"), `${fn} 改了状态却不重画`);
+  }
 });
 
 test("自动起跑走的是创作者自己那条运行路径", () => {
@@ -275,4 +299,170 @@ test("自动起跑走的是创作者自己那条运行路径", () => {
   const text = src.slice(at, next > 0 ? next : src.length);
   assert.ok(text.includes("ctx.skills.run("), "不得另开一条运行路径");
   assert.ok(text.includes("origin"), "要记下是谁要求跑的（幂等键就是它）");
+});
+
+/* ========================================================================= */
+/* 作用范围读的是**真实的公开形状**（codex 审查轮 1 的 P1）                    */
+/* ========================================================================= */
+
+test("范围从 routing.internalRouting.scope 读 —— 拆分前的路径读不出东西", () => {
+  // 这是那个 P1 的形状：`skill.routing.scope` 在拆分后是 undefined，而 undefined
+  // 在每一处判断里都表现为「不是 shot」—— 镜头域能力于是永远拿不到 shotId，
+  // 永远因为「缺一个镜头」起不来，**而且不报错**。
+  assert.equal(
+    scopeOfSkill({ routing: { internalRouting: { scope: "shot" } } }),
+    "shot",
+  );
+  assert.equal(scopeOfSkill({ routing: { scope: "shot" } }), "", "拆分前的写法不该被认");
+  assert.equal(scopeOfSkill({ routing: null }), "");
+  assert.equal(scopeOfSkill({}), "");
+  assert.equal(scopeOfSkill(null), "");
+});
+
+test("对着真实的内置包也读得出来 —— 钉住磁盘上的形状，不是我脑子里的形状", () => {
+  // 直接读产品资产：这条会在 manifest 的路由形状再变一次时转红，
+  // 而那正是上一次没有人发现的那种改动。
+  const repo = join(HERE, "..", "..", "..");
+  const read = (id) =>
+    JSON.parse(readFileSync(join(repo, "product-skills", "builtin", id, "manifest.json"), "utf8"));
+
+  // 目录装进页面时用的是 `Skill.public()` 的形状，其中 routing 原样带过来
+  const asInstalled = (m) => ({ skillId: m.skillId, title: m.title, work: m.work, routing: m.routing });
+
+  assert.equal(scopeOfSkill(asInstalled(read("shot-continuity-reviewer"))), "shot",
+    "它声明了镜头域输入，只能对着一个镜头跑");
+  assert.equal(scopeOfSkill(asInstalled(read("script-doctor"))), "episode");
+  assert.equal(scopeOfSkill(asInstalled(read("story-zoom"))), "project");
+  // 没有 routing 的包（不参与自然语言路由）读出空字符串，而不是炸
+  assert.equal(scopeOfSkill(asInstalled(read("cinematography"))), "");
+});
+
+test("镜头域能力选中了镜头就跑得起来；没选中才该被拦", () => {
+  // 这是 P1 的**行为面**：修好之前，第一种情况也会被拦，理由还是「缺一个镜头」。
+  const shotSkill = {
+    skillId: "some-internal-skill",
+    title: "内部能力",
+    work: "review",
+    routing: { userCapability: ["story-review"], internalRouting: { scope: "shot" } },
+  };
+  const scopeFor = (selectedShotId) =>
+    scopeOfSkill(shotSkill) === "shot" && selectedShotId ? { shotId: selectedShotId } : null;
+  assert.deepEqual(scopeFor("s-2"), { shotId: "s-2" }, "选中了镜头就要把它带上");
+  assert.equal(scopeFor(null), null);
+
+  // 带上了 scope，`missingOf` 就拿得到那个镜头的投影，于是不再报缺 —— 能跑
+  const d = decideRoute(
+    { ...PLAN, scope: "shot" },
+    ctx({ findSkill: () => shotSkill, missingOf: () => [] }),
+  );
+  assert.equal(d.action, "run");
+});
+
+/* ========================================================================= */
+/* 判据 3 与 5 的证据（codex 审查轮 3 报的两处 NOT_EVIDENCED）                 */
+/* ========================================================================= */
+//
+// 轮 3 说得对，两处都对：
+//   判据 5 —— 之前那条只喂了一个假的「已跑过」回调，证不了**持久化**那一半；
+//   判据 3 —— 之前只证了「它调了 ctx.skills.run」，没证输出仍然是待定的提案。
+// 所以这里用**真的** skillctl、真的登记表、真的 skillrun 转移走一遍。
+
+/** 一个只接了登记表的 skillctl。`routedRunFor` / `hasOriginKey` 只读 `docs.runs()`，
+ *  其余依赖在这两条路径上不会被碰到，所以给空壳就够 —— 这样测的仍然是真实现。 */
+function makeSkillController(registry) {
+  return createSkillController({
+    docs: { runs: () => registry },
+    catalog: { detail: () => null, problems: () => [] },
+    modules: {
+      skills, runtime, skillrun, skillapply,
+      shotctx: {}, proddoc: {}, storydoc: {}, scriptdoc: {}, assetreg: {},
+      refinterp: {}, timeline: {}, subtitle: {}, mediaref: {},
+    },
+    findShot: () => null,
+    slotOf: () => null,
+    isLocked: () => false,
+    shotAudio: { resolved: () => [], anchors: () => [] },
+    shotCtx: { build: () => ({}), candidates: () => ({}) },
+    draftShots: () => [],
+    dispatchAction: () => ({ ok: true }),
+    persist: () => {},
+    refresh: () => {},
+    now: () => "2026-08-30T00:00:00Z",
+  });
+}
+
+test("判据 5：去重问的是**登记表**，所以刷新 / 重试之后仍然不会重复起跑", () => {
+  const registry = [];
+  assert.equal(makeSkillController(registry).routedRunFor("conv-1"), null, "还没跑过");
+
+  skillrun.startRun(registry, {
+    skillId: "script-doctor",
+    skillVersion: 2,
+    origin: { kind: "conversation", conversationRunId: "conv-1" },
+  });
+  assert.equal(registry.length, 1);
+
+  // 「刷新」= 拿同一份持久化的登记表重新构造一个控制器（页面内存全没了）
+  const afterRefresh = makeSkillController(registry);
+  assert.ok(afterRefresh.routedRunFor("conv-1"), "刷新之后仍然认得出这一轮跑过了");
+  assert.equal(afterRefresh.routedRunFor("conv-2"), null, "别的轮次不受影响");
+
+  // 于是 decideRoute 拿到它就不再起跑
+  const d = decideRoute(PLAN, ctx({ ranFor: () => afterRefresh.routedRunFor("conv-1") }));
+  assert.equal(d.action, "already");
+});
+
+test("判据 5：跨层建议的幂等键也认登记表，不认页面内存", () => {
+  const registry = [];
+  skillrun.startRun(registry, {
+    skillId: "story-zoom",
+    skillVersion: 1,
+    origin: { kind: "structural-change", idempotencyKey: "consistency:outline:v3" },
+  });
+  const afterRefresh = makeSkillController(registry);
+  assert.equal(afterRefresh.hasOriginKey("consistency:outline:v3"), true);
+  assert.equal(afterRefresh.hasOriginKey("consistency:outline:v4"), false, "另一版是另一件事");
+  assert.equal(
+    zoomTrigger([{ kind: "outline.fields", version: 3 }], {
+      layersPresent: LAYERS,
+      hasRunKey: (k) => afterRefresh.hasOriginKey(k),
+    }),
+    null,
+  );
+});
+
+test("判据 3：自动起跑的运行落成**待定的提案**，不是已接受的改动", () => {
+  const registry = [];
+  const rec = skillrun.startRun(registry, {
+    skillId: "script-doctor",
+    skillVersion: 2,
+    origin: { kind: "conversation", conversationRunId: "conv-1" },
+    createdAt: "2026-08-30T00:00:00Z",
+  });
+  // origin 是**起跑时**就写下的，所以一次失败的运行照样占住幂等位
+  assert.deepEqual(rec.origin, { kind: "conversation", conversationRunId: "conv-1" });
+  assert.equal(rec.proposal, null, "刚起跑时还没有提案");
+  assert.equal(rec.decision, null);
+
+  const landed = skillrun.proposeRun(registry, rec.runId, { findings: [] }, {
+    model: "m",
+    at: "2026-08-30T00:01:00Z",
+  });
+  assert.ok(landed, "答案落成提案");
+  assert.equal(landed.status, "succeeded");
+  assert.equal(skillrun.dispositionOf(landed), "pending", "**待定** —— 不是自动接受");
+  assert.equal(skillrun.isPending(landed), true);
+  assert.equal(skillrun.isAccepted(landed), false, "要不要用仍然由他决定");
+  // origin 一路带着，所以「谁要求跑的」在提案上仍然查得到
+  assert.deepEqual(landed.origin, { kind: "conversation", conversationRunId: "conv-1" });
+});
+
+test("判据 3：两个新诊断能力**结构上**写不回作品", () => {
+  for (const id of ["story-zoom", "audience-engagement-reviewer"]) {
+    const app = skillapply.applicability(id);
+    assert.equal(app.can, false, `${id} 不该有写回路径`);
+    assert.ok(app.reason.trim(), "而且要说清为什么 —— 「设计如此」与「还没做」是两件事");
+  }
+  // …对比一个真的能写回的，证明这条断言不是恒真
+  assert.equal(skillapply.applicability("world-director").can, true);
 });

@@ -87,7 +87,7 @@ import { runOperation } from "./directorshot.js";
 import { episodeView, activeEpisode } from "../workflow/proddoc.js";
 import { applyConversationEdits } from "../workflow/convedits.js";
 import { actionCatalog } from "../workflow/convactions.js";
-import { decideRoute, routeOf, zoomTrigger } from "../workflow/convroute.js";
+import { decideRoute, routeOf, scopeOfSkill, zoomTrigger } from "../workflow/convroute.js";
 import { suggestExecutor, isRunnable } from "../services/runtime.js";
 import { renderQcPanel } from "./qcpanel.js";
 import { renderPostStatus } from "./poststatusbar.js";
@@ -1842,10 +1842,13 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     return picked === "manual" ? null : picked;
   }
 
-  /** 一个能力这次跑在什么范围上。只有声明 shot 范围的才需要一个镜头。 */
+  /** 一个能力这次跑在什么范围上。只有声明 shot 范围的才需要一个镜头。
+   *
+   *  范围从 `scopeOfSkill` 读（`routing.internalRouting.scope`）—— 直接写
+   *  `skill.routing.scope` 读到的是 `undefined`，而那在每一处判断里都表现为
+   *  「不是 shot」：镜头域能力于是永远拿不到 shotId，永远起不来，且不报错。 */
   function routeScopeFor(ctx, skillId) {
-    const skill = ctx.skills.find(skillId);
-    const scope = skill && skill.routing ? skill.routing.scope : "";
+    const scope = scopeOfSkill(ctx.skills.find(skillId));
     return scope === "shot" && ui.selectedShotId ? { shotId: ui.selectedShotId } : null;
   }
 
@@ -1946,6 +1949,10 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       text: `${trigger.root.doc === "brief" ? "创意" : trigger.root.doc === "outline" ? "大纲" : "分集规划"}` +
         ` v${trigger.root.version} 落下之后，下游的${trigger.affects.length}层可能还停在旧的上面`,
     };
+    // 重画。这是发送那条链的**最后一步**，后面没有别的东西会重画 —— 少了这一句，
+    // 建议就要等到某个不相干的渲染才出现，在他眼里等于「什么都没发生」
+    // （codex 独立审查轮 2 的 P1）。
+    render();
   }
 
   /** 每一轮的路由在屏幕上是什么状态 —— **从持久事实算出来**，不是页面记着的。
