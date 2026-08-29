@@ -1,6 +1,6 @@
 {
   "skillId": "shot-continuity-reviewer",
-  "skillVersion": 1,
+  "skillVersion": 2,
   "work": "review",
   "role": "场记",
   "title": "Shot Continuity Reviewer",
@@ -20,5 +20,20 @@
     "无法判断的项是否老实进了 unknown，而不是被当成通过",
     "是否越界检查了对白 / 音频 / 字幕"
   ],
-  "recommendedRuntime": "local_subscription"
+  "recommendedRuntime": "local_subscription",
+  "routing": {
+    "userCapability": [
+      "story-review"
+    ],
+    "internalRouting": {
+      "intent": "shot-continuity",
+      "kind": "diagnostic",
+      "scope": "shot",
+      "priority": 75,
+      "selectWhen": [
+        "这一镜",
+        "前后镜"
+      ]
+    }
+  }
 }

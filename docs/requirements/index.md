@@ -27,3 +27,5 @@ SUPERSEDED）与版本修订规则见
   （TASK-110 / ADR-0090）
 - [REQ-006](REQ-006-agent-can-do-what-the-creator-can-do.md) — CONFIRMED — 对话里的 Agent 能做创作者能做的事，并把意见带回给开发
   （TASK-114 / ADR-0089 决策 7、8）
+- [REQ-007](REQ-007-say-it-and-the-right-capability-runs.md) — CONFIRMED — 他说一句话，对的那个专业能力就跑起来：前端 Agent 只认三类工作，
+  选哪个专业能力由服务端确定性地决定（TASK-119 / ADR-0091）

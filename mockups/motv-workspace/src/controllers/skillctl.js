@@ -121,6 +121,45 @@ export function createSkillController({
     configurationHint: (executorId) => runtime.configurationHint(executorId),
     runs: () => docs.runs(),
     stats: (skillId) => skillrun.skillStats(docs.runs(), skillId),
+
+    /** 某一轮对话已经起过的那次运行，或 null（TASK-119 / ADR-0091 的幂等闸）。
+     *
+     *  问的是**登记表**，不是页面内存：那正是让「刷新 / 轮询 / 重试都不会重复启动」
+     *  成立的原因 —— 登记表跟着 canvas 一起持久化，页面内存不会。 */
+    routedRunFor: (conversationRunId) => {
+      if (!conversationRunId) return null;
+      return (docs.runs() || []).find(
+        (r) => r && r.origin && r.origin.conversationRunId === conversationRunId,
+      ) || null;
+    },
+
+    /** 哪些上下文键**此刻真的有内容**（TASK-119 / ADR-0091 决策 2）。
+     *
+     *  服务端的 resolver 要靠它判断「这个能力现在跑得起来吗」。为什么由前端报：
+     *  创作文档只活在浏览器里（ADR-0089 决策 2b），服务端读 canvas 再自己判一遍
+     *  等于把 `context` 那套内容判定在 Python 里重抄一份 —— 而两份判定一旦不一致，
+     *  屏幕上会显示「可以跑」，跑起来却被必要输入闸拒掉。
+     *
+     *  用的是**同一个** `missingInputs`，所以这里说「够」的，那边一定也说够。 */
+    readyInputs: (scope = null) => {
+      const out = new Set();
+      for (const skill of skills.SKILLS) {
+        // 只算参与自然语言路由的那些：resolver 只会从它们里面选，
+        // 为其余的包各建一次上下文是白花的（`context` 会把整条时间线投影出来）。
+        if (!skill.routing) continue;
+        const missing = new Set(self.missing(skill.skillId, {}, scope));
+        for (const key of skill.inputs) if (!missing.has(key)) out.add(key);
+      }
+      return [...out];
+    },
+
+    /** 这个幂等 key 是否已经用掉了（结构性变更只触发一次跨层诊断）。 */
+    hasOriginKey: (key) => {
+      if (!key) return false;
+      return (docs.runs() || []).some(
+        (r) => r && r.origin && r.origin.idempotencyKey === key,
+      );
+    },
     /** An input key's human label. Here rather than in each panel so 「缺少必要输入」
      *  reads the same wherever it is reported. */
     inputLabel: (key) => skills.SKILL_INPUTS[key] || key,
@@ -467,7 +506,7 @@ export function createSkillController({
      * (the creator pastes the answer back via `submitManual`); a local executor
      * runs it now.
      */
-    run: async (skillId, { executor = "manual", extra = {}, summary = null, scope = null } = {}) => {
+    run: async (skillId, { executor = "manual", extra = {}, summary = null, scope = null, origin = null } = {}) => {
       const skill = skills.findSkill(skillId);
       if (!skill) return { ok: false, error: `未知能力 ${skillId}` };
       // A shot-scoped capability with no shot has nothing to read. Refused HERE with
@@ -494,6 +533,11 @@ export function createSkillController({
         skillVersion: skill.version,
         runtime: exec ? exec.runtime : "manual",
         executor,
+        // WHO ASKED (TASK-119). Recorded AT LAUNCH, before anything can fail:
+        // that is what makes it a dedupe key rather than a report. A run that
+        // errors out still carries its origin, so the sentence that started it
+        // does not get to start a second one.
+        origin,
         inputKeys: Object.keys(context),
         inputSummary: summary || (shotScoped && context.shotContext
           ? shotctx.summarize(context.shotContext)

@@ -19,7 +19,7 @@
 | `docs/reports/` | 阶段性工作报告 —— **历史证据**，默认不读 |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：5 在办 · 2 待排期 · 112 已完成 · 74 条 ADR。
+**当前**：5 在办 · 2 待排期 · 115 已完成 · 75 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -185,6 +185,9 @@
 | [TASK-115-delete-with-an-undo-everywhere.md](tasks/done/TASK-115-delete-with-an-undo-everywhere.md) | TASK-115：故事与镜头都能删 —— 而且都能撤销 | 完成（2026-08-29） |
 | [TASK-116-proposal-loop-both-ways.md](tasks/done/TASK-116-proposal-loop-both-ways.md) | TASK-116：提案回路 —— 我提案，他在对话里拍板，我读回他的决定 | 完成（2026-08-29） |
 | [TASK-117-two-chat-windows.md](tasks/done/TASK-117-two-chat-windows.md) | TASK-117：两个聊天窗口 —— 「作品」改东西，「开发」提意见 | 完成（2026-08-29） |
+| [TASK-118-frontend-triggers-a-dev-plan.md](tasks/done/TASK-118-frontend-triggers-a-dev-plan.md) | TASK-118：前端能触发后端出方案 + product-loop Skill | 完成（2026-08-29） |
+| [TASK-119-three-user-capabilities-and-a-resolver.md](tasks/done/TASK-119-three-user-capabilities-and-a-resolver.md) | TASK-119：三个用户能力 + 后端 resolver | 实现完成（2026-08-29） |
+| [TASK-120-feedback-carries-a-locator.md](tasks/done/TASK-120-feedback-carries-a-locator.md) | TASK-120：意见自带定位情报 —— 让后端更快找到那一页 | 完成（2026-08-29） |
 
 ## 已完成 · 设计与验收记录
 
@@ -220,7 +223,7 @@
 | 位置 | 放什么 |
 | --- | --- |
 | [当前架构合同](current-architecture.md) | **现在**成立的边界与约束（NOW） |
-| [`docs/adr/`](adr/) | 74 条决策记录（ADR-0001 … ADR-0090）—— WHY / HISTORY |
+| [`docs/adr/`](adr/) | 75 条决策记录（ADR-0001 … ADR-0091）—— WHY / HISTORY |
 | [`docs/design/`](design/) 根 | 系统合同、产品信息架构、L0–S7 I/O 合同 |
 | [项目背景与路线](project-context.md) | 这个项目是什么、走到哪了 |
 | [实施规划](implementation_plan.md) | 阶段与里程碑路线图 |

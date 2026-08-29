@@ -56,9 +56,76 @@ _OPTIONAL_MANIFEST = (
     "reviewCriteria",
     "deprecated",
     "promptBlocks",
+    "routing",
 )
 _STRING_FIELDS = ("skillId", "work", "role", "title", "purpose", "recommendedRuntime")
 _STRING_LIST_FIELDS = ("inputs", "optionalInputs", "reviewCriteria")
+
+#: --- 路由元数据（TASK-119 / ADR-0091）------------------------------------- #
+#:
+#: 两层，故意分开，因为**看得见它的人不一样**：
+#:
+#:   userCapability   前端对话 Agent 看得见的那三个「用户能力」之一。它进提示词。
+#:   internalRouting  只有服务端的 resolver 看得见：选中哪个内部专业能力、为什么。
+#:                    **它永远不进提示词。**
+#:
+#: WHY THE SPLIT. 第一版把每个能力的触发例句都塞进提示词，于是提示词随装了多少包
+#: 线性膨胀，而且多个包的触发词互相抢路由 —— 「检查一下」会被最泛的那个吃掉。
+#: 收敛之后，模型只做一件它擅长的事（这句话属于三类里的哪一类），选哪个专业能力由
+#: **确定性规则**在服务端做。模型判错一类，创作者一眼看得出来；模型在 20 个近义
+#: 能力里挑错一个，没人看得出来。
+#:
+#: 元数据**不进 prompt，也不进 outputSchema**：它改变的是「谁被选中」，从不改变
+#: 「被问了什么」或「答案必须长什么样」。digest 照旧覆盖整份 manifest，所以改了
+#: 路由就要升 ``skillVersion`` —— 与改 prompt 同一条规矩，不开例外（ADR-0067 决策 4）。
+#:
+#: A CLOSED VOCABULARY，故意的。自由字符串无法被校验，于是拼错一个字母的包会安静地
+#: 永远不被路由到 —— 那是本文件其余每一条校验都在防的失败形状。
+
+#: 前端对话 Agent 唯一看得见的三个能力。**这个元组是唯一权威**；
+#: ``product-skills/user-capabilities.json`` 只提供给人看的标题与说明，
+#: 它的 id 集合必须与这里逐字相等，否则整份加载失败。
+USER_CAPABILITIES = (
+    "story-development",  # 从想法 / 主题 / 人物 / 世界观 / 结构上把故事往前推
+    "episode-production",  # 把这一集做出来或继续完善
+    "story-review",  # 检查、诊断故事或这一集的问题
+)
+
+#: 内部意图 —— resolver 的二级选择用它做等价类。**每个 facade 之内不得重复**
+#: （否则两个包对同一类请求同分，选谁就成了目录遍历顺序的函数）。
+_ROUTING_INTENTS = (
+    "story-structure",  # 故事大纲 / 主线结构
+    "story-revision",  # 改已有的大纲
+    "episode-structure",  # 分集规划
+    "plan-revision",  # 改已有的分集规划
+    "worldbuilding",  # 世界观与规则
+    "character-work",  # 角色与人物关系
+    "scene-writing",  # 写这一集的剧本
+    "script-revision",  # 改已有的剧本
+    "breakdown",  # 把剧本拆成实体
+    "storyboard",  # 分镜
+    "script-review",  # 这一集的剧本有什么问题
+    "continuity-check",  # 一集之内前后对不对得上
+    "shot-continuity",  # 单个镜头与前后镜的衔接
+    "consistency-zoom",  # 同一个故事在不同抽象层之间是否同步
+    "audience-engagement",  # 观众看不看得下去：钩子 / 悬念 / 节奏 / 意外 / 赌注
+)
+
+#: 生成型能力产出新的作品内容（提案）；诊断型只产出结论与建议，永远不写作品。
+_ROUTING_KINDS = ("generative", "diagnostic")
+
+#: 这个能力在**哪一层**上工作。与 ``inputs`` 里的 shot 域输入互为印证：一个声明
+#: ``scope: "project"`` 却要 ``shotContext`` 的包是自相矛盾的，加载即拒。
+_ROUTING_SCOPES = ("project", "episode", "shot")
+
+_ROUTING_KEYS = frozenset({"userCapability", "internalRouting"})
+_INTERNAL_KEYS = frozenset({"intent", "kind", "scope", "priority", "selectWhen"})
+
+#: `selectWhen` 是**关键词**，不是例句：二级选择的一点点确定性依据，服务端 resolver
+#: 私有。短且少是硬要求 —— 一个包维护一长串自然语言触发词，正是这次收敛要去掉的东西。
+_SELECT_WHEN_MAX_CHARS = 24
+_SELECT_WHEN_MAX_COUNT = 6
+
 
 #: The output-contract mini-language, mirrored from ``src/workflow/skills.js``.
 #: Deliberately tiny and TOTAL: there is no way to express "accept anything", so
@@ -115,6 +182,9 @@ class Skill:
     #: given. As package content they are digest-covered, so a Run's
     #: ``skillDigest`` pins the exact wording it used (ADR-0067).
     prompt_blocks: dict
+    #: 路由元数据（TASK-119 / ADR-0091），或 ``None`` —— 「这个能力不参与自然语言
+    #: 路由」。``None`` 与「写了但写错了」是两件不同的事：后者让整个包加载失败。
+    routing: dict | None
     output_schema: dict
     digest: str
     source: str
@@ -142,6 +212,9 @@ class Skill:
             "recommendedRuntime": self.recommended_runtime,
             "instruction": self.instruction,
             "promptBlocks": dict(self.prompt_blocks),
+            # 投影给浏览器（ADR-0091 决策 2）：页面读不到文件系统，所以路由元数据只能
+            # 从这里到达它 —— 页面**不得**自持第二份能力目录。
+            "routing": dict(self.routing) if self.routing else None,
             "outputSchema": self.output_schema,
             "deprecated": self.deprecated,
             "skillDigest": self.digest,
@@ -337,7 +410,130 @@ def _check_constraint_types(spec: dict, path: str) -> None:
         raise SkillPackageError(f"{path}.nonEmpty 必须是布尔值")
 
 
-def _read_manifest(raw: object) -> dict:
+def _check_internal_routing(raw: object, *, shot_scoped: bool) -> dict:
+    """`internalRouting` —— **只有服务端 resolver 看得见**的那一半。"""
+
+    if not isinstance(raw, dict):
+        raise SkillPackageError("routing.internalRouting 必须是一个对象")
+    unknown = set(raw) - _INTERNAL_KEYS
+    if unknown:
+        raise SkillPackageError(f"internalRouting 有无法识别的字段：{sorted(unknown)}")
+    missing = sorted(_INTERNAL_KEYS - set(raw))
+    if missing:
+        raise SkillPackageError(f"internalRouting 缺少 {missing} —— 没有默认值")
+    intent = raw["intent"]
+    if intent not in _ROUTING_INTENTS:
+        raise SkillPackageError(
+            f"internalRouting.intent 只能是 {list(_ROUTING_INTENTS)} 之一"
+            f"（收到 {intent!r}）"
+        )
+    kind = raw["kind"]
+    if kind not in _ROUTING_KINDS:
+        raise SkillPackageError(
+            f"internalRouting.kind 只能是 {list(_ROUTING_KINDS)} 之一（收到 {kind!r}）"
+        )
+    scope = raw["scope"]
+    if scope not in _ROUTING_SCOPES:
+        raise SkillPackageError(
+            f"internalRouting.scope 只能是 {list(_ROUTING_SCOPES)} 之一"
+            f"（收到 {scope!r}）"
+        )
+    if shot_scoped and scope != "shot":
+        raise SkillPackageError(
+            "internalRouting.scope 与 inputs 矛盾：这个能力声明了镜头域输入，"
+            f"只能对着一个镜头运行，scope 必须是 shot（收到 {scope!r}）"
+        )
+    priority = raw["priority"]
+    # bool 先挡掉：Python 里 True == 1，一个 "priority": true 会变成优先级 1
+    if isinstance(priority, bool) or not isinstance(priority, int):
+        raise SkillPackageError("internalRouting.priority 必须是整数")
+    if not 1 <= priority <= 100:
+        raise SkillPackageError(
+            f"internalRouting.priority 必须在 1–100 之间（收到 {priority}）"
+        )
+    words = raw["selectWhen"]
+    if not isinstance(words, list) or not words:
+        raise SkillPackageError("internalRouting.selectWhen 必须是非空的字符串数组")
+    if len(words) > _SELECT_WHEN_MAX_COUNT:
+        raise SkillPackageError(
+            f"internalRouting.selectWhen 最多 {_SELECT_WHEN_MAX_COUNT} 个关键词"
+            f"（收到 {len(words)}）—— 它是关键词，不是触发例句"
+        )
+    seen = set()
+    for item in words:
+        if not isinstance(item, str) or not item.strip():
+            raise SkillPackageError("internalRouting.selectWhen 里有空的关键词")
+        if len(item) > _SELECT_WHEN_MAX_CHARS:
+            raise SkillPackageError(
+                f"internalRouting.selectWhen 的每个关键词不得超过 "
+                f"{_SELECT_WHEN_MAX_CHARS} 字：{item[:20]}…"
+            )
+        if item.strip() in seen:
+            raise SkillPackageError(
+                f"internalRouting.selectWhen 里有重复：{item.strip()}"
+            )
+        seen.add(item.strip())
+    return {
+        "intent": intent,
+        "kind": kind,
+        "scope": scope,
+        "priority": priority,
+        "selectWhen": [w.strip() for w in words],
+    }
+
+
+def _check_routing(raw: object, *, shot_scoped: bool) -> dict:
+    """校验一份路由元数据。**全有或全无**，没有静默默认值。
+
+    两半，看得见它们的人不一样：userCapability 会进前端 Agent 的提示词，
+    internalRouting 只给服务端 resolver。分开写不是洁癖 —— 它是这次收敛的
+    全部机制：提示词里能出现什么，由格式本身限制住，而不是由每个调用点自觉。
+
+    FAIL CLOSED，而且理由要能照着修（ADR-0067 决策 7 的同一条姿态）：一份路由元数据
+    出错时，正确结果是**这个包整个不可用并说出原因**，而不是「路由字段被忽略、能力
+    照常出现在目录里」。后者在屏幕上与「作者根本没写路由」一模一样，而作者相信自己
+    写了 —— 这是本仓库反复付过代价的那种失败。
+
+    shot_scoped 由调用方判定（它要读 skill-inputs.json 才知道哪些输入是镜头
+    域的），用来挡住自相矛盾的声明：一个只能对着一个镜头运行的能力，不可能是
+    scope: "project"。
+    """
+
+    if not isinstance(raw, dict):
+        raise SkillPackageError("manifest.json 的 routing 必须是一个对象")
+    unknown = set(raw) - _ROUTING_KEYS
+    if unknown:
+        raise SkillPackageError(f"routing 有无法识别的字段：{sorted(unknown)}")
+    missing = sorted(_ROUTING_KEYS - set(raw))
+    if missing:
+        raise SkillPackageError(f"routing 缺少 {missing} —— 路由元数据没有默认值")
+    caps = raw["userCapability"]
+    if not isinstance(caps, list) or not caps:
+        raise SkillPackageError(
+            "routing.userCapability 必须是非空数组 —— 它是前端 Agent 看得见的"
+            "那几个用户能力里的哪一个"
+        )
+    if len(caps) > len(USER_CAPABILITIES):
+        raise SkillPackageError("routing.userCapability 条目多于用户能力总数")
+    seen_caps = set()
+    for cap in caps:
+        if cap not in USER_CAPABILITIES:
+            raise SkillPackageError(
+                f"routing.userCapability 只能取 {list(USER_CAPABILITIES)}"
+                f"（收到 {cap!r}）"
+            )
+        if cap in seen_caps:
+            raise SkillPackageError(f"routing.userCapability 里有重复：{cap}")
+        seen_caps.add(cap)
+    return {
+        "userCapability": list(caps),
+        "internalRouting": _check_internal_routing(
+            raw["internalRouting"], shot_scoped=shot_scoped
+        ),
+    }
+
+
+def _read_manifest(raw: object, shot_scoped_inputs: Sequence[str] = ()) -> dict:
     if not isinstance(raw, dict):
         raise SkillPackageError("manifest.json 必须是一个对象")
     for key in _REQUIRED_MANIFEST:
@@ -379,6 +575,19 @@ def _read_manifest(raw: object) -> dict:
             raise SkillPackageError(
                 f"manifest.json 的 promptBlocks.{key} 必须是非空字符串"
             )
+    if "routing" in raw:
+        # 镜头域输入的名单是**共享的那一份**（``skill-inputs.json``），由调用方读进来
+        # ——「哪些输入只能对着一个镜头解析」是产品级事实，不该在这里再抄一遍。
+        # 拿不到名单时不做这条交叉校验：**判不了的不判**，宁可漏报不误杀。
+        known = set(shot_scoped_inputs)
+        shot_scoped = any(
+            k in known
+            for k in list(raw["inputs"]) + list(raw.get("optionalInputs", []))
+        )
+        raw = {
+            **raw,
+            "routing": _check_routing(raw["routing"], shot_scoped=shot_scoped),
+        }
     return raw
 
 
@@ -444,8 +653,15 @@ def read_package_files(
     return files
 
 
-def load_package(directory: Path, source: str) -> Skill:
-    """Load and validate ONE package. Raises ``SkillPackageError`` if unusable."""
+def load_package(
+    directory: Path, source: str, shot_scoped_inputs: Sequence[str] = ()
+) -> Skill:
+    """Load and validate ONE package. Raises ``SkillPackageError`` if unusable.
+
+    ``shot_scoped_inputs`` is the shared list from ``skill-inputs.json``; it is only
+    used to refuse a ``routing.scope`` that contradicts the package's own inputs.
+    Omitted, that one cross-check is skipped rather than guessed.
+    """
 
     files = read_package_files(directory, PACKAGE_FILES)
 
@@ -458,7 +674,7 @@ def load_package(directory: Path, source: str) -> Skill:
     except json.JSONDecodeError as exc:
         raise SkillPackageError(f"output.schema.json 不是合法 JSON：{exc}") from exc
 
-    manifest = _read_manifest(manifest)
+    manifest = _read_manifest(manifest, shot_scoped_inputs)
     _check_schema(schema)
 
     instruction = files["prompt.md"]
@@ -489,6 +705,7 @@ def load_package(directory: Path, source: str) -> Skill:
         # a blank line from it (acceptance #1 is byte-identity).
         instruction=instruction.rstrip("\n"),
         prompt_blocks=dict(manifest.get("promptBlocks") or {}),
+        routing=dict(manifest["routing"]) if manifest.get("routing") else None,
         output_schema=schema,
         digest=compute_digest(files),
         source=source,
@@ -500,6 +717,7 @@ def load_catalog(
     roots: Sequence[tuple[str, Path | None] | tuple[str, Path | None, Path | None]],
     *,
     known_digests: Mapping[tuple[str, int], str] | None = None,
+    shot_scoped_inputs: Sequence[str] = (),
 ) -> Catalog:
     """Discover every package under *roots* and merge them by priority.
 
@@ -556,7 +774,7 @@ def load_catalog(
             unreadable_sources.add(source)
         for entry in entries:
             try:
-                skill = load_package(entry, source)
+                skill = load_package(entry, source, shot_scoped_inputs)
             except SkillPackageError as exc:
                 problems.append(SkillProblem(entry.name, source, str(entry), str(exc)))
                 continue
@@ -649,6 +867,66 @@ def load_input_labels(path: Path) -> dict[str, str]:
     ):
         raise SkillPackageError(f"{path.name} 的 inputs 必须是字符串映射")
     return labels
+
+
+def load_user_capabilities(path: Path) -> list[dict]:
+    """前端对话 Agent 看得见的三个能力，连同给人看的标题与说明。
+
+    **id 集合必须与 `USER_CAPABILITIES` 逐字相等。** 这份文件只提供文案，不提供
+    权威名单 —— 两处各持一份名单必然漂移，而漂移的表现会是「某个 facade 悄悄不再
+    被路由到」，屏幕上看不出来。
+
+    FAIL CLOSED：读不出来或对不上就抛错。没有这份表，提示词里就没有能力可说，
+    而一个默默不带能力的提示词与「这台机器没装能力」在结果上无法区分。
+    """
+
+    try:
+        raw = json.loads(normalise_text(path.read_bytes().decode("utf-8")))
+    except FileNotFoundError as exc:
+        raise SkillPackageError(f"缺少 {path.name}") from exc
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SkillPackageError(f"无法读取 {path.name}：{exc}") from exc
+    rows = raw.get("capabilities") if isinstance(raw, dict) else None
+    if not isinstance(rows, list):
+        raise SkillPackageError(f"{path.name} 缺少 capabilities 列表")
+    out = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise SkillPackageError(f"{path.name} 的 capabilities 里有非对象条目")
+        for key in ("id", "title", "purpose"):
+            if not isinstance(row.get(key), str) or not row[key].strip():
+                raise SkillPackageError(f"{path.name}：某个能力缺少 {key}")
+        scopes = row.get("scopes")
+        if not isinstance(scopes, list) or not scopes:
+            raise SkillPackageError(f"{path.name}：{row['id']} 缺少 scopes")
+        for scope in scopes:
+            if scope not in _ROUTING_SCOPES:
+                raise SkillPackageError(
+                    f"{path.name}：{row['id']} 的 scopes 里有未知范围 {scope!r}"
+                )
+        examples = row.get("examples", [])
+        if not isinstance(examples, list) or any(
+            not isinstance(x, str) or not x.strip() for x in examples
+        ):
+            raise SkillPackageError(
+                f"{path.name}：{row['id']} 的 examples 必须是字符串数组"
+            )
+        out.append(
+            {
+                "id": row["id"],
+                "title": row["title"].strip(),
+                "purpose": row["purpose"].strip(),
+                "scopes": list(scopes),
+                "examples": [x.strip() for x in examples],
+            }
+        )
+    ids = tuple(row["id"] for row in out)
+    if ids != USER_CAPABILITIES:
+        raise SkillPackageError(
+            f"{path.name} 的能力 id 与 USER_CAPABILITIES 不一致："
+            f"文件是 {list(ids)}，代码是 {list(USER_CAPABILITIES)}"
+        )
+    return out
 
 
 def load_shot_scoped_inputs(path: Path) -> list[str]:

@@ -1,6 +1,6 @@
 {
   "skillId": "continuity-reviewer",
-  "skillVersion": 1,
+  "skillVersion": 2,
   "work": "review",
   "role": "场记",
   "title": "Continuity Reviewer",
@@ -20,5 +20,22 @@
     "是否把创作选择误报为连贯性错误",
     "没有问题时是否老实返回空列表"
   ],
-  "recommendedRuntime": "local_subscription"
+  "recommendedRuntime": "local_subscription",
+  "routing": {
+    "userCapability": [
+      "story-review"
+    ],
+    "internalRouting": {
+      "intent": "continuity-check",
+      "kind": "diagnostic",
+      "scope": "episode",
+      "priority": 70,
+      "selectWhen": [
+        "连续性",
+        "前后",
+        "衔接",
+        "矛盾"
+      ]
+    }
+  }
 }

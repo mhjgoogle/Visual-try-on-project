@@ -785,8 +785,12 @@ test("every capability declares the KIND of work it does, and review is review",
   }
   const review = SKILLS.filter((s) => s.work === "review").map((s) => s.skillId).sort();
   assert.deepEqual(review, [
-    "asset-librarian", "continuity-reviewer", "prompt-reviewer",
-    "script-doctor", "shot-continuity-reviewer", "subtitle-reviewer",
+    // TASK-119 加了两个诊断类：跨层同步（story-zoom）与观众视角审读
+    // （audience-engagement-reviewer）。两个都只产出结论与建议，`skillapply` 里
+    // 显式 `can: false` —— 它们**结构上**写不回作品，正合这条判据。
+    "asset-librarian", "audience-engagement-reviewer", "continuity-reviewer",
+    "prompt-reviewer", "script-doctor", "shot-continuity-reviewer",
+    "story-zoom", "subtitle-reviewer",
   ], "a reviewer produces findings ABOUT existing content, never new content");
   // the two capabilities this round added for reviewing are review; the two that
   // WRITE prompts are creative — that split is what §14's division rests on

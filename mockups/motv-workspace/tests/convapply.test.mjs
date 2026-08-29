@@ -293,3 +293,13 @@ test("服务端自己处理的那几种不算「做不到」（真机上撞见�
     assert.equal(m.rows[0].applied.length, 1, kind);
   }
 });
+
+test("dev.request 也是服务端处理的那一类 —— 真机上它一度同时挂在两个标题下", () => {
+  const m = threadModel([{
+    turnId: "t", role: "agent", runId: "r", status: "succeeded", text: "已交给开发",
+    edits: [{ kind: "dev.request", text: "精简左侧导航" }],
+    applied: [{ kind: "dev.request", detail: "已交给开发，正在写方案" }],
+  }]);
+  assert.equal(m.rows[0].unsupported.length, 0);
+  assert.equal(m.rows[0].applied.length, 1);
+});

@@ -87,6 +87,8 @@ import { runOperation } from "./directorshot.js";
 import { episodeView, activeEpisode } from "../workflow/proddoc.js";
 import { applyConversationEdits } from "../workflow/convedits.js";
 import { actionCatalog } from "../workflow/convactions.js";
+import { decideRoute, routeOf, zoomTrigger } from "../workflow/convroute.js";
+import { suggestExecutor, isRunnable } from "../services/runtime.js";
 import { renderQcPanel } from "./qcpanel.js";
 import { renderPostStatus } from "./poststatusbar.js";
 import { renderShotQc, bindShotQc, shotQcModel } from "./shotqcpanel.js";
@@ -487,10 +489,23 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       // `renderAgentSession`, and capability runs remain readable on the 生成记录
       // page, so this removes a surface he does not use rather than a fact.
       `<div class="st-dir-flow">` +
+      // 开发刚给了新方案 —— 在他正看着的那条流里说一句，而不是等他自己切过去看
+      (ui.convProposalNote
+        ? `<div class="cv-note"><span class="k">开发给了你 ${ui.convProposalNote} 条新方案</span>` +
+          `<button class="btn sm" data-cv-gonote="1">去看看</button></div>`
+        : "") +
+      // 结构性改动之后的**建议**（不是自动跑）。他点了才走一轮对话去查。
+      (convMode() === "work" && ui.convSuggest
+        ? `<div class="cv-note"><span class="k">${esc(ui.convSuggest.text)}</span>` +
+          `<button class="btn sm" data-cv-suggest="1">查一下</button></div>`
+        : "") +
       renderThread(threadModel(convState().turns, {
         pendingRun: convState().pendingRun,
         pendingStatus: convState().pendingStatus,
         applied: convState().applied,
+        // 「识别到什么能力 / 跑了没有 / 缺什么」——每次渲染重算，来源是登记表
+        // 与当前文档，所以刷新之后说法不变，而且重算不会启动任何东西。
+        routeState: convRouteState(ctx, convState().turns),
       })) +
       `</div>` +
       `<div class="st-dir-composer">` + session.composer + `</div>` +
@@ -1649,12 +1664,57 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
    *  turns, the run in flight and its status. Three flat fields would make a turn
    *  started on 分镜 render its spinner on 资产库.
    */
+  /** 开发那边有没有新方案 —— **主动去问**，不等他先开口。
+   *
+   *  产品负责人 2026-08-29：「你给方案之后要触发前端agent的交互。」开发写方案发生在
+   *  另一个进程里（仓库那边），浏览器不可能被通知到，所以这里每 20 秒问一次；数字变大
+   *  就在他正看着的那条流里插一行，并把「开发」tab 上的圆点点亮。
+   *
+   *  **一个定时器，跟着右栏的生命周期**：重复 bind 不会叠出第二个（下面先清）。 */
+  function pollProposals(ctx) {
+    const tick = () => {
+      const before = ui.convOpenProposals || 0;
+      Promise.resolve(openProposalCount()).then((n) => {
+        if (n === before) return;
+        ui.convOpenProposals = n;
+        // 变多了 = 开发刚给了新东西。变少了（他刚答复完）只更新数字，不打扰他。
+        if (n > before) ui.convProposalNote = n - before;
+        render();
+      });
+    };
+    tick();
+    if (ui.convPollTimer) clearInterval(ui.convPollTimer);
+    ui.convPollTimer = setInterval(tick, 20000);
+  }
+
   /** 当前是哪个窗口。默认「作品」—— 他绝大多数话是要改东西的。 */
   function convMode() {
     return ui.convMode === "feedback" ? "feedback" : "work";
   }
 
   //: 「开发」窗口的线程 key。项目级一条线，不随页面变 —— 意见不属于某一页。
+  //: 每个页面**是哪个文件画的**。产品负责人 2026-08-29：「前端agent给你的留言应该加入
+  //: 更详细的页面定位情报，还需要考虑如何能让你更快的理解问题和解决问题。」
+  //:
+  //: 后端 Agent 拿到一条「这一页左边太挤」时，最贵的一步是**找到那一页在哪个文件**。
+  //: 这张表把那一步从「翻仓库」变成「读一行」。它住在这里，因为这个模块就是页面分发表
+  //: 的所在地；`tests/…/prodsource.test.mjs` 钉住它不许指向不存在的文件。
+  const MODULE_SOURCE = {
+    brief: "src/ui/briefws.js",
+    story: "src/ui/storyws.js",
+    settings: "src/ui/biblews.js",
+    relationships: "src/ui/relws.js",
+    world: "src/ui/worldws.js",
+    episodes: "src/ui/epplanws.js",
+    board: "src/ui/episodews.js",
+    storyboard: "src/ui/storyboard.js",
+    shotwork: "src/ui/mediaws.js",
+    cutreview: "src/ui/cutreview.js",
+    delivery: "src/ui/postconsole.js",
+    assets: "src/ui/assetlibws.js",
+    storage: "src/ui/storagews.js",
+  };
+
   const FEEDBACK_THREAD = "__feedback__";
 
   function convKey() {
@@ -1688,9 +1748,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     if (st.loaded === stamp) return;
     st.loaded = stamp;
     // 提案数跟着线程一起读：他不必进「开发」窗口才知道有东西在等他
-    Promise.resolve(openProposalCount()).then((n) => {
-      if (n !== ui.convOpenProposals) { ui.convOpenProposals = n; render(); }
-    });
+    pollProposals(ctx);
     Promise.resolve(loadThread(project, convKey())).then((res) => {
       st.turns = res.turns;
       ui.convOtherPages = res.others || {};
@@ -1717,6 +1775,13 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
    *  Sent on EVERY turn: 「这个」「当前」「这一镜」 are the words he actually uses, and
    *  without this the answer has to ask him where he is — which is the thing he
    *  noticed was missing (2026-08-27). */
+  function episodeLabelOf(ep, epIndex) {
+    const title = String((ep && ep.title) || "").trim();
+    if (epIndex < 0) return title;
+    const no = `EP${String(epIndex + 1).padStart(2, "0")}`;
+    return title.startsWith(no) ? title : `${no} ${title}`.trim();
+  }
+
   function conversationContext(ctx) {
     const pd = ctx.prodData ? ctx.prodData() : null;
     const shotId = ui.selectedShotId || null;
@@ -1733,15 +1798,203 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       // 他在哪个窗口里说话。**服务端据此强制执行**（不是给模型的提示）：
       // 「开发」窗口里的一轮，作品类动作一个都不许落地 —— 那正是两个窗口的意义。
       intent: convMode() === "feedback" ? "feedback" : "work",
+      // 哪些材料**此刻真的有**（TASK-119）。服务端的 resolver 靠它决定
+      // 「这一类工作现在能不能跑、还缺什么」——创作文档只活在浏览器里，
+      // 所以就绪状态只能由这边报。「开发」窗口里不报：那个窗口不会跑作品能力。
+      ...(convMode() === "feedback"
+        ? {}
+        : { readyInputs: ctx.skills.readyInputs(ui.selectedShotId ? { shotId: ui.selectedShotId } : null) }),
+      // 定位情报：**结构化**送过去，不指望模型记得写进句子里。
+      //   route  —— 他此刻的地址，我照着它就能打开同一屏
+      //   section—— 同一页里的哪一节（分镜设计有 场景/分镜 两节）
+      //   source —— 画这一页的文件，省掉「先找到它在哪」那一步
+      route: (typeof window !== "undefined" && window.location
+        ? String(window.location.hash || "")
+        : ""),
+      section: sectionOf(activeModule) || "",
+      source: MODULE_SOURCE[activeModule] || "",
       module: activeModule,
       moduleLabel: MODULE_LABEL[activeModule] || activeModule,
       spaceLabel: SPACE_LABEL[spaceOf(activeModule)] || "",
       shotId,
       shotTitle: shot ? (shot.title || "") : "",
-      episodeLabel: ep
-        ? `${epIndex >= 0 ? `EP${String(epIndex + 1).padStart(2, "0")} ` : ""}${ep.title || ""}`.trim()
-        : "",
+      // 集号只补在标题**没有自带**它的时候：真实项目里标题常常就叫「EP01 迷雾入城」，
+      // 无条件拼一次就成了「EP01 EP01 迷雾入城」（台账 #5 上就是这么记下来的）。
+      episodeLabel: ep ? episodeLabelOf(ep, epIndex) : "",
     };
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* 意图路由：一句话 → 一个能力（TASK-119 / ADR-0091）                       */
+  /* ---------------------------------------------------------------------- */
+
+  /** 这次路由要用哪个执行器，或 null（本机没有能自动跑的）。
+   *
+   *  `manual` 不算「能自动跑」—— 手工运行是**开一条等人的记录**，不是一次运行。
+   *  所以这里返回 null，屏幕上给出「去运行」那条路，而不是假装起跑了。 */
+  function routeExecutor(skill) {
+    const probe = execProbe || {};
+    const picked = suggestExecutor(
+      skill && skill.work,
+      (id) => id !== "manual" && isRunnable((probe[id] || {}).state),
+      null,
+    );
+    return picked === "manual" ? null : picked;
+  }
+
+  /** 一个能力这次跑在什么范围上。只有声明 shot 范围的才需要一个镜头。 */
+  function routeScopeFor(ctx, skillId) {
+    const skill = ctx.skills.find(skillId);
+    const scope = skill && skill.routing ? skill.routing.scope : "";
+    return scope === "shot" && ui.selectedShotId ? { shotId: ui.selectedShotId } : null;
+  }
+
+  /** `decideRoute` 要的那一组回调。`ranFor` 问的是**登记表**，所以幂等跨得过刷新。 */
+  function routeCtxFor(ctx, convRunId) {
+    return {
+      mode: convMode(),
+      findSkill: (id) => ctx.skills.find(id),
+      missingOf: (id) => ctx.skills.missing(id, {}, routeScopeFor(ctx, id)),
+      labelOf: (k) => ctx.skills.inputLabel(k),
+      pickExecutor: (skill) => routeExecutor(skill),
+      ranFor: () => ctx.skills.routedRunFor(convRunId),
+    };
+  }
+
+  /** 哪几层**真的有东西**（story-zoom 的五层模型映射到这个产品的权威对象）。
+   *
+   *  从 `ctx.skills.context("story-zoom")` 读，而不是各自去翻文档：那样这里看到的
+   *  材料与那次运行真正拿到的材料永远是同一份。 */
+  function layersPresent(ctx) {
+    const c = ctx.skills.context("story-zoom") || {};
+    const has = (v) => {
+      if (v == null) return false;
+      if (typeof v === "string") return !!v.trim();
+      if (Array.isArray(v)) return v.length > 0;
+      if (typeof v === "object") return Object.keys(v).length > 0;
+      return true;
+    };
+    return {
+      L2: has(c.outline) || has(c.currentPlan),
+      L3: has(c.scenes) || has(c.shots),
+      L4: has(c.characters) || has(c.relationships) || has(c.world),
+      L5: has(c.episodeScript),
+    };
+  }
+
+  /** 起跑一次被路由到的能力。走的是 `ctx.skills.run` —— 与他自己在「能力」里点
+   *  运行**同一条路径**，所以守卫、登记、schema 校验、提案语义一条不少。
+   *
+   *  自动起跑的是**运行**，不是接受：答案照旧落成 pending 的提案，要不要用由他决定。 */
+  function launchRouted(ctx, { skillId, executor, origin, summary, said }) {
+    return Promise.resolve()
+      .then(() => ctx.skills.run(skillId, {
+        executor,
+        origin,
+        summary,
+        scope: routeScopeFor(ctx, skillId),
+      }))
+      .then((res) => {
+        if (!res || !res.ok) ctx.toast(`${said}没跑成：${(res && res.error) || "没有返回结果"}`);
+        else ctx.toast(`${said} —— 结果在「能力」面板里等你决定要不要用`);
+      })
+      // 失败也要说出来（ADR-0089 决策 6）：一次静默失败的自动运行，
+      // 在屏幕上与「它根本没听懂」无法区分。
+      .catch((e) => ctx.toast(`${said}没跑成：${(e && e.message) || e}`))
+      .then(() => render());
+  }
+
+  /** 这一轮识别到的能力，该跑就跑。
+   *
+   *  **只在发送那条链里调用**，从不在读线程时调用 —— 那是「刷新 / 轮询不会重复启动」
+   *  最结实的那一半保证：读路径上根本没有起跑的代码。另一半是登记表里的幂等键。 */
+  function runRouteFor(ctx, convRunId, turn, said) {
+    const route = routeOf(turn);
+    if (!route) return Promise.resolve();
+    const decision = decideRoute(route, routeCtxFor(ctx, convRunId));
+    if (decision.action !== "run") {
+      render(); // 没跑也要显示：识别到了什么、为什么没跑
+      return Promise.resolve();
+    }
+    return launchRouted(ctx, {
+      skillId: decision.skillId,
+      executor: decision.executor,
+      origin: { kind: "conversation", conversationRunId: convRunId },
+      summary: `对话里识别到的能力：${String(said || "").slice(0, 60)}`,
+      said: `已启动「${decision.title}」`,
+    });
+  }
+
+  /** 一次结构性版本变更之后，**建议**查一遍各层还对不对得上 —— 建议，不是自动跑。
+   *
+   *  为什么是建议：审查不该在每次编辑后自己跑起来。三条门槛（有根 / 跨层 / 只一次）
+   *  已经把普通编辑挡在外面了，但即使全都满足，「要不要现在花一次运行去查」仍然是
+   *  他的决定 —— 自动跑起来的诊断会在他还没读完上一条答复时又占住一条运行槽。
+   *
+   *  他点了之后走的是**普通的一轮对话**：同一条路由、同一个服务端 resolver。
+   *  所以「跨层诊断该由谁做」只有一处判定，不会一处走 resolver、一处写死。 */
+  function suggestZoomFor(ctx, landed) {
+    if (convMode() !== "work") return;
+    const trigger = zoomTrigger(landed, {
+      layersPresent: layersPresent(ctx),
+      hasRunKey: (key) => ctx.skills.hasOriginKey(key) || !!(ui.convSuggested || {})[key],
+    });
+    if (!trigger) return;
+    ui.convSuggested = { ...(ui.convSuggested || {}), [trigger.key]: true };
+    ui.convSuggest = {
+      goal: trigger.goal,
+      text: `${trigger.root.doc === "brief" ? "创意" : trigger.root.doc === "outline" ? "大纲" : "分集规划"}` +
+        ` v${trigger.root.version} 落下之后，下游的${trigger.affects.length}层可能还停在旧的上面`,
+    };
+  }
+
+  /** 每一轮的路由在屏幕上是什么状态 —— **从持久事实算出来**，不是页面记着的。
+   *
+   *  跑过了 → 状态来自登记表（run 记录）；没跑 → 用同一个 `decideRoute` 现算原因，
+   *  所以刷新之后他看到的理由与当时的理由一致，而这次重算**不会启动任何东西**
+   *  （`decideRoute` 是纯函数）。 */
+  function convRouteState(ctx, turns) {
+    const out = {};
+    // 每次 render 都会走到这里，而 `ctx.skills.missing` 每次都要把整条时间线、音频、
+    // 字幕投影一遍。一条线里若干轮都指向同一个能力时，那是同一个答案算了很多次 ——
+    // 所以按 skillId 记一次。**只在这一次 render 内有效**：缓存活得比一次渲染长，
+    // 就会在文档改了之后继续报旧的「还缺什么」。
+    const missingCache = new Map();
+    const missingOnce = (skillId) => {
+      if (!missingCache.has(skillId)) {
+        missingCache.set(skillId, ctx.skills.missing(skillId, {}, routeScopeFor(ctx, skillId)));
+      }
+      return missingCache.get(skillId);
+    };
+    for (const t of turns || []) {
+      if (!t || t.role !== "agent" || !t.runId) continue;
+      const route = routeOf(t);
+      if (!route) continue;
+      const run = ctx.skills.routedRunFor(t.runId);
+      if (run) {
+        const skill = ctx.skills.find(run.skillId);
+        const failure = run.failureReason || run.error;
+        out[t.runId] = {
+          skillId: run.skillId,
+          title: (skill && skill.title) || run.skillId,
+          status: run.status || "",
+          error: failure ? String(failure.detail || failure) : "",
+        };
+        continue;
+      }
+      const decision = decideRoute(route, {
+        ...routeCtxFor(ctx, t.runId),
+        missingOf: missingOnce,
+      });
+      out[t.runId] = {
+        skillId: route.skillId,
+        title: decision.title || route.skillId,
+        reason: decision.action === "blocked" ? decision.reason : "",
+        missing: decision.missing || [],
+        canOpen: !!ctx.skills.find(route.skillId),
+      };
+    }
+    return out;
   }
 
   /** One turn: his sentence on screen NOW, the answer when the run lands.
@@ -1806,22 +2059,33 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
             const turn = (st.turns || []).find(
               (x) => x && x.role === "agent" && x.runId === res.runId,
             );
-            // 已经有回执 = 这一轮的改动早就落过了（比如上一次会话里落的），不重复落
-            if (turn && Array.isArray(turn.applied) && turn.applied.length) return null;
+            // 已经有回执 = 这一轮的改动早就落过了（比如上一次会话里落的），不重复落。
+            // **路由不受这条影响**：它有自己的幂等（登记表里的 origin），而且一轮里
+            // 「有没有改动要落」与「要不要起一个能力」本来就是两件独立的事。
+            const done = turn && Array.isArray(turn.applied) && turn.applied.length;
             const edits = turn && Array.isArray(turn.edits) && turn.edits.length
               ? turn.edits
               : (((run || {}).outputs || {}).conversation || {}).edits;
-            const landed = applyConversationEdits(ctx, {
-              instruction: text,
-              outputs: { conversation: { edits: edits || [] } },
-            });
-            if (!landed.length) return null;
-            st.applied = { ...(st.applied || {}), [res.runId]: landed };
-            render();
-            // 回执写进对话线，「已落到作品上」才熬得过一次刷新。回执失败不掩盖落地本身
-            // —— 改动已经在作品里了，只是这一行字下次读不回来。
-            return Promise.resolve(reportApplied(project, res.runId, landed))
-              .then(() => refreshConversation(ctx, sentFrom));
+            const landed = done
+              ? []
+              : applyConversationEdits(ctx, {
+                instruction: text,
+                outputs: { conversation: { edits: edits || [] } },
+              });
+            let after = Promise.resolve();
+            if (landed.length) {
+              st.applied = { ...(st.applied || {}), [res.runId]: landed };
+              render();
+              // 回执写进对话线，「已落到作品上」才熬得过一次刷新。回执失败不掩盖落地本身
+              // —— 改动已经在作品里了，只是这一行字下次读不回来。
+              after = Promise.resolve(reportApplied(project, res.runId, landed))
+                .then(() => refreshConversation(ctx, sentFrom));
+            }
+            // 落地之后才轮到能力：路由的判据是**作品此刻的样子**，所以要读的是
+            // 这一轮改完之后的状态，不是改之前的。
+            return after
+              .then(() => runRouteFor(ctx, res.runId, turn, text))
+              .then(() => suggestZoomFor(ctx, landed));
           });
         });
       })
@@ -1892,10 +2156,17 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     });
     // 「落到作品上」—— 把一条还没落下的改动补落。走的是与自动落地**同一个**函数，
     // 所以两条路不会有两种行为。
+    root.querySelectorAll("[data-cv-gonote]").forEach((b) => (b.onclick = () => {
+      ui.convProposalNote = 0;
+      ui.convMode = "feedback";
+      render();
+      ensureConversation(ctx);
+    }));
     root.querySelectorAll("[data-cv-mode]").forEach((b) => (b.onclick = () => {
       const next = b.dataset.cvMode === "feedback" ? "feedback" : "work";
       if (convMode() === next) return;
       ui.convMode = next;
+      if (next === "feedback") ui.convProposalNote = 0;
       render();
       ensureConversation(ctx); // 换了线就把那条线读回来
     }));
@@ -1924,6 +2195,19 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       render();
       Promise.resolve(reportApplied(project, runId, landed))
         .then(() => refreshConversation(ctx));
+    }));
+    // 「查一下」—— 结构性改动之后那条建议。它发的是**一轮普通对话**，所以选哪个
+    // 诊断器仍然由服务端 resolver 决定，与他自己开口问走的是同一条路。
+    root.querySelectorAll("[data-cv-suggest]").forEach((b) => (b.onclick = () => {
+      const goal = ui.convSuggest && ui.convSuggest.goal;
+      ui.convSuggest = null;
+      if (goal) sendConversationTurn(ctx, goal);
+      else render();
+    }));
+    // 「去运行」—— 自动没跑成时的那条**手工兜底**（ADR-0065 决策 2）。它不代跑：
+    // 把那个能力在「能力」面板里打开，缺什么、选哪个执行器由他自己看着办。
+    root.querySelectorAll("[data-cv-route]").forEach((b) => (b.onclick = () => {
+      openSkillRun(ctx, b.dataset.cvRoute);
     }));
     root.querySelectorAll("[data-cv-cancel]").forEach((b) => (b.onclick = () => {
       // the same REAL cancel a capability run gets — a local CLI keeps consuming

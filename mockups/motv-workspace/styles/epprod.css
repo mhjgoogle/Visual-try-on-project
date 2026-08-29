@@ -132,6 +132,18 @@
 .cv-edit.unsup .k { color: var(--text-faint); }
 .cv-edit .t { color: var(--text-dim); font-size: var(--t-xs); line-height: 1.6; }
 
+/* 识别到的能力（TASK-119）。与「建议的改动」同一套骨架，因为它们是同一类信息：
+   「它打算做什么」。被拒的那一条走 .bad —— 屏幕上必须一眼看出没有启动。 */
+.cv-routewrap { margin-top: var(--s2); }
+.cv-route {
+  display: flex; gap: var(--s2); align-items: baseline; margin-top: var(--s1);
+  border-left: 2px solid var(--accent); padding: 2px var(--s2);
+  background: var(--elev); border-radius: 0 6px 6px 0;
+}
+.cv-routewrap.bad .cv-route, .cv-routewrap.bad .lab { color: var(--text-faint); }
+.cv-route .k { flex: none; font-size: var(--t-xs); color: var(--accent); }
+.cv-routewrap .t { color: var(--text-dim); font-size: var(--t-xs); line-height: 1.6; margin-top: var(--s1); }
+
 .cv-skel { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
 .cv-skel i { height: 10px; border-radius: 5px; background: var(--elev); display: block; animation: cvsk 1.3s ease-in-out infinite; }
 .cv-skel i:nth-child(2) { animation-delay: .15s }
@@ -1013,7 +1025,8 @@
 
 /* 「落到作品上」—— 一条还没落下的改动的出口（TASK-111 补）。它住在标题行里，
    因为它作用于整组建议，而不是某一条。 */
-.cv-editswrap .lab .cv-apply {
+.cv-editswrap .lab .cv-apply,
+.cv-routewrap .lab .cv-apply {
   float: right;
   margin: -2px 0 0 8px;
   padding: 1px 8px;
@@ -1025,7 +1038,8 @@
   border-radius: 999px;
   cursor: pointer;
 }
-.cv-editswrap .lab .cv-apply:hover { border-color: var(--acc, #5b8def); }
+.cv-editswrap .lab .cv-apply:hover,
+.cv-routewrap .lab .cv-apply:hover { border-color: var(--acc, #5b8def); }
 
 /* 右栏顶上的两个窗口 tab（TASK-117）。简约的做法是它们**就是标题栏**，
    而不是标题栏之外再加一条控件带。 */
@@ -1043,3 +1057,13 @@
   border-radius: 999px; background: var(--accent); color: var(--accent-ink);
   font-size: 10px; line-height: 15px; text-align: center;
 }
+
+/* 「开发给了你 N 条新方案」——它插在流的顶部，一行，带一个去看看。 */
+.cv-note {
+  display: flex; align-items: center; gap: var(--s2);
+  margin: 0 0 var(--s2); padding: var(--s2) var(--s3);
+  border: 1px solid var(--accent); border-radius: var(--r1);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  font-size: var(--t-micro);
+}
+.cv-note .k { flex: 1 1 auto; color: var(--text); }

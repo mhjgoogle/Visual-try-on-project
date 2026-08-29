@@ -442,6 +442,35 @@ def _save_feedback(doc: dict) -> bool:
         return False
 
 
+def _conv_where(context) -> dict:
+    """他此刻在哪 —— 有界、结构化、原样取自这一轮 run 的 context。
+
+    `source` 是**画这一页的文件**：前端送来（它拥有页面分发表），服务端只是存。
+    有了它，一条「这一页左边太挤」到「我打开那个文件」之间就没有搜索这一步了。
+    """
+    if not isinstance(context, dict):
+        return {}
+    out = {}
+    for key, limit in (
+        ("moduleLabel", 80),
+        ("spaceLabel", 80),
+        ("module", 64),
+        ("section", 64),
+        ("route", 300),
+        ("source", 200),
+        ("episodeLabel", 120),
+        ("shotTitle", 120),
+        ("shotId", 64),
+    ):
+        val = context.get(key)
+        if isinstance(val, str) and val.strip():
+            out[key] = val.strip()[:limit]
+    space = out.get("spaceLabel", "")
+    page = out.get("moduleLabel") or out.get("module") or ""
+    out["page"] = f"{space} · {page}" if space and page else page
+    return out
+
+
 def _file_feedback(project: str, run_id: str, context, rows) -> list:
     """把一轮里的 `feedback.ui` 记进台账。按 run 去重（读时对账会重复经过同一条 run）。
 
@@ -459,13 +488,8 @@ def _file_feedback(project: str, run_id: str, context, rows) -> list:
             for x in doc["items"]
             if x.get("runId") == run_id
         ]
-    page = ""
-    if isinstance(context, dict):
-        for key in ("moduleLabel", "module"):
-            val = context.get(key)
-            if isinstance(val, str) and val.strip():
-                page = val.strip()[:80]
-                break
+    where = _conv_where(context)
+    page = where.get("page", "")
     landed = []
     for row in rows[:_CONV_EDIT_MAX]:
         text = row.get("text")
@@ -477,6 +501,9 @@ def _file_feedback(project: str, run_id: str, context, rows) -> list:
             "createdAt": datetime.now(timezone.utc).isoformat(),
             "project": project,
             "page": page,
+            # 定位情报，**结构化**存下来（TASK-120）。后端 Agent 拿到一条意见时最贵的
+            # 一步是「这是哪一页、在哪个文件」——不该指望模型记得写进句子里。
+            "where": where,
             "text": text.strip()[:_CONV_VALUE_MAX],
             "expect": (row.get("expect") or "")[:_CONV_VALUE_MAX],
             "status": "new",
@@ -1986,6 +2013,9 @@ _BUILTIN_SKILLS_DIR = REPO_ROOT / "product-skills" / "builtin"
 _USER_FLOWS_DIR = DATA_DIR / "flows"
 _BUILTIN_FLOWS_DIR = REPO_ROOT / "product-flows" / "builtin"
 _SKILL_INPUTS_PATH = REPO_ROOT / "product-skills" / "skill-inputs.json"
+#: 前端对话 Agent 看得见的三个用户能力（ADR-0091 决策 1）。内部专业能力的名字、
+#: 关键词、输入契约都不在这里，也不进提示词。
+_USER_CAPABILITIES_PATH = REPO_ROOT / "product-skills" / "user-capabilities.json"
 
 #: Input caps the legacy endpoints applied before splicing user text into their
 #: prompts. `compile_prompt` has none, so switching to packages would have
@@ -2970,6 +3000,14 @@ _MANUAL_SANITISERS = {
 # the edits are applied by the creator's own edit path in the browser (决策 2b),
 # never by this process writing the creative document behind the UI's back.
 _CONV_TASK_TYPE = "conversation.turn"
+#: 「让后端现在给个方案」那一轮（TASK-118）。它跑的仍然是本地订阅的 claude CLI，
+#: **没有工具**：产出的是一份**修改方案**（文字），不是对仓库的改动。
+#:
+#: WHY IT STOPS AT A PLAN. 真正改代码要过测试、commit gate、独立审查、可回滚的提交
+#: —— 那是开发 Agent 在仓库里做的事。让**产品应用**去自动改自己的源码，等于把
+#: 创作者写的文字变成一条能写仓库的注入面（ADR-0042/0056 的既有姿态），而且绕开
+#: 上面每一道闸。所以这条路径只产出方案：方案变成提案 → 他拍板 → 开发照着做。
+_DEV_TASK_TYPE = "dev.proposal"
 #: A turn's message. Long enough for a paragraph of direction, bounded because it
 #: travels into a prompt whose size is what costs subscription capacity.
 _CONV_MESSAGE_MAX = 4000
@@ -2994,7 +3032,7 @@ _CONV_KEY_MAX = 64
 #:
 #: `feedback.ui` 是对**这个应用**的意见，不是对作品的改动：它不进创作文档，进账户级
 #: 台账，由后端的开发 Agent 取走（REQ-006）。`note` 是「它想做但做不到」的兜底。
-_CONV_SERVER_KINDS = ("feedback.ui", "proposal.decide", "note")
+_CONV_SERVER_KINDS = ("feedback.ui", "proposal.decide", "dev.request", "note")
 
 #: 意见台账最多留多少条（给开发看的输入，不是永久档案）。
 _CONV_FEEDBACK_MAX_ITEMS = 500
@@ -3060,10 +3098,30 @@ def _conv_actions_text(actions) -> str:
     return "\n".join(lines)
 
 
+#: --- 意图路由（TASK-119 / ADR-0091）---------------------------------------- #
+#:
+#: 一句自然语言 →（至多）一个专业能力。词汇表来自**能力包自己的 routing 元数据**，
+#: 由这个进程加载（页面读不到文件系统），所以「装了新包，路由却不知道它存在」不可能
+#: 发生 —— 与动作表归前端是同一条纪律的两半：**谁拥有那件东西，谁就是它的来源**。
+#:
+#: 一轮最多一个。两个能力同时起跑，第二个读到的是第一个还没落地的作品状态，
+#: 而创作者说的是**一件事**。
+_CONV_ROUTE_WHY_MAX = 400
+_CONV_ROUTE_MISSING_MAX = 8
+_CONV_ROUTE_SCOPES = ("project", "episode", "shot")
+#: 前端 Agent 唯一认得的能力名。**三个，不随装了多少包变化** —— 这一行就是收敛
+#: 本身：提示词的长度从此与目录规模无关（ADR-0091 决策 1）。
+_CONV_CAPABILITY_IDS = frozenset(skillpkg.USER_CAPABILITIES)
+
 #: 「开发」窗口里，这一轮**只**允许这几种 —— 其余作品类动作由服务端筛掉。
 #: 这是**强制**，不是提示：两个窗口的全部意义就是「在这个窗口里我的东西不会被改」
 #: （产品负责人 2026-08-29:「窗口A是用来操作当下界面的。窗口B是用来feedback的」）。
-_CONV_FEEDBACK_ONLY_KINDS = ("feedback.ui", "proposal.decide", "note")
+_CONV_FEEDBACK_ONLY_KINDS = (
+    "feedback.ui",
+    "proposal.decide",
+    "dev.request",
+    "note",
+)
 
 
 def _conv_intent(context) -> str:
@@ -3072,7 +3130,245 @@ def _conv_intent(context) -> str:
     return "work"
 
 
-def _conv_prompt(message: str, facts: str, actions=None, intent: str = "work") -> str:
+def _conv_capabilities(catalog, capabilities) -> list:
+    """前端对话 Agent 看得见的三个能力，各自**有没有真的装着能承担它的内部能力**。
+
+    一个没有任何候选的 facade 不进提示词：让模型选一个这台机器上没人能做的能力，
+    产出的只会是一次「识别到了、然后什么都没发生」——那与它没听懂在屏幕上无法区分。
+    """
+    rows = []
+    for cap in capabilities or []:
+        if _conv_candidates(catalog, cap["id"]):
+            rows.append(cap)
+    return rows
+
+
+def _conv_candidates(catalog, capability: str) -> list:
+    """一个 facade 之下的内部候选，按优先级降序（同分按 skillId，顺序确定）。
+
+    **这份名单永远不进提示词。** 它只喂给服务端的 resolver —— 前端 Agent 看得见
+    内部能力的名字与触发词，正是这次收敛要去掉的东西（ADR-0091 决策 1）。
+
+    只取 `catalog.available()`：已停用的包仍然可解析（历史 Run 指着它），但绝不可
+    再被选中 —— ADR-0067 决策 5 的两半，路由这条路上同样成立。
+    """
+    rows = []
+    for skill in catalog.available():
+        routing = skill.routing
+        if not routing or capability not in routing["userCapability"]:
+            continue
+        internal = routing["internalRouting"]
+        rows.append(
+            {
+                "skillId": skill.skill_id,
+                "skillVersion": skill.version,
+                "title": skill.title,
+                "work": skill.work,
+                "inputs": list(skill.inputs),
+                "intent": internal["intent"],
+                "kind": internal["kind"],
+                "scope": internal["scope"],
+                "priority": internal["priority"],
+                "selectWhen": list(internal["selectWhen"]),
+            }
+        )
+    rows.sort(key=lambda r: (-r["priority"], r["skillId"]))
+    return rows
+
+
+def _conv_capability_text(capabilities) -> str:
+    """三个能力写给模型看的样子。**总长与装了多少包无关** —— 这就是收敛的那条线。"""
+    lines = []
+    # `None` 是合法输入：「开发」窗口不给能力表，没装能力目录时也不给。那时这一段
+    # 整段不出现 —— 不是空表，是没有这个机制。
+    for cap in capabilities or []:
+        lines.append(f"  - {cap['id']}（{cap['title']}）：{cap['purpose']}")
+        if cap.get("examples"):
+            lines.append("    他这样说时选它：" + "／".join(cap["examples"][:4]))
+    return "\n".join(lines)
+
+
+#: 这个输入由**他这句话本身**满足 —— 修改类能力要的「修改要求」就是他说的那句。
+#: 所以它永远不算缺，也永远不该反过来问他「请提供修改要求」。
+_CONV_GOAL_INPUT = "revisionRequest"
+
+#: 就绪状态由前端报（创作文档只活在浏览器里，ADR-0089 决策 2b）。有界：它进 resolver。
+_CONV_READY_MAX = 40
+
+
+def _conv_ready_inputs(context) -> set:
+    if not isinstance(context, dict):
+        return set()
+    raw = context.get("readyInputs")
+    if not isinstance(raw, list):
+        return set()
+    return {
+        x.strip()[:64]
+        for x in raw[:_CONV_READY_MAX]
+        if isinstance(x, str) and x.strip()
+    }
+
+
+def _conv_hits(goal: str, words) -> int:
+    """他这句话里出现了几个这个能力的关键词。二级选择的**全部**模型输入就是这个。"""
+    text = goal or ""
+    return sum(1 for w in words if w and w in text)
+
+
+#: 「改已有的」与「从头写一份」用的是同一批名词（剧本、大纲、分集），靠关键词分不开
+#: —— 「帮我改一下这一集的剧本」和「写这一集的剧本」命中的是同一个词。
+#:
+#: 所以名词交给 `selectWhen`（两边都写），**动作**交给这一条确定性规则：句子里带着
+#: 修改动作时选修订类，不带时选创作类。这比让每个包去维护一串长触发例句更小，也更
+#: 不容易互相抢 —— 一条规则，两个等价类。
+_CONV_REVISION_MARKERS = ("改", "重写", "调整", "润色", "修一下", "优化")
+_CONV_REVISION_INTENTS = frozenset(
+    {"story-revision", "plan-revision", "script-revision"}
+)
+
+
+def _conv_revision_match(goal: str, intent: str) -> int:
+    """这句话的**动作**与这个能力是不是一回事。
+
+    两个方向都算：带修改动作时修订类得分，不带时创作类得分。只给一边加分会让
+    「写一版新的」在两个候选同分时随优先级乱掉。
+    """
+    wants_revision = any(m in (goal or "") for m in _CONV_REVISION_MARKERS)
+    is_revision = intent in _CONV_REVISION_INTENTS
+    return 1 if wants_revision == is_revision else 0
+
+
+def _conv_resolve(catalog, capability: str, *, goal: str, scope: str, ready, shot_id):
+    """facade + 上下文 → 一个确定的内部执行计划（ADR-0091 决策 2）。
+
+    **规则优先，模型只做一级分流。** 模型给的是三选一的 capability 与他要做什么；
+    选哪个专业能力全部由这里的确定性排序决定，用户文本从不被当成 skill id。
+
+    排序键，从高到低：
+
+      1. `hits > 0` —— 他的话里点到了这个能力的关键词。这一条压过优先级，
+         所以「各层同步」会选中跨层诊断，而泛泛一句「检查一下」不会 ——
+         那正是「不要因为他说检查就总是跑 story-zoom」的落法。
+      2. `scope` 与他所在的位置一致。
+      3. 就绪（必要输入都有）。**不是硬闸**：全都不就绪时仍然选出最合适的那个，
+         然后如实说缺什么 —— 「我不知道你要什么」和「我知道你要什么但还缺材料」
+         是两个不同的答案，后者他能照着补。
+      4. `priority`，最后 `skillId`（让顺序完全确定，不随目录遍历漂移）。
+
+    返回 `(plan, refusal)`，两者至多一个非 None。
+    """
+    rows = _conv_candidates(catalog, capability)
+    if not rows:
+        return None, f"这台机器上没有能承担「{capability}」的能力（没有一个包声明了它）"
+
+    def missing_of(row):
+        need = [k for k in row["inputs"] if k != _CONV_GOAL_INPUT and k not in ready]
+        # 镜头域能力没有选中的镜头就是缺一个镜头 —— 这是 scope 在这里唯一的硬约束，
+        # 也是 `ctx.skills.run` 那边同样会拒的那一条（TASK-067 §3）。
+        if row["scope"] == "shot" and not shot_id:
+            need = [*need, "__shot__"]
+        return need
+
+    scored = []
+    for row in rows:
+        hits = _conv_hits(goal, row["selectWhen"])
+        need = missing_of(row)
+        scored.append(
+            (
+                1 if hits else 0,
+                _conv_revision_match(goal, row["intent"]),
+                1 if (scope and row["scope"] == scope) else 0,
+                0 if need else 1,
+                hits,
+                row["priority"],
+                row,
+                need,
+            )
+        )
+    scored.sort(
+        key=lambda t: (-t[0], -t[1], -t[2], -t[3], -t[4], -t[5], t[6]["skillId"])
+    )
+    best = scored[0]
+    row, need = best[6], best[7]
+    labels = _skill_input_labels()
+    missing = ["选中的镜头" if k == "__shot__" else (labels.get(k) or k) for k in need]
+    # 为什么选它 —— 逐条对应上面的排序键，所以「它怎么选中这个的」可以被复核，
+    # 而不是事后编一句听起来合理的话（决策 5）。
+    why = []
+    if best[4]:
+        hit = "、".join(w for w in row["selectWhen"] if w in (goal or ""))
+        why.append(f"你说的话里点到了「{hit}」")
+    if row["intent"] in _CONV_REVISION_INTENTS:
+        why.append("你说的是「改已有的」，不是从头写一份")
+    if best[2]:
+        why.append(f"范围是{_CONV_SCOPE_ZH.get(row['scope'], row['scope'])}")
+    if not why:
+        why.append(f"「{capability}」里最合适的默认选择")
+    return {
+        "capability": capability,
+        "skillId": row["skillId"],
+        "skillVersion": row["skillVersion"],
+        "title": row["title"],
+        "intent": row["intent"],
+        "kind": row["kind"],
+        "scope": row["scope"],
+        "reason": "；".join(why),
+        "missing": missing,
+        # `ask` 不是失败：它是「我知道你要做什么，但还缺这些」，他能照着补。
+        "action": "ask" if missing else "run",
+        "goal": goal,
+    }, None
+
+
+_CONV_SCOPE_ZH = {"project": "整个项目", "episode": "当前分集", "shot": "当前镜头"}
+
+
+def _adapt_route(raw) -> dict | None:
+    """一条 route 的**形状**校验。
+
+    **模型报的是三个用户能力之一，不是 skillId。** 一个模型给出的 `skillId` 在这里
+    就被丢掉了 —— 它无权指定内部执行什么（ADR-0091 决策 1）。选哪个专业能力由服务端
+    的 resolver 用确定性规则决定。
+
+    形状不对返回 None（当作「这一轮没有路由」），而不是让整轮失败：回话本身是有用的，
+    不该因为附带的一个字段被作废。
+    """
+    if not isinstance(raw, dict):
+        return None
+    capability = raw.get("capability")
+    if (
+        not isinstance(capability, str)
+        or capability.strip() not in _CONV_CAPABILITY_IDS
+    ):
+        return None
+    goal = raw.get("goal")
+    out = {
+        "capability": capability.strip(),
+        "goal": goal.strip()[:_CONV_ROUTE_WHY_MAX]
+        if isinstance(goal, str) and goal.strip()
+        else "",
+    }
+    scope = raw.get("scope")
+    if isinstance(scope, str) and scope.strip() in _CONV_ROUTE_SCOPES:
+        out["scope"] = scope.strip()
+    else:
+        out["scope"] = ""
+    missing = raw.get("missing")
+    out["modelMissing"] = (
+        [
+            m.strip()[:80]
+            for m in missing[:_CONV_ROUTE_MISSING_MAX]
+            if isinstance(m, str) and m.strip()
+        ]
+        if isinstance(missing, list)
+        else []
+    )
+    return out
+
+
+def _conv_prompt(
+    message: str, facts: str, actions=None, intent: str = "work", capabilities=None
+) -> str:
     """The turn's prompt: WHO you are, WHAT is true, WHAT YOU CAN DO, WHAT the
     creator said, and the exact answer shape.
 
@@ -3098,9 +3394,14 @@ def _conv_prompt(message: str, facts: str, actions=None, intent: str = "work") -
             "3. 他对提案表态 → 给一条 proposal.decide："
             "args 里 id=提案号、verdict=approved/rejected/changes、note=他的原话。"
             "「可以但要改成…」是 changes，把要求原样写进 note。\n"
-            "4. 他说的既不是意见也不是答复（比如在问项目现状）→ 正常回答，"
+            "4. 他要**现在就让开发出方案**（「你能让后端现在改吗」「让开发做一版」）→ "
+            "给一条 dev.request：text 写清楚要开发做什么（把他这一页的位置也写进去）。"
+            "服务端会真的去跑开发那一轮，方案回来后作为提案出现在这个窗口里等他拍板。"
+            "**不要承诺代码已经改了** —— 出来的是方案，不是改动。\n"
+            "5. 他说的既不是意见、不是答复、也不是要方案（比如在问项目现状）→ "
+            "正常回答，"
             "edits 给空。\n"
-            "5. 只依据下面的事实说话，事实里没有的就说你还需要知道什么。\n\n"
+            "6. 只依据下面的事实说话，事实里没有的就说你还需要知道什么。\n\n"
             "只输出一个 JSON 对象，不要任何解释文字、不要代码围栏：\n"
             '{"reply": "给作者看的话", "edits": [{"kind": "feedback.ui", '
             '"text": "他的意见", "expect": "他要的样子"}]}\n\n'
@@ -3110,6 +3411,37 @@ def _conv_prompt(message: str, facts: str, actions=None, intent: str = "work") -
             f"{message}\n"
         )
     catalog = _conv_actions_text(actions)
+    caps = _conv_capability_text(capabilities)
+    # 「交给一类专业工作」这一段只在**真的有**能承担它的能力时出现。目录空了还照样
+    # 描述一个不存在的机制，等于教模型去承诺一件这台机器做不到的事。
+    #
+    # 这一段的长度**与装了多少能力包无关**（ADR-0091 决策 1）：它永远只有三条。
+    # 上一版把每个包的触发例句都列进来，提示词随目录线性膨胀，而且多个包的触发词
+    # 互相抢路由 —— 一句「检查一下」会被最泛的那个吃掉。现在模型只做一件它擅长的
+    # 事：这句话属于哪一类。选哪个专业能力由服务端的确定性规则做。
+    route_block = (
+        (
+            "\n6. **他要的是一整类专业工作时，把它交出去**（一轮最多一个）。"
+            "你能交的只有这三类：\n"
+            f"{caps}\n"
+            "  判据：他要的是**这一类工作本身**，而不是改某一个字段。"
+            "改字段用上面的 edits。\n"
+            "  - **只能写这三个 id 之一。**具体由哪个专业能力来做、怎么做，"
+            "不归你决定，也不要在 reply 里承诺某个具体做法。\n"
+            "  - 拿不准是哪一类、或者两类都像 → **不要给 route**，"
+            "在 reply 里用一句话问清楚。宁可问，也不要交错类。\n"
+            "  - 事实里看得出他还缺材料 → 照样给 route，"
+            "把缺的写进 missing，并在 reply 里说清缺什么。"
+            "**到底缺不缺由应用自己核，不以你的判断为准。**\n"
+            "  - `goal` 用**他自己的话**写清这一次要达成什么"
+            "（应用要靠它挑具体做法，写得越贴近他的原话越准）。\n"
+            "  - route 的形状："
+            '{"capability": "三个 id 之一", "goal": "他要达成什么", '
+            '"scope": "project|episode|shot", "missing": ["缺的材料"]}\n'
+        )
+        if caps
+        else ""
+    )
     return (
         "你是这个短剧创作项目里的制作助理。你面对的是作品的作者。\n"
         "下面给你的是这个项目**当前的事实**（由服务端读取，不是你猜的），"
@@ -3136,17 +3468,57 @@ def _conv_prompt(message: str, facts: str, actions=None, intent: str = "work") -
         "5b. 事实里如果有「开发给你的修改提案」，而作者还没提过它 —— 用一句话主动告诉他"
         "有哪几条在等他拍板，别自己替他决定。\n"
         "4. 改字段用 fields，其它参数用 args。只写你要改的那几个键。\n"
-        "5. 不确定就先问，不要替作者决定作品走向。\n\n"
+        "5. 不确定就先问，不要替作者决定作品走向。\n"
+        f"{route_block}\n"
         "只输出一个 JSON 对象，不要任何解释文字、不要代码围栏：\n"
         '{"reply": "给作者看的话", "edits": ['
         '{"kind": "brief.fields", "text": "把类型改成悬疑", '
-        '"fields": {"genre": "悬疑"}}]}\n'
-        "没有要做的就给 edits: []。\n\n"
+        '"fields": {"genre": "悬疑"}}], "route": null}\n'
+        "没有要做的就给 edits: []；不需要启动能力就给 route: null。\n\n"
         "=== 项目当前事实 ===\n"
         f"{facts}\n"
         "=== 作者说 ===\n"
         f"{message}\n"
     )
+
+
+def _dev_prompt(ask: str, page: str, facts: str) -> str:
+    """开发那一侧的一轮：把他的要求变成一份**能照着做**的修改方案。"""
+    return (
+        "你是这个短剧创作工作台的**前端开发**。产品负责人刚提了一个要求，"
+        "你要给他一份**他看得懂的方案**。\n\n"
+        "写法（产品负责人 2026-08-29:「简洁的告诉我改变前后用户能看到的前端变化是什么。"
+        "不用解释技术细节」）：\n"
+        "1. **只写他在屏幕上看得到的变化**：现在是什么样 → 改完是什么样。\n"
+        "2. **不要技术细节**：不写文件名、函数名、数据结构、实现方式。他不关心，"
+        "而且那会把方案变成他读不下去的东西。\n"
+        "3. 说清**什么不变** —— 他最怕「改一个地方，别的东西悄悄变了」。\n"
+        "4. 有歧义就**列出要他确认的那一两点**，不要替他选。\n"
+        "5. 短。三到六行。只依据下面的事实与他的原话，不要编这个应用没有的东西。\n\n"
+        "只输出一个 JSON 对象，不要任何解释文字、不要代码围栏：\n"
+        '{"title": "一句话说清改完他会看到什么", "body": "现在：…\\n改完：…\\n'
+        '不变：…\\n要你定：…"}\n\n'
+        f"=== 他在哪一页说的 ===\n{page or '（界面没有报告位置）'}\n"
+        "=== 项目当前事实 ===\n"
+        f"{facts}\n"
+        "=== 他的要求 ===\n"
+        f"{ask}\n"
+    )
+
+
+def _adapt_dev_proposal(text: str, _skill_id=None) -> dict:
+    """一份方案：标题 + 正文。fail-closed —— 缺哪个都算这一轮失败。"""
+    obj = _conv_json_object(text)
+    title = obj.get("title")
+    body = obj.get("body")
+    if not isinstance(title, str) or not title.strip():
+        raise ValueError("方案缺少 title")
+    if not isinstance(body, str) or not body.strip():
+        raise ValueError("方案缺少 body")
+    return {
+        "title": title.strip()[:200],
+        "body": body.strip()[:_CONV_PROPOSAL_TEXT_MAX],
+    }
 
 
 def _conv_json_object(text: str) -> dict:
@@ -3246,6 +3618,10 @@ def _adapt_conversation(text: str, _skill_id=None) -> dict:
             # 「它答应了然后什么都没干」
             unsupported.append(entry)
             continue
+        if entry["kind"] == "dev.request":
+            # 「你能让后端现在改吗」——`text` 就是要交给开发那一轮的要求。
+            edits.append(entry)
+            continue
         if entry["kind"] == "proposal.decide":
             args = item.get("args") if isinstance(item.get("args"), dict) else {}
             entry["args"] = {
@@ -3275,7 +3651,17 @@ def _adapt_conversation(text: str, _skill_id=None) -> dict:
         if isinstance(args, dict):
             entry["args"] = _conv_shallow_values(args)
         edits.append(entry)
-    return {"reply": reply.strip()[:8000], "edits": edits, "unsupported": unsupported}
+    out = {
+        "reply": reply.strip()[:8000],
+        "edits": edits,
+        "unsupported": unsupported,
+    }
+    # 至多一个 route（ADR-0091 决策 3）。形状在这里定，「这个能力存不存在」「这个
+    # 窗口允不允许」在 `_conv_check_route` 里定 —— 那里才有能力目录与这一轮的 context。
+    route = _adapt_route(obj.get("route"))
+    if route is not None:
+        out["route"] = route
+    return out
 
 
 _AGENT_PARSERS = {
@@ -3287,6 +3673,7 @@ _AGENT_PARSERS = {
     # ADR-0089: the conversational turn is a Run like any other, so it inherits
     # cancellation, the concurrency cap, the journal and the manual fallback.
     _CONV_TASK_TYPE: ("conversation", _adapt_conversation),
+    _DEV_TASK_TYPE: ("proposal", _adapt_dev_proposal),
 }
 
 
@@ -3333,6 +3720,9 @@ def _load_skill_catalog(project_root: Path | None = None):
             ("builtin", _BUILTIN_SKILLS_DIR),
         ],
         known_digests=_recorded_skill_digests(),
+        # 路由元数据的一条交叉校验要用它（ADR-0091）：一个声明了镜头域输入的包，
+        # 不可能是 `routing.scope: "project"`。名单来自共享的那一份文件，不再抄。
+        shot_scoped_inputs=_shot_scoped_inputs(),
     )
 
 
@@ -3402,6 +3792,32 @@ def _flow_payload(catalog) -> dict:
             for pr in catalog.problems
         ],
     }
+
+
+def _user_capabilities() -> list:
+    """前端 Agent 看得见的那三个能力（带文案）。
+
+    FAIL CLOSED 成空表：读不出来时提示词里就**没有能力段**，模型于是不会给 route。
+    那比给它一份残缺的名单好 —— 残缺的名单会让某一类请求安静地永远选不中。
+    问题本身在 `/api/skills` 的 problems 里报出来（同一份文件，同一条 fail-closed）。
+    """
+    try:
+        return skillpkg.load_user_capabilities(_USER_CAPABILITIES_PATH)
+    except skillpkg.SkillPackageError:
+        return []
+
+
+def _shot_scoped_inputs() -> list:
+    """哪些上下文键只能对着一个镜头解析（共享文件里的那一份）。
+
+    读不出来时返回空表而不是猜：这只用于一条**交叉校验**（`routing.scope` 与
+    inputs 是否自相矛盾），判不了的不判，宁可漏报也不误杀一个好包。目录本身能不能
+    加载由 `catalog_payload` 那条 fail-closed 管（它读同一个文件）。
+    """
+    try:
+        return skillpkg.load_shot_scoped_inputs(_SKILL_INPUTS_PATH)
+    except skillpkg.SkillPackageError:
+        return []
 
 
 def _skill_input_labels() -> dict:
@@ -6424,6 +6840,58 @@ class _App:
             text = text[:_CONV_FACTS_MAX] + "\n（事实过长，已截断。）"
         return text
 
+    def _conv_capabilities_for(self, name: str) -> list:
+        """这个项目此刻能交出去的那几类工作（ADR-0091 决策 1）。
+
+        每次请求重新加载，与 `/api/skills` 同一条理由：创作者可以在服务跑着的时候
+        往 `studio/skills/` 里丢一个包；一份缓存到重启才更新的目录，会让某一类
+        请求在屏幕上看着可用、实际选不中。
+        """
+        root = self._project_root(name) if name in self._projects else None
+        return _conv_capabilities(_load_skill_catalog(root), _user_capabilities())
+
+    def _conv_check_route(self, name: str, run: dict, route) -> tuple:
+        """把模型给的一类工作，解析成一个确定的内部执行计划，或拒绝并说明。
+
+        三道闸，顺序即优先级：
+
+        1. **窗口** —— 「开发」窗口里一个作品能力都不许被启动。依据是这一轮 run
+           **自己的** context，不是前端事后声称的（ADR-0089 决策 9 纪律）。
+        2. **能力名** —— 只能是那三个之一。模型即使给了 `skillId`，`_adapt_route`
+           已经把它丢掉了：**内部执行什么，从来不由模型说了算**（决策 1）。
+        3. **解析** —— facade + 他的话 + 范围 + 就绪状态 → 一个内部 skill。
+           全部确定性规则，可复核；解析不出来就拒绝，不静默降级成别的能力。
+
+        返回 `(plan, rejected)`，两者至多一个非 None。
+        """
+        if not isinstance(route, dict):
+            return None, None
+        capability = route.get("capability") or ""
+        if _conv_intent(run.get("context")) == "feedback":
+            return None, {
+                "capability": capability,
+                "reason": "这是在「开发」窗口里说的 —— 作品能力不会在这里启动。"
+                "要动作品请切回「作品」窗口。",
+            }
+        context = run.get("context") if isinstance(run.get("context"), dict) else {}
+        shot_id = (
+            context.get("shotId") if isinstance(context.get("shotId"), str) else ""
+        )
+        root = self._project_root(name) if name in self._projects else None
+        plan, refusal = _conv_resolve(
+            _load_skill_catalog(root),
+            capability,
+            goal=route.get("goal") or "",
+            scope=route.get("scope") or "",
+            ready=_conv_ready_inputs(context),
+            shot_id=shot_id,
+        )
+        if refusal:
+            return None, {"capability": capability, "reason": refusal}
+        # 可观测性（决策 5）：交出去的是哪一类、最后选中哪个能力、为什么、什么范围、
+        # 缺什么 —— 全部写在这一轮上。没有这几个字段，「它选错了」就无从复核。
+        return plan, None
+
     def _conv_reconcile(self, name: str, thread: dict) -> dict:
         """Land every FINISHED conversation run that the thread has not recorded.
 
@@ -6469,6 +6937,15 @@ class _App:
                 turn["text"] = conv.get("reply") or ""
                 turn["edits"] = conv.get("edits") or []
                 turn["unsupported"] = conv.get("unsupported") or []
+                # 这一轮识别到的能力（ADR-0091）。判定在**读时**做，与 edits 的
+                # 筛选同一个位置，所以「模型说要启动什么」与「这台机器允许启动
+                # 什么」永远由同一份事实回答。被拒的一条照样写进线程 ——
+                # 一个被静默丢掉的路由，看起来就是它答应了然后什么都没做。
+                routed, rejected = self._conv_check_route(name, run, conv.get("route"))
+                if routed:
+                    turn["route"] = routed
+                if rejected:
+                    turn["routeRejected"] = rejected
                 # 「开发」窗口的一轮：作品类动作一条都不许落地。模型即使给了（提示词里
                 # 没有它们，但模型可以自己编一个 kind），也在这里被筛掉并如实告诉他。
                 if _conv_intent(run.get("context")) == "feedback":
@@ -6504,6 +6981,15 @@ class _App:
                     filed = _file_feedback(name, rid, run.get("context"), notes)
                     if filed:
                         turn["applied"] = (turn.get("applied") or []) + filed
+                # 「让开发现在给个方案」：**真的去跑一轮**（TASK-118）。
+                # 它跑的是没有工具的 CLI，产出方案文字；方案回来后变成提案。
+                for e in turn["edits"]:
+                    if not isinstance(e, dict) or e.get("kind") != "dev.request":
+                        continue
+                    started = self._start_dev_proposal(
+                        name, rid, e.get("text") or "", run.get("context")
+                    )
+                    turn["applied"] = (turn.get("applied") or []) + [started]
                 # 他对提案的答复，同样由服务端落地（写的是应用数据）。
                 for e in turn["edits"]:
                     if not isinstance(e, dict) or e.get("kind") != "proposal.decide":
@@ -6553,6 +7039,8 @@ class _App:
         return thread
 
     def _conversation_get(self, name: str, raw_path: str = ""):
+        # 方案跑完了没有 —— 与线程同一次读里对账，他不必刷新第二次
+        self._land_dev_proposals()
         if name not in self._projects:
             return _json(
                 404, {"error": {"category": "not_found", "detail": "unknown project"}}
@@ -6573,6 +7061,104 @@ class _App:
             200,
             {"project": name, "thread": key, "turns": turns[-100:], "threads": others},
         )
+
+    def _start_dev_proposal(self, name: str, from_run: str, ask: str, context) -> dict:
+        """起一轮「开发出方案」。按发起它的那条 run 去重（读时对账会重复经过）。"""
+        ask = (ask or "").strip()
+        if not ask:
+            return {
+                "kind": "dev.request",
+                "detail": "",
+                "error": "没说要开发做什么",
+            }
+        doc = _load_feedback()
+        for x in doc["proposals"]:
+            if x.get("fromRun") == from_run:
+                return {
+                    "kind": "dev.request",
+                    "detail": f"已经在给方案了（第 {x.get('id')} 号）",
+                    "error": "",
+                }
+        page = ""
+        if isinstance(context, dict):
+            page = " · ".join(
+                str(context.get(k))[:80]
+                for k in ("spaceLabel", "moduleLabel")
+                if isinstance(context.get(k), str) and context.get(k).strip()
+            )
+        try:
+            run = runs().create(
+                kind="skill",
+                task_type=_DEV_TASK_TYPE,
+                executor="claude-code",
+                project_id=name,
+                context={"fromRun": from_run, "page": page},
+                params={
+                    "prompt": _dev_prompt(ask, page, self._conv_facts(name, context)),
+                    "timeout": _SKILL_TIMEOUT_DEFAULT,
+                },
+                provider="local_subscription",
+            )
+        except runstore.RunStoreError as exc:
+            return {
+                "kind": "dev.request",
+                "detail": ask[:200],
+                "error": f"没能让开发那一轮跑起来：{exc.detail}",
+            }
+        # 占位提案：他立刻看得到「开发正在写方案」，而不是等一分钟看着什么都没有
+        doc["proposals"].append(
+            {
+                "id": len(doc["proposals"]) + 1,
+                "createdAt": datetime.now(timezone.utc).isoformat(),
+                "title": f"（开发正在写方案）{ask[:80]}",
+                "body": "",
+                "decision": None,
+                "fromRun": from_run,
+                "devRun": run.get("runId"),
+                "pending": True,
+            }
+        )
+        _save_feedback(doc)
+        return {
+            "kind": "dev.request",
+            "detail": "已交给开发，正在写方案 —— 写好会作为提案出现在这里",
+            "error": "",
+        }
+
+    def _land_dev_proposals(self) -> None:
+        """把跑完的「开发方案」写回它那条占位提案。读时对账时调用。"""
+        doc = _load_feedback()
+        pending = [x for x in doc["proposals"] if x.get("pending") and x.get("devRun")]
+        if not pending:
+            return
+        changed = False
+        for item in pending:
+            run = runs().get(item["devRun"])
+            if not isinstance(run, dict):
+                continue
+            status = run.get("status")
+            if status in ("queued", "running", "cancelling"):
+                continue
+            out = run.get("outputs") if isinstance(run.get("outputs"), dict) else {}
+            plan = (
+                out.get("proposal") if isinstance(out.get("proposal"), dict) else None
+            )
+            if status == "succeeded" and plan:
+                item["title"] = plan.get("title") or item["title"]
+                item["body"] = plan.get("body") or ""
+            else:
+                # FAIL-CLOSED AND SAY WHY：一条永远停在「正在写方案」的提案，
+                # 看起来就是开发把他晾在那儿了。
+                item["title"] = f"（方案没写成）{item['title'][8:]}"
+                item["body"] = (
+                    "开发那一轮没能完成："
+                    f"{run.get('failureReason') or status or '未知原因'}。"
+                    "跟我说一声可以再试一次。"
+                )
+            item["pending"] = False
+            changed = True
+        if changed:
+            _save_feedback(doc)
 
     def _conversation_applied(self, name: str, body: bytes, headers=None):
         """Record what a turn's edits ACTUALLY became, on the turn that proposed them.
@@ -6710,11 +7296,16 @@ class _App:
             )
         context = payload.get("context")
         facts = self._conv_facts(name, context)
+        intent = _conv_intent(context)
+        # 能力词汇表由**服务端**给（包在文件系统上，页面读不到），与动作词汇表由
+        # 前端给正好互补：谁拥有那件东西，谁就是它的来源。「开发」窗口一个都不给
+        # —— 那个窗口里作品能力根本不该被提起（决策 9：词汇表本身就是闸）。
         prompt = _conv_prompt(
             message.strip(),
             facts,
             context.get("actions") if isinstance(context, dict) else None,
-            _conv_intent(context),
+            intent,
+            self._conv_capabilities_for(name) if intent == "work" else None,
         )
         try:
             run = runs().create(

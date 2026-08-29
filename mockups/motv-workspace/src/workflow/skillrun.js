@@ -240,6 +240,16 @@ export function startRun(reg, entry) {
     projectId: strOrNull(entry.projectId),
     provider: strOrNull(entry.provider),
     target: isObj(entry.target) ? entry.target : null,
+    // WHO ASKED FOR THIS RUN (TASK-119 / ADR-0091). Null for a run the creator
+    // started by hand; `{kind: "conversation", conversationRunId, idempotencyKey}`
+    // for one an intent route launched.
+    //
+    // WHY IT IS PERSISTED RATHER THAN HELD IN THE PAGE. It is the DEDUPE KEY: the
+    // question "did this sentence already start this capability?" has to survive a
+    // refresh, a second tab and a retried network call, and the registry is the
+    // only thing here that does. Keeping it in memory would make 「刷新一次就又跑
+    // 一遍」 the default behaviour of the whole route path.
+    origin: isObj(entry.origin) ? entry.origin : null,
     // `contextTrace` above IS the input-version record (ADR-0064 决策 2); this
     // does not create a second copy of it.
     outputs: null,

@@ -41,7 +41,13 @@ export function applyConversationEdits(story, run) {
         { instruction: String((run && run.instruction) || "") },
       );
       if (res.versioned === "brief") commitBrief = true;
-      landed.push({ kind: e.kind, detail: res.said });
+      // `version` 跟着走：一次结构性写入的**稳定身份**，跨层一致性诊断以它作幂等 key
+      // （TASK-119）。没有版本的动作（指针、软删除）不带这个字段，也就永远不会触发。
+      landed.push({
+        kind: e.kind,
+        detail: res.said,
+        ...(Number.isInteger(res.version) ? { version: res.version } : {}),
+      });
     } catch (err) {
       // 一条落不下去不能连累别的：如实记下这一条，继续下一条
       landed.push({
@@ -56,7 +62,11 @@ export function applyConversationEdits(story, run) {
     const rec = ctx.story.commitBrief("developed", String((run && run.instruction) || ""));
     const said = rec && rec.v ? `创意简报 v${rec.v}` : "与当前版本没有差异，未新建版本";
     for (const x of landed) {
-      if (!x.error && isBrief(x.kind)) x.detail = `${x.detail}（${said}）`;
+      if (x.error || !isBrief(x.kind)) continue;
+      x.detail = `${x.detail}（${said}）`;
+      // 一轮一版（见文件头）：所以这一轮里每条 brief 动作**共享同一个版本身份**，
+      // 跨层诊断因此对「他一句话里改了创意又改了类型」只跑一次，而不是两次。
+      if (rec && Number.isInteger(rec.v)) x.version = rec.v;
     }
   } catch (err) {
     const why = (err && (err.message || err.detail)) || String(err);

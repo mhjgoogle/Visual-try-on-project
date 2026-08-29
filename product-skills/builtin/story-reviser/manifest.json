@@ -1,6 +1,6 @@
 {
   "skillId": "story-reviser",
-  "skillVersion": 1,
+  "skillVersion": 2,
   "work": "creative",
   "role": "编剧",
   "title": "Story Reviser",
@@ -20,5 +20,21 @@
     "改动之后八项之间是否仍然自洽（改了结局就要看它是否还回应故事核心）",
     "输出是否是完整的八项，而不是只给出被改动的那几项"
   ],
-  "recommendedRuntime": "local_subscription"
+  "recommendedRuntime": "local_subscription",
+  "routing": {
+    "userCapability": [
+      "story-development"
+    ],
+    "internalRouting": {
+      "intent": "story-revision",
+      "kind": "generative",
+      "scope": "project",
+      "priority": 60,
+      "selectWhen": [
+        "大纲",
+        "故事",
+        "主线"
+      ]
+    }
+  }
 }

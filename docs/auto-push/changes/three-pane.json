@@ -115,24 +115,20 @@
         }
       ],
       "paths": [
-        "docs/",
-        "mockups/motv-workspace/",
-        "tests/studio/"
+        ".autopush-placeholder"
       ],
       "verification": "PASS",
-      "verification_ref": "",
-      "declared": "2026-08-29T12:46:28+00:00"
+      "verification_ref": "已提交",
+      "declared": "2026-08-29T13:40:37+00:00"
     },
     "TASK-110": {
       "commits": [],
       "paths": [
-        "docs/",
-        "mockups/motv-workspace/",
-        "tests/studio/"
+        ".autopush-placeholder"
       ],
       "verification": "PASS",
-      "verification_ref": "",
-      "declared": "2026-08-29T12:46:28+00:00"
+      "verification_ref": "已提交",
+      "declared": "2026-08-29T13:40:38+00:00"
     },
     "TASK-112": {
       "commits": [
@@ -154,13 +150,11 @@
         }
       ],
       "paths": [
-        "docs/",
-        "mockups/motv-workspace/",
-        "tests/studio/"
+        ".autopush-placeholder"
       ],
       "verification": "PASS",
-      "verification_ref": "",
-      "declared": "2026-08-29T12:46:28+00:00"
+      "verification_ref": "已提交",
+      "declared": "2026-08-29T13:40:38+00:00"
     },
     "TASK-111": {
       "commits": [
@@ -191,13 +185,11 @@
         }
       ],
       "paths": [
-        "docs/",
-        "mockups/motv-workspace/",
-        "tests/studio/"
+        ".autopush-placeholder"
       ],
       "verification": "PASS",
-      "verification_ref": "",
-      "declared": "2026-08-29T12:46:28+00:00"
+      "verification_ref": "已提交",
+      "declared": "2026-08-29T13:40:38+00:00"
     },
     "TASK-113": {
       "commits": [
@@ -225,13 +217,11 @@
         }
       ],
       "paths": [
-        "docs/",
-        "mockups/motv-workspace/",
-        "tests/studio/"
+        ".autopush-placeholder"
       ],
       "verification": "PASS",
-      "verification_ref": "",
-      "declared": "2026-08-29T12:46:28+00:00"
+      "verification_ref": "已提交",
+      "declared": "2026-08-29T13:40:38+00:00"
     },
     "TASK-114": {
       "commits": [
@@ -273,24 +263,20 @@
         }
       ],
       "paths": [
-        "docs/",
-        "mockups/motv-workspace/",
-        "tests/studio/"
+        ".autopush-placeholder"
       ],
       "verification": "PASS",
-      "verification_ref": "",
-      "declared": "2026-08-29T12:46:28+00:00"
+      "verification_ref": "已提交",
+      "declared": "2026-08-29T13:40:38+00:00"
     },
     "TASK-115": {
       "commits": [],
       "paths": [
-        "docs/",
-        "mockups/motv-workspace/",
-        "tests/studio/"
+        ".autopush-placeholder"
       ],
       "verification": "PASS",
-      "verification_ref": "",
-      "declared": "2026-08-29T12:46:29+00:00"
+      "verification_ref": "已提交",
+      "declared": "2026-08-29T13:40:39+00:00"
     },
     "TASK-116": {
       "commits": [
@@ -316,13 +302,11 @@
         }
       ],
       "paths": [
-        "docs/",
-        "mockups/motv-workspace/",
-        "tests/studio/"
+        ".autopush-placeholder"
       ],
       "verification": "PASS",
-      "verification_ref": "",
-      "declared": "2026-08-29T12:46:29+00:00"
+      "verification_ref": "已提交",
+      "declared": "2026-08-29T13:40:39+00:00"
     },
     "TASK-117": {
       "commits": [
@@ -348,13 +332,28 @@
         }
       ],
       "paths": [
+        ".autopush-placeholder"
+      ],
+      "verification": "PASS",
+      "verification_ref": "已提交",
+      "declared": "2026-08-29T13:40:39+00:00"
+    },
+    "TASK-118": {
+      "commits": [],
+      "paths": [
+        ".claude/skills/product-loop/",
+        ".claude/tools/read_feedback.py",
         "docs/",
-        "mockups/motv-workspace/",
-        "tests/studio/"
+        "mockups/motv-workspace/server.py",
+        "mockups/motv-workspace/src/",
+        "mockups/motv-workspace/styles/",
+        "mockups/motv-workspace/tests/",
+        "tests/studio/",
+        "tests/tooling/"
       ],
       "verification": "PASS",
       "verification_ref": "",
-      "declared": "2026-08-29T12:30:02+00:00"
+      "declared": "2026-08-29T13:40:37+00:00"
     }
   },
   "merge_gate": {

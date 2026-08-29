@@ -348,7 +348,9 @@ def test_a_run_records_which_package_answered(srv, monkeypatch) -> None:
     run = srv.runs().get(body["run_id"])
     params = run["params"]
     assert params["skillId"] == "story-development"
-    assert params["skillVersion"] == 2, "story-development 在 TASK-089 §2.1 升到了 v2"
+    # 从磁盘派生：这条证的是「记录的版本 == 真的答题的那个包的版本」。
+    live = srv._load_skill_catalog().skills["story-development"].version
+    assert params["skillVersion"] == live, "记录的版本必须是真的跑的那一版"
     assert params["skillDigest"].startswith("sha256:")
 
     # …and that record is what the loader is handed on the next load

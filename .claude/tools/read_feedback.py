@@ -86,11 +86,30 @@ def render(items: list) -> str:
     for it in items:
         when = str(it.get("createdAt", ""))[:19]
         head = f"#{it.get('id')} [{it.get('status', 'new')}] {when}"
-        where = " · ".join(x for x in (it.get("project"), it.get("page")) if x)
-        out.append(f"{head}{('  —— ' + where) if where else ''}")
+        w = it.get("where") if isinstance(it.get("where"), dict) else {}
+        head_where = " · ".join(
+            x for x in (it.get("project"), w.get("page") or it.get("page")) if x
+        )
+        out.append(f"{head}{('  —— ' + head_where) if head_where else ''}")
         out.append(f"  说的是：{it.get('text', '')}")
         if it.get("expect"):
             out.append(f"  他要的是：{it['expect']}")
+        # 定位情报：省掉「先找到那一页在哪」这一步
+        spot = " · ".join(
+            x
+            for x in (
+                w.get("section") and f"节：{w['section']}",
+                w.get("episodeLabel"),
+                w.get("shotTitle") and f"选中镜头：{w['shotTitle']}",
+            )
+            if x
+        )
+        if spot:
+            out.append(f"  在哪：{spot}")
+        if w.get("source"):
+            out.append(f"  画它的文件：mockups/motv-workspace/{w['source']}")
+        if w.get("route"):
+            out.append(f"  打开它：{w['route']}")
         out.append("")
     return "\n".join(out).rstrip()
 

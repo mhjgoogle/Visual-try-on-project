@@ -936,3 +936,147 @@ def test_the_feedback_window_still_knows_where_he_is(app, srv):
     assert "现在在看：故事开发 · 故事大纲" in prompt
     assert "不要反问他在哪" in prompt
     assert "写进 text" in prompt
+
+
+# --- 11. 前端触发「让开发出个方案」（TASK-118 · REQ-006 v4 判据 8） ----------- #
+
+
+def test_a_dev_request_starts_a_real_run_and_shows_a_pending_proposal(app, srv):
+    landed = app._start_dev_proposal(
+        "夜班沉默", "run-ask", "把左侧导航精简成三个入口", {"moduleLabel": "项目与创意"}
+    )
+    assert landed["error"] == ""
+    assert "正在写方案" in landed["detail"]
+    doc = srv._load_feedback()
+    item = doc["proposals"][-1]
+    assert item["pending"] is True
+    assert item["devRun"]
+    assert item["fromRun"] == "run-ask"
+    # 他立刻看得到「开发正在写方案」，而不是等一分钟看着什么都没有
+    assert "开发正在写方案" in item["title"]
+
+
+def test_asking_twice_from_the_same_turn_does_not_start_two_runs(app, srv):
+    app._start_dev_proposal("夜班沉默", "run-ask", "精简导航", None)
+    again = app._start_dev_proposal("夜班沉默", "run-ask", "精简导航", None)
+    assert "已经在给方案了" in again["detail"]
+    assert len(srv._load_feedback()["proposals"]) == 1
+
+
+def test_an_empty_ask_is_refused_instead_of_starting_a_run(app, srv):
+    out = app._start_dev_proposal("夜班沉默", "run-ask", "   ", None)
+    assert out["error"] == "没说要开发做什么"
+    assert srv._load_feedback()["proposals"] == []
+
+
+def test_the_finished_plan_lands_on_its_placeholder(app, srv, monkeypatch):
+    monkeypatch.setattr(
+        srv,
+        "_run_executor",
+        lambda *a, **k: (
+            '{"title": "左侧只留三个入口", "body": "改哪儿：故事开发的左栏…"}',
+            "claude-x",
+        ),
+    )
+    app._start_dev_proposal("夜班沉默", "run-ask", "精简导航", None)
+    dev_run = srv._load_feedback()["proposals"][0]["devRun"]
+    _await(srv, dev_run)
+    app._land_dev_proposals()
+    item = srv._load_feedback()["proposals"][0]
+    assert item["pending"] is False
+    assert item["title"] == "左侧只留三个入口"
+    assert item["body"].startswith("改哪儿")
+    # 它现在是一条正常的待拍板提案
+    assert item["decision"] is None
+
+
+def test_a_failed_plan_says_so_instead_of_hanging_forever(app, srv, monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("claude 不见了")
+
+    monkeypatch.setattr(srv, "_run_executor", boom)
+    app._start_dev_proposal("夜班沉默", "run-ask", "精简导航", None)
+    dev_run = srv._load_feedback()["proposals"][0]["devRun"]
+    _await(srv, dev_run)
+    app._land_dev_proposals()
+    item = srv._load_feedback()["proposals"][0]
+    assert item["pending"] is False
+    assert "方案没写成" in item["title"]
+    assert "再试一次" in item["body"]
+
+
+def test_the_plan_parser_is_fail_closed(srv):
+    ok = srv._adapt_dev_proposal('{"title": "标题", "body": "正文"}')
+    assert ok == {"title": "标题", "body": "正文"}
+    for bad in [
+        '{"title": "只有标题"}',
+        '{"body": "只有正文"}',
+        "没有 JSON",
+        '{"title": "", "body": "x"}',
+    ]:
+        with pytest.raises(ValueError):
+            srv._adapt_dev_proposal(bad)
+
+
+def test_the_feedback_window_knows_it_can_ask_for_a_plan(srv):
+    prompt = srv._conv_prompt("你能让后端现在改吗", "项目：夜班沉默", [], "feedback")
+    assert "dev.request" in prompt
+    # 它必须知道出来的是方案而不是改动 —— 否则它会替开发承诺代码已经改了
+    assert "不要承诺代码已经改了" in prompt
+
+
+# --- 12. 定位情报（TASK-120）：让后端更快找到那一页 ------------------------- #
+
+
+def test_an_opinion_carries_a_structured_locator(app, srv):
+    """产品负责人 2026-08-29：「应该加入更详细的页面定位情报…
+    让你更快的理解问题和解决问题」。
+
+    不指望模型记得写进句子里 —— 结构化存下来。
+    """
+    srv._file_feedback(
+        "夜班沉默",
+        "run-w",
+        {
+            "spaceLabel": "剧集制作",
+            "moduleLabel": "分镜设计",
+            "module": "storyboard",
+            "section": "shots",
+            "route": "#/夜班沉默/episode/storyboard/shots?ep=ep-1",
+            "source": "src/ui/storyboard.js",
+            "episodeLabel": "EP01 迷雾入城",
+            "shotTitle": "招牌 · 雨夜",
+        },
+        [{"kind": "feedback.ui", "text": "左边那排太挤"}],
+    )
+    w = srv._load_feedback()["items"][0]["where"]
+    assert w["page"] == "剧集制作 · 分镜设计"
+    assert w["module"] == "storyboard"
+    assert w["section"] == "shots"
+    assert w["source"] == "src/ui/storyboard.js"
+    assert w["route"].startswith("#/")
+    assert w["shotTitle"] == "招牌 · 雨夜"
+
+
+def test_the_locator_is_bounded_and_survives_a_hostile_context(srv):
+    w = srv._conv_where(
+        {
+            "moduleLabel": "页" * 500,
+            "route": "#" * 5000,
+            "source": "s" * 500,
+            "shotId": "x" * 500,
+            "bogus": "不该出现",
+        }
+    )
+    assert len(w["moduleLabel"]) == 80
+    assert len(w["route"]) == 300
+    assert len(w["source"]) == 200
+    assert len(w["shotId"]) == 64
+    assert "bogus" not in w
+
+
+def test_no_context_means_an_empty_locator_not_an_invented_one(srv):
+    assert srv._conv_where(None) == {}
+    assert srv._conv_where("不是对象") == {}
+    # 只有页面没有空间时，page 就是页面本身
+    assert srv._conv_where({"moduleLabel": "分镜设计"})["page"] == "分镜设计"

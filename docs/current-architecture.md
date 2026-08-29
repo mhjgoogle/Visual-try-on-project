@@ -21,7 +21,7 @@
 | **核心库** | `src/ai_video_workflow/` | 工作流领域逻辑：创意、资产、生成编排、合成、QCD、评价、Action、学习、预算、发布 | [architecture.md](architecture.md) |
 | **Workspace 只读外壳** | `src/workspace_shell/` | WFM1 核心项目的只读观察面；**不服务 Studio 项目**（Portfolio 对 Studio 项目为空是正确行为） | [ADR-0086](adr/ADR-0086-workspace-shell-serves-core-projects-only.md) · [ADR-0032](adr/ADR-0032-workspace-runtime-and-ui-topology.md) |
 | **Creation Studio（原型形态）** | `mockups/motv-workspace/` | 创作工作视窗：Python 后端 `server.py` + 浏览器前端 `src/*.js` | [creator-system-contract.md](design/creator-system-contract.md)（Studio 范围唯一权威） |
-| **产品资产包** | `product-skills/`、`product-flows/` | 内置能力包与流程模板 —— **产品资产**，不是原型私有物 | [ADR-0084](adr/ADR-0084-project-flow-template-as-a-package.md) 决策 7 · [ADR-0067](adr/ADR-0067-product-skill-package.md) |
+| **产品资产包** | `product-skills/`、`product-flows/` | 内置能力包与流程模板 —— **产品资产**，不是原型私有物。`user-capabilities.json` 是对话 Agent 看得见的那三个能力 | [ADR-0084](adr/ADR-0084-project-flow-template-as-a-package.md) 决策 7 · [ADR-0067](adr/ADR-0067-product-skill-package.md) · [ADR-0091](adr/ADR-0091-three-user-capabilities-and-a-server-side-resolver.md) |
 | **人用启动器** | `scripts/launch/` | `studio.ps1`（Windows 权威）/ `studio.bat` / `studio.sh` | [ADR-0077](adr/ADR-0077-repository-path-ownership.md) |
 | **Agent 工装** | `.claude/` | hooks（commit gate）、skills、tools —— 不是产品代码 | [ADR-0050](adr/ADR-0050-powershell-native-agent-dev-tooling.md) · [ADR-0062](adr/ADR-0062-windows-authoritative-environment.md) |
 
@@ -56,6 +56,7 @@ Studio 后端 (mockups/motv-workspace/server.py)
 | **写路径** | 一切变更命令经 **Command Gateway**，前端不直接改核心业务文件 | [ADR-0033](adr/ADR-0033-command-gateway-contract.md) · AGENTS.md §4 |
 | **生成写路径** | 工作视窗的生成命令 = `POST /api/projects/<name>/{preflight,command}` | [ADR-0041](adr/ADR-0041-workspace-generation-write-path.md) |
 | **运行身份** | `runId` 是运行的**唯一身份**（`skillRunId` 别名已删除） | [TASK-074](tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md) §1.5 |
+| **对话里的能力路由** | 前端 Agent 只认 3 个用户能力（`story-development` / `episode-production` / `story-review`）；选哪个内部专业能力由**服务端 resolver** 确定性决定，模型无权指定 `skillId` | [ADR-0091](adr/ADR-0091-three-user-capabilities-and-a-server-side-resolver.md) |
 | **只读投影** | 观察数据可从权威文件/事件重建；界面关闭不影响核心执行 | [ADR-0031](adr/ADR-0031-workspace-query-and-projection-contract.md) · [workspace-query-contract.md](design/workspace-query-contract.md) |
 | **阶段 I/O** | L0–S7 每一步的输入输出 | [workflow-stage-step-io-contract.md](design/workflow-stage-step-io-contract.md) |
 | **页面集合** | 固定信息架构，页面集合封闭 | [creator-product-information-architecture.md](design/creator-product-information-architecture.md) · [ADR-0066](adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md) |

@@ -1,0 +1,234 @@
+{
+  "type": "object",
+  "required": [
+    "summary",
+    "healthLevel",
+    "layersSeen",
+    "snapshotOnly",
+    "conflicts",
+    "drift",
+    "suggestedPropagations"
+  ],
+  "fields": {
+    "summary": {
+      "type": "string",
+      "nonEmpty": true
+    },
+    "healthLevel": {
+      "type": "number",
+      "values": [
+        0,
+        1,
+        2
+      ]
+    },
+    "layersSeen": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "of": {
+        "type": "string",
+        "nonEmpty": true
+      }
+    },
+    "snapshotOnly": {
+      "type": "boolean"
+    },
+    "rootChange": {
+      "type": "object",
+      "required": [
+        "layer",
+        "what",
+        "evidence"
+      ],
+      "fields": {
+        "layer": {
+          "type": "string",
+          "nonEmpty": true
+        },
+        "what": {
+          "type": "string",
+          "nonEmpty": true
+        },
+        "evidence": {
+          "type": "string",
+          "nonEmpty": true
+        }
+      }
+    },
+    "conflicts": {
+      "type": "array",
+      "maxItems": 20,
+      "of": {
+        "type": "object",
+        "required": [
+          "between",
+          "summary",
+          "objects",
+          "severity",
+          "evidence"
+        ],
+        "fields": {
+          "between": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "of": {
+              "type": "string",
+              "nonEmpty": true
+            }
+          },
+          "summary": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "objects": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "of": {
+              "type": "object",
+              "required": [
+                "kind",
+                "ref"
+              ],
+              "fields": {
+                "kind": {
+                  "type": "string",
+                  "nonEmpty": true
+                },
+                "ref": {
+                  "type": "string",
+                  "nonEmpty": true
+                },
+                "version": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          "severity": {
+            "type": "number",
+            "values": [
+              1,
+              2,
+              3
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "suggestedNext": {
+            "type": "string",
+            "nonEmpty": false
+          }
+        }
+      }
+    },
+    "drift": {
+      "type": "array",
+      "maxItems": 20,
+      "of": {
+        "type": "object",
+        "required": [
+          "between",
+          "summary",
+          "objects",
+          "severity",
+          "evidence"
+        ],
+        "fields": {
+          "between": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "of": {
+              "type": "string",
+              "nonEmpty": true
+            }
+          },
+          "summary": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "objects": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "of": {
+              "type": "object",
+              "required": [
+                "kind",
+                "ref"
+              ],
+              "fields": {
+                "kind": {
+                  "type": "string",
+                  "nonEmpty": true
+                },
+                "ref": {
+                  "type": "string",
+                  "nonEmpty": true
+                },
+                "version": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          "severity": {
+            "type": "number",
+            "values": [
+              1,
+              2,
+              3
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "suggestedNext": {
+            "type": "string",
+            "nonEmpty": false
+          }
+        }
+      }
+    },
+    "suggestedPropagations": {
+      "type": "array",
+      "maxItems": 12,
+      "of": {
+        "type": "object",
+        "required": [
+          "from",
+          "to",
+          "what"
+        ],
+        "fields": {
+          "from": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "to": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "what": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "suggestedSkillId": {
+            "type": "string",
+            "nonEmpty": false
+          }
+        }
+      }
+    },
+    "notes": {
+      "type": "string",
+      "nonEmpty": false
+    }
+  }
+}

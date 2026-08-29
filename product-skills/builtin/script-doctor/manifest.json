@@ -1,6 +1,6 @@
 {
   "skillId": "script-doctor",
-  "skillVersion": 1,
+  "skillVersion": 2,
   "work": "review",
   "role": "剧本医生",
   "title": "Script Doctor",
@@ -19,5 +19,22 @@
     "修法是否可执行，而不是「让它更有张力」这类空话",
     "是否把风格偏好伪装成结构问题"
   ],
-  "recommendedRuntime": "local_subscription"
+  "recommendedRuntime": "local_subscription",
+  "routing": {
+    "userCapability": [
+      "story-review"
+    ],
+    "internalRouting": {
+      "intent": "script-review",
+      "kind": "diagnostic",
+      "scope": "episode",
+      "priority": 80,
+      "selectWhen": [
+        "剧本",
+        "问题",
+        "诊断",
+        "毛病"
+      ]
+    }
+  }
 }

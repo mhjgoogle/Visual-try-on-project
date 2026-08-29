@@ -31,19 +31,21 @@ const STATUS_ZH = {
 const ACTION_LABEL = Object.fromEntries(actionCatalog().map((a) => [a.id, a.label]));
 //: 服务端**自己**处理的那几种：它们不在前端注册表里，但它们做得到，所以不能被归进
 //: 「本应用还做不到」（真机上就撞见过：一条答复同时出现在两个标题下面）。
-const SERVER_KINDS = new Set(["feedback.ui", "proposal.decide"]);
+const SERVER_KINDS = new Set(["feedback.ui", "proposal.decide", "dev.request"]);
 const EDIT_ZH = {
   ...ACTION_LABEL,
   "feedback.ui": "记下你的意见",
   "proposal.decide": "答复开发的提案",
+  "dev.request": "让开发出方案",
 };
 
 /** Pure view model: what the column shows, from the thread the server gave. */
 export function threadModel(
   turns,
-  { pendingRun = null, pendingStatus = "", applied = {} } = {},
+  { pendingRun = null, pendingStatus = "", applied = {}, routeState = {} } = {},
 ) {
   const landed = applied && typeof applied === "object" ? applied : {};
+  const routes = routeState && typeof routeState === "object" ? routeState : {};
   const rows = (Array.isArray(turns) ? turns : []).map((t) => ({
     turnId: String(t.turnId || ""),
     role: t.role === "agent" ? "agent" : "user",
@@ -62,6 +64,13 @@ export function threadModel(
         (e) => e && !knownAction(e.kind) && !SERVER_KINDS.has(e.kind),
       ),
     ),
+    // 这一轮识别到的能力（TASK-119）。三样东西必须分开，因为创作者的下一步不同：
+    //   route          它识别到了什么、为什么
+    //   routeRejected  服务端拒了它（编造的 skillId / 错的窗口）——「没启动」+ 原因
+    //   routeState     真的起跑了没有、缺什么、结果在哪（由调用方从登记表算出来）
+    route: t.route && typeof t.route === "object" ? t.route : null,
+    routeRejected:
+      t.routeRejected && typeof t.routeRejected === "object" ? t.routeRejected : null,
     // WHAT ACTUALLY LANDED, keyed by the run that proposed it. 「它说要改」 and
     // 「已经改了」 stay separate rows on screen (决策 2b): an edit that was applied
     // moves OUT of 「还没落到作品上」 and says which version it became.
@@ -72,6 +81,7 @@ export function threadModel(
     applied: (Array.isArray(t.applied) && t.applied.length
       ? t.applied
       : (t.runId && Array.isArray(landed[t.runId]) ? landed[t.runId] : [])),
+    routeState: (t.runId && routes[t.runId]) || null,
   })).map((r) => (r.applied.length
     // an edit that landed is no longer 「建议」 —— 同一条不能在两个标题下各出现一次
     ? { ...r, edits: r.edits.filter((e) => !r.applied.some((a) => a.kind === e.kind)) }
@@ -111,6 +121,78 @@ function editList(items, { supported, runId = "" }) {
   return (
     `<div class="cv-editswrap"><div class="lab">${esc(label)}${act}</div>` +
     `<ul class="cv-edits">${rows}</ul></div>`
+  );
+}
+
+//: 一次运行在屏幕上的说法。与 `RUN_STATUS_LABEL` 同义但**只覆盖这里会出现的那些**
+//: —— 一个自动起跑的能力永远不会停在「待确认」。
+const ROUTE_RUN_ZH = {
+  queued: "排队中",
+  running: "正在跑…",
+  awaiting_input: "等你把结果贴回来",
+  cancelling: "正在取消",
+  cancelled: "已取消",
+  succeeded: "已完成",
+  failed: "没跑成",
+};
+
+const SCOPE_ZH = { project: "整个项目", episode: "当前分集", shot: "当前镜头" };
+
+//: 他看得见的是**这一类工作**，不是内部专业能力的 id（ADR-0091 决策 5）。
+//: 屏幕上说「我按检查问题来处理」，而不是「我调用了 script-doctor v2」。
+const CAPABILITY_ZH = {
+  "story-development": "开发故事",
+  "episode-production": "制作这一集",
+  "story-review": "检查问题",
+};
+
+/** 「它识别到要用哪个能力」这一段。
+ *
+ *  三件事必须在屏幕上分开（REQ-007 判据 3 的同一条道理）：**识别到了什么**、
+ *  **有没有真的起跑**、**结果在哪 / 为什么没跑**。把它们并成一句「已处理」，
+ *  就是创作者看着一个什么都没发生的界面以为事情做完了。 */
+function routeBlock(r) {
+  if (r.routeRejected) {
+    return (
+      `<div class="cv-routewrap bad"><div class="lab">没有启动能力</div>` +
+      `<div class="t">${esc(String(r.routeRejected.reason || ""))}</div></div>`
+    );
+  }
+  if (!r.route) return "";
+  const st = r.routeState || {};
+  // 显示的是**这一类工作**（他说得出口的那三个之一），不是内部能力的 id。
+  const title = esc(String(CAPABILITY_ZH[r.route.capability] || r.route.capability || ""));
+  const scope = SCOPE_ZH[r.route.scope] || "";
+  const why = r.route.reason ? `<div class="t">${esc(String(r.route.reason))}</div>` : "";
+  let head = "按这一类来处理";
+  let body = "";
+  let act = "";
+  if (st.status) {
+    // 起跑了：状态来自**登记表**，不是它自称的进度 —— 与对话轮的状态同一条纪律
+    // （ADR-0089 决策 5），进程死掉时不会永远停在「正在跑」。
+    head = "已经开始做了";
+    body =
+      `<div class="t"><span class="chip${st.status === "failed" ? " bad" : " mute"}">` +
+      `${esc(ROUTE_RUN_ZH[st.status] || st.status)}</span>` +
+      (st.status === "succeeded"
+        ? "结果在下面「能力」面板里等你决定要不要用。"
+        : st.status === "failed"
+        ? esc(String(st.error || "没有记录失败原因"))
+        : "") +
+      `</div>`;
+  } else if (st.reason) {
+    // 没起跑：**说清为什么**，并给出他自己点的那条路（ADR-0065 决策 2 手工兜底）。
+    head = "这次没有自动开始";
+    body = `<div class="t">${esc(String(st.reason))}</div>`;
+    if (st.canOpen) {
+      act = `<button class="cv-apply" data-cv-route="${esc(String(st.skillId || ""))}">去运行</button>`;
+    }
+  }
+  return (
+    `<div class="cv-routewrap"><div class="lab">${esc(head)}${act}</div>` +
+    `<div class="cv-route"><span class="k">${title}</span>` +
+    (scope ? `<span class="chip mute">${esc(scope)}</span>` : "") +
+    `</div>${why}${body}</div>`
   );
 }
 
@@ -163,6 +245,7 @@ export function renderThread(m) {
         failure +
         applied +
         applyFail +
+        routeBlock(r) +
         editList(r.edits, { supported: true, runId: r.runId || "" }) +
         editList(r.unsupported, { supported: false }) +
         `</div>`

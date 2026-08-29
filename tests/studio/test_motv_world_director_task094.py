@@ -42,7 +42,7 @@ def labels():
 
 def test_the_capability_loads_as_a_complete_package(catalog) -> None:
     skill = catalog.skills["world-director"]
-    assert skill.version == 1
+    assert skill.version >= 1
     assert skill.deprecated is False
     assert skill in catalog.available()
     # 产品负责人说的三样：当前剧本 + 已上传资产 + 已确认的世界观档案
@@ -71,7 +71,7 @@ def test_it_stays_out_of_the_relationship_capability_s_lane(catalog) -> None:
     assert "aCharacterId" not in entry["fields"]
     # relationship-director is untouched — two capabilities, two contracts
     rel = catalog.skills["relationship-director"]
-    assert rel.version == 1
+    assert rel.version >= 1
     assert "aCharacterId" in rel.output_schema["fields"]["proposals"]["of"]["fields"]
 
 

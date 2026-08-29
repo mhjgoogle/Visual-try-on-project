@@ -78,7 +78,9 @@ const ACTIONS = [
     apply: (ctx, a, meta) => {
       const rec = ctx.story.applyManualOutline(a.fields, "developed", (meta && meta.instruction) || "");
       const said = describe(a.fields, ACTION_BY_ID["outline.fields"].fields);
-      return { said: `${said}（故事大纲 v${rec && rec.v ? rec.v : "?"}）` };
+      // `version` 是这次写入的**稳定身份**（TASK-119）：跨层一致性诊断以它作幂等
+      // key，所以它必须是文档给的那个数，不是从 `said` 里再解析一次的字符串。
+      return { said: `${said}（故事大纲 v${rec && rec.v ? rec.v : "?"}）`, version: rec && rec.v };
     },
   },
   {
@@ -90,7 +92,7 @@ const ACTIONS = [
     apply: (ctx, a) => {
       const v = Number(a.v);
       if (!ctx.story.approveOutline(v)) throw new Error(`没有故事大纲 v${a.v}`);
-      return { said: `已批准故事大纲 v${v}` };
+      return { said: `已批准故事大纲 v${v}`, version: v };
     },
   },
   {
@@ -129,7 +131,10 @@ const ACTIONS = [
       const v = ctx.story.savePlanDraft();
       if (!v) return { said: "分集规划与当前版本没有差异，未新建版本" };
       // 确认（绑定剧集）仍然由创作者自己点 —— 见文件头的留白说明
-      return { said: `分集规划已保存为 v${v}（要让下游剧集改用它，还需你在页面上确认这一版）` };
+      return {
+        said: `分集规划已保存为 v${v}（要让下游剧集改用它，还需你在页面上确认这一版）`,
+        version: v,
+      };
     },
   },
   {

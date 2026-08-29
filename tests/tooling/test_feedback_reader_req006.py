@@ -165,3 +165,32 @@ def test_a_ledger_written_before_proposals_existed_still_loads(tool, ledger):
     assert "proposals" not in doc
     tool.main(["--path", str(ledger), "--propose", "新提案"])
     assert json.loads(ledger.read_text("utf-8"))["proposals"][0]["id"] == 1
+
+
+def test_the_reader_prints_where_and_which_file_draws_it(tool, ledger, capsys):
+    """一条意见到「我打开那个文件」之间，不该还有一步搜索。"""
+    doc = json.loads(ledger.read_text("utf-8"))
+    doc["items"][0]["where"] = {
+        "page": "剧集制作 · 分镜设计",
+        "section": "shots",
+        "route": "#/p/episode/storyboard/shots",
+        "source": "src/ui/storyboard.js",
+        "episodeLabel": "EP01 迷雾入城",
+        "shotTitle": "招牌 · 雨夜",
+    }
+    ledger.write_text(json.dumps(doc, ensure_ascii=False), "utf-8")
+    tool.main(["--path", str(ledger)])
+    out = capsys.readouterr().out
+    assert "剧集制作 · 分镜设计" in out
+    assert "节：shots" in out
+    assert "EP01 迷雾入城" in out
+    assert "mockups/motv-workspace/src/ui/storyboard.js" in out
+    assert "#/p/episode/storyboard/shots" in out
+
+
+def test_an_item_without_a_locator_still_reads_fine(tool, ledger, capsys):
+    """老条目没有 where —— 不能因此炸掉，也不能印出空行标题。"""
+    tool.main(["--path", str(ledger)])
+    out = capsys.readouterr().out
+    assert "版本太多了，看不过来" in out
+    assert "画它的文件" not in out
