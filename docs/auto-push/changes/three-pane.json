@@ -331,7 +331,7 @@
           "subject": "feat(TASK-117): 两个聊天窗口 —— 「作品」改东西，「开发」提意见，闸在服务端",
           "time": "2026-08-29T12:46:27+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/STATUS.md",
             "docs/adr/ADR-0089-conversational-agent-write-path.md",
