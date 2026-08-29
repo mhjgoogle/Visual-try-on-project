@@ -366,15 +366,63 @@ def _feedback_read_path() -> Path:
     return _app_data_read_path("feedback.json")
 
 
+def _empty_feedback() -> dict:
+    #: `items` = 他给开发的意见；`proposals` = 开发给他的修改提案。
+    #: 一个文件承载**双向**的那条回路（REQ-006 判据 4 + 判据 6）：他在对话里看到提案、
+    #: 在对话里答复，开发在仓库这边读得到答复。
+    return {"version": 1, "items": [], "proposals": []}
+
+
 def _load_feedback() -> dict:
     try:
         raw = json.loads(_feedback_read_path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return {"version": 1, "items": []}
+        return _empty_feedback()
     if not isinstance(raw, dict) or not isinstance(raw.get("items"), list):
-        return {"version": 1, "items": []}
+        return _empty_feedback()
     raw["items"] = [x for x in raw["items"] if isinstance(x, dict)]
+    raw["proposals"] = [x for x in (raw.get("proposals") or []) if isinstance(x, dict)]
     return raw
+
+
+#: 一条提案的字数上限，以及事实里最多摆几条 —— 它们要进提示词。
+_CONV_PROPOSAL_TEXT_MAX = 4000
+_CONV_PROPOSALS_IN_FACTS = 5
+#: 他能给的答复。`changes` = 「大方向可以，但要改成这样」。
+_CONV_VERDICTS = ("approved", "rejected", "changes")
+_VERDICT_ZH = {"approved": "同意", "rejected": "不要", "changes": "要改"}
+
+
+def _open_proposals() -> list:
+    """还没答复的提案（最早的在前）。"""
+    return [
+        x
+        for x in _load_feedback()["proposals"]
+        if isinstance(x, dict) and not isinstance(x.get("decision"), dict)
+    ]
+
+
+def _decide_proposal(pid, verdict: str, note: str, at: str) -> dict:
+    """记下他的答复。返回 {ok, error?, title?}。"""
+    if verdict not in _CONV_VERDICTS:
+        return {"ok": False, "error": f"不认识的答复「{verdict}」"}
+    doc = _load_feedback()
+    hit = None
+    for x in doc["proposals"]:
+        if str(x.get("id")) == str(pid):
+            hit = x
+    if hit is None:
+        return {"ok": False, "error": f"没有第 {pid} 号提案"}
+    if isinstance(hit.get("decision"), dict):
+        return {"ok": False, "error": f"第 {pid} 号提案已经答复过了"}
+    hit["decision"] = {
+        "at": at,
+        "verdict": verdict,
+        "note": (note or "")[:_CONV_PROPOSAL_TEXT_MAX],
+    }
+    if not _save_feedback(doc):
+        return {"ok": False, "error": "答复没能写进台账（磁盘写入失败）"}
+    return {"ok": True, "title": hit.get("title") or ""}
 
 
 def _save_feedback(doc: dict) -> bool:
@@ -2944,7 +2992,7 @@ _CONV_KEY_MAX = 64
 #:
 #: `feedback.ui` 是对**这个应用**的意见，不是对作品的改动：它不进创作文档，进账户级
 #: 台账，由后端的开发 Agent 取走（REQ-006）。`note` 是「它想做但做不到」的兜底。
-_CONV_SERVER_KINDS = ("feedback.ui", "note")
+_CONV_SERVER_KINDS = ("feedback.ui", "proposal.decide", "note")
 
 #: 意见台账最多留多少条（给开发看的输入，不是永久档案）。
 _CONV_FEEDBACK_MAX_ITEMS = 500
@@ -3036,7 +3084,13 @@ def _conv_prompt(message: str, facts: str, actions=None) -> str:
         "  - feedback.ui（作者对**这个应用本身**的意见：界面不好用、缺功能、"
         "文案不对——不是对作品的改动。text 写他的意见，expect 写他期望的样子。"
         "这类意见会被收进台账交给开发）\n"
+        "  - proposal.decide（**答复开发的修改提案**：args 里给 id=提案号、"
+        "verdict=approved/rejected/changes、note=他的话。事实里列着还没答复的提案；"
+        "他说「可以」「同意」→ approved，「不要」→ rejected，"
+        "「可以但要改成…」→ changes 并把要求写进 note）\n"
         "  - note（你想做但上面这张表里没有的事，写清楚是什么）\n"
+        "5b. 事实里如果有「开发给你的修改提案」，而作者还没提过它 —— 用一句话主动告诉他"
+        "有哪几条在等他拍板，别自己替他决定。\n"
         "4. 改字段用 fields，其它参数用 args。只写你要改的那几个键。\n"
         "5. 不确定就先问，不要替作者决定作品走向。\n\n"
         "只输出一个 JSON 对象，不要任何解释文字、不要代码围栏：\n"
@@ -3147,6 +3201,15 @@ def _adapt_conversation(text: str, _skill_id=None) -> dict:
             # kept, not dropped: 一个被静默丢弃的意图，看起来就是
             # 「它答应了然后什么都没干」
             unsupported.append(entry)
+            continue
+        if entry["kind"] == "proposal.decide":
+            args = item.get("args") if isinstance(item.get("args"), dict) else {}
+            entry["args"] = {
+                "id": str(args.get("id"))[:32] if args.get("id") is not None else "",
+                "verdict": str(args.get("verdict") or "")[:32],
+                "note": str(args.get("note") or "")[:_CONV_PROPOSAL_TEXT_MAX],
+            }
+            edits.append(entry)
             continue
         if entry["kind"] == "feedback.ui":
             expect = item.get("expect")
@@ -3618,6 +3681,14 @@ class _App:
                 {
                     "items": doc["items"][-200:],
                     "total": len(doc["items"]),
+                    "proposals": doc["proposals"][-200:],
+                    "openProposals": len(
+                        [
+                            x
+                            for x in doc["proposals"]
+                            if not isinstance(x.get("decision"), dict)
+                        ]
+                    ),
                     "path": str(_feedback_path()),
                 },
             )
@@ -6260,6 +6331,17 @@ class _App:
             else len(lines),
             f"镜头：{total_shots} 个" if total_shots else "镜头：还没有",
         )
+        # 开发给他的提案 —— **主动摆到事实里**，否则「Agent 能看到提案」要靠他先问。
+        # 提案是账户级的（与意见台账同一份文件），所以每个项目的对话都看得见。
+        pending = _open_proposals()
+        if pending:
+            lines.append(f"开发给你的修改提案（{len(pending)} 条还没答复）：")
+            for x in pending[:_CONV_PROPOSALS_IN_FACTS]:
+                title = str(x.get("title") or "")[:120]
+                body = str(x.get("body") or "")[:600]
+                lines.append(f"  #{x.get('id')} {title}")
+                if body:
+                    lines.append(f"    {body}")
         # WHERE HE IS STANDING. Sent by the UI (it owns the page vocabulary), so the
         # server prints what it was told rather than keeping a second copy of the
         # page names that could disagree with the rail. Bounded per field: it rides
@@ -6351,6 +6433,31 @@ class _App:
                     filed = _file_feedback(name, rid, run.get("context"), notes)
                     if filed:
                         turn["applied"] = (turn.get("applied") or []) + filed
+                # 他对提案的答复，同样由服务端落地（写的是应用数据）。
+                for e in turn["edits"]:
+                    if not isinstance(e, dict) or e.get("kind") != "proposal.decide":
+                        continue
+                    a = e.get("args") if isinstance(e.get("args"), dict) else {}
+                    res = _decide_proposal(
+                        a.get("id"),
+                        a.get("verdict") or "",
+                        a.get("note") or "",
+                        run.get("endedAt") or datetime.now(timezone.utc).isoformat(),
+                    )
+                    row = {
+                        "kind": "proposal.decide",
+                        "detail": (
+                            f"已答复第 {a.get('id')} 号提案："
+                            f"{_VERDICT_ZH.get(a.get('verdict'), a.get('verdict'))}"
+                            if res["ok"]
+                            else str(e.get("text") or "")
+                        ),
+                        "error": "" if res["ok"] else res["error"],
+                    }
+                    # 已经答复过 = 读时对账又经过了同一条 run，不是错误
+                    if not res["ok"] and "已经答复过" in res["error"]:
+                        continue
+                    turn["applied"] = (turn.get("applied") or []) + [row]
             else:
                 # FAIL-CLOSED, AND SAY WHY (ADR-0089 决策 6). A failed turn that
                 # rendered as silence would look like the assistant ignored him.

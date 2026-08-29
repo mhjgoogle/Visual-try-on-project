@@ -693,3 +693,118 @@ def test_the_ledger_is_readable_over_http(app, srv):
     out = json.loads(resp.body.decode("utf-8"))
     assert out["total"] == 1
     assert out["items"][0]["text"] == "大纲页字太小"
+
+
+# --- 9. 提案回路：开发 → 他 → 开发（REQ-006 判据 6） ------------------------- #
+
+
+def _propose(srv, title, body=""):
+    doc = srv._load_feedback()
+    doc["proposals"].append(
+        {
+            "id": len(doc["proposals"]) + 1,
+            "createdAt": "2026-08-29T00:00:00+00:00",
+            "title": title,
+            "body": body,
+            "decision": None,
+        }
+    )
+    srv._save_feedback(doc)
+    return doc["proposals"][-1]["id"]
+
+
+def test_open_proposals_reach_the_facts_so_it_can_bring_them_up(app, srv):
+    """「Agent 能看到提案」不能靠他先问 —— 提案主动进事实。"""
+    _propose(srv, "把版本行收起来", "旧版本收进「历史版本」，一个都不删")
+    facts = app._conv_facts("夜班沉默", None)
+    assert "开发给你的修改提案（1 条还没答复）" in facts
+    assert "把版本行收起来" in facts
+    assert "旧版本收进" in facts
+
+
+def test_an_answered_proposal_stops_taking_up_room(app, srv):
+    pid = _propose(srv, "已经答复过的那条")
+    srv._decide_proposal(pid, "approved", "行", "2026-08-29T01:00:00+00:00")
+    assert "开发给你的修改提案" not in app._conv_facts("夜班沉默", None)
+
+
+def test_his_answer_lands_on_the_proposal(app, srv):
+    pid = _propose(srv, "把版本行收起来")
+    res = srv._decide_proposal(
+        pid, "changes", "同意，但要能一键全展开", "2026-08-29T02:00:00+00:00"
+    )
+    assert res["ok"] is True
+    rec = srv._load_feedback()["proposals"][0]
+    assert rec["decision"]["verdict"] == "changes"
+    assert rec["decision"]["note"] == "同意，但要能一键全展开"
+
+
+@pytest.mark.parametrize("verdict", ["approved", "rejected", "changes"])
+def test_the_three_answers_he_can_give(app, srv, verdict):
+    pid = _propose(srv, f"提案 {verdict}")
+    assert (
+        srv._decide_proposal(pid, verdict, "", "2026-08-29T03:00:00+00:00")["ok"]
+        is True
+    )
+
+
+def test_a_nonsense_verdict_is_refused(app, srv):
+    pid = _propose(srv, "提案")
+    res = srv._decide_proposal(pid, "maybe", "", "2026-08-29T03:00:00+00:00")
+    assert res["ok"] is False
+    assert "不认识的答复" in res["error"]
+
+
+def test_answering_twice_is_refused_rather_than_overwriting_him(app, srv):
+    pid = _propose(srv, "提案")
+    srv._decide_proposal(pid, "approved", "行", "2026-08-29T03:00:00+00:00")
+    res = srv._decide_proposal(pid, "rejected", "反悔", "2026-08-29T04:00:00+00:00")
+    assert res["ok"] is False
+    assert "已经答复过" in res["error"]
+    assert srv._load_feedback()["proposals"][0]["decision"]["verdict"] == "approved"
+
+
+def test_an_unknown_proposal_number_says_so(app, srv):
+    res = srv._decide_proposal(99, "approved", "", "2026-08-29T03:00:00+00:00")
+    assert res["ok"] is False
+    assert "没有第 99 号提案" in res["error"]
+
+
+def test_the_decision_edit_survives_the_adapter_with_its_args(srv):
+    out = srv._adapt_conversation(
+        json.dumps(
+            {
+                "reply": "已经替你答复了",
+                "edits": [
+                    {
+                        "kind": "proposal.decide",
+                        "text": "答复提案 #1",
+                        "args": {"id": 1, "verdict": "changes", "note": "要能一键展开"},
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        )
+    )
+    assert out["edits"][0]["args"] == {
+        "id": "1",
+        "verdict": "changes",
+        "note": "要能一键展开",
+    }
+
+
+def test_the_prompt_teaches_it_how_to_answer_a_proposal(srv):
+    prompt = srv._conv_prompt("开发有什么要我拍板的", "项目：夜班沉默", [])
+    assert "proposal.decide" in prompt
+    assert "approved/rejected/changes" in prompt
+    # 主动告诉他，而不是等他问
+    assert "主动告诉他" in prompt
+
+
+def test_the_ledger_endpoint_reports_how_many_await_him(app, srv):
+    _propose(srv, "一")
+    pid = _propose(srv, "二")
+    srv._decide_proposal(pid, "approved", "", "2026-08-29T05:00:00+00:00")
+    out = json.loads(app.handle("/api/feedback").body.decode("utf-8"))
+    assert len(out["proposals"]) == 2
+    assert out["openProposals"] == 1

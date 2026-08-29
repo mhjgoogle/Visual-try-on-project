@@ -29,7 +29,14 @@ const STATUS_ZH = {
 //: 动作的中文名来自**注册表**（前端拥有那些按钮），所以屏幕上的说法与提示词里给模型的
 //: 说法永远是同一份。表里没有的 kind → 「本应用还做不到」。
 const ACTION_LABEL = Object.fromEntries(actionCatalog().map((a) => [a.id, a.label]));
-const EDIT_ZH = { ...ACTION_LABEL, "feedback.ui": "记下你的意见" };
+//: 服务端**自己**处理的那几种：它们不在前端注册表里，但它们做得到，所以不能被归进
+//: 「本应用还做不到」（真机上就撞见过：一条答复同时出现在两个标题下面）。
+const SERVER_KINDS = new Set(["feedback.ui", "proposal.decide"]);
+const EDIT_ZH = {
+  ...ACTION_LABEL,
+  "feedback.ui": "记下你的意见",
+  "proposal.decide": "答复开发的提案",
+};
 
 /** Pure view model: what the column shows, from the thread the server gave. */
 export function threadModel(
@@ -48,11 +55,11 @@ export function threadModel(
     // WHO DECIDES 「做得到 / 做不到」：注册表在前端，所以判定也在前端。服务端只做
     // 形状约束（它不知道界面上有哪些按钮）。`feedback.ui` 由服务端自己落地，算做得到。
     edits: (Array.isArray(t.edits) ? t.edits : []).filter(
-      (e) => e && (knownAction(e.kind) || e.kind === "feedback.ui"),
+      (e) => e && (knownAction(e.kind) || SERVER_KINDS.has(e.kind)),
     ),
     unsupported: (Array.isArray(t.unsupported) ? t.unsupported : []).concat(
       (Array.isArray(t.edits) ? t.edits : []).filter(
-        (e) => e && !knownAction(e.kind) && e.kind !== "feedback.ui",
+        (e) => e && !knownAction(e.kind) && !SERVER_KINDS.has(e.kind),
       ),
     ),
     // WHAT ACTUALLY LANDED, keyed by the run that proposed it. 「它说要改」 and

@@ -19,7 +19,7 @@
 | `docs/reports/` | 阶段性工作报告 —— **历史证据**，默认不读 |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：5 在办 · 2 待排期 · 110 已完成 · 74 条 ADR。
+**当前**：5 在办 · 2 待排期 · 111 已完成 · 74 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -183,6 +183,7 @@
 | [TASK-113-latest-version-only-and-apply-outlet.md](tasks/done/TASK-113-latest-version-only-and-apply-outlet.md) | TASK-113：版本行默认只露最新版；还没落下的改动有个出口 | 完成（2026-08-29） |
 | [TASK-114-agent-action-registry-and-feedback-loop.md](tasks/done/TASK-114-agent-action-registry-and-feedback-loop.md) | TASK-114：动作注册表（Agent 能做创作者能做的事）+ 意见回路 | 完成（2026-08-29） |
 | [TASK-115-delete-with-an-undo-everywhere.md](tasks/done/TASK-115-delete-with-an-undo-everywhere.md) | TASK-115：故事与镜头都能删 —— 而且都能撤销 | 完成（2026-08-29） |
+| [TASK-116-proposal-loop-both-ways.md](tasks/done/TASK-116-proposal-loop-both-ways.md) | TASK-116：提案回路 —— 我提案，他在对话里拍板，我读回他的决定 | 完成（2026-08-29） |
 
 ## 已完成 · 设计与验收记录
 

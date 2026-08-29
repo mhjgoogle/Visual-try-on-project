@@ -118,3 +118,50 @@ def test_the_default_location_matches_the_server(tool):
     server = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(server)
     assert tool.default_path() == server._feedback_path()
+
+
+# --- 开发 → 他：提案与答复（REQ-006 判据 6） --------------------------------- #
+
+
+def test_the_dev_can_write_a_proposal_he_will_see(tool, ledger, capsys):
+    tool.main(
+        ["--path", str(ledger), "--propose", "把版本行收起来", "--body", "只显示最新版"]
+    )
+    assert "第 1 号提案" in capsys.readouterr().out
+    doc = json.loads(ledger.read_text("utf-8"))
+    assert doc["proposals"][0]["title"] == "把版本行收起来"
+    assert doc["proposals"][0]["body"] == "只显示最新版"
+    assert doc["proposals"][0]["decision"] is None
+
+
+def test_proposals_list_shows_his_answer_and_his_words(tool, ledger, capsys):
+    tool.main(["--path", str(ledger), "--propose", "把版本行收起来"])
+    doc = json.loads(ledger.read_text("utf-8"))
+    doc["proposals"][0]["decision"] = {
+        "at": "2026-08-29T02:00:00+00:00",
+        "verdict": "changes",
+        "note": "同意，但要能一键全展开",
+    }
+    ledger.write_text(json.dumps(doc, ensure_ascii=False), "utf-8")
+    tool.main(["--path", str(ledger), "--proposals"])
+    out = capsys.readouterr().out
+    assert "要改" in out
+    assert "同意，但要能一键全展开" in out
+
+
+def test_open_proposals_are_counted_so_the_dev_knows_what_is_waiting(
+    tool, ledger, capsys
+):
+    tool.main(["--path", str(ledger), "--propose", "一"])
+    tool.main(["--path", str(ledger), "--propose", "二"])
+    capsys.readouterr()
+    tool.main(["--path", str(ledger), "--proposals"])
+    assert "等他答复 2 条" in capsys.readouterr().out
+
+
+def test_a_ledger_written_before_proposals_existed_still_loads(tool, ledger):
+    """fixture 里本来就没有 proposals —— 那正是这条测试要的形状（旧台账）。"""
+    doc = json.loads(ledger.read_text("utf-8"))
+    assert "proposals" not in doc
+    tool.main(["--path", str(ledger), "--propose", "新提案"])
+    assert json.loads(ledger.read_text("utf-8"))["proposals"][0]["id"] == 1

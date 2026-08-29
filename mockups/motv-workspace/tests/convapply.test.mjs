@@ -281,3 +281,15 @@ test("落不下的那一条不许同时出现在「已落到作品上」里", ()
   assert.doesNotMatch(html, /已落到作品上/);
   assert.match(html, /有改动没能落下：写不进去/);
 });
+
+test("服务端自己处理的那几种不算「做不到」（真机上撞见过：一条同时出现在两个标题下）", () => {
+  for (const kind of ["feedback.ui", "proposal.decide"]) {
+    const m = threadModel([{
+      turnId: "t", role: "agent", runId: "r", status: "succeeded", text: "好",
+      edits: [{ kind, text: "…" }],
+      applied: [{ kind, detail: "已记下" }],
+    }]);
+    assert.equal(m.rows[0].unsupported.length, 0, kind);
+    assert.equal(m.rows[0].applied.length, 1, kind);
+  }
+});
