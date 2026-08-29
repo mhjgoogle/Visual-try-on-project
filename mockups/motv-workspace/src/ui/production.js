@@ -86,6 +86,7 @@ import {
 import { runOperation } from "./directorshot.js";
 import { episodeView, activeEpisode } from "../workflow/proddoc.js";
 import { applyConversationEdits } from "../workflow/convedits.js";
+import { actionCatalog } from "../workflow/convactions.js";
 import { renderQcPanel } from "./qcpanel.js";
 import { renderPostStatus } from "./poststatusbar.js";
 import { renderShotQc, bindShotQc, shotQcModel } from "./shotqcpanel.js";
@@ -1701,6 +1702,10 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       ? pd.production.episodes.findIndex((e) => e && e.episodeId === ep.episodeId)
       : -1;
     return {
+      // WHAT THE AGENT MAY DO —— 由**这里**送出去，因为界面动作归前端所有
+      // （产品负责人 2026-08-29:「用户能够操作的前端的agent都应该可以操作」）。
+      // 服务端把它转写进提示词，不再各持一份会漂移的词汇表。
+      actions: actionCatalog(),
       module: activeModule,
       moduleLabel: MODULE_LABEL[activeModule] || activeModule,
       spaceLabel: SPACE_LABEL[spaceOf(activeModule)] || "",
@@ -1779,7 +1784,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
             const edits = turn && Array.isArray(turn.edits) && turn.edits.length
               ? turn.edits
               : (((run || {}).outputs || {}).conversation || {}).edits;
-            const landed = applyConversationEdits(ctx.story, {
+            const landed = applyConversationEdits(ctx, {
               instruction: text,
               outputs: { conversation: { edits: edits || [] } },
             });
@@ -1872,7 +1877,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
         ctx.toast("这一轮没有可落的改动");
         return;
       }
-      const landed = applyConversationEdits(ctx.story, {
+      const landed = applyConversationEdits(ctx, {
         instruction: "（补落这一轮的改动）",
         outputs: { conversation: { edits: turn.edits } },
       });

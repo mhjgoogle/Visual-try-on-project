@@ -41,7 +41,11 @@ export function briefModel(story, dirty) {
     draft: d,
     active,
     versionCount: b.versions.length,
-    versions: b.versions.map((x) => ({ v: x.v, id: x.id, origin: x.origin, isActive: x.v === b.active })),
+    versions: b.versions
+      .filter((x) => !x.hidden)
+      .map((x) => ({ v: x.v, id: x.id, origin: x.origin, isActive: x.v === b.active })),
+    // 回收区：删掉的版本没有从链上摘掉，只是不再显示（storydoc 里有为什么）
+    trash: b.versions.filter((x) => x.hidden).map((x) => ({ v: x.v })),
     dirty: !!dirty,
     filled,
     total: BRIEF_FIELDS.length + 1, // + 目标集数
@@ -66,6 +70,11 @@ export function renderBriefWs(ctx, ui) {
     attr: "cbV",
     open: !!ui.briefHistoryOpen,
     toggleAttr: "cbHist",
+    // 删除只在展开历史时露出，且**正在依据的那一版不给 ✕**（删了下游就指向看不见的东西）
+    delAttr: "cbDel",
+    undelAttr: "cbUndel",
+    trash: m.trash,
+    keep: m.active ? [m.active.v] : [],
   });
   const actions =
     versions +
@@ -186,6 +195,8 @@ export function bindBriefWs(root, ctx, ui, rerender) {
   });
   on("[data-cb-v]", (el) => ctx.story.setActiveBrief(+el.dataset.cbV));
   on("[data-cb-hist]", () => { ui.briefHistoryOpen = !ui.briefHistoryOpen; rerender(); });
+  on("[data-cb-del]", (el) => ctx.story.hideBriefVersion(+el.dataset.cbDel));
+  on("[data-cb-undel]", (el) => ctx.story.restoreBriefVersion(+el.dataset.cbUndel));
   on("[data-cb-restore]", (el) => {
     if (!window.confirm("用该版本的内容替换当前工作草稿？（版本链不变，草稿里未版本化的修改会丢失）")) return;
     ui.briefBuffer = {};

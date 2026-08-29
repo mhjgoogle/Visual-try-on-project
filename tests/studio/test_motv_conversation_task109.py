@@ -215,13 +215,15 @@ def test_the_parser_accepts_json_wrapped_in_prose_and_fences(srv):
     assert out["edits"] == [{"kind": "brief.idea", "text": "新的创意"}]
 
 
-def test_an_unsupported_edit_is_KEPT_not_dropped(srv):
+def test_an_edit_is_KEPT_not_dropped_even_when_nobody_can_apply_it(srv):
+    """「做得到 / 做不到」的判定搬到了前端（动作表在那儿），但**保留**这条没变：
+    一个被静默丢弃的意图，看起来就是「它答应了然后什么都没干」。"""
     out = srv._adapt_conversation(
         '{"reply": "我想重命名项目", "edits": '
         '[{"kind": "project.rename", "text": "新名字"}]}'
     )
-    assert out["edits"] == []
-    assert out["unsupported"] == [{"kind": "project.rename", "text": "新名字"}]
+    assert out["edits"] == [{"kind": "project.rename", "text": "新名字"}]
+    assert out["unsupported"] == []
 
 
 @pytest.mark.parametrize(
@@ -488,196 +490,206 @@ def test_an_empty_brief_says_so_instead_of_going_silent(app, tmp_path):
     assert "创意简报：字段都还是空的" in facts
 
 
-def test_the_field_whitelist_is_what_reaches_the_document(srv):
-    """模型的答案会落进他的 canvas.json —— 白名单在边界上执行，不是在写入处。"""
-    out = srv._conv_brief_fields(
+def test_the_server_bounds_the_shape_not_the_vocabulary(srv):
+    """白名单去哪了：动作表归**前端**（那些按钮在它那儿），服务端再抄一份必然漂移成
+    「提示里说能做、落地却没有」。所以这里守的是**形状** —— 值有界、最多一层结构，
+    任意嵌套的模型输出不许原样流进他的 canvas.json。"""
+    out = srv._conv_shallow_values(
         {
-            "genre": "悬疑",
+            "genre": "  悬疑  ",
             "targetEpisodes": 24,
-            "bogus": "x",
-            "__proto__": "y",
-            "notes": "  留白  ",
+            "deep": {"who": "林照", "nested": {"太深": "不要"}},
+            "big": "x" * 5000,
+            "": "空键",
+            7: "非字符串键",
         }
     )
-    assert out == {"genre": "悬疑", "targetEpisodes": 24, "notes": "留白"}
+    assert out["genre"] == "悬疑"
+    assert out["targetEpisodes"] == 24
+    assert out["deep"] == {"who": "林照"}, "第二层结构必须被摊掉"
+    assert len(out["big"]) == srv._CONV_VALUE_MAX
+    assert "" not in out and 7 not in out
 
 
-@pytest.mark.parametrize(
-    "raw",
-    [
-        {"targetEpisodes": 0},
-        {"targetEpisodes": 51},
-        {"targetEpisodes": True},  # bool 是 int 的子类 —— 不能当集数
-        {"targetEpisodes": "24"},
-        {"genre": "   "},
-        {"genre": 7},
-        "不是对象",
-        None,
-    ],
-)
-def test_a_field_edit_that_names_nothing_writable_is_empty(srv, raw):
-    assert srv._conv_brief_fields(raw) == {}
+@pytest.mark.parametrize("raw", ["不是对象", None, 7, []])
+def test_a_non_object_payload_is_simply_empty(srv, raw):
+    assert srv._conv_shallow_values(raw) == {}
 
 
-def test_a_brief_fields_edit_survives_the_adapter_with_its_data(srv):
+def test_any_action_the_frontend_declared_survives_the_adapter(srv):
+    """产品负责人 2026-08-29:「用户能够操作的前端的agent都应该可以操作。」
+
+    所以适配器不再枚举 kind —— 它带着 kind 与数据原样交给前端，由前端的动作表判定。
+    """
     out = srv._adapt_conversation(
         json.dumps(
             {
-                "reply": "已经把类型改成悬疑。",
+                "reply": "已经改好了。",
                 "edits": [
                     {
-                        "kind": "brief.fields",
-                        "text": "把类型改成悬疑",
-                        "fields": {"genre": "悬疑", "bogus": "x"},
-                    }
+                        "kind": "outline.fields",
+                        "text": "把一句话故事写实",
+                        "fields": {"logline": "被抹除的人在终局世界里找回自己"},
+                    },
+                    {
+                        "kind": "plan.entry",
+                        "text": "改 EP03 标题",
+                        "args": {
+                            "episodeId": "ep-3",
+                            "field": "title",
+                            "value": "价码",
+                        },
+                    },
                 ],
             },
             ensure_ascii=False,
         )
     )
-    assert len(out["edits"]) == 1
-    assert out["edits"][0]["fields"] == {"genre": "悬疑"}
-    assert out["unsupported"] == []
+    kinds = [e["kind"] for e in out["edits"]]
+    assert kinds == ["outline.fields", "plan.entry"]
+    assert out["edits"][0]["fields"]["logline"].startswith("被抹除")
+    assert out["edits"][1]["args"]["episodeId"] == "ep-3"
 
 
-def test_a_brief_fields_edit_with_nothing_writable_is_reported_not_applied(srv):
-    """一条改不了任何字段的编辑不能变成「已落到作品上」—— 它是「我做不到」。"""
+def test_note_is_still_the_cannot_do_bucket(srv):
     out = srv._adapt_conversation(
         json.dumps(
-            {
-                "reply": "我来改。",
-                "edits": [
-                    {
-                        "kind": "brief.fields",
-                        "text": "改点什么",
-                        "fields": {"bogus": "x"},
-                    }
-                ],
-            },
+            {"reply": "做不到", "edits": [{"kind": "note", "text": "帮我发布到抖音"}]},
             ensure_ascii=False,
         )
     )
     assert out["edits"] == []
-    assert len(out["unsupported"]) == 1
-    assert out["unsupported"][0]["kind"] == "brief.fields"
+    assert out["unsupported"][0]["text"] == "帮我发布到抖音"
 
 
-def test_the_prompt_tells_it_which_fields_it_may_change(srv):
-    prompt = srv._conv_prompt("帮我改类型", "项目：夜班沉默")
-    assert "brief.fields" in prompt
-    assert "genre 类型/题材" in prompt
+def test_feedback_carries_what_he_expected(srv):
+    out = srv._adapt_conversation(
+        json.dumps(
+            {
+                "reply": "记下了",
+                "edits": [
+                    {
+                        "kind": "feedback.ui",
+                        "text": "版本太多了，看不过来",
+                        "expect": "只显示最新版",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        )
+    )
+    assert out["edits"][0]["kind"] == "feedback.ui"
+    assert out["edits"][0]["expect"] == "只显示最新版"
+
+
+def test_the_prompt_vocabulary_comes_from_the_frontend_catalog(srv):
+    """提示词里的动作表**不是服务端写死的**，是这一轮前端送来的那份。"""
+    prompt = srv._conv_prompt(
+        "帮我改类型",
+        "项目：夜班沉默",
+        [
+            {
+                "id": "brief.fields",
+                "label": "改创意简报",
+                "fields": {"genre": "类型/题材"},
+            },
+            {
+                "id": "plan.entry",
+                "label": "改分集规划的一条",
+                "args": {"field": "字段名"},
+            },
+        ],
+    )
+    assert "brief.fields（改创意简报）" in prompt
+    assert "genre=类型/题材" in prompt
+    assert "plan.entry（改分集规划的一条）" in prompt
+    # 两种服务端自己处理的仍然常驻
+    assert "feedback.ui" in prompt
+    assert "note（" in prompt
     # 「会被自动落到作品上」必须写在提示里：模型据此决定要不要给 edits
     assert "自动落到作品上" in prompt
 
 
-# --- 7. 落地回执（TASK-111）：「已落到作品上」是持久事实，不是一次性提示 ------ #
+def test_a_hostile_catalog_cannot_bloat_the_prompt(srv):
+    actions = [
+        {"id": "x" * 500, "label": "y" * 500, "fields": {"f": "z" * 500}}
+        for _ in range(200)
+    ]
+    text = srv._conv_actions_text(actions)
+    assert len(text.splitlines()) == srv._CONV_ACTIONS_MAX
+    first = text.splitlines()[0]
+    assert "x" * (srv._CONV_ACTION_ID_MAX + 1) not in first
+    assert "y" * (srv._CONV_ACTION_LABEL_MAX + 1) not in first
 
 
-def _applied(app, srv, name, payload, header=True):
-    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    headers = {srv._SKILL_RUN_HEADER: "1"} if header else {}
-    resp = app.handle_post(
-        f"/api/projects/{name}/conversation/applied", body, headers=headers
+def test_a_catalog_that_is_not_a_list_of_actions_is_simply_empty(srv):
+    assert srv._conv_actions_text(None) == ""
+    assert (
+        srv._conv_actions_text(["不是对象", {"label": "没有 id"}, {"id": "  "}]) == ""
     )
-    return resp.status, json.loads(resp.body.decode("utf-8"))
 
 
-def _seed_agent_turn(app, run_id="run-x", key="story"):
-    doc = app._conv_load("夜班沉默")
-    app._conv_turns(doc, key).append(
-        {
-            "turnId": "t-1",
-            "role": "agent",
-            "runId": run_id,
-            "status": "succeeded",
-            "text": "已把类型改成悬疑。",
-            "edits": [{"kind": "brief.fields", "text": "把类型改成悬疑"}],
-            "createdAt": "2026-08-29T00:00:00Z",
-        }
+# --- 8. 意见台账（REQ-006：他反馈，后端接得到） ------------------------------ #
+
+
+def test_feedback_lands_in_the_account_ledger_not_the_project(app, srv, tmp_path):
+    rows = [
+        {"kind": "feedback.ui", "text": "这个页面版本太多了", "expect": "只看最新版"}
+    ]
+    landed = srv._file_feedback(
+        "夜班沉默", "run-1", {"moduleLabel": "项目与创意"}, rows
     )
-    app._conv_save("夜班沉默", doc)
+    assert "已记下这条意见（#1）" in landed[0]["detail"]
+
+    doc = json.loads((srv.APP_DATA_DIR / "feedback.json").read_text("utf-8"))
+    item = doc["items"][0]
+    assert item["text"] == "这个页面版本太多了"
+    assert item["expect"] == "只看最新版"
+    assert item["page"] == "项目与创意"
+    assert item["project"] == "夜班沉默"
+    assert item["status"] == "new"
+    # 它不进任何项目根 —— 换个项目也该看得见自己提过什么
+    assert not (tmp_path / "account" / "夜班沉默" / "studio" / "feedback.json").exists()
 
 
-def test_a_receipt_lands_on_the_turn_that_proposed_it(app, srv):
-    _seed_agent_turn(app)
-    status, out = _applied(
-        app,
-        srv,
+def test_filing_the_same_run_twice_does_not_duplicate(app, srv):
+    """线程是读时对账的投影 —— 同一条 run 会被反复经过。"""
+    rows = [{"kind": "feedback.ui", "text": "版本太多了"}]
+    a = srv._file_feedback("夜班沉默", "run-1", None, rows)
+    b = srv._file_feedback("夜班沉默", "run-1", None, rows)
+    doc = json.loads((srv.APP_DATA_DIR / "feedback.json").read_text("utf-8"))
+    assert len(doc["items"]) == 1
+    assert a == b
+
+
+def test_a_hostile_feedback_row_is_bounded(app, srv):
+    rows = [{"kind": "feedback.ui", "text": "x" * 9000, "expect": "y" * 9000}]
+    srv._file_feedback("夜班沉默", "run-2", None, rows)
+    item = json.loads((srv.APP_DATA_DIR / "feedback.json").read_text("utf-8"))["items"][
+        0
+    ]
+    assert len(item["text"]) == srv._CONV_VALUE_MAX
+    assert len(item["expect"]) == srv._CONV_VALUE_MAX
+
+
+def test_an_empty_feedback_row_files_nothing(app, srv):
+    assert (
+        srv._file_feedback(
+            "夜班沉默", "run-3", None, [{"kind": "feedback.ui", "text": "  "}]
+        )
+        == []
+    )
+
+
+def test_the_ledger_is_readable_over_http(app, srv):
+    srv._file_feedback(
         "夜班沉默",
-        {
-            "runId": "run-x",
-            "applied": [
-                {"kind": "brief.fields", "detail": "类型/题材 → 悬疑（创意简报 v2）"}
-            ],
-        },
+        "run-4",
+        {"moduleLabel": "故事大纲"},
+        [{"kind": "feedback.ui", "text": "大纲页字太小"}],
     )
-    assert status == 200, out
-    _, read = _get(app, "夜班沉默", "story")
-    turn = [t for t in read["turns"] if t.get("runId") == "run-x"][0]
-    assert turn["applied"][0]["detail"] == "类型/题材 → 悬疑（创意简报 v2）"
-
-
-def test_the_receipt_survives_a_reload_because_it_is_in_the_thread(app, srv):
-    """这条测试守的就是那个缺陷：刷新一次，「已落到作品上」退回成「还没落到作品上」。"""
-    _seed_agent_turn(app)
-    _applied(
-        app,
-        srv,
-        "夜班沉默",
-        {
-            "runId": "run-x",
-            "applied": [{"kind": "brief.idea", "detail": "新创意（v3）"}],
-        },
-    )
-    # 新的一次读取 = 新开的标签页：落地信息只能来自服务端存的那份
-    # 真的换一个 _App 实例（新开的标签页 / 重启的进程），而不是复用同一份内存
-    fresh = srv._App(app.account_root)
-    fresh._projects.update(app._projects)
-    _, read = _get(fresh, "夜班沉默", "story")
-    turn = [t for t in read["turns"] if t.get("runId") == "run-x"][0]
-    assert turn["applied"][0]["detail"] == "新创意（v3）"
-
-
-def test_a_receipt_needs_the_csrf_header(app, srv):
-    _seed_agent_turn(app)
-    status, out = _applied(
-        app, srv, "夜班沉默", {"runId": "run-x", "applied": []}, header=False
-    )
-    assert status == 403
-    assert out["error"]["category"] == "forbidden"
-
-
-def test_a_receipt_for_an_unknown_run_says_so(app, srv):
-    status, out = _applied(
-        app, srv, "夜班沉默", {"runId": "run-nope", "applied": [{"kind": "note"}]}
-    )
-    assert status == 404
-    assert "run-nope" in out["error"]["detail"]
-
-
-@pytest.mark.parametrize(
-    "payload",
-    [{}, {"runId": ""}, {"runId": "run-x"}, {"runId": "run-x", "applied": "改了"}],
-)
-def test_a_malformed_receipt_is_refused(app, srv, payload):
-    _seed_agent_turn(app)
-    status, _ = _applied(app, srv, "夜班沉默", payload)
-    assert status == 400
-
-
-def test_a_hostile_receipt_cannot_bloat_the_thread(app, srv):
-    _seed_agent_turn(app)
-    _applied(
-        app,
-        srv,
-        "夜班沉默",
-        {
-            "runId": "run-x",
-            "applied": [{"kind": "k" * 500, "detail": "d" * 5000}] * 50,
-        },
-    )
-    _, read = _get(app, "夜班沉默", "story")
-    turn = [t for t in read["turns"] if t.get("runId") == "run-x"][0]
-    assert len(turn["applied"]) == 20
-    assert len(turn["applied"][0]["kind"]) == 64
-    assert len(turn["applied"][0]["detail"]) == 400
+    resp = app.handle("/api/feedback")
+    assert resp.status == 200
+    out = json.loads(resp.body.decode("utf-8"))
+    assert out["total"] == 1
+    assert out["items"][0]["text"] == "大纲页字太小"

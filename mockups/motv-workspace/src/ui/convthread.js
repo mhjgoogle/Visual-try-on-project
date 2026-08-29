@@ -13,6 +13,7 @@
 //   * 它做不到什么      —— unsupported 保留而不是丢掉：一个被静默丢弃的意图，
 //                        看起来就是「它答应了然后什么都没干」
 import { esc } from "../util/dom.js";
+import { actionCatalog, knownAction } from "../workflow/convactions.js";
 
 const STATUS_ZH = {
   queued: "排队中",
@@ -25,11 +26,10 @@ const STATUS_ZH = {
   unknown: "状态未知",
 };
 
-const EDIT_ZH = {
-  "brief.idea": "改核心创意",
-  "brief.fields": "改创意简报",
-  "story.outline": "追加一版故事大纲",
-};
+//: 动作的中文名来自**注册表**（前端拥有那些按钮），所以屏幕上的说法与提示词里给模型的
+//: 说法永远是同一份。表里没有的 kind → 「本应用还做不到」。
+const ACTION_LABEL = Object.fromEntries(actionCatalog().map((a) => [a.id, a.label]));
+const EDIT_ZH = { ...ACTION_LABEL, "feedback.ui": "记下你的意见" };
 
 /** Pure view model: what the column shows, from the thread the server gave. */
 export function threadModel(
@@ -45,8 +45,16 @@ export function threadModel(
     status: String(t.status || ""),
     failure: t.failure ? String(t.failure) : "",
     failureCategory: t.failureCategory ? String(t.failureCategory) : "",
-    edits: Array.isArray(t.edits) ? t.edits : [],
-    unsupported: Array.isArray(t.unsupported) ? t.unsupported : [],
+    // WHO DECIDES 「做得到 / 做不到」：注册表在前端，所以判定也在前端。服务端只做
+    // 形状约束（它不知道界面上有哪些按钮）。`feedback.ui` 由服务端自己落地，算做得到。
+    edits: (Array.isArray(t.edits) ? t.edits : []).filter(
+      (e) => e && (knownAction(e.kind) || e.kind === "feedback.ui"),
+    ),
+    unsupported: (Array.isArray(t.unsupported) ? t.unsupported : []).concat(
+      (Array.isArray(t.edits) ? t.edits : []).filter(
+        (e) => e && !knownAction(e.kind) && e.kind !== "feedback.ui",
+      ),
+    ),
     // WHAT ACTUALLY LANDED, keyed by the run that proposed it. 「它说要改」 and
     // 「已经改了」 stay separate rows on screen (决策 2b): an edit that was applied
     // moves OUT of 「还没落到作品上」 and says which version it became.
@@ -70,8 +78,6 @@ export function threadModel(
   return { rows, waiting, empty: rows.length === 0 && !waiting };
 }
 
-/** 这条路径真能落的两种（与 workflow/convedits.js 同一份判断）。 */
-const APPLIABLE = new Set(["brief.idea", "brief.fields"]);
 
 function editList(items, { supported, runId = "" }) {
   if (!items.length) return "";
@@ -79,7 +85,7 @@ function editList(items, { supported, runId = "" }) {
   // AN OUTSTANDING PROPOSAL NEEDS A WAY OUT. 一轮的自动落地可能没发生（页面在旧代码上、
   // 轮询超时、当时开着的是别的标签页）—— 那时屏幕上就剩「它说改好了」+「还没落到作品上」
   // 互相打脸，而他没有任何办法把它落下（产品负责人 2026-08-29:「好像是改了没显示」）。
-  const canApply = supported && runId && items.some((e) => APPLIABLE.has(e.kind));
+  const canApply = supported && runId && items.some((e) => knownAction(e.kind));
   const act = canApply
     ? `<button class="cv-apply" data-cv-apply="${esc(String(runId))}">落到作品上</button>`
     : "";
@@ -124,10 +130,12 @@ export function renderThread(m) {
       // No avatar (产品负责人 2026-08-27:「机器人的图不需要」). The turn is already
       // distinguishable by its own block; a status chip appears only when there IS
       // a status worth saying, so a normal answer carries no chrome at all.
-      const applied = r.applied.length
+      // 失败的那一条不许同时挂在「已落到作品上」下面 —— 它没落下
+      const ok = r.applied.filter((a) => !a.error);
+      const applied = ok.length
         ? `<div class="cv-editswrap"><div class="lab ok">已落到作品上</div>` +
           `<ul class="cv-edits">` +
-          r.applied
+          ok
             .map((a) => (
               `<li class="cv-edit done"><span class="k">${esc(EDIT_ZH[a.kind] || a.kind || "改动")}</span>` +
               `<span class="t">${esc(String(a.detail || a.text || ""))}</span></li>`

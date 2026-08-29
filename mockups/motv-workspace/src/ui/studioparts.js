@@ -53,7 +53,11 @@ export function renderSceneStrip(scenes, selectedSceneId) {
 
 /** ShotList — the vertical, thumbnail-led shot rail. Grouped by scene so the
  *  creator never loses the Scene › Shot hierarchy. */
-export function renderShotList(scenes, unassigned, selectedShotId) {
+export function renderShotList(scenes, unassigned, selectedShotId, opts = {}) {
+  // 删除入口是**可选**的：给了 `delAttr` 才画 ✕，因为一个没人绑处理器的按钮
+  // 比没有按钮更糟（点了没反应）。调用方绑了才传。
+  const delAttr = typeof opts.delAttr === "string" && opts.delAttr ? opts.delAttr : "";
+  const dash = (s) => s.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
   const item = (c) => {
     if (c.dangling) {
       return (
@@ -72,16 +76,27 @@ export function renderShotList(scenes, unassigned, selectedShotId) {
       `</span></span></button>`
     );
   };
+  // ✕ 是 `.shotitem` 的**兄弟**，不是子节点：`.shotitem` 本身是 <button>，把另一个
+  // button 套进去既是非法 HTML，点击也会冒泡成「打开这个镜头」——对一个删除控件来说
+  // 是最糟的误点（与主页卡片同一条教训，REQ-005）。
+  const row = (c) => (
+    delAttr && c.shotId && !c.dangling
+      ? `<div class="shotrow">${item(c)}` +
+        `<button class="shotdel" data-${dash(delAttr)}="${esc(c.shotId)}" ` +
+        `type="button" title="删除这个镜头（可在回收区撤销）" ` +
+        `aria-label="删除镜头 ${esc(c.title || c.shotId)}">✕</button></div>`
+      : item(c)
+  );
   const blocks = scenes
     .map(
       (sc) =>
         `<div class="stack" style="gap:var(--s1)"><div class="lab" style="margin:var(--s2) 0 0">${esc(sc.title)}</div>` +
-        (sc.shots.map(item).join("") || `<div class="meta">（空场景）</div>`) +
+        (sc.shots.map(row).join("") || `<div class="meta">（空场景）</div>`) +
         `</div>`,
     )
     .join("");
   const pool = unassigned && unassigned.length
-    ? `<div class="stack" style="gap:var(--s1)"><div class="lab" style="margin:var(--s2) 0 0">未归组</div>${unassigned.map(item).join("")}</div>`
+    ? `<div class="stack" style="gap:var(--s1)"><div class="lab" style="margin:var(--s2) 0 0">未归组</div>${unassigned.map(row).join("")}</div>`
     : "";
   return `<div class="shotlist">${blocks}${pool}</div>`;
 }

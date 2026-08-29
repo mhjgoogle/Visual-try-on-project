@@ -245,13 +245,24 @@ function outlineCards(ctx, m, ui) {
   // 同 briefws：默认只露最新版 + 当前依据的那一版，其余收进「历史版本」。
   // 已批准的那一版带 ✓ —— 它是下游的闸门，藏起来会让人以为没批过。
   const versions = versionRow(
-    doc.versions.map((x) => ({
-      v: x.v,
-      isActive: x.v === m.active.v || x.v === doc.approved,
-      label: `v${x.v}${x.v === doc.approved ? " ✓" : ""}`,
-      title: x.instruction || "",
-    })),
-    { attr: "stV", open: !!ui.outlineHistoryOpen, toggleAttr: "stHist" },
+    doc.versions
+      .filter((x) => !x.hidden)
+      .map((x) => ({
+        v: x.v,
+        isActive: x.v === m.active.v || x.v === doc.approved,
+        label: `v${x.v}${x.v === doc.approved ? " ✓" : ""}`,
+        title: x.instruction || "",
+      })),
+    {
+      attr: "stV",
+      open: !!ui.outlineHistoryOpen,
+      toggleAttr: "stHist",
+      delAttr: "stDel",
+      undelAttr: "stUndel",
+      trash: doc.versions.filter((x) => x.hidden).map((x) => ({ v: x.v })),
+      // 正在依据的那一版与**已批准**的那一版都不给 ✕：后者是剧集规划的闸门
+      keep: [m.active.v, doc.approved].filter((v) => Number.isInteger(v)),
+    },
   );
 
   const approve = m.approvedIsActive
@@ -449,6 +460,8 @@ export function bindStoryWs(root, ctx, ui, rerender) {
   on("[data-st-approve]", (el) => ctx.story.approveOutline(+el.dataset.stApprove));
   on("[data-st-v]", (el) => ctx.story.setActiveOutline(+el.dataset.stV));
   on("[data-st-hist]", () => { ui.outlineHistoryOpen = !ui.outlineHistoryOpen; rerender(); });
+  on("[data-st-del]", (el) => ctx.story.hideOutlineVersion(+el.dataset.stDel));
+  on("[data-st-undel]", (el) => ctx.story.restoreOutlineVersion(+el.dataset.stUndel));
   on("[data-st-editon]", () => { ui.storyEdit = true; rerender(); });
   on("[data-st-editoff]", () => {
     ui.storyEdit = false;

@@ -352,6 +352,111 @@ def _registry_read_path() -> Path:
     return _app_data_read_path("projects.json")
 
 
+def _feedback_path() -> Path:
+    """账户级意见台账。
+
+    WHY ACCOUNT-LEVEL, NOT PROJECT-LEVEL：他反馈的是**这个应用**（页面不好用、缺功能），
+    不是某一部作品的事实。和 `projects.json` / `runs.json` 同类（ADR-0053 / TASK-056），
+    所以它住在应用数据目录，不进任何项目根 —— 否则换个项目就看不见自己提过什么。
+    """
+    return _app_data_path("feedback.json")
+
+
+def _feedback_read_path() -> Path:
+    return _app_data_read_path("feedback.json")
+
+
+def _load_feedback() -> dict:
+    try:
+        raw = json.loads(_feedback_read_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"version": 1, "items": []}
+    if not isinstance(raw, dict) or not isinstance(raw.get("items"), list):
+        return {"version": 1, "items": []}
+    raw["items"] = [x for x in raw["items"] if isinstance(x, dict)]
+    return raw
+
+
+def _save_feedback(doc: dict) -> bool:
+    target = _feedback_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmpname = tempfile.mkstemp(dir=str(target.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(doc, ensure_ascii=False, indent=2))
+        os.replace(tmpname, target)  # atomic
+        return True
+    except OSError:
+        try:
+            os.unlink(tmpname)
+        except OSError:
+            pass
+        return False
+
+
+def _file_feedback(project: str, run_id: str, context, rows) -> list:
+    """把一轮里的 `feedback.ui` 记进台账。按 run 去重（读时对账会重复经过同一条 run）。
+
+    Returns 落好的条目摘要，供写回那一轮的 `applied`。
+    """
+    doc = _load_feedback()
+    seen = {x.get("runId") for x in doc["items"] if isinstance(x, dict)}
+    if run_id in seen:
+        return [
+            {
+                "kind": "feedback.ui",
+                "detail": f"已记下这条意见（#{x.get('id')}），下次开发时会看到",
+                "error": "",
+            }
+            for x in doc["items"]
+            if x.get("runId") == run_id
+        ]
+    page = ""
+    if isinstance(context, dict):
+        for key in ("moduleLabel", "module"):
+            val = context.get(key)
+            if isinstance(val, str) and val.strip():
+                page = val.strip()[:80]
+                break
+    landed = []
+    for row in rows[:_CONV_EDIT_MAX]:
+        text = row.get("text")
+        if not isinstance(text, str) or not text.strip():
+            continue
+        item = {
+            "id": len(doc["items"]) + 1,
+            "runId": run_id,
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "project": project,
+            "page": page,
+            "text": text.strip()[:_CONV_VALUE_MAX],
+            "expect": (row.get("expect") or "")[:_CONV_VALUE_MAX],
+            "status": "new",
+        }
+        doc["items"].append(item)
+        landed.append(
+            {
+                "kind": "feedback.ui",
+                "detail": f"已记下这条意见（#{item['id']}），下次开发时会看到",
+                "error": "",
+            }
+        )
+    if not landed:
+        return []
+    # 只留最近的 N 条：台账是给开发看的输入，不是永久档案
+    doc["items"] = doc["items"][-_CONV_FEEDBACK_MAX_ITEMS:]
+    if not _save_feedback(doc):
+        return [
+            {
+                "kind": "feedback.ui",
+                "detail": text,
+                "error": "意见没能写进台账（磁盘写入失败）",
+            }
+            for text in [r.get("text", "") for r in rows]
+        ]
+    return landed
+
+
 def _empty_registry() -> dict:
     return {"version": 1, "projects": [], "confirmedRoots": []}
 
@@ -2833,55 +2938,112 @@ _CONV_LEGACY_THREAD = "__legacy__"
 #: up the document.
 _CONV_KEY_MAX = 64
 
-#: The edits this app can actually apply. Anything else the model asks for is
-#: reported to the creator as unsupported rather than dropped — a silently
-#: discarded intention is how an assistant looks like it agreed and did nothing.
-_CONV_EDIT_KINDS = ("brief.idea", "brief.fields", "story.outline", "note")
+#: 服务端**自己**处理的两种。其余的动作词汇表**由前端送来**（`context.actions`）——
+#: Agent 能做的就是创作者能做的（产品负责人 2026-08-29:「用户能够操作的前端的agent都
+#: 应该可以操作」），而界面动作归前端所有，服务端再抄一份就一定会漂移。
+#:
+#: `feedback.ui` 是对**这个应用**的意见，不是对作品的改动：它不进创作文档，进账户级
+#: 台账，由后端的开发 Agent 取走（REQ-006）。`note` 是「它想做但做不到」的兜底。
+_CONV_SERVER_KINDS = ("feedback.ui", "note")
+
+#: 意见台账最多留多少条（给开发看的输入，不是永久档案）。
+_CONV_FEEDBACK_MAX_ITEMS = 500
+
+#: 一轮里最多带多少个动作、每个字段值多长 —— 它们要落进他的 canvas.json。
+_CONV_EDIT_MAX = 20
+_CONV_VALUE_MAX = 2000
+#: 前端送来的动作表的上限（它进提示词）。
+_CONV_ACTIONS_MAX = 40
+_CONV_ACTION_ID_MAX = 64
+_CONV_ACTION_LABEL_MAX = 60
 
 #: 创意简报里可以被一条 `brief.fields` 编辑改到的字段 —— 与前端 `storydoc.BRIEF_FIELDS`
 #: 同一份名单（`targetEpisodes` 是整数，单独处理）。这是**白名单**：模型报上来的
 #: 任何其它键都不落进创作文档。
-_CONV_BRIEF_FIELDS = (
-    "genre",
-    "tone",
-    "form",
-    "episodeDuration",
-    "totalDuration",
-    "notes",
+#: 事实里报告创意简报时的字段顺序与中文名（**只用于展示**：能改哪些字段由前端的动作表
+#: 说了算，服务端不再各持一份白名单）。
+_CONV_BRIEF_LABELS = (
+    ("genre", "类型/题材"),
+    ("tone", "基调"),
+    ("form", "形态"),
+    ("episodeDuration", "每集时长"),
+    ("totalDuration", "总时长"),
+    ("notes", "备注"),
 )
-_CONV_BRIEF_VALUE_MAX = 2000
 
 
-def _conv_prompt(message: str, facts: str) -> str:
-    """The turn's prompt: WHO you are, WHAT is true, WHAT the creator said, and
-    the exact answer shape. The output contract is JSON because a turn that also
-    proposes edits must be machine-readable, and a fuzzy 「大概是这个意思」 parse is
-    how a wrong edit gets applied to someone's script."""
+def _conv_actions_text(actions) -> str:
+    """把前端送来的动作表写成模型看得懂的词汇表。
+
+    **词汇表不是服务端写死的。** 界面动作归前端所有（那些按钮在它那儿），服务端再抄
+    一份就一定会漂移成「提示里说能做、落地却没有」。所以这里只做有界的转写。
+    """
+    lines = []
+    for item in (actions or [])[:_CONV_ACTIONS_MAX]:
+        if not isinstance(item, dict):
+            continue
+        aid = item.get("id")
+        label = item.get("label")
+        if not isinstance(aid, str) or not aid.strip():
+            continue
+        row = f"  - {aid.strip()[:_CONV_ACTION_ID_MAX]}"
+        if isinstance(label, str) and label.strip():
+            row += f"（{label.strip()[:_CONV_ACTION_LABEL_MAX]}）"
+        spec = item.get("fields") if isinstance(item.get("fields"), dict) else None
+        if spec:
+            names = [
+                f"{k}={str(v)[:_CONV_ACTION_LABEL_MAX]}"
+                for k, v in list(spec.items())[:30]
+                if isinstance(k, str)
+            ]
+            row += "，fields 里可写：" + "、".join(names)
+        spec = item.get("args") if isinstance(item.get("args"), dict) else None
+        if spec:
+            names = [
+                f"{k}={str(v)[:_CONV_ACTION_LABEL_MAX]}"
+                for k, v in list(spec.items())[:20]
+                if isinstance(k, str)
+            ]
+            if names:
+                row += "，args 里要给：" + "、".join(names)
+        lines.append(row)
+    return "\n".join(lines)
+
+
+def _conv_prompt(message: str, facts: str, actions=None) -> str:
+    """The turn's prompt: WHO you are, WHAT is true, WHAT YOU CAN DO, WHAT the
+    creator said, and the exact answer shape.
+
+    「你能做什么」这一段来自**前端的动作表** —— 创作者在界面上能做的，Agent 就能做
+    （产品负责人 2026-08-29）。输出契约是 JSON，因为一轮里除了回话还可能带动作，而
+    「大概是这个意思」的模糊解析正是错误改动落到别人剧本上的方式。"""
+    catalog = _conv_actions_text(actions)
     return (
         "你是这个短剧创作项目里的制作助理。你面对的是作品的作者。\n"
-        "下面给你的是这个项目**当前的事实**（由服务端读取，不是你猜的）。\n"
-        "作者说了一句话，你要：读懂他要什么 → 用中文简短回答 → 如果需要改动作品，"
-        "就提出具体的编辑。\n\n"
+        "下面给你的是这个项目**当前的事实**（由服务端读取，不是你猜的），"
+        "以及你**能直接做的动作**。\n"
+        "作者说了一句话，你要：读懂他要什么 → 用中文简短回答 → 需要动作就给出动作。\n\n"
         "规则：\n"
         "1. 只依据下面的事实说话。事实里没有的，就说你还需要知道什么，不要编。\n"
         "1b. 事实里的「现在在看」是作者此刻打开的页面和选中的对象。"
-        "他说「这个」「当前」「这一镜」时，指的就是那里；据此回答，不要反问他在哪。\n"
+        "他说「这个」「当前」「这一页」「这一镜」时，指的就是那里；据此回答，"
+        "不要反问他在哪。\n"
         "2. 需要改动时，用 edits 表达，不要把改动写在 reply 里让作者自己复制。\n"
-        "3. edits 里每一项的 kind 只能是：brief.idea（改核心创意）、"
-        "brief.fields（改创意简报里的字段：genre 类型/题材、tone 基调、form 形态、"
-        "episodeDuration 每集时长、totalDuration 总时长、notes 备注、"
-        "targetEpisodes 目标集数（整数）—— 只写你要改的那几个）、"
-        "story.outline（追加一版故事大纲）、note（你想做但本应用还不能自动做的事，"
-        "写清楚是什么）。\n"
-        "3b. brief.idea 与 brief.fields 会被**自动落到作品上**，形成创意简报的"
-        "新一版（旧版本一律保留）。所以只在作者确实要求改动时才给，"
-        "并在 reply 里说清楚你改了什么。\n"
-        "4. 不确定就先问，不要替作者决定作品走向。\n\n"
+        "3. **edits 里的 kind 只能取下面这张表里的 id。**"
+        "这些动作会被**自动落到作品上**，形成新的一版（旧版本一律保留），"
+        "所以只在作者确实要求时才给，并在 reply 里说清楚你做了什么：\n"
+        f"{catalog}\n"
+        "  - feedback.ui（作者对**这个应用本身**的意见：界面不好用、缺功能、"
+        "文案不对——不是对作品的改动。text 写他的意见，expect 写他期望的样子。"
+        "这类意见会被收进台账交给开发）\n"
+        "  - note（你想做但上面这张表里没有的事，写清楚是什么）\n"
+        "4. 改字段用 fields，其它参数用 args。只写你要改的那几个键。\n"
+        "5. 不确定就先问，不要替作者决定作品走向。\n\n"
         "只输出一个 JSON 对象，不要任何解释文字、不要代码围栏：\n"
-        '{"reply": "给作者看的话", "edits": [{"kind": "brief.idea", "text": "..."},'
-        ' {"kind": "brief.fields", "text": "把类型改成悬疑",'
-        ' "fields": {"genre": "悬疑"}}]}\n'
-        "没有要改的就给 edits: []。\n\n"
+        '{"reply": "给作者看的话", "edits": ['
+        '{"kind": "brief.fields", "text": "把类型改成悬疑", '
+        '"fields": {"genre": "悬疑"}}]}\n'
+        "没有要做的就给 edits: []。\n\n"
         "=== 项目当前事实 ===\n"
         f"{facts}\n"
         "=== 作者说 ===\n"
@@ -2930,27 +3092,29 @@ def _conv_json_object(text: str) -> dict:
     raise ValueError("回答里没有可解析的 JSON 对象")
 
 
-def _conv_brief_fields(raw) -> dict:
-    """The writable subset of a `brief.fields` edit.
-
-    WHITELIST, NOT SANITIZE-IN-PLACE: the value comes from a model answer and lands
-    in the creator's `studio/canvas.json`, so anything not on `_CONV_BRIEF_FIELDS`
-    is dropped instead of carried through under a key the renderer would iterate
-    (the same posture as the outline/plan adapters). `targetEpisodes` is the one
-    non-string field and keeps the frontend's 1..50 bound.
-    """
-    if not isinstance(raw, dict):
-        return {}
+def _conv_shallow_values(raw) -> dict:
+    """Bounded, at most one level deep. 值来自模型答案，落点是他的创作文档。"""
     out = {}
-    for key in _CONV_BRIEF_FIELDS:
-        val = raw.get(key)
-        if isinstance(val, str) and val.strip():
-            out[key] = val.strip()[:_CONV_BRIEF_VALUE_MAX]
-    n = raw.get("targetEpisodes")
-    if isinstance(n, bool):
-        n = None
-    if isinstance(n, int) and 1 <= n <= 50:
-        out["targetEpisodes"] = n
+    if not isinstance(raw, dict):
+        return out
+    for key, val in list(raw.items())[:40]:
+        if not isinstance(key, str) or not key:
+            continue
+        k = key[:64]
+        if isinstance(val, bool):
+            out[k] = val
+        elif isinstance(val, int):
+            out[k] = val
+        elif isinstance(val, str):
+            if val.strip():
+                out[k] = val.strip()[:_CONV_VALUE_MAX]
+        elif isinstance(val, dict):
+            row = {}
+            for sk, sv in list(val.items())[:20]:
+                if isinstance(sk, str) and isinstance(sv, str) and sv.strip():
+                    row[sk[:64]] = sv.strip()[:_CONV_VALUE_MAX]
+            if row:
+                out[k] = row
     return out
 
 
@@ -2968,7 +3132,7 @@ def _adapt_conversation(text: str, _skill_id=None) -> dict:
         raise ValueError("edits 不是数组")
     edits = []
     unsupported = []
-    for item in raw_edits[:20]:
+    for item in raw_edits[:_CONV_EDIT_MAX]:
         if not isinstance(item, dict):
             continue
         kind = item.get("kind")
@@ -2976,25 +3140,34 @@ def _adapt_conversation(text: str, _skill_id=None) -> dict:
         if not isinstance(body, str) or not body.strip():
             continue
         entry = {
-            "kind": kind if isinstance(kind, str) else "",
+            "kind": kind[:_CONV_ACTION_ID_MAX] if isinstance(kind, str) else "",
             "text": body.strip()[:4000],
         }
-        if entry["kind"] == "brief.fields":
-            # A FIELD EDIT CARRIES DATA, NOT PROSE. The whitelist is applied HERE,
-            # at the boundary, so an unknown key never reaches the document — and a
-            # field edit that names nothing we can write is reported as unsupported
-            # rather than landing as an empty revision.
-            entry["fields"] = _conv_brief_fields(item.get("fields"))
-            if entry["fields"]:
-                edits.append(entry)
-            else:
-                unsupported.append(entry)
-        elif entry["kind"] in _CONV_EDIT_KINDS and entry["kind"] != "note":
-            edits.append(entry)
-        else:
-            # kept, not dropped: the creator is told what the assistant wanted to
-            # do and that this app cannot do it yet
+        if not entry["kind"] or entry["kind"] == "note":
+            # kept, not dropped: 一个被静默丢弃的意图，看起来就是
+            # 「它答应了然后什么都没干」
             unsupported.append(entry)
+            continue
+        if entry["kind"] == "feedback.ui":
+            expect = item.get("expect")
+            entry["expect"] = (
+                expect.strip()[:_CONV_VALUE_MAX]
+                if isinstance(expect, str) and expect.strip()
+                else ""
+            )
+            edits.append(entry)
+            continue
+        # WHOSE WHITELIST. 动作表归前端（它拥有那些按钮），所以「这条动作存不存在」由
+        # 前端判定；服务端在边界上做的是**形状**约束：值要么是有界的字符串/数字，要么是
+        # 一层结构化子对象。任意嵌套的模型输出不许原样流进他的 canvas.json
+        # （与 outline/plan 适配器同一条姿态，TASK-094 批次 C）。
+        data = item.get("fields")
+        if isinstance(data, dict):
+            entry["fields"] = _conv_shallow_values(data)
+        args = item.get("args")
+        if isinstance(args, dict):
+            entry["args"] = _conv_shallow_values(args)
+        edits.append(entry)
     return {"reply": reply.strip()[:8000], "edits": edits, "unsupported": unsupported}
 
 
@@ -3437,6 +3610,17 @@ class _App:
         if path == "/api/fs/list":
             q = parse_qs(urlsplit(raw_path).query)
             return self._fs_list((q.get("path") or [""])[0])
+        if path == "/api/feedback":
+            # 台账的读口。账户级，所以不挂在项目下面 —— 换个项目也该看得见提过什么。
+            doc = _load_feedback()
+            return _json(
+                200,
+                {
+                    "items": doc["items"][-200:],
+                    "total": len(doc["items"]),
+                    "path": str(_feedback_path()),
+                },
+            )
         if path == "/api/projects":
             if not self.connected:
                 return _json(200, {"projects": [], "mode": "local"})
@@ -5996,16 +6180,8 @@ class _App:
         if not isinstance(bfields, dict):
             bfields = brief.get("draft") if isinstance(brief.get("draft"), dict) else {}
             which = "草稿（还没版本化）"
-        labels = [
-            ("genre", "类型/题材"),
-            ("tone", "基调"),
-            ("form", "形态"),
-            ("episodeDuration", "每集时长"),
-            ("totalDuration", "总时长"),
-            ("notes", "备注"),
-        ]
         said = []
-        for key, label in labels:
+        for key, label in _CONV_BRIEF_LABELS:
             val = bfields.get(key)
             if isinstance(val, str) and val.strip():
                 said.append(f"  {label}：{val.strip()[:600]}")
@@ -6163,6 +6339,18 @@ class _App:
                 turn["text"] = conv.get("reply") or ""
                 turn["edits"] = conv.get("edits") or []
                 turn["unsupported"] = conv.get("unsupported") or []
+                # 意见由**服务端**落地：它写的是账户级台账（应用数据），不是他的创作
+                # 文档，所以不受决策 2b 约束；而且落在这里意味着「他说完就记下了」——
+                # 不依赖那个标签页还开着（REQ-006）。按 run 去重。
+                notes = [
+                    e
+                    for e in turn["edits"]
+                    if isinstance(e, dict) and e.get("kind") == "feedback.ui"
+                ]
+                if notes:
+                    filed = _file_feedback(name, rid, run.get("context"), notes)
+                    if filed:
+                        turn["applied"] = (turn.get("applied") or []) + filed
             else:
                 # FAIL-CLOSED, AND SAY WHY (ADR-0089 决策 6). A failed turn that
                 # rendered as silence would look like the assistant ignored him.
@@ -6342,8 +6530,13 @@ class _App:
                     }
                 },
             )
-        facts = self._conv_facts(name, payload.get("context"))
-        prompt = _conv_prompt(message.strip(), facts)
+        context = payload.get("context")
+        facts = self._conv_facts(name, context)
+        prompt = _conv_prompt(
+            message.strip(),
+            facts,
+            context.get("actions") if isinstance(context, dict) else None,
+        )
         try:
             run = runs().create(
                 kind="skill",

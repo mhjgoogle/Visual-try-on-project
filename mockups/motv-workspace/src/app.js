@@ -2623,6 +2623,31 @@ const ctx = {
       return ok;
     },
     setActiveBrief: (v) => prodOp(storydoc.setActiveBrief(storyDoc, v)),
+    // 版本的「删除」= 软删除（不再显示，版本链一字不动）。见 storydoc 里的规则说明。
+    hideBriefVersion: (v) => {
+      const r = storydoc.hideBriefVersion(storyDoc, v, new Date().toISOString());
+      if (r.ok) { ctx.persist(); refreshProductionView(); toast(`已删除创意简报 v${v} —— 在回收区可以撤销`); }
+      else toast(r.error);
+      return r;
+    },
+    restoreBriefVersion: (v) => {
+      const r = storydoc.restoreBriefVersion(storyDoc, v);
+      if (r.ok) { ctx.persist(); refreshProductionView(); toast(`已撤销删除 —— 创意简报 v${v} 回来了`); }
+      else toast(r.error);
+      return r;
+    },
+    hideOutlineVersion: (v) => {
+      const r = storydoc.hideOutlineVersion(storyDoc, v, new Date().toISOString());
+      if (r.ok) { ctx.persist(); refreshProductionView(); toast(`已删除故事大纲 v${v} —— 在回收区可以撤销`); }
+      else toast(r.error);
+      return r;
+    },
+    restoreOutlineVersion: (v) => {
+      const r = storydoc.restoreOutlineVersion(storyDoc, v);
+      if (r.ok) { ctx.persist(); refreshProductionView(); toast(`已撤销删除 —— 故事大纲 v${v} 回来了`); }
+      else toast(r.error);
+      return r;
+    },
     restoreBriefDraft: (v) => {
       const ok = storydoc.restoreBriefDraft(storyDoc, v);
       if (ok) toast(`已把 v${v} 的内容取回工作草稿（版本链未改动；确认后才成为新版本）`);
@@ -2658,8 +2683,8 @@ const ctx = {
       return rec;
     },
     discardProposal: () => { storydoc.discardProposal(storyDoc); refreshProductionView(); },
-    applyManualOutline: (fields) => {
-      const rec = storydoc.applyManualOutline(storyDoc, fields);
+    applyManualOutline: (fields, origin = "manual", instruction = "") => {
+      const rec = storydoc.applyManualOutline(storyDoc, fields, origin, instruction);
       ctx.persist();
       refreshProductionView();
       toast(`已保存为大纲 v${rec.v}（手工修改，旧版本保留）`);

@@ -25,3 +25,5 @@ SUPERSEDED）与版本修订规则见
   （TASK-109）
 - [REQ-005](REQ-005-remove-a-project-from-the-home-list.md) — CONFIRMED — 主页可以把项目从列表里删除（只删列表，文件他自己删）
   （TASK-110 / ADR-0090）
+- [REQ-006](REQ-006-agent-can-do-what-the-creator-can-do.md) — CONFIRMED — 对话里的 Agent 能做创作者能做的事，并把意见带回给开发
+  （TASK-114 / ADR-0089 决策 7、8）

@@ -2087,3 +2087,26 @@
 .sq-mini:hover { border-color: var(--line-2); }
 .sq-clean { margin-top: 8px; font-size: var(--t-sm); color: var(--ok); }
 .sq-why { margin-top: 8px; font-size: var(--t-xs); color: var(--text-faint); }
+
+/* 版本行里的删除与回收区（TASK-115）。✕ 是版本按钮的**兄弟**，不是子节点：
+   版本本身是 <button>，套一个 button 进去既非法，点击也会冒泡成「切换到这一版」。 */
+.vwrap { display: inline-flex; align-items: center; gap: 2px; }
+.vwrap .vdel {
+  padding: 2px 4px; line-height: 1; border: 0; background: transparent;
+  color: var(--text-faint); font-size: var(--t-micro); cursor: pointer; border-radius: var(--r1);
+}
+.vwrap .vdel:hover { color: var(--bad); background: var(--canvas); }
+.vtrash { display: inline-flex; align-items: center; gap: var(--s1); margin-left: var(--s2); }
+.vtrash .lab { color: var(--text-faint); font-size: var(--t-micro); }
+
+/* 镜头列表里的删除 + 卡片视图的回收区 */
+.shotrow { display: flex; align-items: stretch; gap: 2px; }
+.shotrow .shotitem { flex: 1 1 auto; min-width: 0; }
+.shotrow .shotdel {
+  flex: none; padding: 0 6px; border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--canvas); color: var(--text-faint); font-size: var(--t-micro); cursor: pointer;
+}
+.shotrow .shotdel:hover { color: var(--bad); border-color: var(--bad); }
+.sb-recycle { margin-top: var(--s2); font-size: var(--t-micro); color: var(--text-dim); }
+.sb-recycle ul { list-style: none; margin: var(--s1) 0 0; padding: 0; display: grid; gap: var(--s1); }
+.sb-recycle li { display: flex; align-items: center; justify-content: space-between; gap: var(--s1); }

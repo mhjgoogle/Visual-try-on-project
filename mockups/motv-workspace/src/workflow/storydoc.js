@@ -120,6 +120,10 @@ function sanitizeBriefVersions(list) {
       fields: sanitizeBriefDraft(x.fields),
       origin: ["manual", "developed"].includes(x.origin) ? x.origin : "manual",
       instruction: str(x.instruction),
+      // 软删除标记。**版本永远不从链上摘掉** —— 这里的 `v` 是密集重编号的，真删一版
+      // 会把后面所有版本号左移，于是「Based on 创意 v2」指向另一版。所以「删除」只是
+      // 不再显示（产品负责人 2026-08-29:「应该都可以有删除的选项。不然画面会很乱」）。
+      hidden: isObj(x.hidden) && str(x.hidden.at) ? { at: str(x.hidden.at) } : null,
     });
   }
   return out;
@@ -185,10 +189,66 @@ export function commitBrief(doc, origin = "manual", instruction = "") {
     fields: sanitizeBriefDraft(doc.brief.draft),
     origin: ["manual", "developed"].includes(origin) ? origin : "manual",
     instruction: String(instruction || ""),
+    hidden: null, // 出生时就带着这个形状，round-trip 才是无损的
   };
   doc.brief.versions.push(rec);
   doc.brief.active = rec.v;
   return rec;
+}
+
+/** 版本的软删除：不再显示，但一个字节都不动。
+ *
+ *  规则（两种文档共用）：
+ *  - **不许隐藏 `active` 那一版** —— 下游正基于它，藏起来就成了「你在基于一个看不见
+ *    的东西」。
+ *  - **不许隐藏 `approved` 那一版**（大纲）—— 它是剧集规划的闸门。
+ *  想删它们，先切换 / 改批到别的版本，再删。这不是刁难：它就是「先把不可逆变可逆」。
+ */
+function markHidden(list, v, at, guard) {
+  const rec = (list || []).find((x) => x.v === v);
+  if (!rec) return { ok: false, error: `没有 v${v}` };
+  const why = guard(v);
+  if (why) return { ok: false, error: why };
+  rec.hidden = { at: at || new Date().toISOString() };
+  return { ok: true };
+}
+
+function clearHidden(list, v) {
+  const rec = (list || []).find((x) => x.v === v);
+  if (!rec || !rec.hidden) return { ok: false, error: `v${v} 不在回收区里` };
+  rec.hidden = null;
+  return { ok: true };
+}
+
+export function hideBriefVersion(doc, v, at) {
+  return markHidden(doc.brief.versions, v, at, (n) => (
+    n === doc.brief.active ? "这是下游正在依据的那一版 —— 先切到别的版本再删" : ""
+  ));
+}
+
+export function restoreBriefVersion(doc, v) {
+  return clearHidden(doc.brief.versions, v);
+}
+
+export function hideOutlineVersion(doc, v, at) {
+  return markHidden(doc.versions, v, at, (n) => {
+    if (n === doc.active) return "这是下游正在依据的那一版 —— 先切到别的版本再删";
+    if (n === doc.approved) return "这是已批准的那一版 —— 先批准别的版本再删";
+    return "";
+  });
+}
+
+export function restoreOutlineVersion(doc, v) {
+  return clearHidden(doc.versions, v);
+}
+
+/** 界面用：看得见的版本 / 回收区里的版本。 */
+export function visibleVersions(list) {
+  return (Array.isArray(list) ? list : []).filter((x) => x && !x.hidden);
+}
+
+export function hiddenVersions(list) {
+  return (Array.isArray(list) ? list : []).filter((x) => x && x.hidden);
 }
 
 /** Read an EARLIER revision without changing what downstream is based on:
@@ -414,6 +474,8 @@ function sanitizeVersions(list) {
       // revision — an outline written before any brief revision is based on no
       // revision, and saying otherwise would fake provenance).
       briefVersionId: typeof x.briefVersionId === "string" && x.briefVersionId ? x.briefVersionId : null,
+      // 软删除标记（与简报版本同一条规则：不再显示，但不从版本链上摘掉）
+      hidden: isObj(x.hidden) && str(x.hidden.at) ? { at: str(x.hidden.at) } : null,
     });
   }
   return out;
@@ -1127,6 +1189,7 @@ export function applyProposal(doc) {
       instruction: p.instruction,
       basedOn: p.basedOn,
       briefVersionId: p.briefVersionId ?? null, // captured at launch
+      hidden: null,
     };
     doc.versions.push(rec);
     doc.active = rec.v;
@@ -1140,7 +1203,7 @@ export function discardProposal(doc) {
 }
 
 /** Manual outline edit → a NEW immutable version (origin "manual"). */
-export function applyManualOutline(doc, fields) {
+export function applyManualOutline(doc, fields, origin = "manual", instruction = "") {
   const base = activeOutline(doc);
   const merged = sanitizeOutline({ ...(base ? base.outline : {}), ...(isObj(fields) ? fields : {}) });
   const brief = activeBrief(doc);
@@ -1148,10 +1211,13 @@ export function applyManualOutline(doc, fields) {
     id: mintId("so"),
     v: doc.versions.length + 1,
     outline: merged,
-    origin: "manual",
-    instruction: "",
+    // 来历要如实：对话产生的一版记成 developed，否则它和他自己敲的那一版在版本
+    // 列表里长得一模一样（与 commitBrief 同一条理由，TASK-111）
+    origin: ["manual", "developed"].includes(origin) ? origin : "manual",
+    instruction: String(instruction || ""),
     basedOn: doc.active || null,
     briefVersionId: brief ? brief.id : null,
+    hidden: null,
   };
   doc.versions.push(rec);
   doc.active = rec.v;

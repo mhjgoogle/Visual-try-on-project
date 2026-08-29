@@ -1,68 +1,49 @@
-// 把一轮对话提出的改动，落到作品上。
+// 把一轮对话提出的动作，落到作品上。
 //
-// WHERE THIS RUNS AND WHY (ADR-0089 决策 2b)：创作文档由**前端**整份保存，所以落地
-// 只能在前端；服务端不偷改他的文档。这里走的是**创作者自己那条编辑路径** —— 他点
-// 按钮时调用的同一批函数（`setIdea` / `editBrief`，然后 `commitBrief`），因此结果与
-// 他手动改一模一样：**新的一版**，旧版本一字不动（决策 3）。可逆，所以不问就能落
-// （AGENTS.md §1「回不了头才问」）。
+// WHERE THIS RUNS AND WHY (ADR-0089 决策 2b)：创作文档由**前端**整份保存，所以落地只能
+// 在前端；服务端不偷改他的文档。动作表在 `convactions.js` —— **Agent 能做的就是创作者
+// 能做的**（产品负责人 2026-08-29:「用户能够操作的前端的agent都应该可以操作」），每个
+// 动作调的都是界面按钮调的同一个 `ctx.*`。
 //
-// 不在这里落地的：`story.outline`。大纲版本是 8 个文本字段 + 人物 + 集数的结构，一段
-// 自由文本没法安全映射过去，硬映射等于让模型改写他已批准的大纲 —— 那正是「不可逆」。
-// 它继续停在「它建议的改动」，由他自己那条大纲路径处理。
+// 版本语义（决策 3）：`brief` 类动作写的是**工作草稿**，所以这一轮结束时提交**一次**
+// —— 「他说了一句话」才是意图的单位，一轮里改了创意又改了类型应该读成一版。大纲、
+// 分集规划这类动作自己就产生版本，不需要再提交。
 
-/** 简报字段的中文名 —— 与创意简报页面上的标签同一套说法。 */
-export const BRIEF_LABEL = {
-  genre: "类型/题材",
-  tone: "基调",
-  form: "形态",
-  episodeDuration: "每集时长",
-  totalDuration: "总时长",
-  notes: "备注",
-  targetEpisodes: "目标集数",
-};
+import { runAction, knownAction } from "./convactions.js";
 
-/** 这一轮里，哪些改动是这条路径能落的。 */
+/** 这一轮里，本应用真能落的那些。 */
 export function applicableEdits(run) {
   const out = run && run.outputs && run.outputs.conversation;
   const edits = out && Array.isArray(out.edits) ? out.edits : [];
-  return edits.filter((e) => (
-    e && typeof e === "object"
-    && (e.kind === "brief.idea"
-      || (e.kind === "brief.fields" && e.fields && typeof e.fields === "object"))
-  ));
+  return edits.filter((e) => e && typeof e === "object" && knownAction(e.kind));
 }
 
 /**
- * 落地一轮的改动。
+ * 落地一轮的动作。
  *
- * @param story  ctx.story —— 创作者自己那条写路径（setIdea / editBrief / commitBrief）
+ * @param story  ctx —— 创作者自己那条写路径（`ctx.story.*` / `ctx.setDeliverySpecField`）
  * @param run    终态的 run（带 outputs.conversation.edits），外加 `instruction`：
  *               他原本说的那句话，用来记进版本的来历
  * @returns [{kind, detail, error?}] —— 每一条都要能在屏幕上说清楚落了什么、
- *          或者为什么没落下。空数组 = 这一轮没有可落的改动。
+ *          或者为什么没落下。空数组 = 这一轮没有可落的动作。
  */
 export function applyConversationEdits(story, run) {
+  const ctx = story;
   const edits = applicableEdits(run);
   const landed = [];
-  let dirty = false;
+  let commitBrief = false;
   for (const e of edits) {
     try {
-      if (e.kind === "brief.idea") {
-        story.setIdea(String(e.text || ""));
-        dirty = true;
-        landed.push({ kind: e.kind, detail: String(e.text || "").slice(0, 200) });
-      } else {
-        story.editBrief(e.fields);
-        dirty = true;
-        landed.push({
-          kind: e.kind,
-          detail: Object.entries(e.fields)
-            .map(([k, v]) => `${BRIEF_LABEL[k] || k} → ${String(v).slice(0, 80)}`)
-            .join("；"),
-        });
-      }
+      const res = runAction(
+        ctx,
+        e.kind,
+        e.fields ? { fields: e.fields } : (e.args || e),
+        { instruction: String((run && run.instruction) || "") },
+      );
+      if (res.versioned === "brief") commitBrief = true;
+      landed.push({ kind: e.kind, detail: res.said });
     } catch (err) {
-      // 一条落不下去，不能连累别的：如实记下这一条，继续下一条
+      // 一条落不下去不能连累别的：如实记下这一条，继续下一条
       landed.push({
         kind: e.kind,
         detail: String(e.text || ""),
@@ -70,16 +51,20 @@ export function applyConversationEdits(story, run) {
       });
     }
   }
-  if (!dirty) return landed;
+  if (!commitBrief) return landed;
   try {
-    // ONE REVISION PER TURN, not one per edit：「他说了一句话」才是意图的单位，
-    // 一轮里改了创意又改了类型，应该读成一版，而不是两版。
-    const rec = story.commitBrief("developed", String((run && run.instruction) || ""));
+    const rec = ctx.story.commitBrief("developed", String((run && run.instruction) || ""));
     const said = rec && rec.v ? `创意简报 v${rec.v}` : "与当前版本没有差异，未新建版本";
-    for (const x of landed) if (!x.error) x.detail = `${x.detail}（${said}）`;
+    for (const x of landed) {
+      if (!x.error && isBrief(x.kind)) x.detail = `${x.detail}（${said}）`;
+    }
   } catch (err) {
     const why = (err && (err.message || err.detail)) || String(err);
-    for (const x of landed) if (!x.error) x.error = why;
+    for (const x of landed) if (!x.error && isBrief(x.kind)) x.error = why;
   }
   return landed;
+}
+
+function isBrief(kind) {
+  return kind === "brief.idea" || kind === "brief.fields";
 }
