@@ -141,7 +141,7 @@
           "subject": "fix(TASK-112): 已连接后端时，主页只画后端真的有的项目",
           "time": "2026-08-29T05:11:51+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/STATUS.md",
             "docs/auto-push/changes/three-pane.json",
