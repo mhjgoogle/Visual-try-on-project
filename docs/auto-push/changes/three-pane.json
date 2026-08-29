@@ -115,20 +115,24 @@
         }
       ],
       "paths": [
-        ".autopush-placeholder"
+        "docs/",
+        "mockups/motv-workspace/",
+        "tests/studio/"
       ],
       "verification": "PASS",
-      "verification_ref": "已提交",
-      "declared": "2026-08-29T08:02:13+00:00"
+      "verification_ref": "",
+      "declared": "2026-08-29T08:08:28+00:00"
     },
     "TASK-110": {
       "commits": [],
       "paths": [
-        ".autopush-placeholder"
+        "docs/",
+        "mockups/motv-workspace/",
+        "tests/studio/"
       ],
       "verification": "PASS",
-      "verification_ref": "已提交",
-      "declared": "2026-08-29T08:02:13+00:00"
+      "verification_ref": "",
+      "declared": "2026-08-29T08:08:28+00:00"
     },
     "TASK-112": {
       "commits": [
@@ -150,14 +154,42 @@
         }
       ],
       "paths": [
-        ".autopush-placeholder"
+        "docs/",
+        "mockups/motv-workspace/",
+        "tests/studio/"
       ],
       "verification": "PASS",
-      "verification_ref": "已提交",
-      "declared": "2026-08-29T08:02:13+00:00"
+      "verification_ref": "",
+      "declared": "2026-08-29T08:08:28+00:00"
     },
     "TASK-111": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "009a77d7535bd25c1ed752462f9f6308be565af1",
+          "subject": "feat(TASK-111): 对话里的改动真的落到作品上（创意简报 + 落地回执）",
+          "time": "2026-08-29T08:08:27+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/STATUS.md",
+            "docs/adr/ADR-0089-conversational-agent-write-path.md",
+            "docs/auto-push/changes/three-pane.json",
+            "docs/requirements/REQ-004-three-pane-shell-and-agent-conversation.md",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "docs/tasks/backlog/TASK-111-agent-applies-its-own-edits.md",
+            "docs/tasks/done/TASK-111-agent-applies-its-own-edits.md",
+            "mockups/motv-workspace/server.py",
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/src/services/conversation.js",
+            "mockups/motv-workspace/src/ui/convthread.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/src/workflow/convedits.js",
+            "mockups/motv-workspace/tests/convapply.test.mjs",
+            "tests/studio/test_motv_conversation_task109.py"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/",
         "mockups/motv-workspace/",
