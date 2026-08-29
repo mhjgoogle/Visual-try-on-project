@@ -70,9 +70,19 @@ export function threadModel(
   return { rows, waiting, empty: rows.length === 0 && !waiting };
 }
 
-function editList(items, { supported }) {
+/** 这条路径真能落的两种（与 workflow/convedits.js 同一份判断）。 */
+const APPLIABLE = new Set(["brief.idea", "brief.fields"]);
+
+function editList(items, { supported, runId = "" }) {
   if (!items.length) return "";
   const label = supported ? "它建议的改动（还没落到作品上）" : "它想做但本应用还做不到";
+  // AN OUTSTANDING PROPOSAL NEEDS A WAY OUT. 一轮的自动落地可能没发生（页面在旧代码上、
+  // 轮询超时、当时开着的是别的标签页）—— 那时屏幕上就剩「它说改好了」+「还没落到作品上」
+  // 互相打脸，而他没有任何办法把它落下（产品负责人 2026-08-29:「好像是改了没显示」）。
+  const canApply = supported && runId && items.some((e) => APPLIABLE.has(e.kind));
+  const act = canApply
+    ? `<button class="cv-apply" data-cv-apply="${esc(String(runId))}">落到作品上</button>`
+    : "";
   const rows = items
     .map((e) => {
       const kind = supported
@@ -85,7 +95,10 @@ function editList(items, { supported }) {
       );
     })
     .join("");
-  return `<div class="cv-editswrap"><div class="lab">${esc(label)}</div><ul class="cv-edits">${rows}</ul></div>`;
+  return (
+    `<div class="cv-editswrap"><div class="lab">${esc(label)}${act}</div>` +
+    `<ul class="cv-edits">${rows}</ul></div>`
+  );
 }
 
 export function renderThread(m) {
@@ -135,7 +148,7 @@ export function renderThread(m) {
         failure +
         applied +
         applyFail +
-        editList(r.edits, { supported: true }) +
+        editList(r.edits, { supported: true, runId: r.runId || "" }) +
         editList(r.unsupported, { supported: false }) +
         `</div>`
       );

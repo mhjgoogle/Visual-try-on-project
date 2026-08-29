@@ -1760,19 +1760,37 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
             render();
           },
         }).then((run) => {
-          // APPLY BEFORE THE REFRESH, so the thread and the work never disagree on
-          // screen: by the time his answer appears, the version it describes exists.
-          // 落地走创作者自己那条写路径（ADR-0089 决策 2b），逻辑在 workflow/convedits.js，
-          // 那里可以被行为测试直接调用 —— 上一批六个 bug 全是「界面看着正常、其实什么
-          // 都没发生」，把它埋在闭包里就只能靠真机才发现。
-          const landed = applyConversationEdits(ctx.story, { ...(run || {}), instruction: text });
-          if (!landed.length) return refreshConversation(ctx, sentFrom);
-          st.applied = { ...(st.applied || {}), [res.runId]: landed };
-          render();
-          // 回执写进对话线，「已落到作品上」才熬得过一次刷新。回执失败不掩盖落地本身
-          // —— 改动已经在作品里了，所以只是这一行字下次读不回来。
-          return Promise.resolve(reportApplied(project, res.runId, landed))
-            .then(() => refreshConversation(ctx, sentFrom));
+          // REFRESH FIRST, THEN APPLY FROM THE THREAD.
+          //
+          // 原本落地读的是**轮询返回的那个 run**。轮询有超时（也可能因为别的原因拿不到
+          // outputs），超时后返回的对象里根本没有 edits —— 于是落地看到「没有可落的改动」
+          // 就退场了，而答案照常出现（那是从服务端线程读回来的）。屏幕上就成了
+          //「它说已经改好了」+「还没落到作品上」，两句话互相打脸（产品负责人 2026-08-29:
+          //「好像是改了没显示」）。
+          //
+          // 线程是服务端的真相，读一次就有；run 只是它的快照。所以先刷新，再从**这一轮
+          // 自己的那条 turn**上取 edits。
+          return refreshConversation(ctx, sentFrom).then(() => {
+            const turn = (st.turns || []).find(
+              (x) => x && x.role === "agent" && x.runId === res.runId,
+            );
+            // 已经有回执 = 这一轮的改动早就落过了（比如上一次会话里落的），不重复落
+            if (turn && Array.isArray(turn.applied) && turn.applied.length) return null;
+            const edits = turn && Array.isArray(turn.edits) && turn.edits.length
+              ? turn.edits
+              : (((run || {}).outputs || {}).conversation || {}).edits;
+            const landed = applyConversationEdits(ctx.story, {
+              instruction: text,
+              outputs: { conversation: { edits: edits || [] } },
+            });
+            if (!landed.length) return null;
+            st.applied = { ...(st.applied || {}), [res.runId]: landed };
+            render();
+            // 回执写进对话线，「已落到作品上」才熬得过一次刷新。回执失败不掩盖落地本身
+            // —— 改动已经在作品里了，只是这一行字下次读不回来。
+            return Promise.resolve(reportApplied(project, res.runId, landed))
+              .then(() => refreshConversation(ctx, sentFrom));
+          });
         });
       })
       .catch((err) => {
@@ -1840,6 +1858,34 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       onRun: (id) => runSessionSkill(ctx, id),
       onSend: (text) => sendConversationTurn(ctx, text),
     });
+    // 「落到作品上」—— 把一条还没落下的改动补落。走的是与自动落地**同一个**函数，
+    // 所以两条路不会有两种行为。
+    root.querySelectorAll("[data-cv-apply]").forEach((b) => (b.onclick = () => {
+      const runId = b.dataset.cvApply;
+      const project = ctx.projectName ? ctx.projectName() : null;
+      if (!project || !runId) { ctx.toast("先打开一个项目"); return; }
+      const st = convState();
+      const turn = (st.turns || []).find(
+        (x) => x && x.role === "agent" && x.runId === runId,
+      );
+      if (!turn || !Array.isArray(turn.edits) || !turn.edits.length) {
+        ctx.toast("这一轮没有可落的改动");
+        return;
+      }
+      const landed = applyConversationEdits(ctx.story, {
+        instruction: "（补落这一轮的改动）",
+        outputs: { conversation: { edits: turn.edits } },
+      });
+      if (!landed.length) { ctx.toast("这一轮没有本应用能落的改动"); return; }
+      const failed = landed.filter((x) => x.error);
+      ctx.toast(failed.length
+        ? `有改动没能落下：${failed.map((x) => x.error).join("；")}`
+        : landed.map((x) => x.detail).join("；"));
+      st.applied = { ...(st.applied || {}), [runId]: landed };
+      render();
+      Promise.resolve(reportApplied(project, runId, landed))
+        .then(() => refreshConversation(ctx));
+    }));
     root.querySelectorAll("[data-cv-cancel]").forEach((b) => (b.onclick = () => {
       // the same REAL cancel a capability run gets — a local CLI keeps consuming
       // the subscription until something actually kills it

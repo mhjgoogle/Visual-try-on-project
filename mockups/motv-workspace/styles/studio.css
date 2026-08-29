@@ -345,6 +345,12 @@
 }
 .st-ep:hover { color: var(--text-dim); border-color: var(--line-2); }
 .st-ep.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+/* 「历史版本 N」/「收起历史」—— 它不是一个版本，所以不长得像版本按钮
+   （产品负责人 2026-08-29:「只有最新版可以看到。旧版就不看了」）。 */
+.st-ep.hist {
+  font-weight: 500; letter-spacing: .02em; color: var(--text-faint);
+  background: transparent; border-style: dashed;
+}
 
 /* stage progress in the rail: a thin state bar under each stage row */
 .st-stage { position: relative; }

@@ -1010,3 +1010,19 @@
   padding: var(--s2); border-left: 2px solid var(--gen); background: var(--canvas);
 }
 .rg-legend { line-height: 1.7; }
+
+/* 「落到作品上」—— 一条还没落下的改动的出口（TASK-111 补）。它住在标题行里，
+   因为它作用于整组建议，而不是某一条。 */
+.cv-editswrap .lab .cv-apply {
+  float: right;
+  margin: -2px 0 0 8px;
+  padding: 1px 8px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--ink);
+  background: var(--chip, #1e2530);
+  border: 1px solid var(--line, #2c3542);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.cv-editswrap .lab .cv-apply:hover { border-color: var(--acc, #5b8def); }

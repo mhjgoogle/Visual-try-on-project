@@ -28,6 +28,7 @@
 // no second Story data was introduced. Saving is the SAME write path: an explicit
 // 保存 appends a new immutable version and every earlier one stays.
 import { esc } from "../util/dom.js";
+import { versionRow } from "./versionrow.js";
 import { storyModel } from "./workspaces.js";
 import { briefForOutline, storyCoreOf } from "../workflow/storydoc.js";
 import { head, empty } from "./shell.js";
@@ -241,9 +242,18 @@ function outlineCards(ctx, m, ui) {
   // of throwing them away.
   const outline = editing ? applyBuffer(m.active.outline, ui.outlineBuffer || {}) : m.active.outline;
 
-  const versions = doc.versions
-    .map((x) => `<button class="st-ep${x.v === m.active.v ? " on" : ""}" data-st-v="${x.v}" title="${esc(x.instruction || "")}">v${x.v}${x.v === doc.approved ? " ✓" : ""}</button>`)
-    .join("");
+  // 同 briefws：默认只露最新版 + 当前依据的那一版，其余收进「历史版本」。
+  // 已批准的那一版带 ✓ —— 它是下游的闸门，藏起来会让人以为没批过。
+  const versions = versionRow(
+    doc.versions.map((x) => ({
+      v: x.v,
+      isActive: x.v === m.active.v || x.v === doc.approved,
+      label: `v${x.v}${x.v === doc.approved ? " ✓" : ""}`,
+      title: x.instruction || "",
+    })),
+    { attr: "stV", open: !!ui.outlineHistoryOpen, toggleAttr: "stHist" },
+  );
+
   const approve = m.approvedIsActive
     ? `<span class="chip ok">✓ 已批准 · 剧集规划以此版为准</span>`
     : `<button class="btn primary sm" data-st-approve="${m.active.v}">✔ 批准大纲 v${m.active.v}</button>`;
@@ -438,6 +448,7 @@ export function bindStoryWs(root, ctx, ui, rerender) {
   on("[data-st-cancel]", () => ctx.story.cancel());
   on("[data-st-approve]", (el) => ctx.story.approveOutline(+el.dataset.stApprove));
   on("[data-st-v]", (el) => ctx.story.setActiveOutline(+el.dataset.stV));
+  on("[data-st-hist]", () => { ui.outlineHistoryOpen = !ui.outlineHistoryOpen; rerender(); });
   on("[data-st-editon]", () => { ui.storyEdit = true; rerender(); });
   on("[data-st-editoff]", () => {
     ui.storyEdit = false;

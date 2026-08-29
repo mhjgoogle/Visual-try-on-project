@@ -12,6 +12,7 @@
 // PURE PRESENTATION over ctx.story (the same document that owns the idea, the
 // outline chain and the episode plan) — this screen owns no creative state.
 import { esc } from "../util/dom.js";
+import { versionRow } from "./versionrow.js";
 import { BRIEF_FIELDS } from "../workflow/storydoc.js";
 import { head } from "./shell.js";
 import { bindField, restoreFieldFocus } from "./fieldsync.js";
@@ -58,11 +59,14 @@ export function renderBriefWs(ctx, ui) {
     ? `<span class="chip ok">创意 v${m.active.v}</span>` +
       (m.dirty ? `<span class="chip gate">工作草稿 · 未版本化</span>` : `<span class="chip mute">与 v${m.active.v} 一致</span>`)
     : `<span class="chip gate">工作草稿 · 还没有正式版本</span>`;
-  const versions = m.versions.length
-    ? `<div class="row tight">${m.versions
-        .map((x) => `<button class="st-ep${x.isActive ? " on" : ""}" data-cb-v="${x.v}" title="切换下游所依据的版本">v${x.v}</button>`)
-        .join("")}</div>`
-    : "";
+  // 默认只露最新版（外加当前依据的那一版，如果他切回过旧版），其余收进「历史版本」
+  // —— 产品负责人 2026-08-29:「我希望只有最新版可以看到。旧版就不看了」。
+  // 旧版本一律保留，这里只控制显不显示。
+  const versions = versionRow(m.versions, {
+    attr: "cbV",
+    open: !!ui.briefHistoryOpen,
+    toggleAttr: "cbHist",
+  });
   const actions =
     versions +
     (m.dirty ? `<button class="btn primary sm" data-cb-commit>✔ 创建版本 v${m.versionCount + 1}</button>` : "") +
@@ -181,6 +185,7 @@ export function bindBriefWs(root, ctx, ui, rerender) {
     if (ctx.story.commitBrief()) { ui.briefBuffer = {}; rerender(); }
   });
   on("[data-cb-v]", (el) => ctx.story.setActiveBrief(+el.dataset.cbV));
+  on("[data-cb-hist]", () => { ui.briefHistoryOpen = !ui.briefHistoryOpen; rerender(); });
   on("[data-cb-restore]", (el) => {
     if (!window.confirm("用该版本的内容替换当前工作草稿？（版本链不变，草稿里未版本化的修改会丢失）")) return;
     ui.briefBuffer = {};

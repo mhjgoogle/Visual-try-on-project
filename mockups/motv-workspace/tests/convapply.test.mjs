@@ -180,3 +180,39 @@ test("服务端记下的 applied 优先于内存里那份 —— 刷新之后仍
   assert.equal(m.rows[0].applied.length, 1);
   assert.equal(m.rows[0].edits.length, 0, "落过的改动不许再挂在「建议」下面");
 });
+
+/* --- 还没落下的改动要有出口 ------------------------------------------------ */
+
+import { renderThread } from "../src/ui/convthread.js";
+
+test("一条能落却还没落的改动，屏幕上有「落到作品上」", () => {
+  const html = renderThread(threadModel([{
+    turnId: "t", role: "agent", runId: "run-7", status: "succeeded", text: "已经改好了",
+    edits: [{ kind: "brief.fields", text: "把类型改成悬疑" }],
+  }]));
+  assert.match(html, /data-cv-apply="run-7"/);
+  assert.match(html, /落到作品上/);
+});
+
+test("已经落过的那一轮不再给出口 —— 否则会落第二遍", () => {
+  const html = renderThread(threadModel([{
+    turnId: "t", role: "agent", runId: "run-7", status: "succeeded", text: "已经改好了",
+    edits: [{ kind: "brief.fields", text: "把类型改成悬疑" }],
+    applied: [{ kind: "brief.fields", detail: "类型/题材 → 悬疑（创意简报 v7）" }],
+  }]));
+  assert.doesNotMatch(html, /data-cv-apply/);
+  assert.match(html, /已落到作品上/);
+});
+
+test("这条路径落不了的改动不给出口（大纲、做不到的事）", () => {
+  const outline = renderThread(threadModel([{
+    turnId: "t", role: "agent", runId: "run-8", status: "succeeded", text: "建议",
+    edits: [{ kind: "story.outline", text: "第三幕改成……" }],
+  }]));
+  assert.doesNotMatch(outline, /data-cv-apply/);
+  const unsup = renderThread(threadModel([{
+    turnId: "t", role: "agent", runId: "run-9", status: "succeeded", text: "做不到",
+    edits: [], unsupported: [{ kind: "note", text: "帮我发布" }],
+  }]));
+  assert.doesNotMatch(unsup, /data-cv-apply/);
+});
