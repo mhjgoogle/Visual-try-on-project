@@ -206,7 +206,7 @@
           "subject": "feat(TASK-113): 版本行默认只露最新版；还没落下的改动给一个出口",
           "time": "2026-08-29T10:12:25+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/STATUS.md",
             "docs/auto-push/changes/three-pane.json",
