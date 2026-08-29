@@ -446,6 +446,18 @@
             "docs/auto-push/changes/three-pane.json"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "6bc7e337d4ddea0566a179cfd4c2a19458b53e48",
+          "subject": "docs(product-loop): 写进「同一棵树上还有别的 Agent 时」的四条",
+          "time": "2026-08-29T15:41:56+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            ".claude/skills/product-loop/SKILL.md",
+            "tests/tooling/test_product_loop_skill.py"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
@@ -459,6 +471,69 @@
       "verification": "PASS",
       "verification_ref": "联合提交 b2f01c6：本会话的 TASK-118/120 与另一会话（visual-try-on-project-7f）的 TASK-119 在同一批文件里各有未提交改动，谁先单独提交都会带走对方的，故双方约定一次提交、双方署名。越界文件是对方 TASK-119 的，非本会话所写。",
       "declared": "2026-08-29T15:00:16+00:00"
+    },
+    "TASK-119": {
+      "commits": [
+        {
+          "hash": "5717906087f7e3f797e3c8958ccc1cc46ea16d25",
+          "subject": "fix(TASK-119): 修掉独立审查报出的两个 P1 —— 镜头范围读错一层、建议不重画",
+          "time": "2026-08-29T15:41:54+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/src/workflow/convroute.js",
+            "mockups/motv-workspace/tests/convroute.test.mjs"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "df5c28d090f54502a3be6336b1ad4bf3a0e9effb",
+          "subject": "fix(TASK-119): 跨层建议的幂等键真的走进 origin —— 之前在点击时被丢掉",
+          "time": "2026-08-29T15:41:54+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/src/workflow/convroute.js",
+            "mockups/motv-workspace/tests/convroute.test.mjs"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "a8bbea7c4db7bb22cda2f3eb78a047781f19239d",
+          "subject": "fix(TASK-119): 关掉「先查后做」那条缝 —— 起跑路径加一道 in-flight 闸",
+          "time": "2026-08-29T15:41:55+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/tests/convroute.test.mjs"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "b90252f848001aadc0e9d46269356d944011bec1",
+          "subject": "docs(TASK-119): 记下独立审查的 5 轮与 4 个 P1",
+          "time": "2026-08-29T15:41:55+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/tasks/done/TASK-119-three-user-capabilities-and-a-resolver.md"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        "docs/",
+        "mockups/",
+        "product-flows/",
+        "product-skills/",
+        "tests/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "另一会话（visual-try-on-project-7f）实施与验证：5 轮 codex 独立审查、4 个 P1 全修、0 个 P2-P4；最终全量由本会话独立复跑（3771+6 / 前端 1970 / ruff 全过）",
+      "declared": "2026-08-29T15:41:54+00:00"
     }
   },
   "merge_gate": {
