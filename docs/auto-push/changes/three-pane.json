@@ -100,6 +100,18 @@
             "tests/studio/test_motv_unregister_project_task110.py"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "60d5ccecfa6f98c0c925826eaf7518ece552badb",
+          "subject": "docs(ADR-0089): 对话式 Agent 写路径 —— 实现前的形状",
+          "time": "2026-08-29T04:30:01+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/adr/ADR-0089-conversational-agent-write-path.md",
+            "docs/auto-push/changes/three-pane.json"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
