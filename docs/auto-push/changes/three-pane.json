@@ -435,22 +435,30 @@
             "tests/contract/test_motv_flowpkg_task105.py",
             "tests/contract/test_motv_skill_routing_task119.py"
           ]
+        },
+        {
+          "hash": "c8b67e9e20ade4ab1bfb834bb2a470f154144174",
+          "subject": "chore(auto-push): three-pane manifest writeback（联合提交 b2f01c6：越界清单是对方 TASK-119 的文件，双方约定一次提交）",
+          "time": "2026-08-29T15:00:16+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/three-pane.json"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
-        ".claude/skills/product-loop/",
-        ".claude/tools/read_feedback.py",
+        ".claude/",
         "docs/",
-        "mockups/motv-workspace/server.py",
-        "mockups/motv-workspace/src/",
-        "mockups/motv-workspace/styles/",
-        "mockups/motv-workspace/tests/",
-        "tests/studio/",
-        "tests/tooling/"
+        "mockups/",
+        "product-flows/",
+        "product-skills/",
+        "tests/"
       ],
       "verification": "PASS",
-      "verification_ref": "",
-      "declared": "2026-08-29T13:40:37+00:00"
+      "verification_ref": "联合提交 b2f01c6：本会话的 TASK-118/120 与另一会话（visual-try-on-project-7f）的 TASK-119 在同一批文件里各有未提交改动，谁先单独提交都会带走对方的，故双方约定一次提交、双方署名。越界文件是对方 TASK-119 的，非本会话所写。",
+      "declared": "2026-08-29T15:00:16+00:00"
     }
   },
   "merge_gate": {
