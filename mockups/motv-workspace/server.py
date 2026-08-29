@@ -2981,6 +2981,8 @@ _CONV_FACTS_MAX = 12000
 #: 请求，`__legacy__` 收留分线之前那条项目级历史（旧数据不丢，AGENTS.md 第 13 条）。
 _CONV_DEFAULT_THREAD = "__project__"
 _CONV_LEGACY_THREAD = "__legacy__"
+#: 「开发」窗口那条线（意见 + 提案答复）。前端的 `FEEDBACK_THREAD` 与它同名。
+_CONV_FEEDBACK_THREAD = "__feedback__"
 #: A key rides into a filename-free JSON object, but it is still creator-influenced
 #: text: bound it and keep it to a safe alphabet so it cannot become a path or blow
 #: up the document.
@@ -3058,13 +3060,55 @@ def _conv_actions_text(actions) -> str:
     return "\n".join(lines)
 
 
-def _conv_prompt(message: str, facts: str, actions=None) -> str:
+#: 「开发」窗口里，这一轮**只**允许这几种 —— 其余作品类动作由服务端筛掉。
+#: 这是**强制**，不是提示：两个窗口的全部意义就是「在这个窗口里我的东西不会被改」
+#: （产品负责人 2026-08-29:「窗口A是用来操作当下界面的。窗口B是用来feedback的」）。
+_CONV_FEEDBACK_ONLY_KINDS = ("feedback.ui", "proposal.decide", "note")
+
+
+def _conv_intent(context) -> str:
+    if isinstance(context, dict) and context.get("intent") == "feedback":
+        return "feedback"
+    return "work"
+
+
+def _conv_prompt(message: str, facts: str, actions=None, intent: str = "work") -> str:
     """The turn's prompt: WHO you are, WHAT is true, WHAT YOU CAN DO, WHAT the
     creator said, and the exact answer shape.
 
     「你能做什么」这一段来自**前端的动作表** —— 创作者在界面上能做的，Agent 就能做
     （产品负责人 2026-08-29）。输出契约是 JSON，因为一轮里除了回话还可能带动作，而
     「大概是这个意思」的模糊解析正是错误改动落到别人剧本上的方式。"""
+    if intent == "feedback":
+        # 「开发」窗口：他在跟开发说话，不是在改作品。给它的词汇表里**没有**作品类动作
+        # —— 词汇表本身就是那道闸，模型不必自己克制。
+        return (
+            "你是这个短剧创作项目里的制作助理。现在作者在**「开发」窗口**里跟你说话：\n"
+            "这个窗口是他给**这个应用的开发**提意见、以及答复开发的修改提案的地方。\n"
+            "**这一轮不许改动作品**（他要改作品会切回「作品」窗口）。\n\n"
+            "规则：\n"
+            "1. 他说应用哪里不好用、缺什么、文案不对 → 给一条 feedback.ui："
+            "text 写他的意见，expect 写他期望的样子（尽量具体，开发要照着做）。\n"
+            "1b. 事实里的「现在在看」是他此刻打开的页面与选中的对象。他说「这一页」"
+            "「这里」「左边这一排」时指的就是那里 —— **据此理解，不要反问他在哪**，"
+            "并把是哪一页、哪个位置**写进 text**：开发只看得到这条意见，"
+            "看不到他的屏幕。\n"
+            "2. 事实里如果列着「开发给你的修改提案」而他还没提 —— 用一句话主动告诉他"
+            "有哪几条在等他拍板，别替他决定。\n"
+            "3. 他对提案表态 → 给一条 proposal.decide："
+            "args 里 id=提案号、verdict=approved/rejected/changes、note=他的原话。"
+            "「可以但要改成…」是 changes，把要求原样写进 note。\n"
+            "4. 他说的既不是意见也不是答复（比如在问项目现状）→ 正常回答，"
+            "edits 给空。\n"
+            "5. 只依据下面的事实说话，事实里没有的就说你还需要知道什么。\n\n"
+            "只输出一个 JSON 对象，不要任何解释文字、不要代码围栏：\n"
+            '{"reply": "给作者看的话", "edits": [{"kind": "feedback.ui", '
+            '"text": "他的意见", "expect": "他要的样子"}]}\n\n'
+            "=== 项目当前事实 ===\n"
+            f"{facts}\n"
+            "=== 作者说 ===\n"
+            f"{message}\n"
+        )
     catalog = _conv_actions_text(actions)
     return (
         "你是这个短剧创作项目里的制作助理。你面对的是作品的作者。\n"
@@ -6116,6 +6160,10 @@ class _App:
         the answer's thread is a fact about the run rather than a later claim
         (ADR-0089 决策 4b 纪律 1).
         """
+        # 「开发」窗口是**项目级一条线**，不随页面变：意见与提案不属于某一页
+        # （TASK-117）。归线依据同样来自这一轮 run 自己的 context。
+        if _conv_intent(context) == "feedback":
+            return _CONV_FEEDBACK_THREAD
         mod = ""
         if isinstance(context, dict):
             raw = context.get("module")
@@ -6421,6 +6469,29 @@ class _App:
                 turn["text"] = conv.get("reply") or ""
                 turn["edits"] = conv.get("edits") or []
                 turn["unsupported"] = conv.get("unsupported") or []
+                # 「开发」窗口的一轮：作品类动作一条都不许落地。模型即使给了（提示词里
+                # 没有它们，但模型可以自己编一个 kind），也在这里被筛掉并如实告诉他。
+                if _conv_intent(run.get("context")) == "feedback":
+                    kept, dropped = [], []
+                    for e in turn["edits"]:
+                        if (
+                            isinstance(e, dict)
+                            and e.get("kind") in _CONV_FEEDBACK_ONLY_KINDS
+                        ):
+                            kept.append(e)
+                        elif isinstance(e, dict):
+                            dropped.append(
+                                {
+                                    **e,
+                                    "text": (
+                                        f"{e.get('text') or ''}"
+                                        "（这是在「开发」窗口里说的，作品不会被改动 ——"
+                                        "要改作品请切回「作品」窗口）"
+                                    ),
+                                }
+                            )
+                    turn["edits"] = kept
+                    turn["unsupported"] = (turn["unsupported"] or []) + dropped
                 # 意见由**服务端**落地：它写的是账户级台账（应用数据），不是他的创作
                 # 文档，所以不受决策 2b 约束；而且落在这里意味着「他说完就记下了」——
                 # 不依赖那个标签页还开着（REQ-006）。按 run 去重。
@@ -6643,6 +6714,7 @@ class _App:
             message.strip(),
             facts,
             context.get("actions") if isinstance(context, dict) else None,
+            _conv_intent(context),
         )
         try:
             run = runs().create(

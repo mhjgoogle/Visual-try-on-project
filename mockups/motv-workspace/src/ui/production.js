@@ -42,7 +42,7 @@ import {
 import { renderAssetInboxSection, bindAssetInboxSection } from "./assetinboxsec.js";
 import { threadModel, renderThread } from "./convthread.js";
 import {
-  loadThread, sendTurn, awaitTurn, cancelTurn, reportApplied,
+  loadThread, sendTurn, awaitTurn, cancelTurn, reportApplied, openProposalCount,
 } from "../services/conversation.js";
 import { renderStorageWs, bindStorageWs } from "./storagews.js";
 import { renderStoryWs, bindStoryWs } from "./storyws.js";
@@ -469,7 +469,18 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       : ` · ${SPACE_LABEL[spaceOf(activeModule)] || ""}`;
     return (
       `<aside class="st-dir prod-ai">` +
-      `<div class="dir-head">对话<span class="dir-space">${esc(label.slice(3))}</span></div>` +
+      // 两个窗口，一行 tab（产品负责人 2026-08-29:「聊天窗口A是用来操作当下界面的。
+      // 窗口B是用来feedback的这样比较不会乱。但同时也要保持画面简约」）：
+      //   作品 —— 改这一页上的东西，历史按页面分（每页一条线）
+      //   开发 —— 提意见、看开发的提案、拍板。它是**项目级一条线**，因为「这个界面
+      //           不好用」不属于某一页；而且在哪一页提的仍然记在那一轮里。
+      // 简约的做法是：**没有第二块面板**，只是同一根流换了一条线。
+      `<div class="dir-head">` +
+      `<button class="dir-tab${convMode() === "work" ? " on" : ""}" data-cv-mode="work">作品</button>` +
+      `<button class="dir-tab${convMode() === "feedback" ? " on" : ""}" data-cv-mode="feedback">` +
+      `开发${ui.convOpenProposals ? `<span class="dot">${ui.convOpenProposals}</span>` : ""}</button>` +
+      `<span class="dir-space">${esc(convMode() === "work" ? label.slice(3) : "意见与提案")}</span>` +
+      `</div>` +
       // THE CONVERSATION IS THE WHOLE COLUMN. 产品负责人 2026-08-27:「会话那个框也很
       // 多余。用不上的东西不要加进去」— so the 运行记录 / 这一页的诊断 box
       // (`session.history`) is no longer mounted. It is still BUILT by
@@ -1638,7 +1649,16 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
    *  turns, the run in flight and its status. Three flat fields would make a turn
    *  started on 分镜 render its spinner on 资产库.
    */
+  /** 当前是哪个窗口。默认「作品」—— 他绝大多数话是要改东西的。 */
+  function convMode() {
+    return ui.convMode === "feedback" ? "feedback" : "work";
+  }
+
+  //: 「开发」窗口的线程 key。项目级一条线，不随页面变 —— 意见不属于某一页。
+  const FEEDBACK_THREAD = "__feedback__";
+
   function convKey() {
+    if (convMode() === "feedback") return FEEDBACK_THREAD;
     return activeModule || "__project__";
   }
 
@@ -1667,6 +1687,10 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     const stamp = `${project}::${convKey()}`;
     if (st.loaded === stamp) return;
     st.loaded = stamp;
+    // 提案数跟着线程一起读：他不必进「开发」窗口才知道有东西在等他
+    Promise.resolve(openProposalCount()).then((n) => {
+      if (n !== ui.convOpenProposals) { ui.convOpenProposals = n; render(); }
+    });
     Promise.resolve(loadThread(project, convKey())).then((res) => {
       st.turns = res.turns;
       ui.convOtherPages = res.others || {};
@@ -1706,6 +1730,9 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       // （产品负责人 2026-08-29:「用户能够操作的前端的agent都应该可以操作」）。
       // 服务端把它转写进提示词，不再各持一份会漂移的词汇表。
       actions: actionCatalog(),
+      // 他在哪个窗口里说话。**服务端据此强制执行**（不是给模型的提示）：
+      // 「开发」窗口里的一轮，作品类动作一个都不许落地 —— 那正是两个窗口的意义。
+      intent: convMode() === "feedback" ? "feedback" : "work",
       module: activeModule,
       moduleLabel: MODULE_LABEL[activeModule] || activeModule,
       spaceLabel: SPACE_LABEL[spaceOf(activeModule)] || "",
@@ -1865,6 +1892,13 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     });
     // 「落到作品上」—— 把一条还没落下的改动补落。走的是与自动落地**同一个**函数，
     // 所以两条路不会有两种行为。
+    root.querySelectorAll("[data-cv-mode]").forEach((b) => (b.onclick = () => {
+      const next = b.dataset.cvMode === "feedback" ? "feedback" : "work";
+      if (convMode() === next) return;
+      ui.convMode = next;
+      render();
+      ensureConversation(ctx); // 换了线就把那条线读回来
+    }));
     root.querySelectorAll("[data-cv-apply]").forEach((b) => (b.onclick = () => {
       const runId = b.dataset.cvApply;
       const project = ctx.projectName ? ctx.projectName() : null;

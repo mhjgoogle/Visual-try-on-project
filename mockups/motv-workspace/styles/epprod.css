@@ -1026,3 +1026,20 @@
   cursor: pointer;
 }
 .cv-editswrap .lab .cv-apply:hover { border-color: var(--acc, #5b8def); }
+
+/* 右栏顶上的两个窗口 tab（TASK-117）。简约的做法是它们**就是标题栏**，
+   而不是标题栏之外再加一条控件带。 */
+.dir-head .dir-tab {
+  padding: 2px 10px; margin-right: 4px; border-radius: 999px;
+  border: 1px solid transparent; background: transparent;
+  color: var(--text-faint); font: inherit; font-size: var(--t-micro); cursor: pointer;
+}
+.dir-head .dir-tab:hover { color: var(--text-dim); }
+.dir-head .dir-tab.on {
+  color: var(--text); border-color: var(--line-2); background: var(--canvas);
+}
+.dir-head .dir-tab .dot {
+  display: inline-block; min-width: 15px; margin-left: 5px; padding: 0 4px;
+  border-radius: 999px; background: var(--accent); color: var(--accent-ink);
+  font-size: 10px; line-height: 15px; text-align: center;
+}

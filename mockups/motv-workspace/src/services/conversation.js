@@ -125,6 +125,19 @@ export async function reportApplied(project, runId, applied) {
   }
 }
 
+/** 还有几条开发的提案在等他拍板 —— 「开发」窗口上那个小圆点。
+ *
+ *  读不到就当 0：这是一个提示点，不是事实来源；为它把整根右栏变成错误态是过度反应。 */
+export async function openProposalCount() {
+  try {
+    const res = await attempt("/api/feedback", { retries: 0 });
+    const n = res.ok && res.data ? res.data.openProposals : 0;
+    return Number.isInteger(n) && n > 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
 /** Cancel a turn in flight — the same real cancel a skill run gets. */
 export async function cancelTurn(runId) {
   if (!runId) return false;

@@ -808,3 +808,131 @@ def test_the_ledger_endpoint_reports_how_many_await_him(app, srv):
     out = json.loads(app.handle("/api/feedback").body.decode("utf-8"))
     assert len(out["proposals"]) == 2
     assert out["openProposals"] == 1
+
+
+# --- 10. 两个窗口：作品 / 开发（TASK-117 · REQ-006 v3 判据 7） ---------------- #
+
+
+def _agent_turn(read: dict, run_id: str) -> dict:
+    """那一轮的**回答**。用户那条也带着 runId（答案要挂回它的问题），所以必须挑角色。"""
+    hits = [
+        t for t in read["turns"] if t.get("runId") == run_id and t["role"] == "agent"
+    ]
+    assert hits, f"线程里没有 {run_id} 的回答"
+    return hits[0]
+
+
+def test_the_feedback_window_gets_a_prompt_with_no_work_actions_in_it(srv):
+    """两个窗口的意义就是「在这个窗口里我的东西不会被改」，所以词汇表本身就是那道闸。"""
+    catalog = [
+        {"id": "brief.fields", "label": "改创意简报", "fields": {"genre": "类型"}}
+    ]
+    work = srv._conv_prompt("改类型", "项目：X", catalog, "work")
+    fb = srv._conv_prompt("这页不好用", "项目：X", catalog, "feedback")
+    assert "brief.fields" in work
+    assert "brief.fields" not in fb
+    assert "不许改动作品" in fb
+    assert "feedback.ui" in fb and "proposal.decide" in fb
+
+
+def test_intent_defaults_to_work(srv):
+    assert srv._conv_intent(None) == "work"
+    assert srv._conv_intent({"module": "brief"}) == "work"
+    assert srv._conv_intent({"intent": "feedback"}) == "feedback"
+    assert srv._conv_intent({"intent": "乱写"}) == "work"
+
+
+def test_a_work_edit_from_the_feedback_window_never_lands(app, srv, monkeypatch):
+    """强制在**落地**这一步，不靠模型自觉：模型仍然可能自己编一个 kind。"""
+    answer = json.dumps(
+        {
+            "reply": "顺手把类型也改了",
+            "edits": [
+                {"kind": "brief.fields", "text": "改类型", "fields": {"genre": "悬疑"}},
+                {"kind": "feedback.ui", "text": "这页太挤", "expect": "简约一点"},
+            ],
+        },
+        ensure_ascii=False,
+    )
+    monkeypatch.setattr(srv, "_run_executor", lambda *a, **k: (answer, "claude-x"))
+    status, out = _post(
+        app,
+        srv,
+        "夜班沉默",
+        {"message": "这页太挤了", "context": {"intent": "feedback", "module": "brief"}},
+    )
+    assert status == 202, out
+    run_id = out["run"]["run_id"]
+    _await(srv, run_id)
+    _, read = _get(app, "夜班沉默", "__feedback__")
+    turn = _agent_turn(read, run_id)
+    assert [e["kind"] for e in turn["edits"]] == ["feedback.ui"]
+    # 被筛掉的那条如实告诉他，而不是静默消失
+    dropped = [e for e in turn["unsupported"] if e["kind"] == "brief.fields"]
+    assert dropped and "切回「作品」窗口" in dropped[0]["text"]
+
+
+def test_the_work_window_is_unaffected(app, srv, monkeypatch):
+    answer = json.dumps(
+        {
+            "reply": "改好了",
+            "edits": [
+                {"kind": "brief.fields", "text": "改类型", "fields": {"genre": "悬疑"}}
+            ],
+        },
+        ensure_ascii=False,
+    )
+    monkeypatch.setattr(srv, "_run_executor", lambda *a, **k: (answer, "claude-x"))
+    status, out = _post(
+        app,
+        srv,
+        "夜班沉默",
+        {"message": "把类型改成悬疑", "context": {"module": "brief"}},
+    )
+    run_id = out["run"]["run_id"]
+    _await(srv, run_id)
+    _, read = _get(app, "夜班沉默", "brief")
+    turn = _agent_turn(read, run_id)
+    assert [e["kind"] for e in turn["edits"]] == ["brief.fields"]
+
+
+def test_the_two_windows_keep_two_threads(app, srv, monkeypatch):
+    answer = json.dumps({"reply": "好", "edits": []}, ensure_ascii=False)
+    monkeypatch.setattr(srv, "_run_executor", lambda *a, **k: (answer, "claude-x"))
+    _post(
+        app,
+        srv,
+        "夜班沉默",
+        {"message": "作品那边说的", "context": {"module": "brief"}},
+    )
+    _post(
+        app,
+        srv,
+        "夜班沉默",
+        {
+            "message": "开发那边说的",
+            "context": {"intent": "feedback", "module": "brief"},
+        },
+    )
+    _, work = _get(app, "夜班沉默", "brief")
+    _, fb = _get(app, "夜班沉默", "__feedback__")
+    assert [t["text"] for t in work["turns"] if t["role"] == "user"] == ["作品那边说的"]
+    assert [t["text"] for t in fb["turns"] if t["role"] == "user"] == ["开发那边说的"]
+
+
+def test_the_feedback_window_still_knows_where_he_is(app, srv):
+    """「开发」窗口里他说「这一页」也要有所指。
+
+    开发看得到的只有这条意见，看不到他的屏幕。
+    """
+    prompt = srv._conv_prompt(
+        "这一页左边太挤",
+        app._conv_facts(
+            "夜班沉默", {"moduleLabel": "故事大纲", "spaceLabel": "故事开发"}
+        ),
+        [],
+        "feedback",
+    )
+    assert "现在在看：故事开发 · 故事大纲" in prompt
+    assert "不要反问他在哪" in prompt
+    assert "写进 text" in prompt
