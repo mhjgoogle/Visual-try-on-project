@@ -104,7 +104,6 @@ import { renderShotQc, bindShotQc, shotQcModel } from "./shotqcpanel.js";
 import {
   NAV, EPISODE_MODULES, EPISODE_DEFAULT, LEGACY_EPISODE_CENTRE, MODULE_LABEL, SPACE_LABEL, spaceOf,
   renderRail, renderAssetRail, renderCrumb, episodeLabels, episodeTitleBeside, head, episodeEntryModule,
-  episodeRows,
   // TASK-073 §1.1: the fixed page set, the old-key resolver and the section tables
   resolveModule, PAGE_SECTIONS, SECTION_LABEL, PROJECT_SETTINGS, empty,
   // TASK-077: the 剧集制作 rail, the honest missing-media box and the crumb scope rule
@@ -832,8 +831,13 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // opens 人物 on the relationship tab; this entry is what it renders.
     relationships: (ctx) => renderBibleWs(ctx, ui),
     world: (ctx) => renderWorldWs(ctx, ui),
-    // ③ 结构规划（第 4 步）：他点名的九列表。分集选集器留在页顶 —— 章/集不进左栏。
-    episodes: (ctx) => epPicker(ctx) + renderPlanWs(ctx, ui),
+    // ③ 结构规划（第 4 步）：他点名的九列表。
+    //
+    // **不挂分集选集器**（产品负责人 2026-08-30：「结构规划不应该跳到剧集制作」）。
+    // 那个选集器带着「进入剧集制作 →」，等于在一张讲故事结构的表上开了一个通往
+    // 生产线的门 —— 这张表规划的是章/集本身，不是去做某一集。要去剧集制作，
+    // 顶部那三个空间一直都在。
+    episodes: (ctx) => renderPlanWs(ctx, ui),
     // ④ 正文创作（第 5 步）：形态入口 → Planned 数量 → 页内章/集选择器 → 单元视图。
     script: (ctx) => renderDraftWs(ctx, ui),
 
@@ -1920,31 +1924,12 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     }));
   }
 
-  /** 页内选集器（TASK-122 第 2 步 / ADR-0092 决策 4）。
-   *
-   *  分集不再进全局左栏（产品负责人 2026-08-30:「不把 Chapter / Episode 放进全局左栏」）。
-   *  这里用的是**左栏原来那一份数据**（`shell.episodeRows`），所以不会出现「左栏说
-   *  EP02、页面说 EP01」；行为也照旧：选一集不离开当前页，「进入剧集制作 →」才换 space。
-   *
-   *  折叠成一行：默认只显示当前那一集，点开才列全部 —— 他要的是「简约」，
-   *  而 12 行平铺正是他指着说 busy 的东西。 */
-  function epPicker(ctx) {
-    const pd = ctx.prodData();
-    const eps = episodeLabels(pd.production);
-    if (!eps.length) return "";
-    const cur = eps.find((e) => e.active) || eps[0];
-    const open = !!ui.epPickerOpen;
-    return (
-      `<div class="ep-pick${open ? " open" : ""}">` +
-      `<button class="ep-pick-cur" data-ep-toggle="1" aria-expanded="${open}" ` +
-      `title="切换分集（不会离开这一页）">` +
-      `<span class="ic">${open ? "▾" : "▸"}</span>` +
-      `<span class="nm">${esc(cur.code)} ${esc(episodeTitleBeside(cur.code, cur.title))}</span>` +
-      `<span class="meta">共 ${eps.length} 集</span></button>` +
-      (open ? `<div class="ep-pick-list">${episodeRows({ episodes: eps })}</div>` : "") +
-      `</div>`
-    );
-  }
+  // 页内选集器（TASK-122 第 2 步）曾经挂在结构规划页顶。**已经删掉**：
+  // 产品负责人 2026-08-30「结构规划不应该跳到剧集制作」—— 它带着「进入剧集制作 →」，
+  // 等于在一张讲故事结构的表上开了一扇通往生产线的门。分集选择仍住在「剧集制作」
+  // 自己的空间里（`renderEpisodeRail`），要去那边点顶部的空间切换就行。
+  //
+  // `shell.episodeRows` 保留：剧集制作那边和守卫测试都在用它。
 
   function convMode() {
     return ui.convMode === "feedback" ? "feedback" : "work";
@@ -2599,14 +2584,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // is active and expands it; it never changes workspace. The row used to also
     // navigate, which made 「看一下 EP02」 indistinguishable from 「开始做 EP02」.
     bindStoryWork(root);
-    root.querySelectorAll("[data-ep-toggle]").forEach((b) => (b.onclick = () => {
-      ui.epPickerOpen = !ui.epPickerOpen;
-      render();
-    }));
-    root.querySelectorAll("[data-ep-choose]").forEach((b) => (b.onclick = () => {
-      ui.epPickerOpen = false; // 选完就收起来 —— 他要的是默认只看见当前那一集
-      selectEpisode(b.dataset.epChoose);
-    }));
+    root.querySelectorAll("[data-ep-choose]").forEach((b) => (b.onclick = () => selectEpisode(b.dataset.epChoose)));
     // cross-module jumps (empty states, director) — EVERY [data-goto] wires
     root.querySelectorAll("[data-goto]").forEach((j) => (j.onclick = () => setModule(j.dataset.goto)));
     if (activeModule === "brief") bindBriefWs(root, ctx, ui, render);

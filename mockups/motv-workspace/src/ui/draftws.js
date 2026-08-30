@@ -77,6 +77,41 @@ function unitBrief(story, kind, no, unit) {
   );
 }
 
+
+/** 还没进到某一章时的左栏 Brief：这次要写的是什么、写到哪儿了。
+ *
+ *  产品负责人 2026-08-30：「正文创作左边是 brief。」—— **不管有没有打开某一章**，
+ *  左边都是 Brief，右边才是控制与编辑器。所以这一页的两栏结构是恒定的，
+ *  不会「先一个宽页、点进去忽然变两栏」。 */
+function overviewBrief(story, kind, planned, units) {
+  const work = workOf(story);
+  if (!work) return `<div class="db-brief"></div>`;
+  const core = (work.core || "").trim();
+  const nodes = work.outline.nodes;
+  const rows = w.visiblePlanRows(work);
+  const written = units.filter((u) => (u.body || "").trim()).length;
+  const block = (title, body) =>
+    body ? `<div class="db-b"><div class="t">${esc(title)}</div><div class="v">${esc(body)}</div></div>` : "";
+  return (
+    `<div class="db-brief">` +
+    `<div class="db-h">这次要写的</div>` +
+    block("形态", KIND_LABEL[kind] || "还没选") +
+    block("进度", `${written} / ${planned} ${KIND_WORD[kind] || ""}已经动过笔`) +
+    (core ? block("故事核心", core.slice(0, 260) + (core.length > 260 ? "…" : "")) : "") +
+    (nodes.length
+      ? `<div class="db-b"><div class="t">故事大纲</div>` +
+        nodes
+          .slice(0, 6)
+          .map((n, i) => `<div class="v">§${i + 1} ${esc(n.text.slice(0, 34))}</div>`)
+          .join("") +
+        (nodes.length > 6 ? `<div class="v meta">…共 ${nodes.length} 个节点</div>` : "") +
+        `</div>`
+      : "") +
+    block("结构规划", rows.length ? `${rows.length} 行` : "还没有行") +
+    `</div>`
+  );
+}
+
 /** 入口选择：还没选形态时，屏幕上只有这两个入口。 */
 function formGate() {
   return (
@@ -157,12 +192,15 @@ export function renderDraftWs(ctx, ui) {
     );
   }
 
-  // ——— 形态与数量，以及全部章/集
+  // ——— 形态与数量，以及全部章/集。**左边仍然是 Brief**（他 2026-08-30 点名的）。
   const other = m.kind === "novel" ? "episode" : "novel";
   const wroteSomething = m.units.some((u) => (u.body || "").trim());
   return (
     head("正文创作", "项目级") +
     `<div class="sw-page">` +
+    `<div class="db-unit">` +
+    overviewBrief(ctx.story, m.kind, m.planned, m.units) +
+    `<div class="db-main">` +
     `<div class="db-mode">` +
     `<span class="cur">${esc(KIND_LABEL[m.kind])}</span>` +
     `<button class="btn ghost sm" data-form="${other}">改成${esc(KIND_LABEL[other])}</button>` +
@@ -176,8 +214,7 @@ export function renderDraftWs(ctx, ui) {
     `<button class="btn ghost sm" data-planned="1">＋</button>` +
     `<span class="meta">可以随时加减 —— 减少不会删掉已经写下的${esc(word)}节</span></div>` +
     unitPicker(m.kind, m.planned, m.units, null) +
-    `<div class="sw-foot"><span class="meta">` +
-    `${m.units.filter((u) => (u.body || "").trim()).length} / ${m.planned} ${esc(word)}已经动过笔</span></div>` +
-    `</div>`
+    `<div class="sw-foot"><span class="meta">选一${esc(word)}开始写</span></div>` +
+    `</div></div></div>`
   );
 }
