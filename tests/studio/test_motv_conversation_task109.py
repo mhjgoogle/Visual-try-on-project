@@ -231,11 +231,26 @@ def test_an_edit_is_KEPT_not_dropped_even_when_nobody_can_apply_it(srv):
 
 @pytest.mark.parametrize(
     "answer",
-    ["没有 JSON 的一段话", '{"edits": []}', '{"reply": ""}', '{"reply": 1}'],
+    ['{"edits": []}', '{"reply": ""}', '{"reply": 1}', '{"reply": 坏了'],
 )
 def test_a_malformed_answer_is_a_failed_run_never_a_half_kept_one(srv, answer):
     with pytest.raises(ValueError):
         srv._adapt_conversation(answer)
+
+
+def test_a_PROSE_answer_is_kept_as_the_reply_rather_than_thrown_away(srv):
+    """**规则变了**（2026-08-31）：一段没包成 JSON 的白话回答不再算失败。
+
+    他问「你现在能看到原文了吗」，Agent 把项目现状讲得清清楚楚 —— 然后屏幕上只有
+    「失败：回答里没有可解析的 JSON 对象」。一个好答案被整段扔掉，比一个没有动作的
+    回答糟糕得多。
+
+    这条守卫原本要防的是「不许变成空回复」，那一条**照旧成立**：文本原样成为 reply，
+    没有动作就是没有动作；而带花括号却解析不出来的（可能本来有改动）仍然报错。
+    """
+    out = srv._adapt_conversation("能看到。故事核心 2069 字都在。")
+    assert out["reply"].startswith("能看到")
+    assert out["edits"] == []
 
 
 # --- 3. the endpoint --------------------------------------------------------- #
@@ -353,8 +368,11 @@ def test_a_failed_run_says_why_instead_of_going_silent(app, srv, monkeypatch):
 
 def test_a_malformed_answer_reaches_the_creator_as_a_failure(app, srv, monkeypatch):
     """A model that ignores the output contract must not become a blank reply."""
+    # **规则变了**（2026-08-31）：纯白话现在是一次成功的回答（见上面那条）。
+    # 这里改成钉真正坏掉的那种 —— 带花括号却解析不出来，里面可能本来有改动，
+    # 静默当成聊天会把它们悄悄吞掉。
     monkeypatch.setattr(
-        srv, "_run_executor", lambda *a, **k: ("我觉得挺好的", "claude-x")
+        srv, "_run_executor", lambda *a, **k: ('{"reply": 我觉得挺好的', "claude-x")
     )
     _, out = _post(app, srv, "夜班沉默", {"message": "随便说点什么"})
     run = _await(srv, out["run"]["run_id"])

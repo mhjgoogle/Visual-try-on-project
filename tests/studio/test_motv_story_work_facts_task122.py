@@ -286,3 +286,41 @@ def test_chapter_bodies_are_given_whole_not_the_first_80_chars(app):
     facts = app._conv_facts("作品")
     assert body in facts, "让它审一章，就要给它那一章的全文"
     assert "开头：" not in facts, "「开头 80 字」那种给法已经去掉了"
+
+
+# --- 一句白话回答不该被整段丢掉（2026-08-31）-------------------------------- #
+#
+# 他问「你现在能看到原文了吗」，Agent 答得清清楚楚 —— 故事核心 2069 字读到了、
+# 大纲只有 §1、结构规划 12 行七列还空着、正文 12 集全 0 字 —— 然后屏幕上是：
+#
+#     失败 / 没能完成：回答里没有可解析的 JSON 对象
+#
+# 一个好答案因为没包成 JSON 被整段扔掉。**但只在确实没有结构时才兜底**：
+# 有花括号却解析不出来，是一个坏掉的结构化回答，里面可能本来带着改动，
+# 静默当成纯聊天会把那些改动悄悄吞掉。
+
+
+def test_a_plain_answer_is_kept_as_the_reply(srv):
+    out = srv._conv_json_object("能看到。故事核心 2069 字都在，大纲只有 §1。")
+    assert out["reply"].startswith("能看到")
+    assert out["edits"] == [], "纯说话的一轮没有动作，也不该无中生有"
+
+
+def test_a_normal_json_answer_still_wins(srv):
+    out = srv._conv_json_object('说明在前 {"reply":"好","edits":[]} 客套在后')
+    assert out["reply"] == "好"
+
+
+def test_a_BROKEN_structured_answer_still_fails_loudly(srv):
+    """有花括号却解析不出来 → 照旧报错。里面可能本来有改动。"""
+    import pytest as _pytest
+
+    with _pytest.raises(ValueError):
+        srv._conv_json_object('{"reply": 这里坏了')
+
+
+def test_an_empty_answer_still_fails(srv):
+    import pytest as _pytest
+
+    with _pytest.raises(ValueError):
+        srv._conv_json_object("   ")

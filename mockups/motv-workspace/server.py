@@ -3638,6 +3638,16 @@ def _conv_json_object(text: str) -> dict:
                 if isinstance(obj, dict):
                     return obj
                 start = -1
+    # 一句白话回答**不该被整段丢掉**（产品负责人 2026-08-31 撞到的那一轮：它把
+    # 项目现状讲得清清楚楚，只是没包成 JSON，于是屏幕上只剩「失败」）。
+    #
+    # 但只在**确实没有结构**时才这样兜：文本里连一个 `{` 都没有，说明它这一轮就是
+    # 在说话，没打算带动作。若有花括号却解析不出来，那是一个**坏掉的结构化回答** ——
+    # 里面可能本来有改动，静默当成纯聊天会把那些改动悄悄吞掉，所以照旧报错。
+    if "{" not in text:
+        said = text.strip()
+        if said:
+            return {"reply": said, "edits": []}
     raise ValueError("回答里没有可解析的 JSON 对象")
 
 
