@@ -2387,3 +2387,38 @@
 .ec-empty { color: var(--text-faint); font-size: var(--t-sm); padding: var(--s4) 0; }
 .ec-tools { margin-top: var(--s4); display: flex; flex-direction: column; gap: var(--s2); }
 .ec-toolrow { display: flex; gap: var(--s2); flex-wrap: wrap; }
+
+/* ===== 剧集制作：三步一条线（TASK-124 v2）=================================
+   产品负责人 2026-08-30：「请你思考如何能让用户简洁并直观的操作」。
+   答案是**一屏一条线，一步一件事，当前那一步高亮，其余淡下去** ——
+   他不需要知道这个应用有几个页面。 */
+.ep3-main { padding-right: var(--s4); }
+.ep3-note { color: var(--text-dim); font-size: var(--t-sm); margin: var(--s2) 0 var(--s3); }
+.ep3 {
+  border: 1px solid var(--line); border-radius: var(--r2); margin-bottom: var(--s3);
+  background: var(--panel-2); opacity: .72;
+}
+.ep3.on { opacity: 1; border-color: var(--accent, #6ea8fe); }
+.ep3-h {
+  display: flex; align-items: baseline; gap: var(--s2);
+  padding: var(--s2) var(--s3); border-bottom: 1px solid var(--line);
+}
+.ep3-h .n { color: var(--text-faint); font-size: var(--t-sm); }
+.ep3.on .ep3-h .n { color: var(--accent, #6ea8fe); }
+.ep3-h .t { font-weight: 600; }
+.ep3-h .hint { margin-left: auto; color: var(--text-faint); font-size: var(--t-micro); }
+.ep3-b { padding: var(--s3); display: flex; flex-direction: column; gap: var(--s2); }
+.ep3-pick { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+.ep3-sel {
+  min-width: 16em; padding: 6px 8px; border: 1px solid var(--line-2); border-radius: var(--r1);
+  background: var(--panel); color: var(--text); font: inherit; font-size: var(--t-sm);
+}
+.ep3-pick .meta { color: var(--text-faint); font-size: var(--t-micro); }
+.ep3-row { display: flex; align-items: center; gap: var(--s3); }
+.ep3-row .k { min-width: 4em; color: var(--text-dim); font-size: var(--t-sm); }
+.ep3-row .v { min-width: 4em; font-size: var(--t-sm); }
+.ep3-row .why { flex: 1; color: var(--text-faint); font-size: var(--t-micro); }
+.ep3-row .why.ok { color: var(--ok, #4a9c6d); }
+.ep3-row.bad .why { color: var(--warn, #d3a04a); }
+.ep3-empty { color: var(--text-faint); font-size: var(--t-sm); display: flex; align-items: center; gap: var(--s2); }
+.ep3-after { display: flex; gap: var(--s2); margin-top: var(--s3); }

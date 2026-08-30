@@ -1143,6 +1143,20 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
         }) +
         `</nav>`;
       rememberFlowScroll();
+      // 制作画布**不走那层包装**（产品负责人 2026-08-30：「不要出现分镜设计这些
+      // 应该在工作区出现而不应该在左边和上面设计各种入口」）。`renderEpProd`
+      // 会在顶部挂上向导 / 完整溯源 / 制作台 / 工作区，在两侧挂上参考与检视 ——
+      // 那是**做某一镜**时要的东西，不是「我这次做哪一集」这一屏要的。
+      if (activeModule === "board") {
+        root.innerHTML =
+          crumb(ctx) + epRail +
+          `<main class="st-main prod-main ep3-main">` + main + "</main>" +
+          aiDirector(ctx);
+        bind(ctx);
+        restoreFlowScroll();
+        notify();
+        return;
+      }
       root.innerHTML =
         crumb(ctx) +
         (onCentre ? renderShotSelect(ctx, ui, wm, place) : "") +
@@ -2748,9 +2762,10 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       if (goto) setModule(goto);
       else render();
     }));
-    root.querySelectorAll("[data-ec-tools]").forEach((b) => (b.onclick = () => {
-      ui.ecAllTools = !ui.ecAllTools;
-      render();
+    // ① 选集：进剧集制作的第一件事就是选这一集（产品负责人 2026-08-30
+    //「主要的动作是选择要制作的剧集」）。用 `selectEpisode` —— 与别处切集同一条路径。
+    root.querySelectorAll("[data-ep-pick]").forEach((sel) => (sel.onchange = () => {
+      selectEpisode(sel.value);
     }));
     // TASK-077 §1.2: a media file that will not load says so, everywhere, once.
     bindMediaErrors(root, ctx);

@@ -605,14 +605,19 @@ test("every EPISODE_NAV key resolves to a real page AND a real section", () => {
 /** 画布只需要这些就能画出「全部工作区」那一排 —— 这份测试守的是入口，不是内容。 */
 function canvasCtx() {
   const production = {
-    episodes: [{ episodeId: "ep-1", title: "沉默酒吧", scenes: [] }],
+    episodes: [{ episodeId: "ep-1", title: "沉默酒吧", scenes: [{ sceneId: "s1", shotIds: ["sh1"] }] }],
     activeEpisodeId: "ep-1",
     characters: [],
+    locations: [],
     blocking: {},
     shotProduction: { reviews: {}, references: {}, stages: {}, stageReviews: {} },
   };
   return {
-    prodData: () => ({ production, draftShots: [], timelines: null }),
+    prodData: () => ({
+      production,
+      draftShots: [{ shotId: "sh1", seq: 1, title: "招牌 · 雨夜", sceneId: "s1" }],
+      timelines: null,
+    }),
     script: null,
     shot: null,
   };
@@ -633,20 +638,27 @@ test("左栏默认只画制作画布那一行，停在哪一页就把哪一行�
   assert.equal((at.match(/class="st-navitem[^"]* on"/g) || []).length, 1);
 });
 
-test("⑨ 粗剪审片 仍然有入口 —— 只是搬到了画布里（它曾经一个入口都没有）", () => {
+test("⑨ 粗剪审片 仍然有入口 —— 只是搬进了画布的那三步里", () => {
   // 这条守卫是「有渲染器、有绑定、却没有任何入口」那次事故留下的。**它的意图不是
-  // 「左栏里必须有」，而是「必须能进得去」** —— 所以 TASK-124 之后它去检查画布。
-  const canvas = renderEpCanvas(canvasCtx(), { ecAllTools: true });
-  for (const [key, label] of [
-    ["board", "本集看板"],
-    ["storyboard", "分镜设计"],
-    ["blocking", "3D 导演台"],
-    ["shotwork", "镜头制作"],
-    ["cutreview", "粗剪审片"],
-    ["delivery", "后期交付"],
-  ]) {
-    assert.ok(canvas.includes(`data-goto="${key}"`), `${label} 在画布里没有入口`);
-    assert.ok(canvas.includes(label), `${label} 要被叫出名字`);
+  // 「左栏里必须有」，而是「必须能进得去」** —— TASK-124 之后它去检查制作画布。
+  //
+  // 按**解析之后的落点**检查，不按字面的键：画布上写的是 `frames` / `video`
+  // （他嘴里的「关键帧」「视频」），它们解析到 ⑧ 镜头制作。字面比较会逼着界面
+  // 去说一个他不会说的词。
+  const html = renderEpCanvas(canvasCtx(), {});
+  // 画布上的入口有**两种**：整页按钮 `data-goto`，和镜头卡上的「下一步」
+  // `data-ec-step="<镜头>:<去哪>"`。只扫前一种会漏掉后一种 —— 而后者正是他
+  // 日常真正在点的那个。
+  const targets = [
+    ...[...html.matchAll(/data-goto="([^"]+)"/g)].map((mm) => mm[1]),
+    ...[...html.matchAll(/data-ec-step="[^":]*:([^"]+)"/g)].map((mm) => mm[1]),
+  ];
+  const reachable = new Set(
+    targets.map((k) => resolveModule(k)).filter((r) => r.resolved).map((r) => r.module),
+  );
+  // `board` 是画布**自己**，不需要通往自己的入口
+  for (const key of ["storyboard", "shotwork", "cutreview", "delivery"]) {
+    assert.ok(reachable.has(key), `${MODULE_LABEL[key] || key} 在画布里进不去了`);
   }
   assert.equal(resolveModule("cutreview").module, "cutreview");
   assert.deepEqual(PAGE_SECTIONS.cutreview, ["review"]);

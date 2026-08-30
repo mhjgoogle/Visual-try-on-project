@@ -226,3 +226,63 @@ def test_the_three_episode_counts_are_named_apart(app, tmp_path):
     assert "不必一致，也不是问题" in facts
     assert "除非他主动问，否则不要提这件事" in facts
     assert "生产文档里的分集（12 集" in facts, "生产侧的集数要标明它是生产侧的"
+
+
+# --- 正文要给全，剪了必须说（TASK-122 / 2026-08-30）-------------------------- #
+#
+# 产品负责人 2026-08-30：「服务端的 agent 为什么看不到全文。这个要修改的。」
+# 他写了 2069 字的故事核心，前端 Agent 回他「我这一轮拿到的不是原文，是服务端给我的
+# 一份摘要快照…后半段我确实没有」。那不是模型的毛病 —— 是这段事实把正文剪在 1800 字。
+
+
+def test_a_long_core_reaches_the_agent_whole(app):
+    core = "源律" * 1500  # 3000 字，远超旧的 1800
+    app._write_work({"core": core})
+    facts = app._conv_facts("作品")
+    assert core in facts, "他写的故事核心必须整篇进到事实里"
+
+
+def test_when_something_IS_cut_the_facts_say_so(srv):
+    """上限仍在（提示词不是无限的），但**截断必须说出来**。
+
+    一段被悄悄剪掉的正文，与「它没读懂」在屏幕上无法区分 —— 那正是他这次撞到的。
+    """
+    out = srv._fact_text("字" * 5000, 1000)
+    assert "被截断" in out
+    assert "4000 字" in out, "要说清还剩多少，他才知道要不要把后半段贴过来"
+    assert srv._fact_text("短", 100) == "短", "没超过上限的一个字都不许动"
+
+
+def test_every_outline_node_reaches_the_agent(app):
+    """不是前 20 个 —— 他问「大纲第 3 章往后」时，少给的那些正是他要的。"""
+    nodes = [
+        {"id": f"on-{i}", "kind": "para", "text": f"第 {i} 段的内容"}
+        for i in range(1, 31)
+    ]
+    app._write_work({"outline": {"nodes": nodes}})
+    facts = app._conv_facts("作品")
+    assert "第 30 段的内容" in facts
+    assert "§30" in facts
+
+
+def test_chapter_bodies_are_given_whole_not_the_first_80_chars(app):
+    body = "他把录音笔推到桌子中间。" * 200
+    app._write_work(
+        {
+            "form": "novel",
+            "planned": {"novel": 1, "episode": 0},
+            "units": [
+                {
+                    "id": "u-1",
+                    "kind": "novel",
+                    "no": 1,
+                    "title": "",
+                    "body": body,
+                    "finalized": [],
+                }
+            ],
+        }
+    )
+    facts = app._conv_facts("作品")
+    assert body in facts, "让它审一章，就要给它那一章的全文"
+    assert "开头：" not in facts, "「开头 80 字」那种给法已经去掉了"

@@ -391,6 +391,33 @@ _CONV_PROPOSALS_IN_FACTS = 5
 #: 他能给的答复。`changes` = 「大方向可以，但要改成这样」。
 #: 他能给的答复，外加一种**不是他给的**：`superseded` —— 一条提案被后来那条整合掉了
 #: （产品负责人 2026-08-30：同一片区域先后有 #1 #3 #4 三份提案，于是他被问了三遍）。
+#: 创作正文给到模型时的上限。**远高于以前的 1800** —— 产品负责人 2026-08-30 写了
+#: 2069 字的故事核心，前端 Agent 只拿到前一段，于是它对他说「我看不到全文」。
+#: 那不是模型的毛病，是这段事实自己把正文剪了。
+#:
+#: 仍然有上限（提示词不是无限的），但**截断必须说出来**：一段被悄悄剪掉的正文，
+#: 与「它没读懂」在屏幕上无法区分。
+_FACT_CORE_MAX = 24000
+_FACT_NODE_MAX = 4000
+_FACT_CELL_MAX = 600
+_FACT_UNIT_MAX = 24000
+#: 正文一共给多少字 —— 一部小说十几万字，全塞进去会把别的事实挤掉。
+_FACT_UNITS_BUDGET = 60000
+
+
+def _fact_text(value: str, cap: int) -> str:
+    """按上限截，**并在截断处说明还剩多少**。"""
+    text = value.strip()
+    if len(text) <= cap:
+        return text
+    left = len(text) - cap
+    return (
+        text[:cap]
+        + f"…（这里被截断了，后面还有 {left} 字没给你；"
+        + "他要是问后半段，说一声让他贴过来，或者请他去那一页看）"
+    )
+
+
 _CONV_VERDICTS = ("approved", "rejected", "changes", "superseded")
 _VERDICT_ZH = {
     "approved": "同意",
@@ -6801,7 +6828,9 @@ class _App:
         work = story.get("work") if isinstance(story.get("work"), dict) else {}
         core = work.get("core") if isinstance(work.get("core"), str) else ""
         if core.strip():
-            lines.append(f"故事核心（{len(core)} 字）：{core.strip()[:1800]}")
+            lines.append(
+                f"故事核心（{len(core)} 字）：{_fact_text(core, _FACT_CORE_MAX)}"
+            )
         else:
             lines.append("故事核心：还没写")
 
@@ -6809,11 +6838,13 @@ class _App:
         wnodes = [n for n in (wout.get("nodes") or []) if isinstance(n, dict)]
         if wnodes:
             lines.append(f"故事大纲（{len(wnodes)} 个节点，编号是系统自动给的）：")
-            for i, n in enumerate(wnodes[:20], 1):
+            # **全部节点**，不是前 20 个：他问「大纲第 3 章往后」时，
+            # 少给的那些正是他要的（产品负责人 2026-08-30）。
+            for i, n in enumerate(wnodes, 1):
                 txt = n.get("text") if isinstance(n.get("text"), str) else ""
-                lines.append(f"  §{i} [{n.get('id')}] {txt.strip()[:200]}")
-            if len(wnodes) > 20:
-                lines.append(f"  …还有 {len(wnodes) - 20} 个节点")
+                lines.append(
+                    f"  §{i} [{n.get('id')}] {_fact_text(txt, _FACT_NODE_MAX)}"
+                )
         else:
             lines.append("故事大纲：还没写")
         # 旧的版本链仍然是事实：下游剧集是基于**被批准的那一版**建立的。新编辑器
@@ -6846,7 +6877,7 @@ class _App:
                 ):
                     v = r.get(key)
                     if isinstance(v, str) and v.strip():
-                        cells.append(f"{label}={v.strip()[:120]}")
+                        cells.append(f"{label}={_fact_text(v, _FACT_CELL_MAX)}")
                 refs = [x for x in (r.get("outlineRefs") or []) if isinstance(x, str)]
                 if refs:
                     cells.append("关联大纲=" + "、".join(refs[:6]))
@@ -6878,19 +6909,30 @@ class _App:
                 f"**不必一致，也不是问题**：一{word}可以对应几行，一行也可以拆成几{word}。"
                 "除非他主动问，否则不要提这件事。）"
             )
-            for u in sorted(mine, key=lambda x: x.get("no") or 0)[:12]:
+            # 正文给**全文**（按总预算），不是开头 80 字：他让 Agent 审一章，
+            # 拿到 80 字的它只能说「我看不到全文」（产品负责人 2026-08-30）。
+            # 预算用完时逐条说明还剩什么没给 —— 不静默省略。
+            spent = 0
+            for u in sorted(mine, key=lambda x: x.get("no") or 0):
                 body = str(u.get("body") or "")
                 title = str(u.get("title") or "")
-                lines.append(
+                head_line = (
                     f"  第 {u.get('no')} {word}"
                     + (f"《{title[:40]}》" if title.strip() else "")
                     + f" · {len(body)} 字"
-                    + (
-                        f" · 开头：{body.strip()[:80]}"
-                        if body.strip()
-                        else " · 还是空的"
-                    )
                 )
+                if not body.strip():
+                    lines.append(head_line + " · 还是空的")
+                    continue
+                room = min(_FACT_UNIT_MAX, max(0, _FACT_UNITS_BUDGET - spent))
+                if room <= 0:
+                    lines.append(
+                        head_line + " · （正文这次没给你 —— 前面几章已经占满了额度）"
+                    )
+                    continue
+                text = _fact_text(body, room)
+                spent += len(text)
+                lines.append(head_line + "：" + text)
         else:
             lines.append("正文创作：还没选小说创作还是剧集创作")
         prod = _g("production") if isinstance(_g("production"), dict) else {}
