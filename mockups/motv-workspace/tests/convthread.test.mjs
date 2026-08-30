@@ -190,3 +190,43 @@ test("服务层按页面读，并把「别的页面还有对话」带回来", ()
   assert.match(src, /\?thread=/);
   assert.match(src, /others/);
 });
+
+/* --- 「写好了」之后必须有地方点（TASK-122）--------------------------------- */
+//
+// 产品负责人 2026-08-30：「为什么他说写好了然后还是没有写好」。那一轮跑成功了、
+// 消息说「要用就点右边这个按钮」，而按钮**根本没画出来** —— 判断用的是
+// `st.runId`，可 `routeState` 里带的是 `skillRunId`。一个说了却不存在的按钮，
+// 与「它答应了然后什么都没干」在屏幕上无法区分。
+
+test("跑成功且有提案 → 对话里就有「用它 / 不用」两个按钮", () => {
+  const html = renderThread(threadModel([
+    { role: "user", text: "写故事大纲" },
+    {
+      role: "agent",
+      runId: "conv-1",
+      text: "好，这就写",
+      route: { skillId: "story-development", scope: "project" },
+    },
+  ], {
+    routeState: {
+      "conv-1": {
+        skillId: "story-development",
+        title: "开发故事",
+        status: "succeeded",
+        skillRunId: "skillrun-7",
+        pending: true,
+      },
+    },
+  }));
+  assert.match(html, /data-cv-use="skillrun-7"/, "「用它」按钮必须带真实的运行 id");
+  assert.match(html, /data-cv-drop="skillrun-7"/);
+  assert.ok(!html.includes("能力」面板"), "不许再把他指向已经删掉的面板");
+});
+
+test("还在跑的时候不给按钮 —— 没有东西可用", () => {
+  const html = renderThread(threadModel(
+    [{ role: "agent", runId: "conv-2", text: "在写", route: { skillId: "story-development" } }],
+    { routeState: { "conv-2": { skillId: "story-development", title: "开发故事", status: "running" } } },
+  ));
+  assert.ok(!html.includes("data-cv-use"), "跑着的时候不该出现「用它」");
+});

@@ -2296,6 +2296,11 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
           title: (skill && skill.title) || run.skillId,
           status: run.status || "",
           error: failure ? String(failure.detail || failure) : "",
+          // 那一轮**能力运行**自己的 id：对话里的「用它 / 不用」要拿它去应用提案。
+          // 没有它，按钮画不出来 —— 产品负责人 2026-08-30 看到的正是「写好了」
+          // 后面什么都没有。
+          skillRunId: run.runId || run.skillRunId || "",
+          pending: !!(run.disposition === "pending" || run.proposal),
         };
         continue;
       }

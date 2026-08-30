@@ -191,10 +191,10 @@ function routeBlock(r) {
       act = `<button class="cv-apply" data-cv-route="${esc(String(st.skillId || ""))}">去运行</button>`;
     }
   }
-  if (st.status === "succeeded" && st.runId) {
+  if (st.status === "succeeded" && st.skillRunId) {
     act =
-      `<button class="cv-apply" data-cv-use="${esc(String(st.runId))}">用它</button>` +
-      `<button class="cv-apply ghost" data-cv-drop="${esc(String(st.runId))}">不用</button>`;
+      `<button class="cv-apply" data-cv-use="${esc(String(st.skillRunId))}">用它</button>` +
+      `<button class="cv-apply ghost" data-cv-drop="${esc(String(st.skillRunId))}">不用</button>`;
   }
   return (
     `<div class="cv-routewrap"><div class="lab">${esc(head)}${act}</div>` +
