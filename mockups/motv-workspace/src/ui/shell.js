@@ -319,6 +319,13 @@ export function resolveModule(key) {
 /** The sections each page really renders. `resolveModule` may only name one of
  *  these, which is what makes 「解析到一个真实分区」 checkable instead of hopeful. */
 export const PAGE_SECTIONS = Object.freeze({
+  // ③ 结构规划的三个入口（产品负责人 2026-08-30：「结构里面分不同的入口。先是现在的
+  // 表格，然后进入角色设计和场景设计。这都会成为之后小说剧集制作的基础财产。」）。
+  //
+  // **是分区，不是新页、不是一级 Tab**（他自己划的那三条约束）。角色设计与场景设计
+  // 读写的是**既有的**人物 / 场景地数据 —— 「基础财产」的意思正是这个：同一份东西，
+  // 后面写小说、做剧集都用它，不许在这里另开一份。
+  episodes: ["plan", "cast", "places"],
   settings: ["characters", "relationships", "world"],
   board: ["overview"],
   storyboard: ["scenes", "shots"],
@@ -411,6 +418,7 @@ export const MODULE_LABEL = {
 
 /** Section labels, for the in-page section navs. */
 export const SECTION_LABEL = {
+  plan: "结构表", cast: "角色设计", places: "场景设计",
   characters: "人物", relationships: "人物关系", world: "世界观",
   overview: "本集总览",
   scenes: "场景", shots: "分镜",

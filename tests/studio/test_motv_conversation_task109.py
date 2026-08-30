@@ -143,7 +143,10 @@ def _get(app, name, thread=None):
 def test_the_server_reads_the_project_and_puts_it_in_the_prompt(app, srv):
     facts = app._conv_facts("夜班沉默")
     assert "深夜不打烊的酒吧" in facts, "核心创意没进上下文，Agent 就不知道这是什么作品"
-    assert "故事大纲：2 版" in facts and "已批准 v2" in facts
+    # **规则变了**（TASK-122）：「故事大纲」这一行现在报的是他正在写的那一份
+    # （`story.work.outline` 的节点）；旧的版本链改名为「旧大纲版本链」单独一行 ——
+    # 下游剧集基于哪一版仍然是事实，两条都给，不让模型只看到一半。
+    assert "旧大纲版本链：2 版" in facts and "已批准 v2" in facts
     assert "林晚" in facts
     assert "镜头：2 个" in facts, "镜头数必须从 scenes[].shotIds 数出来"
     assert "S01 酒吧 · 打烊后" in facts

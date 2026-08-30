@@ -128,7 +128,7 @@ export function stepReadiness(counts, stepId) {
     if (id === "shots") {
       // 第 ① 步的输入是剧本，不是另一个向导步骤 —— 没有分镜表时它**真的开始不了**，
       // 所以这是唯一一个自己就能 cannotStart 的步骤。
-      const noScript = "这一集还没有分镜 —— 先在「本集剧本」里写剧本，再让脚本生成器拆分镜";
+      const noScript = "这一集还没有分镜 —— 先在「正文」里写剧本，再让脚本生成器拆分镜";
       if (!known("shotsReady")) {
         return { done: false, why: "读不到这一集的分镜表", cannotStart: true };
       }

@@ -276,7 +276,7 @@ test("第 ① 步是唯一自己就能「开始不了」的一步 —— 它的�
   const noShots = productionCounts({ shots: [] });
   const r = stepReadiness(noShots, "shots");
   assert.equal(r.done, false);
-  assert.match(r.blockers[0], /先在「本集剧本」里写剧本/, "指向剧本，不是指向某个步骤");
+  assert.match(r.blockers[0], /先在「正文」里写剧本/, "指向剧本，不是指向某个步骤");
   // 有了分镜就不再拦
   assert.deepEqual(stepReadiness(productionCounts({ shots: [{ shotId: "a" }] }), "shots"),
     { done: true, blockers: [] });

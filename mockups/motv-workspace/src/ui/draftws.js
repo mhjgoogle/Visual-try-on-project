@@ -148,6 +148,29 @@ function unitPicker(kind, planned, units, openNo) {
   return `<div class="db-picker">${cells.join("") || `<div class="meta">把数量设成 1 以上，这里就会出现选择器。</div>`}</div>`;
 }
 
+/** 从「剧集创作」进到「剧集制作」的入口。
+ *
+ *  产品负责人 2026-08-30：「剧集创作要从正文创作里面进入。」——**这是故事侧交给生产线的
+ *  那道门，它只开在这里**。结构规划上不再有（他前一句刚说过「结构规划不应该跳到剧集
+ *  制作」），左栏里也没有。
+ *
+ *  它按第 N 集对到生产文档的第 N 集；对不上时**说出来**，而不是画一个按下去没反应的按钮。 */
+function produceEntry(ctx, kind, no) {
+  if (kind !== "episode" || !no) return "";
+  const eps = (ctx.prodData ? ctx.prodData().production.episodes : []) || [];
+  const ep = eps[no - 1];
+  if (!ep) {
+    return (
+      `<span class="meta" title="生产文档里还没有第 ${no} 集">` +
+      `第 ${no} 集还没有建立，进不了剧集制作</span>`
+    );
+  }
+  return (
+    `<button class="btn sm" data-unit-produce="${esc(ep.episodeId || "")}" ` +
+    `title="带着第 ${no} 集切换到「剧集制作」">🎬 进入剧集制作 →</button>`
+  );
+}
+
 export function renderDraftWs(ctx, ui) {
   const m = draftModel(ctx.story, ui);
   if (!m.kind) return formGate();
@@ -168,6 +191,7 @@ export function renderDraftWs(ctx, ui) {
       `<div class="db-mh"><span class="meta">${(unit && unit.body ? unit.body.length : 0)} 字 · 日常编辑只维护最新版</span>` +
       `<button class="btn ghost sm" data-unit-copy="${esc(unit ? unit.id : "")}">⧉ Copy</button>` +
       `<button class="btn sm" data-unit-fin="${esc(unit ? unit.id : "")}">✓ 定稿 · 存一版</button>` +
+      produceEntry(ctx, m.kind, m.openNo) +
       ((unit && unit.finalized.length)
         ? `<button class="btn ghost sm" data-unit-hist="${esc(unit.id)}">历史版本 ${unit.finalized.length}</button>`
         : `<span class="meta">还没有历史版本</span>`) +

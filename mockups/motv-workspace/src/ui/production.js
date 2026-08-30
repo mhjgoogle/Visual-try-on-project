@@ -831,13 +831,24 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // opens 人物 on the relationship tab; this entry is what it renders.
     relationships: (ctx) => renderBibleWs(ctx, ui),
     world: (ctx) => renderWorldWs(ctx, ui),
-    // ③ 结构规划（第 4 步）：他点名的九列表。
+    // ③ 结构规划（第 4 步）：三个入口 —— 结构表 / 角色设计 / 场景设计
+    // （产品负责人 2026-08-30：「结构里面分不同的入口。先是现在的表格，然后进入
+    // 角色设计和场景设计。这都会成为之后小说剧集制作的基础财产。」）。
     //
-    // **不挂分集选集器**（产品负责人 2026-08-30：「结构规划不应该跳到剧集制作」）。
-    // 那个选集器带着「进入剧集制作 →」，等于在一张讲故事结构的表上开了一个通往
-    // 生产线的门 —— 这张表规划的是章/集本身，不是去做某一集。要去剧集制作，
-    // 顶部那三个空间一直都在。
-    episodes: (ctx) => renderPlanWs(ctx, ui),
+    // 角色设计与场景设计**复用既有的人物 / 世界观工作区**：那就是「基础财产」本身，
+    // 在这里另存一份等于让同一个角色有两个真相。作品设定那一页的地址也一条没动。
+    //
+    // **不挂分集选集器**（「结构规划不应该跳到剧集制作」）—— 通往生产线的那道门
+    // 只开在「正文创作 · 剧集创作」里。
+    episodes: (ctx) => {
+      const sec = sectionOf("episodes");
+      if (sec === "cast") {
+        ui.bibleTab = "characters";
+        return sectionNav("episodes") + renderBibleWs(ctx, ui);
+      }
+      if (sec === "places") return sectionNav("episodes") + renderWorldWs(ctx, ui);
+      return sectionNav("episodes") + renderPlanWs(ctx, ui);
+    },
     // ④ 正文创作（第 5 步）：形态入口 → Planned 数量 → 页内章/集选择器 → 单元视图。
     script: (ctx) => renderDraftWs(ctx, ui),
 
@@ -1878,6 +1889,10 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       ui.unitNo = no;
       ui.unitHist = false;
       render();
+    }));
+    // 故事侧 → 生产线的那道门（ADR-0092 之后**只开在正文创作 · 剧集创作**里）
+    root.querySelectorAll("[data-unit-produce]").forEach((b) => (b.onclick = () => {
+      enterEpisode(b.dataset.unitProduce, EPISODE_DEFAULT);
     }));
     root.querySelectorAll("[data-unit-back]").forEach((b) => (b.onclick = () => {
       ui.unitNo = null;

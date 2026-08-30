@@ -6762,10 +6762,99 @@ class _App:
             story.get("versions") if isinstance(story.get("versions"), list) else []
         )
         approved = story.get("approved")
-        lines.append(
-            f"故事大纲：{len(versions)} 版"
-            + (f"，已批准 v{approved}" if approved else "，还没有批准任何一版")
-        )
+
+        # ===== 故事开发这四页的**当前内容**（TASK-122）================================
+        #
+        # 他 2026-08-30 写了 869 字的故事核心，前端 Agent 却回他「故事核心和创意简报都
+        # 还是空的」——**因为这段事实从来没读过 `story.work`**，只读了旧的创意简报与
+        # 大纲版本链。屏幕上有的东西，喂给模型的事实里必须也有；
+        # 否则它只能否认他刚做的事。
+        work = story.get("work") if isinstance(story.get("work"), dict) else {}
+        core = work.get("core") if isinstance(work.get("core"), str) else ""
+        if core.strip():
+            lines.append(f"故事核心（{len(core)} 字）：{core.strip()[:1800]}")
+        else:
+            lines.append("故事核心：还没写")
+
+        wout = work.get("outline") if isinstance(work.get("outline"), dict) else {}
+        wnodes = [n for n in (wout.get("nodes") or []) if isinstance(n, dict)]
+        if wnodes:
+            lines.append(f"故事大纲（{len(wnodes)} 个节点，编号是系统自动给的）：")
+            for i, n in enumerate(wnodes[:20], 1):
+                txt = n.get("text") if isinstance(n.get("text"), str) else ""
+                lines.append(f"  §{i} [{n.get('id')}] {txt.strip()[:200]}")
+            if len(wnodes) > 20:
+                lines.append(f"  …还有 {len(wnodes) - 20} 个节点")
+        else:
+            lines.append("故事大纲：还没写")
+        # 旧的版本链仍然是事实：下游剧集是基于**被批准的那一版**建立的。新编辑器
+        # 取代的是「在哪写」，不是「基于哪一版做的」——两条都给，别让模型少一半。
+        if versions:
+            lines.append(
+                f"旧大纲版本链：{len(versions)} 版"
+                + (f"，已批准 v{approved}" if approved else "，还没有批准任何一版")
+            )
+
+        wplan = work.get("plan") if isinstance(work.get("plan"), dict) else {}
+        prows = [
+            r
+            for r in (wplan.get("rows") or [])
+            if isinstance(r, dict) and not r.get("hidden")
+        ]
+        if prows:
+            lines.append(f"结构规划（{len(prows)} 行 · 九列）：")
+            for r in prows[:20]:
+                cells = []
+                for key, label in (
+                    ("unitNo", "Unit"),
+                    ("scene", "Scene"),
+                    ("purpose", "目的"),
+                    ("characters", "人物"),
+                    ("goal", "目标"),
+                    ("conflict", "冲突"),
+                    ("turn", "转折"),
+                    ("endingState", "Ending"),
+                ):
+                    v = r.get(key)
+                    if isinstance(v, str) and v.strip():
+                        cells.append(f"{label}={v.strip()[:120]}")
+                refs = [x for x in (r.get("outlineRefs") or []) if isinstance(x, str)]
+                if refs:
+                    cells.append("关联大纲=" + "、".join(refs[:6]))
+                lines.append(f"  [{r.get('id')}] " + " · ".join(cells))
+            if len(prows) > 20:
+                lines.append(f"  …还有 {len(prows) - 20} 行")
+        else:
+            lines.append("结构规划：还没有行")
+
+        form = work.get("form") if isinstance(work.get("form"), str) else ""
+        planned = work.get("planned") if isinstance(work.get("planned"), dict) else {}
+        units = [u for u in (work.get("units") or []) if isinstance(u, dict)]
+        if form:
+            word = "章" if form == "novel" else "集"
+            mine = [u for u in units if u.get("kind") == form]
+            n_planned = planned.get(form)
+            n_written = sum(1 for u in mine if str(u.get("body") or "").strip())
+            how_many = n_planned if isinstance(n_planned, int) else "?"
+            lines.append(
+                f"正文创作：{'小说创作' if form == 'novel' else '剧集创作'}，"
+                f"计划 {how_many} {word}，已经动过笔 {n_written} {word}"
+            )
+            for u in sorted(mine, key=lambda x: x.get("no") or 0)[:12]:
+                body = str(u.get("body") or "")
+                title = str(u.get("title") or "")
+                lines.append(
+                    f"  第 {u.get('no')} {word}"
+                    + (f"《{title[:40]}》" if title.strip() else "")
+                    + f" · {len(body)} 字"
+                    + (
+                        f" · 开头：{body.strip()[:80]}"
+                        if body.strip()
+                        else " · 还是空的"
+                    )
+                )
+        else:
+            lines.append("正文创作：还没选小说创作还是剧集创作")
         prod = _g("production") if isinstance(_g("production"), dict) else {}
         chars = (
             prod.get("characters") if isinstance(prod.get("characters"), list) else []

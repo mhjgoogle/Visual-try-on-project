@@ -33,12 +33,12 @@ export const APPLY_TARGETS = {
     detail: "落到「故事大纲」的提案位；成为正式版本仍需你在那里批准。",
   },
   "script-writer": {
-    can: true, target: "script", label: "应用为本集剧本提案",
-    detail: "落到本集剧本的提案位；应用后才创建新版本，旧版本全部保留。",
+    can: true, target: "script", label: "应用为正文提案",
+    detail: "落到正文的提案位；应用后才创建新版本，旧版本全部保留。",
   },
   "script-doctor": {
-    can: true, target: "script", label: "应用为本集剧本提案",
-    detail: "落到本集剧本的提案位；应用后才创建新版本，旧版本全部保留。",
+    can: true, target: "script", label: "应用为正文提案",
+    detail: "落到正文的提案位；应用后才创建新版本，旧版本全部保留。",
   },
   "script-breakdown": {
     can: true, target: "bible", label: "应用为人物 / 场景地提案",
