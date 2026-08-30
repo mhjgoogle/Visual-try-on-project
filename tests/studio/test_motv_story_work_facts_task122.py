@@ -164,3 +164,65 @@ def test_the_facts_reach_the_prompt(app, srv):
     app._write_work({"core": "被世界抹除的人并没有消失"})
     prompt = srv._conv_prompt("审查一下故事核心", app._conv_facts("作品"))
     assert "被世界抹除的人并没有消失" in prompt
+
+
+# --- Agent 不许再用已经不存在的页面名字 ------------------------------------- #
+#
+# 产品负责人 2026-08-30 被前端 Agent 问到「创意简报还是空的」时的反应是：
+#
+#     「什么是创意简报。你是不是没有根据变动更改前端服务要看到的内容。」
+#
+# 他说中了：页面改了，喂给模型的那份「世界观」没跟着改，于是它拿着旧地图给他指路。
+
+
+def test_every_prompt_carries_the_current_page_map(srv):
+    """三种提示词都要带**现在的**四页，否则模型只能照旧地图说话。"""
+    for prompt in (
+        srv._conv_prompt("先写故事大纲吧", "项目：X"),
+        srv._conv_prompt("这一页不合适", "项目：X", intent="feedback"),
+        srv._dev_prompt("把版本行收起来", "故事开发 · 故事核心", "项目：X"),
+    ):
+        for page in ("故事核心", "故事大纲", "结构规划", "正文创作"):
+            assert page in prompt, f"提示词里没有「{page}」"
+        assert "不要提" in prompt and "创意简报" in prompt, "旧名字要被显式禁掉"
+
+
+def test_the_facts_never_call_it_a_creative_brief_again(app):
+    """字段本身仍是事实，但**换成他屏幕上的说法**：它们写在故事核心里。"""
+    app._write_work({"core": "有内容"})
+    facts = app._conv_facts("作品")
+    assert "创意简报" not in facts, "这一页已经不存在了，不许再催他去填"
+
+
+def test_the_three_episode_counts_are_named_apart(app, tmp_path):
+    """结构规划 12 行 / 正文创作计划 2 集 / 生产文档 12 集 —— 三个不同的数。
+
+    他撞到的是 Agent 把它们读成「对不上」。事实里要各自说清楚是什么，
+    模型才问得出**一个具体的问题**，而不是报一句矛盾。
+    """
+    import json
+
+    # 先落一份文档（fixture 只建目录，不写文件）
+    app._write_work({})
+    root = app._projects["作品"]
+    doc = json.loads((root / "studio" / "canvas.json").read_text("utf-8"))
+    doc["story"]["work"] = {
+        "form": "episode",
+        "planned": {"novel": 0, "episode": 2},
+        "plan": {"rows": [{"id": f"sp-{i}", "unitNo": str(i)} for i in range(1, 13)]},
+        "units": [],
+    }
+    doc["production"]["episodes"] = [
+        {"episodeId": f"ep-{i}", "title": f"第 {i} 集"} for i in range(1, 13)
+    ]
+    (root / "studio" / "canvas.json").write_text(
+        json.dumps(doc, ensure_ascii=False), "utf-8"
+    )
+    facts = app._conv_facts("作品")
+    assert "结构规划（12 行" in facts
+    assert "计划 2 集" in facts
+    # 产品负责人 2026-08-30：「结构规划和集数要一致这本来就是错误的思考模式。
+    # 不一定要一致」——事实里要**明说它不是矛盾**，否则 Agent 每一轮都提醒他一次。
+    assert "不必一致，也不是问题" in facts
+    assert "除非他主动问，否则不要提这件事" in facts
+    assert "生产文档里的分集（12 集" in facts, "生产侧的集数要标明它是生产侧的"

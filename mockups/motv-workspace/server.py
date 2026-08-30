@@ -3053,6 +3053,21 @@ _CONV_KEY_MAX = 64
 #: 台账，由后端的开发 Agent 取走（REQ-006）。`note` 是「它想做但做不到」的兜底。
 _CONV_SERVER_KINDS = ("feedback.ui", "proposal.decide", "dev.request", "note")
 
+#: 故事开发现在**就是这四页**（TASK-122 / ADR-0092）。这段进提示词，因为模型没有
+#: 别的办法知道界面改过了 —— 产品负责人 2026-08-30 被它问「创意简报」时的反应是
+#: 「什么是创意简报」，那正是一个用旧地图指路的助手会造成的事。
+_CONV_PAGE_MAP = """界面现在长这样（故事开发左栏严格四项，
+说别的名字他会不知道你在讲哪儿）：
+- 故事核心：一篇大文章。立意、主角、冲突、世界规则、人物关系，连类型/基调也写在这里。
+- 故事大纲：像普通文本一样写，系统自动给每段一个稳定编号（§1、§2…）。
+- 结构规划：三个入口 —— 结构表（九列）/ 角色设计 / 场景设计。角色与场景是后面写小说、
+  做剧集都要用的基础财产。
+- 正文创作：先选小说创作或剧集创作，设 Planned Chapters/Episodes，页内选章/集来写；
+  通往「剧集制作」的入口只在这里。
+
+**这些名字已经没有了，不要提**：创意简报、项目与创意、分集规划、本集剧本、作品设定。
+它们的内容分别并进了上面四页。"""
+
 #: 意见台账最多留多少条（给开发看的输入，不是永久档案）。
 _CONV_FEEDBACK_MAX_ITEMS = 500
 
@@ -3400,6 +3415,8 @@ def _conv_prompt(
         return (
             "你是这个短剧创作项目里的制作助理。现在作者在**「开发」窗口**里跟你说话：\n"
             "这个窗口是他给**这个应用的开发**提意见、以及答复开发的修改提案的地方。\n"
+            + _CONV_PAGE_MAP
+            + "\n"
             "**这一轮不许改动作品**（他要改作品会切回「作品」窗口）。\n\n"
             "规则：\n"
             "1. 他说应用哪里不好用、缺什么、文案不对 → 给一条 feedback.ui："
@@ -3469,11 +3486,19 @@ def _conv_prompt(
     )
     return (
         "你是这个短剧创作项目里的制作助理。你面对的是作品的作者。\n"
+        + _CONV_PAGE_MAP
+        + "\n\n"
         "下面给你的是这个项目**当前的事实**（由服务端读取，不是你猜的），"
         "以及你**能直接做的动作**。\n"
         "作者说了一句话，你要：读懂他要什么 → 用中文简短回答 → 需要动作就给出动作。\n\n"
         "规则：\n"
         "1. 只依据下面的事实说话。事实里没有的，就说你还需要知道什么，不要编。\n"
+        "1a. **他叫你做一件事，就先做那件事。** 需要提醒的别的事，最多说一句，"
+        "而且放在**做完之后**。不要在动手之前先问一串确认 —— "
+        "（产品负责人 2026-08-30：「不用。让你写故事大纲。不要分心。」那一轮它仍然"
+        "先讲了一遍集数对不上。）\n"
+        "1a2. **同一条提醒不要说第二次。** 上一轮已经提过、或者他已经答过「不用 / "
+        "先不管 / 按现在的来」的事，这一轮一个字都不要再提。\n"
         "1b. 事实里的「现在在看」是作者此刻打开的页面和选中的对象。"
         "他说「这个」「当前」「这一页」「这一镜」时，指的就是那里；据此回答，"
         "不要反问他在哪。\n"
@@ -3511,7 +3536,7 @@ def _dev_prompt(ask: str, page: str, facts: str) -> str:
     """开发那一侧的一轮：把他的要求变成一份**能照着做**的修改方案。"""
     return (
         "你是这个短剧创作工作台的**前端开发**。产品负责人刚提了一个要求，"
-        "你要给他一份**他看得懂的方案**。\n\n"
+        "你要给他一份**他看得懂的方案**。\n\n" + _CONV_PAGE_MAP + "\n\n"
         "写法（产品负责人 2026-08-29:「简洁的告诉我改变前后用户能看到的前端变化是什么。"
         "不用解释技术细节」）：\n"
         "1. **只写他在屏幕上看得到的变化**：现在是什么样 → 改完是什么样。\n"
@@ -6753,11 +6778,15 @@ class _App:
         target = bfields.get("targetEpisodes")
         if isinstance(target, int) and not isinstance(target, bool):
             said.append(f"  目标集数：{target}")
+        # 「创意简报」在 TASK-122 之后**不再是一页**：这些字段并进了「故事核心」。
+        # 事实里还用旧名字的代价他当场撞到了（2026-08-30：「什么是创意简报」）——
+        # Agent 催他去填一个左栏上根本没有的东西。
+        #
+        # 字段本身仍是事实（类型/基调/时长下游要用），所以照报，只是**换成他屏幕上
+        # 的说法**；没填时不再单独喊一句「都还是空的」，因为那会被读成一个待办。
         if said:
-            lines.append(f"创意简报（{which}，共 {len(bversions)} 版）：")
+            lines.append(f"基本信息（写在「故事核心」里，{which}）：")
             lines.extend(said)
-        else:
-            lines.append("创意简报：字段都还是空的（类型、基调、形态等都没填）")
         versions = (
             story.get("versions") if isinstance(story.get("versions"), list) else []
         )
@@ -6833,12 +6862,21 @@ class _App:
         if form:
             word = "章" if form == "novel" else "集"
             mine = [u for u in units if u.get("kind") == form]
-            n_planned = planned.get(form)
             n_written = sum(1 for u in mine if str(u.get("body") or "").strip())
+            n_planned = planned.get(form)
             how_many = n_planned if isinstance(n_planned, int) else "?"
             lines.append(
                 f"正文创作：{'小说创作' if form == 'novel' else '剧集创作'}，"
                 f"计划 {how_many} {word}，已经动过笔 {n_written} {word}"
+            )
+            # 产品负责人 2026-08-30：「结构规划和集数要一致这本来就是错误的思考模式。
+            # 不一定要一致」——所以事实里**明说它不是矛盾**。在这之前 Agent 把
+            # 「结构规划 12 行 / 计划 2 集」当成需要他拍板的问题，每一轮提醒一次，
+            # 他答了「不用。让你写故事大纲。不要分心」之后还在提。
+            lines.append(
+                f"  （结构规划 {len(prows)} 行与计划 {how_many} {word}"
+                f"**不必一致，也不是问题**：一{word}可以对应几行，一行也可以拆成几{word}。"
+                "除非他主动问，否则不要提这件事。）"
             )
             for u in sorted(mine, key=lambda x: x.get("no") or 0)[:12]:
                 body = str(u.get("body") or "")
@@ -6874,9 +6912,12 @@ class _App:
             for i, e in enumerate(eps[:12]):
                 if isinstance(e, dict):
                     titles.append(f"EP{i + 1:02d} {e.get('title') or ''}".strip())
-            lines.append(f"分集（{len(eps)}）：" + "、".join(titles))
+            lines.append(
+                f"生产文档里的分集（{len(eps)} 集，剧集制作按它来做）："
+                + "、".join(titles)
+            )
         else:
-            lines.append("分集：还没有规划")
+            lines.append("生产文档里的分集：还没有")
         # SHOTS: the structure is authoritative in the episodes' scenes; the titles
         # are derived by the frontend from a node version's `raw`, so they are looked
         # up best-effort. Counting from `doc["draftShots"]` (an earlier guess) reported

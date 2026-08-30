@@ -46,6 +46,29 @@
  *                         path a proposal may reach canon through
  *   persist / refresh / now
  */
+/** 能力眼里的「故事核心」：他现在写的那一篇，外加仍然有用的类型/基调等字段。 */
+function canonBrief(storydoc, storyDoc) {
+  const core = storyDoc && storyDoc.work ? String(storyDoc.work.core || "").trim() : "";
+  const legacy = storydoc.activeBrief(storyDoc) || storyDoc.brief.draft || null;
+  if (!core) return legacy;
+  const fields = legacy && typeof legacy === "object" ? (legacy.fields || legacy) : null;
+  return fields ? { storyCore: core, ...fields } : { storyCore: core };
+}
+
+/** 能力眼里的「故事大纲」：他在新编辑器里写的那份；空的时候回落到旧版本链。 */
+function canonOutline(storydoc, storyDoc) {
+  const nodes =
+    storyDoc && storyDoc.work && storyDoc.work.outline
+      ? storyDoc.work.outline.nodes || []
+      : [];
+  const text = nodes.map((n) => String(n.text || "")).filter(Boolean).join("\n\n");
+  if (text.trim()) return { storyCore: text, mainline: { setup: text } };
+  return (
+    (storydoc.approvedOutline(storyDoc) || storydoc.activeOutline(storyDoc) || {}).outline
+    || null
+  );
+}
+
 export function createSkillController({
   docs,
   catalog,
@@ -191,8 +214,13 @@ export function createSkillController({
       const draft = draftShots() || [];
       const view = ep ? proddoc.episodeView(prod, ep.episodeId, draft) : null;
       const available = {
-        brief: storydoc.activeBrief(storyDoc) || storyDoc.brief.draft,
-        outline: (storydoc.approvedOutline(storyDoc) || storydoc.activeOutline(storyDoc) || {}).outline || null,
+        // 他现在写在哪，能力就从哪读（TASK-122）。
+        //
+        // 以前只读创意简报与大纲版本链 —— 那两处在四页重构之后已经不是他动笔的地方，
+        // 于是他写完 869 字的故事核心，能力仍报「还缺 创意 Brief」。**旧数据不丢**：
+        // 新内容为空时照旧回落到简报/版本链。
+        brief: canonBrief(storydoc, storyDoc),
+        outline: canonOutline(storydoc, storyDoc),
         characters: prod.characters,
         relationships: prod.relationships,
         world: prod.world,

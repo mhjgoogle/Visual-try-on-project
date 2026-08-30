@@ -1829,7 +1829,15 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     }));
 
     // ③ 结构规划
+    // 去掉缩放记号之后高度得自己跟着内容走（他要的是「像 excel 一样简约」，
+    // 不是一堆固定两行、写多了就出现内部滚动条的小框）
+    const grow = (el) => {
+      el.style.height = "auto";
+      el.style.height = `${Math.max(el.scrollHeight, 20)}px`;
+    };
+    root.querySelectorAll("[data-sp-edit]").forEach((el) => grow(el));
     root.querySelectorAll("[data-sp-edit]").forEach((el) => (el.oninput = () => {
+      grow(el);
       const i = el.dataset.spEdit.lastIndexOf(":");
       const id = el.dataset.spEdit.slice(0, i);
       const field = el.dataset.spEdit.slice(i + 1);
@@ -2565,6 +2573,22 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // 把那个能力在「能力」面板里打开，缺什么、选哪个执行器由他自己看着办。
     root.querySelectorAll("[data-cv-route]").forEach((b) => (b.onclick = () => {
       openSkillRun(ctx, b.dataset.cvRoute);
+    }));
+    // 「用它 / 不用」就在对话里做决定（TASK-122）。以前这条消息把他指向「能力」面板，
+    // 而那个面板在三栏重构时已经删了 —— 跑完的东西没有任何地方能用上。
+    root.querySelectorAll("[data-cv-use]").forEach((b) => (b.onclick = () => {
+      const res = ctx.skills.applyProposal(b.dataset.cvUse);
+      if (!res || !res.ok) ctx.toast(`没能用上：${(res && res.error) || "未知原因"}`);
+      else {
+        ctx.toast(res.detail || "已经写进去了");
+        refreshConversation(ctx);
+        render();
+      }
+    }));
+    root.querySelectorAll("[data-cv-drop]").forEach((b) => (b.onclick = () => {
+      const res = ctx.skills.reject(b.dataset.cvDrop, "他说不用");
+      if (!res || !res.ok) ctx.toast(`没能标成不用：${(res && res.error) || "未知原因"}`);
+      else { ctx.toast("知道了，不用它"); refreshConversation(ctx); }
     }));
     root.querySelectorAll("[data-cv-cancel]").forEach((b) => (b.onclick = () => {
       // the same REAL cancel a capability run gets — a local CLI keeps consuming

@@ -67,7 +67,9 @@ export const WORLD_FIELDS = [
 export const UPSTREAM_KEYS = ["brief", "outline", "characters", "relationships", "world"];
 
 export const UPSTREAM_LABEL = {
-  brief: "创意 Brief",
+  // TASK-122：这一项现在住在「故事核心」里。旧名字「创意 Brief」还挂在就绪提示上时，
+  // 产品负责人 2026-08-30 被告知「还缺 创意 Brief」——而他刚写完 869 字的故事核心。
+  brief: "故事核心",
   outline: "故事大纲",
   characters: "人物",
   relationships: "人物关系",

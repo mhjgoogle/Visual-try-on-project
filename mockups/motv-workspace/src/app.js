@@ -103,6 +103,7 @@ import * as runtime from "./services/runtime.js";
 import { buildShotSlotIndex, slotForShotId, shotIdForSlot, resolveAdoptTarget } from "./workflow/shotmap.js";
 import * as scriptdoc from "./workflow/scriptdoc.js";
 import * as storydoc from "./workflow/storydoc.js";
+import * as storywork from "./workflow/storywork.js";
 import * as proddoc from "./workflow/proddoc.js";
 import * as episodecleanup from "./workflow/episodecleanup.js";
 import * as timeline from "./workflow/timeline.js";
@@ -950,6 +951,42 @@ function demoEpisodePlan(doc) {
       purpose: b[2],
     };
   });
+}
+
+
+/** 一份大纲提案 → 他在「故事大纲」编辑器里会看到的文本（TASK-122）。
+ *
+ *  能力答出来的是结构化的八项；他现在写大纲的地方是一个纯文本编辑器，系统在后台切节点。
+ *  所以写回路径要**翻译**，而不是把 JSON 塞给他。主线五段的顺序本身是信息，按序排。
+ *
+ *  在这之前 `proposeOutline` 根本没有接线，能力跑完只会说「尚未接线」——产品负责人
+ *  2026-08-30 因此看到「已完成」但故事大纲still是空的。 */
+function outlineProposalText(proposal) {
+  if (!proposal || typeof proposal !== "object") return "";
+  const line = (v) => (typeof v === "string" ? v.trim() : "");
+  const parts = [];
+  const core = line(proposal.storyCore) || line(proposal.premise) || line(proposal.logline);
+  if (core) parts.push(core);
+  const ml = proposal.mainline && typeof proposal.mainline === "object" ? proposal.mainline : {};
+  for (const [key, label] of [
+    ["setup", "开端"],
+    ["development", "发展"],
+    ["midpointTurn", "中段转折"],
+    ["climax", "高潮"],
+    ["ending", "结局"],
+  ]) {
+    if (line(ml[key])) parts.push(`${label}：${line(ml[key])}`);
+  }
+  const reveals = Array.isArray(proposal.secretsAndReveals) ? proposal.secretsAndReveals : [];
+  const revealLines = reveals
+    .map((r) => (r && typeof r === "object"
+      ? [line(r.truth), line(r.revealAround)].filter(Boolean).join(" · ")
+      : line(r)))
+    .filter(Boolean);
+  if (revealLines.length) {
+    parts.push(["信息揭示顺序：", ...revealLines.map((s) => `- ${s}`)].join("\n"));
+  }
+  return parts.join("\n\n");
 }
 
 // Run an AI story-development pass (outline or plan) — proposals only; the
@@ -4007,8 +4044,17 @@ const ctx = {
           );
         case "swapRelationshipDirection":
           return bool(ctx.canon.swapDirection(a.relationshipId), "这段关系不存在");
-        case "proposeOutline":
-          return { ok: false, error: "大纲提案的写回路径尚未接线（本检查点只接了分镜 / 参考 / Prompt / 审片）" };
+        case "proposeOutline": {
+          // 写进他**正在看的那一页**（`story.work.outline`）。旧的大纲版本链一条不动。
+          const text = outlineProposalText(a.proposal);
+          if (!text.trim()) {
+            return { ok: false, error: "这份大纲提案里没有可写进编辑器的内容" };
+          }
+          const nodes = storywork.setOutline(storyDoc.work, text);
+          ctx.persist();
+          refreshProductionView();
+          return { ok: true, detail: `已写进故事大纲：${nodes.length} 段` };
+        }
         case "proposeScript":
           return { ok: false, error: "剧本提案的写回路径尚未接线（本检查点只接了分镜 / 参考 / Prompt / 审片）" };
         case "proposeBible":

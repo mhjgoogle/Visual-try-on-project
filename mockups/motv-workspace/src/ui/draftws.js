@@ -21,6 +21,13 @@ const KIND_WORD = { novel: "章", episode: "集" };
 const KIND_LABEL = { novel: "小说创作", episode: "剧集创作" };
 const PLANNED_LABEL = { novel: "Planned Chapters", episode: "Planned Episodes" };
 
+// 章/集数**不跟结构规划的行数绑定**（产品负责人 2026-08-30：「结构规划和集数要一致
+// 这本来就是错误的思考模式。不一定要一致」）。
+//
+// 两者是不同层的东西：结构规划一行是故事结构上的一个单元，一集可以对应几行，一行也
+// 可以拆成几集。这里一度把 Planned 改成读行数 —— 那是把「不该一致的两个数」焊死。
+// 真正要修的不是数字，是**Agent 把它当成矛盾反复提醒**（见 server.py 的事实与规则）。
+
 export function draftModel(story, ui) {
   const work = workOf(story);
   if (!work) return { kind: "", planned: 0, units: [], unit: null, openNo: null };
@@ -132,6 +139,7 @@ function unitPicker(kind, planned, units, openNo) {
   const word = KIND_WORD[kind];
   const byNo = new Map(units.map((u) => [u.no, u]));
   const cells = [];
+  // 结构规划有几行就有几个格子；已经写过、但那一行后来被删掉的，仍然留着（标成计划外）
   const max = Math.max(planned, ...units.map((u) => u.no), 0);
   for (let i = 1; i <= max; i += 1) {
     const u = byNo.get(i);
@@ -236,7 +244,8 @@ export function renderDraftWs(ctx, ui) {
     `<button class="btn ghost sm" data-planned="-1">−</button>` +
     `<input class="db-n" data-planned-set="1" value="${m.planned}" inputmode="numeric">` +
     `<button class="btn ghost sm" data-planned="1">＋</button>` +
-    `<span class="meta">可以随时加减 —— 减少不会删掉已经写下的${esc(word)}节</span></div>` +
+    `<span class="meta">可以随时加减；减少不会删掉已经写下的${esc(word)}节。` +
+    `这个数**不必**等于结构规划的行数 —— 一${esc(word)}可以对应几行，一行也可以拆成几${esc(word)}</span></div>` +
     unitPicker(m.kind, m.planned, m.units, null) +
     `<div class="sw-foot"><span class="meta">选一${esc(word)}开始写</span></div>` +
     `</div></div></div>`

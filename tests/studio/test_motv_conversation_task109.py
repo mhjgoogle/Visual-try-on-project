@@ -490,7 +490,12 @@ def test_an_empty_brief_says_so_instead_of_going_silent(app, tmp_path):
     doc["story"]["brief"] = {"draft": {}, "versions": [], "active": None}
     canvas.write_text(json.dumps(doc, ensure_ascii=False), "utf-8")
     facts = app._conv_facts("夜班沉默", None)
-    assert "创意简报：字段都还是空的" in facts
+    # **规则变了**（TASK-122）：「创意简报」不再是一页，它的字段并进了「故事核心」。
+    # 事实里再用旧名字，就会像 2026-08-30 那次一样催他去填一个左栏上没有的东西
+    # （他的原话：「什么是创意简报」）。空的时候不再单独喊一句 —— 那会被读成待办；
+    # 该说的空是「故事核心：还没写」，那一条另有测试守着。
+    assert "创意简报" not in facts
+    assert "故事核心" in facts
 
 
 def test_the_server_bounds_the_shape_not_the_vocabulary(srv):

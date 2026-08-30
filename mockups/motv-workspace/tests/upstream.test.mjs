@@ -741,8 +741,10 @@ test("UI: an unrecorded baseline shows 上游基线未记录, never 「N 个上�
   assert.ok(!/个上游变化/.test(html));
   assert.ok(!/个上游更新/.test(html));
   assert.ok(!html.includes("与上游一致"));
+  // TASK-122：这一项改名为「故事核心」——它现在住在那一页里（旧名字「创意 Brief」
+  // 让他在 2026-08-30 被告知「还缺 创意 Brief」，而他刚写完 869 字的故事核心）。
   // every surface chip reads 未记录 and is muted, not gated
-  for (const label of ["创意 Brief", "故事大纲", "人物", "人物关系", "世界观"]) {
+  for (const label of ["故事核心", "故事大纲", "人物", "人物关系", "世界观"]) {
     assert.ok(
       html.includes(`<span class="chip mute" title="本集没有记录 ${label} 的基线`),
       `${label} must render as an unrecorded baseline`,
@@ -809,7 +811,7 @@ test("basedOn chips flag EXACTLY the surfaces the impact model calls changed", (
   assert.equal(im.count, 1);
   assert.deepEqual(im.stale.map((s) => s.key), ["brief"]);
   // the rolled-back surface carries the gate chip…
-  assert.match(html, /<span class="chip gate"[^>]*>创意 Brief v2<\/span>/);
+  assert.match(html, /<span class="chip gate"[^>]*>故事核心 v2<\/span>/);
   // …and a surface that did NOT change does not
   assert.match(html, /<span class="chip"[^>]*>世界观 v1<\/span>/);
   assert.ok(html.includes("⚠ 1 个上游变化"));

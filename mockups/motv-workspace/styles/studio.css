@@ -2174,16 +2174,22 @@
 /* ③ 结构规划：九列 */
 .sp-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r1); }
 .sp-table { border-collapse: collapse; width: 100%; min-width: 1100px; }
+/* 像 Excel 一样：**每一格都有线**（产品负责人 2026-08-30：「可以做的像 excel 一样
+   简约吗。每个格子线条分开」）。以前只有横线，一整行糊成一条，眼睛找不到列。 */
 .sp-table th, .sp-table td {
-  border-bottom: 1px solid var(--line); padding: var(--s2);
+  border: 1px solid var(--line); padding: 2px 4px;
   vertical-align: top; text-align: left;
 }
 .sp-table th { font-size: var(--t-micro); color: var(--text-dim); white-space: nowrap; background: var(--panel-2); }
+/* 单元格里的输入框不再自己带边框与右下角那个缩放记号 —— 九列每格一个，
+   屏幕上就是九个斜纹疙瘩（他指着说的正是它）。格子的线由 td 画，输入框只管打字。 */
 .sp-in {
-  width: 100%; min-width: 7em; resize: vertical; border: 1px solid transparent; border-radius: 4px;
-  background: transparent; color: var(--text); font: inherit; font-size: var(--t-sm); padding: 4px;
+  display: block; width: 100%; min-width: 6em; resize: none; overflow: hidden;
+  border: 0; background: transparent; color: var(--text);
+  font: inherit; font-size: var(--t-sm); line-height: 1.55; padding: 2px;
 }
-.sp-in:focus { outline: none; border-color: var(--line-2); background: var(--panel-2); }
+.sp-in:focus { outline: none; background: color-mix(in srgb, var(--accent, #6ea8fe) 10%, transparent); }
+.sp-table tbody tr:hover td { background: color-mix(in srgb, var(--panel-2) 60%, transparent); }
 .sp-c-no .sp-in { min-width: 3.5em; }
 .sp-refs { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .sp-ref {
@@ -2260,3 +2266,8 @@
 }
 .db-editor:focus { outline: none; border-color: var(--accent, #6ea8fe); }
 @media (max-width: 1100px) { .db-unit { grid-template-columns: 1fr; } }
+
+.db-n.read {
+  display: inline-block; min-width: 2.5em; text-align: center; padding: 4px 8px;
+  border: 1px dashed var(--line); border-radius: var(--r1); color: var(--text);
+}

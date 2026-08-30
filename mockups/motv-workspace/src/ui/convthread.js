@@ -175,7 +175,10 @@ function routeBlock(r) {
       `<div class="t"><span class="chip${st.status === "failed" ? " bad" : " mute"}">` +
       `${esc(ROUTE_RUN_ZH[st.status] || st.status)}</span>` +
       (st.status === "succeeded"
-        ? "结果在下面「能力」面板里等你决定要不要用。"
+        // 「能力」面板在三栏重构里已经删掉了（REQ-004 v2 只留一个对话）。
+        // 让他去一个不存在的面板，等于跑完了什么也用不上 —— 产品负责人 2026-08-30
+        // 因此看到「已完成」而故事大纲still是空的。**决定就在这条消息上做。**
+        ? "写好了 —— 要用就点右边这个按钮，我把它写进那一页。"
         : st.status === "failed"
         ? esc(String(st.error || "没有记录失败原因"))
         : "") +
@@ -187,6 +190,11 @@ function routeBlock(r) {
     if (st.canOpen) {
       act = `<button class="cv-apply" data-cv-route="${esc(String(st.skillId || ""))}">去运行</button>`;
     }
+  }
+  if (st.status === "succeeded" && st.runId) {
+    act =
+      `<button class="cv-apply" data-cv-use="${esc(String(st.runId))}">用它</button>` +
+      `<button class="cv-apply ghost" data-cv-drop="${esc(String(st.runId))}">不用</button>`;
   }
   return (
     `<div class="cv-routewrap"><div class="lab">${esc(head)}${act}</div>` +
