@@ -403,6 +403,8 @@ _FACT_CELL_MAX = 600
 _FACT_UNIT_MAX = 24000
 #: 正文一共给多少字 —— 一部小说十几万字，全塞进去会把别的事实挤掉。
 _FACT_UNITS_BUDGET = 60000
+#: 定稿版本一共给多少字。最新那一版优先，更早的只列版本号与时间。
+_FACT_FINALIZED_BUDGET = 40000
 
 
 def _fact_text(value: str, cap: int) -> str:
@@ -6935,6 +6937,76 @@ class _App:
                 lines.append(head_line + "：" + text)
         else:
             lines.append("正文创作：还没选小说创作还是剧集创作")
+        # ===== 他定稿过的东西（TASK-122 / 2026-08-31）==========================
+        #
+        # 产品负责人 2026-08-31：「你要保证服务端的 agent 可以看到所有我定稿的
+        # 东西
+        # 然后也可以根据我的意见修改。」
+        #
+        # 在这之前，事实里**一条定稿都没有** —— 只报当前内容。于是他说「按定稿的那版
+        # 改」时，Agent 根本不知道有哪些版本、也读不到里面写了什么。
+        #
+        # 给法：**最新那一版给全文**（他说「定稿的那版」通常指它），更早的列出
+        # 版本号 / 时间 / 说明。额度用完时逐条说明还剩什么没给 —— 不静默省略。
+        fin = work.get("finalized") if isinstance(work.get("finalized"), dict) else {}
+        fin_lines = []
+        fin_budget = _FACT_FINALIZED_BUDGET
+        for key, label in (
+            ("core", "故事核心"),
+            ("outline", "故事大纲"),
+            ("plan", "结构规划"),
+        ):
+            recs = [r for r in (fin.get(key) or []) if isinstance(r, dict)]
+            if not recs:
+                continue
+            newest = recs[-1]
+            older = recs[:-1]
+            body = str(newest.get("body") or "")
+            room = min(_FACT_UNIT_MAX, max(0, fin_budget))
+            head_line = (
+                f"  {label} v{newest.get('v')}（{str(newest.get('at') or '')[:19]}"
+                + (f" · {newest.get('note')}" if newest.get("note") else "")
+                + f"，共 {len(recs)} 版）"
+            )
+            if body and room > 0:
+                text = _fact_text(body, room)
+                fin_budget -= len(text)
+                fin_lines.append(head_line + "：" + text)
+            else:
+                fin_lines.append(
+                    head_line
+                    + "：（这一版的内容这次没给你 —— 额度占满了，他要就说一声）"
+                )
+            for r in reversed(older):
+                fin_lines.append(
+                    f"    还有 v{r.get('v')}（{str(r.get('at') or '')[:19]}"
+                    + (f" · {r.get('note')}" if r.get("note") else "")
+                    + "）"
+                )
+        for u in units:
+            recs = [r for r in (u.get("finalized") or []) if isinstance(r, dict)]
+            if not recs:
+                continue
+            word = "章" if u.get("kind") == "novel" else "集"
+            newest = recs[-1]
+            body = str(newest.get("body") or "")
+            room = min(_FACT_UNIT_MAX, max(0, fin_budget))
+            head_line = (
+                f"  第 {u.get('no')} {word} v{newest.get('v')}"
+                f"（{str(newest.get('at') or '')[:19]}，共 {len(recs)} 版）"
+            )
+            if body and room > 0:
+                text = _fact_text(body, room)
+                fin_budget -= len(text)
+                fin_lines.append(head_line + "：" + text)
+            else:
+                fin_lines.append(head_line + "：（这一版的内容这次没给你）")
+        if fin_lines:
+            lines.append("已定稿的版本（他主动存下来的；日常编辑不产生这些）：")
+            lines.extend(fin_lines)
+        else:
+            lines.append("已定稿的版本：还没有 —— 他还没点过任何一处的「定稿」")
+
         prod = _g("production") if isinstance(_g("production"), dict) else {}
         chars = (
             prod.get("characters") if isinstance(prod.get("characters"), list) else []

@@ -256,6 +256,118 @@ const ACTIONS = [
   /* ===== 3D 导演台（TASK-123 / ADR-0094 决策 5）===========================
      「把镜头拉远一点」「让林晚从门口走到吧台」——这类话要能落成真改动，而不是一段
      建议文字。走的是他自己在俯视图里拖时的同一组函数。 */
+  /* ===== 定稿版本：看得见，也要改得动（2026-08-31）=======================
+     产品负责人：「你要保证服务端的 agent 可以看到所有我定稿的东西然后也可以根据我的
+     意见修改。」看得见那一半在 server.py 的事实里；改得动这一半在这里 ——
+     他说「回到定稿那版」「把 v2 删了」时，要能落成真动作。 */
+  {
+    id: "work.restoreVersion",
+    label: "恢复到某一版定稿",
+    doc: "work",
+    undo: "所有定稿版本都还在，随时切回去",
+    args: { what: "core / outline / plan / unit", v: "版本号", no: "unit 时是第几章/集" },
+    apply: (ctx, a) => {
+      const work = workOf(ctx);
+      const at = new Date().toISOString();
+      const v = Number(a.v);
+      if (String(a.what) === "unit") {
+        const unit = work.units.find((u) => u.kind === work.form && u.no === Number(a.no));
+        if (!unit) throw new Error(`没有第 ${a.no} 章/集`);
+        if (!swork.restoreFinalized(work, unit.id, v, at)) throw new Error(`没有 v${a.v}`);
+        return { said: `第 ${a.no} 章/集回到了 v${v}` };
+      }
+      if (!swork.restoreDoc(work, String(a.what), v)) throw new Error(`没有 v${a.v}`);
+      return { said: `已恢复到 v${v}（其它定稿版本一个没删）` };
+    },
+  },
+  {
+    id: "work.deleteVersion",
+    label: "删掉某一版定稿",
+    doc: "work",
+    undo: "删掉就没有了 —— 只删他点名的那一版，当前内容不动",
+    args: { what: "core / outline / plan / unit", v: "版本号", no: "unit 时是第几章/集" },
+    apply: (ctx, a) => {
+      const work = workOf(ctx);
+      const v = Number(a.v);
+      if (String(a.what) === "unit") {
+        const unit = work.units.find((u) => u.kind === work.form && u.no === Number(a.no));
+        if (!unit) throw new Error(`没有第 ${a.no} 章/集`);
+        if (!swork.deleteFinalized(work, unit.id, v)) throw new Error(`没有 v${a.v}`);
+      } else if (!swork.deleteDoc(work, String(a.what), v)) {
+        throw new Error(`没有 v${a.v}`);
+      }
+      return { said: `删掉了 v${v}（当前内容没有动）` };
+    },
+  },
+
+  /* ===== 作品设定：人物 / 人物关系 / 世界观 ==============================
+     他在那三页能改的，Agent 也要能改（REQ-006 判据 1）。这些是「基础财产」——
+     后面写小说、做剧集都读它们。 */
+  {
+    id: "character.fields",
+    label: "改一个人物的设定",
+    doc: "bible",
+    undo: "改回去就行",
+    args: {
+      name: "人物名字（或 id）",
+      identity: "身份 / 一句话", appearance: "外形", personality: "性格",
+      background: "背景", speech: "说话方式", note: "备注",
+    },
+    apply: (ctx, a) => {
+      const who = String(a.name || "").trim();
+      if (!who) throw new Error("没说要改哪个人物");
+      const list = (ctx.prodData().production.characters) || [];
+      const rec = list.find((c) => c.characterId === who || c.name === who);
+      if (!rec) throw new Error(`人物里没有「${who}」`);
+      const fields = {};
+      for (const k of ["identity", "appearance", "personality", "background", "speech", "note"]) {
+        if (typeof a[k] === "string" && a[k].trim()) fields[k] = a[k].trim();
+      }
+      if (!Object.keys(fields).length) throw new Error("没说要把它改成什么");
+      if (!ctx.bible || !ctx.bible.updateCharacterProfile) throw new Error("这个项目改不了人物设定");
+      ctx.bible.updateCharacterProfile(rec.characterId, fields);
+      return { said: `「${rec.name || who}」的 ${Object.keys(fields).length} 个字段改好了` };
+    },
+  },
+  {
+    id: "relationship.fields",
+    label: "改一段人物关系",
+    doc: "bible",
+    undo: "改回去就行",
+    args: { a: "一方", b: "另一方", nature: "什么关系", aToB: "A 眼里的 B", bToA: "B 眼里的 A", note: "备注" },
+    apply: (ctx, x) => {
+      if (!ctx.canon || !ctx.canon.updateRelationship) throw new Error("这个项目改不了人物关系");
+      const list = (ctx.prodData().production.relationships) || [];
+      const nameOf = (v) => String(v || "").trim();
+      const rec = list.find((r) => {
+        const ids = [r.aId, r.bId, r.aName, r.bName].map(nameOf);
+        return ids.includes(nameOf(x.a)) && ids.includes(nameOf(x.b));
+      });
+      if (!rec) throw new Error(`没有「${nameOf(x.a)} — ${nameOf(x.b)}」这段关系`);
+      const fields = {};
+      for (const k of ["nature", "aToB", "bToA", "note"]) {
+        if (typeof x[k] === "string" && x[k].trim()) fields[k] = x[k].trim();
+      }
+      if (!Object.keys(fields).length) throw new Error("没说要把它改成什么");
+      ctx.canon.updateRelationship(rec.relationshipId, fields);
+      return { said: `「${nameOf(x.a)} — ${nameOf(x.b)}」改好了` };
+    },
+  },
+  {
+    id: "world.fields",
+    label: "改世界观",
+    doc: "bible",
+    undo: "改回去就行",
+    fields: {
+      premise: "世界前提", era: "时间 / 时代", rules: "世界规则", society: "社会背景",
+      regions: "主要区域", places: "主要地点", visualTone: "视觉基调", atmosphere: "整体氛围",
+    },
+    apply: (ctx, a) => {
+      if (!ctx.canon || !ctx.canon.updateWorld) throw new Error("这个项目改不了世界观");
+      ctx.canon.updateWorld(a.fields);
+      return { said: describe(a.fields, ACTION_BY_ID["world.fields"].fields) };
+    },
+  },
   {
     id: "blocking.actor",
     label: "加/改白膜里的一个演员",

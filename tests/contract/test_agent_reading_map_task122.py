@@ -203,3 +203,111 @@ def test_the_agent_can_write_every_surface_it_can_read():
         assert f'id: "{action}"' in actions, (
             f"{surface} 读得到但改不了：缺动作 {action}"
         )
+
+
+# --- 定稿的东西：看得见，也改得动（2026-08-31）------------------------------ #
+#
+# 产品负责人 2026-08-31：「你要保证服务端的 agent 可以看到所有我定稿的东西
+# 然后也可以根据我的意见修改。」
+#
+# 「保证」这个词落到代码里就是这两条测试：**每一样能定稿的东西，事实里必须出现，
+# 动作表里必须有对应的写路径**。少了任何一半，他说「按定稿那版改」时都会落空 ——
+# 看不见的改不了，改不了的看见也没用。
+
+#: 他能主动「定稿」的四样，以及各自定稿版本存在文档的哪里。
+FINALIZABLE = {
+    "故事核心": "story.work.finalized.core",
+    "故事大纲": "story.work.finalized.outline",
+    "结构规划": "story.work.finalized.plan",
+    "正文": "story.work.units[].finalized",
+}
+
+
+def _canvas_with_finalized() -> dict:
+    doc = _canvas_with_everything()
+    work = doc["story"]["work"]
+    work["finalized"] = {
+        "core": [
+            {
+                "v": 1,
+                "at": "2026-08-30T01:00:00Z",
+                "note": "第一稿",
+                "body": "定稿的故事核心一",
+            },
+            {
+                "v": 2,
+                "at": "2026-08-31T02:00:00Z",
+                "note": "改完悬念",
+                "body": "定稿的故事核心二",
+            },
+        ],
+        "outline": [
+            {"v": 1, "at": "2026-08-30T03:00:00Z", "note": "", "body": "定稿的大纲"}
+        ],
+        "plan": [{"v": 1, "at": "2026-08-30T04:00:00Z", "note": "", "body": "[]"}],
+    }
+    work["units"][0]["finalized"] = [
+        {
+            "v": 1,
+            "at": "2026-08-30T05:00:00Z",
+            "note": "",
+            "title": "",
+            "body": "定稿的第一章正文",
+        }
+    ]
+    return doc
+
+
+def test_every_finalized_version_reaches_the_agent(tmp_path, srv):
+    account = tmp_path / "MotvProjects"
+    root = account / "作品"
+    (root / "studio").mkdir(parents=True)
+    (root / "studio" / "canvas.json").write_text(
+        json.dumps(_canvas_with_finalized(), ensure_ascii=False), "utf-8"
+    )
+    app = srv._App(account)
+    app._projects["作品"] = root
+    facts = app._conv_facts("作品")
+
+    assert "已定稿的版本" in facts, "定稿这件事必须在事实里有名字"
+    # 最新那一版给全文 —— 他说「定稿的那版」通常就是指它
+    assert "定稿的故事核心二" in facts
+    assert "定稿的大纲" in facts
+    assert "定稿的第一章正文" in facts
+    # 更早的版本至少要报出来，否则他说「回到 v1」时 Agent 不知道有 v1
+    assert "v1" in facts and "第一稿" in facts
+
+
+def test_no_finalized_version_says_so_instead_of_staying_silent(tmp_path, srv):
+    account = tmp_path / "MotvProjects"
+    root = account / "作品"
+    (root / "studio").mkdir(parents=True)
+    (root / "studio" / "canvas.json").write_text(
+        json.dumps(_canvas_with_everything(), ensure_ascii=False), "utf-8"
+    )
+    app = srv._App(account)
+    app._projects["作品"] = root
+    facts = app._conv_facts("作品")
+    assert "已定稿的版本：还没有" in facts, "沉默会被读成「没有这回事」"
+
+
+def test_the_agent_can_write_every_finalizable_surface():
+    """看得见还不够 —— 他说「按定稿那版改」「把 v2 删了」时要能落成真动作。"""
+    actions = (MOCKUP / "src" / "workflow" / "convactions.js").read_text("utf-8")
+    for action, why in (
+        ("work.finalize", "存一版定稿"),
+        ("work.restoreVersion", "恢复到某一版定稿"),
+        ("work.deleteVersion", "删掉某一版定稿"),
+    ):
+        assert f'id: "{action}"' in actions, f"缺动作 {action}（{why}）"
+
+
+def test_the_agent_can_write_the_base_assets_too():
+    """人物 / 人物关系 / 世界观是「基础财产」—— 他在那三页能改的，Agent 也要能改。"""
+    actions = (MOCKUP / "src" / "workflow" / "convactions.js").read_text("utf-8")
+    for action, surface in (
+        ("character.fields", "人物"),
+        ("relationship.fields", "人物关系"),
+        ("world.fields", "世界观"),
+    ):
+        assert f'id: "{action}"' in actions, f"{surface} 改不了：缺动作 {action}"
