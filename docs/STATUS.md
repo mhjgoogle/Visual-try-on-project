@@ -61,6 +61,7 @@
 | [final-unified-acceptance-runbook.md](design/active/final-unified-acceptance-runbook.md) | 最终统一验收 Runbook（TASK-040） | — |
 | [final-unified-acceptance-traceability.md](design/active/final-unified-acceptance-traceability.md) | 最终统一验收追踪矩阵（TASK-040） | — |
 | [pending-codex-rereview.md](design/active/pending-codex-rereview.md) | 待补 codex 复审清单（活账） | 活账（不是一次性交付） |
+| [proposal-one-surface-list.md](design/active/proposal-one-surface-list.md) | 提案：一份「面清单」，让「我明明写了你怎么看不到」不再发生 | 提案，等他拍板 |
 
 ## 待排期 · 任务卡
 
