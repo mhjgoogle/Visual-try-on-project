@@ -83,6 +83,12 @@ export const EPISODE_DEFAULT = "board";
  *
  *  Nothing was deleted. 参考 / Prompt / 生成 / 画面 / 视频 / 音频 / 审片 all keep
  *  their full workspace AND gained a node entrance. */
+/** 剧集制作左栏里**默认只画第一行**（TASK-124）。
+ *
+ *  他 2026-08-30 面对的是 6 行左栏 + 14 个二级分区 + 110 个按钮，原话是「有点看不懂」。
+ *  其余五页不是被删了 —— 它们收在画布底部的「全部工作区」里，需要整页工作时再进去。 */
+export const EPISODE_NAV_PRIMARY = "board";
+
 export const EPISODE_NAV = [
   // TASK-122 第 2 步：`script` 搬回「故事开发」当第四行「正文创作」（产品负责人
   // 2026-08-30 的规格）。TASK-091 当初把它放在这里的理由（「剧集制作开始的时候…写
@@ -96,7 +102,7 @@ export const EPISODE_NAV = [
   // TASK-077 §1.5: …and until now it had no entrance EITHER. This list was
   // declared, asserted by two guard tests, and drawn by nothing — see
   // `renderEpisodeRail`, which is the renderer that was missing.
-  ["board", "📋", "本集看板"],
+  ["board", "🎬", "制作画布"],
   ["storyboard", "🎞", "分镜设计"],
   ["shotwork", "🎬", "镜头制作"],
   ["cutreview", "👁", "粗剪审片"],
@@ -331,6 +337,9 @@ export const PAGE_SECTIONS = Object.freeze({
   // 后面写小说、做剧集都用它，不许在这里另开一份。
   episodes: ["plan", "cast", "places"],
   settings: ["characters", "relationships", "world"],
+  // 制作画布只有一屏（TASK-124）：产品负责人 2026-08-30「剧集制作这块你设计了很多
+  // 入口。有点看不懂。能不能就做一块简洁的画布」。原来的 overview 分区没有第二个
+  // 兄弟，画一条只有一项的分区栏是纯噪音。
   board: ["overview"],
   // ⑦ 分镜设计的第三个分区：3D 导演台（TASK-123 / ADR-0094 决策 1）。
   // 场景 → 分镜 → 白膜：同一页里从「有哪些场景」到「这一镜怎么拍」，
@@ -406,7 +415,7 @@ export const MODULE_LABEL = {
   // the eleven
   brief: "故事核心", story: "故事大纲", settings: "作品设定",
   episodes: "结构规划", script: "正文创作",
-  board: "本集看板", storyboard: "分镜设计", shotwork: "镜头制作",
+  board: "制作画布", storyboard: "分镜设计", shotwork: "镜头制作",
   cutreview: "粗剪审片", delivery: "后期交付",
   assets: "资产库",
   // ⚙ — its own key, never `settings`
@@ -515,11 +524,18 @@ export function renderEpisodeRail({ activeModule, badges = {}, ratios = {}, epis
     : "本集制作";
   return (
     `<div class="st-railsec">${esc(heading)}</div>` +
-    EPISODE_NAV.map((it) => railItem(it, { activeModule, badges, ratios })).join("") +
+    // 默认只画「制作画布」那一行 —— 其余五页在画布里收着（TASK-124）。
+    // 当前正停在其中某一页时，那一行也要画出来，否则左栏什么都不高亮，
+    // 他会不知道自己在哪。
+    EPISODE_NAV.filter((it) => it[0] === EPISODE_NAV_PRIMARY || it[0] === activeModule)
+      .map((it) => railItem(it, { activeModule, badges, ratios }))
+      .join("") +
     // 3D 导演台：**画在左栏，但不是第十二页**。它是分镜设计的一个分区，
     // 这一行只是那个分区的入口（`MODULE_ALIAS.blocking`）。藏在二级 Tab 里
     // 找不到 —— 那正是 2026-08-30 他说「根本没看到」的原因。
-    railItem(["blocking", "🎬", "3D 导演台"], { activeModule, badges, ratios }, "st-subitem")
+    (activeModule === "storyboard"
+      ? railItem(["blocking", "🎬", "3D 导演台"], { activeModule, badges, ratios }, "st-subitem")
+      : "")
   );
 }
 

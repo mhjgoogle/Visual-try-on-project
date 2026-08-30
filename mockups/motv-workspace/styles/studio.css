@@ -2322,3 +2322,68 @@
 .bk-actions .meta { color: var(--text-faint); font-size: var(--t-micro); }
 .bk-takes { display: flex; flex-direction: column; gap: var(--s1); }
 @media (max-width: 1200px) { .bk-wrap { grid-template-columns: 1fr; } }
+
+/* ===== 剧集制作的那一块画布（TASK-124）====================================
+   他 2026-08-30 说「设计了很多入口，有点看不懂」。一屏三样：一条流水线、
+   一排镜头卡、一句下一步。**一张卡只给一个主按钮** —— 卡上多一个按钮，
+   就多一次「该点哪个」的犹豫。 */
+.ec-pipe {
+  display: flex; align-items: stretch; gap: 2px; flex-wrap: wrap;
+  margin: var(--s3) 0; padding: var(--s2);
+  border: 1px solid var(--line); border-radius: var(--r1); background: var(--panel-2);
+}
+.ec-arrow { align-self: center; color: var(--text-faint); font-size: var(--t-micro); }
+.ec-step {
+  display: flex; flex-direction: column; gap: 1px; align-items: flex-start;
+  padding: 4px 8px; border: 0; border-radius: var(--r1);
+  background: transparent; color: var(--text-dim); font: inherit; cursor: pointer; text-align: left;
+}
+.ec-step:hover { background: var(--panel); color: var(--text); }
+.ec-step .m { font-size: var(--t-micro); }
+.ec-step .l { font-size: var(--t-sm); }
+.ec-step .d { font-size: var(--t-micro); color: var(--text-faint); }
+.ec-step.ec-done .m { color: var(--ok, #4a9c6d); }
+.ec-step.ec-done .l { color: var(--text); }
+.ec-step.ec-active .m { color: var(--accent, #6ea8fe); }
+.ec-step.ec-active .l { color: var(--accent, #6ea8fe); font-weight: 600; }
+
+.ec-next {
+  display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
+  padding: var(--s2) var(--s3); margin-bottom: var(--s3);
+  border: 1px solid var(--line-2); border-radius: var(--r1); background: var(--panel-2);
+}
+.ec-next .t { color: var(--text-faint); font-size: var(--t-micro); }
+.ec-next .d { color: var(--text-dim); font-size: var(--t-sm); }
+.ec-next .meta { color: var(--text-faint); font-size: var(--t-micro); margin-left: auto; }
+.ec-next.done { color: var(--text-dim); font-size: var(--t-sm); }
+
+.ec-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: var(--s3); }
+.ec-card {
+  display: flex; flex-direction: column; gap: var(--s2); padding: var(--s2);
+  border: 1px solid var(--line); border-radius: var(--r1); background: var(--panel-2);
+}
+.ec-card:hover { border-color: var(--line-2); }
+.ec-poster {
+  width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 4px; background: var(--panel);
+}
+.ec-poster.none {
+  display: grid; place-items: center; color: var(--text-faint); font-size: var(--t-micro);
+}
+.ec-h { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }
+.ec-h .n { color: var(--text-faint); font-size: var(--t-micro); }
+.ec-h .t { font-size: var(--t-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ec-steps { display: flex; gap: 2px; flex-wrap: wrap; }
+.ec-dot {
+  display: inline-flex; align-items: center; gap: 2px; padding: 1px 5px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: transparent; color: var(--text-faint); font: inherit; font-size: var(--t-micro); cursor: pointer;
+}
+.ec-dot:hover { border-color: var(--line-2); color: var(--text); }
+.ec-dot.ec-done { color: var(--ok, #4a9c6d); border-color: color-mix(in srgb, var(--ok, #4a9c6d) 40%, transparent); }
+.ec-dot.ec-active { color: var(--accent, #6ea8fe); border-color: color-mix(in srgb, var(--accent, #6ea8fe) 50%, transparent); }
+.ec-block { color: var(--warn, #d3a04a); font-size: var(--t-micro); line-height: 1.5; }
+.ec-go { align-self: flex-start; }
+.ec-done { color: var(--text-faint); font-size: var(--t-micro); }
+.ec-empty { color: var(--text-faint); font-size: var(--t-sm); padding: var(--s4) 0; }
+.ec-tools { margin-top: var(--s4); display: flex; flex-direction: column; gap: var(--s2); }
+.ec-toolrow { display: flex; gap: var(--s2); flex-wrap: wrap; }

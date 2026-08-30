@@ -69,6 +69,7 @@ import { renderCoreWs, renderOutlineWorkWs } from "./corews.js";
 import { renderPlanWs } from "./planws.js";
 import { renderDraftWs } from "./draftws.js";
 import { renderBlockingWs, drawTop, hitTest, topMapper } from "./blockingws.js";
+import { renderEpCanvas } from "./epcanvas.js";
 import { createStage } from "./blockgl.js";
 import * as bl from "../workflow/blocking.js";
 import * as swork from "../workflow/storywork.js";
@@ -863,7 +864,10 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // reached, not what it does. Deleting the old entrance is TASK-074's job.
     //
     // ⑥ 本集看板 — the episode's own status view.
-    board: (ctx) => sectionNav("board") + renderEpisodeWs(ctx, ui),
+    // ⑥ 制作画布（TASK-124）：一条流水线 + 一排镜头卡 + 一句下一步。
+    // 原来这一页是 `renderEpisodeWs`（本集看板），它仍然可以从画布底部的
+    // 「全部工作区」进去 —— 删掉的是那六个并列入口，不是任何一项能力。
+    board: (ctx) => (ui.ecLegacyBoard ? renderEpisodeWs(ctx, ui) : renderEpCanvas(ctx, ui)),
     // ⑦ 分镜设计 — scenes list and shot list, two sections of one page.
     storyboard: (ctx) =>
       sectionNav("storyboard") +
@@ -2736,6 +2740,18 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
   function bind(ctx) {
     // left rail — every module opens; selection is visually .on
     root.querySelectorAll("[data-mod]").forEach((b) => (b.onclick = () => setModule(b.dataset.mod)));
+    // 制作画布：点一张卡上的某一步 = **选中这一镜**再过去（TASK-124）。
+    // 少了前半句，他到了那一页还要再找一次「是哪一镜」。
+    root.querySelectorAll("[data-ec-step]").forEach((b) => (b.onclick = () => {
+      const [shotId, goto] = String(b.dataset.ecStep).split(":");
+      if (shotId) ui.selectedShotId = shotId;
+      if (goto) setModule(goto);
+      else render();
+    }));
+    root.querySelectorAll("[data-ec-tools]").forEach((b) => (b.onclick = () => {
+      ui.ecAllTools = !ui.ecAllTools;
+      render();
+    }));
     // TASK-077 §1.2: a media file that will not load says so, everywhere, once.
     bindMediaErrors(root, ctx);
     // TASK-080 §1.2 批次 A — bound EARLY, because the script branch below returns
