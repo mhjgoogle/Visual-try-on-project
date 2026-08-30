@@ -43,7 +43,9 @@ import { renderAssetInboxSection, bindAssetInboxSection } from "./assetinboxsec.
 import { threadModel, renderThread } from "./convthread.js";
 import {
   loadThread, sendTurn, awaitTurn, cancelTurn, reportApplied, openProposalCount,
+  decideProposal,
 } from "../services/conversation.js";
+import { proposalsModel, renderProposals, renderOpinions } from "./proposals.js";
 import { renderStorageWs, bindStorageWs } from "./storagews.js";
 import { renderStoryWs, bindStoryWs } from "./storyws.js";
 import { renderBibleWs, bindBibleWs } from "./biblews.js";
@@ -490,6 +492,18 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       // (`session.history`) is no longer mounted. It is still BUILT by
       // `renderAgentSession`, and capability runs remain readable on the 生成记录
       // page, so this removes a surface he does not use rather than a fact.
+      // 「开发」窗口：方案**钉在标题栏下面**，不跟着流滚动。
+      //
+      // 第一版把它画进 `.st-dir-flow` 的顶端 —— 而那根流有一万三千像素高、视图停在
+      // 底部，于是卡片落在他视线上方 13217px 处：DOM 里有、屏幕上没有（产品负责人
+      // 2026-08-30 第二次说「我根本没看到开发的提案」）。**「渲染了」不等于「看得见」**
+      // —— 我第一次只断言了 DOM 里有卡片，那条断言为错误的理由通过了。
+      (convMode() === "feedback"
+        ? `<div class="st-dir-props">` +
+          renderProposals(proposalsModel(ui.convProposals)) +
+          renderOpinions(ui.convOpinions) +
+          `</div>`
+        : "") +
       `<div class="st-dir-flow">` +
       // 开发刚给了新方案 —— 在他正看着的那条流里说一句，而不是等他自己切过去看
       (ui.convProposalNote
@@ -1091,6 +1105,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
           episodeTitle: epNow ? episodeTitleBeside(epNow.code, epNow.title) : "",
         }) +
         `</nav>`;
+      rememberFlowScroll();
       root.innerHTML =
         crumb(ctx) +
         (onCentre ? renderShotSelect(ctx, ui, wm, place) : "") +
@@ -1172,12 +1187,14 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
           : "") +
         (isConsole ? "" : "");
       bind(ctx);
+      restoreFlowScroll();
       if (shotGraph) drawShotEdges(root, shotGraph);
       notify();
       return;
     }
 
     if (space === "assets") {
+      rememberFlowScroll();
       root.innerHTML =
         crumb(ctx) +
         `<nav class="st-rail prod-nav">` +
@@ -1190,6 +1207,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
         `<main class="st-main prod-main">${main}</main>` +
         aiDirector(ctx);
       bind(ctx);
+      restoreFlowScroll();
       notify();
       return;
     }
@@ -1201,12 +1219,14 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       ratios,
       upstream,
     });
+    rememberFlowScroll();
     root.innerHTML =
       crumb(ctx) +
       `<nav class="st-rail prod-nav">${rail}</nav>` +
       `<main class="st-main prod-main">${main}</main>` +
       aiDirector(ctx);
     bind(ctx);
+    restoreFlowScroll();
     notify();
   }
 
@@ -1754,8 +1774,16 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     Promise.resolve(loadThread(project, convKey())).then((res) => {
       st.turns = res.turns;
       ui.convOtherPages = res.others || {};
+      ui.convProposals = res.proposals || [];
+      ui.convOpinions = res.opinions || [];
       render();
     });
+  }
+
+  /** 强制重读这条线（拍板之后要立刻看到状态变化，不能被 `loaded` 戳记挡住）。 */
+  function ensureConversationForce(ctx) {
+    convState().loaded = "";
+    ensureConversation(ctx);
   }
 
   function refreshConversation(ctx, key) {
@@ -1768,6 +1796,8 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       st.pendingRun = null;
       st.pendingStatus = "";
       ui.convOtherPages = res.others || {};
+      ui.convProposals = res.proposals || [];
+      ui.convOpinions = res.opinions || [];
       render();
     });
   }
@@ -2186,6 +2216,30 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       .then(() => render());
   }
 
+  /** 对话流的滚动位置。
+   *
+   *  产品负责人 2026-08-30：「发送之后总跳到最上面。不应该是维持在最新的对话内容吗」。
+   *  每次 render 都重写 `root.innerHTML`，新节点的 `scrollTop` 自然是 0 —— 于是刚发完
+   *  一句话，视线就被甩回三天前的对话。
+   *
+   *  规则不是「永远滚到底」：他往上翻着读旧内容时把他拽回去同样是错的。所以记住的是
+   *  **他是不是贴着底**；贴着底就继续贴着底（新内容进来跟着走），否则原样还原他的位置。 */
+  const FLOW_SEL = ".st-dir-flow";
+  let flowScroll = { top: 0, atBottom: true };
+
+  function rememberFlowScroll() {
+    const el = root.querySelector(FLOW_SEL);
+    if (!el) return;
+    const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+    flowScroll = { top: el.scrollTop, atBottom: gap < 40 };
+  }
+
+  function restoreFlowScroll() {
+    const el = root.querySelector(FLOW_SEL);
+    if (!el) return;
+    el.scrollTop = flowScroll.atBottom ? el.scrollHeight : flowScroll.top;
+  }
+
   function bind(ctx) {
     // left rail — every module opens; selection is visually .on
     root.querySelectorAll("[data-mod]").forEach((b) => (b.onclick = () => setModule(b.dataset.mod)));
@@ -2199,6 +2253,27 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     });
     // 「落到作品上」—— 把一条还没落下的改动补落。走的是与自动落地**同一个**函数，
     // 所以两条路不会有两种行为。
+    // 拍板三键：走服务端那条确定性端点。「可以，但要改…」把焦点放回输入框并预填，
+    // 因为那一档的重点是**他的原话**要原样回到开发那边。
+    const decide = (id, verdict, note) => {
+      const project = ctx.projectName ? ctx.projectName() : null;
+      if (!project) { ctx.toast("先打开一个项目"); return; }
+      Promise.resolve(decideProposal(project, id, verdict, note)).then((res) => {
+        if (!res.ok) { ctx.toast(`没能记下：${res.error}`); return; }
+        ctx.toast(verdict === "approved" ? `已答复 #${id}：同意` : `已答复 #${id}：不要`);
+        ui.convProposalNote = 0;
+        ensureConversationForce(ctx);
+      });
+    };
+    root.querySelectorAll("[data-pp-ok]").forEach((b) => (b.onclick = () => decide(b.dataset.ppOk, "approved", "")));
+    root.querySelectorAll("[data-pp-no]").forEach((b) => (b.onclick = () => decide(b.dataset.ppNo, "rejected", "")));
+    root.querySelectorAll("[data-pp-ch]").forEach((b) => (b.onclick = () => {
+      const st = sessionState(ui);
+      st.text = `#${b.dataset.ppCh} 可以，但要改成：`;
+      render();
+      const box = root.querySelector(".as-input");
+      if (box) { box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
+    }));
     root.querySelectorAll("[data-cv-gonote]").forEach((b) => (b.onclick = () => {
       ui.convProposalNote = 0;
       ui.convMode = "feedback";

@@ -1080,3 +1080,71 @@ def test_no_context_means_an_empty_locator_not_an_invented_one(srv):
     assert srv._conv_where("不是对象") == {}
     # 只有页面没有空间时，page 就是页面本身
     assert srv._conv_where({"moduleLabel": "分镜设计"})["page"] == "分镜设计"
+
+
+# --- 13. 方案要看得见、答过的不许再问（TASK-121） ---------------------------- #
+
+
+def test_the_thread_read_carries_the_proposals_themselves(app, srv):
+    """产品负责人 2026-08-30：「开发给的方案在哪里。我根本没看到」。
+
+    方案只活在模型的转述里，他就看不到正文 —— 所以读线程时把提案本身给前端。
+    """
+    _propose(srv, "左栏收成 4 个工作台", "现在：一长排入口\n改完：只剩 4 个")
+    srv._file_feedback(
+        "夜班沉默", "run-op", None, [{"kind": "feedback.ui", "text": "左边太挤"}]
+    )
+    _, read = _get(app, "夜班沉默", "__feedback__")
+    assert read["proposals"][0]["title"] == "左栏收成 4 个工作台"
+    assert "改完：只剩 4 个" in read["proposals"][0]["body"]
+    assert read["opinions"][0]["text"] == "左边太挤"
+    assert read["opinions"][0]["status"] == "new"
+
+
+def test_clicking_a_verdict_needs_no_model(app, srv):
+    """拍板是**按钮**：模型忘了给 proposal.decide，他的话就白说了一次。"""
+    pid = _propose(srv, "左栏收成 4 个工作台")
+    body = json.dumps({"id": pid, "verdict": "approved"}).encode("utf-8")
+    resp = app.handle_post(
+        "/api/projects/夜班沉默/proposal/decide",
+        body,
+        headers={srv._SKILL_RUN_HEADER: "1"},
+    )
+    assert resp.status == 200
+    assert srv._load_feedback()["proposals"][0]["decision"]["verdict"] == "approved"
+
+
+def test_a_click_without_the_csrf_header_is_refused(app, srv):
+    pid = _propose(srv, "提案")
+    resp = app.handle_post(
+        "/api/projects/夜班沉默/proposal/decide",
+        json.dumps({"id": pid, "verdict": "approved"}).encode("utf-8"),
+        headers={},
+    )
+    assert resp.status == 403
+
+
+def test_a_nonsense_click_is_refused_with_a_reason(app, srv):
+    pid = _propose(srv, "提案")
+    resp = app.handle_post(
+        "/api/projects/夜班沉默/proposal/decide",
+        json.dumps({"id": pid, "verdict": "maybe"}).encode("utf-8"),
+        headers={srv._SKILL_RUN_HEADER: "1"},
+    )
+    assert resp.status == 400
+    assert "不认识的答复" in json.loads(resp.body.decode("utf-8"))["error"]["detail"]
+
+
+def test_answered_proposals_reach_the_facts_so_it_stops_asking_again(app, srv):
+    """产品负责人 2026-08-30：「我明明说那么清楚了为什么前端agent一直问我重复的问题」。
+
+    他答过的必须在事实里，带着他的原话 —— 那句话就是已经定下来的事。
+    """
+    pid = _propose(srv, "左栏收成 4 个工作台")
+    srv._decide_proposal(
+        pid, "changes", "可以，但历史版本要能一键全展开", "2026-08-30T00:00:00Z"
+    )
+    facts = app._conv_facts("夜班沉默", None)
+    assert "不要再问这些" in facts
+    assert "要改" in facts
+    assert "历史版本要能一键全展开" in facts

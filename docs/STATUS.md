@@ -19,7 +19,7 @@
 | `docs/reports/` | 阶段性工作报告 —— **历史证据**，默认不读 |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：5 在办 · 2 待排期 · 115 已完成 · 75 条 ADR。
+**当前**：6 在办 · 2 待排期 · 115 已完成 · 75 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -47,6 +47,7 @@
 | [TASK-074-delivery-migration-and-legacy-retirement.md](tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md) | TASK-074：第四阶段 —— 后期交付、旧数据迁移、旧页面与旧接口清理、真实项目验收 | 部分实施（2026-08-25 更新） |
 | [TASK-087-followup-ledger.md](tasks/active/TASK-087-followup-ledger.md) | TASK-087：Follow-up 总账 —— 把散在九张卡里的欠账收成一处 | 活账（不是一次性交付 |
 | [TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md](tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) | TASK-106：前端接上 run_id 路径 —— 并由此退役同步分支与 /api/agent/ | 待开始（分析已完成，见 §1 |
+| [TASK-121-proposals-you-can-actually-see.md](tasks/active/TASK-121-proposals-you-can-actually-see.md) | TASK-121：方案要看得见、答过的不再问、发送后不跳回顶部 | 进行中（2026-08-30） |
 
 ## 在办 · 设计与验收文档
 

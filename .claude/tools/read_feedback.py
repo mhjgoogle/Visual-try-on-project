@@ -114,7 +114,12 @@ def render(items: list) -> str:
     return "\n".join(out).rstrip()
 
 
-VERDICT_ZH = {"approved": "同意", "rejected": "不要", "changes": "要改"}
+VERDICT_ZH = {
+    "approved": "同意",
+    "rejected": "不要",
+    "changes": "要改",
+    "superseded": "被取代",
+}
 
 
 def render_proposals(rows: list) -> str:
@@ -126,7 +131,11 @@ def render_proposals(rows: list) -> str:
         state = (
             f"{VERDICT_ZH.get(d.get('verdict'), d.get('verdict'))}" if d else "等他答复"
         )
-        out.append(f"#{x.get('id')} [{state}] {x.get('title', '')}")
+        sup = x.get("supersedes") or []
+        head = f"#{x.get('id')} [{state}] {x.get('title', '')}"
+        if sup:
+            head += f"（取代 #{'、#'.join(str(s) for s in sup)}）"
+        out.append(head)
         if x.get("body"):
             out.append(f"  提案：{x['body']}")
         if d and d.get("note"):
@@ -135,13 +144,19 @@ def render_proposals(rows: list) -> str:
     return "\n".join(out).rstrip()
 
 
-def add_proposal(doc: dict, title: str, body: str, now: str) -> dict:
+def add_proposal(doc: dict, title: str, body: str, now: str, supersedes=None) -> dict:
+    """`supersedes`：这条整合掉的旧提案号。
+
+    同一片区域先后写了三份提案，他就被问了三遍（2026-08-30 实测）。声明取代关系之后，
+    这条被同意时，被它取代的那些自动关掉 —— 不再单独问他。
+    """
     item = {
         "id": len(doc["proposals"]) + 1,
         "createdAt": now,
         "title": title.strip()[:200],
         "body": (body or "").strip()[:4000],
         "decision": None,
+        "supersedes": [int(x) for x in (supersedes or [])],
     }
     doc["proposals"].append(item)
     return item
@@ -165,6 +180,22 @@ def main(argv=None) -> int:
     )
     ap.add_argument("--body", default="", help="提案正文（配合 --propose）")
     ap.add_argument("--proposals", action="store_true", help="列出提案与他的答复")
+    ap.add_argument(
+        "--supersedes",
+        nargs="+",
+        type=int,
+        default=None,
+        metavar="ID",
+        help="这条提案整合掉了哪几条（配合 --propose）",
+    )
+    ap.add_argument(
+        "--decide",
+        nargs=2,
+        metavar=("ID", "VERDICT"),
+        default=None,
+        help="替他记下已经说过的答复：approved / rejected / changes",
+    )
+    ap.add_argument("--note", default="", help="他的原话（配合 --decide）")
     args = ap.parse_args(argv)
 
     path = args.path or default_path()
@@ -176,10 +207,48 @@ def main(argv=None) -> int:
         from datetime import datetime, timezone
 
         item = add_proposal(
-            doc, args.propose, args.body, datetime.now(timezone.utc).isoformat()
+            doc,
+            args.propose,
+            args.body,
+            datetime.now(timezone.utc).isoformat(),
+            args.supersedes,
         )
         save(path, doc)
         print(f"已写下第 {item['id']} 号提案 —— 他下次在对话里就会看到它")
+        return 0
+
+    if args.decide:
+        from datetime import datetime, timezone
+
+        pid, verdict = args.decide
+        if verdict not in VERDICT_ZH:
+            raise SystemExit(f"不认识的答复「{verdict}」")
+        hit = next((x for x in doc["proposals"] if str(x.get("id")) == str(pid)), None)
+        if hit is None:
+            raise SystemExit(f"没有第 {pid} 号提案")
+        if isinstance(hit.get("decision"), dict):
+            raise SystemExit(
+                f"第 {pid} 号提案已经答复过了（{hit['decision']['verdict']}）"
+            )
+        now = datetime.now(timezone.utc).isoformat()
+        hit["decision"] = {"at": now, "verdict": verdict, "note": args.note[:4000]}
+        closed = []
+        if verdict in ("approved", "changes"):
+            for old_id in hit.get("supersedes") or []:
+                other = next(
+                    (x for x in doc["proposals"] if x.get("id") == old_id), None
+                )
+                if other and not isinstance(other.get("decision"), dict):
+                    other["decision"] = {
+                        "at": now,
+                        "verdict": "superseded",
+                        "note": f"被第 {hit['id']} 号提案整合掉，不再单独问",
+                    }
+                    closed.append(old_id)
+        save(path, doc)
+        print(f"已记下第 {pid} 号：{VERDICT_ZH[verdict]}")
+        if closed:
+            print(f"连带关掉（被它取代）：{closed}")
         return 0
 
     if args.proposals:

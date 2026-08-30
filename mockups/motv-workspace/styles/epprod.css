@@ -1067,3 +1067,33 @@
   font-size: var(--t-micro);
 }
 .cv-note .k { flex: 1 1 auto; color: var(--text); }
+
+/* 「开发」窗口里的提案卡片（TASK-121）。方案正文按原样换行 —— 它写的是
+   「现在／改完／不变／要你定」四行，压成一行就白写了。 */
+.pp-wrap { display: grid; gap: var(--s2); }
+.pp-list, .pp-donelist, .pp-oplist { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s2); }
+.pp-card {
+  border: 1px solid var(--line-2); border-radius: var(--r2);
+  background: var(--panel-2); padding: var(--s2) var(--s3);
+}
+.pp-card.pending { opacity: .75; border-style: dashed; }
+.pp-h { display: flex; align-items: baseline; gap: var(--s2); }
+.pp-n { color: var(--text-faint); font-size: var(--t-micro); font-variant-numeric: tabular-nums; }
+.pp-t { color: var(--text); font-weight: 600; }
+.pp-b {
+  margin: var(--s2) 0 0; padding: 0; white-space: pre-wrap; word-break: break-word;
+  font: inherit; font-size: var(--t-micro); color: var(--text-dim); line-height: 1.55;
+}
+.pp-acts { display: flex; gap: var(--s1); margin-top: var(--s2); flex-wrap: wrap; }
+.pp-donebox, .pp-opbox { font-size: var(--t-micro); color: var(--text-dim); }
+.pp-done, .pp-op { display: flex; align-items: baseline; gap: var(--s1); flex-wrap: wrap; padding: 2px 0; }
+.pp-note { color: var(--text-faint); }
+
+/* 方案区钉在标题栏下面：`flex: none` 让它不被流挤掉，自己滚自己的。
+   它绝不能进 `.st-dir-flow` —— 那根流会长到上万像素并停在底部，卡片就被推到
+   视线之外（2026-08-30 实测：视线上方 13217px）。 */
+.st-dir > .st-dir-props {
+  flex: none; max-height: 42%; overflow-y: auto;
+  padding: var(--s2) 0 var(--s3);
+  border-bottom: 1px solid var(--line);
+}

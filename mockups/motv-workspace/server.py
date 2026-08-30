@@ -389,8 +389,15 @@ def _load_feedback() -> dict:
 _CONV_PROPOSAL_TEXT_MAX = 4000
 _CONV_PROPOSALS_IN_FACTS = 5
 #: 他能给的答复。`changes` = 「大方向可以，但要改成这样」。
-_CONV_VERDICTS = ("approved", "rejected", "changes")
-_VERDICT_ZH = {"approved": "同意", "rejected": "不要", "changes": "要改"}
+#: 他能给的答复，外加一种**不是他给的**：`superseded` —— 一条提案被后来那条整合掉了
+#: （产品负责人 2026-08-30：同一片区域先后有 #1 #3 #4 三份提案，于是他被问了三遍）。
+_CONV_VERDICTS = ("approved", "rejected", "changes", "superseded")
+_VERDICT_ZH = {
+    "approved": "同意",
+    "rejected": "不要",
+    "changes": "要改",
+    "superseded": "被取代",
+}
 
 
 def _open_proposals() -> list:
@@ -420,6 +427,18 @@ def _decide_proposal(pid, verdict: str, note: str, at: str) -> dict:
         "verdict": verdict,
         "note": (note or "")[:_CONV_PROPOSAL_TEXT_MAX],
     }
+    # 它取代掉的那些，跟着一起关 —— 否则同一片区域的旧提案会继续问他
+    if verdict in ("approved", "changes"):
+        for old_id in hit.get("supersedes") or []:
+            for other in doc["proposals"]:
+                if str(other.get("id")) == str(old_id) and not isinstance(
+                    other.get("decision"), dict
+                ):
+                    other["decision"] = {
+                        "at": at,
+                        "verdict": "superseded",
+                        "note": f"被第 {hit.get('id')} 号提案整合掉，不再单独问",
+                    }
     if not _save_feedback(doc):
         return {"ok": False, "error": "答复没能写进台账（磁盘写入失败）"}
     return {"ok": True, "title": hit.get("title") or ""}
@@ -3389,8 +3408,14 @@ def _conv_prompt(
             "「这里」「左边这一排」时指的就是那里 —— **据此理解，不要反问他在哪**，"
             "并把是哪一页、哪个位置**写进 text**：开发只看得到这条意见，"
             "看不到他的屏幕。\n"
-            "2. 事实里如果列着「开发给你的修改提案」而他还没提 —— 用一句话主动告诉他"
-            "有哪几条在等他拍板，别替他决定。\n"
+            "2. 事实里如果列着「开发给你的修改提案」，**只在他这一轮问起、"
+            "或他说的话与某条直接相关时**才提，而且提一次就够 —— "
+            "不要每轮都催他拍板（他已经烦了）。永远不要替他决定。\n"
+            "直接相关时**才提，而且提一次就够 —— 不要每轮都催他拍板（他已经烦了）。"
+            "永远不要替他决定。\n"
+            "2b. **不要说「我记下了 / 已答复」除非你这一轮真的给了 proposal.decide**。"
+            "他的答复只有经过那条动作才算数；口头说记下而没给动作，等于他白答一次。"
+            "拿不准就告诉他「点一下上面卡片里的按钮」——那条路径不经过你。\n"
             "3. 他对提案表态 → 给一条 proposal.decide："
             "args 里 id=提案号、verdict=approved/rejected/changes、note=他的原话。"
             "「可以但要改成…」是 changes，把要求原样写进 note。\n"
@@ -4305,6 +4330,11 @@ class _App:
             # own edit path in the browser (决策 2b).
             name = unquote(path[len("/api/projects/") : -len("/conversation")])
             return self._conversation_post(name, body, headers)
+        if path.startswith("/api/projects/") and path.endswith("/proposal/decide"):
+            # 点按钮拍板：**不经过模型**。他点「同意」就是 approved，不会被解析错，
+            # 也不会因为模型忘了给 proposal.decide 而丢掉（产品负责人 2026-08-30：
+            # 「我明明说那么清楚了为什么前端agent一直问我重复的问题」）。
+            return self._proposal_decide(body, headers)
         if path.startswith("/api/projects/") and path.endswith("/conversation/applied"):
             # 落地回执（TASK-111）。前端落完改动后告诉这条线「这一轮真的改了什么」，
             # 于是「已落到作品上」是**持久事实**而不是一次性提示 —— 刷新一次就退回
@@ -6806,6 +6836,24 @@ class _App:
                 lines.append(f"  #{x.get('id')} {title}")
                 if body:
                     lines.append(f"    {body}")
+        # 他已经答过的 —— **必须在事实里**，否则同一个问题会被问第二遍第三遍
+        # （产品负责人 2026-08-30：「我明明说那么清楚了为什么前端agent一直问我重复
+        # 的问题」）。答复里带着他的原话，那句话就是已经定下来的事。
+        answered = [
+            x
+            for x in _load_feedback()["proposals"]
+            if isinstance(x.get("decision"), dict)
+        ][-_CONV_PROPOSALS_IN_FACTS:]
+        if answered:
+            lines.append("他已经答复过的提案（**不要再问这些**）：")
+            for x in answered:
+                d = x["decision"]
+                verdict = _VERDICT_ZH.get(d.get("verdict"), d.get("verdict"))
+                lines.append(
+                    f"  #{x.get('id')} {str(x.get('title') or '')[:80]} → {verdict}"
+                )
+                if d.get("note"):
+                    lines.append(f"    他的原话：{str(d['note'])[:400]}")
         # WHERE HE IS STANDING. Sent by the UI (it owns the page vocabulary), so the
         # server prints what it was told rather than keeping a second copy of the
         # page names that could disagree with the rail. Bounded per field: it rides
@@ -6990,6 +7038,38 @@ class _App:
                         name, rid, e.get("text") or "", run.get("context")
                     )
                     turn["applied"] = (turn.get("applied") or []) + [started]
+                # **说了记下、其实没记下** —— 这一族是这条回路最坏的失败：他答了，
+                # 屏幕上回「已记在 #N 上」，台账里却什么都没有，于是下一轮又来问他
+                # （产品负责人 2026-08-30:「我明明回答过多额问题他还说要我拍板」）。
+                # **说了记下、其实没记下** —— 这一族是这条回路最坏的失败：
+                # 他答了，屏幕上回「已记在 #N 上」，台账里却什么都没有，
+                decided = {
+                    str((e.get("args") or {}).get("id"))
+                    for e in turn["edits"]
+                    if isinstance(e, dict) and e.get("kind") == "proposal.decide"
+                }
+                open_ids = {str(x.get("id")) for x in _open_proposals()}
+                named = {
+                    m
+                    for m in re.findall(r"#(\d{1,4})", turn.get("text") or "")
+                    if m in open_ids and m not in decided
+                }
+                if named and re.search(
+                    r"记(下|在|好)|已(答复|拍板|通过)|按.{0,6}记",
+                    turn.get("text") or "",
+                ):
+                    turn["applied"] = (turn.get("applied") or []) + [
+                        {
+                            "kind": "proposal.decide",
+                            "detail": "",
+                            "error": (
+                                f"这一轮说了「记下」，但第 {'、'.join(sorted(named))} "
+                                "号提案**没有真的被记下** —— 请在上面的方案卡片上"
+                                "**没有真的被记下** —— 请在上面的方案卡片上点一下"
+                                "（同意 / 不要 / 可以但要改），那条路径不经过模型。"
+                            ),
+                        }
+                    ]
                 # 他对提案的答复，同样由服务端落地（写的是应用数据）。
                 for e in turn["edits"]:
                     if not isinstance(e, dict) or e.get("kind") != "proposal.decide":
@@ -7057,9 +7137,29 @@ class _App:
             for k, v in doc.get("threads", {}).items()
             if k != key and (v.get("turns") or [])
         }
+        # 「开发」窗口要**看得见**提案本身，不是只听 Agent 复述标题
+        # （产品负责人 2026-08-30：「开发给的方案在哪里。我根本没看到」）。
+        # 拍板因此变成一次点击，不再依赖模型把他的话解析成 proposal.decide。
+        doc_fb = _load_feedback()
         return _json(
             200,
-            {"project": name, "thread": key, "turns": turns[-100:], "threads": others},
+            {
+                "project": name,
+                "thread": key,
+                "turns": turns[-100:],
+                "threads": others,
+                "proposals": doc_fb["proposals"][-50:],
+                "opinions": [
+                    {
+                        "id": x.get("id"),
+                        "text": x.get("text", ""),
+                        "status": x.get("status", "new"),
+                        "page": (x.get("where") or {}).get("page") or x.get("page", ""),
+                        "createdAt": x.get("createdAt", ""),
+                    }
+                    for x in doc_fb["items"][-50:]
+                ],
+            },
         )
 
     def _start_dev_proposal(self, name: str, from_run: str, ask: str, context) -> dict:
@@ -7159,6 +7259,41 @@ class _App:
             changed = True
         if changed:
             _save_feedback(doc)
+
+    def _proposal_decide(self, body: bytes, headers=None):
+        """他在提案卡片上点了「同意 / 不要 / 要改」。"""
+        if (headers or {}).get(_SKILL_RUN_HEADER) != "1":
+            return _json(
+                403,
+                {
+                    "error": {
+                        "category": "forbidden",
+                        "detail": f"{_SKILL_RUN_HEADER}: 1 required",
+                    }
+                },
+            )
+        try:
+            payload = json.loads(body.decode("utf-8")) if body else {}
+        except (ValueError, UnicodeDecodeError):
+            return _json(
+                400, {"error": {"category": "bad_json", "detail": "invalid JSON body"}}
+            )
+        if not isinstance(payload, dict):
+            return _json(
+                400,
+                {"error": {"category": "bad_json", "detail": "body is not an object"}},
+            )
+        res = _decide_proposal(
+            payload.get("id"),
+            str(payload.get("verdict") or ""),
+            str(payload.get("note") or ""),
+            datetime.now(timezone.utc).isoformat(),
+        )
+        if not res["ok"]:
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": res["error"]}}
+            )
+        return _json(200, {"ok": True, "id": payload.get("id"), "title": res["title"]})
 
     def _conversation_applied(self, name: str, body: bytes, headers=None):
         """Record what a turn's edits ACTUALLY became, on the turn that proposed them.

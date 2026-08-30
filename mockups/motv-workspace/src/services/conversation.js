@@ -17,16 +17,20 @@ const RUNTIME_HEADER = { "X-Motv-Runtime": "1" };
  *  `others` says which OTHER pages have history, so the column can point at them
  *  instead of leaving the creator to remember where he said something. */
 export async function loadThread(project, thread) {
-  if (!project) return { turns: [], others: {}, error: null };
+  if (!project) return { turns: [], others: {}, proposals: [], opinions: [], error: null };
   const q = thread ? `?thread=${encodeURIComponent(thread)}` : "";
   const res = await attempt(
     `/api/projects/${encodeURIComponent(project)}/conversation${q}`,
     { headers: RUNTIME_HEADER },
   );
-  if (!res.ok) return { turns: [], others: {}, error: res.error };
+  if (!res.ok) {
+    return { turns: [], others: {}, proposals: [], opinions: [], error: res.error };
+  }
   const turns = Array.isArray(res.data && res.data.turns) ? res.data.turns : [];
+  const proposals = Array.isArray(res.data && res.data.proposals) ? res.data.proposals : [];
+  const opinions = Array.isArray(res.data && res.data.opinions) ? res.data.opinions : [];
   const others = (res.data && res.data.threads) || {};
-  return { turns, others, error: null };
+  return { turns, others, proposals, opinions, error: null };
 }
 
 /** Send one turn. Returns `{ok, runId, turn, error}` — never throws, because a
@@ -122,6 +126,20 @@ export async function reportApplied(project, runId, applied) {
     return true;
   } catch {
     return false;
+  }
+}
+
+/** 他在提案卡片上拍板 —— **不经过模型**：点「同意」就是 approved。 */
+export async function decideProposal(project, id, verdict, note = "") {
+  try {
+    await request(`/api/projects/${encodeURIComponent(project)}/proposal/decide`, {
+      method: "POST",
+      headers: RUNTIME_HEADER,
+      body: { id, verdict, note },
+    });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err && (err.detail || err.message)) || String(err) };
   }
 }
 
