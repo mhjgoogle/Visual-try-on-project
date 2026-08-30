@@ -136,6 +136,21 @@ const ROUTE_RUN_ZH = {
   failed: "没跑成",
 };
 
+/** 失败这一行给他看什么。原始 detail 优先；只有代码时翻成人话，绝不原样吐代码。 */
+const FAIL_ZH = {
+  unavailable: "这台机器上没有能跑它的执行器",
+  unauthenticated: "执行器装着但没登录 —— 在终端里登录一次就好",
+  timeout: "跑太久被中止了",
+  invalid_output: "它的回答不是这次要的格式（这一轮什么都没写进去）",
+  execution_error: "执行器自己出错了",
+};
+
+export function failWhy(st) {
+  const detail = String((st && st.error) || "").trim();
+  if (detail && !FAIL_ZH[detail]) return detail;
+  return FAIL_ZH[detail] || FAIL_ZH[String((st && st.kind) || "")] || "没有记录失败原因";
+}
+
 const SCOPE_ZH = { project: "整个项目", episode: "当前分集", shot: "当前镜头" };
 
 //: 他看得见的是**这一类工作**，不是内部专业能力的 id（ADR-0091 决策 5）。
@@ -164,6 +179,8 @@ function routeBlock(r) {
   const title = esc(String(CAPABILITY_ZH[r.route.capability] || r.route.capability || ""));
   const scope = SCOPE_ZH[r.route.scope] || "";
   const why = r.route.reason ? `<div class="t">${esc(String(r.route.reason))}</div>` : "";
+  // 独立性降级：说在他看得到的地方（AGENTS.md 第 20 条的同一条纪律）
+  const note = st.note ? `<div class="t meta">${esc(String(st.note))}</div>` : "";
   let head = "按这一类来处理";
   let body = "";
   let act = "";
@@ -180,7 +197,9 @@ function routeBlock(r) {
         // 因此看到「已完成」而故事大纲still是空的。**决定就在这条消息上做。**
         ? "写好了 —— 要用就点右边这个按钮，我把它写进那一页。"
         : st.status === "failed"
-        ? esc(String(st.error || "没有记录失败原因"))
+        // **不要把内部代码丢在他脸上**（产品负责人 2026-08-31 看到的是一行
+        // 光秃秃的 `invalid_output`）。有原文就说原文，没有就把那个代码翻成人话。
+        ? esc(failWhy(st))
         : "") +
       `</div>`;
   } else if (st.reason) {
@@ -200,7 +219,7 @@ function routeBlock(r) {
     `<div class="cv-routewrap"><div class="lab">${esc(head)}${act}</div>` +
     `<div class="cv-route"><span class="k">${title}</span>` +
     (scope ? `<span class="chip mute">${esc(scope)}</span>` : "") +
-    `</div>${why}${body}</div>`
+    `</div>${why}${note}${body}</div>`
   );
 }
 

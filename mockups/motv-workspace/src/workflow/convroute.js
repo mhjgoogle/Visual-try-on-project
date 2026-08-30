@@ -71,6 +71,7 @@ export function decideRoute(route, ctx) {
     missingOf = () => [],
     labelOf = (k) => k,
     pickExecutor = () => null,
+    degradedOf = () => null,
     ranFor = () => null,
   } = ctx || {};
   if (!isObj(route) || typeof route.skillId !== "string" || !route.skillId) {
@@ -123,7 +124,9 @@ export function decideRoute(route, ctx) {
       reason: "本机没有可用的执行器 —— 在「能力」里选「手工」也能跑这一次。",
     };
   }
-  return { ...base, action: "run", executor };
+  // 独立性降级要**说到他眼前**，不是只写在日志里（AGENTS.md 第 20 条）。
+  const degraded = degradedOf(skill, executor);
+  return { ...base, action: "run", executor, note: degraded || "" };
 }
 
 // --- 结构性变更 → 只跑一次的一致性诊断 -------------------------------------- //

@@ -70,6 +70,7 @@ import { renderPlanWs } from "./planws.js";
 import { renderDraftWs } from "./draftws.js";
 import { renderBlockingWs, drawTop, hitTest, topMapper } from "./blockingws.js";
 import { renderEpCanvas } from "./epcanvas.js";
+import { independenceDegraded } from "../services/runtime.js";
 import { createStage } from "./blockgl.js";
 import * as bl from "../workflow/blocking.js";
 import * as swork from "../workflow/storywork.js";
@@ -2411,6 +2412,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       missingOf: (id) => ctx.skills.missing(id, {}, routeScopeFor(ctx, id)),
       labelOf: (k) => ctx.skills.inputLabel(k),
       pickExecutor: (skill) => routeExecutor(skill),
+      degradedOf: (skill, executor) => independenceDegraded(skill && skill.work, executor),
       ranFor: () => ctx.skills.routedRunFor(convRunId),
     };
   }
@@ -2575,6 +2577,8 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
         title: decision.title || route.skillId,
         reason: decision.action === "blocked" ? decision.reason : "",
         missing: decision.missing || [],
+        // 独立性降级那句话（AGENTS.md 第 20 条）—— 跟着这一轮走到屏幕上
+        note: decision.note || '',
         canOpen: !!ctx.skills.find(route.skillId),
       };
     }
