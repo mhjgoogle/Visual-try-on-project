@@ -2271,3 +2271,54 @@
   display: inline-block; min-width: 2.5em; text-align: center; padding: 4px 8px;
   border: 1px dashed var(--line); border-radius: var(--r1); color: var(--text);
 }
+
+/* ===== 3D 导演台（TASK-123 / ADR-0094）=====================================
+   左边俯视图摆走位，右边是镜头里真正拍到的画面。白膜没有材质与贴图，
+   所以这里也不需要任何装饰 —— 屏幕上多一分颜色，都是在假装它是成片。 */
+.bk-note { color: var(--text-dim); font-size: var(--t-sm); line-height: 1.7; margin: var(--s2) 0 var(--s3); }
+.bk-none { color: var(--text-faint); font-size: var(--t-sm); padding: var(--s4) 0; }
+.bk-wrap { display: grid; grid-template-columns: minmax(300px, 360px) 1fr; gap: var(--s3); align-items: start; }
+.bk-left { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
+.bk-topview { position: relative; border: 1px solid var(--line); border-radius: var(--r1); overflow: hidden; }
+.bk-topview canvas { display: block; width: 100%; height: auto; cursor: grab; touch-action: none; }
+.bk-topview canvas:active { cursor: grabbing; }
+.bk-scale {
+  position: absolute; right: 6px; bottom: 6px; color: var(--text-faint);
+  font-size: var(--t-micro); background: rgba(0,0,0,.45); padding: 1px 6px; border-radius: 4px;
+}
+.bk-panel {
+  display: flex; flex-direction: column; gap: var(--s2); padding: var(--s3);
+  border: 1px solid var(--line); border-radius: var(--r1); background: var(--panel-2);
+  max-height: 46vh; overflow-y: auto;
+}
+.bk-sec {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s2);
+  color: var(--text-dim); font-size: var(--t-micro); margin-top: var(--s2);
+}
+.bk-sec:first-child { margin-top: 0; }
+.bk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2); }
+.bk-f { display: flex; flex-direction: column; gap: 2px; font-size: var(--t-micro); color: var(--text-faint); }
+.bk-f input, .bk-f select {
+  padding: 4px; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--panel); color: var(--text); font: inherit; font-size: var(--t-sm);
+}
+.bk-row { display: flex; align-items: center; gap: var(--s2); }
+.bk-row .meta { color: var(--text-faint); font-size: var(--t-micro); margin-left: auto; }
+.bk-name {
+  flex: 1; min-width: 0; padding: 3px 5px; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--panel); color: var(--text); font: inherit; font-size: var(--t-sm);
+}
+.bk-empty { color: var(--text-faint); font-size: var(--t-micro); line-height: 1.6; }
+.bk-cam { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2); }
+.bk-camcol { display: flex; flex-direction: column; gap: 4px; }
+.bk-camcol .t { color: var(--text); font-size: var(--t-micro); font-weight: 600; }
+.bk-hint { color: var(--text-faint); font-size: var(--t-micro); line-height: 1.6; }
+.bk-right { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
+.bk-view { border: 1px solid var(--line); border-radius: var(--r1); overflow: hidden; background: #0e1014; }
+.bk-view canvas { display: block; width: 100%; height: auto; }
+.bk-time { display: flex; align-items: center; gap: var(--s2); }
+.bk-slider { flex: 1; }
+.bk-actions { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.bk-actions .meta { color: var(--text-faint); font-size: var(--t-micro); }
+.bk-takes { display: flex; flex-direction: column; gap: var(--s1); }
+@media (max-width: 1200px) { .bk-wrap { grid-template-columns: 1fr; } }

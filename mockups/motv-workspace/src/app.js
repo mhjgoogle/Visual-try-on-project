@@ -104,6 +104,7 @@ import { buildShotSlotIndex, slotForShotId, shotIdForSlot, resolveAdoptTarget } 
 import * as scriptdoc from "./workflow/scriptdoc.js";
 import * as storydoc from "./workflow/storydoc.js";
 import * as storywork from "./workflow/storywork.js";
+import * as blocking from "./workflow/blocking.js";
 import * as proddoc from "./workflow/proddoc.js";
 import * as episodecleanup from "./workflow/episodecleanup.js";
 import * as timeline from "./workflow/timeline.js";
@@ -4062,6 +4063,80 @@ const ctx = {
         default:
           return { ok: false, error: `动作「${a.action}」尚未接线` };
       }
+    },
+  },
+
+  // ---------------------------------------------------------------------- //
+  // 3D 导演台（TASK-123 / ADR-0094）—— 每一镜的白膜。
+  //
+  // 与其它创作数据同一条写路径：**他在俯视图里拖**和 **Agent 调 `blocking.*` 动作**
+  // 走的是 `workflow/blocking.js` 里同一组函数（决策 5）。
+  // ---------------------------------------------------------------------- //
+  blocking: {
+    /** 这一镜的白膜。没有就**当场建一份空的** —— 打开导演台就该能摆，
+     *  而不是先让他点一个「初始化」。 */
+    of: (shotId) => {
+      if (!shotId) return null;
+      const prod = productionDoc;
+      if (!prod.blocking[shotId]) {
+        prod.blocking[shotId] = blocking.createBlocking(null);
+      }
+      return prod.blocking[shotId];
+    },
+    /** 一次改动 + 落盘。`fn` 拿到的是那一镜的白膜本身。 */
+    edit: (shotId, fn) => {
+      const b = ctx.blocking.of(shotId);
+      if (!b) return { ok: false, error: "没有选中的镜头" };
+      const out = fn(b);
+      ctx.persist();
+      return { ok: true, out };
+    },
+    /** 把录下来的一段白膜登记成资产（ADR-0094 决策 4）。
+     *
+     *  **复用既有的 `motionpreview` 那条链** —— 仓库里早就有这个 kind，注释里就叫
+     *  「白膜视频」，而且它**不参与成片判定**（一段白膜混进镜头视频那条链，会让
+     *  六十个镜头看起来都拍完了）。为 3D 导演台另造一个 kind 只会有两个词表达同一件事。
+     *
+     *  不记 Generation：白膜零花费、没有参考、也不是这一镜的画面 —— 与 motionctl
+     *  在同一个位置写下的理由完全一样。 */
+    saveTake: async (shotId, blob, seconds) => {
+      const project = session.projectName();
+      if (!project) return { ok: false, error: "演示模式没有后端，白膜存不下来" };
+      const shot = (productionDoc.draftShots || []).find((s) => s && s.shotId === shotId) || null;
+      const key = `blocking-${shotId}`;
+      let res;
+      try {
+        const file = new File([blob], `${key}.webm`, { type: blob.type || "video/webm" });
+        res = await uploadAssetImage(project, `video-${key}`, file);
+      } catch (e) {
+        // 后端的 fail-closed 原样转达，不改写成「稍后重试」那种什么都没说的话
+        return { ok: false, error: (e && (e.detail || e.message)) || "上传失败" };
+      }
+      if (session.projectName() !== project) {
+        return {
+          ok: false,
+          error: `白膜录好了，但你已经切到别的项目 —— 这一段留在「${project}」里没有登记`,
+        };
+      }
+      const ref = mediaref.refFromResponse(key, "blocking", res, shotId);
+      const decl = assetreg.declare(ref, "videos", {
+        kind: "motionpreview",
+        displayName: `白膜 · ${(shot && shot.title) || shotId} v${res.version || 1}`,
+        originalFilename: null,
+        links: { shotId },
+      });
+      if (!decl.ok) return { ok: false, error: `录好了但没登记上：${decl.error}` };
+      mediaref.addVersion({ uploads: assetRegistry.videos }, key, ref);
+      const b = ctx.blocking.of(shotId);
+      if (b) {
+        b.takes.push({
+          assetId: ref.assetId || key,
+          at: new Date().toISOString(),
+          seconds: Number(seconds) || 0,
+        });
+      }
+      ctx.persist();
+      return { ok: true, assetId: ref.assetId || key };
     },
   },
 

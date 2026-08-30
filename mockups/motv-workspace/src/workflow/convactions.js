@@ -21,6 +21,20 @@
 
 /** 一条动作。`args` 是**白名单**：模型报上来的其它键一律不落进文档。 */
 import * as swork from "./storywork.js";
+import * as bwork from "./blocking.js";
+
+/** 那一镜的白膜。**与他在俯视图里拖的是同一份数据**（ADR-0094 决策 5）。 */
+function blockingOf(ctx, shotId) {
+  const id = String(shotId || "");
+  if (!id) throw new Error("没说要改哪一镜的白膜");
+  if (!ctx.blocking || typeof ctx.blocking.of !== "function") {
+    throw new Error("这个项目还没有白膜的数据模型");
+  }
+  const b = ctx.blocking.of(id);
+  if (!b) throw new Error(`没有这一镜：${id}`);
+  return b;
+}
+
 
 /** 这四页的正式数据模型。写路径**只有这一条** —— 他自己点、Agent 调，走的是同一组函数
  *  （产品负责人 2026-08-30：「Agent 修改的是正式数据模型，不是只修改 UI 展示文本」）。 */
@@ -237,6 +251,95 @@ const ACTIONS = [
       const id = String(a.shotId || "");
       if (!ctx.shots || !ctx.shots.restoreDeleted(id)) throw new Error(`撤销不了 ${id}（回收区里没有它）`);
       return { said: `镜头 ${id} 回来了` };
+    },
+  },
+  /* ===== 3D 导演台（TASK-123 / ADR-0094 决策 5）===========================
+     「把镜头拉远一点」「让林晚从门口走到吧台」——这类话要能落成真改动，而不是一段
+     建议文字。走的是他自己在俯视图里拖时的同一组函数。 */
+  {
+    id: "blocking.actor",
+    label: "加/改白膜里的一个演员",
+    doc: "blocking",
+    undo: "改回去；删是软删除，可恢复",
+    args: {
+      shotId: "镜头 id",
+      name: "名字",
+      fromX: "起点 X（米）",
+      fromZ: "起点 Z（米）",
+      toX: "终点 X（米）",
+      toZ: "终点 Z（米）",
+      facing: "朝向（度）",
+    },
+    apply: (ctx, a) => {
+      const b = blockingOf(ctx, a.shotId);
+      const name = String(a.name || "").trim();
+      let actor = bwork.visibleActors(b).find((x) => x.name === name);
+      if (!actor) actor = bwork.addActor(b, name || `演员 ${bwork.visibleActors(b).length + 1}`);
+      const patch = {};
+      if (a.fromX !== undefined || a.fromZ !== undefined) {
+        patch.from = { x: Number(a.fromX ?? actor.from.x), z: Number(a.fromZ ?? actor.from.z) };
+      }
+      if (a.toX !== undefined || a.toZ !== undefined) {
+        patch.to = { x: Number(a.toX ?? actor.to.x), z: Number(a.toZ ?? actor.to.z) };
+      }
+      if (a.facing !== undefined) patch.facing = Number(a.facing);
+      bwork.editActor(b, actor.id, patch);
+      return { said: `白膜里的「${actor.name}」摆好了` };
+    },
+  },
+  {
+    id: "blocking.camera",
+    label: "改白膜的机位",
+    doc: "blocking",
+    undo: "改回去就行",
+    args: {
+      shotId: "镜头 id",
+      which: "from / to / both",
+      x: "机位 X（米）",
+      z: "机位 Z（米）",
+      y: "机位高度（米）",
+      lookX: "看向 X",
+      lookZ: "看向 Z",
+      lens: "焦距（毫米）",
+    },
+    apply: (ctx, a) => {
+      const b = blockingOf(ctx, a.shotId);
+      const which = ["from", "to", "both"].includes(String(a.which)) ? String(a.which) : "both";
+      const side = which === "both" ? "from" : which;
+      const patch = {};
+      if (a.x !== undefined || a.z !== undefined) {
+        const cur = b.camera[side].at;
+        patch.at = { x: Number(a.x ?? cur.x), z: Number(a.z ?? cur.z) };
+      }
+      if (a.lookX !== undefined || a.lookZ !== undefined) {
+        const cur = b.camera[side].look;
+        patch.look = { x: Number(a.lookX ?? cur.x), z: Number(a.lookZ ?? cur.z) };
+      }
+      if (a.y !== undefined) patch.y = Number(a.y);
+      if (a.lens !== undefined) patch.lens = Number(a.lens);
+      if (!bwork.setCamera(b, which, patch)) throw new Error("这个机位改不了");
+      return {
+        said: which === "both" ? "机位（起幅与落幅）改好了" : `机位（${which === "from" ? "起幅" : "落幅"}）改好了`,
+      };
+    },
+  },
+  {
+    id: "blocking.timing",
+    label: "改白膜的时长或场地",
+    doc: "blocking",
+    undo: "改回去就行",
+    args: { shotId: "镜头 id", seconds: "时长（秒）", stage: "场地边长（米）" },
+    apply: (ctx, a) => {
+      const b = blockingOf(ctx, a.shotId);
+      const said = [];
+      if (a.seconds !== undefined && bwork.setDuration(b, Number(a.seconds))) {
+        said.push(`时长 ${b.duration}s`);
+      }
+      if (a.stage !== undefined && bwork.setStage(b, Number(a.stage))) {
+        said.push(`场地 ${b.stage}m`);
+      }
+      if (!said.length) throw new Error("没有可改的时长或场地");
+      return { said: said.join(" · ") };
     },
   },
   /* ===== Story Development 的四页（TASK-122 第 6 步）=======================

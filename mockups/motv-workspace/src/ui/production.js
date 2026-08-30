@@ -68,6 +68,9 @@ import { derivedLabel } from "../workflow/assetreg.js";
 import { renderCoreWs, renderOutlineWorkWs } from "./corews.js";
 import { renderPlanWs } from "./planws.js";
 import { renderDraftWs } from "./draftws.js";
+import { renderBlockingWs, drawTop, hitTest, topMapper } from "./blockingws.js";
+import { createStage } from "./blockgl.js";
+import * as bl from "../workflow/blocking.js";
 import * as swork from "../workflow/storywork.js";
 import * as storydoc from "../workflow/storydoc.js";
 import { renderShotSelect, bindShotSelect } from "./shotselect.js";
@@ -864,7 +867,9 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // ⑦ 分镜设计 — scenes list and shot list, two sections of one page.
     storyboard: (ctx) =>
       sectionNav("storyboard") +
-      (sectionOf("storyboard") === "scenes"
+      (sectionOf("storyboard") === "blocking"
+        ? renderBlockingWs(ctx, ui)
+        : sectionOf("storyboard") === "scenes"
         ? ws.renderEpisodes(ctx)
         // ④ 那条横向带在**分镜**这一节的顶部（TASK-095 §2.4）：判断「前后接得顺不顺」
         // 要跨镜看，而分镜表本身就是这一屏。不新增页面（ADR-0066 决策 10）。
@@ -1954,6 +1959,239 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
   //
   // `shell.episodeRows` 保留：剧集制作那边和守卫测试都在用它。
 
+
+  /* ===== 3D 导演台的交互（TASK-123 / ADR-0094）============================ */
+  //
+  // 三件事：**在俯视图里拖**、**拖时间线看这一刻**、**把这一段录成白膜**。
+  // 预览与录制读的是同一个 `sampleAt`，所以看到的与录出来的不会是两回事。
+
+  let bkStage = null; // WebGL 渲染器（一次建起来，重画时复用）
+  let bkRaf = 0;
+
+  function bkShotId() {
+    return ui.selectedShotId || null;
+  }
+
+  function bkData() {
+    const ctx = getCtx();
+    const id = bkShotId();
+    return id && ctx.blocking ? ctx.blocking.of(id) : null;
+  }
+
+  /** 画一帧（俯视图 + 镜头里）。**一处采样，两个画布**。 */
+  function bkPaint(t) {
+    const b = bkData();
+    if (!b) return;
+    const top = document.querySelector("[data-bk-top]");
+    if (top) drawTop(top, b, t);
+    const view = document.querySelector("[data-bk-view]");
+    if (view && bkStage && bkStage.canvas === view) bkStage.draw(bl.sampleAt(b, t));
+  }
+
+  function bkEnsureStage() {
+    const view = document.querySelector("[data-bk-view]");
+    if (!view) return null;
+    if (bkStage && bkStage.canvas === view) return bkStage;
+    const made = createStage(view);
+    if (!made.ok) {
+      // fail-closed 并说明（ADR-0094 决策 4）：画不出来就说画不出来
+      const g = view.getContext("2d");
+      if (g) {
+        g.fillStyle = "#14161b";
+        g.fillRect(0, 0, view.width, view.height);
+        g.fillStyle = "#e8eaee";
+        g.font = "14px system-ui";
+        g.fillText(made.error, 24, 40);
+      }
+      bkStage = null;
+      return null;
+    }
+    bkStage = made;
+    return bkStage;
+  }
+
+  function bkSetT(t, redraw = true) {
+    ui.bkT = Math.min(1, Math.max(0, t));
+    const slider = document.querySelector("[data-bk-t]");
+    if (slider) slider.value = String(Math.round(ui.bkT * 1000));
+    if (redraw) bkPaint(ui.bkT);
+  }
+
+  function bkStopPlay() {
+    if (bkRaf) cancelAnimationFrame(bkRaf);
+    bkRaf = 0;
+    ui.bkPlaying = false;
+  }
+
+  /** 预览：按真实时长走一遍。走完停在末尾，不循环 —— 一镜有始有终。 */
+  function bkPlay(onDone) {
+    const b = bkData();
+    if (!b) return;
+    bkStopPlay();
+    ui.bkPlaying = true;
+    const ms = b.duration * 1000;
+    const t0 = performance.now();
+    const step = (now) => {
+      const k = Math.min(1, (now - t0) / ms);
+      bkSetT(k);
+      if (k < 1 && ui.bkPlaying) bkRaf = requestAnimationFrame(step);
+      else {
+        bkStopPlay();
+        if (onDone) onDone();
+      }
+    };
+    bkRaf = requestAnimationFrame(step);
+  }
+
+  /** 录白膜：录的就是这块画布本身（决策 4）。产物交给既有的资产登记。 */
+  async function bkRecord(ctx) {
+    const b = bkData();
+    const view = document.querySelector("[data-bk-view]");
+    const id = bkShotId();
+    if (!b || !view || !id) return;
+    if (typeof view.captureStream !== "function" || typeof MediaRecorder === "undefined") {
+      ctx.toast("这个浏览器不支持录制画布 —— 白膜录不了");
+      return;
+    }
+    let rec;
+    const chunks = [];
+    try {
+      const stream = view.captureStream(30);
+      const mime = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"].find(
+        (m) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m),
+      );
+      rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    } catch (e) {
+      ctx.toast(`录不了：${(e && e.message) || e}`);
+      return;
+    }
+    rec.ondataavailable = (ev) => {
+      if (ev.data && ev.data.size) chunks.push(ev.data);
+    };
+    const done = new Promise((resolve) => (rec.onstop = resolve));
+    ui.bkRecording = `${b.duration.toFixed(1)}s`;
+    render();
+    bkSetT(0);
+    rec.start();
+    await new Promise((r) => bkPlay(r));
+    rec.stop();
+    await done;
+    ui.bkRecording = null;
+    const blob = new Blob(chunks, { type: "video/webm" });
+    if (!blob.size) {
+      ctx.toast("录出来是空的 —— 没有写入任何资产");
+      render();
+      return;
+    }
+    const res = await ctx.blocking.saveTake(id, blob, b.duration);
+    if (!res || !res.ok) ctx.toast(`白膜没能登记：${(res && res.error) || "未知原因"}`);
+    else ctx.toast(`白膜录好了（${b.duration.toFixed(1)}s），已登记进资产库`);
+    render();
+  }
+
+  function bindBlocking(root, ctx) {
+    const top = root.querySelector("[data-bk-top]");
+    if (!top) return;
+    bkEnsureStage();
+    bkPaint(typeof ui.bkT === "number" ? ui.bkT : 0);
+
+    // —— 俯视图里拖：机位、看向、演员起止、道具
+    let drag = null;
+    const pt = (ev) => {
+      const r = top.getBoundingClientRect();
+      return {
+        x: ((ev.clientX - r.left) / r.width) * top.width,
+        y: ((ev.clientY - r.top) / r.height) * top.height,
+      };
+    };
+    top.onpointerdown = (ev) => {
+      const b = bkData();
+      if (!b) return;
+      const q = pt(ev);
+      drag = hitTest(b, q.x, q.y, top.width);
+      if (drag) top.setPointerCapture(ev.pointerId);
+    };
+    top.onpointermove = (ev) => {
+      if (!drag) return;
+      const b = bkData();
+      if (!b) return;
+      const q = pt(ev);
+      const w = topMapper(b.stage, top.width).toWorld(q.x, q.y);
+      if (drag.kind === "camAt") bl.setCamera(b, drag.which, { at: w });
+      else if (drag.kind === "camLook") bl.setCamera(b, drag.which, { look: w });
+      else if (drag.kind === "actorFrom") bl.editActor(b, drag.id, { from: w });
+      else if (drag.kind === "actorTo") bl.editActor(b, drag.id, { to: w });
+      else if (drag.kind === "prop") bl.editProp(b, drag.id, { at: w });
+      bkPaint(typeof ui.bkT === "number" ? ui.bkT : 0);
+    };
+    const endDrag = () => {
+      if (!drag) return;
+      drag = null;
+      ctx.persist();
+    };
+    top.onpointerup = endDrag;
+    top.onpointercancel = endDrag;
+
+    // —— 时间线
+    const slider = root.querySelector("[data-bk-t]");
+    if (slider) {
+      slider.oninput = () => {
+        bkStopPlay();
+        bkSetT(Number(slider.value) / 1000);
+      };
+    }
+    root.querySelectorAll("[data-bk-play]").forEach((btn) => (btn.onclick = () => {
+      if (ui.bkPlaying) { bkStopPlay(); render(); }
+      else bkPlay(() => render());
+    }));
+    root.querySelectorAll("[data-bk-record]").forEach((btn) => (btn.onclick = () => bkRecord(ctx)));
+    root.querySelectorAll("[data-bk-stop]").forEach((btn) => (btn.onclick = () => {
+      bkStopPlay();
+    }));
+
+    // —— 面板
+    const id = bkShotId();
+    const write = (fn) => {
+      const b = bkData();
+      if (!b) return;
+      fn(b);
+      ctx.persist();
+      render();
+    };
+    root.querySelectorAll("[data-bk-add-actor]").forEach((b2) => (b2.onclick = () =>
+      write((b) => bl.addActor(b, `演员 ${bl.visibleActors(b).length + 1}`))));
+    root.querySelectorAll("[data-bk-add-prop]").forEach((b2) => (b2.onclick = () =>
+      write((b) => bl.addProp(b, `道具 ${bl.visibleProps(b).length + 1}`))));
+    root.querySelectorAll("[data-bk-del-actor]").forEach((b2) => (b2.onclick = () =>
+      write((b) => bl.hideActor(b, b2.dataset.bkDelActor, new Date().toISOString()))));
+    root.querySelectorAll("[data-bk-del-prop]").forEach((b2) => (b2.onclick = () =>
+      write((b) => bl.hideProp(b, b2.dataset.bkDelProp, new Date().toISOString()))));
+    root.querySelectorAll("[data-bk-actor-name]").forEach((el) => (el.oninput = () => {
+      const b = bkData();
+      if (b) { bl.editActor(b, el.dataset.bkActorName, { name: el.value }); ctx.persist(); }
+    }));
+    root.querySelectorAll("[data-bk-prop-name]").forEach((el) => (el.oninput = () => {
+      const b = bkData();
+      if (b) { bl.editProp(b, el.dataset.bkPropName, { name: el.value }); ctx.persist(); }
+    }));
+    root.querySelectorAll("[data-bk-lens]").forEach((sel) => (sel.onchange = () =>
+      write((b) => bl.setCamera(b, sel.dataset.bkLens, { lens: Number(sel.value) }))));
+    root.querySelectorAll("[data-bk-num]").forEach((el) => (el.onchange = () => {
+      const v = Number(el.value);
+      const key = el.dataset.bkNum;
+      write((b) => {
+        if (key === "stage") bl.setStage(b, v);
+        else if (key === "duration") bl.setDuration(b, v);
+        else if (key === "cam.from.y") bl.setCamera(b, "from", { y: v });
+        else if (key === "cam.to.y") bl.setCamera(b, "to", { y: v });
+      });
+    }));
+    root.querySelectorAll("[data-bk-open-take]").forEach((b2) => (b2.onclick = () => {
+      setModule("assets");
+    }));
+    void id;
+  }
+
   function convMode() {
     return ui.convMode === "feedback" ? "feedback" : "work";
   }
@@ -2628,6 +2866,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // is active and expands it; it never changes workspace. The row used to also
     // navigate, which made 「看一下 EP02」 indistinguishable from 「开始做 EP02」.
     bindStoryWork(root);
+    bindBlocking(root, getCtx());
     root.querySelectorAll("[data-ep-choose]").forEach((b) => (b.onclick = () => selectEpisode(b.dataset.epChoose)));
     // cross-module jumps (empty states, director) — EVERY [data-goto] wires
     root.querySelectorAll("[data-goto]").forEach((j) => (j.onclick = () => setModule(j.dataset.goto)));

@@ -328,7 +328,10 @@ export const PAGE_SECTIONS = Object.freeze({
   episodes: ["plan", "cast", "places"],
   settings: ["characters", "relationships", "world"],
   board: ["overview"],
-  storyboard: ["scenes", "shots"],
+  // ⑦ 分镜设计的第三个分区：3D 导演台（TASK-123 / ADR-0094 决策 1）。
+  // 场景 → 分镜 → 白膜：同一页里从「有哪些场景」到「这一镜怎么拍」，
+  // 白膜是最后那一步的立体表达。闭集守卫（PAGES.length === 11）一字不动。
+  storyboard: ["scenes", "shots", "blocking"],
   // the four steps of §1.3, in order
   shotwork: ["prepare", "image", "video", "pick"],
   cutreview: ["review"],
@@ -421,7 +424,7 @@ export const SECTION_LABEL = {
   plan: "结构表", cast: "角色设计", places: "场景设计",
   characters: "人物", relationships: "人物关系", world: "世界观",
   overview: "本集总览",
-  scenes: "场景", shots: "分镜",
+  scenes: "场景", shots: "分镜", blocking: "3D 导演台",
   prepare: "① 准备输入", image: "② 制作主画面", video: "③ 制作视频", pick: "④ 对比候选并选定",
   review: "整集连播与问题标记",
   timeline: "时间线与粗剪调整", voice: "配音", ambience: "环境音 / 音效 / 音乐",

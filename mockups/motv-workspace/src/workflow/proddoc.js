@@ -31,6 +31,28 @@ import {
   defaultWorld, defaultCanon, defaultBeats, defaultBasedOn,
 } from "./canondoc.js";
 import { defaultShotProduction, sanitizeShotProduction } from "./shotprod.js";
+import { createBlocking } from "./blocking.js";
+
+/** shotId → 白膜（TASK-123 / ADR-0094）。形状不对的丢掉；`__proto__` 这类名字
+ *  留成**自有键**，与这份文档里其它按 shotId 索引的表同一条纪律。 */
+function sanitizeBlockingMap(saved) {
+  // 与这份文档里其它按 shotId 索引的表一样用普通对象： 这类名字由
+  // 下面的  落成**自有键**，而不是靠换原型（换了原型，
+  // 序列化的往返比较就会因为原型不同而不等 —— proddoc 的守卫当场抓到）。
+  const out = {};
+  if (saved == null || typeof saved !== "object" || Array.isArray(saved)) return out;
+  for (const key of Object.keys(saved)) {
+    const v = saved[key];
+    if (v == null || typeof v !== "object" || Array.isArray(v)) continue;
+    Object.defineProperty(out, key, {
+      value: createBlocking(v),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return out;
+}
 
 const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
 const nonEmpty = (x) => typeof x === "string" && x !== "";
@@ -57,6 +79,9 @@ function defaultProduction() {
     // CP4 shot production state: review approvals + shared Reference bindings,
     // keyed by creativeShotId (see workflow/shotprod.js)
     shotProduction: defaultShotProduction(),
+    // 每一镜的白膜（TASK-123 / ADR-0094）：shotId → blocking。
+    // 字节不在这里 —— 录出来的视频走既有的资产登记（决策 4）。
+    blocking: {},
   };
 }
 
@@ -157,6 +182,7 @@ export function createProduction(saved) {
     world: sanitizeWorld(saved.world),
     canon: sanitizeCanon(saved.canon),
     shotProduction: sanitizeShotProduction(saved.shotProduction),
+    blocking: sanitizeBlockingMap(saved.blocking),
   };
 }
 
@@ -244,6 +270,7 @@ export function serialize(prod) {
     world: prod.world,
     canon: prod.canon,
     shotProduction: prod.shotProduction,
+    blocking: prod.blocking,
   };
 }
 

@@ -58,6 +58,9 @@ test("createProduction: persisted ids survive verbatim (never re-minted)", () =>
     // ADR-0073 决策 8 adds `stages` — the ONLY persisted stage decision is 「跳过」,
     // and it round-trips like everything else here.
     shotProduction: { reviews: {}, references: {}, stages: {}, stageReviews: {} },
+    // 加法字段（TASK-123 / ADR-0094）：每一镜的白膜。空表是真实状态 ——
+    // 「这个项目还没做过白膜」，不是缺失。
+    blocking: {},
   };
   const p = pd.createProduction(structuredClone(saved));
   assert.deepEqual(pd.serialize(p), saved);
