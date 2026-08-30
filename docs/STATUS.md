@@ -19,7 +19,7 @@
 | `docs/reports/` | 阶段性工作报告 —— **历史证据**，默认不读 |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：6 在办 · 2 待排期 · 115 已完成 · 75 条 ADR。
+**当前**：7 在办 · 2 待排期 · 115 已完成 · 76 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -48,6 +48,7 @@
 | [TASK-087-followup-ledger.md](tasks/active/TASK-087-followup-ledger.md) | TASK-087：Follow-up 总账 —— 把散在九张卡里的欠账收成一处 | 活账（不是一次性交付 |
 | [TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md](tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) | TASK-106：前端接上 run_id 路径 —— 并由此退役同步分支与 /api/agent/ | 待开始（分析已完成，见 §1 |
 | [TASK-121-proposals-you-can-actually-see.md](tasks/active/TASK-121-proposals-you-can-actually-see.md) | TASK-121：方案要看得见、答过的不再问、发送后不跳回顶部 | 进行中（2026-08-30） |
+| [TASK-122-story-development-four-entries.md](tasks/active/TASK-122-story-development-four-entries.md) | TASK-122：Story Development 按他的规格重构 —— 四个入口 | 进行中（2026-08-30，第 1–2 步已落地） |
 
 ## 在办 · 设计与验收文档
 
@@ -224,7 +225,7 @@
 | 位置 | 放什么 |
 | --- | --- |
 | [当前架构合同](current-architecture.md) | **现在**成立的边界与约束（NOW） |
-| [`docs/adr/`](adr/) | 75 条决策记录（ADR-0001 … ADR-0091）—— WHY / HISTORY |
+| [`docs/adr/`](adr/) | 76 条决策记录（ADR-0001 … ADR-0092）—— WHY / HISTORY |
 | [`docs/design/`](design/) 根 | 系统合同、产品信息架构、L0–S7 I/O 合同 |
 | [项目背景与路线](project-context.md) | 这个项目是什么、走到哪了 |
 | [实施规划](implementation_plan.md) | 阶段与里程碑路线图 |

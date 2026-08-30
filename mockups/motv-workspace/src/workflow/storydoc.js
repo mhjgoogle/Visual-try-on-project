@@ -24,6 +24,8 @@
 
 import { basedOnOrNull, mintId } from "./identity.js";
 
+import { createWork, serializeWork } from "./storywork.js";
+
 const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
 const str = (x) => (typeof x === "string" ? x : "");
 // kept VERBATIM (no trims/caps): hydration must be lossless for persisted
@@ -513,6 +515,9 @@ function sanitizePlans(list) {
 export function createStory(saved) {
   const doc = {
     idea: "",
+    // TASK-122：Story Development 的新结构（形态 / 大纲节点 / 结构规划 / 章集正文 /
+    // 定稿历史）。与上面那三样**并存**，不就地改写它们 —— 迁移是加法（第 13 条）。
+    work: createWork(isObj(saved) ? saved.work : null),
     // Creative Brief (TASK-057): working draft + append-only revision chain
     brief: createBrief(null),
     versions: [],
@@ -572,6 +577,7 @@ export function serialize(doc) {
     activePlan: doc.activePlan,
     confirmedPlan: doc.confirmedPlan,
     planDrafts: doc.planDrafts,
+    work: serializeWork(doc.work),
   };
 }
 

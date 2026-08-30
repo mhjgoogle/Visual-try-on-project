@@ -4003,7 +4003,7 @@ const ctx = {
         case "removeRelationship":
           return bool(
             ctx.canon.removeRelationship(a.relationshipId),
-            "仍有剧集记录了这段关系的推进：先在「分集规划」移除该集的 Relationship Beat",
+            "仍有剧集记录了这段关系的推进：先在「结构规划」移除该集的 Relationship Beat",
           );
         case "swapRelationshipDirection":
           return bool(ctx.canon.swapDirection(a.relationshipId), "这段关系不存在");

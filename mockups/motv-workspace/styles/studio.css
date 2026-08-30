@@ -2110,3 +2110,19 @@
 .sb-recycle { margin-top: var(--s2); font-size: var(--t-micro); color: var(--text-dim); }
 .sb-recycle ul { list-style: none; margin: var(--s1) 0 0; padding: 0; display: grid; gap: var(--s1); }
 .sb-recycle li { display: flex; align-items: center; justify-content: space-between; gap: var(--s1); }
+
+/* 页内选集器（ADR-0092 决策 4）：默认一行，只显示当前那一集；点开才列全部。
+   12 行平铺在左栏正是他指着说 busy 的东西，所以这里的默认状态是**收起**。 */
+.ep-pick { margin: 0 0 var(--s3); }
+.ep-pick-cur {
+  display: flex; align-items: center; gap: var(--s2); width: 100%;
+  padding: var(--s2) var(--s3); border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--panel-2); color: var(--text); font: inherit; cursor: pointer;
+}
+.ep-pick-cur:hover { border-color: var(--line-2); }
+.ep-pick-cur .nm { font-weight: 600; }
+.ep-pick-cur .meta { margin-left: auto; color: var(--text-faint); font-size: var(--t-micro); }
+.ep-pick-list {
+  margin-top: var(--s1); border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--panel-2); max-height: 320px; overflow-y: auto; padding: var(--s1);
+}

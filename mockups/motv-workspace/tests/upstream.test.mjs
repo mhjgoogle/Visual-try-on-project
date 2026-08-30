@@ -1451,16 +1451,26 @@ test("the demo seed produces a document that VALIDATES at the current schema", a
 /* Information architecture                                                  */
 /* ========================================================================= */
 
-test("IA: 故事开发's rail ends at 分集规划; the script begins 剧集制作", () => {
+test("IA: 故事开发 是四个入口，正文创作是第四个（ADR-0092）", () => {
   assert.deepEqual(NAV.map((g) => g.sec), ["故事开发"]);
   // TASK-073 §1.1: 人物 / 人物关系 / 世界观 became three SECTIONS of ③ 作品设定 — see
   // the same assertion in tests/workspaces.test.mjs for why this shrank again.
   // TASK-091 §1.1 / 图一: 本集剧本 MOVED into 剧集制作 — writing the script is the first
   // thing that space does. The forward chain 创意 → 大纲 → 分集规划 → 本集剧本 is
   // unchanged as a PIPELINE; what moved is which space owns the last link.
+  // **规则又变了一次**（ADR-0092）：产品负责人 2026-08-30 —— 「左侧一级导航严格只有
+  // 4 个：故事核心 / 故事大纲 / 结构规划 / 正文创作」「不把 Chapter / Episode 放进
+  // 全局左栏」。所以 `script` 搬回故事开发当第四行，`settings` 收起来（页面与地址
+  // 都在，只是不画），分集行进了页内选集器。**成员集合一个不多一个不少** ——
+  // ADR-0066 决策 10 冻的是闭集，不是分组。
   assert.deepEqual(NAV[0].items.map((i) => i[0]), [
-    "brief", "story", "episodes", "settings",
+    "brief", "story", "episodes", "script", "settings",
   ]);
+  assert.deepEqual(
+    NAV[0].items.filter((i) => !(i[3] && i[3].hidden)).map((i) => i[0]),
+    ["brief", "story", "episodes", "script"],
+    "左栏严格四个入口",
+  );
   // ADR-0061 决策 1 AND 产品负责人 2026-08-17 — two claims about two different things,
   // which is why both can hold at once (TASK-094 批次 F1):
   //
@@ -1474,11 +1484,13 @@ test("IA: 故事开发's rail ends at 分集规划; the script begins 剧集制�
   // So: the script is the last PRODUCING step, and 作品设定 sits after it as the
   // 核对面 it became.
   const items = NAV[0].items.map((i) => i[0]);
-  assert.equal(items[items.length - 1], "settings", "作品设定 在最后（产品负责人拍板）");
-  // 生产链**作为链**仍然止于本集剧本，但那一步的**归属空间**已经移到剧集制作
-  // （TASK-091 §1.1 / 图一）。所以这条断言现在只覆盖 故事开发 这一侧的三步。
+  // `settings` 仍排在集合末尾，但**已经不画在左栏**（ADR-0092 决策 3）
+  assert.equal(items[items.length - 1], "settings", "作品设定 仍在集合末尾");
+  assert.ok(NAV[0].items.at(-1)[3] && NAV[0].items.at(-1)[3].hidden, "它不再占左栏一行");
+  // 生产链**整条**回到了故事开发（ADR-0092 决策 2）：创意 → 大纲 → 结构规划 → 正文创作。
+  // 2026-08-30 的规格把「正文创作」列为第四项，覆盖了 TASK-091 §1.1 的归属安排。
   assert.deepEqual(items.filter((k) => k !== "settings"),
-    ["brief", "story", "episodes"], "故事开发这一侧止于分集规划");
+    ["brief", "story", "episodes", "script"], "四步链，正文创作是最后一步");
   // the media stages are NOT in the story rail; they belong to 剧集制作
   for (const k of ["frames", "video", "audio", "dailies"]) {
     assert.ok(!NAV.some((g) => g.items.some((i) => i[0] === k)));
@@ -1487,7 +1499,9 @@ test("IA: 故事开发's rail ends at 分集规划; the script begins 剧集制�
   // 剧集制作 is SIX rows now — 本集剧本 joined at the front (TASK-091 §1.1). Still the
   // same eleven PAGES: the row moved out of 故事开发, it was not added.
   const epKeys = EPISODE_NAV.map((i) => i[0]);
-  assert.deepEqual(epKeys, ["script", "board", "storyboard", "shotwork", "cutreview", "delivery"]);
+  // `script` 搬回故事开发（ADR-0092 决策 2）——剧集制作从「本集看板」开始，
+  // **五个页面一个没少**，它失去的只是一个入口位置。
+  assert.deepEqual(epKeys, ["board", "storyboard", "shotwork", "cutreview", "delivery"]);
   for (const k of ["workbench", "scenes", "shots", "frames", "video", "audio", "dailies", "provenance"]) {
     assert.ok(EPISODE_MODULES.includes(k), `${k} must stay addressable in 剧集制作`);
   }

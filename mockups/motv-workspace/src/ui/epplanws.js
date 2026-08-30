@@ -750,7 +750,7 @@ function countLine(m) {
 export function renderEpPlanWs(ctx, ui) {
   const pd = ctx.prodData();
   const em = episodesModel(pd);
-  if (em.empty) return head("分集规划", "项目级") + empty("📺", "剧集结构不可用", "生产域文档未加载。");
+  if (em.empty) return head("结构规划", "项目级") + empty("📺", "剧集结构不可用", "生产域文档未加载。");
   const m = episodePlanModel(pd, ctx.story.doc(), (id) => ctx.canon.impact(id));
 
   const table = m.rows.length
@@ -762,13 +762,13 @@ export function renderEpPlanWs(ctx, ui) {
     // thing to do, and 「让 AI 规划」 lives in the panel above — so this states the
     // situation instead of drawing a grid of blank cells to fill in by hand.
     : notRunYet(
-        "还没有分集规划",
+        "还没有结构规划",
         "AI 会按已批准的故事大纲规划逐集：集数 / 标题、本集核心目标、主要剧情、角色推进、信息揭示、情绪曲线、结尾钩子。上面「生成剧集规划提案」跑一次，这里就是一张可以逐格修改的表。",
       );
 
   return (
     head(
-      "分集规划",
+      "结构规划",
       `AI 写好、你逐格改${m.planVersion ? ` · 规划 v${m.planVersion} 已确认` : " · 还没有确认的版本"}`,
     ) +
     renderPlanPanel(ctx, em) +

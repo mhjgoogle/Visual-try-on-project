@@ -24,38 +24,35 @@ export const NAV = [
   {
     sec: "故事开发",
     items: [
-      // TASK-073 §1.1 / IA §1–§2: the FIXED set — 三空间 / 十一页. This space holds
-      // five of the eleven. 人物 / 人物关系 / 世界观 collapse into ONE page (③ 作品
-      // 设定) whose sections they become; every old key still resolves, through
-      // `resolveModule` rather than through a rail row of its own.
-      ["brief", "💡", "项目与创意"],
+      // TASK-122 第 2 步 —— 产品负责人 2026-08-30 的规格：
+      //
+      //   「左侧一级导航严格只有 4 个：故事核心 / 故事大纲 / 结构规划 / 正文创作」
+      //   「不新增一级页面。不新增一级 Tab。不把 Chapter / Episode 放进全局左栏。」
+      //
+      // 所以这是**改名 + 重组**，不是新页：成员集合仍是那十一个（`PAGES.length === 11`
+      // 那条冻结守卫照旧成立），只是这一组列出四行、`settings` 不再占一行。
+      //
+      // 每个键的**地址与历史链接一字未动**（TASK-086 给每个键的稳定地址）：
+      //   brief    → 故事核心   （立意/主角/冲突/世界规则/人物关系都在这一篇里写）
+      //   story    → 故事大纲   （结构化文本 + 稳定 Outline Node ID）
+      //   episodes → 结构规划   （固定九列的表，引用大纲节点）
+      //   script   → 正文创作   （先选小说/剧集；章/集用页内选择器，不进左栏）
+      //
+      // `script` 从「剧集制作」搬回这里，是因为他这次的规格把「正文创作」放在故事开发
+      // 的第四位。TASK-091 当初把它移出去（「剧集制作开始的时候…写剧本」）是更早的
+      // 产品决定，被这一条覆盖；剧集制作仍有看板/分镜/镜头制作/粗剪/交付五页。
+      //
+      // `settings`（人物 / 人物关系 / 世界观）**不再占左栏一行**：他要「其余次级项收起
+      // 或移除」。页面与地址都还在，第 3 步把它的内容并进「故事核心」——在那之前它仍
+      // 可从地址与既有跳转到达，不会有任何东西变得够不着。
+      ["brief", "💡", "故事核心"],
       ["story", "📖", "故事大纲"],
-      ["episodes", "📺", "分集规划"],
-      // 「本集剧本」 MOVED TO 剧集制作 (TASK-091 §1.1, confirmed by the owner's 图一:
-      // 「剧集制作开始的时候按照图一。写剧本」). It is the FIRST thing that space does,
-      // and it was sitting in 故事开发 where the creator had already left for production.
-      //
-      // ONLY THE SPACE MOVED. The member set of PAGES is byte-identical, so the frozen
-      // `PAGES.length === 11` guard (ADR-0066 决策 10) still holds; `spaceOf` and
-      // `crumbScope` both derive from EPISODE_NAV, so moving the row is the whole
-      // change — no address, no history key and no alias is touched (TASK-086 gave
-      // every key a stable address).
-      // 作品设定 IS LAST, and that is a product decision this card executes
-      // (产品负责人 2026-08-17, TASK-090 §0 / §2.1):
-      //
-      //   「作品设定的内容不应该在故事开发的时候准备。人物关系应该是随着剧情推进有
-      //     变化的。所以可能要放故事开发的最后。」
-      //
-      // It sat THIRD, i.e. before any script existed to derive it from — which is
-      // why it read as an empty form to fill in by hand. Derived content belongs
-      // after the thing it is derived from.
-      //
-      // ONLY THE ORDER MOVED. The member set is untouched, so the frozen
-      // `PAGES.length === 11` guard still holds; `resolveModule`, every address and
-      // every history key are unchanged (TASK-086 gave each key a stable address).
-      // The order assertion in `workspaces.test.mjs` is updated as part of this
-      // card because THE RULE CHANGED — not to make a test pass.
-      ["settings", "🎭", "作品设定"],
+      ["episodes", "🧱", "结构规划"],
+      ["script", "✍️", "正文创作"],
+      // 页面还在、地址还在，**只是不画在左栏**（`hidden`）。整条集合仍是十一个，
+      // 那条冻结守卫照旧成立；人物 / 人物关系 / 世界观一格都没变得够不着 ——
+      // 第 3 步把它们并进「故事核心」之后，这一行才真正没有存在的必要。
+      ["settings", "🎭", "作品设定", { hidden: true }],
     ],
   },
 ];
@@ -87,10 +84,10 @@ export const EPISODE_DEFAULT = "board";
  *  Nothing was deleted. 参考 / Prompt / 生成 / 画面 / 视频 / 音频 / 审片 all keep
  *  their full workspace AND gained a node entrance. */
 export const EPISODE_NAV = [
-  // 剧集制作 STARTS AT THE SCRIPT (图一). The owner's own sequence is
-  // 「写剧本 → 脚本生成器自动生成分镜 → …」, so the script is this space's first row
-  // rather than 故事开发's last.
-  ["script", "📄", "本集剧本"],
+  // TASK-122 第 2 步：`script` 搬回「故事开发」当第四行「正文创作」（产品负责人
+  // 2026-08-30 的规格）。TASK-091 当初把它放在这里的理由（「剧集制作开始的时候…写
+  // 剧本」）是更早的产品决定，被这一条覆盖 —— **只是换了 space，页面没删**，
+  // 成员集合与 `PAGES.length === 11` 不变。
   // TASK-073 §1.1: FIVE pages, down from eleven same-level tabs. This is a
   // regrouping, NOT a removal — every capability behind the old eleven keys is
   // still reachable, as a SECTION of one of these five (see MODULE_ALIAS). What
@@ -533,6 +530,9 @@ export function crumbScope(module, section) {
     return section === "shots" ? "shot" : "episode";
   }
   if (SHOT_SCOPED_MODULES.includes(module)) return "shot";
+  // 正文创作住在故事开发（ADR-0092 决策 2），但它**仍然是按章/集写的** ——
+  // 面包屑不能因为换了 space 就退成项目级，否则「我在写第几章」这件事从屏幕上消失。
+  if (module === "script") return "episode";
   if (EPISODE_MODULES.includes(module)) return "episode";
   const alias = MODULE_ALIAS[module];
   if (alias && EPISODE_MODULES.includes(alias[0])) {
@@ -557,6 +557,8 @@ export function renderRail({ activeModule, badges, episodes, ratios, upstream })
   let sub = null;
   const upstreamHtml = NAV.map((grp) => {
     const rows = grp.items
+      // `hidden` 的行不画：它仍是一个页面（地址可达、内容不丢），只是不占左栏
+      .filter((it) => !(it[3] && it[3].hidden))
       .map((it) => {
         const under = it[3] && it[3].under ? it[3].under : null;
         let head = "";
@@ -580,7 +582,14 @@ export function renderRail({ activeModule, badges, episodes, ratios, upstream })
   // and the top bar then disagreed about where they were.
   //
   // No production stage is nested here: 剧集制作 is a space, not a sub-tree.
-  const epRows = episodes.length
+  const epRows = railEpisodeRows({ episodes, upstream });
+  void epRows;
+  return upstreamHtml;
+}
+
+/** 一集一行（选中的那一行下面挂「进入剧集制作 →」）。 */
+function railEpisodeRows({ episodes = [], upstream }) {
+  return episodes.length
     ? episodes
         .map((e) => {
           const flag = upstream && upstream[e.episodeId]
@@ -589,7 +598,7 @@ export function renderRail({ activeModule, badges, episodes, ratios, upstream })
           return (
             `<button class="st-navitem st-eprow${e.active ? " on" : ""}" data-ep-choose="${esc(e.episodeId)}" ` +
             `title="${esc(e.title)} — 选中并展开这一集（不会离开故事开发）">` +
-            `<span class="ic">${e.active ? "▾" : "▸"}</span><span class="nm">${esc(e.code)} ${esc(e.title)}</span>${flag}</button>` +
+            `<span class="ic">${e.active ? "▾" : "▸"}</span><span class="nm">${esc(e.code)} ${esc(episodeTitleBeside(e.code, e.title))}</span>${flag}</button>` +
             (e.active
               ? `<button class="st-navitem st-subitem st-epexit" data-ep-produce="${esc(e.episodeId)}" ` +
                 `title="带着 ${esc(e.code)} 切换到「剧集制作」">` +
@@ -600,11 +609,18 @@ export function renderRail({ activeModule, badges, episodes, ratios, upstream })
         .join("")
     : `<div class="st-railnote">还没有剧集 — 在「分集规划」确认规划后建立</div>`;
 
-  return (
-    upstreamHtml +
-    `<div class="st-railsec">Episodes</div>` +
-    epRows
-  );
+  // TASK-122 第 2 步 —— 产品负责人 2026-08-30：「不把 Chapter / Episode 放进全局左栏」
+  // 「左侧一级导航严格只有 4 个」。所以这一排不再画在左栏；选集器进页面（`epPicker`），
+  // 「进入剧集制作 →」跟着它走。
+  //
+  // `epRows` 仍然算出来并导出，因为页内选集器要的就是同一份数据 —— 一份来源，
+  // 两个位置，不会出现「左栏说 EP02、页面说 EP01」。
+  return upstreamHtml;
+}
+
+/** 页内选集器要的那份行（与旧左栏同一份数据，只是画在别处）。 */
+export function episodeRows(args) {
+  return railEpisodeRows(args);
 }
 
 /** The 资产库 rail. Media categories only — no production navigation, which is

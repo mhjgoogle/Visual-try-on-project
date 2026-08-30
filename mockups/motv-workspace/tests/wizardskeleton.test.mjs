@@ -176,11 +176,18 @@ test("向导说清自己到哪儿为止 —— 配音 / 剪辑 / 质检不在里
 /* 5. 剧本搬入剧集制作 —— 成员集合不变                                         */
 /* ========================================================================= */
 
-test("本集剧本归剧集制作，且是它的第一行", () => {
-  assert.equal(spaceOf("script"), "episode");
-  assert.equal(crumbScope("script", null), "episode", "面包屑改成集级");
-  assert.equal(EPISODE_NAV[0][0], "script");
-  assert.equal(NAV[0].items.some(([k]) => k === "script"), false, "它离开了故事开发的 rail");
+test("本集剧本回到故事开发，作为第四个入口「正文创作」（ADR-0092 决策 2）", () => {
+  // 它**回来了**（ADR-0092 决策 2）：产品负责人 2026-08-30 把「正文创作」列为故事开发的
+  // 第四项。旧规则（TASK-091 §1.1「剧集制作开始的时候…写剧本」）是更早的产品决定。
+  assert.equal(spaceOf("script"), "story");
+  // 仍然是**集级**：一集有一集的正文，面包屑不能退回项目级
+  assert.equal(crumbScope("script", null), "episode", "正文仍按集/章走");
+  assert.equal(EPISODE_NAV[0][0], "board", "剧集制作现在从本集看板开始");
+  assert.equal(
+    NAV[0].items.filter((i) => !(i[3] && i[3].hidden)).map((i) => i[0])[3],
+    "script",
+    "它是故事开发左栏的第四行",
+  );
 });
 
 test("**只是换了空间**：十一页的成员集合一个不多一个不少", () => {

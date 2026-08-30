@@ -99,6 +99,7 @@ import { renderShotQc, bindShotQc, shotQcModel } from "./shotqcpanel.js";
 import {
   NAV, EPISODE_MODULES, EPISODE_DEFAULT, LEGACY_EPISODE_CENTRE, MODULE_LABEL, SPACE_LABEL, spaceOf,
   renderRail, renderAssetRail, renderCrumb, episodeLabels, episodeTitleBeside, head, episodeEntryModule,
+  episodeRows,
   // TASK-073 §1.1: the fixed page set, the old-key resolver and the section tables
   resolveModule, PAGE_SECTIONS, SECTION_LABEL, PROJECT_SETTINGS, empty,
   // TASK-077: the 剧集制作 rail, the honest missing-media box and the crumb scope rule
@@ -650,7 +651,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       ? (story.plans.find((p) => p.v === story.confirmedPlan) || { episodes: [] }).episodes.some((e) => e.episodeId === (ep && ep.episodeId))
       : false;
     const hint = !st.versions && !ctx.script.hasContent() && !planned
-      ? `<div class="chip gate">建议先在「故事」批准大纲 → 在「剧集」确认分集规划</div>`
+      ? `<div class="chip gate">建议先在「故事」批准大纲 → 在「剧集」确认结构规划</div>`
       : "";
     return (
       head(ep ? ep.title : "当前剧集", "按集剧本 · 应用修订 = 创建新版本，旧版本保留", vbar + hint) +
@@ -823,7 +824,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // opens 人物 on the relationship tab; this entry is what it renders.
     relationships: (ctx) => renderBibleWs(ctx, ui),
     world: (ctx) => renderWorldWs(ctx, ui),
-    episodes: (ctx) => renderEpPlanWs(ctx, ui),
+    episodes: (ctx) => epPicker(ctx) + renderEpPlanWs(ctx, ui),
 
     // --- TASK-073 §1.1/§1.2: the FIVE 剧集制作 pages ------------------------ //
     //
@@ -1710,6 +1711,32 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
   }
 
   /** 当前是哪个窗口。默认「作品」—— 他绝大多数话是要改东西的。 */
+  /** 页内选集器（TASK-122 第 2 步 / ADR-0092 决策 4）。
+   *
+   *  分集不再进全局左栏（产品负责人 2026-08-30:「不把 Chapter / Episode 放进全局左栏」）。
+   *  这里用的是**左栏原来那一份数据**（`shell.episodeRows`），所以不会出现「左栏说
+   *  EP02、页面说 EP01」；行为也照旧：选一集不离开当前页，「进入剧集制作 →」才换 space。
+   *
+   *  折叠成一行：默认只显示当前那一集，点开才列全部 —— 他要的是「简约」，
+   *  而 12 行平铺正是他指着说 busy 的东西。 */
+  function epPicker(ctx) {
+    const pd = ctx.prodData();
+    const eps = episodeLabels(pd.production);
+    if (!eps.length) return "";
+    const cur = eps.find((e) => e.active) || eps[0];
+    const open = !!ui.epPickerOpen;
+    return (
+      `<div class="ep-pick${open ? " open" : ""}">` +
+      `<button class="ep-pick-cur" data-ep-toggle="1" aria-expanded="${open}" ` +
+      `title="切换分集（不会离开这一页）">` +
+      `<span class="ic">${open ? "▾" : "▸"}</span>` +
+      `<span class="nm">${esc(cur.code)} ${esc(episodeTitleBeside(cur.code, cur.title))}</span>` +
+      `<span class="meta">共 ${eps.length} 集</span></button>` +
+      (open ? `<div class="ep-pick-list">${episodeRows({ episodes: eps })}</div>` : "") +
+      `</div>`
+    );
+  }
+
   function convMode() {
     return ui.convMode === "feedback" ? "feedback" : "work";
   }
@@ -2012,7 +2039,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       // 这件事的稳定身份**必须一路带到 startRun**，否则 `hasOriginKey` 永远查不到
       // 东西，「只跑一次」就只剩 `ui.convSuggested` 那半条 —— 刷新一次就没了。
       key: trigger.key,
-      text: `${trigger.root.doc === "brief" ? "创意" : trigger.root.doc === "outline" ? "大纲" : "分集规划"}` +
+      text: `${trigger.root.doc === "brief" ? "创意" : trigger.root.doc === "outline" ? "大纲" : "结构规划"}` +
         ` v${trigger.root.version} 落下之后，下游的${trigger.affects.length}层可能还停在旧的上面`,
     };
     // 重画。这是发送那条链的**最后一步**，后面没有别的东西会重画 —— 少了这一句，
@@ -2362,7 +2389,14 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // episode rows in the 故事开发 rail — SELECT ONLY. A row switches which episode
     // is active and expands it; it never changes workspace. The row used to also
     // navigate, which made 「看一下 EP02」 indistinguishable from 「开始做 EP02」.
-    root.querySelectorAll("[data-ep-choose]").forEach((b) => (b.onclick = () => selectEpisode(b.dataset.epChoose)));
+    root.querySelectorAll("[data-ep-toggle]").forEach((b) => (b.onclick = () => {
+      ui.epPickerOpen = !ui.epPickerOpen;
+      render();
+    }));
+    root.querySelectorAll("[data-ep-choose]").forEach((b) => (b.onclick = () => {
+      ui.epPickerOpen = false; // 选完就收起来 —— 他要的是默认只看见当前那一集
+      selectEpisode(b.dataset.epChoose);
+    }));
     // cross-module jumps (empty states, director) — EVERY [data-goto] wires
     root.querySelectorAll("[data-goto]").forEach((j) => (j.onclick = () => setModule(j.dataset.goto)));
     if (activeModule === "brief") bindBriefWs(root, ctx, ui, render);

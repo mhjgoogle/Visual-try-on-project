@@ -47,17 +47,19 @@ function ctxFor(prod, runs = [], onRun = null) {
 
 // --- §2.1 位置 -------------------------------------------------------------- //
 
-test("作品设定 is LAST in 故事开发, and the page set did not change", () => {
+test("作品设定 退出左栏，但仍是十一页之一（ADR-0092 决策 3）", () => {
+  // **规则变了，不是测试变绿**。产品负责人 2026-08-30：「左侧一级导航严格只有 4 个」
+  // 「其余次级项收起或移除」。这里选了**收起**：页面、地址、既有跳转全部保留，
+  // 只是不画在左栏（NAV 项上的 `hidden`）——所以人物 / 关系 / 世界观一格都没变得够不着。
+  //
+  // 旧规则的出处留在这里备查：TASK-090 §2.1「作品设定的内容不应该在故事开发的时候
+  // 准备…放故事开发的最后」——它当时占最后一行，现在一行都不占。
   const keys = NAV[0].items.map((i) => i[0]);
-  assert.equal(keys[keys.length - 1], "settings");
-  // 「不改成员集合 —— 因此不碰 PAGES.length === 11 那条冻结守卫」（TASK-090 §2.1）
+  const drawn = NAV[0].items.filter((i) => !(i[3] && i[3].hidden)).map((i) => i[0]);
+  assert.deepEqual(drawn, ["brief", "story", "episodes", "script"], "左栏严格四个入口");
+  assert.ok(keys.includes("settings"), "作品设定不许从页面集合里消失");
+  // 「不改成员集合 —— 因此不碰 PAGES.length === 11 那条冻结守卫」（ADR-0066 决策 10）
   assert.equal(PAGES.length, 11);
-  assert.deepEqual([...keys].sort(), ["brief", "episodes", "settings", "story"]);
-  // …and the PRODUCING chain in 故事开发 now ends at 分集规划: the script moved into
-  // 剧集制作 (TASK-091 §1.1). 作品设定 is still LAST of this rail, which is the thing
-  // this test owns — 「作品设定的内容不应该在故事开发的时候准备」.
-  assert.deepEqual(keys.filter((k) => k !== "settings"),
-    ["brief", "story", "episodes"]);
 });
 
 // --- §2.3 入口 -------------------------------------------------------------- //

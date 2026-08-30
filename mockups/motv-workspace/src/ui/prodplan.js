@@ -269,7 +269,7 @@ function computeNext({ stages, counts, total, shots, blocked, loose }) {
   }
 
   if (stage.key === "script") {
-    return { key: "script", label: "写本集剧本", detail: "本集还没有可用的剧本版本。", goto: "script", ready: 0, blocked: 0 };
+    return { key: "script", label: "写正文", detail: "本集还没有可用的剧本版本。", goto: "script", ready: 0, blocked: 0 };
   }
   if (stage.key === "bible") {
     const n = stages.find((s) => s.key === "bible");
