@@ -65,6 +65,11 @@ import { inspectFromShotNode } from "../workflow/shotgraph.js";
 import { derivedLabel } from "../workflow/assetreg.js";
 // TASK-066: the five regions of 剧集制作. Each owns ONE question, and the shell is the
 // only thing that knows they are on the same screen.
+import { renderCoreWs, renderOutlineWorkWs } from "./corews.js";
+import { renderPlanWs } from "./planws.js";
+import { renderDraftWs } from "./draftws.js";
+import * as swork from "../workflow/storywork.js";
+import * as storydoc from "../workflow/storydoc.js";
 import { renderShotSelect, bindShotSelect } from "./shotselect.js";
 import { renderShotRefs, bindShotRefs } from "./shotrefs.js";
 import { renderRefSearch, bindRefSearch, searchModel } from "./refsearch.js";
@@ -746,12 +751,12 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
    *  check and the executor probe decide whether the primary action exists at all,
    *  so 「不可用」 always carries the actual reason (IA §6.4). */
   function agentEntrance() {
-    // No 「open」 state any more: the conversation is ALWAYS on screen in the right
-    // column, so this button is a jump to the input box, not a toggle.
-    return (
-      `<button class="ag-open" data-agent-open="1" ` +
-      `title="在右栏的对话框里问它">🤖 询问 Agent</button>`
-    );
+    // 产品负责人 2026-08-30：「最上层的那个询问 agent 不需要了。删了吧。」
+    //
+    // 它当初是「打开对话」的入口（IA §6.1 的两个入口之一）。**对话现在一直在右栏**，
+    // 所以这条横幅只是一个「跳到输入框」的按钮 —— 每一页顶部占一行，去换一次
+    // 本来点右边就能做的事。入口没有少：右栏永远在，卡片上的「让 Agent 处理」也还在。
+    return "";
   }
 
   /** The task rows for the shot being made (TASK-073 §1.3).
@@ -803,8 +808,11 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
 
   const WORKSPACES = {
     // --- 故事开发 (project-level upstream) --------------------------------- //
-    brief: (ctx) => renderBriefWs(ctx, ui),
-    story: (ctx) => renderStoryWs(ctx, ui),
+    // ① 故事核心 / ② 故事大纲（TASK-122 第 3 步）—— 产品负责人 2026-08-30 的规格：
+    // 各自**只有一个编辑器**。旧的字段表单不再画在屏幕上，但它写下的内容**迁进了**
+    // 新编辑器（`seedWork`），所以「不删旧数据」不只是技术上的说法。
+    brief: (ctx) => renderCoreWs(ctx, ui),
+    story: (ctx) => renderOutlineWorkWs(ctx, ui),
     characters: (ctx) => renderBibleWs(ctx, ui),
     // ③ 作品设定 (TASK-073 §1.1) — ONE page whose three sections are the surfaces
     // that used to be three rail rows. `settings` was already this workspace's
@@ -824,7 +832,10 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // opens 人物 on the relationship tab; this entry is what it renders.
     relationships: (ctx) => renderBibleWs(ctx, ui),
     world: (ctx) => renderWorldWs(ctx, ui),
-    episodes: (ctx) => epPicker(ctx) + renderEpPlanWs(ctx, ui),
+    // ③ 结构规划（第 4 步）：他点名的九列表。分集选集器留在页顶 —— 章/集不进左栏。
+    episodes: (ctx) => epPicker(ctx) + renderPlanWs(ctx, ui),
+    // ④ 正文创作（第 5 步）：形态入口 → Planned 数量 → 页内章/集选择器 → 单元视图。
+    script: (ctx) => renderDraftWs(ctx, ui),
 
     // --- TASK-073 §1.1/§1.2: the FIVE 剧集制作 pages ------------------------ //
     //
@@ -999,6 +1010,9 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
 
   function render() {
     const ctx = getCtx();
+    // 第一次画这个项目时把旧结构迁进新模型（只灌一次）—— 一个空编辑器等于把他
+    // 已经写好的东西从屏幕上抹掉，那不叫「旧数据还在」（TASK-122 第 3 步）。
+    try { seedWork(ctx); } catch { /* 迁移失败不许挡住整页 */ }
     const pd = ctx.prodData();
     ensureShotSelection(pd);
     // project-wide badges, with the 本集制作 stages overridden by the episode's
@@ -1045,9 +1059,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // panel in this column, but the one session in the right one.
     const main =
       agentEntrance() +
-      (activeModule === "script"
-        ? scriptMain(ctx)
-        : (WORKSPACES[activeModule] || (() => ""))(ctx));
+      (WORKSPACES[activeModule] || (() => ""))(ctx);
 
     if (space === "episode") {
       // TASK-066 §17 — FIVE REGIONS, each answering ONE question:
@@ -1711,6 +1723,203 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
   }
 
   /** 当前是哪个窗口。默认「作品」—— 他绝大多数话是要改东西的。 */
+
+  /* ===== Story Development 的四页（TASK-122 第 3–6 步）===================== */
+  //
+  // 一处绑定，四页共用。所有写入都落到**正式数据模型**（`story.work`），不是改屏幕上
+  // 的字 —— 他点名过这一条：「Agent 修改的是正式数据模型，不是只修改 UI 展示文本。」
+  // 人手改与 Agent 改因此走的是同一组函数（见 `convactions.js` 的 work.* 动作）。
+
+  /** 旧结构 → 新模型，只灌一次。空编辑器等于把他四版大纲从屏幕上抹掉。 */
+  function seedWork(ctx) {
+    const doc = ctx.story && ctx.story.doc ? ctx.story.doc() : null;
+    if (!doc || !doc.work) return false;
+    const active = storydoc.activeOutline(doc);
+    const fields = active && active.outline ? active.outline : null;
+    const at = new Date().toISOString();
+    let did = false;
+    did = swork.seedCoreFromStory(doc.work, fields, doc.brief && doc.brief.draft, at) || did;
+    did = swork.seedOutlineFromStory(doc.work, fields, at) || did;
+    const eps = ctx.prodData ? (ctx.prodData().production.episodes || []) : [];
+    did = !!swork.seedPlanFromEpisodes(doc.work, eps, at) || did;
+    if (did) ctx.persist();
+    return did;
+  }
+
+  /** 一次写入 + 重画。`quiet` 用于打字：不重画，避免光标跳走。 */
+  function workWrite(fn, quiet) {
+    const ctx = getCtx();
+    const doc = ctx && ctx.story && ctx.story.doc ? ctx.story.doc() : null;
+    if (!doc || !doc.work) return;
+    fn(doc.work, ctx);
+    ctx.persist();
+    if (!quiet) render();
+  }
+
+  /** 这一页要读的那份 work（读路径只有这一条，写路径只有 `workWrite`）。 */
+  function workOf() {
+    const ctx = getCtx();
+    const doc = ctx && ctx.story && ctx.story.doc ? ctx.story.doc() : null;
+    return doc && doc.work ? doc.work : null;
+  }
+
+  function bindStoryWork(root) {
+    const now = () => new Date().toISOString();
+
+    // ① 故事核心 / ② 故事大纲：打字即写进模型（不重画，光标不跳）
+    const core = root.querySelector("[data-core]");
+    if (core) {
+      core.oninput = () => workWrite((k) => { k.core = core.value; }, true);
+    }
+    const outline = root.querySelector("[data-outline]");
+    if (outline) {
+      outline.oninput = () => workWrite((k) => swork.setOutline(k, outline.value), true);
+      // 失焦时重画一次，让节点编号跟上（打字时不重画是为了光标）
+      outline.onblur = () => render();
+    }
+
+    // 定稿 / 历史（core · outline · plan 同一条规矩）
+    root.querySelectorAll("[data-fin]").forEach((b) => (b.onclick = () => {
+      const kind = b.dataset.fin;
+      let rec = null;
+      workWrite((k) => { rec = swork.finalizeDoc(k, kind, now()); });
+      getCtx().toast(rec ? `已存为 v${rec.v}` : "内容没变，没有重复存一版");
+    }));
+    root.querySelectorAll("[data-finhist]").forEach((b) => (b.onclick = () => {
+      const kind = b.dataset.finhist;
+      ui[kind + "Hist"] = !ui[kind + "Hist"];
+      render();
+    }));
+    root.querySelectorAll("[data-finview]").forEach((b) => (b.onclick = () => {
+      const [kind, v] = b.dataset.finview.split(":");
+      const work = workOf();
+      const rec = work && (work.finalized[kind] || []).find((x) => x.v === Number(v));
+      if (rec) { ui[kind + "View"] = rec; render(); }
+    }));
+    root.querySelectorAll("[data-finclose]").forEach((b) => (b.onclick = () => {
+      ui[b.dataset.finclose + "View"] = null;
+      render();
+    }));
+    root.querySelectorAll("[data-finrestore]").forEach((b) => (b.onclick = () => {
+      const [kind, v] = b.dataset.finrestore.split(":");
+      let ok = false;
+      workWrite((k) => { ok = swork.restoreDoc(k, kind, Number(v)); });
+      ui[kind + "View"] = null;
+      getCtx().toast(ok ? `已恢复到 v${v}` : "没能恢复这一版");
+    }));
+    root.querySelectorAll("[data-findel]").forEach((b) => (b.onclick = () => {
+      const [kind, v] = b.dataset.findel.split(":");
+      workWrite((k) => swork.deleteDoc(k, kind, Number(v)));
+      getCtx().toast(`已删除 v${v}（当前内容没有动）`);
+    }));
+
+    // ③ 结构规划
+    root.querySelectorAll("[data-sp-edit]").forEach((el) => (el.oninput = () => {
+      const i = el.dataset.spEdit.lastIndexOf(":");
+      const id = el.dataset.spEdit.slice(0, i);
+      const field = el.dataset.spEdit.slice(i + 1);
+      workWrite((k) => swork.editPlanRow(k, id, field, el.value), true);
+    }));
+    root.querySelectorAll("[data-sp-add]").forEach((b) => (b.onclick = () =>
+      workWrite((k) => swork.addPlanRow(k, now()))));
+    root.querySelectorAll("[data-sp-del]").forEach((b) => (b.onclick = () =>
+      workWrite((k) => swork.hidePlanRow(k, b.dataset.spDel, now()))));
+    root.querySelectorAll("[data-sp-restore]").forEach((b) => (b.onclick = () =>
+      workWrite((k) => swork.restorePlanRow(k, b.dataset.spRestore))));
+    root.querySelectorAll("[data-sp-bin]").forEach((b) => (b.onclick = () => {
+      ui.planBin = !ui.planBin;
+      render();
+    }));
+    root.querySelectorAll("[data-sp-refopen]").forEach((b) => (b.onclick = () => {
+      ui.planRefOpen = ui.planRefOpen === b.dataset.spRefopen ? null : b.dataset.spRefopen;
+      render();
+    }));
+    root.querySelectorAll("[data-sp-ref]").forEach((b) => (b.onclick = () => {
+      const [rowId, nodeId] = b.dataset.spRef.split(":");
+      workWrite((k) => {
+        const row = k.plan.rows.find((r) => r.id === rowId);
+        if (!row) return;
+        const next = row.outlineRefs.includes(nodeId)
+          ? row.outlineRefs.filter((x) => x !== nodeId)
+          : [...row.outlineRefs, nodeId];
+        swork.editPlanRow(k, rowId, "outlineRefs", next);
+      });
+    }));
+    root.querySelectorAll("[data-sp-unref]").forEach((b) => (b.onclick = () => {
+      const [rowId, nodeId] = b.dataset.spUnref.split(":");
+      workWrite((k) => {
+        const row = k.plan.rows.find((r) => r.id === rowId);
+        if (row) swork.editPlanRow(k, rowId, "outlineRefs", row.outlineRefs.filter((x) => x !== nodeId));
+      });
+    }));
+
+    // ④ 正文创作
+    root.querySelectorAll("[data-form]").forEach((b) => (b.onclick = () => {
+      workWrite((k) => swork.setForm(k, b.dataset.form));
+    }));
+    root.querySelectorAll("[data-planned]").forEach((b) => (b.onclick = () => {
+      const d = Number(b.dataset.planned);
+      workWrite((k) => swork.setPlanned(k, k.form, Math.max(0, k.planned[k.form] + d)));
+    }));
+    const pn = root.querySelector("[data-planned-set]");
+    if (pn) {
+      pn.onchange = () => {
+        const v = parseInt(pn.value, 10);
+        workWrite((k) => swork.setPlanned(k, k.form, Number.isFinite(v) ? Math.max(0, v) : k.planned[k.form]));
+      };
+    }
+    root.querySelectorAll("[data-unit]").forEach((b) => (b.onclick = () => {
+      const no = Number(b.dataset.unit);
+      workWrite((k) => swork.ensureUnit(k, k.form, no, now()));
+      ui.unitNo = no;
+      ui.unitHist = false;
+      render();
+    }));
+    root.querySelectorAll("[data-unit-back]").forEach((b) => (b.onclick = () => {
+      ui.unitNo = null;
+      render();
+    }));
+    const body = root.querySelector("[data-unit-body]");
+    if (body) {
+      body.oninput = () => workWrite((k) => swork.editUnit(k, body.dataset.unitBody, "body", body.value, now()), true);
+    }
+    const title = root.querySelector("[data-unit-title]");
+    if (title) {
+      title.oninput = () => workWrite((k) => swork.editUnit(k, title.dataset.unitTitle, "title", title.value, now()), true);
+    }
+    root.querySelectorAll("[data-unit-copy]").forEach((b) => (b.onclick = async () => {
+      const work = workOf();
+      const u = work && work.units.find((x) => x.id === b.dataset.unitCopy);
+      if (!u) return;
+      try {
+        await navigator.clipboard.writeText(u.body || "");
+        getCtx().toast("正文已复制");
+      } catch {
+        // 剪贴板被浏览器挡住时**说出来**，不假装复制成功
+        getCtx().toast("浏览器没允许复制 —— 请手动全选复制");
+      }
+    }));
+    root.querySelectorAll("[data-unit-fin]").forEach((b) => (b.onclick = () => {
+      let rec = null;
+      workWrite((k) => { rec = swork.finalizeUnit(k, b.dataset.unitFin, now()); });
+      getCtx().toast(rec ? `已存为 v${rec.v}` : "内容没变，没有重复存一版");
+    }));
+    root.querySelectorAll("[data-unit-hist]").forEach((b) => (b.onclick = () => {
+      ui.unitHist = !ui.unitHist;
+      render();
+    }));
+    root.querySelectorAll("[data-unit-restore]").forEach((b) => (b.onclick = () => {
+      const [id, v] = b.dataset.unitRestore.split(":");
+      workWrite((k) => swork.restoreFinalized(k, id, Number(v), now()));
+      getCtx().toast(`已恢复到 v${v}`);
+    }));
+    root.querySelectorAll("[data-unit-findel]").forEach((b) => (b.onclick = () => {
+      const [id, v] = b.dataset.unitFindel.split(":");
+      workWrite((k) => swork.deleteFinalized(k, id, Number(v)));
+      getCtx().toast(`已删除 v${v}（当前正文没有动）`);
+    }));
+  }
+
   /** 页内选集器（TASK-122 第 2 步 / ADR-0092 决策 4）。
    *
    *  分集不再进全局左栏（产品负责人 2026-08-30:「不把 Chapter / Episode 放进全局左栏」）。
@@ -2389,6 +2598,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // episode rows in the 故事开发 rail — SELECT ONLY. A row switches which episode
     // is active and expands it; it never changes workspace. The row used to also
     // navigate, which made 「看一下 EP02」 indistinguishable from 「开始做 EP02」.
+    bindStoryWork(root);
     root.querySelectorAll("[data-ep-toggle]").forEach((b) => (b.onclick = () => {
       ui.epPickerOpen = !ui.epPickerOpen;
       render();

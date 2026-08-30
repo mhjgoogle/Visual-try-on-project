@@ -84,6 +84,16 @@ export function setOutline(work, text) {
 
 /* --- 结构规划 --------------------------------------------------------------- */
 
+/** 历史版本记录：形状不对的一律丢，但**已有的一条都不改写**。 */
+function sanitizeFinals(list) {
+  return (Array.isArray(list) ? list : []).filter(isObj).map((r, i) => ({
+    v: int(r.v, 1, 100000) ?? i + 1,
+    at: str(r.at),
+    note: str(r.note).slice(0, 500),
+    body: str(r.body),
+  }));
+}
+
 function sanitizeRow(r, i) {
   const src = isObj(r) ? r : {};
   const row = { id: str(src.id) || mintId("sp", `r${i}`) };
@@ -256,6 +266,17 @@ export function createWork(saved) {
       episode: int(isObj(src.planned) ? src.planned.episode : null, 0, 500) ?? 0,
     },
     units: [],
+    // 哪些内容已经从旧结构迁过来了 —— 只灌一次，之后他自己写的那一份才是权威
+    // 定稿出来的历史版本（四样内容同一条规矩，见 finalizeDoc）
+    finalized: {
+      core: sanitizeFinals(isObj(src.finalized) ? src.finalized.core : null),
+      outline: sanitizeFinals(isObj(src.finalized) ? src.finalized.outline : null),
+      plan: sanitizeFinals(isObj(src.finalized) ? src.finalized.plan : null),
+    },
+    seeded: {
+      core: str(isObj(src.seeded) ? src.seeded.core : ""),
+      outline: str(isObj(src.seeded) ? src.seeded.outline : ""),
+    },
   };
   const nodes = isObj(src.outline) && Array.isArray(src.outline.nodes) ? src.outline.nodes : [];
   work.outline.nodes = nodes.filter(isObj).map((n, i) => ({
@@ -294,6 +315,8 @@ export function serializeWork(work) {
     plan: { rows: work.plan.rows },
     planned: work.planned,
     units: work.units,
+    finalized: work.finalized,
+    seeded: work.seeded,
   };
 }
 
@@ -310,4 +333,177 @@ export function seedPlanFromEpisodes(work, episodes, at) {
     n += 1;
   }
   return n;
+}
+
+/* --- 从旧结构迁进来（加法，不删旧的）--------------------------------------- */
+
+/** 故事核心那一篇的分节顺序 —— 产品负责人 2026-08-30 点名的五样。 */
+export const CORE_SECTIONS = [
+  // 每一节列的是**所有可能承载它的字段**：他这个项目里填的是 `logline` / `themes` /
+  // `characters` / `beats`，另一个项目里可能填的是那八个结构化项。两套都读 ——
+  // 「旧数据还在文档里」但没出现在他眼前的编辑器里，等于没有（真项目上验出来的）。
+  ["立意", ["storyCore", "premise", "logline", "themeAndChange", "themes"]],
+  ["主角", ["protagonist", "characters"]],
+  ["冲突", ["centralConflict", "conflict"]],
+  ["世界规则", ["world", "worldAndRules", "genreTone"]],
+  ["人物关系", ["keyRelationships"]],
+];
+
+/** 常见子键的中文名 —— 迁过来的那一篇要能读，不是一串 `who / initialWant`。 */
+const SUBKEY_LABEL = {
+  who: "谁", initialWant: "最开始想要什么", name: "姓名", role: "角色",
+  want: "他要什么", obstacle: "挡在前面的", external: "外部冲突", internal: "内心冲突",
+  theme: "主题", protagonistBecomes: "最后变成了谁", where: "地点", rules: "规则",
+  nature: "关系", howItChanges: "怎么变的", truth: "真相", revealAround: "何时揭开",
+  setup: "开端", development: "发展", midpointTurn: "中段转折", climax: "高潮", ending: "结局",
+};
+
+const line = (v) => (typeof v === "string" ? v.trim() : "");
+
+/** 把一个大纲字段渲染成人读的文本 —— 结构化的那几个拆成小标题，列表拆成条目。 */
+function fieldText(key, val) {
+  if (typeof val === "string") return line(val);
+  if (Array.isArray(val)) {
+    return val
+      .map((row) =>
+        isObj(row)
+          ? Object.entries(row)
+              .map(([k, v]) => (line(v) ? `${SUBKEY_LABEL[k] || k}：${line(v)}` : ""))
+              .filter(Boolean)
+              .join("；")
+          : line(row),
+      )
+      .filter(Boolean)
+      .map((s) => `- ${s}`)
+      .join("\n");
+  }
+  if (isObj(val)) {
+    return Object.entries(val)
+      .map(([k, v]) => {
+        const body = Array.isArray(v) ? v.map(line).filter(Boolean).join("、") : line(v);
+        return body ? `${SUBKEY_LABEL[k] || k}：${body}` : "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  return "";
+}
+
+/**
+ * 把既有的创意简报 + 大纲版本写成「故事核心」那一篇。
+ *
+ * 为什么要迁：他的规格说故事核心「只使用一个大型文本编辑器」。如果那个编辑器是空的，
+ * 他四版大纲里写下的东西就等于从屏幕上消失了 —— **旧数据一个字不删**（第 13 条），
+ * 但它得**出现在他现在看的那一页里**，否则「不删」只是技术上的说法。
+ *
+ * 只灌一次（`seeded.core`）：之后他自己改的那一篇才是权威，重开一次不许覆盖它。
+ */
+export function seedCoreFromStory(work, outlineFields, brief, at) {
+  if (work.seeded.core) return false;
+  const src = isObj(outlineFields) ? outlineFields : {};
+  const parts = [];
+  for (const [title, keys] of CORE_SECTIONS) {
+    const body = keys.map((k) => fieldText(k, src[k])).filter(Boolean).join("\n");
+    if (body) parts.push(`## ${title}\n${body}`);
+  }
+  const b = isObj(brief) ? brief : {};
+  const meta = [
+    b.genre ? `类型：${line(b.genre)}` : "",
+    b.tone ? `基调：${line(b.tone)}` : "",
+  ].filter(Boolean);
+  if (meta.length) parts.push(`## 基本信息\n${meta.join("\n")}`);
+  work.seeded.core = str(at) || "1";
+  if (!parts.length) return false;
+  work.core = parts.join("\n\n");
+  return true;
+}
+
+/** 大纲主线写成节点化文本（开端 / 发展 / 中段转折 / 高潮 / 结局，顺序即信息）。 */
+export function seedOutlineFromStory(work, outlineFields, at) {
+  if (work.seeded.outline) return false;
+  work.seeded.outline = str(at) || "1";
+  const src = isObj(outlineFields) ? outlineFields : {};
+  const mainline = isObj(src.mainline) ? src.mainline : {};
+  const order = [
+    ["setup", "开端"],
+    ["development", "发展"],
+    ["midpointTurn", "中段转折"],
+    ["climax", "高潮"],
+    ["ending", "结局"],
+  ];
+  const blocks = order
+    .map(([k, label]) => (line(mainline[k]) ? `${label}：${line(mainline[k])}` : ""))
+    .filter(Boolean);
+  const tail = [fieldText("storyArc", src.storyArc), fieldText("ending", src.ending)]
+    .filter(Boolean);
+  // 他这个项目的 mainline 是空壳，真正写下的主线在 `beats` 里 —— 退回去读它，
+  // 一条一个节点（顺序本身就是信息）。
+  const beats = Array.isArray(src.beats) ? src.beats.map(line).filter(Boolean) : [];
+  const text = blocks.length || tail.length
+    ? [...blocks, ...tail].join("\n\n")
+    : beats.join("\n\n");
+  if (!text) return false;
+  setOutline(work, text);
+  return true;
+}
+
+/* --- 定稿（故事核心 / 故事大纲 / 结构规划）--------------------------------- */
+//
+// 产品负责人 2026-08-30 的版本规则不是只管正文：「日常编辑只维护当前最新版。只有用户
+// 主动『定稿/保存版本』时才生成历史版本。默认 UI 只显示当前最新版。历史版本可查看、
+// 恢复、手动删除。」——四样内容同一条规矩，所以这里是**一份实现**，不是四份。
+
+export const DOC_KINDS = ["core", "outline", "plan"];
+
+/** 某一样内容此刻的快照文本（存历史与比较用的**同一个**取值口径）。 */
+export function docSnapshot(work, kind) {
+  if (kind === "core") return work.core;
+  if (kind === "outline") return outlineText(work);
+  if (kind === "plan") return JSON.stringify(visiblePlanRows(work));
+  return null;
+}
+
+/** 存一版。内容没变就不重复存（返回 null）。 */
+export function finalizeDoc(work, kind, at, note = "") {
+  if (!DOC_KINDS.includes(kind)) return null;
+  const body = docSnapshot(work, kind);
+  const list = work.finalized[kind];
+  const last = list[list.length - 1];
+  if (last && last.body === body) return null;
+  const rec = {
+    v: list.length + 1,
+    at: str(at),
+    note: str(note).slice(0, 500),
+    body: typeof body === "string" ? body : "",
+  };
+  list.push(rec);
+  return rec;
+}
+
+/** 恢复到某一版。大纲会**重新解析**，尽量保住还在的节点 id。 */
+export function restoreDoc(work, kind, v) {
+  const rec = (work.finalized[kind] || []).find((x) => x.v === v);
+  if (!rec) return false;
+  if (kind === "core") work.core = rec.body;
+  else if (kind === "outline") setOutline(work, rec.body);
+  else if (kind === "plan") {
+    let rows;
+    try {
+      rows = JSON.parse(rec.body);
+    } catch {
+      return false;
+    }
+    if (!Array.isArray(rows)) return false;
+    work.plan.rows = rows.filter(isObj).map(sanitizeRow);
+  } else return false;
+  return true;
+}
+
+/** 手动删一版历史 —— 删历史不动当前内容。 */
+export function deleteDoc(work, kind, v) {
+  const list = work.finalized[kind];
+  if (!Array.isArray(list)) return false;
+  const before = list.length;
+  work.finalized[kind] = list.filter((x) => x.v !== v);
+  return work.finalized[kind].length !== before;
 }

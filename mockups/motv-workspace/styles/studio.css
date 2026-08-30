@@ -2126,3 +2126,137 @@
   margin-top: var(--s1); border: 1px solid var(--line); border-radius: var(--r1);
   background: var(--panel-2); max-height: 320px; overflow-y: auto; padding: var(--s1);
 }
+
+/* ===== Story Development 的四页（TASK-122 第 3–5 步）=======================
+   规格里反复出现的一个词是「大型」：故事核心、故事大纲、正文都是一个占满工作区的
+   编辑器，不是一堆字段框。所以这里的默认高度按视口算，而不是给一个固定行数。 */
+.sw-page { display: flex; flex-direction: column; gap: var(--s3); padding: var(--s3) 0; }
+.sw-page.wide { max-width: none; }
+.sw-note { color: var(--text-dim); font-size: var(--t-sm); line-height: 1.7; }
+.sw-warn {
+  padding: var(--s2) var(--s3); border: 1px solid var(--warn, #a76a2e); border-radius: var(--r1);
+  color: var(--text); font-size: var(--t-sm); background: color-mix(in srgb, var(--panel-2) 80%, transparent);
+}
+.sw-editor {
+  width: 100%; min-height: 52vh; resize: vertical; padding: var(--s3);
+  border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--panel-2); color: var(--text);
+  font: inherit; line-height: 1.9; letter-spacing: .01em;
+}
+.sw-editor:focus { outline: none; border-color: var(--accent, #6ea8fe); }
+.sw-editor.read { white-space: pre-wrap; overflow: auto; }
+.sw-foot { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+.sw-foot .meta, .sw-fin .meta { color: var(--text-faint); font-size: var(--t-micro); }
+.sw-empty { color: var(--text-faint); font-size: var(--t-sm); }
+.sw-fin { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.sw-viewing {
+  display: flex; align-items: center; gap: var(--s2);
+  color: var(--text-dim); font-size: var(--t-sm);
+}
+.sw-hist { display: flex; flex-direction: column; gap: var(--s1); }
+.sw-hrow {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s2); border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--panel-2); font-size: var(--t-sm);
+}
+.sw-hrow .v { font-weight: 600; min-width: 3em; }
+.sw-hrow .at { color: var(--text-faint); font-size: var(--t-micro); }
+.sw-hrow .note { color: var(--text-dim); flex: 1; }
+
+/* 节点条：让「有稳定编号这回事」看得见，但一个字都不用他维护 */
+.sw-nodes { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }
+.sw-nodes.empty { color: var(--text-faint); font-size: var(--t-micro); }
+.sw-node { display: flex; align-items: baseline; gap: var(--s2); font-size: var(--t-micro); }
+.sw-node .n { color: var(--text); min-width: 2em; text-align: right; }
+.sw-node .id { color: var(--text-faint); font-family: var(--mono, monospace); }
+.sw-node .tx { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ③ 结构规划：九列 */
+.sp-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r1); }
+.sp-table { border-collapse: collapse; width: 100%; min-width: 1100px; }
+.sp-table th, .sp-table td {
+  border-bottom: 1px solid var(--line); padding: var(--s2);
+  vertical-align: top; text-align: left;
+}
+.sp-table th { font-size: var(--t-micro); color: var(--text-dim); white-space: nowrap; background: var(--panel-2); }
+.sp-in {
+  width: 100%; min-width: 7em; resize: vertical; border: 1px solid transparent; border-radius: 4px;
+  background: transparent; color: var(--text); font: inherit; font-size: var(--t-sm); padding: 4px;
+}
+.sp-in:focus { outline: none; border-color: var(--line-2); background: var(--panel-2); }
+.sp-c-no .sp-in { min-width: 3.5em; }
+.sp-refs { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.sp-ref {
+  display: inline-flex; align-items: center; gap: 2px; padding: 1px 6px;
+  border: 1px solid var(--line-2); border-radius: 999px; font-size: var(--t-micro);
+}
+.sp-ref.bad { border-color: var(--warn, #a76a2e); }
+.sp-ref .x { border: 0; background: none; color: var(--text-faint); cursor: pointer; font-size: 10px; }
+.sp-pick {
+  margin-top: 4px; border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--panel-2); max-height: 200px; overflow-y: auto;
+}
+.sp-pickrow {
+  display: block; width: 100%; text-align: left; border: 0; background: none;
+  color: var(--text); font: inherit; font-size: var(--t-micro); padding: 4px var(--s2); cursor: pointer;
+}
+.sp-pickrow:hover { background: var(--panel); }
+.sp-pickrow.on { color: var(--accent, #6ea8fe); }
+
+/* ④ 正文创作 */
+.db-gate { display: flex; gap: var(--s3); flex-wrap: wrap; }
+.db-card {
+  flex: 1 1 240px; text-align: left; padding: var(--s4); cursor: pointer;
+  border: 1px solid var(--line); border-radius: var(--r2); background: var(--panel-2); color: var(--text); font: inherit;
+}
+.db-card:hover { border-color: var(--line-2); }
+.db-card .i { font-size: 28px; }
+.db-card .n { font-weight: 600; margin-top: var(--s2); }
+.db-card .d { color: var(--text-dim); font-size: var(--t-micro); margin-top: 4px; line-height: 1.6; }
+.db-mode { display: flex; align-items: center; gap: var(--s2); }
+.db-mode .cur { font-weight: 600; }
+.db-planned { display: flex; align-items: center; gap: var(--s2); }
+.db-planned label { color: var(--text-dim); font-size: var(--t-sm); }
+.db-n {
+  width: 4.5em; text-align: center; padding: 4px; border: 1px solid var(--line);
+  border-radius: var(--r1); background: var(--panel-2); color: var(--text); font: inherit;
+}
+.db-picker { display: flex; flex-wrap: wrap; gap: 6px; }
+.db-u {
+  position: relative; min-width: 3.2em; padding: 6px 8px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--panel-2); color: var(--text); font: inherit; font-size: var(--t-sm);
+}
+.db-u:hover { border-color: var(--line-2); }
+.db-u.on { border-color: var(--accent, #6ea8fe); color: var(--accent, #6ea8fe); }
+.db-u.over { opacity: .6; border-style: dashed; }
+.db-u .w { color: var(--text-faint); font-size: var(--t-micro); margin-left: 2px; }
+.db-u .dot {
+  position: absolute; top: 4px; right: 4px; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--ok, #4a9c6d);
+}
+.db-top { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+/* 单元视图：左侧二级 Brief + 中央大编辑器（二级，不是一级 Tab） */
+.db-unit { display: grid; grid-template-columns: minmax(200px, 260px) 1fr; gap: var(--s3); align-items: start; }
+.db-brief {
+  display: flex; flex-direction: column; gap: var(--s2); padding: var(--s3);
+  border: 1px solid var(--line); border-radius: var(--r1); background: var(--panel-2);
+  max-height: 68vh; overflow-y: auto;
+}
+.db-h { font-weight: 600; font-size: var(--t-sm); }
+.db-b .t { color: var(--text-faint); font-size: var(--t-micro); }
+.db-b .v { color: var(--text-dim); font-size: var(--t-sm); line-height: 1.6; white-space: pre-wrap; }
+.db-title {
+  width: 100%; padding: 4px; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--panel); color: var(--text); font: inherit; font-size: var(--t-sm);
+}
+.db-main { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
+.db-mh { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.db-mh .meta { color: var(--text-faint); font-size: var(--t-micro); margin-right: auto; }
+.db-editor {
+  width: 100%; min-height: 62vh; resize: vertical; padding: var(--s3);
+  border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--panel-2); color: var(--text); font: inherit; line-height: 1.95;
+}
+.db-editor:focus { outline: none; border-color: var(--accent, #6ea8fe); }
+@media (max-width: 1100px) { .db-unit { grid-template-columns: 1fr; } }

@@ -390,8 +390,8 @@ export const ASSET_NAV = [
  *  the creator remembers it. */
 export const MODULE_LABEL = {
   // the eleven
-  brief: "项目与创意", story: "故事大纲", settings: "作品设定",
-  episodes: "分集规划", script: "本集剧本",
+  brief: "故事核心", story: "故事大纲", settings: "作品设定",
+  episodes: "结构规划", script: "正文创作",
   board: "本集看板", storyboard: "分镜设计", shotwork: "镜头制作",
   cutreview: "粗剪审片", delivery: "后期交付",
   assets: "资产库",

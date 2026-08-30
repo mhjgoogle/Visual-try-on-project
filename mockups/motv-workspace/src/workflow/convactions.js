@@ -20,6 +20,16 @@
 // 删除类、运行/生成类（花钱）。它们仍然由创作者自己点。
 
 /** 一条动作。`args` 是**白名单**：模型报上来的其它键一律不落进文档。 */
+import * as swork from "./storywork.js";
+
+/** 这四页的正式数据模型。写路径**只有这一条** —— 他自己点、Agent 调，走的是同一组函数
+ *  （产品负责人 2026-08-30：「Agent 修改的是正式数据模型，不是只修改 UI 展示文本」）。 */
+function workOf(ctx) {
+  const doc = ctx && ctx.story && typeof ctx.story.doc === "function" ? ctx.story.doc() : null;
+  if (!doc || !doc.work) throw new Error("这个项目还没有故事开发的数据模型");
+  return doc.work;
+}
+
 const ACTIONS = [
   {
     id: "brief.idea",
@@ -227,6 +237,173 @@ const ACTIONS = [
       const id = String(a.shotId || "");
       if (!ctx.shots || !ctx.shots.restoreDeleted(id)) throw new Error(`撤销不了 ${id}（回收区里没有它）`);
       return { said: `镜头 ${id} 回来了` };
+    },
+  },
+  /* ===== Story Development 的四页（TASK-122 第 6 步）=======================
+     产品负责人 2026-08-30：「Agent 必须能够读取、修改以上所有当前内容。Agent 修改的是
+     正式数据模型，不是只修改 UI 展示文本。」
+
+     所以这几条动作调用的是 `storywork` 里那组函数 —— **和他自己在页面上点、在框里打字
+     走的是同一条写路径**。不存在「Agent 专用的一份」。 */
+  {
+    id: "work.core",
+    label: "改故事核心",
+    doc: "work",
+    undo: "改回去就行；「定稿」才产生历史版本",
+    args: { text: "整篇故事核心（覆盖）", append: "追加在末尾的一段（可选）" },
+    apply: (ctx, a) => {
+      const work = workOf(ctx);
+      const add = typeof a.append === "string" ? a.append.trim() : "";
+      if (add) work.core = work.core ? `${work.core}\n\n${add}` : add;
+      else if (typeof a.text === "string") work.core = a.text;
+      else throw new Error("没说要把故事核心改成什么");
+      return { said: add ? `故事核心追加了 ${add.length} 字` : `故事核心改成了 ${work.core.length} 字` };
+    },
+  },
+  {
+    id: "work.outline",
+    label: "改故事大纲",
+    doc: "work",
+    undo: "改回去就行；节点 id 会尽量保住，引用不会断",
+    args: { text: "整份大纲（覆盖，空行分段）" },
+    apply: (ctx, a) => {
+      if (typeof a.text !== "string") throw new Error("没说要把大纲改成什么");
+      const nodes = swork.setOutline(workOf(ctx), a.text);
+      return { said: `大纲改成了 ${nodes.length} 个节点（编号已自动维护）` };
+    },
+  },
+  {
+    id: "plan.row.add",
+    label: "结构规划加一行",
+    doc: "work",
+    undo: "plan.row.delete（软删除，可恢复）",
+    args: { unitNo: "Unit No.（可选）", scene: "Scene（可选）" },
+    apply: (ctx, a) => {
+      const work = workOf(ctx);
+      const row = swork.addPlanRow(work, new Date().toISOString());
+      if (typeof a.unitNo === "string" && a.unitNo) swork.editPlanRow(work, row.id, "unitNo", a.unitNo);
+      if (typeof a.scene === "string" && a.scene) swork.editPlanRow(work, row.id, "scene", a.scene);
+      return { said: `结构规划加了一行（${row.unitNo}）` };
+    },
+  },
+  {
+    id: "plan.row.edit",
+    label: "改结构规划的一格",
+    doc: "work",
+    undo: "改回去就行",
+    args: { rowId: "行 id", field: "列（unitNo/scene/purpose/characters/goal/conflict/turn/endingState）", value: "内容" },
+    apply: (ctx, a) => {
+      const ok = swork.editPlanRow(workOf(ctx), String(a.rowId || ""), String(a.field || ""), a.value);
+      if (!ok) throw new Error(`改不了这一格（行 ${a.rowId} / 列 ${a.field}）`);
+      return { said: `结构规划 ${a.rowId} 的「${a.field}」改好了` };
+    },
+  },
+  {
+    id: "plan.row.delete",
+    label: "删结构规划的一行",
+    doc: "work",
+    undo: "plan.row.restore（进回收区，内容一字不动）",
+    args: { rowId: "行 id" },
+    apply: (ctx, a) => {
+      if (!swork.hidePlanRow(workOf(ctx), String(a.rowId || ""), new Date().toISOString()))
+        throw new Error(`删不掉 ${a.rowId}（表里没有它，或者已经删了）`);
+      return { said: `已删除 ${a.rowId}（回收区里可以恢复）` };
+    },
+  },
+  {
+    id: "plan.row.restore",
+    label: "撤销删除结构规划的一行",
+    doc: "work",
+    undo: "plan.row.delete",
+    args: { rowId: "行 id" },
+    apply: (ctx, a) => {
+      if (!swork.restorePlanRow(workOf(ctx), String(a.rowId || "")))
+        throw new Error(`撤销不了 ${a.rowId}（回收区里没有它）`);
+      return { said: `${a.rowId} 回来了` };
+    },
+  },
+  {
+    id: "plan.row.link",
+    label: "把一行关联到大纲节点",
+    doc: "work",
+    undo: "再调一次去掉那个引用",
+    args: { rowId: "行 id", nodeId: "大纲节点 id" },
+    apply: (ctx, a) => {
+      const work = workOf(ctx);
+      const row = work.plan.rows.find((r) => r.id === String(a.rowId || ""));
+      if (!row) throw new Error(`表里没有 ${a.rowId}`);
+      const nodeId = String(a.nodeId || "");
+      if (!work.outline.nodes.some((n) => n.id === nodeId)) throw new Error(`大纲里没有节点 ${nodeId}`);
+      const next = row.outlineRefs.includes(nodeId)
+        ? row.outlineRefs.filter((x) => x !== nodeId)
+        : [...row.outlineRefs, nodeId];
+      swork.editPlanRow(work, row.id, "outlineRefs", next);
+      return { said: `${a.rowId} ${next.includes(nodeId) ? "关联到" : "取消关联"} ${nodeId}` };
+    },
+  },
+  {
+    id: "work.form",
+    label: "选小说创作还是剧集创作",
+    doc: "work",
+    undo: "换回去就行，写下的内容不删",
+    args: { form: "novel 或 episode" },
+    apply: (ctx, a) => {
+      if (!swork.setForm(workOf(ctx), String(a.form || ""))) throw new Error(`不认识的形态「${a.form}」`);
+      return { said: a.form === "novel" ? "改成小说创作" : "改成剧集创作" };
+    },
+  },
+  {
+    id: "work.planned",
+    label: "设 Planned Chapters / Episodes",
+    doc: "work",
+    undo: "改回去就行；减少不会删掉已经写下的章/集",
+    args: { n: "数量（整数）" },
+    apply: (ctx, a) => {
+      const work = workOf(ctx);
+      if (!work.form) throw new Error("还没选小说创作还是剧集创作");
+      const n = Number(a.n);
+      if (!swork.setPlanned(work, work.form, n)) throw new Error(`数量不对：${a.n}`);
+      return { said: `计划写 ${n} ${work.form === "novel" ? "章" : "集"}（已经写下的不会删）` };
+    },
+  },
+  {
+    id: "unit.write",
+    label: "写某一章/集的正文",
+    doc: "work",
+    undo: "改回去就行；「定稿」才产生历史版本",
+    args: { no: "第几章/集", text: "正文（覆盖）", append: "追加的一段（可选）", title: "标题（可选）" },
+    apply: (ctx, a) => {
+      const work = workOf(ctx);
+      if (!work.form) throw new Error("还没选小说创作还是剧集创作");
+      const at = new Date().toISOString();
+      const unit = swork.ensureUnit(work, work.form, Number(a.no), at);
+      if (!unit) throw new Error(`第 ${a.no} 章/集不是一个有效的编号`);
+      const add = typeof a.append === "string" ? a.append.trim() : "";
+      if (add) swork.editUnit(work, unit.id, "body", unit.body ? `${unit.body}\n\n${add}` : add, at);
+      else if (typeof a.text === "string") swork.editUnit(work, unit.id, "body", a.text, at);
+      if (typeof a.title === "string") swork.editUnit(work, unit.id, "title", a.title, at);
+      return { said: `第 ${a.no} ${work.form === "novel" ? "章" : "集"}现在有 ${unit.body.length} 字` };
+    },
+  },
+  {
+    id: "work.finalize",
+    label: "定稿，存一版历史",
+    doc: "work",
+    undo: "存下来的历史版本可以手动删",
+    args: { what: "core / outline / plan / unit", no: "unit 时是第几章/集", note: "这一版的说明（可选）" },
+    apply: (ctx, a) => {
+      const work = workOf(ctx);
+      const at = new Date().toISOString();
+      const what = String(a.what || "");
+      if (what === "unit") {
+        const unit = work.units.find((u) => u.kind === work.form && u.no === Number(a.no));
+        if (!unit) throw new Error(`没有第 ${a.no} 章/集`);
+        const rec = swork.finalizeUnit(work, unit.id, at, String(a.note || ""));
+        return { said: rec ? `第 ${a.no} 章/集存为 v${rec.v}` : "内容没变，没有重复存一版" };
+      }
+      if (!swork.DOC_KINDS.includes(what)) throw new Error(`不知道要定稿什么：「${a.what}」`);
+      const rec = swork.finalizeDoc(work, what, at, String(a.note || ""));
+      return { said: rec ? `存为 v${rec.v}` : "内容没变，没有重复存一版" };
     },
   },
 ];
