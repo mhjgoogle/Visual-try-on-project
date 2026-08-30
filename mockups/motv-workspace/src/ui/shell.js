@@ -169,6 +169,10 @@ export const MODULE_ALIAS = Object.freeze({
   // ⑦ 分镜设计
   scenes: ["storyboard", "scenes"],
   shots: ["storyboard", "shots"],
+  // 3D 导演台（TASK-123 / ADR-0094）：它是分镜设计的一个**分区**，
+  // 但左栏要给它一行 —— 产品负责人 2026-08-30「我在剧集制作根本没看到」。
+  // 走别名而不是加第十二页：`PAGES` 的成员集合一个不多，闭集守卫照旧成立。
+  blocking: ["storyboard", "blocking"],
   // ⑧ 镜头制作 — the four steps of one shot's production
   refplan: ["shotwork", "prepare"],
   frames: ["shotwork", "image"],
@@ -511,7 +515,11 @@ export function renderEpisodeRail({ activeModule, badges = {}, ratios = {}, epis
     : "本集制作";
   return (
     `<div class="st-railsec">${esc(heading)}</div>` +
-    EPISODE_NAV.map((it) => railItem(it, { activeModule, badges, ratios })).join("")
+    EPISODE_NAV.map((it) => railItem(it, { activeModule, badges, ratios })).join("") +
+    // 3D 导演台：**画在左栏，但不是第十二页**。它是分镜设计的一个分区，
+    // 这一行只是那个分区的入口（`MODULE_ALIAS.blocking`）。藏在二级 Tab 里
+    // 找不到 —— 那正是 2026-08-30 他说「根本没看到」的原因。
+    railItem(["blocking", "🎬", "3D 导演台"], { activeModule, badges, ratios }, "st-subitem")
   );
 }
 

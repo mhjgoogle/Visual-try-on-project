@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 
 import {
   EPISODE_NAV, EPISODE_MODULES, EPISODE_DEFAULT, LEGACY_EPISODE_CENTRE, EPISODE_WORKSPACES,
-  renderRail, episodeRows, spaceOf, episodeEntryModule,
+  renderRail, renderEpisodeRail, episodeRows, spaceOf, episodeEntryModule, resolveModule, PAGES,
 } from "../src/ui/shell.js";
 import { renderShotSelect, bindShotSelect } from "../src/ui/shotselect.js";
 import * as pdoc from "../src/workflow/proddoc.js";
@@ -624,4 +624,27 @@ test("the entry counts THIS episode's shots, not the project's (codex round 2, P
   pdoc.assignShot(prod, sc2.sceneId, "sh-gone");
   assert.equal(shotsOf(ep2.episodeId), 0);
   assert.equal(episodeEntryModule(shotsOf(ep2.episodeId) > 0), "storyboard");
+});
+
+/* --- 3D 导演台在左栏点得到（TASK-123）-------------------------------------- */
+//
+// 产品负责人 2026-08-30：「我在剧集制作根本没看到 3D 导演台。」
+// 它当时只作为「分镜设计」里的二级 Tab 存在 —— 藏在一层点击之后，等于没有。
+
+test("剧集制作左栏画得出 3D 导演台，且它不是第十二页", () => {
+  const rail = renderEpisodeRail({ activeModule: "storyboard", badges: {}, ratios: {} });
+  assert.ok(rail.includes("3D 导演台"), "左栏必须画得出这一行");
+  assert.match(rail, /data-mod="blocking"/);
+  // 闭集不变：它是分镜设计的一个分区，走别名，不占页面名额（ADR-0066 决策 10）
+  assert.equal(PAGES.length, 11);
+  assert.ok(!PAGES.includes("blocking"));
+});
+
+test("那一行解析到分镜设计的 3D 导演台分区 —— 点了不该落到别处", () => {
+  const hit = resolveModule("blocking");
+  assert.deepEqual(
+    { module: hit.module, section: hit.section },
+    { module: "storyboard", section: "blocking" },
+    "它当时落到了本集看板：别名在 setModule 的第一行就被挡掉了",
+  );
 });

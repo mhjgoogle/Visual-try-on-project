@@ -1493,7 +1493,13 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
    *  was refused (unknown key, or the creator kept an unsaved edit), and a caller
    *  must never claim a move that did not happen (TASK-081 §1.2 第 1 条). */
   function setModule(want) {
-    if (!WORKSPACES[want] && want !== "script") return false;
+    // **先解析别名，再判断认不认识**。反过来做，`blocking` 这类「不是页面、
+    // 但解析得到一个真实分区」的键会在第一行就被挡掉 —— 左栏画着那一行，
+    // 点下去却落到默认页（产品负责人 2026-08-30 点了「3D 导演台」到了本集看板）。
+    const alias = resolveModule(want);
+    if (!WORKSPACES[want] && want !== "script" && !(alias.resolved && WORKSPACES[alias.module])) {
+      return false;
+    }
     // TASK-065 §2 / §4: 人物关系 is a TAB of 人物, and 场景地 is a TAB of 世界观.
     //
     // The merged keys are RESOLVED HERE, once, rather than at each caller: every
