@@ -71,6 +71,7 @@ import { renderDraftWs } from "./draftws.js";
 import { renderBlockingWs, drawTop, hitTest, topMapper } from "./blockingws.js";
 import { renderEpCanvas } from "./epcanvas.js";
 import { independenceDegraded } from "../services/runtime.js";
+import { applicabilityFor } from "../workflow/skillapply.js";
 import { createStage } from "./blockgl.js";
 import * as bl from "../workflow/blocking.js";
 import * as swork from "../workflow/storywork.js";
@@ -2543,6 +2544,15 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
    *  跑过了 → 状态来自登记表（run 记录）；没跑 → 用同一个 `decideRoute` 现算原因，
    *  所以刷新之后他看到的理由与当时的理由一致，而这次重算**不会启动任何东西**
    *  （`decideRoute` 是纯函数）。 */
+
+  /** 审读类能力 → 「照它改」交给谁。**只映射说得清的那几条**：映射错了，
+   *  他会看着一个改错地方的按钮（不如没有）。 */
+  const REVISER_FOR = {
+    "audience-engagement-reviewer": "story-reviser",
+    "story-zoom": "story-reviser",
+    "script-doctor": "script-reviser",
+  };
+
   function convRouteState(ctx, turns) {
     const out = {};
     // 每次 render 都会走到这里，而 `ctx.skills.missing` 每次都要把整条时间线、音频、
@@ -2574,6 +2584,22 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
           // 后面什么都没有。
           skillRunId: run.runId || run.skillRunId || "",
           pending: !!(run.disposition === "pending" || run.proposal),
+          // **能不能「用它」，问既有的那道判断**（`applicabilityFor`）。
+          //
+          // 我加这两个按钮时没问，于是审读类的运行也长出了「用它」——
+          // 他点下去得到的是一句解释：「这是一份观众视角的审读意见，不是可以直接
+          // 替换进作品的文字」。那正是这个仓库反复禁止的「按下去只会解释自己为什么
+          // 不该被按」的按钮（2026-08-31）。
+          canApply: (() => {
+            const a = applicabilityFor(run.skillId, run.proposal);
+            return !!(a && a.can);
+          })(),
+          applyWhy: (() => {
+            const a = applicabilityFor(run.skillId, run.proposal);
+            return a && !a.can ? String(a.reason || "") : "";
+          })(),
+          // 审读意见的下一步不是「用」，是「照它改」：把意见交给对应的修订能力。
+          reviser: REVISER_FOR[run.skillId] || "",
         };
         continue;
       }
@@ -2877,6 +2903,21 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
         refreshConversation(ctx);
         render();
       }
+    }));
+    // 「照它改」：把这份审读意见当作修订要求，交给对应的修订能力（2026-08-31）。
+    root.querySelectorAll("[data-cv-revise]").forEach((b) => (b.onclick = () => {
+      const [skillId, runId] = String(b.dataset.cvRevise).split("|");
+      const run = (ctx.skills.runs() || []).find((r) => r && r.runId === runId) || null;
+      const findings = run && run.proposal ? JSON.stringify(run.proposal).slice(0, 4000) : "";
+      if (!findings) { ctx.toast("这次审读没有留下可用的意见"); return; }
+      launchRouted(ctx, {
+        skillId,
+        executor: routeExecutor(ctx.skills.find(skillId)),
+        origin: null,
+        summary: "照审读意见修订",
+        said: "已交给修订",
+        request: `按这份审读意见修订：${findings}`,
+      });
     }));
     root.querySelectorAll("[data-cv-drop]").forEach((b) => (b.onclick = () => {
       const res = ctx.skills.reject(b.dataset.cvDrop, "他说不用");

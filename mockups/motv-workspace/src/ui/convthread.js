@@ -195,7 +195,9 @@ function routeBlock(r) {
         // 「能力」面板在三栏重构里已经删掉了（REQ-004 v2 只留一个对话）。
         // 让他去一个不存在的面板，等于跑完了什么也用不上 —— 产品负责人 2026-08-30
         // 因此看到「已完成」而故事大纲still是空的。**决定就在这条消息上做。**
-        ? "写好了 —— 要用就点右边这个按钮，我把它写进那一页。"
+        ? (st.canApply
+            ? "写好了 —— 要用就点右边这个按钮，我把它写进那一页。"
+            : st.applyWhy || "写好了 —— 这是一份意见，按它去改对应的那几处就行。")
         : st.status === "failed"
         // **不要把内部代码丢在他脸上**（产品负责人 2026-08-31 看到的是一行
         // 光秃秃的 `invalid_output`）。有原文就说原文，没有就把那个代码翻成人话。
@@ -211,9 +213,14 @@ function routeBlock(r) {
     }
   }
   if (st.status === "succeeded" && st.skillRunId) {
-    act =
-      `<button class="cv-apply" data-cv-use="${esc(String(st.skillRunId))}">用它</button>` +
-      `<button class="cv-apply ghost" data-cv-drop="${esc(String(st.skillRunId))}">不用</button>`;
+    if (st.canApply) {
+      act =
+        `<button class="cv-apply" data-cv-use="${esc(String(st.skillRunId))}">用它</button>` +
+        `<button class="cv-apply ghost" data-cv-drop="${esc(String(st.skillRunId))}">不用</button>`;
+    } else if (st.reviser) {
+      // 审读意见没有「用」这个动作 —— 它的下一步是「照它改」
+      act = `<button class="cv-apply" data-cv-revise="${esc(st.reviser)}|${esc(String(st.skillRunId))}">照它改</button>`;
+    }
   }
   return (
     `<div class="cv-routewrap"><div class="lab">${esc(head)}${act}</div>` +

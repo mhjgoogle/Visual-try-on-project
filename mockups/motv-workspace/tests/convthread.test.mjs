@@ -215,6 +215,7 @@ test("跑成功且有提案 → 对话里就有「用它 / 不用」两个按钮
         status: "succeeded",
         skillRunId: "skillrun-7",
         pending: true,
+        canApply: true,
       },
     },
   }));
@@ -229,4 +230,49 @@ test("还在跑的时候不给按钮 —— 没有东西可用", () => {
     { routeState: { "conv-2": { skillId: "story-development", title: "开发故事", status: "running" } } },
   ));
   assert.ok(!html.includes("data-cv-use"), "跑着的时候不该出现「用它」");
+});
+
+test("审读意见不给「用它」—— 它给的是「照它改」（2026-08-31）", () => {
+  // 他点了「用它」，得到的是一句解释：「这是一份观众视角的审读意见，不是可以直接
+  // 替换进作品的文字」。**一个按下去只会解释自己为什么不该被按的按钮**，
+  // 比没有按钮更糟 —— 仓库里早就有那道判断（`applicabilityFor`），我加按钮时没问它。
+  const html = renderThread(threadModel([
+    { role: "agent", runId: "conv-9", text: "审完了", route: { skillId: "audience-engagement-reviewer" } },
+  ], {
+    routeState: {
+      "conv-9": {
+        skillId: "audience-engagement-reviewer",
+        title: "检查问题",
+        status: "succeeded",
+        skillRunId: "skillrun-9",
+        canApply: false,
+        applyWhy: "这是一份观众视角的审读意见，不是可以直接替换进作品的文字。",
+        reviser: "story-reviser",
+      },
+    },
+  }));
+  assert.ok(!html.includes("data-cv-use"), "不许给「用它」");
+  assert.match(html, /data-cv-revise="story-reviser\|skillrun-9"/, "给的是「照它改」");
+  // 原因写在消息里，而不是等他点了才说
+  assert.ok(html.includes("不是可以直接替换进作品的文字"));
+});
+
+test("没有对应修订能力时，什么按钮都不给 —— 也不假装有", () => {
+  const html = renderThread(threadModel([
+    { role: "agent", runId: "conv-10", text: "看完了", route: { skillId: "continuity-reviewer" } },
+  ], {
+    routeState: {
+      "conv-10": {
+        skillId: "continuity-reviewer",
+        title: "检查问题",
+        status: "succeeded",
+        skillRunId: "skillrun-10",
+        canApply: false,
+        applyWhy: "这是一份连贯性意见。",
+        reviser: "",
+      },
+    },
+  }));
+  assert.ok(!html.includes("data-cv-use") && !html.includes("data-cv-revise"));
+  assert.ok(html.includes("这是一份连贯性意见"));
 });
