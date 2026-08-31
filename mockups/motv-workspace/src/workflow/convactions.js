@@ -36,6 +36,60 @@ function blockingOf(ctx, shotId) {
 }
 
 
+/** 人物的可写栏位。**这份名单不是我编的，是 `bibledoc.CHARACTER_PROFILE_FIELDS`** ——
+ *  上一版这里写着 background / speech / note 三个文档里根本不存在的栏，
+ *  而 `updateCharacterProfile` 只认自己那张表，于是那三栏**被静默丢掉**：
+ *  动作报「改好了」，角色设计上什么都没多出来（2026-08-31 实测）。 */
+const CHAR_FIELDS = [
+  "identity", "personality", "desire", "weakness", "coreConflict", "arc",
+  "appearance", "costume", "visualInstruction",
+];
+
+/** 关系的可写栏位（`canondoc.RELATIONSHIP_FIELDS`）。同上：上一版的 `nature`
+ *  在文档里叫 `basis`。 */
+/** 场景地的可写栏位（`bibledoc.updateLocationProfile` 只认这两个）。 */
+const LOC_FIELDS = ["description", "visualInstruction"];
+
+const REL_FIELDS = [
+  "basis", "aToB", "bToA", "coreConflict", "tension", "power",
+  "history", "secrets", "direction", "arc", "forbidden",
+];
+
+/** 按名字拿人物 —— **没有就新建**。
+ *
+ *  产品负责人 2026-08-31 让 Agent 把故事核心里的三个人物搬进角色设计，三条全落空：
+ *  「人物里没有「林照」」。原因不是他写错了，是这张表**只会改、不会加** ——
+ *  而他的角色设计本来就是空的，于是每一条都必然失败。
+ *
+ *  同一个文件里的 `blocking.actor` 早就是「没有就新建」，人物和关系只是漏了。
+ *  新建可逆（角色设计里能删），所以按 AGENTS.md §1 它就该直接做。
+ *  重名/错字会多出一个人物 —— 代价是他看得见、删得掉，因此 `said` 里**必须明说
+ *  是新建的**，不能混在「改好了」里。 */
+function ensureCharacter(ctx, who) {
+  const list = (ctx.prodData().production.characters) || [];
+  const rec = list.find((c) => c.characterId === who || c.name === who);
+  if (rec) return { rec, created: false };
+  if (!ctx.bible || typeof ctx.bible.addCharacter !== "function") {
+    throw new Error(`人物里没有「${who}」，这个项目也加不了人物`);
+  }
+  const made = ctx.bible.addCharacter(who, "formal");
+  if (!made) throw new Error(`加不了人物「${who}」`);
+  return { rec: made, created: true };
+}
+
+/** 按名字拿场景地 —— **没有就新建**（同 `ensureCharacter`）。 */
+function ensureLocation(ctx, who) {
+  const list = (ctx.prodData().production.locations) || [];
+  const rec = list.find((l) => l.locationId === who || l.name === who);
+  if (rec) return { rec, created: false };
+  if (!ctx.bible || typeof ctx.bible.addLocation !== "function") {
+    throw new Error(`场景地里没有「${who}」，这个项目也加不了场景地`);
+  }
+  const made = ctx.bible.addLocation(who);
+  if (!made) throw new Error(`加不了场景地「${who}」`);
+  return { rec: made, created: true };
+}
+
 /** 这四页的正式数据模型。写路径**只有这一条** —— 他自己点、Agent 调，走的是同一组函数
  *  （产品负责人 2026-08-30：「Agent 修改的是正式数据模型，不是只修改 UI 展示文本」）。 */
 function workOf(ctx) {
@@ -305,52 +359,87 @@ const ACTIONS = [
      后面写小说、做剧集都读它们。 */
   {
     id: "character.fields",
-    label: "改一个人物的设定",
+    label: "加/改一个人物的设定（人物不存在就新建）",
     doc: "bible",
-    undo: "改回去就行",
+    undo: "改回去就行；新建出来的人物在角色设计里能删",
     args: {
-      name: "人物名字（或 id）",
-      identity: "身份 / 一句话", appearance: "外形", personality: "性格",
-      background: "背景", speech: "说话方式", note: "备注",
+      name: "人物名字（或 id）—— 角色设计里没有这个人就新建一个",
+      identity: "身份", personality: "性格", desire: "欲望 / 目标",
+      weakness: "弱点", coreConflict: "核心矛盾", arc: "Character Arc（弧光）",
+      appearance: "外貌", costume: "服装", visualInstruction: "基础视觉方向 / 画面指令",
     },
     apply: (ctx, a) => {
       const who = String(a.name || "").trim();
       if (!who) throw new Error("没说要改哪个人物");
-      const list = (ctx.prodData().production.characters) || [];
-      const rec = list.find((c) => c.characterId === who || c.name === who);
-      if (!rec) throw new Error(`人物里没有「${who}」`);
+      const { rec, created } = ensureCharacter(ctx, who);
       const fields = {};
-      for (const k of ["identity", "appearance", "personality", "background", "speech", "note"]) {
+      for (const k of CHAR_FIELDS) {
         if (typeof a[k] === "string" && a[k].trim()) fields[k] = a[k].trim();
       }
-      if (!Object.keys(fields).length) throw new Error("没说要把它改成什么");
+      // 落不下的栏由 `runAction` 统一说出来 —— 白名单在 `apply` 之前就把它们剥掉了，
+      // 这里根本看不见（所以这段检测只能在中央那一处做）。
+      if (!Object.keys(fields).length) {
+        if (created) return { said: `新建了人物「${rec.name}」，但没说要写哪几栏` };
+        throw new Error(`没说要把「${rec.name}」改成什么`);
+      }
       if (!ctx.bible || !ctx.bible.updateCharacterProfile) throw new Error("这个项目改不了人物设定");
       ctx.bible.updateCharacterProfile(rec.characterId, fields);
-      return { said: `「${rec.name || who}」的 ${Object.keys(fields).length} 个字段改好了` };
+      const head = created ? `新建了人物「${rec.name}」，写了` : `「${rec.name}」写了`;
+      return { said: `${head} ${Object.keys(fields).length} 栏` };
     },
   },
   {
     id: "relationship.fields",
-    label: "改一段人物关系",
+    label: "加/改一段人物关系（关系不存在就新建）",
     doc: "bible",
-    undo: "改回去就行",
-    args: { a: "一方", b: "另一方", nature: "什么关系", aToB: "A 眼里的 B", bToA: "B 眼里的 A", note: "备注" },
+    undo: "改回去就行；新建出来的关系在角色设计里能删",
+    args: {
+      a: "一方（人物名字）", b: "另一方（人物名字）",
+      basis: "基础关系", aToB: "A 怎么看 B", bToA: "B 怎么看 A",
+      coreConflict: "核心矛盾", tension: "情感张力", power: "权力关系",
+      history: "共同历史", secrets: "隐藏信息 / 秘密",
+      direction: "长期发展方向", arc: "Relationship Arc", forbidden: "不应发生的关系偏离",
+    },
     apply: (ctx, x) => {
       if (!ctx.canon || !ctx.canon.updateRelationship) throw new Error("这个项目改不了人物关系");
-      const list = (ctx.prodData().production.relationships) || [];
       const nameOf = (v) => String(v || "").trim();
-      const rec = list.find((r) => {
-        const ids = [r.aId, r.bId, r.aName, r.bName].map(nameOf);
-        return ids.includes(nameOf(x.a)) && ids.includes(nameOf(x.b));
-      });
-      if (!rec) throw new Error(`没有「${nameOf(x.a)} — ${nameOf(x.b)}」这段关系`);
+      const an = nameOf(x.a);
+      const bn = nameOf(x.b);
+      if (!an || !bn) throw new Error("没说是哪两个人的关系");
+      if (an === bn) throw new Error("一段关系要两个不同的人");
+      // 两头都先落实到人物 —— 关系存的是 characterId，人物不在就没有可指的东西。
+      const A = ensureCharacter(ctx, an);
+      const B = ensureCharacter(ctx, bn);
+      // **关系存的是 `characterIds`**（canondoc）。上一版按 r.aId / r.aName 去找 ——
+      // 那四个字段在文档里根本不存在，所以就算关系已经建好，也照样报「没有这段关系」。
+      const list = (ctx.prodData().production.relationships) || [];
+      const has = (r, id) => (r.characterIds || []).includes(id);
+      let rec = list.find((r) => has(r, A.rec.characterId) && has(r, B.rec.characterId));
+      let created = false;
+      if (!rec) {
+        if (typeof ctx.canon.addRelationship !== "function") {
+          throw new Error(`没有「${an} — ${bn}」这段关系，这个项目也加不了关系`);
+        }
+        rec = ctx.canon.addRelationship(A.rec.characterId, B.rec.characterId);
+        if (!rec) throw new Error(`加不了「${an} — ${bn}」这段关系`);
+        created = true;
+      }
       const fields = {};
-      for (const k of ["nature", "aToB", "bToA", "note"]) {
+      for (const k of REL_FIELDS) {
         if (typeof x[k] === "string" && x[k].trim()) fields[k] = x[k].trim();
       }
-      if (!Object.keys(fields).length) throw new Error("没说要把它改成什么");
+      const made = [
+        A.created ? `人物「${A.rec.name}」` : "",
+        B.created ? `人物「${B.rec.name}」` : "",
+        created ? "这段关系" : "",
+      ].filter(Boolean);
+      const head = made.length ? `新建了${made.join("、")}，` : "";
+      if (!Object.keys(fields).length) {
+        if (made.length) return { said: `${head}但没说要写哪几栏` };
+        throw new Error(`没说要把「${an} — ${bn}」改成什么`);
+      }
       ctx.canon.updateRelationship(rec.relationshipId, fields);
-      return { said: `「${nameOf(x.a)} — ${nameOf(x.b)}」改好了` };
+      return { said: `${head}「${an} — ${bn}」写了 ${Object.keys(fields).length} 栏` };
     },
   },
   {
@@ -359,13 +448,45 @@ const ACTIONS = [
     doc: "bible",
     undo: "改回去就行",
     fields: {
-      premise: "世界前提", era: "时间 / 时代", rules: "世界规则", society: "社会背景",
+      era: "时间 / 时代", rules: "世界规则", society: "社会背景",
       regions: "主要区域", places: "主要地点", visualTone: "视觉基调", atmosphere: "整体氛围",
     },
     apply: (ctx, a) => {
       if (!ctx.canon || !ctx.canon.updateWorld) throw new Error("这个项目改不了世界观");
       ctx.canon.updateWorld(a.fields);
       return { said: describe(a.fields, ACTION_BY_ID["world.fields"].fields) };
+    },
+  },
+  {
+    // 场景设计这一页**之前根本没有动作** —— 人物和世界观都能改，场景地不能。
+    // 产品负责人 2026-08-31 把设定往角色设计和世界观里搬时还没走到这一步，
+    // 但下一步一定会走到（「这都会成为之后小说剧集制作的基础财产」），
+    // 到时候又会是一次「回执说改好了、页面上什么都没有」。
+    id: "location.fields",
+    label: "加/改一个场景地（场景地不存在就新建）",
+    doc: "bible",
+    undo: "改回去就行；新建出来的场景地在场景设计里能删",
+    args: {
+      name: "场景地名字（或 id）—— 场景设计里没有就新建一个",
+      description: "描述",
+      visualInstruction: "基础视觉方向 / 画面指令",
+    },
+    apply: (ctx, a) => {
+      const who = String(a.name || "").trim();
+      if (!who) throw new Error("没说要改哪个场景地");
+      const { rec, created } = ensureLocation(ctx, who);
+      const fields = {};
+      for (const k of LOC_FIELDS) {
+        if (typeof a[k] === "string" && a[k].trim()) fields[k] = a[k].trim();
+      }
+      if (!Object.keys(fields).length) {
+        if (created) return { said: `新建了场景地「${rec.name}」，但没说要写哪几栏` };
+        throw new Error(`没说要把「${rec.name}」改成什么`);
+      }
+      if (!ctx.bible || !ctx.bible.updateLocationProfile) throw new Error("这个项目改不了场景地");
+      ctx.bible.updateLocationProfile(rec.locationId, fields);
+      const head = created ? `新建了场景地「${rec.name}」，写了` : `「${rec.name}」写了`;
+      return { said: `${head} ${Object.keys(fields).length} 栏` };
     },
   },
   {
@@ -685,12 +806,38 @@ export function sanitizeArgs(id, raw) {
  * 落一条动作。抛错 = 没落下，调用方要把原因说出来（决策 6：fail-closed 并说明）。
  * @returns {{said: string, versioned?: string}}
  */
+/** 白名单剥掉了哪些**有内容**的键。
+ *
+ *  白名单本身是对的（表外的键一律不落进文档），错的是它**一声不吭**：模型报上来
+ *  `background`，剥掉，动作照样回一句「改好了」—— 他以为搬完了，其实少了几栏
+ *  （2026-08-31 实测：人物的 background/speech/note、世界观的 premise 全是这样没的）。
+ *
+ *  所以剥掉什么要说出来。放在这里而不是每条 `apply` 里，是因为 `apply` 拿到的
+ *  已经是剥完的参数 —— **它看不见自己少了什么**，34 条动作都一样。 */
+function strippedKeys(spec, rawArgs) {
+  const src = rawArgs && typeof rawArgs === "object" ? rawArgs : {};
+  const known = Object.keys(spec.fields || spec.args || {});
+  const pool = spec.fields
+    ? (src.fields && typeof src.fields === "object" ? src.fields : src)
+    : { ...(src.args && typeof src.args === "object" ? src.args : {}), ...src };
+  return Object.keys(pool).filter(
+    (k) => !known.includes(k)
+      && !["fields", "args", "id", "action"].includes(k)
+      && typeof pool[k] === "string" && pool[k].trim(),
+  );
+}
+
 export function runAction(ctx, id, rawArgs, meta) {
   const spec = ACTION_BY_ID[id];
   if (!spec) throw new Error(`本应用没有「${id}」这个动作`);
   const args = sanitizeArgs(id, rawArgs);
   if (args === null) throw new Error(`「${spec.label}」没有收到能写的内容`);
-  return { ...spec.apply(ctx, args, meta || {}), label: spec.label };
+  const out = { ...spec.apply(ctx, args, meta || {}), label: spec.label };
+  const extra = strippedKeys(spec, rawArgs);
+  if (extra.length) {
+    out.said = `${out.said}；「${spec.label}」没有 ${extra.join("、")} 这些栏，它们没有写进去`;
+  }
+  return out;
 }
 
 export { ACTIONS as _ACTIONS };

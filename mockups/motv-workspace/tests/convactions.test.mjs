@@ -12,6 +12,8 @@ import assert from "node:assert/strict";
 import {
   actionCatalog, knownAction, sanitizeArgs, runAction, _ACTIONS,
 } from "../src/workflow/convactions.js";
+import * as bibledoc from "../src/workflow/bibledoc.js";
+import * as canondoc from "../src/workflow/canondoc.js";
 
 test("词汇表就是注册表，不是另抄的一份", () => {
   const catalog = actionCatalog();
@@ -125,4 +127,143 @@ test("能写的内容为空时抛错 —— 不许落一个空版本", () => {
     () => runAction({ story: {} }, "brief.fields", { fields: { bogus: "x" } }),
     /没有收到能写的内容/,
   );
+});
+
+// ---- 宣称的栏位 vs 文档真能写的栏位 ---------------------------------------- //
+
+test("动作宣称的每一栏，文档都真的写得下去", () => {
+  // **这条测试是 2026-08-31 那次搬运买来的。** 他让 Agent 把故事核心里的人物和
+  // 世界观搬进角色设计，回执写着「改好了」，角色设计上却什么都没多出来：
+  //
+  //   - `character.fields` 宣称能写 background / speech / note —— 三个
+  //     `CHARACTER_PROFILE_FIELDS` 里根本没有的名字，`updateCharacterProfile`
+  //     只认自己那张表，于是**静默丢掉**；
+  //   - `relationship.fields` 宣称 `nature`，文档里叫 `basis`；
+  //   - `world.fields` 宣称 `premise`，而前提属于故事大纲，不属于世界观。
+  //
+  // 三条动作全部「跑成功了、什么都没写」。34 条动作的 `args` 就是模型看到的词汇表
+  // （服务端不另抄一份），所以**幻影字段等于教模型去写一个不存在的地方**。
+  //
+  // 判据是「文档函数认不认这个键」，不是「这个名字看着像不像」。
+  const writable = {
+    "character.fields": [...bibledoc.CHARACTER_PROFILE_FIELDS, "name"],
+    "relationship.fields": [...canondoc.RELATIONSHIP_FIELDS, "a", "b"],
+    "world.fields": [...canondoc.WORLD_FIELDS],
+    // `updateLocationProfile` 的表就写在它自己那个 for 循环里，没有导出常量 ——
+    // 名单跟着它抄，改了那边这里就该跟着红。
+    "location.fields": ["description", "visualInstruction", "name"],
+  };
+  for (const [id, allowed] of Object.entries(writable)) {
+    const spec = _ACTIONS.find((a) => a.id === id);
+    assert.ok(spec, `${id} 不见了`);
+    for (const key of Object.keys(spec.fields || spec.args || {})) {
+      assert.ok(
+        allowed.includes(key),
+        `${id} 宣称能写 ${key}，但文档里没有这一栏 —— 模型会照着写，然后什么都不会发生`,
+      );
+    }
+  }
+});
+
+test("白名单剥掉了什么，回答里要说出来", () => {
+  // 白名单本身是对的。错的是它一声不吭 —— 那正是上面三个幻影字段能瞒住人的原因。
+  const ctx = fakeCtx();
+  const out = runAction(ctx, "character.fields", {
+    name: "林照", identity: "被抹除者", background: "两次被抹除",
+  });
+  assert.match(out.said, /background/, "剥掉的栏没有说出来");
+  assert.equal(ctx.prod.characters[0].profile.identity, "被抹除者");
+});
+
+// ---- 没有就新建 ------------------------------------------------------------ //
+
+/** 一个真的会写字的 ctx —— 底下就是 `bibledoc` / `canondoc` 本人。
+ *  假的写路径会让这条测试为了错误的理由通过。 */
+function fakeCtx() {
+  const prod = { characters: [], relationships: [], locations: [], world: {}, canon: {} };
+  for (const k of canondoc.WORLD_FIELDS) prod.world[k] = "";
+  return {
+    prod,
+    prodData: () => ({ production: prod }),
+    bible: {
+      addCharacter: (name, tier) => bibledoc.addCharacter(prod, name, tier),
+      updateCharacterProfile: (id, f) => bibledoc.updateCharacterProfile(prod, id, f),
+      addLocation: (name) => bibledoc.addLocation(prod, name),
+      updateLocationProfile: (id, f) => bibledoc.updateLocationProfile(prod, id, f),
+    },
+    canon: {
+      addRelationship: (a, b) => canondoc.addRelationship(prod, a, b),
+      updateRelationship: (id, f) => canondoc.updateRelationship(prod, id, f),
+      updateWorld: (f) => canondoc.updateWorld(prod, f),
+    },
+  };
+}
+
+test("人物不在角色设计里就新建 —— 而不是报「人物里没有他」", () => {
+  // 2026-08-31：他让 Agent 把三个人物搬进角色设计，三条全落空，报的都是
+  // 「人物里没有「林照」」。不是他写错了 —— 是这张表**只会改、不会加**，
+  // 而角色设计本来就是空的，所以每一条都必然失败。
+  const ctx = fakeCtx();
+  const out = runAction(ctx, "character.fields", {
+    name: "林照", identity: "被世界抹除的人", arc: "从求生到破局",
+  });
+  assert.equal(ctx.prod.characters.length, 1);
+  assert.equal(ctx.prod.characters[0].name, "林照");
+  assert.equal(ctx.prod.characters[0].profile.identity, "被世界抹除的人");
+  assert.equal(ctx.prod.characters[0].profile.arc, "从求生到破局");
+  // 新建是可逆的，所以不必问他 —— 但**必须说是新建的**，否则他不知道自己多了一个人物
+  assert.match(out.said, /新建/, "新建了人物却没说");
+});
+
+test("同一个人物第二次写，是改不是再建一个", () => {
+  const ctx = fakeCtx();
+  runAction(ctx, "character.fields", { name: "林照", identity: "旧" });
+  const out = runAction(ctx, "character.fields", { name: "林照", identity: "新" });
+  assert.equal(ctx.prod.characters.length, 1, "同名人物被建了第二遍");
+  assert.equal(ctx.prod.characters[0].profile.identity, "新");
+  assert.doesNotMatch(out.said, /新建/);
+});
+
+test("关系按 characterIds 找 —— 找不到就连人带关系一起建", () => {
+  // 上一版按 r.aId / r.bId / r.aName / r.bName 去找，而文档里存的是 `characterIds`：
+  // 那四个字段**根本不存在**，所以就算关系已经建好，也照样报「没有这段关系」。
+  const ctx = fakeCtx();
+  const out = runAction(ctx, "relationship.fields", {
+    a: "林照", b: "许渡", basis: "单向信息差的组队", aToB: "唯一的线索",
+  });
+  assert.equal(ctx.prod.characters.length, 2, "关系的两头没有落成人物");
+  assert.equal(ctx.prod.relationships.length, 1);
+  const rel = ctx.prod.relationships[0];
+  assert.equal(rel.profile.basis, "单向信息差的组队");
+  assert.equal(rel.profile.aToB, "唯一的线索");
+  assert.match(out.said, /新建/);
+
+  // 第二次写同一段：改，不再建
+  runAction(ctx, "relationship.fields", { a: "许渡", b: "林照", tension: "越走越紧" });
+  assert.equal(ctx.prod.relationships.length, 1, "同一段关系被建了第二遍");
+  assert.equal(ctx.prod.relationships[0].profile.tension, "越走越紧");
+  assert.equal(ctx.prod.characters.length, 2, "反过来写又多建了人物");
+});
+
+test("一段关系要两个不同的人", () => {
+  const ctx = fakeCtx();
+  assert.throws(() => runAction(ctx, "relationship.fields", { a: "林照", b: "林照", basis: "x" }));
+  assert.equal(ctx.prod.characters.length, 0, "失败的动作不该留下半个人物");
+});
+
+test("场景地也能加 —— 场景设计这一页之前根本没有动作", () => {
+  // 人物和世界观都能改、场景地不能，是登记漏了，不是设计如此。他把结构规划切成
+  // 「表格 → 角色设计 → 场景设计」时说过：这些都是之后小说和剧集制作的基础财产。
+  const ctx = fakeCtx();
+  const out = runAction(ctx, "location.fields", {
+    name: "轮居之城", description: "事物在存在与不存在之间摇摆，因而没有永久房产",
+  });
+  assert.equal(ctx.prod.locations.length, 1);
+  assert.equal(ctx.prod.locations[0].name, "轮居之城");
+  assert.match(ctx.prod.locations[0].profile.description, /摇摆/);
+  assert.match(out.said, /新建/);
+
+  runAction(ctx, "location.fields", { name: "轮居之城", visualInstruction: "冷灰、半透明" });
+  assert.equal(ctx.prod.locations.length, 1, "同名场景地被建了第二遍");
+  assert.equal(ctx.prod.locations[0].profile.visualInstruction, "冷灰、半透明");
 });

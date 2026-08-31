@@ -405,6 +405,65 @@ _FACT_UNIT_MAX = 24000
 _FACT_UNITS_BUDGET = 60000
 #: 定稿版本一共给多少字。最新那一版优先，更早的只列版本号与时间。
 _FACT_FINALIZED_BUDGET = 40000
+#: 人物 / 关系 / 场景地的设定一共给多少字。
+#:
+#: 2026-08-31 之前这里**只报名字**：「人物（3）：林照、许渡、沈既白」。于是他说
+#: 「按已有的人物设定来写」时，Agent 手上其实只有三个名字 —— 要么装作知道，要么
+#: 把已经写好的栏当成空的重写一遍。角色设计和场景设计是他明确说的「之后小说剧集
+#: 制作的基础财产」，基础财产只报个名字等于没报。
+_FACT_BIBLE_BUDGET = 24000
+_FACT_BIBLE_CELL = 400
+
+#: 人物 / 关系栏位的中文名。**与 `convactions.js` 的 args 是同一批键** ——
+#: Agent 照着读，也照着写回去。
+_FACT_CHAR_LABELS = {
+    "identity": "身份",
+    "personality": "性格",
+    "desire": "欲望/目标",
+    "weakness": "弱点",
+    "coreConflict": "核心矛盾",
+    "arc": "弧光",
+    "appearance": "外貌",
+    "costume": "服装",
+    "visualInstruction": "视觉方向",
+}
+_FACT_REL_LABELS = {
+    "basis": "基础关系",
+    "aToB": "A看B",
+    "bToA": "B看A",
+    "coreConflict": "核心矛盾",
+    "tension": "情感张力",
+    "power": "权力关系",
+    "history": "共同历史",
+    "secrets": "秘密",
+    "direction": "发展方向",
+    "arc": "关系弧光",
+    "forbidden": "不应发生的偏离",
+}
+_FACT_LOC_LABELS = {"description": "描述", "visualInstruction": "视觉方向"}
+
+
+def _fact_profile(profile, labels, budget: int) -> str:
+    """把一份 profile 写成「身份：… ｜ 性格：…」，空栏不写。
+
+    空栏不写是有意的：**没写过和写了空字符串是两回事**，但对 Agent 来说都只意味着
+    「这里还没有内容」。列一串空栏只会挤掉真有内容的那些。
+    """
+    if not isinstance(profile, dict):
+        return ""
+    parts = []
+    left = budget
+    for key, label in labels.items():
+        val = profile.get(key)
+        if not isinstance(val, str) or not val.strip():
+            continue
+        if left <= 0:
+            parts.append("…（后面的栏位超出篇幅了）")
+            break
+        cell = _fact_text(val, min(_FACT_BIBLE_CELL, left))
+        left -= len(cell)
+        parts.append(f"{label}：{cell}")
+    return " ｜ ".join(parts)
 
 
 def _fact_text(value: str, cap: int) -> str:
@@ -7021,25 +7080,60 @@ class _App:
         chars = (
             prod.get("characters") if isinstance(prod.get("characters"), list) else []
         )
+        # 人物、关系、场景地 —— **连设定一起报，不只是名字**（2026-08-31）。
+        # 他要的是「Agent 看得到我定稿的所有东西，然后能按我的意见改」；
+        # 只报名字的话，「按已有的人物设定来」这句话就没有对应的事实。
+        budget = _FACT_BIBLE_BUDGET
         if chars:
-            names = [
-                c.get("name") for c in chars if isinstance(c, dict) and c.get("name")
-            ]
-            lines.append(
-                f"人物（{len(chars)}）：" + "、".join(str(n) for n in names[:12])
-            )
+            lines.append(f"人物（{len(chars)}）：")
+            for c in chars:
+                if not isinstance(c, dict):
+                    continue
+                name = str(c.get("name") or "").strip() or "（没名字）"
+                prof = _fact_profile(c.get("profile"), _FACT_CHAR_LABELS, budget)
+                budget -= len(prof)
+                tail = f" — {prof}" if prof else " — 各栏都还空着"
+                lines.append(f"  - {name}{tail}")
         else:
-            lines.append("人物：还没有")
+            lines.append("人物：还没有 —— 角色设计是空的，要加人物就直接加，不必先问他")
+
+        rels = (
+            prod.get("relationships")
+            if isinstance(prod.get("relationships"), list)
+            else []
+        )
+        by_id = {
+            c.get("characterId"): str(c.get("name") or "")
+            for c in chars
+            if isinstance(c, dict)
+        }
+        if rels:
+            lines.append(f"人物关系（{len(rels)}）：")
+            for r in rels:
+                if not isinstance(r, dict):
+                    continue
+                ids = r.get("characterIds")
+                ids = ids if isinstance(ids, list) else []
+                pair = " — ".join(by_id.get(i, "?") for i in ids[:2]) or "?"
+                prof = _fact_profile(r.get("profile"), _FACT_REL_LABELS, budget)
+                budget -= len(prof)
+                tail = f" — {prof}" if prof else " — 各栏都还空着"
+                lines.append(f"  - {pair}{tail}")
+        else:
+            lines.append("人物关系：还没有")
         # 场景地与白膜（2026-08-31 体检抓到的两条：屏幕上有，事实里没有）。
         # 「基础财产」少报一样，他说「按已有的场景来」时 Agent 就只能装作不知道。
         locs = prod.get("locations") if isinstance(prod.get("locations"), list) else []
         if locs:
-            names = [
-                c.get("name") for c in locs if isinstance(c, dict) and c.get("name")
-            ]
-            lines.append(
-                f"场景地（{len(locs)}）：" + "、".join(str(n) for n in names[:12])
-            )
+            lines.append(f"场景地（{len(locs)}）：")
+            for loc in locs:
+                if not isinstance(loc, dict):
+                    continue
+                name = str(loc.get("name") or "").strip() or "（没名字）"
+                prof = _fact_profile(loc.get("profile"), _FACT_LOC_LABELS, budget)
+                budget -= len(prof)
+                tail = f" — {prof}" if prof else " — 各栏都还空着"
+                lines.append(f"  - {name}{tail}")
         else:
             lines.append("场景地：还没有")
         blk = prod.get("blocking") if isinstance(prod.get("blocking"), dict) else {}

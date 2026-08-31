@@ -98,7 +98,7 @@ def test_the_report_renders_without_a_project(doc, tmp_path, monkeypatch, capsys
     monkeypatch.setattr(sys, "argv", ["motv_doctor", "--root", str(tmp_path)])
     code = doc.main()
     out = capsys.readouterr().out
-    assert "没有找到项目" in out
+    assert "没找到项目" in out
     assert code == 0, "没有项目不是缺陷，是一个真实状态"
 
 
@@ -108,3 +108,45 @@ def test_json_mode_is_machine_readable(doc, tmp_path, monkeypatch, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["worst"] in (doc.OK, doc.WARN, doc.BAD)
     assert isinstance(payload["sections"], list)
+
+
+def test_it_looks_where_the_launcher_actually_puts_projects(doc):
+    """体检默认查的目录，必须是启动器默认写的那个。
+
+    2026-08-31：它默认查 `~/MotvProjects`，那里是空的，于是报「0 个项目」就收工 ——
+    挂在提交闸门上、一路绿、**什么都没检查**。而 `studio.ps1` 的默认 `-AssetRoot`
+    是**仓库的父目录**。查错地方的体检不会报错，只会一直绿，那是最坏的一种。
+    """
+    cands = [str(c) for c in doc.root_candidates()]
+    assert str(REPO.parent) in cands, "启动器的默认位置不在候选里"
+    assert str(REPO.parent / "MotvProjects") in cands
+    # 有项目的那个优先 —— 否则第一个候选就把后面的挡住了
+    picked, looked = doc.default_root()
+    assert looked, "没有记录找过哪些地方"
+    if any(doc.projects_in(Path(c)) for c in cands):
+        assert doc.projects_in(picked), f"选了一个空目录：{picked}"
+
+
+def test_no_project_says_where_it_looked(doc, tmp_path, monkeypatch, capsys):
+    """「0 个项目」必须带上找过的地方。
+
+    不然它看着像「他还没建项目」，实际是「我查错了地方」—— 这两件事的处置完全相反。
+    """
+    monkeypatch.setattr(sys, "argv", ["motv_doctor.py", "--root", str(tmp_path)])
+    doc.main()
+    out = capsys.readouterr().out
+    assert "没找到项目" in out
+
+
+def test_the_report_survives_a_non_utf8_console(doc, tmp_path, monkeypatch, capsys):
+    """体检自己不许因为编码崩掉。
+
+    这台机器的控制台是 cp932，报告里的 `⚠` 编不出去 —— 体检抛 `UnicodeEncodeError`、
+    退出码非零。它现在挂在提交闸门上，那等于**每一个前端提交都被一个没检查完的
+    体检挡住**（2026-08-31 实测）。因为自己崩掉而报红，比不检查更糟。
+    """
+    assert hasattr(doc, "_utf8_stdout"), "输出没有做编码兜底"
+    doc._utf8_stdout()  # 不许抛
+    monkeypatch.setattr(sys, "argv", ["motv_doctor.py", "--root", str(tmp_path)])
+    assert doc.main() == 0
+    assert "⚠" in capsys.readouterr().out

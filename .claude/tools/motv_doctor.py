@@ -43,12 +43,50 @@ OK, WARN, BAD = "OK", "WARN", "BAD"
 MARK = {OK: "✓", WARN: "⚠", BAD: "✗"}
 
 
-def default_root() -> Path:
-    """与 `read_feedback.py` 同一套规则：平台中立，不硬编码某个用户目录。"""
+def projects_in(root: Path) -> list[tuple[str, Path, Path]]:
+    """`root` 下面的项目（每个项目就是一个带 `studio/canvas.json` 的目录）。"""
+    found = []
+    if root.is_dir():
+        for child in sorted(root.iterdir()):
+            canvas = child / "studio" / "canvas.json"
+            if canvas.is_file():
+                found.append((child.name, child, canvas))
+    return found
+
+
+def root_candidates() -> list[Path]:
+    """按**启动器实际用的那条规则**去找，不是按某个我以为的默认值。
+
+    2026-08-31：体检默认看 `~/MotvProjects`，那里是空的，于是它报「0 个项目」
+    就收工了 —— 挂在提交闸门上、绿着、**什么都没检查**。而 `studio.ps1` 的默认
+    `-AssetRoot` 是**仓库的父目录**（第 167 行），他的项目一直在那儿。
+
+    一个查错了地方的体检不会报错，只会一路绿 —— 那正是最坏的一种。
+    """
+    out = []
     env = os.environ.get("MOTV_ACCOUNT_ROOT")
     if env:
-        return Path(env)
-    return Path.home() / "MotvProjects"
+        out.append(Path(env))
+    # `studio.ps1` 的默认：`$AssetRoot = Split-Path -Parent $root`
+    out.append(REPO.parent)
+    out.append(REPO.parent / "MotvProjects")
+    out.append(Path.home() / "MotvProjects")
+    seen, uniq = set(), []
+    for r in out:
+        key = str(r)
+        if key not in seen:
+            seen.add(key)
+            uniq.append(r)
+    return uniq
+
+
+def default_root() -> tuple[Path, list[Path]]:
+    """第一个**真的装着项目**的候选目录，外加找过的全部地方。"""
+    cands = root_candidates()
+    for r in cands:
+        if projects_in(r):
+            return r, cands
+    return cands[0], cands
 
 
 def load_server():
@@ -329,7 +367,24 @@ def render(sections: list[tuple[str, list[dict]]]) -> str:
     return "\n".join(out)
 
 
+def _utf8_stdout() -> None:
+    """让输出别在日文/中文 Windows 上崩掉。
+
+    这台机器的控制台代码页是 cp932，`⚠` 编不出去 —— 体检**自己**会抛
+    `UnicodeEncodeError`、退出码非零。它现在挂在提交闸门上，那就等于
+    **每一个前端提交都会被一个根本没检查完的体检挡住**（2026-08-31 实测）。
+
+    一个会因为自己崩掉而报红的检查，比没有检查更糟：它把「哪里坏了」变成噪音。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
 def main() -> int:
+    _utf8_stdout()
     ap = argparse.ArgumentParser(
         description="MOTV 体检：Agent 看得见 / 改得动 / 能力读得到 / 跑得起来"
     )
@@ -337,20 +392,22 @@ def main() -> int:
     ap.add_argument("--json", action="store_true", help="输出 JSON")
     args = ap.parse_args()
 
-    root = Path(args.root) if args.root else default_root()
+    looked: list[Path] = []
+    if args.root:
+        root = Path(args.root)
+    else:
+        root, looked = default_root()
     srv = load_server()
 
     sections: list[tuple[str, list[dict]]] = []
     worst = OK
 
-    projects = []
-    if root.is_dir():
-        for child in sorted(root.iterdir()):
-            canvas = child / "studio" / "canvas.json"
-            if canvas.is_file():
-                projects.append((child.name, child, canvas))
+    projects = projects_in(root)
 
     if not projects:
+        # 找过哪些地方**要说出来**：不然「0 个项目」看着像「他还没建项目」，
+        # 其实是「我查错了地方」—— 两件事的处置完全相反。
+        where = "、".join(str(r) for r in looked) if looked else str(root)
         sections.append(
             (
                 f"{root}",
@@ -359,7 +416,7 @@ def main() -> int:
                         "名字": "项目",
                         "量": "0 个",
                         "state": WARN,
-                        "why": "这个目录下没有找到项目",
+                        "why": f"没找到项目。找过：{where}",
                     }
                 ],
             )
