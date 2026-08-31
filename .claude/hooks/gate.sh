@@ -204,6 +204,12 @@ for target in targets:
 # frontend suite runs IN ADDITION to the pytest targets. Read as exact "true"
 # so a malformed value fails towards NOT skipping pytest rather than crashing.
 POLICY_FRONTEND="$(printf '%s' "$POLICY_JSON" | "$PY" -c 'import json,sys; print("true" if json.load(sys.stdin).get("frontend") is True else "false")')"
+# 体检的开关：动了这个应用就跑（2026-08-31，与 gate.ps1 同一条）。
+POLICY_DOCTOR="$(printf '%s' "$POLICY_JSON" | "$PY" -c 'import json,sys; print("true" if json.load(sys.stdin).get("doctor") is True else "false")')"
+
+run_doctor() {
+  run_check "motv doctor" 60 "$PY" "$ROOT/.claude/tools/motv_doctor.py"
+}
 
 run_frontend_suite() {
   run_check "frontend tests" 90 node --test "$ROOT"/mockups/motv-workspace/tests/*.test.mjs
@@ -316,6 +322,10 @@ if [ -z "$FAIL_LABEL" ]; then
       ;;
   esac
 fi
+
+# 体检在各档检查之后、diff 检查之前跑；前面已经失败时不必再跑
+# （`FAIL_LABEL` 非空就是已经有人红了）。
+if [ -z "$FAIL_LABEL" ] && [ "$POLICY_DOCTOR" = "true" ]; then run_doctor; fi
 
 [ -z "$FAIL_LABEL" ] \
   && run_check "git diff --check"    8 git diff --check \

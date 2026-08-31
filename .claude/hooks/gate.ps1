@@ -580,6 +580,18 @@ switch ($policy.tier) {
     }
 }
 
+# The doctor (.claude/tools/motv_doctor.py) runs whenever this app changed.
+# Rationale (2026-08-31): the six defects of 08-30..08-31 were all found by the
+# product owner while 2039 frontend tests stayed green -- those tests guard code
+# SHAPE, the doctor checks what he actually sees on screen. It hangs off the gate
+# rather than off my memory: a check that depends on remembering is not a check.
+# It runs against the real projects; a machine without any passes (not fails), so
+# CI and other machines are never blocked by it.
+if ($policy.doctor) {
+    $doctorScript = Join-Path $root '.claude	ools\motv_doctor.py'
+    $checks += @{ Label = 'motv doctor'; Timeout = 60; File = $py; Args = @($doctorScript) }
+}
+
 $checks += @(
     @{ Label = 'git diff --check'; Timeout = 8; File = $gitExe; Args = @('diff', '--check') },
     @{ Label = 'git diff --cached --check'; Timeout = 8; File = $gitExe; Args = @('diff', '--cached', '--check') }

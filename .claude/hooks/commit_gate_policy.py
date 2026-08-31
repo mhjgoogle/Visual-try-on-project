@@ -847,6 +847,16 @@ class Decision:
     #: pytest targets. A dedicated flag rather than a pseudo pytest target, so
     #: neither shell ever hands a node suite to pytest.
     frontend: bool = False
+    #: 体检（`.claude/tools/motv_doctor.py`）—— 动了这个应用就跑，红了不许提交。
+    #:
+    #: 产品负责人 2026-08-31：「有没有什么好办法让你以后修改的时候都不要忘这忘那。」
+    #: 2026-08-30 到 08-31 的六个缺陷**全是他替我发现的**，而 2039 条测试一路全绿：
+    #: 那些测试守的是**代码形状**，体检查的是「他打开会看到什么」。
+    #:
+    #: 挂在闸门上而不是靠我记得跑 —— **靠记性的检查等于没有检查**。
+    #: 它对着真实项目跑；那台机器上没有项目时它以「没有找到项目」通过（不是失败），
+    #: 所以 CI 与别人的机器不会因此卡住。
+    doctor: bool = False
 
 
 def _normalise(path: str) -> str:
@@ -1172,6 +1182,9 @@ def _classify(paths: list[str]) -> Decision:
     pytest_targets: set[str] = set()
     serial_targets: set[str] = set()
     frontend = False
+    # 动了这个应用的任何一处 —— 前端也好、server.py 也好 —— 都要体检。
+    # 它查的是「他打开会看到什么」，而那正是测试查不到、只能靠他撞见的那一层。
+    doctor = any(path.startswith(_FRONTEND_PREFIX) for path in non_docs)
     needs_full_pytest = False
     unmapped = False
     for path in non_docs:
@@ -1195,13 +1208,16 @@ def _classify(paths: list[str]) -> Decision:
             pytest_targets.update(targets)
 
     if unmapped:
-        return Decision("full", _REASON_NO_MAPPING, frontend=frontend)
+        return Decision("full", _REASON_NO_MAPPING, frontend=frontend, doctor=doctor)
 
     if needs_full_pytest:
         # The whole pytest run already contains every targeted selection; the
         # frontend flag still rides along for a mixed change.
         return Decision(
-            "full", "path underpins the whole pytest suite", frontend=frontend
+            "full",
+            "path underpins the whole pytest suite",
+            frontend=frontend,
+            doctor=doctor,
         )
     # Drop targets subsumed by a directory-level target of the same domain, so
     # one test does not run twice in the same gate invocation.
@@ -1218,8 +1234,9 @@ def _classify(paths: list[str]) -> Decision:
             tuple(sorted(pytest_targets)),
             serial_targets=tuple(sorted(serial_targets)),
             frontend=frontend,
+            doctor=doctor,
         )
-    return Decision("frontend", "bounded frontend-only surface")
+    return Decision("frontend", "bounded frontend-only surface", doctor=doctor)
 
 
 def _run_intent_mode() -> Intent:
