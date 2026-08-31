@@ -2442,13 +2442,20 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
    *  运行**同一条路径**，所以守卫、登记、schema 校验、提案语义一条不少。
    *
    *  自动起跑的是**运行**，不是接受：答案照旧落成 pending 的提案，要不要用由他决定。 */
-  function launchRouted(ctx, { skillId, executor, origin, summary, said }) {
+  function launchRouted(ctx, { skillId, executor, origin, summary, said, request }) {
     return Promise.resolve()
       .then(() => ctx.skills.run(skillId, {
         executor,
         origin,
         summary,
         scope: routeScopeFor(ctx, skillId),
+        // **他说的那句话就是「修订要求」**（TASK-122 / 2026-08-31 体检抓到）。
+        //
+        // `revisionRequest` 是 story-reviser / script-reviser / episode-plan-reviser
+        // 三个能力的**必填输入**，而在这之前整个前端**没有任何调用方传过 `extra`** ——
+        // 于是他说「按我的意见改大纲」时，它们永远报「还缺 revisionRequest」，一次也
+        // 跑不起来。体检就是为了抓这种「声明了、但没有人喂它」的缺口。
+        extra: request ? { revisionRequest: request } : {},
       }))
       .then((res) => {
         if (!res || !res.ok) ctx.toast(`${said}没跑成：${(res && res.error) || "没有返回结果"}`);
@@ -2494,6 +2501,8 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       origin: originForRoute(convRunId, originKey),
       summary: `对话里识别到的能力：${String(said || "").slice(0, 60)}`,
       said: `已启动「${decision.title}」`,
+      // 修订类能力要的就是这一句原话
+      request: String(said || ""),
       // 起跑结束就放开 —— 那时登记表里已经有记录了，两道闸交接得上。
       // 失败也要放开：一次失败的起跑不该把这条路径永久锁死。
     }).then(() => { if (guard) routeInflight.delete(guard); });

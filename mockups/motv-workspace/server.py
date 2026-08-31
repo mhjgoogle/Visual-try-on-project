@@ -7030,6 +7030,33 @@ class _App:
             )
         else:
             lines.append("人物：还没有")
+        # 场景地与白膜（2026-08-31 体检抓到的两条：屏幕上有，事实里没有）。
+        # 「基础财产」少报一样，他说「按已有的场景来」时 Agent 就只能装作不知道。
+        locs = prod.get("locations") if isinstance(prod.get("locations"), list) else []
+        if locs:
+            names = [
+                c.get("name") for c in locs if isinstance(c, dict) and c.get("name")
+            ]
+            lines.append(
+                f"场景地（{len(locs)}）：" + "、".join(str(n) for n in names[:12])
+            )
+        else:
+            lines.append("场景地：还没有")
+        blk = prod.get("blocking") if isinstance(prod.get("blocking"), dict) else {}
+        staged = []
+        for shot_id, b in blk.items():
+            if not isinstance(b, dict):
+                continue
+            actors = [
+                a
+                for a in (b.get("actors") or [])
+                if isinstance(a, dict) and not a.get("hidden")
+            ]
+            if actors:
+                who = "、".join(str(a.get("name") or "") for a in actors[:4])
+                staged.append(f"{shot_id}（{len(actors)} 人：{who}）")
+        if staged:
+            lines.append("白膜（3D 导演台里摆过位的镜头）：" + "；".join(staged[:12]))
         eps = prod.get("episodes") if isinstance(prod.get("episodes"), list) else []
         if eps:
             titles = []
