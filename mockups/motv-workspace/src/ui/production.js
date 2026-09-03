@@ -1152,7 +1152,14 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       if (activeModule === "board") {
         root.innerHTML =
           crumb(ctx) + epRail +
-          `<main class="st-main prod-main ep3-main">` + main + "</main>" +
+          // **`ep-main` 是这个空间的布局合同键**，不是装饰：`epprod.css` 用
+          // `#production.space-episode > .ep-main` 把中间那栏放到「第 2 列 · 第 3–4 行」。
+          // 制作画布这一支上一版只写了 `ep3-main`（它在 studio.css 里只管一个内边距），
+          // 于是**一条定位规则都没匹配上** —— 面板被自动排进第 2 行第 1 列：画布挤在
+          // 左边 312px 一条、右边空掉一屏，左栏掉到左下角，而横跨三列的第 2 行吃掉
+          // 850px，把右侧对话区压到 **81px 高、消息区只剩 8px**（产品负责人 2026-09-03：
+          // 「剧集制作那一页为什么和 AI 的对话框很小」）。
+          `<main class="st-main prod-main ep-main ep3-main">` + main + "</main>" +
           aiDirector(ctx);
         bind(ctx);
         restoreFlowScroll();
