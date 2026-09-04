@@ -1062,7 +1062,46 @@
       "declared": "2026-09-04T23:14:03+00:00"
     },
     "TASK-074": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "637db80430982b2c21235b687a50ec5a84b0612e",
+          "subject": "feat: 合成出来的是候选，不是成片 —— 过了 G4 的显式导出才登记 Final（TASK-074 · three-pane）",
+          "time": "2026-09-04T23:15:14+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/auto-push/changes/three-pane.json",
+            "docs/current-architecture.md",
+            "docs/design/active/product-requirement-and-ux-convergence-review.md",
+            "docs/design/creator-product-information-architecture.md",
+            "docs/tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md",
+            "mockups/motv-workspace/fixtures/demo-project.js",
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/src/controllers/timelinectl.js",
+            "mockups/motv-workspace/src/ui/assetlibws.js",
+            "mockups/motv-workspace/src/ui/postconsole.js",
+            "mockups/motv-workspace/src/ui/prodplan.js",
+            "mockups/motv-workspace/src/workflow/assetlib.js",
+            "mockups/motv-workspace/src/workflow/assetreg.js",
+            "mockups/motv-workspace/src/workflow/deliveryexport.js",
+            "mockups/motv-workspace/src/workflow/deliveryflow.js",
+            "mockups/motv-workspace/src/workflow/deliveryqc.js",
+            "mockups/motv-workspace/src/workflow/nodes/edit.js",
+            "mockups/motv-workspace/tests/appparse.test.mjs",
+            "mockups/motv-workspace/tests/assetreg.test.mjs",
+            "mockups/motv-workspace/tests/assets.test.mjs",
+            "mockups/motv-workspace/tests/assetusage.test.mjs",
+            "mockups/motv-workspace/tests/av.test.mjs",
+            "mockups/motv-workspace/tests/controltower.test.mjs",
+            "mockups/motv-workspace/tests/deliverylifecycle.test.mjs",
+            "mockups/motv-workspace/tests/deliveryui.test.mjs",
+            "mockups/motv-workspace/tests/generation.test.mjs",
+            "mockups/motv-workspace/tests/timelinectl.test.mjs",
+            "tests/studio/test_motv_assets_m3.py"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/STATUS.md",
         "docs/current-architecture.md",
