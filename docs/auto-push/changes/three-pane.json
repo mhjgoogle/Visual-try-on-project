@@ -533,7 +533,7 @@
           "subject": "docs: 当前事实收口 —— IA 说了一个月旧话，四张做完的卡还占着 active（TASK-125 · three-pane）",
           "time": "2026-09-04T11:36:35+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/STATUS.md",
             "docs/adr/ADR-0092-story-development-is-four-entries.md",
@@ -587,7 +587,7 @@
           "subject": "fix: Agent 现在拿得到全文；剧集制作按他的流程重排成三步",
           "time": "2026-09-04T11:38:40+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "mockups/motv-workspace/server.py",
             "mockups/motv-workspace/src/ui/epcanvas.js",
@@ -610,7 +610,7 @@
           "subject": "feat: 定稿的东西 Agent 全看得见，也能按他的话改",
           "time": "2026-09-04T11:38:40+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "mockups/motv-workspace/server.py",
             "mockups/motv-workspace/src/workflow/convactions.js",
@@ -627,7 +627,7 @@
           "subject": "fix: 一段没包成 JSON 的白话回答不再被整段丢掉",
           "time": "2026-09-04T11:38:40+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "mockups/motv-workspace/server.py",
             "tests/studio/test_motv_conversation_task109.py",
@@ -644,7 +644,7 @@
           "subject": "fix: 审校能跑起来了 —— 建议不是限制，降级要说出来",
           "time": "2026-09-04T11:38:41+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "mockups/motv-workspace/src/services/runtime.js",
             "mockups/motv-workspace/src/ui/convthread.js",
@@ -665,7 +665,7 @@
           "subject": "fix: 接上 proposeScript 的写回路径；提案纳入 product-skill 调用层",
           "time": "2026-09-04T11:38:41+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/STATUS.md",
             "docs/design/active/proposal-one-surface-list.md",
@@ -682,7 +682,7 @@
           "subject": "feat: 体检 —— 对着真实项目查「看得见 / 改得动 / 读得到 / 跑得起来」",
           "time": "2026-09-04T11:38:41+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             ".claude/tools/motv_doctor.py",
             "docs/design/active/proposal-one-surface-list.md",
@@ -703,7 +703,7 @@
           "subject": "fix: 审读意见不再给「用它」—— 给「照它改」",
           "time": "2026-09-04T11:38:41+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "mockups/motv-workspace/src/ui/convthread.js",
             "mockups/motv-workspace/src/ui/production.js",
@@ -720,7 +720,7 @@
           "subject": "feat: 体检挂进提交闸门 —— 让「忘这忘那」不再靠记性",
           "time": "2026-09-04T11:38:42+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             ".claude/hooks/commit_gate_policy.py",
             ".claude/hooks/gate.ps1",
@@ -739,7 +739,7 @@
           "subject": "fix: Agent 只会改、不会加 —— 人物/关系/场景地全都写不进去",
           "time": "2026-09-04T11:38:42+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             ".claude/tools/motv_doctor.py",
             "mockups/motv-workspace/server.py",
@@ -760,7 +760,7 @@
           "subject": "fix: 剧集制作那一屏的骨架塌了 —— 对话区被压成 81px",
           "time": "2026-09-04T11:38:42+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "mockups/motv-workspace/src/ui/production.js",
             "mockups/motv-workspace/tests/epskeleton.test.mjs"
@@ -769,6 +769,21 @@
             "mockups/motv-workspace/src/ui/production.js",
             "mockups/motv-workspace/tests/epskeleton.test.mjs"
           ]
+        },
+        {
+          "hash": "8f9e9309b2956e08286fe6ab103015131acfd3a0",
+          "subject": "docs(TASK-126): 补登十个没有卡的提交 —— 说得出它为哪条判据而做",
+          "time": "2026-09-04T11:57:27+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/STATUS.md",
+            "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/done/TASK-126-agent-sees-and-changes-everything.md"
+          ],
+          "scope_violation": [
+            "docs/tasks/done/TASK-126-agent-sees-and-changes-everything.md"
+          ]
         }
       ],
       "paths": [
@@ -776,6 +791,7 @@
         ".claude/tools/motv_doctor.py",
         "docs/STATUS.md",
         "docs/design/active/proposal-one-surface-list.md",
+        "docs/tasks/done/TASK-126-agent-sees-and-changes-everything.md",
         "mockups/motv-workspace/server.py",
         "mockups/motv-workspace/src/",
         "mockups/motv-workspace/styles/studio.css",
@@ -783,8 +799,268 @@
         "tests/"
       ],
       "verification": "PASS",
-      "verification_ref": "补登卡：这十个提交当时无任务卡承载（ORPHAN_IMPLEMENTATION）。各提交自带守卫测试（test_motv_doctor.py / epskeleton.test.mjs 等）；paths 为这十个提交实际触及的面，由 git show --stat 逐个核出",
-      "declared": "2026-09-04T11:39:10+00:00"
+      "verification_ref": "补登卡：这十个提交当时无任务卡承载（ORPHAN_IMPLEMENTATION）。各提交自带守卫测试（test_motv_doctor.py / epskeleton.test.mjs 等）；paths 为这十个提交实际触及的面加本卡自身，由 git show --stat 逐个核出",
+      "declared": "2026-09-04T11:57:45+00:00"
+    },
+    "TASK-121": {
+      "commits": [
+        {
+          "hash": "4f3ebda3bfeeb1fbf2bb742bab7fe7c1403eac25",
+          "subject": "fix(TASK-121): 方案要看得见、答过的不再问、发送后不跳回顶部",
+          "time": "2026-09-04T11:58:15+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            ".claude/tools/read_feedback.py",
+            "docs/STATUS.md",
+            "docs/tasks/active/TASK-121-proposals-you-can-actually-see.md",
+            "mockups/motv-workspace/server.py",
+            "mockups/motv-workspace/src/services/conversation.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/src/ui/proposals.js",
+            "mockups/motv-workspace/styles/epprod.css",
+            "mockups/motv-workspace/tests/proposals.test.mjs",
+            "tests/studio/test_motv_conversation_task109.py"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        ".claude/tools/read_feedback.py",
+        "docs/STATUS.md",
+        "docs/tasks/",
+        "mockups/motv-workspace/server.py",
+        "mockups/motv-workspace/src/",
+        "mockups/motv-workspace/styles/",
+        "mockups/motv-workspace/tests/",
+        "tests/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "方案要看得见、答过的不再问、发送后不跳回顶部；前端 1977 passed（proposals.test.mjs 7 条）+ test_motv_conversation_task109.py 78 passed + 真机截图",
+      "declared": "2026-09-04T11:58:14+00:00"
+    },
+    "TASK-122": {
+      "commits": [
+        {
+          "hash": "6e75e075dc16b5bc0a645f297cb912fbc5cd3fe6",
+          "subject": "fix(TASK-122): 「写好了」后面那个按钮真的画出来",
+          "time": "2026-09-04T11:58:15+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "mockups/motv-workspace/src/ui/convthread.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/tests/convthread.test.mjs"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "a1d6540f0eee70ede192691e48cc47480f60231a",
+          "subject": "fix(TASK-122): 大纲提案能落地；Agent 不再反复提醒；表格改成 Excel 网格",
+          "time": "2026-09-04T11:58:15+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/adr/ADR-0093-approved-plans-build-themselves.md",
+            "docs/current-architecture.md",
+            "mockups/motv-workspace/server.py",
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/src/controllers/skillctl.js",
+            "mockups/motv-workspace/src/ui/convthread.js",
+            "mockups/motv-workspace/src/ui/draftws.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/src/workflow/canondoc.js",
+            "mockups/motv-workspace/styles/studio.css",
+            "mockups/motv-workspace/tests/upstream.test.mjs",
+            "tests/contract/test_agent_reading_map_task122.py",
+            "tests/studio/test_motv_conversation_task109.py",
+            "tests/studio/test_motv_story_work_facts_task122.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "66be86882bda621035dc1dcfb505ebfd254b7b93",
+          "subject": "fix(TASK-122): Agent 看得见也改得动这四页；结构规划分三个入口",
+          "time": "2026-09-04T11:58:16+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "mockups/motv-workspace/server.py",
+            "mockups/motv-workspace/src/ui/draftws.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/src/ui/prodwizard.js",
+            "mockups/motv-workspace/src/ui/shell.js",
+            "mockups/motv-workspace/src/workflow/skillapply.js",
+            "mockups/motv-workspace/tests/wizardskeleton.test.mjs",
+            "tests/studio/test_motv_conversation_task109.py",
+            "tests/studio/test_motv_story_work_facts_task122.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "77a2657633c4967f5c953b3d4a5556119269ad1d",
+          "subject": "fix(TASK-122): 结构规划不再通往剧集制作；正文创作左边恒定是 Brief",
+          "time": "2026-09-04T11:58:16+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "mockups/motv-workspace/src/ui/draftws.js",
+            "mockups/motv-workspace/src/ui/production.js"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "4bf80538035d0c61f497c3fe6e2779608cb5034b",
+          "subject": "feat(TASK-122): Story Development 四页按他的规格重做（第 3–6 步）",
+          "time": "2026-09-04T11:58:16+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/STATUS.md",
+            "docs/tasks/active/TASK-122-story-development-four-entries.md",
+            "mockups/motv-workspace/src/ui/corews.js",
+            "mockups/motv-workspace/src/ui/draftws.js",
+            "mockups/motv-workspace/src/ui/planws.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/src/ui/shell.js",
+            "mockups/motv-workspace/src/workflow/convactions.js",
+            "mockups/motv-workspace/src/workflow/storywork.js",
+            "mockups/motv-workspace/styles/studio.css",
+            "mockups/motv-workspace/tests/storypages.test.mjs"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "248319e3ed89c8760ebc574a402aa43c7b125838",
+          "subject": "feat(TASK-122): Story Development 的数据模型 + 左栏四个入口",
+          "time": "2026-09-04T11:58:17+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/STATUS.md",
+            "docs/adr/ADR-0092-story-development-is-four-entries.md",
+            "docs/tasks/active/TASK-122-story-development-four-entries.md",
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/src/ui/episodews.js",
+            "mockups/motv-workspace/src/ui/epplanws.js",
+            "mockups/motv-workspace/src/ui/epprod.js",
+            "mockups/motv-workspace/src/ui/poststatusbar.js",
+            "mockups/motv-workspace/src/ui/prodplan.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/src/ui/shell.js",
+            "mockups/motv-workspace/src/workflow/storydoc.js",
+            "mockups/motv-workspace/src/workflow/storywork.js",
+            "mockups/motv-workspace/styles/studio.css",
+            "mockups/motv-workspace/tests/bibleposture.test.mjs",
+            "mockups/motv-workspace/tests/creatornav.test.mjs",
+            "mockups/motv-workspace/tests/storywork.test.mjs",
+            "mockups/motv-workspace/tests/upstream.test.mjs",
+            "mockups/motv-workspace/tests/wizardskeleton.test.mjs",
+            "mockups/motv-workspace/tests/workspaces.test.mjs"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        "docs/STATUS.md",
+        "docs/adr/",
+        "docs/current-architecture.md",
+        "docs/tasks/",
+        "mockups/motv-workspace/server.py",
+        "mockups/motv-workspace/src/",
+        "mockups/motv-workspace/styles/",
+        "mockups/motv-workspace/tests/",
+        "tests/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "Story Development 四个入口六步；前端全量 2015 passed / 0 failed（storypages.test.mjs 21 条）+ pytest tests/studio tests/contract tests/tooling 1071 passed / 17 skipped + playwright 逐条真浏览器验收",
+      "declared": "2026-09-04T11:58:15+00:00"
+    },
+    "TASK-123": {
+      "commits": [
+        {
+          "hash": "d661b70bd6d0ee90e4eaac2e6139f3fd32e1d92d",
+          "subject": "fix(TASK-123): 3D 导演台在剧集制作左栏就点得到",
+          "time": "2026-09-04T11:58:17+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/src/ui/shell.js",
+            "mockups/motv-workspace/tests/creatornav.test.mjs"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "23f80ec2197bd044abd8197bfe08fe4d3edb6ea9",
+          "subject": "feat(TASK-123): 剧集制作加入 3D 白膜导演台",
+          "time": "2026-09-04T11:58:17+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/STATUS.md",
+            "docs/adr/ADR-0094-greybox-previz-is-a-section-not-a-page.md",
+            "docs/tasks/active/TASK-123-greybox-previz.md",
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/src/services/canvasschema.js",
+            "mockups/motv-workspace/src/ui/blockgl.js",
+            "mockups/motv-workspace/src/ui/blockingws.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/src/ui/shell.js",
+            "mockups/motv-workspace/src/workflow/blocking.js",
+            "mockups/motv-workspace/src/workflow/convactions.js",
+            "mockups/motv-workspace/src/workflow/proddoc.js",
+            "mockups/motv-workspace/styles/studio.css",
+            "mockups/motv-workspace/tests/blocking.test.mjs",
+            "mockups/motv-workspace/tests/proddoc.test.mjs",
+            "mockups/motv-workspace/tests/runs.test.mjs",
+            "mockups/motv-workspace/tests/shotstage.test.mjs"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        "docs/STATUS.md",
+        "docs/adr/",
+        "docs/tasks/",
+        "mockups/motv-workspace/src/",
+        "mockups/motv-workspace/styles/",
+        "mockups/motv-workspace/tests/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "3D 白膜导演台 v1；前端全量 2037 passed / 0 failed（blocking.test.mjs 20 条）+ 真浏览器 swiftshader 走通",
+      "declared": "2026-09-04T11:58:17+00:00"
+    },
+    "TASK-124": {
+      "commits": [
+        {
+          "hash": "3bc658aa042e640c76a380d40bbfc6004eabd309",
+          "subject": "feat(TASK-124): 剧集制作收成一块画布",
+          "time": "2026-09-04T11:58:18+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/STATUS.md",
+            "docs/tasks/active/TASK-124-episode-canvas.md",
+            "mockups/motv-workspace/src/ui/epcanvas.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/src/ui/shell.js",
+            "mockups/motv-workspace/styles/studio.css",
+            "mockups/motv-workspace/tests/honeststate.test.mjs"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        "docs/STATUS.md",
+        "docs/tasks/",
+        "mockups/motv-workspace/src/",
+        "mockups/motv-workspace/styles/",
+        "mockups/motv-workspace/tests/"
+      ],
+      "verification": "PASS",
+      "verification_ref": "剧集制作收成一块画布 v1；前端全量 2039 passed / 0 failed + pytest tests/studio tests/contract 826 passed / 16 skipped + 真浏览器走通",
+      "declared": "2026-09-04T11:58:18+00:00"
     }
   },
   "merge_gate": {
