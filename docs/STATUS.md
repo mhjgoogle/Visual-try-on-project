@@ -19,7 +19,7 @@
 | `docs/reports/` | 阶段性工作报告 —— **历史证据**，默认不读 |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：5 在办 · 3 待排期 · 119 已完成 · 78 条 ADR。
+**当前**：5 在办 · 3 待排期 · 120 已完成 · 78 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -195,6 +195,7 @@
 | [TASK-122-story-development-four-entries.md](tasks/done/TASK-122-story-development-four-entries.md) | TASK-122：Story Development 按他的规格重构 —— 四个入口 | 已完成（2026-08-30 六步全部落地，逐条真浏览器验收见下 |
 | [TASK-123-greybox-previz.md](tasks/done/TASK-123-greybox-previz.md) | TASK-123：3D 白膜导演台 | 已完成（v1）（2026-08-30 落地，可在真实项目上摆位、预览、录白膜 |
 | [TASK-124-episode-canvas.md](tasks/done/TASK-124-episode-canvas.md) | TASK-124：剧集制作收成一块画布 | 已完成（v1）（2026-08-30 落地 |
+| [TASK-126-agent-sees-and-changes-everything.md](tasks/done/TASK-126-agent-sees-and-changes-everything.md) | TASK-126：Agent 看得见全部、也改得动全部（2026-08-30～09-03 连续实施的补登卡） | 已完成（2026-09-03 最后一提交） |
 
 ## 已完成 · 设计与验收记录
 
