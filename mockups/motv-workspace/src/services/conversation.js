@@ -75,6 +75,77 @@ export async function runState(project, runId) {
   return res.data || null;
 }
 
+/**
+ * THE RUN THIS THREAD HAS NOT FINISHED WITH — read from the thread alone (TASK-106).
+ *
+ * WHY THIS EXISTS. A turn is launched, the creator refreshes, and the tab that was
+ * polling it is gone. The thread comes back (it is server-side) but the run does not:
+ * nothing on screen says a task is still going, so he sends the same sentence again
+ * and the answer — when it lands — has nobody waiting to apply its edits
+ * (落地只能发生在浏览器，ADR-0089 决策 2b). 「刷新之后页面从后端恢复它的状态」 is
+ * REQ-004 判据 6, and this is the first half of it.
+ *
+ * TWO WAYS A TURN IS UNFINISHED, and the second one is the COMMON one:
+ *
+ *   1. **问了，还没答** — a user turn whose `runId` has no agent turn. The run is
+ *      still in flight (or settled a millisecond ago).
+ *   2. **答了，改动却没落地** — an agent turn that carries `edits` but no `applied`
+ *      receipt. This is what a closed tab looks like: the run finished server-side,
+ *      `_conv_reconcile` folded the answer into the thread, and the edits it proposed
+ *      were never applied by any browser — because applying them is something only a
+ *      browser can do. Reading 「有一条 Agent turn」 as 「落地已经完成」 is an
+ *      inference from something that does not prove it, and it loses those edits
+ *      **permanently and silently** (codex 轮 2 P1).
+ *
+ * NO SECOND BOOKKEEPING FIELD. Both answers come from what the thread already
+ * carries — the `runId` the send returned, and the `applied` receipt the browser
+ * writes back after it lands. A third field tracking 「还没落地的」 would be one more
+ * thing that can drift, and its drift looks exactly like this defect.
+ *
+ * It returns a CANDIDATE, never a verdict: only `GET /api/runs/<id>` can say what the
+ * run is doing now, which is why the caller asks before showing anything.
+ *
+ * RE-LANDING BEATS LOSING. A receipt that failed to save makes an already-applied
+ * turn look unlanded, so it is applied again — and that produces one more VERSION of
+ * the creator's document (nothing is overwritten, AGENTS.md 第 13 条). Losing an edit
+ * is silent and permanent; an extra version is visible and revertible, so the tie
+ * breaks this way on purpose.
+ */
+export function pendingRunIdIn(turns) {
+  const list = Array.isArray(turns) ? turns : [];
+  const agentByRun = new Map();
+  for (const t of list) {
+    if (t && t.role === "agent" && t.runId) agentByRun.set(String(t.runId), t);
+  }
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    const t = list[i];
+    const rid = t && t.runId ? String(t.runId) : "";
+    if (!rid) continue;
+    const agent = agentByRun.get(rid);
+    if (!agent) return rid;
+    if (hasUnlandedEdits(agent)) return rid;
+  }
+  return null;
+}
+
+/** An agent turn that PROPOSED changes and has no receipt saying they landed.
+ *  A turn with no edits proposed nothing, so there is nothing to land. */
+export function hasUnlandedEdits(turn) {
+  if (!turn || typeof turn !== "object") return false;
+  const edits = Array.isArray(turn.edits) ? turn.edits : [];
+  if (!edits.length) return false;
+  const applied = Array.isArray(turn.applied) ? turn.applied : [];
+  return applied.length === 0;
+}
+
+/** That turn's own words — what the resumed landing has to call the instruction. */
+export function turnTextOf(turns, runId) {
+  const hit = (Array.isArray(turns) ? turns : []).find(
+    (t) => t && t.role !== "agent" && t.runId && String(t.runId) === String(runId),
+  );
+  return hit && typeof hit.text === "string" ? hit.text : "";
+}
+
 const TERMINAL = new Set(["succeeded", "failed", "cancelled", "awaiting_input"]);
 
 export function isTerminal(status) {
@@ -105,6 +176,26 @@ export async function awaitTurn(project, runId, { onTick, timeoutMs = 180000, ev
     }
     await wait(everyMs);
   }
+}
+
+/**
+ * WHAT TO DO WITH A RECOVERED RUN — `"land"` or `"unknown"` (TASK-106 / ADR-0095 决策 2).
+ *
+ * TWO OUTCOMES, NOT THREE. 「已经结束了」 is NOT 「没事可做」: the thread was read
+ * BEFORE the status was, so a run that settled in between has an agent turn the
+ * page has never seen — and its edits are applied by the browser or by nobody
+ * (ADR-0089 决策 2b). Treating terminal as 「什么都不用做」 loses exactly those
+ * edits, permanently, and silently. So terminal lands too; landing re-reads the
+ * thread first and skips anything already receipted, which makes it safe to run
+ * on a run that finished a moment ago AND on one that finished last week.
+ *
+ * `"unknown"` is the only other answer, and it is a statement about US, not about
+ * the run: we could not ask. Saying 「没在跑」 here is what lets a creator start a
+ * second copy of a task that is still running (ADR-0064 决策 6).
+ */
+export function resumePlan(run) {
+  const status = run && typeof run === "object" ? run.status : null;
+  return typeof status === "string" && status ? "land" : "unknown";
 }
 
 /** Tell the thread what a turn's edits actually became.

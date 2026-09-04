@@ -558,27 +558,25 @@
             "docs/tasks/done/TASK-124-episode-canvas.md"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "3c2f66a67c3fd1d466a410b66b68ab2138cd894f",
+          "subject": "chore(auto-push): three-pane manifest writeback",
+          "time": "2026-09-04T12:04:19+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/three-pane.json"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
-        "docs/STATUS.md",
-        "docs/adr/ADR-0092-story-development-is-four-entries.md",
-        "docs/adr/ADR-0094-greybox-previz-is-a-section-not-a-page.md",
-        "docs/current-architecture.md",
-        "docs/design/active/product-requirement-and-ux-convergence-review.md",
-        "docs/design/creator-product-information-architecture.md",
-        "docs/tasks/active/TASK-040-final-unified-product-acceptance.md",
-        "docs/tasks/active/TASK-041-*.md",
-        "docs/tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md",
-        "docs/tasks/active/TASK-087-followup-ledger.md",
-        "docs/tasks/active/TASK-125-current-truth-convergence.md",
-        "docs/tasks/active/TASK-12[1234]-*.md",
-        "docs/tasks/backlog/TASK-041-*.md",
-        "docs/tasks/done/TASK-12[1234]-*.md"
+        ".autopush-placeholder"
       ],
       "verification": "PASS",
       "verification_ref": "pytest tests/tooling 271 passed/1 skipped; lifecycle_check 0 finding; gen_docs_status regenerated",
-      "declared": "2026-09-04T11:35:19+00:00"
+      "declared": "2026-09-04T12:47:34+00:00"
     },
     "TASK-126": {
       "commits": [
@@ -787,20 +785,11 @@
         }
       ],
       "paths": [
-        ".claude/hooks/",
-        ".claude/tools/motv_doctor.py",
-        "docs/STATUS.md",
-        "docs/design/active/proposal-one-surface-list.md",
-        "docs/tasks/done/TASK-126-agent-sees-and-changes-everything.md",
-        "mockups/motv-workspace/server.py",
-        "mockups/motv-workspace/src/",
-        "mockups/motv-workspace/styles/studio.css",
-        "mockups/motv-workspace/tests/",
-        "tests/"
+        ".autopush-placeholder"
       ],
       "verification": "PASS",
       "verification_ref": "补登卡：这十个提交当时无任务卡承载（ORPHAN_IMPLEMENTATION）。各提交自带守卫测试（test_motv_doctor.py / epskeleton.test.mjs 等）；paths 为这十个提交实际触及的面加本卡自身，由 git show --stat 逐个核出",
-      "declared": "2026-09-04T11:57:45+00:00"
+      "declared": "2026-09-04T12:47:34+00:00"
     },
     "TASK-121": {
       "commits": [
@@ -826,18 +815,11 @@
         }
       ],
       "paths": [
-        ".claude/tools/read_feedback.py",
-        "docs/STATUS.md",
-        "docs/tasks/",
-        "mockups/motv-workspace/server.py",
-        "mockups/motv-workspace/src/",
-        "mockups/motv-workspace/styles/",
-        "mockups/motv-workspace/tests/",
-        "tests/"
+        ".autopush-placeholder"
       ],
       "verification": "PASS",
       "verification_ref": "方案要看得见、答过的不再问、发送后不跳回顶部；前端 1977 passed（proposals.test.mjs 7 条）+ test_motv_conversation_task109.py 78 passed + 真机截图",
-      "declared": "2026-09-04T11:58:14+00:00"
+      "declared": "2026-09-04T12:47:34+00:00"
     },
     "TASK-122": {
       "commits": [
@@ -962,19 +944,11 @@
         }
       ],
       "paths": [
-        "docs/STATUS.md",
-        "docs/adr/",
-        "docs/current-architecture.md",
-        "docs/tasks/",
-        "mockups/motv-workspace/server.py",
-        "mockups/motv-workspace/src/",
-        "mockups/motv-workspace/styles/",
-        "mockups/motv-workspace/tests/",
-        "tests/"
+        ".autopush-placeholder"
       ],
       "verification": "PASS",
       "verification_ref": "Story Development 四个入口六步；前端全量 2015 passed / 0 failed（storypages.test.mjs 21 条）+ pytest tests/studio tests/contract tests/tooling 1071 passed / 17 skipped + playwright 逐条真浏览器验收",
-      "declared": "2026-09-04T11:58:15+00:00"
+      "declared": "2026-09-04T12:47:34+00:00"
     },
     "TASK-123": {
       "commits": [
@@ -1020,16 +994,11 @@
         }
       ],
       "paths": [
-        "docs/STATUS.md",
-        "docs/adr/",
-        "docs/tasks/",
-        "mockups/motv-workspace/src/",
-        "mockups/motv-workspace/styles/",
-        "mockups/motv-workspace/tests/"
+        ".autopush-placeholder"
       ],
       "verification": "PASS",
       "verification_ref": "3D 白膜导演台 v1；前端全量 2037 passed / 0 failed（blocking.test.mjs 20 条）+ 真浏览器 swiftshader 走通",
-      "declared": "2026-09-04T11:58:17+00:00"
+      "declared": "2026-09-04T12:47:34+00:00"
     },
     "TASK-124": {
       "commits": [
@@ -1052,15 +1021,30 @@
         }
       ],
       "paths": [
-        "docs/STATUS.md",
-        "docs/tasks/",
-        "mockups/motv-workspace/src/",
-        "mockups/motv-workspace/styles/",
-        "mockups/motv-workspace/tests/"
+        ".autopush-placeholder"
       ],
       "verification": "PASS",
       "verification_ref": "剧集制作收成一块画布 v1；前端全量 2039 passed / 0 failed + pytest tests/studio tests/contract 826 passed / 16 skipped + 真浏览器走通",
-      "declared": "2026-09-04T11:58:18+00:00"
+      "declared": "2026-09-04T12:47:34+00:00"
+    },
+    "TASK-106": {
+      "commits": [],
+      "paths": [
+        ".claude/hooks/gate.ps1",
+        "docs/STATUS.md",
+        "docs/adr/ADR-0095-*.md",
+        "docs/current-architecture.md",
+        "docs/design/active/product-requirement-and-ux-convergence-review.md",
+        "docs/tasks/active/TASK-106-*.md",
+        "mockups/motv-workspace/src/services/conversation.js",
+        "mockups/motv-workspace/src/ui/production.js",
+        "mockups/motv-workspace/src/workflow/convresume.js",
+        "mockups/motv-workspace/tests/conv*.test.mjs",
+        "tests/tooling/test_commit_gate_policy.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "codex 3 轮独立审查（独立性未降级），最终 BLOCKING none、0 P1/P2/P3/P4；两条不同机理的 P1 各买一轮并已修。前端全量 2078 passed/0 failed；pytest tests/contract tests/studio -n 8 → 839 passed/16 skipped；tests/tooling/test_commit_gate_policy.py 79 passed；ruff 全过；lifecycle_check 0 finding。附带修掉一处阻塞本次提交的闸门缺陷（gate.ps1 里 backslash-t 被展开成真实制表符，Windows 上每次改本应用的提交都失败）。验收 1 与 REQ-004 判据 6 的真实项目人工走查未做，已在卡上如实标记并挪到切片 5",
+      "declared": "2026-09-04T12:51:08+00:00"
     }
   },
   "merge_gate": {

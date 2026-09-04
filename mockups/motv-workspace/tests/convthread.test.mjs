@@ -179,8 +179,12 @@ test("对话状态按页面分开存 —— 一页的等待不许画到另一页
   assert.match(src, /function convKey\(\)/);
   assert.doesNotMatch(src, /ui\.convTurns/);
   assert.doesNotMatch(src, /ui\.convPendingRun/);
-  // 读取与刷新都带上这一页；发送时先把页面记下来（发完他可能已经换页了）
-  assert.match(src, /loadThread\(project, convKey\(\)\)/);
+  // 读取与刷新都带上这一页；发送时先把页面记下来（发完他可能已经换页了）。
+  // TASK-106：读线程之后还要**接回还在跑的那一轮**，所以这一页先落进一个变量 ——
+  // 恢复用的也必须是同一个 key，否则会把这一页的运行接到另一页的对话上。
+  assert.match(src, /const thread = convKey\(\)/);
+  assert.match(src, /loadThread\(project, thread\)/);
+  assert.match(src, /resumePendingRun\(ctx, project, thread\)/);
   assert.match(src, /const sentFrom = convKey\(\)/);
   assert.match(src, /refreshConversation\(ctx, sentFrom\)/);
 });

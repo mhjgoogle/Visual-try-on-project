@@ -588,7 +588,14 @@ switch ($policy.tier) {
 # It runs against the real projects; a machine without any passes (not fails), so
 # CI and other machines are never blocked by it.
 if ($policy.doctor) {
-    $doctorScript = Join-Path $root '.claude	ools\motv_doctor.py'
+    $doctorScript = Join-Path $root (Join-Path '.claude' (Join-Path 'tools' 'motv_doctor.py'))
+    # SEGMENTS, NEVER ONE LITERAL. This line once held the whole relative path in a
+    # single-quoted string; a tool that writes PowerShell expanded its backslash-t
+    # into a real TAB, so the gate looked for a file whose name began with a tab and
+    # EVERY app commit on Windows failed with [Errno 22] -- while the .sh twin, which
+    # never had the escape, kept passing. Two implementations, two verdicts: exactly
+    # what ADR-0062 decision 3 forbids. A guard in tests/tooling/ now refuses any
+    # literal tab here. (ASCII only in this file -- see the isascii guard.)
     $checks += @{ Label = 'motv doctor'; Timeout = 60; File = $py; Args = @($doctorScript) }
 }
 

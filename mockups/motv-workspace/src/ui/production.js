@@ -43,7 +43,7 @@ import { renderAssetInboxSection, bindAssetInboxSection } from "./assetinboxsec.
 import { threadModel, renderThread } from "./convthread.js";
 import {
   loadThread, sendTurn, awaitTurn, cancelTurn, reportApplied, openProposalCount,
-  decideProposal,
+  decideProposal, runState, pendingRunIdIn, turnTextOf, resumePlan,
 } from "../services/conversation.js";
 import { proposalsModel, renderProposals, renderOpinions } from "./proposals.js";
 import { renderStorageWs, bindStorageWs } from "./storagews.js";
@@ -99,6 +99,7 @@ import {
 import { runOperation } from "./directorshot.js";
 import { episodeView, activeEpisode } from "../workflow/proddoc.js";
 import { applyConversationEdits } from "../workflow/convedits.js";
+import { resumeThreadRun } from "../workflow/convresume.js";
 import { actionCatalog } from "../workflow/convactions.js";
 import {
   decideRoute, originForRoute, routeOf, scopeOfSkill, zoomTrigger,
@@ -2286,12 +2287,16 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     st.loaded = stamp;
     // 提案数跟着线程一起读：他不必进「开发」窗口才知道有东西在等他
     pollProposals(ctx);
-    Promise.resolve(loadThread(project, convKey())).then((res) => {
+    const thread = convKey();
+    Promise.resolve(loadThread(project, thread)).then((res) => {
       st.turns = res.turns;
       ui.convOtherPages = res.others || {};
       ui.convProposals = res.proposals || [];
       ui.convOpinions = res.opinions || [];
       render();
+      // 刷新之后把还在跑的那一轮接回来（TASK-106）。读线程只带回**问题**；
+      // 「它还在做」这件事只有后端知道。
+      return resumePendingRun(ctx, project, thread);
     });
   }
 
@@ -2627,6 +2632,106 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     return out;
   }
 
+  /**
+   * WAIT FOR ONE RUN, THEN LAND WHAT IT PROPOSED — the one implementation (TASK-106).
+   *
+   * `sendConversationTurn` and the refresh-time resume both come here. A second copy
+   * of this tail is how 「发送时会落地、刷新恢复后不会」 becomes true without anybody
+   * writing it down, and 落地只能发生在浏览器（ADR-0089 决策 2b）means the tail IS the
+   * feature — not a detail of the send path.
+   *
+   * IT LANDS, IT NEVER LAUNCHES. Returns `{ turn, landed }` so the send path can go on
+   * to route; the resume path deliberately stops here.
+   */
+  function landRun(ctx, { project, sentFrom, st, runId, said }) {
+    return awaitTurn(project, runId, {
+      onTick: (run) => {
+        st.pendingStatus = (run && run.status) || "";
+        render();
+      },
+    }).then((run) => {
+      // REFRESH FIRST, THEN APPLY FROM THE THREAD.
+      //
+      // 原本落地读的是**轮询返回的那个 run**。轮询有超时（也可能因为别的原因拿不到
+      // outputs），超时后返回的对象里根本没有 edits —— 于是落地看到「没有可落的改动」
+      // 就退场了，而答案照常出现（那是从服务端线程读回来的）。屏幕上就成了
+      //「它说已经改好了」+「还没落到作品上」，两句话互相打脸（产品负责人 2026-08-29:
+      //「好像是改了没显示」）。
+      //
+      // 线程是服务端的真相，读一次就有；run 只是它的快照。所以先刷新，再从**这一轮
+      // 自己的那条 turn**上取 edits。
+      return refreshConversation(ctx, sentFrom).then(() => {
+        const turn = (st.turns || []).find(
+          (x) => x && x.role === "agent" && x.runId === runId,
+        );
+        // 已经有回执 = 这一轮的改动早就落过了（比如上一次会话里落的），不重复落。
+        // **路由不受这条影响**：它有自己的幂等（登记表里的 origin），而且一轮里
+        // 「有没有改动要落」与「要不要起一个能力」本来就是两件独立的事。
+        const done = turn && Array.isArray(turn.applied) && turn.applied.length;
+        const edits = turn && Array.isArray(turn.edits) && turn.edits.length
+          ? turn.edits
+          : (((run || {}).outputs || {}).conversation || {}).edits;
+        const landed = done
+          ? []
+          : applyConversationEdits(ctx, {
+            instruction: said,
+            outputs: { conversation: { edits: edits || [] } },
+          });
+        let after = Promise.resolve();
+        if (landed.length) {
+          st.applied = { ...(st.applied || {}), [runId]: landed };
+          render();
+          // 回执写进对话线，「已落到作品上」才熬得过一次刷新。回执失败不掩盖落地本身
+          // —— 改动已经在作品里了，只是这一行字下次读不回来。
+          after = Promise.resolve(reportApplied(project, runId, landed))
+            .then(() => refreshConversation(ctx, sentFrom));
+        }
+        // 起跑**不在这里**。落地是读路径也要做的事（答案不落地等于改动丢了），
+        // 起跑不是：一次能力调用是真实动作，刷新时自动来一发正是这道守卫要防的
+        // （`convroute.test.mjs`「读线程的路径上没有任何起跑代码」）。所以这里只
+        // 交回落地结果，由**发送那条链**决定要不要接着起跑。
+        return after.then(() => ({ turn, landed }));
+      });
+    });
+  }
+
+  /**
+   * PICK THE RUN BACK UP AFTER A REFRESH (TASK-106 验收 1 / REQ-004 判据 6).
+   *
+   * A THIN ADAPTER, deliberately. The decisions and their order live in
+   * `workflow/convresume.js` so they can actually be run in a test — this closure
+   * could only ever be asserted against as source text, and every failure on this
+   * path is silent (edits lost, a task that looks idle). Here we only bind the
+   * shell's state to that module's four injected dependencies.
+   */
+  function resumePendingRun(ctx, project, sentFrom) {
+    const st = convState(sentFrom);
+    return resumeThreadRun({
+      project,
+      turns: st.turns,
+      pendingRunIdIn,
+      resumePlan,
+      readRun: (p, runId) => runState(p, runId),
+      claim: (runId) => {
+        if (st.pendingRun === runId) return false;
+        st.pendingRun = runId;
+        st.pendingStatus = "";
+        return true;
+      },
+      onStatus: (status) => {
+        st.pendingStatus = status;
+        render();
+      },
+      land: (runId) => landRun(ctx, {
+        project,
+        sentFrom,
+        st,
+        runId,
+        said: turnTextOf(st.turns, runId),
+      }),
+    });
+  }
+
   /** One turn: his sentence on screen NOW, the answer when the run lands.
    *
    *  The local echo matters: a chat that shows what you said only after a round
@@ -2669,55 +2774,13 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
         }
         st.pendingRun = res.runId;
         render();
-        return awaitTurn(project, res.runId, {
-          onTick: (run) => {
-            st.pendingStatus = (run && run.status) || "";
-            render();
-          },
-        }).then((run) => {
-          // REFRESH FIRST, THEN APPLY FROM THE THREAD.
-          //
-          // 原本落地读的是**轮询返回的那个 run**。轮询有超时（也可能因为别的原因拿不到
-          // outputs），超时后返回的对象里根本没有 edits —— 于是落地看到「没有可落的改动」
-          // 就退场了，而答案照常出现（那是从服务端线程读回来的）。屏幕上就成了
-          //「它说已经改好了」+「还没落到作品上」，两句话互相打脸（产品负责人 2026-08-29:
-          //「好像是改了没显示」）。
-          //
-          // 线程是服务端的真相，读一次就有；run 只是它的快照。所以先刷新，再从**这一轮
-          // 自己的那条 turn**上取 edits。
-          return refreshConversation(ctx, sentFrom).then(() => {
-            const turn = (st.turns || []).find(
-              (x) => x && x.role === "agent" && x.runId === res.runId,
-            );
-            // 已经有回执 = 这一轮的改动早就落过了（比如上一次会话里落的），不重复落。
-            // **路由不受这条影响**：它有自己的幂等（登记表里的 origin），而且一轮里
-            // 「有没有改动要落」与「要不要起一个能力」本来就是两件独立的事。
-            const done = turn && Array.isArray(turn.applied) && turn.applied.length;
-            const edits = turn && Array.isArray(turn.edits) && turn.edits.length
-              ? turn.edits
-              : (((run || {}).outputs || {}).conversation || {}).edits;
-            const landed = done
-              ? []
-              : applyConversationEdits(ctx, {
-                instruction: text,
-                outputs: { conversation: { edits: edits || [] } },
-              });
-            let after = Promise.resolve();
-            if (landed.length) {
-              st.applied = { ...(st.applied || {}), [res.runId]: landed };
-              render();
-              // 回执写进对话线，「已落到作品上」才熬得过一次刷新。回执失败不掩盖落地本身
-              // —— 改动已经在作品里了，只是这一行字下次读不回来。
-              after = Promise.resolve(reportApplied(project, res.runId, landed))
-                .then(() => refreshConversation(ctx, sentFrom));
-            }
-            // 落地之后才轮到能力：路由的判据是**作品此刻的样子**，所以要读的是
-            // 这一轮改完之后的状态，不是改之前的。
-            return after
-              .then(() => runRouteFor(ctx, res.runId, turn, text, originKey))
-              .then(() => suggestZoomFor(ctx, landed));
-          });
-        });
+        return landRun(ctx, {
+          project, sentFrom, st, runId: res.runId, said: text,
+        }).then(({ turn, landed }) =>
+          // 落地之后才轮到能力：路由的判据是**作品此刻的样子**，所以要读的是
+          // 这一轮改完之后的状态，不是改之前的。
+          Promise.resolve(runRouteFor(ctx, res.runId, turn, text, originKey))
+            .then(() => suggestZoomFor(ctx, landed)));
       })
       .catch((err) => {
         // 决策 6: fail-closed AND say why. An unhandled rejection here reads as

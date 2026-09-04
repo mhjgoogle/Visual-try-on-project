@@ -250,7 +250,13 @@ test("读线程的路径上没有任何起跑代码 —— 刷新与轮询不可
     const next = src.indexOf("\n  function ", at + 1);
     return src.slice(at, next > 0 ? next : src.length);
   };
-  for (const reader of ["ensureConversation", "refreshConversation", "convRouteState"]) {
+  // TASK-106 把「刷新之后接回还在跑的那一轮」加进读路径。它**必须**落地（答案不落地
+  // 等于改动丢了），但**不许**起跑 —— 一次能力调用是真实动作，刷新时自动来一发正是
+  // 这条守卫要防的那件事。所以恢复与落地两个函数都进这张名单。
+  for (const reader of [
+    "ensureConversation", "refreshConversation", "convRouteState",
+    "resumePendingRun", "landRun",
+  ]) {
     const text = body(reader);
     assert.ok(!text.includes("launchRouted("), `${reader} 不该起跑任何能力`);
     assert.ok(!text.includes("ctx.skills.run("), `${reader} 不该起跑任何能力`);
@@ -258,6 +264,8 @@ test("读线程的路径上没有任何起跑代码 —— 刷新与轮询不可
   }
   // …而发送那条链里确实有它
   assert.ok(body("sendConversationTurn").includes("runRouteFor("));
+  // …而恢复那条链确实到不了它：它止步于 landRun 交回的落地结果
+  assert.ok(body("resumePendingRun").includes("landRun("), "恢复必须落地");
 });
 
 test("跨层诊断是**建议**，不是自动跑", () => {
