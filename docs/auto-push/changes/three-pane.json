@@ -1055,21 +1055,36 @@
         }
       ],
       "paths": [
-        ".claude/hooks/gate.ps1",
-        "docs/STATUS.md",
-        "docs/adr/ADR-0095-*.md",
-        "docs/current-architecture.md",
-        "docs/design/active/product-requirement-and-ux-convergence-review.md",
-        "docs/tasks/active/TASK-106-*.md",
-        "mockups/motv-workspace/src/services/conversation.js",
-        "mockups/motv-workspace/src/ui/production.js",
-        "mockups/motv-workspace/src/workflow/convresume.js",
-        "mockups/motv-workspace/tests/conv*.test.mjs",
-        "tests/tooling/test_commit_gate_policy.py"
+        ".autopush-placeholder"
       ],
       "verification": "PASS",
       "verification_ref": "codex 3 轮独立审查（独立性未降级），最终 BLOCKING none、0 P1/P2/P3/P4；两条不同机理的 P1 各买一轮并已修。前端全量 2078 passed/0 failed；pytest tests/contract tests/studio -n 8 → 839 passed/16 skipped；tests/tooling/test_commit_gate_policy.py 79 passed；ruff 全过；lifecycle_check 0 finding。附带修掉一处阻塞本次提交的闸门缺陷（gate.ps1 里 backslash-t 被展开成真实制表符，Windows 上每次改本应用的提交都失败）。验收 1 与 REQ-004 判据 6 的真实项目人工走查未做，已在卡上如实标记并挪到切片 5",
-      "declared": "2026-09-04T12:51:08+00:00"
+      "declared": "2026-09-04T23:14:03+00:00"
+    },
+    "TASK-074": {
+      "commits": [],
+      "paths": [
+        "docs/STATUS.md",
+        "docs/current-architecture.md",
+        "docs/design/active/product-requirement-and-ux-convergence-review.md",
+        "docs/design/creator-product-information-architecture.md",
+        "docs/tasks/active/TASK-074-*.md",
+        "mockups/motv-workspace/fixtures/demo-project.js",
+        "mockups/motv-workspace/src/app.js",
+        "mockups/motv-workspace/src/controllers/timelinectl.js",
+        "mockups/motv-workspace/src/ui/assetlibws.js",
+        "mockups/motv-workspace/src/ui/postconsole.js",
+        "mockups/motv-workspace/src/ui/prodplan.js",
+        "mockups/motv-workspace/src/workflow/assetlib.js",
+        "mockups/motv-workspace/src/workflow/assetreg.js",
+        "mockups/motv-workspace/src/workflow/delivery*.js",
+        "mockups/motv-workspace/src/workflow/nodes/edit.js",
+        "mockups/motv-workspace/tests/*.test.mjs",
+        "tests/studio/test_motv_assets_m3.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "切片 3 §1.7 交付生命周期：codex 4 轮独立审查（独立性未降级），停于轮 4 hard-stop(b) 无新机理；两条 P1 修复均有因其不存在而失败的定向测试（appparse ESM 守卫；导出面无 mint/bind + 旧模块 ERR_MODULE_NOT_FOUND）；Command Gateway 一条为范围判断记 TASK-087 §1.2。前端全量 2120 passed/0 failed；pytest tests/studio tests/contract -n 8 → 839 passed/16 skipped；ruff 全过；lifecycle_check 0 finding；app.js vm.SourceTextModule 解析 OK。真实项目走查 → 切片 5",
+      "declared": "2026-09-04T23:13:10+00:00"
     }
   },
   "merge_gate": {

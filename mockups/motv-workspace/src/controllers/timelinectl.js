@@ -276,8 +276,10 @@ export function createTimelineController({
         });
       }
       const res = await command.renderEpisode(session.projectName(), clips, t.settings);
-      // CP2: the Final belongs to the episode whose timeline was just rendered
-      const rec = assetlib.addFinal(assetRegistry, res.url, production.activeEpisodeId);
+      // CP2: the CUT belongs to the episode whose timeline was just rendered.
+      // 渲染产出的是**候选**，不是成片（TASK-074 §1.7）—— 质检要探测的正是这次渲染的
+      // 产物，所以先有候选才谈得上 G4；把闸门装在这一步会挡住产出被检对象的动作本身。
+      const rec = assetlib.addCut(assetRegistry, res.url, production.activeEpisodeId);
       // §57: THE FINAL MUST BE REPRODUCIBLE. Everything below is what a creator
       // asking 「这条成片到底是什么做出来的」 needs, and each field is read from
       // real state at render time rather than re-derived later (the timeline moves

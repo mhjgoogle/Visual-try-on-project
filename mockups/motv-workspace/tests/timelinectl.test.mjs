@@ -224,7 +224,14 @@ test("render freezes a provenance record that describes THIS render", async () =
   assert.equal(p.locksInForce, 7);
   assert.ok(Array.isArray(p.clips) && p.clips.length >= 1);
   assert.ok(p.clips[0].assetId, "each clip records WHICH asset played");
-  assert.ok(res.assetId, "the Final is registered");
+  assert.ok(res.assetId, "the cut is registered");
+  // TASK-074 §1.7 第 1 步，在**真正的渲染调用方**上证：渲染登记的是候选（`cut`），
+  // 不是成片。`kind: "final"` 只有过了 G4 的显式导出才写得出来 —— 渲染这条路必须写不出。
+  const rec = h.state.assets.finals.find((f) => f && f.assetId === res.assetId);
+  assert.ok(rec, "渲染结果要登记进交付域");
+  assert.equal(rec.kind, "cut", "渲染产出的是候选，不是成片");
+  assert.equal(h.state.assets.finals.some((f) => f && f.kind === "final"), false,
+    "渲染这条路写不出成片");
 });
 
 test("a timeline with no video clip cannot be rendered", async () => {

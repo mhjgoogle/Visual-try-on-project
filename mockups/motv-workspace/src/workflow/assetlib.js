@@ -23,6 +23,7 @@
 // today: content integrity, not business identity.
 import { migrateUploads } from "./mediaref.js";
 import { mintId } from "./identity.js";
+import { spendExportTicket } from "./deliveryexport.js";
 import { sanitizeRegistryDeclarations, ensureDeclaration } from "./assetreg.js";
 
 const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
@@ -120,24 +121,82 @@ export function finalUrls(reg) {
   return out;
 }
 
-/** Append a freshly composed final as a new Asset (runtime write path —
- *  origin is honestly "compose" because we ARE the compose caller here).
- *  Guards the url: a malformed compose response (no/empty url) must NOT write a
- *  record that v3 validation would reject on the next load — returns null so
- *  the caller can surface the failure instead. */
-export function addFinal(reg, url, episodeId = null) {
+/**
+ * Append a freshly composed cut — a **CANDIDATE**, not a 成片 (TASK-074 §1.7).
+ *
+ * WHAT CHANGED AND WHY. This used to register `kind: "final"`, so 「合成完成」 and
+ * 「这是成片」 were the same event and G4 was never asked. The four-step lifecycle
+ * (系统合同 §6.5 · IA §5.2) is 候选 → 质检 → 用户确认导出 → Final, and a gate that
+ * only lives on a screen is bypassed by the next path that writes (Agent, deep link,
+ * an older page). So the candidate has its own identity **in the data**.
+ *
+ * Guards the url: a malformed compose response (no/empty url) must NOT write a record
+ * that v3 validation would reject on the next load — returns null so the caller can
+ * surface the failure instead.
+ */
+export function addCut(reg, url, episodeId = null) {
   if (typeof url !== "string" || !url) return null;
-  // storageState 'local' (M5): a freshly composed final's bytes are present, and
+  // storageState 'local' (M5): a freshly composed cut's bytes are present, and
   // v5 validation requires the field on every durable Asset record.
-  // CP2: a composed final IS a 成片 by construction — we are the compose caller,
-  // so declaring `final` here is recall, not a guess. `links.episodeId` is left
-  // to the caller (ctx.addFinal), which knows which episode was rendered.
   const rec = ensureDeclaration({
-    assetId: mintId("asset"), url, origin: "compose", storageState: "local", kind: "final",
+    assetId: mintId("asset"), url, origin: "compose", storageState: "local", kind: "cut",
     links: { ...(episodeId ? { episodeId } : {}) },
   });
   reg.finals.push(rec);
   return rec;
+}
+
+/**
+ * Register an EXPORTED 成片 — the only writer of `kind: "final"` (TASK-074 §1.7).
+ *
+ * Called by the export action alone, and only after G4 said yes. It **appends**
+ * (门槛 G5: 每次导出创建新版本，禁止静默覆盖): the cut it came from keeps its own
+ * record and its own bytes, and every earlier Final stays exactly where it was.
+ *
+ * `fromCutAssetId` is the lineage 「这条成片是哪一版候选导出的」. It is recorded
+ * rather than derived, because the timeline moves afterwards and a lineage
+ * re-derived later would describe a different film.
+ */
+export function addFinal(reg, url, episodeId = null, { fromCutAssetId = null, ticket = null } = {}) {
+  // THE TICKET IS THE STRUCTURE (codex 轮 2 P1). Without it 「唯一写入者」 was a claim
+  // about who happens to call this function — and any module importing assetlib could
+  // register a Final past G4. The ticket is minted only by `deliveryexport.exportability`
+  // at the moment it says yes, verified here by identity, and spent on use. A caller
+  // that has not been through the gate has nothing to hand over.
+  const refused = spendExportTicket(ticket, fromCutAssetId);
+  if (refused) throw new Error(refused);
+  if (typeof url !== "string" || !url) return null;
+  const rec = ensureDeclaration({
+    assetId: mintId("asset"), url, origin: "compose", storageState: "local", kind: "final",
+    links: {
+      ...(episodeId ? { episodeId } : {}),
+    },
+  });
+  if (fromCutAssetId) rec.fromCutAssetId = String(fromCutAssetId);
+  reg.finals.push(rec);
+  return rec;
+}
+
+/** Every candidate cut, oldest first (registration order IS version order —
+ *  finals have no chain). */
+export function cuts(reg) {
+  return (Array.isArray(reg && reg.finals) ? reg.finals : []).filter(
+    (f) => isObj(f) && f.kind === "cut" && f.url,
+  );
+}
+
+/** Every EXPORTED 成片, oldest first.
+ *
+ *  Records written before 2026-09-04 carry `kind: "final"` because that was the rule
+ *  then — they are counted here, and they are NOT rewritten (AGENTS.md 第 13 条:
+ *  改写创作者的历史记录不是迁移，是篡改). */
+export function finals(reg) {
+  return (Array.isArray(reg && reg.finals) ? reg.finals : []).filter(
+    // 归档 = 撤回这一版成片（TASK-074 §1.7 第 4 条）：记录、字节都在，只是不再算作
+    // 交付结果。G5 不许删、不许覆盖，所以「撤回」只能是这个形状 —— 可逆，资产库里
+    // 取消归档就回来。
+    (f) => isObj(f) && f.kind === "final" && f.url && f.storageState !== "archived",
+  );
 }
 
 /** Locate an Asset RECORD by id anywhere in the registry (chains, finals,

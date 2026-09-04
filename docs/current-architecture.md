@@ -61,7 +61,7 @@ Studio 后端 (mockups/motv-workspace/server.py)
 | **阶段 I/O** | L0–S7 每一步的输入输出 | [workflow-stage-step-io-contract.md](design/workflow-stage-step-io-contract.md) |
 | **页面集合** | 固定信息架构，页面集合封闭（十一页，`PAGES.length === 11` 有守卫）；现行形状是三空间 / 故事开发四入口 / 剧集制作单画布 | [creator-product-information-architecture.md](design/creator-product-information-architecture.md)（当前事实）· [ADR-0066](adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md) · [ADR-0092](adr/ADR-0092-story-development-is-four-entries.md) · [ADR-0094](adr/ADR-0094-greybox-previz-is-a-section-not-a-page.md) |
 | **全站骨架** | 每一页恰好三栏：左控制/选择 · 中工作区 · **右栏只有对话**（消息流 + 底部输入），对话按页面分开 | [REQ-004](requirements/REQ-004-three-pane-shell-and-agent-conversation.md) v2/v3 |
-| **交付生命周期** | 候选 → 质检 → 用户确认导出 → Final；G4「没跑过质检 = 未知，不是通过」。**当前实现未闭合**：`render` 仍直接登记 Final | [creator-system-contract.md](design/creator-system-contract.md) §6.5 · [TASK-074](tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md) |
+| **交付生命周期** | 候选 → 质检 → 用户确认导出 → Final。渲染产出 `kind: "cut"`（**候选**）；`kind: "final"` 的**唯一**写入者是过了 G4 的显式导出，且 append（G5）。G4「没跑过质检 = 未知，不是通过」，且质检必须是**针对这一版**测的 | [creator-system-contract.md](design/creator-system-contract.md) §6.5 · [TASK-074](tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md) §1.7 |
 | **运行的恢复** | 还在跑的那一轮**从线程认出来**（有问没答），再问一次 `GET /api/runs/<id>`；**问不到 ≠ 没在跑**；恢复只落地、不起跑 | [ADR-0095](adr/ADR-0095-a-run-is-picked-up-from-the-thread-not-from-a-poller.md) |
 | **退役中的旧接口** | `/api/agent/*` 同步分支正在退役；16 处同步长调用尚未改走 `run_id` | [TASK-106](tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) |
 

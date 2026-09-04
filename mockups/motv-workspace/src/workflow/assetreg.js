@@ -109,12 +109,26 @@ export const ASSET_KINDS = [
   // reference picker offers, and a base voice is bound to a character, not to a
   // shot. Putting it there would list it in every shot's 「从资产库选择」.
   "voice-reference",
+  // 交付这条链上的**两个**身份（系统合同 §6.5 / IA §5.2 的四段生命周期）。
+  //
+  //   cut    候选成片 —— 合成出来的那一版。它**还没有过 G4**，因此不是成片。
+  //   final  成片     —— 创作者**显式导出**之后才登记的那一版。
+  //
+  // 原来只有 `final`：`render()` 一步既渲染又登记 Final，于是 G4 从来没被问过
+  // （TASK-074 §1.7）。把候选跟成片分成两个 kind，是让「还没审过」这件事在
+  // **数据里**成立，而不只是界面上的一句话 —— 一个只写在界面上的闸门，
+  // 换一条路径（Agent、深链接、旧页面）就绕过去了。
+  //
+  // **老记录一条不动**：2026-09-04 之前登记的 `final` 仍是 `final`。它们是历史事实
+  // （当时的规则就是那样），改写它们等于篡改创作者的档案（AGENTS.md 第 13 条）。
+  "cut",
   "final",
 ];
 
 const KIND_SET = new Set(ASSET_KINDS);
 
 export const ASSET_KIND_LABEL = {
+  cut: "候选成片",
   "character-reference": "人物参考",
   "location-reference": "场景参考",
   "prop-reference": "道具参考",
@@ -203,6 +217,17 @@ export const SHOT_PICTURE_KINDS = ["shot-image", "storyboard", "keyframe"];
  */
 export const SHOT_VIDEO_LIBRARY_KINDS = ["shot-video", "motionpreview"];
 
+/**
+ * 交付这条链上的两个 kind —— 同一条纪律的第三次应用（TASK-097 §2.6.1）。
+ *
+ * `cut` 与 `final` 都住在 `finals` 域，但**它们不能互相替代**：一个还没过 G4，
+ * 一个是创作者签过字的成片。声明成一族只是为了让「哪些东西住在交付域」由**一处**
+ * 回答；判定「这一版能不能导出」的地方**不读这张表**，读的是 kind 本身。
+ *
+ * 把它们混起来，正是这个 kind 被拆出来要消灭的那件事。
+ */
+export const DELIVERY_KINDS = ["cut", "final"];
+
 const INTERPRETATION_SET = new Set(INTERPRETATION_KINDS);
 
 /** True when this kind reaches a generation through AI interpretation rather
@@ -236,6 +261,7 @@ export const KIND_DOMAIN = {
   bgm: "audio",
   "shot-mix": "audio",
   "voice-reference": "audio",
+  cut: "finals",
   final: "finals",
 };
 

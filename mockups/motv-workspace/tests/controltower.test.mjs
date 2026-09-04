@@ -159,7 +159,9 @@ test("a state-specific reference image satisfies the blocker check", () => {
 test("a final counts for the episode that RENDERED it, not for every episode", () => {
   const s = pd();
   s.finals = ["/f/ep1.mp4"];
-  s.assets.finals = [{ assetId: "fin-1", url: "/f/ep1.mp4", origin: "compose", storageState: "local" }];
+  // `kind: "final"` = **已导出的成片**（TASK-074 §1.7）。候选（`cut`）住在同一个域里
+  // 但不算数 —— 下面那条测试就是钉这件事的。
+  s.assets.finals = [{ assetId: "fin-1", url: "/f/ep1.mp4", origin: "compose", storageState: "local", kind: "final" }];
   const ep1 = s.production.episodes[0];
   // single-episode project: unambiguous
   assert.equal(episodeFinals(s, ep1), 1);
@@ -175,6 +177,26 @@ test("a final counts for the episode that RENDERED it, not for every episode", (
   }];
   assert.equal(episodeFinals(s, ep1), 1);
   assert.equal(episodeFinals(s, s.production.episodes[1]), 0); // never leaks across
+});
+
+test("**候选成片不算成片** —— 合成完 ≠ 出片（TASK-074 §1.7）", () => {
+  // 这是这条流水线上最容易说谎的一格：`reg.finals` 是交付**域**，候选也住在里面。
+  // 只按数组长度算，一渲染出候选，整集的「成片」段就会亮成完成 —— 而它还没过 G4。
+  const s = pd();
+  s.finals = ["/f/ep1-cut.mp4"];
+  s.assets.finals = [{
+    assetId: "cut-1", url: "/f/ep1-cut.mp4", origin: "compose", storageState: "local", kind: "cut",
+  }];
+  const ep1 = s.production.episodes[0];
+  assert.equal(episodeFinals(s, ep1), 0, "候选不许算成完成");
+
+  // 导出之后才算 —— 而且候选**照旧留着**（G5：append，不覆盖）
+  s.assets.finals.push({
+    assetId: "fin-1", url: "/f/ep1-cut.mp4", origin: "compose", storageState: "local",
+    kind: "final", fromCutAssetId: "cut-1",
+  });
+  assert.equal(episodeFinals(s, ep1), 1);
+  assert.equal(s.assets.finals.length, 2, "旧候选记录一条不动");
 });
 
 test("shotBlockers name a real missing field, never a guess", () => {
@@ -249,6 +271,8 @@ test("a finished episode reports no next action", () => {
   };
   s.timelines = { "ep-1": { clips: [{ clipId: "c", trackType: "video", assetId: "v1", startTime: 0, trimIn: 0, trimOut: 6 }], edited: true, settings: {} } };
   s.finals = ["/f/ep1.mp4"];
+  // 「做完了」的意思是**导出过成片**，不是「合成过一版候选」（TASK-074 §1.7）
+  s.assets.finals = [{ assetId: "fin-1", url: "/f/ep1.mp4", origin: "compose", storageState: "local", kind: "final" }];
   const plan = productionPlan(s, doc);
   assert.equal(plan.next, null);
   assert.equal(plan.healthy, true);

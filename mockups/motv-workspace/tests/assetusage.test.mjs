@@ -230,9 +230,11 @@ test("type tabs group by what the creator means, and count honestly", () => {
   const n = (id) => m.counts.find((c) => c.id === id).n;
   // ADR-0061 决策 1 added `collection` — 资产库's Collections tab, which is the
   // EXPLICIT 可复用 mark and nothing else (never "used more than once").
+  // TASK-074 §1.7 加了 `cut`（候选成片）。它**必须**与 `final` 分成两格：
+  // 一个还没过 G4，把它显示在标着「成片」的那一格里，比它根本不显示更糟。
   assert.deepEqual(
     TYPE_FILTERS.map((t) => t[0]),
-    ["all", "reference", "shot-image", "shot-video", "audio", "final", "collection"],
+    ["all", "reference", "shot-image", "shot-video", "audio", "cut", "final", "collection"],
   );
   assert.equal(n("reference"), 2, "both versions of the reference chain are references");
   assert.equal(n("audio"), 1);

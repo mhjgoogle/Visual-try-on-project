@@ -74,7 +74,7 @@
 | 说一句自然语言就启动正确的用户能力 | `PASS` | 前端只暴露三类用户能力，后端确定性 resolver、缺输入不跑、开发窗口不跑，测试已覆盖 | 还缺真实 Connected Project 上的一轮录屏/会话证据 |
 | Agent 回复和长任务步骤逐步可见，刷新后继续 | `PARTIAL`（2026-09-04 更新） | 对话这条链已闭合：刷新后从 `GET /api/runs/<id>` 恢复同一轮、接着等、落地；问不到说「状态未知」（[ADR-0095](../../adr/ADR-0095-a-run-is-picked-up-from-the-thread-not-from-a-poller.md)、`tests/convresume.test.mjs`）| 仍有 16 条同步长调用没改走 `run_id`；`/api/agent/*` 创作端点未退役（TASK-106 验收 2、3）|
 | 剧集制作是一块画布、一条下一步主路 | `PARTIAL` | 默认只显示“制作画布”，每集卡片给一个下一步动作 | 进入深层工作后又出现向导、工作区下拉、旧制作台和溯源入口；用户仍要理解多套导航模型 |
-| 审片问题阻止错误成片进入 Final | `FAIL` | G4 verdict 能展示，产物写入具备版本化与不覆盖保护 | 当前 `render()` 仍把合成结果直接登记为 Final；缺少“候选 → QC → 用户导出 → Final”的完整生命周期 |
+| 审片问题阻止错误成片进入 Final | `PASS`（2026-09-04 更新，数据层） | 渲染产出 `kind: "cut"`；`kind: "final"` 唯一写入者是过了 G4 的显式导出，且要求质检针对这一版；G5 append；老 `final` 不改写（TASK-074 §1.7，`tests/deliverylifecycle.test.mjs`） | 真实项目上点一次「导出成片」的人工走查 → 切片 5；撤回一版成片（软删除）等他用过再说 |
 | 从真实项目走完创意到交付 | `NOT_EVIDENCED` | 服务可连接真实项目，API 能读项目/预算/计划/问题/能力包 | 仓库自带 `wfm1-demo` 的 Studio canvas 为空；真实媒体项目依赖仓库外数据，无法在仓库内重复验收整条 UI 路径 |
 | 可正式投入生产使用 | `FAIL` | 核心 CLI/工作流有较强安全与恢复基础 | README 与 project-context 都明确 Studio 是 non-production prototype；付费生成证据、浏览器录制证据、异步恢复和正确 Final 闸门仍未闭合 |
 
@@ -158,6 +158,11 @@
 
 完成判据：构造一个有开放审片问题的候选，任何 UI/Agent 路径都不能把它登记为 Final；
 问题闭合后导出得到新版本，旧文件和旧 Final 记录不变。
+
+> **2026-09-04 进度**：已实施（TASK-074 §1.7）。「任何路径都不能」靠的是**数据层**：
+> `render` 已经写不出 `kind: "final"`，唯一写入者是 `ctx.delivery.exportCut`，
+> 它先问 G4、且要求质检是针对这一版测的。第 4 条「撤销 / 重新审片」：重新审片 =
+> 对同一版候选再跑质检；撤销导出按 G5 不存在（旧成片不删，再导新版）。
 
 ### C. 用一个 Surface/Command Manifest 兑现 Agent 操作面相等
 

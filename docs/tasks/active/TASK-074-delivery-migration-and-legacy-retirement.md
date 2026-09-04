@@ -15,7 +15,7 @@
 
 | # | 还欠什么 | 为什么它是缺陷 | 去向 |
 | --- | --- | --- | --- |
-| A | **`render` 直接登记 Final** | `controllers/timelinectl.js` 与 `workflow/nodes/edit.js` 合成完就调 `assetlib.addFinal`（`kind: "final"`），**G4 从未被问过**。系统合同 §6.5 与 IA §5.2 写的是「候选 → 质检 → 用户确认导出 → Final」，代码走的是「合成 = Final」 | **本卡 §1.7（新增）**，切片 3 |
+| A | ~~**`render` 直接登记 Final**~~ **已闭合（2026-09-04，§1.7）** | 渲染现在产出 `kind: "cut"`（候选）；`kind: "final"` 的唯一写入者是 `ctx.delivery.exportCut`，它先问 G4 且要求质检是**针对这一版**测的。老 `final` 记录不改写 | 守卫：`tests/deliverylifecycle.test.mjs`（10 条）+ `controltower.test.mjs`「候选成片不算成片」 |
 | B | `approveShot` 双写身份不一致 | 同一个定稿动作在两处各写一份身份 | [TASK-087 §4.12](TASK-087-followup-ledger.md)（需 ADR） |
 | C | §1.4 边界 4 + §1.5 两行端点退役 | 同一个缺失机制：前端没有完整的 run 读取路径，旧同步端点因此退不掉 | [TASK-106](TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md)，切片 2 |
 | D | 单一剧集制作主路（`workbench` 并入镜头制作、`provenance` 并入生成记录） | 默认入口已经很简洁，深入后又冒出旧制作台/工作区下拉/溯源 | [TASK-087 §5.1 / §5.13](TASK-087-followup-ledger.md)，切片 5 |
@@ -23,9 +23,50 @@
 **已完成且有守卫**：§1.1 · §1.1b · §1.2 · §1.5 · §1.6，§1.3 四条里三条，
 §1.4 八条边界里七条。
 
-## 1.7 交付生命周期闭合（新增，2026-09-04）
+## 1.7 交付生命周期闭合（2026-09-04 **已实施**）
 
-要做的是把上表 A 变成真的四步：
+**做了什么**：
+
+| 件 | 在哪 |
+| --- | --- |
+| 候选有自己的身份 | `assetreg.js` 新增 kind `cut`（候选成片），与 `final` 同住 `finals` 域但**不能互相替代**；`DELIVERY_KINDS` 让消费者派生而不是手写 |
+| 渲染只产出候选 | `assetlib.addCut`；`timelinectl.render()` 与 `nodes/edit.js` 两个调用方都改走它 |
+| 导出是 Final 的唯一写入者 | `app.js` 的 `ctx.delivery.exportCut(assetId)` → 先 `exportability()`（找不到 / 已是成片 / **这一版没测过** / G4 阻断 四种拒绝，各带理由）→ `assetlib.addFinal(..., { fromCutAssetId })`，append |
+| 按钮与写路径问同一个问题 | `postconsole.js` 成片分区拆成「候选成片」与「已导出的成片」两组；候选行的「导出成片」按钮由 `exportability` 决定 disabled 并把理由印在旁边，点下去时写路径**再问一次** |
+| 候选不算成片 | `prodplan.episodeFinals` 只数 `kind === "final"`，流水线的「成片」段不再因为一版候选就亮成完成；资产库「候选成片」「成片」两个筛选分开 |
+| 老记录不动 | 2026-09-04 之前的 `final` 仍是 `final`（历史事实，不是脏数据） |
+| **「唯一写入者」是结构，不是约定** | `workflow/deliveryticket.js`：`addFinal` 要一张**票**，票只由 `exportability` 在放行那一刻签发，按身份验、用一次作废、只对这一版有效。没有它，「只有导出调 `addFinal`」只是关于谁碰巧在调的约定 —— 任何 `import` 它的模块都能绕过 G4（codex 轮 2 P1） |
+| 界面那一半有守卫 | `tests/deliveryui.test.mjs`（9 条）：候选行的 disabled / 理由 / 「对这一版跑质检」真的画出来；三个按钮点下去调的是真的那三个操作、带的是**这一版**的 id。上一轮那次 UI 编辑被闸门整条拦掉而 2089 条测试照旧全绿 —— 因为没有一条问过这个 |
+| 签票函数**在任何导出面上都不存在** | 轮 2 报 `addFinal` 裸导出、轮 3 报 `mintExportTicket` 导出、轮 4 报 `bindMinter` 先来先得 —— **同一机理三种拼法**（import 级绕行）。按 ADR-0081 §2b 第三次不再买轮，但「整类一起修」便宜：签发挪进 `deliveryexport.js` 成私有函数，唯一调用点是 `exportability` 放行那一行；`assetlib.addFinal` 只拿验收函数 `spendExportTicket`；编排 `exportCut` 搬到新的 `deliveryflow.js`（避免 assetlib↔deliveryexport 成环）；`deliveryticket.js` **删除**，不留影子。守卫：两个交付模块的导出面上没有任何 `mint/bind/issue`，且旧模块 import 必须 `ERR_MODULE_NOT_FOUND` |
+| **`app.js` 多了一个 `},`，浏览器一加载就白屏** | 轮 3、轮 4 各报一次，我各反驳一次 —— **都错在我**：我拿 `node --check` 当证据，而它按 CJS 解析、对 ESM 语法睁一只眼；`import()` / `vm.SourceTextModule` 才是 ESM 解析的判官。多出的 `},` 把 `ctx` 提前关掉，`storage: {` 变成 `const ctx = {…}, storage` 的第二个无初始值声明。**2118 条前端测试全绿是因为没有一条 import `app.js`**。修：删掉多出的那行；新增 `tests/appparse.test.mjs`（动态 `import()` 两个入口，任何 `SyntaxError` 即红，缺 DOM 的运行期错误放过） |
+| **报告也绑到这一版** | `runDeliveryQc` 把 `probeAssetId` 写进报告；`exportability` 要求 `report.probeAssetId === cut.assetId`，否则 `report-mismatch`。只绑测量不绑报告时，「A 刚测过 + 一份给 B 出的干净报告」能导出 A（codex 轮 3 P1） |
+| 重新审片永远可到达 | 候选行的「对这一版跑质检 / 重新质检」不再只在被拒时出现：一版干净的候选也该能再测（codex 轮 3 判 step 4 PARTIAL） |
+| 演示种子给的是候选 | `fixtures/demo-project.js` 从 `addFinal` 改 `addCut`：演示项目一打开就有「成片」，本身就在示范一条不存在的路 |
+
+**完成判据的验证**：`deliverylifecycle.test.mjs` —— 没跑过质检 / 有 open 阻断问题
+→ `g4Export` 拒绝并列出问题 id；导出 append 新记录且旧候选、旧成片一字不变；
+老 `final` 仍算成片。**任何 UI 或 Agent 路径都不能绕过**这一点靠的是数据层：
+`kind: "final"` 只有一个写入者，且 `render` 已经写不出它。
+
+**第 4 条的三条路径，现在都有名字**（codex 轮 1 判 PARTIAL，判得对 —— 路径存在但没被
+说出来，等于不存在）：
+
+| 路径 | 在哪 | 为什么是这个形状 |
+| --- | --- | --- |
+| **重新审片** | 候选行的「对这一版跑质检」按钮 → `ctx.runDeliveryProbe(assetId)` | 探测**这一版**而不是「最新那条」；拿别的版本的数字放行等于替一个没检查过的文件签字 |
+| **撤回一版成片** | 成片行的「撤回这一版成片（归档）」→ `ctx.storage.archive(id, true)`；`assetlib.finals()` 与 `prodplan.episodeFinals` 都不再计入归档的 | G5 不许删、不许覆盖，所以撤回只能是**归档**：记录、字节都在，资产库里取消归档就回来（可逆） |
+| **导出新版本** | 再渲染一版候选 → 质检 → 导出 | 每次导出 append，旧成片一条不动 |
+
+**对审查「`exportCut` 绕过 Command Gateway」的范围判断**（CA §3 写路径）：那条约束的对象是
+**核心业务文件**（`src/ai_video_workflow` 的项目文件）；`exportCut` 写的是 Studio 自己的
+canvas 登记表（ADR-0053 项目根内的 Studio 存储），与 `addCut`、`render()` 以及全部
+`ctx.story.*` 写入同一层、同一条 `ctx.persist()` 路径。系统合同 §9 的矩阵确实把
+`exportDelivery` 列为 Command，但同一张表里的 `render-episode` 今天也不是网关命令 ——
+让导出成为唯一走网关的交付写入，会造成一处不一致而不是消除一处。把它接进网关属于
+[TASK-087 §1.2](TASK-087-followup-ledger.md) 那次「评价 / 反馈 / 行动闭环接进 Studio Gateway」
+的同一批工作，**登记为 follow-up，不在本卡改**。
+
+原始要做的四步（保留为历史）：
 
 1. `render` 只创建**带版本的 Candidate**，不登记 Final；
 2. 对 Candidate 跑真实媒体测量与 G4 质检；存在 open 的 `blocking` 问题时

@@ -94,6 +94,8 @@ import * as review from "./workflow/review.js";
 import * as reviewsync from "./workflow/reviewsync.js";
 import { g3TriggerFor, g3Retire, g4Export } from "./workflow/gates.js";
 import * as deliveryqc from "./workflow/deliveryqc.js";
+import { exportability as deliveryExportability } from "./workflow/deliveryexport.js";
+import { exportCut as deliveryExportCut } from "./workflow/deliveryflow.js";
 import * as framebind from "./workflow/framebind.js";
 import * as locksdoc from "./workflow/locks.js";
 import * as shotaudio from "./workflow/shotaudio.js";
@@ -4901,15 +4903,23 @@ const ctx = {
    * Deterministic issue ids: keyed on the episode and the row, never on a clock, so
    * re-running the report does not mint a second copy of the same finding.
    */
-  /** Every registered cut, oldest first. Finals have no chain (assetreg §492),
-   *  so registration order IS version order. */
+  /** Everything the delivery QC can be run against, oldest first. Finals have no
+   *  chain (assetreg §492), so registration order IS version order.
+   *
+   *  BOTH KINDS. A `cut` is the candidate this whole gate exists for; a `final` is
+   *  included because (a) records written before 2026-09-04 are all `final` — the
+   *  only thing an existing project HAS — and (b) 「成片预览 · 与规格对照」 is a real
+   *  thing to do to an exported film. What differs between them is not whether they
+   *  can be measured, it is whether they may still be exported (`exportable`). */
   _cuts: () =>
     ctx.assets
       .list()
-      .filter((a) => a && a.kind === "final" && a.url)
+      .filter((a) => a && (a.kind === "cut" || a.kind === "final") && a.url)
       .map((a) => ({
         assetId: a.assetId,
         url: a.url,
+        kind: a.kind,
+        exportable: a.kind === "cut",
         name: String(a.url).split("/").filter(Boolean).pop() || "",
       }))
       .filter((c) => c.name),
@@ -4979,6 +4989,7 @@ const ctx = {
     const report = deliveryqc.runDeliveryQc(
       {
         probe: DELIVERY_PROBE.probe,
+        probeAssetId: DELIVERY_PROBE.assetId,
         subtitleTrack: ctx.subtitles.track(),
         spec: { ...deliverySpecDoc },
         assets: ctx._cutAssets(),
@@ -5003,6 +5014,54 @@ const ctx = {
       probe: ctx.probeState(),
       hasCut: ctx._cuts().length > 0,
     };
+  },
+
+  /**
+   * 交付：候选 → 质检 → **用户确认导出** → Final（系统合同 §6.5 / TASK-074 §1.7）。
+   *
+   * THIS IS WHERE G4 BECAME REAL. Until now `g4Export` produced a verdict that was
+   * only ever PRINTED: `render()` registered the Final itself, so 「有阻断问题」 and
+   * 「已经是成片了」 could both be true at once. The gate has to sit on the write, not
+   * on a panel — a gate that only lives on a screen is bypassed by the next path that
+   * writes (an Agent action, a deep link, an older page).
+   *
+   * FAIL-CLOSED, AND IT SAYS WHICH PROBLEMS. A refusal that does not name the blockers
+   * leaves the creator with nothing to do about it.
+   */
+  delivery: {
+    /** Can this candidate be exported right now? `{ ok, reason, blockingIssueIds }`.
+     *  Pure read — the panel renders it, the write path re-asks it. Two callers, ONE
+     *  answer: a button that is enabled by one rule and refused by another is the
+     *  「说了不算数」 failure in its most confusing form. */
+    exportability: (assetId) => {
+      // 判定住在 `workflow/deliveryexport.js`（纯函数，可测）；这里只把三样输入递过去。
+      const { report } = ctx.deliveryQc();
+      return deliveryExportability({
+        cut: ctx._cuts().find((c) => c.assetId === assetId) || null,
+        probe: ctx.probeState(),
+        report,
+      });
+    },
+
+    /**
+     * 导出成片 —— **唯一**登记 `kind: "final"` 的地方。
+     *
+     * G5：append 新版本，旧 Final 与候选的字节、记录一字不动。
+     */
+    exportCut: (assetId) => {
+      // 逻辑住在 `workflow/deliveryexport.js`（纯函数 + 票）；这里只递输入、持久化、重画。
+      const { report } = ctx.deliveryQc();
+      const rec = deliveryExportCut({
+        reg: assetRegistry,
+        cut: ctx._cuts().find((c) => c.assetId === assetId) || null,
+        probe: ctx.probeState(),
+        report,
+        episodeId: (productionDoc && productionDoc.activeEpisodeId) || null,
+      });
+      ctx.persist();
+      refreshProductionView();
+      return rec;
+    },
   },
   // Storage-management controller (M11-D): built on the EXISTING M5
   // storageState lifecycle — no second state system. Byte removal keeps the
@@ -5318,7 +5377,9 @@ const ctx = {
     ),
   // composed finals: registry-owned records, url view for every consumer
   finalUrls: () => assetlib.finalUrls(assetRegistry),
-  addFinal: (url) => assetlib.addFinal(assetRegistry, url),
+  // 合成产出的是**候选**（TASK-074 §1.7）。登记 Final 的唯一入口是
+  // `ctx.delivery.exportCut`，它先问 G4。
+  addCut: (url) => assetlib.addCut(assetRegistry, url),
   // M5 — Generation Registry helpers. startGeneration freezes the inputs /
   // prompt / model / target at LAUNCH; complete/fail update the SAME record by
   // generationId and NEVER re-derive inputs — so a result landing after the

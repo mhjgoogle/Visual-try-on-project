@@ -1001,7 +1001,9 @@ export function seedDemoProject({ story, production, scripts, assets, generation
   renderInputs.push(bgm.assetId);
 
   if (renderInputs.length) {
-    const final = assetlib.addFinal(assets, placeholderFrame({
+    const final = assetlib.addCut(assets, placeholderFrame({
+    // 演示种子给的是**候选**（TASK-074 §1.7）：成片只有过了 G4 的显式导出才登记得出来，
+    // 演示数据也不例外 —— 否则「演示项目一打开就有成片」本身就在示范一条不存在的路。
       label: "EP01 迷雾入城", sub: "Final v1 · 粗剪", kind: "video",
     }));
     const renderGen = genlib.startGeneration(generations, {
