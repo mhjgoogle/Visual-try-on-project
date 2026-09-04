@@ -6,7 +6,7 @@
   技术形状由实施 Agent 依 AGENTS.md §1 自行 Accept（不涉付费、不动用户既有数据）
 - 关联：[ADR-0066](ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)
   决策 10（三空间 / 十一页闭集，**不动**）· [ADR-0092](ADR-0092-story-development-is-four-entries.md)
-  （同一条闭集纪律的上一次应用）· [TASK-123](../tasks/active/TASK-123-greybox-previz.md)
+  （同一条闭集纪律的上一次应用）· [TASK-123](../tasks/done/TASK-123-greybox-previz.md)
 
 ## 1. 背景
 

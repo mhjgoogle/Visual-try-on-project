@@ -1,6 +1,8 @@
 # TASK-122：Story Development 按他的规格重构 —— 四个入口
 
-- 状态：六步全部落地（2026-08-30），逐条验收见 §验收
+- 状态：**已完成**（2026-08-30 六步全部落地，逐条真浏览器验收见下；2026-09-04 收口）。
+  「开发派工通道」（ADR-0093 已 Accept，代码未动）已登记为
+  [TASK-087 §5.17](../active/TASK-087-followup-ledger.md)
 - Workflow：Feature · 深度：DEEP
 - 关联 Requirement：[REQ-006](../../requirements/REQ-006-agent-can-do-what-the-creator-can-do.md)
   判据 1（Agent 能做创作者能做的事）与判据 7（两个窗口）；本卡的产品规格由产品负责人

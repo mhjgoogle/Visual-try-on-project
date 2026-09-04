@@ -461,16 +461,11 @@
         }
       ],
       "paths": [
-        ".claude/",
-        "docs/",
-        "mockups/",
-        "product-flows/",
-        "product-skills/",
-        "tests/"
+        ".autopush-placeholder"
       ],
       "verification": "PASS",
       "verification_ref": "联合提交 b2f01c6：本会话的 TASK-118/120 与另一会话（visual-try-on-project-7f）的 TASK-119 在同一批文件里各有未提交改动，谁先单独提交都会带走对方的，故双方约定一次提交、双方署名。越界文件是对方 TASK-119 的，非本会话所写。",
-      "declared": "2026-08-29T15:00:16+00:00"
+      "declared": "2026-09-04T11:36:11+00:00"
     },
     "TASK-119": {
       "commits": [
@@ -525,15 +520,33 @@
         }
       ],
       "paths": [
-        "docs/",
-        "mockups/",
-        "product-flows/",
-        "product-skills/",
-        "tests/"
+        ".autopush-placeholder"
       ],
       "verification": "PASS",
       "verification_ref": "另一会话（visual-try-on-project-7f）实施与验证：5 轮 codex 独立审查、4 个 P1 全修、0 个 P2-P4；最终全量由本会话独立复跑（3771+6 / 前端 1970 / ruff 全过）",
-      "declared": "2026-08-29T15:41:54+00:00"
+      "declared": "2026-09-04T11:36:11+00:00"
+    },
+    "TASK-125": {
+      "commits": [],
+      "paths": [
+        "docs/STATUS.md",
+        "docs/adr/ADR-0092-story-development-is-four-entries.md",
+        "docs/adr/ADR-0094-greybox-previz-is-a-section-not-a-page.md",
+        "docs/current-architecture.md",
+        "docs/design/active/product-requirement-and-ux-convergence-review.md",
+        "docs/design/creator-product-information-architecture.md",
+        "docs/tasks/active/TASK-040-final-unified-product-acceptance.md",
+        "docs/tasks/active/TASK-041-*.md",
+        "docs/tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md",
+        "docs/tasks/active/TASK-087-followup-ledger.md",
+        "docs/tasks/active/TASK-125-current-truth-convergence.md",
+        "docs/tasks/active/TASK-12[1234]-*.md",
+        "docs/tasks/backlog/TASK-041-*.md",
+        "docs/tasks/done/TASK-12[1234]-*.md"
+      ],
+      "verification": "PASS",
+      "verification_ref": "pytest tests/tooling 271 passed/1 skipped; lifecycle_check 0 finding; gen_docs_status regenerated",
+      "declared": "2026-09-04T11:35:19+00:00"
     }
   },
   "merge_gate": {

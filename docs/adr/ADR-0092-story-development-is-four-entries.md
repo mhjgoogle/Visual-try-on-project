@@ -5,7 +5,7 @@
 - 决策者：产品负责人 2026-08-30 下发规格并当场划定边界；技术形状由实施 Agent 依
   AGENTS.md §1 自行 Accept（不涉付费、不动用户数据、每一步可逆）
 - 关联：[REQ-006](../requirements/REQ-006-agent-can-do-what-the-creator-can-do.md) ·
-  [TASK-122](../tasks/active/TASK-122-story-development-four-entries.md) ·
+  [TASK-122](../tasks/done/TASK-122-story-development-four-entries.md) ·
   取代 [ADR-0066](ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md) 决策 10 里的**分组**部分
   （成员集合不变）与 TASK-091 §1.1 关于 `script` 归属的那一条
 

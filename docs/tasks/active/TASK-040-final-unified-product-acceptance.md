@@ -1,13 +1,16 @@
 # TASK-040：AI 短剧工作流与 Creation Workspace 最终统一验收
 
-> **状态：Evidence Ready — 等用户一句话确认（2026-08-04）。** 最终产品 milestone gate；
-> TASK-037（WFM2 gate，证据已备齐等签字）、TASK-038/039 已实现过审。本任务不新增
-> 功能，只备齐最终联合验收证据：`tests/test_final_unified_acceptance.py`（闭环
-> 目标→运行→观察→评价/Action→复盘→学习/复用 + 跨切面不变量）+
-> [最终追踪矩阵](../../design/active/final-unified-acceptance-traceability.md) +
-> [runbook](../../design/active/final-unified-acceptance-runbook.md) +
-> [里程碑评审](../../design/done/final-unified-milestone-review.md)。里程碑 PASS 属用户
-> （runbook §5），实施 Agent 不代判。TASK-037 与本门两处签字共同构成最终产品验收。
+- 状态：**逐条判词见 §验收判词（2026-09-04 订正）。** 不再用一个总标题
+  `Evidence Ready` 表示整卡状态 —— 它把一条 `FAIL`、三条 `PARTIAL` 和一条
+  `NOT_EVIDENCED` 一起盖住了（[收敛审查](../../design/active/product-requirement-and-ux-convergence-review.md) §8.2）。
+  这是**里程碑卡**：里程碑 PASS 属用户（runbook §5，一句话即可），实施 Agent 不代判；
+  但「证据齐没齐」是 Agent 自己的判定，必须逐条给。
+- 本任务不新增功能，只备齐最终联合验收证据：
+  `tests/test_final_unified_acceptance.py` +
+  [最终追踪矩阵](../../design/active/final-unified-acceptance-traceability.md) +
+  [runbook](../../design/active/final-unified-acceptance-runbook.md) +
+  [里程碑评审](../../design/done/final-unified-milestone-review.md)。
+  TASK-037 与本门两处确认共同构成最终产品验收。
 
 - 依据：[AI 短剧工作流需求](../../ai_shortfilm_pipeline_workflow.md) +
   [Creation Workspace 需求](../../ai_video_creation_workspace_requirements.md)
@@ -67,3 +70,27 @@
 - [ ] 自动化不替代用户创作决定；
 - [ ] 所有业务事实有唯一写入者且 projection 可重建；
 - [ ] 独立审查和用户验收通过后方可宣布最终产品基线完成。
+
+## 验收判词（2026-09-04）
+
+判词含义：`PASS` 当前实现与测试直接证明 · `PARTIAL` 主体存在但有一条真实使用路径
+不成立 · `FAIL` 已看到与判据相反的当前行为 · `NOT_EVIDENCED` 可能实现了但仓库没有
+足够证据。**一条 `PARTIAL` 也不许被总标题盖掉。**
+
+| # | 判据 | 判词 | 依据 / 缺口 |
+| --- | --- | --- | --- |
+| 1 | 两份顶层需求无未解释缺口 | `PARTIAL` | 追踪矩阵逐条在册；缺口不是「没解释」而是**没闭合**：长任务刷新恢复（TASK-106）与 Candidate/QC/Final 生命周期（TASK-074）两处 |
+| 2 | I/O baseline 每步有 requirement→schema→owner→code→test→evidence | `PASS` | [最终追踪矩阵](../../design/active/final-unified-acceptance-traceability.md) 逐步在册，`tests/test_final_unified_acceptance.py` 跑通闭环 |
+| 3 | 完整工作流与 Workspace 均可跨项目复用 | `PARTIAL` | 核心 CLI/工作流可跨项目；Studio 侧仓库内只有 `wfm1-demo`，其 Studio canvas 为**空对象**，充实的 UI 状态无法在仓库内复现 → 切片 5 建可重复 Connected Project 样本 |
+| 4 | 自动化不替代用户创作决定 | `FAIL` | 本卡自己的判据。`render` 路径把合成结果**直接登记为 Final**（`assetlib.addFinal`，`kind: "final"`），G4 不是导出前置 —— 「将候选设为最终版本」这条用户确认被绕过。闭合在 TASK-074 |
+| 5 | 所有业务事实有唯一写入者且 projection 可重建 | `PARTIAL` | 写路径经 Command Gateway、投影可从权威文件重建；未闭合的是 `approveShot` 双写身份不一致（TASK-087 §4.12）与前端未完整读 `/api/runs`（TASK-106） |
+| 6 | 独立审查 + 用户验收通过后方可宣布最终基线 | `NOT_EVIDENCED` | 自动化测试全绿不等于用户验收；真实浏览器视觉/无障碍与 MediaRecorder 至今没有实测证据（[收敛审查](../../design/active/product-requirement-and-ux-convergence-review.md) §10）。**里程碑 PASS 属用户，一句话即可** |
+
+### 因此本卡还挡在哪三件事后面
+
+1. **TASK-106** —— 长任务统一异步 + 刷新恢复（切片 2）。判据 1、5。
+2. **TASK-074** —— Candidate/QC/Final 真实交付生命周期（切片 3）。判据 1、4。
+3. **切片 5** —— 可重复 Connected Project 样本 + 真实项目人工走查（判据 3、6）。
+
+三件闭合之后本卡才有资格递到用户面前要那**一句话**。在此之前它留在 `active/`，
+因为「部分完成」也是在办（ADR-0083）。

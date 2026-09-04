@@ -19,7 +19,7 @@
 | `docs/reports/` | 阶段性工作报告 —— **历史证据**，默认不读 |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：9 在办 · 2 待排期 · 115 已完成 · 78 条 ADR。
+**当前**：5 在办 · 3 待排期 · 119 已完成 · 78 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -42,15 +42,11 @@
 
 | 文档 | 标题 | 状态行（首句） |
 | --- | --- | --- |
-| [TASK-040-final-unified-product-acceptance.md](tasks/active/TASK-040-final-unified-product-acceptance.md) | TASK-040：AI 短剧工作流与 Creation Workspace 最终统一验收 | Evidence Ready — 等用户一句话确认（2026-08-04） |
-| [TASK-041-workspace-generation-command-and-evidence.md](tasks/active/TASK-041-workspace-generation-command-and-evidence.md) | TASK-041: 工作视窗付费视频生成命令 + UI 接入 + 1 次真实证据 | Accepted（2026-08-07，用户「同意」） |
-| [TASK-074-delivery-migration-and-legacy-retirement.md](tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md) | TASK-074：第四阶段 —— 后期交付、旧数据迁移、旧页面与旧接口清理、真实项目验收 | 部分实施（2026-08-25 更新） |
+| [TASK-040-final-unified-product-acceptance.md](tasks/active/TASK-040-final-unified-product-acceptance.md) | TASK-040：AI 短剧工作流与 Creation Workspace 最终统一验收 | 逐条判词见 §验收判词（2026-09-04 订正） |
+| [TASK-074-delivery-migration-and-legacy-retirement.md](tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md) | TASK-074：第四阶段 —— 后期交付、旧数据迁移、旧页面与旧接口清理、真实项目验收 | 部分实施 |
 | [TASK-087-followup-ledger.md](tasks/active/TASK-087-followup-ledger.md) | TASK-087：Follow-up 总账 —— 把散在九张卡里的欠账收成一处 | 活账（不是一次性交付 |
 | [TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md](tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) | TASK-106：前端接上 run_id 路径 —— 并由此退役同步分支与 /api/agent/ | 待开始（分析已完成，见 §1 |
-| [TASK-121-proposals-you-can-actually-see.md](tasks/active/TASK-121-proposals-you-can-actually-see.md) | TASK-121：方案要看得见、答过的不再问、发送后不跳回顶部 | 进行中（2026-08-30） |
-| [TASK-122-story-development-four-entries.md](tasks/active/TASK-122-story-development-four-entries.md) | TASK-122：Story Development 按他的规格重构 —— 四个入口 | 六步全部落地（2026-08-30），逐条验收见 §验收 |
-| [TASK-123-greybox-previz.md](tasks/active/TASK-123-greybox-previz.md) | TASK-123：3D 白膜导演台 | v1 落地（2026-08-30），可在真实项目上摆位、预览、录白膜 |
-| [TASK-124-episode-canvas.md](tasks/active/TASK-124-episode-canvas.md) | TASK-124：剧集制作收成一块画布 | v1 落地（2026-08-30） |
+| [TASK-125-current-truth-convergence.md](tasks/active/TASK-125-current-truth-convergence.md) | TASK-125：切片 1 —— 当前事实收口 | 进行中（2026-09-04 开卡） |
 
 ## 在办 · 设计与验收文档
 
@@ -61,6 +57,7 @@
 | [final-unified-acceptance-runbook.md](design/active/final-unified-acceptance-runbook.md) | 最终统一验收 Runbook（TASK-040） | — |
 | [final-unified-acceptance-traceability.md](design/active/final-unified-acceptance-traceability.md) | 最终统一验收追踪矩阵（TASK-040） | — |
 | [pending-codex-rereview.md](design/active/pending-codex-rereview.md) | 待补 codex 复审清单（活账） | 活账（不是一次性交付） |
+| [product-requirement-and-ux-convergence-review.md](design/active/product-requirement-and-ux-convergence-review.md) | 产品需求与界面简洁性收敛审查 | 当前整改依据（2026-09-04） |
 | [proposal-one-surface-list.md](design/active/proposal-one-surface-list.md) | 提案：一份「面清单」，让「我明明写了你怎么看不到」不再发生 | 提案，等他拍板 |
 
 ## 待排期 · 任务卡
@@ -71,6 +68,7 @@
 | --- | --- | --- |
 | [TASK-011-local-video-provider.md](tasks/backlog/TASK-011-local-video-provider.md) | TASK-011：LocalVideoProvider（阶段 8） | Outline（可选 WFM3 升级） |
 | [TASK-012-qcd-auto-routing.md](tasks/backlog/TASK-012-qcd-auto-routing.md) | TASK-012：基于 QCD 的自动模型路由（阶段 9） | Outline（WFM3） |
+| [TASK-041-workspace-generation-command-and-evidence.md](tasks/backlog/TASK-041-workspace-generation-command-and-evidence.md) | TASK-041: 工作视窗付费视频生成命令 + UI 接入 + 1 次真实证据 | backlog/ |
 
 ## 已完成 · 任务卡
 
@@ -193,6 +191,10 @@
 | [TASK-118-frontend-triggers-a-dev-plan.md](tasks/done/TASK-118-frontend-triggers-a-dev-plan.md) | TASK-118：前端能触发后端出方案 + product-loop Skill | 完成（2026-08-29） |
 | [TASK-119-three-user-capabilities-and-a-resolver.md](tasks/done/TASK-119-three-user-capabilities-and-a-resolver.md) | TASK-119：三个用户能力 + 后端 resolver | 实现完成（2026-08-29） |
 | [TASK-120-feedback-carries-a-locator.md](tasks/done/TASK-120-feedback-carries-a-locator.md) | TASK-120：意见自带定位情报 —— 让后端更快找到那一页 | 完成（2026-08-29） |
+| [TASK-121-proposals-you-can-actually-see.md](tasks/done/TASK-121-proposals-you-can-actually-see.md) | TASK-121：方案要看得见、答过的不再问、发送后不跳回顶部 | 已完成（2026-08-30 交付，2026-09-04 收口） |
+| [TASK-122-story-development-four-entries.md](tasks/done/TASK-122-story-development-four-entries.md) | TASK-122：Story Development 按他的规格重构 —— 四个入口 | 已完成（2026-08-30 六步全部落地，逐条真浏览器验收见下 |
+| [TASK-123-greybox-previz.md](tasks/done/TASK-123-greybox-previz.md) | TASK-123：3D 白膜导演台 | 已完成（v1）（2026-08-30 落地，可在真实项目上摆位、预览、录白膜 |
+| [TASK-124-episode-canvas.md](tasks/done/TASK-124-episode-canvas.md) | TASK-124：剧集制作收成一块画布 | 已完成（v1）（2026-08-30 落地 |
 
 ## 已完成 · 设计与验收记录
 

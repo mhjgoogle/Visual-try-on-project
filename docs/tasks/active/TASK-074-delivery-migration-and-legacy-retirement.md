@@ -1,13 +1,40 @@
 # TASK-074：第四阶段 —— 后期交付、旧数据迁移、旧页面与旧接口清理、真实项目验收
 
-- 状态：**部分实施**（2026-08-25 更新）。**已完成**：§1.1 · §1.1b · §1.2 · §1.5 · §1.6，§1.3 四条里三条，§1.4 八条边界里七条。
-  **未闭合且各有去向**：§1.4 边界 4 与 §1.5 两行端点退役 → [TASK-106](TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md)（同一个缺失机制）；§1.3 的 `approveShot` 双写 → [TASK-087 §4.12](TASK-087-followup-ledger.md)（需 ADR）
+- 状态：**部分实施。** 下面「§0.0 当前剩余清单」是这张卡**唯一**的当前状态来源 ——
+  正文后面各节保留的是**当时的实施结论（历史证据）**，不再逐节表示今天做没做完
+  （[收敛审查](../../design/active/product-requirement-and-ux-convergence-review.md) §8.4）。
+
 - 实施基线：**`ae0a54a`** + TASK-072 / TASK-073 的交付
 - 负责 Agent：单一实施 Agent（AGENTS.md 第 14 条）
 - 依据：[ADR-0066](../../adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)、
   [创作者系统合同](../../design/creator-system-contract.md) §10
 - 前置：[TASK-073](../done/TASK-073-fixed-ia-and-contextual-agent.md) 全部验收通过
 - 性质：**这是唯一允许删除的阶段。** 前三阶段一律并存。
+
+## 0.0 当前剩余清单（2026-09-04 —— 唯一一份）
+
+| # | 还欠什么 | 为什么它是缺陷 | 去向 |
+| --- | --- | --- | --- |
+| A | **`render` 直接登记 Final** | `controllers/timelinectl.js` 与 `workflow/nodes/edit.js` 合成完就调 `assetlib.addFinal`（`kind: "final"`），**G4 从未被问过**。系统合同 §6.5 与 IA §5.2 写的是「候选 → 质检 → 用户确认导出 → Final」，代码走的是「合成 = Final」 | **本卡 §1.7（新增）**，切片 3 |
+| B | `approveShot` 双写身份不一致 | 同一个定稿动作在两处各写一份身份 | [TASK-087 §4.12](TASK-087-followup-ledger.md)（需 ADR） |
+| C | §1.4 边界 4 + §1.5 两行端点退役 | 同一个缺失机制：前端没有完整的 run 读取路径，旧同步端点因此退不掉 | [TASK-106](TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md)，切片 2 |
+| D | 单一剧集制作主路（`workbench` 并入镜头制作、`provenance` 并入生成记录） | 默认入口已经很简洁，深入后又冒出旧制作台/工作区下拉/溯源 | [TASK-087 §5.1 / §5.13](TASK-087-followup-ledger.md)，切片 5 |
+
+**已完成且有守卫**：§1.1 · §1.1b · §1.2 · §1.5 · §1.6，§1.3 四条里三条，
+§1.4 八条边界里七条。
+
+## 1.7 交付生命周期闭合（新增，2026-09-04）
+
+要做的是把上表 A 变成真的四步：
+
+1. `render` 只创建**带版本的 Candidate**，不登记 Final；
+2. 对 Candidate 跑真实媒体测量与 G4 质检；存在 open 的 `blocking` 问题时
+   **禁用导出并列出阻塞项**；
+3. 只有用户显式执行「导出成片」才登记 Final，**保留旧 Final 与完整 provenance**；
+4. 撤销 / 重新审片 / 导出新版本三条路径明确。
+
+完成判据：构造一个带 open 审片问题的候选，**任何 UI 或 Agent 路径都不能把它
+登记为 Final**；问题闭合后导出得到新版本，旧文件与旧 Final 记录一字不变。
 
 ## 0. 本轮边界
 

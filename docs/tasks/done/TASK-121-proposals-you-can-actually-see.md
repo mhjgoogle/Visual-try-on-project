@@ -1,6 +1,7 @@
 # TASK-121：方案要看得见、答过的不再问、发送后不跳回顶部
 
-- 状态：进行中（2026-08-30）
+- 状态：**已完成**（2026-08-30 交付，2026-09-04 收口）。四个缺陷四个修全部落地并有守卫；
+  Follow-up「提案区占高」已登记为 [TASK-087 §5.16](../active/TASK-087-followup-ledger.md)
 - Workflow：Bug + Feature · 深度：SHALLOW
 - 关联 Requirement：[REQ-006](../../requirements/REQ-006-agent-can-do-what-the-creator-can-do.md)
   判据 6（双向回路）与判据 7（两个窗口）—— 本卡修的是这条回路**在屏幕上**的那一半
