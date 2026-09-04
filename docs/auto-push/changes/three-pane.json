@@ -564,7 +564,7 @@
           "subject": "chore(auto-push): three-pane manifest writeback",
           "time": "2026-09-04T12:04:19+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/auto-push/changes/three-pane.json"
           ],
@@ -1028,7 +1028,32 @@
       "declared": "2026-09-04T12:47:34+00:00"
     },
     "TASK-106": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "b7cef927681a21c914798ef8c0f5c5f0be57b5b4",
+          "subject": "feat: 刷新之后，还没完事的那一轮会被接回来（TASK-106 · three-pane）",
+          "time": "2026-09-04T12:56:11+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            ".claude/hooks/gate.ps1",
+            "docs/STATUS.md",
+            "docs/adr/ADR-0095-a-run-is-picked-up-from-the-thread-not-from-a-poller.md",
+            "docs/auto-push/changes/three-pane.json",
+            "docs/current-architecture.md",
+            "docs/design/active/product-requirement-and-ux-convergence-review.md",
+            "docs/tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md",
+            "mockups/motv-workspace/src/services/conversation.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/src/workflow/convresume.js",
+            "mockups/motv-workspace/tests/convresume.test.mjs",
+            "mockups/motv-workspace/tests/convroute.test.mjs",
+            "mockups/motv-workspace/tests/convthread.test.mjs",
+            "tests/tooling/test_commit_gate_policy.py"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         ".claude/hooks/gate.ps1",
         "docs/STATUS.md",
