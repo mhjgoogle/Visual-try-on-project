@@ -556,3 +556,68 @@ test("加图那侧相反：他选了「不要主图」时，第一张加进来�
   const ov = ctx.prod.characters[0].states[0].overrides;
   assert.equal(ov.activeReferenceAssetId, "x");
 });
+
+test("往返：加了再摘是显式空清单，再 reset 才回到继承", () => {
+  // codex 审查轮 3 报这条是「add 的逆动作没把状态还原」。**行为不改，说法改。**
+  //
+  // 「显式的空清单」和「继承基础清单」是两种不同的状态，而且都合法：前者是
+  // 「这个状态一张参考图都不要」，后者是「跟着基础走」。让摘光自动回到继承，
+  // 等于把前者变成一句说不出来的话 —— 那不是修复可逆性，是删掉一种能力。
+  //
+  // 可逆性靠的是**回得去**，不是「逆动作恰好一步」：`.reset` 就是那条路，
+  // 界面上是「恢复继承基础参考图」那个按钮，refs 非 null 时一直可见。
+  const ctx = fakeCtx();
+  const { c, st } = withState(ctx, "asset-base");
+  const ov = () => ctx.prod.characters[0].states[0].overrides;
+  assert.equal("referenceAssetIds" in ov(), false, "前置条件：这个状态在继承");
+
+  runAction(ctx, "character.state.reference.add", {
+    name: "林照", state: "受伤", assetId: "x",
+  });
+  runAction(ctx, "character.state.reference.remove", {
+    name: "林照", state: "受伤", assetId: "x",
+  });
+  // 摘光 ≠ 继承：这一步之后是「显式地一张都不要」
+  assert.deepEqual(ov().referenceAssetIds, []);
+  assert.equal(ov().activeReferenceAssetId, null);
+
+  runAction(ctx, "character.state.reference.reset", { name: "林照", state: "受伤" });
+  // 这一步才回到出发点，而且是**逐字**回到：两个键都不在了
+  assert.deepEqual(ov(), {}, "reset 之后没有回到继承");
+  assert.equal(st.stateId, ctx.prod.characters[0].states[0].stateId);
+});
+
+test("往返：状态本来就有自己的清单时，加了再摘就是原样", () => {
+  // 这一条才是「remove 是 add 的逆」真正成立的情形，单独钉住 ——
+  // 免得上面那条被读成「往返永远不成立」。
+  const ctx = fakeCtx();
+  const { c, st } = withState(ctx, "asset-base");
+  ctx.bible.setCharacterStateOverrides(c.characterId, st.stateId, {
+    referenceAssetIds: ["a", "b"],
+    activeReferenceAssetId: "b",
+  });
+  const before = JSON.parse(JSON.stringify(ctx.prod.characters[0].states[0].overrides));
+  runAction(ctx, "character.state.reference.add", {
+    name: "林照", state: "受伤", assetId: "x",
+  });
+  runAction(ctx, "character.state.reference.remove", {
+    name: "林照", state: "受伤", assetId: "x",
+  });
+  assert.deepEqual(ctx.prod.characters[0].states[0].overrides, before, "往返没有还原");
+});
+
+test("往返：换主图再换回去，一张图都没增减", () => {
+  const ctx = fakeCtx();
+  const { c, st } = withState(ctx, "asset-base");
+  ctx.bible.setCharacterStateOverrides(c.characterId, st.stateId, {
+    referenceAssetIds: ["a", "b"],
+    activeReferenceAssetId: "a",
+  });
+  const before = JSON.parse(JSON.stringify(ctx.prod.characters[0].states[0].overrides));
+  for (const id of ["b", "a"]) {
+    runAction(ctx, "character.state.reference.setActive", {
+      name: "林照", state: "受伤", assetId: id,
+    });
+  }
+  assert.deepEqual(ctx.prod.characters[0].states[0].overrides, before);
+});

@@ -246,7 +246,14 @@ function stateActions(kind, spec) {
       id: `${kind}.state.reference.add`,
       label: `给${label}的某个状态挂一张参考图`,
       doc: "bible",
-      undo: `${kind}.state.reference.remove`,
+      // **摘掉它 —— 但「摘光」不等于「回到继承」。** 这个状态原本在继承基础清单时，
+      // 加第一张就把清单整份接管了（`nextStateRefsOnAdd` 的既有语义：一写就接管）；
+      // 再摘掉，得到的是**显式的空清单**「这个状态一张参考图都不要」，不是继承。
+      // 要回到继承走 `.reset`（界面上就是「恢复继承基础参考图」那个按钮）。
+      // 两者是**两种都合法、都到得了、也都退得出来的状态**，所以不合并 ——
+      // 合并等于把「这个状态就是不要参考图」变成说不出来的话（codex 审查轮 3）。
+      undo: `${kind}.state.reference.remove`
+        + `（原来在继承的话，摘光之后再走 ${kind}.state.reference.reset 回到继承）`,
       args: { name: `${label}名字或 id`, state: "状态名或 id", assetId: "资产 id" },
       apply: (ctx, a) => {
         const { owner, st } = mustState(ctx, spec, a);
