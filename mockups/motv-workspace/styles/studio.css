@@ -2163,6 +2163,15 @@
 .sw-hrow .at { color: var(--text-faint); font-size: var(--t-micro); }
 .sw-hrow .note { color: var(--text-dim); flex: 1; }
 
+/* 版本回收区：删版本是软删除（补审 2026-09-05），删掉的那些收在这一行里，
+   他自己点「拿回来」就能撤销 —— 视觉上要明显比现存版本弱，但**必须看得见** */
+.sw-hbin {
+  display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
+  padding: var(--s2); border: 1px dashed var(--line); border-radius: var(--r1);
+  color: var(--text-faint); font-size: var(--t-micro);
+}
+.sw-hgone { display: inline-flex; align-items: center; gap: var(--s1); }
+
 /* 节点条：让「有稳定编号这回事」看得见，但一个字都不用他维护 */
 .sw-nodes { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }
 .sw-nodes.empty { color: var(--text-faint); font-size: var(--t-micro); }

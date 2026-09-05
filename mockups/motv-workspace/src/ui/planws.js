@@ -10,7 +10,7 @@
 import { esc } from "../util/dom.js";
 import { head } from "./shell.js";
 import * as w from "../workflow/storywork.js";
-import { finalizeBar, historyList, workOf } from "./corews.js";
+import { binCount, finalizeBar, historyList, liveCount, workOf } from "./corews.js";
 
 export function planModel(story) {
   const work = workOf(story);
@@ -114,7 +114,7 @@ export function renderPlanWs(ctx, ui) {
           .join("") +
         `</div>`
       : "") +
-    finalizeBar("plan", m.history.length) +
+    finalizeBar("plan", liveCount(m.history), "", binCount(m.history)) +
     (ui && ui.planHist ? historyList("plan", m.history) : "") +
     `</div>`
   );

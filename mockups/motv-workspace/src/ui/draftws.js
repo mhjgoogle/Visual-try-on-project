@@ -17,6 +17,11 @@ import { head } from "./shell.js";
 import * as w from "../workflow/storywork.js";
 import { workOf } from "./corews.js";
 
+/** 这一章/集看得见的版本 / 回收区里的版本。软删除的记录仍留在数组里，
+ *  所以每一个读它的地方都得自己过滤 —— 漏一处，删掉的版本就在那一处继续冒出来。 */
+const liveVersions = (unit) => w.visibleVersions(unit.finalized);
+const binVersions = (unit) => (unit.finalized || []).filter((r) => r && r.deleted);
+
 const KIND_WORD = { novel: "章", episode: "集" };
 const KIND_LABEL = { novel: "小说创作", episode: "剧集创作" };
 const PLANNED_LABEL = { novel: "Planned Chapters", episode: "Planned Episodes" };
@@ -200,15 +205,21 @@ export function renderDraftWs(ctx, ui) {
       `<button class="btn ghost sm" data-unit-copy="${esc(unit ? unit.id : "")}">⧉ Copy</button>` +
       `<button class="btn sm" data-unit-fin="${esc(unit ? unit.id : "")}">✓ 定稿 · 存一版</button>` +
       produceEntry(ctx, m.kind, m.openNo) +
-      ((unit && unit.finalized.length)
-        ? `<button class="btn ghost sm" data-unit-hist="${esc(unit.id)}">历史版本 ${unit.finalized.length}</button>`
+      // 数一份**看得见的**：删掉的那些留在数组里（软删除），拿数组长度当版本数
+      // 会把回收区里的也算进去（补审 2026-09-05 第三轮）。
+      // 同 `finalizeBar`：回收区里还有东西时，这个按钮也必须在 —— 否则把某一章的
+      // 版本全删光之后，那一章的「拿回来」就再也点不到了（第四轮 P1）。
+      ((unit && (liveVersions(unit).length || binVersions(unit).length))
+        ? `<button class="btn ghost sm" data-unit-hist="${esc(unit.id)}">历史版本 ${liveVersions(unit).length}` +
+          (binVersions(unit).length ? ` · 回收区 ${binVersions(unit).length}` : "") +
+          `</button>`
         : `<span class="meta">还没有历史版本</span>`) +
       `</div>` +
       `<textarea class="db-editor" data-unit-body="${esc(unit ? unit.id : "")}" spellcheck="false" ` +
       `placeholder="写这一${word}的正文。">${esc(unit ? unit.body : "")}</textarea>` +
       ((ui && ui.unitHist && unit)
         ? `<div class="sw-hist">` +
-          unit.finalized
+          liveVersions(unit)
             .slice()
             .reverse()
             .map(
@@ -218,6 +229,21 @@ export function renderDraftWs(ctx, ui) {
                 `<button class="btn ghost sm danger" data-unit-findel="${esc(unit.id)}:${r.v}">删除</button></div>`,
             )
             .join("") +
+          // 章/集的回收区。**这条路在界面上必须走得通** —— 删版本改成软删除之后，
+          // 只有 Agent 能撤销而他不能，正好把 REQ-006 判据 1 反过来（第三轮 P1）。
+          (binVersions(unit).length
+            ? `<div class="sw-hbin">回收区：` +
+              binVersions(unit)
+                .slice()
+                .reverse()
+                .map(
+                  (r) =>
+                    `<span class="sw-hgone">v${r.v}` +
+                    `<button class="btn ghost sm" data-unit-undel="${esc(unit.id)}:${r.v}">拿回来</button></span>`,
+                )
+                .join("") +
+              `</div>`
+            : "") +
           `</div>`
         : "") +
       `</div></div></div>`

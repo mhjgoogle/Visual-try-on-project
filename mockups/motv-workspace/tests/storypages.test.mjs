@@ -153,6 +153,28 @@ test("四样内容同一条版本规矩，且默认只显示最新版", () => {
   assert.ok(renderCoreWs(ctx, { coreHist: true }).includes("sw-hist"), "点开才列出来");
 });
 
+test("删掉的版本不再计入「历史版本 N」，回收区在界面上走得通", () => {
+  // 删版本是软删除，记录仍留在数组里。拿 `list.length` 当版本数会把回收区里的
+  // 也算进去 —— 删掉唯一一版之后按钮还写「历史版本 1」，点开却一行没有。
+  const { doc, ctx } = project();
+  doc.work.core = "第一稿";
+  w.finalizeDoc(doc.work, "core", "T1");
+  assert.ok(renderCoreWs(ctx, {}).includes("历史版本 1"));
+
+  assert.ok(w.deleteDoc(doc.work, "core", 1, "T2"), "软删掉唯一那一版");
+  const bar = renderCoreWs(ctx, {});
+  assert.ok(bar.includes("历史版本 0"), "计数只数看得见的那些");
+  // **但按钮必须还在。** 版本全删光时 live 是 0，这一处的回收区与「拿回来」
+  // 却还得点得到 —— 上一版在这里收掉按钮，删掉最后一版就等于他失去撤销路，
+  // 而 Agent 仍然能 undelete（补审 2026-09-05 第四轮）。
+  assert.ok(bar.includes("回收区 1"), "回收区里还有东西，按钮却收掉了");
+  assert.ok(!bar.includes("还没有历史版本"), "有东西可看还说没有");
+  const open = renderCoreWs(ctx, { coreHist: true });
+  assert.ok(open.includes("sw-hbin"), "回收区列出来");
+  assert.ok(open.includes("data-finundel"), "「拿回来」这条路他自己也走得了");
+  assert.ok(!open.includes("data-findel"), "已经删掉的不再给「删除」");
+});
+
 test("历史版本可查看、可恢复、可手动删（他逐条点名的三件事）", () => {
   const { doc, ctx } = project();
   doc.work.core = "第一稿";

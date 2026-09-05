@@ -14,6 +14,7 @@ import {
 } from "../src/workflow/convactions.js";
 import * as bibledoc from "../src/workflow/bibledoc.js";
 import * as canondoc from "../src/workflow/canondoc.js";
+import * as swork from "../src/workflow/storywork.js";
 
 test("词汇表就是注册表，不是另抄的一份", () => {
   const catalog = actionCatalog();
@@ -268,4 +269,80 @@ test("场景地也能加 —— 场景设计这一页之前根本没有动作", 
   runAction(ctx, "location.fields", { name: "轮居之城", visualInstruction: "冷灰、半透明" });
   assert.equal(ctx.prod.locations.length, 1, "同名场景地被建了第二遍");
   assert.equal(ctx.prod.locations[0].profile.visualInstruction, "冷灰、半透明");
+});
+
+/* --- 2026-09-05 补审第二轮：长文不许被静默砍掉 ------------------------------ */
+
+test("故事核心 / 大纲 / 正文的长文不被白名单砍掉", () => {
+  // 4000 字那道护栏是给**模型输出**定的，本来没问题。出事的是 ADR-0096 之后
+  // **界面按钮也走这张表**：正文编辑器每敲一个字就调 `unit.write`
+  // （production.js:1976），于是他自己写的正文一过 4000 字就被静默切掉、当场落库，
+  // 而他看到的是「现在有 4000 字」，不是一句报错。
+  //
+  // 「Agent 能做的 = 他能做的」这条路打通之后，**给模型定的护栏就成了给他定的护栏**。
+  const big = "字".repeat(9000);
+  assert.equal(sanitizeArgs("unit.write", { no: 1, text: big }).text.length, 9000);
+  assert.equal(sanitizeArgs("work.core", { text: big }).text.length, 9000);
+  assert.equal(sanitizeArgs("work.outline", { text: big }).text.length, 9000);
+  // 追加也走同一条路
+  assert.equal(sanitizeArgs("unit.write", { no: 1, append: big }).append.length, 9000);
+});
+
+test("没声明长文上限的动作，仍然只收 4000 字", () => {
+  // 护栏没有被拆掉，只是长文动作自己说出了上限。
+  const big = "x".repeat(9000);
+  const out = sanitizeArgs("character.fields", { name: "林照", identity: big });
+  assert.equal(out.identity.length, 4000);
+});
+
+test("失败的动作不留下半个人物", () => {
+  // 这个文件的约定是「抛错 = 没落下」。上一版先建人物、再检查改不改得动，
+  // 于是一次失败会留下一个空人物（补审 2026-09-05 第二轮）。
+  const prod = { characters: [], relationships: [], locations: [], world: {} };
+  const ctx = { prodData: () => ({ production: prod }), bible: {}, canon: {} };
+  assert.throws(() => runAction(ctx, "character.fields", { name: "林照", identity: "x" }));
+  assert.equal(prod.characters.length, 0, "抛了错却留下一个空人物");
+});
+
+test("塞进未知的对象键，也要说出来", () => {
+  // 上一版只统计字符串值的未知键 → 模型把内容塞进未知的对象/数组键时，
+  // 既没写进去，也不出现在「没有这些栏」的提示里。
+  const ctx = fakeCtx();
+  const out = runAction(ctx, "character.fields", {
+    name: "林照", identity: "被抹除者", backstory: { 起因: "两次被抹除" },
+  });
+  assert.match(out.said, /backstory/, "对象值的未知键被悄悄丢了");
+});
+
+test("长文超上限是报错，不是砍掉一截", () => {
+  // 只把上限从 4000 抬到 20 万，是把「静默丢字」挪远一格，不是修掉它：
+  // 200001 字进来，仍然会悄悄留下前 200000 字（codex 补审第九轮）。
+  // 现在超了就拒，并说清超了多少 —— fail-closed 并说明白。
+  const big = "字".repeat(200001);
+  assert.throws(
+    () => runAction(fakeCtx(), "unit.write", { no: 1, text: big }),
+    /超过 200000 字上限.*200001 字/s,
+    "超上限没有报错",
+  );
+  // 白名单不再在这一层砍：砍与不砍的判断只有一处
+  assert.equal(sanitizeArgs("unit.write", { no: 1, text: big }).text.length, 200001);
+  // 没声明长文上限的字段仍然受 4000 护栏（那道护栏管的是模型输出）
+  assert.equal(sanitizeArgs("character.fields", { name: "x", identity: big }).identity.length, 4000);
+});
+
+test("往写满的正文后面追加：拒绝，而不是悄悄切掉追加的内容", () => {
+  // 参数长度检查过得去（只追加一个字），出事的是**拼接之后**：
+  // 上一版由 editUnit 悄悄切回 20 万，而回执照样报「现在有 200000 字」
+  //（codex 补审第十轮）。检查的必须是落地之后的长度。
+  const ctx = fakeCtx();
+  const doc = { work: swork.createWork(null) };
+  swork.setForm(doc.work, "novel");
+  const u = swork.ensureUnit(doc.work, "novel", 1, "T0");
+  swork.editUnit(doc.work, u.id, "body", "字".repeat(swork.UNIT_MAX), "T1");
+  ctx.story = { doc: () => doc };
+  assert.throws(
+    () => runAction(ctx, "unit.write", { no: 1, append: "追" }),
+    /追加后会有 \d+ 字.*一个字都没有写进去/s,
+  );
+  assert.equal(doc.work.units[0].body.length, swork.UNIT_MAX, "被拒的那次动了正文");
 });

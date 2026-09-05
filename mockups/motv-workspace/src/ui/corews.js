@@ -19,22 +19,45 @@ import { head } from "./shell.js";
 import * as w from "../workflow/storywork.js";
 
 /** 一页里的定稿条：日常改动不产生版本，这个按钮才产生。 */
-export function finalizeBar(kind, count, hint = "") {
+export function finalizeBar(kind, count, hint = "", binCount = 0) {
+  // **有东西可看就得打得开** —— 「看得见的版本」和「回收区里的版本」都算。
+  // 上一版只看 live：把某一处的版本全删光之后，按钮不再渲染，那一处的回收区
+  // 与「拿回来」在刷新后**永久不可达**（展开状态只在内存里）——
+  // 删掉最后一版 = 他失去撤销路，而 Agent 仍然能 undelete，正好是本轮要修的那个倒置
+  //（补审 2026-09-05 第四轮）。
   return (
     `<div class="sw-fin">` +
     `<button class="btn" data-fin="${esc(kind)}" title="存一版历史。日常编辑不会产生版本">✓ 定稿 · 存一版</button>` +
-    (count
-      ? `<button class="btn ghost" data-finhist="${esc(kind)}">历史版本 ${count}</button>`
+    (count || binCount
+      ? `<button class="btn ghost" data-finhist="${esc(kind)}">历史版本 ${count}` +
+        (binCount ? ` · 回收区 ${binCount}` : "") +
+        `</button>`
       : `<span class="meta">还没有历史版本 —— 日常编辑不会产生它</span>`) +
     (hint ? `<span class="meta">${esc(hint)}</span>` : "") +
     `</div>`
   );
 }
 
+/** 数**看得见的**那些版本。软删除的记录仍留在数组里，拿 `list.length` 当版本数
+ *  会把回收区里的也算进去 —— 删掉唯一一版之后按钮还写「历史版本 1」，点开却是空的
+ *  （补审 2026-09-05 第四轮；`draftws` 已经这么数了，三个 doc 页当时漏改）。 */
+export function liveCount(records) {
+  return (Array.isArray(records) ? records : []).filter((r) => r && !r.deleted).length;
+}
+
+/** 数回收区里的。有它才知道「按钮要不要在」—— 版本全删光时 live 是 0，
+ *  但那一处的撤销路还得点得到。 */
+export function binCount(records) {
+  return (Array.isArray(records) ? records : []).filter((r) => r && r.deleted).length;
+}
+
 /** 历史版本列表：可查看、可恢复、可手动删（他逐条点名的三件事）。 */
 export function historyList(kind, records) {
-  if (!records.length) return "";
-  const rows = records
+  const all = Array.isArray(records) ? records : [];
+  if (!all.length) return "";
+  const live = all.filter((r) => r && !r.deleted);
+  const gone = all.filter((r) => r && r.deleted);
+  const rows = live
     .slice()
     .reverse()
     .map(
@@ -47,7 +70,22 @@ export function historyList(kind, records) {
         `<button class="btn ghost sm danger" data-findel="${esc(kind)}:${r.v}">删除</button></div>`,
     )
     .join("");
-  return `<div class="sw-hist">${rows}</div>`;
+  // 回收区。删版本现在是软删除（补审 2026-09-05），**那条撤销的路必须他自己也走得了**
+  // —— 只有 Agent 能撤销、他不能，正好把 REQ-006 判据 1 反过来了。
+  const bin = gone.length
+    ? `<div class="sw-hbin">回收区：` +
+      gone
+        .slice()
+        .reverse()
+        .map(
+          (r) =>
+            `<span class="sw-hgone">v${r.v}` +
+            `<button class="btn ghost sm" data-finundel="${esc(kind)}:${r.v}">拿回来</button></span>`,
+        )
+        .join("") +
+      `</div>`
+    : "";
+  return rows || bin ? `<div class="sw-hist">${rows}${bin}</div>` : "";
 }
 
 /* --- ① 故事核心 ------------------------------------------------------------ */
@@ -84,7 +122,7 @@ export function renderCoreWs(ctx, ui) {
       : `<textarea class="sw-editor" data-core="1" spellcheck="false" ` +
         `placeholder="这个故事是关于什么的 —— 立意、主角、他要什么、挡在前面的是什么、这个世界的规则、谁和谁什么关系。">${esc(m.text)}</textarea>`) +
     `<div class="sw-foot"><span class="meta">${m.chars} 字 · 日常编辑只维护最新版</span></div>` +
-    finalizeBar("core", m.history.length) +
+    finalizeBar("core", liveCount(m.history), "", binCount(m.history)) +
     (ui && ui.coreHist ? historyList("core", m.history) : "") +
     `</div>`
   );
@@ -134,7 +172,7 @@ export function renderOutlineWorkWs(ctx, ui) {
         `placeholder="开端：…&#10;&#10;发展：…&#10;&#10;结局：…">${esc(m.text)}</textarea>`) +
     `<div class="sw-foot"><span class="meta">${m.nodes.length} 个节点 · 日常编辑只维护最新版</span></div>` +
     nodeStrip(m.nodes) +
-    finalizeBar("outline", m.history.length) +
+    finalizeBar("outline", liveCount(m.history), "", binCount(m.history)) +
     (ui && ui.outlineHist ? historyList("outline", m.history) : "") +
     `</div>`
   );

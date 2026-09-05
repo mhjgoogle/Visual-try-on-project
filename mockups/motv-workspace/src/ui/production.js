@@ -1892,6 +1892,13 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       const out = uiAct("work.deleteVersion", { what: kind, v: Number(v) });
       if (out) getCtx().toast(out.said);
     }));
+    // 回收区里那条路他自己也要走得了 —— 删版本改成软删除之后（补审 2026-09-05），
+    // 只有 Agent 能撤销而他不能，正好把 REQ-006 判据 1 反过来了。
+    root.querySelectorAll("[data-finundel]").forEach((b) => (b.onclick = () => {
+      const [kind, v] = b.dataset.finundel.split(":");
+      const out = uiAct("work.undeleteVersion", { what: kind, v: Number(v) });
+      if (out) getCtx().toast(out.said);
+    }));
 
     // ③ 结构规划
     // 去掉缩放记号之后高度得自己跟着内容走（他要的是「像 excel 一样简约」，
@@ -2007,6 +2014,14 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       const [id, v] = b.dataset.unitFindel.split(":");
       const u = unitById(id);
       const out = u ? uiAct("work.deleteVersion", { what: "unit", no: u.no, v: Number(v) }) : null;
+      if (out) getCtx().toast(out.said);
+    }));
+    // 章/集的回收区（补审 2026-09-05 第三轮）：`no` 和上面两条一样由 `unitById` 解出来，
+    // 不编进 data 属性 —— 编进去就会漏掉，而这条正是软删除赖以成立的那条撤销路。
+    root.querySelectorAll("[data-unit-undel]").forEach((b) => (b.onclick = () => {
+      const [id, v] = b.dataset.unitUndel.split(":");
+      const u = unitById(id);
+      const out = u ? uiAct("work.undeleteVersion", { what: "unit", no: u.no, v: Number(v) }) : null;
       if (out) getCtx().toast(out.said);
     }));
   }

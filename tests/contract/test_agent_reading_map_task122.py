@@ -311,3 +311,33 @@ def test_the_agent_can_write_the_base_assets_too():
         ("world.fields", "世界观"),
     ):
         assert f'id: "{action}"' in actions, f"{surface} 改不了：缺动作 {action}"
+
+
+def test_the_recycle_bin_is_readable_because_undelete_is_writable(tmp_path, srv):
+    """他删掉的版本要报进事实 —— 只报「有哪一版」，不复述内容。
+
+    删版本在 2026-09-05 改成了软删除：界面上有「拿回来」，动作表里有
+    `work.undeleteVersion`。补审第四轮指出，facts 把删掉的版本整个滤掉之后，
+    **Agent 无从得知那一版存在** —— 一条读不到目标的写动作，正是 CA §6 要防的
+    读写错位（他能拿回来，Agent 不能）。
+
+    另一半同样重要：**不复述内容**。他删掉的东西不该在回答里作为还在用的素材出现。
+    """
+    doc = _canvas_with_finalized()
+    core = doc["story"]["work"]["finalized"]["core"]
+    core[0]["deleted"] = {"at": "2026-09-05T00:00:00Z"}
+
+    account = tmp_path / "MotvProjects"
+    root = account / "作品"
+    (root / "studio").mkdir(parents=True)
+    (root / "studio" / "canvas.json").write_text(
+        json.dumps(doc, ensure_ascii=False), "utf-8"
+    )
+    app = srv._App(account)
+    app._projects["作品"] = root
+    facts = app._conv_facts("作品")
+
+    assert "回收区" in facts, "删掉的版本一个字都没报 —— Agent 不知道它存在"
+    assert "work.undeleteVersion" in facts, "没说怎么把它拿回来"
+    assert core[0]["body"] not in facts, "删掉的内容被当成还在用的素材复述了"
+    assert core[1]["body"] in facts, "还在的那一版反而不见了"

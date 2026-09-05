@@ -7019,14 +7019,57 @@ class _App:
         # 版本号 / 时间 / 说明。额度用完时逐条说明还剩什么没给 —— 不静默省略。
         fin = work.get("finalized") if isinstance(work.get("finalized"), dict) else {}
         fin_lines = []
+
+        def _live(recs):
+            """删掉的版本不算数。
+
+            删版本在 2026-09-05 改成了软删除（记录留在数组里、打个 `deleted` 标记），
+            这里如果照旧全读，Agent 就会把他已经删掉的版本当成可用版本报给他 ——
+            而 `restoreVersion` / `deleteVersion` 对它一律回「没有 vN」。
+            **读得到、写不动**，正是 CA §6 要防的那种读写错位。
+            """
+            return [
+                r
+                for r in recs
+                if isinstance(r, dict) and not isinstance(r.get("deleted"), dict)
+            ]
+
+        def _bin_line(recs, label):
+            """回收区也要报 —— 只是要说清楚它已经被删了。
+
+            光把删掉的滤掉是**过头了**：`work.undeleteVersion` 就成了一条读不到
+            目标的写动作 —— 他在界面上能把某一版拿回来，Agent 却不知道那一版存在。
+            读写要对称（CA §6），所以这里报「有哪些在回收区」，但不给正文：
+            他删掉的东西不该在回答里被当成还在用的内容复述出来。
+            """
+            gone = [
+                r
+                for r in recs
+                if isinstance(r, dict) and isinstance(r.get("deleted"), dict)
+            ]
+            if not gone:
+                return None
+            vs = "、".join(f"v{r.get('v')}" for r in gone[:12])
+            return (
+                f"  {label}的回收区：{vs}"
+                + f"（共 {len(gone)} 版，是他删掉的；要拿回来用 work.undeleteVersion，"
+                + "内容这里不复述）"
+            )
+
         fin_budget = _FACT_FINALIZED_BUDGET
         for key, label in (
             ("core", "故事核心"),
             ("outline", "故事大纲"),
             ("plan", "结构规划"),
         ):
-            recs = [r for r in (fin.get(key) or []) if isinstance(r, dict)]
+            recs = _live(fin.get(key) or [])
             if not recs:
+                # 全被删光时也要报回收区 —— 否则「这一处什么都没有」和
+                # 「这一处的东西都在回收区里」在 Agent 眼里一模一样。
+                line = _bin_line(fin.get(key) or [], label)
+                if line:
+                    fin_budget -= len(line)
+                    fin_lines.append(line)
                 continue
             newest = recs[-1]
             older = recs[:-1]
@@ -7052,11 +7095,21 @@ class _App:
                     + (f" · {r.get('note')}" if r.get("note") else "")
                     + "）"
                 )
+            line = _bin_line(fin.get(key) or [], label)
+            if line:
+                # 回收区那行也记账 —— 不记的话，章/集多、删得多时事实块会悄悄
+                # 超出 `_FACT_FINALIZED_BUDGET` 想守住的规模（补审第五轮）。
+                fin_budget -= len(line)
+                fin_lines.append(line)
         for u in units:
-            recs = [r for r in (u.get("finalized") or []) if isinstance(r, dict)]
-            if not recs:
-                continue
             word = "章" if u.get("kind") == "novel" else "集"
+            recs = _live(u.get("finalized") or [])
+            if not recs:
+                line = _bin_line(u.get("finalized") or [], f"第 {u.get('no')} {word}")
+                if line:
+                    fin_budget -= len(line)
+                    fin_lines.append(line)
+                continue
             newest = recs[-1]
             body = str(newest.get("body") or "")
             room = min(_FACT_UNIT_MAX, max(0, fin_budget))
@@ -7070,6 +7123,10 @@ class _App:
                 fin_lines.append(head_line + "：" + text)
             else:
                 fin_lines.append(head_line + "：（这一版的内容这次没给你）")
+            line = _bin_line(u.get("finalized") or [], f"第 {u.get('no')} {word}")
+            if line:
+                fin_budget -= len(line)
+                fin_lines.append(line)
         if fin_lines:
             lines.append("已定稿的版本（他主动存下来的；日常编辑不产生这些）：")
             lines.extend(fin_lines)

@@ -19,6 +19,18 @@
 // 还没进表的（有意留白，不是遗漏）：`confirmPlan`（确认规划会绑定剧集身份，反悔不干净）、
 // 删除类、运行/生成类（花钱）。它们仍然由创作者自己点。
 
+/** 长文字段的上限，与数据模型自己的上限对齐（`storywork.editUnit` 是 200000）。
+ *
+ *  白名单默认把字符串砍到 4000 字 —— 那个数是给**模型输出**定的护栏，没问题。
+ *  出事的是 ADR-0096 之后**界面按钮也走这张表**：故事核心与正文的编辑器每敲一个字
+ *  就调 `work.core` / `unit.write`（`production.js:1855/1976`），于是他自己写的正文
+ *  一过 4000 字就被静默切掉、当场落库 —— `editUnit` 那个 200000 的上限形同虚设，
+ *  而他看到的是「现在有 4000 字」，不是一句报错（补审 2026-09-05 第二轮）。
+ *
+ *  「Agent 能做的 = 他能做的」这条路打通之后，**给模型定的护栏就成了给他定的护栏**。
+ *  所以长文动作必须自己说出上限，而不是继承一个为别的目的选的数。 */
+const LONG_TEXT = 200000;
+
 /** 一条动作。`args` 是**白名单**：模型报上来的其它键一律不落进文档。 */
 import * as swork from "./storywork.js";
 import * as bwork from "./blocking.js";
@@ -406,7 +418,7 @@ const ACTIONS = [
         if (!swork.restoreFinalized(work, unit.id, v, at)) throw new Error(`没有 v${a.v}`);
         return { said: `第 ${a.no} 章/集回到了 v${v}` };
       }
-      if (!swork.restoreDoc(work, String(a.what), v)) throw new Error(`没有 v${a.v}`);
+      if (!swork.restoreDoc(work, String(a.what), v, at)) throw new Error(`没有 v${a.v}`);
       return { said: `已恢复到 v${v}（其它定稿版本一个没删）` };
     },
   },
@@ -414,7 +426,32 @@ const ACTIONS = [
     id: "work.deleteVersion",
     label: "删掉某一版定稿",
     doc: "work",
-    undo: "删掉就没有了 —— 只删他点名的那一版，当前内容不动",
+    // **这句 `undo` 上一版是假的**：它写着「删掉就没有了」，而 `deleteDoc` 真删字节。
+    // 这条动作又没声明 `reversible: false`，于是被默认补成可逆、混过了准入检查 ——
+    // 那道「不可逆的不许进表」的检查因此形同虚设（补审 2026-09-05 · AGENTS.md §1）。
+    // 现在删的是标记，回收区里还能拿回来，这句话才成立。
+    undo: "work.undeleteVersion —— 软删除，回收区里能恢复；当前内容始终不动",
+    args: { what: "core / outline / plan / unit", v: "版本号", no: "unit 时是第几章/集" },
+    apply: (ctx, a) => {
+      const work = workOf(ctx);
+      const at = new Date().toISOString();
+      const v = Number(a.v);
+      if (String(a.what) === "unit") {
+        const unit = work.units.find((u) => u.kind === work.form && u.no === Number(a.no));
+        if (!unit) throw new Error(`没有第 ${a.no} 章/集`);
+        if (!swork.deleteFinalized(work, unit.id, v, at)) throw new Error(`没有 v${a.v}`);
+      } else if (!swork.deleteDoc(work, String(a.what), v, at)) {
+        throw new Error(`没有 v${a.v}`);
+      }
+      ctx.persist();
+      return { said: `删掉了 v${v}（当前内容没有动；回收区里还能恢复）` };
+    },
+  },
+  {
+    id: "work.undeleteVersion",
+    label: "把删掉的那一版拿回来",
+    doc: "work",
+    undo: "work.deleteVersion",
     args: { what: "core / outline / plan / unit", v: "版本号", no: "unit 时是第几章/集" },
     apply: (ctx, a) => {
       const work = workOf(ctx);
@@ -422,11 +459,12 @@ const ACTIONS = [
       if (String(a.what) === "unit") {
         const unit = work.units.find((u) => u.kind === work.form && u.no === Number(a.no));
         if (!unit) throw new Error(`没有第 ${a.no} 章/集`);
-        if (!swork.deleteFinalized(work, unit.id, v)) throw new Error(`没有 v${a.v}`);
-      } else if (!swork.deleteDoc(work, String(a.what), v)) {
-        throw new Error(`没有 v${a.v}`);
+        if (!swork.undeleteFinalized(work, unit.id, v)) throw new Error(`回收区里没有 v${a.v}`);
+      } else if (!swork.undeleteDoc(work, String(a.what), v)) {
+        throw new Error(`回收区里没有 v${a.v}`);
       }
-      return { said: `删掉了 v${v}（当前内容没有动）` };
+      ctx.persist();
+      return { said: `v${v} 回来了` };
     },
   },
 
@@ -494,6 +532,9 @@ const ACTIONS = [
     apply: (ctx, a) => {
       const who = String(a.name || "").trim();
       if (!who) throw new Error("没说要改哪个人物");
+      // 先确认改得动，再建人物。反过来的话，一次失败会留下一个空人物，
+      // 而这个文件的约定是「抛错 = 没落下」（补审 2026-09-05 第二轮）。
+      if (!ctx.bible || !ctx.bible.updateCharacterProfile) throw new Error("这个项目改不了人物设定");
       const { rec, created } = ensureCharacter(ctx, who);
       const fields = {};
       for (const k of CHAR_FIELDS) {
@@ -505,7 +546,6 @@ const ACTIONS = [
         if (created) return { said: `新建了人物「${rec.name}」，但没说要写哪几栏` };
         throw new Error(`没说要把「${rec.name}」改成什么`);
       }
-      if (!ctx.bible || !ctx.bible.updateCharacterProfile) throw new Error("这个项目改不了人物设定");
       ctx.bible.updateCharacterProfile(rec.characterId, fields);
       const head = created ? `新建了人物「${rec.name}」，写了` : `「${rec.name}」写了`;
       return { said: `${head} ${Object.keys(fields).length} 栏` };
@@ -611,6 +651,7 @@ const ACTIONS = [
     apply: (ctx, a) => {
       const who = String(a.name || "").trim();
       if (!who) throw new Error("没说要改哪个场景地");
+      if (!ctx.bible || !ctx.bible.updateLocationProfile) throw new Error("这个项目改不了场景地");
       const { rec, created } = ensureLocation(ctx, who);
       const fields = {};
       for (const k of LOC_FIELDS) {
@@ -620,7 +661,6 @@ const ACTIONS = [
         if (created) return { said: `新建了场景地「${rec.name}」，但没说要写哪几栏` };
         throw new Error(`没说要把「${rec.name}」改成什么`);
       }
-      if (!ctx.bible || !ctx.bible.updateLocationProfile) throw new Error("这个项目改不了场景地");
       ctx.bible.updateLocationProfile(rec.locationId, fields);
       const head = created ? `新建了场景地「${rec.name}」，写了` : `「${rec.name}」写了`;
       return { said: `${head} ${Object.keys(fields).length} 栏` };
@@ -724,6 +764,7 @@ const ACTIONS = [
     doc: "work",
     undo: "改回去就行；「定稿」才产生历史版本",
     args: { text: "整篇故事核心（覆盖）", append: "追加在末尾的一段（可选）" },
+    argMax: { text: LONG_TEXT, append: LONG_TEXT },
     apply: (ctx, a) => {
       const work = workOf(ctx);
       const add = typeof a.append === "string" ? a.append.trim() : "";
@@ -739,6 +780,7 @@ const ACTIONS = [
     doc: "work",
     undo: "改回去就行；节点 id 会尽量保住，引用不会断",
     args: { text: "整份大纲（覆盖，空行分段）" },
+    argMax: { text: LONG_TEXT },
     apply: (ctx, a) => {
       if (typeof a.text !== "string") throw new Error("没说要把大纲改成什么");
       const nodes = swork.setOutline(workOf(ctx), a.text);
@@ -863,6 +905,7 @@ const ACTIONS = [
     doc: "work",
     undo: "改回去就行；「定稿」才产生历史版本",
     args: { no: "第几章/集", text: "正文（覆盖）", append: "追加的一段（可选）", title: "标题（可选）" },
+    argMax: { text: LONG_TEXT, append: LONG_TEXT },
     apply: (ctx, a) => {
       const work = workOf(ctx);
       if (!work.form) throw new Error("还没选小说创作还是剧集创作");
@@ -870,8 +913,20 @@ const ACTIONS = [
       const unit = swork.ensureUnit(work, work.form, Number(a.no), at);
       if (!unit) throw new Error(`第 ${a.no} 章/集不是一个有效的编号`);
       const add = typeof a.append === "string" ? a.append.trim() : "";
-      if (add) swork.editUnit(work, unit.id, "body", unit.body ? `${unit.body}\n\n${add}` : add, at);
-      else if (typeof a.text === "string") swork.editUnit(work, unit.id, "body", a.text, at);
+      // **检查的是落地之后的长度，不是参数的长度。** 往一篇已经写满的正文后面
+      // 追加一个字，参数检查当然过得去 —— 出事的是拼接之后（codex 第十轮）。
+      const next = add
+        ? (unit.body ? `${unit.body}\n\n${add}` : add)
+        : (typeof a.text === "string" ? a.text : null);
+      if (next !== null) {
+        if (!swork.editUnit(work, unit.id, "body", next, at)) {
+          throw new Error(
+            `写不进去：这一${work.form === "novel" ? "章" : "集"}` +
+              `${add ? "追加后" : ""}会有 ${next.length} 字，超过 ${swork.UNIT_MAX} 字上限` +
+              "，一个字都没有写进去",
+          );
+        }
+      }
       if (typeof a.title === "string") swork.editUnit(work, unit.id, "title", a.title, at);
       return { said: `第 ${a.no} ${work.form === "novel" ? "章" : "集"}现在有 ${unit.body.length} 字` };
     },
@@ -975,7 +1030,12 @@ export function sanitizeArgs(id, raw) {
   const args = {};
   for (const key of Object.keys(spec.args || {})) {
     const val = src[key] !== undefined ? src[key] : (src.args || {})[key];
-    if (typeof val === "string") args[key] = val.slice(0, 4000);
+    if (typeof val === "string") {
+      // 长文字段（`argMax`）**一个字都不许在这里砍**：那是他自己在编辑器里敲的字。
+      // 超了由 `runAction` 当场报错，而不是悄悄留下前 20 万字。
+      // 没声明 `argMax` 的字段仍然砍到 4000 —— 那道护栏管的是**模型输出**，不是他的正文。
+      args[key] = spec.argMax && spec.argMax[key] ? val : val.slice(0, 4000);
+    }
     else if (typeof val === "number" || typeof val === "boolean") args[key] = val;
   }
   return args;
@@ -1002,7 +1062,10 @@ function strippedKeys(spec, rawArgs) {
   return Object.keys(pool).filter(
     (k) => !known.includes(k)
       && !["fields", "args", "id", "action"].includes(k)
-      && typeof pool[k] === "string" && pool[k].trim(),
+      // 只看字符串会**漏报**：模型把内容塞进一个未知的对象/数组键时，
+      // 既没写进去，也不出现在「没有这些栏」里（补审 2026-09-05 第二轮）。
+      && pool[k] !== undefined && pool[k] !== null
+      && (typeof pool[k] !== "string" || pool[k].trim()),
   );
 }
 
@@ -1019,6 +1082,18 @@ export function runAction(ctx, id, rawArgs, meta) {
   }
   const args = sanitizeArgs(id, rawArgs);
   if (args === null) throw new Error(`「${spec.label}」没有收到能写的内容`);
+  // 长文超上限 = **拒绝**，并说清楚超了多少。fail-closed 并说明白，而不是留下
+  // 前 N 个字让他以为写进去了 —— 只把上限从 4000 抬到 20 万，是把「静默丢字」
+  // 挪远一格，不是修掉它（codex 补审 2026-09-05 第九轮）。
+  for (const [key, max] of Object.entries(spec.argMax || {})) {
+    const v = args[key];
+    if (typeof v === "string" && v.length > max) {
+      throw new Error(
+        `「${(spec.args && spec.args[key]) || key}」超过 ${max} 字上限` +
+          `（这次是 ${v.length} 字），一个字都没有写进去 —— 先拆开再写`,
+      );
+    }
+  }
   const out = { ...spec.apply(ctx, args, meta || {}), label: spec.label };
   const extra = strippedKeys(spec, rawArgs);
   if (extra.length) {
