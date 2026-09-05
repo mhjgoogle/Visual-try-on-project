@@ -1,8 +1,13 @@
 # TASK-131：让 Claude / Codex 找到同一套技能，并验证工装真正生效
 
-- 状态：待开始；研究与实施说明已完成（2026-09-05），工装实现尚未开始。
+- 状态：**实现完成**（2026-09-05）—— 三个切片 A/B/C 全部落地，证据逐条见 §7。
+  **未在真实客户端观察的项目在 §7 里逐条列出**（Claude hook 事件、Codex 生命周期
+  事件、Ubuntu 目标），它们是信息不是闸门（AGENTS §1）。一项 `SessionStart` 接线
+  被实施 Agent 的会话权限层挡住（配置文件受保护），做法已写进
+  [handoff.md](../../../.claude/skills/dev-workflow/references/handoff.md) §3。
 - Workflow：Feature（Agent 工装）· 深度：STANDARD。
-- 实施 Agent：待 Claude 接手；Codex 本次只做来源研究与适配说明。
+- 实施 Agent：Claude（2026-09-05 接手并实施）；Codex 做了来源研究、适配说明，
+  以及实施后的独立审查（报出两条 P1，见 §7 切片 B）。
 - 依据：用户 2026-09-05「研究一下 codex-claude-code-config。看看这个项目可以如何借鉴然后告诉 claude 如何落地。」
 - 技术目标：补齐开发技能的跨客户端发现与运行证据，减少“写了规则却没加载、配置了却没执行”的静默失效；保留现有开发流程。
 - 架构约束：[CA §1、§4、§5.2–3](../../current-architecture.md)；[AGENTS.md](../../../AGENTS.md) 第 4、14–20、24–26 条。
@@ -129,11 +134,14 @@ auto-push 与 skill-evolution。整包装入另一套治理系统收益低，且
 - Claude 开工时检查 Git 状态与文件归属，将本卡移 active 并生成 STATUS；各切片逐项留证。
   实现完成后移 done 并生成 STATUS，分开写“实现完成”与“尚未在真实客户端观察的项目”。
 
-## 6. 本次研究交付证据
+## 6. 研究阶段的交付证据（2026-09-05 上午，Codex）
+
+> 以下是**研究阶段**的记录，一字未改。实施阶段的结果在 §7 —— 那一节里的
+> 「实施状态」才是当前事实。
 
 - 已读固定版本的上游运行合同与上述脚本/规则，结合本地配置和相关工装源码逐项对照。
-- 实施状态：未开始；本卡是待实施说明，诊断工具、薄入口和恢复适配均未创建。
-- 真实验收：A/B/C 全部待实施验证；没有把源码阅读算作客户端运行证据。
+- 实施状态（**当时**）：未开始；本卡是待实施说明，诊断工具、薄入口和恢复适配均未创建。
+- 真实验收（**当时**）：A/B/C 全部待实施验证；没有把源码阅读算作客户端运行证据。
 - 文档验证：`lifecycle_check.py` 零发现；docs_status、docs_links、lifecycle_check 三组
   定向测试 **58 passed**。首次运行因系统 pytest 临时目录权限产生 setup error，改用本任务
   `.claude/tmp/` 内隔离 basetemp、关闭 pytest cache 后通过；未修改产品或测试代码。
@@ -144,7 +152,7 @@ auto-push 与 skill-evolution。整包装入另一套治理系统收益低，且
 
 ## 7. 实施记录（Claude 接手，2026-09-05）
 
-- 状态订正：**切片 A 实现完成**；B / C 未开始。卡已从 `backlog/` 移入 `active/`。
+- 状态订正：**切片 A / B / C 实现完成**（一处 `SessionStart` 接线被会话权限层挡住，见切片 C）。卡已从 `backlog/` 移入 `active/`。
 - 同仓协作：本卡开工时另有两个会话在跑（`visual-try-on-project-2a` 在改
   `mockups/motv-workspace/**` 与 `tests/{studio,contract}/**` 的补审修复，
   `visual-try-on-project-56` 只读调研）。范围已互相确认，本卡只碰
@@ -193,22 +201,140 @@ auto-push 与 skill-evolution。整包装入另一套治理系统收益低，且
 `UnicodeEncodeError` 并以退出码 1 结束 —— 一个因为自己崩掉而报红的体检比没有体检
 更糟（`motv_doctor` 2026-08-31 栽过同一个坑）。已按同一写法加 `_utf8_stdout()`。
 
-### 切片 B —— 薄入口（ADR 已 Accept，实现未开始）
+### 切片 B —— Codex 薄入口（实现完成，含真实客户端证据）
 
-卡上要求「实施前建技术 ADR」。已建：[ADR-0097](../../adr/ADR-0097-one-skill-source-generated-client-entries.md)
-（`.claude/skills/` 是唯一源，`.agents/skills/` 只放生成的薄入口；单向生成；
-只管自己登记过的入口；摘要按内容算并归一行尾；零输入非零退出）。
-**ADR 先于实现落盘是有意的** —— 它是这一片的验收判据来源，不是完成声明。
+依据 [ADR-0097](../../adr/ADR-0097-one-skill-source-generated-client-entries.md)。
+交付：`agent_harness.py` 增 `check` / `apply`（`--only` / `--prune`）·
+`.agents/skills/<5 个>/SKILL.md`（生成物）· `.claude/agent-entries.json`（台账）·
+`tests/tooling/test_agent_harness.py` 增 21 例（全文件 49 例）。
+`docs/current-architecture.md` §1 与 [ADR-0077](../../adr/ADR-0077-repository-path-ownership.md)
+的路径所有权已在同一批里更新。
 
-### 尚未在真实客户端观察的项目（NOT_EVIDENCED，不冒充完成）
+| 卡上的要求（§4B） | 落在哪 |
+| --- | --- |
+| 实施前建技术 ADR，更新 CA §1 与路径所有权 | ADR-0097（自行 Accept）· CA §1 新增一行 · ADR-0077 补记 |
+| 先对 dev-workflow 做单个原型再扩到其余 4 个 | `apply --only`；下面「真实客户端证据」是原型那一步的产物 |
+| 入口只含 name/description + 规范源路径 + 「先读它再执行」 | `_ENTRY_TEMPLATE`；`test_the_entry_points_at_the_source_and_copies_no_body` 断言正文与 references **一个字都没搬** |
+| `check`（默认只读）与显式 `apply` | 两个子命令；`test_check_itself_writes_nothing` |
+| 清单记入口、来源、渲染版本、源内容摘要 | `.claude/agent-entries.json`，四个字段齐全 |
+| 摘要覆盖实际内容与相对路径，文本统一行尾、二进制原字节 | `digest_tree()` / `_normalise()`；CRLF 与 LF 得到同一摘要有用例 |
+| 不改 skill-evolution 的 revision 格式或旧数据 | 没碰；ADR-0097 决策 4 写明为什么不复用 |
+| 他人同名文件 / 手改生成件 / 越界 / symlink 一律停止该写入并给差异 | `plan_entries()` 四条 `refuse`，每条都有「拒绝之后一个字都没动」的断言 |
+| 不留第二份活动实现 | 入口不含正文；`test_a_codex_only_skill_is_left_alone` 保证不越权删别人的 |
+| 再次 apply 无变化 / 源变更时 check 转红 / 目标独有技能不改 | 三条各一个用例 |
+| 目录无效或源集合为空必须非零 | `entries_exit_code()`；`--root` 不存在 → 2 |
+
+**真实客户端证据**（这是本片验收「Claude、Codex 都实际发现 5 个技能」那一条）：
+
+1. 只生成 dev-workflow 一个入口后，问 codex-cli 0.153.4
+   「不要搜文件系统，只按已加载的上下文回答，这个会话里你有哪些技能」——
+   它列出的技能里**出现了 `dev-workflow`**，其余四个没有。
+2. 全部 5 个生成之后再问同一句 —— **五个全部出现**在它的已加载列表里，
+   与它自带的 imagegen / skill-creator 等并列。
+3. 另一次点名提问确认它读得到规范源：它答「其 SKILL.md 明确要求完整阅读
+   `.claude/skills/dev-workflow/SKILL.md`」。
+
+第 1 与第 2 条是**自动发现**证据（提问明确禁止读文件），不是「我让它去读它就读到了」。
+Claude 侧的发现由本会话自身证实：这 5 个技能就是本会话可调用的那 5 个。
+
+**测试抓到的一个真缺陷**（记在这里，因为它正是本仓库的高频形状）：
+`_escapes()` 判越界时拿相对路径 `.agents/skills` 做 `.resolve()`，而 `.resolve()`
+按 **cwd** 解析。cwd 恰好等于仓库根时它是对的 —— 真仓库里 `apply` 因此一次就成功了，
+**什么都没暴露**；换成 fixture 根之后，它把每一个入口都判成「跑出了 .agents/skills」
+并全部拒绝。已改为 `root / allowed_parent`。这条与 Follow-up 5.22（`gate_dispatch.py`
+用 cwd 解析仓库根）是同一个错误，只是那一处还没炸。
+
+**独立审查（codex 0.153.4，2026-09-05）报了两条 P1，都已修 + 回归**：
+
+1. **`--prune` 会删掉手改过的登记入口** —— 不校验 `entry_digest` 就 `unlink()`，
+   他写在入口里的内容永久丢失（CA §5.2 / AGENTS.md 第 13 条）。改法与理由见
+   ADR-0097 决策 3 新增的那两行。回归：
+   `test_prune_refuses_to_delete_a_hand_edited_orphan` 与它的反方向
+   `test_prune_still_removes_a_pristine_orphan`（只写前者的话，一个「什么都不删」
+   的实现也能变绿）。
+2. **`startswith` 判目录归属，可以写到围栏外** —— `.agents/skills-other` 被判成
+   `.agents/skills` 的内部路径（当场复现），且只查末端节点，父级 junction 能绕过
+   （CA §5.5）。改成 `is_relative_to` + **从仓库根逐段**核对「解析之后 == 名义位置」。
+   回归三条，其中 `test_a_linked_ancestor_is_caught_even_though_the_leaf_is_not_a_link`
+   用 **junction**（Windows 上不需要提权，所以它真的跑起来了而不是 skip；
+   `is_symlink()` 对 junction 返回 `False`，正是最能证伪「只看末端」的形状）。
+
+修第 2 条时自己又抓到一个：第一版把围栏锚在 `allowed_parent` 上，而它自己就是
+那个 junction —— `base.resolve()` 跟着链接走出去，**外面反而成了「里面」**，围栏
+正对着它本该拦住的地方。锚点因此改为仓库根。
+
+**已做验证**：`pytest tests/tooling/test_agent_harness.py` 54 passed；
+`pytest tests/tooling` 通过；ruff check / format --check 通过；
+`apply` → `apply`（无变化）→ `check`（退出 0）连跑确认幂等。
+
+### 尚未在真实客户端观察的项目（切片 B）
+
+- 只验证了 **Codex 能自动发现并读到规范源**。**没有**验证它随后是否真的照 dev-workflow
+  的流程执行（那要一次完整的 Codex 开发会话，属于另一件事）。
+- 只在本机 Windows 上验证。Ubuntu 目标未实测；摘要的跨平台一致性由
+  `test_the_same_content_hashes_the_same_across_line_endings` 覆盖，那是**测试证据**，
+  不是在 Ubuntu 上跑过的证据。
+
+### 尚未在真实客户端观察的项目（切片 A）
 
 - 本工具**没有**观察到任何 hook 真实触发事件；④ 维度今天恒为 `UNKNOWN`，这是
   设计如此，不是缺陷。真事件证据属于切片 C。
-- 未实测 Codex 能否加载薄入口 —— 薄入口本身属于切片 B，尚未创建。
+- 切片 C（会话恢复与事件适配）未开始。
+
+### 切片 C —— 接回来与事件适配（实现完成，一处接线被权限层挡住）
+
+交付：`agent_harness.py` 增 `resume`（`--brief`）与 `handoff` ·
+[dev-workflow / references/handoff.md](../../../.claude/skills/dev-workflow/references/handoff.md)（新增）·
+`dev-workflow/SKILL.md` 第 0 步加一段指向它 · 测试增 12 例（全文件 66 例）。
+
+| 卡上的要求（§4C） | 落在哪 |
+| --- | --- |
+| 交接/压缩前更新**本次那张卡**：切片、判据、最后核实的 tip、未提交文件归属、已做验证、下一条可执行动作 | `references/handoff.md` §1 的表；机械那半由 `handoff` 子命令代记 |
+| 证据引用现有 Review Package / `verification_ref`，不建第二套 | §1 明写；快照里只有 tip/分支/跑过什么/下一步 |
+| 无任务卡的 QUICK 工作不为恢复机制强建卡 | §1 末句 |
+| 启动先比对 Git status/tip；不自动恢复无关旧任务 | `resume` 三段输出；§2 的四步顺序 |
+| **不把「上次测试 PASS」带到内容已变的树上** | `run_resume()` 比对 tip，变了就标 `⚠ 要重新评估`；`test_a_snapshot_from_another_tip_is_flagged_stale`（做了变异验证：把 `moved` 写死 False，它当场转红） |
+| 不新增「是否继续」询问 | §2 末句；`resume` **恒为退出码 0** —— 能报红就等于加了一道会被绕过去的闸，有用例钉住 |
+| 不让脚本伪造语义进度或自动宣告完成 | 快照字段集写死为 tip/分支/verified/next/at；`test_a_snapshot_holds_no_semantic_progress` 断言 `done/complete/progress` 这类键**一个都不许出现** |
+| 临时快照按任务隔离在 `.claude/tmp/` | `RESUME_DIR`；两条用例（不在 `docs/` 下 · 真仓库里确实被 gitignore） |
+| 不支持的 Codex 事件保留 UNKNOWN、不接线 | `references/handoff.md` §3 的表，Codex 那行写的就是 `UNKNOWN` |
+
+**`resume` 当场证明了自己**：跑第一次时它把 `AGENTS.md` 与 `.claude/tools/lifecycle_check.py`
+列进「未提交」—— 那是同仓另一个会话正在写的东西。本会话今天差点覆盖掉第三个会话
+未提交的补审修复，当时没有任何东西提醒（AGENTS §14/§16）。这一段就是为那件事写的。
+
+**`--brief` 的噪声评估**（上游 runtime-wiring 的要求）：这段输出会进**每个会话**的
+上下文，成本永久、收益只在确实有事时出现。所以它的规矩是**没话说就一个字都不说**，
+且只说两件事：工作树里有别人的改动、某条验证记录的 tip 已经变了。干净的树 +
+没有过期快照 → 输出空串，有用例钉住。
+
+**棘轮在真仓库里生效了**：改完 `dev-workflow/SKILL.md` 之后 `check` 立刻转红
+（`dev-workflow: update —— 源或渲染器变了`），`apply` 之后回绿。这不是构造出来的，
+是这次改动自己触发的。
+
+**已做验证**：`pytest tests/tooling/test_agent_harness.py` 66 passed；
+`pytest tests/tooling` 通过；ruff 通过。
+
+### 被外部限制挡住的一项（如实记，不冒充完成）
+
+`SessionStart` 接线**没有落地**：实施 Agent 的会话权限层拒绝编辑
+`.claude/settings.json`（配置文件受保护）。这是外部限制，**不绕过**。
+
+要接的话只需往 `.claude/settings.json` 的 `hooks` 里加一段，原文在
+`references/handoff.md` §3。**不接也不影响任何东西** —— `resume` 自己跑一遍是
+同样的结果；缺 hook 支持不得变成一道新的人工闸（AGENTS §1）。
+
+### 尚未在真实客户端观察的项目（切片 C）
+
+- `SessionStart` / `PreCompact` 两个事件**一次都没有被真实触发过**，因为接线没落。
+  `doctor` 的 ④ 维度因此仍然是 `UNKNOWN` —— 这是诚实的，不是缺陷。
+- **Codex 的生命周期事件本机没有核实过**：不知道它支持哪些、语义是否相同。
+  保留 `UNKNOWN`、不接线，用 `references/handoff.md` §1/§2 的显式步骤代替。
+  「把 Claude 的配置改个文件名就宣称跨客户端有效」是本卡明令禁止的。
 
 ### Follow-up（不在本卡范围，记账不顺手修）
 
 - `.claude/hooks/gate_dispatch.py` 用 `Path.cwd()` 解析仓库根，而不是脚本位置。
   客户端若以非仓库根为 cwd 触发 hook，它会去错误的位置找 `gate.ps1` / `gate.sh`。
   今天没观察到实际失败，但这与本卡给新工具定的「根由脚本位置解析」是同一条纪律。
-  → 记入 [TASK-087 欠账总账](TASK-087-followup-ledger.md)。
+  → 记入 [TASK-087 欠账总账](../active/TASK-087-followup-ledger.md)。

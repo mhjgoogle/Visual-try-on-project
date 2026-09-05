@@ -19,7 +19,7 @@
 | `docs/reports/` | 阶段性工作报告 —— **历史证据**，默认不读 |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：8 在办 · 6 待排期 · 120 已完成 · 81 条 ADR。
+**当前**：8 在办 · 9 待排期 · 121 已完成 · 82 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -49,7 +49,7 @@
 | [TASK-125-current-truth-convergence.md](tasks/active/TASK-125-current-truth-convergence.md) | TASK-125：切片 1 —— 当前事实收口 | 进行中（2026-09-04 开卡） |
 | [TASK-127-one-action-table.md](tasks/active/TASK-127-one-action-table.md) | TASK-127：切片 4 —— 他能点的 = 它能做的，靠一张表 | 实现完成（2026-09-05 |
 | [TASK-130-connected-sample-and-journey.md](tasks/active/TASK-130-connected-sample-and-journey.md) | TASK-130：切片 5 —— 可重复的 Connected Project 样本 + 一条从头到尾的旅程 | 实现完成（2026-09-05 |
-| [TASK-131-agent-harness-discovery-and-runtime-evidence.md](tasks/active/TASK-131-agent-harness-discovery-and-runtime-evidence.md) | TASK-131：让 Claude / Codex 找到同一套技能，并验证工装真正生效 | 待开始 |
+| [TASK-133-glossary-and-out-of-scope-index.md](tasks/active/TASK-133-glossary-and-out-of-scope-index.md) | TASK-133：给「名字」和「不做」各一个落点 —— 术语表与范围外索引 | 进行中（2026-09-05 开卡） |
 
 ## 在办 · 设计与验收文档
 
@@ -75,6 +75,9 @@
 | [TASK-128-episode-side-actions-into-the-table.md](tasks/backlog/TASK-128-episode-side-actions-into-the-table.md) | TASK-128：剧集制作侧的写也走动作表 —— REQ-006 判据 1 的另一半 | 待开始（2026-09-05 开卡 |
 | [TASK-129-settings-structure-writes-into-the-table.md](tasks/backlog/TASK-129-settings-structure-writes-into-the-table.md) | TASK-129：作品设定的结构写也走动作表 —— REQ-006 判据 1 的第三块 | 待开始（2026-09-05 开卡 |
 | [TASK-132-click-ui-element-and-leave-feedback.md](tasks/backlog/TASK-132-click-ui-element-and-leave-feedback.md) | TASK-132：点击界面元素写意见，并让开发 Agent 收到准确位置 | 待开始 |
+| [TASK-134-import-linter-layering-contract.md](tasks/backlog/TASK-134-import-linter-layering-contract.md) | TASK-134：把 Provider 中立从散文变成 CI 闸门 —— import-linter 分层契约 | 待开始（2026-09-05 开卡 |
+| [TASK-135-server-authoritative-workflow-plan.md](tasks/backlog/TASK-135-server-authoritative-workflow-plan.md) | TASK-135：下一步该干什么由后端说了算 —— 服务端权威工作流计划 | 待开始（2026-09-05 开卡 |
+| [TASK-136-generation-resume-and-idempotency.md](tasks/backlog/TASK-136-generation-resume-and-idempotency.md) | TASK-136：重启之后不许重复扣费 —— 生成任务的续跑与幂等 | 待开始（2026-09-05 开卡 |
 
 ## 已完成 · 任务卡
 
@@ -202,6 +205,7 @@
 | [TASK-123-greybox-previz.md](tasks/done/TASK-123-greybox-previz.md) | TASK-123：3D 白膜导演台 | 已完成（v1）（2026-08-30 落地，可在真实项目上摆位、预览、录白膜 |
 | [TASK-124-episode-canvas.md](tasks/done/TASK-124-episode-canvas.md) | TASK-124：剧集制作收成一块画布 | 已完成（v1）（2026-08-30 落地 |
 | [TASK-126-agent-sees-and-changes-everything.md](tasks/done/TASK-126-agent-sees-and-changes-everything.md) | TASK-126：Agent 看得见全部、也改得动全部（2026-08-30～09-03 连续实施的补登卡） | 已完成（2026-09-03 最后一提交） |
+| [TASK-131-agent-harness-discovery-and-runtime-evidence.md](tasks/done/TASK-131-agent-harness-discovery-and-runtime-evidence.md) | TASK-131：让 Claude / Codex 找到同一套技能，并验证工装真正生效 | 实现完成（2026-09-05） |
 
 ## 已完成 · 设计与验收记录
 
@@ -237,7 +241,7 @@
 | 位置 | 放什么 |
 | --- | --- |
 | [当前架构合同](current-architecture.md) | **现在**成立的边界与约束（NOW） |
-| [`docs/adr/`](adr/) | 81 条决策记录（ADR-0001 … ADR-0097）—— WHY / HISTORY |
+| [`docs/adr/`](adr/) | 82 条决策记录（ADR-0001 … ADR-0098）—— WHY / HISTORY |
 | [`docs/design/`](design/) 根 | 系统合同、产品信息架构、L0–S7 I/O 合同 |
 | [项目背景与路线](project-context.md) | 这个项目是什么、走到哪了 |
 | [实施规划](implementation_plan.md) | 阶段与里程碑路线图 |

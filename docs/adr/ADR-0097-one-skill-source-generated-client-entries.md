@@ -2,7 +2,7 @@
 
 - 状态：**Accepted**（2026-09-05，实施 Agent 依 [AGENTS.md](../../AGENTS.md) §1
   自行 Accept —— 纯技术决策：文件所有权、生成方向、清单格式。不动产品行为，不花钱）
-- 关联：[TASK-131](../tasks/active/TASK-131-agent-harness-discovery-and-runtime-evidence.md)
+- 关联：[TASK-131](../tasks/done/TASK-131-agent-harness-discovery-and-runtime-evidence.md)
   切片 B · [ADR-0077](ADR-0077-repository-path-ownership.md)（仓库路径所有权）·
   [ADR-0087](ADR-0087-document-lifecycle-and-default-agent-context.md) 决策 6（不留影子实现）
 
@@ -55,9 +55,21 @@
 | 入口不在清单里（别人的同名文件） | **不写**，报差异 |
 | 入口在清单里但内容被手改过 | **不写**，报差异（手改是信息，不是障碍） |
 | 目标是 symlink / junction，或解析后跑出 `.agents/skills/` | **不写**，报差异 |
-| 源没了、入口还在 | 报为孤儿，`--prune` 才删 |
+| 源没了、入口还在，且内容与生成的一字不差 | 报为孤儿，`--prune` 才删 |
+| 源没了、入口**被手改过**或位置越界 | **`--prune` 也不删**，报差异，交回给人 |
 
 「不写并报差异」而不是「覆盖」——AGENTS.md 第 13 条：不静默覆盖用户文件。
+
+最后一行是 codex 2026-09-05 审出来的一条 P1 补上的：第一版的 `--prune` 不校验摘要
+就 `unlink()`，于是「源被删掉」这一个动作顺手把他手写在入口里的内容永久抹掉了。
+**删比写更不可逆，围栏没有理由比写更宽松。** 这里不做回收区：只有与生成物一字不差
+时才删，而那种文件 Git 里就有一份，回收区是多余的第二套历史（ADR-0087 决策 6）；
+一旦不一样，它就不再是生成物，也就不归本工具处置。
+
+围栏本身同一轮改了两处（都是 P1）：归属判定从字符串前缀换成 `is_relative_to`
+（`.agents/skills-other` 曾被判成 `.agents/skills` 的内部路径），并且**从仓库根
+逐段**核对「解析之后 == 名义位置」，而不只看末端节点 —— 中间一段是 junction 时，
+末端文件自己既不是 symlink、名义路径也「正确」，只看末端等于没看。
 
 ### 4. 摘要按内容算，不按 mtime，且行尾归一
 

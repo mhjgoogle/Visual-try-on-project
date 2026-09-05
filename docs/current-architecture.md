@@ -23,7 +23,8 @@
 | **Creation Studio（原型形态）** | `mockups/motv-workspace/` | 创作工作视窗：Python 后端 `server.py` + 浏览器前端 `src/*.js` | [creator-system-contract.md](design/creator-system-contract.md)（Studio 范围唯一权威） |
 | **产品资产包** | `product-skills/`、`product-flows/` | 内置能力包与流程模板 —— **产品资产**，不是原型私有物。`user-capabilities.json` 是对话 Agent 看得见的那三个能力 | [ADR-0084](adr/ADR-0084-project-flow-template-as-a-package.md) 决策 7 · [ADR-0067](adr/ADR-0067-product-skill-package.md) · [ADR-0091](adr/ADR-0091-three-user-capabilities-and-a-server-side-resolver.md) |
 | **人用启动器** | `scripts/launch/` | `studio.ps1`（Windows 权威）/ `studio.bat` / `studio.sh` | [ADR-0077](adr/ADR-0077-repository-path-ownership.md) |
-| **Agent 工装** | `.claude/` | hooks（commit gate）、skills、tools —— 不是产品代码 | [ADR-0050](adr/ADR-0050-powershell-native-agent-dev-tooling.md) · [ADR-0062](adr/ADR-0062-windows-authoritative-environment.md) |
+| **Agent 工装** | `.claude/` | hooks（commit gate）、skills、tools —— 不是产品代码。**技能只有这一份源** | [ADR-0050](adr/ADR-0050-powershell-native-agent-dev-tooling.md) · [ADR-0062](adr/ADR-0062-windows-authoritative-environment.md) |
+| **Codex 发现入口** | `.agents/skills/` | 每个技能一个**薄入口**：只有 name/description 与「先读规范源再执行」，正文/references/scripts 一律不复制。**生成物，单向由 `.claude/skills/` 渲染**，不得当作源来改 | [ADR-0097](adr/ADR-0097-one-skill-source-generated-client-entries.md) |
 
 仓库路径所有权（哪个位置放什么）是 **ADR-0077**，它同时钉在
 `tests/tooling/test_repository_layout.py` 上。

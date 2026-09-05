@@ -41,6 +41,18 @@ ADR-0080/0081（测试归属与审查协议）、ADR-0068（连续修改链）�
 [当前架构合同](../../../docs/current-architecture.md) 相关部分 · 本次那张卡 ·
 `docs/STATUS.md` · 影响范围内的代码与测试。历史按需读，不默认读。
 
+**接手一棵不是自己留下的树时，先核对再动手** ——
+[references/handoff.md](references/handoff.md)：
+
+```
+python .claude/tools/agent_harness.py resume
+```
+
+它把三件事摆出来：工作树里有哪些未提交改动（**哪些可能是别人的**，AGENTS §14/§16）·
+`docs/tasks/active/` 里哪些卡还开着 · 上一轮那条「跑过什么」在这个 tip 上**还算不算数**。
+交接或压缩之前，反过来用 `handoff` 把机械状态记一条。**这不是新的询问闸**：
+接回来就是接着做，不问「要不要继续」（AGENTS §1）。
+
 ## REQUIREMENT UNDERSTANDING GATE（第 1 步之前）
 
 Before planning or implementation, establish product understanding.
