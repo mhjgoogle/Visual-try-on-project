@@ -75,7 +75,7 @@
 | Agent 回复和长任务步骤逐步可见，刷新后继续 | `PARTIAL`（2026-09-04 更新） | 对话这条链已闭合：刷新后从 `GET /api/runs/<id>` 恢复同一轮、接着等、落地；问不到说「状态未知」（[ADR-0095](../../adr/ADR-0095-a-run-is-picked-up-from-the-thread-not-from-a-poller.md)、`tests/convresume.test.mjs`）| 仍有 16 条同步长调用没改走 `run_id`；`/api/agent/*` 创作端点未退役（TASK-106 验收 2、3）|
 | 剧集制作是一块画布、一条下一步主路 | `PARTIAL` | 默认只显示“制作画布”，每集卡片给一个下一步动作 | 进入深层工作后又出现向导、工作区下拉、旧制作台和溯源入口；用户仍要理解多套导航模型 |
 | 审片问题阻止错误成片进入 Final | `PASS`（2026-09-04 更新，数据层） | 渲染产出 `kind: "cut"`；`kind: "final"` 唯一写入者是过了 G4 的显式导出，且要求质检针对这一版；G5 append；老 `final` 不改写（TASK-074 §1.7，`tests/deliverylifecycle.test.mjs`） | 真实项目上点一次「导出成片」的人工走查 → 切片 5；撤回一版成片（软删除）等他用过再说 |
-| 从真实项目走完创意到交付 | `NOT_EVIDENCED` | 服务可连接真实项目，API 能读项目/预算/计划/问题/能力包 | 仓库自带 `wfm1-demo` 的 Studio canvas 为空；真实媒体项目依赖仓库外数据，无法在仓库内重复验收整条 UI 路径 |
+| 从真实项目走完创意到交付 | `PARTIAL`（2026-09-05 更新） | **仓库内可重复的 Connected Project 样本 + 真浏览器旅程**（[TASK-130](../../tasks/active/TASK-130-connected-sample-and-journey.md)）：画布由前端域 API 造并自检、61 个 ffmpeg 生成的真媒体、运行中 / 失败 run、未决提案、审片问题、候选 + 历史成片；旅程 9 秒走完 连接 → 故事修改 → 刷新恢复 → 放行落地 → 质检阻断 → 撤回，`pytest tests/e2e -m "not serial"` 37 passed | **真实用户项目的人工浏览器验收**仍要产品负责人本人跑一集（§9）；旅程顺带抓到 [TASK-087 §5.21](../../tasks/active/TASK-087-followup-ledger.md)：持久化的交付层审片问题不进 G4 |
 | 可正式投入生产使用 | `FAIL` | 核心 CLI/工作流有较强安全与恢复基础 | README 与 project-context 都明确 Studio 是 non-production prototype；付费生成证据、浏览器录制证据、异步恢复和正确 Final 闸门仍未闭合 |
 
 ### 总体判断
@@ -221,6 +221,17 @@ provenance 或 11 阶段编号；每个屏幕只有一个视觉主动作。
 
 完成判据：干净机器仅凭仓库内容就能复现主要 UI 状态；真实项目验收另外记录，不再让
 “仓库 demo 画布为空”和“只有某台机器上有真实数据”成为验证盲区。
+
+> **2026-09-05 进度**（[TASK-130](../../tasks/active/TASK-130-connected-sample-and-journey.md)）：
+> 样本是**生成器**，不是提交的 JSON + 二进制 —— 画布由前端自己的域 API 造并 `validateCanvasDoc`
+> 自检（`fixtures/connected_sample.mjs`），媒体由 ffmpeg 生成真 H.264 / WAV / PNG（61 个），
+> 运行中的对话 run 用卡在 Event 上的执行器桩造、未决提案走服务端自己的 feedback 读写。
+> 旅程 `tests/e2e/test_connected_journey_task130.py` 在真 Chromium 里 9 秒走完
+> 连接 → 故事修改（`uiAct`）→ 刷新恢复（字与运行中的转圈都在）→ 放行落地 → 质检阻断
+> （**真 ffprobe 量出规格不符**）→ 撤回成片；`tests/e2e` 全域 37 passed。
+> TASK-106 / TASK-074 §1.7 / TASK-127 各自挂到「切片 5」的人工走查项由它自动化覆盖；
+> **真实用户项目的人工验收**（§9）仍是产品负责人本人的一集。
+> 顺带抓到一条真缺口：持久化的交付层审片问题不进 G4 → [TASK-087 §5.21](../../tasks/active/TASK-087-followup-ledger.md)。
 
 ## 6. 随后处理的修改
 

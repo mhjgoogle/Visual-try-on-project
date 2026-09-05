@@ -102,9 +102,11 @@ TASK-074 §1.5 的清理表里有两行判「否」，§1.4 的边界表里有�
       而本轮证据全是自动化的，所以它**不是 `PASS`**（codex 轮 3 判得对）。
       自动化那一半：`convresume.test.mjs` 28 条，含整条恢复链、`awaitTurn` 的逐步
       可见、以及 edits 真的走到创作者写路径。
-      **人工走查的去向**：切片 5（可重复 Connected Project 样本 + 真实项目人工验收），
-      登记在[收敛审查](../../design/active/product-requirement-and-ux-convergence-review.md) §5.E。
-      不把它标成完成，也不因此停下交付。
+      **走查的去向**：[TASK-130](TASK-130-connected-sample-and-journey.md) 的真浏览器旅程已
+      **自动化覆盖**「运行中刷新 → 页面从后端恢复同一 run（『正在想…』）→ 放行后答案落进
+      线程」（2026-09-05，`tests/e2e/test_connected_journey_task130.py`，用卡在 Event 上的执行器
+      桩让那一轮**真的**还在跑）；**真实用户项目**上的人工验收仍归产品负责人本人
+      （收敛审查 §9）。不把它标成 `PASS`，也不因此停下交付。
 - [ ] 16 处长任务全部经 `run_id` 路径；`grep` 全仓无同步长任务残留
 - [ ] `/api/skill/run` 同步分支与 `/api/agent/*` 五个创作端点删除后全量测试绿
 - [x] 轮询失败时界面说「问不到」，不说「没在跑」（`pendingStatus = "unknown"` → 「状态未知」）

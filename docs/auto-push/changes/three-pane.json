@@ -1152,33 +1152,42 @@
             "tests/contract/test_surface_manifest.py"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "410f62bc74921eb93b1b82519ec05939a0d3260c",
+          "subject": "chore(auto-push): three-pane manifest writeback",
+          "time": "2026-09-05T00:22:31+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/three-pane.json"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
-        "docs/STATUS.md",
-        "docs/adr/ADR-0096-*.md",
-        "docs/design/active/product-requirement-and-ux-convergence-review.md",
-        "docs/requirements/REQ-006-*.md",
-        "docs/tasks/active/TASK-127-*.md",
-        "docs/tasks/backlog/TASK-128-*.md",
-        "docs/tasks/backlog/TASK-129-*.md",
-        "mockups/motv-workspace/src/ui/biblews.js",
-        "mockups/motv-workspace/src/ui/briefws.js",
-        "mockups/motv-workspace/src/ui/epplanws.js",
-        "mockups/motv-workspace/src/ui/production.js",
-        "mockups/motv-workspace/src/ui/relws.js",
-        "mockups/motv-workspace/src/ui/storyws.js",
-        "mockups/motv-workspace/src/ui/uiact.js",
-        "mockups/motv-workspace/src/ui/workspaces.js",
-        "mockups/motv-workspace/src/ui/worldws.js",
-        "mockups/motv-workspace/src/workflow/convactions.js",
-        "mockups/motv-workspace/tests/actiontags.test.mjs",
-        "mockups/motv-workspace/tests/convactions.test.mjs",
-        "tests/contract/test_surface_manifest.py"
+        ".autopush-placeholder"
       ],
       "verification": "PASS",
       "verification_ref": "切片 4 ADR-0096 决策 1-3：codex 3 轮独立审查（独立性未降级）；轮 1/2 各一条 P1 已修（合同扩到整个故事侧 +9 动作 +共享 ui/uiact.js；本地 uiAct 的 story.work 预判删除 +3 测试）；轮 3 BLOCKING 为延后本身（同主题第三次）→ ADR-0081 §2b 停止；REQ-006 判据 1 如实 PARTIAL，去向 TASK-128/129（backlog，合同棘轮）。前端全量 2129/0；test_surface_manifest 16 passed；pytest tests/contract tests/studio -n 8 → 855 passed/16 skipped；ruff 全过；lifecycle 0；doctor 无新红",
-      "declared": "2026-09-05T00:19:49+00:00"
+      "declared": "2026-09-05T00:54:32+00:00"
+    },
+    "TASK-130": {
+      "commits": [],
+      "paths": [
+        "docs/STATUS.md",
+        "docs/design/active/product-requirement-and-ux-convergence-review.md",
+        "docs/tasks/active/TASK-087-followup-ledger.md",
+        "docs/tasks/active/TASK-106-*.md",
+        "docs/tasks/active/TASK-127-*.md",
+        "docs/tasks/active/TASK-130-*.md",
+        "mockups/motv-workspace/fixtures/connected_sample.mjs",
+        "tests/e2e/connected_sample.py",
+        "tests/e2e/test_connected_journey_task130.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "切片 5 TASK-130：可重复 Connected Project 样本（node 生成器 + ffmpeg 真媒体 + 执行器 Event 桩）与真浏览器旅程。纯测试夹具 + 文档，不改产品行为 → 按 AGENTS.md §20 触发表不调用 codex-review-loop。pytest tests/e2e/test_connected_journey_task130.py 1 passed (9.0s)；pytest tests/e2e -m 'not serial' -n 8 → 37 passed；pytest tests/tooling → 272 passed/1 skipped（删掉 .claude/tmp/review-package.md 这个一次性产物后链接检查过）；ruff 全过；lifecycle_check 0。旅程顺带抓到真缺口 TASK-087 §5.21（持久化交付层审片问题不进 G4）。真实用户项目人工验收仍归产品负责人（收敛审查 §9）",
+      "declared": "2026-09-05T00:54:32+00:00"
     }
   },
   "merge_gate": {
