@@ -788,7 +788,7 @@
           "subject": "fix: 补审块 2a —— 15 轮，修掉 23 条（其中 3 条会静默吞掉他写的字）",
           "time": "2026-09-05T05:29:33+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/design/active/pending-codex-rereview.md",
             "docs/tasks/done/TASK-126-agent-sees-and-changes-everything.md",
@@ -812,7 +812,7 @@
           "subject": "fix: 旅程 e2e 不再跨动作握句柄 —— 偶发不等于不是缺陷",
           "time": "2026-09-05T05:29:33+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "tests/e2e/test_connected_journey_task130.py"
           ],
@@ -1309,7 +1309,7 @@
           "subject": "术语表与范围外索引：给「名字」和「不做」各一个落点（TASK-133 · three-pane）",
           "time": "2026-09-05T04:49:47+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             ".claude/tools/lifecycle_check.py",
             "AGENTS.md",
@@ -1331,7 +1331,7 @@
           "subject": "补审修复：守卫能被斜体绕过 + 索引长出源文档没有的禁令（三处）（TASK-133 · three-pane）",
           "time": "2026-09-05T05:17:53+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             ".claude/tools/lifecycle_check.py",
             "docs/STATUS.md",
@@ -1372,7 +1372,7 @@
           "subject": "feat: 工装体检 —— 技能读得到吗、两个客户端找到的是不是同一套（TASK-131 切片 A）",
           "time": "2026-09-05T06:53:49+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             ".claude/tools/agent_harness.py",
             "docs/STATUS.md",
@@ -1388,7 +1388,7 @@
           "subject": "feat: 两个客户端一套技能，一份源 —— 薄入口 + 接回来（TASK-131 切片 B/C）",
           "time": "2026-09-05T06:53:50+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             ".agents/skills/auto-push/SKILL.md",
             ".agents/skills/codex-review-loop/SKILL.md",
@@ -1415,10 +1415,35 @@
           "subject": "chore(auto-push): three-pane manifest writeback（TASK-131 两个提交补登）+ TASK-132 立卡",
           "time": "2026-09-05T06:55:14+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/auto-push/changes/three-pane.json",
             "docs/tasks/backlog/TASK-132-click-ui-element-and-leave-feedback.md"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "96af875d83cd98ad384ace4872be14d58df2fc77",
+          "subject": "chore(skill-evolution): TASK-133 与 TASK-131 的 post-use feedback",
+          "time": "2026-09-05T07:01:47+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/skill-evolution/backlogs/auto-push.jsonl",
+            "docs/skill-evolution/backlogs/codex-review-loop.jsonl",
+            "docs/skill-evolution/backlogs/dev-workflow.jsonl",
+            "docs/skill-evolution/index.json"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "3c08c54d417ccfbd88f31512472fad49b98caabe",
+          "subject": "chore(auto-push): three-pane manifest writeback",
+          "time": "2026-09-05T07:01:47+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/auto-push/changes/three-pane.json"
           ],
           "scope_violation": null
         }
@@ -1438,6 +1463,10 @@
         "docs/adr/ADR-0097-one-skill-source-generated-client-entries.md",
         "docs/auto-push/changes/three-pane.json",
         "docs/current-architecture.md",
+        "docs/skill-evolution/backlogs/auto-push.jsonl",
+        "docs/skill-evolution/backlogs/codex-review-loop.jsonl",
+        "docs/skill-evolution/backlogs/dev-workflow.jsonl",
+        "docs/skill-evolution/index.json",
         "docs/tasks/active/TASK-087-followup-ledger.md",
         "docs/tasks/active/TASK-131-agent-harness-discovery-and-runtime-evidence.md",
         "docs/tasks/backlog/TASK-132-click-ui-element-and-leave-feedback.md",
@@ -1445,8 +1474,8 @@
         "tests/tooling/test_agent_harness.py"
       ],
       "verification": "PASS",
-      "verification_ref": "docs/tasks/done/TASK-131-agent-harness-discovery-and-runtime-evidence.md §7 —— 全量 3908 passed/59 skipped；test_agent_harness 66 passed 含三处变异验证；ruff 与 lifecycle_check 通过；codex 0.153.4 两条 P1 已修并留回归",
-      "declared": "2026-09-05T06:55:14+00:00"
+      "verification_ref": "docs/tasks/done/TASK-131-...md §7（代码面：全量 3908 passed / test_agent_harness 66 passed / ruff / lifecycle_check / codex 两条 P1 已修）；96af875 是纯账本提交，逐行核过：4 个 append-only 文件、无代码、其中两条 append 是本任务自己的 post-use feedback",
+      "declared": "2026-09-05T07:01:47+00:00"
     }
   },
   "merge_gate": {
