@@ -2656,6 +2656,20 @@
             "tests/tooling/test_docs_links.py"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "81424c2f06a74f95438996b8720c752d4febf79a",
+          "subject": "fix(ci): Windows 的前端测试步骤九天来从没执行过 —— pwsh 不展开通配符（TASK-140 · three-pane）",
+          "time": "2026-09-05T17:09:05+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            ".github/workflows/ci.yml",
+            "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/active/TASK-140-main-ci-has-been-red-for-nine-days.md",
+            "tests/tooling/test_docs_links.py"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
