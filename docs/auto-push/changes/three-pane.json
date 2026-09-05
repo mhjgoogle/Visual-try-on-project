@@ -2,7 +2,7 @@
   "schema": 1,
   "change_id": "three-pane",
   "branch": "change/TASK-109-three-pane",
-  "status": "open",
+  "status": "merged",
   "created": "2026-08-27T11:01:18+00:00",
   "chain_mode": false,
   "tasks": {
@@ -1987,6 +1987,17 @@
             "tests/studio/test_account_image_gen_task139.py"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "54cf8c679f575c25c9518c4390d9c5820e8543ae",
+          "subject": "并发用例里的 5 秒硬等待 —— 它在断言调度速度，不是断言并发（TASK-139 · three-pane）",
+          "time": "2026-09-05T13:08:02+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "tests/studio/test_account_image_gen_task139.py"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
@@ -2301,6 +2312,14 @@
     "time": "2026-09-05T11:40:43+00:00",
     "tip": "4b7ab24527114bd757b21501e85c78715f848fbe"
   },
-  "merge": null,
-  "cleanup": null
+  "merge": {
+    "hash": "cd9ef060e115327e018769c730bfede92caf35c5",
+    "time": "2026-09-05T13:07:46Z",
+    "pushed": true,
+    "note": "手工合并并推送，**没有走 `autopush merge`** —— 那条命令会在**共享工作树**上 `git switch main`，而合并当时有八个会话在同一棵树上作业、三个文件是脏的，切分支轻则失败、重则把别人的在制品带过去。改为在 `git worktree add --detach` 出来的独立目录里完成：跑最终全量 → `checkout -B main origin/main` → `merge --no-ff` → 合并后复验 → `push origin main`。共享树自始至终停在原分支，别人的未提交文件一个没动（合并后核对过）。做法记在 TASK-087 §6.11。"
+  },
+  "cleanup": {
+    "done": false,
+    "note": "**有意跳过分支清理** —— 产品负责人 2026-09-05 决定：合并但不删分支，因为合并时仍有八个会话在 `change/TASK-109-three-pane` 上作业。标准流程最后一步会删本地与远端分支，那会毁掉他们的在制品。"
+  }
 }
