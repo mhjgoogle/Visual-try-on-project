@@ -5,7 +5,7 @@
       "entry": ".agents/skills/auto-push/SKILL.md",
       "source": ".claude/skills/auto-push",
       "renderer": "agent_harness/1",
-      "source_digest": "sha256:c73560bf92876b13de116debb8c8c5d01cb902e05b65bead3a6c9d9af9c23a82",
+      "source_digest": "sha256:e658d3f5ad0bbdf060235e9fe4aa484f87364765b1ca29c0f023c33c13314769",
       "entry_digest": "sha256:566d68316b737955953a2ba635dd7f54a23ea069c6cdc85895bf25a7ae57b7f0"
     },
     "codex-review-loop": {

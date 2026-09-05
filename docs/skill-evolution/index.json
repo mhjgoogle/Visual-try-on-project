@@ -4,11 +4,13 @@
    "backlog": "docs/skill-evolution/backlogs/auto-push.jsonl",
    "feedback_seq": 14,
    "last_feedback_at": "2026-09-05T05:21:42Z",
-   "last_review_at": null,
+   "last_review_at": "2026-09-05T07:05:55Z",
    "last_seen_at": "2026-08-22T06:01:22Z",
    "open": 14,
    "path": ".claude/skills/auto-push",
-   "pending_proposals": [],
+   "pending_proposals": [
+    "EP-001"
+   ],
    "protected": [],
    "registered_at": "2026-08-22T06:01:22Z",
    "repeated": {
@@ -16,7 +18,7 @@
    },
    "revision": "9e8d8cfb0bd7",
    "severe_open": 0,
-   "status": "REVIEW_CANDIDATE"
+   "status": "PROPOSAL_PENDING"
   },
   "codex-review-loop": {
    "backlog": "docs/skill-evolution/backlogs/codex-review-loop.jsonl",

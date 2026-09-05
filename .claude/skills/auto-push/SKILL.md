@@ -65,6 +65,9 @@ HEAD 时返回 `BLOCKED_BASE_BEHIND`——要么 `--base HEAD`（在当前历史
 3. 把返回的 `commit_command` **原样在 shell 运行**（gate 按 ADR-0080 归属映射跑
    检查），然后 `record-commit --task T` 回写 hash（`--hash <h>` 可补登历史
    提交；越界判定按**当前**申报范围现算，不吃登记时的快照）。
+   **`stage` 每次都会重新生成那个 commit 信息文件**：要写多行正文就在 stage
+   **之后**写；被 gate 拦下后重新 stage 的，正文要重写（别在没重读的情况下
+   对它做字符串替换 —— 替换会静默失配，最后只剩一行标题）。
 4. `push` —— 成功即完；`NEEDS_SYNC` 见下。
 5. push 成功后做一次 skill-evolution Fast Loop 反馈（沿用 dev-workflow
    第 10 步的既有约定，把 commit hash 写进 note）。
@@ -77,7 +80,7 @@ HEAD 时返回 `BLOCKED_BASE_BEHIND`——要么 `--base HEAD`（在当前历史
 | `BLOCKED_WIDE` | diff 形状超过 Task 申报范围 → 回 dev-workflow 重查 Change Scope / 架构漂移（Change Isolation 信号）；确认合法后 `--allow-wide` |
 | `BLOCKED_SECRET` | 疑似凭据。**永不自动放行**；确认是误报后由人工提交，真凭据则移出并按泄露处理 |
 | `BLOCKED_UNSCANNABLE` | 二进制/超大文件做不了内容扫描。**人**确认不含凭据后才 `--allow-unscanned` |
-| `BLOCKED_BRANCH` / `BLOCKED_DIRTY_INDEX` / `BLOCKED_CONFLICT` | 仓库状态不是脚本造成的 → 如实报告，人/dev-workflow 先恢复 |
+| `BLOCKED_BRANCH` / `BLOCKED_DIRTY_INDEX` / `BLOCKED_CONFLICT` | 仓库状态不是脚本造成的 → 如实报告，人/dev-workflow 先恢复。**`BLOCKED_DIRTY_INDEX` 最常见的成因是你自己刚跑的 `git mv`**（mv 会自动进 index，而「做完就 `git mv` 进 `done/`」是 ADR-0083 的日常动作）：确认 staged 条目属于本 Task 后 `git restore --staged <paths>` 再 stage。真是他人并发编辑，才交回等待 |
 | `NOTHING_TO_COMMIT` | 没有归属 diff —— 检查 paths 申报是否漏了 |
 
 `foreign` 文件（不属于任何已申报 Task）**留在工作树，不碰、不报警**——

@@ -1347,6 +1347,8 @@
         }
       ],
       "paths": [
+        ".claude/agent-entries.json",
+        ".claude/skills/auto-push/SKILL.md",
         ".claude/tools/lifecycle_check.py",
         "AGENTS.md",
         "docs/STATUS.md",
@@ -1354,6 +1356,7 @@
         "docs/current-architecture.md",
         "docs/glossary.md",
         "docs/out-of-scope.md",
+        "docs/skill-evolution/",
         "docs/tasks/active/TASK-133-glossary-and-out-of-scope-index.md",
         "docs/tasks/backlog/TASK-134-import-linter-layering-contract.md",
         "docs/tasks/backlog/TASK-135-server-authoritative-workflow-plan.md",
@@ -1362,8 +1365,8 @@
         "tests/tooling/test_lifecycle_check.py"
       ],
       "verification": "PASS",
-      "verification_ref": "归属域全量 pytest tests/tooling 349 passed/1 skipped/0 failed; ruff 全过; lifecycle_check 0 finding; codex 两轮补审闭合(轮1三条P1全修/轮2两条证据缺口已补)",
-      "declared": "2026-09-05T05:19:17+00:00"
+      "verification_ref": "EP-001 应用后验证: pytest test_auto_push_tooling+test_agent_harness+test_docs_links 116 passed; agent_harness check 全 unchanged; lifecycle_check 0 finding",
+      "declared": "2026-09-05T07:15:06+00:00"
     },
     "TASK-131": {
       "commits": [
@@ -1452,7 +1455,18 @@
           "subject": "chore(auto-push): three-pane manifest writeback（96af875 与 3c08c54 补登）",
           "time": "2026-09-05T07:14:11+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
+          "files": [
+            "docs/auto-push/changes/three-pane.json"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "3a156bda5055cdeeb6a6fb3de714ad76872a993a",
+          "subject": "chore(auto-push): three-pane manifest writeback",
+          "time": "2026-09-05T07:14:28+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
           "files": [
             "docs/auto-push/changes/three-pane.json"
           ],

@@ -53,7 +53,7 @@
 
 ## OUT OF SCOPE
 
-- 三项重架构借鉴只**开卡记账不实施**：[TASK-134](../backlog/TASK-134-import-linter-layering-contract.md)
+- 三项重架构借鉴只**开卡记账不实施**：[TASK-134](../active/TASK-134-import-linter-layering-contract.md)
   （import-linter 分层契约）· [TASK-135](../backlog/TASK-135-server-authoritative-workflow-plan.md)
   （服务端权威 next_action）· [TASK-136](../backlog/TASK-136-generation-resume-and-idempotency.md)
   （生成任务重启续跑与幂等）。
