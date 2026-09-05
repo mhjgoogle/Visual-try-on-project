@@ -1284,12 +1284,16 @@ def _https_post(url: str, body: bytes, headers: dict, timeout: float):
 
     非 2xx **不抛**，原样把 (状态码, 响应体) 交回去：额度耗尽与凭据被拒都藏在
     响应体里，把它们变成异常就等于把「今天到顶了」和「网线断了」揉成一件事。
+
+    `body is None` 表示 GET（Pollinations 那条路就是一个 GET 直接回图片字节）。
+    两种方法共用一个函数，是为了让适配层只认识**一个** transport 签名：
+    多一个签名就多一处「测的时候注入了哪一个」的岔路。
     """
     import urllib.error
     import urllib.request
 
     req = urllib.request.Request(  # noqa: S310 - 固定的 https 常量端点
-        url, data=body, headers=dict(headers), method="POST"
+        url, data=body, headers=dict(headers), method="GET" if body is None else "POST"
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
@@ -11317,8 +11321,30 @@ class _App:
                 400, {"error": {"category": "bad_request", "detail": "invalid name"}}
             )
 
-        api_key, source, tier = credstore.resolve(APP_DATA_DIR, "gemini")
-        if not api_key:
+        # 用哪一家出图。默认 pollinations —— 它不要 key、不产生账单，
+        # 而 Gemini 的免费档对出图配额是 0（2026-09-05 实测，ADR-0100 那一节）。
+        # 换来源改 `.env.local` 里的 `IMAGE_PROVIDER=`，与换 key 是同一个动作。
+        provider = (
+            credstore.option("IMAGE_PROVIDER", imagegen.DEFAULT_PROVIDER)
+            .strip()
+            .lower()
+        )
+        if provider not in imagegen.PROVIDERS:
+            return _json(
+                400,
+                {
+                    "error": {
+                        "category": "bad_request",
+                        "detail": f"IMAGE_PROVIDER={provider!r} 不认识；"
+                        f"可选：{' / '.join(imagegen.PROVIDERS)}",
+                    }
+                },
+            )
+
+        api_key, source, tier = "", provider, ""
+        if provider == "gemini":
+            api_key, source, tier = credstore.resolve(APP_DATA_DIR, "gemini")
+        if provider == "gemini" and not api_key:
             # 说清楚**去哪儿设**，而不是只说没有。这条路存在的全部意义就是他
             # 不用离开界面去配环境变量（ADR-0100 决策 4）。
             return _json(
@@ -11330,7 +11356,7 @@ class _App:
                     }
                 },
             )
-        if tier != credstore.TIER_FREE:
+        if provider == "gemini" and tier != credstore.TIER_FREE:
             # **配了 key ≠ 这次调用不产生账单。** 一把开了结算的 key 走这条路，
             # 就是绕过付费闸替他花钱 —— 而这条路的全部前提是「不产生按次账单」。
             # ADR-0100 决策 1 最后一句：拿不准就按计费处理，fail-closed 回闸后面
@@ -11400,8 +11426,8 @@ class _App:
             _ACCOUNT_IMAGE_UNKNOWN.discard(fp)
             _ACCOUNT_IMAGE_INFLIGHT.add(fp)
         try:
-            result = imagegen.generate_image(
-                prompt, api_key=api_key, transport=_https_post
+            result = imagegen.generate(
+                prompt, provider=provider, api_key=api_key, transport=_https_post
             )
         except imagegen.ImageFailure as exc:
             with _ACCOUNT_IMAGE_LOCK:

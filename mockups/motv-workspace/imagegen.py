@@ -26,7 +26,24 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import urllib.parse
 from dataclasses import dataclass
+
+#: 支持的出图来源。**两家的差别不是「哪个更好」，是「谁付钱」**：
+#:
+#:   pollinations  不要 key、不要账号、不产生任何账单。**默认**。
+#:   gemini        要 key；免费档对出图的配额是 0（2026-09-05 实测），
+#:                 因此实际可用的只有开了结算的按次计费档 —— 那条路要过付费闸。
+#:
+#: 选 pollinations 作默认的唯一理由是 REQ-008 判据 2：**不产生按次账单**。
+#: 它的代价写在 ADR-0100「决策 6 的前提是错的」那一节：无账号、无合同、无 SLA，
+#: 延迟 2–45 秒，可用模型只有一个。
+PROVIDERS = ("pollinations", "gemini")
+DEFAULT_PROVIDER = "pollinations"
+
+#: Pollinations：一个 GET 直接回图片字节，没有 JSON 包装，也没有鉴权。
+#: prompt 进的是**路径段**，所以必须 quote —— 否则一个 `/` 就把请求打到别处去了。
+POLLINATIONS_ENDPOINT = "https://image.pollinations.ai/prompt/"
 
 #: Gemini 的图片生成入口（Interactions API）。固定常量，不从请求里取 ——
 #: 让调用方指定 endpoint 等于给自己开一个 SSRF 面。
@@ -117,6 +134,90 @@ def build_request(prompt: str, *, model: str = DEFAULT_MODEL, api_key: str):
         "Content-Type": "application/json",
     }
     return GEMINI_ENDPOINT, body, headers
+
+
+def build_pollinations_request(
+    prompt: str, *, width: int = 1024, height: int = 1024, seed: int | None = None
+):
+    """把一次生成变成 (url, None, headers)。`body is None` 就是「这是一次 GET」。
+
+    没有 key、没有鉴权头 —— 这正是它被选作默认的原因，也是它**没有账号**的另一面。
+    """
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise ImageFailure("bad_request", "prompt 不能为空", "none")
+    if len(prompt) > MAX_PROMPT:
+        raise ImageFailure("bad_request", f"prompt 超过 {MAX_PROMPT} 字", "none")
+    q = {"width": str(int(width)), "height": str(int(height)), "nologo": "true"}
+    if seed is not None:
+        q["seed"] = str(int(seed))
+    url = (
+        POLLINATIONS_ENDPOINT
+        + urllib.parse.quote(prompt.strip(), safe="")
+        + "?"
+        + urllib.parse.urlencode(q)
+    )
+    return url, None, {"User-Agent": "motv/1.0"}
+
+
+def _generate_pollinations(prompt, *, transport, timeout, width, height, seed):
+    """回来的**就是图片字节本身**，没有 JSON 可解。
+
+    副作用一律判 `none`，而且这不是偷懒：`sideEffect` 记的是「有没有消耗掉某种
+    会用完的东西」（钱或额度），而这条路两样都没有 —— 没有账号，就没有可被消耗的
+    配额。重试它的代价只有时间，所以 §5.8 那条「不确定就不许自动重试」在这里
+    没有保护对象。**这一点必须写下来**，否则下一个人会以为是漏判了。
+    """
+    url, body, headers = build_pollinations_request(
+        prompt, width=width, height=height, seed=seed
+    )
+    try:
+        status, raw = transport(url, body, headers, timeout)
+    except TransportFailed as exc:
+        raise ImageFailure("network_failed", str(exc)[:200], "none") from exc
+    if status != 200:
+        raise ImageFailure(
+            "provider_unavailable",
+            _provider_message(raw) or f"供应商返回 HTTP {status}",
+            "none",
+        )
+    if not raw:
+        raise ImageFailure("bad_output", "回复是空的", "none")
+    if len(raw) > MAX_IMAGE_BYTES:
+        raise ImageFailure(
+            "too_large", f"图片超过 {MAX_IMAGE_BYTES // 1_000_000}MB", "none"
+        )
+    return ImageResult(
+        data=raw, mime_type="", model="pollinations/sana", side_effect="none"
+    )
+
+
+def generate(
+    prompt: str,
+    *,
+    transport,
+    provider: str = DEFAULT_PROVIDER,
+    api_key: str = "",
+    model: str = DEFAULT_MODEL,
+    timeout: float = DEFAULT_TIMEOUT,
+    width: int = 1024,
+    height: int = 1024,
+    seed: int | None = None,
+) -> ImageResult:
+    """按 `provider` 分派。**这是调用方唯一该用的入口。**"""
+    if provider not in PROVIDERS:
+        raise ImageFailure("bad_request", f"未知的出图来源 {provider!r}", "none")
+    if provider == "pollinations":
+        return _generate_pollinations(
+            prompt,
+            transport=transport,
+            timeout=timeout,
+            width=width,
+            height=height,
+            seed=seed,
+        )
+    return generate_image(
+        prompt, api_key=api_key, transport=transport, model=model, timeout=timeout
+    )
 
 
 def generate_image(

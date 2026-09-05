@@ -28,6 +28,20 @@ from pathlib import Path
 #: 文件名与 `.gitignore` 里那条 `credentials.json` 逐字对应。改名字要连它一起改。
 CRED_FILENAME = "credentials.json"
 
+#: 仓库根上的 `.env.local` —— **换 key 时他要改的就是这一个文件**。
+#:
+#: 产品负责人 2026-09-05：「每次换 API key 的时候我就不用总是找程序输入了。」
+#: 所以它是**最高优先级**的来源，而且**每次请求都重读**（文件很小，一次几十字节的
+#: 读远比「改完为什么没生效」便宜）：保存即生效，不重启、不进界面。
+#:
+#: `.gitignore` 第 20–22 行已经挡住 `.env` 与 `.env.*`，所以它天然不进 Git。
+ENV_FILENAME = ".env.local"
+
+#: 它住在**仓库根**（`credstore.py` 在 `mockups/motv-workspace/` 下，往上两级）。
+#: 放仓库根而不是应用数据目录，是因为他要能一眼找到并直接编辑 —— 应用数据目录
+#: 在 `%LOCALAPPDATA%` 底下，那等于又把它藏起来了。
+DEFAULT_ENV_PATH = Path(__file__).resolve().parents[2] / ENV_FILENAME
+
 #: 存哪几把 key → 设置里的字段名 → 降级用的环境变量名。
 #: 现在只有一把；这张表存在是为了下一把 key 不用再发明一次形状。
 KEYS = {
@@ -88,18 +102,89 @@ def _read_all(app_data_dir: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def resolve(app_data_dir: Path, name: str = "gemini", env=None) -> tuple[str, str, str]:
+def read_env_file(path: Path) -> dict[str, str]:
+    """把 `.env.local` 读成一个字典。**自己解析，不引依赖。**
+
+    只认最朴素的那一种写法，因为这个文件是给人手改的，越少魔法越好：
+
+        # 注释
+        GEMINI_API_KEY=AIza...
+        export GEMINI_API_KEY_TIER="free"
+
+    规则：`#` 起头的行与空行跳过；行内 `#` **不**当注释（key 里可能有 `#`）；
+    `export ` 前缀允许；值两端的成对引号剥掉；**不做任何变量展开**
+    （`$HOME` 就是字面量五个字符 —— 展开会让一把含 `$` 的 key 悄悄变形）。
+    读不到文件、读不动、编码坏掉，一律当作「没有这个文件」，不报错也不猜。
+    """
+    try:
+        raw = Path(path).read_text("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return {}
+    out: dict[str, str] = {}
+    for line in raw.splitlines():
+        s = line.strip()
+        if not s or s.startswith("#") or "=" not in s:
+            continue
+        if s.startswith("export "):
+            s = s[len("export ") :].lstrip()
+        k, _, v = s.partition("=")
+        k = k.strip()
+        if not k:
+            continue
+        v = v.strip()
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+            v = v[1:-1]
+        out[k] = v
+    return out
+
+
+def option(name: str, default: str = "", env_file: Path | None = None, env=None) -> str:
+    """`.env.local` 里那些**不是凭据**的开关（如 `IMAGE_PROVIDER`）。
+
+    与 key 同一个文件、同一条规则：**改完保存即生效**，优先级也一样
+    （文件 > 进程环境变量）。放同一个文件是有意的 —— 他只需要记住一个地方。
+    """
+    file_map = read_env_file(env_file if env_file is not None else DEFAULT_ENV_PATH)
+    value = file_map.get(name, "")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    env_map = os.environ if env is None else env
+    value = env_map.get(name, "")
+    return value.strip() if isinstance(value, str) and value.strip() else default
+
+
+def resolve(
+    app_data_dir: Path,
+    name: str = "gemini",
+    env=None,
+    env_file: Path | None = None,
+) -> tuple[str, str, str]:
     """拿到可用的 key、它的来源、以及他声明的计费档。
 
-    返回 `(key, source, tier)`：`source` 是 `settings` / `env` / `""`（没有），
-    `tier` 是 `free` / `paid` / `""`（**没声明 —— 调用方必须按计费处理**）。
+    返回 `(key, source, tier)`：`source` 是 `env-file` / `settings` / `env` /
+    `""`（没有）；`tier` 是 `free` / `paid` / `""`
+    （**没声明 —— 调用方必须按计费处理**）。
 
-    **顺序是设置优先** —— 界面里粘的那把是他刚刚亲手给的，环境变量可能是几个月前
-    某次自动化留下的，让旧的盖住新的会让「我明明改了」变成一个查半天的问题。
+    **优先级：`.env.local` > 设置页 > 进程环境变量。**
+
+    `.env.local` 排第一是产品负责人的要求（2026-09-05：「每次换 API key 的时候我就
+    不用总是找程序输入了」）：他改哪儿，哪儿就该说了算，否则「我明明改了」会变成
+    一个查半天的问题。设置页排第二（界面里粘的也是他亲手给的）；进程环境变量排最后，
+    因为它最可能是几个月前某次自动化留下的。
+
+    **每一层都单独带自己的档位**，不跨层继承：一把 key 与「它计不计费」必须来自
+    同一处声明，否则就会出现「文件里换了一把付费 key，却继承了设置页里 free 的声明」
+    —— 那正是 ADR-0100 决策 1 要防的事。
     """
     spec = KEYS.get(name)
     if spec is None:
         raise CredentialError(f"unknown credential {name!r}")
+    # 1) `.env.local` —— 每次都重读，保存即生效
+    file_map = read_env_file(env_file if env_file is not None else DEFAULT_ENV_PATH)
+    value = file_map.get(spec["env"], "")
+    if isinstance(value, str) and value.strip():
+        tier = file_map.get(spec["tier_env"], "")
+        return value.strip(), "env-file", tier if tier in TIERS else ""
     data = _read_all(app_data_dir)
     value = data.get(spec["field"])
     if isinstance(value, str) and value.strip():
@@ -119,13 +204,20 @@ def resolve(app_data_dir: Path, name: str = "gemini", env=None) -> tuple[str, st
     return "", "", ""
 
 
-def describe(app_data_dir: Path, name: str = "gemini", env=None) -> dict:
+def describe(
+    app_data_dir: Path,
+    name: str = "gemini",
+    env=None,
+    env_file: Path | None = None,
+) -> dict:
     """给界面看的那份 —— **没有 key 本身**，只有「设没设、从哪来、后四位」。
 
     后四位是为了让他认得出「我粘的是不是这一把」，这是凭据界面的常规做法；
-    四位不足以重建 key。
+    四位不足以重建 key。`source` 让界面能说出**现在生效的是哪一处**，
+    否则「我在设置里粘了新的，怎么还是旧的」会变成一个查半天的问题
+    —— `.env.local` 优先，界面就得把这件事说出来。
     """
-    key, source, tier = resolve(app_data_dir, name, env=env)
+    key, source, tier = resolve(app_data_dir, name, env=env, env_file=env_file)
     return {
         "name": name,
         "configured": bool(key),

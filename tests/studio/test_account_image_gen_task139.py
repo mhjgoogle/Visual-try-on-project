@@ -99,7 +99,18 @@ def srv(tmp_path, monkeypatch):
     # 每个测试一套干净的在途集合 —— 它是模块级状态，泄到下一个测试里会让
     # 「第二次请求被判 in_flight」变成一条随机红。
     monkeypatch.setattr(module, "_ACCOUNT_IMAGE_INFLIGHT", set())
+    monkeypatch.setattr(module, "_ACCOUNT_IMAGE_UNKNOWN", set())
     monkeypatch.setattr(module, "_ACCOUNT_IMAGE_LOCK", threading.Lock())
+    # **测试永远不许读到仓库根上那个真实的 `.env.local`** —— 那里面是他真的 key，
+    # 而且它一存在，所有「没配凭据」的用例就会变成随机绿。
+    #
+    # 这份隔离的 env 文件里显式写 `IMAGE_PROVIDER=gemini`：本文件的绝大多数用例
+    # 守的是**付费闸那一侧**（档位、凭据、unknown 重放），而默认来源已经是
+    # pollinations（不要 key、不产生账单）。不写这一行，那些用例会静默地在
+    # 另一条路上跑，然后以「没红」的样子失去意义。
+    envf = tmp_path / "test.env.local"
+    envf.write_text("IMAGE_PROVIDER=gemini\n", encoding="utf-8")
+    monkeypatch.setattr(credstore, "DEFAULT_ENV_PATH", envf)
     return module
 
 
@@ -136,6 +147,112 @@ def _fake_transport(reply, status=200, record=None):
 
 def _set_key(srv, key=_KEY, tier=credstore.TIER_FREE):
     credstore.store(srv.APP_DATA_DIR, key, tier=tier)
+
+
+# --- Pollinations：默认那条路，不要 key、不产生账单 --------------------------- #
+
+
+def _pollinations_env(monkeypatch, tmp_path, extra=""):
+    envf = tmp_path / "poll.env.local"
+    envf.write_text("IMAGE_PROVIDER=pollinations\n" + extra, encoding="utf-8")
+    monkeypatch.setattr(credstore, "DEFAULT_ENV_PATH", envf)
+    return envf
+
+
+def test_pollinations_request_is_a_get_with_the_prompt_in_the_path():
+    url, body, headers = imagegen.build_pollinations_request("一只猫 / 白纸")
+    assert url.startswith(imagegen.POLLINATIONS_ENDPOINT)
+    assert body is None  # body is None 就是「这是一次 GET」
+    assert "x-goog-api-key" not in {k.lower() for k in headers}  # 没有鉴权
+    # prompt 进的是**路径段**，`/` 必须被转义，否则请求会被打到别的路径上
+    assert (
+        "%2F" in url
+        or "/" not in url[len(imagegen.POLLINATIONS_ENDPOINT) :].split("?")[0]
+    )
+
+
+def test_pollinations_returns_raw_bytes_and_costs_nothing(
+    srv, app, monkeypatch, tmp_path
+):
+    """回来的就是图片字节本身，没有 JSON 包装 —— 而且没有可被消耗的额度。"""
+    _pollinations_env(monkeypatch, tmp_path)
+    srv._https_post = _fake_transport(_PNG)  # 直接给字节
+    status, body = _post(
+        app,
+        "/api/agent/image-gen-account",
+        {"project": "作品", "slug": "hero", "prompt": "一只猫"},
+    )
+    assert status == 200, body
+    assert body["billing"] == "account-quota"
+    assert "usd" not in body
+    assert body["model"] == "pollinations/sana"
+    saved = list((app._projects["作品"] / "media").glob("hero*.png"))
+    assert len(saved) == 1 and saved[0].read_bytes() == _PNG
+
+
+def test_pollinations_needs_no_key_at_all(srv, app, monkeypatch, tmp_path):
+    """没有 key、没有档位声明 —— 这条路照样走得通。
+
+    Gemini 那条的 403 `billing_not_established` 守的是「可能计费」；
+    这条路**结构上不可能计费**（没有账号），所以那道闸对它不适用，
+    而不是被放松了（ADR-0100 决策 1：判据是会不会产生按次账单）。
+    """
+    _pollinations_env(monkeypatch, tmp_path)
+    assert credstore.resolve(srv.APP_DATA_DIR, "gemini") == ("", "", "")
+    srv._https_post = _fake_transport(_PNG)
+    assert (
+        _post(
+            app,
+            "/api/agent/image-gen-account",
+            {"project": "作品", "slug": "hero", "prompt": "一只猫"},
+        )[0]
+        == 200
+    )
+
+
+def test_a_pollinations_failure_is_never_unknown(srv, app, monkeypatch, tmp_path):
+    """没有账号就没有可被消耗的配额，所以重试它只花时间 —— `side_effect` 恒为 none。
+
+    这不是漏判：`sideEffect` 记的是「有没有消耗掉会用完的东西」，而这条路上
+    那样东西不存在。因此 §5.8 的「不确定不许自动重试」在这里没有保护对象。
+    """
+    _pollinations_env(monkeypatch, tmp_path)
+    srv._https_post = _fake_transport(imagegen.TransportFailed("timeout"))
+    status, body = _post(
+        app,
+        "/api/agent/image-gen-account",
+        {"project": "作品", "slug": "hero", "prompt": "一只猫"},
+    )
+    assert status == 504
+    assert body["error"]["side_effect"] == "none"
+
+    # 于是同一个意图可以直接再来一次，不需要显式确认
+    calls = []
+    srv._https_post = _fake_transport(_PNG, record=calls)
+    assert (
+        _post(
+            app,
+            "/api/agent/image-gen-account",
+            {"project": "作品", "slug": "hero", "prompt": "一只猫"},
+        )[0]
+        == 200
+    )
+    assert len(calls) == 1
+
+
+def test_an_unknown_provider_is_refused_by_name(srv, app, monkeypatch, tmp_path):
+    _pollinations_env(monkeypatch, tmp_path)
+    (tmp_path / "poll.env.local").write_text("IMAGE_PROVIDER=midjourney\n", "utf-8")
+    calls = []
+    srv._https_post = _fake_transport(_PNG, record=calls)
+    status, body = _post(
+        app,
+        "/api/agent/image-gen-account",
+        {"project": "作品", "slug": "hero", "prompt": "一只猫"},
+    )
+    assert status == 400
+    assert "midjourney" in body["error"]["detail"]
+    assert calls == []
 
 
 # --- 报文形状 ---------------------------------------------------------------- #
@@ -427,6 +544,98 @@ def test_a_key_that_cannot_be_a_key_is_refused_with_a_reason_he_can_act_on(
     assert status == 400
     assert body["error"]["category"] == "bad_credential"
     assert bad not in json.dumps(body)  # 连拒绝信息里都不回显
+
+
+def test_the_env_file_beats_everything_and_takes_effect_without_a_restart(
+    srv, monkeypatch, tmp_path
+):
+    """他改哪儿，哪儿说了算 —— 而且保存即生效。
+
+    产品负责人 2026-09-05：「每次换 API key 的时候我就不用总是找程序输入了。」
+    所以 `.env.local` 压过设置页与进程环境变量，且**每次请求重读**：
+    这条用例改两次文件，中间不重建任何东西。
+    """
+    envf = tmp_path / ".env.local"
+    monkeypatch.setattr(credstore, "DEFAULT_ENV_PATH", envf)
+    monkeypatch.setenv("GEMINI_API_KEY", "env-key-0123456789abcdef")
+    monkeypatch.setenv("GEMINI_API_KEY_TIER", credstore.TIER_FREE)
+    credstore.store(srv.APP_DATA_DIR, _KEY, tier=credstore.TIER_FREE)
+
+    envf.write_text(
+        "# 注释行\n"
+        "\n"
+        'export GEMINI_API_KEY="file-key-first-0123456789"\n'
+        "GEMINI_API_KEY_TIER=free\n",
+        encoding="utf-8",
+    )
+    assert credstore.resolve(srv.APP_DATA_DIR, "gemini") == (
+        "file-key-first-0123456789",
+        "env-file",
+        credstore.TIER_FREE,
+    )
+
+    # 改一次文件就换了一把 key —— 没有重启、没有重新构造任何对象
+    envf.write_text(
+        "GEMINI_API_KEY=file-key-second-0123456789\nGEMINI_API_KEY_TIER=free\n",
+        encoding="utf-8",
+    )
+    assert credstore.resolve(srv.APP_DATA_DIR, "gemini")[0] == (
+        "file-key-second-0123456789"
+    )
+
+    # 文件里没有 key 时才轮到设置页
+    envf.write_text("# 只有注释\n", encoding="utf-8")
+    assert credstore.resolve(srv.APP_DATA_DIR, "gemini") == (
+        _KEY,
+        "settings",
+        credstore.TIER_FREE,
+    )
+
+
+def test_a_file_key_does_not_inherit_a_tier_from_another_layer(
+    srv, monkeypatch, tmp_path
+):
+    """档位必须与 key 来自同一处声明。
+
+    否则「文件里换了一把付费 key，却继承了设置页里 free 的声明」——
+    那正是 ADR-0100 决策 1 要防的那件事。
+    """
+    envf = tmp_path / ".env.local"
+    monkeypatch.setattr(credstore, "DEFAULT_ENV_PATH", envf)
+    credstore.store(srv.APP_DATA_DIR, _KEY, tier=credstore.TIER_FREE)
+    envf.write_text("GEMINI_API_KEY=file-key-without-tier-01234\n", encoding="utf-8")
+
+    key, source, tier = credstore.resolve(srv.APP_DATA_DIR, "gemini")
+    assert (key, source, tier) == ("file-key-without-tier-01234", "env-file", "")
+
+
+def test_a_file_key_without_a_tier_cannot_generate(srv, app, monkeypatch, tmp_path):
+    """接上面那条的产品后果：没声明档位 → 403，一个字节都不出去。"""
+    envf = tmp_path / ".env.local"
+    monkeypatch.setattr(credstore, "DEFAULT_ENV_PATH", envf)
+    envf.write_text(
+        "IMAGE_PROVIDER=gemini\nGEMINI_API_KEY=file-key-without-tier-01234\n",
+        encoding="utf-8",
+    )
+    calls = []
+    srv._https_post = _fake_transport(_interactions_reply(), record=calls)
+    status, body = _post(
+        app,
+        "/api/agent/image-gen-account",
+        {"project": "作品", "slug": "hero", "prompt": "一只猫"},
+    )
+    assert status == 403
+    assert body["error"]["category"] == "billing_not_established"
+    assert calls == []
+
+
+def test_a_missing_or_unreadable_env_file_is_simply_absent(srv, monkeypatch, tmp_path):
+    """没有那个文件不是错误 —— 大多数机器上本来就没有。"""
+    monkeypatch.setattr(credstore, "DEFAULT_ENV_PATH", tmp_path / "nope.env")
+    assert credstore.read_env_file(tmp_path / "nope.env") == {}
+    assert credstore.read_env_file(tmp_path) == {}  # 目录也不炸
+    credstore.store(srv.APP_DATA_DIR, _KEY, tier=credstore.TIER_FREE)
+    assert credstore.resolve(srv.APP_DATA_DIR, "gemini")[1] == "settings"
 
 
 def test_settings_beat_the_environment_variable(srv, monkeypatch):
