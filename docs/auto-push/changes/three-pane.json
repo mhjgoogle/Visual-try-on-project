@@ -133,7 +133,7 @@
           "subject": "fix(motv): 看门狗的守卫改成触发真回调；录白膜不再录到那块被换掉的画布（TASK-087 §6.12 / §5.22）",
           "time": "2026-09-05T15:41:50+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/auto-push/changes/three-pane.json",
             "docs/tasks/active/TASK-087-followup-ledger.md",
@@ -2134,9 +2134,9 @@
         "docs/adr/ADR-0100-*.md",
         "docs/requirements/REQ-008-*.md",
         "docs/requirements/index.md",
-        "docs/tasks/active/TASK-087-followup-ledger.md",
         "docs/tasks/active/TASK-139-*.md",
         "docs/tasks/backlog/TASK-041-*.md",
+        "docs/tasks/backlog/TASK-136-*.md",
         "docs/tasks/backlog/TASK-140-*.md",
         "docs/tasks/done/TASK-041-*.md",
         "docs/tasks/done/TASK-139-*.md",
@@ -2148,8 +2148,8 @@
         "tests/studio/test_account_image_gen_task139.py"
       ],
       "verification": "PASS",
-      "verification_ref": "收口 + 三次搬卡的两半（旧路径删除与 done/ 新增）。验证：studio 55 passed · docs 守卫 25 passed · lifecycle_check 0 finding。注：--paths 是整份替换不是追加（e9 今天踩过），所以这里带的是本卡历史上所有申报过的路径的并集",
-      "declared": "2026-09-05T15:08:43+00:00"
+      "verification_ref": "pytest tests/tooling 385 passed（含 docs_links/docs_status）；并在合并结果的独立 worktree 上复现并验证该断链修复",
+      "declared": "2026-09-05T15:52:43+00:00"
     },
     "TASK-129": {
       "commits": [
