@@ -1494,6 +1494,18 @@
             "docs/auto-push/changes/three-pane.json"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "1111ab1283592c0094fa371deb66674df195090f",
+          "subject": "fix: 文档链接守卫扫到了 scratch —— 挡住所有人的东西不在仓库里",
+          "time": "2026-09-05T07:42:25+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/three-pane.json",
+            "tests/tooling/test_docs_links.py"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
@@ -1519,11 +1531,12 @@
         "docs/tasks/active/TASK-131-agent-harness-discovery-and-runtime-evidence.md",
         "docs/tasks/backlog/TASK-132-click-ui-element-and-leave-feedback.md",
         "docs/tasks/done/TASK-131-agent-harness-discovery-and-runtime-evidence.md",
-        "tests/tooling/test_agent_harness.py"
+        "tests/tooling/test_agent_harness.py",
+        "tests/tooling/test_docs_links.py"
       ],
       "verification": "PASS",
-      "verification_ref": "docs/tasks/done/TASK-131-...md §7（代码面：全量 3908 passed / test_agent_harness 66 passed / ruff / lifecycle_check / codex 两条 P1 已修）；96af875 是纯账本提交，逐行核过：4 个 append-only 文件、无代码、其中两条 append 是本任务自己的 post-use feedback",
-      "declared": "2026-09-05T07:01:47+00:00"
+      "verification_ref": "docs/tasks/done/TASK-131-...md §7；本次追加 tests/tooling/test_docs_links.py 的 scratch 排除（AGENTS 第 2 条「阻塞当前任务」例外，理由写在 1111ab1 提交信息里），验证：test_docs_links 3 passed 含双向用例 + ruff 通过",
+      "declared": "2026-09-05T07:42:24+00:00"
     },
     "TASK-128": {
       "commits": [

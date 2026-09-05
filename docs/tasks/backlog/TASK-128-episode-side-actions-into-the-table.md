@@ -134,3 +134,38 @@ Accept 之后 TASK-128 第 2–4 条才是纯接线，改动面已经盘清（�
 - `risk: "heavy"` 的两条（`mixShotAudio` `renderEpisode`）与 `buildRoughCut` /
   `buildSubtitles` 的边界要单独判：前两条界面上没直接调，后两条调了。
   「花时间和字节」不等于「花钱」，但也不等于可逆 —— 逐条判，别按 `risk` 一刀切。
+
+### 4. 订正：这个问题不是二选一（2026-09-05，与 `visual-try-on-project-2a` 对照后）
+
+上面第 2 节把它写成了「算 user 还是算 ai」的二选一，**那个问法把两件事揉在了一起**：
+
+- **谁发起的**（他点的按钮 / 他在对话里说的话 / Agent 自己决定的）
+- **谁按的确认键**
+
+而这个仓库**已经选过边了**，只是那条约定还只活在代码里：
+
+- `runAction(ctx, id, args, meta)` 的 `meta.origin` 记的就是发起方；
+- 带 `identityBinding` 的动作**只认 `origin === "ui"`** —— 也就是说
+  **「他在对话里说的」已经明确不等于「他自己点的」**（`convactions.js` 里那条
+  `if (spec.identityBinding && origin !== "ui")` 是活的，块 2a 那轮确认过）。
+
+所以不需要一张 ADR 去答二选一。**该写进 ADR 的是「发起方与确认方是两个字段」这条
+既成事实** —— 把它从代码里的隐含约定升成显式合同，顺带说清 `allowedAt` 的 origin
+与 `runAction` 的 `meta.origin` 是同一个概念的两处表述。
+
+**TASK-128 重开时按两步做，题目也要改**（不再是「剧集侧的写也走动作表」）：
+
+1. 把 `postconsole.js` 那 25 处登记成动作，**`origin` 一律照实传** ——
+   界面按钮传 `"ui"`，对话来的传 `"agent"`，`apply` 里原样交给 `dispatch`。
+   （已核实：`runAction` 把 `meta` 交给 `apply`，所以这一步**不需要改 `app.js`**。）
+2. 再逐条判每个动作在 `allowedAt` 下的级别。**该在 suggest 级别拒 ai 的就继续拒 ——
+   那不是待修的阻碍，那是设计。** 他要在对话里做这些，正确形状是 Agent 提案 + 他点
+   确认（`proposeOutline` / `proposeScript` 就是这个形状），不是给 Agent 发一张
+   user 通行证。
+
+**由此，REQ-006 判据 1 在剧集侧的判词也要跟着改**：不是「Agent 能不能直接写」，
+而是「**每一条他能点的写，Agent 都说得出对应的名字，并且走得到那条提案路径**」。
+按现在的判据原文去追 PASS，会追到一个拆掉闸门的实现上。
+
+> 上面第 2 节那个二选一的问法**保留原文不改**（AGENTS §24：不篡改旧版）。
+> 它错在哪、为什么错，就是本节。
