@@ -399,21 +399,21 @@ _CONV_PROPOSALS_IN_FACTS = 5
 #:
 #: 仍然有上限（提示词不是无限的），但**截断必须说出来**：一段被悄悄剪掉的正文，
 #: 与「它没读懂」在屏幕上无法区分。
-_FACT_CORE_MAX = 24000
+_FACT_CORE_MAX = 12000
 _FACT_NODE_MAX = 4000
 _FACT_CELL_MAX = 600
-_FACT_UNIT_MAX = 24000
+_FACT_UNIT_MAX = 12000
 #: 正文一共给多少字 —— 一部小说十几万字，全塞进去会把别的事实挤掉。
-_FACT_UNITS_BUDGET = 60000
+_FACT_UNITS_BUDGET = 12000
 #: 定稿版本一共给多少字。最新那一版优先，更早的只列版本号与时间。
-_FACT_FINALIZED_BUDGET = 40000
+_FACT_FINALIZED_BUDGET = 8000
 #: 人物 / 关系 / 场景地的设定一共给多少字。
 #:
 #: 2026-08-31 之前这里**只报名字**：「人物（3）：林照、许渡、沈既白」。于是他说
 #: 「按已有的人物设定来写」时，Agent 手上其实只有三个名字 —— 要么装作知道，要么
 #: 把已经写好的栏当成空的重写一遍。角色设计和场景设计是他明确说的「之后小说剧集
 #: 制作的基础财产」，基础财产只报个名字等于没报。
-_FACT_BIBLE_BUDGET = 24000
+_FACT_BIBLE_BUDGET = 6000
 _FACT_BIBLE_CELL = 400
 
 #: 人物 / 关系栏位的中文名。**与 `convactions.js` 的 args 是同一批键** ——
@@ -1207,6 +1207,12 @@ _ACCOUNT_IMAGE_LOG = DATA_DIR / "account-image-log.jsonl"
 #: 同一次生成上，而不是消耗第二次额度。**只在进程内**——后端重启后在途的那次
 #: 会话已经断了，这一点与 §5.8 的 `unknown` 是同一件事，不假装能跨重启去重。
 _ACCOUNT_IMAGE_INFLIGHT: set[str] = set()
+
+#: 上一次结果是 `unknown` 的那些意图（同样是进程内的）。
+#: §5.8 第 2 条要的是「由用户显式决定」，所以这里记的不是「禁止再来」，而是
+#: 「再来必须显式确认」——请求带 `acknowledge_unknown: true` 才放行。
+#: 不记的话，一次超时之后再点一下就是一次静默的第二次消耗。
+_ACCOUNT_IMAGE_UNKNOWN: set[str] = set()
 _ACCOUNT_IMAGE_LOCK = threading.Lock()
 
 #: 具名失败 → HTTP 状态码。默认 502（供应商那边的问题）。
@@ -3227,7 +3233,15 @@ _CONV_MESSAGE_MAX = 4000
 #: How much project fact may ride along. The cap is on the ASSEMBLED text, not on
 #: any one section, so a project with 500 shots cannot silently push the creator's
 #: own sentence out of the model's attention.
-_CONV_FACTS_MAX = 12000
+#:
+#: **它必须容得下各分节预算之和，否则那些预算就是假的。**
+#: 上一版这里是 12000，而分节预算写着故事核心 24000、正文 60000、定稿 40000 ——
+#: 两套互相矛盾的额度：分节以为自己给得出全文，最后被这一刀统一切掉，而且切的是
+#: 尾部，于是「后面那些节」整段消失（codex 补审 2026-09-05 块 1 第二轮）。
+#:
+#: 现在是一套：分节之和（12000 + 12000 + 8000 + 6000 = 38000）落在这个数以内，
+#: 余下的留给标题、页面地图与「现在在看」那一行。
+_CONV_FACTS_MAX = 40000
 #: 一条对话线的 key = 页面（REQ-004 v3）。这两个是兜底：`__project__` 给没报告页面的
 #: 请求，`__legacy__` 收留分线之前那条项目级历史（旧数据不丢，AGENTS.md 第 13 条）。
 _CONV_DEFAULT_THREAD = "__project__"
@@ -11303,7 +11317,7 @@ class _App:
                 400, {"error": {"category": "bad_request", "detail": "invalid name"}}
             )
 
-        api_key, source = credstore.resolve(APP_DATA_DIR, "gemini")
+        api_key, source, tier = credstore.resolve(APP_DATA_DIR, "gemini")
         if not api_key:
             # 说清楚**去哪儿设**，而不是只说没有。这条路存在的全部意义就是他
             # 不用离开界面去配环境变量（ADR-0100 决策 4）。
@@ -11316,11 +11330,43 @@ class _App:
                     }
                 },
             )
+        if tier != credstore.TIER_FREE:
+            # **配了 key ≠ 这次调用不产生账单。** 一把开了结算的 key 走这条路，
+            # 就是绕过付费闸替他花钱 —— 而这条路的全部前提是「不产生按次账单」。
+            # ADR-0100 决策 1 最后一句：拿不准就按计费处理，fail-closed 回闸后面
+            #（codex 补审 2026-09-05 判 P1）。
+            return _json(
+                403,
+                {
+                    "error": {
+                        "category": "billing_not_established",
+                        "detail": (
+                            "这把 key 没有声明是免费额度那一档"
+                            if not tier
+                            else "这把 key 声明的是按次计费那一档"
+                        )
+                        + " —— 按次计费要走付费那条路（它会先给你价格再问你），"
+                        "不能从这里走",
+                    }
+                },
+            )
 
         # 幂等：同一个意图在途就不再发第二次（REQ-008 判据 5）。
         fp = hashlib.sha256(
             "\x00".join([project, slug, prompt]).encode("utf-8")
         ).hexdigest()
+        # 上一次这个意图的结果是「不知道有没有消耗额度」时，**不许**再默默发一次。
+        # §5.8 第 2 条要的是「由用户显式决定」，所以放行的钥匙是请求里显式带上
+        # `acknowledge_unknown`，而不是等 60 秒或再点一下
+        #（codex 补审 2026-09-05 判 P1：清掉在途标记就等于允许静默重放）。
+        ack = False
+        try:
+            parsed_body = json.loads(body.decode("utf-8")) if body else {}
+            ack = bool(
+                isinstance(parsed_body, dict) and parsed_body.get("acknowledge_unknown")
+            )
+        except (ValueError, UnicodeDecodeError):
+            ack = False
         with _ACCOUNT_IMAGE_LOCK:
             if fp in _ACCOUNT_IMAGE_INFLIGHT:
                 return _json(
@@ -11332,12 +11378,31 @@ class _App:
                         }
                     },
                 )
+            if fp in _ACCOUNT_IMAGE_UNKNOWN and not ack:
+                return _json(
+                    409,
+                    {
+                        "error": {
+                            "category": "side_effect_unknown",
+                            "detail": (
+                                "上一次这张图没能确认结果，可能已经消耗过一次额度。"
+                                "要再生成一次请显式确认（会再消耗一次额度）"
+                            ),
+                            "side_effect": "unknown",
+                        }
+                    },
+                )
+            _ACCOUNT_IMAGE_UNKNOWN.discard(fp)
             _ACCOUNT_IMAGE_INFLIGHT.add(fp)
         try:
             result = imagegen.generate_image(
                 prompt, api_key=api_key, transport=_https_post
             )
         except imagegen.ImageFailure as exc:
+            with _ACCOUNT_IMAGE_LOCK:
+                _ACCOUNT_IMAGE_INFLIGHT.discard(fp)
+                if exc.side_effect == "unknown":
+                    _ACCOUNT_IMAGE_UNKNOWN.add(fp)
             return _json(
                 _ACCOUNT_IMAGE_STATUS.get(exc.category, 502),
                 {
@@ -11350,16 +11415,24 @@ class _App:
                     }
                 },
             )
-        finally:
+        except BaseException:
+            # 出图之外的任何意外（含被打断）：在途标记必须放掉，否则这个意图
+            # 会永久卡在「正在生成中」，而它其实没有在生成。
             with _ACCOUNT_IMAGE_LOCK:
                 _ACCOUNT_IMAGE_INFLIGHT.discard(fp)
+            raise
 
+        # **在途标记一直押到落盘之后才放。** 上一版在这里就放掉了，于是「生成完了、
+        # 正在写文件」这段窗口里再来一次同样的请求会**再生成一张**——额度花两次，
+        # 而两次都对（codex 补审 2026-09-05 判 P1）。
         img = result.data
         # 供应商说它是什么**不算数**，字节说了算：magic 校验与手工上传同一条。
         ext = next(
             (e for e in (".png", ".jpg", ".webp") if _media_magic_ok(e, img)), None
         )
         if ext is None:
+            with _ACCOUNT_IMAGE_LOCK:
+                _ACCOUNT_IMAGE_INFLIGHT.discard(fp)
             return _json(
                 502,
                 {
@@ -11387,9 +11460,24 @@ class _App:
                         pass
                 raise
         except OSError:
+            with _ACCOUNT_IMAGE_LOCK:
+                _ACCOUNT_IMAGE_INFLIGHT.discard(fp)
             return _json(
-                500, {"error": {"category": "write_failed", "detail": "could not save"}}
+                500,
+                {
+                    "error": {
+                        "category": "write_failed",
+                        "detail": "图生成出来了，但存不下来",
+                        # **额度是花了的。** 上一版这里不说，于是界面把它显示成一次
+                        # 干净的失败，他再点一次就是第二次消耗（codex 补审判 P1）。
+                        "side_effect": "applied",
+                    }
+                },
             )
+        finally:
+            # 存成了：到这里才放开在途标记 —— 生成与落盘之间那段窗口现在是关着的。
+            with _ACCOUNT_IMAGE_LOCK:
+                _ACCOUNT_IMAGE_INFLIGHT.discard(fp)
 
         # 额度台账。与付费台账**分开**，记的是「消耗了一次额度」而不是金额；
         # 写失败同样只降级成警告 —— 额度已经消耗、图已经存下，为一行日志 500
@@ -11430,7 +11518,11 @@ class _App:
         return _json(200, payload)
 
     def _set_credential(self, body: bytes):
-        """粘一次 key（或清掉）。`POST {name, key}`；`key` 为空串即清除。"""
+        """粘一次 key（或清掉）。`POST {name, key, tier}`；`key` 为空串即清除。
+
+        `tier` 必填（`free` / `paid`）：**一把 key 自己说不出它计不计费**，而这条
+        路的前提正是「不产生按次账单」。缺了它就 fail-closed（ADR-0100 决策 1）。
+        """
         if len(body) > 10_000:
             return _json(
                 413, {"error": {"category": "too_large", "detail": "request too large"}}
@@ -11462,7 +11554,7 @@ class _App:
                     400,
                     {"error": {"category": "bad_request", "detail": "缺 'key'"}},
                 )
-            stored = credstore.store(APP_DATA_DIR, key, name)
+            stored = credstore.store(APP_DATA_DIR, key, name, payload.get("tier"))
             return _json(200, {"ok": True, "credential": stored})
         except credstore.CredentialError as exc:
             # 形状不对是**他**能修的问题，所以原话回给他（这里没有 key 本身，
