@@ -1254,7 +1254,30 @@
       "declared": "2026-09-05T01:01:23+00:00"
     },
     "TASK-133": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "be9bfb1e6bd4840c533a0892963686e197fc77e4",
+          "subject": "术语表与范围外索引：给「名字」和「不做」各一个落点（TASK-133 · three-pane）",
+          "time": "2026-09-05T04:49:47+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            ".claude/tools/lifecycle_check.py",
+            "AGENTS.md",
+            "docs/adr/ADR-0098-index-docs-are-not-a-second-contract.md",
+            "docs/auto-push/changes/three-pane.json",
+            "docs/current-architecture.md",
+            "docs/glossary.md",
+            "docs/out-of-scope.md",
+            "docs/tasks/active/TASK-133-glossary-and-out-of-scope-index.md",
+            "docs/tasks/backlog/TASK-134-import-linter-layering-contract.md",
+            "docs/tasks/backlog/TASK-135-server-authoritative-workflow-plan.md",
+            "docs/tasks/backlog/TASK-136-generation-resume-and-idempotency.md",
+            "tests/tooling/test_lifecycle_check.py"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         ".claude/tools/lifecycle_check.py",
         "AGENTS.md",
