@@ -36,9 +36,28 @@ _EXTERNAL = ("http://", "https://", "mailto:", "#")
 #: Directories whose markdown is vendored or generated, not authored here.
 _IGNORED_PARTS = frozenset({".venv", "node_modules", ".git", "__pycache__"})
 
+#: Scratch. ADR-0087 决策 6 把 `.claude/tmp/` 定义为一次性产物的去处，`.gitignore`
+#: 第 61 行把它排除在仓库之外 —— 它**不是这个仓库的文档**，它的链接断不断与本仓库
+#: 无关。
+#:
+#: 这一条是 2026-09-05 补的，成因值得记：有人把一个外部研究仓库 clone 进
+#: `.claude/tmp/`（正确的位置），于是那份 README 里 11 条指向它自己仓库的链接
+#: 在这里全部判成断链，**整个工作区的提交闸门被挡住**，而挡住大家的东西根本不在
+#: 仓库里。一个会因为 scratch 而变红的守卫，会被人关掉 —— 那才是真正的损失。
+_SCRATCH = (".claude", "tmp")
+
+
+def _is_scratch(p: Path) -> bool:
+    parts = p.relative_to(_REPO_ROOT).parts
+    return any(parts[i : i + 2] == _SCRATCH for i in range(len(parts) - 1))
+
 
 def _markdown_files() -> list[Path]:
-    return [p for p in _REPO_ROOT.rglob("*.md") if not _IGNORED_PARTS & set(p.parts)]
+    return [
+        p
+        for p in _REPO_ROOT.rglob("*.md")
+        if not _IGNORED_PARTS & set(p.parts) and not _is_scratch(p)
+    ]
 
 
 def test_every_relative_markdown_link_resolves() -> None:
@@ -66,3 +85,22 @@ def test_the_guard_actually_scans_the_docs_tree() -> None:
     assert len(scanned) > 100, f"only {len(scanned)} markdown files found"
     assert any(p.parts[-3:-1] == ("tasks", "done") for p in scanned)
     assert any(p.parts[-2] == "adr" for p in scanned)
+
+
+def test_scratch_is_out_of_scope_but_nothing_else_is() -> None:
+    """`.claude/tmp/` 不在扫描范围里 —— 而**只有它**不在。
+
+    两个方向都要断言。只写前一半的话，一个「把 `.claude/` 整个跳过」的实现也能
+    变绿，而那会连技能文档一起漏掉（`agent_harness.py` 的 source 维度查的就是
+    那些链接，两道守卫各查一半，不该互相盖住）。
+    """
+    assert _is_scratch(_REPO_ROOT / ".claude" / "tmp" / "x" / "README.md")
+    assert _is_scratch(_REPO_ROOT / "mockups" / "m" / ".claude" / "tmp" / "a.md")
+    assert not _is_scratch(_REPO_ROOT / ".claude" / "skills" / "x" / "SKILL.md")
+    assert not _is_scratch(_REPO_ROOT / "docs" / "tmp-and-not-scratch.md")
+
+    scanned = {p.relative_to(_REPO_ROOT).as_posix() for p in _markdown_files()}
+    assert not [s for s in scanned if "/.claude/tmp/" in f"/{s}"], "scratch 漏进来了"
+    assert any(s.startswith(".claude/skills/") for s in scanned), (
+        "技能文档被误伤 —— 它们是仓库文档，不是 scratch"
+    )

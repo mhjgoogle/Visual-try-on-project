@@ -1350,7 +1350,7 @@
           "subject": "EP-001：把 stage 的两个副作用写进 auto-push SKILL.md（TASK-133 · three-pane）",
           "time": "2026-09-05T07:25:57+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             ".claude/agent-entries.json",
             ".claude/skills/auto-push/SKILL.md",
@@ -1380,6 +1380,7 @@
         "docs/out-of-scope.md",
         "docs/skill-evolution/",
         "docs/tasks/active/TASK-133-glossary-and-out-of-scope-index.md",
+        "docs/tasks/active/TASK-134-import-linter-layering-contract.md",
         "docs/tasks/backlog/TASK-134-import-linter-layering-contract.md",
         "docs/tasks/backlog/TASK-135-server-authoritative-workflow-plan.md",
         "docs/tasks/backlog/TASK-136-generation-resume-and-idempotency.md",
@@ -1387,8 +1388,8 @@
         "tests/tooling/test_lifecycle_check.py"
       ],
       "verification": "PASS",
-      "verification_ref": "EP-001 应用后验证: pytest test_auto_push_tooling+test_agent_harness+test_docs_links 116 passed; agent_harness check 全 unchanged; lifecycle_check 0 finding",
-      "declared": "2026-09-05T07:15:06+00:00"
+      "verification_ref": "EP-001 验证 116 passed; lifecycle_check 0 finding。注：active/TASK-134 的路径是补申报——那张卡是本任务产出，但把它从 backlog mv 进 active 的是另一个会话，其 staged rename 被我 c516569 误带入(已登记 WARN_SCOPE_VIOLATION 并在提交信息中说明)",
+      "declared": "2026-09-05T07:27:46+00:00"
     },
     "TASK-131": {
       "commits": [
@@ -1523,6 +1524,27 @@
       "verification": "PASS",
       "verification_ref": "docs/tasks/done/TASK-131-...md §7（代码面：全量 3908 passed / test_agent_harness 66 passed / ruff / lifecycle_check / codex 两条 P1 已修）；96af875 是纯账本提交，逐行核过：4 个 append-only 文件、无代码、其中两条 append 是本任务自己的 post-use feedback",
       "declared": "2026-09-05T07:01:47+00:00"
+    },
+    "TASK-128": {
+      "commits": [
+        {
+          "hash": "43a74a7e7142aa0a1fb398194dc9846445c7b94d",
+          "subject": "docs(TASK-128): 剧集侧写入口盘点完成 —— 接线卡在一个必须先答的语义问题上",
+          "time": "2026-09-05T07:28:00+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/tasks/backlog/TASK-128-episode-side-actions-into-the-table.md"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        "docs/tasks/backlog/TASK-128-episode-side-actions-into-the-table.md"
+      ],
+      "verification": "PASS",
+      "verification_ref": "纯文档提交（只改 docs/tasks/backlog/TASK-128-*.md 一份卡）。验证：lifecycle_check 0 finding · gen_docs_status 已重生成 · test_docs_links + test_docs_status + test_surface_manifest 定向跑过。盘点结论为只读 grep 所得，未改任何代码，故无代码面测试可跑",
+      "declared": "2026-09-05T07:28:00+00:00"
     }
   },
   "merge_gate": {
