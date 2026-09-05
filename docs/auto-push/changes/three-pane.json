@@ -2270,6 +2270,17 @@
             "mockups/motv-workspace/tests/convactions.test.mjs"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "aa673bc378e8845334ce0542f48c0a9e48896f38",
+          "subject": "docs(TASK-129): 把四轮审查的结论写进卡头 —— 三条 P1 各自的机制，以及那条改说法不改行为的",
+          "time": "2026-09-05T15:14:49+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/tasks/done/TASK-129-settings-structure-writes-into-the-table.md"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
