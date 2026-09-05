@@ -1974,7 +1974,7 @@
           "subject": "图不对不是取错了提示词 —— 是模型读不懂中文（TASK-139 · three-pane）",
           "time": "2026-09-05T12:42:05+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/tasks/active/TASK-139-images-from-my-own-account.md",
             "mockups/motv-workspace/server.py",
@@ -2228,12 +2228,27 @@
           "subject": "feat: 开发读得到「他点的是哪一个」，句柄从已有的 data-* 派生（TASK-132 切片 A 补齐）",
           "time": "2026-09-05T12:20:33+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             ".claude/tools/read_feedback.py",
             "mockups/motv-workspace/src/ui/elementfeedback.js",
             "mockups/motv-workspace/tests/elementfeedback.test.mjs",
             "tests/tooling/test_feedback_reader_req006.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "8a9d57e11e4d1d70b6d24794c186b660242680dd",
+          "subject": "feat: 回看一条旧意见时敢说「找不到」（TASK-132 切片 B）",
+          "time": "2026-09-05T12:46:24+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/tasks/active/TASK-132-click-ui-element-and-leave-feedback.md",
+            "mockups/motv-workspace/src/ui/elementfeedback.js",
+            "mockups/motv-workspace/src/ui/proposals.js",
+            "mockups/motv-workspace/styles/studio.css",
+            "mockups/motv-workspace/tests/elementfeedback.test.mjs"
           ],
           "scope_violation": null
         }
@@ -2247,14 +2262,37 @@
         "mockups/motv-workspace/src/services/conversation.js",
         "mockups/motv-workspace/src/ui/elementfeedback.js",
         "mockups/motv-workspace/src/ui/production.js",
+        "mockups/motv-workspace/src/ui/proposals.js",
+        "mockups/motv-workspace/styles/studio.css",
         "mockups/motv-workspace/tests/convthread.test.mjs",
         "mockups/motv-workspace/tests/elementfeedback.test.mjs",
         "tests/studio/test_element_feedback_task132.py",
         "tests/tooling/test_feedback_reader_req006.py"
       ],
       "verification": "PASS",
-      "verification_ref": "TASK-132 切片 A 补齐：前端 2212 passed · tests/tooling reader 17 passed · ruff 通过",
-      "declared": "2026-09-05T12:20:33+00:00"
+      "verification_ref": "TASK-132 切片 A+B：前端全量 2220 passed（elementfeedback 32 例）· tests/studio + tests/contract 928 passed · tests/tooling 全域通过 · 六处变异验证各只红对应那条 · lifecycle_check 0 finding · ruff 通过",
+      "declared": "2026-09-05T12:46:24+00:00"
+    },
+    "TASK-087": {
+      "commits": [
+        {
+          "hash": "4576f8cd8209bb2dd4ecbd3f5200016f35e4c650",
+          "subject": "docs(TASK-087 §6.11): 共享工作树上，切分支和合并要放进独立 worktree",
+          "time": "2026-09-05T12:49:15+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/tasks/active/TASK-087-followup-ledger.md"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        "docs/tasks/active/TASK-087-followup-ledger.md"
+      ],
+      "verification": "PASS",
+      "verification_ref": "纯文档：往欠账总账加一条 §6.11（共享工作树上切分支/合并放进独立 worktree）。lifecycle_check 0 finding；三条内容都是本次 three-pane 合并实操里实证过的，不是转述",
+      "declared": "2026-09-05T12:49:14+00:00"
     }
   },
   "merge_gate": {
