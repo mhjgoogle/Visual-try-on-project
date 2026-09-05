@@ -1280,20 +1280,16 @@
       ],
       "paths": [
         ".claude/tools/lifecycle_check.py",
-        "AGENTS.md",
-        "docs/adr/ADR-0098-index-docs-are-not-a-second-contract.md",
-        "docs/current-architecture.md",
+        "docs/STATUS.md",
         "docs/glossary.md",
         "docs/out-of-scope.md",
         "docs/tasks/active/TASK-133-glossary-and-out-of-scope-index.md",
-        "docs/tasks/backlog/TASK-134-import-linter-layering-contract.md",
-        "docs/tasks/backlog/TASK-135-server-authoritative-workflow-plan.md",
-        "docs/tasks/backlog/TASK-136-generation-resume-and-idempotency.md",
+        "docs/tasks/done/TASK-133-glossary-and-out-of-scope-index.md",
         "tests/tooling/test_lifecycle_check.py"
       ],
       "verification": "PASS",
-      "verification_ref": "pytest tests/tooling 归属域全绿(test_lifecycle_check 59 passed); ruff check+format 全过; lifecycle_check 0 finding",
-      "declared": "2026-09-05T04:38:14+00:00"
+      "verification_ref": "最终归属域全量 pytest tests/tooling 349 passed/1 skipped/0 failed; ruff 全过; lifecycle_check 0 finding; codex 轮1三条P1全修+轮2两条证据缺口已补",
+      "declared": "2026-09-05T05:05:41+00:00"
     }
   },
   "merge_gate": {

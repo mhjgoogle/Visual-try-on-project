@@ -168,6 +168,12 @@ _MD_LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 # of names, and accepting it would make the guard check spelling instead of
 # content (the same trap `_TASK_ANCHOR` was fixed for in TASK-108 轮 2).
 _AVOID_LINE = re.compile(r"^_Avoid_\s*[：:]\s*\S")
+# An entry's metadata lines are exactly these two. Do NOT widen this to "starts
+# with an underscore": `_一句强调的定义。_` is ordinary Markdown emphasis, and
+# treating it as metadata would drop it out of the definition slice -- so the
+# normative-verb check and the length cap would both skip it, and the load-
+# bearing guard could be bypassed by italicising the line (codex review, 轮 1).
+_ENTRY_META_LINE = re.compile(r"^_(?:Avoid|权威)_")
 
 
 def _status_first_clause(text: str) -> str:
@@ -519,7 +525,7 @@ def _glossary_entry_findings(text: str) -> list[str]:
         block_lines = [ln.rstrip() for ln in block.splitlines()]
         term = block_lines[0].strip()
         body = [ln for ln in block_lines[1:] if ln.strip() and not ln.startswith("## ")]
-        definition = [ln for ln in body if not ln.startswith("_")]
+        definition = [ln for ln in body if not _ENTRY_META_LINE.match(ln)]
         has_avoid = any(_AVOID_LINE.match(ln) for ln in body)
         has_authority = any(
             ln.startswith("_权威_") and _MD_LINK.search(ln) for ln in body

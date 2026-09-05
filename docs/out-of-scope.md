@@ -48,20 +48,21 @@
 | --- | --- | --- |
 | 应用删除用户文件（含软删除 / 回收区 / 彻底删除 / 批量移除 / 清运行历史） | [ADR-0090](adr/ADR-0090-project-removal-is-unregister-only.md)（标题即结论） | 不重访 —— 这是产品承诺：删除项目只从列表移除 |
 | 静默覆盖用户文件与已有生成结果 | [AGENTS.md 第 13 条](../AGENTS.md) | 不重访 —— 合规路径是带版本的新路径 |
-| 把 API key / 密码 / 生成媒体 / 界面抓图提交进 Git | [AGENTS.md 第 23 条](../AGENTS.md) | 不重访 |
+| 把 API key / 密码 / 生成的视频文件 / 本地凭据提交进 Git | [AGENTS.md 第 23 条](../AGENTS.md) | 不重访 |
+| UI 审计抓图（像素）进 Git —— 清单、报告与脚本照进 | [项目背景「UI 差距审计工装」](project-context.md)（与第 23 条同一理由） | 不重访 |
 
 ## 花钱与自动化 —— 创作者掌控终稿与花费
 
 | 不做什么 | 正式裁决 | 重访条件 |
 | --- | --- | --- |
 | 自行扩大付费授权（超出已 Accepted ADR 的窄范围） | [AGENTS.md 第 10 条](../AGENTS.md) · [ADR-0006](adr/ADR-0006-paid-api-boundary-lift.md) | 每次扩大都要一份新 ADR，且花钱这件事本身要问用户 |
-| Agent 静默覆盖 / 静默定稿 / 静默付费 / 替用户做审美决策 | [ADR-0065](adr/ADR-0065-every-ai-action-through-the-runtime-layer.md) · [ADR-0089](adr/ADR-0089-conversational-agent-write-path.md) | 不重访 —— 六处独立文档同调，是核心价值主张 |
+| Agent 静默覆盖 / 静默定稿 / 静默付费 / 静默替用户完成审美决策 | [ADR-0066 决策 6](adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md)（四禁原文）· [创作者 IA](design/creator-product-information-architecture.md) | 不重访 —— 是核心价值主张 |
 | Skill 按一次模型输出**偷偷**改自己 | [ADR-0056](adr/ADR-0056-local-ai-runtime-and-film-skills.md) | 不重访 —— 改进走 Proposal / 显式修订。注意 ADR-0056 对「自动 self-learning」写的是**本阶段**不做，那半是阶段性的、可重访 |
 | 自动主观质量评分 | [ADR-0039](adr/ADR-0039-wfm2-postproduction-qc-release-contract.md) | 不重访 —— QC 是 Agent 辅助、用户下结论 |
 | 自动优胜者选择 / 统计显著性判定 | [ADR-0034](adr/ADR-0034-evaluation-experiment-and-decision-contract.md) | 不重访 —— 同上，谁下结论是产品决定 |
 | 按模板自动跑完整条流程 | [ADR-0084](adr/ADR-0084-project-flow-template-as-a-package.md) | 不重访 —— 那是自动化不是模板 |
 | 自动决定要不要开工（在用户没看过的文本上动手） | [ADR-0093](adr/ADR-0093-approved-plans-build-themselves.md) | 不重访 —— 同意是他给的，不是模型推断的 |
-| 真实发布 / 自动商业发布 / 剪辑软件自动化 | [ADR-0012](adr/ADR-0012-wfm1-stage-planning-release-paths.md) | 出现明确的发布需求时另开 ADR |
+| 商业发布平台 API / 剪辑软件（DaVinci 等）自动化 / 观众数据供应商接入 | [ADR-0039](adr/ADR-0039-wfm2-postproduction-qc-release-contract.md)（三项原文）· [ADR-0012](adr/ADR-0012-wfm1-stage-planning-release-paths.md)（WFM1 侧「发布平台集成」同调） | 出现明确的发布需求时另开 ADR |
 
 ## 分发与生态
 

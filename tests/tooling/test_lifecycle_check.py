@@ -483,6 +483,15 @@ def test_a_definition_carrying_a_rule_turns_red(lc) -> None:
     assert any("必须" in f for f in lc.check_index_docs_are_indexes())
 
 
+def test_an_italicised_definition_cannot_bypass_the_verb_check(lc) -> None:
+    """codex 轮 1 的 P1：元数据行原先按「以下划线开头」认，而 `_一句强调的定义。_`
+    是普通的 Markdown 斜体 —— 它会被当成元数据剔出定义切片，于是动词检查与长度上限
+    双双跳过它。**把承重墙那条规则用斜体写出来就能绕过守卫**，正是本仓库最怕的
+    「守卫看起来加了其实没接上」。元数据只认 `_Avoid_` / `_权威_` 两个。"""
+    (lc.DOCS / "glossary.md").write_text(_entry("_这一版必须由用户产生。_"), "utf-8")
+    assert any("必须" in f for f in lc.check_index_docs_are_indexes())
+
+
 def test_an_overlong_definition_turns_red(lc) -> None:
     (lc.DOCS / "glossary.md").write_text(_entry("一\n二\n三"), "utf-8")
     assert any("定义" in f for f in lc.check_index_docs_are_indexes())

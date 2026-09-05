@@ -9,7 +9,7 @@
   [ADR-0010](ADR-0010-creation-workspace-boundary.md)（提供「局部范围声明 vs 永久禁止」的判据）·
   [ADR-0097](ADR-0097-one-skill-source-generated-client-entries.md)（同一条纪律在工装侧的实例）·
   [ADR-0077](ADR-0077-repository-path-ownership.md)（仓库路径所有权，**引用不改**）·
-  [TASK-133](../tasks/active/TASK-133-glossary-and-out-of-scope-index.md)
+  [TASK-133](../tasks/done/TASK-133-glossary-and-out-of-scope-index.md)
 
 ## 1. 背景
 

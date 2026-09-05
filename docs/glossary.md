@@ -30,7 +30,7 @@ _权威_：[ADR-0091](adr/ADR-0091-three-user-capabilities-and-a-server-side-res
 ### 上下文（context）
 单说「上下文」在本仓库指不到东西 —— 四个不同的东西各占用过它一次。
 _Avoid_：不带限定词的「上下文」 · 用 `CONTEXT.md` 命名任何新文件
-_权威_：[当前架构合同 §6](current-architecture.md) · [AGENTS.md 第 25 条](../AGENTS.md)
+_权威_：[当前架构合同 §6](current-architecture.md) · [AGENTS.md 第 25 条](../AGENTS.md) · [系统合同 §8.2](design/creator-system-contract.md)（`agent.context`）
 
 ### 权威（authoritative）
 三个粒度共用这个词：权威**文档**（某范围的唯一定义处）、权威**环境**（行为差异的裁决者）、
