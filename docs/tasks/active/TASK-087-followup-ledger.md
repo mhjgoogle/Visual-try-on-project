@@ -149,6 +149,7 @@
 | 5.19 | **制作画布镜头卡缩略图多数是「还没有画面」** | TASK-124「还没做」 | 低～中 | `poster` 取的是镜头记录里的字段，**关键帧已经做出来的镜头应当显示它**；缺媒体时显示原因，不用通用图标冒充内容 |
 | 5.20 | 画布卡片的拖拽排序 / 按场景分组 / 批量选中 | TASK-124「还没做」 | 低 | 等真实使用之后再说，**不预先做** |
 | 5.21 | **持久化的交付层审片问题不进 G4** | TASK-130 造样本时发现（2026-09-05） | 中～高（**界面说了不算数**那一族） | `g4Export(report)` 只读 `runDeliveryQc` 从**探测**算出来的报告；创作者 / Agent 经 `review.issue()` 记进 `reviews.issues` 的 `layer: "delivery"` 问题，哪怕 `severity: "blocking"`、`state: "open"`，**导出闸门看不见**。今天界面上还没有「提出审片问题」的动作（§5.9），所以没人撞到 —— 但 §5.9 一接通，第一条人工标记的阻断问题就会被导出绕过。修法方向：`exportability()` 的报告绑定之后再并入 `reviews.issues` 里 `layer === "delivery" && state === "open" && severity === "blocking"` 的那些（它们本来就是 §6.5 说的 ReviewIssue）。TASK-130 的旅程因此用**真实测量的规格不符**触发阻断，不用种问题冒充 |
+| 5.22 | **`gate_dispatch.py` 用 `Path.cwd()` 解析仓库根，不是脚本位置** | TASK-131 切片 A 实施时发现（2026-09-05） | 中（**闸门可能去错地方找自己**） | `.claude/hooks/gate_dispatch.py` 里 `root = Path.cwd()`，随后拼 `root/.claude/hooks/gate.ps1`。客户端若以非仓库根为 cwd 触发 PreToolUse，它会去一个不存在的路径找 gate 脚本。今天没观察到实际失败（Claude Code 目前以仓库根为 cwd），所以这是**潜在**缺陷而不是活缺陷 —— 但它与 TASK-131 给新工具定的「根由脚本位置解析、可从任意子目录调用」是同一条纪律，而闸门比诊断工具更不该赌这一点。修法：`Path(__file__).resolve().parents[2]`，并在 `tests/tooling/` 加一条从子目录调用的用例。**不在 TASK-131 范围内顺手修**（AGENTS §17） |
 
 ## 6. 性能与偶发（记录，不承诺）
 
