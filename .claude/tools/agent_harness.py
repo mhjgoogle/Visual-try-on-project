@@ -1038,8 +1038,19 @@ def plan_entries(root: Path) -> tuple[list[EntryPlan], str | None]:
                     )
                 )
                 continue
+            # **比摘要，不比原始文本。**
+            #
+            # 上一版这里是 `got == want` —— 一句看起来无害的字符串相等，它把上面
+            # `digest_bytes` 已经做好的行尾归一化整个绕过去了：`want` 是本进程刚
+            # 渲染出来的 LF 文本，`got` 是从磁盘读回来的，而在 `core.autocrlf` 的
+            # 检出里它是 CRLF。于是**任何全新检出的树都判「源变了」**，包括 CI 和
+            # 每一个 `git worktree`。
+            #
+            # 症状比「误报」更坏：这条守卫因此**只在原地主树绿** —— 也就是只在它
+            # 最不需要被信任的地方有效。归一化我写了，然后在它前面一行自己绕开了
+            # （同仓另一个会话跑干净 worktree 时发现，2026-09-05）。
             if (
-                got == want
+                digest_bytes(got.encode("utf-8")) == digest_bytes(want.encode("utf-8"))
                 and rec.get("source_digest") == src_digest
                 and rec.get("renderer") == RENDERER
             ):

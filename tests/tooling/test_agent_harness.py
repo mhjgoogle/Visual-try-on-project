@@ -91,6 +91,17 @@ def _build(root: Path, names: tuple[str, ...] = ("dev-workflow", "auto-push")) -
     return root
 
 
+def _as_crlf(raw: bytes) -> bytes:
+    """把一份内容变成 CRLF 行尾 —— **先归一，再转换**。
+
+    不能直接 `replace(b"\\n", b"\\r\\n")`：Windows 上 `write_text` 落盘时行尾已经是
+    CRLF 了，再替换一次会造出 `\\r\\r\\n`，那是一个**内容真的变了**的文件。
+    第一版夹具就是这么写的，于是它测的是「损坏的文件会不会被发现」，而不是
+    「CRLF 检出还算不算同步」—— 用例红了，而被它指控的实现其实是对的。
+    """
+    return raw.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+
+
 def _by(findings, check: str):
     hits = [f for f in findings if f.check == check]
     assert hits, f"没有名为 {check} 的检查：{sorted({f.check for f in findings})}"
@@ -1023,3 +1034,72 @@ def test_the_handoff_reference_is_reachable_from_the_skill() -> None:
     assert (
         _ROOT / ".claude" / "skills" / "dev-workflow" / "references" / "handoff.md"
     ).is_file()
+
+
+def test_a_crlf_checkout_is_still_in_sync(ah, tmp_path: Path) -> None:
+    """检出成 CRLF 的树必须仍然判「已同步」。
+
+    这条守的是一个真实发生过的形状：`digest_bytes` 已经把行尾归一化了，而上一版
+    在它**前面一行**放了 `got == want` —— 一句看起来无害的字符串相等，把归一化整个
+    绕过去。`want` 是本进程渲染的 LF，`got` 是磁盘读回来的；`core.autocrlf` 的检出
+    里它是 CRLF，于是**任何全新检出的树都判「源变了」**，包括 CI 与每个 worktree。
+
+    症状比误报更坏：守卫因此**只在原地主树绿**，也就是只在它最不需要被信任的地方
+    有效（2026-09-05 由同仓另一个会话跑干净 worktree 时发现）。
+    """
+    root = _only_sources(_build(tmp_path))
+    plans, _ = ah.plan_entries(root)
+    ah.write_entries(root, plans, prune=False)
+    assert {p.action for p in ah.plan_entries(root)[0]} == {"unchanged"}
+
+    # 模拟一次 `core.autocrlf=true` 的检出：入口与源都变成 CRLF，内容一字未改。
+    for p in list((root / ".agents").rglob("*.md")) + list(
+        (root / ".claude").rglob("*.md")
+    ):
+        p.write_bytes(_as_crlf(p.read_bytes()))
+
+    actions = {p.action for p in ah.plan_entries(root)[0]}
+    assert actions == {"unchanged"}, f"CRLF 检出被判成不同步：{actions}"
+
+
+def test_content_changes_still_turn_it_red_after_the_crlf_fix(
+    ah, tmp_path: Path
+) -> None:
+    """反方向：对行尾宽容**不等于**对内容宽容。
+
+    只写上一条的话，一个「永远返回 unchanged」的实现也能变绿 —— 那就把这道棘轮
+    彻底废了。
+    """
+    root = _only_sources(_build(tmp_path))
+    plans, _ = ah.plan_entries(root)
+    ah.write_entries(root, plans, prune=False)
+
+    src = root / ".claude" / "skills" / "auto-push" / "SKILL.md"
+    src.write_bytes(_as_crlf(src.read_bytes()))  # 只有行尾变了：仍应判同步
+    assert _by_name(ah.plan_entries(root)[0], "auto-push").action == "unchanged"
+
+    src.write_text(
+        _SKILL.format(name="auto-push") + "\n真的改了一句。\n", encoding="utf-8"
+    )
+    assert _by_name(ah.plan_entries(root)[0], "auto-push").action == "update"
+
+
+def test_build_artifacts_under_the_source_never_move_the_digest(
+    ah, tmp_path: Path
+) -> None:
+    """`__pycache__` 物理上就在被哈希的技能目录里，而它跨机器必然不同。
+
+    两棵检出树里那个 `.pyc` 连 Python 版本目录都可能不一样（312 vs 313）。
+    算进摘要的话，这道守卫就**永远不可能跨机器稳定** —— 与上面 CRLF 那条同族：
+    拿字节当身份，而字节在跨检出时本来就会变。
+    """
+    root = _only_sources(_build(tmp_path))
+    plans, _ = ah.plan_entries(root)
+    ah.write_entries(root, plans, prune=False)
+
+    cache = root / ".claude" / "skills" / "auto-push" / "scripts" / "__pycache__"
+    cache.mkdir(parents=True)
+    (cache / "x.cpython-312.pyc").write_bytes(b"\x01\x02\x03")
+    assert _by_name(ah.plan_entries(root)[0], "auto-push").action == "unchanged"
+    (cache / "x.cpython-313.pyc").write_bytes(b"\x09\x09")
+    assert _by_name(ah.plan_entries(root)[0], "auto-push").action == "unchanged"
