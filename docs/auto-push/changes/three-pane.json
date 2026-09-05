@@ -1575,7 +1575,23 @@
       "declared": "2026-09-05T07:51:00+00:00"
     },
     "TASK-136": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "4dd8940877eec26638ffe6aacd8deb71bc5461c8",
+          "subject": "ADR-0099：重启之后的续跑不是重试 —— 孤儿付费任务接回已经存在的那条路（TASK-136 · three-pane）",
+          "time": "2026-09-05T08:14:12+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/STATUS.md",
+            "docs/adr/ADR-0099-resume-is-not-a-retry.md",
+            "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/backlog/TASK-041-workspace-generation-command-and-evidence.md",
+            "docs/tasks/backlog/TASK-136-generation-resume-and-idempotency.md"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/STATUS.md",
         "docs/adr/ADR-0099-resume-is-not-a-retry.md",
