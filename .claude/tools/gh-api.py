@@ -39,6 +39,7 @@ import shutil
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 # 本机控制台是 cp932（日文 Windows），而本脚本的信息是中文 —— 不显式换成 UTF-8
@@ -235,6 +236,50 @@ def _read_text(path: str) -> str:
     return p.read_text(encoding="utf-8")
 
 
+def cmd_run_list(a) -> None:
+    """列 workflow run。
+
+    分支名**不套** `_NAME_RE`：合法分支本来就含 `/`（`change/TASK-109-three-pane`），
+    那条白名单是给 `owner/name` 的，套上去会把正常分支全拒掉。但它同样要进 URL，
+    所以必须 `quote(safe="")` 编码 —— 否则 `?` / `#` 又能截断路径，正是 `_NAME_RE`
+    那段注释里 codex 报过的 blocking finding 的同一族缺陷，只是换了个参数进来。
+    """
+    query = f"?per_page={int(a.limit)}"
+    if a.branch:
+        query += "&branch=" + urllib.parse.quote(a.branch, safe="")
+    data = _call("GET", f"/repos/{a.repo}/actions/runs{query}")
+    runs = data.get("workflow_runs", []) if isinstance(data, dict) else []
+    if not runs:
+        _out("（没有匹配的 run）")
+        return
+    for r in runs:
+        _out(
+            f"{r.get('id')}  {r.get('status')}/{r.get('conclusion')}  "
+            f"{r.get('head_branch')}  {str(r.get('head_sha'))[:12]}  "
+            f"{r.get('name')}  {r.get('created_at')}"
+        )
+
+
+def cmd_run_view(a) -> None:
+    """一次 run 的每个 job 的每个 step。
+
+    要的是**某一个步骤**绿没绿（例如 "Import contracts"），不是整体结论 ——
+    整体绿不代表某一步跑过（它可能被 skip），而判据问的是那一步。
+    """
+    data = _call(
+        "GET", f"/repos/{a.repo}/actions/runs/{int(a.number)}/jobs?per_page=100"
+    )
+    jobs = data.get("jobs", []) if isinstance(data, dict) else []
+    if not jobs:
+        _out("（这次 run 没有 job）")
+        return
+    for j in jobs:
+        _out(f"[{j.get('status')}/{j.get('conclusion')}] {j.get('name')}")
+        for step in j.get("steps") or []:
+            state = step.get("conclusion") or step.get("status")
+            _out(f"    {state}  {step.get('name')}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(prog="gh-api", description=__doc__)
     ap.add_argument("--repo", required=True, type=_repo, help="owner/name")
@@ -263,6 +308,15 @@ def main() -> None:
     p.add_argument("--body", default="")
     p.add_argument("--body-file", default="")
     p.set_defaults(fn=cmd_pr_comment)
+
+    p = sub.add_parser("run-list", help="列 workflow run（CI 跑没跑、绿没绿）")
+    p.add_argument("--branch", default="", help="分支名，含 / 也可以")
+    p.add_argument("--limit", type=int, default=10)
+    p.set_defaults(fn=cmd_run_list)
+
+    p = sub.add_parser("run-view", help="看一次 run 的 job 与逐个 step")
+    p.add_argument("--number", required=True, type=int, help="run id")
+    p.set_defaults(fn=cmd_run_view)
 
     a = ap.parse_args()
     a.fn(a)

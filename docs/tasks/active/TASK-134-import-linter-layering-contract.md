@@ -179,7 +179,32 @@ ArcReel 在契约注释里写死了三条，每条都对应本仓库踩过的坑
 继续加码（继续做只会得到更长的正则和同样的上限），真正的闭合手段是 CI 实跑，
 而 CI 接线已在本卡内完成 —— 第一次真实运行会给出那个证据。
 
-## 为什么这张卡还在 active/（判据 1 未闭合）
+## 为什么这张卡还在 active/（判据 1 未闭合）—— 2026-09-05 已查明
+
+先前写的是「`gh` 不在 PATH 所以核实不了」。**证据通道已经自己补上了**：给
+`.claude/tools/gh-api.py` 加了 `run-list` / `run-view` 两个子命令（它原有的四个
+`pr-*` 子命令没有任何 workflow run 入口）。凭据复用 `git credential fill`、host
+仍写死 `api.github.com`、输出仍过 `_redact()`，都沿用既有设计。
+
+分支名**不套** `_NAME_RE`（合法分支含 `/`，那条白名单是给 `owner/name` 的），
+改用 `urllib.parse.quote(safe="")` 编码 —— 否则 `?` / `#` 又能截断路径，正是
+`_NAME_RE` 注释里 codex 报过的 blocking finding 同一族。
+
+**查完的结论是：判据 1 不能闭合，而且原因比「看不到」严重得多。**
+
+1. `on.push.branches` 只有 `[main, "feat/**"]` —— **`change/**` 根本不触发 CI**，
+   本分支查出来是「没有匹配的 run」。开发期的 push 不会跑 CI。
+2. **main 上最近八次 CI 全部 failure**（2026-08-24 → 08-27，此后无运行），
+   两个 job 都停在 `Pytest (parallel)`，前端测试连跑都没跑到。
+
+所以「`lint-imports` 在 CI 里跑，绿」目前**没有任何一次真实运行可以引用**：
+本分支不触发，main 上的 CI 自己是红的。契约的 CI 接线是对的（两个 job 各一步、
+`pip install -e ".[dev]"` 会装上 import-linter），但**接线正确 ≠ 判据满足**。
+
+这个范围外发现已立卡：[TASK-140](../backlog/TASK-140-main-ci-has-been-red-for-nine-days.md)。
+本卡判据 1 的闭合依赖它 —— 按第 2 节不在这里顺手修 CI。
+
+原先那段（gh 不可用）保留在下面，因为它记录的是**当时**为什么判不了：
 
 分支已 push（head `8fbd00a`，2026-09-05）。CI 的两个 job 已接好 `run: lint-imports`，
 但**本会话无法核实它是否真的跑过、是否绿** —— `gh` 在这台机器上两个 shell 都不在
