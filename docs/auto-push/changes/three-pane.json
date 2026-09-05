@@ -2640,6 +2640,22 @@
             "tests/studio/test_motv_conversation_task109.py"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "fef6035756bdd2ccfe7ed7ef44137d054cc42919",
+          "subject": "fix(ci): 三条守卫的判定取决于自己跑在哪 —— 那是 AGENTS §3 禁的东西（TASK-140 · three-pane）",
+          "time": "2026-09-05T16:46:35+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            ".claude/tools/gen_docs_status.py",
+            "docs/STATUS.md",
+            "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/active/TASK-140-main-ci-has-been-red-for-nine-days.md",
+            "tests/tooling/test_commit_gate_policy.py",
+            "tests/tooling/test_docs_links.py"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
