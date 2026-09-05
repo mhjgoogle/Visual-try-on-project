@@ -1730,6 +1730,18 @@
             "docs/skill-evolution/proposals/EP-002-writeback-commit-needs-a-pathspec.md"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "c6fe23789baa1c374103a519a133864c9f52b9c9",
+          "subject": "docs(ADR-0099): 前置是一个条件，不是一张卡 —— 041 收掉了，写入方并没有因此出现（TASK-136 · three-pane）",
+          "time": "2026-09-05T14:21:24+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/adr/ADR-0099-resume-is-not-a-retry.md",
+            "docs/skill-evolution/proposals/EP-002-writeback-commit-needs-a-pathspec.md"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
@@ -2428,14 +2440,40 @@
             "docs/auto-push/changes/three-pane.json"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "fae11933d33a74393f3fded31a3504f6f2c31a0d",
+          "subject": "fix: 存不下的时候不许一声不吭 —— 故事核心的字约 1/5 被静默丢掉",
+          "time": "2026-09-05T14:20:03+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/tests/persistence.test.mjs"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "bc89059ccbd8030b3d072abda38cdec6a8a9c887",
+          "subject": "fix: 载入期间锁住输入 —— 能防住的丢字，不该只靠提示",
+          "time": "2026-09-05T14:20:04+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/tests/persistence.test.mjs"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
-        "docs/tasks/active/TASK-087-followup-ledger.md"
+        "docs/tasks/active/TASK-087-followup-ledger.md",
+        "mockups/motv-workspace/src/app.js",
+        "mockups/motv-workspace/tests/persistence.test.mjs"
       ],
       "verification": "PASS",
-      "verification_ref": "纯文档：往欠账总账加一条 §6.11（共享工作树上切分支/合并放进独立 worktree）。lifecycle_check 0 finding；三条内容都是本次 three-pane 合并实操里实证过的，不是转述",
-      "declared": "2026-09-05T12:49:14+00:00"
+      "verification_ref": "§6.12 静默丢字：先修静默（warn+toast，fae1193），再堵窗口（载入期间只读 + 15 秒看门狗，bc89059）。真浏览器切换项目实测：编辑器全程在场，readOnly 出现 7/306 次采样（约 56ms 窗口），结束后自动解锁。前端全量 2233 passed",
+      "declared": "2026-09-05T14:20:03+00:00"
     },
     "TASK-140": {
       "commits": [
