@@ -875,7 +875,7 @@
           "subject": "fix: 这条合同测试原来继承「谁启动的 pytest」—— 不是 flaky，是缺陷",
           "time": "2026-09-05T11:16:39+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "tests/tooling/test_review_package_contract.py"
           ],
@@ -1919,7 +1919,7 @@
           "subject": "补上「点下去真的出图」的证据 —— 服务层被调用证不了这件事（TASK-139 · three-pane）",
           "time": "2026-09-05T11:20:37+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/tasks/active/TASK-139-images-from-my-own-account.md",
             "mockups/motv-workspace/src/workflow/nodes/assets.js",
@@ -1928,6 +1928,20 @@
           "scope_violation": [
             "mockups/motv-workspace/tests/assetsgenfree.test.mjs"
           ]
+        },
+        {
+          "hash": "62485217d5eabbcf47a70b5c045132cc0d5c54fd",
+          "subject": "按钮放错了地方 —— 他找不到是对的（TASK-139 · three-pane）",
+          "time": "2026-09-05T11:28:53+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/tasks/active/TASK-139-images-from-my-own-account.md",
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/src/ui/gencard.js",
+            "mockups/motv-workspace/tests/gencardauto.test.mjs"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
@@ -1942,15 +1956,13 @@
         "mockups/motv-workspace/credstore.py",
         "mockups/motv-workspace/imagegen.py",
         "mockups/motv-workspace/server.py",
-        "mockups/motv-workspace/src/app.js",
-        "mockups/motv-workspace/src/services/command.js",
-        "mockups/motv-workspace/src/workflow/nodes/assets.js",
-        "mockups/motv-workspace/tests/apiclient.test.mjs",
+        "mockups/motv-workspace/src/**",
+        "mockups/motv-workspace/tests/**",
         "tests/studio/test_account_image_gen_task139.py"
       ],
       "verification": "PASS",
-      "verification_ref": "批次 B 切片 1：一键出图按钮 + 服务层 + ctx 接线。验证：node --test 全量 2177 passed / 0 failed（新增 3 条服务层用例）· pytest tests/contract 269 passed · ESM 用 import() 实核",
-      "declared": "2026-09-05T11:14:27+00:00"
+      "verification_ref": "批次 B 补证据（处理器级 4 条）+ 非阻塞项修复。验证：node --test 全量 2181 passed / 0 failed",
+      "declared": "2026-09-05T11:20:56+00:00"
     },
     "TASK-129": {
       "commits": [
