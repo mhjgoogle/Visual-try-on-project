@@ -569,14 +569,31 @@
             "docs/auto-push/changes/three-pane.json"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "105e04a57b70dcfdaa87d2eec4f8202e79fe1d03",
+          "subject": "docs(TASK-125): 切片 ① 收口 —— 这张卡自己就是它要治的那个病",
+          "time": "2026-09-05T13:27:36+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/STATUS.md",
+            "docs/project-context.md",
+            "docs/tasks/active/TASK-125-current-truth-convergence.md",
+            "docs/tasks/done/TASK-125-current-truth-convergence.md"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
-        ".autopush-placeholder"
+        "docs/STATUS.md",
+        "docs/project-context.md",
+        "docs/tasks/active/TASK-125-current-truth-convergence.md",
+        "docs/tasks/done/TASK-125-current-truth-convergence.md"
       ],
       "verification": "PASS",
-      "verification_ref": "pytest tests/tooling 271 passed/1 skipped; lifecycle_check 0 finding; gen_docs_status regenerated",
-      "declared": "2026-09-04T12:47:34+00:00"
+      "verification_ref": "IN SCOPE 七条逐条核对全部成立（判词写进卡头）；卡搬进 done/；里程碑指针移到切片 ②；pytest tests/tooling/test_docs_status.py 22 passed；lifecycle_check 0 finding",
+      "declared": "2026-09-05T13:27:35+00:00"
     },
     "TASK-126": {
       "commits": [
@@ -1649,13 +1666,14 @@
         }
       ],
       "paths": [
-        "docs/STATUS.md",
-        "docs/auto-push/changes/three-pane.json",
+        "docs/adr/ADR-0096-ui-and-agent-share-one-action-table.md",
+        "docs/adr/ADR-0102-origin-and-confirmation-are-two-fields.md",
+        "docs/requirements/REQ-006-agent-can-do-what-the-creator-can-do.md",
         "docs/tasks/backlog/TASK-128-episode-side-actions-into-the-table.md"
       ],
       "verification": "PASS",
-      "verification_ref": "纯文档 + 生成物。验证：全量 3921 passed / 59 skipped（唯一失败是 STATUS.md 过期，本次已重新生成并复跑绿）· lifecycle_check 0 finding · test_docs_status + test_docs_links 10 passed",
-      "declared": "2026-09-05T07:51:00+00:00"
+      "verification_ref": "写 ADR-0102 解掉 TASK-128 的架构阻塞（纯文档，未接线）。两处代码事实已核实：convactions.js 的 identityBinding 只认 origin==ui、actions.js 的 allowedAt 在 suggest 级别拒非 user 的一切写、app.js:3659 默认 user。lifecycle_check 0 finding；pytest test_docs_status + test_lifecycle_check 82 passed",
+      "declared": "2026-09-05T13:51:18+00:00"
     },
     "TASK-136": {
       "commits": [
@@ -1998,6 +2016,24 @@
             "tests/studio/test_account_image_gen_task139.py"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "5fafce4897bc5f303de00083862329524c8f1fda",
+          "subject": "TASK-139 收口：用现在这条免费的把功能做完（three-pane）",
+          "time": "2026-09-05T13:51:17+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/STATUS.md",
+            "docs/adr/ADR-0100-account-quota-is-not-a-paid-gate.md",
+            "docs/requirements/REQ-008-images-from-my-own-account.md",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "docs/tasks/done/TASK-139-images-from-my-own-account.md"
+          ],
+          "scope_violation": [
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "docs/tasks/done/TASK-139-images-from-my-own-account.md"
+          ]
         }
       ],
       "paths": [
