@@ -468,3 +468,40 @@ test("场景地走的是同一份实现 —— 两边不该有第二套语义", 
   assert.deepEqual(ov.referenceAssetIds, ["a", "b"]);
   assert.equal(ov.activeReferenceAssetId, "a");
 });
+
+test("摘掉的是**继承来的**主图时，主图位也要让出去", () => {
+  // codex 2026-09-05 审出来的：上一版只比对 overrides 里**显式**写的那张主图。
+  // 于是「基础主图 a、状态覆盖清单 ["a","b"]、摘掉 a」之后，指针还继承着 a，
+  // 而 a 已经不在清单里了 —— 一个指向非成员的主图。
+  //
+  // 判据是「**生效的**那张还在不在清单里」，显式那张只是它的一个特例。
+  const ctx = fakeCtx();
+  const { c, st } = withState(ctx, "asset-base");
+  // 造一份「含继承主图、但自己没写 activeReferenceAssetId」的覆盖
+  ctx.bible.setCharacterStateOverrides(c.characterId, st.stateId, {
+    referenceAssetIds: ["asset-base", "b"],
+  });
+  const ov = () => ctx.prod.characters[0].states[0].overrides;
+  assert.equal("activeReferenceAssetId" in ov(), false, "前置条件：这个状态还在继承主图");
+  runAction(ctx, "character.state.reference.remove", {
+    name: "林照", state: "受伤", assetId: "asset-base",
+  });
+  assert.deepEqual(ov().referenceAssetIds, ["b"]);
+  assert.equal(ov().activeReferenceAssetId, "b", "继承来的主图被摘掉后指针没让位");
+});
+
+test("摘图不动那张还在清单里的继承主图", () => {
+  // 反方向：生效的主图没被摘，就不该凭空写出一个显式指针来 ——
+  // 那会把「继承」悄悄变成「覆盖」，之后改基础主图这个状态就不跟了。
+  const ctx = fakeCtx();
+  const { c, st } = withState(ctx, "asset-base");
+  ctx.bible.setCharacterStateOverrides(c.characterId, st.stateId, {
+    referenceAssetIds: ["asset-base", "b"],
+  });
+  runAction(ctx, "character.state.reference.remove", {
+    name: "林照", state: "受伤", assetId: "b",
+  });
+  const ov = ctx.prod.characters[0].states[0].overrides;
+  assert.deepEqual(ov.referenceAssetIds, ["asset-base"]);
+  assert.equal("activeReferenceAssetId" in ov, false, "继承被悄悄改成了覆盖");
+});

@@ -37,7 +37,7 @@ import * as bwork from "./blocking.js";
 // 「加一张次要参考图不顶掉当前主图」那条纯决策。它住在 workflow 层，所以这里
 // 拿得到 —— 它原先在 `ui/workspaces.js`，那时候动作表要用它就得反向 import ui
 // （撞 CA §2），于是状态级参考图那四个入口一直进不了表（TASK-129 切片 2e）。
-import { nextStateRefsOnAdd } from "./bibledoc.js";
+import { nextStateRefsOnAdd, nextStateRefsOnRemove } from "./bibledoc.js";
 
 /** 那一镜的白膜。**与他在俯视图里拖的是同一份数据**（ADR-0094 决策 5）。 */
 function blockingOf(ctx, shotId) {
@@ -268,13 +268,10 @@ function stateActions(kind, spec) {
       apply: (ctx, a) => {
         const { owner, st } = mustState(ctx, spec, a);
         const assetId = String(a.assetId || "");
-        const ov = st.overrides || {};
-        const cur = Array.isArray(ov.referenceAssetIds) ? ov.referenceAssetIds : null;
-        if (!cur || !cur.includes(assetId)) throw new Error("这个状态上没有这张图");
-        const refs = cur.filter((x) => x !== assetId);
-        const next = { ...ov, referenceAssetIds: refs };
-        // 摘掉的正好是主图时，主图位让给下一张；一张不剩就是「没有主图」
-        if (next.activeReferenceAssetId === assetId) next.activeReferenceAssetId = refs[0] ?? null;
+        // 主图落空时让位给下一张 —— 那条决策与「加图不顶掉主图」共用同一个
+        // 「生效的主图」定义，所以住在 bibledoc，不在这里再写一遍（CA §6）
+        const next = nextStateRefsOnRemove(owner, st.overrides || {}, assetId);
+        if (!next) throw new Error("这个状态上没有这张图");
         writeOverrides(ctx, kind, owner, spec, st, next);
         return { said: `从「${owner.name}」的状态「${st.name}」摘下了一张参考图` };
       },

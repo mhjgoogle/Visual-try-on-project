@@ -665,6 +665,17 @@ export function undeleteReferenceAsset(prod, entityId, assetId) {
   return true;
 }
 
+/** 这个状态**生效的主图**是不是还在这份清单里。
+ *
+ *  「生效的主图」= 状态自己写了 `activeReferenceAssetId` 就用它，没写就继承基础
+ *  档案那张。加图与摘图两侧共用这一条 —— 分别写两份，迟早只改一处（CA §6）。 */
+function refsCoverPrimary(entity, overrides, refs) {
+  const effective = "activeReferenceAssetId" in overrides
+    ? overrides.activeReferenceAssetId
+    : entity.activeReferenceAssetId; // 继承来的基础主图
+  return effective != null && refs.includes(effective);
+}
+
 /**
  * 给一个**状态**加一张参考图之后，它的 overrides 该变成什么样（纯决策）。
  *
@@ -689,10 +700,32 @@ export function nextStateRefsOnAdd(entity, overrides, assetId) {
   if (cur.includes(assetId)) return null;
   const refs = [...cur, assetId];
   const next = { ...overrides, referenceAssetIds: refs };
-  const effective = "activeReferenceAssetId" in overrides
-    ? overrides.activeReferenceAssetId
-    : entity.activeReferenceAssetId; // 继承来的基础主图
-  if (!(effective != null && refs.includes(effective))) next.activeReferenceAssetId = assetId;
+  if (!refsCoverPrimary(entity, overrides, refs)) next.activeReferenceAssetId = assetId;
+  return next;
+}
+
+/**
+ * 从一个**状态**上摘掉一张参考图之后，它的 overrides 该变成什么样（纯决策）。
+ *
+ * 与 `nextStateRefsOnAdd` 共用同一条「生效的主图」定义，因为**摘图这一侧同样会
+ * 让主图落空**：状态没写自己的 `activeReferenceAssetId` 时它继承基础档案那张，
+ * 而那张完全可能就在状态的覆盖清单里 —— 把它摘掉，生效的主图就指向了一张不在
+ * 清单里的图。
+ *
+ * codex 2026-09-05 审出的正是这一条：上一版只比对 `overrides.activeReferenceAssetId`
+ * （**显式**的那张），于是基础主图 `a`、覆盖清单 `["a","b"]`、摘掉 `a` 之后
+ * 指针依然继承着 `a`，而 `a` 已经不在清单里了。**判据是「生效的那张还在不在清单里」，
+ * 不是「显式那张等不等于被摘的这张」** —— 后者只是前者的一个特例。
+ *
+ * 摘的图不在清单里返回 `null`（调用方据此报错）。
+ */
+export function nextStateRefsOnRemove(entity, overrides, assetId) {
+  const cur = Array.isArray(overrides.referenceAssetIds) ? overrides.referenceAssetIds : null;
+  if (!cur || !cur.includes(assetId)) return null;
+  const refs = cur.filter((x) => x !== assetId);
+  const next = { ...overrides, referenceAssetIds: refs };
+  // 一张不剩就是「这个状态没有主图」（`null`，不是删掉这个键 —— 删掉等于回到继承）
+  if (!refsCoverPrimary(entity, overrides, refs)) next.activeReferenceAssetId = refs[0] ?? null;
   return next;
 }
 
