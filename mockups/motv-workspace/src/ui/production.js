@@ -116,6 +116,8 @@ import {
   snapshotOf,
   breadcrumbOf,
   newAnnotationId,
+  locateTarget,
+  locateMessage,
 } from "./elementfeedback.js";
 import {
   NAV, EPISODE_MODULES, EPISODE_DEFAULT, LEGACY_EPISODE_CENTRE, MODULE_LABEL, SPACE_LABEL, spaceOf,
@@ -522,7 +524,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       (convMode() === "feedback"
         ? `<div class="st-dir-props">` +
           renderProposals(proposalsModel(ui.convProposals)) +
-          renderOpinions(ui.convOpinions) +
+          renderOpinions(withLocators(ui.convOpinions, ui)) +
           `</div>`
         : "") +
       `<div class="st-dir-flow">` +
@@ -551,6 +553,23 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       `<div class="st-dir-composer">` + session.composer + `</div>` +
       `</aside>`
     );
+  }
+
+  /** 给带元素定位的意见配上「回去看」的按钮与上一次定位的结果（TASK-132 切片 B）。
+   *
+   *  `locateNote` 只在他**点过**「定位」之后才有 —— 不预先给每条意见跑一遍定位：
+   *  那会在每次渲染时对整份意见列表做 DOM 查询，而且会把「暂时找不到」这种话
+   *  堆满他没问的地方。 */
+  function withLocators(opinions, ui) {
+    return (Array.isArray(opinions) ? opinions : []).map((x) => {
+      const t = x && x.where && x.where.target;
+      if (!t) return x;
+      return {
+        ...x,
+        targetLabel: t.label || t.uiId || "定位",
+        locateNote: (ui.efLocate && ui.efLocate.id === String(x.id) && ui.efLocate.note) || "",
+      };
+    });
   }
 
   /** 「选择页面元素」那一条（TASK-132）。
@@ -3024,7 +3043,12 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       ctx.toast("生成中…（免费来源，可能要几十秒）");
       try {
         const res = await ctx.media.generateShotImage(d.slot, shotId, prompt);
-        ctx.toast(`已生成 v${res.version || 1}（${res.model || "免费来源"} · 未产生账单）`);
+        ctx.toast(
+          `已生成 v${res.version || 1}（${res.model || "免费来源"} · 未产生账单）` +
+            (res.translated && res.prompt_sent
+              ? `｜实际发出去的英文：${String(res.prompt_sent).slice(0, 60)}…`
+              : ""),
+        );
         render();
       } catch (err) {
         const why =
@@ -3128,6 +3152,25 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       if (ui.efStop) ui.efStop();
       ui.efPicking = false;
       ui.efStop = null;
+      render();
+    }));
+    // 回看一条旧意见：把它指的那个元素找回来（TASK-132 切片 B）。
+    // **找不到 / 认不准时说实话** —— `locateTarget` 的四种判词各有各的下一步。
+    root.querySelectorAll("[data-op-locate]").forEach((b) => (b.onclick = () => {
+      const id = b.dataset.opLocate;
+      const row = (ui.convOpinions || []).find((x) => String(x.id) === id);
+      const t = row && row.where && row.where.target;
+      if (!t || typeof document === "undefined") return;
+      const res = locateTarget(t, row.where, { module: activeModule }, (sel) =>
+        Array.from(document.querySelectorAll(sel)));
+      ui.efLocate = { id, note: locateMessage(res) };
+      if (res.status === "found" && res.el && res.el.scrollIntoView) {
+        res.el.scrollIntoView({ block: "center", behavior: "smooth" });
+        // 高亮用 class 而不是内联样式：内联会覆盖掉页面自己的样式，而且撤回来时
+        // 很难还原成「本来是什么」——一个回看动作不该改变页面的既有外观。
+        res.el.classList.add("ef-found");
+        setTimeout(() => res.el.classList.remove("ef-found"), 2400);
+      }
       render();
     }));
     root.querySelectorAll("[data-ef-clear]").forEach((b) => (b.onclick = () => {

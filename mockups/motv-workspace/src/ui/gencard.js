@@ -504,7 +504,12 @@ export function bindGenCard(root, ctx, ui, rerender, { kind, shotId, importMedia
       ctx.toast("生成中…（免费来源，可能要几十秒）");
       try {
         const res = await ctx.media.generateShotImage(slot, shotId, text);
-        ctx.toast(`已生成 v${res.version || 1}（${res.model || "免费来源"} · 未产生账单，旧版本保留）`);
+        ctx.toast(
+          `已生成 v${res.version || 1}（${res.model || "免费来源"} · 未产生账单，旧版本保留）` +
+            (res.translated && res.prompt_sent
+              ? `｜实际发出去的英文：${String(res.prompt_sent).slice(0, 60)}…`
+              : ""),
+        );
         rerender();
       } catch (err) {
         // 具名失败各说各的下一步；「消耗没消耗」由 sideEffect 说，不由类别说

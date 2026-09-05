@@ -1441,6 +1441,61 @@ def _parse_image_body(body: bytes):
     return project, slug, prompt
 
 
+#: 出图模型读不懂中文 —— **这是实测，不是猜测**（2026-09-05，同一份人物设定、
+#: 同一个 seed，只改语言）：中文原样发出去回来的是和服少女、暖色日式室内；
+#: 换成英文之后短发 / 黑衬衫 / 冷侧光 / 眼下阴影全部对上。Pollinations 当前只有
+#: `sana` 一个模型，换模型这条路不存在，所以要在**发出去之前**把它编译成英文。
+#:
+#: 用本地 `claude-code`（他的订阅内，跑一次不产生账单），不引第三方翻译服务 ——
+#: 引一个就等于在「不花钱」这条路上开了一个会花钱的口子。
+_IMAGE_PROMPT_TRANSLATE_TIMEOUT = 120
+
+_TRANSLATE_ASK = (
+    "You are turning a Chinese character/scene design sheet into ONE English "
+    "image-generation prompt.\n\n"
+    "Rules:\n"
+    "- Output the prompt ONLY. No preamble, no quotes, no markdown, no explanation.\n"
+    "- Keep every concrete visual fact: age, hair, clothing, lighting, mood, palette.\n"
+    "- Drop section labels like 【风格】; express them as plain descriptive phrases.\n"
+    "- Keep it under 60 words, comma-separated, in the order: subject, appearance, "
+    "clothing, expression, lighting, style.\n"
+    "- Do NOT invent facts that are not in the source.\n\n"
+    "Source:\n"
+)
+
+
+def _has_cjk(text: str) -> bool:
+    return any("一" <= ch <= "鿿" for ch in text)
+
+
+def _english_image_prompt(prompt: str):
+    """把中文设定编译成一句英文出图提示词。回 `(sent, failure)`。
+
+    **失败就 fail-closed，绝不硬发中文**：硬发只会再出一张与设定无关的图，
+    而他要从那张图反推「是提示词不对还是模型不行」几乎不可能。
+    已经是英文（没有汉字）时原样返回，不白跑一次本地模型。
+    """
+    if not _has_cjk(prompt):
+        return prompt, None
+    try:
+        text, _model = _run_executor(
+            "claude-code", _TRANSLATE_ASK + prompt, _IMAGE_PROMPT_TRANSLATE_TIMEOUT
+        )
+    except FileNotFoundError as exc:
+        return None, f"本地 claude 不可用，无法把中文设定编译成英文：{exc}"
+    except subprocess.TimeoutExpired:
+        return None, "把设定编译成英文时超时了"
+    except OSError as exc:
+        return None, f"把设定编译成英文时出错：{exc}"
+    out = " ".join((text or "").split())
+    if not out:
+        return None, "编译英文提示词回来是空的"
+    if _has_cjk(out):
+        # 回来还是中文 = 没照做。发出去就是白花一次额度，且图必然不对。
+        return None, "编译出来的仍然是中文，没有照做"
+    return out[:_IMAGE_PROMPT_MAX], None
+
+
 def _https_post(url: str, body: bytes, headers: dict, timeout: float):
     """真实网络那一半 —— `imagegen` 需要的 transport。
 
@@ -11598,9 +11653,26 @@ class _App:
                 )
             _ACCOUNT_IMAGE_UNKNOWN.discard(fp)
             _ACCOUNT_IMAGE_INFLIGHT.add(fp)
+        # 中文 → 英文，**在占用额度之前**：编译失败就一张图都不出，
+        # 而不是发一份模型读不懂的中文回来一张与设定无关的图。
+        sent, why = _english_image_prompt(prompt)
+        if sent is None:
+            with _ACCOUNT_IMAGE_LOCK:
+                _ACCOUNT_IMAGE_INFLIGHT.discard(fp)
+            return _json(
+                503,
+                {
+                    "error": {
+                        "category": "prompt_translation_failed",
+                        "detail": why or "无法把中文设定编译成英文",
+                        # 一个字节都没发出去
+                        "side_effect": "none",
+                    }
+                },
+            )
         try:
             result = imagegen.generate(
-                prompt, provider=provider, api_key=api_key, transport=_https_post
+                sent, provider=provider, api_key=api_key, transport=_https_post
             )
         except imagegen.ImageFailure as exc:
             with _ACCOUNT_IMAGE_LOCK:
@@ -11703,7 +11775,12 @@ class _App:
                             "slug": slug,
                             "model": result.model,
                             "credential_source": source,
+                            # **两份都记。** 只记他写的那份，出了怪图就无从判断是
+                            # 「设定没写清」还是「编译成英文时走样了」；只记发出去
+                            # 的那份，又对不回他改的是哪一句。
                             "prompt": prompt[:120],
+                            "prompt_sent": sent[:120],
+                            "translated": sent != prompt,
                         },
                         ensure_ascii=False,
                     )
@@ -11722,6 +11799,11 @@ class _App:
             "billing": "account-quota",
             "model": result.model,
             "credential_source": source,
+            # **实际发出去的那份要回给界面**：出图模型读不懂中文，所以这条路上
+            # 「他写的」和「发出去的」不是同一句话 —— 不把后者给他看，就是替他
+            # 换了词还不告诉他（本仓库反复禁的那种「界面说了不算数」）。
+            "prompt_sent": sent,
+            "translated": sent != prompt,
         }
         if log_warning:
             payload["warning"] = log_warning

@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 
 import { renderGenCard, bindGenCard } from "../src/ui/gencard.js";
 import { renderEpCanvas } from "../src/ui/epcanvas.js";
+import { renderBaseAssetPanel } from "../src/ui/baseassetpanel.js";
 
 const MODEL = {
   kind: "image",
@@ -171,4 +172,34 @@ test("已经有画面的镜头卡不再长那颗按钮 —— 它是那个洞的
   const html = renderEpCanvas(canvasCtx("/api/uploads/p/sh1_v1.jpg"), {});
   assert.equal(/还没有画面/.test(html), false);
   assert.equal(/data-ec-gen/.test(html), false);
+});
+
+// --- 人物那一页的参考图（产品负责人：「自动生图应该在我点人物进去之后就能生成」）--- //
+
+test("参考图那一块给出自动生成，且它排在上传前面", () => {
+  const one = {
+    kind: "character",
+    entityId: "c1",
+    label: "林婉",
+    gaps: [],
+    states: [],
+    refs: [],
+    active: null,
+    // 人物那一块还渲染基础声音 —— stub 少一个字段就会炸在别处，
+    // 而那不是产品缺陷，是 stub 不完整
+    voice: { voiceId: null, description: "", sample: null, statePerformance: [] },
+  };
+  const ctx = {
+    basePrompt: {
+      effective: () => ({ text: "林婉：黑色风衣，冷白皮，雨夜", locked: false }),
+      entry: () => null,
+    },
+    baseAssets: { suggestName: () => "林婉 · 基础形态" },
+  };
+  const html = renderBaseAssetPanel(ctx, one, { bibleState: {} });
+  assert.match(html, /data-ba-gen/, "定义这个人物的地方就该能出他的参考图");
+  assert.ok(
+    html.indexOf("data-ba-gen") < html.indexOf("data-ba-upload"),
+    "自动生成排在「上传参考图…」前面：点一下就有，比先去别处生成再传回来近",
+  );
 });

@@ -2077,11 +2077,15 @@ const ctx = {
      * prevent — visible in the library, attached to nothing, and looking to the
      * creator like the upload failed.
      */
-    uploadReference: async (kind, entityId, stateId, { file, displayName } = {}) => {
+    // `prompt` —— **让它自己生成一张**（TASK-139 / REQ-008 判据 1），而不是选文件。
+    // 走的是同一个函数：目标存在性的两道检查、挂载、以及「登记成功但没挂上」那条
+    // 诚实报告，一条都不重写 —— 它们与「这张图哪来的」无关。
+    uploadReference: async (kind, entityId, stateId, { file, displayName, prompt } = {}) => {
       const refKind = baseassets.BASE_REFERENCE_KIND[kind];
       if (!refKind) throw new Error(`未知对象类型：${kind}`);
-      const picked = file || await pickFile("image/png,image/jpeg,image/webp");
-      if (!picked) return null;
+      const generating = typeof prompt === "string" && prompt.trim() !== "";
+      const picked = generating ? null : (file || await pickFile("image/png,image/jpeg,image/webp"));
+      if (!picked && !generating) return null;
       // CHECK THE TARGET BEFORE THE BYTES GO ANYWHERE, and again after.
       //
       // The file dialog is open for as long as the creator takes, and the entity or
@@ -2101,6 +2105,7 @@ const ctx = {
       const { ref } = await ctx.assets.importReference({
         kind: refKind,
         file: picked,
+        prompt: generating ? prompt : undefined,
         links,
         displayName: displayName || null,
       });
@@ -5793,6 +5798,8 @@ ctx.assets = createAssetController({
   modules: { assetreg, assetlib, mediaref, assetusage, assetlibws },
   session: { connected: () => CONNECTED, projectName: () => PROJECT_NAME },
   uploadAssetImage: (project, key, file) => command.uploadAssetImage(project, key, file),
+  accountImageGenerate: (project, key, prompt) =>
+    command.accountImageGenerate(project, key, prompt),
   pickFile,
   mediaDomainOfFile,
   domainSlugPrefix,
