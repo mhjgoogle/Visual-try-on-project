@@ -1966,6 +1966,20 @@
             "tests/contract/test_surface_manifest.py"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "6ba8f0abf3c773136731a85aabc2c44f42c22175",
+          "subject": "feat: 状态/参考图/声音进表，棘轮从 18 个名字缩到 2 个（TASK-129 切片 2d）",
+          "time": "2026-09-05T11:06:48+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/tasks/backlog/TASK-129-settings-structure-writes-into-the-table.md",
+            "mockups/motv-workspace/src/ui/workspaces.js",
+            "mockups/motv-workspace/src/workflow/convactions.js",
+            "tests/contract/test_surface_manifest.py"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
