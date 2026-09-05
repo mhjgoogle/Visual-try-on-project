@@ -857,6 +857,13 @@ class Decision:
     #: 它对着真实项目跑；那台机器上没有项目时它以「没有找到项目」通过（不是失败），
     #: 所以 CI 与别人的机器不会因此卡住。
     doctor: bool = False
+    #: 依赖方向契约（`lint-imports`，TASK-134）—— 动了 `src/**.py` 或 `pyproject.toml`
+    #: 就跑。AGENTS.md 第 8–9 条（Provider 中立、必须经 `VideoProvider`）在此之前
+    #: **只靠人读 diff 守**，而同类的「测试归属」在写成本文件之前一样一直在漂。
+    #:
+    #: 纯文档与纯前端改动不跑：契约要分析 172 个文件 771 条依赖，对那两类是白付成本。
+    #: 契约本身住在 `pyproject.toml`，所以改它也要跑 —— 否则改宽一条契约不会被发现。
+    import_contracts: bool = False
 
 
 def _normalise(path: str) -> str:
@@ -1185,6 +1192,11 @@ def _classify(paths: list[str]) -> Decision:
     # 动了这个应用的任何一处 —— 前端也好、server.py 也好 —— 都要体检。
     # 它查的是「他打开会看到什么」，而那正是测试查不到、只能靠他撞见的那一层。
     doctor = any(path.startswith(_FRONTEND_PREFIX) for path in non_docs)
+    # 依赖方向只可能被 src/ 下的 python 改动或契约本身的改动影响。
+    import_contracts = any(
+        (path.startswith("src/") and path.endswith(".py")) or path == "pyproject.toml"
+        for path in non_docs
+    )
     needs_full_pytest = False
     unmapped = False
     for path in non_docs:
@@ -1208,7 +1220,13 @@ def _classify(paths: list[str]) -> Decision:
             pytest_targets.update(targets)
 
     if unmapped:
-        return Decision("full", _REASON_NO_MAPPING, frontend=frontend, doctor=doctor)
+        return Decision(
+            "full",
+            _REASON_NO_MAPPING,
+            frontend=frontend,
+            doctor=doctor,
+            import_contracts=import_contracts,
+        )
 
     if needs_full_pytest:
         # The whole pytest run already contains every targeted selection; the
@@ -1218,6 +1236,7 @@ def _classify(paths: list[str]) -> Decision:
             "path underpins the whole pytest suite",
             frontend=frontend,
             doctor=doctor,
+            import_contracts=import_contracts,
         )
     # Drop targets subsumed by a directory-level target of the same domain, so
     # one test does not run twice in the same gate invocation.
@@ -1235,8 +1254,14 @@ def _classify(paths: list[str]) -> Decision:
             serial_targets=tuple(sorted(serial_targets)),
             frontend=frontend,
             doctor=doctor,
+            import_contracts=import_contracts,
         )
-    return Decision("frontend", "bounded frontend-only surface", doctor=doctor)
+    return Decision(
+        "frontend",
+        "bounded frontend-only surface",
+        doctor=doctor,
+        import_contracts=import_contracts,
+    )
 
 
 def _run_intent_mode() -> Intent:

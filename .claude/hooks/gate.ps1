@@ -599,6 +599,27 @@ if ($policy.doctor) {
     $checks += @{ Label = 'motv doctor'; Timeout = 60; File = $py; Args = @($doctorScript) }
 }
 
+# Dependency-direction contracts (lint-imports, TASK-134). Runs whenever src/**.py
+# or pyproject.toml changed. AGENTS.md rules 8-9 -- vendor neutrality, every video
+# path through VideoProvider -- were prose guarded ONLY by a human reading the diff;
+# the same was true of test ownership until it became commit_gate_policy.py.
+#
+# The CONSOLE SCRIPT, never `python -m importlinter.cli`. That module has no
+# __main__ entry point, so `-m` prints ZERO bytes and exits 0: a gate wired that
+# way reports every contract as kept, forever. Measured 2026-09-05.
+#
+# A missing binary BLOCKS, it does not skip (AGENTS.md rule 6, fail-closed). An
+# invisible skip is how a temporary gap becomes permanent.
+if ($policy.import_contracts) {
+    $linter = Join-Path (Split-Path -Parent $py) 'lint-imports.exe'
+    if (Test-Path -LiteralPath $linter) {
+        $checks += @{ Label = 'lint-imports'; Timeout = 120; File = $linter; Args = @() }
+    }
+    else {
+        Write-Block -Label 'lint-imports' -Output 'import-linter is not in .venv. Install the dev extra: .venv\Scripts\python.exe -m pip install -e ".[dev]"'
+    }
+}
+
 $checks += @(
     @{ Label = 'git diff --check'; Timeout = 8; File = $gitExe; Args = @('diff', '--check') },
     @{ Label = 'git diff --cached --check'; Timeout = 8; File = $gitExe; Args = @('diff', '--cached', '--check') }

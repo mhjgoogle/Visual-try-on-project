@@ -206,6 +206,25 @@ for target in targets:
 POLICY_FRONTEND="$(printf '%s' "$POLICY_JSON" | "$PY" -c 'import json,sys; print("true" if json.load(sys.stdin).get("frontend") is True else "false")')"
 # 体检的开关：动了这个应用就跑（2026-08-31，与 gate.ps1 同一条）。
 POLICY_DOCTOR="$(printf '%s' "$POLICY_JSON" | "$PY" -c 'import json,sys; print("true" if json.load(sys.stdin).get("doctor") is True else "false")')"
+# 依赖方向契约的开关（TASK-134），与 gate.ps1 读的是同一个 policy 字段 ——
+# 两个实现必须给出相同判定（ADR-0062 决策 3）。
+POLICY_IMPORT_CONTRACTS="$(printf '%s' "$POLICY_JSON" | "$PY" -c 'import json,sys; print("true" if json.load(sys.stdin).get("import_contracts") is True else "false")')"
+
+run_import_contracts() {
+  # 用 console script，不是 `python -m importlinter.cli`：那个模块没有 __main__
+  # 入口，`-m` 会打印**零字节**然后 exit 0 —— 闸门接成那样，契约永远「通过」。
+  # 实测 2026-09-05。
+  #
+  # 二进制缺失一律 fail-closed（AGENTS.md 第 6 条），不静默跳过：看不见的跳过
+  # 正是临时缺口变成永久缺口的方式。
+  linter="$ROOT/.venv/bin/lint-imports"
+  if [ ! -x "$linter" ]; then
+    FAIL_LABEL="lint-imports"
+    FAIL_OUT='import-linter 不在 .venv 里。装 dev extra：.venv/bin/python -m pip install -e ".[dev]"'
+    return 1
+  fi
+  run_check "lint-imports" 120 "$linter"
+}
 
 run_doctor() {
   run_check "motv doctor" 60 "$PY" "$ROOT/.claude/tools/motv_doctor.py"
@@ -326,6 +345,8 @@ fi
 # 体检在各档检查之后、diff 检查之前跑；前面已经失败时不必再跑
 # （`FAIL_LABEL` 非空就是已经有人红了）。
 if [ -z "$FAIL_LABEL" ] && [ "$POLICY_DOCTOR" = "true" ]; then run_doctor; fi
+# 依赖方向契约同样在 diff 检查之前跑；前面已经红了就不必再跑。
+if [ -z "$FAIL_LABEL" ] && [ "$POLICY_IMPORT_CONTRACTS" = "true" ]; then run_import_contracts; fi
 
 [ -z "$FAIL_LABEL" ] \
   && run_check "git diff --check"    8 git diff --check \

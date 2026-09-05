@@ -349,6 +349,12 @@ def test_the_cli_both_shells_actually_invoke_behaves_end_to_end() -> None:
             # **这条守卫当场拦住了加它的那次提交** —— 字段集就是两个 shell 的合同，
             # 加字段而不更新这里，等于让一个 shell 读到一个它不认识的答案。
             "doctor",
+            # 依赖方向契约的开关（TASK-134）：动了 `src/**.py` 或 `pyproject.toml`
+            # 就为真，两个 shell 各自读它去跑 `lint-imports`。
+            #
+            # **这条守卫又一次当场拦住了加它的那次提交** —— 与 doctor 同一个机理，
+            # 说明这不是一次巧合而是这份合同在起作用。
+            "import_contracts",
             "notice",
         }, answer
         return answer

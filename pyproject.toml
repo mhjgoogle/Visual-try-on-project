@@ -22,6 +22,9 @@ dev = [
     # optimisation: without it the gate fails closed on an unknown `-n` flag.
     "pytest-xdist>=3.8",
     "ruff>=0.8",
+    # 依赖方向契约（TASK-134）。闸门在 `import_contracts` 为真时跑它，二进制缺失
+    # 一律 fail-closed 挡住提交 —— 所以它是硬依赖，不是可选优化。
+    "import-linter>=2.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -55,3 +58,98 @@ markers = [
     #   2. pytest -m serial              (serial, the process-tree tests)
     "serial: must run serially, never under xdist (real OS process-tree assertions)",
 ]
+
+# ---------------------------------------------------------------------------
+# 依赖方向契约（TASK-134）。把 AGENTS.md 第 8–9 条从散文变成会红的东西。
+#
+# 首版**只描述现状里已经成立的方向**，不为了让契约变绿去重构（TASK-134 OUT
+# OF SCOPE 第 1 条）。想收紧的方向写成新卡，不在这里边改代码边改契约 ——
+# 那样两边都失去基准。
+#
+# baseline 纪律（`ignore_imports`）：
+#   - 掐**违规链的终端边而非首跳**，这样中间模块后续新增的反向依赖仍会被拦下；
+#   - 新增条目前先确认该边无法就地清零，**清零一条即删一行**；
+#   - 一个模块**按设计**就该看见被禁的东西时，把它**排除在 source 之外**并写明
+#     理由，而不是塞进 baseline —— 用 baseline 掩盖等于让契约声明一件它此刻
+#     并不成立的事，那比没有契约更糟。
+# ---------------------------------------------------------------------------
+# 契约 name 一律用 ASCII。它是 rich 渲染的对象，而 Windows legacy console 的
+# 活动代码页（实测 cp932）编码不了中文 —— 中文 name 会让 `lint-imports` 直接
+# UnicodeEncodeError 崩掉，而崩溃经管道时退出码还会被下游命令盖住（实测 `| tail`
+# 后 exit=0），闸门会把「崩了」读成「过了」。理由与约束写在注释里，注释不渲染。
+[tool.importlinter]
+root_packages = ["ai_video_workflow", "workspace_shell"]
+
+# AGENTS.md 第 8 条：「核心工作流不能依赖任何具体视频厂商」。
+#
+# source 逐个列出核心业务子包，而不是写 `ai_video_workflow` 整包再放行例外。
+# 因为 `providers.registry` 与 `providers.__init__` **按设计**知道具体厂商
+# （registry 的 docstring：「注册表本身厂商中立，具体厂商知识住在各 factory
+# 里」），它们不是待清零的违规，所以排除在 source 之外而非进 baseline。
+# 新增子包不会自动进这张表 —— 这个缺口由
+# `tests/tooling/test_import_contracts.py` 守住，新增包必须显式纳入或豁免。
+[[tool.importlinter.contracts]]
+name = "core workflow must not import a concrete video vendor"
+type = "forbidden"
+source_modules = [
+    "ai_video_workflow.action",
+    "ai_video_workflow.app",
+    "ai_video_workflow.approval",
+    "ai_video_workflow.assets",
+    "ai_video_workflow.audio",
+    "ai_video_workflow.automation",
+    "ai_video_workflow.budget",
+    "ai_video_workflow.composition",
+    "ai_video_workflow.config",
+    "ai_video_workflow.creative",
+    "ai_video_workflow.evaluation",
+    "ai_video_workflow.gateway",
+    "ai_video_workflow.inspection",
+    "ai_video_workflow.learning",
+    "ai_video_workflow.media",
+    "ai_video_workflow.orchestration",
+    "ai_video_workflow.planning",
+    "ai_video_workflow.postproduction",
+    "ai_video_workflow.profile",
+    "ai_video_workflow.qcd",
+    "ai_video_workflow.release",
+    "ai_video_workflow.security",
+    "ai_video_workflow.workspace",
+]
+forbidden_modules = ["ai_video_workflow.providers.cloud_minimax"]
+# 只禁**直接** import。核心业务包经 `providers.registry` 间接可达 cloud_minimax
+# 是注册表模式的必然结果（任何注册表都让使用者间接可达全部实现），禁掉它等于
+# 禁掉注册表本身 —— 那不是第 8 条的意思。第 8 条要防的是核心工作流**自己知道**
+# 厂商，那正是直接 import。
+allow_indirect_imports = true
+
+# AGENTS.md 第 9 条：所有视频生成方法必须经 `VideoProvider` 接入。
+# 抽象层不得反向依赖任何具体实现，否则「接口」只是名义上的。
+[[tool.importlinter.contracts]]
+name = "provider abstraction must not depend on its implementations"
+type = "forbidden"
+source_modules = ["ai_video_workflow.providers.base"]
+forbidden_modules = [
+    "ai_video_workflow.providers.cloud_minimax",
+    "ai_video_workflow.providers.manual",
+    "ai_video_workflow.providers.registry",
+]
+
+# AGENTS.md 第 4 节 Creation Workspace 边界：「不直接调用 Provider、不直接修改
+# 核心业务文件；变更命令经 Command Gateway 和 Workflow Orchestrator 应用边界」。
+#
+# 注意 `ai_video_workflow.gateway` 与 `app.gateway_commands` **不在**禁列 ——
+# 它们恰恰是那条**合规**入口（`workspace_shell/app.py` 的 "gateway write path
+# (TASK-031)"）。把合规入口写进禁列，契约就在声明一件与设计相反的事。
+# 这里禁的是**绕过 Gateway 直连**：直接拿 Provider、直接驱动编排。
+[[tool.importlinter.contracts]]
+name = "workspace_shell must not bypass the Gateway"
+type = "forbidden"
+source_modules = ["workspace_shell"]
+forbidden_modules = [
+    "ai_video_workflow.orchestration",
+    "ai_video_workflow.providers",
+]
+# 同上：只禁直接 import。公开查询面 `ai_video_workflow.workspace` 内部依赖
+# `app.paid_lifecycle` 是**它自己的**实现细节，不是 workspace_shell 越界。
+allow_indirect_imports = true
