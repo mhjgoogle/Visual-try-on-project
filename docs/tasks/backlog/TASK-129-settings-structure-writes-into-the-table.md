@@ -20,8 +20,15 @@
 
 ## 棘轮里的名字（与合同同一份，逐条）
 
-**`epplanws.js::bindEpPlanWs`** —— 分集规划里的节拍与上游戳：
-`setCharacterBeat` · `setRelationshipBeat` · `setTextBeats` · `stamp`
+~~**`epplanws.js::bindEpPlanWs`** —— 分集规划里的节拍与上游戳：
+`setCharacterBeat` · `setRelationshipBeat` · `setTextBeats` · `stamp`~~
+**已收口（2026-09-05，切片 2b）**：前三个进表（`beat.character` / `.relationship` / `.text`），
+界面走 `uiAct`，`bindEpPlanWs` 已移入 `CONVERTED_BINDERS`。
+
+**`stamp` 不进表**，进的是 `ALLOWED_DIRECT`，与 `confirm` 同一类：它记录「本集基于
+当前这一版上游」——认哪一版是他的决定，而且**盖下去旧基线就没了**（「⚠ N 个上游变化」
+正是拿它算的）。Agent 替他盖一次，等于替他宣布「上游那些改动我都认了」。
+不为它做可逆化：那要单独存一份基线历史，而这条本来就该他自己按。
 
 ~~**`relws.js::bindRelWs`** —— 关系的结构：
 `addRelationship` · `removeRelationship` · `swapDirection`~~

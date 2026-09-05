@@ -869,12 +869,25 @@ export function bindEpPlanWs(root, ctx, ui, rerender) {
   // so a refresh mid-sentence must not lose them.
   root.querySelectorAll("[data-beat-text]").forEach((el) => {
     bindField(el, ui, (value) => {
-      const list = value.split("\n").map((s) => s.trim()).filter(Boolean);
-      ctx.canon.setTextBeats(el.dataset.beatText, el.dataset.kind, list);
+      // 走动作表（ADR-0096 / TASK-129）：`quiet` 是因为这里是逐字自动保存，
+      // 每敲一个字弹一次 toast 会把界面淹掉。
+      uiAct(
+        ctx,
+        "beat.text",
+        { episodeId: el.dataset.beatText, kind: el.dataset.kind, lines: value },
+        { quiet: true },
+      );
     });
   });
   root.querySelectorAll("[data-beat-char]").forEach((el) => {
-    bindField(el, ui, (value) => ctx.canon.setCharacterBeat(el.dataset.beatChar, el.dataset.cid, value));
+    bindField(el, ui, (value) =>
+      uiAct(
+        ctx,
+        "beat.character",
+        { episodeId: el.dataset.beatChar, character: el.dataset.cid, beat: value },
+        { quiet: true },
+      ),
+    );
   });
   root.querySelectorAll("[data-beat-rel]").forEach((el) => {
     // start/event/end are ONE record, so the write re-reads all three from the
@@ -887,9 +900,16 @@ export function bindEpPlanWs(root, ctx, ui, rerender) {
         const x = scope && scope.querySelector(`[data-beat-rel][data-field="${f}"]`);
         return x ? x.value : "";
       };
-      ctx.canon.setRelationshipBeat(el.dataset.beatRel, el.dataset.rid, {
-        start: get("start"), event: get("event"), end: get("end"),
-      });
+      uiAct(
+        ctx,
+        "beat.relationship",
+        {
+          episodeId: el.dataset.beatRel,
+          relationshipId: el.dataset.rid,
+          start: get("start"), event: get("event"), end: get("end"),
+        },
+        { quiet: true },
+      );
     });
   });
   // 「＋ 记一个人物的推进…」 — the picker that replaced the row-per-cast-member grid.

@@ -739,6 +739,80 @@ const ACTIONS = [
       return { said: "已调换方向（「A 怎么看 B」与「B 怎么看 A」一起跟着换了）" };
     },
   },
+  // --- 分集规划里的节拍（TASK-129）：本集推进了什么 ----------------------- //
+  //
+  // 三条都是**改一栏内容**，可逆性与 `work.core` 同级（改回去就行）。
+  // 同一批里的 `stamp`（记录本集基于的上游版本）**没有进表**，理由写在
+  // `tests/contract/test_surface_manifest.py` 的 `ALLOWED_DIRECT` 里：
+  // 它是裁决 —— 「我认现在这一版上游」是他的决定，而且盖下去之后旧基线就没了。
+  {
+    id: "beat.text",
+    label: "改本集的剧情 / 世界推进",
+    doc: "canon",
+    undo: "改回去就行",
+    args: { episodeId: "这一集的 id", kind: "plot（剧情）或 world（世界）", lines: "一行一条" },
+    apply: (ctx, a) => {
+      if (!ctx.canon || !ctx.canon.setTextBeats) throw new Error("这个项目改不了分集节拍");
+      const kind = String(a.kind || "");
+      if (kind !== "plot" && kind !== "world") throw new Error("kind 只能是 plot 或 world");
+      // 收字符串也收数组：Agent 多半给一整段，界面给的是已经切好的行。
+      const raw = Array.isArray(a.lines) ? a.lines : String(a.lines ?? "").split("\n");
+      const list = raw.map((s) => String(s).trim()).filter(Boolean);
+      if (!ctx.canon.setTextBeats(String(a.episodeId || ""), kind, list)) {
+        throw new Error(`改不了 ${a.episodeId} 的${kind === "plot" ? "剧情" : "世界"}推进`);
+      }
+      return { said: `${a.episodeId} 的${kind === "plot" ? "剧情" : "世界"}推进写了 ${list.length} 条` };
+    },
+  },
+  {
+    id: "beat.character",
+    label: "记一个人物在本集的推进",
+    doc: "canon",
+    undo: "改回去就行；写空字符串等于把这一条撤掉",
+    args: { episodeId: "这一集的 id", character: "人物名字或 id", beat: "这一集他怎么变了" },
+    apply: (ctx, a) => {
+      if (!ctx.canon || !ctx.canon.setCharacterBeat) throw new Error("这个项目改不了分集节拍");
+      const who = String(a.character || "").trim();
+      if (!who) throw new Error("没说是哪个人物");
+      // **不新建人物** —— 节拍是「这个人在这一集怎么变了」，人物不在就是他说错了名字，
+      // 这时候造一个空人物出来只会让那条节拍挂在一个谁都不认识的身份上。
+      const chars = (ctx.prodData().production.characters) || [];
+      const rec = chars.find((c) => c.characterId === who || c.name === who);
+      if (!rec) throw new Error(`人物里没有「${who}」`);
+      if (!ctx.canon.setCharacterBeat(String(a.episodeId || ""), rec.characterId, String(a.beat ?? ""))) {
+        throw new Error(`记不下「${rec.name}」在 ${a.episodeId} 的推进`);
+      }
+      return { said: `${a.episodeId}：「${rec.name}」的推进记下了` };
+    },
+  },
+  {
+    id: "beat.relationship",
+    label: "记一段关系在本集的推进",
+    doc: "canon",
+    undo: "改回去就行",
+    args: {
+      episodeId: "这一集的 id", relationshipId: "关系 id（界面给）",
+      a: "一方（人物名字）", b: "另一方",
+      start: "本集开始时", event: "本集发生了什么", end: "本集结束时",
+    },
+    apply: (ctx, x) => {
+      if (!ctx.canon || !ctx.canon.setRelationshipBeat) throw new Error("这个项目改不了分集节拍");
+      const rec = resolveRel(ctx, x);
+      // 三栏是**一条记录**：只写一栏时另外两栏必须原样带上，否则「改了开始」
+      // 会把「发生了什么」和「结束时」清空（界面那边早就是这么做的）。
+      const cur =
+        ((ctx.prodData().production.episodes || [])
+          .find((e) => e.episodeId === String(x.episodeId || "")) || {})
+          .beats;
+      const old = ((cur && cur.relationship) || []).find((r) => r.relationshipId === rec.relationshipId) || {};
+      const pick = (k) => (typeof x[k] === "string" ? x[k] : String(old[k] ?? ""));
+      const body = { start: pick("start"), event: pick("event"), end: pick("end") };
+      if (!ctx.canon.setRelationshipBeat(String(x.episodeId || ""), rec.relationshipId, body)) {
+        throw new Error(`记不下这段关系在 ${x.episodeId} 的推进`);
+      }
+      return { said: `${x.episodeId}：这段关系的推进记下了` };
+    },
+  },
   {
     id: "world.fields",
     label: "改世界观",

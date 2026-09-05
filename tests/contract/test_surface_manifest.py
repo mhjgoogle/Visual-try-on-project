@@ -69,6 +69,9 @@ STORY_PREFIXES = (
     "relationship.",
     "world.",
     "location.",
+    # 分集规划里的节拍（TASK-129 切片 2b）。它落在**作品设定这一侧** ——
+    # 写的是 canon（本集推进了什么），不是剧集制作的镜头/白膜。
+    "beat.",
 )
 EPISODE_PREFIXES_DEFERRED_TO_TASK_128 = ("shot.", "blocking.")
 
@@ -88,16 +91,15 @@ CONVERTED_BINDERS = {
     # 删除同时从硬删除改成了软删除 + 回收区 —— 「不可逆的不许进表」那道准入检查
     # 因此不是被绕过，是先把它变成可逆的（AGENTS.md §1「回不了头是缺陷」）。
     "relws.js": ("relws.js", "function bindRelWs(root, ctx, ui, rerender) {"),
+    # TASK-129 切片 2b：三条节拍写入进表
+    # （`beat.text` / `beat.character` / `beat.relationship`）。第四个名字 `stamp`
+    # 留在 `ALLOWED_DIRECT` 里，理由写在那儿 —— 它是裁决，不是数据写。
+    "epplanws.js": ("epplanws.js", "function bindEpPlanWs(root, ctx, ui, rerender) {"),
 }
 
 #: 未接线的 bind 函数：直接写的**种类**钉死在这里 —— 只能减少，不能增加。
 #: 每一份名单原样抄在 TASK-129 里（下面有测试钉住这一点）。
 DEFERRED_BINDERS = {
-    "epplanws.js": (
-        "epplanws.js",
-        "function bindEpPlanWs(root, ctx, ui, rerender) {",
-        frozenset({"setCharacterBeat", "setRelationshipBeat", "setTextBeats", "stamp"}),
-    ),
     "workspaces.js#settings": (
         "workspaces.js",
         "function bindSettings(root, ctx, ui = {}) {",
@@ -146,6 +148,12 @@ ALLOWED_DIRECT = {
     "cancel",
     # 裁决类：确认一面设定、升一个正式版本 —— 「不得静默定稿」（IA §8.3）
     "confirm",
+    # 裁决类：`stamp` 记录「本集基于当前这一版上游」。同一族的判断 —— 认哪一版是
+    # 他的决定，而且**盖下去旧基线就没了**（「⚠ N 个上游变化」正是拿它算的）。
+    # Agent 替他盖一次，等于替他宣布「上游那些改动我都认了」。
+    # 不做成可逆的，是因为可逆化要为它单独存一份基线历史，而这条本来就该他自己按
+    # （TASK-129 切片 2b：其余三条节拍写入已进表，只有它留在这里）。
+    "stamp",
     # 用某一版内容覆盖当前草稿 —— 会丢掉未版本化的修改，界面上要先 confirm；
     # 「覆盖他已有的东西」是 AGENTS.md 第 13 条那道闸，留给他自己按
     "restoreBriefDraft",
@@ -160,10 +168,23 @@ def _declared_action_ids() -> list[str]:
 
 
 def _ui_action_ids() -> list[str]:
+    """界面上被调用的动作 id。
+
+    **允许换行。** 上一版要求 `uiAct(ctx, "id"` 挤在同一行，而参数一多就会被
+    格式化工具折行 —— 那时这个扫描器看不见它。看不见的后果有两个方向，坏的是
+    第二个：
+
+      · 表里的动作被判成「界面上没有按钮调它」（吵，但看得见）；
+      · **界面上的动作被判成不存在，于是「界面引用 ⊆ 表」那条查不到它** ——
+        一次纯排版的换行就能让一个没进表的写动作躲过这道穷尽性检查（TASK-129
+        切片 2b 实测撞到）。
+
+    文本扫描本来就脆，那更要让它脆在**吵**的一侧，不是漏的一侧。
+    """
     ids: list[str] = []
     for f in sorted(UI.glob("*.js")):
         ids += re.findall(
-            r'uiAct\((?:ctx,\s*)?"([a-zA-Z][\w.]*)"', f.read_text("utf-8")
+            r'uiAct\(\s*(?:ctx\s*,\s*)?"([a-zA-Z][\w.]*)"', f.read_text("utf-8")
         )
     return ids
 
