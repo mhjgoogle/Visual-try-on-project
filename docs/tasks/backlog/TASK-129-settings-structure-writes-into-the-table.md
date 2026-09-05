@@ -37,7 +37,12 @@
 先改成了软删除 + 回收区（切片 1），回收区在关系图上有入口 —— 只有 Agent 撤销得了
 而他不能，会把 REQ-006 判据 1 反过来。
 
-**`workspaces.js::bindSettings`** —— 作品设定里的实体与状态：
+**`workspaces.js::bindSettings`** —— 作品设定里的实体与状态。
+**切片 2c 已划掉实体本身那 6 个**（~~`addCharacter` · `renameCharacter` · `removeCharacter` ·
+`addLocation` · `renameLocation` · `removeLocation`~~ → `character.add/.rename/.remove/.restore`
+与 `location.*` 同名四条，回收区在角色库/场景地库下方有入口）。
+**棘轮里现在只剩下面 12 个**（状态、参考图、声音），归切片 2d：
+
 `addCharacter` · `renameCharacter` · `removeCharacter` ·
 `addCharacterState` · `renameCharacterState` · `removeCharacterState` · `setCharacterStateOverrides` ·
 `setCharacterVoice` ·

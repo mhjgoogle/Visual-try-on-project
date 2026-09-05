@@ -89,6 +89,33 @@ function ensureCharacter(ctx, who) {
   return { rec: made, created: true };
 }
 
+/** 按名字或 id 找一条活着的记录，**找不到就抛**（与 `ensure*` 的差别：不新建）。
+ *
+ *  改名 / 删除 / 拿回来针对的是一个**已经存在**的身份。为了执行它先造一个出来，
+ *  会让「删掉张三」在打错字时安静地新建一个张三又删掉它 —— 什么都没发生，
+ *  回执却说成功了。 */
+function mustFind(ctx, key, who, label) {
+  if (!ctx.bible) throw new Error(`这个项目没有${label}`);
+  const name = String(who || "").trim();
+  if (!name) throw new Error(`没说是哪个${label}`);
+  const idKey = key === "characters" ? "characterId" : "locationId";
+  const list = (ctx.prodData().production[key]) || [];
+  const rec = list.find((x) => x[idKey] === name || x.name === name);
+  if (!rec) throw new Error(`${label}里没有「${name}」`);
+  return rec;
+}
+
+/** 同上，但找的是**回收区**里的那些。 */
+function mustFindDeleted(ctx, key, idKey, who, label) {
+  if (!ctx.bible) throw new Error(`这个项目没有${label}`);
+  const name = String(who || "").trim();
+  if (!name) throw new Error(`没说要拿回哪个${label}`);
+  const list = (ctx.prodData().production[key]) || [];
+  const rec = list.find((x) => x[idKey] === name || x.name === name);
+  if (!rec) throw new Error(`回收区里没有${label}「${name}」`);
+  return rec;
+}
+
 /** 一段关系的两头是不是这两个人（`characterIds`，不是 `aId/bId`）。
  *
  *  字段名值得留一句：`r.aId` / `r.aName` 在这份文档里**根本不存在**，而按它们去找
@@ -739,6 +766,96 @@ const ACTIONS = [
       return { said: "已调换方向（「A 怎么看 B」与「B 怎么看 A」一起跟着换了）" };
     },
   },
+  // --- 实体本身：改名 / 删 / 拿回来（TASK-129 切片 2c） -------------------- //
+  //
+  // `character.fields` / `location.fields` 管的是**档案里写了什么**；这几条管的是
+  // **这个身份还在不在、叫什么**。删除在切片 1 之前是不可逆的，现在是软删除 + 回收区，
+  // 所以它们才够格进表（AGENTS §1「回不了头是缺陷，先消除它」）。
+  {
+    id: "character.rename",
+    label: "给人物改名",
+    doc: "bible",
+    undo: "改回去就行（身份不变，引用它的场景/关系/节拍一个不动）",
+    args: { name: "现在的名字或 id", to: "新名字" },
+    apply: (ctx, a) => {
+      const rec = mustFind(ctx, "characters", a.name, "人物");
+      const to = String(a.to || "").trim();
+      if (!to) throw new Error("没说改成什么名字");
+      if (!ctx.bible.renameCharacter(rec.characterId, to)) throw new Error(`改不了「${rec.name}」的名字`);
+      return { said: `人物「${rec.name}」改名为「${to}」` };
+    },
+  },
+  {
+    id: "character.remove",
+    label: "删掉一个人物",
+    doc: "bible",
+    undo: "character.restore —— 软删除，回收区里拿得回来",
+    args: { name: "人物名字或 id" },
+    apply: (ctx, a) => {
+      const rec = mustFind(ctx, "characters", a.name, "人物");
+      if (!ctx.bible.removeCharacter(rec.characterId)) {
+        // 三种拒绝原因（场景引用 / 关系 / 剧集节拍）都是「别处还指着他」。
+        // 说出**怎么办**，不只说失败 —— 那些引用是他写的，得由他决定先撤哪个。
+        throw new Error(
+          `「${rec.name}」还被别处指着（场景引用 / 人物关系 / 剧集节拍），先解除那些引用再删`,
+        );
+      }
+      return { said: `删掉了人物「${rec.name}」（回收区里还能拿回来）` };
+    },
+  },
+  {
+    id: "character.restore",
+    label: "把删掉的人物拿回来",
+    doc: "bible",
+    undo: "character.remove",
+    args: { name: "人物名字或 id" },
+    apply: (ctx, a) => {
+      const rec = mustFindDeleted(ctx, "deletedCharacters", "characterId", a.name, "人物");
+      if (!ctx.bible.undeleteCharacter(rec.characterId)) throw new Error(`拿不回「${rec.name}」`);
+      return { said: `人物「${rec.name}」回来了` };
+    },
+  },
+  {
+    id: "location.rename",
+    label: "给场景地改名",
+    doc: "bible",
+    undo: "改回去就行（身份不变）",
+    args: { name: "现在的名字或 id", to: "新名字" },
+    apply: (ctx, a) => {
+      const rec = mustFind(ctx, "locations", a.name, "场景地");
+      const to = String(a.to || "").trim();
+      if (!to) throw new Error("没说改成什么名字");
+      if (!ctx.bible.renameLocation(rec.locationId, to)) throw new Error(`改不了「${rec.name}」的名字`);
+      return { said: `场景地「${rec.name}」改名为「${to}」` };
+    },
+  },
+  {
+    id: "location.remove",
+    label: "删掉一个场景地",
+    doc: "bible",
+    undo: "location.restore —— 软删除，回收区里拿得回来",
+    args: { name: "场景地名字或 id" },
+    apply: (ctx, a) => {
+      const rec = mustFind(ctx, "locations", a.name, "场景地");
+      if (!ctx.bible.removeLocation(rec.locationId)) {
+        throw new Error(`「${rec.name}」还被场景引用着，先在剧集工作区解除引用再删`);
+      }
+      return { said: `删掉了场景地「${rec.name}」（回收区里还能拿回来）` };
+    },
+  },
+  {
+    id: "location.restore",
+    label: "把删掉的场景地拿回来",
+    doc: "bible",
+    undo: "location.remove",
+    args: { name: "场景地名字或 id" },
+    apply: (ctx, a) => {
+      const rec = mustFindDeleted(ctx, "deletedLocations", "locationId", a.name, "场景地");
+      if (!ctx.bible.undeleteLocation(rec.locationId)) throw new Error(`拿不回「${rec.name}」`);
+      return { said: `场景地「${rec.name}」回来了` };
+    },
+  },
+
   // --- 分集规划里的节拍（TASK-129）：本集推进了什么 ----------------------- //
   //
   // 三条都是**改一栏内容**，可逆性与 `work.core` 同级（改回去就行）。

@@ -103,21 +103,18 @@ DEFERRED_BINDERS = {
     "workspaces.js#settings": (
         "workspaces.js",
         "function bindSettings(root, ctx, ui = {}) {",
+        # TASK-129 切片 2c 划掉了 6 个（实体本身：新建 / 改名 / 删 / 拿回来）——
+        # 棘轮只能收缩，所以名单跟着缩。剩下这 12 个是**状态、参考图、声音**，
+        # 归切片 2d。
         frozenset(
             {
-                "addCharacter",
                 "addCharacterState",
-                "addLocation",
                 "addLocationState",
                 "addReferenceAsset",
-                "removeCharacter",
                 "removeCharacterState",
-                "removeLocation",
                 "removeLocationState",
                 "removeReferenceAsset",
-                "renameCharacter",
                 "renameCharacterState",
-                "renameLocation",
                 "renameLocationState",
                 "setActiveReferenceAsset",
                 "setCharacterStateOverrides",

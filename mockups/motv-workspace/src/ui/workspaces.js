@@ -883,10 +883,36 @@ export function renderSettings(ctx) {
     `<div class="pm-title2">👤 角色库</div>` +
     (m.characters.map(charCard).join("") || `<div class="ws-kv">还没有角色 — 建立角色档案，保证跨镜头/跨集一致性</div>`) +
     `<button class="nrun" data-b-chadd>＋ 新建角色</button>` +
+    binRow(ctx, "deletedCharacters", "characterId", "b-chundel", "角色") +
     `<div class="pm-title2">📍 场景地库</div>` +
     (m.locations.map(locCard).join("") || `<div class="ws-kv">还没有场景地 — 建立场景档案（可含日/夜等状态）</div>`) +
     `<button class="nrun" data-b-locadd>＋ 新建场景地</button>` +
+    binRow(ctx, "deletedLocations", "locationId", "b-locundel", "场景地") +
     `<div class="ws-kv">场景（剧集工作区）按 ID 引用角色/场景地及其状态；档案内容只存在这里，绝不复制进场景或镜头。</div>`
+  );
+}
+
+/** 回收区那一行（TASK-129）—— 删过东西才出现。
+ *
+ *  删除是软删除，**撤销那条路他自己也得走得了**：只有 Agent 能 `character.restore`
+ *  而他不能，正好把「他能点的 = 它能做的」反过来（TASK-127 那一轮的教训）。
+ *  一个都没删过时一个字不画 —— 空回收区不是状态，是噪音。
+ *
+ *  只给名字和「拿回来」，不复述档案：回收区是一条撤销的路，不是第二份角色库。 */
+function binRow(ctx, key, idKey, attr, label) {
+  const prod = ctx.prodData && ctx.prodData().production;
+  const bin = (prod && prod[key]) || [];
+  if (!bin.length) return "";
+  return (
+    `<div class="ws-kv ws-bin"><span>${esc(label)}回收区：</span>` +
+    bin
+      .map(
+        (x) =>
+          `<span class="ws-tag">${esc(x.name || x[idKey])}` +
+          `<button class="nrun ghost" data-${attr}="${esc(x[idKey])}">拿回来</button></span>`,
+      )
+      .join(" ") +
+    `</div>`
   );
 }
 
@@ -929,27 +955,37 @@ export function bindSettings(root, ctx, ui = {}) {
   root.querySelectorAll("[data-bd-merge]").forEach((sel) => {
     sel.onchange = () => { if (sel.value) ctx.breakdown.mergeInto(sel.dataset.bdMerge, sel.value); };
   });
+  // 走动作表（ADR-0096 / TASK-129）：他在这一页点的每一下，和 Agent 在对话里说
+  // 「把张三改名叫李四」「删掉这个场景地」落到同一条动作。拒绝的理由由动作自己说
+  // （`uiAct` 会把它 toast 出来），这里不再各写一句可能与事实不符的提示。
   on("[data-b-chadd]", () => {
     const t = prompt2("角色名称");
-    if (t != null) ctx.bible.addCharacter(t);
+    if (t != null) uiAct(ctx, "character.add", { name: t });
   });
   on("[data-b-locadd]", () => {
     const t = prompt2("场景地名称");
-    if (t != null) ctx.bible.addLocation(t);
+    if (t != null) uiAct(ctx, "location.add", { name: t });
   });
   on("[data-b-chrename]", (el) => {
     const t = prompt2("角色名称");
-    if (t) ctx.bible.renameCharacter(el.dataset.bChrename, t);
+    if (t) uiAct(ctx, "character.rename", { name: el.dataset.bChrename, to: t });
   });
   on("[data-b-locrename]", (el) => {
     const t = prompt2("场景地名称");
-    if (t) ctx.bible.renameLocation(el.dataset.bLocrename, t);
+    if (t) uiAct(ctx, "location.rename", { name: el.dataset.bLocrename, to: t });
   });
   on("[data-b-chdel]", (el) => {
-    if (!ctx.bible.removeCharacter(el.dataset.bChdel)) ctx.toast("仍有场景引用该角色：先在剧集工作区移除引用");
+    uiAct(ctx, "character.remove", { name: el.dataset.bChdel });
   });
   on("[data-b-locdel]", (el) => {
-    if (!ctx.bible.removeLocation(el.dataset.bLocdel)) ctx.toast("仍有场景引用该场景地：先在剧集工作区移除引用");
+    uiAct(ctx, "location.remove", { name: el.dataset.bLocdel });
+  });
+  // 回收区：**撤销那条路他自己也要走得了**（TASK-127 那一轮的教训）。
+  on("[data-b-chundel]", (el) => {
+    uiAct(ctx, "character.restore", { name: el.dataset.bChundel });
+  });
+  on("[data-b-locundel]", (el) => {
+    uiAct(ctx, "location.restore", { name: el.dataset.bLocundel });
   });
   on("[data-b-csadd]", (el) => {
     const t = prompt2("状态名称（如：少女时期 / 黑化时期）");
