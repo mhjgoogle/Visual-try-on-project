@@ -144,19 +144,25 @@
             "mockups/motv-workspace/tests/persistence.test.mjs"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "fdc9d0d651c14f17d352ada5d3f09eb478457d93",
+          "subject": "docs(TASK-087 §5.18): 真浏览器验录白膜卡在哪 —— 两条卡点写清楚，免得下一个人重走",
+          "time": "2026-09-05T16:01:16+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/tasks/active/TASK-087-followup-ledger.md"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
-        "docs/tasks/active/TASK-087-followup-ledger.md",
-        "mockups/motv-workspace/src/ui/bkrecord.js",
-        "mockups/motv-workspace/src/ui/editlock.js",
-        "mockups/motv-workspace/src/ui/production.js",
-        "mockups/motv-workspace/tests/bkrecord.test.mjs",
-        "mockups/motv-workspace/tests/persistence.test.mjs"
+        "docs/tasks/active/TASK-087-followup-ledger.md"
       ],
       "verification": "PASS",
       "verification_ref": "",
-      "declared": "2026-09-05T15:35:06+00:00"
+      "declared": "2026-09-05T15:55:12+00:00"
     },
     "TASK-110": {
       "commits": [],
@@ -2131,7 +2137,7 @@
           "subject": "fix(docs): 041 搬进 done/ 时漏改了引用它的那张卡 —— CI 上是断链，本地不是（TASK-139 · three-pane）",
           "time": "2026-09-05T15:53:25+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/auto-push/changes/three-pane.json",
             "docs/tasks/backlog/TASK-136-generation-resume-and-idempotency.md"
