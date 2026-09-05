@@ -1993,7 +1993,7 @@
           "subject": "并发用例里的 5 秒硬等待 —— 它在断言调度速度，不是断言并发（TASK-139 · three-pane）",
           "time": "2026-09-05T13:08:02+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "tests/studio/test_account_image_gen_task139.py"
           ],
