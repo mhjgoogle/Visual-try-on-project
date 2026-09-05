@@ -643,3 +643,26 @@ test("同文段落的身份：三种形状的既定处置（含说不清时的�
   assert.equal(a3.outline.nodes[0].id, b3[0], "复制一段把原来那段的 id 弄丢了");
   assert.equal(a3.outline.nodes[2].id, b3[1], "B 的 id 被牵连");
 });
+
+test("接受 AI 大纲提案前，先把现有大纲存一版", () => {
+  // 接受提案是**整篇替换**，不是日常打字：他今天写了、还没点定稿的大纲会被一次盖掉，
+  // 而 `setOutline` 不留版本（它不该留 —— 日常编辑不产生历史是产品规格）。
+  // 所以存档必须发生在**接受提案这个边界**上（codex 补审 2026-09-05 块 2b）。
+  //
+  // 这条守的是数据模型这一半：`finalizeDoc` 在覆盖前确实存得下当前内容。
+  // app.js 的 `proposeOutline` 走的就是这两步（同文件的 `proposeScript` 早就这么做）。
+  const k = work();
+  w.setOutline(k, "我今天写的大纲，还没点定稿");
+  const before = w.outlineText(k);
+  assert.equal(k.finalized.outline.length, 0, "日常编辑不该产生历史");
+
+  const rec = w.finalizeDoc(k, "outline", "T1", "被 AI 大纲覆盖前自动存的一版");
+  w.setOutline(k, "提案覆盖进来的新大纲");
+
+  assert.ok(rec, "覆盖前没有存下任何东西");
+  assert.equal(rec.body, before, "存下来的不是被覆盖的那一份");
+  assert.match(rec.note, /覆盖前/, "自动存的那一版要说清楚它不是他点的定稿");
+  assert.equal(w.outlineText(k), "提案覆盖进来的新大纲");
+  assert.equal(w.restoreDoc(k, "outline", rec.v, "T2"), true, "退不回去");
+  assert.equal(w.outlineText(k), before);
+});

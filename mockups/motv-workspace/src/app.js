@@ -4053,10 +4053,28 @@ const ctx = {
           if (!text.trim()) {
             return { ok: false, error: "这份大纲提案里没有可写进编辑器的内容" };
           }
+          // **不静默覆盖**（第 13 条）：接受提案是整篇替换，不是日常打字 ——
+          // 他今天写了、还没点定稿的大纲会被一次盖掉，而 `setOutline` 不留版本
+          //（它不该留：日常编辑不产生历史是产品规格）。所以存档发生在**这个边界**上。
+          //
+          // 同一个文件里的 `proposeScript` 早就是这么做的，`proposeOutline` 漏了
+          //（codex 补审 2026-09-05 块 2b）。两条路现在形状一致。
+          const at = new Date().toISOString();
+          let kept = "";
+          const had = storywork.outlineText(storyDoc.work);
+          if (had.trim()) {
+            const rec = storywork.finalizeDoc(
+              storyDoc.work,
+              "outline",
+              at,
+              "被 AI 大纲覆盖前自动存的一版",
+            );
+            kept = rec ? `（原来的 ${had.length} 字已存为 v${rec.v}）` : "";
+          }
           const nodes = storywork.setOutline(storyDoc.work, text);
           ctx.persist();
           refreshProductionView();
-          return { ok: true, detail: `已写进故事大纲：${nodes.length} 段` };
+          return { ok: true, detail: `已写进故事大纲：${nodes.length} 段${kept}` };
         }
         case "proposeScript": {
           // 写进「正文创作」的那一章/集（TASK-122）。与 `proposeOutline` 同一天补上：

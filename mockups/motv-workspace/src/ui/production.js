@@ -2277,13 +2277,23 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
   //: 后端 Agent 拿到一条「这一页左边太挤」时，最贵的一步是**找到那一页在哪个文件**。
   //: 这张表把那一步从「翻仓库」变成「读一行」。它住在这里，因为这个模块就是页面分发表
   //: 的所在地；`tests/…/prodsource.test.mjs` 钉住它不许指向不存在的文件。
+  // **这张表要跟着渲染它的那个文件走。**
+  //
+  // 他在界面上「记一条意见」时，这里给出的是那条意见指向的源文件。TASK-122 把
+  // 故事开发四页换成 corews / planws / draftws 之后，这张表还指着 briefws / storyws
+  // ——**开发反馈被定位到一个已经不渲染那一页的文件上**，而「正文创作」压根没有条目
+  //（codex 补审 2026-09-05 块 2b）。这与 CA §6 同一个病根：页面换了地方，
+  // 喂给下游的那份地图没跟着换。
+  //
+  // 对照表在同一个文件的 `PAGES`（第 815 行起）：谁渲染这一页，这里就写谁。
   const MODULE_SOURCE = {
-    brief: "src/ui/briefws.js",
-    story: "src/ui/storyws.js",
+    brief: "src/ui/corews.js",
+    story: "src/ui/corews.js",
+    episodes: "src/ui/planws.js",
+    script: "src/ui/draftws.js",
     settings: "src/ui/biblews.js",
     relationships: "src/ui/relws.js",
     world: "src/ui/worldws.js",
-    episodes: "src/ui/epplanws.js",
     board: "src/ui/episodews.js",
     storyboard: "src/ui/storyboard.js",
     shotwork: "src/ui/mediaws.js",
