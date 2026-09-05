@@ -201,7 +201,7 @@ ArcReel 在契约注释里写死了三条，每条都对应本仓库踩过的坑
 本分支不触发，main 上的 CI 自己是红的。契约的 CI 接线是对的（两个 job 各一步、
 `pip install -e ".[dev]"` 会装上 import-linter），但**接线正确 ≠ 判据满足**。
 
-这个范围外发现已立卡：[TASK-140](../backlog/TASK-140-main-ci-has-been-red-for-nine-days.md)。
+这个范围外发现已立卡：[TASK-140](TASK-140-main-ci-has-been-red-for-nine-days.md)。
 本卡判据 1 的闭合依赖它 —— 按第 2 节不在这里顺手修 CI。
 
 原先那段（gh 不可用）保留在下面，因为它记录的是**当时**为什么判不了：

@@ -19,7 +19,7 @@
 | `docs/reports/` | 阶段性工作报告 —— **历史证据**，默认不读 |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：8 在办 · 9 待排期 · 126 已完成 · 86 条 ADR。
+**当前**：9 在办 · 7 待排期 · 127 已完成 · 86 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -71,19 +71,17 @@
 
 ### Deferred
 
-里程碑闸判「现在不做」的 9 张卡（`tasks/backlog/`）——
+里程碑闸判「现在不做」的 7 张卡（`tasks/backlog/`）——
 **队列，不是垃圾桶**：每张卡都要写清什么条件下它会变成该做。
 跨任务欠账另见 [TASK-087 总账](tasks/active/TASK-087-followup-ledger.md)。
 
 - [TASK-011](tasks/backlog/TASK-011-local-video-provider.md) TASK-011：LocalVideoProvider（阶段 8）
 - [TASK-012](tasks/backlog/TASK-012-qcd-auto-routing.md) TASK-012：基于 QCD 的自动模型路由（阶段 9）
-- [TASK-041](tasks/backlog/TASK-041-workspace-generation-command-and-evidence.md) TASK-041: 工作视窗付费视频生成命令 + UI 接入 + 1 次真实证据
 - [TASK-128](tasks/backlog/TASK-128-episode-side-actions-into-the-table.md) TASK-128：剧集制作侧的写也走动作表 —— REQ-006 判据 1 的另一半
 - [TASK-135](tasks/backlog/TASK-135-server-authoritative-workflow-plan.md) TASK-135：下一步该干什么由后端说了算 —— 服务端权威工作流计划
 - [TASK-136](tasks/backlog/TASK-136-generation-resume-and-idempotency.md) TASK-136：重启之后不许重复扣费 —— 生成任务的续跑与幂等
 - [TASK-137](tasks/backlog/TASK-137-review-issue-to-rework-loop.md) TASK-137：审片问题进入返工队列 —— 从问题定位到重新审片的闭环
 - [TASK-138](tasks/backlog/TASK-138-story-development-visual-workflow.md) TASK-138：剧情制作不再是四张表单 —— 一条看得见的故事创作链
-- [TASK-140](tasks/backlog/TASK-140-main-ci-has-been-red-for-nine-days.md) TASK-140：main 的 CI 连续八次全红，而没有人看见
 
 ### Recent Decisions
 
@@ -112,6 +110,7 @@
 | [TASK-130-connected-sample-and-journey.md](tasks/active/TASK-130-connected-sample-and-journey.md) | TASK-130：切片 5 —— 可重复的 Connected Project 样本 + 一条从头到尾的旅程 | 实现完成（2026-09-05 |
 | [TASK-132-click-ui-element-and-leave-feedback.md](tasks/active/TASK-132-click-ui-element-and-leave-feedback.md) | TASK-132：点击界面元素写意见，并让开发 Agent 收到准确位置 | 待开始 |
 | [TASK-134-import-linter-layering-contract.md](tasks/active/TASK-134-import-linter-layering-contract.md) | TASK-134：把 Provider 中立从散文变成 CI 闸门 —— import-linter 分层契约 | 实现完成（2026-09-05 实施）· 最终全量见下方「验证」 |
+| [TASK-140-main-ci-has-been-red-for-nine-days.md](tasks/active/TASK-140-main-ci-has-been-red-for-nine-days.md) | TASK-140：main 的 CI 连续八次全红，而没有人看见 | 进行中（2026-09-05 接手）· 两个根因已定位并修复，其余按簇登记 |
 
 ## 在办 · 设计与验收文档
 
@@ -133,13 +132,11 @@
 | --- | --- | --- |
 | [TASK-011-local-video-provider.md](tasks/backlog/TASK-011-local-video-provider.md) | TASK-011：LocalVideoProvider（阶段 8） | Outline（可选 WFM3 升级） |
 | [TASK-012-qcd-auto-routing.md](tasks/backlog/TASK-012-qcd-auto-routing.md) | TASK-012：基于 QCD 的自动模型路由（阶段 9） | Outline（WFM3） |
-| [TASK-041-workspace-generation-command-and-evidence.md](tasks/backlog/TASK-041-workspace-generation-command-and-evidence.md) | TASK-041: 工作视窗付费视频生成命令 + UI 接入 + 1 次真实证据 | backlog/ |
 | [TASK-128-episode-side-actions-into-the-table.md](tasks/backlog/TASK-128-episode-side-actions-into-the-table.md) | TASK-128：剧集制作侧的写也走动作表 —— REQ-006 判据 1 的另一半 | 盘点完成，接线未开工 |
 | [TASK-135-server-authoritative-workflow-plan.md](tasks/backlog/TASK-135-server-authoritative-workflow-plan.md) | TASK-135：下一步该干什么由后端说了算 —— 服务端权威工作流计划 | 待开始（2026-09-05 开卡 |
 | [TASK-136-generation-resume-and-idempotency.md](tasks/backlog/TASK-136-generation-resume-and-idempotency.md) | TASK-136：重启之后不许重复扣费 —— 生成任务的续跑与幂等 | 待开始 · 前置 ADR 已 Accept（2026-09-05 开卡 |
 | [TASK-137-review-issue-to-rework-loop.md](tasks/backlog/TASK-137-review-issue-to-rework-loop.md) | TASK-137：审片问题进入返工队列 —— 从问题定位到重新审片的闭环 | 待开始（2026-09-05 开卡 |
 | [TASK-138-story-development-visual-workflow.md](tasks/backlog/TASK-138-story-development-visual-workflow.md) | TASK-138：剧情制作不再是四张表单 —— 一条看得见的故事创作链 | 待开始（2026-09-05 开卡 |
-| [TASK-140-main-ci-has-been-red-for-nine-days.md](tasks/backlog/TASK-140-main-ci-has-been-red-for-nine-days.md) | TASK-140：main 的 CI 连续八次全红，而没有人看见 | 待开始（2026-09-05 开卡 |
 
 ## 已完成 · 任务卡
 
@@ -184,6 +181,7 @@
 | [TASK-037-wfm2-end-to-end-acceptance.md](tasks/done/TASK-037-wfm2-end-to-end-acceptance.md) | TASK-037：WFM2 正式作品端到端验收 | 里程碑 PASS（产品负责人 2026-08-24 原话「WFM2 可以了」） |
 | [TASK-038-wfm3-automation-and-command-capabilities.md](tasks/done/TASK-038-wfm3-automation-and-command-capabilities.md) | TASK-038：WFM3 固定职责自动化与命令能力收口 | Delivered（合同层，2026-08-04） |
 | [TASK-039-workspace-multimedia-and-full-workflow-expansion.md](tasks/done/TASK-039-workspace-multimedia-and-full-workflow-expansion.md) | TASK-039：Creation Workspace 多媒体与完整工作流扩展 | Delivered（只读观测层，2026-08-04） |
+| [TASK-041-workspace-generation-command-and-evidence.md](tasks/done/TASK-041-workspace-generation-command-and-evidence.md) | TASK-041: 工作视窗付费视频生成命令 + UI 接入 + 1 次真实证据 | done/ |
 | [TASK-042-creative-agent-shots-draft.md](tasks/done/TASK-042-creative-agent-shots-draft.md) | TASK-042: 创意 Agent 分镜草稿（Claude CLI 通道）+ 画布自动衔接 | Accepted（2026-08-07，随 ADR-0042） |
 | [TASK-047-draft-lock-command.md](tasks/done/TASK-047-draft-lock-command.md) | TASK-047: lock-draft-plan 命令与图↔视频一致性打通 | Done（2026-08-07 实施完成） |
 | [TASK-048-motv-p0-asset-flow-and-status.md](tasks/done/TASK-048-motv-p0-asset-flow-and-status.md) | TASK-048: motv 原型 P0 断层修复——图→视频流转、付费状态自动轮询、上传版本化 | Done（2026-08-07 实施完成 |
