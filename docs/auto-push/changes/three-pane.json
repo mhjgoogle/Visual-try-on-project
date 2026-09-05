@@ -2189,26 +2189,51 @@
             "mockups/motv-workspace/tests/convactions.test.mjs",
             "mockups/motv-workspace/tests/workspaces.test.mjs"
           ]
+        },
+        {
+          "hash": "1871ef6c5785eab5fc0a681348823c23cd89179d",
+          "subject": "摘图时「生效的主图」也可能是继承来的（codex 审查轮 1 的 P1）",
+          "time": "2026-09-05T14:17:30+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "mockups/motv-workspace/src/workflow/bibledoc.js",
+            "mockups/motv-workspace/src/workflow/convactions.js",
+            "mockups/motv-workspace/tests/convactions.test.mjs"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "bf82e8d4fff98e5f206bbec86451e7f2d20cc37d",
+          "subject": "摘图不许凭空造出一个主图（codex 审查轮 2 的 P1）",
+          "time": "2026-09-05T14:17:30+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "mockups/motv-workspace/src/workflow/bibledoc.js",
+            "mockups/motv-workspace/tests/convactions.test.mjs"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
+        "docs/design/active/product-requirement-and-ux-convergence-review.md",
+        "docs/requirements/REQ-006-agent-can-do-what-the-creator-can-do.md",
+        "docs/tasks/active/TASK-127-one-action-table.md",
+        "docs/tasks/backlog/TASK-128-episode-side-actions-into-the-table.md",
         "docs/tasks/backlog/TASK-129-settings-structure-writes-into-the-table.md",
-        "mockups/motv-workspace/src/app.js",
-        "mockups/motv-workspace/src/ui/epplanws.js",
-        "mockups/motv-workspace/src/ui/relws.js",
+        "docs/tasks/done/TASK-129-settings-structure-writes-into-the-table.md",
         "mockups/motv-workspace/src/ui/workspaces.js",
         "mockups/motv-workspace/src/workflow/bibledoc.js",
-        "mockups/motv-workspace/src/workflow/canondoc.js",
         "mockups/motv-workspace/src/workflow/convactions.js",
-        "mockups/motv-workspace/src/workflow/proddoc.js",
-        "mockups/motv-workspace/styles/epprod.css",
-        "mockups/motv-workspace/tests/proddoc.test.mjs",
-        "mockups/motv-workspace/tests/recyclebin.test.mjs",
+        "mockups/motv-workspace/tests/bible.test.mjs",
+        "mockups/motv-workspace/tests/convactions.test.mjs",
+        "mockups/motv-workspace/tests/workspaces.test.mjs",
         "tests/contract/test_surface_manifest.py"
       ],
       "verification": "PASS",
-      "verification_ref": "TASK-129 切片 1+2a+2b：前端全量 2174 passed · tests/contract 269 passed（surface_manifest 16 例穷尽性合同）· tests/studio 630 passed · recyclebin.test.mjs 14 例 + 三处变异验证 · ruff 通过",
-      "declared": "2026-09-05T10:36:38+00:00"
+      "verification_ref": "前端 2233 passed/0 failed; tests/contract 267 passed; tests/studio 659 passed; tests/tooling 385 passed; ruff clean; lifecycle_check 0 finding; 变异验证 6 条全部转红; codex 审查轮 1/2 各一条 P1 已修",
+      "declared": "2026-09-05T14:17:21+00:00"
     },
     "TASK-141": {
       "commits": [
@@ -2392,6 +2417,17 @@
           "scope_violation": [
             "tests/e2e/test_connected_journey_task130.py"
           ]
+        },
+        {
+          "hash": "54cf66ad4ae41b16446fbd054fbc9e76af1757ac",
+          "subject": "chore(auto-push): three-pane manifest writeback（TASK-129 切片 2e + TASK-087 §6.12）",
+          "time": "2026-09-05T14:17:30+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/three-pane.json"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
