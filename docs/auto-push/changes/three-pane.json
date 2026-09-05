@@ -1865,7 +1865,7 @@
           "subject": "出图跑通了，但闭合它的不是 Gemini —— 免费档对出图的配额是 0（TASK-139 · three-pane）",
           "time": "2026-09-05T10:51:38+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             ".env.local.example",
             ".gitignore",
@@ -1911,7 +1911,7 @@
           "subject": "feat: 作品设定的删除变成软删除 —— 人物/场景地/状态/参考图/关系都拿得回来（TASK-129 切片 1）",
           "time": "2026-09-05T10:04:34+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "mockups/motv-workspace/src/workflow/bibledoc.js",
             "mockups/motv-workspace/src/workflow/canondoc.js",
@@ -1926,7 +1926,7 @@
           "subject": "feat: 人物关系的结构也走动作表 —— 三个棘轮名字划掉第一组（TASK-129 切片 2a）",
           "time": "2026-09-05T10:17:41+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/tasks/backlog/TASK-129-settings-structure-writes-into-the-table.md",
             "mockups/motv-workspace/src/app.js",
@@ -1942,7 +1942,7 @@
           "subject": "feat: 分集节拍也走动作表，并补上扫描器的一个洞（TASK-129 切片 2b）",
           "time": "2026-09-05T10:36:16+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/tasks/backlog/TASK-129-settings-structure-writes-into-the-table.md",
             "mockups/motv-workspace/src/ui/epplanws.js",
@@ -1958,7 +1958,7 @@
           "subject": "feat: 人物与场景地本身也走动作表，回收区他自己点得到（TASK-129 切片 2c）",
           "time": "2026-09-05T10:49:52+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/tasks/backlog/TASK-129-settings-structure-writes-into-the-table.md",
             "mockups/motv-workspace/src/ui/workspaces.js",
@@ -1994,7 +1994,7 @@
           "subject": "TASK-141 收口：卡进 done/，审查四闸与两条 Follow-up 归档（three-pane）",
           "time": "2026-09-05T10:55:57+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/STATUS.md",
             "docs/adr/ADR-0101-idea-intake-level-and-milestone-gate.md",
@@ -2010,7 +2010,7 @@
           "subject": "禁止 Idea 直接进入 Coding —— 想法先分层、再过里程碑闸（TASK-141 · ADR-0101）",
           "time": "2026-09-05T10:56:38+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             ".agents/skills/dev-workflow/SKILL.md",
             ".claude/agent-entries.json",
