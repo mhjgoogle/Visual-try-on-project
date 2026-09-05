@@ -179,6 +179,18 @@ ArcReel 在契约注释里写死了三条，每条都对应本仓库踩过的坑
 继续加码（继续做只会得到更长的正则和同样的上限），真正的闭合手段是 CI 实跑，
 而 CI 接线已在本卡内完成 —— 第一次真实运行会给出那个证据。
 
+## 为什么这张卡还在 active/（判据 1 未闭合）
+
+分支已 push（head `8fbd00a`，2026-09-05）。CI 的两个 job 已接好 `run: lint-imports`，
+但**本会话无法核实它是否真的跑过、是否绿** —— `gh` 在这台机器上两个 shell 都不在
+PATH 上（`Get-Command gh` 与 Bash 的 `gh` 均未找到），按 AGENTS.md 第 6 条 fail-closed
+如实报告，不猜路径、也不假定它绿了。
+
+因此判据 1「在 CI 与本地 commit gate 里跑，绿」目前是：**本地已证、CI 未证**。
+按 ADR-0088 决策 6，Requirement 未全 `PASS` 就不满足 merge 闸门，所以这张卡
+**不搬进 `done/`**。闭合方式只有一个：看一眼这次 push 触发的 CI 结果。
+（codex 轮 2 判它 `NOT_EVIDENCED` 时说的正是这件事，那个判断至今成立。）
+
 ## 未在真实项目上被人看过
 
 - 闸门在**真实提交**时的表现只在本机 Windows 侧验证（判定逻辑经 `classify`
