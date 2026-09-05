@@ -1364,6 +1364,75 @@
       "verification": "PASS",
       "verification_ref": "归属域全量 pytest tests/tooling 349 passed/1 skipped/0 failed; ruff 全过; lifecycle_check 0 finding; codex 两轮补审闭合(轮1三条P1全修/轮2两条证据缺口已补)",
       "declared": "2026-09-05T05:19:17+00:00"
+    },
+    "TASK-131": {
+      "commits": [
+        {
+          "hash": "f3a659cf60cc1b805ef853a0b561f7a7148b9417",
+          "subject": "feat: 工装体检 —— 技能读得到吗、两个客户端找到的是不是同一套（TASK-131 切片 A）",
+          "time": "2026-09-05T06:53:49+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            ".claude/tools/agent_harness.py",
+            "docs/STATUS.md",
+            "docs/adr/ADR-0097-one-skill-source-generated-client-entries.md",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "docs/tasks/active/TASK-131-agent-harness-discovery-and-runtime-evidence.md",
+            "tests/tooling/test_agent_harness.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "5ebff19571192c2d582dbb1e83a7d456c32070ff",
+          "subject": "feat: 两个客户端一套技能，一份源 —— 薄入口 + 接回来（TASK-131 切片 B/C）",
+          "time": "2026-09-05T06:53:50+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            ".agents/skills/auto-push/SKILL.md",
+            ".agents/skills/codex-review-loop/SKILL.md",
+            ".agents/skills/dev-workflow/SKILL.md",
+            ".agents/skills/product-loop/SKILL.md",
+            ".agents/skills/skill-evolution/SKILL.md",
+            ".claude/agent-entries.json",
+            ".claude/skills/dev-workflow/SKILL.md",
+            ".claude/skills/dev-workflow/references/handoff.md",
+            ".claude/tools/agent_harness.py",
+            "docs/STATUS.md",
+            "docs/adr/ADR-0077-repository-path-ownership.md",
+            "docs/adr/ADR-0097-one-skill-source-generated-client-entries.md",
+            "docs/current-architecture.md",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "docs/tasks/active/TASK-131-agent-harness-discovery-and-runtime-evidence.md",
+            "docs/tasks/done/TASK-131-agent-harness-discovery-and-runtime-evidence.md",
+            "tests/tooling/test_agent_harness.py"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        ".agents/skills/auto-push/SKILL.md",
+        ".agents/skills/codex-review-loop/SKILL.md",
+        ".agents/skills/dev-workflow/SKILL.md",
+        ".agents/skills/product-loop/SKILL.md",
+        ".agents/skills/skill-evolution/SKILL.md",
+        ".claude/agent-entries.json",
+        ".claude/skills/dev-workflow/SKILL.md",
+        ".claude/skills/dev-workflow/references/handoff.md",
+        ".claude/tools/agent_harness.py",
+        "docs/STATUS.md",
+        "docs/adr/ADR-0077-repository-path-ownership.md",
+        "docs/adr/ADR-0097-one-skill-source-generated-client-entries.md",
+        "docs/current-architecture.md",
+        "docs/tasks/active/TASK-087-followup-ledger.md",
+        "docs/tasks/active/TASK-131-agent-harness-discovery-and-runtime-evidence.md",
+        "docs/tasks/done/TASK-131-agent-harness-discovery-and-runtime-evidence.md",
+        "tests/tooling/test_agent_harness.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "docs/tasks/done/TASK-131-agent-harness-discovery-and-runtime-evidence.md §7 —— 全量 3908 passed/59 skipped；test_agent_harness 66 passed 含三处变异验证；ruff 与 lifecycle_check 通过；codex 0.153.4 两条 P1 已修并留回归",
+      "declared": "2026-09-05T06:53:41+00:00"
     }
   },
   "merge_gate": {
