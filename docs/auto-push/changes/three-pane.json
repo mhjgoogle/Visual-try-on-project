@@ -2670,6 +2670,20 @@
             "tests/tooling/test_docs_links.py"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "3e3aabd119c1b0b7157c2fe854681da8a90a8591",
+          "subject": "fix(tests): 那个链接守卫会在两种形状下变瞎（codex 复审两条 P1）+ change/** 纳入 CI 触发面（TASK-140 · three-pane）",
+          "time": "2026-09-05T17:38:00+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            ".github/workflows/ci.yml",
+            "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/active/TASK-140-main-ci-has-been-red-for-nine-days.md",
+            "tests/tooling/test_docs_links.py"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
