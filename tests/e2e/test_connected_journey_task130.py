@@ -118,12 +118,23 @@ def test_connected_journey(studio, monkeypatch):
             assert _wait_text(page, "body", WAITING)
 
             # ---- 3. 故事修改：打字经动作表落到作品 ----------------------
-            core = page.query_selector("[data-core]")
-            before = core.input_value()
+            # **按选择器调，不要握着 handle 跨动作。**
+            #
+            # 上一版先 `query_selector` 拿到编辑区，再依次 click / fill /
+            # dispatch_event。而第 2 步刚等到的是**运行中的那一轮** —— 页面此刻有个
+            # run 在轮询、随时可能重渲染；渲染一次，先前拿到的那个节点就从 DOM 上
+            # 脱开，`click()` 报 "Element is not attached to the DOM"。
+            # 并行会话 2026-09-05 的全量里红过一次（本机连跑 5 次没复现 ——
+            # **偶发不等于不是缺陷**，AGENTS.md 第 20 条把 flaky 当普通缺陷办）。
+            #
+            # 选择器形式每次重新解析并自带等待，这一类竞态因此不存在 ——
+            # 而不是靠重试把它压下去。
+            sel = "[data-core]"
+            before = page.input_value(sel)
             marker = "【旅程标记】雨夜，一个人走进了自己的旧屋。"
-            core.click()
-            core.fill(before + "\n\n" + marker)
-            core.dispatch_event("input")
+            page.click(sel)
+            page.fill(sel, before + "\n\n" + marker)
+            page.dispatch_event(sel, "input")
             time.sleep(0.6)  # 让 quiet 写 + persist 跑完（saveCanvas 有去抖）
             page.evaluate("() => window.dispatchEvent(new Event('beforeunload'))")
             time.sleep(0.6)
@@ -131,7 +142,7 @@ def test_connected_journey(studio, monkeypatch):
             # ---- 4. 刷新恢复：字还在，那一轮也还在 ----------------------------------
             page.reload(wait_until="domcontentloaded")
             page.wait_for_selector("[data-core]", timeout=20000)
-            assert marker in page.query_selector("[data-core]").input_value(), (
+            assert marker in page.input_value("[data-core]"), (
                 "刷新后故事核心里没有刚打的字 —— 写没落到作品上"
             )
             _wait_text(page, "body", WAITING)
@@ -148,8 +159,8 @@ def test_connected_journey(studio, monkeypatch):
             page.wait_for_selector('[data-pc-tab="final"]', timeout=20000)
             page.click('[data-pc-tab="final"]')
             export_sel = f'[data-pc-export="{sample.cut_asset_id}"]'
-            export_btn = page.wait_for_selector(export_sel, timeout=10000)
-            assert export_btn.is_disabled(), "还没测量就能导出 —— 门槛 G4 没起作用"
+            page.wait_for_selector(export_sel, timeout=10000)
+            assert page.is_disabled(export_sel), "还没测量就能导出 —— 门槛 G4 没起作用"
             row = page.inner_text(_row_of(sample.cut_asset_id))
             assert re.search(r"没被测量|没测过|先对它跑", row), row
 
@@ -161,9 +172,7 @@ def test_connected_journey(studio, monkeypatch):
                 re.compile(r"阻断|规格|G4"),
                 timeout=60.0,
             )
-            assert page.query_selector(export_sel).is_disabled(), (
-                "有阻断级质检问题的候选仍然可以导出"
-            )
+            assert page.is_disabled(export_sel), "有阻断级质检问题的候选仍然可以导出"
 
             # 已导出的成片那一组：历史成片在，能撤回（归档 = 可逆）
             archive_sel = f'[data-pc-archive="{sample.final_asset_id}"]'
