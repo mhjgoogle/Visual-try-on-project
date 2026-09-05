@@ -19,6 +19,7 @@ import {
   newAnnotationId,
   breadcrumbOf,
   startPicking,
+  handleOf,
 } from "../src/ui/elementfeedback.js";
 
 /** 一个够用的假元素。`el()` 从上往下建，自动接好 parentElement。 */
@@ -274,4 +275,47 @@ test("自己的控件不拦 —— 否则「取消」按钮点不动，退不出
   doc.fire("click", e);
   assert.ok(!e.prevented, "自己的控件被拦住了");
   assert.equal(picked.length, 0, "点自己的控件不该算作一次选中");
+});
+
+/* --- 句柄从已有的 data-* 派生（TASK-132 切片 A 补齐） --------------------- */
+
+test("句柄从已有的 data-* 派生 —— 不为点击定位再打一遍标记", () => {
+  // 这些属性早就在，而且 **bind 函数就是靠它们 querySelectorAll 的** ——
+  // 也就是说它们已经是承重的、跨重渲染稳定的身份。再手工打一遍 `data-ui-id`
+  // 等于把同一件事写两遍，然后等它们漂移。
+  assert.equal(handleOf(el("button", { data: { sbGenerate: "1" } })), "sb-generate");
+  assert.equal(handleOf(el("button", { data: { bChdel: "char-1" } })), "b-chdel");
+});
+
+test("显式的 data-ui-id 永远优先 —— 派生只是兜底", () => {
+  const e = el("button", { data: { uiId: "shot-generate", sbGenerate: "1" } });
+  assert.equal(handleOf(e), "shot-generate");
+});
+
+test("携带**值**的 data-* 不算句柄", () => {
+  // `data-sid` / `data-field` 是「这一行是哪个状态 / 哪一栏」，同一个按钮在不同
+  // 行上都不一样。拿它当身份，等于说「他点的是状态 s-3」而不是「他点的是状态的
+  // 删除按钮」—— 下次渲染那一行换了 id，这条意见就指到别处去了。
+  assert.equal(handleOf(el("button", { data: { sid: "s-3", kind: "c" } })), "");
+  assert.equal(handleOf(el("div", { data: { shotId: "shot-2" } })), "", "身份另有字段装");
+  // 混在一起时，只挑句柄那个
+  assert.equal(
+    handleOf(el("button", { data: { sid: "s-3", bCsdel: "char-1", field: "x" } })),
+    "b-csdel",
+  );
+});
+
+test("targetOf 认派生句柄 —— 点在图标上，选中的是那个带句柄的按钮", () => {
+  const btn = el("button", { data: { sbGenerate: "1" }, text: "生成" });
+  const icon = el("span", { text: "🎬" });
+  icon.parentElement = btn;
+  assert.equal(targetOf(icon), btn);
+  assert.equal(snapshotOf(btn).uiId, "sb-generate");
+});
+
+test("component 也从祖先上取 —— 区块名通常打在容器上，不在按钮上", () => {
+  const panel = el("section", { data: { uiComponent: "镜头列表" } });
+  const btn = el("button", { data: { sbGenerate: "1" }, text: "生成" });
+  btn.parentElement = panel;
+  assert.equal(snapshotOf(btn).component, "镜头列表");
 });

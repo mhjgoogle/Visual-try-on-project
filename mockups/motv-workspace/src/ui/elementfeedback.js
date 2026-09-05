@@ -20,9 +20,47 @@
 //   3. **退出要干净。** 监听、高亮、光标全部还原 —— 一个退不干净的选择模式会让
 //      整个界面像坏了。
 
-/** 一个元素上的稳定标记。渲染那边用 `data-ui-id` 打点，这里只读。 */
+/** 一个元素上的稳定标记。渲染那边可以用 `data-ui-id` 显式打点，这里只读。 */
 const UI_ID = "uiId";
 const UI_COMPONENT = "uiComponent";
+
+/**
+ * 不算「句柄」的那些 `data-*` 键 —— 它们携带的是**值**，不是身份。
+ *
+ * `data-sid` / `data-aid` / `data-field` 这类是「这一行是哪个状态 / 哪张图 /
+ * 哪一栏」，同一个按钮在不同行上它们都不一样。拿它当元素身份，等于说「他点的是
+ * 状态 s-3」而不是「他点的是状态的删除按钮」。
+ */
+const NOT_A_HANDLE = new Set([
+  "sid", "aid", "cid", "rid", "eid", "no", "v", "kind", "field", "key", "index",
+  "shotId", "episodeId", "sceneId", "assetId", "characterId", "locationId",
+  "uiId", "uiComponent", "uiLabel", "efUi",
+]);
+
+/**
+ * 这个元素自己的句柄 —— **从已有的 `data-*` 里派生，不另建一套标记**。
+ *
+ * 这个界面上的按钮早就带着 `data-sb-generate` / `data-b-chdel` 这类属性，而且
+ * **bind 函数就是靠它们 `querySelectorAll` 的** —— 也就是说它们已经是承重的、
+ * 跨重渲染稳定的身份，不是随手起的 class。为点击定位再手工给几百个元素打一遍
+ * `data-ui-id`，等于把同一件事写两遍，然后等它们漂移（卡上写的「不为点击定位
+ * 重建全站动作表」正是这个意思）。
+ *
+ * 判据：**多词**的 dataset 键（`sbGenerate`，即 `data-sb-generate`）才算句柄；
+ * 单词的（`sid`、`kind`）是值。显式的 `data-ui-id` 永远优先 —— 派生只是兜底，
+ * 哪天某个区域需要一个更好的名字，打一个就覆盖它。
+ */
+export function handleOf(el) {
+  const ds = (el && el.dataset) || {};
+  if (ds[UI_ID]) return ds[UI_ID];
+  for (const k of Object.keys(ds)) {
+    if (NOT_A_HANDLE.has(k)) continue;
+    if (!/[A-Z]/.test(k)) continue; // 单词 = 值，不是句柄
+    // 属性原名比 camelCase 更像他在代码里搜得到的东西
+    return k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+  }
+  return "";
+}
 
 /** 标签最多取这么多字：`label` 是给人看的线索，不是内容搬运。
  *  整段正文进台账既没用又会把他写的作品内容带出页面。 */
@@ -43,8 +81,9 @@ export function targetOf(el, opts = {}) {
   let firstInteractive = null;
   let firstContainer = null;
   for (let i = 0; node && i < maxUp; i += 1) {
-    const ds = node.dataset || {};
-    if (ds[UI_ID]) return node;
+    // 带句柄的祖先就是「可指认的那个东西」—— 显式 `data-ui-id` 和派生出来的
+    // `data-sb-generate` 一视同仁，后者本来就是 bind 函数认的那个名字。
+    if (handleOf(node)) return node;
     const tag = String(node.tagName || "").toUpperCase();
     if (!firstInteractive && interactive.has(tag)) firstInteractive = node;
     if (!firstContainer && container.has(tag)) firstContainer = node;
@@ -104,8 +143,8 @@ export function snapshotOf(el, extra = {}) {
   const ds = el.dataset || {};
   const rect = typeof el.getBoundingClientRect === "function" ? el.getBoundingClientRect() : null;
   const out = {
-    uiId: ds[UI_ID] || "",
-    component: ds[UI_COMPONENT] || "",
+    uiId: handleOf(el),
+    component: ds[UI_COMPONENT] || nearestData(el, UI_COMPONENT),
     label: labelOf(el),
     selector: cssPathOf(el),
     // 实体身份从元素自己或祖先上取 —— 镜头行上就带着 shotId，那比任何 CSS 路径
