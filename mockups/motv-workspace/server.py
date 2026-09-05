@@ -534,6 +534,37 @@ def _decide_proposal(pid, verdict: str, note: str, at: str) -> dict:
     return {"ok": True, "title": hit.get("title") or ""}
 
 
+#: 台账的读—改—写要整段互斥（TASK-132）。
+#:
+#: 在这之前只有一条写路径（模型那一轮的 `feedback.ui`），一次一条链，窗口窄到
+#: 看不见。现在多了一条**直接提交**的路径（他点一个元素、写一句话、发送），两条
+#: 会同时进来 —— `_load_feedback()` → 改 → `_save_feedback()` 之间隔着一次磁盘读
+#: 和一次序列化，谁后写谁把对方那条意见整个覆盖掉，而且两边都回「已记录」。
+#:
+#: **锁必须罩到落盘之后才释放**，不能只罩住去重判断：先判重、放开、再写，
+#: 等于把窗口从「读到写」缩成「判到写」——还是那扇窗（同仓另一个会话今天在
+#: 生成路径上正是这么被判 P1 的）。
+_FEEDBACK_LOCK = threading.RLock()
+
+
+def _next_feedback_id(doc: dict) -> int:
+    """下一个意见编号 = **现有最大号 + 1**，不是 `len(items) + 1`。
+
+    台账只留最近 `_CONV_FEEDBACK_MAX_ITEMS` 条（它是给开发看的输入，不是永久档案）。
+    按长度派号的话，条数一旦顶到上限，`len + 1` 就恒等于 501 —— **之后每一条新意见
+    都拿到同一个编号**。而屏幕上回的是「已记录 #501」、开发那边按编号找的也是它，
+    于是「第 501 号」同时指着十几条不同的意见。
+
+    编号是他用来指认某一条意见的**名字**，重名就没有指认。
+    """
+    top = 0
+    for x in doc.get("items") or []:
+        n = x.get("id") if isinstance(x, dict) else None
+        if isinstance(n, int) and n > top:
+            top = n
+    return top + 1
+
+
 def _save_feedback(doc: dict) -> bool:
     target = _feedback_path()
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -574,10 +605,130 @@ def _conv_where(context) -> dict:
         val = context.get(key)
         if isinstance(val, str) and val.strip():
             out[key] = val.strip()[:limit]
+    # 他点中的那个元素（TASK-132）。**白名单必须在这里开口子** —— 上面那个循环只
+    # 认已列出的页面字段，前端多送一个 `target` 会被整段丢掉：页面上看着记下了，
+    # 开发那边收到的还是页面级线索，而这正是本卡要消除的那个缺口。
+    target = _conv_target(context.get("target"))
+    if target:
+        out["target"] = target
     space = out.get("spaceLabel", "")
     page = out.get("moduleLabel") or out.get("module") or ""
     out["page"] = f"{space} · {page}" if space and page else page
     return out
+
+
+#: 一个元素快照里允许的字段与上限。**服务端自己校验，不信前端**。
+_TARGET_FIELDS = (
+    ("uiId", 120),  # 稳定业务标记（`data-ui-id`），跨重渲染仍成立
+    ("component", 120),  # 画它的那个组件/区块
+    ("label", 200),  # 屏幕上看得见的那几个字，截断
+    ("selector", 300),  # 只作线索：CSS 路径不是稳定身份
+    ("source", 200),  # 画这一页的文件，相对路径
+    ("episodeId", 64),
+    ("shotId", 64),
+)
+
+
+def _conv_target(raw) -> dict:
+    """校验一个元素快照。**不合格就整个丢掉，不修补。**
+
+    `source` 单独说：它只是**线索**，服务端绝不据它去读任何文件。所以这里只做形状
+    校验（相对路径、不许 `..`、不许盘符/根），把「一个像路径的字符串」和「一条可以
+    拿去打开的路径」这两件事分开 —— 前者存进台账给人看，后者从来不存在。
+    """
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for key, limit in _TARGET_FIELDS:
+        val = raw.get(key)
+        if not isinstance(val, str) or not val.strip():
+            continue
+        val = val.strip()[:limit]
+        if key == "source" and not _looks_like_repo_relative(val):
+            continue
+        out[key] = val
+    rect = raw.get("rect")
+    if isinstance(rect, dict):
+        # CSS 像素，参照系是**视口左上角**（前端用 getBoundingClientRect 取的）。
+        # 存下来只为回看时能把框画回去；它随滚动与窗口尺寸变化，不是身份。
+        box = {}
+        for k in ("x", "y", "w", "h"):
+            v = rect.get(k)
+            if isinstance(v, (int, float)) and -1e5 < v < 1e5:
+                box[k] = round(float(v), 1)
+        if len(box) == 4:
+            out["rect"] = box
+    return out
+
+
+def _looks_like_repo_relative(p: str) -> bool:
+    """像不像一条仓库内的相对路径。**只判形状，不碰磁盘。**"""
+    if p.startswith(("/", "\\")) or ".." in p.replace("\\", "/").split("/"):
+        return False
+    return ":" not in p
+
+
+def _record_element_feedback(body: dict) -> tuple:
+    """他点中一个元素、写一句话、发送 —— **直接进台账，不经模型**（TASK-132）。
+
+    为什么另开一条路，而不是复用 `feedback.ui` 那一轮：那条路要模型先跑完、从回答里
+    把 `feedback.ui` 摘出来，于是「他写的那句话能不能记下」取决于模型这一轮的表现。
+    一条意见的原文是**他的东西**，不该由模型的成败决定它存不存在。所以这条路
+    **不跑模型、不改 canvas**，只做一件事：把原文和元素定位写进账户级台账。
+
+    幂等靠他自己的 `annotationId`（前端生成）：**不借用 runId** —— 那是模型那一轮的
+    身份，为了迁就现有去重而伪造一个，会让两条本来无关的路径共用一个命名空间。
+
+    Returns `(status, payload)`。
+    """
+    if not isinstance(body, dict):
+        return 400, {"error": {"category": "bad_request", "detail": "body 不是对象"}}
+    text = body.get("text")
+    if not isinstance(text, str) or not text.strip():
+        return 400, {"error": {"category": "bad_request", "detail": "意见正文是空的"}}
+    ann = body.get("annotationId")
+    if not isinstance(ann, str) or not ann.strip():
+        return 400, {"error": {"category": "bad_request", "detail": "缺 annotationId"}}
+    ann = ann.strip()[:64]
+    project = body.get("project")
+    project = project.strip()[:120] if isinstance(project, str) else ""
+
+    # **整段互斥，直到落盘。** 判重、派号、追加、写文件在同一把锁里；先判后放
+    # 再写会把窗口从「读到写」缩成「判到写」，那还是同一扇窗。
+    with _FEEDBACK_LOCK:
+        doc = _load_feedback()
+        for x in doc["items"]:
+            if isinstance(x, dict) and x.get("annotationId") == ann:
+                # 重发同一条（网络重试、他连点两下）不产生第二条意见，
+                # 而且回的是**原来那个编号** —— 否则他会以为记了两条。
+                return 200, {"ok": True, "id": x.get("id"), "duplicate": True}
+        where = _conv_where(body.get("context"))
+        item = {
+            "id": _next_feedback_id(doc),
+            # 这条不是模型那一轮产生的，所以**没有 runId**。留空而不是编一个：
+            # 读的人据此就知道它是他自己直接提的，不是从某轮回答里摘出来的。
+            "runId": "",
+            "annotationId": ann,
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "project": project,
+            "page": where.get("page", ""),
+            "where": where,
+            "text": text.strip()[:_CONV_VALUE_MAX],
+            "expect": "",
+            "status": "new",
+        }
+        doc["items"].append(item)
+        doc["items"] = doc["items"][-_CONV_FEEDBACK_MAX_ITEMS:]
+        if not _save_feedback(doc):
+            # 写失败就**说写失败**，不回 ok —— 前端据此保留草稿让他重试。
+            # 「保存失败却像成功」是这条路最不能有的行为。
+            return 500, {
+                "error": {
+                    "category": "write_failed",
+                    "detail": "意见没能写进台账（磁盘写入失败）",
+                }
+            }
+    return 200, {"ok": True, "id": item["id"], "duplicate": False}
 
 
 def _file_feedback(project: str, run_id: str, context, rows) -> list:
@@ -585,8 +736,18 @@ def _file_feedback(project: str, run_id: str, context, rows) -> list:
 
     Returns 落好的条目摘要，供写回那一轮的 `applied`。
     """
+    # **和直接提交那条路共用同一把锁**（TASK-132）。两条路写同一份台账，各自
+    # 读—改—写就会互相覆盖，而且两边都回「已记录」。锁是 `RLock`，所以这里面
+    # 再调 `_next_feedback_id` / `_save_feedback` 不会自锁。
+    with _FEEDBACK_LOCK:
+        return _file_feedback_locked(project, run_id, context, rows)
+
+
+def _file_feedback_locked(project: str, run_id: str, context, rows) -> list:
     doc = _load_feedback()
-    seen = {x.get("runId") for x in doc["items"] if isinstance(x, dict)}
+    seen = {
+        x.get("runId") for x in doc["items"] if isinstance(x, dict) and x.get("runId")
+    }
     if run_id in seen:
         return [
             {
@@ -605,7 +766,8 @@ def _file_feedback(project: str, run_id: str, context, rows) -> list:
         if not isinstance(text, str) or not text.strip():
             continue
         item = {
-            "id": len(doc["items"]) + 1,
+            # `len + 1` 在台账顶到上限之后会永远派出同一个号（见 `_next_feedback_id`）
+            "id": _next_feedback_id(doc),
             "runId": run_id,
             "createdAt": datetime.now(timezone.utc).isoformat(),
             "project": project,
@@ -4548,6 +4710,17 @@ class _App:
                     },
                 )
             return self._runs_post(raw_path, body)
+        if path == "/api/feedback/element":
+            # 他点中一个元素写的一句话。**不跑模型、不碰 canvas** —— 只写账户级
+            # 意见台账，所以它不在 `/api/agent/*` 那一族里（那些都要起一轮）。
+            try:
+                parsed = json.loads(body.decode("utf-8")) if body else None
+            except (UnicodeDecodeError, ValueError):
+                return _json(
+                    400,
+                    {"error": {"category": "bad_request", "detail": "body 不是 JSON"}},
+                )
+            return _json(*_record_element_feedback(parsed))
         if path == "/api/agent/shots-draft":
             return self._agent_shots_draft(body, headers)
         if path == "/api/agent/bible-breakdown":

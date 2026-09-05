@@ -130,7 +130,14 @@ test("发送走服务层的 conversation 端点，且带 CSRF 头", () => {
 test("production 真的挂了对话：渲染、发送、取消、首次加载", () => {
   const src = readFileSync(join(HERE, "..", "src", "ui", "production.js"), "utf8");
   assert.match(src, /renderThread\(threadModel\(/);
-  assert.match(src, /onSend: \(text\) => sendConversationTurn/);
+  // 守的是「`onSend` 真的接到了一条发送路径」，**不是它写成哪一行**。
+  // 上一版钉的是 `onSend: (text) => sendConversationTurn` 这串字面量；
+  // TASK-132 给它加了一个分支（锁定了页面元素时走直接提交那条路），
+  // 于是一个**行为完全正确**的改动把它弄红了 —— 断言写法而不是性质的老毛病。
+  assert.match(src, /onSend:[\s\S]{0,240}sendConversationTurn\(/);
+  // 而那条新分支也要真的接上：只写上面一条的话，「锁了元素却仍然走模型」
+  // 这个回归照样绿（TASK-132：他的原文不该由模型这一轮的成败决定存不存在）。
+  assert.match(src, /onSend:[\s\S]{0,240}submitElementFeedback\(/);
   assert.match(src, /data-cv-cancel/);
   assert.match(src, /ensureConversation\(ctx\)/);
 });
