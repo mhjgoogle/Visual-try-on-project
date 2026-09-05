@@ -84,6 +84,10 @@ CONVERTED_BINDERS = {
         "function bindWorldWs(root, ctx, ui, rerender = () => {}) {",
     ),
     "biblews.js": ("biblews.js", "function bindBibleWs(root, ctx, ui, rerender) {"),
+    # TASK-129 切片 2：关系的**结构**（建 / 删 / 拿回来 / 改方向）进表了。
+    # 删除同时从硬删除改成了软删除 + 回收区 —— 「不可逆的不许进表」那道准入检查
+    # 因此不是被绕过，是先把它变成可逆的（AGENTS.md §1「回不了头是缺陷」）。
+    "relws.js": ("relws.js", "function bindRelWs(root, ctx, ui, rerender) {"),
 }
 
 #: 未接线的 bind 函数：直接写的**种类**钉死在这里 —— 只能减少，不能增加。
@@ -93,11 +97,6 @@ DEFERRED_BINDERS = {
         "epplanws.js",
         "function bindEpPlanWs(root, ctx, ui, rerender) {",
         frozenset({"setCharacterBeat", "setRelationshipBeat", "setTextBeats", "stamp"}),
-    ),
-    "relws.js": (
-        "relws.js",
-        "function bindRelWs(root, ctx, ui, rerender) {",
-        frozenset({"addRelationship", "removeRelationship", "swapDirection"}),
     ),
     "workspaces.js#settings": (
         "workspaces.js",

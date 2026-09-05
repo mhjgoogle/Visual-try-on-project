@@ -1383,26 +1383,41 @@ const ctx = {
     },
     addCharacter: (name, tier) => prodNew(bibledoc.addCharacter(productionDoc, name, tier)),
     renameCharacter: (id, name) => prodOp(bibledoc.renameCharacter(productionDoc, id, name)),
-    removeCharacter: (id) => prodOp(bibledoc.removeCharacter(productionDoc, id)),
+    // 删除一律是**软删除**（TASK-129 / CA §5.2）：记录移进回收区，撤销走
+    // 下面成对的 `undelete*`。时间戳只给他看，不参与任何判定。
+    removeCharacter: (id) =>
+      prodOp(bibledoc.removeCharacter(productionDoc, id, new Date().toISOString())),
+    undeleteCharacter: (id) => prodOp(bibledoc.undeleteCharacter(productionDoc, id)),
     updateCharacterProfile: (id, fields) => prodOp(bibledoc.updateCharacterProfile(productionDoc, id, fields)),
     setCharacterVoice: (id, voice) => prodOp(bibledoc.setCharacterVoice(productionDoc, id, voice)),
     addCharacterState: (id, name) => prodNew(bibledoc.addCharacterState(productionDoc, id, name)),
     renameCharacterState: (id, sid, name) => prodOp(bibledoc.renameCharacterState(productionDoc, id, sid, name)),
-    removeCharacterState: (id, sid) => prodOp(bibledoc.removeCharacterState(productionDoc, id, sid)),
+    removeCharacterState: (id, sid) =>
+      prodOp(bibledoc.removeCharacterState(productionDoc, id, sid, new Date().toISOString())),
+    undeleteCharacterState: (id, sid) =>
+      prodOp(bibledoc.undeleteCharacterState(productionDoc, id, sid)),
     setCharacterStateOverrides: (id, sid, o) => prodOp(bibledoc.setCharacterStateOverrides(productionDoc, id, sid, o)),
     // TASK-057: a character may be created as a formal or a temporary (bit)
     // one, and promoted later without losing its identity or references
     setCharacterTier: (id, tier) => prodOp(bibledoc.setCharacterTier(productionDoc, id, tier)),
     addLocation: (name) => prodNew(bibledoc.addLocation(productionDoc, name)),
     renameLocation: (id, name) => prodOp(bibledoc.renameLocation(productionDoc, id, name)),
-    removeLocation: (id) => prodOp(bibledoc.removeLocation(productionDoc, id)),
+    removeLocation: (id) =>
+      prodOp(bibledoc.removeLocation(productionDoc, id, new Date().toISOString())),
+    undeleteLocation: (id) => prodOp(bibledoc.undeleteLocation(productionDoc, id)),
     updateLocationProfile: (id, fields) => prodOp(bibledoc.updateLocationProfile(productionDoc, id, fields)),
     addLocationState: (id, name) => prodNew(bibledoc.addLocationState(productionDoc, id, name)),
     renameLocationState: (id, sid, name) => prodOp(bibledoc.renameLocationState(productionDoc, id, sid, name)),
-    removeLocationState: (id, sid) => prodOp(bibledoc.removeLocationState(productionDoc, id, sid)),
+    removeLocationState: (id, sid) =>
+      prodOp(bibledoc.removeLocationState(productionDoc, id, sid, new Date().toISOString())),
+    undeleteLocationState: (id, sid) =>
+      prodOp(bibledoc.undeleteLocationState(productionDoc, id, sid)),
     setLocationStateOverrides: (id, sid, o) => prodOp(bibledoc.setLocationStateOverrides(productionDoc, id, sid, o)),
     addReferenceAsset: (id, assetId) => prodOp(bibledoc.addReferenceAsset(productionDoc, id, assetId)),
-    removeReferenceAsset: (id, assetId) => prodOp(bibledoc.removeReferenceAsset(productionDoc, id, assetId)),
+    removeReferenceAsset: (id, assetId) =>
+      prodOp(bibledoc.removeReferenceAsset(productionDoc, id, assetId)),
+    undeleteReferenceAsset: (id, assetId) =>
+      prodOp(bibledoc.undeleteReferenceAsset(productionDoc, id, assetId)),
     setActiveReferenceAsset: (id, assetId) => prodOp(bibledoc.setActiveReferenceAsset(productionDoc, id, assetId)),
     addSceneCharacter: (sceneId, cid, sid) => prodOp(bibledoc.addSceneCharacter(productionDoc, sceneId, cid, sid)),
     setSceneCharacterState: (sceneId, cid, sid) => prodOp(bibledoc.setSceneCharacterState(productionDoc, sceneId, cid, sid)),
@@ -1417,7 +1432,11 @@ const ctx = {
   canon: {
     // --- Relationship (first-class, exactly two characters) ---------------- //
     addRelationship: (a, b) => prodNew(canondoc.addRelationship(productionDoc, a, b)),
-    removeRelationship: (id) => prodOp(canondoc.removeRelationship(productionDoc, id)),
+    removeRelationship: (id) =>
+      prodOp(canondoc.removeRelationship(productionDoc, id, new Date().toISOString())),
+    // 拿回来会在「这一对已经有一段活着的关系」时被拒（canondoc 里写明了为什么
+    // 不静默合并也不静默替换）—— `prodOp` 把 false 原样传出去，界面照实说。
+    undeleteRelationship: (id) => prodOp(canondoc.undeleteRelationship(productionDoc, id)),
     updateRelationship: (id, fields) => prodOp(canondoc.updateRelationship(productionDoc, id, fields)),
     /** 改方向 — swap which side is A. The two DIRECTIONAL facets travel with it
      *  (canondoc), so flipping the arrow can never leave 「A 怎么看 B」 describing

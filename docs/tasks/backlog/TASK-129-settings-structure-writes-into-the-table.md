@@ -23,8 +23,12 @@
 **`epplanws.js::bindEpPlanWs`** —— 分集规划里的节拍与上游戳：
 `setCharacterBeat` · `setRelationshipBeat` · `setTextBeats` · `stamp`
 
-**`relws.js::bindRelWs`** —— 关系的结构：
-`addRelationship` · `removeRelationship` · `swapDirection`
+~~**`relws.js::bindRelWs`** —— 关系的结构：
+`addRelationship` · `removeRelationship` · `swapDirection`~~
+**已接进表（2026-09-05，切片 2）**：`relationship.add` / `.remove` / `.restore` / `.swap`，
+界面走 `uiAct`，`bindRelWs` 已移入 `CONVERTED_BINDERS`。`removeRelationship` 接进去之前
+先改成了软删除 + 回收区（切片 1），回收区在关系图上有入口 —— 只有 Agent 撤销得了
+而他不能，会把 REQ-006 判据 1 反过来。
 
 **`workspaces.js::bindSettings`** —— 作品设定里的实体与状态：
 `addCharacter` · `renameCharacter` · `removeCharacter` ·

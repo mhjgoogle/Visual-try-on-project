@@ -89,6 +89,42 @@ function ensureCharacter(ctx, who) {
   return { rec: made, created: true };
 }
 
+/** 一段关系的两头是不是这两个人（`characterIds`，不是 `aId/bId`）。
+ *
+ *  字段名值得留一句：`r.aId` / `r.aName` 在这份文档里**根本不存在**，而按它们去找
+ *  会安静地永远找不到 —— 于是「就算关系已经建好也照报『没有这段关系』」。
+ *  这个坑 `relationship.fields` 踩过一次，写在这里免得第三次。 */
+function relBetween(ctx, aId, bId) {
+  const list = (ctx.prodData().production.relationships) || [];
+  const has = (r, id) => (r.characterIds || []).includes(id);
+  return list.find((r) => has(r, aId) && has(r, bId)) || null;
+}
+
+/** 解析「哪一段关系」：界面给 `relationshipId`，Agent 给两个人物名字。
+ *
+ *  **不新建人物**（与 `relationship.add` 的差别）：删除和改方向针对的是一段
+ *  已经存在的关系，为了执行它而先造一个人物出来是荒谬的。 */
+function resolveRel(ctx, x) {
+  if (!ctx.canon) throw new Error("这个项目没有人物关系");
+  const list = (ctx.prodData().production.relationships) || [];
+  const rid = String(x.relationshipId || "").trim();
+  if (rid) {
+    const rec = list.find((r) => r.relationshipId === rid);
+    if (!rec) throw new Error(`没有这段关系：${rid}`);
+    return rec;
+  }
+  const an = String(x.a || "").trim();
+  const bn = String(x.b || "").trim();
+  if (!an || !bn) throw new Error("没说是哪一段关系（给 relationshipId，或者两个人物名字）");
+  const chars = (ctx.prodData().production.characters) || [];
+  const A = chars.find((c) => c.characterId === an || c.name === an);
+  const B = chars.find((c) => c.characterId === bn || c.name === bn);
+  if (!A || !B) throw new Error(`人物里没有「${!A ? an : bn}」`);
+  const rec = relBetween(ctx, A.characterId, B.characterId);
+  if (!rec) throw new Error(`「${an} — ${bn}」之间还没有关系`);
+  return rec;
+}
+
 /** 按名字拿场景地 —— **没有就新建**（同 `ensureCharacter`）。 */
 function ensureLocation(ctx, who) {
   const list = (ctx.prodData().production.locations) || [];
@@ -617,6 +653,90 @@ const ACTIONS = [
       }
       ctx.canon.updateRelationship(rec.relationshipId, fields);
       return { said: `${head}「${an} — ${bn}」写了 ${Object.keys(fields).length} 栏` };
+    },
+  },
+  // --- 关系的**结构**（TASK-129）：建 / 删 / 拿回来 / 改方向 --------------- //
+  //
+  // `relationship.fields` 管的是一段关系**写了什么**；这四条管的是**有没有这段
+  // 关系、它朝哪边**。分开是因为它们的可逆性不一样：改字段改回去就行，
+  // 删一段关系在切片 1 之前是不可逆的（现在是软删除 + 回收区）。
+  //
+  // 两种叫法都收：界面手里有 `relationshipId`，Agent 说的是「林照和阿夏的关系」。
+  // 两条路解析到同一条记录，`relationship.fields` 早就是这么做的。
+  {
+    id: "relationship.add",
+    label: "建立一段人物关系",
+    doc: "bible",
+    undo: "relationship.remove（软删除，回收区里拿得回来）",
+    args: { a: "一方（人物名字）", b: "另一方（人物名字）" },
+    apply: (ctx, x) => {
+      if (!ctx.canon || !ctx.canon.addRelationship) throw new Error("这个项目加不了人物关系");
+      const an = String(x.a || "").trim();
+      const bn = String(x.b || "").trim();
+      if (!an || !bn) throw new Error("没说是哪两个人的关系");
+      if (an === bn) throw new Error("一段关系要两个不同的人");
+      const A = ensureCharacter(ctx, an);
+      const B = ensureCharacter(ctx, bn);
+      if (relBetween(ctx, A.rec.characterId, B.rec.characterId)) {
+        throw new Error(`「${an} — ${bn}」已经有一段关系了 —— 改它用 relationship.fields`);
+      }
+      const rec = ctx.canon.addRelationship(A.rec.characterId, B.rec.characterId);
+      if (!rec) throw new Error(`加不了「${an} — ${bn}」这段关系`);
+      const made = [A.created ? `人物「${an}」` : "", B.created ? `人物「${bn}」` : ""].filter(Boolean);
+      const head = made.length ? `新建了${made.join("、")}，并` : "";
+      return { said: `${head}建立了「${an} — ${bn}」的关系`, relationshipId: rec.relationshipId };
+    },
+  },
+  {
+    id: "relationship.remove",
+    label: "删掉一段人物关系",
+    doc: "bible",
+    undo: "relationship.restore —— 软删除，回收区里拿得回来；各集已记的推进不受影响",
+    args: { relationshipId: "关系 id（界面给）", a: "一方（人物名字）", b: "另一方" },
+    apply: (ctx, x) => {
+      const rec = resolveRel(ctx, x);
+      if (!ctx.canon.removeRelationship(rec.relationshipId)) {
+        // 唯一的拒绝原因就是它：有剧集记录了这段关系的推进。说出**怎么办**，
+        // 不只说「失败」—— 那条推进是他写的创作史，得由他自己决定要不要撤。
+        throw new Error("有剧集记录了这段关系的推进：先在「分集规划」移除该集的关系节拍");
+      }
+      return { said: "删掉了这段关系（回收区里还能拿回来）" };
+    },
+  },
+  {
+    id: "relationship.restore",
+    label: "把删掉的关系拿回来",
+    doc: "bible",
+    undo: "relationship.remove",
+    args: { relationshipId: "关系 id" },
+    apply: (ctx, x) => {
+      const rid = String(x.relationshipId || "").trim();
+      if (!rid) throw new Error("没说要拿回哪一段关系");
+      if (!ctx.canon || !ctx.canon.undeleteRelationship) throw new Error("这个项目拿不回关系");
+      if (!ctx.canon.undeleteRelationship(rid)) {
+        // 两种失败分开说：回收区里没有它，和这一对已经有活着的关系了。
+        // 后者不是错误，是他自己后来又建了一段 —— 得由他决定留哪一段。
+        const inBin = (ctx.prodData().production.deletedRelationships || [])
+          .some((r) => r.relationshipId === rid);
+        throw new Error(
+          inBin
+            ? "这两个人之间已经有一段活着的关系了 —— 一对人物只能有一段。要旧的那段，先把现在这段删掉"
+            : `回收区里没有这段关系：${rid}`,
+        );
+      }
+      return { said: "这段关系回来了" };
+    },
+  },
+  {
+    id: "relationship.swap",
+    label: "调换一段关系的方向",
+    doc: "bible",
+    undo: "relationship.swap（再调一次就换回来）",
+    args: { relationshipId: "关系 id（界面给）", a: "一方（人物名字）", b: "另一方" },
+    apply: (ctx, x) => {
+      const rec = resolveRel(ctx, x);
+      if (!ctx.canon.swapDirection(rec.relationshipId)) throw new Error("调换不了方向");
+      return { said: "已调换方向（「A 怎么看 B」与「B 怎么看 A」一起跟着换了）" };
     },
   },
   {

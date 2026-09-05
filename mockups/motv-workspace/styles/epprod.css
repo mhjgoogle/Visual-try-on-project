@@ -976,6 +976,14 @@
 .rg { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
 .rg-bar { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
 .rg-bar .push { flex: 1; }
+/* 回收区那一行（TASK-129）：删过关系才出现。视觉上明显弱于图上的关系，
+   但必须看得见 —— 撤销那条路只有 Agent 走得了的话，就把「他能点的 = 它能做的」
+   反过来了。 */
+.rg-bin {
+  display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
+  padding: var(--s2) var(--s3); border-top: 1px dashed var(--line);
+}
+.rg-bin .chip { display: inline-flex; align-items: center; gap: var(--s1); }
 .rg-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 340px); gap: var(--s4); }
 @media (max-width: 1180px) { .rg-body { grid-template-columns: minmax(0, 1fr); } }
 .rg-canvas {
