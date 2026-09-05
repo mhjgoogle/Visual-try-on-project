@@ -1577,6 +1577,18 @@
             "tests/tooling/test_docs_links.py"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "4b7ab24527114bd757b21501e85c78715f848fbe",
+          "subject": "fix: 薄入口同步检查只在原地主树绿 —— 归一化写了，又在前面一行自己绕开了",
+          "time": "2026-09-05T11:32:38+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            ".claude/tools/agent_harness.py",
+            "tests/tooling/test_agent_harness.py"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
@@ -1934,11 +1946,25 @@
           "subject": "按钮放错了地方 —— 他找不到是对的（TASK-139 · three-pane）",
           "time": "2026-09-05T11:28:53+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/tasks/active/TASK-139-images-from-my-own-account.md",
             "mockups/motv-workspace/src/app.js",
             "mockups/motv-workspace/src/ui/gencard.js",
+            "mockups/motv-workspace/tests/gencardauto.test.mjs"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "47c90b09ac0fb5f698bc98f17de35be8924d4eb8",
+          "subject": "出图按钮放到他真正在看的那一屏 —— 第三次才对（TASK-139 · three-pane）",
+          "time": "2026-09-05T11:55:23+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/STATUS.md",
+            "docs/tasks/active/TASK-139-images-from-my-own-account.md",
+            "mockups/motv-workspace/src/ui/epcanvas.js",
             "mockups/motv-workspace/tests/gencardauto.test.mjs"
           ],
           "scope_violation": null
@@ -2132,10 +2158,63 @@
       "verification": "PASS",
       "verification_ref": "pytest tests/tooling 379 passed/1 skipped; lifecycle_check 0 finding; codex review 2 rounds pass (4 gates clean) on c6791eb",
       "declared": "2026-09-05T10:56:38+00:00"
+    },
+    "TASK-132": {
+      "commits": [
+        {
+          "hash": "597f4264b864974694da302829ed13e79097625d",
+          "subject": "feat: 点一个界面元素写意见 —— 原文直接进台账，不经模型（TASK-132 切片 A）",
+          "time": "2026-09-05T11:43:39+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/tasks/active/TASK-132-click-ui-element-and-leave-feedback.md",
+            "mockups/motv-workspace/server.py",
+            "mockups/motv-workspace/src/services/conversation.js",
+            "mockups/motv-workspace/src/ui/elementfeedback.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/tests/convthread.test.mjs",
+            "mockups/motv-workspace/tests/elementfeedback.test.mjs",
+            "tests/studio/test_element_feedback_task132.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "4403934b9c2c9a4419f04cdd61a83fd5ad28e993",
+          "subject": "docs(TASK-087 §6.9): 订正 —— 我把一个可查的根因当成了环境噪音",
+          "time": "2026-09-05T11:46:12+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/tasks/active/TASK-087-followup-ledger.md"
+          ],
+          "scope_violation": [
+            "docs/tasks/active/TASK-087-followup-ledger.md"
+          ]
+        }
+      ],
+      "paths": [
+        "docs/tasks/active/TASK-087-followup-ledger.md",
+        "docs/tasks/active/TASK-132-click-ui-element-and-leave-feedback.md",
+        "docs/tasks/backlog/TASK-132-click-ui-element-and-leave-feedback.md",
+        "mockups/motv-workspace/server.py",
+        "mockups/motv-workspace/src/services/conversation.js",
+        "mockups/motv-workspace/src/ui/elementfeedback.js",
+        "mockups/motv-workspace/src/ui/production.js",
+        "mockups/motv-workspace/tests/convthread.test.mjs",
+        "mockups/motv-workspace/tests/elementfeedback.test.mjs",
+        "tests/studio/test_element_feedback_task132.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "TASK-132 切片 A + §6.9 订正：前端 2204 passed · studio+contract 923 passed · 四处变异验证 · lifecycle_check 0 finding · ruff 通过。TASK-087 §6.9 是本轮订正自己写下的那条记录（把可查根因误判成环境噪音），归本卡",
+      "declared": "2026-09-05T11:46:43+00:00"
     }
   },
   "merge_gate": {
-    "status": "PENDING"
+    "status": "PASS",
+    "by": "最终全量在**独立 worktree** @ 4b7ab24 跑（共享树里有八个会话的在制品，在那里跑证明不了已提交状态）：pytest -n 8 not-serial 3996 passed/59 skipped + pytest -m serial 6 passed，两阶段 exit 0；前端 node --test 2185 passed/0 failed；ruff check + format 全仓干净（720 files）；lifecycle_check 0 finding；薄入口 check 五项 unchanged。待复审清单未闭合条目 0（TASK-122/126 那四个自称未经独立审查的提交已分三块补审：块 2a codex 15 轮修 23 条、块 2b 2 轮修 2 条、块 1 2 轮修 6 条，第 6 轮起全为真 codex，独立性未降级）。无未闭合 P1。产品负责人 2026-09-05 定：合并但**不删分支**（八个会话仍在其上作业）",
+    "time": "2026-09-05T11:40:43+00:00",
+    "tip": "4b7ab24527114bd757b21501e85c78715f848fbe"
   },
   "merge": null,
   "cleanup": null
