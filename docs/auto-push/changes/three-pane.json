@@ -2634,7 +2634,7 @@
           "subject": "fix(tests): 对话分线的三条断言依赖「run 还没落地」—— 那是时序，不是分线（TASK-140 · three-pane）",
           "time": "2026-09-05T16:18:23+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/auto-push/changes/three-pane.json",
             "tests/studio/test_motv_conversation_task109.py"
@@ -2646,7 +2646,7 @@
           "subject": "fix(ci): 三条守卫的判定取决于自己跑在哪 —— 那是 AGENTS §3 禁的东西（TASK-140 · three-pane）",
           "time": "2026-09-05T16:46:35+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             ".claude/tools/gen_docs_status.py",
             "docs/STATUS.md",
@@ -2662,6 +2662,7 @@
         ".claude/tools/agent_harness.py",
         ".claude/tools/gen_docs_status.py",
         ".claude/tools/gh-api.py",
+        ".github/workflows/ci.yml",
         "docs/STATUS.md",
         "docs/tasks/active/TASK-134-*.md",
         "docs/tasks/active/TASK-140-*.md",
@@ -2673,8 +2674,8 @@
         "tests/tooling/test_docs_links.py"
       ],
       "verification": "PASS",
-      "verification_ref": "Windows: pytest tests/tooling 385 passed；WSL Ubuntu-22.04/3.10: docs_links + docs_status 25 passed（同一份 STATUS.md 两平台都绿）；_strip_fences 另有 7 条形状用例。gate_ps1 的 pwsh-7 分支本地三处都没有 pwsh，只能由 CI 验证",
-      "declared": "2026-09-05T16:40:17+00:00"
+      "verification_ref": "Windows: pytest tests/tooling 385 passed + node --test 前端 2247 passed/0 failed（本机 Node 24）；WSL Ubuntu-22.04/3.10: docs_links + docs_status 25 passed；_CODE_SPAN 另有 7 条形状用例（含孤立反引号不吃整行）",
+      "declared": "2026-09-05T17:08:22+00:00"
     }
   },
   "merge_gate": {

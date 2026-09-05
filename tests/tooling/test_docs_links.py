@@ -58,6 +58,14 @@ _SCRATCH = (".claude", "tmp")
 _FENCE = re.compile(r"^\s{0,3}(`{3,}|~{3,})", re.MULTILINE)
 
 
+#: 行内代码跨（`…`）。同一个理由：反引号里的东西是被原样打印的文本，
+#: markdown 不会把它渲染成链接。这一条是围栏那条的**同类** —— 本卡自己在讲
+#: 「守卫漏了围栏」时，就在表格里写了一遍那个模板，于是守卫又红了一次。
+#: 按 CommonMark，闭合的反引号串必须和开启的一样长；这里只在**行内**匹配，
+#: 跨行代码跨（罕见）不处理 —— 宁可漏报，不误杀。
+_CODE_SPAN = re.compile(r"(`+)(?:(?!\1)[^\n])+\1")
+
+
 def _strip_fences(text: str) -> str:
     """去掉围栏代码块，保留行数无关（这里只做存在性判定，不报行号）。
 
@@ -99,7 +107,9 @@ def _markdown_files() -> list[Path]:
 def test_every_relative_markdown_link_resolves() -> None:
     broken: list[str] = []
     for md in _markdown_files():
-        text = _strip_fences(md.read_text(encoding="utf-8", errors="replace"))
+        text = _CODE_SPAN.sub(
+            "", _strip_fences(md.read_text(encoding="utf-8", errors="replace"))
+        )
         for target in _LINK.findall(text):
             target = target.strip()
             if not target or target.startswith(_EXTERNAL):

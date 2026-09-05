@@ -166,6 +166,33 @@ Ubuntu-22.04 / Python 3.10 上实跑过（同一份 `STATUS.md` 在两个平台�
 报的是 `set: pipefail: invalid option name` —— **Windows 检出的 CRLF**，
 AGENTS §3 第 5 条早就写着。CI 用 LF 检出，与它无关。
 
+## 2026-09-06 第三轮：Windows 的 Python 测试全绿了，露出后面那一步
+
+第三次 CI：**Ubuntu 1 failed / Windows 的 pytest（并行 + 串行）全过**。
+前两轮修的东西在 CI 上逐条消失。这一轮的两条都是新露出来的：
+
+**1. Windows 的前端测试步骤从来没有跑过。** 它九天里一直显示 `skipped` ——
+因为前面的 pytest 先红了，后面的步骤根本不执行。这一轮 pytest 绿了，它才第一次
+真的执行，然后立刻失败：
+
+```
+Could not find 'D:\a\...\mockups\motv-workspace\tests\*.test.mjs'
+```
+
+Windows job 的默认 shell 是 **pwsh**，而 **PowerShell 不替原生命令展开通配符** ——
+node 收到的是字面量。修法是给这一步加 `shell: bash`，让两个 job 跑**同一条命令、
+同一个 shell**（ADR-0062 决策 3 要的正是这个形状）。**不**改成引号让 node 自己 glob：
+那需要 Node 21+，而工作流钉的是 Node 20。
+
+本机（Windows，Node 24）实跑那 122 个文件：**2247 passed / 0 failed**。
+如实记一条缺口：**CI 用的是 Node 20，我本机是 24**，所以「Windows 上前端会绿」
+这句话我只有 Node 24 的证据。
+
+**2. 链接守卫还得跳过行内代码。** 上一轮加了围栏跳过之后，剩下的唯一一条断链
+**是本卡自己造的** —— 上面那段讲「守卫漏了围栏」的表格里，把那个模板原样写了
+一遍（在反引号里）。反引号里的东西同样不会被渲染成链接，是同一类。已加
+`_CODE_SPAN`，并补了「孤立反引号不得吃掉整行」的用例，免得它变成一个漏报机器。
+
 ### D 剩下的一条
 
 `test_gate_ps1_splits_powershell_with_powershells_own_parser` 在 Ubuntu CI 上红，
