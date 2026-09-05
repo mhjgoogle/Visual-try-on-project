@@ -127,6 +127,23 @@
             "mockups/motv-workspace/tests/persistence.test.mjs"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "2b651fe5951a486e8dcc0685e52a078795d5bf7c",
+          "subject": "fix(motv): 看门狗的守卫改成触发真回调；录白膜不再录到那块被换掉的画布（TASK-087 §6.12 / §5.22）",
+          "time": "2026-09-05T15:41:50+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "mockups/motv-workspace/src/ui/bkrecord.js",
+            "mockups/motv-workspace/src/ui/editlock.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/tests/bkrecord.test.mjs",
+            "mockups/motv-workspace/tests/persistence.test.mjs"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
