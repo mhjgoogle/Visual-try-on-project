@@ -1658,6 +1658,20 @@
             "docs/adr/ADR-0099-resume-is-not-a-retry.md"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "0ce8f72f394d2d004189a59354b24a60dd4fa89b",
+          "subject": "EP-002：回写命令的第二条没带 pathspec —— 那不是手滑，是共享树上必然发生（TASK-136 · three-pane）",
+          "time": "2026-09-05T09:21:53+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/three-pane.json",
+            "docs/skill-evolution/backlogs/auto-push.jsonl",
+            "docs/skill-evolution/index.json",
+            "docs/skill-evolution/proposals/EP-002-writeback-commit-needs-a-pathspec.md"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
@@ -1833,16 +1847,14 @@
         }
       ],
       "paths": [
-        "docs/adr/ADR-0099-resume-is-not-a-retry.md",
         "docs/tasks/active/TASK-139-images-from-my-own-account.md",
         "mockups/motv-workspace/credstore.py",
-        "mockups/motv-workspace/imagegen.py",
         "mockups/motv-workspace/server.py",
         "tests/studio/test_account_image_gen_task139.py"
       ],
       "verification": "PASS",
-      "verification_ref": "补审轮 1 的 4 P1 + 1 P2 修复。验证：pytest tests/studio/test_account_image_gen_task139.py 34 passed（全离线，新增 7 条针对性用例）· ruff 全绿。server.py 那部分修复已在 04d980a（归属错但内容完整，卡上写明）。补审轮 2 待跑",
-      "declared": "2026-09-05T09:07:24+00:00"
+      "verification_ref": "补审轮 2 的 3 条新 P1 修复（同意必须是布尔真 / 意外出口也要留下 unknown / 隔离名用尽时停手不覆盖）。验证：41 passed 全离线 · ruff 全绿。REQ-008 判据 2 仍 NOT_EVIDENCED，等真实 key 跑一次，已写进卡片",
+      "declared": "2026-09-05T09:21:29+00:00"
     }
   },
   "merge_gate": {
