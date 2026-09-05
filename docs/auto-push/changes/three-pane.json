@@ -782,14 +782,63 @@
           "scope_violation": [
             "docs/tasks/done/TASK-126-agent-sees-and-changes-everything.md"
           ]
+        },
+        {
+          "hash": "1fcdba3cbe0df557e9fb4abf19a7bb04f7747e28",
+          "subject": "fix: 补审块 2a —— 15 轮，修掉 23 条（其中 3 条会静默吞掉他写的字）",
+          "time": "2026-09-05T05:29:33+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/design/active/pending-codex-rereview.md",
+            "docs/tasks/done/TASK-126-agent-sees-and-changes-everything.md",
+            "mockups/motv-workspace/server.py",
+            "mockups/motv-workspace/src/ui/corews.js",
+            "mockups/motv-workspace/src/ui/draftws.js",
+            "mockups/motv-workspace/src/ui/planws.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/src/workflow/convactions.js",
+            "mockups/motv-workspace/src/workflow/storywork.js",
+            "mockups/motv-workspace/styles/studio.css",
+            "mockups/motv-workspace/tests/convactions.test.mjs",
+            "mockups/motv-workspace/tests/storypages.test.mjs",
+            "mockups/motv-workspace/tests/storywork.test.mjs",
+            "tests/contract/test_agent_reading_map_task122.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "fe9b9b0a060a7ba91acfe2f7ceabf4b0e5f797e2",
+          "subject": "fix: 旅程 e2e 不再跨动作握句柄 —— 偶发不等于不是缺陷",
+          "time": "2026-09-05T05:29:33+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "tests/e2e/test_connected_journey_task130.py"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
-        ".autopush-placeholder"
+        "docs/design/active/pending-codex-rereview.md",
+        "docs/tasks/done/TASK-126-agent-sees-and-changes-everything.md",
+        "mockups/motv-workspace/server.py",
+        "mockups/motv-workspace/src/ui/corews.js",
+        "mockups/motv-workspace/src/ui/draftws.js",
+        "mockups/motv-workspace/src/ui/planws.js",
+        "mockups/motv-workspace/src/ui/production.js",
+        "mockups/motv-workspace/src/workflow/convactions.js",
+        "mockups/motv-workspace/src/workflow/storywork.js",
+        "mockups/motv-workspace/styles/studio.css",
+        "mockups/motv-workspace/tests/convactions.test.mjs",
+        "mockups/motv-workspace/tests/storypages.test.mjs",
+        "mockups/motv-workspace/tests/storywork.test.mjs",
+        "tests/contract/test_agent_reading_map_task122.py",
+        "tests/e2e/test_connected_journey_task130.py"
       ],
       "verification": "PASS",
-      "verification_ref": "补登卡：这十个提交当时无任务卡承载（ORPHAN_IMPLEMENTATION）。各提交自带守卫测试（test_motv_doctor.py / epskeleton.test.mjs 等）；paths 为这十个提交实际触及的面加本卡自身，由 git show --stat 逐个核出",
-      "declared": "2026-09-04T12:47:34+00:00"
+      "verification_ref": "补审块 2a：codex 15 轮（6-15 轮真 codex，独立性未降级），修 23 条，17 条变异验证；前端 2159 passed；pytest tests/studio tests/contract 856 passed/16 skipped；旅程 e2e 连跑 4 次全过；ruff 干净",
+      "declared": "2026-09-05T05:29:25+00:00"
     },
     "TASK-121": {
       "commits": [
@@ -1299,17 +1348,22 @@
       ],
       "paths": [
         ".claude/tools/lifecycle_check.py",
+        "AGENTS.md",
         "docs/STATUS.md",
         "docs/adr/ADR-0098-index-docs-are-not-a-second-contract.md",
+        "docs/current-architecture.md",
         "docs/glossary.md",
         "docs/out-of-scope.md",
         "docs/tasks/active/TASK-133-glossary-and-out-of-scope-index.md",
+        "docs/tasks/backlog/TASK-134-import-linter-layering-contract.md",
+        "docs/tasks/backlog/TASK-135-server-authoritative-workflow-plan.md",
+        "docs/tasks/backlog/TASK-136-generation-resume-and-idempotency.md",
         "docs/tasks/done/TASK-133-glossary-and-out-of-scope-index.md",
         "tests/tooling/test_lifecycle_check.py"
       ],
       "verification": "PASS",
-      "verification_ref": "最终归属域全量 349 passed/1 skipped/0 failed; ruff 全过; lifecycle_check 0 finding; 闸门抓到搬卡断链已修",
-      "declared": "2026-09-05T05:08:51+00:00"
+      "verification_ref": "归属域全量 pytest tests/tooling 349 passed/1 skipped/0 failed; ruff 全过; lifecycle_check 0 finding; codex 两轮补审闭合(轮1三条P1全修/轮2两条证据缺口已补)",
+      "declared": "2026-09-05T05:19:17+00:00"
     }
   },
   "merge_gate": {
