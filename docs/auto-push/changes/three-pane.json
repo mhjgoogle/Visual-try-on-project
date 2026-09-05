@@ -1276,11 +1276,31 @@
             "tests/tooling/test_lifecycle_check.py"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "ef10aa678d3a27cf6d2a6552329beb49ad1b23bc",
+          "subject": "补审修复：守卫能被斜体绕过 + 索引长出源文档没有的禁令（三处）（TASK-133 · three-pane）",
+          "time": "2026-09-05T05:17:53+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            ".claude/tools/lifecycle_check.py",
+            "docs/STATUS.md",
+            "docs/adr/ADR-0098-index-docs-are-not-a-second-contract.md",
+            "docs/auto-push/changes/three-pane.json",
+            "docs/glossary.md",
+            "docs/out-of-scope.md",
+            "docs/tasks/active/TASK-133-glossary-and-out-of-scope-index.md",
+            "docs/tasks/done/TASK-133-glossary-and-out-of-scope-index.md",
+            "tests/tooling/test_lifecycle_check.py"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
         ".claude/tools/lifecycle_check.py",
         "docs/STATUS.md",
+        "docs/adr/ADR-0098-index-docs-are-not-a-second-contract.md",
         "docs/glossary.md",
         "docs/out-of-scope.md",
         "docs/tasks/active/TASK-133-glossary-and-out-of-scope-index.md",
@@ -1288,8 +1308,8 @@
         "tests/tooling/test_lifecycle_check.py"
       ],
       "verification": "PASS",
-      "verification_ref": "最终归属域全量 pytest tests/tooling 349 passed/1 skipped/0 failed; ruff 全过; lifecycle_check 0 finding; codex 轮1三条P1全修+轮2两条证据缺口已补",
-      "declared": "2026-09-05T05:05:41+00:00"
+      "verification_ref": "最终归属域全量 349 passed/1 skipped/0 failed; ruff 全过; lifecycle_check 0 finding; 闸门抓到搬卡断链已修",
+      "declared": "2026-09-05T05:08:51+00:00"
     }
   },
   "merge_gate": {
