@@ -19,7 +19,7 @@
 | `docs/reports/` | 阶段性工作报告 —— **历史证据**，默认不读 |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：9 在办 · 11 待排期 · 123 已完成 · 85 条 ADR。
+**当前**：10 在办 · 10 待排期 · 123 已完成 · 85 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -65,13 +65,13 @@
 | [REQ-003](requirements/REQ-003-traceability-and-requirement-fulfillment-review.md) | REQ-003：每一次实现都能从产品意图追到验证，审查先答「需求做完了吗」 | CONFIRMED | — |
 | [REQ-004](requirements/REQ-004-three-pane-shell-and-agent-conversation.md) | REQ-004：全站统一三栏 —— 左控制/选择 · 中工作区 · 右 Agent 对话 | CONFIRMED | TASK-106、TASK-125、TASK-130 |
 | [REQ-005](requirements/REQ-005-remove-a-project-from-the-home-list.md) | REQ-005：主页可以把项目从列表里删除（文件他自己删） | CONFIRMED | — |
-| [REQ-006](requirements/REQ-006-agent-can-do-what-the-creator-can-do.md) | REQ-006：对话里的 Agent 能做创作者能做的事，并且能把意见带回给开发 | CONFIRMED | TASK-125、TASK-127、TASK-130 |
+| [REQ-006](requirements/REQ-006-agent-can-do-what-the-creator-can-do.md) | REQ-006：对话里的 Agent 能做创作者能做的事，并且能把意见带回给开发 | CONFIRMED | TASK-125、TASK-127、TASK-130、TASK-132 |
 | [REQ-007](requirements/REQ-007-say-it-and-the-right-capability-runs.md) | REQ-007：他说一句话，对的那个专业能力就跑起来 | CONFIRMED | — |
 | [REQ-008](requirements/REQ-008-images-from-my-own-account.md) | REQ-008：用我自己的账号自动出图，不要按次计费的 API | CONFIRMED | TASK-139 |
 
 ### Deferred
 
-里程碑闸判「现在不做」的 11 张卡（`tasks/backlog/`）——
+里程碑闸判「现在不做」的 10 张卡（`tasks/backlog/`）——
 **队列，不是垃圾桶**：每张卡都要写清什么条件下它会变成该做。
 跨任务欠账另见 [TASK-087 总账](tasks/active/TASK-087-followup-ledger.md)。
 
@@ -80,7 +80,6 @@
 - [TASK-041](tasks/backlog/TASK-041-workspace-generation-command-and-evidence.md) TASK-041: 工作视窗付费视频生成命令 + UI 接入 + 1 次真实证据
 - [TASK-128](tasks/backlog/TASK-128-episode-side-actions-into-the-table.md) TASK-128：剧集制作侧的写也走动作表 —— REQ-006 判据 1 的另一半
 - [TASK-129](tasks/backlog/TASK-129-settings-structure-writes-into-the-table.md) TASK-129：作品设定的结构写也走动作表 —— REQ-006 判据 1 的第三块
-- [TASK-132](tasks/backlog/TASK-132-click-ui-element-and-leave-feedback.md) TASK-132：点击界面元素写意见，并让开发 Agent 收到准确位置
 - [TASK-135](tasks/backlog/TASK-135-server-authoritative-workflow-plan.md) TASK-135：下一步该干什么由后端说了算 —— 服务端权威工作流计划
 - [TASK-136](tasks/backlog/TASK-136-generation-resume-and-idempotency.md) TASK-136：重启之后不许重复扣费 —— 生成任务的续跑与幂等
 - [TASK-137](tasks/backlog/TASK-137-review-issue-to-rework-loop.md) TASK-137：审片问题进入返工队列 —— 从问题定位到重新审片的闭环
@@ -113,6 +112,7 @@
 | [TASK-125-current-truth-convergence.md](tasks/active/TASK-125-current-truth-convergence.md) | TASK-125：切片 1 —— 当前事实收口 | 进行中（2026-09-04 开卡） |
 | [TASK-127-one-action-table.md](tasks/active/TASK-127-one-action-table.md) | TASK-127：切片 4 —— 他能点的 = 它能做的，靠一张表 | 实现完成（2026-09-05 |
 | [TASK-130-connected-sample-and-journey.md](tasks/active/TASK-130-connected-sample-and-journey.md) | TASK-130：切片 5 —— 可重复的 Connected Project 样本 + 一条从头到尾的旅程 | 实现完成（2026-09-05 |
+| [TASK-132-click-ui-element-and-leave-feedback.md](tasks/active/TASK-132-click-ui-element-and-leave-feedback.md) | TASK-132：点击界面元素写意见，并让开发 Agent 收到准确位置 | 待开始 |
 | [TASK-134-import-linter-layering-contract.md](tasks/active/TASK-134-import-linter-layering-contract.md) | TASK-134：把 Provider 中立从散文变成 CI 闸门 —— import-linter 分层契约 | 实现完成（2026-09-05 实施）· 最终全量见下方「验证」 |
 | [TASK-139-images-from-my-own-account.md](tasks/active/TASK-139-images-from-my-own-account.md) | TASK-139：用他自己的账号额度出图 —— 第三条路，不过付费闸 | 进行中（2026-09-05 开卡） |
 
@@ -139,7 +139,6 @@
 | [TASK-041-workspace-generation-command-and-evidence.md](tasks/backlog/TASK-041-workspace-generation-command-and-evidence.md) | TASK-041: 工作视窗付费视频生成命令 + UI 接入 + 1 次真实证据 | backlog/ |
 | [TASK-128-episode-side-actions-into-the-table.md](tasks/backlog/TASK-128-episode-side-actions-into-the-table.md) | TASK-128：剧集制作侧的写也走动作表 —— REQ-006 判据 1 的另一半 | 盘点完成，接线未开工，等一条 ADR（2026-09-05） |
 | [TASK-129-settings-structure-writes-into-the-table.md](tasks/backlog/TASK-129-settings-structure-writes-into-the-table.md) | TASK-129：作品设定的结构写也走动作表 —— REQ-006 判据 1 的第三块 | 待开始（2026-09-05 开卡 |
-| [TASK-132-click-ui-element-and-leave-feedback.md](tasks/backlog/TASK-132-click-ui-element-and-leave-feedback.md) | TASK-132：点击界面元素写意见，并让开发 Agent 收到准确位置 | 待开始 |
 | [TASK-135-server-authoritative-workflow-plan.md](tasks/backlog/TASK-135-server-authoritative-workflow-plan.md) | TASK-135：下一步该干什么由后端说了算 —— 服务端权威工作流计划 | 待开始（2026-09-05 开卡 |
 | [TASK-136-generation-resume-and-idempotency.md](tasks/backlog/TASK-136-generation-resume-and-idempotency.md) | TASK-136：重启之后不许重复扣费 —— 生成任务的续跑与幂等 | 待开始 · 前置 ADR 已 Accept（2026-09-05 开卡 |
 | [TASK-137-review-issue-to-rework-loop.md](tasks/backlog/TASK-137-review-issue-to-rework-loop.md) | TASK-137：审片问题进入返工队列 —— 从问题定位到重新审片的闭环 | 待开始（2026-09-05 开卡 |

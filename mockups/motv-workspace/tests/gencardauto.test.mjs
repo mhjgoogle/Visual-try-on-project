@@ -10,6 +10,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { renderGenCard, bindGenCard } from "../src/ui/gencard.js";
+import { renderEpCanvas } from "../src/ui/epcanvas.js";
 
 const MODEL = {
   kind: "image",
@@ -121,4 +122,53 @@ test("额度用完时说出「可能已经消耗过」，而不是只说稍后�
   assert.match(last, /额度用完/);
   assert.match(last, /可能已经消耗过/);
   assert.equal(auto.disabled, false, "失败之后按钮要放开，否则他被卡在这一屏");
+});
+
+// --- 制作画布上的那颗 ✨ 出图 ------------------------------------------------ //
+//
+// **这条守卫的来历**：按钮先后放错过两次 —— 旧的流程节点画布（不在十一页里）、
+// 「关键帧」那一页的生成卡（从画布出发要先做草图、再做白膜才走得到）。两次前端
+// 测试都是绿的，因为它们问的是「这个处理器对不对」，没有人问
+// **「他从他真正在看的那一屏，点得到它吗」**。所以这里钉的是那一屏本身。
+
+function canvasCtx(imageUrl) {
+  const production = {
+    episodes: [{ episodeId: "ep-1", title: "迷雾入城", scenes: [{ sceneId: "s1", shotIds: ["sh1"] }] }],
+    activeEpisodeId: "ep-1",
+    characters: [],
+    locations: [],
+    blocking: {},
+    shotProduction: { reviews: {}, references: {}, stages: {}, stageReviews: {} },
+  };
+  // 当前画面走的是**资产登记**（`assetUploads` 的槽位版本链），不是镜头记录上的
+  // 某个字段 —— 这正是 `poster` 那条缺陷的成因，所以测试也得用真的那条路。
+  const slot = "sh1";
+  return {
+    prodData: () => ({
+      production,
+      draftShots: [{ shotId: "sh1", sequence: 1, seq: 1, title: "招牌 · 雨夜", sceneId: "s1", slot }],
+      assetUploads: imageUrl
+        ? { [slot]: { current: 1, history: [{ version: 1, url: imageUrl }] } }
+        : {},
+      media: { video: {}, audio: {} },
+      timelines: null,
+    }),
+    script: null,
+    shot: null,
+  };
+}
+
+test("制作画布上，「还没有画面」的镜头卡自己带一颗出图按钮", () => {
+  const html = renderEpCanvas(canvasCtx(null), {});
+  assert.match(html, /还没有画面/, "前提：这一镜确实没有画面");
+  assert.match(html, /data-ec-gen="sh1"/, "那句话旁边就该有它的出口");
+  assert.match(html, /出图/);
+  // 主按钮仍然是「下一步」——「一镜一张卡，一个主按钮」没有被推翻
+  assert.match(html, /data-ec-step="sh1:/);
+});
+
+test("已经有画面的镜头卡不再长那颗按钮 —— 它是那个洞的出口，不是常驻控件", () => {
+  const html = renderEpCanvas(canvasCtx("/api/uploads/p/sh1_v1.jpg"), {});
+  assert.equal(/还没有画面/.test(html), false);
+  assert.equal(/data-ec-gen/.test(html), false);
 });
