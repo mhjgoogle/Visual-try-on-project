@@ -8,7 +8,7 @@
   「用我自己的账号且不花钱」这条路**在事实上不存在**。而他真正要的从来是
   「别再卡住 + 不要按次计费」（原话见下），所以判据回到那件事本身。
   **判据 1、3–6 一字未改**；v1 全文保留在下方，不篡改。
-- 相关 Change：[TASK-139](../tasks/active/TASK-139-images-from-my-own-account.md)
+- 相关 Change：[TASK-139](../tasks/done/TASK-139-images-from-my-own-account.md)
 - 相关 ADR：[ADR-0100](../adr/ADR-0100-account-quota-is-not-a-paid-gate.md)
   （账号额度不走付费闸；判据是会不会产生按次账单）。
   它**不推翻** [ADR-0045](../adr/ADR-0045-prototype-paid-image-generation.md)
