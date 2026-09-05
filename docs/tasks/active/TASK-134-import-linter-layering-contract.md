@@ -153,6 +153,32 @@ ArcReel 在契约注释里写死了三条，每条都对应本仓库踩过的坑
 
 回归：`ruff check` / `ruff format --check` exit 0；`pytest tests/tooling` 363 passed / 1 skipped。
 
+## 独立审查（codex，轮 2）
+
+**这一轮的三条 `NOT_EVIDENCED` 是我的审查调用错了，不是代码问题。** 我用了
+`HEAD~2` 作 base，而我提交后另外几个会话又插入了 4 个提交，`HEAD~2` 已经是**别人的**
+`d71c9fc` —— 含 `pyproject.toml` 的实现提交 `5b5fc62` 根本不在 diff 里，所以审查者说
+「the supplied diff omits `pyproject.toml`」完全正确。**并发分支上不能用 `HEAD~N` 定位
+自己的提交**，要用提交号本身。
+
+两条 `NON_BLOCKING` 则是真的，都已修：
+
+| 发现 | 修法 |
+| --- | --- |
+| 数「出现两次 `run: lint-imports`」不能把它们和**不同 job** 关联 —— 两步挤进同一个 job，守卫仍绿而一个平台失去覆盖 | 加 `_ci_jobs()` 按顶层 job 切分，逐个 job 断言 |
+| ps1 的 `Label` 不能确立**被执行的命令** | 断言改为 `File = $linter`，并另断言 `$linter` 指向 `lint-imports.exe` |
+
+**针对性变异验证**（复现审查描述的那个漏洞本身）：把两个 CI 步骤都挪进 windows job
+（总数仍为 2）→ 守卫转红；ps1 保留 `Label` 但不再以 `$linter` 为 `File` → 守卫转红；
+两处均逐字还原。
+
+### 已知上限（不修，记录）
+
+审查还指出执行标记「可能存活于**行内注释或不可达代码**中」。这是静态断言的固有上限 ——
+真正证明 shell 会执行只能靠实跑那个 shell。当前守卫只剥**整行**注释。判断：不为此
+继续加码（继续做只会得到更长的正则和同样的上限），真正的闭合手段是 CI 实跑，
+而 CI 接线已在本卡内完成 —— 第一次真实运行会给出那个证据。
+
 ## 未在真实项目上被人看过
 
 - 闸门在**真实提交**时的表现只在本机 Windows 侧验证（判定逻辑经 `classify`

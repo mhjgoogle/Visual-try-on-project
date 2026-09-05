@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 from pathlib import Path
 
@@ -133,29 +134,62 @@ def test_both_gates_consume_the_flag() -> None:
     # gate.sh 里 linter="$ROOT/.venv/bin/lint-imports" 这条赋值也含它，把真正的
     # run_check 调用整条删掉，守卫照样绿。断言必须落在执行动作上。
     for shell, executes in (
-        ("gate.ps1", "Label = 'lint-imports'"),  # 进 $checks 数组才会被跑
+        # ps1 要同时立住两件事：linter 指向真的 console script，且它作为 File 被执行
+        # （审查轮 2：单看 Label 不能确立**被执行的命令**是什么）。
+        ("gate.ps1", "File = $linter"),
         ("gate.sh", 'run_check "lint-imports"'),  # run_check 才是执行
     ):
         code = _executable_lines(_ROOT / ".claude" / "hooks" / shell)
         assert "import_contracts" in code, (
             f"{shell} 的可执行部分没有读 import_contracts"
         )
+        if shell == "gate.ps1":
+            assert "lint-imports.exe" in code, (
+                "gate.ps1 的可执行部分没有把 $linter 指向 lint-imports.exe"
+            )
         assert executes in code, (
             f"{shell} 的可执行部分没有真正执行契约检查（找 {executes!r}）"
         )
 
 
+def _ci_jobs() -> dict[str, str]:
+    """把 ci.yml 按顶层 job 切成 {job 名: 该 job 的可执行文本}。
+
+    审查发现（codex 轮 2，2026-09-05）：数「出现两次 `run: lint-imports`」不能把它们
+    和**不同的 job** 关联起来 —— 把两步都挪进同一个 job，守卫照样绿，而另一个平台
+    悄悄失去覆盖。所以按 job 切开，逐个 job 断言。
+    """
+    code = _executable_lines(_ROOT / ".github" / "workflows" / "ci.yml")
+    jobs: dict[str, list[str]] = {}
+    current: str | None = None
+    in_jobs = False
+    for line in code.splitlines():
+        if line.startswith("jobs:"):
+            in_jobs = True
+            continue
+        if not in_jobs:
+            continue
+        m = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
+        if m:
+            current = m.group(1)
+            jobs[current] = []
+        elif current is not None:
+            jobs[current].append(line)
+    return {name: "\n".join(body) for name, body in jobs.items()}
+
+
 def test_ci_runs_the_contracts_on_both_platforms() -> None:
     """判据 1 要的是「CI **与** 本地 commit gate 里跑」，不是只有本地。
 
-    Windows 是权威环境、Ubuntu 是受支持目标（ADR-0062），少接一个 job，那个平台上
-    的依赖方向就没人守。
+    Windows 是权威环境、Ubuntu 是受支持目标（ADR-0062）。**逐个 job 断言**：少接一个
+    job，或把两步挤进同一个 job，那个平台上的依赖方向就没人守。
     """
-    code = _executable_lines(_ROOT / ".github" / "workflows" / "ci.yml")
-    assert code.count("run: lint-imports") == 2, (
-        "ci.yml 的两个 job（windows / linux）都必须跑 lint-imports，"
-        f"当前只有 {code.count('run: lint-imports')} 处"
-    )
+    jobs = _ci_jobs()
+    assert {"windows", "linux"} <= set(jobs), f"ci.yml 的 job 变了：{sorted(jobs)}"
+    for name in ("windows", "linux"):
+        assert "run: lint-imports" in jobs[name], (
+            f"ci.yml 的 {name} job 没有跑 lint-imports —— 该平台的依赖方向没人守"
+        )
 
 
 def test_nothing_invokes_the_module_form() -> None:
