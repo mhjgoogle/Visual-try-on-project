@@ -10,7 +10,7 @@
   `backlog/` 而不是新目录）· [ADR-0088](ADR-0088-traceability-and-requirement-fulfillment-review.md)
   （四闸审查回答「需求做完了吗」，本 ADR 补的是它前面那一步「这需求该现在做吗」）·
   [ADR-0098](ADR-0098-index-docs-are-not-a-second-contract.md)（一份文档只答一个问题）·
-  [TASK-141](../tasks/active/TASK-141-idea-intake-and-current-truth.md)
+  [TASK-141](../tasks/done/TASK-141-idea-intake-and-current-truth.md)
 
 ## 1. 背景
 

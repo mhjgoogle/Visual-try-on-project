@@ -1,6 +1,6 @@
 # TASK-141：想法入口 —— 分层、里程碑闸与可重建的当前真相
 
-- 状态：**进行中**（2026-09-05 开卡）
+- 状态：**已完成**（2026-09-05 开卡 · 同日收口 · codex 独立审查 2 轮 pass）
 - Workflow：Feature（Agent 工装层）· 深度：DEEP
 - 技术目标：dev-workflow Skill 的入口假设「这件事该做」**已经成立** —— 它从
   Requirement Understanding Gate 开始，之前没有任何一步问「这是哪一层」「这一轮
@@ -67,11 +67,50 @@
 
 ## 验证
 
-- `pytest tests/tooling` → **367 passed, 1 skipped**（跳过的是 Ubuntu 目标的 bash 语法检查）
+- `pytest tests/tooling` → **379 passed, 1 skipped**（跳过的是 Ubuntu 目标的 bash 语法检查；轮 1 审查的两条 P1 修完后由 367 增至 379）
 - `python .claude/tools/lifecycle_check.py` → **0 finding**
-- `ruff check .claude/tools/gen_docs_status.py tests/tooling/test_docs_status.py` → **All checks passed**
+- `ruff check` → **All checks passed**
 - 归属域：本卡只改 Agent 工装与文档，`src/`、`mockups/` 一行未动 → 按 ADR-0080 跑 `tests/tooling`，不跑全量（全量留给 merge 前的集成检查点）
+
+### 独立审查（codex，2 轮，未降级）
+
+审的是 `c6791eb`（`run-review.ps1 HEAD~1`）。四闸结论：
+
+| 闸 | 结论 |
+| --- | --- |
+| 1 Requirement Fulfillment | 七条判据**全 `PASS`** |
+| 2 Architecture Conformance | `none-specific` = `NOT_APPLICABLE`；AGENTS §25 / §26 / §20 与 out-of-scope 四条 `PASS`，无 `FAIL` |
+| 3 Verification Sufficiency | `SUFFICIENT` |
+| 4 Technical Quality | 无 BLOCKING；1 条 NON_BLOCKING → Follow-up |
+
+四个缺口标签一个不挂（ADR-0088 决策 6）。
+
+**轮 1 报出的两条 P1 及其修复**（都在 `c6791eb` 里）：
+
+1. `_active_requirements()` 不看生命周期状态 —— DRAFT / SUPERSEDED 会被印进
+   「现在必须成立的产品需求」，正是这个面存在的理由的反面。修复：新增
+   `_binding()` 过滤 + `_not_yet_binding()`（不进表，但列在表下一行，**不消失**
+   —— 一条消失的 DRAFT 就是一条被忘掉的需求）。**状态认不出的故意保留在表里**：
+   悄悄藏掉一行比多印一行更糟，与锚点缺失 fail-closed 是同一条纪律。
+2. 守卫只覆盖三个锚点里的第一个 —— 三个一起删只证明了 `mission` 被守着，而
+   里程碑闸每次读的是第三面 `milestone`。修复：按面参数化（3 缺失 × 3 空值
+   形状：空行 / 下一个锚点 / 标题），并补 CLI 出口那条（`main()` 返回 2 且
+   **不写出**残缺 STATUS.md —— fail-closed 要一直开到出口）。
+
+**驳回 1 条**（不修）：轮 1 报 `tests/studio/test_account_image_gen_task139.py`
+越界。那是同一棵树上第三方会话未提交的 TASK-139 文件，不属本卡的面；轮 1 的
+exclude 漏了 `tests/studio/`，轮 2 已排除。
+
+**一次作废的重跑**（不计轮次）：轮 2 第一次启动后，另一个会话把这批改动提交为
+`c6791eb`，`run-review` 不带 base 审的是「工作树 vs HEAD」，改动进 HEAD 之后
+审查者拿到空 diff，于是七条判据全 `NOT_EVIDENCED`。空 diff 的回声不是判词，
+作废，改用 `HEAD~1` 审提交本身。教训已登记为 Follow-up 5.25。
 
 ## Follow-up
 
-- 存量卡不回填层级标注（OUT OF SCOPE），新想法按新入口走 —— 若三个月后仍有卡说不清自己在哪一层，再考虑回填。
+- 存量卡不回填层级标注（OUT OF SCOPE），新想法按新入口走 —— 若三个月后仍有卡
+  说不清自己在哪一层，再考虑回填。
+- [总账 5.24](../active/TASK-087-followup-ledger.md)：`gen_docs_status.py` 用定宽切片取 REQ 号，
+  `REQ-1000` 会静默错配（P3，今天不可达）。
+- [总账 5.25](../active/TASK-087-followup-ledger.md)：AGENTS §14「一张卡一个 Agent」没有
+  提交前的发现手段 —— 本卡收口时两个会话撞车的实测代价。

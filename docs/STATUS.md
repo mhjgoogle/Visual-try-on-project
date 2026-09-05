@@ -19,7 +19,7 @@
 | `docs/reports/` | 阶段性工作报告 —— **历史证据**，默认不读 |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：10 在办 · 11 待排期 · 122 已完成 · 85 条 ADR。
+**当前**：9 在办 · 11 待排期 · 123 已完成 · 85 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -115,7 +115,6 @@
 | [TASK-130-connected-sample-and-journey.md](tasks/active/TASK-130-connected-sample-and-journey.md) | TASK-130：切片 5 —— 可重复的 Connected Project 样本 + 一条从头到尾的旅程 | 实现完成（2026-09-05 |
 | [TASK-134-import-linter-layering-contract.md](tasks/active/TASK-134-import-linter-layering-contract.md) | TASK-134：把 Provider 中立从散文变成 CI 闸门 —— import-linter 分层契约 | 实现完成（2026-09-05 实施）· 最终全量见下方「验证」 |
 | [TASK-139-images-from-my-own-account.md](tasks/active/TASK-139-images-from-my-own-account.md) | TASK-139：用他自己的账号额度出图 —— 第三条路，不过付费闸 | 进行中（2026-09-05 开卡） |
-| [TASK-141-idea-intake-and-current-truth.md](tasks/active/TASK-141-idea-intake-and-current-truth.md) | TASK-141：想法入口 —— 分层、里程碑闸与可重建的当前真相 | 进行中（2026-09-05 开卡） |
 
 ## 在办 · 设计与验收文档
 
@@ -275,6 +274,7 @@
 | [TASK-126-agent-sees-and-changes-everything.md](tasks/done/TASK-126-agent-sees-and-changes-everything.md) | TASK-126：Agent 看得见全部、也改得动全部（2026-08-30～09-03 连续实施的补登卡） | 已完成（2026-09-03 最后一提交） |
 | [TASK-131-agent-harness-discovery-and-runtime-evidence.md](tasks/done/TASK-131-agent-harness-discovery-and-runtime-evidence.md) | TASK-131：让 Claude / Codex 找到同一套技能，并验证工装真正生效 | 实现完成（2026-09-05） |
 | [TASK-133-glossary-and-out-of-scope-index.md](tasks/done/TASK-133-glossary-and-out-of-scope-index.md) | TASK-133：给「名字」和「不做」各一个落点 —— 术语表与范围外索引 | 完成（2026-09-05） |
+| [TASK-141-idea-intake-and-current-truth.md](tasks/done/TASK-141-idea-intake-and-current-truth.md) | TASK-141：想法入口 —— 分层、里程碑闸与可重建的当前真相 | 已完成（2026-09-05 开卡 · 同日收口 · codex 独立审查 2 轮 pass） |
 
 ## 已完成 · 设计与验收记录
 

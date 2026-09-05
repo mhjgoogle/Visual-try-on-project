@@ -153,6 +153,13 @@
 | 5.22 | **`gate_dispatch.py` 用 `Path.cwd()` 解析仓库根，不是脚本位置** | TASK-131 切片 A 实施时发现（2026-09-05） | 中（**闸门可能去错地方找自己**） | `.claude/hooks/gate_dispatch.py` 里 `root = Path.cwd()`，随后拼 `root/.claude/hooks/gate.ps1`。客户端若以非仓库根为 cwd 触发 PreToolUse，它会去一个不存在的路径找 gate 脚本。今天没观察到实际失败（Claude Code 目前以仓库根为 cwd），所以这是**潜在**缺陷而不是活缺陷 —— 但它与 TASK-131 给新工具定的「根由脚本位置解析、可从任意子目录调用」是同一条纪律，而闸门比诊断工具更不该赌这一点。修法：`Path(__file__).resolve().parents[2]`，并在 `tests/tooling/` 加一条从子目录调用的用例。**不在 TASK-131 范围内顺手修**（AGENTS §17） |
 | 5.23 | **`SessionStart` 接线没落地** | TASK-131 切片 C（2026-09-05） | 低（是增强，不是缺陷） | `agent_harness.py resume --brief` 已经写好并测好（干净的树 + 没有过期快照时输出空串），但把它挂进 `.claude/settings.json` 的 `hooks.SessionStart` 这一步被**实施 Agent 的会话权限层**拒绝 —— 配置文件受保护，这是外部限制，没有绕过。要加的那段 JSON 原文在 [handoff.md](../../../.claude/skills/dev-workflow/references/handoff.md) §3。**不接也不影响任何东西**：同一条命令自己跑一遍结果一样，缺 hook 支持不得变成一道新的人工闸（AGENTS §1） |
 
+## 5.24～5.25 TASK-141 收口时交来的两条（2026-09-05 登记）
+
+| # | 欠账 | 来源 | 风险 | 说明 |
+| --- | --- | --- | --- | --- |
+| 5.24 | **REQ 号用定宽切片取，四位编号会静默错配** | TASK-141 轮 2 审查 NON_BLOCKING（2026-09-05） | 低（今天不可达） | `.claude/tools/gen_docs_status.py` 的 `_active_requirements()` / `_not_yet_binding()` 用 `path.name[4:7]` 取 REQ 号，`REQ-1000` 会被截成 `100` 并与 `REQ-100` 的引用错配、表里也显示成 `REQ-100`。当前最大 `REQ-008`，触发要 992 条需求之后 —— 记录而不修（P3，AGENTS §20 轮次协议）。修法：用同文件已有的 `_REQ_REF` 正则取号，别再定宽切 |
+| 5.25 | **「一张卡一个 Agent」没有提交前的发现手段** | TASK-141 收口时两个会话撞车（2026-09-05） | 中（**会白烧一份工作或一份配额**） | AGENTS §14 写了「每个开发任务只能有一个实施 Agent」，但没写**怎么在动手前发现另一个会话已经在这张卡上**。这次的实测代价：两个会话同时收口 TASK-141，一份 codex 审查被对方的提交抽空作废（工作树 vs HEAD 的 diff 在改动进 HEAD 之后变成空），另一份审查被对方主动杀掉止损；`.claude/tmp/review-package.md` 也被互相覆盖过一次。已知的两条便宜做法（两个会话各自验证过）：动手前 `ListAgents` 认领归属；**审已提交的东西一律带 base**（`run-review.ps1 <base>`），别人再提交也抽不空。第二条是纯粹的操作纪律，值得进 codex-review-loop Skill；第一条要不要变成硬规则，等再撞一次再说 —— **一次事故不足以定规则** |
+
 ## 6. 性能与偶发（记录，不承诺）
 
 | # | 项 | 来源 | 说明 |

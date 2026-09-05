@@ -1887,14 +1887,22 @@
         }
       ],
       "paths": [
+        ".env.local.example",
+        ".gitignore",
+        "docs/STATUS.md",
+        "docs/adr/ADR-0100-account-quota-is-not-a-paid-gate.md",
+        "docs/requirements/REQ-008-images-from-my-own-account.md",
+        "docs/requirements/index.md",
         "docs/tasks/active/TASK-139-images-from-my-own-account.md",
+        "docs/tasks/backlog/TASK-041-workspace-generation-command-and-evidence.md",
         "mockups/motv-workspace/credstore.py",
+        "mockups/motv-workspace/imagegen.py",
         "mockups/motv-workspace/server.py",
         "tests/studio/test_account_image_gen_task139.py"
       ],
       "verification": "PASS",
-      "verification_ref": "补审轮 2 的 3 条新 P1 修复（同意必须是布尔真 / 意外出口也要留下 unknown / 隔离名用尽时停手不覆盖）。验证：41 passed 全离线 · ruff 全绿。REQ-008 判据 2 仍 NOT_EVIDENCED，等真实 key 跑一次，已写进卡片",
-      "declared": "2026-09-05T09:21:29+00:00"
+      "verification_ref": "Pollinations 默认来源跑通（真实端到端 200 / 2.9s / 39KB JPEG / hero_v1.jpg）+ .env.local 支持。验证：tests/studio 639 passed / 14 skipped（本卡 50 条）· ruff 全绿 · lifecycle_check 0 finding。REQ-008 判据 2 由此闭合，措辞随 v2 收敛为「不产生按次账单」",
+      "declared": "2026-09-05T10:51:56+00:00"
     },
     "TASK-129": {
       "commits": [
@@ -1978,6 +1986,19 @@
       "verification": "PASS",
       "verification_ref": "TASK-129 切片 1+2a+2b：前端全量 2174 passed · tests/contract 269 passed（surface_manifest 16 例穷尽性合同）· tests/studio 630 passed · recyclebin.test.mjs 14 例 + 三处变异验证 · ruff 通过",
       "declared": "2026-09-05T10:36:38+00:00"
+    },
+    "TASK-141": {
+      "commits": [],
+      "paths": [
+        "docs/STATUS.md",
+        "docs/adr/ADR-0101-idea-intake-level-and-milestone-gate.md",
+        "docs/tasks/active/TASK-087-followup-ledger.md",
+        "docs/tasks/active/TASK-141-idea-intake-and-current-truth.md",
+        "docs/tasks/done/TASK-141-idea-intake-and-current-truth.md"
+      ],
+      "verification": "PASS",
+      "verification_ref": "pytest tests/tooling 379 passed/1 skipped; test_docs_links+test_docs_status 25 passed after the card move; lifecycle_check 0 finding; codex review 2 rounds pass (4 gates clean)",
+      "declared": "2026-09-05T10:54:38+00:00"
     }
   },
   "merge_gate": {
