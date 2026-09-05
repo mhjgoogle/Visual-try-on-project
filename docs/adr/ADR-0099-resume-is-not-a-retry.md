@@ -155,6 +155,27 @@ operationRef   { taskId, operationId } | null
 
 因此 TASK-136 的前置从「缺一份 ADR」变成「等 TASK-041 的付费写入方」。
 
+## 射程：不建 Run 的同步外部调用不在里面（2026-09-05 补，实测）
+
+本 ADR 的对象是**在 runstore 里建了 Run 的 `provider:*` 执行器**。一次
+**同步的请求-响应、不建 Run** 的外部调用不在射程内 —— 它没有 `runId`、没有执行器
+字段、不占队列槽，重启之后**不会留下任何记录**，因此上面八条决策对它无从谈起。
+
+现存的例子是 TASK-139 的 `/api/agent/image-gen-account`（用创作者自己账号的额度
+出图，[ADR-0100](ADR-0100-account-quota-is-not-a-paid-gate.md)），形状与
+[ADR-0045](ADR-0045-prototype-paid-image-generation.md) 那条付费图片路一致：
+去重集合 `_ACCOUNT_IMAGE_INFLIGHT` **是进程内的**，代码注释里写明了它不跨重启、
+也不假装能跨。
+
+**它的「重启后怎么收」由产物回答，不由状态记录回答**：出图落的是带版本的新文件
+（第 13 条），刷新一看就知道有没有多一版。这比一条状态记录更硬 —— 状态记录会说谎，
+文件不会。
+
+所以决策 8 的「等真实写入方」等的仍然是 [TASK-041](../tasks/backlog/TASK-041-workspace-generation-command-and-evidence.md)
+的付费生成命令。**2026-09-05 复核**：`mockups/motv-workspace/` 的 `.py` 与
+`src/**/*.js` 里 `"provider:` 字面量零命中，Studio 侧创建 `provider:*` Run 的
+写入方仍然是零个。
+
 ## 后果
 
 **变好的**：第一个付费 Run 落地时，「重启后怎么办」已经有答案，而且答案不是
