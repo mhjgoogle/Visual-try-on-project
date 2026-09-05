@@ -41,6 +41,17 @@ _PNG = base64.b64decode(
 )
 _KEY = "AIzaSy-test-key-0123456789abcdef"
 
+#: 跨线程同步的等待上限。**它不是在断言时间，只是在兜住真的挂死。**
+#:
+#: 原值 5 秒：在 `-n 8`、四千多条用例的全量里，另一个会话见过这个文件里的并发用例
+#: 红一次（单跑与轻负载联跑都绿）。5 秒是「一个线程多久能被调度完」的猜测，而机器
+#: 忙的时候这个猜测会输 —— 于是一条断言并发行为的用例，变成了一条断言调度速度的用例。
+#:
+#: 放宽到 60 秒不会让任何一条正常路径变慢（事件一到就返回），只是把「真挂死」的
+#: 判定推后。这与本文件里那条隔离用例的时间戳是同一族教训：**测试自己制造的不确定性
+#: 比被测代码的缺陷更难查，因为它每次红的样子都不一样。**
+_SYNC_TIMEOUT = 60
+
 
 def _interactions_reply(png: bytes = _PNG) -> bytes:
     """文档给的那种形状（Interactions API）。"""
@@ -563,7 +574,7 @@ def test_the_same_intent_in_flight_is_not_sent_twice(srv, app):
     def slow(url, body, headers, timeout):
         calls.append(url)
         started.set()
-        release.wait(5)
+        release.wait(_SYNC_TIMEOUT)
         return 200, _interactions_reply()
 
     srv._https_post = slow
@@ -575,14 +586,14 @@ def test_the_same_intent_in_flight_is_not_sent_twice(srv, app):
 
     t = threading.Thread(target=first_request)
     t.start()
-    assert started.wait(5)
+    assert started.wait(_SYNC_TIMEOUT)
 
     status, body = _post(app, "/api/agent/image-gen-account", payload)
     assert status == 409
     assert body["error"]["category"] == "in_flight"
 
     release.set()
-    t.join(10)
+    t.join(_SYNC_TIMEOUT)
     assert out["status"] == 200
     assert len(calls) == 1  # 只出去了一次
 
@@ -837,7 +848,7 @@ def test_a_duplicate_during_the_save_window_does_not_generate_again(srv, app):
 
     def slow_claim(d, slug, ext):
         entered.set()
-        release.wait(5)
+        release.wait(_SYNC_TIMEOUT)
         return real_claim(d, slug, ext)
 
     srv._claim_version = slow_claim
@@ -849,7 +860,7 @@ def test_a_duplicate_during_the_save_window_does_not_generate_again(srv, app):
 
     t = threading.Thread(target=first_request)
     t.start()
-    assert entered.wait(5)  # 第一次已经生成完、正卡在落盘中
+    assert entered.wait(_SYNC_TIMEOUT)  # 第一次已经生成完、正卡在落盘中
 
     status, body = _post(app, "/api/agent/image-gen-account", payload)
     assert status == 409
@@ -857,7 +868,7 @@ def test_a_duplicate_during_the_save_window_does_not_generate_again(srv, app):
     assert len(calls) == 1  # 第二次没有再去生成
 
     release.set()
-    t.join(10)
+    t.join(_SYNC_TIMEOUT)
     assert out["status"] == 200
 
 
