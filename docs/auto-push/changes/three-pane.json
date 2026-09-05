@@ -115,11 +115,14 @@
         }
       ],
       "paths": [
-        ".autopush-placeholder"
+        "mockups/motv-workspace/src/app.js",
+        "mockups/motv-workspace/src/services/persist.js",
+        "mockups/motv-workspace/src/ui/editlock.js",
+        "mockups/motv-workspace/tests/persistence.test.mjs"
       ],
       "verification": "PASS",
-      "verification_ref": "已提交",
-      "declared": "2026-08-29T13:40:37+00:00"
+      "verification_ref": "",
+      "declared": "2026-09-05T15:16:43+00:00"
     },
     "TASK-110": {
       "commits": [],
@@ -575,7 +578,7 @@
           "subject": "docs(TASK-125): 切片 ① 收口 —— 这张卡自己就是它要治的那个病",
           "time": "2026-09-05T13:27:36+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/STATUS.md",
             "docs/project-context.md",
@@ -1669,7 +1672,7 @@
           "subject": "ADR-0102：发起方与确认方是两个字段 —— 解掉 TASK-128 的架构阻塞",
           "time": "2026-09-05T13:51:19+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/adr/ADR-0096-ui-and-agent-share-one-action-table.md",
             "docs/adr/ADR-0102-origin-and-confirmation-are-two-fields.md",
@@ -1736,7 +1739,7 @@
           "subject": "docs(ADR-0099): 前置是一个条件，不是一张卡 —— 041 收掉了，写入方并没有因此出现（TASK-136 · three-pane）",
           "time": "2026-09-05T14:21:24+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/adr/ADR-0099-resume-is-not-a-retry.md",
             "docs/skill-evolution/proposals/EP-002-writeback-commit-needs-a-pathspec.md"
@@ -2047,7 +2050,7 @@
           "subject": "TASK-139 收口：用现在这条免费的把功能做完（three-pane）",
           "time": "2026-09-05T13:51:17+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/STATUS.md",
             "docs/adr/ADR-0100-account-quota-is-not-a-paid-gate.md",
@@ -2065,7 +2068,7 @@
           "subject": "chore: 补上三次搬卡的另一半（TASK-139 / 041 / 140）",
           "time": "2026-09-05T14:57:39+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/tasks/active/TASK-139-images-from-my-own-account.md",
             "docs/tasks/backlog/TASK-041-workspace-generation-command-and-evidence.md",
@@ -2081,7 +2084,7 @@
           "subject": "chore: TASK-041 卡在 done/ 的那一半（搬卡的补齐）",
           "time": "2026-09-05T14:57:40+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/tasks/done/TASK-041-workspace-generation-command-and-evidence.md"
           ],
@@ -2207,7 +2210,7 @@
           "subject": "@ 状态级参考图也走动作表 —— 棘轮空了（TASK-129 切片 2e）",
           "time": "2026-09-05T14:05:37+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/design/active/product-requirement-and-ux-convergence-review.md",
             "docs/requirements/REQ-006-agent-can-do-what-the-creator-can-do.md",
@@ -2239,7 +2242,7 @@
           "subject": "摘图时「生效的主图」也可能是继承来的（codex 审查轮 1 的 P1）",
           "time": "2026-09-05T14:17:30+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "mockups/motv-workspace/src/workflow/bibledoc.js",
             "mockups/motv-workspace/src/workflow/convactions.js",
@@ -2252,7 +2255,7 @@
           "subject": "摘图不许凭空造出一个主图（codex 审查轮 2 的 P1）",
           "time": "2026-09-05T14:17:30+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "mockups/motv-workspace/src/workflow/bibledoc.js",
             "mockups/motv-workspace/tests/convactions.test.mjs"
@@ -2264,7 +2267,7 @@
           "subject": "「摘光」不等于「回到继承」—— 改的是说法，不是行为（codex 审查轮 3）",
           "time": "2026-09-05T14:45:31+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "mockups/motv-workspace/src/workflow/convactions.js",
             "mockups/motv-workspace/tests/convactions.test.mjs"
@@ -2276,7 +2279,7 @@
           "subject": "docs(TASK-129): 把四轮审查的结论写进卡头 —— 三条 P1 各自的机制，以及那条改说法不改行为的",
           "time": "2026-09-05T15:14:49+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/tasks/done/TASK-129-settings-structure-writes-into-the-table.md"
           ],
@@ -2476,7 +2479,7 @@
           "subject": "那条 e2e 的红不是噪音：字有 1/5 概率没落盘（TASK-087 §6.12 登记）",
           "time": "2026-09-05T14:05:52+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/tasks/active/TASK-087-followup-ledger.md",
             "tests/e2e/test_connected_journey_task130.py"
@@ -2490,7 +2493,7 @@
           "subject": "chore(auto-push): three-pane manifest writeback（TASK-129 切片 2e + TASK-087 §6.12）",
           "time": "2026-09-05T14:17:30+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/auto-push/changes/three-pane.json"
           ],
@@ -2501,7 +2504,7 @@
           "subject": "fix: 存不下的时候不许一声不吭 —— 故事核心的字约 1/5 被静默丢掉",
           "time": "2026-09-05T14:20:03+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "mockups/motv-workspace/src/app.js",
             "mockups/motv-workspace/tests/persistence.test.mjs"
@@ -2513,7 +2516,7 @@
           "subject": "fix: 载入期间锁住输入 —— 能防住的丢字，不该只靠提示",
           "time": "2026-09-05T14:20:04+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "mockups/motv-workspace/src/app.js",
             "mockups/motv-workspace/tests/persistence.test.mjs"
@@ -2525,7 +2528,7 @@
           "subject": "docs(TASK-087 §6.12/§6.13): 静默丢字修到了一条路径，e2e 复现的那条不是它；再记一条 reset 的取舍",
           "time": "2026-09-05T14:34:17+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/tasks/active/TASK-087-followup-ledger.md"
           ],
@@ -2549,7 +2552,7 @@
           "subject": "main 的 CI 红了九天：两个根因，都是「本地永远绿」的形状（TASK-140）",
           "time": "2026-09-05T14:15:36+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             ".claude/tools/agent_harness.py",
             ".claude/tools/gh-api.py",

@@ -546,6 +546,23 @@ export function saveCanvas(name, data) {
     // Re-check at fire time: a fail-safe load may have blocked this project
     // AFTER the save was queued — the queued write must not slip through.
     if (_blocked.has(name) || _loading.get(name)) {
+      // **丢掉它就要说出来。**
+      //
+      // 入口处那两道同样的检查（`_blocked` / `_loading`）都会 `console.warn`，
+      // **唯独这道「触发时复查」原来一声不吭** —— 于是排队中的那一次写被安静地
+      // 删掉：他敲的字在屏幕上还在、盘上没有、控制台干净。
+      //
+      // 并行会话 2026-09-05 在旅程 e2e 里实测到约 1/5 复现，三条现象正好对上：
+      // 字在屏幕上（模型改了）· 整个账户目录一个字都没有（这次写被删了）·
+      // **没有任何 `motv:` 警告**（就是这一行）。而「没有警告」把排查引向了别处 ——
+      // 静默失败最贵的地方不是丢了东西，是它让你去查不相干的地方。
+      //
+      // 这里**不改行为**（排队中的写确实不能落，那是 fail-safe 的本意），只让它出声：
+      // 与另两处同一个措辞，这样「为什么没存上」在控制台里永远有答案。
+      const why = _blocked.has(name) ? _blocked.get(name).reason : "load in flight";
+      console.warn(
+        `motv: canvas save for "${name}" dropped at flush time (${why}) — 这一次改动没有写下去`,
+      );
       _pendingSaves.delete(name);
       return;
     }

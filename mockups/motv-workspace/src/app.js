@@ -46,6 +46,7 @@ import { projectCardModel, pickCover, cardStats, renderCover } from "./ui/landin
 // 步骤就绪判定**只有一份**，在向导定义旁边。控制器不复述它 —— 复述就是 §2.5e
 // 那条缝（两处陈述同一件事实），而这一批的 P1 正是从「上游要求是手写的」来的。
 import { stepReadiness } from "./ui/prodwizard.js";
+import { createEditLock } from "./ui/editlock.js";
 import { createProduction } from "./ui/production.js";
 import { dailiesModel } from "./ui/dailies.js";
 import { reviewBoardModel } from "./ui/cutreview.js";
@@ -7096,7 +7097,10 @@ const engine = new GraphEngine({
     } else {
       renderStepbar(engine, $("#stepbar"), $("#entrybar"));
     }
+    // 与 `ctx.persist` 同一条通则：**「条件不成立就什么都不做」的分支必须出声**。
+    // 这一处存的是工作流画布（不是故事核心），但静默丢弃在哪儿都一样贵。
     if (canvasActive && PROJECT_NAME) persist.saveCanvas(PROJECT_NAME, serializeGraph());
+    else console.warn(`motv: 画布改动没有写下去（canvasActive=${canvasActive}）`);
   },
   onDeleteEdges: () => toast("已删除选中连线"),
 });
@@ -7442,59 +7446,22 @@ $$(".entry").forEach((b) => (b.onclick = () => {
   if (b.dataset.seed !== "story") toast("已进入故事工作流（原型：过程统一到 L0–S7 链）");
 }));
 
-/** 载入期间把还留在屏幕上的编辑器锁住 —— **能防住的损失，不该只靠提示**。
+/** 载入期间把还留在屏幕上的编辑器锁住 —— **能防住的丢字，不该只靠提示**。
  *
- *  `canvasActive` 在 `enterCanvas` 开头置假、异步载入完才置真。重新进入同一个项目时
- *  （路由切换、迁移后从项目副本重载）**旧界面还留在屏幕上**：这段窗口里他敲的字会写进
- *  一份马上被替换掉的文档，然后被 `ctx.persist` 丢掉（并行会话实测约 1/5 复现）。
- *
- *  上一步已经让那次丢弃**不再静默**（warn + toast）。但「告诉他白敲了」只是止损的下限 ——
- *  这一步让他**根本敲不进去**：窗口一开就把生产区里的输入框设为只读，载入完再放开。
- *
- *  为什么不靠重画：载入期间 `refreshProductionView` 本来就被 `canvasActive` 挡着
- *  （app.js 的那句 `if (!canvasActive || !production.isVisible()) return`），
- *  所以这件事必须**直接对 DOM 做**，不能等下一次 render。
- *
- *  只读而不是禁用：`disabled` 会把已有内容变灰、连选中复制都做不到；他可能正想把
- *  刚敲的那段字**复制走**再重来 —— 那恰恰是这条缺陷之后最合理的动作。 */
-let _editLockWatchdog = null;
-
-function setEditingLocked(locked) {
-  const root = document.getElementById("production");
-  if (!root) return;
-  // **锁死比丢字更糟，所以这把锁一定会自己开。**
-  //
-  // `enterCanvas` 里有 `await`，中途抛异常就走不到解锁那一行（还有一处
-  // 「切到别的项目就 return」）。那种情况下他会对着一个**永远只读**的编辑器 ——
-  // 一个防丢字的措施把人锁在外面，是比原缺陷更坏的结果。
-  // 所以上锁的同时开一个看门狗：到点还没解锁就自己放开并说明白。
-  clearTimeout(_editLockWatchdog);
-  _editLockWatchdog = null;
-  if (locked) {
-    _editLockWatchdog = setTimeout(() => {
-      console.warn("motv: 载入迟迟没完成 —— 放开输入，避免把你锁在外面");
-      setEditingLocked(false);
-      if (typeof toast === "function") toast("载入没完成：已放开输入，但这时改的东西可能存不下");
-    }, 15000);
-  }
-  root.classList.toggle("is-loading", !!locked);
-  root.querySelectorAll("textarea, input").forEach((el) => {
-    if (locked) {
-      if (el.readOnly) el.dataset.motvWasReadonly = "1";
-      el.readOnly = true;
-    } else if (el.dataset.motvWasReadonly) {
-      delete el.dataset.motvWasReadonly; // 本来就是只读的，别替它解锁
-    } else {
-      el.readOnly = false;
-    }
-  });
-}
+ *  实现搬进了 `ui/editlock.js`：写在这里时**没法测行为**，守卫只能扫源码文本，
+ *  而 codex 当场点了它「没有真的驱动那些顺序」。搬过去之后，「重复上锁」与
+ *  「看门狗解锁 + 完成解锁」两种顺序都能用真调用钉住（那正是它判 P1 的两条）。 */
+const editLock = createEditLock({
+  getRoot: () => document.getElementById("production"),
+  warn: (m) => console.warn(m),
+  toast: (m) => { if (typeof toast === "function") toast(m); },
+});
 
 // --- enter a project's canvas (real or demo) ---
 async function enterCanvas(name, opts = {}) {
   PROJECT_NAME = name;
   canvasActive = false;
-  setEditingLocked(true);
+  editLock.lock();
   scriptDocs = Object.create(null); // per-project; restoreGraph rehydrates
   scriptDoc = scriptdoc.createDoc();
   storyDoc = storydoc.createStory(null);
@@ -7652,7 +7619,7 @@ async function enterCanvas(name, opts = {}) {
     ctx.refreshType("script");
   }
   canvasActive = true;
-  setEditingLocked(false); // 载入完了，放开输入（见 `setEditingLocked` 的注释）
+  editLock.unlock(); // 载入完了，放开输入（见 `ui/editlock.js`）
   if (PAID) ctx.loadPaidOps(); // 生成情况 projection for the video node
   // Default creator-facing space: 故事开发 (ADR-0061 决策 1) — the work starts by
   // writing the story. `?canvas=1` opens the diagnostic node canvas instead; it

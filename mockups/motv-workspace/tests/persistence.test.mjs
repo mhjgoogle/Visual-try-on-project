@@ -478,53 +478,129 @@ test("blockSaves 不覆盖已有的停用理由 —— 第一个声明者说了�
 
 /* --- 存不下就得说出来（2026-09-05）------------------------------------------ */
 
-test("`ctx.persist` 在存不下的时候不许一声不吭", async () => {
-  // 并行会话在旅程 e2e 里实测：故事核心里敲的字**约 1/5 概率被静默丢掉** ——
-  // 屏幕上看着还在、整个账户目录一个字都没有、**控制台没有任何 `motv:` 警告**。
+test("排队中的写在触发时被丢掉，必须出声 —— 这条是真跑，不是扫源码", async () => {
+  // **这条守的是 2026-09-05 那次 1/5 静默丢字的真正机制。**
   //
-  // 机制在 `app.js` 的 `ctx.persist`：它原来是
-  //     if (canvasActive && PROJECT_NAME) saveCanvas(...)
-  // 条件不成立就**什么都不做**。而 `canvasActive` 在 `enterCanvas` 开头置假、异步
-  // 载入完才置真 —— 重新进入同一个项目时（路由切换、迁移后重载），**旧界面还在屏幕上**，
-  // 这时敲的字写进一份即将被替换掉的文档，然后被那一行悄悄丢掉。
+  // `saveCanvas` 入口处的 `_blocked` / `_loading` 两道检查都会 `console.warn`，
+  // 但去抖定时器（700ms）**触发时**还会复查一次 —— 而那一处原来是
+  //     if (_blocked.has(name) || _loading.get(name)) { _pendingSaves.delete(name); return; }
+  // **一声不吭地把排队中的那次写删掉**。于是：字在屏幕上、盘上没有、控制台干净。
   //
-  // `persist.js` 里两条已知的跳过路径（blockSaves / load in flight）都会 warn，
-  // 所以「没有警告」当时反而误导人去查别处 —— 这一条守的就是**那句警告必须存在**。
+  // 「没有警告」把排查引向了别处（并行会话据此推断「根本没走到 ctx.persist」）——
+  // **静默失败最贵的地方不是丢了东西，是它让你去查不相干的地方。**
   //
-  // 这里断言的是源码里那条性质（这个分支在 app.js 顶层的 `ctx` 字面量里，
-  // 没有 DOM 就构造不出来；而它要守的东西恰恰是「有没有那句话」）。
-  const fs = await import("node:fs/promises");
-  const src = await fs.readFile(new URL("../src/app.js", import.meta.url), "utf8");
-  const i = src.indexOf("  persist: () => {");
-  assert.ok(i > 0, "找不到 ctx.persist");
-  const body = src.slice(i, i + 2000);
-  assert.match(body, /console\.warn\(`motv:/, "存不下的那一支没有 console.warn —— 它会静默丢字");
-  assert.match(body, /toast\(/, "存不下的那一支没有 toast —— 他要刷新之后才发现");
-  assert.match(body, /canvasActive/, "这条分支不再判 canvasActive 了？请同步这条守卫");
+  // codex 点过上一版这条守卫：它「扫源码文本，没有真的驱动那条通知」。这一版真跑。
+  const seen = [];
+  const realWarn = console.warn;
+  console.warn = (...a) => seen.push(a.join(" "));
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = okJson({ ok: true });
+  try {
+    saveCanvas("排队项目", { nodes: [] });      // 排队，700ms 后才写
+    blockSaves("排队项目", "TEST", "测试用");    // 在它触发之前把这个项目停用
+    await sleep(900);                            // 让定时器真的触发一次
+  } finally {
+    console.warn = realWarn;
+    globalThis.fetch = realFetch;
+    unblockSaves("排队项目", "TEST");
+  }
+  const dropped = seen.filter((t) => /dropped at flush time/.test(t));
+  assert.equal(dropped.length, 1, `丢弃时没有出声；看到的是：${JSON.stringify(seen)}`);
+  assert.match(dropped[0], /排队项目/, "没说是哪个项目");
+  assert.match(dropped[0], /TEST|没有写下去/, "没说为什么");
 });
 
-test("载入期间锁住输入，而且那把锁一定会自己开", async () => {
+/* --- 载入期间那把锁：codex 2026-09-05 判的两条 P1，用真调用钉住 -------------- */
+
+/** 一个够用的 DOM 替身。这把锁只需要 `classList` 和 `querySelectorAll`。 */
+function fakeRoot(fields) {
+  const cls = new Set();
+  return {
+    classList: { toggle: (n, on) => (on ? cls.add(n) : cls.delete(n)), contains: (n) => cls.has(n) },
+    querySelectorAll: () => fields,
+  };
+}
+const field = (readOnly = false) => ({ readOnly, dataset: {} });
+
+test("载入期间锁住输入：两端各一次，用真调用而不是扫源码", async () => {
   // 上一条守的是「存不下要说出来」；这一条守的是**根本别让他敲进去** ——
   // 能防住的损失不该只靠提示。窗口是：`enterCanvas` 开头 `canvasActive = false`，
   // 而重新进入同一个项目时旧界面还留在屏幕上。
-  //
-  // 同样重要的是反作用：`enterCanvas` 里有 `await`，抛了就走不到解锁那一行
-  // （还有一处「切到别的项目就 return」）。**把人锁在一个永远只读的编辑器前面，
-  // 比原来的丢字更糟** —— 所以必须有看门狗。
-  const fs = await import("node:fs/promises");
-  const src = await fs.readFile(new URL("../src/app.js", import.meta.url), "utf8");
+  const { createEditLock } = await import("../src/ui/editlock.js");
+  const el = field(false);
+  const lock = createEditLock({ getRoot: () => fakeRoot([el]) });
+  lock.lock();
+  assert.equal(el.readOnly, true, "进入项目时没有上锁");
+  lock.unlock();
+  assert.equal(el.readOnly, false, "载入完没有解锁");
+});
 
-  assert.match(src, /function setEditingLocked\(/, "没有这把锁");
-  // 两端各一次：进入时上锁、载入完解锁
-  assert.match(src, /canvasActive = false;\s*\n\s*setEditingLocked\(true\);/,
-    "进入项目时没有上锁");
-  assert.match(src, /canvasActive = true;\s*\n\s*setEditingLocked\(false\);/,
-    "载入完没有解锁");
-  // 看门狗：不许存在「锁上了就再也开不了」的路径
-  const body = src.slice(src.indexOf("function setEditingLocked("), src.indexOf("async function enterCanvas"));
-  assert.match(body, /setTimeout\(/, "没有看门狗 —— 载入抛异常会把输入永久锁死");
-  assert.match(body, /setEditingLocked\(false\)/, "看门狗没有真的解锁");
-  // 只读而不是禁用：他可能正想把刚敲的那段字复制走
-  assert.match(body, /readOnly/, "用的不是 readOnly");
-  assert.doesNotMatch(body, /\.disabled = true/, "用了 disabled —— 那会连复制都做不到");
+test("重复上锁，不会把「本来可编辑」记成「本来只读」", async () => {
+  // codex 原话：Repeated locking records the first lock's `readOnly` value as an
+  // original restriction; unlocking then leaves originally editable inputs read-only.
+  //
+  // 上一版每次上锁都写标记：第二次上锁时 `readOnly` 已经是**我们自己设的** true，
+  // 于是被记成「原本就只读」—— 解锁后那个框永远只读。**标记记的是「进入锁定之前
+  // 的样子」，所以只能在进入的那一次写。**
+  const { createEditLock } = await import("../src/ui/editlock.js");
+  const editable = field(false);
+  const alwaysRo = field(true);
+  const lock = createEditLock({ getRoot: () => fakeRoot([editable, alwaysRo]) });
+
+  lock.lock();
+  lock.lock();          // ← 重复上锁（嵌套的重新进入）
+  lock.unlock();
+
+  assert.equal(editable.readOnly, false, "本来可编辑的框被永久锁住了");
+  assert.equal(alwaysRo.readOnly, true, "本来只读的框被放开了");
+});
+
+test("看门狗先解锁、载入完再解锁，不会把「本来只读」放开", async () => {
+  // codex 原话：watchdog unlock followed by completion unlock makes originally
+  // read-only inputs editable because the first unlock deleted their marker.
+  const { createEditLock } = await import("../src/ui/editlock.js");
+  const editable = field(false);
+  const alwaysRo = field(true);
+  const warns = [];
+  const lock = createEditLock({ getRoot: () => fakeRoot([editable, alwaysRo]), warn: (m) => warns.push(m) });
+
+  lock.lock();
+  assert.equal(lock._fireWatchdog(), true, "看门狗没能跑");   // 第一次解锁
+  lock.unlock();                                              // 载入完成，第二次解锁
+
+  assert.equal(alwaysRo.readOnly, true, "本来只读的框被第二次解锁放开了");
+  assert.equal(editable.readOnly, false);
+  assert.match(warns.join(" "), /放开输入/, "看门狗解锁时没出声");
+});
+
+test("这把锁一定会自己开 —— 载入抛异常也不许把人锁在外面", async () => {
+  // `enterCanvas` 里有 `await`，抛了就走不到解锁那一行（还有一处「切到别的项目就
+  // return」）。**把人锁在一个永远只读的编辑器前面，比原来的丢字更糟。**
+  const { createEditLock } = await import("../src/ui/editlock.js");
+  const el = field(false);
+  const said = [];
+  const lock = createEditLock({ getRoot: () => fakeRoot([el]), toast: (m) => said.push(m) });
+
+  lock.lock();
+  assert.equal(el.readOnly, true, "上锁没生效");
+  lock._fireWatchdog();
+  assert.equal(el.readOnly, false, "看门狗没有放开输入");
+  assert.equal(lock.isLocked(), false, "放开了输入却没改状态 —— 之后的解锁会再动一次标记");
+  assert.match(said.join(" "), /已放开输入/, "放开了却没告诉他");
+});
+
+test("锁上时用 readOnly 不用 disabled —— 他可能正想把刚敲的字复制走", async () => {
+  const { createEditLock } = await import("../src/ui/editlock.js");
+  const el = field(false);
+  const lock = createEditLock({ getRoot: () => fakeRoot([el]) });
+  lock.lock();
+  assert.equal(el.readOnly, true);
+  assert.equal(el.disabled, undefined, "用了 disabled —— 那会连选中复制都做不到");
+});
+
+test("根节点还不存在时什么都不做，也不记下一个假的锁定状态", async () => {
+  const { createEditLock } = await import("../src/ui/editlock.js");
+  const lock = createEditLock({ getRoot: () => null });
+  lock.lock();
+  assert.equal(lock.isLocked(), false, "没有界面却记成锁上了 —— 界面出现后第一次上锁会被当成重复");
 });
