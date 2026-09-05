@@ -20,6 +20,15 @@
   测试一起删了，`workspaces.js#settings` 进了更严的 `CONVERTED_BINDERS`：「已接线的
   binder 一个直接写都不许有」）。**只剩 TASK-128；它闭合之前判据 1 仍是 `PARTIAL`**，
   不是 `PASS` —— codex 2026-09-05 判得对
+
+  **判据 1 在剧集侧有一处措辞缺口，去向记在这里**（ADR-0088 决策 6：缺口写成卡并在 REQ 里
+  记下它挪到哪，不让 `PARTIAL` 被 merge 掉）：只要自动化级别还是 `suggest`，剧集侧那些写
+  动作就**必须**经他确认 —— 于是判据 1 的字面「Agent 能做创作者能做的事」在那一侧**永远**
+  不会成立。**这不是实现缺口，是判据措辞**：按原文去追 `PASS` 会追到一个拆掉 `allowedAt`
+  的实现上（见 [ADR-0102](../adr/ADR-0102-origin-and-confirmation-are-two-fields.md) 决策 3）。
+  建议的判词形状是「**每一条他能点的写，Agent 都说得出对应的名字，并且走得到那条提案路径**」，
+  但**判据是产品需求，改它的含义归产品负责人** —— 这里只登记缺口与建议，不擅自改判据。
+  实施去向：[TASK-128](../tasks/backlog/TASK-128-episode-side-actions-into-the-table.md)
 - 相关 ADR：[ADR-0089](../adr/ADR-0089-conversational-agent-write-path.md)（对话式写路径，
   本 REQ 落在它的决策 2b/3 之上）
 
