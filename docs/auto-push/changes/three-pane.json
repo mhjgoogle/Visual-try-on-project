@@ -1884,6 +1884,21 @@
             "docs/requirements/REQ-008-images-from-my-own-account.md",
             "mockups/motv-workspace/imagegen.py"
           ]
+        },
+        {
+          "hash": "5436f77e88db0ada436152fb5681d8de68ae0356",
+          "subject": "一键出图那颗按钮 —— 和付费那颗并排，但一眼分得开（TASK-139 批次 B · three-pane）",
+          "time": "2026-09-05T11:14:28+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/tasks/active/TASK-139-images-from-my-own-account.md",
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/src/services/command.js",
+            "mockups/motv-workspace/src/workflow/nodes/assets.js",
+            "mockups/motv-workspace/tests/apiclient.test.mjs"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
@@ -1898,11 +1913,15 @@
         "mockups/motv-workspace/credstore.py",
         "mockups/motv-workspace/imagegen.py",
         "mockups/motv-workspace/server.py",
+        "mockups/motv-workspace/src/app.js",
+        "mockups/motv-workspace/src/services/command.js",
+        "mockups/motv-workspace/src/workflow/nodes/assets.js",
+        "mockups/motv-workspace/tests/apiclient.test.mjs",
         "tests/studio/test_account_image_gen_task139.py"
       ],
       "verification": "PASS",
-      "verification_ref": "Pollinations 默认来源跑通（真实端到端 200 / 2.9s / 39KB JPEG / hero_v1.jpg）+ .env.local 支持。验证：tests/studio 639 passed / 14 skipped（本卡 50 条）· ruff 全绿 · lifecycle_check 0 finding。REQ-008 判据 2 由此闭合，措辞随 v2 收敛为「不产生按次账单」",
-      "declared": "2026-09-05T10:51:56+00:00"
+      "verification_ref": "批次 B 切片 1：一键出图按钮 + 服务层 + ctx 接线。验证：node --test 全量 2177 passed / 0 failed（新增 3 条服务层用例）· pytest tests/contract 269 passed · ESM 用 import() 实核",
+      "declared": "2026-09-05T11:14:27+00:00"
     },
     "TASK-129": {
       "commits": [
@@ -1972,12 +1991,23 @@
           "subject": "feat: 状态/参考图/声音进表，棘轮从 18 个名字缩到 2 个（TASK-129 切片 2d）",
           "time": "2026-09-05T11:06:48+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/tasks/backlog/TASK-129-settings-structure-writes-into-the-table.md",
             "mockups/motv-workspace/src/ui/workspaces.js",
             "mockups/motv-workspace/src/workflow/convactions.js",
             "tests/contract/test_surface_manifest.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "80e646733435f7bb24e92997459d0a3117caede3",
+          "subject": "chore(auto-push): three-pane manifest writeback（TASK-129 切片 1/2a–2d 补登）",
+          "time": "2026-09-05T11:07:08+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/auto-push/changes/three-pane.json"
           ],
           "scope_violation": null
         }
