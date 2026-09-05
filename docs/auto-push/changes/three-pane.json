@@ -1850,7 +1850,7 @@
           "subject": "补审轮 2：三条 P1 都在轮 1 的修复里 —— 修一处出口不等于修了那个类（TASK-139 · three-pane）",
           "time": "2026-09-05T09:44:03+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/auto-push/changes/three-pane.json",
             "docs/tasks/active/TASK-139-images-from-my-own-account.md",
@@ -1859,6 +1859,31 @@
             "tests/studio/test_account_image_gen_task139.py"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "08d9eb42266520b209065d33ed2ea3887ae25417",
+          "subject": "出图跑通了，但闭合它的不是 Gemini —— 免费档对出图的配额是 0（TASK-139 · three-pane）",
+          "time": "2026-09-05T10:51:38+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            ".env.local.example",
+            ".gitignore",
+            "docs/adr/ADR-0100-account-quota-is-not-a-paid-gate.md",
+            "docs/requirements/REQ-008-images-from-my-own-account.md",
+            "docs/tasks/active/TASK-139-images-from-my-own-account.md",
+            "mockups/motv-workspace/credstore.py",
+            "mockups/motv-workspace/imagegen.py",
+            "mockups/motv-workspace/server.py",
+            "tests/studio/test_account_image_gen_task139.py"
+          ],
+          "scope_violation": [
+            ".env.local.example",
+            ".gitignore",
+            "docs/adr/ADR-0100-account-quota-is-not-a-paid-gate.md",
+            "docs/requirements/REQ-008-images-from-my-own-account.md",
+            "mockups/motv-workspace/imagegen.py"
+          ]
         }
       ],
       "paths": [
@@ -1870,6 +1895,89 @@
       "verification": "PASS",
       "verification_ref": "补审轮 2 的 3 条新 P1 修复（同意必须是布尔真 / 意外出口也要留下 unknown / 隔离名用尽时停手不覆盖）。验证：41 passed 全离线 · ruff 全绿。REQ-008 判据 2 仍 NOT_EVIDENCED，等真实 key 跑一次，已写进卡片",
       "declared": "2026-09-05T09:21:29+00:00"
+    },
+    "TASK-129": {
+      "commits": [
+        {
+          "hash": "bb9ac070f65ebea345c016aa5cd81837e764bfbf",
+          "subject": "feat: 作品设定的删除变成软删除 —— 人物/场景地/状态/参考图/关系都拿得回来（TASK-129 切片 1）",
+          "time": "2026-09-05T10:04:34+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "mockups/motv-workspace/src/workflow/bibledoc.js",
+            "mockups/motv-workspace/src/workflow/canondoc.js",
+            "mockups/motv-workspace/src/workflow/proddoc.js",
+            "mockups/motv-workspace/tests/proddoc.test.mjs",
+            "mockups/motv-workspace/tests/recyclebin.test.mjs"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "5922b4a485710fa658e66c3016c00e693c4878b2",
+          "subject": "feat: 人物关系的结构也走动作表 —— 三个棘轮名字划掉第一组（TASK-129 切片 2a）",
+          "time": "2026-09-05T10:17:41+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/tasks/backlog/TASK-129-settings-structure-writes-into-the-table.md",
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/src/ui/relws.js",
+            "mockups/motv-workspace/src/workflow/convactions.js",
+            "mockups/motv-workspace/styles/epprod.css",
+            "tests/contract/test_surface_manifest.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "6b585c25d82ab627ff1453329b704a0619ca8804",
+          "subject": "feat: 分集节拍也走动作表，并补上扫描器的一个洞（TASK-129 切片 2b）",
+          "time": "2026-09-05T10:36:16+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/tasks/backlog/TASK-129-settings-structure-writes-into-the-table.md",
+            "mockups/motv-workspace/src/ui/epplanws.js",
+            "mockups/motv-workspace/src/workflow/convactions.js",
+            "tests/contract/test_surface_manifest.py"
+          ],
+          "scope_violation": [
+            "mockups/motv-workspace/src/ui/epplanws.js"
+          ]
+        },
+        {
+          "hash": "2f631fab02714ae62daec32432e4a4a7422d90c0",
+          "subject": "feat: 人物与场景地本身也走动作表，回收区他自己点得到（TASK-129 切片 2c）",
+          "time": "2026-09-05T10:49:52+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/tasks/backlog/TASK-129-settings-structure-writes-into-the-table.md",
+            "mockups/motv-workspace/src/ui/workspaces.js",
+            "mockups/motv-workspace/src/workflow/convactions.js",
+            "tests/contract/test_surface_manifest.py"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        "docs/tasks/backlog/TASK-129-settings-structure-writes-into-the-table.md",
+        "mockups/motv-workspace/src/app.js",
+        "mockups/motv-workspace/src/ui/epplanws.js",
+        "mockups/motv-workspace/src/ui/relws.js",
+        "mockups/motv-workspace/src/ui/workspaces.js",
+        "mockups/motv-workspace/src/workflow/bibledoc.js",
+        "mockups/motv-workspace/src/workflow/canondoc.js",
+        "mockups/motv-workspace/src/workflow/convactions.js",
+        "mockups/motv-workspace/src/workflow/proddoc.js",
+        "mockups/motv-workspace/styles/epprod.css",
+        "mockups/motv-workspace/tests/proddoc.test.mjs",
+        "mockups/motv-workspace/tests/recyclebin.test.mjs",
+        "tests/contract/test_surface_manifest.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "TASK-129 切片 1+2a+2b：前端全量 2174 passed · tests/contract 269 passed（surface_manifest 16 例穷尽性合同）· tests/studio 630 passed · recyclebin.test.mjs 14 例 + 三处变异验证 · ruff 通过",
+      "declared": "2026-09-05T10:36:38+00:00"
     }
   },
   "merge_gate": {
