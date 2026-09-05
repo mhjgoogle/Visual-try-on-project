@@ -19,7 +19,7 @@
 | `docs/reports/` | 阶段性工作报告 —— **历史证据**，默认不读 |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：8 在办 · 10 待排期 · 122 已完成 · 82 条 ADR。
+**当前**：8 在办 · 10 待排期 · 122 已完成 · 83 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -76,7 +76,7 @@
 | [TASK-129-settings-structure-writes-into-the-table.md](tasks/backlog/TASK-129-settings-structure-writes-into-the-table.md) | TASK-129：作品设定的结构写也走动作表 —— REQ-006 判据 1 的第三块 | 待开始（2026-09-05 开卡 |
 | [TASK-132-click-ui-element-and-leave-feedback.md](tasks/backlog/TASK-132-click-ui-element-and-leave-feedback.md) | TASK-132：点击界面元素写意见，并让开发 Agent 收到准确位置 | 待开始 |
 | [TASK-135-server-authoritative-workflow-plan.md](tasks/backlog/TASK-135-server-authoritative-workflow-plan.md) | TASK-135：下一步该干什么由后端说了算 —— 服务端权威工作流计划 | 待开始（2026-09-05 开卡 |
-| [TASK-136-generation-resume-and-idempotency.md](tasks/backlog/TASK-136-generation-resume-and-idempotency.md) | TASK-136：重启之后不许重复扣费 —— 生成任务的续跑与幂等 | 待开始（2026-09-05 开卡 |
+| [TASK-136-generation-resume-and-idempotency.md](tasks/backlog/TASK-136-generation-resume-and-idempotency.md) | TASK-136：重启之后不许重复扣费 —— 生成任务的续跑与幂等 | 待开始 · 前置 ADR 已 Accept（2026-09-05 开卡 |
 | [TASK-137-review-issue-to-rework-loop.md](tasks/backlog/TASK-137-review-issue-to-rework-loop.md) | TASK-137：审片问题进入返工队列 —— 从问题定位到重新审片的闭环 | 待开始（2026-09-05 开卡 |
 | [TASK-138-story-development-visual-workflow.md](tasks/backlog/TASK-138-story-development-visual-workflow.md) | TASK-138：剧情制作不再是四张表单 —— 一条看得见的故事创作链 | 待开始（2026-09-05 开卡 |
 
@@ -243,7 +243,7 @@
 | 位置 | 放什么 |
 | --- | --- |
 | [当前架构合同](current-architecture.md) | **现在**成立的边界与约束（NOW） |
-| [`docs/adr/`](adr/) | 82 条决策记录（ADR-0001 … ADR-0098）—— WHY / HISTORY |
+| [`docs/adr/`](adr/) | 83 条决策记录（ADR-0001 … ADR-0099）—— WHY / HISTORY |
 | [`docs/design/`](design/) 根 | 系统合同、产品信息架构、L0–S7 I/O 合同 |
 | [项目背景与路线](project-context.md) | 这个项目是什么、走到哪了 |
 | [实施规划](implementation_plan.md) | 阶段与里程碑路线图 |

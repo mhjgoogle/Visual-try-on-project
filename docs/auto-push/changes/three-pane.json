@@ -1500,7 +1500,7 @@
           "subject": "fix: 文档链接守卫扫到了 scratch —— 挡住所有人的东西不在仓库里",
           "time": "2026-09-05T07:42:25+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/auto-push/changes/three-pane.json",
             "tests/tooling/test_docs_links.py"
@@ -1550,14 +1550,41 @@
             "docs/tasks/backlog/TASK-128-episode-side-actions-into-the-table.md"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "26cae4c2a74662194083b6a5e61645d92ad89047",
+          "subject": "docs(TASK-128): 订正 —— 那个问题不是二选一，仓库已经选过边了",
+          "time": "2026-09-05T07:51:02+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/STATUS.md",
+            "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/backlog/TASK-128-episode-side-actions-into-the-table.md"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
+        "docs/STATUS.md",
+        "docs/auto-push/changes/three-pane.json",
         "docs/tasks/backlog/TASK-128-episode-side-actions-into-the-table.md"
       ],
       "verification": "PASS",
-      "verification_ref": "纯文档提交（只改 docs/tasks/backlog/TASK-128-*.md 一份卡）。验证：lifecycle_check 0 finding · gen_docs_status 已重生成 · test_docs_links + test_docs_status + test_surface_manifest 定向跑过。盘点结论为只读 grep 所得，未改任何代码，故无代码面测试可跑",
-      "declared": "2026-09-05T07:28:00+00:00"
+      "verification_ref": "纯文档 + 生成物。验证：全量 3921 passed / 59 skipped（唯一失败是 STATUS.md 过期，本次已重新生成并复跑绿）· lifecycle_check 0 finding · test_docs_status + test_docs_links 10 passed",
+      "declared": "2026-09-05T07:51:00+00:00"
+    },
+    "TASK-136": {
+      "commits": [],
+      "paths": [
+        "docs/STATUS.md",
+        "docs/adr/ADR-0099-resume-is-not-a-retry.md",
+        "docs/tasks/backlog/TASK-041-workspace-generation-command-and-evidence.md",
+        "docs/tasks/backlog/TASK-136-generation-resume-and-idempotency.md"
+      ],
+      "verification": "PASS",
+      "verification_ref": "纯文档（ADR + 两张卡 + 生成的 STATUS.md）。验证：lifecycle_check 0 finding · pytest tests/tooling/{test_docs_links,test_docs_status,test_lifecycle_check,test_plan_status_matches_folder}.py 74 passed。按 AGENTS §20 触发表，纯文档不调 codex-review-loop",
+      "declared": "2026-09-05T08:12:44+00:00"
     }
   },
   "merge_gate": {

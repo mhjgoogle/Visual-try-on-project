@@ -1,6 +1,9 @@
 # TASK-136：重启之后不许重复扣费 —— 生成任务的续跑与幂等
 
-- 状态：**待开始**（2026-09-05 开卡；没有 Agent 在做）
+- 状态：**待开始 · 前置 ADR 已 Accept**（2026-09-05 开卡；
+  [ADR-0099](../../adr/ADR-0099-resume-is-not-a-retry.md) 2026-09-05 Accepted，
+  合同已定完；现在**等的不是决策，是 [TASK-041](TASK-041-workspace-generation-command-and-evidence.md)
+  的付费写入方** —— 见下方「前置」）
 - Workflow：Feature · 深度：DEEP（付费路径 + 持久化 + 并发，需要独立 ADR）
 - 技术目标：AGENTS.md 第 12 条要求「工作流必须支持断点续跑」，但那是**原则**，没有定
   「服务重启时，一个已经提交给供应商、还没拿回结果的付费任务该怎么办」。
@@ -32,7 +35,21 @@
 它还有两条配套：远端 task id 与状态**必须持久化**（否则重启后连「问谁」都不知道），
 以及 image / video / audio **各自独立的并发通道**（成本与延迟特征不同，共用一个池会互相饿死）。
 
-## IN SCOPE（待 ADR 细化）
+## 立卡时的假设错了一半（2026-09-05 写 ADR 时核出来）
+
+立卡说的是「本仓库缺续跑语义，要从零定」。核过两侧代码之后：
+
+- **核心库（原 M1 付费路径）三个概念全都实现完了** —— `budget/reservation.py` 的
+  `record_external_task_ref` 持久化远端 id，`HELD` / `NEEDS_RECONCILIATION` 就是孤儿，
+  `app/paid_coordinator.py` 的 `resume_media` 完全从预留记录重建并且**从不重新提交、
+  不重新定价、不再付一次**，拿不到远端 id 时显式落 `needs_reconciliation`。
+- **缺口全在 Studio 侧**：`runstore._sweep_locked` 把跨重启的运行一律打成 `failed`，
+  记录里没有任何字段通向上面那条路。于是 §5.8 的 `unknown` 成了终点 —— 不知道该问谁。
+
+所以本卡要做的**不是发明续跑**，是把 Studio 的 Run 接到那条已经存在的路上。
+决策见 [ADR-0099](../../adr/ADR-0099-resume-is-not-a-retry.md)。
+
+## IN SCOPE（[ADR-0099](../../adr/ADR-0099-resume-is-not-a-retry.md) 已细化完，按它做）
 
 1. 「孤儿任务」的判定与它在 Run 状态机（§5.2 八态）里的位置 —— 大概率不是新状态，
    而是「running 且无执行体」的派生判断；
@@ -48,4 +65,19 @@
 
 ## 前置
 
-需要一份 ADR 先定合同。本卡在 ADR Accepted 前不动手。
+~~需要一份 ADR 先定合同。本卡在 ADR Accepted 前不动手。~~
+**已满足**：[ADR-0099](../../adr/ADR-0099-resume-is-not-a-retry.md) Accepted（2026-09-05）。
+
+**新的前置，而且是 ADR 自己定的**（决策 8）：**在 `provider:*` Run 有真实写入方之前，
+一行代码都不许写。** Studio 今天没有任何东西创建 `provider:*` 执行器的 Run，
+付费生成命令是 [TASK-041](TASK-041-workspace-generation-command-and-evidence.md)，
+它本身还等着产品负责人批准花钱。
+
+先建字段与续跑执行体就是
+[TASK-087 §1.2](../active/TASK-087-followup-ledger.md) 那条被 codex 判 P1 的东西：
+导出了、测了、没人用，而且让「续跑已经接通」这句话看起来成立。
+
+所以本卡与 TASK-041 是**同一个提交批次**：付费写入方落地的那一刻，
+按 ADR-0099 决策 2 / 4 / 5 / 6 / 7 一起接上，并在同一个提交里改
+[创作者系统合同](../../design/creator-system-contract.md) §5.3 字段表与 §5.4 第 4 条
+（ADR-0099「后果」的最后一条：合同现在不改，因为 `operationRef` 今天还不存在）。
