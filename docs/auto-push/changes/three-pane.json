@@ -1446,6 +1446,17 @@
             "docs/auto-push/changes/three-pane.json"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "c8ff63c653d12ea1aafbc00add1b88ec2c6ede04",
+          "subject": "chore(auto-push): three-pane manifest writeback（96af875 与 3c08c54 补登）",
+          "time": "2026-09-05T07:14:11+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/three-pane.json"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
