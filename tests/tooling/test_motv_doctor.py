@@ -150,3 +150,35 @@ def test_the_report_survives_a_non_utf8_console(doc, tmp_path, monkeypatch, caps
     monkeypatch.setattr(sys, "argv", ["motv_doctor.py", "--root", str(tmp_path)])
     assert doc.main() == 0
     assert "⚠" in capsys.readouterr().out
+
+
+def test_the_plan_probe_matches_what_the_facts_actually_report(doc):
+    """探针必须挑**事实真的会报出来的那一行**。
+
+    `_conv_facts` 只给前 20 行结构规划。上一版拿 `rows[-1]` 当探针 —— 于是超过
+    20 行的项目一律判 BAD，**而这个体检挂在提交闸门上，会挡住所有前端提交**
+    （codex 补审 2026-09-05 块 1）。一个喊狼的体检比没有体检更糟。
+    """
+    rows = [{"id": f"sp-{i}", "unitNo": str(i)} for i in range(30)]
+    surfaces = doc.surfaces_of({"story": {"work": {"plan": {"rows": rows}}}})
+    plan = next((s for s in surfaces if s["名字"] == "结构规划"), None)
+    assert plan is not None, "30 行的结构规划没有被认出来"
+    assert plan["probe"] == "sp-19", (
+        f"探针挑了 {plan['probe']} —— 事实只报前 20 行，第 21 行往后不会出现"
+    )
+
+
+def test_a_handler_that_mentions_no_write_is_a_warning_not_a_pass(doc):
+    """「接了」不等于「会写」。
+
+    上一版只认一种坏法（`return { ok: false, error: "…尚未接线" }`），别的空实现
+    一律算 OK —— 体检给出一个它其实没验过的通过。静态地证明「它真的写了」做不到，
+    但**能证明它连一处写都没提到**：那时报 WARN 并说清是「看不出」，
+    不是「坏了」。**体检可以不知道，但不可以假装知道。**
+    """
+    rows = doc.check_write_paths()
+    named = {r["名字"]: r for r in rows}
+    assert "接了但看不出它写了什么" in named, "这一类根本没有被查"
+    assert named["接了但看不出它写了什么"]["state"] == doc.WARN, (
+        "把「看不出」判成了 BAD —— 那会变成喊狼"
+    )

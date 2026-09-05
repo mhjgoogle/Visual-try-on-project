@@ -341,3 +341,51 @@ def test_the_recycle_bin_is_readable_because_undelete_is_writable(tmp_path, srv)
     assert "work.undeleteVersion" in facts, "没说怎么把它拿回来"
     assert core[0]["body"] not in facts, "删掉的内容被当成还在用的素材复述了"
     assert core[1]["body"] in facts, "还在的那一版反而不见了"
+
+
+def test_truncation_says_how_much_is_missing_and_keeps_the_current_page(tmp_path, srv):
+    """事实过长时：说清还剩多少，且**「现在在看」那一行不许被切掉**。
+
+    它是最后追加的，于是一刀切尾时它第一个消失 —— 而它恰恰是 Agent 判断「他此刻
+    在说哪一页的事」的唯一依据（codex 补审 2026-09-05 块 1）。上一版还只说
+    「已截断」，Agent 无从判断自己少看了一句还是少看了一半。
+    """
+    doc = _canvas_with_everything()
+    doc["story"]["work"]["core"] = "长" * 40000  # 远超聚合上限
+
+    account = tmp_path / "MotvProjects"
+    root = account / "作品"
+    (root / "studio").mkdir(parents=True)
+    (root / "studio" / "canvas.json").write_text(
+        json.dumps(doc, ensure_ascii=False), "utf-8"
+    )
+    app = srv._App(account)
+    app._projects["作品"] = root
+    facts = app._conv_facts("作品", {"page": "story/brief"})
+
+    assert "被截断了，后面还有" in facts, "截断了却没说还剩多少"
+    assert re.search(r"后面还有 \d+ 字没给你", facts), "没有给出具体的字数"
+    assert facts.rstrip().splitlines()[-1].startswith("现在在看："), (
+        "「现在在看」被截断切掉了 —— Agent 于是不知道他在说哪一页"
+    )
+
+
+def test_the_plan_says_how_many_rows_it_left_out(tmp_path, srv):
+    """只报前 20 行时要说还有多少行没报 —— 省略不许是静默的。"""
+    doc = _canvas_with_everything()
+    doc["story"]["work"]["plan"] = {
+        "rows": [
+            {"id": f"sp-{i}", "unitNo": str(i), "scene": f"第 {i} 场"}
+            for i in range(30)
+        ]
+    }
+    account = tmp_path / "MotvProjects"
+    root = account / "作品"
+    (root / "studio").mkdir(parents=True)
+    (root / "studio" / "canvas.json").write_text(
+        json.dumps(doc, ensure_ascii=False), "utf-8"
+    )
+    app = srv._App(account)
+    app._projects["作品"] = root
+    facts = app._conv_facts("作品")
+    assert "后面还有 10 行没给" in facts, "少报了 10 行却一个字都没说"

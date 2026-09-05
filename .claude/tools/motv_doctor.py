@@ -129,7 +129,15 @@ def surfaces_of(doc: dict) -> list[dict]:
         if not (r or {}).get("hidden")
     ]
     if rows:
-        probe = str((rows[-1] or {}).get("id") or "")
+        # 探针必须挑**事实真的会报出来的那一行**。
+        #
+        # `_conv_facts` 只给前 20 行；拿 `rows[-1]` 当探针的话，超过 20 行的项目
+        # 一律判 BAD —— 而这个体检挂在提交闸门上，**于是它会挡住所有前端提交**
+        # （codex 补审 2026-09-05 块 1）。一个喊狼的体检比没有体检更糟。
+        #
+        # 服务端那边同时补上了「后面还有 N 行没给」的提示，所以省略不再是静默的；
+        # 这里对齐它给的那 20 行。
+        probe = str((rows[min(19, len(rows) - 1)] or {}).get("id") or "")
         out.append({"名字": "结构规划", "量": f"{len(rows)} 行", "probe": probe})
 
     units = [
@@ -200,13 +208,40 @@ def check_write_paths() -> list[dict]:
     handled = set(re.findall(r'case "([a-zA-Z][a-zA-Z0-9]*)":', app))
     # 「接了，但 return 的是『尚未接线』」—— 与根本没接一样糟，而且更难发现：
     # 它在每一处静态检查里都表现为「已实现」。
-    # 「接了，但 return 的是『尚未接线』」—— 与根本没接一样糟，而且更难发现：
-    # 它在每一处静态检查里都表现为「已实现」。
     stub_pattern = (
         r'case "([a-zA-Z0-9]+)":[^\n]*\n?\s*'
         r'return \{ ok: false, error: "[^"]*尚未接线'
     )
     stubs = set(re.findall(stub_pattern, app))
+
+    # **「接了」不等于「会写」。**
+    #
+    # 上一版只认一种坏法：`return { ok: false, error: "…尚未接线" }`。任何别的空实现
+    # （直接 return ok、只 toast、只 console.log）都会被算成 OK —— 体检于是给出一个
+    # 它其实没验过的通过（codex 补审 2026-09-05 块 1）。
+    #
+    # 静态地证明「它真的写了」做不到，但**能证明它连一处写都没提到**。提不到就报
+    # WARN 并说清楚这是「看不出」而不是「坏了」—— 体检可以不知道，但不可以假装知道。
+    bodies = {}
+    for m in re.finditer(r'case "([a-zA-Z0-9]+)":', app):
+        start = m.end()
+        nxt = app.find('case "', start)
+        end = nxt if nxt > 0 else min(len(app), start + 4000)
+        bodies[m.group(1)] = app[start:end]
+    writes = (
+        "persist(",
+        "storywork.",
+        "swork.",
+        "bibledoc.",
+        "canondoc.",
+        "prodOp",
+        "prodNew",
+    )
+    silent = sorted(
+        name
+        for name, body in bodies.items()
+        if name in declared and name not in stubs and not any(w in body for w in writes)
+    )
 
     rows = []
     missing = sorted(declared - handled)
@@ -217,6 +252,16 @@ def check_write_paths() -> list[dict]:
                 "量": f"{len(missing)} 个",
                 "state": WARN,
                 "why": "、".join(missing) + "（可能由门面实现，人工确认一次）",
+            }
+        )
+    if silent:
+        rows.append(
+            {
+                "名字": "接了但看不出它写了什么",
+                "量": f"{len(silent)} 个",
+                "state": WARN,
+                "why": "、".join(silent[:8])
+                + "（这几处的分支里一处写调用都没提到 —— 可能经门面实现，人工看一眼）",
             }
         )
     if stubs:

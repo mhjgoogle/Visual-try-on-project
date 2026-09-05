@@ -6934,6 +6934,12 @@ class _App:
         ]
         if prows:
             lines.append(f"结构规划（{len(prows)} 行 · 九列）：")
+            if len(prows) > 20:
+                # 省略也要说出来：不说的话，「屏幕上有、事实里没有」就成了静默的。
+                lines.append(
+                    f"（结构规划只给你前 20 行，后面还有 {len(prows) - 20} 行没给 ——"
+                    "他要就说一声）"
+                )
             for r in prows[:20]:
                 cells = []
                 for key, label in (
@@ -7082,19 +7088,33 @@ class _App:
             )
             if body and room > 0:
                 text = _fact_text(body, room)
-                fin_budget -= len(text)
-                fin_lines.append(head_line + "：" + text)
+                line = head_line + "：" + text
             else:
-                fin_lines.append(
+                line = (
                     head_line
                     + "：（这一版的内容这次没给你 —— 额度占满了，他要就说一声）"
                 )
+            # **标题行本身也占额度。** 上一版只扣正文与回收区那两处，标题、旧版本
+            # 清单、省略提示都没记账 —— 版本多的项目于是会悄悄超出这块的配额，
+            # 把后面的事实挤掉（codex 补审 2026-09-05 块 1）。
+            fin_budget -= len(line)
+            fin_lines.append(line)
+            listed = 0
             for r in reversed(older):
-                fin_lines.append(
+                row = (
                     f"    还有 v{r.get('v')}（{str(r.get('at') or '')[:19]}"
                     + (f" · {r.get('note')}" if r.get("note") else "")
                     + "）"
                 )
+                if fin_budget - len(row) < 0:
+                    skipped = len(older) - listed
+                    note = f"    还有更早的 {skipped} 版没列出来 —— 额度占满了"
+                    fin_budget -= len(note)
+                    fin_lines.append(note)
+                    break
+                fin_budget -= len(row)
+                fin_lines.append(row)
+                listed += 1
             line = _bin_line(fin.get(key) or [], label)
             if line:
                 # 回收区那行也记账 —— 不记的话，章/集多、删得多时事实块会悄悄
@@ -7314,11 +7334,25 @@ class _App:
                 lines.append("现在在看：" + "，".join(where))
             else:
                 lines.append("现在在看：（界面没有报告位置）")
-        text = "\n".join(lines)
-        if len(text) > _CONV_FACTS_MAX:
-            # bounded, and the creator's own sentence is never what gets cut
-            text = text[:_CONV_FACTS_MAX] + "\n（事实过长，已截断。）"
-        return text
+        # 「现在在看哪一页」**不参与截断**。
+        #
+        # 它是最后追加的，于是一刀切尾时它第一个消失 —— 而它恰恰是 Agent 判断
+        # 「他此刻在说哪一页的事」的唯一依据（codex 补审 2026-09-05 块 1）。
+        # 所以把它拆出来，截断只发生在前面那一大堆事实上，它永远跟在后面。
+        tail = lines[-1] if lines and lines[-1].startswith("现在在看：") else ""
+        body_lines = lines[:-1] if tail else lines
+        text = "\n".join(body_lines)
+        room = _CONV_FACTS_MAX - (len(tail) + 1 if tail else 0)
+        if len(text) > room:
+            # 截断必须说明**还剩多少** —— 与 `_fact_text` 同一条规矩。
+            # 上一版只说「已截断」，Agent 无从判断自己少看了一句还是少看了一半。
+            left = len(text) - room
+            text = (
+                text[:room]
+                + f"\n（事实过长，这里被截断了，后面还有 {left} 字没给你 ——"
+                + "他要是问后半段，说一声让他贴过来，或者请他去那一页看。）"
+            )
+        return text + ("\n" + tail if tail else "")
 
     def _conv_capabilities_for(self, name: str) -> list:
         """这个项目此刻能交出去的那几类工作（ADR-0091 决策 1）。
