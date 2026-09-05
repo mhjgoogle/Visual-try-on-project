@@ -1,6 +1,6 @@
 {
   "skillId": "relationship-director",
-  "skillVersion": 1,
+  "skillVersion": 2,
   "work": "creative",
   "role": "编剧",
   "title": "Relationship Director",
@@ -21,5 +21,21 @@
     "是否重复提案了已经定义清楚的关系",
     "没有可提的关系时是否老实返回空列表"
   ],
-  "recommendedRuntime": "local_subscription"
+  "recommendedRuntime": "local_subscription",
+  "routing": {
+    "userCapability": [
+      "story-development"
+    ],
+    "internalRouting": {
+      "intent": "character-work",
+      "kind": "generative",
+      "scope": "project",
+      "priority": 65,
+      "selectWhen": [
+        "人物",
+        "角色",
+        "关系"
+      ]
+    }
+  }
 }

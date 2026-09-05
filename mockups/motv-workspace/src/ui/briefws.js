@@ -12,6 +12,8 @@
 // PURE PRESENTATION over ctx.story (the same document that owns the idea, the
 // outline chain and the episode plan) — this screen owns no creative state.
 import { esc } from "../util/dom.js";
+import { uiAct } from "./uiact.js";
+import { versionRow } from "./versionrow.js";
 import { BRIEF_FIELDS } from "../workflow/storydoc.js";
 import { head } from "./shell.js";
 import { bindField, restoreFieldFocus } from "./fieldsync.js";
@@ -40,7 +42,11 @@ export function briefModel(story, dirty) {
     draft: d,
     active,
     versionCount: b.versions.length,
-    versions: b.versions.map((x) => ({ v: x.v, id: x.id, origin: x.origin, isActive: x.v === b.active })),
+    versions: b.versions
+      .filter((x) => !x.hidden)
+      .map((x) => ({ v: x.v, id: x.id, origin: x.origin, isActive: x.v === b.active })),
+    // 回收区：删掉的版本没有从链上摘掉，只是不再显示（storydoc 里有为什么）
+    trash: b.versions.filter((x) => x.hidden).map((x) => ({ v: x.v })),
     dirty: !!dirty,
     filled,
     total: BRIEF_FIELDS.length + 1, // + 目标集数
@@ -58,11 +64,19 @@ export function renderBriefWs(ctx, ui) {
     ? `<span class="chip ok">创意 v${m.active.v}</span>` +
       (m.dirty ? `<span class="chip gate">工作草稿 · 未版本化</span>` : `<span class="chip mute">与 v${m.active.v} 一致</span>`)
     : `<span class="chip gate">工作草稿 · 还没有正式版本</span>`;
-  const versions = m.versions.length
-    ? `<div class="row tight">${m.versions
-        .map((x) => `<button class="st-ep${x.isActive ? " on" : ""}" data-cb-v="${x.v}" title="切换下游所依据的版本">v${x.v}</button>`)
-        .join("")}</div>`
-    : "";
+  // 默认只露最新版（外加当前依据的那一版，如果他切回过旧版），其余收进「历史版本」
+  // —— 产品负责人 2026-08-29:「我希望只有最新版可以看到。旧版就不看了」。
+  // 旧版本一律保留，这里只控制显不显示。
+  const versions = versionRow(m.versions, {
+    attr: "cbV",
+    open: !!ui.briefHistoryOpen,
+    toggleAttr: "cbHist",
+    // 删除只在展开历史时露出，且**正在依据的那一版不给 ✕**（删了下游就指向看不见的东西）
+    delAttr: "cbDel",
+    undelAttr: "cbUndel",
+    trash: m.trash,
+    keep: m.active ? [m.active.v] : [],
+  });
   const actions =
     versions +
     (m.dirty ? `<button class="btn primary sm" data-cb-commit>✔ 创建版本 v${m.versionCount + 1}</button>` : "") +
@@ -129,14 +143,14 @@ export function bindBriefWs(root, ctx, ui, rerender) {
   // blur, after the value is already persisted — is what keeps the header
   // truthful; doing it on `input` would steal the caret mid-sentence.
   const commit = (field, value) => {
-    ctx.story.editBrief({ [field]: value });
+    uiAct(ctx, "brief.fields", { fields: { [field]: value } }, { quiet: true });
     delete buf[field]; // the document now holds it — stop shadowing it
     rerender();
   };
 
   const idea = root.querySelector(".pm-brieftext");
   if (idea) {
-    idea.oninput = () => ctx.story.setIdea(idea.value); // one canonical home
+    idea.oninput = () => uiAct(ctx, "brief.idea", { text: idea.value }, { quiet: true }); // one canonical home
     // the idea is not a brief FIELD (it lives on story.idea), but it is part of
     // what a revision snapshots — so it moves the dirty standing too
     idea.onchange = () => rerender();
@@ -178,9 +192,13 @@ export function bindBriefWs(root, ctx, ui, rerender) {
     };
   }
   on("[data-cb-commit]", () => {
-    if (ctx.story.commitBrief()) { ui.briefBuffer = {}; rerender(); }
+    const out = uiAct(ctx, "brief.commit", {}, { quiet: true });
+    if (out) { ui.briefBuffer = {}; rerender(); }
   });
-  on("[data-cb-v]", (el) => ctx.story.setActiveBrief(+el.dataset.cbV));
+  on("[data-cb-v]", (el) => uiAct(ctx, "brief.setActive", { v: +el.dataset.cbV }, { rerender }));
+  on("[data-cb-hist]", () => { ui.briefHistoryOpen = !ui.briefHistoryOpen; rerender(); });
+  on("[data-cb-del]", (el) => uiAct(ctx, "brief.hideVersion", { v: +el.dataset.cbDel }, { rerender }));
+  on("[data-cb-undel]", (el) => uiAct(ctx, "brief.restoreVersion", { v: +el.dataset.cbUndel }, { rerender }));
   on("[data-cb-restore]", (el) => {
     if (!window.confirm("用该版本的内容替换当前工作草稿？（版本链不变，草稿里未版本化的修改会丢失）")) return;
     ui.briefBuffer = {};

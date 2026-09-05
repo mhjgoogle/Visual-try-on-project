@@ -250,7 +250,7 @@ test("the migration is a pure function of the document (run it twice)", () => {
   assert.deepEqual(twice, once, "no clock, no randomness — same input, same output");
 });
 
-test("the current schema version is 19", () => {
+test("the current schema version is 20", () => {
   // v16: ADR-0073 决策 8 adds `production.shotProduction.stages` (skip decisions
   // only). A pinned number is the point — it forces whoever bumps the schema to
   // come here and say what changed, which is how the migration list stays honest.
@@ -269,7 +269,8 @@ test("the current schema version is 19", () => {
   //   两个字段承载同一个值（v15 起校验就拒绝它们不等），所以删除**不丢信息**；
   //   删它的理由是读侧不必再逐处决定信哪个。外键字段（`generations[].origin`
   //   等）上叫 `skillRunId` 的那些**不动** —— 它们一个值一个名字，不是别名。
-  assert.equal(CANVAS_SCHEMA_VERSION, 19);
+  // v20（TASK-123 · ADR-0094）：生产文档加一张空的白膜表 —— 纯加法。
+  assert.equal(CANVAS_SCHEMA_VERSION, 20);
 });
 
 // --- validator -------------------------------------------------------------- //

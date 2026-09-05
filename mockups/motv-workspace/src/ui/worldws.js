@@ -24,6 +24,7 @@
 // same four things a character does — a reference, per-state references, a base
 // image prompt, and honest gaps.
 import { esc } from "../util/dom.js";
+import { uiAct } from "./uiact.js";
 import { WORLD_FIELDS } from "../workflow/canondoc.js";
 import { settingsModel, bibleFields, bindSettings } from "./workspaces.js";
 import { head, empty } from "./shell.js";
@@ -203,8 +204,8 @@ export function bindWorldWs(root, ctx, ui, rerender = () => {}) {
         ev.stopPropagation();
         const t = window.prompt("场景地名称（如：暗夜酒吧 / 医院走廊 / 天台雨夜）");
         if (t == null || !t.trim()) return;
-        const rec = ctx.bible.addLocation(t.trim());
-        if (rec) { ui.worldOpen = rec.locationId; ui.bpText = null; rerender(); }
+        const out = uiAct(ctx, "location.add", { name: t.trim() }, { quiet: true });
+        if (out) { ui.worldOpen = out.locationId; ui.bpText = null; rerender(); }
       };
     root.querySelectorAll("[data-lopen]").forEach((b) => (b.onclick = (ev) => {
       ev.stopPropagation();
@@ -231,7 +232,7 @@ export function bindWorldWs(root, ctx, ui, rerender = () => {}) {
   // AUTOSAVE ON INPUT (see ui/fieldsync.js): updateWorld re-renders through
   // prodOp, so the write is debounced and the caret is restored below.
   root.querySelectorAll("[data-w-field]").forEach((el) => {
-    bindField(el, ui, (value) => ctx.canon.updateWorld({ [el.dataset.wField]: value }), {
+    bindField(el, ui, (value) => uiAct(ctx, "world.fields", { fields: { [el.dataset.wField]: value } }, { quiet: true }), {
       onInput: (value) => { buf[el.dataset.wField] = value; },
     });
   });

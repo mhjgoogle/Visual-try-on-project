@@ -2,53 +2,56 @@
  "skills": {
   "auto-push": {
    "backlog": "docs/skill-evolution/backlogs/auto-push.jsonl",
-   "feedback_seq": 12,
-   "last_feedback_at": "2026-08-25T13:19:43Z",
-   "last_review_at": null,
+   "feedback_seq": 16,
+   "last_feedback_at": "2026-09-05T09:10:55Z",
+   "last_review_at": "2026-09-05T09:18:11Z",
    "last_seen_at": "2026-08-22T06:01:22Z",
-   "open": 12,
+   "open": 16,
    "path": ".claude/skills/auto-push",
-   "pending_proposals": [],
+   "pending_proposals": [
+    "EP-001",
+    "EP-002"
+   ],
    "protected": [],
    "registered_at": "2026-08-22T06:01:22Z",
    "repeated": {
     "manifest-writeback-dirty-tree": 3
    },
-   "revision": "220537f4841a",
+   "revision": "d8156286faf8",
    "severe_open": 0,
-   "status": "REVIEW_CANDIDATE"
+   "status": "PROPOSAL_PENDING"
   },
   "codex-review-loop": {
    "backlog": "docs/skill-evolution/backlogs/codex-review-loop.jsonl",
-   "feedback_seq": 11,
-   "last_feedback_at": "2026-08-26T22:02:09Z",
+   "feedback_seq": 15,
+   "last_feedback_at": "2026-09-05T09:00:34Z",
    "last_review_at": null,
    "last_seen_at": "2026-08-22T03:57:33Z",
-   "open": 11,
+   "open": 15,
    "path": ".claude/skills/codex-review-loop",
    "pending_proposals": [],
    "protected": [],
    "registered_at": "2026-08-22T03:57:33Z",
    "repeated": {
-    "shared-worktree-diff-contamination": 2
+    "shared-worktree-diff-contamination": 3
    },
    "revision": "200b39337376",
    "severe_open": 0,
-   "status": "OBSERVING"
+   "status": "REVIEW_CANDIDATE"
   },
   "dev-workflow": {
    "backlog": "docs/skill-evolution/backlogs/dev-workflow.jsonl",
-   "feedback_seq": 2,
-   "last_feedback_at": "2026-08-24T02:22:36Z",
+   "feedback_seq": 4,
+   "last_feedback_at": "2026-09-05T04:38:29Z",
    "last_review_at": null,
    "last_seen_at": "2026-08-22T03:57:33Z",
-   "open": 2,
+   "open": 4,
    "path": ".claude/skills/dev-workflow",
    "pending_proposals": [],
    "protected": [],
    "registered_at": "2026-08-22T03:57:33Z",
    "repeated": {},
-   "revision": "7b49669a65e5",
+   "revision": "112c2b30c0df",
    "severe_open": 0,
    "status": "OBSERVING"
   },

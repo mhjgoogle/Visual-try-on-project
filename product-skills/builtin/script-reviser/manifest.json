@@ -1,6 +1,6 @@
 {
   "skillId": "script-reviser",
-  "skillVersion": 2,
+  "skillVersion": 3,
   "work": "creative",
   "role": "编剧",
   "title": "Script Reviser",
@@ -22,5 +22,20 @@
     "人物口吻与既定设定是否保持一致",
     "输出是否是完整剧本，而不是只给出修改片段"
   ],
-  "recommendedRuntime": "local_subscription"
+  "recommendedRuntime": "local_subscription",
+  "routing": {
+    "userCapability": [
+      "episode-production"
+    ],
+    "internalRouting": {
+      "intent": "script-revision",
+      "kind": "generative",
+      "scope": "episode",
+      "priority": 70,
+      "selectWhen": [
+        "剧本",
+        "台词"
+      ]
+    }
+  }
 }

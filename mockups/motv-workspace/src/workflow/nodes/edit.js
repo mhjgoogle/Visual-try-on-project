@@ -82,10 +82,11 @@ export default {
         // a new PROJECT Asset (origin: compose); a malformed response with no
         // playable url is refused rather than persisted as a broken final —
         // throw so it takes the SAME failure path as any compose error
-        const rec = ctx.addFinal ? ctx.addFinal(res.url) : null;
-        if (!rec) throw new Error("合成返回无效结果：未生成成片");
+        const rec = ctx.addCut ? ctx.addCut(res.url) : null;
+        if (!rec) throw new Error("合成返回无效结果：未生成候选成片");
         node.state = "done";
-        ctx.toast(`成片已合成 · final-cut v${res.version}（${res.shots} 镜头${res.music ? " + 音乐" : ""} · 本地 FFmpeg · 免费）`);
+        // 「候选」不是措辞上的谦虚：它还没过交付质检（G4），所以还不是成片。
+        ctx.toast(`候选成片已合成 · cut v${res.version}（${res.shots} 镜头${res.music ? " + 音乐" : ""} · 本地 FFmpeg · 免费）—— 过了交付质检再导出成片`);
         ctx.markIncoming(node.id, "done");
       } catch (err) {
         ctx.toast("合成失败：" + err.message);

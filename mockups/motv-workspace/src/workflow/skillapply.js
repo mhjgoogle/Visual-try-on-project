@@ -33,12 +33,12 @@ export const APPLY_TARGETS = {
     detail: "落到「故事大纲」的提案位；成为正式版本仍需你在那里批准。",
   },
   "script-writer": {
-    can: true, target: "script", label: "应用为本集剧本提案",
-    detail: "落到本集剧本的提案位；应用后才创建新版本，旧版本全部保留。",
+    can: true, target: "script", label: "应用为正文提案",
+    detail: "落到正文的提案位；应用后才创建新版本，旧版本全部保留。",
   },
   "script-doctor": {
-    can: true, target: "script", label: "应用为本集剧本提案",
-    detail: "落到本集剧本的提案位；应用后才创建新版本，旧版本全部保留。",
+    can: true, target: "script", label: "应用为正文提案",
+    detail: "落到正文的提案位；应用后才创建新版本，旧版本全部保留。",
   },
   "script-breakdown": {
     can: true, target: "bible", label: "应用为人物 / 场景地提案",
@@ -115,6 +115,17 @@ export const APPLY_TARGETS = {
   "continuity-reviewer": {
     can: false,
     reason: "这是一份审阅结论，不是某个文档的新内容。没有「连续性」这份 canonical 文档可写——按条目自己去改对应的镜头或设定。",
+  },
+  // 诊断类能力**结构上**写不回作品（TASK-119 / ADR-0091）。写在这里而不是让它们
+  // 落到下面那句兜底的「还没有写回路径」——「这是设计如此」与「这是还没做」是两件
+  // 不同的事，而屏幕上只有这句话能把它们分开。
+  "story-zoom": {
+    can: false,
+    reason: "这是一份跨层同步诊断，不是某个文档的新内容。它指出哪两层对不上；改哪一边、怎么改，由你决定 —— 照着 findings 去改对应的大纲 / 分集 / 剧本 / 镜头。",
+  },
+  "audience-engagement-reviewer": {
+    can: false,
+    reason: "这是一份观众视角的审读意见，不是可以直接替换进作品的文字。按 recommendations 的优先级去改对应的那一处 —— 要它代写就换生成类能力。",
   },
   "asset-librarian": {
     can: false,

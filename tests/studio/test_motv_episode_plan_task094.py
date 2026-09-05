@@ -24,6 +24,22 @@ import pytest
 
 _REPO = Path(__file__).resolve().parents[2]
 _MOCKUP = _REPO / "mockups" / "motv-workspace"
+_BUILTIN_SKILLS = _REPO / "product-skills" / "builtin"
+
+
+def _live_version(skill_id: str) -> int:
+    """磁盘上这个能力**此刻**是第几版 —— 派生，不写死（TASK-119）。
+
+    这里要证的是「run 记录下来的版本 == 真的答题的那个包的版本」。写死一个数字，
+    等于让每一次合法升版都撞红一条与版本号毫无关系的测试。
+    """
+    import sys
+
+    sys.path.insert(0, str(_MOCKUP))
+    import skillpkg
+
+    return skillpkg.load_package(_BUILTIN_SKILLS / skill_id, "builtin").version
+
 
 _PLAN_ANSWER = json.dumps(
     {
@@ -144,7 +160,9 @@ def test_revision_runs_the_reviser_and_the_run_records_it(srv, monkeypatch) -> N
     assert status == 200, body
     run = srv.runs().get(body["run_id"])
     assert run["params"]["skillId"] == "episode-plan-reviser"
-    assert run["params"]["skillVersion"] == 1
+    # 版本从磁盘派生：这里要证的是「记录下来的版本 == 真的跑的那个包的版本」，
+    # 不是「它现在是第 1 版」。
+    assert run["params"]["skillVersion"] == _live_version("episode-plan-reviser")
     assert run["params"]["skillDigest"].startswith("sha256:")
     # …而写一版新的记的是 planner，且版本是升过的那个
     _stub(srv, monkeypatch)
@@ -152,7 +170,7 @@ def test_revision_runs_the_reviser_and_the_run_records_it(srv, monkeypatch) -> N
     assert status == 200, body2
     planner_run = srv.runs().get(body2["run_id"])
     assert planner_run["params"]["skillId"] == "episode-planner"
-    assert planner_run["params"]["skillVersion"] == 2
+    assert planner_run["params"]["skillVersion"] == _live_version("episode-planner")
 
 
 def test_the_cast_is_sent_so_characterBeats_can_name_a_real_person(
@@ -216,7 +234,9 @@ def test_the_seven_facets_are_required_and_the_range_is_only_a_hint(srv) -> None
     catalog = srv._load_skill_catalog()
     planner = catalog.skills["episode-planner"]
     reviser = catalog.skills["episode-plan-reviser"]
-    assert planner.version == 2, "改了内容必须升版本（ADR-0067 §1.2）"
+    # 至少 v2 —— 七个 facet 的契约是在 v2 落的；之后每一次包内容变化（含
+    # 路由元数据）都会继续升，那与这条测试守的性质无关。
+    assert planner.version >= 2, "改了内容必须升版本（ADR-0067 §1.2）"
 
     entry = planner.output_schema["fields"]["episodes"]["of"]
     assert set(entry["required"]) == {"epNumber", "title", "coreGoal", "keyEvents"}

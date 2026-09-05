@@ -39,3 +39,17 @@
 - 旧的根目录启动路径停止使用；当前文档和产品提示必须指向新路径。
 - 由于启动路径与 pytest 配置位置发生变化，本次按 Windows 可移植性高风险执行
   全量 Python、全量前端、ruff 与独立审查。
+
+> **补记（2026-09-05，TASK-131 切片 B）**：仓库根多了一个 `.agents/skills/`。
+> 它**不是第七个所有权区**，而是决策 5 那句「`.claude/` 继续只放 Agent 工装」的
+> 一个受限例外，条件写死在 [ADR-0097](ADR-0097-one-skill-source-generated-client-entries.md)：
+>
+> - 它只放 Codex 的**发现入口**，每个技能一份薄文件（name/description + 规范源的
+>   仓库相对路径 + 「先读它再执行」）。正文、`references/`、`scripts/` 一律不复制。
+> - 它是**生成物**，方向恒为 `.claude/skills/` → `.agents/skills/`，没有反向同步。
+>   台账在 `.claude/agent-entries.json`，生成器是 `.claude/tools/agent_harness.py`。
+> - 因此「技能的源在哪」仍然只有一个答案：`.claude/skills/`。把入口当源来改，
+>   `check` 会当场转红并拒绝覆盖（AGENTS.md 第 13 条：不静默覆盖）。
+>
+> 为什么不塞进 `.claude/`：那个路径是 Codex 官方文档规定的仓库级发现路径，
+> 换个地方它就发现不了 —— 这条约束来自客户端，不是我们能选的。

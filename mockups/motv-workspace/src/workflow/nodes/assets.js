@@ -50,6 +50,10 @@ export default {
           const gen = paid
             ? `<button class="amini" data-gen="${esc(String(s.sequence))}" title="自动生成（MiniMax image-01 付费 · $0.0035/张 · 每张确认；可选拼版/单幅首帧）">💳</button>`
             : "";
+          // 免费自动出图（TASK-139）。**和 💳 并排但必须一眼分得开**：一个花钱
+          // 一个不花钱，而它们做的是同一件事（ADR-0100「后果」第一条：三条路
+          // 在界面上分不开的话，「这张图花没花钱」就会变成猜）。
+          const genFree = `<button class="amini" data-genfree="${esc(String(s.sequence))}" title="自动生成（免费 · 不产生账单 · 无需确认金额；来源见 .env.local 的 IMAGE_PROVIDER）">✨</button>`;
           // 一键流转（TASK-048 第1步）：把该槽位当前版本图以 MediaRef 写入
           // video 节点同槽位的首帧输入位（手工路线图↔视频闭环）。
           const useFf = url
@@ -59,7 +63,7 @@ export default {
           // consistency), 🎬 SINGLE-frame composition — the slot image is what
           // lock-draft-plan sends as the shot's first frame (ADR-0047), and a
           // collage first frame would put the grid itself into the video.
-          return `<div class="arow">${thumb}<span class="alb">${esc(String(s.sequence).padStart(2, "0"))} ${esc(s.title)}</span>${vbadge(up, k)}<button class="amini" data-copy="${esc(String(s.sequence))}" title="复制「多角度拼版设定图」提示词（人物一致性参考）">📋</button><button class="amini" data-copyframe="${esc(String(s.sequence))}" title="复制「单幅首帧图」提示词（锁定后用作该镜头图生视频的第一帧）">🎬</button>${useFf}${gen}<button class="amini" data-up="${esc(k)}" title="上传该镜头的图（同槽位重传保留旧版本，可回切）">⬆</button></div>`;
+          return `<div class="arow">${thumb}<span class="alb">${esc(String(s.sequence).padStart(2, "0"))} ${esc(s.title)}</span>${vbadge(up, k)}<button class="amini" data-copy="${esc(String(s.sequence))}" title="复制「多角度拼版设定图」提示词（人物一致性参考）">📋</button><button class="amini" data-copyframe="${esc(String(s.sequence))}" title="复制「单幅首帧图」提示词（锁定后用作该镜头图生视频的第一帧）">🎬</button>${useFf}${genFree}${gen}<button class="amini" data-up="${esc(k)}" title="上传该镜头的图（同槽位重传保留旧版本，可回切）">⬆</button></div>`;
         })
         .join("");
       // Completion counts ONLY the current draft's slots — an upload belonging
@@ -138,6 +142,80 @@ export default {
     }));
     // 💳 paid automatic generation (ADR-0045): explicit per-image price
     // confirmation BEFORE any spend; result lands in the same slot.
+    // 免费自动出图（TASK-139 / ADR-0100）。与下面那颗付费按钮共用同一条溯源管线
+    // （startGeneration → declare → addVersion → completeGeneration），差别只有三处，
+    // 而每一处都来自「这条路不产生按次账单」这一个事实：
+    //   1. **没有金额确认对话框** —— 那句话在这条路上是假的；
+    //   2. provider/model 由**后端回执**说了算，不在前端写死（换来源只改 .env.local）；
+    //   3. 失败时只有 `side_effect === "none"` 才敢标 failed（见 catch）。
+    el.querySelectorAll("[data-genfree]").forEach((b) => (b.onclick = async (e) => {
+      e.stopPropagation();
+      const s = draft.find((x) => String(x.sequence) === b.dataset.genfree);
+      if (!s || !s.slot || node._genBusy) return;
+      const wantFrame = window.confirm(
+        "生成哪种图？\n确定 = 单幅首帧图（锁定后作为该镜头视频首帧）\n取消 = 多角度拼版设定图（人物一致性参考）",
+      );
+      const kind = wantFrame ? "单幅首帧图" : "拼版设定图";
+      node._genBusy = true;
+      ctx.toast("生成中…（免费来源，可能要几十秒）");
+      const prompt = wantFrame ? promptFrame(b.dataset.genfree) : promptSheet(b.dataset.genfree);
+      const gen = ctx.startGeneration
+        ? ctx.startGeneration({
+            type: "image",
+            targetType: s.shotId ? "shot" : null,
+            targetId: s.shotId ?? null,
+            userInstruction: kind,
+            promptSnapshot: prompt,
+            // 真实来源等回执 —— 现在写死一个名字，就会在换来源那天变成假话
+            provider: null,
+            model: null,
+            parameters: { kind, billing: "account-quota" },
+            status: "generating",
+          })
+        : null;
+      try {
+        const res = await ctx.accountImage(`${node.type}-${s.slot}`, prompt);
+        const ref = refFromResponse(s.slot, "account-image", res, s.shotId ?? null);
+        declare(ref, "images", {
+          kind: "shot-image",
+          links: {
+            ...(ctx.contextOfShot ? ctx.contextOfShot(s.shotId ?? null) : { shotId: s.shotId ?? null }),
+            generationId: gen ? gen.generationId : null,
+          },
+        });
+        addVersion(node, s.slot, ref);
+        if (gen) ctx.completeGeneration(gen.generationId, [ref.assetId]);
+        ctx.toast(`设定图已生成 v${res.version || 1}（${res.model || "免费来源"} · 未产生账单，旧版本保留）`);
+      } catch (err) {
+        // 具名失败要说人话，否则「额度用完」会以一句「生成失败」的样子出现，
+        // 而那两件事该做的动作完全不同（ADR-0100 决策 3 · REQ-008 判据 4）。
+        const why =
+          err.category === "quota_exhausted"
+            ? "这个来源的额度用完了 —— 换 .env.local 里的 IMAGE_PROVIDER，或稍后再试"
+            : err.category === "billing_not_established"
+              ? "这把 key 没声明是免费额度那一档，已拒绝（按次计费请走付费那条）"
+              : err.category === "side_effect_unknown"
+                ? "上一次没能确认结果 —— 要再来一次得显式确认"
+                : err.message;
+        // **「消耗没消耗」由 `sideEffect` 说，不由类别说**（codex 补审非阻塞项）。
+        // 上一轮把 429 从 `none` 改判成 `unknown` 之后，「额度用完了，稍后再试」
+        // 这句就漏了一半：稍后再试没错，但**这一次可能已经消耗过**得说出来，
+        // 否则界面又在替他做「反正没花」的假设 —— 与 §5.8 第 2 条同一条纪律。
+        const say =
+          err.sideEffect && err.sideEffect !== "none"
+            ? `${why}（这一次${err.sideEffect === "applied" ? "已经" : "可能已经"}消耗过）`
+            : why;
+        // **只有「确定什么都没发生」才敢标失败**：`unknown` / `applied` 标成失败，
+        // 会让下一次重试看起来是干净的第一次（合同 §5.8）。
+        if (gen && err && err.definitiveReject) ctx.failGeneration(gen.generationId, "failed");
+        ctx.toast("自动生成失败：" + say);
+      } finally {
+        node._genBusy = false;
+        if (ctx.refreshType) ctx.refreshType(node.type);
+        else ctx.refresh(node);
+        if (ctx.persist) ctx.persist();
+      }
+    }));
     const PRICE = 0.0035;
     el.querySelectorAll("[data-gen]").forEach((b) => (b.onclick = async (e) => {
       e.stopPropagation();

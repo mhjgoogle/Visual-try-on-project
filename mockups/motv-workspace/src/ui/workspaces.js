@@ -7,6 +7,7 @@
 // Pure view-model builders (`*Model`) are exported for node --test; nothing
 // here mutates workflow nodes, domain state, or triggers generation.
 import { esc } from "../util/dom.js";
+import { uiAct } from "./uiact.js";
 import { slotEntry, currentRef } from "../workflow/mediaref.js";
 import { buildShotSlotIndex, slotForShotId, buildServerBridge, serverShotIdForShot } from "../workflow/shotmap.js";
 import { episodeView } from "../workflow/proddoc.js";
@@ -882,10 +883,36 @@ export function renderSettings(ctx) {
     `<div class="pm-title2">👤 角色库</div>` +
     (m.characters.map(charCard).join("") || `<div class="ws-kv">还没有角色 — 建立角色档案，保证跨镜头/跨集一致性</div>`) +
     `<button class="nrun" data-b-chadd>＋ 新建角色</button>` +
+    binRow(ctx, "deletedCharacters", "characterId", "b-chundel", "角色") +
     `<div class="pm-title2">📍 场景地库</div>` +
     (m.locations.map(locCard).join("") || `<div class="ws-kv">还没有场景地 — 建立场景档案（可含日/夜等状态）</div>`) +
     `<button class="nrun" data-b-locadd>＋ 新建场景地</button>` +
+    binRow(ctx, "deletedLocations", "locationId", "b-locundel", "场景地") +
     `<div class="ws-kv">场景（剧集工作区）按 ID 引用角色/场景地及其状态；档案内容只存在这里，绝不复制进场景或镜头。</div>`
+  );
+}
+
+/** 回收区那一行（TASK-129）—— 删过东西才出现。
+ *
+ *  删除是软删除，**撤销那条路他自己也得走得了**：只有 Agent 能 `character.restore`
+ *  而他不能，正好把「他能点的 = 它能做的」反过来（TASK-127 那一轮的教训）。
+ *  一个都没删过时一个字不画 —— 空回收区不是状态，是噪音。
+ *
+ *  只给名字和「拿回来」，不复述档案：回收区是一条撤销的路，不是第二份角色库。 */
+function binRow(ctx, key, idKey, attr, label) {
+  const prod = ctx.prodData && ctx.prodData().production;
+  const bin = (prod && prod[key]) || [];
+  if (!bin.length) return "";
+  return (
+    `<div class="ws-kv ws-bin"><span>${esc(label)}回收区：</span>` +
+    bin
+      .map(
+        (x) =>
+          `<span class="ws-tag">${esc(x.name || x[idKey])}` +
+          `<button class="nrun ghost" data-${attr}="${esc(x[idKey])}">拿回来</button></span>`,
+      )
+      .join(" ") +
+    `</div>`
   );
 }
 
@@ -928,83 +955,113 @@ export function bindSettings(root, ctx, ui = {}) {
   root.querySelectorAll("[data-bd-merge]").forEach((sel) => {
     sel.onchange = () => { if (sel.value) ctx.breakdown.mergeInto(sel.dataset.bdMerge, sel.value); };
   });
+  // 走动作表（ADR-0096 / TASK-129）：他在这一页点的每一下，和 Agent 在对话里说
+  // 「把张三改名叫李四」「删掉这个场景地」落到同一条动作。拒绝的理由由动作自己说
+  // （`uiAct` 会把它 toast 出来），这里不再各写一句可能与事实不符的提示。
   on("[data-b-chadd]", () => {
     const t = prompt2("角色名称");
-    if (t != null) ctx.bible.addCharacter(t);
+    if (t != null) uiAct(ctx, "character.add", { name: t });
   });
   on("[data-b-locadd]", () => {
     const t = prompt2("场景地名称");
-    if (t != null) ctx.bible.addLocation(t);
+    if (t != null) uiAct(ctx, "location.add", { name: t });
   });
   on("[data-b-chrename]", (el) => {
     const t = prompt2("角色名称");
-    if (t) ctx.bible.renameCharacter(el.dataset.bChrename, t);
+    if (t) uiAct(ctx, "character.rename", { name: el.dataset.bChrename, to: t });
   });
   on("[data-b-locrename]", (el) => {
     const t = prompt2("场景地名称");
-    if (t) ctx.bible.renameLocation(el.dataset.bLocrename, t);
+    if (t) uiAct(ctx, "location.rename", { name: el.dataset.bLocrename, to: t });
   });
   on("[data-b-chdel]", (el) => {
-    if (!ctx.bible.removeCharacter(el.dataset.bChdel)) ctx.toast("仍有场景引用该角色：先在剧集工作区移除引用");
+    uiAct(ctx, "character.remove", { name: el.dataset.bChdel });
   });
   on("[data-b-locdel]", (el) => {
-    if (!ctx.bible.removeLocation(el.dataset.bLocdel)) ctx.toast("仍有场景引用该场景地：先在剧集工作区移除引用");
+    uiAct(ctx, "location.remove", { name: el.dataset.bLocdel });
   });
+  // 回收区：**撤销那条路他自己也要走得了**（TASK-127 那一轮的教训）。
+  on("[data-b-chundel]", (el) => {
+    uiAct(ctx, "character.restore", { name: el.dataset.bChundel });
+  });
+  on("[data-b-locundel]", (el) => {
+    uiAct(ctx, "location.restore", { name: el.dataset.bLocundel });
+  });
+  // 状态 / 参考图 / 声音也走动作表（ADR-0096 / TASK-129 切片 2d）。拒绝的理由由
+  // 动作自己说 —— 界面不再复述一份可能与事实不符的提示（删状态的拒绝原因只有
+  // 「还有场景以这个状态引用着它」一种，动作里写得比这里全）。
   on("[data-b-csadd]", (el) => {
     const t = prompt2("状态名称（如：少女时期 / 黑化时期）");
-    if (t != null) ctx.bible.addCharacterState(el.dataset.bCsadd, t);
+    if (t != null) uiAct(ctx, "character.state.add", { name: el.dataset.bCsadd, state: t });
   });
   on("[data-b-lsadd]", (el) => {
     const t = prompt2("状态名称（如：夜晚 / 战损）");
-    if (t != null) ctx.bible.addLocationState(el.dataset.bLsadd, t);
+    if (t != null) uiAct(ctx, "location.state.add", { name: el.dataset.bLsadd, state: t });
   });
   on("[data-b-csrename]", (el) => {
     const t = prompt2("状态名称");
-    if (t) ctx.bible.renameCharacterState(el.dataset.bCsrename, el.dataset.sid, t);
+    if (t) {
+      uiAct(ctx, "character.state.rename", {
+        name: el.dataset.bCsrename, state: el.dataset.sid, to: t,
+      });
+    }
   });
   on("[data-b-lsrename]", (el) => {
     const t = prompt2("状态名称");
-    if (t) ctx.bible.renameLocationState(el.dataset.bLsrename, el.dataset.sid, t);
+    if (t) {
+      uiAct(ctx, "location.state.rename", {
+        name: el.dataset.bLsrename, state: el.dataset.sid, to: t,
+      });
+    }
   });
   on("[data-b-csdel]", (el) => {
-    if (!ctx.bible.removeCharacterState(el.dataset.bCsdel, el.dataset.sid)) ctx.toast("仍有场景以该状态引用角色：先切换/移除场景引用");
+    uiAct(ctx, "character.state.remove", { name: el.dataset.bCsdel, state: el.dataset.sid });
   });
   on("[data-b-lsdel]", (el) => {
-    if (!ctx.bible.removeLocationState(el.dataset.bLsdel, el.dataset.sid)) ctx.toast("仍有场景以该状态引用场景地：先切换/移除场景引用");
+    uiAct(ctx, "location.state.remove", { name: el.dataset.bLsdel, state: el.dataset.sid });
   });
-  on("[data-b-refactive]", (el) => ctx.bible.setActiveReferenceAsset(el.dataset.bRefactive, el.dataset.aid));
-  on("[data-b-refdel]", (el) => ctx.bible.removeReferenceAsset(el.dataset.bRefdel, el.dataset.aid));
+  // 状态的回收区：同实体、同一条撤销路 —— 他自己也要点得到。
+  on("[data-b-csundel]", (el) => {
+    uiAct(ctx, "character.state.restore", { name: el.dataset.bCsundel, state: el.dataset.sid });
+  });
+  on("[data-b-lsundel]", (el) => {
+    uiAct(ctx, "location.state.restore", { name: el.dataset.bLsundel, state: el.dataset.sid });
+  });
+  on("[data-b-refactive]", (el) =>
+    uiAct(ctx, "reference.setActive", { entity: el.dataset.bRefactive, assetId: el.dataset.aid }));
+  on("[data-b-refdel]", (el) =>
+    uiAct(ctx, "reference.remove", { entity: el.dataset.bRefdel, assetId: el.dataset.aid }));
+  on("[data-b-refundel]", (el) =>
+    uiAct(ctx, "reference.restore", { entity: el.dataset.bRefundel, assetId: el.dataset.aid }));
   root.querySelectorAll("[data-b-refadd]").forEach((sel) => {
-    sel.onchange = () => { if (sel.value) ctx.bible.addReferenceAsset(sel.dataset.bRefadd, sel.value); };
+    sel.onchange = () => {
+      if (sel.value) uiAct(ctx, "reference.add", { entity: sel.dataset.bRefadd, assetId: sel.value });
+    };
   });
   // AUTOSAVE ON INPUT (see ui/fieldsync.js). These used to write only on blur,
   // so a browser refresh with the caret still in a character field lost the
   // edit — the same TASK-057 persistence blocker as the upstream surfaces.
   root.querySelectorAll("[data-b-chprof]").forEach((el) => {
-    bindField(el, ui, (value) => ctx.bible.updateCharacterProfile(el.dataset.bChprof, { [el.dataset.field]: value }));
+    bindField(el, ui, (value) => uiAct(ctx, "character.fields", { name: el.dataset.bChprof, [el.dataset.field]: value }, { quiet: true }));
   });
   root.querySelectorAll("[data-b-locprof]").forEach((el) => {
-    bindField(el, ui, (value) => ctx.bible.updateLocationProfile(el.dataset.bLocprof, { [el.dataset.field]: value }));
+    bindField(el, ui, (value) => uiAct(ctx, "location.fields", { name: el.dataset.bLocprof, [el.dataset.field]: value }, { quiet: true }));
   });
   root.querySelectorAll("[data-b-voice]").forEach((el) => {
-    bindField(el, ui, (value) => ctx.bible.setCharacterVoice(el.dataset.bVoice, { [el.dataset.field]: value }));
+    bindField(el, ui, (value) =>
+      uiAct(
+        ctx,
+        "character.voice",
+        { name: el.dataset.bVoice, [el.dataset.field]: value },
+        { quiet: true },
+      ),
+    );
   });
-  // state override fields: merge per field; empty value = inherit (drop key)
-  const mergeOverride = (overrides, field, value) => {
-    const next = { ...overrides };
-    if (field === "voiceDescription") {
-      const v = { ...(next.voice || {}) };
-      if (value) v.description = value;
-      else delete v.description;
-      if (Object.keys(v).length) next.voice = v;
-      else delete next.voice;
-    } else if (value) {
-      next[field] = value;
-    } else {
-      delete next[field];
-    }
-    return next;
-  };
+  // `mergeOverride` 删掉了（TASK-129 切片 2d）：那份「按栏合并、空值回到继承、
+  // voiceDescription 落在嵌套 voice.description 上」的算法搬进了
+  // `character.state.fields` / `location.state.fields`。留一份没人调的副本，
+  // 只会等到某天有人改了动作里那份、忘了这份。
+  //
   // ids are carried in SEPARATE data attributes (data-sid/data-eid) — never
   // packed into one value that a delimiter split could mis-parse
   const entityRec = (kind, eid) => {
@@ -1018,18 +1075,35 @@ export function bindSettings(root, ctx, ui = {}) {
     const s = e && e.states.find((x) => x.stateId === sid);
     return s ? s.overrides : null;
   };
+  // 状态级参考图那四个入口还在用它（见文件末尾那一段）：它们自己算出一份完整的
+  // overrides 再整份写下去，和「按栏合并」不是一回事。要把它们也接进表，得先把
+  // `nextStateRefsOnAdd` 搬进 workflow 层 —— 否则 workflow 会反向 import ui（CA §2）。
+  // 那是跨层搬迁，单独一片做，棘轮里因此还钉着这两个名字。
   const setOv = (kind, eid, sid, ov) =>
-    kind === "c" ? ctx.bible.setCharacterStateOverrides(eid, sid, ov) : ctx.bible.setLocationStateOverrides(eid, sid, ov);
+    kind === "c"
+      ? ctx.bible.setCharacterStateOverrides(eid, sid, ov)
+      : ctx.bible.setLocationStateOverrides(eid, sid, ov);
+  // 覆盖也走动作表（TASK-129 切片 2d）。**合并语义搬进了动作**：只带来的那一栏
+  // 落进去、空值 = 回到继承、`voiceDescription` 落在嵌套的 `voice.description` 上。
+  // 界面这边因此不再自己算 merge —— 那份算法有两处陈述时，迟早只改一处。
   root.querySelectorAll("[data-b-csov]").forEach((el) => {
     bindField(el, ui, (value) => {
-      const o = stateOv("c", el.dataset.bCsov, el.dataset.sid);
-      if (o) setOv("c", el.dataset.bCsov, el.dataset.sid, mergeOverride(o, el.dataset.field, value));
+      uiAct(
+        ctx,
+        "character.state.fields",
+        { name: el.dataset.bCsov, state: el.dataset.sid, [el.dataset.field]: value },
+        { quiet: true },
+      );
     });
   });
   root.querySelectorAll("[data-b-lsov]").forEach((el) => {
     bindField(el, ui, (value) => {
-      const o = stateOv("l", el.dataset.bLsov, el.dataset.sid);
-      if (o) setOv("l", el.dataset.bLsov, el.dataset.sid, mergeOverride(o, el.dataset.field, value));
+      uiAct(
+        ctx,
+        "location.state.fields",
+        { name: el.dataset.bLsov, state: el.dataset.sid, [el.dataset.field]: value },
+        { quiet: true },
+      );
     });
   });
   // --- state-level reference images (override list on the state itself) --- //

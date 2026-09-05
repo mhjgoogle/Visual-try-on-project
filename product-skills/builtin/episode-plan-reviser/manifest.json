@@ -1,6 +1,6 @@
 {
   "skillId": "episode-plan-reviser",
-  "skillVersion": 1,
+  "skillVersion": 2,
   "work": "creative",
   "role": "制片规划",
   "title": "Episode Plan Reviser",
@@ -21,5 +21,21 @@
     "修改是否只回应了修改要求本身，没有夹带别的改动",
     "输出是否是完整的分集规划，而不是只给出被改动的那几集"
   ],
-  "recommendedRuntime": "local_subscription"
+  "recommendedRuntime": "local_subscription",
+  "routing": {
+    "userCapability": [
+      "story-development",
+      "episode-production"
+    ],
+    "internalRouting": {
+      "intent": "plan-revision",
+      "kind": "generative",
+      "scope": "project",
+      "priority": 55,
+      "selectWhen": [
+        "分集",
+        "每集"
+      ]
+    }
+  }
 }

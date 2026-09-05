@@ -39,6 +39,13 @@ import {
   // TASK-082 §1.2: the rail is a CONTENT tree now, not a second copy of the chips
   assetTreeModel, renderAssetTree,
 } from "./assetlibws.js";
+import { renderAssetInboxSection, bindAssetInboxSection } from "./assetinboxsec.js";
+import { threadModel, renderThread } from "./convthread.js";
+import {
+  loadThread, sendTurn, awaitTurn, cancelTurn, reportApplied, openProposalCount,
+  decideProposal, runState, pendingRunIdIn, turnTextOf, resumePlan,
+} from "../services/conversation.js";
+import { proposalsModel, renderProposals, renderOpinions } from "./proposals.js";
 import { renderStorageWs, bindStorageWs } from "./storagews.js";
 import { renderStoryWs, bindStoryWs } from "./storyws.js";
 import { renderBibleWs, bindBibleWs } from "./biblews.js";
@@ -46,7 +53,6 @@ import { renderBriefWs, bindBriefWs } from "./briefws.js";
 import { renderWorldWs, bindWorldWs } from "./worldws.js";
 import { renderEpPlanWs, bindEpPlanWs } from "./epplanws.js";
 import { renderImageWs, bindImageWs, renderVideoWs, bindVideoWs } from "./mediaws.js";
-import { directorModel, renderDirector, bindDirector } from "./director.js";
 import { renderEpProd, bindEpProd, workbenchModel, currentPlace } from "./epprod.js";
 import {
   renderShotGraph, bindShotGraph, drawShotEdges, renderStages,
@@ -59,6 +65,17 @@ import { inspectFromShotNode } from "../workflow/shotgraph.js";
 import { derivedLabel } from "../workflow/assetreg.js";
 // TASK-066: the five regions of 剧集制作. Each owns ONE question, and the shell is the
 // only thing that knows they are on the same screen.
+import { renderCoreWs, renderOutlineWorkWs } from "./corews.js";
+import { renderPlanWs } from "./planws.js";
+import { renderDraftWs } from "./draftws.js";
+import { renderBlockingWs, drawTop, hitTest, topMapper } from "./blockingws.js";
+import { renderEpCanvas } from "./epcanvas.js";
+import { independenceDegraded } from "../services/runtime.js";
+import { applicabilityFor } from "../workflow/skillapply.js";
+import { createStage } from "./blockgl.js";
+import * as bl from "../workflow/blocking.js";
+import * as swork from "../workflow/storywork.js";
+import * as storydoc from "../workflow/storydoc.js";
 import { renderShotSelect, bindShotSelect } from "./shotselect.js";
 import { renderShotRefs, bindShotRefs } from "./shotrefs.js";
 import { renderRefSearch, bindRefSearch, searchModel } from "./refsearch.js";
@@ -67,10 +84,8 @@ import { renderPostConsole, bindPostConsole } from "./postconsole.js";
 // TASK-073 §1.3: 状态 / 耗时 / 成本 / 失败原因 / 重试 / 真实取消, in one place
 import { taskRowModel, renderTaskRows, bindTaskRows } from "./taskrow.js";
 // TASK-073 §1.4: the contextual Agent panel — two entrances, seven items
-import { agentPanelModel, renderAgentPanel, bindAgentPanel } from "./agentpanel.js";
 // TASK-073 §1.7: the fourteen spec fields + the two hard gates (domain)
 import { specStanding, SPEC_FIELD_BY_KEY } from "../workflow/deliveryspec.js";
-import { skillPanelModel, renderSkillPanel, bindSkillPanel } from "./skillpanel.js";
 // TASK-080 §1.1: 「这个系统一共能帮我做哪些事」, in one place
 import { skillCatalogModel, renderSkillCatalog, bindSkillCatalog } from "./skillcatalog.js";
 // TASK-082 §1.1: 「这个项目整体在哪一步，有什么数据问题」
@@ -79,8 +94,18 @@ import { healthModel, renderHealth, bindHealth } from "./healthws.js";
 import {
   agentSessionModel, renderAgentSession, bindAgentSession, sessionState,
 } from "./agentsession.js";
-import { shotDirectorModel, renderShotDirector, bindShotDirector, runOperation } from "./directorshot.js";
-import { episodeView } from "../workflow/proddoc.js";
+// Only `runOperation` survives here: the shot workbench's prompt actions use it.
+// The 导演台 panels that used the rest are gone (REQ-004 v2).
+import { runOperation } from "./directorshot.js";
+import { episodeView, activeEpisode } from "../workflow/proddoc.js";
+import { applyConversationEdits } from "../workflow/convedits.js";
+import { resumeThreadRun } from "../workflow/convresume.js";
+import { actionCatalog } from "../workflow/convactions.js";
+import { uiAct as sharedUiAct } from "./uiact.js";
+import {
+  decideRoute, originForRoute, routeOf, scopeOfSkill, zoomTrigger,
+} from "../workflow/convroute.js";
+import { suggestExecutor, isRunnable } from "../services/runtime.js";
 import { renderQcPanel } from "./qcpanel.js";
 import { renderPostStatus } from "./poststatusbar.js";
 import { renderShotQc, bindShotQc, shotQcModel } from "./shotqcpanel.js";
@@ -423,10 +448,6 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
   // describing different shots.
   let shotRefs = null;
   let refSearch = null;
-  // The RIGHT column's operational model for THIS render (TASK-067) — resolved by
-  // aiDirector(), read by bind(). Non-null only on the shot workbench with a shot
-  // selected, which is exactly where its ten operations mean anything.
-  let shotDirector = null;
   // …and whether this render IS that surface. Set once in render() and read by
   // aiDirector(), so the two cannot disagree about which panel is showing.
   let onShotBench = false;
@@ -442,151 +463,81 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
   }
 
   // --- the SCRIPT module keeps its full live assistant ---------------------- //
-  function aiPane(ctx, d, st) {
-    if (st.generating) {
-      const lab = d.pending.kind === "initial" ? "AI 生成剧本中…" : "AI 生成修订稿中…";
-      return `<div class="st-skel"><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="genprog"><span class="pc">${lab}</span><span class="cx">取消</span></div>`;
-    }
-    let out = "";
-    if (st.error) {
-      out += `<div class="scripterr">⚠ 生成失败：${esc(st.error)}<button class="errx" data-errx>知道了</button></div>`;
-    }
-    if (st.proposal) {
-      // proposal vs current: both labeled, apply is explicitly "new version"
-      return (
-        out +
-        `<div class="meta">当前剧本：<b>v${st.active}</b>${ctx.script.isDirty() ? "（含未版本化的手工修改）" : ""}</div>` +
-        `<div class="proposal"><div class="proplab">修订稿提案 · 未应用 · 要求：${esc(st.proposal.instruction)}</div>` +
-        `<textarea class="pa-proptext" readonly spellcheck="false">${esc(st.proposal.text)}</textarea>` +
-        `<div class="row"><button class="btn primary" data-apply>✔ 应用为 v${st.nextVersion}</button><button class="btn" data-discard>放弃提案</button></div></div>` +
-        `<div class="meta">应用后成为持久版本 v${st.nextVersion}；v1…v${st.versions} 全部保留，可随时回切。</div>`
-      );
-    }
-    if (!st.versions && !ctx.script.hasContent()) {
-      return (
-        out +
-        `<div class="meta">基于 创意＋已批准大纲＋本集规划 生成本集剧本：</div>` +
-        `<button class="btn primary" data-gen>AI 生成本集剧本 v1</button>`
-      );
-    }
-    return (
-      out +
-      `<label class="lab">修改要求</label>` +
-      `<textarea class="field pa-rev" rows="3" spellcheck="false" placeholder="例如：结尾加一个反转；台词更口语化">${esc(revText)}</textarea>` +
-      `<button class="btn primary" data-revise>AI 修订 → 生成提案</button>` +
-      `<div class="meta">提案不会直接生效：确认「应用」后才创建新版本 v${st.nextVersion}，旧版本全部保留。</div>`
-    );
-  }
 
   /** The persistent right-side AI Director. Script gets the live assistant;
    *  every other module gets the contextual Director panel. */
+  /** The persistent right column: ONE conversation, nothing else.
+   *
+   *  REQ-004 v2 — 产品负责人 2026-08-27: 「AI导演台不需要了。根本用不上。直接给我做一个
+   *  像现在一样的对话框。」 So the six-section 导演台 (导演观察 / 生产计划 / 当前状态 /
+   *  能力 / 生成 / 这一镜怎么办) is retired: `director.js`, `skillpanel.js` and
+   *  `agentpanel.js` are deleted, not merely unrendered.
+   *
+   *  WHAT DID NOT GO WITH IT. 资产收件箱 was housed in that column but is an ACTION
+   *  surface, not an observation — it is the only place an asset's ownership gets
+   *  confirmed. It moved into 资产库's workspace (`assetinboxsec.js`), because the
+   *  creator's own IA rule puts 「工作区」 in the middle column.
+   */
   function aiDirector(ctx) {
-    // TASK-080 §1.2 批次 A — the ONE session, on EVERY page including 剧本.
-    //
-    // It leads the column deliberately: the context it operates on is the one the
-    // creator STATED, so it must be readable before anything derived from 「which
-    // page you are on」. Rendered here rather than per page, because a panel that
-    // exists on some pages is exactly the 「先导航到正确的页面」 burden this
-    // replaces. NOTHING below it was removed this round (§1.2 迁移纪律 4).
     const session = renderAgentSession(agentSessionModel(ctx, ui), {
-      // §1.2 批次 B — the page-level panel is a part OF the session now, not a
-      // second surface in the middle column
-      panel: agentPanelBlock(ctx),
+      // REQ-004 判据 4 — the history scrolls, the input box does not move
+      split: true,
     });
-    if (activeModule === "script") {
-      const d = ctx.script.doc();
-      return (
-        `<aside class="st-dir prod-ai">` +
-        `<div class="dir-head"><span class="av">🎬</span>AI 导演 · 剧本</div>` +
-        session +
-        aiPane(ctx, d, scriptStatus(d)) +
-        `</aside>`
-      );
-    }
-    const m = directorModel({
-      module: activeModule,
-      doc: ctx.script.doc(),
-      story: ctx.story.doc(),
-      pd: ctx.prodData(),
-      sel: ui,
-      // CP8/ADR-0059 要求 1+9: the ONE production read model the Director's
-      // observation is built from — and the context ids it read, so that
-      // observation can be traced back to the canon it actually saw.
-      production: ctx.prodgraph.model({ shotId: ui.selectedShotId || null }),
-    });
-    // ADR-0061 决策 3: the Director now has a real Skill entrance. It is a
-    // collapsible section like the others, and it leads when the creator opened
-    // it — running a capability is the one thing the Director could not do.
-    const skillOpen = ui.dirOpen && ui.dirOpen.skills === true;
-    const sk = skillPanelModel(ctx, ui, execProbe);
-    const skillSummary = sk.pending
-      ? `<span class="chip gate">有提案待决定</span>`
-      : sk.open
-        ? `<span class="chip gen">运行中</span>`
-        : `<span class="chip">${sk.skills.length} 个能力</span>`;
-    const skillSec =
-      `<section class="dir-sec${skillOpen ? " open" : ""}${sk.pending ? " surfaced" : ""}">` +
-      `<button class="dir-sec-h" data-dsec="skills">` +
-      `<span class="tw">${skillOpen ? "▾" : "▸"}</span><span class="ti">能力</span>` +
-      `<span class="su">${skillSummary}</span></button>` +
-      (skillOpen ? `<div class="dir-sec-b">${renderSkillPanel(sk, ui)}</div>` : "") +
-      `</section>`;
-    // TASK-067 §2 / §6 / §18 / §19 — the AI Director as a real OPERATION ENTRANCE.
-    //
-    // On the shot workbench this REPLACES the old 当前状态 checklist rather than
-    // sitting beside it. Two checklists of the same shot, derived two ways, is the
-    // duplicate this codebase keeps paying for: `shotDirectorModel` reads
-    // `shotctx.shotReadiness`, which is the same derivation the capability layer
-    // gates on, so the panel and the buttons can never disagree about whether this
-    // shot is ready. The 能力 catalog below stays reachable — nothing was removed.
-    shotDirector = onShotBench ? shotDirectorModel(ctx, ui, execProbe) : null;
-    const shotDirSec = shotDirector
-      ? `<section class="dir-sec open sd-sec"><div class="dir-sec-h static">` +
-        `<span class="ti">这一镜现在怎么办</span></div>` +
-        `<div class="dir-sec-b">${renderShotDirector(shotDirector, ui)}</div></section>`
-      : "";
-    // 当前状态 (TASK-066 §14) — kept for the stage workspaces, where the operational
-    // panel above is not rendered. DERIVED from the same graph the centre draws, so
-    // the checklist and the picture cannot disagree about what exists.
-    const stateSec = shotGraph && !shotDirector
-      ? `<section class="dir-sec open"><div class="dir-sec-h static"><span class="ti">当前状态</span></div>` +
-        `<div class="dir-sec-b"><div class="dir-state">` +
-        [
-          ["主要画面参考", shotGraph.bands.find((b) => b.key === "refs").nodes.length, "个"],
-          ["视频编排参考", shotGraph.bands.find((b) => b.key === "directing").nodes.length, "个"],
-        ].map(([k, n, unit]) =>
-          `<div class="dir-strow ${n ? "ok" : "gap"}"><span class="mk">${n ? "✓" : "!"}</span>` +
-          `<span class="k">${esc(k)}</span><span class="v">${n} ${esc(unit)}</span></div>`).join("") +
-        [
-          ["Image Prompt", shotGraph.nodes.find((n) => n.id === "prompt:image")],
-          ["主帧图", shotGraph.nodes.find((n) => n.id === "image:selected")],
-          ["Video Prompt", shotGraph.nodes.find((n) => n.id === "prompt:video")],
-          ["最终视频", shotGraph.nodes.find((n) => n.id === "video:selected")],
-        ].map(([k, n]) => {
-          if (!n) return "";
-          // the WORDS are the truth of each state, never a generic 「就绪」: 「还缺 2 项」
-          // and 「已就绪」 are different facts and the creator acts on them differently
-          const done = n.state === "ready" || n.state === "active";
-          const what = n.type === "prompt"
-            ? (n.missing && n.missing.length ? `还缺 ${n.missing.length} 项` : "已就绪")
-            : n.version != null ? `已选定 v${n.version}` : "待生成";
-          return `<div class="dir-strow ${done ? "ok" : "gap"}"><span class="mk">${done ? "✓" : "!"}</span>` +
-            `<span class="k">${esc(k)}</span><span class="v">${esc(what)}</span></div>`;
-        }).join("") +
-        `</div>` +
-        (shotGraph.done
-          ? `<div class="pi-ok">这一镜已经有选定的最终视频。</div>`
-          : `<div class="meta">剧集制作的终点是「选定的最终 Shot Video」。</div>`) +
-        `</div></section>`
-      : "";
+    const label = activeModule === "script"
+      ? " · 剧本"
+      : ` · ${SPACE_LABEL[spaceOf(activeModule)] || ""}`;
     return (
       `<aside class="st-dir prod-ai">` +
-      `<div class="dir-head"><span class="av">🎬</span>AI 导演` +
-      `<span class="dir-space">${esc(SPACE_LABEL[spaceOf(activeModule)] || "")}</span></div>` +
-      session +
-      shotDirSec +
-      stateSec +
-      renderDirector(m, ui.directorText, ui.dirOpen, skillSec) +
+      // 两个窗口，一行 tab（产品负责人 2026-08-29:「聊天窗口A是用来操作当下界面的。
+      // 窗口B是用来feedback的这样比较不会乱。但同时也要保持画面简约」）：
+      //   作品 —— 改这一页上的东西，历史按页面分（每页一条线）
+      //   开发 —— 提意见、看开发的提案、拍板。它是**项目级一条线**，因为「这个界面
+      //           不好用」不属于某一页；而且在哪一页提的仍然记在那一轮里。
+      // 简约的做法是：**没有第二块面板**，只是同一根流换了一条线。
+      `<div class="dir-head">` +
+      `<button class="dir-tab${convMode() === "work" ? " on" : ""}" data-cv-mode="work">作品</button>` +
+      `<button class="dir-tab${convMode() === "feedback" ? " on" : ""}" data-cv-mode="feedback">` +
+      `开发${ui.convOpenProposals ? `<span class="dot">${ui.convOpenProposals}</span>` : ""}</button>` +
+      `<span class="dir-space">${esc(convMode() === "work" ? label.slice(3) : "意见与提案")}</span>` +
+      `</div>` +
+      // THE CONVERSATION IS THE WHOLE COLUMN. 产品负责人 2026-08-27:「会话那个框也很
+      // 多余。用不上的东西不要加进去」— so the 运行记录 / 这一页的诊断 box
+      // (`session.history`) is no longer mounted. It is still BUILT by
+      // `renderAgentSession`, and capability runs remain readable on the 生成记录
+      // page, so this removes a surface he does not use rather than a fact.
+      // 「开发」窗口：方案**钉在标题栏下面**，不跟着流滚动。
+      //
+      // 第一版把它画进 `.st-dir-flow` 的顶端 —— 而那根流有一万三千像素高、视图停在
+      // 底部，于是卡片落在他视线上方 13217px 处：DOM 里有、屏幕上没有（产品负责人
+      // 2026-08-30 第二次说「我根本没看到开发的提案」）。**「渲染了」不等于「看得见」**
+      // —— 我第一次只断言了 DOM 里有卡片，那条断言为错误的理由通过了。
+      (convMode() === "feedback"
+        ? `<div class="st-dir-props">` +
+          renderProposals(proposalsModel(ui.convProposals)) +
+          renderOpinions(ui.convOpinions) +
+          `</div>`
+        : "") +
+      `<div class="st-dir-flow">` +
+      // 开发刚给了新方案 —— 在他正看着的那条流里说一句，而不是等他自己切过去看
+      (ui.convProposalNote
+        ? `<div class="cv-note"><span class="k">开发给了你 ${ui.convProposalNote} 条新方案</span>` +
+          `<button class="btn sm" data-cv-gonote="1">去看看</button></div>`
+        : "") +
+      // 结构性改动之后的**建议**（不是自动跑）。他点了才走一轮对话去查。
+      (convMode() === "work" && ui.convSuggest
+        ? `<div class="cv-note"><span class="k">${esc(ui.convSuggest.text)}</span>` +
+          `<button class="btn sm" data-cv-suggest="1">查一下</button></div>`
+        : "") +
+      renderThread(threadModel(convState().turns, {
+        pendingRun: convState().pendingRun,
+        pendingStatus: convState().pendingStatus,
+        applied: convState().applied,
+        // 「识别到什么能力 / 跑了没有 / 缺什么」——每次渲染重算，来源是登记表
+        // 与当前文档，所以刷新之后说法不变，而且重算不会启动任何东西。
+        routeState: convRouteState(ctx, convState().turns),
+      })) +
+      `</div>` +
+      `<div class="st-dir-composer">` + session.composer + `</div>` +
       `</aside>`
     );
   }
@@ -712,7 +663,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       ? (story.plans.find((p) => p.v === story.confirmedPlan) || { episodes: [] }).episodes.some((e) => e.episodeId === (ep && ep.episodeId))
       : false;
     const hint = !st.versions && !ctx.script.hasContent() && !planned
-      ? `<div class="chip gate">建议先在「故事」批准大纲 → 在「剧集」确认分集规划</div>`
+      ? `<div class="chip gate">建议先在「故事」批准大纲 → 在「剧集」确认结构规划</div>`
       : "";
     return (
       head(ep ? ep.title : "当前剧集", "按集剧本 · 应用修订 = 创建新版本，旧版本保留", vbar + hint) +
@@ -807,68 +758,12 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
    *  check and the executor probe decide whether the primary action exists at all,
    *  so 「不可用」 always carries the actual reason (IA §6.4). */
   function agentEntrance() {
-    const open = ui.agentOpen === true;
-    return (
-      `<button class="ag-open${open ? " on" : ""}" data-agent-open="1" ` +
-      `title="就当前页面问 Agent（在右栏的会话里打开）">🤖 询问 Agent</button>`
-    );
-  }
-
-  /**
-   * The page-level Agent panel — now rendered INSIDE the session (§1.2 批次 B).
-   *
-   * THE ENTRANCE IS WHAT WAS RETIRED, NOT THE PANEL. It used to open as a second
-   * surface in the middle column, with its own scope line and its own close
-   * button, while the right column showed a different Agent looking at something
-   * else. Returning its HTML for the session to embed keeps all seven items and
-   * every one of its actions (a guard test enumerates them) while leaving ONE
-   * place that answers 「Agent 现在在看什么」.
-   */
-  function agentPanelBlock(ctx) {
-    if (ui.agentOpen !== true) return "";
-    const skillId = ui.skillId || null;
-    const skill = skillId ? ctx.skills.find(skillId) : null;
-    const cat = ctx.skills.catalogState ? ctx.skills.catalogState() : { installed: true, detail: "" };
-    // WHY it may or may not run — from the catalog, the inputs and the probe, never
-    // from an assumption that it does
-    const missingKeys = skill ? ctx.skills.missing(skillId) || [] : [];
-    const available = !cat.installed
-      ? { ok: false, reason: cat.detail || "能力目录不可用" }
-      : !skill
-        ? { ok: false, reason: "还没有选择要做什么——在左侧能力面板里选一个" }
-        : { ok: true };
-    const runs = (ctx.skills.runs() || []).filter((r) => r && r.skillId === skillId);
-    const last = runs.length ? runs[runs.length - 1] : null;
-    const model = agentPanelModel({
-      scope: { kind: "page", label: MODULE_LABEL[activeModule] || null },
-      taskName: skill ? skill.title : null,
-      understanding: skill
-        ? [
-          `任务：${skill.title}（${skill.role}）`,
-          ui.selectedShotId ? "范围：当前选中的镜头" : "范围：本集",
-        ]
-        : [],
-      // problems come from the SAME checks the rest of the page uses
-      problems: missingKeys.length
-        ? [{ text: `有 ${missingKeys.length} 项必要输入还没有准备好`, severity: "blocking" }]
-        : [],
-      missing: missingKeys.map((k) => ({
-        key: k,
-        label: ctx.skills.inputLabel(k),
-        gotoModule: MODULE_ALIAS_GOTO[k] || null,
-      })),
-      nextSteps: skill && missingKeys.length
-        ? ["先补齐缺失输入", "再回到这里执行"]
-        : skill
-          ? ["可以执行了", "执行后在结果旁看「生成记录」确认它读了什么"]
-          : [],
-      available,
-      results: last && last.proposal
-        ? [{ label: "最近一次提案", version: last.skillVersion || null }]
-        : [],
-      manualFallback: { can: true },
-    });
-    return renderAgentPanel(model);
+    // 产品负责人 2026-08-30：「最上层的那个询问 agent 不需要了。删了吧。」
+    //
+    // 它当初是「打开对话」的入口（IA §6.1 的两个入口之一）。**对话现在一直在右栏**，
+    // 所以这条横幅只是一个「跳到输入框」的按钮 —— 每一页顶部占一行，去换一次
+    // 本来点右边就能做的事。入口没有少：右栏永远在，卡片上的「让 Agent 处理」也还在。
+    return "";
   }
 
   /** The task rows for the shot being made (TASK-073 §1.3).
@@ -920,8 +815,11 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
 
   const WORKSPACES = {
     // --- 故事开发 (project-level upstream) --------------------------------- //
-    brief: (ctx) => renderBriefWs(ctx, ui),
-    story: (ctx) => renderStoryWs(ctx, ui),
+    // ① 故事核心 / ② 故事大纲（TASK-122 第 3 步）—— 产品负责人 2026-08-30 的规格：
+    // 各自**只有一个编辑器**。旧的字段表单不再画在屏幕上，但它写下的内容**迁进了**
+    // 新编辑器（`seedWork`），所以「不删旧数据」不只是技术上的说法。
+    brief: (ctx) => renderCoreWs(ctx, ui),
+    story: (ctx) => renderOutlineWorkWs(ctx, ui),
     characters: (ctx) => renderBibleWs(ctx, ui),
     // ③ 作品设定 (TASK-073 §1.1) — ONE page whose three sections are the surfaces
     // that used to be three rail rows. `settings` was already this workspace's
@@ -941,7 +839,26 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // opens 人物 on the relationship tab; this entry is what it renders.
     relationships: (ctx) => renderBibleWs(ctx, ui),
     world: (ctx) => renderWorldWs(ctx, ui),
-    episodes: (ctx) => renderEpPlanWs(ctx, ui),
+    // ③ 结构规划（第 4 步）：三个入口 —— 结构表 / 角色设计 / 场景设计
+    // （产品负责人 2026-08-30：「结构里面分不同的入口。先是现在的表格，然后进入
+    // 角色设计和场景设计。这都会成为之后小说剧集制作的基础财产。」）。
+    //
+    // 角色设计与场景设计**复用既有的人物 / 世界观工作区**：那就是「基础财产」本身，
+    // 在这里另存一份等于让同一个角色有两个真相。作品设定那一页的地址也一条没动。
+    //
+    // **不挂分集选集器**（「结构规划不应该跳到剧集制作」）—— 通往生产线的那道门
+    // 只开在「正文创作 · 剧集创作」里。
+    episodes: (ctx) => {
+      const sec = sectionOf("episodes");
+      if (sec === "cast") {
+        ui.bibleTab = "characters";
+        return sectionNav("episodes") + renderBibleWs(ctx, ui);
+      }
+      if (sec === "places") return sectionNav("episodes") + renderWorldWs(ctx, ui);
+      return sectionNav("episodes") + renderPlanWs(ctx, ui);
+    },
+    // ④ 正文创作（第 5 步）：形态入口 → Planned 数量 → 页内章/集选择器 → 单元视图。
+    script: (ctx) => renderDraftWs(ctx, ui),
 
     // --- TASK-073 §1.1/§1.2: the FIVE 剧集制作 pages ------------------------ //
     //
@@ -951,11 +868,16 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // reached, not what it does. Deleting the old entrance is TASK-074's job.
     //
     // ⑥ 本集看板 — the episode's own status view.
-    board: (ctx) => sectionNav("board") + renderEpisodeWs(ctx, ui),
+    // ⑥ 制作画布（TASK-124）：一条流水线 + 一排镜头卡 + 一句下一步。
+    // 原来这一页是 `renderEpisodeWs`（本集看板），它仍然可以从画布底部的
+    // 「全部工作区」进去 —— 删掉的是那六个并列入口，不是任何一项能力。
+    board: (ctx) => (ui.ecLegacyBoard ? renderEpisodeWs(ctx, ui) : renderEpCanvas(ctx, ui)),
     // ⑦ 分镜设计 — scenes list and shot list, two sections of one page.
     storyboard: (ctx) =>
       sectionNav("storyboard") +
-      (sectionOf("storyboard") === "scenes"
+      (sectionOf("storyboard") === "blocking"
+        ? renderBlockingWs(ctx, ui)
+        : sectionOf("storyboard") === "scenes"
         ? ws.renderEpisodes(ctx)
         // ④ 那条横向带在**分镜**这一节的顶部（TASK-095 §2.4）：判断「前后接得顺不顺」
         // 要跨镜看，而分镜表本身就是这一屏。不新增页面（ADR-0066 决策 10）。
@@ -1076,8 +998,11 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // own type filter, so there is one library and one filter vocabulary rather
     // than seven near-identical workspaces.
     storage: (ctx) => renderStorageWs(ctx, ui),
-    assets: (ctx) => renderAssetLibrary(ctx, ui),
-    "assets:reference": (ctx) => renderAssetLibrary(ctx, ui),
+    // REQ-004 v2: 资产收件箱 moved OUT of the retired 导演台 and into the workspace of
+    // the space whose subject is assets — it is the only surface where an asset's
+    // ownership gets confirmed, so it could not go with the console.
+    assets: (ctx) => renderAssetInboxSection(ctx.prodData()) + renderAssetLibrary(ctx, ui),
+    "assets:reference": (ctx) => renderAssetInboxSection(ctx.prodData()) + renderAssetLibrary(ctx, ui),
     "assets:image": (ctx) => renderAssetLibrary(ctx, ui),
     "assets:video": (ctx) => renderAssetLibrary(ctx, ui),
     "assets:audio": (ctx) => renderAssetLibrary(ctx, ui),
@@ -1113,6 +1038,9 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
 
   function render() {
     const ctx = getCtx();
+    // 第一次画这个项目时把旧结构迁进新模型（只灌一次）—— 一个空编辑器等于把他
+    // 已经写好的东西从屏幕上抹掉，那不叫「旧数据还在」（TASK-122 第 3 步）。
+    try { seedWork(ctx); } catch { /* 迁移失败不许挡住整页 */ }
     const pd = ctx.prodData();
     ensureShotSelection(pd);
     // project-wide badges, with the 本集制作 stages overridden by the episode's
@@ -1150,7 +1078,6 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     shotGraph = null;
     shotRefs = null;
     refSearch = null;
-    shotDirector = null;
     onShotBench = false;
     // EVERY page carries the page-level Agent entrance at its top-right (IA §6.1).
     // Prepended to the workspace rather than injected per page, so the entrance is
@@ -1160,9 +1087,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // panel in this column, but the one session in the right one.
     const main =
       agentEntrance() +
-      (activeModule === "script"
-        ? scriptMain(ctx)
-        : (WORKSPACES[activeModule] || (() => ""))(ctx));
+      (WORKSPACES[activeModule] || (() => ""))(ctx);
 
     if (space === "episode") {
       // TASK-066 §17 — FIVE REGIONS, each answering ONE question:
@@ -1221,6 +1146,28 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
           episodeTitle: epNow ? episodeTitleBeside(epNow.code, epNow.title) : "",
         }) +
         `</nav>`;
+      rememberFlowScroll();
+      // 制作画布**不走那层包装**（产品负责人 2026-08-30：「不要出现分镜设计这些
+      // 应该在工作区出现而不应该在左边和上面设计各种入口」）。`renderEpProd`
+      // 会在顶部挂上向导 / 完整溯源 / 制作台 / 工作区，在两侧挂上参考与检视 ——
+      // 那是**做某一镜**时要的东西，不是「我这次做哪一集」这一屏要的。
+      if (activeModule === "board") {
+        root.innerHTML =
+          crumb(ctx) + epRail +
+          // **`ep-main` 是这个空间的布局合同键**，不是装饰：`epprod.css` 用
+          // `#production.space-episode > .ep-main` 把中间那栏放到「第 2 列 · 第 3–4 行」。
+          // 制作画布这一支上一版只写了 `ep3-main`（它在 studio.css 里只管一个内边距），
+          // 于是**一条定位规则都没匹配上** —— 面板被自动排进第 2 行第 1 列：画布挤在
+          // 左边 312px 一条、右边空掉一屏，左栏掉到左下角，而横跨三列的第 2 行吃掉
+          // 850px，把右侧对话区压到 **81px 高、消息区只剩 8px**（产品负责人 2026-09-03：
+          // 「剧集制作那一页为什么和 AI 的对话框很小」）。
+          `<main class="st-main prod-main ep-main ep3-main">` + main + "</main>" +
+          aiDirector(ctx);
+        bind(ctx);
+        restoreFlowScroll();
+        notify();
+        return;
+      }
       root.innerHTML =
         crumb(ctx) +
         (onCentre ? renderShotSelect(ctx, ui, wm, place) : "") +
@@ -1302,12 +1249,14 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
           : "") +
         (isConsole ? "" : "");
       bind(ctx);
+      restoreFlowScroll();
       if (shotGraph) drawShotEdges(root, shotGraph);
       notify();
       return;
     }
 
     if (space === "assets") {
+      rememberFlowScroll();
       root.innerHTML =
         crumb(ctx) +
         `<nav class="st-rail prod-nav">` +
@@ -1320,6 +1269,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
         `<main class="st-main prod-main">${main}</main>` +
         aiDirector(ctx);
       bind(ctx);
+      restoreFlowScroll();
       notify();
       return;
     }
@@ -1331,12 +1281,14 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       ratios,
       upstream,
     });
+    rememberFlowScroll();
     root.innerHTML =
       crumb(ctx) +
       `<nav class="st-rail prod-nav">${rail}</nav>` +
       `<main class="st-main prod-main">${main}</main>` +
       aiDirector(ctx);
     bind(ctx);
+    restoreFlowScroll();
     notify();
   }
 
@@ -1570,7 +1522,13 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
    *  was refused (unknown key, or the creator kept an unsaved edit), and a caller
    *  must never claim a move that did not happen (TASK-081 §1.2 第 1 条). */
   function setModule(want) {
-    if (!WORKSPACES[want] && want !== "script") return false;
+    // **先解析别名，再判断认不认识**。反过来做，`blocking` 这类「不是页面、
+    // 但解析得到一个真实分区」的键会在第一行就被挡掉 —— 左栏画着那一行，
+    // 点下去却落到默认页（产品负责人 2026-08-30 点了「3D 导演台」到了本集看板）。
+    const alias = resolveModule(want);
+    if (!WORKSPACES[want] && want !== "script" && !(alias.resolved && WORKSPACES[alias.module])) {
+      return false;
+    }
     // TASK-065 §2 / §4: 人物关系 is a TAB of 人物, and 场景地 is a TAB of 世界观.
     //
     // The merged keys are RESOLVED HERE, once, rather than at each caller: every
@@ -1741,8 +1699,10 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     const name = shot ? (shot.title || `镜头 ${shot.sequence}`) : shotId;
     const medium = kind === "video" ? "视频" : "画面";
     ui.selectedShotId = shotId;
-    ui.agentOpen = true;
-    ui.directorText =
+    // Prefill the CONVERSATION (REQ-004 v2). `ui.directorText` fed the retired
+    // 导演台 instruction box, so writing there now would compose a question into a
+    // field nobody renders — the creator would press the button and see nothing.
+    sessionState(ui).text =
       `「${name}」的${medium}生成失败了。Run ${runId || "未知"}` +
       (model ? ` · 模型 ${model}` : "") +
       `，报的原因是：${why || "（登记表里没有记录失败原因）"}。` +
@@ -1754,7 +1714,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
    *  standing on (TASK-080 §1.1 「在当前上下文运行」).
    *
    *  It SELECTS and OPENS; it does not run. Running is a decision with an
-   *  executor behind it and a set of guards in `bindSkillPanel` — a second
+   *  executor behind it and a set of guards in the run path — a second
    *  invocation path here would be a second place to forget them. The scope the
    *  run will record is whatever `ui.selectedShotId` says, which is exactly what
    *  「当前上下文」 means. */
@@ -1783,6 +1743,1110 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
    *  from `ui.selectedShotId` — that is the whole difference between 「上下文由
    *  用户显式给出」 and 「上下文由你在哪一页隐式决定」. The run itself still goes
    *  through `ctx.skills.run`, the one path with the guards on it. */
+  /* ---------------------------------------------------------------------- */
+  /* 对话（ADR-0089）                                                        */
+  /* ---------------------------------------------------------------------- */
+
+  /** ONE CONVERSATION PER PAGE (REQ-004 v3).
+   *
+   *  产品负责人 2026-08-27:「我可以打开不同的页面都有新的对话框吗。历史内容保存在不同
+   *  对话框」。So every piece of per-conversation state is keyed by the page — the
+   *  turns, the run in flight and its status. Three flat fields would make a turn
+   *  started on 分镜 render its spinner on 资产库.
+   */
+  /** 开发那边有没有新方案 —— **主动去问**，不等他先开口。
+   *
+   *  产品负责人 2026-08-29：「你给方案之后要触发前端agent的交互。」开发写方案发生在
+   *  另一个进程里（仓库那边），浏览器不可能被通知到，所以这里每 20 秒问一次；数字变大
+   *  就在他正看着的那条流里插一行，并把「开发」tab 上的圆点点亮。
+   *
+   *  **一个定时器，跟着右栏的生命周期**：重复 bind 不会叠出第二个（下面先清）。 */
+  function pollProposals(ctx) {
+    const tick = () => {
+      const before = ui.convOpenProposals || 0;
+      Promise.resolve(openProposalCount()).then((n) => {
+        if (n === before) return;
+        ui.convOpenProposals = n;
+        // 变多了 = 开发刚给了新东西。变少了（他刚答复完）只更新数字，不打扰他。
+        if (n > before) ui.convProposalNote = n - before;
+        render();
+      });
+    };
+    tick();
+    if (ui.convPollTimer) clearInterval(ui.convPollTimer);
+    ui.convPollTimer = setInterval(tick, 20000);
+  }
+
+  /** 当前是哪个窗口。默认「作品」—— 他绝大多数话是要改东西的。 */
+
+  /* ===== Story Development 的四页（TASK-122 第 3–6 步）===================== */
+  //
+  // 一处绑定，四页共用。所有写入都落到**正式数据模型**（`story.work`），不是改屏幕上
+  // 的字 —— 他点名过这一条：「Agent 修改的是正式数据模型，不是只修改 UI 展示文本。」
+  // 人手改与 Agent 改因此走的是同一组函数（见 `convactions.js` 的 work.* 动作）。
+
+  /** 旧结构 → 新模型，只灌一次。空编辑器等于把他四版大纲从屏幕上抹掉。 */
+  function seedWork(ctx) {
+    const doc = ctx.story && ctx.story.doc ? ctx.story.doc() : null;
+    if (!doc || !doc.work) return false;
+    const active = storydoc.activeOutline(doc);
+    const fields = active && active.outline ? active.outline : null;
+    const at = new Date().toISOString();
+    let did = false;
+    did = swork.seedCoreFromStory(doc.work, fields, doc.brief && doc.brief.draft, at) || did;
+    did = swork.seedOutlineFromStory(doc.work, fields, at) || did;
+    const eps = ctx.prodData ? (ctx.prodData().production.episodes || []) : [];
+    did = !!swork.seedPlanFromEpisodes(doc.work, eps, at) || did;
+    if (did) ctx.persist();
+    return did;
+  }
+
+  /** 一次写入 + 重画。`quiet` 用于打字：不重画，避免光标跳走。 */
+  function workWrite(fn, quiet) {
+    const ctx = getCtx();
+    const doc = ctx && ctx.story && ctx.story.doc ? ctx.story.doc() : null;
+    if (!doc || !doc.work) return;
+    fn(doc.work, ctx);
+    ctx.persist();
+    if (!quiet) render();
+  }
+
+  /**
+   * 界面上的一次写 = 动作表里的一条动作（ADR-0096 决策 1 / TASK-127）。
+   *
+   * 以前这里的按钮直接调 `swork.*`，Agent 那边另有一张 `ACTIONS` 表调同一组函数 ——
+   * 两份名单靠人眼对齐，于是「UI 有、Agent 没有」只在他撞到时才被发现（TASK-126：
+   * 人物 / 关系 / 场景地「只会改、不会加」）。现在按钮也走 `runAction`：一个按钮若没有
+   * 对应的动作，**它根本发不出写**；「他能点的」与「它能做的」是同一张表的两次读取。
+   *
+   * persist / render 与 `workWrite` 完全一致。抛错 = 没落下，原因说出来（决策 6）。
+   */
+  function uiAct(id, args, { quiet = false } = {}) {
+    const ctx = getCtx();
+    if (!ctx) return null;
+    // 一份实现（`ui/uiact.js`），所有页面共用 —— 第二份适配器就是第二份漂移点。
+    //
+    // **这里不再预判「有没有 story.work」**（codex 2026-09-05 轮 2 P1）：那句前置判断是给
+    // 故事四页写的，可 ⚙ 成片规格（`settings.delivery`）也走这条路 —— 一个还没写过故事
+    // 的项目改成片规格，会被它**静默吞掉**。数据不在时该说话的是动作自己的 `apply`
+    // （`workOf(ctx)` 抛「这个项目还没有故事开发的数据模型」），`uiAct` 会把那句 toast 出来。
+    return sharedUiAct(ctx, id, args, { rerender: render, quiet });
+  }
+
+  /** 这一页要读的那份 work（读路径只有这一条；写路径只有 `uiAct` —— `workWrite` 只剩
+   *  加载期的 seed 迁移在用）。 */
+  function workOf() {
+    const ctx = getCtx();
+    const doc = ctx && ctx.story && ctx.story.doc ? ctx.story.doc() : null;
+    return doc && doc.work ? doc.work : null;
+  }
+
+  /** DOM 上带的是 unit id，动作表说的是「第几章/集」—— 这里翻译一次。 */
+  function unitById(id) {
+    const work = workOf();
+    return work ? work.units.find((u) => u.id === id) || null : null;
+  }
+
+  function bindStoryWork(root) {
+
+    // ① 故事核心 / ② 故事大纲：打字即写进模型（不重画，光标不跳）
+    const core = root.querySelector("[data-core]");
+    if (core) {
+      core.oninput = () => uiAct("work.core", { text: core.value }, { quiet: true });
+    }
+    const outline = root.querySelector("[data-outline]");
+    if (outline) {
+      outline.oninput = () => uiAct("work.outline", { text: outline.value }, { quiet: true });
+      // 失焦时重画一次，让节点编号跟上（打字时不重画是为了光标）
+      outline.onblur = () => render();
+    }
+
+    // 定稿 / 历史（core · outline · plan 同一条规矩）
+    root.querySelectorAll("[data-fin]").forEach((b) => (b.onclick = () => {
+      const out = uiAct("work.finalize", { what: b.dataset.fin });
+      if (out) getCtx().toast(out.said);
+    }));
+    root.querySelectorAll("[data-finhist]").forEach((b) => (b.onclick = () => {
+      const kind = b.dataset.finhist;
+      ui[kind + "Hist"] = !ui[kind + "Hist"];
+      render();
+    }));
+    root.querySelectorAll("[data-finview]").forEach((b) => (b.onclick = () => {
+      const [kind, v] = b.dataset.finview.split(":");
+      const work = workOf();
+      const rec = work && (work.finalized[kind] || []).find((x) => x.v === Number(v));
+      if (rec) { ui[kind + "View"] = rec; render(); }
+    }));
+    root.querySelectorAll("[data-finclose]").forEach((b) => (b.onclick = () => {
+      ui[b.dataset.finclose + "View"] = null;
+      render();
+    }));
+    root.querySelectorAll("[data-finrestore]").forEach((b) => (b.onclick = () => {
+      const [kind, v] = b.dataset.finrestore.split(":");
+      const out = uiAct("work.restoreVersion", { what: kind, v: Number(v) });
+      ui[kind + "View"] = null;
+      if (out) getCtx().toast(out.said);
+    }));
+    root.querySelectorAll("[data-findel]").forEach((b) => (b.onclick = () => {
+      const [kind, v] = b.dataset.findel.split(":");
+      const out = uiAct("work.deleteVersion", { what: kind, v: Number(v) });
+      if (out) getCtx().toast(out.said);
+    }));
+    // 回收区里那条路他自己也要走得了 —— 删版本改成软删除之后（补审 2026-09-05），
+    // 只有 Agent 能撤销而他不能，正好把 REQ-006 判据 1 反过来了。
+    root.querySelectorAll("[data-finundel]").forEach((b) => (b.onclick = () => {
+      const [kind, v] = b.dataset.finundel.split(":");
+      const out = uiAct("work.undeleteVersion", { what: kind, v: Number(v) });
+      if (out) getCtx().toast(out.said);
+    }));
+
+    // ③ 结构规划
+    // 去掉缩放记号之后高度得自己跟着内容走（他要的是「像 excel 一样简约」，
+    // 不是一堆固定两行、写多了就出现内部滚动条的小框）
+    const grow = (el) => {
+      el.style.height = "auto";
+      el.style.height = `${Math.max(el.scrollHeight, 20)}px`;
+    };
+    root.querySelectorAll("[data-sp-edit]").forEach((el) => grow(el));
+    root.querySelectorAll("[data-sp-edit]").forEach((el) => (el.oninput = () => {
+      grow(el);
+      const i = el.dataset.spEdit.lastIndexOf(":");
+      const id = el.dataset.spEdit.slice(0, i);
+      const field = el.dataset.spEdit.slice(i + 1);
+      uiAct("plan.row.edit", { rowId: id, field, value: el.value }, { quiet: true });
+    }));
+    root.querySelectorAll("[data-sp-add]").forEach((b) => (b.onclick = () => uiAct("plan.row.add", {})));
+    root.querySelectorAll("[data-sp-del]").forEach((b) => (b.onclick = () =>
+      uiAct("plan.row.delete", { rowId: b.dataset.spDel })));
+    root.querySelectorAll("[data-sp-restore]").forEach((b) => (b.onclick = () =>
+      uiAct("plan.row.restore", { rowId: b.dataset.spRestore })));
+    root.querySelectorAll("[data-sp-bin]").forEach((b) => (b.onclick = () => {
+      ui.planBin = !ui.planBin;
+      render();
+    }));
+    root.querySelectorAll("[data-sp-refopen]").forEach((b) => (b.onclick = () => {
+      ui.planRefOpen = ui.planRefOpen === b.dataset.spRefopen ? null : b.dataset.spRefopen;
+      render();
+    }));
+    root.querySelectorAll("[data-sp-ref]").forEach((b) => (b.onclick = () => {
+      const [rowId, nodeId] = b.dataset.spRef.split(":");
+      uiAct("plan.row.link", { rowId, nodeId });
+    }));
+    root.querySelectorAll("[data-sp-unref]").forEach((b) => (b.onclick = () => {
+      const [rowId, nodeId] = b.dataset.spUnref.split(":");
+      uiAct("plan.row.link", { rowId, nodeId, remove: true });
+    }));
+
+    // ④ 正文创作
+    root.querySelectorAll("[data-form]").forEach((b) => (b.onclick = () => {
+      uiAct("work.form", { form: b.dataset.form });
+    }));
+    root.querySelectorAll("[data-planned]").forEach((b) => (b.onclick = () => {
+      const d = Number(b.dataset.planned);
+      const w = workOf();
+      if (w && w.form) uiAct("work.planned", { n: Math.max(0, (w.planned[w.form] || 0) + d) });
+    }));
+    const pn = root.querySelector("[data-planned-set]");
+    if (pn) {
+      pn.onchange = () => {
+        const v = parseInt(pn.value, 10);
+        const w = workOf();
+        if (w && w.form) uiAct("work.planned", { n: Number.isFinite(v) ? Math.max(0, v) : (w.planned[w.form] || 0) });
+      };
+    }
+    root.querySelectorAll("[data-unit]").forEach((b) => (b.onclick = () => {
+      const no = Number(b.dataset.unit);
+      uiAct("unit.ensure", { no }, { quiet: true });
+      ui.unitNo = no;
+      ui.unitHist = false;
+      render();
+    }));
+    // 故事侧 → 生产线的那道门（ADR-0092 之后**只开在正文创作 · 剧集创作**里）
+    root.querySelectorAll("[data-unit-produce]").forEach((b) => (b.onclick = () => {
+      enterEpisode(b.dataset.unitProduce, EPISODE_DEFAULT);
+    }));
+    root.querySelectorAll("[data-unit-back]").forEach((b) => (b.onclick = () => {
+      ui.unitNo = null;
+      render();
+    }));
+    const body = root.querySelector("[data-unit-body]");
+    if (body) {
+      body.oninput = () => {
+        const u = unitById(body.dataset.unitBody);
+        if (u) uiAct("unit.write", { no: u.no, text: body.value }, { quiet: true });
+      };
+    }
+    const title = root.querySelector("[data-unit-title]");
+    if (title) {
+      title.oninput = () => {
+        const u = unitById(title.dataset.unitTitle);
+        if (u) uiAct("unit.write", { no: u.no, title: title.value }, { quiet: true });
+      };
+    }
+    root.querySelectorAll("[data-unit-copy]").forEach((b) => (b.onclick = async () => {
+      const work = workOf();
+      const u = work && work.units.find((x) => x.id === b.dataset.unitCopy);
+      if (!u) return;
+      try {
+        await navigator.clipboard.writeText(u.body || "");
+        getCtx().toast("正文已复制");
+      } catch {
+        // 剪贴板被浏览器挡住时**说出来**，不假装复制成功
+        getCtx().toast("浏览器没允许复制 —— 请手动全选复制");
+      }
+    }));
+    root.querySelectorAll("[data-unit-fin]").forEach((b) => (b.onclick = () => {
+      const u = unitById(b.dataset.unitFin);
+      const out = u ? uiAct("work.finalize", { what: "unit", no: u.no }) : null;
+      if (out) getCtx().toast(out.said);
+    }));
+    root.querySelectorAll("[data-unit-hist]").forEach((b) => (b.onclick = () => {
+      ui.unitHist = !ui.unitHist;
+      render();
+    }));
+    root.querySelectorAll("[data-unit-restore]").forEach((b) => (b.onclick = () => {
+      const [id, v] = b.dataset.unitRestore.split(":");
+      const u = unitById(id);
+      const out = u ? uiAct("work.restoreVersion", { what: "unit", no: u.no, v: Number(v) }) : null;
+      if (out) getCtx().toast(out.said);
+    }));
+    root.querySelectorAll("[data-unit-findel]").forEach((b) => (b.onclick = () => {
+      const [id, v] = b.dataset.unitFindel.split(":");
+      const u = unitById(id);
+      const out = u ? uiAct("work.deleteVersion", { what: "unit", no: u.no, v: Number(v) }) : null;
+      if (out) getCtx().toast(out.said);
+    }));
+    // 章/集的回收区（补审 2026-09-05 第三轮）：`no` 和上面两条一样由 `unitById` 解出来，
+    // 不编进 data 属性 —— 编进去就会漏掉，而这条正是软删除赖以成立的那条撤销路。
+    root.querySelectorAll("[data-unit-undel]").forEach((b) => (b.onclick = () => {
+      const [id, v] = b.dataset.unitUndel.split(":");
+      const u = unitById(id);
+      const out = u ? uiAct("work.undeleteVersion", { what: "unit", no: u.no, v: Number(v) }) : null;
+      if (out) getCtx().toast(out.said);
+    }));
+  }
+
+  // 页内选集器（TASK-122 第 2 步）曾经挂在结构规划页顶。**已经删掉**：
+  // 产品负责人 2026-08-30「结构规划不应该跳到剧集制作」—— 它带着「进入剧集制作 →」，
+  // 等于在一张讲故事结构的表上开了一扇通往生产线的门。分集选择仍住在「剧集制作」
+  // 自己的空间里（`renderEpisodeRail`），要去那边点顶部的空间切换就行。
+  //
+  // `shell.episodeRows` 保留：剧集制作那边和守卫测试都在用它。
+
+
+  /* ===== 3D 导演台的交互（TASK-123 / ADR-0094）============================ */
+  //
+  // 三件事：**在俯视图里拖**、**拖时间线看这一刻**、**把这一段录成白膜**。
+  // 预览与录制读的是同一个 `sampleAt`，所以看到的与录出来的不会是两回事。
+
+  let bkStage = null; // WebGL 渲染器（一次建起来，重画时复用）
+  let bkRaf = 0;
+
+  function bkShotId() {
+    return ui.selectedShotId || null;
+  }
+
+  function bkData() {
+    const ctx = getCtx();
+    const id = bkShotId();
+    return id && ctx.blocking ? ctx.blocking.of(id) : null;
+  }
+
+  /** 画一帧（俯视图 + 镜头里）。**一处采样，两个画布**。 */
+  function bkPaint(t) {
+    const b = bkData();
+    if (!b) return;
+    const top = document.querySelector("[data-bk-top]");
+    if (top) drawTop(top, b, t);
+    const view = document.querySelector("[data-bk-view]");
+    if (view && bkStage && bkStage.canvas === view) bkStage.draw(bl.sampleAt(b, t));
+  }
+
+  function bkEnsureStage() {
+    const view = document.querySelector("[data-bk-view]");
+    if (!view) return null;
+    if (bkStage && bkStage.canvas === view) return bkStage;
+    const made = createStage(view);
+    if (!made.ok) {
+      // fail-closed 并说明（ADR-0094 决策 4）：画不出来就说画不出来
+      const g = view.getContext("2d");
+      if (g) {
+        g.fillStyle = "#14161b";
+        g.fillRect(0, 0, view.width, view.height);
+        g.fillStyle = "#e8eaee";
+        g.font = "14px system-ui";
+        g.fillText(made.error, 24, 40);
+      }
+      bkStage = null;
+      return null;
+    }
+    bkStage = made;
+    return bkStage;
+  }
+
+  function bkSetT(t, redraw = true) {
+    ui.bkT = Math.min(1, Math.max(0, t));
+    const slider = document.querySelector("[data-bk-t]");
+    if (slider) slider.value = String(Math.round(ui.bkT * 1000));
+    if (redraw) bkPaint(ui.bkT);
+  }
+
+  function bkStopPlay() {
+    if (bkRaf) cancelAnimationFrame(bkRaf);
+    bkRaf = 0;
+    ui.bkPlaying = false;
+  }
+
+  /** 预览：按真实时长走一遍。走完停在末尾，不循环 —— 一镜有始有终。 */
+  function bkPlay(onDone) {
+    const b = bkData();
+    if (!b) return;
+    bkStopPlay();
+    ui.bkPlaying = true;
+    const ms = b.duration * 1000;
+    const t0 = performance.now();
+    const step = (now) => {
+      const k = Math.min(1, (now - t0) / ms);
+      bkSetT(k);
+      if (k < 1 && ui.bkPlaying) bkRaf = requestAnimationFrame(step);
+      else {
+        bkStopPlay();
+        if (onDone) onDone();
+      }
+    };
+    bkRaf = requestAnimationFrame(step);
+  }
+
+  /** 录白膜：录的就是这块画布本身（决策 4）。产物交给既有的资产登记。 */
+  async function bkRecord(ctx) {
+    const b = bkData();
+    const view = document.querySelector("[data-bk-view]");
+    const id = bkShotId();
+    if (!b || !view || !id) return;
+    if (typeof view.captureStream !== "function" || typeof MediaRecorder === "undefined") {
+      ctx.toast("这个浏览器不支持录制画布 —— 白膜录不了");
+      return;
+    }
+    let rec;
+    const chunks = [];
+    try {
+      const stream = view.captureStream(30);
+      const mime = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"].find(
+        (m) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m),
+      );
+      rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    } catch (e) {
+      ctx.toast(`录不了：${(e && e.message) || e}`);
+      return;
+    }
+    rec.ondataavailable = (ev) => {
+      if (ev.data && ev.data.size) chunks.push(ev.data);
+    };
+    const done = new Promise((resolve) => (rec.onstop = resolve));
+    ui.bkRecording = `${b.duration.toFixed(1)}s`;
+    render();
+    bkSetT(0);
+    rec.start();
+    await new Promise((r) => bkPlay(r));
+    rec.stop();
+    await done;
+    ui.bkRecording = null;
+    const blob = new Blob(chunks, { type: "video/webm" });
+    if (!blob.size) {
+      ctx.toast("录出来是空的 —— 没有写入任何资产");
+      render();
+      return;
+    }
+    const res = await ctx.blocking.saveTake(id, blob, b.duration);
+    if (!res || !res.ok) ctx.toast(`白膜没能登记：${(res && res.error) || "未知原因"}`);
+    else ctx.toast(`白膜录好了（${b.duration.toFixed(1)}s），已登记进资产库`);
+    render();
+  }
+
+  function bindBlocking(root, ctx) {
+    const top = root.querySelector("[data-bk-top]");
+    if (!top) return;
+    bkEnsureStage();
+    bkPaint(typeof ui.bkT === "number" ? ui.bkT : 0);
+
+    // —— 俯视图里拖：机位、看向、演员起止、道具
+    let drag = null;
+    const pt = (ev) => {
+      const r = top.getBoundingClientRect();
+      return {
+        x: ((ev.clientX - r.left) / r.width) * top.width,
+        y: ((ev.clientY - r.top) / r.height) * top.height,
+      };
+    };
+    top.onpointerdown = (ev) => {
+      const b = bkData();
+      if (!b) return;
+      const q = pt(ev);
+      drag = hitTest(b, q.x, q.y, top.width);
+      if (drag) top.setPointerCapture(ev.pointerId);
+    };
+    top.onpointermove = (ev) => {
+      if (!drag) return;
+      const b = bkData();
+      if (!b) return;
+      const q = pt(ev);
+      const w = topMapper(b.stage, top.width).toWorld(q.x, q.y);
+      if (drag.kind === "camAt") bl.setCamera(b, drag.which, { at: w });
+      else if (drag.kind === "camLook") bl.setCamera(b, drag.which, { look: w });
+      else if (drag.kind === "actorFrom") bl.editActor(b, drag.id, { from: w });
+      else if (drag.kind === "actorTo") bl.editActor(b, drag.id, { to: w });
+      else if (drag.kind === "prop") bl.editProp(b, drag.id, { at: w });
+      bkPaint(typeof ui.bkT === "number" ? ui.bkT : 0);
+    };
+    const endDrag = () => {
+      if (!drag) return;
+      drag = null;
+      ctx.persist();
+    };
+    top.onpointerup = endDrag;
+    top.onpointercancel = endDrag;
+
+    // —— 时间线
+    const slider = root.querySelector("[data-bk-t]");
+    if (slider) {
+      slider.oninput = () => {
+        bkStopPlay();
+        bkSetT(Number(slider.value) / 1000);
+      };
+    }
+    root.querySelectorAll("[data-bk-play]").forEach((btn) => (btn.onclick = () => {
+      if (ui.bkPlaying) { bkStopPlay(); render(); }
+      else bkPlay(() => render());
+    }));
+    root.querySelectorAll("[data-bk-record]").forEach((btn) => (btn.onclick = () => bkRecord(ctx)));
+    root.querySelectorAll("[data-bk-stop]").forEach((btn) => (btn.onclick = () => {
+      bkStopPlay();
+    }));
+
+    // —— 面板
+    const id = bkShotId();
+    const write = (fn) => {
+      const b = bkData();
+      if (!b) return;
+      fn(b);
+      ctx.persist();
+      render();
+    };
+    root.querySelectorAll("[data-bk-add-actor]").forEach((b2) => (b2.onclick = () =>
+      write((b) => bl.addActor(b, `演员 ${bl.visibleActors(b).length + 1}`))));
+    root.querySelectorAll("[data-bk-add-prop]").forEach((b2) => (b2.onclick = () =>
+      write((b) => bl.addProp(b, `道具 ${bl.visibleProps(b).length + 1}`))));
+    root.querySelectorAll("[data-bk-del-actor]").forEach((b2) => (b2.onclick = () =>
+      write((b) => bl.hideActor(b, b2.dataset.bkDelActor, new Date().toISOString()))));
+    root.querySelectorAll("[data-bk-del-prop]").forEach((b2) => (b2.onclick = () =>
+      write((b) => bl.hideProp(b, b2.dataset.bkDelProp, new Date().toISOString()))));
+    root.querySelectorAll("[data-bk-actor-name]").forEach((el) => (el.oninput = () => {
+      const b = bkData();
+      if (b) { bl.editActor(b, el.dataset.bkActorName, { name: el.value }); ctx.persist(); }
+    }));
+    root.querySelectorAll("[data-bk-prop-name]").forEach((el) => (el.oninput = () => {
+      const b = bkData();
+      if (b) { bl.editProp(b, el.dataset.bkPropName, { name: el.value }); ctx.persist(); }
+    }));
+    root.querySelectorAll("[data-bk-lens]").forEach((sel) => (sel.onchange = () =>
+      write((b) => bl.setCamera(b, sel.dataset.bkLens, { lens: Number(sel.value) }))));
+    root.querySelectorAll("[data-bk-num]").forEach((el) => (el.onchange = () => {
+      const v = Number(el.value);
+      const key = el.dataset.bkNum;
+      write((b) => {
+        if (key === "stage") bl.setStage(b, v);
+        else if (key === "duration") bl.setDuration(b, v);
+        else if (key === "cam.from.y") bl.setCamera(b, "from", { y: v });
+        else if (key === "cam.to.y") bl.setCamera(b, "to", { y: v });
+      });
+    }));
+    root.querySelectorAll("[data-bk-open-take]").forEach((b2) => (b2.onclick = () => {
+      setModule("assets");
+    }));
+    void id;
+  }
+
+  function convMode() {
+    return ui.convMode === "feedback" ? "feedback" : "work";
+  }
+
+  //: 「开发」窗口的线程 key。项目级一条线，不随页面变 —— 意见不属于某一页。
+  //: 每个页面**是哪个文件画的**。产品负责人 2026-08-29：「前端agent给你的留言应该加入
+  //: 更详细的页面定位情报，还需要考虑如何能让你更快的理解问题和解决问题。」
+  //:
+  //: 后端 Agent 拿到一条「这一页左边太挤」时，最贵的一步是**找到那一页在哪个文件**。
+  //: 这张表把那一步从「翻仓库」变成「读一行」。它住在这里，因为这个模块就是页面分发表
+  //: 的所在地；`tests/…/prodsource.test.mjs` 钉住它不许指向不存在的文件。
+  // **这张表要跟着渲染它的那个文件走。**
+  //
+  // 他在界面上「记一条意见」时，这里给出的是那条意见指向的源文件。TASK-122 把
+  // 故事开发四页换成 corews / planws / draftws 之后，这张表还指着 briefws / storyws
+  // ——**开发反馈被定位到一个已经不渲染那一页的文件上**，而「正文创作」压根没有条目
+  //（codex 补审 2026-09-05 块 2b）。这与 CA §6 同一个病根：页面换了地方，
+  // 喂给下游的那份地图没跟着换。
+  //
+  // 对照表在同一个文件的 `PAGES`（第 815 行起）：谁渲染这一页，这里就写谁。
+  const MODULE_SOURCE = {
+    brief: "src/ui/corews.js",
+    story: "src/ui/corews.js",
+    episodes: "src/ui/planws.js",
+    script: "src/ui/draftws.js",
+    settings: "src/ui/biblews.js",
+    relationships: "src/ui/relws.js",
+    world: "src/ui/worldws.js",
+    board: "src/ui/episodews.js",
+    storyboard: "src/ui/storyboard.js",
+    shotwork: "src/ui/mediaws.js",
+    cutreview: "src/ui/cutreview.js",
+    delivery: "src/ui/postconsole.js",
+    assets: "src/ui/assetlibws.js",
+    storage: "src/ui/storagews.js",
+  };
+
+  const FEEDBACK_THREAD = "__feedback__";
+
+  function convKey() {
+    if (convMode() === "feedback") return FEEDBACK_THREAD;
+    return activeModule || "__project__";
+  }
+
+  function convState(key) {
+    const store = (ui.convByPage = ui.convByPage || {});
+    const k = key || convKey();
+    if (!store[k]) {
+      store[k] = {
+        turns: [], pendingRun: null, pendingStatus: "", loaded: "",
+        // runId -> [{kind, detail, error}] —— 这一轮提出的改动里，哪些真的落到作品上了。
+        // 落地本身是持久的（写进 canvas 的新版本）；这张表只是这次会话里的显示。
+        applied: {},
+      };
+    }
+    return store[k];
+  }
+
+  /** Load THIS page's conversation once. The thread is server-side (a projection of
+   *  the runs), so this is a read, not a cache to keep in sync. The guard is per
+   *  (project, page) because `bind()` runs after EVERY render — without it there
+   *  would be a request behind every keystroke. */
+  function ensureConversation(ctx) {
+    const project = ctx.projectName ? ctx.projectName() : null;
+    if (!project) return;
+    const st = convState();
+    const stamp = `${project}::${convKey()}`;
+    if (st.loaded === stamp) return;
+    st.loaded = stamp;
+    // 提案数跟着线程一起读：他不必进「开发」窗口才知道有东西在等他
+    pollProposals(ctx);
+    const thread = convKey();
+    Promise.resolve(loadThread(project, thread)).then((res) => {
+      st.turns = res.turns;
+      ui.convOtherPages = res.others || {};
+      ui.convProposals = res.proposals || [];
+      ui.convOpinions = res.opinions || [];
+      render();
+      // 刷新之后把还在跑的那一轮接回来（TASK-106）。读线程只带回**问题**；
+      // 「它还在做」这件事只有后端知道。
+      return resumePendingRun(ctx, project, thread);
+    });
+  }
+
+  /** 强制重读这条线（拍板之后要立刻看到状态变化，不能被 `loaded` 戳记挡住）。 */
+  function ensureConversationForce(ctx) {
+    convState().loaded = "";
+    ensureConversation(ctx);
+  }
+
+  function refreshConversation(ctx, key) {
+    const project = ctx.projectName ? ctx.projectName() : null;
+    if (!project) return Promise.resolve();
+    const which = key || convKey();
+    const st = convState(which);
+    return Promise.resolve(loadThread(project, which)).then((res) => {
+      st.turns = res.turns;
+      st.pendingRun = null;
+      st.pendingStatus = "";
+      ui.convOtherPages = res.others || {};
+      ui.convProposals = res.proposals || [];
+      ui.convOpinions = res.opinions || [];
+      render();
+    });
+  }
+
+  /** Where the creator is standing, as the turn's context.
+   *
+   *  Sent on EVERY turn: 「这个」「当前」「这一镜」 are the words he actually uses, and
+   *  without this the answer has to ask him where he is — which is the thing he
+   *  noticed was missing (2026-08-27). */
+  function episodeLabelOf(ep, epIndex) {
+    const title = String((ep && ep.title) || "").trim();
+    if (epIndex < 0) return title;
+    const no = `EP${String(epIndex + 1).padStart(2, "0")}`;
+    return title.startsWith(no) ? title : `${no} ${title}`.trim();
+  }
+
+  function conversationContext(ctx) {
+    const pd = ctx.prodData ? ctx.prodData() : null;
+    const shotId = ui.selectedShotId || null;
+    const shot = shotId && ctx.shot && ctx.shot.find ? ctx.shot.find(shotId) : null;
+    const ep = pd && pd.production ? activeEpisode(pd.production) : null;
+    const epIndex = ep && pd && pd.production
+      ? pd.production.episodes.findIndex((e) => e && e.episodeId === ep.episodeId)
+      : -1;
+    return {
+      // WHAT THE AGENT MAY DO —— 由**这里**送出去，因为界面动作归前端所有
+      // （产品负责人 2026-08-29:「用户能够操作的前端的agent都应该可以操作」）。
+      // 服务端把它转写进提示词，不再各持一份会漂移的词汇表。
+      actions: actionCatalog(),
+      // 他在哪个窗口里说话。**服务端据此强制执行**（不是给模型的提示）：
+      // 「开发」窗口里的一轮，作品类动作一个都不许落地 —— 那正是两个窗口的意义。
+      intent: convMode() === "feedback" ? "feedback" : "work",
+      // 哪些材料**此刻真的有**（TASK-119）。服务端的 resolver 靠它决定
+      // 「这一类工作现在能不能跑、还缺什么」——创作文档只活在浏览器里，
+      // 所以就绪状态只能由这边报。「开发」窗口里不报：那个窗口不会跑作品能力。
+      ...(convMode() === "feedback"
+        ? {}
+        : { readyInputs: ctx.skills.readyInputs(ui.selectedShotId ? { shotId: ui.selectedShotId } : null) }),
+      // 定位情报：**结构化**送过去，不指望模型记得写进句子里。
+      //   route  —— 他此刻的地址，我照着它就能打开同一屏
+      //   section—— 同一页里的哪一节（分镜设计有 场景/分镜 两节）
+      //   source —— 画这一页的文件，省掉「先找到它在哪」那一步
+      route: (typeof window !== "undefined" && window.location
+        ? String(window.location.hash || "")
+        : ""),
+      section: sectionOf(activeModule) || "",
+      source: MODULE_SOURCE[activeModule] || "",
+      module: activeModule,
+      moduleLabel: MODULE_LABEL[activeModule] || activeModule,
+      spaceLabel: SPACE_LABEL[spaceOf(activeModule)] || "",
+      shotId,
+      shotTitle: shot ? (shot.title || "") : "",
+      // 集号只补在标题**没有自带**它的时候：真实项目里标题常常就叫「EP01 迷雾入城」，
+      // 无条件拼一次就成了「EP01 EP01 迷雾入城」（台账 #5 上就是这么记下来的）。
+      episodeLabel: ep ? episodeLabelOf(ep, epIndex) : "",
+    };
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* 意图路由：一句话 → 一个能力（TASK-119 / ADR-0091）                       */
+  /* ---------------------------------------------------------------------- */
+
+  //: 此刻正在起跑、但还没在登记表里落地的那些路由（TASK-119）。
+  //:
+  //: 为什么需要它：`hasOriginKey` / `routedRunFor` 查的是登记表，而登记表里那条
+  //: 记录要等 `ctx.skills.run` 真的调到 `startRun` 才出现 —— 中间隔着一个微任务。
+  //: 「先查后做」之间的这条缝，今天从代码上够不着（一次发送一条链、一个
+  //: conversationRunId；建议的 key 在点击时就被同步取走了，第二次点击拿不到），
+  //: 但它是**结构性的**：以后任何人再加一条起跑路径，缝就自己张开了，而症状是
+  //: 「同一件事跑了两遍」——两次都成功、两份提案、没有任何一处报错。
+  //:
+  //: 所以按类关掉，而不是论证它今天够不着。**不进 `ui`**：它是这一次页面生命周期
+  //: 里的瞬时状态，持久化它会让一次刷新之后的合法重试被永远挡住。
+  const routeInflight = new Set();
+
+  /** 这次路由要用哪个执行器，或 null（本机没有能自动跑的）。
+   *
+   *  `manual` 不算「能自动跑」—— 手工运行是**开一条等人的记录**，不是一次运行。
+   *  所以这里返回 null，屏幕上给出「去运行」那条路，而不是假装起跑了。 */
+  function routeExecutor(skill) {
+    const probe = execProbe || {};
+    const picked = suggestExecutor(
+      skill && skill.work,
+      (id) => id !== "manual" && isRunnable((probe[id] || {}).state),
+      null,
+    );
+    return picked === "manual" ? null : picked;
+  }
+
+  /** 一个能力这次跑在什么范围上。只有声明 shot 范围的才需要一个镜头。
+   *
+   *  范围从 `scopeOfSkill` 读（`routing.internalRouting.scope`）—— 直接写
+   *  `skill.routing.scope` 读到的是 `undefined`，而那在每一处判断里都表现为
+   *  「不是 shot」：镜头域能力于是永远拿不到 shotId，永远起不来，且不报错。 */
+  function routeScopeFor(ctx, skillId) {
+    const scope = scopeOfSkill(ctx.skills.find(skillId));
+    return scope === "shot" && ui.selectedShotId ? { shotId: ui.selectedShotId } : null;
+  }
+
+  /** `decideRoute` 要的那一组回调。`ranFor` 问的是**登记表**，所以幂等跨得过刷新。 */
+  function routeCtxFor(ctx, convRunId) {
+    return {
+      mode: convMode(),
+      findSkill: (id) => ctx.skills.find(id),
+      missingOf: (id) => ctx.skills.missing(id, {}, routeScopeFor(ctx, id)),
+      labelOf: (k) => ctx.skills.inputLabel(k),
+      pickExecutor: (skill) => routeExecutor(skill),
+      degradedOf: (skill, executor) => independenceDegraded(skill && skill.work, executor),
+      ranFor: () => ctx.skills.routedRunFor(convRunId),
+    };
+  }
+
+  /** 哪几层**真的有东西**（story-zoom 的五层模型映射到这个产品的权威对象）。
+   *
+   *  从 `ctx.skills.context("story-zoom")` 读，而不是各自去翻文档：那样这里看到的
+   *  材料与那次运行真正拿到的材料永远是同一份。 */
+  function layersPresent(ctx) {
+    const c = ctx.skills.context("story-zoom") || {};
+    const has = (v) => {
+      if (v == null) return false;
+      if (typeof v === "string") return !!v.trim();
+      if (Array.isArray(v)) return v.length > 0;
+      if (typeof v === "object") return Object.keys(v).length > 0;
+      return true;
+    };
+    return {
+      L2: has(c.outline) || has(c.currentPlan),
+      L3: has(c.scenes) || has(c.shots),
+      L4: has(c.characters) || has(c.relationships) || has(c.world),
+      L5: has(c.episodeScript),
+    };
+  }
+
+  /** 起跑一次被路由到的能力。走的是 `ctx.skills.run` —— 与他自己在「能力」里点
+   *  运行**同一条路径**，所以守卫、登记、schema 校验、提案语义一条不少。
+   *
+   *  自动起跑的是**运行**，不是接受：答案照旧落成 pending 的提案，要不要用由他决定。 */
+  function launchRouted(ctx, { skillId, executor, origin, summary, said, request }) {
+    return Promise.resolve()
+      .then(() => ctx.skills.run(skillId, {
+        executor,
+        origin,
+        summary,
+        scope: routeScopeFor(ctx, skillId),
+        // **他说的那句话就是「修订要求」**（TASK-122 / 2026-08-31 体检抓到）。
+        //
+        // `revisionRequest` 是 story-reviser / script-reviser / episode-plan-reviser
+        // 三个能力的**必填输入**，而在这之前整个前端**没有任何调用方传过 `extra`** ——
+        // 于是他说「按我的意见改大纲」时，它们永远报「还缺 revisionRequest」，一次也
+        // 跑不起来。体检就是为了抓这种「声明了、但没有人喂它」的缺口。
+        extra: request ? { revisionRequest: request } : {},
+      }))
+      .then((res) => {
+        if (!res || !res.ok) ctx.toast(`${said}没跑成：${(res && res.error) || "没有返回结果"}`);
+        else ctx.toast(`${said} —— 结果在「能力」面板里等你决定要不要用`);
+      })
+      // 失败也要说出来（ADR-0089 决策 6）：一次静默失败的自动运行，
+      // 在屏幕上与「它根本没听懂」无法区分。
+      .catch((e) => ctx.toast(`${said}没跑成：${(e && e.message) || e}`))
+      .then(() => render());
+  }
+
+  /** 这一轮识别到的能力，该跑就跑。
+   *
+   *  **只在发送那条链里调用**，从不在读线程时调用 —— 那是「刷新 / 轮询不会重复启动」
+   *  最结实的那一半保证：读路径上根本没有起跑的代码。另一半是登记表里的幂等键。 */
+  function runRouteFor(ctx, convRunId, turn, said, originKey) {
+    const route = routeOf(turn);
+    if (!route) return Promise.resolve();
+    // 这件**事**已经跑过了 —— 与「这一轮跑过了」是两道不同的闸。跨层建议带着
+    // 一个稳定身份（哪个文档的第几版）：他点两次、或者一次失败的发送被重发，
+    // 都会产生**新的**对话轮次，`conversationRunId` 那道闸拦不住，只有这一道能。
+    // 这件**事**已经跑过了 —— 与「这一轮跑过了」是两道不同的闸。跨层建议带着
+    // 一个稳定身份（哪个文档的第几版）：他点两次、或者一次失败的发送被重发，
+    // 都会产生**新的**对话轮次，`conversationRunId` 那道闸拦不住，只有这一道能。
+    const guard = originKey || convRunId;
+    if (originKey && ctx.skills.hasOriginKey(originKey)) {
+      ctx.toast("这一版的跨层检查已经跑过了");
+      render();
+      return Promise.resolve();
+    }
+    // …而登记表里那条记录要等一个微任务之后才写下，所以「查过了」到「写下了」
+    // 之间还有一条缝。这一句把它关掉（见 `routeInflight` 的说明）。
+    if (guard && routeInflight.has(guard)) return Promise.resolve();
+    const decision = decideRoute(route, routeCtxFor(ctx, convRunId));
+    if (decision.action !== "run") {
+      render(); // 没跑也要显示：识别到了什么、为什么没跑
+      return Promise.resolve();
+    }
+    if (guard) routeInflight.add(guard);
+    return launchRouted(ctx, {
+      skillId: decision.skillId,
+      executor: decision.executor,
+      origin: originForRoute(convRunId, originKey),
+      summary: `对话里识别到的能力：${String(said || "").slice(0, 60)}`,
+      said: `已启动「${decision.title}」`,
+      // 修订类能力要的就是这一句原话
+      request: String(said || ""),
+      // 起跑结束就放开 —— 那时登记表里已经有记录了，两道闸交接得上。
+      // 失败也要放开：一次失败的起跑不该把这条路径永久锁死。
+    }).then(() => { if (guard) routeInflight.delete(guard); });
+  }
+
+  /** 一次结构性版本变更之后，**建议**查一遍各层还对不对得上 —— 建议，不是自动跑。
+   *
+   *  为什么是建议：审查不该在每次编辑后自己跑起来。三条门槛（有根 / 跨层 / 只一次）
+   *  已经把普通编辑挡在外面了，但即使全都满足，「要不要现在花一次运行去查」仍然是
+   *  他的决定 —— 自动跑起来的诊断会在他还没读完上一条答复时又占住一条运行槽。
+   *
+   *  他点了之后走的是**普通的一轮对话**：同一条路由、同一个服务端 resolver。
+   *  所以「跨层诊断该由谁做」只有一处判定，不会一处走 resolver、一处写死。 */
+  function suggestZoomFor(ctx, landed) {
+    if (convMode() !== "work") return;
+    const trigger = zoomTrigger(landed, {
+      layersPresent: layersPresent(ctx),
+      hasRunKey: (key) => ctx.skills.hasOriginKey(key) || !!(ui.convSuggested || {})[key],
+    });
+    if (!trigger) return;
+    ui.convSuggested = { ...(ui.convSuggested || {}), [trigger.key]: true };
+    ui.convSuggest = {
+      goal: trigger.goal,
+      // 这件事的稳定身份**必须一路带到 startRun**，否则 `hasOriginKey` 永远查不到
+      // 东西，「只跑一次」就只剩 `ui.convSuggested` 那半条 —— 刷新一次就没了。
+      key: trigger.key,
+      text: `${trigger.root.doc === "brief" ? "创意" : trigger.root.doc === "outline" ? "大纲" : "结构规划"}` +
+        ` v${trigger.root.version} 落下之后，下游的${trigger.affects.length}层可能还停在旧的上面`,
+    };
+    // 重画。这是发送那条链的**最后一步**，后面没有别的东西会重画 —— 少了这一句，
+    // 建议就要等到某个不相干的渲染才出现，在他眼里等于「什么都没发生」
+    // （codex 独立审查轮 2 的 P1）。
+    render();
+  }
+
+  /** 每一轮的路由在屏幕上是什么状态 —— **从持久事实算出来**，不是页面记着的。
+   *
+   *  跑过了 → 状态来自登记表（run 记录）；没跑 → 用同一个 `decideRoute` 现算原因，
+   *  所以刷新之后他看到的理由与当时的理由一致，而这次重算**不会启动任何东西**
+   *  （`decideRoute` 是纯函数）。 */
+
+  /** 审读类能力 → 「照它改」交给谁。**只映射说得清的那几条**：映射错了，
+   *  他会看着一个改错地方的按钮（不如没有）。 */
+  const REVISER_FOR = {
+    "audience-engagement-reviewer": "story-reviser",
+    "story-zoom": "story-reviser",
+    "script-doctor": "script-reviser",
+  };
+
+  function convRouteState(ctx, turns) {
+    const out = {};
+    // 每次 render 都会走到这里，而 `ctx.skills.missing` 每次都要把整条时间线、音频、
+    // 字幕投影一遍。一条线里若干轮都指向同一个能力时，那是同一个答案算了很多次 ——
+    // 所以按 skillId 记一次。**只在这一次 render 内有效**：缓存活得比一次渲染长，
+    // 就会在文档改了之后继续报旧的「还缺什么」。
+    const missingCache = new Map();
+    const missingOnce = (skillId) => {
+      if (!missingCache.has(skillId)) {
+        missingCache.set(skillId, ctx.skills.missing(skillId, {}, routeScopeFor(ctx, skillId)));
+      }
+      return missingCache.get(skillId);
+    };
+    for (const t of turns || []) {
+      if (!t || t.role !== "agent" || !t.runId) continue;
+      const route = routeOf(t);
+      if (!route) continue;
+      const run = ctx.skills.routedRunFor(t.runId);
+      if (run) {
+        const skill = ctx.skills.find(run.skillId);
+        const failure = run.failureReason || run.error;
+        out[t.runId] = {
+          skillId: run.skillId,
+          title: (skill && skill.title) || run.skillId,
+          status: run.status || "",
+          error: failure ? String(failure.detail || failure) : "",
+          // 那一轮**能力运行**自己的 id：对话里的「用它 / 不用」要拿它去应用提案。
+          // 没有它，按钮画不出来 —— 产品负责人 2026-08-30 看到的正是「写好了」
+          // 后面什么都没有。
+          skillRunId: run.runId || run.skillRunId || "",
+          pending: !!(run.disposition === "pending" || run.proposal),
+          // **能不能「用它」，问既有的那道判断**（`applicabilityFor`）。
+          //
+          // 我加这两个按钮时没问，于是审读类的运行也长出了「用它」——
+          // 他点下去得到的是一句解释：「这是一份观众视角的审读意见，不是可以直接
+          // 替换进作品的文字」。那正是这个仓库反复禁止的「按下去只会解释自己为什么
+          // 不该被按」的按钮（2026-08-31）。
+          canApply: (() => {
+            const a = applicabilityFor(run.skillId, run.proposal);
+            return !!(a && a.can);
+          })(),
+          applyWhy: (() => {
+            const a = applicabilityFor(run.skillId, run.proposal);
+            return a && !a.can ? String(a.reason || "") : "";
+          })(),
+          // 审读意见的下一步不是「用」，是「照它改」：把意见交给对应的修订能力。
+          reviser: REVISER_FOR[run.skillId] || "",
+        };
+        continue;
+      }
+      const decision = decideRoute(route, {
+        ...routeCtxFor(ctx, t.runId),
+        missingOf: missingOnce,
+      });
+      out[t.runId] = {
+        skillId: route.skillId,
+        title: decision.title || route.skillId,
+        reason: decision.action === "blocked" ? decision.reason : "",
+        missing: decision.missing || [],
+        // 独立性降级那句话（AGENTS.md 第 20 条）—— 跟着这一轮走到屏幕上
+        note: decision.note || '',
+        canOpen: !!ctx.skills.find(route.skillId),
+      };
+    }
+    return out;
+  }
+
+  /**
+   * WAIT FOR ONE RUN, THEN LAND WHAT IT PROPOSED — the one implementation (TASK-106).
+   *
+   * `sendConversationTurn` and the refresh-time resume both come here. A second copy
+   * of this tail is how 「发送时会落地、刷新恢复后不会」 becomes true without anybody
+   * writing it down, and 落地只能发生在浏览器（ADR-0089 决策 2b）means the tail IS the
+   * feature — not a detail of the send path.
+   *
+   * IT LANDS, IT NEVER LAUNCHES. Returns `{ turn, landed }` so the send path can go on
+   * to route; the resume path deliberately stops here.
+   */
+  function landRun(ctx, { project, sentFrom, st, runId, said }) {
+    return awaitTurn(project, runId, {
+      onTick: (run) => {
+        st.pendingStatus = (run && run.status) || "";
+        render();
+      },
+    }).then((run) => {
+      // REFRESH FIRST, THEN APPLY FROM THE THREAD.
+      //
+      // 原本落地读的是**轮询返回的那个 run**。轮询有超时（也可能因为别的原因拿不到
+      // outputs），超时后返回的对象里根本没有 edits —— 于是落地看到「没有可落的改动」
+      // 就退场了，而答案照常出现（那是从服务端线程读回来的）。屏幕上就成了
+      //「它说已经改好了」+「还没落到作品上」，两句话互相打脸（产品负责人 2026-08-29:
+      //「好像是改了没显示」）。
+      //
+      // 线程是服务端的真相，读一次就有；run 只是它的快照。所以先刷新，再从**这一轮
+      // 自己的那条 turn**上取 edits。
+      return refreshConversation(ctx, sentFrom).then(() => {
+        const turn = (st.turns || []).find(
+          (x) => x && x.role === "agent" && x.runId === runId,
+        );
+        // 已经有回执 = 这一轮的改动早就落过了（比如上一次会话里落的），不重复落。
+        // **路由不受这条影响**：它有自己的幂等（登记表里的 origin），而且一轮里
+        // 「有没有改动要落」与「要不要起一个能力」本来就是两件独立的事。
+        const done = turn && Array.isArray(turn.applied) && turn.applied.length;
+        const edits = turn && Array.isArray(turn.edits) && turn.edits.length
+          ? turn.edits
+          : (((run || {}).outputs || {}).conversation || {}).edits;
+        const landed = done
+          ? []
+          : applyConversationEdits(ctx, {
+            instruction: said,
+            outputs: { conversation: { edits: edits || [] } },
+          });
+        let after = Promise.resolve();
+        if (landed.length) {
+          st.applied = { ...(st.applied || {}), [runId]: landed };
+          render();
+          // 回执写进对话线，「已落到作品上」才熬得过一次刷新。回执失败不掩盖落地本身
+          // —— 改动已经在作品里了，只是这一行字下次读不回来。
+          after = Promise.resolve(reportApplied(project, runId, landed))
+            .then(() => refreshConversation(ctx, sentFrom));
+        }
+        // 起跑**不在这里**。落地是读路径也要做的事（答案不落地等于改动丢了），
+        // 起跑不是：一次能力调用是真实动作，刷新时自动来一发正是这道守卫要防的
+        // （`convroute.test.mjs`「读线程的路径上没有任何起跑代码」）。所以这里只
+        // 交回落地结果，由**发送那条链**决定要不要接着起跑。
+        return after.then(() => ({ turn, landed }));
+      });
+    });
+  }
+
+  /**
+   * PICK THE RUN BACK UP AFTER A REFRESH (TASK-106 验收 1 / REQ-004 判据 6).
+   *
+   * A THIN ADAPTER, deliberately. The decisions and their order live in
+   * `workflow/convresume.js` so they can actually be run in a test — this closure
+   * could only ever be asserted against as source text, and every failure on this
+   * path is silent (edits lost, a task that looks idle). Here we only bind the
+   * shell's state to that module's four injected dependencies.
+   */
+  function resumePendingRun(ctx, project, sentFrom) {
+    const st = convState(sentFrom);
+    return resumeThreadRun({
+      project,
+      turns: st.turns,
+      pendingRunIdIn,
+      resumePlan,
+      readRun: (p, runId) => runState(p, runId),
+      claim: (runId) => {
+        if (st.pendingRun === runId) return false;
+        st.pendingRun = runId;
+        st.pendingStatus = "";
+        return true;
+      },
+      onStatus: (status) => {
+        st.pendingStatus = status;
+        render();
+      },
+      land: (runId) => landRun(ctx, {
+        project,
+        sentFrom,
+        st,
+        runId,
+        said: turnTextOf(st.turns, runId),
+      }),
+    });
+  }
+
+  /** One turn: his sentence on screen NOW, the answer when the run lands.
+   *
+   *  The local echo matters: a chat that shows what you said only after a round
+   *  trip reads as if the send was lost, and the creator presses again. The
+   *  server's own copy replaces the echo on the next read. */
+  function sendConversationTurn(ctx, text, { originKey = "" } = {}) {
+    const project = ctx.projectName ? ctx.projectName() : null;
+    if (!project) { ctx.toast("先打开一个项目"); return; }
+    // THE PAGE THIS TURN BELONGS TO, captured before the await: he may navigate away
+    // while it runs, and the answer belongs to the conversation he asked it in.
+    const sentFrom = convKey();
+    const st = convState(sentFrom);
+    st.turns = [...st.turns, { turnId: `local-${Date.now()}`, role: "user", text }];
+    st.pendingStatus = "queued";
+    render();
+    // EVERY failure has to become a VISIBLE turn. `Promise.resolve(f())` evaluates
+    // `f()` first, so a synchronous throw out of `conversationContext` escaped the
+    // chain entirely — his sentence stayed on screen with no answer and no error,
+    // which is exactly what he reported (「没有回应」). Building the context INSIDE
+    // the chain, plus a `.catch()` at the end, is what makes silence impossible.
+    Promise.resolve()
+      .then(() =>
+        // WHAT HE IS LOOKING AT, in the words the UI already uses. The labels come
+        // from here because this module owns the page vocabulary (`MODULE_LABEL`),
+        // so the server never keeps a second copy that could drift from the rail.
+        sendTurn(project, text, conversationContext(ctx)))
+      .then((res) => {
+        if (!res.ok) {
+          // FAIL LOUDLY (ADR-0089 决策 6): a swallowed send is a message the creator
+          // believes was delivered.
+          st.pendingStatus = "";
+          st.turns = [...st.turns, {
+            turnId: `err-${Date.now()}`,
+            role: "agent",
+            status: "failed",
+            failure: (res.error && (res.error.detail || res.error.message)) || "发送失败",
+          }];
+          render();
+          return null;
+        }
+        st.pendingRun = res.runId;
+        render();
+        return landRun(ctx, {
+          project, sentFrom, st, runId: res.runId, said: text,
+        }).then(({ turn, landed }) =>
+          // 落地之后才轮到能力：路由的判据是**作品此刻的样子**，所以要读的是
+          // 这一轮改完之后的状态，不是改之前的。
+          Promise.resolve(runRouteFor(ctx, res.runId, turn, text, originKey))
+            .then(() => suggestZoomFor(ctx, landed)));
+      })
+      .catch((err) => {
+        // 决策 6: fail-closed AND say why. An unhandled rejection here reads as
+        // 「它无视了我」.
+        st.pendingRun = null;
+        st.pendingStatus = "";
+        st.turns = [...st.turns, {
+          turnId: `err-${Date.now()}`,
+          role: "agent",
+          status: "failed",
+          failure: `发送没成功：${(err && (err.detail || err.message)) || err}`,
+        }];
+        render();
+      });
+  }
+
   function runSessionSkill(ctx, skillId) {
     const m = agentSessionModel(ctx, ui);
     if (!skillId || m.blocked) { ctx.toast(m.blocked || "先用 / 选一个能力"); return; }
@@ -1822,31 +2886,185 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       .then(() => render());
   }
 
+  /** 对话流的滚动位置。
+   *
+   *  产品负责人 2026-08-30：「发送之后总跳到最上面。不应该是维持在最新的对话内容吗」。
+   *  每次 render 都重写 `root.innerHTML`，新节点的 `scrollTop` 自然是 0 —— 于是刚发完
+   *  一句话，视线就被甩回三天前的对话。
+   *
+   *  规则不是「永远滚到底」：他往上翻着读旧内容时把他拽回去同样是错的。所以记住的是
+   *  **他是不是贴着底**；贴着底就继续贴着底（新内容进来跟着走），否则原样还原他的位置。 */
+  const FLOW_SEL = ".st-dir-flow";
+  let flowScroll = { top: 0, atBottom: true };
+
+  function rememberFlowScroll() {
+    const el = root.querySelector(FLOW_SEL);
+    if (!el) return;
+    const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+    flowScroll = { top: el.scrollTop, atBottom: gap < 40 };
+  }
+
+  function restoreFlowScroll() {
+    const el = root.querySelector(FLOW_SEL);
+    if (!el) return;
+    el.scrollTop = flowScroll.atBottom ? el.scrollHeight : flowScroll.top;
+  }
+
   function bind(ctx) {
     // left rail — every module opens; selection is visually .on
     root.querySelectorAll("[data-mod]").forEach((b) => (b.onclick = () => setModule(b.dataset.mod)));
+    // 制作画布：点一张卡上的某一步 = **选中这一镜**再过去（TASK-124）。
+    // 少了前半句，他到了那一页还要再找一次「是哪一镜」。
+    root.querySelectorAll("[data-ec-step]").forEach((b) => (b.onclick = () => {
+      const [shotId, goto] = String(b.dataset.ecStep).split(":");
+      if (shotId) ui.selectedShotId = shotId;
+      if (goto) setModule(goto);
+      else render();
+    }));
+    // ① 选集：进剧集制作的第一件事就是选这一集（产品负责人 2026-08-30
+    //「主要的动作是选择要制作的剧集」）。用 `selectEpisode` —— 与别处切集同一条路径。
+    root.querySelectorAll("[data-ep-pick]").forEach((sel) => (sel.onchange = () => {
+      selectEpisode(sel.value);
+    }));
     // TASK-077 §1.2: a media file that will not load says so, everywhere, once.
     bindMediaErrors(root, ctx);
     // TASK-080 §1.2 批次 A — bound EARLY, because the script branch below returns
     // before the other panels bind and the session is on that page too.
-    bindAgentSession(root, ctx, ui, render, { onRun: (id) => runSessionSkill(ctx, id) });
-    // the Agent panel: open / close / run / manual / jump-to-fix (TASK-073 §1.4)
-    root.querySelectorAll("[data-agent-open]").forEach((b) => (b.onclick = () => {
-      ui.agentOpen = ui.agentOpen !== true;
-      render();
-    }));
-    bindAgentPanel(root, {
-      onClose: () => { ui.agentOpen = false; render(); },
-      onGoto: (mod) => setModule(mod),
-      onRun: () => {
-        // The panel does not implement running — it points at the ONE place that
-        // does, so there is a single run path with a single set of guards.
-        ctx.toast("在左侧能力面板按「运行」执行——面板与这里用的是同一条运行路径");
-      },
-      onManual: () => {
-        ctx.toast("在左侧能力面板选「手工」运行：复制 Prompt → 到别处跑 → 粘回来，走同一道契约");
-      },
+    bindAgentSession(root, ctx, ui, render, {
+      onRun: (id) => runSessionSkill(ctx, id),
+      onSend: (text) => sendConversationTurn(ctx, text),
     });
+    // 「落到作品上」—— 把一条还没落下的改动补落。走的是与自动落地**同一个**函数，
+    // 所以两条路不会有两种行为。
+    // 拍板三键：走服务端那条确定性端点。「可以，但要改…」把焦点放回输入框并预填，
+    // 因为那一档的重点是**他的原话**要原样回到开发那边。
+    const decide = (id, verdict, note) => {
+      const project = ctx.projectName ? ctx.projectName() : null;
+      if (!project) { ctx.toast("先打开一个项目"); return; }
+      Promise.resolve(decideProposal(project, id, verdict, note)).then((res) => {
+        if (!res.ok) { ctx.toast(`没能记下：${res.error}`); return; }
+        ctx.toast(verdict === "approved" ? `已答复 #${id}：同意` : `已答复 #${id}：不要`);
+        ui.convProposalNote = 0;
+        ensureConversationForce(ctx);
+      });
+    };
+    root.querySelectorAll("[data-pp-ok]").forEach((b) => (b.onclick = () => decide(b.dataset.ppOk, "approved", "")));
+    root.querySelectorAll("[data-pp-no]").forEach((b) => (b.onclick = () => decide(b.dataset.ppNo, "rejected", "")));
+    root.querySelectorAll("[data-pp-ch]").forEach((b) => (b.onclick = () => {
+      const st = sessionState(ui);
+      st.text = `#${b.dataset.ppCh} 可以，但要改成：`;
+      render();
+      const box = root.querySelector(".as-input");
+      if (box) { box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
+    }));
+    root.querySelectorAll("[data-cv-gonote]").forEach((b) => (b.onclick = () => {
+      ui.convProposalNote = 0;
+      ui.convMode = "feedback";
+      render();
+      ensureConversation(ctx);
+    }));
+    root.querySelectorAll("[data-cv-mode]").forEach((b) => (b.onclick = () => {
+      const next = b.dataset.cvMode === "feedback" ? "feedback" : "work";
+      if (convMode() === next) return;
+      ui.convMode = next;
+      if (next === "feedback") ui.convProposalNote = 0;
+      render();
+      ensureConversation(ctx); // 换了线就把那条线读回来
+    }));
+    root.querySelectorAll("[data-cv-apply]").forEach((b) => (b.onclick = () => {
+      const runId = b.dataset.cvApply;
+      const project = ctx.projectName ? ctx.projectName() : null;
+      if (!project || !runId) { ctx.toast("先打开一个项目"); return; }
+      const st = convState();
+      const turn = (st.turns || []).find(
+        (x) => x && x.role === "agent" && x.runId === runId,
+      );
+      if (!turn || !Array.isArray(turn.edits) || !turn.edits.length) {
+        ctx.toast("这一轮没有可落的改动");
+        return;
+      }
+      const landed = applyConversationEdits(ctx, {
+        instruction: "（补落这一轮的改动）",
+        outputs: { conversation: { edits: turn.edits } },
+      });
+      if (!landed.length) { ctx.toast("这一轮没有本应用能落的改动"); return; }
+      const failed = landed.filter((x) => x.error);
+      ctx.toast(failed.length
+        ? `有改动没能落下：${failed.map((x) => x.error).join("；")}`
+        : landed.map((x) => x.detail).join("；"));
+      st.applied = { ...(st.applied || {}), [runId]: landed };
+      render();
+      Promise.resolve(reportApplied(project, runId, landed))
+        .then(() => refreshConversation(ctx));
+    }));
+    // 「查一下」—— 结构性改动之后那条建议。它发的是**一轮普通对话**，所以选哪个
+    // 诊断器仍然由服务端 resolver 决定，与他自己开口问走的是同一条路。
+    root.querySelectorAll("[data-cv-suggest]").forEach((b) => (b.onclick = () => {
+      const goal = ui.convSuggest && ui.convSuggest.goal;
+      // key 跟着这一次发送走 —— 它最终要落进那次运行的 `origin.idempotencyKey`，
+      // 「同一件事只跑一次」才熬得过刷新（丢了它，就只剩页面内存那半条）。
+      const originKey = ui.convSuggest && ui.convSuggest.key;
+      ui.convSuggest = null;
+      if (goal) sendConversationTurn(ctx, goal, { originKey });
+      else render();
+    }));
+    // 「去运行」—— 自动没跑成时的那条**手工兜底**（ADR-0065 决策 2）。它不代跑：
+    // 把那个能力在「能力」面板里打开，缺什么、选哪个执行器由他自己看着办。
+    root.querySelectorAll("[data-cv-route]").forEach((b) => (b.onclick = () => {
+      openSkillRun(ctx, b.dataset.cvRoute);
+    }));
+    // 「用它 / 不用」就在对话里做决定（TASK-122）。以前这条消息把他指向「能力」面板，
+    // 而那个面板在三栏重构时已经删了 —— 跑完的东西没有任何地方能用上。
+    root.querySelectorAll("[data-cv-use]").forEach((b) => (b.onclick = () => {
+      const res = ctx.skills.applyProposal(b.dataset.cvUse);
+      if (!res || !res.ok) ctx.toast(`没能用上：${(res && res.error) || "未知原因"}`);
+      else {
+        ctx.toast(res.detail || "已经写进去了");
+        refreshConversation(ctx);
+        render();
+      }
+    }));
+    // 「照它改」：把这份审读意见当作修订要求，交给对应的修订能力（2026-08-31）。
+    root.querySelectorAll("[data-cv-revise]").forEach((b) => (b.onclick = () => {
+      const [skillId, runId] = String(b.dataset.cvRevise).split("|");
+      const run = (ctx.skills.runs() || []).find((r) => r && r.runId === runId) || null;
+      const findings = run && run.proposal ? JSON.stringify(run.proposal).slice(0, 4000) : "";
+      if (!findings) { ctx.toast("这次审读没有留下可用的意见"); return; }
+      launchRouted(ctx, {
+        skillId,
+        executor: routeExecutor(ctx.skills.find(skillId)),
+        origin: null,
+        summary: "照审读意见修订",
+        said: "已交给修订",
+        request: `按这份审读意见修订：${findings}`,
+      });
+    }));
+    root.querySelectorAll("[data-cv-drop]").forEach((b) => (b.onclick = () => {
+      const res = ctx.skills.reject(b.dataset.cvDrop, "他说不用");
+      if (!res || !res.ok) ctx.toast(`没能标成不用：${(res && res.error) || "未知原因"}`);
+      else { ctx.toast("知道了，不用它"); refreshConversation(ctx); }
+    }));
+    root.querySelectorAll("[data-cv-cancel]").forEach((b) => (b.onclick = () => {
+      // the same REAL cancel a capability run gets — a local CLI keeps consuming
+      // the subscription until something actually kills it
+      Promise.resolve(cancelTurn(b.dataset.cvCancel)).then(() => refreshConversation(ctx));
+    }));
+    ensureConversation(ctx);
+    // The page-level Agent panel is retired with the 导演台 (REQ-004 v2): there is
+    // one conversation now. What the entrance button does is therefore no longer
+    // 「open a second panel」 but 「put my cursor where I talk to it」.
+    //
+    // Leaving the old `bindAgentPanel` call here after deleting its import threw a
+    // ReferenceError on EVERY bind — the picture still rendered, so nothing looked
+    // wrong while every handler on the page was dead. That is why the guard in
+    // tests/assetinboxsec.test.mjs enumerates the retired symbols: `node --check`
+    // cannot see a missing global.
+    root.querySelectorAll("[data-agent-open]").forEach((b) => (b.onclick = () => {
+      const box = root.querySelector(".st-dir-composer .as-input");
+      if (!box) return;
+      if (box.scrollIntoView) box.scrollIntoView({ block: "nearest" });
+      box.focus();
+    }));
     // in-page section nav — and for ⑧ 镜头制作 this is the four-step flow bar
     // (TASK-073 §1.1/§1.3). Front-end state only: a section is never persisted.
     root.querySelectorAll("[data-sec]").forEach((b) => (b.onclick = () => {
@@ -1858,6 +3076,8 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // episode rows in the 故事开发 rail — SELECT ONLY. A row switches which episode
     // is active and expands it; it never changes workspace. The row used to also
     // navigate, which made 「看一下 EP02」 indistinguishable from 「开始做 EP02」.
+    bindStoryWork(root);
+    bindBlocking(root, getCtx());
     root.querySelectorAll("[data-ep-choose]").forEach((b) => (b.onclick = () => selectEpisode(b.dataset.epChoose)));
     // cross-module jumps (empty states, director) — EVERY [data-goto] wires
     root.querySelectorAll("[data-goto]").forEach((j) => (j.onclick = () => setModule(j.dataset.goto)));
@@ -1985,15 +3205,17 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       // `input`: a half-typed number is not a decision, and validating on every
       // keystroke would reject 「1」 on the way to 「10」.
       root.querySelectorAll("[data-spec]").forEach((el) => (el.onchange = () => {
-        const res = ctx.setDeliverySpecField(el.dataset.spec, el.value);
-        // A REFUSAL IS REPORTED AND THE FIELD SNAPS BACK. Leaving the rejected text
-        // in the box would show a value the project does not have.
-        if (!res.ok) { ctx.toast(res.error); }
+        // 走动作表（settings.delivery）。A REFUSAL IS REPORTED AND THE FIELD SNAPS BACK:
+        // `uiAct` 在被拒时 toast 原因，紧接着的 render() 让输入框回到项目真有的值。
+        uiAct("settings.delivery", { field: el.dataset.spec, value: el.value }, { quiet: true });
         render();
       }));
     }
     if (spaceOf(activeModule) === "assets" && activeModule !== "storage") {
       bindAssetLibrary(root, ctx, ui, render);
+      // the relocated 资产收件箱 (REQ-004 v2) — its 确认归属 still routes through
+      // directorops, so the confirmation gate survived the console it came from
+      bindAssetInboxSection(root, ctx);
       // TASK-082 §1.2 — the content tree sets the library's OWN ownership filters
       // (`characterId` / `locationId` / `episodeId` / `unlinked`), which is what
       // makes the tree a view of the library rather than a second library. It
@@ -2212,8 +3434,8 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       const shot = ctx.shot.find(shotId);
       const name = shot ? (shot.title || `镜头 ${shot.sequence}`) : shotId;
       ui.selectedShotId = shotId;
-      ui.agentOpen = true;
-      ui.directorText = `看一下「${name}」的${kind}：它现在的状态对不对，下一步该做什么？`;
+      sessionState(ui).text =
+        `看一下「${name}」的${kind}：它现在的状态对不对，下一步该做什么？`;
       render();
     }));
     // 「未填 · 去填写」 — the read-only facet displays now LAND ON THE CELL. Also
@@ -2261,23 +3483,9 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       ev.stopPropagation();
       enterEpisode(b.dataset.epOpen, "script");
     }));
-    // AI Director (non-script modules) — real dispatches only. The Skill panel
-    // is part of the Director now, so it binds wherever the Director does.
-    if (activeModule !== "script") {
-      bindDirector(root, ctx, ui, render);
-      bindSkillPanel(root, ctx, ui, render);
-      // TASK-067: the shot workbench's operational panel. Bound only where it was
-      // rendered — `shotDirector` is null everywhere else, and binding against a
-      // panel that is not on screen would attach handlers carrying the PREVIOUS
-      // shot's id.
-      if (shotDirector) {
-        bindShotDirector(root, ctx, ui, render, {
-          shotId: shotDirector.shotId,
-          onOpenNode: (node) => openShotCard(ctx, node),
-        });
-      }
-      return;
-    }
+    // The 导演台 and its Skill panel are retired (REQ-004 v2), so there is nothing
+    // left to bind on the right — the conversation binds itself below.
+    if (activeModule !== "script") return;
     // --- script workspace bindings (unchanged behavior) ---
     const text = root.querySelector(".pm-text");
     const dirtyTag = root.querySelector(".dirtytag");

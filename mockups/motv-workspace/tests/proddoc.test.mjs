@@ -50,6 +50,12 @@ test("createProduction: persisted ids survive verbatim (never re-minted)", () =>
     // 但存下去总是带上它 —— 否则「没有道具」会有「缺键」和「空数组」两个形状，
     // 而两个形状迟早在下游分叉（§2.5f 那条同一形状的老账）。
     props: [],
+    // 回收区（TASK-129）—— 与 `props` 同一条规矩：老文档缺席合法（水合成 []），
+    // **但存下去总是带上它**。软删除的东西住这里，不住上面那三个数组，所以
+    // 「列出人物」的那些读点天生只看得见活着的。
+    deletedCharacters: [],
+    deletedLocations: [],
+    deletedRelationships: [],
     relationships: [],
     world: { era: "", rules: "", society: "", regions: "", places: "", visualTone: "", atmosphere: "" },
     canon: { characters: 0, relationships: 0, world: 0 },
@@ -58,6 +64,9 @@ test("createProduction: persisted ids survive verbatim (never re-minted)", () =>
     // ADR-0073 决策 8 adds `stages` — the ONLY persisted stage decision is 「跳过」,
     // and it round-trips like everything else here.
     shotProduction: { reviews: {}, references: {}, stages: {}, stageReviews: {} },
+    // 加法字段（TASK-123 / ADR-0094）：每一镜的白膜。空表是真实状态 ——
+    // 「这个项目还没做过白膜」，不是缺失。
+    blocking: {},
   };
   const p = pd.createProduction(structuredClone(saved));
   assert.deepEqual(pd.serialize(p), saved);

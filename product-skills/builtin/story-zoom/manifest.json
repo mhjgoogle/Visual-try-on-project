@@ -1,0 +1,47 @@
+{
+  "skillId": "story-zoom",
+  "skillVersion": 1,
+  "work": "review",
+  "role": "故事结构审校",
+  "title": "Story Zoom",
+  "purpose": "把同一个故事在五个抽象层（创意 / 结构 / 场景 / 实体 / 表层文本）之间对照一遍，指出哪些层已经对不上：冲突、漂移，以及一处改动应该往哪几层传下去。只出诊断与建议，不改作品。",
+  "inputs": [
+    "brief",
+    "outline"
+  ],
+  "optionalInputs": [
+    "currentPlan",
+    "characters",
+    "relationships",
+    "world",
+    "episodeScript",
+    "scenes",
+    "shots"
+  ],
+  "reviewCriteria": [
+    "每一条 finding 是否指名道姓地说出**哪两层**对不上，而不是笼统地说「不一致」",
+    "每一条是否引用了上下文里真实存在的对象（大纲字段 / 角色名 / 分集 / 场景 / 镜头），而不是发明一个",
+    "`evidence` 写的是不是上下文里真有的原话或事实，而不是推测",
+    "在没有「上次审查以来变更了什么」这类证据时，是否老老实实把 snapshotOnly 置为 true 且不给 rootChange",
+    "`suggestedPropagations` 是否是**建议**（下一步做什么、用哪个能力），而不是替创作者写好的新内容",
+    "健康度是否与 findings 一致：有冲突就不能报 0，一条都没有就不该报 2"
+  ],
+  "recommendedRuntime": "local_subscription",
+  "routing": {
+    "userCapability": [
+      "story-review"
+    ],
+    "internalRouting": {
+      "intent": "consistency-zoom",
+      "kind": "diagnostic",
+      "scope": "project",
+      "priority": 40,
+      "selectWhen": [
+        "各层",
+        "同步",
+        "大纲改了",
+        "设定与剧本"
+      ]
+    }
+  }
+}

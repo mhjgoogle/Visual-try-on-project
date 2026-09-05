@@ -21,9 +21,10 @@
 | **核心库** | `src/ai_video_workflow/` | 工作流领域逻辑：创意、资产、生成编排、合成、QCD、评价、Action、学习、预算、发布 | [architecture.md](architecture.md) |
 | **Workspace 只读外壳** | `src/workspace_shell/` | WFM1 核心项目的只读观察面；**不服务 Studio 项目**（Portfolio 对 Studio 项目为空是正确行为） | [ADR-0086](adr/ADR-0086-workspace-shell-serves-core-projects-only.md) · [ADR-0032](adr/ADR-0032-workspace-runtime-and-ui-topology.md) |
 | **Creation Studio（原型形态）** | `mockups/motv-workspace/` | 创作工作视窗：Python 后端 `server.py` + 浏览器前端 `src/*.js` | [creator-system-contract.md](design/creator-system-contract.md)（Studio 范围唯一权威） |
-| **产品资产包** | `product-skills/`、`product-flows/` | 内置能力包与流程模板 —— **产品资产**，不是原型私有物 | [ADR-0084](adr/ADR-0084-project-flow-template-as-a-package.md) 决策 7 · [ADR-0067](adr/ADR-0067-product-skill-package.md) |
+| **产品资产包** | `product-skills/`、`product-flows/` | 内置能力包与流程模板 —— **产品资产**，不是原型私有物。`user-capabilities.json` 是对话 Agent 看得见的那三个能力 | [ADR-0084](adr/ADR-0084-project-flow-template-as-a-package.md) 决策 7 · [ADR-0067](adr/ADR-0067-product-skill-package.md) · [ADR-0091](adr/ADR-0091-three-user-capabilities-and-a-server-side-resolver.md) |
 | **人用启动器** | `scripts/launch/` | `studio.ps1`（Windows 权威）/ `studio.bat` / `studio.sh` | [ADR-0077](adr/ADR-0077-repository-path-ownership.md) |
-| **Agent 工装** | `.claude/` | hooks（commit gate）、skills、tools —— 不是产品代码 | [ADR-0050](adr/ADR-0050-powershell-native-agent-dev-tooling.md) · [ADR-0062](adr/ADR-0062-windows-authoritative-environment.md) |
+| **Agent 工装** | `.claude/` | hooks（commit gate）、skills、tools —— 不是产品代码。**技能只有这一份源** | [ADR-0050](adr/ADR-0050-powershell-native-agent-dev-tooling.md) · [ADR-0062](adr/ADR-0062-windows-authoritative-environment.md) |
+| **Codex 发现入口** | `.agents/skills/` | 每个技能一个**薄入口**：只有 name/description 与「先读规范源再执行」，正文/references/scripts 一律不复制。**生成物，单向由 `.claude/skills/` 渲染**，不得当作源来改 | [ADR-0097](adr/ADR-0097-one-skill-source-generated-client-entries.md) |
 
 仓库路径所有权（哪个位置放什么）是 **ADR-0077**，它同时钉在
 `tests/tooling/test_repository_layout.py` 上。
@@ -56,10 +57,14 @@ Studio 后端 (mockups/motv-workspace/server.py)
 | **写路径** | 一切变更命令经 **Command Gateway**，前端不直接改核心业务文件 | [ADR-0033](adr/ADR-0033-command-gateway-contract.md) · AGENTS.md §4 |
 | **生成写路径** | 工作视窗的生成命令 = `POST /api/projects/<name>/{preflight,command}` | [ADR-0041](adr/ADR-0041-workspace-generation-write-path.md) |
 | **运行身份** | `runId` 是运行的**唯一身份**（`skillRunId` 别名已删除） | [TASK-074](tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md) §1.5 |
+| **对话里的能力路由** | 前端 Agent 只认 3 个用户能力（`story-development` / `episode-production` / `story-review`）；选哪个内部专业能力由**服务端 resolver** 确定性决定，模型无权指定 `skillId` | [ADR-0091](adr/ADR-0091-three-user-capabilities-and-a-server-side-resolver.md) |
 | **只读投影** | 观察数据可从权威文件/事件重建；界面关闭不影响核心执行 | [ADR-0031](adr/ADR-0031-workspace-query-and-projection-contract.md) · [workspace-query-contract.md](design/workspace-query-contract.md) |
 | **阶段 I/O** | L0–S7 每一步的输入输出 | [workflow-stage-step-io-contract.md](design/workflow-stage-step-io-contract.md) |
-| **页面集合** | 固定信息架构，页面集合封闭 | [creator-product-information-architecture.md](design/creator-product-information-architecture.md) · [ADR-0066](adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md) |
-| **退役中的旧接口** | `/api/agent/*` 同步分支正在退役 | [TASK-106](tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) |
+| **页面集合** | 固定信息架构，页面集合封闭（十一页，`PAGES.length === 11` 有守卫）；现行形状是三空间 / 故事开发四入口 / 剧集制作单画布 | [creator-product-information-architecture.md](design/creator-product-information-architecture.md)（当前事实）· [ADR-0066](adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md) · [ADR-0092](adr/ADR-0092-story-development-is-four-entries.md) · [ADR-0094](adr/ADR-0094-greybox-previz-is-a-section-not-a-page.md) |
+| **全站骨架** | 每一页恰好三栏：左控制/选择 · 中工作区 · **右栏只有对话**（消息流 + 底部输入），对话按页面分开 | [REQ-004](requirements/REQ-004-three-pane-shell-and-agent-conversation.md) v2/v3 |
+| **交付生命周期** | 候选 → 质检 → 用户确认导出 → Final。渲染产出 `kind: "cut"`（**候选**）；`kind: "final"` 的**唯一**写入者是过了 G4 的显式导出，且 append（G5）。G4「没跑过质检 = 未知，不是通过」，且质检必须是**针对这一版**测的 | [creator-system-contract.md](design/creator-system-contract.md) §6.5 · [TASK-074](tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md) §1.7 |
+| **运行的恢复** | 还在跑的那一轮**从线程认出来**（有问没答），再问一次 `GET /api/runs/<id>`；**问不到 ≠ 没在跑**；恢复只落地、不起跑 | [ADR-0095](adr/ADR-0095-a-run-is-picked-up-from-the-thread-not-from-a-poller.md) |
+| **退役中的旧接口** | `/api/agent/*` 同步分支正在退役；16 处同步长调用尚未改走 `run_id` | [TASK-106](tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) |
 
 跨 py↔js 的合同验证只住 `tests/contract/`（Python 测试不得对前端 JS 做源码文本
 断言，唯一例外见该目录 `test_frontend_write_path_invariants.py` 的 docstring）。
@@ -104,9 +109,39 @@ Studio 后端 (mockups/motv-workspace/server.py)
 7. **不提前泛化**：未经任务卡与 ADR，不提前实现 UI 专用状态机、不由 UI 发明
    pause/cancel/skip、不提前泛化 `VideoProvider`（AGENTS.md §4 尾）。
 
-## 6. 这份文件不回答什么
+## 6. Agent 读什么（改页面之前先看这一节）
+
+产品负责人 2026-08-30：「所以前端服务是看哪里的内容来进行创作的呢…**你每次改内容的
+时候必须要结合这个设计做修改才不会断线**。」当天三个缺陷是同一个根因：页面改了，
+喂给 Agent 的那份「世界观」没跟着改，于是它拿着旧地图给他指路。
+
+**前端 Agent 一共读四样东西**，各自的来源与负责人：
+
+| # | 它读什么 | 从哪来 | 住在哪 |
+| --- | --- | --- | --- |
+| 1 | 他在对话框里打的那句话 | 直接传给模型 | — |
+| 2 | **项目当前事实** | 服务端读 `canvas.json` 组装 | `server.py` 的 `_conv_facts` |
+| 3 | **页面地图**（界面现在长什么样） | 服务端常量，进每一段提示词 | `server.py` 的 `_CONV_PAGE_MAP` |
+| 4 | **它能做的动作**（他能点的 = 它能做的） | 前端动作表，随请求上送 | `src/workflow/convactions.js` |
+| 5 | **既定资产**（canon 输入：故事核心/大纲/人物/关系/世界观） | 能力运行时装配 | `src/controllers/skillctl.js` |
+
+**skill 不是这份清单**：`product-skills/*/manifest.json` 只声明它要 `brief` /
+`outline` 这些**名字**，名字落到哪份数据由第 5 条决定。2026-08-30 那条
+「还缺 创意 Brief」正是名字还在、数据换了地方。
+
+**因此这条是硬约束**：动了故事开发的任何一页（新增/改名/搬走/换数据位置），
+上面第 2、3、5 条必须在**同一次改动里**跟着改。
+
+由 [tests/contract/test_agent_reading_map_task122.py](../tests/contract/test_agent_reading_map_task122.py)
+强制：左栏画出来的每一页都要出现在页面地图里；已经退休的名字（创意简报 / 项目与创意 /
+分集规划 / 本集剧本）必须被显式禁掉；屏幕上有内容的每一处都要出现在事实里；
+读得到的每一处都要有对应的写动作（否则就是他说的「这个前端的 agent 还是改不了」）。
+
+## 7. 这份文件不回答什么
 
 - **为什么**这么定 → `docs/adr/`（条数见 [STATUS.md](STATUS.md)；被取代的会写明取代者）。
 - **谁还没做完** → [STATUS.md](STATUS.md) 与 `docs/tasks/active/`。
 - **怎么运行** → [README.md](../README.md)。
 - **规则** → [AGENTS.md](../AGENTS.md)。
+- **一个概念到底叫什么** → [glossary.md](glossary.md)（**WHAT THINGS ARE CALLED**）。
+- **什么我们决定不做** → [out-of-scope.md](out-of-scope.md)（**WHAT WE WON'T BUILD**）。

@@ -18,7 +18,7 @@ import {
 import {
   createRegistry,
   finalUrls,
-  addFinal,
+  addCut,
   shotIdForKey,
   recordUnresolvedPaid,
   clearUnresolvedPaid,
@@ -498,13 +498,13 @@ test("v2's permitted finals: [{}] migrates to a LOADABLE v3 (urlless → displac
   assert.ok(res.doc.assets.displaced.some((d) => String(d.key).startsWith("final-entry:")));
 });
 
-test("addFinal refuses a malformed (empty/non-string) compose url", () => {
+test("addCut refuses a malformed (empty/non-string) compose url", () => {
   const reg = createRegistry(null);
-  assert.equal(addFinal(reg, ""), null);
-  assert.equal(addFinal(reg, undefined), null);
-  assert.equal(addFinal(reg, 5), null);
+  assert.equal(addCut(reg, ""), null);
+  assert.equal(addCut(reg, undefined), null);
+  assert.equal(addCut(reg, 5), null);
   assert.equal(reg.finals.length, 0); // nothing broken persisted
-  assert.ok(addFinal(reg, "/u/ok.mp4"));
+  assert.ok(addCut(reg, "/u/ok.mp4"));
   assert.equal(reg.finals.length, 1);
 });
 
@@ -808,9 +808,10 @@ test("the single write path mints assetId once and never replaces it", () => {
   assert.equal(currentRef(view.uploads, "v1-1").assetId, first.assetId);
 });
 
-test("addFinal appends registry Assets with honest compose origin", () => {
+test("addCut appends registry Assets with honest compose origin", () => {
+  // compose 写路径现在登记的是候选（TASK-074 §1.7）；origin / append / 老字符串兼容不变
   const reg = createRegistry(null);
-  const rec = addFinal(reg, "/u/new-final.mp4");
+  const rec = addCut(reg, "/u/new-final.mp4");
   assert.match(rec.assetId, /^asset-/);
   assert.equal(rec.origin, "compose");
   assert.deepEqual(finalUrls(reg), ["/u/new-final.mp4"]);

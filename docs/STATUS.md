@@ -19,7 +19,7 @@
 | `docs/reports/` | 阶段性工作报告 —— **历史证据**，默认不读 |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：5 在办 · 2 待排期 · 103 已完成 · 72 条 ADR。
+**当前**：9 在办 · 11 待排期 · 123 已完成 · 85 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -36,17 +36,85 @@
 才按需去读 —— 历史存在，但历史不占日常开发上下文。
 
 ---
+## 当前真相（六面）
+
+> **生成的。** 前三面来自 [project-context.md](project-context.md) 的
+> `<!-- current-truth: … -->` 锚点（仓库里仅有的三行手写排期事实），
+> 后三面从目录派生（AGENTS.md 第 27 条 ·
+> [ADR-0101](adr/ADR-0101-idea-intake-level-and-milestone-gate.md) 决策 5）。
+
+**新想法先过 Milestone Gate**：读下面第三面，四问（在当前里程碑交付面上 /
+阻塞在办主线 / 不做会造成不可逆损害 / 是几分钟的当前事实修正）**全 No 就落**
+`tasks/backlog/` **一张卡，不实施**。闸判错可逆，因此不问用户（AGENTS.md §1–2）。
+
+| 面 | 现在是什么 |
+| --- | --- |
+| **Mission** —— 这个产品为什么存在 | 构建覆盖「故事构思 → 剧本 → 场景镜头 → 资产 → 图片/视频生成 → 配音字幕 → 合成 → QCD」的 AI 视频 / 短剧生产工作流，核心对视频厂商保持中立。 |
+| **Strategy** —— 用哪条路线达成 | 原 M1 最小闭环已完成并冻结为基础；WFM1 增量加入可复用短剧流程与云端默认生产路线；创作者 Studio 按 ADR-0066 四阶段落成产品界面；会花钱的能力按 Accepted ADR 逐个命令开门。 |
+| **Current Milestone** —— 这一轮交付什么 | 创作者 Studio 单一路径收敛，五个垂直切片依次推进（① 当前事实收口 → ② run_id 前端闭环 → ③ Candidate/QC/Final 闭环 → ④ 一份 Surface/Command Manifest → ⑤ 单一路径 + Connected Project 验收），**不增加新的顶层页面**；现在在切片 ①（TASK-125）。 |
+
+### Active Requirements
+
+现在必须成立的产品需求。「在办卡」列是 `tasks/active/` 里卡头引用它的那些 ——
+**空不代表失效**，只代表这一轮没人在动它。
+
+| REQ | 标题 | 状态 | 在办卡 |
+| --- | --- | --- | --- |
+| [REQ-001](requirements/REQ-001-auto-push.md) | REQ-001：Task 完成后自动 commit/push，Change 完成后受控合并 | CONFIRMED | — |
+| [REQ-002](requirements/REQ-002-document-lifecycle.md) | REQ-002：文档与记录的统一生命周期 —— 当前事实保持精简，历史保持可追溯 | CONFIRMED | — |
+| [REQ-003](requirements/REQ-003-traceability-and-requirement-fulfillment-review.md) | REQ-003：每一次实现都能从产品意图追到验证，审查先答「需求做完了吗」 | CONFIRMED | — |
+| [REQ-004](requirements/REQ-004-three-pane-shell-and-agent-conversation.md) | REQ-004：全站统一三栏 —— 左控制/选择 · 中工作区 · 右 Agent 对话 | CONFIRMED | TASK-106、TASK-125、TASK-130 |
+| [REQ-005](requirements/REQ-005-remove-a-project-from-the-home-list.md) | REQ-005：主页可以把项目从列表里删除（文件他自己删） | CONFIRMED | — |
+| [REQ-006](requirements/REQ-006-agent-can-do-what-the-creator-can-do.md) | REQ-006：对话里的 Agent 能做创作者能做的事，并且能把意见带回给开发 | CONFIRMED | TASK-125、TASK-127、TASK-130 |
+| [REQ-007](requirements/REQ-007-say-it-and-the-right-capability-runs.md) | REQ-007：他说一句话，对的那个专业能力就跑起来 | CONFIRMED | — |
+| [REQ-008](requirements/REQ-008-images-from-my-own-account.md) | REQ-008：用我自己的账号自动出图，不要按次计费的 API | CONFIRMED | TASK-139 |
+
+### Deferred
+
+里程碑闸判「现在不做」的 11 张卡（`tasks/backlog/`）——
+**队列，不是垃圾桶**：每张卡都要写清什么条件下它会变成该做。
+跨任务欠账另见 [TASK-087 总账](tasks/active/TASK-087-followup-ledger.md)。
+
+- [TASK-011](tasks/backlog/TASK-011-local-video-provider.md) TASK-011：LocalVideoProvider（阶段 8）
+- [TASK-012](tasks/backlog/TASK-012-qcd-auto-routing.md) TASK-012：基于 QCD 的自动模型路由（阶段 9）
+- [TASK-041](tasks/backlog/TASK-041-workspace-generation-command-and-evidence.md) TASK-041: 工作视窗付费视频生成命令 + UI 接入 + 1 次真实证据
+- [TASK-128](tasks/backlog/TASK-128-episode-side-actions-into-the-table.md) TASK-128：剧集制作侧的写也走动作表 —— REQ-006 判据 1 的另一半
+- [TASK-129](tasks/backlog/TASK-129-settings-structure-writes-into-the-table.md) TASK-129：作品设定的结构写也走动作表 —— REQ-006 判据 1 的第三块
+- [TASK-132](tasks/backlog/TASK-132-click-ui-element-and-leave-feedback.md) TASK-132：点击界面元素写意见，并让开发 Agent 收到准确位置
+- [TASK-135](tasks/backlog/TASK-135-server-authoritative-workflow-plan.md) TASK-135：下一步该干什么由后端说了算 —— 服务端权威工作流计划
+- [TASK-136](tasks/backlog/TASK-136-generation-resume-and-idempotency.md) TASK-136：重启之后不许重复扣费 —— 生成任务的续跑与幂等
+- [TASK-137](tasks/backlog/TASK-137-review-issue-to-rework-loop.md) TASK-137：审片问题进入返工队列 —— 从问题定位到重新审片的闭环
+- [TASK-138](tasks/backlog/TASK-138-story-development-visual-workflow.md) TASK-138：剧情制作不再是四张表单 —— 一条看得见的故事创作链
+- [TASK-140](tasks/backlog/TASK-140-main-ci-has-been-red-for-nine-days.md) TASK-140：main 的 CI 连续八次全红，而没有人看见
+
+### Recent Decisions
+
+最近 5 条 ADR（新→旧）。**WHY / HISTORY 在这里**，**WHAT IS TRUE NOW 在**
+[当前架构合同](current-architecture.md)，两者不合并（ADR-0098）。
+
+| ADR | 标题 | 状态 |
+| --- | --- | --- |
+| [ADR-0101](adr/ADR-0101-idea-intake-level-and-milestone-gate.md) | ADR-0101：想法先分层、再过当前里程碑闸，然后才谈需求 | Accepted |
+| [ADR-0100](adr/ADR-0100-account-quota-is-not-a-paid-gate.md) | ADR-0100：账号额度不是付费闸 —— 判据是「会不会产生按次账单」 | Accepted（2026-09-05，实施 Agent 依 AGENTS.md §1 自行 Accept） |
+| [ADR-0099](adr/ADR-0099-resume-is-not-a-retry.md) | ADR-0099：重启之后的续跑不是重试 —— 孤儿付费任务接回已经存在的那一条路 | Accepted（2026-09-05，实施 Agent 依 AGENTS.md §1 自行 Accept |
+| [ADR-0098](adr/ADR-0098-index-docs-are-not-a-second-contract.md) | ADR-0098：术语表与范围外记录是索引，不是第二份合同 | Accepted |
+| [ADR-0097](adr/ADR-0097-one-skill-source-generated-client-entries.md) | ADR-0097：技能只有一份源，客户端入口是生成物 | Accepted（2026-09-05，实施 Agent 依 AGENTS.md §1 |
+
 ## 在办 · 任务卡
 
 还没做完的任务卡。「部分完成」也在这里 —— 只要还有人要接着做，它就是在办。
 
 | 文档 | 标题 | 状态行（首句） |
 | --- | --- | --- |
-| [TASK-040-final-unified-product-acceptance.md](tasks/active/TASK-040-final-unified-product-acceptance.md) | TASK-040：AI 短剧工作流与 Creation Workspace 最终统一验收 | Evidence Ready — 等用户一句话确认（2026-08-04） |
-| [TASK-041-workspace-generation-command-and-evidence.md](tasks/active/TASK-041-workspace-generation-command-and-evidence.md) | TASK-041: 工作视窗付费视频生成命令 + UI 接入 + 1 次真实证据 | Accepted（2026-08-07，用户「同意」） |
-| [TASK-074-delivery-migration-and-legacy-retirement.md](tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md) | TASK-074：第四阶段 —— 后期交付、旧数据迁移、旧页面与旧接口清理、真实项目验收 | 部分实施（2026-08-25 更新） |
+| [TASK-040-final-unified-product-acceptance.md](tasks/active/TASK-040-final-unified-product-acceptance.md) | TASK-040：AI 短剧工作流与 Creation Workspace 最终统一验收 | 逐条判词见 §验收判词（2026-09-04 订正） |
+| [TASK-074-delivery-migration-and-legacy-retirement.md](tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md) | TASK-074：第四阶段 —— 后期交付、旧数据迁移、旧页面与旧接口清理、真实项目验收 | 部分实施 |
 | [TASK-087-followup-ledger.md](tasks/active/TASK-087-followup-ledger.md) | TASK-087：Follow-up 总账 —— 把散在九张卡里的欠账收成一处 | 活账（不是一次性交付 |
-| [TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md](tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) | TASK-106：前端接上 run_id 路径 —— 并由此退役同步分支与 /api/agent/ | 待开始（分析已完成，见 §1 |
+| [TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md](tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) | TASK-106：前端接上 run_id 路径 —— 并由此退役同步分支与 /api/agent/ | 部分实施（2026-09-04） |
+| [TASK-125-current-truth-convergence.md](tasks/active/TASK-125-current-truth-convergence.md) | TASK-125：切片 1 —— 当前事实收口 | 进行中（2026-09-04 开卡） |
+| [TASK-127-one-action-table.md](tasks/active/TASK-127-one-action-table.md) | TASK-127：切片 4 —— 他能点的 = 它能做的，靠一张表 | 实现完成（2026-09-05 |
+| [TASK-130-connected-sample-and-journey.md](tasks/active/TASK-130-connected-sample-and-journey.md) | TASK-130：切片 5 —— 可重复的 Connected Project 样本 + 一条从头到尾的旅程 | 实现完成（2026-09-05 |
+| [TASK-134-import-linter-layering-contract.md](tasks/active/TASK-134-import-linter-layering-contract.md) | TASK-134：把 Provider 中立从散文变成 CI 闸门 —— import-linter 分层契约 | 实现完成（2026-09-05 实施）· 最终全量见下方「验证」 |
+| [TASK-139-images-from-my-own-account.md](tasks/active/TASK-139-images-from-my-own-account.md) | TASK-139：用他自己的账号额度出图 —— 第三条路，不过付费闸 | 进行中（2026-09-05 开卡） |
 
 ## 在办 · 设计与验收文档
 
@@ -57,6 +125,8 @@
 | [final-unified-acceptance-runbook.md](design/active/final-unified-acceptance-runbook.md) | 最终统一验收 Runbook（TASK-040） | — |
 | [final-unified-acceptance-traceability.md](design/active/final-unified-acceptance-traceability.md) | 最终统一验收追踪矩阵（TASK-040） | — |
 | [pending-codex-rereview.md](design/active/pending-codex-rereview.md) | 待补 codex 复审清单（活账） | 活账（不是一次性交付） |
+| [product-requirement-and-ux-convergence-review.md](design/active/product-requirement-and-ux-convergence-review.md) | 产品需求与界面简洁性收敛审查 | 当前整改依据（2026-09-04） |
+| [proposal-one-surface-list.md](design/active/proposal-one-surface-list.md) | 提案：一份「面清单」，让「我明明写了你怎么看不到」不再发生 | 提案，等他拍板 |
 
 ## 待排期 · 任务卡
 
@@ -66,6 +136,15 @@
 | --- | --- | --- |
 | [TASK-011-local-video-provider.md](tasks/backlog/TASK-011-local-video-provider.md) | TASK-011：LocalVideoProvider（阶段 8） | Outline（可选 WFM3 升级） |
 | [TASK-012-qcd-auto-routing.md](tasks/backlog/TASK-012-qcd-auto-routing.md) | TASK-012：基于 QCD 的自动模型路由（阶段 9） | Outline（WFM3） |
+| [TASK-041-workspace-generation-command-and-evidence.md](tasks/backlog/TASK-041-workspace-generation-command-and-evidence.md) | TASK-041: 工作视窗付费视频生成命令 + UI 接入 + 1 次真实证据 | backlog/ |
+| [TASK-128-episode-side-actions-into-the-table.md](tasks/backlog/TASK-128-episode-side-actions-into-the-table.md) | TASK-128：剧集制作侧的写也走动作表 —— REQ-006 判据 1 的另一半 | 盘点完成，接线未开工，等一条 ADR（2026-09-05） |
+| [TASK-129-settings-structure-writes-into-the-table.md](tasks/backlog/TASK-129-settings-structure-writes-into-the-table.md) | TASK-129：作品设定的结构写也走动作表 —— REQ-006 判据 1 的第三块 | 待开始（2026-09-05 开卡 |
+| [TASK-132-click-ui-element-and-leave-feedback.md](tasks/backlog/TASK-132-click-ui-element-and-leave-feedback.md) | TASK-132：点击界面元素写意见，并让开发 Agent 收到准确位置 | 待开始 |
+| [TASK-135-server-authoritative-workflow-plan.md](tasks/backlog/TASK-135-server-authoritative-workflow-plan.md) | TASK-135：下一步该干什么由后端说了算 —— 服务端权威工作流计划 | 待开始（2026-09-05 开卡 |
+| [TASK-136-generation-resume-and-idempotency.md](tasks/backlog/TASK-136-generation-resume-and-idempotency.md) | TASK-136：重启之后不许重复扣费 —— 生成任务的续跑与幂等 | 待开始 · 前置 ADR 已 Accept（2026-09-05 开卡 |
+| [TASK-137-review-issue-to-rework-loop.md](tasks/backlog/TASK-137-review-issue-to-rework-loop.md) | TASK-137：审片问题进入返工队列 —— 从问题定位到重新审片的闭环 | 待开始（2026-09-05 开卡 |
+| [TASK-138-story-development-visual-workflow.md](tasks/backlog/TASK-138-story-development-visual-workflow.md) | TASK-138：剧情制作不再是四张表单 —— 一条看得见的故事创作链 | 待开始（2026-09-05 开卡 |
+| [TASK-140-main-ci-has-been-red-for-nine-days.md](tasks/backlog/TASK-140-main-ci-has-been-red-for-nine-days.md) | TASK-140：main 的 CI 连续八次全红，而没有人看见 | 待开始（2026-09-05 开卡 |
 
 ## 已完成 · 任务卡
 
@@ -176,6 +255,26 @@
 | [TASK-105-flow-template-first-slice.md](tasks/done/TASK-105-flow-template-first-slice.md) | TASK-105：流程模板第一刀 —— 内置一份 flow，新建项目时可选 | 第一刀实现完成（2026-08-24） |
 | [TASK-107-document-lifecycle.md](tasks/done/TASK-107-document-lifecycle.md) | TASK-107：文档与记录的统一生命周期 —— 落到规则、工装与现有文档上 | 完成（2026-08-26） |
 | [TASK-108-traceability-and-requirement-review.md](tasks/done/TASK-108-traceability-and-requirement-review.md) | TASK-108：把「产品意图 → 验证」的追溯链与需求完成度审查接进开发流程 | 完成（2026-08-26） |
+| [TASK-109-three-pane-shell-and-agent-conversation.md](tasks/done/TASK-109-three-pane-shell-and-agent-conversation.md) | TASK-109：全站三栏骨架 + 右栏改成真正的 Agent 对话框 | 完成（2026-08-27） |
+| [TASK-110-remove-project-from-home.md](tasks/done/TASK-110-remove-project-from-home.md) | TASK-110：主页可以把项目从列表里移除（文件他自己删） | 完成（2026-08-27） |
+| [TASK-111-agent-applies-its-own-edits.md](tasks/done/TASK-111-agent-applies-its-own-edits.md) | TASK-111：让对话里的 Agent 真的把改动落到作品上 | 完成（2026-08-29） |
+| [TASK-112-connected-home-list-shows-only-backend-projects.md](tasks/done/TASK-112-connected-home-list-shows-only-backend-projects.md) | TASK-112：已连接后端时，主页只显示后端真的有的项目 | 完成（2026-08-29） |
+| [TASK-113-latest-version-only-and-apply-outlet.md](tasks/done/TASK-113-latest-version-only-and-apply-outlet.md) | TASK-113：版本行默认只露最新版；还没落下的改动有个出口 | 完成（2026-08-29） |
+| [TASK-114-agent-action-registry-and-feedback-loop.md](tasks/done/TASK-114-agent-action-registry-and-feedback-loop.md) | TASK-114：动作注册表（Agent 能做创作者能做的事）+ 意见回路 | 完成（2026-08-29） |
+| [TASK-115-delete-with-an-undo-everywhere.md](tasks/done/TASK-115-delete-with-an-undo-everywhere.md) | TASK-115：故事与镜头都能删 —— 而且都能撤销 | 完成（2026-08-29） |
+| [TASK-116-proposal-loop-both-ways.md](tasks/done/TASK-116-proposal-loop-both-ways.md) | TASK-116：提案回路 —— 我提案，他在对话里拍板，我读回他的决定 | 完成（2026-08-29） |
+| [TASK-117-two-chat-windows.md](tasks/done/TASK-117-two-chat-windows.md) | TASK-117：两个聊天窗口 —— 「作品」改东西，「开发」提意见 | 完成（2026-08-29） |
+| [TASK-118-frontend-triggers-a-dev-plan.md](tasks/done/TASK-118-frontend-triggers-a-dev-plan.md) | TASK-118：前端能触发后端出方案 + product-loop Skill | 完成（2026-08-29） |
+| [TASK-119-three-user-capabilities-and-a-resolver.md](tasks/done/TASK-119-three-user-capabilities-and-a-resolver.md) | TASK-119：三个用户能力 + 后端 resolver | 实现完成（2026-08-29） |
+| [TASK-120-feedback-carries-a-locator.md](tasks/done/TASK-120-feedback-carries-a-locator.md) | TASK-120：意见自带定位情报 —— 让后端更快找到那一页 | 完成（2026-08-29） |
+| [TASK-121-proposals-you-can-actually-see.md](tasks/done/TASK-121-proposals-you-can-actually-see.md) | TASK-121：方案要看得见、答过的不再问、发送后不跳回顶部 | 已完成（2026-08-30 交付，2026-09-04 收口） |
+| [TASK-122-story-development-four-entries.md](tasks/done/TASK-122-story-development-four-entries.md) | TASK-122：Story Development 按他的规格重构 —— 四个入口 | 已完成（2026-08-30 六步全部落地，逐条真浏览器验收见下 |
+| [TASK-123-greybox-previz.md](tasks/done/TASK-123-greybox-previz.md) | TASK-123：3D 白膜导演台 | 已完成（v1）（2026-08-30 落地，可在真实项目上摆位、预览、录白膜 |
+| [TASK-124-episode-canvas.md](tasks/done/TASK-124-episode-canvas.md) | TASK-124：剧集制作收成一块画布 | 已完成（v1）（2026-08-30 落地 |
+| [TASK-126-agent-sees-and-changes-everything.md](tasks/done/TASK-126-agent-sees-and-changes-everything.md) | TASK-126：Agent 看得见全部、也改得动全部（2026-08-30～09-03 连续实施的补登卡） | 已完成（2026-09-03 最后一提交） |
+| [TASK-131-agent-harness-discovery-and-runtime-evidence.md](tasks/done/TASK-131-agent-harness-discovery-and-runtime-evidence.md) | TASK-131：让 Claude / Codex 找到同一套技能，并验证工装真正生效 | 实现完成（2026-09-05） |
+| [TASK-133-glossary-and-out-of-scope-index.md](tasks/done/TASK-133-glossary-and-out-of-scope-index.md) | TASK-133：给「名字」和「不做」各一个落点 —— 术语表与范围外索引 | 完成（2026-09-05） |
+| [TASK-141-idea-intake-and-current-truth.md](tasks/done/TASK-141-idea-intake-and-current-truth.md) | TASK-141：想法入口 —— 分层、里程碑闸与可重建的当前真相 | 已完成（2026-09-05 开卡 · 同日收口 · codex 独立审查 2 轮 pass） |
 
 ## 已完成 · 设计与验收记录
 
@@ -211,7 +310,7 @@
 | 位置 | 放什么 |
 | --- | --- |
 | [当前架构合同](current-architecture.md) | **现在**成立的边界与约束（NOW） |
-| [`docs/adr/`](adr/) | 72 条决策记录（ADR-0001 … ADR-0088）—— WHY / HISTORY |
+| [`docs/adr/`](adr/) | 85 条决策记录（ADR-0001 … ADR-0101）—— WHY / HISTORY |
 | [`docs/design/`](design/) 根 | 系统合同、产品信息架构、L0–S7 I/O 合同 |
 | [项目背景与路线](project-context.md) | 这个项目是什么、走到哪了 |
 | [实施规划](implementation_plan.md) | 阶段与里程碑路线图 |

@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 
 import {
   EPISODE_NAV, EPISODE_MODULES, EPISODE_DEFAULT, LEGACY_EPISODE_CENTRE, EPISODE_WORKSPACES,
-  renderRail, spaceOf, episodeEntryModule,
+  renderRail, renderEpisodeRail, episodeRows, spaceOf, episodeEntryModule, resolveModule, PAGES,
 } from "../src/ui/shell.js";
 import { renderShotSelect, bindShotSelect } from "../src/ui/shotselect.js";
 import * as pdoc from "../src/workflow/proddoc.js";
@@ -28,7 +28,13 @@ import { filterGraph } from "../src/ui/wfgraph.js";
 /* 1 · 故事开发 → 剧集制作: one explicit entrance                              */
 /* ========================================================================= */
 
-const rail = (episodes) => renderRail({
+// TASK-122 第 2 步 / ADR-0092 决策 4：分集行**搬出了左栏**（他点名「不把 Chapter /
+// Episode 放进全局左栏」），进了页内选集器。下面这几条守的**行为**一个字没改 ——
+// 选一集不导航、退出口只在当前集、没选就没退出口 —— 只是换了它们现在住的地方。
+const rail = (episodes) => episodeRows({ episodes, upstream: {} });
+
+/** 左栏本身仍然要能画（四个入口），另有一条测试守它。 */
+const railHtml = (episodes) => renderRail({
   activeModule: "script",
   badges: {},
   ratios: {},
@@ -73,11 +79,11 @@ test("the exit lands in 剧集制作, and 本集剧本 now lives THERE", () => {
   // function, so the top bar cannot disagree with the centre about where the
   // creator is.
   assert.equal(spaceOf(EPISODE_DEFAULT), "episode");
-  // 本集剧本 USED TO BE story development's last step. THE RULE CHANGED
-  // (TASK-091 §1.1 / the owner's 图一): writing the episode script is the first
-  // thing 剧集制作 does. Entering it is therefore no longer a cross-space jump in
-  // the other direction — it is where that space begins.
-  assert.equal(spaceOf("script"), "episode");
+  // **规则又变了一次**（ADR-0092 决策 2）：产品负责人 2026-08-30 的规格把「正文创作」
+  // 列为故事开发的第四项，所以 `script` 从剧集制作搬回了 story space。TASK-091 §1.1
+  // 当初把它移过去的理由（「剧集制作开始的时候…写剧本」）是更早的产品决定，被这一条
+  // 覆盖。剧集制作失去的只是一个入口位置，五个页面一个没少。
+  assert.equal(spaceOf("script"), "story");
 });
 
 /* ========================================================================= */
@@ -99,7 +105,9 @@ test("制作台 IS the centre; the stage workspaces (incl. 生成溯源) are sec
   // (TASK-091 §1.1): the rail reads in the owner's order — 剧集制作 starts at 本集剧本 —
   // while 「进入剧集制作」 still lands on 本集看板, because a returning creator usually
   // already has a script and wants the next piece of work.
-  assert.equal(EPISODE_NAV[0][0], "script");
+  // 第一行不再是 script（它搬回故事开发了，ADR-0092 决策 2）——
+  // 剧集制作现在从 ⑥ 本集看板 开始，而它本来就是「进入剧集制作」的落点。
+  assert.equal(EPISODE_NAV[0][0], "board");
   assert.ok(EPISODE_NAV.some(([k]) => k === EPISODE_DEFAULT), "the default is still a row");
   // nothing was deleted: every stage is still addressable, provenance included
   for (const k of ["provenance", "episode", "scenes", "shots", "refplan", "frames", "video", "audio", "dailies", "edit"]) {
@@ -616,4 +624,27 @@ test("the entry counts THIS episode's shots, not the project's (codex round 2, P
   pdoc.assignShot(prod, sc2.sceneId, "sh-gone");
   assert.equal(shotsOf(ep2.episodeId), 0);
   assert.equal(episodeEntryModule(shotsOf(ep2.episodeId) > 0), "storyboard");
+});
+
+/* --- 3D 导演台在左栏点得到（TASK-123）-------------------------------------- */
+//
+// 产品负责人 2026-08-30：「我在剧集制作根本没看到 3D 导演台。」
+// 它当时只作为「分镜设计」里的二级 Tab 存在 —— 藏在一层点击之后，等于没有。
+
+test("剧集制作左栏画得出 3D 导演台，且它不是第十二页", () => {
+  const rail = renderEpisodeRail({ activeModule: "storyboard", badges: {}, ratios: {} });
+  assert.ok(rail.includes("3D 导演台"), "左栏必须画得出这一行");
+  assert.match(rail, /data-mod="blocking"/);
+  // 闭集不变：它是分镜设计的一个分区，走别名，不占页面名额（ADR-0066 决策 10）
+  assert.equal(PAGES.length, 11);
+  assert.ok(!PAGES.includes("blocking"));
+});
+
+test("那一行解析到分镜设计的 3D 导演台分区 —— 点了不该落到别处", () => {
+  const hit = resolveModule("blocking");
+  assert.deepEqual(
+    { module: hit.module, section: hit.section },
+    { module: "storyboard", section: "blocking" },
+    "它当时落到了本集看板：别名在 setModule 的第一行就被挡掉了",
+  );
 });

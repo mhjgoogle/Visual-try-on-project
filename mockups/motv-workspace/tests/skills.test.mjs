@@ -179,7 +179,12 @@ test("storyboard-director v2 REFUSES a draft with no 景别 / 运镜", () => {
   // not a model failure, a contract that marked both optional and a prompt that
   // never insisted. Optional means the model may skip it, and it did, every time.
   const s = findSkill("storyboard-director");
-  assert.equal(s.version, 2, "the contract changed, so the version must have (ADR-0067 决策 3)");
+  // AT LEAST v2 — the version moved when this contract changed (ADR-0067 决策 3),
+  // and it keeps moving for any other package content change too (routing
+  // metadata is digest-covered as well, TASK-119). Pinning the exact number made
+  // this test fail for a change it has no opinion about; what it actually
+  // guards is 「the 景别/运镜 contract is in force」, which is asserted below.
+  assert.ok(s.version >= 2, "the contract changed, so the version must have (ADR-0067 决策 3)");
   const base = { title: "a", description: "b", duration_seconds: 6 };
   assert.ok(validateOutput(s, { shots: [{ ...base, cameraMotion: "推近" }] }), "缺 shotSize 必须拒绝");
   assert.ok(validateOutput(s, { shots: [{ ...base, shotSize: "特写" }] }), "缺 cameraMotion 必须拒绝");

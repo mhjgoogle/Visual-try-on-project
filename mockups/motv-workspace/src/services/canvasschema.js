@@ -69,7 +69,7 @@ const LEGACY_SKILL_RUN_STATUSES = new Set([
 ]);
 
 /** Authoritative CURRENT canvas schema version. Saves must emit exactly this. */
-export const CANVAS_SCHEMA_VERSION = 19;
+export const CANVAS_SCHEMA_VERSION = 20;
 
 /**
  * v1 → v2 (checkpoint M2): stable creator identity + minimal provenance.
@@ -1298,7 +1298,19 @@ function migrateV18ToV19(doc) {
   return doc;
 }
 
-export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7, 7: migrateV7ToV8, 8: migrateV8ToV9, 9: migrateV9ToV10, 10: migrateV10ToV11, 11: migrateV11ToV12, 12: migrateV12ToV13, 13: migrateV13ToV14, 14: migrateV14ToV15, 15: migrateV15ToV16, 16: migrateV16ToV17, 17: migrateV17ToV18, 18: migrateV18ToV19 };
+
+/** v19 → v20：给生产文档加一张**空的**白膜表（TASK-123 / ADR-0094）。
+ *
+ *  纯加法：既有的镜头、场景、审片记录一个字节都不动。空表是一个真实状态 ——
+ *  「这个项目还没做过白膜」，不是缺失。已经有值的原样留着（第 13 条）。 */
+function migrateV19ToV20(doc) {
+  const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
+  if (!isObj(doc.production)) return doc;
+  if (!isObj(doc.production.blocking)) doc.production.blocking = {};
+  return doc;
+}
+
+export const MIGRATIONS = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5, 5: migrateV5ToV6, 6: migrateV6ToV7, 7: migrateV7ToV8, 8: migrateV8ToV9, 9: migrateV9ToV10, 10: migrateV10ToV11, 11: migrateV11ToV12, 12: migrateV12ToV13, 13: migrateV13ToV14, 14: migrateV14ToV15, 15: migrateV15ToV16, 16: migrateV16ToV17, 17: migrateV17ToV18, 18: migrateV18ToV19, 19: migrateV19ToV20 };
 
 /** Read the schema version of a raw persisted document.
  *  Returns a positive integer, or null if the marker is malformed.

@@ -100,7 +100,9 @@ def _post(app, payload, headers=None):
 
 def test_the_eight_items_are_the_contract(srv) -> None:
     skill = srv._load_skill_catalog().skills["story-development"]
-    assert skill.version == 2, "改了内容必须升版本（ADR-0067 §1.2）"
+    # 至少 v2 —— 八项契约是在 v2 落的（TASK-089 §2.1）。写死等号会让
+    # 任何后续合法升版撞红一条与版本号无关的测试。
+    assert skill.version >= 2, "改了内容必须升版本（ADR-0067 §1.2）"
     fields = skill.output_schema["fields"]
     required = set(skill.output_schema["required"])
 

@@ -25,7 +25,7 @@ import {
   mintReferenceKey, isReferenceKey, isReferenceKind,
 } from "../src/workflow/assetreg.js";
 import { addVersion, refFromResponse } from "../src/workflow/mediaref.js";
-import { createRegistry, addFinal, findAssetById } from "../src/workflow/assetlib.js";
+import { createRegistry, addCut, findAssetById } from "../src/workflow/assetlib.js";
 import { CHARACTER_PROFILE_FIELDS } from "../src/workflow/bibledoc.js";
 
 /** Empty profile objects built from the REAL field lists, so the fixture can
@@ -134,15 +134,17 @@ test("a declared ref keeps its declaration verbatim through addVersion", () => {
   assert.equal(ref.needsReview, false);
 });
 
-test("a composed Final is declared `final` and carries the episode it rendered", () => {
+test("a composed CUT is declared `cut` and carries the episode it rendered", () => {
+  // TASK-074 §1.7：渲染产出的是候选（`cut`）。`final` 只有过了 G4 的导出写得出来，
+  // 所以这条测的是 compose 写路径本来就该测的那件事，只是它现在叫对了名字。
   const reg = createRegistry(null);
-  const f = addFinal(reg, "/u/final.mp4", "ep-7");
-  assert.equal(f.kind, "final");
+  const f = addCut(reg, "/u/final.mp4", "ep-7");
+  assert.equal(f.kind, "cut");
   assert.equal(f.links.episodeId, "ep-7");
   assert.equal(f.needsReview, false);
   assert.equal(f.reusable, false); // never presumed
   // no episode known → honest null, not a stand-in
-  assert.equal(addFinal(reg, "/u/final2.mp4").links.episodeId, null);
+  assert.equal(addCut(reg, "/u/final2.mp4").links.episodeId, null);
 });
 
 test("hydration normalizes every persisted declaration, whichever build wrote it", () => {

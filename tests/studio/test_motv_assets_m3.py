@@ -24,8 +24,16 @@ _SRC = _MOCKUP_DIR / "src"
 
 
 def test_edit_finals_go_through_the_registry() -> None:
+    """合成节点不自己存成片，一律经登记表。
+
+    TASK-074 §1.7 之后它登记的是**候选**（`ctx.addCut`）而不是成片：渲染完 ≠ 出片，
+    登记 `kind: "final"` 的唯一入口是过了 G4 的那次显式导出。
+    """
     src = (_SRC / "workflow" / "nodes" / "edit.js").read_text("utf-8")
-    assert "ctx.addFinal" in src
+    assert "ctx.addCut" in src
+    assert "ctx.addFinal" not in src, (
+        "合成节点不得直接登记成片 —— 那正是 G4 从来没被问过的原因（TASK-074 §1.7）"
+    )
     assert "ctx.finalUrls" in src
     assert "node.finals" not in src  # the node no longer owns finals
 

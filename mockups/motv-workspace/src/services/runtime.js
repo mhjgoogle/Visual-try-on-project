@@ -106,10 +106,36 @@ export function suggestExecutor(work, isRunnableFor, current = null) {
     if (!Array.isArray(e.suits) || !e.suits.includes(wanted)) continue;
     if (isRunnableFor(e.id)) return e.id;
   }
+  // 建议挑不到时**可以退回别的执行器，但要说清代价**。
+  //
+  // 原来这里直接回 `manual`，理由是「『独立复核』由写它的同一个运行时来做就不独立」——
+  // 那条理由本身没错。但代价产品负责人 2026-08-31 撞到了：`story-review`（检查问题）
+  // 是 review 类，只建议给 codex；codex 因注入面被默认停用，于是装着并能跑的
+  // Claude Code 明明在那儿，界面却说「本机没有可用的执行器」，他一次也审不了。
+  //
+  // 仓库自己对这件事早有定论（AGENTS.md 第 20 条）：「codex 不可用时会自动回退到
+  // 独立的 claude 会话，此时**独立性降级，必须在报告中如实注明**」。照这条办 ——
+  // 退回去，并让 `independenceDegraded()` 把这次的折扣说出来。
+  for (const e of EXECUTORS) {
+    if (e.id === "manual") continue;
+    if (isRunnableFor(e.id)) return e.id;
+  }
   return "manual";
 }
 
 export const EXECUTOR_BY_ID = new Map(EXECUTORS.map((e) => [e.id, e]));
+
+/** 这次复核的独立性打了折扣吗 —— 打了就要说出来（AGENTS.md 第 20 条的同一条纪律）。
+ *
+ *  只有 review 类的工作有「独立」这个要求：让写它的那个运行时来复核自己写的东西，
+ *  与「没人复核」在结论质量上差不了多少 —— 但**沉默地降级**比降级本身更糟。 */
+export function independenceDegraded(work, executorId) {
+  if (work !== "review" || !executorId || executorId === "manual") return null;
+  const e = EXECUTOR_BY_ID.get(executorId);
+  if (e && Array.isArray(e.suits) && e.suits.includes("review")) return null;
+  return `这次复核由 ${e ? e.title : executorId} 来做 —— 它不是被建议的复核执行器，`
+    + "独立性打了折扣（写它的和审它的是同一个运行时）";
+}
 
 /** The states an executor can be in. They are kept apart because the creator's
  *  next action differs for each — collapsing them into one "not working" would

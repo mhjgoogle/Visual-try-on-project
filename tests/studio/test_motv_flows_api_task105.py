@@ -22,6 +22,16 @@ sys.path.insert(0, str(_MOCKUP_DIR))
 import server as srv  # noqa: E402 - path injected above
 
 
+def _live_skill_version(skill_id: str) -> int:
+    """磁盘上这个能力此刻是第几版 —— 派生，不写死（TASK-119）。
+
+    这条测试守的是「用户源整体覆盖内置源」，与某个能力现在是第几版无关；
+    但模板里引用的版本必须是真的存在的那一版，否则整份流程会因为解析不到能力而
+    不可用，测试就在一个与它无关的理由上转红。
+    """
+    return srv._load_skill_catalog().skills[skill_id].version
+
+
 @pytest.fixture()
 def backend(tmp_path, monkeypatch):
     """A loopback server whose data locations are all throwaway."""
@@ -251,7 +261,7 @@ def test_a_user_flow_overrides_the_builtin_one_wholesale(backend, tmp_path):
                     {
                         "stepKey": "only",
                         "skillId": "story-development",
-                        "skillVersion": 2,
+                        "skillVersion": _live_skill_version("story-development"),
                     }
                 ],
             },

@@ -38,6 +38,7 @@ export const TYPE_FILTERS = [
   ["shot-image", "镜头图片"],
   ["shot-video", "镜头视频"],
   ["audio", "音频"],
+  ["cut", "候选成片"],
   ["final", "成片"],
   // §1.6: Collections became 「已保存筛选」 — it was never a second container, only
   // a filter the creator had marked. Naming it a collection implied a place to put
@@ -54,6 +55,7 @@ export const RAIL_TYPE = {
   "assets:video": "shot-video",
   "assets:audio": "audio",
   "assets:final": "final",
+  "assets:cut": "cut",
   "assets:collection": "collection",
 };
 
@@ -79,7 +81,11 @@ function matchesType(a, type) {
   if (type === "audio") return AUDIO_KINDS.has(a.kind) || a.domain === "audio";
   if (type === "shot-image") return SHOT_PICTURES.has(a.kind);
   if (type === "shot-video") return SHOT_VIDEOS.has(a.kind);
-  if (type === "final") return a.kind === "final" || a.domain === "finals";
+  // 候选与成片**分开筛**。原来这里是 `a.kind === "final" || a.domain === "finals"`，
+  // 于是候选成片会出现在标着「成片」的那一格里 —— 一个还没过 G4 的东西被叫成成片，
+  // 比它根本不显示更糟（TASK-074 §1.7）。
+  if (type === "cut") return a.kind === "cut";
+  if (type === "final") return a.kind === "final";
   // 资产库's Collections tab (ADR-0061 决策 1): assets the creator EXPLICITLY
   // marked reusable. Never "used more than once" — that inference is what
   // ADR-0055 决策 1 refuses.

@@ -95,9 +95,17 @@ export function postModel(ctx, ui) {
   // is real output; the link simply predates the field) rather than hidden —
   // hiding a deliverable because a metadata field is missing loses the file.
   const epId = ctx.prodData().production.activeEpisodeId;
-  const finals = ctx.assets.list().filter(
+  const delivered = ctx.assets.list().filter(
     (a) => a.domain === "finals" && (!a.links.episodeId || a.links.episodeId === epId),
   );
+  // 候选与成片**分开画**（TASK-074 §1.7）。原来这里是一个 `finals` 列表，于是
+  // 「刚合成出来的一版」与「他签过字导出的那一版」在屏幕上长得一模一样 ——
+  // 而 G4 拦的正是前者变成后者。一个没有名字的区别，用户就不会去看它。
+  const cuts = delivered.filter((a) => a.kind === "cut");
+  // 与 `prodplan.episodeFinals` **同一个口径**（codex 轮 1 P2）：v11 迁移给交付域每条
+  // 记录都盖了 kind，所以「没有 kind 的成片」在 v11+ 文档里不存在；`=== "final"` 才是
+  // 两处不会互相打脸的写法。归档（撤回）的成片不在这一栏，它在资产库里能找回来。
+  const finals = delivered.filter((a) => a.kind === "final" && a.storageState !== "archived");
   return {
     tab,
     shotId,
@@ -161,6 +169,13 @@ export function postModel(ctx, ui) {
     },
     // --- 成片 -------------------------------------------------------------- //
     finals: finals.slice().reverse(),
+    // 每一版候选带着**它自己**的导出闸门结论。判定只有一份（`ctx.delivery.exportability`），
+    // 按钮的可用性与真正的写入路径问的是同一个问题 —— 两处各判一次，就会出现
+    // 「按钮亮着、按下去被拒」的那种「说了不算数」。
+    cuts: cuts.slice().reverse().map((a) => ({
+      ...a,
+      gate: ctx.delivery ? ctx.delivery.exportability(a.assetId) : { ok: false, reason: "导出能力不可用" },
+    })),
     locks: ctx.locks.count(),
   };
 }
@@ -408,7 +423,10 @@ function subtitleBody(m) {
 /* 成片                                                                        */
 /* -------------------------------------------------------------------------- */
 
-function finalBody(ctx, m) {
+/** Exported for the delivery-UI guard (`tests/deliveryui.test.mjs`): the candidate /
+ *  final rows and their three controls are the user-facing half of TASK-074 §1.7,
+ *  and a gate whose button nobody can prove is wired is the defect this slice closes. */
+export function finalBody(ctx, m) {
   const s = m.edit.settings;
   const live = m.edit.video.filter((c) => !c.removed);
   return (
@@ -425,9 +443,15 @@ function finalBody(ctx, m) {
     ["mp4", "webm"].map((f) => `<option value="${f}"${s.format === f ? " selected" : ""}>${f}</option>`).join("") +
     `</select></label>` +
     `</div>` +
+    // 候选在上、成片在下 —— 顺序就是生命周期的顺序：候选 → 质检 → 导出 → 成片。
+    (m.cuts.length
+      ? `<h4 class="pc-sec">候选成片（${m.cuts.length}）—— 过了交付质检才能导出</h4>` +
+        `<ul class="pc-finals">${m.cuts.map((f) => cutRow(ctx, f)).join("")}</ul>`
+      : `<div class="pc-none">还没有渲染过候选成片。</div>`) +
     (m.finals.length
-      ? `<ul class="pc-finals">${m.finals.map((f) => finalRow(ctx, f)).join("")}</ul>`
-      : `<div class="pc-none">还没有渲染过成片。</div>`) +
+      ? `<h4 class="pc-sec">已导出的成片（${m.finals.length}）</h4>` +
+        `<ul class="pc-finals">${m.finals.map((f) => finalRow(ctx, f)).join("")}</ul>`
+      : `<div class="pc-none">还没有导出过成片。</div>`) +
     `<div class="pc-note">渲染用本地 ffmpeg。移出成片的片段不参与渲染；素材字节不在本地的片段会让渲染<b>明确失败</b>，` +
     `而不是被悄悄跳过——一条少了半个镜头却报成功的成片，比一次失败糟得多。<br>` +
     `本轮的本地渲染器<b>按硬切拼接</b>：转场已经记录在时间线和成片溯源里，但还没有真正渲染出来。` +
@@ -486,6 +510,37 @@ function finalSpecRow(ctx, f) {
   );
 }
 
+/**
+ * ONE candidate cut, plus the export gate's answer for it (TASK-074 §1.7).
+ *
+ * THE BUTTON SAYS WHAT WILL HAPPEN. When the gate refuses, 「导出成片」 is disabled AND
+ * the reason is printed next to it — an enabled button that explains why it cannot
+ * work after you press it is worse than no button. And the reason points somewhere:
+ * 「没测过」 gets a 「对这一版跑质检」 button right here (step 4 · 重新审片 explicit).
+ */
+function cutRow(ctx, f) {
+  const gate = f.gate || { ok: false, step: "missing", reason: "未知" };
+  // 「重新审片」永远可到达（TASK-074 §1.7 第 4 条；codex 轮 3）：一版干净的候选也该能
+  // 再测一次 —— 素材换了、规格改了，上一次的通过不再说明什么。文案按状态变。
+  const qcLabel = gate.step === "ready" ? "重新质检" : "对这一版跑质检";
+  return (
+    `<li class="pc-final pc-cut">` +
+    `<video class="pc-finalv" src="${esc(f.url || "")}" controls preload="metadata"></video>` +
+    `<div class="pc-finalm">` +
+    `<b>${esc(f.url ? String(f.url).split("/").pop() : "候选成片")}</b>` +
+    `<span class="pc-badge">候选 · 还不是成片</span>` +
+    `<div class="pc-acts">` +
+    `<button class="btn sm primary" data-pc-export="${esc(f.assetId)}"${gate.ok ? "" : " disabled"}>导出成片</button>` +
+    `<button class="btn sm" data-pc-qc="${esc(f.assetId)}">${qcLabel}</button>` +
+    (gate.ok
+      ? `<span class="pc-ok">交付质检通过，可以导出</span>`
+      : `<span class="pc-block">${esc(gate.reason || "导出被拒绝（门槛 G4）")}</span>`) +
+    `</div>` +
+    finalSpecRow(ctx, f) +
+    `</div></li>`
+  );
+}
+
 function finalRow(ctx, f) {
   const prov = ctx.assets.provenanceOf(f.assetId);
   const p = prov && prov.generation && prov.generation.parameters ? prov.generation.parameters : null;
@@ -496,6 +551,11 @@ function finalRow(ctx, f) {
     `<video class="pc-finalv" src="${esc(f.url || "")}" controls preload="metadata"></video>` +
     `<div class="pc-finalm">` +
     `<b>${esc(f.url ? String(f.url).split("/").pop() : "成片")}</b>` +
+    // 撤回 = 归档（可逆，资产库里找得回来）。G5 说旧成片不删、不覆盖，所以「撤回一版
+    // 成片」不是删除，是让它不再算作交付结果 —— 这条路以前存在（资产库的归档），
+    // 只是没有名字；现在它有了（TASK-074 §1.7 第 4 条）。
+    `<div class="pc-acts"><button class="btn sm" data-pc-archive="${esc(f.assetId)}" ` +
+    `title="归档后不再算作本集的成片；随时可在资产库取消归档">撤回这一版成片（归档）</button></div>` +
     (p
       ? `<details class="pc-prov" open><summary>溯源 · 这条成片是什么做出来的</summary>` +
         `<dl class="pi-kv">` +
@@ -843,6 +903,34 @@ export function bindPostConsole(root, ctx, ui, render) {
   all("data-pc-set", (inp) => (inp.onchange = () => {
     const key = inp.dataset.pcSet;
     ctx.timeline.setSettings({ [key]: key === "format" ? inp.value : Number(inp.value) });
+    render();
+  }));
+  all("data-pc-export", (b) => (b.onclick = () => {
+    // 写路径**自己再问一次**闸门：按钮的 disabled 只是屏幕上的礼貌，真正的闸门必须
+    // 在写入那一刻成立（Agent、深链接、旧页面都走这条路）。
+    try {
+      const rec = ctx.delivery.exportCut(b.dataset.pcExport);
+      ctx.toast(`已导出成片 · ${String(rec.url).split("/").pop()}（候选与旧成片都保留）`);
+    } catch (e) {
+      ctx.toast(`导出被拒绝：${e.message}`);
+    }
+    render();
+  }));
+  all("data-pc-qc", (b) => (b.onclick = async () => {
+    // 对**这一版**跑探测（不是「最新那条」）—— 拿别的版本的数字放行等于替一个没检查过
+    // 的文件签字。渲染两次：一次让按钮变成「正在探测…」，一次带回数字或失败原因。
+    const pending = ctx.runDeliveryProbe(b.dataset.pcQc);
+    render();
+    const state = await pending;
+    if (state && state.error) ctx.toast(state.error);
+    render();
+  }));
+  all("data-pc-archive", (b) => (b.onclick = () => {
+    if (!ctx.storage || !ctx.storage.archive(b.dataset.pcArchive, true)) {
+      ctx.toast("这一版没法归档（可能已经归档，或不是本地副本）");
+    } else {
+      ctx.toast("已撤回这一版成片（归档）—— 资产库里可以取消归档");
+    }
     render();
   }));
   on("[data-pc-render]", async () => {

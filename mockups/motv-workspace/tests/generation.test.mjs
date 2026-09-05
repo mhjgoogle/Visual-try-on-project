@@ -20,7 +20,7 @@ import {
   completeGenerationByTask,
   failGeneration,
 } from "../src/workflow/genlib.js";
-import { createRegistry, setStorageState, addFinal } from "../src/workflow/assetlib.js";
+import { createRegistry, setStorageState, addCut } from "../src/workflow/assetlib.js";
 import { refFromResponse } from "../src/workflow/mediaref.js";
 
 // A v4 canvas save (pre-M5): image chain with an upload + a paid-image version,
@@ -408,7 +408,7 @@ test("a video generation input referencing a STANDALONE first frame validates at
 test("a runtime-composed final carries storageState and still validates at v5", () => {
   const doc = migrateToCurrent(v4Doc()).doc;
   const reg = createRegistry(doc.assets); // reg.finals aliases doc.assets.finals
-  const fin = addFinal(reg, "/u/final.mp4"); // appended to the shared finals array
+  const fin = addCut(reg, "/u/final.mp4"); // appended to the shared finals array
   assert.equal(fin.storageState, "local");
   assert.equal(migrateToCurrent(doc).status, "ok"); // the composed final validates at v5
 });

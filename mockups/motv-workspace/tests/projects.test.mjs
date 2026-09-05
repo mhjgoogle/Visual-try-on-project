@@ -201,3 +201,27 @@ test("control characters are refused before they can reach the backend", () => {
   }
   assert.equal(validateName("正常名字").ok, true);
 });
+
+/* --- connected mode: the backend list is the truth ------------------------ */
+
+test("includeCanvas:false drops browser-only rows but keeps their metadata", () => {
+  // 产品负责人 2026-08-29:「画面不对啊。有很多不存在的项目」—— 已连接后端时，
+  // 浏览器里那些没有后端项目撑着的旧条目不再冒充项目卡。
+  const local = [
+    { name: "夜班沉默", assetRoot: "/r", createdAt: "T1", openedAt: "T9" },
+    { name: "两个月前试的名字", assetRoot: "/r", createdAt: "T1", openedAt: "T3" },
+    { name: "另一个残留", assetRoot: "", createdAt: "T1", openedAt: "T2" },
+  ];
+  const cards = projectCards({ local, remote: ["夜班沉默"], includeCanvas: false });
+  assert.deepEqual(cards.map((c) => `${c.name}:${c.kind}`), ["夜班沉默:real"]);
+  // the surviving card still remembers where its assets are and when it was opened
+  assert.equal(cards[0].assetRoot, "/r");
+  assert.equal(cards[0].openedAt, "T9");
+});
+
+test("includeCanvas:false is not a rule about demo mode", () => {
+  // demo 模式没有后端可以当真相，画布项目就是全部家当 —— 默认仍然显示
+  const local = [{ name: "画布项目", assetRoot: "", createdAt: "", openedAt: "T1" }];
+  assert.equal(projectCards({ local, remote: [] }).length, 1);
+  assert.equal(projectCards({ local, remote: [], includeCanvas: false }).length, 0);
+});

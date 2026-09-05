@@ -1,6 +1,6 @@
 {
   "skillId": "world-director",
-  "skillVersion": 1,
+  "skillVersion": 2,
   "work": "creative",
   "role": "编剧",
   "title": "World Director",
@@ -22,5 +22,21 @@
     "是否越界去写人物关系（那是 Relationship Director 的活）",
     "没有可提的内容时是否老实返回空列表"
   ],
-  "recommendedRuntime": "local_subscription"
+  "recommendedRuntime": "local_subscription",
+  "routing": {
+    "userCapability": [
+      "story-development"
+    ],
+    "internalRouting": {
+      "intent": "worldbuilding",
+      "kind": "generative",
+      "scope": "episode",
+      "priority": 65,
+      "selectWhen": [
+        "世界观",
+        "设定",
+        "规则"
+      ]
+    }
+  }
 }

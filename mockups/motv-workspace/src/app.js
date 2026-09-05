@@ -94,6 +94,8 @@ import * as review from "./workflow/review.js";
 import * as reviewsync from "./workflow/reviewsync.js";
 import { g3TriggerFor, g3Retire, g4Export } from "./workflow/gates.js";
 import * as deliveryqc from "./workflow/deliveryqc.js";
+import { exportability as deliveryExportability } from "./workflow/deliveryexport.js";
+import { exportCut as deliveryExportCut } from "./workflow/deliveryflow.js";
 import * as framebind from "./workflow/framebind.js";
 import * as locksdoc from "./workflow/locks.js";
 import * as shotaudio from "./workflow/shotaudio.js";
@@ -103,6 +105,8 @@ import * as runtime from "./services/runtime.js";
 import { buildShotSlotIndex, slotForShotId, shotIdForSlot, resolveAdoptTarget } from "./workflow/shotmap.js";
 import * as scriptdoc from "./workflow/scriptdoc.js";
 import * as storydoc from "./workflow/storydoc.js";
+import * as storywork from "./workflow/storywork.js";
+import * as blocking from "./workflow/blocking.js";
 import * as proddoc from "./workflow/proddoc.js";
 import * as episodecleanup from "./workflow/episodecleanup.js";
 import * as timeline from "./workflow/timeline.js";
@@ -952,6 +956,42 @@ function demoEpisodePlan(doc) {
   });
 }
 
+
+/** 一份大纲提案 → 他在「故事大纲」编辑器里会看到的文本（TASK-122）。
+ *
+ *  能力答出来的是结构化的八项；他现在写大纲的地方是一个纯文本编辑器，系统在后台切节点。
+ *  所以写回路径要**翻译**，而不是把 JSON 塞给他。主线五段的顺序本身是信息，按序排。
+ *
+ *  在这之前 `proposeOutline` 根本没有接线，能力跑完只会说「尚未接线」——产品负责人
+ *  2026-08-30 因此看到「已完成」但故事大纲still是空的。 */
+function outlineProposalText(proposal) {
+  if (!proposal || typeof proposal !== "object") return "";
+  const line = (v) => (typeof v === "string" ? v.trim() : "");
+  const parts = [];
+  const core = line(proposal.storyCore) || line(proposal.premise) || line(proposal.logline);
+  if (core) parts.push(core);
+  const ml = proposal.mainline && typeof proposal.mainline === "object" ? proposal.mainline : {};
+  for (const [key, label] of [
+    ["setup", "开端"],
+    ["development", "发展"],
+    ["midpointTurn", "中段转折"],
+    ["climax", "高潮"],
+    ["ending", "结局"],
+  ]) {
+    if (line(ml[key])) parts.push(`${label}：${line(ml[key])}`);
+  }
+  const reveals = Array.isArray(proposal.secretsAndReveals) ? proposal.secretsAndReveals : [];
+  const revealLines = reveals
+    .map((r) => (r && typeof r === "object"
+      ? [line(r.truth), line(r.revealAround)].filter(Boolean).join(" · ")
+      : line(r)))
+    .filter(Boolean);
+  if (revealLines.length) {
+    parts.push(["信息揭示顺序：", ...revealLines.map((s) => `- ${s}`)].join("\n"));
+  }
+  return parts.join("\n\n");
+}
+
 // Run an AI story-development pass (outline or plan) — proposals only; the
 // creator applies/discards in the story workspace (M9).
 async function developStoryRun(kind, instruction) {
@@ -1119,6 +1159,15 @@ let shotMirror = null;
 
 const ctx = {
   project: { ...FIX },
+  // WHICH PROJECT IS OPEN — the session's own answer, not the fixture's.
+  //
+  // `ctx.project` is a spread of the FIXTURE (`query.fixtureProject()`), so
+  // `ctx.project.name` is the fixture's name and never the folder the creator
+  // opened. Anything that has to talk to `/api/projects/<name>/…` needs THIS,
+  // and the conversation turn (ADR-0089) was silently no-oping on the difference:
+  // it read a `ctx.projectName` that did not exist, decided no project was open,
+  // and swallowed the message (产品负责人 2026-08-27:「点击发送送不出去」).
+  projectName: () => PROJECT_NAME,
   gateway: { submitCommand },
   budget,
   inspector,
@@ -1334,26 +1383,41 @@ const ctx = {
     },
     addCharacter: (name, tier) => prodNew(bibledoc.addCharacter(productionDoc, name, tier)),
     renameCharacter: (id, name) => prodOp(bibledoc.renameCharacter(productionDoc, id, name)),
-    removeCharacter: (id) => prodOp(bibledoc.removeCharacter(productionDoc, id)),
+    // 删除一律是**软删除**（TASK-129 / CA §5.2）：记录移进回收区，撤销走
+    // 下面成对的 `undelete*`。时间戳只给他看，不参与任何判定。
+    removeCharacter: (id) =>
+      prodOp(bibledoc.removeCharacter(productionDoc, id, new Date().toISOString())),
+    undeleteCharacter: (id) => prodOp(bibledoc.undeleteCharacter(productionDoc, id)),
     updateCharacterProfile: (id, fields) => prodOp(bibledoc.updateCharacterProfile(productionDoc, id, fields)),
     setCharacterVoice: (id, voice) => prodOp(bibledoc.setCharacterVoice(productionDoc, id, voice)),
     addCharacterState: (id, name) => prodNew(bibledoc.addCharacterState(productionDoc, id, name)),
     renameCharacterState: (id, sid, name) => prodOp(bibledoc.renameCharacterState(productionDoc, id, sid, name)),
-    removeCharacterState: (id, sid) => prodOp(bibledoc.removeCharacterState(productionDoc, id, sid)),
+    removeCharacterState: (id, sid) =>
+      prodOp(bibledoc.removeCharacterState(productionDoc, id, sid, new Date().toISOString())),
+    undeleteCharacterState: (id, sid) =>
+      prodOp(bibledoc.undeleteCharacterState(productionDoc, id, sid)),
     setCharacterStateOverrides: (id, sid, o) => prodOp(bibledoc.setCharacterStateOverrides(productionDoc, id, sid, o)),
     // TASK-057: a character may be created as a formal or a temporary (bit)
     // one, and promoted later without losing its identity or references
     setCharacterTier: (id, tier) => prodOp(bibledoc.setCharacterTier(productionDoc, id, tier)),
     addLocation: (name) => prodNew(bibledoc.addLocation(productionDoc, name)),
     renameLocation: (id, name) => prodOp(bibledoc.renameLocation(productionDoc, id, name)),
-    removeLocation: (id) => prodOp(bibledoc.removeLocation(productionDoc, id)),
+    removeLocation: (id) =>
+      prodOp(bibledoc.removeLocation(productionDoc, id, new Date().toISOString())),
+    undeleteLocation: (id) => prodOp(bibledoc.undeleteLocation(productionDoc, id)),
     updateLocationProfile: (id, fields) => prodOp(bibledoc.updateLocationProfile(productionDoc, id, fields)),
     addLocationState: (id, name) => prodNew(bibledoc.addLocationState(productionDoc, id, name)),
     renameLocationState: (id, sid, name) => prodOp(bibledoc.renameLocationState(productionDoc, id, sid, name)),
-    removeLocationState: (id, sid) => prodOp(bibledoc.removeLocationState(productionDoc, id, sid)),
+    removeLocationState: (id, sid) =>
+      prodOp(bibledoc.removeLocationState(productionDoc, id, sid, new Date().toISOString())),
+    undeleteLocationState: (id, sid) =>
+      prodOp(bibledoc.undeleteLocationState(productionDoc, id, sid)),
     setLocationStateOverrides: (id, sid, o) => prodOp(bibledoc.setLocationStateOverrides(productionDoc, id, sid, o)),
     addReferenceAsset: (id, assetId) => prodOp(bibledoc.addReferenceAsset(productionDoc, id, assetId)),
-    removeReferenceAsset: (id, assetId) => prodOp(bibledoc.removeReferenceAsset(productionDoc, id, assetId)),
+    removeReferenceAsset: (id, assetId) =>
+      prodOp(bibledoc.removeReferenceAsset(productionDoc, id, assetId)),
+    undeleteReferenceAsset: (id, assetId) =>
+      prodOp(bibledoc.undeleteReferenceAsset(productionDoc, id, assetId)),
     setActiveReferenceAsset: (id, assetId) => prodOp(bibledoc.setActiveReferenceAsset(productionDoc, id, assetId)),
     addSceneCharacter: (sceneId, cid, sid) => prodOp(bibledoc.addSceneCharacter(productionDoc, sceneId, cid, sid)),
     setSceneCharacterState: (sceneId, cid, sid) => prodOp(bibledoc.setSceneCharacterState(productionDoc, sceneId, cid, sid)),
@@ -1368,7 +1432,11 @@ const ctx = {
   canon: {
     // --- Relationship (first-class, exactly two characters) ---------------- //
     addRelationship: (a, b) => prodNew(canondoc.addRelationship(productionDoc, a, b)),
-    removeRelationship: (id) => prodOp(canondoc.removeRelationship(productionDoc, id)),
+    removeRelationship: (id) =>
+      prodOp(canondoc.removeRelationship(productionDoc, id, new Date().toISOString())),
+    // 拿回来会在「这一对已经有一段活着的关系」时被拒（canondoc 里写明了为什么
+    // 不静默合并也不静默替换）—— `prodOp` 把 false 原样传出去，界面照实说。
+    undeleteRelationship: (id) => prodOp(canondoc.undeleteRelationship(productionDoc, id)),
     updateRelationship: (id, fields) => prodOp(canondoc.updateRelationship(productionDoc, id, fields)),
     /** 改方向 — swap which side is A. The two DIRECTIONAL facets travel with it
      *  (canondoc), so flipping the arrow can never leave 「A 怎么看 B」 describing
@@ -2540,8 +2608,13 @@ const ctx = {
     editBrief: (fields) => { storydoc.editBriefDraft(storyDoc, fields); ctx.persist(); },
     briefIsDirty: () => storydoc.briefIsDirty(storyDoc),
     activeBrief: () => storydoc.activeBrief(storyDoc),
-    commitBrief: () => {
-      const rec = storydoc.commitBrief(storyDoc, "manual", "");
+    // `origin` / `instruction` are passed through so a revision the CONVERSATION
+    // produced is recorded as 「developed」 with the creator's own sentence as its
+    // instruction — the version list must say where a version came from, or an
+    // agent-made revision is indistinguishable from one he typed himself
+    // (TASK-111 / ADR-0089 决策 3).
+    commitBrief: (origin = "manual", instruction = "") => {
+      const rec = storydoc.commitBrief(storyDoc, origin, instruction);
       if (!rec) { toast("与当前版本没有差异 — 未创建新版本"); return null; }
       ctx.persist();
       refreshProductionView();
@@ -2609,6 +2682,31 @@ const ctx = {
       return ok;
     },
     setActiveBrief: (v) => prodOp(storydoc.setActiveBrief(storyDoc, v)),
+    // 版本的「删除」= 软删除（不再显示，版本链一字不动）。见 storydoc 里的规则说明。
+    hideBriefVersion: (v) => {
+      const r = storydoc.hideBriefVersion(storyDoc, v, new Date().toISOString());
+      if (r.ok) { ctx.persist(); refreshProductionView(); toast(`已删除创意简报 v${v} —— 在回收区可以撤销`); }
+      else toast(r.error);
+      return r;
+    },
+    restoreBriefVersion: (v) => {
+      const r = storydoc.restoreBriefVersion(storyDoc, v);
+      if (r.ok) { ctx.persist(); refreshProductionView(); toast(`已撤销删除 —— 创意简报 v${v} 回来了`); }
+      else toast(r.error);
+      return r;
+    },
+    hideOutlineVersion: (v) => {
+      const r = storydoc.hideOutlineVersion(storyDoc, v, new Date().toISOString());
+      if (r.ok) { ctx.persist(); refreshProductionView(); toast(`已删除故事大纲 v${v} —— 在回收区可以撤销`); }
+      else toast(r.error);
+      return r;
+    },
+    restoreOutlineVersion: (v) => {
+      const r = storydoc.restoreOutlineVersion(storyDoc, v);
+      if (r.ok) { ctx.persist(); refreshProductionView(); toast(`已撤销删除 —— 故事大纲 v${v} 回来了`); }
+      else toast(r.error);
+      return r;
+    },
     restoreBriefDraft: (v) => {
       const ok = storydoc.restoreBriefDraft(storyDoc, v);
       if (ok) toast(`已把 v${v} 的内容取回工作草稿（版本链未改动；确认后才成为新版本）`);
@@ -2644,8 +2742,8 @@ const ctx = {
       return rec;
     },
     discardProposal: () => { storydoc.discardProposal(storyDoc); refreshProductionView(); },
-    applyManualOutline: (fields) => {
-      const rec = storydoc.applyManualOutline(storyDoc, fields);
+    applyManualOutline: (fields, origin = "manual", instruction = "") => {
+      const rec = storydoc.applyManualOutline(storyDoc, fields, origin, instruction);
       ctx.persist();
       refreshProductionView();
       toast(`已保存为大纲 v${rec.v}（手工修改，旧版本保留）`);
@@ -3964,19 +4062,154 @@ const ctx = {
         case "removeRelationship":
           return bool(
             ctx.canon.removeRelationship(a.relationshipId),
-            "仍有剧集记录了这段关系的推进：先在「分集规划」移除该集的 Relationship Beat",
+            "仍有剧集记录了这段关系的推进：先在「结构规划」移除该集的 Relationship Beat",
           );
         case "swapRelationshipDirection":
           return bool(ctx.canon.swapDirection(a.relationshipId), "这段关系不存在");
-        case "proposeOutline":
-          return { ok: false, error: "大纲提案的写回路径尚未接线（本检查点只接了分镜 / 参考 / Prompt / 审片）" };
-        case "proposeScript":
-          return { ok: false, error: "剧本提案的写回路径尚未接线（本检查点只接了分镜 / 参考 / Prompt / 审片）" };
+        case "proposeOutline": {
+          // 写进他**正在看的那一页**（`story.work.outline`）。旧的大纲版本链一条不动。
+          const text = outlineProposalText(a.proposal);
+          if (!text.trim()) {
+            return { ok: false, error: "这份大纲提案里没有可写进编辑器的内容" };
+          }
+          // **不静默覆盖**（第 13 条）：接受提案是整篇替换，不是日常打字 ——
+          // 他今天写了、还没点定稿的大纲会被一次盖掉，而 `setOutline` 不留版本
+          //（它不该留：日常编辑不产生历史是产品规格）。所以存档发生在**这个边界**上。
+          //
+          // 同一个文件里的 `proposeScript` 早就是这么做的，`proposeOutline` 漏了
+          //（codex 补审 2026-09-05 块 2b）。两条路现在形状一致。
+          const at = new Date().toISOString();
+          let kept = "";
+          const had = storywork.outlineText(storyDoc.work);
+          if (had.trim()) {
+            const rec = storywork.finalizeDoc(
+              storyDoc.work,
+              "outline",
+              at,
+              "被 AI 大纲覆盖前自动存的一版",
+            );
+            kept = rec ? `（原来的 ${had.length} 字已存为 v${rec.v}）` : "";
+          }
+          const nodes = storywork.setOutline(storyDoc.work, text);
+          ctx.persist();
+          refreshProductionView();
+          return { ok: true, detail: `已写进故事大纲：${nodes.length} 段${kept}` };
+        }
+        case "proposeScript": {
+          // 写进「正文创作」的那一章/集（TASK-122）。与 `proposeOutline` 同一天补上：
+          // 它们是同一种缺陷 —— **声明了、接了、返回「尚未接线」**，能力跑完说「写好了」，
+          // 他点「用它」却什么都没发生（产品负责人 2026-08-30 撞到大纲那一次）。
+          const text = String(a.text || "").trim();
+          if (!text) return { ok: false, error: "这份提案里没有正文" };
+          const work = storyDoc.work;
+          if (!work || !work.form) {
+            return { ok: false, error: "还没选小说创作还是剧集创作 —— 去「正文创作」选一个再来" };
+          }
+          // 写到哪一集：**当前这一集**，按它在列表里的位置对到第几集。
+          // 小说模式没有「当前集」这个概念，猜一个章号会把它写到别处 —— 说清楚，不猜。
+          if (work.form !== "episode") {
+            return {
+              ok: false,
+              error: "这是小说模式，我不知道该写第几章 —— 在「正文创作」里打开那一章再让我写",
+            };
+          }
+          const idx = (productionDoc.episodes || []).findIndex(
+            (e) => e.episodeId === productionDoc.activeEpisodeId,
+          );
+          if (idx < 0) return { ok: false, error: "现在没有选中的剧集" };
+          const at = new Date().toISOString();
+          const unit = storywork.ensureUnit(work, "episode", idx + 1, at);
+          if (!unit) return { ok: false, error: `第 ${idx + 1} 集不是一个有效的编号` };
+          // **不静默覆盖**（第 13 条）：已经写过的内容先存成一版定稿，再写新的。
+          let kept = "";
+          if ((unit.body || "").trim()) {
+            const rec = storywork.finalizeUnit(work, unit.id, at, "被 AI 正文覆盖前自动存的一版");
+            kept = rec ? `（原来的 ${unit.body.length} 字已存为 v${rec.v}）` : "";
+          }
+          storywork.editUnit(work, unit.id, "body", text, at);
+          ctx.persist();
+          refreshProductionView();
+          return { ok: true, detail: `已写进第 ${idx + 1} 集正文：${text.length} 字${kept}` };
+        }
         case "proposeBible":
           return { ok: false, error: "人物 / 场景地提案请走「作品设定」的剧本拆解确认门" };
         default:
           return { ok: false, error: `动作「${a.action}」尚未接线` };
       }
+    },
+  },
+
+  // ---------------------------------------------------------------------- //
+  // 3D 导演台（TASK-123 / ADR-0094）—— 每一镜的白膜。
+  //
+  // 与其它创作数据同一条写路径：**他在俯视图里拖**和 **Agent 调 `blocking.*` 动作**
+  // 走的是 `workflow/blocking.js` 里同一组函数（决策 5）。
+  // ---------------------------------------------------------------------- //
+  blocking: {
+    /** 这一镜的白膜。没有就**当场建一份空的** —— 打开导演台就该能摆，
+     *  而不是先让他点一个「初始化」。 */
+    of: (shotId) => {
+      if (!shotId) return null;
+      const prod = productionDoc;
+      if (!prod.blocking[shotId]) {
+        prod.blocking[shotId] = blocking.createBlocking(null);
+      }
+      return prod.blocking[shotId];
+    },
+    /** 一次改动 + 落盘。`fn` 拿到的是那一镜的白膜本身。 */
+    edit: (shotId, fn) => {
+      const b = ctx.blocking.of(shotId);
+      if (!b) return { ok: false, error: "没有选中的镜头" };
+      const out = fn(b);
+      ctx.persist();
+      return { ok: true, out };
+    },
+    /** 把录下来的一段白膜登记成资产（ADR-0094 决策 4）。
+     *
+     *  **复用既有的 `motionpreview` 那条链** —— 仓库里早就有这个 kind，注释里就叫
+     *  「白膜视频」，而且它**不参与成片判定**（一段白膜混进镜头视频那条链，会让
+     *  六十个镜头看起来都拍完了）。为 3D 导演台另造一个 kind 只会有两个词表达同一件事。
+     *
+     *  不记 Generation：白膜零花费、没有参考、也不是这一镜的画面 —— 与 motionctl
+     *  在同一个位置写下的理由完全一样。 */
+    saveTake: async (shotId, blob, seconds) => {
+      const project = session.projectName();
+      if (!project) return { ok: false, error: "演示模式没有后端，白膜存不下来" };
+      const shot = (productionDoc.draftShots || []).find((s) => s && s.shotId === shotId) || null;
+      const key = `blocking-${shotId}`;
+      let res;
+      try {
+        const file = new File([blob], `${key}.webm`, { type: blob.type || "video/webm" });
+        res = await uploadAssetImage(project, `video-${key}`, file);
+      } catch (e) {
+        // 后端的 fail-closed 原样转达，不改写成「稍后重试」那种什么都没说的话
+        return { ok: false, error: (e && (e.detail || e.message)) || "上传失败" };
+      }
+      if (session.projectName() !== project) {
+        return {
+          ok: false,
+          error: `白膜录好了，但你已经切到别的项目 —— 这一段留在「${project}」里没有登记`,
+        };
+      }
+      const ref = mediaref.refFromResponse(key, "blocking", res, shotId);
+      const decl = assetreg.declare(ref, "videos", {
+        kind: "motionpreview",
+        displayName: `白膜 · ${(shot && shot.title) || shotId} v${res.version || 1}`,
+        originalFilename: null,
+        links: { shotId },
+      });
+      if (!decl.ok) return { ok: false, error: `录好了但没登记上：${decl.error}` };
+      mediaref.addVersion({ uploads: assetRegistry.videos }, key, ref);
+      const b = ctx.blocking.of(shotId);
+      if (b) {
+        b.takes.push({
+          assetId: ref.assetId || key,
+          at: new Date().toISOString(),
+          seconds: Number(seconds) || 0,
+        });
+      }
+      ctx.persist();
+      return { ok: true, assetId: ref.assetId || key };
     },
   },
 
@@ -4707,15 +4940,23 @@ const ctx = {
    * Deterministic issue ids: keyed on the episode and the row, never on a clock, so
    * re-running the report does not mint a second copy of the same finding.
    */
-  /** Every registered cut, oldest first. Finals have no chain (assetreg §492),
-   *  so registration order IS version order. */
+  /** Everything the delivery QC can be run against, oldest first. Finals have no
+   *  chain (assetreg §492), so registration order IS version order.
+   *
+   *  BOTH KINDS. A `cut` is the candidate this whole gate exists for; a `final` is
+   *  included because (a) records written before 2026-09-04 are all `final` — the
+   *  only thing an existing project HAS — and (b) 「成片预览 · 与规格对照」 is a real
+   *  thing to do to an exported film. What differs between them is not whether they
+   *  can be measured, it is whether they may still be exported (`exportable`). */
   _cuts: () =>
     ctx.assets
       .list()
-      .filter((a) => a && a.kind === "final" && a.url)
+      .filter((a) => a && (a.kind === "cut" || a.kind === "final") && a.url)
       .map((a) => ({
         assetId: a.assetId,
         url: a.url,
+        kind: a.kind,
+        exportable: a.kind === "cut",
         name: String(a.url).split("/").filter(Boolean).pop() || "",
       }))
       .filter((c) => c.name),
@@ -4785,6 +5026,7 @@ const ctx = {
     const report = deliveryqc.runDeliveryQc(
       {
         probe: DELIVERY_PROBE.probe,
+        probeAssetId: DELIVERY_PROBE.assetId,
         subtitleTrack: ctx.subtitles.track(),
         spec: { ...deliverySpecDoc },
         assets: ctx._cutAssets(),
@@ -4809,6 +5051,54 @@ const ctx = {
       probe: ctx.probeState(),
       hasCut: ctx._cuts().length > 0,
     };
+  },
+
+  /**
+   * 交付：候选 → 质检 → **用户确认导出** → Final（系统合同 §6.5 / TASK-074 §1.7）。
+   *
+   * THIS IS WHERE G4 BECAME REAL. Until now `g4Export` produced a verdict that was
+   * only ever PRINTED: `render()` registered the Final itself, so 「有阻断问题」 and
+   * 「已经是成片了」 could both be true at once. The gate has to sit on the write, not
+   * on a panel — a gate that only lives on a screen is bypassed by the next path that
+   * writes (an Agent action, a deep link, an older page).
+   *
+   * FAIL-CLOSED, AND IT SAYS WHICH PROBLEMS. A refusal that does not name the blockers
+   * leaves the creator with nothing to do about it.
+   */
+  delivery: {
+    /** Can this candidate be exported right now? `{ ok, reason, blockingIssueIds }`.
+     *  Pure read — the panel renders it, the write path re-asks it. Two callers, ONE
+     *  answer: a button that is enabled by one rule and refused by another is the
+     *  「说了不算数」 failure in its most confusing form. */
+    exportability: (assetId) => {
+      // 判定住在 `workflow/deliveryexport.js`（纯函数，可测）；这里只把三样输入递过去。
+      const { report } = ctx.deliveryQc();
+      return deliveryExportability({
+        cut: ctx._cuts().find((c) => c.assetId === assetId) || null,
+        probe: ctx.probeState(),
+        report,
+      });
+    },
+
+    /**
+     * 导出成片 —— **唯一**登记 `kind: "final"` 的地方。
+     *
+     * G5：append 新版本，旧 Final 与候选的字节、记录一字不动。
+     */
+    exportCut: (assetId) => {
+      // 逻辑住在 `workflow/deliveryexport.js`（纯函数 + 票）；这里只递输入、持久化、重画。
+      const { report } = ctx.deliveryQc();
+      const rec = deliveryExportCut({
+        reg: assetRegistry,
+        cut: ctx._cuts().find((c) => c.assetId === assetId) || null,
+        probe: ctx.probeState(),
+        report,
+        episodeId: (productionDoc && productionDoc.activeEpisodeId) || null,
+      });
+      ctx.persist();
+      refreshProductionView();
+      return rec;
+    },
   },
   // Storage-management controller (M11-D): built on the EXISTING M5
   // storageState lifecycle — no second state system. Byte removal keeps the
@@ -4905,7 +5195,35 @@ const ctx = {
     // workflow nodes (identical slug namespace, so files land alongside node
     // uploads); when the prompt flow was used, the Generation Registry gets a
     // REAL record (promptSnapshot = the copied text, provider = the entry).
-    importShotMedia: async (kind, slot, shotId, file, intent) => {
+    // `opts.response` —— **服务端已经把文件写好了**（免费自动出图那条路，TASK-139）：
+    // 跳过上传，其余登记逻辑一字不动。
+    //
+    // 加一个参数而不是另写一条登记路：`kind: "shot-image"` 的写入者只能有一个，
+    // 否则「这张图属于哪一镜、算不算一次生成」会有两处答案，而它们迟早不一致
+    // （同 ADR-0055 / CP2 的理由）。origin 由调用方给，于是溯源里看得出它不是上传。
+    /** 免费自动出图（TASK-139 / REQ-008 判据 1）：后端出图并写进这一镜的槽位，
+     *  然后**走与手工导入完全相同的登记路**（下面那个 `importShotMedia`）。
+     *
+     *  于是「自动出的图」和「手工传的图」在资产登记、版本链、溯源上是同一种东西 ——
+     *  区别只有 `origin`，而那正是应该有区别的地方。 */
+    generateShotImage: async (slot, shotId, prompt) => {
+      if (!CONNECTED) throw new Error("演示模式无后端");
+      const res = await command.accountImageGenerate(
+        PROJECT_NAME,
+        `assets-${slot}`,
+        prompt,
+      );
+      await ctx.media.importShotMedia(
+        "image",
+        slot,
+        shotId,
+        null,
+        { shotId, prompt, entry: "account-image" },
+        { response: res, origin: "account-image" },
+      );
+      return res;
+    },
+    importShotMedia: async (kind, slot, shotId, file, intent, opts = {}) => {
       if (!CONNECTED) {
         throw new Error("演示模式无后端，无法导入文件（复制提示词仍可用）");
       }
@@ -4919,7 +5237,10 @@ const ctx = {
       // that states something the bytes contradict, and the one thing CP2's
       // rules exist to prevent. Checked BEFORE the upload, so a refusal never
       // leaves a file on disk.
-      const fileDomain = mediaDomainOfFile(file);
+      // 服务端写好的那条路没有 File 可验；它的字节由后端的 magic 校验把关
+      // （`_agent_image_account` 里那一段），所以这里不是少了一道闸，是那道闸
+      // 在写盘之前就已经跑过了。
+      const fileDomain = file ? mediaDomainOfFile(file) : domain;
       if (!fileDomain) {
         throw new Error("无法识别文件类型：请上传 png/jpg/webp 或 mp4/webm");
       }
@@ -4932,9 +5253,11 @@ const ctx = {
       // checked BEFORE the upload — see ctx.audio.importKey
       const pre = assetreg.checkDeclaration(domain, { kind: declKind });
       if (pre) throw new Error(`登记被拒绝，未上传：${pre}`);
-      const res = await command.uploadAssetImage(PROJECT_NAME, slug, file);
+      const res = opts.response
+        ? opts.response
+        : await command.uploadAssetImage(PROJECT_NAME, slug, file);
       const map = kind === "image" ? assetRegistry.images : assetRegistry.videos;
-      const ref = mediaref.refFromResponse(slot, "upload", res, shotId ?? null);
+      const ref = mediaref.refFromResponse(slot, opts.origin || "upload", res, shotId ?? null);
       // CP2/ADR-0055: the import declares WHAT this is and WHERE it belongs, in
       // the same call that writes it — the shot is known, so its episode/scene
       // context is a provable fact, not a guess.
@@ -5059,6 +5382,18 @@ const ctx = {
     if (!CONNECTED) return Promise.reject(new Error("演示模式无后端"));
     return command.ttsGenerate(PROJECT_NAME, slug, text, fitSlug);
   },
+  // 免费自动出图（TASK-139 / ADR-0100）：**不看 PAID**，因为这条路的前提就是
+  // 「不产生按次账单」。付费开关管的是「允许产生账单」，把它套在这里等于让他
+  // 为了出一张不花钱的图而把付费视频命令也一起打开（ADR-0100 决策 5）。
+  accountImage: (slug, prompt, acknowledgeUnknown) => {
+    if (!CONNECTED) return Promise.reject(new Error("演示模式无后端"));
+    return command.accountImageGenerate(
+      PROJECT_NAME,
+      slug,
+      prompt,
+      acknowledgeUnknown,
+    );
+  },
   // paid image generation (ADR-0045): PAID mode only, price already confirmed
   // by the caller's per-image dialog and echoed for the server-side check
   paidImage: (slug, prompt, confirmUsd) => {
@@ -5124,7 +5459,9 @@ const ctx = {
     ),
   // composed finals: registry-owned records, url view for every consumer
   finalUrls: () => assetlib.finalUrls(assetRegistry),
-  addFinal: (url) => assetlib.addFinal(assetRegistry, url),
+  // 合成产出的是**候选**（TASK-074 §1.7）。登记 Final 的唯一入口是
+  // `ctx.delivery.exportCut`，它先问 G4。
+  addCut: (url) => assetlib.addCut(assetRegistry, url),
   // M5 — Generation Registry helpers. startGeneration freezes the inputs /
   // prompt / model / target at LAUNCH; complete/fail update the SAME record by
   // generationId and NEVER re-derive inputs — so a result landing after the
@@ -6265,7 +6602,74 @@ const wfExit = $("#wf-tab-exit");
 if (wfExit) wfExit.onclick = () => setTopMode("episode");
 const wfCanvasTab = $("#wf-tab-canvas");
 if (wfCanvasTab) wfCanvasTab.onclick = () => showDiagnosticCanvas(true);
-$("#proj-switch").onclick = () => { views.goHome(); clearUrl(); };
+// THE ▾ NOW OPENS WHAT IT DRAWS (产品负责人 2026-08-27:「这里不应该是点击可以选择不同
+// 项目的吗」). It drew a caret and said 「切换项目」 while doing `goHome()` — a control that
+// promises one thing and does another costs him the discovery every single time.
+//
+// Switching goes through `enterCanvas`, the SAME entry the landing cards use, so a
+// switch from here and a click on a card cannot land in two different states.
+// 「返回项目列表…」 stays as the last item: that is still where a project is created.
+const projMenu = $("#projmenu");
+function closeProjMenu() {
+  if (!projMenu) return;
+  projMenu.hidden = true;
+  const b = $("#proj-switch");
+  if (b) b.setAttribute("aria-expanded", "false");
+}
+function openProjMenu() {
+  if (!projMenu) return;
+  const local = projects.loadRegistry(window.localStorage);
+  const cards = projects.projectCards({
+    local,
+    remote: CONNECTED ? REAL_NAMES : [],
+    includeCanvas: !CONNECTED,
+    demo: CONNECTED ? null : { name: DEMO_PROJECT_NAME, assetRoot: "", openedAt: "" },
+  });
+  const rows = cards
+    .map((c) => {
+      const on = c.name === PROJECT_NAME;
+      const tag = c.kind === "real" ? "真实项目" : c.kind === "demo" ? "演示项目" : "画布项目";
+      return (
+        `<button data-pm-open="${esc(c.name)}"${on ? ' class="on"' : ""}>` +
+        `<span class="tick">${on ? "✓" : ""}</span>` +
+        `<span>${esc(c.name)}</span>` +
+        `<span class="chip mute" style="margin-left:auto">${esc(tag)}</span></button>`
+      );
+    })
+    .join("");
+  projMenu.innerHTML =
+    `<div class="pm-h">切换项目</div>` +
+    (rows || `<div class="pm-h">还没有别的项目</div>`) +
+    `<div class="pm-sep"></div>` +
+    `<button data-pm-home="1"><span class="tick"></span><span>返回项目列表…</span></button>`;
+  projMenu.hidden = false;
+  const btn = $("#proj-switch");
+  if (btn) btn.setAttribute("aria-expanded", "true");
+  projMenu.querySelectorAll("[data-pm-open]").forEach((b) => (b.onclick = () => {
+    const name = b.dataset.pmOpen;
+    closeProjMenu();
+    if (name === PROJECT_NAME) return; // already here — a no-op, never a reload
+    projects.touchProject(window.localStorage, name, new Date().toISOString());
+    enterCanvas(name, { route: loadLastRoute(window.localStorage, name) });
+  }));
+  const home = projMenu.querySelector("[data-pm-home]");
+  if (home) home.onclick = () => { closeProjMenu(); views.goHome(); clearUrl(); };
+}
+$("#proj-switch").onclick = (ev) => {
+  ev.stopPropagation();
+  if (projMenu && projMenu.hidden) openProjMenu();
+  else closeProjMenu();
+};
+// click-away and Esc close it: a menu that only closes by re-clicking its own button
+// is a menu that gets left open on top of the work
+document.addEventListener("click", (ev) => {
+  if (!projMenu || projMenu.hidden) return;
+  if (projMenu.contains(ev.target) || (ev.target.closest && ev.target.closest("#proj-switch"))) return;
+  closeProjMenu();
+});
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") closeProjMenu();
+});
 
 // Every locked plan a paid op could have been minted under: each scriptgen
 // version keeps its own `locked` bridge, so a paid op from a PRIOR (re-locked)
@@ -7076,8 +7480,8 @@ async function enterCanvas(name, opts = {}) {
   renderBudget();
   $("#proj-name").textContent = name;
   $("#proj-switch").title = ctx.project.assetRoot
-    ? `资产位置：${projects.assetPathFor(ctx.project.assetRoot, name)}（点击返回项目列表）`
-    : "点击返回项目列表";
+    ? `资产位置：${projects.assetPathFor(ctx.project.assetRoot, name)}（点击切换项目）`
+    : "点击切换项目";
   views.goCanvas();
   if (opts.seedDemo) {
     // A re-entry must rebuild the demo from scratch: these registries are
@@ -7298,14 +7702,66 @@ async function loadProjectCards(names) {
   }
 }
 
+/** Remove one project from the LIST. Never from the disk (ADR-0090 决策 1/2).
+ *
+ *  产品负责人 2026-08-27:「删除前端。后端的文件留下就好了啊。」 So the confirmation says
+ *  exactly that, and the answer repeats where the folder still is — otherwise
+ *  「删了怎么还占着盘」 becomes the next question.
+ *
+ *  The project he is INSIDE cannot be removed from under him (判据 4): the interface
+ *  would go on working against something the list no longer has.
+ */
+async function removeProjectCard(card) {
+  const name = card.name;
+  if (canvasActive && name === PROJECT_NAME) {
+    toast("这是当前打开的项目 —— 先切到别的项目或回到主页，再移除它");
+    return;
+  }
+  const where = card.kind === "real" ? "服务端的项目列表" : "本机的项目列表";
+  if (!window.confirm(
+    `把「${name}」从${where}里移除？\n\n` +
+    `磁盘上的项目文件夹不会被删除，也不会被移动 —— 要清理的话你自己删。\n` +
+    `重新打开那个文件夹就能把它加回来。`,
+  )) return;
+  if (card.kind === "real") {
+    const res = await query.unregisterProject(name);
+    if (!res.ok) {
+      toast(`没能移除：${(res.error && (res.error.detail || res.error.message)) || "未知原因"}`);
+      return;
+    }
+    REAL_NAMES = REAL_NAMES.filter((n) => n !== name);
+    // the local registry may ALSO carry a row for the same name (he opened it once);
+    // leaving that behind would put the card straight back on the next render
+    projects.removeProject(window.localStorage, name);
+    toast(res.keptAt ? `已从列表移除。文件仍在：${res.keptAt}` : "已从列表移除，文件未删除");
+  } else {
+    const res = projects.removeProject(window.localStorage, name);
+    if (!res.ok) {
+      toast(res.error || "没能移除");
+      return;
+    }
+    toast("已从本机列表移除，磁盘文件未删除");
+  }
+  renderLanding(REAL_NAMES);
+}
+
 function renderLanding(realNames) {
   const projectsError = LIST_ERROR;
   const grid = $("#projgrid");
-  [...grid.querySelectorAll(".pcard")].forEach((c) => c.remove());
+  // REMOVE THE WRAPPER, NOT JUST THE CARD. Since the ✕ became a SIBLING of the
+  // card inside `.pcardwrap`, clearing only `.pcard` left the wrapper (and its
+  // delete button) on screen — one more orphan ✕ per re-render.
+  [...grid.querySelectorAll(".pcardwrap, .pcard")].forEach((c) => c.remove());
   const local = projects.loadRegistry(window.localStorage);
   const cards = projects.projectCards({
     local,
     remote: CONNECTED ? realNames : [],
+    // CONNECTED: the backend list IS the project list. A local row with no backend
+    // project behind it is residue from an earlier prototype session, and drawing it
+    // as a card is what filled this page with projects that do not exist
+    // (产品负责人 2026-08-29:「画面不对啊。有很多不存在的项目」). The rows stay in
+    // localStorage — they still carry assetRoot/openedAt for the real cards.
+    includeCanvas: !CONNECTED,
     // the seeded demo is always offered in demo mode — it is what makes the
     // studio explorable without any real data
     demo: CONNECTED ? null : { name: DEMO_PROJECT_NAME, assetRoot: "", openedAt: "" },
@@ -7362,13 +7818,32 @@ function renderLanding(realNames) {
     // `HEAD` can be declined by a server that still serves `GET`, so the `<img>`
     // is the last word — and when it says the bytes are unfetchable, the next
     // candidate takes over instead of a broken glyph becoming the project's face.
+    // DELETE, as a SIBLING of the card rather than a child (REQ-005 / ADR-0090).
+    //
+    // `pcard` is a <button>; nesting another button inside it is invalid HTML and the
+    // click would bubble into 「open this project」 — the worst possible mis-click for
+    // a destructive-looking control.
+    const wrap = document.createElement("div");
+    wrap.className = "pcardwrap";
+    const del = document.createElement("button");
+    del.className = "pdel";
+    del.type = "button";
+    del.title = `从列表移除「${c.name}」（磁盘上的文件不动）`;
+    del.setAttribute("aria-label", del.title);
+    del.textContent = "✕";
+    del.onclick = (ev) => {
+      ev.stopPropagation();
+      removeProjectCard(c);
+    };
     const img = b.querySelector("[data-pcard-cover]");
     if (img) {
       img.onerror = () => {
         if (mediaProbe.observe(img.dataset.mediaUrl, false)) renderLanding(realNames);
       };
     }
-    grid.appendChild(b);
+    wrap.appendChild(b);
+    wrap.appendChild(del);
+    grid.appendChild(wrap);
   }
 }
 

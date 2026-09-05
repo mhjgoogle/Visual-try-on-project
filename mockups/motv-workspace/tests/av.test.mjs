@@ -413,7 +413,7 @@ test("removeAssetRecord: chain surgery re-points current; emptied key removed; f
   assert.equal(reg.videos["v1-1"].current, 1); // re-pointed to newest remaining
   assert.equal(al.removeAssetRecord(reg, "asset-v1"), true);
   assert.ok(!("v1-1" in reg.videos)); // empty chain key removed
-  const fin = al.addFinal(reg, "/u/final-cut-v1.mp4");
+  const fin = al.addCut(reg, "/u/final-cut-v1.mp4");
   assert.match(fin.assetId, /^asset-/); // final render = stable Asset
   assert.equal(fin.storageState, "local");
   assert.equal(al.removeAssetRecord(reg, fin.assetId), true);

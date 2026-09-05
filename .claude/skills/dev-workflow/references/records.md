@@ -100,6 +100,13 @@ v1 标题行就地补 `（superseded by v2）`，内容一字不动。
 
 卡保持轻量——上面每节几行即可，不写几十页。
 
+**Milestone Gate 判「现在不做」时落的卡更轻**（SKILL.md 第 0.5c ·
+[ADR-0101](../../../../docs/adr/ADR-0101-idea-intake-level-and-milestone-gate.md) 决策 3）：
+标题 + `技术目标：`（或 `关联 Requirement：`）+ 一行「为什么现在不做 ·
+**什么条件下它会变成该做**」就够，直接落 `docs/tasks/backlog/`。
+最后那半句是 `backlog/` 与垃圾桶的区别；缺了基础字段则是 `ORPHAN_TASK`。
+它**不建 REQ、不进 Understanding Gate** —— 那两步是放行之后的事。
+
 **卡不是调查记录本。** 调查过程、试错、原始输出属于一次性产物：留 `.claude/tmp/`
 或会话 scratchpad，收口时把**结论几行**写进卡然后删原件（AGENTS.md 第 26 条）。
 

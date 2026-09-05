@@ -332,7 +332,7 @@ function pickerHtml(p) {
  *  one session, so there is one place that answers 「Agent 现在在看什么」.
  *  Its seven items and every one of its actions are rendered verbatim.
  */
-export function renderAgentSession(m, { panel = "" } = {}) {
+export function renderAgentSession(m, { panel = "", split = false } = {}) {
   const chips = m.context.length
     ? m.context
         .map(
@@ -349,33 +349,26 @@ export function renderAgentSession(m, { panel = "" } = {}) {
         )
         .join("")
     : `<span class="meta">还没有引用任何对象——输入 <b>@</b> 可以把镜头 / 角色 / 场景 / 场景地 / 资产 / 剧集加进来。</span>`;
-  return (
-    `<section class="dir-sec open as-sec">` +
-    `<div class="dir-sec-h static"><span class="ti">会话</span>` +
-    `<span class="su"><span class="chip mute">${m.skillCount} 个能力</span></span></div>` +
-    `<div class="dir-sec-b as-body">` +
-    `<div class="lab">当前上下文</div>` +
-    `<div class="as-ctx">${chips}</div>` +
+  // WHAT YOU TYPE INTO. Kept together so it can be pinned to the bottom of the
+  // column (REQ-004 判据 4) — the one element that must never move as the
+  // Director finds more to say above it.
+  const composer =
+    // ONLY WHEN THERE IS ONE. Three lines to say 「你还没引用任何对象」 is the kind of
+    // furniture 产品负责人 2026-08-27 asked to stop adding; `@` still works, and the
+    // moment he uses it the chips (and this label) appear.
+    (m.context.length ? `<div class="lab">当前上下文</div><div class="as-ctx">${chips}</div>` : "") +
     (m.skill
       ? `<div class="lab">要做什么</div>` +
         `<div class="as-task"><b>${esc(m.skill.title)}</b>` +
         `<span class="chip mute">${esc(m.skill.role)}</span>` +
         `<button class="as-cx" data-as-clearskill="1" title="换一个能力">✕</button></div>`
       : "") +
-    `<textarea class="field as-input" rows="3" spellcheck="false" ` +
-    `placeholder="说你要做什么。/ 唤出能力，@ 引用对象">${esc(m.text)}</textarea>` +
-    pickerHtml(m.pick) +
-    `<div class="as-acts">` +
-    (m.blocked
-      ? `<div class="dir-unavail">◌ ${esc(m.blocked)}</div>`
-      : `<button class="btn primary sm" data-as-run="1">运行「${esc(m.skill.title)}」</button>`) +
-    `</div>` +
     // WHAT ACTUALLY GOES OUT, spelled out. The session accepts six kinds and free
     // text; the run contract carries two of them. Saying which is which is the
     // difference between a session and a box that quietly eats what you type.
     // PRINTED FROM `recorded`, i.e. from `scopeOf` itself — never from a local
     // guess about what it would keep.
-    `<div class="meta">这次运行会被记为：` +
+    (m.skill ? `<div class="meta">这次运行会被记为：` : `<div class="meta" hidden>`) +
     `<b>${esc(m.skill ? m.skill.title : "（还没选能力）")}</b>` +
     (m.recorded
       ? [
@@ -395,6 +388,33 @@ export function renderAgentSession(m, { panel = "" } = {}) {
         `没有可以放它们的位置。它们留在这里作为你自己的笔记；` +
         `想按自己的说法跑，用下面「能力」里的「查看任务 Prompt」+ 手工运行。</div>`
       : "") +
+    // THE BOX IS LAST (REQ-004 判据 4). Everything explanatory sits ABOVE it,
+    // the way a chat console puts its input at the very bottom — a note printed
+    // BELOW the box is the line that gets clipped by the band edge.
+    `<textarea class="field as-input" rows="3" spellcheck="false" ` +
+    `placeholder="说你要做什么。/ 唤出能力，@ 引用对象">${esc(m.text)}</textarea>` +
+    pickerHtml(m.pick) +
+    `<div class="as-acts">` +
+    // REQ-004 v2 — 「能和你对话」: with no capability chosen, the primary action is
+    // SEND, not a notice explaining why nothing can run. The declared-input
+    // contract still governs capabilities (`data-as-run`); free text goes to the
+    // conversation turn instead (ADR-0089), which is the whole point.
+    (m.skill
+      ? (m.blocked
+        ? `<div class="dir-unavail">◌ ${esc(m.blocked)}</div>`
+        : `<button class="btn primary sm" data-as-run="1">运行「${esc(m.skill.title)}」</button>`)
+      // NEVER `disabled` FROM RENDER STATE. The box deliberately does not re-render
+      // on every keystroke (that would move the caret), so a render-time `disabled`
+      // stays stuck at 「the text was empty when this was drawn」 — the creator types a
+      // whole sentence and the button never wakes up. It did exactly that
+      // (产品负责人 2026-08-27: 「根本得按不了发送」). The empty case is refused by the
+      // handler, and `bind` keeps the LOOK in sync by toggling a class — no re-render.
+      : `<button class="btn primary sm${m.text.trim() ? "" : " dim"}" data-as-send="1">发送</button>` +
+        `<span class="meta as-hint">Enter 发送 · Shift+Enter 换行</span>`) +
+    `</div>`;
+  // WHAT ALREADY HAPPENED. Scrolls above the composer, because history grows and
+  // an input box that history pushes down is the thing this split removes.
+  const history =
     (m.runs.length
       ? `<div class="lab">运行记录</div><ul class="as-runs">` +
         m.runs
@@ -407,7 +427,30 @@ export function renderAgentSession(m, { panel = "" } = {}) {
           .join("") +
         `</ul>`
       : `<div class="meta">这个会话还没有运行记录。</div>`) +
-    (panel ? `<div class="lab">这一页的诊断</div>${panel}` : "") +
+    (panel ? `<div class="lab">这一页的诊断</div>${panel}` : "");
+  const head =
+    `<div class="dir-sec-h static"><span class="ti">会话</span>` +
+    `<span class="su"><span class="chip mute">${m.skillCount} 个能力</span></span></div>`;
+  // TWO PLACES, ONE MODEL (REQ-004 判据 4/5). `split` only changes WHERE the two
+  // halves are mounted — both are still rendered, so nothing a creator could
+  // reach before became unreachable.
+  if (split) {
+    return {
+      history:
+        `<section class="dir-sec open as-sec as-history">` +
+        head +
+        `<div class="dir-sec-b as-body">${history}</div></section>`,
+      composer:
+        `<section class="dir-sec open as-sec as-composer">` +
+        `<div class="dir-sec-b as-body">${composer}</div></section>`,
+    };
+  }
+  return (
+    `<section class="dir-sec open as-sec">` +
+    head +
+    `<div class="dir-sec-b as-body">` +
+    composer +
+    history +
     `</div></section>`
   );
 }
@@ -424,7 +467,7 @@ export function stripToken(text) {
   return text.slice(0, tok.start);
 }
 
-export function bindAgentSession(root, ctx, ui, render, { onRun } = {}) {
+export function bindAgentSession(root, ctx, ui, render, { onRun, onSend } = {}) {
   const st = sessionState(ui);
   const box = root.querySelector(".as-input");
   if (box) {
@@ -473,4 +516,34 @@ export function bindAgentSession(root, ctx, ui, render, { onRun } = {}) {
   if (clear) clear.onclick = () => { st.skillId = null; render(); };
   const run = root.querySelector("[data-as-run]");
   if (run) run.onclick = () => { if (onRun) onRun(st.skillId); };
+  // --- free text (REQ-004 v2 / ADR-0089) ---------------------------------- //
+  const send = () => {
+    const text = String(st.text || "").trim();
+    if (!text || !onSend) return;
+    // cleared HERE, before the await: a message that stays in the box after it was
+    // sent gets sent twice by a creator who thinks the first press missed.
+    st.text = "";
+    st.pick = null;
+    onSend(text);
+  };
+  const sendBtn = root.querySelector("[data-as-send]");
+  if (sendBtn) sendBtn.onclick = send;
+  if (box && sendBtn) {
+    // keep the affordance honest without repainting the textarea
+    const sync = () => sendBtn.classList.toggle("dim", !String(box.value || "").trim());
+    box.addEventListener("input", sync);
+    sync();
+  }
+  if (box) {
+    box.onkeydown = (ev) => {
+      // Enter sends, Shift+Enter is a newline — the shape of every chat box he
+      // already uses. IME composition must never send: pressing Enter to accept
+      // a Chinese candidate would otherwise fire the message mid-word.
+      if (ev.key !== "Enter" || ev.shiftKey || ev.isComposing || ev.keyCode === 229) return;
+      if (st.skillId) return; // a chosen capability runs through its own button
+      ev.preventDefault();
+      st.text = box.value;
+      send();
+    };
+  }
 }

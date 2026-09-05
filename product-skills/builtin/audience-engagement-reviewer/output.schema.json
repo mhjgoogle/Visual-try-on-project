@@ -1,0 +1,141 @@
+{
+  "type": "object",
+  "required": [
+    "summary",
+    "readWhat",
+    "coreAlignment",
+    "engagementLevel",
+    "findings",
+    "recommendations"
+  ],
+  "fields": {
+    "summary": {
+      "type": "string",
+      "nonEmpty": true
+    },
+    "readWhat": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "of": {
+        "type": "string",
+        "nonEmpty": true
+      }
+    },
+    "coreAlignment": {
+      "type": "object",
+      "required": [
+        "verdict",
+        "note"
+      ],
+      "fields": {
+        "verdict": {
+          "type": "number",
+          "values": [
+            0,
+            1,
+            2
+          ]
+        },
+        "note": {
+          "type": "string",
+          "nonEmpty": true
+        }
+      }
+    },
+    "engagementLevel": {
+      "type": "number",
+      "values": [
+        1,
+        2,
+        3
+      ]
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 20,
+      "of": {
+        "type": "object",
+        "required": [
+          "category",
+          "where",
+          "summary",
+          "severity",
+          "evidence",
+          "audienceEffect"
+        ],
+        "fields": {
+          "category": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "where": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "summary": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "severity": {
+            "type": "number",
+            "values": [
+              1,
+              2,
+              3
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "audienceEffect": {
+            "type": "string",
+            "nonEmpty": true
+          }
+        }
+      }
+    },
+    "recommendations": {
+      "type": "array",
+      "maxItems": 10,
+      "of": {
+        "type": "object",
+        "required": [
+          "priority",
+          "what",
+          "expectedEffect"
+        ],
+        "fields": {
+          "priority": {
+            "type": "number"
+          },
+          "what": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "expectedEffect": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "suggestedSkillId": {
+            "type": "string",
+            "nonEmpty": false
+          }
+        }
+      }
+    },
+    "worksWell": {
+      "type": "array",
+      "maxItems": 8,
+      "of": {
+        "type": "string",
+        "nonEmpty": true
+      }
+    },
+    "notes": {
+      "type": "string",
+      "nonEmpty": false
+    }
+  }
+}

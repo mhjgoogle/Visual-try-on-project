@@ -22,7 +22,7 @@ import {
   createCache, put, get, forget, forgetShot, cacheKey, serialize, SCOPES, MAX_ENTRIES,
 } from "../src/workflow/ctxcache.js";
 import { SKILLS, findSkill, missingInputs, isShotScoped, SHOT_SCOPED_INPUTS, SKILL_INPUTS, compilePrompt } from "../src/workflow/skills.js";
-import { EXECUTORS, WORK_KINDS, suggestExecutor } from "../src/services/runtime.js";
+import { EXECUTORS, WORK_KINDS, suggestExecutor, independenceDegraded } from "../src/services/runtime.js";
 import { planApply, applicability, applicabilityFor } from "../src/workflow/skillapply.js";
 import { ACTIONS, validate, allowedAt, CURRENT_LEVEL } from "../src/workflow/actions.js";
 import { OPERATIONS, primaryOperation, renderShotDirector, shotDirectorModel, operationOfRun } from "../src/ui/directorshot.js";
@@ -785,8 +785,12 @@ test("every capability declares the KIND of work it does, and review is review",
   }
   const review = SKILLS.filter((s) => s.work === "review").map((s) => s.skillId).sort();
   assert.deepEqual(review, [
-    "asset-librarian", "continuity-reviewer", "prompt-reviewer",
-    "script-doctor", "shot-continuity-reviewer", "subtitle-reviewer",
+    // TASK-119 加了两个诊断类：跨层同步（story-zoom）与观众视角审读
+    // （audience-engagement-reviewer）。两个都只产出结论与建议，`skillapply` 里
+    // 显式 `can: false` —— 它们**结构上**写不回作品，正合这条判据。
+    "asset-librarian", "audience-engagement-reviewer", "continuity-reviewer",
+    "prompt-reviewer", "script-doctor", "shot-continuity-reviewer",
+    "story-zoom", "subtitle-reviewer",
   ], "a reviewer produces findings ABOUT existing content, never new content");
   // the two capabilities this round added for reviewing are review; the two that
   // WRITE prompts are creative — that split is what §14's division rests on
@@ -807,9 +811,22 @@ test("Codex is suggested for REVIEW only — never the creative director (§14)"
   assert.equal(suggestExecutor("creative", all, "codex-cli"), "codex-cli");
   // a pick that is NOT runnable is not honoured — it would only produce a failed run
   assert.equal(suggestExecutor("creative", (id) => id !== "codex-cli", "codex-cli"), "claude-code");
-  // with codex absent, review falls back to manual rather than to Claude Code:
-  // 「独立复核」 by the same runtime that wrote it is not independent
-  assert.equal(suggestExecutor("review", (id) => id === "claude-code" || id === "manual"), "manual");
+  // **规则变了**（2026-08-31）。以前 codex 不在时 review 直接回退到 manual，理由是
+  //「『独立复核』由写它的同一个运行时来做就不独立」—— 那条理由没错，但代价是产品负责人
+  // 在这台机器上**一次也审不了**：codex 因注入面被默认停用，而 Claude Code 装着能跑。
+  //
+  // 仓库自己对这件事早有定论（AGENTS.md 第 20 条）：「codex 不可用时会自动回退到独立的
+  // claude 会话，此时**独立性降级，必须在报告中如实注明**」。所以现在是**退回去 +
+  // 把折扣说出来**，而不是拦住他。
+  const noCodex = (id) => id === "claude-code" || id === "manual";
+  assert.equal(suggestExecutor("review", noCodex), "claude-code");
+  assert.match(
+    independenceDegraded("review", "claude-code") || "",
+    /独立性打了折扣/,
+    "降级可以，沉默地降级不行",
+  );
+  assert.equal(independenceDegraded("review", "codex-cli"), null, "本来就该它审，没有折扣");
+  assert.equal(independenceDegraded("creative", "claude-code"), null, "创作类没有「独立」这一说");
   // nothing installed at all ⇒ manual, which needs nothing
   assert.equal(suggestExecutor("creative", (id) => id === "manual"), "manual");
   assert.equal(suggestExecutor("review", () => false), "manual");
@@ -844,12 +861,16 @@ test("the panel shows WHICH executor each operation would use, before the press"
   const html = renderShotDirector(m, {});
   assert.match(html, /data-sd-op="imagePrompt" data-exec="claude-code"/);
   assert.match(html, /Codex CLI/);
-  // with codex NOT installed, review moves to manual and says so — it never silently
-  // falls back to the runtime that wrote the thing being reviewed
+  // **规则变了**（2026-08-31）：codex 不在时，复核**退回 Claude Code 并把折扣说出来**，
+  // 而不是退回 manual 把他拦住。理由与 AGENTS.md 第 20 条一致（「codex 不可用时会自动
+  // 回退到独立的 claude 会话，此时独立性降级，必须在报告中如实注明」）——
+  // 关键词是「注明」，不是「不许」。他在这台机器上一次也审不了，代价太大。
   const noCodex = shotDirectorModel(ctx, { selectedShotId: "sh01" },
     { ...probe, "codex-cli": { state: "unavailable", detail: "not installed" } });
-  assert.equal(noCodex.ops.find((o) => o.key === "reviewImage").executorId, "manual");
+  assert.equal(noCodex.ops.find((o) => o.key === "reviewImage").executorId, "claude-code");
   assert.equal(noCodex.ops.find((o) => o.key === "imagePrompt").executorId, "claude-code");
+  // 沉默地降级仍然不行：那句折扣必须说得出来
+  assert.match(independenceDegraded("review", "claude-code") || "", /独立性打了折扣/);
 });
 
 /* ========================================================================= */

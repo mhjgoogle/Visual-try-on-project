@@ -82,9 +82,11 @@
     <div id="canvas">
       <div class="st-top">
         <button class="st-brand" id="home-canvas" title="返回主页"><span class="mk">▶</span> motv</button>
-        <button class="st-proj" id="proj-switch" title="切换项目">
+        <button class="st-proj" id="proj-switch" title="切换项目" aria-haspopup="true" aria-expanded="false">
           <span class="nm" id="proj-name">—</span><span class="cv">▾</span>
         </button>
+        <!-- the menu the ▾ has been promising: real projects, switched in place -->
+        <div class="projmenu" id="projmenu" hidden></div>
         <!-- ADR-0061 决策 1: three spaces, named after the creative object each
              one is about — not after the system's internal layering. -->
         <div class="st-modes">

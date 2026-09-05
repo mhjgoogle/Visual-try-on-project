@@ -47,9 +47,24 @@ def lc(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         "# TASK-001：x\n\n- 状态：进行中\n- 关联 Requirement：REQ-001\n", "utf-8"
     )
     (docs / "current-architecture.md").write_text("# 当前架构合同\n\n一行。\n", "utf-8")
+    # 两份索引（ADR-0098）。指针指向假仓库里真实存在的那份文件 —— 断指针本身是
+    # 被守的危害之一，基线不能自己先踩上去。
+    (docs / "glossary.md").write_text(
+        "# 术语表\n\n### 某词\n一句话指称。\n"
+        "_Avoid_：别名甲 · 别名乙\n"
+        "_权威_：[当前架构合同](current-architecture.md)\n",
+        "utf-8",
+    )
+    (docs / "out-of-scope.md").write_text(
+        "# 范围外记录\n\n| 不做什么 | 正式裁决 | 重访条件 |\n| --- | --- | --- |\n"
+        "| 某事 | [当前架构合同](current-architecture.md) | 不重访 |\n",
+        "utf-8",
+    )
     monkeypatch.setattr(mod, "ROOT", tmp_path)
     monkeypatch.setattr(mod, "DOCS", docs)
     monkeypatch.setattr(mod, "_CURRENT_ARCH", docs / "current-architecture.md")
+    monkeypatch.setattr(mod, "_GLOSSARY", docs / "glossary.md")
+    monkeypatch.setattr(mod, "_OUT_OF_SCOPE", docs / "out-of-scope.md")
     return mod
 
 
@@ -430,6 +445,106 @@ def test_a_basis_buried_in_the_body_still_turns_red(lc) -> None:
         "utf-8",
     )
     assert lc.check_no_orphan_task_in_active()
+
+
+# --- 索引文档不是第二份合同（ADR-0098）----------------------------------------
+
+
+def _entry(
+    defn: str = "一句话指称。", avoid: str = "别名甲", authority: str | None = None
+) -> str:
+    auth = (
+        authority
+        if authority is not None
+        else "[当前架构合同](current-architecture.md)"
+    )
+    return f"# 术语表\n\n### 某词\n{defn}\n_Avoid_：{avoid}\n_权威_：{auth}\n"
+
+
+def test_a_glossary_entry_without_avoid_turns_red(lc) -> None:
+    """没有禁用叫法的条目只是普通名词解释 —— 收它不解决任何漂移。"""
+    (lc.DOCS / "glossary.md").write_text(
+        "# 术语表\n\n### 某词\n一句话。\n_权威_：[a](current-architecture.md)\n",
+        "utf-8",
+    )
+    assert any("_Avoid_" in f for f in lc.check_index_docs_are_indexes())
+
+
+def test_a_glossary_entry_without_a_pointer_turns_red(lc) -> None:
+    """指针是这份文件的全部机制：没有出处的条目，内容只能是抄来的。"""
+    (lc.DOCS / "glossary.md").write_text(_entry(authority="系统合同"), "utf-8")
+    assert any("_权威_" in f for f in lc.check_index_docs_are_indexes())
+
+
+def test_a_definition_carrying_a_rule_turns_red(lc) -> None:
+    """**承重墙**（ADR-0098 决策 3）。抄合同的人会写「必须」；写不出「必须」时
+    就只能写指称 —— 这条把「别抄」从自律变成语法约束。"""
+    (lc.DOCS / "glossary.md").write_text(_entry("这一版必须由用户产生。"), "utf-8")
+    assert any("必须" in f for f in lc.check_index_docs_are_indexes())
+
+
+def test_an_italicised_definition_cannot_bypass_the_verb_check(lc) -> None:
+    """codex 轮 1 的 P1：元数据行原先按「以下划线开头」认，而 `_一句强调的定义。_`
+    是普通的 Markdown 斜体 —— 它会被当成元数据剔出定义切片，于是动词检查与长度上限
+    双双跳过它。**把承重墙那条规则用斜体写出来就能绕过守卫**，正是本仓库最怕的
+    「守卫看起来加了其实没接上」。元数据只认 `_Avoid_` / `_权威_` 两个。"""
+    (lc.DOCS / "glossary.md").write_text(_entry("_这一版必须由用户产生。_"), "utf-8")
+    assert any("必须" in f for f in lc.check_index_docs_are_indexes())
+
+
+def test_an_overlong_definition_turns_red(lc) -> None:
+    (lc.DOCS / "glossary.md").write_text(_entry("一\n二\n三"), "utf-8")
+    assert any("定义" in f for f in lc.check_index_docs_are_indexes())
+
+
+def test_a_broken_pointer_turns_red(lc) -> None:
+    (lc.DOCS / "glossary.md").write_text(
+        _entry(authority="[没这份](design/does-not-exist.md)"), "utf-8"
+    )
+    assert any("does-not-exist" in f for f in lc.check_index_docs_are_indexes())
+
+
+def test_a_missing_index_doc_turns_red(lc) -> None:
+    (lc.DOCS / "glossary.md").unlink()
+    assert any("缺失" in f for f in lc.check_index_docs_are_indexes())
+
+
+def test_an_index_growing_past_its_budget_turns_red(lc) -> None:
+    """膨胀就是有人在往里抄合同 —— 与 current-architecture.md 的行数上限同款。"""
+    (lc.DOCS / "out-of-scope.md").write_text("# 范围外\n" + "行\n" * 400, "utf-8")
+    assert any("上限" in f for f in lc.check_index_docs_are_indexes())
+
+
+def test_a_boundary_row_without_a_ruling_turns_red(lc) -> None:
+    (lc.DOCS / "out-of-scope.md").write_text(
+        "# 范围外记录\n\n| 不做什么 | 正式裁决 | 重访条件 |\n| --- | --- | --- |\n"
+        "| 某事 | ADR-0010 说过 | 不重访 |\n",
+        "utf-8",
+    )
+    assert any("正式裁决" in f for f in lc.check_index_docs_are_indexes())
+
+
+def test_a_renamed_table_header_is_still_a_header(lc) -> None:
+    """表头按**结构**认（分隔行的上一行），不按文案认。靠文案匹配的话，改一次列名
+    表头就变成数据行，守卫会把表头自己报成「没有裁决的边界」—— 那是误报，
+    而误报正是让人关掉守卫的那条路。"""
+    (lc.DOCS / "out-of-scope.md").write_text(
+        "# 范围外记录\n\n| 不做的事 | 裁决书 | 什么时候重看 |\n| --- | --- | --- |\n"
+        "| 某事 | [当前架构合同](current-architecture.md) | 不重访 |\n",
+        "utf-8",
+    )
+    assert lc.check_index_docs_are_indexes() == []
+
+
+def test_the_guard_does_not_hunt_for_avoided_synonyms(lc) -> None:
+    """**刻意不判，别把它「补上」**（ADR-0098「不做什么」）。全仓搜 `_Avoid_` 里的近义词
+    会把每一次正常提及都报成漂移：守卫天天红，然后被关掉。这里钉住这条边界 ——
+    仓库里到处写着「别名甲」，守卫照样保持绿。"""
+    (lc.DOCS / "tasks" / "active" / "TASK-007-x.md").write_text(
+        "# TASK-007：x\n\n- 状态：进行中\n- 技术目标：讨论别名甲与别名甲的用法\n",
+        "utf-8",
+    )
+    assert lc.check_index_docs_are_indexes() == []
 
 
 # --- 真实仓库 -----------------------------------------------------------------

@@ -1,6 +1,6 @@
 {
   "skillId": "script-breakdown",
-  "skillVersion": 3,
+  "skillVersion": 4,
   "work": "creative",
   "role": "制片",
   "title": "Script Breakdown",
@@ -20,5 +20,21 @@
     "已上传资产里已经有对应参考图时，是否指了出来（existingAssetKey），而不是当作全新对象",
     "道具是否只包含镜头里真的要出现、且需要一张设定图的实物"
   ],
-  "recommendedRuntime": "local_subscription"
+  "recommendedRuntime": "local_subscription",
+  "routing": {
+    "userCapability": [
+      "episode-production"
+    ],
+    "internalRouting": {
+      "intent": "breakdown",
+      "kind": "generative",
+      "scope": "episode",
+      "priority": 60,
+      "selectWhen": [
+        "拆解",
+        "拆本",
+        "实体"
+      ]
+    }
+  }
 }

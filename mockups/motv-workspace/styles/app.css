@@ -36,6 +36,20 @@ button { font-family: inherit; cursor: pointer; }
 .banner .side { position: absolute; top: 0; bottom: 0; width: 26%; opacity: .5; } .banner .side.l { left: 0; background: linear-gradient(90deg, #2a3550, transparent); } .banner .side.r { right: 0; background: linear-gradient(270deg, #4a3520, transparent); }
 .dots { display: flex; gap: 6px; justify-content: center; margin-top: 14px; } .dots i { width: 22px; height: 4px; border-radius: 2px; background: var(--line-2); } .dots i.on { background: var(--accent); }
 .sec-h { display: flex; align-items: center; justify-content: space-between; margin: 34px 2px 16px; } .sec-h h3 { margin: 0; font-size: 19px; font-weight: 800; letter-spacing: -.01em; } .sec-h a { color: var(--text-dim); font-size: 13px; text-decoration: none; }
+/* 卡片 + 删除按钮（REQ-005）。删除是卡片的**兄弟**而不是子元素：`pcard` 本身是
+   <button>，把另一个 button 塞进去既是非法 HTML，点击还会冒泡成「打开这个项目」——
+   对一个看起来危险的控件来说，那是最糟的误触。 */
+.pcardwrap { position: relative; }
+.pdel {
+  position: absolute; top: 8px; right: 8px; z-index: 2;
+  width: 24px; height: 24px; border-radius: 6px; padding: 0;
+  background: var(--panel); border: 1px solid var(--line); color: var(--text-faint);
+  font-size: 12px; line-height: 1; cursor: pointer;
+  opacity: 0; transition: opacity .12s ease;
+}
+.pcardwrap:hover .pdel, .pdel:focus-visible { opacity: 1; }
+.pdel:hover { color: #ff6b6b; border-color: #ff6b6b; }
+
 .projgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 18px; }
 .newproj { aspect-ratio: 4/3; border: 1.5px dashed var(--line-2); border-radius: 14px; background: var(--panel); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--text-dim); font-weight: 700; font-size: 15px; transition: .15s; } .newproj:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-3px); } .newproj .plus { font-size: 34px; font-weight: 300; line-height: 1; }
 .pcard { aspect-ratio: 4/3; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: var(--panel-2); text-align: left; color: inherit; display: flex; flex-direction: column; transition: .15s; } .pcard:hover { transform: translateY(-3px); border-color: var(--line-2); }

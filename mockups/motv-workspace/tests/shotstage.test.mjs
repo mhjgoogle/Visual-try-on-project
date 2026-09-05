@@ -392,8 +392,9 @@ test("**运镜预览是自己的 kind**，而不是又一条镜头视频（TASK-
 /* ========================================================================= */
 
 test("v15→v16 只加一个空容器，一个字节的旧数据都不改", () => {
-  assert.equal(CANVAS_SCHEMA_VERSION, 19,
-    "v17 道具（4C）/ v18 批量状态（4D）/ v19 删除 skillRunId 别名（TASK-074 §1.5）");
+  assert.equal(CANVAS_SCHEMA_VERSION, 20,
+    "v17 道具（4C）/ v18 批量状态（4D）/ v19 删除 skillRunId 别名（TASK-074 §1.5）/ "
+    + "v20 每一镜的白膜（TASK-123 · ADR-0094，纯加法：一张空表）");
   const doc = {
     v: 15, nodes: [],
     production: { shotProduction: { reviews: { a: { approved: true, assetId: "v1", approvedAt: null, note: "" } }, references: {} } },

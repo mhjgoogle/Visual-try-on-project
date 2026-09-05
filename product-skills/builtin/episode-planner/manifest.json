@@ -1,6 +1,6 @@
 {
   "skillId": "episode-planner",
-  "skillVersion": 2,
+  "skillVersion": 3,
   "work": "creative",
   "role": "制片规划",
   "title": "Episode Planner",
@@ -21,5 +21,22 @@
     "集数是否尊重大纲里的 episodeCount，而不是自行改写规模",
     "是否只用大纲与人物档案里已有的设定，没有新发明人物或转折"
   ],
-  "recommendedRuntime": "local_subscription"
+  "recommendedRuntime": "local_subscription",
+  "routing": {
+    "userCapability": [
+      "story-development",
+      "episode-production"
+    ],
+    "internalRouting": {
+      "intent": "episode-structure",
+      "kind": "generative",
+      "scope": "project",
+      "priority": 70,
+      "selectWhen": [
+        "分集",
+        "每集",
+        "集数"
+      ]
+    }
+  }
 }

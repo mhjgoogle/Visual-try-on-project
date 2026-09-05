@@ -343,6 +343,18 @@ def test_the_cli_both_shells_actually_invoke_behaves_end_to_end() -> None:
             "pytest_targets",
             "serial_targets",
             "frontend",
+            # 体检的开关（2026-08-31）：动了 mockups/motv-workspace/ 就为真，
+            # 两个 shell 各自读它去跑 `.claude/tools/motv_doctor.py`。
+            #
+            # **这条守卫当场拦住了加它的那次提交** —— 字段集就是两个 shell 的合同，
+            # 加字段而不更新这里，等于让一个 shell 读到一个它不认识的答案。
+            "doctor",
+            # 依赖方向契约的开关（TASK-134）：动了 `src/**.py` 或 `pyproject.toml`
+            # 就为真，两个 shell 各自读它去跑 `lint-imports`。
+            #
+            # **这条守卫又一次当场拦住了加它的那次提交** —— 与 doctor 同一个机理，
+            # 说明这不是一次巧合而是这份合同在起作用。
+            "import_contracts",
             "notice",
         }, answer
         return answer
@@ -1745,3 +1757,31 @@ def test_the_real_scans_still_work_on_ordinary_commands() -> None:
         _POLICY.inspect_command("Bash", f"git commit -m a{newline}git push").gate
         == "check"
     )
+
+
+def test_the_powershell_gate_holds_no_literal_tab() -> None:
+    """闸门脚本里不许有真实制表符 —— 它是一次「反斜杠 t 被展开」的痕迹。
+
+    2026-09-04 实测：`gate.ps1` 里体检那一行原本把整条相对路径写成**一个**单引号
+    字符串（`.claude` + 反斜杠 + `tools` + 反斜杠 + `motv_doctor.py`），某次由工具
+    写入时那个**反斜杠 t 被展开成一个真实的 TAB**。于是闸门去找一个名字以制表符
+    开头的文件，Windows 上**每一次改动本应用的提交都失败**
+    （`[Errno 22] Invalid argument`），而从没有这个转义的 `.sh` 孪生体照常通过 ——
+    两个实现给出**不同判定**，正是 ADR-0062 决策 3 禁止的事。
+
+    这条守卫不判「路径拼得对不对」（那要跑一遍才知道），只判**那个痕迹在不在**：
+    PowerShell 源码里没有任何理由出现真实制表符，所以它的存在本身就是信号。
+
+    本文件自己也躲不开这个坑：上面那段说明如果照原样写出反斜杠 t，
+    **它在这个 docstring 里同样会变成制表符**。所以这里用文字描述那条路径。
+    """
+    root = Path(__file__).parents[2]
+    for name in ("gate.ps1", "gate_dispatch.py"):
+        path = root / ".claude" / "hooks" / name
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8")
+        assert chr(9) not in text, (
+            f"{name} 里有真实制表符 —— 多半是某个反斜杠 t 被展开了；"
+            "路径请用 Join-Path 一段一段拼，不要写成一个字符串"
+        )

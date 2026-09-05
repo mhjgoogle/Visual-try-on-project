@@ -27,10 +27,33 @@
 import { mintId } from "./identity.js";
 import { sanitizeBible, sanitizeSceneRefs } from "./bibledoc.js";
 import {
-  sanitizeRelationships, sanitizeWorld, sanitizeCanon, sanitizeBeats, sanitizeBasedOn,
+  sanitizeRelationships, sanitizeDeletedRelationships,
+  sanitizeWorld, sanitizeCanon, sanitizeBeats, sanitizeBasedOn,
   defaultWorld, defaultCanon, defaultBeats, defaultBasedOn,
 } from "./canondoc.js";
 import { defaultShotProduction, sanitizeShotProduction } from "./shotprod.js";
+import { createBlocking } from "./blocking.js";
+
+/** shotId → 白膜（TASK-123 / ADR-0094）。形状不对的丢掉；`__proto__` 这类名字
+ *  留成**自有键**，与这份文档里其它按 shotId 索引的表同一条纪律。 */
+function sanitizeBlockingMap(saved) {
+  // 与这份文档里其它按 shotId 索引的表一样用普通对象： 这类名字由
+  // 下面的  落成**自有键**，而不是靠换原型（换了原型，
+  // 序列化的往返比较就会因为原型不同而不等 —— proddoc 的守卫当场抓到）。
+  const out = {};
+  if (saved == null || typeof saved !== "object" || Array.isArray(saved)) return out;
+  for (const key of Object.keys(saved)) {
+    const v = saved[key];
+    if (v == null || typeof v !== "object" || Array.isArray(v)) continue;
+    Object.defineProperty(out, key, {
+      value: createBlocking(v),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return out;
+}
 
 const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
 const nonEmpty = (x) => typeof x === "string" && x !== "";
@@ -49,6 +72,10 @@ function defaultProduction() {
     characters: [],
     locations: [],
     props: [],
+    // 回收区（TASK-129）：软删除的实体住这里，不住上面那三个数组
+    deletedCharacters: [],
+    deletedLocations: [],
+    deletedRelationships: [],
     // TASK-057 project-level canon: relationships between characters, the
     // World Setting, and one revision number per canon surface
     relationships: [],
@@ -57,6 +84,9 @@ function defaultProduction() {
     // CP4 shot production state: review approvals + shared Reference bindings,
     // keyed by creativeShotId (see workflow/shotprod.js)
     shotProduction: defaultShotProduction(),
+    // 每一镜的白膜（TASK-123 / ADR-0094）：shotId → blocking。
+    // 字节不在这里 —— 录出来的视频走既有的资产登记（决策 4）。
+    blocking: {},
   };
 }
 
@@ -135,13 +165,23 @@ export function createProduction(saved) {
     ? saved.activeEpisodeId
     : episodes[0].episodeId; // a dangling pointer falls back deterministically
   // M7 Production Bible: hydrate entities first, then scene refs against them
-  const { characters, locations, props } = sanitizeBible(saved);
+  const { characters, locations, props, deletedCharacters, deletedLocations } =
+    sanitizeBible(saved);
   for (const e of episodes) for (const s of e.scenes) sanitizeSceneRefs(s, characters, locations);
   // TASK-057 canon: relationships need the characters to exist, and beats need
   // both — so the order is characters → relationships → beats
   const charIds = new Set(characters.map((c) => c.characterId));
   const relationships = sanitizeRelationships(saved.relationships, charIds);
   const relIds = new Set(relationships.map((r) => r.relationshipId));
+  // 回收区里的关系（TASK-129）：认**活的 + 回收区里的**人物，因为一段被删的关系
+  // 可以指着一个同样被删的人物。拿活人物名单去筛会把它整条丢掉 —— 那等于读盘把
+  // 软删除悄悄变成了硬删除。relationshipId 与活的那批共用一个命名空间。
+  const charIdsAny = new Set([...charIds, ...deletedCharacters.map((c) => c.characterId)]);
+  const deletedRels = sanitizeDeletedRelationships(
+    saved.deletedRelationships,
+    charIdsAny,
+    new Set(relIds),
+  );
   for (const e of episodes) {
     e.beats = sanitizeBeats(e._rawBeats, charIds, relIds);
     delete e._rawBeats;
@@ -153,10 +193,18 @@ export function createProduction(saved) {
     locations,
     // 道具（TASK-095 §2.2）—— 加法字段，老文档没有它是常态
     props,
+    // 回收区（TASK-129）：删掉的人物 / 场景地。**同样是加法字段** ——
+    // 老文档没有它们，水合成空数组，一个字节的旧数据不动。
+    // 它们不在 `characters` / `locations` 里，所以那六十个「列出人物」的读点
+    // 天生只看得见活着的，一行都不用改。
+    deletedCharacters,
+    deletedLocations,
+    deletedRelationships: deletedRels,
     relationships,
     world: sanitizeWorld(saved.world),
     canon: sanitizeCanon(saved.canon),
     shotProduction: sanitizeShotProduction(saved.shotProduction),
+    blocking: sanitizeBlockingMap(saved.blocking),
   };
 }
 
@@ -240,10 +288,17 @@ export function serialize(prod) {
     characters: prod.characters,
     locations: prod.locations,
     props: prod.props,
+    // 回收区（TASK-129）。**这一行和水合那一行必须同时存在** —— 只加水合、
+    // 不加这里，表现是：删掉的东西在本次会话里还能拿回来，一存一读就永远没了，
+    // 而那正是「软删除」要防的那件事，只是把它推迟到了下一次加载。
+    deletedCharacters: prod.deletedCharacters,
+    deletedLocations: prod.deletedLocations,
+    deletedRelationships: prod.deletedRelationships,
     relationships: prod.relationships,
     world: prod.world,
     canon: prod.canon,
     shotProduction: prod.shotProduction,
+    blocking: prod.blocking,
   };
 }
 

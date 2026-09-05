@@ -247,7 +247,7 @@ export function renderEpProd(ctx, ui, { stage = LEGACY_EPISODE_CENTRE, inner = "
       `<div class="ep-center">` +
       topBar({ episodes: m.episodes, focus: "all", shots: 0, shown: 0 }, ui, { stage, showFocus: false, place: null }) +
       `<div class="st-empty"><div class="ic">📺</div><div class="tt">还没有剧集</div>` +
-      `<div class="hh">剧集制作需要一集来做。先在「故事开发 · 分集规划」确认规划，剧集就会建立。</div>` +
+      `<div class="hh">剧集制作需要一集来做。先在「故事开发 · 结构规划」确认规划，剧集就会建立。</div>` +
       `<button class="btn primary" data-ep-tostory>去故事开发</button></div></div>`
     );
   }

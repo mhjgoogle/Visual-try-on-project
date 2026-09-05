@@ -73,7 +73,7 @@ export function renderPostStatus(m) {
   if (!m.hasShots) {
     return (
       `<div class="ps"><div class="ps-h"><b>后期状态</b>` +
-      `<span class="meta">这一集还没有镜头 —— 先在「本集剧本」拆分镜</span></div></div>`
+      `<span class="meta">这一集还没有镜头 —— 先在「正文创作」拆分镜</span></div></div>`
     );
   }
   return (

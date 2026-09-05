@@ -32,7 +32,6 @@ import { briefModel, renderBriefWs } from "../src/ui/briefws.js";
 import { relationshipGraph } from "../src/workflow/relgraph.js";
 import { worldModel } from "../src/ui/worldws.js";
 import { episodePlanModel, renderEpPlanWs } from "../src/ui/epplanws.js";
-import { canonModel, directorNote, surfacedSection, directorModel, renderDirector } from "../src/ui/director.js";
 import { NAV, EPISODE_NAV, EPISODE_MODULES, MODULE_LABEL, renderRail, episodeLabels } from "../src/ui/shell.js";
 import * as sd from "../src/workflow/scriptdoc.js";
 
@@ -742,8 +741,10 @@ test("UI: an unrecorded baseline shows 上游基线未记录, never 「N 个上�
   assert.ok(!/个上游变化/.test(html));
   assert.ok(!/个上游更新/.test(html));
   assert.ok(!html.includes("与上游一致"));
+  // TASK-122：这一项改名为「故事核心」——它现在住在那一页里（旧名字「创意 Brief」
+  // 让他在 2026-08-30 被告知「还缺 创意 Brief」，而他刚写完 869 字的故事核心）。
   // every surface chip reads 未记录 and is muted, not gated
-  for (const label of ["创意 Brief", "故事大纲", "人物", "人物关系", "世界观"]) {
+  for (const label of ["故事核心", "故事大纲", "人物", "人物关系", "世界观"]) {
     assert.ok(
       html.includes(`<span class="chip mute" title="本集没有记录 ${label} 的基线`),
       `${label} must render as an unrecorded baseline`,
@@ -787,51 +788,6 @@ test("UI: the Impact Review calls an unrecorded surface 没有记录基线, not 
   assert.ok(review.includes("上游已更新：本集基于 v1 · 当前 v2"));
 });
 
-test("read model: the rail and the Director never flag an unrecorded baseline", () => {
-  const { story, prod } = upstreamProject();
-  const doc = sd.createDoc();
-  const pdSnap = snap(prod);
-
-  // the rail badge is driven by im.count, so an unknown baseline yields none
-  const upstream = {};
-  for (const e of prod.episodes) {
-    const im = cd.episodeImpact(prod, e.episodeId, story);
-    if (im.count) upstream[e.episodeId] = im.count;
-  }
-  assert.deepEqual(upstream, {});
-  const rail = renderRail({
-    activeModule: "brief", badges: {}, episodes: episodeLabels(prod),
-    ratios: {}, episodeMode: false, upstream,
-  });
-  assert.ok(!rail.includes("变化"), "the rail must not claim a change for an unrecorded baseline");
-
-  // the Director separates the two lists, with distinct wording
-  let cm = canonModel({ story, pd: pdSnap });
-  assert.deepEqual(cm.stale, []);
-  assert.equal(cm.unrecorded.length, 1);
-  let html = renderDirector(
-    directorModel({ module: "brief", doc, story, pd: pdSnap, sel: { dirOpen: {} } }), "", { canon: true },
-  );
-  assert.ok(html.includes("上游基线未记录"));
-  assert.ok(html.includes("未记录 ≠ 落后"));
-  assert.ok(!html.includes("上游变化（确定性）"));
-  // …and the COLLAPSED summary must not claim agreement either
-  assert.ok(html.includes("1 集基线未记录"));
-  assert.ok(!html.includes("与上游一致"), "an unrecorded baseline is not agreement");
-
-  // once a baseline exists AND moves, it appears in the CHANGED list instead
-  cd.stampEpisodeUpstream(prod, prod.episodes[0].episodeId, story);
-  cd.confirmCanon(prod, "world");
-  cm = canonModel({ story, pd: snap(prod) });
-  assert.equal(cm.unrecorded.length, 0);
-  assert.equal(cm.stale.length, 1);
-  assert.deepEqual(cm.stale[0].surfaces, ["世界观（已更新）"]);
-  html = renderDirector(
-    directorModel({ module: "brief", doc, story, pd: snap(prod), sel: { dirOpen: {} } }), "", { canon: true },
-  );
-  assert.ok(html.includes("上游变化（确定性）"));
-  assert.ok(!html.includes("上游基线未记录"));
-});
 
 test("basedOn chips flag EXACTLY the surfaces the impact model calls changed", () => {
   // the view must not carry its own copy of the staleness rule: a rolled-back
@@ -855,7 +811,7 @@ test("basedOn chips flag EXACTLY the surfaces the impact model calls changed", (
   assert.equal(im.count, 1);
   assert.deepEqual(im.stale.map((s) => s.key), ["brief"]);
   // the rolled-back surface carries the gate chip…
-  assert.match(html, /<span class="chip gate"[^>]*>创意 Brief v2<\/span>/);
+  assert.match(html, /<span class="chip gate"[^>]*>故事核心 v2<\/span>/);
   // …and a surface that did NOT change does not
   assert.match(html, /<span class="chip"[^>]*>世界观 v1<\/span>/);
   assert.ok(html.includes("⚠ 1 个上游变化"));
@@ -1429,66 +1385,8 @@ test("episodePlanModel: plan facets, resolved beats and the impact per episode",
   assert.equal(episodePlanModel(snap(null), story, null).empty, true);
 });
 
-test("canonModel: what the Director reads, and what it cannot yet judge", () => {
-  const { story, prod } = upstreamProject();
-  const ep = prod.episodes[0];
-  cd.setEpisodeTextBeats(prod, ep.episodeId, "plot", ["找到录音"]);
-  cd.stampEpisodeUpstream(prod, ep.episodeId, story);
-  let m = canonModel({ story, pd: snap(prod) });
-  assert.deepEqual(m.versions, { brief: 1, outline: 1, characters: 1, relationships: 1, world: 1 });
-  assert.deepEqual(m.stale, []);
-  const reads = new Map(m.reads.map((r) => [r.k, r]));
-  assert.equal(reads.get("创意 Brief").v, "v1");
-  assert.equal(reads.get("人物关系").ok, true);
-  assert.equal(reads.get("世界规则").ok, true);
-  assert.equal(reads.get("已发生的剧集事实").v, "1 条 beat");
-  // the supervising checks are LISTED as unavailable, not stubbed
-  assert.ok(m.capabilities.length >= 3);
 
-  cd.confirmCanon(prod, "world");
-  m = canonModel({ story, pd: snap(prod) });
-  assert.equal(m.stale.length, 1);
-  assert.equal(m.stale[0].code, "EP01");
-  assert.equal(m.stale[0].count, 1);
-  assert.deepEqual(m.stale[0].surfaces, ["世界观（已更新）"]);
-});
 
-test("director: the upstream modules get real, justified observations", () => {
-  const { story, prod } = upstreamProject();
-  const doc = sd.createDoc();
-  const base = { doc, pd: snap(prod), shotId: null };
-  // every upstream module answers with a NOTE grounded in state
-  for (const module of ["brief", "story", "relationships", "world", "episodes", "characters"]) {
-    const note = directorNote({ ...base, module, story });
-    assert.equal(typeof note, "string");
-    assert.ok(note.length > 8, `${module} note too thin`);
-  }
-  // a genuinely empty world is called out as empty
-  const emptyProd = pd.createProduction(null);
-  assert.match(
-    directorNote({ ...base, pd: snap(emptyProd), module: "world", story: st.createStory(null) }),
-    /世界观还是空的/,
-  );
-  // …and one character is not enough for a relationship
-  assert.match(
-    directorNote({ ...base, pd: snap(emptyProd), module: "relationships", story }),
-    /两个人物/,
-  );
-});
-
-test("director surfaces the CANON section while working upstream", () => {
-  const plan = { next: { label: "写本集剧本" } };
-  const inbox = { pending: 2 };
-  const upstream = { isUpstream: true, stale: [] };
-  assert.equal(surfacedSection({ plan, inbox, currentBlocked: false, upstream, module: "brief" }), "canon");
-  // a blocked shot still outranks everything — it is why work has stopped
-  assert.equal(surfacedSection({ plan, inbox, currentBlocked: true, upstream, module: "brief" }), "plan");
-  // downstream, the existing priority is unchanged
-  assert.equal(
-    surfacedSection({ plan, inbox, currentBlocked: false, upstream: { isUpstream: false, stale: [] }, module: "frames" }),
-    "inbox",
-  );
-});
 
 /* ========================================================================= */
 /* The demo fixture must stay v10-valid                                      */
@@ -1555,16 +1453,26 @@ test("the demo seed produces a document that VALIDATES at the current schema", a
 /* Information architecture                                                  */
 /* ========================================================================= */
 
-test("IA: 故事开发's rail ends at 分集规划; the script begins 剧集制作", () => {
+test("IA: 故事开发 是四个入口，正文创作是第四个（ADR-0092）", () => {
   assert.deepEqual(NAV.map((g) => g.sec), ["故事开发"]);
   // TASK-073 §1.1: 人物 / 人物关系 / 世界观 became three SECTIONS of ③ 作品设定 — see
   // the same assertion in tests/workspaces.test.mjs for why this shrank again.
   // TASK-091 §1.1 / 图一: 本集剧本 MOVED into 剧集制作 — writing the script is the first
   // thing that space does. The forward chain 创意 → 大纲 → 分集规划 → 本集剧本 is
   // unchanged as a PIPELINE; what moved is which space owns the last link.
+  // **规则又变了一次**（ADR-0092）：产品负责人 2026-08-30 —— 「左侧一级导航严格只有
+  // 4 个：故事核心 / 故事大纲 / 结构规划 / 正文创作」「不把 Chapter / Episode 放进
+  // 全局左栏」。所以 `script` 搬回故事开发当第四行，`settings` 收起来（页面与地址
+  // 都在，只是不画），分集行进了页内选集器。**成员集合一个不多一个不少** ——
+  // ADR-0066 决策 10 冻的是闭集，不是分组。
   assert.deepEqual(NAV[0].items.map((i) => i[0]), [
-    "brief", "story", "episodes", "settings",
+    "brief", "story", "episodes", "script", "settings",
   ]);
+  assert.deepEqual(
+    NAV[0].items.filter((i) => !(i[3] && i[3].hidden)).map((i) => i[0]),
+    ["brief", "story", "episodes", "script"],
+    "左栏严格四个入口",
+  );
   // ADR-0061 决策 1 AND 产品负责人 2026-08-17 — two claims about two different things,
   // which is why both can hold at once (TASK-094 批次 F1):
   //
@@ -1578,11 +1486,13 @@ test("IA: 故事开发's rail ends at 分集规划; the script begins 剧集制�
   // So: the script is the last PRODUCING step, and 作品设定 sits after it as the
   // 核对面 it became.
   const items = NAV[0].items.map((i) => i[0]);
-  assert.equal(items[items.length - 1], "settings", "作品设定 在最后（产品负责人拍板）");
-  // 生产链**作为链**仍然止于本集剧本，但那一步的**归属空间**已经移到剧集制作
-  // （TASK-091 §1.1 / 图一）。所以这条断言现在只覆盖 故事开发 这一侧的三步。
+  // `settings` 仍排在集合末尾，但**已经不画在左栏**（ADR-0092 决策 3）
+  assert.equal(items[items.length - 1], "settings", "作品设定 仍在集合末尾");
+  assert.ok(NAV[0].items.at(-1)[3] && NAV[0].items.at(-1)[3].hidden, "它不再占左栏一行");
+  // 生产链**整条**回到了故事开发（ADR-0092 决策 2）：创意 → 大纲 → 结构规划 → 正文创作。
+  // 2026-08-30 的规格把「正文创作」列为第四项，覆盖了 TASK-091 §1.1 的归属安排。
   assert.deepEqual(items.filter((k) => k !== "settings"),
-    ["brief", "story", "episodes"], "故事开发这一侧止于分集规划");
+    ["brief", "story", "episodes", "script"], "四步链，正文创作是最后一步");
   // the media stages are NOT in the story rail; they belong to 剧集制作
   for (const k of ["frames", "video", "audio", "dailies"]) {
     assert.ok(!NAV.some((g) => g.items.some((i) => i[0] === k)));
@@ -1591,7 +1501,9 @@ test("IA: 故事开发's rail ends at 分集规划; the script begins 剧集制�
   // 剧集制作 is SIX rows now — 本集剧本 joined at the front (TASK-091 §1.1). Still the
   // same eleven PAGES: the row moved out of 故事开发, it was not added.
   const epKeys = EPISODE_NAV.map((i) => i[0]);
-  assert.deepEqual(epKeys, ["script", "board", "storyboard", "shotwork", "cutreview", "delivery"]);
+  // `script` 搬回故事开发（ADR-0092 决策 2）——剧集制作从「本集看板」开始，
+  // **五个页面一个没少**，它失去的只是一个入口位置。
+  assert.deepEqual(epKeys, ["board", "storyboard", "shotwork", "cutreview", "delivery"]);
   for (const k of ["workbench", "scenes", "shots", "frames", "video", "audio", "dailies", "provenance"]) {
     assert.ok(EPISODE_MODULES.includes(k), `${k} must stay addressable in 剧集制作`);
   }

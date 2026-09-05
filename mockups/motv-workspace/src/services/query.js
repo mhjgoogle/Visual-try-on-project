@@ -48,6 +48,25 @@ export async function listProjects() {
  *
  *  Carries `X-Motv-Runtime` like `probeExecutors`: this route reads the same
  *  package tree the run path compiles from. */
+/** Take a REAL project out of the account registry (REQ-005 / ADR-0090).
+ *
+ *  The route has no filesystem write behind it: 产品负责人 2026-08-27 asked for the
+ *  list entry only —「后端的文件我可以手动删除」— so the answer carries `filesDeleted:
+ *  false` and where the folder still is, which the UI repeats to him verbatim.
+ */
+export async function unregisterProject(name) {
+  const res = await attempt(`/api/projects/${encodeURIComponent(name)}/unregister`, {
+    method: "POST",
+    headers: { "X-Motv-Runtime": "1" },
+    body: {},
+  });
+  if (!res.ok) {
+    return { ok: false, error: res.error, keptAt: null };
+  }
+  const data = res.data || {};
+  return { ok: true, error: null, keptAt: data.filesKeptAt || null };
+}
+
 export async function fetchSkillCatalog() {
   if (!isConnected()) return { ok: false, detail: "没有后端：无法加载 Skill 包" };
   const res = await attempt("/api/skills", { headers: { "X-Motv-Runtime": "1" } });

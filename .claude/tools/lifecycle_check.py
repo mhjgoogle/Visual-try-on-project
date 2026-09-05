@@ -150,6 +150,31 @@ _NEW_FIELD_SET = re.compile(r"^[->*\s]*(?:\*\*)?\s*架构约束\s*[:：]", re.M)
 _CURRENT_ARCH = DOCS / "current-architecture.md"
 _CURRENT_ARCH_MAX_LINES = 200
 
+# The two index docs (ADR-0098). They answer WHAT THINGS ARE CALLED and WHAT WE
+# WON'T BUILD; the rules stay in whatever they point at. The failure mode is that
+# an index slowly gets copied full of contract text and becomes a second source
+# of truth -- which is the exact defect the system contract keeps naming
+# (「不是第二份记录」: two copies necessarily drift). So the guard checks SHAPE:
+# a line budget, a pointer on every entry, and -- the load-bearing one -- that a
+# definition does not carry rules. Someone copying a contract writes 必须; when
+# they cannot write 必须 they are left with naming the thing, which is the job.
+_GLOSSARY = DOCS / "glossary.md"
+_OUT_OF_SCOPE = DOCS / "out-of-scope.md"
+_INDEX_DOC_MAX_LINES = 170
+_INDEX_DEFINITION_MAX_LINES = 2
+_NORMATIVE_VERB = re.compile(r"必须|不得|禁止|只能|一律|应当")
+_MD_LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+# The label has to CARRY something -- an empty `_Avoid_：` is a label, not a list
+# of names, and accepting it would make the guard check spelling instead of
+# content (the same trap `_TASK_ANCHOR` was fixed for in TASK-108 轮 2).
+_AVOID_LINE = re.compile(r"^_Avoid_\s*[：:]\s*\S")
+# An entry's metadata lines are exactly these two. Do NOT widen this to "starts
+# with an underscore": `_一句强调的定义。_` is ordinary Markdown emphasis, and
+# treating it as metadata would drop it out of the definition slice -- so the
+# normative-verb check and the length cap would both skip it, and the load-
+# bearing guard could be bypassed by italicising the line (codex review, 轮 1).
+_ENTRY_META_LINE = re.compile(r"^_(?:Avoid|权威)_")
+
 
 def _status_first_clause(text: str) -> str:
     m = _STATUS_LINE.search(text)
@@ -434,6 +459,134 @@ def check_current_architecture_contract() -> list[str]:
     return []
 
 
+def _broken_pointers(path: Path) -> list[str]:
+    """Repo-relative link targets in `path` that do not exist.
+
+    A pointer is the whole mechanism here: an entry without a working pointer is
+    an entry that copied its content instead of referring to it. External URLs
+    and pure anchors are skipped -- this guard cannot reach the network, and
+    guessing would nag on every run (see the module docstring).
+    """
+    out = []
+    for raw in _MD_LINK.findall(path.read_text("utf-8")):
+        target = raw.split("#", 1)[0].strip()
+        if not target or "://" in target or target.startswith("mailto:"):
+            continue
+        if not (path.parent / target).exists():
+            out.append(target)
+    return out
+
+
+def check_index_docs_are_indexes() -> list[str]:
+    """ADR-0098: glossary / out-of-scope stay indexes, never a second contract.
+
+    Deliberately NOT judged: whether a definition is *correct*, whether a term
+    deserves an entry, whether some other term should have one. Those need a
+    reader. And deliberately not grepping the repo for the synonyms listed under
+    `_Avoid_`: searching for 「素材」 across the tree would flag every ordinary
+    mention as drift, the guard would be red every day, and a guard that is red
+    every day gets switched off -- the failure shape this file's docstring warns
+    about. **Under-report, never mis-kill.**
+    """
+    out = []
+    for doc, label in (
+        (_GLOSSARY, "docs/glossary.md"),
+        (_OUT_OF_SCOPE, "docs/out-of-scope.md"),
+    ):
+        if not doc.exists():
+            out.append(
+                f"{label} 缺失 —— 「这个概念叫什么」与「什么我们决定不做」"
+                "各要有一个落点，否则又回到翻合同和 ADR 猜（ADR-0098 决策 1）"
+            )
+            continue
+        text = doc.read_text("utf-8")
+        lines = text.splitlines()
+        if len(lines) > _INDEX_DOC_MAX_LINES:
+            out.append(
+                f"{label} 有 {len(lines)} 行，超过 {_INDEX_DOC_MAX_LINES} 行上限 —— "
+                "它是索引不是副本，在膨胀说明有人把合同抄了进来（ADR-0098 决策 3）"
+            )
+        for target in _broken_pointers(doc):
+            out.append(
+                f"{label} 指向不存在的 `{target}` —— 指针是这份文件的全部机制，"
+                "断了的条目等于没有出处（ADR-0098 决策 3）"
+            )
+
+    if _GLOSSARY.exists():
+        out.extend(_glossary_entry_findings(_GLOSSARY.read_text("utf-8")))
+    if _OUT_OF_SCOPE.exists():
+        out.extend(_out_of_scope_row_findings(_OUT_OF_SCOPE.read_text("utf-8")))
+    return out
+
+
+def _glossary_entry_findings(text: str) -> list[str]:
+    out = []
+    for block in re.split(r"^### ", text, flags=re.M)[1:]:
+        block_lines = [ln.rstrip() for ln in block.splitlines()]
+        term = block_lines[0].strip()
+        body = [ln for ln in block_lines[1:] if ln.strip() and not ln.startswith("## ")]
+        definition = [ln for ln in body if not _ENTRY_META_LINE.match(ln)]
+        has_avoid = any(_AVOID_LINE.match(ln) for ln in body)
+        has_authority = any(
+            ln.startswith("_权威_") and _MD_LINK.search(ln) for ln in body
+        )
+        if not has_avoid:
+            out.append(
+                f"docs/glossary.md「{term}」没有 `_Avoid_` —— "
+                "不列禁用叫法的条目只是普通名词解释，收它没有意义（ADR-0098 决策 2）"
+            )
+        if not has_authority:
+            out.append(
+                f"docs/glossary.md「{term}」的 `_权威_` 没有可解析的指针 —— "
+                "没有指针就是抄，规则得留在它指向的合同里（ADR-0098 决策 3）"
+            )
+        if len(definition) > _INDEX_DEFINITION_MAX_LINES:
+            out.append(
+                f"docs/glossary.md「{term}」的定义有 {len(definition)} 行，"
+                f"超过 {_INDEX_DEFINITION_MAX_LINES} 行 —— 超出这个长度就是在抄合同"
+                "（ADR-0098 决策 3）"
+            )
+        for ln in definition:
+            if _NORMATIVE_VERB.search(ln):
+                verb = _NORMATIVE_VERB.search(ln).group(0)
+                out.append(
+                    f"docs/glossary.md「{term}」的定义里有「{verb}」—— 那是规则的语气。"
+                    "把这句搬回它指向的合同，条目只留指称（ADR-0098 决策 3）"
+                )
+                break
+    return out
+
+
+def _out_of_scope_row_findings(text: str) -> list[str]:
+    """Every boundary row needs a ruling to point at.
+
+    Table rows only. A header is identified STRUCTURALLY -- it is the line
+    immediately before a `| --- |` separator -- never by matching its wording.
+    Matching the wording would mean that renaming a column turns the header into
+    a data row, and the guard would start reporting the header itself as a
+    boundary without a ruling: a false positive, which is the failure direction
+    this file refuses (see the module docstring). Structure survives renames and
+    reordering alike.
+    """
+    lines = text.splitlines()
+    separators = {
+        i for i, ln in enumerate(lines) if ln.startswith("|") and set(ln) <= set("| -:")
+    }
+    out = []
+    for i, line in enumerate(lines):
+        if not line.startswith("|") or i in separators or i + 1 in separators:
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if len(cells) < 2:
+            continue
+        if not _MD_LINK.search(cells[1]):
+            out.append(
+                f"docs/out-of-scope.md「{cells[0][:24]}」没有指向正式裁决的链接 —— "
+                "论证留在 ADR 里，这份文件只放结论加指针（ADR-0098 决策 1）"
+            )
+    return out
+
+
 CHECKS = {
     "finished-card-in-active": check_no_finished_card_in_active,
     "adr-supersede-bidirectional": check_adr_supersede_links_are_bidirectional,
@@ -442,6 +595,7 @@ CHECKS = {
     "temporary-artifact-in-docs": check_no_temporary_artifacts_in_docs,
     "shadow-directory": check_no_shadow_directories,
     "current-architecture-contract": check_current_architecture_contract,
+    "index-docs-are-indexes": check_index_docs_are_indexes,
 }
 
 

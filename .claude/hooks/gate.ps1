@@ -580,6 +580,46 @@ switch ($policy.tier) {
     }
 }
 
+# The doctor (.claude/tools/motv_doctor.py) runs whenever this app changed.
+# Rationale (2026-08-31): the six defects of 08-30..08-31 were all found by the
+# product owner while 2039 frontend tests stayed green -- those tests guard code
+# SHAPE, the doctor checks what he actually sees on screen. It hangs off the gate
+# rather than off my memory: a check that depends on remembering is not a check.
+# It runs against the real projects; a machine without any passes (not fails), so
+# CI and other machines are never blocked by it.
+if ($policy.doctor) {
+    $doctorScript = Join-Path $root (Join-Path '.claude' (Join-Path 'tools' 'motv_doctor.py'))
+    # SEGMENTS, NEVER ONE LITERAL. This line once held the whole relative path in a
+    # single-quoted string; a tool that writes PowerShell expanded its backslash-t
+    # into a real TAB, so the gate looked for a file whose name began with a tab and
+    # EVERY app commit on Windows failed with [Errno 22] -- while the .sh twin, which
+    # never had the escape, kept passing. Two implementations, two verdicts: exactly
+    # what ADR-0062 decision 3 forbids. A guard in tests/tooling/ now refuses any
+    # literal tab here. (ASCII only in this file -- see the isascii guard.)
+    $checks += @{ Label = 'motv doctor'; Timeout = 60; File = $py; Args = @($doctorScript) }
+}
+
+# Dependency-direction contracts (lint-imports, TASK-134). Runs whenever src/**.py
+# or pyproject.toml changed. AGENTS.md rules 8-9 -- vendor neutrality, every video
+# path through VideoProvider -- were prose guarded ONLY by a human reading the diff;
+# the same was true of test ownership until it became commit_gate_policy.py.
+#
+# The CONSOLE SCRIPT, never `python -m importlinter.cli`. That module has no
+# __main__ entry point, so `-m` prints ZERO bytes and exits 0: a gate wired that
+# way reports every contract as kept, forever. Measured 2026-09-05.
+#
+# A missing binary BLOCKS, it does not skip (AGENTS.md rule 6, fail-closed). An
+# invisible skip is how a temporary gap becomes permanent.
+if ($policy.import_contracts) {
+    $linter = Join-Path (Split-Path -Parent $py) 'lint-imports.exe'
+    if (Test-Path -LiteralPath $linter) {
+        $checks += @{ Label = 'lint-imports'; Timeout = 120; File = $linter; Args = @() }
+    }
+    else {
+        Write-Block -Label 'lint-imports' -Output 'import-linter is not in .venv. Install the dev extra: .venv\Scripts\python.exe -m pip install -e ".[dev]"'
+    }
+}
+
 $checks += @(
     @{ Label = 'git diff --check'; Timeout = 8; File = $gitExe; Args = @('diff', '--check') },
     @{ Label = 'git diff --cached --check'; Timeout = 8; File = $gitExe; Args = @('diff', '--cached', '--check') }

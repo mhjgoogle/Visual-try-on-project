@@ -25,6 +25,7 @@
 // PURE PRESENTATION over ctx.relgraph / ctx.canon.
 
 import { esc } from "../util/dom.js";
+import { uiAct } from "./uiact.js";
 import { RELATIONSHIP_FIELDS } from "../workflow/canondoc.js";
 import { empty } from "./shell.js";
 import { bindField, restoreFieldFocus } from "./fieldsync.js";
@@ -198,10 +199,15 @@ export function renderRelWs(ctx, ui) {
     `<span class="meta">产出是<b>提案</b>：逐条确认后才写进 Canon，已确认的关系不会被覆盖。` +
     `剧本更新之后可以再跑一次 —— 关系是随剧情推进变化的。</span>` +
     `</div>`;
+  // 回收区（TASK-129）。**删除是软删除，所以撤销那条路他自己也得走得了** ——
+  // 只有 Agent 能拿回来而他不能，正好把「他能点的 = 它能做的」反过来。
+  // 一段关系都没删过时这里一个字都不画：空回收区不是状态，是噪音。
+  const bin = binRow(ctx);
   return (
     `<div class="rg">` +
     `<div class="rg-bar">${add}${hint}<span class="push"></span>${confirm}</div>` +
     aiRow +
+    bin +
     (g.dangling.length
       ? `<div class="dir-unavail">${g.dangling.length} 段关系指向已不存在的人物，未画出（记录仍在）。</div>`
       : "") +
@@ -210,6 +216,34 @@ export function renderRelWs(ctx, ui) {
     `</div>${detail(ctx, g, ui)}</div>` +
     `<div class="meta rg-legend">线越粗越红＝矛盾越明确（由「核心矛盾 / 情感张力 / 红线」是否写了推导，不是评分）。` +
     `箭头方向＝「A 怎么看 B」的 A 那一侧。标签下方是<b>当前关系</b>（到当前剧集为止的 Relationship Beat，派生，不存第二份）。</div>` +
+    `</div>`
+  );
+}
+
+/** 回收区那一行 —— 删过关系才出现。
+ *
+ *  只给名字和「拿回来」，不复述他写过的那些栏：回收区是一条撤销的路，不是第二份
+ *  关系列表。名字按 id 反查**活着的人物**就够 —— 人物本身被删时它的关系已经在
+ *  回收区里了（`removeCharacter` 那道「有关系就拒删」的保护），所以这里查不到的
+ *  那一头只会是极少数历史脏数据，显示成 `?` 比整行不画诚实。 */
+function binRow(ctx) {
+  const prod = ctx.prodData && ctx.prodData().production;
+  const bin = (prod && prod.deletedRelationships) || [];
+  if (!bin.length) return "";
+  const chars = (prod && prod.characters) || [];
+  const nameOf = (id) => {
+    const c = chars.find((x) => x.characterId === id);
+    return esc(c ? c.name : "?");
+  };
+  return (
+    `<div class="rg-bin"><span class="meta">回收区：</span>` +
+    bin
+      .map(
+        (r) =>
+          `<span class="chip mute">${nameOf(r.characterIds[0])} — ${nameOf(r.characterIds[1])}` +
+          `<button class="btn ghost sm" data-rel-undel="${esc(r.relationshipId)}">拿回来</button></span>`,
+      )
+      .join("") +
     `</div>`
   );
 }
@@ -226,9 +260,12 @@ export function bindRelWs(root, ctx, ui, rerender) {
       // delimiter split could mis-parse (a characterId is an arbitrary string)
       const opt = sel.selectedOptions ? sel.selectedOptions[0] : sel.options[sel.selectedIndex];
       if (!opt) return;
-      const rec = ctx.canon.addRelationship(opt.dataset.a, opt.dataset.b);
-      if (rec) { ui.relOpen = rec.relationshipId; ui.relSelectA = null; rerender(); }
-      else ctx.toast("无法建立：两个人物必须存在且不同，且这一对已有关系定义");
+      // 走动作表（ADR-0096 / TASK-129）：他点的这一下和 Agent 说「给林照和阿夏
+      // 建立关系」落到同一条 `relationship.add`。动作用**名字或 id 都收**，
+      // 这里手里就是 id，直接给。
+      const out = uiAct(ctx, "relationship.add", { a: opt.dataset.a, b: opt.dataset.b });
+      if (out) { ui.relOpen = out.relationshipId; ui.relSelectA = null; }
+      rerender();
     };
 
   // CLICK TWO NODES = build a relationship. The first click only SELECTS — it must
@@ -240,9 +277,8 @@ export function bindRelWs(root, ctx, ui, rerender) {
     if (ui.relSelectA === id) { ui.relSelectA = null; rerender(); return; }
     const a = ui.relSelectA;
     ui.relSelectA = null;
-    const rec = ctx.canon.addRelationship(a, id);
-    if (rec) ui.relOpen = rec.relationshipId;
-    else ctx.toast("这两个人物之间已经有关系定义了 —— 点那条连线可以编辑它");
+    const out = uiAct(ctx, "relationship.add", { a, b: id });
+    if (out) ui.relOpen = out.relationshipId;
     rerender();
   });
   all("[data-rg-edge]", (el) => {
@@ -251,15 +287,23 @@ export function bindRelWs(root, ctx, ui, rerender) {
     rerender();
   });
   all("[data-rel-swap]", (el) => {
-    if (ctx.canon.swapDirection(el.dataset.relSwap)) {
-      ctx.toast("已调换方向（「A 怎么看 B」与「B 怎么看 A」一起跟着换了）");
-    }
+    uiAct(ctx, "relationship.swap", { relationshipId: el.dataset.relSwap });
     rerender();
   });
   all("[data-reldel]", (el) => {
-    if (!window.confirm("删除这段关系定义？（各集已记录的关系推进必须先移除）")) return;
-    if (ctx.canon.removeRelationship(el.dataset.reldel)) { ui.relOpen = null; rerender(); }
-    else ctx.toast("仍有剧集记录了这段关系的推进：先在「分集规划」移除该集的 Relationship Beat");
+    // 删除现在是**软删除**（TASK-129）：确认语因此也改了 —— 上一版写「删除这段
+    // 关系定义？」而它当时真删字节，现在拿得回来，说法要跟事实一致。
+    if (!window.confirm("把这段关系删掉？（回收区里可以拿回来）")) return;
+    if (uiAct(ctx, "relationship.remove", { relationshipId: el.dataset.reldel })) {
+      ui.relOpen = null;
+    }
+    rerender();
+  });
+  // 回收区：**他自己也要撤销得了**。只有 Agent 能 `relationship.restore` 而他不能，
+  // 正好把 REQ-006 判据 1 反过来（TASK-127 那一轮的教训）。
+  all("[data-rel-undel]", (el) => {
+    uiAct(ctx, "relationship.restore", { relationshipId: el.dataset.relUndel });
+    rerender();
   });
   all("[data-rel-ai]", () => {
     // AI PROPOSES ONLY — but the page RUNS it now (TASK-090 §2.3). This used to
@@ -278,7 +322,7 @@ export function bindRelWs(root, ctx, ui, rerender) {
   // AUTOSAVE ON INPUT (ui/fieldsync.js) — a refresh mid-sentence kept nothing when
   // these only wrote on blur.
   root.querySelectorAll("[data-rel-field]").forEach((el) => {
-    bindField(el, ui, (value) => ctx.canon.updateRelationship(el.dataset.relField, { [el.dataset.field]: value }));
+    bindField(el, ui, (value) => uiAct(ctx, "relationship.fields", { relationshipId: el.dataset.relField, [el.dataset.field]: value }, { quiet: true }));
   });
   restoreFieldFocus(root, ui);
 }

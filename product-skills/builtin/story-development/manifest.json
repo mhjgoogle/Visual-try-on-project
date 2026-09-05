@@ -1,6 +1,6 @@
 {
   "skillId": "story-development",
-  "skillVersion": 2,
+  "skillVersion": 3,
   "work": "creative",
   "role": "编剧",
   "title": "Story Development",
@@ -22,5 +22,23 @@
     "主角最开始想要什么，写的是不是最开始的欲望，而不是结局的领悟",
     "是否偷偷改变了 Brief 里已确定的类型 / 基调 / 形式 / 集数"
   ],
-  "recommendedRuntime": "local_subscription"
+  "recommendedRuntime": "local_subscription",
+  "routing": {
+    "userCapability": [
+      "story-development"
+    ],
+    "internalRouting": {
+      "intent": "story-structure",
+      "kind": "generative",
+      "scope": "project",
+      "priority": 80,
+      "selectWhen": [
+        "故事",
+        "大纲",
+        "主线",
+        "内核",
+        "想法"
+      ]
+    }
+  }
 }

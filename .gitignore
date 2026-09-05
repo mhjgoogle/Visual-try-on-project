@@ -20,6 +20,10 @@ htmlcov/
 .env
 .env.*
 !.env.example
+# `.env.local` 是他换 key 时改的那个文件（TASK-139 / ADR-0100 决策 4），已被上面
+# 的 `.env.*` 挡住。**只有这份不含 key 的模板要入库** —— 它同样匹配 `.env.*`，
+# 所以必须显式放行，否则新机器上没人知道该建什么文件、该填哪两个字段。
+!.env.local.example
 credentials.json
 secrets.json
 *.key

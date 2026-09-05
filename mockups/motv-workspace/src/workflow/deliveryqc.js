@@ -297,7 +297,15 @@ export function runDeliveryQc(input, { issueIdFor } = {}) {
       ignoredAt: null,
     }));
   const unknowns = rows.filter((r) => r.state === "unavailable");
+  // WHICH FILE THESE ROWS DESCRIBE (codex 轮 3 P1). The rows come from `probe`, so the
+  // report is about one candidate — but as a plain object handed around, nothing on it
+  // said which. `exportability` binds the export to THIS id: a clean report minted for
+  // version B must not authorise version A just because A was measured recently.
+  const probeAssetId = isObj(input) && typeof input.probeAssetId === "string" && input.probeAssetId
+    ? input.probeAssetId
+    : null;
   return {
+    probeAssetId,
     rows,
     issues,
     // ROW keys, which are not all layer-3 CATEGORIES (`clipping` is a second row of

@@ -1,6 +1,6 @@
 # 记录生命周期与仓库收敛
 
-权威是 **AGENTS.md 第 24–26 条 + [ADR-0087](../../../../docs/adr/ADR-0087-document-lifecycle-and-default-agent-context.md)**。
+权威是 **AGENTS.md 第 24–27 条 + [ADR-0087](../../../../docs/adr/ADR-0087-document-lifecycle-and-default-agent-context.md)**。
 本文件是**操作面**：什么时候做什么动作。目标只有一句 ——
 
 > 一个 Change 做完之后，仓库不比之前更乱。
@@ -78,7 +78,7 @@ Superseded by / Partially superseded by`）。只在正文里提一句不算：�
 
 ## 3. 收口时做什么（dev-workflow 第 9/10 步的展开）
 
-### 第 9 步 · 仓库收敛（代码收敛之外的六问）
+### 第 9 步 · 仓库收敛（代码收敛之外的七问）
 
 1. 这次新增的 `docs/` 文件，**每一份都是 A 或 B 吗**？C 类删掉或提炼。
 2. 有 A 类文档现在在**说谎**吗？（尤其 `current-architecture.md`：
@@ -90,11 +90,16 @@ Superseded by / Partially superseded by`）。只在正文里提一句不算：�
 5. `active/` 里有没有**已经做完**或**根本没人在做**的卡？→ 搬 `done/` / `backlog/`。
 6. 有没有已经不代表当前有效行为的**测试 / 文档 / 兼容层**？→ 删或更新。
    （测试保护 Current Valid Behavior，不保护 Historical Behavior。）
+7. **当前真相还能重建吗**（AGENTS.md 第 27 条 / ADR-0101 决策 5）？六个面里
+   后三面从目录派生、锚点缺失即 fail-closed，机器能替你答；**机器答不了的是
+   `<!-- current-truth: milestone -->` 那一行说得还对不对** —— 这次 Change
+   推进或换掉了里程碑，就在**同一个提交里**改它。
 
-前四问是判断，后两问机器帮你查：
+前四问是判断，后三问机器帮你查：
 
 ```
 python .claude/tools/lifecycle_check.py
+python .claude/tools/gen_docs_status.py     # 第 7 问：六面 + STATUS.md 重生成
 ```
 
 它不判「这份文档还有没有价值」—— 那需要读者。**它漏报，不误杀**；

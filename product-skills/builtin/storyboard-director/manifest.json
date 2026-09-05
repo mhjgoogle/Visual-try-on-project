@@ -1,6 +1,6 @@
 {
   "skillId": "storyboard-director",
-  "skillVersion": 2,
+  "skillVersion": 3,
   "work": "creative",
   "role": "分镜导演",
   "title": "Storyboard Director",
@@ -20,5 +20,21 @@
     "景别与运镜是否每一镜都写了，且不是「常规」这类等于没写的词",
     "时长是否只用 6 / 10 秒"
   ],
-  "recommendedRuntime": "local_subscription"
+  "recommendedRuntime": "local_subscription",
+  "routing": {
+    "userCapability": [
+      "episode-production"
+    ],
+    "internalRouting": {
+      "intent": "storyboard",
+      "kind": "generative",
+      "scope": "episode",
+      "priority": 65,
+      "selectWhen": [
+        "分镜",
+        "拆镜",
+        "镜头表"
+      ]
+    }
+  }
 }

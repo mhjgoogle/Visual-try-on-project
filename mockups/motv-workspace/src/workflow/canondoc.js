@@ -67,7 +67,9 @@ export const WORLD_FIELDS = [
 export const UPSTREAM_KEYS = ["brief", "outline", "characters", "relationships", "world"];
 
 export const UPSTREAM_LABEL = {
-  brief: "创意 Brief",
+  // TASK-122：这一项现在住在「故事核心」里。旧名字「创意 Brief」还挂在就绪提示上时，
+  // 产品负责人 2026-08-30 被告知「还缺 创意 Brief」——而他刚写完 869 字的故事核心。
+  brief: "故事核心",
   outline: "故事大纲",
   characters: "人物",
   relationships: "人物关系",
@@ -283,11 +285,73 @@ export function addRelationship(prod, aId, bId) {
 /** Remove a Relationship — REFUSED while an episode still records a beat for
  *  it: the beat is real creative history and must be released explicitly
  *  (same non-destructive posture as M6/M7 removals). */
-export function removeRelationship(prod, relationshipId) {
-  if (!findRelationship(prod, relationshipId)) return false;
+export function removeRelationship(prod, relationshipId, at = "") {
+  const rec = findRelationship(prod, relationshipId);
+  if (!rec) return false;
   if (episodesWithRelationshipBeat(prod, relationshipId).length) return false;
   prod.relationships = prod.relationships.filter((r) => r.relationshipId !== relationshipId);
+  // 软删除（TASK-129 / CA §5.2）：移进回收区，不删字节。
+  if (!Array.isArray(prod.deletedRelationships)) prod.deletedRelationships = [];
+  prod.deletedRelationships.push({ ...rec, deletedAt: str(at) });
   return true;
+}
+
+/** 回收区里的关系（只读，永远返回数组）。 */
+export function deletedRelationships(prod) {
+  return Array.isArray(prod && prod.deletedRelationships) ? prod.deletedRelationships : [];
+}
+
+/**
+ * 把删掉的关系拿回来。
+ *
+ * **一对人物只能有一段关系**（`pairKey` 是无序的，林照×沈既白 与 沈既白×林照 是
+ * 同一段）。所以这里有一个 `deleteDoc` 那类回收区没有的拒绝分支：删掉 A×B 之后
+ * 又新建了一段 A×B 时，拿回来会撞破那条不变量。
+ *
+ * 这时候**拒绝，并且说得出为什么** —— 不静默合并（那会让两份「他写过的关系描述」
+ * 里有一份消失），也不静默替换（那是拿撤销去覆盖他之后做的事）。
+ * 他要旧的那份，就先把新的删掉，再拿回来。
+ */
+export function undeleteRelationship(prod, relationshipId) {
+  const bin = deletedRelationships(prod);
+  const i = bin.findIndex((r) => isObj(r) && r.relationshipId === relationshipId);
+  if (i < 0) return false;
+  const rec = bin[i];
+  const key = pairKey(rec.characterIds[0], rec.characterIds[1]);
+  const clash = (prod.relationships || []).some(
+    (r) => pairKey(r.characterIds[0], r.characterIds[1]) === key,
+  );
+  if (clash) return false; // 这一对已经有一段活着的关系了
+  prod.deletedRelationships = bin.filter((_, n) => n !== i);
+  delete rec.deletedAt;
+  prod.relationships.push(rec);
+  return true;
+}
+
+/**
+ * 回收区里那些关系的水合。
+ *
+ * 与活着的那份有两处**故意不同**：
+ *
+ * 1. **不判「一对一段」。** 回收区里躺着两段同一对人物的旧关系是合法的
+ *    （删了建、建了又删）。拿回来那一刻才判，见 `undeleteRelationship`。
+ * 2. **人物 id 认回收区里的人物**。一段被删的关系可以指着一个同样被删的人物；
+ *    拿活人物名单去筛，会把它整条丢掉 —— 那就是「软删除」被读盘悄悄变成硬删除。
+ */
+export function sanitizeDeletedRelationships(saved, charIdsAny, takenIds) {
+  const out = [];
+  for (const r of Array.isArray(saved) ? saved : []) {
+    if (!isObj(r) || !nonEmpty(r.relationshipId) || takenIds.has(r.relationshipId)) continue;
+    const ids = Array.isArray(r.characterIds) ? r.characterIds.filter(nonEmpty) : [];
+    if (ids.length !== 2 || ids[0] === ids[1]) continue;
+    if (!charIdsAny.has(ids[0]) || !charIdsAny.has(ids[1])) continue;
+    takenIds.add(r.relationshipId);
+    const p = isObj(r.profile) ? r.profile : {};
+    const profile = { ...p };
+    for (const k of RELATIONSHIP_FIELDS) profile[k] = str(p[k]);
+    out.push({ ...r, relationshipId: r.relationshipId, characterIds: [ids[0], ids[1]], profile });
+  }
+  return out;
 }
 
 /** Update whitelisted definition facets (strings only). */

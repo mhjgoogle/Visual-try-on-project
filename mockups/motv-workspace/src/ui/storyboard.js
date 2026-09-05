@@ -92,7 +92,13 @@ function shotCard(pd, idx, s) {
 
 /** The Storyboard board: the ACTIVE episode's scenes (resolved via canonical
  *  creativeShotId), the unassigned pool, and draft standing. */
-export function storyboardModel(pd) {
+export function storyboardModel(pd, recycledIds = []) {
+  // 回收区里的镜头**从列表里消失**，而不是留下一行「不在当前草稿」。
+  // 场景仍然引用着它（撤销删除要靠这条引用把它原位放回），但对创作者来说
+  // 「我删了它」和「这里有个坏引用」是两件完全不同的事 —— 后者会让他以为出错了。
+  const recycled = new Set(
+    (Array.isArray(recycledIds) ? recycledIds : []).filter((x) => typeof x === "string"),
+  );
   const prod = pd.production;
   const draft = pd.draftShots || [];
   const idx = buildShotSlotIndex(draft);
@@ -108,10 +114,12 @@ export function storyboardModel(pd) {
         sceneId: sc.sceneId,
         title: sc.title,
         refs: sceneRefsView(prod, ep.scenes.find((x) => x.sceneId === sc.sceneId) || {}),
-        shots: sc.shots.map((x) =>
-          x.shot && cardByShotId.has(x.shotId)
-            ? cardByShotId.get(x.shotId)
-            : { shotId: x.shotId, dangling: true, title: x.shotId, seq: null, thumb: "", hasVideo: false }),
+        shots: sc.shots
+          .filter((x) => !recycled.has(x.shotId))
+          .map((x) =>
+            x.shot && cardByShotId.has(x.shotId)
+              ? cardByShotId.get(x.shotId)
+              : { shotId: x.shotId, dangling: true, title: x.shotId, seq: null, thumb: "", hasVideo: false }),
       }))
     : [];
   const unassigned = view ? view.unassigned.map((s) => shotCard(pd, idx, s)) : [];
@@ -662,7 +670,12 @@ function detailHtml(ctx, d, ui) {
  *  persisted. */
 export function renderStoryboard(ctx, ui) {
   const pd = ctx.prodData();
-  const m = storyboardModel(pd);
+  // 回收区在这里就要拿到：被删掉的镜头必须从场景列表里消失，而不是变成
+  // 一行「不在当前草稿」（真机验证时看到的第一件事）。
+  const recycledNow = ctx.shots && typeof ctx.shots.recycled === "function"
+    ? ctx.shots.recycled()
+    : [];
+  const m = storyboardModel(pd, recycledNow.map((r) => r && r.shotId));
   if (m.generating) {
     return (
       head("分镜", "生成中") +
@@ -762,11 +775,27 @@ export function renderStoryboard(ctx, ui) {
     const recycled = ctx.shots && typeof ctx.shots.recycled === "function" ? ctx.shots.recycled() : [];
     return header + renderShotTable(ctx, tableModel(pd, ui, recycled), ui);
   }
+  // 删除也在卡片视图里（产品负责人 2026-08-29:「不管是故事还是镜头。应该都可以有
+  // 删除的选项。不然画面会很乱。」）。它一直只在表格视图里有 —— 同一个能力，看不见
+  // 的那半等于没有。走的是**同一个**软删除：镜头进回收区，随时撤销。
+  const recycledCards = recycledNow;
+  const recycleBox = recycledCards.length
+    ? `<details class="sb-recycle"><summary>回收区（${recycledCards.length}）` +
+      `—— 删除的镜头留在这里，可随时撤销</summary><ul>` +
+      recycledCards
+        .map((r) => (
+          `<li><span>${esc(nn(r.sequence))} ${esc(r.title || r.shotId || "")}</span>` +
+          `<button class="btn sm" data-sb-undel="${esc(r.shotId || "")}">撤销删除</button></li>`
+        ))
+        .join("") +
+      `</ul></details>`
+    : "";
   return (
     header +
     renderSceneStrip(m.scenes, selScene ? selScene.sceneId : null) +
     `<div class="wsplit">` +
-    `<div class="listcol">${renderShotList(m.scenes, m.unassigned, selected)}</div>` +
+    `<div class="listcol">${renderShotList(m.scenes, m.unassigned, selected, { delAttr: "sbDel" })}` +
+    recycleBox + `</div>` +
     `<div class="maincol">${centre}</div>` +
     `<div class="refcol">${d ? renderRefCards(d.scene, portraitFor) : ""}</div>` +
     `</div>`
@@ -869,6 +898,36 @@ export function bindShotSelection(root, ctx, ui, rerender) {
     rerender();
   };
   root.querySelectorAll("[data-shot]").forEach((el) => (el.onclick = () => pick(el.dataset.shot)));
+  // 删除 / 撤销删除：与表格视图**同一条**软删除路径（`ctx.shots.softDelete`），
+  // 所以两个视图不会有两种行为。不问「确定吗」——它可撤销，问了才是浪费
+  // （AGENTS.md §1：可逆的事直接做）。
+  root.querySelectorAll("[data-sb-del]").forEach((el) => (el.onclick = (ev) => {
+    ev.stopPropagation();
+    const shotId = el.dataset.sbDel;
+    if (!ctx.shots || typeof ctx.shots.softDelete !== "function") return;
+    // 先算后果再删：派生扫描本来就是为这句话存在的（与表格视图同一条理由）。
+    // 这是**告知不是闸门** —— 软删除不销毁任何东西，撤销把它原位放回。
+    const impact = typeof ctx.shots.deletionImpact === "function"
+      ? ctx.shots.deletionImpact(shotId)
+      : null;
+    if (!ctx.shots.softDelete(shotId)) { ctx.toast("删不掉这个镜头（草稿里没有它）"); return; }
+    if (ui.selectedShotId === shotId) ui.selectedShotId = null;
+    ctx.toast(
+      impact && impact.total > 0
+        ? `已删除 —— ${impact.total} 处引用现在指向一个已回收的镜头（${
+          impact.groups.map((g) => `${g.area}(${g.paths.length})`).join("、")
+        }）。在回收区可以撤销`
+        : "已删除 —— 在下方回收区可以撤销",
+    );
+    rerender();
+  }));
+  root.querySelectorAll("[data-sb-undel]").forEach((el) => (el.onclick = (ev) => {
+    ev.stopPropagation();
+    if (!ctx.shots || typeof ctx.shots.restoreDeleted !== "function") return;
+    if (!ctx.shots.restoreDeleted(el.dataset.sbUndel)) { ctx.toast("撤销不了（回收区里没有它）"); return; }
+    ctx.toast("已撤销删除 —— 镜头回到它原来的位置");
+    rerender();
+  }));
   root.querySelectorAll("[data-scene]").forEach((el) => (el.onclick = () => {
     const m = storyboardModel(ctx.prodData());
     const sc = m.scenes.find((x) => x.sceneId === el.dataset.scene);

@@ -8,6 +8,25 @@
 
 ---
 
+## 当前真相锚点（三行，唯一手写的那部分）
+
+**这三行是 [STATUS.md](STATUS.md)「当前真相」节前三面的来源**
+（AGENTS.md 第 27 条 · [ADR-0101](adr/ADR-0101-idea-intake-level-and-milestone-gate.md)
+决策 5）。其余三面（Active Requirements / Deferred / Recent Decisions）从目录派生，
+不手写。**注释锚点不能删也不能留空** —— `gen_docs_status.py` 会 fail-closed。
+
+**里程碑那一行是 Milestone Gate 每次要读的东西**：里程碑推进或换掉时，
+在同一个提交里改它（收敛检查第 7 问）。
+
+<!-- current-truth: mission -->
+构建覆盖「故事构思 → 剧本 → 场景镜头 → 资产 → 图片/视频生成 → 配音字幕 → 合成 → QCD」的 AI 视频 / 短剧生产工作流，核心对视频厂商保持中立。
+<!-- current-truth: strategy -->
+原 M1 最小闭环已完成并冻结为基础；WFM1 增量加入可复用短剧流程与云端默认生产路线；创作者 Studio 按 ADR-0066 四阶段落成产品界面；会花钱的能力按 Accepted ADR 逐个命令开门。
+<!-- current-truth: milestone -->
+创作者 Studio 单一路径收敛，五个垂直切片依次推进（① 当前事实收口 → ② run_id 前端闭环 → ③ Candidate/QC/Final 闭环 → ④ 一份 Surface/Command Manifest → ⑤ 单一路径 + Connected Project 验收），**不增加新的顶层页面**；现在在切片 ①（TASK-125）。
+
+---
+
 ## 长期目标
 
 构建一个 AI 视频 / AI 短剧生产工作流，覆盖：

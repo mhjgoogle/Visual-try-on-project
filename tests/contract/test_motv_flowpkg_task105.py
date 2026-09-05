@@ -35,6 +35,17 @@ def skills():
     return skillpkg.load_catalog([("builtin", _BUILTIN_SKILLS)])
 
 
+def _live_version(skill_id: str) -> int:
+    """磁盘上这个能力**此刻**是第几版。
+
+    DERIVED, NEVER HARD-CODED. 这些测试问的是「流程解析步骤的规则对不对」，而不是
+    「story-development 现在是 v2」—— 把版本号写死，等于让每一次合法的升版（改
+    prompt、改契约、改路由元数据）都把一批与它无关的测试撞红，而红的理由与它们
+    要守的性质毫无关系。
+    """
+    return skillpkg.load_package(_BUILTIN_SKILLS / skill_id, "builtin").version
+
+
 def _manifest(**over) -> dict:
     base = {
         "flowId": "demo",
@@ -43,7 +54,11 @@ def _manifest(**over) -> dict:
         "title": "示例",
         "purpose": "测试用",
         "steps": [
-            {"stepKey": "one", "skillId": "story-development", "skillVersion": 2}
+            {
+                "stepKey": "one",
+                "skillId": "story-development",
+                "skillVersion": _live_version("story-development"),
+            }
         ],
     }
     base.update(over)
@@ -113,7 +128,11 @@ def test_a_missing_capability_makes_the_whole_flow_unavailable(tmp_path, skills)
         tmp_path,
         manifest=_manifest(
             steps=[
-                {"stepKey": "one", "skillId": "story-development", "skillVersion": 2},
+                {
+                    "stepKey": "one",
+                    "skillId": "story-development",
+                    "skillVersion": _live_version("story-development"),
+                },
                 {"stepKey": "two", "skillId": "does-not-exist", "skillVersion": 1},
             ]
         ),
@@ -141,7 +160,8 @@ def test_a_capability_at_the_wrong_version_is_also_missing(tmp_path, skills):
 
     assert catalog.get("demo") is None
     assert "v99" in catalog.problems[0].reason
-    assert "v2" in catalog.problems[0].reason, "要说出本机是哪一版"
+    live = _live_version("story-development")
+    assert f"v{live}" in catalog.problems[0].reason, "要说出本机是哪一版"
 
 
 def test_without_a_skill_catalog_only_the_package_itself_is_checked(tmp_path):
@@ -216,8 +236,16 @@ def test_a_duplicate_step_key_is_refused(tmp_path):
         tmp_path,
         manifest=_manifest(
             steps=[
-                {"stepKey": "one", "skillId": "story-development", "skillVersion": 2},
-                {"stepKey": "one", "skillId": "script-writer", "skillVersion": 1},
+                {
+                    "stepKey": "one",
+                    "skillId": "story-development",
+                    "skillVersion": _live_version("story-development"),
+                },
+                {
+                    "stepKey": "one",
+                    "skillId": "script-writer",
+                    "skillVersion": _live_version("script-writer"),
+                },
             ]
         ),
     )

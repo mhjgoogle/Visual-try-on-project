@@ -21,3 +21,13 @@ SUPERSEDED）与版本修订规则见
   （TASK-107 / ADR-0087）
 - [REQ-003](REQ-003-traceability-and-requirement-fulfillment-review.md) — CONFIRMED — 从产品意图到验证的追溯链，审查先答「声称完成的需求真的完成了吗」
   （TASK-108 / ADR-0088）
+- [REQ-004](REQ-004-three-pane-shell-and-agent-conversation.md) — CONFIRMED — 全站统一三栏（左控制/选择 · 中工作区 · 右 Agent 对话），右栏是真正的对话框
+  （TASK-109）
+- [REQ-005](REQ-005-remove-a-project-from-the-home-list.md) — CONFIRMED — 主页可以把项目从列表里删除（只删列表，文件他自己删）
+  （TASK-110 / ADR-0090）
+- [REQ-006](REQ-006-agent-can-do-what-the-creator-can-do.md) — CONFIRMED — 对话里的 Agent 能做创作者能做的事，并把意见带回给开发
+  （TASK-114 / ADR-0089 决策 7、8）
+- [REQ-007](REQ-007-say-it-and-the-right-capability-runs.md) — CONFIRMED — 他说一句话，对的那个专业能力就跑起来：前端 Agent 只认三类工作，
+  选哪个专业能力由服务端确定性地决定（TASK-119 / ADR-0091）
+- [REQ-008](REQ-008-images-from-my-own-account.md) — CONFIRMED — 用他自己账号的额度自动出图，不接按次计费的 API：不出现确认金额那道闸，
+  额度用完就说用完、绝不偷偷回退到付费路（TASK-139 / ADR-0100）

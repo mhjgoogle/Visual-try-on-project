@@ -1,0 +1,40 @@
+{
+  "renderer": "agent_harness/1",
+  "entries": {
+    "auto-push": {
+      "entry": ".agents/skills/auto-push/SKILL.md",
+      "source": ".claude/skills/auto-push",
+      "renderer": "agent_harness/1",
+      "source_digest": "sha256:e658d3f5ad0bbdf060235e9fe4aa484f87364765b1ca29c0f023c33c13314769",
+      "entry_digest": "sha256:566d68316b737955953a2ba635dd7f54a23ea069c6cdc85895bf25a7ae57b7f0"
+    },
+    "codex-review-loop": {
+      "entry": ".agents/skills/codex-review-loop/SKILL.md",
+      "source": ".claude/skills/codex-review-loop",
+      "renderer": "agent_harness/1",
+      "source_digest": "sha256:46a56578bf281e5846261c7ef9f7e94062726339354803199cf3624fb0f034f8",
+      "entry_digest": "sha256:31711b7e270598fe556176677c322eeca5981bbed40679b4c5f6a0b779c9d8c6"
+    },
+    "dev-workflow": {
+      "entry": ".agents/skills/dev-workflow/SKILL.md",
+      "source": ".claude/skills/dev-workflow",
+      "renderer": "agent_harness/1",
+      "source_digest": "sha256:761f9651b3576ae33b19b1e583599470fd4018c68a5df03f9d7d49f56fb65908",
+      "entry_digest": "sha256:81ff8542f4895b5cdd6d17d8add427bc0ff0ab3e737ccb68c03c2fcbc68c6b5d"
+    },
+    "product-loop": {
+      "entry": ".agents/skills/product-loop/SKILL.md",
+      "source": ".claude/skills/product-loop",
+      "renderer": "agent_harness/1",
+      "source_digest": "sha256:6a6782608cf9f2c83d71d12d689cc3edb3c9ec8d9812c5cfb295d27a0e47226d",
+      "entry_digest": "sha256:eae4edab00a140cc609b3aa870d37c50cb8c11bc0b948a78afaa14657796cfc1"
+    },
+    "skill-evolution": {
+      "entry": ".agents/skills/skill-evolution/SKILL.md",
+      "source": ".claude/skills/skill-evolution",
+      "renderer": "agent_harness/1",
+      "source_digest": "sha256:758fcf65649b9a80492935917f0bb4aab8b356a7da9fbfeebb44abb42900ff79",
+      "entry_digest": "sha256:fbf72714a54208c39863878de76c25ae32c9927e4cd576e67457494c04b42d74"
+    }
+  }
+}

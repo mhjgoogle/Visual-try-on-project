@@ -29,6 +29,7 @@ import {
   EPISODE_NAV, EPISODE_MODULES, PAGE_SECTIONS, PAGES, MODULE_LABEL,
   renderEpisodeRail, resolveModule, spaceOf, crumbScope, mediaBox, mediaGoneBox, fileNameOf,
 } from "../src/ui/shell.js";
+import { renderEpCanvas } from "../src/ui/epcanvas.js";
 import {
   ROLE_USE, ROUTE_CAPABILITY, routeCapability, effectiveRoleUse, downgradedRoles,
   referenceRouteNote, referenceRouteMatrix, MODEL_INPUT_ROLES, INTERPRETATION_ROLES,
@@ -600,18 +601,65 @@ test("every EPISODE_NAV key resolves to a real page AND a real section", () => {
   }
 });
 
-test("renderEpisodeRail draws all five, with data-mod the shell already binds", () => {
-  const html = renderEpisodeRail({ activeModule: "shotwork", episodeCode: "EP01", episodeTitle: "沉默酒吧" });
-  for (const [key, , label] of EPISODE_NAV) {
-    assert.ok(html.includes(`data-mod="${key}"`), `${key} needs an entrance`);
-    assert.ok(html.includes(label), `${label} must be named`);
-  }
-  assert.ok(html.includes("EP01 沉默酒吧"), "the rail says which episode it is for");
+
+/** 画布只需要这些就能画出「全部工作区」那一排 —— 这份测试守的是入口，不是内容。 */
+function canvasCtx() {
+  const production = {
+    episodes: [{ episodeId: "ep-1", title: "沉默酒吧", scenes: [{ sceneId: "s1", shotIds: ["sh1"] }] }],
+    activeEpisodeId: "ep-1",
+    characters: [],
+    locations: [],
+    blocking: {},
+    shotProduction: { reviews: {}, references: {}, stages: {}, stageReviews: {} },
+  };
+  return {
+    prodData: () => ({
+      production,
+      draftShots: [{ shotId: "sh1", seq: 1, title: "招牌 · 雨夜", sceneId: "s1" }],
+      timelines: null,
+    }),
+    script: null,
+    shot: null,
+  };
+}
+
+test("左栏默认只画制作画布那一行，停在哪一页就把哪一行也画出来（TASK-124）", () => {
+  // **规则变了**：产品负责人 2026-08-30「剧集制作这块你设计了很多入口。有点看不懂。
+  // 能不能就做一块简洁的画布」。六行并列入口收成一行 —— 其余五页收在画布里，
+  // 下面那条测试守着它们仍然有入口。
+  const home = renderEpisodeRail({ activeModule: "board", episodeCode: "EP01", episodeTitle: "沉默酒吧" });
+  assert.ok(home.includes(`data-mod="board"`), "制作画布那一行永远在");
+  assert.ok(!home.includes(`data-mod="delivery"`), "其余五页默认不占左栏");
+  assert.ok(home.includes("EP01 沉默酒吧"), "the rail says which episode it is for");
+
+  // 停在某一页时，那一行要画出来 —— 否则左栏什么都不高亮，他会不知道自己在哪
+  const at = renderEpisodeRail({ activeModule: "shotwork" });
+  assert.ok(at.includes(`data-mod="shotwork"`), "当前这一页要在左栏可见");
+  assert.equal((at.match(/class="st-navitem[^"]* on"/g) || []).length, 1);
 });
 
-test("⑨ 粗剪审片 is REACHABLE — it had a renderer, a binding and no entrance at all", () => {
-  const html = renderEpisodeRail({ activeModule: "board" });
-  assert.ok(html.includes(`data-mod="cutreview"`), "this attribute existed nowhere in the repo");
+test("⑨ 粗剪审片 仍然有入口 —— 只是搬进了画布的那三步里", () => {
+  // 这条守卫是「有渲染器、有绑定、却没有任何入口」那次事故留下的。**它的意图不是
+  // 「左栏里必须有」，而是「必须能进得去」** —— TASK-124 之后它去检查制作画布。
+  //
+  // 按**解析之后的落点**检查，不按字面的键：画布上写的是 `frames` / `video`
+  // （他嘴里的「关键帧」「视频」），它们解析到 ⑧ 镜头制作。字面比较会逼着界面
+  // 去说一个他不会说的词。
+  const html = renderEpCanvas(canvasCtx(), {});
+  // 画布上的入口有**两种**：整页按钮 `data-goto`，和镜头卡上的「下一步」
+  // `data-ec-step="<镜头>:<去哪>"`。只扫前一种会漏掉后一种 —— 而后者正是他
+  // 日常真正在点的那个。
+  const targets = [
+    ...[...html.matchAll(/data-goto="([^"]+)"/g)].map((mm) => mm[1]),
+    ...[...html.matchAll(/data-ec-step="[^":]*:([^"]+)"/g)].map((mm) => mm[1]),
+  ];
+  const reachable = new Set(
+    targets.map((k) => resolveModule(k)).filter((r) => r.resolved).map((r) => r.module),
+  );
+  // `board` 是画布**自己**，不需要通往自己的入口
+  for (const key of ["storyboard", "shotwork", "cutreview", "delivery"]) {
+    assert.ok(reachable.has(key), `${MODULE_LABEL[key] || key} 在画布里进不去了`);
+  }
   assert.equal(resolveModule("cutreview").module, "cutreview");
   assert.deepEqual(PAGE_SECTIONS.cutreview, ["review"]);
   assert.equal(spaceOf("cutreview"), "episode");

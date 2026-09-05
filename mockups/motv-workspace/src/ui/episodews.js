@@ -176,7 +176,7 @@ function shotDetail(c) {
 export function renderEpisodeWs(ctx, ui) {
   const m = episodeModel(ctx);
   if (m.empty) {
-    return head("本集制作", "") + empty("📺", "还没有剧集", "在「分集规划」确认规划后建立剧集");
+    return head("本集制作", "") + empty("📺", "还没有剧集", "在「结构规划」确认规划后建立剧集");
   }
   if (!m.shots) {
     return (

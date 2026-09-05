@@ -45,6 +45,12 @@ jobs:
         run: ruff check .
       - name: Ruff format check
         run: ruff format --check .
+      # Dependency-direction contracts (TASK-134). The CONSOLE SCRIPT, never
+      # `python -m importlinter.cli`: that module has no __main__ entry point,
+      # so `-m` prints zero bytes and exits 0 -- CI would report every contract
+      # as kept, forever. Runs before pytest so a layering violation fails fast.
+      - name: Import contracts (dependency direction)
+        run: lint-imports
       # Two phases, same split as both commit gates (pyproject.toml markers):
       # the suite runs under xdist except the real-process-tree tests, which
       # cannot tolerate sibling workers killing their own trees.
@@ -80,6 +86,12 @@ jobs:
         run: ruff check .
       - name: Ruff format check
         run: ruff format --check .
+      # Dependency-direction contracts (TASK-134). The CONSOLE SCRIPT, never
+      # `python -m importlinter.cli`: that module has no __main__ entry point,
+      # so `-m` prints zero bytes and exits 0 -- CI would report every contract
+      # as kept, forever. Runs before pytest so a layering violation fails fast.
+      - name: Import contracts (dependency direction)
+        run: lint-imports
       # Two phases, same split as both commit gates (pyproject.toml markers):
       # the suite runs under xdist except the real-process-tree tests, which
       # cannot tolerate sibling workers killing their own trees.

@@ -155,16 +155,19 @@ export function shotBlockers(pd, shot) {
  *  and counts directly; anything else we cannot prove stays uncounted rather
  *  than claiming a finished episode. */
 export function episodeFinals(pd, ep) {
-  const finals = pd.finals || [];
-  if (!finals.length || !ep) return 0;
-  const episodes = (pd.production && pd.production.episodes) || [];
-  if (episodes.length <= 1) return finals.length; // no other episode to confuse it with
   const reg = pd.assets;
-  const finalIds = new Set(
-    (reg && Array.isArray(reg.finals) ? reg.finals : [])
-      .filter((f) => f && typeof f.assetId === "string")
-      .map((f) => f.assetId),
+  // ONLY EXPORTED FINALS (TASK-074 §1.7). `reg.finals` is the finals **域**, and it
+  // now holds candidates too — counting those would light the pipeline's 成片 段 as
+  // 完成 the moment a candidate exists, which is the exact claim this slice removes:
+  // 合成完 ≠ 成片。
+  // 撤回（归档）过的那一版也不算 —— 与 `assetlib.finals()` 同一个口径。
+  const exported = (reg && Array.isArray(reg.finals) ? reg.finals : []).filter(
+    (f) => f && f.kind === "final" && typeof f.assetId === "string" && f.storageState !== "archived",
   );
+  if (!exported.length || !ep) return 0;
+  const episodes = (pd.production && pd.production.episodes) || [];
+  if (episodes.length <= 1) return exported.length; // no other episode to confuse it with
+  const finalIds = new Set(exported.map((f) => f.assetId));
   let n = 0;
   for (const g of pd.generations || []) {
     if (!g || g.type !== "render") continue;
@@ -269,7 +272,7 @@ function computeNext({ stages, counts, total, shots, blocked, loose }) {
   }
 
   if (stage.key === "script") {
-    return { key: "script", label: "写本集剧本", detail: "本集还没有可用的剧本版本。", goto: "script", ready: 0, blocked: 0 };
+    return { key: "script", label: "写正文", detail: "本集还没有可用的剧本版本。", goto: "script", ready: 0, blocked: 0 };
   }
   if (stage.key === "bible") {
     const n = stages.find((s) => s.key === "bible");

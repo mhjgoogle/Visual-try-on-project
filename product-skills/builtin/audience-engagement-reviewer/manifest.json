@@ -1,0 +1,48 @@
+{
+  "skillId": "audience-engagement-reviewer",
+  "skillVersion": 1,
+  "work": "review",
+  "role": "观众视角审校",
+  "title": "Audience Engagement Reviewer",
+  "purpose": "用两个视角读同一份材料：作者想讲的（还对得上故事内核吗）与观众会经历的（好奇吗、在乎吗、会被意外到吗、想不想看下一段）。指出无聊风险、钩子弱、承诺不清、节奏塌陷、走向可预测、赌注不够、类型期待没兑现，并给出按优先级排好的改法建议。只诊断与建议，不代写。",
+  "inputs": [
+    "outline"
+  ],
+  "optionalInputs": [
+    "brief",
+    "currentPlan",
+    "episodeScript",
+    "scenes",
+    "shots",
+    "characters",
+    "world"
+  ],
+  "reviewCriteria": [
+    "每一条 finding 是否指出了**具体位置**（哪一段大纲 / 哪一集 / 哪一场 / 哪一镜），而不是笼统地说「前面有点慢」",
+    "是否分清了「作者意图对不对得上故事内核」与「观众看不看得下去」这两件事，而不是把它们混成一句「不够好」",
+    "`audienceEffect` 写的是**观众会怎样**（会走神 / 猜到了 / 不明白在等什么），而不是又一次复述剧情",
+    "`evidence` 是否引用了上下文里真有的内容，而不是推测材料里没有的东西",
+    "recommendations 是否**按优先级排序**且每条说清预期效果，而不是并列一堆同等重要的意见",
+    "是否克制住了代写：给的是「该往哪个方向改」，不是可以直接粘贴进作品的成品文字",
+    "类型期待的判断是否基于 Brief 里写明的类型/基调，而不是审校自己偏好的类型"
+  ],
+  "recommendedRuntime": "local_subscription",
+  "routing": {
+    "userCapability": [
+      "story-review"
+    ],
+    "internalRouting": {
+      "intent": "audience-engagement",
+      "kind": "diagnostic",
+      "scope": "project",
+      "priority": 50,
+      "selectWhen": [
+        "观众",
+        "无聊",
+        "钩子",
+        "节奏",
+        "好看"
+      ]
+    }
+  }
+}

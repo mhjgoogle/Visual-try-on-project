@@ -371,6 +371,14 @@ export function renderGenCard(m) {
     `<div class="gc-actions">${quoteHtml(m)}${submit}</div>` +
     failuresHtml(m) +
     `<div class="gc-free"><span class="lab">免费路线</span>` +
+    // ✨ 自动出图（TASK-139 / REQ-008 判据 1）。它排在这一行的**第一个**，因为
+    // 其余几个都要他自己跑一趟外部工具再传回来，而这一个点完就有图。
+    //
+    // 只在 `image` 上出现：Pollinations 只出图，视频那条路仍然是手工 + 付费网关。
+    // 一颗在视频卡上按下去必然失败的按钮，比没有按钮更糟。
+    (m.kind === "image"
+      ? `<button class="btn sm primary" data-gc-auto data-gc-slot="${esc(m.slot || "")}" title="自动生成（免费 · 不产生账单 · 无需确认金额；来源见 .env.local 的 IMAGE_PROVIDER）">✨ 自动生成（免费）</button>`
+      : "") +
     FREE_ENTRIES.map(([k, label]) =>
       `<button class="btn sm" data-gc-free="${esc(k)}">${k === "manual" ? "📋 " : "↗ "}${esc(label)}</button>`).join("") +
     `<button class="btn sm" data-gc-import>⬆ 导入生成结果</button>` +
@@ -478,6 +486,46 @@ export function bindGenCard(root, ctx, ui, rerender, { kind, shotId, importMedia
     // denied copy must not fake a 「sent to ChatGPT」 record
     if (await copy()) setIntent();
   }));
+
+  // ✨ 自动出图：点完就有图，不用去外部工具跑一趟（REQ-008 判据 1）。
+  //
+  // 它用的是**编辑框里的那份 Prompt**，与「复制 / 打开外部工具」一致 —— 付费提交
+  // 才必须用锁定 packet 的那一份（那是被批准过的），这条路不花钱，没有那个约束。
+  const auto = card.querySelector("[data-gc-auto]");
+  if (auto)
+    auto.onclick = async () => {
+      // 槽位由渲染时带下来（同 `data-gc-compiled` 的做法）：bind 拿不到 model，
+      // 而「这一镜的槽位」必须与卡片上画的是同一个，不能在这里重新推一遍。
+      const slot = auto.dataset.gcSlot;
+      if (!slot) { ctx.toast("镜头身份未解析 —— 无法定位媒体槽位"); return; }
+      const text = promptText();
+      if (!text.trim()) { ctx.toast("Prompt 是空的 —— 先让它编译出内容"); return; }
+      auto.disabled = true;
+      ctx.toast("生成中…（免费来源，可能要几十秒）");
+      try {
+        const res = await ctx.media.generateShotImage(slot, shotId, text);
+        ctx.toast(`已生成 v${res.version || 1}（${res.model || "免费来源"} · 未产生账单，旧版本保留）`);
+        rerender();
+      } catch (err) {
+        // 具名失败各说各的下一步；「消耗没消耗」由 sideEffect 说，不由类别说
+        const why =
+          err.category === "quota_exhausted"
+            ? "这个来源的额度用完了 —— 换 .env.local 里的 IMAGE_PROVIDER，或稍后再试"
+            : err.category === "billing_not_established"
+              ? "这把 key 没声明是免费额度那一档，已拒绝（按次计费请走付费那条）"
+              : err.category === "side_effect_unknown"
+                ? "上一次没能确认结果 —— 要再来一次得显式确认"
+                : err.message;
+        ctx.toast(
+          "自动生成失败：" +
+            (err.sideEffect && err.sideEffect !== "none"
+              ? `${why}（这一次${err.sideEffect === "applied" ? "已经" : "可能已经"}消耗过）`
+              : why),
+        );
+      } finally {
+        auto.disabled = false;
+      }
+    };
 
   const imp = card.querySelector("[data-gc-import]");
   if (imp && typeof importMedia === "function") imp.onclick = () => importMedia(kind, shotId);

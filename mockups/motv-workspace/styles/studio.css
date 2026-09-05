@@ -267,12 +267,39 @@
 /* 3 · studio shell grid                                                      */
 /* ========================================================================== */
 
+/* THREE panels, always — 左 控制与选择 · 中 工作区 · 右 与 Agent 的对话
+   (REQ-004 判据 1). This is the shell's ONE effective grid: `app.css` carries an
+   older copy of the same selector that this file overrides wholesale, so read
+   THIS one. Every `space-*` rule in epprod.css must keep the column COUNT — a
+   skeleton that changes shape per page is the mess REQ-004 removes. */
 #production {
   display: none; position: absolute; inset: 52px 0 0 0;
-  grid-template-columns: 220px minmax(0, 1fr) minmax(300px, 340px);
+  grid-template-columns: minmax(200px, 220px) minmax(0, 1fr) minmax(300px, 340px);
   grid-template-rows: 34px minmax(0, 1fr);
   background: var(--canvas);
 }
+
+/* 项目切换菜单 —— 那个 ▾ 一直在承诺的东西（产品负责人 2026-08-27）。 */
+.projmenu {
+  position: absolute; top: 44px; left: 96px; z-index: 60;
+  min-width: 240px; max-height: 60vh; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .45); padding: 6px;
+}
+.projmenu .pm-h {
+  font-size: var(--t-xs); color: var(--text-faint);
+  padding: 4px 8px 6px;
+}
+.projmenu button {
+  display: flex; width: 100%; align-items: center; gap: 8px;
+  background: transparent; border: 0; border-radius: 7px;
+  color: var(--text-dim); font: inherit; font-size: var(--t-sm);
+  padding: 7px 8px; text-align: left; cursor: pointer;
+}
+.projmenu button:hover { background: var(--elev); color: var(--text); }
+.projmenu button.on { color: var(--accent); }
+.projmenu button .tick { width: 12px; flex: none; color: var(--accent); }
+.projmenu .pm-sep { height: 1px; background: var(--line); margin: 6px 4px; }
 
 /* -- breadcrumb strip ------------------------------------------------------ */
 .st-crumb {
@@ -318,6 +345,12 @@
 }
 .st-ep:hover { color: var(--text-dim); border-color: var(--line-2); }
 .st-ep.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+/* 「历史版本 N」/「收起历史」—— 它不是一个版本，所以不长得像版本按钮
+   （产品负责人 2026-08-29:「只有最新版可以看到。旧版就不看了」）。 */
+.st-ep.hist {
+  font-weight: 500; letter-spacing: .02em; color: var(--text-faint);
+  background: transparent; border-style: dashed;
+}
 
 /* stage progress in the rail: a thin state bar under each stage row */
 .st-stage { position: relative; }
@@ -2054,3 +2087,347 @@
 .sq-mini:hover { border-color: var(--line-2); }
 .sq-clean { margin-top: 8px; font-size: var(--t-sm); color: var(--ok); }
 .sq-why { margin-top: 8px; font-size: var(--t-xs); color: var(--text-faint); }
+
+/* 版本行里的删除与回收区（TASK-115）。✕ 是版本按钮的**兄弟**，不是子节点：
+   版本本身是 <button>，套一个 button 进去既非法，点击也会冒泡成「切换到这一版」。 */
+.vwrap { display: inline-flex; align-items: center; gap: 2px; }
+.vwrap .vdel {
+  padding: 2px 4px; line-height: 1; border: 0; background: transparent;
+  color: var(--text-faint); font-size: var(--t-micro); cursor: pointer; border-radius: var(--r1);
+}
+.vwrap .vdel:hover { color: var(--bad); background: var(--canvas); }
+.vtrash { display: inline-flex; align-items: center; gap: var(--s1); margin-left: var(--s2); }
+.vtrash .lab { color: var(--text-faint); font-size: var(--t-micro); }
+
+/* 镜头列表里的删除 + 卡片视图的回收区 */
+.shotrow { display: flex; align-items: stretch; gap: 2px; }
+.shotrow .shotitem { flex: 1 1 auto; min-width: 0; }
+.shotrow .shotdel {
+  flex: none; padding: 0 6px; border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--canvas); color: var(--text-faint); font-size: var(--t-micro); cursor: pointer;
+}
+.shotrow .shotdel:hover { color: var(--bad); border-color: var(--bad); }
+.sb-recycle { margin-top: var(--s2); font-size: var(--t-micro); color: var(--text-dim); }
+.sb-recycle ul { list-style: none; margin: var(--s1) 0 0; padding: 0; display: grid; gap: var(--s1); }
+.sb-recycle li { display: flex; align-items: center; justify-content: space-between; gap: var(--s1); }
+
+/* 页内选集器（ADR-0092 决策 4）：默认一行，只显示当前那一集；点开才列全部。
+   12 行平铺在左栏正是他指着说 busy 的东西，所以这里的默认状态是**收起**。 */
+.ep-pick { margin: 0 0 var(--s3); }
+.ep-pick-cur {
+  display: flex; align-items: center; gap: var(--s2); width: 100%;
+  padding: var(--s2) var(--s3); border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--panel-2); color: var(--text); font: inherit; cursor: pointer;
+}
+.ep-pick-cur:hover { border-color: var(--line-2); }
+.ep-pick-cur .nm { font-weight: 600; }
+.ep-pick-cur .meta { margin-left: auto; color: var(--text-faint); font-size: var(--t-micro); }
+.ep-pick-list {
+  margin-top: var(--s1); border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--panel-2); max-height: 320px; overflow-y: auto; padding: var(--s1);
+}
+
+/* ===== Story Development 的四页（TASK-122 第 3–5 步）=======================
+   规格里反复出现的一个词是「大型」：故事核心、故事大纲、正文都是一个占满工作区的
+   编辑器，不是一堆字段框。所以这里的默认高度按视口算，而不是给一个固定行数。 */
+.sw-page { display: flex; flex-direction: column; gap: var(--s3); padding: var(--s3) 0; }
+.sw-page.wide { max-width: none; }
+.sw-note { color: var(--text-dim); font-size: var(--t-sm); line-height: 1.7; }
+.sw-warn {
+  padding: var(--s2) var(--s3); border: 1px solid var(--warn, #a76a2e); border-radius: var(--r1);
+  color: var(--text); font-size: var(--t-sm); background: color-mix(in srgb, var(--panel-2) 80%, transparent);
+}
+.sw-editor {
+  width: 100%; min-height: 52vh; resize: vertical; padding: var(--s3);
+  border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--panel-2); color: var(--text);
+  font: inherit; line-height: 1.9; letter-spacing: .01em;
+}
+.sw-editor:focus { outline: none; border-color: var(--accent, #6ea8fe); }
+.sw-editor.read { white-space: pre-wrap; overflow: auto; }
+.sw-foot { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+.sw-foot .meta, .sw-fin .meta { color: var(--text-faint); font-size: var(--t-micro); }
+.sw-empty { color: var(--text-faint); font-size: var(--t-sm); }
+.sw-fin { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.sw-viewing {
+  display: flex; align-items: center; gap: var(--s2);
+  color: var(--text-dim); font-size: var(--t-sm);
+}
+.sw-hist { display: flex; flex-direction: column; gap: var(--s1); }
+.sw-hrow {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s2); border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--panel-2); font-size: var(--t-sm);
+}
+.sw-hrow .v { font-weight: 600; min-width: 3em; }
+.sw-hrow .at { color: var(--text-faint); font-size: var(--t-micro); }
+.sw-hrow .note { color: var(--text-dim); flex: 1; }
+
+/* 版本回收区：删版本是软删除（补审 2026-09-05），删掉的那些收在这一行里，
+   他自己点「拿回来」就能撤销 —— 视觉上要明显比现存版本弱，但**必须看得见** */
+.sw-hbin {
+  display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
+  padding: var(--s2); border: 1px dashed var(--line); border-radius: var(--r1);
+  color: var(--text-faint); font-size: var(--t-micro);
+}
+.sw-hgone { display: inline-flex; align-items: center; gap: var(--s1); }
+
+/* 节点条：让「有稳定编号这回事」看得见，但一个字都不用他维护 */
+.sw-nodes { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }
+.sw-nodes.empty { color: var(--text-faint); font-size: var(--t-micro); }
+.sw-node { display: flex; align-items: baseline; gap: var(--s2); font-size: var(--t-micro); }
+.sw-node .n { color: var(--text); min-width: 2em; text-align: right; }
+.sw-node .id { color: var(--text-faint); font-family: var(--mono, monospace); }
+.sw-node .tx { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ③ 结构规划：九列 */
+.sp-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r1); }
+.sp-table { border-collapse: collapse; width: 100%; min-width: 1100px; }
+/* 像 Excel 一样：**每一格都有线**（产品负责人 2026-08-30：「可以做的像 excel 一样
+   简约吗。每个格子线条分开」）。以前只有横线，一整行糊成一条，眼睛找不到列。 */
+.sp-table th, .sp-table td {
+  border: 1px solid var(--line); padding: 2px 4px;
+  vertical-align: top; text-align: left;
+}
+.sp-table th { font-size: var(--t-micro); color: var(--text-dim); white-space: nowrap; background: var(--panel-2); }
+/* 单元格里的输入框不再自己带边框与右下角那个缩放记号 —— 九列每格一个，
+   屏幕上就是九个斜纹疙瘩（他指着说的正是它）。格子的线由 td 画，输入框只管打字。 */
+.sp-in {
+  display: block; width: 100%; min-width: 6em; resize: none; overflow: hidden;
+  border: 0; background: transparent; color: var(--text);
+  font: inherit; font-size: var(--t-sm); line-height: 1.55; padding: 2px;
+}
+.sp-in:focus { outline: none; background: color-mix(in srgb, var(--accent, #6ea8fe) 10%, transparent); }
+.sp-table tbody tr:hover td { background: color-mix(in srgb, var(--panel-2) 60%, transparent); }
+.sp-c-no .sp-in { min-width: 3.5em; }
+.sp-refs { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.sp-ref {
+  display: inline-flex; align-items: center; gap: 2px; padding: 1px 6px;
+  border: 1px solid var(--line-2); border-radius: 999px; font-size: var(--t-micro);
+}
+.sp-ref.bad { border-color: var(--warn, #a76a2e); }
+.sp-ref .x { border: 0; background: none; color: var(--text-faint); cursor: pointer; font-size: 10px; }
+.sp-pick {
+  margin-top: 4px; border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--panel-2); max-height: 200px; overflow-y: auto;
+}
+.sp-pickrow {
+  display: block; width: 100%; text-align: left; border: 0; background: none;
+  color: var(--text); font: inherit; font-size: var(--t-micro); padding: 4px var(--s2); cursor: pointer;
+}
+.sp-pickrow:hover { background: var(--panel); }
+.sp-pickrow.on { color: var(--accent, #6ea8fe); }
+
+/* ④ 正文创作 */
+.db-gate { display: flex; gap: var(--s3); flex-wrap: wrap; }
+.db-card {
+  flex: 1 1 240px; text-align: left; padding: var(--s4); cursor: pointer;
+  border: 1px solid var(--line); border-radius: var(--r2); background: var(--panel-2); color: var(--text); font: inherit;
+}
+.db-card:hover { border-color: var(--line-2); }
+.db-card .i { font-size: 28px; }
+.db-card .n { font-weight: 600; margin-top: var(--s2); }
+.db-card .d { color: var(--text-dim); font-size: var(--t-micro); margin-top: 4px; line-height: 1.6; }
+.db-mode { display: flex; align-items: center; gap: var(--s2); }
+.db-mode .cur { font-weight: 600; }
+.db-planned { display: flex; align-items: center; gap: var(--s2); }
+.db-planned label { color: var(--text-dim); font-size: var(--t-sm); }
+.db-n {
+  width: 4.5em; text-align: center; padding: 4px; border: 1px solid var(--line);
+  border-radius: var(--r1); background: var(--panel-2); color: var(--text); font: inherit;
+}
+.db-picker { display: flex; flex-wrap: wrap; gap: 6px; }
+.db-u {
+  position: relative; min-width: 3.2em; padding: 6px 8px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--panel-2); color: var(--text); font: inherit; font-size: var(--t-sm);
+}
+.db-u:hover { border-color: var(--line-2); }
+.db-u.on { border-color: var(--accent, #6ea8fe); color: var(--accent, #6ea8fe); }
+.db-u.over { opacity: .6; border-style: dashed; }
+.db-u .w { color: var(--text-faint); font-size: var(--t-micro); margin-left: 2px; }
+.db-u .dot {
+  position: absolute; top: 4px; right: 4px; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--ok, #4a9c6d);
+}
+.db-top { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+/* 单元视图：左侧二级 Brief + 中央大编辑器（二级，不是一级 Tab） */
+.db-unit { display: grid; grid-template-columns: minmax(200px, 260px) 1fr; gap: var(--s3); align-items: start; }
+.db-brief {
+  display: flex; flex-direction: column; gap: var(--s2); padding: var(--s3);
+  border: 1px solid var(--line); border-radius: var(--r1); background: var(--panel-2);
+  max-height: 68vh; overflow-y: auto;
+}
+.db-h { font-weight: 600; font-size: var(--t-sm); }
+.db-b .t { color: var(--text-faint); font-size: var(--t-micro); }
+.db-b .v { color: var(--text-dim); font-size: var(--t-sm); line-height: 1.6; white-space: pre-wrap; }
+.db-title {
+  width: 100%; padding: 4px; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--panel); color: var(--text); font: inherit; font-size: var(--t-sm);
+}
+.db-main { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
+.db-mh { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.db-mh .meta { color: var(--text-faint); font-size: var(--t-micro); margin-right: auto; }
+.db-editor {
+  width: 100%; min-height: 62vh; resize: vertical; padding: var(--s3);
+  border: 1px solid var(--line); border-radius: var(--r1);
+  background: var(--panel-2); color: var(--text); font: inherit; line-height: 1.95;
+}
+.db-editor:focus { outline: none; border-color: var(--accent, #6ea8fe); }
+@media (max-width: 1100px) { .db-unit { grid-template-columns: 1fr; } }
+
+.db-n.read {
+  display: inline-block; min-width: 2.5em; text-align: center; padding: 4px 8px;
+  border: 1px dashed var(--line); border-radius: var(--r1); color: var(--text);
+}
+
+/* ===== 3D 导演台（TASK-123 / ADR-0094）=====================================
+   左边俯视图摆走位，右边是镜头里真正拍到的画面。白膜没有材质与贴图，
+   所以这里也不需要任何装饰 —— 屏幕上多一分颜色，都是在假装它是成片。 */
+.bk-note { color: var(--text-dim); font-size: var(--t-sm); line-height: 1.7; margin: var(--s2) 0 var(--s3); }
+.bk-none { color: var(--text-faint); font-size: var(--t-sm); padding: var(--s4) 0; }
+.bk-wrap { display: grid; grid-template-columns: minmax(300px, 360px) 1fr; gap: var(--s3); align-items: start; }
+.bk-left { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
+.bk-topview { position: relative; border: 1px solid var(--line); border-radius: var(--r1); overflow: hidden; }
+.bk-topview canvas { display: block; width: 100%; height: auto; cursor: grab; touch-action: none; }
+.bk-topview canvas:active { cursor: grabbing; }
+.bk-scale {
+  position: absolute; right: 6px; bottom: 6px; color: var(--text-faint);
+  font-size: var(--t-micro); background: rgba(0,0,0,.45); padding: 1px 6px; border-radius: 4px;
+}
+.bk-panel {
+  display: flex; flex-direction: column; gap: var(--s2); padding: var(--s3);
+  border: 1px solid var(--line); border-radius: var(--r1); background: var(--panel-2);
+  max-height: 46vh; overflow-y: auto;
+}
+.bk-sec {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s2);
+  color: var(--text-dim); font-size: var(--t-micro); margin-top: var(--s2);
+}
+.bk-sec:first-child { margin-top: 0; }
+.bk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2); }
+.bk-f { display: flex; flex-direction: column; gap: 2px; font-size: var(--t-micro); color: var(--text-faint); }
+.bk-f input, .bk-f select {
+  padding: 4px; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--panel); color: var(--text); font: inherit; font-size: var(--t-sm);
+}
+.bk-row { display: flex; align-items: center; gap: var(--s2); }
+.bk-row .meta { color: var(--text-faint); font-size: var(--t-micro); margin-left: auto; }
+.bk-name {
+  flex: 1; min-width: 0; padding: 3px 5px; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--panel); color: var(--text); font: inherit; font-size: var(--t-sm);
+}
+.bk-empty { color: var(--text-faint); font-size: var(--t-micro); line-height: 1.6; }
+.bk-cam { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2); }
+.bk-camcol { display: flex; flex-direction: column; gap: 4px; }
+.bk-camcol .t { color: var(--text); font-size: var(--t-micro); font-weight: 600; }
+.bk-hint { color: var(--text-faint); font-size: var(--t-micro); line-height: 1.6; }
+.bk-right { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
+.bk-view { border: 1px solid var(--line); border-radius: var(--r1); overflow: hidden; background: #0e1014; }
+.bk-view canvas { display: block; width: 100%; height: auto; }
+.bk-time { display: flex; align-items: center; gap: var(--s2); }
+.bk-slider { flex: 1; }
+.bk-actions { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.bk-actions .meta { color: var(--text-faint); font-size: var(--t-micro); }
+.bk-takes { display: flex; flex-direction: column; gap: var(--s1); }
+@media (max-width: 1200px) { .bk-wrap { grid-template-columns: 1fr; } }
+
+/* ===== 剧集制作的那一块画布（TASK-124）====================================
+   他 2026-08-30 说「设计了很多入口，有点看不懂」。一屏三样：一条流水线、
+   一排镜头卡、一句下一步。**一张卡只给一个主按钮** —— 卡上多一个按钮，
+   就多一次「该点哪个」的犹豫。 */
+.ec-pipe {
+  display: flex; align-items: stretch; gap: 2px; flex-wrap: wrap;
+  margin: var(--s3) 0; padding: var(--s2);
+  border: 1px solid var(--line); border-radius: var(--r1); background: var(--panel-2);
+}
+.ec-arrow { align-self: center; color: var(--text-faint); font-size: var(--t-micro); }
+.ec-step {
+  display: flex; flex-direction: column; gap: 1px; align-items: flex-start;
+  padding: 4px 8px; border: 0; border-radius: var(--r1);
+  background: transparent; color: var(--text-dim); font: inherit; cursor: pointer; text-align: left;
+}
+.ec-step:hover { background: var(--panel); color: var(--text); }
+.ec-step .m { font-size: var(--t-micro); }
+.ec-step .l { font-size: var(--t-sm); }
+.ec-step .d { font-size: var(--t-micro); color: var(--text-faint); }
+.ec-step.ec-done .m { color: var(--ok, #4a9c6d); }
+.ec-step.ec-done .l { color: var(--text); }
+.ec-step.ec-active .m { color: var(--accent, #6ea8fe); }
+.ec-step.ec-active .l { color: var(--accent, #6ea8fe); font-weight: 600; }
+
+.ec-next {
+  display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
+  padding: var(--s2) var(--s3); margin-bottom: var(--s3);
+  border: 1px solid var(--line-2); border-radius: var(--r1); background: var(--panel-2);
+}
+.ec-next .t { color: var(--text-faint); font-size: var(--t-micro); }
+.ec-next .d { color: var(--text-dim); font-size: var(--t-sm); }
+.ec-next .meta { color: var(--text-faint); font-size: var(--t-micro); margin-left: auto; }
+.ec-next.done { color: var(--text-dim); font-size: var(--t-sm); }
+
+.ec-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: var(--s3); }
+.ec-card {
+  display: flex; flex-direction: column; gap: var(--s2); padding: var(--s2);
+  border: 1px solid var(--line); border-radius: var(--r1); background: var(--panel-2);
+}
+.ec-card:hover { border-color: var(--line-2); }
+.ec-poster {
+  width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 4px; background: var(--panel);
+}
+.ec-poster.none {
+  display: grid; place-items: center; color: var(--text-faint); font-size: var(--t-micro);
+}
+.ec-h { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }
+.ec-h .n { color: var(--text-faint); font-size: var(--t-micro); }
+.ec-h .t { font-size: var(--t-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ec-steps { display: flex; gap: 2px; flex-wrap: wrap; }
+.ec-dot {
+  display: inline-flex; align-items: center; gap: 2px; padding: 1px 5px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: transparent; color: var(--text-faint); font: inherit; font-size: var(--t-micro); cursor: pointer;
+}
+.ec-dot:hover { border-color: var(--line-2); color: var(--text); }
+.ec-dot.ec-done { color: var(--ok, #4a9c6d); border-color: color-mix(in srgb, var(--ok, #4a9c6d) 40%, transparent); }
+.ec-dot.ec-active { color: var(--accent, #6ea8fe); border-color: color-mix(in srgb, var(--accent, #6ea8fe) 50%, transparent); }
+.ec-block { color: var(--warn, #d3a04a); font-size: var(--t-micro); line-height: 1.5; }
+.ec-go { align-self: flex-start; }
+.ec-done { color: var(--text-faint); font-size: var(--t-micro); }
+.ec-empty { color: var(--text-faint); font-size: var(--t-sm); padding: var(--s4) 0; }
+.ec-tools { margin-top: var(--s4); display: flex; flex-direction: column; gap: var(--s2); }
+.ec-toolrow { display: flex; gap: var(--s2); flex-wrap: wrap; }
+
+/* ===== 剧集制作：三步一条线（TASK-124 v2）=================================
+   产品负责人 2026-08-30：「请你思考如何能让用户简洁并直观的操作」。
+   答案是**一屏一条线，一步一件事，当前那一步高亮，其余淡下去** ——
+   他不需要知道这个应用有几个页面。 */
+.ep3-main { padding-right: var(--s4); }
+.ep3-note { color: var(--text-dim); font-size: var(--t-sm); margin: var(--s2) 0 var(--s3); }
+.ep3 {
+  border: 1px solid var(--line); border-radius: var(--r2); margin-bottom: var(--s3);
+  background: var(--panel-2); opacity: .72;
+}
+.ep3.on { opacity: 1; border-color: var(--accent, #6ea8fe); }
+.ep3-h {
+  display: flex; align-items: baseline; gap: var(--s2);
+  padding: var(--s2) var(--s3); border-bottom: 1px solid var(--line);
+}
+.ep3-h .n { color: var(--text-faint); font-size: var(--t-sm); }
+.ep3.on .ep3-h .n { color: var(--accent, #6ea8fe); }
+.ep3-h .t { font-weight: 600; }
+.ep3-h .hint { margin-left: auto; color: var(--text-faint); font-size: var(--t-micro); }
+.ep3-b { padding: var(--s3); display: flex; flex-direction: column; gap: var(--s2); }
+.ep3-pick { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+.ep3-sel {
+  min-width: 16em; padding: 6px 8px; border: 1px solid var(--line-2); border-radius: var(--r1);
+  background: var(--panel); color: var(--text); font: inherit; font-size: var(--t-sm);
+}
+.ep3-pick .meta { color: var(--text-faint); font-size: var(--t-micro); }
+.ep3-row { display: flex; align-items: center; gap: var(--s3); }
+.ep3-row .k { min-width: 4em; color: var(--text-dim); font-size: var(--t-sm); }
+.ep3-row .v { min-width: 4em; font-size: var(--t-sm); }
+.ep3-row .why { flex: 1; color: var(--text-faint); font-size: var(--t-micro); }
+.ep3-row .why.ok { color: var(--ok, #4a9c6d); }
+.ep3-row.bad .why { color: var(--warn, #d3a04a); }
+.ep3-empty { color: var(--text-faint); font-size: var(--t-sm); display: flex; align-items: center; gap: var(--s2); }
+.ep3-after { display: flex; gap: var(--s2); margin-top: var(--s3); }
