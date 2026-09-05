@@ -2125,6 +2125,18 @@
           "scope_violation": [
             "docs/tasks/done/TASK-041-workspace-generation-command-and-evidence.md"
           ]
+        },
+        {
+          "hash": "3482fbca7afd0b7f8425dd610e399dc77bf077f6",
+          "subject": "fix(docs): 041 搬进 done/ 时漏改了引用它的那张卡 —— CI 上是断链，本地不是（TASK-139 · three-pane）",
+          "time": "2026-09-05T15:53:25+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/backlog/TASK-136-generation-resume-and-idempotency.md"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
