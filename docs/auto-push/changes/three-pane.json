@@ -1409,6 +1409,18 @@
             "tests/tooling/test_agent_harness.py"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "30ed67628245a9863cfd15f6db4e153a233f7998",
+          "subject": "chore(auto-push): three-pane manifest writeback（TASK-131 两个提交补登）+ TASK-132 立卡",
+          "time": "2026-09-05T06:55:14+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/backlog/TASK-132-click-ui-element-and-leave-feedback.md"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
@@ -1424,15 +1436,17 @@
         "docs/STATUS.md",
         "docs/adr/ADR-0077-repository-path-ownership.md",
         "docs/adr/ADR-0097-one-skill-source-generated-client-entries.md",
+        "docs/auto-push/changes/three-pane.json",
         "docs/current-architecture.md",
         "docs/tasks/active/TASK-087-followup-ledger.md",
         "docs/tasks/active/TASK-131-agent-harness-discovery-and-runtime-evidence.md",
+        "docs/tasks/backlog/TASK-132-click-ui-element-and-leave-feedback.md",
         "docs/tasks/done/TASK-131-agent-harness-discovery-and-runtime-evidence.md",
         "tests/tooling/test_agent_harness.py"
       ],
       "verification": "PASS",
       "verification_ref": "docs/tasks/done/TASK-131-agent-harness-discovery-and-runtime-evidence.md §7 —— 全量 3908 passed/59 skipped；test_agent_harness 66 passed 含三处变异验证；ruff 与 lifecycle_check 通过；codex 0.153.4 两条 P1 已修并留回归",
-      "declared": "2026-09-05T06:53:41+00:00"
+      "declared": "2026-09-05T06:55:14+00:00"
     }
   },
   "merge_gate": {
