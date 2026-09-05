@@ -1988,7 +1988,24 @@
       "declared": "2026-09-05T10:36:38+00:00"
     },
     "TASK-141": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "1e41c27033316b27ba2a4107742fa6e983d85cee",
+          "subject": "TASK-141 收口：卡进 done/，审查四闸与两条 Follow-up 归档（three-pane）",
+          "time": "2026-09-05T10:55:57+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/STATUS.md",
+            "docs/adr/ADR-0101-idea-intake-level-and-milestone-gate.md",
+            "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "docs/tasks/active/TASK-141-idea-intake-and-current-truth.md",
+            "docs/tasks/done/TASK-141-idea-intake-and-current-truth.md"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/STATUS.md",
         "docs/adr/ADR-0101-idea-intake-level-and-milestone-gate.md",
