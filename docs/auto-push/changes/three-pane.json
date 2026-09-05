@@ -2059,6 +2059,35 @@
             "docs/tasks/active/TASK-087-followup-ledger.md",
             "docs/tasks/done/TASK-139-images-from-my-own-account.md"
           ]
+        },
+        {
+          "hash": "ef1f213d3ed9af1226f38b9c684aa8bb307fc573",
+          "subject": "chore: 补上三次搬卡的另一半（TASK-139 / 041 / 140）",
+          "time": "2026-09-05T14:57:39+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/tasks/active/TASK-139-images-from-my-own-account.md",
+            "docs/tasks/backlog/TASK-041-workspace-generation-command-and-evidence.md",
+            "docs/tasks/backlog/TASK-140-main-ci-has-been-red-for-nine-days.md"
+          ],
+          "scope_violation": [
+            "docs/tasks/active/TASK-139-images-from-my-own-account.md",
+            "docs/tasks/backlog/TASK-140-main-ci-has-been-red-for-nine-days.md"
+          ]
+        },
+        {
+          "hash": "30bad7da25da060f4790e396afbcb1e14018e4b9",
+          "subject": "chore: TASK-041 卡在 done/ 的那一半（搬卡的补齐）",
+          "time": "2026-09-05T14:57:40+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/tasks/done/TASK-041-workspace-generation-command-and-evidence.md"
+          ],
+          "scope_violation": [
+            "docs/tasks/done/TASK-041-workspace-generation-command-and-evidence.md"
+          ]
         }
       ],
       "paths": [
@@ -2069,7 +2098,10 @@
         "docs/requirements/REQ-008-*.md",
         "docs/requirements/index.md",
         "docs/tasks/active/TASK-087-followup-ledger.md",
+        "docs/tasks/active/TASK-139-*.md",
         "docs/tasks/backlog/TASK-041-*.md",
+        "docs/tasks/backlog/TASK-140-*.md",
+        "docs/tasks/done/TASK-041-*.md",
         "docs/tasks/done/TASK-139-*.md",
         "mockups/motv-workspace/credstore.py",
         "mockups/motv-workspace/imagegen.py",
@@ -2079,8 +2111,8 @@
         "tests/studio/test_account_image_gen_task139.py"
       ],
       "verification": "PASS",
-      "verification_ref": "收口：卡搬进 done/、欠账登记、链接修复、STATUS 重生成。验证：studio 55 passed · docs_links/docs_status/lifecycle_check 85 passed · lifecycle_check 0 finding",
-      "declared": "2026-09-05T13:51:34+00:00"
+      "verification_ref": "收口 + 三次搬卡的两半（旧路径删除与 done/ 新增）。验证：studio 55 passed · docs 守卫 25 passed · lifecycle_check 0 finding。注：--paths 是整份替换不是追加（e9 今天踩过），所以这里带的是本卡历史上所有申报过的路径的并集",
+      "declared": "2026-09-05T15:08:43+00:00"
     },
     "TASK-129": {
       "commits": [
