@@ -78,4 +78,51 @@
 
 ## 实施记录
 
-（逐批填。）
+### 批次 A（2026-09-05）—— 服务端 + 适配层 + 凭据
+
+首个提交 `ac5ebc7`（+ 清单回写 `fb2a705`）。codex 补审判 `fail`（4 P1 + 1 P2），
+修复分两处落地：
+
+| 提交 | 里面有什么 |
+| --- | --- |
+| `ac5ebc7` | `imagegen.py` / `credstore.py` / `server.py` 六处新增 / 27 条离线测试 |
+| **`04d980a`** | **修复的 `server.py` 部分（103 行）—— 归属在别人的卡下，见下方说明** |
+| （本次提交） | `imagegen.py` 的 429 判定、`credstore.py` 的档位与隔离、测试补到 34 条 |
+
+**`04d980a` 的归属是错的，但内容是对的。** 共享工作树里另一个会话（TASK-126）在
+「核对 diff」与「执行 commit」之间的那个间隙提交了 `server.py`，把我当时正在写的
+补审修复一起带走了。双方核过：内容完整、不是半成品，**没有 revert** —— 撤销只会让
+同一批代码再写一遍，而它在 git 里是安全的。教训写在那边：共享工作树里精确暂存要用
+「造索引项」（`git show HEAD:<file>` → 只打自己的改动 → `git hash-object -w` +
+`git update-index --cacheinfo`），不能 `git commit -- <path>`。
+
+### codex 补审四闸（轮 1）与修复
+
+| 闸 | 结论 | 处置 |
+| --- | --- | --- |
+| Requirement 判据 3/4/6 | `PASS` | — |
+| Requirement 判据 2 | `NOT_EVIDENCED` | 由下面 P1-1 的档位闸 + 新测试闭合 |
+| Requirement 判据 5 | `FAIL` | 由 P1-2 闭合 |
+| Architecture `CA §5.6` | `FAIL` | P1-1 |
+| Architecture `CA §5.2` | `FAIL` | P2 |
+| Architecture `CA §5.3` · ADR-0100 决策 3 | `PASS` | — |
+| Verification | `INSUFFICIENT` | 新增 7 条针对性用例 |
+
+1. **P1 · 配了 key ≠ 不产生账单**（`server.py`）。一把开了结算的 Gemini key 与免费额度
+   那把在外面完全一样，**探测等于拿他的钱做实验**。改成由他**声明档位**
+   （`free` / `paid`，存在 key 旁边）；声明缺失或声明成 `paid` 一律 403
+   `billing_not_established`，一个字节都不出去 —— ADR-0100 决策 1 最后一句
+   「拿不准就按计费处理」。
+2. **P1 · 去重放得太早**（`server.py`）。在途标记原本在 `generate_image` 返回时就放，
+   于是「生成完了、正在落盘」那段窗口里的重复请求会再生成一张。改成**押到落盘之后**。
+3. **P1 · `unknown` 之后可以静默重放**（`server.py`）。上一次结果不确定时，再点一下
+   就是第二次消耗。新增 `_ACCOUNT_IMAGE_UNKNOWN`：同一意图再来必须显式带
+   `acknowledge_unknown`（§5.8 第 2 条要的正是「由用户显式决定」）。
+4. **P1 · 429 判成 `none`**（`imagegen.py`）。合同 §5.8 的白名单**明确把 429 放在
+   `unknown` 那一侧**，而我在 Review Package 里引用了这条白名单然后又例外了它。
+   改成：**类别仍具名**（界面照旧说「额度用完了」），**副作用照白名单走**。
+5. **P2 · 存 key 会删掉坏掉的凭据文件**（`credstore.py`）。`_read_all` 把坏文件读成
+   `{}` 是对的，拿那个 `{}` 写回去就等于删了他的东西。改成写之前**带时间戳隔离**
+   （与 `runstore._load` 隔离坏 journal 同一先例）。
+
+验证：`pytest tests/studio/test_account_image_gen_task139.py` **34 passed**（全离线）。

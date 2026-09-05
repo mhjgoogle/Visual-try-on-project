@@ -134,8 +134,8 @@ def _fake_transport(reply, status=200, record=None):
     return transport
 
 
-def _set_key(srv, key=_KEY):
-    credstore.store(srv.APP_DATA_DIR, key)
+def _set_key(srv, key=_KEY, tier=credstore.TIER_FREE):
+    credstore.store(srv.APP_DATA_DIR, key, tier=tier)
 
 
 # --- 报文形状 ---------------------------------------------------------------- #
@@ -223,9 +223,12 @@ def test_quota_exhausted_is_named_and_writes_nothing_and_never_falls_back(srv, a
         {"project": "作品", "slug": "hero", "prompt": "一只猫"},
     )
     assert status == 429
+    # 类别是具名的：界面据此说「额度用完了」，不是笼统的失败（ADR-0100 决策 3）
     assert body["error"]["category"] == "quota_exhausted"
-    # 429 是生成**之前**的拒绝 —— 这一次没有消耗额度
-    assert body["error"]["side_effect"] == "none"
+    # **但副作用严格照合同 §5.8 的白名单**：429 明确在 `unknown` 那一侧。
+    # 「429 是生成之前的拒绝」是在推断供应商内部行为，而白名单存在的意义正是
+    # 不做那种推断（codex 补审 2026-09-05 判 P1）。
+    assert body["error"]["side_effect"] == "unknown"
     # 没有第二次调用：**禁止**自动改走付费那条路（ADR-0100 决策 3）
     assert len(calls) == 1
     assert list((app._projects["作品"] / "media").iterdir()) == []
@@ -384,7 +387,9 @@ def test_a_finished_request_releases_the_slot(srv, app):
 
 
 def test_the_key_goes_in_but_never_comes_back_out(srv, app):
-    status, body = _post(app, "/api/settings/credentials", {"key": _KEY})
+    status, body = _post(
+        app, "/api/settings/credentials", {"key": _KEY, "tier": credstore.TIER_FREE}
+    )
     assert status == 200
     assert body["credential"]["configured"] is True
     assert body["credential"]["last4"] == _KEY[-4:]
@@ -398,7 +403,7 @@ def test_the_key_goes_in_but_never_comes_back_out(srv, app):
 
 
 def test_clearing_the_key_turns_the_path_off_again(srv, app):
-    _post(app, "/api/settings/credentials", {"key": _KEY})
+    _post(app, "/api/settings/credentials", {"key": _KEY, "tier": credstore.TIER_FREE})
     status, body = _post(app, "/api/settings/credentials", {"key": ""})
     assert status == 200
     assert body["credential"]["configured"] is False
@@ -427,19 +432,175 @@ def test_a_key_that_cannot_be_a_key_is_refused_with_a_reason_he_can_act_on(
 def test_settings_beat_the_environment_variable(srv, monkeypatch):
     """界面里粘的那把是他刚亲手给的；环境变量可能是几个月前留下的。"""
     monkeypatch.setenv("GEMINI_API_KEY", "env-key-0123456789abcdef")
-    key, source = credstore.resolve(srv.APP_DATA_DIR, "gemini")
-    assert (key, source) == ("env-key-0123456789abcdef", "env")
-    credstore.store(srv.APP_DATA_DIR, _KEY)
-    key, source = credstore.resolve(srv.APP_DATA_DIR, "gemini")
-    assert (key, source) == (_KEY, "settings")
+    monkeypatch.setenv("GEMINI_API_KEY_TIER", credstore.TIER_FREE)
+    assert credstore.resolve(srv.APP_DATA_DIR, "gemini") == (
+        "env-key-0123456789abcdef",
+        "env",
+        credstore.TIER_FREE,
+    )
+    credstore.store(srv.APP_DATA_DIR, _KEY, tier=credstore.TIER_FREE)
+    assert credstore.resolve(srv.APP_DATA_DIR, "gemini") == (
+        _KEY,
+        "settings",
+        credstore.TIER_FREE,
+    )
+
+
+def test_an_undeclared_environment_key_is_not_treated_as_free(srv, monkeypatch):
+    """一个几个月前留在 CI 里的 key，不该因为「它一直能用」就被当成免费额度。"""
+    monkeypatch.setenv("GEMINI_API_KEY", "env-key-0123456789abcdef")
+    monkeypatch.delenv("GEMINI_API_KEY_TIER", raising=False)
+    _key, source, tier = credstore.resolve(srv.APP_DATA_DIR, "gemini")
+    assert (source, tier) == ("env", "")
 
 
 def test_a_corrupt_credentials_file_degrades_to_unset_and_is_not_overwritten(srv):
     """坏掉的凭据文件不该让后端起不来，也不该被我们静默重写。"""
     path = srv.APP_DATA_DIR / credstore.CRED_FILENAME
     path.write_text("{ not json", encoding="utf-8")
-    assert credstore.resolve(srv.APP_DATA_DIR, "gemini") == ("", "")
+    assert credstore.resolve(srv.APP_DATA_DIR, "gemini") == ("", "", "")
     assert path.read_text(encoding="utf-8") == "{ not json"
+
+
+def test_saving_over_a_corrupt_file_keeps_the_old_bytes(srv):
+    """读成 `{}` 是对的，**拿那个 `{}` 写回去**就等于把他文件里的东西删了。
+
+    坏文件里可能有别的 key，也可能只是一个能人工救回来的手滑
+    （codex 补审 2026-09-05 判 P2 · `CA §5.2` 不静默覆盖）。
+    """
+    path = srv.APP_DATA_DIR / credstore.CRED_FILENAME
+    path.write_text('{ "other_service_key": "keep-me", broken', encoding="utf-8")
+    credstore.store(srv.APP_DATA_DIR, _KEY, tier=credstore.TIER_FREE)
+
+    # 新文件写成了
+    assert credstore.resolve(srv.APP_DATA_DIR, "gemini")[0] == _KEY
+    # 旧字节没被删掉，被挪到了一个带时间戳的隔离文件里
+    quarantined = list(srv.APP_DATA_DIR.glob(credstore.CRED_FILENAME + ".corrupt-*"))
+    assert len(quarantined) == 1
+    assert "keep-me" in quarantined[0].read_text(encoding="utf-8")
+
+
+def test_a_key_that_might_bill_is_refused_before_any_call_goes_out(srv, app):
+    """**配了 key ≠ 这次调用不产生账单**（codex 补审 2026-09-05 判 P1）。
+
+    一把开了结算的 Gemini key 与免费额度那把在外面完全一样，所以档位由他声明。
+    声明成 paid、或者根本没声明 —— 两种都不许从这条路走，fail-closed 回付费闸
+    （ADR-0100 决策 1 最后一句：拿不准就按计费处理）。
+    """
+    for tier in (credstore.TIER_PAID, None):
+        calls = []
+        srv._https_post = _fake_transport(_interactions_reply(), record=calls)
+        path = srv.APP_DATA_DIR / credstore.CRED_FILENAME
+        if tier is None:
+            # 「配了 key 但没有档位」：老格式或手工编辑出来的文件
+            path.write_text(json.dumps({"gemini_api_key": _KEY}), encoding="utf-8")
+        else:
+            credstore.store(srv.APP_DATA_DIR, _KEY, tier=tier)
+        status, body = _post(
+            app,
+            "/api/agent/image-gen-account",
+            {"project": "作品", "slug": "hero", "prompt": "一只猫"},
+        )
+        assert status == 403, (tier, body)
+        assert body["error"]["category"] == "billing_not_established"
+        assert calls == []  # 一个字节都没出去
+        assert list((app._projects["作品"] / "media").iterdir()) == []
+
+
+def test_storing_a_key_without_saying_which_tier_is_refused(srv, app):
+    status, body = _post(app, "/api/settings/credentials", {"key": _KEY})
+    assert status == 400
+    assert body["error"]["category"] == "bad_credential"
+    status, body = _post(
+        app, "/api/settings/credentials", {"key": _KEY, "tier": credstore.TIER_FREE}
+    )
+    assert status == 200
+    assert body["credential"]["quota_ready"] is True
+
+
+def test_a_duplicate_during_the_save_window_does_not_generate_again(srv, app):
+    """在途标记要押到**落盘之后**才放。
+
+    上一版在 `generate_image` 返回时就放掉了，于是「生成完了、正在写文件」这段
+    窗口里再来一次同样的请求会再生成一张 —— 额度花两次，而两次都对
+    （codex 补审 2026-09-05 判 P1）。
+    """
+    _set_key(srv)
+    calls = []
+    srv._https_post = _fake_transport(_interactions_reply(), record=calls)
+
+    entered = threading.Event()
+    release = threading.Event()
+    real_claim = srv._claim_version
+
+    def slow_claim(d, slug, ext):
+        entered.set()
+        release.wait(5)
+        return real_claim(d, slug, ext)
+
+    srv._claim_version = slow_claim
+    payload = {"project": "作品", "slug": "hero", "prompt": "一只猫"}
+    out = {}
+
+    def first_request():
+        out["status"], out["body"] = _post(app, "/api/agent/image-gen-account", payload)
+
+    t = threading.Thread(target=first_request)
+    t.start()
+    assert entered.wait(5)  # 第一次已经生成完、正卡在落盘中
+
+    status, body = _post(app, "/api/agent/image-gen-account", payload)
+    assert status == 409
+    assert body["error"]["category"] == "in_flight"
+    assert len(calls) == 1  # 第二次没有再去生成
+
+    release.set()
+    t.join(10)
+    assert out["status"] == 200
+
+
+def test_an_unknown_outcome_blocks_a_silent_replay_until_he_says_so(srv, app):
+    """§5.8 第 2 条：不确定之后要**由用户显式决定**，不是再点一下就重放。"""
+    _set_key(srv)
+    srv._https_post = _fake_transport(imagegen.TransportFailed("timeout"))
+    payload = {"project": "作品", "slug": "hero", "prompt": "一只猫"}
+    status, body = _post(app, "/api/agent/image-gen-account", payload)
+    assert status == 504
+    assert body["error"]["side_effect"] == "unknown"
+
+    # 同一个意图再来 —— 这次供应商是好的，但我们仍然先拦住
+    calls = []
+    srv._https_post = _fake_transport(_interactions_reply(), record=calls)
+    status, body = _post(app, "/api/agent/image-gen-account", payload)
+    assert status == 409
+    assert body["error"]["category"] == "side_effect_unknown"
+    assert calls == []  # 没有静默重放
+
+    # 他显式确认「我知道可能已经消耗过，再来一次」
+    status, body = _post(
+        app, "/api/agent/image-gen-account", {**payload, "acknowledge_unknown": True}
+    )
+    assert status == 200, body
+    assert len(calls) == 1
+
+
+def test_a_write_failure_still_says_the_quota_was_spent(srv, app):
+    """存不下来不是一次干净的失败：图生成出来了，额度是花了的。"""
+    _set_key(srv)
+    srv._https_post = _fake_transport(_interactions_reply())
+
+    def boom(d, slug, ext):
+        raise OSError("disk full")
+
+    srv._claim_version = boom
+    status, body = _post(
+        app,
+        "/api/agent/image-gen-account",
+        {"project": "作品", "slug": "hero", "prompt": "一只猫"},
+    )
+    assert status == 500
+    assert body["error"]["category"] == "write_failed"
+    assert body["error"]["side_effect"] == "applied"
 
 
 def test_the_account_path_does_not_need_the_paid_switch(srv, app):

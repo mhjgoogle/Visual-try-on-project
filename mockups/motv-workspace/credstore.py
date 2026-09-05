@@ -22,6 +22,7 @@ import json
 import os
 import stat
 import tempfile
+import time
 from pathlib import Path
 
 #: 文件名与 `.gitignore` 里那条 `credentials.json` 逐字对应。改名字要连它一起改。
@@ -30,8 +31,25 @@ CRED_FILENAME = "credentials.json"
 #: 存哪几把 key → 设置里的字段名 → 降级用的环境变量名。
 #: 现在只有一把；这张表存在是为了下一把 key 不用再发明一次形状。
 KEYS = {
-    "gemini": {"field": "gemini_api_key", "env": "GEMINI_API_KEY"},
+    "gemini": {
+        "field": "gemini_api_key",
+        "env": "GEMINI_API_KEY",
+        "tier_field": "gemini_api_tier",
+        "tier_env": "GEMINI_API_KEY_TIER",
+    },
 }
+
+#: **一把 key 自己说不出它计不计费。** 同一个 endpoint、同一种报文，免费额度那档
+#: 与开了结算的那档从外面完全一样 —— 试着「探测」等于拿他的钱做实验。
+#:
+#: 所以计费档由**他自己声明**，存在 key 旁边。声明缺失或不认识时按
+#: [ADR-0100](../../docs/adr/ADR-0100-account-quota-is-not-a-paid-gate.md) 决策 1
+#: 最后一句处理：**拿不准就按计费处理**，fail-closed 回付费闸后面
+#:（codex 补审 2026-09-05 判 P1：只要配了 key 就外呼，等于在「不知道计不计费」
+#: 的情况下替他花钱）。
+TIER_FREE = "free"
+TIER_PAID = "paid"
+TIERS = (TIER_FREE, TIER_PAID)
 
 #: key 的形状检查。**不校验它对不对**（那只有供应商说了算），只挡住明显不是 key
 #: 的输入：空白、换行、粘贴时带进来的引号、以及长得离谱的东西。
@@ -70,24 +88,35 @@ def _read_all(app_data_dir: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def resolve(app_data_dir: Path, name: str = "gemini", env=None) -> tuple[str, str]:
-    """拿到可用的 key 与它的来源。
+def resolve(app_data_dir: Path, name: str = "gemini", env=None) -> tuple[str, str, str]:
+    """拿到可用的 key、它的来源、以及他声明的计费档。
 
-    返回 `(key, source)`，`source` 是 `settings` / `env` / `""`（没有）。
+    返回 `(key, source, tier)`：`source` 是 `settings` / `env` / `""`（没有），
+    `tier` 是 `free` / `paid` / `""`（**没声明 —— 调用方必须按计费处理**）。
+
     **顺序是设置优先** —— 界面里粘的那把是他刚刚亲手给的，环境变量可能是几个月前
     某次自动化留下的，让旧的盖住新的会让「我明明改了」变成一个查半天的问题。
     """
     spec = KEYS.get(name)
     if spec is None:
         raise CredentialError(f"unknown credential {name!r}")
-    value = _read_all(app_data_dir).get(spec["field"])
+    data = _read_all(app_data_dir)
+    value = data.get(spec["field"])
     if isinstance(value, str) and value.strip():
-        return value.strip(), "settings"
+        tier = data.get(spec["tier_field"])
+        return (
+            value.strip(),
+            "settings",
+            tier if tier in TIERS else "",
+        )
     env_map = os.environ if env is None else env
     value = env_map.get(spec["env"], "")
     if isinstance(value, str) and value.strip():
-        return value.strip(), "env"
-    return "", ""
+        # 环境变量那把同样要声明档位，而且**默认是「没声明」**：一个几个月前留在
+        # CI 里的 key 不该因为「它一直能用」就被当成免费额度。
+        tier = env_map.get(spec["tier_env"], "")
+        return value.strip(), "env", tier if tier in TIERS else ""
+    return "", "", ""
 
 
 def describe(app_data_dir: Path, name: str = "gemini", env=None) -> dict:
@@ -96,17 +125,61 @@ def describe(app_data_dir: Path, name: str = "gemini", env=None) -> dict:
     后四位是为了让他认得出「我粘的是不是这一把」，这是凭据界面的常规做法；
     四位不足以重建 key。
     """
-    key, source = resolve(app_data_dir, name, env=env)
+    key, source, tier = resolve(app_data_dir, name, env=env)
     return {
         "name": name,
         "configured": bool(key),
         "source": source,
         "last4": key[-4:] if len(key) >= 4 else "",
         "env_var": KEYS[name]["env"],
+        # 「配了」和「能不花钱地用」是两件事，界面要能分开说：一把没声明档位的 key
+        # 是 configured 但 **不是** quota_ready。
+        "tier": tier,
+        "quota_ready": bool(key) and tier == TIER_FREE,
     }
 
 
-def store(app_data_dir: Path, key: str, name: str = "gemini") -> dict:
+def _quarantine_unreadable(app_data_dir: Path) -> None:
+    """写之前：文件在、但读不出来 → **先把它挪到一边，不要覆盖掉。**
+
+    `_read_all` 把坏文件读成 `{}` 是对的（后端不该因此起不来），但**拿那个 `{}`
+    去写回**就等于把他文件里的东西删了 —— 里面可能有别的 key，也可能只是一个能人工
+    救回来的手滑（codex 补审 2026-09-05 判 P2 · `CA §5.2` 不静默覆盖）。
+
+    做法与 `runstore._load` 隔离坏 journal 的先例一致：带时间戳改名，保留证据。
+    """
+    path = _path(app_data_dir)
+    try:
+        raw = path.read_text("utf-8")
+    except FileNotFoundError:
+        return
+    except (OSError, UnicodeDecodeError):
+        # 读都读不了（占用 / 权限 / 不是文本）：不动它，也不写 —— 让调用方报错，
+        # 而不是在一个我们看不懂的文件上做替换。
+        raise CredentialError(
+            "凭据文件存在但读不出来，先没动它；请检查它是否被别的程序占用"
+        ) from None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        data = None
+    if isinstance(data, dict):
+        return  # 正常文件，照常合并写入
+    stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+    backup = path.with_suffix(f"{path.suffix}.corrupt-{stamp}")
+    n = 0
+    while backup.exists() and n < 100:
+        n += 1
+        backup = path.with_suffix(f"{path.suffix}.corrupt-{stamp}-{n}")
+    try:
+        os.replace(path, backup)
+    except OSError as exc:
+        raise CredentialError(f"坏掉的凭据文件挪不走，因此没有覆盖它：{exc}") from exc
+
+
+def store(
+    app_data_dir: Path, key: str, name: str = "gemini", tier: str | None = None
+) -> dict:
     """把 key 写进应用数据目录。原子替换 + 尽力收紧权限。
 
     写法与仓库里其它持久化一处一致：临时文件 → `os.replace`。中途断电不会留下
@@ -127,9 +200,17 @@ def store(app_data_dir: Path, key: str, name: str = "gemini") -> dict:
         raise CredentialError("key 里不该有空格或换行 —— 复制时多带了东西？")
     if not key.isprintable():
         raise CredentialError("key 里有不可见字符 —— 复制时多带了东西？")
+    if tier not in TIERS:
+        raise CredentialError(
+            "存 key 时必须说明它是哪一档："
+            f"{TIER_FREE}（免费额度，不产生账单）或 {TIER_PAID}（开了结算，按次计费）"
+            " —— 一把 key 自己说不出这件事，而猜错要花的是你的钱"
+        )
 
+    _quarantine_unreadable(app_data_dir)
     data = _read_all(app_data_dir)
     data[spec["field"]] = key
+    data[spec["tier_field"]] = tier
     data.setdefault("schema_version", 1)
     target = _path(app_data_dir)
     try:
@@ -163,8 +244,9 @@ def clear(app_data_dir: Path, name: str = "gemini") -> dict:
     if spec is None:
         raise CredentialError(f"unknown credential {name!r}")
     data = _read_all(app_data_dir)
-    if spec["field"] in data:
-        data.pop(spec["field"])
+    if spec["field"] in data or spec["tier_field"] in data:
+        data.pop(spec["field"], None)
+        data.pop(spec["tier_field"], None)
         target = _path(app_data_dir)
         try:
             fd, tmp = tempfile.mkstemp(dir=str(target.parent), suffix=".tmp")
