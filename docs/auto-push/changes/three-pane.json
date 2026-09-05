@@ -2662,7 +2662,7 @@
           "subject": "fix(ci): Windows 的前端测试步骤九天来从没执行过 —— pwsh 不展开通配符（TASK-140 · three-pane）",
           "time": "2026-09-05T17:09:05+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             ".github/workflows/ci.yml",
             "docs/auto-push/changes/three-pane.json",
@@ -2688,8 +2688,8 @@
         "tests/tooling/test_docs_links.py"
       ],
       "verification": "PASS",
-      "verification_ref": "Windows: pytest tests/tooling 385 passed + node --test 前端 2247 passed/0 failed（本机 Node 24）；WSL Ubuntu-22.04/3.10: docs_links + docs_status 25 passed；_CODE_SPAN 另有 7 条形状用例（含孤立反引号不吃整行）",
-      "declared": "2026-09-05T17:08:22+00:00"
+      "verification_ref": "codex 0.153.4 第 1 轮两条 P1 已修 + 13 条形状用例进仓库（反向验证：各自退回旧行为恰好对应那条转红）。Windows pytest tests/tooling 398 passed；WSL Ubuntu-22.04/3.10 docs_links+docs_status 38 passed",
+      "declared": "2026-09-05T17:37:31+00:00"
     }
   },
   "merge_gate": {

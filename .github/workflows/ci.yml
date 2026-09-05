@@ -13,9 +13,13 @@ name: CI
 # FFmpeg-dependent tests self-skip when ffmpeg is absent, so we install it on both
 # runners to actually exercise the render/ffprobe paths.
 
+# 触发面里必须有 `change/**`（TASK-140）。此前只有 main 与 feat/**，而本仓库的
+# 日常工作全在 `change/**` 上 —— 于是一条改动**第一次遇到 CI 是它已经合进 main**
+# 之后，那正是 main 连红九天没人看见的机制性原因：唯一会喊的地方在最晚的时刻。
+# 公开仓库的 Actions 分钟数不计费，所以这条不构成花钱决定（AGENTS §1）。
 on:
   push:
-    branches: [main, "feat/**"]
+    branches: [main, "feat/**", "change/**"]
   pull_request:
   workflow_dispatch:
 

@@ -24,6 +24,8 @@ import re
 from pathlib import Path
 from urllib.parse import unquote
 
+import pytest
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 #: `[text](target)`. The lazy `[^\]]*` keeps nested brackets in link text from
@@ -63,7 +65,24 @@ _FENCE = re.compile(r"^\s{0,3}(`{3,}|~{3,})", re.MULTILINE)
 #: 「守卫漏了围栏」时，就在表格里写了一遍那个模板，于是守卫又红了一次。
 #: 按 CommonMark，闭合的反引号串必须和开启的一样长；这里只在**行内**匹配，
 #: 跨行代码跨（罕见）不处理 —— 宁可漏报，不误杀。
-_CODE_SPAN = re.compile(r"(`+)(?:(?!\1)[^\n])+\1")
+#: 开启与闭合的反引号串必须**恰好等长**（CommonMark），所以两侧各加一条
+#: 「前后不得再是反引号」的断言。少了它，`` [x](y) ` 这种**不等长**的写法会被
+#: 回溯匹配成「单反引号跨」，于是一条真断链被守卫吞掉 —— 一个会漏报的守卫比
+#: 没有守卫更糟，因为它让人以为查过了（codex 复审 2026-09-06 · P1）。
+_CODE_SPAN = re.compile(r"(?<!`)(`+)(?!`)(?:(?!\1)[^\n])+\1(?!`)")
+
+
+def _opens_a_fence(match: re.Match, stripped: str) -> bool:
+    """反引号围栏的 info 串里不得再有反引号（CommonMark）。
+
+    没有这一条，单独一行的 ```example``` 会被当成一个**没有闭合**的围栏，
+    于是它之后的所有链接都不再被检查 —— 守卫从那一行起变瞎，而且悄无声息
+    （codex 复审 2026-09-06 · P1）。波浪线围栏的 info 串允许反引号，不受此限。
+    """
+    run = match.group(1)
+    if not run.startswith("`"):
+        return True
+    return "`" not in stripped[len(run) :]
 
 
 def _strip_fences(text: str) -> str:
@@ -79,7 +98,7 @@ def _strip_fences(text: str) -> str:
         stripped = line.lstrip(" ")
         if fence is None:
             m = _FENCE.match(line)
-            if m and len(line) - len(stripped) <= 3:
+            if m and len(line) - len(stripped) <= 3 and _opens_a_fence(m, stripped):
                 fence = m.group(1)
                 continue
             out.append(line)
@@ -122,6 +141,36 @@ def test_every_relative_markdown_link_resolves() -> None:
                 broken.append(f"{md.relative_to(_REPO_ROOT)} -> {target}")
 
     assert not broken, "broken relative markdown links:\n  " + "\n  ".join(broken)
+
+
+#: 守卫**自己**的形状用例。围栏与行内代码跳过是为了不误杀示例文本，但一个
+#: 会漏报的守卫比没有守卫更糟 —— 它让人以为查过了。所以每一条「该跳过」的
+#: 旁边都钉一条「不许跳过」。最后两条是 codex 复审报出的两条 P1：不等长的
+#: 反引号串曾被回溯匹配成代码跨（真断链被吞），同一行的 ```x``` 曾被当成
+#: 未闭合围栏（**它之后的整份文件都不再检查**）。
+_SHAPES = [
+    ("围栏里的模板不是链接", "```\n[a](...)\n```\n", []),
+    ("波浪线围栏同理", "~~~\n[a](...)\n~~~\n", []),
+    ("更长的围栏可以包住短的", "````\n```\n[a](...)\n```\n````\n", []),
+    ("未闭合的围栏吃到文件尾", "```\n[a](...)\n", []),
+    ("缩进三格仍是围栏", "   ```\n[a](...)\n   ```\n", []),
+    ("围栏之后的散文照抓", "```\n[a](...)\n```\n[b](gone.md)\n", ["gone.md"]),
+    ("行内代码里的模板不是链接", "prose `[ADR-XXXX](...)` tail\n", []),
+    ("双反引号跨同理", "``[a](`)``\n", []),
+    ("代码跨旁边的真链接照抓", "`x` and [b](gone.md)\n", ["gone.md"]),
+    ("孤立反引号不得吃掉整行", "a ` b [c](real.md)\n", ["real.md"]),
+    ("不等长的反引号串不构成代码跨", "`` [broken](missing.md) `\n", ["missing.md"]),
+    ("同一行的三反引号跨不是围栏开启", "```example```\n[b](gone.md)\n", ["gone.md"]),
+    ("散文里的断链照抓", "[a](nope.md)\n", ["nope.md"]),
+]
+
+
+@pytest.mark.parametrize(("name", "text", "expected"), _SHAPES)
+def test_code_blocks_are_skipped_without_going_blind(
+    name: str, text: str, expected: list[str]
+) -> None:
+    found = _LINK.findall(_CODE_SPAN.sub("", _strip_fences(text)))
+    assert found == expected, name
 
 
 def test_the_guard_actually_scans_the_docs_tree() -> None:
