@@ -138,6 +138,19 @@ const ACTIONS = [
     },
   },
   {
+    id: "brief.commit",
+    label: "把创意简报存为新版本",
+    doc: "brief",
+    undo: "旧版本一字不动，随时切回去",
+    args: { note: "这一版的说明（可选）" },
+    apply: (ctx, a) => {
+      // 界面「保存为新版本」按钮做的事；Agent 侧 `applyConversationEdits` 在 brief.* 之后
+      // 自动做同一件事 —— 两边现在都从这张表里找得到它（TASK-127）。
+      const rec = ctx.story.commitBrief("manual", String(a.note || ""));
+      return rec && rec.v ? { said: `创意简报存为 v${rec.v}`, version: rec.v } : { said: "与当前版本没有差异，未新建版本" };
+    },
+  },
+  {
     id: "outline.fields",
     label: "改故事大纲",
     doc: "outline",
@@ -213,6 +226,69 @@ const ACTIONS = [
         said: `分集规划已保存为 v${v}（要让下游剧集改用它，还需你在页面上确认这一版）`,
         version: v,
       };
+    },
+  },
+  {
+    id: "plan.item.add",
+    label: "分集规划的列表格加一行",
+    doc: "plan",
+    undo: "plan.item.remove，或 plan.discard 回到已保存的版本（草稿层）",
+    args: { episodeId: "这一集的 id", field: "列表字段名（mainPlot / reveals / beats …）" },
+    apply: (ctx, a) => {
+      const i = ctx.story.addPlanItem(String(a.episodeId || ""), String(a.field || ""));
+      if (!(i >= 0)) throw new Error("这一行不在当前这一版规划里，加不了");
+      return { said: `${a.field} 加了第 ${i + 1} 行` };
+    },
+  },
+  {
+    id: "plan.item.edit",
+    label: "改分集规划列表格的一行",
+    doc: "plan",
+    undo: "改回去就行；已保存的版本一字不动",
+    args: { episodeId: "这一集的 id", field: "列表字段名", index: "第几行（从 0 起）", value: "新内容" },
+    apply: (ctx, a) => {
+      const ok = ctx.story.editPlanItem(
+        String(a.episodeId || ""), String(a.field || ""), Number(a.index), String(a.value ?? ""),
+      );
+      if (!ok) throw new Error(`改不了 ${a.field} 第 ${a.index} 行`);
+      return { said: `${a.field} 第 ${Number(a.index) + 1} 行改好了` };
+    },
+  },
+  {
+    id: "plan.item.beat",
+    label: "改「角色推进」的一格",
+    doc: "plan",
+    undo: "改回去就行；已保存的版本一字不动",
+    args: { episodeId: "这一集的 id", index: "第几行（从 0 起）", key: "列（who / change …）", value: "新内容" },
+    apply: (ctx, a) => {
+      const ok = ctx.story.editPlanBeat(
+        String(a.episodeId || ""), Number(a.index), String(a.key || ""), String(a.value ?? ""),
+      );
+      if (!ok) throw new Error(`改不了角色推进第 ${a.index} 行的 ${a.key}`);
+      return { said: `角色推进第 ${Number(a.index) + 1} 行的 ${a.key} 改好了` };
+    },
+  },
+  {
+    id: "plan.item.remove",
+    label: "删分集规划列表格的一行",
+    doc: "plan",
+    undo: "草稿层：plan.discard 回到已保存的版本；已保存版本一字不动",
+    args: { episodeId: "这一集的 id", field: "列表字段名", index: "第几行（从 0 起）" },
+    apply: (ctx, a) => {
+      const ok = ctx.story.removePlanItem(String(a.episodeId || ""), String(a.field || ""), Number(a.index));
+      if (!ok) throw new Error(`删不了 ${a.field} 第 ${a.index} 行`);
+      return { said: `${a.field} 第 ${Number(a.index) + 1} 行删了（未保存前 plan.discard 可整体回退）` };
+    },
+  },
+  {
+    id: "plan.discard",
+    label: "丢弃分集规划的未保存草稿",
+    doc: "plan",
+    undo: "只丢草稿；已保存的版本一字不动",
+    args: {},
+    apply: (ctx) => {
+      const ok = ctx.story.discardPlanDraft();
+      return { said: ok ? "分集规划回到最近保存的那一版" : "没有未保存的草稿" };
     },
   },
   {
@@ -358,6 +434,53 @@ const ACTIONS = [
      他在那三页能改的，Agent 也要能改（REQ-006 判据 1）。这些是「基础财产」——
      后面写小说、做剧集都读它们。 */
   {
+    id: "character.tier",
+    label: "把人物设为正式 / 临时角色",
+    doc: "bible",
+    undo: "再切回去就行；剧情身份、参考图、出场与关系全部保留",
+    args: { name: "人物名字（或 id）", tier: "formal（正式）或 bit（临时）" },
+    apply: (ctx, a) => {
+      const tier = a.tier === "bit" ? "bit" : a.tier === "formal" ? "formal" : null;
+      if (!tier) throw new Error("tier 只能是 formal 或 bit");
+      const who = String(a.name || "").trim();
+      if (!who) throw new Error("没说是哪个人物");
+      const list = (ctx.prodData().production.characters) || [];
+      const rec = list.find((c) => c.characterId === who || c.name === who);
+      if (!rec) throw new Error(`人物里没有「${who}」`);
+      if (!ctx.bible.setCharacterTier(rec.characterId, tier)) throw new Error(`改不了「${rec.name}」的类型`);
+      return { said: `「${rec.name}」现在是${tier === "bit" ? "临时角色" : "正式角色"}` };
+    },
+  },
+  {
+    id: "character.add",
+    label: "新建人物",
+    doc: "bible",
+    undo: "角色设计里能删（软删除 + 回收区）",
+    args: { name: "人物名", tier: "formal（正式，默认）或 bit（临时角色）" },
+    apply: (ctx, a) => {
+      const name = String(a.name || "").trim();
+      if (!name) throw new Error("没说人物叫什么");
+      const tier = a.tier === "bit" ? "bit" : "formal";
+      const rec = ctx.bible.addCharacter(name, tier);
+      if (!rec) throw new Error(`加不了人物「${name}」`);
+      return { said: `新建了${tier === "bit" ? "临时角色" : "人物"}「${name}」`, characterId: rec.characterId };
+    },
+  },
+  {
+    id: "location.add",
+    label: "新建场景地",
+    doc: "bible",
+    undo: "场景设计里能删（软删除 + 回收区）",
+    args: { name: "场景地名" },
+    apply: (ctx, a) => {
+      const name = String(a.name || "").trim();
+      if (!name) throw new Error("没说场景地叫什么");
+      const rec = ctx.bible.addLocation(name);
+      if (!rec) throw new Error(`加不了场景地「${name}」`);
+      return { said: `新建了场景地「${name}」`, locationId: rec.locationId };
+    },
+  },
+  {
     id: "character.fields",
     label: "加/改一个人物的设定（人物不存在就新建）",
     doc: "bible",
@@ -394,6 +517,7 @@ const ACTIONS = [
     doc: "bible",
     undo: "改回去就行；新建出来的关系在角色设计里能删",
     args: {
+      relationshipId: "已有关系的 id（界面编辑时给；给了就不用 a / b）",
       a: "一方（人物名字）", b: "另一方（人物名字）",
       basis: "基础关系", aToB: "A 怎么看 B", bToA: "B 怎么看 A",
       coreConflict: "核心矛盾", tension: "情感张力", power: "权力关系",
@@ -402,6 +526,19 @@ const ACTIONS = [
     },
     apply: (ctx, x) => {
       if (!ctx.canon || !ctx.canon.updateRelationship) throw new Error("这个项目改不了人物关系");
+      // 界面编辑的是一条**已有**的关系，手里有 id —— 直接改，不按名字反查。
+      // Agent 说的是「林照和阿夏的关系」，走下面的名字路径。两条路写的是同一个函数。
+      const rid = String(x.relationshipId || "").trim();
+      if (rid) {
+        const all = (ctx.prodData().production.relationships) || [];
+        const existing = all.find((r) => r.relationshipId === rid);
+        if (!existing) throw new Error(`没有这段关系：${rid}`);
+        const patch = {};
+        for (const k of REL_FIELDS) if (typeof x[k] === "string") patch[k] = x[k];
+        if (!Object.keys(patch).length) throw new Error("没有可写的栏");
+        ctx.canon.updateRelationship(rid, patch);
+        return { said: `关系 ${rid} 改了 ${Object.keys(patch).join("、")}` };
+      }
       const nameOf = (v) => String(v || "").trim();
       const an = nameOf(x.a);
       const bn = nameOf(x.b);
@@ -663,16 +800,18 @@ const ACTIONS = [
     label: "把一行关联到大纲节点",
     doc: "work",
     undo: "再调一次去掉那个引用",
-    args: { rowId: "行 id", nodeId: "大纲节点 id" },
+    args: { rowId: "行 id", nodeId: "大纲节点 id", remove: "true 时只取消关联（可选）" },
     apply: (ctx, a) => {
       const work = workOf(ctx);
       const row = work.plan.rows.find((r) => r.id === String(a.rowId || ""));
       if (!row) throw new Error(`表里没有 ${a.rowId}`);
       const nodeId = String(a.nodeId || "");
       if (!work.outline.nodes.some((n) => n.id === nodeId)) throw new Error(`大纲里没有节点 ${nodeId}`);
-      const next = row.outlineRefs.includes(nodeId)
+      // `remove: true` 只删不加（界面上「×」那个按钮的语义）；不带它就是切换。
+      const has = row.outlineRefs.includes(nodeId);
+      const next = a.remove === true
         ? row.outlineRefs.filter((x) => x !== nodeId)
-        : [...row.outlineRefs, nodeId];
+        : has ? row.outlineRefs.filter((x) => x !== nodeId) : [...row.outlineRefs, nodeId];
       swork.editPlanRow(work, row.id, "outlineRefs", next);
       return { said: `${a.rowId} ${next.includes(nodeId) ? "关联到" : "取消关联"} ${nodeId}` };
     },
@@ -700,6 +839,22 @@ const ACTIONS = [
       const n = Number(a.n);
       if (!swork.setPlanned(work, work.form, n)) throw new Error(`数量不对：${a.n}`);
       return { said: `计划写 ${n} ${work.form === "novel" ? "章" : "集"}（已经写下的不会删）` };
+    },
+  },
+  {
+    id: "unit.ensure",
+    label: "打开第 N 章/集（没有就建一个空的）",
+    doc: "work",
+    undo: "建出来的是空章/集；什么都没写就什么都不用撤",
+    args: { no: "第几章/集" },
+    apply: (ctx, a) => {
+      // 界面上的「章/集选择器」点下去做的就是这件事（TASK-127）：让第 N 章/集存在。
+      // 幂等 —— 已经有的不会被动一个字。
+      const work = workOf(ctx);
+      if (!work.form) throw new Error("还没选小说创作还是剧集创作");
+      const unit = swork.ensureUnit(work, work.form, Number(a.no), new Date().toISOString());
+      if (!unit) throw new Error(`第 ${a.no} 章/集不是一个有效的编号`);
+      return { said: `第 ${a.no} ${work.form === "novel" ? "章" : "集"}已就位（${unit.body.length} 字）` };
     },
   },
   {
@@ -744,6 +899,21 @@ const ACTIONS = [
   },
 ];
 
+/**
+ * 三个能力标签（ADR-0096 决策 2）。加载时补默认值：这张表里的动作**默认可逆、免费、
+ * 不绑身份** —— 这不是宽松，是登记的门槛：一条不可逆、又不是付费、又不绑身份的动作
+ * 没有资格进表（先把它做成可逆的，AGENTS.md §1「回不了头是缺陷」），所以登记时就抛。
+ * 付费动作可以登记（为了让 `runAction` 在执行时按同一条规矩拒），但今天一条也没有。
+ */
+for (const a of ACTIONS) {
+  if (typeof a.reversible !== "boolean") a.reversible = true;
+  if (typeof a.paid !== "boolean") a.paid = false;
+  if (typeof a.identityBinding !== "boolean") a.identityBinding = false;
+  if (!a.reversible && !a.paid && !a.identityBinding) {
+    throw new Error(`动作 ${a.id} 不可逆又不付费不绑身份 —— 先把它做成可逆的，再登记`);
+  }
+}
+
 const ACTION_BY_ID = Object.fromEntries(ACTIONS.map((a) => [a.id, a]));
 
 /** 「类型/题材 → 悬疑；基调 → 冷」——落了什么，用他在页面上看到的字眼说。 */
@@ -763,6 +933,9 @@ export function actionCatalog() {
     id: a.id,
     label: a.label,
     undo: a.undo,
+    reversible: a.reversible,
+    paid: a.paid,
+    identityBinding: a.identityBinding,
     ...(a.fields ? { fields: a.fields } : {}),
     ...(a.args ? { args: a.args } : {}),
   }));
@@ -770,6 +943,12 @@ export function actionCatalog() {
 
 export function knownAction(id) {
   return !!ACTION_BY_ID[id];
+}
+
+/** 一条动作的三个能力标签；未知 id → null。 */
+export function actionTags(id) {
+  const a = ACTION_BY_ID[id];
+  return a ? { reversible: a.reversible, paid: a.paid, identityBinding: a.identityBinding } : null;
 }
 
 /** 白名单过滤：只留这条动作声明过的键。结构化子对象保留它自己的一层。 */
@@ -830,6 +1009,14 @@ function strippedKeys(spec, rawArgs) {
 export function runAction(ctx, id, rawArgs, meta) {
   const spec = ACTION_BY_ID[id];
   if (!spec) throw new Error(`本应用没有「${id}」这个动作`);
+  // 标签在这里统一判（ADR-0096 决策 2）—— 不在每条 apply 里各判一次。
+  //   paid            → 谁调都拒：花钱是唯一必须问创作者的事，不由这张表替他决定
+  //   identityBinding → 只有他自己点（origin "ui"）才行；Agent 反悔不干净
+  const origin = meta && typeof meta.origin === "string" ? meta.origin : "agent";
+  if (spec.paid) throw new Error(`「${spec.label}」要花钱 —— 这张表不替你决定花钱的事`);
+  if (spec.identityBinding && origin !== "ui") {
+    throw new Error(`「${spec.label}」会绑定身份，只能由你自己在界面上点`);
+  }
   const args = sanitizeArgs(id, rawArgs);
   if (args === null) throw new Error(`「${spec.label}」没有收到能写的内容`);
   const out = { ...spec.apply(ctx, args, meta || {}), label: spec.label };

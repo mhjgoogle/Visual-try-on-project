@@ -18,6 +18,7 @@
 // stamps, impact). The plan proposal/apply/confirm panel is reused verbatim
 // from workspaces.js — this screen adds no second planning path.
 import { esc } from "../util/dom.js";
+import { uiAct } from "./uiact.js";
 import { episodesModel, renderPlanPanel } from "./workspaces.js";
 import { UPSTREAM_STATE_LABEL } from "../workflow/canondoc.js";
 import { head, empty } from "./shell.js";
@@ -790,8 +791,8 @@ export function renderEpPlanWs(ctx, ui) {
 export function bindEpPlanWs(root, ctx, ui, rerender) {
   const on = (sel, fn) =>
     root.querySelectorAll(sel).forEach((el) => (el.onclick = (ev) => { ev.stopPropagation(); fn(el); }));
-  on("[data-plan-discard]", () => { if (ctx.story.discardPlanDraft()) rerender(); });
-  on("[data-plan-save]", (el) => { if (!el.hasAttribute("disabled")) { ctx.story.savePlanDraft(); rerender(); } });
+  on("[data-plan-discard]", () => uiAct(ctx, "plan.discard", {}, { rerender }));
+  on("[data-plan-save]", (el) => { if (!el.hasAttribute("disabled")) uiAct(ctx, "plan.save", {}, { rerender }); });
   // AUTOSAVE ON INPUT (ui/fieldsync.js): the draft is persisted, so a refresh
   // mid-sentence keeps what was typed. It is still NOT a version — see planEditBar.
   // …and reflect the new dirty state on the bar WITHOUT a re-render, so the caret
@@ -810,7 +811,7 @@ export function bindEpPlanWs(root, ctx, ui, rerender) {
   };
   root.querySelectorAll("[data-plan-edit]").forEach((el) => {
     bindField(el, ui, (value) => {
-      ctx.story.editPlanEntry(el.dataset.planEdit, el.dataset.field, value);
+      uiAct(ctx, "plan.entry", { episodeId: el.dataset.planEdit, field: el.dataset.field, value }, { quiet: true });
       syncBar();
     });
   });
@@ -818,13 +819,13 @@ export function bindEpPlanWs(root, ctx, ui, rerender) {
   // rule, same `syncBar` so 保存 arms without a re-render stealing the caret.
   root.querySelectorAll("[data-plan-item]").forEach((el) => {
     bindField(el, ui, (value) => {
-      ctx.story.editPlanItem(el.dataset.planItem, el.dataset.field, Number(el.dataset.i), value);
+      uiAct(ctx, "plan.item.edit", { episodeId: el.dataset.planItem, field: el.dataset.field, index: Number(el.dataset.i), value }, { quiet: true });
       syncBar();
     });
   });
   root.querySelectorAll("[data-plan-beat]").forEach((el) => {
     bindField(el, ui, (value) => {
-      ctx.story.editPlanBeat(el.dataset.planBeat, Number(el.dataset.i), el.dataset.key, value);
+      uiAct(ctx, "plan.item.beat", { episodeId: el.dataset.planBeat, index: Number(el.dataset.i), key: el.dataset.key, value }, { quiet: true });
       syncBar();
     });
   });
@@ -834,10 +835,13 @@ export function bindEpPlanWs(root, ctx, ui, rerender) {
   on("[data-rf-add]", (el) => {
     const episodeId = el.dataset.rfAdd;
     const field = el.dataset.field;
-    const i = ctx.story.addPlanItem(episodeId, field);
-    // 未确认的行现在也能改（TASK-103 批次 D），所以这里剩下的只有「这一行根本
-    // 不在当前这一版规划里」——说那一句，而不是那句已经不成立的旧解释。
-    if (i < 0) { ctx.toast("这一行不在当前这一版规划里，改不了"); return; }
+    // 走动作表（plan.item.add）。被拒时 uiAct 已经 toast 了原因
+    // （「这一行不在当前这一版规划里，加不了」—— TASK-103 批次 D 之后只剩这一种拒法）。
+    const out = uiAct(ctx, "plan.item.add", { episodeId, field }, { quiet: true });
+    if (!out) return;
+    // 动作的回执说的是「第 N 行」（1 起）；下面的 planOpen 记的是索引（0 起）
+    const i = Number((String(out.said).match(/第 (\d+) 行/) || [])[1] || 0) - 1;
+    if (i < 0) return;
     if (!ui.planOpen) ui.planOpen = {};
     const key = `${episodeId}:${field}`;
     ui.planOpen[key] = [...(ui.planOpen[key] || []), i];
@@ -847,7 +851,7 @@ export function bindEpPlanWs(root, ctx, ui, rerender) {
     const episodeId = el.dataset.rfDel;
     const field = el.dataset.field;
     const index = Number(el.dataset.i);
-    if (!ctx.story.removePlanItem(episodeId, field, index)) return;
+    if (!uiAct(ctx, "plan.item.remove", { episodeId, field, index }, { quiet: true })) return;
     // the opened-row marks shift with the removal, or they would keep a row that
     // is no longer there visible and hide the one that took its place
     if (ui.planOpen) {

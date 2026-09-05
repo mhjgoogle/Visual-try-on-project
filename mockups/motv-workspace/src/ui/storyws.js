@@ -28,6 +28,7 @@
 // no second Story data was introduced. Saving is the SAME write path: an explicit
 // 保存 appends a new immutable version and every earlier one stays.
 import { esc } from "../util/dom.js";
+import { uiAct } from "./uiact.js";
 import { versionRow } from "./versionrow.js";
 import { storyModel } from "./workspaces.js";
 import { briefForOutline, storyCoreOf } from "../workflow/storydoc.js";
@@ -457,11 +458,11 @@ export function bindStoryWs(root, ctx, ui, rerender) {
   on("[data-st-apply]", () => ctx.story.applyProposal());
   on("[data-st-discard]", () => ctx.story.discardProposal());
   on("[data-st-cancel]", () => ctx.story.cancel());
-  on("[data-st-approve]", (el) => ctx.story.approveOutline(+el.dataset.stApprove));
-  on("[data-st-v]", (el) => ctx.story.setActiveOutline(+el.dataset.stV));
+  on("[data-st-approve]", (el) => uiAct(ctx, "outline.approve", { v: +el.dataset.stApprove }, { rerender }));
+  on("[data-st-v]", (el) => uiAct(ctx, "outline.setActive", { v: +el.dataset.stV }, { rerender }));
   on("[data-st-hist]", () => { ui.outlineHistoryOpen = !ui.outlineHistoryOpen; rerender(); });
-  on("[data-st-del]", (el) => ctx.story.hideOutlineVersion(+el.dataset.stDel));
-  on("[data-st-undel]", (el) => ctx.story.restoreOutlineVersion(+el.dataset.stUndel));
+  on("[data-st-del]", (el) => uiAct(ctx, "outline.hideVersion", { v: +el.dataset.stDel }, { rerender }));
+  on("[data-st-undel]", (el) => uiAct(ctx, "outline.restoreVersion", { v: +el.dataset.stUndel }, { rerender }));
   on("[data-st-editon]", () => { ui.storyEdit = true; rerender(); });
   on("[data-st-editoff]", () => {
     ui.storyEdit = false;
@@ -484,7 +485,7 @@ export function bindStoryWs(root, ctx, ui, rerender) {
     const patch = patchFromBuffer(m.active ? m.active.outline : {}, buffer);
     ui.storyEdit = false;
     ui.outlineBuffer = {};
-    ctx.story.applyManualOutline(patch);
+    uiAct(ctx, "outline.fields", { fields: patch }, { rerender });
   });
   // NOTE: [data-ep-open] is deliberately NOT wired here. Entering an episode is
   // a SHELL decision (switch the active episode AND open one of its stages), and

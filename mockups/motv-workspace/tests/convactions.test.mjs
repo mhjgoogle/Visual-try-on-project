@@ -147,7 +147,9 @@ test("动作宣称的每一栏，文档都真的写得下去", () => {
   // 判据是「文档函数认不认这个键」，不是「这个名字看着像不像」。
   const writable = {
     "character.fields": [...bibledoc.CHARACTER_PROFILE_FIELDS, "name"],
-    "relationship.fields": [...canondoc.RELATIONSHIP_FIELDS, "a", "b"],
+    // `a` / `b`（两个人名）与 `relationshipId`（界面手里的关系 id）都是**寻址**参数，
+    // 由 apply 消费，不是文档栏 —— 与下面 `name` 同类（TASK-127）。
+    "relationship.fields": [...canondoc.RELATIONSHIP_FIELDS, "a", "b", "relationshipId"],
     "world.fields": [...canondoc.WORLD_FIELDS],
     // `updateLocationProfile` 的表就写在它自己那个 for 循环里，没有导出常量 ——
     // 名单跟着它抄，改了那边这里就该跟着红。

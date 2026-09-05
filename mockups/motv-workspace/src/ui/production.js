@@ -101,6 +101,7 @@ import { episodeView, activeEpisode } from "../workflow/proddoc.js";
 import { applyConversationEdits } from "../workflow/convedits.js";
 import { resumeThreadRun } from "../workflow/convresume.js";
 import { actionCatalog } from "../workflow/convactions.js";
+import { uiAct as sharedUiAct } from "./uiact.js";
 import {
   decideRoute, originForRoute, routeOf, scopeOfSkill, zoomTrigger,
 } from "../workflow/convroute.js";
@@ -1810,34 +1811,60 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     if (!quiet) render();
   }
 
-  /** 这一页要读的那份 work（读路径只有这一条，写路径只有 `workWrite`）。 */
+  /**
+   * 界面上的一次写 = 动作表里的一条动作（ADR-0096 决策 1 / TASK-127）。
+   *
+   * 以前这里的按钮直接调 `swork.*`，Agent 那边另有一张 `ACTIONS` 表调同一组函数 ——
+   * 两份名单靠人眼对齐，于是「UI 有、Agent 没有」只在他撞到时才被发现（TASK-126：
+   * 人物 / 关系 / 场景地「只会改、不会加」）。现在按钮也走 `runAction`：一个按钮若没有
+   * 对应的动作，**它根本发不出写**；「他能点的」与「它能做的」是同一张表的两次读取。
+   *
+   * persist / render 与 `workWrite` 完全一致。抛错 = 没落下，原因说出来（决策 6）。
+   */
+  function uiAct(id, args, { quiet = false } = {}) {
+    const ctx = getCtx();
+    if (!ctx) return null;
+    // 一份实现（`ui/uiact.js`），所有页面共用 —— 第二份适配器就是第二份漂移点。
+    //
+    // **这里不再预判「有没有 story.work」**（codex 2026-09-05 轮 2 P1）：那句前置判断是给
+    // 故事四页写的，可 ⚙ 成片规格（`settings.delivery`）也走这条路 —— 一个还没写过故事
+    // 的项目改成片规格，会被它**静默吞掉**。数据不在时该说话的是动作自己的 `apply`
+    // （`workOf(ctx)` 抛「这个项目还没有故事开发的数据模型」），`uiAct` 会把那句 toast 出来。
+    return sharedUiAct(ctx, id, args, { rerender: render, quiet });
+  }
+
+  /** 这一页要读的那份 work（读路径只有这一条；写路径只有 `uiAct` —— `workWrite` 只剩
+   *  加载期的 seed 迁移在用）。 */
   function workOf() {
     const ctx = getCtx();
     const doc = ctx && ctx.story && ctx.story.doc ? ctx.story.doc() : null;
     return doc && doc.work ? doc.work : null;
   }
 
+  /** DOM 上带的是 unit id，动作表说的是「第几章/集」—— 这里翻译一次。 */
+  function unitById(id) {
+    const work = workOf();
+    return work ? work.units.find((u) => u.id === id) || null : null;
+  }
+
   function bindStoryWork(root) {
-    const now = () => new Date().toISOString();
 
     // ① 故事核心 / ② 故事大纲：打字即写进模型（不重画，光标不跳）
     const core = root.querySelector("[data-core]");
     if (core) {
-      core.oninput = () => workWrite((k) => { k.core = core.value; }, true);
+      core.oninput = () => uiAct("work.core", { text: core.value }, { quiet: true });
     }
     const outline = root.querySelector("[data-outline]");
     if (outline) {
-      outline.oninput = () => workWrite((k) => swork.setOutline(k, outline.value), true);
+      outline.oninput = () => uiAct("work.outline", { text: outline.value }, { quiet: true });
       // 失焦时重画一次，让节点编号跟上（打字时不重画是为了光标）
       outline.onblur = () => render();
     }
 
     // 定稿 / 历史（core · outline · plan 同一条规矩）
     root.querySelectorAll("[data-fin]").forEach((b) => (b.onclick = () => {
-      const kind = b.dataset.fin;
-      let rec = null;
-      workWrite((k) => { rec = swork.finalizeDoc(k, kind, now()); });
-      getCtx().toast(rec ? `已存为 v${rec.v}` : "内容没变，没有重复存一版");
+      const out = uiAct("work.finalize", { what: b.dataset.fin });
+      if (out) getCtx().toast(out.said);
     }));
     root.querySelectorAll("[data-finhist]").forEach((b) => (b.onclick = () => {
       const kind = b.dataset.finhist;
@@ -1856,15 +1883,14 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     }));
     root.querySelectorAll("[data-finrestore]").forEach((b) => (b.onclick = () => {
       const [kind, v] = b.dataset.finrestore.split(":");
-      let ok = false;
-      workWrite((k) => { ok = swork.restoreDoc(k, kind, Number(v)); });
+      const out = uiAct("work.restoreVersion", { what: kind, v: Number(v) });
       ui[kind + "View"] = null;
-      getCtx().toast(ok ? `已恢复到 v${v}` : "没能恢复这一版");
+      if (out) getCtx().toast(out.said);
     }));
     root.querySelectorAll("[data-findel]").forEach((b) => (b.onclick = () => {
       const [kind, v] = b.dataset.findel.split(":");
-      workWrite((k) => swork.deleteDoc(k, kind, Number(v)));
-      getCtx().toast(`已删除 v${v}（当前内容没有动）`);
+      const out = uiAct("work.deleteVersion", { what: kind, v: Number(v) });
+      if (out) getCtx().toast(out.said);
     }));
 
     // ③ 结构规划
@@ -1880,14 +1906,13 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       const i = el.dataset.spEdit.lastIndexOf(":");
       const id = el.dataset.spEdit.slice(0, i);
       const field = el.dataset.spEdit.slice(i + 1);
-      workWrite((k) => swork.editPlanRow(k, id, field, el.value), true);
+      uiAct("plan.row.edit", { rowId: id, field, value: el.value }, { quiet: true });
     }));
-    root.querySelectorAll("[data-sp-add]").forEach((b) => (b.onclick = () =>
-      workWrite((k) => swork.addPlanRow(k, now()))));
+    root.querySelectorAll("[data-sp-add]").forEach((b) => (b.onclick = () => uiAct("plan.row.add", {})));
     root.querySelectorAll("[data-sp-del]").forEach((b) => (b.onclick = () =>
-      workWrite((k) => swork.hidePlanRow(k, b.dataset.spDel, now()))));
+      uiAct("plan.row.delete", { rowId: b.dataset.spDel })));
     root.querySelectorAll("[data-sp-restore]").forEach((b) => (b.onclick = () =>
-      workWrite((k) => swork.restorePlanRow(k, b.dataset.spRestore))));
+      uiAct("plan.row.restore", { rowId: b.dataset.spRestore })));
     root.querySelectorAll("[data-sp-bin]").forEach((b) => (b.onclick = () => {
       ui.planBin = !ui.planBin;
       render();
@@ -1898,41 +1923,33 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     }));
     root.querySelectorAll("[data-sp-ref]").forEach((b) => (b.onclick = () => {
       const [rowId, nodeId] = b.dataset.spRef.split(":");
-      workWrite((k) => {
-        const row = k.plan.rows.find((r) => r.id === rowId);
-        if (!row) return;
-        const next = row.outlineRefs.includes(nodeId)
-          ? row.outlineRefs.filter((x) => x !== nodeId)
-          : [...row.outlineRefs, nodeId];
-        swork.editPlanRow(k, rowId, "outlineRefs", next);
-      });
+      uiAct("plan.row.link", { rowId, nodeId });
     }));
     root.querySelectorAll("[data-sp-unref]").forEach((b) => (b.onclick = () => {
       const [rowId, nodeId] = b.dataset.spUnref.split(":");
-      workWrite((k) => {
-        const row = k.plan.rows.find((r) => r.id === rowId);
-        if (row) swork.editPlanRow(k, rowId, "outlineRefs", row.outlineRefs.filter((x) => x !== nodeId));
-      });
+      uiAct("plan.row.link", { rowId, nodeId, remove: true });
     }));
 
     // ④ 正文创作
     root.querySelectorAll("[data-form]").forEach((b) => (b.onclick = () => {
-      workWrite((k) => swork.setForm(k, b.dataset.form));
+      uiAct("work.form", { form: b.dataset.form });
     }));
     root.querySelectorAll("[data-planned]").forEach((b) => (b.onclick = () => {
       const d = Number(b.dataset.planned);
-      workWrite((k) => swork.setPlanned(k, k.form, Math.max(0, k.planned[k.form] + d)));
+      const w = workOf();
+      if (w && w.form) uiAct("work.planned", { n: Math.max(0, (w.planned[w.form] || 0) + d) });
     }));
     const pn = root.querySelector("[data-planned-set]");
     if (pn) {
       pn.onchange = () => {
         const v = parseInt(pn.value, 10);
-        workWrite((k) => swork.setPlanned(k, k.form, Number.isFinite(v) ? Math.max(0, v) : k.planned[k.form]));
+        const w = workOf();
+        if (w && w.form) uiAct("work.planned", { n: Number.isFinite(v) ? Math.max(0, v) : (w.planned[w.form] || 0) });
       };
     }
     root.querySelectorAll("[data-unit]").forEach((b) => (b.onclick = () => {
       const no = Number(b.dataset.unit);
-      workWrite((k) => swork.ensureUnit(k, k.form, no, now()));
+      uiAct("unit.ensure", { no }, { quiet: true });
       ui.unitNo = no;
       ui.unitHist = false;
       render();
@@ -1947,11 +1964,17 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     }));
     const body = root.querySelector("[data-unit-body]");
     if (body) {
-      body.oninput = () => workWrite((k) => swork.editUnit(k, body.dataset.unitBody, "body", body.value, now()), true);
+      body.oninput = () => {
+        const u = unitById(body.dataset.unitBody);
+        if (u) uiAct("unit.write", { no: u.no, text: body.value }, { quiet: true });
+      };
     }
     const title = root.querySelector("[data-unit-title]");
     if (title) {
-      title.oninput = () => workWrite((k) => swork.editUnit(k, title.dataset.unitTitle, "title", title.value, now()), true);
+      title.oninput = () => {
+        const u = unitById(title.dataset.unitTitle);
+        if (u) uiAct("unit.write", { no: u.no, title: title.value }, { quiet: true });
+      };
     }
     root.querySelectorAll("[data-unit-copy]").forEach((b) => (b.onclick = async () => {
       const work = workOf();
@@ -1966,9 +1989,9 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       }
     }));
     root.querySelectorAll("[data-unit-fin]").forEach((b) => (b.onclick = () => {
-      let rec = null;
-      workWrite((k) => { rec = swork.finalizeUnit(k, b.dataset.unitFin, now()); });
-      getCtx().toast(rec ? `已存为 v${rec.v}` : "内容没变，没有重复存一版");
+      const u = unitById(b.dataset.unitFin);
+      const out = u ? uiAct("work.finalize", { what: "unit", no: u.no }) : null;
+      if (out) getCtx().toast(out.said);
     }));
     root.querySelectorAll("[data-unit-hist]").forEach((b) => (b.onclick = () => {
       ui.unitHist = !ui.unitHist;
@@ -1976,13 +1999,15 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     }));
     root.querySelectorAll("[data-unit-restore]").forEach((b) => (b.onclick = () => {
       const [id, v] = b.dataset.unitRestore.split(":");
-      workWrite((k) => swork.restoreFinalized(k, id, Number(v), now()));
-      getCtx().toast(`已恢复到 v${v}`);
+      const u = unitById(id);
+      const out = u ? uiAct("work.restoreVersion", { what: "unit", no: u.no, v: Number(v) }) : null;
+      if (out) getCtx().toast(out.said);
     }));
     root.querySelectorAll("[data-unit-findel]").forEach((b) => (b.onclick = () => {
       const [id, v] = b.dataset.unitFindel.split(":");
-      workWrite((k) => swork.deleteFinalized(k, id, Number(v)));
-      getCtx().toast(`已删除 v${v}（当前正文没有动）`);
+      const u = unitById(id);
+      const out = u ? uiAct("work.deleteVersion", { what: "unit", no: u.no, v: Number(v) }) : null;
+      if (out) getCtx().toast(out.said);
     }));
   }
 
@@ -3155,10 +3180,9 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       // `input`: a half-typed number is not a decision, and validating on every
       // keystroke would reject 「1」 on the way to 「10」.
       root.querySelectorAll("[data-spec]").forEach((el) => (el.onchange = () => {
-        const res = ctx.setDeliverySpecField(el.dataset.spec, el.value);
-        // A REFUSAL IS REPORTED AND THE FIELD SNAPS BACK. Leaving the rejected text
-        // in the box would show a value the project does not have.
-        if (!res.ok) { ctx.toast(res.error); }
+        // 走动作表（settings.delivery）。A REFUSAL IS REPORTED AND THE FIELD SNAPS BACK:
+        // `uiAct` 在被拒时 toast 原因，紧接着的 render() 让输入框回到项目真有的值。
+        uiAct("settings.delivery", { field: el.dataset.spec, value: el.value }, { quiet: true });
         render();
       }));
     }

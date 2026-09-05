@@ -12,6 +12,7 @@
 // PURE PRESENTATION over ctx.story (the same document that owns the idea, the
 // outline chain and the episode plan) — this screen owns no creative state.
 import { esc } from "../util/dom.js";
+import { uiAct } from "./uiact.js";
 import { versionRow } from "./versionrow.js";
 import { BRIEF_FIELDS } from "../workflow/storydoc.js";
 import { head } from "./shell.js";
@@ -142,14 +143,14 @@ export function bindBriefWs(root, ctx, ui, rerender) {
   // blur, after the value is already persisted — is what keeps the header
   // truthful; doing it on `input` would steal the caret mid-sentence.
   const commit = (field, value) => {
-    ctx.story.editBrief({ [field]: value });
+    uiAct(ctx, "brief.fields", { fields: { [field]: value } }, { quiet: true });
     delete buf[field]; // the document now holds it — stop shadowing it
     rerender();
   };
 
   const idea = root.querySelector(".pm-brieftext");
   if (idea) {
-    idea.oninput = () => ctx.story.setIdea(idea.value); // one canonical home
+    idea.oninput = () => uiAct(ctx, "brief.idea", { text: idea.value }, { quiet: true }); // one canonical home
     // the idea is not a brief FIELD (it lives on story.idea), but it is part of
     // what a revision snapshots — so it moves the dirty standing too
     idea.onchange = () => rerender();
@@ -191,12 +192,13 @@ export function bindBriefWs(root, ctx, ui, rerender) {
     };
   }
   on("[data-cb-commit]", () => {
-    if (ctx.story.commitBrief()) { ui.briefBuffer = {}; rerender(); }
+    const out = uiAct(ctx, "brief.commit", {}, { quiet: true });
+    if (out) { ui.briefBuffer = {}; rerender(); }
   });
-  on("[data-cb-v]", (el) => ctx.story.setActiveBrief(+el.dataset.cbV));
+  on("[data-cb-v]", (el) => uiAct(ctx, "brief.setActive", { v: +el.dataset.cbV }, { rerender }));
   on("[data-cb-hist]", () => { ui.briefHistoryOpen = !ui.briefHistoryOpen; rerender(); });
-  on("[data-cb-del]", (el) => ctx.story.hideBriefVersion(+el.dataset.cbDel));
-  on("[data-cb-undel]", (el) => ctx.story.restoreBriefVersion(+el.dataset.cbUndel));
+  on("[data-cb-del]", (el) => uiAct(ctx, "brief.hideVersion", { v: +el.dataset.cbDel }, { rerender }));
+  on("[data-cb-undel]", (el) => uiAct(ctx, "brief.restoreVersion", { v: +el.dataset.cbUndel }, { rerender }));
   on("[data-cb-restore]", (el) => {
     if (!window.confirm("用该版本的内容替换当前工作草稿？（版本链不变，草稿里未版本化的修改会丢失）")) return;
     ui.briefBuffer = {};

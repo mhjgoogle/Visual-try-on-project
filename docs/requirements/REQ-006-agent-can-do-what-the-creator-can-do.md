@@ -10,7 +10,14 @@
   [TASK-116](../tasks/done/TASK-116-proposal-loop-both-ways.md)（判据 6）·
   [TASK-117](../tasks/done/TASK-117-two-chat-windows.md)（判据 7）·
   [TASK-118](../tasks/done/TASK-118-frontend-triggers-a-dev-plan.md)（判据 8）·
-  [TASK-120](../tasks/done/TASK-120-feedback-carries-a-locator.md)（判据 9）
+  [TASK-120](../tasks/done/TASK-120-feedback-carries-a-locator.md)（判据 9）·
+  **判据 1 的「单一登记点」分三块闭合**（2026-09-05，ADR-0096）：
+  [TASK-127](../tasks/active/TASK-127-one-action-table.md)（故事开发侧：四页 + 创意简报 /
+  大纲 / 人物场景地字段 / 分集规划 / ⚙ 成片规格 —— 已接线，合同 `test_surface_manifest.py`
+  证穷尽）· [TASK-128](../tasks/backlog/TASK-128-episode-side-actions-into-the-table.md)
+  （剧集制作侧，待）· [TASK-129](../tasks/backlog/TASK-129-settings-structure-writes-into-the-table.md)
+  （作品设定的结构写，待；合同里是只能收缩的棘轮）。**后两张闭合前判据 1 是 `PARTIAL`**，
+  不是 `PASS` —— codex 2026-09-05 判得对
 - 相关 ADR：[ADR-0089](../adr/ADR-0089-conversational-agent-write-path.md)（对话式写路径，
   本 REQ 落在它的决策 2b/3 之上）
 

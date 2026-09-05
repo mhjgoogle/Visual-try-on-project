@@ -23,6 +23,7 @@
 // every editable control keeps the exact data-* hook `bindSettings` already wires:
 // this screen changes what you SEE, never what the bible DOES.
 import { esc } from "../util/dom.js";
+import { uiAct } from "./uiact.js";
 import { settingsModel, bibleFields, renderBreakdownPanel, bindSettings } from "./workspaces.js";
 import { head, empty } from "./shell.js";
 import { renderRelWs, bindRelWs } from "./relws.js";
@@ -266,7 +267,7 @@ export function bindBibleWs(root, ctx, ui, rerender) {
   bindAddCharacter(root, ctx, ui, rerender);
   root.querySelectorAll("[data-b-promote]").forEach((b) => (b.onclick = (e) => {
     e.stopPropagation();
-    if (ctx.bible.setCharacterTier(b.dataset.bPromote, "formal")) {
+    if (uiAct(ctx, "character.tier", { name: b.dataset.bPromote, tier: "formal" }, { quiet: true })) {
       ui.bibleTab = "characters";
       rerender();
       ctx.toast("已提升为正式角色 — 原有剧情身份、参考图、场景出场与关系全部保留");
@@ -274,7 +275,7 @@ export function bindBibleWs(root, ctx, ui, rerender) {
   }));
   root.querySelectorAll("[data-b-demote]").forEach((b) => (b.onclick = (e) => {
     e.stopPropagation();
-    if (ctx.bible.setCharacterTier(b.dataset.bDemote, "bit")) { ui.bibleTab = "bits"; rerender(); }
+    if (uiAct(ctx, "character.tier", { name: b.dataset.bDemote, tier: "bit" }, { quiet: true })) { ui.bibleTab = "bits"; rerender(); }
   }));
   root.querySelectorAll("[data-bopen]").forEach((b) => (b.onclick = (e) => {
     e.stopPropagation();
@@ -328,8 +329,8 @@ function bindAddCharacter(root, ctx, ui, rerender) {
       e.stopPropagation();
       const t = window.prompt("人物名称");
       if (t == null || !t.trim()) return;
-      const rec = ctx.bible.addCharacter(t.trim());
-      if (rec) { ui.bibleTab = "characters"; ui.bibleOpen = `c:${rec.characterId}`; rerender(); }
+      const out = uiAct(ctx, "character.add", { name: t.trim() }, { quiet: true });
+      if (out) { ui.bibleTab = "characters"; ui.bibleOpen = `c:${out.characterId}`; rerender(); }
     };
   const addBit = root.querySelector("[data-b-chadd-bit]");
   if (addBit)
@@ -337,7 +338,7 @@ function bindAddCharacter(root, ctx, ui, rerender) {
       e.stopPropagation();
       const t = window.prompt("临时角色名称（如：值班医生 / 服务员 / 路人）");
       if (t == null) return;
-      const rec = ctx.bible.addCharacter(t.trim(), "bit");
-      if (rec) { ui.bibleTab = "bits"; ui.bibleOpen = `c:${rec.characterId}`; rerender(); }
+      const out = uiAct(ctx, "character.add", { name: t.trim(), tier: "bit" }, { quiet: true });
+      if (out) { ui.bibleTab = "bits"; ui.bibleOpen = `c:${out.characterId}`; rerender(); }
     };
 }

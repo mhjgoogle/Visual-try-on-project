@@ -25,6 +25,7 @@
 // PURE PRESENTATION over ctx.relgraph / ctx.canon.
 
 import { esc } from "../util/dom.js";
+import { uiAct } from "./uiact.js";
 import { RELATIONSHIP_FIELDS } from "../workflow/canondoc.js";
 import { empty } from "./shell.js";
 import { bindField, restoreFieldFocus } from "./fieldsync.js";
@@ -278,7 +279,7 @@ export function bindRelWs(root, ctx, ui, rerender) {
   // AUTOSAVE ON INPUT (ui/fieldsync.js) — a refresh mid-sentence kept nothing when
   // these only wrote on blur.
   root.querySelectorAll("[data-rel-field]").forEach((el) => {
-    bindField(el, ui, (value) => ctx.canon.updateRelationship(el.dataset.relField, { [el.dataset.field]: value }));
+    bindField(el, ui, (value) => uiAct(ctx, "relationship.fields", { relationshipId: el.dataset.relField, [el.dataset.field]: value }, { quiet: true }));
   });
   restoreFieldFocus(root, ui);
 }

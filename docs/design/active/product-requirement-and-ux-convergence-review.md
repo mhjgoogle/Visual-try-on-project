@@ -68,7 +68,7 @@
 | 全站稳定三栏：左控制、中工作、右对话 | `PARTIAL` | 故事、剧集、资产均使用三栏骨架；右栏有消息流、底部输入和按页历史 | 提案钉板最多占右栏 42%，输入区最多占 52%，极端时消息流被挤到几乎不可用；主三栏没有窄屏退化合同 |
 | 首页可移除项目但不删磁盘文件 | `PASS` | REQ-005 的端点、界面说明、打开项目保护与测试均已落地 | 仍需在最终真实项目验收中点一次，确认文案没有造成“文件也删了”的误解 |
 | Agent 知道当前页面、分集、镜头和代码位置 | `PASS` | 每轮携带 locator/page map，反馈台账保存地址和渲染文件；已有跨层测试 | 页面表目前分散在多处，改页面时仍可能漏同步 |
-| Agent 能做创作者能做的所有可逆动作 | `NOT_EVIDENCED` | `convactions.js` 有动作注册、统一校验和回执，故事常用动作已有测试 | UI 事件入口与 Agent 动作仍是两套手工登记；没有“每个可逆 UI command 都自动出现在 Agent registry”的穷尽性合同，不能据局部动作宣称全覆盖 |
+| Agent 能做创作者能做的所有可逆动作 | `PARTIAL`（2026-09-05 更新） | **故事开发侧已双向证穷尽**：界面按钮改走 `uiAct` → `runAction`（一份实现 `ui/uiact.js`），`ACTIONS` 36 → 45 并带 `reversible / paid / identityBinding` 三标签；合同 `tests/contract/test_surface_manifest.py` 16 条（UI 引用 ⊆ 表 · 故事侧每条被 UI 引用 · 已接线 binder 零直接写 · 未接线的 25 种写是只能收缩的棘轮且与卡逐条对账）—— [ADR-0096](../../adr/ADR-0096-ui-and-agent-share-one-action-table.md) · [TASK-127](../../tasks/active/TASK-127-one-action-table.md) | 剧集侧（`shot.* / blocking.*`，另一套 envelope）→ [TASK-128](../../tasks/backlog/TASK-128-episode-side-actions-into-the-table.md)；作品设定的结构写（状态 / 参考图 / 关系增删 / 节拍 / 改名 / 软删）→ [TASK-129](../../tasks/backlog/TASK-129-settings-structure-writes-into-the-table.md)。两张闭合前 REQ-006 判据 1 是 `PARTIAL`，不是 `PASS` |
 | 作品/开发两个窗口职责分开 | `PASS` | 两个 tab；开发窗口服务端禁止写作品；提案和带定位反馈已接通 | 展示密度仍需优化，但职责边界成立 |
 | 开发提案主动出现并能原样回传意见 | `PARTIAL` | 新提案提示、钉板、同意/拒绝/修改意见回传已实现 | 多条历史提案会长期占据对话空间；只应钉住最新未决项，其余折叠进对话历史 |
 | 说一句自然语言就启动正确的用户能力 | `PASS` | 前端只暴露三类用户能力，后端确定性 resolver、缺输入不跑、开发窗口不跑，测试已覆盖 | 还缺真实 Connected Project 上的一轮录屏/会话证据 |
@@ -181,6 +181,16 @@
 
 完成判据：新增一个可逆 UI command 时，不额外编辑 Agent 白名单就自动可用；合同测试证明
 “所有可逆且非付费、非身份绑定的 creator command = Agent action set”，而不是只抽查几项。
+
+> **2026-09-05 进度**（[ADR-0096](../../adr/ADR-0096-ui-and-agent-share-one-action-table.md) ·
+> [TASK-127](../../tasks/active/TASK-127-one-action-table.md)）：**不新建第八处描述** —— `ACTIONS`
+> 升格为唯一登记点，界面按钮也走 `runAction`（一份适配器 `ui/uiact.js`）；每条带三个能力标签，
+> `paid` 执行时一律拒、`identityBinding` 只认界面。**故事开发侧**已双向证穷尽（合同 16 条，
+> 新增一条动作只改两处 —— `unit.ensure` 就是这样加的）。**剧集侧**（TASK-128）与**作品设定的
+> 结构写**（TASK-129）显式挂账：合同里是只能收缩的棘轮，REQ-006 里记了去向。
+> codex 三轮独立审查：两条 P1（合同太窄 / `uiAct` 预判吞掉成片规格）已修；第三轮的 BLOCKING
+> 是「延后本身」，按 ADR-0081 §2b 记为范围判断。**本节提到的 Surface Manifest 第二步
+> （页面地图 / 能力输入从表派生，ADR-0096 决策 4）未做**，另开卡。
 
 ### D. 只保留一条剧集制作主路
 

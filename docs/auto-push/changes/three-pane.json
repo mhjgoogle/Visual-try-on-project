@@ -1100,30 +1100,53 @@
             "tests/studio/test_motv_assets_m3.py"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "6240506b705fa83fd65d95ec17c52e00227ddec8",
+          "subject": "chore(auto-push): three-pane manifest writeback",
+          "time": "2026-09-04T23:16:34+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/three-pane.json"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
-        "docs/STATUS.md",
-        "docs/current-architecture.md",
-        "docs/design/active/product-requirement-and-ux-convergence-review.md",
-        "docs/design/creator-product-information-architecture.md",
-        "docs/tasks/active/TASK-074-*.md",
-        "mockups/motv-workspace/fixtures/demo-project.js",
-        "mockups/motv-workspace/src/app.js",
-        "mockups/motv-workspace/src/controllers/timelinectl.js",
-        "mockups/motv-workspace/src/ui/assetlibws.js",
-        "mockups/motv-workspace/src/ui/postconsole.js",
-        "mockups/motv-workspace/src/ui/prodplan.js",
-        "mockups/motv-workspace/src/workflow/assetlib.js",
-        "mockups/motv-workspace/src/workflow/assetreg.js",
-        "mockups/motv-workspace/src/workflow/delivery*.js",
-        "mockups/motv-workspace/src/workflow/nodes/edit.js",
-        "mockups/motv-workspace/tests/*.test.mjs",
-        "tests/studio/test_motv_assets_m3.py"
+        ".autopush-placeholder"
       ],
       "verification": "PASS",
       "verification_ref": "切片 3 §1.7 交付生命周期：codex 4 轮独立审查（独立性未降级），停于轮 4 hard-stop(b) 无新机理；两条 P1 修复均有因其不存在而失败的定向测试（appparse ESM 守卫；导出面无 mint/bind + 旧模块 ERR_MODULE_NOT_FOUND）；Command Gateway 一条为范围判断记 TASK-087 §1.2。前端全量 2120 passed/0 failed；pytest tests/studio tests/contract -n 8 → 839 passed/16 skipped；ruff 全过；lifecycle_check 0 finding；app.js vm.SourceTextModule 解析 OK。真实项目走查 → 切片 5",
-      "declared": "2026-09-04T23:13:10+00:00"
+      "declared": "2026-09-05T00:20:25+00:00"
+    },
+    "TASK-127": {
+      "commits": [],
+      "paths": [
+        "docs/STATUS.md",
+        "docs/adr/ADR-0096-*.md",
+        "docs/design/active/product-requirement-and-ux-convergence-review.md",
+        "docs/requirements/REQ-006-*.md",
+        "docs/tasks/active/TASK-127-*.md",
+        "docs/tasks/backlog/TASK-128-*.md",
+        "docs/tasks/backlog/TASK-129-*.md",
+        "mockups/motv-workspace/src/ui/biblews.js",
+        "mockups/motv-workspace/src/ui/briefws.js",
+        "mockups/motv-workspace/src/ui/epplanws.js",
+        "mockups/motv-workspace/src/ui/production.js",
+        "mockups/motv-workspace/src/ui/relws.js",
+        "mockups/motv-workspace/src/ui/storyws.js",
+        "mockups/motv-workspace/src/ui/uiact.js",
+        "mockups/motv-workspace/src/ui/workspaces.js",
+        "mockups/motv-workspace/src/ui/worldws.js",
+        "mockups/motv-workspace/src/workflow/convactions.js",
+        "mockups/motv-workspace/tests/actiontags.test.mjs",
+        "mockups/motv-workspace/tests/convactions.test.mjs",
+        "tests/contract/test_surface_manifest.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "切片 4 ADR-0096 决策 1-3：codex 3 轮独立审查（独立性未降级）；轮 1/2 各一条 P1 已修（合同扩到整个故事侧 +9 动作 +共享 ui/uiact.js；本地 uiAct 的 story.work 预判删除 +3 测试）；轮 3 BLOCKING 为延后本身（同主题第三次）→ ADR-0081 §2b 停止；REQ-006 判据 1 如实 PARTIAL，去向 TASK-128/129（backlog，合同棘轮）。前端全量 2129/0；test_surface_manifest 16 passed；pytest tests/contract tests/studio -n 8 → 855 passed/16 skipped；ruff 全过；lifecycle 0；doctor 无新红",
+      "declared": "2026-09-05T00:19:49+00:00"
     }
   },
   "merge_gate": {

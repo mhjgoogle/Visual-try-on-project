@@ -19,7 +19,7 @@
 | `docs/reports/` | 阶段性工作报告 —— **历史证据**，默认不读 |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：5 在办 · 3 待排期 · 120 已完成 · 79 条 ADR。
+**当前**：6 在办 · 5 待排期 · 120 已完成 · 80 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -47,6 +47,7 @@
 | [TASK-087-followup-ledger.md](tasks/active/TASK-087-followup-ledger.md) | TASK-087：Follow-up 总账 —— 把散在九张卡里的欠账收成一处 | 活账（不是一次性交付 |
 | [TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md](tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) | TASK-106：前端接上 run_id 路径 —— 并由此退役同步分支与 /api/agent/ | 部分实施（2026-09-04） |
 | [TASK-125-current-truth-convergence.md](tasks/active/TASK-125-current-truth-convergence.md) | TASK-125：切片 1 —— 当前事实收口 | 进行中（2026-09-04 开卡） |
+| [TASK-127-one-action-table.md](tasks/active/TASK-127-one-action-table.md) | TASK-127：切片 4 —— 他能点的 = 它能做的，靠一张表 | 实现完成（2026-09-05 |
 
 ## 在办 · 设计与验收文档
 
@@ -69,6 +70,8 @@
 | [TASK-011-local-video-provider.md](tasks/backlog/TASK-011-local-video-provider.md) | TASK-011：LocalVideoProvider（阶段 8） | Outline（可选 WFM3 升级） |
 | [TASK-012-qcd-auto-routing.md](tasks/backlog/TASK-012-qcd-auto-routing.md) | TASK-012：基于 QCD 的自动模型路由（阶段 9） | Outline（WFM3） |
 | [TASK-041-workspace-generation-command-and-evidence.md](tasks/backlog/TASK-041-workspace-generation-command-and-evidence.md) | TASK-041: 工作视窗付费视频生成命令 + UI 接入 + 1 次真实证据 | backlog/ |
+| [TASK-128-episode-side-actions-into-the-table.md](tasks/backlog/TASK-128-episode-side-actions-into-the-table.md) | TASK-128：剧集制作侧的写也走动作表 —— REQ-006 判据 1 的另一半 | 待开始（2026-09-05 开卡 |
+| [TASK-129-settings-structure-writes-into-the-table.md](tasks/backlog/TASK-129-settings-structure-writes-into-the-table.md) | TASK-129：作品设定的结构写也走动作表 —— REQ-006 判据 1 的第三块 | 待开始（2026-09-05 开卡 |
 
 ## 已完成 · 任务卡
 
@@ -231,7 +234,7 @@
 | 位置 | 放什么 |
 | --- | --- |
 | [当前架构合同](current-architecture.md) | **现在**成立的边界与约束（NOW） |
-| [`docs/adr/`](adr/) | 79 条决策记录（ADR-0001 … ADR-0095）—— WHY / HISTORY |
+| [`docs/adr/`](adr/) | 80 条决策记录（ADR-0001 … ADR-0096）—— WHY / HISTORY |
 | [`docs/design/`](design/) 根 | 系统合同、产品信息架构、L0–S7 I/O 合同 |
 | [项目背景与路线](project-context.md) | 这个项目是什么、走到哪了 |
 | [实施规划](implementation_plan.md) | 阶段与里程碑路线图 |

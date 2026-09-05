@@ -7,6 +7,7 @@
 // Pure view-model builders (`*Model`) are exported for node --test; nothing
 // here mutates workflow nodes, domain state, or triggers generation.
 import { esc } from "../util/dom.js";
+import { uiAct } from "./uiact.js";
 import { slotEntry, currentRef } from "../workflow/mediaref.js";
 import { buildShotSlotIndex, slotForShotId, buildServerBridge, serverShotIdForShot } from "../workflow/shotmap.js";
 import { episodeView } from "../workflow/proddoc.js";
@@ -981,10 +982,10 @@ export function bindSettings(root, ctx, ui = {}) {
   // so a browser refresh with the caret still in a character field lost the
   // edit — the same TASK-057 persistence blocker as the upstream surfaces.
   root.querySelectorAll("[data-b-chprof]").forEach((el) => {
-    bindField(el, ui, (value) => ctx.bible.updateCharacterProfile(el.dataset.bChprof, { [el.dataset.field]: value }));
+    bindField(el, ui, (value) => uiAct(ctx, "character.fields", { name: el.dataset.bChprof, [el.dataset.field]: value }, { quiet: true }));
   });
   root.querySelectorAll("[data-b-locprof]").forEach((el) => {
-    bindField(el, ui, (value) => ctx.bible.updateLocationProfile(el.dataset.bLocprof, { [el.dataset.field]: value }));
+    bindField(el, ui, (value) => uiAct(ctx, "location.fields", { name: el.dataset.bLocprof, [el.dataset.field]: value }, { quiet: true }));
   });
   root.querySelectorAll("[data-b-voice]").forEach((el) => {
     bindField(el, ui, (value) => ctx.bible.setCharacterVoice(el.dataset.bVoice, { [el.dataset.field]: value }));
