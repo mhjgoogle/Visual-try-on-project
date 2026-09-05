@@ -2,11 +2,11 @@
  "skills": {
   "auto-push": {
    "backlog": "docs/skill-evolution/backlogs/auto-push.jsonl",
-   "feedback_seq": 14,
-   "last_feedback_at": "2026-09-05T05:21:42Z",
+   "feedback_seq": 15,
+   "last_feedback_at": "2026-09-05T08:15:47Z",
    "last_review_at": "2026-09-05T07:05:55Z",
    "last_seen_at": "2026-08-22T06:01:22Z",
-   "open": 14,
+   "open": 15,
    "path": ".claude/skills/auto-push",
    "pending_proposals": [
     "EP-001"
@@ -16,27 +16,27 @@
    "repeated": {
     "manifest-writeback-dirty-tree": 3
    },
-   "revision": "9e8d8cfb0bd7",
+   "revision": "d8156286faf8",
    "severe_open": 0,
    "status": "PROPOSAL_PENDING"
   },
   "codex-review-loop": {
    "backlog": "docs/skill-evolution/backlogs/codex-review-loop.jsonl",
-   "feedback_seq": 14,
-   "last_feedback_at": "2026-09-05T05:21:50Z",
+   "feedback_seq": 15,
+   "last_feedback_at": "2026-09-05T09:00:34Z",
    "last_review_at": null,
    "last_seen_at": "2026-08-22T03:57:33Z",
-   "open": 14,
+   "open": 15,
    "path": ".claude/skills/codex-review-loop",
    "pending_proposals": [],
    "protected": [],
    "registered_at": "2026-08-22T03:57:33Z",
    "repeated": {
-    "shared-worktree-diff-contamination": 2
+    "shared-worktree-diff-contamination": 3
    },
    "revision": "200b39337376",
    "severe_open": 0,
-   "status": "OBSERVING"
+   "status": "REVIEW_CANDIDATE"
   },
   "dev-workflow": {
    "backlog": "docs/skill-evolution/backlogs/dev-workflow.jsonl",
