@@ -502,3 +502,29 @@ test("`ctx.persist` 在存不下的时候不许一声不吭", async () => {
   assert.match(body, /toast\(/, "存不下的那一支没有 toast —— 他要刷新之后才发现");
   assert.match(body, /canvasActive/, "这条分支不再判 canvasActive 了？请同步这条守卫");
 });
+
+test("载入期间锁住输入，而且那把锁一定会自己开", async () => {
+  // 上一条守的是「存不下要说出来」；这一条守的是**根本别让他敲进去** ——
+  // 能防住的损失不该只靠提示。窗口是：`enterCanvas` 开头 `canvasActive = false`，
+  // 而重新进入同一个项目时旧界面还留在屏幕上。
+  //
+  // 同样重要的是反作用：`enterCanvas` 里有 `await`，抛了就走不到解锁那一行
+  // （还有一处「切到别的项目就 return」）。**把人锁在一个永远只读的编辑器前面，
+  // 比原来的丢字更糟** —— 所以必须有看门狗。
+  const fs = await import("node:fs/promises");
+  const src = await fs.readFile(new URL("../src/app.js", import.meta.url), "utf8");
+
+  assert.match(src, /function setEditingLocked\(/, "没有这把锁");
+  // 两端各一次：进入时上锁、载入完解锁
+  assert.match(src, /canvasActive = false;\s*\n\s*setEditingLocked\(true\);/,
+    "进入项目时没有上锁");
+  assert.match(src, /canvasActive = true;\s*\n\s*setEditingLocked\(false\);/,
+    "载入完没有解锁");
+  // 看门狗：不许存在「锁上了就再也开不了」的路径
+  const body = src.slice(src.indexOf("function setEditingLocked("), src.indexOf("async function enterCanvas"));
+  assert.match(body, /setTimeout\(/, "没有看门狗 —— 载入抛异常会把输入永久锁死");
+  assert.match(body, /setEditingLocked\(false\)/, "看门狗没有真的解锁");
+  // 只读而不是禁用：他可能正想把刚敲的那段字复制走
+  assert.match(body, /readOnly/, "用的不是 readOnly");
+  assert.doesNotMatch(body, /\.disabled = true/, "用了 disabled —— 那会连复制都做不到");
+});
