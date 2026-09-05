@@ -2697,6 +2697,18 @@
             "tests/tooling/test_docs_links.py"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "b3a86caa4a5124572d71d3ef00361ac253144680",
+          "subject": "docs(TASK-140): change/** 当场自证 —— 两个 run 都绿，一个分支自身一个合并结果",
+          "time": "2026-09-05T18:00:43+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/active/TASK-140-main-ci-has-been-red-for-nine-days.md"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
