@@ -2226,6 +2226,18 @@
             "mockups/motv-workspace/tests/convactions.test.mjs"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "ae782669cebef53f1fc0640ab983d4a081189c46",
+          "subject": "「摘光」不等于「回到继承」—— 改的是说法，不是行为（codex 审查轮 3）",
+          "time": "2026-09-05T14:45:31+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "mockups/motv-workspace/src/workflow/convactions.js",
+            "mockups/motv-workspace/tests/convactions.test.mjs"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
@@ -2464,16 +2476,28 @@
             "mockups/motv-workspace/tests/persistence.test.mjs"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "330c6ae46c9a6b4b6e121e83c01542789f640a90",
+          "subject": "docs(TASK-087 §6.12/§6.13): 静默丢字修到了一条路径，e2e 复现的那条不是它；再记一条 reset 的取舍",
+          "time": "2026-09-05T14:34:17+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/tasks/active/TASK-087-followup-ledger.md"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
         "docs/tasks/active/TASK-087-followup-ledger.md",
         "mockups/motv-workspace/src/app.js",
-        "mockups/motv-workspace/tests/persistence.test.mjs"
+        "mockups/motv-workspace/tests/persistence.test.mjs",
+        "tests/e2e/test_connected_journey_task130.py"
       ],
       "verification": "PASS",
-      "verification_ref": "§6.12 静默丢字：先修静默（warn+toast，fae1193），再堵窗口（载入期间只读 + 15 秒看门狗，bc89059）。真浏览器切换项目实测：编辑器全程在场，readOnly 出现 7/306 次采样（约 56ms 窗口），结束后自动解锁。前端全量 2233 passed",
-      "declared": "2026-09-05T14:20:03+00:00"
+      "verification_ref": "本会话（e9）验证的是自己的两条：§6.12/§6.13 台账登记 + reproducer 断言改成二选一（ruff clean；tests/e2e/test_connected_journey_task130.py 反复跑过，红的是被登记的产品缺陷本身）。paths 里的 mockups/motv-workspace/src/app.js 与 tests/persistence.test.mjs 属 visual-try-on-project-2a 的 fae1193，其验证结论由 2a 自己申报，本 ref 不代其声明。",
+      "declared": "2026-09-05T14:34:15+00:00"
     },
     "TASK-140": {
       "commits": [
