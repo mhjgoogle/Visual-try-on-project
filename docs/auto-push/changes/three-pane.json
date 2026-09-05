@@ -817,12 +817,45 @@
             "tests/e2e/test_connected_journey_task130.py"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "d71c9fc0ad7c73aafd7bbe9a9213335aee47e738",
+          "subject": "fix: 补审块 1 —— 体检会挡住所有前端提交；事实截断切掉了最要紧的那一行",
+          "time": "2026-09-05T08:26:50+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            ".claude/tools/motv_doctor.py",
+            "mockups/motv-workspace/server.py",
+            "tests/contract/test_agent_reading_map_task122.py",
+            "tests/tooling/test_motv_doctor.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "faa24bf3fa88fc5b535c9e4986c8ea2e2d4f3d27",
+          "subject": "fix: 补审块 2b —— 接受大纲提案会吞掉未定稿的原文；意见定位到已经不渲染那页的文件",
+          "time": "2026-09-05T08:26:51+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/design/active/pending-codex-rereview.md",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/tests/storywork.test.mjs"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
+        ".claude/tools/motv_doctor.py",
         "docs/design/active/pending-codex-rereview.md",
+        "docs/design/active/pending-codex-rereview.md",
+        "docs/tasks/active/TASK-087-followup-ledger.md",
         "docs/tasks/done/TASK-126-agent-sees-and-changes-everything.md",
         "mockups/motv-workspace/server.py",
+        "mockups/motv-workspace/src/app.js",
         "mockups/motv-workspace/src/ui/corews.js",
         "mockups/motv-workspace/src/ui/draftws.js",
         "mockups/motv-workspace/src/ui/planws.js",
@@ -834,11 +867,12 @@
         "mockups/motv-workspace/tests/storypages.test.mjs",
         "mockups/motv-workspace/tests/storywork.test.mjs",
         "tests/contract/test_agent_reading_map_task122.py",
-        "tests/e2e/test_connected_journey_task130.py"
+        "tests/e2e/test_connected_journey_task130.py",
+        "tests/tooling/test_motv_doctor.py"
       ],
       "verification": "PASS",
-      "verification_ref": "补审块 2a：codex 15 轮（6-15 轮真 codex，独立性未降级），修 23 条，17 条变异验证；前端 2159 passed；pytest tests/studio tests/contract 856 passed/16 skipped；旅程 e2e 连跑 4 次全过；ruff 干净",
-      "declared": "2026-09-05T05:29:25+00:00"
+      "verification_ref": "补审三块全部收口：块 2a codex 15 轮修 23 条 · 块 2b 2 轮修 2 条 · 块 1 1 轮修 4 条（含体检会挡住所有前端提交那条）。pytest tests/tooling tests/studio tests/contract 1219 passed/17 skipped；前端 2160 passed；ruff 干净",
+      "declared": "2026-09-05T08:26:42+00:00"
     },
     "TASK-121": {
       "commits": [
@@ -1581,7 +1615,7 @@
           "subject": "ADR-0099：重启之后的续跑不是重试 —— 孤儿付费任务接回已经存在的那条路（TASK-136 · three-pane）",
           "time": "2026-09-05T08:14:12+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/STATUS.md",
             "docs/adr/ADR-0099-resume-is-not-a-retry.md",
@@ -1601,6 +1635,71 @@
       "verification": "PASS",
       "verification_ref": "纯文档（ADR + 两张卡 + 生成的 STATUS.md）。验证：lifecycle_check 0 finding · pytest tests/tooling/{test_docs_links,test_docs_status,test_lifecycle_check,test_plan_status_matches_folder}.py 74 passed。按 AGENTS §20 触发表，纯文档不调 codex-review-loop",
       "declared": "2026-09-05T08:12:44+00:00"
+    },
+    "TASK-134": {
+      "commits": [
+        {
+          "hash": "5b5fc62abfead27bf583ef0821cf903ff47f0e91",
+          "subject": "feat: Provider 中立不再只靠人读 diff —— 三条依赖方向契约进闸门（TASK-134 · three-pane）",
+          "time": "2026-09-05T08:38:07+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            ".claude/hooks/commit_gate_policy.py",
+            ".claude/hooks/gate.ps1",
+            ".claude/hooks/gate.sh",
+            "docs/STATUS.md",
+            "docs/tasks/active/TASK-134-import-linter-layering-contract.md",
+            "docs/tasks/backlog/TASK-137-review-issue-to-rework-loop.md",
+            "docs/tasks/backlog/TASK-138-story-development-visual-workflow.md",
+            "pyproject.toml",
+            "tests/tooling/test_commit_gate_policy.py",
+            "tests/tooling/test_import_contracts.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "f2c02fb3614d977677308f1ede55d530da2ae13f",
+          "subject": "fix: 契约进 CI，并让那条跨平台守卫真的守得住（TASK-134 补审修复 · three-pane）",
+          "time": "2026-09-05T08:38:07+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            ".github/workflows/ci.yml",
+            "docs/tasks/active/TASK-134-import-linter-layering-contract.md",
+            "tests/tooling/test_import_contracts.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "8cfa8ea528731fc7fab8e3b8812ae8d1adfc5b78",
+          "subject": "fix: 守卫改认执行动作，CI 按 job 逐个断言（TASK-134 补审轮 2 · three-pane）",
+          "time": "2026-09-05T08:38:08+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/tasks/active/TASK-134-import-linter-layering-contract.md",
+            "tests/tooling/test_import_contracts.py"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        ".claude/hooks/commit_gate_policy.py",
+        ".claude/hooks/gate.ps1",
+        ".claude/hooks/gate.sh",
+        ".github/workflows/ci.yml",
+        "docs/STATUS.md",
+        "docs/tasks/active/TASK-134-import-linter-layering-contract.md",
+        "docs/tasks/backlog/TASK-137-review-issue-to-rework-loop.md",
+        "docs/tasks/backlog/TASK-138-story-development-visual-workflow.md",
+        "pyproject.toml",
+        "tests/tooling/test_commit_gate_policy.py",
+        "tests/tooling/test_import_contracts.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "全量 3922 passed/59 skipped + serial 6 + 前端 2160/0 failed + ruff 双绿 + lifecycle_check 0 finding + lint-imports 3 kept/0 broken；codex 两轮 BLOCKING 均 none，P1 与两条 NON_BLOCKING 已修并做针对性变异验证",
+      "declared": "2026-09-05T08:38:00+00:00"
     }
   },
   "merge_gate": {
