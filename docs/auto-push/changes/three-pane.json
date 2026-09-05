@@ -1204,11 +1204,32 @@
             "docs/auto-push/changes/three-pane.json"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "79a93d09ef22523d0808cf360064ca34b409a5b4",
+          "subject": "chore(skill-evolution): 五切片收口的 post-use feedback（three-pane）+ 清单回写",
+          "time": "2026-09-05T01:00:40+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/auto-push/changes/three-pane.json",
+            "docs/skill-evolution/backlogs/auto-push.jsonl",
+            "docs/skill-evolution/backlogs/codex-review-loop.jsonl",
+            "docs/skill-evolution/backlogs/dev-workflow.jsonl",
+            "docs/skill-evolution/index.json"
+          ],
+          "scope_violation": [
+            "docs/skill-evolution/backlogs/auto-push.jsonl",
+            "docs/skill-evolution/backlogs/codex-review-loop.jsonl",
+            "docs/skill-evolution/backlogs/dev-workflow.jsonl",
+            "docs/skill-evolution/index.json"
+          ]
         }
       ],
       "paths": [
         "docs/STATUS.md",
         "docs/design/active/product-requirement-and-ux-convergence-review.md",
+        "docs/skill-evolution/",
         "docs/tasks/active/TASK-087-followup-ledger.md",
         "docs/tasks/active/TASK-106-*.md",
         "docs/tasks/active/TASK-127-*.md",
@@ -1218,8 +1239,8 @@
         "tests/e2e/test_connected_journey_task130.py"
       ],
       "verification": "PASS",
-      "verification_ref": "切片 5 TASK-130：可重复 Connected Project 样本（node 生成器 + ffmpeg 真媒体 + 执行器 Event 桩）与真浏览器旅程。纯测试夹具 + 文档，不改产品行为 → 按 AGENTS.md §20 触发表不调用 codex-review-loop。pytest tests/e2e/test_connected_journey_task130.py 1 passed (9.0s)；pytest tests/e2e -m 'not serial' -n 8 → 37 passed；pytest tests/tooling → 272 passed/1 skipped（删掉 .claude/tmp/review-package.md 这个一次性产物后链接检查过）；ruff 全过；lifecycle_check 0。旅程顺带抓到真缺口 TASK-087 §5.21（持久化交付层审片问题不进 G4）。真实用户项目人工验收仍归产品负责人（收敛审查 §9）",
-      "declared": "2026-09-05T00:54:32+00:00"
+      "verification_ref": "切片 5 TASK-130：可重复 Connected Project 样本（node 生成器 + ffmpeg 真媒体 + 执行器 Event 桩）与真浏览器旅程。纯测试夹具 + 文档，不改产品行为 → 按 AGENTS.md §20 触发表不调用 codex-review-loop。pytest tests/e2e/test_connected_journey_task130.py 1 passed (9.0s)；pytest tests/e2e -m \"not serial\" -n 8 → 37 passed；pytest tests/tooling → 272 passed/1 skipped；ruff 全过；lifecycle_check 0。旅程抓到真缺口 TASK-087 §5.21。真实用户项目人工验收仍归产品负责人（收敛审查 §9）。收口：五切片 post-use feedback 落 docs/skill-evolution/（79a93d0）",
+      "declared": "2026-09-05T01:01:23+00:00"
     }
   },
   "merge_gate": {
