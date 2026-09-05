@@ -665,15 +665,15 @@ export function undeleteReferenceAsset(prod, entityId, assetId) {
   return true;
 }
 
-/** 这个状态**生效的主图**是不是还在这份清单里。
+/** 这个状态**生效的主图**是哪一张：自己写了 `activeReferenceAssetId` 就用它，
+ *  没写就继承基础档案那张；显式的 `null` 表示「他选了不要主图」。
  *
- *  「生效的主图」= 状态自己写了 `activeReferenceAssetId` 就用它，没写就继承基础
- *  档案那张。加图与摘图两侧共用这一条 —— 分别写两份，迟早只改一处（CA §6）。 */
-function refsCoverPrimary(entity, overrides, refs) {
-  const effective = "activeReferenceAssetId" in overrides
+ *  加图与摘图共用的是这条**定义**，不是对它的反应 —— 两侧的反应本来就不同，
+ *  见各自的注释（CA §6 要求一份陈述的是定义，把反应也合并才是真的写错）。 */
+function effectivePrimary(entity, overrides) {
+  return "activeReferenceAssetId" in overrides
     ? overrides.activeReferenceAssetId
     : entity.activeReferenceAssetId; // 继承来的基础主图
-  return effective != null && refs.includes(effective);
 }
 
 /**
@@ -700,7 +700,10 @@ export function nextStateRefsOnAdd(entity, overrides, assetId) {
   if (cur.includes(assetId)) return null;
   const refs = [...cur, assetId];
   const next = { ...overrides, referenceAssetIds: refs };
-  if (!refsCoverPrimary(entity, overrides, refs)) next.activeReferenceAssetId = assetId;
+  // **加图**：生效的主图不在新清单里，新加的这张就顶上 —— 包括他显式选了
+  // 「不要主图」的情形（`null`）：那时清单从无到有，第一张自然成为主图。
+  const primary = effectivePrimary(entity, overrides);
+  if (!(primary != null && refs.includes(primary))) next.activeReferenceAssetId = assetId;
   return next;
 }
 
@@ -724,8 +727,14 @@ export function nextStateRefsOnRemove(entity, overrides, assetId) {
   if (!cur || !cur.includes(assetId)) return null;
   const refs = cur.filter((x) => x !== assetId);
   const next = { ...overrides, referenceAssetIds: refs };
-  // 一张不剩就是「这个状态没有主图」（`null`，不是删掉这个键 —— 删掉等于回到继承）
-  if (!refsCoverPrimary(entity, overrides, refs)) next.activeReferenceAssetId = refs[0] ?? null;
+  // **摘图从不凭空造出一个主图** —— 它只在「本来有一张、现在它没了」时补位。
+  // 与加图那侧刻意不同：加图时清单在变长，让新的一张顶上是顺理成章的；摘图时
+  // 什么都没多出来，把他显式选的「不要主图」（`null`）改成某一张就是替他做主。
+  // codex 审查轮 2 报的正是这一条：`{refs:["a","b"], active:null}` 摘掉 `b`，
+  // 上一版会把主图设成 `a`。
+  // 一张不剩时是 `null`（「没有主图」），不是删掉这个键 —— 删掉等于回到继承。
+  const primary = effectivePrimary(entity, overrides);
+  if (primary != null && !refs.includes(primary)) next.activeReferenceAssetId = refs[0] ?? null;
   return next;
 }
 

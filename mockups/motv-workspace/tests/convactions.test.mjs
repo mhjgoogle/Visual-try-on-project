@@ -505,3 +505,54 @@ test("摘图不动那张还在清单里的继承主图", () => {
   assert.deepEqual(ov.referenceAssetIds, ["asset-base"]);
   assert.equal("activeReferenceAssetId" in ov, false, "继承被悄悄改成了覆盖");
 });
+
+test("他显式选了「不要主图」，摘掉一张次要图不该替他改主意", () => {
+  // codex 审查轮 2。摘图**从不凭空造出主图** —— 它只在「本来有一张、现在它没了」
+  // 时补位。与加图那侧刻意不同：加图时清单在变长，让新的一张顶上顺理成章；
+  // 摘图时什么都没多出来，把 `null` 改成某一张就是替他做主。
+  const ctx = fakeCtx();
+  const { c, st } = withState(ctx, "asset-base");
+  ctx.bible.setCharacterStateOverrides(c.characterId, st.stateId, {
+    referenceAssetIds: ["a", "b"],
+    activeReferenceAssetId: null,
+  });
+  runAction(ctx, "character.state.reference.remove", {
+    name: "林照", state: "受伤", assetId: "b",
+  });
+  const ov = ctx.prod.characters[0].states[0].overrides;
+  assert.deepEqual(ov.referenceAssetIds, ["a"]);
+  assert.equal(ov.activeReferenceAssetId, null, "「不要主图」被摘图动作改掉了");
+});
+
+test("基础档案本来就没有主图时，摘图也不该造一个出来", () => {
+  // 同一条规矩的继承版：继承来的主图是 `null`，摘掉一张次要图之后仍然是没有主图。
+  const ctx = fakeCtx();
+  const c = bibledoc.addCharacter(ctx.prod, "无照", "main");
+  c.activeReferenceAssetId = null;
+  c.referenceAssetIds = [];
+  const st = bibledoc.addCharacterState(ctx.prod, c.characterId, "夜");
+  ctx.bible.setCharacterStateOverrides(c.characterId, st.stateId, {
+    referenceAssetIds: ["a", "b"],
+  });
+  runAction(ctx, "character.state.reference.remove", {
+    name: "无照", state: "夜", assetId: "b",
+  });
+  const ov = ctx.prod.characters[0].states[0].overrides;
+  assert.deepEqual(ov.referenceAssetIds, ["a"]);
+  assert.equal("activeReferenceAssetId" in ov, false, "继承状态被摘图变成了覆盖");
+});
+
+test("加图那侧相反：他选了「不要主图」时，第一张加进来的就是主图", () => {
+  // 两侧的**反应**不同是有意的，各自钉一条，免得日后有人「统一」掉。
+  const ctx = fakeCtx();
+  const { c, st } = withState(ctx, "asset-base");
+  ctx.bible.setCharacterStateOverrides(c.characterId, st.stateId, {
+    referenceAssetIds: [],
+    activeReferenceAssetId: null,
+  });
+  runAction(ctx, "character.state.reference.add", {
+    name: "林照", state: "受伤", assetId: "x",
+  });
+  const ov = ctx.prod.characters[0].states[0].overrides;
+  assert.equal(ov.activeReferenceAssetId, "x");
+});
