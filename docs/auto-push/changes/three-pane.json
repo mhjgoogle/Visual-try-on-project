@@ -1661,11 +1661,13 @@
         }
       ],
       "paths": [
-        "docs/adr/ADR-0099-resume-is-not-a-retry.md"
+        "docs/skill-evolution/backlogs/auto-push.jsonl",
+        "docs/skill-evolution/index.json",
+        "docs/skill-evolution/proposals/EP-002-writeback-commit-needs-a-pathspec.md"
       ],
       "verification": "PASS",
-      "verification_ref": "纯文档补充（ADR-0099 加一节射程说明）。验证：lifecycle_check 0 finding · test_docs_links + test_docs_status 10 passed · 射程结论自己实测过：mockups 下 provider: 字面量零命中、image-gen-account 走进程内在途集合不建 Run",
-      "declared": "2026-09-05T08:57:47+00:00"
+      "verification_ref": "纯文档 + skill 台账（EP-002 提案 + 两条 feedback 条目 + index）。验证：lifecycle_check 0 finding · pytest tests/tooling/test_skill_evolution_tooling.py + test_docs_links.py 23 passed。提案本身不改任何 skill 行为，改动需用户 veto 式批准后另行实施",
+      "declared": "2026-09-05T09:20:46+00:00"
     },
     "TASK-134": {
       "commits": [

@@ -2,14 +2,15 @@
  "skills": {
   "auto-push": {
    "backlog": "docs/skill-evolution/backlogs/auto-push.jsonl",
-   "feedback_seq": 15,
-   "last_feedback_at": "2026-09-05T08:15:47Z",
-   "last_review_at": "2026-09-05T07:05:55Z",
+   "feedback_seq": 16,
+   "last_feedback_at": "2026-09-05T09:10:55Z",
+   "last_review_at": "2026-09-05T09:18:11Z",
    "last_seen_at": "2026-08-22T06:01:22Z",
-   "open": 15,
+   "open": 16,
    "path": ".claude/skills/auto-push",
    "pending_proposals": [
-    "EP-001"
+    "EP-001",
+    "EP-002"
    ],
    "protected": [],
    "registered_at": "2026-08-22T06:01:22Z",
