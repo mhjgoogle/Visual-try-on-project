@@ -987,32 +987,56 @@ export function bindSettings(root, ctx, ui = {}) {
   on("[data-b-locundel]", (el) => {
     uiAct(ctx, "location.restore", { name: el.dataset.bLocundel });
   });
+  // 状态 / 参考图 / 声音也走动作表（ADR-0096 / TASK-129 切片 2d）。拒绝的理由由
+  // 动作自己说 —— 界面不再复述一份可能与事实不符的提示（删状态的拒绝原因只有
+  // 「还有场景以这个状态引用着它」一种，动作里写得比这里全）。
   on("[data-b-csadd]", (el) => {
     const t = prompt2("状态名称（如：少女时期 / 黑化时期）");
-    if (t != null) ctx.bible.addCharacterState(el.dataset.bCsadd, t);
+    if (t != null) uiAct(ctx, "character.state.add", { name: el.dataset.bCsadd, state: t });
   });
   on("[data-b-lsadd]", (el) => {
     const t = prompt2("状态名称（如：夜晚 / 战损）");
-    if (t != null) ctx.bible.addLocationState(el.dataset.bLsadd, t);
+    if (t != null) uiAct(ctx, "location.state.add", { name: el.dataset.bLsadd, state: t });
   });
   on("[data-b-csrename]", (el) => {
     const t = prompt2("状态名称");
-    if (t) ctx.bible.renameCharacterState(el.dataset.bCsrename, el.dataset.sid, t);
+    if (t) {
+      uiAct(ctx, "character.state.rename", {
+        name: el.dataset.bCsrename, state: el.dataset.sid, to: t,
+      });
+    }
   });
   on("[data-b-lsrename]", (el) => {
     const t = prompt2("状态名称");
-    if (t) ctx.bible.renameLocationState(el.dataset.bLsrename, el.dataset.sid, t);
+    if (t) {
+      uiAct(ctx, "location.state.rename", {
+        name: el.dataset.bLsrename, state: el.dataset.sid, to: t,
+      });
+    }
   });
   on("[data-b-csdel]", (el) => {
-    if (!ctx.bible.removeCharacterState(el.dataset.bCsdel, el.dataset.sid)) ctx.toast("仍有场景以该状态引用角色：先切换/移除场景引用");
+    uiAct(ctx, "character.state.remove", { name: el.dataset.bCsdel, state: el.dataset.sid });
   });
   on("[data-b-lsdel]", (el) => {
-    if (!ctx.bible.removeLocationState(el.dataset.bLsdel, el.dataset.sid)) ctx.toast("仍有场景以该状态引用场景地：先切换/移除场景引用");
+    uiAct(ctx, "location.state.remove", { name: el.dataset.bLsdel, state: el.dataset.sid });
   });
-  on("[data-b-refactive]", (el) => ctx.bible.setActiveReferenceAsset(el.dataset.bRefactive, el.dataset.aid));
-  on("[data-b-refdel]", (el) => ctx.bible.removeReferenceAsset(el.dataset.bRefdel, el.dataset.aid));
+  // 状态的回收区：同实体、同一条撤销路 —— 他自己也要点得到。
+  on("[data-b-csundel]", (el) => {
+    uiAct(ctx, "character.state.restore", { name: el.dataset.bCsundel, state: el.dataset.sid });
+  });
+  on("[data-b-lsundel]", (el) => {
+    uiAct(ctx, "location.state.restore", { name: el.dataset.bLsundel, state: el.dataset.sid });
+  });
+  on("[data-b-refactive]", (el) =>
+    uiAct(ctx, "reference.setActive", { entity: el.dataset.bRefactive, assetId: el.dataset.aid }));
+  on("[data-b-refdel]", (el) =>
+    uiAct(ctx, "reference.remove", { entity: el.dataset.bRefdel, assetId: el.dataset.aid }));
+  on("[data-b-refundel]", (el) =>
+    uiAct(ctx, "reference.restore", { entity: el.dataset.bRefundel, assetId: el.dataset.aid }));
   root.querySelectorAll("[data-b-refadd]").forEach((sel) => {
-    sel.onchange = () => { if (sel.value) ctx.bible.addReferenceAsset(sel.dataset.bRefadd, sel.value); };
+    sel.onchange = () => {
+      if (sel.value) uiAct(ctx, "reference.add", { entity: sel.dataset.bRefadd, assetId: sel.value });
+    };
   });
   // AUTOSAVE ON INPUT (see ui/fieldsync.js). These used to write only on blur,
   // so a browser refresh with the caret still in a character field lost the
@@ -1024,24 +1048,20 @@ export function bindSettings(root, ctx, ui = {}) {
     bindField(el, ui, (value) => uiAct(ctx, "location.fields", { name: el.dataset.bLocprof, [el.dataset.field]: value }, { quiet: true }));
   });
   root.querySelectorAll("[data-b-voice]").forEach((el) => {
-    bindField(el, ui, (value) => ctx.bible.setCharacterVoice(el.dataset.bVoice, { [el.dataset.field]: value }));
+    bindField(el, ui, (value) =>
+      uiAct(
+        ctx,
+        "character.voice",
+        { name: el.dataset.bVoice, [el.dataset.field]: value },
+        { quiet: true },
+      ),
+    );
   });
-  // state override fields: merge per field; empty value = inherit (drop key)
-  const mergeOverride = (overrides, field, value) => {
-    const next = { ...overrides };
-    if (field === "voiceDescription") {
-      const v = { ...(next.voice || {}) };
-      if (value) v.description = value;
-      else delete v.description;
-      if (Object.keys(v).length) next.voice = v;
-      else delete next.voice;
-    } else if (value) {
-      next[field] = value;
-    } else {
-      delete next[field];
-    }
-    return next;
-  };
+  // `mergeOverride` 删掉了（TASK-129 切片 2d）：那份「按栏合并、空值回到继承、
+  // voiceDescription 落在嵌套 voice.description 上」的算法搬进了
+  // `character.state.fields` / `location.state.fields`。留一份没人调的副本，
+  // 只会等到某天有人改了动作里那份、忘了这份。
+  //
   // ids are carried in SEPARATE data attributes (data-sid/data-eid) — never
   // packed into one value that a delimiter split could mis-parse
   const entityRec = (kind, eid) => {
@@ -1055,18 +1075,35 @@ export function bindSettings(root, ctx, ui = {}) {
     const s = e && e.states.find((x) => x.stateId === sid);
     return s ? s.overrides : null;
   };
+  // 状态级参考图那四个入口还在用它（见文件末尾那一段）：它们自己算出一份完整的
+  // overrides 再整份写下去，和「按栏合并」不是一回事。要把它们也接进表，得先把
+  // `nextStateRefsOnAdd` 搬进 workflow 层 —— 否则 workflow 会反向 import ui（CA §2）。
+  // 那是跨层搬迁，单独一片做，棘轮里因此还钉着这两个名字。
   const setOv = (kind, eid, sid, ov) =>
-    kind === "c" ? ctx.bible.setCharacterStateOverrides(eid, sid, ov) : ctx.bible.setLocationStateOverrides(eid, sid, ov);
+    kind === "c"
+      ? ctx.bible.setCharacterStateOverrides(eid, sid, ov)
+      : ctx.bible.setLocationStateOverrides(eid, sid, ov);
+  // 覆盖也走动作表（TASK-129 切片 2d）。**合并语义搬进了动作**：只带来的那一栏
+  // 落进去、空值 = 回到继承、`voiceDescription` 落在嵌套的 `voice.description` 上。
+  // 界面这边因此不再自己算 merge —— 那份算法有两处陈述时，迟早只改一处。
   root.querySelectorAll("[data-b-csov]").forEach((el) => {
     bindField(el, ui, (value) => {
-      const o = stateOv("c", el.dataset.bCsov, el.dataset.sid);
-      if (o) setOv("c", el.dataset.bCsov, el.dataset.sid, mergeOverride(o, el.dataset.field, value));
+      uiAct(
+        ctx,
+        "character.state.fields",
+        { name: el.dataset.bCsov, state: el.dataset.sid, [el.dataset.field]: value },
+        { quiet: true },
+      );
     });
   });
   root.querySelectorAll("[data-b-lsov]").forEach((el) => {
     bindField(el, ui, (value) => {
-      const o = stateOv("l", el.dataset.bLsov, el.dataset.sid);
-      if (o) setOv("l", el.dataset.bLsov, el.dataset.sid, mergeOverride(o, el.dataset.field, value));
+      uiAct(
+        ctx,
+        "location.state.fields",
+        { name: el.dataset.bLsov, state: el.dataset.sid, [el.dataset.field]: value },
+        { quiet: true },
+      );
     });
   });
   // --- state-level reference images (override list on the state itself) --- //

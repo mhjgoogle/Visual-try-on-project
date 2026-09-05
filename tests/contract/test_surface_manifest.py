@@ -72,6 +72,9 @@ STORY_PREFIXES = (
     # 分集规划里的节拍（TASK-129 切片 2b）。它落在**作品设定这一侧** ——
     # 写的是 canon（本集推进了什么），不是剧集制作的镜头/白膜。
     "beat.",
+    # 参考图挂在人物**和**场景地两类实体上，所以它自己一个前缀，
+    # 而不是 `character.reference.*` / `location.reference.*` 两套（TASK-129 切片 2d）。
+    "reference.",
 )
 EPISODE_PREFIXES_DEFERRED_TO_TASK_128 = ("shot.", "blocking.")
 
@@ -103,25 +106,17 @@ DEFERRED_BINDERS = {
     "workspaces.js#settings": (
         "workspaces.js",
         "function bindSettings(root, ctx, ui = {}) {",
-        # TASK-129 切片 2c 划掉了 6 个（实体本身：新建 / 改名 / 删 / 拿回来）——
-        # 棘轮只能收缩，所以名单跟着缩。剩下这 12 个是**状态、参考图、声音**，
-        # 归切片 2d。
-        frozenset(
-            {
-                "addCharacterState",
-                "addLocationState",
-                "addReferenceAsset",
-                "removeCharacterState",
-                "removeLocationState",
-                "removeReferenceAsset",
-                "renameCharacterState",
-                "renameLocationState",
-                "setActiveReferenceAsset",
-                "setCharacterStateOverrides",
-                "setCharacterVoice",
-                "setLocationStateOverrides",
-            }
-        ),
+        # 切片 2c 划掉实体本身那 6 个，切片 2d 又划掉 10 个（状态、参考图、声音）。
+        # **只剩这两个**，而且它们剩下的原因是同一件事：
+        #
+        # 状态级参考图那四个入口（`data-b-ovref*`）自己算出一份新的 overrides，
+        # 再经 `setCharacterStateOverrides` 写下去。要把它们接进表，得先把
+        # `nextStateRefsOnAdd`（「加一张次要参考图永远不顶掉当前主图」那条纯决策，
+        # 现在住在 `ui/workspaces.js` 并在那儿有单测）搬进 workflow 层 ——
+        # 否则 `workflow/convactions.js` 会反过来 import `ui/`，撞 CA §2 的依赖方向。
+        #
+        # 那是一次跨层搬迁 + 测试跟着搬，不是接线，所以单独一片做。记在卡上。
+        frozenset({"setCharacterStateOverrides", "setLocationStateOverrides"}),
     ),
 }
 
@@ -160,8 +155,19 @@ ALLOWED_DIRECT = {
 
 
 def _declared_action_ids() -> list[str]:
-    text = ACTIONS_JS.read_text("utf-8")
-    return re.findall(r'^\s{4}id:\s*"([a-zA-Z][\w.]*)"', text, re.M)
+    """表里**实际登记**了哪些动作 —— 问运行时，不扫源码。
+
+    上一版拿正则找源码里字面量的 `id: "..."`。那样只看得见**手写**的那些：
+    TASK-129 切片 2d 把人物/场景地的状态动作改成由一个工厂派生（同一套机制，
+    手写两遍必然长出细微差异），id 是模板串 —— 于是十条真实存在、界面也确实在
+    调的动作，在这份合同眼里**不存在**，`test_every_ui_action_is_declared` 当场
+    报「界面在调表里没有的动作」。
+
+    这正是 TASK-087 §7 推论 1 说的那件事：**断言性质，不要断言写法。**
+    「表里有哪些动作」的权威是 `actionCatalog()`，不是源码长什么样 —— 这份合同
+    的第 3 条本来就已经在读它了，这里只是把另外几条也接到同一个事实上。
+    """
+    return [str(a["id"]) for a in _catalog_via_node()]
 
 
 def _ui_action_ids() -> list[str]:

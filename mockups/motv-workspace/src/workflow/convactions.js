@@ -116,6 +116,148 @@ function mustFindDeleted(ctx, key, idKey, who, label) {
   return rec;
 }
 
+/** 人物**或**场景地 —— 参考图挂在两类实体上，解析也就得认两类。
+ *
+ *  返回 `{ id, name }` 而不是原记录：调用方只需要这两样，返回整条会让人以为
+ *  可以就地改它（那条路只有 `ctx.bible.*` 能走）。 */
+function mustFindEntity(ctx, who) {
+  if (!ctx.bible) throw new Error("这个项目没有作品设定");
+  const name = String(who || "").trim();
+  if (!name) throw new Error("没说是哪个人物或场景地");
+  const prod = ctx.prodData().production;
+  const c = (prod.characters || []).find((x) => x.characterId === name || x.name === name);
+  if (c) return { id: c.characterId, name: c.name };
+  const l = (prod.locations || []).find((x) => x.locationId === name || x.name === name);
+  if (l) return { id: l.locationId, name: l.name };
+  throw new Error(`人物和场景地里都没有「${name}」`);
+}
+
+/**
+ * 一类实体的状态动作（add / rename / remove / restore / fields），派生出来的。
+ *
+ * 人物和场景地的状态是**同一套机制** —— 同一个 `stateId` 命名空间、同一组转换、
+ * 同一条「状态覆盖表现，不改身份」的规矩。差别只有归属实体和可覆盖字段白名单。
+ * 手写两遍的话，两边会随时间长出细微差异，而「同一件事有两处陈述」正是这个仓库
+ * 反复在修的形状（TASK-087 §7）。
+ *
+ * `kind` 同时是动作 id 的前缀（`character.state.*` / `location.state.*`），
+ * 所以合同里的前缀归属检查不用额外开口子。
+ */
+function stateActions(kind, spec) {
+  const { label, listKey, idKey } = spec;
+  const findOwner = (ctx, who) => mustFind(ctx, listKey, who, label);
+  const findState = (owner, sid, where = "states") =>
+    (owner[where] || []).find((s) => s.stateId === sid || s.name === sid) || null;
+  const cap = (s) => s[0].toUpperCase() + s.slice(1);
+  // `ctx.bible` 上的方法名是 addCharacterState / addLocationState 这种拼法
+  const m = (verb) => `${verb}${cap(kind)}State`;
+  return [
+    {
+      id: `${kind}.state.add`,
+      label: `给${label}加一个状态`,
+      doc: "bible",
+      undo: `${kind}.state.remove（软删除，回收区里拿得回来）`,
+      args: { name: `${label}名字或 id`, state: "状态名（如：少女时期 / 夜晚）" },
+      apply: (ctx, a) => {
+        const owner = findOwner(ctx, a.name);
+        const nm = String(a.state || "").trim();
+        if (!nm) throw new Error("没说状态叫什么");
+        const rec = ctx.bible[m("add")](owner[idKey], nm);
+        if (!rec) throw new Error(`加不了「${owner.name}」的状态「${nm}」`);
+        return { said: `「${owner.name}」加了状态「${rec.name}」`, stateId: rec.stateId };
+      },
+    },
+    {
+      id: `${kind}.state.rename`,
+      label: `给${label}的状态改名`,
+      doc: "bible",
+      undo: "改回去就行（状态身份不变，引用它的场景一个不动）",
+      args: { name: `${label}名字或 id`, state: "现在的状态名或 id", to: "新名字" },
+      apply: (ctx, a) => {
+        const owner = findOwner(ctx, a.name);
+        const st = findState(owner, String(a.state || ""));
+        if (!st) throw new Error(`「${owner.name}」没有状态「${a.state}」`);
+        const to = String(a.to || "").trim();
+        if (!to) throw new Error("没说改成什么名字");
+        if (!ctx.bible[m("rename")](owner[idKey], st.stateId, to)) {
+          throw new Error(`改不了状态「${st.name}」的名字`);
+        }
+        return { said: `「${owner.name}」的状态「${st.name}」改名为「${to}」` };
+      },
+    },
+    {
+      id: `${kind}.state.remove`,
+      label: `删掉${label}的一个状态`,
+      doc: "bible",
+      undo: `${kind}.state.restore —— 软删除，回收区里拿得回来`,
+      args: { name: `${label}名字或 id`, state: "状态名或 id" },
+      apply: (ctx, a) => {
+        const owner = findOwner(ctx, a.name);
+        const st = findState(owner, String(a.state || ""));
+        if (!st) throw new Error(`「${owner.name}」没有状态「${a.state}」`);
+        if (!ctx.bible[m("remove")](owner[idKey], st.stateId)) {
+          throw new Error(`还有场景以「${st.name}」这个状态引用着「${owner.name}」，先换掉那些引用`);
+        }
+        return { said: `删掉了「${owner.name}」的状态「${st.name}」（回收区里还能拿回来）` };
+      },
+    },
+    {
+      id: `${kind}.state.restore`,
+      label: `把删掉的${label}状态拿回来`,
+      doc: "bible",
+      undo: `${kind}.state.remove`,
+      args: { name: `${label}名字或 id`, state: "状态名或 id" },
+      apply: (ctx, a) => {
+        const owner = findOwner(ctx, a.name);
+        const st = findState(owner, String(a.state || ""), "deletedStates");
+        if (!st) throw new Error(`「${owner.name}」的回收区里没有状态「${a.state}」`);
+        if (!ctx.bible[`undelete${cap(kind)}State`](owner[idKey], st.stateId)) {
+          throw new Error(`拿不回状态「${st.name}」`);
+        }
+        return { said: `「${owner.name}」的状态「${st.name}」回来了` };
+      },
+    },
+    {
+      id: `${kind}.state.fields`,
+      label: `改${label}某个状态覆盖了什么`,
+      doc: "bible",
+      undo: "改回去就行；写空字符串 = 这一栏回到继承基础档案",
+      args: { name: `${label}名字或 id`, state: "状态名或 id", ...spec.fields },
+      apply: (ctx, a) => {
+        const owner = findOwner(ctx, a.name);
+        const st = findState(owner, String(a.state || ""));
+        if (!st) throw new Error(`「${owner.name}」没有状态「${a.state}」`);
+        // **合并，不整份替换**：只带来的那几栏落进去，其余原样保留。整份替换会让
+        // 「补一句服装」把他手写的外貌清空 —— `updateWorldSetting` 那条同样的规矩。
+        const next = { ...(st.overrides || {}) };
+        let n = 0;
+        for (const k of Object.keys(spec.fields)) {
+          if (typeof a[k] !== "string") continue;
+          n += 1;
+          // `voiceDescription` 落在**嵌套**的 `voice.description` 上，不是平铺一栏。
+          // 状态只能改声音的**表现**，改不了声音身份（`voiceId` 会被 bibledoc 的
+          // 白名单剥掉）—— 一个人物只有一个声音，那是 VOICE RULE，不是这里能松的。
+          if (k === "voiceDescription") {
+            const v = { ...(next.voice || {}) };
+            if (a[k]) v.description = a[k];
+            else delete v.description;
+            if (Object.keys(v).length) next.voice = v;
+            else delete next.voice;
+            continue;
+          }
+          if (a[k]) next[k] = a[k];
+          else delete next[k]; // 空 = 回到继承，不是写一个空串
+        }
+        if (!n) throw new Error("没说要覆盖哪一栏");
+        if (!ctx.bible[`set${cap(kind)}StateOverrides`](owner[idKey], st.stateId, next)) {
+          throw new Error(`改不了「${owner.name}」状态「${st.name}」的覆盖`);
+        }
+        return { said: `「${owner.name}」的状态「${st.name}」改了 ${n} 栏` };
+      },
+    },
+  ];
+}
+
 /** 一段关系的两头是不是这两个人（`characterIds`，不是 `aId/bId`）。
  *
  *  字段名值得留一句：`r.aId` / `r.aName` 在这份文档里**根本不存在**，而按它们去找
@@ -853,6 +995,115 @@ const ACTIONS = [
       const rec = mustFindDeleted(ctx, "deletedLocations", "locationId", a.name, "场景地");
       if (!ctx.bible.undeleteLocation(rec.locationId)) throw new Error(`拿不回「${rec.name}」`);
       return { said: `场景地「${rec.name}」回来了` };
+    },
+  },
+
+  // --- 状态 / 参考图 / 声音（TASK-129 切片 2d，`bindSettings` 最后 12 个） ---- //
+  //
+  // 人物和场景地的状态是**同一套机制**（同一个 `stateId` 命名空间、同一组
+  // add/rename/remove/overrides），差别只有归属实体与可覆盖字段白名单。
+  // 所以这十条由一个工厂派生，不手写两遍 —— 手写的那一版会在两边逐渐长出细微
+  // 差异，而「同一件事有两处陈述」正是本仓库反复修的那个形状。
+  ...stateActions("character", {
+    label: "人物",
+    listKey: "characters",
+    idKey: "characterId",
+    fields: {
+      appearance: "外貌",
+      costume: "服装",
+      visualInstruction: "画面指令",
+      voiceDescription: "这个状态下声音怎么变（只改表现，换不了声音身份）",
+    },
+  }),
+  ...stateActions("location", {
+    label: "场景地",
+    listKey: "locations",
+    idKey: "locationId",
+    fields: { description: "描述", visualInstruction: "画面指令" },
+  }),
+  {
+    id: "character.voice",
+    label: "改一个人物的基础声音",
+    doc: "bible",
+    undo: "改回去就行",
+    args: {
+      name: "人物名字或 id",
+      voiceId: "声音标识（如 piper 声音名，留空=没指定）",
+      description: "声音描述（音色 / 年龄感 / 语气）",
+    },
+    apply: (ctx, a) => {
+      const rec = mustFind(ctx, "characters", a.name, "人物");
+      const patch = {};
+      if (typeof a.voiceId === "string") patch.voiceId = a.voiceId;
+      if (typeof a.description === "string") patch.description = a.description;
+      if (!Object.keys(patch).length) throw new Error("没说要改声音的哪一栏");
+      // **状态改不了声音身份** —— 一个人物只有一个声音（bibledoc 的 VOICE RULE，
+      // 状态的 overrides 里 `voiceId` 会被剥掉）。所以这条只作用在基础档案上，
+      // 没有 `state` 参数，那不是遗漏。
+      if (!ctx.bible.setCharacterVoice(rec.characterId, patch)) {
+        throw new Error(`改不了「${rec.name}」的声音`);
+      }
+      return { said: `「${rec.name}」的声音改了 ${Object.keys(patch).join("、")}` };
+    },
+  },
+  {
+    id: "reference.add",
+    label: "给人物 / 场景地挂一张参考图",
+    doc: "bible",
+    undo: "reference.remove（摘下来进回收区，拿得回来）",
+    args: { entity: "人物或场景地的名字 / id", assetId: "资产 id" },
+    apply: (ctx, a) => {
+      const rec = mustFindEntity(ctx, a.entity);
+      const assetId = String(a.assetId || "").trim();
+      if (!assetId) throw new Error("没说挂哪张图");
+      if (!ctx.bible.addReferenceAsset(rec.id, assetId)) {
+        throw new Error(`挂不上（「${rec.name}」上已经有这张图了，或者 id 不对）`);
+      }
+      return { said: `「${rec.name}」挂上了一张参考图` };
+    },
+  },
+  {
+    id: "reference.remove",
+    label: "把一张参考图摘下来",
+    doc: "bible",
+    undo: "reference.restore —— 摘下来的引用进回收区；图本身在资产库里，从来没删过",
+    args: { entity: "人物或场景地的名字 / id", assetId: "资产 id" },
+    apply: (ctx, a) => {
+      const rec = mustFindEntity(ctx, a.entity);
+      if (!ctx.bible.removeReferenceAsset(rec.id, String(a.assetId || ""))) {
+        throw new Error(`「${rec.name}」上没有这张图`);
+      }
+      return { said: `从「${rec.name}」摘下了一张参考图（回收区里还能挂回去）` };
+    },
+  },
+  {
+    id: "reference.restore",
+    label: "把摘下来的参考图挂回去",
+    doc: "bible",
+    undo: "reference.remove",
+    args: { entity: "人物或场景地的名字 / id", assetId: "资产 id" },
+    apply: (ctx, a) => {
+      const rec = mustFindEntity(ctx, a.entity);
+      if (!ctx.bible.undeleteReferenceAsset(rec.id, String(a.assetId || ""))) {
+        throw new Error(`「${rec.name}」的回收区里没有这张图`);
+      }
+      // 不抢回主图位（bibledoc 写明了理由：摘掉时主图已经让给了别人）。
+      return { said: `「${rec.name}」挂回了一张参考图` };
+    },
+  },
+  {
+    id: "reference.setActive",
+    label: "把某张参考图设为主图",
+    doc: "bible",
+    undo: "再设回原来那张就行（只动指针，一张图都没有增删）",
+    args: { entity: "人物或场景地的名字 / id", assetId: "资产 id（留空 = 不指定主图）" },
+    apply: (ctx, a) => {
+      const rec = mustFindEntity(ctx, a.entity);
+      const assetId = a.assetId === null || a.assetId === "" ? null : String(a.assetId);
+      if (!ctx.bible.setActiveReferenceAsset(rec.id, assetId)) {
+        throw new Error(`设不了主图（「${rec.name}」上没有挂这张图）`);
+      }
+      return { said: assetId ? `「${rec.name}」换了主图` : `「${rec.name}」不再指定主图` };
     },
   },
 

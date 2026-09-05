@@ -41,7 +41,18 @@
 **切片 2c 已划掉实体本身那 6 个**（~~`addCharacter` · `renameCharacter` · `removeCharacter` ·
 `addLocation` · `renameLocation` · `removeLocation`~~ → `character.add/.rename/.remove/.restore`
 与 `location.*` 同名四条，回收区在角色库/场景地库下方有入口）。
-**棘轮里现在只剩下面 12 个**（状态、参考图、声音），归切片 2d：
+**切片 2d 又划掉 10 个**（状态、参考图、声音）→ `character.state.*` / `location.state.*`
+各五条（由一个工厂派生，不手写两遍）、`reference.add/.remove/.restore/.setActive`、
+`character.voice`。
+
+**棘轮里现在只剩 2 个**：`setCharacterStateOverrides` · `setLocationStateOverrides`。
+它们剩下的原因是同一件事 —— 状态级参考图那四个入口（`data-b-ovref*`）自己算出一份
+完整 overrides 再整份写下去，要接进表得先把 `nextStateRefsOnAdd`（「加一张次要参考图
+永远不顶掉当前主图」那条纯决策，现住 `ui/workspaces.js` 且在那儿有单测）**搬进
+workflow 层**，否则 `workflow/convactions.js` 会反向 import `ui/`，撞 CA §2 的依赖方向。
+那是跨层搬迁 + 测试跟着搬，不是接线，所以单独一片（切片 2e）做。
+
+下面是原始的 18 个名字，原文保留：
 
 `addCharacter` · `renameCharacter` · `removeCharacter` ·
 `addCharacterState` · `renameCharacterState` · `removeCharacterState` · `setCharacterStateOverrides` ·
