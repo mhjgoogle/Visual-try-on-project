@@ -522,6 +522,25 @@ function fakeRoot(fields) {
 }
 const field = (readOnly = false) => ({ readOnly, dataset: {} });
 
+/** 注入的定时器：`fire()` 触发的是**生产代码自己那个回调**，不是抄来的一份。
+ *  上一版留了个 `_fireWatchdog()` 旁路，codex 判 P1：生产回调不解锁了测试也照绿。 */
+function fakeTimers() {
+  let pending = null;
+  let id = 0;
+  return {
+    setTimer: (fn) => { pending = fn; return ++id; },
+    clearTimer: () => { pending = null; },
+    fire() {
+      const fn = pending;
+      pending = null;
+      if (!fn) return false;
+      fn();
+      return true;
+    },
+    armed: () => pending !== null,
+  };
+}
+
 test("载入期间锁住输入：两端各一次，用真调用而不是扫源码", async () => {
   // 上一条守的是「存不下要说出来」；这一条守的是**根本别让他敲进去** ——
   // 能防住的损失不该只靠提示。窗口是：`enterCanvas` 开头 `canvasActive = false`，
@@ -562,10 +581,16 @@ test("看门狗先解锁、载入完再解锁，不会把「本来只读」放�
   const editable = field(false);
   const alwaysRo = field(true);
   const warns = [];
-  const lock = createEditLock({ getRoot: () => fakeRoot([editable, alwaysRo]), warn: (m) => warns.push(m) });
+  const t = fakeTimers();
+  const lock = createEditLock({
+    getRoot: () => fakeRoot([editable, alwaysRo]),
+    warn: (m) => warns.push(m),
+    setTimer: t.setTimer,
+    clearTimer: t.clearTimer,
+  });
 
   lock.lock();
-  assert.equal(lock._fireWatchdog(), true, "看门狗没能跑");   // 第一次解锁
+  assert.equal(t.fire(), true, "看门狗没能跑");                // 第一次解锁（真的那个回调）
   lock.unlock();                                              // 载入完成，第二次解锁
 
   assert.equal(alwaysRo.readOnly, true, "本来只读的框被第二次解锁放开了");
@@ -579,14 +604,33 @@ test("这把锁一定会自己开 —— 载入抛异常也不许把人锁在外
   const { createEditLock } = await import("../src/ui/editlock.js");
   const el = field(false);
   const said = [];
-  const lock = createEditLock({ getRoot: () => fakeRoot([el]), toast: (m) => said.push(m) });
+  const t = fakeTimers();
+  const lock = createEditLock({
+    getRoot: () => fakeRoot([el]),
+    toast: (m) => said.push(m),
+    setTimer: t.setTimer,
+    clearTimer: t.clearTimer,
+  });
 
   lock.lock();
   assert.equal(el.readOnly, true, "上锁没生效");
-  lock._fireWatchdog();
+  assert.equal(t.armed(), true, "上锁时没有安排看门狗 —— 载入抛异常就再也开不了");
+  assert.equal(t.fire(), true, "看门狗没能跑");   // ← 触发的是生产代码那个回调本身
   assert.equal(el.readOnly, false, "看门狗没有放开输入");
   assert.equal(lock.isLocked(), false, "放开了输入却没改状态 —— 之后的解锁会再动一次标记");
   assert.match(said.join(" "), /已放开输入/, "放开了却没告诉他");
+});
+
+test("载入完成会撤掉看门狗 —— 不许过一会儿再自己动一次", async () => {
+  const { createEditLock } = await import("../src/ui/editlock.js");
+  const el = field(false);
+  const t = fakeTimers();
+  const lock = createEditLock({
+    getRoot: () => fakeRoot([el]), setTimer: t.setTimer, clearTimer: t.clearTimer,
+  });
+  lock.lock();
+  lock.unlock();
+  assert.equal(t.armed(), false, "载入完了看门狗还挂着 —— 它会在 15 秒后再动一次标记");
 });
 
 test("锁上时用 readOnly 不用 disabled —— 他可能正想把刚敲的字复制走", async () => {

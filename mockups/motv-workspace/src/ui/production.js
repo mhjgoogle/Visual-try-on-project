@@ -24,6 +24,7 @@ import { renderAudioWs, bindAudioWs } from "./audiows.js";
 // old workspace would be a SECOND place the same timeline is edited, with its
 // own handlers and its own guards to drift from. The module is left in the tree
 // (its read model is still unit-tested) but nothing renders it.
+import { recordCanvas } from "./bkrecord.js";
 import { renderDailies, bindDailies } from "./dailies.js";
 import { renderCutReview, bindCutReview } from "./cutreview.js";
 import { bindChainMenu } from "./chain.js";
@@ -2187,47 +2188,39 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     bkRaf = requestAnimationFrame(step);
   }
 
-  /** 录白膜：录的就是这块画布本身（决策 4）。产物交给既有的资产登记。 */
+  /** 录白膜：录的就是这块画布本身（决策 4）。产物交给既有的资产登记。
+   *
+   *  编排在 `ui/bkrecord.js` —— **顺序是那个模块存在的理由**：上一版先取画布再
+   *  `render()`，重绘换掉 `root.innerHTML` 之后手里那块 canvas 成了孤儿，动画画在
+   *  新节点上，录出来的白膜**不含动画**（TASK-087 §5.22）。写在这里没法测，
+   *  搬出去之后那条顺序有真守卫钉着。 */
   async function bkRecord(ctx) {
     const b = bkData();
-    const view = document.querySelector("[data-bk-view]");
     const id = bkShotId();
-    if (!b || !view || !id) return;
-    if (typeof view.captureStream !== "function" || typeof MediaRecorder === "undefined") {
-      ctx.toast("这个浏览器不支持录制画布 —— 白膜录不了");
-      return;
-    }
-    let rec;
-    const chunks = [];
-    try {
-      const stream = view.captureStream(30);
-      const mime = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"].find(
-        (m) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m),
-      );
-      rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-    } catch (e) {
-      ctx.toast(`录不了：${(e && e.message) || e}`);
-      return;
-    }
-    rec.ondataavailable = (ev) => {
-      if (ev.data && ev.data.size) chunks.push(ev.data);
-    };
-    const done = new Promise((resolve) => (rec.onstop = resolve));
-    ui.bkRecording = `${b.duration.toFixed(1)}s`;
-    render();
-    bkSetT(0);
-    rec.start();
-    await new Promise((r) => bkPlay(r));
-    rec.stop();
-    await done;
-    ui.bkRecording = null;
-    const blob = new Blob(chunks, { type: "video/webm" });
-    if (!blob.size) {
-      ctx.toast("录出来是空的 —— 没有写入任何资产");
-      render();
-      return;
-    }
-    const res = await ctx.blocking.saveTake(id, blob, b.duration);
+    if (!b || !id) return;
+
+    const out = await recordCanvas({
+      seconds: b.duration,
+      showRecording: (secs) => {
+        ui.bkRecording = secs === null ? null : `${secs.toFixed(1)}s`;
+        render();
+      },
+      getView: () => document.querySelector("[data-bk-view]"),
+      makeRecorder: (view) => {
+        if (typeof view.captureStream !== "function" || typeof MediaRecorder === "undefined") return null;
+        const stream = view.captureStream(30);
+        const mime = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"].find(
+          (m) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m),
+        );
+        return new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      },
+      play: () => { bkSetT(0); return new Promise((r) => bkPlay(r)); },
+      toast: (m) => ctx.toast(m),
+    });
+
+    if (!out.ok) { render(); return; }
+
+    const res = await ctx.blocking.saveTake(id, out.blob, b.duration);
     if (!res || !res.ok) ctx.toast(`白膜没能登记：${(res && res.error) || "未知原因"}`);
     else ctx.toast(`白膜录好了（${b.duration.toFixed(1)}s），已登记进资产库`);
     render();

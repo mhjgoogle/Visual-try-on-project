@@ -118,7 +118,7 @@
           "subject": "fix(motv): 把「这一次没写下去」全都变成出声的，并把那把载入锁修成幂等（TASK-109 · three-pane）",
           "time": "2026-09-05T15:19:28+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/auto-push/changes/three-pane.json",
             "mockups/motv-workspace/src/app.js",
@@ -130,14 +130,16 @@
         }
       ],
       "paths": [
-        "mockups/motv-workspace/src/app.js",
-        "mockups/motv-workspace/src/services/persist.js",
+        "docs/tasks/active/TASK-087-followup-ledger.md",
+        "mockups/motv-workspace/src/ui/bkrecord.js",
         "mockups/motv-workspace/src/ui/editlock.js",
+        "mockups/motv-workspace/src/ui/production.js",
+        "mockups/motv-workspace/tests/bkrecord.test.mjs",
         "mockups/motv-workspace/tests/persistence.test.mjs"
       ],
       "verification": "PASS",
       "verification_ref": "",
-      "declared": "2026-09-05T15:16:43+00:00"
+      "declared": "2026-09-05T15:35:06+00:00"
     },
     "TASK-110": {
       "commits": [],
