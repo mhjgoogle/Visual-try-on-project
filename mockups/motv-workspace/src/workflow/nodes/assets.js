@@ -189,14 +189,22 @@ export default {
       } catch (err) {
         // 具名失败要说人话，否则「额度用完」会以一句「生成失败」的样子出现，
         // 而那两件事该做的动作完全不同（ADR-0100 决策 3 · REQ-008 判据 4）。
-        const say =
+        const why =
           err.category === "quota_exhausted"
             ? "这个来源的额度用完了 —— 换 .env.local 里的 IMAGE_PROVIDER，或稍后再试"
             : err.category === "billing_not_established"
               ? "这把 key 没声明是免费额度那一档，已拒绝（按次计费请走付费那条）"
               : err.category === "side_effect_unknown"
-                ? "上一次没能确认结果，可能已经消耗过一次 —— 要再来一次得显式确认"
+                ? "上一次没能确认结果 —— 要再来一次得显式确认"
                 : err.message;
+        // **「消耗没消耗」由 `sideEffect` 说，不由类别说**（codex 补审非阻塞项）。
+        // 上一轮把 429 从 `none` 改判成 `unknown` 之后，「额度用完了，稍后再试」
+        // 这句就漏了一半：稍后再试没错，但**这一次可能已经消耗过**得说出来，
+        // 否则界面又在替他做「反正没花」的假设 —— 与 §5.8 第 2 条同一条纪律。
+        const say =
+          err.sideEffect && err.sideEffect !== "none"
+            ? `${why}（这一次${err.sideEffect === "applied" ? "已经" : "可能已经"}消耗过）`
+            : why;
         // **只有「确定什么都没发生」才敢标失败**：`unknown` / `applied` 标成失败，
         // 会让下一次重试看起来是干净的第一次（合同 §5.8）。
         if (gen && err && err.definitiveReject) ctx.failGeneration(gen.generationId, "failed");

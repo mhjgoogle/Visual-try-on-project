@@ -200,6 +200,26 @@ Gemini 免费档对出图的配额是 0（三个模型全部 429 `limit: 0`，�
 `side_effect` 三种取值只有 `none` 才置 `definitiveReject`）· `pytest tests/contract`
 269 passed · ESM 解析用 `import()` 实核（`node --check` 按 CJS 解析，不是 ESM 的判官）。
 
+**批次 B 补审（1 轮，codex，无 BLOCKING）**：架构五闸全 `PASS`
+（`CA §5.6` / ADR-0100 决策 3 与 5 / 三条路可分辨 / §5.8 / `CA §5.2`），
+判据 2 `PASS`。但判据 1、5 判 `NOT_EVIDENCED` + Verification `INSUFFICIENT` ——
+**判得对，那正是我自己在审查包「已知风险 1」里写下的短板**：服务层被调用证不了
+「点下去真的出图」。审查者还给了做法：一个最小 element / ctx stub 就够。
+
+按 ADR-0081 的分级，`NOT_EVIDENCED` 是补证据、**产品代码未动 → 不买新轮**：
+
+- 新增 `tests/assetsgenfree.test.mjs`（4 条，**处理器级**）：点一次 → 后端拿到
+  这个镜头的槽位与真 prompt、结果真的经 `addVersion` 登记到槽位、溯源闭合、
+  提示里没有 `$` · **在途重复点击只发一次**（真并发，第二次在第一次未回来时点）·
+  不确定的失败不标 `failed` 且不留版本 · 确定没发生的失败才标 `failed`。
+  `declare` / `addVersion` / `refFromResponse` **用真的**，所以「登记」这一步不是
+  被 stub 掉的。
+- 一条非阻塞项也修了（它是我上一轮修复引入的）：429 改判 `unknown` 之后，
+  「额度用完了，稍后再试」漏说了**这一次可能已经消耗过**。现在「消耗没消耗」
+  由 `sideEffect` 说，不由类别说。
+
+验证：`node --test` 全量 **2181 passed / 0 failed**。
+
 **还没做**：设置页显示「现在用的是哪一家 + 后四位」（判据 3 的界面那一半 ——
 凭据现在从 `.env.local` 走，界面缺的是**说出当前来源**，否则「我明明改了」会没处对证）。
 
