@@ -284,7 +284,13 @@ def test_a_turn_records_what_he_said_and_hands_back_a_run(app, srv):
     # still have its question on screen
     status, thread = _get(app, "夜班沉默")
     assert status == 200
-    assert [x["role"] for x in thread["turns"]] == ["user"]
+    # 断言的是「问题读得回来」，不是「线里只有一条」—— 后者取决于那条 run
+    # 有没有在这次 GET 之前落地（同本文件 test_two_pages_keep_two_conversations
+    # 上的注释）。这条在 CI 上侥幸赢了竞态，所以九天里它没红过，但它和那两条
+    # 是同一个缺陷。
+    assert [x["text"] for x in thread["turns"] if x["role"] == "user"] == [
+        "把第二个镜头改冷一点"
+    ]
 
 
 def test_the_turn_does_NOT_write_the_creative_document(app, srv):
@@ -400,22 +406,33 @@ def test_two_pages_keep_two_conversations(app, srv):
         {"message": "资产库里缺什么", "context": {"module": "assets"}},
     )
 
+    # 只看 role=="user" 的轮次。这两条 `_post` 会真的启动一个 executor，而按
+    # ADR-0089 决策 6，一次失败的 run 必须**落一条会说话的 agent 轮次**（`text: ""`
+    # + `failure`），不能渲染成沉默。于是「线里有几条」取决于 GET 那一刻 run 有没有
+    # 落地 —— 装了 `claude` 的机器上它还在飞（1 条），CI 上没有那个可执行文件、
+    # run 立刻失败并落地（2 条）。本条测试问的是**分线**，不是时序，所以断言按角色过滤。
+    # （这也是 main 的 CI 从 8/24 起红着的一条：本地永远绿，因为本地装着 claude。）
     status, shots = _get(app, "夜班沉默", "shots")
     assert status == 200
-    assert [x["text"] for x in shots["turns"]] == ["分镜这边怎么排"]
+    assert [x["text"] for x in shots["turns"] if x["role"] == "user"] == [
+        "分镜这边怎么排"
+    ]
     assert shots["thread"] == "shots"
     # and the OTHER page's history is reported, not hidden
-    assert shots["threads"].get("assets") == 1
+    assert "assets" in shots["threads"]
 
     _, assets = _get(app, "夜班沉默", "assets")
-    assert [x["text"] for x in assets["turns"]] == ["资产库里缺什么"]
+    assert [x["text"] for x in assets["turns"] if x["role"] == "user"] == [
+        "资产库里缺什么"
+    ]
 
 
 def test_a_turn_with_no_page_lands_in_the_project_thread(app, srv):
     _, out = _post(app, srv, "夜班沉默", {"message": "随便问问"})
     assert out["thread"] == "__project__"
     _, d = _get(app, "夜班沉默")
-    assert [x["text"] for x in d["turns"]] == ["随便问问"]
+    # 同上：按角色过滤，别把「失败的 run 会说话」读成一条多余的用户消息。
+    assert [x["text"] for x in d["turns"] if x["role"] == "user"] == ["随便问问"]
 
 
 def test_the_answer_lands_in_the_page_it_was_ASKED_on(app, srv, monkeypatch):
