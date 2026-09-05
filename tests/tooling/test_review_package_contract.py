@@ -30,7 +30,74 @@ _SCRIPTS = _ROOT / ".claude" / "skills" / "codex-review-loop" / "scripts"
 _SH = _SCRIPTS / "run-review.sh"
 _PS1 = _SCRIPTS / "run-review.ps1"
 
-_BASH = shutil.which("bash")
+
+def _windows_bash() -> str | None:
+    """一个**看得懂 Windows 路径**的 bash。
+
+    `shutil.which("bash")` 拿到的是 PATH 上的第一个，而在这台机器上那要看是谁启动
+    的 pytest：Git Bash 里跑拿到 `Git\\usr\\bin\\bash.exe`（能开 `D:/...`），
+    PowerShell 里跑拿到 `System32\\bash.exe` —— **那是 WSL 的 bash**，它的根是
+    `/`，`D:/…` 在它眼里根本不存在，于是每一条都以 127 「No such file or directory」
+    倒下。
+
+    **同一份代码，红不红取决于是哪个终端启动的 pytest。** 这一族失败被当成过
+    「并发干扰」「机器负载」放过至少两次（2026-09-05 我自己就写过一次这样的结论），
+    而真相是这一行 —— 一个结果取决于启动环境的测试，比没有测试更误导人。
+
+    所以这里**显式挑**：先认 Git Bash（`msys`/`mingw` 布局），拿不到就返回 None
+    让用例 skip 并说明白，而不是随手抓一个跑不通的。
+    """
+    candidates = []
+    first = shutil.which("bash")
+    if first:
+        candidates.append(first)
+    for extra in (
+        os.environ.get("PROGRAMFILES", r"C:\Program Files") + r"\Git\usr\bin\bash.exe",
+        os.environ.get("PROGRAMFILES", r"C:\Program Files") + r"\Git\bin\bash.exe",
+    ):
+        candidates.append(extra)
+    for cand in candidates:
+        if not cand or not Path(cand).is_file():
+            continue
+        # WSL 的 bash 住在 System32；它看不见 Windows 路径。
+        if "system32" in cand.replace("/", "\\").lower():
+            continue
+        return cand
+    return None
+
+
+_BASH = _windows_bash()
+
+
+def _bash_toolchain() -> str:
+    """`run-review.sh` 要用的那套 Unix 工具（`mktemp` 等）住在哪。
+
+    光挑对 bash 还不够 —— 子进程继承的是**启动 pytest 那个终端的 PATH**：
+    Git Bash 里跑，`Git\\usr\\bin` 在 PATH 上，`mktemp` 找得到；PowerShell 里跑，
+    它不在，脚本第 74 行就以 `mktemp: command not found` 倒下。
+
+    **同一份代码，红不红取决于是哪个终端启动的 pytest。** 所以这里把工具目录
+    显式补进子进程的 PATH，让这条合同测试与启动方式无关 —— 一个结果取决于启动
+    环境的测试，比没有测试更误导人（2026-09-05 这一族被当成「并发干扰」放过两次）。
+    """
+    dirs = []
+    if _BASH:
+        bash_dir = Path(_BASH).parent  # …\Git\usr\bin 或 …\Git\bin
+        dirs.append(str(bash_dir))
+        git_root = bash_dir.parent.parent if bash_dir.name == "bin" else bash_dir.parent
+        for sub in (("usr", "bin"), ("bin",), ("mingw64", "bin")):
+            cand = git_root.joinpath(*sub)
+            if cand.is_dir():
+                dirs.append(str(cand))
+    seen, out = set(), []
+    for d in dirs:
+        if d not in seen:
+            seen.add(d)
+            out.append(d)
+    return os.pathsep.join(out)
+
+
+_BASH_TOOLS = _bash_toolchain()
 _TIMEOUT = shutil.which("timeout")
 _POWERSHELL = shutil.which("powershell") or shutil.which("pwsh")
 _GIT = shutil.which("git")
@@ -109,6 +176,21 @@ def _run_sh(repo: Path, env_extra: dict[str, str]) -> str:
     env = dict(os.environ)
     env.pop("REVIEW_PACKAGE", None)
     env.update({"REVIEW_TASK": "TASK-108", **env_extra})
+    # PATH 的顺序有三层，每一层都是被一次红教出来的：
+    #
+    #   1. 用例自己的桩目录（codex/claude 的假件）—— 必须最前，否则测的不是这条脚本；
+    #   2. **Git 的 Unix 工具** —— 必须排在环境 PATH 之前。放在后面的话，
+    #      `timeout` 会解析到 `System32\timeout.exe`（语法完全不同，脚本当场报
+    #      「Invalid syntax」），`mktemp` 则干脆找不到；
+    #   3. 启动环境自己的 PATH。
+    #
+    # 这三层合起来只说明一件事：**这条测试原本继承了「谁启动的 pytest」**。
+    # 从 Git Bash 里跑全绿，从 PowerShell 里跑全红，而代码一个字没变 ——
+    # 这一族失败被当成「并发干扰」「机器负载」放过至少两次（2026-09-05）。
+    stub = env_extra.get("PATH", "").split(os.pathsep)[0] if "PATH" in env_extra else ""
+    env["PATH"] = os.pathsep.join(
+        p for p in (stub, _BASH_TOOLS, os.environ.get("PATH", "")) if p
+    )
     proc = subprocess.run(
         [_BASH, _SH.as_posix()],
         cwd=repo,
