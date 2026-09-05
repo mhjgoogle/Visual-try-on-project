@@ -143,3 +143,5 @@ Studio 后端 (mockups/motv-workspace/server.py)
 - **谁还没做完** → [STATUS.md](STATUS.md) 与 `docs/tasks/active/`。
 - **怎么运行** → [README.md](../README.md)。
 - **规则** → [AGENTS.md](../AGENTS.md)。
+- **一个概念到底叫什么** → [glossary.md](glossary.md)（**WHAT THINGS ARE CALLED**）。
+- **什么我们决定不做** → [out-of-scope.md](out-of-scope.md)（**WHAT WE WON'T BUILD**）。

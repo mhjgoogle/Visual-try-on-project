@@ -1224,6 +1224,17 @@
             "docs/skill-evolution/backlogs/dev-workflow.jsonl",
             "docs/skill-evolution/index.json"
           ]
+        },
+        {
+          "hash": "3da6411508bb2b13b8b461b293f82c6d94bfea58",
+          "subject": "chore(auto-push): three-pane manifest writeback",
+          "time": "2026-09-05T01:02:00+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/auto-push/changes/three-pane.json"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
@@ -1241,6 +1252,25 @@
       "verification": "PASS",
       "verification_ref": "切片 5 TASK-130：可重复 Connected Project 样本（node 生成器 + ffmpeg 真媒体 + 执行器 Event 桩）与真浏览器旅程。纯测试夹具 + 文档，不改产品行为 → 按 AGENTS.md §20 触发表不调用 codex-review-loop。pytest tests/e2e/test_connected_journey_task130.py 1 passed (9.0s)；pytest tests/e2e -m \"not serial\" -n 8 → 37 passed；pytest tests/tooling → 272 passed/1 skipped；ruff 全过；lifecycle_check 0。旅程抓到真缺口 TASK-087 §5.21。真实用户项目人工验收仍归产品负责人（收敛审查 §9）。收口：五切片 post-use feedback 落 docs/skill-evolution/（79a93d0）",
       "declared": "2026-09-05T01:01:23+00:00"
+    },
+    "TASK-133": {
+      "commits": [],
+      "paths": [
+        ".claude/tools/lifecycle_check.py",
+        "AGENTS.md",
+        "docs/adr/ADR-0098-index-docs-are-not-a-second-contract.md",
+        "docs/current-architecture.md",
+        "docs/glossary.md",
+        "docs/out-of-scope.md",
+        "docs/tasks/active/TASK-133-glossary-and-out-of-scope-index.md",
+        "docs/tasks/backlog/TASK-134-import-linter-layering-contract.md",
+        "docs/tasks/backlog/TASK-135-server-authoritative-workflow-plan.md",
+        "docs/tasks/backlog/TASK-136-generation-resume-and-idempotency.md",
+        "tests/tooling/test_lifecycle_check.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "pytest tests/tooling 归属域全绿(test_lifecycle_check 59 passed); ruff check+format 全过; lifecycle_check 0 finding",
+      "declared": "2026-09-05T04:38:14+00:00"
     }
   },
   "merge_gate": {

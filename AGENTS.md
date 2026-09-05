@@ -8,6 +8,10 @@
 - **现在的架构是什么** → [docs/current-architecture.md](docs/current-architecture.md)
   （**WHAT IS TRUE NOW**，过期即缺陷）
 - **某个决定为什么这么定** → `docs/adr/`（**WHY / HISTORY**；本文件只写结论，不写修订史）
+- **一个概念到底叫什么** → [docs/glossary.md](docs/glossary.md)
+  （**WHAT THINGS ARE CALLED**；只管名字与禁用叫法，规则在它指向的合同里）
+- **什么我们决定不做** → [docs/out-of-scope.md](docs/out-of-scope.md)
+  （**WHAT WE WON'T BUILD**；只收永久边界，论证在它指向的裁决里）
 - **什么做完了、什么还没做** → [docs/STATUS.md](docs/STATUS.md)（**生成的**，别手改）。
   文档按完成状态分区：`backlog/` 没人在做、`active/` 在办、`done/` 已完成，
   `adr/` 与 `design/` 根是没有「完成」这一维的稳定参考
@@ -427,11 +431,16 @@ The repo converges instead of accumulating forever.」）。
       **旧 ADR 永不删除**，取代关系必须**双向**：被取代方写
       `状态：Superseded by [ADR-XXXX]`，取代方写 `取代：[ADR-YYYY]`；
       部分取代写成「Accepted（决策 1/2 保留）；决策 3 被 ADR-XXXX 取代」。
+    - **索引**（[glossary.md](docs/glossary.md) · [out-of-scope.md](docs/out-of-scope.md)）：
+      当前事实，但**没有状态机** —— 一个词不再有漂移风险、一条边界被新 ADR 正式推翻，
+      就改掉或删掉那一条（可逆，按第 1 节判据直接做）。它们不记待办、不记状态
+      （[ADR-0098](docs/adr/ADR-0098-index-docs-are-not-a-second-contract.md)）。
 
 25. **默认 Agent 上下文（硬要求）。**
 
     默认只加载：`AGENTS.md` · 当前 Change 关联的 REQ（或任务卡「依据」行）·
     [当前架构合同](docs/current-architecture.md) 及它指向的相关那一份 ·
+    [术语表](docs/glossary.md) 与[范围外记录](docs/out-of-scope.md)（两份都短，是索引）·
     `docs/tasks/active/` 里**本次**这张卡 + [STATUS.md](docs/STATUS.md) ·
     影响范围内的代码与测试。
 
@@ -443,6 +452,13 @@ The repo converges instead of accumulating forever.」）。
     「现在的架构是什么」不得靠遍历全部 ADR 推导 —— 那是
     `docs/current-architecture.md` 的职责（**WHAT IS TRUE NOW**）；
     ADR 回答的是 **WHY / HISTORY**，两者不合并。
+
+    同理，「这个概念叫什么」与「什么我们决定不做」不得靠翻合同和 ADR 猜 —— 那是
+    [glossary.md](docs/glossary.md)（**WHAT THINGS ARE CALLED**）与
+    [out-of-scope.md](docs/out-of-scope.md)（**WHAT WE WON'T BUILD**）的职责。
+    两者只列名字与结论，**规则一条都不在里面**，因此**它们不是引用句柄**：
+    不存在「违反 glossary 第 N 条」这种说法，违反的永远是它指向的那份合同
+    （句柄仍只有 `CA §N` 与 `REQ-NNN 判据 M`）。它们也**不进 Review Package**。
 
 26. **一次性产物默认删除，提炼优先于保留。**
 
