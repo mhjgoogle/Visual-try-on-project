@@ -1106,7 +1106,7 @@
           "subject": "chore(auto-push): three-pane manifest writeback",
           "time": "2026-09-04T23:16:34+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/auto-push/changes/three-pane.json"
           ],
@@ -1121,7 +1121,39 @@
       "declared": "2026-09-05T00:20:25+00:00"
     },
     "TASK-127": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "0e2129b5a778f6dc3718b903d100fb8156e72fb2",
+          "subject": "feat: 他能点的 = 它能做的 —— 界面按钮也走动作表，合同证穷尽（TASK-127 · three-pane）",
+          "time": "2026-09-05T00:21:22+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/STATUS.md",
+            "docs/adr/ADR-0096-ui-and-agent-share-one-action-table.md",
+            "docs/auto-push/changes/three-pane.json",
+            "docs/design/active/product-requirement-and-ux-convergence-review.md",
+            "docs/requirements/REQ-006-agent-can-do-what-the-creator-can-do.md",
+            "docs/tasks/active/TASK-127-one-action-table.md",
+            "docs/tasks/backlog/TASK-128-episode-side-actions-into-the-table.md",
+            "docs/tasks/backlog/TASK-129-settings-structure-writes-into-the-table.md",
+            "mockups/motv-workspace/src/ui/biblews.js",
+            "mockups/motv-workspace/src/ui/briefws.js",
+            "mockups/motv-workspace/src/ui/epplanws.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/src/ui/relws.js",
+            "mockups/motv-workspace/src/ui/storyws.js",
+            "mockups/motv-workspace/src/ui/uiact.js",
+            "mockups/motv-workspace/src/ui/workspaces.js",
+            "mockups/motv-workspace/src/ui/worldws.js",
+            "mockups/motv-workspace/src/workflow/convactions.js",
+            "mockups/motv-workspace/tests/actiontags.test.mjs",
+            "mockups/motv-workspace/tests/convactions.test.mjs",
+            "tests/contract/test_surface_manifest.py"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/STATUS.md",
         "docs/adr/ADR-0096-*.md",
