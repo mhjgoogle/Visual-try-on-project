@@ -1344,6 +1344,28 @@
             "tests/tooling/test_lifecycle_check.py"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "c51656935a1dac983cd2806f5d093dd74f4b11c1",
+          "subject": "EP-001：把 stage 的两个副作用写进 auto-push SKILL.md（TASK-133 · three-pane）",
+          "time": "2026-09-05T07:25:57+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            ".claude/agent-entries.json",
+            ".claude/skills/auto-push/SKILL.md",
+            "docs/STATUS.md",
+            "docs/auto-push/changes/three-pane.json",
+            "docs/skill-evolution/backlogs/auto-push.jsonl",
+            "docs/skill-evolution/index.json",
+            "docs/skill-evolution/proposals/EP-001-stage-side-effects-are-undocumented.md",
+            "docs/tasks/active/TASK-134-import-linter-layering-contract.md",
+            "docs/tasks/backlog/TASK-134-import-linter-layering-contract.md",
+            "docs/tasks/done/TASK-133-glossary-and-out-of-scope-index.md"
+          ],
+          "scope_violation": [
+            "docs/tasks/active/TASK-134-import-linter-layering-contract.md"
+          ]
         }
       ],
       "paths": [
