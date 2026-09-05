@@ -5349,6 +5349,18 @@ const ctx = {
     if (!CONNECTED) return Promise.reject(new Error("演示模式无后端"));
     return command.ttsGenerate(PROJECT_NAME, slug, text, fitSlug);
   },
+  // 免费自动出图（TASK-139 / ADR-0100）：**不看 PAID**，因为这条路的前提就是
+  // 「不产生按次账单」。付费开关管的是「允许产生账单」，把它套在这里等于让他
+  // 为了出一张不花钱的图而把付费视频命令也一起打开（ADR-0100 决策 5）。
+  accountImage: (slug, prompt, acknowledgeUnknown) => {
+    if (!CONNECTED) return Promise.reject(new Error("演示模式无后端"));
+    return command.accountImageGenerate(
+      PROJECT_NAME,
+      slug,
+      prompt,
+      acknowledgeUnknown,
+    );
+  },
   // paid image generation (ADR-0045): PAID mode only, price already confirmed
   // by the caller's per-image dialog and echoed for the server-side check
   paidImage: (slug, prompt, confirmUsd) => {

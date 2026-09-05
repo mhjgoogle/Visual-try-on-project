@@ -257,6 +257,38 @@ export async function uploadAssetImage(project, slug, file) {
  * clean failure for a possibly-billed image. This is also why no write is ever
  * retried by the transport.
  */
+/**
+ * 免费自动出图（TASK-139 / ADR-0100）—— **没有 `confirmUsd`，而这是重点**。
+ *
+ * 这条路的前提是「不产生按次账单」，所以界面上不该出现金额确认；那句话在这条路上
+ * 是假的。后端按 `.env.local` 的 `IMAGE_PROVIDER` 决定用哪一家，默认 Pollinations
+ * （不要 key、不要账号）。
+ *
+ * 失败一律带 `side_effect`（`none` / `unknown` / `applied`，合同 §5.8 的词汇）：
+ * 只有 `none` 才是「确定什么都没发生」，调用方据此决定能不能把这次生成标成失败。
+ * `acknowledgeUnknown` 是上一次结果不确定后**由人显式给出**的再来一次许可 ——
+ * 它必须是布尔真，后端不接受真值字符串。
+ */
+export async function accountImageGenerate(project, slug, prompt, acknowledgeUnknown) {
+  const body = { project, slug, prompt };
+  if (acknowledgeUnknown === true) body.acknowledge_unknown = true;
+  try {
+    return await request("/api/agent/image-gen-account", {
+      method: "POST",
+      body,
+      timeoutMs: 0,
+    });
+  } catch (e) {
+    const err = legacyError(e, "image");
+    const se = e && e.body && e.body.error && e.body.error.side_effect;
+    err.sideEffect = se || "";
+    // 「确定没发生」才允许把这次生成记成失败。其余（可能已经消耗、或不确定）
+    // 都不许 —— 记成失败会让下一次重试看起来是干净的第一次。
+    if (se === "none") err.definitiveReject = true;
+    throw err;  // `err.category` 已由 legacyError 从后端那份错误里带出来
+  }
+}
+
 export async function paidImageGenerate(project, slug, prompt, confirmUsd) {
   try {
     return await request("/api/agent/image-gen", {

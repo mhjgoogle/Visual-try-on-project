@@ -272,3 +272,44 @@ test("the demo stub represents 「没有目标」 instead of inventing one", () 
     submitCommand({ name: "a" }).command.command_id,
   );
 });
+
+// --- 免费自动出图（TASK-139 / ADR-0100 · REQ-008 判据 2/5）-------------------
+
+test("免费出图不带金额：请求体里没有 confirm_usd", async () => {
+  const calls = stubFetch(() => jsonRes(200, { ok: true, billing: "account-quota" }));
+  const res = await command.accountImageGenerate("作品", "hero", "一只猫");
+  assert.equal(res.billing, "account-quota");
+  assert.equal(calls[0].path, "/api/agent/image-gen-account");
+  const sent = JSON.parse(calls[0].init.body);
+  // 这条路上没有金额可确认 —— 出现 confirm_usd 就说明有人把付费那条的形状抄了过来
+  assert.equal("confirm_usd" in sent, false);
+  assert.deepEqual(sent, { project: "作品", slug: "hero", prompt: "一只猫" });
+  // 同意也不能被顺手带上：不传就不该出现在报文里
+  assert.equal("acknowledge_unknown" in sent, false);
+});
+
+test("同意只在显式布尔真时才发出去", async () => {
+  let calls = stubFetch(() => jsonRes(200, { ok: true }));
+  await command.accountImageGenerate("作品", "hero", "猫", "true");
+  assert.equal("acknowledge_unknown" in JSON.parse(calls[0].init.body), false,
+    "字符串 'true' 不是同意 —— 后端也只认布尔真");
+  calls = stubFetch(() => jsonRes(200, { ok: true }));
+  await command.accountImageGenerate("作品", "hero", "猫", true);
+  assert.equal(JSON.parse(calls[0].init.body).acknowledge_unknown, true);
+});
+
+test("只有 side_effect=none 才敢标失败 —— 其余都可能已经消耗过", async () => {
+  // 合同 §5.8：把 unknown / applied 记成一次干净的失败，会让下一次重试
+  // 看起来是干净的第一次。
+  for (const [se, definitive] of [["none", true], ["unknown", false], ["applied", false]]) {
+    stubFetch(() => jsonRes(429, { error: { category: "quota_exhausted", side_effect: se, detail: "x" } }));
+    const err = await command.accountImageGenerate("作品", "hero", "猫").then(
+      () => null,
+      (e) => e,
+    );
+    assert.ok(err, `side_effect=${se} 应当抛错`);
+    assert.equal(err.sideEffect, se);
+    assert.equal(!!err.definitiveReject, definitive, `side_effect=${se}`);
+    assert.equal(err.category, "quota_exhausted", "具名类别要带到界面上");
+  }
+});

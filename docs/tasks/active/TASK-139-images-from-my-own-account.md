@@ -180,6 +180,29 @@ Gemini 免费档对出图的配额是 0（三个模型全部 429 `limit: 0`，�
 **每次请求重读**，改完保存即生效，不重启不进界面。`IMAGE_PROVIDER=` 也在同一个
 文件里 —— 换来源和换 key 是同一个动作。
 
+### 批次 B 切片 1（2026-09-05）：判据 1「一键出图」接上了
+
+按钮长在**付费那颗按钮旁边**（`workflow/nodes/assets.js` 的设定图行），而不是另起一处：
+那里已经有完整的溯源管线（`startGeneration` → `declare` → `addVersion` →
+`completeGeneration`），另起一处等于把同一件事做两遍、还多一条会漂的路。
+
+| 件 | 在哪 |
+| --- | --- |
+| `✨ 自动生成（免费）` 按钮，与 `💳` 并排 | `nodes/assets.js` —— **一眼分得开**是硬要求（ADR-0100「后果」第一条：分不开的话「这张图花没花钱」就变成猜） |
+| 客户端服务 `accountImageGenerate` | `services/command.js` —— **没有 `confirmUsd` 参数**，这条路上没有金额可确认 |
+| `ctx.accountImage` | `app.js` —— **不看 `PAID`**：付费开关管的是「允许产生账单」，套在这里等于让他为一张免费图打开付费视频命令（决策 5） |
+| 失败分类 | 只有 `side_effect === "none"` 才标 `failed`；`unknown` / `applied` 保持 `generating`（§5.8：标成失败会让下一次重试看起来是干净的第一次） |
+| 具名失败说人话 | 额度用完 / 档位未声明 / 上次结果不确定，三种各有各的下一步动作，不并成一句「生成失败」 |
+| provider 与 model 取**回执**，不在前端写死 | 写死一个名字，换来源那天它就变成假话 |
+
+验证：`node --test mockups/motv-workspace/tests/*.test.mjs` **2177 passed / 0 failed**
+（新增 3 条服务层用例：报文里没有 `confirm_usd`、同意只在**布尔真**时才发出去、
+`side_effect` 三种取值只有 `none` 才置 `definitiveReject`）· `pytest tests/contract`
+269 passed · ESM 解析用 `import()` 实核（`node --check` 按 CJS 解析，不是 ESM 的判官）。
+
+**还没做**：设置页显示「现在用的是哪一家 + 后四位」（判据 3 的界面那一半 ——
+凭据现在从 `.env.local` 走，界面缺的是**说出当前来源**，否则「我明明改了」会没处对证）。
+
 ### 还欠一条，且它欠的不是代码
 
 `REQ-008 判据 2` 两轮都判 **`NOT_EVIDENCED`**，理由两轮一致且**成立**：假 transport
