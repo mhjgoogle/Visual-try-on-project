@@ -2684,6 +2684,19 @@
             "tests/tooling/test_docs_links.py"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "e7875cb3ae6ba3d0533d8cc6b4e2c5483ebf6055",
+          "subject": "fix(tests): 不再用正则猜 CommonMark —— 行内代码跨改成照规则扫（TASK-140 · three-pane）",
+          "time": "2026-09-05T17:48:34+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/active/TASK-140-main-ci-has-been-red-for-nine-days.md",
+            "tests/tooling/test_docs_links.py"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
