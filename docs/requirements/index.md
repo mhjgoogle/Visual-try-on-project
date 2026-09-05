@@ -29,3 +29,5 @@ SUPERSEDED）与版本修订规则见
   （TASK-114 / ADR-0089 决策 7、8）
 - [REQ-007](REQ-007-say-it-and-the-right-capability-runs.md) — CONFIRMED — 他说一句话，对的那个专业能力就跑起来：前端 Agent 只认三类工作，
   选哪个专业能力由服务端确定性地决定（TASK-119 / ADR-0091）
+- [REQ-008](REQ-008-images-from-my-own-account.md) — CONFIRMED — 用他自己账号的额度自动出图，不接按次计费的 API：不出现确认金额那道闸，
+  额度用完就说用完、绝不偷偷回退到付费路（TASK-139 / ADR-0100）

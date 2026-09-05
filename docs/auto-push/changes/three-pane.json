@@ -846,6 +846,18 @@
             "mockups/motv-workspace/tests/storywork.test.mjs"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "4a80bfec49dbe52112e6a44c40b56cda14664ccc",
+          "subject": "fix: 体检的探针按类对齐事实 —— 否则它会挡住所有前端提交",
+          "time": "2026-09-05T08:48:22+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            ".claude/tools/motv_doctor.py",
+            "tests/tooling/test_motv_doctor.py"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
@@ -1688,7 +1700,7 @@
           "subject": "chore(auto-push): three-pane manifest writeback（TASK-134 三个提交补登）",
           "time": "2026-09-05T08:42:50+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/auto-push/changes/three-pane.json",
             "docs/tasks/active/TASK-087-followup-ledger.md"
@@ -1704,6 +1716,8 @@
         ".claude/hooks/gate.sh",
         ".github/workflows/ci.yml",
         "docs/STATUS.md",
+        "docs/auto-push/changes/three-pane.json",
+        "docs/tasks/active/TASK-087-followup-ledger.md",
         "docs/tasks/active/TASK-134-import-linter-layering-contract.md",
         "docs/tasks/backlog/TASK-137-review-issue-to-rework-loop.md",
         "docs/tasks/backlog/TASK-138-story-development-visual-workflow.md",
@@ -1712,8 +1726,25 @@
         "tests/tooling/test_import_contracts.py"
       ],
       "verification": "PASS",
-      "verification_ref": "全量 3922 passed/59 skipped + serial 6 + 前端 2160/0 failed + ruff 双绿 + lifecycle_check 0 finding + lint-imports 3 kept/0 broken；codex 两轮 BLOCKING 均 none，P1 与两条 NON_BLOCKING 已修并做针对性变异验证",
-      "declared": "2026-09-05T08:38:00+00:00"
+      "verification_ref": "全量 3922 passed/59 skipped + serial 6 + 前端 2160/0 failed + ruff 双绿 + lifecycle_check 0 finding + lint-imports 3 kept/0 broken；codex 两轮 BLOCKING 均 none。注：paths 含 docs/tasks/active/TASK-087-followup-ledger.md，那不是本卡的工作 —— 38b2549 提交时它躺在共享 index 里被一并带走（另一个会话新增的 6.9 条目，内容完整）。登记的是事实不是归属，已通知作者；撤销只会让当事人白做一遍",
+      "declared": "2026-09-05T08:47:18+00:00"
+    },
+    "TASK-139": {
+      "commits": [],
+      "paths": [
+        "docs/STATUS.md",
+        "docs/adr/ADR-0100-account-quota-is-not-a-paid-gate.md",
+        "docs/requirements/REQ-008-images-from-my-own-account.md",
+        "docs/requirements/index.md",
+        "docs/tasks/active/TASK-139-images-from-my-own-account.md",
+        "mockups/motv-workspace/credstore.py",
+        "mockups/motv-workspace/imagegen.py",
+        "mockups/motv-workspace/server.py",
+        "tests/studio/test_account_image_gen_task139.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "批次 A（服务端 + 适配层 + 凭据 + 测试）。验证：pytest tests/studio/test_account_image_gen_task139.py 27 passed（全部离线，假 transport）· pytest tests/studio tests/contract 885 passed / 16 skipped · ruff check + format 全绿 · lifecycle_check 0 finding · STATUS.md 已重生成。审查按 AGENTS §20 触发表要调 codex-review-loop（行为/外部边界/凭据/付费闸语义），在提交之后进行",
+      "declared": "2026-09-05T08:52:30+00:00"
     }
   },
   "merge_gate": {

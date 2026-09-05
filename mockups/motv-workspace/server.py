@@ -60,7 +60,9 @@ from urllib.parse import parse_qs, unquote, urlsplit
 # happened to import something else first.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import credstore  # noqa: E402 - same
 import flowpkg  # noqa: E402 - needs the path line above
+import imagegen  # noqa: E402 - same
 import runstore  # noqa: E402 - same
 import skillpkg  # noqa: E402 - same
 from rootadmit import RootRejected, admit_root  # noqa: E402 - same
@@ -1000,6 +1002,10 @@ _MEDIA_WRITE_ROUTES = frozenset(
         "/api/agent/tts",
         "/api/agent/compose",
         "/api/agent/image-gen",
+        # 账号额度那条路（ADR-0100）。它不过付费闸，但**照样**是一次项目媒体
+        # 写入，所以未迁移项目的那道闸门对它一视同仁 —— 闸门管的是「往哪写」，
+        # 与「谁付钱」无关。
+        "/api/agent/image-gen-account",
         "/api/agent/adopt-paid",
         "/api/agent/render-episode",
         "/api/agent/mix-shot",
@@ -1190,6 +1196,106 @@ _IMAGE_PRICE_USD = 0.0035
 _IMAGE_API = "https://api.minimax.io/v1/image_generation"
 _IMAGE_PROMPT_MAX = 1_500
 _IMAGE_LOG = DATA_DIR / "paid-image-log.jsonl"
+
+#: 账号额度那条路的台账（ADR-0100 · TASK-139）。**与付费台账分开的两个文件**，
+#: 因为它们记的是两件不同的事：付费那份记的是「花了多少钱」，这份记的是
+#: 「消耗了几次额度」。合成一份会让「这个月花了多少」这个问题答不出来。
+_ACCOUNT_IMAGE_LOG = DATA_DIR / "account-image-log.jsonl"
+
+#: 在途的账号额度出图请求，键是 (project, slug, prompt) 的指纹。
+#: 幂等的最小形态（ADR-0100 决策 2 · REQ-008 判据 5）：重复点击、断线重发落到
+#: 同一次生成上，而不是消耗第二次额度。**只在进程内**——后端重启后在途的那次
+#: 会话已经断了，这一点与 §5.8 的 `unknown` 是同一件事，不假装能跨重启去重。
+_ACCOUNT_IMAGE_INFLIGHT: set[str] = set()
+_ACCOUNT_IMAGE_LOCK = threading.Lock()
+
+#: 具名失败 → HTTP 状态码。默认 502（供应商那边的问题）。
+#: 额度耗尽给 429 而不是 502：它不是故障，是**这个账号今天到顶了**，
+#: 前端要能只凭状态码就把它和「供应商挂了」分开（ADR-0100 决策 3）。
+_ACCOUNT_IMAGE_STATUS = {
+    "quota_exhausted": 429,
+    "credential_rejected": 401,
+    "no_credential": 503,
+    "bad_request": 400,
+    "too_large": 502,
+    "network_failed": 504,
+    "provider_unavailable": 502,
+    "bad_output": 502,
+}
+
+
+class _BadImageRequest(Exception):
+    """出图请求本身不合法，带着要回给调用方的 (状态码, 报文)。
+
+    **用异常而不是「两种返回值形状」**：第一版让成功回三元组、失败回二元组，
+    调用方拿 `isinstance(x, tuple)` 分流 —— 两者都是 tuple，于是**每一条成功
+    路径都被当成错误**，`_json(*parsed)` 拿到三个参数当场炸。
+    类型分不开的东西不要靠类型分；这里判的是自己的类型。
+    """
+
+    def __init__(self, status: int, payload: dict):
+        super().__init__(payload)
+        self.status = status
+        self.payload = payload
+
+
+def _parse_image_body(body: bytes):
+    """校验出图请求的三个字段，回 `(project, slug, prompt)`；不合法则抛
+    `_BadImageRequest`。
+
+    **付费那条路（`_agent_image`）保留它自己那份拷贝，本任务不动它。**
+    统一两处是对的，但那是在一条**会花钱**的路上做纯重构，风险与本卡要交付的
+    东西无关（AGENTS.md 第 17 条）。已登记为 follow-up。
+    """
+
+    def bad(category: str, detail: str):
+        return _BadImageRequest(
+            400, {"error": {"category": category, "detail": detail}}
+        )
+
+    try:
+        payload = json.loads(body.decode("utf-8")) if body else None
+    except (ValueError, UnicodeDecodeError):
+        raise bad("bad_request", "invalid JSON") from None
+    if not isinstance(payload, dict):
+        raise bad("bad_request", "body must be object")
+    project = payload.get("project")
+    slug = payload.get("slug")
+    prompt = payload.get("prompt")
+    if not isinstance(project, str) or not isinstance(slug, str):
+        raise bad("bad_request", "invalid name")
+    if not _NAME_RE.fullmatch(slug) or _slug_reserved(slug) or _slug_versioned(slug):
+        raise bad("bad_request", "invalid name")
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise bad("bad_request", "missing 'prompt'")
+    if len(prompt) > _IMAGE_PROMPT_MAX:
+        raise bad("too_large", f"prompt too long ({_IMAGE_PROMPT_MAX})")
+    return project, slug, prompt
+
+
+def _https_post(url: str, body: bytes, headers: dict, timeout: float):
+    """真实网络那一半 —— `imagegen` 需要的 transport。
+
+    非 2xx **不抛**，原样把 (状态码, 响应体) 交回去：额度耗尽与凭据被拒都藏在
+    响应体里，把它们变成异常就等于把「今天到顶了」和「网线断了」揉成一件事。
+    """
+    import urllib.error
+    import urllib.request
+
+    req = urllib.request.Request(  # noqa: S310 - 固定的 https 常量端点
+        url, data=body, headers=dict(headers), method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+            return resp.status, resp.read(16_000_000)
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = exc.read(200_000)
+        except OSError:
+            detail = b""
+        return exc.code, detail
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+        raise imagegen.TransportFailed(str(exc)) from exc
 
 
 # `_run_claude` REMOVED (TASK-072 §1.8 / ADR-0065 决策 1).
@@ -4187,6 +4293,19 @@ class _App:
                     },
                 )
             return self._runs_get(raw_path)
+        if path == "/api/settings/credentials":
+            # 只回「设没设 + 从哪来 + 后四位」。完整 key **永不**出现在任何读接口上
+            # （ADR-0100 决策 4）—— 一个能回显 key 的设置页，等于把凭据放进每一次
+            # 截图、每一份 HAR、每一条前端日志里。
+            return _json(
+                200,
+                {
+                    "credentials": [
+                        credstore.describe(APP_DATA_DIR, name)
+                        for name in credstore.key_names()
+                    ]
+                },
+            )
         if path == "/api/skills":
             # The page cannot read a filesystem, so the backend is the loader
             # and this is the ONLY way the catalog reaches the browser
@@ -4437,6 +4556,10 @@ class _App:
             return self._delivery_probe(body)
         if path == "/api/agent/image-gen":
             return self._agent_image(body)
+        if path == "/api/agent/image-gen-account":
+            return self._agent_image_account(body)
+        if path == "/api/settings/credentials":
+            return self._set_credential(body)
         if path == "/api/agent/adopt-paid":
             return self._agent_adopt_paid(body)
         if path == "/api/projects":
@@ -11153,6 +11276,200 @@ class _App:
         if log_warning:
             result["warning"] = log_warning
         return _json(200, result)
+
+    def _agent_image_account(self, body: bytes):
+        """用创作者**自己账号的额度**出一张图（ADR-0100 · REQ-008 · TASK-139）。
+
+        与上面那条付费路的区别只有一句话：**这一次调用不产生按次账单**，
+        所以它不过付费闸 —— 没有 `--enable-paid`、没有 `confirm_usd`、
+        没有价格回显（ADR-0100 决策 1/5）。
+
+        其余一律不放松：写的仍是草稿域同一个槽位、仍然版本化 append、
+        仍然按 §5.8 的白名单判 `sideEffect`、额度耗尽是**具名**结果且
+        **禁止**回退到付费路（决策 3）。
+        """
+        if len(body) > 100_000:
+            return _json(
+                413,
+                {"error": {"category": "too_large", "detail": "request too large"}},
+            )
+        try:
+            project, slug, prompt = _parse_image_body(body)
+        except _BadImageRequest as bad:
+            return _json(bad.status, bad.payload)
+        d = self._upload_dir(project)
+        if d is None:
+            return _json(
+                400, {"error": {"category": "bad_request", "detail": "invalid name"}}
+            )
+
+        api_key, source = credstore.resolve(APP_DATA_DIR, "gemini")
+        if not api_key:
+            # 说清楚**去哪儿设**，而不是只说没有。这条路存在的全部意义就是他
+            # 不用离开界面去配环境变量（ADR-0100 决策 4）。
+            return _json(
+                503,
+                {
+                    "error": {
+                        "category": "no_credential",
+                        "detail": "还没有设置 Gemini 账号 key —— 在设置里粘一次即可",
+                    }
+                },
+            )
+
+        # 幂等：同一个意图在途就不再发第二次（REQ-008 判据 5）。
+        fp = hashlib.sha256(
+            "\x00".join([project, slug, prompt]).encode("utf-8")
+        ).hexdigest()
+        with _ACCOUNT_IMAGE_LOCK:
+            if fp in _ACCOUNT_IMAGE_INFLIGHT:
+                return _json(
+                    409,
+                    {
+                        "error": {
+                            "category": "in_flight",
+                            "detail": "同一张图正在生成中 —— 等它出来，别再点一次",
+                        }
+                    },
+                )
+            _ACCOUNT_IMAGE_INFLIGHT.add(fp)
+        try:
+            result = imagegen.generate_image(
+                prompt, api_key=api_key, transport=_https_post
+            )
+        except imagegen.ImageFailure as exc:
+            return _json(
+                _ACCOUNT_IMAGE_STATUS.get(exc.category, 502),
+                {
+                    "error": {
+                        "category": exc.category,
+                        "detail": exc.detail,
+                        # 副作用如实告诉前端：`unknown` 时它必须显示「可能已经消耗
+                        # 了一次额度」并且**不自动重试**（§5.8 第 1 条）。
+                        "side_effect": exc.side_effect,
+                    }
+                },
+            )
+        finally:
+            with _ACCOUNT_IMAGE_LOCK:
+                _ACCOUNT_IMAGE_INFLIGHT.discard(fp)
+
+        img = result.data
+        # 供应商说它是什么**不算数**，字节说了算：magic 校验与手工上传同一条。
+        ext = next(
+            (e for e in (".png", ".jpg", ".webp") if _media_magic_ok(e, img)), None
+        )
+        if ext is None:
+            return _json(
+                502,
+                {
+                    "error": {
+                        "category": "image_bad_output",
+                        "detail": "拿回来的字节不是图片",
+                        "side_effect": "applied",
+                    }
+                },
+            )
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            # ADR-0048：重出一版是 **append**，旧的一版不动。
+            n, target = _claim_version(d, slug, ext)
+            fd, tmpname = tempfile.mkstemp(dir=str(d), suffix=".tmp")
+            try:
+                with os.fdopen(fd, "wb") as fh:
+                    fh.write(img)
+                os.replace(tmpname, target)
+            except OSError:
+                for stale in (tmpname, str(target)):
+                    try:
+                        os.unlink(stale)
+                    except OSError:
+                        pass
+                raise
+        except OSError:
+            return _json(
+                500, {"error": {"category": "write_failed", "detail": "could not save"}}
+            )
+
+        # 额度台账。与付费台账**分开**，记的是「消耗了一次额度」而不是金额；
+        # 写失败同样只降级成警告 —— 额度已经消耗、图已经存下，为一行日志 500
+        # 会让他重试，而重试就是第二次消耗。
+        log_warning = None
+        try:
+            with _ACCOUNT_IMAGE_LOG.open("a", encoding="utf-8") as fh:
+                fh.write(
+                    json.dumps(
+                        {
+                            "at": datetime.now(timezone.utc).isoformat(),
+                            "project": project,
+                            "slug": slug,
+                            "model": result.model,
+                            "credential_source": source,
+                            "prompt": prompt[:120],
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
+        except OSError:
+            log_warning = "额度台账没写进去（图已存下，额度已消耗）"
+        payload = {
+            "ok": True,
+            "url": f"/api/uploads/{project}/{target.name}",
+            "version": n,
+            "sha256": hashlib.sha256(img).hexdigest(),
+            # **没有 `usd` 字段**，而且这是有意的：这条路上没有金额可报，
+            # 补一个 0 会让界面上出现一句「本次 $0.00」——那是在回答一个
+            # 不存在的问题（ADR-0064 决策 6：不知道就说不知道，不补 0）。
+            "billing": "account-quota",
+            "model": result.model,
+            "credential_source": source,
+        }
+        if log_warning:
+            payload["warning"] = log_warning
+        return _json(200, payload)
+
+    def _set_credential(self, body: bytes):
+        """粘一次 key（或清掉）。`POST {name, key}`；`key` 为空串即清除。"""
+        if len(body) > 10_000:
+            return _json(
+                413, {"error": {"category": "too_large", "detail": "request too large"}}
+            )
+        try:
+            payload = json.loads(body.decode("utf-8")) if body else {}
+        except (ValueError, UnicodeDecodeError):
+            return _json(
+                400, {"error": {"category": "bad_json", "detail": "body 不是合法 JSON"}}
+            )
+        if not isinstance(payload, dict):
+            return _json(
+                400,
+                {"error": {"category": "bad_request", "detail": "body must be object"}},
+            )
+        name = payload.get("name") or "gemini"
+        if name not in credstore.key_names():
+            return _json(
+                404,
+                {"error": {"category": "not_found", "detail": f"未知凭据 {name!r}"}},
+            )
+        key = payload.get("key")
+        try:
+            if isinstance(key, str) and not key.strip():
+                cleared = credstore.clear(APP_DATA_DIR, name)
+                return _json(200, {"ok": True, "credential": cleared})
+            if not isinstance(key, str):
+                return _json(
+                    400,
+                    {"error": {"category": "bad_request", "detail": "缺 'key'"}},
+                )
+            stored = credstore.store(APP_DATA_DIR, key, name)
+            return _json(200, {"ok": True, "credential": stored})
+        except credstore.CredentialError as exc:
+            # 形状不对是**他**能修的问题，所以原话回给他（这里没有 key 本身，
+            # `CredentialError` 的消息永远只描述形状，不回显内容）。
+            return _json(
+                400, {"error": {"category": "bad_credential", "detail": str(exc)}}
+            )
 
     # -- project media (ADR-0053: <ProjectRoot>/media/) ---------------------
     # EVERY write path — manual upload, TTS, image generation, paid adoption,
