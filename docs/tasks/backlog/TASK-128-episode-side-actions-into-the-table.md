@@ -3,7 +3,7 @@
 - 状态：**盘点完成，接线未开工，等一条 ADR**（2026-09-05）。没有 Agent 在做，所以回到
   `backlog/`。IN SCOPE 第 1 条（盘点剧集侧写入口）已完成、结论在文末；第 2–4 条
   **卡在一个本卡 OUT OF SCOPE 的架构问题上** —— 直接接线会默认绕过 `allowedAt`
-  这道自动化闸，见文末第 2 节。与 [TASK-129](TASK-129-settings-structure-writes-into-the-table.md) 同批
+  这道自动化闸，见文末第 2 节。与 [TASK-129](../done/TASK-129-settings-structure-writes-into-the-table.md) 同批（TASK-129 已于 2026-09-05 闭合，剩下的第三块就是本卡）
 - Workflow：Refactor（不改有效产品行为）· 深度：DEEP（跨 `ctx.actions.dispatch` envelope 与 `convactions`）
 - 关联 Requirement：[REQ-006](../../requirements/REQ-006-agent-can-do-what-the-creator-can-do.md)
   判据 1 —— **剧集制作侧**那一半。故事开发侧（四页 + 创意简报 / 大纲 / 人物 / 场景地 /

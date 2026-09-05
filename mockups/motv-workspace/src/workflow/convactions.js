@@ -34,6 +34,10 @@ const LONG_TEXT = 200000;
 /** 一条动作。`args` 是**白名单**：模型报上来的其它键一律不落进文档。 */
 import * as swork from "./storywork.js";
 import * as bwork from "./blocking.js";
+// 「加一张次要参考图不顶掉当前主图」那条纯决策。它住在 workflow 层，所以这里
+// 拿得到 —— 它原先在 `ui/workspaces.js`，那时候动作表要用它就得反向 import ui
+// （撞 CA §2），于是状态级参考图那四个入口一直进不了表（TASK-129 切片 2e）。
+import { nextStateRefsOnAdd } from "./bibledoc.js";
 
 /** 那一镜的白膜。**与他在俯视图里拖的是同一份数据**（ADR-0094 决策 5）。 */
 function blockingOf(ctx, shotId) {
@@ -148,6 +152,22 @@ function stateActions(kind, spec) {
   const findOwner = (ctx, who) => mustFind(ctx, listKey, who, label);
   const findState = (owner, sid, where = "states") =>
     (owner[where] || []).find((s) => s.stateId === sid || s.name === sid) || null;
+  /** 解析「哪个实体的哪个状态」—— 四条参考图动作都要它，抽出来免得写四遍。 */
+  const mustState = (ctx, sp, a) => {
+    const owner = mustFind(ctx, sp.listKey, a.name, sp.label);
+    const st = findState(owner, String(a.state || ""));
+    if (!st) throw new Error(`「${owner.name}」没有状态「${a.state}」`);
+    return { owner, st };
+  };
+  /** 整份写回 overrides。写路径只有这一条 —— 四个入口各自拼一次 `ctx.bible.*`
+   *  的话，哪天签名变了就会漏改其中一两个。 */
+  const writeOverrides = (ctx, k, owner, sp, st, next) => {
+    const fn = `set${k[0].toUpperCase() + k.slice(1)}StateOverrides`;
+    if (!ctx.bible || !ctx.bible[fn]) throw new Error(`这个项目改不了${sp.label}状态`);
+    if (!ctx.bible[fn](owner[sp.idKey], st.stateId, next)) {
+      throw new Error(`改不了「${owner.name}」状态「${st.name}」的参考图`);
+    }
+  };
   const cap = (s) => s[0].toUpperCase() + s.slice(1);
   // `ctx.bible` 上的方法名是 addCharacterState / addLocationState 这种拼法
   const m = (verb) => `${verb}${cap(kind)}State`;
@@ -215,6 +235,84 @@ function stateActions(kind, spec) {
           throw new Error(`拿不回状态「${st.name}」`);
         }
         return { said: `「${owner.name}」的状态「${st.name}」回来了` };
+      },
+    },
+    // --- 状态级参考图（TASK-129 切片 2e） ------------------------------- //
+    //
+    // 这四条写的都是同一个 `overrides` 对象，只是算法不同。**整份替换**是它们的
+    // 本性（不像字段那样按栏合并）—— 所以每一条都得自己先读出当前 overrides、
+    // 算出下一份，再整份写回去。
+    {
+      id: `${kind}.state.reference.add`,
+      label: `给${label}的某个状态挂一张参考图`,
+      doc: "bible",
+      undo: `${kind}.state.reference.remove`,
+      args: { name: `${label}名字或 id`, state: "状态名或 id", assetId: "资产 id" },
+      apply: (ctx, a) => {
+        const { owner, st } = mustState(ctx, spec, a);
+        const assetId = String(a.assetId || "").trim();
+        if (!assetId) throw new Error("没说挂哪张图");
+        // **加次要图不顶掉当前主图** —— 那条决策住在 bibledoc，两边共用一份
+        const next = nextStateRefsOnAdd(owner, st.overrides || {}, assetId);
+        if (!next) throw new Error("这个状态上已经有这张图了");
+        writeOverrides(ctx, kind, owner, spec, st, next);
+        return { said: `「${owner.name}」的状态「${st.name}」挂上了一张参考图` };
+      },
+    },
+    {
+      id: `${kind}.state.reference.remove`,
+      label: `把${label}某个状态上的参考图摘下来`,
+      doc: "bible",
+      undo: `${kind}.state.reference.add`,
+      args: { name: `${label}名字或 id`, state: "状态名或 id", assetId: "资产 id" },
+      apply: (ctx, a) => {
+        const { owner, st } = mustState(ctx, spec, a);
+        const assetId = String(a.assetId || "");
+        const ov = st.overrides || {};
+        const cur = Array.isArray(ov.referenceAssetIds) ? ov.referenceAssetIds : null;
+        if (!cur || !cur.includes(assetId)) throw new Error("这个状态上没有这张图");
+        const refs = cur.filter((x) => x !== assetId);
+        const next = { ...ov, referenceAssetIds: refs };
+        // 摘掉的正好是主图时，主图位让给下一张；一张不剩就是「没有主图」
+        if (next.activeReferenceAssetId === assetId) next.activeReferenceAssetId = refs[0] ?? null;
+        writeOverrides(ctx, kind, owner, spec, st, next);
+        return { said: `从「${owner.name}」的状态「${st.name}」摘下了一张参考图` };
+      },
+    },
+    {
+      id: `${kind}.state.reference.reset`,
+      label: `让${label}的某个状态改回继承基础参考图`,
+      doc: "bible",
+      undo: "重新挂上那几张就是了（覆盖一旦撤掉，原来挂了哪几张就不记得了）",
+      args: { name: `${label}名字或 id`, state: "状态名或 id" },
+      apply: (ctx, a) => {
+        const { owner, st } = mustState(ctx, spec, a);
+        const ov = st.overrides || {};
+        if (!("referenceAssetIds" in ov)) throw new Error("这个状态本来就在继承基础参考图");
+        // 两个键一起删 —— 只删清单留下主图指针，会得到一个指着不存在清单的主图
+        const next = { ...ov };
+        delete next.referenceAssetIds;
+        delete next.activeReferenceAssetId;
+        writeOverrides(ctx, kind, owner, spec, st, next);
+        return { said: `「${owner.name}」的状态「${st.name}」改回继承基础参考图` };
+      },
+    },
+    {
+      id: `${kind}.state.reference.setActive`,
+      label: `把${label}某个状态的主图换成这一张`,
+      doc: "bible",
+      undo: "设回原来那张（只动指针，一张图都没有增删）",
+      args: { name: `${label}名字或 id`, state: "状态名或 id", assetId: "资产 id" },
+      apply: (ctx, a) => {
+        const { owner, st } = mustState(ctx, spec, a);
+        const assetId = String(a.assetId || "");
+        const ov = st.overrides || {};
+        const cur = Array.isArray(ov.referenceAssetIds) ? ov.referenceAssetIds : [];
+        // 只能在**这个状态自己挂着的**那几张里选：指向一张它没挂的图，
+        // 等于一个指不到东西的主图指针
+        if (!cur.includes(assetId)) throw new Error("这个状态上没有挂这张图，设不了主图");
+        writeOverrides(ctx, kind, owner, spec, st, { ...ov, activeReferenceAssetId: assetId });
+        return { said: `「${owner.name}」的状态「${st.name}」换了主图` };
       },
     },
     {

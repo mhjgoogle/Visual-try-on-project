@@ -665,6 +665,37 @@ export function undeleteReferenceAsset(prod, entityId, assetId) {
   return true;
 }
 
+/**
+ * 给一个**状态**加一张参考图之后，它的 overrides 该变成什么样（纯决策）。
+ *
+ * 状态的参考图是对基础档案那份清单的**覆盖**：没写 `referenceAssetIds` 时它继承
+ * 基础的那份，一写就整份接管。
+ *
+ * 规矩只有一条：**加一张次要参考图，永远不顶掉当前生效的主图。**
+ * 「生效的主图」= 状态自己写了就用它，没写就继承基础档案的。只有当生效的那张
+ * 已经不在新清单里（第一次加状态专属图、显式设成「没有主图」、或者原主图被摘掉）
+ * 时，新加的这张才顺位成为主图。
+ *
+ * 重复添加返回 `null`（是空操作，不是失败）。
+ *
+ * **为什么住在这一层**（TASK-129 切片 2e）：它是一条决策，不是渲染。原先它住在
+ * `ui/workspaces.js`，于是动作表要用它就得 `workflow/` 反向 import `ui/` —— 撞
+ * CA §2 的依赖方向。结果是状态级参考图那四个入口一直进不了动作表，棘轮上挂着
+ * `setCharacterStateOverrides` / `setLocationStateOverrides` 两个名字下不来。
+ * 搬过来之后两边都对：UI 只管接线，动作表拿得到同一条决策。
+ */
+export function nextStateRefsOnAdd(entity, overrides, assetId) {
+  const cur = Array.isArray(overrides.referenceAssetIds) ? overrides.referenceAssetIds : [];
+  if (cur.includes(assetId)) return null;
+  const refs = [...cur, assetId];
+  const next = { ...overrides, referenceAssetIds: refs };
+  const effective = "activeReferenceAssetId" in overrides
+    ? overrides.activeReferenceAssetId
+    : entity.activeReferenceAssetId; // 继承来的基础主图
+  if (!(effective != null && refs.includes(effective))) next.activeReferenceAssetId = assetId;
+  return next;
+}
+
 export function setActiveReferenceAsset(prod, entityId, assetId) {
   const e = entityOf(prod, entityId);
   if (!e) return false;

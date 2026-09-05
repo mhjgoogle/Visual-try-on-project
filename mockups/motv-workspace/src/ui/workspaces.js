@@ -916,25 +916,10 @@ function binRow(ctx, key, idKey, attr, label) {
   );
 }
 
-/** Pure: the state's next override pair after ADDING a state-specific
- *  reference. The state's EFFECTIVE primary (its own override key, else the
- *  inherited base active) is never displaced while it remains a member of the
- *  new list — adding a secondary reference must not silently change the
- *  primary. Only when nothing effective remains (first state-specific ref,
- *  explicit none, or the old primary left the list) does the added reference
- *  become primary. Returns null for a duplicate add (no-op). Exported for
- *  node --test. */
-export function nextStateRefsOnAdd(entity, overrides, assetId) {
-  const cur = Array.isArray(overrides.referenceAssetIds) ? overrides.referenceAssetIds : [];
-  if (cur.includes(assetId)) return null;
-  const refs = [...cur, assetId];
-  const next = { ...overrides, referenceAssetIds: refs };
-  const effective = "activeReferenceAssetId" in overrides
-    ? overrides.activeReferenceAssetId
-    : entity.activeReferenceAssetId; // inherited base primary
-  if (!(effective != null && refs.includes(effective))) next.activeReferenceAssetId = assetId;
-  return next;
-}
+// `nextStateRefsOnAdd` 搬到 `workflow/bibledoc.js` 了（TASK-129 切片 2e）。
+// 它是一条**纯决策**（「加一张次要参考图永远不顶掉当前主图」），而这一层是
+// 渲染与接线。留在这里的直接后果是：动作表要用它就得 `workflow` 反向 import
+// `ui/`，撞 CA §2 的依赖方向 —— 于是状态级参考图那四个入口一直进不了表。
 
 /** Wire the 作品设定 workspace to the bible controller. Per-field override
  *  edits MERGE into the state's existing overrides; clearing a field removes
@@ -1061,28 +1046,7 @@ export function bindSettings(root, ctx, ui = {}) {
   // voiceDescription 落在嵌套 voice.description 上」的算法搬进了
   // `character.state.fields` / `location.state.fields`。留一份没人调的副本，
   // 只会等到某天有人改了动作里那份、忘了这份。
-  //
-  // ids are carried in SEPARATE data attributes (data-sid/data-eid) — never
-  // packed into one value that a delimiter split could mis-parse
-  const entityRec = (kind, eid) => {
-    const doc = prod();
-    return kind === "c"
-      ? doc.characters.find((x) => x.characterId === eid)
-      : doc.locations.find((x) => x.locationId === eid);
-  };
-  const stateOv = (kind, eid, sid) => {
-    const e = entityRec(kind, eid);
-    const s = e && e.states.find((x) => x.stateId === sid);
-    return s ? s.overrides : null;
-  };
-  // 状态级参考图那四个入口还在用它（见文件末尾那一段）：它们自己算出一份完整的
-  // overrides 再整份写下去，和「按栏合并」不是一回事。要把它们也接进表，得先把
-  // `nextStateRefsOnAdd` 搬进 workflow 层 —— 否则 workflow 会反向 import ui（CA §2）。
-  // 那是跨层搬迁，单独一片做，棘轮里因此还钉着这两个名字。
-  const setOv = (kind, eid, sid, ov) =>
-    kind === "c"
-      ? ctx.bible.setCharacterStateOverrides(eid, sid, ov)
-      : ctx.bible.setLocationStateOverrides(eid, sid, ov);
+
   // 覆盖也走动作表（TASK-129 切片 2d）。**合并语义搬进了动作**：只带来的那一栏
   // 落进去、空值 = 回到继承、`voiceDescription` 落在嵌套的 `voice.description` 上。
   // 界面这边因此不再自己算 merge —— 那份算法有两处陈述时，迟早只改一处。
@@ -1106,44 +1070,40 @@ export function bindSettings(root, ctx, ui = {}) {
       );
     });
   });
-  // --- state-level reference images (override list on the state itself) --- //
+  // --- 状态级参考图：也走动作表（TASK-129 切片 2e） ---------------------- //
+  //
+  // 这四条以前在这里自己算出整份 overrides 再 `setCharacterStateOverrides` 写
+  // 下去 —— 那份算法（尤其「加次要图不顶掉当前主图」）因此只有界面走得到，
+  // Agent 走不到。现在算法住在 `workflow/bibledoc.js`，动作表和界面共用一份。
+  //
+  // 每个入口写**两条字面量 id**，不用 `${prefix}.state.reference.add` 拼：
+  // 合同测试靠「界面源码里出现过这个 id」来证明「他能点的 = 它能做的」的反方向
+  // （ADR-0096），模板拼出来的 id 它扫不到 —— 而扫不到的后果是**漏**，不是吵。
   on("[data-b-ovrefactive]", (el) => {
     const { kind, eid, sid, aid } = el.dataset;
-    const o = stateOv(kind, eid, sid);
-    if (o && Array.isArray(o.referenceAssetIds) && o.referenceAssetIds.includes(aid)) {
-      setOv(kind, eid, sid, { ...o, activeReferenceAssetId: aid });
-    }
+    const args = { name: eid, state: sid, assetId: aid };
+    if (kind === "c") uiAct(ctx, "character.state.reference.setActive", args);
+    else uiAct(ctx, "location.state.reference.setActive", args);
   });
   on("[data-b-ovrefdel]", (el) => {
     const { kind, eid, sid, aid } = el.dataset;
-    const o = stateOv(kind, eid, sid);
-    if (!o || !Array.isArray(o.referenceAssetIds)) return;
-    const refs = o.referenceAssetIds.filter((x) => x !== aid);
-    const next = { ...o, referenceAssetIds: refs };
-    if (next.activeReferenceAssetId === aid) next.activeReferenceAssetId = refs[0] ?? null;
-    setOv(kind, eid, sid, next);
+    const args = { name: eid, state: sid, assetId: aid };
+    if (kind === "c") uiAct(ctx, "character.state.reference.remove", args);
+    else uiAct(ctx, "location.state.reference.remove", args);
   });
   on("[data-b-ovrefreset]", (el) => {
-    // back to INHERITING the base list: remove both override keys
     const { kind, eid, sid } = el.dataset;
-    const o = stateOv(kind, eid, sid);
-    if (!o) return;
-    const next = { ...o };
-    delete next.referenceAssetIds;
-    delete next.activeReferenceAssetId;
-    setOv(kind, eid, sid, next);
+    const args = { name: eid, state: sid };
+    if (kind === "c") uiAct(ctx, "character.state.reference.reset", args);
+    else uiAct(ctx, "location.state.reference.reset", args);
   });
   root.querySelectorAll("[data-b-ovrefadd]").forEach((sel) => {
     sel.onchange = () => {
       if (!sel.value) return;
       const { kind, eid, sid } = sel.dataset;
-      const e = entityRec(kind, eid);
-      const o = stateOv(kind, eid, sid);
-      if (!e || !o) return;
-      // an effective (possibly inherited) primary is never displaced by
-      // adding a secondary reference — pure decision, unit-tested
-      const next = nextStateRefsOnAdd(e, o, sel.value);
-      if (next) setOv(kind, eid, sid, next);
+      const args = { name: eid, state: sid, assetId: sel.value };
+      if (kind === "c") uiAct(ctx, "character.state.reference.add", args);
+      else uiAct(ctx, "location.state.reference.add", args);
     };
   });
   restoreFieldFocus(root, ui);
