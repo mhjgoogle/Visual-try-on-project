@@ -257,6 +257,85 @@ export function startPicking(doc, handlers = {}) {
   return stop;
 }
 
+/**
+ * 回看一条旧意见时，把它指的那个元素找回来（TASK-132 切片 B）。
+ *
+ * **这个函数存在的全部意义是：它敢说「找不到」。**
+ *
+ * 一条意见可能是三天前记的，中间页面改过、列表重排过、分集切过。最省事的写法是
+ * 「按 selector 查，取第一个」——它永远能给出一个元素，于是永远「定位成功」，
+ * 而其中一部分指向的是**别的东西**。引用错行比引用断裂更难发现：断裂他看得见，
+ * 错行他看不见（卡上原话，也是本仓库在大纲节点上真栽过的那一跤）。
+ *
+ * 判词四种，调用方必须分开处置：
+ *
+ * | 判词 | 意思 | 界面该说什么 |
+ * | --- | --- | --- |
+ * | `found` | **恰好一个** | 高亮它 |
+ * | `ambiguous` | 匹配到多个 | 「这一页上有 N 个一样的，认不准是哪个」——**不挑第一个** |
+ * | `gone` | 一个都没有 | 「页面已变化，原位置暂时无法定位」，原文与证据照旧留着 |
+ * | `elsewhere` | 他现在不在那一页 | 「这条说的是〈某页〉」，给一条过去的路 |
+ *
+ * 优先级：**句柄 + 实体身份**（跨重渲染稳定）→ 用 selector **收窄**多匹配。
+ * selector 只做收窄，**不做兜底**：句柄一个都没匹配上时不许改用 selector 去找 ——
+ * 那时候页面已经变了，一个仍然匹配的 CSS 路径多半指着另一个东西，而那正是
+ * 「冒充准确」。
+ *
+ * `queryAll` 注入进来（`(sel) => Element[]`），所以这一段也是可测的纯逻辑。
+ */
+export function locateTarget(target, where, current, queryAll) {
+  const t = target || {};
+  const w = where || {};
+  const cur = current || {};
+  // 先问「他还在不在那一页」—— 不在的话后面查到什么都不作数
+  if (w.module && cur.module && w.module !== cur.module) {
+    return { status: "elsewhere", page: w.page || w.moduleLabel || w.module, route: w.route || "" };
+  }
+  const handle = String(t.uiId || "");
+  if (!handle) {
+    // 连句柄都没有的老意见（或点在一个谁都没标记的地方）——**不拿 selector 冒充**
+    return { status: "gone", why: "这条意见没有稳定的元素标记，只能靠页面线索找" };
+  }
+  let hits = queryAll(`[data-${handle}]`) || [];
+  // 实体身份收窄：同一个「生成」按钮每一行都有，`shotId` 才分得出是哪一行
+  for (const key of ["shotId", "episodeId"]) {
+    if (!t[key] || hits.length <= 1) continue;
+    const narrowed = hits.filter((el) => nearestData(el, key) === t[key]);
+    if (narrowed.length) hits = narrowed;
+  }
+  if (hits.length === 1) return { status: "found", el: hits[0] };
+  if (hits.length === 0) {
+    return {
+      status: "gone",
+      why: `页面上已经没有 ${handle} 这个元素了`,
+      clue: t.selector || "",
+    };
+  }
+  // 还是多个 —— 拿 selector **收窄**（不是兜底）
+  if (t.selector) {
+    const narrowed = hits.filter((el) => cssPathOf(el) === t.selector);
+    if (narrowed.length === 1) return { status: "found", el: narrowed[0] };
+  }
+  return {
+    status: "ambiguous",
+    count: hits.length,
+    why: `这一页上有 ${hits.length} 个 ${handle}，认不准他当时指的是哪一个`,
+  };
+}
+
+/** 定位结果给他看的那句话。**每一种都说得出下一步**，不只说「失败」。 */
+export function locateMessage(res) {
+  if (!res) return "";
+  if (res.status === "found") return "";
+  if (res.status === "elsewhere") {
+    return `这条说的是「${res.page}」那一页 —— 先切过去再定位`;
+  }
+  if (res.status === "ambiguous") {
+    return `${res.why} —— 原文和证据都还在，只是这一次不敢替你指`;
+  }
+  return `页面已变化，原位置暂时无法定位${res.clue ? `（当时的线索：${res.clue}）` : ""}`;
+}
+
 /** 引用条上显示的那一行：`分镜设计 › 镜头列表 › 生成`。
  *
  *  没有 label 时退到 uiId、再退到 selector —— **每一级都比「未知元素」有用**，

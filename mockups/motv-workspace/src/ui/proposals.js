@@ -74,9 +74,19 @@ export function renderOpinions(opinions) {
   if (!rows.length) return "";
   const item = (x) => (
     `<li class="pp-op"><span class="chip ${x.status === "done" ? "ok" : "mute"}">` +
+    // 「已处理」只代表**台账上标了**，不代表源码已经改了（TASK-132 切片 B）。
+    // 这里刻意不引入第二套状态：真正的「已修改」要关联实现与验证证据，
+    // 而那是提案回路的事，不是这一行 chip 能承担的。
     `${x.status === "done" ? "已处理" : "待处理"}</span>` +
     `<span class="pp-t">${esc(String(x.text || "").slice(0, 120))}</span>` +
     (x.page ? `<span class="meta">${esc(String(x.page))}</span>` : "") +
+    // 点中过某个元素的那些意见，给一条回去看的路（TASK-132 切片 B）。
+    // 定位不保证成功 —— 找不到 / 认不准时说实话，见 `locateMessage`。
+    (x.targetLabel
+      ? `<button class="btn ghost sm" data-op-locate="${esc(String(x.id))}" ` +
+        `title="回到他当时点的那个元素">◎ ${esc(x.targetLabel)}</button>`
+      : "") +
+    (x.locateNote ? `<span class="meta pp-opnote">${esc(x.locateNote)}</span>` : "") +
     `</li>`
   );
   const open = rows.filter((x) => x.status !== "done").length;

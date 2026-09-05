@@ -20,6 +20,8 @@ import {
   breadcrumbOf,
   startPicking,
   handleOf,
+  locateTarget,
+  locateMessage,
 } from "../src/ui/elementfeedback.js";
 
 /** 一个够用的假元素。`el()` 从上往下建，自动接好 parentElement。 */
@@ -318,4 +320,97 @@ test("component 也从祖先上取 —— 区块名通常打在容器上，不�
   const btn = el("button", { data: { sbGenerate: "1" }, text: "生成" });
   btn.parentElement = panel;
   assert.equal(snapshotOf(btn).component, "镜头列表");
+});
+
+/* --- 回看定位：它的价值在于**敢说找不到**（TASK-132 切片 B） -------------- */
+
+const W = { module: "storyboard", moduleLabel: "分镜设计", page: "剧集制作 · 分镜设计" };
+const HERE = { module: "storyboard" };
+
+test("恰好一个匹配 → found", () => {
+  const btn = el("button", { data: { sbGenerate: "1" } });
+  const res = locateTarget({ uiId: "sb-generate" }, W, HERE, () => [btn]);
+  assert.equal(res.status, "found");
+  assert.equal(res.el, btn);
+  assert.equal(locateMessage(res), "", "找到了就别多话");
+});
+
+test("多个匹配 → ambiguous，**不挑第一个冒充准确**", () => {
+  // 最省事的写法是「取第一个」——它永远能给出一个元素，于是永远「定位成功」，
+  // 而其中一部分指着别的东西。引用错行比引用断裂更难发现。
+  const a = el("button", { data: { sbGenerate: "1" } });
+  const b = el("button", { data: { sbGenerate: "1" } });
+  const res = locateTarget({ uiId: "sb-generate" }, W, HERE, () => [a, b]);
+  assert.equal(res.status, "ambiguous");
+  assert.equal(res.count, 2);
+  assert.ok(!("el" in res), "ambiguous 时不许附带一个元素让调用方顺手用了");
+  assert.match(locateMessage(res), /认不准/);
+});
+
+test("实体身份把同名按钮收窄到一行", () => {
+  // 「生成」按钮每一行都有，`shotId` 才分得出是哪一行。
+  const row1 = el("div", { data: { shotId: "shot-1" } });
+  const b1 = el("button", { data: { sbGenerate: "1" } });
+  b1.parentElement = row1;
+  const row2 = el("div", { data: { shotId: "shot-2" } });
+  const b2 = el("button", { data: { sbGenerate: "1" } });
+  b2.parentElement = row2;
+
+  const res = locateTarget({ uiId: "sb-generate", shotId: "shot-2" }, W, HERE, () => [b1, b2]);
+  assert.equal(res.status, "found");
+  assert.equal(res.el, b2);
+});
+
+test("句柄一个都没匹配上 → gone，**不改用 selector 兜底**", () => {
+  // 页面已经变了，一个仍然匹配的 CSS 路径多半指着另一个东西 —— 那正是冒充准确。
+  const stray = el("button", { cls: "primary" });
+  const res = locateTarget(
+    { uiId: "sb-generate", selector: "div > button.primary" },
+    W,
+    HERE,
+    (sel) => (sel.startsWith("[data-") ? [] : [stray]),
+  );
+  assert.equal(res.status, "gone");
+  assert.ok(!("el" in res));
+  assert.match(locateMessage(res), /页面已变化/);
+  assert.match(locateMessage(res), /div > button\.primary/, "当时的线索要留给人看");
+});
+
+test("selector 只用来**收窄**多匹配，不用来兜底", () => {
+  const wrap = el("div", { cls: "shot-row" });
+  const want = el("button", { data: { sbGenerate: "1" }, cls: "primary" });
+  want.parentElement = wrap;
+  const other = el("button", { data: { sbGenerate: "1" }, cls: "ghost" });
+  const res = locateTarget(
+    { uiId: "sb-generate", selector: "div.shot-row > button.primary" },
+    W,
+    HERE,
+    () => [other, want],
+  );
+  assert.equal(res.status, "found");
+  assert.equal(res.el, want, "收窄到了对的那个，而不是列表里的第一个");
+});
+
+test("他不在那一页 → elsewhere，说得出该切到哪", () => {
+  const res = locateTarget({ uiId: "sb-generate" }, W, { module: "settings" }, () => []);
+  assert.equal(res.status, "elsewhere");
+  assert.match(locateMessage(res), /剧集制作 · 分镜设计/);
+});
+
+test("没有句柄的老意见 → gone，而不是拿 selector 猜", () => {
+  const res = locateTarget({ selector: "div > button" }, W, HERE, () => [el("button", {})]);
+  assert.equal(res.status, "gone");
+  assert.match(res.why, /没有稳定的元素标记/);
+});
+
+test("每一种判词都说得出下一步 —— 没有一句只说「失败」", () => {
+  for (const res of [
+    { status: "elsewhere", page: "分镜设计" },
+    { status: "ambiguous", count: 3, why: "这一页上有 3 个 x，认不准他当时指的是哪一个" },
+    { status: "gone", why: "x", clue: "" },
+  ]) {
+    const msg = locateMessage(res);
+    assert.ok(msg.length > 6, `${res.status} 的提示太短：${msg}`);
+    assert.ok(!/^失败|^错误/.test(msg), `${res.status} 只说了失败：${msg}`);
+  }
 });
