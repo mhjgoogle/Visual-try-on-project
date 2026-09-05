@@ -5491,7 +5491,29 @@ const ctx = {
     return g;
   },
   persist: () => {
-    if (canvasActive && PROJECT_NAME) persist.saveCanvas(PROJECT_NAME, serializeGraph());
+    if (canvasActive && PROJECT_NAME) {
+      persist.saveCanvas(PROJECT_NAME, serializeGraph());
+      return;
+    }
+    // **存不下就得说出来。**
+    //
+    // 上一版这里是 `if (canvasActive && PROJECT_NAME) save()` —— 条件不成立时
+    // 什么都不做，**一声不吭**。而 `canvasActive` 在 `enterCanvas` 开头置假、
+    // 异步载入完才置真：重新进入同一个项目时（路由切换、迁移后从项目副本重载），
+    // **旧的界面还在屏幕上**，他这时敲进故事核心的字会写进一份即将被替换掉的文档，
+    // 然后被这一行悄悄丢掉 —— 屏幕上看着还在，刷新就没了，控制台一个字都没有。
+    //
+    // 并行会话 2026-09-05 在旅程 e2e 里实测到约 1/5 复现，三条证据：屏幕上那段字还在 ·
+    // 整个账户目录 `rglob` 一遍一个字都没有 · **没有任何 `motv:` 警告**（因为
+    // `persist.js` 里那两条已知跳过路径都会 warn，而这一处的丢弃发生在它之前）。
+    //
+    // 这里**不假装能救回那段字** —— 文档马上会被 `enterCanvas` 换掉，排队再写只会
+    // 把新文档写一遍。能做且必须做的是：**不静默**（AGENTS.md 第 13 条 · 决策 6
+    // fail-closed 并说明）。他因此知道刚才那一下没存上，而不是刷新之后才发现。
+    // 根治（在载入期间就不该让他敲得进去）记在 TASK-087 §6.12。
+    const why = !PROJECT_NAME ? "还没有打开项目" : "项目正在载入";
+    console.warn(`motv: 这一次保存没有写下去 —— ${why}（canvasActive=${canvasActive}）`);
+    if (typeof toast === "function") toast(`没存上：${why} —— 刚才那一下要重新做一遍`);
   },
   // ⚙ 项目设置 (TASK-073 §1.7). `deliverySpec` is read by ⚙ and by 交付质检's 规格
   // check; `setDeliverySpecField` is the ONLY write path and refuses invalid values.

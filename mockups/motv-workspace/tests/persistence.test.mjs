@@ -475,3 +475,30 @@ test("blockSaves 不覆盖已有的停用理由 —— 第一个声明者说了�
   unblockSaves("layered", "corrupt");
   assert.equal(saveBlockedReason("layered"), null);
 });
+
+/* --- 存不下就得说出来（2026-09-05）------------------------------------------ */
+
+test("`ctx.persist` 在存不下的时候不许一声不吭", async () => {
+  // 并行会话在旅程 e2e 里实测：故事核心里敲的字**约 1/5 概率被静默丢掉** ——
+  // 屏幕上看着还在、整个账户目录一个字都没有、**控制台没有任何 `motv:` 警告**。
+  //
+  // 机制在 `app.js` 的 `ctx.persist`：它原来是
+  //     if (canvasActive && PROJECT_NAME) saveCanvas(...)
+  // 条件不成立就**什么都不做**。而 `canvasActive` 在 `enterCanvas` 开头置假、异步
+  // 载入完才置真 —— 重新进入同一个项目时（路由切换、迁移后重载），**旧界面还在屏幕上**，
+  // 这时敲的字写进一份即将被替换掉的文档，然后被那一行悄悄丢掉。
+  //
+  // `persist.js` 里两条已知的跳过路径（blockSaves / load in flight）都会 warn，
+  // 所以「没有警告」当时反而误导人去查别处 —— 这一条守的就是**那句警告必须存在**。
+  //
+  // 这里断言的是源码里那条性质（这个分支在 app.js 顶层的 `ctx` 字面量里，
+  // 没有 DOM 就构造不出来；而它要守的东西恰恰是「有没有那句话」）。
+  const fs = await import("node:fs/promises");
+  const src = await fs.readFile(new URL("../src/app.js", import.meta.url), "utf8");
+  const i = src.indexOf("  persist: () => {");
+  assert.ok(i > 0, "找不到 ctx.persist");
+  const body = src.slice(i, i + 2000);
+  assert.match(body, /console\.warn\(`motv:/, "存不下的那一支没有 console.warn —— 它会静默丢字");
+  assert.match(body, /toast\(/, "存不下的那一支没有 toast —— 他要刷新之后才发现");
+  assert.match(body, /canvasActive/, "这条分支不再判 canvasActive 了？请同步这条守卫");
+});
