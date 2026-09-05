@@ -36,6 +36,84 @@ const str = (x) => (typeof x === "string" ? x : "");
 // delete every copy — validation rejects duplicates, hydration dedupes
 const idArray = (x) => (Array.isArray(x) ? [...new Set(x.filter(nonEmpty))] : []);
 
+/* --- 回收区：删除是软删除，拿得回来（TASK-129 / CA §5.2） -------------------- //
+ *
+ * **形状：删掉的记录移进一个单独的数组，不是在原地打标记。**
+ *
+ * 另一种做法（`storywork.js` 的定稿版本用的那种）是记录留在原数组里、打一个
+ * `deleted` 标记，然后**每一个读它的地方**都过滤一次。那在定稿版本上是对的 ——
+ * 读它的只有几处。这里不是：`prod.characters` 有约 60 个读点、跨 12 个文件，
+ * 其中还包括别人正在改的文件。「每处都要记得过滤」在那个规模上是**六十次犯错
+ * 机会**，而漏掉一处的表现是「删掉的人物在那一处继续冒出来」——
+ * 不报错，只是错。
+ *
+ * 移走之后 `prod.characters` 的含义仍然是「活着的那些」，那 60 个读点**一行都
+ * 不用改，而且天生正确**。产品行为一模一样，换的只是存储形状。
+ *
+ * 代价有两条，都是显式的：
+ *
+ * 1. **回收区必须自己加进读盘水合**（`sanitizeBible` 是显式重建 `{characters,
+ *    locations, props}`，顶层没有 spread，不加就会在下次加载时整个丢掉）。
+ * 2. **按 id 解析引用的读点要能找到删掉的那些** —— 那类读点要的东西与显示型
+ *    正好相反（见 `findCharacterAny`）。
+ *
+ * 拿回来的记录**追加在数组末尾**，原来的位置不保留。这里的数组序只是插入序、
+ * 没有语义（`addCharacter` 也是 push），所以接受它；哪天顺序有了含义，要记的是
+ * 一个 `order` 字段，不是靠这里的位置。
+ */
+
+/** 移进回收区。`at` 只是给他看的时间戳，不参与任何判定。 */
+function binPush(owner, key, rec, at) {
+  if (!Array.isArray(owner[key])) owner[key] = [];
+  owner[key].push({ ...rec, deletedAt: str(at) });
+}
+
+/** 从回收区拿回来：`idKey` 是这类记录的身份字段。 */
+function binRestore(owner, key, idKey, id, liveList) {
+  const bin = Array.isArray(owner[key]) ? owner[key] : [];
+  const i = bin.findIndex((x) => isObj(x) && x[idKey] === id);
+  if (i < 0) return false;
+  const [rec] = bin.splice(i, 1);
+  delete rec.deletedAt;
+  liveList.push(rec);
+  return true;
+}
+
+/** 回收区里的那些（只读，永远返回数组）。 */
+const binOf = (owner, key) => (Array.isArray(owner && owner[key]) ? owner[key] : []);
+
+export const deletedCharacters = (prod) => binOf(prod, "deletedCharacters");
+export const deletedLocations = (prod) => binOf(prod, "deletedLocations");
+
+/** 按 id 找一个人物，**回收区里的也找**。
+ *
+ *  和 `findCharacter` 的分工是显式的，因为两类读点要的东西相反：
+ *
+ *  | 读点 | 用哪个 | 为什么 |
+ *  | --- | --- | --- |
+ *  | 显示、修改（改名 / 写档案 / 加状态） | `findCharacter` | 删掉的不该被列出来，更不该还能改 |
+ *  | 解析引用、判身份唯一、拿回来 | `findCharacterAny` | 「他删了、随时能拿回来」和「这个人物不存在」是两件事 |
+ *
+ *  今天「被引用就拒删」那道保护让删掉的人物**不可能**还被场景/关系/节拍指着，
+ *  所以引用解析实际撞不到回收区。**那道保护因此是承重的** —— 有测试钉住它
+ *  （`removeCharacter is REFUSED while a scene references it` 那一族）。哪天它
+ *  放宽了，这个解析器就是那时候不至于把「已删除」读成「不存在」的那根线。 */
+export function findCharacterAny(prod, characterId) {
+  return (
+    findCharacter(prod, characterId) ||
+    deletedCharacters(prod).find((c) => c.characterId === characterId) ||
+    null
+  );
+}
+
+export function findLocationAny(prod, locationId) {
+  return (
+    findLocation(prod, locationId) ||
+    deletedLocations(prod).find((l) => l.locationId === locationId) ||
+    null
+  );
+}
+
 /** Character TIERS (TASK-057). A `bit` character (服务员 / 路人 / 警察 / 医生)
  *  carries the same identity machinery but is never required to fill in a
  *  complete Character Bible; promoting it to `formal` keeps its id and every
@@ -140,7 +218,28 @@ function sanitizeCharacter(c, taken, stateIds) {
       performance: isObj(v.performance) ? v.performance : {},
     },
     states: sanitizeStates(c.states, CHAR_OVERRIDE_KEYS, stateIds),
+    // 回收区（TASK-129）。`...c` 会把它原样带过往返，但**规范化不能省**：
+    // 删掉的状态同样要占住 `stateIds`（它随时可能被拿回来），而摘掉的参考图 id
+    // 不过 `idArray` 就会把重复项和空串带进来。
+    ...binFields(c, sanitizeStates(c.deletedStates, CHAR_OVERRIDE_KEYS, stateIds)),
   };
+}
+
+/** 两个回收区字段：**源里有就规范化，源里没有就不写**。
+ *
+ *  不能写成「规范化结果为空就不写这个键」—— 调用方是 `{ ...c, ...binFields(c) }`，
+ *  `...c` 已经把**未规范化的原值**放进去了。返回空对象只会让那份原值留下，
+ *  于是一份带垃圾 `deletedStates` 的文档会原样穿过水合（自测时抓到）。
+ *
+ *  源里没有这两个键时一个都不加：从没删过东西的旧文档不该因为读了一次就多出
+ *  两个空数组，那会让每份旧 canvas.json 在第一次保存时产生一个纯噪音的 diff。 */
+function binFields(src, states) {
+  const out = {};
+  if ("deletedStates" in src) out.deletedStates = states;
+  if ("deletedReferenceAssetIds" in src) {
+    out.deletedReferenceAssetIds = idArray(src.deletedReferenceAssetIds);
+  }
+  return out;
 }
 
 function sanitizeLocation(l, taken, stateIds) {
@@ -156,6 +255,7 @@ function sanitizeLocation(l, taken, stateIds) {
     referenceAssetIds: refs,
     activeReferenceAssetId: activeIn(refs, l.activeReferenceAssetId),
     states: sanitizeStates(l.states, LOC_OVERRIDE_KEYS, stateIds),
+    ...binFields(l, sanitizeStates(l.deletedStates, LOC_OVERRIDE_KEYS, stateIds)),
   };
 }
 
@@ -206,6 +306,8 @@ export function sanitizeBible(saved) {
   const characters = [];
   const locations = [];
   const props = [];
+  const deletedCharacters = [];
+  const deletedLocations = [];
   const entityIds = new Set(); // one namespace across characters, locations AND props
   const stateIds = new Set(); // unique across the whole bible
   if (isObj(saved)) {
@@ -222,8 +324,28 @@ export function sanitizeBible(saved) {
       const rec = sanitizeProp(p, entityIds);
       if (rec) props.push(rec);
     }
+    // 回收区（TASK-129）。**两件事都要做对，各自都会静默出错：**
+    //
+    // 1. **必须在这里水合。** 这个函数是显式重建 `{characters, locations, props}`
+    //    的，顶层没有 spread —— 不加这一段，他删掉的每一个人物都会在下一次加载时
+    //    从回收区消失，而「软删除」的全部意义就是那条撤销的路还在。
+    // 2. **必须进同一个 id 命名空间。** 删掉的实体仍然占着它的 id，因为它随时可能
+    //    被拿回来。不占的话，新建的人物可以拿到一个已删人物的 id，等他点「拿回来」
+    //    就撞上一个同名身份 —— 而 `sanitizeCharacter` 遇到重复 id 是**丢弃**，
+    //    于是回收区里那条无声消失。
+    //
+    // 活的先水合、回收区后水合：万一某份文档里同一个 id 两边都有（只可能来自
+    // 手改或旧缺陷），**活的那条是权威**，回收区那条按重复 id 丢弃。
+    for (const c of Array.isArray(saved.deletedCharacters) ? saved.deletedCharacters : []) {
+      const rec = sanitizeCharacter(c, entityIds, stateIds);
+      if (rec) deletedCharacters.push(rec);
+    }
+    for (const l of Array.isArray(saved.deletedLocations) ? saved.deletedLocations : []) {
+      const rec = sanitizeLocation(l, entityIds, stateIds);
+      if (rec) deletedLocations.push(rec);
+    }
   }
-  return { characters, locations, props };
+  return { characters, locations, props, deletedCharacters, deletedLocations };
 }
 
 /** Sanitize a scene's bible references against the hydrated entities: a ref
@@ -416,14 +538,20 @@ export function renameCharacter(prod, characterId, name) {
  *  (M7), a Relationship definition or an episode Character Beat (TASK-057).
  *  Cascading would silently destroy creator canon, so the references must be
  *  released explicitly first. */
-export function removeCharacter(prod, characterId) {
+export function removeCharacter(prod, characterId, at = "") {
   const c = findCharacter(prod, characterId);
   if (!c) return false;
   if (scenesReferencingCharacter(prod, characterId).length) return false;
   if (relationshipsOfCharacter(prod, characterId).length) return false;
   if (episodesWithCharacterBeat(prod, characterId).length) return false;
   prod.characters = prod.characters.filter((x) => x.characterId !== characterId);
+  binPush(prod, "deletedCharacters", c, at);
   return true;
+}
+
+/** 把删掉的人物拿回来。 */
+export function undeleteCharacter(prod, characterId) {
+  return binRestore(prod, "deletedCharacters", "characterId", characterId, prod.characters);
 }
 
 /** Update canonical profile facets (whitelisted string fields only). */
@@ -464,12 +592,21 @@ export function renameCharacterState(prod, characterId, stateId, name) {
 
 /** Remove a state — REFUSED while a scene references the character IN that
  *  state (the identity stays; only the unreferenced presentation goes). */
-export function removeCharacterState(prod, characterId, stateId) {
+export function removeCharacterState(prod, characterId, stateId, at = "") {
   const c = findCharacter(prod, characterId);
-  if (!c || !findState(c, stateId)) return false;
+  const s = c && findState(c, stateId);
+  if (!s) return false;
   if (scenesReferencingCharacter(prod, characterId, stateId).length) return false;
-  c.states = c.states.filter((s) => s.stateId !== stateId);
+  c.states = c.states.filter((x) => x.stateId !== stateId);
+  // 状态的回收区挂在**它自己的实体**上：状态 id 是实体内部的，跟着实体走才对 ——
+  // 人物删进回收区时，他的状态回收区一并跟着走，拿回来时也一并回来。
+  binPush(c, "deletedStates", s, at);
   return true;
+}
+
+export function undeleteCharacterState(prod, characterId, stateId) {
+  const c = findCharacter(prod, characterId);
+  return !!c && binRestore(c, "deletedStates", "stateId", stateId, c.states);
 }
 
 /** Replace a state's overrides (whitelisted facets; voice identity stripped). */
@@ -498,12 +635,33 @@ export function addReferenceAsset(prod, entityId, assetId) {
   return true;
 }
 
-/** Detach a reference (the Asset itself is untouched — it lives in M3). */
+/** Detach a reference (the Asset itself is untouched — it lives in M3).
+ *
+ *  摘下来的**引用**进回收区。字节本来就没删（资产在 M3 里），但「这张图曾经挂在
+ *  这个实体上、而且是主图」这个事实会丢 —— 那就是他要撤销的东西。
+ *  这里的回收区是一串 id，形状与实体/状态那两处不同，理由是原数组本身就是一串 id。 */
 export function removeReferenceAsset(prod, entityId, assetId) {
   const e = entityOf(prod, entityId);
   if (!e || !e.referenceAssetIds.includes(assetId)) return false;
   e.referenceAssetIds = e.referenceAssetIds.filter((x) => x !== assetId);
+  if (!Array.isArray(e.deletedReferenceAssetIds)) e.deletedReferenceAssetIds = [];
+  if (!e.deletedReferenceAssetIds.includes(assetId)) e.deletedReferenceAssetIds.push(assetId);
   if (e.activeReferenceAssetId === assetId) e.activeReferenceAssetId = e.referenceAssetIds[0] || null;
+  return true;
+}
+
+/** 把摘下来的参考图挂回去。
+ *
+ *  **不恢复「主图」身份** —— 摘掉主图时主图位已经让给了别人，硬抢回来会覆盖他之后
+ *  做的选择。第一张挂上去时才自动成为主图（`addReferenceAsset` 的既有规矩），
+ *  这里沿用：只有实体当前一张参考图都没有时，拿回来的这张才顺位成为主图。 */
+export function undeleteReferenceAsset(prod, entityId, assetId) {
+  const e = entityOf(prod, entityId);
+  const bin = e && Array.isArray(e.deletedReferenceAssetIds) ? e.deletedReferenceAssetIds : null;
+  if (!bin || !bin.includes(assetId)) return false;
+  e.deletedReferenceAssetIds = bin.filter((x) => x !== assetId);
+  if (!e.referenceAssetIds.includes(assetId)) e.referenceAssetIds.push(assetId);
+  if (!e.activeReferenceAssetId) e.activeReferenceAssetId = assetId;
   return true;
 }
 
@@ -584,11 +742,17 @@ export function renameLocation(prod, locationId, name) {
   return true;
 }
 
-export function removeLocation(prod, locationId) {
+export function removeLocation(prod, locationId, at = "") {
   const l = findLocation(prod, locationId);
   if (!l || scenesReferencingLocation(prod, locationId).length) return false;
   prod.locations = prod.locations.filter((x) => x.locationId !== locationId);
+  binPush(prod, "deletedLocations", l, at);
   return true;
+}
+
+/** 把删掉的场景地拿回来。 */
+export function undeleteLocation(prod, locationId) {
+  return binRestore(prod, "deletedLocations", "locationId", locationId, prod.locations);
 }
 
 export function updateLocationProfile(prod, locationId, fields) {
@@ -616,12 +780,19 @@ export function renameLocationState(prod, locationId, stateId, name) {
   return true;
 }
 
-export function removeLocationState(prod, locationId, stateId) {
+export function removeLocationState(prod, locationId, stateId, at = "") {
   const l = findLocation(prod, locationId);
-  if (!l || !findState(l, stateId)) return false;
+  const s = l && findState(l, stateId);
+  if (!s) return false;
   if (scenesReferencingLocation(prod, locationId, stateId).length) return false;
-  l.states = l.states.filter((s) => s.stateId !== stateId);
+  l.states = l.states.filter((x) => x.stateId !== stateId);
+  binPush(l, "deletedStates", s, at);
   return true;
+}
+
+export function undeleteLocationState(prod, locationId, stateId) {
+  const l = findLocation(prod, locationId);
+  return !!l && binRestore(l, "deletedStates", "stateId", stateId, l.states);
 }
 
 export function setLocationStateOverrides(prod, locationId, stateId, overrides) {

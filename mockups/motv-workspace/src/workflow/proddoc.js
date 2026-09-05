@@ -27,7 +27,8 @@
 import { mintId } from "./identity.js";
 import { sanitizeBible, sanitizeSceneRefs } from "./bibledoc.js";
 import {
-  sanitizeRelationships, sanitizeWorld, sanitizeCanon, sanitizeBeats, sanitizeBasedOn,
+  sanitizeRelationships, sanitizeDeletedRelationships,
+  sanitizeWorld, sanitizeCanon, sanitizeBeats, sanitizeBasedOn,
   defaultWorld, defaultCanon, defaultBeats, defaultBasedOn,
 } from "./canondoc.js";
 import { defaultShotProduction, sanitizeShotProduction } from "./shotprod.js";
@@ -71,6 +72,10 @@ function defaultProduction() {
     characters: [],
     locations: [],
     props: [],
+    // 回收区（TASK-129）：软删除的实体住这里，不住上面那三个数组
+    deletedCharacters: [],
+    deletedLocations: [],
+    deletedRelationships: [],
     // TASK-057 project-level canon: relationships between characters, the
     // World Setting, and one revision number per canon surface
     relationships: [],
@@ -160,13 +165,23 @@ export function createProduction(saved) {
     ? saved.activeEpisodeId
     : episodes[0].episodeId; // a dangling pointer falls back deterministically
   // M7 Production Bible: hydrate entities first, then scene refs against them
-  const { characters, locations, props } = sanitizeBible(saved);
+  const { characters, locations, props, deletedCharacters, deletedLocations } =
+    sanitizeBible(saved);
   for (const e of episodes) for (const s of e.scenes) sanitizeSceneRefs(s, characters, locations);
   // TASK-057 canon: relationships need the characters to exist, and beats need
   // both — so the order is characters → relationships → beats
   const charIds = new Set(characters.map((c) => c.characterId));
   const relationships = sanitizeRelationships(saved.relationships, charIds);
   const relIds = new Set(relationships.map((r) => r.relationshipId));
+  // 回收区里的关系（TASK-129）：认**活的 + 回收区里的**人物，因为一段被删的关系
+  // 可以指着一个同样被删的人物。拿活人物名单去筛会把它整条丢掉 —— 那等于读盘把
+  // 软删除悄悄变成了硬删除。relationshipId 与活的那批共用一个命名空间。
+  const charIdsAny = new Set([...charIds, ...deletedCharacters.map((c) => c.characterId)]);
+  const deletedRels = sanitizeDeletedRelationships(
+    saved.deletedRelationships,
+    charIdsAny,
+    new Set(relIds),
+  );
   for (const e of episodes) {
     e.beats = sanitizeBeats(e._rawBeats, charIds, relIds);
     delete e._rawBeats;
@@ -178,6 +193,13 @@ export function createProduction(saved) {
     locations,
     // 道具（TASK-095 §2.2）—— 加法字段，老文档没有它是常态
     props,
+    // 回收区（TASK-129）：删掉的人物 / 场景地。**同样是加法字段** ——
+    // 老文档没有它们，水合成空数组，一个字节的旧数据不动。
+    // 它们不在 `characters` / `locations` 里，所以那六十个「列出人物」的读点
+    // 天生只看得见活着的，一行都不用改。
+    deletedCharacters,
+    deletedLocations,
+    deletedRelationships: deletedRels,
     relationships,
     world: sanitizeWorld(saved.world),
     canon: sanitizeCanon(saved.canon),
@@ -266,6 +288,12 @@ export function serialize(prod) {
     characters: prod.characters,
     locations: prod.locations,
     props: prod.props,
+    // 回收区（TASK-129）。**这一行和水合那一行必须同时存在** —— 只加水合、
+    // 不加这里，表现是：删掉的东西在本次会话里还能拿回来，一存一读就永远没了，
+    // 而那正是「软删除」要防的那件事，只是把它推迟到了下一次加载。
+    deletedCharacters: prod.deletedCharacters,
+    deletedLocations: prod.deletedLocations,
+    deletedRelationships: prod.deletedRelationships,
     relationships: prod.relationships,
     world: prod.world,
     canon: prod.canon,
