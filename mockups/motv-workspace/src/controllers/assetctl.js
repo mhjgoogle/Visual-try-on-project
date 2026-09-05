@@ -39,6 +39,9 @@ export function createAssetController({
   modules,
   session,
   uploadAssetImage,
+  // 免费自动出图（TASK-139 / ADR-0100）。与 `uploadAssetImage` 一样是注入的：
+  // 控制器不认识任何一家供应商，只知道「有人能把 prompt 变成一份写好的响应」。
+  accountImageGenerate,
   pickFile,
   mediaDomainOfFile,
   domainSlugPrefix,
@@ -72,12 +75,18 @@ export function createAssetController({
     /** Import a file as a NEW canonical Reference (人物 / 场景 / 道具 / 风格 /
      *  外部). Mints its own `ref-…` chain so later takes of the SAME reference
      *  append as v2, v3 … rather than becoming unrelated assets. */
-    importReference: async ({ kind, file, links, displayName, tags } = {}) => {
+    importReference: async ({ kind, file, links, displayName, tags, prompt } = {}) => {
       if (!session.connected()) throw new Error("演示模式无后端，无法上传参考图");
       if (!assetreg.isReferenceKind(kind)) throw new Error(`不是参考类型：${kind}`);
-      if (!file) throw new Error("没有选择文件");
+      // **有 prompt 就是「让它生成」，否则就是「传一个文件」** —— 两条路之后的
+      // 每一步（域校验、登记、版本链、刷新）完全相同。加一个参数而不是另写一条
+      // 导入路：`ref-…` 链的写入者只能有一个，否则同一个参考会有两种登记方式，
+      // 而它们迟早不一致。
+      const generating = !file && typeof prompt === "string" && prompt.trim() !== "";
+      if (!file && !generating) throw new Error("没有选择文件");
       const key = assetreg.mintReferenceKey();
-      const domain = mediaDomainOfFile(file);
+      // 生成出来的一律是图片；文件那条仍按字节判域。
+      const domain = generating ? "images" : mediaDomainOfFile(file);
       // An unresolvable domain must FAIL HERE. Falling through would hand
       // addVersion a `{uploads: undefined}` map, which quietly creates a throw-
       // away object: the upload would succeed on disk and be gone after reload.
@@ -101,12 +110,17 @@ export function createAssetController({
       // checked BEFORE the upload — see ctx.audio.importKey
       const pre = assetreg.checkDeclaration(domain, { kind });
       if (pre) throw new Error(`登记被拒绝，未上传：${pre}`);
-      const res = await uploadAssetImage(session.projectName(), `${domainSlugPrefix(domain)}-${key}`, file);
-      const ref = mediaref.refFromResponse(key, "upload", res, null);
+      const slug = `${domainSlugPrefix(domain)}-${key}`;
+      const res = generating
+        ? await accountImageGenerate(session.projectName(), slug, prompt)
+        : await uploadAssetImage(session.projectName(), slug, file);
+      // origin 让溯源里看得出这一版是生成的还是传上来的 —— 两者都是合法来源，
+      // 但把生成说成上传，就是让登记表记一件没发生过的事。
+      const ref = mediaref.refFromResponse(key, generating ? "account-image" : "upload", res, null);
       const decl = assetreg.declare(ref, domain, {
         kind,
         displayName: displayName || null,
-        originalFilename: file.name || null,
+        originalFilename: (file && file.name) || null,
         links,
         tags,
       });
@@ -115,7 +129,12 @@ export function createAssetController({
       refreshType("assets");
       persist();
       refresh();
-      toast(`已登记参考资产「${assetreg.derivedLabel({ ...ref, version: ref.version })}」`);
+      // **实际发出去的那份要说出来。** 出图模型读不懂中文，所以这条路上「他写的」
+      // 和「发出去的」不是同一句话；不说，就是替他换了词还不告诉他。
+      const sentNote = res && res.translated && res.prompt_sent
+        ? `（实际发出去的是英文改写：${String(res.prompt_sent).slice(0, 60)}…）`
+        : "";
+      toast(`已登记参考资产「${assetreg.derivedLabel({ ...ref, version: ref.version })}」${sentNote}`);
       return { key, ref };
     },
 

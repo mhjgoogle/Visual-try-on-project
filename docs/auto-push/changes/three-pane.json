@@ -2,7 +2,7 @@
   "schema": 1,
   "change_id": "three-pane",
   "branch": "change/TASK-109-three-pane",
-  "status": "open",
+  "status": "merged",
   "created": "2026-08-27T11:01:18+00:00",
   "chain_mode": false,
   "tasks": {
@@ -112,14 +112,57 @@
             "docs/auto-push/changes/three-pane.json"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "4d865eb20cea5eb40e3c18e10e028d8733e1e020",
+          "subject": "fix(motv): 把「这一次没写下去」全都变成出声的，并把那把载入锁修成幂等（TASK-109 · three-pane）",
+          "time": "2026-09-05T15:19:28+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/auto-push/changes/three-pane.json",
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/src/services/persist.js",
+            "mockups/motv-workspace/src/ui/editlock.js",
+            "mockups/motv-workspace/tests/persistence.test.mjs"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "2b651fe5951a486e8dcc0685e52a078795d5bf7c",
+          "subject": "fix(motv): 看门狗的守卫改成触发真回调；录白膜不再录到那块被换掉的画布（TASK-087 §6.12 / §5.22）",
+          "time": "2026-09-05T15:41:50+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "mockups/motv-workspace/src/ui/bkrecord.js",
+            "mockups/motv-workspace/src/ui/editlock.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/tests/bkrecord.test.mjs",
+            "mockups/motv-workspace/tests/persistence.test.mjs"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "fdc9d0d651c14f17d352ada5d3f09eb478457d93",
+          "subject": "docs(TASK-087 §5.18): 真浏览器验录白膜卡在哪 —— 两条卡点写清楚，免得下一个人重走",
+          "time": "2026-09-05T16:01:16+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/tasks/active/TASK-087-followup-ledger.md"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
-        ".autopush-placeholder"
+        "docs/tasks/active/TASK-087-followup-ledger.md"
       ],
       "verification": "PASS",
-      "verification_ref": "已提交",
-      "declared": "2026-08-29T13:40:37+00:00"
+      "verification_ref": "",
+      "declared": "2026-09-05T15:55:12+00:00"
     },
     "TASK-110": {
       "commits": [],
@@ -569,14 +612,31 @@
             "docs/auto-push/changes/three-pane.json"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "105e04a57b70dcfdaa87d2eec4f8202e79fe1d03",
+          "subject": "docs(TASK-125): 切片 ① 收口 —— 这张卡自己就是它要治的那个病",
+          "time": "2026-09-05T13:27:36+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/STATUS.md",
+            "docs/project-context.md",
+            "docs/tasks/active/TASK-125-current-truth-convergence.md",
+            "docs/tasks/done/TASK-125-current-truth-convergence.md"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
-        ".autopush-placeholder"
+        "docs/STATUS.md",
+        "docs/project-context.md",
+        "docs/tasks/active/TASK-125-current-truth-convergence.md",
+        "docs/tasks/done/TASK-125-current-truth-convergence.md"
       ],
       "verification": "PASS",
-      "verification_ref": "pytest tests/tooling 271 passed/1 skipped; lifecycle_check 0 finding; gen_docs_status regenerated",
-      "declared": "2026-09-04T12:47:34+00:00"
+      "verification_ref": "IN SCOPE 七条逐条核对全部成立（判词写进卡头）；卡搬进 done/；里程碑指针移到切片 ②；pytest tests/tooling/test_docs_status.py 22 passed；lifecycle_check 0 finding",
+      "declared": "2026-09-05T13:27:35+00:00"
     },
     "TASK-126": {
       "commits": [
@@ -1577,6 +1637,18 @@
             "tests/tooling/test_docs_links.py"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "4b7ab24527114bd757b21501e85c78715f848fbe",
+          "subject": "fix: 薄入口同步检查只在原地主树绿 —— 归一化写了，又在前面一行自己绕开了",
+          "time": "2026-09-05T11:32:38+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            ".claude/tools/agent_harness.py",
+            "tests/tooling/test_agent_harness.py"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
@@ -1634,16 +1706,31 @@
             "docs/tasks/backlog/TASK-128-episode-side-actions-into-the-table.md"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "f8714d6c73d277766a1a781e2d322d228f087c9f",
+          "subject": "ADR-0102：发起方与确认方是两个字段 —— 解掉 TASK-128 的架构阻塞",
+          "time": "2026-09-05T13:51:19+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/adr/ADR-0096-ui-and-agent-share-one-action-table.md",
+            "docs/adr/ADR-0102-origin-and-confirmation-are-two-fields.md",
+            "docs/requirements/REQ-006-agent-can-do-what-the-creator-can-do.md",
+            "docs/tasks/backlog/TASK-128-episode-side-actions-into-the-table.md"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
-        "docs/STATUS.md",
-        "docs/auto-push/changes/three-pane.json",
+        "docs/adr/ADR-0096-ui-and-agent-share-one-action-table.md",
+        "docs/adr/ADR-0102-origin-and-confirmation-are-two-fields.md",
+        "docs/requirements/REQ-006-agent-can-do-what-the-creator-can-do.md",
         "docs/tasks/backlog/TASK-128-episode-side-actions-into-the-table.md"
       ],
       "verification": "PASS",
-      "verification_ref": "纯文档 + 生成物。验证：全量 3921 passed / 59 skipped（唯一失败是 STATUS.md 过期，本次已重新生成并复跑绿）· lifecycle_check 0 finding · test_docs_status + test_docs_links 10 passed",
-      "declared": "2026-09-05T07:51:00+00:00"
+      "verification_ref": "写 ADR-0102 解掉 TASK-128 的架构阻塞（纯文档，未接线）。两处代码事实已核实：convactions.js 的 identityBinding 只认 origin==ui、actions.js 的 allowedAt 在 suggest 级别拒非 user 的一切写、app.js:3659 默认 user。lifecycle_check 0 finding；pytest test_docs_status + test_lifecycle_check 82 passed",
+      "declared": "2026-09-05T13:51:18+00:00"
     },
     "TASK-136": {
       "commits": [
@@ -1686,16 +1773,27 @@
             "docs/skill-evolution/proposals/EP-002-writeback-commit-needs-a-pathspec.md"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "c6fe23789baa1c374103a519a133864c9f52b9c9",
+          "subject": "docs(ADR-0099): 前置是一个条件，不是一张卡 —— 041 收掉了，写入方并没有因此出现（TASK-136 · three-pane）",
+          "time": "2026-09-05T14:21:24+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/adr/ADR-0099-resume-is-not-a-retry.md",
+            "docs/skill-evolution/proposals/EP-002-writeback-commit-needs-a-pathspec.md"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
-        "docs/skill-evolution/backlogs/auto-push.jsonl",
-        "docs/skill-evolution/index.json",
+        "docs/adr/ADR-0099-resume-is-not-a-retry.md",
         "docs/skill-evolution/proposals/EP-002-writeback-commit-needs-a-pathspec.md"
       ],
       "verification": "PASS",
-      "verification_ref": "纯文档 + skill 台账（EP-002 提案 + 两条 feedback 条目 + index）。验证：lifecycle_check 0 finding · pytest tests/tooling/test_skill_evolution_tooling.py + test_docs_links.py 23 passed。提案本身不改任何 skill 行为，改动需用户 veto 式批准后另行实施",
-      "declared": "2026-09-05T09:20:46+00:00"
+      "verification_ref": "纯文档订正（ADR-0099 决策 8 口径：前置从『等 TASK-041』改成条件『直到有东西真的建出 provider:* Run』；EP-002 补一段窗口论证）。验证：lifecycle_check 0 finding · test_docs_links + test_skill_evolution_tooling 23 passed · provider: 零写入方当场复核",
+      "declared": "2026-09-05T14:01:21+00:00"
     },
     "TASK-134": {
       "commits": [
@@ -1934,12 +2032,115 @@
           "subject": "按钮放错了地方 —— 他找不到是对的（TASK-139 · three-pane）",
           "time": "2026-09-05T11:28:53+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/tasks/active/TASK-139-images-from-my-own-account.md",
             "mockups/motv-workspace/src/app.js",
             "mockups/motv-workspace/src/ui/gencard.js",
             "mockups/motv-workspace/tests/gencardauto.test.mjs"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "47c90b09ac0fb5f698bc98f17de35be8924d4eb8",
+          "subject": "出图按钮放到他真正在看的那一屏 —— 第三次才对（TASK-139 · three-pane）",
+          "time": "2026-09-05T11:55:23+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/STATUS.md",
+            "docs/tasks/active/TASK-139-images-from-my-own-account.md",
+            "mockups/motv-workspace/src/ui/epcanvas.js",
+            "mockups/motv-workspace/tests/gencardauto.test.mjs"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "3424cfe1907e2b882ad4d4d9fd8a8fe485b21a81",
+          "subject": "图不对不是取错了提示词 —— 是模型读不懂中文（TASK-139 · three-pane）",
+          "time": "2026-09-05T12:42:05+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/tasks/active/TASK-139-images-from-my-own-account.md",
+            "mockups/motv-workspace/server.py",
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/src/controllers/assetctl.js",
+            "mockups/motv-workspace/src/ui/baseassetpanel.js",
+            "mockups/motv-workspace/src/ui/gencard.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/tests/gencardauto.test.mjs",
+            "tests/studio/test_account_image_gen_task139.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "54cf8c679f575c25c9518c4390d9c5820e8543ae",
+          "subject": "并发用例里的 5 秒硬等待 —— 它在断言调度速度，不是断言并发（TASK-139 · three-pane）",
+          "time": "2026-09-05T13:08:02+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "tests/studio/test_account_image_gen_task139.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "5fafce4897bc5f303de00083862329524c8f1fda",
+          "subject": "TASK-139 收口：用现在这条免费的把功能做完（three-pane）",
+          "time": "2026-09-05T13:51:17+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/STATUS.md",
+            "docs/adr/ADR-0100-account-quota-is-not-a-paid-gate.md",
+            "docs/requirements/REQ-008-images-from-my-own-account.md",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "docs/tasks/done/TASK-139-images-from-my-own-account.md"
+          ],
+          "scope_violation": [
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "docs/tasks/done/TASK-139-images-from-my-own-account.md"
+          ]
+        },
+        {
+          "hash": "ef1f213d3ed9af1226f38b9c684aa8bb307fc573",
+          "subject": "chore: 补上三次搬卡的另一半（TASK-139 / 041 / 140）",
+          "time": "2026-09-05T14:57:39+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/tasks/active/TASK-139-images-from-my-own-account.md",
+            "docs/tasks/backlog/TASK-041-workspace-generation-command-and-evidence.md",
+            "docs/tasks/backlog/TASK-140-main-ci-has-been-red-for-nine-days.md"
+          ],
+          "scope_violation": [
+            "docs/tasks/active/TASK-139-images-from-my-own-account.md",
+            "docs/tasks/backlog/TASK-140-main-ci-has-been-red-for-nine-days.md"
+          ]
+        },
+        {
+          "hash": "30bad7da25da060f4790e396afbcb1e14018e4b9",
+          "subject": "chore: TASK-041 卡在 done/ 的那一半（搬卡的补齐）",
+          "time": "2026-09-05T14:57:40+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/tasks/done/TASK-041-workspace-generation-command-and-evidence.md"
+          ],
+          "scope_violation": [
+            "docs/tasks/done/TASK-041-workspace-generation-command-and-evidence.md"
+          ]
+        },
+        {
+          "hash": "3482fbca7afd0b7f8425dd610e399dc77bf077f6",
+          "subject": "fix(docs): 041 搬进 done/ 时漏改了引用它的那张卡 —— CI 上是断链，本地不是（TASK-139 · three-pane）",
+          "time": "2026-09-05T15:53:25+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/backlog/TASK-136-generation-resume-and-idempotency.md"
           ],
           "scope_violation": null
         }
@@ -1948,11 +2149,15 @@
         ".env.local.example",
         ".gitignore",
         "docs/STATUS.md",
-        "docs/adr/ADR-0100-account-quota-is-not-a-paid-gate.md",
-        "docs/requirements/REQ-008-images-from-my-own-account.md",
+        "docs/adr/ADR-0100-*.md",
+        "docs/requirements/REQ-008-*.md",
         "docs/requirements/index.md",
-        "docs/tasks/active/TASK-139-images-from-my-own-account.md",
-        "docs/tasks/backlog/TASK-041-workspace-generation-command-and-evidence.md",
+        "docs/tasks/active/TASK-139-*.md",
+        "docs/tasks/backlog/TASK-041-*.md",
+        "docs/tasks/backlog/TASK-136-*.md",
+        "docs/tasks/backlog/TASK-140-*.md",
+        "docs/tasks/done/TASK-041-*.md",
+        "docs/tasks/done/TASK-139-*.md",
         "mockups/motv-workspace/credstore.py",
         "mockups/motv-workspace/imagegen.py",
         "mockups/motv-workspace/server.py",
@@ -1961,8 +2166,8 @@
         "tests/studio/test_account_image_gen_task139.py"
       ],
       "verification": "PASS",
-      "verification_ref": "批次 B 补证据（处理器级 4 条）+ 非阻塞项修复。验证：node --test 全量 2181 passed / 0 failed",
-      "declared": "2026-09-05T11:20:56+00:00"
+      "verification_ref": "pytest tests/tooling 385 passed（含 docs_links/docs_status）；并在合并结果的独立 worktree 上复现并验证该断链修复",
+      "declared": "2026-09-05T15:52:43+00:00"
     },
     "TASK-129": {
       "commits": [
@@ -2051,26 +2256,106 @@
             "docs/auto-push/changes/three-pane.json"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "c2e898fb189ae45127f480bb81c3793a93c7d167",
+          "subject": "@ 状态级参考图也走动作表 —— 棘轮空了（TASK-129 切片 2e）",
+          "time": "2026-09-05T14:05:37+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/design/active/product-requirement-and-ux-convergence-review.md",
+            "docs/requirements/REQ-006-agent-can-do-what-the-creator-can-do.md",
+            "docs/tasks/active/TASK-127-one-action-table.md",
+            "docs/tasks/backlog/TASK-128-episode-side-actions-into-the-table.md",
+            "docs/tasks/backlog/TASK-129-settings-structure-writes-into-the-table.md",
+            "docs/tasks/done/TASK-129-settings-structure-writes-into-the-table.md",
+            "mockups/motv-workspace/src/ui/workspaces.js",
+            "mockups/motv-workspace/src/workflow/bibledoc.js",
+            "mockups/motv-workspace/src/workflow/convactions.js",
+            "mockups/motv-workspace/tests/bible.test.mjs",
+            "mockups/motv-workspace/tests/convactions.test.mjs",
+            "mockups/motv-workspace/tests/workspaces.test.mjs",
+            "tests/contract/test_surface_manifest.py"
+          ],
+          "scope_violation": [
+            "docs/design/active/product-requirement-and-ux-convergence-review.md",
+            "docs/requirements/REQ-006-agent-can-do-what-the-creator-can-do.md",
+            "docs/tasks/active/TASK-127-one-action-table.md",
+            "docs/tasks/backlog/TASK-128-episode-side-actions-into-the-table.md",
+            "docs/tasks/done/TASK-129-settings-structure-writes-into-the-table.md",
+            "mockups/motv-workspace/tests/bible.test.mjs",
+            "mockups/motv-workspace/tests/convactions.test.mjs",
+            "mockups/motv-workspace/tests/workspaces.test.mjs"
+          ]
+        },
+        {
+          "hash": "1871ef6c5785eab5fc0a681348823c23cd89179d",
+          "subject": "摘图时「生效的主图」也可能是继承来的（codex 审查轮 1 的 P1）",
+          "time": "2026-09-05T14:17:30+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "mockups/motv-workspace/src/workflow/bibledoc.js",
+            "mockups/motv-workspace/src/workflow/convactions.js",
+            "mockups/motv-workspace/tests/convactions.test.mjs"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "bf82e8d4fff98e5f206bbec86451e7f2d20cc37d",
+          "subject": "摘图不许凭空造出一个主图（codex 审查轮 2 的 P1）",
+          "time": "2026-09-05T14:17:30+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "mockups/motv-workspace/src/workflow/bibledoc.js",
+            "mockups/motv-workspace/tests/convactions.test.mjs"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "ae782669cebef53f1fc0640ab983d4a081189c46",
+          "subject": "「摘光」不等于「回到继承」—— 改的是说法，不是行为（codex 审查轮 3）",
+          "time": "2026-09-05T14:45:31+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "mockups/motv-workspace/src/workflow/convactions.js",
+            "mockups/motv-workspace/tests/convactions.test.mjs"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "aa673bc378e8845334ce0542f48c0a9e48896f38",
+          "subject": "docs(TASK-129): 把四轮审查的结论写进卡头 —— 三条 P1 各自的机制，以及那条改说法不改行为的",
+          "time": "2026-09-05T15:14:49+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/tasks/done/TASK-129-settings-structure-writes-into-the-table.md"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
+        "docs/design/active/product-requirement-and-ux-convergence-review.md",
+        "docs/requirements/REQ-006-agent-can-do-what-the-creator-can-do.md",
+        "docs/tasks/active/TASK-127-one-action-table.md",
+        "docs/tasks/backlog/TASK-128-episode-side-actions-into-the-table.md",
         "docs/tasks/backlog/TASK-129-settings-structure-writes-into-the-table.md",
-        "mockups/motv-workspace/src/app.js",
-        "mockups/motv-workspace/src/ui/epplanws.js",
-        "mockups/motv-workspace/src/ui/relws.js",
+        "docs/tasks/done/TASK-129-settings-structure-writes-into-the-table.md",
         "mockups/motv-workspace/src/ui/workspaces.js",
         "mockups/motv-workspace/src/workflow/bibledoc.js",
-        "mockups/motv-workspace/src/workflow/canondoc.js",
         "mockups/motv-workspace/src/workflow/convactions.js",
-        "mockups/motv-workspace/src/workflow/proddoc.js",
-        "mockups/motv-workspace/styles/epprod.css",
-        "mockups/motv-workspace/tests/proddoc.test.mjs",
-        "mockups/motv-workspace/tests/recyclebin.test.mjs",
+        "mockups/motv-workspace/tests/bible.test.mjs",
+        "mockups/motv-workspace/tests/convactions.test.mjs",
+        "mockups/motv-workspace/tests/workspaces.test.mjs",
         "tests/contract/test_surface_manifest.py"
       ],
       "verification": "PASS",
-      "verification_ref": "TASK-129 切片 1+2a+2b：前端全量 2174 passed · tests/contract 269 passed（surface_manifest 16 例穷尽性合同）· tests/studio 630 passed · recyclebin.test.mjs 14 例 + 三处变异验证 · ruff 通过",
-      "declared": "2026-09-05T10:36:38+00:00"
+      "verification_ref": "前端 2233 passed/0 failed; tests/contract 267 passed; tests/studio 659 passed; tests/tooling 385 passed; ruff clean; lifecycle_check 0 finding; 变异验证 6 条全部转红; codex 审查轮 1/2 各一条 P1 已修",
+      "declared": "2026-09-05T14:17:21+00:00"
     },
     "TASK-141": {
       "commits": [
@@ -2132,11 +2417,334 @@
       "verification": "PASS",
       "verification_ref": "pytest tests/tooling 379 passed/1 skipped; lifecycle_check 0 finding; codex review 2 rounds pass (4 gates clean) on c6791eb",
       "declared": "2026-09-05T10:56:38+00:00"
+    },
+    "TASK-132": {
+      "commits": [
+        {
+          "hash": "597f4264b864974694da302829ed13e79097625d",
+          "subject": "feat: 点一个界面元素写意见 —— 原文直接进台账，不经模型（TASK-132 切片 A）",
+          "time": "2026-09-05T11:43:39+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/tasks/active/TASK-132-click-ui-element-and-leave-feedback.md",
+            "mockups/motv-workspace/server.py",
+            "mockups/motv-workspace/src/services/conversation.js",
+            "mockups/motv-workspace/src/ui/elementfeedback.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/tests/convthread.test.mjs",
+            "mockups/motv-workspace/tests/elementfeedback.test.mjs",
+            "tests/studio/test_element_feedback_task132.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "4403934b9c2c9a4419f04cdd61a83fd5ad28e993",
+          "subject": "docs(TASK-087 §6.9): 订正 —— 我把一个可查的根因当成了环境噪音",
+          "time": "2026-09-05T11:46:12+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/tasks/active/TASK-087-followup-ledger.md"
+          ],
+          "scope_violation": [
+            "docs/tasks/active/TASK-087-followup-ledger.md"
+          ]
+        },
+        {
+          "hash": "1757b4c19ebf15dced76659c27d0eb60b8ac8770",
+          "subject": "fix(TASK-087 §6.9): 订正里有个退格字符，而且它本身也只对了一半",
+          "time": "2026-09-05T11:55:54+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "docs/tasks/backlog/TASK-132-click-ui-element-and-leave-feedback.md"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "ec4753a03d46d0184f4adc5fb209fcd5ba62aa56",
+          "subject": "feat: 开发读得到「他点的是哪一个」，句柄从已有的 data-* 派生（TASK-132 切片 A 补齐）",
+          "time": "2026-09-05T12:20:33+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            ".claude/tools/read_feedback.py",
+            "mockups/motv-workspace/src/ui/elementfeedback.js",
+            "mockups/motv-workspace/tests/elementfeedback.test.mjs",
+            "tests/tooling/test_feedback_reader_req006.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "8a9d57e11e4d1d70b6d24794c186b660242680dd",
+          "subject": "feat: 回看一条旧意见时敢说「找不到」（TASK-132 切片 B）",
+          "time": "2026-09-05T12:46:24+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/tasks/active/TASK-132-click-ui-element-and-leave-feedback.md",
+            "mockups/motv-workspace/src/ui/elementfeedback.js",
+            "mockups/motv-workspace/src/ui/proposals.js",
+            "mockups/motv-workspace/styles/studio.css",
+            "mockups/motv-workspace/tests/elementfeedback.test.mjs"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        ".claude/tools/read_feedback.py",
+        "docs/tasks/active/TASK-087-followup-ledger.md",
+        "docs/tasks/active/TASK-132-click-ui-element-and-leave-feedback.md",
+        "docs/tasks/backlog/TASK-132-click-ui-element-and-leave-feedback.md",
+        "mockups/motv-workspace/server.py",
+        "mockups/motv-workspace/src/services/conversation.js",
+        "mockups/motv-workspace/src/ui/elementfeedback.js",
+        "mockups/motv-workspace/src/ui/production.js",
+        "mockups/motv-workspace/src/ui/proposals.js",
+        "mockups/motv-workspace/styles/studio.css",
+        "mockups/motv-workspace/tests/convthread.test.mjs",
+        "mockups/motv-workspace/tests/elementfeedback.test.mjs",
+        "tests/studio/test_element_feedback_task132.py",
+        "tests/tooling/test_feedback_reader_req006.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "TASK-132 切片 A+B：前端全量 2220 passed（elementfeedback 32 例）· tests/studio + tests/contract 928 passed · tests/tooling 全域通过 · 六处变异验证各只红对应那条 · lifecycle_check 0 finding · ruff 通过",
+      "declared": "2026-09-05T12:46:24+00:00"
+    },
+    "TASK-087": {
+      "commits": [
+        {
+          "hash": "4576f8cd8209bb2dd4ecbd3f5200016f35e4c650",
+          "subject": "docs(TASK-087 §6.11): 共享工作树上，切分支和合并要放进独立 worktree",
+          "time": "2026-09-05T12:49:15+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/tasks/active/TASK-087-followup-ledger.md"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "d894939aa28aee7990ee3686317fc99847cecbd1",
+          "subject": "那条 e2e 的红不是噪音：字有 1/5 概率没落盘（TASK-087 §6.12 登记）",
+          "time": "2026-09-05T14:05:52+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "tests/e2e/test_connected_journey_task130.py"
+          ],
+          "scope_violation": [
+            "tests/e2e/test_connected_journey_task130.py"
+          ]
+        },
+        {
+          "hash": "54cf66ad4ae41b16446fbd054fbc9e76af1757ac",
+          "subject": "chore(auto-push): three-pane manifest writeback（TASK-129 切片 2e + TASK-087 §6.12）",
+          "time": "2026-09-05T14:17:30+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/auto-push/changes/three-pane.json"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "fae11933d33a74393f3fded31a3504f6f2c31a0d",
+          "subject": "fix: 存不下的时候不许一声不吭 —— 故事核心的字约 1/5 被静默丢掉",
+          "time": "2026-09-05T14:20:03+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/tests/persistence.test.mjs"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "bc89059ccbd8030b3d072abda38cdec6a8a9c887",
+          "subject": "fix: 载入期间锁住输入 —— 能防住的丢字，不该只靠提示",
+          "time": "2026-09-05T14:20:04+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/tests/persistence.test.mjs"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "330c6ae46c9a6b4b6e121e83c01542789f640a90",
+          "subject": "docs(TASK-087 §6.12/§6.13): 静默丢字修到了一条路径，e2e 复现的那条不是它；再记一条 reset 的取舍",
+          "time": "2026-09-05T14:34:17+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/tasks/active/TASK-087-followup-ledger.md"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        "docs/tasks/active/TASK-087-followup-ledger.md",
+        "mockups/motv-workspace/src/app.js",
+        "mockups/motv-workspace/tests/persistence.test.mjs",
+        "tests/e2e/test_connected_journey_task130.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "本会话（e9）验证的是自己的两条：§6.12/§6.13 台账登记 + reproducer 断言改成二选一（ruff clean；tests/e2e/test_connected_journey_task130.py 反复跑过，红的是被登记的产品缺陷本身）。paths 里的 mockups/motv-workspace/src/app.js 与 tests/persistence.test.mjs 属 visual-try-on-project-2a 的 fae1193，其验证结论由 2a 自己申报，本 ref 不代其声明。",
+      "declared": "2026-09-05T14:34:15+00:00"
+    },
+    "TASK-140": {
+      "commits": [
+        {
+          "hash": "d0f2e42aef439b78d9067eb9aa91a6c7446898da",
+          "subject": "main 的 CI 红了九天：两个根因，都是「本地永远绿」的形状（TASK-140）",
+          "time": "2026-09-05T14:15:36+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            ".claude/tools/agent_harness.py",
+            ".claude/tools/gh-api.py",
+            "docs/STATUS.md",
+            "docs/tasks/active/TASK-134-import-linter-layering-contract.md",
+            "docs/tasks/active/TASK-140-main-ci-has-been-red-for-nine-days.md",
+            "tests/conftest.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "c3cf5fa922d62df548f0e02c683687b72d21bca0",
+          "subject": "fix(tests): 两条只在 CI 上跑得到的测试，断言的是产品从不做的事（TASK-140 簇 D）",
+          "time": "2026-09-05T16:06:44+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/active/TASK-140-main-ci-has-been-red-for-nine-days.md",
+            "tests/contract/test_motv_skillpkg_task075.py",
+            "tests/studio/test_motv_av_m11.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "824ed70b078cb10b17e86b0329d51fb72cccd79e",
+          "subject": "fix(tests): 对话分线的三条断言依赖「run 还没落地」—— 那是时序，不是分线（TASK-140 · three-pane）",
+          "time": "2026-09-05T16:18:23+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/auto-push/changes/three-pane.json",
+            "tests/studio/test_motv_conversation_task109.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "fef6035756bdd2ccfe7ed7ef44137d054cc42919",
+          "subject": "fix(ci): 三条守卫的判定取决于自己跑在哪 —— 那是 AGENTS §3 禁的东西（TASK-140 · three-pane）",
+          "time": "2026-09-05T16:46:35+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            ".claude/tools/gen_docs_status.py",
+            "docs/STATUS.md",
+            "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/active/TASK-140-main-ci-has-been-red-for-nine-days.md",
+            "tests/tooling/test_commit_gate_policy.py",
+            "tests/tooling/test_docs_links.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "81424c2f06a74f95438996b8720c752d4febf79a",
+          "subject": "fix(ci): Windows 的前端测试步骤九天来从没执行过 —— pwsh 不展开通配符（TASK-140 · three-pane）",
+          "time": "2026-09-05T17:09:05+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            ".github/workflows/ci.yml",
+            "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/active/TASK-140-main-ci-has-been-red-for-nine-days.md",
+            "tests/tooling/test_docs_links.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "3e3aabd119c1b0b7157c2fe854681da8a90a8591",
+          "subject": "fix(tests): 那个链接守卫会在两种形状下变瞎（codex 复审两条 P1）+ change/** 纳入 CI 触发面（TASK-140 · three-pane）",
+          "time": "2026-09-05T17:38:00+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            ".github/workflows/ci.yml",
+            "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/active/TASK-140-main-ci-has-been-red-for-nine-days.md",
+            "tests/tooling/test_docs_links.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "e7875cb3ae6ba3d0533d8cc6b4e2c5483ebf6055",
+          "subject": "fix(tests): 不再用正则猜 CommonMark —— 行内代码跨改成照规则扫（TASK-140 · three-pane）",
+          "time": "2026-09-05T17:48:34+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/active/TASK-140-main-ci-has-been-red-for-nine-days.md",
+            "tests/tooling/test_docs_links.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "b3a86caa4a5124572d71d3ef00361ac253144680",
+          "subject": "docs(TASK-140): change/** 当场自证 —— 两个 run 都绿，一个分支自身一个合并结果",
+          "time": "2026-09-05T18:00:43+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/active/TASK-140-main-ci-has-been-red-for-nine-days.md"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        ".claude/tools/agent_harness.py",
+        ".claude/tools/gen_docs_status.py",
+        ".claude/tools/gh-api.py",
+        ".github/workflows/ci.yml",
+        "docs/STATUS.md",
+        "docs/tasks/active/TASK-134-*.md",
+        "docs/tasks/active/TASK-140-*.md",
+        "tests/conftest.py",
+        "tests/contract/test_motv_skillpkg_task075.py",
+        "tests/studio/test_motv_av_m11.py",
+        "tests/studio/test_motv_conversation_task109.py",
+        "tests/tooling/test_commit_gate_policy.py",
+        "tests/tooling/test_docs_links.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "codex 第 2 轮的 P1 判为同一主题更窄变体（ADR-0081 §2b），不买第三轮但修掉整类：正则换成 CommonMark 扫描。17 条形状用例 + 三档变异验证。Windows tests/tooling 402 passed；WSL 3.10 docs 42 passed",
+      "declared": "2026-09-05T17:48:07+00:00"
     }
   },
   "merge_gate": {
-    "status": "PENDING"
+    "status": "PASS",
+    "by": "最终全量在**独立 worktree** @ 4b7ab24 跑（共享树里有八个会话的在制品，在那里跑证明不了已提交状态）：pytest -n 8 not-serial 3996 passed/59 skipped + pytest -m serial 6 passed，两阶段 exit 0；前端 node --test 2185 passed/0 failed；ruff check + format 全仓干净（720 files）；lifecycle_check 0 finding；薄入口 check 五项 unchanged。待复审清单未闭合条目 0（TASK-122/126 那四个自称未经独立审查的提交已分三块补审：块 2a codex 15 轮修 23 条、块 2b 2 轮修 2 条、块 1 2 轮修 6 条，第 6 轮起全为真 codex，独立性未降级）。无未闭合 P1。产品负责人 2026-09-05 定：合并但**不删分支**（八个会话仍在其上作业）",
+    "time": "2026-09-05T11:40:43+00:00",
+    "tip": "4b7ab24527114bd757b21501e85c78715f848fbe"
   },
-  "merge": null,
-  "cleanup": null
+  "merge": {
+    "hash": "cd9ef060e115327e018769c730bfede92caf35c5",
+    "time": "2026-09-05T13:07:46Z",
+    "pushed": true,
+    "note": "手工合并并推送，**没有走 `autopush merge`** —— 那条命令会在**共享工作树**上 `git switch main`，而合并当时有八个会话在同一棵树上作业、三个文件是脏的，切分支轻则失败、重则把别人的在制品带过去。改为在 `git worktree add --detach` 出来的独立目录里完成：跑最终全量 → `checkout -B main origin/main` → `merge --no-ff` → 合并后复验 → `push origin main`。共享树自始至终停在原分支，别人的未提交文件一个没动（合并后核对过）。做法记在 TASK-087 §6.11。"
+  },
+  "cleanup": {
+    "done": false,
+    "note": "**有意跳过分支清理** —— 产品负责人 2026-09-05 决定：合并但不删分支，因为合并时仍有八个会话在 `change/TASK-109-three-pane` 上作业。标准流程最后一步会删本地与远端分支，那会毁掉他们的在制品。"
+  }
 }

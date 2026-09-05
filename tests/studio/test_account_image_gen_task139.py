@@ -41,6 +41,17 @@ _PNG = base64.b64decode(
 )
 _KEY = "AIzaSy-test-key-0123456789abcdef"
 
+#: 跨线程同步的等待上限。**它不是在断言时间，只是在兜住真的挂死。**
+#:
+#: 原值 5 秒：在 `-n 8`、四千多条用例的全量里，另一个会话见过这个文件里的并发用例
+#: 红一次（单跑与轻负载联跑都绿）。5 秒是「一个线程多久能被调度完」的猜测，而机器
+#: 忙的时候这个猜测会输 —— 于是一条断言并发行为的用例，变成了一条断言调度速度的用例。
+#:
+#: 放宽到 60 秒不会让任何一条正常路径变慢（事件一到就返回），只是把「真挂死」的
+#: 判定推后。这与本文件里那条隔离用例的时间戳是同一族教训：**测试自己制造的不确定性
+#: 比被测代码的缺陷更难查，因为它每次红的样子都不一样。**
+_SYNC_TIMEOUT = 60
+
 
 def _interactions_reply(png: bytes = _PNG) -> bytes:
     """文档给的那种形状（Interactions API）。"""
@@ -111,6 +122,12 @@ def srv(tmp_path, monkeypatch):
     envf = tmp_path / "test.env.local"
     envf.write_text("IMAGE_PROVIDER=gemini\n", encoding="utf-8")
     monkeypatch.setattr(credstore, "DEFAULT_ENV_PATH", envf)
+    # **中文 → 英文那一步默认打桩。** 不打的话每条用中文 prompt 的用例都会真的去起
+    # 一次本地 claude —— 实测让这个文件从 1.5 秒变成 144 秒，而且结果不确定、还烧
+    # 他的订阅。翻译本身由下面「编译成英文」那一组用例专门守。
+    # 真件留一份 —— 下面那两条**就是要测它本身**，不能被自己的桩盖住
+    module._real_english_image_prompt = module._english_image_prompt
+    monkeypatch.setattr(module, "_english_image_prompt", lambda p: (f"EN::{p}", None))
     return module
 
 
@@ -253,6 +270,93 @@ def test_an_unknown_provider_is_refused_by_name(srv, app, monkeypatch, tmp_path)
     assert status == 400
     assert "midjourney" in body["error"]["detail"]
     assert calls == []
+
+
+# --- 中文设定要先编译成英文再发出去 ------------------------------------------ #
+#
+# 实测（2026-09-05，同一份人物设定、同一个 seed，只改语言）：中文原样发出去回来的
+# 是和服少女、暖色日式室内；换成英文之后短发 / 黑衬衫 / 冷侧光 / 眼下阴影全部对上。
+# Pollinations 只有 `sana` 一个模型，换模型这条路不存在。
+
+
+def test_the_chinese_setting_is_compiled_to_english_before_it_goes_out(srv, app):
+    _set_key(srv)
+    calls = []
+    srv._https_post = _fake_transport(_interactions_reply(), record=calls)
+    status, body = _post(
+        app,
+        "/api/agent/image-gen-account",
+        {"project": "作品", "slug": "hero", "prompt": "【外貌】短发，黑衬衫"},
+    )
+    assert status == 200, body
+    # 发出去的是编译后的那份
+    sent_payload = json.loads(calls[0][1].decode("utf-8"))
+    assert "EN::" in json.dumps(sent_payload, ensure_ascii=False)
+    # **而且回执要把它给他看**：不给看就是替他换了词还不告诉他
+    assert body["prompt_sent"].startswith("EN::")
+    assert body["translated"] is True
+
+
+def test_an_english_prompt_is_not_recompiled(srv, monkeypatch):
+    """已经是英文就别白跑一次本地模型（它慢，而且每跑一次都是他的机器在算）。"""
+    ran = []
+    monkeypatch.setattr(
+        srv, "_run_executor", lambda *a, **k: (ran.append(1), ("x", None))[1]
+    )
+    assert srv._real_english_image_prompt("short hair, black shirt") == (
+        "short hair, black shirt",
+        None,
+    )
+    assert ran == [], "没有汉字就不该起本地模型"
+
+
+def test_a_failed_compile_generates_nothing_at_all(srv, app, monkeypatch):
+    """**fail-closed**：编译不出英文就一张图都不出。
+
+    硬发中文只会再出一张与设定无关的图，而他要从那张图反推「是设定没写清还是
+    模型不行」几乎不可能 —— 那正是这次真实事故的形状。
+    """
+    _set_key(srv)
+    monkeypatch.setattr(
+        srv, "_english_image_prompt", lambda p: (None, "本地 claude 不可用")
+    )
+    calls = []
+    srv._https_post = _fake_transport(_interactions_reply(), record=calls)
+    status, body = _post(
+        app,
+        "/api/agent/image-gen-account",
+        {"project": "作品", "slug": "hero", "prompt": "【外貌】短发"},
+    )
+    assert status == 503
+    assert body["error"]["category"] == "prompt_translation_failed"
+    assert body["error"]["side_effect"] == "none", "一个字节都没发出去"
+    assert calls == []
+    assert list((app._projects["作品"] / "media").iterdir()) == []
+
+
+def test_a_compile_that_comes_back_still_chinese_is_refused(srv, monkeypatch):
+    """回来还是中文 = 没照做。发出去就是白花一次额度，且图必然不对。"""
+    monkeypatch.setattr(srv, "_run_executor", lambda *a, **k: ("【外貌】短发", None))
+    sent, why = srv._real_english_image_prompt("【外貌】短发")
+    assert sent is None
+    assert "仍然是中文" in why
+
+
+def test_the_ledger_keeps_both_prompts(srv, app):
+    """只记一份都不够：一份对不回他改的哪句话，另一份判不了是不是编译走样。"""
+    _set_key(srv)
+    srv._https_post = _fake_transport(_interactions_reply())
+    _post(
+        app,
+        "/api/agent/image-gen-account",
+        {"project": "作品", "slug": "hero", "prompt": "【外貌】短发"},
+    )
+    line = json.loads(
+        srv._ACCOUNT_IMAGE_LOG.read_text("utf-8").strip().splitlines()[-1]
+    )
+    assert line["prompt"].startswith("【外貌】")
+    assert line["prompt_sent"].startswith("EN::")
+    assert line["translated"] is True
 
 
 # --- 报文形状 ---------------------------------------------------------------- #
@@ -470,7 +574,7 @@ def test_the_same_intent_in_flight_is_not_sent_twice(srv, app):
     def slow(url, body, headers, timeout):
         calls.append(url)
         started.set()
-        release.wait(5)
+        release.wait(_SYNC_TIMEOUT)
         return 200, _interactions_reply()
 
     srv._https_post = slow
@@ -482,14 +586,14 @@ def test_the_same_intent_in_flight_is_not_sent_twice(srv, app):
 
     t = threading.Thread(target=first_request)
     t.start()
-    assert started.wait(5)
+    assert started.wait(_SYNC_TIMEOUT)
 
     status, body = _post(app, "/api/agent/image-gen-account", payload)
     assert status == 409
     assert body["error"]["category"] == "in_flight"
 
     release.set()
-    t.join(10)
+    t.join(_SYNC_TIMEOUT)
     assert out["status"] == 200
     assert len(calls) == 1  # 只出去了一次
 
@@ -744,7 +848,7 @@ def test_a_duplicate_during_the_save_window_does_not_generate_again(srv, app):
 
     def slow_claim(d, slug, ext):
         entered.set()
-        release.wait(5)
+        release.wait(_SYNC_TIMEOUT)
         return real_claim(d, slug, ext)
 
     srv._claim_version = slow_claim
@@ -756,7 +860,7 @@ def test_a_duplicate_during_the_save_window_does_not_generate_again(srv, app):
 
     t = threading.Thread(target=first_request)
     t.start()
-    assert entered.wait(5)  # 第一次已经生成完、正卡在落盘中
+    assert entered.wait(_SYNC_TIMEOUT)  # 第一次已经生成完、正卡在落盘中
 
     status, body = _post(app, "/api/agent/image-gen-account", payload)
     assert status == 409
@@ -764,7 +868,7 @@ def test_a_duplicate_during_the_save_window_does_not_generate_again(srv, app):
     assert len(calls) == 1  # 第二次没有再去生成
 
     release.set()
-    t.join(10)
+    t.join(_SYNC_TIMEOUT)
     assert out["status"] == 200
 
 

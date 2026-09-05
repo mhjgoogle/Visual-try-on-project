@@ -48,13 +48,6 @@ REPO = Path(__file__).resolve().parents[2]
 MOCKUP = REPO / "mockups" / "motv-workspace"
 UI = MOCKUP / "src" / "ui"
 ACTIONS_JS = MOCKUP / "src" / "workflow" / "convactions.js"
-TASK_129 = (
-    REPO
-    / "docs"
-    / "tasks"
-    / "backlog"
-    / "TASK-129-settings-structure-writes-into-the-table.md"
-)
 
 #: 故事开发侧的动作前缀（ADR-0096 决策 1 的范围）。剧集侧的 `shot.* / blocking.*`
 #: 归 TASK-128 —— 列在这里是为了让「哪些还没证」是**显式**的，不是遗漏。
@@ -90,6 +83,10 @@ CONVERTED_BINDERS = {
         "function bindWorldWs(root, ctx, ui, rerender = () => {}) {",
     ),
     "biblews.js": ("biblews.js", "function bindBibleWs(root, ctx, ui, rerender) {"),
+    "workspaces.js#settings": (
+        "workspaces.js",
+        "function bindSettings(root, ctx, ui = {}) {",
+    ),
     # TASK-129 切片 2：关系的**结构**（建 / 删 / 拿回来 / 改方向）进表了。
     # 删除同时从硬删除改成了软删除 + 回收区 —— 「不可逆的不许进表」那道准入检查
     # 因此不是被绕过，是先把它变成可逆的（AGENTS.md §1「回不了头是缺陷」）。
@@ -98,26 +95,15 @@ CONVERTED_BINDERS = {
     # （`beat.text` / `beat.character` / `beat.relationship`）。第四个名字 `stamp`
     # 留在 `ALLOWED_DIRECT` 里，理由写在那儿 —— 它是裁决，不是数据写。
     "epplanws.js": ("epplanws.js", "function bindEpPlanWs(root, ctx, ui, rerender) {"),
-}
-
-#: 未接线的 bind 函数：直接写的**种类**钉死在这里 —— 只能减少，不能增加。
-#: 每一份名单原样抄在 TASK-129 里（下面有测试钉住这一点）。
-DEFERRED_BINDERS = {
-    "workspaces.js#settings": (
-        "workspaces.js",
-        "function bindSettings(root, ctx, ui = {}) {",
-        # 切片 2c 划掉实体本身那 6 个，切片 2d 又划掉 10 个（状态、参考图、声音）。
-        # **只剩这两个**，而且它们剩下的原因是同一件事：
-        #
-        # 状态级参考图那四个入口（`data-b-ovref*`）自己算出一份新的 overrides，
-        # 再经 `setCharacterStateOverrides` 写下去。要把它们接进表，得先把
-        # `nextStateRefsOnAdd`（「加一张次要参考图永远不顶掉当前主图」那条纯决策，
-        # 现在住在 `ui/workspaces.js` 并在那儿有单测）搬进 workflow 层 ——
-        # 否则 `workflow/convactions.js` 会反过来 import `ui/`，撞 CA §2 的依赖方向。
-        #
-        # 那是一次跨层搬迁 + 测试跟着搬，不是接线，所以单独一片做。记在卡上。
-        frozenset({"setCharacterStateOverrides", "setLocationStateOverrides"}),
-    ),
+    # TASK-129 切片 2e：最后一个未接线的 binder 也进来了。它拖到最后是因为
+    # 状态级参考图那四个入口要先做一次**跨层搬迁** —— 「加一张次要参考图永远不
+    # 顶掉当前主图」那条纯决策原本住在 `ui/workspaces.js`，动作表要用它就得
+    # `workflow` 反向 import `ui/`，撞 CA §2 的依赖方向。决策搬进
+    # `workflow/bibledoc.js` 之后，四个入口才接得上。
+    #
+    # 「未接线名单」连同它的棘轮一起删了：名单空了，`test_deferred_*` 三条
+    # 就再也不会红 —— 留着等于养一条永远绿的测试（AGENTS.md §26）。真正的
+    # 保护现在只剩下面这一条，而且它更严：已接线的 binder **一个直接写都不许有**。
 }
 
 #: 直接写的形状。读（`doc()` / `find` / 常量）不算 —— 见 ALLOWED_DIRECT。
@@ -299,45 +285,6 @@ def test_converted_binders_have_no_direct_writes(key):
     fname, signature = CONVERTED_BINDERS[key]
     writes = sorted(_direct_writes(fname, signature))
     assert not writes, f"{key} 直接调了写函数，绕过了动作表：{writes}"
-
-
-# --- 4b. 未接线的 bind 函数：棘轮 —— 只能减少，不能增加 -------------------------- #
-
-
-@pytest.mark.parametrize("key", sorted(DEFERRED_BINDERS))
-def test_deferred_binders_only_shrink(key):
-    fname, signature, pinned = DEFERRED_BINDERS[key]
-    writes = _direct_writes(fname, signature)
-    new = sorted(writes - pinned)
-    assert not new, (
-        f"{key} 出现了新的直接写 {new} —— 新写只能经动作表（uiAct）。"
-        "已有的那些在 TASK-129 里等着接，不许再长。"
-    )
-
-
-def test_deferred_writes_are_each_recorded_on_the_card():
-    """棘轮里的每一个名字都要原样出现在 TASK-129 上。
-
-    「记下去向」不是一句话，是逐条。
-    """
-    assert TASK_129.exists(), "TASK-129 不在 backlog/ —— 未接线的写没有去向"
-    card = TASK_129.read_text("utf-8")
-    missing = sorted(
-        name
-        for _f, _sig, pinned in DEFERRED_BINDERS.values()
-        for name in pinned
-        if f"`{name}`" not in card
-    )
-    assert not missing, f"这些未接线的写没有记在 TASK-129 上：{missing}"
-
-
-def test_deferred_lists_do_not_carry_dead_names():
-    """棘轮反过来也要真：名单里的名字必须还在代码里，否则它是已经接好却忘了从名单里划掉的。"""
-    stale = []
-    for key, (fname, signature, pinned) in DEFERRED_BINDERS.items():
-        present = _direct_writes(fname, signature)
-        stale += [f"{key}:{n}" for n in sorted(pinned - present)]
-    assert not stale, f"这些已经不再直接写了 —— 从棘轮名单与 TASK-129 里划掉：{stale}"
 
 
 def test_ui_act_is_one_implementation_and_speaks_as_ui():

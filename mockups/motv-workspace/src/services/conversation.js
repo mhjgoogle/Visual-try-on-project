@@ -58,6 +58,33 @@ export async function sendTurn(project, message, context) {
   };
 }
 
+/**
+ * 一条针对某个页面元素的意见 —— **直接进台账，不跑模型**（TASK-132）。
+ *
+ * 和 `sendTurn` 是两条路，故意不合并：那条要起一轮运行、由模型从回答里把
+ * `feedback.ui` 摘出来，于是「他写的那句话能不能被记下」取决于模型这一轮的表现。
+ * 一条意见的原文是**他的东西**，不该由模型的成败决定它存不存在。
+ *
+ * `annotationId` 由调用方生成并在重试时**保持不变** —— 服务端按它幂等，所以
+ * 重发不会产生第二条意见。刻意不借用 `runId`：那是模型某一轮的身份，为了迁就
+ * 现有去重而伪造一个，会让两条本来无关的路径共用一个命名空间。
+ *
+ * 和 `sendTurn` 一样**不抛异常**：写失败必须变成屏幕上说得出的一句话，
+ * 而不是一个被吞掉的 promise。
+ */
+export async function fileElementFeedback({ project, text, annotationId, context }) {
+  const body = String(text || "").trim();
+  if (!body) return { ok: false, error: { detail: "先写一句话" } };
+  if (!annotationId) return { ok: false, error: { detail: "缺 annotationId" } };
+  const res = await attempt("/api/feedback/element", {
+    method: "POST",
+    body: { annotationId, project: project || "", text: body, ...(context ? { context } : {}) },
+  });
+  if (!res.ok) return { ok: false, error: res.error };
+  const data = res.data || {};
+  return { ok: true, id: data.id, duplicate: data.duplicate === true, error: null };
+}
+
 /** One run's current state. This is the read the frontend never had (TASK-106):
  *  without it, 「Agent 正在做什么」 could only be guessed from a spinner.
  *

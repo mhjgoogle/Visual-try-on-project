@@ -38,7 +38,7 @@
 - 剧集制作侧（`epprod.js` / `postconsole.js` 的 `act()` dispatch 走的是 `ctx.actions.dispatch`
   另一套 envelope）→ [TASK-128](../backlog/TASK-128-episode-side-actions-into-the-table.md)。
 - 作品设定的**结构**写（人物 / 场景地的状态与参考图、关系的增删与方向、节拍、改名、软删）
-  → [TASK-129](../backlog/TASK-129-settings-structure-writes-into-the-table.md)。合同里它们是
+  → [TASK-129](../done/TASK-129-settings-structure-writes-into-the-table.md)。合同里它们是
   **只能收缩的棘轮**（`DEFERRED_BINDERS`）：新种类进不来，已有的逐条记在卡上，接一个划一个。
   codex 轮 1 判 REQ-006 判据 1 `PARTIAL`，判得对 —— 缺口写成卡、REQ 里记下去向，
   **不让 PARTIAL 被当成 PASS**（ADR-0088 决策 6）。
@@ -89,7 +89,7 @@ character.*` 等**故事侧**动作我并没有在卡上排除。判得对。扩
 | --- | --- | --- |
 | 「只有 Agent 能调」 | `character.fields / location.fields / relationship.fields / world.fields / settings.delivery` 界面上没有按钮走它 | 人物 / 场景地档案栏（`workspaces.js#bindSettings`）、关系栏（`relws.js`）、世界观栏（`worldws.js`）、⚙ 成片规格（`production.js#bind`）全部改走 `uiAct`；`relationship.fields` 加可选 `relationshipId`（界面手里有 id，不必按两个名字反查） |
 | 「只有界面能做」 | 创意简报 6 处 / 大纲 5 处 / 人物 2 / 场景地 1 / 分集规划 2 + 6 直接调 `ctx.*` | 新增 **9 条动作**：`brief.commit` · `character.add` · `character.tier` · `location.add` · `plan.discard` · `plan.item.add / edit / beat / remove`；共享适配器 `ui/uiact.js`（一份实现，`production.js` 委托它） |
-| 第三块面 | `workspaces.js#bindSettings` 还有 18 种结构写（状态 / 参考图 / 改名 / 软删 / 声音 / 覆盖），`relws` 3 种，`epplanws` 节拍 4 种 | **不塞进本卡**：那是带实体身份的增删，进表前要逐条核可逆性 → [TASK-129](../backlog/TASK-129-settings-structure-writes-into-the-table.md)。合同里做成**棘轮**：`DEFERRED_BINDERS` 钉死这 25 个名字，只能减少不能增加，且每个名字必须原样出现在 TASK-129 上（两条测试互为反向：新名字进不来、接好的必须划掉） |
+| 第三块面 | `workspaces.js#bindSettings` 还有 18 种结构写（状态 / 参考图 / 改名 / 软删 / 声音 / 覆盖），`relws` 3 种，`epplanws` 节拍 4 种 | **不塞进本卡**：那是带实体身份的增删，进表前要逐条核可逆性 → [TASK-129](../done/TASK-129-settings-structure-writes-into-the-table.md)。合同里做成**棘轮**：`DEFERRED_BINDERS` 钉死这 25 个名字，只能减少不能增加，且每个名字必须原样出现在 TASK-129 上（两条测试互为反向：新名字进不来、接好的必须划掉） |
 
 **允许留在表外、逐条写了理由的**：裁决类 `applyProposal / discardProposal / cancel /
 restoreBriefDraft / confirm`（Agent 不得替创作者接受自己的提案、不得静默定稿，IA §8.3）；

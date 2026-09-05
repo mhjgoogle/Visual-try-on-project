@@ -193,6 +193,12 @@ function fakeCtx() {
       updateCharacterProfile: (id, f) => bibledoc.updateCharacterProfile(prod, id, f),
       addLocation: (name) => bibledoc.addLocation(prod, name),
       updateLocationProfile: (id, f) => bibledoc.updateLocationProfile(prod, id, f),
+      addCharacterState: (id, name) => bibledoc.addCharacterState(prod, id, name),
+      setCharacterStateOverrides: (id, sid, ov) =>
+        bibledoc.setCharacterStateOverrides(prod, id, sid, ov),
+      addLocationState: (id, name) => bibledoc.addLocationState(prod, id, name),
+      setLocationStateOverrides: (id, sid, ov) =>
+        bibledoc.setLocationStateOverrides(prod, id, sid, ov),
     },
     canon: {
       addRelationship: (a, b) => canondoc.addRelationship(prod, a, b),
@@ -345,4 +351,273 @@ test("往写满的正文后面追加：拒绝，而不是悄悄切掉追加的�
     /追加后会有 \d+ 字.*一个字都没有写进去/s,
   );
   assert.equal(doc.work.units[0].body.length, swork.UNIT_MAX, "被拒的那次动了正文");
+});
+
+// ---- 状态级参考图：四个入口（TASK-129 切片 2e） ----------------------------- //
+//
+// 这四条以前只有界面走得到 —— 算法住在 `ui/workspaces.js`。搬进 workflow 层之后
+// Agent 也能走了，所以这里测的是**动作**，不是界面：同一份决策，两条路进来。
+
+/** 一个带状态、且状态上还没有自己参考图列表的人物。 */
+function withState(ctx, primary = "asset-base") {
+  const c = bibledoc.addCharacter(ctx.prod, "林照", "main");
+  c.activeReferenceAssetId = primary;
+  c.referenceAssetIds = [primary];
+  const st = bibledoc.addCharacterState(ctx.prod, c.characterId, "受伤");
+  return { c, st };
+}
+
+test("状态挂参考图：第一张成主图，之后的不顶掉它", () => {
+  const ctx = fakeCtx();
+  const { c, st } = withState(ctx);
+  runAction(ctx, "character.state.reference.add", {
+    name: "林照", state: "受伤", assetId: "asset-x",
+  });
+  let ov = ctx.prod.characters[0].states[0].overrides;
+  // 第一张：继承来的主图不在这份新清单里 → 它自己当主图
+  assert.deepEqual(ov.referenceAssetIds, ["asset-x"]);
+  assert.equal(ov.activeReferenceAssetId, "asset-x");
+  runAction(ctx, "character.state.reference.add", {
+    name: "林照", state: "受伤", assetId: "asset-y",
+  });
+  ov = ctx.prod.characters[0].states[0].overrides;
+  assert.deepEqual(ov.referenceAssetIds, ["asset-x", "asset-y"]);
+  assert.equal(ov.activeReferenceAssetId, "asset-x", "加次要图把主图顶掉了");
+  // 寻址两条路都要通：名字走过了，id 也要走得通
+  assert.equal(st.stateId, ctx.prod.characters[0].states[0].stateId);
+  runAction(ctx, "character.state.reference.add", {
+    name: c.characterId, state: st.stateId, assetId: "asset-z",
+  });
+  assert.equal(ctx.prod.characters[0].states[0].overrides.referenceAssetIds.length, 3);
+});
+
+test("状态挂参考图：重复挂、缺参数、认不出的状态，都要报出来", () => {
+  const ctx = fakeCtx();
+  withState(ctx);
+  const add = (a) => runAction(ctx, "character.state.reference.add", a);
+  add({ name: "林照", state: "受伤", assetId: "asset-x" });
+  assert.throws(() => add({ name: "林照", state: "受伤", assetId: "asset-x" }), /已经有/);
+  assert.throws(() => add({ name: "林照", state: "受伤", assetId: "  " }), /没说挂哪张/);
+  assert.throws(() => add({ name: "林照", state: "不存在", assetId: "a" }), /没有状态/);
+  assert.throws(() => add({ name: "查无此人", state: "受伤", assetId: "a" }), /没有「查无此人」/);
+});
+
+test("摘掉主图时主图位让给下一张；摘光了就没有主图", () => {
+  const ctx = fakeCtx();
+  withState(ctx);
+  for (const id of ["a", "b"]) {
+    runAction(ctx, "character.state.reference.add", { name: "林照", state: "受伤", assetId: id });
+  }
+  const ov = () => ctx.prod.characters[0].states[0].overrides;
+  assert.equal(ov().activeReferenceAssetId, "a");
+  runAction(ctx, "character.state.reference.remove", { name: "林照", state: "受伤", assetId: "a" });
+  assert.deepEqual(ov().referenceAssetIds, ["b"]);
+  assert.equal(ov().activeReferenceAssetId, "b", "主图被摘掉后指针没让位");
+  runAction(ctx, "character.state.reference.remove", { name: "林照", state: "受伤", assetId: "b" });
+  assert.deepEqual(ov().referenceAssetIds, []);
+  assert.equal(ov().activeReferenceAssetId, null);
+  assert.throws(
+    () => runAction(ctx, "character.state.reference.remove", {
+      name: "林照", state: "受伤", assetId: "b",
+    }),
+    /没有这张图/,
+  );
+});
+
+test("换主图只能在这个状态自己挂着的那几张里选", () => {
+  const ctx = fakeCtx();
+  withState(ctx);
+  for (const id of ["a", "b"]) {
+    runAction(ctx, "character.state.reference.add", { name: "林照", state: "受伤", assetId: id });
+  }
+  runAction(ctx, "character.state.reference.setActive", {
+    name: "林照", state: "受伤", assetId: "b",
+  });
+  assert.equal(ctx.prod.characters[0].states[0].overrides.activeReferenceAssetId, "b");
+  // 指向一张它没挂的图 = 一个指不到东西的主图指针
+  assert.throws(
+    () => runAction(ctx, "character.state.reference.setActive", {
+      name: "林照", state: "受伤", assetId: "asset-base",
+    }),
+    /没有挂这张图/,
+  );
+});
+
+test("改回继承：两个键一起撤，不留下指着不存在清单的主图", () => {
+  const ctx = fakeCtx();
+  withState(ctx);
+  runAction(ctx, "character.state.reference.add", { name: "林照", state: "受伤", assetId: "a" });
+  const st = () => ctx.prod.characters[0].states[0];
+  assert.ok("activeReferenceAssetId" in st().overrides);
+  runAction(ctx, "character.state.reference.reset", { name: "林照", state: "受伤" });
+  assert.equal("referenceAssetIds" in st().overrides, false);
+  assert.equal("activeReferenceAssetId" in st().overrides, false, "清单撤了，主图指针还留着");
+  assert.throws(
+    () => runAction(ctx, "character.state.reference.reset", { name: "林照", state: "受伤" }),
+    /本来就在继承/,
+  );
+});
+
+test("场景地走的是同一份实现 —— 两边不该有第二套语义", () => {
+  const ctx = fakeCtx();
+  const l = bibledoc.addLocation(ctx.prod, "太极殿");
+  bibledoc.addLocationState(ctx.prod, l.locationId, "夜");
+  runAction(ctx, "location.state.reference.add", { name: "太极殿", state: "夜", assetId: "a" });
+  runAction(ctx, "location.state.reference.add", { name: "太极殿", state: "夜", assetId: "b" });
+  const ov = ctx.prod.locations[0].states[0].overrides;
+  assert.deepEqual(ov.referenceAssetIds, ["a", "b"]);
+  assert.equal(ov.activeReferenceAssetId, "a");
+});
+
+test("摘掉的是**继承来的**主图时，主图位也要让出去", () => {
+  // codex 2026-09-05 审出来的：上一版只比对 overrides 里**显式**写的那张主图。
+  // 于是「基础主图 a、状态覆盖清单 ["a","b"]、摘掉 a」之后，指针还继承着 a，
+  // 而 a 已经不在清单里了 —— 一个指向非成员的主图。
+  //
+  // 判据是「**生效的**那张还在不在清单里」，显式那张只是它的一个特例。
+  const ctx = fakeCtx();
+  const { c, st } = withState(ctx, "asset-base");
+  // 造一份「含继承主图、但自己没写 activeReferenceAssetId」的覆盖
+  ctx.bible.setCharacterStateOverrides(c.characterId, st.stateId, {
+    referenceAssetIds: ["asset-base", "b"],
+  });
+  const ov = () => ctx.prod.characters[0].states[0].overrides;
+  assert.equal("activeReferenceAssetId" in ov(), false, "前置条件：这个状态还在继承主图");
+  runAction(ctx, "character.state.reference.remove", {
+    name: "林照", state: "受伤", assetId: "asset-base",
+  });
+  assert.deepEqual(ov().referenceAssetIds, ["b"]);
+  assert.equal(ov().activeReferenceAssetId, "b", "继承来的主图被摘掉后指针没让位");
+});
+
+test("摘图不动那张还在清单里的继承主图", () => {
+  // 反方向：生效的主图没被摘，就不该凭空写出一个显式指针来 ——
+  // 那会把「继承」悄悄变成「覆盖」，之后改基础主图这个状态就不跟了。
+  const ctx = fakeCtx();
+  const { c, st } = withState(ctx, "asset-base");
+  ctx.bible.setCharacterStateOverrides(c.characterId, st.stateId, {
+    referenceAssetIds: ["asset-base", "b"],
+  });
+  runAction(ctx, "character.state.reference.remove", {
+    name: "林照", state: "受伤", assetId: "b",
+  });
+  const ov = ctx.prod.characters[0].states[0].overrides;
+  assert.deepEqual(ov.referenceAssetIds, ["asset-base"]);
+  assert.equal("activeReferenceAssetId" in ov, false, "继承被悄悄改成了覆盖");
+});
+
+test("他显式选了「不要主图」，摘掉一张次要图不该替他改主意", () => {
+  // codex 审查轮 2。摘图**从不凭空造出主图** —— 它只在「本来有一张、现在它没了」
+  // 时补位。与加图那侧刻意不同：加图时清单在变长，让新的一张顶上顺理成章；
+  // 摘图时什么都没多出来，把 `null` 改成某一张就是替他做主。
+  const ctx = fakeCtx();
+  const { c, st } = withState(ctx, "asset-base");
+  ctx.bible.setCharacterStateOverrides(c.characterId, st.stateId, {
+    referenceAssetIds: ["a", "b"],
+    activeReferenceAssetId: null,
+  });
+  runAction(ctx, "character.state.reference.remove", {
+    name: "林照", state: "受伤", assetId: "b",
+  });
+  const ov = ctx.prod.characters[0].states[0].overrides;
+  assert.deepEqual(ov.referenceAssetIds, ["a"]);
+  assert.equal(ov.activeReferenceAssetId, null, "「不要主图」被摘图动作改掉了");
+});
+
+test("基础档案本来就没有主图时，摘图也不该造一个出来", () => {
+  // 同一条规矩的继承版：继承来的主图是 `null`，摘掉一张次要图之后仍然是没有主图。
+  const ctx = fakeCtx();
+  const c = bibledoc.addCharacter(ctx.prod, "无照", "main");
+  c.activeReferenceAssetId = null;
+  c.referenceAssetIds = [];
+  const st = bibledoc.addCharacterState(ctx.prod, c.characterId, "夜");
+  ctx.bible.setCharacterStateOverrides(c.characterId, st.stateId, {
+    referenceAssetIds: ["a", "b"],
+  });
+  runAction(ctx, "character.state.reference.remove", {
+    name: "无照", state: "夜", assetId: "b",
+  });
+  const ov = ctx.prod.characters[0].states[0].overrides;
+  assert.deepEqual(ov.referenceAssetIds, ["a"]);
+  assert.equal("activeReferenceAssetId" in ov, false, "继承状态被摘图变成了覆盖");
+});
+
+test("加图那侧相反：他选了「不要主图」时，第一张加进来的就是主图", () => {
+  // 两侧的**反应**不同是有意的，各自钉一条，免得日后有人「统一」掉。
+  const ctx = fakeCtx();
+  const { c, st } = withState(ctx, "asset-base");
+  ctx.bible.setCharacterStateOverrides(c.characterId, st.stateId, {
+    referenceAssetIds: [],
+    activeReferenceAssetId: null,
+  });
+  runAction(ctx, "character.state.reference.add", {
+    name: "林照", state: "受伤", assetId: "x",
+  });
+  const ov = ctx.prod.characters[0].states[0].overrides;
+  assert.equal(ov.activeReferenceAssetId, "x");
+});
+
+test("往返：加了再摘是显式空清单，再 reset 才回到继承", () => {
+  // codex 审查轮 3 报这条是「add 的逆动作没把状态还原」。**行为不改，说法改。**
+  //
+  // 「显式的空清单」和「继承基础清单」是两种不同的状态，而且都合法：前者是
+  // 「这个状态一张参考图都不要」，后者是「跟着基础走」。让摘光自动回到继承，
+  // 等于把前者变成一句说不出来的话 —— 那不是修复可逆性，是删掉一种能力。
+  //
+  // 可逆性靠的是**回得去**，不是「逆动作恰好一步」：`.reset` 就是那条路，
+  // 界面上是「恢复继承基础参考图」那个按钮，refs 非 null 时一直可见。
+  const ctx = fakeCtx();
+  const { c, st } = withState(ctx, "asset-base");
+  const ov = () => ctx.prod.characters[0].states[0].overrides;
+  assert.equal("referenceAssetIds" in ov(), false, "前置条件：这个状态在继承");
+
+  runAction(ctx, "character.state.reference.add", {
+    name: "林照", state: "受伤", assetId: "x",
+  });
+  runAction(ctx, "character.state.reference.remove", {
+    name: "林照", state: "受伤", assetId: "x",
+  });
+  // 摘光 ≠ 继承：这一步之后是「显式地一张都不要」
+  assert.deepEqual(ov().referenceAssetIds, []);
+  assert.equal(ov().activeReferenceAssetId, null);
+
+  runAction(ctx, "character.state.reference.reset", { name: "林照", state: "受伤" });
+  // 这一步才回到出发点，而且是**逐字**回到：两个键都不在了
+  assert.deepEqual(ov(), {}, "reset 之后没有回到继承");
+  assert.equal(st.stateId, ctx.prod.characters[0].states[0].stateId);
+});
+
+test("往返：状态本来就有自己的清单时，加了再摘就是原样", () => {
+  // 这一条才是「remove 是 add 的逆」真正成立的情形，单独钉住 ——
+  // 免得上面那条被读成「往返永远不成立」。
+  const ctx = fakeCtx();
+  const { c, st } = withState(ctx, "asset-base");
+  ctx.bible.setCharacterStateOverrides(c.characterId, st.stateId, {
+    referenceAssetIds: ["a", "b"],
+    activeReferenceAssetId: "b",
+  });
+  const before = JSON.parse(JSON.stringify(ctx.prod.characters[0].states[0].overrides));
+  runAction(ctx, "character.state.reference.add", {
+    name: "林照", state: "受伤", assetId: "x",
+  });
+  runAction(ctx, "character.state.reference.remove", {
+    name: "林照", state: "受伤", assetId: "x",
+  });
+  assert.deepEqual(ctx.prod.characters[0].states[0].overrides, before, "往返没有还原");
+});
+
+test("往返：换主图再换回去，一张图都没增减", () => {
+  const ctx = fakeCtx();
+  const { c, st } = withState(ctx, "asset-base");
+  ctx.bible.setCharacterStateOverrides(c.characterId, st.stateId, {
+    referenceAssetIds: ["a", "b"],
+    activeReferenceAssetId: "a",
+  });
+  const before = JSON.parse(JSON.stringify(ctx.prod.characters[0].states[0].overrides));
+  for (const id of ["b", "a"]) {
+    runAction(ctx, "character.state.reference.setActive", {
+      name: "林照", state: "受伤", assetId: id,
+    });
+  }
+  assert.deepEqual(ctx.prod.characters[0].states[0].overrides, before);
 });

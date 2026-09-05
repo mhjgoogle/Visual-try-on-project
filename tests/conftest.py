@@ -40,9 +40,29 @@ import tempfile
 from pathlib import Path
 
 
+def _is_wsl2() -> bool:
+    """这个优化**只给 WSL2**，判据是内核字符串，不是「有没有 tmpfs」。
+
+    原来的判据是「`/dev/shm` 可写就用它」，注释里写着「CI 上没有可写 tmpfs，
+    所以是 no-op」——**那句话是错的**：GitHub 的 ubuntu runner 有可写 `/dev/shm`。
+    于是 CI 上每个 `tmp_path` 都落进 `/dev/shm/…`，而 `rootadmit` 的保护清单里有
+    `/dev`（产品规则：用户资产不许放进系统目录）——**测试自己的临时目录被产品自己的
+    安全规则拒了**，Ubuntu job 因此 82 failed + 14 errors，从 8/24 起连红九天
+    （TASK-140 取证：日志里逐条都是「这是受保护的系统或仓库目录…：/dev」）。
+
+    本地（Windows）永远看不到，因为这段在非 POSIX 上本来就不生效。
+    """
+    try:
+        return "microsoft" in Path("/proc/sys/kernel/osrelease").read_text().lower()
+    except OSError:
+        return False
+
+
 def _tmpfs_basetemp(config) -> None:
     if getattr(config.option, "basetemp", None):
         return  # respect an explicit --basetemp
+    if not _is_wsl2():
+        return  # 只有 WSL2 需要它；别处（CI / 原生 Linux）用 pytest 的默认根
     shm = Path("/dev/shm")
     if not (shm.is_dir() and os.access(shm, os.W_OK)):
         return  # no tmpfs here — keep pytest's default temp root

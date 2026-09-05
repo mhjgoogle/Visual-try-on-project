@@ -23,7 +23,7 @@
 <!-- current-truth: strategy -->
 原 M1 最小闭环已完成并冻结为基础；WFM1 增量加入可复用短剧流程与云端默认生产路线；创作者 Studio 按 ADR-0066 四阶段落成产品界面；会花钱的能力按 Accepted ADR 逐个命令开门。
 <!-- current-truth: milestone -->
-创作者 Studio 单一路径收敛，五个垂直切片依次推进（① 当前事实收口 → ② run_id 前端闭环 → ③ Candidate/QC/Final 闭环 → ④ 一份 Surface/Command Manifest → ⑤ 单一路径 + Connected Project 验收），**不增加新的顶层页面**；现在在切片 ①（TASK-125）。
+创作者 Studio 单一路径收敛，五个垂直切片依次推进（① 当前事实收口 → ② run_id 前端闭环 → ③ Candidate/QC/Final 闭环 → ④ 一份 Surface/Command Manifest → ⑤ 单一路径 + Connected Project 验收），**不增加新的顶层页面**；**切片 ① 已收口**（TASK-125 进 `done/`，2026-09-05）；现在在**切片 ②**（TASK-106：刷新后还在跑的那一轮被接回来 —— 机制与自动化已闭合，剩真实项目上的人工走查）。
 
 ---
 

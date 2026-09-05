@@ -86,7 +86,14 @@ export function canvasModel(ctx) {
       shotId: s.shotId,
       seq: s.seq,
       title: s.title || s.shotId,
-      poster: s.poster || null,
+      // **`s.poster` 这个字段不存在。** `episodeShots` 摊平的是 `storyboardModel`
+      // 的镜头，那上面当前画面叫 `thumb` —— 于是这张卡从上线起就永远显示
+      //「还没有画面」，哪怕关键帧早就打了勾（TASK-087 §5.19 记的就是这一条）。
+      //
+      // 本来不在 TASK-139 范围内（AGENTS.md 第 17 条），**但它挡住这张卡上的出图
+      // 按钮**：出完图卡片仍说「还没有画面」，他会以为没成功、再点一次 ——
+      // 而那是一次真的重复消耗。所以按第 17 条的例外就地修掉，只改这一处取值。
+      poster: s.poster || s.thumb || null,
       blockers: shotBlockers(pd, s),
       steps,
       next: steps.find((x) => x.state !== "done") || null,
@@ -218,6 +225,17 @@ function generate(m) {
         `<span class="t">${esc(c.title)}</span></div>` +
         `<div class="ec-steps">${dots}</div>` +
         (c.blockers.length ? `<div class="ec-block">⚠ ${esc(c.blockers[0].text)}</div>` : "") +
+        // ✨ 出图（TASK-139 / REQ-008 判据 1）。**只在这一镜还没有画面时出现** ——
+        // 卡上那句「还没有画面」就是它要填的那个洞，填完它就该消失，而不是长期占位。
+        //
+        // 它没有违反「一镜一张卡，一个主按钮」：主按钮仍然是「下一步」。这一颗是
+        // 那句「还没有画面」的直接出口 —— 否则他要先做草图、再做白膜，才走得到
+        // 能出图的那一页（产品负责人 2026-09-05：「我还是没有找到啊」）。
+        (c.poster
+          ? ""
+          : `<button class="btn sm ec-gen" data-ec-gen="${esc(c.shotId)}" ` +
+            `title="自动生成这一镜的画面（免费 · 不产生账单；来源见 .env.local 的 IMAGE_PROVIDER）">` +
+            `✨ 出图</button>`) +
         (c.next
           ? `<button class="btn sm ec-go" data-ec-step="${esc(c.shotId)}:${esc(c.next.goto)}">` +
             `${esc(c.next.label === "视频" ? "生成视频" : `做${c.next.label}`)}</button>`

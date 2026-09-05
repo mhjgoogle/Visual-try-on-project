@@ -13,9 +13,13 @@ name: CI
 # FFmpeg-dependent tests self-skip when ffmpeg is absent, so we install it on both
 # runners to actually exercise the render/ffprobe paths.
 
+# 触发面里必须有 `change/**`（TASK-140）。此前只有 main 与 feat/**，而本仓库的
+# 日常工作全在 `change/**` 上 —— 于是一条改动**第一次遇到 CI 是它已经合进 main**
+# 之后，那正是 main 连红九天没人看见的机制性原因：唯一会喊的地方在最晚的时刻。
+# 公开仓库的 Actions 分钟数不计费，所以这条不构成花钱决定（AGENTS §1）。
 on:
   push:
-    branches: [main, "feat/**"]
+    branches: [main, "feat/**", "change/**"]
   pull_request:
   workflow_dispatch:
 
@@ -59,6 +63,13 @@ jobs:
       - name: Pytest (serial process-tree tests)
         run: python -m pytest -q -m serial
       - name: Frontend unit tests (motv mockup)
+        # bash **在 Windows job 上也用** —— 这一步在这台机器上从来没跑过。
+        # 默认 shell 是 pwsh，而 PowerShell 不替原生命令展开通配符：node 拿到的
+        # 是字面量 `…/tests/*.test.mjs`，报 Could not find 并 exit 1。九天里它一直
+        # 被前面失败的 pytest 挡着显示为 skipped，所以没人看见（TASK-140）。
+        # 不改成引号让 node 自己 glob —— 那要 Node 21+，而这里钉的是 20。
+        # 两个 job 因此跑**同一条命令、同一个 shell**（ADR-0062 决策 3 的形状）。
+        shell: bash
         run: node --test mockups/motv-workspace/tests/*.test.mjs
 
   linux:

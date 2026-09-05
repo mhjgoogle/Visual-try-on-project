@@ -665,6 +665,79 @@ export function undeleteReferenceAsset(prod, entityId, assetId) {
   return true;
 }
 
+/** 这个状态**生效的主图**是哪一张：自己写了 `activeReferenceAssetId` 就用它，
+ *  没写就继承基础档案那张；显式的 `null` 表示「他选了不要主图」。
+ *
+ *  加图与摘图共用的是这条**定义**，不是对它的反应 —— 两侧的反应本来就不同，
+ *  见各自的注释（CA §6 要求一份陈述的是定义，把反应也合并才是真的写错）。 */
+function effectivePrimary(entity, overrides) {
+  return "activeReferenceAssetId" in overrides
+    ? overrides.activeReferenceAssetId
+    : entity.activeReferenceAssetId; // 继承来的基础主图
+}
+
+/**
+ * 给一个**状态**加一张参考图之后，它的 overrides 该变成什么样（纯决策）。
+ *
+ * 状态的参考图是对基础档案那份清单的**覆盖**：没写 `referenceAssetIds` 时它继承
+ * 基础的那份，一写就整份接管。
+ *
+ * 规矩只有一条：**加一张次要参考图，永远不顶掉当前生效的主图。**
+ * 「生效的主图」= 状态自己写了就用它，没写就继承基础档案的。只有当生效的那张
+ * 已经不在新清单里（第一次加状态专属图、显式设成「没有主图」、或者原主图被摘掉）
+ * 时，新加的这张才顺位成为主图。
+ *
+ * 重复添加返回 `null`（是空操作，不是失败）。
+ *
+ * **为什么住在这一层**（TASK-129 切片 2e）：它是一条决策，不是渲染。原先它住在
+ * `ui/workspaces.js`，于是动作表要用它就得 `workflow/` 反向 import `ui/` —— 撞
+ * CA §2 的依赖方向。结果是状态级参考图那四个入口一直进不了动作表，棘轮上挂着
+ * `setCharacterStateOverrides` / `setLocationStateOverrides` 两个名字下不来。
+ * 搬过来之后两边都对：UI 只管接线，动作表拿得到同一条决策。
+ */
+export function nextStateRefsOnAdd(entity, overrides, assetId) {
+  const cur = Array.isArray(overrides.referenceAssetIds) ? overrides.referenceAssetIds : [];
+  if (cur.includes(assetId)) return null;
+  const refs = [...cur, assetId];
+  const next = { ...overrides, referenceAssetIds: refs };
+  // **加图**：生效的主图不在新清单里，新加的这张就顶上 —— 包括他显式选了
+  // 「不要主图」的情形（`null`）：那时清单从无到有，第一张自然成为主图。
+  const primary = effectivePrimary(entity, overrides);
+  if (!(primary != null && refs.includes(primary))) next.activeReferenceAssetId = assetId;
+  return next;
+}
+
+/**
+ * 从一个**状态**上摘掉一张参考图之后，它的 overrides 该变成什么样（纯决策）。
+ *
+ * 与 `nextStateRefsOnAdd` 共用同一条「生效的主图」定义，因为**摘图这一侧同样会
+ * 让主图落空**：状态没写自己的 `activeReferenceAssetId` 时它继承基础档案那张，
+ * 而那张完全可能就在状态的覆盖清单里 —— 把它摘掉，生效的主图就指向了一张不在
+ * 清单里的图。
+ *
+ * codex 2026-09-05 审出的正是这一条：上一版只比对 `overrides.activeReferenceAssetId`
+ * （**显式**的那张），于是基础主图 `a`、覆盖清单 `["a","b"]`、摘掉 `a` 之后
+ * 指针依然继承着 `a`，而 `a` 已经不在清单里了。**判据是「生效的那张还在不在清单里」，
+ * 不是「显式那张等不等于被摘的这张」** —— 后者只是前者的一个特例。
+ *
+ * 摘的图不在清单里返回 `null`（调用方据此报错）。
+ */
+export function nextStateRefsOnRemove(entity, overrides, assetId) {
+  const cur = Array.isArray(overrides.referenceAssetIds) ? overrides.referenceAssetIds : null;
+  if (!cur || !cur.includes(assetId)) return null;
+  const refs = cur.filter((x) => x !== assetId);
+  const next = { ...overrides, referenceAssetIds: refs };
+  // **摘图从不凭空造出一个主图** —— 它只在「本来有一张、现在它没了」时补位。
+  // 与加图那侧刻意不同：加图时清单在变长，让新的一张顶上是顺理成章的；摘图时
+  // 什么都没多出来，把他显式选的「不要主图」（`null`）改成某一张就是替他做主。
+  // codex 审查轮 2 报的正是这一条：`{refs:["a","b"], active:null}` 摘掉 `b`，
+  // 上一版会把主图设成 `a`。
+  // 一张不剩时是 `null`（「没有主图」），不是删掉这个键 —— 删掉等于回到继承。
+  const primary = effectivePrimary(entity, overrides);
+  if (primary != null && !refs.includes(primary)) next.activeReferenceAssetId = refs[0] ?? null;
+  return next;
+}
+
 export function setActiveReferenceAsset(prod, entityId, assetId) {
   const e = entityOf(prod, entityId);
   if (!e) return false;

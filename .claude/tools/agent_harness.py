@@ -680,7 +680,13 @@ def write_snapshot(root: Path, task: str, verified: str, nxt: str) -> Path:
                 "tip": _git(root, "rev-parse", "HEAD") or "",
                 "verified": verified,
                 "next": nxt,
-                "at": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
+                # `datetime.UTC` 是 **3.11 才有的别名**，而 `pyproject` 声明
+                # `requires-python = ">=3.10"`，CI 两个 job 也都跑 3.10 ——
+                # 于是这一行在本地（3.13）永远绿、在 CI 上永远红，五条 harness 测试
+                # 因此挂了九天没人看见（TASK-140 取证）。用 3.10 也有的写法。
+                "at": datetime.datetime.now(datetime.timezone.utc).isoformat(
+                    timespec="seconds"
+                ),
             },
             ensure_ascii=False,
             indent=2,

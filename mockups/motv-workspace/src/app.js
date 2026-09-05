@@ -46,6 +46,7 @@ import { projectCardModel, pickCover, cardStats, renderCover } from "./ui/landin
 // 步骤就绪判定**只有一份**，在向导定义旁边。控制器不复述它 —— 复述就是 §2.5e
 // 那条缝（两处陈述同一件事实），而这一批的 P1 正是从「上游要求是手写的」来的。
 import { stepReadiness } from "./ui/prodwizard.js";
+import { createEditLock } from "./ui/editlock.js";
 import { createProduction } from "./ui/production.js";
 import { dailiesModel } from "./ui/dailies.js";
 import { reviewBoardModel } from "./ui/cutreview.js";
@@ -2077,11 +2078,15 @@ const ctx = {
      * prevent — visible in the library, attached to nothing, and looking to the
      * creator like the upload failed.
      */
-    uploadReference: async (kind, entityId, stateId, { file, displayName } = {}) => {
+    // `prompt` —— **让它自己生成一张**（TASK-139 / REQ-008 判据 1），而不是选文件。
+    // 走的是同一个函数：目标存在性的两道检查、挂载、以及「登记成功但没挂上」那条
+    // 诚实报告，一条都不重写 —— 它们与「这张图哪来的」无关。
+    uploadReference: async (kind, entityId, stateId, { file, displayName, prompt } = {}) => {
       const refKind = baseassets.BASE_REFERENCE_KIND[kind];
       if (!refKind) throw new Error(`未知对象类型：${kind}`);
-      const picked = file || await pickFile("image/png,image/jpeg,image/webp");
-      if (!picked) return null;
+      const generating = typeof prompt === "string" && prompt.trim() !== "";
+      const picked = generating ? null : (file || await pickFile("image/png,image/jpeg,image/webp"));
+      if (!picked && !generating) return null;
       // CHECK THE TARGET BEFORE THE BYTES GO ANYWHERE, and again after.
       //
       // The file dialog is open for as long as the creator takes, and the entity or
@@ -2101,6 +2106,7 @@ const ctx = {
       const { ref } = await ctx.assets.importReference({
         kind: refKind,
         file: picked,
+        prompt: generating ? prompt : undefined,
         links,
         displayName: displayName || null,
       });
@@ -5486,7 +5492,29 @@ const ctx = {
     return g;
   },
   persist: () => {
-    if (canvasActive && PROJECT_NAME) persist.saveCanvas(PROJECT_NAME, serializeGraph());
+    if (canvasActive && PROJECT_NAME) {
+      persist.saveCanvas(PROJECT_NAME, serializeGraph());
+      return;
+    }
+    // **存不下就得说出来。**
+    //
+    // 上一版这里是 `if (canvasActive && PROJECT_NAME) save()` —— 条件不成立时
+    // 什么都不做，**一声不吭**。而 `canvasActive` 在 `enterCanvas` 开头置假、
+    // 异步载入完才置真：重新进入同一个项目时（路由切换、迁移后从项目副本重载），
+    // **旧的界面还在屏幕上**，他这时敲进故事核心的字会写进一份即将被替换掉的文档，
+    // 然后被这一行悄悄丢掉 —— 屏幕上看着还在，刷新就没了，控制台一个字都没有。
+    //
+    // 并行会话 2026-09-05 在旅程 e2e 里实测到约 1/5 复现，三条证据：屏幕上那段字还在 ·
+    // 整个账户目录 `rglob` 一遍一个字都没有 · **没有任何 `motv:` 警告**（因为
+    // `persist.js` 里那两条已知跳过路径都会 warn，而这一处的丢弃发生在它之前）。
+    //
+    // 这里**不假装能救回那段字** —— 文档马上会被 `enterCanvas` 换掉，排队再写只会
+    // 把新文档写一遍。能做且必须做的是：**不静默**（AGENTS.md 第 13 条 · 决策 6
+    // fail-closed 并说明）。他因此知道刚才那一下没存上，而不是刷新之后才发现。
+    // 根治（在载入期间就不该让他敲得进去）记在 TASK-087 §6.12。
+    const why = !PROJECT_NAME ? "还没有打开项目" : "项目正在载入";
+    console.warn(`motv: 这一次保存没有写下去 —— ${why}（canvasActive=${canvasActive}）`);
+    if (typeof toast === "function") toast(`没存上：${why} —— 刚才那一下要重新做一遍`);
   },
   // ⚙ 项目设置 (TASK-073 §1.7). `deliverySpec` is read by ⚙ and by 交付质检's 规格
   // check; `setDeliverySpecField` is the ONLY write path and refuses invalid values.
@@ -5793,6 +5821,8 @@ ctx.assets = createAssetController({
   modules: { assetreg, assetlib, mediaref, assetusage, assetlibws },
   session: { connected: () => CONNECTED, projectName: () => PROJECT_NAME },
   uploadAssetImage: (project, key, file) => command.uploadAssetImage(project, key, file),
+  accountImageGenerate: (project, key, prompt) =>
+    command.accountImageGenerate(project, key, prompt),
   pickFile,
   mediaDomainOfFile,
   domainSlugPrefix,
@@ -7067,7 +7097,10 @@ const engine = new GraphEngine({
     } else {
       renderStepbar(engine, $("#stepbar"), $("#entrybar"));
     }
+    // 与 `ctx.persist` 同一条通则：**「条件不成立就什么都不做」的分支必须出声**。
+    // 这一处存的是工作流画布（不是故事核心），但静默丢弃在哪儿都一样贵。
     if (canvasActive && PROJECT_NAME) persist.saveCanvas(PROJECT_NAME, serializeGraph());
+    else console.warn(`motv: 画布改动没有写下去（canvasActive=${canvasActive}）`);
   },
   onDeleteEdges: () => toast("已删除选中连线"),
 });
@@ -7413,10 +7446,22 @@ $$(".entry").forEach((b) => (b.onclick = () => {
   if (b.dataset.seed !== "story") toast("已进入故事工作流（原型：过程统一到 L0–S7 链）");
 }));
 
+/** 载入期间把还留在屏幕上的编辑器锁住 —— **能防住的丢字，不该只靠提示**。
+ *
+ *  实现搬进了 `ui/editlock.js`：写在这里时**没法测行为**，守卫只能扫源码文本，
+ *  而 codex 当场点了它「没有真的驱动那些顺序」。搬过去之后，「重复上锁」与
+ *  「看门狗解锁 + 完成解锁」两种顺序都能用真调用钉住（那正是它判 P1 的两条）。 */
+const editLock = createEditLock({
+  getRoot: () => document.getElementById("production"),
+  warn: (m) => console.warn(m),
+  toast: (m) => { if (typeof toast === "function") toast(m); },
+});
+
 // --- enter a project's canvas (real or demo) ---
 async function enterCanvas(name, opts = {}) {
   PROJECT_NAME = name;
   canvasActive = false;
+  editLock.lock();
   scriptDocs = Object.create(null); // per-project; restoreGraph rehydrates
   scriptDoc = scriptdoc.createDoc();
   storyDoc = storydoc.createStory(null);
@@ -7574,6 +7619,7 @@ async function enterCanvas(name, opts = {}) {
     ctx.refreshType("script");
   }
   canvasActive = true;
+  editLock.unlock(); // 载入完了，放开输入（见 `ui/editlock.js`）
   if (PAID) ctx.loadPaidOps(); // 生成情况 projection for the video node
   // Default creator-facing space: 故事开发 (ADR-0061 决策 1) — the work starts by
   // writing the story. `?canvas=1` opens the diagnostic node canvas instead; it

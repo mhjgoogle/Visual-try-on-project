@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import socket
 import sys
@@ -66,6 +67,32 @@ def studio(tmp_path, monkeypatch):
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+def _wait_json(path, needle, timeout=20.0):
+    r"""等到盘上那份 JSON 真的含有这段字 —— 而不是 sleep 一个猜出来的秒数。
+
+    **先解码再找，不在原始字节里找。** 这份文件有两条写路径：PUT 的原样落盘，
+    以及 Run 在跑时那条「不许覆盖运行进度」的合并重写（server.py 的 canvas 守卫）。
+    后者会重新 json.dump，中文于是变成 \uXXXX 转义 —— 在原始文本里搜中文，
+    命中与否取决于**当时是哪条路径写的**，而这正是这条用例要消掉的那种偶发。
+    """
+    end = time.time() + timeout
+    size = -1
+    while time.time() < end:
+        try:
+            raw = path.read_text("utf-8")
+        except OSError:
+            raw = ""
+        size = len(raw)
+        try:
+            flat = json.dumps(json.loads(raw), ensure_ascii=False)
+        except ValueError:
+            flat = raw  # 半写状态：下一轮再看
+        if needle in flat:
+            return
+        time.sleep(0.1)
+    raise AssertionError(f"{path.name} 里等不到 {needle!r}（当前 {size} 字节）")
 
 
 def _wait_text(page, selector, pattern, timeout=15.0):
@@ -135,9 +162,19 @@ def test_connected_journey(studio, monkeypatch):
             page.click(sel)
             page.fill(sel, before + "\n\n" + marker)
             page.dispatch_event(sel, "input")
-            time.sleep(0.6)  # 让 quiet 写 + persist 跑完（saveCanvas 有去抖）
-            page.evaluate("() => window.dispatchEvent(new Event('beforeunload'))")
-            time.sleep(0.6)
+            # **发 `pagehide`，不是 `beforeunload`。** 产品这一侧监听的是
+            # `pagehide` / `visibilitychange`（理由写在 `ui/fieldsync.js`：
+            # bfcache 下 `beforeunload` 不可靠）。上一版发的 `beforeunload`
+            # 没有任何监听者，那一步实际上只是在等 700ms 去抖自己烧完。
+            page.evaluate("() => window.dispatchEvent(new Event('pagehide'))")
+            # 然后等**盘上真的有了**，而不是 sleep 一个猜出来的秒数。
+            #
+            # 分成两处等是有原因的：刷新之后那句断言证的是**恢复**，这一句证的是
+            # **写落地**。压成一句，红了说不清是哪一件 —— 而这条用例现在恰好
+            # 稳定地红在这一句上（约 1/5，单跑就能复现，与并行无关）：屏幕上字还在、
+            # 盘上整个账户目录里一个字都没有、控制台一条 `motv:` 警告都没有。
+            # 那是**静默丢字**，不是等得不够久。已记进 TASK-087 §6.12，本卡不修。
+            _wait_json(account / sample.name / "studio" / "canvas.json", marker)
 
             # ---- 4. 刷新恢复：字还在，那一轮也还在 ----------------------------------
             page.reload(wait_until="domcontentloaded")

@@ -167,6 +167,60 @@ def _call(method: str, path: str, payload: dict | None = None) -> dict | list:
     return json.loads(body) if body else {}
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """不跟随重定向 —— **因为跟随会把 Authorization 一起带到别的 host。**
+
+    日志端点回 302 到 GitHub 的对象存储域。urllib 默认会把我们 `add_header` 加上的
+    头原样重发到重定向目标，于是 token 就出现在一个我们没有打算给它 token 的域上。
+    所以这里拦住重定向，由调用方拿着 `Location` **不带凭据**再取一次。
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: N802
+        return None
+
+
+def _call_bytes_via_redirect(path: str, limit: int) -> bytes:
+    """取一个 302 到存储域的二进制/文本产物（日志）。凭据只给 API 那一跳。"""
+    url = f"{API_BASE}{path}"
+    req = urllib.request.Request(url, method="GET")  # noqa: S310 - host 写死
+    req.add_header("Authorization", f"Bearer {_token()}")
+    req.add_header("Accept", "application/vnd.github+json")
+    req.add_header("X-GitHub-Api-Version", "2022-11-28")
+    req.add_header("User-Agent", "motv-gh-api/1")
+    if req.host != API_HOST:
+        _fail(f"拒绝：目标 host 不是 {API_HOST}（{req.host}）")
+    opener = urllib.request.build_opener(_NoRedirect)
+    location = None
+    try:
+        with opener.open(req, timeout=60) as resp:  # noqa: S310
+            if resp.status == 200:
+                return resp.read(limit)
+            location = resp.headers.get("Location")
+    except urllib.error.HTTPError as e:
+        if e.code in (301, 302, 303, 307, 308):
+            location = e.headers.get("Location")
+        else:
+            detail = _redact(e.read().decode("utf-8", "replace"))[:2000]
+            _fail(f"HTTP {e.code} GET {path}\n{detail}")
+    except urllib.error.URLError as e:
+        _fail(f"网络错误 GET {path}：{e.reason}")
+    if not location:
+        _fail(f"GET {path}：既不是 200 也没有 Location，拿不到日志")
+    if not location.startswith("https://"):
+        _fail("拒绝：重定向目标不是 https")
+    # **第二跳不带任何凭据** —— 那个 URL 自带签名，不需要我们的 token
+    req2 = urllib.request.Request(location, method="GET")  # noqa: S310 - 来自 API 的签名 URL
+    req2.add_header("User-Agent", "motv-gh-api/1")
+    try:
+        with urllib.request.urlopen(req2, timeout=120) as resp:  # noqa: S310
+            return resp.read(limit)
+    except urllib.error.HTTPError as e:
+        _fail(f"HTTP {e.code} 取日志失败")
+    except urllib.error.URLError as e:
+        _fail(f"网络错误 取日志：{e.reason}")
+    return b""
+
+
 # --------------------------------------------------------------------------- #
 # 子命令                                                                       #
 # --------------------------------------------------------------------------- #
@@ -280,6 +334,39 @@ def cmd_run_view(a) -> None:
             _out(f"    {state}  {step.get('name')}")
 
 
+def cmd_run_log(a) -> None:
+    """一个 job 的**日志**。没有它就只能看到「哪一步红了」，看不到红成什么样。
+
+    默认只打**最后 `--tail` 行**：CI 日志动辄几万行，整段倒进上下文既贵又没用；
+    根因几乎总在尾部。`--grep` 可以先筛（大小写不敏感），再取尾部。
+    """
+    jobs_data = _call(
+        "GET", f"/repos/{a.repo}/actions/runs/{int(a.number)}/jobs?per_page=100"
+    )
+    jobs = jobs_data.get("jobs", []) if isinstance(jobs_data, dict) else []
+    if a.job:
+        jobs = [j for j in jobs if str(j.get("id")) == str(a.job)]
+    elif a.failed_only:
+        jobs = [j for j in jobs if j.get("conclusion") == "failure"]
+    if not jobs:
+        _out("（没有匹配的 job）")
+        return
+    for j in jobs:
+        _out(
+            f"===== [{j.get('conclusion')}] {j.get('name')}  (job {j.get('id')}) ====="
+        )
+        raw = _call_bytes_via_redirect(
+            f"/repos/{a.repo}/actions/jobs/{int(j['id'])}/logs", int(a.max_bytes)
+        )
+        text = _redact(raw.decode("utf-8", "replace"))
+        lines = text.splitlines()
+        if a.grep:
+            needle = a.grep.lower()
+            lines = [ln for ln in lines if needle in ln.lower()]
+        for ln in lines[-int(a.tail) :]:
+            _out(ln)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(prog="gh-api", description=__doc__)
     ap.add_argument("--repo", required=True, type=_repo, help="owner/name")
@@ -313,6 +400,17 @@ def main() -> None:
     p.add_argument("--branch", default="", help="分支名，含 / 也可以")
     p.add_argument("--limit", type=int, default=10)
     p.set_defaults(fn=cmd_run_list)
+
+    p = sub.add_parser("run-log", help="看一个 job 的日志（默认只给失败的 job 的尾部）")
+    p.add_argument("--number", required=True, help="run id")
+    p.add_argument("--job", default=None, help="只看这一个 job id")
+    p.add_argument(
+        "--failed-only", action="store_true", help="只看 conclusion=failure 的 job"
+    )
+    p.add_argument("--grep", default=None, help="先按这个词筛行（大小写不敏感）")
+    p.add_argument("--tail", default=120, help="最多打多少行（默认 120）")
+    p.add_argument("--max-bytes", default=8_000_000, help="最多读多少字节日志")
+    p.set_defaults(fn=cmd_run_log)
 
     p = sub.add_parser("run-view", help="看一次 run 的 job 与逐个 step")
     p.add_argument("--number", required=True, type=int, help="run id")
