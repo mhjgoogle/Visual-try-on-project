@@ -60,16 +60,49 @@ _SCRATCH = (".claude", "tmp")
 _FENCE = re.compile(r"^\s{0,3}(`{3,}|~{3,})", re.MULTILINE)
 
 
-#: 行内代码跨（`…`）。同一个理由：反引号里的东西是被原样打印的文本，
-#: markdown 不会把它渲染成链接。这一条是围栏那条的**同类** —— 本卡自己在讲
-#: 「守卫漏了围栏」时，就在表格里写了一遍那个模板，于是守卫又红了一次。
-#: 按 CommonMark，闭合的反引号串必须和开启的一样长；这里只在**行内**匹配，
-#: 跨行代码跨（罕见）不处理 —— 宁可漏报，不误杀。
-#: 开启与闭合的反引号串必须**恰好等长**（CommonMark），所以两侧各加一条
-#: 「前后不得再是反引号」的断言。少了它，`` [x](y) ` 这种**不等长**的写法会被
-#: 回溯匹配成「单反引号跨」，于是一条真断链被守卫吞掉 —— 一个会漏报的守卫比
-#: 没有守卫更糟，因为它让人以为查过了（codex 复审 2026-09-06 · P1）。
-_CODE_SPAN = re.compile(r"(?<!`)(`+)(?!`)(?:(?!\1)[^\n])+\1(?!`)")
+#: 反引号串（一条或多条连续反引号）。行内代码跨**不用正则整体匹配**：
+#: 正则要么把不等长的串回溯成一个假的跨，要么拒绝一个合法跨里更长的内部串
+#: 然后从那条内部串一路吞到行尾 —— 两种都会把**真断链**吞掉，而漏报的守卫
+#: 比没有守卫更糟：它让人以为查过了（codex 复审 2026-09-06，两轮各报一次，
+#: 是同一失效机理的两种拼法）。所以这里直接照 CommonMark 的规则扫，
+#: 不再猜。
+_BACKTICKS = re.compile(r"`+")
+
+
+def _strip_code_spans(line: str) -> str:
+    """按 CommonMark 扫掉这一行里的行内代码跨。
+
+    规则只有一条：一条开启的反引号串必须由一条**长度完全相同**的串闭合；
+    找不到相同长度的串，它就只是普通文本（**不是**跨的开始）。跨的内部
+    允许出现更长或更短的串 —— 这正是上一版正则判错的地方。
+
+    只在行内处理，跨行代码跨（罕见）不管：宁可漏掉一次跳过（多查一条链接），
+    也不要多跳过一段（少查一份文件）。
+    """
+    runs = [(m.start(), m.end()) for m in _BACKTICKS.finditer(line)]
+    kept: list[str] = []
+    pos = 0
+    i = 0
+    while i < len(runs):
+        start, stop = runs[i]
+        width = stop - start
+        close = next(
+            (j for j in range(i + 1, len(runs)) if runs[j][1] - runs[j][0] == width),
+            None,
+        )
+        if close is None:
+            i += 1  # 没有等长的闭合串 —— 这一串是普通文本，不开启任何跨
+            continue
+        kept.append(line[pos:start])
+        pos = runs[close][1]
+        i = close + 1
+    kept.append(line[pos:])
+    return "".join(kept)
+
+
+def _strip_inline_code(text: str) -> str:
+    """逐行扫掉行内代码跨。"""
+    return "\n".join(_strip_code_spans(x) for x in text.split("\n"))
 
 
 def _opens_a_fence(match: re.Match, stripped: str) -> bool:
@@ -126,8 +159,8 @@ def _markdown_files() -> list[Path]:
 def test_every_relative_markdown_link_resolves() -> None:
     broken: list[str] = []
     for md in _markdown_files():
-        text = _CODE_SPAN.sub(
-            "", _strip_fences(md.read_text(encoding="utf-8", errors="replace"))
+        text = _strip_inline_code(
+            _strip_fences(md.read_text(encoding="utf-8", errors="replace"))
         )
         for target in _LINK.findall(text):
             target = target.strip()
@@ -162,6 +195,14 @@ _SHAPES = [
     ("不等长的反引号串不构成代码跨", "`` [broken](missing.md) `\n", ["missing.md"]),
     ("同一行的三反引号跨不是围栏开启", "```example```\n[b](gone.md)\n", ["gone.md"]),
     ("散文里的断链照抓", "[a](nope.md)\n", ["nope.md"]),
+    (
+        "合法跨里的更长内部串不得吞掉后面的真链接",
+        "``a```b`` [broken](missing.md) ```\n",
+        ["missing.md"],
+    ),
+    ("合法跨里的更短内部串照常被跳过", "``a`b`` [c](gone.md)\n", ["gone.md"]),
+    ("跨里的模板仍然不算链接", "``[ADR-XXXX](...)``\n", []),
+    ("一行两个跨，中间的真链接照抓", "`x` [a](gone.md) `y`\n", ["gone.md"]),
 ]
 
 
@@ -169,7 +210,7 @@ _SHAPES = [
 def test_code_blocks_are_skipped_without_going_blind(
     name: str, text: str, expected: list[str]
 ) -> None:
-    found = _LINK.findall(_CODE_SPAN.sub("", _strip_fences(text)))
+    found = _LINK.findall(_strip_inline_code(_strip_fences(text)))
     assert found == expected, name
 
 
