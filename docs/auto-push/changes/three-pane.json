@@ -2614,6 +2614,20 @@
             "tests/conftest.py"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "c3cf5fa922d62df548f0e02c683687b72d21bca0",
+          "subject": "fix(tests): 两条只在 CI 上跑得到的测试，断言的是产品从不做的事（TASK-140 簇 D）",
+          "time": "2026-09-05T16:06:44+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/active/TASK-140-main-ci-has-been-red-for-nine-days.md",
+            "tests/contract/test_motv_skillpkg_task075.py",
+            "tests/studio/test_motv_av_m11.py"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
