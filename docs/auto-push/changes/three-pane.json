@@ -2004,18 +2004,49 @@
             "docs/tasks/done/TASK-141-idea-intake-and-current-truth.md"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "c6791eb75a63465a71cb729c30dcdb60c82ff5b0",
+          "subject": "禁止 Idea 直接进入 Coding —— 想法先分层、再过里程碑闸（TASK-141 · ADR-0101）",
+          "time": "2026-09-05T10:56:38+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            ".agents/skills/dev-workflow/SKILL.md",
+            ".claude/agent-entries.json",
+            ".claude/skills/dev-workflow/SKILL.md",
+            ".claude/skills/dev-workflow/references/lifecycle.md",
+            ".claude/skills/dev-workflow/references/records.md",
+            ".claude/tools/gen_docs_status.py",
+            "AGENTS.md",
+            "docs/STATUS.md",
+            "docs/adr/ADR-0101-idea-intake-level-and-milestone-gate.md",
+            "docs/glossary.md",
+            "docs/project-context.md",
+            "docs/tasks/active/TASK-141-idea-intake-and-current-truth.md",
+            "tests/tooling/test_docs_status.py"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
+        ".agents/skills/dev-workflow/",
+        ".claude/agent-entries.json",
+        ".claude/skills/dev-workflow/",
+        ".claude/tools/gen_docs_status.py",
+        "AGENTS.md",
         "docs/STATUS.md",
         "docs/adr/ADR-0101-idea-intake-level-and-milestone-gate.md",
+        "docs/glossary.md",
+        "docs/project-context.md",
         "docs/tasks/active/TASK-087-followup-ledger.md",
         "docs/tasks/active/TASK-141-idea-intake-and-current-truth.md",
-        "docs/tasks/done/TASK-141-idea-intake-and-current-truth.md"
+        "docs/tasks/done/TASK-141-idea-intake-and-current-truth.md",
+        "tests/tooling/test_docs_status.py"
       ],
       "verification": "PASS",
-      "verification_ref": "pytest tests/tooling 379 passed/1 skipped; test_docs_links+test_docs_status 25 passed after the card move; lifecycle_check 0 finding; codex review 2 rounds pass (4 gates clean)",
-      "declared": "2026-09-05T10:54:38+00:00"
+      "verification_ref": "pytest tests/tooling 379 passed/1 skipped; lifecycle_check 0 finding; codex review 2 rounds pass (4 gates clean) on c6791eb",
+      "declared": "2026-09-05T10:56:38+00:00"
     }
   },
   "merge_gate": {
