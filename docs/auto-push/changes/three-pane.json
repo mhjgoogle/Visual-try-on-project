@@ -1158,7 +1158,7 @@
           "subject": "chore(auto-push): three-pane manifest writeback",
           "time": "2026-09-05T00:22:31+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/auto-push/changes/three-pane.json"
           ],
@@ -1173,7 +1173,28 @@
       "declared": "2026-09-05T00:54:32+00:00"
     },
     "TASK-130": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "66d2d51795eea76400e9e903fec16fa065b23564",
+          "subject": "test: 一份可重复的 Connected Project 样本，和一条从头到尾的旅程（TASK-130 · three-pane）",
+          "time": "2026-09-05T00:55:41+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/STATUS.md",
+            "docs/auto-push/changes/three-pane.json",
+            "docs/design/active/product-requirement-and-ux-convergence-review.md",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "docs/tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md",
+            "docs/tasks/active/TASK-127-one-action-table.md",
+            "docs/tasks/active/TASK-130-connected-sample-and-journey.md",
+            "mockups/motv-workspace/fixtures/connected_sample.mjs",
+            "tests/e2e/connected_sample.py",
+            "tests/e2e/test_connected_journey_task130.py"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/STATUS.md",
         "docs/design/active/product-requirement-and-ux-convergence-review.md",
