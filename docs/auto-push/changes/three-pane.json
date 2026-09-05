@@ -1960,12 +1960,31 @@
           "subject": "出图按钮放到他真正在看的那一屏 —— 第三次才对（TASK-139 · three-pane）",
           "time": "2026-09-05T11:55:23+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/STATUS.md",
             "docs/tasks/active/TASK-139-images-from-my-own-account.md",
             "mockups/motv-workspace/src/ui/epcanvas.js",
             "mockups/motv-workspace/tests/gencardauto.test.mjs"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "3424cfe1907e2b882ad4d4d9fd8a8fe485b21a81",
+          "subject": "图不对不是取错了提示词 —— 是模型读不懂中文（TASK-139 · three-pane）",
+          "time": "2026-09-05T12:42:05+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/tasks/active/TASK-139-images-from-my-own-account.md",
+            "mockups/motv-workspace/server.py",
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/src/controllers/assetctl.js",
+            "mockups/motv-workspace/src/ui/baseassetpanel.js",
+            "mockups/motv-workspace/src/ui/gencard.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/tests/gencardauto.test.mjs",
+            "tests/studio/test_account_image_gen_task139.py"
           ],
           "scope_violation": null
         }
@@ -2191,9 +2210,36 @@
           "scope_violation": [
             "docs/tasks/active/TASK-087-followup-ledger.md"
           ]
+        },
+        {
+          "hash": "1757b4c19ebf15dced76659c27d0eb60b8ac8770",
+          "subject": "fix(TASK-087 §6.9): 订正里有个退格字符，而且它本身也只对了一半",
+          "time": "2026-09-05T11:55:54+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "docs/tasks/backlog/TASK-132-click-ui-element-and-leave-feedback.md"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "ec4753a03d46d0184f4adc5fb209fcd5ba62aa56",
+          "subject": "feat: 开发读得到「他点的是哪一个」，句柄从已有的 data-* 派生（TASK-132 切片 A 补齐）",
+          "time": "2026-09-05T12:20:33+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            ".claude/tools/read_feedback.py",
+            "mockups/motv-workspace/src/ui/elementfeedback.js",
+            "mockups/motv-workspace/tests/elementfeedback.test.mjs",
+            "tests/tooling/test_feedback_reader_req006.py"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
+        ".claude/tools/read_feedback.py",
         "docs/tasks/active/TASK-087-followup-ledger.md",
         "docs/tasks/active/TASK-132-click-ui-element-and-leave-feedback.md",
         "docs/tasks/backlog/TASK-132-click-ui-element-and-leave-feedback.md",
@@ -2203,11 +2249,12 @@
         "mockups/motv-workspace/src/ui/production.js",
         "mockups/motv-workspace/tests/convthread.test.mjs",
         "mockups/motv-workspace/tests/elementfeedback.test.mjs",
-        "tests/studio/test_element_feedback_task132.py"
+        "tests/studio/test_element_feedback_task132.py",
+        "tests/tooling/test_feedback_reader_req006.py"
       ],
       "verification": "PASS",
-      "verification_ref": "TASK-132 切片 A + §6.9 订正：前端 2204 passed · studio+contract 923 passed · 四处变异验证 · lifecycle_check 0 finding · ruff 通过。TASK-087 §6.9 是本轮订正自己写下的那条记录（把可查根因误判成环境噪音），归本卡",
-      "declared": "2026-09-05T11:46:43+00:00"
+      "verification_ref": "TASK-132 切片 A 补齐：前端 2212 passed · tests/tooling reader 17 passed · ruff 通过",
+      "declared": "2026-09-05T12:20:33+00:00"
     }
   },
   "merge_gate": {
