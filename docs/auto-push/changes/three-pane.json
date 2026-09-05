@@ -1639,14 +1639,11 @@
         }
       ],
       "paths": [
-        "docs/STATUS.md",
-        "docs/adr/ADR-0099-resume-is-not-a-retry.md",
-        "docs/tasks/backlog/TASK-041-workspace-generation-command-and-evidence.md",
-        "docs/tasks/backlog/TASK-136-generation-resume-and-idempotency.md"
+        "docs/adr/ADR-0099-resume-is-not-a-retry.md"
       ],
       "verification": "PASS",
-      "verification_ref": "纯文档（ADR + 两张卡 + 生成的 STATUS.md）。验证：lifecycle_check 0 finding · pytest tests/tooling/{test_docs_links,test_docs_status,test_lifecycle_check,test_plan_status_matches_folder}.py 74 passed。按 AGENTS §20 触发表，纯文档不调 codex-review-loop",
-      "declared": "2026-09-05T08:12:44+00:00"
+      "verification_ref": "纯文档补充（ADR-0099 加一节射程说明）。验证：lifecycle_check 0 finding · test_docs_links + test_docs_status 10 passed · 射程结论自己实测过：mockups 下 provider: 字面量零命中、image-gen-account 走进程内在途集合不建 Run",
+      "declared": "2026-09-05T08:57:47+00:00"
     },
     "TASK-134": {
       "commits": [
@@ -1708,6 +1705,17 @@
           "scope_violation": [
             "docs/tasks/active/TASK-087-followup-ledger.md"
           ]
+        },
+        {
+          "hash": "57dd4d55f3e618623c9b705fc84908c3880097da",
+          "subject": "docs: TASK-134 如实记下判据 1 未闭合的那一半（three-pane）",
+          "time": "2026-09-05T08:58:25+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/tasks/active/TASK-134-import-linter-layering-contract.md"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
