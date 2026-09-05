@@ -2628,6 +2628,18 @@
             "tests/studio/test_motv_av_m11.py"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "824ed70b078cb10b17e86b0329d51fb72cccd79e",
+          "subject": "fix(tests): 对话分线的三条断言依赖「run 还没落地」—— 那是时序，不是分线（TASK-140 · three-pane）",
+          "time": "2026-09-05T16:18:23+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/three-pane.json",
+            "tests/studio/test_motv_conversation_task109.py"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
