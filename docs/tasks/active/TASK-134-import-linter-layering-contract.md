@@ -121,6 +121,38 @@ ArcReel 在契约注释里写死了三条，每条都对应本仓库踩过的坑
   `ruff format --check` 均 exit=0。
 - 最终全量：见提交信息。
 
+## 独立审查（codex，轮 1）与修复
+
+`VERDICT: fail`，`BLOCKING: none`，判据 2/3 PASS、架构四条全 PASS/NOT_APPLICABLE。
+两条非通过项指向**同一个根因**，且都属实：
+
+| 闸 | 结论 | 说的是什么 |
+| --- | --- | --- |
+| 1 需求完成度 · 判据 1 | `NOT_EVIDENCED` | 「裸跑 `lint-imports` 成功」不证明 **CI** 里跑过 |
+| 3 证据充分性 | `INSUFFICIENT` | 那条跨平台守卫「只检查字符串出现，不检查等效的 shell 执行」 |
+
+**修的是实现，不只是证据** —— 复核后发现判据 1 写的是「在 **CI** 与本地 commit gate
+里跑」，而 `.github/workflows/ci.yml` 根本没接 `lint-imports`：这不是缺证据，是缺实现。
+
+1. `ci.yml` 的 **windows 与 linux 两个 job** 各加一步 `run: lint-imports`，放在 ruff
+   之后、pytest 之前（越界快速失败）。CI 装的是 `pip install -e ".[dev]"`，
+   import-linter 已在 dev extra 里，无需另加安装步骤。
+2. `test_both_gates_consume_the_flag` 原先对**全文**断言「出现 `lint-imports`」，而这两个
+   字符串**在我写的注释里本来就有** —— 把可执行接线整段删掉，守卫照样绿。
+   新增 `_executable_lines()` 剥掉整行注释后再断言。
+3. **剥注释仍然不够**（我自己的变异验证抓到的第二层）：`gate.sh` 里
+   `linter="$ROOT/.venv/bin/lint-imports"` 这条**赋值**也含该字符串，把真正的
+   `run_check` 调用删掉照样绿。断言最终落在**执行动作**上 ——
+   ps1 认 `Label = 'lint-imports'`（进 `$checks` 才会被跑）、sh 认 `run_check "lint-imports"`。
+4. 新增 `test_ci_runs_the_contracts_on_both_platforms`（两个 job 都必须跑）；
+   `test_nothing_invokes_the_module_form` 扩到覆盖 `ci.yml`。
+
+**修复后的变异验证**（三处，逐一还原）：删掉 ps1 的 `$checks` 行 → 红；删掉 sh 的
+`run_check` 调用 → 红；把 ci.yml 任一 job 的 `run: lint-imports` 换掉 → 红。
+修复前的写法在后两处**都是绿的**，这正是审查指出的那件事。
+
+回归：`ruff check` / `ruff format --check` exit 0；`pytest tests/tooling` 363 passed / 1 skipped。
+
 ## 未在真实项目上被人看过
 
 - 闸门在**真实提交**时的表现只在本机 Windows 侧验证（判定逻辑经 `classify`

@@ -109,24 +109,67 @@ def test_policy_flags_only_what_can_change_dependency_direction(
     assert _POLICY.classify(paths).import_contracts is expected
 
 
+def _executable_lines(path: Path) -> str:
+    """去掉整行注释后的文本。
+
+    审查发现（codex，2026-09-05）：原先直接对全文断言「出现 lint-imports」，而这
+    两个字符串在**注释里本来就有** —— 把可执行接线整段删掉，守卫照样绿。一条能被
+    散文满足的守卫守不住任何东西。判定只看真正会执行的行。
+    """
+    return "\n".join(
+        line
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if not line.strip().startswith("#")
+    )
+
+
 def test_both_gates_consume_the_flag() -> None:
     """两个实现必须给出相同判定（AGENTS.md 第 4 条 / ADR-0062 决策 3）。
 
     只接一边，另一个平台上契约就是静默不跑的 —— 而不跑的闸门看起来和通过一样。
     """
-    for shell in ("gate.ps1", "gate.sh"):
-        text = (_ROOT / ".claude" / "hooks" / shell).read_text(encoding="utf-8")
-        assert "import_contracts" in text, f"{shell} 没有读 import_contracts"
-        assert "lint-imports" in text, f"{shell} 没有跑 lint-imports"
+    # 认的是**真正导致 lint-imports 被执行**的那个结构，不是路径字符串。
+    # 第二次审查发现（2026-09-05）：只查 lint-imports 出现在可执行行仍然不够 ——
+    # gate.sh 里 linter="$ROOT/.venv/bin/lint-imports" 这条赋值也含它，把真正的
+    # run_check 调用整条删掉，守卫照样绿。断言必须落在执行动作上。
+    for shell, executes in (
+        ("gate.ps1", "Label = 'lint-imports'"),  # 进 $checks 数组才会被跑
+        ("gate.sh", 'run_check "lint-imports"'),  # run_check 才是执行
+    ):
+        code = _executable_lines(_ROOT / ".claude" / "hooks" / shell)
+        assert "import_contracts" in code, (
+            f"{shell} 的可执行部分没有读 import_contracts"
+        )
+        assert executes in code, (
+            f"{shell} 的可执行部分没有真正执行契约检查（找 {executes!r}）"
+        )
 
 
-def test_neither_gate_invokes_the_module_form() -> None:
+def test_ci_runs_the_contracts_on_both_platforms() -> None:
+    """判据 1 要的是「CI **与** 本地 commit gate 里跑」，不是只有本地。
+
+    Windows 是权威环境、Ubuntu 是受支持目标（ADR-0062），少接一个 job，那个平台上
+    的依赖方向就没人守。
+    """
+    code = _executable_lines(_ROOT / ".github" / "workflows" / "ci.yml")
+    assert code.count("run: lint-imports") == 2, (
+        "ci.yml 的两个 job（windows / linux）都必须跑 lint-imports，"
+        f"当前只有 {code.count('run: lint-imports')} 处"
+    )
+
+
+def test_nothing_invokes_the_module_form() -> None:
     """`python -m importlinter.cli` 打印零字节然后 exit 0（实测 2026-09-05）。
 
     接成那样的闸门会把每一条契约都报成「通过」，而且永远如此。必须走 console script。
+    CI 与两个 shell 一视同仁 —— 三处任意一处退化，那个入口就静默失效。
     """
-    for shell in ("gate.ps1", "gate.sh"):
-        text = (_ROOT / ".claude" / "hooks" / shell).read_text(encoding="utf-8")
-        assert "importlinter.cli" not in text.replace(
-            "`python -m importlinter.cli`", ""
-        ), f"{shell} 用了模块形式调用，那是静默假绿"
+    for rel in (
+        Path(".claude") / "hooks" / "gate.ps1",
+        Path(".claude") / "hooks" / "gate.sh",
+        Path(".github") / "workflows" / "ci.yml",
+    ):
+        code = _executable_lines(_ROOT / rel)
+        assert "importlinter.cli" not in code, (
+            f"{rel.as_posix()} 的可执行部分用了模块形式调用，那是静默假绿"
+        )
