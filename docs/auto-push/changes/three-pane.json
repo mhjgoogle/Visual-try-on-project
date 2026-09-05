@@ -2400,6 +2400,37 @@
       "verification": "PASS",
       "verification_ref": "纯文档：往欠账总账加一条 §6.11（共享工作树上切分支/合并放进独立 worktree）。lifecycle_check 0 finding；三条内容都是本次 three-pane 合并实操里实证过的，不是转述",
       "declared": "2026-09-05T12:49:14+00:00"
+    },
+    "TASK-140": {
+      "commits": [
+        {
+          "hash": "d0f2e42aef439b78d9067eb9aa91a6c7446898da",
+          "subject": "main 的 CI 红了九天：两个根因，都是「本地永远绿」的形状（TASK-140）",
+          "time": "2026-09-05T14:15:36+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            ".claude/tools/agent_harness.py",
+            ".claude/tools/gh-api.py",
+            "docs/STATUS.md",
+            "docs/tasks/active/TASK-134-import-linter-layering-contract.md",
+            "docs/tasks/active/TASK-140-main-ci-has-been-red-for-nine-days.md",
+            "tests/conftest.py"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        ".claude/tools/agent_harness.py",
+        ".claude/tools/gh-api.py",
+        "docs/STATUS.md",
+        "docs/tasks/active/TASK-134-*.md",
+        "docs/tasks/active/TASK-140-*.md",
+        "tests/conftest.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "两个根因定位并修复（datetime.UTC 对 3.10 · conftest 把 tmp 放进 /dev/shm 撞上 rootadmit）。验证：tests/tooling 385 passed · docs 守卫 25 passed · lifecycle_check 0 finding · ruff 全绿。CI 是否转绿要下一次 push 到 main 才能证明，已如实写在卡上",
+      "declared": "2026-09-05T14:15:12+00:00"
     }
   },
   "merge_gate": {
