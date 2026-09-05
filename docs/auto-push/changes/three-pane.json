@@ -1663,6 +1663,20 @@
             "docs/tasks/backlog/TASK-128-episode-side-actions-into-the-table.md"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "f8714d6c73d277766a1a781e2d322d228f087c9f",
+          "subject": "ADR-0102：发起方与确认方是两个字段 —— 解掉 TASK-128 的架构阻塞",
+          "time": "2026-09-05T13:51:19+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/adr/ADR-0096-ui-and-agent-share-one-action-table.md",
+            "docs/adr/ADR-0102-origin-and-confirmation-are-two-fields.md",
+            "docs/requirements/REQ-006-agent-can-do-what-the-creator-can-do.md",
+            "docs/tasks/backlog/TASK-128-episode-side-actions-into-the-table.md"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
@@ -1719,13 +1733,12 @@
         }
       ],
       "paths": [
-        "docs/skill-evolution/backlogs/auto-push.jsonl",
-        "docs/skill-evolution/index.json",
+        "docs/adr/ADR-0099-resume-is-not-a-retry.md",
         "docs/skill-evolution/proposals/EP-002-writeback-commit-needs-a-pathspec.md"
       ],
       "verification": "PASS",
-      "verification_ref": "纯文档 + skill 台账（EP-002 提案 + 两条 feedback 条目 + index）。验证：lifecycle_check 0 finding · pytest tests/tooling/test_skill_evolution_tooling.py + test_docs_links.py 23 passed。提案本身不改任何 skill 行为，改动需用户 veto 式批准后另行实施",
-      "declared": "2026-09-05T09:20:46+00:00"
+      "verification_ref": "纯文档订正（ADR-0099 决策 8 口径：前置从『等 TASK-041』改成条件『直到有东西真的建出 provider:* Run』；EP-002 补一段窗口论证）。验证：lifecycle_check 0 finding · test_docs_links + test_skill_evolution_tooling 23 passed · provider: 零写入方当场复核",
+      "declared": "2026-09-05T14:01:21+00:00"
     },
     "TASK-134": {
       "commits": [
@@ -2040,11 +2053,12 @@
         ".env.local.example",
         ".gitignore",
         "docs/STATUS.md",
-        "docs/adr/ADR-0100-account-quota-is-not-a-paid-gate.md",
-        "docs/requirements/REQ-008-images-from-my-own-account.md",
+        "docs/adr/ADR-0100-*.md",
+        "docs/requirements/REQ-008-*.md",
         "docs/requirements/index.md",
-        "docs/tasks/active/TASK-139-images-from-my-own-account.md",
-        "docs/tasks/backlog/TASK-041-workspace-generation-command-and-evidence.md",
+        "docs/tasks/active/TASK-087-followup-ledger.md",
+        "docs/tasks/backlog/TASK-041-*.md",
+        "docs/tasks/done/TASK-139-*.md",
         "mockups/motv-workspace/credstore.py",
         "mockups/motv-workspace/imagegen.py",
         "mockups/motv-workspace/server.py",
@@ -2053,8 +2067,8 @@
         "tests/studio/test_account_image_gen_task139.py"
       ],
       "verification": "PASS",
-      "verification_ref": "批次 B 补证据（处理器级 4 条）+ 非阻塞项修复。验证：node --test 全量 2181 passed / 0 failed",
-      "declared": "2026-09-05T11:20:56+00:00"
+      "verification_ref": "收口：卡搬进 done/、欠账登记、链接修复、STATUS 重生成。验证：studio 55 passed · docs_links/docs_status/lifecycle_check 85 passed · lifecycle_check 0 finding",
+      "declared": "2026-09-05T13:51:34+00:00"
     },
     "TASK-129": {
       "commits": [
@@ -2143,6 +2157,38 @@
             "docs/auto-push/changes/three-pane.json"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "c2e898fb189ae45127f480bb81c3793a93c7d167",
+          "subject": "@ 状态级参考图也走动作表 —— 棘轮空了（TASK-129 切片 2e）",
+          "time": "2026-09-05T14:05:37+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/design/active/product-requirement-and-ux-convergence-review.md",
+            "docs/requirements/REQ-006-agent-can-do-what-the-creator-can-do.md",
+            "docs/tasks/active/TASK-127-one-action-table.md",
+            "docs/tasks/backlog/TASK-128-episode-side-actions-into-the-table.md",
+            "docs/tasks/backlog/TASK-129-settings-structure-writes-into-the-table.md",
+            "docs/tasks/done/TASK-129-settings-structure-writes-into-the-table.md",
+            "mockups/motv-workspace/src/ui/workspaces.js",
+            "mockups/motv-workspace/src/workflow/bibledoc.js",
+            "mockups/motv-workspace/src/workflow/convactions.js",
+            "mockups/motv-workspace/tests/bible.test.mjs",
+            "mockups/motv-workspace/tests/convactions.test.mjs",
+            "mockups/motv-workspace/tests/workspaces.test.mjs",
+            "tests/contract/test_surface_manifest.py"
+          ],
+          "scope_violation": [
+            "docs/design/active/product-requirement-and-ux-convergence-review.md",
+            "docs/requirements/REQ-006-agent-can-do-what-the-creator-can-do.md",
+            "docs/tasks/active/TASK-127-one-action-table.md",
+            "docs/tasks/backlog/TASK-128-episode-side-actions-into-the-table.md",
+            "docs/tasks/done/TASK-129-settings-structure-writes-into-the-table.md",
+            "mockups/motv-workspace/tests/bible.test.mjs",
+            "mockups/motv-workspace/tests/convactions.test.mjs",
+            "mockups/motv-workspace/tests/workspaces.test.mjs"
+          ]
         }
       ],
       "paths": [
@@ -2332,6 +2378,20 @@
             "docs/tasks/active/TASK-087-followup-ledger.md"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "d894939aa28aee7990ee3686317fc99847cecbd1",
+          "subject": "那条 e2e 的红不是噪音：字有 1/5 概率没落盘（TASK-087 §6.12 登记）",
+          "time": "2026-09-05T14:05:52+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "tests/e2e/test_connected_journey_task130.py"
+          ],
+          "scope_violation": [
+            "tests/e2e/test_connected_journey_task130.py"
+          ]
         }
       ],
       "paths": [
