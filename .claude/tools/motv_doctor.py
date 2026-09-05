@@ -114,14 +114,28 @@ def surfaces_of(doc: dict) -> list[dict]:
     prod = doc.get("production") or {}
     out = []
 
+    # **每个探针都必须从「事实真的会报出来的东西」里挑。**
+    #
+    # 这是一整类，不是一两处。事实会做两件事：**按额度截断**（切的是尾巴）和
+    # **按可见性过滤**（软删除的行、隐藏的演员不报）。探针只要踩中其中任何一条，
+    # 体检就会对一个完全正常的项目判 BAD —— 而它挂在提交闸门上，**于是挡住提交**。
+    # 第一轮修了结构规划那一处，第二轮又抓出故事核心与白膜两处同类
+    # （codex 补审 2026-09-05 块 1）。所以这里按类办：
+    #
+    #   截断切尾  → 探针取**开头**，不取结尾；
+    #   可见性过滤 → 探针只从**过滤之后**的集合里挑。
+    #
+    # 一个喊狼的体检比没有体检更糟：它教人忽略红字。
     core = (work.get("core") or "").strip()
     if core:
-        out.append({"名字": "故事核心", "量": f"{len(core)} 字", "probe": core[-24:]})
+        # 取开头：长故事核心会被按额度截断，尾巴本来就不该出现在事实里。
+        out.append({"名字": "故事核心", "量": f"{len(core)} 字", "probe": core[:24]})
 
     nodes = ((work.get("outline") or {}).get("nodes")) or []
     if nodes:
-        last = str((nodes[-1] or {}).get("text") or "")[:24]
-        out.append({"名字": "故事大纲", "量": f"{len(nodes)} 个节点", "probe": last})
+        # 同上取开头那一个节点：节点全给，但每个节点的正文按 `_FACT_NODE_MAX` 截断。
+        first = str((nodes[0] or {}).get("text") or "")[:24]
+        out.append({"名字": "故事大纲", "量": f"{len(nodes)} 个节点", "probe": first})
 
     rows = [
         r
@@ -144,7 +158,8 @@ def surfaces_of(doc: dict) -> list[dict]:
         u for u in (work.get("units") or []) if str((u or {}).get("body") or "").strip()
     ]
     if units:
-        probe = str(units[-1].get("body") or "")[:24]
+        # 正文有总额度（`_FACT_UNITS_BUDGET`），排在后面的章/集可能整章没给出去。
+        probe = str(units[0].get("body") or "")[:24]
         out.append({"名字": "正文", "量": f"{len(units)} 章/集有字", "probe": probe})
 
     fin = work.get("finalized") or {}
@@ -170,7 +185,13 @@ def surfaces_of(doc: dict) -> list[dict]:
         )
 
     blocking = prod.get("blocking") or {}
-    used = [k for k, v in blocking.items() if (v or {}).get("actors")]
+    # **只数事实会报的那些演员**：软删除的演员不进事实，全被删掉的那一镜因此
+    # 在事实里根本不算「有白膜」—— 拿未过滤的数字判可见性会误红。
+    used = [
+        k
+        for k, v in blocking.items()
+        if [a for a in ((v or {}).get("actors") or []) if not (a or {}).get("hidden")]
+    ]
     if used:
         out.append(
             {"名字": "白膜", "量": f"{len(used)} 镜", "probe": "白膜（3D 导演台"}

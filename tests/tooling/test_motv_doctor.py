@@ -182,3 +182,48 @@ def test_a_handler_that_mentions_no_write_is_a_warning_not_a_pass(doc):
     assert named["接了但看不出它写了什么"]["state"] == doc.WARN, (
         "把「看不出」判成了 BAD —— 那会变成喊狼"
     )
+
+
+def test_every_probe_survives_truncation_and_filtering(doc, tmp_path, srv_mod=None):
+    """**这一条钉的是性质，不是例子。**
+
+    事实会做两件事：按额度截断（切尾巴）、按可见性过滤（软删除的不报）。探针只要
+    踩中任何一条，体检就会对一个完全正常的项目判 BAD —— 而它挂在提交闸门上，
+    于是挡住提交。第一轮修了结构规划，第二轮又抓出故事核心与白膜两处同类
+    （codex 补审 2026-09-05 块 1）。所以这里不再逐个例子钉，钉规则本身：
+
+      截断切尾  → 探针不许取尾部；
+      可见性过滤 → 探针只从过滤之后的集合里挑。
+    """
+    long_core = "开头能认出来的一句话" + "填" * 30000 + "结尾这句会被截断掉"
+    docdata = {
+        "story": {
+            "work": {
+                "core": long_core,
+                "outline": {
+                    "nodes": [{"id": "on-1", "text": f"第 {i} 段"} for i in range(50)]
+                },
+                "plan": {"rows": [{"id": f"sp-{i}"} for i in range(40)]},
+                "units": [
+                    {"id": f"u{i}", "body": f"第 {i} 章的正文"} for i in range(30)
+                ],
+            }
+        },
+        "production": {
+            # 这一镜的演员全被软删除了 —— 事实里它不算「有白膜」
+            "blocking": {"sh-1": {"actors": [{"id": "a1", "hidden": {"at": "T"}}]}},
+        },
+    }
+    surfaces = {s["名字"]: s for s in doc.surfaces_of(docdata)}
+
+    assert "白膜" not in surfaces, "只剩软删除演员的那一镜仍被当成「有白膜」"
+
+    core = surfaces["故事核心"]
+    assert long_core.startswith(core["probe"]), "故事核心的探针不是从开头取的"
+    assert core["probe"] not in long_core[-100:], "探针取到了会被截断掉的尾部"
+
+    for 名字 in ("故事大纲", "正文"):
+        s = surfaces[名字]
+        assert s["probe"], f"{名字} 没有探针"
+    # 结构规划：事实只给前 20 行，探针不许指向第 21 行往后
+    assert surfaces["结构规划"]["probe"] == "sp-19"
