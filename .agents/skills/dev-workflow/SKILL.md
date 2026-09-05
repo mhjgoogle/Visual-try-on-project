@@ -5,14 +5,17 @@ description: >-
   development request. INVOKE at the START of any task that will change code
   or behavior: new feature / enhancement, bug fix or debugging, refactor or
   cleanup, performance optimization, dependency or schema or framework
-  migration, and requirement changes to already-shipped features. It routes
-  the task to the right internal workflow, establishes requirement
-  understanding and confirmation, picks the process depth, creates and
-  maintains the Requirement / Change records, decides verification scope, and
-  runs the convergence check before finishing. DO NOT invoke for: answering
-  questions, explaining code, pure conversation, or running the review loop by
-  itself (that is codex-review-loop, which this skill calls at the right
-  moment).
+  migration, and requirement changes to already-shipped features. It first
+  places the idea on one of six levels (Mission / Strategy / Milestone /
+  Requirement / Solution / Implementation) and runs the Current Milestone Gate
+  — an idea that serves no current milestone goes to the backlog INSTEAD of
+  being built. Then it routes the task to the right internal workflow,
+  establishes requirement understanding and confirmation, picks the process
+  depth, creates and maintains the Requirement / Change records, decides
+  verification scope, and runs the convergence check before finishing. DO NOT
+  invoke for: answering questions, explaining code, pure conversation, or
+  running the review loop by itself (that is codex-review-loop, which this
+  skill calls at the right moment).
 ---
 
 # dev-workflow

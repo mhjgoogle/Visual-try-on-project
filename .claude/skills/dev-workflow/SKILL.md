@@ -5,11 +5,14 @@ description: >-
   development request. INVOKE at the START of any task that will change code
   or behavior: new feature / enhancement, bug fix or debugging, refactor or
   cleanup, performance optimization, dependency or schema or framework
-  migration, and requirement changes to already-shipped features. It routes
-  the task to the right internal workflow, establishes requirement understanding
-  and confirmation, picks the process depth, creates and maintains the Requirement
-  / Change records, decides verification scope, and runs the convergence check
-  before finishing. DO NOT invoke for:
+  migration, and requirement changes to already-shipped features. It first
+  places the idea on one of six levels (Mission / Strategy / Milestone /
+  Requirement / Solution / Implementation) and runs the Current Milestone Gate —
+  an idea that serves no current milestone goes to the backlog INSTEAD of being
+  built. Then it routes the task to the right internal workflow, establishes
+  requirement understanding and confirmation, picks the process depth, creates
+  and maintains the Requirement / Change records, decides verification scope,
+  and runs the convergence check before finishing. DO NOT invoke for:
   answering questions, explaining code, pure conversation, or running the
   review loop by itself (that is codex-review-loop, which this skill calls
   at the right moment).
@@ -35,7 +38,7 @@ ADR-0080/0081（测试归属与审查协议）、ADR-0068（连续修改链）�
 只有真缺失才补齐，**不平行创建第二套**。
 
 「记录活多久、默认读什么、临时产物怎么办」是同一个合同的另一半，见
-[references/lifecycle.md](references/lifecycle.md)（权威：AGENTS.md 第 24–26 条 /
+[references/lifecycle.md](references/lifecycle.md)（权威：AGENTS.md 第 24–27 条 /
 [ADR-0087](../../../docs/adr/ADR-0087-document-lifecycle-and-default-agent-context.md)）。
 **默认只加载当前事实**：AGENTS.md · 本次 REQ ·
 [当前架构合同](../../../docs/current-architecture.md) 相关部分 · 本次那张卡 ·
@@ -52,6 +55,94 @@ python .claude/tools/agent_harness.py resume
 `docs/tasks/active/` 里哪些卡还开着 · 上一轮那条「跑过什么」在这个 tip 上**还算不算数**。
 交接或压缩之前，反过来用 `handoff` 把机械状态记一条。**这不是新的询问闸**：
 接回来就是接着做，不问「要不要继续」（AGENTS §1）。
+
+## 第 0.5 步 — Idea Intake（一个新想法进来时，先做这个）
+
+**禁止 `Idea → Code`。入口固定是 `Idea → 判层级 → 过里程碑闸 → Requirement → Code`**
+（AGENTS.md §2 · [ADR-0101](../../../docs/adr/ADR-0101-idea-intake-level-and-milestone-gate.md)）。
+
+**产出是对话里三行，不是一份文档**（ADR-0101 决策 6）：层级一行、闸的判定一行、
+下一步一行。只有闸判 No 才产生持久物（一张 `backlog/` 卡）。一道要写文档才能过的
+闸会被跳过 —— 保持它便宜是它能活下来的前提。
+
+**什么时候跳过这一步**：用户指的是**已经在办的那张卡**里的下一步（继续、修它报的
+错、补它缺的证据）。那不是新想法，直接干。
+
+### 0.5a 判层级 —— 它是哪一层？
+
+| 层 | 它回答什么 | 落在哪 | 谁定 |
+| --- | --- | --- | --- |
+| **Mission** | 这个产品为什么存在 | `project-context.md` 锚点行 | 用户 |
+| **Strategy** | 用哪条路线达成 | `project-context.md` 锚点行 + ADR | 用户给方向，我记录 |
+| **Milestone** | 这一轮交付什么 | `project-context.md` 锚点行 | 用户，**一句话** |
+| **Requirement** | 用户/系统必须成立的**行为** | `docs/requirements/REQ-*.md` | 用户确认（下一节的理解闸） |
+| **Solution** | 怎么实现它 | ADR / 任务卡「架构影响」 | **我自己定，不问** |
+| **Implementation** | 具体改哪些文件 | 任务卡 + 提交 | **我自己定，不问** |
+
+**想法留在它自己那一层，不许塌陷。** 两个方向都是错：
+
+- **向下塌陷**（最常见）：一个 Milestone 级想法被当成 Implementation 直接开做。
+  `active/` 长期挂九张卡就是这么来的 —— AGENTS.md §2 写的是 1 主线 + 1 阻塞项。
+- **向上冒充**：一个 Implementation 细节被包装成 Requirement 递给用户拍板。
+  AGENTS.md §1 已经点名过这种往返。
+
+判不准时看**错了要重做多少**：重写几个文件 → Implementation；要重新确认用户行为
+→ Requirement；要改路线 → Strategy 及以上。
+
+### 0.5b Requirement 还是 Solution？—— 实现名词检验
+
+把想法改写成一句「**谁**在**什么时候**能看到 / 得到**什么**」。改写后的句子里若
+仍然必须出现**实现名词**（Agent、模块、服务、表、库、接口、脚本、框架）才说得通，
+它就是 **Solution**。
+
+```
+递进来的：  「增加一个剧情一致性校验 Agent」
+Requirement：章节提交后，与前文冲突的设定必须在定稿前被指出来
+Solution：   用一个一致性 Agent 做校验    ← 我自己定，不进 REQ、不问用户
+```
+
+**Solution 不进 REQ，也不因为它「听起来像需求」就拿去问用户。** 方案被当成需求
+收下，需求就被锁死在那一种实现上：后来发现别的做法更好时，改的会是「需求」，
+于是白白惊动用户一次。
+
+判成 Solution 之后**不是停下**：它服务的那条真需求已经在上面那句改写里了 ——
+拿那句去过闸，实现方式我自己选。
+
+### 0.5c Current Milestone Gate —— 现在必须做吗？
+
+**先读当前里程碑**：[`docs/STATUS.md`](../../../docs/STATUS.md) 的「当前真相」节
+第三面（它已经在默认上下文里，不用额外去翻 `project-context.md`）。
+
+四问，**任一 Yes 即放行**：
+
+1. 它在**当前里程碑**的交付面上吗？
+2. 它**阻塞**当前在办的那条主线吗？
+3. 不做会造成**不可逆损害**吗？（数据损坏 / 安全 / 已经发出去的错误结果）
+4. 它是**几分钟内能完成**的当前事实修正吗？（过期文档、错状态行）
+
+再看 **WIP**：AGENTS.md §2 的「1 主线 + 1 阻塞项」已经满，而它不属于第 2 问 →
+即使属于当前里程碑，也进 `backlog/`。
+
+**全 No → 落卡，当场说明，不实施。** 回答形如：
+
+> 与长期 Mission 一致，但不服务当前 Milestone（<当前里程碑那一句>），
+> 进入 Backlog（TASK-NNN），不实施。
+
+**必须落卡**，不能只在对话里说「以后再说」—— 说过就丢。最小三行即可：
+
+```markdown
+# TASK-NNN：<一句话标题>
+
+- 状态：未开工
+- 技术目标：<为什么这件事成立>        # 有产品需求时写「关联 Requirement：REQ-NNN …」
+- 为什么现在不做：<闸的哪一问全 No> · **什么条件下它会变成该做**：<一句>
+```
+
+第三行的后半句是关键：没有它，`backlog/` 就从队列变成垃圾桶。头部必须带
+`技术目标：` 或 `关联 Requirement：`，否则 `lifecycle_check` 判 `ORPHAN_TASK`。
+
+**这道闸不问用户。** 判据是 AGENTS.md §1 的「错了能不能重来」—— 判错了就
+`git mv` 把卡搬回 `active/`。排序类问题永远不问，而这道闸就是排序。
 
 ## REQUIREMENT UNDERSTANDING GATE（第 1 步之前）
 
@@ -252,9 +343,25 @@ This is a product behavior decision.
 
 ## 第 5 步 — Impact Analysis（轻量，为定范围而做）
 
-识别：受影响 feature/module、API/合同影响、数据影响、依赖影响、
-架构影响、受影响测试、文档影响。目的只有两个：**定修改范围 + 定验证范围**
-（见 [references/verification.md](references/verification.md)），不是造文档。
+**改之前做，六个面都查一遍**（AGENTS.md §2 · ADR-0101 决策 4）：
+
+| 面 | 去哪找 |
+| --- | --- |
+| **Requirement** | `docs/requirements/` + 卡的「关联 Requirement」行 |
+| **UI** | `mockups/motv-workspace/src/` + [产品信息架构](../../../docs/design/creator-product-information-architecture.md) |
+| **数据 Schema** | 持久化结构、`output.schema.json` 一类合同 |
+| **Workflow** | `product-flows/` · 编排层 |
+| **测试** | [CA §4](../../../docs/current-architecture.md) 的归属映射 |
+| **docs** | 当前事实类文档（架构合同、IA、glossary） |
+
+**输出两栏：要改的，和明确不动的。** 「不动」那一栏不是走过场 —— 它是后面审查
+第 2 闸与收敛检查的对照物，**改了却写在「不动」栏里的东西就是范围扩散的第一个
+信号**（→ 第 6 步 Change Isolation）。缺了否定面，出现的就是那句已经付过的账：
+「代码改了，但文档还是旧逻辑」。
+
+目的仍然只有两个：**定修改范围 + 定验证范围**
+（见 [references/verification.md](references/verification.md)），不是造文档 ——
+六面各一行就够，查过而无关的写「不动」，别扩写成报告。
 
 ## 第 6 步 — Architecture Governance（条件触发的共享子流程）
 
@@ -319,7 +426,7 @@ Task、引用的 `CA §N` 原文、变更面、验证证据、已知风险、实
 **旧行为已被新的 CONFIRMED REQ 明确取代的，允许删**。测试保护的是
 Current Valid Behavior，不是 Historical Behavior。
 
-**仓库面**（AGENTS.md 第 24–26 条 / ADR-0087，展开见
+**仓库面**（AGENTS.md 第 24–27 条 / ADR-0087 · ADR-0101，展开见
 [references/lifecycle.md](references/lifecycle.md) §3）：
 
 1. 这次新增的 `docs/` 文件，每一份都是**当前事实**或**历史证据**吗？
@@ -330,12 +437,25 @@ Current Valid Behavior，不是 Historical Behavior。
 4. 需求变了吗？→ REQ 追加 v2，v1 一字不动。
 5. `active/` 里有做完的（→ `done/`）或没人在做的（→ `backlog/`）卡吗？
 6. 有不再代表当前有效行为的测试 / 文档 / 兼容层吗？→ 删或更新。
+7. **当前真相还能被重新构建吗？**（AGENTS.md 第 27 条 / ADR-0101 决策 5）
 
 后两问机器帮你查（前四问要你自己判，守卫刻意不猜）：
 
 ```
 python .claude/tools/lifecycle_check.py
 ```
+
+第 7 问也是机器先答一半 —— 六个面由生成器产出，锚点缺失即 fail-closed：
+
+```
+python .claude/tools/gen_docs_status.py     # 写 STATUS.md 的「当前真相」节
+```
+
+**机器答不了的是那一行里程碑说得还对不对。** Mission / Strategy / Current
+Milestone 是 `docs/project-context.md` 里仅有的三行手写当前事实
+（`<!-- current-truth: … -->` 锚点）；这次 Change 若推进或换掉了里程碑，
+**就在这个提交里改那一行**。剩下三面（Active Requirements / Deferred /
+Recent Decisions）从目录派生，不用手写。
 
 **目标不是每个 Change 都增加文档，而是 Change 做完之后仓库不比之前更乱。**
 

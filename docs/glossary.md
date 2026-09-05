@@ -135,3 +135,14 @@ _权威_：[AGENTS.md 第 3 条](../AGENTS.md) · [ADR-0062 决策 2](adr/ADR-00
 全量是集成检查点跑的那一套；定向是按改动影响范围的归属域跑的那一套。
 _Avoid_：只说「跑了测试」而不说是哪一档
 _权威_：[AGENTS.md 第 20 条](../AGENTS.md) · [ADR-0080](adr/ADR-0080-test-ownership-and-gate-mapping.md)
+
+### 里程碑（milestone）／ Current Milestone
+三个东西共用过它：产品阶段（M1 / WFM1…）、归用户判定的产品声明（TASK-033/037/040 那类）、
+以及 Milestone Gate 读的 **Current Milestone**（`<!-- current-truth: milestone -->` 那一行）。
+_Avoid_：拿产品阶段（「WFM1」）去回答 Milestone Gate 的第 1 问 · 用「里程碑评审」指这道闸
+_权威_：[STATUS.md 当前真相](STATUS.md) · [AGENTS.md 第 2 / 27 条](../AGENTS.md) · [ADR-0101](adr/ADR-0101-idea-intake-level-and-milestone-gate.md)
+
+### 需求（requirement）／ 方案（solution）
+需求指可观测行为，方案指实现它的手段 ——「增加一个 X Agent／模块／表」读起来像前者，是后者。
+_Avoid_：把方案写进 REQ · 拿方案去问用户拍板
+_权威_：[AGENTS.md 第 2 条](../AGENTS.md) · [ADR-0101 决策 2](adr/ADR-0101-idea-intake-level-and-milestone-gate.md)

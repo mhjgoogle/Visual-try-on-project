@@ -19,8 +19,8 @@
       "entry": ".agents/skills/dev-workflow/SKILL.md",
       "source": ".claude/skills/dev-workflow",
       "renderer": "agent_harness/1",
-      "source_digest": "sha256:5691b96045e240e23602b504b73d913b24de4e8cca294cf1c3d0bf3351c30496",
-      "entry_digest": "sha256:d809a060bf04e722252a4c8b1c3ea4da78ed859f044b67c538299940939029d6"
+      "source_digest": "sha256:761f9651b3576ae33b19b1e583599470fd4018c68a5df03f9d7d49f56fb65908",
+      "entry_digest": "sha256:81ff8542f4895b5cdd6d17d8add427bc0ff0ab3e737ccb68c03c2fcbc68c6b5d"
     },
     "product-loop": {
       "entry": ".agents/skills/product-loop/SKILL.md",

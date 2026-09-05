@@ -33,7 +33,7 @@ Agent 之间只通过仓库中的文档、代码和 Git 状态共享上下文，
 | [5. Agent 协作](#5-agent-协作规则) | 多 Agent 同仓怎么不打架 | 14–18 |
 | [6. 测试与审查](#6-质量规则测试与审查) | 跑哪些测试、审不审、审几轮 | 19–21 |
 | [7. Git 与安全](#7-git-与安全规则) | commit / push / merge、不许提交什么 | 22–23 |
-| [8. 文档生命周期](#8-文档生命周期与默认上下文) | 记录活多久、默认读什么、临时产物怎么办 | 24–26 |
+| [8. 文档生命周期](#8-文档生命周期与默认上下文) | 记录活多久、默认读什么、当前真相长什么样 | 24–27 |
 
 ---
 
@@ -143,6 +143,26 @@ Agent 无权自改）如实告知并一次性解决，不要让它变成每次�
 
 ## 2. 范围与切片
 
+- **新想法不得直接进入实现。** 入口固定三步：**判层级 → 过当前里程碑闸 → 才谈
+  Requirement**（[ADR-0101](docs/adr/ADR-0101-idea-intake-level-and-milestone-gate.md)）。
+  层级是 Mission / Strategy / Milestone / Requirement / Solution / Implementation
+  六选一 —— 层不同，落点与决定权就不同（前三层归用户、Requirement 走理解闸、
+  Solution 与 Implementation **Agent 自己定不问**）。**想法留在它自己那一层，
+  不许塌陷**：Milestone 级想法被当成 Implementation 直接开做，就是 `active/`
+  长期挂九张卡的成因。
+- **里程碑闸：现在必须做吗？** 四问 —— 在当前里程碑交付面上 / 阻塞在办主线 /
+  不做会造成不可逆损害 / 是几分钟的当前事实修正。任一 Yes 放行；**全 No 就落
+  `docs/tasks/backlog/` 一张卡并当场说明**（「与长期 Mission 一致，但不服务当前
+  Milestone，进入 Backlog，不实施」），**不开工、不建 REQ**。当前里程碑读
+  [STATUS.md](docs/STATUS.md)「当前真相」节。闸判错可逆（`git mv` 搬回
+  `active/`），因此**不问用户**（第 1 节）。细则见 dev-workflow Skill 第 0.5 步。
+- **需求不是方案。** 「增加一个 X Agent / 模块 / 表」是 **Solution 层**，不是
+  Requirement。检验：把它改写成一句「谁在什么时候看到/得到什么」，若改写后仍
+  必须出现实现名词才说得通，它就是方案 —— **Agent 自己定，不写进 REQ，也不拿去
+  问用户**。方案被当成需求收下，需求就被锁死在一种实现上。
+- **改之前先做影响分析，且必须答出「哪些不动」**（ADR-0101 决策 4）：Requirement ·
+  UI · 数据 Schema · Workflow · 测试 · docs 六个面各查一遍，输出要改的**和明确
+  不动的**两栏。缺了否定面的那一栏，就会出现「代码改了、文档还是旧逻辑」。
 - 每个需求按**垂直切片**推进：每个切片自己就能跑、能演示、能验证。不要按技术层
   拆（schema → resolver → service → store → component → UI），那会让用户直到
   最后才看到东西。
@@ -474,3 +494,24 @@ The repo converges instead of accumulating forever.」）。
     - 这三条由 `.claude/tools/lifecycle_check.py` 守（`tests/tooling/` 里跑，
       因此自动出现在 commit gate 与 merge 前的最终全量中）；**判不了的不判**，
       交给第 20 条的收敛检查，宁可漏报不误杀。
+
+27. **每次 Change 之后，当前真相必须能被重新构建。**
+
+    六个面，一次读到：**Mission · Strategy · Current Milestone · Active
+    Requirements · Deferred · Recent Decisions**
+    （[ADR-0101](docs/adr/ADR-0101-idea-intake-level-and-milestone-gate.md) 决策 5）。
+
+    它们**不各写一份文档**：前三面是 [project-context.md](docs/project-context.md)
+    里三行带锚点的当前事实（`<!-- current-truth: mission | strategy | milestone -->`），
+    后三面从 `docs/requirements/` · `docs/tasks/backlog/` · `docs/adr/` **派生**。
+    六面统一由 `python .claude/tools/gen_docs_status.py` 生成进
+    [STATUS.md](docs/STATUS.md) 的「当前真相」节 —— 落在 STATUS.md 是因为
+    第 25 条已经把它列进默认上下文：**里程碑闸每次都要读第三面，读的东西必须是
+    默认已加载的**，否则闸本身变成负担。
+
+    **锚点缺失或为空时生成器 fail-closed**（退出非零并指出缺哪一行）：生成不出来
+    的当前真相是缺陷，不是可以留白的格子。收敛检查（第 9 步）看的不是它存不存在，
+    而是它**说的还是不是真的** —— 尤其里程碑那一行，它是唯一手写的排期事实。
+
+    不新建 traceability 数据库、不给卡加 metadata 文件、不按里程碑二级归档 ——
+    [范围外记录](docs/out-of-scope.md)那条边界不重访。
