@@ -282,6 +282,19 @@ WSL Ubuntu-22.04 / 3.10 `docs_links + docs_status` **42 passed**。
 Architecture `CA §3` PASS · Verification 由 17 条进仓库的用例 + 变异验证补足 ·
 无未闭合 P1。
 
+### `change/**` 当场自证了
+
+加上触发面之后的第一次 push（`002bd01`）**同时跑出两个 run，两个都绿**：
+
+- `33982116671` —— 分支自身（`push` 触发，这条以前不存在）
+- `33982119184` —— 合并结果（`pull_request` 触发，日志：`HEAD is now at 8658caf
+  Merge 002bd019… into cd9ef060…`）
+
+**Follow-up（本卡不做，记在这里）**：同一个提交现在会跑两遍 CI。公开仓库不计费，
+只是噪音 + 可能排队，加一个 `concurrency: {group: ci-${{ github.ref }},
+cancel-in-progress: true}` 就能收掉（push 与 pull_request 的 `github.ref` 不同，
+所以两条线各自收敛、不会互相取消）。**不在这一批扩范围。**
+
 ### 卡名那句话还剩什么
 
 「让它以后能被看见」的另一半 —— 把「CI 最近一次绿」列进 Merge Gate 的前置 ——

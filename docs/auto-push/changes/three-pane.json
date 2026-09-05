@@ -2690,7 +2690,7 @@
           "subject": "fix(tests): 不再用正则猜 CommonMark —— 行内代码跨改成照规则扫（TASK-140 · three-pane）",
           "time": "2026-09-05T17:48:34+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/auto-push/changes/three-pane.json",
             "docs/tasks/active/TASK-140-main-ci-has-been-red-for-nine-days.md",
