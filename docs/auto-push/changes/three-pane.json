@@ -864,7 +864,7 @@
           "subject": "fix: 一套额度，不是两套 —— 分节预算原来是假的",
           "time": "2026-09-05T09:05:12+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "mockups/motv-workspace/server.py"
           ],
@@ -1653,7 +1653,7 @@
           "subject": "docs(ADR-0099): 补一节射程 —— 不建 Run 的同步外部调用不在这份合同里（TASK-136 · three-pane）",
           "time": "2026-09-05T09:07:35+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/adr/ADR-0099-resume-is-not-a-retry.md"
           ],
@@ -1806,6 +1806,21 @@
           "pushed": false,
           "files": [
             "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/active/TASK-139-images-from-my-own-account.md",
+            "mockups/motv-workspace/credstore.py",
+            "mockups/motv-workspace/imagegen.py",
+            "mockups/motv-workspace/server.py",
+            "tests/studio/test_account_image_gen_task139.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "84e7d0c2fb669a527313676398e3e42d9dfae8bb",
+          "subject": "补审四闸修 5 条：配了 key 不等于不产生账单（TASK-139 · three-pane）",
+          "time": "2026-09-05T09:10:58+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
             "docs/tasks/active/TASK-139-images-from-my-own-account.md",
             "mockups/motv-workspace/credstore.py",
             "mockups/motv-workspace/imagegen.py",
