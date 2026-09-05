@@ -147,6 +147,25 @@ WSL2 上每次 fsync ~85ms。它的判据是「`/dev/shm` 可写就用」，注�
 而且都只在本地会 skip 的路径上（Windows 无提权建不了符号链接；TTS 那条整条 `skipif win32`）。
 「本地全量绿」对这类东西**一个字都没说**。
 
+## 2026-09-06 第二轮：簇 C 不是「合并即消失」，是三条真的平台相关缺陷
+
+第二次 CI（Ubuntu 5 failed / Windows 1 failed）把 C 拆开了。三条都是**同一个形状**：
+**判定结果取决于自己跑在哪** —— AGENTS §3「平台中立，不是 POSIX」正是禁这个。
+
+| 红的那条 | 真正的原因 |
+| --- | --- |
+| `test_docs_links` | 守卫**没跳过围栏代码块**。`dev-workflow/references/lifecycle.md` 里有一段 ADR 双向取代的**模板**，写着 `[ADR-XXXX](...)`，目标字面量是三个点。Windows 会把纯点路径规范化掉（`x/...` → `x`，存在），Linux 不会。围栏里的东西根本不会被 markdown 渲染成链接，所以它不可能「断」—— 加了 `_strip_fences`（CommonMark 的同种字符 + 不短于开启的闭合规则），并留了 7 条形状用例证明它仍然抓得住真断链 |
+| `test_docs_status` | **`sorted()` 比较 `Path` 时用的是 `_str_normcase`：Windows 折叠大小写，POSIX 原样比。** 于是 `docs/STATUS.md` 的生成顺序在两个平台不同，而这个文件要被逐字节比对 —— `design/done/` 里 M1-/TASK-/WFM1-/WSM3- 那 8 行的位置差异就是它。改成 `key=lambda p: p.name`，其余四处对 Path 的排序一并钉死 |
+| `test_gate_ps1_splits_powershell_with_powershells_own_parser` | 断言写的是「`&&` 一定解析不了」—— 那是 **Windows PowerShell 5.1** 的事实，而 GitHub 的 ubuntu runner 预装的是 **pwsh 7**，它支持 `&&`。改成断言**结论**：两条路径都必须仍然进闸门（`check`），不因为「切开了」变成 skip |
+
+**本机三处（Windows / WSL / worktree）都没有 pwsh**，所以第三条的 pwsh-7 分支
+**只能由 CI 验证** —— 我没有本地证据，如实记在这里。前两条在 WSL 的
+Ubuntu-22.04 / Python 3.10 上实跑过（同一份 `STATUS.md` 在两个平台都绿）。
+
+顺带一条别当成 CI 问题的：在 WSL 里跑 `tests/tooling` 全量会多出 20 条红，
+报的是 `set: pipefail: invalid option name` —— **Windows 检出的 CRLF**，
+AGENTS §3 第 5 条早就写着。CI 用 LF 检出，与它无关。
+
 ### D 剩下的一条
 
 `test_gate_ps1_splits_powershell_with_powershells_own_parser` 在 Ubuntu CI 上红，

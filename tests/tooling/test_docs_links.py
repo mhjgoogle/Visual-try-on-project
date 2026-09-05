@@ -46,6 +46,42 @@ _IGNORED_PARTS = frozenset({".venv", "node_modules", ".git", "__pycache__"})
 #: 仓库里。一个会因为 scratch 而变红的守卫，会被人关掉 —— 那才是真正的损失。
 _SCRATCH = (".claude", "tmp")
 
+#: ```…``` 或 ~~~…~~~ 围栏。**围栏里的东西不是链接** —— 它是被原样打印的示例文本，
+#: markdown 根本不会把它渲染成链接，所以它也不可能「断」。
+#:
+#: 这一条是 2026-09-06 补的，成因同样值得记：dev-workflow 的 lifecycle.md 里有一段
+#: ADR 双向取代的**模板**，写着 `[ADR-XXXX](...)`。目标字面量是三个点。
+#: Windows 会把纯点路径规范化掉（`x/...` → `x`，存在），Linux 不会（`...` 是一个
+#: 不存在的文件名）—— 于是这条守卫在权威平台上永远绿、在 Ubuntu CI 上永远红，
+#: 而红的原因是一段示例代码。ADR-0062 决策 2 的原话：权威归属反转不等于代码可以
+#: 开始关心自己跑在哪；一条判定依赖平台的守卫，正是它禁止的东西。
+_FENCE = re.compile(r"^\s{0,3}(`{3,}|~{3,})", re.MULTILINE)
+
+
+def _strip_fences(text: str) -> str:
+    """去掉围栏代码块，保留行数无关（这里只做存在性判定，不报行号）。
+
+    只认**同种**围栏字符的闭合，且闭合围栏不短于开启的那条 —— 这是 CommonMark 的
+    规则，也是让 ```` ```` 包住 ``` 的写法不被误判所必需的。未闭合的围栏一直吃到
+    文件尾（同 CommonMark）。
+    """
+    out: list[str] = []
+    fence: str | None = None
+    for line in text.splitlines():
+        stripped = line.lstrip(" ")
+        if fence is None:
+            m = _FENCE.match(line)
+            if m and len(line) - len(stripped) <= 3:
+                fence = m.group(1)
+                continue
+            out.append(line)
+        else:
+            char = fence[0]
+            run = len(stripped) - len(stripped.lstrip(char))
+            if run >= len(fence) and not stripped[run:].strip():
+                fence = None
+    return "\n".join(out)
+
 
 def _is_scratch(p: Path) -> bool:
     parts = p.relative_to(_REPO_ROOT).parts
@@ -63,7 +99,7 @@ def _markdown_files() -> list[Path]:
 def test_every_relative_markdown_link_resolves() -> None:
     broken: list[str] = []
     for md in _markdown_files():
-        text = md.read_text(encoding="utf-8", errors="replace")
+        text = _strip_fences(md.read_text(encoding="utf-8", errors="replace"))
         for target in _LINK.findall(text):
             target = target.strip()
             if not target or target.startswith(_EXTERNAL):

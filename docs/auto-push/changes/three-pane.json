@@ -2644,6 +2644,7 @@
       ],
       "paths": [
         ".claude/tools/agent_harness.py",
+        ".claude/tools/gen_docs_status.py",
         ".claude/tools/gh-api.py",
         "docs/STATUS.md",
         "docs/tasks/active/TASK-134-*.md",
@@ -2651,11 +2652,13 @@
         "tests/conftest.py",
         "tests/contract/test_motv_skillpkg_task075.py",
         "tests/studio/test_motv_av_m11.py",
-        "tests/studio/test_motv_conversation_task109.py"
+        "tests/studio/test_motv_conversation_task109.py",
+        "tests/tooling/test_commit_gate_policy.py",
+        "tests/tooling/test_docs_links.py"
       ],
       "verification": "PASS",
-      "verification_ref": "WSL Ubuntu-22.04/3.10 两种环境各跑一遍 tests/studio/test_motv_conversation_task109.py：有 claude 与 PATH 剥掉 claude（= CI 的处境）都 79 passed；修前后者 3 failed",
-      "declared": "2026-09-05T16:11:32+00:00"
+      "verification_ref": "Windows: pytest tests/tooling 385 passed；WSL Ubuntu-22.04/3.10: docs_links + docs_status 25 passed（同一份 STATUS.md 两平台都绿）；_strip_fences 另有 7 条形状用例。gate_ps1 的 pwsh-7 分支本地三处都没有 pwsh，只能由 CI 验证",
+      "declared": "2026-09-05T16:40:17+00:00"
     }
   },
   "merge_gate": {
