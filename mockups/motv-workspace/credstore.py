@@ -171,6 +171,15 @@ def _quarantine_unreadable(app_data_dir: Path) -> None:
     while backup.exists() and n < 100:
         n += 1
         backup = path.with_suffix(f"{path.suffix}.corrupt-{stamp}-{n}")
+    if backup.exists():
+        # **名字用完了就停手，不要覆盖。** 循环跑满 100 次之后 `backup` 仍然存在，
+        # 而下面那行 `os.replace` 会把它盖掉 —— 于是「隔离坏文件」这个动作本身
+        # 删掉了上一次隔离出来的证据（codex 补审轮 2 判 P1）。
+        # 这里宁可让存 key 失败：他能自己清掉那些隔离文件，而被覆盖掉的字节回不来。
+        raise CredentialError(
+            f"同一秒内的隔离文件名已经用满（{backup.parent}），"
+            "先清掉那些 .corrupt-* 文件再存 —— 没有覆盖任何东西"
+        )
     try:
         os.replace(path, backup)
     except OSError as exc:

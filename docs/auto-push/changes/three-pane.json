@@ -1664,7 +1664,7 @@
           "subject": "EP-002：回写命令的第二条没带 pathspec —— 那不是手滑，是共享树上必然发生（TASK-136 · three-pane）",
           "time": "2026-09-05T09:21:53+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/auto-push/changes/three-pane.json",
             "docs/skill-evolution/backlogs/auto-push.jsonl",
@@ -1769,12 +1769,27 @@
             "docs/skill-evolution/backlogs/codex-review-loop.jsonl",
             "docs/skill-evolution/index.json"
           ]
+        },
+        {
+          "hash": "1efe389a8df9620d34042812cbe37e71d28bc3f5",
+          "subject": "feat: 给 gh-api 加 run-list/run-view —— 然后发现 main 的 CI 红了九天（TASK-134 · three-pane）",
+          "time": "2026-09-05T09:26:48+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": true,
+          "files": [
+            ".claude/tools/gh-api.py",
+            "docs/STATUS.md",
+            "docs/tasks/active/TASK-134-import-linter-layering-contract.md",
+            "docs/tasks/backlog/TASK-140-main-ci-has-been-red-for-nine-days.md"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
         ".claude/hooks/commit_gate_policy.py",
         ".claude/hooks/gate.ps1",
         ".claude/hooks/gate.sh",
+        ".claude/tools/gh-api.py",
         ".github/workflows/ci.yml",
         "docs/STATUS.md",
         "docs/auto-push/changes/three-pane.json",
@@ -1784,13 +1799,14 @@
         "docs/tasks/active/TASK-134-import-linter-layering-contract.md",
         "docs/tasks/backlog/TASK-137-review-issue-to-rework-loop.md",
         "docs/tasks/backlog/TASK-138-story-development-visual-workflow.md",
+        "docs/tasks/backlog/TASK-140-main-ci-has-been-red-for-nine-days.md",
         "pyproject.toml",
         "tests/tooling/test_commit_gate_policy.py",
         "tests/tooling/test_import_contracts.py"
       ],
       "verification": "PASS",
-      "verification_ref": "全量 3922 passed/59 skipped + serial 6 + 前端 2160/0 failed + ruff 双绿 + lifecycle_check 0 finding + lint-imports 3 kept/0 broken；codex 两轮 BLOCKING 均 none。paths 含两类非本卡产物：docs/tasks/active/TASK-087（38b2549 从共享 index 误带走，内容完整已通知作者 e9，登记的是事实不是归属）与 docs/skill-evolution/（本卡收口的 post-use feedback）。判据 1 的 CI 证据未取得：gh 不在本机 PATH，无法核实 CI 运行结果，卡因此留在 active/",
-      "declared": "2026-09-05T09:01:51+00:00"
+      "verification_ref": "tooling 364 passed/1 skipped + ruff 双绿 + lifecycle_check 0 finding；run-list/run-view 对真实仓库跑通。判据 1 仍未闭合：change/** 不触发 CI 且 main 的 CI 连续八次 failure，已立卡 TASK-140",
+      "declared": "2026-09-05T09:26:47+00:00"
     },
     "TASK-139": {
       "commits": [
@@ -1806,22 +1822,6 @@
             "docs/auto-push/changes/three-pane.json",
             "docs/requirements/REQ-008-images-from-my-own-account.md",
             "docs/requirements/index.md",
-            "docs/tasks/active/TASK-139-images-from-my-own-account.md",
-            "mockups/motv-workspace/credstore.py",
-            "mockups/motv-workspace/imagegen.py",
-            "mockups/motv-workspace/server.py",
-            "tests/studio/test_account_image_gen_task139.py"
-          ],
-          "scope_violation": null
-        },
-        {
-          "hash": "80f1e421809d4b554948de27aafe8d4dccfcdc10",
-          "subject": "chore(auto-push): three-pane manifest writeback（ADR-0099 射程补充）",
-          "time": "2026-09-05T09:09:37+00:00",
-          "branch": "change/TASK-109-three-pane",
-          "pushed": false,
-          "files": [
-            "docs/auto-push/changes/three-pane.json",
             "docs/tasks/active/TASK-139-images-from-my-own-account.md",
             "mockups/motv-workspace/credstore.py",
             "mockups/motv-workspace/imagegen.py",

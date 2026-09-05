@@ -584,6 +584,78 @@ def test_an_unknown_outcome_blocks_a_silent_replay_until_he_says_so(srv, app):
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize("truthy", ["false", "0", "no", 1, [1]])
+def test_only_a_real_boolean_counts_as_consent(srv, app, truthy):
+    """`bool("false")` 是 True —— 一个前端把复选框当字符串传就够了。
+
+    这道闸放行的后果是再消耗一次额度，所以同意必须是**布尔真**
+    （codex 补审轮 2 判 P1）。
+    """
+    _set_key(srv)
+    srv._https_post = _fake_transport(imagegen.TransportFailed("timeout"))
+    payload = {"project": "作品", "slug": "hero", "prompt": "一只猫"}
+    assert _post(app, "/api/agent/image-gen-account", payload)[0] == 504
+
+    calls = []
+    srv._https_post = _fake_transport(_interactions_reply(), record=calls)
+    status, body = _post(
+        app, "/api/agent/image-gen-account", {**payload, "acknowledge_unknown": truthy}
+    )
+    assert status == 409, truthy
+    assert body["error"]["category"] == "side_effect_unknown"
+    assert calls == []
+
+
+def test_an_unexpected_crash_still_leaves_the_uncertainty_behind(srv, app):
+    """意外把在途标记放掉时**必须留下「不确定」**：请求可能已经送出去了。
+
+    上一轮的修复只 discard 不记，于是同一条 P1 从另一个出口漏出去
+    （codex 补审轮 2 判 P1）。
+    """
+    _set_key(srv)
+
+    def explode(*_a, **_k):
+        raise RuntimeError("boom")
+
+    srv._https_post = explode
+    payload = {"project": "作品", "slug": "hero", "prompt": "一只猫"}
+    with pytest.raises(RuntimeError):
+        _post(app, "/api/agent/image-gen-account", payload)
+
+    calls = []
+    srv._https_post = _fake_transport(_interactions_reply(), record=calls)
+    status, body = _post(app, "/api/agent/image-gen-account", payload)
+    assert status == 409
+    assert body["error"]["category"] == "side_effect_unknown"
+    assert calls == []
+
+
+def test_quarantine_stops_instead_of_overwriting_when_names_run_out(srv, monkeypatch):
+    """隔离动作自己不许删掉上一次隔离出来的证据（codex 补审轮 2 判 P1）。
+
+    时间戳**钉死**：秒级时间戳意味着测试与被测代码可能落在不同的一秒里，
+    那样名字根本不冲突，这条断言就会变成一条随机绿（它第一次跑就是这么飘的）。
+    """
+    monkeypatch.setattr(credstore.time, "strftime", lambda *_a, **_k: "FIXED")
+
+    path = srv.APP_DATA_DIR / credstore.CRED_FILENAME
+    path.write_text("{ broken", encoding="utf-8")
+    stamp = "FIXED"
+    occupied = [path.with_suffix(f"{path.suffix}.corrupt-{stamp}")]
+    occupied += [
+        path.with_suffix(f"{path.suffix}.corrupt-{stamp}-{i}") for i in range(1, 101)
+    ]
+    for p in occupied:
+        p.write_text("earlier evidence", encoding="utf-8")
+
+    with pytest.raises(credstore.CredentialError):
+        credstore.store(srv.APP_DATA_DIR, _KEY, tier=credstore.TIER_FREE)
+
+    # 一份都没被盖掉，坏文件也还在原处
+    assert all(p.read_text(encoding="utf-8") == "earlier evidence" for p in occupied)
+    assert path.read_text(encoding="utf-8") == "{ broken"
+
+
 def test_a_write_failure_still_says_the_quota_was_spent(srv, app):
     """存不下来不是一次干净的失败：图生成出来了，额度是花了的。"""
     _set_key(srv)

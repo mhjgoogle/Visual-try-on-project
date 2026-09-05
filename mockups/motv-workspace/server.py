@@ -11359,11 +11359,16 @@ class _App:
         # §5.8 第 2 条要的是「由用户显式决定」，所以放行的钥匙是请求里显式带上
         # `acknowledge_unknown`，而不是等 60 秒或再点一下
         # （codex 补审 2026-09-05 判 P1：清掉在途标记就等于允许静默重放）。
+        # **同意必须是布尔真，不是「真值」。** `bool(...)` 会把字符串 `"false"`、
+        # `"0"`、`"no"` 全当成同意 —— 而这道闸放行的后果是再消耗一次额度。
+        # 一个前端把复选框的值当字符串传过来，就足以把「显式确认」变成一句空话
+        # （codex 补审轮 2 判 P1）。
         ack = False
         try:
             parsed_body = json.loads(body.decode("utf-8")) if body else {}
-            ack = bool(
-                isinstance(parsed_body, dict) and parsed_body.get("acknowledge_unknown")
+            ack = (
+                isinstance(parsed_body, dict)
+                and parsed_body.get("acknowledge_unknown") is True
             )
         except (ValueError, UnicodeDecodeError):
             ack = False
@@ -11418,8 +11423,14 @@ class _App:
         except BaseException:
             # 出图之外的任何意外（含被打断）：在途标记必须放掉，否则这个意图
             # 会永久卡在「正在生成中」，而它其实没有在生成。
+            #
+            # **但放掉之后要留下「不确定」**：请求可能已经送到供应商那边了，
+            # 而我们再也拿不到它的结果。上一版只 discard 不记，于是下一次同样的
+            # 请求可以直接重放 —— 那正是本轮修的那条 P1 从另一个出口漏了出去
+            # （codex 补审轮 2 判 P1）。
             with _ACCOUNT_IMAGE_LOCK:
                 _ACCOUNT_IMAGE_INFLIGHT.discard(fp)
+                _ACCOUNT_IMAGE_UNKNOWN.add(fp)
             raise
 
         # **在途标记一直押到落盘之后才放。** 上一版在这里就放掉了，于是「生成完了、
