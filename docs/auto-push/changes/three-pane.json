@@ -150,7 +150,7 @@
           "subject": "docs(TASK-087 §5.18): 真浏览器验录白膜卡在哪 —— 两条卡点写清楚，免得下一个人重走",
           "time": "2026-09-05T16:01:16+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/tasks/active/TASK-087-followup-ledger.md"
           ],
@@ -2622,11 +2622,13 @@
         "docs/STATUS.md",
         "docs/tasks/active/TASK-134-*.md",
         "docs/tasks/active/TASK-140-*.md",
-        "tests/conftest.py"
+        "tests/conftest.py",
+        "tests/contract/test_motv_skillpkg_task075.py",
+        "tests/studio/test_motv_av_m11.py"
       ],
       "verification": "PASS",
-      "verification_ref": "两个根因定位并修复（datetime.UTC 对 3.10 · conftest 把 tmp 放进 /dev/shm 撞上 rootadmit）。验证：tests/tooling 385 passed · docs 守卫 25 passed · lifecycle_check 0 finding · ruff 全绿。CI 是否转绿要下一次 push 到 main 才能证明，已如实写在卡上",
-      "declared": "2026-09-05T14:15:12+00:00"
+      "verification_ref": "WSL Ubuntu-22.04 / Python 3.10（与 CI Ubuntu job 同版本）：tests/studio/test_motv_av_m11.py + tests/contract/test_motv_skillpkg_task075.py 79 passed；skillpkg 那条做了反向验证（隔离 worktree 上修前红）",
+      "declared": "2026-09-05T16:06:07+00:00"
     }
   },
   "merge_gate": {

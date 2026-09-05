@@ -127,6 +127,38 @@ WSL2 上每次 fsync ~85ms。它的判据是「`/dev/shm` 可写就用」，注�
   gate 策略在没有 PowerShell 的环境下的期望）。按 Bug 工作流「先复现拿证据再修」，
   不在同一批里连环 patch。
 
+## 2026-09-06：开 PR 跑合并结果，D 里三条中的两条已取证并修掉
+
+开 [PR #2](https://github.com/mhjgoogle/Visual-try-on-project/pull/2)（分支 → main）
+让 CI 跑**合并后的结果**。它当场推翻了上一段那句「C 合并即消失」：
+`docs_links` 在合并结果上是红的 —— TASK-041 搬进 `done/` 时，引用它的 TASK-136 没跟着改
+（本地两条路径都存在过所以一直是绿的）。已修（3482fbc）。
+
+**取证手段这次换了一件**：WSL 里的 Ubuntu-22.04 是 **Python 3.10**，
+与 CI 的 Ubuntu job 同一个小版本 —— 也就是说 D 里那两条「只在 CI 上跑得到」的测试，
+在本机是可以真跑的，只是九天里没人在那儿跑过。
+
+| D 的哪条 | 根因 | 结论 |
+| --- | --- | --- |
+| `test_a_package_file_symlinked_outside_the_package_is_refused` | **测试与 ADR-0067 决策 7 矛盾**：它断言坏掉的 project 包会回落到 builtin（`skills["story-development"].source != "project"`），而决策 7 恰恰禁止跨源回落，`load_catalog` 从来没那么做过。同族的 `test_a_broken_high_priority_package_does_not_fall_back` 写的才是对的形状 | 已修：改断言为 `not in catalog.skills`。Linux/3.10 上修前红、修后绿（同一台机器上做的反向验证） |
+| `test_tts_voice_param_validated_and_falls_back_honestly` | **测试把语音模型写错了目录**：`data_dir` fixture 把 `DATA_DIR` 打到 `tmp_path/"mockdata"`，却返回 `tmp_path/"account"`（ADR-0053 之后它的职责变成账户根，名字没跟着改）。默认模型靠 `_TTS_MODEL` 打桩救回来了，per-character 那条查的是 `DATA_DIR` —— 于是它**从来没有真正验证过**那条产品逻辑 | 已修：模型写进 `server_module.DATA_DIR / "tts"`。Linux 上 7 passed |
+
+两条的共同点值得记下来：**它们都不是产品坏了，是测试在断言一件产品从不做的事**，
+而且都只在本地会 skip 的路径上（Windows 无提权建不了符号链接；TTS 那条整条 `skipif win32`）。
+「本地全量绿」对这类东西**一个字都没说**。
+
+### D 剩下的一条
+
+`test_gate_ps1_splits_powershell_with_powershells_own_parser` 在 Ubuntu CI 上红，
+但在我的 WSL 上是 **skip**（那儿没装 PowerShell）——GitHub 的 ubuntu runner 预装了 `pwsh`，
+所以那条路径**只在 CI 上存在**。取证要么装 pwsh，要么在 CI 上加一次定向跑。未做。
+
+`test_motv_conversation_task109.py` 的两条在 Windows 与 WSL 上都**复现不了**。
+CI 上多出来的是一条 `text: ""` 的失败轮次 —— 就是 ADR-0089 决策 6 那条 fail-closed 路径
+（Agent 跑失败也要出声）。CI 上没有 `claude` 可执行文件，run 立刻失败并落地；
+本机有，run 还在飞，`_get` 就先返回了。**所以那是一条时序断言**，
+不是「CI 环境坏了」。归属在 TASK-109，未代改。
+
 ## 还欠一件事，而且它才是卡名那句话的正主
 
 A 和 B 修完之后，CI 会不会绿**我今天无法证明** —— 它要下一次 push 到 main 才知道，
