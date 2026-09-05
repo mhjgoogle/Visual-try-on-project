@@ -5195,7 +5195,35 @@ const ctx = {
     // workflow nodes (identical slug namespace, so files land alongside node
     // uploads); when the prompt flow was used, the Generation Registry gets a
     // REAL record (promptSnapshot = the copied text, provider = the entry).
-    importShotMedia: async (kind, slot, shotId, file, intent) => {
+    // `opts.response` —— **服务端已经把文件写好了**（免费自动出图那条路，TASK-139）：
+    // 跳过上传，其余登记逻辑一字不动。
+    //
+    // 加一个参数而不是另写一条登记路：`kind: "shot-image"` 的写入者只能有一个，
+    // 否则「这张图属于哪一镜、算不算一次生成」会有两处答案，而它们迟早不一致
+    // （同 ADR-0055 / CP2 的理由）。origin 由调用方给，于是溯源里看得出它不是上传。
+    /** 免费自动出图（TASK-139 / REQ-008 判据 1）：后端出图并写进这一镜的槽位，
+     *  然后**走与手工导入完全相同的登记路**（下面那个 `importShotMedia`）。
+     *
+     *  于是「自动出的图」和「手工传的图」在资产登记、版本链、溯源上是同一种东西 ——
+     *  区别只有 `origin`，而那正是应该有区别的地方。 */
+    generateShotImage: async (slot, shotId, prompt) => {
+      if (!CONNECTED) throw new Error("演示模式无后端");
+      const res = await command.accountImageGenerate(
+        PROJECT_NAME,
+        `assets-${slot}`,
+        prompt,
+      );
+      await ctx.media.importShotMedia(
+        "image",
+        slot,
+        shotId,
+        null,
+        { shotId, prompt, entry: "account-image" },
+        { response: res, origin: "account-image" },
+      );
+      return res;
+    },
+    importShotMedia: async (kind, slot, shotId, file, intent, opts = {}) => {
       if (!CONNECTED) {
         throw new Error("演示模式无后端，无法导入文件（复制提示词仍可用）");
       }
@@ -5209,7 +5237,10 @@ const ctx = {
       // that states something the bytes contradict, and the one thing CP2's
       // rules exist to prevent. Checked BEFORE the upload, so a refusal never
       // leaves a file on disk.
-      const fileDomain = mediaDomainOfFile(file);
+      // 服务端写好的那条路没有 File 可验；它的字节由后端的 magic 校验把关
+      // （`_agent_image_account` 里那一段），所以这里不是少了一道闸，是那道闸
+      // 在写盘之前就已经跑过了。
+      const fileDomain = file ? mediaDomainOfFile(file) : domain;
       if (!fileDomain) {
         throw new Error("无法识别文件类型：请上传 png/jpg/webp 或 mp4/webm");
       }
@@ -5222,9 +5253,11 @@ const ctx = {
       // checked BEFORE the upload — see ctx.audio.importKey
       const pre = assetreg.checkDeclaration(domain, { kind: declKind });
       if (pre) throw new Error(`登记被拒绝，未上传：${pre}`);
-      const res = await command.uploadAssetImage(PROJECT_NAME, slug, file);
+      const res = opts.response
+        ? opts.response
+        : await command.uploadAssetImage(PROJECT_NAME, slug, file);
       const map = kind === "image" ? assetRegistry.images : assetRegistry.videos;
-      const ref = mediaref.refFromResponse(slot, "upload", res, shotId ?? null);
+      const ref = mediaref.refFromResponse(slot, opts.origin || "upload", res, shotId ?? null);
       // CP2/ADR-0055: the import declares WHAT this is and WHERE it belongs, in
       // the same call that writes it — the shot is known, so its episode/scene
       // context is a provable fact, not a guess.
