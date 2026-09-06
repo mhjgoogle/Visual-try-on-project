@@ -1307,21 +1307,33 @@
           "subject": "fix(TASK-106): app.js 少了一行 import —— 剧本拆解一进 catch 就 ReferenceError",
           "time": "2026-09-06T03:01:33+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "mockups/motv-workspace/src/app.js",
             "mockups/motv-workspace/tests/wiring.test.mjs"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "3b6416af06ded05c04b9a5d89d70f9d38ede3ead",
+          "subject": "docs(TASK-106): 卡与事实对齐 —— 判据 2 的五个端点与判据 5 闭合，判据 3 的规模写清楚",
+          "time": "2026-09-06T03:15:58+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/STATUS.md",
+            "docs/tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
-        "mockups/motv-workspace/src/app.js",
-        "mockups/motv-workspace/tests/wiring.test.mjs"
+        "docs/STATUS.md",
+        "docs/tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md"
       ],
       "verification": "PASS",
       "verification_ref": "",
-      "declared": "2026-09-06T02:54:44+00:00"
+      "declared": "2026-09-06T03:09:58+00:00"
     },
     "TASK-074": {
       "commits": [
