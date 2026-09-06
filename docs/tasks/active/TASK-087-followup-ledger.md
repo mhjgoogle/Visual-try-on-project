@@ -96,7 +96,7 @@
 | 3.6.2 | **`src` 内部 import 环** | TASK-102 盘点（自动统计 import 方向） | 中 | `app → planning` 且 `planning → app`（应用层与领域层双向）；`learning → workspace → app → …` 长链。核心库对 mockups 是**零依赖**（这一侧干净），但内部方向不干净：动 app 会波及领域层，反之亦然。本卡 OUT OF SCOPE |
 | 3.6.3 | **L0–S7 合同手抄三份** | TASK-102 盘点 | 中 | `docs/design/workflow-stage-step-io-contract.md`（权威）↔ `src/…/workspace/io_contract.py`（801 行，自称 transcription）↔ `mockups/…/src/workflow/contract.js`（78 行，自称 mirrors）。改合同要同时改三处，漏一处就静默不一致。反例参照：`product-skills/skill-inputs.json` 是**单一来源**被前后端同时读，形状健康 |
 | 3.6.4 | **前端入口 `app.js` 不可测** | TASK-102 批次 E | 低（已缓解） | 它是入口编排文件，`.test.mjs` 无法 import，所以它的架构不变量只能从**源码文本**侧断言。批次 E 已把这些守卫从 19 个测试文件收敛到 `tests/contract/` 一个文件（改 app.js 只碰一处），但断言的仍是写法而非性质。根治要拆 app.js 的编排层——属前端重构，另立卡 |
-| 3.6.5 | **auto-push 的 `scope_violation` 是过期快照，且无重算通道** | TASK-102 merge 时实测 | 中（会**无理由拦住 merge**） | `record-commit` 按**当时**申报的 `paths` 算 `scope_violation` 并存进清单；后续 `task-ready` 覆盖 `paths` 之后，旧快照与新申报不再一致，而 `merge` 只看快照 → `BLOCKED_SCOPE`。本次两条提交的 13 + 2 个「越界」文件其实全在最终申报范围内，用 `autopush._matches` 按当前申报重算后为 0。`stage` 有 `--allow-wide` 这个出口，`record-commit`／`merge` 侧没有对应物。修法建议：`merge` 前按当前 `paths` 重算，或加一个 `recheck-scope` 子命令；顺带考虑 `task-ready` 覆盖 `paths` 时就地重算历史记录。归 TASK-101 / auto-push skill |
+| 3.6.5 | ~~**auto-push 的 `scope_violation` 是过期快照，且无重算通道**~~ **已闭合（2026-09-06 核实，本条此前一直挂着）**：`_live_violations()` 已经把判定改成**从提交自己的 `files` 现算**，只有老清单没存 `files` 时才退回快照（保守方向）。今天实测过一次它在工作：`push` 报 BLOCKED_SCOPE 时用的判词就是「judged against the CURRENT declared paths」，补一次 `task-ready` 申报并集之后立刻放行。**这条是「修了但没划掉」** —— 台账自己也会过期，和它防的那件事同一族 | TASK-102 merge 时实测 | 中（会**无理由拦住 merge**） | `record-commit` 按**当时**申报的 `paths` 算 `scope_violation` 并存进清单；后续 `task-ready` 覆盖 `paths` 之后，旧快照与新申报不再一致，而 `merge` 只看快照 → `BLOCKED_SCOPE`。本次两条提交的 13 + 2 个「越界」文件其实全在最终申报范围内，用 `autopush._matches` 按当前申报重算后为 0。`stage` 有 `--allow-wide` 这个出口，`record-commit`／`merge` 侧没有对应物。修法建议：`merge` 前按当前 `paths` 重算，或加一个 `recheck-scope` 子命令；顺带考虑 `task-ready` 覆盖 `paths` 时就地重算历史记录。归 TASK-101 / auto-push skill |
 
 ### 3.6b TASK-101/103/104 三条 Change 合并时暴露的四条（2026-08-23 登记）
 
@@ -106,8 +106,8 @@
 | # | 欠账 | 来源 | 风险 | 它今天挡住什么 |
 | --- | --- | --- | --- | --- |
 | ~~3.6.6~~ | ~~**`record-sync` 只能登记 HEAD，补登不了历史 sync merge**~~ | TASK-104 合并实测 | **已闭合 2026-08-23** | 按当时写下的修法做了：`record-sync` 加 `--hash`，复用 `record_commit(--hash)` 同一条 rev 解析，**形状校验一条不放松**（补登对象照样要是「有后位亲在 main 上」的 merge）。守卫两条，含反向那条；变异验证：拆掉形状校验 → 反向那条转红 |
-| 3.6.7 | **merge 记录的形状不统一，`cleanup` 因此认不出已合并的 Change** | TASK-102 清单实测 | 中 | 手工合并时人写的是 `merge_commit` / `at`，而 `cleanup` 读的是 `merge["hash"]` → 对一条**确实已合并**的 Change 报 `BLOCKED_NOT_MERGED`。本次按加法补齐了 `hash` / `time`（未动既有字段）。根治要么给 merge 记录一个单一来源的写入口，要么让读侧接受两种键名 —— 前者对 |
-| 3.6.8 | **`writeback_needed` 恒为 `True`** | TASK-101 补审轮 2 non-blocking（判 P3） | 低 | 回写已提交后重跑 `record-commit` 仍答「有待办」，并给出会 `nothing to commit` 的命令。主路径本来就是无条件给的，非新引入；真实脏否由 `_dirty_gate` 在下次操作时判定 |
+| 3.6.7 | ~~**merge 记录的形状不统一，`cleanup` 因此认不出已合并的 Change**~~ **已修（2026-09-06，`9c40fe9`）**：新增 `_merge_hash(manifest)` 作为唯一读侧，`hash` 与 `merge_commit` 两种写法都认；既有清单不动、不引入迁移。守卫两条（人手记录认得出 / 两种键都没有时照旧拒绝），变异验证过。 | TASK-102 清单实测 | 中 | 手工合并时人写的是 `merge_commit` / `at`，而 `cleanup` 读的是 `merge["hash"]` → 对一条**确实已合并**的 Change 报 `BLOCKED_NOT_MERGED`。本次按加法补齐了 `hash` / `time`（未动既有字段）。根治要么给 merge 记录一个单一来源的写入口，要么让读侧接受两种键名 —— 前者对 |
+| 3.6.8 | ~~**`writeback_needed` 恒为 `True`**~~ **已修（2026-09-06，`9c40fe9`）**：改成现算（`_manifest_dirty`），不需要回写时连命令一起不给；两条路径都改了（正常记录 + 「已经记过了」那条，后者正是这条账的现场）。真仓库上验过：回写提交之后再问一次答 `writeback_needed: false`。 | TASK-101 补审轮 2 non-blocking（判 P3） | 低 | 回写已提交后重跑 `record-commit` 仍答「有待办」，并给出会 `nothing to commit` 的命令。主路径本来就是无条件给的，非新引入；真实脏否由 `_dirty_gate` 在下次操作时判定 |
 | ~~3.6.9~~ | ~~**`git branch -d` 在「本地领先其远端上游」时拒删，即便两个 tip 都已在 main 内**~~ | `feat/wfm1-batch-c` 清理实测 | **已闭合 2026-08-23** | `cleanup` 现在**自己回答那个问题**：分支 tip 是 `origin/main` 的祖先 ⇒ 全部历史都在 main 里 ⇒ 删除不可能丢东西，此时才升级到 `-D`；答不出来仍然拒绝，并把理由写进返回值。**这不是放宽**，是把判断从 git 的那个近似（相对本地上游）换成真正要成立的那条。`feat/wfm1-batch-c` 本地与远端**都已删除**，欠了一整轮的清理到此结清 |
 
 **一条方法论**（与 §7 同族）：这四条里有三条的形状是**「事实成立，但登记表说不出来」** ——
@@ -178,6 +178,7 @@
 | --- | --- | --- | --- | --- |
 | 5.29 | **REQ 号用定宽切片取，四位编号会静默错配**（原记为 §5.24，撞号后改号） | TASK-141 轮 2 审查 NON_BLOCKING（2026-09-05） | 低（今天不可达） | `.claude/tools/gen_docs_status.py` 的 `_active_requirements()` / `_not_yet_binding()` 用 `path.name[4:7]` 取 REQ 号，`REQ-1000` 会被截成 `100` 并与 `REQ-100` 的引用错配、表里也显示成 `REQ-100`。当前最大 `REQ-008`，触发要 992 条需求之后 —— 记录而不修（P3，AGENTS §20 轮次协议）。修法：用同文件已有的 `_REQ_REF` 正则取号，别再定宽切 |
 | 5.30 | **「一张卡一个 Agent」没有提交前的发现手段**（原记为 §5.25，撞号后改号） | TASK-141 收口时两个会话撞车（2026-09-05） | 中（**会白烧一份工作或一份配额**） | AGENTS §14 写了「每个开发任务只能有一个实施 Agent」，但没写**怎么在动手前发现另一个会话已经在这张卡上**。这次的实测代价：两个会话同时收口 TASK-141，一份 codex 审查被对方的提交抽空作废（工作树 vs HEAD 的 diff 在改动进 HEAD 之后变成空），另一份审查被对方主动杀掉止损；`.claude/tmp/review-package.md` 也被互相覆盖过一次。已知的两条便宜做法（两个会话各自验证过）：动手前 `ListAgents` 认领归属；**审已提交的东西一律带 base**（`run-review.ps1 <base>`），别人再提交也抽不空。第二条是纯粹的操作纪律，值得进 codex-review-loop Skill；第一条要不要变成硬规则，等再撞一次再说 —— **一次事故不足以定规则** |
+| 5.31 | **裸 `commit`（不带 `-- <paths>`）在共享工作树上会把别人暂存的东西一起带走** | 2026-09-06 一天内亲手撞了三次（visual-try-on-project-2a） | 中（**归属错，不丢内容**） | 三次分别带走了：别人六条 skill-evolution 记录（`ce2eb78`）、别人一张新卡 TASK-143 的 87 行（回写提交）、以及反方向被别人带走一次（e9 的 `91d808d` 带走了我暂存的台账改动）。**共同根因只有一个**：不带路径的 `commit` 提交的是 **index 里的一切**，而这棵树上十来个会话共用同一个 index。**纪律**：在这棵树上，提交一律写成带路径的形式 —— 只提交自己那几个文件，index 里别人暂存的东西原样留着。**这条比「小心一点」可执行**：它不依赖我每次记得先看 `git status`，而那个「看一眼再提交」的窗口正是 §6.11 记过的风险窗口。注意它仍**只限得住文件、限不住文件里的行**（§6.11 后半段），要精确到行得造索引项。根治方向是 TASK-143（每个会话一棵独立 worktree），本条是在那之前的做法 |
 
 ## 6. 性能与偶发（记录，不承诺）
 
