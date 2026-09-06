@@ -1360,7 +1360,7 @@
           "subject": "docs: 三张做完的卡搬进 done/，TASK-132 的卡头订正 —— 「待办 = ls active/」不再说谎",
           "time": "2026-09-06T12:34:07+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/STATUS.md",
             "docs/tasks/active/TASK-087-followup-ledger.md",
@@ -1387,7 +1387,7 @@
           "subject": "docs: 把指向已搬走那三张卡的 12 处链接改到 done/",
           "time": "2026-09-06T12:34:08+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/STATUS.md",
             "docs/adr/ADR-0096-ui-and-agent-share-one-action-table.md",
@@ -1401,6 +1401,17 @@
             "docs/tasks/done/TASK-133-glossary-and-out-of-scope-index.md"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "a73b78a57f1cfa01e0fb1a809e1439ff65f3f492",
+          "subject": "docs(TASK-087 §5.25): 补一句 —— 写下这条一小时后我在自己的条目上又踩了一次",
+          "time": "2026-09-06T12:44:52+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/tasks/active/TASK-087-followup-ledger.md"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
@@ -1409,15 +1420,25 @@
         "docs/adr/ADR-0099-*.md",
         "docs/design/active/product-requirement-and-ux-convergence-review.md",
         "docs/requirements/REQ-006-*.md",
+        "docs/skill-evolution/**",
+        "docs/tasks/active/TASK-087-followup-ledger.md",
         "docs/tasks/active/TASK-106-*.md",
+        "docs/tasks/active/TASK-127-*.md",
+        "docs/tasks/active/TASK-130-*.md",
+        "docs/tasks/active/TASK-132-*.md",
+        "docs/tasks/active/TASK-134-*.md",
         "docs/tasks/backlog/TASK-128-*.md",
+        "docs/tasks/done/TASK-127-*.md",
         "docs/tasks/done/TASK-129-*.md",
         "docs/tasks/done/TASK-130-*.md",
-        "docs/tasks/done/TASK-133-*.md"
+        "docs/tasks/done/TASK-133-*.md",
+        "docs/tasks/done/TASK-134-*.md",
+        "mockups/motv-workspace/src/**",
+        "mockups/motv-workspace/tests/**"
       ],
       "verification": "PASS",
       "verification_ref": "",
-      "declared": "2026-09-06T12:24:23+00:00"
+      "declared": "2026-09-06T12:34:41+00:00"
     },
     "TASK-074": {
       "commits": [
@@ -2761,6 +2782,17 @@
           "pushed": true,
           "files": [
             "docs/tasks/active/TASK-087-followup-ledger.md"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "eb3181c0c87bf8cb2ca0af1b4dd42d62e05bbc27",
+          "subject": "旅程用例改守「要么真存下、要么明确告知」（TASK-087 §6.12）",
+          "time": "2026-09-06T12:52:27+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "tests/e2e/test_connected_journey_task130.py"
           ],
           "scope_violation": null
         }
