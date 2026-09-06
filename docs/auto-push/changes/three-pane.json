@@ -1291,7 +1291,7 @@
           "subject": "fix(TASK-106): 那道挡板本来根本没画出来；那条守卫本来自己实现了一遍要验的判断",
           "time": "2026-09-06T02:45:08+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "mockups/motv-workspace/src/app.js",
             "mockups/motv-workspace/src/workflow/nodes/scriptgen.js",
@@ -1301,19 +1301,27 @@
             "mockups/motv-workspace/tests/creativerun.test.mjs"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "6812bfe3651429d4dfed473d457a40f125e54c87",
+          "subject": "fix(TASK-106): app.js 少了一行 import —— 剧本拆解一进 catch 就 ReferenceError",
+          "time": "2026-09-06T03:01:33+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/tests/wiring.test.mjs"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
         "mockups/motv-workspace/src/app.js",
-        "mockups/motv-workspace/src/workflow/nodes/scriptgen.js",
-        "mockups/motv-workspace/src/workflow/runoutcome.js",
-        "mockups/motv-workspace/src/workflow/scriptdoc.js",
-        "mockups/motv-workspace/src/workflow/storydoc.js",
-        "mockups/motv-workspace/tests/creativerun.test.mjs"
+        "mockups/motv-workspace/tests/wiring.test.mjs"
       ],
       "verification": "PASS",
       "verification_ref": "",
-      "declared": "2026-09-06T02:38:24+00:00"
+      "declared": "2026-09-06T02:54:44+00:00"
     },
     "TASK-074": {
       "commits": [
