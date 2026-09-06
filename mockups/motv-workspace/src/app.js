@@ -7465,6 +7465,11 @@ $$(".entry").forEach((b) => (b.onclick = () => {
  *  实现搬进了 `ui/editlock.js`：写在这里时**没法测行为**，守卫只能扫源码文本，
  *  而 codex 当场点了它「没有真的驱动那些顺序」。搬过去之后，「重复上锁」与
  *  「看门狗解锁 + 完成解锁」两种顺序都能用真调用钉住（那正是它判 P1 的两条）。 */
+// 保存失败要让**他**看见，不是只留在控制台。`services/persist.js` 那一半在
+// PUT 被拒时会 `console.warn`，但控制台不是创作者会看的地方 —— 接到 toast 上。
+// （TASK-087 §6.12：服务端拒写 + 客户端沉默，合起来就是「屏幕上有、盘上没有」。）
+persist.setSaveFailedNotifier((m) => { if (typeof toast === "function") toast(m); });
+
 const editLock = createEditLock({
   getRoot: () => document.getElementById("production"),
   warn: (m) => console.warn(m),

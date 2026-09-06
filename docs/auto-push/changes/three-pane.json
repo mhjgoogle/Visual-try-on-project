@@ -2801,7 +2801,7 @@
           "subject": "订正 TASK-087 §6.12：我把「没有 warn」单向读了，根因其实在服务端",
           "time": "2026-09-06T13:09:02+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/tasks/active/TASK-087-followup-ledger.md"
           ],
@@ -2966,6 +2966,23 @@
       "verification": "PASS",
       "verification_ref": "收口：卡搬进 done/、STATUS.md 重生成、lifecycle_check 0 finding、pytest tests/tooling 402 passed；CI run 33982729462/33982727123 两个 job 全绿（其一为合并结果）",
       "declared": "2026-09-06T01:38:08+00:00"
+    },
+    "TASK-142": {
+      "commits": [],
+      "paths": [
+        "docs/STATUS.md",
+        "docs/tasks/active/TASK-142-*.md",
+        "mockups/motv-workspace/server.py",
+        "mockups/motv-workspace/src/app.js",
+        "mockups/motv-workspace/src/services/persist.js",
+        "mockups/motv-workspace/src/ui/editlock.js",
+        "mockups/motv-workspace/tests/persistence.test.mjs",
+        "tests/contract/test_frontend_write_path_invariants.py",
+        "tests/studio/test_motv_canvas_persistence_m1.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "判据：旅程 e2e 在分支 tip 干净 worktree 上 30 跑 0 红（基线同树 8 跑 2 红；25% 失败率下连过 30 次的概率约 0.018%）。归属域：pytest tests/studio+contract 930 passed · 前端 node --test 2273 passed · ruff 干净 · lifecycle_check 0。codex 1 轮无 BLOCKING，三条证据缺口已补并各做变异验证",
+      "declared": "2026-09-06T13:31:06+00:00"
     }
   },
   "merge_gate": {

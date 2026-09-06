@@ -1009,6 +1009,26 @@ def test_the_persisted_registry_is_owned_by_the_serializer() -> None:
     )
 
 
+# --- 保存失败必须传到创作者眼前（TASK-142 / TASK-087 §6.12）-----------------
+
+
+def test_a_failed_save_is_wired_all_the_way_to_the_creator() -> None:
+    """存不下的那一声必须接到界面上，不是停在控制台。
+
+    `services/persist.js` 在 PUT 被拒时会 `console.warn` 并调 `_onSaveFailed`，
+    那一半有前端守卫（`persistence.test.mjs`）。**但「谁把它接到 toast 上」住在
+    `app.js`** —— 入口编排层，没有任何 `.test.mjs` 能 import 它，所以只能在这里
+    读源码守（本文件 docstring 的既有边界）。
+
+    codex 2026-09-06 判这条 `NOT_EVIDENCED`：前端那条守卫注入了自己的通知口，
+    真正会被创作者看到的那条路径一次都没被驱动过。删掉接线必须变红。
+    """
+    app = _code("app.js")
+    assert "persist.setSaveFailedNotifier(" in app, "app.js 没有接上保存失败的通知口"
+    call = app.split("persist.setSaveFailedNotifier(", 1)[1].split(");", 1)[0]
+    assert "toast(" in call, "接上了但没接到 toast 上：" + call[:120]
+
+
 # --- from tests/studio/test_motv_story_m9.py (M9) -------------------------
 
 

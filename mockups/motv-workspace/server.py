@@ -861,6 +861,42 @@ _STATIC_PREFIXES = ("src/", "styles/", "fixtures/")
 # enforces its own tighter bound so raising this never loosens JSON routes.
 _MAX_BODY_BYTES = 60_000_000
 _CANVAS_BODY_MAX = 2_000_000  # canvas JSON keeps its original tighter bound
+
+#: 覆盖式替换的重试次数与间隔。**这是为 Windows 加的，不是保险起见。**
+#:
+#: `os.replace` 覆盖一个**正被打开读**的文件，在 Windows 上抛
+#: `PermissionError [WinError 5]`；POSIX 上 rename 覆盖打开的文件是允许的。
+#: 而 `canvas.json` 的读者到处都是 —— 服务端为运行中的 run 组装事实要读它、
+#: `_canvas_get` 要读它、创作者的备份/同步软件也可能开着它。于是「他打的字」
+#: 会因为**另一个读者恰好在场**而保存失败（TASK-087 §6.12 的根因，旅程 e2e 上
+#: 8 跑 2 红；`tests/studio/test_motv_canvas_persistence_m1.py` 里有一条不依赖
+#: 竞态的确定性复现）。
+#:
+#: 冲突是**短暂**的：读者读完就松手。所以重试，而不是把数据丢掉。上限故意很短
+#: （~150ms）—— 这是一个请求处理线程，宁可如实报错也不许把请求挂住。
+_REPLACE_RETRIES = 6
+_REPLACE_BACKOFF_S = 0.025
+
+
+def _replace_retrying(tmpname, target, *, sleep=None):
+    """`os.replace`，被读者挡住时重试几次。最后一次的异常原样抛出。
+
+    `sleep` 可注入，测试因此不必真的睡（守卫要断言**重试确实发生过**，
+    而不是断言它睡了多久）。
+    """
+    nap = sleep if sleep is not None else time.sleep
+    last = None
+    for attempt in range(_REPLACE_RETRIES):
+        try:
+            os.replace(tmpname, target)
+            return attempt
+        except PermissionError as exc:  # Windows: 有人正开着它读
+            last = exc
+            if attempt + 1 < _REPLACE_RETRIES:
+                nap(_REPLACE_BACKOFF_S)
+    raise last
+
+
 _GATEWAY_BODY_MAX = 2_000_000  # agent JSON envelopes stay small
 # Gateway command envelopes may inline per-shot first-frame images as data URLs
 # (lock-draft-plan, ADR-0047: <=5.5MB original -> ~7.34MB base64 per shot). The
@@ -8559,14 +8595,24 @@ class _App:
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(json.dumps(payload, ensure_ascii=False))
-            os.replace(tmpname, p)  # atomic within the project's own volume
-        except OSError:
+            # 重试，因为在 Windows 上「有人正开着它读」就足以让覆盖失败，而那
+            # 会把他刚打的字丢掉（见 `_replace_retrying` 的注释）。
+            _replace_retrying(tmpname, p)
+        except OSError as exc:
             try:
                 os.unlink(tmpname)
             except OSError:
                 pass
+            # **原因照带。** 上一版压成一句「could not save」：跨卷、只读目录、
+            # 磁盘满、被别的进程锁住 —— 全长成同一句话，下一个人无从查起。
             return _json(
-                500, {"error": {"category": "write_failed", "detail": "could not save"}}
+                500,
+                {
+                    "error": {
+                        "category": "write_failed",
+                        "detail": f"could not save: {type(exc).__name__}: {exc}"[:300],
+                    }
+                },
             )
         return _json(200, {"ok": True})
 

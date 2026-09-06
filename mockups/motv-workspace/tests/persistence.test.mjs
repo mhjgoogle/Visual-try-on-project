@@ -14,7 +14,7 @@ import {
   readSchemaVersion,
   migrateToCurrent,
 } from "../src/services/canvasschema.js";
-import { loadCanvas, saveCanvas, saveBlockedReason, blockSaves, unblockSaves } from "../src/services/persist.js";
+import { loadCanvas, saveCanvas, saveBlockedReason, blockSaves, unblockSaves, setSaveFailedNotifier } from "../src/services/persist.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -213,6 +213,44 @@ const noBackend = async () => { throw new TypeError("fetch failed"); };
 const jsonHeaders = { get: (k) => (k.toLowerCase() === "content-type" ? "application/json" : null) };
 const htmlHeaders = { get: (k) => (k.toLowerCase() === "content-type" ? "text/html; charset=utf-8" : null) };
 const okJson = (payload) => async () => ({ ok: true, status: 200, headers: jsonHeaders, json: async () => payload });
+
+test("服务端拒了这次保存，必须让他知道 —— 不许只往 localStorage 一塞", async () => {
+  // TASK-087 §6.12 的最后一条现象：屏幕上字还在、盘上没有、**控制台没声音**。
+  //
+  // 根因在服务端（Windows 上 `os.replace` 撞上一个正在读的进程 → 500
+  // write_failed），但客户端这一半同样是缺陷：PUT 非 ok 且不是主动中止时，
+  // 上一版直接落到 localStorage 存恢复副本，**一句话都不说**。于是他要等到
+  // 刷新才发现刚打的字没了。存副本和说出来是两件事，都要做。
+  const said = [];
+  const warned = [];
+  const realWarn = console.warn;
+  console.warn = (m) => warned.push(String(m));
+  setSaveFailedNotifier((m) => said.push(String(m)));
+  try {
+    const store = stubEnv({
+      fetchImpl: async () => ({
+        ok: false,
+        status: 500,
+        headers: jsonHeaders,
+        json: async () => ({ error: { category: "write_failed", detail: "could not save: PermissionError" } }),
+      }),
+    });
+    saveCanvas("speak-up", { v: CANVAS_SCHEMA_VERSION, nodes: [] });
+    await sleep(850);
+
+    assert.ok(said.length, "保存被拒了，创作者那边一声没有 —— 他要刷新之后才发现");
+    assert.match(said[0], /PermissionError|没存上/);
+    assert.ok(
+      warned.some((m) => m.includes("没有写下去")),
+      "控制台也该留一条，排查的人才找得到",
+    );
+    // 恢复副本照存 —— 说出来不代替留后路
+    assert.ok(store.get("motv:speak-up"), "恢复副本没留");
+  } finally {
+    console.warn = realWarn;
+    setSaveFailedNotifier(null);
+  }
+});
 
 test("server v1 document loads ok and allows saving", async () => {
   stubEnv({ fetchImpl: okJson(v1Doc()) });
@@ -552,6 +590,94 @@ test("载入期间锁住输入：两端各一次，用真调用而不是扫源�
   assert.equal(el.readOnly, true, "进入项目时没有上锁");
   lock.unlock();
   assert.equal(el.readOnly, false, "载入完没有解锁");
+});
+
+test("生产那个观察者真的能认出重画进来的输入框（含后代）", async () => {
+  // codex 2026-09-06 判 VERIFICATION: INSUFFICIENT —— 上一条守卫注入了自己的
+  // 观察者，于是**生产用的那个 `MutationObserver` 实现从没被驱动过**：它怎么
+  // 从 mutation 记录里挖出新元素、认不认后代、解锁时断不断开，一条都没查。
+  // 这跟定时器那条 P1 是同一个形状（能被绕开的旁路让生产路径坏了也照绿）。
+  const { defaultObserve } = await import("../src/ui/editlock.js");
+  let cb = null;
+  let observedWith = null;
+  let disconnected = 0;
+  const realMO = globalThis.MutationObserver;
+  globalThis.MutationObserver = class {
+    constructor(fn) { cb = fn; }
+    observe(_root, opts) { observedWith = opts; }
+    disconnect() { disconnected += 1; }
+  };
+  try {
+    const deep = { matches: () => false, nodeType: 1,
+                   querySelectorAll: () => [{ tag: "inner" }] };
+    const direct = { matches: (s) => s.includes("textarea"), nodeType: 1,
+                     querySelectorAll: () => [] };
+    const textNode = { nodeType: 3 };
+    const seen = [];
+    const stop = defaultObserve({}, (els) => seen.push(...els));
+
+    assert.deepEqual(observedWith, { childList: true, subtree: true },
+      "没有盯住子树 —— 重画是整棵换掉，只看直接子节点会漏");
+    cb([{ addedNodes: [direct, deep, textNode] }]);
+
+    assert.ok(seen.includes(direct), "直接就是输入框的那个没认出来");
+    assert.equal(seen.length, 2, seen.length +
+      " —— 后代里的输入框漏了，或者把文本节点也算进去了");
+    stop();
+    assert.equal(disconnected, 1, "解锁之后观察者没断开 —— 它会一直挂着");
+  } finally {
+    globalThis.MutationObserver = realMO;
+  }
+});
+
+test("锁定期间被重画出来的输入框，也必须是锁住的", async () => {
+  // **这是那把锁真正的缺口**，2a 在上一轮 Review Package 里把它记为「可接受、未修」，
+  // 原话：「锁定期间新渲染出来的输入框不会被锁上 —— `apply` 只在状态变化的那一刻
+  // 扫一次 DOM。载入期间正常不重渲染，但我没有证据说它绝不会。」
+  //
+  // 现在有证据了，而且是代码级的：`ui/production.js` 的 `pollProposals` 会在**异步
+  // 回调里**调 `render()`（提案数一变就重画），那个回调落在载入窗口内是完全可能的；
+  // 而 `render()` 重写 `root.innerHTML`，`is-loading` 这个类留在根上、新画出来的
+  // textarea 却是崭新的元素 —— **不带 readOnly**。他于是能敲进一份马上被换掉的文档。
+  //
+  // 判据因此不是「上锁那一刻的元素被锁住」，而是**「锁定期间任何时刻出现的元素都是
+  // 锁住的」**。观察者是注入的，理由同定时器：测试触发的必须是生产那一条路径。
+  const { createEditLock } = await import("../src/ui/editlock.js");
+  const first = field(false);
+  let fields = [first];
+  const root = {
+    classList: { toggle: () => {}, contains: () => true },
+    querySelectorAll: () => fields,
+  };
+  let onAdded = null;
+  let stopped = 0;
+  const lock = createEditLock({
+    getRoot: () => root,
+    observe: (_r, cb) => {
+      onAdded = cb;
+      return () => { onAdded = null; stopped += 1; };
+    },
+  });
+
+  lock.lock();
+  assert.equal(first.readOnly, true, "上锁那一刻的框没锁住");
+  assert.ok(onAdded, "上锁之后没有开始观察 —— 重画出来的东西没人管");
+
+  // 载入期间重画一次：旧节点脱开，新节点进来
+  const fresh = field(false);
+  const freshRo = field(true); // 本来就只读的那种（只读态的历史版本）
+  fields = [fresh, freshRo];
+  onAdded([fresh, freshRo]);
+  assert.equal(
+    fresh.readOnly,
+    true,
+    "载入期间重画出来的框没有被锁上 —— 他敲得进去，而那份文档马上会被 enterCanvas 换掉",
+  );
+
+  lock.unlock();
+  assert.equal(stopped, 1, "解锁之后没有停止观察 —— 观察者会一直挂着");
+  assert.equal(fresh.readOnly, false, "解锁后没放开本来可编辑的框");
+  assert.equal(freshRo.readOnly, true, "把本来就只读的框放开了");
 });
 
 test("重复上锁，不会把「本来可编辑」记成「本来只读」", async () => {
