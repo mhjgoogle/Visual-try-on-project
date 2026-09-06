@@ -12,7 +12,7 @@
   [TASK-118](../tasks/done/TASK-118-frontend-triggers-a-dev-plan.md)（判据 8）·
   [TASK-120](../tasks/done/TASK-120-feedback-carries-a-locator.md)（判据 9）·
   **判据 1 的「单一登记点」分三块闭合**（2026-09-05，ADR-0096）：
-  [TASK-127](../tasks/active/TASK-127-one-action-table.md)（故事开发侧：四页 + 创意简报 /
+  [TASK-127](../tasks/done/TASK-127-one-action-table.md)（故事开发侧：四页 + 创意简报 /
   大纲 / 人物场景地字段 / 分集规划 / ⚙ 成片规格 —— 已接线，合同 `test_surface_manifest.py`
   证穷尽）· [TASK-128](../tasks/backlog/TASK-128-episode-side-actions-into-the-table.md)
   （剧集制作侧，待）· [TASK-129](../tasks/done/TASK-129-settings-structure-writes-into-the-table.md)

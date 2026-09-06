@@ -20,7 +20,7 @@
 - 关联 Requirement：[REQ-006](../../requirements/REQ-006-agent-can-do-what-the-creator-can-do.md)
   判据 1 —— 作品设定**结构**那一半。字段编辑（`character.fields / location.fields /
   relationship.fields / world.fields`）与新建（`character.add / location.add`）、正式 ↔ 临时
-  （`character.tier`）已由 [TASK-127](../active/TASK-127-one-action-table.md) 接进表
+  （`character.tier`）已由 [TASK-127](../done/TASK-127-one-action-table.md) 接进表
 - 关联 ADR：[ADR-0096](../../adr/ADR-0096-ui-and-agent-share-one-action-table.md) 决策 1–3
 - 架构约束：`CA §3` · `CA §5.2`（不静默覆盖：删除必须是软删除 + 回收区）· `CA §6`
 - 依据：`tests/contract/test_surface_manifest.py` 的**棘轮**——下面每一个名字都被钉死在

@@ -69,7 +69,7 @@ Studio **不得**再存一份 provider 任务 id，**不得**自己写第二个�
 
 代价（接受）：Studio 由此依赖核心库的预留布局，是一条跨包依赖。接受它，因为那份
 布局是已经冻结的持久化合同，而复制一份远端 id 的代价（两份账各说各话）更贵。
-依赖方向仍是 Studio → 核心库，不反向，[TASK-134](../tasks/active/TASK-134-import-linter-layering-contract.md)
+依赖方向仍是 Studio → 核心库，不反向，[TASK-134](../tasks/done/TASK-134-import-linter-layering-contract.md)
 的分层契约不受影响。
 
 ### 2. Run 上加的是**句柄**，不是副本

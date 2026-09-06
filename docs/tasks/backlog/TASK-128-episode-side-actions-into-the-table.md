@@ -12,7 +12,7 @@
 - Workflow：Refactor（不改有效产品行为）· 深度：DEEP（跨 `ctx.actions.dispatch` envelope 与 `convactions`）
 - 关联 Requirement：[REQ-006](../../requirements/REQ-006-agent-can-do-what-the-creator-can-do.md)
   判据 1 —— **剧集制作侧**那一半。故事开发侧（四页 + 创意简报 / 大纲 / 人物 / 场景地 /
-  分集规划）由 [TASK-127](../active/TASK-127-one-action-table.md) 闭合并有合同测试
+  分集规划）由 [TASK-127](../done/TASK-127-one-action-table.md) 闭合并有合同测试
 - 关联 ADR：[ADR-0096](../../adr/ADR-0096-ui-and-agent-share-one-action-table.md) 决策 1–3（同一条纪律，另一侧）
 - 架构约束：`CA §3`（写路径）· `CA §5.2`（不静默覆盖）· `CA §6`（动作表由前端拥有）
 - 依据：codex 对 TASK-127 的轮 1 审查 —— 合同只证了故事侧前缀，`shot.* / blocking.*`

@@ -1,6 +1,6 @@
 # ADR-0096：他能点的 = 它能做的，靠一张表，不靠两份名单
 
-- 状态：**Accepted**（2026-09-05，实施 Agent 依 AGENTS.md §1 自行 Accept —— 纯技术决策：登记点、依赖方向、合同测试形状。决策 1–3 已由 [TASK-127](../tasks/active/TASK-127-one-action-table.md) 实施并有合同测试；决策 4 待另一张卡）
+- 状态：**Accepted**（2026-09-05，实施 Agent 依 AGENTS.md §1 自行 Accept —— 纯技术决策：登记点、依赖方向、合同测试形状。决策 1–3 已由 [TASK-127](../tasks/done/TASK-127-one-action-table.md) 实施并有合同测试；决策 4 待另一张卡）
 - 关联：[REQ-006](../requirements/REQ-006-agent-can-do-what-the-creator-can-do.md) 判据 1 ·
   收敛审查 §5.C · [一份面清单提案](../design/active/proposal-one-surface-list.md) §4.2 ·
   [ADR-0089](ADR-0089-conversational-agent-write-path.md) 决策 2b ·

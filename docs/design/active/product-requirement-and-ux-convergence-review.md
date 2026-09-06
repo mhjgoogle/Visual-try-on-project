@@ -68,14 +68,14 @@
 | 全站稳定三栏：左控制、中工作、右对话 | `PARTIAL` | 故事、剧集、资产均使用三栏骨架；右栏有消息流、底部输入和按页历史 | 提案钉板最多占右栏 42%，输入区最多占 52%，极端时消息流被挤到几乎不可用；主三栏没有窄屏退化合同 |
 | 首页可移除项目但不删磁盘文件 | `PASS` | REQ-005 的端点、界面说明、打开项目保护与测试均已落地 | 仍需在最终真实项目验收中点一次，确认文案没有造成“文件也删了”的误解 |
 | Agent 知道当前页面、分集、镜头和代码位置 | `PASS` | 每轮携带 locator/page map，反馈台账保存地址和渲染文件；已有跨层测试 | 页面表目前分散在多处，改页面时仍可能漏同步 |
-| Agent 能做创作者能做的所有可逆动作 | `PARTIAL`（2026-09-05 更新） | **故事开发侧已双向证穷尽**：界面按钮改走 `uiAct` → `runAction`（一份实现 `ui/uiact.js`），`ACTIONS` 36 → 45 并带 `reversible / paid / identityBinding` 三标签；合同 `tests/contract/test_surface_manifest.py` 16 条（UI 引用 ⊆ 表 · 故事侧每条被 UI 引用 · 已接线 binder 零直接写 · 未接线的 25 种写是只能收缩的棘轮且与卡逐条对账）—— [ADR-0096](../../adr/ADR-0096-ui-and-agent-share-one-action-table.md) · [TASK-127](../../tasks/active/TASK-127-one-action-table.md) | 作品设定的结构写（状态 / 参考图 / 关系增删 / 节拍 / 改名 / 软删）**已闭合**（2026-09-05，[TASK-129](../../tasks/done/TASK-129-settings-structure-writes-into-the-table.md)：棘轮空了，那份只能收缩的名单连同三条测试一起删，`workspaces.js#settings` 进 `CONVERTED_BINDERS`）；**只剩**剧集侧（`shot.* / blocking.*`，另一套 envelope）→ [TASK-128](../../tasks/backlog/TASK-128-episode-side-actions-into-the-table.md)。它闭合前 REQ-006 判据 1 仍是 `PARTIAL`，不是 `PASS` |
+| Agent 能做创作者能做的所有可逆动作 | `PARTIAL`（2026-09-05 更新） | **故事开发侧已双向证穷尽**：界面按钮改走 `uiAct` → `runAction`（一份实现 `ui/uiact.js`），`ACTIONS` 36 → 45 并带 `reversible / paid / identityBinding` 三标签；合同 `tests/contract/test_surface_manifest.py` 16 条（UI 引用 ⊆ 表 · 故事侧每条被 UI 引用 · 已接线 binder 零直接写 · 未接线的 25 种写是只能收缩的棘轮且与卡逐条对账）—— [ADR-0096](../../adr/ADR-0096-ui-and-agent-share-one-action-table.md) · [TASK-127](../../tasks/done/TASK-127-one-action-table.md) | 作品设定的结构写（状态 / 参考图 / 关系增删 / 节拍 / 改名 / 软删）**已闭合**（2026-09-05，[TASK-129](../../tasks/done/TASK-129-settings-structure-writes-into-the-table.md)：棘轮空了，那份只能收缩的名单连同三条测试一起删，`workspaces.js#settings` 进 `CONVERTED_BINDERS`）；**只剩**剧集侧（`shot.* / blocking.*`，另一套 envelope）→ [TASK-128](../../tasks/backlog/TASK-128-episode-side-actions-into-the-table.md)。它闭合前 REQ-006 判据 1 仍是 `PARTIAL`，不是 `PASS` |
 | 作品/开发两个窗口职责分开 | `PASS` | 两个 tab；开发窗口服务端禁止写作品；提案和带定位反馈已接通 | 展示密度仍需优化，但职责边界成立 |
 | 开发提案主动出现并能原样回传意见 | `PARTIAL` | 新提案提示、钉板、同意/拒绝/修改意见回传已实现 | 多条历史提案会长期占据对话空间；只应钉住最新未决项，其余折叠进对话历史 |
 | 说一句自然语言就启动正确的用户能力 | `PASS` | 前端只暴露三类用户能力，后端确定性 resolver、缺输入不跑、开发窗口不跑，测试已覆盖 | 还缺真实 Connected Project 上的一轮录屏/会话证据 |
 | Agent 回复和长任务步骤逐步可见，刷新后继续 | `PARTIAL`（2026-09-04 更新） | 对话这条链已闭合：刷新后从 `GET /api/runs/<id>` 恢复同一轮、接着等、落地；问不到说「状态未知」（[ADR-0095](../../adr/ADR-0095-a-run-is-picked-up-from-the-thread-not-from-a-poller.md)、`tests/convresume.test.mjs`）| 仍有 16 条同步长调用没改走 `run_id`；`/api/agent/*` 创作端点未退役（TASK-106 验收 2、3）|
 | 剧集制作是一块画布、一条下一步主路 | `PARTIAL` | 默认只显示“制作画布”，每集卡片给一个下一步动作 | 进入深层工作后又出现向导、工作区下拉、旧制作台和溯源入口；用户仍要理解多套导航模型 |
 | 审片问题阻止错误成片进入 Final | `PASS`（2026-09-04 更新，数据层） | 渲染产出 `kind: "cut"`；`kind: "final"` 唯一写入者是过了 G4 的显式导出，且要求质检针对这一版；G5 append；老 `final` 不改写（TASK-074 §1.7，`tests/deliverylifecycle.test.mjs`） | 真实项目上点一次「导出成片」的人工走查 → 切片 5；撤回一版成片（软删除）等他用过再说 |
-| 从真实项目走完创意到交付 | `PARTIAL`（2026-09-05 更新） | **仓库内可重复的 Connected Project 样本 + 真浏览器旅程**（[TASK-130](../../tasks/active/TASK-130-connected-sample-and-journey.md)）：画布由前端域 API 造并自检、61 个 ffmpeg 生成的真媒体、运行中 / 失败 run、未决提案、审片问题、候选 + 历史成片；旅程 9 秒走完 连接 → 故事修改 → 刷新恢复 → 放行落地 → 质检阻断 → 撤回，`pytest tests/e2e -m "not serial"` 37 passed | **真实用户项目的人工浏览器验收**仍要产品负责人本人跑一集（§9）；旅程顺带抓到 [TASK-087 §5.21](../../tasks/active/TASK-087-followup-ledger.md)：持久化的交付层审片问题不进 G4 |
+| 从真实项目走完创意到交付 | `PARTIAL`（2026-09-05 更新） | **仓库内可重复的 Connected Project 样本 + 真浏览器旅程**（[TASK-130](../../tasks/done/TASK-130-connected-sample-and-journey.md)）：画布由前端域 API 造并自检、61 个 ffmpeg 生成的真媒体、运行中 / 失败 run、未决提案、审片问题、候选 + 历史成片；旅程 9 秒走完 连接 → 故事修改 → 刷新恢复 → 放行落地 → 质检阻断 → 撤回，`pytest tests/e2e -m "not serial"` 37 passed | **真实用户项目的人工浏览器验收**仍要产品负责人本人跑一集（§9）；旅程顺带抓到 [TASK-087 §5.21](../../tasks/active/TASK-087-followup-ledger.md)：持久化的交付层审片问题不进 G4 |
 | 可正式投入生产使用 | `FAIL` | 核心 CLI/工作流有较强安全与恢复基础 | README 与 project-context 都明确 Studio 是 non-production prototype；付费生成证据、浏览器录制证据、异步恢复和正确 Final 闸门仍未闭合 |
 
 ### 总体判断
@@ -183,7 +183,7 @@
 “所有可逆且非付费、非身份绑定的 creator command = Agent action set”，而不是只抽查几项。
 
 > **2026-09-05 进度**（[ADR-0096](../../adr/ADR-0096-ui-and-agent-share-one-action-table.md) ·
-> [TASK-127](../../tasks/active/TASK-127-one-action-table.md)）：**不新建第八处描述** —— `ACTIONS`
+> [TASK-127](../../tasks/done/TASK-127-one-action-table.md)）：**不新建第八处描述** —— `ACTIONS`
 > 升格为唯一登记点，界面按钮也走 `runAction`（一份适配器 `ui/uiact.js`）；每条带三个能力标签，
 > `paid` 执行时一律拒、`identityBinding` 只认界面。**故事开发侧**已双向证穷尽（合同 16 条，
 > 新增一条动作只改两处 —— `unit.ensure` 就是这样加的）。**剧集侧**（TASK-128）与**作品设定的
@@ -222,7 +222,7 @@ provenance 或 11 阶段编号；每个屏幕只有一个视觉主动作。
 完成判据：干净机器仅凭仓库内容就能复现主要 UI 状态；真实项目验收另外记录，不再让
 “仓库 demo 画布为空”和“只有某台机器上有真实数据”成为验证盲区。
 
-> **2026-09-05 进度**（[TASK-130](../../tasks/active/TASK-130-connected-sample-and-journey.md)）：
+> **2026-09-05 进度**（[TASK-130](../../tasks/done/TASK-130-connected-sample-and-journey.md)）：
 > 样本是**生成器**，不是提交的 JSON + 二进制 —— 画布由前端自己的域 API 造并 `validateCanvasDoc`
 > 自检（`fixtures/connected_sample.mjs`），媒体由 ffmpeg 生成真 H.264 / WAV / PNG（61 个），
 > 运行中的对话 run 用卡在 Event 上的执行器桩造、未决提案走服务端自己的 feedback 读写。
