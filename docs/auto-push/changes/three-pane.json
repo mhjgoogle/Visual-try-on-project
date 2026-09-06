@@ -1238,7 +1238,7 @@
           "subject": "feat(TASK-106 判据 2): 五个创作端点走 run_id —— 模型那几分钟不再压在一个 HTTP 请求上",
           "time": "2026-09-06T01:47:36+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/auto-push/changes/three-pane.json",
             "mockups/motv-workspace/src/app.js",
@@ -1251,15 +1251,22 @@
         }
       ],
       "paths": [
+        "docs/tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md",
+        "docs/tasks/active/TASK-087-followup-ledger.md",
+        "docs/tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md",
         "mockups/motv-workspace/src/app.js",
-        "mockups/motv-workspace/src/services/command.js",
-        "mockups/motv-workspace/src/services/conversation.js",
-        "mockups/motv-workspace/src/services/runwait.js",
-        "mockups/motv-workspace/tests/creativerun.test.mjs"
+        "mockups/motv-workspace/src/ui/production.js",
+        "mockups/motv-workspace/src/ui/storyws.js",
+        "mockups/motv-workspace/src/ui/workspaces.js",
+        "mockups/motv-workspace/src/workflow/nodes/scriptgen.js",
+        "mockups/motv-workspace/src/workflow/scriptdoc.js",
+        "mockups/motv-workspace/src/workflow/storydoc.js",
+        "mockups/motv-workspace/tests/creativerun.test.mjs",
+        "mockups/motv-workspace/tests/production.test.mjs"
       ],
       "verification": "PASS",
       "verification_ref": "",
-      "declared": "2026-09-06T01:39:51+00:00"
+      "declared": "2026-09-06T02:02:50+00:00"
     },
     "TASK-074": {
       "commits": [
@@ -2769,15 +2776,16 @@
   },
   "merge_gate": {
     "status": "PASS",
-    "by": "最终全量在**独立 worktree** @ 4b7ab24 跑（共享树里有八个会话的在制品，在那里跑证明不了已提交状态）：pytest -n 8 not-serial 3996 passed/59 skipped + pytest -m serial 6 passed，两阶段 exit 0；前端 node --test 2185 passed/0 failed；ruff check + format 全仓干净（720 files）；lifecycle_check 0 finding；薄入口 check 五项 unchanged。待复审清单未闭合条目 0（TASK-122/126 那四个自称未经独立审查的提交已分三块补审：块 2a codex 15 轮修 23 条、块 2b 2 轮修 2 条、块 1 2 轮修 6 条，第 6 轮起全为真 codex，独立性未降级）。无未闭合 P1。产品负责人 2026-09-05 定：合并但**不删分支**（八个会话仍在其上作业）",
-    "time": "2026-09-05T11:40:43+00:00",
-    "tip": "4b7ab24527114bd757b21501e85c78715f848fbe"
+    "by": "最终全量在独立 worktree 上跑的是**合并结果**（f35b270 + origin/main = 9932d2a；共享树里有八个会话的未提交在制品，在那里跑证明不了已提交状态）：pytest -n 8 not-serial 4034 passed/59 skipped · pytest -m serial 6 passed · 前端 node --test 2258 passed/0 failed · ruff check + format 干净（722 文件）· lifecycle_check 0 finding。待复审清单未闭合条目 0，且不是只读那张表 —— 扫了 origin/main..HEAD 全部 63 条提交正文，唯一自称「未经独立审查」的 c2e898f（TASK-129）已由四轮 codex 补审闭合（三条 P1 全修，第 4 轮四闸全绿、无 BLOCKING）。无未闭合 P1。CI 在 change/** 与 pull_request 两条线上均对本分支跑过并全绿（run 33982729462 / 33982727123，其一为合并结果）。已知未闭合缺陷 TASK-087 §6.12（故事核心约 1/5 静默丢字）：非本次引入、记在 Follow-up 总账、按 AGENTS §2 不阻塞交付；本次全量中它跑到且通过，但它是概率性缺陷，过一次不等于修好 —— 如实登记。产品负责人 2026-09-06「推进合并」；沿用 2026-09-05 的决定：合并但**不删分支**",
+    "time": "2026-09-06T01:56:58+00:00",
+    "tip": "f35b2709f7d8f3c1dcbfff2a854784deaf0191c6"
   },
   "merge": {
-    "hash": "cd9ef060e115327e018769c730bfede92caf35c5",
-    "time": "2026-09-05T13:07:46Z",
+    "hash": "4523b76c1684e59fa1a7cccb0ec870ebbc0fd4bb",
+    "time": "2026-09-06T02:20:00Z",
     "pushed": true,
-    "note": "手工合并并推送，**没有走 `autopush merge`** —— 那条命令会在**共享工作树**上 `git switch main`，而合并当时有八个会话在同一棵树上作业、三个文件是脏的，切分支轻则失败、重则把别人的在制品带过去。改为在 `git worktree add --detach` 出来的独立目录里完成：跑最终全量 → `checkout -B main origin/main` → `merge --no-ff` → 合并后复验 → `push origin main`。共享树自始至终停在原分支，别人的未提交文件一个没动（合并后核对过）。做法记在 TASK-087 §6.11。"
+    "previous": "cd9ef060e115327e018769c730bfede92caf35c5",
+    "note": "第二次合并（前一次 cd9ef06 见 previous）。产品负责人 2026-09-06「推进合并」。同样**没有走 `autopush merge`**，理由与上次一字不差：那条命令要在**共享工作树**上`git switch main`，而八个会话正在同一棵树上作业、当时 15 个文件是脏的（app.js / storydoc.js / 多个 UI 文件），切分支轻则失败、重则把别人的在制品带走。premerge-sync 与 merge 都因此返回 BLOCKED_DIRTY —— 那道闸拦对了，它防的正是这件事。改为在 `git worktree add` 出来的独立目录里完成，共享树自始至终停在原分支、别人的未提交文件一个没动。\n证据链：① 最终全量跑的是**合并结果**（f35b270 + origin/main），pytest 并行 4034 passed/59 skipped · 串行 6 passed · 前端 2258 passed/0 failed · ruff check+format 干净(722) · lifecycle_check 0 finding；② **推上 main 的树与跑过全量的那棵是同一个 tree hash (77fa6a3118ed188ed92f1ebed4bf169b9c4f7995)** —— 不是「应该一样」，是逐字节相同；③ 待复审清单 0 未闭合，且扫过 origin/main..HEAD 全部 63 条提交正文，唯一自称未审的 c2e898f 已由四轮 codex 补审闭合；④ CI 在 change/** 与 pull_request 两条线上对本分支跑过并全绿。\n**分支不删**（沿用产品负责人 2026-09-05 的决定：八个会话仍在其上作业）。\n已知未闭合缺陷 TASK-087 §6.12（故事核心约 1/5 静默丢字）：非本次引入、记在 Follow-up 总账、按 AGENTS §2 不阻塞交付；本次全量中它跑到且通过，但那是概率性缺陷，**过一次不等于修好**。\n工装漂移一条（follow-up）：SKILL.md 写 `premerge-sync --ledger-checked`，脚本里那个旗标在 `merge` 上，`premerge-sync` 不认。"
   },
   "cleanup": {
     "done": false,
