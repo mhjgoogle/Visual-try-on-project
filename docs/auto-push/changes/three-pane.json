@@ -2703,7 +2703,7 @@
           "subject": "docs(TASK-140): change/** 当场自证 —— 两个 run 都绿，一个分支自身一个合并结果",
           "time": "2026-09-05T18:00:43+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/auto-push/changes/three-pane.json",
             "docs/tasks/active/TASK-140-main-ci-has-been-red-for-nine-days.md"
@@ -2719,6 +2719,7 @@
         "docs/STATUS.md",
         "docs/tasks/active/TASK-134-*.md",
         "docs/tasks/active/TASK-140-*.md",
+        "docs/tasks/done/TASK-140-*.md",
         "tests/conftest.py",
         "tests/contract/test_motv_skillpkg_task075.py",
         "tests/studio/test_motv_av_m11.py",
@@ -2727,8 +2728,8 @@
         "tests/tooling/test_docs_links.py"
       ],
       "verification": "PASS",
-      "verification_ref": "codex 第 2 轮的 P1 判为同一主题更窄变体（ADR-0081 §2b），不买第三轮但修掉整类：正则换成 CommonMark 扫描。17 条形状用例 + 三档变异验证。Windows tests/tooling 402 passed；WSL 3.10 docs 42 passed",
-      "declared": "2026-09-05T17:48:07+00:00"
+      "verification_ref": "收口：卡搬进 done/、STATUS.md 重生成、lifecycle_check 0 finding、pytest tests/tooling 402 passed；CI run 33982729462/33982727123 两个 job 全绿（其一为合并结果）",
+      "declared": "2026-09-06T01:38:08+00:00"
     }
   },
   "merge_gate": {
