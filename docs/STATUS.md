@@ -19,7 +19,7 @@
 | `docs/reports/` | 阶段性工作报告 —— **历史证据**，默认不读 |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：6 在办 · 8 待排期 · 131 已完成 · 86 条 ADR。
+**当前**：5 在办 · 8 待排期 · 132 已完成 · 86 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -108,7 +108,6 @@
 | [TASK-087-followup-ledger.md](tasks/active/TASK-087-followup-ledger.md) | TASK-087：Follow-up 总账 —— 把散在九张卡里的欠账收成一处 | 活账（不是一次性交付 |
 | [TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md](tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) | TASK-106：前端接上 run_id 路径 —— 并由此退役同步分支与 /api/agent/ | 部分实施（2026-09-04 |
 | [TASK-132-click-ui-element-and-leave-feedback.md](tasks/active/TASK-132-click-ui-element-and-leave-feedback.md) | TASK-132：点击界面元素写意见，并让开发 Agent 收到准确位置 | 切片 A 完成、切片 B 完成核心、切片 C 未做（2026-09-05 实施 |
-| [TASK-142-a-save-refused-by-a-reader.md](tasks/active/TASK-142-a-save-refused-by-a-reader.md) | TASK-142：他打的字，因为「有人正在读那个文件」而丢掉 | 实现完成（2026-09-06 · 提交 6d9473b） |
 
 ## 在办 · 设计与验收文档
 
@@ -274,6 +273,7 @@
 | [TASK-139-images-from-my-own-account.md](tasks/done/TASK-139-images-from-my-own-account.md) | TASK-139：用他自己的账号额度出图 —— 第三条路，不过付费闸 | 实现完成（2026-09-05）· 真实证据已闭合（他自己在界面上点出了图 |
 | [TASK-140-main-ci-has-been-red-for-nine-days.md](tasks/done/TASK-140-main-ci-has-been-red-for-nine-days.md) | TASK-140：main 的 CI 连续八次全红，而没有人看见 | 实现完成（2026-09-05 接手 · 2026-09-06 收口） |
 | [TASK-141-idea-intake-and-current-truth.md](tasks/done/TASK-141-idea-intake-and-current-truth.md) | TASK-141：想法入口 —— 分层、里程碑闸与可重建的当前真相 | 已完成（2026-09-05 开卡 · 同日收口 · codex 独立审查 2 轮 pass） |
+| [TASK-142-a-save-refused-by-a-reader.md](tasks/done/TASK-142-a-save-refused-by-a-reader.md) | TASK-142：他打的字，因为「有人正在读那个文件」而丢掉 | 实现完成（2026-09-06 · 提交 6d9473b） |
 
 ## 已完成 · 设计与验收记录
 
