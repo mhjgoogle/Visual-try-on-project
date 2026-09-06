@@ -24,6 +24,7 @@ import { renderAudioWs, bindAudioWs } from "./audiows.js";
 // old workspace would be a SECOND place the same timeline is edited, with its
 // own handlers and its own guards to drift from. The module is left in the tree
 // (its read model is still unit-tested) but nothing renders it.
+import { recordCanvas } from "./bkrecord.js";
 import { renderDailies, bindDailies } from "./dailies.js";
 import { renderCutReview, bindCutReview } from "./cutreview.js";
 import { bindChainMenu } from "./chain.js";
@@ -44,6 +45,7 @@ import { threadModel, renderThread } from "./convthread.js";
 import {
   loadThread, sendTurn, awaitTurn, cancelTurn, reportApplied, openProposalCount,
   decideProposal, runState, pendingRunIdIn, turnTextOf, resumePlan,
+  fileElementFeedback,
 } from "../services/conversation.js";
 import { proposalsModel, renderProposals, renderOpinions } from "./proposals.js";
 import { renderStorageWs, bindStorageWs } from "./storagews.js";
@@ -109,6 +111,15 @@ import { suggestExecutor, isRunnable } from "../services/runtime.js";
 import { renderQcPanel } from "./qcpanel.js";
 import { renderPostStatus } from "./poststatusbar.js";
 import { renderShotQc, bindShotQc, shotQcModel } from "./shotqcpanel.js";
+// 点选页面元素（TASK-132）。判断都在那个模块里；这里只承接入口、引用条与提交。
+import {
+  startPicking,
+  snapshotOf,
+  breadcrumbOf,
+  newAnnotationId,
+  locateTarget,
+  locateMessage,
+} from "./elementfeedback.js";
 import {
   NAV, EPISODE_MODULES, EPISODE_DEFAULT, LEGACY_EPISODE_CENTRE, MODULE_LABEL, SPACE_LABEL, spaceOf,
   renderRail, renderAssetRail, renderCrumb, episodeLabels, episodeTitleBeside, head, episodeEntryModule,
@@ -514,7 +525,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       (convMode() === "feedback"
         ? `<div class="st-dir-props">` +
           renderProposals(proposalsModel(ui.convProposals)) +
-          renderOpinions(ui.convOpinions) +
+          renderOpinions(withLocators(ui.convOpinions, ui)) +
           `</div>`
         : "") +
       `<div class="st-dir-flow">` +
@@ -537,8 +548,68 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
         routeState: convRouteState(ctx, convState().turns),
       })) +
       `</div>` +
+      // 「选择页面元素」入口 + 引用条（TASK-132）。只在「开发」窗口里出现：
+      // 作品窗口谈的是作品内容，不是界面哪里不好用。
+      (convMode() === "feedback" ? renderElementBar(ui) : "") +
       `<div class="st-dir-composer">` + session.composer + `</div>` +
       `</aside>`
+    );
+  }
+
+  /** 给带元素定位的意见配上「回去看」的按钮与上一次定位的结果（TASK-132 切片 B）。
+   *
+   *  `locateNote` 只在他**点过**「定位」之后才有 —— 不预先给每条意见跑一遍定位：
+   *  那会在每次渲染时对整份意见列表做 DOM 查询，而且会把「暂时找不到」这种话
+   *  堆满他没问的地方。 */
+  function withLocators(opinions, ui) {
+    return (Array.isArray(opinions) ? opinions : []).map((x) => {
+      const t = x && x.where && x.where.target;
+      if (!t) return x;
+      return {
+        ...x,
+        targetLabel: t.label || t.uiId || "定位",
+        locateNote: (ui.efLocate && ui.efLocate.id === String(x.id) && ui.efLocate.note) || "",
+      };
+    });
+  }
+
+  /** 「选择页面元素」那一条（TASK-132）。
+   *
+   *  三种状态，各自说清楚现在能做什么：
+   *    · 没选中 —— 一个按钮，点了进选择模式；
+   *    · 选择中 —— 提示怎么退出（Esc 或点「取消」），**不常驻全屏标记**；
+   *    · 已锁定 —— 引用条 + 重选 / 移除，并且写明这一条**直接记进台账**。
+   *
+   *  最后那句不是客套：这条路不跑模型（他写的原文不该由模型这一轮的成败决定
+   *  存不存在），所以他不会收到回复 —— 界面得先说出来，否则他会等一个不会来的答复。 */
+  function renderElementBar(ui) {
+    if (ui.efPicking) {
+      return (
+        `<div class="ef-bar" data-ef-ui="1">` +
+        `<span class="k">选择模式：点一个元素锁定它</span>` +
+        `<span class="meta">${esc(ui.efHover || "移到元素上看它是什么")}</span>` +
+        `<span class="push"></span>` +
+        `<button class="btn ghost sm" data-ef-cancel="1">取消（Esc）</button>` +
+        `</div>`
+      );
+    }
+    const t = ui.efTarget;
+    if (!t) {
+      return (
+        `<div class="ef-bar" data-ef-ui="1">` +
+        `<button class="btn ghost sm" data-ef-pick="1">◎ 选择页面元素</button>` +
+        `<span class="meta">指着说「这个按钮…」，比描述位置准</span>` +
+        `</div>`
+      );
+    }
+    return (
+      `<div class="ef-bar on" data-ef-ui="1">` +
+      `<span class="k">已选：${esc(t.breadcrumb)}</span>` +
+      `<span class="push"></span>` +
+      `<button class="btn ghost sm" data-ef-pick="1">重选</button>` +
+      `<button class="btn ghost sm" data-ef-clear="1">移除</button>` +
+      `<div class="meta ef-note">发送时这条意见**直接记进台账**（不跑模型，所以不会有回复）。</div>` +
+      `</div>`
     );
   }
 
@@ -2117,47 +2188,39 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     bkRaf = requestAnimationFrame(step);
   }
 
-  /** 录白膜：录的就是这块画布本身（决策 4）。产物交给既有的资产登记。 */
+  /** 录白膜：录的就是这块画布本身（决策 4）。产物交给既有的资产登记。
+   *
+   *  编排在 `ui/bkrecord.js` —— **顺序是那个模块存在的理由**：上一版先取画布再
+   *  `render()`，重绘换掉 `root.innerHTML` 之后手里那块 canvas 成了孤儿，动画画在
+   *  新节点上，录出来的白膜**不含动画**（TASK-087 §5.22）。写在这里没法测，
+   *  搬出去之后那条顺序有真守卫钉着。 */
   async function bkRecord(ctx) {
     const b = bkData();
-    const view = document.querySelector("[data-bk-view]");
     const id = bkShotId();
-    if (!b || !view || !id) return;
-    if (typeof view.captureStream !== "function" || typeof MediaRecorder === "undefined") {
-      ctx.toast("这个浏览器不支持录制画布 —— 白膜录不了");
-      return;
-    }
-    let rec;
-    const chunks = [];
-    try {
-      const stream = view.captureStream(30);
-      const mime = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"].find(
-        (m) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m),
-      );
-      rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-    } catch (e) {
-      ctx.toast(`录不了：${(e && e.message) || e}`);
-      return;
-    }
-    rec.ondataavailable = (ev) => {
-      if (ev.data && ev.data.size) chunks.push(ev.data);
-    };
-    const done = new Promise((resolve) => (rec.onstop = resolve));
-    ui.bkRecording = `${b.duration.toFixed(1)}s`;
-    render();
-    bkSetT(0);
-    rec.start();
-    await new Promise((r) => bkPlay(r));
-    rec.stop();
-    await done;
-    ui.bkRecording = null;
-    const blob = new Blob(chunks, { type: "video/webm" });
-    if (!blob.size) {
-      ctx.toast("录出来是空的 —— 没有写入任何资产");
-      render();
-      return;
-    }
-    const res = await ctx.blocking.saveTake(id, blob, b.duration);
+    if (!b || !id) return;
+
+    const out = await recordCanvas({
+      seconds: b.duration,
+      showRecording: (secs) => {
+        ui.bkRecording = secs === null ? null : `${secs.toFixed(1)}s`;
+        render();
+      },
+      getView: () => document.querySelector("[data-bk-view]"),
+      makeRecorder: (view) => {
+        if (typeof view.captureStream !== "function" || typeof MediaRecorder === "undefined") return null;
+        const stream = view.captureStream(30);
+        const mime = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"].find(
+          (m) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m),
+        );
+        return new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      },
+      play: () => { bkSetT(0); return new Promise((r) => bkPlay(r)); },
+      toast: (m) => ctx.toast(m),
+    });
+
+    if (!out.ok) { render(); return; }
+
+    const res = await ctx.blocking.saveTake(id, out.blob, b.duration);
     if (!res || !res.ok) ctx.toast(`白膜没能登记：${(res && res.error) || "未知原因"}`);
     else ctx.toast(`白膜录好了（${b.duration.toFixed(1)}s），已登记进资产库`);
     render();
@@ -2787,6 +2850,44 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
    *  The local echo matters: a chat that shows what you said only after a round
    *  trip reads as if the send was lost, and the creator presses again. The
    *  server's own copy replaces the echo on the next read. */
+  /** 一条针对某个元素的意见 —— 直接进台账（TASK-132 切片 A）。
+   *
+   *  **失败时保留草稿。** 他写的那句话在屏幕上还在，`efTarget` 也不解锁，点一下
+   *  重发即可 —— `annotationId` 一直是同一个，所以重发不会产生第二条意见（服务端
+   *  按它幂等）。「保存失败却像成功」是这条路最不能有的行为。 */
+  function submitElementFeedback(ctx, text) {
+    const project = ctx.projectName ? ctx.projectName() : null;
+    const t = ui.efTarget;
+    if (!t) return;
+    // id 在**第一次发送时**生成并留在 target 上：重试要用同一个，重生成就等于
+    // 每次重试都是一条新意见。
+    if (!t.annotationId) t.annotationId = newAnnotationId();
+    const { breadcrumb, ...target } = t;
+    ui.efSending = true;
+    render();
+    Promise.resolve()
+      .then(() =>
+        fileElementFeedback({
+          project,
+          text,
+          annotationId: t.annotationId,
+          context: { ...conversationContext(ctx), target },
+        }))
+      .then((res) => {
+        ui.efSending = false;
+        if (!res || !res.ok) throw new Error((res && res.error && res.error.detail) || "写入失败");
+        ui.efTarget = null;
+        ctx.toast(res.duplicate ? `这条已经记过了（#${res.id}）` : `已记录 #${res.id}`);
+        render();
+      })
+      .catch((e) => {
+        ui.efSending = false;
+        // 草稿与目标都留着 —— 他不用重打，也不用重新点一次那个元素
+        ctx.toast(`意见没能记下（${(e && e.message) || "未知原因"}）—— 再点一次发送可以重试`);
+        render();
+      });
+  }
+
   function sendConversationTurn(ctx, text, { originKey = "" } = {}) {
     const project = ctx.projectName ? ctx.projectName() : null;
     if (!project) { ctx.toast("先打开一个项目"); return; }
@@ -2921,6 +3022,47 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       if (goto) setModule(goto);
       else render();
     }));
+    // ✨ 出图：**就地**给这一镜出画面，不跳页（TASK-139 / REQ-008 判据 1）。
+    //
+    // Prompt 与槽位都从 `shotDetailModel` 取 —— 与「关键帧」那一页的生成卡同一个
+    // 来源。在这里另算一份，就是让同一镜的 Prompt 有两处答案。
+    root.querySelectorAll("[data-ec-gen]").forEach((b) => (b.onclick = async () => {
+      const shotId = b.dataset.ecGen;
+      const d = shotDetailModel(ctx.prodData(), shotId);
+      if (!d || !d.slot) { ctx.toast("镜头身份未解析 —— 无法定位媒体槽位"); return; }
+      const prompt = ((d.prompts || {}).image || {}).text || "";
+      if (!prompt.trim()) { ctx.toast("这一镜还没有可用的画面描述 —— 先把镜头内容填上"); return; }
+      b.disabled = true;
+      ctx.toast("生成中…（免费来源，可能要几十秒）");
+      try {
+        const res = await ctx.media.generateShotImage(d.slot, shotId, prompt);
+        ctx.toast(
+          `已生成 v${res.version || 1}（${res.model || "免费来源"} · 未产生账单）` +
+            (res.translated && res.prompt_sent
+              ? `｜实际发出去的英文：${String(res.prompt_sent).slice(0, 60)}…`
+              : ""),
+        );
+        render();
+      } catch (err) {
+        const why =
+          err.category === "quota_exhausted"
+            ? "这个来源的额度用完了 —— 换 .env.local 里的 IMAGE_PROVIDER，或稍后再试"
+            : err.category === "billing_not_established"
+              ? "这把 key 没声明是免费额度那一档，已拒绝（按次计费请走付费那条）"
+              : err.category === "side_effect_unknown"
+                ? "上一次没能确认结果 —— 要再来一次得显式确认"
+                : err.message;
+        // 「消耗没消耗」由 sideEffect 说，不由类别说
+        ctx.toast(
+          "出图失败：" +
+            (err.sideEffect && err.sideEffect !== "none"
+              ? `${why}（这一次${err.sideEffect === "applied" ? "已经" : "可能已经"}消耗过）`
+              : why),
+        );
+      } finally {
+        b.disabled = false;
+      }
+    }));
     // ① 选集：进剧集制作的第一件事就是选这一集（产品负责人 2026-08-30
     //「主要的动作是选择要制作的剧集」）。用 `selectEpisode` —— 与别处切集同一条路径。
     root.querySelectorAll("[data-ep-pick]").forEach((sel) => (sel.onchange = () => {
@@ -2932,7 +3074,11 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // before the other panels bind and the session is on that page too.
     bindAgentSession(root, ctx, ui, render, {
       onRun: (id) => runSessionSkill(ctx, id),
-      onSend: (text) => sendConversationTurn(ctx, text),
+      // 锁定了一个页面元素时，这一条走**直接提交**那条路（TASK-132）：
+      // 原文和元素定位直接进台账，不跑模型。他写的那句话不该由模型这一轮的
+      // 成败决定它存不存在 —— 引用条上已经写明「不会有回复」。
+      onSend: (text) =>
+        ui.efTarget ? submitElementFeedback(ctx, text) : sendConversationTurn(ctx, text),
     });
     // 「落到作品上」—— 把一条还没落下的改动补落。走的是与自动落地**同一个**函数，
     // 所以两条路不会有两种行为。
@@ -2962,6 +3108,69 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       ui.convMode = "feedback";
       render();
       ensureConversation(ctx);
+    }));
+    // --- 点选页面元素（TASK-132） --------------------------------------- //
+    root.querySelectorAll("[data-ef-pick]").forEach((b) => (b.onclick = () => {
+      if (typeof document === "undefined") return;
+      ui.efPicking = true;
+      ui.efHover = "";
+      render();
+      // `stop` 由模块自己在选中/Esc 时调用；这里留一份是为了**换页或切窗口时
+      // 也能收干净** —— 一个退不出去的选择模式会让整个界面像坏了。
+      ui.efStop = startPicking(document, {
+        onHover: (el) => {
+          const next = breadcrumbOf(snapshotOf(el), { moduleLabel: MODULE_LABEL[activeModule] });
+          if (next === ui.efHover) return; // 每像素重渲染会把界面卡死
+          ui.efHover = next;
+          render();
+        },
+        onPick: (el, snap) => {
+          ui.efPicking = false;
+          ui.efStop = null;
+          ui.efTarget = {
+            ...snap,
+            source: MODULE_SOURCE[activeModule] || "",
+            breadcrumb: breadcrumbOf(snap, { moduleLabel: MODULE_LABEL[activeModule] }),
+          };
+          render();
+        },
+        onCancel: () => {
+          ui.efPicking = false;
+          ui.efStop = null;
+          render();
+        },
+      });
+    }));
+    root.querySelectorAll("[data-ef-cancel]").forEach((b) => (b.onclick = () => {
+      if (ui.efStop) ui.efStop();
+      ui.efPicking = false;
+      ui.efStop = null;
+      render();
+    }));
+    // 回看一条旧意见：把它指的那个元素找回来（TASK-132 切片 B）。
+    // **找不到 / 认不准时说实话** —— `locateTarget` 的四种判词各有各的下一步。
+    root.querySelectorAll("[data-op-locate]").forEach((b) => (b.onclick = () => {
+      const id = b.dataset.opLocate;
+      const row = (ui.convOpinions || []).find((x) => String(x.id) === id);
+      const t = row && row.where && row.where.target;
+      if (!t || typeof document === "undefined") return;
+      const res = locateTarget(t, row.where, { module: activeModule }, (sel) =>
+        Array.from(document.querySelectorAll(sel)));
+      ui.efLocate = { id, note: locateMessage(res) };
+      if (res.status === "found" && res.el && res.el.scrollIntoView) {
+        res.el.scrollIntoView({ block: "center", behavior: "smooth" });
+        // 高亮用 class 而不是内联样式：内联会覆盖掉页面自己的样式，而且撤回来时
+        // 很难还原成「本来是什么」——一个回看动作不该改变页面的既有外观。
+        res.el.classList.add("ef-found");
+        setTimeout(() => res.el.classList.remove("ef-found"), 2400);
+      }
+      render();
+    }));
+    root.querySelectorAll("[data-ef-clear]").forEach((b) => (b.onclick = () => {
+      // **只有他显式点「移除」才解锁。** 点输入框、点别处、页面重渲染都不算 ——
+      // 打字期间目标悄悄换成另一个，是这类功能最让人不信任的行为。
+      ui.efTarget = null;
+      render();
     }));
     root.querySelectorAll("[data-cv-mode]").forEach((b) => (b.onclick = () => {
       const next = b.dataset.cvMode === "feedback" ? "feedback" : "work";

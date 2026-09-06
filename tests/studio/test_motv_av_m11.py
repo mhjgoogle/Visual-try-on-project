@@ -420,10 +420,16 @@ def test_tts_voice_param_validated_and_falls_back_honestly(
         encoding="utf-8",
     )
     fake.chmod(0o755)
-    (data_dir / "tts").mkdir(parents=True, exist_ok=True)
-    (data_dir / "tts" / "zh_CN-huayan-medium.onnx").write_bytes(b"model")
+    # 语音模型住在服务端的 DATA_DIR 下 —— 不是 `data_dir` fixture 的返回值。
+    # 那个 fixture 把 DATA_DIR 打到 tmp_path/"mockdata"，却返回 tmp_path/"account"
+    # （ADR-0053 之后它的职责变成「账户根」，名字没跟着改）。把模型写进返回值里，
+    # 服务端永远看不见：默认模型靠下面这次 `_TTS_MODEL` 打桩救了回来，
+    # 而 per-character 那条查的是 DATA_DIR，于是它从来没被真正验证过。
+    tts_dir = server_module.DATA_DIR / "tts"
+    tts_dir.mkdir(parents=True, exist_ok=True)
+    (tts_dir / "zh_CN-huayan-medium.onnx").write_bytes(b"model")
     monkeypatch.setattr(
-        server_module, "_TTS_MODEL", data_dir / "tts" / "zh_CN-huayan-medium.onnx"
+        server_module, "_TTS_MODEL", tts_dir / "zh_CN-huayan-medium.onnx"
     )
     import shutil as _sh
 
@@ -455,7 +461,7 @@ def test_tts_voice_param_validated_and_falls_back_honestly(
     assert status == 200, j
     assert j["voice"] is None  # did NOT claim a voice it didn't render
     # a voice WITH a matching local model → that model is selected + reported
-    (data_dir / "tts" / "vc-hero.onnx").write_bytes(b"model")
+    (tts_dir / "vc-hero.onnx").write_bytes(b"model")
     status, j = _post(
         app,
         "/api/agent/tts",

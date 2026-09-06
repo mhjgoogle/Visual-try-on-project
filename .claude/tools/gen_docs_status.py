@@ -209,12 +209,14 @@ def _active_requirements() -> list[str]:
     if not req_dir.is_dir():
         return []
     citations: dict[str, list[str]] = {}
-    for card in sorted((DOCS / "tasks" / "active").glob("TASK-*.md")):
+    for card in sorted(
+        (DOCS / "tasks" / "active").glob("TASK-*.md"), key=lambda p: p.name
+    ):
         head = card.read_text("utf-8").split("## ", 1)[0]
         for num in sorted(set(_REQ_REF.findall(head))):
             citations.setdefault(num, []).append(card.name[:8])
     rows = []
-    for path in sorted(req_dir.glob("REQ-*.md")):
+    for path in sorted(req_dir.glob("REQ-*.md"), key=lambda p: p.name):
         title, status = _describe(path)
         if not _binding(status):
             continue
@@ -237,7 +239,7 @@ def _not_yet_binding() -> list[str]:
     if not req_dir.is_dir():
         return []
     out = []
-    for path in sorted(req_dir.glob("REQ-*.md")):
+    for path in sorted(req_dir.glob("REQ-*.md"), key=lambda p: p.name):
         _, status = _describe(path)
         if _binding(status):
             continue
@@ -248,7 +250,9 @@ def _not_yet_binding() -> list[str]:
 
 def _deferred() -> list[str]:
     rows = []
-    for path in sorted((DOCS / "tasks" / "backlog").glob("TASK-*.md")):
+    for path in sorted(
+        (DOCS / "tasks" / "backlog").glob("TASK-*.md"), key=lambda p: p.name
+    ):
         title, _ = _describe(path)
         rel = path.relative_to(DOCS).as_posix()
         rows.append(f"[{path.name[:8]}]({rel}) {_cell(title)}")
@@ -257,7 +261,7 @@ def _deferred() -> list[str]:
 
 def _recent_decisions(n: int = 5) -> list[str]:
     rows = []
-    for path in sorted((DOCS / "adr").glob("ADR-*.md"))[-n:]:
+    for path in sorted((DOCS / "adr").glob("ADR-*.md"), key=lambda p: p.name)[-n:]:
         title, status = _describe(path)
         rel = path.relative_to(DOCS).as_posix()
         rows.append(f"| [{path.name[:8]}]({rel}) | {_cell(title)} | {_cell(status)} |")
@@ -360,7 +364,14 @@ def _section(heading: str, rel_folder: str, blurb: str) -> list[str]:
     rows = [f"## {heading}", "", blurb, ""]
     rows.append("| 文档 | 标题 | 状态行（首句） |")
     rows.append("| --- | --- | --- |")
-    for path in sorted(folder.iterdir()):
+    # 按**文件名字符串**排，不是按 Path 排。`sorted()` 比较 Path 时用的是
+    # `_str_normcase`：Windows 上先折叠大小写，POSIX 上原样比 —— 同一份代码
+    # 因此在两个平台给出不同顺序，而这个文件是要被 `test_docs_status` 逐字节
+    # 比对的。于是它在权威平台上永远绿、在 Ubuntu CI 上永远红（TASK-140：
+    # `design/done/` 里 M1-/TASK-/WFM1-/WSM3- 那 8 行的位置差异）。
+    # AGENTS §3「平台中立，不是 POSIX」——一个排序结果取决于自己跑在哪的
+    # 生成器，正是它禁止的东西。
+    for path in sorted(folder.iterdir(), key=lambda p: p.name):
         if path.suffix.lower() not in {".md", ".patch"}:
             continue
         rel = path.relative_to(DOCS).as_posix()
@@ -374,7 +385,7 @@ def _section(heading: str, rel_folder: str, blurb: str) -> list[str]:
 
 
 def render() -> str:
-    adr = sorted((DOCS / "adr").glob("ADR-*.md"))
+    adr = sorted((DOCS / "adr").glob("ADR-*.md"), key=lambda p: p.name)
     n_active = len(list((DOCS / "tasks" / "active").glob("*.md")))
     n_backlog = len(list((DOCS / "tasks" / "backlog").glob("*.md")))
     n_done = len(list((DOCS / "tasks" / "done").glob("*")))

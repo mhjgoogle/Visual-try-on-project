@@ -79,6 +79,41 @@ def save(path: Path, doc: dict) -> None:
     os.replace(tmp, path)
 
 
+def _target_lines(t) -> list:
+    """他点中那个元素的几行（TASK-132）。没有就一行不画。
+
+    **稳的和不稳的分开说。** `uiId` + 实体身份是业务身份，跨重渲染仍然成立；
+    `selector` 是 CSS 路径，下一次渲染就可能指向别的元素 —— 把它们并排列成
+    「定位信息」，会让读的人拿一条会过期的线索当准的用。所以 selector 单独一行，
+    并且**写明它是线索**。
+
+    `source` 这里也只是照抄：它从来没有被服务端拿去读过任何文件，写出来是给人
+    打开的，不是给工具解析的。
+    """
+    if not isinstance(t, dict) or not t:
+        return []
+    name = t.get("label") or t.get("uiId") or "（未命名元素）"
+    head = f"  他点的是：{name}"
+    bits = [x for x in (t.get("component"), t.get("uiId") and f"id={t['uiId']}") if x]
+    if bits:
+        head += f"（{' · '.join(bits)}）"
+    out = [head]
+    ident = " · ".join(
+        x
+        for x in (
+            t.get("shotId") and f"镜头 {t['shotId']}",
+            t.get("episodeId") and f"分集 {t['episodeId']}",
+        )
+        if x
+    )
+    if ident:
+        out.append(f"  它属于：{ident}")
+    if t.get("selector"):
+        # 一次重排就可能让它指向别的元素 —— 说出来，别让人把它当准的
+        out.append(f"  CSS 线索（可能已过期）：{t['selector']}")
+    return out
+
+
 def render(items: list) -> str:
     if not items:
         return "没有待处理的意见。"
@@ -106,6 +141,10 @@ def render(items: list) -> str:
         )
         if spot:
             out.append(f"  在哪：{spot}")
+        # 他点中的**那个元素**（TASK-132）。这一行是这条意见最贵的那部分 ——
+        # 「这一页左边太挤」和「分镜设计 › 镜头列表 › 生成 这个按钮太挤」之间，
+        # 差的是我要不要自己去猜他指的是哪一个。
+        out.extend(_target_lines(w.get("target")))
         if w.get("source"):
             out.append(f"  画它的文件：mockups/motv-workspace/{w['source']}")
         if w.get("route"):

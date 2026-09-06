@@ -1087,7 +1087,13 @@ def test_a_package_file_symlinked_outside_the_package_is_refused(tmp_path) -> No
     # …and through the catalog it is an attributed problem, never a silent load
     catalog = skillpkg.load_catalog([("project", package), ("builtin", _BUILTIN)])
     assert any("包目录之外" in p.reason for p in catalog.problems)
-    assert catalog.skills["story-development"].source != "project"
+    # 决策 7：不跨源回落。项目那份坏了，这个 id 就整个不可用 —— 与
+    # `test_a_broken_high_priority_package_does_not_fall_back` 同一形状。
+    # 这一行原来写的是「拿得到、只是 source 不是 project」，那恰恰是决策 7
+    # 禁止的回落，`load_catalog` 从来没有那么做过。它九天没被发现，是因为整条
+    # 测试只在能建符号链接的机器上跑得到：本地 Windows 无提权一律 skip，
+    # 于是它实际上只在 CI 上执行，而 CI 从 8/24 起没人读（TASK-140）。
+    assert "story-development" not in catalog.skills
 
 
 def test_an_ordinary_package_file_is_still_read_normally(tmp_path) -> None:

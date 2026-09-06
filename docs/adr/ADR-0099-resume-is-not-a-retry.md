@@ -51,8 +51,9 @@ TASK-136 立卡时的判断是「本仓库还没有续跑语义，要从零定�
 上面三条规则一条都不改。
 
 时间点是有利的：**Studio 今天还没有任何 `provider:*` Run 的写入方**
-（付费生成命令是 [TASK-041](../tasks/backlog/TASK-041-workspace-generation-command-and-evidence.md)，
-它本身还等着产品负责人批准花钱）。现在定，成本是一份文档；接上之后再定，
+（写这份 ADR 时以为付费生成命令
+[TASK-041](../tasks/done/TASK-041-workspace-generation-command-and-evidence.md) 会是它，
+当天核实后发现不是 —— 见决策 8 的订正框）。现在定，成本是一份文档；接上之后再定，
 第一次事故已经发生了，而事故的形式是**用户被扣了两次钱、只看到一次失败**。
 
 ## 决策
@@ -153,7 +154,18 @@ operationRef   { taskId, operationId } | null
 导出了、测了、没人用，而且让「续跑已经接通」这句话看起来成立。
 本 ADR 的产物是**合同**，不是代码。
 
-因此 TASK-136 的前置从「缺一份 ADR」变成「等 TASK-041 的付费写入方」。
+因此 TASK-136 的前置从「缺一份 ADR」变成**一个条件**，而不是某一张卡：
+**直到有东西真的在 runstore 里建出 `provider:*` Run。**
+
+> **2026-09-05 当天订正。** 这句原先写的是「等 TASK-041 的付费写入方」，那样写有错。
+> 041 当天收口进 `done/`（产品负责人决定不跑那次付费证据，出处与原话在卡上），
+> 而**写入方并没有因此出现** —— 041 交付的是付费命令与 UI 接线，**不是**「谁在
+> runstore 里建 `provider:*` 执行器的 Run」。把前置挂在一张已经收掉的卡上，
+> 下一个人打开它会以为这道闸已经解开。
+>
+> 正确的说法是：**今天还没有任何一张卡去造那个写入方**。要推进 TASK-136，
+> 得先立一张「Studio 的付费生成走 Run 注册表」的卡 —— 那才是这道闸的钥匙。
+> 前置写成条件而不是卡号，也让它不会再随某张卡的状态漂移。
 
 ## 射程：不建 Run 的同步外部调用不在里面（2026-09-05 补，实测）
 
@@ -171,10 +183,12 @@ operationRef   { taskId, operationId } | null
 （第 13 条），刷新一看就知道有没有多一版。这比一条状态记录更硬 —— 状态记录会说谎，
 文件不会。
 
-所以决策 8 的「等真实写入方」等的仍然是 [TASK-041](../tasks/backlog/TASK-041-workspace-generation-command-and-evidence.md)
-的付费生成命令。**2026-09-05 复核**：`mockups/motv-workspace/` 的 `.py` 与
-`src/**/*.js` 里 `"provider:` 字面量零命中，Studio 侧创建 `provider:*` Run 的
-写入方仍然是零个。
+所以决策 8 的「等真实写入方」**不再指向任何一张现存的卡**
+（[TASK-041](../tasks/done/TASK-041-workspace-generation-command-and-evidence.md) 已于
+2026-09-05 收口，它交付的不是这个写入方 —— 见决策 8 的订正框）。
+**2026-09-05 复核**：`mockups/motv-workspace/` 的 `.py` 与 `src/**/*.js` 里
+`"provider:` 字面量零命中（唯一命中是 `runstore.py:90` 那个前缀常量本身），
+Studio 侧创建 `provider:*` Run 的写入方仍然是零个。
 
 ## 后果
 

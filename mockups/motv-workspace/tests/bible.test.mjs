@@ -486,3 +486,25 @@ test("the seeding panel renders the concept verbatim with an EDITABLE name", () 
   const none = renderBibleWs({ ...ctx, bible: { conceptSeeds: () => ({ version: 0, approved: false, rows: [] }) } }, { bibleTab: "characters" });
   assert.ok(!/seedbox/.test(none));
 });
+
+// 这条以前住在 workspaces.test.mjs —— 决策搬进 workflow 层（TASK-129 切片 2e），
+// 测试跟着搬：它测的是「加次要图不顶掉主图」这条规则，不是界面怎么画。
+test("nextStateRefsOnAdd: adding a secondary reference never displaces the effective primary", () => {
+  const entity = { activeReferenceAssetId: "asset-base" };
+  // override list contains the INHERITED primary, no active key of its own —
+  // adding another ref keeps inheriting (no active key minted), primary stays
+  const kept = bd.nextStateRefsOnAdd(entity, { referenceAssetIds: ["asset-base"] }, "asset-x");
+  assert.deepEqual(kept, { referenceAssetIds: ["asset-base", "asset-x"] });
+  // an explicit override primary is kept verbatim
+  const explicit = bd.nextStateRefsOnAdd(entity, { referenceAssetIds: ["a"], activeReferenceAssetId: "a" }, "b");
+  assert.equal(explicit.activeReferenceAssetId, "a");
+  // FIRST state-specific ref: the inherited primary is not a member of the
+  // new one-item list → the added ref becomes primary
+  const first = bd.nextStateRefsOnAdd(entity, {}, "asset-x");
+  assert.deepEqual(first, { referenceAssetIds: ["asset-x"], activeReferenceAssetId: "asset-x" });
+  // explicit none → the added ref becomes primary
+  const none = bd.nextStateRefsOnAdd(entity, { referenceAssetIds: [], activeReferenceAssetId: null }, "c");
+  assert.equal(none.activeReferenceAssetId, "c");
+  // duplicate add is a no-op
+  assert.equal(bd.nextStateRefsOnAdd(entity, { referenceAssetIds: ["d"] }, "d"), null);
+});

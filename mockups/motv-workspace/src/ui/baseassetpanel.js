@@ -239,7 +239,14 @@ export function renderBaseAssetPanel(ctx, one, ui) {
       : "") +
     gallery(one, t) +
     `<div class="pi-acts">` +
-    `<button class="btn primary" data-ba-upload>上传参考图…</button>` +
+    // ✨ 自动生成（TASK-139 / REQ-008 判据 1）。产品负责人 2026-09-05：
+    //「自动生图应该在我点人物进去之后就能生成」—— 参考图是「基础财产」，
+    // 它就该在定义这个人物的地方长出来，而不是要他先去某一镜里绕一圈。
+    //
+    // 用的是**这一块自己那段编译好的提示词**（下面「提示词」小节里可见、可改、
+    // 可锁定的那一份），不另编一份 —— 屏幕上显示哪一份，就用哪一份。
+    `<button class="btn primary" data-ba-gen title="用下面那段提示词自动生成一张参考图（免费 · 不产生账单）">✨ 自动生成</button>` +
+    `<button class="btn" data-ba-upload>上传参考图…</button>` +
     `<button class="btn" data-ba-refpick>${pick ? "收起资产库" : "从资产库选择…"}</button>` +
     `</div>` +
     (pick
@@ -303,6 +310,53 @@ export function bindBaseAssetPanel(root, ctx, ui, rerender, { kind, entityId }) 
   });
 
   // --- references --------------------------------------------------------- //
+  // ✨ 自动生成一张参考图（TASK-139 / REQ-008 判据 1）。
+  //
+  // 与上传那一颗**共用同一条登记路**（`uploadReference`），所以命名、目标存在性
+  // 检查、挂到这个状态上、以及「登记成功却没挂上」那条诚实报告，一条都不重写。
+  // 差别只有一处：不弹文件框，改把提示词交给后端。
+  // 用 `all` 而不是 `on`：`on` 把**事件**交给回调，而这里要的是那颗按钮本身
+  //（生成期间要把它禁掉）。`all` 传的是元素，顺带 stopPropagation。
+  all("[data-ba-gen]", async (btn) => {
+    const t = target();
+    if (!t) return;
+    const eff = ctx.basePrompt.effective(kind, entityId, t.stateId);
+    const prompt = (eff && eff.text) || "";
+    if (!prompt.trim()) {
+      // 空提示词生成出来的是一张与这个角色无关的图 —— 那比不生成更糟
+      ctx.toast("这一项还没有提示词 —— 先把设定填上，下面那段会自动编译出来");
+      return;
+    }
+    const suggested = ctx.baseAssets.suggestName(kind, entityId, t.stateId);
+    if (btn) btn.disabled = true;
+    ctx.toast("生成中…（免费来源，可能要几十秒）");
+    try {
+      const ref = await ctx.baseAssets.uploadReference(kind, entityId, t.stateId, {
+        displayName: suggested || null,
+        prompt,
+      });
+      if (ref) ctx.toast(`已生成并挂到「${t.label}」，后续镜头可以直接复用（未产生账单）`);
+    } catch (e) {
+      const why =
+        e.category === "quota_exhausted"
+          ? "这个来源的额度用完了 —— 换 .env.local 里的 IMAGE_PROVIDER，或稍后再试"
+          : e.category === "billing_not_established"
+            ? "这把 key 没声明是免费额度那一档，已拒绝（按次计费请走付费那条）"
+            : e.category === "side_effect_unknown"
+              ? "上一次没能确认结果 —— 要再来一次得显式确认"
+              : e.message;
+      // 「消耗没消耗」由 sideEffect 说，不由类别说
+      ctx.toast(
+        `生成失败：${why}` +
+          (e.sideEffect && e.sideEffect !== "none"
+            ? `（这一次${e.sideEffect === "applied" ? "已经" : "可能已经"}消耗过）`
+            : ""),
+      );
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+    rerender();
+  });
   on("[data-ba-upload]", async () => {
     const t = target();
     if (!t) return;

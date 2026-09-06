@@ -2,7 +2,7 @@
 
 - 状态：**待开始 · 前置 ADR 已 Accept**（2026-09-05 开卡；
   [ADR-0099](../../adr/ADR-0099-resume-is-not-a-retry.md) 2026-09-05 Accepted，
-  合同已定完；现在**等的不是决策，是 [TASK-041](TASK-041-workspace-generation-command-and-evidence.md)
+  合同已定完；现在**等的不是决策，是 [TASK-041](../done/TASK-041-workspace-generation-command-and-evidence.md)
   的付费写入方** —— 见下方「前置」）
 - Workflow：Feature · 深度：DEEP（付费路径 + 持久化 + 并发，需要独立 ADR）
 - 技术目标：AGENTS.md 第 12 条要求「工作流必须支持断点续跑」，但那是**原则**，没有定
@@ -69,9 +69,23 @@
 **已满足**：[ADR-0099](../../adr/ADR-0099-resume-is-not-a-retry.md) Accepted（2026-09-05）。
 
 **新的前置，而且是 ADR 自己定的**（决策 8）：**在 `provider:*` Run 有真实写入方之前，
-一行代码都不许写。** Studio 今天没有任何东西创建 `provider:*` 执行器的 Run，
-付费生成命令是 [TASK-041](TASK-041-workspace-generation-command-and-evidence.md)，
-它本身还等着产品负责人批准花钱。
+一行代码都不许写。** Studio 今天没有任何东西创建 `provider:*` 执行器的 Run
+（`mockups/` 里 `"provider:` 字面量零命中，2026-09-05 复核）。
+
+**2026-09-05 更新：挡它的不再是 TASK-041 那张卡。**
+
+出处：产品负责人 2026-09-05 在本会话里说 ——
+「TASK-041 的一次真实付费证据 …… 这个以前就跑过了。不要浪费钱了收了吧」。
+据此 041 收口进 `done/`（那张卡上写明了收口口径：增量 3 是**决定不做**，不是已验证）。
+
+**而那个写入方并没有因此出现**：041 交付的是付费命令与 UI 接线，**不是**「谁在
+runstore 里建 `provider:*` Run」。所以本卡现在等的是「**还没有任何一张卡去造那个
+写入方**」，而不是等某张已存在的卡 —— 把前置挂在一张已经收掉的卡上，下一个人会
+以为它已经解开了。真要推进，先立一张「Studio 的付费生成走 Run 注册表」的卡。
+
+（[ADR-0099](../../adr/ADR-0099-resume-is-not-a-retry.md) 决策 8 的措辞仍写着
+「等 TASK-041 的付费写入方」。**那份 ADR 由它的作者会话改口径**，不由本卡代改 ——
+依据是一个它尚未直接收到的用户决定。以本节为准。）
 
 先建字段与续跑执行体就是
 [TASK-087 §1.2](../active/TASK-087-followup-ledger.md) 那条被 codex 判 P1 的东西：

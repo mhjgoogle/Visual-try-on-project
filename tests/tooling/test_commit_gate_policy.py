@@ -1276,8 +1276,19 @@ $out.Flush()
         assert _POLICY.inspect_command("PowerShell", chained, split(chained)).gate == (
             "block"
         )
-        # 解析失败 -> $null -> 由策略 fail-closed（PowerShell 5.1 没有 `&&`）
-        assert split('git commit -m "x" && git push') is None
+        # `&&` 的**结论**在两个 PowerShell 上必须一样，解析细节不写进断言：
+        # Windows PowerShell 5.1 没有这个操作符 → 解析失败 → $null → 策略
+        # fail-closed；PowerShell 7 有 → 切成两条。原来这一行断言的是「一定
+        # 解析不了」，那是 5.1 的事实，而 GitHub 的 ubuntu runner 预装的是
+        # pwsh 7 —— 于是这条在权威平台上永远绿、在 Ubuntu CI 上永远红
+        # （TASK-140）。两条路径都必须仍然进闸门，绝不能因为「切开了」变成 skip。
+        amp = 'git commit -m "x" && git push'
+        amp_split = split(amp)
+        assert amp_split is None or amp_split == [
+            ["git", "commit", "-m", "x"],
+            ["git", "push"],
+        ], amp_split
+        assert _POLICY.inspect_command("PowerShell", amp, amp_split).gate == "check"
 
 
 def test_gate_sh_is_never_less_careful_than_gate_ps1_on_the_same_payload() -> None:

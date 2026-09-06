@@ -1,6 +1,16 @@
 # TASK-125：切片 1 —— 当前事实收口
 
-- 状态：**进行中**（2026-09-04 开卡）
+- 状态：**已完成**（2026-09-04 开卡，2026-09-05 收口）。IN SCOPE 七条逐条核对如下 —— **这张卡自己曾是它要治的那个病**：七条早已做完，卡却还写着「进行中」、还躺在 `active/`，于是「待办 = `ls active/`」把一件做完的事读成了在办（ADR-0083 决策 1）。
+
+  | # | IN SCOPE | 现状 |
+  | --- | --- | --- |
+  | 1 | IA 改成当前事实 + 取代关系双向 | ✅ 该文 §0「这一版取代了本文自己的哪几段」四行对照表 |
+  | 2 | `current-architecture.md` 页面集合跟着改 | ✅ 该文第 63 行：三空间 / 四入口 / 单画布 + ADR-0092 / ADR-0094 |
+  | 3 | TASK-040 拆成逐条判词 | ✅ 该卡判词表在册（1 条 `FAIL`、3 条 `PARTIAL`、1 条 `NOT_EVIDENCED` 各自可见），并写明「一条 `PARTIAL` 也不许被总标题盖掉」 |
+  | 4 | TASK-121/122/123/124 进 `done/` | ✅ 四张都在 `done/`，剩余事项在 TASK-087 |
+  | 5 | TASK-041 进 `backlog/` | ✅ |
+  | 6 | TASK-074 开头唯一剩余清单 | ✅ 该卡 §0.0，并声明它是「唯一的当前状态来源」 |
+  | 7 | 重新生成 `STATUS.md`，`lifecycle_check` 零发现 | ✅ `lifecycle_check` 0 finding · `tests/tooling/test_docs_status.py` 22 passed |
 - Workflow：Refactor（文档层）· 深度：STANDARD
 - 关联 Requirement：[REQ-004](../../requirements/REQ-004-three-pane-shell-and-agent-conversation.md) v2 判据 1–2 ·
   [REQ-006](../../requirements/REQ-006-agent-can-do-what-the-creator-can-do.md) 判据 7

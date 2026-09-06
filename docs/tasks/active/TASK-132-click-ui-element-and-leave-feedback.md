@@ -141,3 +141,70 @@ tooling 测 reader；关键点击路径用真实浏览器与 Connected Project �
 - 已核实：两项目 README、以上关键源码及许可证；本地页面级反馈链路与 TASK-120 既有缺口。
 - 未实测：上游 Demo/扩展交互、本项目点选体验；本卡验收项均待实施。
 - 文档验证：docs_status / docs_links **9 passed**；lifecycle_check 零发现；diff 空白检查通过。
+
+---
+
+## 6. 实施记录（Claude，2026-09-05）
+
+- 状态：**切片 A 完成、切片 B 完成核心，切片 C 未做。**
+- 同仓协作：全程 partial commit；`server.py` 开工前跟 `visual-try-on-project-92`
+  认领过（它 TASK-139 的服务端那半早已落地，零重叠）。
+
+### 切片 A —— 点选 → 原文保存 → 开发读取（完成）
+
+| 卡上的要求（§5.A） | 落在哪 |
+| --- | --- |
+| 新模块 `src/ui/elementfeedback.js`，production.js 只承接入口与引用条 | 判断做成纯函数（`targetOf` / `snapshotOf` / `cssPathOf` / `handleOf` / `breadcrumbOf`），DOM 只留 `startPicking` |
+| 稳定标记，**优先复用已有登记信息、不重建全站动作表** | `handleOf` 从既有 `data-sb-generate` / `data-b-chdel` 派生 —— 它们本来就是 bind 函数 `querySelectorAll` 的对象，已经承重；显式 `data-ui-id` 优先 |
+| 薄 service + 受校验的服务端命令；前端不写文件、服务端不跑模型不改 canvas | `fileElementFeedback` → `POST /api/feedback/element` |
+| 扩 `_conv_where` 与 reader 展示 | 白名单加 `target`；`read_feedback.py` 打印「他点的是 / 它属于 / CSS 线索（可能已过期）」 |
+| 独立 `annotationId` 处理重试，**不伪造 runId** | 前端生成、重试不变；服务端按它幂等，回原编号 |
+| 直接提交与旧模型写入**共享并发保护** | `_FEEDBACK_LOCK`（RLock），两条路共用，**锁到落盘之后才释放** |
+| 现有 ID 分配阻塞幂等性时只做最小修复并记录原因 | `len(items)+1` 配裁剪会在满 500 后永远派 501 → 改 `max+1` |
+| `source` 只作线索，服务端校验形状但绝不据其读文件 | `_looks_like_repo_relative`，只判形状 |
+
+### 切片 B —— 回看、动态页面（核心完成）
+
+`locateTarget` 四种判词，**它存在的全部意义是它敢说「找不到」**：
+
+| 判词 | 界面说什么 |
+| --- | --- |
+| `found`（恰好一个） | 高亮它（轮廓不用背景 —— 背景会盖掉元素自己的状态色，而那往往正是他要说的） |
+| `ambiguous`（多个） | 「这一页上有 N 个一样的，认不准是哪个」—— **不挑第一个** |
+| `gone`（一个都没有） | 「页面已变化，原位置暂时无法定位」＋当时的线索，原文与证据照旧 |
+| `elsewhere`（不在那一页） | 「这条说的是〈某页〉」 |
+
+优先级：**句柄 + 实体身份**（跨重渲染稳定）→ selector 只做**收窄**。
+句柄一个都没匹配上时**不许改用 selector 兜底** —— 那时页面已经变了，一个仍然匹配的
+CSS 路径多半指着另一个东西，而「引用错行比引用断裂更难发现」（断裂他看得见）。
+
+「已处理」只代表台账上标了，**没有引入第二套状态总账**：真正的「已修改」要关联实现
+与验证证据，那是提案回路的事。
+
+### 已做验证
+
+前端全量 **2220 passed**（`elementfeedback.test.mjs` 32 例）·
+`tests/studio` 新增 15 例 · `tests/tooling` reader 17 passed · ruff 通过。
+
+**六处变异验证**，各只红对应的那一条：
+
+| 变异 | 红的那条 |
+| --- | --- |
+| 意见编号退回 `len+1` | 台账满了之后重号 |
+| 锁在落盘前放开 | 并发丢意见 |
+| 只拦 `click` | pointerdown / 键盘激活没拦住 |
+| `stop()` 不幂等 | 第二次 stop 摘掉别人的监听 |
+| 多匹配取第一个 | ambiguous 那条 |
+| 句柄没中时 selector 兜底 | gone 那条 |
+
+其中「`stop()` 幂等」第一版**没杀掉变异** —— 它断言的是 body 样式，而不幂等在真 DOM
+里对样式无害。重写成「第二次 stop 不许摘掉别人后来挂的监听」之后才真能红。
+
+### 还没做
+
+- **切片 C（截图）** —— 整片未做。卡上写明「先证明真实媒体可正确捕获再纳入验收」。
+- **`data-ui-component` 没有显式打点。** `uiId` 已由句柄派生覆盖，`component` 目前
+  多数为空，引用条降级成「分镜设计 › 生成」（仍可用）。给关键容器起名字要改十几个
+  渲染点，其中若干在别的会话手里，单独一片做。
+- **回看高亮没有在真浏览器里验过。** `locateTarget` 的判定逻辑有 8 条纯函数用例，
+  但 `scrollIntoView` / `classList` 那几行是 DOM 侧，属于 `NOT_EVIDENCED`。

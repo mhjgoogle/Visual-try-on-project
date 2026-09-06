@@ -13,7 +13,6 @@ import {
   editModel,
   episodesModel,
   settingsModel,
-  nextStateRefsOnAdd,
   renderSettings,
   renderEpisodes,
   renderFrames,
@@ -710,26 +709,6 @@ test("作品设定 renders the persisted bible: characters, locations, voice rul
   assert.ok(html.includes("太极殿"));
   assert.ok(html.includes("引用保留")); // missing asset reference kept + labeled
   assert.ok(html.includes("不能换声音")); // voice rule stated
-});
-
-test("nextStateRefsOnAdd: adding a secondary reference never displaces the effective primary", () => {
-  const entity = { activeReferenceAssetId: "asset-base" };
-  // override list contains the INHERITED primary, no active key of its own —
-  // adding another ref keeps inheriting (no active key minted), primary stays
-  const kept = nextStateRefsOnAdd(entity, { referenceAssetIds: ["asset-base"] }, "asset-x");
-  assert.deepEqual(kept, { referenceAssetIds: ["asset-base", "asset-x"] });
-  // an explicit override primary is kept verbatim
-  const explicit = nextStateRefsOnAdd(entity, { referenceAssetIds: ["a"], activeReferenceAssetId: "a" }, "b");
-  assert.equal(explicit.activeReferenceAssetId, "a");
-  // FIRST state-specific ref: the inherited primary is not a member of the
-  // new one-item list → the added ref becomes primary
-  const first = nextStateRefsOnAdd(entity, {}, "asset-x");
-  assert.deepEqual(first, { referenceAssetIds: ["asset-x"], activeReferenceAssetId: "asset-x" });
-  // explicit none → the added ref becomes primary
-  const none = nextStateRefsOnAdd(entity, { referenceAssetIds: [], activeReferenceAssetId: null }, "c");
-  assert.equal(none.activeReferenceAssetId, "c");
-  // duplicate add is a no-op
-  assert.equal(nextStateRefsOnAdd(entity, { referenceAssetIds: ["d"] }, "d"), null);
 });
 
 test("剧集场景行提供角色/场景地引用（按 ID + 状态，不复制档案）", () => {

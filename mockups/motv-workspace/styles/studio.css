@@ -2431,3 +2431,36 @@
 .ep3-row.bad .why { color: var(--warn, #d3a04a); }
 .ep3-empty { color: var(--text-faint); font-size: var(--t-sm); display: flex; align-items: center; gap: var(--s2); }
 .ep3-after { display: flex; gap: var(--s2); margin-top: var(--s3); }
+
+/* 点一个元素写意见（TASK-132） ------------------------------------------- */
+
+/* 选择模式：光标本身就是最省字的提示 —— 一进模式他就知道现在点会发生什么。
+   **不铺全屏遮罩**：遮罩会挡住他要看的那个界面，而他正是要指着它说话。 */
+body.ef-picking,
+body.ef-picking * { cursor: crosshair !important; }
+
+.ef-bar {
+  display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
+  padding: var(--s2) var(--s3); border-top: 1px solid var(--line);
+  font-size: var(--t-sm);
+}
+.ef-bar .push { flex: 1; }
+.ef-bar .k { font-weight: 600; }
+/* 锁定之后给一点存在感 —— 他打字期间要一直看得见「现在指着的是哪个」 */
+.ef-bar.on { background: var(--panel-2); }
+.ef-note { flex-basis: 100%; }
+
+/* 回看时把那个元素点出来。**用轮廓不用背景**：背景会盖掉元素自己的状态色
+   （选中 / 禁用 / 出错），而那些状态往往正是他要说的那件事。 */
+@keyframes ef-found-pulse {
+  0%, 100% { outline-color: var(--accent, #4a9eff); }
+  50% { outline-color: transparent; }
+}
+.ef-found {
+  outline: 2px solid var(--accent, #4a9eff);
+  outline-offset: 2px;
+  animation: ef-found-pulse 0.8s ease-in-out 3;
+}
+
+/* 意见行里那条定位结果 —— 说的是「这一次没找到」，不是错误，所以不用红 */
+.pp-opnote { flex-basis: 100%; color: var(--text-dim); }

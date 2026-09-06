@@ -13,7 +13,7 @@
   > 若发现有人拿本 ADR 当绕开付费闸的依据，那是误用：按决策 1 的表处理 ——
   > **拿不准就按计费处理，fail-closed 回闸后面。**
 - 关联：[REQ-008](../requirements/REQ-008-images-from-my-own-account.md) 判据 2/4/5 ·
-  [TASK-139](../tasks/active/TASK-139-images-from-my-own-account.md) ·
+  [TASK-139](../tasks/done/TASK-139-images-from-my-own-account.md) ·
   [ADR-0045](ADR-0045-prototype-paid-image-generation.md)（付费图片窄授权，**保留不动**）·
   [ADR-0038](ADR-0038-multimedia-provider-asset-and-cost-contract.md)（多媒体 Provider 合同，Accepted）·
   [创作者系统合同](../design/creator-system-contract.md) §5.3 `cost.basis` · §5.7 幂等 · §5.8 `unknown`
@@ -158,6 +158,16 @@ Quota exceeded for metric:
 - **延迟 2–45 秒**，可用模型只有一个（`sana`），`model=` 参数实测无效。
 - **prompt 会离开本机，去一个没有协议的第三方**。这条已如实告知产品负责人
   （他的项目在公司内），由他判断内容敏感度；`IMAGE_PROVIDER=` 一行即可切走。
+
+**换来源这件事已经被真实检验过一次（2026-09-05 当天）**：产品负责人看过 `sana` 的
+实际画质后判断「应该就是这个 API 不太行」，我把三条路（开结算用 Nano Banana ≈$0.039/张 ·
+Hugging Face 免费 token · 维持现状）摆给他，他先选了 HF；适配器写完、离线测试也写完之后
+他改了主意 ——「我用现在这个免费的来完成功能……以后想改 API 的时候再另外设计就好了」。
+
+**那个 HF 适配器因此被删掉，没有留在树里**：它从没拿真 token 跑过，而一个没验证过、
+也没有调用方的适配器正是 TASK-087 §1.2 判过 P1 的东西（「导出了、测了、没人用」，
+而且让「换一家很容易」这句话看起来已经成立）。**决策 7 的可插拔仍然成立** ——
+它的证据是 Pollinations 那次真的接上了，不是一个躺在树里没跑过的适配器。
 
 **`sideEffect` 在这条路上恒为 `none`，而且这不是漏判**：该字段记的是「有没有消耗掉
 **会用完**的东西」（钱或额度），而没有账号就没有可被消耗的配额，重试只花时间。
