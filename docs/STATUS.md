@@ -19,7 +19,7 @@
 | `docs/reports/` | 阶段性工作报告 —— **历史证据**，默认不读 |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：8 在办 · 7 待排期 · 128 已完成 · 86 条 ADR。
+**当前**：5 在办 · 7 待排期 · 131 已完成 · 86 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -63,9 +63,9 @@
 | [REQ-001](requirements/REQ-001-auto-push.md) | REQ-001：Task 完成后自动 commit/push，Change 完成后受控合并 | CONFIRMED | — |
 | [REQ-002](requirements/REQ-002-document-lifecycle.md) | REQ-002：文档与记录的统一生命周期 —— 当前事实保持精简，历史保持可追溯 | CONFIRMED | — |
 | [REQ-003](requirements/REQ-003-traceability-and-requirement-fulfillment-review.md) | REQ-003：每一次实现都能从产品意图追到验证，审查先答「需求做完了吗」 | CONFIRMED | — |
-| [REQ-004](requirements/REQ-004-three-pane-shell-and-agent-conversation.md) | REQ-004：全站统一三栏 —— 左控制/选择 · 中工作区 · 右 Agent 对话 | CONFIRMED | TASK-106、TASK-130 |
+| [REQ-004](requirements/REQ-004-three-pane-shell-and-agent-conversation.md) | REQ-004：全站统一三栏 —— 左控制/选择 · 中工作区 · 右 Agent 对话 | CONFIRMED | TASK-106 |
 | [REQ-005](requirements/REQ-005-remove-a-project-from-the-home-list.md) | REQ-005：主页可以把项目从列表里删除（文件他自己删） | CONFIRMED | — |
-| [REQ-006](requirements/REQ-006-agent-can-do-what-the-creator-can-do.md) | REQ-006：对话里的 Agent 能做创作者能做的事，并且能把意见带回给开发 | CONFIRMED | TASK-127、TASK-130、TASK-132 |
+| [REQ-006](requirements/REQ-006-agent-can-do-what-the-creator-can-do.md) | REQ-006：对话里的 Agent 能做创作者能做的事，并且能把意见带回给开发 | CONFIRMED | TASK-132 |
 | [REQ-007](requirements/REQ-007-say-it-and-the-right-capability-runs.md) | REQ-007：他说一句话，对的那个专业能力就跑起来 | CONFIRMED | — |
 | [REQ-008](requirements/REQ-008-images-from-my-own-account.md) | REQ-008：用我自己的账号自动出图，不要按次计费的 API | CONFIRMED | — |
 
@@ -106,10 +106,7 @@
 | [TASK-074-delivery-migration-and-legacy-retirement.md](tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md) | TASK-074：第四阶段 —— 后期交付、旧数据迁移、旧页面与旧接口清理、真实项目验收 | 部分实施 |
 | [TASK-087-followup-ledger.md](tasks/active/TASK-087-followup-ledger.md) | TASK-087：Follow-up 总账 —— 把散在九张卡里的欠账收成一处 | 活账（不是一次性交付 |
 | [TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md](tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) | TASK-106：前端接上 run_id 路径 —— 并由此退役同步分支与 /api/agent/ | 部分实施（2026-09-04 |
-| [TASK-127-one-action-table.md](tasks/active/TASK-127-one-action-table.md) | TASK-127：切片 4 —— 他能点的 = 它能做的，靠一张表 | 实现完成（2026-09-05 |
-| [TASK-130-connected-sample-and-journey.md](tasks/active/TASK-130-connected-sample-and-journey.md) | TASK-130：切片 5 —— 可重复的 Connected Project 样本 + 一条从头到尾的旅程 | 实现完成（2026-09-05 |
 | [TASK-132-click-ui-element-and-leave-feedback.md](tasks/active/TASK-132-click-ui-element-and-leave-feedback.md) | TASK-132：点击界面元素写意见，并让开发 Agent 收到准确位置 | 待开始 |
-| [TASK-134-import-linter-layering-contract.md](tasks/active/TASK-134-import-linter-layering-contract.md) | TASK-134：把 Provider 中立从散文变成 CI 闸门 —— import-linter 分层契约 | 实现完成（2026-09-05 实施）· 最终全量见下方「验证」 |
 
 ## 在办 · 设计与验收文档
 
@@ -265,9 +262,12 @@
 | [TASK-124-episode-canvas.md](tasks/done/TASK-124-episode-canvas.md) | TASK-124：剧集制作收成一块画布 | 已完成（v1）（2026-08-30 落地 |
 | [TASK-125-current-truth-convergence.md](tasks/done/TASK-125-current-truth-convergence.md) | TASK-125：切片 1 —— 当前事实收口 | 已完成（2026-09-04 开卡，2026-09-05 收口） |
 | [TASK-126-agent-sees-and-changes-everything.md](tasks/done/TASK-126-agent-sees-and-changes-everything.md) | TASK-126：Agent 看得见全部、也改得动全部（2026-08-30～09-03 连续实施的补登卡） | 已完成（2026-09-03 最后一提交） |
+| [TASK-127-one-action-table.md](tasks/done/TASK-127-one-action-table.md) | TASK-127：切片 4 —— 他能点的 = 它能做的，靠一张表 | 实现完成（2026-09-05 |
 | [TASK-129-settings-structure-writes-into-the-table.md](tasks/done/TASK-129-settings-structure-writes-into-the-table.md) | TASK-129：作品设定的结构写也走动作表 —— REQ-006 判据 1 的第三块 | 实现完成（2026-09-05 收口，切片 2e 划掉棘轮里最后两个名字） |
+| [TASK-130-connected-sample-and-journey.md](tasks/done/TASK-130-connected-sample-and-journey.md) | TASK-130：切片 5 —— 可重复的 Connected Project 样本 + 一条从头到尾的旅程 | 实现完成（2026-09-05 |
 | [TASK-131-agent-harness-discovery-and-runtime-evidence.md](tasks/done/TASK-131-agent-harness-discovery-and-runtime-evidence.md) | TASK-131：让 Claude / Codex 找到同一套技能，并验证工装真正生效 | 实现完成（2026-09-05） |
 | [TASK-133-glossary-and-out-of-scope-index.md](tasks/done/TASK-133-glossary-and-out-of-scope-index.md) | TASK-133：给「名字」和「不做」各一个落点 —— 术语表与范围外索引 | 完成（2026-09-05） |
+| [TASK-134-import-linter-layering-contract.md](tasks/done/TASK-134-import-linter-layering-contract.md) | TASK-134：把 Provider 中立从散文变成 CI 闸门 —— import-linter 分层契约 | 实现完成（2026-09-05 实施）· 最终全量见下方「验证」 |
 | [TASK-139-images-from-my-own-account.md](tasks/done/TASK-139-images-from-my-own-account.md) | TASK-139：用他自己的账号额度出图 —— 第三条路，不过付费闸 | 实现完成（2026-09-05）· 真实证据已闭合（他自己在界面上点出了图 |
 | [TASK-140-main-ci-has-been-red-for-nine-days.md](tasks/done/TASK-140-main-ci-has-been-red-for-nine-days.md) | TASK-140：main 的 CI 连续八次全红，而没有人看见 | 实现完成（2026-09-05 接手 · 2026-09-06 收口） |
 | [TASK-141-idea-intake-and-current-truth.md](tasks/done/TASK-141-idea-intake-and-current-truth.md) | TASK-141：想法入口 —— 分层、里程碑闸与可重建的当前真相 | 已完成（2026-09-05 开卡 · 同日收口 · codex 独立审查 2 轮 pass） |
