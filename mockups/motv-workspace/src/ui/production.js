@@ -84,7 +84,8 @@ import { renderRefSearch, bindRefSearch, searchModel } from "./refsearch.js";
 import { renderInspector, bindInspector } from "./prodinspector.js";
 import { renderPostConsole, bindPostConsole } from "./postconsole.js";
 // TASK-073 §1.3: 状态 / 耗时 / 成本 / 失败原因 / 重试 / 真实取消, in one place
-import { taskRowModel, renderTaskRows, bindTaskRows } from "./taskrow.js";
+import { bindTaskRows } from "./taskrow.js";
+import { renderShotTasks } from "./shottasks.js";
 // TASK-073 §1.4: the contextual Agent panel — two entrances, seven items
 // TASK-073 §1.7: the fourteen spec fields + the two hard gates (domain)
 import { specStanding, SPEC_FIELD_BY_KEY } from "../workflow/deliveryspec.js";
@@ -517,8 +518,13 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       // THE CONVERSATION IS THE WHOLE COLUMN. 产品负责人 2026-08-27:「会话那个框也很
       // 多余。用不上的东西不要加进去」— so the 运行记录 / 这一页的诊断 box
       // (`session.history`) is no longer mounted. It is still BUILT by
-      // `renderAgentSession`, and capability runs remain readable on the 生成记录
-      // page, so this removes a surface he does not use rather than a fact.
+      // `renderAgentSession`, and capability runs remain readable on the 生成记录,
+      // so this removes a surface he does not use rather than a fact.
+      //
+      // **那句理由在 2026-09-06 之前是假的**（TASK-087 §5.13）：`ui/genrecord.js`
+      // 当时在 `src/` 里零 importer —— 界面删掉一块的理由，依赖于一个谁也到不了的
+      // 地方。现在它挂在 `shotTaskRows` 每一行下面，这句话才重新成立。
+      // **删东西时写下的「它在别处还看得到」，本身就是一条要被守住的断言。**
       // 「开发」窗口：方案**钉在标题栏下面**，不跟着流滚动。
       //
       // 第一版把它画进 `.st-dir-flow` 的顶端 —— 而那根流有一万三千像素高、视图停在
@@ -849,21 +855,11 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
    *
    *  `Date.now()` is read HERE and passed in, so `taskRowModel` stays pure. */
   function shotTaskRows(ctx) {
-    const shotId = ui.selectedShotId || null;
-    if (!shotId) return "";
-    const runs = ctx.skills.runs() || [];
-    const mine = runs.filter((r) => r && r.context && r.context.shotId === shotId);
-    const models = mine
-      .slice()
-      .reverse()
-      .slice(0, 8)
-      .map((r) => taskRowModel(r, { nowMs: Date.now() }));
-    return (
-      `<div class="tk-block">` +
-      `<div class="lab">这个镜头的任务</div>` +
-      renderTaskRows(models, { emptyText: "这个镜头还没有发起过任务" }) +
-      `</div>`
-    );
+    // 实现搬进 `ui/shottasks.js` —— 写在这里是闭包，**没法驱动**：我给它接上
+    // 「生成记录」之后写的守卫，把入口拆掉照样绿。搬出去之后那条守卫才真会红。
+    return renderShotTasks(ctx.skills.runs() || [], ui.selectedShotId || null, {
+      nowMs: Date.now(),
+    });
   }
 
   /** The in-page section nav. For ⑧ 镜头制作 this IS the four-step flow bar (§1.3),

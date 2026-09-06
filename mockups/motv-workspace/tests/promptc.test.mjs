@@ -10,7 +10,6 @@ import assert from "node:assert/strict";
 
 import { compileImagePrompt, compileVideoPrompt } from "../src/workflow/promptc.js";
 import { shotDetailModel, renderStoryboard } from "../src/ui/storyboard.js";
-import { renderGenEntry } from "../src/ui/genentry.js";
 import * as pd from "../src/workflow/proddoc.js";
 import * as bd from "../src/workflow/bibledoc.js";
 
@@ -141,23 +140,11 @@ test("shotDetailModel compiles prompts from the scene's STATE-resolved bible ref
   assert.ok(d.prompts.video.text.includes("【动作】缓缓抬头"));
 });
 
-test("the AI Director hosts both entry panels with real affordances", () => {
-  const s = snapshot();
-  const d = shotDetailModel(s, "shot-a");
-  for (const kind of ["image", "video"]) {
-    const html = renderGenEntry(d, kind, null);
-    assert.ok(html.includes(`data-genprompt="${kind}"`));
-    assert.ok(html.includes("data-gp-go"));
-    assert.ok(html.includes("data-gp-import"));
-    assert.ok(html.includes('data-gp-prov="gemini"'));
-    assert.ok(html.includes("API 自动生成")); // honest future note, not a fake button
-    assert.ok(html.includes("未来"));
-  }
-  // ChatGPT is an image entry; the video prompt offers Gemini video
-  assert.ok(renderGenEntry(d, "image", null).includes('data-gp-prov="chatgpt"'));
-  // the compiled text is IN the panel, ready to copy
-  assert.ok(renderGenEntry(d, "image", null).includes("黑衣冷面"));
-});
+// 「AI 导演台挂着两个生成入口」那条测试删掉了 —— **导演台本身已经不存在**
+// （TASK-109 删的），它守的是历史行为不是当前有效行为（AGENTS 第 26 条）。
+// 它测的那个模块 `ui/genentry.js` 同时删掉：那条「复制 → 外部工具 → 导回」
+// 的往返早已搬到生成卡上（`ui/gencard.js` 的 `data-gc-free` / `data-gc-import`，
+// 同样走 `genintent.setIntent`），删它不会删掉任何能力（TASK-074 §1.5 规则 2）。
 
 test("the storyboard detail still renders the shot's media-first surface", () => {
   const s = snapshot();

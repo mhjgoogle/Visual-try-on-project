@@ -143,10 +143,17 @@ export function renderTaskRow(m) {
   );
 }
 
-export function renderTaskRows(models, { emptyText = "还没有任务记录" } = {}) {
+export function renderTaskRows(models, { emptyText = "还没有任务记录", extra = null } = {}) {
   const rows = (models || []).filter(Boolean);
   if (!rows.length) return `<div class="tk-empty">${esc(emptyText)}</div>`;
-  return `<div class="tk-list">${rows.map(renderTaskRow).join("")}</div>`;
+  // `extra(model)` 挂在每一行下面 —— 「生成记录」就是这么接进来的：IA §6.3 把
+  // Skill / 版本 / Runtime / Executor / Model 从主界面移走，原话是「moved here」，
+  // 而在此之前那个 here **没有任何入口**（`ui/genrecord.js` 在 src 里零 importer，
+  // TASK-087 §5.13）。留一个口子而不是把 genrecord 直接 import 进来：这个模块是
+  // 纯渲染，不该知道「记录」长什么样，否则下一个想挂东西的人只能再改它一次。
+  return `<div class="tk-list">${rows
+    .map((m) => renderTaskRow(m) + (typeof extra === "function" ? extra(m) || "" : ""))
+    .join("")}</div>`;
 }
 
 /**
