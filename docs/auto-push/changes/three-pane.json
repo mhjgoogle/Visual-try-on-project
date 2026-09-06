@@ -1254,7 +1254,7 @@
           "subject": "fix(TASK-106): 「问不到」不是「失败了」—— 别让他在第一轮还在跑的时候起第二轮",
           "time": "2026-09-06T02:11:42+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md",
             "docs/tasks/active/TASK-087-followup-ledger.md",
@@ -1270,25 +1270,33 @@
             "mockups/motv-workspace/tests/production.test.mjs"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "a6c5c7bb73d23f3e084b2b15502bc1e8c3589d18",
+          "subject": "fix(TASK-106): 剩下两处也认「问不到」—— 记成 follow-up 不算解决",
+          "time": "2026-09-06T02:24:54+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "docs/tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md",
+            "mockups/motv-workspace/src/workflow/nodes/script.js",
+            "mockups/motv-workspace/src/workflow/nodes/scriptgen.js",
+            "mockups/motv-workspace/tests/creativerun.test.mjs"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
-        "docs/tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md",
         "docs/tasks/active/TASK-087-followup-ledger.md",
         "docs/tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md",
-        "mockups/motv-workspace/src/app.js",
-        "mockups/motv-workspace/src/ui/production.js",
-        "mockups/motv-workspace/src/ui/storyws.js",
-        "mockups/motv-workspace/src/ui/workspaces.js",
+        "mockups/motv-workspace/src/workflow/nodes/script.js",
         "mockups/motv-workspace/src/workflow/nodes/scriptgen.js",
-        "mockups/motv-workspace/src/workflow/scriptdoc.js",
-        "mockups/motv-workspace/src/workflow/storydoc.js",
-        "mockups/motv-workspace/tests/creativerun.test.mjs",
-        "mockups/motv-workspace/tests/production.test.mjs"
+        "mockups/motv-workspace/tests/creativerun.test.mjs"
       ],
       "verification": "PASS",
       "verification_ref": "",
-      "declared": "2026-09-06T02:02:50+00:00"
+      "declared": "2026-09-06T02:18:23+00:00"
     },
     "TASK-074": {
       "commits": [
