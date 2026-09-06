@@ -995,7 +995,8 @@ export function planRevisionBase(doc, instruction) {
  *  outline). A `failed` pending may be replaced by a retry. */
 export function beginDevelop(doc, kind, instruction) {
   const st = doc.pending && doc.pending.status;
-  if (st === "generating" || st === "proposed") return 0;
+  // `unknown` 也挡：那一轮**可能还在跑**，放行第二轮就是两轮同时改同一份文档。
+  if (st === "generating" || st === "proposed" || st === "unknown") return 0;
   if (kind === "plan" && !approvedOutline(doc)) return 0;
   const id = ++doc._seq;
   const brief = activeBrief(doc);
@@ -1080,6 +1081,24 @@ export function failDevelop(doc, id, message) {
   const p = doc.pending;
   if (!p || p.id !== id || p.status !== "generating") return false;
   doc.pending = { ...p, status: "failed", error: String(message || "生成失败") };
+  return true;
+}
+
+/**
+ * **问不到，不是失败**（ADR-0095 决策 2 / ADR-0064 决策 6）。
+ *
+ * 五个创作端点改走 `run_id` 之后多了一种结局：等待有上限，超时了我们**不知道**
+ * 那一轮怎么样了 —— 它很可能还在后端跑着。把它记成 `failed` 会让 `beginDevelop`
+ * 放行下一轮（那个守卫只挡 `generating` / `proposed`），于是**两轮同时改同一份
+ * 文档** —— 正是那条决策要防的事。
+ *
+ * 所以它有自己的状态，而且**挡住下一轮**。出口是显式的 `cancelDevelop`：
+ * 「我不等了」必须是他说出口的一句话，不是一次误点的副作用。
+ */
+export function unknownDevelop(doc, id, message) {
+  const p = doc.pending;
+  if (!p || p.id !== id || p.status !== "generating") return false;
+  doc.pending = { ...p, status: "unknown", error: String(message || "状态未知") };
   return true;
 }
 

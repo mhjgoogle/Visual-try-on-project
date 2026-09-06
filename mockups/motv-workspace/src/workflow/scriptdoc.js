@@ -128,7 +128,8 @@ export function editText(doc, text) {
  *  pending is transient and may be replaced by a retry. */
 export function beginGeneration(doc, kind, instruction) {
   const st = doc.pending && doc.pending.status;
-  if (st === "generating" || st === "proposed") return 0;
+  // `unknown` 也挡 —— 见 `unknownGeneration`。
+  if (st === "generating" || st === "proposed" || st === "unknown") return 0;
   const id = ++doc._seq;
   doc.pending = {
     id,
@@ -186,6 +187,15 @@ export function failGeneration(doc, id, message) {
   const p = doc.pending;
   if (!p || p.id !== id || p.status !== "generating") return false;
   doc.pending = { ...p, status: "failed", error: String(message || "生成失败") };
+  return true;
+}
+
+/** **问不到，不是失败** —— 同 `storydoc.unknownDevelop`，理由一字不差：
+ *  记成 `failed` 会让 `beginGeneration` 放行下一轮，而那一轮可能还在后端跑着。 */
+export function unknownGeneration(doc, id, message) {
+  const p = doc.pending;
+  if (!p || p.id !== id || p.status !== "generating") return false;
+  doc.pending = { ...p, status: "unknown", error: String(message || "状态未知") };
   return true;
 }
 

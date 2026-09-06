@@ -214,3 +214,67 @@ test("五个创作端点**都**走这条路 —— 不是只改了其中一个",
     } finally { s.restore(); }
   }
 });
+
+/* --- 「问不到」到了界面上是什么样（codex 轮 1：NOT_EVIDENCED） --------------- */
+//
+// 上面那几条钉的是**服务层**分不分得开；这几条钉的是**他看到什么、能做什么**。
+// 真正会伤到人的不是措辞，是**能不能马上再起一轮** —— 那一轮可能还在后端跑着。
+
+test("问不到不会变成「可以马上重开」的失败 —— 故事发展这条", async () => {
+  const storydoc = await import("../src/workflow/storydoc.js");
+  const doc = storydoc.createStory();
+  const id = storydoc.beginDevelop(doc, "outline", "写一版");
+  assert.ok(id, "没起来");
+
+  assert.equal(storydoc.unknownDevelop(doc, id, "状态未知：这一轮可能还在跑"), true);
+  assert.equal(doc.pending.status, "unknown", "被记成了别的状态");
+
+  // **这一条是全部要害**：记成 failed 的话下面这行会返回一个新 id。
+  assert.equal(storydoc.beginDevelop(doc, "outline", "再写一版"), 0,
+    "问不到却放行了下一轮 —— 两轮会同时改同一份文档");
+
+  // 出口是显式的：他说「不等了」才放开
+  storydoc.cancelDevelop(doc);
+  assert.ok(storydoc.beginDevelop(doc, "outline", "再写一版"), "放弃之后仍然起不来，他被卡死了");
+});
+
+test("问不到不会变成「可以马上重开」的失败 —— 剧本这条", async () => {
+  const scriptdoc = await import("../src/workflow/scriptdoc.js");
+  const doc = scriptdoc.createDoc();
+  const id = scriptdoc.beginGeneration(doc, "initial", "想法");
+  assert.ok(id);
+  assert.equal(scriptdoc.unknownGeneration(doc, id, "状态未知"), true);
+  assert.equal(doc.pending.status, "unknown");
+  assert.equal(scriptdoc.beginGeneration(doc, "initial", "再来"), 0,
+    "问不到却放行了下一轮");
+});
+
+test("真失败仍然可以马上重来 —— 别把两件事一起锁上", async () => {
+  const storydoc = await import("../src/workflow/storydoc.js");
+  const doc = storydoc.createStory();
+  const id = storydoc.beginDevelop(doc, "outline", "写一版");
+  storydoc.failDevelop(doc, id, "模型没答出 JSON");
+  assert.ok(storydoc.beginDevelop(doc, "outline", "再写一版"),
+    "把「确定失败了」也锁上了 —— 那是另一件事，他该能直接重试");
+});
+
+test("界面认得这个状态：说「可能还在跑」，而且给的是「放弃」不是「重试」", async () => {
+  // 漏掉这个分支比说错话更糟：会掉进提案分支去读一个不存在的 proposal，
+  // 把他卡在一张空面板前。所以这条走**真渲染**。
+  const storydoc = await import("../src/workflow/storydoc.js");
+  const { renderStoryWs } = await import("../src/ui/storyws.js");
+  const doc = storydoc.createStory(null);
+  doc.idea = "一个夜班护士";
+  const id = storydoc.beginDevelop(doc, "outline", "写一版");
+  assert.ok(id, "没起来");
+  storydoc.unknownDevelop(doc, id, "状态未知：这一轮可能还在跑，先别重开一次");
+
+  const html = renderStoryWs(
+    { story: { doc: () => doc, activeBrief: () => storydoc.activeBrief(doc) }, toast: () => {} },
+    { dirOpen: {} },
+  );
+  assert.match(html, /状态未知/, "界面没说这一轮状态未知");
+  assert.match(html, /还在跑|先别重开/, "没告诉他别重开一次");
+  assert.match(html, /放弃这一轮/, "没给显式的出口 —— 他会被卡住");
+  assert.doesNotMatch(html, /重试/, "给了「重试」—— 那正是会起第二轮的那颗按钮");
+});

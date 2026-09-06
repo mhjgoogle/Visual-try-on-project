@@ -16,6 +16,8 @@ test("empty document: no versions, no transient state", () => {
     generating: false,
     proposal: null,
     error: null,
+    // 「问不到」和「失败了」不是一件事，读侧要分得开（ADR-0095 决策 2）
+    stalled: null,
   });
 });
 

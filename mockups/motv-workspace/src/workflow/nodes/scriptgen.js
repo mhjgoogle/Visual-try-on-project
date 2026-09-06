@@ -132,7 +132,13 @@ export default {
           node.prog = 0;
           ctx.markIncoming(node.id, "");
           ctx.refresh(node);
-          ctx.toast("分镜生成失败：" + e.message);
+          // 问不到 ≠ 失败（ADR-0095 决策 2）。这里只改口径：节点回到空闲之后他仍然
+          // 按得动「生成」，那要动节点状态机 —— 已记 TASK-087 §5.23，不在本刀范围。
+          ctx.toast(
+            e && e.category === "unknown"
+              ? "分镜这一轮状态未知：" + e.message
+              : "分镜生成失败：" + e.message,
+          );
         });
       return;
     }

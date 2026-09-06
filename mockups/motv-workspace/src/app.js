@@ -1050,7 +1050,10 @@ async function developStoryRun(kind, instruction) {
     if (storydoc.completeDevelop(doc, id, payload)) refreshProductionView();
   } catch (e) {
     if (storyDoc !== doc) return;
-    if (storydoc.failDevelop(doc, id, e.message)) refreshProductionView();
+    // **问不到 ≠ 失败**：`failDevelop` 会让下一轮放行，而那一轮可能还在后端跑着
+    // （ADR-0095 决策 2）。这条分支是五个创作端点改走 `run_id` 之后才有的结局。
+    const land = e && e.category === "unknown" ? storydoc.unknownDevelop : storydoc.failDevelop;
+    if (land(doc, id, e.message)) refreshProductionView();
   }
 }
 
@@ -1108,7 +1111,9 @@ async function generateScript(kind, instruction) {
     }
   } catch (e) {
     if (scriptDoc !== doc) return; // project switched mid-flight — nothing to show
-    if (scriptdoc.failGeneration(doc, id, e.message)) ctx.refreshType("script");
+    // 同上：问不到要挡住下一轮，不能当成可以马上重开的失败
+    const land = e && e.category === "unknown" ? scriptdoc.unknownGeneration : scriptdoc.failGeneration;
+    if (land(doc, id, e.message)) ctx.refreshType("script");
   }
 }
 
@@ -2971,7 +2976,11 @@ const ctx = {
         };
       } catch (e) {
         if (productionDoc !== doc) return;
-        bibleProposals = { status: "failed", cards: [], error: e.message, source: CONNECTED ? "claude" : "demo" };
+        // 问不到 ≠ 失败：失败那一支的界面给的是「重试」，而那一轮可能还在后端跑着
+        bibleProposals = {
+          status: e && e.category === "unknown" ? "unknown" : "failed",
+          cards: [], error: e.message, source: CONNECTED ? "claude" : "demo",
+        };
       }
       refreshProductionView();
     },

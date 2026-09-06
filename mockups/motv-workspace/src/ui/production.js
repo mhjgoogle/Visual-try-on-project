@@ -232,7 +232,10 @@ export function scriptStatus(doc) {
       p && p.status === "proposed"
         ? { instruction: p.instruction, text: p.proposal }
         : null,
-    error: p && p.status === "failed" ? p.error : null,
+    error: p && (p.status === "failed" || p.status === "unknown") ? p.error : null,
+    // **问不到 ≠ 失败**：读侧要分得开，不然界面只能把两件事画成同一张脸
+    // （ADR-0095 决策 2）。`unknown` 那一轮可能还在跑，所以不许提供「再来一次」。
+    stalled: p && p.status === "unknown" ? "unknown" : p && p.status === "failed" ? "failed" : null,
   };
 }
 
