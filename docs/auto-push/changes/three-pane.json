@@ -1470,7 +1470,7 @@
           "subject": "fix(ui): 「生成记录」第一次有入口 —— 界面删东西时写下的理由，本身是要被守住的断言",
           "time": "2026-09-06T22:23:51+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/tasks/active/TASK-087-followup-ledger.md",
             "mockups/motv-workspace/src/ui/genentry.js",
@@ -1479,6 +1479,18 @@
             "mockups/motv-workspace/src/ui/taskrow.js",
             "mockups/motv-workspace/tests/genrecord.test.mjs",
             "mockups/motv-workspace/tests/promptc.test.mjs"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "c3289582ac24600b7aa4392fc70e9ef4a5f159be",
+          "subject": "test: 把两条守得不够硬的守卫补硬（codex 非阻断），并划掉两条「修了没划掉」的台账",
+          "time": "2026-09-06T22:41:47+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "mockups/motv-workspace/tests/genrecord.test.mjs"
           ],
           "scope_violation": null
         }
