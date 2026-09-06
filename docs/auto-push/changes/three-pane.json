@@ -1331,7 +1331,7 @@
           "subject": "chore(skill-evolution): TASK-106 收口的 post-use feedback（three-pane）",
           "time": "2026-09-06T03:28:34+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/auto-push/changes/three-pane.json",
             "docs/skill-evolution/backlogs/auto-push.jsonl",
@@ -1343,15 +1343,30 @@
             "docs/skill-evolution/backlogs/codex-review-loop.jsonl",
             "docs/skill-evolution/index.json"
           ]
+        },
+        {
+          "hash": "d710169fe47ffa4589cb5aea48b7d801e741c625",
+          "subject": "docs(TASK-087 §5.24): skill-evolution 是共享 append-only 数据，git add -A 会把别人的条目一起提交",
+          "time": "2026-09-06T03:41:12+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/tasks/active/TASK-087-followup-ledger.md"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
         "docs/STATUS.md",
+        "docs/skill-evolution/backlogs/auto-push.jsonl",
+        "docs/skill-evolution/backlogs/codex-review-loop.jsonl",
+        "docs/skill-evolution/index.json",
+        "docs/tasks/active/TASK-087-followup-ledger.md",
         "docs/tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md"
       ],
       "verification": "PASS",
       "verification_ref": "",
-      "declared": "2026-09-06T03:09:58+00:00"
+      "declared": "2026-09-06T03:41:11+00:00"
     },
     "TASK-074": {
       "commits": [
