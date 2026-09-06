@@ -1426,6 +1426,20 @@
             "tests/tooling/test_auto_push_tooling.py"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "09e21deb4e20871e32110012e7377382102d7028",
+          "subject": "chore(auto-push): three-pane manifest writeback",
+          "time": "2026-09-06T13:59:13+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/backlog/TASK-143-one-worktree-per-session.md"
+          ],
+          "scope_violation": [
+            "docs/tasks/backlog/TASK-143-one-worktree-per-session.md"
+          ]
         }
       ],
       "paths": [
@@ -2819,6 +2833,17 @@
           "time": "2026-09-06T13:09:02+00:00",
           "branch": "change/TASK-109-three-pane",
           "pushed": true,
+          "files": [
+            "docs/tasks/active/TASK-087-followup-ledger.md"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "6930c3055e91a5bc022a95c53635f5d7830392ec",
+          "subject": "TASK-143 立卡 + §6.12 收口 + §7.1 四条「查错了」的账",
+          "time": "2026-09-06T13:53:49+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
           "files": [
             "docs/tasks/active/TASK-087-followup-ledger.md"
           ],
