@@ -1446,9 +1446,22 @@
           "subject": "docs(TASK-087): 划掉三条工装账（§3.6.5 / §3.6.7 / §3.6.8），并记下裸 commit 那条纪律",
           "time": "2026-09-06T14:21:36+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/tasks/active/TASK-087-followup-ledger.md"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "e658701bc687a1ff7ae12dbcff11a781d96a7023",
+          "subject": "fix(auto-push): 提交信息文件按 change+task 取唯一名 —— 十来个会话不能共用一个",
+          "time": "2026-09-06T14:56:27+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            ".claude/agent-entries.json",
+            ".claude/skills/auto-push/scripts/autopush.py",
+            "tests/tooling/test_auto_push_tooling.py"
           ],
           "scope_violation": null
         }
