@@ -2795,6 +2795,17 @@
             "tests/e2e/test_connected_journey_task130.py"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "91d808d99185edc78162010dac3acdb898c4ca44",
+          "subject": "订正 TASK-087 §6.12：我把「没有 warn」单向读了，根因其实在服务端",
+          "time": "2026-09-06T13:09:02+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/tasks/active/TASK-087-followup-ledger.md"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
