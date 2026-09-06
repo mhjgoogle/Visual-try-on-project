@@ -1412,9 +1412,25 @@
             "docs/tasks/active/TASK-087-followup-ledger.md"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "9c40fe910e829f570d0a1a0b4a252f0269985324",
+          "subject": "fix(auto-push): 合并记录两种写法都认，回写提醒现算不恒真（TASK-087 §3.6.7 / §3.6.8）",
+          "time": "2026-09-06T13:49:13+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            ".claude/agent-entries.json",
+            ".claude/skills/auto-push/scripts/autopush.py",
+            "docs/STATUS.md",
+            "tests/tooling/test_auto_push_tooling.py"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
+        ".claude/agent-entries.json",
+        ".claude/skills/auto-push/scripts/autopush.py",
         "docs/STATUS.md",
         "docs/adr/ADR-0096-*.md",
         "docs/adr/ADR-0099-*.md",
@@ -1434,11 +1450,12 @@
         "docs/tasks/done/TASK-133-*.md",
         "docs/tasks/done/TASK-134-*.md",
         "mockups/motv-workspace/src/**",
-        "mockups/motv-workspace/tests/**"
+        "mockups/motv-workspace/tests/**",
+        "tests/tooling/test_auto_push_tooling.py"
       ],
       "verification": "PASS",
       "verification_ref": "",
-      "declared": "2026-09-06T12:34:41+00:00"
+      "declared": "2026-09-06T13:41:51+00:00"
     },
     "TASK-074": {
       "commits": [
@@ -2974,7 +2991,7 @@
           "subject": "fix: 他打的字因为「有人正在读那个文件」而丢掉 —— 服务端重试 + 两端都出声（TASK-142 · three-pane）",
           "time": "2026-09-06T13:35:00+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/STATUS.md",
             "docs/auto-push/changes/three-pane.json",
@@ -2993,6 +3010,7 @@
       "paths": [
         "docs/STATUS.md",
         "docs/tasks/active/TASK-142-*.md",
+        "docs/tasks/done/TASK-142-*.md",
         "mockups/motv-workspace/server.py",
         "mockups/motv-workspace/src/app.js",
         "mockups/motv-workspace/src/services/persist.js",
@@ -3002,8 +3020,8 @@
         "tests/studio/test_motv_canvas_persistence_m1.py"
       ],
       "verification": "PASS",
-      "verification_ref": "判据：旅程 e2e 在分支 tip 干净 worktree 上 30 跑 0 红（基线同树 8 跑 2 红；25% 失败率下连过 30 次的概率约 0.018%）。归属域：pytest tests/studio+contract 930 passed · 前端 node --test 2273 passed · ruff 干净 · lifecycle_check 0。codex 1 轮无 BLOCKING，三条证据缺口已补并各做变异验证",
-      "declared": "2026-09-06T13:31:06+00:00"
+      "verification_ref": "收口：卡搬进 done/、STATUS.md 重生成、lifecycle_check 0、docs 守卫 42 passed。判据 30 跑 0 红 + 另一会话独立复核 14 跑 0 红 = 合计 44 跑 0 红（基线同树 8 跑 2 红）",
+      "declared": "2026-09-06T13:41:50+00:00"
     }
   },
   "merge_gate": {
