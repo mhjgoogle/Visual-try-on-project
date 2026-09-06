@@ -46,6 +46,7 @@ import { projectCardModel, pickCover, cardStats, renderCover } from "./ui/landin
 // 步骤就绪判定**只有一份**，在向导定义旁边。控制器不复述它 —— 复述就是 §2.5e
 // 那条缝（两处陈述同一件事实），而这一批的 P1 正是从「上游要求是手写的」来的。
 import { stepReadiness } from "./ui/prodwizard.js";
+import { isUnknownOutcome } from "./workflow/runoutcome.js";
 import { createEditLock } from "./ui/editlock.js";
 import { createProduction } from "./ui/production.js";
 import { dailiesModel } from "./ui/dailies.js";
