@@ -32,11 +32,21 @@ const RUN = {
 
 test("那五个技术字段真的画出来了 —— 它们是被「移到这里」的，不是被删掉的", () => {
   const html = renderGenRecord(genRecordModel({ run: RUN }));
-  for (const label of ["Skill", "Skill 版本", "Runtime", "Executor", "Model"]) {
+  // **标签在不等于值在**（codex 复审非阻断）：只查标签的话，某个字段错画成
+  // 「未记录」照样绿 —— 而那正是这条守卫要防的失败（信息说是移过来了，实际没有）。
+  for (const [label, value] of [
+    ["Skill", "storyboard-director"],
+    ["Skill 版本", "v2"],
+    ["Runtime", "claude-code"],
+    ["Executor", "claude-code"],
+    ["Model", "claude-x"],
+  ]) {
     assert.ok(html.includes(label), `少了「${label}」—— IA §6.3 说它们移到了这里`);
+    assert.ok(html.includes(value), `「${label}」的值没画出来（期待 ${value}）`);
   }
-  assert.match(html, /storyboard-director/);
-  assert.match(html, /claude-x/);
+  // 这一份记录里那五个字段都有值，所以它们任何一个都不该显示「未记录」
+  const five = html.slice(html.indexOf("Skill"), html.indexOf("内部任务 ID"));
+  assert.doesNotMatch(five, /未记录/, "有值的字段被画成了「未记录」");
 });
 
 test("没记录就说没记录 —— 空格子和 0 长得一样，而只有一个是真的", () => {
@@ -73,10 +83,19 @@ test("没选镜头时整块不渲染；这一镜没有任务时说出来", async
 });
 
 test("不给 extra 时任务行一个字都不变 —— 这是加法，不是改写", () => {
-  const models = [taskRowModel(RUN, { nowMs: null })];
+  // **「有行、没记录」不足以证明「一字不变」**（codex 复审非阻断）：状态、耗时、
+  // 操作按钮被删掉也照样满足那两条。所以这里直接比两次渲染的**差**。
+  const models = [taskRowModel(RUN, { nowMs: Date.parse("2026-09-06T10:02:00Z") })];
   const plain = renderTaskRows(models, { emptyText: "空" });
+  const withExtra = renderTaskRows(models, { emptyText: "空", extra: () => "<i data-x></i>" });
+
   assert.doesNotMatch(plain, /生成记录/);
+  // 加法的确切含义：带 extra 的输出 = 不带 extra 的输出，逐行插入那段 extra
+  assert.equal(withExtra.replace(/<i data-x><\/i>/g, ""), plain, "extra 改动了任务行本身");
+  // 而任务行本身该有的东西一个不少
   assert.match(plain, /tk-row/);
+  assert.match(plain, /分镜设计/, "任务名没了");
+  assert.match(plain, /耗时/, "耗时那一格没了");
 });
 
 test("`src/ui/` 下不该有谁都到不了的模块", () => {
