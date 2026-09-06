@@ -1418,7 +1418,7 @@
           "subject": "fix(auto-push): 合并记录两种写法都认，回写提醒现算不恒真（TASK-087 §3.6.7 / §3.6.8）",
           "time": "2026-09-06T13:49:13+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             ".claude/agent-entries.json",
             ".claude/skills/auto-push/scripts/autopush.py",
@@ -1432,7 +1432,7 @@
           "subject": "chore(auto-push): three-pane manifest writeback",
           "time": "2026-09-06T13:59:13+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/auto-push/changes/three-pane.json",
             "docs/tasks/backlog/TASK-143-one-worktree-per-session.md"
@@ -1458,6 +1458,7 @@
         "docs/tasks/active/TASK-132-*.md",
         "docs/tasks/active/TASK-134-*.md",
         "docs/tasks/backlog/TASK-128-*.md",
+        "docs/tasks/backlog/TASK-143-*.md",
         "docs/tasks/done/TASK-127-*.md",
         "docs/tasks/done/TASK-129-*.md",
         "docs/tasks/done/TASK-130-*.md",
@@ -1469,7 +1470,7 @@
       ],
       "verification": "PASS",
       "verification_ref": "",
-      "declared": "2026-09-06T13:41:51+00:00"
+      "declared": "2026-09-06T13:59:42+00:00"
     },
     "TASK-074": {
       "commits": [
@@ -2843,7 +2844,7 @@
           "subject": "TASK-143 立卡 + §6.12 收口 + §7.1 四条「查错了」的账",
           "time": "2026-09-06T13:53:49+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/tasks/active/TASK-087-followup-ledger.md"
           ],
