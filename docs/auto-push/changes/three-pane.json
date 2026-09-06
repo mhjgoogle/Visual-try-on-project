@@ -1440,6 +1440,17 @@
           "scope_violation": [
             "docs/tasks/backlog/TASK-143-one-worktree-per-session.md"
           ]
+        },
+        {
+          "hash": "ed5821a8289555b3514e6252d5823d3f316990ce",
+          "subject": "docs(TASK-087): 划掉三条工装账（§3.6.5 / §3.6.7 / §3.6.8），并记下裸 commit 那条纪律",
+          "time": "2026-09-06T14:21:36+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/tasks/active/TASK-087-followup-ledger.md"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
@@ -3037,7 +3048,7 @@
           "subject": "docs(TASK-142): 收口 —— 另一会话独立复核 14 跑 0 红，合计 44 跑 0 红",
           "time": "2026-09-06T14:03:56+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/STATUS.md",
             "docs/tasks/active/TASK-142-a-save-refused-by-a-reader.md",
