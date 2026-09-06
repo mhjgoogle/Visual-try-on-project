@@ -2968,7 +2968,28 @@
       "declared": "2026-09-06T01:38:08+00:00"
     },
     "TASK-142": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "6d9473b127b83a11667ae0b76129d66ad841c2af",
+          "subject": "fix: 他打的字因为「有人正在读那个文件」而丢掉 —— 服务端重试 + 两端都出声（TASK-142 · three-pane）",
+          "time": "2026-09-06T13:35:00+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/STATUS.md",
+            "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/active/TASK-142-a-save-refused-by-a-reader.md",
+            "mockups/motv-workspace/server.py",
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/src/services/persist.js",
+            "mockups/motv-workspace/src/ui/editlock.js",
+            "mockups/motv-workspace/tests/persistence.test.mjs",
+            "tests/contract/test_frontend_write_path_invariants.py",
+            "tests/studio/test_motv_canvas_persistence_m1.py"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/STATUS.md",
         "docs/tasks/active/TASK-142-*.md",
