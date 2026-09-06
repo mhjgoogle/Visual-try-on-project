@@ -222,6 +222,25 @@ def _manifest_rel(change: str) -> str:
     return (CHANGES_DIR / f"{change}.json").as_posix()
 
 
+def _manifest_dirty(root: Path, change: str) -> bool:
+    """清单**现在**是不是真的还没提交 —— 而不是「反正回写总要做」。
+
+    上一版这个判断恒为 `True`：回写已经提交之后再问一次，答的仍是「有待办」，
+    并附上一条跑起来只会 `nothing to commit` 的命令（TASK-087 §3.6.8）。
+    **恒真的提示等于没有提示** —— 读的人分不出「这次真要回写」和「它总这么说」，
+    于是要么每次都白跑一遍，要么开始整体无视它，而后者才是真正的代价。
+    """
+
+    # **未跟踪也算脏。** `_dirty_gate` 那边排除 `??` 是对的（它问的是「tracked
+    # 工作树干不干净」），但这里问的是另一件事：**这份清单要不要提交**。
+    # 一份刚被 `init-change` 建出来、还没进过版本库的清单，正是最需要回写的那种。
+    rel = _manifest_rel(change)
+    return any(
+        _norm(path) == rel and status.strip()
+        for status, path in _worktree_entries(root)
+    )
+
+
 def _writeback_commands(change: str) -> list[str]:
     """清单回写的建议命令——**两条分开跑**，永不给复合形式。
 
@@ -848,13 +867,19 @@ def record_commit(
                     # record-commit 就把待回写的尾巴藏起来了，而这个提醒
                     # 本就是为「不 push 的合法流程」加的（codex v0.1.1
                     # 补审，non-blocking）。
-                    return {
+                    # …但**现算**，不恒真（TASK-087 §3.6.8）：这条路径正是那条账
+                    # 的现场 —— 回写已经提交之后再跑一次 `record-commit`，上一版
+                    # 仍然答「有待办」并给出一条只会 `nothing to commit` 的命令。
+                    again = _manifest_dirty(root, change)
+                    out = {
                         "status": "OK",
                         "hash": target,
                         "already_recorded": True,
-                        "writeback_needed": True,
-                        "writeback_commands": _writeback_commands(change),
+                        "writeback_needed": again,
                     }
+                    if again:
+                        out["writeback_commands"] = _writeback_commands(change)
+                    return out
                 return _blocked(
                     "BLOCKED_ALREADY_OWNED",
                     f"commit is already recorded under task '{tid}' — one "
@@ -875,15 +900,19 @@ def record_commit(
     entry["scope_violation"] = sorted(violations) or None
     manifest["tasks"][task]["commits"].append(entry)
     _save_manifest(root, change, manifest)
+    # 回写提醒不能只挂在 push 上：按 AGENTS.md §22 不 push 的合法流程同样让清单
+    # 变脏，尾巴会悬在共享树里（0c 会话实测）。但它也**不该恒为真** —— 现算
+    # （TASK-087 §3.6.8）。正常路径上刚 `_save_manifest` 过，所以它就是 `True`；
+    # 只有在清单已经干净时才答 `False`，而那正是这个字段该说实话的那一次。
+    needs_writeback = _manifest_dirty(root, change)
     result = {
         "status": "OK",
         "hash": target,
         "files": len(files),
-        # 回写提醒不能只挂在 push 上：按 AGENTS.md §22 不 push 的合法流程
-        # 同样让清单变脏，尾巴会悬在共享树里（0c 会话实测）。
-        "writeback_needed": True,
-        "writeback_commands": _writeback_commands(change),
+        "writeback_needed": needs_writeback,
     }
+    if needs_writeback:
+        result["writeback_commands"] = _writeback_commands(change)
     if violations:
         result["status"] = "WARN_SCOPE_VIOLATION"
         result["out_of_scope"] = sorted(violations)
@@ -1384,19 +1413,40 @@ def merge(
     return {"status": "OK", "merge": merge_hash, "pushed_main": pushed}
 
 
+def _merge_hash(manifest: dict) -> str:
+    """这条 Change 合并成了哪个提交 —— **读侧只有这一处**，两种写法都认。
+
+    `autopush merge` 写的是 `merge.hash`；而**人手记录**写过 `merge_commit`
+    —— 那不是笔误，是一条合法路径：共享工作树上不能切到 main（会把别的会话
+    正在改的东西连根换掉），于是合并在独立 worktree 里做完之后由人记进清单。
+    `cleanup` 只读 `hash`，于是对一条**确实已合并**的 Change 报
+    `BLOCKED_NOT_MERGED`（TASK-087 §3.6.7 实测）。
+
+    修的是**读**，不是写：既有清单一个字都不动，也不引入迁移 —— 那份只写了
+    `merge_commit` 的清单从此能被认出来，而不是靠有人记得去补一个 `hash`。
+    """
+
+    merged = manifest.get("merge") or {}
+    for key in ("hash", "merge_commit"):
+        value = merged.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
 def cleanup(root: Path, change: str, keep_remote: bool = False) -> dict:
     manifest = _load_manifest(root, change)
     branch = manifest["branch"]
-    merged = manifest.get("merge") or {}
-    if not merged.get("hash"):
+    merge_hash = _merge_hash(manifest)
+    if not merge_hash:
         return _blocked("BLOCKED_NOT_MERGED", "no recorded merge — nothing to clean")
     confirm_ref = "origin/main" if _has_remote(root) else "main"
     if _has_remote(root):
         _git(root, "fetch", "origin", check=False)
-    if not _is_ancestor(root, merged["hash"], confirm_ref):
+    if not _is_ancestor(root, merge_hash, confirm_ref):
         return _blocked(
             "BLOCKED_MERGE_NOT_CONFIRMED",
-            f"merge {merged['hash'][:12]} is not on {confirm_ref} — refuse to "
+            f"merge {merge_hash[:12]} is not on {confirm_ref} — refuse to "
             "delete the branch",
         )
     if _current_branch(root) == branch:

@@ -1189,3 +1189,85 @@ def test_cleanup_still_refuses_a_branch_carrying_commits_main_never_saw(
     result = ap.cleanup(work, "CHG-1", keep_remote=True)
     assert result["status"] == "BLOCKED_UNMERGED_COMMITS", result
     assert "not contained in" in result["reason"]
+
+
+def _record_merge_handwritten(work: Path, merge_hash: str) -> None:
+    """人手记录的形状：只有 `merge_commit`，没有 `hash`。
+
+    这不是杜撰 —— `docs/auto-push/changes/repo-decoupling.json` 就是这么写的：
+    共享工作树上不能切到 main，合并在独立 worktree 里做完，由人记进清单。
+    """
+
+    path = work / "docs" / "auto-push" / "changes" / "CHG-1.json"
+    manifest = json.loads(path.read_text("utf-8"))
+    manifest["merge"] = {
+        "merge_commit": merge_hash,
+        "at": "2026-01-01T00:00:00+00:00",
+        "by": "hand",
+        "why_not_autopush": "共享工作树上不能切分支",
+    }
+    manifest["status"] = "merged"
+    path.write_text(json.dumps(manifest, ensure_ascii=False), "utf-8")
+
+
+def test_cleanup_reads_a_handwritten_merge_record(rig: dict) -> None:
+    """§3.6.7：只写了 `merge_commit` 的合并记录，`cleanup` 也要认得出来。
+
+    上一版只读 `merge["hash"]`，于是对一条**确实已合并**的 Change 报
+    `BLOCKED_NOT_MERGED` —— 判词与事实相反，而人看到的是「没合并过」。
+    """
+
+    work = rig["work"]
+    _branch_with_a_stale_upstream(work)
+    _g(work, "checkout", "main")
+    _g(work, "merge", "--no-ff", "--no-edit", "change/CHG-1-demo")
+    _g(work, "push", "origin", "main")
+    _g(work, "fetch", "origin")
+    _record_merge_handwritten(work, _g(work, "rev-parse", "HEAD"))
+
+    result = ap.cleanup(work, "CHG-1", keep_remote=True)
+    assert result["status"] != "BLOCKED_NOT_MERGED", result
+    assert result["status"] == "OK", result
+
+
+def test_no_merge_record_at_all_is_still_refused(rig: dict) -> None:
+    """反方向：宽容读法不等于放行。两种键都没有时，照旧拒绝。"""
+
+    work = rig["work"]
+    _branch_with_a_stale_upstream(work)
+    path = work / "docs" / "auto-push" / "changes" / "CHG-1.json"
+    manifest = json.loads(path.read_text("utf-8"))
+    manifest["merge"] = {"at": "2026-01-01T00:00:00+00:00", "by": "hand"}
+    path.write_text(json.dumps(manifest, ensure_ascii=False), "utf-8")
+
+    result = ap.cleanup(work, "CHG-1", keep_remote=True)
+    assert result["status"] == "BLOCKED_NOT_MERGED", result
+
+
+def test_writeback_needed_tells_the_truth(rig: dict) -> None:
+    """§3.6.8：回写提醒**现算**，不恒真。
+
+    恒真的提示等于没有提示 —— 读的人分不出「这次真要回写」和「它总这么说」，
+    于是要么每次白跑一遍，要么开始整体无视它，而后者才是真正的代价。
+    """
+
+    work = rig["work"]
+    _new_change(work)
+    _declare(work, "CHG-1", "TASK-1", ["a.txt"])
+    (work / "a.txt").write_text("hello", "utf-8")
+    _g(work, "add", "a.txt")
+    _g(work, "commit", "-m", "feat: a")
+    head = _g(work, "rev-parse", "HEAD")
+
+    first = ap.record_commit(work, "CHG-1", "TASK-1", head)
+    assert first["writeback_needed"] is True, first
+    assert first["writeback_commands"], "该回写时必须给出命令"
+
+    # 回写提交掉之后，再问一次 —— 这一次的答案必须是「不用了」
+    _g(work, "add", "-A", "--", "docs/auto-push/changes/CHG-1.json")
+    _g(work, "commit", "-m", "chore: writeback")
+
+    again = ap.record_commit(work, "CHG-1", "TASK-1", head)
+    assert again["already_recorded"] is True, again
+    assert again["writeback_needed"] is False, again
+    assert "writeback_commands" not in again, "不用回写却还给了命令"

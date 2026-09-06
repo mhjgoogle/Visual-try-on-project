@@ -19,7 +19,7 @@
 | `docs/reports/` | 阶段性工作报告 —— **历史证据**，默认不读 |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：6 在办 · 7 待排期 · 131 已完成 · 86 条 ADR。
+**当前**：6 在办 · 8 待排期 · 131 已完成 · 86 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -71,7 +71,7 @@
 
 ### Deferred
 
-里程碑闸判「现在不做」的 7 张卡（`tasks/backlog/`）——
+里程碑闸判「现在不做」的 8 张卡（`tasks/backlog/`）——
 **队列，不是垃圾桶**：每张卡都要写清什么条件下它会变成该做。
 跨任务欠账另见 [TASK-087 总账](tasks/active/TASK-087-followup-ledger.md)。
 
@@ -82,6 +82,7 @@
 - [TASK-136](tasks/backlog/TASK-136-generation-resume-and-idempotency.md) TASK-136：重启之后不许重复扣费 —— 生成任务的续跑与幂等
 - [TASK-137](tasks/backlog/TASK-137-review-issue-to-rework-loop.md) TASK-137：审片问题进入返工队列 —— 从问题定位到重新审片的闭环
 - [TASK-138](tasks/backlog/TASK-138-story-development-visual-workflow.md) TASK-138：剧情制作不再是四张表单 —— 一条看得见的故事创作链
+- [TASK-143](tasks/backlog/TASK-143-one-worktree-per-session.md) TASK-143：一棵工作树同时装八个会话，没有配套工具
 
 ### Recent Decisions
 
@@ -107,7 +108,7 @@
 | [TASK-087-followup-ledger.md](tasks/active/TASK-087-followup-ledger.md) | TASK-087：Follow-up 总账 —— 把散在九张卡里的欠账收成一处 | 活账（不是一次性交付 |
 | [TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md](tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) | TASK-106：前端接上 run_id 路径 —— 并由此退役同步分支与 /api/agent/ | 部分实施（2026-09-04 |
 | [TASK-132-click-ui-element-and-leave-feedback.md](tasks/active/TASK-132-click-ui-element-and-leave-feedback.md) | TASK-132：点击界面元素写意见，并让开发 Agent 收到准确位置 | 切片 A 完成、切片 B 完成核心、切片 C 未做（2026-09-05 实施 |
-| [TASK-142-a-save-refused-by-a-reader.md](tasks/active/TASK-142-a-save-refused-by-a-reader.md) | TASK-142：他打的字，因为「有人正在读那个文件」而丢掉 | 实现完成 · 判据验证中（2026-09-06） |
+| [TASK-142-a-save-refused-by-a-reader.md](tasks/active/TASK-142-a-save-refused-by-a-reader.md) | TASK-142：他打的字，因为「有人正在读那个文件」而丢掉 | 实现完成（2026-09-06 · 提交 6d9473b） |
 
 ## 在办 · 设计与验收文档
 
@@ -134,6 +135,7 @@
 | [TASK-136-generation-resume-and-idempotency.md](tasks/backlog/TASK-136-generation-resume-and-idempotency.md) | TASK-136：重启之后不许重复扣费 —— 生成任务的续跑与幂等 | 待开始 · 前置 ADR 已 Accept（2026-09-05 开卡 |
 | [TASK-137-review-issue-to-rework-loop.md](tasks/backlog/TASK-137-review-issue-to-rework-loop.md) | TASK-137：审片问题进入返工队列 —— 从问题定位到重新审片的闭环 | 待开始（2026-09-05 开卡 |
 | [TASK-138-story-development-visual-workflow.md](tasks/backlog/TASK-138-story-development-visual-workflow.md) | TASK-138：剧情制作不再是四张表单 —— 一条看得见的故事创作链 | 待开始（2026-09-05 开卡 |
+| [TASK-143-one-worktree-per-session.md](tasks/backlog/TASK-143-one-worktree-per-session.md) | TASK-143：一棵工作树同时装八个会话，没有配套工具 | 未开始，且当前里程碑闸判定不做（2026-09-06 立卡） |
 
 ## 已完成 · 任务卡
 
