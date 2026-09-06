@@ -1349,24 +1349,75 @@
           "subject": "docs(TASK-087 §5.24): skill-evolution 是共享 append-only 数据，git add -A 会把别人的条目一起提交",
           "time": "2026-09-06T03:41:12+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/tasks/active/TASK-087-followup-ledger.md"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "de3ed8ff27896ce59760189a52c990fffcc6755f",
+          "subject": "docs: 三张做完的卡搬进 done/，TASK-132 的卡头订正 —— 「待办 = ls active/」不再说谎",
+          "time": "2026-09-06T12:34:07+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/STATUS.md",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "docs/tasks/active/TASK-127-one-action-table.md",
+            "docs/tasks/active/TASK-130-connected-sample-and-journey.md",
+            "docs/tasks/active/TASK-132-click-ui-element-and-leave-feedback.md",
+            "docs/tasks/active/TASK-134-import-linter-layering-contract.md",
+            "docs/tasks/done/TASK-127-one-action-table.md",
+            "docs/tasks/done/TASK-130-connected-sample-and-journey.md",
+            "docs/tasks/done/TASK-134-import-linter-layering-contract.md"
+          ],
+          "scope_violation": [
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "docs/tasks/active/TASK-127-one-action-table.md",
+            "docs/tasks/active/TASK-130-connected-sample-and-journey.md",
+            "docs/tasks/active/TASK-132-click-ui-element-and-leave-feedback.md",
+            "docs/tasks/active/TASK-134-import-linter-layering-contract.md",
+            "docs/tasks/done/TASK-127-one-action-table.md",
+            "docs/tasks/done/TASK-134-import-linter-layering-contract.md"
+          ]
+        },
+        {
+          "hash": "5c6e335f2fce9fe5b5ca08e0565d4c825127fcb4",
+          "subject": "docs: 把指向已搬走那三张卡的 12 处链接改到 done/",
+          "time": "2026-09-06T12:34:08+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/STATUS.md",
+            "docs/adr/ADR-0096-ui-and-agent-share-one-action-table.md",
+            "docs/adr/ADR-0099-resume-is-not-a-retry.md",
+            "docs/design/active/product-requirement-and-ux-convergence-review.md",
+            "docs/requirements/REQ-006-agent-can-do-what-the-creator-can-do.md",
+            "docs/tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md",
+            "docs/tasks/backlog/TASK-128-episode-side-actions-into-the-table.md",
+            "docs/tasks/done/TASK-129-settings-structure-writes-into-the-table.md",
+            "docs/tasks/done/TASK-130-connected-sample-and-journey.md",
+            "docs/tasks/done/TASK-133-glossary-and-out-of-scope-index.md"
           ],
           "scope_violation": null
         }
       ],
       "paths": [
         "docs/STATUS.md",
-        "docs/skill-evolution/backlogs/auto-push.jsonl",
-        "docs/skill-evolution/backlogs/codex-review-loop.jsonl",
-        "docs/skill-evolution/index.json",
-        "docs/tasks/active/TASK-087-followup-ledger.md",
-        "docs/tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md"
+        "docs/adr/ADR-0096-*.md",
+        "docs/adr/ADR-0099-*.md",
+        "docs/design/active/product-requirement-and-ux-convergence-review.md",
+        "docs/requirements/REQ-006-*.md",
+        "docs/tasks/active/TASK-106-*.md",
+        "docs/tasks/backlog/TASK-128-*.md",
+        "docs/tasks/done/TASK-129-*.md",
+        "docs/tasks/done/TASK-130-*.md",
+        "docs/tasks/done/TASK-133-*.md"
       ],
       "verification": "PASS",
       "verification_ref": "",
-      "declared": "2026-09-06T03:41:11+00:00"
+      "declared": "2026-09-06T12:24:23+00:00"
     },
     "TASK-074": {
       "commits": [
@@ -2721,8 +2772,8 @@
         "tests/e2e/test_connected_journey_task130.py"
       ],
       "verification": "PASS",
-      "verification_ref": "本会话（e9）验证的是自己的两条：§6.12/§6.13 台账登记 + reproducer 断言改成二选一（ruff clean；tests/e2e/test_connected_journey_task130.py 反复跑过，红的是被登记的产品缺陷本身）。paths 里的 mockups/motv-workspace/src/app.js 与 tests/persistence.test.mjs 属 visual-try-on-project-2a 的 fae1193，其验证结论由 2a 自己申报，本 ref 不代其声明。",
-      "declared": "2026-09-05T14:34:15+00:00"
+      "verification_ref": "本会话（e9）验证的是自己的两条：§6.12/§6.13 台账登记 + reproducer 断言改成二选一（ruff clean；tests/e2e/test_connected_journey_task130.py 反复跑过，红的是被登记的产品缺陷本身）。paths 里的 mockups/motv-workspace/src/app.js 与 tests/persistence.test.mjs 属 visual-try-on-project-2a 的 fae1193，其验证结论由 2a 自己申报。（注：2026-09-06 被 visual-try-on-project-2a 误覆盖一次，已原样恢复）",
+      "declared": "2026-09-06T12:12:56+00:00"
     },
     "TASK-140": {
       "commits": [
