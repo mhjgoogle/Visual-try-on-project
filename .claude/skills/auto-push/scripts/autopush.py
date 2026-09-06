@@ -27,6 +27,7 @@ import argparse
 import fnmatch
 import json
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -220,6 +221,40 @@ def _save_manifest(root: Path, change: str, data: dict) -> None:
 
 def _manifest_rel(change: str) -> str:
     return (CHANGES_DIR / f"{change}.json").as_posix()
+
+
+def _commit_msg_rel(root: Path, change: str, task: str) -> str:
+    """这一次 `stage` 专属的提交信息文件 —— **不是所有会话共用的那一个**。
+
+    上一版固定叫 `.claude/tmp/autopush-commit-msg.txt`。这棵工作树上同时有十来个
+    会话，每个都照着 `commit_command` 往这个名字写、再 `-F` 它 —— 于是**写入与
+    提交之间**任何一个别的会话调一次 `stage`，就把你的提交信息换成了它的。
+    2026-09-06 真的串了一次：一次台账提交套上了另一个会话的
+    `docs(TASK-142): 收口 …`（两边核对过时间线，TASK-087 §5.31 一族）。
+
+    **为什么不能靠「大家自觉改私有路径」**：这个名字是**工具返回给调用方的**，
+    只要还有一个会话照着返回值用它，串味就还会发生 —— 所以要么工具自己给出
+    互不相撞的名字，要么这条纪律形同虚设（`visual-try-on-project-92` 的原话）。
+
+    名字里带 change / task（都过 `_bad_id`，形如 `[A-Za-z0-9][A-Za-z0-9._-]*`，
+    因此路径里不会出现空格或 shell 元字符）再加一段随机后缀：**同一张卡连着
+    stage 两次也不互相覆盖**，第一条命令仍然指着它自己那份文本 —— 上一版在这里
+    是静默覆盖。旧的同卡文件顺手清掉，`.claude/tmp/` 不会长胖；**只清同一个
+    change+task 的**，别的会话的文件一个不碰（一张卡一个实施 Agent，AGENTS §14）。
+    """
+
+    _bad_id(change, "change id")
+    _bad_id(task, "task id")
+    tmp = root / ".claude" / "tmp"
+    stem = f"autopush-commit-msg-{change}-{task}-"
+    if tmp.is_dir():
+        for stale in tmp.glob(stem + "*.txt"):
+            try:
+                stale.unlink()
+            except OSError:
+                pass  # 清不掉不是错误：这条路径只负责不让目录长胖
+    token = secrets.token_hex(4)
+    return f".claude/tmp/{stem}{token}.txt"
 
 
 def _manifest_dirty(root: Path, change: str) -> bool:
@@ -786,13 +821,14 @@ def stage(
     # 消息进文件、命令用固定 ASCII 路径：`-m "内嵌"` 在 bash 里挡不住 $()/
     # 反引号展开，在 PowerShell 里 `\"` 又不是转义——两种 shell 没有共同的
     # 安全内嵌法，不内嵌才是安全的（codex 审查轮 1，blocking）。
-    msg_file = root / ".claude" / "tmp" / "autopush-commit-msg.txt"
+    msg_rel = _commit_msg_rel(root, change, task)
+    msg_file = root / msg_rel
     msg_file.parent.mkdir(parents=True, exist_ok=True)
     msg_file.write_text(subject + "\n", "utf-8")
     result = {
         "status": "STAGED",
         "staged": staged_now,
-        "commit_command": "git commit -F .claude/tmp/autopush-commit-msg.txt",
+        "commit_command": f"git commit -F {msg_rel}",
         "message": subject,
         # ADR-0068 决策 7：链式令牌必须由 agent 逐次手写在提交命令最前面，
         # 任何脚本都不得存储或拼接它 —— 这里只提示，不生成。
