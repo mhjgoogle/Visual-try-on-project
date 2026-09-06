@@ -1407,7 +1407,7 @@
           "subject": "docs(TASK-087 §5.25): 补一句 —— 写下这条一小时后我在自己的条目上又踩了一次",
           "time": "2026-09-06T12:44:52+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/tasks/active/TASK-087-followup-ledger.md"
           ],
@@ -2790,7 +2790,7 @@
           "subject": "旅程用例改守「要么真存下、要么明确告知」（TASK-087 §6.12）",
           "time": "2026-09-06T12:52:27+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "tests/e2e/test_connected_journey_task130.py"
           ],
