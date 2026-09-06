@@ -29,12 +29,22 @@ export default {
   title: "脚本生成器",
   icon: "🎞",
   init() {
-    return { state: "", prog: 0, versions: [], cur: 0, vmenu: false };
+    return { state: "", prog: 0, versions: [], cur: 0, vmenu: false, unknownRun: null };
   },
   render(node, ctx) {
     const sd = ctx.project.shots;
     if (node.state === "gen") {
       return `<div class="genbox">${SKEL9}<div class="genprog"><div class="pb"><i style="width:${node.prog}%"></i></div><span class="pc">生成中 ${node.prog}%</span><span class="cx">取消</span></div></div>`;
+    }
+    // **问不到之后不许再按一次**（ADR-0095 决策 2）。等待有上限，超时了我们不知道
+    // 那一轮怎么样了 —— 它很可能还在后端跑着，再按一次就是第二轮，白花一个订阅额度，
+    // 还会多出一版没人要的草稿。出口是显式的：他说「不等了」才放开。
+    if (node.unknownRun) {
+      return (
+        `<div class="genbox"><div class="scripterr">⚠ 这一轮状态未知：${esc(node.unknownRun)}` +
+        `<div style="font-size:11px;color:var(--text-faint);margin:2px 2px 0">它可能还在跑，先别重开一次</div>` +
+        `<button class="nrun ghost" data-unk-clear>不等了，重新生成</button></div></div>`
+      );
     }
     if (node.state === "done") {
       const curV = node.versions.find((x) => x.v === node.cur);
@@ -67,6 +77,8 @@ export default {
     return `<div class="genbox"><div class="skel"><i></i><i></i><i></i><i></i><i></i><i></i></div><button class="nrun" data-run>基于剧本生成分镜</button></div>`;
   },
   run(node, ctx) {
+    // 真的又起了一轮，那句「状态未知」就过期了 —— 留着它会把结果挡在外面。
+    node.unknownRun = null;
     // CONNECTED: the REAL creative agent (ADR-0042) — the user's canvas script
     // goes to the local Claude CLI and comes back as a structured shot DRAFT.
     if (ctx.isConnected && ctx.isConnected() && ctx.agentShotsDraft) {
@@ -132,13 +144,14 @@ export default {
           node.prog = 0;
           ctx.markIncoming(node.id, "");
           ctx.refresh(node);
-          // 问不到 ≠ 失败（ADR-0095 决策 2）。这里只改口径：节点回到空闲之后他仍然
-          // 按得动「生成」，那要动节点状态机 —— 已记 TASK-087 §5.23，不在本刀范围。
-          ctx.toast(
-            e && e.category === "unknown"
-              ? "分镜这一轮状态未知：" + e.message
-              : "分镜生成失败：" + e.message,
-          );
+          // 问不到 ≠ 失败（ADR-0095 决策 2）：**记住它**，好让 render 挡住重按。
+          // 只发一句 toast 是不够的 —— toast 会消失，而那颗按钮不会。
+          if (e && e.category === "unknown") {
+            node.unknownRun = e.message;
+            ctx.toast("分镜这一轮状态未知：" + e.message);
+          } else {
+            ctx.toast("分镜生成失败：" + e.message);
+          }
         });
       return;
     }
@@ -168,6 +181,12 @@ export default {
     }, 400);
   },
   bind(node, el, ctx) {
+    const unk = el.querySelector("[data-unk-clear]");
+    if (unk) unk.onclick = (e) => {
+      e.stopPropagation();
+      node.unknownRun = null;   // 「我不等了」—— 显式的一句话，不是误点的副作用
+      ctx.refresh(node);
+    };
     const cx = el.querySelector(".cx");
     if (cx) cx.onclick = (e) => {
       e.stopPropagation();

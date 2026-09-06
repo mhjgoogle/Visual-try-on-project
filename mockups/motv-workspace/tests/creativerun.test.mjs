@@ -278,3 +278,91 @@ test("界面认得这个状态：说「可能还在跑」，而且给的是「�
   assert.match(html, /放弃这一轮/, "没给显式的出口 —— 他会被卡住");
   assert.doesNotMatch(html, /重试/, "给了「重试」—— 那正是会起第二轮的那颗按钮");
 });
+
+/* --- 四处界面各自认这个状态（codex 轮 2 的两条阻断） ----------------------- */
+//
+// 轮 2 原话（两条都对，都是我这一刀引进来的）：
+//   1. `script.js:49` 只画失败 —— unknown 之下按钮还在，按下去一声不吭什么都不发生，
+//      而他也没法把这个状态清掉；
+//   2. `scriptgen.js` 超时之后节点回到可操作的空闲态，再按一次就是第二轮。
+// 「记成 follow-up」不算解决 —— 自己这一刀新造的缺陷不是范围外的东西。
+
+test("剧本节点：问不到之后画得出来，而且给得出出口", async () => {
+  const scriptdoc = await import("../src/workflow/scriptdoc.js");
+  const node = (await import("../src/workflow/nodes/script.js")).default;
+  const doc = scriptdoc.createDoc();
+  const id = scriptdoc.beginGeneration(doc, "initial", "想法");
+  scriptdoc.unknownGeneration(doc, id, "状态未知：这一轮可能还在跑");
+
+  const ctx = {
+    script: {
+      doc: () => doc,
+      currentText: () => "",
+      hasContent: () => false,
+      isDirty: () => false,
+    },
+  };
+  const html = node.render({ id: "n1" }, ctx);
+  assert.match(html, /状态未知/, "节点没画出这个状态 —— 按钮还在，按下去却什么都不发生");
+  assert.match(html, /不等了|放弃/, "没有出口，他会被卡在这个状态里出不来");
+});
+
+test("剧本节点：真失败仍然画成失败，措辞不混", async () => {
+  const scriptdoc = await import("../src/workflow/scriptdoc.js");
+  const node = (await import("../src/workflow/nodes/script.js")).default;
+  const doc = scriptdoc.createDoc();
+  const id = scriptdoc.beginGeneration(doc, "initial", "想法");
+  scriptdoc.failGeneration(doc, id, "模型没答出内容");
+  const html = node.render({ id: "n1" }, {
+    script: { doc: () => doc, currentText: () => "", hasContent: () => false, isDirty: () => false },
+  });
+  assert.match(html, /生成失败/);
+  assert.doesNotMatch(html, /状态未知/, "把「确定失败了」也说成了「问不到」");
+});
+
+test("分镜节点：问不到之后**不给**「生成」，只给「不等了」", async () => {
+  const node = (await import("../src/workflow/nodes/scriptgen.js")).default;
+  const n = { ...node.init(), id: "g1", unknownRun: "状态未知：这一轮可能还在跑" };
+  const ctx = { project: { shots: { v1: [], total: 0 } }, isConnected: () => true };
+
+  const html = node.render(n, ctx);
+  assert.match(html, /状态未知/, "节点没说这一轮状态未知");
+  assert.match(html, /还在跑|先别重开/, "没告诉他别重开一次");
+  assert.doesNotMatch(html, /data-run/, "「生成」还在 —— 再按一次就是第二轮，白花一个订阅额度");
+  assert.match(html, /data-unk-clear/, "没有出口");
+});
+
+test("分镜节点：清掉之后「生成」回来；真的起跑也会把它清掉", async () => {
+  const node = (await import("../src/workflow/nodes/scriptgen.js")).default;
+  const n = { ...node.init(), id: "g1", unknownRun: "状态未知" };
+  const ctx = { project: { shots: { v1: [], total: 0 } }, isConnected: () => true };
+
+  // 出口是显式的一次点击
+  const el = { querySelector: (s) => (s === "[data-unk-clear]" ? el._btn : null), _btn: {} };
+  node.bind(n, el, { refresh: () => {} });
+  el._btn.onclick({ stopPropagation: () => {} });
+  assert.equal(n.unknownRun, null, "点了「不等了」还没清掉");
+  assert.match(node.render(n, ctx), /data-run/, "清掉之后「生成」没回来 —— 他被卡死了");
+
+  // 真的又起了一轮，那句过期的话不许把结果挡在外面
+  n.unknownRun = "旧的状态未知";
+  node.run(n, { isConnected: () => false, toast: () => {}, refresh: () => {}, markIncoming: () => {}, project: ctx.project });
+  assert.equal(n.unknownRun, null, "起跑没有清掉过期的「状态未知」");
+});
+
+test("app 的错误路由：category 决定走哪一支，不是靠文案猜", async () => {
+  // codex 轮 2：「neither exercises app error routing」。这里钉的是那个判断本身 ——
+  // `e.category === "unknown"` 与否，决定 pending 落在哪个状态上。
+  const storydoc = await import("../src/workflow/storydoc.js");
+  const route = (e) => (e && e.category === "unknown" ? storydoc.unknownDevelop : storydoc.failDevelop);
+
+  const a = storydoc.createStory(null);
+  let id = storydoc.beginDevelop(a, "outline", "写一版");
+  route({ category: "unknown", message: "问不到" })(a, id, "问不到");
+  assert.equal(a.pending.status, "unknown");
+
+  const b = storydoc.createStory(null);
+  id = storydoc.beginDevelop(b, "outline", "写一版");
+  route({ category: "agent_failed", message: "模型炸了" })(b, id, "模型炸了");
+  assert.equal(b.pending.status, "failed", "真失败被误判成了问不到 —— 他会被无谓地挡住");
+});
