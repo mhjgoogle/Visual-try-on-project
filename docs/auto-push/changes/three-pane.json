@@ -1457,11 +1457,28 @@
           "subject": "fix(auto-push): 提交信息文件按 change+task 取唯一名 —— 十来个会话不能共用一个",
           "time": "2026-09-06T14:56:27+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             ".claude/agent-entries.json",
             ".claude/skills/auto-push/scripts/autopush.py",
             "tests/tooling/test_auto_push_tooling.py"
+          ],
+          "scope_violation": null
+        },
+        {
+          "hash": "8e705406564da05a43831db1df165ad0ea9f3fa9",
+          "subject": "fix(ui): 「生成记录」第一次有入口 —— 界面删东西时写下的理由，本身是要被守住的断言",
+          "time": "2026-09-06T22:23:51+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "mockups/motv-workspace/src/ui/genentry.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/src/ui/shottasks.js",
+            "mockups/motv-workspace/src/ui/taskrow.js",
+            "mockups/motv-workspace/tests/genrecord.test.mjs",
+            "mockups/motv-workspace/tests/promptc.test.mjs"
           ],
           "scope_violation": null
         }
@@ -1494,7 +1511,7 @@
       ],
       "verification": "PASS",
       "verification_ref": "",
-      "declared": "2026-09-06T13:59:42+00:00"
+      "declared": "2026-09-06T22:17:14+00:00"
     },
     "TASK-074": {
       "commits": [
