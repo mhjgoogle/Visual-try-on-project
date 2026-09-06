@@ -22,6 +22,7 @@
 //
 // Pure state + transitions only — no fetch, no DOM, no clock.
 
+import { isUnknownOutcome } from "./runoutcome.js";
 import { basedOnOrNull, mintId } from "./identity.js";
 
 import { createWork, serializeWork } from "./storywork.js";
@@ -1095,6 +1096,17 @@ export function failDevelop(doc, id, message) {
  * 所以它有自己的状态，而且**挡住下一轮**。出口是显式的 `cancelDevelop`：
  * 「我不等了」必须是他说出口的一句话，不是一次误点的副作用。
  */
+/**
+ * 这一轮没拿到产物 —— **由文档决定怎么记**，调用点不再自己分支。
+ *
+ * 分支写在 app.js 里的时候，守卫只能去重新实现一遍那个判断，于是「app 把
+ * unknown 送错」也照样绿（codex 复审当场点破）。现在调用点只有一句
+ * `settleDevelop(doc, id, e)`，而这里就是被真正驱动的那条路径。
+ */
+export function settleDevelop(doc, id, err) {
+  return (isUnknownOutcome(err) ? unknownDevelop : failDevelop)(doc, id, err && err.message);
+}
+
 export function unknownDevelop(doc, id, message) {
   const p = doc.pending;
   if (!p || p.id !== id || p.status !== "generating") return false;

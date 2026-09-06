@@ -1050,10 +1050,9 @@ async function developStoryRun(kind, instruction) {
     if (storydoc.completeDevelop(doc, id, payload)) refreshProductionView();
   } catch (e) {
     if (storyDoc !== doc) return;
-    // **问不到 ≠ 失败**：`failDevelop` 会让下一轮放行，而那一轮可能还在后端跑着
-    // （ADR-0095 决策 2）。这条分支是五个创作端点改走 `run_id` 之后才有的结局。
-    const land = e && e.category === "unknown" ? storydoc.unknownDevelop : storydoc.failDevelop;
-    if (land(doc, id, e.message)) refreshProductionView();
+    // **问不到 ≠ 失败**（ADR-0095 决策 2）：怎么记由**文档**决定，这里不分支 ——
+    // 分支写在这儿的时候，守卫只能重新实现一遍那个判断，于是「这里送错」也照样绿。
+    if (storydoc.settleDevelop(doc, id, e)) refreshProductionView();
   }
 }
 
@@ -1111,9 +1110,8 @@ async function generateScript(kind, instruction) {
     }
   } catch (e) {
     if (scriptDoc !== doc) return; // project switched mid-flight — nothing to show
-    // 同上：问不到要挡住下一轮，不能当成可以马上重开的失败
-    const land = e && e.category === "unknown" ? scriptdoc.unknownGeneration : scriptdoc.failGeneration;
-    if (land(doc, id, e.message)) ctx.refreshType("script");
+    // 同上：怎么记由文档决定（`settleGeneration`），这里不分支
+    if (scriptdoc.settleGeneration(doc, id, e)) ctx.refreshType("script");
   }
 }
 
@@ -2976,9 +2974,10 @@ const ctx = {
         };
       } catch (e) {
         if (productionDoc !== doc) return;
-        // 问不到 ≠ 失败：失败那一支的界面给的是「重试」，而那一轮可能还在后端跑着
+        // 问不到 ≠ 失败：失败那一支的界面给的是「重试」，而那一轮可能还在后端跑着。
+        // 判断只有一处（`workflow/runoutcome.js`），这里不重写。
         bibleProposals = {
-          status: e && e.category === "unknown" ? "unknown" : "failed",
+          status: isUnknownOutcome(e) ? "unknown" : "failed",
           cards: [], error: e.message, source: CONNECTED ? "claude" : "demo",
         };
       }

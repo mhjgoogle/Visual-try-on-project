@@ -11,6 +11,7 @@
 // proposed / failed) and is intentionally NOT persisted — a reload lands on the
 // last durable version, never on a half-finished call.
 
+import { isUnknownOutcome } from "./runoutcome.js";
 import { basedOnOrNull, mintId } from "./identity.js";
 
 /** One immutable version record: what was asked (instruction), what came back
@@ -192,6 +193,11 @@ export function failGeneration(doc, id, message) {
 
 /** **问不到，不是失败** —— 同 `storydoc.unknownDevelop`，理由一字不差：
  *  记成 `failed` 会让 `beginGeneration` 放行下一轮，而那一轮可能还在后端跑着。 */
+/** 同 `storydoc.settleDevelop`：**文档决定怎么记**，调用点不自己分支。 */
+export function settleGeneration(doc, id, err) {
+  return (isUnknownOutcome(err) ? unknownGeneration : failGeneration)(doc, id, err && err.message);
+}
+
 export function unknownGeneration(doc, id, message) {
   const p = doc.pending;
   if (!p || p.id !== id || p.status !== "generating") return false;

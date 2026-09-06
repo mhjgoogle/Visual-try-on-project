@@ -2,6 +2,7 @@
 // produces an immutable new version (v1, v2…) that can be compared.
 import { nx } from "./shared.js";
 import { esc } from "../../util/dom.js";
+import { isUnknownOutcome } from "../runoutcome.js";
 import { mintId, assignShotIdentity } from "../identity.js";
 import { nextDraftVersion } from "../../ui/shoteditor.js";
 
@@ -143,15 +144,16 @@ export default {
           node.state = "";
           node.prog = 0;
           ctx.markIncoming(node.id, "");
-          ctx.refresh(node);
           // 问不到 ≠ 失败（ADR-0095 决策 2）：**记住它**，好让 render 挡住重按。
           // 只发一句 toast 是不够的 —— toast 会消失，而那颗按钮不会。
-          if (e && e.category === "unknown") {
-            node.unknownRun = e.message;
-            ctx.toast("分镜这一轮状态未知：" + e.message);
-          } else {
-            ctx.toast("分镜生成失败：" + e.message);
-          }
+          //
+          // **赋值必须在 `ctx.refresh` 之前。** 上一版写反了：refresh 同步重绘，
+          // 那一帧里 `unknownRun` 还是空的，于是画出来的仍然是「生成」，而之后
+          // 再没有第二次刷新 —— 挡板等于不存在（codex 复审当场点破）。
+          const unknown = isUnknownOutcome(e);
+          if (unknown) node.unknownRun = e.message;
+          ctx.refresh(node);
+          ctx.toast((unknown ? "分镜这一轮状态未知：" : "分镜生成失败：") + e.message);
         });
       return;
     }
