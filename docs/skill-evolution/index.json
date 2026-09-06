@@ -2,11 +2,11 @@
  "skills": {
   "auto-push": {
    "backlog": "docs/skill-evolution/backlogs/auto-push.jsonl",
-   "feedback_seq": 16,
-   "last_feedback_at": "2026-09-05T09:10:55Z",
+   "feedback_seq": 19,
+   "last_feedback_at": "2026-09-06T03:16:49Z",
    "last_review_at": "2026-09-05T09:18:11Z",
    "last_seen_at": "2026-08-22T06:01:22Z",
-   "open": 16,
+   "open": 19,
    "path": ".claude/skills/auto-push",
    "pending_proposals": [
     "EP-001",
@@ -23,17 +23,17 @@
   },
   "codex-review-loop": {
    "backlog": "docs/skill-evolution/backlogs/codex-review-loop.jsonl",
-   "feedback_seq": 15,
-   "last_feedback_at": "2026-09-05T09:00:34Z",
+   "feedback_seq": 20,
+   "last_feedback_at": "2026-09-06T03:16:40Z",
    "last_review_at": null,
    "last_seen_at": "2026-08-22T03:57:33Z",
-   "open": 15,
+   "open": 20,
    "path": ".claude/skills/codex-review-loop",
    "pending_proposals": [],
    "protected": [],
    "registered_at": "2026-08-22T03:57:33Z",
    "repeated": {
-    "shared-worktree-diff-contamination": 3
+    "shared-worktree-diff-contamination": 5
    },
    "revision": "200b39337376",
    "severe_open": 0,

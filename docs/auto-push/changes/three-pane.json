@@ -1319,7 +1319,7 @@
           "subject": "docs(TASK-106): 卡与事实对齐 —— 判据 2 的五个端点与判据 5 闭合，判据 3 的规模写清楚",
           "time": "2026-09-06T03:15:58+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/STATUS.md",
             "docs/tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md"
