@@ -1033,11 +1033,14 @@ async function developStoryRun(kind, instruction) {
             characters: productionDoc.characters.map((c) => ({
               characterId: c.characterId, name: c.name, tier: c.tier,
             })),
+            // 走 `run_id` 要项目名：`GET /api/runs/<id>` 按项目隔离（TASK-106 判据 2）
+            project: PROJECT_NAME,
           })
         : await command.developStory({
             idea: doc.idea,
             current: (storydoc.activeOutline(doc) || {}).outline || null,
             instruction,
+            project: PROJECT_NAME,
           });
     } else {
       await new Promise((r) => setTimeout(r, 700)); // visible working state
@@ -1078,9 +1081,10 @@ async function generateScript(kind, instruction) {
   try {
     let content;
     if (CONNECTED) {
-      content = await command.generateScriptDraft(
-        kind === "revision" ? { baseScript: base, instruction } : { idea: instruction },
-      );
+      content = await command.generateScriptDraft({
+        ...(kind === "revision" ? { baseScript: base, instruction } : { idea: instruction }),
+        project: PROJECT_NAME,
+      });
     } else {
       await new Promise((r) => setTimeout(r, 900)); // visible loading state
       content = demoScriptDraft(kind, instruction, base);
@@ -2598,7 +2602,7 @@ const ctx = {
     },
   },
 
-  agentShotsDraft: (script) => command.generateShotsDraft(script),
+  agentShotsDraft: (script) => command.generateShotsDraft(script, { project: PROJECT_NAME }),
   // Story development controller (M9): Idea → Outline (versioned, approved) →
   // Episode Plan (versioned, confirmed). The ONLY write path into the story
   // document; AI output lands as proposals, application is explicit, versions
@@ -2946,6 +2950,7 @@ const ctx = {
             characters: productionDoc.characters.map((c) => ({
               characterId: c.characterId, name: c.name, tier: c.tier,
             })),
+            project: PROJECT_NAME,
           });
         } else {
           await new Promise((r) => setTimeout(r, 700)); // visible working state

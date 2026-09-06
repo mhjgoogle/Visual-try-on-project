@@ -20,11 +20,20 @@
 //   - it never turns a failure into a value. Every function here throws a classified
 //     error, because a write that silently 「did nothing」 is the worst outcome of all.
 import { request, legacyError } from "./apiclient.js";
+// 读运行状态住在 conversation.js（它是那条链第一个调用点），等待循环住在
+// runwait.js。这里 import 它们，是因为**起跑的人要等自己那一轮**。
+import { runState } from "./conversation.js";
+import { awaitRun } from "./runwait.js";
 
 /** POST JSON, throwing the app's legacy-shaped error on failure. */
-async function post(path, body, label, { timeoutMs } = {}) {
+async function post(path, body, label, { timeoutMs, headers } = {}) {
   try {
-    return await request(path, { method: "POST", body, ...(timeoutMs === undefined ? {} : { timeoutMs }) });
+    return await request(path, {
+      method: "POST",
+      body,
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
+      ...(headers ? { headers } : {}),
+    });
   } catch (e) {
     throw legacyError(e, label);
   }
@@ -90,23 +99,95 @@ export function migrateLegacy(project) {
 // writes even though they return text, which is exactly why they belong here and not
 // beside `getShots`.
 //
-// `timeoutMs: 0` — no read-sized deadline. A model answering a full episode script
-// legitimately takes minutes, and cutting it off at 20s would report a timeout for a
-// run that was working.
+// **它们走 `run_id`，不再把模型那几分钟压在一个 HTTP 请求上**（TASK-106 判据 2）。
+// 后端早就备好了这一面：带 `X-Motv-Async: 1` 就答 `202` 一份 run view，产物之后从
+// `GET /api/runs/<id>.outputs` 取，**键两边一模一样**（合同 §5.9c 规则 2）。
+//
+// 为什么这不是「又一个轮询器」（ADR-0095 决策 5 推迟的是那个）：这里等的是**本次
+// 调用自己那一轮**，等完就结束；决策 5 推迟的是常驻的全局循环。等待用的是
+// `runwait.js` 那**同一份** —— 「谁说了算」只有一处（决策 2）。
+//
+// **拿不到 project 就不走异步**：`GET /api/runs/<id>` 按项目隔离（不带 project 一律
+// 拒绝，免得一个项目的看板显示另一个项目的运行），所以没有项目名时问不到自己那一轮。
+// 那时退回同步分支 —— 它还在，这一步刻意可逆（ADR-0095 决策 5：同步分支这一轮不删）。
 
-export async function generateShotsDraft(script) {
-  const j = await post("/api/agent/shots-draft", { script }, "agent", { timeoutMs: 0 });
-  return j.shots || [];
+const ASYNC_HEADER = { "X-Motv-Async": "1" };
+
+/** 把落定的一轮变回旧响应形状 —— 调用方一个字都不用改。
+ *  形状对齐 `server.py` 的 `_agent_sync_response`：两条路答出来的东西必须一样。 */
+function creativeSettled(run, key, label) {
+  const status = run && run.status;
+  if (status === "succeeded") {
+    const outputs = (run && run.outputs) || {};
+    const executor = run.executor || null;
+    return {
+      [key]: outputs[key],
+      draft: true,
+      source: executor === "claude-code" ? "claude -p" : executor,
+      run_id: run.run_id || run.runId,
+      executor,
+      model: run.model || null,
+    };
+  }
+  // 失败要抛，而且要**抛成同一种形状** —— 调用方的 catch 分不出它走的是哪条路。
+  const err = new Error(
+    status === "cancelled"
+      ? "这次运行已被取消"
+      : status === "awaiting_input"
+      ? "这一轮在等人来做（没有可用的运行时）"
+      : status === "unknown"
+      // **问不到 ≠ 没在跑**（ADR-0095 决策 2 / ADR-0064 决策 6）。说成「失败了」
+      // 会让他再起一轮，而先起的那一轮还在改同一份文档。
+      ? "状态未知：这一轮可能还在跑，先别重开一次"
+      : (run && run.failureReason && run.failureReason.detail) || `${label} 运行失败`,
+  );
+  err.category =
+    status === "cancelled"
+      ? "cancelled"
+      : status === "awaiting_input"
+      ? "agent_unavailable"
+      : status === "unknown"
+      ? "unknown"
+      : (run && run.failureReason && run.failureReason.category) || "agent_failed";
+  err.runId = (run && (run.run_id || run.runId)) || null;
+  throw err;
 }
 
-export async function generateScriptDraft({ idea, baseScript, instruction }) {
+/** 起一轮创作运行，等它落定，交出产物 —— 或者按上面的规则抛。 */
+async function creativeRun(path, body, key, label, { project, onTick } = {}) {
+  const canAsync = typeof project === "string" && !!project;
   const j = await post(
+    path,
+    canAsync ? { ...body, project } : body,
+    label,
+    {
+      // 同步分支那条路仍然可能把模型的几分钟压在这个请求上，所以**这个 0 留着**：
+      // 它是给「后端没认这个头」准备的，不是这条异步路径要的。
+      timeoutMs: 0,
+      ...(canAsync ? { headers: ASYNC_HEADER } : {}),
+    },
+  );
+  // 同步答复（旧后端，或没有项目名）：产物就在手上，键两边一样。
+  if (!j || j[key] !== undefined || !j.run_id) return j;
+  const run = await awaitRun({ read: runState, project, runId: j.run_id, onTick });
+  return creativeSettled(run, key, label);
+}
+
+
+export async function generateShotsDraft(script, { project } = {}) {
+  const j = await creativeRun("/api/agent/shots-draft", { script }, "shots", "agent", { project });
+  return (j && j.shots) || [];
+}
+
+export async function generateScriptDraft({ idea, baseScript, instruction, project }) {
+  const j = await creativeRun(
     "/api/agent/script-draft",
     instruction ? { base_script: baseScript, instruction } : { idea },
+    "script",
     "agent",
-    { timeoutMs: 0 },
+    { project },
   );
-  return j.script || "";
+  return (j && j.script) || "";
 }
 
 /**
@@ -119,8 +200,8 @@ export async function generateScriptDraft({ idea, baseScript, instruction }) {
  * an entity that already has a profile comes back as an UPDATE, not as a second
  * copy of the same person.
  */
-export async function generateBibleBreakdown(script, { assets, characters } = {}) {
-  const j = await post(
+export async function generateBibleBreakdown(script, { assets, characters, project } = {}) {
+  const j = await creativeRun(
     "/api/agent/bible-breakdown",
     {
       script,
@@ -129,20 +210,22 @@ export async function generateBibleBreakdown(script, { assets, characters } = {}
       ...(Array.isArray(assets) && assets.length ? { assets } : {}),
       ...(Array.isArray(characters) && characters.length ? { characters } : {}),
     },
+    "breakdown",
     "agent",
-    { timeoutMs: 0 },
+    { project },
   );
-  return j.breakdown || { characters: [], locations: [] };
+  return (j && j.breakdown) || { characters: [], locations: [] };
 }
 
-export async function developStory({ idea, current, instruction }) {
-  const j = await post(
+export async function developStory({ idea, current, instruction, project }) {
+  const j = await creativeRun(
     "/api/agent/story-develop",
     { idea, current: current || null, instruction: instruction || "" },
+    "outline",
     "agent",
-    { timeoutMs: 0 },
+    { project },
   );
-  return j.outline || {};
+  return (j && j.outline) || {};
 }
 
 /**
@@ -158,8 +241,8 @@ export async function developStory({ idea, current, instruction }) {
  * it never sent the cast (the capability declared `characters` as an optional
  * input all along and nothing ever supplied it).
  */
-export async function planEpisodes({ outline, instruction, currentPlan, characters }) {
-  const j = await post(
+export async function planEpisodes({ outline, instruction, currentPlan, characters, project }) {
+  const j = await creativeRun(
     "/api/agent/episode-plan",
     {
       outline,
@@ -169,10 +252,11 @@ export async function planEpisodes({ outline, instruction, currentPlan, characte
       ...(Array.isArray(currentPlan) && currentPlan.length ? { current_plan: currentPlan } : {}),
       ...(Array.isArray(characters) && characters.length ? { characters } : {}),
     },
+    "episodes",
     "agent",
-    { timeoutMs: 0 },
+    { project },
   );
-  return j.episodes || [];
+  return (j && j.episodes) || [];
 }
 
 /* --- local media production (ffmpeg / piper) ------------------------------- */

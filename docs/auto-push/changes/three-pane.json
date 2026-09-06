@@ -1235,11 +1235,15 @@
         }
       ],
       "paths": [
-        ".autopush-placeholder"
+        "mockups/motv-workspace/src/app.js",
+        "mockups/motv-workspace/src/services/command.js",
+        "mockups/motv-workspace/src/services/conversation.js",
+        "mockups/motv-workspace/src/services/runwait.js",
+        "mockups/motv-workspace/tests/creativerun.test.mjs"
       ],
       "verification": "PASS",
-      "verification_ref": "codex 3 轮独立审查（独立性未降级），最终 BLOCKING none、0 P1/P2/P3/P4；两条不同机理的 P1 各买一轮并已修。前端全量 2078 passed/0 failed；pytest tests/contract tests/studio -n 8 → 839 passed/16 skipped；tests/tooling/test_commit_gate_policy.py 79 passed；ruff 全过；lifecycle_check 0 finding。附带修掉一处阻塞本次提交的闸门缺陷（gate.ps1 里 backslash-t 被展开成真实制表符，Windows 上每次改本应用的提交都失败）。验收 1 与 REQ-004 判据 6 的真实项目人工走查未做，已在卡上如实标记并挪到切片 5",
-      "declared": "2026-09-04T23:14:03+00:00"
+      "verification_ref": "",
+      "declared": "2026-09-06T01:39:51+00:00"
     },
     "TASK-074": {
       "commits": [
@@ -2715,7 +2719,7 @@
           "subject": "docs(TASK-140): 收口 —— 卡搬进 done/，两半都答了",
           "time": "2026-09-06T01:39:01+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/STATUS.md",
             "docs/auto-push/changes/three-pane.json",

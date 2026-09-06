@@ -5,6 +5,7 @@
 // projection of the runs), so this module only sends, reads and waits. That is the
 // difference between 「关掉页面答案就没了」 and 「回来还在」.
 import { attempt, request } from "./apiclient.js";
+import { awaitRun } from "./runwait.js";
 
 //: The same custom header `/api/skill/run` requires. A cross-origin page cannot
 //: set it without a preflight this server never answers, so it is the CSRF guard
@@ -173,11 +174,10 @@ export function turnTextOf(turns, runId) {
   return hit && typeof hit.text === "string" ? hit.text : "";
 }
 
-const TERMINAL = new Set(["succeeded", "failed", "cancelled", "awaiting_input"]);
-
-export function isTerminal(status) {
-  return TERMINAL.has(String(status || ""));
-}
+// 终态判定与那个等待循环**搬进了 `runwait.js`** —— 五个创作端点也要走 `run_id`
+// 之后，两条链必须用同一份「谁说了算」（ADR-0095 决策 2）。这里保留同名导出，
+// 因为它们是既有调用点与守卫的名字。
+export { isTerminal } from "./runwait.js";
 
 /**
  * Wait for one turn to land, calling `onTick` as the state changes.
@@ -186,23 +186,8 @@ export function isTerminal(status) {
  * backend into a spinner that never stops; this one stops and says the wait ended
  * without a result, which is a thing the creator can act on.
  */
-export async function awaitTurn(project, runId, { onTick, timeoutMs = 180000, everyMs = 1200, sleep } = {}) {
-  const wait = sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
-  const started = Date.now();
-  let last = null;
-  for (;;) {
-    const run = await runState(project, runId);
-    const status = run && run.status;
-    if (status && status !== last) {
-      last = status;
-      if (onTick) onTick(run);
-    }
-    if (isTerminal(status)) return run;
-    if (Date.now() - started > timeoutMs) {
-      return { runId, status: "unknown", timedOut: true };
-    }
-    await wait(everyMs);
-  }
+export async function awaitTurn(project, runId, opts = {}) {
+  return awaitRun({ ...opts, read: runState, project, runId });
 }
 
 /**
