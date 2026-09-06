@@ -1232,6 +1232,22 @@
             "tests/tooling/test_commit_gate_policy.py"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "8d184c3d6b68a0d911aeb32bc71e4ea3d1ce1a7c",
+          "subject": "feat(TASK-106 判据 2): 五个创作端点走 run_id —— 模型那几分钟不再压在一个 HTTP 请求上",
+          "time": "2026-09-06T01:47:36+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/three-pane.json",
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/src/services/command.js",
+            "mockups/motv-workspace/src/services/conversation.js",
+            "mockups/motv-workspace/src/services/runwait.js",
+            "mockups/motv-workspace/tests/creativerun.test.mjs"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
