@@ -1499,7 +1499,7 @@
           "subject": "fix(tooling): 闸门从脚本位置找自己；文档 id 按「前缀 + 数字」取，不再定宽切",
           "time": "2026-09-07T11:51:54+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             ".claude/hooks/gate_dispatch.py",
             ".claude/tools/gen_docs_status.py",
@@ -1513,11 +1513,28 @@
             "tests/tooling/test_commit_gate_policy.py",
             "tests/tooling/test_docs_status.py"
           ]
+        },
+        {
+          "hash": "af7cdf2610f1514b2f158420c53fda13cd08bcce",
+          "subject": "feat(tooling): `resume` 现在先答「谁已经在这张卡上」—— 归属先于进度（TASK-087 §5.30）",
+          "time": "2026-09-07T12:26:43+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            ".claude/tools/agent_harness.py",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "tests/tooling/test_agent_harness.py"
+          ],
+          "scope_violation": [
+            ".claude/tools/agent_harness.py"
+          ]
         }
       ],
       "paths": [
         ".claude/agent-entries.json",
+        ".claude/hooks/gate_dispatch.py",
         ".claude/skills/auto-push/scripts/autopush.py",
+        ".claude/tools/gen_docs_status.py",
         "docs/STATUS.md",
         "docs/adr/ADR-0096-*.md",
         "docs/adr/ADR-0099-*.md",
@@ -1539,11 +1556,11 @@
         "docs/tasks/done/TASK-134-*.md",
         "mockups/motv-workspace/src/**",
         "mockups/motv-workspace/tests/**",
-        "tests/tooling/test_auto_push_tooling.py"
+        "tests/tooling/**"
       ],
       "verification": "PASS",
       "verification_ref": "",
-      "declared": "2026-09-06T22:17:14+00:00"
+      "declared": "2026-09-07T11:52:14+00:00"
     },
     "TASK-074": {
       "commits": [
