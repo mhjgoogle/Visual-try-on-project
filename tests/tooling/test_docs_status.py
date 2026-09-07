@@ -163,3 +163,56 @@ def test_no_task_card_sits_outside_active_or_done() -> None:
     exactly the ambiguity the split removes."""
     stray = sorted(p.name for p in (_ROOT / "docs" / "tasks").glob("*.md"))
     assert not stray, f"task cards must live in active/ or done/: {stray}"
+
+
+def test_a_four_digit_requirement_number_does_not_collide(tmp_path: Path) -> None:
+    """REQ 号取的是**号**，不是「第 4 到第 7 个字符」（TASK-087 §5.29）。
+
+    定宽切片 `path.name[4:7]` 把 `REQ-1000` 截成 `100`，于是：
+    ① 它抢走 `REQ-100` 的引用（哪张卡引了谁，从此对不上）；
+    ② 表里也把它显示成 `REQ-100` —— **两条都是静默的**。
+
+    今天最大 `REQ-008`，所以这条在今天不可达。写它是因为**判据不是宽度**：
+    「前缀 + 数字」和「切 3 个字符」一样短，而只有前者在编号长一位时仍然成立。
+    """
+    mod = _load()
+    docs = tmp_path / "docs"
+    (docs / "requirements").mkdir(parents=True)
+    (docs / "tasks" / "active").mkdir(parents=True)
+    for name in ("REQ-100-hundred.md", "REQ-1000-thousand.md"):
+        (docs / "requirements" / name).write_text(
+            f"# {mod._doc_id(name)}：标题{NL}{NL}- 状态：CONFIRMED{NL}", "utf-8"
+        )
+    # 一张只引用 REQ-1000 的卡
+    (docs / "tasks" / "active" / "TASK-1234-card.md").write_text(
+        f"# TASK-1234：卡{NL}{NL}"
+        f"- 关联 Requirement：REQ-1000 判据 1{NL}{NL}## 正文{NL}",
+        "utf-8",
+    )
+    mod.DOCS = docs
+    rows = mod._active_requirements()
+    by_req = {}
+    for row in rows:
+        ident = row.split("[", 1)[1].split("]", 1)[0]
+        by_req[ident] = row
+
+    assert "REQ-1000" in by_req, f"四位号被截短了：{sorted(by_req)}"
+    assert "REQ-100" in by_req
+    # 引用只能落在被引用的那一条上
+    assert "TASK-1234" in by_req["REQ-1000"], "四位号的引用没有落在它自己身上"
+    assert "TASK-1234" not in by_req["REQ-100"], "引用被截短的号抢走了"
+    # 四位任务号也不许被切掉最后一位
+    assert "TASK-123]" not in by_req["REQ-1000"], "TASK 号被截成了三位"
+
+
+def test_doc_id_reads_the_prefix_and_the_number(tmp_path: Path) -> None:
+    """`_doc_id` / `_doc_num` 的形状 —— 认不出来就原样返回，绝不返回截短的号。"""
+    mod = _load()
+    assert mod._doc_id("REQ-008-agent.md") == "REQ-008"
+    assert mod._doc_id("TASK-1000-x.md") == "TASK-1000"
+    assert mod._doc_id("ADR-0102-x.md") == "ADR-0102"
+    assert mod._doc_num("REQ-1000-x.md") == "1000"
+    assert mod._doc_num("REQ-008-x.md") == "008"
+    # 认不出来的名字：原样回，不猜
+    assert mod._doc_id("notes.md") == "notes.md"
+    assert mod._doc_num("notes.md") == ""

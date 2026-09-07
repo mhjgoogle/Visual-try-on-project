@@ -44,6 +44,28 @@ _FACE_LABEL = {
 }
 _REQ_REF = re.compile(r"REQ-(\d+)")
 
+#: 从文件名里取那个**标识**（`REQ-008-...md` → `REQ-008`，`TASK-1000-...md` →
+#: `TASK-1000`）。定宽切片会在编号长一位的那天**静默错配**：`path.name[4:7]` 把
+#: `REQ-1000` 截成 `100`，于是它和 `REQ-100` 的引用混在一起、表里也显示成
+#: `REQ-100`（TASK-141 轮 2 审查报的 NON_BLOCKING，TASK-087 §5.29）。
+#: 今天最大 `REQ-008`，所以那一天很远 —— 但**切宽度不是判据，前缀加数字才是**，
+#: 而按判据写和按宽度写一样短。
+_DOC_ID = re.compile(r"^((?:REQ|TASK|ADR)-\d+)")
+
+
+def _doc_id(name: str) -> str:
+    """`REQ-008-foo.md` → `REQ-008`；认不出来就原样返回（不猜）。"""
+
+    hit = _DOC_ID.match(name)
+    return hit.group(1) if hit else name
+
+
+def _doc_num(name: str) -> str:
+    """`REQ-008-foo.md` → `008`。取不到就返回空串，绝不返回一个截短的号。"""
+
+    ident = _doc_id(name)
+    return ident.split("-", 1)[1] if "-" in ident and ident != name else ""
+
 
 class CurrentTruthError(RuntimeError):
     """An anchor is missing or empty. Generation stops instead of emitting a
@@ -214,16 +236,17 @@ def _active_requirements() -> list[str]:
     ):
         head = card.read_text("utf-8").split("## ", 1)[0]
         for num in sorted(set(_REQ_REF.findall(head))):
-            citations.setdefault(num, []).append(card.name[:8])
+            citations.setdefault(num, []).append(_doc_id(card.name))
     rows = []
     for path in sorted(req_dir.glob("REQ-*.md"), key=lambda p: p.name):
         title, status = _describe(path)
         if not _binding(status):
             continue
-        cards = "、".join(citations.get(path.name[4:7], [])) or "—"
+        cards = "、".join(citations.get(_doc_num(path.name), [])) or "—"
         rel = path.relative_to(DOCS).as_posix()
+        ident = _doc_id(path.name)
         rows.append(
-            f"| [{path.name[:7]}]({rel}) | {_cell(title)} | {_cell(status)} | {cards} |"
+            f"| [{ident}]({rel}) | {_cell(title)} | {_cell(status)} | {cards} |"
         )
     return rows
 
@@ -244,7 +267,7 @@ def _not_yet_binding() -> list[str]:
         if _binding(status):
             continue
         rel = path.relative_to(DOCS).as_posix()
-        out.append(f"[{path.name[:7]}]({rel})（{_cell(status)}）")
+        out.append(f"[{_doc_id(path.name)}]({rel})（{_cell(status)}）")
     return out
 
 
@@ -255,7 +278,7 @@ def _deferred() -> list[str]:
     ):
         title, _ = _describe(path)
         rel = path.relative_to(DOCS).as_posix()
-        rows.append(f"[{path.name[:8]}]({rel}) {_cell(title)}")
+        rows.append(f"[{_doc_id(path.name)}]({rel}) {_cell(title)}")
     return rows
 
 
@@ -264,7 +287,9 @@ def _recent_decisions(n: int = 5) -> list[str]:
     for path in sorted((DOCS / "adr").glob("ADR-*.md"), key=lambda p: p.name)[-n:]:
         title, status = _describe(path)
         rel = path.relative_to(DOCS).as_posix()
-        rows.append(f"| [{path.name[:8]}]({rel}) | {_cell(title)} | {_cell(status)} |")
+        rows.append(
+            f"| [{_doc_id(path.name)}]({rel}) | {_cell(title)} | {_cell(status)} |"
+        )
     return list(reversed(rows))
 
 
@@ -395,7 +420,7 @@ def render() -> str:
     lines += _current_truth()
     for heading, folder, blurb in _SECTIONS:
         lines += _section(heading, folder, blurb)
-    last = adr[-1].name[:8] if adr else "—"
+    last = _doc_id(adr[-1].name) if adr else "—"
     lines += _TRAILER.format(n_adr=len(adr), last=last).splitlines()
     return "\n".join(lines).rstrip() + "\n"
 
