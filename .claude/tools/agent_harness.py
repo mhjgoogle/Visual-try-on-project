@@ -631,11 +631,50 @@ def _git(root: Path, *args: str) -> str | None:
     return out.stdout.strip() if out.returncode == 0 else None
 
 
-def active_cards(root: Path) -> list[tuple[str, str]]:
-    """`docs/tasks/active/` 里的卡：`(文件名, 状态行首句)`。
+def _card_field(text: str, label: str) -> str:
+    """卡头里 `- <label>：...` 那一行的值。没有就空串（不猜）。"""
+
+    head = f"- {label}："
+    for raw in (text or "").splitlines():
+        if raw.startswith(head):
+            return raw[len(head) :].strip()
+    return ""
+
+
+def card_last_touch(root: Path, card: str) -> str:
+    """最近是谁、什么时候动过这张卡 —— 从 git 读，不另存一份。
+
+    形如 `2026-09-07 · a1b2c3d 某人：提交标题`。读不到就空串。
+    """
+
+    out = _git(
+        root,
+        "log",
+        "-1",
+        "--format=%ad · %h %an：%s",
+        "--date=short",
+        "--",
+        f"docs/tasks/active/{card}",
+    )
+    # `_git` 失败时给 None（和空串含义不同：一个是问不到，一个是没记录）——
+    # 这里两种都归为「没线索」，因为对调用方来说结果一样：别拿它当证据。
+    first = (out or "").strip().splitlines()
+    return first[0] if first else ""
+
+
+def active_cards(root: Path) -> list[tuple[str, str, str, str]]:
+    """`docs/tasks/active/` 里的卡：`(文件名, 状态行首句, 负责 Agent, 最近动它的人)`。
 
     **目录即状态**（ADR-0083）：在 `active/` 就是还没做完。这里不去猜「做到哪了」，
     只把卡摆出来 —— 猜出来的进度会被下一个人当成事实。
+
+    **归属那两栏是 TASK-087 §5.30 的答案**：AGENTS §14 写了「每个开发任务只能有
+    一个实施 Agent」，却没写**怎么在动手前发现另一个会话已经在这张卡上**。
+    实测代价：两个会话同时收口 TASK-141，一份 codex 审查被对方的提交抽空作废。
+    所以这里把已有的两条线索摆出来 —— 卡头的 `负责 Agent`（认领是写进仓库的，
+    ADR-0083「目录即状态」的同一条纪律）与**最近谁动过这张卡**（从 git 读）。
+    **不引入第三份台账**：多一份「谁在做什么」的记录，就多一处会漂的东西，
+    而它漂掉的样子恰好就是这条欠账本身。
     """
     base = root / "docs" / "tasks" / "active"
     if not base.is_dir():
@@ -643,13 +682,11 @@ def active_cards(root: Path) -> list[tuple[str, str]]:
     out = []
     for p in sorted(base.glob("TASK-*.md")):
         text, err = _read_text(p)
-        line = ""
+        status = owner = ""
         if not err:
-            for raw in (text or "").splitlines():
-                if raw.startswith("- 状态："):
-                    line = raw[len("- 状态：") :].strip()
-                    break
-        out.append((p.name, line))
+            status = _card_field(text or "", "状态")
+            owner = _card_field(text or "", "负责 Agent")
+        out.append((p.name, status, owner, card_last_touch(root, p.name)))
     return out
 
 
@@ -709,7 +746,7 @@ def run_resume(root: Path) -> dict:
     dirty = _git(root, "status", "--porcelain")
     cards = active_cards(root)
     snaps = []
-    for name, _line in cards:
+    for name, _line, _owner, _touch in cards:
         task = name.split("-")[0] + "-" + name.split("-")[1]
         snap = read_snapshot(root, task)
         if not snap:
@@ -730,7 +767,10 @@ def run_resume(root: Path) -> dict:
         "branch": _git(root, "rev-parse", "--abbrev-ref", "HEAD") or "(未知)",
         "tip": tip or "(未知)",
         "dirty": [ln for ln in (dirty or "").splitlines() if ln.strip()],
-        "active_cards": [{"card": n, "status": s} for n, s in cards],
+        "active_cards": [
+            {"card": n, "status": s, "owner": o, "last_touch": t}
+            for n, s, o, t in cards
+        ],
         "snapshots": snaps,
     }
 
@@ -791,6 +831,17 @@ def render_resume(state: dict) -> str:
     lines.append("在办的卡（目录即状态，在这儿就是还没做完）：")
     for c in state["active_cards"]:
         lines.append(f"   · {c['card']}：{c['status'] or '（没有状态行）'}")
+        # 归属先于进度：动手前要答的第一个问题是「有没有人已经在这张卡上」
+        # （AGENTS §14 / TASK-087 §5.30）。**没写负责人不等于没人在做** ——
+        # 所以「最近动它的人」照样印出来，那条比卡头更难忘记更新。
+        owner = c.get("owner") or ""
+        lines.append(
+            f"     负责：{owner}"
+            if owner
+            else "     负责：**没写** —— 动手前先认领（写进卡头）"
+        )
+        if c.get("last_touch"):
+            lines.append(f"     最近：{c['last_touch']}")
     lines.append("")
     if not state["snapshots"]:
         lines.append("没有机械状态快照 —— 目标与下一步只能从卡上读，别从这里猜。")
