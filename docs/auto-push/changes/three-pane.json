@@ -1487,12 +1487,32 @@
           "subject": "test: 把两条守得不够硬的守卫补硬（codex 非阻断），并划掉两条「修了没划掉」的台账",
           "time": "2026-09-06T22:41:47+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/tasks/active/TASK-087-followup-ledger.md",
             "mockups/motv-workspace/tests/genrecord.test.mjs"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "98598e43d0d2763372dbfbd00e7515a14e5a4744",
+          "subject": "fix(tooling): 闸门从脚本位置找自己；文档 id 按「前缀 + 数字」取，不再定宽切",
+          "time": "2026-09-07T11:51:54+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            ".claude/hooks/gate_dispatch.py",
+            ".claude/tools/gen_docs_status.py",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "tests/tooling/test_commit_gate_policy.py",
+            "tests/tooling/test_docs_status.py"
+          ],
+          "scope_violation": [
+            ".claude/hooks/gate_dispatch.py",
+            ".claude/tools/gen_docs_status.py",
+            "tests/tooling/test_commit_gate_policy.py",
+            "tests/tooling/test_docs_status.py"
+          ]
         }
       ],
       "paths": [
