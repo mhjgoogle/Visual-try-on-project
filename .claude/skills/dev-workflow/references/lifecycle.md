@@ -80,7 +80,7 @@ Superseded by / Partially superseded by`）。只在正文里提一句不算：�
 
 ## 3. 收口时做什么（dev-workflow 第 9/10 步的展开）
 
-### 第 9 步 · 仓库收敛（代码收敛之外的七问）
+### 第 6 环 Close · 仓库收敛（代码收敛之外的七问）
 
 1. 这次新增的 `docs/` 文件，**每一份都是 A 或 B 吗**？C 类删掉或提炼。
 2. 有 A 类文档现在在**说谎**吗？（尤其 `current-architecture.md`：
@@ -107,7 +107,7 @@ python .claude/tools/gen_docs_status.py     # 第 7 问：六面 + STATUS.md 重
 它不判「这份文档还有没有价值」—— 那需要读者。**它漏报，不误杀**；
 漏的那部分就是上面六问的第 1、2、6 问。
 
-### 第 10 步 · Done 时的三个动作（一起做，不是可选项）
+### 第 6 环 Close · Done 时的三个动作（一起做，不是可选项）
 
 ```
 git mv docs/tasks/active/TASK-NNN-*.md docs/tasks/done/     # 或 backlog/

@@ -1,9 +1,9 @@
 # 五条主工作流
 
-共同骨架（第 16 条循环）：
-`Requirement → Change Record → Impact Analysis → Architecture Check(条件) →
-Implementation → Targeted Verification → Convergence → Done`。
-每条工作流只改变各阶段的**重点**，不强制生成完整 plan/design/task 文档。
+共同骨架就是 [SKILL.md](../SKILL.md) 的六个环节：
+`Intake → Classify → Depth → Contract → Execute → Close`。
+每条工作流只改变各环节的**重点**，不强制生成完整 plan/design/task 文档，
+也不改变深度判定（四变量取最高，[depth.md](depth.md)）。
 
 ## 1. Feature / Enhancement
 

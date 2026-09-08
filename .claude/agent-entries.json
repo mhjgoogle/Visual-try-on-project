@@ -5,7 +5,7 @@
       "entry": ".agents/skills/auto-push/SKILL.md",
       "source": ".claude/skills/auto-push",
       "renderer": "agent_harness/1",
-      "source_digest": "sha256:a8bf0107adb0df222b21ef8a9b20797074a67876dc4e20f8a1edee50cc739eea",
+      "source_digest": "sha256:d205d547a10051a095203ffad323690a6570fd79da579b2efc59143c40a6bb81",
       "entry_digest": "sha256:566d68316b737955953a2ba635dd7f54a23ea069c6cdc85895bf25a7ae57b7f0"
     },
     "codex-review-loop": {
@@ -19,8 +19,8 @@
       "entry": ".agents/skills/dev-workflow/SKILL.md",
       "source": ".claude/skills/dev-workflow",
       "renderer": "agent_harness/1",
-      "source_digest": "sha256:a4f252635fc6cc4f5ab26f4104a92746c150ddefa2a08292c052bfcd8c6712a2",
-      "entry_digest": "sha256:f9254167af78b6e13ad37fa7cefb9dbfb376c4be91feb133742bd42b46a9d595"
+      "source_digest": "sha256:e76fd3011de18a43e9cd06d6c1b69da4a35f7fb60c1a711e9df4c8c917c903c2",
+      "entry_digest": "sha256:0fec97c8771a8672fdaaf514e18a0772a028fc5cbc71a835bb0d317219bc385f"
     },
     "product-loop": {
       "entry": ".agents/skills/product-loop/SKILL.md",

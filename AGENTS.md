@@ -155,7 +155,7 @@ Agent 无权自改）如实告知并一次性解决，不要让它变成每次�
   `docs/tasks/backlog/` 一张卡并当场说明**（「与长期 Mission 一致，但不服务当前
   Milestone，进入 Backlog，不实施」），**不开工、不建 REQ**。当前里程碑读
   [STATUS.md](docs/STATUS.md)「当前真相」节。闸判错可逆（`git mv` 搬回
-  `active/`），因此**不问用户**（第 1 节）。细则见 dev-workflow Skill 第 0.5 步。
+  `active/`），因此**不问用户**（第 1 节）。细则见 dev-workflow Skill 第 1 环 Intake。
 - **需求不是方案。** 「增加一个 X Agent / 模块 / 表」是 **Solution 层**，不是
   Requirement。检验：把它改写成一句「谁在什么时候看到/得到什么」，若改写后仍
   必须出现实现名词才说得通，它就是方案 —— **Agent 自己定，不写进 REQ，也不拿去
@@ -510,7 +510,7 @@ The repo converges instead of accumulating forever.」）。
     默认已加载的**，否则闸本身变成负担。
 
     **锚点缺失或为空时生成器 fail-closed**（退出非零并指出缺哪一行）：生成不出来
-    的当前真相是缺陷，不是可以留白的格子。收敛检查（第 9 步）看的不是它存不存在，
+    的当前真相是缺陷，不是可以留白的格子。收敛检查（dev-workflow 第 6 环 Close）看的不是它存不存在，
     而是它**说的还是不是真的** —— 尤其里程碑那一行，它是唯一手写的排期事实。
 
     不新建 traceability 数据库、不给卡加 metadata 文件、不按里程碑二级归档 ——

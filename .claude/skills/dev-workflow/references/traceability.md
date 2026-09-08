@@ -53,8 +53,8 @@ Requirement → Change/Task → 架构约束 → 代码 → 验证证据 → 独
 | --- | --- | --- |
 | `ORPHAN_TASK` | 卡既无 Requirement 也无技术目标 | `lifecycle_check`（机器） |
 | `ORPHAN_IMPLEMENTATION` | 有 diff 对不上任何已申报 Task | auto-push 的 `foreign` / `BLOCKED_MIXED` / `BLOCKED_WIDE`（既有机制，不另造） |
-| `REQUIREMENT_COVERAGE_GAP` | 某条验收判据没有任何 Task / 验证覆盖 | 第 10 步对账 + 审查第 1 闸 |
-| `ARCHITECTURE_UNKNOWN` | 改动明显碰边界（跨模块 / 合同 / 依赖方向 / schema），卡却一条约束都没引 | 第 6 步治理 + 审查第 2 闸 |
+| `REQUIREMENT_COVERAGE_GAP` | 某条验收判据没有任何 Task / 验证覆盖 | 第 6 环 Done 对账 + 审查第 1 闸 |
+| `ARCHITECTURE_UNKNOWN` | 改动明显碰边界（跨模块 / 合同 / 依赖方向 / schema），卡却一条约束都没引 | 第 5 环架构治理 + 审查第 2 闸 |
 
 **代码已经很多不等于需求完成**：判据没被覆盖就是 `REQUIREMENT_COVERAGE_GAP`。
 

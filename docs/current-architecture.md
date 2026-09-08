@@ -6,7 +6,7 @@
 
 - 它是**索引，不是副本**：每条只写结论，细节在「权威」列指向的文档里。
 - 它是 **A 类当前事实**：过期即缺陷。改动使某条不再成立时，**在同一个提交里**
-  改这里（dev-workflow 第 9 步收敛清单会问）。
+  改这里（dev-workflow 第 6 环 Close 的收敛清单会问）。
 - 目标长度 ≤ 200 行（`tests/tooling/test_lifecycle_check.py` 钉住）。超了说明在抄细节。
 - 规则不在这里：Agent 必须遵守的条款只有 [AGENTS.md](../AGENTS.md) 一份。
   项目背景与路线在 [project-context.md](project-context.md)，逐项状态在

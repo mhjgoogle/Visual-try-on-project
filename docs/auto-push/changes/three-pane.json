@@ -3182,6 +3182,45 @@
       "verification": "PASS",
       "verification_ref": "pytest tests/tooling 415 passed · lifecycle_check 0 finding · 两条守卫变异验证（抄一行 REQ 正文进 WORKSTATUS 当场转红）",
       "declared": "2026-09-08T13:05:13+00:00"
+    },
+    "TASK-144": {
+      "commits": [
+        {
+          "hash": "18cdcacf6fadd960822994d5be0edaeabbca785b",
+          "subject": "docs(dev-workflow): minimize development records and reconcile before rework",
+          "time": "2026-09-08T13:26:45+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            ".agents/skills/dev-workflow/SKILL.md",
+            ".claude/agent-entries.json",
+            ".claude/skills/dev-workflow/SKILL.md",
+            ".claude/skills/dev-workflow/references/lifecycle.md",
+            ".claude/skills/dev-workflow/references/records.md",
+            ".claude/skills/dev-workflow/references/traceability.md",
+            ".claude/skills/dev-workflow/references/verification.md",
+            ".claude/skills/dev-workflow/references/workflows.md"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        ".agents/skills/dev-workflow/",
+        ".claude/agent-entries.json",
+        ".claude/skills/auto-push/SKILL.md",
+        ".claude/skills/auto-push/references/merge-and-conflicts.md",
+        ".claude/skills/dev-workflow/",
+        "AGENTS.md",
+        "docs/STATUS.md",
+        "docs/WORKSTATUS.md",
+        "docs/adr/ADR-0103-two-planes-and-cost-based-depth.md",
+        "docs/current-architecture.md",
+        "docs/tasks/active/TASK-144-dev-workflow-v03-two-planes.md",
+        "docs/tasks/done/TASK-144-dev-workflow-v03-two-planes.md"
+      ],
+      "verification": "PASS",
+      "verification_ref": "gate full suite: 4049 passed, 59 skipped (only STATUS/WORKSTATUS staleness failed, now regenerated); lifecycle_check 0 findings; agent_harness check PASS",
+      "declared": "2026-09-08T13:35:07+00:00"
     }
   },
   "merge_gate": {

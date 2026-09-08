@@ -1,13 +1,14 @@
 ---
 name: dev-workflow
 description: >-
-  Route development work from requirement understanding through
-  implementation, verification and delivery. Use at the start of features, bug
-  fixes, refactors, performance work, migrations and development-document
-  maintenance. Apply the current milestone gate, keep records minimal, and
-  reconcile existing behavior and evidence before rework. Do not use for
-  questions, code explanations, pure conversation or a standalone review (use
-  codex-review-loop for that).
+  Route development work from intake through implementation, verification and
+  delivery. Use at the start of features, bug fixes, refactors, performance
+  work, migrations and development-document maintenance. Claim ownership of a
+  shared tree first, apply the current milestone gate, pick depth from
+  uncertainty, impact, reversibility and contract change, and keep the
+  human-reviewable plane thin by leaving code-level plans in the working
+  memory of the agent. Do not use for questions, code explanations, pure
+  conversation or a standalone review (use codex-review-loop for that).
 ---
 
 # dev-workflow

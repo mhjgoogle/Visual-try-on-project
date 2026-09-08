@@ -70,7 +70,7 @@ HEAD 时返回 `BLOCKED_BASE_BEHIND`——要么 `--base HEAD`（在当前历史
    对它做字符串替换 —— 替换会静默失配，最后只剩一行标题）。
 4. `push` —— 成功即完；`NEEDS_SYNC` 见下。
 5. push 成功后做一次 skill-evolution Fast Loop 反馈（沿用 dev-workflow
-   第 10 步的既有约定，把 commit hash 写进 note）。
+   第 6 环 Close 的既有约定，把 commit hash 写进 note）。
 
 对 stage 结果的反应（全部 fail-closed，别绕）：
 

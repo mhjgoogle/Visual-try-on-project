@@ -22,7 +22,7 @@
 | `docs/reports/` | 阶段性工作报告 —— **历史证据**，默认不读 |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：5 在办 · 8 待排期 · 133 已完成 · 86 条 ADR。
+**当前**：5 在办 · 8 待排期 · 134 已完成 · 87 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -94,11 +94,11 @@
 
 | ADR | 标题 | 状态 |
 | --- | --- | --- |
+| [ADR-0103](adr/ADR-0103-two-planes-and-cost-based-depth.md) | ADR-0103：开发流程分两个面，深度按代价判 —— 不是继续加规则，是把规则分层 | Accepted（2026-09-08，实施 Agent 依 AGENTS.md §1 自行 Accept） |
 | [ADR-0102](adr/ADR-0102-origin-and-confirmation-are-two-fields.md) | ADR-0102：发起方与确认方是两个字段 —— 「他在对话里说的」不等于「他自己点的」 | Accepted（2026-09-05，实施 Agent 依 AGENTS.md §1 自行 Accept） |
 | [ADR-0101](adr/ADR-0101-idea-intake-level-and-milestone-gate.md) | ADR-0101：想法先分层、再过当前里程碑闸，然后才谈需求 | Accepted |
 | [ADR-0100](adr/ADR-0100-account-quota-is-not-a-paid-gate.md) | ADR-0100：账号额度不是付费闸 —— 判据是「会不会产生按次账单」 | Accepted（2026-09-05，实施 Agent 依 AGENTS.md §1 自行 Accept） |
 | [ADR-0099](adr/ADR-0099-resume-is-not-a-retry.md) | ADR-0099：重启之后的续跑不是重试 —— 孤儿付费任务接回已经存在的那一条路 | Accepted（2026-09-05，实施 Agent 依 AGENTS.md §1 自行 Accept |
-| [ADR-0098](adr/ADR-0098-index-docs-are-not-a-second-contract.md) | ADR-0098：术语表与范围外记录是索引，不是第二份合同 | Accepted |
 
 ## 在办 · 任务卡
 
@@ -277,6 +277,7 @@
 | [TASK-140-main-ci-has-been-red-for-nine-days.md](tasks/done/TASK-140-main-ci-has-been-red-for-nine-days.md) | TASK-140：main 的 CI 连续八次全红，而没有人看见 | 实现完成（2026-09-05 接手 · 2026-09-06 收口） |
 | [TASK-141-idea-intake-and-current-truth.md](tasks/done/TASK-141-idea-intake-and-current-truth.md) | TASK-141：想法入口 —— 分层、里程碑闸与可重建的当前真相 | 已完成（2026-09-05 开卡 · 同日收口 · codex 独立审查 2 轮 pass） |
 | [TASK-142-a-save-refused-by-a-reader.md](tasks/done/TASK-142-a-save-refused-by-a-reader.md) | TASK-142：他打的字，因为「有人正在读那个文件」而丢掉 | 实现完成（2026-09-06 · 提交 6d9473b） |
+| [TASK-144-dev-workflow-v03-two-planes.md](tasks/done/TASK-144-dev-workflow-v03-two-planes.md) | TASK-144：dev-workflow v0.3 —— 压成「人类控制面 / Agent 执行面」两层 | — |
 | [TASK-145-workstatus.md](tasks/done/TASK-145-workstatus.md) | TASK-145：一屏看完「每条需求做到哪了」 | 实现完成（2026-09-08） |
 
 ## 已完成 · 设计与验收记录
@@ -313,7 +314,7 @@
 | 位置 | 放什么 |
 | --- | --- |
 | [当前架构合同](current-architecture.md) | **现在**成立的边界与约束（NOW） |
-| [`docs/adr/`](adr/) | 86 条决策记录（ADR-0001 … ADR-0102）—— WHY / HISTORY |
+| [`docs/adr/`](adr/) | 87 条决策记录（ADR-0001 … ADR-0103）—— WHY / HISTORY |
 | [`docs/design/`](design/) 根 | 系统合同、产品信息架构、L0–S7 I/O 合同 |
 | [项目背景与路线](project-context.md) | 这个项目是什么、走到哪了 |
 | [实施规划](implementation_plan.md) | 阶段与里程碑路线图 |

@@ -17,6 +17,27 @@ Review Package 按 traceability.md 摘录原文供审查，属于临时快照，
 | 重大设计决策 | ADR 记理由，当前合同记结果，卡只放链接；普通实现选择留在卡内 |
 | 原始调查、命令输出、试错过程 | 会话或 .claude/tmp/；卡内只保留可复核结论 |
 
+## 控制面与执行面 —— 哪些字该写下来给人看
+
+**四层，前三层是人审的控制面，第四层是我自己的工作记忆**
+（[SKILL.md](../SKILL.md) 最高原则 2）：
+
+| 层 | 回答什么 | 住在哪 | 谁读 |
+| --- | --- | --- | --- |
+| **Requirement** | 用户最终看到什么行为 | `docs/requirements/REQ-*.md` | 人 |
+| **Design** | 系统用什么结构解决它 | ADR + [当前架构合同](../../../../docs/current-architecture.md)；普通选择写卡内结论 | 人 |
+| **Task** | 哪几个可验证切片完成这个 Design | `docs/tasks/*/TASK-*.md` | 人 |
+| **Execution detail** | 改哪个文件、哪个函数、哪个字段、按什么顺序 | 会话记忆或 `.claude/tmp/`（已 gitignore） | **只有我** |
+
+**判据一句话：这一行变了，人的判断会跟着变吗？** 会 → 控制面；不会 → 执行面。
+
+因此**卡上不写**这些：某个函数怎么改、某个 class 加什么方法、API 用什么参数名、
+DB 哪一列怎么处理、分几步敲键盘。它们**不是**保密，是**没有审阅价值** ——
+写进卡只会把「三条要审的判断」埋进「三十条不用审的步骤」里，于是整张卡都没人审。
+
+**执行细节任务结束即删**（AGENTS §26）。有长期价值的**先提炼**成卡上的结论几行、
+一条 ADR 或当前架构合同里的一行，**再删原件**。
+
 新增独立文档前，必须能说明它回答了哪个**现有文档无法承载、后续仍需维护**的问题。
 说不出来就更新现有位置。模板是信息清单，允许合并章节；不填空标题、不重复写
 「目标/用户需要/预期效果」，无架构变化或 Follow-up 时省略对应章节。
@@ -34,7 +55,7 @@ Review Package 按 traceability.md 摘录原文供审查，属于临时快照，
 （一行一条，Agent 建 REQ 时同步加行）。
 
 记录**为什么要做、用户真正要什么**。实现方案不写这里（写任务卡/ADR）。
-只有产品需求建 REQ：Bug / Refactor / Perf 默认不建（见 SKILL.md 第 3 步）。
+只有产品需求建 REQ：Bug / Refactor / Perf 默认不建（见 SKILL.md 第 4 环）。
 
 ```markdown
 # REQ-001：<一句话标题>
@@ -106,11 +127,14 @@ v1 标题行就地补 `（superseded by v2）`，内容一字不动。
 ```markdown
 # TASK-NNN：<标题>
 
-- 状态：未开工 | 进行中 | 完成 | 中止
-- Workflow：Feature | Bug | Refactor | Perf | Migration · 深度：STANDARD | DEEP
+<!-- Decision Brief：这个案件的控制面。六行，是卡头，不是第二份文件。 -->
+- 起因：<用户原话 / 缺陷现象 / 上一条决策> · 闸：放行（第 2 问，阻塞 TASK-106）
+- 类型：Feature | Bug | Refactor | Perf | Migration · 深度：STANDARD | DEEP（C=DEEP：改持久化格式）
+- 成果物：REQ-NNN · ADR-NNNN · 本卡 · 提交
 - 关联 Requirement：REQ-NNN vK 判据 1,3（可多条；存量需求写「依据」行原话）
                     # 无产品需求时改写「技术目标：<一句，含为什么必要>」
 - 架构约束：CA §2 依赖方向 · CA §5.3 fail-closed    # 或 none-specific
+- 状态：未开工 | 进行中 | 完成 | 中止    # 写「交付了什么」，不得与所在目录矛盾
 
 ## 范围与影响
 IN SCOPE：<本次要交付什么>；OUT OF SCOPE：<本次不做什么>
@@ -126,7 +150,28 @@ IN SCOPE：<本次要交付什么>；OUT OF SCOPE：<本次不做什么>
 
 卡保持轻量——上面每节几行即可，不写几十页。
 
-**Milestone Gate 判「现在不做」时落的卡更轻**（SKILL.md 第 0.5c ·
+### Decision Brief 逐字段
+
+**它是卡头那六行，不是一份新文件。** 每一行都是**人要看的**（谁读了这六行，
+就知道这个案件为什么存在、有多重、会产生什么、做完没有）：
+
+| 字段 | 写什么 | 写错了会怎样 |
+| --- | --- | --- |
+| `起因` | 为什么出现这个案件：用户原话 / 缺陷现象 / 上一条决策；后半句挂里程碑闸的判定（`闸：放行（第 N 问…）`） | 缺了它，三个月后没人说得出这张卡为什么存在 —— 那就是 `ORPHAN_TASK` 的人类版本 |
+| `类型` · `深度` | 五条工作流之一 + QUICK/STANDARD/DEEP，**括号里写是哪个变量顶上去的**（`C=DEEP：改持久化格式`） | 只写档位不写变量，升档降档就没有可复核的依据（[depth.md](depth.md)） |
+| `成果物` | 这个案件会产生哪些**持久物**：REQ / ADR / 本卡 / 只有提交 | 这是防文档蔓延的那道闸：开工时说了只产出「本卡 + 提交」，收口时冒出三份新文档就是范围扩散 |
+| `关联 Requirement` 或 `技术目标` | 追溯句柄（[traceability.md](traceability.md) §2） | 两者皆无 → `ORPHAN_TASK`，`lifecycle_check` 当场转红 |
+| `架构约束` | 只引与自己相关的 `CA §N`；确实不受约束写 `none-specific` | 为形式凑引用没有信息量；该引不引 → `ARCHITECTURE_UNKNOWN` |
+| `状态` | **交付了什么**（如「audio/ 包 + AV 混流步骤」），不是「做完没有」 | 与所在目录矛盾（`完成` 却在 `active/`）→ `lifecycle_check` 转红 |
+
+**QUICK 深度没有卡**，它的 Brief 就是提交信息里的那两行：首行写意图，
+正文写关联（`REQ-NNN` / `TASK-NNN`）与做了什么验证。
+
+**不建 traceability 数据库、不给卡加 metadata 文件、不给每层建一种新记录类型**
+（[ADR-0101](../../../../docs/adr/ADR-0101-idea-intake-level-and-milestone-gate.md) §4
+已裁决，不重访）。Brief 之所以成立，正因为它**没有**新增文件。
+
+**Milestone Gate 判「现在不做」时落的卡更轻**（SKILL.md 第 1 环 ·
 [ADR-0101](../../../../docs/adr/ADR-0101-idea-intake-level-and-milestone-gate.md) 决策 3）：
 标题 + `技术目标：`（或 `关联 Requirement：`）+ 一行「为什么现在不做 ·
 **什么条件下它会变成该做**」就够，直接落 `docs/tasks/backlog/`。
