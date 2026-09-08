@@ -1,33 +1,29 @@
 ---
 name: dev-workflow
 description: >-
-  Software Development Operating Skill — the single entry point for any
-  development request. INVOKE at the START of any task that will change code
-  or behavior: new feature / enhancement, bug fix or debugging, refactor or
-  cleanup, performance optimization, dependency or schema or framework
-  migration, and requirement changes to already-shipped features. It first
-  places the idea on one of six levels (Mission / Strategy / Milestone /
-  Requirement / Solution / Implementation) and runs the Current Milestone Gate —
-  an idea that serves no current milestone goes to the backlog INSTEAD of being
-  built. Then it routes the task to the right internal workflow, establishes
-  requirement understanding and confirmation, picks the process depth, creates
-  and maintains the Requirement / Change records, decides verification scope,
-  and runs the convergence check before finishing. DO NOT invoke for:
-  answering questions, explaining code, pure conversation, or running the
-  review loop by itself (that is codex-review-loop, which this skill calls
-  at the right moment).
+  Route development work from requirement understanding through implementation,
+  verification and delivery. Use at the start of features, bug fixes, refactors,
+  performance work, migrations and development-document maintenance. Apply the
+  current milestone gate, keep records minimal, and reconcile existing behavior
+  and evidence before rework. Do not use for questions, code explanations, pure
+  conversation or a standalone review (use codex-review-loop for that).
 ---
 
 # dev-workflow — 软件开发操作 Skill（v0.2）
 
-一个入口，五条内部工作流，自动路由、自动建档、自动验证、自动收敛。
-只有真正的产品决策才回到用户。
+一个入口，五条内部工作流，按需记录、验证并交付可运行结果。
+文档只保存继续开发必需的事实；用户不需要读完开发档案才能给反馈。
 
 **本 Skill 是路由与记录层，不重定义本仓库已有的权威规则。**
 测试归属与规模、审查触发与轮次、提交规则、决策模式，权威永远是
 AGENTS.md（唯一一份规则：§1 决策模式、§6 测试与审查、§7 Git）、
 ADR-0080/0081（测试归属与审查协议）、ADR-0068（连续修改链）。
 本 Skill 与它们冲突时，以它们为准。
+
+**文档约束先读**：[records.md「最小记录规则」](references/records.md)。
+同一事实一处正文；QUICK 用提交、一般任务用一张卡、产品行为变化才动 REQ、
+重大设计才立 ADR。复杂度增加可以加分析深度，不自动增加文件种类。
+返工先核对判据、实现与证据，只处理差异；不靠多写一轮方案代替验证。
 
 ## 第 0 步 — Repo Contract 检查（每个新会话一次）
 
@@ -75,7 +71,7 @@ python .claude/tools/agent_harness.py resume
 | **Mission** | 这个产品为什么存在 | `project-context.md` 锚点行 | 用户 |
 | **Strategy** | 用哪条路线达成 | `project-context.md` 锚点行 + ADR | 用户给方向，我记录 |
 | **Milestone** | 这一轮交付什么 | `project-context.md` 锚点行 | 用户，**一句话** |
-| **Requirement** | 用户/系统必须成立的**行为** | `docs/requirements/REQ-*.md` | 用户确认（下一节的理解闸） |
+| **Requirement** | 用户/系统必须成立的**行为** | `docs/requirements/REQ-*.md` | 用户要求 / 反馈为依据（下一节） |
 | **Solution** | 怎么实现它 | ADR / 任务卡「架构影响」 | **我自己定，不问** |
 | **Implementation** | 具体改哪些文件 | 任务卡 + 提交 | **我自己定，不问** |
 
@@ -146,134 +142,17 @@ Solution：   用一个一致性 Agent 做校验    ← 我自己定，不进 RE
 
 ## REQUIREMENT UNDERSTANDING GATE（第 1 步之前）
 
-Before planning or implementation, establish product understanding.
+新需求或实质修订先用一小段说明：**用户要得到什么、一个可观察的验收例子、
+本次边界与必要假设**。已有 REQ/任务卡直接引用，只说明变化；不固定输出七段，
+不另建「需求理解」「影响分析」「实施计划」三份文档。
 
-Do not start coding merely because the user has described a feature.
+理解不足时记 `UNDERSTANDING`，先查现有要求、代码或可运行结果。
+理解充分时记 `UNDERSTANDING_READY`；用户明确要求或既有确认已覆盖的工作，
+记录依据后进入 `CONFIRMED` 并继续。仅讨论的设想保留 `DRAFT`，不擅自扩大任务。
 
-For new requirements, meaningful requirement revisions, or ambiguous UX changes,
-first produce a concise Requirement Understanding Check.
-
-The purpose is to prove that the intended product behavior is understood.
-
-### Output
-
-#### 1. Goal
-
-In your own words, state what outcome the user is trying to achieve.
-
-Do not merely repeat the user's wording.
-
-#### 2. Expected User Behavior
-
-Describe concretely:
-
-- what the user does
-- what the system does
-- what the user sees
-- what happens next
-
-Prefer one or two concrete user-flow examples.
-
-#### 3. Scope
-
-State what is included in this requirement.
-
-#### 4. Non-Goals
-
-State what is NOT implied by this requirement.
-
-This is important for preventing unnecessary implementation expansion.
-
-#### 5. Existing Behavior Impact
-
-Identify:
-
-- what current behavior remains unchanged
-- what behavior changes
-- what existing module/workflow is affected
-
-#### 6. Acceptance Examples
-
-Give a small number of observable examples.
-
-Use:
-
-Given ...
-When ...
-Then ...
-
-These should describe product behavior, not implementation details.
-
-#### 7. Open Product Decisions
-
-Only list ambiguities that materially affect:
-
-- user-visible behavior
-- workflow
-- product semantics
-- compatibility with an already confirmed requirement
-
-Do NOT ask the user about normal engineering decisions.
-
-### GATE RULE
-
-Implementation status remains:
-
-`UNDERSTANDING`
-
-until the requirement is sufficiently understood.
-
-If no material product ambiguity remains, state:
-
-`UNDERSTANDING_READY`
-
-and present the understanding to the user.
-
-For interactive product discovery, wait for the user's confirmation before promoting to:
-
-`CONFIRMED`
-
-Only after `CONFIRMED` may the workflow proceed to:
-
-Impact Analysis
-→ Planning
-→ Implementation
-
-### IMPORTANT
-
-Do not use this gate as an excuse to ask unnecessary questions.
-
-If the user's intent is already clear:
-
-- make reasonable engineering assumptions
-- state them briefly when relevant
-- do not ask the user to decide implementation details
-
-Ask the user only when different interpretations would create meaningfully different product behavior.
-
-### ANTI-PATTERN
-
-Bad:
-
-> "I understand. Should I use React Context or Zustand?"
-
-Bad:
-
-> "Should I create src/components/feedback/FeedbackPanel.tsx?"
-
-Bad:
-
-> "Do you want REST or WebSocket?"
-
-These are engineering decisions.
-
-Good:
-
-> "When the user clicks another UI component while the feedback conversation is open,
-> should the conversation remain attached to the original component,
-> or follow the newly selected component?"
-
-This is a product behavior decision.
+**授权与产品满意度分开**：可逆 UI/UX 选择按 AGENTS.md §1 先做一版给用户看，
+不设重复确认或签字闸；用户明确要求先讨论方案时遵从该范围。
+真正需要询问的边界以 AGENTS.md §1 与会话权限为准，不能因模板有空项就停工。
 
 ## 第 1 步 — 路由：这是哪种任务？
 
@@ -298,8 +177,8 @@ This is a product behavior decision.
 
 | 深度 | 适用 | Requirement | Change Record | Impact Analysis |
 | --- | --- | --- | --- | --- |
-| **QUICK** | 意图明确、范围一目了然、单模块 | 已有 REQ 就引用；没有不强制建 | **提交信息即记录**（引用 REQ/TASK） | 心算，不落纸 |
-| **STANDARD** | 多文件/单模块以上，或有一个待确认点 | 按需（见第 3 步） | 任务卡（`docs/tasks/TASK-*.md`） | 卡内一节，几行 |
+| **QUICK** | 意图明确、范围一目了然、单模块 | 已有 REQ 就引用；没有不强制建 | **提交信息即记录**（引用 REQ/TASK） | 对话中简述要改 / 不动，不另建文件 |
+| **STANDARD** | 多文件/单模块以上，或有一个待确认点 | 按需（见第 3 步） | 任务卡（`docs/tasks/active/TASK-*.md`） | 卡内一节，几行 |
 | **DEEP** | 跨模块、动合同/schema、迁移、高不确定 | 涉产品行为则必须 CONFIRMED REQ 或明确「依据」 | 任务卡 + 需要时 ADR | 卡内一节 + 架构治理 |
 
 升档信号（实施中随时生效）：改动扩散出预估边界、触发第 5 步任一架构条件、
@@ -316,11 +195,8 @@ This is a product behavior decision.
 
 - 记录**为什么要做、用户真正要什么**，不记实现方案。**验收判据写成有序列表**
   —— 序号就是后面对账与审查的引用句柄（`REQ-003 v1 判据 2`），散文写不了对账。
-- 新需求、实质性修订或含糊的 UX 变化先经过 Requirement Understanding Gate；
-  用户原话是需求来源，**不再仅凭「描述了功能」自动视为 `CONFIRMED`**。
-  无实质产品歧义时先标记 `UNDERSTANDING_READY` 并呈现理解；交互式产品探索须等
-  用户确认后转 `CONFIRMED`。Agent 从探索中**推断**的需求仍记为 `DRAFT`，且不能
-  绕过本 Gate 进入 Impact Analysis、Planning 或 Implementation。
+- 新需求与实质修订按上面的理解闸建立共同理解；状态含义只在 records.md 定义，
+  不增加第二套确认规则。
 - 已实现的需求在真实使用后变化 → **不篡改旧版**，在同一 REQ 文件里追加
   `v2 (supersedes v1)`，后续实施只处理 **v1→v2 delta**。
 - Discovery 阶段允许读代码、跑 App、写临时代码、做 prototype、调 API、
@@ -332,10 +208,8 @@ This is a product behavior decision.
 - QUICK：不建卡。提交信息写明意图 + 关联（`REQ-NNN` / `TASK-NNN`，如有）。
 - STANDARD / DEEP：建任务卡**在 `docs/tasks/active/`**（目录即状态，
   [ADR-0083](../../../docs/adr/ADR-0083-docs-partitioned-by-completion.md)；
-  卡不得直接躺在 `docs/tasks/` 下），沿用本仓库既有卡格式，含最小字段集
-  （见 references/records.md）：id、状态、workflow 类型、深度、关联 REQ、
-  目标、IN/OUT SCOPE、受影响模块、架构影响、实施摘要、已做验证、
-  未解决项（→ Follow-up 总账）。**Agent 自动创建自动维护，用户不填。**
+  卡不得直接躺在 `docs/tasks/` 下）。使用 references/records.md 的紧凑模板；
+  必要字段可以合并，不照搬历史长卡的章节。**Agent 自动维护，用户不填。**
 - **追溯**：卡上只多两行 —— `关联 Requirement：REQ-NNN vK 判据 1,3`（无产品需求
   时改写 `技术目标：<一句，含为什么必要>`）与 `架构约束：CA §N …`（或
   `none-specific`）。两者皆无的卡是 `ORPHAN_TASK`，`lifecycle_check` 当场转红。
@@ -354,7 +228,8 @@ This is a product behavior decision.
 | **测试** | [CA §4](../../../docs/current-architecture.md) 的归属映射 |
 | **docs** | 当前事实类文档（架构合同、IA、glossary） |
 
-**输出两栏：要改的，和明确不动的。** 「不动」那一栏不是走过场 —— 它是后面审查
+**输出两栏：要改的，和明确不动的。** QUICK 在对话简述，其他深度放原卡，不另建文件。
+「不动」那一栏是后面审查
 第 2 闸与收敛检查的对照物，**改了却写在「不动」栏里的东西就是范围扩散的第一个
 信号**（→ 第 6 步 Change Isolation）。缺了否定面，出现的就是那句已经付过的账：
 「代码改了，但文档还是旧逻辑」。
@@ -379,25 +254,8 @@ boundary leakage / 隐藏耦合 / 重复抽象，**不直接接受扩散**；必
 按所选工作流的节奏推进（references/workflows.md）。共同纪律：
 
 - 垂直切片，能跑能演示；不按技术层拆。
-- 工程决策自己定（拆文件、命名、helper、跑哪些测试、删明显 obsolete 代码、
-  普通 refactor），**不问用户**。只有四种情况升级：产品歧义无法推断 /
-  与已确认产品行为冲突 / 必须改已确认行为 / 真产品 trade-off（如保兼容 vs
-  breaking）。问法按 AGENTS.md §1：「我打算 A，因为 X，代价 Y——要拦吗？」
-
-- **以下四类永远不问，它们不在上面那四种里**（产品负责人 2026-08-23：
-  「工程类的问题都不要再问……我需要你自动把所有的任务完成」）：
-
-  | 不问 | 典型措辞（都是错的） | 正确做法 |
-  | --- | --- | --- |
-  | **排序 / 先做哪个** | 「先做用户功能还是先补工装缺陷？」 | 自己排，说明理由，直接做 |
-  | **要不要继续** | 「要我接着做吗？」「要我核吗？」 | 继续。列表没做完就不停 |
-  | **要不要核实 / 要不要清理** | 「要我把这个也查一下吗？」 | 查。核实是工作的一部分，不是待批准项 |
-  | **把已列出的待办端回去让他挑** | 「剩下这些，你要哪个？」 | 按自己排的顺序做完，逐条报结果 |
-
-  **判据**：这四类的共同点是**错了完全可以重来**（顺序不对就换个顺序，
-  查错了就再查）。AGENTS.md §1 的判据是「错了能不能重来」——可重来的直接做。
-  「需要产品负责人拍板」不是有效理由；**在技术问题上停下来问，等于把工作
-  退回给用户**。
+- 工程选择、排序、可逆 UI/UX 假设按 AGENTS.md §1 自己定，记录必要结论后继续。
+  确认规则统一使用上面的理解闸，不在实施阶段另加一轮文档确认。
 
 - Requirement Understanding Gate 在实施开始前完成；进入 `CONFIRMED` 后，
   **一次任务里把待办做到底，不中途交还控制权。** 报告写在做完之后，不是做之前。
@@ -438,8 +296,10 @@ Current Valid Behavior，不是 Historical Behavior。
 5. `active/` 里有做完的（→ `done/`）或没人在做的（→ `backlog/`）卡吗？
 6. 有不再代表当前有效行为的测试 / 文档 / 兼容层吗？→ 删或更新。
 7. **当前真相还能被重新构建吗？**（AGENTS.md 第 27 条 / ADR-0101 决策 5）
+8. 本次有没有同一事实多处重抄、空模板章节、无独立用途的新文档？
+   按 records.md 最小记录规则合并为一处正文与链接；只处理本次范围。
 
-后两问机器帮你查（前四问要你自己判，守卫刻意不猜）：
+生命周期与旧记录由机器辅助检查，重复正文与文档必要性由 Agent 判断：
 
 ```
 python .claude/tools/lifecycle_check.py

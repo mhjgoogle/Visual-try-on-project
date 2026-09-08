@@ -7,11 +7,10 @@ Implementation → Targeted Verification → Convergence → Done`。
 
 ## 1. Feature / Enhancement
 
-- Requirement 先行：已有 CONFIRMED REQ / 已确认产品行为可直接做；新需求、实质性
-  修订或含糊 UX 变化必须先走 Requirement Understanding Gate。用户原话是来源，
-  但单纯描述功能不能绕过 Gate；只有推断时建 DRAFT。
+- Requirement 先行：按 SKILL.md 的理解闸说明行为与验收例子；已有确认直接引用，
+  新变化只写 delta。授权与状态按 records.md，不重复确认用户已明确要求的工作。
 - **垂直切片**：每片自己能跑、能演示、能验证；不按 schema→service→UI 分层推进。
-- UI/UX 拿不准时，只询问会造成明显不同产品行为的歧义；工程选择自己定。
+- 可逆 UI/UX 细节按 AGENTS.md §1 先做一版，明确必要假设，用户看过结果后反馈。
 - Discovery 产物（prototype/实验/截图）只是 Evidence；确认后按正式路径落地。
 - Done 加验：REQ 的验收判据满足，用户能在真实环境看到它跑。
 

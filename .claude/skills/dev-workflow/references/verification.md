@@ -4,15 +4,8 @@
 
 ## Impact Analysis（轻量）
 
-QUICK 心算；STANDARD/DEEP 写进任务卡（每项一行即可）：
-
-- affected feature/module（改哪里）
-- API / Contract impact（合同变没变）
-- data impact（持久化/schema/存量数据）
-- dependency impact（依赖方向、外部依赖）
-- architecture impact（触发 architecture.md 了吗）
-- affected tests（哪些测试护着这片）
-- docs impact（哪份文档会说谎）
+使用 SKILL.md 第 5 步的六面分析，不另填第二张清单。
+QUICK 在对话中简述要改 / 不动；STANDARD/DEEP 放原任务卡，每面一行。
 
 目的只有两个：**定修改范围 + 定验证范围**。不为文档而文档。
 
