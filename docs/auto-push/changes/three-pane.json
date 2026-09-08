@@ -3154,7 +3154,24 @@
       "declared": "2026-09-06T13:41:50+00:00"
     },
     "TASK-145": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "5dec81117171d9f3866c64adb7ee0ca2ef81cdc9",
+          "subject": "feat(docs): 一屏看完每条需求做到哪了 —— 进度从卡派生，不写需求正文（TASK-145 · three-pane）",
+          "time": "2026-09-08T13:15:41+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            ".claude/tools/gen_docs_status.py",
+            "docs/STATUS.md",
+            "docs/WORKSTATUS.md",
+            "docs/auto-push/changes/three-pane.json",
+            "docs/tasks/done/TASK-145-workstatus.md",
+            "tests/tooling/test_docs_status.py"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         ".claude/tools/gen_docs_status.py",
         "docs/STATUS.md",
