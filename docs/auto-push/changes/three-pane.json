@@ -1519,7 +1519,7 @@
           "subject": "feat(tooling): `resume` 现在先答「谁已经在这张卡上」—— 归属先于进度（TASK-087 §5.30）",
           "time": "2026-09-07T12:26:43+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             ".claude/tools/agent_harness.py",
             "docs/tasks/active/TASK-087-followup-ledger.md",
@@ -1534,6 +1534,7 @@
         ".claude/agent-entries.json",
         ".claude/hooks/gate_dispatch.py",
         ".claude/skills/auto-push/scripts/autopush.py",
+        ".claude/tools/agent_harness.py",
         ".claude/tools/gen_docs_status.py",
         "docs/STATUS.md",
         "docs/adr/ADR-0096-*.md",
@@ -1560,7 +1561,7 @@
       ],
       "verification": "PASS",
       "verification_ref": "",
-      "declared": "2026-09-07T11:52:14+00:00"
+      "declared": "2026-09-07T12:26:58+00:00"
     },
     "TASK-074": {
       "commits": [
@@ -3151,6 +3152,19 @@
       "verification": "PASS",
       "verification_ref": "收口：卡搬进 done/、STATUS.md 重生成、lifecycle_check 0、docs 守卫 42 passed。判据 30 跑 0 红 + 另一会话独立复核 14 跑 0 红 = 合计 44 跑 0 红（基线同树 8 跑 2 红）",
       "declared": "2026-09-06T13:41:50+00:00"
+    },
+    "TASK-145": {
+      "commits": [],
+      "paths": [
+        ".claude/tools/gen_docs_status.py",
+        "docs/STATUS.md",
+        "docs/WORKSTATUS.md",
+        "docs/tasks/done/TASK-145-*.md",
+        "tests/tooling/test_docs_status.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "pytest tests/tooling 415 passed · lifecycle_check 0 finding · 两条守卫变异验证（抄一行 REQ 正文进 WORKSTATUS 当场转红）",
+      "declared": "2026-09-08T13:05:13+00:00"
     }
   },
   "merge_gate": {

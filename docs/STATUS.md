@@ -5,6 +5,9 @@
 > `tests/tooling/test_docs_status.py` 会在它与目录不一致时转红 —— 手写索引一定
 > 会漂移，这正是本文件要消除的缺陷（2026-08-23 一天查出五处过期状态，其中一处
 > 错标签把两条真缺陷藏了十天）。
+>
+> **想一眼看到「每条需求做到哪了」，看 [工作进度](WORKSTATUS.md)** —— 同一条命令
+> 生成，本文件是**文档清单**，那份是**需求进度**。
 
 ## 怎么读这份文档
 
@@ -19,7 +22,7 @@
 | `docs/reports/` | 阶段性工作报告 —— **历史证据**，默认不读 |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：5 在办 · 8 待排期 · 132 已完成 · 86 条 ADR。
+**当前**：5 在办 · 8 待排期 · 133 已完成 · 86 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -274,6 +277,7 @@
 | [TASK-140-main-ci-has-been-red-for-nine-days.md](tasks/done/TASK-140-main-ci-has-been-red-for-nine-days.md) | TASK-140：main 的 CI 连续八次全红，而没有人看见 | 实现完成（2026-09-05 接手 · 2026-09-06 收口） |
 | [TASK-141-idea-intake-and-current-truth.md](tasks/done/TASK-141-idea-intake-and-current-truth.md) | TASK-141：想法入口 —— 分层、里程碑闸与可重建的当前真相 | 已完成（2026-09-05 开卡 · 同日收口 · codex 独立审查 2 轮 pass） |
 | [TASK-142-a-save-refused-by-a-reader.md](tasks/done/TASK-142-a-save-refused-by-a-reader.md) | TASK-142：他打的字，因为「有人正在读那个文件」而丢掉 | 实现完成（2026-09-06 · 提交 6d9473b） |
+| [TASK-145-workstatus.md](tasks/done/TASK-145-workstatus.md) | TASK-145：一屏看完「每条需求做到哪了」 | 实现完成（2026-09-08） |
 
 ## 已完成 · 设计与验收记录
 

@@ -80,6 +80,9 @@ _PREAMBLE = """# 文档状态总览
 > `tests/tooling/test_docs_status.py` 会在它与目录不一致时转红 —— 手写索引一定
 > 会漂移，这正是本文件要消除的缺陷（2026-08-23 一天查出五处过期状态，其中一处
 > 错标签把两条真缺陷藏了十天）。
+>
+> **想一眼看到「每条需求做到哪了」，看 [工作进度](WORKSTATUS.md)** —— 同一条命令
+> 生成，本文件是**文档清单**，那份是**需求进度**。
 
 ## 怎么读这份文档
 
@@ -425,6 +428,137 @@ def render() -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+# --- 工作进度（docs/WORKSTATUS.md）-------------------------------------------
+#
+# 产品负责人 2026-09-07：「我想做一个 workstatus。让我能够掌握各个开发需求完成的
+# 进度。但是不要写需求。只需要有需求的 link 就可以了。」
+#
+# 所以这份文件**一个字需求内容都不写**，只写「做到哪了」+ 链接。理由不只是他这么
+# 要求：需求正文抄第二遍，就会有两份各自漂移的真相，而文档漂移是本仓库记录在案的
+# 最高频缺陷。
+#
+# 进度**从卡派生**，不手写：卡头 `关联 Requirement` 行里的 `REQ-NNN`，加上卡所在
+# 目录（`done/` `active/` `backlog/` 就是它的状态，ADR-0083）。
+#
+# **为什么不做判据级进度**（那才是理想粒度）：8 份 REQ 里只有 3 份把判据写成了可
+# 解析的顶层有序列表，其余混在散文与版本说明里。硬做会让 5 条需求显示「0 条判据」
+# —— 比没有更糟，因为它看起来像事实。要做得先统一 REQ 的判据格式，那是改需求文件，
+# 不在本次范围里。
+
+WORK_OUT = DOCS / "WORKSTATUS.md"
+
+_WORK_HEAD = """# 工作进度
+
+> **这份文件是生成的，别手改** —— `python .claude/tools/gen_docs_status.py`。
+>
+> 一行一条需求：**做到哪了、谁在做、还差什么**。这里不写需求内容，只给链接 ——
+> 需求正文在链接那一头，抄第二遍就会有两份各自漂移的真相。
+>
+> 进度是**从卡派生**的：卡头引用了哪条 REQ，加上卡在 `done/` `active/` `backlog/`
+> 的哪一格（目录即状态）。**它衡量的是「这条需求的工作做了多少」，不是「这条需求
+> 满足了多少」** —— 后者要判据级对账，而 REQ 的判据格式今天还不统一（见生成器注释）。
+"""
+
+_DOT = "\u00b7"
+_DASH = "\u2014"
+
+
+def _cards_by_req() -> dict:
+    """每条 REQ 被哪些卡引用，按卡所在目录分组（目录即状态）。
+
+    只读卡头（第一个 `## ` 之前）—— 正文里提到别的 REQ 是引用，不是归属。
+    """
+    out: dict[str, dict[str, list[str]]] = {}
+    for state in ("done", "active", "backlog"):
+        folder = DOCS / "tasks" / state
+        if not folder.is_dir():
+            continue
+        for card in sorted(folder.glob("TASK-*.md"), key=lambda p: p.name):
+            head = card.read_text("utf-8").split("## ", 1)[0]
+            for num in sorted(set(_REQ_REF.findall(head))):
+                out.setdefault(num, {}).setdefault(state, []).append(_doc_id(card.name))
+    return out
+
+
+def _bar(done: int, total: int, width: int = 10) -> str:
+    """进度条。**分母是「引用这条需求的卡」的总数，不是判据数。**
+
+    满格不写成「完成」，写成「卡都做完了」—— 这两件事不是一回事，而一根满格的
+    绿条本身就是一句很强的断言。实例：REQ-006 的判据 1 在 TASK-128 落地之前
+    始终是 `PARTIAL`（codex 2026-09-05 判过），可如果那时引用它的卡恰好都在
+    `done/`，这一列就会显示满格 —— **它说的是「没有在办/待排期的卡了」，
+    不是「这条需求满足了」。**
+    """
+    if not total:
+        return _DASH
+    filled = round(width * done / total)
+    bar = "\u2588" * filled + "\u2591" * (width - filled)
+    tail = "卡都做完了" if done == total else f"{done}/{total}"
+    return f"{bar} {tail}"
+
+
+def render_work() -> str:
+    """`docs/WORKSTATUS.md` —— 一屏看完每条需求做到哪了。"""
+    req_dir = DOCS / "requirements"
+    cites = _cards_by_req()
+    lines = _WORK_HEAD.strip().splitlines()
+    lines += ["", "## 每条需求做到哪了", ""]
+    lines.append("| 需求 | 进度（卡） | 已完成 | 在办 | 待排期 |")
+    lines.append("| --- | --- | --- | --- | --- |")
+    orphans = []
+    for path in sorted(req_dir.glob("REQ-*.md"), key=lambda p: p.name):
+        _title, status = _describe(path)
+        if not _binding(status):
+            continue
+        by = cites.get(_doc_num(path.name), {})
+        done = by.get("done", [])
+        active = by.get("active", [])
+        backlog = by.get("backlog", [])
+        total = len(done) + len(active) + len(backlog)
+        if not total:
+            orphans.append(path)
+        rel = path.relative_to(DOCS).as_posix()
+        cells = [
+            f"[{_doc_id(path.name)}]({rel})",
+            _bar(len(done), total),
+            _DOT.join(done) or _DASH,
+            _DOT.join(active) or _DASH,
+            _DOT.join(backlog) or _DASH,
+        ]
+        lines.append("| " + " | ".join(cells) + " |")
+    lines.append("")
+
+    lines += ["## 没有任何卡引用的需求", ""]
+    if orphans:
+        lines.append(
+            "**这几条今天没有落点** —— 不是「做完了」，是**没人把它变成过一张卡**。"
+        )
+        lines.append("")
+        for path in orphans:
+            rel = path.relative_to(DOCS).as_posix()
+            lines.append(f"- [{_doc_id(path.name)}]({rel})")
+    else:
+        lines.append("（没有 —— 每条生效需求都至少有一张卡。）")
+    lines.append("")
+
+    lines += ["## 在办、但不服务任何需求的卡", ""]
+    lines.append(
+        "Bug / 工装 / Refactor 这类写的是**技术目标**而不是 REQ（AGENTS §20）。"
+        "列在这里，是因为一块只显示需求的板子会让人以为「没别的事在做」。"
+    )
+    lines.append("")
+    folder = DOCS / "tasks" / "active"
+    loose = []
+    if folder.is_dir():
+        for card in sorted(folder.glob("TASK-*.md"), key=lambda p: p.name):
+            head = card.read_text("utf-8").split("## ", 1)[0]
+            if not _REQ_REF.search(head):
+                rel = card.relative_to(DOCS).as_posix()
+                loose.append(f"- [{_doc_id(card.name)}]({rel})")
+    lines += loose or ["（没有。）"]
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true")
@@ -436,15 +570,24 @@ def main() -> int:
         # look like a successful regeneration (ADR-0101 决策 5).
         print(f"当前真相无法重建：{exc}", file=sys.stderr)
         return 2
+    work = render_work()
     if args.check:
-        current = OUT.read_text("utf-8") if OUT.exists() else ""
-        if current != text:
-            print("docs/STATUS.md is out of date -- regenerate it")
+        stale = [
+            out.relative_to(ROOT).as_posix()
+            for out, want in ((OUT, text), (WORK_OUT, work))
+            if (out.read_text("utf-8") if out.exists() else "") != want
+        ]
+        if stale:
+            print(" / ".join(stale) + " is out of date -- regenerate it")
             return 1
-        print("docs/STATUS.md up to date")
+        print("docs/STATUS.md + docs/WORKSTATUS.md up to date")
         return 0
+    # **一条命令生成两份**，而不是两个工具：两份都从同一棵树派生，分开跑就会
+    # 出现「一份新一份旧」，那正是这两份文件存在的理由要防的东西。
     OUT.write_text(text, "utf-8")
-    print(f"wrote {OUT.relative_to(ROOT).as_posix()}")
+    WORK_OUT.write_text(work, "utf-8")
+    for out in (OUT, WORK_OUT):
+        print(f"wrote {out.relative_to(ROOT).as_posix()}")
     return 0
 
 

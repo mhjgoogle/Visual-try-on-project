@@ -17,6 +17,7 @@ import pytest
 _ROOT = Path(__file__).resolve().parents[2]
 _GEN = _ROOT / ".claude" / "tools" / "gen_docs_status.py"
 _STATUS = _ROOT / "docs" / "STATUS.md"
+_WORK = _ROOT / "docs" / "WORKSTATUS.md"
 NL = chr(10)
 
 
@@ -34,6 +35,44 @@ def test_status_file_matches_the_tree() -> None:
     assert _STATUS.read_text("utf-8") == expected, (
         "docs/STATUS.md is stale — run `python .claude/tools/gen_docs_status.py`"
     )
+
+
+def test_workstatus_matches_the_tree() -> None:
+    """`docs/WORKSTATUS.md` 同理 —— 它是**派生**的，不是手写的看板。
+
+    手写的进度板比手写的索引更危险：索引过期只是找不到东西，进度板过期会让人
+    **按一个不存在的状态做决定**（本仓库有实例：一张卡的错标签把两条真缺陷盖了
+    十天）。所以它和 STATUS.md 同一个生成器、同一条命令、同一道闸。
+    """
+    assert _WORK.exists(), "docs/WORKSTATUS.md missing — run gen_docs_status.py"
+    expected = _load().render_work()
+    assert _WORK.read_text("utf-8") == expected, (
+        "docs/WORKSTATUS.md is stale — run `python .claude/tools/gen_docs_status.py`"
+    )
+
+
+def test_workstatus_links_the_requirement_instead_of_restating_it() -> None:
+    """产品负责人 2026-09-07：「不要写需求。只需要有需求的 link 就可以了。」
+
+    守的是**性质不是写法**：每条生效需求各出现一次、且是链接；除了表头的口径
+    说明之外，不搬运需求正文。判据是「有没有从 REQ 文件里抄行过来」——
+    抄一行就会有两份各自漂移的真相。
+    """
+    import re
+
+    text = _WORK.read_text("utf-8")
+    reqs = sorted((_ROOT / "docs" / "requirements").glob("REQ-*.md"))
+    linked = set(re.findall(r"\[(REQ-\d+)\]\(requirements/", text))
+    assert linked, "一条需求链接都没有 —— 这块板子就没用了"
+    for path in reqs:
+        body = path.read_text("utf-8")
+        for line in body.splitlines():
+            line = line.strip()
+            # 只查有实质内容的正文行；短行（标题片段、列表符号）会误报
+            if len(line) > 40 and line in text:
+                raise AssertionError(
+                    f"{path.name} 的正文被搬进了 WORKSTATUS：{line[:60]}"
+                )
 
 
 @pytest.mark.parametrize(
