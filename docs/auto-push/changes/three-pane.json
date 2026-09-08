@@ -3202,6 +3202,34 @@
             ".claude/skills/dev-workflow/references/workflows.md"
           ],
           "scope_violation": null
+        },
+        {
+          "hash": "38bfe3f24847cf9ca8992d208a9b489a77e41c23",
+          "subject": "refactor(dev-workflow): v0.3 —— 控制面/执行面两层，深度按错误代价判（TASK-144 · three-pane）",
+          "time": "2026-09-08T13:51:32+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            ".agents/skills/dev-workflow/SKILL.md",
+            ".claude/agent-entries.json",
+            ".claude/skills/auto-push/SKILL.md",
+            ".claude/skills/auto-push/references/merge-and-conflicts.md",
+            ".claude/skills/dev-workflow/SKILL.md",
+            ".claude/skills/dev-workflow/references/depth.md",
+            ".claude/skills/dev-workflow/references/handoff.md",
+            ".claude/skills/dev-workflow/references/lifecycle.md",
+            ".claude/skills/dev-workflow/references/records.md",
+            ".claude/skills/dev-workflow/references/traceability.md",
+            ".claude/skills/dev-workflow/references/verification.md",
+            ".claude/skills/dev-workflow/references/workflows.md",
+            "AGENTS.md",
+            "docs/STATUS.md",
+            "docs/adr/ADR-0103-two-planes-and-cost-based-depth.md",
+            "docs/auto-push/changes/three-pane.json",
+            "docs/current-architecture.md",
+            "docs/tasks/done/TASK-144-dev-workflow-v03-two-planes.md"
+          ],
+          "scope_violation": null
         }
       ],
       "paths": [
