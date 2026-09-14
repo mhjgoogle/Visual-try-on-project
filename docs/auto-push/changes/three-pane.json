@@ -3257,7 +3257,7 @@
           "subject": "feat(TASK-146): 小说模式下 AI 真的能写出一章小说 —— 形态进路由、章号进提案（REQ-009 切片一）",
           "time": "2026-09-14T13:47:34+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/STATUS.md",
             "docs/WORKSTATUS.md",
