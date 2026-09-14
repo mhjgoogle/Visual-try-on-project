@@ -4119,37 +4119,45 @@ const ctx = {
           // 写进「正文创作」的那一章/集（TASK-122）。与 `proposeOutline` 同一天补上：
           // 它们是同一种缺陷 —— **声明了、接了、返回「尚未接线」**，能力跑完说「写好了」，
           // 他点「用它」却什么都没发生（产品负责人 2026-08-30 撞到大纲那一次）。
-          const text = String(a.text || "").trim();
-          if (!text) return { ok: false, error: "这份提案里没有正文" };
-          const work = storyDoc.work;
-          if (!work || !work.form) {
-            return { ok: false, error: "还没选小说创作还是剧集创作 —— 去「正文创作」选一个再来" };
-          }
-          // 写到哪一集：**当前这一集**，按它在列表里的位置对到第几集。
-          // 小说模式没有「当前集」这个概念，猜一个章号会把它写到别处 —— 说清楚，不猜。
-          if (work.form !== "episode") {
-            return {
-              ok: false,
-              error: "这是小说模式，我不知道该写第几章 —— 在「正文创作」里打开那一章再让我写",
-            };
-          }
-          const idx = (productionDoc.episodes || []).findIndex(
-            (e) => e.episodeId === productionDoc.activeEpisodeId,
+          // 写到哪一章/集。两种形态各有各的「当前」，都**不猜**：
+          //
+          //   剧集 —— 当前这一集，按它在列表里的位置对到第几集；
+          //   小说 —— 他此刻在「正文创作」里**打开着**的那一章（TASK-146）。小说没有
+          //           `activeEpisodeId` 那样的文档级指针，唯一诚实的答案就是他正开着
+          //           的那一章；一章都没开时说清楚要先去开，而不是替他挑第 1 章 ——
+          //           把一章正文写到他没在看的地方，比什么都不做更糟。
+          //
+          // 选落点、覆盖前存一版、再写 —— 三件事在 `applyBodyProposal` 里一起完成，
+          // 所以这里只剩持久化与重绘。
+          const text = String(a.text || "");
+          const res = storywork.applyBodyProposal(
+            storyDoc.work,
+            {
+              activeEpisodeIndex: (productionDoc.episodes || []).findIndex(
+                (e) => e.episodeId === productionDoc.activeEpisodeId,
+              ),
+              openUnitNo: production.openUnitNo(),
+              // **提案的落点身份压过屏幕上现在的一切** —— 现在开着哪一章、现在是
+              // 小说还是剧集模式，都不参与。生成与应用之间他可以切章、也可以切
+              // 形态，而这份正文是按某一种形态、某一个单元的任务生成的；落进别处
+              // 就是一次安静的错写（codex 轮 2/3/4 的 BLOCKING —— 同一个类被分三次
+              // 才认全）。两样都没带的（更旧的运行记录）才回落到当前状态。
+              boundForm: typeof a.form === "string" ? a.form : "",
+              boundUnitNo: Number.isInteger(a.unitNo) ? a.unitNo : null,
+            },
+            text,
+            new Date().toISOString(),
           );
-          if (idx < 0) return { ok: false, error: "现在没有选中的剧集" };
-          const at = new Date().toISOString();
-          const unit = storywork.ensureUnit(work, "episode", idx + 1, at);
-          if (!unit) return { ok: false, error: `第 ${idx + 1} 集不是一个有效的编号` };
-          // **不静默覆盖**（第 13 条）：已经写过的内容先存成一版定稿，再写新的。
-          let kept = "";
-          if ((unit.body || "").trim()) {
-            const rec = storywork.finalizeUnit(work, unit.id, at, "被 AI 正文覆盖前自动存的一版");
-            kept = rec ? `（原来的 ${unit.body.length} 字已存为 v${rec.v}）` : "";
-          }
-          storywork.editUnit(work, unit.id, "body", text, at);
+          if (!res.ok) return { ok: false, error: res.error };
           ctx.persist();
           refreshProductionView();
-          return { ok: true, detail: `已写进第 ${idx + 1} 集正文：${text.length} 字${kept}` };
+          const kept = res.kept
+            ? `（原来的 ${res.kept.body.length} 字已存为 v${res.kept.v}）`
+            : "";
+          return {
+            ok: true,
+            detail: `已写进第 ${res.no} ${res.word}正文：${text.trim().length} 字${kept}`,
+          };
         }
         case "proposeBible":
           return { ok: false, error: "人物 / 场景地提案请走「作品设定」的剧本拆解确认门" };
@@ -5899,7 +5907,7 @@ ctx.skills = createSkillController({
   catalog: { detail: () => CATALOG_DETAIL, problems: () => CATALOG_PROBLEMS },
   modules: {
     skills, runtime, skillrun, skillapply, shotctx,
-    proddoc, storydoc, scriptdoc, assetreg, refinterp, timeline, subtitle, mediaref,
+    proddoc, storydoc, storywork, scriptdoc, assetreg, refinterp, timeline, subtitle, mediaref,
   },
   findShot: (shotId) => ctx.shot.find(shotId),
   slotOf: (shot) => ctx.shot._slotOf(shot),

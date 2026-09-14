@@ -116,7 +116,12 @@ export const ACTIONS = {
   replaceShotDraft: { args: ["shots"], risk: "edit" },
   patchShots: { args: ["patches"], risk: "edit" },
   proposeOutline: { args: ["proposal"], risk: "edit" },
-  proposeScript: { args: ["text"], risk: "edit" },
+  // `form` + `unitNo` 是**这份正文的落点身份**（TASK-146）：它是为小说还是剧集写的、
+  // 为第几章写的。两样都从**那次运行**来，应用时压过屏幕上的一切 —— 运行与应用之间
+  // 他完全可以切章、也可以切形态，而「按第 5 章的任务生成、落进第 6 章」和
+  // 「一份剧本写进一章小说」都是安静的错写。`unitNo` 只有小说家带得出（只有它的
+  // 提示词里真的有第 N 章的任务）；`form` 两边都带得出。
+  proposeScript: { args: ["text", "form", "unitNo"], risk: "edit" },
   proposeBible: { args: ["proposal"], risk: "edit" },
   // --- 人物关系 (TASK-065 §2) ---------------------------------------------- //
   // Create-or-revise, ONE name. Two names ("addRelationship" / "editRelationship")

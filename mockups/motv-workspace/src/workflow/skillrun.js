@@ -49,7 +49,13 @@ function contextOf(raw) {
     sceneId: strOrNull(raw.sceneId),
     shotId: strOrNull(raw.shotId),
   };
-  return c.episodeId || c.sceneId || c.shotId ? c : null;
+  // 小说的一章（TASK-146）。**是身份的一部分，不是附带信息**：这一轮的提示词里带着
+  // 第 N 章的任务，所以它写出来的正文就是为那一章写的。丢在这里的代价是隐形的 ——
+  // `scopeOf` 记了、`applyProposal` 要读，中间这一层把它过滤掉，落点就无声地退回
+  // 「屏幕上现在开着哪一章」（codex 轮 3 之后的端到端测试抓到）。
+  const unitNo = Number.isInteger(raw.unitNo) && raw.unitNo > 0 ? raw.unitNo : null;
+  if (unitNo) c.unitNo = unitNo;
+  return c.episodeId || c.sceneId || c.shotId || c.unitNo ? c : null;
 }
 
 /**

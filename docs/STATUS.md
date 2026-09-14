@@ -22,7 +22,7 @@
 | `docs/reports/` | 阶段性工作报告 —— **历史证据**，默认不读 |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：5 在办 · 8 待排期 · 134 已完成 · 87 条 ADR。
+**当前**：6 在办 · 8 待排期 · 134 已完成 · 87 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -54,7 +54,7 @@
 | --- | --- |
 | **Mission** —— 这个产品为什么存在 | 构建覆盖「故事构思 → 剧本 → 场景镜头 → 资产 → 图片/视频生成 → 配音字幕 → 合成 → QCD」的 AI 视频 / 短剧生产工作流，核心对视频厂商保持中立。 |
 | **Strategy** —— 用哪条路线达成 | 原 M1 最小闭环已完成并冻结为基础；WFM1 增量加入可复用短剧流程与云端默认生产路线；创作者 Studio 按 ADR-0066 四阶段落成产品界面；会花钱的能力按 Accepted ADR 逐个命令开门。 |
-| **Current Milestone** —— 这一轮交付什么 | 创作者 Studio 单一路径收敛，五个垂直切片依次推进（① 当前事实收口 → ② run_id 前端闭环 → ③ Candidate/QC/Final 闭环 → ④ 一份 Surface/Command Manifest → ⑤ 单一路径 + Connected Project 验收），**不增加新的顶层页面**；**切片 ① 已收口**（TASK-125 进 `done/`，2026-09-05）；现在在**切片 ②**（TASK-106：刷新后还在跑的那一轮被接回来 —— 机制与自动化已闭合，剩真实项目上的人工走查）。 |
+| **Current Milestone** —— 这一轮交付什么 | **先把小说写出来，再把它拍成片**（[REQ-009](requirements/REQ-009-write-the-novel-first-then-film-it.md)，产品负责人 2026-09-14 换的里程碑）：一个想法进去、一本小说出来，然后这本小说接进已经存在的视频线，四个垂直切片依次推进（一 AI 写得出一章**小说**正文 → 二 连着往下写、可停可改不覆盖 → 三 核心/大纲/结构在小说语境下成立 → 四 小说→剧集的真实转换），**不新增一级或二级页面**（ADR-0066 十一页闭集不动）；现在在**切片一**（TASK-146）。上一个里程碑「创作者 Studio 单一路径收敛」的切片 ①② 已闭合到机制层面，剩余（②的真实项目人工走查、③④⑤）降为背景工作，卡仍在 `active/`，不再是主线。 |
 
 ### Active Requirements
 
@@ -71,6 +71,7 @@
 | [REQ-006](requirements/REQ-006-agent-can-do-what-the-creator-can-do.md) | REQ-006：对话里的 Agent 能做创作者能做的事，并且能把意见带回给开发 | CONFIRMED | TASK-132 |
 | [REQ-007](requirements/REQ-007-say-it-and-the-right-capability-runs.md) | REQ-007：他说一句话，对的那个专业能力就跑起来 | CONFIRMED | — |
 | [REQ-008](requirements/REQ-008-images-from-my-own-account.md) | REQ-008：用我自己的账号自动出图，不要按次计费的 API | CONFIRMED | — |
+| [REQ-009](requirements/REQ-009-write-the-novel-first-then-film-it.md) | REQ-009：先把小说写出来，再把它拍成片 | CONFIRMED | TASK-146 |
 
 ### Deferred
 
@@ -111,6 +112,7 @@
 | [TASK-087-followup-ledger.md](tasks/active/TASK-087-followup-ledger.md) | TASK-087：Follow-up 总账 —— 把散在九张卡里的欠账收成一处 | 活账（不是一次性交付 |
 | [TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md](tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) | TASK-106：前端接上 run_id 路径 —— 并由此退役同步分支与 /api/agent/ | 部分实施（2026-09-04 |
 | [TASK-132-click-ui-element-and-leave-feedback.md](tasks/active/TASK-132-click-ui-element-and-leave-feedback.md) | TASK-132：点击界面元素写意见，并让开发 Agent 收到准确位置 | 切片 A 完成、切片 B 完成核心、切片 C 未做（2026-09-05 实施 |
+| [TASK-146-ai-writes-a-novel-chapter.md](tasks/active/TASK-146-ai-writes-a-novel-chapter.md) | TASK-146：小说模式下，AI 真的能写出一章小说 | 实现完成（2026-09-14） |
 
 ## 在办 · 设计与验收文档
 

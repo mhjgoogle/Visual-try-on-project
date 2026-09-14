@@ -3160,7 +3160,7 @@
           "subject": "feat(docs): 一屏看完每条需求做到哪了 —— 进度从卡派生，不写需求正文（TASK-145 · three-pane）",
           "time": "2026-09-08T13:15:41+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             ".claude/tools/gen_docs_status.py",
             "docs/STATUS.md",
@@ -3190,7 +3190,7 @@
           "subject": "docs(dev-workflow): minimize development records and reconcile before rework",
           "time": "2026-09-08T13:26:45+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             ".agents/skills/dev-workflow/SKILL.md",
             ".claude/agent-entries.json",
@@ -3208,7 +3208,7 @@
           "subject": "refactor(dev-workflow): v0.3 —— 控制面/执行面两层，深度按错误代价判（TASK-144 · three-pane）",
           "time": "2026-09-08T13:51:32+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             ".agents/skills/dev-workflow/SKILL.md",
             ".claude/agent-entries.json",
@@ -3249,6 +3249,39 @@
       "verification": "PASS",
       "verification_ref": "gate full suite: 4049 passed, 59 skipped (only STATUS/WORKSTATUS staleness failed, now regenerated); lifecycle_check 0 findings; agent_harness check PASS",
       "declared": "2026-09-08T13:35:07+00:00"
+    },
+    "TASK-146": {
+      "commits": [],
+      "paths": [
+        "docs/STATUS.md",
+        "docs/WORKSTATUS.md",
+        "docs/current-architecture.md",
+        "docs/project-context.md",
+        "docs/requirements/REQ-009-write-the-novel-first-then-film-it.md",
+        "docs/requirements/index.md",
+        "docs/tasks/active/TASK-087-followup-ledger.md",
+        "docs/tasks/active/TASK-146-ai-writes-a-novel-chapter.md",
+        "mockups/motv-workspace/server.py",
+        "mockups/motv-workspace/skillpkg.py",
+        "mockups/motv-workspace/src/app.js",
+        "mockups/motv-workspace/src/controllers/skillctl.js",
+        "mockups/motv-workspace/src/ui/production.js",
+        "mockups/motv-workspace/src/workflow/actions.js",
+        "mockups/motv-workspace/src/workflow/skillapply.js",
+        "mockups/motv-workspace/src/workflow/skillrun.js",
+        "mockups/motv-workspace/src/workflow/storywork.js",
+        "mockups/motv-workspace/tests/fixtures/skill-prompt-snapshots.json",
+        "mockups/motv-workspace/tests/novelchapter.test.mjs",
+        "product-flows/builtin/episode-from-scratch/manifest.json",
+        "product-skills/builtin/novel-chapter-writer/",
+        "product-skills/builtin/script-writer/manifest.json",
+        "product-skills/skill-inputs.json",
+        "product-skills/user-capabilities.json",
+        "tests/studio/test_motv_novel_chapter_routing_task146.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "pytest tests/studio tests/contract 968 passed/16 skipped; node --test mockups/motv-workspace/tests/*.test.mjs 2314 pass; ruff check . clean; lifecycle_check 0 finding; codex 5 rounds -> BLOCKING empty, criterion 1 + acceptance 1/2/4/5/6 PASS, 6/6 architecture PASS",
+      "declared": "2026-09-14T13:32:04+00:00"
     }
   },
   "merge_gate": {

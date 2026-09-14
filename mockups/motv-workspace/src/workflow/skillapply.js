@@ -40,6 +40,13 @@ export const APPLY_TARGETS = {
     can: true, target: "script", label: "应用为正文提案",
     detail: "落到正文的提案位；应用后才创建新版本，旧版本全部保留。",
   },
+  "novel-chapter-writer": {
+    can: true, target: "script", label: "应用为这一章的正文提案",
+    // **说的必须是它真的会写到哪儿**：落点是**这次运行写的那一章**，不是他此刻
+    // 开着的那一章 —— 两者在他切章之后就不是一回事了（codex 轮 3 的 NON_BLOCKING：
+    // 按钮承诺「现在打开的那一章」而代码优先用记录的那一章，说的和做的对不上）。
+    detail: "落到这次运行写的那一章（即使你已经翻到别处）；应用后才创建新版本，旧版本全部保留。",
+  },
   "script-breakdown": {
     can: true, target: "bible", label: "应用为人物 / 场景地提案",
     detail: "逐条确认，绝不覆盖已确认的档案。",
@@ -197,7 +204,35 @@ export function planApply(skillId, proposal, scope = {}) {
   if (skillId === "script-writer" || skillId === "script-doctor") {
     const text = str(proposal.script) || str(proposal.revisedScript) || str(proposal.text);
     if (!text.trim()) return { ok: false, error: "提案里没有剧本正文" };
-    return { ok: true, actions: [{ action: "proposeScript", text }] };
+    // 一份剧本提案**是为剧集写的** —— 说出来，别让落地那一端去读「他现在是什么
+    // 模式」。他在生成之后切到小说模式并打开一章，这份剧本就会写进那一章
+    //（codex 轮 4 的 BLOCKING：只给小说那一半带上形态，等于开了个反方向的口子）。
+    return { ok: true, actions: [{ action: "proposeScript", text, form: "episode" }] };
+  }
+  // 小说的一章走的是**同一个** `proposeScript` —— 它落地的地方本来就是「正文」，
+  // 章还是集由 `story.work.form` 在那一头决定（TASK-146）。为小说另开一个 action
+  // 会让同一件事有两个名字，而两个名字迟早会长出两套不同的覆盖规则。
+  if (skillId === "novel-chapter-writer") {
+    const text = str(proposal.chapter) || str(proposal.text);
+    if (!text.trim()) return { ok: false, error: "提案里没有这一章的正文" };
+    // **这份正文是为哪一章写的，由那次运行说了算**，不是由他现在开着哪一章说了算。
+    // 与本文件开头对 shot-scoped 提案的规则同一条：写到「现在恰好选中的那个」，
+    // 等于把答案归给一个它从没读过的上下文。他在生成与应用之间切一章，就会把按
+    // 第 5 章任务写出来的正文落进第 6 章（codex 轮 2 的 BLOCKING）。
+    //
+    // 没有章号就没有 —— 回落到「当前打开的那一章」由 `app.js` 决定，那是手工触发
+    // （没经过带章号的 scope）时唯一的答案。
+    const unitNo = Number.isInteger(scope && scope.unitNo) ? scope.unitNo : null;
+    // schema 里的 `title` 本切片不应用：章节标题是切片三的事（REQ-009 切片表）。
+    //
+    // `form` **总是**带上（章号可能没有，形态一定有）：一份小说家的提案永远是为
+    // 小说写的，即使这一次没记下是第几章。
+    return {
+      ok: true,
+      actions: [
+        { action: "proposeScript", text, form: "novel", ...(unitNo ? { unitNo } : {}) },
+      ],
+    };
   }
   if (skillId === "script-breakdown") {
     return { ok: true, actions: [{ action: "proposeBible", proposal }] };

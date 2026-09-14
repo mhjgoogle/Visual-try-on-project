@@ -1,6 +1,6 @@
 {
   "flowId": "episode-from-scratch",
-  "flowVersion": 2,
+  "flowVersion": 3,
   "kind": "flow",
   "title": "从零做一集",
   "purpose": "一个空项目到一集成片之间，产品自己跑通过的那条顺序。每一步引用一个版本化的能力，缺哪个都会在加载时指名道姓。",
@@ -26,7 +26,7 @@
     {
       "stepKey": "script",
       "skillId": "script-writer",
-      "skillVersion": 2,
+      "skillVersion": 3,
       "note": "把一集的规划写成剧本。"
     },
     {

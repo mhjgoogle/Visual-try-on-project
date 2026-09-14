@@ -2448,6 +2448,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
 
   function conversationContext(ctx) {
     const pd = ctx.prodData ? ctx.prodData() : null;
+    const convWork = workOf();
     const shotId = ui.selectedShotId || null;
     const shot = shotId && ctx.shot && ctx.shot.find ? ctx.shot.find(shotId) : null;
     const ep = pd && pd.production ? activeEpisode(pd.production) : null;
@@ -2465,9 +2466,22 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       // 哪些材料**此刻真的有**（TASK-119）。服务端的 resolver 靠它决定
       // 「这一类工作现在能不能跑、还缺什么」——创作文档只活在浏览器里，
       // 所以就绪状态只能由这边报。「开发」窗口里不报：那个窗口不会跑作品能力。
+      // 形态（TASK-146）：这个项目在写小说还是写剧集。resolver 靠它把「写这一章」
+      // 与「写这一集」分开 —— 两句话用的是同一批名词，关键词分不开，而「接着往下写」
+      // 两边都命中不了。**还没选形态就不报**：不报 = 不限，行为与报它之前一致。
       ...(convMode() === "feedback"
         ? {}
-        : { readyInputs: ctx.skills.readyInputs(ui.selectedShotId ? { shotId: ui.selectedShotId } : null) }),
+        : {
+            // 就绪判定必须看到**这一轮真的会用的那些定位**，否则屏幕上说「可以跑」，
+            // 跑起来却被必要输入闸拒掉（`chapterPlan` 只在带章号的 scope 下才算有）。
+            // 两者**合并**送出：`readyInputs` 拿同一个 scope 遍历所有能力，二选一
+            // 会让「选着一个镜头、同时开着一章」这种再正常不过的状态少报一个输入。
+            readyInputs: ctx.skills.readyInputs({
+              ...(ui.selectedShotId ? { shotId: ui.selectedShotId } : {}),
+              ...(novelScope() || {}),
+            }),
+            ...(convWork && convWork.form ? { form: convWork.form } : {}),
+          }),
       // 定位情报：**结构化**送过去，不指望模型记得写进句子里。
       //   route  —— 他此刻的地址，我照着它就能打开同一屏
       //   section—— 同一页里的哪一节（分镜设计有 场景/分镜 两节）
@@ -2526,7 +2540,20 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
    *  「不是 shot」：镜头域能力于是永远拿不到 shotId，永远起不来，且不报错。 */
   function routeScopeFor(ctx, skillId) {
     const scope = scopeOfSkill(ctx.skills.find(skillId));
-    return scope === "shot" && ui.selectedShotId ? { shotId: ui.selectedShotId } : null;
+    if (scope === "shot") {
+      return ui.selectedShotId ? { shotId: ui.selectedShotId } : null;
+    }
+    // 写小说的一章要知道**是第几章**（TASK-146）。形态不是 scope，所以章号不走
+    // `scopeOfSkill` 那条判断，而是随 scope 一起送 —— 它是 `chapterPlan` 唯一的
+    // 来源。没打开哪一章就不送：不送 = 必要输入缺，运行前就被拒并说清缺什么，
+    // 好过让它写出一个它自己挑的章。
+    return novelScope();
+  }
+
+  /** 他此刻打开着的那一章，只在写小说时成立。 */
+  function novelScope() {
+    const work = workOf();
+    return work && work.form === "novel" && ui.unitNo ? { unitNo: ui.unitNo } : null;
   }
 
   /** `decideRoute` 要的那一组回调。`ranFor` 问的是**登记表**，所以幂等跨得过刷新。 */
@@ -3731,6 +3758,12 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
 
   return {
     render,
+    /** 他此刻在「正文创作」里打开的是第几章/集，没打开就是 `null`。
+     *
+     *  纯 UI 状态（`ui.unitNo`），不进持久化 —— 但写路径要它：小说没有「当前集」
+     *  那样的文档级指针，AI 要写哪一章只能由「他正开着哪一章」决定。猜一个章号会
+     *  把正文写到别处（TASK-146 判据 2：没打开就说清楚，不猜）。 */
+    openUnitNo: () => ui.unitNo || null,
     /**
      * Open the shell on a SPACE — "story" | "episode" | "assets" — or on a
      * specific module. `null` means "stay where you are".

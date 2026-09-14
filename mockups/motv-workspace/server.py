@@ -3667,6 +3667,10 @@ def _conv_candidates(catalog, capability: str) -> list:
                 "intent": internal["intent"],
                 "kind": internal["kind"],
                 "scope": internal["scope"],
+                # 空 = 两种形态都适用。加载器已经把 `None` 归一成 `""`，但旧目录里
+                # 的包在升级前不会有这个键 —— `.get` 让它们保持「不限」，而不是
+                # 在这里 KeyError 掉整份候选名单。
+                "form": internal.get("form", ""),
                 "priority": internal["priority"],
                 "selectWhen": list(internal["selectWhen"]),
             }
@@ -3708,6 +3712,18 @@ def _conv_ready_inputs(context) -> set:
     }
 
 
+#: 这个项目现在在写小说还是写剧集（`story.work.form`）。与 `readyInputs` 同一条路
+#: 由前端报 —— 创作文档只活在浏览器里（ADR-0089 决策 2b），服务端没有第二个真相。
+#:
+#: **没报 = 不限**，行为与 TASK-146 之前完全一致：一个还没选形态的项目、或者一个
+#: 更旧的客户端，都不会因此被排除掉任何候选。
+def _conv_form(context) -> str:
+    if not isinstance(context, dict):
+        return ""
+    raw = context.get("form")
+    return raw.strip()[:16] if isinstance(raw, str) else ""
+
+
 def _conv_hits(goal: str, words) -> int:
     """他这句话里出现了几个这个能力的关键词。二级选择的**全部**模型输入就是这个。"""
     text = goal or ""
@@ -3737,7 +3753,14 @@ def _conv_revision_match(goal: str, intent: str) -> int:
     return 1 if wants_revision == is_revision else 0
 
 
-def _conv_resolve(catalog, capability: str, *, goal: str, scope: str, ready, shot_id):
+#: 形态的中文说法，只用于拒绝时告诉他为什么 —— 「不适用于当前形态」不说明形态是
+#: 什么，等于没说。
+_CONV_FORM_WORD = {"novel": "小说", "episode": "剧集"}
+
+
+def _conv_resolve(
+    catalog, capability: str, *, goal: str, scope: str, ready, shot_id, form: str = ""
+):
     """facade + 上下文 → 一个确定的内部执行计划（ADR-0091 决策 2）。
 
     **规则优先，模型只做一级分流。** 模型给的是三选一的 capability 与他要做什么；
@@ -3759,6 +3782,19 @@ def _conv_resolve(catalog, capability: str, *, goal: str, scope: str, ready, sho
     rows = _conv_candidates(catalog, capability)
     if not rows:
         return None, f"这台机器上没有能承担「{capability}」的能力（没有一个包声明了它）"
+
+    # 形态是**硬排除**，在打分之前（TASK-146）。放进排序键会让一个高优先级的
+    # 剧集能力在小说项目里靠 `priority` 赢回来 —— 而「在写小说时跑出一份剧本」
+    # 不是排序不佳，是选错了东西。没声明 `form` 的包两种形态都留着。
+    if form:
+        kept = [r for r in rows if not r["form"] or r["form"] == form]
+        if not kept:
+            word = _CONV_FORM_WORD.get(form, form)
+            return None, (
+                f"「{capability}」之下没有适用于{word}的能力 —— "
+                f"这个项目现在写的是{word}"
+            )
+        rows = kept
 
     def missing_of(row):
         need = [k for k in row["inputs"] if k != _CONV_GOAL_INPUT and k not in ready]
@@ -7804,6 +7840,7 @@ class _App:
             scope=route.get("scope") or "",
             ready=_conv_ready_inputs(context),
             shot_id=shot_id,
+            form=_conv_form(context),
         )
         if refusal:
             return None, {"capability": capability, "reason": refusal}

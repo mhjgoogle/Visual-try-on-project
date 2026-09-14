@@ -1,0 +1,45 @@
+{
+  "skillId": "novel-chapter-writer",
+  "skillVersion": 1,
+  "work": "creative",
+  "role": "小说家",
+  "title": "Novel Chapter Writer",
+  "purpose": "把故事大纲与这一章的位置写成一章小说正文：叙述、描写与对话混排的散文，不是剧本。",
+  "inputs": [
+    "outline",
+    "chapterPlan"
+  ],
+  "optionalInputs": [
+    "brief",
+    "characters",
+    "relationships",
+    "world"
+  ],
+  "reviewCriteria": [
+    "写出来的是小说，不是剧本 —— 没有「场景N · 地点 · 时间」这类拍摄格式的标题，没有把叙述压成纯台词",
+    "这一章推进的是大纲里它该推进的那一段，而不是把整个故事概述一遍",
+    "视角是否自始至终稳定，没有在同一段里滑进另一个人的内心",
+    "对话是否符合每个角色已确立的说话方式与欲望",
+    "这一章结尾是否留下了让人往下读的理由，而不是在一个句号上停住",
+    "是否偷偷改变了 Brief 里已确定的类型 / 基调 / 形式"
+  ],
+  "recommendedRuntime": "local_subscription",
+  "routing": {
+    "userCapability": [
+      "episode-production"
+    ],
+    "internalRouting": {
+      "intent": "chapter-writing",
+      "kind": "generative",
+      "scope": "project",
+      "form": "novel",
+      "priority": 80,
+      "selectWhen": [
+        "这一章",
+        "正文",
+        "小说",
+        "接着写"
+      ]
+    }
+  }
+}
