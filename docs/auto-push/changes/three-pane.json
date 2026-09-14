@@ -3251,7 +3251,46 @@
       "declared": "2026-09-08T13:35:07+00:00"
     },
     "TASK-146": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "57168e82d0b05adab4d54be42b2fdbcf8ac39166",
+          "subject": "feat(TASK-146): 小说模式下 AI 真的能写出一章小说 —— 形态进路由、章号进提案（REQ-009 切片一）",
+          "time": "2026-09-14T13:47:34+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/STATUS.md",
+            "docs/WORKSTATUS.md",
+            "docs/auto-push/changes/three-pane.json",
+            "docs/current-architecture.md",
+            "docs/project-context.md",
+            "docs/requirements/REQ-009-write-the-novel-first-then-film-it.md",
+            "docs/requirements/index.md",
+            "docs/tasks/active/TASK-087-followup-ledger.md",
+            "docs/tasks/active/TASK-146-ai-writes-a-novel-chapter.md",
+            "mockups/motv-workspace/server.py",
+            "mockups/motv-workspace/skillpkg.py",
+            "mockups/motv-workspace/src/app.js",
+            "mockups/motv-workspace/src/controllers/skillctl.js",
+            "mockups/motv-workspace/src/ui/production.js",
+            "mockups/motv-workspace/src/workflow/actions.js",
+            "mockups/motv-workspace/src/workflow/skillapply.js",
+            "mockups/motv-workspace/src/workflow/skillrun.js",
+            "mockups/motv-workspace/src/workflow/storywork.js",
+            "mockups/motv-workspace/tests/fixtures/skill-prompt-snapshots.json",
+            "mockups/motv-workspace/tests/novelchapter.test.mjs",
+            "product-flows/builtin/episode-from-scratch/manifest.json",
+            "product-skills/builtin/novel-chapter-writer/manifest.json",
+            "product-skills/builtin/novel-chapter-writer/output.schema.json",
+            "product-skills/builtin/novel-chapter-writer/prompt.md",
+            "product-skills/builtin/script-writer/manifest.json",
+            "product-skills/skill-inputs.json",
+            "product-skills/user-capabilities.json",
+            "tests/studio/test_motv_novel_chapter_routing_task146.py"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "docs/STATUS.md",
         "docs/WORKSTATUS.md",
