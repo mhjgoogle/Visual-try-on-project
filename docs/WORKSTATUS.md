@@ -34,3 +34,4 @@ Bug / 工装 / Refactor 这类写的是**技术目标**而不是 REQ（AGENTS §
 - [TASK-040](tasks/active/TASK-040-final-unified-product-acceptance.md)
 - [TASK-074](tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md)
 - [TASK-087](tasks/active/TASK-087-followup-ledger.md)
+- [TASK-147](tasks/active/TASK-147-session-isolation-and-evidence-identity.md)

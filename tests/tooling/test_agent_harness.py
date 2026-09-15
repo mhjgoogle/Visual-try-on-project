@@ -981,7 +981,10 @@ def test_a_snapshot_holds_no_semantic_progress(ah, tmp_path: Path) -> None:
     _git_repo(root)
     p = ah.write_snapshot(root, "TASK-999", "跑过 X", "下一步 Y")
     data = json.loads(p.read_text("utf-8"))
-    assert set(data) == set(ah._RESUME_FIELDS)
+    # 比对**写下的**那份名单（`_SNAPSHOT_FIELDS`），不是渲染用的那份 ——
+    # 两者刻意不同：写下的比印出来的多（验证身份摘要不该印给人看）。
+    # 新字段因此必须在工具里被有意识地承认一次，否则这一行当场变红。
+    assert set(data) == set(ah._SNAPSHOT_FIELDS)
     forbidden = {"done", "complete", "completed", "status", "progress", "percent"}
     assert not (set(data) & forbidden)
 
