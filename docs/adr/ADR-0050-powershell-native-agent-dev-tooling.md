@@ -2,7 +2,11 @@
 
 - Status: **Accepted（决策 2–4 全部保留）；决策 1 的「gate 靠命令文本判定 commit
   意图」这一实现约定被 [ADR-0070](ADR-0070-commit-gate-intent-by-shell-parser.md)
-  取代 —— 行为合同本身不变**（同样的输入仍须给出同样的判定，见下方决策 1 的补记）
+  取代 —— 行为合同本身不变**（同样的输入仍须给出同样的判定，见下方决策 1 的补记）；
+  **决策 1 的「PowerShell-native gate 是权威实现」这一条于 2026-09-16 被
+  [ADR-0104](ADR-0104-git-native-hook-is-the-authoritative-gate.md) 取代** ——
+  权威 enforcement 移到 git 原生 `pre-commit`，`PreToolUse` 那一层（连同它的
+  `.ps1`/`.sh` 双实现与 ADR-0070 的意图判定）降级为 early feedback 并原样保留
 - Date: 2026-08-10
 - Supersedes: [ADR-0049](ADR-0049-native-windows-run-and-test-target.md) 的
   「bash AI-agent 工装未移植」声明（Not Decided Here 项 1 + 对应 Consequences

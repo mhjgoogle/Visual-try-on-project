@@ -22,7 +22,7 @@
 | `docs/reports/` | 阶段性工作报告 —— **历史证据**，默认不读 |
 | `docs/auto-push/` · `docs/skill-evolution/` | 工具维护的数据，不手改 |
 
-**当前**：7 在办 · 8 待排期 · 134 已完成 · 87 条 ADR。
+**当前**：8 在办 · 8 待排期 · 134 已完成 · 88 条 ADR。
 
 **找待办只看 `active/` 两个目录**，加上
 [TASK-087 欠账总账](tasks/active/TASK-087-followup-ledger.md)。
@@ -95,11 +95,11 @@
 
 | ADR | 标题 | 状态 |
 | --- | --- | --- |
+| [ADR-0104](adr/ADR-0104-git-native-hook-is-the-authoritative-gate.md) | ADR-0104：权威的提交闸门是 git 原生 hook，PreToolUse 降级为快反馈 | Accepted（2026-09-16，实施 Agent 依 AGENTS.md §1 自行 Accept |
 | [ADR-0103](adr/ADR-0103-two-planes-and-cost-based-depth.md) | ADR-0103：开发流程分两个面，深度按代价判 —— 不是继续加规则，是把规则分层 | Accepted（2026-09-08，实施 Agent 依 AGENTS.md §1 自行 Accept） |
 | [ADR-0102](adr/ADR-0102-origin-and-confirmation-are-two-fields.md) | ADR-0102：发起方与确认方是两个字段 —— 「他在对话里说的」不等于「他自己点的」 | Accepted（2026-09-05，实施 Agent 依 AGENTS.md §1 自行 Accept） |
 | [ADR-0101](adr/ADR-0101-idea-intake-level-and-milestone-gate.md) | ADR-0101：想法先分层、再过当前里程碑闸，然后才谈需求 | Accepted |
 | [ADR-0100](adr/ADR-0100-account-quota-is-not-a-paid-gate.md) | ADR-0100：账号额度不是付费闸 —— 判据是「会不会产生按次账单」 | Accepted（2026-09-05，实施 Agent 依 AGENTS.md §1 自行 Accept） |
-| [ADR-0099](adr/ADR-0099-resume-is-not-a-retry.md) | ADR-0099：重启之后的续跑不是重试 —— 孤儿付费任务接回已经存在的那一条路 | Accepted（2026-09-05，实施 Agent 依 AGENTS.md §1 自行 Accept |
 
 ## 在办 · 任务卡
 
@@ -114,6 +114,7 @@
 | [TASK-132-click-ui-element-and-leave-feedback.md](tasks/active/TASK-132-click-ui-element-and-leave-feedback.md) | TASK-132：点击界面元素写意见，并让开发 Agent 收到准确位置 | 切片 A 完成、切片 B 完成核心、切片 C 未做（2026-09-05 实施 |
 | [TASK-146-ai-writes-a-novel-chapter.md](tasks/active/TASK-146-ai-writes-a-novel-chapter.md) | TASK-146：小说模式下，AI 真的能写出一章小说 | 实现完成（2026-09-14） |
 | [TASK-147-session-isolation-and-evidence-identity.md](tasks/active/TASK-147-session-isolation-and-evidence-identity.md) | TASK-147：一个会话一棵树，以及「上一轮那句验证」不再冒充新结论 | 切片 A / B 实现完成（2026-09-15） |
+| [TASK-148-l5-continuous-autonomous-delivery.md](tasks/active/TASK-148-l5-continuous-autonomous-delivery.md) | TASK-148：L5 —— 给一个方向就连续交付，而且没人看着的时候不会静默放行 | — |
 
 ## 在办 · 设计与验收文档
 
@@ -317,7 +318,7 @@
 | 位置 | 放什么 |
 | --- | --- |
 | [当前架构合同](current-architecture.md) | **现在**成立的边界与约束（NOW） |
-| [`docs/adr/`](adr/) | 87 条决策记录（ADR-0001 … ADR-0103）—— WHY / HISTORY |
+| [`docs/adr/`](adr/) | 88 条决策记录（ADR-0001 … ADR-0104）—— WHY / HISTORY |
 | [`docs/design/`](design/) 根 | 系统合同、产品信息架构、L0–S7 I/O 合同 |
 | [项目背景与路线](project-context.md) | 这个项目是什么、走到哪了 |
 | [实施规划](implementation_plan.md) | 阶段与里程碑路线图 |
