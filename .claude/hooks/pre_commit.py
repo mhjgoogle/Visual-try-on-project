@@ -65,10 +65,19 @@ class Blocked(Exception):
         self.output = output
 
 
-#: git 运行 hook 时导出的**仓库身份**变量。它们会被子进程继承，于是 pytest 在
-#: 临时仓库里跑的每一条 git 都会指回**正在提交的那个仓库** —— 测试要么莫名其妙地
-#: 失败，要么改到真仓库上去。闸门自己不需要它们（每条 git 都带 `cwd`），所以一律摘掉。
-#: （codex 审查 2026-09-16。）
+#: git 运行 hook 时导出的**仓库身份**变量。
+#:
+#: 这里有两个方向相反的要求，**必须分开满足**（两条都是 codex 报出来的，
+#: 第二条正是第一条的修复引入的）：
+#:
+#: - **闸门自己的 git 必须继承它们。** `GIT_INDEX_FILE` 尤其要紧：`git commit -a`
+#:   与 `git commit -- <路径>` 会建一个**临时索引**并用这个变量指过去。摘掉它，
+#:   闸门就去查普通索引 —— 于是普通索引干净就能放行，而真正被提交的那份含违规内容。
+#:   这跟「查工作区、提交索引」是同一个病的第三种拼法。
+#: - **被拉起来的检查工具必须摘掉它们。** 不摘的话，pytest 在临时仓库里建的每一条
+#:   git 都会指回**正在提交的那个仓库** —— 测试要么莫名失败，要么改到真仓库上去。
+#:
+#: 所以：`_git()` 用 `os.environ` 原样，`run_check()` 用 `clean_env()`。
 _GIT_IDENTITY_VARS = (
     "GIT_DIR",
     "GIT_WORK_TREE",
@@ -81,10 +90,22 @@ _GIT_IDENTITY_VARS = (
 )
 
 
-def clean_env() -> dict[str, str]:
-    env = {k: v for k, v in os.environ.items() if k not in _GIT_IDENTITY_VARS}
+def gate_env() -> dict[str, str]:
+    """闸门**自己的 git** 用的环境：git 给什么就用什么，一个字不改。
+
+    它描述的正是「这次提交」——包括 `commit -a` 那个临时索引。
+    """
+
+    env = dict(os.environ)
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
+    return env
+
+
+def clean_env() -> dict[str, str]:
+    """**被拉起来的检查工具**用的环境：摘掉仓库身份，免得它们指回这个仓库。"""
+
+    env = {k: v for k, v in gate_env().items() if k not in _GIT_IDENTITY_VARS}
     return env
 
 
@@ -112,7 +133,7 @@ def _git(
         encoding="utf-8",
         errors="replace",
         timeout=timeout,
-        env=clean_env(),
+        env=gate_env(),
     )
 
 
@@ -132,7 +153,7 @@ def repo_root() -> Path:
         encoding="utf-8",
         errors="replace",
         timeout=GIT_TIMEOUT,
-        env=clean_env(),
+        env=gate_env(),
     )
     if done.returncode != 0 or not done.stdout.strip():
         raise Blocked("repo-root", "git rev-parse --show-toplevel 没有给出仓库根")

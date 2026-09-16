@@ -124,13 +124,28 @@ def hook_state(target: Path) -> str | None:
     if not target.is_file():
         return "没有安装"
     if target.read_bytes() != SHIM.encode("utf-8"):
+        if not is_ours(target):
+            return FOREIGN
         return "内容不是当前版本（可能被改过，或换行被改成了 CRLF）"
     if os.name != "nt" and not os.access(target, os.X_OK):
         return "没有可执行位 —— git 会直接跳过它"
     return None
 
 
-def install(check_only: bool = False) -> int:
+#: shim 里那行「由 … 生成」的签名。认得出自己写的东西，才谈得上「只覆盖自己写的」。
+MARKER = "install_git_hooks.py"
+
+FOREIGN = "已经有一个**不是本工具装的** pre-commit"
+
+
+def is_ours(target: Path) -> bool:
+    try:
+        return MARKER in target.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+
+
+def install(check_only: bool = False, force: bool = False) -> int:
     override = hooks_path_override()
     target = hooks_dir() / HOOK_NAME
     if override:
@@ -148,6 +163,17 @@ def install(check_only: bool = False) -> int:
 
     if check_only:
         print(f"pre-commit {state}：{target}", file=sys.stderr)
+        return 1
+
+    # 别人的 hook 不动。codex 2026-09-16 报的 P2：直接覆盖会**静默删掉**那个仓库
+    # 原有的检查 —— 一个以「闸门不许安静消失」为立论的工具，不能自己去让别的闸门
+    # 安静消失。要覆盖必须明说。
+    if state == FOREIGN and not force:
+        print(
+            f"{target} 已经有一个不是本工具装的 pre-commit，不动它。\n"
+            "确认可以丢掉它的检查，再加 --force。",
+            file=sys.stderr,
+        )
         return 1
 
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -174,11 +200,16 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="只报告状态，没装好或不是当前版本就退出非零",
     )
+    ap.add_argument(
+        "--force",
+        action="store_true",
+        help="覆盖一个不是本工具装的 pre-commit（会丢掉它原有的检查）",
+    )
     args = ap.parse_args(argv)
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
-    return install(check_only=args.check)
+    return install(check_only=args.check, force=args.force)
 
 
 if __name__ == "__main__":

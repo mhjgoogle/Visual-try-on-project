@@ -352,6 +352,96 @@ def test_git_itself_invokes_the_real_gate_and_the_commit_is_refused(
     assert _git(repo, "rev-parse", "HEAD").stdout.strip() == before
 
 
+def test_commit_dash_a_is_checked_against_gits_temporary_index(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**codex 2026-09-16 轮 2 的 P1。**
+
+    `git commit -a` 不写普通索引：git 另建一个**临时索引**，用 `GIT_INDEX_FILE`
+    指过去。闸门若把这个变量摘掉，查的就是普通索引 —— 普通索引干净就放行，
+    而真正被提交的那份含违规内容。这是「查的和提交的不是同一份」的第三种拼法，
+    前两种是「查工作区」和「查旁边那棵树」。
+    """
+
+    monkeypatch.chdir(repo)
+    assert install_git_hooks.install() == 0
+    _wire_real_gate(repo)
+
+    # 先让一个干净版本进普通索引并落地 —— 于是「普通索引是干净的」为真。
+    tracked = repo / "mod.py"
+    tracked.write_text("x = 1\n", encoding="utf-8")
+    _git(repo, "add", "mod.py")
+    _git(repo, "commit", "-m", "clean")
+
+    # 再在工作区把它改违规，不暂存。`-a` 会把它带进临时索引。
+    tracked.write_text(VIOLATING, encoding="utf-8")
+    before = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+    done = _git(repo, "commit", "-a", "-m", "should not land")
+    combined = done.stderr + done.stdout
+
+    assert done.returncode != 0, "commit -a 没被拦住：" + combined[:2000]
+    assert "ruff" in combined, combined[:2000]
+    assert _git(repo, "rev-parse", "HEAD").stdout.strip() == before
+
+
+def test_a_path_limited_commit_is_checked_against_what_it_commits(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`git commit -- <路径>` 同理：也走临时索引。"""
+
+    monkeypatch.chdir(repo)
+    assert install_git_hooks.install() == 0
+    _wire_real_gate(repo)
+
+    bad = repo / "bad.py"
+    bad.write_text(VIOLATING, encoding="utf-8")
+    _git(repo, "add", "bad.py")
+    before = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+    done = _git(repo, "commit", "-m", "should not land", "--", "bad.py")
+    combined = done.stderr + done.stdout
+
+    assert done.returncode != 0, "路径限定提交没被拦住：" + combined[:2000]
+    assert "ruff" in combined, combined[:2000]
+    assert _git(repo, "rev-parse", "HEAD").stdout.strip() == before
+
+
+def test_the_gates_own_git_keeps_the_index_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """两个环境方向相反，断言两边各自成立 —— 不是断言「有一个函数叫 clean_env」。"""
+
+    monkeypatch.setenv("GIT_INDEX_FILE", "/tmp/whatever/index")
+
+    assert pre_commit.gate_env()["GIT_INDEX_FILE"] == "/tmp/whatever/index"
+    assert "GIT_INDEX_FILE" not in pre_commit.clean_env()
+
+
+def test_an_existing_foreign_hook_is_not_destroyed(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**codex 2026-09-16 轮 2 的 P2。**
+
+    直接覆盖会**静默删掉**那个仓库原有的检查。一个以「闸门不许安静消失」立论的
+    工具，不能自己去让别的闸门安静消失。
+    """
+
+    monkeypatch.chdir(repo)
+    hook_dir = Path(_git(repo, "rev-parse", "--git-path", "hooks").stdout.strip())
+    target = (hook_dir if hook_dir.is_absolute() else repo / hook_dir) / "pre-commit"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    foreign = "#!/bin/sh\necho someone elses check\n"
+    target.write_text(foreign, encoding="utf-8")
+
+    assert install_git_hooks.install() == 1
+    assert target.read_text(encoding="utf-8") == foreign, "别人的 hook 被覆盖了"
+
+    # 明说了就可以覆盖 —— 拒绝的是**静默**覆盖，不是覆盖本身。
+    assert install_git_hooks.install(force=True) == 0
+    assert install_git_hooks.is_ours(target)
+
+
 def test_a_clean_commit_through_git_says_the_gate_ran(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
