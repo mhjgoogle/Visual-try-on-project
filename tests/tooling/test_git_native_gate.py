@@ -232,7 +232,7 @@ def test_ruff_reads_the_index_snapshot_not_the_working_tree(tmp_path: Path) -> N
     snapshot = tmp_path / "snap"
     checks = pre_commit.always_checks(Path("python"), root, snapshot)
 
-    by_label = {label: cwd for label, _argv, _t, cwd in checks}
+    by_label = {label: cwd for label, _argv, _t, cwd, _env in checks}
     assert by_label["ruff check"] == snapshot
     assert by_label["ruff format --check"] == snapshot
     # 索引那条本来就问索引，留在工作树里跑是对的。
@@ -405,6 +405,65 @@ def test_a_path_limited_commit_is_checked_against_what_it_commits(
     assert done.returncode != 0, "路径限定提交没被拦住：" + combined[:2000]
     assert "ruff" in combined, combined[:2000]
     assert _git(repo, "rev-parse", "HEAD").stdout.strip() == before
+
+
+def test_whitespace_in_a_non_python_file_is_checked_against_the_temporary_index(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**codex 轮 3 的残留。**
+
+    轮 2 只把闸门自己的 `_git()` 换成了 `gate_env()`，漏了走 `run_check()` 的
+    `git diff --cached --check` —— 它照样拿到被摘掉索引身份的环境，于是 `commit -a`
+    时读的是普通索引。ruff 管不到非 Python 文件，所以行尾空白能从这个缺口出去。
+
+    同一个失效机理的第二个实例。这条测试盯的是**那个类**，不是那一行。
+    """
+
+    monkeypatch.chdir(repo)
+    assert install_git_hooks.install() == 0
+    _wire_real_gate(repo)
+
+    notes = repo / "notes.txt"
+    notes.write_text("clean\n", encoding="utf-8")
+    _git(repo, "add", "notes.txt")
+    _git(repo, "commit", "-m", "clean notes")
+
+    notes.write_text("trailing space here \n", encoding="utf-8")  # 不暂存
+    before = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+    done = _git(repo, "commit", "-a", "-m", "should not land")
+    combined = done.stderr + done.stdout
+
+    assert done.returncode != 0, "行尾空白从临时索引溜过去了：" + combined[:2000]
+    assert "--cached --check" in combined, combined[:2000]
+    assert _git(repo, "rev-parse", "HEAD").stdout.strip() == before
+
+
+def test_every_check_carries_the_environment_it_needs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """按**类**断言，不按实例：问 git 的那条看得见索引身份，别的工具一律看不见。
+
+    轮 3 那条残留正是「逐条特判」的产物 —— 所以这里不检查某一行代码，
+    而是把整张检查表拉出来，逐条判它带的是哪份环境。
+
+    **必须先把身份变量设上。** 平时跑 pytest 时环境里根本没有 `GIT_*`，
+    于是 `clean_env()` 与 `gate_env()` 恰好相等，两个断言都会恒真 ——
+    一条永远绿的守卫等于没有守卫（自测时当场撞到：把修复退回去，这条照样绿）。
+    """
+
+    monkeypatch.setenv("GIT_INDEX_FILE", str(tmp_path / "tmp-index"))
+    monkeypatch.setenv("GIT_DIR", str(tmp_path / "somewhere.git"))
+
+    checks = pre_commit.always_checks(Path("python"), tmp_path, tmp_path / "snap")
+    by_label = {label: env for label, _argv, _t, _cwd, env in checks}
+
+    for tool in ("ruff check", "ruff format --check"):
+        for var in pre_commit._GIT_IDENTITY_VARS:
+            assert var not in by_label[tool], f"{tool} 不该看见 {var}"
+
+    # 这一条问的就是「这次提交的索引」，所以它必须原样带着 git 给的环境。
+    assert by_label["git diff --cached --check"] == pre_commit.gate_env()
 
 
 def test_the_gates_own_git_keeps_the_index_identity(

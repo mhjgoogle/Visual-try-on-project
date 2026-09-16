@@ -48,12 +48,19 @@ GIT_TIMEOUT = 8
 DOCTOR_TIMEOUT = 60
 IMPORTS_TIMEOUT = 120
 
-#: 一条检查：标签、命令、预算、**在哪个目录跑**。
+#: 一条检查：标签、命令、预算、**在哪个目录跑**、**带哪份环境**。
 #:
-#: 最后那一项不是为了整齐。`ruff` 必须在**索引的快照**里跑，其余在工作树里跑 ——
-#: 两者混用正是 codex 2026-09-16 报出的那条 P1：ruff 查工作区、git 提交索引，
-#: 于是「暂存一个有问题的版本，再在工作区把问题改掉但不暂存」能让违规版本提交成功。
-Check = tuple[str, list[str], int, Path]
+#: 后两项都不是为了整齐，它们各自对应一条实测缺陷：
+#:
+#: - **在哪个目录**：`ruff` 必须在**索引的快照**里跑。查工作区而提交索引，就能让
+#:   「暂存违规版本、再在工作区改干净但不暂存」蒙混过关（codex 轮 1）。
+#: - **带哪份环境**：**问 git 这次提交的**那些检查必须看得见 `GIT_INDEX_FILE`
+#:   （`commit -a` 与路径限定提交走的是临时索引）；**别的工具**必须看不见它，
+#:   否则 pytest 在临时仓库里的 git 会指回本仓库（codex 轮 2 的 P1 与轮 3 的残留）。
+#:
+#: 三次报错是同一个病的三种拼法：**被检查的东西 ≠ 被提交的东西**。把「带哪份环境」
+#: 写进每一条检查里，是为了不再靠「记得给这一条特判」——靠记性的检查等于没有检查。
+Check = tuple[str, list[str], int, Path, dict[str, str]]
 
 
 class Blocked(Exception):
@@ -246,7 +253,7 @@ def frontend_check(root: Path) -> Check:
     files = sorted(str(p) for p in tests_dir.glob("*.test.mjs"))
     if not files:
         raise Blocked("frontend tests", f"没有找到前端测试文件：{tests_dir}")
-    return ("frontend tests", [node, "--test", *files], 90, root)
+    return ("frontend tests", [node, "--test", *files], 90, root, clean_env())
 
 
 def build_checks(root: Path, py: Path, decision: Decision) -> list[Check]:
@@ -262,6 +269,7 @@ def build_checks(root: Path, py: Path, decision: Decision) -> list[Check]:
                 [str(py), "-m", "pytest", "-n", "8", "-m", "not serial"],
                 600,
                 root,
+                clean_env(),
             )
         )
         checks.append(
@@ -270,6 +278,7 @@ def build_checks(root: Path, py: Path, decision: Decision) -> list[Check]:
                 [str(py), "-m", "pytest", "-m", "serial"],
                 180,
                 root,
+                clean_env(),
             )
         )
         if decision.frontend:
@@ -286,10 +295,10 @@ def build_checks(root: Path, py: Path, decision: Decision) -> list[Check]:
                 "not serial",
                 *decision.pytest_targets,
             ]
-            checks.append(("pytest (targeted)", argv, 480, root))
+            checks.append(("pytest (targeted)", argv, 480, root, clean_env()))
         if decision.serial_targets:
             argv = [str(py), "-m", "pytest", *decision.serial_targets]
-            checks.append(("pytest (targeted, serial)", argv, 120, root))
+            checks.append(("pytest (targeted, serial)", argv, 120, root, clean_env()))
         if decision.frontend:
             checks.append(frontend_check(root))
     elif tier == "frontend":
@@ -302,7 +311,9 @@ def build_checks(root: Path, py: Path, decision: Decision) -> list[Check]:
 
     if decision.doctor:
         doctor = root / ".claude" / "tools" / "motv_doctor.py"
-        checks.append(("motv doctor", [str(py), str(doctor)], DOCTOR_TIMEOUT, root))
+        checks.append(
+            ("motv doctor", [str(py), str(doctor)], DOCTOR_TIMEOUT, root, clean_env())
+        )
 
     if decision.import_contracts:
         linter = py.parent / ("lint-imports.exe" if os.name == "nt" else "lint-imports")
@@ -313,7 +324,9 @@ def build_checks(root: Path, py: Path, decision: Decision) -> list[Check]:
                 "lint-imports",
                 'import-linter 不在 .venv 里。装 dev extra：pip install -e ".[dev]"',
             )
-        checks.append(("lint-imports", [str(linter)], IMPORTS_TIMEOUT, root))
+        checks.append(
+            ("lint-imports", [str(linter)], IMPORTS_TIMEOUT, root, clean_env())
+        )
 
     return checks
 
@@ -332,21 +345,34 @@ def always_checks(py: Path, root: Path, snapshot: Path) -> list[Check]:
             [str(py), "-m", "ruff", "format", "--check", "."],
             RUFF_TIMEOUT,
             snapshot,
+            clean_env(),
         ),
-        ("ruff check", [str(py), "-m", "ruff", "check", "."], RUFF_TIMEOUT, snapshot),
         (
+            "ruff check",
+            [str(py), "-m", "ruff", "check", "."],
+            RUFF_TIMEOUT,
+            snapshot,
+            clean_env(),
+        ),
+        (
+            # **这一条问的是「这次提交的索引」**，所以它拿 `gate_env()`。
+            # 轮 2 只把闸门自己的 `_git()` 换了过去，漏了这一条 —— 于是
+            # `commit -a` 时它读的仍是普通索引，非 Python 文件里的行尾空白能蒙混
+            # 过关（codex 轮 3）。同一个机理的第二个实例，这次按类修。
             "git diff --cached --check",
             [git, "diff", "--cached", "--check"],
             GIT_TIMEOUT,
             root,
+            gate_env(),
         ),
     ]
 
 
-def run_check(label: str, argv: list[str], timeout: int, cwd: Path) -> None:
-    # `clean_env()` 摘掉 git 传给 hook 的仓库身份变量。不摘的话，子进程里的每一条
-    # git（尤其 pytest 在临时仓库里建的那些）都会指回正在提交的这个仓库。
-    env = clean_env()
+def run_check(
+    label: str, argv: list[str], timeout: int, cwd: Path, env: dict[str, str]
+) -> None:
+    # 环境由**这条检查自己**带（见 `Check` 的注释）：问 git 这次提交的那些要看得见
+    # 索引身份，别的工具不能看见。轮 3 的残留就是因为这里统一硬写了一份环境。
     try:
         done = subprocess.run(
             argv,
@@ -395,8 +421,8 @@ def main() -> int:
             checks = always_checks(py, root, snapshot) + build_checks(
                 root, py, decision
             )
-            for label, argv, timeout, cwd in checks:
-                run_check(label, argv, timeout, cwd)
+            for label, argv, timeout, cwd, env in checks:
+                run_check(label, argv, timeout, cwd, env)
     except Blocked as exc:
         _say_blocked(exc)
         return 1

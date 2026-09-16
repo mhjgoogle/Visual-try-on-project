@@ -143,7 +143,7 @@ L5 的闭环定义里「跑完同一闭环」**包含合并**。如果自动取�
 | --- | --- | --- |
 | 1 | **fail** · 判据 1 `FAIL` · 判据 2 `NOT_EVIDENCED` · `AGENTS.md §6` / `§20` 两条 `FAIL` · 5 条 BLOCKING | 见下 |
 | 2 | **fail** · 判据 2 转 `PASS` · 判据 1 仍 `FAIL`（**新机理**）· 1 P1 + 1 P2 | 见下 |
-| 3 | 待跑（新 P1 按 ADR-0081 §2a 买它自己的那一轮） | —— |
+| 3 | **判据 1 与 2 双双 `PASS`** · 剩 1 条 P2（同一机理的第二个实例） | 不再买轮（§2b），按**类**修完收口 |
 
 轮 1 报出来的五条，**全部成立，全部已修**。其中第一条直接打在本卡的立论上：
 
@@ -187,3 +187,35 @@ L5 的闭环定义里「跑完同一闭环」**包含合并**。如果自动取�
 
 轮 2 修复后验证：`pytest tests/tooling -n 8` → **485 passed / 2 skipped** ·
 `ruff check` + `format --check` 干净（742 文件）· `lifecycle_check` 0 finding。
+
+### 轮 3：两条判据都 `PASS`；剩下的一条是我**没修全类**
+
+判据 1 `PASS` · 判据 2 `PASS` · `CA §1` / `CA §4` / 平台中立 / 外部工具解析全 `PASS`。
+剩一条 BLOCKING，codex 自己判 P2：`git diff --cached --check` 也走 `run_check()`，
+因此照样拿到被摘掉索引身份的环境 —— `commit -a` 时它读普通索引，**非 Python 文件
+里的行尾空白能从这个缺口出去**（ruff 管不到非 Python 文件）。
+
+**这是轮 2 那条 P1 的同一失效机理的第二个实例**，不是新机理。按 ADR-0081 §2b
+判为「同一主题的更窄变体」，**不再买轮**；这是一次显式的范围判断，记在这里。
+—— 而它之所以存在，正是 TASK-147 §7 那条教训的重演：**先修被点到的那一处，
+而不是修整个类**。
+
+所以这次按类修：**每条检查自己带它需要的那份环境**（`Check` 从四元组变五元组），
+不再由 `run_check()` 统一硬写一份。问 git 这次提交的那条拿 `gate_env()`，
+其余拿 `clean_env()` —— 以后新增检查时不需要「记得特判」。
+
+**两条新守卫都验过真的会红**：
+- 把那条检查退回 `clean_env()` → `test_whitespace_in_a_non_python_file_is_checked_against_the_temporary_index` 变红。
+- `test_every_check_carries_the_environment_it_needs` 第一版**没有变红** ——
+  平时跑 pytest 时环境里没有 `GIT_*`，`clean_env()` 与 `gate_env()` 恰好相等，
+  断言恒真。补上 `monkeypatch.setenv` 之后才真的会红。**一条永远绿的守卫等于
+  没有守卫**，这条差点就留下了。
+
+轮 3 修复后验证：`pytest tests/tooling -n 8` → **487 passed / 2 skipped** ·
+`ruff check` + `format --check` 干净（742 文件）· `lifecycle_check` 0 finding。
+
+### 收口
+
+三轮买得其所：每一轮都报出**一个新的失效机理**，没有一轮是在同一主题上绕圈
+（ADR-0081 §2a/§2c）。收口状态：**判据 1 `PASS` · 判据 2 `PASS` · 架构四项
+`PASS` · 无未闭合 P1 · 无未闭合 P2**。审查者全程是真 codex，独立性未降级。
