@@ -26,10 +26,13 @@ git 原生 hook 把这两条一起消掉，而且是**结构性**地消掉，不
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 
 HOOKS_DIR = Path(__file__).resolve().parent
@@ -45,7 +48,12 @@ GIT_TIMEOUT = 8
 DOCTOR_TIMEOUT = 60
 IMPORTS_TIMEOUT = 120
 
-Check = tuple[str, list[str], int]
+#: 一条检查：标签、命令、预算、**在哪个目录跑**。
+#:
+#: 最后那一项不是为了整齐。`ruff` 必须在**索引的快照**里跑，其余在工作树里跑 ——
+#: 两者混用正是 codex 2026-09-16 报出的那条 P1：ruff 查工作区、git 提交索引，
+#: 于是「暂存一个有问题的版本，再在工作区把问题改掉但不暂存」能让违规版本提交成功。
+Check = tuple[str, list[str], int, Path]
 
 
 class Blocked(Exception):
@@ -57,17 +65,54 @@ class Blocked(Exception):
         self.output = output
 
 
+#: git 运行 hook 时导出的**仓库身份**变量。它们会被子进程继承，于是 pytest 在
+#: 临时仓库里跑的每一条 git 都会指回**正在提交的那个仓库** —— 测试要么莫名其妙地
+#: 失败，要么改到真仓库上去。闸门自己不需要它们（每条 git 都带 `cwd`），所以一律摘掉。
+#: （codex 审查 2026-09-16。）
+_GIT_IDENTITY_VARS = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_COMMON_DIR",
+    "GIT_PREFIX",
+    "GIT_NAMESPACE",
+)
+
+
+def clean_env() -> dict[str, str]:
+    env = {k: v for k, v in os.environ.items() if k not in _GIT_IDENTITY_VARS}
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+    return env
+
+
+def git_exe() -> str:
+    """`git` 的解析路径，找不到就拦住。
+
+    AGENTS.md §6：外部工具一律经 `shutil.which` 解析、**失败即 fail-closed**，
+    不得裸名调用。闸门比别的工具更没有资格赌 PATH —— 它是决定提交发不发生的那个东西。
+    """
+
+    found = shutil.which("git")
+    if found is None:
+        raise Blocked("git", "PATH 上没有 git。")
+    return found
+
+
 def _git(
     root: Path, *args: str, timeout: int = GIT_TIMEOUT
 ) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["git", *args],
+        [git_exe(), *args],
         cwd=root,
         capture_output=True,
         text=True,
         encoding="utf-8",
         errors="replace",
         timeout=timeout,
+        env=clean_env(),
     )
 
 
@@ -81,12 +126,13 @@ def repo_root() -> Path:
     """
 
     done = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
+        [git_exe(), "rev-parse", "--show-toplevel"],
         capture_output=True,
         text=True,
         encoding="utf-8",
         errors="replace",
         timeout=GIT_TIMEOUT,
+        env=clean_env(),
     )
     if done.returncode != 0 or not done.stdout.strip():
         raise Blocked("repo-root", "git rev-parse --show-toplevel 没有给出仓库根")
@@ -146,6 +192,31 @@ def staged_paths(root: Path) -> list[str]:
 # 那一层按原样提供（它仍然读命令文本）。
 
 
+@contextlib.contextmanager
+def index_snapshot(root: Path) -> Iterator[Path]:
+    """把**索引**整棵物化到一个临时目录，交出它的路径。
+
+    为什么要整棵、而不是只导出改动的那几个文件：AGENTS.md §20 与 TASK-143 的
+    OUT OF SCOPE 都写死了「不改闸门的严格度」——「把 `ruff format --check` 改成
+    只查改动文件」被点名为免罪符。所以范围仍然是全仓，变的只是**查哪一份全仓**：
+    从「工作区此刻的样子」换成「这次提交真正写进去的样子」。
+
+    `pyproject.toml`（ruff 的配置）本身是被跟踪文件，所以它随索引一起出来，
+    快照里的 ruff 用的还是同一套规则。
+    """
+
+    with tempfile.TemporaryDirectory(prefix="motv-gate-index-") as tmp:
+        # `--prefix` 必须以分隔符结尾，且用正斜杠 —— git 在 Windows 上也吃正斜杠，
+        # 而反斜杠会被它当转义看待。
+        prefix = Path(tmp).as_posix().rstrip("/") + "/"
+        done = _git(
+            root, "checkout-index", "-a", "-f", f"--prefix={prefix}", timeout=120
+        )
+        if done.returncode != 0:
+            raise Blocked("index-snapshot", f"导不出索引：{done.stderr.strip()}")
+        yield Path(tmp)
+
+
 def frontend_check(root: Path) -> Check:
     node = shutil.which("node")
     if node is None:
@@ -154,7 +225,7 @@ def frontend_check(root: Path) -> Check:
     files = sorted(str(p) for p in tests_dir.glob("*.test.mjs"))
     if not files:
         raise Blocked("frontend tests", f"没有找到前端测试文件：{tests_dir}")
-    return ("frontend tests", [node, "--test", *files], 90)
+    return ("frontend tests", [node, "--test", *files], 90, root)
 
 
 def build_checks(root: Path, py: Path, decision: Decision) -> list[Check]:
@@ -169,10 +240,16 @@ def build_checks(root: Path, py: Path, decision: Decision) -> list[Check]:
                 "pytest (full, parallel)",
                 [str(py), "-m", "pytest", "-n", "8", "-m", "not serial"],
                 600,
+                root,
             )
         )
         checks.append(
-            ("pytest (full, serial)", [str(py), "-m", "pytest", "-m", "serial"], 180)
+            (
+                "pytest (full, serial)",
+                [str(py), "-m", "pytest", "-m", "serial"],
+                180,
+                root,
+            )
         )
         if decision.frontend:
             checks.append(frontend_check(root))
@@ -188,10 +265,10 @@ def build_checks(root: Path, py: Path, decision: Decision) -> list[Check]:
                 "not serial",
                 *decision.pytest_targets,
             ]
-            checks.append(("pytest (targeted)", argv, 480))
+            checks.append(("pytest (targeted)", argv, 480, root))
         if decision.serial_targets:
             argv = [str(py), "-m", "pytest", *decision.serial_targets]
-            checks.append(("pytest (targeted, serial)", argv, 120))
+            checks.append(("pytest (targeted, serial)", argv, 120, root))
         if decision.frontend:
             checks.append(frontend_check(root))
     elif tier == "frontend":
@@ -204,7 +281,7 @@ def build_checks(root: Path, py: Path, decision: Decision) -> list[Check]:
 
     if decision.doctor:
         doctor = root / ".claude" / "tools" / "motv_doctor.py"
-        checks.append(("motv doctor", [str(py), str(doctor)], DOCTOR_TIMEOUT))
+        checks.append(("motv doctor", [str(py), str(doctor)], DOCTOR_TIMEOUT, root))
 
     if decision.import_contracts:
         linter = py.parent / ("lint-imports.exe" if os.name == "nt" else "lint-imports")
@@ -215,34 +292,44 @@ def build_checks(root: Path, py: Path, decision: Decision) -> list[Check]:
                 "lint-imports",
                 'import-linter 不在 .venv 里。装 dev extra：pip install -e ".[dev]"',
             )
-        checks.append(("lint-imports", [str(linter)], IMPORTS_TIMEOUT))
+        checks.append(("lint-imports", [str(linter)], IMPORTS_TIMEOUT, root))
 
     return checks
 
 
-def always_checks(py: Path) -> list[Check]:
+def always_checks(py: Path, root: Path, snapshot: Path) -> list[Check]:
+    """每次提交都跑的那些。
+
+    ruff 两条在 **snapshot**（索引的样子）里跑，`git diff --cached --check` 本来
+    就问索引 —— 三条问的都是「这次提交写进去的是什么」。
+    """
+
+    git = git_exe()
     return [
         (
             "ruff format --check",
             [str(py), "-m", "ruff", "format", "--check", "."],
             RUFF_TIMEOUT,
+            snapshot,
         ),
-        ("ruff check", [str(py), "-m", "ruff", "check", "."], RUFF_TIMEOUT),
-        ("git diff --check", ["git", "diff", "--check"], GIT_TIMEOUT),
+        ("ruff check", [str(py), "-m", "ruff", "check", "."], RUFF_TIMEOUT, snapshot),
         (
             "git diff --cached --check",
-            ["git", "diff", "--cached", "--check"],
+            [git, "diff", "--cached", "--check"],
             GIT_TIMEOUT,
+            root,
         ),
     ]
 
 
-def run_check(root: Path, label: str, argv: list[str], timeout: int) -> None:
-    env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
+def run_check(label: str, argv: list[str], timeout: int, cwd: Path) -> None:
+    # `clean_env()` 摘掉 git 传给 hook 的仓库身份变量。不摘的话，子进程里的每一条
+    # git（尤其 pytest 在临时仓库里建的那些）都会指回正在提交的这个仓库。
+    env = clean_env()
     try:
         done = subprocess.run(
             argv,
-            cwd=root,
+            cwd=cwd,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -275,20 +362,23 @@ def main() -> int:
         py = venv_python(root)
         paths = staged_paths(root)
         decision = classify(paths, chain_mode=False)
-        # 便宜的先跑 —— 与 gate.ps1 的顺序一致（它也是先 ruff 再按档位追加）。
-        # 反过来写的代价很具体：一个 ruff 一秒就能报的错，要等十分钟全量 pytest
-        # 跑完才看得到。
-        checks = always_checks(py) + build_checks(root, py, decision)
     except Blocked as exc:
         _say_blocked(exc)
         return 1
 
-    for label, argv, timeout in checks:
-        try:
-            run_check(root, label, argv, timeout)
-        except Blocked as exc:
-            _say_blocked(exc)
-            return 1
+    try:
+        with index_snapshot(root) as snapshot:
+            # 便宜的先跑 —— 与 gate.ps1 的顺序一致（它也是先 ruff 再按档位追加）。
+            # 反过来写的代价很具体：一个 ruff 一秒就能报的错，要等十分钟全量
+            # pytest 跑完才看得到。
+            checks = always_checks(py, root, snapshot) + build_checks(
+                root, py, decision
+            )
+            for label, argv, timeout, cwd in checks:
+                run_check(label, argv, timeout, cwd)
+    except Blocked as exc:
+        _say_blocked(exc)
+        return 1
 
     # **过了也要说一声。** 那两条破口合起来是「闸门的沉默有两种含义」：检查全过了，
     # 或者它根本没跑。留下这一行之后，沉默只剩一种解释 —— 没跑。（TASK-148 判据 2。）

@@ -22,11 +22,23 @@ shim 是 POSIX `sh`：Windows 上 git 用自带的 MSYS2 `sh.exe` 跑 hook（**�
 from __future__ import annotations
 
 import argparse
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 HOOK_NAME = "pre-commit"
+
+
+def git_exe() -> str:
+    """AGENTS.md §6：经 `shutil.which` 解析，失败即 fail-closed，不裸名调用。"""
+
+    found = shutil.which("git")
+    if found is None:
+        raise SystemExit("PATH 上没有 git。")
+    return found
+
 
 #: shim 内容。**不含仓库绝对路径** —— 路径现算，所以同一份 shim 服务所有工作树。
 #:
@@ -64,7 +76,7 @@ def hooks_dir() -> Path:
     """
 
     done = subprocess.run(
-        ["git", "rev-parse", "--git-path", "hooks"],
+        [git_exe(), "rev-parse", "--git-path", "hooks"],
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -85,7 +97,7 @@ def hooks_path_override() -> str | None:
     """
 
     done = subprocess.run(
-        ["git", "config", "--get", "core.hooksPath"],
+        [git_exe(), "config", "--get", "core.hooksPath"],
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -94,6 +106,28 @@ def hooks_path_override() -> str | None:
     )
     value = done.stdout.strip()
     return value or None
+
+
+def hook_state(target: Path) -> str | None:
+    """`None` = 装好了且是当前版本；否则返回一句「哪里不对」。
+
+    两条都是 codex 2026-09-16 报出来的，两条都会让安装器**给一个 git 不会执行的
+    hook 发合格证**：
+
+    1. **按文本比**会把 CRLF 归一成 LF，于是一份被改成 CRLF 的 shim 和原文比出来
+       「一样」—— 而 MSYS2 的 sh 读到 `#!/bin/sh\\r` 会报 bad interpreter，
+       闸门就这么安静地没了。所以按**字节**比。
+    2. **可执行位**没查。Ubuntu 上 git 直接跳过不可执行的 hook，一声不吭 ——
+       这正是本卡要消灭的那种失败。
+    """
+
+    if not target.is_file():
+        return "没有安装"
+    if target.read_bytes() != SHIM.encode("utf-8"):
+        return "内容不是当前版本（可能被改过，或换行被改成了 CRLF）"
+    if os.name != "nt" and not os.access(target, os.X_OK):
+        return "没有可执行位 —— git 会直接跳过它"
+    return None
 
 
 def install(check_only: bool = False) -> int:
@@ -107,23 +141,29 @@ def install(check_only: bool = False) -> int:
         )
         return 1
 
-    current = target.read_text(encoding="utf-8") if target.is_file() else None
-    if current == SHIM:
+    state = hook_state(target)
+    if state is None:
         print(f"已是最新：{target}")
         return 0
 
     if check_only:
-        state = "内容不是当前版本" if current is not None else "没有安装"
         print(f"pre-commit {state}：{target}", file=sys.stderr)
         return 1
 
     target.parent.mkdir(parents=True, exist_ok=True)
     # 换行必须是 LF：Windows 上 git 用 MSYS2 sh 跑它，CRLF 会让 shebang 带上
-    # 一个 \r，报 "bad interpreter"。`newline=""` 让下面写进去的 \n 原样落盘。
-    with open(target, "w", encoding="utf-8", newline="") as handle:
-        handle.write(SHIM)
+    # 一个 \r，报 "bad interpreter"。写字节，连「文本模式会不会翻译换行」这个
+    # 问题都不给它留（`newline=""` 也行，但字节写不需要读者去记那条规则）。
+    target.write_bytes(SHIM.encode("utf-8"))
     target.chmod(0o755)
-    print(f"{'更新' if current is not None else '安装'}完成：{target}")
+
+    # 写完再验一次。安装器唯一的职责就是「装对」，所以它不能靠「我刚写过」自信 ——
+    # 前面那两条缺陷恰恰都是「以为装对了」。
+    residual = hook_state(target)
+    if residual is not None:
+        print(f"装完仍然不对（{residual}）：{target}", file=sys.stderr)
+        return 1
+    print(f"安装完成：{target}")
     return 0
 
 

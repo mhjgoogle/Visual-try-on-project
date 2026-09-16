@@ -137,7 +137,32 @@ L5 的闭环定义里「跑完同一闭环」**包含合并**。如果自动取�
 3. **只覆盖 `pre-commit`。** `pre-push` / `commit-msg` 不在范围内。
 4. **独立审查未做** —— 见下。
 
-## 7. 独立审查
+## 7. 独立审查（codex，真 codex，独立性未降级）
 
-切片 A 改的是 enforcement 与 Windows 可移植性，按 AGENTS.md §20 触发表**必须审**
-（`codex-review-loop`，默认 1 轮）。**本轮尚未进行**，如实记在这里而不是假装审过。
+| 轮 | 结论 | 买轮的那条（新机理） |
+| --- | --- | --- |
+| 1 | **fail** · 判据 1 `FAIL` · 判据 2 `NOT_EVIDENCED` · `AGENTS.md §6` / `§20` 两条 `FAIL` · 5 条 BLOCKING | 见下 |
+| 2 | 待跑（修复后复审） | —— |
+
+轮 1 报出来的五条，**全部成立，全部已修**。其中第一条直接打在本卡的立论上：
+
+| # | 机理 | 修法 |
+| --- | --- | --- |
+| 1 | **ruff 查工作区、git 提交索引** —— 暂存违规版本，再在工作区改干净但不暂存，违规版本就能提交成功。判据 1 的一个更阴的拼法 | `index_snapshot()` 把**整棵索引**物化到临时目录，ruff 在那里跑。**范围仍是全仓**（只查改动文件被 TASK-143 点名为免罪符），变的是查哪一份全仓 |
+| 2 | **git 的仓库身份变量泄进子进程** —— `GIT_DIR` / `GIT_INDEX_FILE` 被继承，pytest 在临时仓库里的 git 会指回正在提交的仓库 | `clean_env()` 摘掉八个身份变量，所有子进程统一走它 |
+| 3 | **安装器给不会被执行的 hook 发合格证** —— 按文本比会把 CRLF 归一掉；可执行位没查（Ubuntu 上 git 静默跳过） | `hook_state()` 按**字节**比 + 查可执行位；安装后**再验一次**才报成功 |
+| 4 | **测试自己在 Ubuntu 上会红** —— 复制过去的解释器没有可执行位，shim 的 `-x` 落空 | 端到端改为链接真 venv（symlink，Windows 回退 junction，都不行则 skip） |
+| 5 | **裸 `git` 调用**违反 AGENTS.md §6 | 两个文件都改为 `shutil.which` 解析、失败即 `Blocked` |
+
+判据 2 的 `NOT_EVIDENCED` 也已闭合：原来的端到端用的是「直接 exit 1」的桩，
+证明的只是「shim 会调起某个东西」。现在把**真闸门**（`pre_commit.py` +
+`commit_gate_policy.py`）连同一个可用的 `.venv` 接进临时仓库，两条都跑真的：
+违规提交被拒且理由是 ruff，干净提交落地且输出 `[gate] pre-commit ok`。
+
+**一条顺带的范围决定，不是放松**：去掉了 `git diff --check`（工作区空白字符），
+保留 `git diff --cached --check`。前者问的是「你还没暂存的东西里有没有空白问题」——
+与这次提交无关，而且正是 TASK-143 第 2 种形状（别人的在制品挡住我的提交）的机理。
+记在 ADR-0104 决策 5，不留在这里当孤证。
+
+修复后验证：`pytest tests/tooling -n 8` → **481 passed / 2 skipped**（新增 23 条）·
+`ruff check` + `format --check` 干净（742 文件）· `lifecycle_check` 0 finding。

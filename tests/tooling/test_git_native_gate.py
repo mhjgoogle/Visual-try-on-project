@@ -16,6 +16,7 @@ _tracked_gate` 检查 shim 真的 `exec` 那个文件，`test_an_unknown_tier_bl
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -208,17 +209,34 @@ def test_missing_import_linter_blocks_instead_of_skipping(tmp_path: Path) -> Non
     assert caught.value.label == "lint-imports"
 
 
-def test_cheap_checks_come_before_expensive_ones() -> None:
+def test_cheap_checks_come_before_expensive_ones(tmp_path: Path) -> None:
     """ruff 在 pytest 之前。
 
     反过来写的代价很具体：一个 ruff 一秒能报的错，要等十分钟全量跑完才看得到。
     断言的是**组合出来的顺序**，不是某一行代码长什么样。
     """
 
-    py = Path("python")
-    cheap = pre_commit.always_checks(py)
+    cheap = pre_commit.always_checks(Path("python"), tmp_path, tmp_path / "snap")
     assert cheap[0][0] == "ruff format --check"
     assert cheap[1][0] == "ruff check"
+
+
+def test_ruff_reads_the_index_snapshot_not_the_working_tree(tmp_path: Path) -> None:
+    """**codex 2026-09-16 那条 P1 的结构性断言。**
+
+    两条 ruff 的工作目录必须是快照目录 —— 断言的是「它在哪儿跑」这个执行事实，
+    不是代码里出现过 `snapshot` 这个词。
+    """
+
+    root = tmp_path / "tree"
+    snapshot = tmp_path / "snap"
+    checks = pre_commit.always_checks(Path("python"), root, snapshot)
+
+    by_label = {label: cwd for label, _argv, _t, cwd in checks}
+    assert by_label["ruff check"] == snapshot
+    assert by_label["ruff format --check"] == snapshot
+    # 索引那条本来就问索引，留在工作树里跑是对的。
+    assert by_label["git diff --cached --check"] == root
 
 
 # --------------------------------------------------------------------------
@@ -270,14 +288,49 @@ def test_install_then_check_is_clean(
     assert (hook / "pre-commit").is_file()
 
 
-def test_git_itself_invokes_the_shim_and_the_commit_is_refused(
+def _wire_real_gate(repo: Path) -> None:
+    """把**真的**闸门装进临时仓库：闸门源码 + 一个能用的 `.venv`。
+
+    早先这里放的是一个「直接 exit 1」的桩，codex 因此判判据 2 `NOT_EVIDENCED` ——
+    桩证明的是「shim 会调起某个东西」，不是「真闸门跑起来了」。
+
+    `.venv` 用链接而不是复制：闸门要跑 ruff，而 ruff 装在本仓库的 venv 里；
+    裸复制一个解释器过去，`site-packages` 是空的，测到的会是「ruff 不存在」。
+    """
+
+    gate_dir = repo / ".claude" / "hooks"
+    gate_dir.mkdir(parents=True, exist_ok=True)
+    for name in ("pre_commit.py", "commit_gate_policy.py"):
+        shutil.copy2(HOOKS / name, gate_dir / name)
+
+    link = repo / ".venv"
+    real = REPO_ROOT / ".venv"
+    try:
+        link.symlink_to(real, target_is_directory=True)
+        return
+    except OSError:
+        pass
+    if os.name == "nt":
+        done = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(link), str(real)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if done.returncode == 0:
+            return
+    pytest.skip(
+        "这台机器既建不了 symlink 也建不了 junction，无法把真 venv 接进临时仓库"
+    )
+
+
+def test_git_itself_invokes_the_real_gate_and_the_commit_is_refused(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """**端到端：由 git 自己调用。**
+    """**端到端：由 git 自己调用，而且调起的是真闸门。**
 
     上面那些测试直接调 `pre_commit.main()`，证明的是闸门的判断对；这一条证明的是
     **它会被调用** —— 而「会不会被调用」正是 `PreToolUse` 栽的地方（14 次里漏 5 次）。
-    所以真的跑一次 `git commit`，看提交有没有落下去。
 
     整件事发生在临时仓库里：往共享的 `.git/hooks` 里装东西会波及同仓其他会话的树
     （他们的分支上没有这个闸门文件，shim 会 fail-closed 拦住他们）。
@@ -285,34 +338,126 @@ def test_git_itself_invokes_the_shim_and_the_commit_is_refused(
 
     monkeypatch.chdir(repo)
     assert install_git_hooks.install() == 0
-    # shim 交棒给「被提交的那棵树」里的闸门，所以临时仓库里也得有一份。
-    gate_dir = repo / ".claude" / "hooks"
-    gate_dir.mkdir(parents=True)
-    (gate_dir / "pre_commit.py").write_text(
-        "import sys\nsys.stderr.write('refused by gate\\n')\nraise SystemExit(1)\n",
-        encoding="utf-8",
-    )
-    venv = repo / ".venv" / ("Scripts" if os.name == "nt" else "bin")
-    venv.mkdir(parents=True)
-    target = venv / ("python.exe" if os.name == "nt" else "python")
-    # shim 找的是这棵树自己的 venv 解释器。裸复制一个 python 还不够 ——
-    # 它会去找 `pyvenv.cfg`，找不到就在启动时死掉，于是提交被拦住的原因变成
-    # 「解释器起不来」而不是「闸门拒绝」，测试就会为了错误的理由变绿。
-    target.write_bytes(Path(sys.executable).read_bytes())
-    (repo / ".venv" / "pyvenv.cfg").write_text(
-        f"home = {sys.base_prefix}\ninclude-system-site-packages = false\n",
-        encoding="utf-8",
-    )
+    _wire_real_gate(repo)
 
     (repo / "bad.py").write_text(VIOLATING, encoding="utf-8")
     _git(repo, "add", "bad.py")
     before = _git(repo, "rev-parse", "HEAD").stdout.strip()
 
     done = _git(repo, "commit", "-m", "should not land")
+    combined = done.stderr + done.stdout
 
     assert done.returncode != 0, "hook 没拦住：提交落下去了"
-    assert "refused by gate" in (done.stderr + done.stdout)
+    assert "ruff" in combined, combined[:2000]
     assert _git(repo, "rev-parse", "HEAD").stdout.strip() == before
+
+
+def test_a_clean_commit_through_git_says_the_gate_ran(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**判据 2 的端到端那一半**：真提交落下去了，而且闸门留了话。"""
+
+    monkeypatch.chdir(repo)
+    assert install_git_hooks.install() == 0
+    _wire_real_gate(repo)
+
+    (repo / "docs").mkdir()
+    (repo / "docs" / "notes.md").write_text("# notes\n", encoding="utf-8")
+    _git(repo, "add", "docs/notes.md")
+    before = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+    done = _git(repo, "commit", "-m", "docs: notes")
+    combined = done.stderr + done.stdout
+
+    assert done.returncode == 0, combined[:2000]
+    assert "[gate] pre-commit ok" in combined, combined[:2000]
+    assert _git(repo, "rev-parse", "HEAD").stdout.strip() != before
+
+
+def test_a_violation_hidden_by_an_unstaged_fix_is_still_refused(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    """**codex 2026-09-16 的 P1。** 暂存一个违规版本，再在工作区把它改干净但不暂存。
+
+    闸门若查工作区，看到的是已经改好的那一份 → 放行，而 git 提交的是**索引里**
+    那个违规版本。这是判据 1 的一个更阴的拼法：文件确实被提交了，而且 ruff 确实
+    会报它。
+    """
+
+    bad = repo / "bad.py"
+    bad.write_text(VIOLATING, encoding="utf-8")
+    _git(repo, "add", "bad.py")
+    bad.write_text("x = 1\n", encoding="utf-8")  # 工作区干净了，但没暂存
+
+    assert _run_gate(repo, monkeypatch, capsys) == 1
+    assert "ruff" in capsys.readouterr().err
+
+
+def test_the_gate_does_not_leak_gits_repository_identity_into_checks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """**codex 2026-09-16 的 P1。** git 跑 hook 时导出的仓库身份变量必须摘掉。
+
+    不摘的话，子进程里的每一条 git（尤其 pytest 在临时仓库里建的那些）都会指回
+    **正在提交的那个仓库** —— 测试要么莫名其妙失败，要么改到真仓库上去。
+    """
+
+    monkeypatch.setenv("GIT_DIR", "/somewhere/else/.git")
+    monkeypatch.setenv("GIT_INDEX_FILE", "/somewhere/else/index")
+    monkeypatch.setenv("GIT_WORK_TREE", "/somewhere/else")
+
+    env = pre_commit.clean_env()
+
+    assert "GIT_DIR" not in env
+    assert "GIT_INDEX_FILE" not in env
+    assert "GIT_WORK_TREE" not in env
+
+
+def test_the_gate_refuses_when_git_is_not_on_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AGENTS.md §6：外部工具经 `shutil.which` 解析，失败即 fail-closed。"""
+
+    monkeypatch.setattr(pre_commit.shutil, "which", lambda _name: None)
+    with pytest.raises(pre_commit.Blocked) as caught:
+        pre_commit.git_exe()
+    assert caught.value.label == "git"
+
+
+def test_a_crlf_mangled_hook_is_not_certified_as_current(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**codex 2026-09-16 的 P1。** 按文本比会把 CRLF 归一掉，坏 shim 比出来「一样」。
+
+    而 MSYS2 的 sh 读到 `#!/bin/sh\\r` 报 bad interpreter —— 闸门就这么安静地没了。
+    """
+
+    monkeypatch.chdir(repo)
+    assert install_git_hooks.install() == 0
+    hook = Path(_git(repo, "rev-parse", "--git-path", "hooks").stdout.strip())
+    target = (
+        repo / hook / "pre-commit" if not hook.is_absolute() else hook / "pre-commit"
+    )
+    target.write_bytes(install_git_hooks.SHIM.replace("\n", "\r\n").encode("utf-8"))
+
+    assert install_git_hooks.install(check_only=True) == 1
+    assert install_git_hooks.install() == 0  # 修得回来
+    assert install_git_hooks.install(check_only=True) == 0
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows 没有可执行位；git 也不看它")
+def test_a_non_executable_hook_is_not_certified_as_current(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**codex 2026-09-16 的 P1。** Ubuntu 上 git 直接跳过不可执行的 hook，一声不吭。"""
+
+    monkeypatch.chdir(repo)
+    assert install_git_hooks.install() == 0
+    hook = Path(_git(repo, "rev-parse", "--git-path", "hooks").stdout.strip())
+    target = (hook if hook.is_absolute() else repo / hook) / "pre-commit"
+    target.chmod(0o644)
+
+    assert install_git_hooks.install(check_only=True) == 1
 
 
 def test_a_hooks_path_override_is_refused(
