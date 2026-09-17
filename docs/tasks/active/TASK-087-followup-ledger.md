@@ -189,6 +189,20 @@
 | 5.34 | **手动跑小说家时拿不到章号** | TASK-146 实施（visual-try-on-project-59） | 低（**报缺，不写错**） | 章号（`scope.unitNo` → `chapterPlan`）只接到了**对话路由**那条路（`production.js` 的 `routeScopeFor`）。他在能力面板里自己选 `novel-chapter-writer` 跑时走的是 `runSessionSkill` / `runPageSkill`，两者都不带 `unitNo` → 必要输入闸会明确报「缺 本章任务」。**这是 fail-closed 的正确一侧**（不会写错章），但那条路上他没法用这个能力。`runSessionSkill` 的 scope 受 `agentsession.SENT_KINDS` 合同约束，接它要先看那份合同，不是加一个字段的事 —— 所以没顺手做。切片二（连着写多章）必然要碰这条路，届时一起接 |
 | 5.35 | **旧里程碑的三张在办卡没有重新归位** | TASK-146 换里程碑时（2026-09-14） | 低（**只影响「待办 = ls active/」的可读性**） | 产品负责人 2026-09-14 把里程碑换成 REQ-009（先小说再视频），旧里程碑「创作者 Studio 单一路径收敛」的 TASK-074 / 106 / 132 仍留在 `active/`。按 ADR-0083 决策 1，`active/` 只放**正在进行**的工作，它们现在没人在推 → 严格说该回 `backlog/` 并各写一句「什么条件下它会变成该做」。**没动的理由**：TASK-106 由 `visual-try-on-project-2a` 认领（AGENTS §14/§16 不动别人的卡），另两张是范围外（§17）。`project-context.md` 的里程碑行已经写明它们降为背景。**谁先回到那条线上，谁顺手归位** |
 
+## 5.36～5.37 TASK-148 交来的两条（2026-09-17 登记）
+
+| # | 欠账 | 来源 | 风险 | 说明 |
+| --- | --- | --- | --- | --- |
+| 5.36 | **`main` 十一天没动，分支叠了四层** | TASK-148 实施（`visual-try-on-project-b0`）2026-09-17 实测 | **中** —— 不是「不好看」，是**没人能证明它能落地** | `main` 停在 `4523b76`（2026-09-06）。`change/TASK-109-three-pane` 领先 54 个提交，`change/l4-loop` 叠在它上面（+2），`change/TASK-148-l5` 又叠在 l4-loop 上（+5）。**最终全量在这条链上是绿的**（2026-09-17 实测：并行 4179 passed / 60 skipped · 串行 6 passed · 前端 2314 pass 0 fail · ruff 干净 · `lifecycle_check` 0 finding），[待复审清单](../../design/active/pending-codex-rereview.md) 也是 0 条未闭合 —— **卡住的不是质量，是归属**：ADR-0085 要求合并方自己证明「用户验收标准满足」，而链上 54 个提交属于 TASK-146 / 145 / 144 等别人认领的卡，我无法替当事人担保他们的验收项（AGENTS §14）。**谁回到 three-pane 那条线上，谁来收口这条链**；在那之前 TASK-148 的闸门无法铺开（见 5.37），L5 的「自动取下一项」也没有意义 —— 自动化一条永不落地的流水线，产出的是更快的堆积 |
+| 5.37 | **git 原生 pre-commit 闸门已就绪但未安装** | 同上 | 低（**是刻意的**，但过期会变成遗忘） | [ADR-0104](../../adr/ADR-0104-git-native-hook-is-the-authoritative-gate.md) 决策 6：shim 找不到 `.claude/hooks/pre_commit.py` 时 fail-closed，而那个文件只在 `change/TASK-148-l5` 上 —— 2026-09-17 实测装上之后，同仓其他会话的树上没有它，**他们的提交会被一起拦住**，当场撤销。所以安装是**合并时的动作**，不是开发时的。**在 5.36 那条链落地之前，「`PreToolUse` 静默不触发」与「旁树完全没有闸门」两条破口仍然成立** —— 也就是说今天每一次提交仍然可能没有闸门。此外 `install_git_hooks.py --check` 还没接进 `motv_doctor.py`，新克隆忘了装不会有人提醒 |
+
+## 5.38～5.39 TASK-148 审查过程中交来的两条（2026-09-17 登记）
+
+| # | 欠账 | 来源 | 风险 | 说明 |
+| --- | --- | --- | --- | --- |
+| 5.38 | **`run-review.ps1` 的一致性扫描会被「fail-closed」这个词误报** | TASK-148 切片 B/C 轮 3（2026-09-17 实测） | 低，但**高频** | `Get-ConsistencyNote` 在 REQUIREMENT→BLOCKING 区间里匹配 `\b(PARTIAL\|FAIL\|NOT_EVIDENCED\|INSUFFICIENT)\b`。PowerShell 的 `-match` 默认不分大小写，`-` 是词边界 —— 于是审查者写的 `[AGENTS.md §20 fail-closed] PASS` 里的 **`fail-closed` 直接命中**，四闸全 PASS 的一轮被标成 `inconsistent`。脚本注释里写了「误报推向 fail 是安全方向」，这条判断本身没错；但 **`fail-closed` 是本仓库出现频率最高的短语之一**（AGENTS §6/§20 都在用），所以它不是偶发误报，而是每次审查工装类改动都会踩。修法大概是只扫**判词位置**（`] <VERDICT> ->` 那一格）而不是整行散文。**踩到时的正确动作**：核对四个闸的实际判词，全 PASS 且 BLOCKING 为空就照常收口，并在报告里写明误报原因 —— 不要因为这一行去改审查者的话 |
+| 5.39 | **停止-发牌竞态那条测试只数了发牌次数，没断言事件顺序** | 同上（codex 判 NON_BLOCKING） | 低 | `test_a_stop_racing_with_next_still_stops_it` 断的是「发出去的不超过一张」，所以**一条排在 `stop` 之后的 `dispatch` 仍然能让它绿**。它守住了「不会同时发两张」，没守住「停止之后不再发」。按 ADR-0081，P3/P4 记录不修 —— 但它是那条声明的唯一守卫，**下次碰这块代码时应当把断言改成事件顺序**（`stop` 之后不得出现 `dispatch`） |
+
 ## 6. 性能与偶发（记录，不承诺）
 
 | # | 项 | 来源 | 说明 |

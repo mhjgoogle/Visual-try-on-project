@@ -306,3 +306,28 @@ L5 的闭环定义里「跑完同一闭环」**包含合并**。如果自动取�
 
 轮 2 修复后验证：`pytest tests/tooling -n 8` → **517 passed / 2 skipped**（本文件 30 条）·
 `ruff check` + `format --check` 干净（745 文件）· `lifecycle_check` 0 finding。
+
+### 轮 3：收口
+
+**四闸全 `PASS`**（判据 3 · 判据 4 · `CA §1` · `CA §4` · §20 fail-closed · §24 ·
+§3 平台中立 · TASK-143 禁锁服务）· `VERIFICATION: SUFFICIENT` · **BLOCKING 为空**。
+
+输出里有一行 `GATE_CONSISTENCY: inconsistent`，**核实为误报**：脚本在
+REQUIREMENT→BLOCKING 区间匹配 `\b(PARTIAL|FAIL|NOT_EVIDENCED|INSUFFICIENT)\b`，
+而审查者自己写的 `[AGENTS.md §20 fail-closed] PASS` 里的 **`fail-closed` 命中了
+`FAIL`**（PowerShell `-match` 不分大小写，`-` 是词边界）。四个闸没有任何一个是非
+PASS，所以按 ADR-0081 的评级表**没有可评级的发现**。已核实并登记为
+[TASK-087 §5.38](TASK-087-followup-ledger.md)。
+
+一条 NON_BLOCKING（停止-发牌竞态测试只数次数、没断言事件顺序）按协议记录不修，
+登记为 [TASK-087 §5.39](TASK-087-followup-ledger.md)。
+
+**切片 B/C 收口状态**：判据 3 `PASS` · 判据 4 `PASS` · 架构全 `PASS` ·
+Verification `SUFFICIENT` · 无未闭合 P1/P2。审查者全程真 codex，独立性未降级。
+
+## 10. 落地阻塞（已登记，不在本卡修）
+
+- [TASK-087 §5.36](TASK-087-followup-ledger.md)：`main` 十一天没动，分支叠了四层，
+  链上 54 个提交属于别人认领的卡 —— **卡住的不是质量，是归属**。
+- [TASK-087 §5.37](TASK-087-followup-ledger.md)：闸门就绪但未安装，安装绑在合并上；
+  **在链落地之前，切片 A 要消灭的那两条破口仍然成立**。
