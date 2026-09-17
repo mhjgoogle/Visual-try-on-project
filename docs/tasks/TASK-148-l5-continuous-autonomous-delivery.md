@@ -374,7 +374,9 @@ Verification `SUFFICIENT` · 无未闭合 P1/P2。审查者全程真 codex，独
 | 体检问的是**进程 cwd 所在**的仓库，不是本仓库；环境里的 `GIT_DIR` 也会带偏 | 从另一个克隆里跑体检，会拿那个克隆的 hook 给这一个发合格证 —— 正是「假 ✓」 | 安装器的两个问法加 `cwd` 参数，统一走 `_git()`：摘掉 `GIT_DIR` 等身份变量，`--git-path` 的相对结果按 `cwd` 解成绝对路径；体检以 `cwd=REPO` 问。守卫：`test_hooks_dir_answers_for_the_cwd_it_is_given_not_the_process_cwd`（进程 chdir 到另一个仓库并设 `GIT_DIR`）· `test_it_asks_about_THIS_repository_not_the_callers_cwd` |
 | git 超时（`TimeoutExpired` 不是 `OSError`）与 `hook_state` 读文件时的 `OSError` 没接住 → 整份体检中断 | 一份因为自己崩掉而没查完的报告，比 ⚠ 糟 —— 体检自己的 docstring 就是这么说的 | `hook_state` 移进同一个 try，多接 `subprocess.SubprocessError`；守卫：`test_a_git_timeout_or_an_unreadable_hook_is_unknown_not_a_crash` |
 
-轮 2 见下（P1 修复后复审一次，ADR-0081）。
+轮 2（P1 修复后复审一次，ADR-0081）：**pass** —— 判据 §6.2 与两条修复各 `PASS`，
+CA §1 / §4 / 「未知不得判通过」/ `shutil.which` 四条 `PASS`，Verification `SUFFICIENT`，
+0 BLOCKING / 0 NON_BLOCKING。收口。
 
 ## 10. 落地阻塞（已登记，不在本卡修）
 
