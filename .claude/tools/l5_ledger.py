@@ -48,6 +48,7 @@ import json
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from collections import Counter
 from collections.abc import Iterator
@@ -109,6 +110,25 @@ def now() -> str:
 LOCK_TIMEOUT = 10.0
 
 
+#: 本进程当前持有的锁（路径 → 嵌套深度）。锁做成**可重入**，是为了让调用方能把
+#: 「读台账 → 做判断 → 落账」整段包起来 —— 只给写加锁挡不住「两个 `next` 同时通过
+#: 检查、再各自发一张牌」（codex 2026-09-17 轮 2）。
+#: 线程局部：跨进程那一半由下面的 `mkdir` 负责。
+_HELD = threading.local()
+
+
+@contextlib.contextmanager
+def transaction(root: Path | None = None) -> Iterator[None]:
+    """把一整段「读 → 判断 → 写」变成原子的。
+
+    没有它，每一条上限都只是**建议**：检查通过之后、落账之前，别人可以插进来。
+    批次上限、重试上限、停止状态，三条全是这个形状。
+    """
+
+    with _locked(ledger_path(root)):
+        yield
+
+
 @contextlib.contextmanager
 def _locked(path: Path) -> Iterator[None]:
     """用 `mkdir` 做的跨进程锁。
@@ -124,7 +144,21 @@ def _locked(path: Path) -> Iterator[None]:
     只是一个目录。
     """
 
+    depth: dict[str, int] = getattr(_HELD, "depth", None) or {}
+    _HELD.depth = depth
+    key = str(path)
+    if depth.get(key):
+        # 已经持有：直接放行。不可重入的话，`transaction()` 里再调 `append()`
+        # 会把自己锁死 —— 而那正是我们要的用法。
+        depth[key] += 1
+        try:
+            yield
+        finally:
+            depth[key] -= 1
+        return
+
     lock = path.with_suffix(path.suffix + ".lock")
+    path.parent.mkdir(parents=True, exist_ok=True)
     deadline = time.monotonic() + LOCK_TIMEOUT
     while True:
         try:
@@ -140,9 +174,11 @@ def _locked(path: Path) -> Iterator[None]:
             if time.monotonic() > deadline:
                 raise TimeoutError(f"{LOCK_TIMEOUT}s 内拿不到台账锁：{lock}") from None
             time.sleep(0.005)
+    depth[key] = 1
     try:
         yield
     finally:
+        depth[key] = 0
         try:
             lock.rmdir()
         except OSError:
@@ -274,12 +310,17 @@ def rows(events: list[dict]) -> dict[str, TaskRow]:
     return table
 
 
-def reverts_since(root: Path, count: int = 200) -> list[str]:
-    """交付后被回退的提交 —— **现查 Git，不记进台账**（记了就会过期）。"""
+def reverts_since(root: Path, count: int = 200) -> list[str] | None:
+    """交付后被回退的提交 —— **现查 Git，不记进台账**（记了就会过期）。
+
+    `None` = **问不到**（没有 git，或 git 报错），不是「没有」。
+    早先这两种都返回空列表，于是报告把「取不到证据」显示成「无事故」——
+    质量这一项因此在最不该乐观的时候最乐观（codex 2026-09-17 轮 2）。
+    """
 
     git = shutil.which("git")
     if git is None:
-        return []
+        return None
     done = subprocess.run(
         [git, "log", f"-{count}", "--format=%h %s"],
         cwd=root,
@@ -290,7 +331,7 @@ def reverts_since(root: Path, count: int = 200) -> list[str]:
         check=False,
     )
     if done.returncode != 0:
-        return []
+        return None
     return [
         line
         for line in done.stdout.splitlines()
@@ -388,15 +429,24 @@ def render(root: Path) -> str:
     for row in status.in_flight:
         out.append(f"  - {row.task} 仍在办，按「不自主」计")
 
-    usage = [u for r in status.window for u in r.usage]
+    # **逐个任务列。** 早先是把窗口里所有用量拼成一张表，于是只要有**一个**任务
+    # 记了，「未知」那句就整体消失 —— 其余任务缺用量这件事被一条记录盖住了
+    # （codex 2026-09-17 轮 2）。缺失要按任务显示，不能被别人的记录代表。
     out += ["", "## 用量", ""]
-    out += [f"- {u}" for u in usage] or [
-        "- **未知** —— 没有记到调用量/token，**不把估算当账单**。"
-    ]
+    for row in status.window:
+        shown = "·".join(row.usage) if row.usage else "**未知**"
+        out.append(f"- {row.task}：{shown}")
+    if any(not r.usage for r in status.window):
+        out.append("")
+        out.append("「未知」就是没取到，**不把估算当账单**。")
 
     reverts = reverts_since(root)
     out += ["", "## 交付后回退（现查 Git，不记台账）", ""]
-    out += [f"- {line}" for line in reverts] or ["- 无"]
+    if reverts is None:
+        # 「问不到」不是「没有」。
+        out.append("- **取不到** —— git 不可用或查询失败，这一项没有证据。")
+    else:
+        out += [f"- {line}" for line in reverts] or ["- 无"]
 
     out += ["", "## L5 闸", ""]
     for ok, text in status.checks:

@@ -95,15 +95,45 @@ def test_product_feedback_is_not_an_engineering_intervention(root: Path) -> None
     assert row.autonomous is True
 
 
-def test_usage_is_reported_when_recorded_and_never_estimated(root: Path) -> None:
+def test_usage_missing_on_one_task_is_not_hidden_by_another(root: Path) -> None:
+    """**codex 2026-09-17 轮 2。**
+
+    早先是把窗口里所有用量拼成一张表，于是只要有**一个**任务记了，「未知」那句就
+    整体消失 —— 其余任务缺用量这件事被一条记录盖住。缺失要按任务显示。
+    """
+
     for n in range(5):
         finish_one(root, f"TASK-22{n}")
     event(root, "resume", "TASK-224")
 
-    assert "不把估算当账单" in l5_ledger.render(root)
+    out = l5_ledger.render(root)
+    assert out.count("**未知**") == 5
+
     event(root, "usage", "TASK-224", amount="1.2M tokens")
     out = l5_ledger.render(root)
-    assert "1.2M tokens" in out and "不把估算当账单" not in out
+    assert "TASK-224：1.2M tokens" in out
+    # 其余四个仍然是「未知」，没有被那一条代表掉。
+    assert out.count("**未知**") == 4
+    assert "不把估算当账单" in out
+
+
+def test_unavailable_git_is_not_reported_as_no_reverts(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**codex 2026-09-17 轮 2。** 「问不到」不是「没有」。
+
+    早先 git 不可用与「真的没有回退」都返回空列表，报告一律显示「无」——
+    质量这一项因此在最不该乐观的时候最乐观。
+    """
+
+    for n in range(5):
+        finish_one(root, f"TASK-26{n}")
+    event(root, "resume", "TASK-264")
+
+    monkeypatch.setattr(l5_ledger.shutil, "which", lambda _name: None)
+    assert l5_ledger.reverts_since(root) is None
+    out = l5_ledger.render(root)
+    assert "取不到" in out and "- 无" not in out
 
 
 def test_an_unfinished_task_stays_in_the_window_and_counts_as_not_autonomous(
@@ -371,6 +401,79 @@ def test_retries_are_refused_while_a_stop_is_in_effect(root: Path) -> None:
     why = l5_queue.record_retry(root, "TASK-850", "又超时")
     assert why is not None and "已停止" in why
     assert l5_queue.retries_for(root, "TASK-850") == 0
+
+
+def _race(fn, times: int = 8) -> list:
+    """同时跑 *times* 次 *fn*，收集返回值 —— 竞态要用竞态去验。"""
+
+    results: list = []
+    lock = threading.Lock()
+    barrier = threading.Barrier(times)
+
+    def run() -> None:
+        barrier.wait()
+        value = fn()
+        with lock:
+            results.append(value)
+
+    threads = [threading.Thread(target=run) for _ in range(times)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    return results
+
+
+def test_concurrent_next_never_dispatches_the_same_card_twice(root: Path) -> None:
+    """**codex 2026-09-17 轮 2 的 P1。**
+
+    检查与落账分开时，两个 `next` 能同时通过检查、选中同一张卡、再各自追加
+    `dispatch` —— 重复发牌，而且不消耗批次上限。
+    """
+
+    open_the_gate(root)
+    for n in range(4):
+        authorized_card(root, "active", f"TASK-87{n}")
+
+    results = _race(lambda: l5_queue.take_next(root))
+
+    handed = [r for r in results if not isinstance(r, str)]
+    assert len(handed) == len({t for t, _ in handed}), f"同一张卡发了两次：{handed}"
+    # 串行约束：手上那张没有结论之前不发下一张，所以只能发出一张。
+    assert len(handed) == 1, results
+    dispatched, _stop = l5_queue.batch_state(root)
+    assert dispatched == 1
+
+
+def test_concurrent_retries_cannot_exceed_the_limit(root: Path) -> None:
+    """**codex 2026-09-17 轮 2 的 P1。** 已有一次重试时，两个调用都能通过检查。"""
+
+    open_the_gate(root)
+    assert l5_queue.record_retry(root, "TASK-880", "第一次") is None
+
+    _race(lambda: l5_queue.record_retry(root, "TASK-880", "抢"))
+
+    assert l5_queue.retries_for(root, "TASK-880") == l5_queue.RETRY_LIMIT
+
+
+def test_a_stop_racing_with_next_still_stops_it(root: Path) -> None:
+    """停止插在检查与落账之间，也不能让牌发出去。"""
+
+    open_the_gate(root)
+    authorized_card(root, "active", "TASK-890")
+
+    def act(index: int):
+        if index == 0:
+            l5_queue.record_stop(root, "user-stop")
+            return "stopped"
+        return l5_queue.take_next(root)
+
+    counter = iter(range(8))
+    results = _race(lambda: act(next(counter)))
+
+    handed = [r for r in results if not isinstance(r, str)]
+    # 要么停止先到（一张都不发），要么发出去的那张先于停止 —— 两者都不许同时发两张。
+    assert len(handed) <= 1, results
 
 
 def test_retry_allowance_does_not_reset_on_a_new_batch(root: Path) -> None:

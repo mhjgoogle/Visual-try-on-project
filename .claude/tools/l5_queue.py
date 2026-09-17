@@ -181,24 +181,28 @@ def refusal(root: Path) -> str | None:
 def record_retry(root: Path, task: str, reason: str) -> str | None:
     """记一次重试；到上限或已停止就返回拒绝理由，**什么都不写**。
 
+    整段在**一个事务里**：检查与落账之间不能被人插进来，否则「已经重试一次」时
+    两个调用都能通过检查，各自再追加一条 —— 上限 2 变成 3（codex 2026-09-17 轮 2）。
+
     逻辑住在这里而不是 `main()` 里，所以测试可以对着临时仓库验它 —— 对着
     `main()` 验会写进**真仓库**的台账（自测时当场撞到，残留还被审查者看见了）。
     """
 
-    _dispatched, stop = batch_state(root)
-    if stop:
-        return f"本批已停止（{stop}），不许重试。保存状态并报告。"
-    done = retries_for(root, task)
-    if done >= RETRY_LIMIT:
-        return (
-            f"{task} 已经重试 {done} 次，上限 {RETRY_LIMIT}（任务书 §6）。\n"
-            "保存状态并报告，不要继续试。"
+    with l5_ledger.transaction(root):
+        _dispatched, stop = batch_state(root)
+        if stop:
+            return f"本批已停止（{stop}），不许重试。保存状态并报告。"
+        done = retries_for(root, task)
+        if done >= RETRY_LIMIT:
+            return (
+                f"{task} 已经重试 {done} 次，上限 {RETRY_LIMIT}（任务书 §6）。\n"
+                "保存状态并报告，不要继续试。"
+            )
+        l5_ledger.append(
+            {"event": "retry", "task": task, "at": l5_ledger.now(), "reason": reason},
+            root,
         )
-    l5_ledger.append(
-        {"event": "retry", "task": task, "at": l5_ledger.now(), "reason": reason},
-        root,
-    )
-    return None
+        return None
 
 
 def record_stop(root: Path, reason: str, note: str = "") -> None:
@@ -215,21 +219,27 @@ def take_next(root: Path) -> tuple[str, str] | str:
     同一批死而复生。
     """
 
-    why = refusal(root)
-    if why:
-        return why
+    # **整段在一个事务里。** 检查与落账分开的话，两个 `next` 能同时通过检查、
+    # 选中同一张卡、再各自追加 `dispatch` —— 重复发牌、突破批次上限；
+    # 一条 `stop` 也能插在检查与落账之间（codex 2026-09-17 轮 2）。
+    with l5_ledger.transaction(root):
+        why = refusal(root)
+        if why:
+            return why
 
-    events = l5_ledger.read(root)
-    seen = {str(e["task"]) for e in events if e.get("event") in ("dispatch", "start")}
-    for task, reason, _path in candidates(root):
-        if task not in seen:
-            l5_ledger.append(
-                {"event": "dispatch", "task": task, "at": l5_ledger.now()}, root
-            )
-            return task, reason
+        events = l5_ledger.read(root)
+        seen = {
+            str(e["task"]) for e in events if e.get("event") in ("dispatch", "start")
+        }
+        for task, reason, _path in candidates(root):
+            if task not in seen:
+                l5_ledger.append(
+                    {"event": "dispatch", "task": task, "at": l5_ledger.now()}, root
+                )
+                return task, reason
 
-    record_stop(root, "queue-done")
-    return "授权池里没有还没开工的卡 —— 队列结束（已记 queue-done）。"
+        record_stop(root, "queue-done")
+        return "授权池里没有还没开工的卡 —— 队列结束（已记 queue-done）。"
 
 
 def main(argv: list[str] | None = None) -> int:
