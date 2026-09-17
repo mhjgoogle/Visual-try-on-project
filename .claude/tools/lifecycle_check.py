@@ -246,13 +246,20 @@ def check_every_card_has_a_legal_state() -> list[str]:
         out.append(str(exc))
     for card in task_status.card_paths(DOCS.parent):
         text = card.read_text("utf-8", errors="replace")
-        if task_status.state_of_text(text) is None:
-            rel = _rel(card)
-            out.append(
-                f"{rel}：卡头没有合法的状态行 —— 必须是 "
-                f"`- 状态：{' / '.join(task_status.STATES)}`，"
-                "枚举词紧跟冒号，后面可接原文（ADR-0105）"
-            )
+        states = task_status.header_states(text)
+        if len(states) == 1:
+            continue
+        # 「缺」与「多」分开说：修法不一样（补一行 vs 删一行），报成同一句会让人先猜。
+        what = (
+            "卡头没有合法的状态行"
+            if not states
+            else f"卡头有 {len(states)} 条状态行（{'、'.join(states)}），两个答案"
+        )
+        out.append(
+            f"{_rel(card)}：{what} —— 必须**恰好一条** "
+            f"`- 状态：{' / '.join(task_status.STATES)}`，"
+            "枚举词紧跟冒号，后面可接原文（ADR-0105）"
+        )
     return out
 
 

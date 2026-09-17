@@ -63,11 +63,55 @@ def test_near_misses_are_not_states(line: str) -> None:
     assert task_status.state_of_text(f"# T\n\n{line}\n") is None
 
 
-def test_only_the_first_state_line_counts() -> None:
+def test_only_the_header_is_read() -> None:
     """正文里再出现一行「- 状态：完成」（比如引用别的卡）不改变卡头的判定。"""
 
     text = "# T\n\n- 状态：进行中\n\n## 正文\n\n- 状态：完成 —— 说的是 TASK-001\n"
     assert task_status.state_of_text(text) == "进行中"
+
+
+def test_a_body_only_state_does_not_rescue_a_missing_header(tmp_path: Path) -> None:
+    """**codex 2026-09-17。** 卡头没状态时，正文里的示例不能被当成这张卡的状态。"""
+
+    text = "# T\n\n- 类型：Refactor\n\n## 示例\n\n    - 状态：完成\n"
+    assert task_status.state_of_text(text) is None
+    card = tmp_path / "TASK-001-x.md"
+    card.write_text(text, encoding="utf-8")
+    with pytest.raises(task_status.MissingState):
+        task_status.task_state(card)
+
+
+def test_two_header_states_are_ambiguous_not_first_wins(tmp_path: Path) -> None:
+    """**codex 2026-09-17。** 两行状态就是两个答案；静默取第一条，第二条无人发现。"""
+
+    text = "# T\n\n- 状态：进行中\n- 状态：完成\n"
+    assert task_status.header_states(text) == ["进行中", "完成"]
+    assert task_status.state_of_text(text) is None
+    card = tmp_path / "TASK-002-x.md"
+    card.write_text(text, encoding="utf-8")
+    with pytest.raises(task_status.MissingState, match="2 条"):
+        task_status.task_state(card)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "- **状态：** 进行中",
+        "- **状态**：进行中",
+        "- **状态：进行中**",
+    ],
+)
+def test_a_bold_label_is_still_a_state_line(line: str) -> None:
+    """**codex 2026-09-17。** 仓库里真有粗体标签；只认裸标签会把那张卡读成没有状态。"""
+
+    assert task_status.state_of_text(f"# T\n\n{line}\n") == "进行中"
+
+
+@pytest.mark.parametrize("tail", ["。", "，说明见 §3", "；", ", ok"])
+def test_trailing_punctuation_is_allowed(tail: str) -> None:
+    """codex 2026-09-17 NON_BLOCKING：`完成。` 是正常写法，不该让 lifecycle 转红。"""
+
+    assert task_status.state_of_text(f"# T\n\n- 状态：完成{tail}\n") == "完成"
 
 
 def test_a_missing_state_raises_instead_of_guessing(tmp_path: Path) -> None:

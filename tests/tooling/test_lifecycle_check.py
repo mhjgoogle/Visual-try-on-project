@@ -95,6 +95,23 @@ def test_partially_done_with_a_legal_prefix_stays_green(lc) -> None:
     assert lc.check_every_card_has_a_legal_state() == []
 
 
+def test_two_state_lines_in_one_header_turn_red(lc) -> None:
+    """**codex 2026-09-17。** 两行状态就是两个答案；静默取第一条，第二条无人发现。"""
+    (lc.DOCS / "tasks" / "TASK-005-two.md").write_text(
+        "# TASK-005：two\n\n- 状态：进行中\n- 状态：完成\n", "utf-8"
+    )
+    findings = lc.check_every_card_has_a_legal_state()
+    assert any("TASK-005" in f and "2 条" in f for f in findings), findings
+
+
+def test_a_body_state_does_not_count_for_the_header(lc) -> None:
+    """**codex 2026-09-17。** 卡头没状态时，正文里的示例不能被当成这张卡的状态。"""
+    (lc.DOCS / "tasks" / "TASK-006-body.md").write_text(
+        "# TASK-006：body\n\n- 类型：Refactor\n\n## 示例\n\n- 状态：完成\n", "utf-8"
+    )
+    assert any("TASK-006" in f for f in lc.check_every_card_has_a_legal_state())
+
+
 def test_two_cards_sharing_one_id_turn_red(lc) -> None:
     """一个任务号一张卡。迁移当天在真仓库里抓到 TASK-061 / TASK-102 各两张 ——
     三个目录曾经让它们长在不同的地方而没人发现。"""

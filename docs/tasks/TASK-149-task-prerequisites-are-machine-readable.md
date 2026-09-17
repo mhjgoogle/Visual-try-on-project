@@ -73,7 +73,7 @@
 | 项 | 证据 |
 | --- | --- |
 | 图工具 | `.claude/tools/task_graph.py` —— `deps` / `check` / `order` / `blocked`；卡与状态来自 `task_status.py`，自己不再有第二份 |
-| 判据 1 | `task_graph.py deps` 在真仓库上读出 **17 条边**（TASK-048←047 … TASK-086←080），**一张卡都没改**。我开工前的人工 grep 只找到 1 条 —— 人眼漏了 16 条，这正是「机器读边」的意义 |
+| 判据 1 | `task_graph.py deps` 在真仓库上读出 **32 条边**，**一张卡都没改**。我开工前的人工 grep 只找到 1 条；我自己的第一版正则读出 17 条 —— codex 轮 1 指出粗体标签 `- **前置：…**` 整行被漏，**15 张卡**的边就这么没了。两轮各漏一半，这正是「机器读边、且守卫要对着真仓库跑」的意义 |
 | 判据 2 | 悬空 / 自指 / 成环各有测试；`test_the_real_repository_has_no_bad_edges` 对着真仓库跑，进 commit gate 与 CI。真仓库 `check` → **前置边干净** |
 | 判据 3 | `l5_queue.py list` 对等前置的授权卡显示 `[等 TASK-xxx]`；`ready()` 不含它；`take_next` 不发它，也**不**因此记 `queue-done` |
 | 判据 4 | `candidates()` = 拓扑序（同层按任务号）；`test_next_dispatches_the_prereq_first_and_the_dependent_only_after_done` 钉住「A 的状态改成 `完成` 之后才发 B」 |

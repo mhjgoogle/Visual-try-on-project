@@ -289,6 +289,16 @@ def test_an_empty_authorization_does_not_swallow_the_next_line(root: Path) -> No
     assert l5_queue.candidates(root) == []
 
 
+def test_a_bold_authorization_line_counts_too(root: Path) -> None:
+    """同一族（codex 2026-09-17 在前置行上报的）：粗体标签不能被当作没有。"""
+
+    card(root, "active", "TASK-807", body="- **L5 自动实施授权：产品负责人「做」**")
+
+    assert [(t, r) for t, r, _ in l5_queue.candidates(root)] == [
+        ("TASK-807", "产品负责人「做」")
+    ]
+
+
 def test_an_authorized_active_card_enters_the_pool_with_its_reason(root: Path) -> None:
     authorized_card(root, "active", "TASK-804", "产品负责人 2026-09-17「这批你做完」")
 

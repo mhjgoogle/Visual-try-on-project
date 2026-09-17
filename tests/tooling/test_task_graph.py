@@ -67,6 +67,24 @@ def test_the_existing_task_074_line_is_read_without_rewriting_it(root: Path) -> 
     assert task_graph.edges(root) == {"TASK-074": ["TASK-073"]}
 
 
+def test_a_bold_prereq_declaration_is_an_edge_too(root: Path) -> None:
+    """**codex 2026-09-17 的 P1。** `TASK-078` 写的是 `- **前置：TASK-077 …**`。
+
+    只认裸标签的版本把它当作**没有前置** —— `deps` 少报、`check` 查不到、
+    依赖它的授权卡能在前置没完成时被发出去。
+    """
+
+    card(root, "TASK-077", "进行中")
+    card(root, "TASK-078", "进行中", "- **前置：TASK-077 的表格先落地**")
+    card(root, "TASK-079", "进行中", "- **前置**：TASK-077")
+
+    assert task_graph.edges(root) == {
+        "TASK-078": ["TASK-077"],
+        "TASK-079": ["TASK-077"],
+    }
+    assert task_graph.blocked_by("TASK-078", root) == ["TASK-077"]
+
+
 def test_bare_ids_with_chinese_commas_and_duplicates_are_read_once(root: Path) -> None:
     path = card(root, "TASK-080", "进行中", "- 前置：TASK-001、TASK-002, TASK-001")
     card(root, "TASK-001", "完成")

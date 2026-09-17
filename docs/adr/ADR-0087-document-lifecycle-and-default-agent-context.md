@@ -120,7 +120,8 @@ ADR-0051 写的「**无决策被取代。**」是一句否定 —— 关键词�
 | 当前工作 | `docs/tasks/` 里**本次**这一张卡 + `docs/STATUS.md` |
 | 代码与测试 | 影响范围内的 |
 
-**默认不加载**：`docs/tasks/`、`docs/design/done/`、`docs/reports/`、
+**默认不加载**：状态为 `完成` 的卡（本 ADR 原文为 `docs/tasks/done/`，ADR-0105 起
+状态住在卡头一行）、`docs/design/done/`、`docs/reports/`、
 历史 ADR（未被 current-architecture 指向的）、被取代的 REQ 版本、
 `docs/auto-push/changes/` 的历史清单。
 

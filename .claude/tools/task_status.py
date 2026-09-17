@@ -43,14 +43,21 @@ STATES: tuple[str, ...] = ("待办", "进行中", "完成")
 #: `\r\n`，而 `$` 只认 `\n` —— 少了它，`**进行中**\r` 在 Windows 工作树上一张都
 #: 认不出来，`resume` 会说「没有在办的卡」。文本模式读的调用方看不见这个坑，
 #: 所以它藏得住（TASK-150 迁移当天实测）。
+#: 标签本身也可能被包在 `**` 里（`- **状态：** …`、`- **前置：…**`）—— 仓库里
+#: 两种写法都真实存在。只认裸标签的版本会把粗体那一行**当作不存在**，于是那张卡
+#: 「没有状态」（codex 2026-09-17）。后缀允许常见标点：`完成。` `完成，说明` 是
+#: 正常的中文写法，不该被拒。
 STATE_LINE = re.compile(
-    r"^-[ \t]*(?:状态|Status)[ \t]*[：:][ \t]*\**(?P<state>待办|进行中|完成)\**"
-    r"(?=[ \t\r·（(—\-:：]|$)",
+    r"^-[ \t]*\**[ \t]*(?:状态|Status)[ \t]*\**[ \t]*[：:][ \t]*\**[ \t]*"
+    r"(?P<state>待办|进行中|完成)\**"
+    r"(?=[ \t\r·（(—\-:：。，、；,.;]|$)",
     re.M,
 )
 
 #: 任何一条状态行（不管枚举对不对）—— 迁移与诊断用它找到「那一行」。
-ANY_STATE_LINE = re.compile(r"^-[ \t]*(?:状态|Status)[ \t]*[：:](?P<rest>.*)$", re.M)
+ANY_STATE_LINE = re.compile(
+    r"^-[ \t]*\**[ \t]*(?:状态|Status)[ \t]*\**[ \t]*[：:](?P<rest>.*)$", re.M
+)
 
 #: 从文件名取任务号：`TASK-148-xxx.md` → `TASK-148`；`TASK-051A-xxx.md` → `TASK-051A`。
 #: 字母后缀是仓库里真实存在的写法（051A / 051B），只认 `\d+` 会把它们**两张都漏掉**
@@ -92,23 +99,50 @@ def tasks_dir(root: Path | None = None) -> Path:
     return (root or repo_root()) / TASKS_DIR
 
 
-def state_of_text(text: str) -> str | None:
-    """文本里的状态枚举；没有合法状态行返回 `None`。"""
+def header(text: str) -> str:
+    """卡头：第一个 `## ` 之前的部分。
 
-    match = STATE_LINE.search(text)
-    return match.group("state") if match else None
+    **只在卡头里找状态。** 正文里引用别的卡时写一句「- 状态：完成 —— 说的是 TASK-001」，
+    或者示例代码块里的一行 `- 状态：待办`，都不是这张卡的状态。整篇 `search()` 会把
+    它们当真 —— 卡头缺状态时尤其危险：那时正文里的第一条就成了这张卡的状态
+    （codex 2026-09-17）。`gen_docs_status._head` 用的是同一条切法。
+    """
+
+    return text.split("\n## ", 1)[0] if not text.startswith("## ") else ""
+
+
+def header_states(text: str) -> list[str]:
+    """卡头里**每一条**合法状态行的枚举词，按出现顺序。正常恰好一个。"""
+
+    return [m.group("state") for m in STATE_LINE.finditer(header(text))]
+
+
+def state_of_text(text: str) -> str | None:
+    """卡头里**恰好一条**合法状态行时返回枚举词；零条或多条都返回 `None`。
+
+    多条也算不合法：两行状态就是两个答案，静默取第一条会让第二条永远无人发现。
+    要区分「缺」与「多」，用 `header_states()`（`lifecycle_check` 这么做）。
+    """
+
+    states = header_states(text)
+    return states[0] if len(states) == 1 else None
 
 
 def task_state(path: Path) -> str:
-    """一张卡的状态。缺或不合法 → `MissingState`。"""
+    """一张卡的状态。缺、多、或不合法 → `MissingState`。"""
 
-    state = state_of_text(path.read_text(encoding="utf-8", errors="replace"))
-    if state is None:
-        raise MissingState(
-            f"{path.as_posix()} 没有合法的状态行 —— 卡头必须有 "
-            f"`- 状态：{' / '.join(STATES)}`（ADR-0105）"
-        )
-    return state
+    states = header_states(path.read_text(encoding="utf-8", errors="replace"))
+    if len(states) == 1:
+        return states[0]
+    what = (
+        "没有合法的状态行"
+        if not states
+        else f"有 {len(states)} 条状态行（{'、'.join(states)}）"
+    )
+    raise MissingState(
+        f"{path.as_posix()} 卡头{what} —— 必须**恰好一条** "
+        f"`- 状态：{' / '.join(STATES)}`（ADR-0105）"
+    )
 
 
 def card_paths(root: Path | None = None) -> list[Path]:

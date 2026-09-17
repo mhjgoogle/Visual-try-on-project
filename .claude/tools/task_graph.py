@@ -35,8 +35,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import task_status  # noqa: E402
 
-#: 卡头的前置行。只认以 `- 前置` 开头的行；冒号中英文都行。
-PREREQ_LINE = re.compile(r"^-[ \t]*前置[ \t]*[：:](?P<rest>.*)$", re.M)
+#: 卡头的前置行。冒号中英文都行；标签可以包在 `**` 里 —— 仓库里真有
+#: `- **前置：TASK-077 …**` 这种写法，只认裸标签的版本会把它**当作没有前置**，
+#: 于是依赖它的授权卡能在前置没完成时被发出去（codex 2026-09-17）。
+PREREQ_LINE = re.compile(
+    r"^-[ \t]*\**[ \t]*前置[ \t]*\**[ \t]*[：:](?P<rest>.*)$", re.M
+)
 
 #: 行里所有的任务号。链接文字、链接路径、顿号之间的裸号，一网打尽 —— 再去重。
 TASK_ID = re.compile(r"TASK-\d+[A-Z]?")
