@@ -2,7 +2,7 @@
 
 - Status: approved — ready for implementation
 - Revision: r2（逐项关闭 Codex 第一轮设计审查的 2 个阻塞与 5 个重要问题）
-- Task: [TASK-003](../../tasks/done/TASK-003-video-provider-contract-and-manual-provider.md)
+- Task: [TASK-003](../../tasks/TASK-003-video-provider-contract-and-manual-provider.md)
 - Baseline: branch `feat/task-003-video-provider`, HEAD `0e581d1`
   （architecture.md §4 已同步"Provider 不扫描目录"边界）
 

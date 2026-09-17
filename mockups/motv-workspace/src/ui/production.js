@@ -84,7 +84,8 @@ import { renderRefSearch, bindRefSearch, searchModel } from "./refsearch.js";
 import { renderInspector, bindInspector } from "./prodinspector.js";
 import { renderPostConsole, bindPostConsole } from "./postconsole.js";
 // TASK-073 §1.3: 状态 / 耗时 / 成本 / 失败原因 / 重试 / 真实取消, in one place
-import { taskRowModel, renderTaskRows, bindTaskRows } from "./taskrow.js";
+import { bindTaskRows } from "./taskrow.js";
+import { renderShotTasks } from "./shottasks.js";
 // TASK-073 §1.4: the contextual Agent panel — two entrances, seven items
 // TASK-073 §1.7: the fourteen spec fields + the two hard gates (domain)
 import { specStanding, SPEC_FIELD_BY_KEY } from "../workflow/deliveryspec.js";
@@ -232,7 +233,10 @@ export function scriptStatus(doc) {
       p && p.status === "proposed"
         ? { instruction: p.instruction, text: p.proposal }
         : null,
-    error: p && p.status === "failed" ? p.error : null,
+    error: p && (p.status === "failed" || p.status === "unknown") ? p.error : null,
+    // **问不到 ≠ 失败**：读侧要分得开，不然界面只能把两件事画成同一张脸
+    // （ADR-0095 决策 2）。`unknown` 那一轮可能还在跑，所以不许提供「再来一次」。
+    stalled: p && p.status === "unknown" ? "unknown" : p && p.status === "failed" ? "failed" : null,
   };
 }
 
@@ -514,8 +518,13 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       // THE CONVERSATION IS THE WHOLE COLUMN. 产品负责人 2026-08-27:「会话那个框也很
       // 多余。用不上的东西不要加进去」— so the 运行记录 / 这一页的诊断 box
       // (`session.history`) is no longer mounted. It is still BUILT by
-      // `renderAgentSession`, and capability runs remain readable on the 生成记录
-      // page, so this removes a surface he does not use rather than a fact.
+      // `renderAgentSession`, and capability runs remain readable on the 生成记录,
+      // so this removes a surface he does not use rather than a fact.
+      //
+      // **那句理由在 2026-09-06 之前是假的**（TASK-087 §5.13）：`ui/genrecord.js`
+      // 当时在 `src/` 里零 importer —— 界面删掉一块的理由，依赖于一个谁也到不了的
+      // 地方。现在它挂在 `shotTaskRows` 每一行下面，这句话才重新成立。
+      // **删东西时写下的「它在别处还看得到」，本身就是一条要被守住的断言。**
       // 「开发」窗口：方案**钉在标题栏下面**，不跟着流滚动。
       //
       // 第一版把它画进 `.st-dir-flow` 的顶端 —— 而那根流有一万三千像素高、视图停在
@@ -846,21 +855,11 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
    *
    *  `Date.now()` is read HERE and passed in, so `taskRowModel` stays pure. */
   function shotTaskRows(ctx) {
-    const shotId = ui.selectedShotId || null;
-    if (!shotId) return "";
-    const runs = ctx.skills.runs() || [];
-    const mine = runs.filter((r) => r && r.context && r.context.shotId === shotId);
-    const models = mine
-      .slice()
-      .reverse()
-      .slice(0, 8)
-      .map((r) => taskRowModel(r, { nowMs: Date.now() }));
-    return (
-      `<div class="tk-block">` +
-      `<div class="lab">这个镜头的任务</div>` +
-      renderTaskRows(models, { emptyText: "这个镜头还没有发起过任务" }) +
-      `</div>`
-    );
+    // 实现搬进 `ui/shottasks.js` —— 写在这里是闭包，**没法驱动**：我给它接上
+    // 「生成记录」之后写的守卫，把入口拆掉照样绿。搬出去之后那条守卫才真会红。
+    return renderShotTasks(ctx.skills.runs() || [], ui.selectedShotId || null, {
+      nowMs: Date.now(),
+    });
   }
 
   /** The in-page section nav. For ⑧ 镜头制作 this IS the four-step flow bar (§1.3),
@@ -2449,6 +2448,7 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
 
   function conversationContext(ctx) {
     const pd = ctx.prodData ? ctx.prodData() : null;
+    const convWork = workOf();
     const shotId = ui.selectedShotId || null;
     const shot = shotId && ctx.shot && ctx.shot.find ? ctx.shot.find(shotId) : null;
     const ep = pd && pd.production ? activeEpisode(pd.production) : null;
@@ -2466,9 +2466,22 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       // 哪些材料**此刻真的有**（TASK-119）。服务端的 resolver 靠它决定
       // 「这一类工作现在能不能跑、还缺什么」——创作文档只活在浏览器里，
       // 所以就绪状态只能由这边报。「开发」窗口里不报：那个窗口不会跑作品能力。
+      // 形态（TASK-146）：这个项目在写小说还是写剧集。resolver 靠它把「写这一章」
+      // 与「写这一集」分开 —— 两句话用的是同一批名词，关键词分不开，而「接着往下写」
+      // 两边都命中不了。**还没选形态就不报**：不报 = 不限，行为与报它之前一致。
       ...(convMode() === "feedback"
         ? {}
-        : { readyInputs: ctx.skills.readyInputs(ui.selectedShotId ? { shotId: ui.selectedShotId } : null) }),
+        : {
+            // 就绪判定必须看到**这一轮真的会用的那些定位**，否则屏幕上说「可以跑」，
+            // 跑起来却被必要输入闸拒掉（`chapterPlan` 只在带章号的 scope 下才算有）。
+            // 两者**合并**送出：`readyInputs` 拿同一个 scope 遍历所有能力，二选一
+            // 会让「选着一个镜头、同时开着一章」这种再正常不过的状态少报一个输入。
+            readyInputs: ctx.skills.readyInputs({
+              ...(ui.selectedShotId ? { shotId: ui.selectedShotId } : {}),
+              ...(novelScope() || {}),
+            }),
+            ...(convWork && convWork.form ? { form: convWork.form } : {}),
+          }),
       // 定位情报：**结构化**送过去，不指望模型记得写进句子里。
       //   route  —— 他此刻的地址，我照着它就能打开同一屏
       //   section—— 同一页里的哪一节（分镜设计有 场景/分镜 两节）
@@ -2527,7 +2540,20 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
    *  「不是 shot」：镜头域能力于是永远拿不到 shotId，永远起不来，且不报错。 */
   function routeScopeFor(ctx, skillId) {
     const scope = scopeOfSkill(ctx.skills.find(skillId));
-    return scope === "shot" && ui.selectedShotId ? { shotId: ui.selectedShotId } : null;
+    if (scope === "shot") {
+      return ui.selectedShotId ? { shotId: ui.selectedShotId } : null;
+    }
+    // 写小说的一章要知道**是第几章**（TASK-146）。形态不是 scope，所以章号不走
+    // `scopeOfSkill` 那条判断，而是随 scope 一起送 —— 它是 `chapterPlan` 唯一的
+    // 来源。没打开哪一章就不送：不送 = 必要输入缺，运行前就被拒并说清缺什么，
+    // 好过让它写出一个它自己挑的章。
+    return novelScope();
+  }
+
+  /** 他此刻打开着的那一章，只在写小说时成立。 */
+  function novelScope() {
+    const work = workOf();
+    return work && work.form === "novel" && ui.unitNo ? { unitNo: ui.unitNo } : null;
   }
 
   /** `decideRoute` 要的那一组回调。`ranFor` 问的是**登记表**，所以幂等跨得过刷新。 */
@@ -3732,6 +3758,12 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
 
   return {
     render,
+    /** 他此刻在「正文创作」里打开的是第几章/集，没打开就是 `null`。
+     *
+     *  纯 UI 状态（`ui.unitNo`），不进持久化 —— 但写路径要它：小说没有「当前集」
+     *  那样的文档级指针，AI 要写哪一章只能由「他正开着哪一章」决定。猜一个章号会
+     *  把正文写到别处（TASK-146 判据 2：没打开就说清楚，不猜）。 */
+    openUnitNo: () => ui.unitNo || null,
     /**
      * Open the shell on a SPACE — "story" | "episode" | "assets" — or on a
      * specific module. `null` means "stay where you are".

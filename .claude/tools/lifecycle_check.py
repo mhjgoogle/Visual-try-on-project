@@ -29,6 +29,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 DOCS = ROOT / "docs"
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import task_status  # noqa: E402
+
 # A card whose status line STARTS with one of these is finished, and a finished
 # card in active/ is exactly the drift ADR-0083 removed (「部分完成」starts with
 # 部分, so it is not matched -- partial work belongs in active/).
@@ -218,16 +221,45 @@ def _header_items(text: str) -> list[str]:
     return items
 
 
-def check_no_finished_card_in_active() -> list[str]:
+def _rel(path: Path) -> str:
+    """仓库相对路径；假仓库里（不在 ROOT 下）退回文件名 —— 报错路径不该自己再抛。"""
+    try:
+        return path.relative_to(ROOT).as_posix()
+    except ValueError:
+        return path.name
+
+
+def check_every_card_has_a_legal_state() -> list[str]:
+    """每张卡都必须有一行 `- 状态：待办 / 进行中 / 完成`（ADR-0105）。
+
+    取代原来的「做完却留在 active/」：状态不再住在目录里，所以「目录与状态行矛盾」
+    这一族不存在了，换成了它的对偶 —— **没有合法状态行的卡**。那样的卡在
+    「进行中的有哪些」这类查询里会**静默消失**，比标错更糟；STATUS.md 的生成器
+    遇到它会整体拒绝出数，这里提前把它指出来。
+    同一个任务号出现两张卡也在这里报（目录不再区分它们，任务号必须唯一）。
+    """
     out = []
-    for card in sorted((DOCS / "tasks" / "active").glob("TASK-*.md")):
-        status = _status_first_clause(card.read_text("utf-8"))
-        if status.startswith(_DONE_PREFIXES):
-            rel = card.relative_to(ROOT).as_posix()
-            out.append(
-                f"{rel}：状态写着「{status}」却还在 active/ —— "
-                "做完的卡要 `git mv` 进 docs/tasks/done/（ADR-0083 决策 1）"
-            )
+    try:
+        task_status.cards(DOCS.parent)
+    except ValueError as exc:
+        # 重号：`cards()` 抛的就是那一句，原样转达。
+        out.append(str(exc))
+    for card in task_status.card_paths(DOCS.parent):
+        text = card.read_text("utf-8", errors="replace")
+        states = task_status.header_states(text)
+        if len(states) == 1:
+            continue
+        # 「缺」与「多」分开说：修法不一样（补一行 vs 删一行），报成同一句会让人先猜。
+        what = (
+            "卡头没有合法的状态行"
+            if not states
+            else f"卡头有 {len(states)} 条状态行（{'、'.join(states)}），两个答案"
+        )
+        out.append(
+            f"{_rel(card)}：{what} —— 必须**恰好一条** "
+            f"`- 状态：{' / '.join(task_status.STATES)}`，"
+            "枚举词紧跟冒号，后面可接原文（ADR-0105）"
+        )
     return out
 
 
@@ -401,11 +433,12 @@ def check_no_orphan_task_in_active() -> list[str]:
     at all about why it exists, not one that words its basis differently.
     """
     out = []
-    cards = [(p, True) for p in sorted((DOCS / "tasks" / "active").glob("TASK-*.md"))]
-    for folder in ("backlog", "done"):
-        cards += [
-            (p, False) for p in sorted((DOCS / "tasks" / folder).glob("TASK-*.md"))
-        ]
+    # `进行中` 的卡**总是**检查；`待办` / `完成` 的只在它带 ADR-0088 字段集时检查
+    # （存量已完成卡刻意豁免，见下一段注释）。状态读卡头那一行（ADR-0105）。
+    cards = []
+    for path in task_status.card_paths(DOCS.parent):
+        state = task_status.state_of_text(path.read_text("utf-8", errors="replace"))
+        cards.append((path, state == "进行中"))
     for card, always in cards:
         header = _header(card.read_text("utf-8"))
         if not always and not _NEW_FIELD_SET.search(header):
@@ -588,7 +621,7 @@ def _out_of_scope_row_findings(text: str) -> list[str]:
 
 
 CHECKS = {
-    "finished-card-in-active": check_no_finished_card_in_active,
+    "card-state": check_every_card_has_a_legal_state,
     "adr-supersede-bidirectional": check_adr_supersede_links_are_bidirectional,
     "requirement-index": check_requirement_index_matches_files,
     "orphan-task": check_no_orphan_task_in_active,

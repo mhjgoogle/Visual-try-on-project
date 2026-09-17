@@ -13,10 +13,12 @@
 - **什么我们决定不做** → [docs/out-of-scope.md](docs/out-of-scope.md)
   （**WHAT WE WON'T BUILD**；只收永久边界，论证在它指向的裁决里）
 - **什么做完了、什么还没做** → [docs/STATUS.md](docs/STATUS.md)（**生成的**，别手改）。
-  文档按完成状态分区：`backlog/` 没人在做、`active/` 在办、`done/` 已完成，
-  `adr/` 与 `design/` 根是没有「完成」这一维的稳定参考
-  （[ADR-0083](docs/adr/ADR-0083-docs-partitioned-by-completion.md) ·
-  [ADR-0087](docs/adr/ADR-0087-document-lifecycle-and-default-agent-context.md)）
+  任务卡全部平铺在 `docs/tasks/`，**状态写在卡头那一行**：`待办` 没人在做、
+  `进行中` 在办、`完成` 已完成；`adr/` 与 `design/` 根是没有「完成」这一维的稳定参考
+  （[ADR-0105](docs/adr/ADR-0105-task-state-lives-on-the-card.md) ·
+  [ADR-0087](docs/adr/ADR-0087-document-lifecycle-and-default-agent-context.md)）。
+  **在办的任务看哪里**：`python .claude/tools/agent_harness.py resume`，或 STATUS.md
+  的「进行中 · 任务卡」一节 —— 这就是本仓库的任务管理器
 - **默认该读哪些、不该读哪些** → 第 25 条（历史存在，但不占日常开发上下文）
 
 `CLAUDE.md` 只是 Claude Code 的入口，内容就是本文件，没有第二份规则。
@@ -148,14 +150,14 @@ Agent 无权自改）如实告知并一次性解决，不要让它变成每次�
   层级是 Mission / Strategy / Milestone / Requirement / Solution / Implementation
   六选一 —— 层不同，落点与决定权就不同（前三层归用户、Requirement 走理解闸、
   Solution 与 Implementation **Agent 自己定不问**）。**想法留在它自己那一层，
-  不许塌陷**：Milestone 级想法被当成 Implementation 直接开做，就是 `active/`
+  不许塌陷**：Milestone 级想法被当成 Implementation 直接开做，就是「进行中」
   长期挂九张卡的成因。
 - **里程碑闸：现在必须做吗？** 四问 —— 在当前里程碑交付面上 / 阻塞在办主线 /
-  不做会造成不可逆损害 / 是几分钟的当前事实修正。任一 Yes 放行；**全 No 就落
-  `docs/tasks/backlog/` 一张卡并当场说明**（「与长期 Mission 一致，但不服务当前
+  不做会造成不可逆损害 / 是几分钟的当前事实修正。任一 Yes 放行；**全 No 就立
+  一张 `状态：待办` 的卡并当场说明**（「与长期 Mission 一致，但不服务当前
   Milestone，进入 Backlog，不实施」），**不开工、不建 REQ**。当前里程碑读
-  [STATUS.md](docs/STATUS.md)「当前真相」节。闸判错可逆（`git mv` 搬回
-  `active/`），因此**不问用户**（第 1 节）。细则见 dev-workflow Skill 第 0.5 步。
+  [STATUS.md](docs/STATUS.md)「当前真相」节。闸判错可逆（把状态改回
+  `进行中`），因此**不问用户**（第 1 节）。细则见 dev-workflow Skill 第 1 环 Intake。
 - **需求不是方案。** 「增加一个 X Agent / 模块 / 表」是 **Solution 层**，不是
   Requirement。检验：把它改写成一句「谁在什么时候看到/得到什么」，若改写后仍
   必须出现实现名词才说得通，它就是方案 —— **Agent 自己定，不写进 REQ，也不拿去
@@ -168,7 +170,7 @@ Agent 无权自改）如实告知并一次性解决，不要让它变成每次�
   最后才看到东西。
 - 任务开始时写明 **IN SCOPE / OUT OF SCOPE**。
 - 非本任务 bug：一律**记录**到 `Follow-up` 或新任务卡（欠账总账在
-  [TASK-087](docs/tasks/active/TASK-087-followup-ledger.md)），**不顺手修**（第 17 条）。
+  [TASK-087](docs/tasks/TASK-087-followup-ledger.md)），**不顺手修**（第 17 条）。
   唯一例外是它**阻塞当前任务** —— 那时只在最小范围内修，并在报告里写明为什么
   绕不开。P2 记录；**P3/P4 不修**。
   不要因为审查者报了 5 个小问题，把一个用户功能扩成两天重构。
@@ -248,9 +250,11 @@ Action Center、数据库或 UI 专用状态机。图片/音频等多媒体 Prov
 
 ## 5. Agent 协作规则
 
-14. 每个开发任务（`docs/tasks/{active,done}/TASK-*.md`）只能有一个实施 Agent。
-    **卡放在哪个目录就是它的状态**：做完了就 `git mv` 进 `done/`，并重新生成
-    `docs/STATUS.md`（ADR-0083）。任务卡不得直接躺在 `docs/tasks/` 下。
+14. 每个开发任务（`docs/tasks/TASK-*.md`）只能有一个实施 Agent。
+    **状态写在卡头那一行**（`- 状态：待办 / 进行中 / 完成`，枚举词紧跟冒号，后面可接
+    原文）：做完了就把它改成 `完成`，并重新生成 `docs/STATUS.md`
+    （[ADR-0105](docs/adr/ADR-0105-task-state-lives-on-the-card.md)）。没有合法状态行的卡
+    `lifecycle_check` 当场转红 —— 一张读不出状态的卡会在「在办的有哪些」里静默消失。
 15. 另一个 Agent 只能作为独立审查者，不得在同一任务上并行修改代码。
     审查范围必须**明确限定为本次 diff 及它能影响的不变量**，不得每轮重新审查
     整个架构或整个仓库。审查者判断的是**实际风险**（正确性、回归、状态一致性、
@@ -393,7 +397,7 @@ Action Center、数据库或 UI 专用状态机。图片/音频等多媒体 Prov
 
     **真实 Connected Project 是主要验收环境**（2026-08-11 起）：demo seed 与 SVG
     占位素材不作为主要验收依据 —— 它们会掩盖只有真实媒体才暴露的缺陷（实例见
-    [TASK-055 §5](docs/tasks/done/TASK-055-project-rooted-storage.md)：保存镜头会静默
+    [TASK-055 §5](docs/tasks/TASK-055-project-rooted-storage.md)：保存镜头会静默
     丢失景别/角度/情绪、视频资产被放进 `<img>`）。发现真实数据问题时**优先如实
     报告，不得用 mock 绕过**。
 
@@ -443,10 +447,10 @@ The repo converges instead of accumulating forever.」）。
 
     - **Requirement**（`docs/requirements/`）：`DRAFT → CONFIRMED → SUPERSEDED`。
       **不篡改旧版**，同文件追加 `v2 · supersedes v1`，实施只做 delta。
-    - **Change / Task**（`docs/tasks/`）：**目录即状态** ——
-      `backlog/`（没人在做）→ `active/`（正在做）→ `done/`（做完了）。
-      `active/` 只放**正在进行**的工作，否则「待办 = `ls active/`」会连没人做的
-      一起读成待办（ADR-0083 决策 1 + ADR-0087 决策 2）。
+    - **Change / Task**（`docs/tasks/`，一个平铺目录）：**状态住在卡上** ——
+      卡头一行 `待办`（没人在做）→ `进行中`（正在做）→ `完成`（做完了）。
+      `进行中` 只给**正在进行**的工作，否则「在办 = 进行中的那些」会连没人做的
+      一起读成在办（ADR-0105，取代 ADR-0083 决策 1；ADR-0087 决策 2 的三态不变）。
     - **ADR**（`docs/adr/`）：`Proposed → Accepted → Superseded / Rejected`。
       **旧 ADR 永不删除**，取代关系必须**双向**：被取代方写
       `状态：Superseded by [ADR-XXXX]`，取代方写 `取代：[ADR-YYYY]`；
@@ -461,10 +465,10 @@ The repo converges instead of accumulating forever.」）。
     默认只加载：`AGENTS.md` · 当前 Change 关联的 REQ（或任务卡「依据」行）·
     [当前架构合同](docs/current-architecture.md) 及它指向的相关那一份 ·
     [术语表](docs/glossary.md) 与[范围外记录](docs/out-of-scope.md)（两份都短，是索引）·
-    `docs/tasks/active/` 里**本次**这张卡 + [STATUS.md](docs/STATUS.md) ·
+    `docs/tasks/` 里**本次**这张卡 + [STATUS.md](docs/STATUS.md) ·
     影响范围内的代码与测试。
 
-    **默认不加载**：`docs/tasks/done/`、`docs/design/done/`、`docs/reports/`、
+    **默认不加载**：状态为 `完成` 或 `待办` 的卡、`docs/design/done/`、`docs/reports/`、
     未被当前架构合同指向的历史 ADR、被取代的 REQ 版本、历史 Change 清单。
     只有五种情形才按需读历史：**回归调查 / 架构理由 / 历史冲突 / 需求演化 /
     复现一次旧决策的边界**。
@@ -503,14 +507,14 @@ The repo converges instead of accumulating forever.」）。
 
     它们**不各写一份文档**：前三面是 [project-context.md](docs/project-context.md)
     里三行带锚点的当前事实（`<!-- current-truth: mission | strategy | milestone -->`），
-    后三面从 `docs/requirements/` · `docs/tasks/backlog/` · `docs/adr/` **派生**。
+    后三面从 `docs/requirements/` · `docs/tasks/` 里状态为 `待办` 的卡 · `docs/adr/` **派生**。
     六面统一由 `python .claude/tools/gen_docs_status.py` 生成进
     [STATUS.md](docs/STATUS.md) 的「当前真相」节 —— 落在 STATUS.md 是因为
     第 25 条已经把它列进默认上下文：**里程碑闸每次都要读第三面，读的东西必须是
     默认已加载的**，否则闸本身变成负担。
 
     **锚点缺失或为空时生成器 fail-closed**（退出非零并指出缺哪一行）：生成不出来
-    的当前真相是缺陷，不是可以留白的格子。收敛检查（第 9 步）看的不是它存不存在，
+    的当前真相是缺陷，不是可以留白的格子。收敛检查（dev-workflow 第 6 环 Close）看的不是它存不存在，
     而是它**说的还是不是真的** —— 尤其里程碑那一行，它是唯一手写的排期事实。
 
     不新建 traceability 数据库、不给卡加 metadata 文件、不按里程碑二级归档 ——

@@ -49,6 +49,13 @@ export default {
       panel = `<div class="proposal"><div class="proplab">修订稿（未应用）· 要求：${esc(p.instruction)}</div><textarea class="proptext" readonly spellcheck="false">${esc(p.proposal)}</textarea><div class="vbtns"><button class="nrun" data-apply>✔ 应用为 v${d.versions.length + 1}</button><button class="nrun ghost" data-discard>放弃</button></div></div>`;
     } else if (p && p.status === "failed") {
       panel = `<div class="scripterr">⚠ 生成失败：${esc(p.error)}<button class="errx" data-errx>知道了</button></div>`;
+    } else if (p && p.status === "unknown") {
+      // **问不到 ≠ 失败**（ADR-0095 决策 2）。这一状态会挡住下一轮（`beginGeneration`
+      // 拒绝），所以这块面板**必须**画出来 —— 少了它，上面那两颗按钮还在，按下去却
+      // 一声不吭地什么都不发生，而他也没有办法把这个状态清掉。
+      panel =
+        `<div class="scripterr">⚠ 这一轮状态未知：${esc(p.error)}` +
+        `<button class="errx" data-errx>不等了，放弃这一轮</button></div>`;
     }
     return `<div class="scriptbox">${brief}${gen}${vbar}${scriptArea}${revRow}${panel}${nx([["scriptgen", "生成分镜"]])}</div>`;
   },

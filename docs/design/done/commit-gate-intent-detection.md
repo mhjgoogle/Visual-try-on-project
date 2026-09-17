@@ -1,9 +1,9 @@
 # commit gate 的意图判定：从正则读命令文本，改成用每个 shell 自己的解析器
 
-- 状态：**已实施**（2026-08-16，[TASK-085](../../tasks/done/TASK-085-gate-intent-detection.md)）。
+- 状态：**已实施**（2026-08-16，[TASK-085](../../tasks/TASK-085-gate-intent-detection.md)）。
   决策已固化为 [ADR-0070](../../adr/ADR-0070-commit-gate-intent-by-shell-parser.md)。
   实施中与本方案的三处偏差已就地标注（§4 决策 4、§6），**以 ADR-0070 为准**。
-- 来源：[待复审清单](../active/pending-codex-rereview.md)「仍然待办」第 3 项 → [TASK-084](../../tasks/done/TASK-084-clear-the-push-gate.md) §3
+- 来源：[待复审清单](../active/pending-codex-rereview.md)「仍然待办」第 3 项 → [TASK-084](../../tasks/TASK-084-clear-the-push-gate.md) §3
 - 依据：[ADR-0050](../../adr/ADR-0050-powershell-native-agent-dev-tooling.md) 决策 1（两 shell 同一行为合同）、
   [ADR-0062](../../adr/ADR-0062-windows-authoritative-environment.md) 决策 3（两实现必须给出相同判定）、
   [ADR-0068](../../adr/ADR-0068-continuous-modification-chain.md) 决策 6/7（链令牌与 push/merge 冲突扫描）

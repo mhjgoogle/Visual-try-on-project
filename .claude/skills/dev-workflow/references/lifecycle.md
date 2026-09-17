@@ -17,6 +17,8 @@
 
 **写之前先问它是哪一类**。答案是 C 就别写进 `docs/` —— 写 `.claude/tmp/`
 （已 gitignore）或会话 scratchpad。
+再按 [records.md「最小记录规则」](records.md) 找现有归属；分类为 A/B
+不等于需要新建文件。存量历史仍保留，本次收敛只处理本次影响范围。
 
 ## 1. 当前事实住在哪（默认上下文的全部内容）
 
@@ -25,9 +27,9 @@
 | `AGENTS.md` | 规则 |
 | `docs/current-architecture.md` | **现在**的模块边界 / 依赖方向 / 前后端合同 / 测试归属 / 架构约束 |
 | `docs/STATUS.md`（生成的） | 谁做完了、谁还没做 |
-| 本次那张 `docs/tasks/active/TASK-*.md` + 它关联的 `REQ-*` | 现在要做什么 |
+| 本次那张 `docs/tasks/TASK-*.md` + 它关联的 `REQ-*` | 现在要做什么 |
 
-**不默认加载**：`tasks/done/`、`tasks/backlog/`、`design/done/`、`reports/`、
+**不默认加载**：状态为 `完成` 或 `待办` 的卡、`design/done/`、`reports/`、
 未被当前架构合同指向的历史 ADR、被取代的 REQ 版本、历史 Change 清单。
 按需读历史的五种情形：**回归调查 / 架构理由 / 历史冲突 / 需求演化 /
 复现一次旧决策的边界**。
@@ -42,20 +44,23 @@
   「（superseded by v2）」，**内容一字不动**；实施只做 v1→v2 delta。
 - 整份被另一个 REQ 取代：状态改 `SUPERSEDED` 并写明取代者，文件留着。
 
-### Change / Task（`docs/tasks/`）—— 目录即状态
+### Change / Task（`docs/tasks/`，平铺）—— 状态住在卡头一行（ADR-0105）
 
 ```
-backlog/            没人在做（需求成立、未排期）
+- 状态：待办 · …        没人在做（需求成立、未排期）
    ↓ 开工
-active/             正在做（含「部分完成」）
+- 状态：进行中 · …      正在做（含「部分完成」）
    ↓ Done 判定成立
-done/               做完了 / 已退役
+- 状态：完成 · …        做完了 / 已退役
 ```
 
-- **`active/` 只放正在进行的工作。** 立了卡但短期不做 → `backlog/`，
-  否则「待办 = `ls active/`」会把没人做的也读成待办。
-- 目标被后续决策取代 → 进 `done/`，状态行写「退役（被 X 取代）」，**不删卡**。
-- 每次移动后重新生成 `STATUS.md`。
+枚举词紧跟冒号，后面接「交付了什么」的散文。语法只有一个源：
+`.claude/tools/task_status.py`。
+
+- **`进行中` 只给正在进行的工作。** 立了卡但短期不做 → `待办`，
+  否则「在办 = 进行中的那些」会把没人做的也读成在办。
+- 目标被后续决策取代 → 改 `完成`，后面写「退役（被 X 取代）」，**不删卡**。
+- 每次改状态后重新生成 `STATUS.md`。**卡的路径整个生命周期不变。**
 
 ### ADR（`docs/adr/`）
 
@@ -78,7 +83,7 @@ Superseded by / Partially superseded by`）。只在正文里提一句不算：�
 
 ## 3. 收口时做什么（dev-workflow 第 9/10 步的展开）
 
-### 第 9 步 · 仓库收敛（代码收敛之外的七问）
+### 第 6 环 Close · 仓库收敛（代码收敛之外的七问）
 
 1. 这次新增的 `docs/` 文件，**每一份都是 A 或 B 吗**？C 类删掉或提炼。
 2. 有 A 类文档现在在**说谎**吗？（尤其 `current-architecture.md`：
@@ -87,7 +92,7 @@ Superseded by / Partially superseded by`）。只在正文里提一句不算：�
 4. 需求变了吗？→ REQ 追加 v2，不改 v1。**有没有重复的需求记录**
    （同一需求两份 REQ，或 REQ 与存量基线文档各写一份）？→ 留一处权威，
    另一处改成指过去的一行。
-5. `active/` 里有没有**已经做完**或**根本没人在做**的卡？→ 搬 `done/` / `backlog/`。
+5. 状态 `进行中` 的卡里有没有**已经做完**或**根本没人在做**的？→ 改 `完成` / `待办`。
 6. 有没有已经不代表当前有效行为的**测试 / 文档 / 兼容层**？→ 删或更新。
    （测试保护 Current Valid Behavior，不保护 Historical Behavior。）
 7. **当前真相还能重建吗**（AGENTS.md 第 27 条 / ADR-0101 决策 5）？六个面里
@@ -105,10 +110,10 @@ python .claude/tools/gen_docs_status.py     # 第 7 问：六面 + STATUS.md 重
 它不判「这份文档还有没有价值」—— 那需要读者。**它漏报，不误杀**；
 漏的那部分就是上面六问的第 1、2、6 问。
 
-### 第 10 步 · Done 时的三个动作（一起做，不是可选项）
+### 第 6 环 Close · Done 时的三个动作（一起做，不是可选项）
 
 ```
-git mv docs/tasks/active/TASK-NNN-*.md docs/tasks/done/     # 或 backlog/
+# 卡头那一行：- 状态：进行中 · …  →  - 状态：完成 · …（或 待办）
 python .claude/tools/lifecycle_check.py                     # 0 finding
 python .claude/tools/gen_docs_status.py                     # 重新生成总览
 ```
@@ -129,6 +134,8 @@ current-architecture，再删原件**。提炼出的那几行才是价值。
 **两个例外，它们是 B 类不是 C 类**（别当临时产物删掉）：
 
 - `docs/reports/` 的阶段性工作报告（产品负责人 2026-08-24 要求固定写在 docs 里，
-  统一看）—— 历史证据，永久保留、默认不读。
+  统一看）—— 历史证据，永久保留、默认不读。这是报告的存放规则，
+  不要求每个 Change 新写报告；只有明确要求阶段报告时才新增，普通交付在对话中
+  简述结果、验证、剩余项并链接原卡，不再复制一份实施记录。
 - `docs/design/active/pending-codex-rereview.md` 的**活账**部分：条目闭合后整段
   移进 `docs/design/done/` 的历史文件，**行不删**（删掉就看不出这段时间发生过什么）。

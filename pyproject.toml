@@ -7,6 +7,31 @@ name = "ai-video-workflow"
 version = "0.1.0"
 description = "File-based foundations for an AI video production workflow."
 readme = "README.md"
+# THE floor, and the only version fact this repo asserts. There is
+# deliberately no second one: no .python-version, no uv/poetry lock, no
+# version manager. Two sources already answer the two questions that matter,
+# and neither needs new machinery:
+#   - what must KEEP WORKING -> this line, verified by CI
+#     (.github/workflows/ci.yml pins setup-python to the floor, 3.10, on both
+#     the authoritative Windows job and the Ubuntu one)
+#   - what DEVELOPMENT actually runs -> whichever interpreter built .venv
+#
+# Those two are not the same number and are not meant to be. What bites is
+# the second one drifting silently: `python -m venv` takes whatever `python`
+# resolves to first on PATH, so on 2026-09-15 the authoritative tree was on
+# 3.13.1 while a worktree venv created the same hour got 3.12.1 -- nobody
+# chose that, Git Bash just resolved a different entry than the py launcher.
+#
+# So the rule is one line, not a system: NAME THE INTERPRETER when creating a
+# venv, and name the same one the authoritative tree runs.
+#
+#     py -3.13 -m venv .venv          # Windows (ADR-0062 authoritative)
+#     python3.13 -m venv .venv        # Ubuntu / WSL2
+#
+# Check an existing venv with `.venv/Scripts/python.exe -V`. A mismatch is
+# not automatically a defect -- anything >= the floor is legal -- but it must
+# be a CHOICE, because it is the difference between "tested on another
+# version" and "nobody knows which version tested this".
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 dependencies = []
@@ -21,10 +46,43 @@ dev = [
     # gate.sh), so this is a hard requirement for a full-tier commit, not an
     # optimisation: without it the gate fails closed on an unknown `-n` flag.
     "pytest-xdist>=3.8",
-    "ruff>=0.8",
+    # EXACT pin, unlike the others. `ruff format --check` is a GATE: its
+    # verdict is the formatter's opinion, and that opinion changes between
+    # releases. With a floating spec the authoritative tree, a fresh worktree
+    # venv and CI each install whatever is newest on their own install day, so
+    # the same bytes can be "already formatted" in one tree and a blocked
+    # commit in another (measured 2026-09-15: main tree 0.16.2, a fresh venv
+    # built the same day 0.16.7). 0.16.2 is what the authoritative Windows
+    # tree (ADR-0062) has been linting every commit with; both versions agree
+    # on today's 722 files, so pinning the authoritative one changes no
+    # verdict and makes every install reproduce it. Raise it deliberately,
+    # never by accident.
+    "ruff==0.16.2",
     # 依赖方向契约（TASK-134）。闸门在 `import_contracts` 为真时跑它，二进制缺失
     # 一律 fail-closed 挡住提交 —— 所以它是硬依赖，不是可选优化。
     "import-linter>=2.0",
+]
+
+# Real-browser E2E. SEPARATE from `dev` on purpose, and the separation is
+# load-bearing: the four Playwright tests guard only the IMPORT
+# (`pytest.importorskip("playwright.sync_api")`) and then call
+# `p.chromium.launch()` with no guard at all. Installing the package where no
+# browser binary exists therefore converts four clean skips into four hard
+# failures. CI installs `.[dev]` and never runs `playwright install`, so
+# playwright must stay out of `dev`.
+#
+# A development worktree DOES have the browsers (they live per-user in
+# %LOCALAPPDATA%\ms-playwright / ~/.cache/ms-playwright, shared by every venv
+# on the machine), so there the extra is what stops those four tests from
+# silently skipping:
+#
+#     .venv/Scripts/python.exe -m pip install -e ".[dev,e2e]"
+#     .venv/Scripts/python.exe -m playwright install chromium   # once per machine
+#
+# Exact pin for the same reason as ruff: the tests drive a real browser, and
+# 1.62.0 is the version the authoritative tree runs them with.
+e2e = [
+    "playwright==1.62.0",
 ]
 
 [tool.setuptools.packages.find]

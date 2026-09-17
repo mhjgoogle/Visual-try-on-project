@@ -861,6 +861,42 @@ _STATIC_PREFIXES = ("src/", "styles/", "fixtures/")
 # enforces its own tighter bound so raising this never loosens JSON routes.
 _MAX_BODY_BYTES = 60_000_000
 _CANVAS_BODY_MAX = 2_000_000  # canvas JSON keeps its original tighter bound
+
+#: 覆盖式替换的重试次数与间隔。**这是为 Windows 加的，不是保险起见。**
+#:
+#: `os.replace` 覆盖一个**正被打开读**的文件，在 Windows 上抛
+#: `PermissionError [WinError 5]`；POSIX 上 rename 覆盖打开的文件是允许的。
+#: 而 `canvas.json` 的读者到处都是 —— 服务端为运行中的 run 组装事实要读它、
+#: `_canvas_get` 要读它、创作者的备份/同步软件也可能开着它。于是「他打的字」
+#: 会因为**另一个读者恰好在场**而保存失败（TASK-087 §6.12 的根因，旅程 e2e 上
+#: 8 跑 2 红；`tests/studio/test_motv_canvas_persistence_m1.py` 里有一条不依赖
+#: 竞态的确定性复现）。
+#:
+#: 冲突是**短暂**的：读者读完就松手。所以重试，而不是把数据丢掉。上限故意很短
+#: （~150ms）—— 这是一个请求处理线程，宁可如实报错也不许把请求挂住。
+_REPLACE_RETRIES = 6
+_REPLACE_BACKOFF_S = 0.025
+
+
+def _replace_retrying(tmpname, target, *, sleep=None):
+    """`os.replace`，被读者挡住时重试几次。最后一次的异常原样抛出。
+
+    `sleep` 可注入，测试因此不必真的睡（守卫要断言**重试确实发生过**，
+    而不是断言它睡了多久）。
+    """
+    nap = sleep if sleep is not None else time.sleep
+    last = None
+    for attempt in range(_REPLACE_RETRIES):
+        try:
+            os.replace(tmpname, target)
+            return attempt
+        except PermissionError as exc:  # Windows: 有人正开着它读
+            last = exc
+            if attempt + 1 < _REPLACE_RETRIES:
+                nap(_REPLACE_BACKOFF_S)
+    raise last
+
+
 _GATEWAY_BODY_MAX = 2_000_000  # agent JSON envelopes stay small
 # Gateway command envelopes may inline per-shot first-frame images as data URLs
 # (lock-draft-plan, ADR-0047: <=5.5MB original -> ~7.34MB base64 per shot). The
@@ -3631,6 +3667,10 @@ def _conv_candidates(catalog, capability: str) -> list:
                 "intent": internal["intent"],
                 "kind": internal["kind"],
                 "scope": internal["scope"],
+                # 空 = 两种形态都适用。加载器已经把 `None` 归一成 `""`，但旧目录里
+                # 的包在升级前不会有这个键 —— `.get` 让它们保持「不限」，而不是
+                # 在这里 KeyError 掉整份候选名单。
+                "form": internal.get("form", ""),
                 "priority": internal["priority"],
                 "selectWhen": list(internal["selectWhen"]),
             }
@@ -3672,6 +3712,18 @@ def _conv_ready_inputs(context) -> set:
     }
 
 
+#: 这个项目现在在写小说还是写剧集（`story.work.form`）。与 `readyInputs` 同一条路
+#: 由前端报 —— 创作文档只活在浏览器里（ADR-0089 决策 2b），服务端没有第二个真相。
+#:
+#: **没报 = 不限**，行为与 TASK-146 之前完全一致：一个还没选形态的项目、或者一个
+#: 更旧的客户端，都不会因此被排除掉任何候选。
+def _conv_form(context) -> str:
+    if not isinstance(context, dict):
+        return ""
+    raw = context.get("form")
+    return raw.strip()[:16] if isinstance(raw, str) else ""
+
+
 def _conv_hits(goal: str, words) -> int:
     """他这句话里出现了几个这个能力的关键词。二级选择的**全部**模型输入就是这个。"""
     text = goal or ""
@@ -3701,7 +3753,14 @@ def _conv_revision_match(goal: str, intent: str) -> int:
     return 1 if wants_revision == is_revision else 0
 
 
-def _conv_resolve(catalog, capability: str, *, goal: str, scope: str, ready, shot_id):
+#: 形态的中文说法，只用于拒绝时告诉他为什么 —— 「不适用于当前形态」不说明形态是
+#: 什么，等于没说。
+_CONV_FORM_WORD = {"novel": "小说", "episode": "剧集"}
+
+
+def _conv_resolve(
+    catalog, capability: str, *, goal: str, scope: str, ready, shot_id, form: str = ""
+):
     """facade + 上下文 → 一个确定的内部执行计划（ADR-0091 决策 2）。
 
     **规则优先，模型只做一级分流。** 模型给的是三选一的 capability 与他要做什么；
@@ -3723,6 +3782,19 @@ def _conv_resolve(catalog, capability: str, *, goal: str, scope: str, ready, sho
     rows = _conv_candidates(catalog, capability)
     if not rows:
         return None, f"这台机器上没有能承担「{capability}」的能力（没有一个包声明了它）"
+
+    # 形态是**硬排除**，在打分之前（TASK-146）。放进排序键会让一个高优先级的
+    # 剧集能力在小说项目里靠 `priority` 赢回来 —— 而「在写小说时跑出一份剧本」
+    # 不是排序不佳，是选错了东西。没声明 `form` 的包两种形态都留着。
+    if form:
+        kept = [r for r in rows if not r["form"] or r["form"] == form]
+        if not kept:
+            word = _CONV_FORM_WORD.get(form, form)
+            return None, (
+                f"「{capability}」之下没有适用于{word}的能力 —— "
+                f"这个项目现在写的是{word}"
+            )
+        rows = kept
 
     def missing_of(row):
         need = [k for k in row["inputs"] if k != _CONV_GOAL_INPUT and k not in ready]
@@ -7768,6 +7840,7 @@ class _App:
             scope=route.get("scope") or "",
             ready=_conv_ready_inputs(context),
             shot_id=shot_id,
+            form=_conv_form(context),
         )
         if refusal:
             return None, {"capability": capability, "reason": refusal}
@@ -8559,14 +8632,24 @@ class _App:
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(json.dumps(payload, ensure_ascii=False))
-            os.replace(tmpname, p)  # atomic within the project's own volume
-        except OSError:
+            # 重试，因为在 Windows 上「有人正开着它读」就足以让覆盖失败，而那
+            # 会把他刚打的字丢掉（见 `_replace_retrying` 的注释）。
+            _replace_retrying(tmpname, p)
+        except OSError as exc:
             try:
                 os.unlink(tmpname)
             except OSError:
                 pass
+            # **原因照带。** 上一版压成一句「could not save」：跨卷、只读目录、
+            # 磁盘满、被别的进程锁住 —— 全长成同一句话，下一个人无从查起。
             return _json(
-                500, {"error": {"category": "write_failed", "detail": "could not save"}}
+                500,
+                {
+                    "error": {
+                        "category": "write_failed",
+                        "detail": f"could not save: {type(exc).__name__}: {exc}"[:300],
+                    }
+                },
             )
         return _json(200, {"ok": True})
 

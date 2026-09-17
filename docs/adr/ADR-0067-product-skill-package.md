@@ -3,7 +3,7 @@
 - 状态：**Accepted**（产品负责人 2026-08-13 下发）
 - 日期：2026-08-13
 - 实施基线：`70dab40`（TASK-072 批次一）
-- 实施任务：[TASK-075](../tasks/done/TASK-075-product-skill-package.md)
+- 实施任务：[TASK-075](../tasks/TASK-075-product-skill-package.md)
 - 相关：
   [ADR-0056](ADR-0056-local-ai-runtime-and-film-skills.md)（Runtime / Skill 分层、
   能力定义不可变、不自动自学习）、

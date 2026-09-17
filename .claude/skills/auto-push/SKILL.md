@@ -70,7 +70,7 @@ HEAD 时返回 `BLOCKED_BASE_BEHIND`——要么 `--base HEAD`（在当前历史
    对它做字符串替换 —— 替换会静默失配，最后只剩一行标题）。
 4. `push` —— 成功即完；`NEEDS_SYNC` 见下。
 5. push 成功后做一次 skill-evolution Fast Loop 反馈（沿用 dev-workflow
-   第 10 步的既有约定，把 commit hash 写进 note）。
+   第 6 环 Close 的既有约定，把 commit hash 写进 note）。
 
 对 stage 结果的反应（全部 fail-closed，别绕）：
 
@@ -118,7 +118,7 @@ Task 级 push 与 Change 级 merge 严格分开。merge 的前提链：
    决策 6）：**Requirement 全 `PASS` · Architecture 无 `FAIL` · Verification
    `SUFFICIENT` · 四个缺口标签一个不挂**。任一判据 `PARTIAL` / `FAIL` /
    `NOT_EVIDENCED` → Gate 不为 PASS，交回 dev-workflow 补齐，**不是问用户**。
-   「收敛」含**仓库收敛**（ADR-0087）：卡已搬进 `done/` 或 `backlog/`、
+   「收敛」含**仓库收敛**（ADR-0087）：卡头状态已改成 `完成` 或 `待办`（ADR-0105）、
    `docs/STATUS.md` 已重新生成、`.claude/tools/lifecycle_check.py` 零发现。
    这三条**不是额外动作** —— 守卫住在 `tests/tooling/`，最终全量跑到它；
    全量绿就等于它绿。

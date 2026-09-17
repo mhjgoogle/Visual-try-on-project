@@ -98,6 +98,15 @@ const _writeGen = new Map();
 // rejected keepalive request is not sent at all.
 let _keepaliveBytes = 0;
 
+/** 保存失败时**面向创作者**的那一声。默认只有 `console.warn`（这个模块一直
+ *  只有控制台），但控制台不是他会看的地方 —— `app.js` 把它接到 toast 上。 */
+let _onSaveFailed = null;
+
+/** 接上那一声。传 `null` 摘掉（测试用）。 */
+export function setSaveFailedNotifier(fn) {
+  _onSaveFailed = typeof fn === "function" ? fn : null;
+}
+
 function _bumpWriteGen(name) {
   const next = (_writeGen.get(name) || 0) + 1;
   _writeGen.set(name, next);
@@ -394,7 +403,25 @@ async function _write(name, data, { keepalive = false } = {}) {
     // body's content and more, so persisting THIS one to localStorage would put
     // stale content there — the exact overwrite the abort was meant to prevent.
     if (res.error && res.error.category === API_ERROR.ABORTED) return;
-    /* otherwise fall through to localStorage */
+    // **存不下就得说出来**（AGENTS.md 决策 6 / §13）。
+    //
+    // 上一版这里直接落到 localStorage，**一句话都不说**。于是服务端拒了这次写
+    // （实测：Windows 上 `os.replace` 撞上一个正在读的进程 → 500 write_failed）
+    // 之后，屏幕上字还在、盘上没有、控制台没声音 —— 他要等到刷新才发现。
+    // 这正是 TASK-087 §6.12 那三条现象里的最后一条，也是 `4d865eb` 那一轮
+    // 「把没写下去的都变成出声的」漏掉的一条路径。
+    //
+    // 恢复副本照存（下面的 localStorage）—— 说出来和存副本是两件事，都要做。
+    const why =
+      (res.error && (res.error.detail || res.error.category)) || `HTTP ${res.status}`;
+    console.warn(`motv: 这一次保存没有写下去 —— ${why}（已在本机留了一份恢复副本）`);
+    if (_onSaveFailed) {
+      try {
+        _onSaveFailed(`没存上：${why} —— 本机留了副本，别关页面`);
+      } catch {
+        /* 通知失败不许再把保存路径带崩 */
+      }
+    }
   } finally {
     if (reserving) _keepaliveBytes -= size;
     if (_inflight.get(name) === entry) _inflight.delete(name);

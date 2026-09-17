@@ -219,7 +219,7 @@ def test_the_guard_actually_scans_the_docs_tree() -> None:
     nothing would pass the test above forever while asserting nothing."""
     scanned = _markdown_files()
     assert len(scanned) > 100, f"only {len(scanned)} markdown files found"
-    assert any(p.parts[-3:-1] == ("tasks", "done") for p in scanned)
+    assert any(p.parts[-2] == "tasks" for p in scanned)
     assert any(p.parts[-2] == "adr" for p in scanned)
 
 

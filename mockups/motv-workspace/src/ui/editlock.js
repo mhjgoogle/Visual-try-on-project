@@ -20,13 +20,16 @@ export function createEditLock({
   timeoutMs = 15000,
   setTimer = (fn, ms) => setTimeout(fn, ms),
   clearTimer = (id) => clearTimeout(id),
+  observe = defaultObserve,
 } = {}) {
   let locked = false;
   let watchdog = null;
+  let unobserve = null;
 
-  function apply(root, on) {
-    root.classList.toggle("is-loading", on);
-    root.querySelectorAll("textarea, input").forEach((el) => {
+  /** 把一批元素设成锁定 / 放开。抽出来是因为**观察者也要用它** —— 锁定期间
+   *  被重画出来的元素必须走同一条路径，否则标记语义会长出第二份。 */
+  function applyTo(els, on) {
+    els.forEach((el) => {
       if (on) {
         // **标记只在「进入锁定」这一次写**（codex 2026-09-05 判 P1）。
         // 上一版每次上锁都写：第二次上锁时 `readOnly` 已经是我们自己设的 true，
@@ -39,6 +42,11 @@ export function createEditLock({
         el.readOnly = false;
       }
     });
+  }
+
+  function apply(root, on) {
+    root.classList.toggle("is-loading", on);
+    applyTo(Array.from(root.querySelectorAll("textarea, input")), on);
   }
 
   function arm() {
@@ -66,10 +74,20 @@ export function createEditLock({
       return locked;
     }
     locked = want;
-    if (want) arm();
-    else {
+    if (want) {
+      arm();
+      // **上锁那一刻扫一遍 DOM 是不够的。** `ui/production.js` 的 `pollProposals`
+      // 会在异步回调里调 `render()`，`render()` 重写 `root.innerHTML` —— 类留在根上，
+      // 新画出来的 textarea 却是崭新的元素，不带 `readOnly`。所以锁定期间必须**持续**
+      // 盯着新出现的输入框（2a 在上一轮把这条记为「可接受、未修」，原话是
+      // 「载入期间正常不重渲染，但我没有证据说它绝不会」）。
+      if (typeof observe === "function")
+        unobserve = observe(root, (els) => applyTo(els, true));
+    } else {
       clearTimer(watchdog);
       watchdog = null;
+      if (unobserve) unobserve();
+      unobserve = null;
     }
     apply(root, want);
     return locked;
@@ -80,4 +98,28 @@ export function createEditLock({
     unlock: () => set(false),
     isLocked: () => locked,
   };
+}
+
+/** 默认观察者：盯住根节点下新出现的输入框。
+ *
+ *  注入的理由与定时器同源 —— node 测试里没有 `MutationObserver`，而**能被绕开的
+ *  旁路会让生产路径坏了测试也照绿**（codex 判过定时器那条 P1）。这里返回一个
+ *  停止函数，解锁时调它；没有 `MutationObserver` 时返回空停止函数（fail-open 到
+ *  「只锁上锁那一刻的元素」，也就是这次修复之前的行为，不会更糟）。 */
+export function defaultObserve(root, onAdded) {
+  if (typeof MutationObserver !== "function") return () => {};
+  const mo = new MutationObserver((records) => {
+    const found = [];
+    for (const rec of records) {
+      for (const node of rec.addedNodes || []) {
+        if (!node || node.nodeType !== 1) continue;
+        if (node.matches && node.matches("textarea, input")) found.push(node);
+        if (node.querySelectorAll)
+          found.push(...node.querySelectorAll("textarea, input"));
+      }
+    }
+    if (found.length) onAdded(found);
+  });
+  mo.observe(root, { childList: true, subtree: true });
+  return () => mo.disconnect();
 }

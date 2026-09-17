@@ -2,7 +2,7 @@
 
 权威：[AGENTS.md](../../../../AGENTS.md) 第 14–18、24–26 条 ·
 [ADR-0087](../../../../docs/adr/ADR-0087-document-lifecycle-and-default-agent-context.md) ·
-[TASK-131](../../../../docs/tasks/done/TASK-131-agent-harness-discovery-and-runtime-evidence.md) 切片 C。
+[TASK-131](../../../../docs/tasks/TASK-131-agent-harness-discovery-and-runtime-evidence.md) 切片 C。
 本文件不新增规则，只写**怎么做**。
 
 ## 0. 这一节要防的是什么
@@ -19,7 +19,7 @@
 
 ## 1. 交接 / 压缩之前：更新**本次那张卡**
 
-写进 `docs/tasks/active/TASK-NNN-*.md`，不是写进别处：
+写进 `docs/tasks/TASK-NNN-*.md`，不是写进别处：
 
 | 写什么 | 为什么必须是它 |
 | --- | --- |
@@ -54,11 +54,15 @@ python .claude/tools/agent_harness.py resume
 它回答三件事，一件都不猜：
 
 - 现在在哪个分支、哪个 tip，工作树里有哪些未提交改动；
-- `docs/tasks/active/` 里有哪些卡（目录即状态：在那儿就是还没做完）；
+- 哪些卡的状态是 `进行中`（状态住在卡头一行，ADR-0105）；
 - 上一轮那条「跑过什么」**还算不算数** —— tip 变了就标 `⚠ 要重新评估`。
 
 然后按这个顺序：
 
+0. **先 `ListAgents`，再读 `git status`。** 顺序不能反：`git status` 只说得出
+   「有改动」，说不出「是谁的」，所以先看到改动、后想起认领的人，已经在动别人的
+   文件了（2026-09-05 实测，TASK-131）。同仓有别的会话 → 用 `SendMessage` 把
+   **自己要碰的文件范围**先报出去，再动手。
 1. **读用户这一次要什么**，再读相关的那张卡。不自动恢复不相关的旧任务。
 2. **比对 tip**。被标 `⚠` 的验证记录一律当历史看，不当结论。
 3. **认领未提交改动**。不是你的，就别碰 —— 先问那个会话（`ListAgents` /

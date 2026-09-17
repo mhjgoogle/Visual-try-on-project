@@ -115,13 +115,17 @@ def test_scenario_a_single_task_stage_commit_push_writeback(rig: dict) -> None:
     assert "feature/a.py" in staged["staged"]
     # 清单自身被自动带走，不算 foreign
     assert any(p.startswith("docs/auto-push/") for p in staged["staged"])
-    # 消息进文件（-F），不内嵌进命令 —— 两种 shell 没有共同的安全内嵌法
-    assert (
-        staged["commit_command"] == "git commit -F .claude/tmp/autopush-commit-msg.txt"
-    )
+    # 消息进文件（-F），不内嵌进命令 —— 两种 shell 没有共同的安全内嵌法。
+    # 钉的是**性质**不是那个字面路径：路径要唯一（见下面那条守卫），写死字面量
+    # 会让「换成会话私有名字」这件对的事变成一次假红。
+    cmd = staged["commit_command"]
+    assert cmd.startswith("git commit -F .claude/tmp/"), cmd
     assert "TASK-001" in staged["message"]
-    msg = (work / ".claude" / "tmp" / "autopush-commit-msg.txt").read_text("utf-8")
-    assert msg.strip() == staged["message"]
+    msg_path = work / cmd.split(" -F ", 1)[1]
+    assert msg_path.is_file(), cmd
+    assert msg_path.read_text("utf-8").strip() == staged["message"]
+    # 路径里不能有空格或 shell 元字符 —— 命令是要交给 shell 原样跑的
+    assert " " not in cmd.split(" -F ", 1)[1]
 
     _g(work, "commit", "-m", "add feature value（TASK-001 · CHG-1）")
     recorded = ap.record_commit(work, "CHG-1", "TASK-001")
@@ -1189,3 +1193,152 @@ def test_cleanup_still_refuses_a_branch_carrying_commits_main_never_saw(
     result = ap.cleanup(work, "CHG-1", keep_remote=True)
     assert result["status"] == "BLOCKED_UNMERGED_COMMITS", result
     assert "not contained in" in result["reason"]
+
+
+def _record_merge_handwritten(work: Path, merge_hash: str) -> None:
+    """人手记录的形状：只有 `merge_commit`，没有 `hash`。
+
+    这不是杜撰 —— `docs/auto-push/changes/repo-decoupling.json` 就是这么写的：
+    共享工作树上不能切到 main，合并在独立 worktree 里做完，由人记进清单。
+    """
+
+    path = work / "docs" / "auto-push" / "changes" / "CHG-1.json"
+    manifest = json.loads(path.read_text("utf-8"))
+    manifest["merge"] = {
+        "merge_commit": merge_hash,
+        "at": "2026-01-01T00:00:00+00:00",
+        "by": "hand",
+        "why_not_autopush": "共享工作树上不能切分支",
+    }
+    manifest["status"] = "merged"
+    path.write_text(json.dumps(manifest, ensure_ascii=False), "utf-8")
+
+
+def test_cleanup_reads_a_handwritten_merge_record(rig: dict) -> None:
+    """§3.6.7：只写了 `merge_commit` 的合并记录，`cleanup` 也要认得出来。
+
+    上一版只读 `merge["hash"]`，于是对一条**确实已合并**的 Change 报
+    `BLOCKED_NOT_MERGED` —— 判词与事实相反，而人看到的是「没合并过」。
+    """
+
+    work = rig["work"]
+    _branch_with_a_stale_upstream(work)
+    _g(work, "checkout", "main")
+    _g(work, "merge", "--no-ff", "--no-edit", "change/CHG-1-demo")
+    _g(work, "push", "origin", "main")
+    _g(work, "fetch", "origin")
+    _record_merge_handwritten(work, _g(work, "rev-parse", "HEAD"))
+
+    result = ap.cleanup(work, "CHG-1", keep_remote=True)
+    assert result["status"] != "BLOCKED_NOT_MERGED", result
+    assert result["status"] == "OK", result
+
+
+def test_no_merge_record_at_all_is_still_refused(rig: dict) -> None:
+    """反方向：宽容读法不等于放行。两种键都没有时，照旧拒绝。"""
+
+    work = rig["work"]
+    _branch_with_a_stale_upstream(work)
+    path = work / "docs" / "auto-push" / "changes" / "CHG-1.json"
+    manifest = json.loads(path.read_text("utf-8"))
+    manifest["merge"] = {"at": "2026-01-01T00:00:00+00:00", "by": "hand"}
+    path.write_text(json.dumps(manifest, ensure_ascii=False), "utf-8")
+
+    result = ap.cleanup(work, "CHG-1", keep_remote=True)
+    assert result["status"] == "BLOCKED_NOT_MERGED", result
+
+
+def test_writeback_needed_tells_the_truth(rig: dict) -> None:
+    """§3.6.8：回写提醒**现算**，不恒真。
+
+    恒真的提示等于没有提示 —— 读的人分不出「这次真要回写」和「它总这么说」，
+    于是要么每次白跑一遍，要么开始整体无视它，而后者才是真正的代价。
+    """
+
+    work = rig["work"]
+    _new_change(work)
+    _declare(work, "CHG-1", "TASK-1", ["a.txt"])
+    (work / "a.txt").write_text("hello", "utf-8")
+    _g(work, "add", "a.txt")
+    _g(work, "commit", "-m", "feat: a")
+    head = _g(work, "rev-parse", "HEAD")
+
+    first = ap.record_commit(work, "CHG-1", "TASK-1", head)
+    assert first["writeback_needed"] is True, first
+    assert first["writeback_commands"], "该回写时必须给出命令"
+
+    # 回写提交掉之后，再问一次 —— 这一次的答案必须是「不用了」
+    _g(work, "add", "-A", "--", "docs/auto-push/changes/CHG-1.json")
+    _g(work, "commit", "-m", "chore: writeback")
+
+    again = ap.record_commit(work, "CHG-1", "TASK-1", head)
+    assert again["already_recorded"] is True, again
+    assert again["writeback_needed"] is False, again
+    assert "writeback_commands" not in again, "不用回写却还给了命令"
+
+
+def test_two_tasks_never_share_a_commit_message_file(rig: dict) -> None:
+    """§5.31 一族：提交信息文件**不能**是所有会话共用的那一个。
+
+    上一版固定叫 `.claude/tmp/autopush-commit-msg.txt`，而这棵工作树上同时有
+    十来个会话，每个都照着 `commit_command` 往这个名字写、再 `-F` 它 ——
+    于是**写入与提交之间**任何一个别的会话调一次 `stage`，就把你的提交信息
+    换成了它的。2026-09-06 真的串了一次。
+
+    **靠「大家自觉改私有路径」挡不住**：那个名字是工具返回给调用方的，
+    只要还有一个会话照着返回值用它就会再串。所以这条钉在工具上。
+    """
+
+    work = rig["work"]
+    _new_change(work)
+    _declare(work, "CHG-1", "TASK-001", ["a.py"])
+    _declare(work, "CHG-1", "TASK-002", ["b.py"])
+    (work / "a.py").write_text("a\n", "utf-8")
+    (work / "b.py").write_text("b\n", "utf-8")
+
+    one = ap.stage(work, "CHG-1", "TASK-001", "feat: a")
+    a_path = one["commit_command"].split(" -F ", 1)[1]
+    a_text = (work / a_path).read_text("utf-8")
+    # 中间必须提交一次 —— 上一张卡的文件还在 index 里时，下一次 stage 会（正确地）
+    # 判它越界。这里要测的是**文件名**，不是那条越界规则。
+    _g(work, "commit", "-F", str(work / a_path))
+
+    two = ap.stage(work, "CHG-1", "TASK-002", "feat: b")
+    b_path = two["commit_command"].split(" -F ", 1)[1]
+
+    assert a_path != b_path, "两张卡共用了同一个提交信息文件"
+    # **第一条命令那份文本没有被第二次 stage 改掉** —— 上一版在这里是静默覆盖
+    assert a_text.strip() == one["message"]
+    assert (work / b_path).read_text("utf-8").strip() == two["message"]
+
+
+def test_staging_the_same_task_twice_does_not_clobber_the_first_message(
+    rig: dict,
+) -> None:
+    """同一张卡连着 stage 两次：第二次不许把第一次那份文本改掉。
+
+    这是上面那条的窄化版，但机理不同：它不是「别的会话覆盖我」，而是
+    「我自己覆盖我自己」—— 上一版两次都写同一个文件名，于是先拿到的那条
+    `commit_command` 跑起来会带上后一次的信息。
+    """
+
+    work = rig["work"]
+    _new_change(work)
+    _declare(work, "CHG-1", "TASK-001", ["a.py", "b.py"])
+    (work / "a.py").write_text("a\n", "utf-8")
+    first = ap.stage(work, "CHG-1", "TASK-001", "feat: first")
+    first_path = first["commit_command"].split(" -F ", 1)[1]
+    first_text = (work / first_path).read_text("utf-8")
+
+    (work / "b.py").write_text("b\n", "utf-8")
+    second = ap.stage(work, "CHG-1", "TASK-001", "feat: second")
+
+    # **两种未来都要守住同一条性质**：要么第二次被拒（今天就是这样 —— 上一张
+    # stage 的文件还在 index 里，工具正确地不让你叠一次），要么它拿到**另一个**
+    # 文件名。唯一不许发生的是「第二次成功了，而第一份文本被悄悄改掉」。
+    if second.get("status") != "STAGED":
+        assert (work / first_path).read_text("utf-8") == first_text
+        return
+    second_path = second["commit_command"].split(" -F ", 1)[1]
+    assert first_path != second_path, "第二次 stage 覆盖了第一次那份提交信息"
+    assert (work / second_path).read_text("utf-8").strip() == second["message"]

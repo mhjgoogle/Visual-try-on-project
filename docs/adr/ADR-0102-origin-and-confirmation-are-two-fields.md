@@ -4,7 +4,7 @@
   这是**技术合同**：它把一条**已经在代码里生效**的约定升成显式规则，不改任何现行行为、
   不动付费边界、不碰用户数据。**本 ADR 不放宽任何闸** —— 它做的恰恰相反：写清楚为什么
   某些写动作**应当**继续拒绝 Agent，免得下一个人把那道拒绝当成待修的阻碍。
-- 关联：[TASK-128](../tasks/backlog/TASK-128-episode-side-actions-into-the-table.md)（因它而阻塞，本 ADR 解阻）·
+- 关联：[TASK-128](../tasks/TASK-128-episode-side-actions-into-the-table.md)（因它而阻塞，本 ADR 解阻）·
   [ADR-0096](ADR-0096-ui-and-agent-share-one-action-table.md) 决策 1–3（同一条纪律的另一侧）·
   [REQ-006](../requirements/REQ-006-agent-can-do-what-the-creator-can-do.md) 判据 1 ·
   `CA §5`（当前架构约束）
@@ -112,7 +112,7 @@ if (level === "manual" || level === "suggest") {
 
 **但这条改动本 ADR 不做** —— 判据是产品需求，改它的含义归产品负责人（AGENTS.md §1：
 技术决策自己定，产品行为的确认归他）。这里只把缺口和建议记下来，去向写在
-[TASK-128](../tasks/backlog/TASK-128-episode-side-actions-into-the-table.md)。
+[TASK-128](../tasks/TASK-128-episode-side-actions-into-the-table.md)。
 
 ## 由此解阻的事
 

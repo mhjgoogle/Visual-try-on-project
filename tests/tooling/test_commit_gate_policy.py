@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import sys
 from pathlib import Path
 
 import pytest
 
-_POLICY_PATH = Path(__file__).parents[2] / ".claude" / "hooks" / "commit_gate_policy.py"
+_REPO = Path(__file__).parents[2]
+_POLICY_PATH = _REPO / ".claude" / "hooks" / "commit_gate_policy.py"
 _SPEC = importlib.util.spec_from_file_location("commit_gate_policy", _POLICY_PATH)
 assert _SPEC and _SPEC.loader
 _POLICY = importlib.util.module_from_spec(_SPEC)
@@ -1796,3 +1798,65 @@ def test_the_powershell_gate_holds_no_literal_tab() -> None:
             f"{name} 里有真实制表符 —— 多半是某个反斜杠 t 被展开了；"
             "路径请用 Join-Path 一段一段拼，不要写成一个字符串"
         )
+
+
+# ---------------------------------------------------------------------------
+# TASK-087 §5.26：闸门从**脚本位置**解析仓库根，不问工作目录
+# ---------------------------------------------------------------------------
+
+
+def _load_dispatch():
+    import importlib.util
+
+    path = _REPO / ".claude" / "hooks" / "gate_dispatch.py"
+    spec = importlib.util.spec_from_file_location("gate_dispatch_under_test", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_the_gate_finds_itself_from_any_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """上一版用 `Path.cwd()`，于是客户端从别处触发 PreToolUse 时，闸门会去
+    `<cwd>/.claude/hooks/gate.ps1` 找自己 —— 一个不存在的路径。
+
+    今天没观察到实际失败（Claude Code 恰好以仓库根为 cwd），所以那是**潜在**
+    缺陷；但闸门比诊断工具更不该赌这一点 —— 它是决定「这次提交发不发生」的那个东西。
+    """
+    mod = _load_dispatch()
+    from_root = mod.repo_root()
+    assert (from_root / ".claude" / "hooks").is_dir(), from_root
+
+    # 换到一个完全无关的目录，答案必须一模一样
+    monkeypatch.chdir(tmp_path)
+    assert mod.repo_root() == from_root, "换个工作目录，闸门就找不到自己了"
+    assert mod.gate_script().is_file(), mod.gate_script()
+
+    # 仓库内的子目录也一样
+    monkeypatch.chdir(_REPO / ".claude")
+    assert mod.repo_root() == from_root
+
+
+def test_a_missing_gate_script_blocks_and_says_which_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """找不到闸门脚本要 **fail-closed 且说出是哪条路径**。
+
+    上一版会一路走到 `subprocess.run`，然后以一句没人认得的路径 traceback 收场；
+    而 exit 2 才是「拦住这次工具调用」。**闸门缺失时放行，是最糟的那种失败。**
+    """
+    mod = _load_dispatch()
+    monkeypatch.setattr(mod, "repo_root", lambda: tmp_path)
+
+    class _Stdin:
+        buffer = io.BytesIO(b"{}")
+
+    monkeypatch.setattr(mod.sys, "stdin", _Stdin())
+    monkeypatch.setattr(
+        mod.subprocess, "run", lambda *a, **k: pytest.fail("闸门缺失却仍然去跑它")
+    )
+    assert mod.main() == 2
+    err = capsys.readouterr().err
+    assert "commit gate not found" in err
+    assert str(tmp_path) in err, "没说清是哪条路径找不到"

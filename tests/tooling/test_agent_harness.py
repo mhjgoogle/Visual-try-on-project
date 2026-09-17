@@ -878,11 +878,19 @@ def _commit(root: Path, name: str) -> None:
         )
 
 
+def _state_line(status: str) -> str:
+    """卡头状态行必须以枚举词开头（ADR-0105）。测试传的多是「**部分实施**」这类
+    交付描述 —— 给它前置 `进行中 · `；已经是枚举词的（「**进行中**」）原样写。"""
+    if status.strip("*").startswith(("待办", "进行中", "完成")):
+        return status
+    return f"进行中 · {status}"
+
+
 def _card(root: Path, task: str, status: str) -> None:
-    d = root / "docs" / "tasks" / "active"
+    d = root / "docs" / "tasks"
     d.mkdir(parents=True, exist_ok=True)
     (d / f"{task}-something.md").write_text(
-        f"# {task}：一张卡\n\n- 状态：{status}\n", encoding="utf-8"
+        f"# {task}：一张卡\n\n- 状态：{_state_line(status)}\n", encoding="utf-8"
     )
 
 
@@ -944,7 +952,8 @@ def test_resume_lists_active_cards_without_guessing_progress(
     state = ah.run_resume(root)
     cards = {c["card"]: c["status"] for c in state["active_cards"]}
     assert "TASK-998-something.md" in cards
-    assert cards["TASK-998-something.md"] == "**部分实施**"
+    # 状态行整行照摆：枚举词 + 交付描述，一个字不推断（ADR-0105）。
+    assert cards["TASK-998-something.md"] == "进行中 · **部分实施**"
 
 
 def test_the_brief_speaks_up_when_the_tree_has_someone_elses_work(
@@ -981,7 +990,10 @@ def test_a_snapshot_holds_no_semantic_progress(ah, tmp_path: Path) -> None:
     _git_repo(root)
     p = ah.write_snapshot(root, "TASK-999", "跑过 X", "下一步 Y")
     data = json.loads(p.read_text("utf-8"))
-    assert set(data) == set(ah._RESUME_FIELDS)
+    # 比对**写下的**那份名单（`_SNAPSHOT_FIELDS`），不是渲染用的那份 ——
+    # 两者刻意不同：写下的比印出来的多（验证身份摘要不该印给人看）。
+    # 新字段因此必须在工具里被有意识地承认一次，否则这一行当场变红。
+    assert set(data) == set(ah._SNAPSHOT_FIELDS)
     forbidden = {"done", "complete", "completed", "status", "progress", "percent"}
     assert not (set(data) & forbidden)
 
@@ -1103,3 +1115,62 @@ def test_build_artifacts_under_the_source_never_move_the_digest(
     assert _by_name(ah.plan_entries(root)[0], "auto-push").action == "unchanged"
     (cache / "x.cpython-313.pyc").write_bytes(b"\x09\x09")
     assert _by_name(ah.plan_entries(root)[0], "auto-push").action == "unchanged"
+
+
+def _card_with_owner(root: Path, task: str, status: str, owner: str) -> None:
+    d = root / "docs" / "tasks"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{task}-something.md").write_text(
+        f"# {task}：一张卡\n\n- 状态：{_state_line(status)}\n- 负责 Agent：{owner}\n",
+        encoding="utf-8",
+    )
+
+
+def test_resume_answers_who_is_already_on_this_card(ah, tmp_path: Path) -> None:
+    """动手前的第一个问题是**归属**，不是进度（AGENTS §14 / TASK-087 §5.30）。
+
+    §14 写了「每个开发任务只能有一个实施 Agent」，却没写怎么在动手前发现另一个
+    会话已经在这张卡上。实测代价：两个会话同时收口 TASK-141，一份 codex 审查被
+    对方的提交抽空作废（工作树 vs HEAD 的 diff 在改动进 HEAD 之后变成空）。
+
+    **不引入第三份台账** —— 摆的是已有的两条线索：卡头的 `负责 Agent`，
+    以及**最近谁动过这张卡**（从 git 读）。
+    """
+    root = _build(tmp_path)
+    _card_with_owner(root, "TASK-901", "**部分实施**", "`session-abc`")
+    _card(root, "TASK-902", "**待开始**")  # 没写负责人
+    _git_repo(root)
+
+    state = ah.run_resume(root)
+    by = {c["card"]: c for c in state["active_cards"]}
+    assert by["TASK-901-something.md"]["owner"] == "`session-abc`"
+    assert by["TASK-902-something.md"]["owner"] == ""
+
+    out = ah.render_resume(state)
+    assert "session-abc" in out, "认领了却没印出来 —— 那这一眼就白看了"
+    # **没写负责人不等于没人在做**：要提示去认领，而不是默认「空着=没人」
+    assert "没写" in out and "认领" in out
+
+
+def test_resume_prints_who_touched_the_card_last(ah, tmp_path: Path) -> None:
+    """最近动它的人比卡头更难忘记更新 —— 卡头会漏写，git 不会。"""
+    root = _build(tmp_path)
+    _card(root, "TASK-903", "**部分实施**")
+    _git_repo(root)
+    # 让这张卡有一条真实的提交历史
+    card = root / "docs" / "tasks" / "TASK-903-something.md"
+    card.write_text(card.read_text("utf-8") + "\n改一行\n", encoding="utf-8")
+    exe = shutil.which("git")
+    for args in (
+        ("add", "-A"),
+        ("commit", "-m", "docs(TASK-903): 有人动过这张卡"),
+    ):
+        subprocess.run(  # noqa: S603 - 固定 argv，无 shell
+            [exe, "-C", str(root), *args], capture_output=True, check=True
+        )
+
+    state = ah.run_resume(root)
+    touch = {c["card"]: c["last_touch"] for c in state["active_cards"]}
+    assert "TASK-903" in touch["TASK-903-something.md"], touch
+    assert "有人动过这张卡" in touch["TASK-903-something.md"]
+    assert "有人动过这张卡" in ah.render_resume(state)

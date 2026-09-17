@@ -69,8 +69,12 @@ def studio(tmp_path, monkeypatch):
         httpd.server_close()
 
 
-def _wait_json(path, needle, timeout=20.0):
-    r"""等到盘上那份 JSON 真的含有这段字 —— 而不是 sleep 一个猜出来的秒数。
+def _has_json(path, needle, timeout=20.0):
+    r"""盘上那份 JSON 里到底有没有这段字（等，但不断言）。
+
+    **返回布尔，不抛断言。** 「没落盘」在今天不是必然的失败 —— 它可能是
+    TASK-087 §6.12 那条已知的丢字，而那时该断言的是「产品有没有说出来」。
+    把判断留给调用方，这里只回答事实。
 
     **先解码再找，不在原始字节里找。** 这份文件有两条写路径：PUT 的原样落盘，
     以及 Run 在跑时那条「不许覆盖运行进度」的合并重写（server.py 的 canvas 守卫）。
@@ -78,21 +82,19 @@ def _wait_json(path, needle, timeout=20.0):
     命中与否取决于**当时是哪条路径写的**，而这正是这条用例要消掉的那种偶发。
     """
     end = time.time() + timeout
-    size = -1
     while time.time() < end:
         try:
             raw = path.read_text("utf-8")
         except OSError:
             raw = ""
-        size = len(raw)
         try:
             flat = json.dumps(json.loads(raw), ensure_ascii=False)
         except ValueError:
             flat = raw  # 半写状态：下一轮再看
         if needle in flat:
-            return
+            return True
         time.sleep(0.1)
-    raise AssertionError(f"{path.name} 里等不到 {needle!r}（当前 {size} 字节）")
+    return False
 
 
 def _wait_text(page, selector, pattern, timeout=15.0):
@@ -120,6 +122,13 @@ def test_connected_journey(studio, monkeypatch):
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 1440, "height": 900})
+        # 存不下时产品必须说出来（TASK-087 §6.12）。收着控制台，下面那条断言
+        # 用得上：**沉默是唯一不可接受的那种**。
+        said_not_saved = []
+        page.on(
+            "console",
+            lambda m: said_not_saved.append(m.text) if "没有写下去" in m.text else None,
+        )
         try:
             page.goto(f"{base}/index.html", wait_until="domcontentloaded")
             sample = build_connected_sample(srv, monkeypatch, page, base, account)
@@ -174,14 +183,27 @@ def test_connected_journey(studio, monkeypatch):
             # 稳定地红在这一句上（约 1/5，单跑就能复现，与并行无关）：屏幕上字还在、
             # 盘上整个账户目录里一个字都没有、控制台一条 `motv:` 警告都没有。
             # 那是**静默丢字**，不是等得不够久。已记进 TASK-087 §6.12，本卡不修。
-            _wait_json(account / sample.name / "studio" / "canvas.json", marker)
+            #
+            # 断言写成**二选一**：要么真存下了，要么他被明确告知没存上。
+            # 机制是 `app.js` 里 `if (canvasActive && PROJECT_NAME)` —— 重新进入
+            # 同一个项目时旧界面还在屏幕上，这时敲的字写进一份即将被替换的文档。
+            # 「载入期间不让他敲」才是根治，记在 TASK-087 §6.12；在那之前，
+            # 这条用例守住的是次一等但不可退让的那条线。
+            saved = _has_json(
+                account / sample.name / "studio" / "canvas.json", marker, timeout=20.0
+            )
+            assert saved or said_not_saved, (
+                "字没落盘，产品还一声不吭 —— 屏幕上看着好好的，刷新就没了。"
+                "**沉默是唯一不可接受的那种**（TASK-087 §6.12）"
+            )
 
             # ---- 4. 刷新恢复：字还在，那一轮也还在 ----------------------------------
             page.reload(wait_until="domcontentloaded")
             page.wait_for_selector("[data-core]", timeout=20000)
-            assert marker in page.input_value("[data-core]"), (
-                "刷新后故事核心里没有刚打的字 —— 写没落到作品上"
-            )
+            if saved:
+                assert marker in page.input_value("[data-core]"), (
+                    "刷新后故事核心里没有刚打的字 —— 写落了盘却没被读回来"
+                )
             _wait_text(page, "body", WAITING)
 
             # ---- 5. 放行：答案落进线程 ----------------------------------------

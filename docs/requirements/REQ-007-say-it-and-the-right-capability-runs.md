@@ -5,7 +5,7 @@
 - 版本：v2（2026-08-29）—— v1 是「前端 Agent 自动路由并触发产品 Story Skill」；
   同日 v2 把它收敛成**三个用户能力 + 后端 resolver**（判据 6/7 为此追加，
   判据 1–5 一字未改）
-- 相关 Change：[TASK-119](../tasks/done/TASK-119-three-user-capabilities-and-a-resolver.md)
+- 相关 Change：[TASK-119](../tasks/TASK-119-three-user-capabilities-and-a-resolver.md)
 - 相关 ADR：[ADR-0091](../adr/ADR-0091-three-user-capabilities-and-a-server-side-resolver.md)
   （三类能力 + 服务端 resolver）；落在 [ADR-0089](../adr/ADR-0089-conversational-agent-write-path.md)
   的对话式写路径与 [ADR-0067](../adr/ADR-0067-product-skill-package.md) 的能力包之上

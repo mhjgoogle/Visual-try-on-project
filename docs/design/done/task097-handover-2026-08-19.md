@@ -1,7 +1,7 @@
 # TASK-097 交接说明（2026-08-19，换机器）
 
 给新机器上的下一个会话。**入口卡仍然是
-[TASK-097](../../tasks/done/TASK-097-episode-production-chain.md)**，本文件只说
+[TASK-097](../../tasks/TASK-097-episode-production-chain.md)**，本文件只说
 「链跑到哪、新机器缺什么、别踩什么」。
 
 ---
@@ -35,7 +35,7 @@
 | **4C 第 ② 步准备资产** | —— | **下一个批次，未开工** |
 | 4D / 4F / 4G / 4E / 5A / 5B / 链尾 | —— | 未开工 |
 
-进度表在 **[TASK-097 §4](../../tasks/done/TASK-097-episode-production-chain.md)**，每格写着
+进度表在 **[TASK-097 §4](../../tasks/TASK-097-episode-production-chain.md)**，每格写着
 提交号、轮次、结论与接线账数字。**先读 §2.5b～§2.5f 与 §2.6**，那五节的优先级
 高于机械规格，它们是前面几批用 P1 换来的。
 

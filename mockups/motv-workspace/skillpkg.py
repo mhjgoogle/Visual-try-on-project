@@ -101,6 +101,7 @@ _ROUTING_INTENTS = (
     "worldbuilding",  # 世界观与规则
     "character-work",  # 角色与人物关系
     "scene-writing",  # 写这一集的剧本
+    "chapter-writing",  # 写这一章小说正文
     "script-revision",  # 改已有的剧本
     "breakdown",  # 把剧本拆成实体
     "storyboard",  # 分镜
@@ -118,8 +119,23 @@ _ROUTING_KINDS = ("generative", "diagnostic")
 #: ``scope: "project"`` 却要 ``shotContext`` 的包是自相矛盾的，加载即拒。
 _ROUTING_SCOPES = ("project", "episode", "shot")
 
+#: 这个能力只在**写小说**还是**写剧集**时适用（`story.work.form`）。
+#:
+#: 与 ``scope`` 是两件事：``scope`` 说的是「对着什么东西运行」（整个项目 / 一集 /
+#: 一镜），``form`` 说的是「这个项目现在在写什么」。「写这一章」和「写这一集」用的
+#: 是同一批名词，靠 ``selectWhen`` 分不开，而「接着往下写」两边都命中不了 ——
+#: 所以形态由这个字段做**硬排除**，不靠关键词碰运气（TASK-146）。
+#:
+#: **可选。** 不声明 = 两种形态都适用，这是绝大多数包的情况（世界观、角色、分镜、
+#: 各类诊断都与形态无关）。前端没报形态时这个字段不参与判断，行为与声明它之前一致。
+_ROUTING_FORMS = ("novel", "episode")
+
 _ROUTING_KEYS = frozenset({"userCapability", "internalRouting"})
-_INTERNAL_KEYS = frozenset({"intent", "kind", "scope", "priority", "selectWhen"})
+_INTERNAL_KEYS = frozenset(
+    {"intent", "kind", "scope", "priority", "selectWhen", "form"}
+)
+#: `form` 之外每个字段都没有默认值 —— 缺一个就是清单不完整，加载即拒。
+_INTERNAL_REQUIRED = frozenset({"intent", "kind", "scope", "priority", "selectWhen"})
 
 #: `selectWhen` 是**关键词**，不是例句：二级选择的一点点确定性依据，服务端 resolver
 #: 私有。短且少是硬要求 —— 一个包维护一长串自然语言触发词，正是这次收敛要去掉的东西。
@@ -418,7 +434,7 @@ def _check_internal_routing(raw: object, *, shot_scoped: bool) -> dict:
     unknown = set(raw) - _INTERNAL_KEYS
     if unknown:
         raise SkillPackageError(f"internalRouting 有无法识别的字段：{sorted(unknown)}")
-    missing = sorted(_INTERNAL_KEYS - set(raw))
+    missing = sorted(_INTERNAL_REQUIRED - set(raw))
     if missing:
         raise SkillPackageError(f"internalRouting 缺少 {missing} —— 没有默认值")
     intent = raw["intent"]
@@ -443,6 +459,18 @@ def _check_internal_routing(raw: object, *, shot_scoped: bool) -> dict:
             "internalRouting.scope 与 inputs 矛盾：这个能力声明了镜头域输入，"
             f"只能对着一个镜头运行，scope 必须是 shot（收到 {scope!r}）"
         )
+    # 可选，但**声明了就必须是那两个值之一** —— 一个拼错的 "Novel" 会静默变成
+    # 「两种形态都适用」，静悄悄地扩大这个包的适用面，那正是 fail-closed 要挡住的
+    # 那类失败。判的是**键在不在**，不是值是不是 None：JSON 里显式写 `null` 不是
+    # 「没写」，是写错了值。
+    form = None
+    if "form" in raw:
+        form = raw["form"]
+        if form not in _ROUTING_FORMS:
+            raise SkillPackageError(
+                f"internalRouting.form 只能是 {list(_ROUTING_FORMS)} 之一"
+                f"（收到 {form!r}）；不声明它表示两种形态都适用"
+            )
     priority = raw["priority"]
     # bool 先挡掉：Python 里 True == 1，一个 "priority": true 会变成优先级 1
     if isinstance(priority, bool) or not isinstance(priority, int):
@@ -479,6 +507,8 @@ def _check_internal_routing(raw: object, *, shot_scoped: bool) -> dict:
         "scope": scope,
         "priority": priority,
         "selectWhen": [w.strip() for w in words],
+        # 归一成「空 = 不限」，下游因此只有一种判断写法，不必到处 `is None`。
+        "form": form or "",
     }
 
 

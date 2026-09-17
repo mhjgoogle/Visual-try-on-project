@@ -102,6 +102,109 @@ V1_DOC = {
 }
 
 
+# --- 并发读者：保存不许因为「有人正在读」而失败 -------------------------------
+
+
+def test_replace_retries_while_a_reader_still_holds_the_file(server_module) -> None:
+    """机制：被读者挡住时**重试**，而不是把他打的字丢掉。
+
+    Windows 上 `os.replace` 覆盖一个正被打开读的文件抛 `PermissionError`
+    （本机确定性复现）；POSIX 上允许。canvas.json 的读者到处都是 —— 服务端为
+    运行中的 run 组装事实要读它、`_canvas_get` 要读它、备份/同步软件也可能开着。
+    冲突是**短暂**的，所以重试；注入的 `sleep` 在第一次间歇里把读者放掉，
+    于是这条用例断言的是「**它确实重试过并因此成功**」，不是「它睡了多久」。
+    """
+    import tempfile
+
+    d = Path(tempfile.mkdtemp(prefix="motv-replace-"))
+    target = d / "canvas.json"
+    target.write_text("{}", encoding="utf-8")
+    fd, tmp = tempfile.mkstemp(dir=str(d), suffix=".tmp")
+    import os as _os
+
+    with _os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write('{"kept": 1}')
+
+    reader = target.open("r", encoding="utf-8")
+    reader.read(1)
+    naps = []
+
+    def _release(_seconds):
+        naps.append(_seconds)
+        reader.close()  # 读者读完就松手 —— 现实里也是这样
+
+    try:
+        attempts = server_module._replace_retrying(tmp, target, sleep=_release)
+    finally:
+        reader.close()
+
+    if _os.name == "nt":
+        assert naps, "读者在场时第一次就成功了？那这条守卫没驱动到重试"
+        assert attempts >= 1, "没有重试就成功了"
+    assert json.loads(target.read_text("utf-8"))["kept"] == 1
+
+
+def test_a_save_is_not_lost_because_someone_is_reading_the_file(
+    server_module, data_dir
+) -> None:
+    """接线：整条 PUT 走下来，读者在场也不许把他打的字丢掉（§6.12 的根因）。
+
+    实测（旅程 e2e，干净树上 8 跑 2 红）：服务端**收到了**带着那段字的 PUT，
+    却返回 `500 write_failed`，客户端拿到非 200 之后一声不吭地塞进 localStorage
+    —— 屏幕上有字、盘上没有、控制台没声音。
+    """
+    app = _app(server_module, data_dir)
+    target = data_dir / "canvas.json"
+    status, _ = _put(app, "p1", json.dumps(V1_DOC).encode())
+    assert status == 200
+
+    kept = dict(V1_DOC)
+    kept["story"] = {"core": "雨夜，一个人走进了旧屋。"}
+    reader = target.open("r", encoding="utf-8")
+    reader.read(1)
+    import time as _t
+
+    real_sleep = _t.sleep
+    try:
+        _t.sleep = lambda _s: reader.close()  # 第一次间歇里读者松手
+        status, body = _put(app, "p1", json.dumps(kept).encode())
+    finally:
+        _t.sleep = real_sleep
+        reader.close()
+
+    assert status == 200, body  # 500 = 他刚打的字被丢掉了，而且没人告诉他
+    saved = json.loads(target.read_text("utf-8"))
+    assert saved["story"]["core"], "返回了 200，盘上却没有那段字"
+
+
+def test_a_save_that_really_cannot_be_written_says_why(server_module, data_dir) -> None:
+    """重试之后仍然失败时，**原因要照带**，不许压成一句「could not save」。
+
+    第一版把 `OSError` 整个咽掉了：跨卷、只读目录、磁盘满、被杀毒软件锁住 ——
+    全都长成同一句话，下一个人无从查起（同 §10643 那条已经吃过一次的亏）。
+    """
+    app = _app(server_module, data_dir)
+    import os as _os
+
+    def _always_denied(*_a, **_k):
+        raise PermissionError(13, "测试专用：磁盘满了")
+
+    real = _os.replace
+    _os.replace = _always_denied
+    try:
+        status, body = _put(app, "p1", json.dumps(V1_DOC).encode())
+    finally:
+        _os.replace = real
+    assert status == 500
+    detail = body["error"]["detail"]
+    # 断言**原因真的活下来了**，不是只断言「不等于旧那句话」——
+    # 后者在 detail 变成任何一句新的固定文案时同样成立，等于没查
+    # （codex 2026-09-06 判 NOT_EVIDENCED，说得对）。
+    assert "PermissionError" in detail, detail  # 异常类型
+    assert "测试专用：磁盘满了" in detail, detail  # 异常自己那句话
+    assert detail != "could not save"
+
+
 # --- GET: absent / valid keep existing behavior ------------------------------
 
 

@@ -214,3 +214,217 @@ test("五个创作端点**都**走这条路 —— 不是只改了其中一个",
     } finally { s.restore(); }
   }
 });
+
+/* --- 「问不到」到了界面上是什么样（codex 轮 1：NOT_EVIDENCED） --------------- */
+//
+// 上面那几条钉的是**服务层**分不分得开；这几条钉的是**他看到什么、能做什么**。
+// 真正会伤到人的不是措辞，是**能不能马上再起一轮** —— 那一轮可能还在后端跑着。
+
+test("问不到不会变成「可以马上重开」的失败 —— 故事发展这条", async () => {
+  const storydoc = await import("../src/workflow/storydoc.js");
+  const doc = storydoc.createStory();
+  const id = storydoc.beginDevelop(doc, "outline", "写一版");
+  assert.ok(id, "没起来");
+
+  assert.equal(storydoc.unknownDevelop(doc, id, "状态未知：这一轮可能还在跑"), true);
+  assert.equal(doc.pending.status, "unknown", "被记成了别的状态");
+
+  // **这一条是全部要害**：记成 failed 的话下面这行会返回一个新 id。
+  assert.equal(storydoc.beginDevelop(doc, "outline", "再写一版"), 0,
+    "问不到却放行了下一轮 —— 两轮会同时改同一份文档");
+
+  // 出口是显式的：他说「不等了」才放开
+  storydoc.cancelDevelop(doc);
+  assert.ok(storydoc.beginDevelop(doc, "outline", "再写一版"), "放弃之后仍然起不来，他被卡死了");
+});
+
+test("问不到不会变成「可以马上重开」的失败 —— 剧本这条", async () => {
+  const scriptdoc = await import("../src/workflow/scriptdoc.js");
+  const doc = scriptdoc.createDoc();
+  const id = scriptdoc.beginGeneration(doc, "initial", "想法");
+  assert.ok(id);
+  assert.equal(scriptdoc.unknownGeneration(doc, id, "状态未知"), true);
+  assert.equal(doc.pending.status, "unknown");
+  assert.equal(scriptdoc.beginGeneration(doc, "initial", "再来"), 0,
+    "问不到却放行了下一轮");
+});
+
+test("真失败仍然可以马上重来 —— 别把两件事一起锁上", async () => {
+  const storydoc = await import("../src/workflow/storydoc.js");
+  const doc = storydoc.createStory();
+  const id = storydoc.beginDevelop(doc, "outline", "写一版");
+  storydoc.failDevelop(doc, id, "模型没答出 JSON");
+  assert.ok(storydoc.beginDevelop(doc, "outline", "再写一版"),
+    "把「确定失败了」也锁上了 —— 那是另一件事，他该能直接重试");
+});
+
+test("界面认得这个状态：说「可能还在跑」，而且给的是「放弃」不是「重试」", async () => {
+  // 漏掉这个分支比说错话更糟：会掉进提案分支去读一个不存在的 proposal，
+  // 把他卡在一张空面板前。所以这条走**真渲染**。
+  const storydoc = await import("../src/workflow/storydoc.js");
+  const { renderStoryWs } = await import("../src/ui/storyws.js");
+  const doc = storydoc.createStory(null);
+  doc.idea = "一个夜班护士";
+  const id = storydoc.beginDevelop(doc, "outline", "写一版");
+  assert.ok(id, "没起来");
+  storydoc.unknownDevelop(doc, id, "状态未知：这一轮可能还在跑，先别重开一次");
+
+  const html = renderStoryWs(
+    { story: { doc: () => doc, activeBrief: () => storydoc.activeBrief(doc) }, toast: () => {} },
+    { dirOpen: {} },
+  );
+  assert.match(html, /状态未知/, "界面没说这一轮状态未知");
+  assert.match(html, /还在跑|先别重开/, "没告诉他别重开一次");
+  assert.match(html, /放弃这一轮/, "没给显式的出口 —— 他会被卡住");
+  assert.doesNotMatch(html, /重试/, "给了「重试」—— 那正是会起第二轮的那颗按钮");
+});
+
+/* --- 四处界面各自认这个状态（codex 轮 2 的两条阻断） ----------------------- */
+//
+// 轮 2 原话（两条都对，都是我这一刀引进来的）：
+//   1. `script.js:49` 只画失败 —— unknown 之下按钮还在，按下去一声不吭什么都不发生，
+//      而他也没法把这个状态清掉；
+//   2. `scriptgen.js` 超时之后节点回到可操作的空闲态，再按一次就是第二轮。
+// 「记成 follow-up」不算解决 —— 自己这一刀新造的缺陷不是范围外的东西。
+
+test("剧本节点：问不到之后画得出来，而且给得出出口", async () => {
+  const scriptdoc = await import("../src/workflow/scriptdoc.js");
+  const node = (await import("../src/workflow/nodes/script.js")).default;
+  const doc = scriptdoc.createDoc();
+  const id = scriptdoc.beginGeneration(doc, "initial", "想法");
+  scriptdoc.unknownGeneration(doc, id, "状态未知：这一轮可能还在跑");
+
+  const ctx = {
+    script: {
+      doc: () => doc,
+      currentText: () => "",
+      hasContent: () => false,
+      isDirty: () => false,
+    },
+  };
+  const html = node.render({ id: "n1" }, ctx);
+  assert.match(html, /状态未知/, "节点没画出这个状态 —— 按钮还在，按下去却什么都不发生");
+  assert.match(html, /不等了|放弃/, "没有出口，他会被卡在这个状态里出不来");
+});
+
+test("剧本节点：真失败仍然画成失败，措辞不混", async () => {
+  const scriptdoc = await import("../src/workflow/scriptdoc.js");
+  const node = (await import("../src/workflow/nodes/script.js")).default;
+  const doc = scriptdoc.createDoc();
+  const id = scriptdoc.beginGeneration(doc, "initial", "想法");
+  scriptdoc.failGeneration(doc, id, "模型没答出内容");
+  const html = node.render({ id: "n1" }, {
+    script: { doc: () => doc, currentText: () => "", hasContent: () => false, isDirty: () => false },
+  });
+  assert.match(html, /生成失败/);
+  assert.doesNotMatch(html, /状态未知/, "把「确定失败了」也说成了「问不到」");
+});
+
+test("分镜节点：问不到之后**不给**「生成」，只给「不等了」", async () => {
+  const node = (await import("../src/workflow/nodes/scriptgen.js")).default;
+  const n = { ...node.init(), id: "g1", unknownRun: "状态未知：这一轮可能还在跑" };
+  const ctx = { project: { shots: { v1: [], total: 0 } }, isConnected: () => true };
+
+  const html = node.render(n, ctx);
+  assert.match(html, /状态未知/, "节点没说这一轮状态未知");
+  assert.match(html, /还在跑|先别重开/, "没告诉他别重开一次");
+  assert.doesNotMatch(html, /data-run/, "「生成」还在 —— 再按一次就是第二轮，白花一个订阅额度");
+  assert.match(html, /data-unk-clear/, "没有出口");
+});
+
+test("分镜节点：清掉之后「生成」回来；真的起跑也会把它清掉", async () => {
+  const node = (await import("../src/workflow/nodes/scriptgen.js")).default;
+  const n = { ...node.init(), id: "g1", unknownRun: "状态未知" };
+  const ctx = { project: { shots: { v1: [], total: 0 } }, isConnected: () => true };
+
+  // 出口是显式的一次点击
+  const el = { querySelector: (s) => (s === "[data-unk-clear]" ? el._btn : null), _btn: {} };
+  node.bind(n, el, { refresh: () => {} });
+  el._btn.onclick({ stopPropagation: () => {} });
+  assert.equal(n.unknownRun, null, "点了「不等了」还没清掉");
+  assert.match(node.render(n, ctx), /data-run/, "清掉之后「生成」没回来 —— 他被卡死了");
+
+  // 真的又起了一轮，那句过期的话不许把结果挡在外面
+  n.unknownRun = "旧的状态未知";
+  node.run(n, { isConnected: () => false, toast: () => {}, refresh: () => {}, markIncoming: () => {}, project: ctx.project });
+  assert.equal(n.unknownRun, null, "起跑没有清掉过期的「状态未知」");
+});
+
+test("怎么记这一次结局，由**文档**决定 —— 守卫驱动的就是调用点走的那条路", async () => {
+  // 上一版这条守卫**自己实现了一遍那个判断**（`e.category === "unknown" ? … : …`），
+  // 于是 app.js 把 unknown 送错它照样绿 —— codex 复审当场点破。判断因此搬进
+  // `workflow/runoutcome.js`，文档暴露 `settleDevelop` / `settleGeneration`，
+  // 调用点只有一句「交给它」。下面驱动的就是那一句背后的东西。
+  const storydoc = await import("../src/workflow/storydoc.js");
+  const scriptdoc = await import("../src/workflow/scriptdoc.js");
+
+  const a = storydoc.createStory(null);
+  let id = storydoc.beginDevelop(a, "outline", "写一版");
+  assert.equal(storydoc.settleDevelop(a, id, { category: "unknown", message: "问不到" }), true);
+  assert.equal(a.pending.status, "unknown");
+  assert.equal(storydoc.beginDevelop(a, "outline", "再来"), 0, "问不到却放行了下一轮");
+
+  const b = storydoc.createStory(null);
+  id = storydoc.beginDevelop(b, "outline", "写一版");
+  storydoc.settleDevelop(b, id, { category: "agent_failed", message: "模型炸了" });
+  assert.equal(b.pending.status, "failed", "真失败被误判成问不到 —— 他会被无谓地挡住");
+  assert.ok(storydoc.beginDevelop(b, "outline", "再来"), "真失败也被锁上了");
+
+  const c = scriptdoc.createDoc();
+  id = scriptdoc.beginGeneration(c, "initial", "想法");
+  scriptdoc.settleGeneration(c, id, { category: "unknown", message: "问不到" });
+  assert.equal(c.pending.status, "unknown");
+});
+
+test("那个判断全仓只有一处 —— 调用点不许自己再写一遍", async () => {
+  // 散在四个调用点上，就必然有一天有一处忘了改；而「守卫重写一遍」正是上一版
+  // 那条无效守卫的成因。这条按**执行动作**判：谁在自己比较那个 category。
+  const { readFileSync, readdirSync } = await import("node:fs");
+  const SRC = new URL("../src/", import.meta.url);
+  const NL = String.fromCharCode(10);
+  const hits = [];
+  const walk = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const child = new URL(e.name + (e.isDirectory() ? "/" : ""), dir);
+      if (e.isDirectory()) walk(child);
+      else if (e.name.endsWith(".js")) {
+        const code = readFileSync(child, "utf8")
+          .replace(/\/\*[\s\S]*?\*\//g, "")
+          .split(NL).map((l) => l.replace(/\/\/.*$/, "")).join(NL);
+        if (/category\s*===\s*["']unknown["']/.test(code)) {
+          hits.push(child.href.slice(SRC.href.length));
+        }
+      }
+    }
+  };
+  walk(SRC);
+  assert.deepEqual(hits, ["workflow/runoutcome.js"],
+    `「问不到」的判断出现在不止一处：${hits.join(" · ")}`);
+});
+
+test("分镜节点：记住它**在重绘之前** —— 否则那道挡板等于不存在", async () => {
+  // codex 复审报的正是这条：上一版 `ctx.refresh(node)` 排在赋值之前，refresh 同步
+  // 重绘，那一帧画出来的仍然是「生成」，而之后再没有第二次刷新。
+  const node = (await import("../src/workflow/nodes/scriptgen.js")).default;
+  const n = { ...node.init(), id: "g1" };
+  const seenAtRefresh = [];
+  const ctx = {
+    isConnected: () => true,
+    getScriptText: () => "有剧本",
+    // 真的走 catch：让这一轮以「问不到」被拒
+    agentShotsDraft: () => Promise.reject(Object.assign(new Error("状态未知：可能还在跑"), { category: "unknown" })),
+    markIncoming: () => {},
+    toast: () => {},
+    persist: () => {},
+    project: { shots: { v1: [], total: 0 } },
+    // **重绘的那一刻**画出来的是什么 —— 这才是他看到的东西
+    refresh: (nd) => seenAtRefresh.push(node.render(nd, ctx)),
+  };
+  node.run(n, ctx);
+  await new Promise((r) => setTimeout(r, 30));
+
+  assert.ok(seenAtRefresh.length, "catch 里根本没重绘");
+  const last = seenAtRefresh[seenAtRefresh.length - 1];
+  assert.match(last, /状态未知/, "重绘的那一帧没有这道挡板 —— 他看到的仍然是「生成」");
+  assert.doesNotMatch(last, /data-run/, "重绘的那一帧里「生成」还在，再按一次就是第二轮");
+});

@@ -31,3 +31,5 @@ SUPERSEDED）与版本修订规则见
   选哪个专业能力由服务端确定性地决定（TASK-119 / ADR-0091）
 - [REQ-008](REQ-008-images-from-my-own-account.md) — CONFIRMED — 用他自己账号的额度自动出图，不接按次计费的 API：不出现确认金额那道闸，
   额度用完就说用完、绝不偷偷回退到付费路（TASK-139 / ADR-0100）
+- [REQ-009](REQ-009-write-the-novel-first-then-film-it.md) — CONFIRMED — 先把小说写出来，再把它拍成片：一个想法进去、一本小说出来，
+  然后这本小说接进已有的视频线（切片一 TASK-146；四个切片见 REQ 末尾的切片表）

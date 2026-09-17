@@ -35,7 +35,7 @@
  *   catalog   `{ detail, problems }` — GETTERS: they are module-level `let`s that
  *             catalog installation reassigns at boot, so a captured value would
  *             report 「能力目录尚未加载」 forever
- *   modules   `{ skills, runtime, skillrun, skillapply, shotctx, proddoc, storydoc,
+ *   modules   `{ skills, runtime, skillrun, skillapply, shotctx, proddoc, storydoc, storywork,
  *                scriptdoc, assetreg, refinterp, timeline, subtitle, mediaref }`
  *   findShot / slotOf     one shot by id, and its media slot (for `_clipChain`)
  *   isLocked  `(kind, id) => boolean` — `ctx.locks.is`
@@ -86,7 +86,7 @@ export function createSkillController({
 }) {
   const {
     skills, runtime, skillrun, skillapply, shotctx,
-    proddoc, storydoc, scriptdoc, assetreg, refinterp, timeline, subtitle, mediaref,
+    proddoc, storydoc, storywork, scriptdoc, assetreg, refinterp, timeline, subtitle, mediaref,
   } = modules;
 
   // The 「用于生成」 intent. Session-scoped by design — see `pendingOriginFor`.
@@ -228,6 +228,18 @@ export function createSkillController({
           const plan = storydoc.confirmedPlan(storyDoc);
           const entry = plan && ep ? plan.episodes.find((e) => e.episodeId === ep.episodeId) : null;
           return entry || null;
+        })(),
+        // 写第几章，以及那一章要发生什么（TASK-146）。
+        //
+        // **章号来自 scope，不来自这里猜。** 小说没有 `activeEpisodeId` 那样的
+        // 文档级指针 —— 唯一诚实的来源是他打开着的那一章，由调用方随 scope 送进来。
+        // 没送就是 `null`，于是 `missingInputs` 会在**运行前**拒掉这一次，
+        // 而不是让小说家拿着整份大纲写出它自己挑的那一章。
+        chapterPlan: (() => {
+          const work = storyDoc && storyDoc.work;
+          if (!work || work.form !== "novel") return null;
+          const s = scope != null && typeof scope === "object" && !Array.isArray(scope) ? scope : {};
+          return storywork.chapterPlanOf(work, s.unitNo);
         })(),
         // THE WHOLE PLAN, as `episode-plan-reviser` needs it (TASK-094 批次 A).
         // Deliberately a different key from `episodePlan` above, which is ONE
@@ -497,12 +509,18 @@ export function createSkillController({
       const derivedScene = narrow && !wantScene && wantShot && skills.isShotScoped(skill) && ep
         ? ((ep.scenes || []).find((sc) => (sc.shotIds || []).includes(wantShot)) || {}).sceneId || null
         : null;
+      // 这一轮写的是第几章（TASK-146）。同一条规则，再下一层：**只有真的读了它
+      // 才记** —— `chapterPlan` 在输入里，就意味着提示词里带着第 N 章的任务，
+      // 于是这个提案是**为那一章写的**，应用时不许落到别处。
+      const readsChapter = keys.has("chapterPlan");
+      const wantUnitNo = readsChapter && Number.isInteger(s.unitNo) ? s.unitNo : null;
       const out = {
         episodeId,
         sceneId: narrow ? (wantScene || derivedScene) : null,
         shotId: narrow ? wantShot : null,
+        ...(wantUnitNo ? { unitNo: wantUnitNo } : {}),
       };
-      return out.episodeId || out.sceneId || out.shotId ? out : null;
+      return out.episodeId || out.sceneId || out.shotId || out.unitNo ? out : null;
     },
 
     /** The full task prompt — IDENTICAL for every runtime. Copying this into a
@@ -745,6 +763,9 @@ export function createSkillController({
       const trace = run.contextTrace || {};
       const merged = {
         shotId: recorded.shotId || scope.shotId || null,
+        // 这份正文为哪一章写的 —— **只从 run 自己的记录取**，不看屏幕上现在开着
+        // 哪一章。与上面 `shotId` 同一条规则（TASK-146 / codex 轮 2）。
+        unitNo: Number.isInteger(recorded.unitNo) ? recorded.unitNo : null,
         genKind: scope.genKind === "video" ? "video" : "image",
         // TASK-067: which prompt a REVIEW was about comes from what the run really
         // read, never from what is on screen now (see `contextTrace` in `run`).

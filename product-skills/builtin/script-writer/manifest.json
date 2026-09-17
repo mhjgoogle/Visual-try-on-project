@@ -1,6 +1,6 @@
 {
   "skillId": "script-writer",
-  "skillVersion": 2,
+  "skillVersion": 3,
   "work": "creative",
   "role": "编剧",
   "title": "Script Writer",
@@ -29,6 +29,7 @@
       "intent": "scene-writing",
       "kind": "generative",
       "scope": "episode",
+      "form": "episode",
       "priority": 80,
       "selectWhen": [
         "剧本",

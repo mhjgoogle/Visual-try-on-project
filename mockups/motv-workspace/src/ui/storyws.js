@@ -213,11 +213,17 @@ function proposalPanel(m) {
   if (m.pending.status === "generating") {
     return `<div class="story-card wide"><div class="hd"><span class="ic">🪄</span><h4>AI 正在发展故事…</h4></div><div class="st-skel"><i></i><i></i><i></i><i></i><i></i></div></div>`;
   }
-  if (m.pending.status === "failed") {
+  // **「问不到」和「失败了」不是一件事**（ADR-0095 决策 2）：一个是关于那一轮的，
+  // 一个是关于我们的。都要渲染 —— 漏掉 `unknown` 会掉进下面的提案分支去读一个
+  // 不存在的 proposal，把他卡在一个空面板前，那比说错话更糟。
+  if (m.pending.status === "failed" || m.pending.status === "unknown") {
+    const un = m.pending.status === "unknown";
     return (
-      `<div class="story-card wide"><div class="hd"><span class="ic">⚠</span><h4>故事发展失败</h4></div>` +
+      `<div class="story-card wide"><div class="hd"><span class="ic">⚠</span>` +
+      `<h4>${un ? "这一轮状态未知" : "故事发展失败"}</h4></div>` +
       `<div class="tx">${esc(m.pending.error || "")}</div>` +
-      `<div class="row"><button class="btn" data-st-cancel>知道了</button></div></div>`
+      (un ? `<div class="tx mute">它可能还在跑。**先别重开一次** —— 要放弃就点下面。</div>` : "") +
+      `<div class="row"><button class="btn" data-st-cancel>${un ? "不等了，放弃这一轮" : "知道了"}</button></div></div>`
     );
   }
   // THE PREVIEW SHOWS WHAT THE MODEL ACTUALLY ANSWERED. Built from the v1 field

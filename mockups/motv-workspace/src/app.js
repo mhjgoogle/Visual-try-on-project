@@ -46,6 +46,7 @@ import { projectCardModel, pickCover, cardStats, renderCover } from "./ui/landin
 // 步骤就绪判定**只有一份**，在向导定义旁边。控制器不复述它 —— 复述就是 §2.5e
 // 那条缝（两处陈述同一件事实），而这一批的 P1 正是从「上游要求是手写的」来的。
 import { stepReadiness } from "./ui/prodwizard.js";
+import { isUnknownOutcome } from "./workflow/runoutcome.js";
 import { createEditLock } from "./ui/editlock.js";
 import { createProduction } from "./ui/production.js";
 import { dailiesModel } from "./ui/dailies.js";
@@ -1050,7 +1051,9 @@ async function developStoryRun(kind, instruction) {
     if (storydoc.completeDevelop(doc, id, payload)) refreshProductionView();
   } catch (e) {
     if (storyDoc !== doc) return;
-    if (storydoc.failDevelop(doc, id, e.message)) refreshProductionView();
+    // **问不到 ≠ 失败**（ADR-0095 决策 2）：怎么记由**文档**决定，这里不分支 ——
+    // 分支写在这儿的时候，守卫只能重新实现一遍那个判断，于是「这里送错」也照样绿。
+    if (storydoc.settleDevelop(doc, id, e)) refreshProductionView();
   }
 }
 
@@ -1108,7 +1111,8 @@ async function generateScript(kind, instruction) {
     }
   } catch (e) {
     if (scriptDoc !== doc) return; // project switched mid-flight — nothing to show
-    if (scriptdoc.failGeneration(doc, id, e.message)) ctx.refreshType("script");
+    // 同上：怎么记由文档决定（`settleGeneration`），这里不分支
+    if (scriptdoc.settleGeneration(doc, id, e)) ctx.refreshType("script");
   }
 }
 
@@ -2971,7 +2975,12 @@ const ctx = {
         };
       } catch (e) {
         if (productionDoc !== doc) return;
-        bibleProposals = { status: "failed", cards: [], error: e.message, source: CONNECTED ? "claude" : "demo" };
+        // 问不到 ≠ 失败：失败那一支的界面给的是「重试」，而那一轮可能还在后端跑着。
+        // 判断只有一处（`workflow/runoutcome.js`），这里不重写。
+        bibleProposals = {
+          status: isUnknownOutcome(e) ? "unknown" : "failed",
+          cards: [], error: e.message, source: CONNECTED ? "claude" : "demo",
+        };
       }
       refreshProductionView();
     },
@@ -4110,37 +4119,45 @@ const ctx = {
           // 写进「正文创作」的那一章/集（TASK-122）。与 `proposeOutline` 同一天补上：
           // 它们是同一种缺陷 —— **声明了、接了、返回「尚未接线」**，能力跑完说「写好了」，
           // 他点「用它」却什么都没发生（产品负责人 2026-08-30 撞到大纲那一次）。
-          const text = String(a.text || "").trim();
-          if (!text) return { ok: false, error: "这份提案里没有正文" };
-          const work = storyDoc.work;
-          if (!work || !work.form) {
-            return { ok: false, error: "还没选小说创作还是剧集创作 —— 去「正文创作」选一个再来" };
-          }
-          // 写到哪一集：**当前这一集**，按它在列表里的位置对到第几集。
-          // 小说模式没有「当前集」这个概念，猜一个章号会把它写到别处 —— 说清楚，不猜。
-          if (work.form !== "episode") {
-            return {
-              ok: false,
-              error: "这是小说模式，我不知道该写第几章 —— 在「正文创作」里打开那一章再让我写",
-            };
-          }
-          const idx = (productionDoc.episodes || []).findIndex(
-            (e) => e.episodeId === productionDoc.activeEpisodeId,
+          // 写到哪一章/集。两种形态各有各的「当前」，都**不猜**：
+          //
+          //   剧集 —— 当前这一集，按它在列表里的位置对到第几集；
+          //   小说 —— 他此刻在「正文创作」里**打开着**的那一章（TASK-146）。小说没有
+          //           `activeEpisodeId` 那样的文档级指针，唯一诚实的答案就是他正开着
+          //           的那一章；一章都没开时说清楚要先去开，而不是替他挑第 1 章 ——
+          //           把一章正文写到他没在看的地方，比什么都不做更糟。
+          //
+          // 选落点、覆盖前存一版、再写 —— 三件事在 `applyBodyProposal` 里一起完成，
+          // 所以这里只剩持久化与重绘。
+          const text = String(a.text || "");
+          const res = storywork.applyBodyProposal(
+            storyDoc.work,
+            {
+              activeEpisodeIndex: (productionDoc.episodes || []).findIndex(
+                (e) => e.episodeId === productionDoc.activeEpisodeId,
+              ),
+              openUnitNo: production.openUnitNo(),
+              // **提案的落点身份压过屏幕上现在的一切** —— 现在开着哪一章、现在是
+              // 小说还是剧集模式，都不参与。生成与应用之间他可以切章、也可以切
+              // 形态，而这份正文是按某一种形态、某一个单元的任务生成的；落进别处
+              // 就是一次安静的错写（codex 轮 2/3/4 的 BLOCKING —— 同一个类被分三次
+              // 才认全）。两样都没带的（更旧的运行记录）才回落到当前状态。
+              boundForm: typeof a.form === "string" ? a.form : "",
+              boundUnitNo: Number.isInteger(a.unitNo) ? a.unitNo : null,
+            },
+            text,
+            new Date().toISOString(),
           );
-          if (idx < 0) return { ok: false, error: "现在没有选中的剧集" };
-          const at = new Date().toISOString();
-          const unit = storywork.ensureUnit(work, "episode", idx + 1, at);
-          if (!unit) return { ok: false, error: `第 ${idx + 1} 集不是一个有效的编号` };
-          // **不静默覆盖**（第 13 条）：已经写过的内容先存成一版定稿，再写新的。
-          let kept = "";
-          if ((unit.body || "").trim()) {
-            const rec = storywork.finalizeUnit(work, unit.id, at, "被 AI 正文覆盖前自动存的一版");
-            kept = rec ? `（原来的 ${unit.body.length} 字已存为 v${rec.v}）` : "";
-          }
-          storywork.editUnit(work, unit.id, "body", text, at);
+          if (!res.ok) return { ok: false, error: res.error };
           ctx.persist();
           refreshProductionView();
-          return { ok: true, detail: `已写进第 ${idx + 1} 集正文：${text.length} 字${kept}` };
+          const kept = res.kept
+            ? `（原来的 ${res.kept.body.length} 字已存为 v${res.kept.v}）`
+            : "";
+          return {
+            ok: true,
+            detail: `已写进第 ${res.no} ${res.word}正文：${text.trim().length} 字${kept}`,
+          };
         }
         case "proposeBible":
           return { ok: false, error: "人物 / 场景地提案请走「作品设定」的剧本拆解确认门" };
@@ -5890,7 +5907,7 @@ ctx.skills = createSkillController({
   catalog: { detail: () => CATALOG_DETAIL, problems: () => CATALOG_PROBLEMS },
   modules: {
     skills, runtime, skillrun, skillapply, shotctx,
-    proddoc, storydoc, scriptdoc, assetreg, refinterp, timeline, subtitle, mediaref,
+    proddoc, storydoc, storywork, scriptdoc, assetreg, refinterp, timeline, subtitle, mediaref,
   },
   findShot: (shotId) => ctx.shot.find(shotId),
   slotOf: (shot) => ctx.shot._slotOf(shot),
@@ -7456,6 +7473,11 @@ $$(".entry").forEach((b) => (b.onclick = () => {
  *  实现搬进了 `ui/editlock.js`：写在这里时**没法测行为**，守卫只能扫源码文本，
  *  而 codex 当场点了它「没有真的驱动那些顺序」。搬过去之后，「重复上锁」与
  *  「看门狗解锁 + 完成解锁」两种顺序都能用真调用钉住（那正是它判 P1 的两条）。 */
+// 保存失败要让**他**看见，不是只留在控制台。`services/persist.js` 那一半在
+// PUT 被拒时会 `console.warn`，但控制台不是创作者会看的地方 —— 接到 toast 上。
+// （TASK-087 §6.12：服务端拒写 + 客户端沉默，合起来就是「屏幕上有、盘上没有」。）
+persist.setSaveFailedNotifier((m) => { if (typeof toast === "function") toast(m); });
+
 const editLock = createEditLock({
   getRoot: () => document.getElementById("production"),
   warn: (m) => console.warn(m),

@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "required": [
+    "chapter"
+  ],
+  "fields": {
+    "chapter": {
+      "type": "string",
+      "nonEmpty": true
+    },
+    "title": {
+      "type": "string",
+      "nonEmpty": false
+    },
+    "notes": {
+      "type": "string",
+      "nonEmpty": false
+    }
+  }
+}

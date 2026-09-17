@@ -533,8 +533,14 @@ export function renderStory(ctx) {
   if (m.pending && m.pending.kind === "outline") {
     if (m.pending.status === "generating") {
       proposal = `<div class="bd-panel"><div class="bd-h">🪄 AI 发展故事中…</div><div class="skel live"><i></i><i></i><i></i><i></i></div></div>`;
-    } else if (m.pending.status === "failed") {
-      proposal = `<div class="bd-panel"><div class="bd-h">🪄 故事发展失败</div><div class="scripterr">⚠ ${esc(m.pending.error || "")}</div><button class="nrun ghost" data-st-cancel>知道了</button></div>`;
+    } else if (m.pending.status === "failed" || m.pending.status === "unknown") {
+      // 问不到 ≠ 失败（ADR-0095 决策 2）：这一轮可能还在跑，所以措辞不同，
+      // 而且这里不能漏 —— 漏了就会掉进提案分支去读一个不存在的 proposal。
+      const un = m.pending.status === "unknown";
+      proposal = `<div class="bd-panel"><div class="bd-h">🪄 ${un ? "这一轮状态未知" : "故事发展失败"}</div>` +
+        `<div class="scripterr">⚠ ${esc(m.pending.error || "")}</div>` +
+        (un ? `<div class="ws-kv">它可能还在跑，先别重开一次</div>` : "") +
+        `<button class="nrun ghost" data-st-cancel>${un ? "不等了，放弃这一轮" : "知道了"}</button></div>`;
     } else if (m.pending.status === "proposed") {
       const o = m.pending.proposal;
       const rows = OUTLINE_LABELS
@@ -634,6 +640,16 @@ export function renderBreakdownPanel(ctx, m) {
   }
   if (st.status === "running") {
     return `<div class="bd-panel"><div class="bd-h">🪄 剧本拆解中…</div><div class="skel live"><i></i><i></i><i></i><i></i></div></div>`;
+  }
+  if (st.status === "unknown") {
+    // **这一支不给「重试」**：那一轮可能还在后端跑着，重试就是第二轮
+    // （ADR-0095 决策 2）。要重来得他先说「不等了」。
+    return (
+      `<div class="bd-panel"><div class="bd-h">🪄 这一轮状态未知</div>` +
+      `<div class="scripterr">⚠ ${esc(st.error || "")}</div>` +
+      `<div class="ws-kv">它可能还在跑，先别重开一次</div>` +
+      `<button class="nrun ghost" data-bd-run>不等了，重新拆解</button></div>`
+    );
   }
   if (st.status === "failed") {
     return (
@@ -1280,8 +1296,12 @@ export function renderPlanPanel(ctx, m) {
     if (p.status === "generating") {
       return `<div class="bd-panel"><div class="bd-h">🪄 AI 规划分集中…</div><div class="skel live"><i></i><i></i><i></i><i></i></div></div>`;
     }
-    if (p.status === "failed") {
-      return `<div class="bd-panel"><div class="bd-h">🪄 规划失败</div><div class="scripterr">⚠ ${esc(p.error || "")}</div><button class="nrun ghost" data-pl-cancel>知道了</button></div>`;
+    if (p.status === "failed" || p.status === "unknown") {
+      const un = p.status === "unknown";
+      return `<div class="bd-panel"><div class="bd-h">🪄 ${un ? "这一轮状态未知" : "规划失败"}</div>` +
+        `<div class="scripterr">⚠ ${esc(p.error || "")}</div>` +
+        (un ? `<div class="ws-kv">它可能还在跑，先别重开一次</div>` : "") +
+        `<button class="nrun ghost" data-pl-cancel>${un ? "不等了，放弃这一轮" : "知道了"}</button></div>`;
     }
     return (
       `<div class="bd-panel"><div class="bd-h">🪄 剧集规划提案 · ${p.proposal.length} 集 · 未应用</div>` +

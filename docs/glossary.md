@@ -97,8 +97,9 @@ _Avoid_：把「废弃」读成「删了」 · 「五态 + deprecated」的旧�
 _权威_：[系统合同 §3](design/creator-system-contract.md)
 
 ### active
-两个东西共用这个词：`docs/tasks/active/`（目录即状态）与 Artifact 的 active 指针。
-_Avoid_：不带限定词的「active」
+Artifact 的 active 指针。任务卡**不再**用它：在办的卡是卡头状态行写 `进行中` 的那些
+（ADR-0105 起状态住在卡上，`docs/tasks/` 不分目录）。
+_Avoid_：不带限定词的「active」 · 用「active/」指在办任务
 _权威_：[AGENTS.md 第 24 条](../AGENTS.md) · [系统合同 §2](design/creator-system-contract.md)
 
 ### `awaiting_input`（等你交结果）

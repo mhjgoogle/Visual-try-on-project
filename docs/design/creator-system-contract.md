@@ -424,7 +424,7 @@ canvas <ProjectRoot>/studio/canvas.json  skillRuns[]
 （Windows `%LOCALAPPDATA%\motv\`，POSIX `$XDG_DATA_HOME/motv` 或 `~/.local/share/motv/`），
 可由 `--app-data-dir` / `MOTV_APP_DATA_DIR` 覆盖。**不新增第三个存储位置。**
 
-搬迁已在 [TASK-056](../tasks/done/TASK-056-app-storage-location.md) 完成。旧位置
+搬迁已在 [TASK-056](../tasks/TASK-056-app-storage-location.md) 完成。旧位置
 `mockups/motv-workspace/data/` 是**只读 legacy**：新位置没有这两个文件时仍从那里读，
 写入永远落在新位置，旧文件不改名不删除；`--migrate-app-data` 是显式的一次性拷贝
 （不覆盖新位置已有的内容）。

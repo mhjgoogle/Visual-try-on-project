@@ -2,6 +2,7 @@
 // produces an immutable new version (v1, v2…) that can be compared.
 import { nx } from "./shared.js";
 import { esc } from "../../util/dom.js";
+import { isUnknownOutcome } from "../runoutcome.js";
 import { mintId, assignShotIdentity } from "../identity.js";
 import { nextDraftVersion } from "../../ui/shoteditor.js";
 
@@ -29,12 +30,22 @@ export default {
   title: "脚本生成器",
   icon: "🎞",
   init() {
-    return { state: "", prog: 0, versions: [], cur: 0, vmenu: false };
+    return { state: "", prog: 0, versions: [], cur: 0, vmenu: false, unknownRun: null };
   },
   render(node, ctx) {
     const sd = ctx.project.shots;
     if (node.state === "gen") {
       return `<div class="genbox">${SKEL9}<div class="genprog"><div class="pb"><i style="width:${node.prog}%"></i></div><span class="pc">生成中 ${node.prog}%</span><span class="cx">取消</span></div></div>`;
+    }
+    // **问不到之后不许再按一次**（ADR-0095 决策 2）。等待有上限，超时了我们不知道
+    // 那一轮怎么样了 —— 它很可能还在后端跑着，再按一次就是第二轮，白花一个订阅额度，
+    // 还会多出一版没人要的草稿。出口是显式的：他说「不等了」才放开。
+    if (node.unknownRun) {
+      return (
+        `<div class="genbox"><div class="scripterr">⚠ 这一轮状态未知：${esc(node.unknownRun)}` +
+        `<div style="font-size:11px;color:var(--text-faint);margin:2px 2px 0">它可能还在跑，先别重开一次</div>` +
+        `<button class="nrun ghost" data-unk-clear>不等了，重新生成</button></div></div>`
+      );
     }
     if (node.state === "done") {
       const curV = node.versions.find((x) => x.v === node.cur);
@@ -67,6 +78,8 @@ export default {
     return `<div class="genbox"><div class="skel"><i></i><i></i><i></i><i></i><i></i><i></i></div><button class="nrun" data-run>基于剧本生成分镜</button></div>`;
   },
   run(node, ctx) {
+    // 真的又起了一轮，那句「状态未知」就过期了 —— 留着它会把结果挡在外面。
+    node.unknownRun = null;
     // CONNECTED: the REAL creative agent (ADR-0042) — the user's canvas script
     // goes to the local Claude CLI and comes back as a structured shot DRAFT.
     if (ctx.isConnected && ctx.isConnected() && ctx.agentShotsDraft) {
@@ -131,8 +144,16 @@ export default {
           node.state = "";
           node.prog = 0;
           ctx.markIncoming(node.id, "");
+          // 问不到 ≠ 失败（ADR-0095 决策 2）：**记住它**，好让 render 挡住重按。
+          // 只发一句 toast 是不够的 —— toast 会消失，而那颗按钮不会。
+          //
+          // **赋值必须在 `ctx.refresh` 之前。** 上一版写反了：refresh 同步重绘，
+          // 那一帧里 `unknownRun` 还是空的，于是画出来的仍然是「生成」，而之后
+          // 再没有第二次刷新 —— 挡板等于不存在（codex 复审当场点破）。
+          const unknown = isUnknownOutcome(e);
+          if (unknown) node.unknownRun = e.message;
           ctx.refresh(node);
-          ctx.toast("分镜生成失败：" + e.message);
+          ctx.toast((unknown ? "分镜这一轮状态未知：" : "分镜生成失败：") + e.message);
         });
       return;
     }
@@ -162,6 +183,12 @@ export default {
     }, 400);
   },
   bind(node, el, ctx) {
+    const unk = el.querySelector("[data-unk-clear]");
+    if (unk) unk.onclick = (e) => {
+      e.stopPropagation();
+      node.unknownRun = null;   // 「我不等了」—— 显式的一句话，不是误点的副作用
+      ctx.refresh(node);
+    };
     const cx = el.querySelector(".cx");
     if (cx) cx.onclick = (e) => {
       e.stopPropagation();

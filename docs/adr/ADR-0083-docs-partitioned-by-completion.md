@@ -1,11 +1,14 @@
 # ADR-0083：`docs/` 按完成状态分区，总览由目录派生而不是手写
 
-- 状态：Accepted
+- 状态：**Accepted（决策 2 及以后保留）；决策 1「卡放在哪个目录就是它的状态」于
+  2026-09-17 被 [ADR-0105](ADR-0105-task-state-lives-on-the-card.md) 取代** ——
+  任务卡平铺在 `docs/tasks/`，状态写在卡头一行并由守卫读取；`design/active|done/`
+  的分区不受影响
 - 日期：2026-08-23
 - 决策者：产品负责人（本条为其明确指示）
 - 关联：[ADR-0077](ADR-0077-repository-path-ownership.md)（仓库路径所有权）·
   [ADR-0082](ADR-0082-no-signoff-gate-on-task-cards.md)（状态由 Agent 自己定）·
-  [TASK-087](../tasks/active/TASK-087-followup-ledger.md)（欠账总账）
+  [TASK-087](../tasks/TASK-087-followup-ledger.md)（欠账总账）
 
 ## 1. 背景
 
@@ -34,12 +37,12 @@
 有「完成 / 未完成」这一维的文档按状态分区：
 
 ```
-docs/tasks/active/   docs/tasks/done/
+docs/tasks/   docs/tasks/
 docs/design/active/  docs/design/done/
 ```
 
 **一个文档在哪个目录，就是它的状态。** 卡做完了就 `git mv` 进 `done/`。
-文件位置改不动的成本远低于文字，而且 `ls docs/tasks/active/` 就是完整待办清单
+文件位置改不动的成本远低于文字，而且 `ls docs/tasks/` 就是完整待办清单
 ——**不需要任何人记得维护它**。
 
 任务卡不得直接躺在 `docs/tasks/` 下：那样它就没有状态了，正是本 ADR 要消除的歧义。
@@ -71,7 +74,7 @@ ADR、稳定合同、产品规格、架构、路线图留在原地：
 
 ## 3. 后果
 
-- **好的**：「还欠什么」= `ls docs/tasks/active/`，不再需要读遍任务卡去推导；
+- **好的**：「还欠什么」= `ls docs/tasks/`，不再需要读遍任务卡去推导；
   新文档放错目录会被测试当场抓住；`STATUS.md` 不可能过期。
 - **要接受的**：任务完成时多一步 `git mv` + 重新生成。这一步会被测试提醒，
   不依赖记忆。

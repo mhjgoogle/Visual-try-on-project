@@ -4,7 +4,7 @@
   这是纯技术决策：字段形状、状态语义、失败语义、跨包依赖方向）。
   **它不批准任何付费调用**：第 10 条的窄授权（ADR-0006 / ADR-0009）一个字不变，
   本 ADR 定的恰恰是「什么时候**不许**再花第二次」。
-- 关联：[TASK-136](../tasks/backlog/TASK-136-generation-resume-and-idempotency.md)（本 ADR 是它的前置）·
+- 关联：[TASK-136](../tasks/TASK-136-generation-resume-and-idempotency.md)（本 ADR 是它的前置）·
   [创作者系统合同](../design/creator-system-contract.md) §5.2 状态机 · §5.3 字段 ·
   §5.4 第 1/4 条 · §5.7 幂等 · §5.8 `side_effect_unknown` ·
   [ADR-0095](ADR-0095-a-run-is-picked-up-from-the-thread-not-from-a-poller.md)（同一句纪律：多一份账就多一处漂移）
@@ -52,7 +52,7 @@ TASK-136 立卡时的判断是「本仓库还没有续跑语义，要从零定�
 
 时间点是有利的：**Studio 今天还没有任何 `provider:*` Run 的写入方**
 （写这份 ADR 时以为付费生成命令
-[TASK-041](../tasks/done/TASK-041-workspace-generation-command-and-evidence.md) 会是它，
+[TASK-041](../tasks/TASK-041-workspace-generation-command-and-evidence.md) 会是它，
 当天核实后发现不是 —— 见决策 8 的订正框）。现在定，成本是一份文档；接上之后再定，
 第一次事故已经发生了，而事故的形式是**用户被扣了两次钱、只看到一次失败**。
 
@@ -69,7 +69,7 @@ Studio **不得**再存一份 provider 任务 id，**不得**自己写第二个�
 
 代价（接受）：Studio 由此依赖核心库的预留布局，是一条跨包依赖。接受它，因为那份
 布局是已经冻结的持久化合同，而复制一份远端 id 的代价（两份账各说各话）更贵。
-依赖方向仍是 Studio → 核心库，不反向，[TASK-134](../tasks/active/TASK-134-import-linter-layering-contract.md)
+依赖方向仍是 Studio → 核心库，不反向，[TASK-134](../tasks/TASK-134-import-linter-layering-contract.md)
 的分层契约不受影响。
 
 ### 2. Run 上加的是**句柄**，不是副本
@@ -150,7 +150,7 @@ operationRef   { taskId, operationId } | null
 **在 `provider:*` Run 有真实写入方之前，决策 2 与 4 一行代码都不许写。**
 
 一个没有写入方的字段加一套没人触发的续跑执行体，就是
-[TASK-087 §1.2](../tasks/active/TASK-087-followup-ledger.md) 那条被 codex 判 P1 的东西：
+[TASK-087 §1.2](../tasks/TASK-087-followup-ledger.md) 那条被 codex 判 P1 的东西：
 导出了、测了、没人用，而且让「续跑已经接通」这句话看起来成立。
 本 ADR 的产物是**合同**，不是代码。
 
@@ -184,7 +184,7 @@ operationRef   { taskId, operationId } | null
 文件不会。
 
 所以决策 8 的「等真实写入方」**不再指向任何一张现存的卡**
-（[TASK-041](../tasks/done/TASK-041-workspace-generation-command-and-evidence.md) 已于
+（[TASK-041](../tasks/TASK-041-workspace-generation-command-and-evidence.md) 已于
 2026-09-05 收口，它交付的不是这个写入方 —— 见决策 8 的订正框）。
 **2026-09-05 复核**：`mockups/motv-workspace/` 的 `.py` 与 `src/**/*.js` 里
 `"provider:` 字面量零命中（唯一命中是 `runstore.py:90` 那个前缀常量本身），

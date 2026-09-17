@@ -446,6 +446,135 @@ export function setPlanned(work, kind, n) {
   return true;
 }
 
+/** AI 的正文提案要落到第几章/集 —— 两种形态各有各的「当前」，**都不猜**。
+ *
+ *  剧集有 `activeEpisodeId` 那样的文档级指针，位置就是集号；小说没有，唯一诚实的
+ *  答案是他此刻在「正文创作」里**打开着**的那一章（`ui.unitNo`）。一章都没打开时
+ *  返回一句话让他先去打开，而不是替他挑第 1 章：把一章正文写到他没在看的地方，
+ *  比什么都不做更糟（TASK-146 判据 2）。
+ *
+ *  纯函数，不碰 work —— 章号的判断是**策略**，落地是 `ensureUnit` 的事。
+ *
+ *  @param {string} form `"novel"` | `"episode"`，或 `""`（还没选）
+ *  @param {{activeEpisodeIndex?: number, openUnitNo?: number|null}} where
+ *  @returns {{no: number, word: string}|{error: string}}
+ */
+export function targetUnitNo(form, where = {}) {
+  if (form === "novel") {
+    const no = int(where.openUnitNo, 1, 500);
+    if (no === null) {
+      return { error: "还不知道该写第几章 —— 在「正文创作」里打开那一章再让我写" };
+    }
+    return { no, word: "章" };
+  }
+  if (form === "episode") {
+    const idx = int(where.activeEpisodeIndex, 0, 499);
+    if (idx === null) return { error: "现在没有选中的剧集" };
+    return { no: idx + 1, word: "集" };
+  }
+  return { error: "还没选小说创作还是剧集创作 —— 去「正文创作」选一个再来" };
+}
+
+/** 把一份 AI 正文提案落到该去的那一章/集。
+ *
+ *  三件事在一个地方完成，因为它们必须一起成立：**选对落点**（`targetUnitNo`）、
+ *  **覆盖前先存一版**（AGENTS.md §13 / CA §5.2）、**再写**。拆开放在调用方，
+ *  任何一次漏掉中间那步都是安静地把他写过的一章弄丢。
+ *
+ *  不碰持久化与界面 —— 调用方负责 `persist()` 与重绘。
+ *
+ *  @returns {{ok: true, no, word, unitId, kept: object|null}|{ok: false, error: string}}
+ *           `kept` 是覆盖前自动存下的那一版（没有旧内容时是 `null`）。
+ */
+export function applyBodyProposal(work, where, text, at) {
+  const body = str(text).trim();
+  if (!body) return { ok: false, error: "这份提案里没有正文" };
+  if (!work) {
+    return { ok: false, error: "还没选小说创作还是剧集创作 —— 去「正文创作」选一个再来" };
+  }
+  // **一份提案自带它的落点身份：写的是哪种形态、哪一个单元。**
+  //
+  // 两样都从**那次运行**来，屏幕上现在是什么样一概不参与 —— 他在生成与应用之间
+  // 可以切章、也可以切形态。这个类被分三次才认全（codex 轮 2/3/4），每一次漏掉
+  // 的那一半都是一次安静的错写：
+  //
+  //   漏掉 `unitNo` → 第 5 章的正文落进他翻到的第 6 章；
+  //   漏掉 `form`（小说那边）→ 切成剧集模式后，一章小说正文写进当前集；
+  //   漏掉 `form`（剧集那边）→ 切成小说模式后，一份剧本写进他打开的那一章。
+  //
+  // 最后一条尤其要记住：改这段之前的老代码**会拒绝**它（`work.form !== "episode"`
+  // 就报错），所以只补小说那一半，等于亲手开出一个反方向的新口子。
+  const boundForm = FORMS.includes(where && where.boundForm) ? where.boundForm : "";
+  const bound = int(where && where.boundUnitNo, 1, 500);
+  const form = boundForm || (bound === null ? work.form : "novel");
+  if (!form) {
+    return { ok: false, error: "还没选小说创作还是剧集创作 —— 去「正文创作」选一个再来" };
+  }
+  const target =
+    form === "novel" && bound !== null
+      ? { no: bound, word: "章" }
+      : targetUnitNo(form, where);
+  if (target.error) return { ok: false, error: target.error };
+  const unit = ensureUnit(work, form, target.no, at);
+  if (!unit) {
+    return { ok: false, error: `第 ${target.no} ${target.word}不是一个有效的编号` };
+  }
+  // **不静默覆盖**：已经写过的内容先存成一版定稿，再写新的。
+  const kept = (unit.body || "").trim()
+    ? finalizeUnit(work, unit.id, at, "被 AI 正文覆盖前自动存的一版")
+    : null;
+  editUnit(work, unit.id, "body", body, at);
+  return { ok: true, no: target.no, word: target.word, unitId: unit.id, kept };
+}
+
+/** 写第 no 章时，能力要知道的那些事 —— **这一章的任务**，不是整个故事。
+ *
+ *  `targetUnitNo` 回答的是「写到哪儿」，这个回答的是「写什么」。两件事都缺一不可：
+ *  只有落点而没有任务，能力会拿着整份大纲写出**它自己挑的那一章**，然后被安静地
+ *  放进他打开着的第 7 章 —— 落点对了，内容对不上（codex 轮 1 的 BLOCKING 4）。
+ *
+ *  没有对应的结构规划行**不是错误**：他可以只写大纲就直接开写。那时 `planRows`
+ *  是空的，能力照样能跑，只是少一层约束 —— 所以这里**不返回 null**，返回一个
+ *  说得清「这一章什么都还没规划」的对象。
+ *
+ *  @returns {{no, title, wordsSoFar, planRows: object[], outlineExcerpts: string[]}|null}
+ *           `no` 不是有效章号时返回 `null`（能力因此报缺，不会拿空对象开跑）。
+ */
+export function chapterPlanOf(work, no) {
+  const n = int(no, 1, 500);
+  if (!work || n === null) return null;
+  const unit = work.units.find((u) => u.kind === "novel" && u.no === n) || null;
+  const nodes = (work.outline && work.outline.nodes) || [];
+  const rows = visiblePlanRows(work).filter(
+    (r) => String(r.unitNo).trim() === String(n),
+  );
+  // 大纲引用解析成**内容**，不是 id：能力读不懂 `on-x3`，而悬空的引用要如实标成
+  // 悬空，不按位置猜一个（同 `draftws.js` 的 unitBrief）。
+  const outlineExcerpts = [];
+  for (const row of rows) {
+    for (const id of row.outlineRefs || []) {
+      const i = nodes.findIndex((x) => x.id === id);
+      outlineExcerpts.push(
+        i >= 0 ? `§${i + 1} ${nodes[i].text}` : `§? 这一条引用的大纲段落已经不在了`,
+      );
+    }
+  }
+  return {
+    no: n,
+    title: unit ? unit.title : "",
+    wordsSoFar: unit ? (unit.body || "").length : 0,
+    planRows: rows.map((r) =>
+      Object.fromEntries(
+        PLAN_COLUMNS.filter(([k]) => k !== "outlineRefs").map(([k, label]) => [
+          label,
+          r[k],
+        ]),
+      ),
+    ),
+    outlineExcerpts,
+  };
+}
+
 /** 拿到第 no 个单元，没有就建一个（章/集共用一张表，用 kind 区分）。 */
 export function ensureUnit(work, kind, no, at) {
   if (!FORMS.includes(kind)) return null;

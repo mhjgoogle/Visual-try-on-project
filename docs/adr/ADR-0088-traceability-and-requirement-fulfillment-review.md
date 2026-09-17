@@ -5,7 +5,7 @@
 - 决策者：产品负责人下发目标（2026-08-26），实施 Agent 依 AGENTS.md §1
   「ADR 的 Accept 权」自行 Accept 技术形状（无付费、无不可逆动用户数据）
 - 关联：[REQ-003](../requirements/REQ-003-traceability-and-requirement-fulfillment-review.md) ·
-  [TASK-108](../tasks/done/TASK-108-traceability-and-requirement-review.md) ·
+  [TASK-108](../tasks/TASK-108-traceability-and-requirement-review.md) ·
   [ADR-0076](ADR-0076-dev-workflow-operating-skill.md)（dev-workflow 与 REQ 记录，本 ADR 扩展它）·
   [ADR-0081](ADR-0081-review-by-impact-scope.md)（审查触发与轮次协议，**轮次不变**，本 ADR 只定审查**内容与顺序**）·
   [ADR-0087](ADR-0087-document-lifecycle-and-default-agent-context.md)（当前架构合同 = 架构约束的引用来源）·
