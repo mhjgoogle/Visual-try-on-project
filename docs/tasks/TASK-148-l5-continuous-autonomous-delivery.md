@@ -365,7 +365,16 @@ Verification `SUFFICIENT` · 无未闭合 P1/P2。审查者全程真 codex，独
 | 体检第 5 项 | `motv_doctor.py::check_commit_gate` —— 问安装器三件事：`core.hooksPath` 有没有被设 · hooks 目录在哪 · `hook_state` 是不是 `None`。没装 / 旧版 / 被别的工具覆盖 / 被 hooksPath 绕开 → **红**，行尾印修法那一条命令；`git` 问不到 → ⚠「未知」，不是 ✓ |
 | 为什么是红不是提醒 | 体检挂在提交闸门上（`commit_gate_policy.doctor`）：一台没装闸门的机器改了应用要提交，PreToolUse 会先跑体检，红了就拦，修法一条命令。这是 ADR-0104 代价一节「新克隆必须跑一次安装器」的机器化 |
 | 守卫 | `tests/tooling/test_motv_doctor.py` 新增 6 条：装好 → 绿且说出看的哪一份 · 没装 / 旧版 → 红且带命令 · hooksPath → 红 · git 不可用 → ⚠ · **接线**（`main()` 不调它就红不了）· 真安装器加载得起来。其余测试由 autouse 夹具把这一项钉成「已装」—— CI 的 checkout 上它本来就没装，那是真实状态，不该连坐别的测试 |
-| 实测 | 本机 `motv_doctor.py`：`✓ pre-commit 已装 …\.git\hooks\pre-commit`，退出码 0 |
+| 实测 | 本机 `motv_doctor.py`：`✓ pre-commit 已装 …\.git\hooks\pre-commit`，退出码 0；**从仓库外的临时目录**跑同一份体检，答案仍是本仓库那一份 |
+
+独立审查（codex，真 codex）：轮 1 **fail**，两条 BLOCKING 都成立、都修了 ——
+
+| 轮 1 报的 | 为什么是真的 | 修法 |
+| --- | --- | --- |
+| 体检问的是**进程 cwd 所在**的仓库，不是本仓库；环境里的 `GIT_DIR` 也会带偏 | 从另一个克隆里跑体检，会拿那个克隆的 hook 给这一个发合格证 —— 正是「假 ✓」 | 安装器的两个问法加 `cwd` 参数，统一走 `_git()`：摘掉 `GIT_DIR` 等身份变量，`--git-path` 的相对结果按 `cwd` 解成绝对路径；体检以 `cwd=REPO` 问。守卫：`test_hooks_dir_answers_for_the_cwd_it_is_given_not_the_process_cwd`（进程 chdir 到另一个仓库并设 `GIT_DIR`）· `test_it_asks_about_THIS_repository_not_the_callers_cwd` |
+| git 超时（`TimeoutExpired` 不是 `OSError`）与 `hook_state` 读文件时的 `OSError` 没接住 → 整份体检中断 | 一份因为自己崩掉而没查完的报告，比 ⚠ 糟 —— 体检自己的 docstring 就是这么说的 | `hook_state` 移进同一个 try，多接 `subprocess.SubprocessError`；守卫：`test_a_git_timeout_or_an_unreadable_hook_is_unknown_not_a_crash` |
+
+轮 2 见下（P1 修复后复审一次，ADR-0081）。
 
 ## 10. 落地阻塞（已登记，不在本卡修）
 

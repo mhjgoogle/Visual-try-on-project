@@ -89,6 +89,31 @@ def test_a_worktree_resolves_to_the_main_repo_hooks_dir(repo: Path) -> None:
     assert (repo / from_main).resolve() == (tree / from_tree).resolve()
 
 
+def test_hooks_dir_answers_for_the_cwd_it_is_given_not_the_process_cwd(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`hooks_dir(cwd=X)` 问的是 X 所在的仓库，返回绝对路径。
+
+    体检（`motv_doctor.check_commit_gate`）用它对着**本仓库**问；进程当前目录可能
+    是别的克隆，环境里可能带着 git hook 塞进来的 `GIT_DIR` —— 两样都不许把答案
+    带到别的仓库去（codex 2026-09-18）。
+    """
+
+    other = tmp_path / "other"
+    other.mkdir()
+    _git(other, "init", "-q")
+    monkeypatch.chdir(other)
+    monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+
+    got = install_git_hooks.hooks_dir(cwd=repo)
+
+    assert got.is_absolute()
+    assert got.resolve() == (repo / ".git" / "hooks").resolve()
+    # 不传 cwd 时仍按进程当前目录问 —— 安装器自己的用法不变
+    unanchored = install_git_hooks.hooks_dir().resolve()
+    assert unanchored == (other / ".git" / "hooks").resolve()
+
+
 def test_repo_root_follows_the_tree_being_committed(repo: Path) -> None:
     """`repo_root()` 给的是**被提交的那棵树**，不是 hook 脚本住的那棵。
 

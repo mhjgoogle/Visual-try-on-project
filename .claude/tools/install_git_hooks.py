@@ -69,28 +69,56 @@ fi
 """
 
 
-def hooks_dir() -> Path:
-    """共享的 `.git/hooks`，问 git 要，不自己拼。
+#: 问 git 时摘掉的仓库身份变量。在 git hook 里被拉起时，它们指向**调用 git 的那个
+#: 仓库**；而这里要问的是 `cwd` 所在的仓库 —— 两者在 worktree 或另一个克隆里可以
+#: 不同（codex 2026-09-18：体检从别的克隆里跑，会拿那个克隆的 hook 给这一个发合格证）。
+_GIT_IDENTITY_VARS = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_PREFIX",
+)
 
-    `--git-path` 在 worktree 里给的是**主仓**那一份 —— 这正是「装一次覆盖所有树」
-    的来源。自己用 `root / ".git" / "hooks"` 拼会在 worktree 里拼到
-    `.git` 那个**文件**（不是目录）上，装到一个不存在的地方还以为装好了。
-    """
 
-    done = subprocess.run(
-        [git_exe(), "rev-parse", "--git-path", "hooks"],
+def _git(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
+    """问 `cwd` 所在的那个仓库；`cwd` 缺省是进程当前目录（安装器自己的用法）。"""
+
+    env = {k: v for k, v in os.environ.items() if k not in _GIT_IDENTITY_VARS}
+    return subprocess.run(
+        [git_exe(), *args],
+        cwd=cwd,
+        env=env,
         capture_output=True,
         text=True,
         encoding="utf-8",
         errors="replace",
         timeout=10,
     )
+
+
+def hooks_dir(cwd: Path | None = None) -> Path:
+    """共享的 `.git/hooks`，问 git 要，不自己拼。
+
+    `--git-path` 在 worktree 里给的是**主仓**那一份 —— 这正是「装一次覆盖所有树」
+    的来源。自己用 `root / ".git" / "hooks"` 拼会在 worktree 里拼到
+    `.git` 那个**文件**（不是目录）上，装到一个不存在的地方还以为装好了。
+
+    `--git-path` 可能给**相对路径**，相对的是那次 git 调用的 cwd —— 所以传了 `cwd`
+    就按 `cwd` 解，返回值一律是绝对路径，调用方不必再记这条规则。
+    """
+
+    done = _git("rev-parse", "--git-path", "hooks", cwd=cwd)
     if done.returncode != 0 or not done.stdout.strip():
         raise SystemExit("git rev-parse --git-path hooks 没有给出 hooks 目录")
-    return Path(done.stdout.strip())
+    out = Path(done.stdout.strip())
+    if out.is_absolute():
+        return out
+    return ((cwd if cwd is not None else Path.cwd()) / out).resolve()
 
 
-def hooks_path_override() -> str | None:
+def hooks_path_override(cwd: Path | None = None) -> str | None:
     """`core.hooksPath` 设了就返回它。
 
     设了这个配置，`.git/hooks` 里的东西**一概不跑** —— 装进去也没用。
@@ -98,14 +126,7 @@ def hooks_path_override() -> str | None:
     而那正是本次要消灭的那种失败。
     """
 
-    done = subprocess.run(
-        [git_exe(), "config", "--get", "core.hooksPath"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=10,
-    )
+    done = _git("config", "--get", "core.hooksPath", cwd=cwd)
     value = done.stdout.strip()
     return value or None
 

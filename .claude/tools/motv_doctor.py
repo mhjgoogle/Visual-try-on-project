@@ -31,6 +31,7 @@ import importlib.util
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -434,21 +435,27 @@ def check_commit_gate(installer=None) -> list[dict]:
     闸门都会**一声不吭地不在** —— 而闸门的沉默正是 ADR-0104 要消灭的那种失败。
     所以这一项不是提醒，是红：修法只有一条命令，就印在行尾。
 
-    判不了（`git` 不在 PATH、问不到 hooks 目录）报「未知」⚠，不报 ✓ ——
-    与前四项同一姿态：一个假的 ✓ 比一个诚实的 ⚠ 危险得多。
+    判不了（`git` 不在 PATH、问不到 hooks 目录、git 超时、hook 文件读不了）报
+    「未知」⚠，不报 ✓，也**不让整份体检崩掉** —— 与前四项同一姿态：一个假的 ✓
+    比一个诚实的 ⚠ 危险得多，而一份因为自己崩掉而中断的报告比两者都糟。
+
+    问的是**这个仓库**（`cwd=REPO`），不是进程当前目录所在的仓库：体检可能从别的
+    目录、别的克隆、或在 git hook 里（带着那次调用的 `GIT_DIR`）被拉起，那时按
+    当前目录问会拿别的仓库的 hook 给这一个发合格证（codex 2026-09-18 轮 1）。
     """
     inst = installer if installer is not None else load_installer()
     fix = "python .claude/tools/install_git_hooks.py"
     try:
-        override = inst.hooks_path_override()
-        target = inst.hooks_dir() / inst.HOOK_NAME
-    except (SystemExit, OSError, ValueError) as exc:
+        override = inst.hooks_path_override(cwd=REPO)
+        target = inst.hooks_dir(cwd=REPO) / inst.HOOK_NAME
+        state = None if override else inst.hook_state(target)
+    except (SystemExit, OSError, ValueError, subprocess.SubprocessError) as exc:
         return [
             {
                 "名字": "pre-commit",
                 "量": "未知",
                 "state": WARN,
-                "why": f"问不到 git：{str(exc)[:80] or type(exc).__name__}",
+                "why": f"判不了：{str(exc)[:80] or type(exc).__name__}",
             }
         ]
     if override:
@@ -461,7 +468,6 @@ def check_commit_gate(installer=None) -> list[dict]:
                 f"先 git config --unset core.hooksPath，再 {fix}",
             }
         ]
-    state = inst.hook_state(target)
     if state is None:
         return [{"名字": "pre-commit", "量": "已装", "state": OK, "why": str(target)}]
     return [{"名字": "pre-commit", "量": state, "state": BAD, "why": f"修：{fix}"}]

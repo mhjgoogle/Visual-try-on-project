@@ -249,26 +249,44 @@ def test_every_probe_survives_truncation_and_filtering(doc, tmp_path, srv_mod=No
 
 
 class _FakeInstaller:
-    """`install_git_hooks` 的三个问法，答案由测试给。"""
+    """`install_git_hooks` 的三个问法，答案由测试给；记下每次被问时带的 `cwd`。"""
 
     HOOK_NAME = "pre-commit"
 
-    def __init__(self, *, override=None, state=None, hooks_dir=None, git=True):
+    def __init__(
+        self,
+        *,
+        override=None,
+        state=None,
+        hooks_dir=None,
+        git=True,
+        raise_in_dir=None,
+        raise_in_state=None,
+    ):
         self._override = override
         self._state = state
         self._dir = hooks_dir
         self._git = git
+        self._raise_in_dir = raise_in_dir
+        self._raise_in_state = raise_in_state
+        self.asked_cwd = []
 
-    def hooks_path_override(self):
+    def hooks_path_override(self, cwd=None):
+        self.asked_cwd.append(cwd)
         if not self._git:
             raise SystemExit("PATH 上没有 git。")
         return self._override
 
-    def hooks_dir(self):
+    def hooks_dir(self, cwd=None):
+        self.asked_cwd.append(cwd)
+        if self._raise_in_dir is not None:
+            raise self._raise_in_dir
         return self._dir
 
     def hook_state(self, target):
         assert target == self._dir / self.HOOK_NAME, "问的不是 hooks 目录里的那一份"
+        if self._raise_in_state is not None:
+            raise self._raise_in_state
         return self._state
 
 
@@ -311,6 +329,40 @@ def test_it_reports_unknown_not_green_when_git_cannot_be_asked(
     rows = doc.check_commit_gate(_FakeInstaller(hooks_dir=tmp_path, git=False))
     assert rows[0]["state"] == doc.WARN
     assert rows[0]["量"] == "未知"
+
+
+def test_a_git_timeout_or_an_unreadable_hook_is_unknown_not_a_crash(
+    doc, monkeypatch, tmp_path
+):
+    """安装器的 git 调用会超时、hook 文件会在读的那一刻被删 —— 两种都不许让整份体检
+    中断（codex 2026-09-18 轮 1）：一份因为自己崩掉而没查完的报告，比 ⚠ 糟得多。"""
+    monkeypatch.undo()
+    import subprocess
+
+    for fake in (
+        _FakeInstaller(
+            hooks_dir=tmp_path,
+            raise_in_dir=subprocess.TimeoutExpired(cmd=["git"], timeout=10),
+        ),
+        _FakeInstaller(
+            hooks_dir=tmp_path, raise_in_state=PermissionError("正在被别的进程删")
+        ),
+    ):
+        rows = doc.check_commit_gate(fake)
+        assert [r["state"] for r in rows] == [doc.WARN]
+        assert rows[0]["量"] == "未知"
+
+
+def test_it_asks_about_THIS_repository_not_the_callers_cwd(doc, monkeypatch, tmp_path):
+    """体检可能从别的目录、别的克隆、或 git hook 里被拉起 —— 问的必须是这个仓库。
+
+    按进程当前目录问，从另一个克隆里跑体检会拿**那个**克隆的 hook 给这一个发合格证
+    （codex 2026-09-18 轮 1 的 BLOCKING）。"""
+    monkeypatch.undo()
+    fake = _FakeInstaller(hooks_dir=tmp_path, state=None)
+    doc.check_commit_gate(fake)
+    assert fake.asked_cwd, "根本没问"
+    assert all(c == doc.REPO for c in fake.asked_cwd), fake.asked_cwd
 
 
 def test_the_gate_check_is_wired_into_the_report_and_turns_it_red(
