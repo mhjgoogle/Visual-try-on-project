@@ -14,38 +14,50 @@ L5 的开放条件是一组**数字**（任务书 §6，结论提炼在 TASK-148
 | 交付后被回退 | `git log` 里的 revert，`report` 现查 |
 | 谁在哪张卡上 | `git worktree list` + 卡头（TASK-147 的 `resume`） |
 
-**记的只有三类推不出来的**：工程介入（只有当事人知道用户是不是催了）、外部阻塞的
-理由、质量事故。用量单列 —— 取得到就记，取不到记 `未知`，**不把估算当账单**。
+**记的是推不出来的那些**：工程介入（只有当事人知道用户是不是催了）、外部阻塞的
+理由、质量事故、产品反馈与付费决定（**分开记，不算工程介入**）、用量。
 
-## append-only，且坏行不跳过
+## 三条 fail-closed 的立场
 
-一行一个事件，只追加。`report` 读不动某一行时**拒绝出数**而不是跳过它 ——
-一份会自己跳过坏行的台账，读起来永远是漂亮的（AGENTS.md §20 fail-closed）。
+1. **窗口是「连续开工的 5 个」，不是「挑出来的 5 个成功」。** 在办的、被放弃的、
+   被介入过的，全都留在窗口里并算作**不自主** —— 否则五个精选成功就能在一堆失败
+   中间开出 L5（codex 2026-09-17 报的第一条）。代价是：手上还有在办任务时闸就不
+   达标。**那不是噪声，那是实话** —— 还没做完的事不能算成功。
+2. **质量事故不看任务有没有结论。** 串改就是串改，不因为那张卡还没收口而不算。
+3. **坏行拒绝出数**，不跳过。缺字段也算坏行 —— 一条缺 `kind` 的质量事件会被读成
+   `"?"` 然后逃出致命清单（同一轮报出的另一条）。
 
 用法：
 
     python .claude/tools/l5_ledger.py start TASK-149 --note "..."
     python .claude/tools/l5_ledger.py intervene TASK-149 --kind continue --text "..."
+    python .claude/tools/l5_ledger.py feedback TASK-149 --text "这个界面我不喜欢"
+    python .claude/tools/l5_ledger.py spend TASK-149 --text "批准调用付费 API"
+    python .claude/tools/l5_ledger.py usage TASK-149 --amount "1.2M tokens"
     python .claude/tools/l5_ledger.py block TASK-149 --reason "CI 配额耗尽"
     python .claude/tools/l5_ledger.py quality TASK-149 --kind swept-others --note "..."
-    python .claude/tools/l5_ledger.py finish TASK-149 --evidence "tooling 487 passed"
+    python .claude/tools/l5_ledger.py finish TASK-149 --evidence "tooling 505 passed"
     python .claude/tools/l5_ledger.py report
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
+import shutil
 import subprocess
 import sys
+import time
 from collections import Counter
-from dataclasses import dataclass
+from collections.abc import Iterator
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
 LEDGER = Path("docs") / "l5-pilot-ledger.jsonl"
 
-#: 工程介入的四种形状。产品反馈与付费决定**不在其中** —— 任务书要求分开记：
+#: 工程介入的四种形状。**产品反馈与付费决定不在其中** —— 任务书要求分开记：
 #: 用户说「这个界面我不喜欢」不是自主性失败，用户说「继续」才是。
 INTERVENTION_KINDS = ("continue", "order", "command", "fix")
 
@@ -57,7 +69,25 @@ QUALITY_KINDS = (
     "post-delivery-defect",  # 交付之后才暴露的缺陷
 )
 
-EVENTS = ("start", "intervene", "block", "quality", "finish", "resume")
+#: 每种事件**必须**带哪些字段。缺了就是坏行 —— 见模块注释第 3 条。
+REQUIRED: dict[str, tuple[str, ...]] = {
+    "start": (),
+    "finish": ("evidence",),
+    "intervene": ("kind",),
+    "feedback": (),
+    "spend": (),
+    "usage": ("amount",),
+    "block": ("reason",),
+    "quality": ("kind",),
+    "resume": (),
+    "retry": ("reason",),
+    "dispatch": (),
+    "batch": (),
+    "stop": ("reason",),
+}
+
+#: 取值受限的字段。写错一个词就不该被默默收下。
+ENUMS = {"intervene": ("kind", INTERVENTION_KINDS), "quality": ("kind", QUALITY_KINDS)}
 
 
 def repo_root() -> Path:
@@ -74,17 +104,82 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+#: 拿锁最多等多久。等不到就**抛**，不是「那就不加锁写吧」——
+#: 后者正是会丢事件的那条路。
+LOCK_TIMEOUT = 10.0
+
+
+@contextlib.contextmanager
+def _locked(path: Path) -> Iterator[None]:
+    """用 `mkdir` 做的跨进程锁。
+
+    为什么不是「`a` 模式单次写就够原子」：**实测不够**。四个线程各写 20 条，
+    读回来只有 76 条 —— 丢了 4 条（2026-09-17，codex 点名让查并发时撞到）。
+    Python 的缓冲文本层在追加模式下不保证跨进程的读-改-写原子性，Windows CRT 的
+    `_O_APPEND` 也是先 seek 再 write。
+
+    `mkdir` 在 POSIX 与 NTFS 上都是原子的「存在即失败」，所以它是本仓库能用的
+    最便宜、且**不需要平台专属 syscall** 的互斥（AGENTS.md §3）。
+    这不是 TASK-143 禁的那种「锁服务」—— 没有进程、没有守护、没有中央协调，
+    只是一个目录。
+    """
+
+    lock = path.with_suffix(path.suffix + ".lock")
+    deadline = time.monotonic() + LOCK_TIMEOUT
+    while True:
+        try:
+            lock.mkdir()
+            break
+        except (FileExistsError, PermissionError):
+            # `PermissionError` 不是权限问题，是 **Windows 的删除挂起**：
+            # 上一个持有者刚 `rmdir`，NTFS 把目录标成 delete-pending，这期间
+            # 同名 `mkdir` 返回 ERROR_ACCESS_DENIED 而不是「已存在」。
+            # 只认 `FileExistsError` 的版本会在并发下把这条异常抛给调用方，
+            # 表现成「丢了几条事件」（2026-09-17 在 `-n 8` 整域跑里实测到；
+            # 单跑不复现 —— 这正是 AGENTS.md §2 说 Windows 是裁决者的那类差异）。
+            if time.monotonic() > deadline:
+                raise TimeoutError(f"{LOCK_TIMEOUT}s 内拿不到台账锁：{lock}") from None
+            time.sleep(0.005)
+    try:
+        yield
+    finally:
+        try:
+            lock.rmdir()
+        except OSError:
+            pass
+
+
 def append(event: dict, root: Path | None = None) -> None:
     path = ledger_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(event, ensure_ascii=False, sort_keys=True)
-    # `a` 模式 + 一次写入。**只追加** —— 台账要能当证据，就不能被自己改写。
-    with open(path, "a", encoding="utf-8", newline="\n") as handle:
+    # **只追加** —— 台账要当证据，就不能被自己改写。
+    with _locked(path), open(path, "a", encoding="utf-8", newline="\n") as handle:
         handle.write(line + "\n")
 
 
 class Corrupt(Exception):
     """台账里有读不动的行。拒绝出数，而不是跳过它。"""
+
+
+def validate(event: dict, where: str) -> None:
+    if not isinstance(event, dict):
+        raise Corrupt(f"{where} 不是一个事件")
+    for key in ("event", "task", "at"):
+        if not event.get(key):
+            raise Corrupt(f"{where} 缺 {key}")
+    name = str(event["event"])
+    if name not in REQUIRED:
+        raise Corrupt(f"{where} 不认识的事件：{name}")
+    for key in REQUIRED[name]:
+        if not event.get(key):
+            raise Corrupt(f"{where} 的 {name} 缺 {key}")
+    if name in ENUMS:
+        key, allowed = ENUMS[name]
+        if event.get(key) not in allowed:
+            raise Corrupt(
+                f"{where} 的 {name}.{key} 不在 {allowed} 里：{event.get(key)}"
+            )
 
 
 def read(root: Path | None = None) -> list[dict]:
@@ -99,8 +194,7 @@ def read(root: Path | None = None) -> list[dict]:
             event = json.loads(raw)
         except json.JSONDecodeError as exc:
             raise Corrupt(f"{path}:{number} 读不动：{exc}") from exc
-        if not isinstance(event, dict) or "event" not in event or "task" not in event:
-            raise Corrupt(f"{path}:{number} 不是一个事件：缺 event 或 task")
+        validate(event, f"{path}:{number}")
         events.append(event)
     return events
 
@@ -111,35 +205,33 @@ class TaskRow:
     started: str | None = None
     finished: str | None = None
     interventions: int = 0
-    intervention_kinds: Counter | None = None
-    blocks: list[str] | None = None
-    quality: list[str] | None = None
+    intervention_kinds: Counter = field(default_factory=Counter)
+    blocks: list[str] = field(default_factory=list)
+    quality: list[str] = field(default_factory=list)
+    feedback: int = 0
+    spend: int = 0
+    usage: list[str] = field(default_factory=list)
     resumed: bool = False
-
-    def __post_init__(self) -> None:
-        self.intervention_kinds = self.intervention_kinds or Counter()
-        self.blocks = self.blocks or []
-        self.quality = self.quality or []
 
     @property
     def autonomous(self) -> bool:
-        """零工程介入 **且** 真的交付了。
+        """零工程介入 **且** 真的交付了 **且** 没有质量事故。
 
-        没交付的不算自主完成 —— 否则「开了个头就放着」会被算成满分。
+        没交付的不算 —— 否则「开了个头就放着」会被算成满分。
+        有质量事故的也不算 —— 串了别人的改动还叫自主完成，那是自欺。
         """
 
-        return self.finished is not None and self.interventions == 0
+        return (
+            self.finished is not None and self.interventions == 0 and not self.quality
+        )
 
     @property
-    def concluded(self) -> bool:
-        """有结论了：交付了，或者被外部挡住并记下了理由。
-
-        **正在做的不算。** 窗口只看有结论的任务，否则「手上开着三件」会把前面
-        五个真实样本挤出窗口，达标状态跟着在办数量上下跳 —— 那不是度量，是噪声。
-        在办的仍然逐行显示（见 `render`），只是不进分母。
-        """
-
-        return self.finished is not None or bool(self.blocks)
+    def state(self) -> str:
+        if self.finished:
+            return "已交付"
+        if self.blocks:
+            return "外部阻塞"
+        return "**在办**"
 
     @property
     def duration(self) -> str:
@@ -151,8 +243,7 @@ class TaskRow:
             )
         except ValueError:
             return "—"
-        minutes = int(delta.total_seconds() // 60)
-        return f"{minutes} 分钟"
+        return f"{int(delta.total_seconds() // 60)} 分钟"
 
 
 def rows(events: list[dict]) -> dict[str, TaskRow]:
@@ -160,19 +251,25 @@ def rows(events: list[dict]) -> dict[str, TaskRow]:
     for event in events:
         task = str(event["task"])
         row = table.setdefault(task, TaskRow(task=task))
-        kind = event.get("event")
-        if kind == "start" and row.started is None:
+        name = event.get("event")
+        if name == "start" and row.started is None:
             row.started = event.get("at")
-        elif kind == "finish":
+        elif name == "finish":
             row.finished = event.get("at")
-        elif kind == "intervene":
+        elif name == "intervene":
             row.interventions += 1
-            row.intervention_kinds[str(event.get("kind", "?"))] += 1
-        elif kind == "block":
-            row.blocks.append(str(event.get("reason", "?")))
-        elif kind == "quality":
-            row.quality.append(str(event.get("kind", "?")))
-        elif kind == "resume":
+            row.intervention_kinds[str(event["kind"])] += 1
+        elif name == "feedback":
+            row.feedback += 1  # 产品反馈：**单独计**，不算工程介入
+        elif name == "spend":
+            row.spend += 1  # 付费决定：同上
+        elif name == "usage":
+            row.usage.append(str(event["amount"]))
+        elif name == "block":
+            row.blocks.append(str(event["reason"]))
+        elif name == "quality":
+            row.quality.append(str(event["kind"]))
+        elif name == "resume":
             row.resumed = True
     return table
 
@@ -180,8 +277,11 @@ def rows(events: list[dict]) -> dict[str, TaskRow]:
 def reverts_since(root: Path, count: int = 200) -> list[str]:
     """交付后被回退的提交 —— **现查 Git，不记进台账**（记了就会过期）。"""
 
+    git = shutil.which("git")
+    if git is None:
+        return []
     done = subprocess.run(
-        ["git", "log", f"-{count}", "--format=%h %s"],
+        [git, "log", f"-{count}", "--format=%h %s"],
         cwd=root,
         capture_output=True,
         text=True,
@@ -198,23 +298,60 @@ def reverts_since(root: Path, count: int = 200) -> list[str]:
     ]
 
 
-#: L5 的开放条件（任务书 §6）。**连续 5 个**真实任务里至少 4 个零介入，
-#: 至少一次跨会话恢复，零串改、零错误放行。
+#: L5 的开放条件（任务书 §6）。
 WINDOW = 5
 NEEDED_AUTONOMOUS = 4
 FATAL_QUALITY = ("wrong-merge", "swept-others", "invalid-evidence")
 
 
-def render(root: Path) -> str:
-    events = read(root)
-    table = rows(events)
-    order = [r for r in table.values() if r.started]
-    order.sort(key=lambda r: r.started or "")
-    window = [r for r in order if r.concluded][-WINDOW:]
-    in_flight = [r for r in order if not r.concluded]
+@dataclass
+class GateStatus:
+    """闸的结论，**结构化**。
 
+    早先 `l5_queue` 是拿「报告文本里有没有『达标』这四个字」判闸的 —— 于是一条
+    外部阻塞理由里只要写上那四个字，闸就开了（codex 2026-09-17）。判词是数据，
+    不是排版；文本由它生成，反过来不行。
+    """
+
+    met: bool
+    checks: list[tuple[bool, str]]
+    window: list[TaskRow]
+    in_flight: list[TaskRow]
+
+
+def gate_status(root: Path) -> GateStatus:
+    table = rows(read(root))
+    started = sorted(
+        (r for r in table.values() if r.started), key=lambda r: r.started or ""
+    )
+    # **连续开工的最后 5 个**，不是挑出来的 5 个成功。在办与被放弃的都留在窗口里。
+    window = started[-WINDOW:]
+
+    autonomous = sum(1 for r in window if r.autonomous)
+    # 质量事故**不看结论**：串改就是串改，不因为那张卡还没收口而不算。
+    fatal = [q for r in window for q in r.quality if q in FATAL_QUALITY]
+    checks = [
+        (len(window) >= WINDOW, f"连续 {WINDOW} 个真实任务（现在 {len(window)}）"),
+        (
+            autonomous >= NEEDED_AUTONOMOUS,
+            f"其中至少 {NEEDED_AUTONOMOUS} 个零工程介入且已交付（现在 {autonomous}）",
+        ),
+        (any(r.resumed for r in window), "至少一次跨会话恢复成功"),
+        (not fatal, f"零串改、零错误放行（现在 {len(fatal)} 条）"),
+    ]
+    return GateStatus(
+        met=all(ok for ok, _ in checks),
+        checks=checks,
+        window=window,
+        in_flight=[r for r in window if not (r.finished or r.blocks)],
+    )
+
+
+def render(root: Path) -> str:
+    status = gate_status(root)
     out: list[str] = ["# L5 试点度量", ""]
-    if not order:
+
+    if not status.window:
         out += [
             "台账是空的 —— **一个试点样本都还没有**。",
             "",
@@ -224,63 +361,52 @@ def render(root: Path) -> str:
         return "\n".join(out) + "\n"
 
     out += [
-        "| 任务 | 耗时 | 工程介入 | 外部阻塞 | 质量事故 | 跨会话恢复 | 自主完成 |",
-        "| --- | --- | --- | --- | --- | --- | --- |",
+        "| 任务 | 状态 | 耗时 | 工程介入 | 产品反馈 | 付费决定 | 质量事故 | 自主完成 |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
-    for row in window:
+    for row in status.window:
         kinds = (
             "·".join(f"{k}×{n}" for k, n in sorted(row.intervention_kinds.items()))
             or "0"
         )
         out.append(
-            f"| {row.task} | {row.duration} | {kinds} | "
-            f"{len(row.blocks)} | {'·'.join(row.quality) or '无'} | "
-            f"{'是' if row.resumed else '否'} | "
+            f"| {row.task} | {row.state} | {row.duration} | {kinds} | "
+            f"{row.feedback} | {row.spend} | {'·'.join(row.quality) or '无'} | "
             f"{'是' if row.autonomous else '否'} |"
         )
 
-    autonomous = sum(1 for r in window if r.autonomous)
-    blocked = [r for r in window if r.blocks]
-    fatal = [q for r in window for q in r.quality if q in FATAL_QUALITY]
-    resumed = any(r.resumed for r in window)
-
+    autonomous = sum(1 for r in status.window if r.autonomous)
     out += ["", "## 自主完成率", ""]
     # 外部阻塞**留在分母里**，理由单列（任务书原文）—— 把被阻塞的任务从分母里拿掉，
-    # 完成率就永远好看。
-    out.append(f"- {autonomous} / {len(window)}（外部阻塞留在分母里，理由见下）")
-    for row in blocked:
+    # 完成率就永远好看。在办的同样留在分母里，见模块注释第 1 条。
+    out.append(
+        f"- {autonomous} / {len(status.window)}（分母是连续开工的那些，一个不减）"
+    )
+    for row in status.window:
         for reason in row.blocks:
-            out.append(f"  - {row.task}：{reason}")
+            out.append(f"  - {row.task} 外部阻塞：{reason}")
+    for row in status.in_flight:
+        out.append(f"  - {row.task} 仍在办，按「不自主」计")
 
-    if in_flight:
-        out += ["", "## 还在做（不进分母，也不算成功）", ""]
-        out += [f"- {r.task}（开工 {r.started}）" for r in in_flight]
-
-    out += ["", "## 用量", "", "- **未知** —— 取不到调用量/token，不把估算当账单。"]
+    usage = [u for r in status.window for u in r.usage]
+    out += ["", "## 用量", ""]
+    out += [f"- {u}" for u in usage] or [
+        "- **未知** —— 没有记到调用量/token，**不把估算当账单**。"
+    ]
 
     reverts = reverts_since(root)
     out += ["", "## 交付后回退（现查 Git，不记台账）", ""]
     out += [f"- {line}" for line in reverts] or ["- 无"]
 
     out += ["", "## L5 闸", ""]
-    checks = [
-        (len(window) >= WINDOW, f"连续 {WINDOW} 个真实任务（现在 {len(window)}）"),
-        (
-            autonomous >= NEEDED_AUTONOMOUS,
-            f"其中至少 {NEEDED_AUTONOMOUS} 个零工程介入（现在 {autonomous}）",
-        ),
-        (resumed, "至少一次跨会话恢复成功"),
-        (not fatal, f"零串改、零错误放行（现在 {len(fatal)} 条）"),
-    ]
-    for ok, text in checks:
+    for ok, text in status.checks:
         out.append(f"- {'✅' if ok else '❌'} {text}")
-    verdict = "**达标**" if all(ok for ok, _ in checks) else "**未达标**"
-    out += ["", f"判词：{verdict}。"]
-    if not all(ok for ok, _ in checks):
-        out.append("")
-        out.append(
-            "小样本不能证明长期收益 —— 达标只是开放**有限** L5 的条件，不是结论。"
-        )
+    out += ["", f"判词：{'**达标**' if status.met else '**未达标**'}。"]
+    if not status.met:
+        out += [
+            "",
+            "小样本不能证明长期收益 —— 达标只是开放**有限** L5 的条件，不是结论。",
+        ]
     return "\n".join(out) + "\n"
 
 
@@ -293,22 +419,34 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--note", default="")
 
     p = sub.add_parser(
-        "intervene", help="记一次工程介入（用户为继续/排序/命令/修复补发消息）"
+        "intervene", help="工程介入（用户为继续/排序/命令/修复补发消息）"
     )
     p.add_argument("task")
     p.add_argument("--kind", choices=INTERVENTION_KINDS, required=True)
     p.add_argument("--text", default="")
 
-    p = sub.add_parser("block", help="记一次外部阻塞（留在分母里，理由单列）")
+    p = sub.add_parser("feedback", help="产品反馈 —— **分开记**，不算工程介入")
+    p.add_argument("task")
+    p.add_argument("--text", default="")
+
+    p = sub.add_parser("spend", help="付费决定 —— **分开记**，不算工程介入")
+    p.add_argument("task")
+    p.add_argument("--text", default="")
+
+    p = sub.add_parser("usage", help="实测用量（取不到就别记，不要写估算）")
+    p.add_argument("task")
+    p.add_argument("--amount", required=True)
+
+    p = sub.add_parser("block", help="外部阻塞（留在分母里，理由单列）")
     p.add_argument("task")
     p.add_argument("--reason", required=True)
 
-    p = sub.add_parser("quality", help="记一次质量事故")
+    p = sub.add_parser("quality", help="质量事故")
     p.add_argument("task")
     p.add_argument("--kind", choices=QUALITY_KINDS, required=True)
     p.add_argument("--note", default="")
 
-    p = sub.add_parser("resume", help="记一次跨会话恢复成功")
+    p = sub.add_parser("resume", help="跨会话恢复成功")
     p.add_argument("task")
     p.add_argument("--note", default="")
 
@@ -333,10 +471,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     event = {"event": args.cmd, "task": args.task, "at": now()}
-    for field in ("note", "text", "reason", "evidence", "kind"):
-        value = getattr(args, field, None)
+    for name in ("note", "text", "reason", "evidence", "kind", "amount"):
+        value = getattr(args, name, None)
         if value:
-            event[field] = value
+            event[name] = value
+    validate(event, "要写的这条")
     append(event, root)
     sys.stdout.write(f"记下了：{args.cmd} {args.task}\n")
     return 0
