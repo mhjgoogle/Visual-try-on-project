@@ -304,7 +304,13 @@ def _wire_real_gate(repo: Path) -> None:
         shutil.copy2(HOOKS / name, gate_dir / name)
 
     link = repo / ".venv"
-    real = REPO_ROOT / ".venv"
+    real = _REAL_VENV
+    if not real.is_dir():
+        # **CI 上没有 `.venv`**（`pip install -e .[dev]` 装进 setup-python 的解释器）。
+        # 2026-09-17 第一次推上去，Windows 与 Ubuntu 各红 5 条，全是「这棵树没有自己
+        # 的 venv」—— 链到了一个不存在的目录。这时用**当前解释器**搭一个最小 venv 桩。
+        _stub_venv(link)
+        return
     try:
         link.symlink_to(real, target_is_directory=True)
         return
@@ -499,6 +505,58 @@ def test_an_existing_foreign_hook_is_not_destroyed(
     # 明说了就可以覆盖 —— 拒绝的是**静默**覆盖，不是覆盖本身。
     assert install_git_hooks.install(force=True) == 0
     assert install_git_hooks.is_ours(target)
+
+
+#: 真仓库的 venv。测试可以把它指到一个不存在的地方，逼 `_wire_real_gate` 走桩那条路 ——
+#: 这样 CI 上「没有 .venv」的情形在本地也能复现，而不是推上去才知道。
+_REAL_VENV = REPO_ROOT / ".venv"
+
+
+def _stub_venv(link: Path) -> None:
+    """用当前解释器搭一个最小 venv：`pyvenv.cfg` + 解释器本体。
+
+    `home` 指向当前解释器所在目录，`include-system-site-packages = true` 让它看得见
+    那个解释器装好的包（ruff 就在里面）—— 本地 `.venv` 与 CI 的 setup-python 都成立。
+    POSIX 上解释器用 symlink（真 venv 也是这么摆的）；Windows 上复制 `python.exe`。
+    """
+
+    exe = Path(sys.executable)
+    if os.name == "nt":
+        target = link / "Scripts" / "python.exe"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(exe.read_bytes())
+    else:
+        target = link / "bin" / "python"
+        target.parent.mkdir(parents=True)
+        target.symlink_to(exe)
+    (link / "pyvenv.cfg").write_text(
+        f"home = {exe.parent}\ninclude-system-site-packages = true\n",
+        encoding="utf-8",
+    )
+
+
+def test_the_real_gate_runs_even_when_the_repo_has_no_venv(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """**CI 的情形，在本地复现。** 2026-09-17 第一次推上去两边各红 5 条，全因 CI 没有
+    `.venv`。把「真 venv」指到一个不存在的地方，逼测试走桩那条路 —— 闸门仍要能跑起来
+    并因 ruff 拒绝提交。"""
+
+    monkeypatch.setattr(
+        sys.modules[__name__], "_REAL_VENV", tmp_path / "definitely-not-a-venv"
+    )
+    monkeypatch.chdir(repo)
+    assert install_git_hooks.install() == 0
+    _wire_real_gate(repo)
+
+    (repo / "bad.py").write_text(VIOLATING, encoding="utf-8")
+    _git(repo, "add", "bad.py")
+    done = _git(repo, "commit", "-m", "should not land")
+    combined = done.stderr + done.stdout
+
+    assert done.returncode != 0, combined[:2000]
+    assert "ruff" in combined, combined[:2000]
+    assert "没有自己的 venv" not in combined, combined[:2000]
 
 
 def test_a_clean_commit_through_git_says_the_gate_ran(
