@@ -62,8 +62,8 @@ CA §2 的约束原文是「核心库永远不 import 上面任何一层」—�
 
 | 判据 | 证据 |
 | --- | --- |
-| 1 | `arch_deps.py graph` → 真仓库 **181 个模块、798 条内部边**；`layers` → core 168 · shell 4 · studio 9，**归不进任何层的：0** |
-| 2 | `impact ai_video_workflow.gateway` → 9 个模块（core 3 · shell 4 · studio 2），按层分组；对无人 import 的模块答「无」（`test_impact_of_a_leaf_nobody_imports_is_empty`）；接受模块名或文件路径 |
+| 1 | `arch_deps.py graph` → 真仓库 **181 个模块、1181 条内部边**（含「import 子模块即依赖其祖先包」的边；第一版只记最长匹配时是 798 条，见 §5）；`layers` → core 168 · shell 4 · studio 9，**归不进任何层的：0** |
+| 2 | `impact ai_video_workflow.gateway` → **15 个模块**（第一版 9 个 —— 少报的 6 个正是 import 了 `gateway.*` 子模块的人），按层分组；对无人 import 的模块答「无」；接受模块名或文件路径 |
 | 3 | `check` → **「CA §2 方向约束在代码里成立」**；`test_the_real_repository_respects_the_dependency_direction` 对着真仓库跑，进 commit gate 与 CI |
 | 4 | `test_a_file_that_does_not_parse_refuses_the_whole_graph` |
 | 测试 | `tests/tooling/test_arch_deps.py` 11 条 |
@@ -78,8 +78,18 @@ CA §2 的约束原文是「核心库永远不 import 上面任何一层」—�
 2. **没接进 commit gate**（OUT OF SCOPE）。`impact` 现在是给人用的：改一个模块之前跑一下，
    知道要看哪些文件。要让闸门按它选测试域，是另一张卡。
 3. **前端 JS 不在图里**；Studio 那 9 个后端模块在。
-4. 独立审查：见 §5。
+4. **动态导入不进图**（`importlib.import_module` / `__import__`）。2026-09-17 实测范围内
+   **0 处**，所以今天 `impact` 不会因此少报；但没有机制在将来有人加了一处时喊。
+5. `src/ui-gap-audit/` 里有 1 个 Python 脚本，目录名带连字符、不是可导入的包，**刻意不扫**。
+6. 独立审查：见 §5。
 
-## 5. 独立审查
+## 5. 独立审查（codex）
 
-工装行为改动，按 AGENTS.md §20 触发表**必须审**。**本轮尚未进行**。
+| 轮 | 结论 | 买轮的那条 |
+| --- | --- | --- |
+| 1 | fail · 判据 1/2 `PARTIAL` · 1 BLOCKING | **只记最长匹配会少报**：`from a.b import c` 在 `a.b/__init__` 也定义了 `c` 时边只落到 `a.b.c`，丢了 `a.b`；更一般地 import 任何子模块都执行父包 `__init__`，`impact a.b` 看不见 import 了 `a.b.*` 的人 |
+| 2 | 待跑 | —— |
+
+轮 1 修法按类：`_with_ancestors()` 把命中模块**及其所有已知祖先包**一起记，`import` 与
+`from … import` 两条路都走它。真仓库边 798 → 1181，`impact gateway` 9 → 15 ——
+少报的 6 个正是审查者指的那类。守卫验过：退回只记最长匹配，3 条测试当场红。

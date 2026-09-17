@@ -56,16 +56,63 @@ def repo(tmp_path: Path) -> Path:
 def test_internal_edges_are_read_and_third_party_is_not(repo: Path) -> None:
     graph = arch_deps.build(repo)
 
+    # import 任何子模块都会执行父包的 `__init__`，所以每条边都带上祖先包
+    # `ai_video_workflow`（codex 2026-09-17）。
     assert graph.edges() == [
+        ("ai_video_workflow.b", "ai_video_workflow"),
         ("ai_video_workflow.b", "ai_video_workflow.a"),
+        ("ai_video_workflow.c", "ai_video_workflow"),
         ("ai_video_workflow.c", "ai_video_workflow.b"),
+        ("ai_video_workflow.sub.d", "ai_video_workflow"),
         ("ai_video_workflow.sub.d", "ai_video_workflow.b"),
+        ("server", "ai_video_workflow"),
         ("server", "ai_video_workflow.a"),
         ("server", "runstore"),
+        ("workspace_shell.app", "ai_video_workflow"),
         ("workspace_shell.app", "ai_video_workflow.c"),
     ]
     # `json` / `os` / `requests` 不是架构，是依赖清单 —— 不进图。
     assert all(b in graph.modules for _a, b in graph.edges())
+
+
+def test_importing_a_submodule_also_depends_on_its_packages(tmp_path: Path) -> None:
+    """**codex 2026-09-17 的 P1。** `import a.b.c` 会执行 `a/__init__` 与
+    `a.b/__init__`，改任何一个都影响调用方；只记最长匹配让 `impact a.b` 看不见他们。"""
+
+    _write(tmp_path, "src/ai_video_workflow/__init__.py")
+    _write(tmp_path, "src/ai_video_workflow/pkg/__init__.py", "c = 1\n")
+    _write(tmp_path, "src/ai_video_workflow/pkg/c.py", "y = 2\n")
+    _write(
+        tmp_path, "src/ai_video_workflow/user.py", "import ai_video_workflow.pkg.c\n"
+    )
+
+    graph = arch_deps.build(tmp_path)
+    imports = graph.modules["ai_video_workflow.user"].imports
+    assert {
+        "ai_video_workflow.pkg.c",
+        "ai_video_workflow.pkg",
+        "ai_video_workflow",
+    } <= imports
+    assert "ai_video_workflow.user" in graph.impact("ai_video_workflow.pkg")["core"]
+
+
+def test_from_package_import_name_records_both_readings(tmp_path: Path) -> None:
+    """`from a.b import c`：`c` 是 `a.b/__init__` 里的名字还是子模块 `a.b.c`，静态分析
+    分不出来。两种读法都记 —— 少报比多报糟。"""
+
+    _write(tmp_path, "src/ai_video_workflow/__init__.py")
+    _write(tmp_path, "src/ai_video_workflow/pkg/__init__.py", "c = 1\n")
+    _write(tmp_path, "src/ai_video_workflow/pkg/c.py", "y = 2\n")
+    _write(
+        tmp_path,
+        "src/ai_video_workflow/user.py",
+        "from ai_video_workflow.pkg import c\n",
+    )
+
+    graph = arch_deps.build(tmp_path)
+    imports = graph.modules["ai_video_workflow.user"].imports
+    assert "ai_video_workflow.pkg" in imports
+    assert "ai_video_workflow.pkg.c" in imports
 
 
 def test_relative_imports_resolve_against_the_importing_package(repo: Path) -> None:

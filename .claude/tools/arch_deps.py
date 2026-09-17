@@ -164,6 +164,25 @@ def _resolve(imported: str, known: set[str]) -> str | None:
     return None
 
 
+def _with_ancestors(hit: str, known: set[str]) -> set[str]:
+    """命中的模块**加上它所有已知的祖先包**。
+
+    import `a.b.c` 会执行 `a/__init__.py` 与 `a.b/__init__.py` —— 调用方因此也依赖
+    那两个包。只记最长匹配的版本在两处少报（codex 2026-09-17）：① `from a.b import c`
+    在 `a.b/__init__` 也定义了 `c` 时，真正被用的是包属性，边却只落到子模块 `a.b.c`；
+    ② 改 `a.b/__init__` 会影响每一个 import 了 `a.b.*` 的人，`impact a.b` 却看不见他们。
+    少报比多报糟：`impact` 给的是范围，范围少一片就是看不见那一片。
+    """
+
+    out = {hit}
+    parts = hit.split(".")
+    for cut in range(1, len(parts)):
+        prefix = ".".join(parts[:cut])
+        if prefix in known:
+            out.add(prefix)
+    return out
+
+
 def _imports_of(module: Module, known: set[str]) -> set[str]:
     try:
         tree = ast.parse(
@@ -178,7 +197,7 @@ def _imports_of(module: Module, known: set[str]) -> set[str]:
             for alias in node.names:
                 hit = _resolve(alias.name, known)
                 if hit:
-                    out.add(hit)
+                    out |= _with_ancestors(hit, known)
         elif isinstance(node, ast.ImportFrom):
             if node.level:
                 # 相对导入：按 level 往上走，再接 module。
@@ -195,7 +214,9 @@ def _imports_of(module: Module, known: set[str]) -> set[str]:
                 if hit is None and stem:
                     hit = _resolve(stem, known)
                 if hit:
-                    out.add(hit)
+                    out |= _with_ancestors(hit, known)
+                # `from a.b import c`：`c` 可能是子模块，也可能是 `a.b/__init__` 里的
+                # 名字 —— 两种读法都记，`_with_ancestors` 已把 `a.b` 加进来了。
     out.discard(module.name)
     return out
 
