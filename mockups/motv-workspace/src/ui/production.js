@@ -2648,14 +2648,13 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       return Promise.resolve(ui.novelChain);
     }
     const work = workOf();
-    if (!work || work.form !== "novel") {
-      ctx.toast("连写只对小说成立 —— 先在「正文创作」里选「小说创作」");
-      return Promise.resolve(null);
-    }
     const skill = ctx.skills.find(NOVELIST);
     const executor = skill ? routeExecutor(skill) : null;
-    if (!executor) {
-      ctx.toast("连写需要一个能自动跑完的执行器 —— 本机现在没有；「手工」一次只能写一章");
+    // 两道闸（只对小说、要能自动跑完的执行器）在 `novelchain.readiness` 里，有测试；
+    // 这里只负责把它说出来。
+    const ready = novelchain.readiness(work, executor);
+    if (!ready.ok) {
+      ctx.toast(ready.reason);
       return Promise.resolve(null);
     }
     const targets = swork.chainTargets(work, count);

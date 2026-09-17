@@ -40,10 +40,14 @@ schema 校验、版本化，与他自己点一次运行**同一条路**（ADR-00
 - **链的状态活在页面内存里，不进持久化。** 进度就是「哪些章已经有正文」—— 那是
   文档里的事实；刷新、关标签页之后再说一次「接着写」，从进度接着来（AGENTS.md §12
   断点续跑：不重做已完成的章）。为链另存一份「写到第几章了」会与文档打架。
-- **「已经写下的不会被重跑覆盖」靠两道**：① 选目标时只挑没正文的章（`chainTargets`）；
-  ② 每章开跑前**现读**文档再查一次 —— 链跑着的时候他自己在第 6 章写了几段，第 6 章
-  就跳过（`novelchain.runChain`）。`applyBodyProposal` 覆盖前存一版的那道兜底仍在，
-  但这一片的语义是**不碰**，不是「覆盖但存一版」。
+- **「已经写下的不会被重跑覆盖」靠三道**：① 下一章 = **此刻**第一章没正文的
+  （每步现读，不用开链时的名单）；② 他中途自己写了的章跳过并记下，链**往后补足**
+  「写几章」那个数 —— `count` 是要写几章，不是盯着哪几章（codex 轮 1 的 P2：截断过的
+  名单跑完就停会少写一章）；③ **运行回来之后再查一次**：他在这一章跑着的时候自己写了它
+  → 不应用、他的字一个不动，AI 那一版留在「能力」面板里当 pending 提案（`held`），用不用
+  由他决定（codex 轮 1 的 P1：只在开跑前查一次，运行中写的会被盖掉）。
+  `applyBodyProposal` 覆盖前存一版的那道兜底仍在，但这一片的语义是**不碰**，
+  不是「覆盖但存一版」。
 - **自动应用是这一片的定义，不是省一步。** 「连着往下写」的意思就是写完落进去再写
   下一章；每章仍是一次登记在册、可退回上一版、可改的写入（REQ-007 判据 3 不破）。
   他要逐章审的路径没变：说「写这一章」，一次一章、落成 pending 提案。
@@ -118,23 +122,33 @@ schema 校验、版本化，与他自己点一次运行**同一条路**（ADR-00
 （server resolver 挂接）+ contract（能力包基线）。按 AGENTS.md §20 跑这三个域；
 全量留到里程碑集成检查点。
 
-**实测（2026-09-18）**：`node --test` **2333 pass / 0 fail**（+19：`novelchain.test.mjs`
-15 条、`convroute.test.mjs` 4 条）· `pytest tests/studio tests/contract` **988 passed /
-16 skipped**（+21：`test_motv_novel_chain_task152.py`）· `ruff check .` 通过 ·
-`lifecycle_check` 0 finding。
+**实测（2026-09-18，codex 轮 1 修复后）**：`node --test` **2339 pass / 0 fail**
+（+25：`novelchain.test.mjs` 21 条、`convroute.test.mjs` 4 条）· `pytest tests/studio
+tests/contract` **988 passed / 16 skipped**（+21：`test_motv_novel_chain_task152.py`）·
+`ruff check .` 通过 · `lifecycle_check` 0 finding。
 
 验收 → 守卫：
 
 | §5 | 守卫 |
 | --- | --- |
-| 1 三章依次落进各自那一章、已写的不动 | `novelchain.test.mjs`「三章依次写出…」（每次运行的章号 = 目标章号；应用的是那次运行的 runId） |
-| 2 链跑着时他写了下一章 → 跳过并说出来 | 「链跑着的时候他自己写了下一章…」 |
+| 1 三章依次落进各自那一章、已写的不动 | `novelchain.test.mjs`「三章依次写出…」（每次运行的章号 = 目标章号；应用的是那次运行的 runId）+「真 controller：三章各是一次登记在册的运行…」（真 `skillctl` / `skillrun` / `skillapply` / `applyBodyProposal`，run 记着 `unitNo`、应用后 accepted） |
+| 2 链跑着时他写了下一章 → 跳过并**往后补足** | 「链跑着的时候他自己写了下一章 → 跳过它、不覆盖、往后补足章数」（写 3 章、第 2 章被他写了 → 写 1、3、4）·「没给数 = 写到计划内没正文的都写完…」 |
+| 2′ 他在**正在写的那一章**里自己写了 → 运行回来不落地 | 「他在正在写的那一章里自己写了 → 运行回来不落地…」+「真 controller：…提案留在册上 pending，他的字一个不动」（AI 那一版 pending；他之后自己按「用它」才走覆盖前存一版的既有兜底） |
 | 3 停 = 写完手上这一章；再来不重写 | 「停止在两章之间生效…」+ `chainTargets` 从进度接着算 |
-| 4 `previous` 是此刻的结尾 | 「本章任务带着上一章此刻的结尾…」「接着的是最近一章有正文的…」 |
+| 4 `previous` 是此刻的结尾 | 「本章任务带着上一章此刻的结尾…」「接着的是最近一章有正文的…」+ 真 controller 那条断言第 2 章的**提示词里**有第 1 章结尾、第 3 章的里有刚落地的第 2 章 |
 | 5 「写这一章」不变 | `test_a_single_chapter_in_a_novel_has_no_continuation` + TASK-146 全部 58 条仍绿 |
 | 6 剧集侧不变 | `test_an_episode_project_never_gets_a_continuation` |
-| 7 无自动执行器不连写 | `production.startNovelChain` 的 `routeExecutor` 闸（DOM 绑定，未单测；见 §7） |
+| 7 无自动执行器不连写 | `novelchain.readiness`：「连写只对小说成立，且要一个能自动跑完的执行器」「手工执行器不连写：一次运行都不起」；`production.startNovelChain` 起链前问的就是它 |
 | 接线 | `convroute.test.mjs`「production.js 里连写走的是链…」（源码钉接线，与该文件既有的 `routeInflight` 守法一致） |
+
+独立审查（codex，真 codex）：轮 1 **fail** —— 1 P1 + 1 P2 + 两条 `NOT_EVIDENCED`，全部成立、全部修了：
+
+| 轮 1 报的 | 处置 |
+| --- | --- |
+| P1：只在开跑前查一次「有没有正文」，他在**运行进行中**写了这一章，回来的提案会盖掉它 | `runChain` 运行回来后再查一次：有他的字就不应用，AI 那一版留成 pending（`held`）；两条守卫（假件 + 真 controller） |
+| P2：`count` 截断的名单跑完就停 —— 写 3 章、他自己写了第 5 章，链在第 4 章就停，少写一章 | `count` 改为「要写几章」，每步现读第一章没正文的往后补；守卫「…往后补足章数」 |
+| `NOT_EVIDENCED` §5.7（手工执行器不连写） | 闸抽成 `novelchain.readiness`，两条守卫；`startNovelChain` 调它 |
+| `NOT_EVIDENCED` REQ-007 判据 3（提案登记 / 版本 / 可退） | 两条真 controller 测试：run 记 `unitNo`、应用后 accepted；被跳过的留 pending，他自己「用它」时旧版被存成一版 |
 
 ## 7. 还没在真实项目上被人看过的
 
