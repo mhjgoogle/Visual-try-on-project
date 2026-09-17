@@ -1,11 +1,14 @@
 # ADR-0087：文档生命周期与默认 Agent 上下文 —— 当前事实精简，历史可追溯
 
-- 状态：Accepted
+- 状态：**Accepted；决策 2 里「Change / Task 的状态机 = `backlog/` → `active/` →
+  `done/` 三个目录」那一句于 2026-09-17 被
+  [ADR-0105](ADR-0105-task-state-lives-on-the-card.md) 局部取代** —— 三态保留，
+  载体从目录换成卡头一行 `- 状态：待办 / 进行中 / 完成`
 - 日期：2026-08-26
 - 决策者：产品负责人下发目标（2026-08-26），实施 Agent 依 AGENTS.md §1
   「ADR 的 Accept 权」自行 Accept 技术形状
 - 关联：[REQ-002](../requirements/REQ-002-document-lifecycle.md) ·
-  [TASK-107](../tasks/done/TASK-107-document-lifecycle.md) ·
+  [TASK-107](../tasks/TASK-107-document-lifecycle.md) ·
   [ADR-0083](ADR-0083-docs-partitioned-by-completion.md)（目录即状态，本 ADR 扩展它）·
   [ADR-0076](ADR-0076-dev-workflow-operating-skill.md)（REQ 记录与 dev-workflow）·
   [ADR-0077](ADR-0077-repository-path-ownership.md)（仓库路径所有权）
@@ -114,10 +117,10 @@ ADR-0051 写的「**无决策被取代。**」是一句否定 —— 关键词�
 | 规则 | `AGENTS.md`（`CLAUDE.md` 是它的入口） |
 | 当前需求 | 当前 Change 关联的 `REQ-*`（或任务卡的「依据」行） |
 | 当前架构 | `docs/current-architecture.md` + 它指向的、与本次改动相关的那一份合同 |
-| 当前工作 | `docs/tasks/active/` 里**本次**这一张卡 + `docs/STATUS.md` |
+| 当前工作 | `docs/tasks/` 里**本次**这一张卡 + `docs/STATUS.md` |
 | 代码与测试 | 影响范围内的 |
 
-**默认不加载**：`docs/tasks/done/`、`docs/design/done/`、`docs/reports/`、
+**默认不加载**：`docs/tasks/`、`docs/design/done/`、`docs/reports/`、
 历史 ADR（未被 current-architecture 指向的）、被取代的 REQ 版本、
 `docs/auto-push/changes/` 的历史清单。
 
@@ -199,7 +202,7 @@ scratch notes、临时实施计划、调试记录、agent 原始对话、一次�
 | --- | --- |
 | `docs/current-architecture.md` | 新增，当前架构合同（WHAT IS TRUE NOW） |
 | `AGENTS.md` §8 | 新增条款 24–26（生命周期三分类 / 默认上下文 / 临时产物） |
-| `docs/tasks/backlog/` | 新增；TASK-011、TASK-012 迁入 |
+| `docs/tasks/` | 新增；TASK-011、TASK-012 迁入 |
 | ADR-0060 / ADR-0069 | 状态改 `Superseded by`，ADR-0080 / ADR-0081 补「取代」行 |
 | `docs/design/active/` | 已完成的评审记录与规划基线迁入 `done/`；待复审清单只留活账，已闭合历史迁入 `done/` |
 | `.claude/tools/lifecycle_check.py` | 新增守卫（`--check`） |

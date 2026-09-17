@@ -402,7 +402,7 @@
   当时实际执行的是仓库当时已有的 757 项测试（历史快照）；当前
   已实现其中 Step A 归属的 10–14 共 5 项（见 §24.3），其余为
   planned，不声称已实现。
-- Task: [TASK-004](../../tasks/done/TASK-004-provider-orchestrator-foundation.md)
+- Task: [TASK-004](../../tasks/TASK-004-provider-orchestrator-foundation.md)
 - Specification baseline:
   `47aeafc docs: approve TASK-004 orchestrator specification`
 - TASK-003 completed baseline:

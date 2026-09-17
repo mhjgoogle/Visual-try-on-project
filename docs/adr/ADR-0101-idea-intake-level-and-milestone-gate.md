@@ -10,7 +10,7 @@
   `backlog/` 而不是新目录）· [ADR-0088](ADR-0088-traceability-and-requirement-fulfillment-review.md)
   （四闸审查回答「需求做完了吗」，本 ADR 补的是它前面那一步「这需求该现在做吗」）·
   [ADR-0098](ADR-0098-index-docs-are-not-a-second-contract.md)（一份文档只答一个问题）·
-  [TASK-141](../tasks/done/TASK-141-idea-intake-and-current-truth.md)
+  [TASK-141](../tasks/TASK-141-idea-intake-and-current-truth.md)
 
 ## 1. 背景
 
@@ -30,9 +30,9 @@ Idea → Claude → Code
 
 **代价不是假设，是观察值。**
 
-- `docs/tasks/active/` 长期挂着九张卡，而 AGENTS.md §2 写的是「同一时间最多推进
+- `docs/tasks/` 长期挂着九张卡，而 AGENTS.md §2 写的是「同一时间最多推进
   1 个主要用户需求 + 1 个阻塞它的技术任务」。九不是一，差额就是没被拦下的想法。
-- 排期判断**确实发生过，但发生在事后**：[TASK-011](../tasks/backlog/TASK-011-local-video-provider.md)
+- 排期判断**确实发生过，但发生在事后**：[TASK-011](../tasks/TASK-011-local-video-provider.md)
   的卡头有一段 2026-08-24 的订正 ——「卡住它的不是『等用户裁决』，是 WFM3 还没排上」。
   那句话本该在想法进来的那一刻说，说了就是一张 `backlog/` 卡；晚说的代价是这张卡
   先被当成在办、还先长出了一道假闸门。
@@ -94,7 +94,7 @@ Solution：   用一个一致性 Agent 做校验          ← Agent 自己定，
 3. 不做会造成**不可逆损害**吗？（数据损坏 / 安全 / 已经发出去的错误结果）
 4. 它是**几分钟内能完成**的当前事实修正吗？（过期文档、错状态行）
 
-全 No → 落 `docs/tasks/backlog/` 一张卡，**当场把判定说出来**，形如：
+全 No → 落 `docs/tasks/` 一张卡，**当场把判定说出来**，形如：
 
 > 与长期 Mission 一致，但不服务当前 Milestone（<当前里程碑一句>），
 > 进入 Backlog（TASK-NNN），不实施。
@@ -137,7 +137,7 @@ Solution：   用一个一致性 Agent 做校验          ← Agent 自己定，
 | Strategy | 同上 `strategy` 锚点 | 手写一行 |
 | Current Milestone | 同上 `milestone` 锚点 | 手写一行 |
 | Active Requirements | `docs/requirements/` 状态行 + `active/` 卡的引用 | 派生 |
-| Deferred | `docs/tasks/backlog/` + TASK-087 总账 | 派生 |
+| Deferred | `docs/tasks/` + TASK-087 总账 | 派生 |
 | Recent Decisions | `docs/adr/` 最近若干条 | 派生 |
 
 **为什么是三行锚点而不是抽取散文**：抽散文的生成器会在别人重排一次段落时安静地

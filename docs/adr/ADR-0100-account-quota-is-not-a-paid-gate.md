@@ -13,7 +13,7 @@
   > 若发现有人拿本 ADR 当绕开付费闸的依据，那是误用：按决策 1 的表处理 ——
   > **拿不准就按计费处理，fail-closed 回闸后面。**
 - 关联：[REQ-008](../requirements/REQ-008-images-from-my-own-account.md) 判据 2/4/5 ·
-  [TASK-139](../tasks/done/TASK-139-images-from-my-own-account.md) ·
+  [TASK-139](../tasks/TASK-139-images-from-my-own-account.md) ·
   [ADR-0045](ADR-0045-prototype-paid-image-generation.md)（付费图片窄授权，**保留不动**）·
   [ADR-0038](ADR-0038-multimedia-provider-asset-and-cost-contract.md)（多媒体 Provider 合同，Accepted）·
   [创作者系统合同](../design/creator-system-contract.md) §5.3 `cost.basis` · §5.7 幂等 · §5.8 `unknown`
@@ -176,7 +176,7 @@ Hugging Face 免费 token · 维持现状）摆给他，他先选了 HF；适配
 
 ### 7. 厂商代码不进 `server.py`，进一个可注入 transport 的适配层
 
-`server.py` 已经是 358KB 单体（[TASK-087 §3.6.1](../tasks/active/TASK-087-followup-ledger.md)），
+`server.py` 已经是 358KB 单体（[TASK-087 §3.6.1](../tasks/TASK-087-followup-ledger.md)），
 而这次要加的是**一个厂商的报文形状**。它住在自己的模块里，对外只暴露一个纯函数：
 拿 prompt 与一个 `transport` 可调用对象，回图片字节或一个具名失败。
 

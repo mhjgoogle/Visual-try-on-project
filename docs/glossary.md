@@ -97,7 +97,7 @@ _Avoid_：把「废弃」读成「删了」 · 「五态 + deprecated」的旧�
 _权威_：[系统合同 §3](design/creator-system-contract.md)
 
 ### active
-两个东西共用这个词：`docs/tasks/active/`（目录即状态）与 Artifact 的 active 指针。
+两个东西共用这个词：`docs/tasks/`（目录即状态）与 Artifact 的 active 指针。
 _Avoid_：不带限定词的「active」
 _权威_：[AGENTS.md 第 24 条](../AGENTS.md) · [系统合同 §2](design/creator-system-contract.md)
 

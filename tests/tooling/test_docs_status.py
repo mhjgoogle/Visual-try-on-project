@@ -75,15 +75,20 @@ def test_workstatus_links_the_requirement_instead_of_restating_it() -> None:
                 )
 
 
-@pytest.mark.parametrize(
-    "folder",
-    ["tasks/active", "tasks/backlog", "tasks/done", "design/active", "design/done"],
-)
-def test_the_four_status_folders_exist(folder: str) -> None:
-    """The active/done split is the answer to 「哪些要求是完成的看起来很不清晰」
-    (产品负责人 2026-08-23). A doc's FOLDER is the status; losing the folders
-    loses the answer."""
+@pytest.mark.parametrize("folder", ["tasks", "design/active", "design/done"])
+def test_the_status_folders_exist(folder: str) -> None:
+    """`docs/tasks/` is ONE flat folder since ADR-0105 (产品负责人 2026-09-17:
+    「folder 不要分 done 和 active 了」); a task's state lives on its card. The
+    design docs keep their active/done split (out of ADR-0105's scope)."""
     assert (_ROOT / "docs" / folder).is_dir(), f"docs/{folder}/ is missing"
+
+
+def test_task_cards_are_not_split_into_state_folders() -> None:
+    """The answer to 「哪些在进行中」 is the card's state line, read by the
+    generator -- not a directory name. A sub-folder reappearing under
+    docs/tasks/ would be a second source of truth for state (ADR-0105)."""
+    subdirs = [p for p in (_ROOT / "docs" / "tasks").iterdir() if p.is_dir()]
+    assert subdirs == [], f"docs/tasks/ grew sub-folders again: {subdirs}"
 
 
 @pytest.mark.parametrize("dropped", ["mission", "strategy", "milestone"])
@@ -168,7 +173,7 @@ def test_a_superseded_requirement_is_not_published_as_binding(tmp_path: Path) ->
     mod = _load()
     docs = tmp_path / "docs"
     (docs / "requirements").mkdir(parents=True)
-    (docs / "tasks" / "active").mkdir(parents=True)
+    (docs / "tasks").mkdir(parents=True)
     for name, status in (
         ("REQ-001-live.md", "CONFIRMED"),
         ("REQ-002-old.md", "SUPERSEDED by REQ-003"),
@@ -197,13 +202,6 @@ def test_the_six_faces_reach_the_generated_file() -> None:
         assert f"### {heading}" in status, f"缺少派生面：{heading}"
 
 
-def test_no_task_card_sits_outside_active_or_done() -> None:
-    """A card dropped straight into docs/tasks/ has no status by location —
-    exactly the ambiguity the split removes."""
-    stray = sorted(p.name for p in (_ROOT / "docs" / "tasks").glob("*.md"))
-    assert not stray, f"task cards must live in active/ or done/: {stray}"
-
-
 def test_a_four_digit_requirement_number_does_not_collide(tmp_path: Path) -> None:
     """REQ 号取的是**号**，不是「第 4 到第 7 个字符」（TASK-087 §5.29）。
 
@@ -217,14 +215,14 @@ def test_a_four_digit_requirement_number_does_not_collide(tmp_path: Path) -> Non
     mod = _load()
     docs = tmp_path / "docs"
     (docs / "requirements").mkdir(parents=True)
-    (docs / "tasks" / "active").mkdir(parents=True)
+    (docs / "tasks").mkdir(parents=True)
     for name in ("REQ-100-hundred.md", "REQ-1000-thousand.md"):
         (docs / "requirements" / name).write_text(
             f"# {mod._doc_id(name)}：标题{NL}{NL}- 状态：CONFIRMED{NL}", "utf-8"
         )
     # 一张只引用 REQ-1000 的卡
-    (docs / "tasks" / "active" / "TASK-1234-card.md").write_text(
-        f"# TASK-1234：卡{NL}{NL}"
+    (docs / "tasks" / "TASK-1234-card.md").write_text(
+        f"# TASK-1234：卡{NL}{NL}- 状态：进行中{NL}"
         f"- 关联 Requirement：REQ-1000 判据 1{NL}{NL}## 正文{NL}",
         "utf-8",
     )

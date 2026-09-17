@@ -27,9 +27,9 @@
 | `AGENTS.md` | 规则 |
 | `docs/current-architecture.md` | **现在**的模块边界 / 依赖方向 / 前后端合同 / 测试归属 / 架构约束 |
 | `docs/STATUS.md`（生成的） | 谁做完了、谁还没做 |
-| 本次那张 `docs/tasks/active/TASK-*.md` + 它关联的 `REQ-*` | 现在要做什么 |
+| 本次那张 `docs/tasks/TASK-*.md` + 它关联的 `REQ-*` | 现在要做什么 |
 
-**不默认加载**：`tasks/done/`、`tasks/backlog/`、`design/done/`、`reports/`、
+**不默认加载**：状态为 `完成` 或 `待办` 的卡、`design/done/`、`reports/`、
 未被当前架构合同指向的历史 ADR、被取代的 REQ 版本、历史 Change 清单。
 按需读历史的五种情形：**回归调查 / 架构理由 / 历史冲突 / 需求演化 /
 复现一次旧决策的边界**。
@@ -44,20 +44,23 @@
   「（superseded by v2）」，**内容一字不动**；实施只做 v1→v2 delta。
 - 整份被另一个 REQ 取代：状态改 `SUPERSEDED` 并写明取代者，文件留着。
 
-### Change / Task（`docs/tasks/`）—— 目录即状态
+### Change / Task（`docs/tasks/`，平铺）—— 状态住在卡头一行（ADR-0105）
 
 ```
-backlog/            没人在做（需求成立、未排期）
+- 状态：待办 · …        没人在做（需求成立、未排期）
    ↓ 开工
-active/             正在做（含「部分完成」）
+- 状态：进行中 · …      正在做（含「部分完成」）
    ↓ Done 判定成立
-done/               做完了 / 已退役
+- 状态：完成 · …        做完了 / 已退役
 ```
 
-- **`active/` 只放正在进行的工作。** 立了卡但短期不做 → `backlog/`，
-  否则「待办 = `ls active/`」会把没人做的也读成待办。
-- 目标被后续决策取代 → 进 `done/`，状态行写「退役（被 X 取代）」，**不删卡**。
-- 每次移动后重新生成 `STATUS.md`。
+枚举词紧跟冒号，后面接「交付了什么」的散文。语法只有一个源：
+`.claude/tools/task_status.py`。
+
+- **`进行中` 只给正在进行的工作。** 立了卡但短期不做 → `待办`，
+  否则「在办 = 进行中的那些」会把没人做的也读成在办。
+- 目标被后续决策取代 → 改 `完成`，后面写「退役（被 X 取代）」，**不删卡**。
+- 每次改状态后重新生成 `STATUS.md`。**卡的路径整个生命周期不变。**
 
 ### ADR（`docs/adr/`）
 
@@ -89,7 +92,7 @@ Superseded by / Partially superseded by`）。只在正文里提一句不算：�
 4. 需求变了吗？→ REQ 追加 v2，不改 v1。**有没有重复的需求记录**
    （同一需求两份 REQ，或 REQ 与存量基线文档各写一份）？→ 留一处权威，
    另一处改成指过去的一行。
-5. `active/` 里有没有**已经做完**或**根本没人在做**的卡？→ 搬 `done/` / `backlog/`。
+5. 状态 `进行中` 的卡里有没有**已经做完**或**根本没人在做**的？→ 改 `完成` / `待办`。
 6. 有没有已经不代表当前有效行为的**测试 / 文档 / 兼容层**？→ 删或更新。
    （测试保护 Current Valid Behavior，不保护 Historical Behavior。）
 7. **当前真相还能重建吗**（AGENTS.md 第 27 条 / ADR-0101 决策 5）？六个面里
@@ -110,7 +113,7 @@ python .claude/tools/gen_docs_status.py     # 第 7 问：六面 + STATUS.md 重
 ### 第 6 环 Close · Done 时的三个动作（一起做，不是可选项）
 
 ```
-git mv docs/tasks/active/TASK-NNN-*.md docs/tasks/done/     # 或 backlog/
+# 卡头那一行：- 状态：进行中 · …  →  - 状态：完成 · …（或 待办）
 python .claude/tools/lifecycle_check.py                     # 0 finding
 python .claude/tools/gen_docs_status.py                     # 重新生成总览
 ```

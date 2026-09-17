@@ -55,6 +55,9 @@ import shutil
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import task_status  # noqa: E402
+
 PASS, FAIL, UNKNOWN, NA = "PASS", "FAIL", "UNKNOWN", "NOT_APPLICABLE"
 MARK = {PASS: "✓", FAIL: "✗", UNKNOWN: "?", NA: "—"}
 
@@ -673,7 +676,7 @@ def card_last_touch(root: Path, card: str) -> str:
         "--format=%ad · %h %an：%s",
         "--date=short",
         "--",
-        f"docs/tasks/active/{card}",
+        f"docs/tasks/{card}",
     )
     # `_git` 失败时给 None（和空串含义不同：一个是问不到，一个是没记录）——
     # 这里两种都归为「没线索」，因为对调用方来说结果一样：别拿它当证据。
@@ -682,10 +685,11 @@ def card_last_touch(root: Path, card: str) -> str:
 
 
 def active_cards(root: Path) -> list[tuple[str, str, str, str]]:
-    """`docs/tasks/active/` 里的卡：`(文件名, 状态行首句, 负责 Agent, 最近动它的人)`。
+    """状态为 `进行中` 的卡：`(文件名, 状态行首句, 负责 Agent, 最近动它的人)`。
 
-    **目录即状态**（ADR-0083）：在 `active/` 就是还没做完。这里不去猜「做到哪了」，
-    只把卡摆出来 —— 猜出来的进度会被下一个人当成事实。
+    **状态住在卡上**（ADR-0105，取代 ADR-0083 的「目录即状态」）：卡头那一行写着
+    `进行中` 就是还没做完。这里不去猜「做到哪了」，只把卡摆出来 —— 猜出来的进度
+    会被下一个人当成事实。**这就是产品负责人说的「任务管理器」的入口之一。**
 
     **归属那两栏是 TASK-087 §5.30 的答案**：AGENTS §14 写了「每个开发任务只能有
     一个实施 Agent」，却没写**怎么在动手前发现另一个会话已经在这张卡上**。
@@ -695,16 +699,20 @@ def active_cards(root: Path) -> list[tuple[str, str, str, str]]:
     **不引入第三份台账**：多一份「谁在做什么」的记录，就多一处会漂的东西，
     而它漂掉的样子恰好就是这条欠账本身。
     """
-    base = root / "docs" / "tasks" / "active"
+    base = root / "docs" / "tasks"
     if not base.is_dir():
         return []
     out = []
-    for p in sorted(base.glob("TASK-*.md")):
+    for p in sorted(base.glob("TASK-*.md"), key=lambda q: q.name):
         text, err = _read_text(p)
-        status = owner = ""
-        if not err:
-            status = _card_field(text or "", "状态")
-            owner = _card_field(text or "", "负责 Agent")
+        if err:
+            continue
+        # 只认卡头那一行的枚举（`task_status.STATE_LINE` 同一条正则）。读不出来的
+        # 卡不在这里猜 —— `lifecycle_check` 会把它标红。
+        if task_status.state_of_text(text or "") != "进行中":
+            continue
+        status = _card_field(text or "", "状态")
+        owner = _card_field(text or "", "负责 Agent")
         out.append((p.name, status, owner, card_last_touch(root, p.name)))
     return out
 
@@ -992,7 +1000,7 @@ def render_resume(state: dict) -> str:
     if not dirty:
         lines.append("   （干净）")
     lines.append("")
-    lines.append("在办的卡（目录即状态，在这儿就是还没做完）：")
+    lines.append("在办的卡（卡头状态行是 `进行中` 的那些，ADR-0105）：")
     for c in state["active_cards"]:
         lines.append(f"   · {c['card']}：{c['status'] or '（没有状态行）'}")
         # 归属先于进度：动手前要答的第一个问题是「有没有人已经在这张卡上」

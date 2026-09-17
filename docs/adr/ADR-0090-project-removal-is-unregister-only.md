@@ -5,7 +5,7 @@
 - 决策者：产品负责人下发需求并**当场划定了边界**（2026-08-27）；技术形状由实施 Agent
   依 AGENTS.md §1 自行 Accept —— 不涉付费，且按下面的决策 2，这条路径根本不碰用户文件
 - 关联：[REQ-005](../requirements/REQ-005-remove-a-project-from-the-home-list.md) ·
-  [TASK-110](../tasks/done/TASK-110-remove-project-from-home.md) ·
+  [TASK-110](../tasks/TASK-110-remove-project-from-home.md) ·
   AGENTS.md 第 13 条（禁止删用户文件）· [ADR-0004](ADR-0004-project-root-containment-and-symlink-policy.md)（项目根围栏）·
   [ADR-0053](ADR-0053-project-rooted-studio-storage.md)（项目根存储）
 

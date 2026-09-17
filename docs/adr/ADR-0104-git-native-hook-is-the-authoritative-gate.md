@@ -8,9 +8,9 @@
   `PreToolUse` 那一层怎么从命令文本判定 commit 意图，而那一层在本 ADR 之后继续存在
   （降级为 early feedback），所以它的决策原样有效。ADR-0050 决策 1 此前已被它局部
   取代过一次，本 ADR 取代的是**另一半**（权威归属），两次互不覆盖
-- 关联：[TASK-148](../tasks/active/TASK-148-l5-continuous-autonomous-delivery.md) 切片 A ·
-  [TASK-147](../tasks/active/TASK-147-session-isolation-and-evidence-identity.md) §6.2/§6.3 ·
-  [TASK-143](../tasks/backlog/TASK-143-one-worktree-per-session.md)「第 8 种形状」
+- 关联：[TASK-148](../tasks/TASK-148-l5-continuous-autonomous-delivery.md) 切片 A ·
+  [TASK-147](../tasks/TASK-147-session-isolation-and-evidence-identity.md) §6.2/§6.3 ·
+  [TASK-143](../tasks/TASK-143-one-worktree-per-session.md)「第 8 种形状」
 
 ## 背景：闸门有两个洞，而且两个都是实测出来的
 
@@ -24,7 +24,7 @@ ADR-0050 把闸门实现成 `PreToolUse` 钩子里的原生 PowerShell 脚本。
    里暂存一个 ruff 必报三项的文件，`cd <worktree> && git commit` **直接成功，
    闸门零输出**。
 
-第 2 条格外要紧，因为 [TASK-147](../tasks/active/TASK-147-session-isolation-and-evidence-identity.md)
+第 2 条格外要紧，因为 [TASK-147](../tasks/TASK-147-session-isolation-and-evidence-identity.md)
 刚刚把「每个会话一棵工作树」变成推荐做法 —— **那个动作本身就是让闸门失效的动作。**
 
 两条合起来还有一个更难察觉的后果：**闸门的沉默有两种含义** —— 「检查全过了」和

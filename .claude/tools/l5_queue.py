@@ -6,12 +6,12 @@
 授权是用户给的，里程碑闸是 AGENTS.md §2 那四问的结论 —— 两者不是一回事，
 第一版只查了前者（codex 2026-09-17）。
 
-第二道闸不需要新机制，仓库里已经有了：**目录即状态**（ADR-0083）。
-`backlog/` 的定义就是「里程碑闸判现在不做」，`active/` 才是在办。所以
+第二道闸不需要新机制，仓库里已经有了：**卡头的状态行**（ADR-0105）。
+`待办` 的定义就是「里程碑闸判现在不做」，`进行中` 才是在办。所以
 
-    候选 = `active/` 里带授权行的卡
+    候选 = 状态为 `进行中` 且带授权行的卡
 
-要把一张 backlog 卡放进来，正确动作是 `git mv` 进 `active/` —— 那正是「重新过闸」
+要把一张待办卡放进来，正确动作是把状态改成 `进行中` —— 那正是「重新过闸」
 这个决定本身，而不是让队列去替它判。
 
 ## 授权写在卡上，不做第二份名单
@@ -44,6 +44,8 @@ if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
 import l5_ledger  # noqa: E402
+import task_graph  # noqa: E402
+import task_status  # noqa: E402
 
 #: 卡上的授权行。`[ \t]*` 而**不是** `\s*` —— 后者吃换行，会把下一行认成依据。
 #: 冒号后面必须当场有字：一个没有依据的「授权」就是把「我觉得可以」写成别人的决定。
@@ -78,23 +80,36 @@ def repo_root() -> Path:
 def candidates(root: Path | None = None) -> list[tuple[str, str, Path]]:
     """池子里的卡：`(任务号, 授权依据, 路径)`。
 
-    **只扫 `active/`** —— 见模块注释第一节：`backlog/` 的定义就是里程碑闸判
-    「现在不做」，`done/` 按定义已经做完了（ADR-0083 目录即状态）。
+    **只看状态 `进行中` 的卡** —— 见模块注释第一节：`待办` 的定义就是里程碑闸判
+    「现在不做」，`完成` 按定义已经做完了（ADR-0105 状态住在卡上）。
     """
 
     root = root or repo_root()
-    directory = (root or repo_root()) / "docs" / "tasks" / "active"
-    found: list[tuple[str, str, Path]] = []
-    if not directory.is_dir():
-        return found
-    for card in sorted(directory.glob("TASK-*.md")):
-        name = TASK_ID.match(card.name)
-        if not name:
+    found: dict[str, tuple[str, str, Path]] = {}
+    # **只看状态为 `进行中` 的卡**（ADR-0105：状态住在卡上，不住在目录里）。
+    # `待办` 的定义就是里程碑闸判「现在不做」；要让它进池，先把状态改成 `进行中`
+    # —— 那正是「重新过闸」这个决定本身，不是让队列替它判。
+    for card in task_status.cards(root).values():
+        if not card.active:
             continue
-        match = AUTHORIZED.search(card.read_text(encoding="utf-8", errors="replace"))
+        text = card.path.read_text(encoding="utf-8", errors="replace")
+        match = AUTHORIZED.search(text)
         if match:
-            found.append((name.group("id"), match.group("reason").strip(), card))
-    return sorted(found)
+            found[card.task] = (card.task, match.group("reason").strip(), card.path)
+    # **拓扑序，同层按任务号**（TASK-149 D-4）。早先是 `sorted(found)` —— 按任务号
+    # 字符串排，先来后到而不是先后依赖：两张卡 B 前置 A 时，只要 B 的号小就先发 B。
+    # 成环时 `order()` 抛出 —— 一个环里没有「先」，与其猜不如拦（`check` 会另外报它）。
+    return [found[t] for t in task_graph.order(list(found), root)]
+
+
+def ready(root: Path | None = None) -> list[tuple[str, str, Path]]:
+    """池子里**现在能发**的卡：前置的状态全是 `完成`。
+
+    其余的仍在 `candidates()` 里，`list` 会显示它们在等谁 —— 拒绝要说得出理由。
+    """
+
+    root = root or repo_root()
+    return [c for c in candidates(root) if not task_graph.blocked_by(c[0], root)]
 
 
 def batch_state(root: Path) -> tuple[int, str | None]:
@@ -231,12 +246,21 @@ def take_next(root: Path) -> tuple[str, str] | str:
         seen = {
             str(e["task"]) for e in events if e.get("event") in ("dispatch", "start")
         }
-        for task, reason, _path in candidates(root):
+        # 只从**前置已全部完成**的卡里发（TASK-149）。等前置的卡不发，也**不算**
+        # 队列结束 —— 它们还没轮到，不是没有了。
+        for task, reason, _path in ready(root):
             if task not in seen:
                 l5_ledger.append(
                     {"event": "dispatch", "task": task, "at": l5_ledger.now()}, root
                 )
                 return task, reason
+
+        waiting = [t for t, _r, _p in candidates(root) if t not in seen]
+        if waiting:
+            reasons = "；".join(
+                f"{t} 等 {'、'.join(task_graph.blocked_by(t, root))}" for t in waiting
+            )
+            return f"池里还有卡，但都在等前置：{reasons}。先把前置做完。"
 
         record_stop(root, "queue-done")
         return "授权池里没有还没开工的卡 —— 队列结束（已记 queue-done）。"
@@ -269,12 +293,14 @@ def main(argv: list[str] | None = None) -> int:
             sys.stdout.write(
                 "授权池是空的。\n"
                 "这是**默认状态**，不是故障 —— 一张卡要进池，得同时满足两条：\n"
-                "  1. 它在 docs/tasks/active/（里程碑闸放行过）\n"
+                "  1. 卡头状态是 `进行中`（里程碑闸放行过）\n"
                 "  2. 卡上写明：- L5 自动实施授权：<依据>\n"
             )
             return 0
         for task, reason, path in pool:
-            sys.stdout.write(f"{task}  {reason}  ({path.name})\n")
+            waiting = task_graph.blocked_by(task, root)
+            state = f"等 {'、'.join(waiting)}" if waiting else "可发"
+            sys.stdout.write(f"{task}  [{state}]  {reason}  ({path.name})\n")
         return 0
 
     if args.cmd == "batch":

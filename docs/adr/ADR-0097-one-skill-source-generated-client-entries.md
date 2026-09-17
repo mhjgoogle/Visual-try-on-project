@@ -2,7 +2,7 @@
 
 - 状态：**Accepted**（2026-09-05，实施 Agent 依 [AGENTS.md](../../AGENTS.md) §1
   自行 Accept —— 纯技术决策：文件所有权、生成方向、清单格式。不动产品行为，不花钱）
-- 关联：[TASK-131](../tasks/done/TASK-131-agent-harness-discovery-and-runtime-evidence.md)
+- 关联：[TASK-131](../tasks/TASK-131-agent-harness-discovery-and-runtime-evidence.md)
   切片 B · [ADR-0077](ADR-0077-repository-path-ownership.md)（仓库路径所有权）·
   [ADR-0087](ADR-0087-document-lifecycle-and-default-agent-context.md) 决策 6（不留影子实现）
 

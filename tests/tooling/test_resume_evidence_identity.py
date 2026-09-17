@@ -42,8 +42,8 @@ def _git(root: Path, *args: str) -> None:
 
 def _repo(root: Path) -> Path:
     """一棵最小的真仓库 —— `resume` 读真 git，假的证不了任何事。"""
-    (root / "docs" / "tasks" / "active").mkdir(parents=True)
-    (root / "docs" / "tasks" / "active" / "TASK-900-x.md").write_text(
+    (root / "docs" / "tasks").mkdir(parents=True)
+    (root / "docs" / "tasks" / "TASK-900-x.md").write_text(
         "# TASK-900：一张卡\n\n- 状态：**进行中**\n", encoding="utf-8"
     )
     (root / ".gitignore").write_text("**/.claude/tmp/\n", encoding="utf-8")

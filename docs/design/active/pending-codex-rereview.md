@@ -50,4 +50,4 @@
 
 | 项 | 说明 |
 | --- | --- |
-| POSIX 缺 parent-death 机制 | Windows 由 Job Object 兜底；POSIX 需 `PR_SET_PDEATHSIG` 且对孙进程无效。**是记录不是审查欠账**，正账在 [TASK-087 §2.3](../../tasks/active/TASK-087-followup-ledger.md) |
+| POSIX 缺 parent-death 机制 | Windows 由 Job Object 兜底；POSIX 需 `PR_SET_PDEATHSIG` 且对孙进程无效。**是记录不是审查欠账**，正账在 [TASK-087 §2.3](../../tasks/TASK-087-followup-ledger.md) |

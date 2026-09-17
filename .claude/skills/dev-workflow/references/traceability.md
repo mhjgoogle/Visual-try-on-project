@@ -15,7 +15,7 @@ Requirement → Change/Task → 架构约束 → 代码 → 验证证据 → 独
 | 环 | 怎么引用 | 载体 |
 | --- | --- | --- |
 | Requirement + 判据 | `REQ-003 v1 判据 2`（REQ 的验收判据是有序列表，序号即句柄） | `docs/requirements/` |
-| Change / Task | `TASK-NNN`；QUICK 深度 = 提交信息本身 | `docs/tasks/{backlog,active,done}/` |
+| Change / Task | `TASK-NNN`；QUICK 深度 = 提交信息本身 | `docs/tasks/`（平铺；状态在卡头一行，ADR-0105） |
 | 架构约束 | `CA §2`（依赖方向）、`CA §5.4`（平台中立）—— [当前架构合同](../../../../docs/current-architecture.md)的**节号即句柄**；确实不受特殊约束时写 `none-specific` | ADR-0087 决策 4 |
 | 代码 | Change 清单的 `paths` + commit hash + diff | `docs/auto-push/changes/*.json` |
 | 验证 | 命令 + 结果，**按判据**对应 | 任务卡「验证」节 |
@@ -43,8 +43,8 @@ Requirement → Change/Task → 架构约束 → 代码 → 验证证据 → 独
   （Bug/Refactor/Perf/工装 走这条）。
 - 两者皆无 → `ORPHAN_TASK`，`lifecycle_check` 当场转红。锚点必须是**带标签的**
   基础字段（关联 Requirement / 依据 / 技术目标 / 起因）或显式 `REQ-NNN`；
-  **背景里提一句 `ADR-NNNN` 不算**。守卫看 `active/` 全部，外加 `backlog/`
-  `done/` 里带 `架构约束：` 的卡 —— 卡搬进 `done/` 之后**仍然**被看着，
+  **背景里提一句 `ADR-NNNN` 不算**。守卫看状态 `进行中` 的全部，外加 `待办`
+  `完成` 里带 `架构约束：` 的卡 —— 卡改成 `完成` 之后**仍然**被看着，
   否则 merge 那一刻正好没人看。
 
 ## 3. 四个缺口标签（出现任一 → Merge Gate 不为 PASS）

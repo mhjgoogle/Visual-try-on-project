@@ -27,14 +27,20 @@ import l5_queue  # noqa: E402
 
 @pytest.fixture
 def root(tmp_path: Path) -> Path:
-    (tmp_path / "docs" / "tasks" / "backlog").mkdir(parents=True)
-    (tmp_path / "docs" / "tasks" / "active").mkdir(parents=True)
+    (tmp_path / "docs" / "tasks").mkdir(parents=True)
     return tmp_path
 
 
+#: 早先用目录表示状态（`active/` / `backlog/`）；现在状态住在卡头一行（ADR-0105）。
+#: 保留这两个词做参数名，只是把它们翻成状态枚举 —— 测试的意图没变。
+_STATE = {"active": "进行中", "backlog": "待办", "done": "完成"}
+
+
 def card(root: Path, folder: str, task: str, *, body: str) -> Path:
-    path = root / "docs" / "tasks" / folder / f"{task}-something.md"
-    path.write_text(f"# {task}：一张卡\n\n{body}\n", encoding="utf-8")
+    path = root / "docs" / "tasks" / f"{task}-something.md"
+    path.write_text(
+        f"# {task}：一张卡\n\n- 状态：{_STATE[folder]}\n{body}\n", encoding="utf-8"
+    )
     return path
 
 

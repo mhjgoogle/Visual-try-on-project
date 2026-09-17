@@ -4,7 +4,7 @@
   这是**技术合同**（Agent 工作流与记录规则）：不动付费边界、不碰用户数据、
   不改任何一条来自 AGENTS.md 或既有 ADR 的权威规则 —— 只改它们**住在哪里**、
   以及**深度怎么判**。
-- 关联：[TASK-144](../tasks/done/TASK-144-dev-workflow-v03-two-planes.md)（本 ADR 的实施卡）·
+- 关联：[TASK-144](../tasks/TASK-144-dev-workflow-v03-two-planes.md)（本 ADR 的实施卡）·
   [ADR-0101](ADR-0101-idea-intake-level-and-milestone-gate.md)（Idea Intake 与六层，
   本 ADR **细化其决策 6**，不取代）· [ADR-0083](ADR-0083-docs-partitioned-by-completion.md)
   （目录即状态）· [ADR-0087](ADR-0087-document-lifecycle-and-default-agent-context.md)

@@ -6,7 +6,7 @@
   「模板这个东西由什么机制承载」，是纯技术选择；模板长什么样、创作者怎么用，
   仍按 §1 的 UI/UX 规则 —— 先做出可演示的版本再由他看。
 - 日期：2026-08-23
-- 决策任务：[TASK-083](../tasks/done/TASK-083-phase3-adrs-first.md) ADR-D
+- 决策任务：[TASK-083](../tasks/TASK-083-phase3-adrs-first.md) ADR-D
 - 缺口：GAP-21（[目标流程走查](../../src/ui-gap-audit/reports/target-workflow-walkthrough.md#gap-21--没有拿别人跑通的流程当模板)）
 - 相关：[ADR-0067](ADR-0067-product-skill-package.md)（Skill 包三件套 + 三级来源）、
   [ADR-0056](ADR-0056-local-ai-runtime-and-film-skills.md) 决策 6（能力定义不可变）、
@@ -105,7 +105,7 @@ ADR-0067 决策 7 是同一个失效形状。
 [ADR-0067 补记（2026-08-16）](ADR-0067-product-skill-package.md)「三个来源的目录
 不得越出自己的根」**原样适用**，不重新论证。
 
-`<应用数据根>` 的实际位置由 [TASK-056](../tasks/done/TASK-056-app-storage-location.md)
+`<应用数据根>` 的实际位置由 [TASK-056](../tasks/TASK-056-app-storage-location.md)
 定义（Windows `%LOCALAPPDATA%\motv`，POSIX `$XDG_DATA_HOME/motv`），不再是仓库内。
 
 ### 决策 8：「复制项目」不是模板，本 ADR 不定它
@@ -148,6 +148,6 @@ T-070 的右上角有两个不同的东西，产品里**不得共用一个词**�
 ## 实施
 
 **本 ADR 只做决定，不含实现。** 实施另立卡 →
-[TASK-105](../tasks/done/TASK-105-flow-template-first-slice.md)，切片按 AGENTS.md §2：
+[TASK-105](../tasks/TASK-105-flow-template-first-slice.md)，切片按 AGENTS.md §2：
 第一刀是「内置一份 flow + 新建项目时可选 + canvas 记 `createdFrom`」，
 自己就能跑、能演示、能验证；`seed.json` 的骨架深度与项目源/用户源留到第二刀。

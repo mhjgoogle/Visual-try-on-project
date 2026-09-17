@@ -5,7 +5,7 @@
 - 决策者：产品负责人下发需求（2026-08-29），实施 Agent 依 AGENTS.md §1
   「ADR 的 Accept 权」自行 Accept 技术形状（不涉付费、不涉不可逆动用户数据）
 - 关联：[REQ-007](../requirements/REQ-007-say-it-and-the-right-capability-runs.md) ·
-  [TASK-119](../tasks/done/TASK-119-three-user-capabilities-and-a-resolver.md) ·
+  [TASK-119](../tasks/TASK-119-three-user-capabilities-and-a-resolver.md) ·
   [ADR-0067](ADR-0067-product-skill-package.md)（能力是包）·
   [ADR-0089](ADR-0089-conversational-agent-write-path.md)（对话式写路径）·
   [ADR-0056](ADR-0056-local-ai-runtime-and-film-skills.md)（Runtime / Executor / Skill 分层）·

@@ -66,7 +66,7 @@
 > 一行的最终 owner —— 那些是 TASK-039 / TASK-040。这一节只是让「清理阶段做到哪」
 > 在追踪表里有一个地方能读到，否则下一个人会默认它做完了。
 
-**已交付**（各带代码级证据，细节在 [TASK-074](../tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md)）：
+**已交付**（各带代码级证据，细节在 [TASK-074](../tasks/TASK-074-delivery-migration-and-legacy-retirement.md)）：
 
 | | 内容 |
 | --- | --- |

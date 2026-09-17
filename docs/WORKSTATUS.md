@@ -5,13 +5,13 @@
 > 一行一条需求：**做到哪了、谁在做、还差什么**。这里不写需求内容，只给链接 ——
 > 需求正文在链接那一头，抄第二遍就会有两份各自漂移的真相。
 >
-> 进度是**从卡派生**的：卡头引用了哪条 REQ，加上卡在 `done/` `active/` `backlog/`
-> 的哪一格（目录即状态）。**它衡量的是「这条需求的工作做了多少」，不是「这条需求
-> 满足了多少」** —— 后者要判据级对账，而 REQ 的判据格式今天还不统一（见生成器注释）。
+> 进度是**从卡派生**的：卡头引用了哪条 REQ，加上卡头那一行 `状态：待办 / 进行中 /
+> 完成`（ADR-0105，状态住在卡上）。**它衡量的是「这条需求的工作做了多少」，不是
+> 「这条需求满足了多少」** —— 后者要判据级对账，而 REQ 的判据格式今天还不统一。
 
 ## 每条需求做到哪了
 
-| 需求 | 进度（卡） | 已完成 | 在办 | 待排期 |
+| 需求 | 进度（卡） | 已完成 | 在办 | 待办 |
 | --- | --- | --- | --- | --- |
 | [REQ-001](requirements/REQ-001-auto-push.md) | ██████████ 卡都做完了 | TASK-101·TASK-145 | — | — |
 | [REQ-002](requirements/REQ-002-document-lifecycle.md) | ██████████ 卡都做完了 | TASK-107 | — | — |
@@ -31,8 +31,10 @@
 
 Bug / 工装 / Refactor 这类写的是**技术目标**而不是 REQ（AGENTS §20）。列在这里，是因为一块只显示需求的板子会让人以为「没别的事在做」。
 
-- [TASK-040](tasks/active/TASK-040-final-unified-product-acceptance.md)
-- [TASK-074](tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md)
-- [TASK-087](tasks/active/TASK-087-followup-ledger.md)
-- [TASK-147](tasks/active/TASK-147-session-isolation-and-evidence-identity.md)
-- [TASK-148](tasks/active/TASK-148-l5-continuous-autonomous-delivery.md)
+- [TASK-040](tasks/TASK-040-final-unified-product-acceptance.md)
+- [TASK-074](tasks/TASK-074-delivery-migration-and-legacy-retirement.md)
+- [TASK-087](tasks/TASK-087-followup-ledger.md)
+- [TASK-147](tasks/TASK-147-session-isolation-and-evidence-identity.md)
+- [TASK-148](tasks/TASK-148-l5-continuous-autonomous-delivery.md)
+- [TASK-149](tasks/TASK-149-task-prerequisites-are-machine-readable.md)
+- [TASK-150](tasks/TASK-150-task-state-on-the-card.md)

@@ -878,11 +878,19 @@ def _commit(root: Path, name: str) -> None:
         )
 
 
+def _state_line(status: str) -> str:
+    """卡头状态行必须以枚举词开头（ADR-0105）。测试传的多是「**部分实施**」这类
+    交付描述 —— 给它前置 `进行中 · `；已经是枚举词的（「**进行中**」）原样写。"""
+    if status.strip("*").startswith(("待办", "进行中", "完成")):
+        return status
+    return f"进行中 · {status}"
+
+
 def _card(root: Path, task: str, status: str) -> None:
-    d = root / "docs" / "tasks" / "active"
+    d = root / "docs" / "tasks"
     d.mkdir(parents=True, exist_ok=True)
     (d / f"{task}-something.md").write_text(
-        f"# {task}：一张卡\n\n- 状态：{status}\n", encoding="utf-8"
+        f"# {task}：一张卡\n\n- 状态：{_state_line(status)}\n", encoding="utf-8"
     )
 
 
@@ -944,7 +952,8 @@ def test_resume_lists_active_cards_without_guessing_progress(
     state = ah.run_resume(root)
     cards = {c["card"]: c["status"] for c in state["active_cards"]}
     assert "TASK-998-something.md" in cards
-    assert cards["TASK-998-something.md"] == "**部分实施**"
+    # 状态行整行照摆：枚举词 + 交付描述，一个字不推断（ADR-0105）。
+    assert cards["TASK-998-something.md"] == "进行中 · **部分实施**"
 
 
 def test_the_brief_speaks_up_when_the_tree_has_someone_elses_work(
@@ -1109,10 +1118,10 @@ def test_build_artifacts_under_the_source_never_move_the_digest(
 
 
 def _card_with_owner(root: Path, task: str, status: str, owner: str) -> None:
-    d = root / "docs" / "tasks" / "active"
+    d = root / "docs" / "tasks"
     d.mkdir(parents=True, exist_ok=True)
     (d / f"{task}-something.md").write_text(
-        f"# {task}：一张卡\n\n- 状态：{status}\n- 负责 Agent：{owner}\n",
+        f"# {task}：一张卡\n\n- 状态：{_state_line(status)}\n- 负责 Agent：{owner}\n",
         encoding="utf-8",
     )
 
@@ -1149,7 +1158,7 @@ def test_resume_prints_who_touched_the_card_last(ah, tmp_path: Path) -> None:
     _card(root, "TASK-903", "**部分实施**")
     _git_repo(root)
     # 让这张卡有一条真实的提交历史
-    card = root / "docs" / "tasks" / "active" / "TASK-903-something.md"
+    card = root / "docs" / "tasks" / "TASK-903-something.md"
     card.write_text(card.read_text("utf-8") + "\n改一行\n", encoding="utf-8")
     exe = shutil.which("git")
     for args in (

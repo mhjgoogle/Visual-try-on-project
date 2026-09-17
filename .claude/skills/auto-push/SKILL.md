@@ -118,7 +118,7 @@ Task 级 push 与 Change 级 merge 严格分开。merge 的前提链：
    决策 6）：**Requirement 全 `PASS` · Architecture 无 `FAIL` · Verification
    `SUFFICIENT` · 四个缺口标签一个不挂**。任一判据 `PARTIAL` / `FAIL` /
    `NOT_EVIDENCED` → Gate 不为 PASS，交回 dev-workflow 补齐，**不是问用户**。
-   「收敛」含**仓库收敛**（ADR-0087）：卡已搬进 `done/` 或 `backlog/`、
+   「收敛」含**仓库收敛**（ADR-0087）：卡头状态已改成 `完成` 或 `待办`（ADR-0105）、
    `docs/STATUS.md` 已重新生成、`.claude/tools/lifecycle_check.py` 零发现。
    这三条**不是额外动作** —— 守卫住在 `tests/tooling/`，最终全量跑到它；
    全量绿就等于它绿。
