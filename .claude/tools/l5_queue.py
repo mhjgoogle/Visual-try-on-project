@@ -98,8 +98,15 @@ def candidates(root: Path | None = None) -> list[tuple[str, str, Path]]:
             continue
         text = card.path.read_text(encoding="utf-8", errors="replace")
         match = AUTHORIZED.search(text)
-        if match:
-            found[card.task] = (card.task, match.group("reason").strip(), card.path)
+        if not match:
+            continue
+        # 依据剥掉 Markdown 定界符与空白之后**必须还有字**。放宽标签允许 `**` 之后，
+        # 一行空的 `- **L5 自动实施授权：**` 会被 `\S` 吃掉一个 `*` 当成有依据
+        # （codex 2026-09-17 轮 2）—— 正则边界靠不住，就在这里再判一次内容。
+        reason = match.group("reason").strip().strip("*").strip()
+        if not reason:
+            continue
+        found[card.task] = (card.task, reason, card.path)
     # **拓扑序，同层按任务号**（TASK-149 D-4）。早先是 `sorted(found)` —— 按任务号
     # 字符串排，先来后到而不是先后依赖：两张卡 B 前置 A 时，只要 B 的号小就先发 B。
     # 成环时 `order()` 抛出 —— 一个环里没有「先」，与其猜不如拦（`check` 会另外报它）。

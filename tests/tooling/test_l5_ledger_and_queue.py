@@ -299,6 +299,32 @@ def test_a_bold_authorization_line_counts_too(root: Path) -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        "- **L5 自动实施授权：**",
+        "- **L5 自动实施授权：** ",
+        "- L5 自动实施授权：**",
+        "- L5 自动实施授权：** **",
+    ],
+)
+def test_an_empty_bold_authorization_does_not_count(root: Path, body: str) -> None:
+    """**codex 2026-09-17 轮 2 的 P1。** 放宽标签允许 `**` 之后，空的粗体行会被
+    `\\S` 吃掉一个 `*` 当成有依据。依据剥掉定界符与空白之后必须还有字。"""
+
+    card(root, "active", "TASK-808", body=body)
+
+    assert l5_queue.candidates(root) == []
+
+
+def test_a_reason_wrapped_in_bold_is_kept_without_the_delimiters(root: Path) -> None:
+    card(root, "active", "TASK-809", body="- L5 自动实施授权：**产品负责人说做**")
+
+    assert [(t, r) for t, r, _ in l5_queue.candidates(root)] == [
+        ("TASK-809", "产品负责人说做")
+    ]
+
+
 def test_an_authorized_active_card_enters_the_pool_with_its_reason(root: Path) -> None:
     authorized_card(root, "active", "TASK-804", "产品负责人 2026-09-17「这批你做完」")
 
