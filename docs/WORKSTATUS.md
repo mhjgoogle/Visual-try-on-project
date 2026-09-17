@@ -36,5 +36,4 @@ Bug / 工装 / Refactor 这类写的是**技术目标**而不是 REQ（AGENTS §
 - [TASK-087](tasks/TASK-087-followup-ledger.md)
 - [TASK-147](tasks/TASK-147-session-isolation-and-evidence-identity.md)
 - [TASK-148](tasks/TASK-148-l5-continuous-autonomous-delivery.md)
-- [TASK-149](tasks/TASK-149-task-prerequisites-are-machine-readable.md)
-- [TASK-150](tasks/TASK-150-task-state-on-the-card.md)
+- [TASK-151](tasks/TASK-151-architecture-dependency-graph.md)
