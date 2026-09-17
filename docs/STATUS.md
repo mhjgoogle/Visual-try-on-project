@@ -24,7 +24,7 @@
 
 卡头状态行只有三个词：`待办` 没人在做 · `进行中` 在办 · `完成` 已完成。
 
-**当前**：8 在办 · 8 待办 · 134 已完成 · 89 条 ADR。
+**当前**：8 在办 · 9 待办 · 134 已完成 · 89 条 ADR。
 
 **找在办的任务**：本文件的「进行中 · 任务卡」一节，或
 `python .claude/tools/agent_harness.py resume`，加上
@@ -80,7 +80,7 @@
 
 ### Deferred
 
-里程碑闸判「现在不做」的 8 张卡（状态 `待办`）——
+里程碑闸判「现在不做」的 9 张卡（状态 `待办`）——
 **队列，不是垃圾桶**：每张卡都要写清什么条件下它会变成该做。
 跨任务欠账另见 [TASK-087 总账](tasks/TASK-087-followup-ledger.md)。
 
@@ -92,6 +92,7 @@
 - [TASK-137](tasks/TASK-137-review-issue-to-rework-loop.md) TASK-137：审片问题进入返工队列 —— 从问题定位到重新审片的闭环
 - [TASK-138](tasks/TASK-138-story-development-visual-workflow.md) TASK-138：剧情制作不再是四张表单 —— 一条看得见的故事创作链
 - [TASK-143](tasks/TASK-143-one-worktree-per-session.md) TASK-143：一棵工作树同时装八个会话，没有配套工具
+- [TASK-153](tasks/TASK-153-conversation-tests-flake-under-parallel.md) TASK-153：test_motv_conversation_task109.py 在 -n 8 并行下偶发红 —— 两天两条
 
 ### Recent Decisions
 
@@ -135,6 +136,7 @@
 | [TASK-137-review-issue-to-rework-loop.md](tasks/TASK-137-review-issue-to-rework-loop.md) | TASK-137：审片问题进入返工队列 —— 从问题定位到重新审片的闭环 | 待办 · 待开始（2026-09-05 开卡 |
 | [TASK-138-story-development-visual-workflow.md](tasks/TASK-138-story-development-visual-workflow.md) | TASK-138：剧情制作不再是四张表单 —— 一条看得见的故事创作链 | 待办 · 待开始（2026-09-05 开卡 |
 | [TASK-143-one-worktree-per-session.md](tasks/TASK-143-one-worktree-per-session.md) | TASK-143：一棵工作树同时装八个会话，没有配套工具 | 待办 · 未开始，且当前里程碑闸判定不做（2026-09-06 立卡） |
+| [TASK-153-conversation-tests-flake-under-parallel.md](tasks/TASK-153-conversation-tests-flake-under-parallel.md) | TASK-153：test_motv_conversation_task109.py 在 -n 8 并行下偶发红 —— 两天两条 | 待办 · 未开始（2026-09-18 立卡 |
 
 ## 完成 · 任务卡
 
