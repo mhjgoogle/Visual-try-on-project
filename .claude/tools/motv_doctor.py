@@ -6,12 +6,13 @@
 **全部是他在真实项目上撞到的**，而 2039 条前端测试全绿 —— 那些测试守的是**代码形状**，
 不是「他打开会看到什么」。这件事该由机器做。
 
-四项检查，各对应他撞到的一类：
+五项检查，前四项各对应他撞到的一类，第五项对应 Agent 自己撞到的那一类：
 
   1. 目录完整   屏幕上有的东西，Agent 的事实里有没有   ←「我明明写了你怎么看不到」
   2. 写路径     每个声明过的写动作，指不指得到真地方   ←「写好了却还是空的」
   3. 能力输入   manifest 要的名字，解析得到数据吗       ←「还缺 创意 Brief」
   4. 执行器     真的跑得起来吗（降级要注明）           ←「本机没有可用的执行器」
+  5. 提交闸门   git 原生 pre-commit 装了没、是当前版吗 ←「闸门安静地没了」（ADR-0104）
 
 用法::
 
@@ -38,6 +39,7 @@ MOCKUP = REPO / "mockups" / "motv-workspace"
 SERVER = MOCKUP / "server.py"
 SRC = MOCKUP / "src"
 SKILLS = REPO / "product-skills" / "builtin"
+INSTALLER = REPO / ".claude" / "tools" / "install_git_hooks.py"
 
 OK, WARN, BAD = "OK", "WARN", "BAD"
 MARK = {OK: "✓", WARN: "⚠", BAD: "✗"}
@@ -414,6 +416,57 @@ def check_executors(srv) -> list[dict]:
 # --- 报告 -------------------------------------------------------------------- #
 
 
+# --- 5. 提交闸门：装了没 ------------------------------------------------------- #
+
+
+def load_installer():
+    spec = importlib.util.spec_from_file_location("install_git_hooks_doctor", INSTALLER)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def check_commit_gate(installer=None) -> list[dict]:
+    """git 原生 pre-commit 装了没、还是不是当前版本（ADR-0104）。
+
+    `.git/hooks` 不随仓库分发：新克隆、换机器、被别的工具覆盖、`core.hooksPath` 被设，
+    闸门都会**一声不吭地不在** —— 而闸门的沉默正是 ADR-0104 要消灭的那种失败。
+    所以这一项不是提醒，是红：修法只有一条命令，就印在行尾。
+
+    判不了（`git` 不在 PATH、问不到 hooks 目录）报「未知」⚠，不报 ✓ ——
+    与前四项同一姿态：一个假的 ✓ 比一个诚实的 ⚠ 危险得多。
+    """
+    inst = installer if installer is not None else load_installer()
+    fix = "python .claude/tools/install_git_hooks.py"
+    try:
+        override = inst.hooks_path_override()
+        target = inst.hooks_dir() / inst.HOOK_NAME
+    except (SystemExit, OSError, ValueError) as exc:
+        return [
+            {
+                "名字": "pre-commit",
+                "量": "未知",
+                "state": WARN,
+                "why": f"问不到 git：{str(exc)[:80] or type(exc).__name__}",
+            }
+        ]
+    if override:
+        return [
+            {
+                "名字": "pre-commit",
+                "量": "不会被调用",
+                "state": BAD,
+                "why": f"core.hooksPath={override}，.git/hooks 里的闸门被绕开。"
+                f"先 git config --unset core.hooksPath，再 {fix}",
+            }
+        ]
+    state = inst.hook_state(target)
+    if state is None:
+        return [{"名字": "pre-commit", "量": "已装", "state": OK, "why": str(target)}]
+    return [{"名字": "pre-commit", "量": state, "state": BAD, "why": f"修：{fix}"}]
+
+
 def render(sections: list[tuple[str, list[dict]]]) -> str:
     out = []
     width = 0
@@ -522,6 +575,7 @@ def main() -> int:
     sections.append(("写路径（改得动吗）", check_write_paths()))
     sections.append(("能力输入（读得到吗）", check_skill_inputs()))
     sections.append(("执行器（跑得起来吗）", check_executors(srv)))
+    sections.append(("提交闸门（装了没，ADR-0104）", check_commit_gate()))
 
     for _t, rows in sections:
         for r in rows:
