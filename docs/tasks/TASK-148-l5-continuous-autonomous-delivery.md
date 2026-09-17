@@ -326,6 +326,26 @@ PASS，所以按 ADR-0081 的评级表**没有可评级的发现**。已核实�
 **切片 B/C 收口状态**：判据 3 `PASS` · 判据 4 `PASS` · 架构全 `PASS` ·
 Verification `SUFFICIENT` · 无未闭合 P1/P2。审查者全程真 codex，独立性未降级。
 
+## 11. Merge Gate（2026-09-17，ADR-0085：依据是 Done 判定 + 最终全量，不是用户原话）
+
+产品负责人 2026-09-17 拍板「合，整条链一起落地，合后装闸门」。**依据不是那句话**，
+是下面这些都成立：
+
+| 前置 | 证据 |
+| --- | --- |
+| Done 判定 | TASK-148 切片 A/B/C 判据 1–4 `PASS`（三轮 + 三轮审查）· TASK-149 / 150 / 151 全部 `完成` 且各自审查收口 |
+| 最终全量 @ `3553925` | pytest 并行 **4253 passed / 60 skipped** · 串行 **6 passed** · 前端 **2314 pass / 0 fail** · ruff 干净 755 文件 · `lifecycle_check` 0 finding · `gen_docs_status --check` up to date |
+| CI @ 合并 tip `6d5e795` | run **35230598823** `completed/success`：Windows（权威）与 Ubuntu（受支持目标）两个 job 全绿。上一次 run 35227591069 两边各红 5 条 —— 全是「CI 没有 `.venv`」，测试自己的假设错了，已修并在本地复现了 CI 情形 |
+| 待复审清单 | 0 条未闭合 |
+| 未闭合 P1 | 无 |
+| 链的形状 | 73 个提交，一条直线：`origin/change/TASK-109-three-pane` 与 `origin/change/l4-loop` 都是本分支祖先，`origin/main` 未动 → 无冲突 |
+
+链上其他会话认领的卡（TASK-146 / 145 / 144 / 142 / 147）：卡上写「实现完成」，验收项
+待产品负责人在真实项目上看；产品负责人明确「验收不满意再改」并选择合并。
+
+合并后动作：`install_git_hooks.py` 装入共享 `.git/hooks`（ADR-0104 决策 6 的铺开时机）。
+其他分支的树在合入 main 之前提交会被 shim 拦住并提示 `git merge main`。
+
 ## 10. 落地阻塞（已登记，不在本卡修）
 
 - [TASK-087 §5.36](TASK-087-followup-ledger.md)：`main` 十一天没动，分支叠了四层，
