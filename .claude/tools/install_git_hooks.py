@@ -51,8 +51,10 @@ root=$(git rev-parse --show-toplevel) || exit 1
 gate="$root/.claude/hooks/pre_commit.py"
 if [ ! -f "$gate" ]; then
     # fail-closed：闸门不在这棵树上（比如切到了没有它的旧分支）时拦住并说清楚，
-    # 而不是安静放行。一个安静消失的闸门就是没有闸门。
+    # 而不是安静放行。一个安静消失的闸门就是没有闸门。**说清怎么修**：
+    # 闸门文件随 ADR-0104 进了 main，把 main 合进来就有了。
     echo "pre-commit 闸门不在这棵树上：$gate" >&2
+    echo "它随 ADR-0104 进了 main：在这棵树里 git merge main，再提交。" >&2
     exit 1
 fi
 if [ -x "$root/.venv/Scripts/python.exe" ]; then
