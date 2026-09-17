@@ -24,7 +24,7 @@
 
 卡头状态行只有三个词：`待办` 没人在做 · `进行中` 在办 · `完成` 已完成。
 
-**当前**：9 在办 · 8 待办 · 132 已完成 · 89 条 ADR。
+**当前**：8 在办 · 8 待办 · 133 已完成 · 89 条 ADR。
 
 **找在办的任务**：本文件的「进行中 · 任务卡」一节，或
 `python .claude/tools/agent_harness.py resume`，加上
@@ -120,7 +120,6 @@
 | [TASK-146-ai-writes-a-novel-chapter.md](tasks/TASK-146-ai-writes-a-novel-chapter.md) | TASK-146：小说模式下，AI 真的能写出一章小说 | 进行中 · 实现完成（2026-09-14） |
 | [TASK-147-session-isolation-and-evidence-identity.md](tasks/TASK-147-session-isolation-and-evidence-identity.md) | TASK-147：一个会话一棵树，以及「上一轮那句验证」不再冒充新结论 | 进行中 · 切片 A / B 实现完成（2026-09-15） |
 | [TASK-148-l5-continuous-autonomous-delivery.md](tasks/TASK-148-l5-continuous-autonomous-delivery.md) | TASK-148：L5 —— 给一个方向就连续交付，而且没人看着的时候不会静默放行 | 进行中 |
-| [TASK-151-architecture-dependency-graph.md](tasks/TASK-151-architecture-dependency-graph.md) | TASK-151：架构依存关系由代码派生 —— 改了 X，谁会跟着受影响 | 进行中 |
 
 ## 待办 · 任务卡
 
@@ -275,6 +274,7 @@
 | [TASK-145-workstatus.md](tasks/TASK-145-workstatus.md) | TASK-145：一屏看完「每条需求做到哪了」 | 完成 · 实现完成（2026-09-08） |
 | [TASK-149-task-prerequisites-are-machine-readable.md](tasks/TASK-149-task-prerequisites-are-machine-readable.md) | TASK-149：卡上的「前置」变成机器读得到的边，队列按它排 | 完成 · 实现完成并经三轮独立审查收口（2026-09-17，与 TASK-150 合审，记录在 |
 | [TASK-150-task-state-on-the-card.md](tasks/TASK-150-task-state-on-the-card.md) | TASK-150：任务的状态住在卡上 —— 目录平铺，「在办的有哪些」由工具回答 | 完成 · 实现完成并经三轮独立审查收口（2026-09-17） |
+| [TASK-151-architecture-dependency-graph.md](tasks/TASK-151-architecture-dependency-graph.md) | TASK-151：架构依存关系由代码派生 —— 改了 X，谁会跟着受影响 | 完成 · 实现完成并经两轮独立审查收口（2026-09-17） |
 
 ## 在办 · 设计与验收文档
 

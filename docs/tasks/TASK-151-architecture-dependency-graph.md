@@ -1,6 +1,6 @@
 # TASK-151：架构依存关系由代码派生 —— 改了 X，谁会跟着受影响
 
-- 状态：进行中
+- 状态：完成 · 实现完成并经两轮独立审查收口（2026-09-17）；随 `change/TASK-148-l5` 合并
 - 起因：产品负责人 2026-09-17 —— 「帮我检查一下现在这个项目可以达到自动识别任务优先
   顺位和理解架构的依存关系了吗」。核实结果：任务侧没有（→ TASK-149 已做）；架构侧
   只有 **3 条 import-linter 禁令**（pyproject.toml）+ `tests/` 根支撑模块的归属派生
@@ -88,7 +88,7 @@ CA §2 的约束原文是「核心库永远不 import 上面任何一层」—�
 | 轮 | 结论 | 买轮的那条 |
 | --- | --- | --- |
 | 1 | fail · 判据 1/2 `PARTIAL` · 1 BLOCKING | **只记最长匹配会少报**：`from a.b import c` 在 `a.b/__init__` 也定义了 `c` 时边只落到 `a.b.c`，丢了 `a.b`；更一般地 import 任何子模块都执行父包 `__init__`，`impact a.b` 看不见 import 了 `a.b.*` 的人 |
-| 2 | 待跑 | —— |
+| 2 | **pass** · 判据 1–4 全 `PASS` · `CA §1` `CA §2` `CA §4` §3 §20 全 `PASS` · BLOCKING 与 NON_BLOCKING 为空 · SUFFICIENT | 收口。输出里的 `GATE_CONSISTENCY: inconsistent` 是 `fail-closed` 一词触发的已知误报（TASK-087 §5.38），无任何闸非 PASS |
 
 轮 1 修法按类：`_with_ancestors()` 把命中模块**及其所有已知祖先包**一起记，`import` 与
 `from … import` 两条路都走它。真仓库边 798 → 1181，`impact gateway` 9 → 15 ——

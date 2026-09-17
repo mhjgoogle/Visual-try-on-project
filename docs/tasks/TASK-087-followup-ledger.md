@@ -203,6 +203,13 @@
 | 5.38 | **`run-review.ps1` 的一致性扫描会被「fail-closed」这个词误报** | TASK-148 切片 B/C 轮 3（2026-09-17 实测） | 低，但**高频** | `Get-ConsistencyNote` 在 REQUIREMENT→BLOCKING 区间里匹配 `\b(PARTIAL\|FAIL\|NOT_EVIDENCED\|INSUFFICIENT)\b`。PowerShell 的 `-match` 默认不分大小写，`-` 是词边界 —— 于是审查者写的 `[AGENTS.md §20 fail-closed] PASS` 里的 **`fail-closed` 直接命中**，四闸全 PASS 的一轮被标成 `inconsistent`。脚本注释里写了「误报推向 fail 是安全方向」，这条判断本身没错；但 **`fail-closed` 是本仓库出现频率最高的短语之一**（AGENTS §6/§20 都在用），所以它不是偶发误报，而是每次审查工装类改动都会踩。修法大概是只扫**判词位置**（`] <VERDICT> ->` 那一格）而不是整行散文。**踩到时的正确动作**：核对四个闸的实际判词，全 PASS 且 BLOCKING 为空就照常收口，并在报告里写明误报原因 —— 不要因为这一行去改审查者的话 |
 | 5.39 | **停止-发牌竞态那条测试只数了发牌次数，没断言事件顺序** | 同上（codex 判 NON_BLOCKING） | 低 | `test_a_stop_racing_with_next_still_stops_it` 断的是「发出去的不超过一张」，所以**一条排在 `stop` 之后的 `dispatch` 仍然能让它绿**。它守住了「不会同时发两张」，没守住「停止之后不再发」。按 ADR-0081，P3/P4 记录不修 —— 但它是那条声明的唯一守卫，**下次碰这块代码时应当把断言改成事件顺序**（`stop` 之后不得出现 `dispatch`） |
 
+## 5.40～5.41 TASK-150 / 151 交来的两条（2026-09-17 登记）
+
+| # | 欠账 | 来源 | 风险 | 说明 |
+| --- | --- | --- | --- | --- |
+| 5.40 | **`resume` 的「最近谁动过这张卡」在迁移后指向搬家那次提交** | TASK-150 迁移（`visual-try-on-project-b0`） | 低（**显示项**，不影响归属判定的另一栏） | `agent_harness.card_last_touch` 用 `git log -- docs/tasks/<name>`，**没有 `--follow`**。149 张卡在 2026-09-17 全部 `git mv` 过一次，于是每张卡的「最近」都是那次迁移。修法一行（`--follow`），但要先看 `--follow` 在 Windows 上对 149 次重名的性能；没顺手改是 §17 |
+| 5.41 | **卡头字段名不一致：`实施 Agent：` vs `负责 Agent：`** | TASK-148 / 149 / 150 / 151 四张新卡都写 `实施 Agent：`；`resume` 读的是 `负责 Agent：` | 低（四张卡在 `resume` 里显示「负责：没写」，**归属线索因此断了一条**） | 两个词都在仓库里真实存在。该统一成一个，并让 `_card_field` 两个都认一阵子过渡。`lifecycle_check` 可以顺手守「卡头必须有其一」，那是 ORPHAN 检查的同族 |
+
 ## 6. 性能与偶发（记录，不承诺）
 
 | # | 项 | 来源 | 说明 |
