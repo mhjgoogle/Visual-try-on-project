@@ -1,6 +1,13 @@
 # TASK-152：小说连着往下写 —— 若干章、可停、可改、不覆盖
 
-- 状态：进行中 · **实施中**（2026-09-18 开卡，同日开工）
+- 状态：完成 · **实现完成（2026-09-18，开卡当日）**。两个独立事实，分开写（AGENTS.md §1）：
+  1. **实现完成** —— 验收 §5 1–7 各有守卫（§6 的表），codex 两轮（轮 1 的 P1 / P2 修复，
+     轮 2 判据全 `PASS`、架构全 `PASS`，剩一条纯证据缺口按协议补证收口，不再买轮）；
+     代码级证据：`workflow/novelchain.js` · `storywork.chainTargets / previousWritten /
+     chapterPlan.previous` · `server._conv_continuation` · `production.startNovelChain` ·
+     `draftws.chainBar` · 能力包 v2。
+  2. **还没在真实项目上被人看过的** —— §7 五条，尤其第 1 条：`previous` 进了提示词是
+     自动化证明的，模型**真的接着写**只有真项目看得见。
 - 起因：产品负责人 2026-09-18「那现在能对这些任务进行编排然后一个个完成了吗」——
   编排后排在 REQ-009 主线上的下一片。· 闸：**放行（第 ① 问：在当前里程碑交付面上）**，
   里程碑就是 REQ-009「先把小说写出来」，切片一（TASK-146）已「实现完成」。
@@ -149,6 +156,14 @@ tests/contract` **988 passed / 16 skipped**（+21：`test_motv_novel_chain_task1
 | P2：`count` 截断的名单跑完就停 —— 写 3 章、他自己写了第 5 章，链在第 4 章就停，少写一章 | `count` 改为「要写几章」，每步现读第一章没正文的往后补；守卫「…往后补足章数」 |
 | `NOT_EVIDENCED` §5.7（手工执行器不连写） | 闸抽成 `novelchain.readiness`，两条守卫；`startNovelChain` 调它 |
 | `NOT_EVIDENCED` REQ-007 判据 3（提案登记 / 版本 / 可退） | 两条真 controller 测试：run 记 `unitNo`、应用后 accepted；被跳过的留 pending，他自己「用它」时旧版被存成一版 |
+
+轮 2（P1 修复后复审一次）：判据 §5.1–5.7 全 `PASS`，CA §3 / §5.2 / §4、ADR-0091 / 0066 /
+0067 全 `PASS`；剩**一条** `NOT_EVIDENCED`（REQ-007 判据 3：只断言有一条历史记录，没有
+恢复并核对原文）。按 ADR-0081 / 本仓库审查协议，纯证据缺口 = 补证据 + 跑归属域收口，
+**不买第三轮**。补的：① 被跳过的那一章他「用它」之后 `restoreFinalized` 回他的原文并逐字
+核对；② 新增「连写落下的章照旧版本化、可退回」—— 链写进空章时没有旧版可存（空 ≠ 一版，
+与单章路径一致），之后被别的提案覆盖时先存一版（note 含「覆盖前」），恢复后正文与连写
+落下的一字不差；且那次运行有 `proposalId` 可指认。`novelchain.test.mjs` 22 条全绿。
 
 ## 7. 还没在真实项目上被人看过的
 

@@ -428,7 +428,48 @@ test("真 controller：他在正在写的那一章里自己写了 → 提案留�
   // 他之后可以自己决定用它 —— 那时才走覆盖前存一版的既有兜底
   const late = ctl.applyProposal(held.runId);
   assert.equal(late.ok, true, late.error);
+  assert.ok(skillrun.isAccepted(held), "他按了「用它」之后那次运行要变成 accepted");
   const one = k.units.find((u) => u.no === 1);
   assert.equal(one.body, "AI 写的第 1 章正文");
-  assert.equal(w.visibleVersions(one.finalized).length, 1, "他自己写的那一版没被存下来");
+  const kept = w.visibleVersions(one.finalized);
+  assert.equal(kept.length, 1, "他自己写的那一版没被存下来");
+  assert.equal(kept[0].body, "他趁 AI 在写时自己写的第一章", "存下来的不是他那一版");
+  // **退得回去**（REQ-007 判据 3）：不是「有一条历史记录」，是恢复之后正文就是他的原文
+  assert.equal(w.restoreFinalized(k, one.id, kept[0].v, "T9"), true, "退不回他那一版");
+  assert.equal(k.units.find((u) => u.no === 1).body, "他趁 AI 在写时自己写的第一章");
+});
+
+test("真 controller：连写落下的章照旧版本化、可退回 —— 之后被别的提案盖时先存一版，恢复后原文一字不差", async () => {
+  // REQ-007 判据 3 对连写产出的检验：链写进一个**空**章时没有旧版可存（空 ≠ 一版，
+  // 与 `applyBodyProposal` 单章路径一致），但它落下的正文从那一刻起就是这一章的
+  // 「最新版」—— 后来任何一次覆盖都得先把它存成一版，且能恢复回来。
+  installNovelistCatalog();
+  const k = novelWork({ planned: 4 });
+  w.setOutline(k, "大纲");
+  const { ctl, registry } = realController(k);
+
+  const c = chain.createChain(w.chainTargets(k, 1), { count: 1 });
+  await chain.runChain(c, {
+    work: () => k,
+    run: (no) => ctl.run("novel-chapter-writer", { executor: "claude-code", scope: { unitNo: no } }),
+    apply: (runId) => ctl.applyProposal(runId),
+  });
+  assert.deepEqual(c.written, [1]);
+  const one = k.units.find((u) => u.no === 1);
+  assert.equal(one.body, "AI 写的第 1 章正文");
+  assert.equal(w.visibleVersions(one.finalized).length, 0, "空章没有旧版可存，不该凭空长出一版");
+  // 登记在册：这次运行有 proposalId，是可以被指认的那一份提案
+  assert.ok(skillrun.proposalIdOf(registry[0]), "连写落下的章要能指回它的提案");
+
+  // 他之后又让 AI 单独重写这一章（切片一那条路），连写那一版先被存下来
+  const rerun = await ctl.run("novel-chapter-writer", { executor: "claude-code", scope: { unitNo: 1 } });
+  assert.equal(rerun.ok, true, rerun.error);
+  assert.equal(ctl.applyProposal(rerun.run.runId).ok, true);
+  const versions = w.visibleVersions(k.units.find((u) => u.no === 1).finalized);
+  assert.equal(versions.length, 1, "连写落下的那一版被覆盖时没有被存下来");
+  assert.equal(versions[0].body, "AI 写的第 1 章正文");
+  assert.match(versions[0].note, /覆盖前/, "要说清这一版不是他点的定稿");
+  // 退回去：恢复之后正文就是连写落下的那一份
+  assert.equal(w.restoreFinalized(k, one.id, versions[0].v, "T9"), true);
+  assert.equal(k.units.find((u) => u.no === 1).body, "AI 写的第 1 章正文");
 });
