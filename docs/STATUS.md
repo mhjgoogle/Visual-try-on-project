@@ -24,7 +24,7 @@
 
 卡头状态行只有三个词：`待办` 没人在做 · `进行中` 在办 · `完成` 已完成。
 
-**当前**：7 在办 · 8 待办 · 134 已完成 · 89 条 ADR。
+**当前**：8 在办 · 8 待办 · 134 已完成 · 89 条 ADR。
 
 **找在办的任务**：本文件的「进行中 · 任务卡」一节，或
 `python .claude/tools/agent_harness.py resume`，加上
@@ -76,7 +76,7 @@
 | [REQ-006](requirements/REQ-006-agent-can-do-what-the-creator-can-do.md) | REQ-006：对话里的 Agent 能做创作者能做的事，并且能把意见带回给开发 | CONFIRMED | TASK-132 |
 | [REQ-007](requirements/REQ-007-say-it-and-the-right-capability-runs.md) | REQ-007：他说一句话，对的那个专业能力就跑起来 | CONFIRMED | — |
 | [REQ-008](requirements/REQ-008-images-from-my-own-account.md) | REQ-008：用我自己的账号自动出图，不要按次计费的 API | CONFIRMED | — |
-| [REQ-009](requirements/REQ-009-write-the-novel-first-then-film-it.md) | REQ-009：先把小说写出来，再把它拍成片 | CONFIRMED | TASK-146 |
+| [REQ-009](requirements/REQ-009-write-the-novel-first-then-film-it.md) | REQ-009：先把小说写出来，再把它拍成片 | CONFIRMED | TASK-146、TASK-152 |
 
 ### Deferred
 
@@ -119,6 +119,7 @@
 | [TASK-132-click-ui-element-and-leave-feedback.md](tasks/TASK-132-click-ui-element-and-leave-feedback.md) | TASK-132：点击界面元素写意见，并让开发 Agent 收到准确位置 | 进行中 · 切片 A 完成、切片 B 完成核心、切片 C 未做（2026-09-05 实施 |
 | [TASK-146-ai-writes-a-novel-chapter.md](tasks/TASK-146-ai-writes-a-novel-chapter.md) | TASK-146：小说模式下，AI 真的能写出一章小说 | 进行中 · 实现完成（2026-09-14） |
 | [TASK-147-session-isolation-and-evidence-identity.md](tasks/TASK-147-session-isolation-and-evidence-identity.md) | TASK-147：一个会话一棵树，以及「上一轮那句验证」不再冒充新结论 | 进行中 · 切片 A / B 实现完成（2026-09-15） |
+| [TASK-152-novel-writes-on-in-a-chain.md](tasks/TASK-152-novel-writes-on-in-a-chain.md) | TASK-152：小说连着往下写 —— 若干章、可停、可改、不覆盖 | 进行中 · 实施中（2026-09-18 开卡，同日开工） |
 
 ## 待办 · 任务卡
 

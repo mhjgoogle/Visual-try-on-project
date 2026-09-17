@@ -47,6 +47,14 @@ export function routeOf(turn) {
   return isObj(r) && typeof r.skillId === "string" && r.skillId ? r : null;
 }
 
+/** 服务端认出来的「接着往下写」（TASK-152）。形状：`{count: 正整数|null}`；没有就是 null。 */
+export function continuationOf(route) {
+  const c = route && route.continuation;
+  if (!isObj(c)) return null;
+  const n = c.count;
+  return { count: Number.isInteger(n) && n > 0 ? n : null };
+}
+
 /** 服务端拒掉的那一条（不认识的能力名、错的窗口、没有能承担它的包）。
  *  **保留而不是丢掉**：一个被静默丢弃的路由，在屏幕上与「它答应了然后什么都没干」
  *  无法区分。 */
@@ -83,6 +91,10 @@ export function decideRoute(route, ctx) {
     capability: route.capability || "",
     title: route.title || skillId,
     why: String(route.reason || ""),
+    // 「接着往下写几章」（TASK-152）—— 服务端认出来的，这里只**透传**，不读他的话：
+    // 前端不从用户文本推断要执行什么（ADR-0091 决策 1 的同一边界）。
+    // `count` 不是正整数就是 null = 写到 Planned 为止；没有这个字段就不是连写。
+    continuation: continuationOf(route),
   };
   // 第二道窗口闸。服务端已经筛过一次（那才是强制的那一道），这里再挡一次是因为
   // 「在这个窗口里我的东西不会被改」必须是**产品行为**，不是一处代码的正确性。

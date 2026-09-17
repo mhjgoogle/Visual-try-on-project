@@ -3758,6 +3758,61 @@ def _conv_revision_match(goal: str, intent: str) -> int:
 _CONV_FORM_WORD = {"novel": "小说", "episode": "剧集"}
 
 
+#: 「接着往下写」的说法（TASK-152 / REQ-009 判据 4）。**只挂在写章的计划上**：
+#: 「继续改剧本」里也有「继续」，但那不是写章，不会走到这一步。
+_CONV_CONTINUATION_MARKERS = ("接着", "继续", "往下", "连着", "连续", "再写", "一直写")
+_CONV_COUNT_RE = re.compile(r"(\d{1,3}|[一二两三四五六七八九十]{1,3})\s*章")
+_CONV_CN_DIGIT = {
+    "一": 1,
+    "二": 2,
+    "两": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+}
+
+
+def _conv_cn_int(token: str) -> int | None:
+    """一～九十九的中文数字。读不懂就 None —— 不猜一个数出来。"""
+    if token.isdigit():
+        return int(token)
+    if "十" not in token:
+        return _CONV_CN_DIGIT.get(token) if len(token) == 1 else None
+    tens, _, ones = token.partition("十")
+    if tens and tens not in _CONV_CN_DIGIT:
+        return None
+    if ones and ones not in _CONV_CN_DIGIT:
+        return None
+    high = _CONV_CN_DIGIT[tens] if tens else 1
+    low = _CONV_CN_DIGIT[ones] if ones else 0
+    return high * 10 + low
+
+
+def _conv_continuation(goal: str) -> dict | None:
+    """他这句话是不是「接着往下写（N 章）」。
+
+    返回 `{"count": N}`，N 读不到就是 None（= 写到 Planned 为止）；不是连写返回 None。
+    只认**数量**（「三章」「3 章」），不认终点（「写到第 5 章」）—— 那是另一种说法，
+    不在这一片（TASK-152 §4）。
+
+    这一判定在**服务端**做，前端只透传字段：前端不从用户文本推断要执行什么
+    （ADR-0091 决策 1 的同一边界）。
+    """
+    text = goal or ""
+    if not any(m in text for m in _CONV_CONTINUATION_MARKERS):
+        return None
+    count = None
+    found = _CONV_COUNT_RE.search(text)
+    if found:
+        n = _conv_cn_int(found.group(1))
+        count = n if n is not None and n >= 1 else None
+    return {"count": count}
+
+
 def _conv_resolve(
     catalog, capability: str, *, goal: str, scope: str, ready, shot_id, form: str = ""
 ):
@@ -7844,6 +7899,12 @@ class _App:
         )
         if refusal:
             return None, {"capability": capability, "reason": refusal}
+        # 「接着往下写几章」（TASK-152）—— 只对写章的计划判，剧集侧一个字节不变。
+        # 挂在计划上而不是另开一条路：前端拿到的仍是同一个 route，多一个可选字段。
+        if plan.get("intent") == "chapter-writing":
+            continuation = _conv_continuation(route.get("goal") or "")
+            if continuation is not None:
+                plan["continuation"] = continuation
         # 可观测性（决策 5）：交出去的是哪一类、最后选中哪个能力、为什么、什么范围、
         # 缺什么 —— 全部写在这一轮上。没有这几个字段，「它选错了」就无从复核。
         return plan, None

@@ -527,6 +527,52 @@ export function applyBodyProposal(work, where, text, at) {
   return { ok: true, no: target.no, word: target.word, unitId: unit.id, kept };
 }
 
+/** 第 no 章之前、**最近一章已经写了正文**的那一章 —— 连着往下写时「接着谁写」。
+ *
+ *  是「最近有正文的」，不是「第 no−1 章」：中间空着的章什么都接不上，接一个空章
+ *  等于让能力从头讲起。没有就是 `null`（这是第一章，或前面全空）。 */
+export function previousWritten(work, kind, no) {
+  const n = int(no, 1, 500);
+  if (!work || !FORMS.includes(kind) || n === null) return null;
+  let best = null;
+  for (const u of work.units) {
+    if (u.kind !== kind || !(u.no < n) || !(u.body || "").trim()) continue;
+    if (!best || u.no > best.no) best = u;
+  }
+  return best;
+}
+
+/** 喂给能力的「上一章结尾」长度。够它接上语气与悬念，不够把整章都塞回去。 */
+export const PREVIOUS_TAIL_CHARS = 600;
+
+/** 连着往下写（TASK-152 / REQ-009 判据 4）：接下来要写的那几章。
+ *
+ *  从第一章**没写正文**的开始数，已经写了的一律跳过 —— 不重跑、不覆盖 —— 到
+ *  Planned 为止；`count` 为 null = 写到计划的最后一章。中间空着的章也补（第 2 章空着、
+ *  第 3 章写了 → 先写第 2；这是本卡 §2 的显式假设）。
+ *
+ *  只对小说成立：剧集有自己的「当前集」语义，不在这一片。返回 `[]` 表示没有可写的
+ *  （不是小说、计划是 0、或计划内全写完了）—— 调用方要说出是哪一种。
+ *
+ *  @param {object} work
+ *  @param {number|null} count 要写几章；null = 到 Planned
+ *  @returns {number[]} 章号，升序
+ */
+export function chainTargets(work, count = null) {
+  if (!work || work.form !== "novel") return [];
+  const planned = int(work.planned && work.planned.novel, 0, 500) || 0;
+  const want = count === null || count === undefined ? Infinity : int(count, 1, 500);
+  if (want === null) return [];
+  const written = new Set(
+    work.units.filter((u) => u.kind === "novel" && (u.body || "").trim()).map((u) => u.no),
+  );
+  const out = [];
+  for (let no = 1; no <= planned && out.length < want; no += 1) {
+    if (!written.has(no)) out.push(no);
+  }
+  return out;
+}
+
 /** 写第 no 章时，能力要知道的那些事 —— **这一章的任务**，不是整个故事。
  *
  *  `targetUnitNo` 回答的是「写到哪儿」，这个回答的是「写什么」。两件事都缺一不可：
@@ -559,10 +605,20 @@ export function chapterPlanOf(work, no) {
       );
     }
   }
+  // 接着谁写（TASK-152）。**现读** —— 每次开跑时算，所以他中途改了第 3 章，
+  // 第 4 章开跑那一刻拿到的就是改过的结尾。第一章 / 前面全空时是 null，能力照跑。
+  const prev = previousWritten(work, "novel", n);
   return {
     no: n,
     title: unit ? unit.title : "",
     wordsSoFar: unit ? (unit.body || "").length : 0,
+    previous: prev
+      ? {
+          no: prev.no,
+          title: prev.title || "",
+          tail: (prev.body || "").trim().slice(-PREVIOUS_TAIL_CHARS),
+        }
+      : null,
     planRows: rows.map((r) =>
       Object.fromEntries(
         PLAN_COLUMNS.filter(([k]) => k !== "outlineRefs").map(([k, label]) => [

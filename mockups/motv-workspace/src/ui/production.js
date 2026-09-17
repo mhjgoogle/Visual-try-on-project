@@ -77,6 +77,7 @@ import { applicabilityFor } from "../workflow/skillapply.js";
 import { createStage } from "./blockgl.js";
 import * as bl from "../workflow/blocking.js";
 import * as swork from "../workflow/storywork.js";
+import * as novelchain from "../workflow/novelchain.js";
 import * as storydoc from "../workflow/storydoc.js";
 import { renderShotSelect, bindShotSelect } from "./shotselect.js";
 import { renderShotRefs, bindShotRefs } from "./shotrefs.js";
@@ -106,7 +107,7 @@ import { resumeThreadRun } from "../workflow/convresume.js";
 import { actionCatalog } from "../workflow/convactions.js";
 import { uiAct as sharedUiAct } from "./uiact.js";
 import {
-  decideRoute, originForRoute, routeOf, scopeOfSkill, zoomTrigger,
+  continuationOf, decideRoute, originForRoute, routeOf, scopeOfSkill, zoomTrigger,
 } from "../workflow/convroute.js";
 import { suggestExecutor, isRunnable } from "../services/runtime.js";
 import { renderQcPanel } from "./qcpanel.js";
@@ -362,6 +363,8 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
   // discards in-progress field edits (they commit only on explicit save)
   const ui = {
     selectedShotId: null,
+    // 连着往下写的那条链（TASK-152）。**页面内存**，不持久化：进度就是哪些章有正文。
+    novelChain: null,
     dirty: false,
     buffer: {},
     directorText: "",
@@ -2039,6 +2042,18 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       ui.unitNo = null;
       render();
     }));
+    // 连着往下写（TASK-152）：按一下 = 一条链；停 = 写完手上这一章就停。
+    root.querySelectorAll("[data-chain-start]").forEach((b) => (b.onclick = () => {
+      const input = root.querySelector("[data-chain-count]");
+      const raw = input ? parseInt(input.value, 10) : NaN;
+      startNovelChain(getCtx(), { count: Number.isFinite(raw) && raw > 0 ? raw : null });
+    }));
+    root.querySelectorAll("[data-chain-stop]").forEach((b) => (b.onclick = () => {
+      if (ui.novelChain) {
+        novelchain.requestStop(ui.novelChain);
+        render();
+      }
+    }));
     const body = root.querySelector("[data-unit-body]");
     if (body) {
       body.oninput = () => {
@@ -2619,6 +2634,55 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
       .then(() => render());
   }
 
+  /** 连着往下写（TASK-152 / REQ-009 判据 4）。
+   *
+   *  每一章走 `ctx.skills.run` + `ctx.skills.applyProposal` —— 与他自己点一次运行、
+   *  再按「用它」**同一条路**（守卫、登记、schema、版本化一条不少）；这里只管
+   *  下一章是谁、什么时候停（`workflow/novelchain.js`）。
+   *
+   *  `origin` 只盖在第一章的运行上：它是「这一轮对话起过跑没有」的幂等键，链里
+   *  后面的章不是那一轮又起了一次，是同一条链的下一步。 */
+  function startNovelChain(ctx, { count = null, origin = null, said = "接着往下写" } = {}) {
+    if (ui.novelChain && ui.novelChain.status === "running") {
+      ctx.toast("已经在连写了 —— 要停就按「停止」");
+      return Promise.resolve(ui.novelChain);
+    }
+    const work = workOf();
+    if (!work || work.form !== "novel") {
+      ctx.toast("连写只对小说成立 —— 先在「正文创作」里选「小说创作」");
+      return Promise.resolve(null);
+    }
+    const skill = ctx.skills.find(NOVELIST);
+    const executor = skill ? routeExecutor(skill) : null;
+    if (!executor) {
+      ctx.toast("连写需要一个能自动跑完的执行器 —— 本机现在没有；「手工」一次只能写一章");
+      return Promise.resolve(null);
+    }
+    const targets = swork.chainTargets(work, count);
+    const chain = novelchain.createChain(targets, { count });
+    ui.novelChain = chain;
+    if (!targets.length) {
+      ctx.toast((work.planned.novel || 0) > 0 ? "计划内的章都已经有正文了" : "Planned Chapters 还是 0 —— 先定要写几章");
+      render();
+      return Promise.resolve(chain);
+    }
+    render();
+    return novelchain.runChain(chain, {
+      work: () => workOf(),
+      run: (no) => ctx.skills.run(NOVELIST, {
+        executor,
+        origin: no === targets[0] ? origin : null,
+        summary: `${said}：第 ${no} 章`,
+        scope: { unitNo: no },
+      }),
+      apply: (runId) => ctx.skills.applyProposal(runId),
+      onStep: () => render(),
+    }).then((c) => {
+      ctx.toast(novelchain.describe(c));
+      return c;
+    });
+  }
+
   /** 这一轮识别到的能力，该跑就跑。
    *
    *  **只在发送那条链里调用**，从不在读线程时调用 —— 那是「刷新 / 轮询不会重复启动」
@@ -2626,6 +2690,19 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
   function runRouteFor(ctx, convRunId, turn, said, originKey) {
     const route = routeOf(turn);
     if (!route) return Promise.resolve();
+    // 「接着往下写几章」（TASK-152）：服务端认出来、挂在计划上的一个字段。这里不读他的话。
+    // 链的第一章就是 `missing` 要对着算的那一章 —— 没打开哪一章也能起，因为章号来自进度，
+    // 不来自屏幕（与单章路径的「必须打开那一章」是两种不同的意图）。
+    const continuation = continuationOf(route);
+    let chainTargets = null;
+    if (continuation) {
+      chainTargets = swork.chainTargets(workOf(), continuation.count);
+      if (!chainTargets.length) {
+        ctx.toast("计划内的章都已经有正文了 —— 要写更多，先把 Planned Chapters 加上去");
+        render();
+        return Promise.resolve();
+      }
+    }
     // 这件**事**已经跑过了 —— 与「这一轮跑过了」是两道不同的闸。跨层建议带着
     // 一个稳定身份（哪个文档的第几版）：他点两次、或者一次失败的发送被重发，
     // 都会产生**新的**对话轮次，`conversationRunId` 那道闸拦不住，只有这一道能。
@@ -2641,12 +2718,23 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
     // …而登记表里那条记录要等一个微任务之后才写下，所以「查过了」到「写下了」
     // 之间还有一条缝。这一句把它关掉（见 `routeInflight` 的说明）。
     if (guard && routeInflight.has(guard)) return Promise.resolve();
-    const decision = decideRoute(route, routeCtxFor(ctx, convRunId));
+    const routeCtx = routeCtxFor(ctx, convRunId);
+    if (chainTargets) {
+      routeCtx.missingOf = (id) => ctx.skills.missing(id, {}, { unitNo: chainTargets[0] });
+    }
+    const decision = decideRoute(route, routeCtx);
     if (decision.action !== "run") {
       render(); // 没跑也要显示：识别到了什么、为什么没跑
       return Promise.resolve();
     }
     if (guard) routeInflight.add(guard);
+    if (chainTargets) {
+      return startNovelChain(ctx, {
+        count: continuation.count,
+        origin: originForRoute(convRunId, originKey),
+        said: `已启动「${decision.title}」连写`,
+      }).then(() => { if (guard) routeInflight.delete(guard); });
+    }
     return launchRouted(ctx, {
       skillId: decision.skillId,
       executor: decision.executor,
@@ -2698,6 +2786,10 @@ export function createProduction(getCtx, { onNavigate = null } = {}) {
 
   /** 审读类能力 → 「照它改」交给谁。**只映射说得清的那几条**：映射错了，
    *  他会看着一个改错地方的按钮（不如没有）。 */
+  /** 连着往下写用的那个能力（TASK-152）。这里点名它是因为链**只对写章成立** ——
+   *  它不是路由表：选不选它仍由服务端 resolver 决定，这里只在「已经选中且是连写」时用。 */
+  const NOVELIST = "novel-chapter-writer";
+
   const REVISER_FOR = {
     "audience-engagement-reviewer": "story-reviser",
     "story-zoom": "story-reviser",

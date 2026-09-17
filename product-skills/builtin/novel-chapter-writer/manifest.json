@@ -1,6 +1,6 @@
 {
   "skillId": "novel-chapter-writer",
-  "skillVersion": 1,
+  "skillVersion": 2,
   "work": "creative",
   "role": "小说家",
   "title": "Novel Chapter Writer",
@@ -35,10 +35,12 @@
       "form": "novel",
       "priority": 80,
       "selectWhen": [
-        "这一章",
+        "章",
         "正文",
         "小说",
-        "接着写"
+        "接着",
+        "往下写",
+        "继续写"
       ]
     }
   }

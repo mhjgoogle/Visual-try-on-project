@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 import {
+  continuationOf,
   decideRoute, originForRoute, routeOf, rejectedRouteOf, scopeOfSkill, structuralRoot,
   zoomKeyFor, zoomTrigger, STRUCTURAL_ACTIONS, USER_CAPABILITY_ZH,
 } from "../src/workflow/convroute.js";
@@ -546,4 +547,60 @@ test("接线：先查后做之间的那条缝被关掉了（in-flight 闸）", (
   assert.ok(src.includes("routeInflight.delete(guard)"), "起跑结束要放开");
   // **不能进 ui**：那是持久化的页面状态，持久化它会让刷新之后的合法重试被永远挡住
   assert.ok(!src.includes("ui.routeInflight"), "这是瞬时状态，不该被持久化");
+});
+
+// --- 「接着往下写几章」只透传，不解析（TASK-152） -------------------------------- //
+
+test("continuation：服务端认出来的才算；count 不是正整数就是 null", () => {
+  assert.equal(continuationOf({ ...PLAN }), null, "没有这个字段就不是连写");
+  assert.deepEqual(continuationOf({ ...PLAN, continuation: { count: 3 } }), { count: 3 });
+  for (const count of [null, undefined, 0, -2, 1.5, "3", NaN]) {
+    assert.deepEqual(
+      continuationOf({ ...PLAN, continuation: { count } }),
+      { count: null },
+      `count=${String(count)} 应当回落到「写到 Planned 为止」`,
+    );
+  }
+  assert.equal(continuationOf({ ...PLAN, continuation: "3 章" }), null, "形状不对不猜");
+  assert.equal(continuationOf(null), null);
+});
+
+test("decideRoute 把 continuation 原样带到决定上，其余判定一条不变", () => {
+  const ctx = {
+    findSkill: () => ({ skillId: PLAN.skillId, title: "内部能力", work: "creative" }),
+    missingOf: () => [],
+    pickExecutor: () => "claude-code",
+  };
+  const plain = decideRoute(PLAN, ctx);
+  assert.equal(plain.action, "run");
+  assert.equal(plain.continuation, null);
+
+  const chained = decideRoute({ ...PLAN, continuation: { count: 2 } }, ctx);
+  assert.equal(chained.action, "run");
+  assert.deepEqual(chained.continuation, { count: 2 });
+
+  // 连写也过同样的闸：缺输入照样 blocked，且字段还在（屏幕上要能说「识别到了连写，但缺 X」）
+  const blocked = decideRoute(
+    { ...PLAN, continuation: { count: 2 } },
+    { ...ctx, missingOf: () => ["outline"], labelOf: (k) => ({ outline: "故事大纲" })[k] || k },
+  );
+  assert.equal(blocked.action, "blocked");
+  assert.deepEqual(blocked.continuation, { count: 2 });
+});
+
+test("前端不从他的话里读「几章」—— convroute 里没有任何解析用户文本的代码", () => {
+  const src = readFileSync(join(HERE, "..", "src", "workflow", "convroute.js"), "utf8");
+  // 边界（ADR-0091 决策 1）：连写的判定在服务端；这里只认 `route.continuation`。
+  assert.ok(!/章/.test(src.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "")), "代码里出现了对「章」的文本匹配");
+  assert.ok(src.includes("continuation: continuationOf(route)"), "decideRoute 没有透传 continuation");
+});
+
+test("production.js 里连写走的是链，不是单章起跑（守接线）", () => {
+  const src = readFileSync(join(HERE, "..", "src", "ui", "production.js"), "utf8");
+  // 与上面 routeInflight 那条同一种守法：这一段是 DOM 绑定的，拿源码钉住接线本身。
+  assert.ok(src.includes("const continuation = continuationOf(route)"), "runRouteFor 没读 continuation");
+  assert.ok(src.includes("return startNovelChain(ctx, {"), "连写没有走链");
+  assert.ok(src.includes("routeCtx.missingOf = (id) => ctx.skills.missing(id, {}, { unitNo: chainTargets[0] })"),
+    "连写的「缺什么」要对着链的第一章算，不是对着他打开的那一章");
+  assert.ok(src.includes("origin: no === targets[0] ? origin : null"), "幂等键只盖第一章");
 });
