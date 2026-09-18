@@ -1,6 +1,14 @@
 # TASK-154：小说的前三步也能让 AI 来 —— 故事核心 / 大纲 / 结构规划在小说语境下成立
 
-- 状态：进行中 · **实施中**（2026-09-18 开卡，同日开工）
+- 状态：完成 · **实现完成（2026-09-18，开卡当日）**。两个独立事实，分开写（AGENTS.md §1）：
+  1. **实现完成** —— §5 验收 1–6 各有守卫（§6 的表）；codex 三轮（轮 1 四条 BLOCKING、
+     轮 2 一条新机理各买一轮，轮 3 **pass**：判据全 `PASS`、架构全 `PASS`、Verification
+     `SUFFICIENT`、0 finding）。代码级证据：`storywork.formForPrompt / planRowsForPrompt /
+     applyCoreProposal / applyOutlineProposal / applyPlanProposal` · `skillctl.context` 的
+     `workForm / structurePlan` · `skillapply` / `actions` 的 `proposePlanRows` · 新包
+     `structure-planner` · `story-development` v4 · `skillctl.applyProposal` 回执带 handler 说明。
+  2. **还没在真实项目上被人看过的** —— §7 四条，尤其第 1、2 条：形态进了提示词是自动化证明的，
+     模型真的按章说话、填出来的表读起来可用只有真项目看得见。
 - 起因：REQ-009 切片表的第三片；产品负责人 2026-09-18「对这些任务进行编排然后一个个完成」
   之后按里程碑闸排出的下一项。· 闸：**放行（第 ① 问：在当前里程碑交付面上）**。
 - 类型：Feature · 深度：**STANDARD**（U=STANDARD：「在小说语境下成立」写成三件可验的事
@@ -143,6 +151,16 @@ handler 的 `res.detail`，于是「丢弃引用」那句到不了他眼前（§
 （`test_no_two_candidates_in_one_capability_share_an_intent`）—— 借 `episode-structure`
 不行，所以加了 `structure-plan`；③ `skillctl` 的 `storywork` 是可选注入，旧测试装具不给它，
 新上下文键要判空。
+
+## 8. Merge Gate（2026-09-18，ADR-0085：依据是 Done 判定 + 最终全量）
+
+| 前置 | 证据 |
+| --- | --- |
+| Done 判定 | §5 验收 1–6 各有守卫；codex 轮 3 pass，0 finding |
+| 最终全量 | `09690a8`（python / 包 / 前端最后一次改动）提交闸门 **full 档 7 项检查**全过（两阶段 pytest + 全量前端 + ruff + doctor 等）；之后的 `d7f1695` 只改前端 controller + 测试 + 卡，frontend 档 5 项检查过，`node --test` **2356 pass / 0 fail** |
+| 待复审清单 | 0 条未闭合 |
+| 未闭合 P1 | 无 |
+| 分支形状 | `change/TASK-154-novel-steps` 基于 `main@6c627af`，一条直线，可 ff |
 
 ## 7. 还没在真实项目上被人看过的
 
