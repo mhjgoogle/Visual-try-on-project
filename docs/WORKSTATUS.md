@@ -21,7 +21,7 @@
 | [REQ-006](requirements/REQ-006-agent-can-do-what-the-creator-can-do.md) | ████████░░ 13/16 | TASK-114·TASK-115·TASK-116·TASK-117·TASK-118·TASK-120·TASK-121·TASK-122·TASK-125·TASK-126·TASK-127·TASK-129·TASK-130 | — | TASK-128·TASK-132·TASK-138 |
 | [REQ-007](requirements/REQ-007-say-it-and-the-right-capability-runs.md) | ██████████ 卡都做完了 | TASK-119·TASK-126 | — | — |
 | [REQ-008](requirements/REQ-008-images-from-my-own-account.md) | ██████████ 卡都做完了 | TASK-139 | — | — |
-| [REQ-009](requirements/REQ-009-write-the-novel-first-then-film-it.md) | █████░░░░░ 5/10 | TASK-146·TASK-152·TASK-153·TASK-154·TASK-155 | TASK-156 | TASK-040·TASK-074·TASK-106·TASK-132 |
+| [REQ-009](requirements/REQ-009-write-the-novel-first-then-film-it.md) | ██████░░░░ 6/10 | TASK-146·TASK-152·TASK-153·TASK-154·TASK-155·TASK-156 | — | TASK-040·TASK-074·TASK-106·TASK-132 |
 
 ## 没有任何卡引用的需求
 

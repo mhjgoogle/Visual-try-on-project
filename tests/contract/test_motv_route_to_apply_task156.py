@@ -63,10 +63,35 @@ def applier_js():
 
 
 def _apply_block(js: str, skill_id: str) -> str:
-    """`APPLY_TARGETS` 里这个能力那一段（够看清 can / target / label）。"""
+    """`APPLY_TARGETS` 里**这个能力自己**那一段。
+
+    切到它自己的收尾为止，**不按字数截**（codex 轮 2 的 NON_BLOCKING）：按 400 字截的话
+    切片会捎上后一条条目，于是把这一条改成 `can: false` 也照样能从**邻居**那里读到
+    `can: true` —— 一个红不了的守卫比没有守卫更糟。
+    """
     parts = js.split(f'"{skill_id}":')
     assert len(parts) > 1, f"{skill_id} 在 APPLY_TARGETS 里根本没有条目"
-    return parts[1][:400]
+    tail = parts[1]
+    end = tail.find("\n  }")
+    assert end > 0, f"{skill_id} 的条目切不出收尾 —— APPLY_TARGETS 的写法变了"
+    return tail[:end]
+
+
+def test_the_slice_cannot_borrow_a_neighbours_answer():
+    """守卫自己的守卫：切片必须停在这一条的收尾，不许读到下一条。
+
+    合成一份 `APPLY_TARGETS`：`a` 关着、紧跟着的 `b` 开着。按字数截会让 `a` 读到 `b` 的
+    `can: true`；按收尾切才会红。
+    """
+    js = (
+        "const APPLY_TARGETS = {\n"
+        '  "a": {\n    can: false,\n    reason: "这是诊断类",\n  },\n'
+        '  "b": {\n    can: true, target: "plan",\n  },\n};\n'
+    )
+    block = _apply_block(js, "a")
+    assert "can: false" in block
+    assert "can: true" not in block, "切片捎上了下一条 —— 这个守卫红不了"
+    assert "can: true" in _apply_block(js, "b")
 
 
 def test_the_capability_chosen_for_the_real_goal_can_be_written_back(

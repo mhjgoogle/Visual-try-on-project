@@ -1,6 +1,19 @@
 # TASK-156：命中更具体的那个词就该赢 —— 「请填充内容」在结构规划页落到了别的能力
 
-- 状态：进行中 · **实施中**（2026-09-18 开卡，同日开工）
+- 状态：完成 · **实现完成（2026-09-18，开卡当日）**。两个独立事实，分开写（AGENTS.md §1）：
+  1. **实现完成** —— §5 验收 1–6 各有守卫（§6 的表）；codex 两轮：轮 1 三条 BLOCKING 全修
+     （其中一条逼出了排序顺序本身的订正），轮 2 **四闸全 `PASS`、0 BLOCKING**，`VERDICT: pass`。
+     代码级证据：`server._conv_specificity` 与排序键 · `ADR-0106`（部分取代 ADR-0091 决策 2，
+     双向链接）· `tests/studio/test_motv_route_specificity_task156.py`（11）·
+     `tests/contract/test_motv_route_to_apply_task156.py`（3）。
+  2. **还没在真实项目上被人看过的** —— §7：他要在真实项目上再说一次「请填充内容」，
+     看结构规划表是否真的被填上（自动化只证到「选对能力」+「这个能力写得回那张表」）。
+
+> **轮 2 的 `GATE_CONSISTENCY: inconsistent` 是误报，按 codex-review-loop hard-stop (a) 记录
+> 反驳、不当成发现**：扫描区间里唯一的 `PARTIAL` 族词，是审查者散文里的
+> 「Explicit **partial** supersession is bidirectional」，而那一行的判词是 `PASS`
+> （`-match` 大小写不敏感、`-` 算词边界）。全文没有任何一条闸给出非 PASS 判词，
+> `BLOCKING: (none)`。同一族误报的第二次，已登记 [TASK-087 §5.38](TASK-087-followup-ledger.md)。
 - 起因：产品负责人 2026-09-18 在**真实项目**「照见未明」的结构规划页说「请填充内容」，
   界面回「好，我来填结构规划表……」，然后**表完全是空的**（他的原话：「说是写好了但是内容
   完全没有」）。· 闸：**放行（第 ① 问：在当前里程碑交付面上）** —— REQ-009 判据 3 说
@@ -98,10 +111,45 @@
 
 ## 6. 验证
 
-影响范围 = studio（resolver）。跑 `tests/studio` + `tests/contract`（路由不变量住那儿）。
+影响范围 = studio（resolver）+ contract（跨边界的那道缝）。
 
-（实施后填）
+**实测（2026-09-18）**：`pytest tests/studio tests/contract -n 8` **1034 passed / 16 skipped**
+（含 TASK-119 / 146 / 154 / 155 的全部路由不变量）· `ruff check .` 通过 ·
+`lifecycle_check` 0 finding（ADR 取代关系双向由它守）。
+
+验收 → 守卫：
+
+| §5 | 守卫 |
+| --- | --- |
+| 1 真实那条 goal → `structure-planner`（三种 form） | studio `test_the_real_goal_now_lands_on_the_structure_planner` + `test_the_two_candidates_really_were_tied_on_hit_count`（把「当初确实打平」的前提钉住） |
+| 2 泛问仍归泛能力 | studio `test_a_plain_story_request_still_goes_to_story_development`（3 条说法） |
+| 3 既有路由不变量不破 | TASK-119 / 146 / 154 / 155 全绿（1034 passed） |
+| 4 一个长命中赢过两个短命中 | studio `test_one_specific_hit_beats_two_generic_ones`（先钉 2 vs 1 的前提，再断言选中结构策划 —— 把键放回命中数之后就红） |
+| 5 零命中时行为与理由不变 | studio `test_with_no_hits_at_all_the_old_order_decides` · `test_specificity_only_speaks_when_it_has_a_hit` |
+| 6 选中的能力写得回那张表 | contract `test_the_capability_chosen_for_the_real_goal_can_be_written_back` · `test_every_capability_this_chain_added_has_a_write_back_path` · **`test_the_slice_cannot_borrow_a_neighbours_answer`**（守卫自己的守卫，见下） |
+
+轮 2 的 NON_BLOCKING（P3）**当场修了**（协议不为 P3 买轮，但一个红不了的守卫比没有守卫更糟）：
+`_apply_block` 原来按 400 字截，切片会捎上后一条条目 —— 把 `structure-planner` 改成
+`can: false` 也能从**邻居**读到 `can: true`。改成切到这一条自己的收尾，并加一条合成用例证明
+它现在真的会红。实测：改坏之后按收尾切 `can: true in block = False`，按 400 字截 `= True`。
 
 ## 7. 还没在真实项目上被人看过的
 
-（实施后填）
+**这是信息，不是闸门**（AGENTS.md §1）：
+
+1. **他在真实项目上再说一次「请填充内容」**，看结构规划表是否真的被填上 —— 自动化证到的是
+   「选对了能力」+「这个能力写得回那张表」+「提案按九列落进表」（后者在 TASK-154 的真
+   controller 测试里），但这三段在真实项目上串起来跑，只有他能看见。
+2. 那张表是**整表替换**（旧行进回收区、可拿回）：他现有的 12 行只填了 Unit No. 与 Scene，
+   替换后要确认回收区里拿得回来。
+3. 零关键词的说法（如只说「填一下」）仍然靠 priority 兜底 —— 页面不参与路由（TASK-087 §6.19）。
+
+## 8. Merge Gate（2026-09-18，ADR-0085：依据是 Done 判定 + 最终全量）
+
+| 前置 | 证据 |
+| --- | --- |
+| Done 判定 | §5 验收 1–6 各有守卫；codex 轮 2 四闸全 PASS、0 BLOCKING；`GATE_CONSISTENCY` 那行是已登记的散文误报（见卡头） |
+| 最终全量 | 提交闸门按归属跑 `pytest-targeted` 5 项检查全过；`tests/studio` + `tests/contract` **1034 passed**；`ruff check .` 全过；前端未动（本卡不碰 JS，唯一读 JS 的是 contract 那条只读断言） |
+| 待复审清单 | 0 条未闭合 |
+| 未闭合 P1 | 无（轮 2 的 P3 已当场修并自证会红） |
+| 分支形状 | `change/TASK-156-route-specificity` 基于 `main@6f5c8b4`，一条直线，可 ff |
