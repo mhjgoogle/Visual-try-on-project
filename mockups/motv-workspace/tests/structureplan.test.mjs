@@ -308,6 +308,10 @@ test("真 controller：剧集项目里跑结构策划 → 提案 → 应用，�
   assert.equal(said.length, 1, "handler 没被调到");
   assert.match(said[0], /已写进结构规划：2 行/);
   assert.match(said[0], /1 处大纲引用指向不存在的段落，已丢弃/, "丢掉的引用没说出来");
+  // **到他眼前的是 applyProposal 的回执**，不是 handler 私下那一句：controller 必须把
+  // handler 的说明带出来，否则丢掉的引用在屏幕上就是沉默（codex 轮 2）。
+  assert.match(applied.detail, /1 处大纲引用指向不存在的段落，已丢弃/, "回执里没有丢弃引用的说明");
+  assert.match(applied.detail, /已写进结构规划：2 行/);
   const rows = w.visiblePlanRows(k);
   assert.deepEqual(rows.map((r) => r.unitNo), ["1", "2"]);
   assert.deepEqual(rows[1].outlineRefs, [k.outline.nodes[1].id]);
@@ -327,6 +331,7 @@ test("真 controller：小说项目里跑 story-development → 提案 → 应�
   assert.equal(said.length, 1, "handler 没被调到");
   assert.match(said[0], /已写进故事大纲/);
   assert.match(said[0], /故事核心已更新（原来的核心已存为 v1）/);
+  assert.match(applied.detail, /故事核心已更新（原来的核心已存为 v1）/, "回执里没有核心那一句");
   assert.equal(k.core, OUTLINE_PROPOSAL.storyCore);
   assert.equal(k.outline.nodes[0].text, OUTLINE_PROPOSAL.storyCore);
   assert.equal(w.visibleVersions(k.finalized.core)[0].body, "他先写的一句想法");

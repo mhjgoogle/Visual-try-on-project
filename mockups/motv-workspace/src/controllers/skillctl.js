@@ -814,12 +814,22 @@ export function createSkillController({
       const done = [];
       const already = [];
       const failed = [];
+      // WHAT EACH HANDLER SAID. A handler's `detail` is the only place a partial
+      // truth about the landing lives — 「1 处大纲引用指向不存在的段落，已丢弃」、
+      // 「原来的核心已存为 v1」—— and this receipt is the only thing the creator
+      // reads. Counting actions and dropping their words turned that into silence
+      // (codex 2026-09-18 轮 2 / TASK-154 §5.4).
+      const notes = [];
       for (const act of plan.actions) {
         const res = dispatchAction(act, {
           skillRunId: run.runId,
           proposalId: skillrun.proposalIdOf(run),
         });
-        if (res.ok) { done.push(act.action); continue; }
+        if (res.ok) {
+          done.push(act.action);
+          if (typeof res.detail === "string" && res.detail.trim()) notes.push(res.detail.trim());
+          continue;
+        }
         if (res.satisfied) { already.push(act.action); continue; }
         failed.push(`${act.action}：${res.error}`);
       }
@@ -828,6 +838,7 @@ export function createSkillController({
       }
       const parts = [];
       if (done.length) parts.push(`${done.length} 项已应用（${[...new Set(done)].join("、")}）`);
+      parts.push(...notes);
       if (already.length) parts.push(`${already.length} 项本来就已满足`);
       // WHAT THE PLAN REFUSED TO CARRY, said out loud. `planApply` drops entries it
       // cannot map onto a real field of the target document — a `world-director`

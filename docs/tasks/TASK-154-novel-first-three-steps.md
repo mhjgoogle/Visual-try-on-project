@@ -132,6 +132,12 @@
 | schema `maxItems: 60` 与 `planned ≤ 500` 冲突 | 60 → 500 |
 | 测试的 `dispatchAction` 只回 `ok:true`，证不了核心 / 大纲 / 表真的落地 | 落地逻辑搬进 `storywork.applyOutlineProposal` 等（`app.js` handler 剩三行），测试的 dispatch 真调它们；补 4 条：大纲提案落地（核心 + 大纲 + 两处存一版）· 丢弃引用的提示 · 真 controller 剧集结构表 · 真 controller 小说大纲与核心 |
 
+轮 2 **fail**（新机理，买它自己的一轮）：`skillctl.applyProposal` 只数 action、丢掉每个
+handler 的 `res.detail`，于是「丢弃引用」那句到不了他眼前（§5.4 `PARTIAL`）。修：成功分支把
+`detail` 收进回执；两条真 controller 测试改为断言 `applyProposal` 的回执本身。这是**既有**的
+回执路径漏洞（对所有能力都成立：任何 handler 的说明都被吞），本卡顺路补上，因为它正是
+§5.4 的那半句。
+
 实施中撞到、值得记的：① `internalRouting.intent` 是**闭集**（`skillpkg._ROUTING_INTENTS`），
 新意图要先进词表，否则整个包静默不加载；② 同一 facade 下两个包**不得共用 intent**
 （`test_no_two_candidates_in_one_capability_share_an_intent`）—— 借 `episode-structure`
