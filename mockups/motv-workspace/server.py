@@ -3740,6 +3740,22 @@ def _conv_hits(goal: str, words) -> int:
     return sum(1 for w in words if w and w in text)
 
 
+def _conv_specificity(goal: str, words) -> int:
+    """命中词里**最长**的那个有多长 —— 「这个能力对这件事的主张有多具体」（TASK-156）。
+
+    2026-09-18 真实项目实测：他在结构规划页说「请填充内容」，模型把 goal 写成
+    「把**结构规划表**的 12 行按**故事大纲**和人物设定填上」。`story-development` 命中
+    「故事、大纲」两个词，`structure-planner` 命中「结构规划、规划表」两个词 ——
+    **命中数打平**，于是落到 priority（80 > 75），跑的是开发故事，结构规划表一个字没有。
+
+    机理：他的话里既有**对象**（结构规划表）也有**输入材料**（故事大纲），而排序把
+    「点到了输入的名字」和「点到了对象的名字」当成了同等证据。更长的命中词是更具体的
+    主张，所以它排在 priority 之上、命中数之下 —— 靠命中数分出胜负的既有选择一条不动。
+    """
+    text = goal or ""
+    return max((len(w) for w in words if w and w in text), default=0)
+
+
 #: 「改已有的」与「从头写一份」用的是同一批名词（剧本、大纲、分集），靠关键词分不开
 #: —— 「帮我改一下这一集的剧本」和「写这一集的剧本」命中的是同一个词。
 #:
@@ -3880,16 +3896,20 @@ def _conv_resolve(
                 1 if (scope and row["scope"] == scope) else 0,
                 0 if need else 1,
                 hits,
+                # 同样多的命中词里，**命中得更具体**的那个赢（TASK-156）。在 priority
+                # 之上、命中数之下：靠命中数已分出胜负的既有选择一条不动，而一个更具体的
+                # 命中不再被一个泛能力的高 priority 压过去。
+                _conv_specificity(goal, row["selectWhen"]),
                 row["priority"],
                 row,
                 need,
             )
         )
     scored.sort(
-        key=lambda t: (-t[0], -t[1], -t[2], -t[3], -t[4], -t[5], t[6]["skillId"])
+        key=lambda t: (-t[0], -t[1], -t[2], -t[3], -t[4], -t[5], -t[6], t[7]["skillId"])
     )
     best = scored[0]
-    row, need = best[6], best[7]
+    row, need = best[7], best[8]
     labels = _skill_input_labels()
     missing = ["选中的镜头" if k == "__shot__" else (labels.get(k) or k) for k in need]
     # 为什么选它 —— 逐条对应上面的排序键，所以「它怎么选中这个的」可以被复核，

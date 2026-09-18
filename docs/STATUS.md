@@ -24,7 +24,7 @@
 
 卡头状态行只有三个词：`待办` 没人在做 · `进行中` 在办 · `完成` 已完成。
 
-**当前**：1 在办 · 12 待办 · 140 已完成 · 89 条 ADR。
+**当前**：2 在办 · 12 待办 · 140 已完成 · 89 条 ADR。
 
 **找在办的任务**：本文件的「进行中 · 任务卡」一节，或
 `python .claude/tools/agent_harness.py resume`，加上
@@ -76,7 +76,7 @@
 | [REQ-006](requirements/REQ-006-agent-can-do-what-the-creator-can-do.md) | REQ-006：对话里的 Agent 能做创作者能做的事，并且能把意见带回给开发 | CONFIRMED | — |
 | [REQ-007](requirements/REQ-007-say-it-and-the-right-capability-runs.md) | REQ-007：他说一句话，对的那个专业能力就跑起来 | CONFIRMED | — |
 | [REQ-008](requirements/REQ-008-images-from-my-own-account.md) | REQ-008：用我自己的账号自动出图，不要按次计费的 API | CONFIRMED | — |
-| [REQ-009](requirements/REQ-009-write-the-novel-first-then-film-it.md) | REQ-009：先把小说写出来，再把它拍成片 | CONFIRMED | — |
+| [REQ-009](requirements/REQ-009-write-the-novel-first-then-film-it.md) | REQ-009：先把小说写出来，再把它拍成片 | CONFIRMED | TASK-156 |
 
 ### Deferred
 
@@ -117,6 +117,7 @@
 | 文档 | 标题 | 状态行（首句） |
 | --- | --- | --- |
 | [TASK-087-followup-ledger.md](tasks/TASK-087-followup-ledger.md) | TASK-087：Follow-up 总账 —— 把散在九张卡里的欠账收成一处 | 进行中 · 活账（不是一次性交付 |
+| [TASK-156-route-picks-the-more-specific-keyword.md](tasks/TASK-156-route-picks-the-more-specific-keyword.md) | TASK-156：命中更具体的那个词就该赢 —— 「请填充内容」在结构规划页落到了别的能力 | 进行中 · 实施中（2026-09-18 开卡，同日开工） |
 
 ## 待办 · 任务卡
 
