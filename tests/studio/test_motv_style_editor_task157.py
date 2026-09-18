@@ -117,7 +117,10 @@ def test_every_edit_gets_an_explanation(catalog):
     )
     changes = schema["fields"]["changes"]
     assert changes["minItems"] == 1
-    assert changes["maxItems"] >= 60, "上限不得低到逼它漏报改动"
+    assert "maxItems" not in changes, (
+        "任何上限都会在改动足够多时把他逼进死角："
+        "列全了被 schema 拒掉，列不全又违反判据 2（codex 轮 2）"
+    )
 
 
 # --- 1. 改 vs 写 ---------------------------------------------------------------- #
