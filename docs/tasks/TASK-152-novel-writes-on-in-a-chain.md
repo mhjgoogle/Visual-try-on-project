@@ -165,6 +165,18 @@ tests/contract` **988 passed / 16 skipped**（+21：`test_motv_novel_chain_task1
 与单章路径一致），之后被别的提案覆盖时先存一版（note 含「覆盖前」），恢复后正文与连写
 落下的一字不差；且那次运行有 `proposalId` 可指认。`novelchain.test.mjs` 22 条全绿。
 
+## 8. Merge Gate（2026-09-18，ADR-0085：依据是 Done 判定 + 最终全量）
+
+| 前置 | 证据 |
+| --- | --- |
+| Done 判定 | §5 验收 1–7 各有守卫（§6 表）；codex 两轮，轮 2 判据全 `PASS`、架构全 `PASS`、0 BLOCKING 代码缺陷，剩项按协议补证收口 |
+| 最终全量 | 树 `ad33672`（代码最后一次改动）：pytest 并行 **4283 passed / 60 skipped**（8:34）· 串行 **6 passed** · `ruff check .` 全过；`4a1a3d1`（只加测试与文档）上前端全量 **2340 pass / 0 fail**、提交闸门 frontend 档 5 项检查过 |
+| 待复审清单 | `docs/design/active/pending-codex-rereview.md` 待复审表 0 条未闭合 |
+| 未闭合 P1 | 无 |
+| 分支形状 | `change/TASK-152-novel-chain` 基于 `main@f8aa842`，一条直线，可 ff |
+
+依据不是用户原话，是上面这些都成立；Gate 绑在 `4a1a3d1` 之后的收口提交 tip 上。
+
 ## 7. 还没在真实项目上被人看过的
 
 **这是信息，不是闸门**（AGENTS.md §1）：
