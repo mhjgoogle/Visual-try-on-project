@@ -37,8 +37,10 @@ function novelWork({ planned = 12 } = {}) {
 
 // --- 1. 喂给能力的形态与当前表 ------------------------------------------------ //
 
-test("作品形态：小说按章、剧集按集，没选就是 null", () => {
+test("作品形态：小说按章、剧集按集，没选就是 null；Planned 没定时 planned 是 null 不是 0", () => {
   assert.deepEqual(w.formForPrompt(novelWork({ planned: 12 })), { form: "novel", word: "章", planned: 12 });
+  // 0 会让模型照字面规划零行（codex 轮 1）—— 没定就是 null，提示词按故事量取
+  assert.deepEqual(w.formForPrompt(novelWork({ planned: 0 })), { form: "novel", word: "章", planned: null });
   const ep = w.createWork(null);
   w.setForm(ep, "episode");
   w.setPlanned(ep, "episode", 8);
@@ -91,6 +93,57 @@ test("空的核心提案不落，也不动他的核心", () => {
   }
   assert.equal(k.core, "他的核心");
   assert.equal(w.visibleVersions(k.finalized.core).length, 0);
+});
+
+// --- 2b. 一份大纲提案落地：大纲照旧、核心多一个家（§5.2） ----------------------- //
+
+const OUTLINE_PROPOSAL = {
+  storyCore: "被世界抹除的人并没有消失",
+  protagonist: { who: "林深", initialWant: "找到失踪的妹妹" },
+  conflict: { external: "港务局封锁海域", internal: "他不敢相信自己看到的" },
+  worldAndRules: { where: "一座会说话的海底城市", rules: ["城市只对愿意留下的人开口"] },
+  keyRelationships: [],
+  mainline: { setup: "考古队出港", development: "下潜与接触", midpointTurn: "城市开口", climax: "留下还是回去", ending: "他带着答案上岸" },
+  secretsAndReveals: [{ truth: "妹妹在城里", whyNotUpfront: "太早说就没有悬念", revealAround: "第 7 章前后" }],
+  themeAndChange: { theme: "记住就是存在", protagonistBecomes: "一个敢于留下的人" },
+};
+
+test("大纲提案落地：大纲按段进编辑器，核心同时落进自己的家；两处都先存一版", () => {
+  const k = novelWork();
+  k.core = "他自己写的核心";
+  w.setOutline(k, "他自己写的旧大纲");
+  const res = w.applyOutlineProposal(k, OUTLINE_PROPOSAL, "T1");
+  assert.equal(res.ok, true, res.error);
+  assert.ok(res.nodes >= 6, `大纲段数不对：${res.nodes}`);
+  assert.equal(k.core, "被世界抹除的人并没有消失", "核心没落进自己的家");
+  assert.equal(k.outline.nodes[0].text, "被世界抹除的人并没有消失", "大纲第一段仍是核心那一句（§N 不错位）");
+  assert.ok(res.keptOutline && res.keptOutline.body === "他自己写的旧大纲", "旧大纲没存一版");
+  assert.ok(res.core && res.core.kept && res.core.kept.body === "他自己写的核心", "旧核心没存一版");
+  const said = w.describeOutlineApply(res);
+  assert.match(said, /已写进故事大纲：\d+ 段/);
+  assert.match(said, /故事核心已更新（原来的核心已存为 v1）/);
+});
+
+test("没有可写内容的提案拒绝，一处都不动", () => {
+  const k = novelWork();
+  k.core = "核心";
+  for (const p of [null, {}, { notes: "x" }]) {
+    assert.equal(w.applyOutlineProposal(k, p, "T").ok, false, JSON.stringify(p));
+  }
+  assert.equal(k.core, "核心");
+  assert.equal(k.outline.nodes.length, 0);
+});
+
+test("屏幕上那句话必须说出丢掉的引用（§5.4）", () => {
+  const k = novelWork();
+  w.setOutline(k, "一段");
+  const mine = w.addPlanRow(k, "T0");
+  w.editPlanRow(k, mine.id, "scene", "他的行");
+  const res = w.applyPlanProposal(k, [{ ...PROPOSED[0], outlineRefs: [1, 5] }], "T1");
+  const said = w.describePlanApply(res);
+  assert.match(said, /已写进结构规划：1 行/);
+  assert.match(said, /原来的 1 行已进回收区并存为 v1/);
+  assert.match(said, /1 处大纲引用指向不存在的段落，已丢弃/);
 });
 
 // --- 3. 结构规划整表替换 ------------------------------------------------------ //
@@ -176,7 +229,10 @@ test("结构策划的提案翻译成 proposePlanRows；空表拒绝；能力是�
 
 // --- 5. 真 controller：形态与当前表真的进了提示词 -------------------------------- //
 
-function realController(k) {
+/** 真 controller。`answer` 给了就是一个「只会回这份 JSON」的假执行器；`dispatchAction`
+ *  做 `app.js` 那一端做的事 —— 按 action 把提案落进 `storywork`，所以这里证的是
+ *  「运行 → 提案 → 应用 → 落地」整条路，不只是上下文进了提示词。 */
+function realController(k, { answer = null, said = [] } = {}) {
   const story = storydoc.createStory(null);
   story.work = k;
   const state = {
@@ -185,24 +241,96 @@ function realController(k) {
     script: scriptdoc.createDoc(null),
     registry: { images: {}, videos: {}, audio: {}, finals: [], firstFrames: {} },
   };
+  // 登记表要是**同一个**数组：每次给一个新的空数组，运行落地时就找不到自己那条记录
+  const runs = [];
   return createSkillController({
     docs: {
-      runs: () => [],
+      runs: () => runs,
       production: () => state.production, story: () => state.story, script: () => state.script,
       registry: () => state.registry,
       refInterp: () => ({}), timelines: () => ({}), shotAudio: () => ({}), subtitles: () => ({}), generations: () => [],
     },
     catalog: { detail: () => null, problems: () => [] },
-    modules: { skills, runtime: { EXECUTOR_BY_ID: new Map() }, skillrun, skillapply, shotctx, proddoc, storydoc, scriptdoc, assetreg, refinterp, timeline, subtitle, mediaref, storywork: w },
+    modules: {
+      skills, skillrun, skillapply, shotctx, proddoc, storydoc, scriptdoc, assetreg, refinterp, timeline, subtitle, mediaref,
+      storywork: w,
+      runtime: {
+        EXECUTOR_BY_ID: new Map([["claude-code", { id: "claude-code", runtime: "local_subscription" }]]),
+        runOnExecutor: async () => ({ ok: true, text: JSON.stringify(answer), model: "fake" }),
+      },
+    },
     findShot: () => null, slotOf: () => null, isLocked: () => false,
     shotAudio: { resolved: () => [], anchors: () => ({}) },
     shotCtx: { build: () => ({ context: null }), candidates: () => ({ candidates: [] }) },
     draftShots: () => [],
-    dispatchAction: () => ({ ok: true }),
+    // `app.js` 那两个 handler 各自只有三行：调 storywork、persist、重绘。这里做的就是那一行。
+    dispatchAction: (act) => {
+      const at = "2026-09-18T00:00:01Z";
+      let r = null;
+      let detail = "";
+      if (act.action === "proposeOutline") {
+        r = w.applyOutlineProposal(k, act.proposal, at);
+        detail = w.describeOutlineApply(r);
+      } else if (act.action === "proposePlanRows") {
+        r = w.applyPlanProposal(k, act.rows, at);
+        detail = w.describePlanApply(r);
+      } else {
+        return { ok: false, error: `没接线：${act.action}` };
+      }
+      if (!r.ok) return { ok: false, error: r.error };
+      said.push(detail); // handler 对他说的那句话（controller 自己的回执只数「几项已应用」）
+      return { ok: true, detail };
+    },
     persist: () => {}, refresh: () => {},
     now: () => "2026-09-18T00:00:00Z",
   });
 }
+
+test("真 controller：剧集项目里跑结构策划 → 提案 → 应用，九列按集落进表（§5.6）", async () => {
+  installBuiltinCatalog(skills);
+  const k = w.createWork(null);
+  w.setForm(k, "episode");
+  w.setPlanned(k, "episode", 2);
+  w.setOutline(k, "开端\n\n高潮");
+  const said = [];
+  const ctl = realController(k, {
+    said,
+    answer: { rows: [
+      { unitNo: 1, scene: "港口", purpose: "出发", characters: "林深", goal: "拿到许可", conflict: "拒签", turn: "亮证件", endingState: "出港", outlineRefs: [1] },
+      { unitNo: 2, scene: "深海", purpose: "接触", characters: "林深", goal: "定位", conflict: "氧气", turn: "城市开口", endingState: "答应回去", outlineRefs: [2, 7] },
+    ] },
+  });
+  assert.match(ctl.prompt("structure-planner"), /"form": "episode"/, "剧集项目没把形态报成集");
+  const run = await ctl.run("structure-planner", { executor: "claude-code" });
+  assert.equal(run.ok, true, run.error);
+  const applied = ctl.applyProposal(run.run.runId);
+  assert.equal(applied.ok, true, applied.error);
+  assert.equal(said.length, 1, "handler 没被调到");
+  assert.match(said[0], /已写进结构规划：2 行/);
+  assert.match(said[0], /1 处大纲引用指向不存在的段落，已丢弃/, "丢掉的引用没说出来");
+  const rows = w.visiblePlanRows(k);
+  assert.deepEqual(rows.map((r) => r.unitNo), ["1", "2"]);
+  assert.deepEqual(rows[1].outlineRefs, [k.outline.nodes[1].id]);
+  assert.ok(skillrun.isAccepted(skillrun.findRun(ctl.runs(), run.run.runId)), "应用过的运行要是 accepted");
+});
+
+test("真 controller：小说项目里跑 story-development → 提案 → 应用，大纲与核心都落地（§5.2）", async () => {
+  installBuiltinCatalog(skills);
+  const k = novelWork({ planned: 12 });
+  k.core = "他先写的一句想法";
+  const said = [];
+  const ctl = realController(k, { answer: OUTLINE_PROPOSAL, said });
+  const run = await ctl.run("story-development", { executor: "claude-code" });
+  assert.equal(run.ok, true, run.error);
+  const applied = ctl.applyProposal(run.run.runId);
+  assert.equal(applied.ok, true, applied.error);
+  assert.equal(said.length, 1, "handler 没被调到");
+  assert.match(said[0], /已写进故事大纲/);
+  assert.match(said[0], /故事核心已更新（原来的核心已存为 v1）/);
+  assert.equal(k.core, OUTLINE_PROPOSAL.storyCore);
+  assert.equal(k.outline.nodes[0].text, OUTLINE_PROPOSAL.storyCore);
+  assert.equal(w.visibleVersions(k.finalized.core)[0].body, "他先写的一句想法");
+});
 
 test("真 controller：小说项目里 story-development 的提示词带着「作品形态：小说 / 按章」", () => {
   installBuiltinCatalog(skills);
@@ -214,7 +342,13 @@ test("真 controller：小说项目里 story-development 的提示词带着「�
   assert.ok(prompt.includes('<数据 键="workForm">'), "workForm 没进提示词");
   assert.match(prompt, /"form": "novel"/);
   assert.match(prompt, /"planned": 12/);
-  assert.ok(!skills.findSkill("story-development").instruction.includes("短剧编剧"), "小说项目仍会被当成短剧来发展");
+  const instruction = skills.findSkill("story-development").instruction;
+  assert.ok(!instruction.includes("短剧编剧"), "小说项目仍会被当成短剧来发展");
+  // 无条件句一律形态中立（codex 轮 1）：只按集写的举例会让小说项目拿到互相矛盾的用语
+  for (const episodeOnly of ["例如「第 7 集前后」", "（目标集数）", "（单集时长方向）"]) {
+    assert.ok(!instruction.includes(episodeOnly), `仍有只按集写的无条件句：${episodeOnly}`);
+  }
+  assert.ok(instruction.includes("第 7 章前后"), "举例没有小说那一半");
   // 缺形态时那一块不出现 —— 与旧端点的缺省一致
   const bare = realController(w.createWork(null));
   assert.ok(!bare.prompt("story-development").includes('<数据 键="workForm">'), "没选形态却带了一块");

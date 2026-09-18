@@ -966,41 +966,9 @@ function demoEpisodePlan(doc) {
  *
  *  在这之前 `proposeOutline` 根本没有接线，能力跑完只会说「尚未接线」——产品负责人
  *  2026-08-30 因此看到「已完成」但故事大纲still是空的。 */
-/** 提案里那一句故事核心（TASK-154）。与 `outlineProposalText` 取的是同一句，
- *  旧字段名照旧兜着（TASK-089：premise / logline 并进 storyCore，但仍读得到）。 */
-function storyProposalCore(proposal) {
-  if (!proposal || typeof proposal !== "object") return "";
-  const line = (v) => (typeof v === "string" ? v.trim() : "");
-  return line(proposal.storyCore) || line(proposal.premise) || line(proposal.logline);
-}
-
-function outlineProposalText(proposal) {
-  if (!proposal || typeof proposal !== "object") return "";
-  const line = (v) => (typeof v === "string" ? v.trim() : "");
-  const parts = [];
-  const core = line(proposal.storyCore) || line(proposal.premise) || line(proposal.logline);
-  if (core) parts.push(core);
-  const ml = proposal.mainline && typeof proposal.mainline === "object" ? proposal.mainline : {};
-  for (const [key, label] of [
-    ["setup", "开端"],
-    ["development", "发展"],
-    ["midpointTurn", "中段转折"],
-    ["climax", "高潮"],
-    ["ending", "结局"],
-  ]) {
-    if (line(ml[key])) parts.push(`${label}：${line(ml[key])}`);
-  }
-  const reveals = Array.isArray(proposal.secretsAndReveals) ? proposal.secretsAndReveals : [];
-  const revealLines = reveals
-    .map((r) => (r && typeof r === "object"
-      ? [line(r.truth), line(r.revealAround)].filter(Boolean).join(" · ")
-      : line(r)))
-    .filter(Boolean);
-  if (revealLines.length) {
-    parts.push(["信息揭示顺序：", ...revealLines.map((s) => `- ${s}`)].join("\n"));
-  }
-  return parts.join("\n\n");
-}
+//
+//  翻译本身住在 `storywork.outlineProposalText`（TASK-154 搬过去的，好让落地那一整步
+//  `applyOutlineProposal` 有行为测试）；这里只剩 `proposeOutline` 那个 handler 调它。
 
 // Run an AI story-development pass (outline or plan) — proposals only; the
 // creator applies/discards in the story workspace (M9).
@@ -4096,43 +4064,20 @@ const ctx = {
           return bool(ctx.canon.swapDirection(a.relationshipId), "这段关系不存在");
         case "proposeOutline": {
           // 写进他**正在看的那一页**（`story.work.outline`）。旧的大纲版本链一条不动。
-          const text = outlineProposalText(a.proposal);
-          if (!text.trim()) {
-            return { ok: false, error: "这份大纲提案里没有可写进编辑器的内容" };
-          }
-          // **不静默覆盖**（第 13 条）：接受提案是整篇替换，不是日常打字 ——
-          // 他今天写了、还没点定稿的大纲会被一次盖掉，而 `setOutline` 不留版本
-          //（它不该留：日常编辑不产生历史是产品规格）。所以存档发生在**这个边界**上。
           //
-          // 同一个文件里的 `proposeScript` 早就是这么做的，`proposeOutline` 漏了
-          //（codex 补审 2026-09-05 块 2b）。两条路现在形状一致。
-          const at = new Date().toISOString();
-          let kept = "";
-          const had = storywork.outlineText(storyDoc.work);
-          if (had.trim()) {
-            const rec = storywork.finalizeDoc(
-              storyDoc.work,
-              "outline",
-              at,
-              "被 AI 大纲覆盖前自动存的一版",
-            );
-            kept = rec ? `（原来的 ${had.length} 字已存为 v${rec.v}）` : "";
-          }
-          const nodes = storywork.setOutline(storyDoc.work, text);
+          // **不静默覆盖**（第 13 条）：接受提案是整篇替换，不是日常打字 —— 他今天写了、
+          // 还没点定稿的大纲会被一次盖掉，而 `setOutline` 不留版本（它不该留：日常编辑
+          // 不产生历史是产品规格）。所以存档发生在**这个边界**上，与 `proposeScript` 同形
+          //（codex 补审 2026-09-05 块 2b）。
+          //
           // 故事核心有自己的家（TASK-154 / REQ-009 判据 3）：那一句 `storyCore` 除了照旧
-          // 作为大纲第一段，还写进「故事核心」页。他写过的核心先存一版。**不**从大纲里抽掉
-          // 那一段：结构规划的 §N 按段计数，抽掉第一段会让既有引用集体错位。
-          const coreRes = storywork.applyCoreProposal(
-            storyDoc.work,
-            storyProposalCore(a.proposal),
-            at,
-          );
-          const coreNote = coreRes.ok
-            ? `；故事核心已更新${coreRes.kept ? `（原来的核心已存为 v${coreRes.kept.v}）` : ""}`
-            : "";
+          // 作为大纲第一段，还写进「故事核心」页，他写过的核心先存一版。三件事在
+          // `applyOutlineProposal` 里一起完成（有测试），这里只剩持久化与重绘。
+          const res = storywork.applyOutlineProposal(storyDoc.work, a.proposal, new Date().toISOString());
+          if (!res.ok) return { ok: false, error: res.error };
           ctx.persist();
           refreshProductionView();
-          return { ok: true, detail: `已写进故事大纲：${nodes.length} 段${kept}${coreNote}` };
+          return { ok: true, detail: storywork.describeOutlineApply(res) };
         }
         case "proposePlanRows": {
           // 结构规划表整表替换（TASK-154）。选落点、存一版、软删旧行、解析 §N、进表 ——
@@ -4141,10 +4086,7 @@ const ctx = {
           if (!res.ok) return { ok: false, error: res.error };
           ctx.persist();
           refreshProductionView();
-          const bits = [`已写进结构规划：${res.added} 行`];
-          if (res.retired) bits.push(`原来的 ${res.retired} 行已进回收区${res.kept ? `并存为 v${res.kept.v}` : ""}`);
-          if (res.droppedRefs) bits.push(`${res.droppedRefs} 处大纲引用指向不存在的段落，已丢弃`);
-          return { ok: true, detail: bits.join("；") };
+          return { ok: true, detail: storywork.describePlanApply(res) };
         }
         case "proposeScript": {
           // 写进「正文创作」的那一章/集（TASK-122）。与 `proposeOutline` 同一天补上：

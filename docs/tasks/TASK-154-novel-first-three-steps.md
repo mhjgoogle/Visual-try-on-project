@@ -87,8 +87,12 @@
 
 ## 5. 验收（对应 REQ-009 判据 3）
 
-1. 小说项目里 `story-development` 的提示词含「作品形态：小说 / 按章」，不含「短剧」「集」的
-   用语；剧集项目里仍按集。
+1. 小说项目里 `story-development` 的提示词带着「作品形态：小说 / 按章 / 章数」那一块数据，
+   指令给出小说分支（按章、`episodeCount` 表示章数、`revealAround` 写第几章）；指令正文
+   不再自称短剧编剧，凡举例都按形态写两种（「第 7 章前后」或「第 7 集前后」），没有只按集
+   写的无条件句。（**订正**，codex 轮 1：原写「不含『集』的用语」—— 一个包一份指令，
+   两个分支必然都在文本里；能做到的是无条件句一律形态中立，分支各说各的。）
+   剧集项目里仍按集。
 2. `proposeOutline` 落地：`work.core` = `storyCore`，他的原核心先存成一版且可恢复；大纲照旧
    落进 `work.outline`。
 3. 小说项目说「帮我做结构规划」→ resolver 选中 `structure-planner`；「分几集、每集讲什么」
@@ -112,12 +116,21 @@
 | §5 | 守卫 |
 | --- | --- |
 | 1 小说项目的提示词带「作品形态：小说 / 按章」，正文不再自称短剧 | studio `test_the_novel_form_reaches_the_compiled_prompt` · 前端「真 controller：小说项目里 story-development 的提示词带着…」（看的是 `<数据 键="workForm">` 数据块；没选形态时那一块不出现 —— 与旧端点缺省一致） |
-| 2 `storyCore` 落进 `work.core`，原稿先存一版可恢复；大纲照旧 | 前端「核心提案写进 work.core…恢复得回去」「空的核心提案不落」；`app.js` 的 `proposeOutline` 调 `applyCoreProposal`（DOM 侧，见 §7） |
+| 2 `storyCore` 落进 `work.core`，原稿先存一版可恢复；大纲照旧 | 前端「核心提案写进 work.core…恢复得回去」「空的核心提案不落」「大纲提案落地：大纲按段进编辑器，核心同时落进自己的家；两处都先存一版」「真 controller：小说项目里跑 story-development → 提案 → 应用…」；`app.js` 的 `proposeOutline` 只剩调 `applyOutlineProposal` + persist + 重绘 |
 | 3 「帮我做结构规划」→ `structure-planner`；「分几集、每集讲什么」仍 → `episode-planner` | studio `test_structure_planning_lands_on_the_structure_planner`（3 说法 × 3 形态）· `test_episode_splitting_still_goes_to_the_episode_planner` · TASK-119 全部仍绿 |
 | 4 九列进表、`§N` 解析、越界丢并说出、旧行存一版进回收区可拿回 | 前端「九列一行不少地进表…」「他手填的行先存一版并进回收区…」 |
 | 5 空表拒绝 | 前端「一行都没有的提案拒绝」「结构策划的提案翻译成 proposePlanRows；空表拒绝」 |
 | 6 剧集项目走同一条路 | studio 参数化 `form=episode/""` 三说法全中；`formForPrompt` 剧集 → 集 |
 | 加载 | studio `test_the_structure_planner_loads…`（`selectWhen` ≤ 6、intent 在词表里 —— 两条实施中都撞过一次） |
+
+独立审查（codex，真 codex）：轮 1 **fail** —— §5.1 `FAIL`、三条 `NOT_EVIDENCED`、4 条 BLOCKING，全部成立、全部修了：
+
+| 轮 1 报的 | 处置 |
+| --- | --- |
+| §5.1 写「不含『集』的用语」，而指令里两个分支都在，且三处无条件句只按集写 | 判据订正（一个包一份指令；能做到的是无条件句形态中立）；三处改中立：「第 7 章前后」或「第 7 集前后」/ 规模：小说是章数、剧集是集数 / 单章篇幅 · 单集时长；两侧守卫断言旧写法不在 |
+| `formForPrompt` 在 Planned 没定时给 `planned: 0`，提示词照字面会规划零行而 schema 至少一行 | 没定 → `null`；提示词「正整数就取它；为空按故事量取；至少一行」；守卫一条 |
+| schema `maxItems: 60` 与 `planned ≤ 500` 冲突 | 60 → 500 |
+| 测试的 `dispatchAction` 只回 `ok:true`，证不了核心 / 大纲 / 表真的落地 | 落地逻辑搬进 `storywork.applyOutlineProposal` 等（`app.js` handler 剩三行），测试的 dispatch 真调它们；补 4 条：大纲提案落地（核心 + 大纲 + 两处存一版）· 丢弃引用的提示 · 真 controller 剧集结构表 · 真 controller 小说大纲与核心 |
 
 实施中撞到、值得记的：① `internalRouting.intent` 是**闭集**（`skillpkg._ROUTING_INTENTS`），
 新意图要先进词表，否则整个包静默不加载；② 同一 facade 下两个包**不得共用 intent**

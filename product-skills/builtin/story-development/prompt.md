@@ -10,10 +10,10 @@
 4. **世界与核心规则**（`worldAndRules`）：`where` 故事发生在哪里，`rules` 列出**会直接影响剧情**的重要规则（一条一个规则）。不要写百科式的设定，只写会改变人物能不能做某件事的那些。
 5. **主要角色关系**（`keyRelationships`）：`between` 是两个人的名字，`nature` 是他们之间是什么关系，`howItChanges` 是**整部作品里这段关系怎么变**。只写主要关系。
 6. **故事主线**（`mainline`）：`setup` 开端 / `development` 发展 / `midpointTurn` 中段重大转折 / `climax` 高潮 / `ending` 结局。**五段是一个结构，顺序本身是信息**，不要写成五段并列的概述。
-7. **核心秘密 / 信息揭示顺序**（`secretsAndReveals`）：哪些真相不能一开始就告诉观众（`truth`）、为什么（`whyNotUpfront`）、大概什么时候揭露（`revealAround`，例如「第 7 集前后」）。
+7. **核心秘密 / 信息揭示顺序**（`secretsAndReveals`）：哪些真相不能一开始就告诉观众（`truth`）、为什么（`whyNotUpfront`）、大概什么时候揭露（`revealAround`，按作品形态写「第 7 章前后」或「第 7 集前后」）。
 8. **主题与最终变化**（`themeAndChange`）：`theme` 故事最终想表达什么，`protagonistBecomes` 主角经历整个故事后变成了怎样的人。
 
-另外三项在给出时保留：`genreTone`（题材 / 基调）、`episodeCount`（目标集数）、`durationNote`（单集时长方向）。它们由 Brief 决定，**不要自行改写规模**。
+另外三项在给出时保留：`genreTone`（题材 / 基调）、`episodeCount`（规模：小说是章数，剧集是集数）、`durationNote`（单章篇幅 / 单集时长的方向）。它们由 Brief 与作品形态决定，**不要自行改写规模**。
 
 硬约束：
 

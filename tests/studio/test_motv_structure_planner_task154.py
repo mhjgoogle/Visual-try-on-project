@@ -92,6 +92,10 @@ def test_the_novel_form_reaches_the_compiled_prompt(catalog, labels):
     assert '"form": "novel"' in prompt
     assert "短剧编剧" not in skill.instruction, "小说项目仍会被当成短剧来发展"
     assert "按**章**" in skill.instruction or "按章" in skill.instruction
+    # 无条件句一律形态中立（codex 轮 1）：只按集写的举例会让小说项目拿到互相矛盾的用语
+    for episode_only in ("例如「第 7 集前后」", "（目标集数）", "（单集时长方向）"):
+        assert episode_only not in skill.instruction, episode_only
+    assert "第 7 章前后" in skill.instruction
 
 
 def test_without_a_form_the_prompt_has_no_form_block(catalog, labels):

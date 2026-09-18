@@ -1,7 +1,9 @@
 # TASK-153：`test_motv_conversation_task109.py` 在 `-n 8` 并行下偶发红 —— 两天两条
 
-- 状态：待办 · **未开始**（2026-09-18 立卡；按 [TASK-087 §6.17](TASK-087-followup-ledger.md)
-  「再红一次就立卡」立的）
+- 状态：进行中 · **第三次红了，放行条件成立，开工**（2026-09-18 立卡；同日 CI `main@6c627af`
+  Windows job 的并行阶段第三条测试 `test_a_malformed_answer_reaches_the_creator_as_a_failure`
+  红：`KeyError: 'failure'`，Ubuntu 同一提交绿 —— 那次提交是**纯文档**，所以这不是回归，
+  是并行隔离缺口的第三个样本。卡上写的「再红第三次」条件成立）
 - 起因：闸门全量的并行阶段两天里红了两次，**同一个文件、两条不同的测试**，单跑与整文件
   串行跑都绿：
   - 2026-09-17 `test_the_answer_lands_in_the_page_it_was_ASKED_on`：`['agent','user'] !=
@@ -17,7 +19,9 @@
   就过」，那正是把真缺陷藏起来的习惯（TASK-087 §6.2 / §6.9 / §6.15 / §6.16 同族）。
 - 架构约束：`CA §4`（studio 测试归 `tests/studio/`）；AGENTS.md §20（`-n 8` 是实测值，
   不退回串行）。
-- 实施 Agent：**没写** —— 动手前先认领。
+- 实施 Agent：`visual-try-on-project-b0`（2026-09-18 认领，TASK-154 审查收口后开工）。
+- L5 自动实施授权：产品负责人 2026-09-18「那现在能对这些任务进行编排然后一个个完成了吗」
+  —— 它挡的是这条链自己的闸门（CI / 全量），属于「阻塞在办主线」。
 
 ## 1. 先查什么（复现优先，不懂根因不连环 patch）
 

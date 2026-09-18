@@ -435,10 +435,13 @@ export function danglingRefs(work) {
  *  没选形态就是 `null` —— 能力按缺省（剧集）理解，与 TASK-146 之前的行为一致。 */
 export function formForPrompt(work) {
   if (!work || !FORMS.includes(work.form)) return null;
+  // `planned` 没定（0）就是 null，不是 0：提示词说「planned 给了就取它」，一个 0 会让
+  // 模型照字面规划零行，而 schema 至少要一行（codex 2026-09-18 轮 1）。
+  const planned = int(work.planned && work.planned[work.form], 1, 500);
   return {
     form: work.form,
     word: work.form === "novel" ? "章" : "集",
-    planned: int(work.planned && work.planned[work.form], 0, 500) || 0,
+    planned: planned === null ? null : planned,
   };
 }
 
@@ -463,6 +466,85 @@ export function planRowsForPrompt(work) {
     }
     return out;
   });
+}
+
+/** 提案里那一句故事核心。旧字段名照旧兜着（TASK-089：premise / logline 并进 storyCore，
+ *  但仍读得到）。 */
+export function proposalCore(proposal) {
+  if (!isObj(proposal)) return "";
+  const line = (v) => (typeof v === "string" ? v.trim() : "");
+  return line(proposal.storyCore) || line(proposal.premise) || line(proposal.logline);
+}
+
+/** 一份 story-development 提案摊成能写进大纲编辑器的正文：核心一句 + 主线五段 +
+ *  信息揭示顺序。段落之间空一行 —— 那是 `parseOutline` 的分段规则，每一段成为一个 §N。 */
+export function outlineProposalText(proposal) {
+  if (!isObj(proposal)) return "";
+  const line = (v) => (typeof v === "string" ? v.trim() : "");
+  const parts = [];
+  const core = proposalCore(proposal);
+  if (core) parts.push(core);
+  const ml = isObj(proposal.mainline) ? proposal.mainline : {};
+  for (const [key, label] of [
+    ["setup", "开端"],
+    ["development", "发展"],
+    ["midpointTurn", "中段转折"],
+    ["climax", "高潮"],
+    ["ending", "结局"],
+  ]) {
+    if (line(ml[key])) parts.push(`${label}：${line(ml[key])}`);
+  }
+  const reveals = Array.isArray(proposal.secretsAndReveals) ? proposal.secretsAndReveals : [];
+  const revealLines = reveals
+    .map((r) => (isObj(r) ? [line(r.truth), line(r.revealAround)].filter(Boolean).join(" · ") : line(r)))
+    .filter(Boolean);
+  if (revealLines.length) {
+    parts.push(["信息揭示顺序：", ...revealLines.map((s) => `- ${s}`)].join("\n"));
+  }
+  return parts.join("\n\n");
+}
+
+/** 一份 story-development 提案落地：大纲照旧、核心多一个家（TASK-154 / REQ-009 判据 3）。
+ *
+ *  两处都**不静默覆盖**：他写过的大纲 / 核心各先存一版。核心那一段**不从大纲里抽掉**：
+ *  结构规划的 §N 按段计数，抽掉第一段会让既有引用集体错位。
+ *
+ *  不碰持久化与界面 —— 调用方负责 `persist()` 与重绘。
+ *
+ *  @returns {{ok: true, nodes: number, keptOutline: object|null, core: {ok, kept}|null}
+ *            |{ok: false, error: string}} */
+export function applyOutlineProposal(work, proposal, at) {
+  if (!work) return { ok: false, error: "还没有作品文档" };
+  const text = outlineProposalText(proposal);
+  if (!text.trim()) return { ok: false, error: "这份大纲提案里没有可写进编辑器的内容" };
+  const had = outlineText(work);
+  const keptOutline = had.trim() ? finalizeDoc(work, "outline", at, "被 AI 大纲覆盖前自动存的一版") : null;
+  const nodes = setOutline(work, text);
+  const coreText = proposalCore(proposal);
+  const core = coreText ? applyCoreProposal(work, coreText, at) : null;
+  return { ok: true, nodes: nodes.length, keptOutline, core };
+}
+
+/** 屏幕上那一句：大纲写了几段、核心更新了没、各存了哪一版。 */
+export function describeOutlineApply(res) {
+  if (!res || !res.ok) return "";
+  const bits = [`已写进故事大纲：${res.nodes} 段`];
+  if (res.keptOutline) bits.push(`原来的大纲已存为 v${res.keptOutline.v}`);
+  if (res.core && res.core.ok) {
+    bits.push(`故事核心已更新${res.core.kept ? `（原来的核心已存为 v${res.core.kept.v}）` : ""}`);
+  }
+  return bits.join("；");
+}
+
+/** 屏幕上那一句：进了几行、旧行去哪了、丢了几处引用 —— 丢了的**必须说出来**。 */
+export function describePlanApply(res) {
+  if (!res || !res.ok) return "";
+  const bits = [`已写进结构规划：${res.added} 行`];
+  if (res.retired) {
+    bits.push(`原来的 ${res.retired} 行已进回收区${res.kept ? `并存为 v${res.kept.v}` : ""}`);
+  }
+  if (res.droppedRefs) bits.push(`${res.droppedRefs} 处大纲引用指向不存在的段落，已丢弃`);
+  return bits.join("；");
 }
 
 /** AI 提案里的那一句故事核心落进 `work.core`。
