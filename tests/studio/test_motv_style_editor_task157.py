@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -90,8 +91,33 @@ def test_the_new_intent_counts_as_a_revision(srv):
 def test_the_writer_is_bumped_and_says_what_not_to_sound_like(catalog):
     skill = catalog.skills["novel-chapter-writer"]
     assert skill.version == 3, "提示词变了，版本必须动（ADR-0067）"
-    for tell in ("三短句排比", "参差", "不是 X，是 Y"):
+    for tell in ("三短句排比", "参差", "不是 X，是 Y", "结尾不要升华"):
         assert tell in skill.instruction, tell
+
+
+def test_the_writer_does_not_hand_back_what_it_just_forbade(catalog):
+    """禁令后面跟一句「一次就够了」，等于没禁（codex 轮 1）。"""
+    instruction = catalog.skills["novel-chapter-writer"].instruction
+    assert "一章里出现一次就够了" not in instruction
+
+
+def test_every_edit_gets_an_explanation(catalog):
+    """判据 2 要的是「每一处改动」都说得出来。
+
+    第一版改成「挑 3～12 条有代表性的」，是为了把「改多少」与「说几条」拆开；
+    但那样他就无法逐条看你有没有把味道之外的东西也改掉。真机重跑证明担心是多余的：
+    改成逐条全列之后，改动从 12 处变成 23 处（卡 §7）。
+    """
+    instruction = catalog.skills["novel-style-editor"].instruction
+    assert "每一处改动都要列" in instruction
+    assert "代表性" not in instruction, "取样描述已撤销"
+
+    schema = json.loads(
+        (_BUILTIN / "novel-style-editor" / "output.schema.json").read_text("utf-8")
+    )
+    changes = schema["fields"]["changes"]
+    assert changes["minItems"] == 1
+    assert changes["maxItems"] >= 60, "上限不得低到逼它漏报改动"
 
 
 # --- 1. 改 vs 写 ---------------------------------------------------------------- #
