@@ -1,6 +1,8 @@
 # TASK-146：小说模式下，AI 真的能写出一章小说
 
-- 状态：进行中 · **实现完成**（2026-09-14）。两个独立事实，分开写（AGENTS.md §1）：
+- 状态：完成 · **实现完成**（2026-09-14；2026-09-18 收口 —— 切片二 / 三 / 四已由
+  TASK-152 / 154 / 155 接着做完，本卡没有剩余工作；§7 三条「还没在真实项目上被人看过」
+  仍是信息，不是闸门）。两个独立事实，分开写（AGENTS.md §1）：
   1. **实现完成** —— 代码级证据：新能力包 `product-skills/builtin/novel-chapter-writer/`
      三件套 · `internalRouting.form` 合同与 `skillpkg._check_internal_routing` 的
      fail-closed 校验 · `server._conv_resolve` 打分前的形态硬排除 ·

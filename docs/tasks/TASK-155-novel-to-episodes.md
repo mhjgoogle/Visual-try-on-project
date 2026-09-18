@@ -1,6 +1,13 @@
 # TASK-155：一本小说变成一部剧集 —— 分集提案、确认后进入剧集创作、接上已有的视频线
 
-- 状态：进行中 · **实施中**（2026-09-18 开卡，同日开工）
+- 状态：完成 · **实现完成（2026-09-18，开卡当日）**。两个独立事实，分开写（AGENTS.md §1）：
+  1. **实现完成** —— §5 验收 1–7 各有守卫（§6 的表）；codex 两轮（轮 1 两条 P2 + 一条可测性
+     BLOCKING 全修，轮 2 **pass**：判据 5、6 与 §5.1–5.7 全 `PASS`、架构全 `PASS`、Verification
+     `SUFFICIENT`、0 finding）。代码级证据：`workflow/noveladapt.js`（整步）· `storywork.
+     novelChaptersForPrompt / checkChapterRanges / adoptEpisodesFromNovel` · `storydoc.addPlanVersion` ·
+     新包 `novel-adapter` · `skillapply` / `actions` 的 `adaptNovelToEpisodes` · `skillctl.context.novelChapters`。
+  2. **还没在真实项目上被人看过的** —— §7 五条，尤其第 1、2 条：章区间与每集目标是否真来自那几章、
+     三处（剧集创作 Brief / 剧集制作 / 编剧上下文）在真实界面上是否对得上。
 - 起因：REQ-009 切片表的第四片（最后一片）；产品负责人 2026-09-18「对这些任务进行编排然后
   一个个完成」之后按里程碑闸排出的下一项。· 闸：**放行（第 ① 问：在当前里程碑交付面上）**。
 - 类型：Feature · 深度：**STANDARD**（U=STANDARD：「确认」是哪一步写成显式假设见 §2；
@@ -125,6 +132,16 @@ contract（基线）。跑这三个域；全量留到里程碑集成检查点。
 实施中撞到：「分几集」**不含**子串「分集」，第一版关键词在小说项目里漏掉了这句最常见的说法
 （`episode-planner` 靠「每集」赢）—— 把「每集」加进 `selectWhen`，两包同分时 priority 85 定
 胜负；剧集项目里改编包被 `form` 排除，不受影响。
+
+## 8. Merge Gate（2026-09-18，ADR-0085：依据是 Done 判定 + 最终全量）
+
+| 前置 | 证据 |
+| --- | --- |
+| Done 判定 | §5 验收 1–7 各有守卫；codex 轮 2 pass，0 finding |
+| 最终全量 | `5ef8867`（含 `skillpkg.py` / 包 / 前端改动）提交闸门 **full 档 7 项检查**全过（两阶段 pytest + 全量前端 + ruff 等）；`d4205ce` 只改前端 + 测试 + 卡，frontend 档 5 项检查过，`node --test` **2372 pass / 0 fail**，`pytest tests/contract` 268 passed |
+| 待复审清单 | 0 条未闭合 |
+| 未闭合 P1 | 无 |
+| 分支形状 | `change/TASK-155-novel-to-episodes` 基于 `main@a49a84c`，一条直线，可 ff |
 
 ## 7. 还没在真实项目上被人看过的
 
