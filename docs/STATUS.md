@@ -118,7 +118,7 @@
 | [TASK-040-final-unified-product-acceptance.md](tasks/TASK-040-final-unified-product-acceptance.md) | TASK-040：AI 短剧工作流与 Creation Workspace 最终统一验收 | 进行中 · 逐条判词见 §验收判词（2026-09-04 订正） |
 | [TASK-087-followup-ledger.md](tasks/TASK-087-followup-ledger.md) | TASK-087：Follow-up 总账 —— 把散在九张卡里的欠账收成一处 | 进行中 · 活账（不是一次性交付 |
 | [TASK-146-ai-writes-a-novel-chapter.md](tasks/TASK-146-ai-writes-a-novel-chapter.md) | TASK-146：小说模式下，AI 真的能写出一章小说 | 进行中 · 实现完成（2026-09-14） |
-| [TASK-153-conversation-tests-flake-under-parallel.md](tasks/TASK-153-conversation-tests-flake-under-parallel.md) | TASK-153：test_motv_conversation_task109.py 在 -n 8 并行下偶发红 —— 两天两条 | 进行中 · 第三次红了，放行条件成立，开工（2026-09-18 立卡 |
+| [TASK-153-conversation-tests-flake-under-parallel.md](tasks/TASK-153-conversation-tests-flake-under-parallel.md) | TASK-153：test_motv_conversation_task109.py 在 -n 8 并行下偶发红 —— 两天两条 | 进行中 · 根因已查实并修复，待独立审查收口（§3）· 第三次红了，放行条件成立，开工（2026-09-18 立卡 |
 
 ## 待办 · 任务卡
 

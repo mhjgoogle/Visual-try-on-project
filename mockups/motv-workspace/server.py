@@ -3717,6 +3717,16 @@ def _conv_ready_inputs(context) -> set:
 #:
 #: **没报 = 不限**，行为与 TASK-146 之前完全一致：一个还没选形态的项目、或者一个
 #: 更旧的客户端，都不会因此被排除掉任何候选。
+def _conv_turn_order(turn) -> tuple:
+    """线程里一轮的排序键：先按时间戳，戳相等时**问题在答案前面**（TASK-153）。
+
+    时间戳都来自登记表的时钟（秒级 `Z` 格式）：问题取 run 的 `createdAt`，答案取
+    `endedAt`，同一秒内两者字符串相等，靠角色定次序。
+    """
+    role = turn.get("role") if isinstance(turn, dict) else ""
+    return (str((turn or {}).get("createdAt") or ""), 0 if role == "user" else 1)
+
+
 def _conv_form(context) -> str:
     if not isinstance(context, dict):
         return ""
@@ -8083,7 +8093,10 @@ class _App:
             changed = True
         if changed:
             for entry in thread["threads"].values():
-                entry["turns"].sort(key=lambda x: str(x.get("createdAt") or ""))
+                # 同一秒内问与答的戳相等（登记表的时钟是秒级）：次序由角色定 ——
+                # 问题在前。只靠 `sort` 的稳定性不够：读时对账把答案 append 在整条线
+                # 的末尾，而问题可能早就在中间（TASK-153）。
+                entry["turns"].sort(key=_conv_turn_order)
             self._conv_save(name, thread)
         return thread
 
@@ -8432,7 +8445,15 @@ class _App:
             "role": "user",
             "text": message.strip(),
             "runId": run.get("runId"),
-            "createdAt": datetime.now(timezone.utc).isoformat(),
+            # **问题的时间戳来自 run 自己的时钟**（TASK-153）。以前这里取
+            # `datetime.now()`：微秒级、`+00:00` 格式，而答案那一轮取的是 run 的
+            # `endedAt` —— 登记表的时钟，秒级、`Z` 格式。两个时钟、两种格式、且问题
+            # 的戳在 run 建好**之后**才取：一个立刻答完的执行器只要跨过一个整秒边界，
+            # 答案的戳就小于问题的戳，线程按戳排序后**答案排在问题前面**。并行跑测试时
+            # 那个窗口被 CPU 争用拉宽，于是两天里三条不同的测试各红一次
+            # （TASK-087 §6.17 / TASK-153）。同一个时钟、同一种格式，且
+            # createdAt ≤ endedAt 由构造保证 —— 问题永远不会排到它的答案后面。
+            "createdAt": run.get("createdAt") or datetime.now(timezone.utc).isoformat(),
         }
         self._conv_turns(doc, key).append(turn)
         # A thread that cannot be persisted is reported, not swallowed: the run is
