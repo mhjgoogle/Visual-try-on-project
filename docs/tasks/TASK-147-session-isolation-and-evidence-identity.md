@@ -1,6 +1,8 @@
 # TASK-147：一个会话一棵树，以及「上一轮那句验证」不再冒充新结论
 
-- 状态：进行中 · **切片 A / B 实现完成**（2026-09-15）。两个独立事实，分开写（AGENTS.md §1）：
+- 状态：完成 · **切片 A / B 实现完成**（2026-09-15；2026-09-18 收口 —— 代码随 L5 链合入
+  `main@156ec83`，§6 三条里两条已被 TASK-148 接走、一条是刻意不接的已知边界，见 §6）。
+  两个独立事实，分开写（AGENTS.md §1）：
   1. **实现完成** —— 代码级证据：新入口 `.claude/tools/worktree.py`
      （`new` / `list` / `json` / `drop`，登记表就是 `git worktree list`，无第二份状态文件）·
      `agent_harness.verification_inputs()` 与 `INPUTS_VERSION` · `read_snapshot` 返回
@@ -107,7 +109,11 @@ TASK-143 OUT OF SCOPE 已经写死「不引入任务分配器 / 锁服务 / 中�
 
 ## 6. 还没做 / 还没在真实项目上被人看过的
 
-**这是信息，不是闸门**（AGENTS.md §1）：
+**这是信息，不是闸门**（AGENTS.md §1）。**2026-09-18 收口时的去向**：第 1 条的样本由
+[TASK-148](TASK-148-l5-continuous-autonomous-delivery.md) 交付的 L5 台账接管
+（`python .claude/tools/l5_ledger.py report`，已有 2 个真实样本）；第 3 条由 TASK-148
+切片 A 实施（ADR-0104，git 原生 `pre-commit` 已装进共享 `.git/hooks`）；第 2 条**保持
+刻意不接**，是已知边界不是欠账 —— 三条都不再需要本卡开着。
 
 1. **切片 C / D 的真实产品任务样本**：本卡自身走完了一次「目标 → 实现 → 归属验证
    → 独立审查 → 提交 → 推送」的闭环，但它是**工装任务**，不是用户可见的产品功能。

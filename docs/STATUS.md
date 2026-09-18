@@ -24,7 +24,7 @@
 
 卡头状态行只有三个词：`待办` 没人在做 · `进行中` 在办 · `完成` 已完成。
 
-**当前**：7 在办 · 9 待办 · 135 已完成 · 89 条 ADR。
+**当前**：3 在办 · 12 待办 · 136 已完成 · 89 条 ADR。
 
 **找在办的任务**：本文件的「进行中 · 任务卡」一节，或
 `python .claude/tools/agent_harness.py resume`，加上
@@ -71,22 +71,25 @@
 | [REQ-001](requirements/REQ-001-auto-push.md) | REQ-001：Task 完成后自动 commit/push，Change 完成后受控合并 | CONFIRMED | — |
 | [REQ-002](requirements/REQ-002-document-lifecycle.md) | REQ-002：文档与记录的统一生命周期 —— 当前事实保持精简，历史保持可追溯 | CONFIRMED | — |
 | [REQ-003](requirements/REQ-003-traceability-and-requirement-fulfillment-review.md) | REQ-003：每一次实现都能从产品意图追到验证，审查先答「需求做完了吗」 | CONFIRMED | — |
-| [REQ-004](requirements/REQ-004-three-pane-shell-and-agent-conversation.md) | REQ-004：全站统一三栏 —— 左控制/选择 · 中工作区 · 右 Agent 对话 | CONFIRMED | TASK-106 |
+| [REQ-004](requirements/REQ-004-three-pane-shell-and-agent-conversation.md) | REQ-004：全站统一三栏 —— 左控制/选择 · 中工作区 · 右 Agent 对话 | CONFIRMED | — |
 | [REQ-005](requirements/REQ-005-remove-a-project-from-the-home-list.md) | REQ-005：主页可以把项目从列表里删除（文件他自己删） | CONFIRMED | — |
-| [REQ-006](requirements/REQ-006-agent-can-do-what-the-creator-can-do.md) | REQ-006：对话里的 Agent 能做创作者能做的事，并且能把意见带回给开发 | CONFIRMED | TASK-132 |
+| [REQ-006](requirements/REQ-006-agent-can-do-what-the-creator-can-do.md) | REQ-006：对话里的 Agent 能做创作者能做的事，并且能把意见带回给开发 | CONFIRMED | — |
 | [REQ-007](requirements/REQ-007-say-it-and-the-right-capability-runs.md) | REQ-007：他说一句话，对的那个专业能力就跑起来 | CONFIRMED | — |
 | [REQ-008](requirements/REQ-008-images-from-my-own-account.md) | REQ-008：用我自己的账号自动出图，不要按次计费的 API | CONFIRMED | — |
 | [REQ-009](requirements/REQ-009-write-the-novel-first-then-film-it.md) | REQ-009：先把小说写出来，再把它拍成片 | CONFIRMED | TASK-146 |
 
 ### Deferred
 
-里程碑闸判「现在不做」的 9 张卡（状态 `待办`）——
+里程碑闸判「现在不做」的 12 张卡（状态 `待办`）——
 **队列，不是垃圾桶**：每张卡都要写清什么条件下它会变成该做。
 跨任务欠账另见 [TASK-087 总账](tasks/TASK-087-followup-ledger.md)。
 
 - [TASK-011](tasks/TASK-011-local-video-provider.md) TASK-011：LocalVideoProvider（阶段 8）
 - [TASK-012](tasks/TASK-012-qcd-auto-routing.md) TASK-012：基于 QCD 的自动模型路由（阶段 9）
+- [TASK-074](tasks/TASK-074-delivery-migration-and-legacy-retirement.md) TASK-074：第四阶段 —— 后期交付、旧数据迁移、旧页面与旧接口清理、真实项目验收
+- [TASK-106](tasks/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) TASK-106：前端接上 run_id 路径 —— 并由此退役同步分支与 /api/agent/
 - [TASK-128](tasks/TASK-128-episode-side-actions-into-the-table.md) TASK-128：剧集制作侧的写也走动作表 —— REQ-006 判据 1 的另一半
+- [TASK-132](tasks/TASK-132-click-ui-element-and-leave-feedback.md) TASK-132：点击界面元素写意见，并让开发 Agent 收到准确位置
 - [TASK-135](tasks/TASK-135-server-authoritative-workflow-plan.md) TASK-135：下一步该干什么由后端说了算 —— 服务端权威工作流计划
 - [TASK-136](tasks/TASK-136-generation-resume-and-idempotency.md) TASK-136：重启之后不许重复扣费 —— 生成任务的续跑与幂等
 - [TASK-137](tasks/TASK-137-review-issue-to-rework-loop.md) TASK-137：审片问题进入返工队列 —— 从问题定位到重新审片的闭环
@@ -114,12 +117,8 @@
 | 文档 | 标题 | 状态行（首句） |
 | --- | --- | --- |
 | [TASK-040-final-unified-product-acceptance.md](tasks/TASK-040-final-unified-product-acceptance.md) | TASK-040：AI 短剧工作流与 Creation Workspace 最终统一验收 | 进行中 · 逐条判词见 §验收判词（2026-09-04 订正） |
-| [TASK-074-delivery-migration-and-legacy-retirement.md](tasks/TASK-074-delivery-migration-and-legacy-retirement.md) | TASK-074：第四阶段 —— 后期交付、旧数据迁移、旧页面与旧接口清理、真实项目验收 | 进行中 · 部分实施 |
 | [TASK-087-followup-ledger.md](tasks/TASK-087-followup-ledger.md) | TASK-087：Follow-up 总账 —— 把散在九张卡里的欠账收成一处 | 进行中 · 活账（不是一次性交付 |
-| [TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md](tasks/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) | TASK-106：前端接上 run_id 路径 —— 并由此退役同步分支与 /api/agent/ | 进行中 · 部分实施（2026-09-04 |
-| [TASK-132-click-ui-element-and-leave-feedback.md](tasks/TASK-132-click-ui-element-and-leave-feedback.md) | TASK-132：点击界面元素写意见，并让开发 Agent 收到准确位置 | 进行中 · 切片 A 完成、切片 B 完成核心、切片 C 未做（2026-09-05 实施 |
 | [TASK-146-ai-writes-a-novel-chapter.md](tasks/TASK-146-ai-writes-a-novel-chapter.md) | TASK-146：小说模式下，AI 真的能写出一章小说 | 进行中 · 实现完成（2026-09-14） |
-| [TASK-147-session-isolation-and-evidence-identity.md](tasks/TASK-147-session-isolation-and-evidence-identity.md) | TASK-147：一个会话一棵树，以及「上一轮那句验证」不再冒充新结论 | 进行中 · 切片 A / B 实现完成（2026-09-15） |
 
 ## 待办 · 任务卡
 
@@ -129,7 +128,10 @@
 | --- | --- | --- |
 | [TASK-011-local-video-provider.md](tasks/TASK-011-local-video-provider.md) | TASK-011：LocalVideoProvider（阶段 8） | 待办 |
 | [TASK-012-qcd-auto-routing.md](tasks/TASK-012-qcd-auto-routing.md) | TASK-012：基于 QCD 的自动模型路由（阶段 9） | 待办 |
+| [TASK-074-delivery-migration-and-legacy-retirement.md](tasks/TASK-074-delivery-migration-and-legacy-retirement.md) | TASK-074：第四阶段 —— 后期交付、旧数据迁移、旧页面与旧接口清理、真实项目验收 | 待办 · 里程碑闸 2026-09-18 判「现在不做」：§0.0 剩下的 B（approveShot 双写身份， |
+| [TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md](tasks/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) | TASK-106：前端接上 run_id 路径 —— 并由此退役同步分支与 /api/agent/ | 待办 · 里程碑闸 2026-09-18 判「现在不做」：剩下的验收 3（退役 /api/skill/run |
 | [TASK-128-episode-side-actions-into-the-table.md](tasks/TASK-128-episode-side-actions-into-the-table.md) | TASK-128：剧集制作侧的写也走动作表 —— REQ-006 判据 1 的另一半 | 待办 · 盘点完成，接线未开工 |
+| [TASK-132-click-ui-element-and-leave-feedback.md](tasks/TASK-132-click-ui-element-and-leave-feedback.md) | TASK-132：点击界面元素写意见，并让开发 Agent 收到准确位置 | 待办 · 里程碑闸 2026-09-18 判「现在不做」：剩下的切片 C（截图）与 §5「还没做」 |
 | [TASK-135-server-authoritative-workflow-plan.md](tasks/TASK-135-server-authoritative-workflow-plan.md) | TASK-135：下一步该干什么由后端说了算 —— 服务端权威工作流计划 | 待办 · 待开始（2026-09-05 开卡 |
 | [TASK-136-generation-resume-and-idempotency.md](tasks/TASK-136-generation-resume-and-idempotency.md) | TASK-136：重启之后不许重复扣费 —— 生成任务的续跑与幂等 | 待办 · 待开始 · 前置 ADR 已 Accept（2026-09-05 开卡 |
 | [TASK-137-review-issue-to-rework-loop.md](tasks/TASK-137-review-issue-to-rework-loop.md) | TASK-137：审片问题进入返工队列 —— 从问题定位到重新审片的闭环 | 待办 · 待开始（2026-09-05 开卡 |
@@ -273,6 +275,7 @@
 | [TASK-142-a-save-refused-by-a-reader.md](tasks/TASK-142-a-save-refused-by-a-reader.md) | TASK-142：他打的字，因为「有人正在读那个文件」而丢掉 | 完成 · 实现完成（2026-09-06 · 提交 6d9473b） |
 | [TASK-144-dev-workflow-v03-two-planes.md](tasks/TASK-144-dev-workflow-v03-two-planes.md) | TASK-144：dev-workflow v0.3 —— 压成「人类控制面 / Agent 执行面」两层 | 完成 |
 | [TASK-145-workstatus.md](tasks/TASK-145-workstatus.md) | TASK-145：一屏看完「每条需求做到哪了」 | 完成 · 实现完成（2026-09-08） |
+| [TASK-147-session-isolation-and-evidence-identity.md](tasks/TASK-147-session-isolation-and-evidence-identity.md) | TASK-147：一个会话一棵树，以及「上一轮那句验证」不再冒充新结论 | 完成 · 切片 A / B 实现完成（2026-09-15 |
 | [TASK-148-l5-continuous-autonomous-delivery.md](tasks/TASK-148-l5-continuous-autonomous-delivery.md) | TASK-148：L5 —— 给一个方向就连续交付，而且没人看着的时候不会静默放行 | 完成 · 实现完成（2026-09-18 收口） |
 | [TASK-149-task-prerequisites-are-machine-readable.md](tasks/TASK-149-task-prerequisites-are-machine-readable.md) | TASK-149：卡上的「前置」变成机器读得到的边，队列按它排 | 完成 · 实现完成并经三轮独立审查收口（2026-09-17，与 TASK-150 合审，记录在 |
 | [TASK-150-task-state-on-the-card.md](tasks/TASK-150-task-state-on-the-card.md) | TASK-150：任务的状态住在卡上 —— 目录平铺，「在办的有哪些」由工具回答 | 完成 · 实现完成并经三轮独立审查收口（2026-09-17） |
