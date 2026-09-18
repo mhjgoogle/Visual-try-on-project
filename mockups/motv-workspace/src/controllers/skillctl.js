@@ -259,6 +259,16 @@ export function createSkillController({
         novelChapters: storywork && typeof storywork.novelChaptersForPrompt === "function"
           ? storywork.novelChaptersForPrompt(storyDoc && storyDoc.work)
           : null,
+        // **这一章已经写了什么**（TASK-157）—— 去味那一步要改的就是它。章号与
+        // `chapterPlan` 同源（`scope.unitNo`，不猜）；那一章还没有正文就是 null，
+        // 于是必填输入缺、运行前被拒 —— 「没东西可改」比「改出一章新的」诚实。
+        chapterText: (() => {
+          const work = storyDoc && storyDoc.work;
+          if (!work || work.form !== "novel") return null;
+          if (!storywork || typeof storywork.chapterTextOf !== "function") return null;
+          const s = scope != null && typeof scope === "object" && !Array.isArray(scope) ? scope : {};
+          return storywork.chapterTextOf(work, s.unitNo);
+        })(),
         // THE WHOLE PLAN, as `episode-plan-reviser` needs it (TASK-094 批次 A).
         // Deliberately a different key from `episodePlan` above, which is ONE
         // episode's entry: two shapes under one key is how a capability ends up
@@ -530,7 +540,10 @@ export function createSkillController({
       // 这一轮写的是第几章（TASK-146）。同一条规则，再下一层：**只有真的读了它
       // 才记** —— `chapterPlan` 在输入里，就意味着提示词里带着第 N 章的任务，
       // 于是这个提案是**为那一章写的**，应用时不许落到别处。
-      const readsChapter = keys.has("chapterPlan");
+      // 读了本章任务**或**本章正文，都意味着这一轮是**为那一章**跑的（TASK-146 / TASK-157）。
+      // 漏掉 `chapterText` 的后果与漏掉 `chapterPlan` 一样：提案不带落点身份，他在生成与
+      // 应用之间切一章，去味后的正文就落进别的章 —— 安静的错写。
+      const readsChapter = keys.has("chapterPlan") || keys.has("chapterText");
       const wantUnitNo = readsChapter && Number.isInteger(s.unitNo) ? s.unitNo : null;
       const out = {
         episodeId,

@@ -12,6 +12,7 @@
     "workForm": "作品形态（小说按章 / 剧集按集）",
     "structurePlan": "当前结构规划",
     "novelChapters": "小说章节（已写正文的那些）",
+    "chapterText": "本章已有的正文（先在「正文创作」里打开那一章）",
     "currentPlan": "当前分集规划",
     "episodeScript": "本集剧本",
     "scenes": "场景",

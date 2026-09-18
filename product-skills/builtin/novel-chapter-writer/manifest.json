@@ -1,6 +1,6 @@
 {
   "skillId": "novel-chapter-writer",
-  "skillVersion": 2,
+  "skillVersion": 3,
   "work": "creative",
   "role": "小说家",
   "title": "Novel Chapter Writer",
@@ -21,7 +21,8 @@
     "视角是否自始至终稳定，没有在同一段里滑进另一个人的内心",
     "对话是否符合每个角色已确立的说话方式与欲望",
     "这一章结尾是否留下了让人往下读的理由，而不是在一个句号上停住",
-    "是否偷偷改变了 Brief 里已确定的类型 / 基调 / 形式"
+    "是否偷偷改变了 Brief 里已确定的类型 / 基调 / 形式",
+    "读起来像不像机器写的：句长与段落有没有参差，三短句排比有没有变成通篇节奏，明喻是否克制，情绪是靠动作透出来还是被直接点明"
   ],
   "recommendedRuntime": "local_subscription",
   "routing": {

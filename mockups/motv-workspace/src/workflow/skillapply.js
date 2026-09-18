@@ -36,6 +36,10 @@ export const APPLY_TARGETS = {
     can: true, target: "plan", label: "应用为结构规划",
     detail: "整表替换「结构规划」：原有的行先存一版并进回收区（可拿回），新行按 §N 关联大纲。",
   },
+  "novel-style-editor": {
+    can: true, target: "script", label: "应用去味后的正文",
+    detail: "写回**这一章**（由那次运行记下的章号决定，不跟着屏幕跑）；原来那一版先自动存成历史，随时可以退回去。",
+  },
   "novel-adapter": {
     can: true, target: "episodes", label: "确认分集，进入剧集创作",
     detail: "剧集规划追加一版并确认、按集建立剧集实体、正文创作切到「剧集创作」（每集的 Brief 写着改编自哪几章）。小说的章与版本一字不动；已有非空剧集时不覆盖。",
@@ -235,7 +239,10 @@ export function planApply(skillId, proposal, scope = {}) {
   // 小说的一章走的是**同一个** `proposeScript` —— 它落地的地方本来就是「正文」，
   // 章还是集由 `story.work.form` 在那一头决定（TASK-146）。为小说另开一个 action
   // 会让同一件事有两个名字，而两个名字迟早会长出两套不同的覆盖规则。
-  if (skillId === "novel-chapter-writer") {
+  // 去味后的正文（TASK-157）走的是**同一条** `proposeScript`：它落地的地方就是「正文」，
+  // 与小说家新写的一章没有区别 —— 覆盖前存一版、按那次运行记下的章号落点，一条都不新增。
+  // `changes` 不进 action：它是给他看的说明，不是要写进作品的内容。
+  if (skillId === "novel-chapter-writer" || skillId === "novel-style-editor") {
     const text = str(proposal.chapter) || str(proposal.text);
     if (!text.trim()) return { ok: false, error: "提案里没有这一章的正文" };
     // **这份正文是为哪一章写的，由那次运行说了算**，不是由他现在开着哪一章说了算。

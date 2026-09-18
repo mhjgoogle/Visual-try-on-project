@@ -100,6 +100,7 @@ _ROUTING_INTENTS = (
     "plan-revision",  # 改已有的分集规划
     "structure-plan",  # 结构规划表：每章 / 每集一行的九列（TASK-154）
     "novel-adaptation",  # 小说 → 剧集：哪一集对应哪几章（TASK-155）
+    "prose-revision",  # 改这一章的文字（去 AI 味），不改内容（TASK-157）
     "worldbuilding",  # 世界观与规则
     "character-work",  # 角色与人物关系
     "scene-writing",  # 写这一集的剧本

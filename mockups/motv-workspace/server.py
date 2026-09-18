@@ -3769,7 +3769,7 @@ def _conv_specificity(goal: str, words) -> int:
 #: 不容易互相抢 —— 一条规则，两个等价类。
 _CONV_REVISION_MARKERS = ("改", "重写", "调整", "润色", "修一下", "优化")
 _CONV_REVISION_INTENTS = frozenset(
-    {"story-revision", "plan-revision", "script-revision"}
+    {"story-revision", "plan-revision", "script-revision", "prose-revision"}
 )
 
 

@@ -1,0 +1,44 @@
+{
+  "type": "object",
+  "required": [
+    "chapter",
+    "changes"
+  ],
+  "fields": {
+    "chapter": {
+      "type": "string",
+      "nonEmpty": true
+    },
+    "changes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 30,
+      "of": {
+        "type": "object",
+        "required": [
+          "was",
+          "now",
+          "why"
+        ],
+        "fields": {
+          "was": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "now": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "why": {
+            "type": "string",
+            "nonEmpty": true
+          }
+        }
+      }
+    },
+    "notes": {
+      "type": "string",
+      "nonEmpty": false
+    }
+  }
+}

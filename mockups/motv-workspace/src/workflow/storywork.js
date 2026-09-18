@@ -547,6 +547,21 @@ export function describePlanApply(res) {
   return bits.join("；");
 }
 
+/** 第 no 章**已经写了什么**（TASK-157）—— 去味那一步要改的就是它。
+ *
+ *  没写正文（或章号无效、不是小说）就是 `null`：必填输入缺，运行前被拒。
+ *  「这一章还没有正文」与「改出一章新的」是两件事，后者不是他要的。
+ *
+ *  @returns {{no, title, text}|null} */
+export function chapterTextOf(work, no) {
+  const n = int(no, 1, 500);
+  if (!work || work.form !== "novel" || n === null) return null;
+  const unit = work.units.find((u) => u.kind === "novel" && u.no === n);
+  const text = unit ? str(unit.body).trim() : "";
+  if (!text) return null;
+  return { no: n, title: unit.title || "", text };
+}
+
 /** 喂给改编策划的「小说章节」：**已写正文**的章，带章号 / 标题 / 字数 / 开头几百字 /
  *  结构规划里这一章的目的与结尾状态（TASK-155）。没写正文的章不算 —— 改编只能改编写了的。
  *  不是小说、或一章都没写 → `null`（必填输入缺，运行前就被拒并说清）。 */
