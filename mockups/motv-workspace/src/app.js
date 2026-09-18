@@ -966,6 +966,14 @@ function demoEpisodePlan(doc) {
  *
  *  在这之前 `proposeOutline` 根本没有接线，能力跑完只会说「尚未接线」——产品负责人
  *  2026-08-30 因此看到「已完成」但故事大纲still是空的。 */
+/** 提案里那一句故事核心（TASK-154）。与 `outlineProposalText` 取的是同一句，
+ *  旧字段名照旧兜着（TASK-089：premise / logline 并进 storyCore，但仍读得到）。 */
+function storyProposalCore(proposal) {
+  if (!proposal || typeof proposal !== "object") return "";
+  const line = (v) => (typeof v === "string" ? v.trim() : "");
+  return line(proposal.storyCore) || line(proposal.premise) || line(proposal.logline);
+}
+
 function outlineProposalText(proposal) {
   if (!proposal || typeof proposal !== "object") return "";
   const line = (v) => (typeof v === "string" ? v.trim() : "");
@@ -4111,9 +4119,32 @@ const ctx = {
             kept = rec ? `（原来的 ${had.length} 字已存为 v${rec.v}）` : "";
           }
           const nodes = storywork.setOutline(storyDoc.work, text);
+          // 故事核心有自己的家（TASK-154 / REQ-009 判据 3）：那一句 `storyCore` 除了照旧
+          // 作为大纲第一段，还写进「故事核心」页。他写过的核心先存一版。**不**从大纲里抽掉
+          // 那一段：结构规划的 §N 按段计数，抽掉第一段会让既有引用集体错位。
+          const coreRes = storywork.applyCoreProposal(
+            storyDoc.work,
+            storyProposalCore(a.proposal),
+            at,
+          );
+          const coreNote = coreRes.ok
+            ? `；故事核心已更新${coreRes.kept ? `（原来的核心已存为 v${coreRes.kept.v}）` : ""}`
+            : "";
           ctx.persist();
           refreshProductionView();
-          return { ok: true, detail: `已写进故事大纲：${nodes.length} 段${kept}` };
+          return { ok: true, detail: `已写进故事大纲：${nodes.length} 段${kept}${coreNote}` };
+        }
+        case "proposePlanRows": {
+          // 结构规划表整表替换（TASK-154）。选落点、存一版、软删旧行、解析 §N、进表 ——
+          // 全在 `applyPlanProposal` 里一起完成，这里只剩持久化与重绘。
+          const res = storywork.applyPlanProposal(storyDoc.work, a.rows, new Date().toISOString());
+          if (!res.ok) return { ok: false, error: res.error };
+          ctx.persist();
+          refreshProductionView();
+          const bits = [`已写进结构规划：${res.added} 行`];
+          if (res.retired) bits.push(`原来的 ${res.retired} 行已进回收区${res.kept ? `并存为 v${res.kept.v}` : ""}`);
+          if (res.droppedRefs) bits.push(`${res.droppedRefs} 处大纲引用指向不存在的段落，已丢弃`);
+          return { ok: true, detail: bits.join("；") };
         }
         case "proposeScript": {
           // 写进「正文创作」的那一章/集（TASK-122）。与 `proposeOutline` 同一天补上：

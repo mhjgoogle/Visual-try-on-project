@@ -429,6 +429,107 @@ export function danglingRefs(work) {
   return out;
 }
 
+/* --- AI 提案落进核心 / 结构规划（TASK-154 / REQ-009 判据 3）-------------------- */
+
+/** 喂给能力的「作品形态」：写的是小说还是剧集、单元叫什么、计划几个。
+ *  没选形态就是 `null` —— 能力按缺省（剧集）理解，与 TASK-146 之前的行为一致。 */
+export function formForPrompt(work) {
+  if (!work || !FORMS.includes(work.form)) return null;
+  return {
+    form: work.form,
+    word: work.form === "novel" ? "章" : "集",
+    planned: int(work.planned && work.planned[work.form], 0, 500) || 0,
+  };
+}
+
+/** 喂给能力的「当前结构规划」：可见的行，引用解析成 `§N`（模型读不懂节点 id）。
+ *  一行都没有就是 `null`，让「从头规划」与「改一改」在提示词里分得开。 */
+export function planRowsForPrompt(work) {
+  if (!work) return null;
+  const nodes = (work.outline && work.outline.nodes) || [];
+  const rows = visiblePlanRows(work);
+  if (!rows.length) return null;
+  return rows.map((r) => {
+    const out = {};
+    for (const [key, label] of PLAN_COLUMNS) {
+      if (key === "outlineRefs") {
+        out[label] = (r.outlineRefs || [])
+          .map((id) => nodes.findIndex((n) => n.id === id))
+          .filter((i) => i >= 0)
+          .map((i) => `§${i + 1}`);
+      } else {
+        out[label] = r[key];
+      }
+    }
+    return out;
+  });
+}
+
+/** AI 提案里的那一句故事核心落进 `work.core`。
+ *
+ *  **不静默覆盖**（AGENTS.md §13 / CA §5.2）：他写过的核心先存成一版，再写。日常编辑
+ *  不产生版本是产品规格，所以存档只发生在**这个边界**上 —— 与 `proposeOutline` /
+ *  `applyBodyProposal` 同一个形状。空提案不落：一句空话不该把他的核心抹掉。
+ *
+ *  @returns {{ok: true, kept: object|null}|{ok: false, error: string}} */
+export function applyCoreProposal(work, text, at) {
+  const core = str(text).trim();
+  if (!core) return { ok: false, error: "这份提案里没有故事核心" };
+  if (!work) return { ok: false, error: "还没有作品文档" };
+  const kept = str(work.core).trim()
+    ? finalizeDoc(work, "core", at, "被 AI 故事核心覆盖前自动存的一版")
+    : null;
+  work.core = core.slice(0, 20000);
+  return { ok: true, kept };
+}
+
+/** 一份「结构规划」提案落进那张九列的表 —— **整表替换**（TASK-154 §2 的显式假设）。
+ *
+ *  三件事一起成立：有可见行先 `finalizeDoc("plan")` 存一版（恢复得回来）；旧行**软删除**
+ *  进回收区（与手删同一条路，可拿回）；新行按 `sanitizeRow` 进表，`outlineRefs` 里的
+ *  `§N`（1 起的段落序号）解析成节点 id，越界 / 非法的丢掉并**说出来**。
+ *
+ *  不碰持久化与界面 —— 调用方负责 `persist()` 与重绘。
+ *
+ *  @param rows 提案里的行：`{unitNo, scene, purpose, characters, goal, conflict, turn,
+ *              endingState, outlineRefs?: number[]}`
+ *  @returns {{ok: true, added: number, retired: number, kept: object|null, droppedRefs: number}
+ *            |{ok: false, error: string}} */
+export function applyPlanProposal(work, rows, at) {
+  if (!work) return { ok: false, error: "还没有作品文档" };
+  const list = Array.isArray(rows) ? rows.filter(isObj) : [];
+  if (!list.length) return { ok: false, error: "这份提案里没有一行结构规划" };
+  const nodes = (work.outline && work.outline.nodes) || [];
+  const live = visiblePlanRows(work);
+  const kept = live.length ? finalizeDoc(work, "plan", at, "被 AI 结构规划覆盖前自动存的一版") : null;
+  for (const r of live) hidePlanRow(work, r.id, at);
+  let droppedRefs = 0;
+  let added = 0;
+  const taken = new Set(work.plan.rows.map((r) => r.id));
+  for (const src of list) {
+    const refs = [];
+    for (const n of Array.isArray(src.outlineRefs) ? src.outlineRefs : []) {
+      const i = Number.isInteger(n) ? n - 1 : -1;
+      if (i >= 0 && i < nodes.length) refs.push(nodes[i].id);
+      else droppedRefs += 1;
+    }
+    const row = sanitizeRow(
+      {
+        ...src,
+        unitNo: Number.isFinite(Number(src.unitNo)) ? String(Number(src.unitNo)) : str(src.unitNo),
+        outlineRefs: refs,
+      },
+      work.plan.rows.length,
+      taken,
+    );
+    row.createdAt = str(at);
+    taken.add(row.id);
+    work.plan.rows.push(row);
+    added += 1;
+  }
+  return { ok: true, added, retired: live.length, kept, droppedRefs };
+}
+
 /* --- 形态与单元（章 / 集）--------------------------------------------------- */
 
 export function setForm(work, form) {

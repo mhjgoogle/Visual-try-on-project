@@ -1,17 +1,18 @@
 {
   "skillId": "story-development",
-  "skillVersion": 3,
+  "skillVersion": 4,
   "work": "creative",
   "role": "编剧",
   "title": "Story Development",
-  "purpose": "把创意发展成故事大纲的八项：故事核心 / 主角与目标 / 核心冲突 / 世界与核心规则 / 主要角色关系 / 故事主线 / 核心秘密与揭示顺序 / 主题与最终变化。",
+  "purpose": "把创意发展成故事大纲的八项：故事核心 / 主角与目标 / 核心冲突 / 世界与核心规则 / 主要角色关系 / 故事主线 / 核心秘密与揭示顺序 / 主题与最终变化。作品是小说时按章思考，是剧集时按集。",
   "inputs": [
     "brief"
   ],
   "optionalInputs": [
     "outline",
     "characters",
-    "world"
+    "world",
+    "workForm"
   ],
   "reviewCriteria": [
     "核心冲突的外部与内部是否真的互为因果，而不是同一件事换个说法写了两遍",

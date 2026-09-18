@@ -98,6 +98,7 @@ _ROUTING_INTENTS = (
     "story-revision",  # 改已有的大纲
     "episode-structure",  # 分集规划
     "plan-revision",  # 改已有的分集规划
+    "structure-plan",  # 结构规划表：每章 / 每集一行的九列（TASK-154）
     "worldbuilding",  # 世界观与规则
     "character-work",  # 角色与人物关系
     "scene-writing",  # 写这一集的剧本

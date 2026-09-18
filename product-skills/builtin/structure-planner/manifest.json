@@ -1,0 +1,46 @@
+{
+  "skillId": "structure-planner",
+  "skillVersion": 1,
+  "work": "creative",
+  "role": "结构策划",
+  "title": "Structure Planner",
+  "purpose": "把故事大纲切成结构规划表：每章（小说）或每集（剧集）一行，九列 —— Unit No. / Scene / Scene 目的 / 主要人物 / 人物目标 / 冲突 / 关键转折 / Ending State / 关联故事大纲（§N）。",
+  "inputs": [
+    "outline"
+  ],
+  "optionalInputs": [
+    "brief",
+    "characters",
+    "world",
+    "workForm",
+    "structurePlan"
+  ],
+  "reviewCriteria": [
+    "每一行的 Scene 目的是否真的不同 —— 没有把同一件事讲 N 遍",
+    "冲突与关键转折是否是**这一单元里发生的事**，而不是整个故事的概述",
+    "Ending State 是否给下一单元留下了具体的动力，而不是「未完待续」",
+    "关联故事大纲的 §N 是否指向这一单元真正推进的那一段，而不是全表都引 §1",
+    "主要人物是否都是上下文里已有的人，没有发明大纲里没有的人物",
+    "行数是否尊重作品形态给出的章数 / 集数，没有自行改写规模"
+  ],
+  "recommendedRuntime": "local_subscription",
+  "routing": {
+    "userCapability": [
+      "story-development"
+    ],
+    "internalRouting": {
+      "intent": "structure-plan",
+      "kind": "generative",
+      "scope": "project",
+      "priority": 75,
+      "selectWhen": [
+        "结构规划",
+        "结构表",
+        "每章",
+        "分章",
+        "章节规划",
+        "规划表"
+      ]
+    }
+  }
+}

@@ -8,7 +8,7 @@
     {
       "stepKey": "story",
       "skillId": "story-development",
-      "skillVersion": 3,
+      "skillVersion": 4,
       "note": "先有故事。这一步的产出是大纲，不是剧本 —— 后面每一步都从它派生。"
     },
     {

@@ -241,6 +241,19 @@ export function createSkillController({
           const s = scope != null && typeof scope === "object" && !Array.isArray(scope) ? scope : {};
           return storywork.chapterPlanOf(work, s.unitNo);
         })(),
+        // 写的是小说还是剧集（TASK-154）。形态是**上下文**，不是第二个包：故事本身不因
+        // 形态而不同，变的只是它将被怎么切开 —— 所以 story-development / structure-planner
+        // 读它来换用语（章 / 集），而不是各自长出一个小说版。没选形态 = null，能力按缺省理解。
+        //
+        // `storywork` 是可选注入（旧的测试装具不给它）：没有它就是 null —— 「不知道形态」
+        // 与「没选形态」在能力眼里是同一件事，都按缺省理解。
+        workForm: storywork && typeof storywork.formForPrompt === "function"
+          ? storywork.formForPrompt(storyDoc && storyDoc.work)
+          : null,
+        // 当前那张九列的表，引用解析成 §N（TASK-154）—— 让「改一改结构规划」有基底。
+        structurePlan: storywork && typeof storywork.planRowsForPrompt === "function"
+          ? storywork.planRowsForPrompt(storyDoc && storyDoc.work)
+          : null,
         // THE WHOLE PLAN, as `episode-plan-reviser` needs it (TASK-094 批次 A).
         // Deliberately a different key from `episodePlan` above, which is ONE
         // episode's entry: two shapes under one key is how a capability ends up

@@ -32,6 +32,10 @@ export const APPLY_TARGETS = {
     can: true, target: "story", label: "应用为故事大纲提案",
     detail: "落到「故事大纲」的提案位；成为正式版本仍需你在那里批准。",
   },
+  "structure-planner": {
+    can: true, target: "plan", label: "应用为结构规划",
+    detail: "整表替换「结构规划」：原有的行先存一版并进回收区（可拿回），新行按 §N 关联大纲。",
+  },
   "script-writer": {
     can: true, target: "script", label: "应用为正文提案",
     detail: "落到正文的提案位；应用后才创建新版本，旧版本全部保留。",
@@ -200,6 +204,13 @@ export function planApply(skillId, proposal, scope = {}) {
 
   if (skillId === "story-development") {
     return { ok: true, actions: [{ action: "proposeOutline", proposal }] };
+  }
+  // 结构规划表（TASK-154）：九列一行一个单元。空表拒绝 —— 一张空表落地会把他手填的
+  // 行全部请进回收区，换来什么都没有。
+  if (skillId === "structure-planner") {
+    const rows = Array.isArray(proposal.rows) ? proposal.rows.filter(isObj) : [];
+    if (!rows.length) return { ok: false, error: "提案里没有一行结构规划" };
+    return { ok: true, actions: [{ action: "proposePlanRows", rows }] };
   }
   if (skillId === "script-writer" || skillId === "script-doctor") {
     const text = str(proposal.script) || str(proposal.revisedScript) || str(proposal.text);
