@@ -598,6 +598,9 @@ export function checkChapterRanges(work, episodes) {
     }
     last = to;
   }
+  // **覆盖所有已写的章**：漏掉尾巴上写好的第 N 章，切到剧集之后它就再没人接（codex 轮 1）。
+  const maxWritten = Math.max(...written);
+  if (last < maxWritten) return `已写到第 ${maxWritten} 章，但最后一集只到第 ${last} 章 —— 每一章都要有集接住`;
   return null;
 }
 
@@ -614,7 +617,9 @@ export function adoptEpisodesFromNovel(work, episodes, at) {
   const list = (Array.isArray(episodes) ? episodes : []).filter(isObj);
   if (!list.length) return { ok: false, error: "没有可采纳的分集" };
   setForm(work, "episode");
-  setPlanned(work, "episode", Math.max(list.length, int(work.planned.episode, 0, 500) || 0));
+  // Planned Episodes = 这次改编的集数（不是与旧值取大）：声明的集数要与改编一致；
+  // 旧值更大时多出来的单元不删，只是不在计划内（`setPlanned` 本来的语义）。
+  setPlanned(work, "episode", list.length);
   let created = 0;
   let briefed = 0;
   list.forEach((e, i) => {

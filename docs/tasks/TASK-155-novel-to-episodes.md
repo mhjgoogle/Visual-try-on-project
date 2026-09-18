@@ -107,9 +107,20 @@ contract（基线）。跑这三个域；全量留到里程碑集成检查点。
 | 2 `novelChapters` 只含已写正文的章；没写 → null → 必填缺 | 前端「只喂已写正文的章…」「不是小说、或一章都没写 → null」「真 controller：一章都没写时…必填输入缺；写了之后提示词带着章节」 |
 | 3 「用它」之后：规划追加一版（`adapted`，带 `chapters`）；`form === episode`、Planned、每集一个单元、Brief「改编自第 X–Y 章」 | 前端「addPlanVersion：追加一版…」「采纳分集：切到剧集创作…」「真 controller：运行 → 提案 → 应用…」；建剧集实体那一步走既有 `confirmPlan`（`app.js`，见 §7） |
 | 4 加法：小说逐字节不动、规划旧版仍在 | 「采纳分集…小说逐字节不动」（JSON 快照相等）·「addPlanVersion…旧版保留」·「已有的剧集单元只补空 Brief，不覆盖他写的」 |
-| 5 剧集线非洁净 → 拒绝 | `app.js` handler 的 `pristine` 判定（沿用 `confirmPlan` 同一条规则；DOM 侧，见 §7） |
+| 5 剧集线非洁净 → 拒绝 | `noveladapt.episodeLineIsPristine`；「整步：剧集线不洁净（有场景 / 有剧本 / 不止一集 / 改过名）→ 拒绝，一处都不动」 |
+| 3′ 剧集实体、身份、确认、当前集 | 「整步：认领洁净的第 1 集、追加其余、规划确认并盖上身份、第一集成为当前集…」「空的剧集线也算洁净：全部新建」 |
+| 7′ 编剧上下文 | 真 controller 测试：`ctl.context("script-writer").episodePlan.chapters === {from:1,to:2}` |
 | 6 空提案 / 缺章区间 / 越界 → 拒绝 | 「章区间：连续、不重叠、都是写了的章才过；错在哪一集说得出」「改编提案翻译成…缺章区间 / 空提案拒绝」「真 controller：引用了没写的章的提案落不下去，一处都不动」 |
 | 7 编剧上下文接的是这一集的条目 | `confirmPlan` 给条目盖 `episodeId`，`skillctl.context.episodePlan` 按 `activeEpisodeId` 取 —— 既有路径，未新增代码 |
+
+独立审查（codex，真 codex）：轮 1 **fail** —— §5.3 `FAIL`、§5.5 / §5.7 / 判据 6 `NOT_EVIDENCED`、
+3 条 BLOCKING，全部成立、全部修了：
+
+| 轮 1 报的 | 处置 |
+| --- | --- |
+| P2：`checkChapterRanges` 放过漏掉尾巴上已写章的提案（写到第 3 章、提案只到第 2 章） | 加「最后一集必须到已写的最后一章」；守卫一条 |
+| P2：`adoptEpisodesFromNovel` 用 `Math.max` 保留旧的更大 Planned，与「= N」矛盾 | 改为 `setPlanned(N)`；守卫一条 |
+| 洁净判定与 `confirmPlan` 那一步住在 `app.js`，测试的 dispatch 绕过了它们，证不了剧集实体、身份与下游 `episodePlan` | 整步抽成 `workflow/noveladapt.js::adaptNovel`（洁净判定 → 章区间 → 追加规划 → 认领 / 新建剧集实体并盖身份 → 确认 → 第一集设为当前 → 单元与 Brief），`app.js` 只给三样 DOM 侧才有的东西（有没有剧本文本、盖基线、persist）；新增 4 条整步测试（真 `proddoc` + 真 `storydoc`）+ 真 controller 测试断言 `ctl.context("script-writer").episodePlan` 取到从小说派生、带 `chapters` 的那一条 |
 
 实施中撞到：「分几集」**不含**子串「分集」，第一版关键词在小说项目里漏掉了这句最常见的说法
 （`episode-planner` 靠「每集」赢）—— 把「每集」加进 `selectWhen`，两包同分时 priority 85 定
