@@ -24,7 +24,7 @@
 
 卡头状态行只有三个词：`待办` 没人在做 · `进行中` 在办 · `完成` 已完成。
 
-**当前**：4 在办 · 11 待办 · 137 已完成 · 89 条 ADR。
+**当前**：2 在办 · 12 待办 · 138 已完成 · 89 条 ADR。
 
 **找在办的任务**：本文件的「进行中 · 任务卡」一节，或
 `python .claude/tools/agent_harness.py resume`，加上
@@ -76,16 +76,17 @@
 | [REQ-006](requirements/REQ-006-agent-can-do-what-the-creator-can-do.md) | REQ-006：对话里的 Agent 能做创作者能做的事，并且能把意见带回给开发 | CONFIRMED | — |
 | [REQ-007](requirements/REQ-007-say-it-and-the-right-capability-runs.md) | REQ-007：他说一句话，对的那个专业能力就跑起来 | CONFIRMED | — |
 | [REQ-008](requirements/REQ-008-images-from-my-own-account.md) | REQ-008：用我自己的账号自动出图，不要按次计费的 API | CONFIRMED | — |
-| [REQ-009](requirements/REQ-009-write-the-novel-first-then-film-it.md) | REQ-009：先把小说写出来，再把它拍成片 | CONFIRMED | TASK-146、TASK-153 |
+| [REQ-009](requirements/REQ-009-write-the-novel-first-then-film-it.md) | REQ-009：先把小说写出来，再把它拍成片 | CONFIRMED | TASK-146 |
 
 ### Deferred
 
-里程碑闸判「现在不做」的 11 张卡（状态 `待办`）——
+里程碑闸判「现在不做」的 12 张卡（状态 `待办`）——
 **队列，不是垃圾桶**：每张卡都要写清什么条件下它会变成该做。
 跨任务欠账另见 [TASK-087 总账](tasks/TASK-087-followup-ledger.md)。
 
 - [TASK-011](tasks/TASK-011-local-video-provider.md) TASK-011：LocalVideoProvider（阶段 8）
 - [TASK-012](tasks/TASK-012-qcd-auto-routing.md) TASK-012：基于 QCD 的自动模型路由（阶段 9）
+- [TASK-040](tasks/TASK-040-final-unified-product-acceptance.md) TASK-040：AI 短剧工作流与 Creation Workspace 最终统一验收
 - [TASK-074](tasks/TASK-074-delivery-migration-and-legacy-retirement.md) TASK-074：第四阶段 —— 后期交付、旧数据迁移、旧页面与旧接口清理、真实项目验收
 - [TASK-106](tasks/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) TASK-106：前端接上 run_id 路径 —— 并由此退役同步分支与 /api/agent/
 - [TASK-128](tasks/TASK-128-episode-side-actions-into-the-table.md) TASK-128：剧集制作侧的写也走动作表 —— REQ-006 判据 1 的另一半
@@ -115,10 +116,8 @@
 
 | 文档 | 标题 | 状态行（首句） |
 | --- | --- | --- |
-| [TASK-040-final-unified-product-acceptance.md](tasks/TASK-040-final-unified-product-acceptance.md) | TASK-040：AI 短剧工作流与 Creation Workspace 最终统一验收 | 进行中 · 逐条判词见 §验收判词（2026-09-04 订正） |
 | [TASK-087-followup-ledger.md](tasks/TASK-087-followup-ledger.md) | TASK-087：Follow-up 总账 —— 把散在九张卡里的欠账收成一处 | 进行中 · 活账（不是一次性交付 |
 | [TASK-146-ai-writes-a-novel-chapter.md](tasks/TASK-146-ai-writes-a-novel-chapter.md) | TASK-146：小说模式下，AI 真的能写出一章小说 | 进行中 · 实现完成（2026-09-14） |
-| [TASK-153-conversation-tests-flake-under-parallel.md](tasks/TASK-153-conversation-tests-flake-under-parallel.md) | TASK-153：test_motv_conversation_task109.py 在 -n 8 并行下偶发红 —— 两天两条 | 进行中 · 根因已查实并修复，待独立审查收口（§3）· 第三次红了，放行条件成立，开工（2026-09-18 立卡 |
 
 ## 待办 · 任务卡
 
@@ -128,6 +127,7 @@
 | --- | --- | --- |
 | [TASK-011-local-video-provider.md](tasks/TASK-011-local-video-provider.md) | TASK-011：LocalVideoProvider（阶段 8） | 待办 |
 | [TASK-012-qcd-auto-routing.md](tasks/TASK-012-qcd-auto-routing.md) | TASK-012：基于 QCD 的自动模型路由（阶段 9） | 待办 |
+| [TASK-040-final-unified-product-acceptance.md](tasks/TASK-040-final-unified-product-acceptance.md) | TASK-040：AI 短剧工作流与 Creation Workspace 最终统一验收 | 待办 · 里程碑闸 2026-09-18 判「现在不做」：这是上一轮里程碑（短剧线统一验收）的 |
 | [TASK-074-delivery-migration-and-legacy-retirement.md](tasks/TASK-074-delivery-migration-and-legacy-retirement.md) | TASK-074：第四阶段 —— 后期交付、旧数据迁移、旧页面与旧接口清理、真实项目验收 | 待办 · 里程碑闸 2026-09-18 判「现在不做」：§0.0 剩下的 B（approveShot 双写身份， |
 | [TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md](tasks/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) | TASK-106：前端接上 run_id 路径 —— 并由此退役同步分支与 /api/agent/ | 待办 · 里程碑闸 2026-09-18 判「现在不做」：剩下的验收 3（退役 /api/skill/run |
 | [TASK-128-episode-side-actions-into-the-table.md](tasks/TASK-128-episode-side-actions-into-the-table.md) | TASK-128：剧集制作侧的写也走动作表 —— REQ-006 判据 1 的另一半 | 待办 · 盘点完成，接线未开工 |
@@ -280,6 +280,7 @@
 | [TASK-150-task-state-on-the-card.md](tasks/TASK-150-task-state-on-the-card.md) | TASK-150：任务的状态住在卡上 —— 目录平铺，「在办的有哪些」由工具回答 | 完成 · 实现完成并经三轮独立审查收口（2026-09-17） |
 | [TASK-151-architecture-dependency-graph.md](tasks/TASK-151-architecture-dependency-graph.md) | TASK-151：架构依存关系由代码派生 —— 改了 X，谁会跟着受影响 | 完成 · 实现完成并经两轮独立审查收口（2026-09-17） |
 | [TASK-152-novel-writes-on-in-a-chain.md](tasks/TASK-152-novel-writes-on-in-a-chain.md) | TASK-152：小说连着往下写 —— 若干章、可停、可改、不覆盖 | 完成 · 实现完成（2026-09-18，开卡当日） |
+| [TASK-153-conversation-tests-flake-under-parallel.md](tasks/TASK-153-conversation-tests-flake-under-parallel.md) | TASK-153：test_motv_conversation_task109.py 在 -n 8 并行下偶发红 —— 两天两条 | 完成 · 根因查实、修复、审查收口（2026-09-18 |
 | [TASK-154-novel-first-three-steps.md](tasks/TASK-154-novel-first-three-steps.md) | TASK-154：小说的前三步也能让 AI 来 —— 故事核心 / 大纲 / 结构规划在小说语境下成立 | 完成 · 实现完成（2026-09-18，开卡当日） |
 
 ## 在办 · 设计与验收文档

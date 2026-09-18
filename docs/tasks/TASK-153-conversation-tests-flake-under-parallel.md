@@ -1,6 +1,14 @@
 # TASK-153：`test_motv_conversation_task109.py` 在 `-n 8` 并行下偶发红 —— 两天两条
 
-- 状态：进行中 · **根因已查实并修复，待独立审查收口**（§3）· **第三次红了，放行条件成立，开工**（2026-09-18 立卡；同日 CI `main@6c627af`
+- 状态：完成 · **根因查实、修复、审查收口**（2026-09-18；§3）。两个独立事实：
+  1. **实现完成** —— `server.py` 两处（用户轮取 run 的 `createdAt`；`_conv_turn_order` 排序键）；
+     守卫 4 条 + 老文件 83 条在 `-n 8` 下连跑 3 次绿；codex 一轮：架构四条全 `PASS`，唯一
+     BLOCKING 是**测试自身**的一处不等 worker 就离开（monkeypatch 还原后 worker 可能解析到真
+     `_run_executor` 去起真 claude）—— 已改为 `_await`；纯测试卫生、生产代码不动，按协议跑归属域
+     收口不再买轮。
+  2. **还没在真实项目上被人看过的** —— 无产品可见变化；唯一要看的是 CI 并行阶段接下来不再红
+     （这是时间才能给的证据）。
+  · **第三次红了，放行条件成立，开工**（2026-09-18 立卡；同日 CI `main@6c627af`
   Windows job 的并行阶段第三条测试 `test_a_malformed_answer_reaches_the_creator_as_a_failure`
   红：`KeyError: 'failure'`，Ubuntu 同一提交绿 —— 那次提交是**纯文档**，所以这不是回归，
   是并行隔离缺口的第三个样本。卡上写的「再红第三次」条件成立）
@@ -50,6 +58,11 @@ run 的 `createdAt`（`Z` 格式）· 用一个快 5 秒的假 `datetime` 放大
 **实测**：`test_motv_conversation_task109.py` + 新文件 83 条在 `-n 8` 下连跑 3 次全绿。
 
 **没做**：没加重试、没标 `serial`（§2 说过不做）。
+
+**Merge Gate（ADR-0085）**：Done 判定如上 · 最终全量 —— 含本修复的工作树上提交闸门跑过一次
+full 档 pytest 并行 **4303 passed / 60 skipped**（唯一红是 STATUS.md 未重生成，属命令拼法，
+重生成后 `test_docs_status` 24 绿），前端未动，ruff 过 · 待复审清单 0 条 · 无 P1 · 分支基于
+`main@b459d42` 一条直线。
 
 ## 1. 先查什么（复现优先，不懂根因不连环 patch）
 

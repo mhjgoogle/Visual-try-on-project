@@ -104,6 +104,9 @@ def test_the_question_is_stamped_with_the_runs_own_clock(app, srv, monkeypatch):
         "问题的戳不是 run 的 createdAt —— 又回到两个时钟"
     )
     assert out["turn"]["createdAt"].endswith("Z"), "格式不是登记表那一种"
+    # 等 worker 落地再离开：不等的话它可能活到 monkeypatch 还原之后，`_execute_run`
+    # 那时解析到的是**真的** `_run_executor`，一条测试就会去起真 claude（codex 轮 1）。
+    _await(srv, out["run"]["run_id"])
 
 
 def test_a_late_question_stamp_can_no_longer_sort_after_its_answer(
