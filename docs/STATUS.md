@@ -24,7 +24,7 @@
 
 卡头状态行只有三个词：`待办` 没人在做 · `进行中` 在办 · `完成` 已完成。
 
-**当前**：2 在办 · 12 待办 · 140 已完成 · 89 条 ADR。
+**当前**：2 在办 · 12 待办 · 140 已完成 · 90 条 ADR。
 
 **找在办的任务**：本文件的「进行中 · 任务卡」一节，或
 `python .claude/tools/agent_harness.py resume`，加上
@@ -104,11 +104,11 @@
 
 | ADR | 标题 | 状态 |
 | --- | --- | --- |
+| [ADR-0106](adr/ADR-0106-the-more-specific-keyword-hit-wins.md) | ADR-0106：命中更具体的那个关键词赢，而不是命中更多个 | Accepted（2026-09-18，实施 Agent 依 AGENTS.md 第 1 节自行 Accept |
 | [ADR-0105](adr/ADR-0105-task-state-lives-on-the-card.md) | ADR-0105：任务的状态住在卡上，不住在目录里 | Accepted（2026-09-17，产品负责人明确指示 |
 | [ADR-0104](adr/ADR-0104-git-native-hook-is-the-authoritative-gate.md) | ADR-0104：权威的提交闸门是 git 原生 hook，PreToolUse 降级为快反馈 | Accepted（2026-09-16，实施 Agent 依 AGENTS.md §1 自行 Accept |
 | [ADR-0103](adr/ADR-0103-two-planes-and-cost-based-depth.md) | ADR-0103：开发流程分两个面，深度按代价判 —— 不是继续加规则，是把规则分层 | Accepted（2026-09-08，实施 Agent 依 AGENTS.md §1 自行 Accept） |
 | [ADR-0102](adr/ADR-0102-origin-and-confirmation-are-two-fields.md) | ADR-0102：发起方与确认方是两个字段 —— 「他在对话里说的」不等于「他自己点的」 | Accepted（2026-09-05，实施 Agent 依 AGENTS.md §1 自行 Accept） |
-| [ADR-0101](adr/ADR-0101-idea-intake-level-and-milestone-gate.md) | ADR-0101：想法先分层、再过当前里程碑闸，然后才谈需求 | Accepted |
 
 ## 进行中 · 任务卡
 
@@ -331,7 +331,7 @@
 | 位置 | 放什么 |
 | --- | --- |
 | [当前架构合同](current-architecture.md) | **现在**成立的边界与约束（NOW） |
-| [`docs/adr/`](adr/) | 89 条决策记录（ADR-0001 … ADR-0105）—— WHY / HISTORY |
+| [`docs/adr/`](adr/) | 90 条决策记录（ADR-0001 … ADR-0106）—— WHY / HISTORY |
 | [`docs/design/`](design/) 根 | 系统合同、产品信息架构、L0–S7 I/O 合同 |
 | [项目背景与路线](project-context.md) | 这个项目是什么、走到哪了 |
 | [实施规划](implementation_plan.md) | 阶段与里程碑路线图 |

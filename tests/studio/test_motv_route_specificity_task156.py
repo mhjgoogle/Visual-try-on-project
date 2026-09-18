@@ -127,14 +127,37 @@ def test_specificity_is_the_longest_matched_keyword(srv):
     assert srv._conv_specificity("结构规划", []) == 0
 
 
-def test_hit_count_still_outranks_specificity(srv, catalog):
-    """命中数仍是第一位 —— 具体度只在命中数打平时说话。
+def test_one_specific_hit_beats_two_generic_ones(srv, catalog):
+    """**一个长命中赢过两个短命中** —— 具体度排在命中数之前（ADR-0106）。
 
-    `world-director` 只命中「设定」一个词；`story-development` 命中「故事、大纲」两个。
-    即使前者的词一样长，也不该因为具体度而翻盘。
+    这条是那个键真正的判别用例：把具体度错放到命中数之后，它就会红。
+    「按故事大纲做一版结构规划」——
+      `story-development` 命中「故事」「大纲」两个（各 2 字）
+      `structure-planner` 只命中「结构规划」一个（4 字）
+    他要的显然是结构规划；命中数优先会判给开发故事。
     """
-    plan, _ = _resolve(srv, catalog, goal="按这份设定把故事大纲理一遍")
-    assert plan["skillId"] == "story-development", plan["reason"]
+    goal = "按故事大纲做一版结构规划"
+    rows = {r["skillId"]: r for r in srv._conv_candidates(catalog, "story-development")}
+    generic, specific = rows["story-development"], rows["structure-planner"]
+    assert srv._conv_hits(goal, generic["selectWhen"]) == 2
+    assert srv._conv_hits(goal, specific["selectWhen"]) == 1, "前提变了，判别用例失效"
+    assert srv._conv_specificity(goal, specific["selectWhen"]) > srv._conv_specificity(
+        goal, generic["selectWhen"]
+    )
+
+    plan, refusal = _resolve(srv, catalog, goal=goal)
+    assert refusal is None
+    assert plan["skillId"] == "structure-planner", plan["reason"]
+
+
+def test_specificity_only_speaks_when_it_has_a_hit(srv, catalog):
+    """没有命中就没有具体度（0）—— 它不会把一个没被点名的能力拱上来。
+
+    `world-director` 的「世界观」比「大纲」长，但这句话里没出现它，所以它不参与。
+    """
+    plan, _ = _resolve(srv, catalog, goal="把大纲再理一遍")
+    assert plan["skillId"] in {"story-development", "story-reviser"}, plan["reason"]
+    assert "大纲" in plan["reason"]
 
 
 def test_with_no_hits_at_all_the_old_order_decides(srv, catalog):
