@@ -547,6 +547,94 @@ export function describePlanApply(res) {
   return bits.join("；");
 }
 
+/** 喂给改编策划的「小说章节」：**已写正文**的章，带章号 / 标题 / 字数 / 开头几百字 /
+ *  结构规划里这一章的目的与结尾状态（TASK-155）。没写正文的章不算 —— 改编只能改编写了的。
+ *  不是小说、或一章都没写 → `null`（必填输入缺，运行前就被拒并说清）。 */
+export const CHAPTER_OPENING_CHARS = 400;
+
+export function novelChaptersForPrompt(work) {
+  if (!work || work.form !== "novel") return null;
+  const rows = visiblePlanRows(work);
+  const written = work.units
+    .filter((u) => u.kind === "novel" && (u.body || "").trim())
+    .sort((a, b) => a.no - b.no);
+  if (!written.length) return null;
+  return written.map((u) => {
+    const body = (u.body || "").trim();
+    const row = rows.find((r) => String(r.unitNo).trim() === String(u.no)) || null;
+    return {
+      no: u.no,
+      title: u.title || "",
+      words: body.length,
+      opening: body.slice(0, CHAPTER_OPENING_CHARS),
+      purpose: row ? row.purpose : "",
+      endingState: row ? row.endingState : "",
+    };
+  });
+}
+
+/** 改编提案里每一集对应的章区间：`{from, to}`，都是已写的章号，连续不重叠。
+ *  不合格就说出是哪一条 —— 一个错的章区间落进 Brief 会指着一章不存在的正文。 */
+export function checkChapterRanges(work, episodes) {
+  const written = new Set(
+    (work && Array.isArray(work.units) ? work.units : [])
+      .filter((u) => u.kind === "novel" && (u.body || "").trim())
+      .map((u) => u.no),
+  );
+  const list = Array.isArray(episodes) ? episodes : [];
+  if (!list.length) return "提案里没有一集";
+  let last = 0;
+  for (const [i, e] of list.entries()) {
+    const c = isObj(e) && isObj(e.chapters) ? e.chapters : null;
+    const from = c ? int(c.from, 1, 500) : null;
+    const to = c ? int(c.to, 1, 500) : null;
+    if (from === null || to === null) return `第 ${i + 1} 集没有说清对应第几章到第几章`;
+    if (to < from) return `第 ${i + 1} 集的章区间倒了（第 ${from}–${to} 章）`;
+    if (from !== last + 1) {
+      return `第 ${i + 1} 集从第 ${from} 章开始，但上一集到第 ${last} 章 —— 区间要连续、不重叠`;
+    }
+    for (let n = from; n <= to; n += 1) {
+      if (!written.has(n)) return `第 ${i + 1} 集引用了还没写正文的第 ${n} 章`;
+    }
+    last = to;
+  }
+  return null;
+}
+
+/** 确认改编之后，正文创作那一侧的「剧集」：切到剧集创作、设 Planned Episodes、每集一个单元、
+ *  二级 Brief 写「改编自第 X–Y 章：核心目标」（TASK-155 / REQ-009 判据 5）。
+ *
+ *  **全是加法**：小说单元与它们的版本一字不动（`kind === "novel"` 的一律不碰）；已存在的
+ *  剧集单元只在 Brief 为空时补一句，正文不动。不碰持久化与界面。
+ *
+ *  @param episodes 已确认的规划条目（带 `epNumber` 与 `chapters`）
+ *  @returns {{ok: true, created: number, briefed: number}|{ok: false, error: string}} */
+export function adoptEpisodesFromNovel(work, episodes, at) {
+  if (!work) return { ok: false, error: "还没有作品文档" };
+  const list = (Array.isArray(episodes) ? episodes : []).filter(isObj);
+  if (!list.length) return { ok: false, error: "没有可采纳的分集" };
+  setForm(work, "episode");
+  setPlanned(work, "episode", Math.max(list.length, int(work.planned.episode, 0, 500) || 0));
+  let created = 0;
+  let briefed = 0;
+  list.forEach((e, i) => {
+    const no = int(e.epNumber, 1, 500) ?? i + 1;
+    const before = work.units.length;
+    const unit = ensureUnit(work, "episode", no, at);
+    if (!unit) return;
+    if (work.units.length > before) created += 1;
+    const c = isObj(e.chapters) ? e.chapters : {};
+    const range = c.from === c.to ? `第 ${c.from} 章` : `第 ${c.from}–${c.to} 章`;
+    const brief = `改编自${range}${str(e.coreGoal).trim() ? `：${str(e.coreGoal).trim()}` : ""}`;
+    if (!str(unit.brief).trim()) {
+      editUnit(work, unit.id, "brief", brief, at);
+      briefed += 1;
+    }
+    if (!str(unit.title).trim() && str(e.title).trim()) editUnit(work, unit.id, "title", str(e.title), at);
+  });
+  return { ok: true, created, briefed };
+}
+
 /** AI 提案里的那一句故事核心落进 `work.core`。
  *
  *  **不静默覆盖**（AGENTS.md §13 / CA §5.2）：他写过的核心先存成一版，再写。日常编辑

@@ -1,0 +1,47 @@
+{
+  "skillId": "novel-adapter",
+  "skillVersion": 1,
+  "work": "creative",
+  "role": "改编策划",
+  "title": "Novel Adapter",
+  "purpose": "把一部（写完或写到一半的）小说切成剧集：每一集对应第几章到第几章，以及这一集的核心目标、主要剧情、角色推进、结尾拍与钩子。",
+  "inputs": [
+    "novelChapters"
+  ],
+  "optionalInputs": [
+    "brief",
+    "outline",
+    "characters",
+    "workForm"
+  ],
+  "reviewCriteria": [
+    "每一集对应的章区间是否连续、不重叠、不遗漏已写的章",
+    "每集的核心目标是否真的不同 —— 没有把同一件事讲 N 遍",
+    "主要剧情是否是这几章里真发生的事，而不是大纲的概述",
+    "结尾拍与钩子是否是两件事（发生了什么 / 留下什么悬念）",
+    "人物是否都是章节里已有的人，没有发明",
+    "集数是否与章的体量相称 —— 不把一章拆成三集、也不把十章塞进一集"
+  ],
+  "recommendedRuntime": "local_subscription",
+  "routing": {
+    "userCapability": [
+      "story-development",
+      "episode-production"
+    ],
+    "internalRouting": {
+      "intent": "novel-adaptation",
+      "kind": "generative",
+      "scope": "project",
+      "form": "novel",
+      "priority": 85,
+      "selectWhen": [
+        "做成剧集",
+        "改编",
+        "拍成",
+        "分集",
+        "剧集",
+        "每集"
+      ]
+    }
+  }
+}

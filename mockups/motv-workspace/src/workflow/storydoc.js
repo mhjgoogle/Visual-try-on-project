@@ -1049,6 +1049,34 @@ function planProposalEntries(payload) {
   return out;
 }
 
+/** 直接追加一版规划 —— 不经 pending 提案位（TASK-155：小说改编的「确认」是能力面板里的
+ *  「用它」，旧的规划提案面板不在十一页闭集里，落到那里等于落到他看不见的地方）。
+ *
+ *  与 `applyProposal` 写出来的版本**同一形状**；条目经 `planProposalEntries` 清洗（集号按
+ *  存活者重排、`episodeId` 一律 null —— 身份只在确认时由文档盖上，ADR-0072 决策 1；未知
+ *  字段如 `chapters` 原样过）。`origin` 说明它是怎么来的。返回追加的那一版；一条可用的都
+ *  没有时返回 null，文档不动。 */
+export function addPlanVersion(doc, payload, { origin = "adapted", instruction = "" } = {}) {
+  const entries = planProposalEntries(payload);
+  if (!entries.length) return null;
+  const approved = approvedOutline(doc);
+  const rec = {
+    id: mintId("plan"),
+    v: doc.plans.length + 1,
+    episodes: entries.map((e) => {
+      const { claimedEpNumber: _claim, ...kept } = e;
+      return kept;
+    }),
+    origin: String(origin || "adapted"),
+    instruction: String(instruction || ""),
+    outlineVersionId: approved ? approved.id : null,
+    basedOn: null,
+  };
+  doc.plans.push(rec);
+  doc.activePlan = rec.v;
+  return rec;
+}
+
 /** Land a finished development run as a PROPOSAL awaiting apply/discard. */
 export function completeDevelop(doc, id, payload) {
   const p = doc.pending;

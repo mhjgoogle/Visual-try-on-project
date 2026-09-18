@@ -4079,6 +4079,48 @@ const ctx = {
           refreshProductionView();
           return { ok: true, detail: storywork.describeOutlineApply(res) };
         }
+        case "adaptNovelToEpisodes": {
+          // 小说 → 剧集（TASK-155 / REQ-009 判据 5、6）。「用它」这一下就是确认：
+          //   ① 剧集线必须是洁净的（最多一个默认「第 1 集」、没有场景 / 剧本）—— 改编是
+          //      给「小说先写出来」的项目用的，往已在制作的剧集线里塞一套新集号会让单元 ↔
+          //      剧集的按位对应错位；判据 5 说的是加法，不是合并；
+          //   ② 章区间要连续、不重叠、都是已写的章（`checkChapterRanges`）；
+          //   ③ 规划追加一版（`addPlanVersion`，旧版保留）→ 走既有的 `confirmPlan`（建剧集、
+          //      认领洁净的第 1 集、盖上游基线）→ `adoptEpisodesFromNovel`（切到剧集创作、每集
+          //      一个单元、Brief 写改编自哪几章）。小说的章与版本一字不动。
+          const eps = productionDoc.episodes || [];
+          const pristine =
+            eps.length === 0
+            || (eps.length === 1
+              && eps[0].scenes.length === 0
+              && eps[0].title === "第 1 集"
+              && !scriptdoc.currentText(scriptForEpisode(eps[0].episodeId)).trim());
+          if (!pristine) {
+            return {
+              ok: false,
+              error: "这个项目的剧集线已经有内容了，改编不会覆盖它 —— 在一个新项目里做，或先把已有剧集归档",
+            };
+          }
+          const bad = storywork.checkChapterRanges(storyDoc.work, a.episodes);
+          if (bad) return { ok: false, error: bad };
+          const at = new Date().toISOString();
+          const rec = storydoc.addPlanVersion(storyDoc, a.episodes, {
+            origin: "adapted",
+            instruction: "由小说改编（novel-adapter）",
+          });
+          if (!rec) return { ok: false, error: "提案里没有一集能落地" };
+          if (!ctx.story.confirmPlan(rec.v)) return { ok: false, error: `规划 v${rec.v} 没能确认` };
+          const adopted = storywork.adoptEpisodesFromNovel(storyDoc.work, rec.episodes, at);
+          if (!adopted.ok) return { ok: false, error: adopted.error };
+          ctx.persist();
+          refreshProductionView();
+          return {
+            ok: true,
+            detail:
+              `已确认剧集规划 v${rec.v}：${rec.episodes.length} 集已建立；正文创作已切到「剧集创作」，`
+              + `${adopted.created} 个新单元、${adopted.briefed} 集写了「改编自第几章」的 Brief；小说的章与版本一字未动`,
+          };
+        }
         case "proposePlanRows": {
           // 结构规划表整表替换（TASK-154）。选落点、存一版、软删旧行、解析 §N、进表 ——
           // 全在 `applyPlanProposal` 里一起完成，这里只剩持久化与重绘。

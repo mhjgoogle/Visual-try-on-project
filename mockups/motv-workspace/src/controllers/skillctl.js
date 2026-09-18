@@ -254,6 +254,11 @@ export function createSkillController({
         structurePlan: storywork && typeof storywork.planRowsForPrompt === "function"
           ? storywork.planRowsForPrompt(storyDoc && storyDoc.work)
           : null,
+        // 已写正文的小说章（TASK-155）—— 改编策划切集的依据；一章都没写就是 null，
+        // 于是它的必填输入缺，运行前被拒并说清「先写正文」。
+        novelChapters: storywork && typeof storywork.novelChaptersForPrompt === "function"
+          ? storywork.novelChaptersForPrompt(storyDoc && storyDoc.work)
+          : null,
         // THE WHOLE PLAN, as `episode-plan-reviser` needs it (TASK-094 批次 A).
         // Deliberately a different key from `episodePlan` above, which is ONE
         // episode's entry: two shapes under one key is how a capability ends up

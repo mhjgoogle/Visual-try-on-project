@@ -36,6 +36,10 @@ export const APPLY_TARGETS = {
     can: true, target: "plan", label: "应用为结构规划",
     detail: "整表替换「结构规划」：原有的行先存一版并进回收区（可拿回），新行按 §N 关联大纲。",
   },
+  "novel-adapter": {
+    can: true, target: "episodes", label: "确认分集，进入剧集创作",
+    detail: "剧集规划追加一版并确认、按集建立剧集实体、正文创作切到「剧集创作」（每集的 Brief 写着改编自哪几章）。小说的章与版本一字不动；已有非空剧集时不覆盖。",
+  },
   "script-writer": {
     can: true, target: "script", label: "应用为正文提案",
     detail: "落到正文的提案位；应用后才创建新版本，旧版本全部保留。",
@@ -211,6 +215,14 @@ export function planApply(skillId, proposal, scope = {}) {
     const rows = Array.isArray(proposal.rows) ? proposal.rows.filter(isObj) : [];
     if (!rows.length) return { ok: false, error: "提案里没有一行结构规划" };
     return { ok: true, actions: [{ action: "proposePlanRows", rows }] };
+  }
+  // 小说 → 剧集（TASK-155）：每一集必须说清对应第几章到第几章，缺了就是一份不能落地的提案。
+  if (skillId === "novel-adapter") {
+    const episodes = Array.isArray(proposal.episodes) ? proposal.episodes.filter(isObj) : [];
+    if (!episodes.length) return { ok: false, error: "提案里没有一集" };
+    const bad = episodes.findIndex((e) => !isObj(e.chapters) || !Number.isInteger(e.chapters.from) || !Number.isInteger(e.chapters.to));
+    if (bad >= 0) return { ok: false, error: `第 ${bad + 1} 集没有说清对应第几章到第几章` };
+    return { ok: true, actions: [{ action: "adaptNovelToEpisodes", episodes }] };
   }
   if (skillId === "script-writer" || skillId === "script-doctor") {
     const text = str(proposal.script) || str(proposal.revisedScript) || str(proposal.text);
