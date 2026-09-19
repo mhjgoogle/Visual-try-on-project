@@ -36,3 +36,6 @@ SUPERSEDED）与版本修订规则见
 - [REQ-010](REQ-010-the-prose-must-not-read-like-AI.md) — CONFIRMED — 写出来的东西读起来不像 AI 写的：
   「AI 味」按对真实产出数出来的形状定义（三短句排比 / 明喻过密 / 「不是 X 是 Y」/ 节奏单一 /
   直陈情绪），写的时候少带味、写完了能去味（TASK-157）
+- [REQ-011](REQ-011-say-it-in-the-app-and-it-gets-built.md) — CONFIRMED — 在应用里说一句，它就被做出来：
+  「开发」窗口里的一句要求直接驱动仓库里的开发（改代码 / 跑测试 / 过闸门 / 可回滚的提交），
+  做完把「你会看到什么」送回他眼前（TASK-160 / ADR-0107）

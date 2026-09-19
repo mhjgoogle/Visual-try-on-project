@@ -3407,6 +3407,25 @@
       "verification": "PASS",
       "verification_ref": "node --test mockups/motv-workspace/tests/*.test.mjs 2394+9 pass/0 fail；用真实项目「照见未明」的 canvas.json 渲染四页实况条并逐条核对；纯展示，按 ADR-0081 不调审查",
       "declared": "2026-09-19T09:52:25+00:00"
+    },
+    "TASK-160": {
+      "commits": [],
+      "paths": [
+        "docs/STATUS.md",
+        "docs/WORKSTATUS.md",
+        "docs/adr/ADR-0107-development-instructions-run-with-tools-in-the-repo.md",
+        "docs/current-architecture.md",
+        "docs/project-context.md",
+        "docs/requirements/REQ-011-say-it-in-the-app-and-it-gets-built.md",
+        "docs/requirements/index.md",
+        "docs/tasks/TASK-160-your-word-drives-the-build.md",
+        "mockups/motv-workspace/server.py",
+        "tests/studio/test_motv_dev_instruction_runs_task160.py",
+        "tests/studio/test_motv_skills_task059.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "pytest tests/studio tests/contract 1074 passed/16 skipped（唯一红是既有守卫 test_runtime_is_a_text_executor_not_a_code_agent，已按适用面收窄+加强处理并变异验证）; node --test 2403 pass; ruff check + format 干净; lifecycle_check 0 finding",
+      "declared": "2026-09-19T10:44:54+00:00"
     }
   },
   "merge_gate": {

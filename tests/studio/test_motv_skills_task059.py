@@ -63,10 +63,35 @@ def test_runtime_is_a_text_executor_not_a_code_agent() -> None:
     # prompt-injected executor could read and echo back source from it.
     assert "tempfile.mkdtemp(" in body
     assert "shutil.rmtree(workdir" in body
-    for forbidden in ("MOCKUP_DIR", "_project_root", "account_root", "REPO_ROOT"):
+    # 项目根、账户目录、mockup 目录**永远**不是 cwd 的来源 —— 那几个装着他的作品
+    # 与凭据，而创作能力那一轮的提示词里内嵌着他写的正文（注入面）。
+    for forbidden in ("MOCKUP_DIR", "_project_root", "account_root"):
         assert forbidden not in body, (
             f"the executor's cwd must not come from {forbidden}"
         )
+    # REPO_ROOT 是**唯一的例外，而且是有条件的**（ADR-0107 决策 1）：开发指令那一轮
+    # 在仓库根跑，因为它的工作就是改这个仓库 —— 它敢这么做的全部理由是**它的提示词
+    # 里没有作品内容**，所以 ADR-0056 决策 2A 那条「剧本文本 + 能读文件的执行器」
+    # 的等式左边不成立。
+    #
+    # 守的仍然是原来那句话：**cwd 不许无条件来自仓库**。所以这里不是放行 REPO_ROOT，
+    # 而是要求它被 `in_repo` 守着，而 `in_repo` 只能由**执行器表**里的 `cwd` 字段
+    # 决定 —— 不是由调用方传进来的参数。写成参数，一次传错就是把仓库交出去。
+    repo_lines = [ln for ln in body.splitlines() if "REPO_ROOT" in ln]
+    assert len(repo_lines) == 1, (
+        f"_run_executor 里 REPO_ROOT 出现了 {len(repo_lines)} 次，只该有一次：\n"
+        + "\n".join(repo_lines)
+    )
+    assert "if in_repo else tempfile.mkdtemp(" in repo_lines[0], (
+        "仓库根必须是 in_repo 那一侧的分支，另一侧仍然是新建的空临时目录：\n"
+        + repo_lines[0]
+    )
+    assert 'in_repo = (_EXECUTORS.get(name) or {}).get("cwd") == "repo"' in body, (
+        "in_repo 必须由执行器表说了算 —— 做成入参，一次传错就把仓库交出去了"
+    )
+    # 而那个带工具、在仓库里跑的执行器，只有开发指令那一种 task_type 拿得到
+    # （白名单在 `_execute_run` 里，测试在 test_motv_dev_instruction_runs_task160.py）
+    assert "_REPO_WRITING_TASK_TYPES" in src
     # bounded output + a timeout watchdog that actually kills the child
     assert "_SKILL_OUTPUT_CAP" in body
     assert "threading.Timer" in body

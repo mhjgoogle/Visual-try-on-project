@@ -1672,6 +1672,27 @@ _EXECUTORS: dict[str, dict] = {
         "args": ["-p", "--tools", ""],
         "probe": ["--version"],
     },
+    # 开发指令那一轮（ADR-0107 / REQ-011）。**与上面那条并存，不是它的开关。**
+    #
+    # 它不带 `--tools ""`，并且在仓库根启动 —— 因为它的工作就是改这个仓库。
+    # 之所以敢这么做，全部理由只有一条：**它的提示词里没有作品内容**
+    # （ADR-0107 决策 2）。ADR-0056 决策 2A 那条注入面讲的是「剧本文本 + 能读文件的
+    # 执行器」；这条路把等式左边的第一项去掉了，所以右边不成立。
+    #
+    # 做成两个条目而不是一个带布尔开关的条目：传错一个布尔值是静默的，而且错的
+    # 方向恰好是「作品内容 + 工具」；写错一个执行器名字有守卫会红。
+    "claude-dev": {
+        "bin": "claude",
+        "launcher_env": "MOTV_RUNTIME_CLAUDE_LAUNCHER",
+        "bin_env": "MOTV_RUNTIME_CLAUDE_BIN",
+        "args": ["-p"],
+        "probe": ["--version"],
+        # 在仓库根跑。`_run_executor` 据此**不建也不删**临时目录 ——
+        # 仓库根绝不能走那条 `shutil.rmtree` 的路。
+        "cwd": "repo",
+        # 它写仓库。只给开发指令那一种 task_type 用，`_dev_executor_for` 是唯一入口。
+        "writes_repo": True,
+    },
     "codex-cli": {
         "bin": "codex",
         "launcher_env": "MOTV_RUNTIME_CODEX_LAUNCHER",
@@ -1838,6 +1859,29 @@ def _executor_argv(name: str) -> tuple[list[str] | None, str]:
     return [exe, *spec["args"]], "path"
 
 
+#: 唯一允许使用「能写仓库」执行器的 task_type（ADR-0107 决策 1）。
+#:
+#: **这是一张白名单，不是一个开关。** 创作能力那一侧的 task_type 永远不在里面，
+#: 所以哪怕调用方传错了执行器名字，也拿不到工具 —— 而「作品内容 + 工具」正是
+#: ADR-0056 决策 2A 那条注入面。
+_REPO_WRITING_TASK_TYPES = frozenset({"dev.implement"})
+
+
+def _executor_allowed_for(name: str, task_type: str) -> str:
+    """这个 task_type 能不能用这个执行器。空串 = 能。
+
+    能写仓库的执行器只对开发指令那一种 task_type 开放。检查落在**解析 argv 之前**，
+    所以一次写错的组合根本走不到 spawn。
+    """
+    spec = _EXECUTORS.get(name) or {}
+    if spec.get("writes_repo") and task_type not in _REPO_WRITING_TASK_TYPES:
+        return (
+            f"「{name}」在仓库里带工具运行，只给开发指令那一轮用；"
+            f"「{task_type}」不在白名单里（ADR-0107 决策 1）"
+        )
+    return ""
+
+
 def _run_executor(
     name: str, prompt: str, timeout: int, on_spawn=None
 ) -> tuple[str, str | None]:
@@ -1870,7 +1914,14 @@ def _run_executor(
     # synchronous `/api/skill/run`, which spawns without ever touching the
     # registry — and job membership is not retroactive (codex review, round 10).
     _windows_job()
-    workdir = tempfile.mkdtemp(prefix="motv-skill-")
+    # 工作目录由**执行器表**说了算，不由调用方传。开发指令那一轮在仓库根跑
+    # （ADR-0107 决策 1）；其余一律是新建的空临时目录。
+    #
+    # `owns_workdir` 决定 finally 里删不删 —— **仓库根绝不能走 `rmtree`**。
+    # 这不是防御性编程，是这一行如果写错，一次开发指令会删掉整个仓库。
+    in_repo = (_EXECUTORS.get(name) or {}).get("cwd") == "repo"
+    workdir = str(REPO_ROOT) if in_repo else tempfile.mkdtemp(prefix="motv-skill-")
+    owns_workdir = not in_repo
     try:
         proc = subprocess.Popen(  # noqa: S603 - argv array, no shell
             argv,
@@ -1893,8 +1944,10 @@ def _run_executor(
         )
     except OSError:
         # the spawn itself failed (a bad configured launcher, most likely) — the
-        # temp folder is ours and must not be left behind on every retry
-        shutil.rmtree(workdir, ignore_errors=True)
+        # temp folder is ours and must not be left behind on every retry.
+        # **只删自己建的那个**：开发指令那一轮的 cwd 是仓库根（ADR-0107 决策 1）。
+        if owns_workdir:
+            shutil.rmtree(workdir, ignore_errors=True)
         raise
     # Register BEFORE the first blocking read: a cancel that arrives while we are
     # waiting on stdout must still find something to kill. Registration also puts
@@ -1955,7 +2008,10 @@ def _run_executor(
         if tree_gone or getattr(proc, "motv_tree_reaped", False):
             with _JOB_LOCK:
                 _LIVE_CHILDREN.discard(proc)
-        shutil.rmtree(workdir, ignore_errors=True)
+        # **只删自己建的那个。** 开发指令那一轮的 cwd 是仓库根 —— 无条件 rmtree
+        # 会把整个仓库删掉。
+        if owns_workdir:
+            shutil.rmtree(workdir, ignore_errors=True)
     if timed_out:
         raise subprocess.TimeoutExpired(argv[:1], timeout)
     text = out[:_SKILL_OUTPUT_CAP].decode("utf-8", "replace")
@@ -2828,6 +2884,12 @@ def _execute_run(run: dict, on_spawn, is_cancelled):
     prompt = params.get("prompt") or ""
     timeout = params.get("timeout") or _SKILL_TIMEOUT_DEFAULT
     executor = run.get("executor")
+    # 能写仓库的执行器只对开发指令那一种 task_type 开放（ADR-0107 决策 1）。
+    # **闸落在这里**：这是所有 Run 的统一执行点，所以任何一条调用路径 —— 现在的
+    # 和以后新加的 —— 都过得了它。落在各个创建点上就会漏掉下一个创建点。
+    why = _executor_allowed_for(executor, run.get("taskType") or "")
+    if why:
+        raise OSError(why)
     text, model = _run_executor(executor, prompt, timeout, on_spawn=on_spawn)
     parser = _AGENT_PARSERS.get(run.get("taskType"))
     if parser is None:
@@ -3484,6 +3546,12 @@ _CONV_TASK_TYPE = "conversation.turn"
 #: 创作者写的文字变成一条能写仓库的注入面（ADR-0042/0056 的既有姿态），而且绕开
 #: 上面每一道闸。所以这条路径只产出方案：方案变成提案 → 他拍板 → 开发照着做。
 _DEV_TASK_TYPE = "dev.proposal"
+#: 开发指令那一轮（REQ-011 / ADR-0107）——**真的改仓库**的那一种。
+#: 它是 `_REPO_WRITING_TASK_TYPES` 里唯一的成员：只有它拿得到带工具的执行器。
+_DEV_BUILD_TASK_TYPE = "dev.implement"
+#: 真的动手比写一份方案慢得多：它要读代码、改、跑测试、过闸门、提交。
+#: 给足时间，但仍然有界 —— 一轮永远跑不完的开发在屏幕上与「它把我晾着」一样。
+_DEV_BUILD_TIMEOUT = 1800
 #: A turn's message. Long enough for a paragraph of direction, bounded because it
 #: travels into a prompt whose size is what costs subscription capacity.
 _CONV_MESSAGE_MAX = 4000
@@ -4028,10 +4096,18 @@ def _conv_prompt(
             "3. 他对提案表态 → 给一条 proposal.decide："
             "args 里 id=提案号、verdict=approved/rejected/changes、note=他的原话。"
             "「可以但要改成…」是 changes，把要求原样写进 note。\n"
-            "4. 他要**现在就让开发出方案**（「你能让后端现在改吗」「让开发做一版」）→ "
-            "给一条 dev.request：text 写清楚要开发做什么（把他这一页的位置也写进去）。"
+            "4. 他要**开发出个方案**（「先说说怎么改」「给一版方案」）→ 给一条 "
+            "dev.request：text 写清楚要开发做什么（把他这一页的位置也写进去）。"
             "服务端会真的去跑开发那一轮，方案回来后作为提案出现在这个窗口里等他拍板。"
             "**不要承诺代码已经改了** —— 出来的是方案，不是改动。\n"
+            "4b. 他要的是**直接改**（「就这么改」「你去改」「帮我改成…」"
+            "「不用先给方案」）→ 同样给 dev.request，但**加上 build: true**。"
+            "那一轮会真的改代码、跑测试、留下一个可回滚的提交；做完作为提案回到这个"
+            "窗口，他刷新页面就能看到。**这条只在这个「开发」窗口有效。**\n"
+            "4c. 分不清他要方案还是要直接改时：**要求明确具体就直接改**"
+            "（「表头改成登场人物」），**含糊或牵涉取舍就先出方案**"
+            "（「这一页太乱了，你看着办」）。一次只做一件 —— 上一轮还在做的时候，"
+            "服务端会告诉你在排队，如实转告他。\n"
             "5. 他说的既不是意见、不是答复、也不是要方案（比如在问项目现状）→ "
             "正常回答，"
             "edits 给空。\n"
@@ -4124,8 +4200,49 @@ def _conv_prompt(
     )
 
 
+def _dev_implement_prompt(ask: str, page: str) -> str:
+    """开发指令那一轮：把他的要求**真的做出来**（REQ-011 / ADR-0107）。
+
+    **签名里没有 facts，这是有意的，也是这条路敢带工具的全部理由。**
+
+    ADR-0056 决策 2A 那条注入面是「剧本文本 + 能读文件的执行器」：提示词里内嵌
+    用户撰写的正文，一段精心构造的文字就能让有文件权限的执行器去读本机密钥。
+    这一轮把等式左边的第一项去掉 —— 它只拿到他这句话和他在哪一页，作品内容
+    一个字都不带 —— 所以右边不成立。
+
+    `tests/studio/test_motv_dev_instruction_runs_task160.py` 钉住这条：
+    给它加一个 facts 参数，那份测试当场变红。
+    """
+    return (
+        "你是这个仓库的开发 Agent。产品负责人在应用的「开发」窗口提了一个要求，"
+        "**你要真的把它做出来**，不是写一份方案。\n\n"
+        f"他在这一页上说的：{page or '（没报告页面）'}\n\n"
+        "怎么做：\n"
+        "1. 先调 dev-workflow Skill 走一遍它的六个环节 —— 它是这个仓库的开发规程，"
+        "AGENTS.md 是唯一规范。\n"
+        "2. 改完跑归属测试（AGENTS §20），提交时让 git 的 pre-commit 闸门跑起来。\n"
+        "3. **只在当前 change 分支上提交推送。不碰 main、不合并、不 force push**"
+        "（ADR-0107 决策 4）。\n"
+        "4. 做不了或不该做，就说清楚为什么 —— 空手回来比做错了强。\n\n"
+        "做完只输出一个 JSON 对象，不要任何解释文字、不要代码围栏：\n"
+        '{"title": "一句话说清他刷新之后会看到什么", '
+        '"body": "现在：…\\n改完：…\\n不变：…", '
+        '"commit": "提交的短 hash（没提交就给空串）"}\n\n'
+        "body 的写法（产品负责人 2026-08-29:「简洁的告诉我改变前后用户能看到的"
+        "前端变化是什么。不用解释技术细节」）：只写他在屏幕上看得到的变化，"
+        "不写文件名、函数名、数据结构；**「不变」那一行不能省** —— "
+        "他最怕「改一个地方，别的悄悄变了」。三到六行。\n\n"
+        "=== 他的要求 ===\n"
+        f"{ask}\n"
+    )
+
+
 def _dev_prompt(ask: str, page: str, facts: str) -> str:
-    """开发那一侧的一轮：把他的要求变成一份**能照着做**的修改方案。"""
+    """开发那一侧的一轮：把他的要求变成一份**能照着做**的修改方案。
+
+    **这一轮是无工具的**（ADR-0056 决策 2），所以它可以带项目事实。
+    真的要动手的那一轮是上面的 `_dev_implement_prompt`，它一个字的作品内容都不带。
+    """
     return (
         "你是这个短剧创作工作台的**前端开发**。产品负责人刚提了一个要求，"
         "你要给他一份**他看得懂的方案**。\n\n" + _CONV_PAGE_MAP + "\n\n"
@@ -4272,6 +4389,14 @@ def _adapt_conversation(text: str, _skill_id=None) -> dict:
             continue
         if entry["kind"] == "dev.request":
             # 「你能让后端现在改吗」——`text` 就是要交给开发那一轮的要求。
+            #
+            # `build` 分开出方案与真的动手（REQ-011 / ADR-0107）。**归一成真正的
+            # 布尔**：模型很爱给 `"true"` / `1`，而 `if e.get("build")` 对字符串
+            # `"false"` 也为真 —— 那会让一句「先给个方案」跑成一次真实改动。
+            raw_build = item.get("build")
+            entry["build"] = raw_build is True or (
+                isinstance(raw_build, str) and raw_build.strip().lower() == "true"
+            )
             edits.append(entry)
             continue
         if entry["kind"] == "proposal.decide":
@@ -8036,11 +8161,35 @@ class _App:
                         turn["applied"] = (turn.get("applied") or []) + filed
                 # 「让开发现在给个方案」：**真的去跑一轮**（TASK-118）。
                 # 它跑的是没有工具的 CLI，产出方案文字；方案回来后变成提案。
+                #
+                # `build: true` 则是「**真的去做**」（REQ-011 / ADR-0107）：带工具、
+                # 在仓库里跑、会留下一个可回滚的提交。
                 for e in turn["edits"]:
                     if not isinstance(e, dict) or e.get("kind") != "dev.request":
                         continue
+                    want_build = bool(e.get("build"))
+                    # **只有「开发」窗口能让它真的动手** —— 服务端强制，不是模型自觉
+                    # （REQ-011 判据 2，与 REQ-007 判据 4 同一道闸、方向相反）。
+                    # 作品窗口里说同样的话，降级成写方案，并说清要切到哪儿。
+                    in_dev_window = _conv_intent(run.get("context")) == "feedback"
+                    if want_build and not in_dev_window:
+                        turn["applied"] = (turn.get("applied") or []) + [
+                            {
+                                "kind": "dev.request",
+                                "detail": "",
+                                "error": (
+                                    "真的动手改这个应用只能在「开发」窗口里说 —— "
+                                    "切到那个窗口再说一次。这里只能记意见或写方案。"
+                                ),
+                            }
+                        ]
+                        continue
                     started = self._start_dev_proposal(
-                        name, rid, e.get("text") or "", run.get("context")
+                        name,
+                        rid,
+                        e.get("text") or "",
+                        run.get("context"),
+                        build=want_build,
                     )
                     turn["applied"] = (turn.get("applied") or []) + [started]
                 # **说了记下、其实没记下** —— 这一族是这条回路最坏的失败：他答了，
@@ -8170,8 +8319,14 @@ class _App:
             },
         )
 
-    def _start_dev_proposal(self, name: str, from_run: str, ask: str, context) -> dict:
-        """起一轮「开发出方案」。按发起它的那条 run 去重（读时对账会重复经过）。"""
+    def _start_dev_proposal(
+        self, name: str, from_run: str, ask: str, context, build: bool = False
+    ) -> dict:
+        """起一轮开发。`build=False` 出方案（无工具），`True` **真的去做**。
+
+        两种模式共用这一个入口，因为去重、占位提案、回写、失败处理一模一样；
+        分开的只有**用哪个执行器、喂哪份提示词**（ADR-0107 决策 1/2）。
+        """
         ask = (ask or "").strip()
         if not ask:
             return {
@@ -8187,6 +8342,27 @@ class _App:
                     "detail": f"已经在给方案了（第 {x.get('id')} 号）",
                     "error": "",
                 }
+        # 一次只跑一轮（ADR-0107 决策 6）。两个自动 Agent 同时改同一棵共享工作树，
+        # 是已经付过学费的事故类型（TASK-087 §5.31 / §5.33）。**排队而不是并发**，
+        # 并且如实告诉他在排队 —— 静默丢弃与「它把我晾着」在屏幕上无法区分。
+        if build:
+            for x in doc["proposals"]:
+                if x.get("pending") and x.get("build") and x.get("devRun"):
+                    live = runs().get(x["devRun"])
+                    if isinstance(live, dict) and live.get("status") in (
+                        "queued",
+                        "running",
+                        "cancelling",
+                    ):
+                        return {
+                            "kind": "dev.request",
+                            "detail": (
+                                f"开发正忙着做第 {x.get('id')} 号那件事 —— "
+                                "这一条等它做完再说一次。一次只做一件，"
+                                "两个人同时改同一棵树会互相踩"
+                            ),
+                            "error": "",
+                        }
         page = ""
         if isinstance(context, dict):
             page = " · ".join(
@@ -8197,13 +8373,21 @@ class _App:
         try:
             run = runs().create(
                 kind="skill",
-                task_type=_DEV_TASK_TYPE,
-                executor="claude-code",
+                task_type=_DEV_BUILD_TASK_TYPE if build else _DEV_TASK_TYPE,
+                # **两条路，两个执行器**（ADR-0107 决策 1）：
+                #   出方案 → claude-code：工具全关、中性目录，可以带项目事实；
+                #   真的做 → claude-dev：带工具、在仓库根，**一个字作品内容都不带**。
+                # 提示词与执行器严格配对 —— 配错了就是把注入面打开。
+                executor="claude-dev" if build else "claude-code",
                 project_id=name,
                 context={"fromRun": from_run, "page": page},
                 params={
-                    "prompt": _dev_prompt(ask, page, self._conv_facts(name, context)),
-                    "timeout": _SKILL_TIMEOUT_DEFAULT,
+                    "prompt": (
+                        _dev_implement_prompt(ask, page)
+                        if build
+                        else _dev_prompt(ask, page, self._conv_facts(name, context))
+                    ),
+                    "timeout": _DEV_BUILD_TIMEOUT if build else _SKILL_TIMEOUT_DEFAULT,
                 },
                 provider="local_subscription",
             )
@@ -8213,23 +8397,31 @@ class _App:
                 "detail": ask[:200],
                 "error": f"没能让开发那一轮跑起来：{exc.detail}",
             }
-        # 占位提案：他立刻看得到「开发正在写方案」，而不是等一分钟看着什么都没有
+        # 占位提案：他立刻看得到「开发正在…」，而不是等一分钟看着什么都没有
         doc["proposals"].append(
             {
                 "id": len(doc["proposals"]) + 1,
                 "createdAt": datetime.now(timezone.utc).isoformat(),
-                "title": f"（开发正在写方案）{ask[:80]}",
+                "title": f"（开发正在{'做' if build else '写方案'}）{ask[:80]}",
                 "body": "",
                 "decision": None,
                 "fromRun": from_run,
                 "devRun": run.get("runId"),
                 "pending": True,
+                # 这一轮是「真的做」还是「写方案」—— 落地时据此决定怎么写回执，
+                # 排队检查也读它。
+                "build": bool(build),
             }
         )
         _save_feedback(doc)
         return {
             "kind": "dev.request",
-            "detail": "已交给开发，正在写方案 —— 写好会作为提案出现在这里",
+            "detail": (
+                "已交给开发，正在做 —— 做完会作为提案出现在这里，"
+                "到时候刷新页面就能看到改动"
+                if build
+                else "已交给开发，正在写方案 —— 写好会作为提案出现在这里"
+            ),
             "error": "",
         }
 
@@ -8251,17 +8443,37 @@ class _App:
             plan = (
                 out.get("proposal") if isinstance(out.get("proposal"), dict) else None
             )
+            built = bool(item.get("build"))
             if status == "succeeded" and plan:
                 item["title"] = plan.get("title") or item["title"]
                 item["body"] = plan.get("body") or ""
+                if built:
+                    # 做完了要说**做完了**，并把那个提交带上 —— 他要能自己去翻、
+                    # 也要能自己 revert（ADR-0107「代价的对冲是可回滚」）。
+                    commit = str(plan.get("commit") or "").strip()[:12]
+                    item["title"] = f"（做完了）{item['title']}"
+                    item["body"] = (item["body"] or "") + (
+                        f"\n提交：{commit} —— 不满意就说一声，这一条能单独撤掉"
+                        if commit
+                        else "\n（这一轮没有产生提交 —— 它认为不该改，理由在上面）"
+                    )
             else:
-                # FAIL-CLOSED AND SAY WHY：一条永远停在「正在写方案」的提案，
+                # FAIL-CLOSED AND SAY WHY：一条永远停在「正在…」的提案，
                 # 看起来就是开发把他晾在那儿了。
-                item["title"] = f"（方案没写成）{item['title'][8:]}"
+                item["title"] = (
+                    f"（没做成）{item['title'][6:]}"
+                    if built
+                    else f"（方案没写成）{item['title'][8:]}"
+                )
                 item["body"] = (
                     "开发那一轮没能完成："
                     f"{run.get('failureReason') or status or '未知原因'}。"
                     "跟我说一声可以再试一次。"
+                    + (
+                        "\n仓库没有被改动 —— 没跑完的那一轮不会留下半个提交。"
+                        if built
+                        else ""
+                    )
                 )
             item["pending"] = False
             changed = True

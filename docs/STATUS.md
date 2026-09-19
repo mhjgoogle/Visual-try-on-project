@@ -24,7 +24,7 @@
 
 卡头状态行只有三个词：`待办` 没人在做 · `进行中` 在办 · `完成` 已完成。
 
-**当前**：1 在办 · 12 待办 · 142 已完成 · 90 条 ADR。
+**当前**：2 在办 · 12 待办 · 142 已完成 · 91 条 ADR。
 
 **找在办的任务**：本文件的「进行中 · 任务卡」一节，或
 `python .claude/tools/agent_harness.py resume`，加上
@@ -59,7 +59,7 @@
 | --- | --- |
 | **Mission** —— 这个产品为什么存在 | 构建覆盖「故事构思 → 剧本 → 场景镜头 → 资产 → 图片/视频生成 → 配音字幕 → 合成 → QCD」的 AI 视频 / 短剧生产工作流，核心对视频厂商保持中立。 |
 | **Strategy** —— 用哪条路线达成 | 原 M1 最小闭环已完成并冻结为基础；WFM1 增量加入可复用短剧流程与云端默认生产路线；创作者 Studio 按 ADR-0066 四阶段落成产品界面；会花钱的能力按 Accepted ADR 逐个命令开门。 |
-| **Current Milestone** —— 这一轮交付什么 | **先把小说写出来，再把它拍成片**（[REQ-009](requirements/REQ-009-write-the-novel-first-then-film-it.md)，产品负责人 2026-09-14 换的里程碑）：一个想法进去、一本小说出来，然后这本小说接进已经存在的视频线，四个垂直切片依次推进（一 AI 写得出一章**小说**正文 → 二 连着往下写、可停可改不覆盖 → 三 核心/大纲/结构在小说语境下成立 → 四 小说→剧集的真实转换），**不新增一级或二级页面**（ADR-0066 十一页闭集不动）；现在在**切片一**（TASK-146）。上一个里程碑「创作者 Studio 单一路径收敛」的切片 ①② 已闭合到机制层面，剩余（②的真实项目人工走查、③④⑤）降为背景工作，卡的状态仍是 `进行中`，不再是主线。 |
+| **Current Milestone** —— 这一轮交付什么 | **让他说一句话就能推动产品**（[REQ-011](requirements/REQ-011-say-it-in-the-app-and-it-gets-built.md)，产品负责人 2026-09-19：「那能不能我和前端沟通完了。通过我的指令驱动后端来做」）：他在应用的「开发」窗口说一句要求，仓库里的开发就真的动起来 —— 改代码、跑测试、过闸门、留下一个可回滚的提交，做完把「你会看到什么」送回他眼前（TASK-160）。**上一个里程碑「先把小说写出来，再把它拍成片」（REQ-009）四个切片已全部交齐**（TASK-146/152/154/155 均 `完成`），连同 REQ-010「去 AI 味」一起合进 main；它的真实项目走查转为背景工作。再往前的「创作者 Studio 单一路径收敛」剩余项（TASK-074/106/132）状态仍是 `进行中`，都不是主线。 |
 
 ### Active Requirements
 
@@ -73,11 +73,12 @@
 | [REQ-003](requirements/REQ-003-traceability-and-requirement-fulfillment-review.md) | REQ-003：每一次实现都能从产品意图追到验证，审查先答「需求做完了吗」 | CONFIRMED | — |
 | [REQ-004](requirements/REQ-004-three-pane-shell-and-agent-conversation.md) | REQ-004：全站统一三栏 —— 左控制/选择 · 中工作区 · 右 Agent 对话 | CONFIRMED | — |
 | [REQ-005](requirements/REQ-005-remove-a-project-from-the-home-list.md) | REQ-005：主页可以把项目从列表里删除（文件他自己删） | CONFIRMED | — |
-| [REQ-006](requirements/REQ-006-agent-can-do-what-the-creator-can-do.md) | REQ-006：对话里的 Agent 能做创作者能做的事，并且能把意见带回给开发 | CONFIRMED | — |
+| [REQ-006](requirements/REQ-006-agent-can-do-what-the-creator-can-do.md) | REQ-006：对话里的 Agent 能做创作者能做的事，并且能把意见带回给开发 | CONFIRMED | TASK-160 |
 | [REQ-007](requirements/REQ-007-say-it-and-the-right-capability-runs.md) | REQ-007：他说一句话，对的那个专业能力就跑起来 | CONFIRMED | — |
 | [REQ-008](requirements/REQ-008-images-from-my-own-account.md) | REQ-008：用我自己的账号自动出图，不要按次计费的 API | CONFIRMED | — |
-| [REQ-009](requirements/REQ-009-write-the-novel-first-then-film-it.md) | REQ-009：先把小说写出来，再把它拍成片 | CONFIRMED | — |
+| [REQ-009](requirements/REQ-009-write-the-novel-first-then-film-it.md) | REQ-009：先把小说写出来，再把它拍成片 | CONFIRMED | TASK-160 |
 | [REQ-010](requirements/REQ-010-the-prose-must-not-read-like-AI.md) | REQ-010：写出来的东西，读起来不像 AI 写的 | CONFIRMED（2026-09-18 | — |
+| [REQ-011](requirements/REQ-011-say-it-in-the-app-and-it-gets-built.md) | REQ-011：在应用里说一句，它就被做出来 | CONFIRMED | TASK-160 |
 
 ### Deferred
 
@@ -105,11 +106,11 @@
 
 | ADR | 标题 | 状态 |
 | --- | --- | --- |
+| [ADR-0107](adr/ADR-0107-development-instructions-run-with-tools-in-the-repo.md) | ADR-0107：开发指令那一轮有工具、在仓库里跑；创作能力那一轮一个字都不动 | Accepted（2026-09-19，实施 Agent 依 AGENTS.md §1 自行 Accept |
 | [ADR-0106](adr/ADR-0106-the-more-specific-keyword-hit-wins.md) | ADR-0106：命中更具体的那个关键词赢，而不是命中更多个 | Accepted（2026-09-18，实施 Agent 依 AGENTS.md 第 1 节自行 Accept |
 | [ADR-0105](adr/ADR-0105-task-state-lives-on-the-card.md) | ADR-0105：任务的状态住在卡上，不住在目录里 | Accepted（2026-09-17，产品负责人明确指示 |
 | [ADR-0104](adr/ADR-0104-git-native-hook-is-the-authoritative-gate.md) | ADR-0104：权威的提交闸门是 git 原生 hook，PreToolUse 降级为快反馈 | Accepted（2026-09-16，实施 Agent 依 AGENTS.md §1 自行 Accept |
 | [ADR-0103](adr/ADR-0103-two-planes-and-cost-based-depth.md) | ADR-0103：开发流程分两个面，深度按代价判 —— 不是继续加规则，是把规则分层 | Accepted（2026-09-08，实施 Agent 依 AGENTS.md §1 自行 Accept） |
-| [ADR-0102](adr/ADR-0102-origin-and-confirmation-are-two-fields.md) | ADR-0102：发起方与确认方是两个字段 —— 「他在对话里说的」不等于「他自己点的」 | Accepted（2026-09-05，实施 Agent 依 AGENTS.md §1 自行 Accept） |
 
 ## 进行中 · 任务卡
 
@@ -118,6 +119,7 @@
 | 文档 | 标题 | 状态行（首句） |
 | --- | --- | --- |
 | [TASK-087-followup-ledger.md](tasks/TASK-087-followup-ledger.md) | TASK-087：Follow-up 总账 —— 把散在九张卡里的欠账收成一处 | 进行中 · 活账（不是一次性交付 |
+| [TASK-160-your-word-drives-the-build.md](tasks/TASK-160-your-word-drives-the-build.md) | TASK-160：他在应用里说一句，开发就真的动起来 | 进行中 · 切片一（起得来、改得了、说得出做了什么）实施中 |
 
 ## 待办 · 任务卡
 
@@ -333,7 +335,7 @@
 | 位置 | 放什么 |
 | --- | --- |
 | [当前架构合同](current-architecture.md) | **现在**成立的边界与约束（NOW） |
-| [`docs/adr/`](adr/) | 90 条决策记录（ADR-0001 … ADR-0106）—— WHY / HISTORY |
+| [`docs/adr/`](adr/) | 91 条决策记录（ADR-0001 … ADR-0107）—— WHY / HISTORY |
 | [`docs/design/`](design/) 根 | 系统合同、产品信息架构、L0–S7 I/O 合同 |
 | [项目背景与路线](project-context.md) | 这个项目是什么、走到哪了 |
 | [实施规划](implementation_plan.md) | 阶段与里程碑路线图 |
