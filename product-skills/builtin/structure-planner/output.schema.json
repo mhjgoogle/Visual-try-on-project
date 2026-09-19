@@ -1,0 +1,71 @@
+{
+  "type": "object",
+  "required": [
+    "rows"
+  ],
+  "fields": {
+    "rows": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 500,
+      "of": {
+        "type": "object",
+        "required": [
+          "unitNo",
+          "scene",
+          "purpose",
+          "characters",
+          "goal",
+          "conflict",
+          "turn",
+          "endingState"
+        ],
+        "fields": {
+          "unitNo": {
+            "type": "number"
+          },
+          "scene": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "purpose": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "characters": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "goal": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "conflict": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "turn": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "endingState": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "outlineRefs": {
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 20,
+            "of": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    "notes": {
+      "type": "string",
+      "nonEmpty": false
+    }
+  }
+}

@@ -170,7 +170,7 @@ until [ "$(stat -c %Y "$F" 2>/dev/null)" != "$STAMP" ]; do sleep 30; done
   判据 4 / 6 / 7 —— 意见有去处、回路双向、两个窗口
 - [ADR-0089](../../../docs/adr/ADR-0089-conversational-agent-write-path.md)
   决策 8（意见回路）· 决策 9（两个窗口，闸在服务端）
-- [TASK-114](../../../docs/tasks/done/TASK-114-agent-action-registry-and-feedback-loop.md) ·
-  [TASK-116](../../../docs/tasks/done/TASK-116-proposal-loop-both-ways.md) ·
-  [TASK-117](../../../docs/tasks/done/TASK-117-two-chat-windows.md) ·
-  [TASK-118](../../../docs/tasks/done/TASK-118-frontend-triggers-a-dev-plan.md)
+- [TASK-114](../../../docs/tasks/TASK-114-agent-action-registry-and-feedback-loop.md) ·
+  [TASK-116](../../../docs/tasks/TASK-116-proposal-loop-both-ways.md) ·
+  [TASK-117](../../../docs/tasks/TASK-117-two-chat-windows.md) ·
+  [TASK-118](../../../docs/tasks/TASK-118-frontend-triggers-a-dev-plan.md)

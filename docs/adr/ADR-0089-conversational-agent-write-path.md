@@ -5,7 +5,7 @@
 - 决策者：产品负责人下发需求（2026-08-27），实施 Agent 依 AGENTS.md §1
   「ADR 的 Accept 权」自行 Accept 技术形状（不涉付费、不涉不可逆动用户数据）
 - 关联：[REQ-004 v2](../requirements/REQ-004-three-pane-shell-and-agent-conversation.md) ·
-  [TASK-109](../tasks/done/TASK-109-three-pane-shell-and-agent-conversation.md) ·
+  [TASK-109](../tasks/TASK-109-three-pane-shell-and-agent-conversation.md) ·
   [ADR-0033](ADR-0033-command-gateway-contract.md)（唯一写路径 = Command Gateway）·
   [ADR-0065](ADR-0065-every-ai-action-through-the-runtime-layer.md)（每个 AI 动作经 Runtime 层）·
   [ADR-0066](ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md) 决策 9

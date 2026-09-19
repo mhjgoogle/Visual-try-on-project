@@ -30,6 +30,22 @@ def doc():
     return mod
 
 
+@pytest.fixture(autouse=True)
+def _gate_installed(doc, monkeypatch):
+    """第五项对着**这台机器的** `.git/hooks` 看。
+
+    CI 的 checkout 与一个新克隆上它本来就没装 —— 那是真实状态，不是别的测试该被
+    连坐的理由。所以默认把它钉成「已装」；专门测它的那几条自己换回真函数或注入假件。
+    """
+    monkeypatch.setattr(
+        doc,
+        "check_commit_gate",
+        lambda installer=None: [
+            {"名字": "pre-commit", "量": "已装", "state": doc.OK, "why": "钉住的"}
+        ],
+    )
+
+
 def test_it_finds_the_surfaces_a_project_really_has(doc):
     """只列**写过东西的**面：空的面不出现在事实里是正常的（那正是「还没写」）。"""
     canvas = {
@@ -227,3 +243,149 @@ def test_every_probe_survives_truncation_and_filtering(doc, tmp_path, srv_mod=No
         assert s["probe"], f"{名字} 没有探针"
     # 结构规划：事实只给前 20 行，探针不许指向第 21 行往后
     assert surfaces["结构规划"]["probe"] == "sp-19"
+
+
+# --- 5. 提交闸门（ADR-0104 代价一节：`.git/hooks` 不随仓库分发，装了没要进体检）--- #
+
+
+class _FakeInstaller:
+    """`install_git_hooks` 的三个问法，答案由测试给；记下每次被问时带的 `cwd`。"""
+
+    HOOK_NAME = "pre-commit"
+
+    def __init__(
+        self,
+        *,
+        override=None,
+        state=None,
+        hooks_dir=None,
+        git=True,
+        raise_in_dir=None,
+        raise_in_state=None,
+    ):
+        self._override = override
+        self._state = state
+        self._dir = hooks_dir
+        self._git = git
+        self._raise_in_dir = raise_in_dir
+        self._raise_in_state = raise_in_state
+        self.asked_cwd = []
+
+    def hooks_path_override(self, cwd=None):
+        self.asked_cwd.append(cwd)
+        if not self._git:
+            raise SystemExit("PATH 上没有 git。")
+        return self._override
+
+    def hooks_dir(self, cwd=None):
+        self.asked_cwd.append(cwd)
+        if self._raise_in_dir is not None:
+            raise self._raise_in_dir
+        return self._dir
+
+    def hook_state(self, target):
+        assert target == self._dir / self.HOOK_NAME, "问的不是 hooks 目录里的那一份"
+        if self._raise_in_state is not None:
+            raise self._raise_in_state
+        return self._state
+
+
+def test_an_installed_current_hook_is_green(doc, monkeypatch, tmp_path):
+    monkeypatch.undo()
+    rows = doc.check_commit_gate(_FakeInstaller(hooks_dir=tmp_path, state=None))
+    assert [r["state"] for r in rows] == [doc.OK]
+    assert str(tmp_path) in rows[0]["why"], "绿也要说出看的是哪一份"
+
+
+def test_a_missing_or_stale_hook_is_RED_with_the_one_command_that_fixes_it(
+    doc, monkeypatch, tmp_path
+):
+    """「没装」是红，不是提醒：闸门安静地不在，正是 ADR-0104 要消灭的失败。"""
+    monkeypatch.undo()
+    for state in ("没有安装", "内容不是当前版本（可能被改过，或换行被改成了 CRLF）"):
+        rows = doc.check_commit_gate(_FakeInstaller(hooks_dir=tmp_path, state=state))
+        assert rows[0]["state"] == doc.BAD, state
+        assert rows[0]["量"] == state, "安装器说的那句原因要原样带出来"
+        assert "install_git_hooks.py" in rows[0]["why"], "红了必须说怎么修"
+
+
+def test_a_hooks_path_override_is_RED_even_if_the_file_looks_fine(
+    doc, monkeypatch, tmp_path
+):
+    """`core.hooksPath` 设了，`.git/hooks` 里的东西一概不跑 —— 文件再对也没用。"""
+    monkeypatch.undo()
+    rows = doc.check_commit_gate(
+        _FakeInstaller(hooks_dir=tmp_path, state=None, override="/elsewhere/hooks")
+    )
+    assert rows[0]["state"] == doc.BAD
+    assert "core.hooksPath" in rows[0]["why"]
+
+
+def test_it_reports_unknown_not_green_when_git_cannot_be_asked(
+    doc, monkeypatch, tmp_path
+):
+    """判不了的判「未知」，不判「通过」—— 与前四项同一姿态。"""
+    monkeypatch.undo()
+    rows = doc.check_commit_gate(_FakeInstaller(hooks_dir=tmp_path, git=False))
+    assert rows[0]["state"] == doc.WARN
+    assert rows[0]["量"] == "未知"
+
+
+def test_a_git_timeout_or_an_unreadable_hook_is_unknown_not_a_crash(
+    doc, monkeypatch, tmp_path
+):
+    """安装器的 git 调用会超时、hook 文件会在读的那一刻被删 —— 两种都不许让整份体检
+    中断（codex 2026-09-18 轮 1）：一份因为自己崩掉而没查完的报告，比 ⚠ 糟得多。"""
+    monkeypatch.undo()
+    import subprocess
+
+    for fake in (
+        _FakeInstaller(
+            hooks_dir=tmp_path,
+            raise_in_dir=subprocess.TimeoutExpired(cmd=["git"], timeout=10),
+        ),
+        _FakeInstaller(
+            hooks_dir=tmp_path, raise_in_state=PermissionError("正在被别的进程删")
+        ),
+    ):
+        rows = doc.check_commit_gate(fake)
+        assert [r["state"] for r in rows] == [doc.WARN]
+        assert rows[0]["量"] == "未知"
+
+
+def test_it_asks_about_THIS_repository_not_the_callers_cwd(doc, monkeypatch, tmp_path):
+    """体检可能从别的目录、别的克隆、或 git hook 里被拉起 —— 问的必须是这个仓库。
+
+    按进程当前目录问，从另一个克隆里跑体检会拿**那个**克隆的 hook 给这一个发合格证
+    （codex 2026-09-18 轮 1 的 BLOCKING）。"""
+    monkeypatch.undo()
+    fake = _FakeInstaller(hooks_dir=tmp_path, state=None)
+    doc.check_commit_gate(fake)
+    assert fake.asked_cwd, "根本没问"
+    assert all(c == doc.REPO for c in fake.asked_cwd), fake.asked_cwd
+
+
+def test_the_gate_check_is_wired_into_the_report_and_turns_it_red(
+    doc, tmp_path, monkeypatch, capsys
+):
+    """守的是**接线**：函数存在但 `main()` 不调它，等于没这一项。"""
+    monkeypatch.setattr(
+        doc,
+        "check_commit_gate",
+        lambda installer=None: [
+            {"名字": "pre-commit", "量": "没有安装", "state": doc.BAD, "why": "修：x"}
+        ],
+    )
+    monkeypatch.setattr(sys, "argv", ["motv_doctor", "--root", str(tmp_path)])
+    code = doc.main()
+    out = capsys.readouterr().out
+    assert "提交闸门" in out and "没有安装" in out
+    assert code == 1, "闸门没装是红，体检要以退出码 1 结束"
+
+
+def test_the_real_installer_loads_and_answers(doc, monkeypatch):
+    """真安装器真的能被体检加载并问出一个判定 —— 不钉判定本身（取决于这台机器）。"""
+    monkeypatch.undo()
+    rows = doc.check_commit_gate()
+    assert len(rows) == 1 and rows[0]["名字"] == "pre-commit"
+    assert rows[0]["state"] in (doc.OK, doc.WARN, doc.BAD)

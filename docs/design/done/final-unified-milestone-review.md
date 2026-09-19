@@ -2,7 +2,7 @@
 
 - 状态：**已完成**（评审记录本身在 2026-08-04 就已写完并定稿；2026-08-26
   按 ADR-0087 归档 —— 它是**历史证据**，不是待办。TASK-040 的里程碑判定
-  仍归用户，那张卡还在 `docs/tasks/active/`）
+  仍归用户，那张卡还在 `docs/tasks/`）
 - 里程碑：AI 短剧工作流 + Creation Workspace 最终统一验收
 - 日期：2026-08-04
 - 范围：两份顶层需求（`ai_shortfilm_pipeline_workflow.md` +

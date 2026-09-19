@@ -8,7 +8,7 @@
   [ADR-0060](ADR-0060-risk-based-local-commit-gate.md)（风险分级本地 commit gate）
   的「高风险改动必须跑全量」在**连续修改链的中间提交**上的应用方式；
   AGENTS.md 第 20 条与 CLAUDE.md 实施纪律同步。
-- 实施任务：[TASK-076](../tasks/done/TASK-076-continuous-chain-gate.md)
+- 实施任务：[TASK-076](../tasks/TASK-076-continuous-chain-gate.md)
 
 ## 背景
 

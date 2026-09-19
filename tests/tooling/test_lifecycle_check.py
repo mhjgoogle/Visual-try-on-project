@@ -32,9 +32,7 @@ def lc(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """守卫指向一棵**最小合规**的假仓库；每个用例只破坏自己那一处。"""
     mod = _load()
     docs = tmp_path / "docs"
-    (docs / "tasks" / "active").mkdir(parents=True)
-    (docs / "tasks" / "done").mkdir(parents=True)
-    (docs / "tasks" / "backlog").mkdir(parents=True)
+    (docs / "tasks").mkdir(parents=True)
     (docs / "adr").mkdir()
     (docs / "requirements").mkdir()
     (docs / "requirements" / "index.md").write_text(
@@ -43,7 +41,7 @@ def lc(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     (docs / "requirements" / "REQ-001-x.md").write_text(
         "# REQ-001：x\n\n- 状态：CONFIRMED\n", "utf-8"
     )
-    (docs / "tasks" / "active" / "TASK-001-x.md").write_text(
+    (docs / "tasks" / "TASK-001-x.md").write_text(
         "# TASK-001：x\n\n- 状态：进行中\n- 关联 Requirement：REQ-001\n", "utf-8"
     )
     (docs / "current-architecture.md").write_text("# 当前架构合同\n\n一行。\n", "utf-8")
@@ -77,22 +75,53 @@ def test_a_clean_tree_reports_nothing(lc) -> None:
     assert _all(lc) == []
 
 
-# --- 1. 做完却留在 active/ ----------------------------------------------------
+# --- 1. 每张卡必须有合法状态行（ADR-0105）--------------------------------------
 
 
-def test_a_finished_card_left_in_active_turns_red(lc) -> None:
-    (lc.DOCS / "tasks" / "active" / "TASK-002-y.md").write_text(
-        "# TASK-002：y\n\n- 状态：完成（2026-08-26）\n", "utf-8"
+def test_a_card_without_a_legal_state_line_turns_red(lc) -> None:
+    """状态住在卡上之后，「目录与状态矛盾」不存在了，换成它的对偶：读不出状态的卡。
+    那样的卡在「进行中的有哪些」里会**静默消失** —— 比标错更糟。"""
+    (lc.DOCS / "tasks" / "TASK-002-y.md").write_text(
+        "# TASK-002：y\n\n- 状态：**已完成**（2026-08-26）\n", "utf-8"
     )
-    assert any("TASK-002" in f for f in lc.check_no_finished_card_in_active())
+    assert any("TASK-002" in f for f in lc.check_every_card_has_a_legal_state())
 
 
-def test_partially_done_stays_green(lc) -> None:
-    """「部分完成」也是在办 —— 误杀它会把人赶去关掉守卫（ADR-0083）。"""
-    (lc.DOCS / "tasks" / "active" / "TASK-003-z.md").write_text(
-        "# TASK-003：z\n\n- 状态：部分完成（还有 §3 没做）\n", "utf-8"
+def test_partially_done_with_a_legal_prefix_stays_green(lc) -> None:
+    """「部分完成」也是在办 —— 枚举词 `进行中` 后面接什么散文都行。"""
+    (lc.DOCS / "tasks" / "TASK-003-z.md").write_text(
+        "# TASK-003：z\n\n- 状态：进行中 · 部分完成（还有 §3 没做）\n", "utf-8"
     )
-    assert lc.check_no_finished_card_in_active() == []
+    assert lc.check_every_card_has_a_legal_state() == []
+
+
+def test_two_state_lines_in_one_header_turn_red(lc) -> None:
+    """**codex 2026-09-17。** 两行状态就是两个答案；静默取第一条，第二条无人发现。"""
+    (lc.DOCS / "tasks" / "TASK-005-two.md").write_text(
+        "# TASK-005：two\n\n- 状态：进行中\n- 状态：完成\n", "utf-8"
+    )
+    findings = lc.check_every_card_has_a_legal_state()
+    assert any("TASK-005" in f and "2 条" in f for f in findings), findings
+
+
+def test_a_body_state_does_not_count_for_the_header(lc) -> None:
+    """**codex 2026-09-17。** 卡头没状态时，正文里的示例不能被当成这张卡的状态。"""
+    (lc.DOCS / "tasks" / "TASK-006-body.md").write_text(
+        "# TASK-006：body\n\n- 类型：Refactor\n\n## 示例\n\n- 状态：完成\n", "utf-8"
+    )
+    assert any("TASK-006" in f for f in lc.check_every_card_has_a_legal_state())
+
+
+def test_two_cards_sharing_one_id_turn_red(lc) -> None:
+    """一个任务号一张卡。迁移当天在真仓库里抓到 TASK-061 / TASK-102 各两张 ——
+    三个目录曾经让它们长在不同的地方而没人发现。"""
+    (lc.DOCS / "tasks" / "TASK-004-a.md").write_text(
+        "# TASK-004：a\n\n- 状态：完成\n", "utf-8"
+    )
+    (lc.DOCS / "tasks" / "TASK-004-b.md").write_text(
+        "# TASK-004：b\n\n- 状态：进行中\n", "utf-8"
+    )
+    assert any("TASK-004" in f for f in lc.check_every_card_has_a_legal_state())
 
 
 # --- 2. ADR 取代关系必须双向 ---------------------------------------------------
@@ -359,7 +388,7 @@ def test_a_bloated_current_architecture_contract_turns_red(lc) -> None:
 
 def test_a_card_with_no_requirement_and_no_technical_objective_turns_red(lc) -> None:
     """ADR-0088 决策 2：审查第 1 闸要对着判据核，卡上没有任何依据就无从核起。"""
-    (lc.DOCS / "tasks" / "active" / "TASK-002-orphan.md").write_text(
+    (lc.DOCS / "tasks" / "TASK-002-orphan.md").write_text(
         "# TASK-002：implement API\n\n- 状态：进行中\n- 目标：把接口做出来\n", "utf-8"
     )
     assert any("ORPHAN_TASK" in f for f in lc.check_no_orphan_task_in_active())
@@ -367,7 +396,7 @@ def test_a_card_with_no_requirement_and_no_technical_objective_turns_red(lc) -> 
 
 def test_a_technical_objective_is_enough_for_work_with_no_requirement(lc) -> None:
     """Bug / Refactor / Perf / 工装默认不建 REQ（ADR-0076）—— 它们写技术目标。"""
-    (lc.DOCS / "tasks" / "active" / "TASK-003-refactor.md").write_text(
+    (lc.DOCS / "tasks" / "TASK-003-refactor.md").write_text(
         "# TASK-003：拆掉重复的解析器\n\n- 状态：进行中\n"
         "- 技术目标：同一份 prompt 解析逻辑现在有三份，改一处必须改三处\n",
         "utf-8",
@@ -385,7 +414,7 @@ def test_a_technical_objective_is_enough_for_work_with_no_requirement(lc) -> Non
 )
 def test_any_of_the_accepted_anchors_satisfies_the_check(lc, anchor: str) -> None:
     """判据故意宽：目标是「什么都没说」的卡，不是措辞不同的卡。"""
-    (lc.DOCS / "tasks" / "active" / "TASK-004-y.md").write_text(
+    (lc.DOCS / "tasks" / "TASK-004-y.md").write_text(
         f"# TASK-004：y\n\n- 状态：进行中\n{anchor}\n", "utf-8"
     )
     assert lc.check_no_orphan_task_in_active() == []
@@ -394,7 +423,7 @@ def test_any_of_the_accepted_anchors_satisfies_the_check(lc, anchor: str) -> Non
 def test_a_bare_adr_mention_is_not_a_basis(lc) -> None:
     """轮 1 的 P1：任何 `ADR-NNNN` 都算锚点 → 几乎每张卡都会在背景里引某条 ADR，
     于是这条检查等于不判。锚点必须是**带标签的**基础字段或显式 REQ-NNN。"""
-    (lc.DOCS / "tasks" / "active" / "TASK-006-adr-only.md").write_text(
+    (lc.DOCS / "tasks" / "TASK-006-adr-only.md").write_text(
         "# TASK-006：改一下解析\n\n- 状态：进行中\n"
         "- 背景：见 ADR-0041 与 ADR-0066 的讨论\n",
         "utf-8",
@@ -404,7 +433,7 @@ def test_a_bare_adr_mention_is_not_a_basis(lc) -> None:
 
 def test_a_labelled_field_must_start_the_line(lc) -> None:
     """散文里出现「依据」二字不算声明 —— 和 ADR 取代关系同一条判据。"""
-    (lc.DOCS / "tasks" / "active" / "TASK-007-prose.md").write_text(
+    (lc.DOCS / "tasks" / "TASK-007-prose.md").write_text(
         "# TASK-007：y\n\n- 状态：进行中\n- 目标：把这块整理干净，依据以后再补\n",
         "utf-8",
     )
@@ -413,16 +442,16 @@ def test_a_labelled_field_must_start_the_line(lc) -> None:
 
 def test_an_empty_basis_field_is_a_label_not_a_basis(lc) -> None:
     """轮 2 的 P1：`- 依据：` 一行空标签也能过 —— 那是在检查拼写，不是检查内容。"""
-    (lc.DOCS / "tasks" / "active" / "TASK-010-empty.md").write_text(
+    (lc.DOCS / "tasks" / "TASK-010-empty.md").write_text(
         "# TASK-010：y\n\n- 状态：进行中\n- 依据：\n- 技术目标：\n", "utf-8"
     )
     assert any("ORPHAN_TASK" in f for f in lc.check_no_orphan_task_in_active())
 
 
-def test_the_guard_keeps_watching_a_new_card_after_it_moves_to_done(lc) -> None:
-    """轮 1 的第二个 P1：Done 判定要求把卡搬进 `done/`，只看 `active/` 会正好在
-    merge 那一刻看不见它。带 ADR-0088 字段集（`架构约束：`）的卡搬走后仍被检查。"""
-    (lc.DOCS / "tasks" / "done" / "TASK-008-moved.md").write_text(
+def test_the_guard_keeps_watching_a_new_card_after_it_is_marked_done(lc) -> None:
+    """轮 1 的第二个 P1：Done 判定要求把状态改成 `完成`，只看 `进行中` 会正好在
+    merge 那一刻看不见它。带 ADR-0088 字段集（`架构约束：`）的卡改完状态后仍被检查。"""
+    (lc.DOCS / "tasks" / "TASK-008-moved.md").write_text(
         "# TASK-008：z\n\n- 状态：完成\n- 架构约束：CA §4\n- 目标：z\n", "utf-8"
     )
     assert any("TASK-008" in f for f in lc.check_no_orphan_task_in_active())
@@ -431,7 +460,7 @@ def test_the_guard_keeps_watching_a_new_card_after_it_moves_to_done(lc) -> None:
 def test_a_legacy_finished_card_is_grandfathered(lc) -> None:
     """存量已完成卡刻意豁免：给一百张已完成的卡回填依据，正是 ADR-0087 要避免的
     一次性整理；而给没人记得的旧工作编一条依据是虚构，不是追溯。"""
-    (lc.DOCS / "tasks" / "done" / "TASK-009-legacy.md").write_text(
+    (lc.DOCS / "tasks" / "TASK-009-legacy.md").write_text(
         "# TASK-009：老卡\n\n- 状态：完成\n- workflow：Migration\n", "utf-8"
     )
     assert lc.check_no_orphan_task_in_active() == []
@@ -440,7 +469,7 @@ def test_a_legacy_finished_card_is_grandfathered(lc) -> None:
 def test_a_basis_buried_in_the_body_still_turns_red(lc) -> None:
     """**故意的边界**：只有头部算。基础写在第三节里，读者与 Review Package 都拿不到它
     —— 「信息其实在某处」这一族亏本仓库已经付过一次（ADR-0083 决策 3）。"""
-    (lc.DOCS / "tasks" / "active" / "TASK-005-buried.md").write_text(
+    (lc.DOCS / "tasks" / "TASK-005-buried.md").write_text(
         "# TASK-005：z\n\n- 状态：进行中\n\n## 背景\n\n依据 REQ-001 的判据 2。\n",
         "utf-8",
     )
@@ -540,7 +569,7 @@ def test_the_guard_does_not_hunt_for_avoided_synonyms(lc) -> None:
     """**刻意不判，别把它「补上」**（ADR-0098「不做什么」）。全仓搜 `_Avoid_` 里的近义词
     会把每一次正常提及都报成漂移：守卫天天红，然后被关掉。这里钉住这条边界 ——
     仓库里到处写着「别名甲」，守卫照样保持绿。"""
-    (lc.DOCS / "tasks" / "active" / "TASK-007-x.md").write_text(
+    (lc.DOCS / "tasks" / "TASK-007-x.md").write_text(
         "# TASK-007：x\n\n- 状态：进行中\n- 技术目标：讨论别名甲与别名甲的用法\n",
         "utf-8",
     )

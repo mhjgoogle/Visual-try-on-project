@@ -15,6 +15,7 @@
 import { esc } from "../util/dom.js";
 import { head } from "./shell.js";
 import * as w from "../workflow/storywork.js";
+import { describe as describeChain } from "../workflow/novelchain.js";
 import { workOf } from "./corews.js";
 
 /** 这一章/集看得见的版本 / 回收区里的版本。软删除的记录仍留在数组里，
@@ -161,6 +162,38 @@ function unitPicker(kind, planned, units, openNo) {
   return `<div class="db-picker">${cells.join("") || `<div class="meta">把数量设成 1 以上，这里就会出现选择器。</div>`}</div>`;
 }
 
+/** 连写状态条（TASK-152 / REQ-009 判据 4）：「接着往下写 [N] 章」· 现在写到哪 · 停止。
+ *
+ *  只在小说模式出现。**不新增页面**，就挂在正文创作里 —— 它说的是这一页的进度。
+ *  N 默认填「还没写的章数」，他改小就只写几章；空 = 写到 Planned 为止。
+ *  停 = 写完手上这一章就停（`novelchain.requestStop`），不中断正在跑的那一次。 */
+function chainBar(ui, m) {
+  if (m.kind !== "novel") return "";
+  const chain = ui && ui.novelChain;
+  const running = !!(chain && chain.status === "running");
+  // 与链自己用的是**同一个** `chainTargets`，所以这里说「还有 N 章」，链就会写那 N 章。
+  const remaining = w.chainTargets(
+    { form: "novel", planned: { novel: m.planned }, units: m.units },
+    null,
+  ).length;
+  const status = chain
+    ? describeChain(chain)
+    : remaining
+      ? `还有 ${remaining} 章没写正文`
+      : "计划内的章都已经有正文了";
+  return (
+    `<div class="db-chain">` +
+    (running
+      ? `<button class="btn sm danger" data-chain-stop="1" title="写完手上这一章就停">■ 停止</button>`
+      : `<button class="btn sm" data-chain-start="1"${remaining ? "" : " disabled"} ` +
+        `title="从第一章没写正文的开始，一章一章往下写；已经写过的跳过">▶ 接着往下写</button>` +
+        `<input class="db-n" data-chain-count="1" value="${remaining || ""}" inputmode="numeric" ` +
+        `title="写几章；空 = 写到 Planned 为止"><span class="meta">章</span>`) +
+    `<span class="st${running ? " on" : ""}">${esc(status)}</span>` +
+    `</div>`
+  );
+}
+
 /** 从「剧集创作」进到「剧集制作」的入口。
  *
  *  产品负责人 2026-08-30：「剧集创作要从正文创作里面进入。」——**这是故事侧交给生产线的
@@ -198,6 +231,7 @@ export function renderDraftWs(ctx, ui) {
       `<div class="db-top"><button class="btn ghost sm" data-unit-back="1">← 全部${word}节</button>` +
       unitPicker(m.kind, m.planned, m.units, m.openNo) +
       `</div>` +
+      chainBar(ui, m) +
       `<div class="db-unit">` +
       unitBrief(ctx.story, m.kind, m.openNo, unit) +
       `<div class="db-main">` +
@@ -273,6 +307,7 @@ export function renderDraftWs(ctx, ui) {
     `<span class="meta">可以随时加减；减少不会删掉已经写下的${esc(word)}节。` +
     `这个数**不必**等于结构规划的行数 —— 一${esc(word)}可以对应几行，一行也可以拆成几${esc(word)}</span></div>` +
     unitPicker(m.kind, m.planned, m.units, null) +
+    chainBar(ui, m) +
     `<div class="sw-foot"><span class="meta">选一${esc(word)}开始写</span></div>` +
     `</div></div></div>`
   );

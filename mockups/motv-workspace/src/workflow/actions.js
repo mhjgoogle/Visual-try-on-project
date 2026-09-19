@@ -116,6 +116,10 @@ export const ACTIONS = {
   replaceShotDraft: { args: ["shots"], risk: "edit" },
   patchShots: { args: ["patches"], risk: "edit" },
   proposeOutline: { args: ["proposal"], risk: "edit" },
+  // 结构规划表整表替换（TASK-154）：旧行进回收区、整表先存一版，所以可逆。
+  proposePlanRows: { args: ["rows"], risk: "edit" },
+  // 小说 → 剧集（TASK-155）：规划追加一版并确认、建剧集、正文创作切到剧集创作。全是加法。
+  adaptNovelToEpisodes: { args: ["episodes"], risk: "edit" },
   // `form` + `unitNo` 是**这份正文的落点身份**（TASK-146）：它是为小说还是剧集写的、
   // 为第几章写的。两样都从**那次运行**来，应用时压过屏幕上的一切 —— 运行与应用之间
   // 他完全可以切章、也可以切形态，而「按第 5 章的任务生成、落进第 6 章」和

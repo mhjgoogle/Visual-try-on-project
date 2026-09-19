@@ -2,8 +2,8 @@
 
 - 状态：**Accepted**（实施 Agent 自行 Accept，2026-08-24）
 - 依据：AGENTS.md §1 —— 这是纯技术范围决策，不涉付费、不动用户数据。
-  它欠了两张卡：[TASK-083](../tasks/done/TASK-083-phase3-adrs-first.md) §5.1 要求
-  「顺带在文档里明确它的去留」，[TASK-103](../tasks/done/TASK-103-frontback-and-ui-residuals.md)
+  它欠了两张卡：[TASK-083](../tasks/TASK-083-phase3-adrs-first.md) §5.1 要求
+  「顺带在文档里明确它的去留」，[TASK-103](../tasks/TASK-103-frontback-and-ui-residuals.md)
   批次 B 声明会做 —— **2026-08-24 全仓 grep 找不到任何记下来的结论**。
   本 ADR 就是那个结论。
 - 日期：2026-08-24
@@ -24,7 +24,7 @@ GAP-05 把这件事记成了一个待决问题，并给了两条路：
 > WFM1 核心项目并在文档里说清。
 
 GAP-05 的另外两项（四个 LOW-risk 命令注册进 Studio、审片页接 `record-evaluation`）
-已由 TASK-103 批次 B 完成。**只剩这一条**，而它挡着 [TASK-027](../tasks/done/TASK-027-workspace-lineage-comparison-and-cost.md)
+已由 TASK-103 批次 B 完成。**只剩这一条**，而它挡着 [TASK-027](../tasks/TASK-027-workspace-lineage-comparison-and-cost.md)
 part-2b —— 那两个页面要加在哪个壳里，取决于这个答案。
 
 ## 决策
@@ -52,7 +52,7 @@ Studio 项目里**没有**核心事实。让它出现在 Portfolio 里，创作�
 它是决策 1 的直接推论。**但空得要说话**：壳在账户根下一个核心项目都没发现时，
 应当说明它找的是什么（`config/wfm1.json`），而不是渲染一个没有解释的空列表 ——
 「装了却没生效必须可见」在这里同样适用。这一条记为
-[TASK-087](../tasks/active/TASK-087-followup-ledger.md) §6.8，不阻塞本决策。
+[TASK-087](../tasks/TASK-087-followup-ledger.md) §6.8，不阻塞本决策。
 
 ### 决策 4：创作者面的归属没有变，也不会因为本 ADR 变
 

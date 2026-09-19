@@ -3,7 +3,7 @@
 - 状态：**Accepted**（2026-09-04，实施 Agent 依 AGENTS.md §1 自行 Accept ——
   这是纯技术决策：机制形状、身份来源、失败语义）
 - 关联：[REQ-004](../requirements/REQ-004-three-pane-shell-and-agent-conversation.md) 判据 6 ·
-  [TASK-106](../tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) §4 ·
+  [TASK-106](../tasks/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) §4 ·
   [ADR-0089](ADR-0089-conversational-agent-write-path.md) 决策 2b（落地只能发生在浏览器）·
   [ADR-0064](ADR-0064-ai-director-operationalization.md) 决策 6（不可用就说不可用）
 

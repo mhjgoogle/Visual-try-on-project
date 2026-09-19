@@ -1,10 +1,10 @@
 # Creation Workspace ADR 与实施任务路线
 
 > **状态：已完成（规划基线已被消化，2026-08-26 归档）。** WSM0–WSM3 的任务
-> （TASK-024～033）全部在 `docs/tasks/done/`，WSM-F 的剩余部分由
-> [TASK-040](../../tasks/active/TASK-040-final-unified-product-acceptance.md) 承接 ——
+> （TASK-024～033）全部在 `docs/tasks/`，WSM-F 的剩余部分由
+> [TASK-040](../../tasks/TASK-040-final-unified-product-acceptance.md) 承接 ——
 > 本文因此只作历史查阅（当时的里程碑切法与进入条件），**不再是待办来源**。
-> 待办看 [STATUS.md](../../STATUS.md) 与 `docs/tasks/active/`（ADR-0087 决策 2）。
+> 待办看 [STATUS.md](../../STATUS.md) 与 `docs/tasks/`（ADR-0087 决策 2）。
 >
 > 原文如下。路线治理见 ADR-0030，安全边界见
 > ADR-0010。本文规划实现顺序，不表示 Planned 任务已实现或其 Proposed ADR 已批准。

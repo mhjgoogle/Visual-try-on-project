@@ -55,6 +55,9 @@ import shutil
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import task_status  # noqa: E402
+
 PASS, FAIL, UNKNOWN, NA = "PASS", "FAIL", "UNKNOWN", "NOT_APPLICABLE"
 MARK = {PASS: "✓", FAIL: "✗", UNKNOWN: "?", NA: "—"}
 
@@ -607,7 +610,26 @@ RESUME_DIR = Path(".claude") / "tmp" / "resume"
 #: 快照里只放**机器能核对的东西**：tip、分支、跑过哪些验证、下一条可执行动作。
 #: 刻意不放「进度百分比」「已完成」这类语义判断 —— 一个脚本写下的「done」会在
 #: 下一次被当成事实读走，而它没有资格宣告任务完成（TASK-131 §4C）。
+#: `resume` **渲染**时读的字段。摘要不在里面 —— 印一串哈希对读的人没有用。
 _RESUME_FIELDS = ("task", "branch", "tip", "verified", "next", "at")
+
+#: `write_snapshot` **写下**的字段，全集。与上面刻意分开：写下的比印出来的多。
+#:
+#: 这份名单存在的唯一理由是让 `tests/tooling/` 的守卫钉住它 —— 新增字段必须
+#: 在这里被**有意识地承认**一次，否则测试当场变红。守的是同一条不变量：
+#: 快照只放机械状态，`done` / `status` / `progress` 这类**语义判断**一个都不许进
+#: （一个脚本写下的「完成」会在下一次被当成事实读走，而脚本没有资格宣告完成）。
+_SNAPSHOT_FIELDS = (
+    "task",
+    "branch",
+    "tip",
+    "inputs_version",
+    "inputs",
+    "inputs_note",
+    "verified",
+    "next",
+    "at",
+)
 
 
 def _git(root: Path, *args: str) -> str | None:
@@ -654,7 +676,7 @@ def card_last_touch(root: Path, card: str) -> str:
         "--format=%ad · %h %an：%s",
         "--date=short",
         "--",
-        f"docs/tasks/active/{card}",
+        f"docs/tasks/{card}",
     )
     # `_git` 失败时给 None（和空串含义不同：一个是问不到，一个是没记录）——
     # 这里两种都归为「没线索」，因为对调用方来说结果一样：别拿它当证据。
@@ -663,10 +685,11 @@ def card_last_touch(root: Path, card: str) -> str:
 
 
 def active_cards(root: Path) -> list[tuple[str, str, str, str]]:
-    """`docs/tasks/active/` 里的卡：`(文件名, 状态行首句, 负责 Agent, 最近动它的人)`。
+    """状态为 `进行中` 的卡：`(文件名, 状态行首句, 负责 Agent, 最近动它的人)`。
 
-    **目录即状态**（ADR-0083）：在 `active/` 就是还没做完。这里不去猜「做到哪了」，
-    只把卡摆出来 —— 猜出来的进度会被下一个人当成事实。
+    **状态住在卡上**（ADR-0105，取代 ADR-0083 的「目录即状态」）：卡头那一行写着
+    `进行中` 就是还没做完。这里不去猜「做到哪了」，只把卡摆出来 —— 猜出来的进度
+    会被下一个人当成事实。**这就是产品负责人说的「任务管理器」的入口之一。**
 
     **归属那两栏是 TASK-087 §5.30 的答案**：AGENTS §14 写了「每个开发任务只能有
     一个实施 Agent」，却没写**怎么在动手前发现另一个会话已经在这张卡上**。
@@ -676,32 +699,134 @@ def active_cards(root: Path) -> list[tuple[str, str, str, str]]:
     **不引入第三份台账**：多一份「谁在做什么」的记录，就多一处会漂的东西，
     而它漂掉的样子恰好就是这条欠账本身。
     """
-    base = root / "docs" / "tasks" / "active"
+    base = root / "docs" / "tasks"
     if not base.is_dir():
         return []
     out = []
-    for p in sorted(base.glob("TASK-*.md")):
+    for p in sorted(base.glob("TASK-*.md"), key=lambda q: q.name):
         text, err = _read_text(p)
-        status = owner = ""
-        if not err:
-            status = _card_field(text or "", "状态")
-            owner = _card_field(text or "", "负责 Agent")
+        if err:
+            continue
+        # 只认卡头那一行的枚举（`task_status.STATE_LINE` 同一条正则）。读不出来的
+        # 卡不在这里猜 —— `lifecycle_check` 会把它标红。
+        if task_status.state_of_text(text or "") != "进行中":
+            continue
+        status = _card_field(text or "", "状态")
+        owner = _card_field(text or "", "负责 Agent")
         out.append((p.name, status, owner, card_last_touch(root, p.name)))
     return out
 
 
-def read_snapshot(root: Path, task: str) -> dict | None:
+#: 验证身份的算法版本。算法变了就升号，旧快照因此判 UNKNOWN 而不是 VALID ——
+#: 用新算法去比旧摘要，比出来的「相等」没有意义，比出来的「不等」倒是对的，
+#: 但两种都不该假装是结论。
+INPUTS_VERSION = 1
+
+
+def verification_inputs(root: Path) -> tuple[str | None, str]:
+    """「上一轮那句验证」到底是在什么东西上跑出来的 —— 摘要它，或说明为什么算不出来。
+
+    **tip 不是验证的输入，只是其中一个。** 原来只比 tip，于是同一个 HEAD 下改完
+    文件、旧的「pytest 通过」照样显示为仍然成立 —— 那是最省事也最危险的一种自欺：
+    它让人跳过验证却以为验过了。
+
+    进摘要的是**验证真正消费的东西**：
+
+    - HEAD 与分支名（换分支就是换对象）；
+    - `git diff HEAD`：已暂存 + 未暂存的全部跟踪文件改动（同一 HEAD 下的编辑在这里）；
+    - 未跟踪且未被 ignore 的文件的**路径与内容**（新写的测试、新建的模块都在这儿，
+      它们照样会被 import）；
+    - 测试配置本身（`pyproject.toml` / `tests/conftest.py`）—— 改了它们，
+      同一份代码的测试范围与行为都可能变。
+
+    返回 `(摘要, 说明)`；**算不出来时返回 `(None, 原因)`**，调用方必须据此报
+    UNKNOWN。不允许「没发现变化所以有效」这条路径存在（AGENTS §20 的 fail-closed
+    在这里的形态）。
+    """
+
+    h = hashlib.sha256()
+    h.update(f"v{INPUTS_VERSION}\n".encode())
+    for label, args in (
+        ("head", ("rev-parse", "HEAD")),
+        ("branch", ("rev-parse", "--abbrev-ref", "HEAD")),
+        ("diff", ("diff", "HEAD")),
+        # `-z`：NUL 分隔，**且永不 C-quote**。不加它，git 会把任何非 ASCII 路径
+        # 包成 `"docs/\344\270\255\346\226\207.md"` —— 那个字符串不是路径，
+        # 于是下面 `root / rel` 读不出来，摘要整个算不出，快照永远 UNKNOWN。
+        # 本仓库的文档大量是中文名，所以这不是边缘情形，是常态。
+        # （`gate.ps1` 的 `-z` 注释记的是同一个缺陷类。）
+        ("untracked", ("ls-files", "--others", "--exclude-standard", "-z")),
+    ):
+        out = _git(root, *args)
+        if out is None:
+            return None, f"读不出 {label}（git 不可用或这不是一个仓库）"
+        h.update(f"[{label}]\n".encode())
+        h.update(_normalise(out.encode("utf-8", "replace")))
+        h.update(b"\n")
+        if label == "untracked":
+            # 按 NUL 切，不按换行 —— 换行本身可以出现在合法文件名里，而 `-z` 的
+            # 记录分隔符正是为此存在。
+            for rel in sorted(p for p in out.split("\0") if p.strip()):
+                h.update(f"[untracked:{rel}]\n".encode())
+                try:
+                    h.update(_normalise((root / rel).read_bytes()))
+                except OSError as exc:
+                    # 列得出来却读不出来 —— 这是「算不出」，不是「没变化」。
+                    return None, f"未跟踪文件读不出来：{rel}（{exc}）"
+                h.update(b"\n")
+    for rel in ("pyproject.toml", "tests/conftest.py"):
+        p = root / rel
+        h.update(f"[config:{rel}]\n".encode())
+        if p.is_file():
+            try:
+                h.update(_normalise(p.read_bytes()))
+            except OSError as exc:
+                return None, f"测试配置读不出来：{rel}（{exc}）"
+        h.update(b"\n")
+    return h.hexdigest(), "ok"
+
+
+def read_snapshot(root: Path, task: str) -> tuple[dict | None, str]:
+    """返回 `(快照, 状态)`，状态是 `ok` / `missing` / `corrupt`。
+
+    **「没有」和「读坏了」必须分开。** 原来两者都返回 `None`，于是一份被截断的
+    快照和一份根本不存在的快照看起来一样 —— 前者应当喊出来（有人写了一半、
+    或者磁盘出事了），后者只是还没人写。损坏的快照绝不能被当成「没有异常」。
+    """
+
     p = root / RESUME_DIR / f"{task}.json"
     if not p.is_file():
-        return None
+        return None, "missing"
     text, err = _read_text(p)
     if err:
-        return None
+        return None, "corrupt"
     try:
         data = json.loads(text)
     except json.JSONDecodeError:
-        return None
-    return data if isinstance(data, dict) else None
+        return None, "corrupt"
+    if not isinstance(data, dict):
+        return None, "corrupt"
+    # **一份快照要成为证据，必须真的记着东西**（codex 轮 4 与轮 5 的 BLOCKING）。
+    #
+    # 轮 4 报的是「只检查是个 dict」：缺了 `verified` 的快照照样带着对得上的身份
+    # 摘要被判 VALID。我当时只补了「键在不在」，轮 5 立刻报回 `"verified": ""`
+    # 与 `null` —— **同一个机理的更窄拼法**。所以这里不再逐个补拼法，改为一条
+    # 性质：**每个字段都必须存在、类型对、且非空**。
+    #
+    # 一条没有内容的验证记录被判为有效，比没有记录更糟：没有记录会让人去重新
+    # 验证，而「有效但空」会让人跳过验证。
+    for key in _SNAPSHOT_FIELDS:
+        if key not in data:
+            return None, "corrupt"
+        value = data[key]
+        if key == "inputs_version":
+            # bool 是 int 的子类，但它不是一个版本号。
+            if not isinstance(value, int) or isinstance(value, bool):
+                return None, "corrupt"
+            continue
+        if not isinstance(value, str) or not value.strip():
+            return None, "corrupt"
+    return data, "ok"
 
 
 def write_snapshot(root: Path, task: str, verified: str, nxt: str) -> Path:
@@ -709,12 +834,18 @@ def write_snapshot(root: Path, task: str, verified: str, nxt: str) -> Path:
 
     p = root / RESUME_DIR / f"{task}.json"
     p.parent.mkdir(parents=True, exist_ok=True)
+    digest, why = verification_inputs(root)
     p.write_text(
         json.dumps(
             {
                 "task": task,
                 "branch": _git(root, "rev-parse", "--abbrev-ref", "HEAD") or "",
                 "tip": _git(root, "rev-parse", "HEAD") or "",
+                # 验证身份。**算不出来就如实写空**，别用 tip 凑一个 —— 空值会让
+                # 下一次 resume 判 UNKNOWN，那是对的；凑一个会让它判 VALID。
+                "inputs_version": INPUTS_VERSION,
+                "inputs": digest or "",
+                "inputs_note": why,
                 "verified": verified,
                 "next": nxt,
                 # `datetime.UTC` 是 **3.11 才有的别名**，而 `pyproject` 声明
@@ -745,22 +876,55 @@ def run_resume(root: Path) -> dict:
     tip = _git(root, "rev-parse", "HEAD")
     dirty = _git(root, "status", "--porcelain")
     cards = active_cards(root)
+    now_digest, now_why = verification_inputs(root)
     snaps = []
     for name, _line, _owner, _touch in cards:
         task = name.split("-")[0] + "-" + name.split("-")[1]
-        snap = read_snapshot(root, task)
-        if not snap:
+        snap, status = read_snapshot(root, task)
+        if status == "missing":
             continue
-        moved = bool(tip) and snap.get("tip") not in (None, "", tip)
+        if status == "corrupt" or snap is None:
+            # 损坏的快照是**有话要说**的，不是「没有快照」。它不能产生 PASS，
+            # 也不能被静默跳过 —— 后者会让一次写坏看起来像一次没写。
+            snaps.append(
+                {
+                    **{k: "" for k in _RESUME_FIELDS},
+                    "task": task,
+                    "state": "UNKNOWN",
+                    "stale": True,
+                    "why": (
+                        "快照读不出来（缺字段 / JSON 坏了）—— 当作没有结论，重新验证"
+                    ),
+                }
+            )
+            continue
+        recorded = str(snap.get("inputs") or "")
+        version = snap.get("inputs_version")
+        if now_digest is None:
+            state = "UNKNOWN"
+            why = f"算不出当前验证身份：{now_why} —— 判不了就不算数"
+        elif not recorded or version != INPUTS_VERSION:
+            # 旧格式（只记了 tip）或者当时就没算出来。**保守判 UNKNOWN**：
+            # 用 tip 相等去冒充「输入没变」，正是这次要消掉的那条路径。
+            state = "UNKNOWN"
+            why = "这条快照没有可比对的验证身份（旧格式或当时算不出）—— 重新验证"
+        elif recorded != now_digest:
+            state = "STALE"
+            why = (
+                "验证身份变了（代码 / 未跟踪文件 / 分支 / 测试配置之一）"
+                "—— 这条记录只是历史，要重新评估"
+            )
+        else:
+            state = "VALID"
+            why = "验证身份未变 —— 这条记录仍然对得上这棵树"
         snaps.append(
             {
                 **{k: snap.get(k, "") for k in _RESUME_FIELDS},
-                "stale": moved,
-                "why": (
-                    "tip 变了 —— 这条验证记录只是历史，要重新评估"
-                    if moved
-                    else "tip 没变 —— 这条验证记录仍然对得上这棵树"
-                ),
+                "state": state,
+                # `stale` 保留为**派生布尔**：非 VALID 一律为真。渲染层与既有测试
+                # 读的是它，而 fail-closed 要求 UNKNOWN 与 STALE 同样出声。
+                "stale": state != "VALID",
+                "why": why,
             }
         )
     return {
@@ -809,10 +973,18 @@ def render_resume_brief(state: dict) -> str:
         if len(dirty) > 8:
             lines.append(f"   …… 还有 {len(dirty) - 8} 个（`git status`）")
     for s in stale:
-        lines.append(
-            f"⚠ {s['task']} 记着「跑过：{s['verified']}」，但那是在另一个 tip 上 —— "
-            "**要重新评估，别把它当成这棵树的结论**"
-        )
+        state = s.get("state", "STALE")
+        ran = s.get("verified") or "（没写）"
+        if state == "UNKNOWN":
+            lines.append(
+                f"⚠ {s['task']} 的验证记录**判不了**（{s['why']}）—— "
+                "**当作没有结论**，别把它当成这棵树的结论"
+            )
+        else:
+            lines.append(
+                f"⚠ {s['task']} 记着「跑过：{ran}」，但那一轮的输入已经变了 —— "
+                "**要重新评估，别把它当成这棵树的结论**"
+            )
     lines.append("   细节：`python .claude/tools/agent_harness.py resume`")
     return "\n".join(lines)
 
@@ -828,7 +1000,7 @@ def render_resume(state: dict) -> str:
     if not dirty:
         lines.append("   （干净）")
     lines.append("")
-    lines.append("在办的卡（目录即状态，在这儿就是还没做完）：")
+    lines.append("在办的卡（卡头状态行是 `进行中` 的那些，ADR-0105）：")
     for c in state["active_cards"]:
         lines.append(f"   · {c['card']}：{c['status'] or '（没有状态行）'}")
         # 归属先于进度：动手前要答的第一个问题是「有没有人已经在这张卡上」
@@ -846,8 +1018,9 @@ def render_resume(state: dict) -> str:
     if not state["snapshots"]:
         lines.append("没有机械状态快照 —— 目标与下一步只能从卡上读，别从这里猜。")
     for s in state["snapshots"]:
-        mark = "⚠" if s["stale"] else "✓"
-        lines.append(f"{mark} {s['task']}（记于 {s['at']}）")
+        st = s.get("state", "STALE" if s["stale"] else "VALID")
+        mark = {"VALID": "✓", "STALE": "⚠", "UNKNOWN": "?"}.get(st, "⚠")
+        lines.append(f"{mark} {s['task']} · {st}（记于 {s['at'] or '（没写）'}）")
         lines.append(f"   跑过：{s['verified'] or '（没写）'}")
         lines.append(f"   下一步：{s['next'] or '（没写）'}")
         lines.append(f"   {s['why']}")

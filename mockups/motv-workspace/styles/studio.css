@@ -2230,6 +2230,10 @@
 .db-card .d { color: var(--text-dim); font-size: var(--t-micro); margin-top: 4px; line-height: 1.6; }
 .db-mode { display: flex; align-items: center; gap: var(--s2); }
 .db-mode .cur { font-weight: 600; }
+/* 连写状态条（TASK-152）：「接着往下写 [N] 章」· 进度一句 · 停止 */
+.db-chain { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.db-chain .st { color: var(--text-dim); font-size: var(--t-sm); }
+.db-chain .st.on { color: var(--text); }
 .db-planned { display: flex; align-items: center; gap: var(--s2); }
 .db-planned label { color: var(--text-dim); font-size: var(--t-sm); }
 .db-n {

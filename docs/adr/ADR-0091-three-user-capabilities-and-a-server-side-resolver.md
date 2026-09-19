@@ -1,11 +1,13 @@
 # ADR-0091：前端 Agent 只认三类工作，选哪个专业能力归服务端
 
-- 状态：Accepted
+- 状态：Accepted（决策 1 / 3 / 4 / 5 保留；**决策 2 的排序键第 1 项被
+  [ADR-0106](ADR-0106-the-more-specific-keyword-hit-wins.md) 取代** —— 命中数之前先比
+  命中得多具体，2026-09-18）
 - 日期：2026-08-29
 - 决策者：产品负责人下发需求（2026-08-29），实施 Agent 依 AGENTS.md §1
   「ADR 的 Accept 权」自行 Accept 技术形状（不涉付费、不涉不可逆动用户数据）
 - 关联：[REQ-007](../requirements/REQ-007-say-it-and-the-right-capability-runs.md) ·
-  [TASK-119](../tasks/done/TASK-119-three-user-capabilities-and-a-resolver.md) ·
+  [TASK-119](../tasks/TASK-119-three-user-capabilities-and-a-resolver.md) ·
   [ADR-0067](ADR-0067-product-skill-package.md)（能力是包）·
   [ADR-0089](ADR-0089-conversational-agent-write-path.md)（对话式写路径）·
   [ADR-0056](ADR-0056-local-ai-runtime-and-film-skills.md)（Runtime / Executor / Skill 分层）·
@@ -56,6 +58,11 @@ ADR-0089 让创作者说一句话就能改作品，但**只能改字段**：真�
 ### 决策 2：内部能力由**服务端的 resolver** 用确定性规则选
 
 `_conv_resolve(catalog, capability, goal, scope, ready, shot_id)`，排序键从高到低：
+
+> **排序键第 1 项已被 [ADR-0106](ADR-0106-the-more-specific-keyword-hit-wins.md) 取代**
+> （2026-09-18）：「命中几个」之前先比「**命中得多具体**」（最长命中词的字数）。
+> 下面这一条记录的是当时的形状，**不再是当前规则** —— 当前规则以 ADR-0106 为准。
+> 其余四项键（修改动作 / 范围 / 就绪 / priority）不变，本决策的其余部分继续有效。
 
 1. **关键词命中** —— 他的话里点到了这个能力的 `selectWhen`。这一条压过优先级，
    所以「各层同步」选跨层诊断，而泛泛一句「检查一下」不会。

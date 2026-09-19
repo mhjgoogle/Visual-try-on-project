@@ -5,7 +5,7 @@
 - 关联：[ADR-0042](ADR-0042-creative-agent-cli-integration.md)、
   [ADR-0054](ADR-0054-production-upstream-workspace.md)、
   [ADR-0055](ADR-0055-unified-asset-registration.md)、
-  [TASK-059](../tasks/done/TASK-059-local-ai-runtime-and-film-skills.md)
+  [TASK-059](../tasks/TASK-059-local-ai-runtime-and-film-skills.md)
 
 ## 背景
 

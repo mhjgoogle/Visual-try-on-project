@@ -1,0 +1,109 @@
+{
+  "type": "object",
+  "required": [
+    "episodes"
+  ],
+  "fields": {
+    "episodes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "of": {
+        "type": "object",
+        "required": [
+          "epNumber",
+          "title",
+          "chapters",
+          "coreGoal",
+          "keyEvents",
+          "endingBeat",
+          "hook"
+        ],
+        "fields": {
+          "epNumber": {
+            "type": "number"
+          },
+          "title": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "chapters": {
+            "type": "object",
+            "required": [
+              "from",
+              "to"
+            ],
+            "fields": {
+              "from": {
+                "type": "number"
+              },
+              "to": {
+                "type": "number"
+              }
+            }
+          },
+          "coreGoal": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "keyEvents": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 12,
+            "of": {
+              "type": "string",
+              "nonEmpty": true
+            }
+          },
+          "characterBeats": {
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 20,
+            "of": {
+              "type": "object",
+              "required": [
+                "who",
+                "change"
+              ],
+              "fields": {
+                "who": {
+                  "type": "string",
+                  "nonEmpty": true
+                },
+                "change": {
+                  "type": "string",
+                  "nonEmpty": true
+                }
+              }
+            }
+          },
+          "reveals": {
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 12,
+            "of": {
+              "type": "string",
+              "nonEmpty": true
+            }
+          },
+          "emotionArc": {
+            "type": "string",
+            "nonEmpty": false
+          },
+          "endingBeat": {
+            "type": "string",
+            "nonEmpty": true
+          },
+          "hook": {
+            "type": "string",
+            "nonEmpty": true
+          }
+        }
+      }
+    },
+    "notes": {
+      "type": "string",
+      "nonEmpty": false
+    }
+  }
+}

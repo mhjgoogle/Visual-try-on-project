@@ -93,7 +93,7 @@
   落到真实页面 + 真实分区，rail、面包屑、深链接读取三方不可能各持一份映射。
 - **两个旧页仍解析到自己**：`workbench`（制作台）与 `provenance`（生成溯源）今天
   仍是可到达的页面，不在这十一页里、rail 不高亮。它们的内容搬迁挂在
-  [TASK-087 §5.1](../tasks/active/TASK-087-followup-ledger.md)。
+  [TASK-087 §5.1](../tasks/TASK-087-followup-ledger.md)。
   在搬走之前，**如实写出它们还在**比宣称已经没有更诚实。
 - **资产类型别名**（`assets:image` 等）解析成 `assets` 页 + 一个筛选值，
   不是五个导航项。

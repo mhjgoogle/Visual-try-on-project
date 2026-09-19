@@ -63,7 +63,7 @@ QUICK 深度把第 4 环折叠成一行引用，把第 6 环压到几分钟；DE
 - **层级**：Mission / Strategy / Milestone / Requirement / Solution /
   Implementation 六选一。前三层归用户，Requirement 走理解闸（第 4 环），
   **Solution 与 Implementation 我自己定，不问**。想法留在自己那一层，**不许塌陷**：
-  Milestone 级想法被当成 Implementation 直接开做，就是 `active/` 长期挂九张卡的成因；
+  Milestone 级想法被当成 Implementation 直接开做，就是「进行中」长期挂九张卡的成因；
   Implementation 细节被包装成 Requirement 递给用户拍板，是同一种错的反面。
   判不准看**错了要重做多少**：重写几个文件 → Implementation；要重新确认用户行为
   → Requirement；要改路线 → Strategy 及以上。
@@ -74,9 +74,9 @@ QUICK 深度把第 4 环折叠成一行引用，把第 6 环压到几分钟；DE
 - **里程碑闸**：读 [STATUS.md](../../../docs/STATUS.md)「当前真相」第三面，四问 ——
   在当前里程碑交付面上 / 阻塞在办主线 / 不做会造成不可逆损害 / 是几分钟的当前事实
   修正。**任一 Yes 放行**；WIP（1 主线 + 1 阻塞项）已满且不属第 2 问 → 也进
-  `backlog/`。**全 No → 落一张 `backlog/` 卡并当场说明，不实施、不建 REQ。**
-  卡上那句「**什么条件下它会变成该做**」是 `backlog/` 与垃圾桶的区别。
-  **这道闸不问用户** —— 判错可逆（`git mv` 搬回 `active/`），排序类问题永远不问。
+  `待办`。**全 No → 立一张 `状态：待办` 的卡并当场说明，不实施、不建 REQ。**
+  卡上那句「**什么条件下它会变成该做**」是 `待办` 与垃圾桶的区别。
+  **这道闸不问用户** —— 判错可逆（把状态改回 `进行中`），排序类问题永远不问。
 
 **什么时候跳过整个第 1 环**：用户指的是**已经在办的那张卡**里的下一步（继续、
 修它报的错、补它缺的证据）。那不是新案件，直接干。
@@ -95,7 +95,7 @@ QUICK 深度把第 4 环折叠成一行引用，把第 6 环压到几分钟；DE
 | 「升级依赖」「迁移 API/schema」 | **Migration** | 先盘兼容面与回滚路径，再动 |
 
 拿不准：有错误证据 → Bug；其余 → Feature。中途发现另一类问题记 Follow-up
-（[TASK-087](../../../docs/tasks/active/TASK-087-followup-ledger.md) 总账），
+（[TASK-087](../../../docs/tasks/TASK-087-followup-ledger.md) 总账），
 **不换道也不顺手修**。
 
 ## 3 · Depth 定深 —— 四个变量取最高的那一档
@@ -120,7 +120,7 @@ QUICK 深度把第 4 环折叠成一行引用，把第 6 环压到几分钟；DE
 | 深度 | Requirement | Change Record | 影响分析 | Design |
 | --- | --- | --- | --- | --- |
 | **QUICK** | 有就引用，没有不建 | **提交信息即记录** | 对话里一句「改什么 / 不动什么」 | 不写 |
-| **STANDARD** | 按第 4 环判 | 一张卡 `docs/tasks/active/` | 卡内一节，六面各一行 | 卡内结论几行 |
+| **STANDARD** | 按第 4 环判 | 一张卡 `docs/tasks/` | 卡内一节，六面各一行 | 卡内结论几行 |
 | **DEEP** | 涉产品行为则必须 CONFIRMED | 卡 + 需要时 ADR | 卡内一节 + 架构治理（第 5 环） | ADR + 当前架构合同 |
 
 **验证与审查强度只看 I，与深度无关**（AGENTS §20 / ADR-0080 · ADR-0081）：
@@ -172,10 +172,11 @@ QUICK 深度把第 4 环折叠成一行引用，把第 6 环压到几分钟；DE
 - 架构约束：CA §2 依赖方向 · CA §5.3 fail-closed   # 或 none-specific
 ```
 
-**Brief 不回答「做完没有」** —— 目录即状态（`backlog/` → `active/` → `done/`，
-[ADR-0083](../../../docs/adr/ADR-0083-docs-partitioned-by-completion.md)）。
-卡上那条既有的 `状态：` 行写的是**交付了什么**，`lifecycle_check` 只保证它与
-目录**不矛盾**（`状态：完成` 却留在 `active/` 当场转红）。
+**Brief 不回答「做完没有」** —— 那是卡头 `状态：` 行开头的枚举词回答的
+（`待办` → `进行中` → `完成`，
+[ADR-0105](../../../docs/adr/ADR-0105-task-state-lives-on-the-card.md)）。
+同一行枚举词后面接的散文写的是**交付了什么**；`lifecycle_check` 只保证枚举词
+**存在且合法**（缺了或写歪了当场转红 —— 一张读不出状态的卡会静默消失）。
 
 **Brief 不是新记录类型**：不建 traceability 数据库、不给卡加 metadata 文件、
 不给每层建一种新文件（[ADR-0101](../../../docs/adr/ADR-0101-idea-intake-level-and-milestone-gate.md) §4 已裁决，不重访）。
@@ -247,7 +248,7 @@ Historical Behavior。
 [lifecycle.md](references/lifecycle.md) §3）：新增的 `docs/` 文件每份都是当前事实
 或历史证据吗（一次性产物提炼后删原件）· 有当前事实在说谎吗（尤其
 `docs/current-architecture.md`，同一个提交里改）· 取代关系双向补上了吗 ·
-REQ 追加 v2 了吗 · `active/` 里有做完的（→ `done/`）或没人做的（→ `backlog/`）吗 ·
+REQ 追加 v2 了吗 · 状态 `进行中` 的卡里有做完的（→ `完成`）或没人做的（→ `待办`）吗 ·
 同一事实是否多处重抄。
 
 ```
@@ -266,15 +267,15 @@ python .claude/tools/gen_docs_status.py     # 六面 + 文档清单重新生成
 **判据里的行为**还是周边 · 引用的每条 `CA §N` 仍成立 · obsolete 已清或已记
 Follow-up · REQ 与卡已到终态 · 临时产物已删或已正式化 · `lifecycle_check` 零发现。
 
-**卡搬家属于 Done，不是可选的收尾**（ADR-0083）：
+**改状态属于 Done，不是可选的收尾**（ADR-0105，取代 ADR-0083 的 `git mv`）：
 
 ```
-git mv docs/tasks/active/TASK-NNN-*.md docs/tasks/done/
+# 卡头那一行：- 状态：进行中 · …   →   - 状态：完成 · …
 python .claude/tools/lifecycle_check.py
 python .claude/tools/gen_docs_status.py
 ```
 
-**部分完成的卡留在 `active/`**（「部分完成」也是在办）。
+**部分完成的卡保持 `进行中`**（「部分完成」也是在办）。
 
 ### 交付
 

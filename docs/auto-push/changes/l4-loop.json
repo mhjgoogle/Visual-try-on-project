@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "change_id": "l4-loop",
+  "branch": "change/l4-loop",
+  "status": "open",
+  "created": "2026-09-15T13:46:10+00:00",
+  "chain_mode": false,
+  "tasks": {
+    "TASK-147": {
+      "commits": [
+        {
+          "hash": "fa7b6714c0c4acb05879402411abdb5d2741164c",
+          "subject": "feat(tooling): 一个会话一棵树 + 旧证据不再冒充新结论（TASK-147 切片 A/B）",
+          "time": "2026-09-15T13:48:54+00:00",
+          "branch": "change/l4-loop",
+          "pushed": false,
+          "files": [
+            ".claude/tools/agent_harness.py",
+            ".claude/tools/worktree.py",
+            "docs/STATUS.md",
+            "docs/WORKSTATUS.md",
+            "docs/auto-push/changes/l4-loop.json",
+            "docs/tasks/active/TASK-147-session-isolation-and-evidence-identity.md",
+            "tests/tooling/test_agent_harness.py",
+            "tests/tooling/test_resume_evidence_identity.py",
+            "tests/tooling/test_worktree_entry.py"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        ".claude/tools/agent_harness.py",
+        ".claude/tools/worktree.py",
+        "docs/STATUS.md",
+        "docs/WORKSTATUS.md",
+        "docs/auto-push/changes/l4-loop.json",
+        "docs/tasks/active/TASK-147-session-isolation-and-evidence-identity.md",
+        "tests/tooling/test_agent_harness.py",
+        "tests/tooling/test_resume_evidence_identity.py",
+        "tests/tooling/test_worktree_entry.py"
+      ],
+      "verification": "PASS",
+      "verification_ref": "TASK-147 §5 判据 A1-A4 / B1-B6",
+      "declared": "2026-09-15T13:46:32+00:00"
+    }
+  },
+  "merge_gate": {
+    "status": "PENDING"
+  },
+  "merge": null,
+  "cleanup": null
+}

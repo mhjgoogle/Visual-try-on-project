@@ -117,11 +117,11 @@ v1 标题行就地补 `（superseded by v2）`，内容一字不动。
 
 - **QUICK 深度**：提交信息即记录。首行写意图，正文写关联
   （`REQ-NNN`/`TASK-NNN`，如有）、做了什么验证。不建卡。
-- **STANDARD / DEEP 深度**：任务卡 `docs/tasks/active/TASK-NNN-slug.md`
-  （在办；做完后 `git mv` 进 `docs/tasks/done/` 并重新生成 `docs/STATUS.md`
-  —— 目录即状态，ADR-0083）。**三个状态目录**（ADR-0087 决策 2）：
-  `backlog/` 没人在做 → `active/` 正在做（含「部分完成」）→ `done/` 做完/已退役。
-  立了卡但短期不做的放 `backlog/`，别停在 `active/`
+- **STANDARD / DEEP 深度**：任务卡 `docs/tasks/TASK-NNN-slug.md`
+  （卡头 `- 状态：进行中`；做完后改成 `完成` 并重新生成 `docs/STATUS.md`
+  —— 状态住在卡上，ADR-0105）。**三个状态**（ADR-0087 决策 2）：
+  `待办` 没人在做 → `进行中` 正在做（含「部分完成」）→ `完成` 做完/已退役。
+  立了卡但短期不做的写 `待办`，别停在 `进行中`
   （编号顺延现有最大号），沿用本仓库既有卡风格，最小字段集：
 
 ```markdown
@@ -162,7 +162,7 @@ IN SCOPE：<本次要交付什么>；OUT OF SCOPE：<本次不做什么>
 | `成果物` | 这个案件会产生哪些**持久物**：REQ / ADR / 本卡 / 只有提交 | 这是防文档蔓延的那道闸：开工时说了只产出「本卡 + 提交」，收口时冒出三份新文档就是范围扩散 |
 | `关联 Requirement` 或 `技术目标` | 追溯句柄（[traceability.md](traceability.md) §2） | 两者皆无 → `ORPHAN_TASK`，`lifecycle_check` 当场转红 |
 | `架构约束` | 只引与自己相关的 `CA §N`；确实不受约束写 `none-specific` | 为形式凑引用没有信息量；该引不引 → `ARCHITECTURE_UNKNOWN` |
-| `状态` | **交付了什么**（如「audio/ 包 + AV 混流步骤」），不是「做完没有」 | 与所在目录矛盾（`完成` 却在 `active/`）→ `lifecycle_check` 转红 |
+| `状态` | 开头是枚举词 `待办 / 进行中 / 完成`（回答「做完没有」），后面接**交付了什么**（如「· audio/ 包 + AV 混流步骤」） | 缺枚举词或写歪 → `lifecycle_check` 转红（ADR-0105） |
 
 **QUICK 深度没有卡**，它的 Brief 就是提交信息里的那两行：首行写意图，
 正文写关联（`REQ-NNN` / `TASK-NNN`）与做了什么验证。
@@ -174,8 +174,8 @@ IN SCOPE：<本次要交付什么>；OUT OF SCOPE：<本次不做什么>
 **Milestone Gate 判「现在不做」时落的卡更轻**（SKILL.md 第 1 环 ·
 [ADR-0101](../../../../docs/adr/ADR-0101-idea-intake-level-and-milestone-gate.md) 决策 3）：
 标题 + `技术目标：`（或 `关联 Requirement：`）+ 一行「为什么现在不做 ·
-**什么条件下它会变成该做**」就够，直接落 `docs/tasks/backlog/`。
-最后那半句是 `backlog/` 与垃圾桶的区别；缺了基础字段则是 `ORPHAN_TASK`。
+**什么条件下它会变成该做**」就够，直接落 `docs/tasks/`，状态写 `待办`。
+最后那半句是 `待办` 与垃圾桶的区别；缺了基础字段则是 `ORPHAN_TASK`。
 它**不建 REQ、不进 Understanding Gate** —— 那两步是放行之后的事。
 
 **卡不是调查记录本。** 调查过程、试错、原始输出属于一次性产物：留 `.claude/tmp/`

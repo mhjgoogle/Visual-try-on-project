@@ -1,0 +1,47 @@
+{
+  "skillId": "novel-style-editor",
+  "skillVersion": 1,
+  "work": "creative",
+  "role": "文字编辑",
+  "title": "Novel Style Editor",
+  "purpose": "把一章已经写好的小说正文改得不像 AI 写的：情节、人物与信息一个不动，换掉机器腔的节奏与修辞，并逐条说明改了什么、为什么。",
+  "inputs": [
+    "chapterText"
+  ],
+  "optionalInputs": [
+    "brief",
+    "characters",
+    "chapterPlan",
+    "revisionRequest",
+    "workForm"
+  ],
+  "reviewCriteria": [
+    "情节、人物、信息、视角有没有被改掉 —— 这一趟只换写法，改了内容就是改坏了",
+    "节奏是否真的有了变化：长句短句交替、段落有长有短，而不是整章一个模式",
+    "三短句排比（「她收回手，攥成拳，再松开」）是不是明显变少了，而不是换成另一种同样整齐的句式",
+    "明喻是否克制：留下最好的那一两个，其余换成直接写事物本身",
+    "情绪是不是靠动作与细节透出来的，而不是靠「……得让人心慌」这类直陈",
+    "changes 里每一条是不是真的能在原文里找到那句话，而不是事后编的说明"
+  ],
+  "recommendedRuntime": "local_subscription",
+  "routing": {
+    "userCapability": [
+      "episode-production"
+    ],
+    "internalRouting": {
+      "intent": "prose-revision",
+      "kind": "generative",
+      "scope": "project",
+      "form": "novel",
+      "priority": 78,
+      "selectWhen": [
+        "AI味",
+        "AI 味",
+        "机器味",
+        "文风",
+        "腔调",
+        "文字"
+      ]
+    }
+  }
+}

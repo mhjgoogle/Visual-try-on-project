@@ -56,15 +56,15 @@ Studio 后端 (mockups/motv-workspace/server.py)
 | --- | --- | --- |
 | **写路径** | 一切变更命令经 **Command Gateway**，前端不直接改核心业务文件 | [ADR-0033](adr/ADR-0033-command-gateway-contract.md) · AGENTS.md §4 |
 | **生成写路径** | 工作视窗的生成命令 = `POST /api/projects/<name>/{preflight,command}` | [ADR-0041](adr/ADR-0041-workspace-generation-write-path.md) |
-| **运行身份** | `runId` 是运行的**唯一身份**（`skillRunId` 别名已删除） | [TASK-074](tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md) §1.5 |
-| **对话里的能力路由** | 前端 Agent 只认 3 个用户能力（`story-development` / `episode-production` / `story-review`）；选哪个内部专业能力由**服务端 resolver** 确定性决定，模型无权指定 `skillId`。resolver 的上下文输入是前端报的 `readyInputs` · `shotId` · **`form`**（`novel` / `episode`，空 = 不限）；`form` 在打分**之前**硬排除与形态矛盾的包（`internalRouting.form`，可选，不声明 = 两种形态都适用） | [ADR-0091](adr/ADR-0091-three-user-capabilities-and-a-server-side-resolver.md) · [TASK-146](tasks/active/TASK-146-ai-writes-a-novel-chapter.md) |
+| **运行身份** | `runId` 是运行的**唯一身份**（`skillRunId` 别名已删除） | [TASK-074](tasks/TASK-074-delivery-migration-and-legacy-retirement.md) §1.5 |
+| **对话里的能力路由** | 前端 Agent 只认 3 个用户能力（`story-development` / `episode-production` / `story-review`）；选哪个内部专业能力由**服务端 resolver** 确定性决定，模型无权指定 `skillId`。resolver 的上下文输入是前端报的 `readyInputs` · `shotId` · **`form`**（`novel` / `episode`，空 = 不限）；`form` 在打分**之前**硬排除与形态矛盾的包（`internalRouting.form`，可选，不声明 = 两种形态都适用）。打分时**命中得更具体的赢过命中得更多的**：最长命中词的字数排在命中数之前，`priority` 只在这些都打平时说话 | [ADR-0091](adr/ADR-0091-three-user-capabilities-and-a-server-side-resolver.md) · [ADR-0106](adr/ADR-0106-the-more-specific-keyword-hit-wins.md) · [TASK-146](tasks/TASK-146-ai-writes-a-novel-chapter.md) |
 | **只读投影** | 观察数据可从权威文件/事件重建；界面关闭不影响核心执行 | [ADR-0031](adr/ADR-0031-workspace-query-and-projection-contract.md) · [workspace-query-contract.md](design/workspace-query-contract.md) |
 | **阶段 I/O** | L0–S7 每一步的输入输出 | [workflow-stage-step-io-contract.md](design/workflow-stage-step-io-contract.md) |
 | **页面集合** | 固定信息架构，页面集合封闭（十一页，`PAGES.length === 11` 有守卫）；现行形状是三空间 / 故事开发四入口 / 剧集制作单画布 | [creator-product-information-architecture.md](design/creator-product-information-architecture.md)（当前事实）· [ADR-0066](adr/ADR-0066-product-refactor-fixed-ia-review-layers-and-system-contract.md) · [ADR-0092](adr/ADR-0092-story-development-is-four-entries.md) · [ADR-0094](adr/ADR-0094-greybox-previz-is-a-section-not-a-page.md) |
 | **全站骨架** | 每一页恰好三栏：左控制/选择 · 中工作区 · **右栏只有对话**（消息流 + 底部输入），对话按页面分开 | [REQ-004](requirements/REQ-004-three-pane-shell-and-agent-conversation.md) v2/v3 |
-| **交付生命周期** | 候选 → 质检 → 用户确认导出 → Final。渲染产出 `kind: "cut"`（**候选**）；`kind: "final"` 的**唯一**写入者是过了 G4 的显式导出，且 append（G5）。G4「没跑过质检 = 未知，不是通过」，且质检必须是**针对这一版**测的 | [creator-system-contract.md](design/creator-system-contract.md) §6.5 · [TASK-074](tasks/active/TASK-074-delivery-migration-and-legacy-retirement.md) §1.7 |
+| **交付生命周期** | 候选 → 质检 → 用户确认导出 → Final。渲染产出 `kind: "cut"`（**候选**）；`kind: "final"` 的**唯一**写入者是过了 G4 的显式导出，且 append（G5）。G4「没跑过质检 = 未知，不是通过」，且质检必须是**针对这一版**测的 | [creator-system-contract.md](design/creator-system-contract.md) §6.5 · [TASK-074](tasks/TASK-074-delivery-migration-and-legacy-retirement.md) §1.7 |
 | **运行的恢复** | 还在跑的那一轮**从线程认出来**（有问没答），再问一次 `GET /api/runs/<id>`；**问不到 ≠ 没在跑**；恢复只落地、不起跑 | [ADR-0095](adr/ADR-0095-a-run-is-picked-up-from-the-thread-not-from-a-poller.md) |
-| **退役中的旧接口** | `/api/agent/*` 同步分支正在退役；16 处同步长调用尚未改走 `run_id` | [TASK-106](tasks/active/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) |
+| **退役中的旧接口** | `/api/agent/*` 同步分支正在退役；16 处同步长调用尚未改走 `run_id` | [TASK-106](tasks/TASK-106-frontend-run-path-and-legacy-endpoint-retirement.md) |
 
 跨 py↔js 的合同验证只住 `tests/contract/`（Python 测试不得对前端 JS 做源码文本
 断言，唯一例外见该目录 `test_frontend_write_path_invariants.py` 的 docstring）。
@@ -140,7 +140,7 @@ Studio 后端 (mockups/motv-workspace/server.py)
 ## 7. 这份文件不回答什么
 
 - **为什么**这么定 → `docs/adr/`（条数见 [STATUS.md](STATUS.md)；被取代的会写明取代者）。
-- **谁还没做完** → [STATUS.md](STATUS.md) 与 `docs/tasks/active/`。
+- **谁还没做完** → [STATUS.md](STATUS.md) 与 `docs/tasks/`。
 - **怎么运行** → [README.md](../README.md)。
 - **规则** → [AGENTS.md](../AGENTS.md)。
 - **一个概念到底叫什么** → [glossary.md](glossary.md)（**WHAT THINGS ARE CALLED**）。

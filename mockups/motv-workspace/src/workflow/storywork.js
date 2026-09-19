@@ -429,6 +429,297 @@ export function danglingRefs(work) {
   return out;
 }
 
+/* --- AI 提案落进核心 / 结构规划（TASK-154 / REQ-009 判据 3）-------------------- */
+
+/** 喂给能力的「作品形态」：写的是小说还是剧集、单元叫什么、计划几个。
+ *  没选形态就是 `null` —— 能力按缺省（剧集）理解，与 TASK-146 之前的行为一致。 */
+export function formForPrompt(work) {
+  if (!work || !FORMS.includes(work.form)) return null;
+  // `planned` 没定（0）就是 null，不是 0：提示词说「planned 给了就取它」，一个 0 会让
+  // 模型照字面规划零行，而 schema 至少要一行（codex 2026-09-18 轮 1）。
+  const planned = int(work.planned && work.planned[work.form], 1, 500);
+  return {
+    form: work.form,
+    word: work.form === "novel" ? "章" : "集",
+    planned: planned === null ? null : planned,
+  };
+}
+
+/** 喂给能力的「当前结构规划」：可见的行，引用解析成 `§N`（模型读不懂节点 id）。
+ *  一行都没有就是 `null`，让「从头规划」与「改一改」在提示词里分得开。 */
+export function planRowsForPrompt(work) {
+  if (!work) return null;
+  const nodes = (work.outline && work.outline.nodes) || [];
+  const rows = visiblePlanRows(work);
+  if (!rows.length) return null;
+  return rows.map((r) => {
+    const out = {};
+    for (const [key, label] of PLAN_COLUMNS) {
+      if (key === "outlineRefs") {
+        out[label] = (r.outlineRefs || [])
+          .map((id) => nodes.findIndex((n) => n.id === id))
+          .filter((i) => i >= 0)
+          .map((i) => `§${i + 1}`);
+      } else {
+        out[label] = r[key];
+      }
+    }
+    return out;
+  });
+}
+
+/** 提案里那一句故事核心。旧字段名照旧兜着（TASK-089：premise / logline 并进 storyCore，
+ *  但仍读得到）。 */
+export function proposalCore(proposal) {
+  if (!isObj(proposal)) return "";
+  const line = (v) => (typeof v === "string" ? v.trim() : "");
+  return line(proposal.storyCore) || line(proposal.premise) || line(proposal.logline);
+}
+
+/** 一份 story-development 提案摊成能写进大纲编辑器的正文：核心一句 + 主线五段 +
+ *  信息揭示顺序。段落之间空一行 —— 那是 `parseOutline` 的分段规则，每一段成为一个 §N。 */
+export function outlineProposalText(proposal) {
+  if (!isObj(proposal)) return "";
+  const line = (v) => (typeof v === "string" ? v.trim() : "");
+  const parts = [];
+  const core = proposalCore(proposal);
+  if (core) parts.push(core);
+  const ml = isObj(proposal.mainline) ? proposal.mainline : {};
+  for (const [key, label] of [
+    ["setup", "开端"],
+    ["development", "发展"],
+    ["midpointTurn", "中段转折"],
+    ["climax", "高潮"],
+    ["ending", "结局"],
+  ]) {
+    if (line(ml[key])) parts.push(`${label}：${line(ml[key])}`);
+  }
+  const reveals = Array.isArray(proposal.secretsAndReveals) ? proposal.secretsAndReveals : [];
+  const revealLines = reveals
+    .map((r) => (isObj(r) ? [line(r.truth), line(r.revealAround)].filter(Boolean).join(" · ") : line(r)))
+    .filter(Boolean);
+  if (revealLines.length) {
+    parts.push(["信息揭示顺序：", ...revealLines.map((s) => `- ${s}`)].join("\n"));
+  }
+  return parts.join("\n\n");
+}
+
+/** 一份 story-development 提案落地：大纲照旧、核心多一个家（TASK-154 / REQ-009 判据 3）。
+ *
+ *  两处都**不静默覆盖**：他写过的大纲 / 核心各先存一版。核心那一段**不从大纲里抽掉**：
+ *  结构规划的 §N 按段计数，抽掉第一段会让既有引用集体错位。
+ *
+ *  不碰持久化与界面 —— 调用方负责 `persist()` 与重绘。
+ *
+ *  @returns {{ok: true, nodes: number, keptOutline: object|null, core: {ok, kept}|null}
+ *            |{ok: false, error: string}} */
+export function applyOutlineProposal(work, proposal, at) {
+  if (!work) return { ok: false, error: "还没有作品文档" };
+  const text = outlineProposalText(proposal);
+  if (!text.trim()) return { ok: false, error: "这份大纲提案里没有可写进编辑器的内容" };
+  const had = outlineText(work);
+  const keptOutline = had.trim() ? finalizeDoc(work, "outline", at, "被 AI 大纲覆盖前自动存的一版") : null;
+  const nodes = setOutline(work, text);
+  const coreText = proposalCore(proposal);
+  const core = coreText ? applyCoreProposal(work, coreText, at) : null;
+  return { ok: true, nodes: nodes.length, keptOutline, core };
+}
+
+/** 屏幕上那一句：大纲写了几段、核心更新了没、各存了哪一版。 */
+export function describeOutlineApply(res) {
+  if (!res || !res.ok) return "";
+  const bits = [`已写进故事大纲：${res.nodes} 段`];
+  if (res.keptOutline) bits.push(`原来的大纲已存为 v${res.keptOutline.v}`);
+  if (res.core && res.core.ok) {
+    bits.push(`故事核心已更新${res.core.kept ? `（原来的核心已存为 v${res.core.kept.v}）` : ""}`);
+  }
+  return bits.join("；");
+}
+
+/** 屏幕上那一句：进了几行、旧行去哪了、丢了几处引用 —— 丢了的**必须说出来**。 */
+export function describePlanApply(res) {
+  if (!res || !res.ok) return "";
+  const bits = [`已写进结构规划：${res.added} 行`];
+  if (res.retired) {
+    bits.push(`原来的 ${res.retired} 行已进回收区${res.kept ? `并存为 v${res.kept.v}` : ""}`);
+  }
+  if (res.droppedRefs) bits.push(`${res.droppedRefs} 处大纲引用指向不存在的段落，已丢弃`);
+  return bits.join("；");
+}
+
+/** 第 no 章**已经写了什么**（TASK-157）—— 去味那一步要改的就是它。
+ *
+ *  没写正文（或章号无效、不是小说）就是 `null`：必填输入缺，运行前被拒。
+ *  「这一章还没有正文」与「改出一章新的」是两件事，后者不是他要的。
+ *
+ *  @returns {{no, title, text}|null} */
+export function chapterTextOf(work, no) {
+  const n = int(no, 1, 500);
+  if (!work || work.form !== "novel" || n === null) return null;
+  const unit = work.units.find((u) => u.kind === "novel" && u.no === n);
+  const text = unit ? str(unit.body).trim() : "";
+  if (!text) return null;
+  return { no: n, title: unit.title || "", text };
+}
+
+/** 喂给改编策划的「小说章节」：**已写正文**的章，带章号 / 标题 / 字数 / 开头几百字 /
+ *  结构规划里这一章的目的与结尾状态（TASK-155）。没写正文的章不算 —— 改编只能改编写了的。
+ *  不是小说、或一章都没写 → `null`（必填输入缺，运行前就被拒并说清）。 */
+export const CHAPTER_OPENING_CHARS = 400;
+
+export function novelChaptersForPrompt(work) {
+  if (!work || work.form !== "novel") return null;
+  const rows = visiblePlanRows(work);
+  const written = work.units
+    .filter((u) => u.kind === "novel" && (u.body || "").trim())
+    .sort((a, b) => a.no - b.no);
+  if (!written.length) return null;
+  return written.map((u) => {
+    const body = (u.body || "").trim();
+    const row = rows.find((r) => String(r.unitNo).trim() === String(u.no)) || null;
+    return {
+      no: u.no,
+      title: u.title || "",
+      words: body.length,
+      opening: body.slice(0, CHAPTER_OPENING_CHARS),
+      purpose: row ? row.purpose : "",
+      endingState: row ? row.endingState : "",
+    };
+  });
+}
+
+/** 改编提案里每一集对应的章区间：`{from, to}`，都是已写的章号，连续不重叠。
+ *  不合格就说出是哪一条 —— 一个错的章区间落进 Brief 会指着一章不存在的正文。 */
+export function checkChapterRanges(work, episodes) {
+  const written = new Set(
+    (work && Array.isArray(work.units) ? work.units : [])
+      .filter((u) => u.kind === "novel" && (u.body || "").trim())
+      .map((u) => u.no),
+  );
+  const list = Array.isArray(episodes) ? episodes : [];
+  if (!list.length) return "提案里没有一集";
+  let last = 0;
+  for (const [i, e] of list.entries()) {
+    const c = isObj(e) && isObj(e.chapters) ? e.chapters : null;
+    const from = c ? int(c.from, 1, 500) : null;
+    const to = c ? int(c.to, 1, 500) : null;
+    if (from === null || to === null) return `第 ${i + 1} 集没有说清对应第几章到第几章`;
+    if (to < from) return `第 ${i + 1} 集的章区间倒了（第 ${from}–${to} 章）`;
+    if (from !== last + 1) {
+      return `第 ${i + 1} 集从第 ${from} 章开始，但上一集到第 ${last} 章 —— 区间要连续、不重叠`;
+    }
+    for (let n = from; n <= to; n += 1) {
+      if (!written.has(n)) return `第 ${i + 1} 集引用了还没写正文的第 ${n} 章`;
+    }
+    last = to;
+  }
+  // **覆盖所有已写的章**：漏掉尾巴上写好的第 N 章，切到剧集之后它就再没人接（codex 轮 1）。
+  const maxWritten = Math.max(...written);
+  if (last < maxWritten) return `已写到第 ${maxWritten} 章，但最后一集只到第 ${last} 章 —— 每一章都要有集接住`;
+  return null;
+}
+
+/** 确认改编之后，正文创作那一侧的「剧集」：切到剧集创作、设 Planned Episodes、每集一个单元、
+ *  二级 Brief 写「改编自第 X–Y 章：核心目标」（TASK-155 / REQ-009 判据 5）。
+ *
+ *  **全是加法**：小说单元与它们的版本一字不动（`kind === "novel"` 的一律不碰）；已存在的
+ *  剧集单元只在 Brief 为空时补一句，正文不动。不碰持久化与界面。
+ *
+ *  @param episodes 已确认的规划条目（带 `epNumber` 与 `chapters`）
+ *  @returns {{ok: true, created: number, briefed: number}|{ok: false, error: string}} */
+export function adoptEpisodesFromNovel(work, episodes, at) {
+  if (!work) return { ok: false, error: "还没有作品文档" };
+  const list = (Array.isArray(episodes) ? episodes : []).filter(isObj);
+  if (!list.length) return { ok: false, error: "没有可采纳的分集" };
+  setForm(work, "episode");
+  // Planned Episodes = 这次改编的集数（不是与旧值取大）：声明的集数要与改编一致；
+  // 旧值更大时多出来的单元不删，只是不在计划内（`setPlanned` 本来的语义）。
+  setPlanned(work, "episode", list.length);
+  let created = 0;
+  let briefed = 0;
+  list.forEach((e, i) => {
+    const no = int(e.epNumber, 1, 500) ?? i + 1;
+    const before = work.units.length;
+    const unit = ensureUnit(work, "episode", no, at);
+    if (!unit) return;
+    if (work.units.length > before) created += 1;
+    const c = isObj(e.chapters) ? e.chapters : {};
+    const range = c.from === c.to ? `第 ${c.from} 章` : `第 ${c.from}–${c.to} 章`;
+    const brief = `改编自${range}${str(e.coreGoal).trim() ? `：${str(e.coreGoal).trim()}` : ""}`;
+    if (!str(unit.brief).trim()) {
+      editUnit(work, unit.id, "brief", brief, at);
+      briefed += 1;
+    }
+    if (!str(unit.title).trim() && str(e.title).trim()) editUnit(work, unit.id, "title", str(e.title), at);
+  });
+  return { ok: true, created, briefed };
+}
+
+/** AI 提案里的那一句故事核心落进 `work.core`。
+ *
+ *  **不静默覆盖**（AGENTS.md §13 / CA §5.2）：他写过的核心先存成一版，再写。日常编辑
+ *  不产生版本是产品规格，所以存档只发生在**这个边界**上 —— 与 `proposeOutline` /
+ *  `applyBodyProposal` 同一个形状。空提案不落：一句空话不该把他的核心抹掉。
+ *
+ *  @returns {{ok: true, kept: object|null}|{ok: false, error: string}} */
+export function applyCoreProposal(work, text, at) {
+  const core = str(text).trim();
+  if (!core) return { ok: false, error: "这份提案里没有故事核心" };
+  if (!work) return { ok: false, error: "还没有作品文档" };
+  const kept = str(work.core).trim()
+    ? finalizeDoc(work, "core", at, "被 AI 故事核心覆盖前自动存的一版")
+    : null;
+  work.core = core.slice(0, 20000);
+  return { ok: true, kept };
+}
+
+/** 一份「结构规划」提案落进那张九列的表 —— **整表替换**（TASK-154 §2 的显式假设）。
+ *
+ *  三件事一起成立：有可见行先 `finalizeDoc("plan")` 存一版（恢复得回来）；旧行**软删除**
+ *  进回收区（与手删同一条路，可拿回）；新行按 `sanitizeRow` 进表，`outlineRefs` 里的
+ *  `§N`（1 起的段落序号）解析成节点 id，越界 / 非法的丢掉并**说出来**。
+ *
+ *  不碰持久化与界面 —— 调用方负责 `persist()` 与重绘。
+ *
+ *  @param rows 提案里的行：`{unitNo, scene, purpose, characters, goal, conflict, turn,
+ *              endingState, outlineRefs?: number[]}`
+ *  @returns {{ok: true, added: number, retired: number, kept: object|null, droppedRefs: number}
+ *            |{ok: false, error: string}} */
+export function applyPlanProposal(work, rows, at) {
+  if (!work) return { ok: false, error: "还没有作品文档" };
+  const list = Array.isArray(rows) ? rows.filter(isObj) : [];
+  if (!list.length) return { ok: false, error: "这份提案里没有一行结构规划" };
+  const nodes = (work.outline && work.outline.nodes) || [];
+  const live = visiblePlanRows(work);
+  const kept = live.length ? finalizeDoc(work, "plan", at, "被 AI 结构规划覆盖前自动存的一版") : null;
+  for (const r of live) hidePlanRow(work, r.id, at);
+  let droppedRefs = 0;
+  let added = 0;
+  const taken = new Set(work.plan.rows.map((r) => r.id));
+  for (const src of list) {
+    const refs = [];
+    for (const n of Array.isArray(src.outlineRefs) ? src.outlineRefs : []) {
+      const i = Number.isInteger(n) ? n - 1 : -1;
+      if (i >= 0 && i < nodes.length) refs.push(nodes[i].id);
+      else droppedRefs += 1;
+    }
+    const row = sanitizeRow(
+      {
+        ...src,
+        unitNo: Number.isFinite(Number(src.unitNo)) ? String(Number(src.unitNo)) : str(src.unitNo),
+        outlineRefs: refs,
+      },
+      work.plan.rows.length,
+      taken,
+    );
+    row.createdAt = str(at);
+    taken.add(row.id);
+    work.plan.rows.push(row);
+    added += 1;
+  }
+  return { ok: true, added, retired: live.length, kept, droppedRefs };
+}
+
 /* --- 形态与单元（章 / 集）--------------------------------------------------- */
 
 export function setForm(work, form) {
@@ -527,6 +818,52 @@ export function applyBodyProposal(work, where, text, at) {
   return { ok: true, no: target.no, word: target.word, unitId: unit.id, kept };
 }
 
+/** 第 no 章之前、**最近一章已经写了正文**的那一章 —— 连着往下写时「接着谁写」。
+ *
+ *  是「最近有正文的」，不是「第 no−1 章」：中间空着的章什么都接不上，接一个空章
+ *  等于让能力从头讲起。没有就是 `null`（这是第一章，或前面全空）。 */
+export function previousWritten(work, kind, no) {
+  const n = int(no, 1, 500);
+  if (!work || !FORMS.includes(kind) || n === null) return null;
+  let best = null;
+  for (const u of work.units) {
+    if (u.kind !== kind || !(u.no < n) || !(u.body || "").trim()) continue;
+    if (!best || u.no > best.no) best = u;
+  }
+  return best;
+}
+
+/** 喂给能力的「上一章结尾」长度。够它接上语气与悬念，不够把整章都塞回去。 */
+export const PREVIOUS_TAIL_CHARS = 600;
+
+/** 连着往下写（TASK-152 / REQ-009 判据 4）：接下来要写的那几章。
+ *
+ *  从第一章**没写正文**的开始数，已经写了的一律跳过 —— 不重跑、不覆盖 —— 到
+ *  Planned 为止；`count` 为 null = 写到计划的最后一章。中间空着的章也补（第 2 章空着、
+ *  第 3 章写了 → 先写第 2；这是本卡 §2 的显式假设）。
+ *
+ *  只对小说成立：剧集有自己的「当前集」语义，不在这一片。返回 `[]` 表示没有可写的
+ *  （不是小说、计划是 0、或计划内全写完了）—— 调用方要说出是哪一种。
+ *
+ *  @param {object} work
+ *  @param {number|null} count 要写几章；null = 到 Planned
+ *  @returns {number[]} 章号，升序
+ */
+export function chainTargets(work, count = null) {
+  if (!work || work.form !== "novel") return [];
+  const planned = int(work.planned && work.planned.novel, 0, 500) || 0;
+  const want = count === null || count === undefined ? Infinity : int(count, 1, 500);
+  if (want === null) return [];
+  const written = new Set(
+    work.units.filter((u) => u.kind === "novel" && (u.body || "").trim()).map((u) => u.no),
+  );
+  const out = [];
+  for (let no = 1; no <= planned && out.length < want; no += 1) {
+    if (!written.has(no)) out.push(no);
+  }
+  return out;
+}
+
 /** 写第 no 章时，能力要知道的那些事 —— **这一章的任务**，不是整个故事。
  *
  *  `targetUnitNo` 回答的是「写到哪儿」，这个回答的是「写什么」。两件事都缺一不可：
@@ -559,10 +896,20 @@ export function chapterPlanOf(work, no) {
       );
     }
   }
+  // 接着谁写（TASK-152）。**现读** —— 每次开跑时算，所以他中途改了第 3 章，
+  // 第 4 章开跑那一刻拿到的就是改过的结尾。第一章 / 前面全空时是 null，能力照跑。
+  const prev = previousWritten(work, "novel", n);
   return {
     no: n,
     title: unit ? unit.title : "",
     wordsSoFar: unit ? (unit.body || "").length : 0,
+    previous: prev
+      ? {
+          no: prev.no,
+          title: prev.title || "",
+          tail: (prev.body || "").trim().slice(-PREVIOUS_TAIL_CHARS),
+        }
+      : null,
     planRows: rows.map((r) =>
       Object.fromEntries(
         PLAN_COLUMNS.filter(([k]) => k !== "outlineRefs").map(([k, label]) => [

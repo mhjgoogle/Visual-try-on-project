@@ -241,6 +241,34 @@ export function createSkillController({
           const s = scope != null && typeof scope === "object" && !Array.isArray(scope) ? scope : {};
           return storywork.chapterPlanOf(work, s.unitNo);
         })(),
+        // 写的是小说还是剧集（TASK-154）。形态是**上下文**，不是第二个包：故事本身不因
+        // 形态而不同，变的只是它将被怎么切开 —— 所以 story-development / structure-planner
+        // 读它来换用语（章 / 集），而不是各自长出一个小说版。没选形态 = null，能力按缺省理解。
+        //
+        // `storywork` 是可选注入（旧的测试装具不给它）：没有它就是 null —— 「不知道形态」
+        // 与「没选形态」在能力眼里是同一件事，都按缺省理解。
+        workForm: storywork && typeof storywork.formForPrompt === "function"
+          ? storywork.formForPrompt(storyDoc && storyDoc.work)
+          : null,
+        // 当前那张九列的表，引用解析成 §N（TASK-154）—— 让「改一改结构规划」有基底。
+        structurePlan: storywork && typeof storywork.planRowsForPrompt === "function"
+          ? storywork.planRowsForPrompt(storyDoc && storyDoc.work)
+          : null,
+        // 已写正文的小说章（TASK-155）—— 改编策划切集的依据；一章都没写就是 null，
+        // 于是它的必填输入缺，运行前被拒并说清「先写正文」。
+        novelChapters: storywork && typeof storywork.novelChaptersForPrompt === "function"
+          ? storywork.novelChaptersForPrompt(storyDoc && storyDoc.work)
+          : null,
+        // **这一章已经写了什么**（TASK-157）—— 去味那一步要改的就是它。章号与
+        // `chapterPlan` 同源（`scope.unitNo`，不猜）；那一章还没有正文就是 null，
+        // 于是必填输入缺、运行前被拒 —— 「没东西可改」比「改出一章新的」诚实。
+        chapterText: (() => {
+          const work = storyDoc && storyDoc.work;
+          if (!work || work.form !== "novel") return null;
+          if (!storywork || typeof storywork.chapterTextOf !== "function") return null;
+          const s = scope != null && typeof scope === "object" && !Array.isArray(scope) ? scope : {};
+          return storywork.chapterTextOf(work, s.unitNo);
+        })(),
         // THE WHOLE PLAN, as `episode-plan-reviser` needs it (TASK-094 批次 A).
         // Deliberately a different key from `episodePlan` above, which is ONE
         // episode's entry: two shapes under one key is how a capability ends up
@@ -512,7 +540,10 @@ export function createSkillController({
       // 这一轮写的是第几章（TASK-146）。同一条规则，再下一层：**只有真的读了它
       // 才记** —— `chapterPlan` 在输入里，就意味着提示词里带着第 N 章的任务，
       // 于是这个提案是**为那一章写的**，应用时不许落到别处。
-      const readsChapter = keys.has("chapterPlan");
+      // 读了本章任务**或**本章正文，都意味着这一轮是**为那一章**跑的（TASK-146 / TASK-157）。
+      // 漏掉 `chapterText` 的后果与漏掉 `chapterPlan` 一样：提案不带落点身份，他在生成与
+      // 应用之间切一章，去味后的正文就落进别的章 —— 安静的错写。
+      const readsChapter = keys.has("chapterPlan") || keys.has("chapterText");
       const wantUnitNo = readsChapter && Number.isInteger(s.unitNo) ? s.unitNo : null;
       const out = {
         episodeId,
@@ -801,12 +832,22 @@ export function createSkillController({
       const done = [];
       const already = [];
       const failed = [];
+      // WHAT EACH HANDLER SAID. A handler's `detail` is the only place a partial
+      // truth about the landing lives — 「1 处大纲引用指向不存在的段落，已丢弃」、
+      // 「原来的核心已存为 v1」—— and this receipt is the only thing the creator
+      // reads. Counting actions and dropping their words turned that into silence
+      // (codex 2026-09-18 轮 2 / TASK-154 §5.4).
+      const notes = [];
       for (const act of plan.actions) {
         const res = dispatchAction(act, {
           skillRunId: run.runId,
           proposalId: skillrun.proposalIdOf(run),
         });
-        if (res.ok) { done.push(act.action); continue; }
+        if (res.ok) {
+          done.push(act.action);
+          if (typeof res.detail === "string" && res.detail.trim()) notes.push(res.detail.trim());
+          continue;
+        }
         if (res.satisfied) { already.push(act.action); continue; }
         failed.push(`${act.action}：${res.error}`);
       }
@@ -815,6 +856,7 @@ export function createSkillController({
       }
       const parts = [];
       if (done.length) parts.push(`${done.length} 项已应用（${[...new Set(done)].join("、")}）`);
+      parts.push(...notes);
       if (already.length) parts.push(`${already.length} 项本来就已满足`);
       // WHAT THE PLAN REFUSED TO CARRY, said out loud. `planApply` drops entries it
       // cannot map onto a real field of the target document — a `world-director`

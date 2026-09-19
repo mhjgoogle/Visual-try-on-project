@@ -3717,6 +3717,16 @@ def _conv_ready_inputs(context) -> set:
 #:
 #: **没报 = 不限**，行为与 TASK-146 之前完全一致：一个还没选形态的项目、或者一个
 #: 更旧的客户端，都不会因此被排除掉任何候选。
+def _conv_turn_order(turn) -> tuple:
+    """线程里一轮的排序键：先按时间戳，戳相等时**问题在答案前面**（TASK-153）。
+
+    时间戳都来自登记表的时钟（秒级 `Z` 格式）：问题取 run 的 `createdAt`，答案取
+    `endedAt`，同一秒内两者字符串相等，靠角色定次序。
+    """
+    role = turn.get("role") if isinstance(turn, dict) else ""
+    return (str((turn or {}).get("createdAt") or ""), 0 if role == "user" else 1)
+
+
 def _conv_form(context) -> str:
     if not isinstance(context, dict):
         return ""
@@ -3730,6 +3740,27 @@ def _conv_hits(goal: str, words) -> int:
     return sum(1 for w in words if w and w in text)
 
 
+def _conv_specificity(goal: str, words) -> int:
+    """命中词里**最长**的那个有多长 —— 「这个能力对这件事的主张有多具体」（TASK-156）。
+
+    2026-09-18 真实项目实测：他在结构规划页说「请填充内容」，模型把 goal 写成
+    「把**结构规划表**的 12 行按**故事大纲**和人物设定填上」。`story-development` 命中
+    「故事、大纲」两个词，`structure-planner` 命中「结构规划、规划表」两个词 ——
+    **命中数打平**，于是落到 priority（80 > 75），跑的是开发故事，结构规划表一个字没有。
+
+    机理：他的话里既有**对象**（结构规划表）也有**输入材料**（故事大纲），而排序把
+    「点到了输入的名字」和「点到了对象的名字」当成了同等证据。
+
+    **更长的命中词是更具体的主张，所以它排在命中数之前**（ADR-0106 取代 ADR-0091
+    决策 2 的排序键 1）。关键词表本来就是这么写的：长词是精确短语（结构规划 / 做成剧集 /
+    章节规划），短词是泛词（故事 / 章 / 集）。排在命中数之后不够 ——
+    「按故事大纲做一版结构规划」里泛能力命中两个短词、结构策划只命中一个长词，
+    命中数优先就会把它判给开发故事，而他要的显然是结构规划。
+    """
+    text = goal or ""
+    return max((len(w) for w in words if w and w in text), default=0)
+
+
 #: 「改已有的」与「从头写一份」用的是同一批名词（剧本、大纲、分集），靠关键词分不开
 #: —— 「帮我改一下这一集的剧本」和「写这一集的剧本」命中的是同一个词。
 #:
@@ -3738,7 +3769,7 @@ def _conv_hits(goal: str, words) -> int:
 #: 不容易互相抢 —— 一条规则，两个等价类。
 _CONV_REVISION_MARKERS = ("改", "重写", "调整", "润色", "修一下", "优化")
 _CONV_REVISION_INTENTS = frozenset(
-    {"story-revision", "plan-revision", "script-revision"}
+    {"story-revision", "plan-revision", "script-revision", "prose-revision"}
 )
 
 
@@ -3756,6 +3787,61 @@ def _conv_revision_match(goal: str, intent: str) -> int:
 #: 形态的中文说法，只用于拒绝时告诉他为什么 —— 「不适用于当前形态」不说明形态是
 #: 什么，等于没说。
 _CONV_FORM_WORD = {"novel": "小说", "episode": "剧集"}
+
+
+#: 「接着往下写」的说法（TASK-152 / REQ-009 判据 4）。**只挂在写章的计划上**：
+#: 「继续改剧本」里也有「继续」，但那不是写章，不会走到这一步。
+_CONV_CONTINUATION_MARKERS = ("接着", "继续", "往下", "连着", "连续", "再写", "一直写")
+_CONV_COUNT_RE = re.compile(r"(\d{1,3}|[一二两三四五六七八九十]{1,3})\s*章")
+_CONV_CN_DIGIT = {
+    "一": 1,
+    "二": 2,
+    "两": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+}
+
+
+def _conv_cn_int(token: str) -> int | None:
+    """一～九十九的中文数字。读不懂就 None —— 不猜一个数出来。"""
+    if token.isdigit():
+        return int(token)
+    if "十" not in token:
+        return _CONV_CN_DIGIT.get(token) if len(token) == 1 else None
+    tens, _, ones = token.partition("十")
+    if tens and tens not in _CONV_CN_DIGIT:
+        return None
+    if ones and ones not in _CONV_CN_DIGIT:
+        return None
+    high = _CONV_CN_DIGIT[tens] if tens else 1
+    low = _CONV_CN_DIGIT[ones] if ones else 0
+    return high * 10 + low
+
+
+def _conv_continuation(goal: str) -> dict | None:
+    """他这句话是不是「接着往下写（N 章）」。
+
+    返回 `{"count": N}`，N 读不到就是 None（= 写到 Planned 为止）；不是连写返回 None。
+    只认**数量**（「三章」「3 章」），不认终点（「写到第 5 章」）—— 那是另一种说法，
+    不在这一片（TASK-152 §4）。
+
+    这一判定在**服务端**做，前端只透传字段：前端不从用户文本推断要执行什么
+    （ADR-0091 决策 1 的同一边界）。
+    """
+    text = goal or ""
+    if not any(m in text for m in _CONV_CONTINUATION_MARKERS):
+        return None
+    count = None
+    found = _CONV_COUNT_RE.search(text)
+    if found:
+        n = _conv_cn_int(found.group(1))
+        count = n if n is not None and n >= 1 else None
+    return {"count": count}
 
 
 def _conv_resolve(
@@ -3814,6 +3900,11 @@ def _conv_resolve(
                 _conv_revision_match(goal, row["intent"]),
                 1 if (scope and row["scope"] == scope) else 0,
                 0 if need else 1,
+                # **最具体的那个命中说明他在说什么东西**，所以它排在命中数**之前**
+                # （TASK-156 / ADR-0106）。命中数多只说明沾了好几个泛词：
+                #   「按故事大纲做一版结构规划」→ 开发故事命中「故事、大纲」两个
+                #   （各 2 字），结构策划只命中「结构规划」一个（4 字）—— 他要的是后者。
+                _conv_specificity(goal, row["selectWhen"]),
                 hits,
                 row["priority"],
                 row,
@@ -3821,10 +3912,10 @@ def _conv_resolve(
             )
         )
     scored.sort(
-        key=lambda t: (-t[0], -t[1], -t[2], -t[3], -t[4], -t[5], t[6]["skillId"])
+        key=lambda t: (-t[0], -t[1], -t[2], -t[3], -t[4], -t[5], -t[6], t[7]["skillId"])
     )
     best = scored[0]
-    row, need = best[6], best[7]
+    row, need = best[7], best[8]
     labels = _skill_input_labels()
     missing = ["选中的镜头" if k == "__shot__" else (labels.get(k) or k) for k in need]
     # 为什么选它 —— 逐条对应上面的排序键，所以「它怎么选中这个的」可以被复核，
@@ -7844,6 +7935,12 @@ class _App:
         )
         if refusal:
             return None, {"capability": capability, "reason": refusal}
+        # 「接着往下写几章」（TASK-152）—— 只对写章的计划判，剧集侧一个字节不变。
+        # 挂在计划上而不是另开一条路：前端拿到的仍是同一个 route，多一个可选字段。
+        if plan.get("intent") == "chapter-writing":
+            continuation = _conv_continuation(route.get("goal") or "")
+            if continuation is not None:
+                plan["continuation"] = continuation
         # 可观测性（决策 5）：交出去的是哪一类、最后选中哪个能力、为什么、什么范围、
         # 缺什么 —— 全部写在这一轮上。没有这几个字段，「它选错了」就无从复核。
         return plan, None
@@ -8022,7 +8119,10 @@ class _App:
             changed = True
         if changed:
             for entry in thread["threads"].values():
-                entry["turns"].sort(key=lambda x: str(x.get("createdAt") or ""))
+                # 同一秒内问与答的戳相等（登记表的时钟是秒级）：次序由角色定 ——
+                # 问题在前。只靠 `sort` 的稳定性不够：读时对账把答案 append 在整条线
+                # 的末尾，而问题可能早就在中间（TASK-153）。
+                entry["turns"].sort(key=_conv_turn_order)
             self._conv_save(name, thread)
         return thread
 
@@ -8371,7 +8471,15 @@ class _App:
             "role": "user",
             "text": message.strip(),
             "runId": run.get("runId"),
-            "createdAt": datetime.now(timezone.utc).isoformat(),
+            # **问题的时间戳来自 run 自己的时钟**（TASK-153）。以前这里取
+            # `datetime.now()`：微秒级、`+00:00` 格式，而答案那一轮取的是 run 的
+            # `endedAt` —— 登记表的时钟，秒级、`Z` 格式。两个时钟、两种格式、且问题
+            # 的戳在 run 建好**之后**才取：一个立刻答完的执行器只要跨过一个整秒边界，
+            # 答案的戳就小于问题的戳，线程按戳排序后**答案排在问题前面**。并行跑测试时
+            # 那个窗口被 CPU 争用拉宽，于是两天里三条不同的测试各红一次
+            # （TASK-087 §6.17 / TASK-153）。同一个时钟、同一种格式，且
+            # createdAt ≤ endedAt 由构造保证 —— 问题永远不会排到它的答案后面。
+            "createdAt": run.get("createdAt") or datetime.now(timezone.utc).isoformat(),
         }
         self._conv_turns(doc, key).append(turn)
         # A thread that cannot be persisted is reported, not swallowed: the run is

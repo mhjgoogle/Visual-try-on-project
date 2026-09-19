@@ -5,17 +5,17 @@
 - 版本：v5（2026-08-29）—— 判据 9（意见自带定位情报）与判据 8（前端触发出方案）
   由产品负责人当天追加；v3 追加判据 7（两个聊天窗口）；
   v2 追加判据 6（双向回路）；v1 的判据 1–5 一字未改
-- 相关 Change：[TASK-114](../tasks/done/TASK-114-agent-action-registry-and-feedback-loop.md) ·
-  [TASK-115](../tasks/done/TASK-115-delete-with-an-undo-everywhere.md)（删除都能撤销）·
-  [TASK-116](../tasks/done/TASK-116-proposal-loop-both-ways.md)（判据 6）·
-  [TASK-117](../tasks/done/TASK-117-two-chat-windows.md)（判据 7）·
-  [TASK-118](../tasks/done/TASK-118-frontend-triggers-a-dev-plan.md)（判据 8）·
-  [TASK-120](../tasks/done/TASK-120-feedback-carries-a-locator.md)（判据 9）·
+- 相关 Change：[TASK-114](../tasks/TASK-114-agent-action-registry-and-feedback-loop.md) ·
+  [TASK-115](../tasks/TASK-115-delete-with-an-undo-everywhere.md)（删除都能撤销）·
+  [TASK-116](../tasks/TASK-116-proposal-loop-both-ways.md)（判据 6）·
+  [TASK-117](../tasks/TASK-117-two-chat-windows.md)（判据 7）·
+  [TASK-118](../tasks/TASK-118-frontend-triggers-a-dev-plan.md)（判据 8）·
+  [TASK-120](../tasks/TASK-120-feedback-carries-a-locator.md)（判据 9）·
   **判据 1 的「单一登记点」分三块闭合**（2026-09-05，ADR-0096）：
-  [TASK-127](../tasks/done/TASK-127-one-action-table.md)（故事开发侧：四页 + 创意简报 /
+  [TASK-127](../tasks/TASK-127-one-action-table.md)（故事开发侧：四页 + 创意简报 /
   大纲 / 人物场景地字段 / 分集规划 / ⚙ 成片规格 —— 已接线，合同 `test_surface_manifest.py`
-  证穷尽）· [TASK-128](../tasks/backlog/TASK-128-episode-side-actions-into-the-table.md)
-  （剧集制作侧，待）· [TASK-129](../tasks/done/TASK-129-settings-structure-writes-into-the-table.md)
+  证穷尽）· [TASK-128](../tasks/TASK-128-episode-side-actions-into-the-table.md)
+  （剧集制作侧，待）· [TASK-129](../tasks/TASK-129-settings-structure-writes-into-the-table.md)
   （作品设定的结构写，**2026-09-05 闭合**：棘轮空了 —— 那份只能收缩的名单连同它的三条
   测试一起删了，`workspaces.js#settings` 进了更严的 `CONVERTED_BINDERS`：「已接线的
   binder 一个直接写都不许有」）。**只剩 TASK-128；它闭合之前判据 1 仍是 `PARTIAL`**，
@@ -28,7 +28,7 @@
   的实现上（见 [ADR-0102](../adr/ADR-0102-origin-and-confirmation-are-two-fields.md) 决策 3）。
   建议的判词形状是「**每一条他能点的写，Agent 都说得出对应的名字，并且走得到那条提案路径**」，
   但**判据是产品需求，改它的含义归产品负责人** —— 这里只登记缺口与建议，不擅自改判据。
-  实施去向：[TASK-128](../tasks/backlog/TASK-128-episode-side-actions-into-the-table.md)
+  实施去向：[TASK-128](../tasks/TASK-128-episode-side-actions-into-the-table.md)
 - 相关 ADR：[ADR-0089](../adr/ADR-0089-conversational-agent-write-path.md)（对话式写路径，
   本 REQ 落在它的决策 2b/3 之上）
 

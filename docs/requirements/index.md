@@ -33,3 +33,6 @@ SUPERSEDED）与版本修订规则见
   额度用完就说用完、绝不偷偷回退到付费路（TASK-139 / ADR-0100）
 - [REQ-009](REQ-009-write-the-novel-first-then-film-it.md) — CONFIRMED — 先把小说写出来，再把它拍成片：一个想法进去、一本小说出来，
   然后这本小说接进已有的视频线（切片一 TASK-146；四个切片见 REQ 末尾的切片表）
+- [REQ-010](REQ-010-the-prose-must-not-read-like-AI.md) — CONFIRMED — 写出来的东西读起来不像 AI 写的：
+  「AI 味」按对真实产出数出来的形状定义（三短句排比 / 明喻过密 / 「不是 X 是 Y」/ 节奏单一 /
+  直陈情绪），写的时候少带味、写完了能去味（TASK-157）
