@@ -1685,7 +1685,17 @@ _EXECUTORS: dict[str, dict] = {
         "bin": "claude",
         "launcher_env": "MOTV_RUNTIME_CLAUDE_LAUNCHER",
         "bin_env": "MOTV_RUNTIME_CLAUDE_BIN",
-        "args": ["-p"],
+        # `-p` 是非交互；**权限必须显式给**，否则它一动手写文件就被权限层拦下，
+        # 而那一轮会「成功」地回来告诉你它什么都没做成 —— 2026-09-19 的端到端走查
+        # 撞到的正是这个：四轮审查、52 条守卫都没发现，一次真跑立刻暴露。
+        #
+        # 为什么是 `bypassPermissions` 而不是更窄的 `acceptEdits`：它要跑归属测试、
+        # 要过 git 提交闸门，那些都是 Bash —— 而**给了 Bash 就等于给了任意命令**。
+        # 这条路无法靠一个 flag 收窄，只能诚实承认（ADR-0107 决策 4 已经写着同一句话：
+        # 在同一台机器上给一个有仓库写权限的 Agent 做硬性限制，本质上做不到）。
+        # 兜底的不是这个 flag，是那四道：只有「开发」窗口能发起 · 提示词里没有作品
+        # 内容 · 执行器白名单 · 每轮结束核对分支与 main 并如实报告。
+        "args": ["-p", "--permission-mode", "bypassPermissions"],
         "probe": ["--version"],
         # 在仓库根跑。`_run_executor` 据此**不建也不删**临时目录 ——
         # 仓库根绝不能走那条 `shutil.rmtree` 的路。
@@ -8724,12 +8734,30 @@ class _App:
                 if built:
                     # 做完了要说**做完了**，并把那个提交带上 —— 他要能自己去翻、
                     # 也要能自己 revert（ADR-0107「代价的对冲是可回滚」）。
+                    # **标题由「有没有真的落地」决定，不由「模型答成了」决定。**
+                    # 那一轮正常回话就算 `succeeded`，但它完全可能回来说「我什么都
+                    # 没改成」—— 那时标题写「（做完了）」是自相矛盾的
+                    # （2026-09-19 端到端走查实拍：权限被拦，回执标题却是「做完了」）。
                     commit = str(plan.get("commit") or "").strip()[:12]
-                    item["title"] = f"（做完了）{item['title']}"
+                    touched = _repo_touched_since(item.get("repoBefore") or {})
+                    item["title"] = (
+                        f"（做完了）{item['title']}"
+                        if commit
+                        else f"（没改成）{item['title']}"
+                    )
                     item["body"] = (item["body"] or "") + (
                         f"\n提交：{commit} —— 不满意就说一声，这一条能单独撤掉"
                         if commit
-                        else "\n（这一轮没有产生提交 —— 它认为不该改，理由在上面）"
+                        else (
+                            "\n**这一轮没有产生提交** —— 上面是它给的理由。"
+                            + (
+                                "仓库里也确实一个字节都没动。"
+                                if touched is False
+                                else "但仓库被动过了，去看一眼 `git status`。"
+                                if touched
+                                else "仓库现在读不到，动没动**没核实过**。"
+                            )
+                        )
                     )
                     # **越界要说出来。** 提示词里那句「不碰 main」只是一句请求 ——
                     # 真正能做到的是回来核对，对不上就写在他眼前（ADR-0107 决策 4）。

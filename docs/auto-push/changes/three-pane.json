@@ -3491,7 +3491,7 @@
           "subject": "fix(TASK-160): 这条路从来没能起跑过 —— claude-dev 没进封闭集、dev.implement 没有 parser（codex 轮 4）",
           "time": "2026-09-19T11:48:58+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/auto-push/changes/three-pane.json",
             "docs/design/creator-system-contract.md",
@@ -3521,8 +3521,8 @@
         "tests/studio/test_motv_skills_task059.py"
       ],
       "verification": "PASS",
-      "verification_ref": "codex 轮 4 的四条 BLOCKING 全修（含「这条路从未起跑过」），另修一条被逼出来的合同表缺口；pytest tests/studio tests/contract 1100 passed/16 skipped；起跑那一段现在有真测试，变异验证：拿掉注册 → 两条当场红",
-      "declared": "2026-09-19T11:46:23+00:00"
+      "verification_ref": "端到端走查真跑：dev.implement/claude-dev 起来并跑完（登记表实拍 running→succeeded），抓到第六个接线点（-p 非交互没给权限，写文件被拦）。已修 + 2 条守卫。pytest tests/studio tests/contract 1102 passed/16 skipped；ruff + lifecycle 干净",
+      "declared": "2026-09-19T12:03:26+00:00"
     }
   },
   "merge_gate": {

@@ -557,3 +557,39 @@ def test_a_failed_startup_keeps_the_queued_instruction() -> None:
     err_at = body.index('(started or {}).get("error")')
     drop_at = body.index('doc["devQueue"] = q[1:]')
     assert err_at < drop_at, "先出队再看起没起成 —— 失败那次指令就没了"
+
+
+# --- 10. 端到端走查逼出来的两条（2026-09-19 真跑） --------------------------- #
+
+
+def test_the_dev_executor_is_given_write_permission(srv) -> None:
+    """`-p` 是非交互，**权限必须显式给**。
+
+    不给的后果不是报错，是那一轮「成功」地回来告诉你它什么都没做成 ——
+    四轮审查、52 条守卫都没发现，一次真跑立刻暴露（2026-09-19 走查）。
+    """
+    args = srv._EXECUTORS["claude-dev"]["args"]
+    assert "--permission-mode" in args, "没给权限 —— 它一动手写文件就会被拦"
+    mode = args[args.index("--permission-mode") + 1]
+    assert mode == "bypassPermissions", (
+        f"权限模式是 {mode!r}：它还要跑归属测试与 git 提交闸门，那些都是 Bash；"
+        "`acceptEdits` 只覆盖编辑，Bash 仍会被拦下"
+    )
+    # 而创作能力那一轮**绝不许**拿到权限：它的提示词里有作品正文
+    assert "--permission-mode" not in srv._EXECUTORS["claude-code"]["args"]
+    assert srv._EXECUTORS["claude-code"]["args"] == ["-p", "--tools", ""]
+
+
+def test_a_run_that_changed_nothing_does_not_say_it_is_done(srv) -> None:
+    """「模型答成了」不等于「事情做成了」。
+
+    那一轮正常回话就算 `succeeded`，但它完全可能回来说「我什么都没改成」——
+    走查实拍到的标题是「（做完了）走查没通过：…它没有改文件的权限」，
+    前缀与内容自相矛盾。标题现在由**有没有提交**决定。
+    """
+    src = _SERVER.read_text("utf-8")
+    code = "\n".join(ln for ln in src.splitlines() if not ln.lstrip().startswith("#"))
+    assert "（没改成）" in code, "没有提交时仍然会说「做完了」"
+    # 「做完了」那一支必须被 commit 守着
+    seg = code.split("（做完了）", 1)[1][:200]
+    assert "if commit" in seg, "「做完了」不再由有没有提交决定"
