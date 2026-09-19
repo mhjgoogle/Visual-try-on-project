@@ -3353,8 +3353,30 @@
         "mockups/motv-workspace/tests/versionface.test.mjs"
       ],
       "verification": "PASS",
-      "verification_ref": "node --test mockups/motv-workspace/tests/*.test.mjs 2394 pass/0 fail（merge main 后的新基底）；纯展示+文案，按 ADR-0081 不调审查",
-      "declared": "2026-09-19T07:48:33+00:00"
+      "verification_ref": "merge origin/main（e1fdc52）之后在新基底上复跑：node --test mockups/motv-workspace/tests/*.test.mjs 2394 pass / 0 fail；提交时 git 原生 pre-commit 闸门 档位 frontend 5 项检查通过",
+      "declared": "2026-09-19T07:53:21+00:00"
+    },
+    "TASK-143": {
+      "commits": [
+        {
+          "hash": "de85d49c57047b6ed3259e932bc218be16047d60",
+          "subject": "docs(TASK-143): 第 8 种形状 —— worktree 隔离把提交闸门一起隔离掉（实测）",
+          "time": "2026-09-19T07:53:09+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/tasks/backlog/TASK-143-one-worktree-per-session.md"
+          ],
+          "scope_violation": null
+        }
+      ],
+      "paths": [
+        "docs/tasks/TASK-143-one-worktree-per-session.md",
+        "docs/tasks/backlog/TASK-143-one-worktree-per-session.md"
+      ],
+      "verification": "PASS",
+      "verification_ref": "不是本会话的工作：接手这棵共享树时 de85d49 就在分支上（EIKOBAKU 2026-09-16）。它的内容已由 main 的 0d147bd「搬回『第 8 种形状』备注」吸收，因此推送它不发布任何新内容。登记只为让 push 的祖先可追溯。",
+      "declared": "2026-09-19T07:53:02+00:00"
     }
   },
   "merge_gate": {
@@ -3373,5 +3395,8 @@
   "cleanup": {
     "done": false,
     "note": "**有意跳过分支清理** —— 产品负责人 2026-09-05 决定：合并但不删分支，因为合并时仍有八个会话在 `change/TASK-109-three-pane` 上作业。标准流程最后一步会删本地与远端分支，那会毁掉他们的在制品。"
-  }
+  },
+  "sync_commits": [
+    "e1fdc529c061be2f2b9f577ddc8f737aac2a2a59"
+  ]
 }
