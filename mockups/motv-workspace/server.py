@@ -1859,11 +1859,15 @@ def _executor_argv(name: str) -> tuple[list[str] | None, str]:
     return [exe, *spec["args"]], "path"
 
 
-def _git(*args: str) -> str:
-    """跑一条只读 git 命令，失败一律返回空串。
+def _git(*args: str) -> str | None:
+    """跑一条只读 git 命令。**失败返回 `None`，成功返回输出（可能是空串）。**
+
+    这两件事必须分得开：`git status --porcelain` 输出空串是「工作树干净」，
+    而命令跑失败也是空串 —— 上一版把两者都写成 `""`，于是一个读不到的仓库
+    会拿到一张「没有改动」的回执（codex 轮 2 的 BLOCKING）。
 
     这里的每一个调用者都在做**校验**：拿不到答案时必须表现得像「没核实过」，
-    而不是像「核实过且没问题」。所以失败返回空串，由调用方判成「测不出来」。
+    而不是像「核实过且没问题」。`None` 是那个区别本身。
     """
     try:
         done = subprocess.run(  # noqa: S603 - fixed argv, no shell
@@ -1873,8 +1877,8 @@ def _git(*args: str) -> str:
             timeout=20,
         )
     except (OSError, subprocess.SubprocessError):
-        return ""
-    return done.stdout.strip() if done.returncode == 0 else ""
+        return None
+    return done.stdout.strip() if done.returncode == 0 else None
 
 
 def _repo_guard_snapshot() -> dict:
@@ -1890,42 +1894,78 @@ def _repo_guard_snapshot() -> dict:
         "branch": _git("rev-parse", "--abbrev-ref", "HEAD"),
         "head": _git("rev-parse", "HEAD"),
         "main": _git("rev-parse", "refs/heads/main"),
-        "mainRemote": _git("rev-parse", "refs/remotes/origin/main"),
+        # **问远端本身，不问本地的跟踪 ref。** `refs/remotes/origin/main` 只是
+        # 上一次 fetch 留下的影子：那一轮 push 了 main 却没更新它，这个检查就
+        # 什么都看不见（codex 轮 2 的 BLOCKING）。
+        "mainRemote": _git_remote_main(),
     }
 
 
+def _git_remote_main() -> str | None:
+    """远端 main 现在指向哪。读不到返回 `None`（= 没核实过，不是没变）。"""
+    out = _git("ls-remote", "origin", "refs/heads/main")
+    if out is None:
+        return None
+    first = out.split("\n", 1)[0].strip()
+    return first.split()[0] if first else ""
+
+
+#: 快照里每一项的中文名 —— 违规与「没核实过」两种话都要说得出是哪一项。
+_REPO_GUARD_FIELDS = (
+    ("branch", "分支"),
+    ("main", "本地 main"),
+    ("mainRemote", "远端 main"),
+)
+
+
 def _repo_guard_verify(before: dict) -> list[str]:
-    """那一轮结束后，仓库有没有越过 ADR-0107 决策 4 的边界。返回人话的违规清单。"""
+    """那一轮结束后，仓库有没有越过 ADR-0107 决策 4 的边界。返回人话的清单。
+
+    **「读不到」一律说出来，不静默跳过**（codex 轮 2 的 BLOCKING）：上一版写的是
+    `if now.get(k) and now[k] != before[k]`，于是 git 挂了、仓库坏了、ref 读不到时
+    这一项被安静地略过，他拿到的回执看起来和「核对过、没问题」一模一样。
+    """
     if not isinstance(before, dict) or not before.get("branch"):
-        # 起跑时就没记下来（git 不可用之类）——**说「测不出来」，不说「没问题」**。
         return ["起跑前没能记下仓库状态，所以这一轮有没有越界**没核实过**"]
     now = _repo_guard_snapshot()
     out = []
-    if now.get("branch") and now["branch"] != before["branch"]:
-        out.append(f"分支被切走了：{before['branch']} → {now['branch']}")
-    if now.get("main") and before.get("main") and now["main"] != before["main"]:
-        out.append("本地 main 被动过 —— ADR-0107 决策 4 说它的权力到 change 分支为止")
-    if (
-        now.get("mainRemote")
-        and before.get("mainRemote")
-        and now["mainRemote"] != before["mainRemote"]
-    ):
-        out.append("远端 main 被动过 —— 那一轮不该 push 或合并到 main")
+    for key, label in _REPO_GUARD_FIELDS:
+        b, n = before.get(key), now.get(key)
+        if n is None:
+            out.append(f"读不到现在的{label} —— 这一项**没核实过**")
+            continue
+        if b is None:
+            out.append(f"起跑时就没读到{label} —— 这一项**没核实过**")
+            continue
+        if n != b:
+            out.append(
+                f"{label}被动过了：{b[:12] or '（空）'} → {n[:12] or '（空）'}"
+                "—— ADR-0107 决策 4 说它的权力到 change 分支为止"
+            )
     return out
 
 
-def _repo_touched_since(before: dict) -> bool:
-    """那一轮到底有没有动过仓库 —— 用于失败时**不乱下结论**。
+def _repo_touched_since(before: dict) -> bool | None:
+    """那一轮到底有没有动过仓库。`True` 动过 · `False` 没动 · **`None` 没核实过**。
 
-    失败的那一轮完全可能已经改了文件、甚至已经提交。原来那句「仓库没有被改动」
-    是编的（codex 轮 1 的 BLOCKING）。
+    三个值，不是两个：`git status` 跑失败与「工作树干净」都会给出空输出，
+    把它们合成一个 `False` 就等于给一个读不到的仓库发「没有改动」的回执
+    （codex 轮 2 的 BLOCKING）。
+
+    失败的那一轮完全可能已经改了文件、甚至已经提交 —— 超时打断的是进程，
+    不是它已经做过的事（codex 轮 1 的 BLOCKING）。
     """
     if not isinstance(before, dict) or not before.get("head"):
-        return True  # 不知道 = 按「可能动过」说，宁可让他去看一眼
-    now = _repo_guard_snapshot()
-    if now.get("head") and now["head"] != before["head"]:
+        return None
+    now_head = _git("rev-parse", "HEAD")
+    if now_head is None:
+        return None
+    if now_head != before["head"]:
         return True
-    return bool(_git("status", "--porcelain"))
+    dirty = _git("status", "--porcelain")
+    if dirty is None:
+        return None
+    return bool(dirty)
 
 
 #: 唯一允许使用「能写仓库」执行器的 task_type（ADR-0107 决策 1）。
@@ -8545,12 +8585,15 @@ class _App:
                     "cancelling",
                 ):
                     return
-        head = queue.pop(0)
-        doc["devQueue"] = queue
-        _save_feedback(doc)
+        # **先确认起得来，再出队**（codex 轮 2 的 BLOCKING）：上一版先 pop 再存盘，
+        # 然后才检查有没有项目 —— 一个项目都没注册时那条指令就此消失，
+        # 屏幕上却说过「排进队了，做完自动开始」。**接下了就不许弄丢。**
         project = self._current_project_for_queue()
         if not project:
             return
+        head = queue.pop(0)
+        doc["devQueue"] = queue
+        _save_feedback(doc)
         self._start_dev_proposal(
             project,
             head.get("fromRun") or "",
@@ -8625,7 +8668,16 @@ class _App:
                 # （codex 轮 1 的 BLOCKING）。所以去**真的看一眼**再说话。
                 tail = ""
                 if built:
-                    if _repo_touched_since(item.get("repoBefore") or {}):
+                    touched = _repo_touched_since(item.get("repoBefore") or {})
+                    if touched is None:
+                        # **第三种答案，不能并进另外两种**：读不到仓库时，
+                        # 「没核实过」与「没有改动」在屏幕上必须不一样。
+                        tail = (
+                            "\n仓库现在**读不到**（git 没能回答），"
+                            "所以这一轮有没有留下改动**没核实过** —— "
+                            "自己看一眼：`git status` / `git log -3`。"
+                        )
+                    elif touched:
                         tail = (
                             "\n**仓库已经被动过了** —— "
                             "它在断掉之前改了东西（可能还提交了）。"

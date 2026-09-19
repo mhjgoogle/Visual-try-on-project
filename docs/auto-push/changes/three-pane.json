@@ -3449,7 +3449,7 @@
           "subject": "fix(TASK-160): 三条只靠提示词的承诺，现在有代码兜底 —— codex 轮 1",
           "time": "2026-09-19T11:10:28+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/adr/ADR-0107-development-instructions-run-with-tools-in-the-repo.md",
             "docs/auto-push/changes/three-pane.json",
@@ -3474,8 +3474,8 @@
         "tests/studio/test_motv_skills_task059.py"
       ],
       "verification": "PASS",
-      "verification_ref": "codex 轮 1 的三条 BLOCKING 全修 + 变异验证；pytest tests/studio tests/contract 1079 passed/16 skipped; ruff check + format 干净; lifecycle_check 0 finding",
-      "declared": "2026-09-19T11:08:11+00:00"
+      "verification_ref": "codex 轮 2 的三条 BLOCKING + 一条 NON_BLOCKING 全修，两条做了变异验证；pytest tests/studio tests/contract 1085 passed/16 skipped; ruff check + format 干净",
+      "declared": "2026-09-19T11:17:54+00:00"
     }
   },
   "merge_gate": {

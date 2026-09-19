@@ -232,10 +232,11 @@ def test_failure_does_not_claim_the_repo_is_clean(srv) -> None:
     )
     assert "_repo_touched_since" in src
     # HEAD 动了 → 说动过
-    srv._repo_guard_snapshot = lambda: {"head": "bbb"}
+    srv._git = lambda *a: "bbb"
     assert srv._repo_touched_since({"head": "aaa"}) is True
-    # 不知道起点 → 按「可能动过」说，宁可让他去看一眼
-    assert srv._repo_touched_since({}) is True
+    # 不知道起点 → **`None`，不是 `True`**（codex 轮 2 起改成三个值）：
+    # 「没核实过」与「动过了」是两句不同的话，回执里也分开说。
+    assert srv._repo_touched_since({}) is None
 
 
 def test_a_second_request_is_really_queued_not_discarded(srv) -> None:
@@ -265,3 +266,83 @@ def test_a_second_request_is_really_queued_not_discarded(srv) -> None:
     )
     assert "再说一次" not in code, "排队那条回话还在让他重复一遍"
     assert "你不用再说一遍" in code, "排队之后要明确告诉他不用重复"
+
+
+# --- 5. 「读不到」不许被说成「没问题」（codex 轮 2 的 BLOCKING） -------------- #
+
+
+def test_git_failure_is_distinguishable_from_empty_output(srv, monkeypatch) -> None:
+    """`_git` 失败返回 `None`，成功返回输出（可能是空串）。
+
+    这两件事合成一个 `""` 的代价是具体的：`git status --porcelain` 输出空串是
+    「工作树干净」，命令跑失败也是空串 —— 于是一个读不到的仓库拿到一张
+    「没有改动」的回执。
+    """
+    monkeypatch.setattr(srv, "_git", lambda *a: None)
+    assert srv._repo_touched_since({"head": "aaa"}) is None, (
+        "git 读不到时说成了「没动过」"
+    )
+    monkeypatch.setattr(srv, "_git", lambda *a: "")
+    assert srv._repo_touched_since({"head": ""}) is None, "起点缺失时该说没核实过"
+
+
+def test_every_unreadable_field_is_reported_not_skipped(srv, monkeypatch) -> None:
+    """上一版写的是 `if now.get(k) and now[k] != before[k]` —— 读不到就**静默跳过**，
+    他拿到的回执与「核对过、没问题」一模一样（codex 轮 2 的 BLOCKING）。"""
+    before = {"branch": "change/x", "head": "aaa", "main": "m1", "mainRemote": "r1"}
+    for missing, label in (
+        ("branch", "分支"),
+        ("main", "本地 main"),
+        ("mainRemote", "远端 main"),
+    ):
+        now = dict(before)
+        now[missing] = None
+        monkeypatch.setattr(srv, "_repo_guard_snapshot", lambda n=now: dict(n))
+        found = srv._repo_guard_verify(before)
+        assert found, f"{missing} 读不到却什么都没说"
+        assert any("没核实过" in f and label in f for f in found), found
+
+
+def test_a_clean_run_still_reports_nothing(srv, monkeypatch) -> None:
+    """全都读得到且没变 → 清单为空。收紧到「永远报点什么」会让真正的越界淹掉。"""
+    before = {"branch": "change/x", "head": "aaa", "main": "m1", "mainRemote": "r1"}
+    monkeypatch.setattr(srv, "_repo_guard_snapshot", lambda: dict(before))
+    assert srv._repo_guard_verify(before) == []
+
+
+def test_remote_main_is_asked_of_the_remote_not_the_tracking_ref(srv) -> None:
+    """`refs/remotes/origin/main` 只是上一次 fetch 留下的影子：那一轮 push 了 main
+    却没更新它，检查就什么都看不见（codex 轮 2 的 BLOCKING）。"""
+    src = _SERVER.read_text("utf-8")
+    assert "ls-remote" in src, "远端 main 还在问本地的跟踪 ref"
+    snap = inspect.getsource(srv._repo_guard_snapshot)
+    assert "refs/remotes/origin/main" not in snap, "快照又去读跟踪 ref 了"
+
+
+def test_remote_main_unreadable_is_none_not_empty(srv, monkeypatch) -> None:
+    monkeypatch.setattr(srv, "_git", lambda *a: None)
+    assert srv._git_remote_main() is None
+    monkeypatch.setattr(srv, "_git", lambda *a: "abc123\trefs/heads/main")
+    assert srv._git_remote_main() == "abc123"
+
+
+# --- 6. 接下来的指令不许在出队时丢掉（codex 轮 2 的 BLOCKING） ---------------- #
+
+
+def test_the_queue_head_survives_when_nothing_can_run_it(srv) -> None:
+    """上一版先 pop 再存盘，**然后**才检查有没有项目 —— 一个项目都没注册时
+    那条指令就此消失，而屏幕上说过「排进队了，做完自动开始」。
+
+    读源码而不是跑：出队要真的跑起来得有整个 handler 与 runstore。
+    断言的是**顺序**这一件事，它正是上一版错的地方。
+    """
+    body = (
+        inspect.getsource(srv._MotvHandler._start_next_queued_build)
+        if hasattr(srv, "_MotvHandler")
+        else _SERVER.read_text("utf-8")
+        .split("def _start_next_queued_build", 1)[1]
+        .split("\n    def ", 1)[0]
+    )
+    pop_at = body.index("queue.pop(0)")
+    check_at = body.index("_current_project_for_queue")
+    assert check_at < pop_at, "还是先出队再检查起不起得来 —— 起不来那条就没了"
