@@ -3329,7 +3329,7 @@
           "subject": "fix(TASK-158): 版本列表认得出哪版是哪版；结构规划表头改「登场人物」",
           "time": "2026-09-19T07:51:47+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/auto-push/changes/three-pane.json",
             "mockups/motv-workspace/src/ui/corews.js",
@@ -3363,7 +3363,7 @@
           "subject": "docs(TASK-143): 第 8 种形状 —— worktree 隔离把提交闸门一起隔离掉（实测）",
           "time": "2026-09-19T07:53:09+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/tasks/backlog/TASK-143-one-worktree-per-session.md"
           ],
