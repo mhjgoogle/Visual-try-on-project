@@ -3377,6 +3377,19 @@
       "verification": "PASS",
       "verification_ref": "不是本会话的工作：接手这棵共享树时 de85d49 就在分支上（EIKOBAKU 2026-09-16）。它的内容已由 main 的 0d147bd「搬回『第 8 种形状』备注」吸收，因此推送它不发布任何新内容。登记只为让 push 的祖先可追溯。",
       "declared": "2026-09-19T07:53:02+00:00"
+    },
+    "TASK-159": {
+      "commits": [],
+      "paths": [
+        "mockups/motv-workspace/src/ui/corews.js",
+        "mockups/motv-workspace/src/ui/draftws.js",
+        "mockups/motv-workspace/src/ui/planws.js",
+        "mockups/motv-workspace/styles/studio.css",
+        "mockups/motv-workspace/tests/versionface.test.mjs"
+      ],
+      "verification": "PASS",
+      "verification_ref": "node --test mockups/motv-workspace/tests/*.test.mjs 2394+9 pass/0 fail；用真实项目「照见未明」的 canvas.json 渲染四页实况条并逐条核对；纯展示，按 ADR-0081 不调审查",
+      "declared": "2026-09-19T09:52:25+00:00"
     }
   },
   "merge_gate": {

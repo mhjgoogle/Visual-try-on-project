@@ -51,6 +51,50 @@ export function binCount(records) {
   return (Array.isArray(records) ? records : []).filter((r) => r && r.deleted).length;
 }
 
+/** 「这一页现在装着什么」——**每一页顶部的第一行**。
+ *
+ *  产品负责人 2026-09-19（台账 #18）：打开结构规划，第一反应是「之前创作的内容
+ *  怎么不见了」。东西全在（12 行、1530 字、13 个节点），但四页顶部那一行讲的都是
+ *  **规则**（「一行一个单元」「像写普通文本一样写」），而「12 行」这个事实躺在
+ *  页面**最底下**的 sw-foot 里 —— 要滚到底才看得到。
+ *
+ *  他要的是一条迁移说明（「原来的 X 现在在这里」）。**没有照做**：改版是一次性的，
+ *  那条说明关掉就没了、对新项目还是噪音，而且它只回答「东西搬去哪了」，不回答
+ *  「这一页现在有多少」。实况条两个问题一起回答，而且任何时候都成立。
+ *
+ *  空的时候**照样出现**，写「还是空的」—— 「这一页什么都没有」与「这一页还没
+ *  渲染出来」在屏幕上必须分得开，那正是他这次撞上的困惑。
+ *
+ *  @param {Array<string|null|false>} facts 已经拼好的短句，假值会被丢掉
+ *  @param {string} empty 一个事实都没有时说的那句话
+ */
+export function pageFacts(facts, empty = "还是空的 —— 从这里开始写") {
+  const real = (Array.isArray(facts) ? facts : []).filter(Boolean);
+  const text = real.length ? real.join(" · ") : empty;
+  return `<div class="sw-facts${real.length ? "" : " empty"}">${esc(text)}</div>`;
+}
+
+/** 一串单元号压成区间：`[1,2,3,5,6]` → `第 1–3、5–6 单元`。
+ *
+ *  12 行时列全部号码会把这一行撑爆，而「12 行」本身不说明覆盖到哪 ——
+ *  他要确认的正是「我写的那些还在不在」。 */
+export function unitRange(nos) {
+  const ns = [...new Set((Array.isArray(nos) ? nos : []).map((n) => parseInt(n, 10)))]
+    .filter((n) => Number.isInteger(n))
+    .sort((a, b) => a - b);
+  if (!ns.length) return "";
+  const parts = [];
+  let lo = ns[0];
+  let prev = ns[0];
+  for (const n of ns.slice(1).concat([NaN])) {
+    if (n === prev + 1) { prev = n; continue; }
+    parts.push(lo === prev ? `${lo}` : `${lo}–${prev}`);
+    lo = n;
+    prev = n;
+  }
+  return `第 ${parts.join("、")} 单元`;
+}
+
 /** 这一版是什么 —— 取开头一句当摘要。
  *
  *  产品负责人 2026-09-19：「我这里写好的东西怎么没了」。**东西一个字都没丢**
@@ -160,6 +204,11 @@ export function renderCoreWs(ctx, ui) {
   return (
     head("故事核心", "项目级") +
     `<div class="sw-page">` +
+    pageFacts([
+      m.chars ? `${m.chars} 字` : "",
+      liveCount(m.history) ? `${liveCount(m.history)} 版历史` : "",
+      binCount(m.history) ? `回收区 ${binCount(m.history)} 版` : "",
+    ]) +
     `<div class="sw-note">立意、主角、冲突、世界规则、人物关系 —— 都写在这一篇里。` +
     `右边的 Agent 能读它，也能改它。</div>` +
     (viewing
@@ -209,6 +258,12 @@ export function renderOutlineWorkWs(ctx, ui) {
   return (
     head("故事大纲", "项目级") +
     `<div class="sw-page">` +
+    pageFacts([
+      m.nodes.length ? `${m.nodes.length} 个节点（§1–§${m.nodes.length}）` : "",
+      m.text.length ? `${m.text.length} 字` : "",
+      liveCount(m.history) ? `${liveCount(m.history)} 版历史` : "",
+      binCount(m.history) ? `回收区 ${binCount(m.history)} 版` : "",
+    ]) +
     `<div class="sw-note">像写普通文本一样写。空行分段、「- 」起一条列表 —— ` +
     `系统会自动给每段一个稳定编号，结构规划那张表引用的就是它，<b>不用你维护</b>。</div>` +
     (viewing

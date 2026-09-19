@@ -10,7 +10,9 @@
 import { esc } from "../util/dom.js";
 import { head } from "./shell.js";
 import * as w from "../workflow/storywork.js";
-import { binCount, finalizeBar, historyList, liveCount, workOf } from "./corews.js";
+import {
+  binCount, finalizeBar, historyList, liveCount, pageFacts, unitRange, workOf,
+} from "./corews.js";
 
 export function planModel(story) {
   const work = workOf(story);
@@ -88,6 +90,16 @@ export function renderPlanWs(ctx, ui) {
   return (
     head("结构规划", "项目级") +
     `<div class="sw-page wide">` +
+    // 「12 行」原来只写在页面**最底下**的 sw-foot 里 —— 他打开这一页看到的第一行
+    // 是规则说明，于是「之前创作的内容怎么不见了」（台账 #18）。
+    pageFacts([
+      m.rows.length ? `${m.rows.length} 行` : "",
+      unitRange(m.rows.map((r) => r.unitNo)),
+      m.rows.filter((r) => (r.outlineRefs || []).length).length
+        ? `${m.rows.filter((r) => (r.outlineRefs || []).length).length} 行关联了大纲`
+        : "",
+      m.hidden.length ? `回收区 ${m.hidden.length} 行` : "",
+    ], "还没有行 —— 从「＋ 加一行」开始规划") +
     `<div class="sw-note">一行一个单元。最后一列「关联故事大纲」引用的是大纲里那些自动编号的段落 —— ` +
     `大纲改了，引用不会跟着断。</div>` +
     (m.dangling.length

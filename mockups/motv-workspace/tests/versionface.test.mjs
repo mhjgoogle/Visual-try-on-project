@@ -10,7 +10,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { versionGist, versionWhen } from "../src/ui/corews.js";
+import { pageFacts, unitRange, versionGist, versionWhen } from "../src/ui/corews.js";
 
 // --- 摘要：这一版写的是什么 -------------------------------------------------- //
 
@@ -87,4 +87,54 @@ test("认不出来的时间原样给出，不显示 Invalid Date", () => {
 test("ISO 串照样认得", () => {
   const got = versionWhen("2026-09-19T00:24:20.364Z", NOW);
   assert.match(got, /^(今天|昨天|9-\d\d) \d\d:\d\d$/, `拿到的是 ${got}`);
+});
+
+// --- 这一页现在装着什么（台账 #18） ------------------------------------------ //
+
+test("连号压成区间 —— 12 行不会把这一行撑爆", () => {
+  assert.equal(unitRange([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]), "第 1–12 单元");
+});
+
+test("断开的号分段给出，不假装连续", () => {
+  // 「第 1–6 单元」会让他以为第 7–9 也写了。断在哪儿就说在哪儿。
+  assert.equal(unitRange([1, 2, 3, 5, 6, 10]), "第 1–3、5–6、10 单元");
+});
+
+test("单个号不写成区间", () => {
+  assert.equal(unitRange([7]), "第 7 单元");
+});
+
+test("乱序与重复都按号本身算", () => {
+  // 表格里的行是他排的顺序，不保证有序；同一个 Unit No. 也允许有几行。
+  assert.equal(unitRange([3, 1, 2, 3, 2]), "第 1–3 单元");
+});
+
+test("字符串号照样认（表格里存的就是字符串）", () => {
+  assert.equal(unitRange(["1", "2", "4"]), "第 1–2、4 单元");
+});
+
+test("没有号就返回空串 —— 调用方会把它整条丢掉", () => {
+  for (const nos of [[], null, undefined, ["", "—", "abc"]]) {
+    assert.equal(unitRange(nos), "", `${JSON.stringify(nos)} 给出了区间`);
+  }
+});
+
+test("事实条把空的那些丢掉，只留真的", () => {
+  const html = pageFacts(["12 行", "", null, false, "回收区 3 行"]);
+  assert.match(html, /12 行 · 回收区 3 行/);
+  assert.ok(!html.includes("empty"), "有内容却标成了空");
+});
+
+test("一条事实都没有时照样出现，并说它是空的", () => {
+  // **不能什么都不渲染** —— 「这一页什么都没有」与「这一页还没画出来」
+  // 在屏幕上必须分得开，那正是他这次撞上的困惑。
+  const html = pageFacts([], "还没有行 —— 从「＋ 加一行」开始规划");
+  assert.match(html, /sw-facts empty/);
+  assert.match(html, /还没有行/);
+});
+
+test("事实条里的内容被转义 —— 他写的标题可能带尖括号", () => {
+  const html = pageFacts(['<script>x</script> 行']);
+  assert.ok(!html.includes("<script>"), "没转义");
+  assert.match(html, /&lt;script&gt;/);
 });

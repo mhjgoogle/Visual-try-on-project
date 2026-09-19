@@ -2148,6 +2148,17 @@
 .sw-foot { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
 .sw-foot .meta, .sw-fin .meta { color: var(--text-faint); font-size: var(--t-micro); }
 .sw-empty { color: var(--text-faint); font-size: var(--t-sm); }
+
+/* 「这一页现在装着什么」——**每一页的第一行**（台账 #18：他打开结构规划，
+   第一眼是规则说明，而「12 行」躺在页面最底下，于是以为内容丢了）。
+   比规则说明重，比标题轻；空的时候也在，只是变淡。 */
+.sw-facts {
+  display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
+  padding: var(--s2) var(--s3); border-radius: var(--r1);
+  background: var(--panel-2); border: 1px solid var(--line);
+  color: var(--text); font-size: var(--t-sm); font-weight: 600;
+}
+.sw-facts.empty { color: var(--text-faint); font-weight: 400; background: transparent; }
 .sw-fin { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
 .sw-viewing {
   display: flex; align-items: center; gap: var(--s2);

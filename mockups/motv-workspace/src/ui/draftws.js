@@ -16,7 +16,7 @@ import { esc } from "../util/dom.js";
 import { head } from "./shell.js";
 import * as w from "../workflow/storywork.js";
 import { describe as describeChain } from "../workflow/novelchain.js";
-import { versionGist, versionWhen, workOf } from "./corews.js";
+import { pageFacts, unitRange, versionGist, versionWhen, workOf } from "./corews.js";
 
 /** 这一章/集看得见的版本 / 回收区里的版本。软删除的记录仍留在数组里，
  *  所以每一个读它的地方都得自己过滤 —— 漏一处，删掉的版本就在那一处继续冒出来。 */
@@ -304,6 +304,19 @@ export function renderDraftWs(ctx, ui) {
   return (
     head("正文创作", "项目级") +
     `<div class="sw-page">` +
+    // 这一页装着什么，一进来就说（台账 #18）。原来要点开某一章才知道写了多少。
+    pageFacts([
+      `${KIND_LABEL[m.kind]} · 计划 ${m.planned} ${word}`,
+      (() => {
+        const written = m.units.filter((u) => (u.body || "").trim());
+        return written.length ? `${written.length} ${word}已开写` : "";
+      })(),
+      unitRange(m.units.filter((u) => (u.body || "").trim()).map((u) => u.no)),
+      (() => {
+        const total = m.units.reduce((n, u) => n + (u.body || "").length, 0);
+        return total ? `共 ${total} 字` : "";
+      })(),
+    ], `${KIND_LABEL[m.kind]} · 计划 ${m.planned} ${word} —— 还一${word}都没写`) +
     `<div class="db-unit">` +
     overviewBrief(ctx.story, m.kind, m.planned, m.units) +
     `<div class="db-main">` +
