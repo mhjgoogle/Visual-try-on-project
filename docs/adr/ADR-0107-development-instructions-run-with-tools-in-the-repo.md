@@ -4,7 +4,7 @@
   架构决策；不涉付费，不涉不可逆动用户数据）
 - 关联：[REQ-011](../requirements/REQ-011-say-it-in-the-app-and-it-gets-built.md) ·
   [TASK-160](../tasks/TASK-160-your-word-drives-the-build.md)
-- 与 [ADR-0056](ADR-0056-film-ai-runtime-and-skill-contract.md) 的关系：
+- 与 [ADR-0056](ADR-0056-local-ai-runtime-and-film-skills.md) 的关系：
   **决策 2 保持 Accepted，一个字不改。** 本 ADR 不推翻它，而是说清它管的是哪一类
   运行，并为另一类开一条独立的窄路。两条路在代码里是两个执行器条目，不是一个
   带开关的条目。
