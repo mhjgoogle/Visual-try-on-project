@@ -1859,6 +1859,75 @@ def _executor_argv(name: str) -> tuple[list[str] | None, str]:
     return [exe, *spec["args"]], "path"
 
 
+def _git(*args: str) -> str:
+    """跑一条只读 git 命令，失败一律返回空串。
+
+    这里的每一个调用者都在做**校验**：拿不到答案时必须表现得像「没核实过」，
+    而不是像「核实过且没问题」。所以失败返回空串，由调用方判成「测不出来」。
+    """
+    try:
+        done = subprocess.run(  # noqa: S603 - fixed argv, no shell
+            ["git", "-C", str(REPO_ROOT), *args],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return done.stdout.strip() if done.returncode == 0 else ""
+
+
+def _repo_guard_snapshot() -> dict:
+    """开发指令那一轮起跑**之前**，仓库长什么样（ADR-0107 决策 4）。
+
+    **为什么是快照 + 事后校验，而不是「禁止」**：那一轮握着仓库的写权限，
+    它能 checkout、能 push、能改钩子。在同一台机器上给一个有写权限的 Agent 做
+    硬性限制，本质上做不到 —— 提示词里写「不碰 main」只是一句请求。
+    能真正做到的是**发现并说出来**，所以这里记下事实，`_repo_guard_verify`
+    回来核对，对不上就写进他看得到的回执。
+    """
+    return {
+        "branch": _git("rev-parse", "--abbrev-ref", "HEAD"),
+        "head": _git("rev-parse", "HEAD"),
+        "main": _git("rev-parse", "refs/heads/main"),
+        "mainRemote": _git("rev-parse", "refs/remotes/origin/main"),
+    }
+
+
+def _repo_guard_verify(before: dict) -> list[str]:
+    """那一轮结束后，仓库有没有越过 ADR-0107 决策 4 的边界。返回人话的违规清单。"""
+    if not isinstance(before, dict) or not before.get("branch"):
+        # 起跑时就没记下来（git 不可用之类）——**说「测不出来」，不说「没问题」**。
+        return ["起跑前没能记下仓库状态，所以这一轮有没有越界**没核实过**"]
+    now = _repo_guard_snapshot()
+    out = []
+    if now.get("branch") and now["branch"] != before["branch"]:
+        out.append(f"分支被切走了：{before['branch']} → {now['branch']}")
+    if now.get("main") and before.get("main") and now["main"] != before["main"]:
+        out.append("本地 main 被动过 —— ADR-0107 决策 4 说它的权力到 change 分支为止")
+    if (
+        now.get("mainRemote")
+        and before.get("mainRemote")
+        and now["mainRemote"] != before["mainRemote"]
+    ):
+        out.append("远端 main 被动过 —— 那一轮不该 push 或合并到 main")
+    return out
+
+
+def _repo_touched_since(before: dict) -> bool:
+    """那一轮到底有没有动过仓库 —— 用于失败时**不乱下结论**。
+
+    失败的那一轮完全可能已经改了文件、甚至已经提交。原来那句「仓库没有被改动」
+    是编的（codex 轮 1 的 BLOCKING）。
+    """
+    if not isinstance(before, dict) or not before.get("head"):
+        return True  # 不知道 = 按「可能动过」说，宁可让他去看一眼
+    now = _repo_guard_snapshot()
+    if now.get("head") and now["head"] != before["head"]:
+        return True
+    return bool(_git("status", "--porcelain"))
+
+
 #: 唯一允许使用「能写仓库」执行器的 task_type（ADR-0107 决策 1）。
 #:
 #: **这是一张白名单，不是一个开关。** 创作能力那一侧的 task_type 永远不在里面，
@@ -8335,6 +8404,15 @@ class _App:
                 "error": "没说要开发做什么",
             }
         doc = _load_feedback()
+        # 他在哪一页说的 —— **排队那一条也要带着它**，否则排到它时开发只剩一句
+        # 没有位置的要求（`page` 原来算在起跑之前、排队之后，排队分支拿不到它）。
+        page = ""
+        if isinstance(context, dict):
+            page = " · ".join(
+                str(context.get(k))[:80]
+                for k in ("spaceLabel", "moduleLabel")
+                if isinstance(context.get(k), str) and context.get(k).strip()
+            )
         for x in doc["proposals"]:
             if x.get("fromRun") == from_run:
                 return {
@@ -8354,22 +8432,38 @@ class _App:
                         "running",
                         "cancelling",
                     ):
+                        # **真的排进队，不是让他再说一遍**（ADR-0107 决策 6；
+                        # codex 轮 1 的 BLOCKING：原来这里直接 return，那条要求
+                        # 就永远不会被做，而屏幕上说的是「等它做完再说一次」——
+                        # 一句把工作退回给他的话）。
+                        queue = doc.setdefault("devQueue", [])
+                        if any(q.get("fromRun") == from_run for q in queue):
+                            return {
+                                "kind": "dev.request",
+                                "detail": (
+                                    "这一条已经排在队里了"
+                                    f"（前面还有第 {x.get('id')} 号）"
+                                ),
+                                "error": "",
+                            }
+                        queue.append(
+                            {
+                                "fromRun": from_run,
+                                "ask": ask,
+                                "page": page,
+                                "queuedAt": datetime.now(timezone.utc).isoformat(),
+                            }
+                        )
+                        _save_feedback(doc)
                         return {
                             "kind": "dev.request",
                             "detail": (
-                                f"开发正忙着做第 {x.get('id')} 号那件事 —— "
-                                "这一条等它做完再说一次。一次只做一件，"
-                                "两个人同时改同一棵树会互相踩"
+                                f"排进队了（前面是第 {x.get('id')} 号）—— "
+                                "一次只做一件，两个人同时改同一棵树会互相踩。"
+                                "前面那件做完就自动开始，你不用再说一遍"
                             ),
                             "error": "",
                         }
-        page = ""
-        if isinstance(context, dict):
-            page = " · ".join(
-                str(context.get(k))[:80]
-                for k in ("spaceLabel", "moduleLabel")
-                if isinstance(context.get(k), str) and context.get(k).strip()
-            )
         try:
             run = runs().create(
                 kind="skill",
@@ -8411,6 +8505,9 @@ class _App:
                 # 这一轮是「真的做」还是「写方案」—— 落地时据此决定怎么写回执，
                 # 排队检查也读它。
                 "build": bool(build),
+                # 起跑前仓库长什么样（ADR-0107 决策 4）。落地时拿它核对有没有越界，
+                # 以及失败时**到底有没有动过**（那句「仓库没有被改动」原来是编的）。
+                "repoBefore": _repo_guard_snapshot() if build else None,
             }
         )
         _save_feedback(doc)
@@ -8425,11 +8522,60 @@ class _App:
             "error": "",
         }
 
+    def _start_next_queued_build(self) -> None:
+        """队里还有就起跑下一条（ADR-0107 决策 6）。
+
+        **出队必须和入队一样确定地发生**，否则「排进队了」就成了一句安慰话 ——
+        那比直接告诉他「现在做不了」更糟（codex 轮 1 的 BLOCKING）。
+
+        取队首**之前先存盘**：那一条要么跑起来（变成一条 pending 提案），要么
+        因为起不来而写下失败的提案。两种情况它都不会留在队里被重复取。
+        """
+        doc = _load_feedback()
+        queue = doc.get("devQueue") or []
+        if not queue:
+            return
+        # 还有在跑的就不动（读时对账可能在任何时刻被调用）
+        for x in doc["proposals"]:
+            if x.get("pending") and x.get("build") and x.get("devRun"):
+                live = runs().get(x["devRun"])
+                if isinstance(live, dict) and live.get("status") in (
+                    "queued",
+                    "running",
+                    "cancelling",
+                ):
+                    return
+        head = queue.pop(0)
+        doc["devQueue"] = queue
+        _save_feedback(doc)
+        project = self._current_project_for_queue()
+        if not project:
+            return
+        self._start_dev_proposal(
+            project,
+            head.get("fromRun") or "",
+            head.get("ask") or "",
+            {"intent": "feedback", "spaceLabel": head.get("page") or ""},
+            build=True,
+        )
+
+    def _current_project_for_queue(self) -> str:
+        """队列里那一条该在哪个项目上跑。
+
+        开发指令改的是**这个应用本身**，与具体项目无关 —— 项目名只用于把提案
+        挂回台账。取当前注册的第一个即可；一个都没有就不起跑（说不出挂在哪儿）。
+        """
+        names = list(self._projects)
+        return names[0] if names else ""
+
     def _land_dev_proposals(self) -> None:
         """把跑完的「开发方案」写回它那条占位提案。读时对账时调用。"""
         doc = _load_feedback()
         pending = [x for x in doc["proposals"] if x.get("pending") and x.get("devRun")]
         if not pending:
+            # 没有在跑的了 —— 队里还有就把下一条起跑（ADR-0107 决策 6）。
+            # **这一步不能省**：只入队不出队，等于换一种方式丢弃它。
+            self._start_next_queued_build()
             return
         changed = False
         for item in pending:
@@ -8457,6 +8603,15 @@ class _App:
                         if commit
                         else "\n（这一轮没有产生提交 —— 它认为不该改，理由在上面）"
                     )
+                    # **越界要说出来。** 提示词里那句「不碰 main」只是一句请求 ——
+                    # 真正能做到的是回来核对，对不上就写在他眼前（ADR-0107 决策 4）。
+                    crossed = _repo_guard_verify(item.get("repoBefore") or {})
+                    if crossed:
+                        item["title"] = f"（做完了，但越界了）{item['title'][5:]}"
+                        item["body"] += (
+                            "\n\n⚠ 这一轮越过了它该有的边界：\n- "
+                            + "\n- ".join(crossed)
+                        )
             else:
                 # FAIL-CLOSED AND SAY WHY：一条永远停在「正在…」的提案，
                 # 看起来就是开发把他晾在那儿了。
@@ -8465,20 +8620,35 @@ class _App:
                     if built
                     else f"（方案没写成）{item['title'][8:]}"
                 )
+                # **不编「仓库没被改动」。** 失败的那一轮完全可能已经改了文件、
+                # 甚至已经提交 —— 超时打断的是进程，不是它已经做过的事
+                # （codex 轮 1 的 BLOCKING）。所以去**真的看一眼**再说话。
+                tail = ""
+                if built:
+                    if _repo_touched_since(item.get("repoBefore") or {}):
+                        tail = (
+                            "\n**仓库已经被动过了** —— "
+                            "它在断掉之前改了东西（可能还提交了）。"
+                            "去看一眼再决定要不要留：`git status` / `git log -3`。"
+                        )
+                    else:
+                        tail = "\n核对过：这一轮没有在仓库里留下任何改动。"
+                    crossed = _repo_guard_verify(item.get("repoBefore") or {})
+                    if crossed:
+                        tail += "\n⚠ 而且越了界：\n- " + "\n- ".join(crossed)
                 item["body"] = (
                     "开发那一轮没能完成："
                     f"{run.get('failureReason') or status or '未知原因'}。"
-                    "跟我说一声可以再试一次。"
-                    + (
-                        "\n仓库没有被改动 —— 没跑完的那一轮不会留下半个提交。"
-                        if built
-                        else ""
-                    )
+                    "跟我说一声可以再试一次。" + tail
                 )
             item["pending"] = False
             changed = True
         if changed:
             _save_feedback(doc)
+            # 这一轮落地了 → 队里下一条可以开始（ADR-0107 决策 6）。
+            # **放在存盘之后**：它自己要重新读一次台账，读到的必须是最新的。
+            # 只入队不出队，等于换一种方式把他的要求丢掉。
+            self._start_next_queued_build()
 
     def _proposal_decide(self, body: bytes, headers=None):
         """他在提案卡片上点了「同意 / 不要 / 要改」。"""

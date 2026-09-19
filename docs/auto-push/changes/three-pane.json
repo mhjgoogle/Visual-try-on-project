@@ -3415,7 +3415,7 @@
           "subject": "feat(TASK-160): 他在开发窗口说一句，仓库里的开发就真的动起来",
           "time": "2026-09-19T10:55:13+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/STATUS.md",
             "docs/WORKSTATUS.md",
@@ -3437,7 +3437,7 @@
           "subject": "fix(TASK-160): ADR-0056 的文件名引错了，两处链接是死的",
           "time": "2026-09-19T10:55:14+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/adr/ADR-0107-development-instructions-run-with-tools-in-the-repo.md",
             "docs/current-architecture.md"
@@ -3459,8 +3459,8 @@
         "tests/studio/test_motv_skills_task059.py"
       ],
       "verification": "PASS",
-      "verification_ref": "pytest tests/studio tests/contract 1074 passed/16 skipped（唯一红是既有守卫 test_runtime_is_a_text_executor_not_a_code_agent，已按适用面收窄+加强处理并变异验证）; node --test 2403 pass; ruff check + format 干净; lifecycle_check 0 finding",
-      "declared": "2026-09-19T10:44:54+00:00"
+      "verification_ref": "codex 轮 1 的三条 BLOCKING 全修 + 变异验证；pytest tests/studio tests/contract 1079 passed/16 skipped; ruff check + format 干净; lifecycle_check 0 finding",
+      "declared": "2026-09-19T11:08:11+00:00"
     }
   },
   "merge_gate": {

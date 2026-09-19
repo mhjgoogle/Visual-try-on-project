@@ -181,3 +181,87 @@ def test_the_repo_root_is_never_deleted(srv) -> None:
     assert 'cwd") == "repo"' in body or "cwd'] == 'repo'" in body
     # 仓库根只在这一个地方成为 workdir
     assert src.count("workdir = str(REPO_ROOT)") == 1
+
+
+# --- 4. 三条只靠提示词的承诺，现在有代码兜底（codex 轮 1 的 BLOCKING） ------- #
+
+
+def test_the_branch_limit_is_verified_not_just_asked_for(srv) -> None:
+    """ADR-0107 决策 4 原来**只是提示词里的一句话**，而那一轮握着仓库写权限 ——
+    一句请求不是约束。
+
+    做得到的不是「禁止」（它能 checkout、能改钩子），是**回来核对并说出来**。
+    """
+    before = {
+        "branch": "change/x",
+        "head": "aaa",
+        "main": "m1",
+        "mainRemote": "r1",
+    }
+    # 没动过 → 没有违规
+    srv._repo_guard_snapshot = lambda: dict(before)
+    assert srv._repo_guard_verify(before) == []
+    # 切走了分支 / 动了本地 main / 动了远端 main —— 每一种都要被说出来
+    for key, word in (
+        ("branch", "分支"),
+        ("main", "本地 main"),
+        ("mainRemote", "远端 main"),
+    ):
+        moved = dict(before)
+        moved[key] = "CHANGED"
+        srv._repo_guard_snapshot = lambda m=moved: dict(m)
+        found = srv._repo_guard_verify(before)
+        assert found, f"{key} 变了却没被发现"
+        assert any(word in f for f in found), f"{found} 里没说清是 {word}"
+
+
+def test_an_unrecorded_snapshot_says_unverified_not_clean(srv) -> None:
+    """起跑时没记下来（git 不可用之类）→ **说「没核实过」**，
+    绝不说「没问题」。一句假的安全结论比没有结论更糟。"""
+    for empty in ({}, {"branch": ""}, None):
+        found = srv._repo_guard_verify(empty)
+        assert found and "没核实过" in found[0], found
+
+
+def test_failure_does_not_claim_the_repo_is_clean(srv) -> None:
+    """原来失败时写死一句「仓库没有被改动」—— 而超时打断的是进程，
+    不是它已经做过的事（codex 轮 1 的 BLOCKING）。现在去真的看一眼。"""
+    src = _SERVER.read_text("utf-8")
+    assert "仓库没有被改动 —— 没跑完的那一轮不会留下半个提交" not in src, (
+        "那句假承诺还在"
+    )
+    assert "_repo_touched_since" in src
+    # HEAD 动了 → 说动过
+    srv._repo_guard_snapshot = lambda: {"head": "bbb"}
+    assert srv._repo_touched_since({"head": "aaa"}) is True
+    # 不知道起点 → 按「可能动过」说，宁可让他去看一眼
+    assert srv._repo_touched_since({}) is True
+
+
+def test_a_second_request_is_really_queued_not_discarded(srv) -> None:
+    """ADR-0107 决策 6 说「第二句排队」，原来的实现是**丢弃**并让他再说一遍
+    —— 那是一句把工作退回给他的话（codex 轮 1 的 BLOCKING）。
+
+    入队与出队必须成对存在：只入不出等于换一种方式丢掉它。
+    """
+    src = _SERVER.read_text("utf-8")
+    assert "devQueue" in src, "队列没了"
+    assert "_start_next_queued_build" in src, "只入队不出队 —— 那条要求永远不会跑"
+    # 出队要接在落地对账的**两条**路径上：有东西刚落地、以及本来就没有在跑的。
+    # 只接一条，队列会在另一条上永远停着。
+    assert src.count("self._start_next_queued_build()") >= 2, (
+        "出队只接了一条路径 —— 另一条上队列会永远停着"
+    )
+    # 排队那句话不许再让他「再说一次」。**只看他看得到的文案**，不看注释 ——
+    # 注释里留着那句旧话正是为了记住这次的账（`_strip_comments` 同一姿态）。
+    #
+    # **只看排队那一段**：「切到那个窗口再说一次」是窗口拒绝的文案，与排队无关 ——
+    # 宽到整个文件的断言会误伤它（第一版就误伤了）。
+    queued_block = src.split('queue = doc.setdefault("devQueue"', 1)[1].split(
+        "_save_feedback(doc)", 2
+    )[1]
+    code = "\n".join(
+        ln for ln in queued_block.splitlines() if not ln.lstrip().startswith("#")
+    )
+    assert "再说一次" not in code, "排队那条回话还在让他重复一遍"
+    assert "你不用再说一遍" in code, "排队之后要明确告诉他不用重复"
