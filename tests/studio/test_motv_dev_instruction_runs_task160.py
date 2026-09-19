@@ -428,3 +428,132 @@ def test_the_queue_entry_outlives_a_crash_before_the_run_exists() -> None:
     assert "queue.pop(0)" not in body, "又回到破坏性出队了"
     # 摘掉的必须确认是自己那一条，不能盲删队首
     assert 'q[0].get("fromRun") == head.get("fromRun")' in body
+
+
+# --- 9. 这条路真的走得通（codex 四轮都在指的那一条，我四轮都没写） ----------- #
+#
+# 前四轮我把审查者的 `no supplied test exercises request → execution` 一律读成
+# 「端到端需要真实模型，自动化证不了」，于是记进人工走查就跳过了。
+#
+# **那个判断是错的，代价是整条路从来没能起跑过**：`claude-dev` 不在 runstore 的
+# 封闭执行器集里，每一次请求都被 `InvalidRun` 拒掉；就算起来了，`dev.implement`
+# 没有 parser，成功也会被写成失败回执。这两件都不需要真实模型就能测 ——
+# RunStore 的 runner 是可注入的。
+
+
+def _store(tmp_path, srv, answer: str):
+    """一个真的 RunStore，执行器换成一句固定回答。
+
+    换掉的只有「跑 CLI」那一步；`create` 的执行器校验、taskType、parser 分发、
+    终态与 outputs 全是真实现 —— 那正是四轮里没人走过的一段。
+    """
+    import runstore  # noqa: PLC0415 - path injected by the server module
+
+    def runner(run, on_spawn, is_cancelled):
+        return srv._execute_run(
+            {**run, "params": {**run["params"]}}, on_spawn, is_cancelled
+        )
+
+    store = runstore.RunStore(tmp_path / "runs.json", runner=runner, max_concurrent=1)
+    return runstore, store
+
+
+def test_the_dev_executor_is_accepted_by_the_run_store(tmp_path, srv) -> None:
+    """**这一条红过就说明整条路起不来。**
+
+    `FIXED_EXECUTORS` 是一个 CLOSED SET；漏了 `claude-dev`，`create` 抛
+    `InvalidRun`，而调用方把它写成「没能让开发那一轮跑起来」——
+    屏幕上看起来像环境问题，实际是这个功能从未接通（codex 轮 4 的 BLOCKING）。
+    """
+    import runstore  # noqa: PLC0415
+
+    assert runstore.is_valid_executor("claude-dev"), (
+        "claude-dev 不在 RunStore 的封闭执行器集里 —— 每一次开发指令都会被拒"
+    )
+    # 而创作能力那个仍然在
+    assert runstore.is_valid_executor("claude-code")
+    # 随便编一个仍然被拒（封闭集还是封闭的）
+    assert not runstore.is_valid_executor("claude-anything")
+
+
+def test_a_build_run_can_actually_be_created(tmp_path, srv) -> None:
+    """真的建一条 `dev.implement` 的 run —— 不 mock `create`。"""
+    runstore, store = _store(tmp_path, srv, "")
+    run = store.create(
+        kind="skill",
+        task_type=srv._DEV_BUILD_TASK_TYPE,
+        executor="claude-dev",
+        project_id="P1",
+        params={"prompt": "x", "timeout": 5},
+        provider="local_subscription",
+    )
+    assert run["executor"] == "claude-dev"
+    assert run["taskType"] == "dev.implement"
+
+
+def test_a_successful_build_is_parsed_into_a_receipt_with_its_commit(srv) -> None:
+    """`dev.implement` 必须有自己的 parser，而且要**留住 commit**。
+
+    漏掉 parser 不会报错：`_execute_run` 返回 `{"text": ...}`，落地那一步读的是
+    `outputs.proposal` —— 于是每一次成功都被写成失败回执，提交 hash 一起丢掉
+    （codex 轮 4 的 BLOCKING）。
+    """
+    assert srv._DEV_BUILD_TASK_TYPE in srv._AGENT_PARSERS, "做完那一轮没有 parser"
+    key, fn = srv._AGENT_PARSERS[srv._DEV_BUILD_TASK_TYPE]
+    # 键名必须与方案那一轮相同 —— 落地那一步对两种模式读同一个键
+    assert key == srv._AGENT_PARSERS[srv._DEV_TASK_TYPE][0] == "proposal"
+    out = fn(
+        '{"title":"表头改好了","body":"现在是主要人物，改完是登场人物","commit":"a"}'
+    )
+    assert out["title"] == "表头改好了"
+    assert out["commit"] == "a", "提交 hash 被丢了 —— 他就没法撤销这一条"
+
+
+def test_a_build_with_no_commit_is_still_a_valid_answer(srv) -> None:
+    """它判断出不该改时，没有提交是**正确答案**，不是解析失败。"""
+    _key, fn = srv._AGENT_PARSERS[srv._DEV_BUILD_TASK_TYPE]
+    out = fn('{"title":"没改","body":"不动它，因为这一处本来就对"}')
+    assert out["commit"] == ""
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        '{"body":"只有正文"}',
+        '{"title":"只有标题"}',
+        "不是 JSON",
+        '{"title":"","body":"x"}',
+    ],
+)
+def test_a_malformed_build_answer_fails_loudly(srv, bad) -> None:
+    """fail-closed：答不成形就算这一轮失败，**不许**悄悄变成一条空回执。"""
+    _key, fn = srv._AGENT_PARSERS[srv._DEV_BUILD_TASK_TYPE]
+    with pytest.raises(ValueError):
+        fn(bad)
+
+
+def test_the_snapshot_is_taken_before_the_run_is_created() -> None:
+    """`RunStore.create` 会把 worker 启起来 —— 那一刻起子进程就可能在改仓库。
+    基线记在它之后，早期改动会被当成「本来就是这样」而永远不被报告
+    （codex 轮 4 的 BLOCKING）。"""
+    body = (
+        _SERVER.read_text("utf-8")
+        .split("def _start_dev_proposal", 1)[1]
+        .split("\n    def ", 1)[0]
+    )
+    snap_at = body.index("repo_before = _repo_guard_snapshot()")
+    create_at = body.index("runs().create(")
+    assert snap_at < create_at, "快照记在 create 之后 —— 早期改动会溜过去"
+
+
+def test_a_failed_startup_keeps_the_queued_instruction() -> None:
+    """起跑被拒时不许出队：那条指令是他已经被答应过的（codex 轮 4 的 BLOCKING）。"""
+    body = (
+        _SERVER.read_text("utf-8")
+        .split("def _start_next_queued_build", 1)[1]
+        .split("\n    def ", 1)[0]
+    )
+    assert "started = self._start_dev_proposal(" in body, "起跑的返回值又被丢掉了"
+    err_at = body.index('(started or {}).get("error")')
+    drop_at = body.index('doc["devQueue"] = q[1:]')
+    assert err_at < drop_at, "先出队再看起没起成 —— 失败那次指令就没了"

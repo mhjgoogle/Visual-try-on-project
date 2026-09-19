@@ -4420,6 +4420,33 @@ def _adapt_dev_proposal(text: str, _skill_id=None) -> dict:
     }
 
 
+def _adapt_dev_build(text: str, _skill_id=None) -> dict:
+    """做完那一轮的回答：标题 + 正文 + **它留下的那个提交**。
+
+    与 `_adapt_dev_proposal` 分开，因为多一个 `commit` —— 而那一个字段正是
+    他「不满意就撤掉」的抓手（ADR-0107「代价的对冲是可回滚」）。上一版让
+    `dev.implement` 复用方案的 adapter，`commit` 被静默丢掉；更糟的是
+    `dev.implement` 当时**根本没进 `_AGENT_PARSERS`**，于是 `_execute_run` 只返回
+    `{"text": ...}`，落地那一步取不到 `outputs.proposal`，**成功的一轮被写成失败
+    回执**（codex 轮 4 的 BLOCKING）。
+
+    `commit` 是可选的：它可能判断出这件事不该改，那时没有提交是正确答案。
+    """
+    obj = _conv_json_object(text)
+    title = obj.get("title")
+    body = obj.get("body")
+    if not isinstance(title, str) or not title.strip():
+        raise ValueError("回执缺少 title")
+    if not isinstance(body, str) or not body.strip():
+        raise ValueError("回执缺少 body")
+    commit = obj.get("commit")
+    return {
+        "title": title.strip()[:200],
+        "body": body.strip()[:_CONV_PROPOSAL_TEXT_MAX],
+        "commit": commit.strip()[:64] if isinstance(commit, str) else "",
+    }
+
+
 def _conv_json_object(text: str) -> dict:
     """The first balanced JSON object in the answer.
 
@@ -4591,6 +4618,11 @@ _AGENT_PARSERS = {
     # cancellation, the concurrency cap, the journal and the manual fallback.
     _CONV_TASK_TYPE: ("conversation", _adapt_conversation),
     _DEV_TASK_TYPE: ("proposal", _adapt_dev_proposal),
+    # 做完那一轮也要有 parser。**漏了它不会报错**：`_execute_run` 在
+    # `_AGENT_PARSERS` 里找不到就返回 `{"text": ...}`，而落地那一步读的是
+    # `outputs.proposal` —— 于是每一次成功都被写成失败回执（codex 轮 4）。
+    # 键名仍是 `proposal`，因为落地那一步对两种模式读同一个键。
+    _DEV_BUILD_TASK_TYPE: ("proposal", _adapt_dev_build),
 }
 
 
@@ -8535,6 +8567,10 @@ class _App:
                             ),
                             "error": "",
                         }
+        # **快照必须在 `create` 之前。** `RunStore.create` 会把 worker 启起来，
+        # 那一刻起子进程就可能在改仓库 —— 之后再记基线，早期的改动会被当成
+        # 「本来就是这样」而永远不被报告（codex 轮 4 的 BLOCKING）。
+        repo_before = _repo_guard_snapshot() if build else None
         try:
             run = runs().create(
                 kind="skill",
@@ -8578,7 +8614,8 @@ class _App:
                 "build": bool(build),
                 # 起跑前仓库长什么样（ADR-0107 决策 4）。落地时拿它核对有没有越界，
                 # 以及失败时**到底有没有动过**（那句「仓库没有被改动」原来是编的）。
-                "repoBefore": _repo_guard_snapshot() if build else None,
+                # 起跑**之前**记下的那一份（见上面 `repo_before` 的注释）
+                "repoBefore": repo_before,
             }
         )
         _save_feedback(doc)
@@ -8630,13 +8667,19 @@ class _App:
         if not project:
             return
         head = queue[0]
-        self._start_dev_proposal(
+        started = self._start_dev_proposal(
             project,
             head.get("fromRun") or "",
             head.get("ask") or "",
             {"intent": "feedback", "spaceLabel": head.get("page") or ""},
             build=True,
         )
+        # **起跑失败就不出队。** 上一版无视返回值直接摘掉队首 —— 一条被拒的启动
+        # （执行器不可用、RunStore 拒了、磁盘满了）会让那条已经答应过他的指令
+        # 无声消失（codex 轮 4 的 BLOCKING）。留在队里，下次读时对账再试；
+        # 真的起来了才摘。
+        if (started or {}).get("error"):
+            return
         # 重新读：上面那一步改过台账（加了占位提案）。只摘掉确实是自己那一条。
         doc = _load_feedback()
         q = doc.get("devQueue") or []

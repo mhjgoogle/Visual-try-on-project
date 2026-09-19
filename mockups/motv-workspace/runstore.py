@@ -82,6 +82,11 @@ RUN_KINDS = (
 #: tracking mandatory for them and trivially `none` for the local ones.
 FIXED_EXECUTORS = (
     "claude-code",
+    # 开发指令那一轮（REQ-011 / ADR-0107）：同一个 claude 二进制，但**带工具、
+    # 在仓库根跑**。它与 `claude-code` 是两个条目而不是一个带开关的条目 ——
+    # 这个封闭集是那条区分的最后一道锁：漏在这里，`create` 会拒掉每一次请求
+    # （codex 轮 4 的 BLOCKING：整条路从来没能起跑过，而四轮审查都没测过起跑）。
+    "claude-dev",
     "codex-cli",
     "manual",
     "local-piper",

@@ -3478,7 +3478,7 @@
           "subject": "fix(TASK-160): 永远绿的断言、出队的持久性窗口、把「没核实过」说成越界 —— codex 轮 3",
           "time": "2026-09-19T11:32:30+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/auto-push/changes/three-pane.json",
             "mockups/motv-workspace/server.py",
@@ -3492,17 +3492,20 @@
         "docs/WORKSTATUS.md",
         "docs/adr/ADR-0107-development-instructions-run-with-tools-in-the-repo.md",
         "docs/current-architecture.md",
+        "docs/design/creator-system-contract.md",
         "docs/project-context.md",
         "docs/requirements/REQ-011-say-it-in-the-app-and-it-gets-built.md",
         "docs/requirements/index.md",
         "docs/tasks/TASK-160-your-word-drives-the-build.md",
+        "mockups/motv-workspace/runstore.py",
         "mockups/motv-workspace/server.py",
         "tests/studio/test_motv_dev_instruction_runs_task160.py",
+        "tests/studio/test_motv_runs_api_task072.py",
         "tests/studio/test_motv_skills_task059.py"
       ],
       "verification": "PASS",
-      "verification_ref": "codex 轮 3 的三条 BLOCKING 全修 + 变异验证；pytest tests/studio tests/contract 1090 passed/16 skipped；ruff check + format 干净",
-      "declared": "2026-09-19T11:30:20+00:00"
+      "verification_ref": "codex 轮 4 的四条 BLOCKING 全修（含「这条路从未起跑过」），另修一条被逼出来的合同表缺口；pytest tests/studio tests/contract 1100 passed/16 skipped；起跑那一段现在有真测试，变异验证：拿掉注册 → 两条当场红",
+      "declared": "2026-09-19T11:46:23+00:00"
     }
   },
   "merge_gate": {

@@ -694,6 +694,8 @@ run.process = { pid, createdAt(进程创建时间), sessionId/jobId, argv0 }
 | `POST /api/agent/render-episode` | `render` | `render.roughcut` | `local-ffmpeg` | 四 |
 | （TASK-074 新增）导出成片 | `export` | `export.delivery` | `local-ffmpeg` | 四 |
 | 手工视频生成（原 M1 VideoProvider） | `video-gen` | `generation.video.manual` | `manual` → `awaiting_input` | 待定（TASK-074）|
+| 「开发」窗口里的一句要求 → 出方案 | `skill` | `dev.proposal` | `claude-code`（工具全关、中性目录） | [TASK-118](../tasks/TASK-118-frontend-triggers-a-dev-plan.md) |
+| 「开发」窗口里的一句要求 → **真的去改** | `skill` | `dev.implement` | `claude-dev`（**带工具、在仓库根**；提示词里一个字作品内容都不带） | [TASK-160](../tasks/TASK-160-your-word-drives-the-build.md) · [ADR-0107](../adr/ADR-0107-development-instructions-run-with-tools-in-the-repo.md) |
 
 **executor 列的取值必须来自 §5.3 的封闭枚举，一个不多一个不少**——两张表由同一条
 守卫测试逐行比对。一张表里出现另一张表没有的执行器，就是一个没有合同的执行路径。

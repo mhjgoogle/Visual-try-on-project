@@ -456,12 +456,14 @@ def test_the_endpoint_map_and_the_executor_enum_agree(srv) -> None:
         "utf-8"
     )
     table = contract.split("### 5.9b", 1)[1].split("### 5.9c", 1)[0]
-    named = set()
-    for token in ("claude-code", "codex-cli", "manual", "local-piper", "local-ffmpeg"):
-        if f"`{token}`" in table:
-            named.add(token)
+    # 要找的名字**从封闭枚举派生**，不写死一份。手写名单的代价已经发生过：
+    # 加 `claude-dev` 时这条守卫在自己那六个名字里找不到它，于是报的是
+    # 「合同表缺了它」——而真正缺的是这份名单（TASK-160）。名单写死，
+    # 这条守卫就只守得住它已经知道的那些。
+    named = {token for token in runstore.FIXED_EXECUTORS if f"`{token}`" in table}
     assert named == set(runstore.FIXED_EXECUTORS), (
-        "every executor in the endpoint table must be in the closed enum"
+        "every executor in the closed enum must appear in the endpoint table: "
+        f"缺 {sorted(set(runstore.FIXED_EXECUTORS) - named)}"
     )
     assert "provider:minimax" in table
     assert runstore.is_valid_executor("provider:minimax")
