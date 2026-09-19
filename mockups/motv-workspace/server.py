@@ -1918,31 +1918,62 @@ _REPO_GUARD_FIELDS = (
 )
 
 
-def _repo_guard_verify(before: dict) -> list[str]:
-    """那一轮结束后，仓库有没有越过 ADR-0107 决策 4 的边界。返回人话的清单。
+def _repo_guard_verify(before: dict) -> dict:
+    """那一轮结束后，仓库有没有越过 ADR-0107 决策 4 的边界。
 
-    **「读不到」一律说出来，不静默跳过**（codex 轮 2 的 BLOCKING）：上一版写的是
-    `if now.get(k) and now[k] != before[k]`，于是 git 挂了、仓库坏了、ref 读不到时
-    这一项被安静地略过，他拿到的回执看起来和「核对过、没问题」一模一样。
+    **返回两类，不是一个清单**：`{"crossed": [...], "unverified": [...]}`。
+
+    - `crossed` —— 真的被动过了（看得见的证据：两个值不一样）；
+    - `unverified` —— **没核实过**（读不到、起跑时就没记下）。
+
+    两类必须分开，因为它们在屏幕上是两句完全不同的话。上一版把它们混成一个
+    列表，调用方只会 `if crossed:`，于是「远端读不到」被写成了「越界了」——
+    **对它的一次诬告**（codex 轮 3 的 BLOCKING）。这与轮 2 修的是同一条线的两端：
+    「没核实过」既不许读成「没问题」，也不许读成「出事了」。
     """
     if not isinstance(before, dict) or not before.get("branch"):
-        return ["起跑前没能记下仓库状态，所以这一轮有没有越界**没核实过**"]
+        return {
+            "crossed": [],
+            "unverified": ["起跑前没能记下仓库状态，这一轮有没有越界**没核实过**"],
+        }
     now = _repo_guard_snapshot()
-    out = []
+    crossed: list[str] = []
+    unverified: list[str] = []
     for key, label in _REPO_GUARD_FIELDS:
         b, n = before.get(key), now.get(key)
         if n is None:
-            out.append(f"读不到现在的{label} —— 这一项**没核实过**")
+            unverified.append(f"读不到现在的{label}")
             continue
         if b is None:
-            out.append(f"起跑时就没读到{label} —— 这一项**没核实过**")
+            unverified.append(f"起跑时就没读到{label}")
             continue
         if n != b:
-            out.append(
+            crossed.append(
                 f"{label}被动过了：{b[:12] or '（空）'} → {n[:12] or '（空）'}"
-                "—— ADR-0107 决策 4 说它的权力到 change 分支为止"
             )
-    return out
+    return {"crossed": crossed, "unverified": unverified}
+
+
+def _repo_guard_tail(before: dict) -> tuple[bool, str]:
+    """把校验结果写成他看得到的那几行。返回 `(真的越界了吗, 要贴在回执后面的话)`。
+
+    **「越界」这个标题只由 `crossed` 决定** —— 只有「没核实过」时，说的是
+    「有一项没核实过」，不是「越界了」。
+    """
+    res = _repo_guard_verify(before)
+    parts = []
+    if res["crossed"]:
+        parts.append(
+            "⚠ 这一轮越过了它该有的边界：\n- "
+            + "\n- ".join(res["crossed"])
+            + "\n（ADR-0107 决策 4：它的权力到 change 分支为止）"
+        )
+    if res["unverified"]:
+        parts.append(
+            "这几项**没核实过**（不是说出事了，是没看成）：\n- "
+            + "\n- ".join(res["unverified"])
+        )
+    return bool(res["crossed"]), ("\n\n" + "\n\n".join(parts) if parts else "")
 
 
 def _repo_touched_since(before: dict) -> bool | None:
@@ -8585,15 +8616,20 @@ class _App:
                     "cancelling",
                 ):
                     return
-        # **先确认起得来，再出队**（codex 轮 2 的 BLOCKING）：上一版先 pop 再存盘，
-        # 然后才检查有没有项目 —— 一个项目都没注册时那条指令就此消失，
-        # 屏幕上却说过「排进队了，做完自动开始」。**接下了就不许弄丢。**
+        # **接下了就不许弄丢。** 两条要一起成立：
+        #
+        #   1. 起不来就不出队（轮 2 的 BLOCKING：上一版先 pop+存盘再检查有没有项目，
+        #      一个项目都没注册时那条指令就此消失）；
+        #   2. **起跑成功之后才出队**（轮 3 的 BLOCKING：先删再起跑，两步之间进程挂了
+        #      就既没有队列条目、也没有任何记录）。
+        #
+        # 所以这里读队首但不动它；`_start_dev_proposal` 建下提案（或写下失败）之后
+        # 再移除。中途挂掉 = 它还在队里，下次重试；那一次重试由 `fromRun` 去重挡住
+        # 重复起跑，不会做两遍。
         project = self._current_project_for_queue()
         if not project:
             return
-        head = queue.pop(0)
-        doc["devQueue"] = queue
-        _save_feedback(doc)
+        head = queue[0]
         self._start_dev_proposal(
             project,
             head.get("fromRun") or "",
@@ -8601,6 +8637,12 @@ class _App:
             {"intent": "feedback", "spaceLabel": head.get("page") or ""},
             build=True,
         )
+        # 重新读：上面那一步改过台账（加了占位提案）。只摘掉确实是自己那一条。
+        doc = _load_feedback()
+        q = doc.get("devQueue") or []
+        if q and q[0].get("fromRun") == head.get("fromRun"):
+            doc["devQueue"] = q[1:]
+            _save_feedback(doc)
 
     def _current_project_for_queue(self) -> str:
         """队列里那一条该在哪个项目上跑。
@@ -8648,13 +8690,15 @@ class _App:
                     )
                     # **越界要说出来。** 提示词里那句「不碰 main」只是一句请求 ——
                     # 真正能做到的是回来核对，对不上就写在他眼前（ADR-0107 决策 4）。
-                    crossed = _repo_guard_verify(item.get("repoBefore") or {})
-                    if crossed:
+                    #
+                    # 标题里那句「越界了」**只由真的被动过决定**：把「读不到」也
+                    # 算进去，就成了对它的一次诬告（codex 轮 3 的 BLOCKING）。
+                    really_crossed, note = _repo_guard_tail(
+                        item.get("repoBefore") or {}
+                    )
+                    if really_crossed:
                         item["title"] = f"（做完了，但越界了）{item['title'][5:]}"
-                        item["body"] += (
-                            "\n\n⚠ 这一轮越过了它该有的边界：\n- "
-                            + "\n- ".join(crossed)
-                        )
+                    item["body"] += note
             else:
                 # FAIL-CLOSED AND SAY WHY：一条永远停在「正在…」的提案，
                 # 看起来就是开发把他晾在那儿了。
@@ -8685,9 +8729,7 @@ class _App:
                         )
                     else:
                         tail = "\n核对过：这一轮没有在仓库里留下任何改动。"
-                    crossed = _repo_guard_verify(item.get("repoBefore") or {})
-                    if crossed:
-                        tail += "\n⚠ 而且越了界：\n- " + "\n- ".join(crossed)
+                    tail += _repo_guard_tail(item.get("repoBefore") or {})[1]
                 item["body"] = (
                     "开发那一轮没能完成："
                     f"{run.get('failureReason') or status or '未知原因'}。"

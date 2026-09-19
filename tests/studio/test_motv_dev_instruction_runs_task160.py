@@ -186,7 +186,7 @@ def test_the_repo_root_is_never_deleted(srv) -> None:
 # --- 4. 三条只靠提示词的承诺，现在有代码兜底（codex 轮 1 的 BLOCKING） ------- #
 
 
-def test_the_branch_limit_is_verified_not_just_asked_for(srv) -> None:
+def test_the_branch_limit_is_verified_not_just_asked_for(srv, monkeypatch) -> None:
     """ADR-0107 决策 4 原来**只是提示词里的一句话**，而那一轮握着仓库写权限 ——
     一句请求不是约束。
 
@@ -198,10 +198,10 @@ def test_the_branch_limit_is_verified_not_just_asked_for(srv) -> None:
         "main": "m1",
         "mainRemote": "r1",
     }
-    # 没动过 → 没有违规
-    srv._repo_guard_snapshot = lambda: dict(before)
-    assert srv._repo_guard_verify(before) == []
-    # 切走了分支 / 动了本地 main / 动了远端 main —— 每一种都要被说出来
+    # 没动过 → 两类都空
+    monkeypatch.setattr(srv, "_repo_guard_snapshot", lambda: dict(before))
+    assert srv._repo_guard_verify(before) == {"crossed": [], "unverified": []}
+    # 切走了分支 / 动了本地 main / 动了远端 main —— 每一种都进 crossed
     for key, word in (
         ("branch", "分支"),
         ("main", "本地 main"),
@@ -209,21 +209,25 @@ def test_the_branch_limit_is_verified_not_just_asked_for(srv) -> None:
     ):
         moved = dict(before)
         moved[key] = "CHANGED"
-        srv._repo_guard_snapshot = lambda m=moved: dict(m)
-        found = srv._repo_guard_verify(before)
-        assert found, f"{key} 变了却没被发现"
-        assert any(word in f for f in found), f"{found} 里没说清是 {word}"
+        monkeypatch.setattr(srv, "_repo_guard_snapshot", lambda m=moved: dict(m))
+        res = srv._repo_guard_verify(before)
+        assert res["crossed"], f"{key} 变了却没被发现"
+        assert any(word in f for f in res["crossed"]), f"{res} 里没说清是 {word}"
+        assert res["unverified"] == [], "真的动过却被算成了「没核实过」"
 
 
 def test_an_unrecorded_snapshot_says_unverified_not_clean(srv) -> None:
     """起跑时没记下来（git 不可用之类）→ **说「没核实过」**，
     绝不说「没问题」。一句假的安全结论比没有结论更糟。"""
     for empty in ({}, {"branch": ""}, None):
-        found = srv._repo_guard_verify(empty)
-        assert found and "没核实过" in found[0], found
+        res = srv._repo_guard_verify(empty)
+        assert res["unverified"] and "没核实过" in res["unverified"][0], res
+        # **而且它不是越界**（codex 轮 3）：把「没核实过」算进 crossed，
+        # 回执标题就会写成「越界了」—— 对它的一次诬告。
+        assert res["crossed"] == [], res
 
 
-def test_failure_does_not_claim_the_repo_is_clean(srv) -> None:
+def test_failure_does_not_claim_the_repo_is_clean(srv, monkeypatch) -> None:
     """原来失败时写死一句「仓库没有被改动」—— 而超时打断的是进程，
     不是它已经做过的事（codex 轮 1 的 BLOCKING）。现在去真的看一眼。"""
     src = _SERVER.read_text("utf-8")
@@ -232,7 +236,7 @@ def test_failure_does_not_claim_the_repo_is_clean(srv) -> None:
     )
     assert "_repo_touched_since" in src
     # HEAD 动了 → 说动过
-    srv._git = lambda *a: "bbb"
+    monkeypatch.setattr(srv, "_git", lambda *a: "bbb")
     assert srv._repo_touched_since({"head": "aaa"}) is True
     # 不知道起点 → **`None`，不是 `True`**（codex 轮 2 起改成三个值）：
     # 「没核实过」与「动过了」是两句不同的话，回执里也分开说。
@@ -298,16 +302,19 @@ def test_every_unreadable_field_is_reported_not_skipped(srv, monkeypatch) -> Non
         now = dict(before)
         now[missing] = None
         monkeypatch.setattr(srv, "_repo_guard_snapshot", lambda n=now: dict(n))
-        found = srv._repo_guard_verify(before)
-        assert found, f"{missing} 读不到却什么都没说"
-        assert any("没核实过" in f and label in f for f in found), found
+        res = srv._repo_guard_verify(before)
+        assert res["unverified"], f"{missing} 读不到却什么都没说"
+        assert any(label in f for f in res["unverified"]), res
+        # **读不到 ≠ 越界**（codex 轮 3 的 BLOCKING）：它不许进 crossed，
+        # 否则回执会把一次「远端暂时问不到」写成「它越界了」。
+        assert res["crossed"] == [], f"{missing} 读不到被算成了越界：{res}"
 
 
 def test_a_clean_run_still_reports_nothing(srv, monkeypatch) -> None:
-    """全都读得到且没变 → 清单为空。收紧到「永远报点什么」会让真正的越界淹掉。"""
+    """全都读得到且没变 → 两类都空。收紧到「永远报点什么」会让真正的越界淹掉。"""
     before = {"branch": "change/x", "head": "aaa", "main": "m1", "mainRemote": "r1"}
     monkeypatch.setattr(srv, "_repo_guard_snapshot", lambda: dict(before))
-    assert srv._repo_guard_verify(before) == []
+    assert srv._repo_guard_verify(before) == {"crossed": [], "unverified": []}
 
 
 def test_remote_main_is_asked_of_the_remote_not_the_tracking_ref(srv) -> None:
@@ -315,8 +322,19 @@ def test_remote_main_is_asked_of_the_remote_not_the_tracking_ref(srv) -> None:
     却没更新它，检查就什么都看不见（codex 轮 2 的 BLOCKING）。"""
     src = _SERVER.read_text("utf-8")
     assert "ls-remote" in src, "远端 main 还在问本地的跟踪 ref"
+    # **只看代码行，不看注释。** 注释里提到 `refs/remotes/origin/main` 是对的 ——
+    # 那句话解释的正是「为什么不用它」。上一版断言它在整段源码里都不许出现，
+    # 于是这条守卫要么误伤自己的注释、要么（实际发生的）因为 fixture 被裸赋值
+    # 污染而拿到一个 lambda，**永远不会红**（codex 轮 3 的 BLOCKING）。
     snap = inspect.getsource(srv._repo_guard_snapshot)
-    assert "refs/remotes/origin/main" not in snap, "快照又去读跟踪 ref 了"
+    code = "\n".join(ln for ln in snap.splitlines() if not ln.lstrip().startswith("#"))
+    assert "refs/remotes/origin/main" not in code, "快照又去读跟踪 ref 了"
+    assert "_git_remote_main()" in code, "快照没在问远端"
+    # 而且这一条必须是在**真函数**上跑的 —— 前面的测试若用裸赋值替换了它，
+    # 这里拿到的会是一个 lambda，断言就变成永远绿的装饰。
+    assert snap.lstrip().startswith("def _repo_guard_snapshot"), (
+        "拿到的不是真函数 —— 有测试用裸赋值污染了 module 级 fixture"
+    )
 
 
 def test_remote_main_unreadable_is_none_not_empty(srv, monkeypatch) -> None:
@@ -329,20 +347,84 @@ def test_remote_main_unreadable_is_none_not_empty(srv, monkeypatch) -> None:
 # --- 6. 接下来的指令不许在出队时丢掉（codex 轮 2 的 BLOCKING） ---------------- #
 
 
-def test_the_queue_head_survives_when_nothing_can_run_it(srv) -> None:
-    """上一版先 pop 再存盘，**然后**才检查有没有项目 —— 一个项目都没注册时
-    那条指令就此消失，而屏幕上说过「排进队了，做完自动开始」。
+def test_the_queue_head_survives_when_nothing_can_run_it() -> None:
+    """一个项目都没注册时那条指令不许消失 —— 屏幕上说过「排进队了，做完自动开始」。
 
     读源码而不是跑：出队要真的跑起来得有整个 handler 与 runstore。
     断言的是**顺序**这一件事，它正是上一版错的地方。
     """
     body = (
-        inspect.getsource(srv._MotvHandler._start_next_queued_build)
-        if hasattr(srv, "_MotvHandler")
-        else _SERVER.read_text("utf-8")
+        _SERVER.read_text("utf-8")
         .split("def _start_next_queued_build", 1)[1]
         .split("\n    def ", 1)[0]
     )
-    pop_at = body.index("queue.pop(0)")
     check_at = body.index("_current_project_for_queue")
-    assert check_at < pop_at, "还是先出队再检查起不起得来 —— 起不来那条就没了"
+    drop_at = body.index('doc["devQueue"] = q[1:]')
+    assert check_at < drop_at, "还是先出队再检查起不起得来 —— 起不来那条就没了"
+
+
+# --- 7. 「没核实过」也不许被说成「越界了」（codex 轮 3 的 BLOCKING） --------- #
+
+
+def test_unverified_alone_never_claims_a_violation(srv, monkeypatch) -> None:
+    """轮 2 修的是「没核实过不许读成没问题」，轮 3 修的是它的另一端：
+    **也不许读成「出事了」**。远端一次读不到，不是它越界的证据。"""
+    before = {"branch": "change/x", "head": "aaa", "main": "m1", "mainRemote": "r1"}
+    now = dict(before)
+    now["mainRemote"] = None  # 远端问不到
+    monkeypatch.setattr(srv, "_repo_guard_snapshot", lambda: dict(now))
+    really, note = srv._repo_guard_tail(before)
+    assert really is False, "远端读不到被当成了越界"
+    assert "没核实过" in note
+    assert "越过了它该有的边界" not in note
+
+
+def test_a_real_violation_does_claim_one(srv, monkeypatch) -> None:
+    before = {"branch": "change/x", "head": "aaa", "main": "m1", "mainRemote": "r1"}
+    now = dict(before)
+    now["main"] = "MOVED"
+    monkeypatch.setattr(srv, "_repo_guard_snapshot", lambda: dict(now))
+    really, note = srv._repo_guard_tail(before)
+    assert really is True
+    assert "越过了它该有的边界" in note
+
+
+def test_a_clean_run_says_nothing_at_all(srv, monkeypatch) -> None:
+    before = {"branch": "change/x", "head": "aaa", "main": "m1", "mainRemote": "r1"}
+    monkeypatch.setattr(srv, "_repo_guard_snapshot", lambda: dict(before))
+    assert srv._repo_guard_tail(before) == (False, "")
+
+
+def test_the_receipt_title_is_driven_only_by_real_violations(srv) -> None:
+    """标题里那句「越界了」只能由 `_repo_guard_tail` 的第一个返回值决定。
+    回到 `if crossed:`（清单非空就报警）就会把「没核实过」也算进去。"""
+    src = _SERVER.read_text("utf-8")
+    assert "really_crossed, note = _repo_guard_tail(" in src
+    assert "if really_crossed:" in src
+    # 旧写法不许回来
+    code = "\n".join(ln for ln in src.splitlines() if not ln.lstrip().startswith("#"))
+    assert "crossed = _repo_guard_verify(" not in code, "又把两类混成一个清单了"
+
+
+# --- 8. 出队发生在起跑之后（codex 轮 3 的 BLOCKING） ------------------------- #
+
+
+def test_the_queue_entry_outlives_a_crash_before_the_run_exists() -> None:
+    """上一版先 `pop` + 存盘，**然后**才起跑 —— 两步之间进程挂掉，那条指令
+    既不在队里、也没有任何记录。
+
+    断言顺序：`_start_dev_proposal` 的调用必须在移除队首**之前**。
+    """
+    body = (
+        _SERVER.read_text("utf-8")
+        .split("def _start_next_queued_build", 1)[1]
+        .split("\n    def ", 1)[0]
+    )
+    start_at = body.index("self._start_dev_proposal(")
+    # 移除队首的那一步（重新读台账之后）
+    drop_at = body.index('doc["devQueue"] = q[1:]')
+    assert start_at < drop_at, "还是先出队再起跑 —— 中途挂掉那条指令就没了"
+    # 而且不许再有「先 pop 再起跑」的写法
+    assert "queue.pop(0)" not in body, "又回到破坏性出队了"
+    # 摘掉的必须确认是自己那一条，不能盲删队首
+    assert 'q[0].get("fromRun") == head.get("fromRun")' in body

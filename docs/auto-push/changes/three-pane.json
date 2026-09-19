@@ -3464,7 +3464,7 @@
           "subject": "fix(TASK-160): 「测不出来」不再读成「没问题」；远端 main 真的问远端；队首起不来就不出队 —— codex 轮 2",
           "time": "2026-09-19T11:20:10+00:00",
           "branch": "change/TASK-109-three-pane",
-          "pushed": false,
+          "pushed": true,
           "files": [
             "docs/auto-push/changes/three-pane.json",
             "docs/current-architecture.md",
@@ -3488,8 +3488,8 @@
         "tests/studio/test_motv_skills_task059.py"
       ],
       "verification": "PASS",
-      "verification_ref": "codex 轮 2 的三条 BLOCKING + 一条 NON_BLOCKING 全修，两条做了变异验证；pytest tests/studio tests/contract 1085 passed/16 skipped; ruff check + format 干净",
-      "declared": "2026-09-19T11:17:54+00:00"
+      "verification_ref": "codex 轮 3 的三条 BLOCKING 全修 + 变异验证；pytest tests/studio tests/contract 1090 passed/16 skipped；ruff check + format 干净",
+      "declared": "2026-09-19T11:30:20+00:00"
     }
   },
   "merge_gate": {
