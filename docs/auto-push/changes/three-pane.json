@@ -3323,7 +3323,26 @@
       "declared": "2026-09-14T13:32:04+00:00"
     },
     "TASK-158": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "c15723598dad5ec2c96438b0df4d1c04f3e6675f",
+          "subject": "fix(TASK-158): 版本列表认得出哪版是哪版；结构规划表头改「登场人物」",
+          "time": "2026-09-19T07:51:47+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/three-pane.json",
+            "mockups/motv-workspace/src/ui/corews.js",
+            "mockups/motv-workspace/src/ui/draftws.js",
+            "mockups/motv-workspace/src/ui/planws.js",
+            "mockups/motv-workspace/src/workflow/storywork.js",
+            "mockups/motv-workspace/styles/studio.css",
+            "mockups/motv-workspace/tests/storypages.test.mjs",
+            "mockups/motv-workspace/tests/versionface.test.mjs"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "mockups/motv-workspace/src/ui/corews.js",
         "mockups/motv-workspace/src/ui/draftws.js",
