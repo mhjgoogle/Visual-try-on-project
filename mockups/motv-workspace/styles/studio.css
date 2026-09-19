@@ -2160,17 +2160,31 @@
   background: var(--panel-2); font-size: var(--t-sm);
 }
 .sw-hrow .v { font-weight: 600; min-width: 3em; }
-.sw-hrow .at { color: var(--text-faint); font-size: var(--t-micro); }
-.sw-hrow .note { color: var(--text-dim); flex: 1; }
+.sw-hrow .at { color: var(--text-faint); font-size: var(--t-micro); white-space: nowrap; }
+.sw-hrow .note { color: var(--text-dim); }
+/* 多少字 · 开头写的什么 —— 认出「哪版是哪版」靠的就是这两样（2026-09-19：
+   他在只有 v 号和 ISO 时间的列表里找不到自己的稿子，六秒连删六版）。
+   `gist` 吃掉剩余宽度并单行省略，长稿子不会把按钮挤出屏幕。 */
+.sw-hrow .len { color: var(--text-faint); font-size: var(--t-micro); white-space: nowrap; }
+.sw-hrow .gist,
+.sw-hgone .gist {
+  color: var(--text-dim); flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sw-hrow .utitle { color: var(--text); font-weight: 600; }
 
-/* 版本回收区：删版本是软删除（补审 2026-09-05），删掉的那些收在这一行里，
-   他自己点「拿回来」就能撤销 —— 视觉上要明显比现存版本弱，但**必须看得见** */
+/* 版本回收区：删版本是软删除（补审 2026-09-05），删掉的那些收在这里，
+   他自己点「拿回来」就能撤销 —— 视觉上要明显比现存版本弱，但**必须看得见**，
+   而且**每一条都要认得出**：光秃秃一排 v1 v2 v3 等于没有（2026-09-19 实测）。 */
 .sw-hbin {
-  display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
+  display: flex; flex-direction: column; gap: var(--s1);
   padding: var(--s2); border: 1px dashed var(--line); border-radius: var(--r1);
   color: var(--text-faint); font-size: var(--t-micro);
 }
-.sw-hgone { display: inline-flex; align-items: center; gap: var(--s1); }
+.sw-hbin-t { color: var(--text-dim); }
+.sw-hgone { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.sw-hgone .v { font-weight: 600; min-width: 3em; }
+.sw-hgone .at, .sw-hgone .len { white-space: nowrap; }
 
 /* 节点条：让「有稳定编号这回事」看得见，但一个字都不用他维护 */
 .sw-nodes { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }

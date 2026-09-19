@@ -16,12 +16,21 @@ import { esc } from "../util/dom.js";
 import { head } from "./shell.js";
 import * as w from "../workflow/storywork.js";
 import { describe as describeChain } from "../workflow/novelchain.js";
-import { workOf } from "./corews.js";
+import { versionGist, versionWhen, workOf } from "./corews.js";
 
 /** 这一章/集看得见的版本 / 回收区里的版本。软删除的记录仍留在数组里，
  *  所以每一个读它的地方都得自己过滤 —— 漏一处，删掉的版本就在那一处继续冒出来。 */
 const liveVersions = (unit) => w.visibleVersions(unit.finalized);
 const binVersions = (unit) => (unit.finalized || []).filter((r) => r && r.deleted);
+
+/** 一版章节正文的「认得出」三件套 —— 与三个 doc 页同一套规则（`corews.versionFace`），
+ *  只多一个标题：章有标题，而 doc 没有。原来这里只有 `v3` 和一串 ISO 时间，
+ *  跟他 2026-09-19 在故事核心撞上的是同一个缺陷。 */
+const unitFace = (r) =>
+  `<span class="at">${esc(versionWhen(r && r.at))}</span>` +
+  `<span class="len">${String((r && r.body) || "").length} 字</span>` +
+  ((r && r.title) ? `<span class="utitle">${esc(r.title)}</span>` : "") +
+  `<span class="gist">${esc(versionGist((r && r.body) || ""))}</span>`;
 
 const KIND_WORD = { novel: "章", episode: "集" };
 const KIND_LABEL = { novel: "小说创作", episode: "剧集创作" };
@@ -64,13 +73,16 @@ function unitBrief(story, kind, no, unit) {
   const core = (work.core || "").trim();
   const block = (title, body) =>
     body ? `<div class="db-b"><div class="t">${esc(title)}</div><div class="v">${esc(body)}</div></div>` : "";
+  // 列名只有**一个**来源（`PLAN_COLUMNS`）。这里原来硬编码着第二份，于是
+  // 2026-09-19 改「主要人物 → 登场人物」时，结构规划的表头和这块简报会各叫各的。
+  const colLabel = (key) => (w.PLAN_COLUMNS.find(([k]) => k === key) || [key, key])[1];
   return (
     `<div class="db-brief">` +
     `<div class="db-h">第 ${no} ${KIND_WORD[kind]} · 简要任务</div>` +
     (row
       ? block("Scene", row.scene) +
         block("这一单元要完成的", row.purpose) +
-        block("主要人物", row.characters) +
+        block(colLabel("characters"), row.characters) +
         block("人物目标", row.goal) +
         block("冲突", row.conflict) +
         block("关键转折", row.turn) +
@@ -258,7 +270,8 @@ export function renderDraftWs(ctx, ui) {
             .reverse()
             .map(
               (r) =>
-                `<div class="sw-hrow"><span class="v">v${r.v}</span><span class="at">${esc(r.at)}</span>` +
+                `<div class="sw-hrow"><span class="v">v${r.v}</span>` +
+                unitFace(r) +
                 `<button class="btn ghost sm" data-unit-restore="${esc(unit.id)}:${r.v}">恢复</button>` +
                 `<button class="btn ghost sm danger" data-unit-findel="${esc(unit.id)}:${r.v}">删除</button></div>`,
             )
@@ -266,14 +279,15 @@ export function renderDraftWs(ctx, ui) {
           // 章/集的回收区。**这条路在界面上必须走得通** —— 删版本改成软删除之后，
           // 只有 Agent 能撤销而他不能，正好把 REQ-006 判据 1 反过来（第三轮 P1）。
           (binVersions(unit).length
-            ? `<div class="sw-hbin">回收区：` +
+            ? `<div class="sw-hbin"><span class="sw-hbin-t">回收区 ${binVersions(unit).length}</span>` +
               binVersions(unit)
                 .slice()
                 .reverse()
                 .map(
                   (r) =>
-                    `<span class="sw-hgone">v${r.v}` +
-                    `<button class="btn ghost sm" data-unit-undel="${esc(unit.id)}:${r.v}">拿回来</button></span>`,
+                    `<div class="sw-hgone"><span class="v">v${r.v}</span>` +
+                    unitFace(r) +
+                    `<button class="btn ghost sm" data-unit-undel="${esc(unit.id)}:${r.v}">拿回来</button></div>`,
                 )
                 .join("") +
               `</div>`

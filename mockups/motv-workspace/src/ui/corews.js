@@ -51,6 +51,49 @@ export function binCount(records) {
   return (Array.isArray(records) ? records : []).filter((r) => r && r.deleted).length;
 }
 
+/** 这一版是什么 —— 取开头一句当摘要。
+ *
+ *  产品负责人 2026-09-19：「我这里写好的东西怎么没了」。**东西一个字都没丢**
+ *  （9 版全在，其中 6 版在回收区），丢的是「认得出哪版是哪版」的能力：那时一行
+ *  只有 `v6` 和一串 `2026-08-30T12:52:11.995Z`。**在那种列表里，删掉和找不到是
+ *  同一种体验** —— 他六秒内连删六版，正是因为每一版看起来都一样。
+ *
+ *  取到第一个句号/换行为止，再截到 `max` 字。空内容不返回空串而是说它空，
+ *  因为「这一版是空的」本身就是他需要知道的事。 */
+export function versionGist(body, max = 24) {
+  const text = String(body == null ? "" : body).trim();
+  if (!text) return "（空）";
+  const head = text.split(/[\n。？！?!]/)[0].trim() || text.trim();
+  return head.length > max ? `${head.slice(0, max)}…` : head;
+}
+
+/** 机器时间换成他读得懂的。
+ *
+ *  `2026-09-19T00:24:20.364Z` 对他不是信息。同一天说「今天 00:24」，昨天说
+ *  「昨天」，更早给月日 —— 他找的是「我昨晚写的那版」，不是一个 ISO 串。
+ *
+ *  `now` 可注入，这样这条规则测得了（否则测试要跟着真实时钟走）。 */
+export function versionWhen(at, now = new Date()) {
+  const t = new Date(String(at || ""));
+  if (Number.isNaN(t.getTime())) return String(at || "");
+  const hhmm = `${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
+  const dayOf = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((dayOf(now) - dayOf(t)) / 86400000);
+  if (days === 0) return `今天 ${hhmm}`;
+  if (days === 1) return `昨天 ${hhmm}`;
+  return `${t.getMonth() + 1}-${String(t.getDate()).padStart(2, "0")} ${hhmm}`;
+}
+
+/** 一版的「认得出」三件套：多久以前 · 多少字 · 开头写的什么。 */
+function versionFace(r) {
+  const body = String((r && r.body) || "");
+  return (
+    `<span class="at">${esc(versionWhen(r && r.at))}</span>` +
+    `<span class="len">${body.length} 字</span>` +
+    `<span class="gist">${esc(versionGist(body))}</span>`
+  );
+}
+
 /** 历史版本列表：可查看、可恢复、可手动删（他逐条点名的三件事）。 */
 export function historyList(kind, records) {
   const all = Array.isArray(records) ? records : [];
@@ -63,7 +106,7 @@ export function historyList(kind, records) {
     .map(
       (r) =>
         `<div class="sw-hrow"><span class="v">v${r.v}</span>` +
-        `<span class="at">${esc(r.at || "")}</span>` +
+        versionFace(r) +
         `<span class="note">${esc(r.note || "")}</span>` +
         `<button class="btn ghost sm" data-finview="${esc(kind)}:${r.v}">查看</button>` +
         `<button class="btn ghost sm" data-finrestore="${esc(kind)}:${r.v}">恢复</button>` +
@@ -72,15 +115,19 @@ export function historyList(kind, records) {
     .join("");
   // 回收区。删版本现在是软删除（补审 2026-09-05），**那条撤销的路必须他自己也走得了**
   // —— 只有 Agent 能撤销、他不能，正好把 REQ-006 判据 1 反过来了。
+  // 回收区里的**每一条也要认得出**。原来这里只有一排光秃秃的 `v1 v2 v3` ——
+  // 他 2026-09-19 要找回 08-30 写的那份详细稿时，六个号里没有一个能告诉他哪个是它
+  //（那次的实测：他以为东西没了，其实全在这一行后面）。
   const bin = gone.length
-    ? `<div class="sw-hbin">回收区：` +
+    ? `<div class="sw-hbin"><span class="sw-hbin-t">回收区 ${gone.length}</span>` +
       gone
         .slice()
         .reverse()
         .map(
           (r) =>
-            `<span class="sw-hgone">v${r.v}` +
-            `<button class="btn ghost sm" data-finundel="${esc(kind)}:${r.v}">拿回来</button></span>`,
+            `<div class="sw-hgone"><span class="v">v${r.v}</span>` +
+            versionFace(r) +
+            `<button class="btn ghost sm" data-finundel="${esc(kind)}:${r.v}">拿回来</button></div>`,
         )
         .join("") +
       `</div>`

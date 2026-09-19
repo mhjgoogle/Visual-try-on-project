@@ -3321,6 +3321,21 @@
       "verification": "PASS",
       "verification_ref": "pytest tests/studio tests/contract 968 passed/16 skipped; node --test mockups/motv-workspace/tests/*.test.mjs 2314 pass; ruff check . clean; lifecycle_check 0 finding; codex 5 rounds -> BLOCKING empty, criterion 1 + acceptance 1/2/4/5/6 PASS, 6/6 architecture PASS",
       "declared": "2026-09-14T13:32:04+00:00"
+    },
+    "TASK-158": {
+      "commits": [],
+      "paths": [
+        "mockups/motv-workspace/src/ui/corews.js",
+        "mockups/motv-workspace/src/ui/draftws.js",
+        "mockups/motv-workspace/src/ui/planws.js",
+        "mockups/motv-workspace/src/workflow/storywork.js",
+        "mockups/motv-workspace/styles/studio.css",
+        "mockups/motv-workspace/tests/storypages.test.mjs",
+        "mockups/motv-workspace/tests/versionface.test.mjs"
+      ],
+      "verification": "PASS",
+      "verification_ref": "node --test mockups/motv-workspace/tests/*.test.mjs 2394 pass/0 fail（merge main 后的新基底）；纯展示+文案，按 ADR-0081 不调审查",
+      "declared": "2026-09-19T07:48:33+00:00"
     }
   },
   "merge_gate": {

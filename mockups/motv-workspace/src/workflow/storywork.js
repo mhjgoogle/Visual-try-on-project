@@ -21,7 +21,9 @@ export const PLAN_COLUMNS = [
   ["unitNo", "Unit No."],
   ["scene", "Scene"],
   ["purpose", "Scene 目的"],
-  ["characters", "主要人物"],
+  // 产品负责人 2026-09-19 在结构规划表头上点名改的：「这里帮我改成登场人物」。
+  // 字段名 `characters` 不动 —— 改的是他看到的那个词，不是数据。
+  ["characters", "登场人物"],
   ["goal", "人物目标"],
   ["conflict", "冲突"],
   ["turn", "关键转折"],

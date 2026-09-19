@@ -5,6 +5,8 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import * as w from "../src/workflow/storywork.js";
 import * as st from "../src/workflow/storydoc.js";
@@ -57,10 +59,31 @@ test("表头就是他点名的九列，顺序一致", () => {
   const { ctx } = project();
   const html = renderPlanWs(ctx, {});
   const heads = [...html.matchAll(/<th>([^<]+)<\/th>/g)].map((m) => m[1]);
+  // 「主要人物」→「登场人物」：产品负责人 2026-09-19 在这个表头上点名改的
+  //（台账意见 #15/#16「这里帮我改成登场人物」）。**守的仍是这九列与它们的顺序**，
+  // 只是第四个词换了 —— 字段名 `characters` 一个字节没动。
   assert.deepEqual(heads, [
-    "Unit No.", "Scene", "Scene 目的", "主要人物", "人物目标",
+    "Unit No.", "Scene", "Scene 目的", "登场人物", "人物目标",
     "冲突", "关键转折", "Ending State", "关联故事大纲",
   ]);
+});
+
+test("列名只有一个来源 —— 正文简报里那块跟着表头走", () => {
+  // 这里原来硬编码着第二份「主要人物」。改表头时它不会跟着变，于是同一个概念
+  // 在结构规划叫「登场人物」、在正文简报叫「主要人物」（2026-09-19 实测的形状）。
+  assert.equal(
+    w.PLAN_COLUMNS.find(([k]) => k === "characters")[1],
+    "登场人物",
+    "PLAN_COLUMNS 是这个词的唯一来源",
+  );
+  const src = readFileSync(
+    fileURLToPath(new URL("../src/ui/draftws.js", import.meta.url)),
+    "utf-8",
+  );
+  assert.ok(
+    !src.includes('block("主要人物"') && !src.includes('block("登场人物"'),
+    "正文简报又硬编码了一份列名 —— 它必须从 PLAN_COLUMNS 取",
+  );
 });
 
 test("「关联故事大纲」引用的是大纲自动生成的节点；断掉的引用会被说出来", () => {
