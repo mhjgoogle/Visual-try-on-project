@@ -3379,7 +3379,24 @@
       "declared": "2026-09-19T07:53:02+00:00"
     },
     "TASK-159": {
-      "commits": [],
+      "commits": [
+        {
+          "hash": "dec4528d635614b0d8ad0b141ad3903ef87f8f18",
+          "subject": "fix(TASK-159): 每一页第一行先说「这一页现在装着什么」",
+          "time": "2026-09-19T09:54:26+00:00",
+          "branch": "change/TASK-109-three-pane",
+          "pushed": false,
+          "files": [
+            "docs/auto-push/changes/three-pane.json",
+            "mockups/motv-workspace/src/ui/corews.js",
+            "mockups/motv-workspace/src/ui/draftws.js",
+            "mockups/motv-workspace/src/ui/planws.js",
+            "mockups/motv-workspace/styles/studio.css",
+            "mockups/motv-workspace/tests/versionface.test.mjs"
+          ],
+          "scope_violation": null
+        }
+      ],
       "paths": [
         "mockups/motv-workspace/src/ui/corews.js",
         "mockups/motv-workspace/src/ui/draftws.js",
